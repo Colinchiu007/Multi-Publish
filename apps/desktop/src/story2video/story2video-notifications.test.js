@@ -117,6 +117,21 @@ describe('Story2Video notification messages', () => {
       messageParams: { kindLabel: 'background music' },
     }, 'en')
     expect(enUnreadable.message).toContain('background music')
+
+    const zhPath = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_PATH_UNRESOLVED,
+      messageParams: { kindLabel: '背景音乐' },
+    })
+    expect(zhPath.message).toContain('背景音乐')
+    expect(zhPath.message).toContain('本地路径')
+    expect(zhPath.message).toContain('重新选择文件')
+
+    const enPath = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_PATH_UNRESOLVED,
+      messageParams: { kindLabel: 'background music' },
+    }, 'en')
+    expect(enPath.message).toContain('background music')
+    expect(enPath.message).toContain('local path')
   })
 
   it('服务商返回音色无效错误时映射为 VOICE_INVALID 友好提示（含原因与建议）', () => {

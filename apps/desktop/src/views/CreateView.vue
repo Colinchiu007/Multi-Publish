@@ -431,10 +431,14 @@
                 </div>
                 <p v-if="s2vVoiceCloneError" class="inline-error">{{ s2vVoiceCloneError }}</p>
                 <div v-if="s2vVoiceClones.length > 0" class="voice-clone-list">
-                  <div v-for="voice in s2vVoiceClones" :key="voice.id" class="voice-clone-row">
-                    <span>{{ voice.name }}<span v-if="voice.invalid" class="voice-clone-invalid-badge">已失效，请重新克隆</span></span>
+                  <div v-for="voice in s2vVoiceClones" :key="voice.id" class="voice-clone-row" :class="{ 'voice-clone-row-default': isS2VDefaultVoice(voice.id) }">
+                    <span>
+                      {{ voice.name }}
+                      <span v-if="voice.invalid" class="voice-clone-invalid-badge">已失效，请重新克隆</span>
+                      <span v-else-if="isS2VDefaultVoice(voice.id)" class="voice-clone-default-badge">默认</span>
+                    </span>
                     <div class="voice-clone-actions">
-                      <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading || voice.invalid" @click="selectS2VVoice(voice.id)">设为默认</button>
+                      <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading || voice.invalid || isS2VDefaultVoice(voice.id)" @click="selectS2VVoice(voice.id)">{{ isS2VDefaultVoice(voice.id) ? '已设为默认' : '设为默认' }}</button>
                       <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
                     </div>
                   </div>
@@ -1831,6 +1835,18 @@ export default {
       if (!id || !name) return null
       return { id, name, invalid: voice.invalid === true }
     },
+    isS2VDefaultVoice(voiceId) {
+      return typeof voiceId === 'string' && voiceId.length > 0 && this.s2vConfig.voiceId === voiceId
+    },
+    story2videoKindLabel(kind) {
+      const labels = {
+        image: '图片',
+        audio: '旁白音频',
+        bgm: '背景音乐',
+        video: '视频素材',
+      }
+      return labels[kind] || ''
+    },
     toS2VVoiceCloneRequirements(requirements) {
       if (!requirements || typeof requirements !== 'object' || Array.isArray(requirements)) return null
       const toFiniteNumber = (value) => Number.isFinite(value) && value >= 0 ? value : null
@@ -2064,11 +2080,18 @@ export default {
         this.s2vVoiceCatalogError = '所选音色不在当前目录中。'
         return false
       }
+      // 显式选择（下拉或克隆列表「设为默认」）先同步下拉框与配置：
+      // 1) 让 isCurrentS2VVoiceSelectionRequest 并发守卫命中本次请求（否则结果被静默丢弃）；
+      // 2) 让下拉框与克隆行「默认」徽标立即反映本次选择。
+      const previousVoiceId = this.s2vConfig.voiceId
+      this.s2vConfig.voiceId = normalizedVoiceId
 
       const requestId = ++this.s2vVoiceSelectionRequestId
       const result = await selectTtsVoice(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId }))
       if (!this.isCurrentS2VVoiceSelectionRequest(requestId, context, normalizedVoiceId)) return false
       if (result?.code !== 0) {
+        // 保存失败：回滚下拉与徽标，避免显示一个从未持久化的「默认」音色
+        this.s2vConfig.voiceId = previousVoiceId
         this.s2vVoiceCatalogError = result?.message || '音色选择保存失败。'
         return false
       }
@@ -2645,36 +2668,42 @@ export default {
       }
       return true
     },
-    resolveMediaImportFailure(result) {
-      // 主进程返回的具体失败原因 → 映射为可读的细分提示；无法识别时回退通用 MEDIA_INVALID
+    resolveMediaImportFailure(result, kindLabel = '') {
+      // 主进程返回的具体失败原因 → 映射为可读的细分提示（带类别宾语）；无法识别时回退通用 MEDIA_INVALID
       const message = String(result?.message || result?.error || '').trim()
+      const label = typeof kindLabel === 'string' ? kindLabel : ''
       if (/不支持的媒体格式|格式不支持|extension|format/i.test(message)) {
         return {
           messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID,
-          messageParams: { extension: '', kindLabel: '', extensions: '' },
+          messageParams: { extension: '', kindLabel: label, extensions: '' },
         }
       }
       if (/超过大小上限|大小超限|超出.*大小|size|太大/i.test(message)) {
         return {
           messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_SIZE_EXCEEDED,
-          messageParams: { kindLabel: '', maxMb: '', actualMb: '' },
+          messageParams: { kindLabel: label, maxMb: '', actualMb: '' },
         }
       }
-      if (/不存在|不可读|无法读取|被占用|corrupt|locked/i.test(message)) {
-        return { messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '' } }
+      if (/无法读取媒体文件路径|无法获取.*路径|file path/i.test(message)) {
+        // preload 拿不到 File 本地路径（跨 contextBridge 后路径丢失等）→ 引导重新选择，而不是暗示文件损坏
+        return { messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_PATH_UNRESOLVED, messageParams: { kindLabel: label } }
       }
-      return { messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID }
+      if (/不存在|不可读|无法读取|被占用|corrupt|locked/i.test(message)) {
+        return { messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: label } }
+      }
+      return { messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_INVALID, messageParams: { kindLabel: label } }
     },
     async importStory2VideoMedia(file, kind) {
       if (!file || !this.validateStory2VideoFile(file, kind)) return null
+      const kindLabel = this.story2videoKindLabel(kind)
       try {
         const result = await story2videoImportMedia(file, kind)
         if (result?.code === 0 && result.data?.path) return result.data
-        // 主进程拒绝时把具体原因透传为细分提示，而不是笼统的「所选文件不符合要求」
-        this.showStory2VideoErrorDialog(this.resolveMediaImportFailure(result))
+        // 主进程拒绝时把具体原因透传为细分提示（带类别宾语），而不是笼统的「所选文件不符合要求」
+        this.showStory2VideoErrorDialog(this.resolveMediaImportFailure(result, kindLabel))
         return null
       } catch (_) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '' } })
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel } })
         return null
       }
     },
@@ -3108,8 +3137,11 @@ export default {
 .voice-clone-actions .btn-secondary { margin-top: 0; }
 .voice-clone-list { display: grid; gap: 8px; }
 .voice-clone-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.voice-clone-row-default { border-color: var(--primary, #2563eb); background: color-mix(in srgb, var(--primary, #2563eb) 8%, transparent); }
 .voice-clone-invalid-badge { margin-left: 6px; font-size: 11px; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 [data-theme="dark"] .voice-clone-invalid-badge { color: #fbbf24; background: #3a2a10; border-color: #5b4a1e; }
+.voice-clone-default-badge { margin-left: 6px; font-size: 11px; color: #1d4ed8; background: #dbeafe; border: 1px solid #bfdbfe; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+[data-theme="dark"] .voice-clone-default-badge { color: #93c5fd; background: #172554; border-color: #1e3a8a; }
 
 /* 操作栏 */
 .action-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; }

@@ -1139,6 +1139,43 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 提示文字 | 窗口隐藏时主进程日志「运行中有流水线任务，窗口隐藏到托盘继续后台执行」；前端 running 卡片按钮「继续生成」/恢复中「恢复中...」。 |
 | 验收标准 | ① 启动流水线后强杀进程重启，历史出现「运行中」任务且点击可断点续跑；② 关闭窗口（有运行任务）进程不退出、任务继续，托盘可恢复窗口；③ 无运行任务关闭窗口正常退出；④ 完成后重启历史无「运行中」残留；⑤ 失败/取消语义不变。 |
 
+#### 7.1.22 本地克隆音色删除/设为默认与媒体导入反馈合同（2026-08-09）
+
+**背景**：图片轮播流水线 3 个体验缺陷：① 删除本地克隆音色（含 7.1.16 前存量非法 id「01」）恒弹「音色克隆服务暂时不可用，请稍后重试」——`_deleteCloneLocked` 无条件要求远端 `deleteVoice`，而 MiniMax adapter 未实现该 API（官方 clone API 无删除端点），删除本应是**本地管理**操作（移除 registry 记录 + 本地样本 + 偏好）；② 克隆音色「设为默认」点击无反应（前端并发守卫静默丢弃结果）且无默认状态显示；③ 选择背景音乐本地音频弹「无法读取所选文件，请确认文件未被占用或已损坏后重试」——失败原因被折叠为笼统文案且未指明是背景音乐文件。
+
+##### A. 本地克隆音色删除合同（本地管理语义）
+
+| 合同 | 要求 |
+|------|------|
+| 删除语义 | 删除本地克隆音色 = 移除本地 registry 记录 + 清理 owner-scoped 本地样本目录 + 清理指向该克隆的音色偏好；**不得**因远端删除 API 缺失而失败。 |
+| 远端删除可选 | 仅当 adapter 支持 `deleteVoice`（如 ElevenLabs `DELETE /v1/voices/{id}`）时先执行远端删除，沿用 PENDING→REMOTE_DELETED 状态机；远端失败仍返回 `VOICE_CLONE_PROVIDER_UNAVAILABLE`（可重试）。 |
+| 能力判定 | `ModelProviderManager.supportsAdapterMethod(providerId, method)`：与 `callAdapter` 使用相同 provider 数据与 adapter 缓存（避免缓存污染），不校验 API Key 有效性（能力是静态契约），任何异常返回 false 不抛异常。 |
+| 兼容回退 | 调用方无 `supportsAdapterMethod` 时回退旧行为（尝试远端删除），保证向后兼容。 |
+| 本地失败语义 | 本地 registry 写入 / 样本清理 / 偏好清理任一失败：返回 `VOICE_CLONE_STORE_UNAVAILABLE` / `VOICE_CLONE_STORAGE_UNAVAILABLE`，不静默成功。 |
+| 提示文字 | 删除成功无额外提示（列表项移除即反馈）；远端不支持时**不得**提示「音色克隆服务暂时不可用」。 |
+
+##### B. 克隆音色设为默认合同（交互与显示）
+
+| 合同 | 要求 |
+|------|------|
+| 点击流程 | 克隆列表「设为默认」→ 先同步 `s2vConfig.voiceId`（下拉框立即反映）→ IPC `tts-voice:select` 保存偏好 → 成功回写 `s2vPersistedVoiceId`；并发守卫不再静默丢弃（旧请求被新请求覆盖时仍丢弃，防竞态）。 |
+| 默认状态显示 | 克隆行按 `voice.id === s2vConfig.voiceId` 显示「默认」徽标（蓝底）+ 行高亮；当前默认克隆的按钮文案变「已设为默认」且禁用（重复选择无意义）。 |
+| 无效克隆 | `invalid: true`（存量非法 id）显示「已失效，请重新克隆」徽标，「设为默认」按钮禁用；删除仍可用（本地清理语义）。 |
+| 主进程能力 | 有效克隆在目录响应 `voices` 中（`_buildCatalogResponse` 合并 USER_CLONE），`selectVoice` 校验通过即可保存偏好；无效克隆进 `invalidVoices` 不可选。 |
+| 数据校验 | `voice.id` 必须存在于 `s2vVoiceOptions`（目录 + 克隆合并去重），不存在返回「所选音色不在当前目录中」；无效克隆按钮禁用不触发调用。 |
+
+##### C. 媒体导入失败反馈细分合同
+
+| 合同 | 要求 |
+|------|------|
+| 类别宾语 | `resolveMediaImportFailure(result, kindLabel)` 全部细分分支携带 `kindLabel`（图片/旁白音频/背景音乐/视频素材，`story2videoKindLabel(kind)` 统一映射）；主进程拒绝与 IPC 异常两条路径均透传。 |
+| 路径解析失败 | preload `webUtils.getPathForFile` 拿不到 File 本地路径（返回「无法读取媒体文件路径」）→ `MEDIA_PATH_UNRESOLVED`（`story2video.media_path_unresolved`）：文案「无法获取所选{kindLabel}文件的本地路径，请重新选择文件后再试；若持续出现请重启应用。」——不暗示文件损坏。 |
+| 文件不可读/被占用 | 主进程「媒体文件不存在或不可读」「媒体文件被占用，请关闭占用程序后重试」及 EBUSY/EPERM/EACCES 原始错误 → `MEDIA_UNREADABLE`：「无法读取所选{kindLabel}文件，请确认文件未被占用或已损坏后重试。」 |
+| 有界重试 | `importUserSelectedMedia` 复制文件对 EBUSY/EPERM/EACCES 做 ≤3 次短退避（150ms×n）重试；持续占用回传可读中文原因；非占用类错误原样抛出，禁止无限重试。 |
+| 无法识别 | 未匹配任何原因回退 `MEDIA_INVALID`（不泄露内部错误文本）。 |
+| 提示文字（中/英） | `MEDIA_PATH_UNRESOLVED`：zh「无法获取所选{kindLabel}文件的本地路径，请重新选择文件后再试；若持续出现请重启应用。」en「Could not resolve the local path of the selected {kindLabel} file. Choose it again; if this keeps happening, restart the app.」 |
+| 验收标准 | ① MiniMax 本地克隆「01」点删除 → 列表移除、无「服务不可用」提示、偏好清理、样本目录删除；② 有效克隆点「设为默认」→ 下拉同步、出现「默认」徽标、按钮变「已设为默认」；③ 选择正常背景音乐 mp3 → 成功显示路径；文件被占用/损坏 → 弹「无法读取所选背景音乐文件…」；无法解析路径 → 弹「无法获取所选背景音乐文件的本地路径…」；④ 既有 7.1.16 无效克隆「删除仍可用」语义保持。 |
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```

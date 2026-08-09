@@ -6080,3 +6080,25 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **触发去重**：`on` 去掉 `push: branches-ignore: [main]`（与 pull_request 同 head 双跑），保留 pull_request + workflow_dispatch → 每 head CI 分钟约减半。
 - **契约测试耦合教训**：workflow 结构被多层契约测试锁定——.github/scripts/workflow-contract.test.js（Gate 4/7/8/9 步骤名+邻接注释正则）与 apps/desktop/tests/gui-ci-exit-contract.test.js（jobs.gate.steps、Gate 9 退出码模式）。拆分时必须同步：邻接锚点从 `# --- Gate N` 注释改为同 job 的 Upload 步骤；单 job 引用改跨 job 汇总（Object.values(jobs).flatMap）。
 - **取舍**：并行总分钟略升（6×npm ci + 各 gate ≈30min vs 25min），但墙钟减半 + 失败隔离（单 gate 失败不阻断其余）；触发去重后每 head 净降 ~40%。
+## 图片轮播 3 个体验缺陷复盘：本地克隆音色删除/设为默认/背景音乐读取 (2026-08-09)
+
+- **需求**：① 删除本地克隆音色（含 7.1.16 前存量非法 id「01」）弹「音色克隆服务暂时不可用，请稍后重试」；② 克隆音色「设为默认」无反应且无默认状态显示；③ 选择背景音乐本地音频弹「无法读取所选文件，请确认文件未被占用或已损坏后重试」。
+
+### 根因链（Bug SOP 第 1 步）
+- **Bug①（删除）**：`tts-voice-clone-service._deleteCloneLocked` 无条件执行远端 `deleteVoice`：`callAdapter` 对「方法不支持」**不抛异常而是返回 `{code:-1, message:'...not supported...'}`**，随后 `_isDeleteSuccess` 为 false → 折叠为 `VOICE_CLONE_PROVIDER_UNAVAILABLE`。MiniMax 官方 clone API（POST /v1/voice_clone）无删除端点，adapter 只实现 `cloneVoice`（`supports('deleteVoice')===false`）→ 删除恒失败。删除语义本应是**本地管理**（registry 记录 + 本地样本 + 偏好），PRD 7.1.16 也要求「删除仍可用，便于清理旧记录」。
+- **Bug②（设为默认）**：克隆列表「设为默认」`@click="selectS2VVoice(voice.id)"` 未先同步 `s2vConfig.voiceId`，而 `selectS2VVoice` 的并发守卫 `isCurrentS2VVoiceSelectionRequest` 要求 `s2vConfig.voiceId === voiceId` → 守卫 false → IPC 结果被**静默丢弃**（无反馈）；即使成功路径也不回写 `s2vConfig.voiceId` → 下拉框不同步；克隆行无「默认」标识。
+- **Bug③（BGM 读取）**：失败原因被 `resolveMediaImportFailure` 统一折叠为 `MEDIA_UNREADABLE` 且 `kindLabel:''`（文案无宾语）；preload 路径解析失败（`无法读取媒体文件路径`）与主进程文件不可读/被占用（`媒体文件不存在或不可读` / Windows EBUSY 原始错误）未区分，用户得不到可操作建议。
+
+### 逃逸链分析（Bug SOP 第 2 步）
+- 单元测试层：删除用例只 mock「支持 deleteVoice」路径（ElevenLabs），无「adapter 不支持」用例；设为默认无前端用例覆盖「按钮触发 → 守卫」链路；媒体导入测试断言了文案映射但未断言 `kindLabel` 宾语与路径解析分支。
+- 集成/审查层：7.1.16 只规范了 voice_id 合规与失效回退，未把「删除=本地管理」落成代码语义；「callAdapter 不抛异常返回 code:-1」的契约没有在克隆删除路径被审查拦截。
+
+### 修复与回归保护（Bug SOP 第 4 步）
+- **Bug①**：`ModelProviderManager.supportsAdapterMethod(providerId, method)`（与 callAdapter 同源 provider/adapter 缓存、不校验 API Key、异常返回 false）；`_deleteCloneLocked` 仅当支持远端删除时执行 `deleteVoice`，否则纯本地删除。回归：4 个新用例（不支持→本地删除成功且不调 deleteVoice / 支持→先远端 / 支持但远端失败→仍 PROVIDER_UNAVAILABLE / 无能力查询→回退旧行为）。
+- **Bug②**：`selectS2VVoice` 显式选择先同步 `s2vConfig.voiceId`；克隆行「默认」徽标 + 高亮 + 「已设为默认」禁用态。回归：CreateView 2 个新用例（同步+IPC+徽标 / 无效克隆按钮禁用）。
+- **Bug③**：新增 `MEDIA_PATH_UNRESOLVED`（路径解析失败细分，zh/en）；`resolveMediaImportFailure` 透传 `kindLabel`；`importUserSelectedMedia` 复制加 Windows 占用有界重试（EBUSY/EPERM/EACCES ≤3 次、短退避、占用回传可读中文）。回归：paths 3 用例 + CreateView 2 用例。
+
+### 系统性漏洞与预防（Bug SOP 第 3/5 步）
+- **漏洞 1**：`callAdapter` 的「不支持」「未配置 Key」「provider 错误」全部折叠为 `code:-1`，调用方若只判 `code===0` 会丢失原因分类。预防：涉及能力分支的服务（克隆删除等）用显式能力查询 API，不靠 message 嗅探。
+- **漏洞 2**：前端「按钮 → 异步 IPC → 并发守卫」链路中，守卫条件与调用方是否先同步状态脱节会导致静默吞结果。预防：任何「显式选择型」IPC 前必须先同步本地状态（下拉/单选），守卫只用于防过时响应，不用于决定「是否应用本次结果」。
+- **漏洞 3**：失败提示折叠为笼统文案且无宾语。预防：`resolveMediaImportFailure` 全部分支带 `kindLabel`；路径解析失败与文件损坏分开给建议。

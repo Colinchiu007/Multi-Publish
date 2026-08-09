@@ -693,6 +693,111 @@ describe("TtsVoiceCloneService", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("adapter 不支持 deleteVoice（如 MiniMax 无删除 API）时删除为纯本地管理并成功", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await cloneFromPaths(service, [samplePath], "MiniMax Clone");
+    const key = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+    expect(store.getValue("user-a", key).voices).toHaveLength(1);
+
+    manager.supportsAdapterMethod = vi.fn(async () => false);
+    manager.callAdapter.mockClear();
+    await expect(
+      service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-clone-a" }),
+    ).resolves.toMatchObject({ code: 0, data: { voiceId: "voice-clone-a" } });
+    expect(manager.supportsAdapterMethod).toHaveBeenCalledWith(PROVIDER_ID, "deleteVoice");
+    // 不支持远端删除：绝不调用 deleteVoice，也不返回「服务不可用」
+    expect(manager.callAdapter).not.toHaveBeenCalledWith(PROVIDER_ID, "deleteVoice", expect.anything());
+    // 本地记录与样本已清理
+    expect(store.getValue("user-a", key).voices).toHaveLength(0);
+    await expect(
+      nodeFs.promises.stat(cloneSampleDirectory("user-a", "clone-stage-a")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("adapter 支持 deleteVoice 时删除仍先执行远端删除", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await cloneFromPaths(service, [samplePath], "Eleven Clone");
+    manager.supportsAdapterMethod = vi.fn(async () => true);
+    manager.callAdapter.mockClear();
+    manager.callAdapter.mockResolvedValueOnce({ code: 0, data: null });
+
+    await expect(
+      service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-clone-a" }),
+    ).resolves.toMatchObject({ code: 0, data: { voiceId: "voice-clone-a" } });
+    expect(manager.supportsAdapterMethod).toHaveBeenCalledWith(PROVIDER_ID, "deleteVoice");
+    expect(manager.callAdapter).toHaveBeenLastCalledWith(PROVIDER_ID, "deleteVoice", "voice-clone-a");
+  });
+
+  it("adapter 支持 deleteVoice 但远端删除失败时仍返回 PROVIDER_UNAVAILABLE 且保留本地记录", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await cloneFromPaths(service, [samplePath], "Eleven Clone");
+    manager.supportsAdapterMethod = vi.fn(async () => true);
+    manager.callAdapter.mockClear();
+    manager.callAdapter.mockResolvedValueOnce({ code: -1, message: "provider unavailable" });
+
+    await expect(
+      service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-clone-a" }),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_PROVIDER_UNAVAILABLE" });
+    const key = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+    expect(store.getValue("user-a", key).voices).toHaveLength(1);
+  });
+
+  it("缺少 supportsAdapterMethod 能力查询时回退旧行为（尝试远端删除）", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await cloneFromPaths(service, [samplePath], "Legacy");
+    // manager 默认不含 supportsAdapterMethod → 回退远端删除
+    manager.callAdapter.mockClear();
+    manager.callAdapter.mockResolvedValueOnce({ code: 0, data: null });
+    await expect(
+      service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-clone-a" }),
+    ).resolves.toMatchObject({ code: 0, data: { voiceId: "voice-clone-a" } });
+    expect(manager.callAdapter).toHaveBeenLastCalledWith(PROVIDER_ID, "deleteVoice", "voice-clone-a");
+  });
+
+  it("能力查询返回 null（探测失败/无法判定）时回退尝试远端删除，不静默降级为纯本地删除", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await cloneFromPaths(service, [samplePath], "Unknown");
+    manager.supportsAdapterMethod = vi.fn(async () => null);
+    manager.callAdapter.mockClear();
+    manager.callAdapter.mockResolvedValueOnce({ code: -1, message: "provider unavailable" });
+
+    await expect(
+      service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-clone-a" }),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_PROVIDER_UNAVAILABLE" });
+    expect(manager.callAdapter).toHaveBeenLastCalledWith(PROVIDER_ID, "deleteVoice", "voice-clone-a");
+    // 远端删除失败 → 本地记录保留（不静默删除）
+    const key = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+    expect(store.getValue("user-a", key).voices).toHaveLength(1);
+  });
+
+  it("adapter 不支持 deleteVoice 且本地样本清理失败时返回 STORAGE_UNAVAILABLE 并保留记录", async () => {
+    const samplePath = path.join(sandboxPath, "voice.wav");
+    await nodeFs.promises.writeFile(samplePath, "audio");
+    await cloneFromPaths(service, [samplePath], "LocalOnly");
+    manager.supportsAdapterMethod = vi.fn(async () => false);
+    manager.callAdapter.mockClear();
+    // 让样本清理失败：直接替换 fs.promises.rm 抛错（cleanup 使用 nodeFs.promises.rm）
+    const originalRm = nodeFs.promises.rm.bind(nodeFs.promises);
+    nodeFs.promises.rm = vi.fn(async () => {
+      throw new Error("rm failed");
+    });
+    try {
+      await expect(
+        service.deleteClone({ providerId: PROVIDER_ID, model: MODEL, voiceId: "voice-clone-a" }),
+      ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_STORAGE_UNAVAILABLE" });
+      const key = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+      expect(store.getValue("user-a", key).voices).toHaveLength(1);
+    } finally {
+      nodeFs.promises.rm = originalRm;
+    }
+    expect(manager.callAdapter).not.toHaveBeenCalledWith(PROVIDER_ID, "deleteVoice", expect.anything());
+  });
+
   it("删除当前选中的克隆会清除持久化偏好", async () => {
     const samplePath = path.join(sandboxPath, "voice.wav");
     await nodeFs.promises.writeFile(samplePath, "audio");

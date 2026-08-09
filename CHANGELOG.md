@@ -1,3 +1,11 @@
+## [未发布] 修复：本地克隆音色删除/设为默认与背景音乐读取提示（2026-08-09）
+
+- 修复：删除本地克隆音色（含 7.1.16 前存量非法 id「01」）不再强制远端 deleteVoice——adapter 不支持（如 MiniMax 官方 clone API 无删除端点）时删除为纯本地管理（registry 记录 + 本地样本 + 偏好清理），不再误报「音色克隆服务暂时不可用」；支持远端删除（ElevenLabs）的 provider 保持先远端删除语义。
+- 新增：ModelProviderManager.supportsAdapterMethod(providerId, method) 能力查询（与 callAdapter 同源、不依赖 API Key、异常返回 false），供本地管理类操作判定远端能力。
+- 修复：克隆音色「设为默认」点击无反应——selectS2VVoice 显式选择先同步 s2vConfig.voiceId（下拉即时反映、并发守卫不再静默丢弃），成功后回写持久化偏好；克隆列表对当前默认音色显示「默认」徽标 + 行高亮 + 「已设为默认」禁用态；无效克隆保持「已失效，请重新克隆」徽标与禁用。
+- 修复：选择背景音乐等本地音频弹笼统「无法读取所选文件」——resolveMediaImportFailure 全部细分分支透传类别宾语（背景音乐/旁白音频/视频素材/图片）；新增 MEDIA_PATH_UNRESOLVED（preload 拿不到 File 本地路径 → 引导重新选择/重启应用），与「文件不可读/被占用」区分；主进程 importUserSelectedMedia 复制文件对 Windows 占用（EBUSY/EPERM/EACCES）做 ≤3 次短退避重试并回传可读中文原因。
+- 回归：tts-voice-clone-service +4（本地删除/远端删除/远端失败/能力回退）、model-provider-manager +4（能力查询）、story2video-paths +3（有界重试/占用文案/非占用抛出）、CreateView +4（设为默认/无效禁用/宾语透传/BGM 细分提示）；相关套件与全量 vitest 通过。
+- 文档：01-docs/PRD.md 7.1.22（本地克隆音色删除/设为默认/媒体导入反馈细分合同，含数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字中英/验收标准）、01-docs/learnings.md 复盘（根因/逃逸链/回归保护/系统性漏洞）。
 ## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
 
 ### 功能

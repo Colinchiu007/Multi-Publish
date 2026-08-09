@@ -153,3 +153,66 @@ describe('Story2Video 输入路径边界', () => {
     }
   })
 })
+
+describe('copyImportedMedia（Windows 占用有界重试）', () => {
+  const { copyImportedMedia } = require('./story2video-paths')
+  let root
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-copy-'))
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  it('占用类错误（EBUSY/EPERM/EACCES）做有界重试后成功', () => {
+    const source = path.join(root, 'src.mp3')
+    const dest = path.join(root, 'dst.mp3')
+    fs.writeFileSync(source, 'audio')
+    const originalCopy = fs.copyFileSync.bind(fs)
+    const spy = vi.spyOn(fs, 'copyFileSync')
+    let calls = 0
+    spy.mockImplementation((src, d, flags) => {
+      calls += 1
+      if (calls <= 2) {
+        const err = new Error('resource busy')
+        err.code = calls === 1 ? 'EBUSY' : 'EPERM'
+        throw err
+      }
+      return originalCopy(src, d, flags)
+    })
+    expect(() => copyImportedMedia(source, dest)).not.toThrow()
+    expect(calls).toBe(3)
+    expect(fs.readFileSync(dest, 'utf8')).toBe('audio')
+  })
+
+  it('持续占用回传可读中文原因「媒体文件被占用，请关闭占用程序后重试」', () => {
+    const source = path.join(root, 'src.mp3')
+    const dest = path.join(root, 'dst.mp3')
+    fs.writeFileSync(source, 'audio')
+    const spy = vi.spyOn(fs, 'copyFileSync')
+    spy.mockImplementation(() => {
+      const err = new Error('resource busy or locked')
+      err.code = 'EBUSY'
+      throw err
+    })
+    expect(() => copyImportedMedia(source, dest)).toThrow('媒体文件被占用，请关闭占用程序后重试')
+    expect(spy).toHaveBeenCalledTimes(3)
+  })
+
+  it('非占用类错误原样抛出（不重试不吞错）', () => {
+    const source = path.join(root, 'src.mp3')
+    const dest = path.join(root, 'dst.mp3')
+    fs.writeFileSync(source, 'audio')
+    const spy = vi.spyOn(fs, 'copyFileSync')
+    spy.mockImplementation(() => {
+      const err = new Error('ENOENT: no such file')
+      err.code = 'ENOENT'
+      throw err
+    })
+    expect(() => copyImportedMedia(source, dest)).toThrow(/ENOENT/)
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+})

@@ -2251,4 +2251,110 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     w.unmount();
     mocks.storeGetSetting.mockReset();
   });
+
+  describe("克隆音色设为默认与媒体导入细分提示（2026-08-09）", () => {
+    it("克隆音色「设为默认」同步下拉、保存偏好并显示默认徽标", async () => {
+      const ttsMocks = await import("@/api/tts-voice-catalog");
+      const selectSpy = vi.fn().mockResolvedValue({
+        code: 0,
+        data: { providerId: "minimax-tts", model: "speech-2.8-turbo", selectedVoiceId: "MiniMaxVoice_abc123", voices: [] },
+      });
+      ttsMocks.selectTtsVoice.mockImplementation(selectSpy);
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      await nextTick();
+      // 让 mounted 触发的异步加载先收敛，避免后续 resetS2VVoiceData 覆盖测试状态
+      await w.vm.loadS2VProviders();
+      await nextTick();
+      w.vm.s2vConfig.voiceProvider = "minimax-tts";
+      w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+      w.vm.s2vVoiceCatalog = [];
+      w.vm.s2vVoiceClones = [{ id: "MiniMaxVoice_abc123", name: "克隆01" }, { id: "other-voice", name: "克隆02" }];
+      w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
+      w.vm.s2vCloneOpen = true;
+      await nextTick();
+
+      await w.vm.selectS2VVoice("MiniMaxVoice_abc123");
+
+      // 下拉/配置已同步（并发守卫不再静默丢弃），偏好已保存
+      expect(w.vm.s2vConfig.voiceId).toBe("MiniMaxVoice_abc123");
+      expect(w.vm.s2vPersistedVoiceId).toBe("MiniMaxVoice_abc123");
+      expect(selectSpy).toHaveBeenCalledWith(expect.objectContaining({ voiceId: "MiniMaxVoice_abc123" }));
+      // 默认徽标与按钮文案
+      expect(w.vm.isS2VDefaultVoice("MiniMaxVoice_abc123")).toBe(true);
+      expect(w.vm.isS2VDefaultVoice("other-voice")).toBe(false);
+      const list = w.find(".voice-clone-list");
+      expect(list.exists()).toBe(true);
+      expect(list.text()).toContain("默认");
+      expect(list.text()).toContain("已设为默认");
+      w.unmount();
+    });
+
+    it("设为默认保存失败时回滚下拉与徽标，不显示未持久化的默认音色", async () => {
+      const ttsMocks = await import("@/api/tts-voice-catalog");
+      ttsMocks.selectTtsVoice.mockResolvedValue({ code: -1, message: "VOICE_PREFERENCE_STORE_UNAVAILABLE" });
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      await nextTick();
+      await w.vm.loadS2VProviders();
+      await nextTick();
+      w.vm.s2vConfig.voiceProvider = "minimax-tts";
+      w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+      w.vm.s2vVoiceCatalog = [];
+      w.vm.s2vVoiceClones = [{ id: "MiniMaxVoice_abc123", name: "克隆01" }];
+      w.vm.s2vConfig.voiceId = "other-voice"; // 当前默认是 other
+      await nextTick();
+
+      const ok = await w.vm.selectS2VVoice("MiniMaxVoice_abc123");
+
+      expect(ok).toBe(false);
+      // 失败后回滚：不把未持久化的克隆显示成默认
+      expect(w.vm.s2vConfig.voiceId).toBe("other-voice");
+      expect(w.vm.isS2VDefaultVoice("MiniMaxVoice_abc123")).toBe(false);
+      expect(w.vm.s2vVoiceCatalogError).toContain("VOICE_PREFERENCE_STORE_UNAVAILABLE");
+      w.unmount();
+    });
+
+    it("无效克隆「设为默认」按钮禁用并显示已失效徽标", async () => {
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      await nextTick();
+      await w.vm.loadS2VProviders();
+      await nextTick();
+      w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
+      w.vm.s2vCloneOpen = true;
+      w.vm.s2vVoiceClones = [{ id: "01", name: "克隆01", invalid: true }];
+      await nextTick();
+
+      const list = w.find(".voice-clone-list");
+      expect(list.text()).toContain("已失效，请重新克隆");
+      const setDefault = list.findAll("button").find(b => b.text().includes("设为默认"));
+      expect(setDefault).toBeTruthy();
+      expect(setDefault.attributes("disabled")).toBeDefined();
+      w.unmount();
+    });
+
+    it("resolveMediaImportFailure 透传类别宾语并区分路径解析失败", () => {
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      expect(w.vm.resolveMediaImportFailure({ message: "媒体文件不存在或不可读" }, "背景音乐").messageKey).toBe("story2video.media_unreadable");
+      expect(w.vm.resolveMediaImportFailure({ message: "媒体文件不存在或不可读" }, "背景音乐").messageParams.kindLabel).toBe("背景音乐");
+      expect(w.vm.resolveMediaImportFailure({ message: "无法读取媒体文件路径" }, "背景音乐").messageKey).toBe("story2video.media_path_unresolved");
+      expect(w.vm.resolveMediaImportFailure({ message: "无法读取媒体文件路径" }, "背景音乐").messageParams.kindLabel).toBe("背景音乐");
+      expect(w.vm.resolveMediaImportFailure({ message: "不支持的媒体格式" }, "旁白音频").messageKey).toBe("story2video.media_format_invalid");
+      expect(w.vm.resolveMediaImportFailure({ message: "媒体文件超过大小上限" }, "图片").messageKey).toBe("story2video.media_size_exceeded");
+      expect(w.vm.resolveMediaImportFailure({ message: "未知原因" }, "视频素材").messageKey).toBe("story2video.media_invalid");
+      w.unmount();
+    });
+
+    it("BGM 主进程拒绝不可读时弹带「背景音乐」宾语的细分提示", async () => {
+      const mocks = await import("@/api/publisher");
+      mocks.story2videoImportMedia.mockResolvedValue({ code: -1, message: "媒体文件不存在或不可读" });
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      await nextTick();
+
+      await w.vm.handleS2VBgmFile({ target: { files: [{ name: "bgm.mp3", size: 5 }] } });
+
+      expect(w.vm.s2vConfig.bgmPath).toBe("");
+      expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.media_unreadable");
+      expect(w.vm.story2videoErrorDialog.messageParams.kindLabel).toBe("背景音乐");
+      w.unmount();
+    });
+  });
 });
