@@ -803,13 +803,79 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 文案拆分 | 完成后显示「拆分为了 N 个场景」 | `context.split`（数组或 `{scenes:[...]}`）长度；仅 completed/running 阶段显示 |
 | 提示词优化 | 运行中实时显示「共 N 个场景，已完成 M 个」 | `context.optimize_progress = { done, total }`，每场景完成后主进程实时写入；`done`/`total` 必须为非负整数且 `done ≤ total`，非法值不展示 |
 | 生成图片与旁白 | 运行中实时显示「图片 a/b · 旁白 c/d」 | `context.assets_progress = { imagesDone, imagesTotal, ttsDone, ttsTotal }`，图片与 TTS 各自完成即写入；含断点续传复用场景；非法值不展示 |
+| 视频合成（compose） | 运行中显示子进度条（mini bar）+「正在合成片段 k/N · p%」；非片段阶段显示「视频合成 p%」 | `context.compose_progress = { phase, percent, segmentsDone, segmentsTotal, message? }`（2026-08-09 新增，见下方详细合同）；percent 单调不降、0-100 整数；失败冻结 <100；历史 run 无该字段时不渲染 |
 | 阶段耗时 | 每阶段显示「X 分 Y 秒」（running/completed/failed） | 主进程每阶段 `startedAt`/`completedAt`（推进时写入）；渲染层 1s 时钟刷新 running 阶段，不依赖轮询 |
 | 整体进度 | 阶段清单顶部细进度条 + 百分比 + 「已用时 X 分 Y 秒」 | 完成阶段数/总阶段数；已用时可从 `story2videoRunMeta.createdAt` 计算，运行中本地时钟实时刷新 |
 | 完成汇总 | 「完成时间共 X 分 Y 秒 · 文件大小 Z M」 | 快照 `endedAt - createdAt` + `outputSizeBytes`（主进程对成片 `statSync`，仅 completed 且存在成片时返回；stat 失败显示 null 不展示）；预览页通过路由 `durationMs`/`sizeBytes` 透传；项目持久化新增 `outputSizeBytes` 供历史展示 |
 
 - **数据校验**：进度与汇总均为展示增强，任何字段缺失/非法不得阻断流水线；`outputSizeBytes` 只读 stat，不改变文件。
-- **本地化**：全部展示文案使用 locale 资源，默认中文，英文同步（`story2video.elapsed/summaryDuration/summaryFileSize/splitSceneCount/optimizeProgress/assetsProgress/durationMinSec/durationSec`）。
+- **本地化**：全部展示文案使用 locale 资源，默认中文，英文同步（`story2video.elapsed/summaryDuration/summaryFileSize/splitSceneCount/optimizeProgress/assetsProgress/durationMinSec/durationSec`；compose 子进度沿用 `translateWithLocaleFallback` 内联 fallback：`story2video.composeSegments` / `story2video.composeProgress`）。
 - **交互**：纯信息展示，不新增操作入口；「已用时」与 running 阶段耗时每秒刷新，完成/失败后停止。
+
+##### 7.1.9.1 视频合成子进度详细合同（2026-08-09 新增）
+
+**背景**：compose（视频合成）为六阶段中耗时占比最大的环节（逐场景 ffmpeg 合成 + 拼接 + 旁白合并 + 可选 BGM/转码 + 校验），此前仅显示「进行中」与耗时；本变更补齐子百分比进度条，与 optimize（场景 x/y）、generate_assets（图片/旁白 x/y）的子进度对称。
+
+**数据契约**：`context.compose_progress`（引擎 `Story2VideoComposeEngine.compose` 通过 `onProgress` 回调发射 → 执行器 `StageExecutor` 字段级校验后写入 `run.context` → renderer 3s 轮询 `pipelineGetRunContext` 读取）。
+
+| 字段 | 类型 | 取值范围/约束 | 语义 |
+|------|------|--------------|------|
+| `phase` | string | `preflight` \| `validated` \| `segments` \| `concat` \| `narration` \| `bgm` \| `webm` \| `verify` \| `done` | 当前子阶段 |
+| `percent` | number | 整数，单调不降，0-100 | 合成总进度百分比 |
+| `segmentsDone` | number | 0–segmentsTotal 整数 | 已完成视频片段数（仅 segments 阶段展示） |
+| `segmentsTotal` | number | ≥1 整数，恒等于场景数 | 总片段数 |
+| `message` | string | 可选 | 非 UI 提示（日志/测试 hint），前端不得直接渲染 |
+
+**阶段权重（percent 映射）**：
+
+| 阶段 | percent | 说明 |
+|------|---------|------|
+| preflight | 0 | 素材路径/大小校验通过后、开始 probe 音频时长 |
+| validated | 3 | 预检全部通过（媒体可读、尺寸/时长限额、分辨率合法） |
+| segments（k 个片段已完成，共 N 个） | 3 + 72·k/N（k=N 精确 75） | 每个片段 ffmpeg 合成完成即更新一次；片段粒度，非帧级实时 |
+| concat | 87 | 拼接（含 >8 段 chunked 递归合成；权重拓宽避免长视频停滞） |
+| narration | 89 | 旁白合并为独立音频 |
+| bgm | 92 | 可选：BGM 混音 |
+| webm | 95 | 可选：WebM 转码 |
+| verify | 98 | 输出非空 + ffmpeg 可解码校验 |
+| done | 100 | 仅成功 return 前发射 |
+
+**功能逻辑**：
+- 引擎侧 `normalizeComposeProgressUpdate` 归一化（percent 取整并钳制 [0,100]；`segmentsTotal` ≥1 整数；`segmentsDone` ∈ [0, total]）；发射端保证 percent 单调不降（低于上次发射值忽略）。
+- **失败语义**：全部失败路径（片段生成/拼接/旁白合并/BGM/webm/校验/持久化失败）不发射新值，percent 冻结在最后有效值（<100）；`percent === 100` 与 `code === 0` 一一对应，杜绝假成功信号。
+- 执行器侧 fail-closed：回调内字段级校验（phase 为已知枚举；percent 有限且 [0,100]；segmentsTotal/done 整数且范围正确），任一非法丢弃该次更新，绝不向 renderer 下发非法值；结构为纯原始值对象（IPC structuredClone 安全）。
+- 可选步骤（无 BGM / 非 webm）按实际路径跳变，单调性保持；`message` 仅测试/日志使用。
+
+**交互逻辑**：
+- compose 阶段 running 且 `compose_progress.percent` 合法（有限且 0-100）时，阶段条目内渲染子进度条（mini bar，宽 100%，高 4px，`data-testid="story2video-stage-compose-progress"`）+ 阶段详情文案。
+- 数据经现有 3s 轮询链路下发（不新增 IPC 通道）；子进度条宽度由 `width: p%` 驱动，`.stage-sub-fill` 0.3s 过渡平滑；`role="progressbar"` + `aria-valuenow/min/max` 无障碍语义。
+- 无 `compose_progress` 字段（历史 run / 旧数据 / 引擎不可用早退）→ 不渲染子进度条与文案，阶段清单保持原状（安全降级）。
+- 失败/取消时阶段变 failed/cancelled → 子进度条消失（`stageDetailText` 返回空），与 optimize/assets 现有失败行为一致。
+
+**显示项**：
+- 子进度条：仅 compose running 时显示，宽度 = percent，颜色沿用 `--primary`。
+- 阶段详情文案（`stageDetailText`）：
+  - `phase === 'segments'` 且 `segmentsTotal > 0`：「正在合成片段 k/N · p%」（en：`Composing segment k/N · p%`）
+  - 其余 phase：「视频合成 p%」（en：`Composing p%`）
+  - compose completed 且保留 `compose_progress` 时显示「视频合成 100%」；无数据则空。
+
+**提示文字**（内联 fallback，zh/en）：
+- `story2video.composeSegments`：`正在合成片段 {k}/{N} · {p}%` / `Composing segment {k}/{N} · {p}%`
+- `story2video.composeProgress`：`视频合成 {p}%` / `Composing {p}%`
+- 引擎侧 message（非 UI）：`正在准备视频合成素材` / `素材校验完成` / `开始合成视频片段` / `正在合成视频片段 k/N` / `正在拼接视频片段` / `正在合并旁白音频` / `正在混入背景音乐` / `正在转码 WebM 输出` / `正在校验输出视频` / `视频合成完成`。
+
+**边界场景**：
+1. 片段 i 失败提前 return：percent 冻结在 `3 + 72·(i-1)/N`（≤75），无 done，阶段 failed 后前端隐藏。
+2. 拼接/旁白/BGM/webm/校验/持久化失败：分别冻结在 87/89/92/95/98，无 done。
+3. 引擎不可用 / scenes 为空 / resolution 非法 / 输入超限：首个 emit 前返回，`compose_progress` 保持 undefined，前端不渲染。
+4. N=1：3 → 75 → 快速 100，无中间停滞。
+5. 暂停/恢复：`checkpointPolicy:'none'` 下 compose 不暂停；手动 pause 不中断当前 ffmpeg；断点恢复后 compose 重新执行并从头发射进度（前序阶段产物复用）。
+6. 并发多 run：context 按 run 隔离，无串扰。
+7. 结果页单段重试 `renderSegment`：独立引擎调用、无 context，不写 `compose_progress`。
+8. 段内 30s 超时（既有约束）：段进度以段为单位，非帧级实时（记入后续演进）。
+9. IPC 载荷：`compose_progress` ≤ 5 字段，3s 轮询无压力；字段级校验为最后防线。
+
+**后续演进（v1 不做）**：ffmpeg `-progress pipe:1` 段内实时百分比（需将 `_createSegment` 从 execFileAsync 改为 spawn + 进度解析，涉及 Windows timeout/maxBuffer/错误语义重构，独立 PR 评估）；chunked 拼接（>8 段）在 75→87 区间的段级 onStep 插值。
 
 #### 7.1.10 图片轮播选项持久化合同（上次使用的选项）
 

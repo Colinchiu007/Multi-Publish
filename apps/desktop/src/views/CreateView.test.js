@@ -245,6 +245,66 @@ describe("CreateView", () => {
     w.unmount();
   });
 
+  it("compose 阶段展示子进度条与片段文案", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    const now = new Date().toISOString();
+    w.vm.pipelineRunStatus = {
+      status: "running",
+      currentStage: 3,
+      progress: 66,
+      stages: [
+        { name: "split", status: "completed", startedAt: now },
+        { name: "optimize", status: "completed", startedAt: now },
+        { name: "generate_assets", status: "completed", startedAt: now },
+        { name: "compose", status: "running", startedAt: now },
+      ],
+    };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "optimize", "generate_assets", "compose"] };
+    w.vm.orchestrationContext = {
+      split: { scenes: [{}, {}] },
+      optimize_progress: { done: 2, total: 2 },
+      assets_progress: { imagesDone: 2, imagesTotal: 2, ttsDone: 2, ttsTotal: 2 },
+      compose_progress: { phase: "segments", percent: 39, segmentsDone: 3, segmentsTotal: 5 },
+    };
+    w.vm.story2videoRunMeta = { createdAt: new Date(Date.now() - 65000).toISOString(), endedAt: null };
+    await nextTick();
+    expect(w.text()).toContain("正在合成片段 3/5 · 39%");
+    const bar = w.find('[data-testid="story2video-stage-compose-progress"]');
+    expect(bar.exists()).toBe(true);
+    expect(bar.find(".stage-sub-fill").attributes("style")).toContain("width: 39%");
+    w.unmount();
+  });
+
+  it("compose 阶段无子进度数据时安全降级（不渲染子进度条）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    const now = new Date().toISOString();
+    w.vm.pipelineRunStatus = {
+      status: "running",
+      currentStage: 1,
+      progress: 50,
+      stages: [
+        { name: "split", status: "completed", startedAt: now },
+        { name: "compose", status: "running", startedAt: now },
+      ],
+    };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "compose"] };
+    w.vm.orchestrationContext = { split: { scenes: [{}, {}] } };
+    await nextTick();
+    expect(w.find('[data-testid="story2video-stage-compose-progress"]').exists()).toBe(false);
+    // 阶段名「视频合成」仍展示，但无 compose_progress 时不得渲染子进度文案
+    expect(w.text()).not.toContain("正在合成片段");
+    expect(w.find('[data-testid="story2video-stage-detail-compose"]').exists()).toBe(false);
+    w.unmount();
+  });
+
   it("恢复上次保存的图片轮播选项（跳过已禁用 provider，恢复折叠状态并提示）", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });

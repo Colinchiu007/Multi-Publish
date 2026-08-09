@@ -69,6 +69,9 @@
             <span class="stage-main">
               <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
               <span v-if="stageDetailText(stage, i)" class="stage-meta" :data-testid="`story2video-stage-detail-${stage.name || i}`">{{ stageDetailText(stage, i) }}</span>
+              <span v-if="stage.name === 'compose' && stage.status === 'running' && composeSubProgressPercent(stage) !== null" class="stage-sub-progress" data-testid="story2video-stage-compose-progress" role="progressbar" :aria-valuenow="composeSubProgressPercent(stage)" aria-valuemin="0" aria-valuemax="100">
+                <span class="stage-sub-bar"><span class="stage-sub-fill" :style="{ width: composeSubProgressPercent(stage) + '%' }"></span></span>
+              </span>
             </span>
             <span class="stage-status">
               {{ stageStatusLabel(stage, i) }}<span v-if="stageTimeText(stage)" class="stage-time"> · {{ stageTimeText(stage) }}</span>
@@ -2826,7 +2829,24 @@ export default {
           return this.translateWithLocaleFallback('story2video.assetsProgress', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal)
         }
       }
+      if (stage.name === 'compose') {
+        const p = ctx.compose_progress
+        if (p && Number.isFinite(p.percent)) {
+          if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
+            return this.translateWithLocaleFallback('story2video.composeSegments', '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', 'Composing segment ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%')
+          }
+          return this.translateWithLocaleFallback('story2video.composeProgress', '视频合成 ' + Math.round(p.percent) + '%', 'Composing ' + Math.round(p.percent) + '%')
+        }
+      }
       return ''
+    },
+    // compose 子进度百分比：仅 compose running 且 context.compose_progress.percent 合法（有限且 0-100）时返回，
+    // 否则返回 null（历史 run / 旧数据安全降级，不渲染子进度条）。
+    composeSubProgressPercent(stage) {
+      if (!stage || stage.name !== 'compose' || stage.status !== 'running') return null
+      const p = this.orchestrationContext && this.orchestrationContext.compose_progress
+      if (!p || !Number.isFinite(p.percent) || p.percent < 0 || p.percent > 100) return null
+      return Math.round(p.percent)
     },
     // 阶段耗时（mm 分 ss 秒）
     stageTimeText(stage) {
@@ -2957,6 +2977,9 @@ export default {
 .stage-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .stage-name { }
 .stage-meta { font-size: 12px; color: var(--text-muted, #888); }
+.stage-sub-progress { display: flex; align-items: center; margin-top: 4px; width: 100%; }
+.stage-sub-bar { flex: 1; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden; }
+.stage-sub-fill { display: block; height: 100%; background: var(--primary); transition: width 0.3s; }
 .stage-status { font-size: 12px; white-space: nowrap; }
 .stage-time { color: var(--text-muted, #888); }
 .orchestration-progress { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }

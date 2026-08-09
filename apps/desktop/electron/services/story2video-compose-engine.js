@@ -40,6 +40,42 @@ const DEFAULT_MAX_OUTPUT_PIXELS = 7680 * 4320
 // 避免 25+ 场景（27 路 xfade/acrossfade）在低内存环境触发 x264 malloc 失败。
 const MAX_XFADE_INPUTS = 8
 
+/** compose 子进度已知阶段枚举（执行器 fail-closed 校验复用，新增 phase 必须同步此处）。 */
+const KNOWN_COMPOSE_PHASES = ['preflight', 'validated', 'segments', 'concat', 'narration', 'bgm', 'webm', 'verify', 'done']
+
+/**
+ * compose 子进度归一化（引擎发射与执行器 fail-closed 写入共用语义）。
+ * - percent 取整并钳制 [0,100]；
+ * - segmentsTotal 存在时须为 ≥1 整数；segmentsDone 存在时须为 [0, segmentsTotal] 整数；
+ * - phase 必须为非空字符串；
+ * - 结构为纯原始值对象（IPC structuredClone 安全）。
+ * 任一约束失败返回 null，调用方应丢弃该次更新（fail-closed）。
+ * @param {object} update
+ * @returns {{phase: string, percent: number, segmentsDone?: number, segmentsTotal?: number, message?: string}|null}
+ */
+function normalizeComposeProgressUpdate (update) {
+  if (!update || typeof update !== 'object' || Array.isArray(update)) return null
+  const phase = typeof update.phase === 'string' && update.phase.trim() ? update.phase.trim() : ''
+  if (!phase) return null
+  // 严格数值校验：拒绝 Number() 强转穿透（null→0 / []→0 / true→1 / '39'→39）
+  if (typeof update.percent !== 'number' || !Number.isFinite(update.percent)) return null
+  const normalized = {
+    phase,
+    percent: Math.max(0, Math.min(100, Math.round(update.percent))),
+  }
+  if (update.segmentsTotal !== undefined && update.segmentsTotal !== null) {
+    if (typeof update.segmentsTotal !== 'number' || !Number.isInteger(update.segmentsTotal) || update.segmentsTotal < 1) return null
+    normalized.segmentsTotal = update.segmentsTotal
+  }
+  if (update.segmentsDone !== undefined && update.segmentsDone !== null) {
+    if (typeof update.segmentsDone !== 'number' || !Number.isInteger(update.segmentsDone) || update.segmentsDone < 0) return null
+    if (normalized.segmentsTotal !== undefined && update.segmentsDone > normalized.segmentsTotal) return null
+    normalized.segmentsDone = update.segmentsDone
+  }
+  if (typeof update.message === 'string' && update.message) normalized.message = update.message
+  return normalized
+}
+
 const FFMPEG = findFfmpeg()
 const FFPROBE = findFfprobe()
 
@@ -391,10 +427,27 @@ class Story2VideoComposeEngine {
   /**
    * 合成视频
    * @param {object} assetManifest - generate_assets 阶段的输出
-   * @param {object} [options] - 合成选项
+   * @param {object} [options] - 合成选项；可携带 `onProgress` 回调（与第三参等价，第三参优先）
+   * @param {Function} [onProgress] - 子进度回调 `({ phase, percent, segmentsDone?, segmentsTotal?, message? }) => void`；
+   *    percent 单调不降、整数 0-100；done/100 仅在成功 return 前发射，失败路径冻结在最后有效值
    * @returns {Promise<{code: number, data?: object, message?: string}>}
    */
-  async compose (assetManifest, options) {
+  async compose (assetManifest, options, onProgress) {
+    // 子进度回调：第三参优先，兼容 options.onProgress；发射值经 normalizeComposeProgressUpdate
+    // 归一化且 percent 单调不降。done/100 只在成功 return 前发射；失败路径冻结在最后有效值。
+    const progressCb = (typeof onProgress === 'function')
+      ? onProgress
+      : (options && typeof options.onProgress === 'function' ? options.onProgress : null)
+    let lastEmittedPercent = -1
+    const emitComposeProgress = (update) => {
+      if (!progressCb) return
+      const normalized = normalizeComposeProgressUpdate(update)
+      if (!normalized) return
+      if (normalized.percent < lastEmittedPercent) return
+      lastEmittedPercent = normalized.percent
+      progressCb(normalized)
+    }
+
     if (!FFMPEG) {
       return { code: -1, message: 'ffmpeg not found' }
     }
@@ -448,6 +501,14 @@ class Story2VideoComposeEngine {
       if (!accountInput(bgmPath)) return { code: -1, message: 'Input media exceeds the total size limit' }
     }
 
+    // 子进度：素材路径/大小校验通过后进入耗时预检（probe 音频时长）
+    emitComposeProgress({
+      phase: 'preflight',
+      percent: 0,
+      segmentsTotal: scenes.length,
+      message: '正在准备视频合成素材',
+    })
+
     // 场景时长模式（三层模型③）：follow-audio 跟随旁白（默认）；min-duration 以静音补齐到 minSceneDuration
     const sceneDurationMode = options?.sceneDurationMode === 'min-duration' ? 'min-duration' : 'follow-audio'
     const minSceneDuration = clampNumber(options?.minSceneDuration, 1, 60, 6)
@@ -482,6 +543,21 @@ class Story2VideoComposeEngine {
     if (effectiveRequestedDuration > this.maxDurationSeconds) {
       return { code: -1, message: 'Requested video duration exceeds the allowed limit' }
     }
+
+    // 子进度：预检全部通过，进入逐片段合成
+    emitComposeProgress({
+      phase: 'validated',
+      percent: 3,
+      segmentsTotal: scenes.length,
+      message: '素材校验完成',
+    })
+    emitComposeProgress({
+      phase: 'segments',
+      percent: 3,
+      segmentsDone: 0,
+      segmentsTotal: scenes.length,
+      message: '开始合成视频片段',
+    })
 
     // 确保输出目录存在
     fs.mkdirSync(this.outputDir, { recursive: true })
@@ -573,6 +649,14 @@ class Story2VideoComposeEngine {
           videoPath: segPath,
           status: 'completed',
         })
+        // 子进度：每完成一个片段更新一次（percent = 3 + 72·k/N，k=N 时精确 75）
+        emitComposeProgress({
+          phase: 'segments',
+          percent: 3 + (72 * (i + 1)) / scenes.length,
+          segmentsDone: i + 1,
+          segmentsTotal: scenes.length,
+          message: '正在合成视频片段 ' + (i + 1) + '/' + scenes.length,
+        })
         this.log.info('Story2VideoCompose', 'Segment ' + i + ' created: ' + path.basename(segPath))
       } catch (e) {
         this.log.warn('Story2VideoCompose', 'Segment ' + i + ' failed: ' + e.message)
@@ -586,6 +670,15 @@ class Story2VideoComposeEngine {
       this._cleanupSession(sessionDir)
       return { code: -1, message: 'All segments failed to create' }
     }
+
+    // 子进度：进入拼接（含 chunked 递归合成，权重拓宽到 87 避免长视频停滞）
+    emitComposeProgress({
+      phase: 'concat',
+      percent: 87,
+      segmentsDone: segments.length,
+      segmentsTotal: scenes.length,
+      message: '正在拼接视频片段',
+    })
 
     // 2. 拼接所有片段
     const outputPath = path.join(sessionDir, 'output.mp4')
@@ -605,6 +698,15 @@ class Story2VideoComposeEngine {
       throw e
     }
 
+    // 子进度：旁白合并
+    emitComposeProgress({
+      phase: 'narration',
+      percent: 89,
+      segmentsDone: segments.length,
+      segmentsTotal: scenes.length,
+      message: '正在合并旁白音频',
+    })
+
     // 3. 将所有分段旁白合并为独立音频，结果页可播放和下载完整旁白。
     const narrationPath = path.join(sessionDir, 'narration.m4a')
     try {
@@ -617,6 +719,14 @@ class Story2VideoComposeEngine {
     // 4. 可选 BGM 混音（仅接受已下载的本地文件，避免在主进程隐式发起网络请求）
     let composedPath = outputPath
     if (bgmPath) {
+      // 子进度：混音开始
+      emitComposeProgress({
+        phase: 'bgm',
+        percent: 92,
+        segmentsDone: segments.length,
+        segmentsTotal: scenes.length,
+        message: '正在混入背景音乐',
+      })
       const mixedPath = path.join(sessionDir, 'mixed.mp4')
       try {
         await this._mixBgm(composedPath, bgmPath, mixedPath, options?.bgmVolume)
@@ -628,6 +738,14 @@ class Story2VideoComposeEngine {
     }
 
     if (outputFormat === 'webm') {
+      // 子进度：WebM 转码开始
+      emitComposeProgress({
+        phase: 'webm',
+        percent: 95,
+        segmentsDone: segments.length,
+        segmentsTotal: scenes.length,
+        message: '正在转码 WebM 输出',
+      })
       const webmPath = path.join(sessionDir, 'output.webm')
       try {
         await this._transcodeWebm(composedPath, webmPath)
@@ -637,6 +755,15 @@ class Story2VideoComposeEngine {
         return { code: -1, message: 'WebM transcode failed: ' + e.message }
       }
     }
+
+    // 子进度：输出校验
+    emitComposeProgress({
+      phase: 'verify',
+      percent: 98,
+      segmentsDone: segments.length,
+      segmentsTotal: scenes.length,
+      message: '正在校验输出视频',
+    })
 
     // 5. 验证输出：非空 + ffmpeg 可解码
     if (!hasUsableFile(composedPath)) {
@@ -668,6 +795,14 @@ class Story2VideoComposeEngine {
       // 移动失败则保留原路径（output.mp4 仍在 sessionDir 内）
       this.log.warn('Story2VideoCompose', 'Failed to move output to final path, keeping in sessionDir: ' + e.message)
        const stat = fs.statSync(composedPath)
+      // 子进度：成功完成（done 仅出现在成功 return 前）
+      emitComposeProgress({
+        phase: 'done',
+        percent: 100,
+        segmentsDone: segments.length,
+        segmentsTotal: scenes.length,
+        message: '视频合成完成',
+      })
       return {
         code: 0,
         data: {
@@ -707,6 +842,15 @@ class Story2VideoComposeEngine {
       return { code: -1, message: 'Final output file is empty' }
     }
     this.log.info('Story2VideoCompose', 'Video composed: ' + finalPath + ' (' + Math.round(stat.size / 1024) + 'KB)')
+
+    // 子进度：成功完成（done 仅出现在成功 return 前）
+    emitComposeProgress({
+      phase: 'done',
+      percent: 100,
+      segmentsDone: segments.length,
+      segmentsTotal: scenes.length,
+      message: '视频合成完成',
+    })
 
     return {
       code: 0,
@@ -1175,6 +1319,8 @@ module.exports = {
   Story2VideoComposeEngine,
   findFfmpeg,
   findFfprobe,
+  KNOWN_COMPOSE_PHASES,
+  normalizeComposeProgressUpdate,
   escapeSubtitleText,
   normalizeComposeScenes,
   buildTransitionPlan,

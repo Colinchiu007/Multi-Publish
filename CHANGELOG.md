@@ -1,3 +1,23 @@
+## [未发布] 图片轮播视频合成子百分比进度条（2026-08-09）
+
+### 功能
+- compose（视频合成）阶段在 6 阶段清单中新增**子百分比进度条**与进度文案：逐场景合成显示「正在合成片段 k/N · p%」，拼接/旁白/BGM/转码/校验阶段显示「视频合成 p%」，与 optimize（场景 x/y）、generate_assets（图片/旁白 x/y）的子进度对称。
+- 阶段权重：preflight 0 → validated 3 → 逐片段 3+72·k/N（k=N 精确 75）→ concat 87 → narration 89 → bgm 92（可选）→ webm 95（可选）→ verify 98 → done 100；percent 单调不降。
+
+### 数据契约（context.compose_progress）
+- 引擎 `Story2VideoComposeEngine.compose(assetManifest, options, onProgress)` 新增可选回调（兼容 `options.onProgress`）；`normalizeComposeProgressUpdate` 归一化（percent 取整钳制 [0,100]、segmentsTotal ≥1 整数、segmentsDone ∈ [0,total]、phase 非空）。
+- 执行器透传 onProgress 并**字段级 fail-closed 校验**后写入 `run.context.compose_progress`（phase 已知枚举、percent 有限且 [0,100]、计数整数且范围正确；非法值丢弃，绝不向 renderer 下发）。
+- **失败语义**：全部失败路径（片段/拼接/旁白/BGM/webm/校验/持久化）percent 冻结在最后有效值（<100）且不发射 done；`percent === 100` 与 `code === 0` 一一对应，杜绝假成功信号。
+
+### 前端
+- compose running 且 percent 合法时渲染 mini bar（`data-testid="story2video-stage-compose-progress"`，0.3s 过渡）+ 详情文案；无 `compose_progress`（历史 run/旧数据/引擎早退）安全降级不渲染。
+- 文案沿用 `translateWithLocaleFallback` 内联 fallback（`story2video.composeSegments`/`story2video.composeProgress`），不进 locale 静态文件。
+
+### 测试与文档
+- 新增/扩展测试：compose-engine 子进度发射（正常序列/失败冻结/单调性/normalize 校验）、stage-executor fail-closed 写入（合法/非法）、pipeline-story2video-contract（getRunContext/getRunSnapshot 暴露）、CreateView（子进度条渲染与安全降级）、UE 契约快照。
+- 文档：`01-docs/PRD.md` 7.1.9.1（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/边界/后续演进）、`01-docs/PRD-video-creation.md` 3.1.10、CHANGELOG 本条目。
+- 后续演进（v1 不做）：ffmpeg `-progress pipe:1` 段内实时百分比、chunked 拼接段级 onStep 插值。
+
 ## [未发布] 图片提示词统一走 prompt-engine（2026-08-09）
 
 ### 行为变更
