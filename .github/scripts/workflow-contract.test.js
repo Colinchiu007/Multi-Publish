@@ -184,7 +184,7 @@ test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', (
 test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => {
   const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'doc-gate.yml'), 'utf8'));
   const ignored = wf.on.pull_request['paths-ignore'];
-  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**', 'package.json', 'package-lock.json', 'nx.json']) {
+  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**', 'package.json', 'package-lock.json', 'nx.json', 'packages/*/vitest.config.js']) {
     assert.ok(ignored.includes(dir), `doc-gate paths-ignore 必须包含 ${dir}`);
   }
 });
@@ -232,4 +232,9 @@ test('桌面测试分片契约：desktop-shards 矩阵与 unit-tests 排除桌�
   const rootPkg = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));
   // 死脚本清理（W1）：根 package.json 不应再有 test:desktop:shard
   assert.equal(rootPkg.scripts['test:desktop:shard'], undefined);
+});
+
+test('shared-utils 测试超时预算（冷启动 flaky 回归保护）', () => {
+  const cfg = fs.readFileSync(path.join(__dirname, '..', '..', 'packages', 'shared-utils', 'vitest.config.js'), 'utf8');
+  assert.match(cfg, /testTimeout:\s*10000/);
 });
