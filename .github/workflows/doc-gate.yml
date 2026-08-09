@@ -10,6 +10,11 @@ on:
       - '.github/**'
       - 'LICENSE'
       - '.gitignore'
+      - '.ccg/**'
+      - '.claude/**'
+      - '.hermes/**'
+      - '.agents/**'
+      - 'openspec/**'
       - '.editorconfig'
 
 jobs:

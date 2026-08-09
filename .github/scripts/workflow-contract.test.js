@@ -167,3 +167,11 @@ test('CI 路径门控：三个全量 workflow 的 push/pull_request 使用同一
     }
   }
 });
+
+test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => {
+  const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'doc-gate.yml'), 'utf8'));
+  const ignored = wf.on.pull_request['paths-ignore'];
+  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**']) {
+    assert.ok(ignored.includes(dir), `doc-gate paths-ignore 必须包含 ${dir}`);
+  }
+});
