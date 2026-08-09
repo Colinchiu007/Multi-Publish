@@ -6051,3 +6051,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **职责边界**：本 job = Linux 平台确定性回归（与 Quality Gate windows 全 workspace 单测跨平台互补）；Electron GUI 深度门禁归 gui-test；避免三处重复跑全量。
 - **C 验证方式**：迁移 PR 自身的 CI（electron-tests on ubuntu-latest）即为验收；ECS runner 保留配置但不再必需。
 - **可复用判断法**：迁移 CI 前先问「目标 runner 是否已有同类成功先例」（gui-test 的 xvfb Electron 即先例），有则风险大降；再核对系统依赖/原生模块/网络三项适配点。
+
+## Quality Gate 并行化复盘 (2026-08-09)
+
+- **实测驱动**：取一次通过 run 的 step 耗时（GitHub API jobs.steps.started_at/completed_at）：Gate 4 单测 636s + Gate 5 coverage 588s = 82% 总时长 1498s → 并行拆分关键路径从 25min → ~12min。
+- **拆分设计**：7 个并行 job（static/unit-tests/coverage/visual/e2e/autonomous/gate-result），全部 windows-latest；npm ci 每 job 独立（job 隔离 VM）；coverage 独立 job 避免与单测争资源（保留 vitest 单 worker 串行契约）。
+- **触发去重**：`on` 去掉 `push: branches-ignore: [main]`（与 pull_request 同 head 双跑），保留 pull_request + workflow_dispatch → 每 head CI 分钟约减半。
+- **契约测试耦合教训**：workflow 结构被多层契约测试锁定——.github/scripts/workflow-contract.test.js（Gate 4/7/8/9 步骤名+邻接注释正则）与 apps/desktop/tests/gui-ci-exit-contract.test.js（jobs.gate.steps、Gate 9 退出码模式）。拆分时必须同步：邻接锚点从 `# --- Gate N` 注释改为同 job 的 Upload 步骤；单 job 引用改跨 job 汇总（Object.values(jobs).flatMap）。
+- **取舍**：并行总分钟略升（6×npm ci + 各 gate ≈30min vs 25min），但墙钟减半 + 失败隔离（单 gate 失败不阻断其余）；触发去重后每 head 净降 ~40%。
