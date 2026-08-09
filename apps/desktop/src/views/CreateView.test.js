@@ -460,6 +460,9 @@ describe("CreateView", () => {
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_UNAVAILABLE")).toContain("音色克隆服务暂时不可用");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_DIALOG_UNAVAILABLE")).toContain("文件选择窗口");
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CLONE_MODEL_MISMATCH")).toContain("模型设置");
+    // 配置类错误（缺 API Key 等）→ 引导去模型设置，而非「请稍后重试」
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CATALOG_CONFIG_UNAVAILABLE")).toContain("模型设置");
+    expect(w.vm.friendlyVoiceCatalogError("VOICE_CATALOG_CONFIG_UNAVAILABLE")).toContain("配置");
     // 未知错误仍走兜底，不回退到函数文本
     expect(w.vm.friendlyVoiceCatalogError("SOME_UNKNOWN_X")).toContain("无法加载音色列表");
     w.unmount();
@@ -2419,7 +2422,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
       // 失败后回滚：不把未持久化的克隆显示成默认
       expect(w.vm.s2vConfig.voiceId).toBe("other-voice");
       expect(w.vm.isS2VDefaultVoice("MiniMaxVoice_abc123")).toBe(false);
-      expect(w.vm.s2vVoiceCatalogError).toContain("VOICE_PREFERENCE_STORE_UNAVAILABLE");
+      expect(w.vm.s2vVoiceCatalogError).toContain("本地存储");
       w.unmount();
     });
 
@@ -2466,5 +2469,64 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
       expect(w.vm.story2videoErrorDialog.messageParams.kindLabel).toBe("背景音乐");
       w.unmount();
     });
+  });
+
+  it("音色目录配置类失败显示可操作文案，且不提供刷新按钮（重试无效）", async () => {
+    const ttsMocks = await import("@/api/tts-voice-catalog");
+    ttsMocks.getTtsVoiceCatalog.mockResolvedValueOnce({ code: -1, message: "VOICE_CATALOG_CONFIG_UNAVAILABLE" });
+    ttsMocks.getTtsVoiceCapability.mockResolvedValue({ code: 0, data: { type: "builtin", clone: { enabled: false } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    await nextTick();
+    w.vm.s2vConfig.voiceProvider = "minimax-tts";
+    w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+    await w.vm.loadS2VVoiceData();
+    await nextTick();
+
+    expect(w.vm.s2vVoiceCatalogError).toContain("模型设置");
+    expect(w.vm.s2vVoiceCatalogRefreshable).toBe(false);
+    expect(w.find('[data-testid="s2v-voice-catalog-refresh"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("瞬时失败（VOICE_CATALOG_UNAVAILABLE）可通过「刷新音色列表」强制重拉", async () => {
+    const ttsMocks = await import("@/api/tts-voice-catalog");
+    ttsMocks.getTtsVoiceCatalog.mockResolvedValueOnce({ code: -1, message: "VOICE_CATALOG_UNAVAILABLE" });
+    ttsMocks.getTtsVoiceCapability.mockResolvedValue({ code: 0, data: { type: "builtin", clone: { enabled: false } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    await nextTick();
+    w.vm.s2vConfig.voiceProvider = "minimax-tts";
+    w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+    await w.vm.loadS2VVoiceData();
+    await nextTick();
+
+    expect(w.vm.s2vVoiceCatalogError).toContain("请稍后重试");
+    expect(w.vm.s2vVoiceCatalogRefreshable).toBe(true);
+    const refreshBtn = w.find('[data-testid="s2v-voice-catalog-refresh"]');
+    expect(refreshBtn.exists()).toBe(true);
+
+    ttsMocks.getTtsVoiceCatalog.mockResolvedValue({
+      code: 0,
+      data: {
+        providerId: "minimax-tts",
+        model: "speech-2.8-turbo",
+        voices: [{ id: "male-qn-qingse", name: "青年男声" }],
+        selectedVoiceId: "male-qn-qingse",
+        invalidVoices: [],
+      },
+    });
+    await refreshBtn.trigger("click");
+    await nextTick();
+    await new Promise((r) => setTimeout(r, 0));
+    await nextTick();
+
+    expect(ttsMocks.getTtsVoiceCatalog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ providerId: "minimax-tts", model: "speech-2.8-turbo", refresh: true })
+    );
+    expect(w.vm.s2vVoiceCatalogError).toBe("");
+    w.unmount();
   });
 });

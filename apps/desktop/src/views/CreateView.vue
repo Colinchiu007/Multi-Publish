@@ -399,6 +399,14 @@
                 </select>
                 <span v-if="s2vVoiceCatalogLoading" class="config-hint">正在加载音色目录…</span>
                 <span v-else-if="s2vVoiceCatalogError" class="inline-error">{{ s2vVoiceCatalogError }}</span>
+                <button
+                  v-if="s2vVoiceCatalogRefreshable"
+                  type="button"
+                  class="btn-secondary voice-catalog-refresh"
+                  data-testid="s2v-voice-catalog-refresh"
+                  :disabled="s2vVoiceCatalogLoading"
+                  @click="refreshS2VVoiceCatalog"
+                >刷新音色列表</button>
                 <span v-else-if="s2vVoiceOptions.length === 0" class="config-hint">当前模型没有可用音色。</span>
               </div>
               <div v-if="s2vVoiceCapability?.type === 'provider_personal_slot'" class="config-item config-span-2 voice-slot-hint">
@@ -1037,7 +1045,7 @@ export default {
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
       s2vImageProviders: [], s2vVoiceProviders: [],
-      s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCapability: null,
+      s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCatalogErrorCode: '', s2vVoiceCapability: null,
       s2vVoiceProviderRequestId: 0, s2vVoiceRequestId: 0, s2vVoiceSelectionRequestId: 0, s2vVoiceCloneRequestId: 0, s2vPersistedVoiceId: '',
       s2vVoiceCloneRequirements: null, s2vVoiceClones: [],
       s2vVoiceCloneSelection: null, s2vVoiceCloneName: '', s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
@@ -1091,6 +1099,12 @@ export default {
         ...provider,
         displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
       }))]
+    },
+    s2vVoiceCatalogRefreshable() {
+      // 仅瞬时/未知错误提供「刷新音色列表」；配置类/不支持/模型不匹配/身份问题重试无效
+      if (!this.s2vVoiceCatalogError) return false
+      const code = this.s2vVoiceCatalogErrorCode
+      return code === '' || code === 'VOICE_CATALOG_UNAVAILABLE'
     },
     s2vVoiceModelOptions() {
       const provider = this.s2vVoiceProviders.find(item => item?.id === this.s2vConfig.voiceProvider)
@@ -1901,6 +1915,7 @@ export default {
       const raw = String(message || '')
       const map = {
         VOICE_CATALOG_UNSUPPORTED: ['当前语音模型暂不支持音色列表与克隆功能，已使用默认音色。', 'This voice model does not support voice lists or cloning yet. Using the default voice.'],
+        VOICE_CATALOG_CONFIG_UNAVAILABLE: ['当前语音服务商配置不可用，请在模型设置中检查并配置后重试。', 'The voice provider configuration is unavailable. Check it in model settings and retry.'],
         VOICE_CATALOG_UNAVAILABLE: ['暂时无法获取音色列表，已使用默认音色，请稍后重试。', 'The voice list is temporarily unavailable. Using the default voice. Please try again later.'],
         VOICE_MODEL_MISMATCH: ['所选语音模型与配置不一致，请检查模型设置。', 'The selected voice model does not match the configuration. Check the model settings.'],
         VOICE_PREFERENCE_STORE_UNAVAILABLE: ['音色偏好保存不可用，请检查本地存储。', 'Voice preference storage is unavailable. Check local storage.'],
@@ -1958,6 +1973,7 @@ export default {
       this.s2vVoiceCatalog = []
       this.s2vVoiceCatalogLoading = false
       this.s2vVoiceCatalogError = ''
+      this.s2vVoiceCatalogErrorCode = ''
       this.s2vVoiceCapability = null
       this.s2vPersistedVoiceId = ''
       this.s2vVoiceCloneRequirements = null
@@ -2004,6 +2020,7 @@ export default {
           }
         : null
       this.s2vVoiceCatalogLoading = false
+      this.s2vVoiceCatalogErrorCode = catalogData ? '' : String(catalogResponse?.message || '')
       if (!catalogData) {
         this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(catalogResponse?.message)
       }
@@ -2046,6 +2063,10 @@ export default {
       } else {
         this.s2vConfig.voiceId = ''
       }
+    },
+    async refreshS2VVoiceCatalog() {
+      this.s2vVoiceCatalogError = ''
+      await this.loadS2VVoiceData({ refresh: true })
     },
     async loadS2VProviders() {
       const providerRequestId = ++this.s2vVoiceProviderRequestId
@@ -2105,7 +2126,9 @@ export default {
         const result = await clearTtsVoicePreference(this.cloneForIpc(context))
         if (!this.isCurrentS2VVoiceSelectionRequest(requestId, context, this.s2vConfig.voiceId)) return false
         if (result?.code !== 0) {
-          this.s2vVoiceCatalogError = result?.message || '音色默认值恢复失败。'
+          this.s2vVoiceCatalogError = result?.message
+            ? this.friendlyVoiceCatalogError(result?.message)
+            : '音色默认值恢复失败。'
           return false
         }
         const selectedVoiceId = typeof result.data?.selectedVoiceId === 'string' ? result.data.selectedVoiceId : ''
@@ -2130,7 +2153,9 @@ export default {
       if (result?.code !== 0) {
         // 保存失败：回滚下拉与徽标，避免显示一个从未持久化的「默认」音色
         this.s2vConfig.voiceId = previousVoiceId
-        this.s2vVoiceCatalogError = result?.message || '音色选择保存失败。'
+        this.s2vVoiceCatalogError = result?.message
+          ? this.friendlyVoiceCatalogError(result?.message)
+          : '音色选择保存失败。'
         return false
       }
       this.s2vPersistedVoiceId = typeof result.data?.selectedVoiceId === 'string'

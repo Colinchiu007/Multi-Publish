@@ -6213,3 +6213,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
   workflow-contract.test.js 新增断言防回退；doc-gate 忽略集补 `packages/*/vitest.config.js`
   （测试基建变更无需 PRD 同步）。
 - **预防**：CI 相关测试超时预算对齐桌面 10000ms 标准；测试配置类改动走基建门控而非 PRD。
+## 复盘：音色目录「暂时无法获取音色列表」误导提示（2026-08-09，voice-catalog-error-clarity）
+
+- **根因**：图片轮播流水线 TTS 服务商无可用 API Key（minimax-tts 未配置；minimax-multimodal key safeStorage/DPAPI 解密失败）→ `callAdapter` 返回「尚未配置 API Key」→ `TtsVoiceService.getCatalog` 折叠为单一 `VOICE_CATALOG_UNAVAILABLE` → 前端「暂时无法获取音色列表，已使用默认音色，请稍后重试。」（永久配置错误被描述为暂时）。
+- **运行时证据**：debug profile 日志 `AssetGenerator TTS provider minimax-tts failed: 尚未配置 API Key` + `ModelProviderCrypto Decrypt failed: safeStorage.decryptString`；DB 中 minimax-tts enabled=0 无 key、minimax-multimodal 有 key 但解密失败（Local State 重建 → DPAPI 不匹配）。
+- **逃逸链**：单测只断言「callAdapter code!=0 → UNAVAILABLE」（错误分类被当作单一契约固化）；无「配置错误 vs 瞬时错误」分类 → 文案误导；目录路径无日志 → 只能靠合成路径日志反推。
+- **系统性漏洞**：① 错误码缺乏分类，底层原因被吞；② 目录失败路径零日志；③ 前端「请稍后重试」无对应重试入口；④ 能力白名单（canListVoices）不校验 key 可用性（并发任务 s2v-configured-provider-filter 已补「仅展示已配置服务商」）。
+- **修复+回归**：新增 `VOICE_CATALOG_CONFIG_UNAVAILABLE`（配置/认证类）+ `VOICE_CATALOG_UNSUPPORTED`（方法不支持）+ 瞬时 `UNAVAILABLE`（fail-safe）；detail 脱敏透传（先脱敏后截断 ≤200）；目录路径与 IPC catch 补日志；前端泛化文案 + 仅瞬时错误显示「刷新音色列表」；select/clear 路径友好映射。回归：service 8 新用例 + CreateView 2 新用例 + 既有断言迁移，149 通过。
+- **预防**：错误分类必须「永久 vs 瞬时」二分并保底瞬时；失败路径必须有日志（与合成路径对等）；文案中的动作（请稍后重试/去模型设置）必须对应真实 UI 入口；跨机器/重建 Local State 的调试 profile 密钥不可用是预期行为，不作为应用 Bug。

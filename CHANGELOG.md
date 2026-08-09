@@ -6,6 +6,16 @@
 - 证据：create 路由 E2E 58/58、全量 E2E 314/314（0 console/page errors）、引擎级 vitest 145/145 + 契约 18/18 + 编排 E2E 6/6、eslint 0 warning；外部 Claude 有界审查 Critical 0（2 Warning 已修复）。
 - 边界：UI + IPC mock 端到端；各流水线真实阶段执行（模型/ffmpeg/8002 sidecar）与真实平台发布仍属外部验收。
 
+## [未发布] 修复：音色目录错误提示误导 + 无日志 + 无重试入口（2026-08-09）
+
+- 根因：图片轮播流水线 TTS provider 无可用 API Key（未配置或 safeStorage 解密失败）时，`TtsVoiceService.getCatalog` 把 adapter 全部失败折叠为 `VOICE_CATALOG_UNAVAILABLE`，前端显示「暂时无法获取音色列表，已使用默认音色，请稍后重试。」——永久性配置错误被描述为「暂时、稍后重试」，且目录路径无日志、无重试入口，问题不可定位、不可操作。
+- 新增稳定错误码 `VOICE_CATALOG_CONFIG_UNAVAILABLE`：未配置/无效 API Key、认证失败（401/unauthorized）、服务商/适配器缺失、适配器初始化失败归配置类；adapter 方法不支持归 `VOICE_CATALOG_UNSUPPORTED`；网络/超时/未知保持 `VOICE_CATALOG_UNAVAILABLE`（fail-safe 保留重试语义）。
+- 失败响应携带脱敏 `detail`（≤200 字符；Bearer/token/api key/secret/sk- 模式只回显 `upstream-auth-error` 分类短语，先脱敏后截断，不泄漏原文）。
+- 目录失败路径补日志（provider/model/脱敏原因，不记录密钥）；IPC handler catch 分支记录日志。
+- 前端：`VOICE_CATALOG_CONFIG_UNAVAILABLE` 映射「当前语音服务商配置不可用，请在模型设置中检查并配置后重试。」；瞬时/未知错误显示「刷新音色列表」按钮（`refresh: true` 重拉），配置类等永久错误不显示；select/clear 失败路径改为友好映射（不直显错误码）。
+- 回归：tts-voice-service +8（配置/瞬时/不支持/401/脱敏/截断/无 message 兜底/日志）、CreateView +2（CONFIG 文案与刷新按钮作用域/瞬时刷新触发）、IPC handler 日志；相关套件 149 用例通过；Vue build + electron-builder 打包（QM-1：ASAR 含改动、require 链、10s 启动无 stderr 错误）通过。
+- 文档：01-docs/PRD.md 7.1.4 音色目录错误分类合同、01-docs/learnings.md 复盘、OpenSpec change voice-catalog-error-clarity。
+
 ## [未发布] 修复：展开语音克隆面板时界面被长内容撑宽（2026-08-09）
 
 - 修复：展开「音色复制 / 克隆」面板时，长不可断内容（MiniMax 克隆 voice_id/长名称）撑宽配置网格导致整个界面变宽——`.config-grid` 轨道改 `minmax(min(200px,100%),1fr)`，面板/行/输入等 grid/flex 子项加 `min-width:0`，克隆名 `overflow-wrap:anywhere` 换行而非溢出。
@@ -1127,7 +1137,9 @@ Gate 8  全自动端到端测试 (Unified E2E)  有Key阻塞/无Key提示
 应用质量节拍第 13 轮：将 quality-gate.yml 的 Gate 8 从旧版 run-agent-judge.js 升级到新版 run-autonomous-e2e.js。
 
 ### 改动
-- **Gate 8 升级**：使用 un-autonomous-e2e.js 统一端到端脚本替代 un-agent-judge.js
+- **Gate 8 升级**：使用 
+un-autonomous-e2e.js 统一端到端脚本替代 
+un-agent-judge.js
 - **更全面的检测**：统一脚本同时覆盖视觉回归和 PRD 覆盖审计
 - **退出码精简**：0=PASS / 1=FAIL / 2=INFRA_ERROR，消除 NEED_HUMAN 歧义
 - **CI 兼容**：使用 --skip-server --skip-visual 模式，复用 Gate 7 的 Vite 服务器
@@ -3094,6 +3106,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

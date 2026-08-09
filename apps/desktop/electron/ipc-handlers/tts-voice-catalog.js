@@ -4,6 +4,15 @@
 const { TtsVoiceService } = require('../services/tts-voice-service')
 const { TtsVoiceCloneService } = require('../services/tts-voice-clone-service')
 const { withSenderCheck, EC } = require('./helpers')
+const { log } = require('../services/logger')
+
+function logHandlerError (input, error) {
+  const providerId = input && isSafeIdentifier(input.providerId, 128) ? input.providerId : 'unknown'
+  const model = input && isSafeIdentifier(input.model, 128) ? input.model : 'unknown'
+  const detail = String(error && error.message ? error.message : error).slice(0, 200)
+  // logger 自带 Bearer/apiKey/authorization/sk- 脱敏，仍截断兜底
+  log.warn('tts-voice-catalog', `handler error providerId=${providerId} model=${model} detail=${detail}`)
+}
 
 function isSafeIdentifier (value, maxLength = 256) {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength &&
@@ -50,7 +59,8 @@ function registerTtsVoiceCatalogHandlers (ipcMain, deps = {}) {
     if (!input) return invalidArguments()
     try {
       return await service.getCatalog(input)
-    } catch (_) {
+    } catch (error) {
+      logHandlerError(input, error)
       return { code: EC.REQUEST_ERROR, message: 'VOICE_CATALOG_UNAVAILABLE' }
     }
   }))
@@ -60,7 +70,8 @@ function registerTtsVoiceCatalogHandlers (ipcMain, deps = {}) {
     if (!input) return invalidArguments()
     try {
       return service.getCapability(input)
-    } catch (_) {
+    } catch (error) {
+      logHandlerError(input, error)
       return { code: EC.REQUEST_ERROR, message: 'VOICE_CATALOG_UNAVAILABLE' }
     }
   }))
@@ -70,7 +81,8 @@ function registerTtsVoiceCatalogHandlers (ipcMain, deps = {}) {
     if (!input) return invalidArguments()
     try {
       return await service.selectVoice(input)
-    } catch (_) {
+    } catch (error) {
+      logHandlerError(input, error)
       return { code: EC.REQUEST_ERROR, message: 'VOICE_CATALOG_UNAVAILABLE' }
     }
   }))
@@ -80,7 +92,8 @@ function registerTtsVoiceCatalogHandlers (ipcMain, deps = {}) {
     if (!input) return invalidArguments()
     try {
       return await service.clearVoicePreference(input)
-    } catch (_) {
+    } catch (error) {
+      logHandlerError(input, error)
       return { code: EC.REQUEST_ERROR, message: 'VOICE_CATALOG_UNAVAILABLE' }
     }
   }))
