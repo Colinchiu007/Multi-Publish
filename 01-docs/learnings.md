@@ -6149,3 +6149,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **pitfall：doc-gate 配置类路径缺口**——根 package.json/nx.json 变更触发 doc-sync 硬门禁失败；补入 doc-gate paths-ignore（package.json/package-lock.json/nx.json），与 `.github/**` 自动 bypass 一致。
 - **契约**：`CI_IGNORED_PATHS` + nx 引入契约 + doc-gate 路径断言（契约测试 29 项）；affected 行为由「shared-utils 改动 → 仅 shared-utils+desktop」场景守护。
 - **全量回归保留**：quality-gate 新增 push(main) 触发（MODIFIED delta 更新 ci-quality-gate-parallel 触发去重），主分支合并后全量；feature 分支仍仅 PR 触发。
+
+## 图片轮播语音克隆面板撑宽复盘 (2026-08-09)
+
+- **需求**：展开「音色复制 / 克隆」面板时，整个界面宽度突然变宽。
+- **根因（CSS min-content 撑宽）**：`.config-grid` 轨道 `minmax(200px, 1fr)` 的 `1fr` 等价 `minmax(auto, 1fr)`——轨道不会小于内容最小宽度；展开面板后长不可断内容（MiniMax 生成的克隆 voice_id 如 `MiniMaxMyVoiceName_abc...`、长名称）让 `.voice-clone-row > span`（flex 子项默认 `min-width:auto`）撑宽行 → 面板 → 轨道 → 整个配置区横向溢出。真实 chromium 静态复现：60 字符不可断名使面板 `scrollWidth 631 > clientWidth 534`（溢出 97px）。
+- **修复**：① 轨道 `minmax(min(200px,100%),1fr)`（窄容器可收缩）；② `.config-item/.config-span-2/.voice-clone-panel/.voice-clone-actions/.voice-clone-list/.voice-clone-row/.form-input` 加 `min-width:0`（grid/flex 子项可收缩）；③ 克隆名 `.voice-clone-row > span { overflow-wrap:anywhere }`（长不可断文本换行）。
+- **回归**：`electron/tests/voice-clone-layout-regression.test.js`——真实 chromium 行为断言（BEFORE 溢出 97px / AFTER 0）+ CSS 契约断言（规则被回退即红）。
+- **预防（系统性）**：CSS Grid `1fr` 轨道 + flex/grid 子项默认 `min-width:auto` 是「内容撑宽容器」的高频根因；凡面板/卡片动态展开长文本/长 id 的布局，统一加 `min-width:0` + `overflow-wrap:anywhere` + `minmax(min(Npx,100%),1fr)` 三件套，并以真实浏览器断言防回退。

@@ -1177,6 +1177,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 文件不可读/被占用 | 主进程「媒体文件不存在或不可读」「媒体文件被占用，请关闭占用程序后重试」及 EBUSY/EPERM/EACCES 原始错误 → `MEDIA_UNREADABLE`：「无法读取所选{kindLabel}文件，请确认文件未被占用或已损坏后重试。」 |
 | 有界重试 | `importUserSelectedMedia` 复制文件对 EBUSY/EPERM/EACCES 做 ≤3 次短退避（150ms×n）重试；持续占用回传可读中文原因；非占用类错误原样抛出，禁止无限重试。 |
 | 无法识别 | 未匹配任何原因回退 `MEDIA_INVALID`（不泄露内部错误文本）。 |
+| 面板防撑宽（2026-08-09 追加） | 展开「音色复制 / 克隆」面板不得把界面撑宽：`.config-grid` 轨道 `minmax(min(200px,100%),1fr)`（窄容器可收缩）+ 网格/flex 子项 `min-width:0` + 克隆名 `.voice-clone-row > span { overflow-wrap:anywhere }`——长不可断内容（MiniMax 生成的克隆 voice_id、长名称）换行而非溢出；回归：真实 chromium 断言（修复前 97px 溢出 → 修复后 0）+ CSS 契约测试（`voice-clone-layout-regression.test.js`）。 |
 | 提示文字（中/英） | `MEDIA_PATH_UNRESOLVED`：zh「无法获取所选{kindLabel}文件的本地路径，请重新选择文件后再试；若持续出现请重启应用。」en「Could not resolve the local path of the selected {kindLabel} file. Choose it again; if this keeps happening, restart the app.」 |
 | 验收标准 | ① MiniMax 本地克隆「01」点删除 → 列表移除、无「服务不可用」提示、偏好清理、样本目录删除（服务层 33 用例）；② 有效克隆点「设为默认」→ 下拉同步、出现「默认」徽标、按钮变「已设为默认」（CreateView 用例）；③ 选择正常背景音乐 mp3 → 成功显示受控路径且无错误弹窗（真实 Electron 验证：`setInputFiles` 真实 mp3 → bgmPath=selected-media 受控路径、无对话框）；文件被占用/损坏 → 弹「无法读取所选背景音乐文件…」；无法解析路径 → 弹「无法获取所选背景音乐文件的本地路径…」；④ 未登录/未激活许可证下媒体导入可用（license-access-control 用例 + 真实 Electron code 0）；⑤ 既有 7.1.16 无效克隆「删除仍可用」语义保持。 |
 

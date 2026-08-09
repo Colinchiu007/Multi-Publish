@@ -1,3 +1,7 @@
+## [未发布] 修复：展开语音克隆面板时界面被长内容撑宽（2026-08-09）
+
+- 修复：展开「音色复制 / 克隆」面板时，长不可断内容（MiniMax 克隆 voice_id/长名称）撑宽配置网格导致整个界面变宽——`.config-grid` 轨道改 `minmax(min(200px,100%),1fr)`，面板/行/输入等 grid/flex 子项加 `min-width:0`，克隆名 `overflow-wrap:anywhere` 换行而非溢出。
+- 回归：`voice-clone-layout-regression.test.js`（真实 chromium 行为断言：修复前 97px 溢出 → 修复后 0；CSS 契约断言防回退）。
 ## [未发布] 修复：本地克隆音色删除/设为默认与背景音乐读取提示（2026-08-09）
 
 - 修复：删除本地克隆音色（含 7.1.16 前存量非法 id「01」）不再强制远端 deleteVoice——adapter 不支持（如 MiniMax 官方 clone API 无删除端点）时删除为纯本地管理（registry 记录 + 本地样本 + 偏好清理），不再误报「音色克隆服务暂时不可用」；支持远端删除（ElevenLabs）的 provider 保持先远端删除语义。
