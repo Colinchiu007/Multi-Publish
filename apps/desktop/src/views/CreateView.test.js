@@ -355,6 +355,59 @@ describe("CreateView", () => {
     w.unmount();
   });
 
+  it("选择图片轮播流水线后自动恢复上次选项（真实交互路径，2026-08-09 Bug 反哺）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: {
+        version: 1,
+        s2vConfig: { imageStyle: "anime", voiceSpeed: 1.5 },
+        s2vOutputConfig: { resolution: "1920x1080", fps: 60 },
+        ui: { expandedGroups: ["appearance"] },
+      },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    // mounted 时 selectedPipeline 为 null（真实场景）→ mounted 的 restore 守卫不执行；
+    // 用户点击图片轮播卡片触发 selectPipeline → 才恢复
+    expect(w.vm.selectedPipeline).toBeNull();
+    w.vm.selectPipeline({ name: "story2video-compose", available: true, stages: [] });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    expect(w.vm.s2vConfig.imageStyle).toBe("anime");
+    expect(w.vm.s2vConfig.voiceSpeed).toBe(1.5);
+    expect(w.vm.s2vOutputConfig.fps).toBe(60);
+    expect(w.vm.s2vOpenSections.appearance).toBe(true);
+    expect(w.vm._s2vRestoredOnce).toBe(true);
+    w.unmount();
+  });
+
+  it("同会话重复选择图片轮播不重复恢复（保留当前编辑，不覆盖）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: { version: 1, s2vConfig: { imageStyle: "anime" }, s2vOutputConfig: {}, ui: {} },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectPipeline({ name: "story2video-compose", available: true, stages: [] });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    expect(w.vm.s2vConfig.imageStyle).toBe("anime");
+    // 用户继续编辑 → 切走再切回，不得被旧快照覆盖
+    w.vm.s2vConfig.imageStyle = "cyberpunk";
+    w.vm.selectPipeline({ name: "animated-explainer", available: true, stages: [] });
+    w.vm.selectPipeline({ name: "story2video-compose", available: true, stages: [] });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    expect(w.vm.s2vConfig.imageStyle).toBe("cyberpunk");
+    w.unmount();
+  });
+
   it("保存并重置图片轮播选项设置", async () => {
     const mocks = await import("@/api/publisher");
     mocks.storeGetSetting.mockResolvedValue(null);
