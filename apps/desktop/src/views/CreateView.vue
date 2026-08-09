@@ -2055,8 +2055,11 @@ export default {
       ])
       if (providerRequestId !== this.s2vVoiceProviderRequestId) return
 
+      // 只展示「已启用且已配置」的服务商（is_configured=true：有可用 API Key 或免 Key 本地模型）。
+      // 未配置/Key 解密失败的 provider 不进入能力下拉，避免旧配置恢复选中后流水线反复重试
+      // 「尚未配置 API Key」导致卡在 generate_assets（2026-08-09 排查：debug profile 残留失效 key）。
       const enabledProviders = (result) => result.status === 'fulfilled' && result.value?.code === 0 && Array.isArray(result.value.data)
-        ? result.value.data.filter(provider => provider?.enabled === true && provider.id && provider.name)
+        ? result.value.data.filter(provider => provider?.enabled === true && provider.is_configured === true && provider.id && provider.name)
         : []
       this.s2vImageProviders = enabledProviders(imageResult)
       this.s2vVoiceProviders = enabledProviders(voiceResult)

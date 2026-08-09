@@ -770,12 +770,13 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
-  it("Story2Video 图片生成器列出已启用的图片服务商", async () => {
+  it("Story2Video 图片生成器只列出已启用且已配置的图片服务商", async () => {
     const listImageProviders = vi.fn().mockResolvedValue({
       code: 0,
       data: [
-        { id: "minimax-image", name: "MiniMax Image", category: "image", enabled: true },
-        { id: "disabled-image", name: "Disabled Image", category: "image", enabled: false },
+        { id: "minimax-image", name: "MiniMax Image", category: "image", enabled: true, is_configured: true },
+        { id: "unconfigured-image", name: "未配置图片", category: "image", enabled: true, is_configured: false },
+        { id: "disabled-image", name: "Disabled Image", category: "image", enabled: false, is_configured: true },
       ],
     });
     window.electronAPI = { modelProviderList: listImageProviders };
@@ -790,6 +791,7 @@ describe("CreateView - S2V orchestration", () => {
     const imageProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "图片生成器");
     expect(listImageProviders).toHaveBeenCalledWith("image");
     expect(imageProviderItem.find('option[value="minimax-image"]').text()).toContain("MiniMax Image");
+    expect(imageProviderItem.find('option[value="unconfigured-image"]').exists()).toBe(false);
     expect(imageProviderItem.find('option[value="disabled-image"]').exists()).toBe(false);
     w.unmount();
   });
@@ -800,17 +802,20 @@ describe("CreateView - S2V orchestration", () => {
       name: "MiniMax",
       category: "multimodal",
       enabled: true,
+      is_configured: true,
       capabilities: ["llm", "tts", "image", "video"],
       capability_models: { llm: "MiniMax-M2.7", tts: "speech-2.8-turbo", image: "image-01", video: "MiniMax-Hailuo-2.3" },
       models: ["speech-2.8-turbo", "image-01", "MiniMax-Hailuo-2.3", "MiniMax-M2.7"],
     };
     const listProviders = vi.fn(async (category) => {
       if (category === "image") return { code: 0, data: [
-        { id: "minimax-image", name: "MiniMax Image", category: "image", enabled: true },
+        { id: "minimax-image", name: "MiniMax Image", category: "image", enabled: true, is_configured: true },
+        { id: "unconfigured-image", name: "未配置图片", category: "image", enabled: true, is_configured: false },
         multimodal,
       ] };
       if (category === "tts") return { code: 0, data: [
-        { id: "minimax-tts", name: "MiniMax TTS", category: "tts", enabled: true, models: ["speech-2.8-turbo"] },
+        { id: "minimax-tts", name: "MiniMax TTS", category: "tts", enabled: true, is_configured: true, models: ["speech-2.8-turbo"] },
+        { id: "unconfigured-tts", name: "未配置语音", category: "tts", enabled: true, is_configured: false, models: ["speech-2.8-turbo"] },
         multimodal,
       ] };
       return { code: 0, data: [] };
@@ -824,13 +829,15 @@ describe("CreateView - S2V orchestration", () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     await nextTick();
 
-    // 图片生成器：多模态以「（多模态）」后缀展示
+    // 图片生成器：多模态以「（多模态）」后缀展示；未配置 provider 不出现
     const imageProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "图片生成器");
     expect(imageProviderItem.find('option[value="minimax-multimodal"]').text()).toContain("MiniMax（多模态）");
+    expect(imageProviderItem.find('option[value="unconfigured-image"]').exists()).toBe(false);
 
-    // 语音生成器：多模态出现在 tts 能力选择器中
+    // 语音生成器：多模态出现在 tts 能力选择器中；未配置 provider 不出现
     const voiceProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "语音生成器");
     expect(voiceProviderItem.find('option[value="minimax-multimodal"]').text()).toContain("MiniMax（多模态）");
+    expect(voiceProviderItem.find('option[value="unconfigured-tts"]').exists()).toBe(false);
 
     // 选中多模态：语音模型只显示 tts 能力模型，默认模型取 capability_models.tts
     w.vm.s2vConfig.voiceProvider = "minimax-multimodal";

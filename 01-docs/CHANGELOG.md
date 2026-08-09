@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-09 (能力下拉只展示已配置服务商)
+
+### 修改
+- **Story2Video 能力下拉过滤未配置服务商**：图片生成器/语音生成器下拉只展示 `is_configured=true` 的 provider（有可用 API Key 或免 Key 本地模型）。未配置 / Key 解密失败（如跨机器复制 profile 导致 os_crypt 不匹配）的 provider 不再出现在下拉，旧配置恢复时自动回退到已配置项。
+  - 背景：debug profile 残留 minimax-image/minimax-tts（key 解密失败），流水线旧配置显式选中它们后在 generate_assets 反复重试「尚未配置 API Key」卡住并失败。
+- CreateView.test.js 更新/新增：未配置 provider 不出现、已配置 multimodal 保留（共 117 用例全绿）。
+
+### 文档
+- PRD 7.4.1.1 新增「已配置过滤」合同。
+
 ## [Unreleased] - 2026-08-09 (单多模态模型覆盖全部能力：能力选择器 + 音色目录)
 
 ### 新增
