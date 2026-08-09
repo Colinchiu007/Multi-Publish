@@ -194,3 +194,88 @@ describe('RunStateStore listFailed（历史记录展示失败任务）', () => {
     expect(failed.map((s) => s.runId)).toEqual(['run-ok'])
   })
 })
+
+describe('RunStateStore saveRunning / listRunning（运行中任务持久化）', () => {
+  let dir
+  let currentOwner
+
+  beforeEach(() => {
+    dir = tempDir('running')
+    currentOwner = null
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  function makeStore () {
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+    if (currentOwner) store.setOwnerProvider(() => currentOwner)
+    return store
+  }
+
+  function makeRunningRun (id) {
+    return {
+      id,
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 2,
+      stages: [{ name: 'split', status: 'completed' }, { name: 'optimize', status: 'completed' }, { name: 'generate_assets', status: 'running' }],
+      context: { prompt: '运行中文案' },
+      params: {},
+      error: null,
+      orchestrationMode: 'orchestrator',
+      createdAt: '2026-08-09T00:00:00.000Z',
+    }
+  }
+
+  it('saveRunning 写入 running 快照：endedAt 为 null、可 load 回读', () => {
+    const store = makeStore()
+    expect(store.saveRunning(makeRunningRun('run-running-1'))).toBe(true)
+
+    const loaded = store.load('run-running-1')
+    expect(loaded).not.toBeNull()
+    expect(loaded.status).toBe('running')
+    expect(loaded.endedAt).toBeNull()
+    expect(loaded.error).toBeNull()
+    expect(loaded.currentStage).toBe(2)
+  })
+
+  it('saveRunning 拒绝非法 run（与 saveFailed 一致）', () => {
+    const store = makeStore()
+    expect(store.saveRunning(null)).toBe(false)
+    expect(store.saveRunning({ id: '' })).toBe(false)
+  })
+
+  it('listRunning 只返回 running 快照；listFailed 过滤 running 快照', () => {
+    const store = makeStore()
+    store.saveFailed(makeRun('run-fail'))
+    store.saveRunning(makeRunningRun('run-running'))
+
+    expect(store.listRunning().map((s) => s.runId)).toEqual(['run-running'])
+    expect(store.listFailed().map((s) => s.runId)).toEqual(['run-fail'])
+  })
+
+  it('owner 隔离：A 保存的 running 快照 B 无法读取/列出', () => {
+    currentOwner = 'user-a'
+    const storeA = makeStore()
+    storeA.saveRunning(makeRunningRun('run-running-secret'))
+
+    currentOwner = 'user-b'
+    const storeB = makeStore()
+    expect(storeB.load('run-running-secret')).toBeNull()
+    expect(storeB.listRunning()).toEqual([])
+  })
+
+  it('remove 同时清理 running 快照两处路径', () => {
+    currentOwner = 'user-a'
+    const store = makeStore()
+    store.saveRunning(makeRunningRun('run-running-rm'))
+    fs.mkdirSync(path.join(dir, 'owners', hash('user-a')), { recursive: true })
+    fs.copyFileSync(path.join(dir, 'owners', hash('user-a'), 'run-running-rm.json'), path.join(dir, 'run-running-rm.json'))
+
+    store.remove('run-running-rm')
+    expect(fs.existsSync(path.join(dir, 'owners', hash('user-a'), 'run-running-rm.json'))).toBe(false)
+    expect(fs.existsSync(path.join(dir, 'run-running-rm.json'))).toBe(false)
+  })
+})

@@ -1116,6 +1116,28 @@ Electron 打包、工作树、PR 或发布状态证据。
 
 ① 默认（无配置）：前端两处分辨率下拉无 4K、页面无「3840×2160 / 4K」文案；② 模板/历史含 4K 时打开归一化 1920×1080；③ 直接提交 4K（绕过前端）被引擎拒绝并返回明确提示；④ `MAX_OUTPUT_RESOLUTION=4k` 或 store 配置 `4k` 后，前端出现 4K 选项且引擎放行；⑤ compose 4K 输出中间分辨率封顶 3840（无 8K 画布）；⑥ 全部回归：engine 82 / CreateView 108 / output-resolution 8 / 容器 27 测试通过。
 
+#### 7.1.21 运行中任务持久化与托盘后台运行合同（2026-08-09）
+
+**背景**：运行中任务此前只存在主进程内存 `_runs`；应用退出/重启（含 taskkill /F 强杀）后运行中任务**彻底丢失**（不落盘、历史不可见、无法续跑）。本变更实现两件事：
+1. **方案B（持久化）**：运行中编排流水线阶段级落盘 running 快照 + 退出兜底保存，重启后历史仍显示「运行中」任务并可「从断点继续」。
+2. **方案A（托盘后台）**：关闭窗口时若有运行中任务且托盘可用，隐藏到托盘（进程不退出、后台继续生成），托盘可恢复窗口/退出。
+
+| 合同 | 要求 |
+|------|------|
+| 运行中快照 | `RunStateStore.saveRunning(run)` 落盘 `status='running'`、`endedAt=null`、`error=null` 的编排快照（owner 隔离语义同失败快照）；`saveFailed` 重构为共用 `_write(run, status)`。 |
+| 阶段级 checkpoint | `startOrchestrated` 启动即写一次；`_executeStage` 在 `stageExecutor.execute` **执行前**写一次（阶段级原子性：中断后从当前阶段重新执行，不产生半完成状态）。 |
+| 退出兜底 | `PipelineEngine.saveRunningState()` 遍历内存中 `orchestrationMode='orchestrator' && status='running'` 的运行逐个落盘；`shutdown.js performShutdown` **最先**调用（先于热键/调度器/队列清理）。 |
+| 完成清理 | 编排 run 进入 `completed` 时 `runStateStore.remove(run.id)` 清理 running 快照（防已完成任务以「运行中」重现历史）；failed/cancelled 由 `saveFailed` 覆盖同文件。 |
+| 历史合并 | `getHistory()` 合并 `listFailed()`（failed/cancelled，过滤 running）+ `listRunning()`（仅 running）；按 runId 与内存条目去重。 |
+| 断点恢复 | `resumeOrchestration` 支持 `status='running'` 快照（从中断阶段重建并自动续跑）；失败快照仍要求带 `error`；内存中已 running 的 run 幂等返回 `{ success, runId, alreadyRunning: true }` 不重复创建。 |
+| 窗口关闭→托盘 | `window.js` 主窗口 `close` 事件：托盘可用（`systemTray.isAvailable()`）且 `pipelineEngine.hasRunningOrchestration()` → `preventDefault + hide()`（进程继续后台运行）；任一条件不满足照旧关闭退出。 |
+| 托盘可用性 | dev 模式 `dist/assets/icon.png` 缺失时回退内嵌 32×32 占位图标（base64），保证 dev 下托盘可用；headless/无托盘环境仍优雅降级。 |
+| 托盘退出 | 菜单「退出」改走 `app.quit()`（触发 before-quit → 运行态落盘 + 服务清理），不再 `tray.destroy + mainWindow.destroy`（会绕过清理丢失运行态）。 |
+| 前端历史 | running 历史卡片显示「继续生成」按钮（与 failed 的「从断点继续」并列）；点击运行中卡片/按钮调用 `resumeOrchestration`（同会话幂等附加实时进度，跨重启从断点重建）。 |
+| 数据校验 | `saveRunning` 拒绝空 runId（与 saveFailed 一致）；运行中快照上下文保持纯 JSON（可序列化失败即跳过并告警，不阻塞运行）。 |
+| 提示文字 | 窗口隐藏时主进程日志「运行中有流水线任务，窗口隐藏到托盘继续后台执行」；前端 running 卡片按钮「继续生成」/恢复中「恢复中...」。 |
+| 验收标准 | ① 启动流水线后强杀进程重启，历史出现「运行中」任务且点击可断点续跑；② 关闭窗口（有运行任务）进程不退出、任务继续，托盘可恢复窗口；③ 无运行任务关闭窗口正常退出；④ 完成后重启历史无「运行中」残留；⑤ 失败/取消语义不变。 |
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
@@ -1780,6 +1802,7 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **页面无关性**：运行绑定在主进程 `PipelineEngine._runs`（runId 驱动），不依赖任何页面/组件生命周期。CreateView `beforeUnmount` 仅清理轮询 timer 与时钟，**不取消 run**。
 - **返回恢复查看**：CreateView `mounted` 调用 `resumeRunningOrchestration()`——遍历候选流水线名，用 `pipeline:status` 找到 `status=running && orchestrationMode=orchestrator` 的运行并自动恢复阶段清单查看（含轮询）。renderer 重载/切页返回均适用。
 - **断点恢复**：失败 run 落 `RunStateStore` 快照，`pipeline:resumeOrchestration` 从失败阶段继续（并发槽位占用，见下）。
+- **运行中任务持久化（2026-08-09 新增）**：运行中编排 run 阶段级落盘 running 快照（`saveRunning`）+ 退出兜底 `saveRunningState()`；应用退出/强杀重启后，任务以「运行中」状态继续显示在历史记录并可「从断点继续」（见 7.1.21）。
 
 ### 2. 历史记录显示运行中任务
 - **数据源**：`pipeline:history`（`PipelineEngine.getHistory()`）现在返回「运行中 run（在前）+ 终态历史」；`_runs` 中 `<runId>` 与 `_<pipelineName>` 指向同一对象，返回前去重。
@@ -1797,7 +1820,8 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
     - **状态文案**：`failed` 状态在【历史记录】显示为「生成失败」（CreateView 内部历史视图 `historyStatusLabel` 与 `/create/history` 独立页 `statusLabel` 同步；状态筛选项「失败」改为「生成失败」）。
     - **交互（2026-08-08 二次修订，新增断点继续）**：失败且可恢复（非内容政策类）的卡片显示「从断点继续」按钮，点击调用 `pipeline:resumeOrchestration` 从失败阶段续跑，自动切回流水线创作视图并展示实时进度；续跑后该任务以「进行中」状态继续留在历史记录（不再消失）。内容政策类失败（需修改文案）不显示该按钮，保持仅展示状态。点击失败卡片本体同样触发续跑（与运行中卡片点击行为一致）。
     - **终态记录唯一性（2026-08-08 二次修订）**：断点续跑复用同一 runId，`PipelineEngine._finalizeRun` 写入 `_history` 时按 runId 去重（同 id 只保留最新一条终态，避免新旧终态重复展示）。
-    - **终态快照扩展（2026-08-08 二次修订）**：编排模式取消（cancelled）与失败（failed）一样调用 `RunStateStore.saveFailed` 持久化终态快照——续跑时会删除旧失败快照，若续跑后再次取消必须保留新终态，否则应用重启后该任务在历史中丢失；取消快照状态为 `cancelled`，不可恢复（`resumeOrchestration` 仅允许 `failed`）。
+    - **终态快照扩展（2026-08-08 二次修订）**：编排模式取消（cancelled）与失败（failed）一样调用 `RunStateStore.saveFailed` 持久化终态快照——续跑时会删除旧失败快照，若续跑后再次取消必须保留新终态，否则应用重启后该任务在历史中丢失；取消快照状态为 `cancelled`，不可恢复（`resumeOrchestration` 仅允许 `failed`/`running`）。
+    - **运行中任务持久化（2026-08-09 新增，见 7.1.21）**：运行中编排 run 在启动与每个阶段执行前落盘 `status='running'` 快照（`endedAt=null`），退出/强杀时 `saveRunningState()` 兜底；应用重启后 `getHistory()` 经 `listRunning()` 合并这些快照，任务以「运行中」显示并带「继续生成」按钮——点击调用 `resumeOrchestration` 从中断阶段重建并自动续跑（同会话内幂等返回 `alreadyRunning`，仅附加实时进度，不重复创建运行）。已完成 run 的 running 快照在 `_finalizeRun(completed)` 时删除，杜绝「已完成任务以运行中重现」。
 - **交互逻辑**：
   - 点击运行中卡片 → 跳转 `/create`（CreateView 自动恢复查看该 run 进度）。
   - 点击已完成卡片 → 跳转 `/create/result?path=<成片路径>` 预览。

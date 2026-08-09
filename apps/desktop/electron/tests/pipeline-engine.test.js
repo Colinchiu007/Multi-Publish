@@ -187,6 +187,150 @@ describe('PipelineEngine 状态机模式', () => {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 
+  it('getHistory 合并持久化 running 快照：重启后运行中任务仍显示且可继续', () => {
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    const { RunStateStore } = require('../services/run-state-store')
+    const dir = path.join(os.tmpdir(), 'pipeline-engine-running-history-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+
+    store.saveRunning({
+      id: 'run-running-persisted',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 2,
+      stages: [
+        { name: 'split', status: 'completed' },
+        { name: 'optimize', status: 'completed' },
+        { name: 'generate_assets', status: 'running' },
+      ],
+      context: { prompt: '运行中' },
+      params: {},
+      error: null,
+      orchestrationMode: 'orchestrator',
+      createdAt: '2026-08-09T02:00:00.000Z',
+    })
+
+    // 模拟应用重启：新引擎（内存为空）复用同一 store
+    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const history = engineB.getHistory()
+    expect(history).toContainEqual(expect.objectContaining({
+      id: 'run-running-persisted',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      completedAt: null,
+    }))
+
+    // running 快照不混入 listFailed（失败/取消语义不变）
+    expect(store.listFailed().map((s) => s.runId)).not.toContain('run-running-persisted')
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('saveRunningState 把内存运行中编排任务落盘为 running 快照（退出兜底）', async () => {
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    const { RunStateStore } = require('../services/run-state-store')
+    const dir = path.join(os.tmpdir(), 'pipeline-engine-save-running-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+    const engine = new PipelineEngine({ serviceBus: {}, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    engine.registerPipeline({
+      name: 'running-persist-test',
+      description: '退出兜底测试',
+      stages: ['a', 'b'],
+      stageDefs: [{ name: 'a', type: 'rp_a' }, { name: 'b', type: 'rp_b' }],
+    })
+    engine.registerStageExecutor('rp_a', async () => ({ success: true, output: {} }))
+    engine.registerStageExecutor('rp_b', async () => ({ success: true, output: {} }))
+
+    const started = await engine.startOrchestrated('running-persist-test', { initialContext: {}, autoAdvance: false })
+    expect(started.success).toBe(true)
+    // 启动即阶段级 checkpoint：running 快照已落盘
+    expect(store.listRunning().map((s) => s.runId)).toContain(started.runId)
+
+    // 模拟退出兜底：saveRunningState 幂等重写
+    expect(engine.saveRunningState()).toBe(1)
+    const loaded = store.load(started.runId)
+    expect(loaded.status).toBe('running')
+    expect(loaded.endedAt).toBeNull()
+
+    // 非编排（state_machine）运行中的 run 不计入
+    engine.start('animated-explainer', {})
+    expect(engine.saveRunningState()).toBe(1)
+
+    // 无运行中编排任务时返回 0
+    const idleEngine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    expect(idleEngine.saveRunningState()).toBe(0)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('_executeStage 执行前写入阶段级 running checkpoint', async () => {
+    const saveRunning = vi.fn(() => true)
+    const engine = new PipelineEngine({
+      serviceBus: {},
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      runStateStore: { saveRunning },
+    })
+    engine.registerPipeline({
+      name: 'checkpoint-test',
+      description: 'checkpoint 测试',
+      stages: ['a'],
+      stageDefs: [{ name: 'a', type: 'ck_a' }],
+    })
+    let executed = false
+    engine.registerStageExecutor('ck_a', async () => { executed = true; return { success: true, output: {} } })
+
+    const started = await engine.startOrchestrated('checkpoint-test', { initialContext: {}, autoAdvance: false })
+    // startOrchestrated 启动即写入一次
+    expect(saveRunning).toHaveBeenCalled()
+    await engine.executeStage(started.runId)
+    // _executeStage 执行前再次写入
+    expect(executed).toBe(true)
+    expect(saveRunning).toHaveBeenCalledTimes(2)
+  })
+
+  it('_finalizeRun completed 清理 running 快照（防止已完成任务以运行中重现）', () => {
+    const remove = vi.fn()
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      runStateStore: { remove },
+    })
+    const run = {
+      id: 'run-complete-cleanup',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 0,
+      stages: [{ name: 'split', status: 'running' }],
+      context: {},
+      params: {},
+      orchestrationMode: 'orchestrator',
+      startedAt: new Date().toISOString(),
+    }
+    engine._runs.set(run.id, run)
+    engine._finalizeRun(run, 'completed')
+    expect(remove).toHaveBeenCalledWith('run-complete-cleanup')
+  })
+
+  it('hasRunningOrchestration 只在存在运行中编排任务时返回 true', async () => {
+    const engine = new PipelineEngine({ serviceBus: {}, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine.registerPipeline({
+      name: 'running-detect',
+      description: '运行检测',
+      stages: ['a'],
+      stageDefs: [{ name: 'a', type: 'rd_a' }],
+    })
+    engine.registerStageExecutor('rd_a', async () => ({ success: true, output: {} }))
+    expect(engine.hasRunningOrchestration()).toBe(false)
+
+    const started = await engine.startOrchestrated('running-detect', { initialContext: {}, autoAdvance: false })
+    expect(started.success).toBe(true)
+    expect(engine.hasRunningOrchestration()).toBe(true)
+
+    engine.cancel()
+    expect(engine.hasRunningOrchestration()).toBe(false)
+  })
+
   it('确认检查点后运行快照不保留已消费的检查点', () => {
     const run = {
       id: 'run-checkpoint',

@@ -751,6 +751,7 @@
                 <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
                 <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
                 <button v-if="h.status === 'failed' && historyItemResumable(h)" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '从断点继续' }}</button>
+                <button v-else-if="h.status === 'running'" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '继续生成' }}</button>
               </div>
               <div v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
                 <span v-for="(s, si) in h.stages" :key="si" class="history-progress-seg" :class="historyStageState(s)" :title="historyStageTitle(s)">{{ historyStageLabel(s) }}</span>
@@ -2466,10 +2467,10 @@ export default {
     },
     openHistory(item) {
       if (!item) return
-      // 运行中：切回流水线创作视图并自动恢复查看该 run 的实时进度
+      // 运行中：切回流水线创作视图并接上该 run。同会话内 resumeOrchestration 幂等返回
+      // （alreadyRunning，附加实时进度）；跨重启的运行中快照则从断点重建并继续。
       if (item.status === 'running') {
-        this.view = 'pipelines'
-        this.resumeRunningOrchestration()
+        this.resumeHistoryItem(item)
         return
       }
       // 失败且可断点恢复：从历史直接续跑，避免失败任务在历史中不可操作

@@ -116,6 +116,28 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * 关闭窗口时是否应隐藏到托盘（方案A：运行中的编排流水线在后台继续）。
+ * 条件：托盘可用 且 主进程存在运行中的编排任务。二者缺一时照旧关闭/退出，
+ * 避免无托盘环境下窗口关闭后进程无法恢复。
+ * @param {object} context
+ * @returns {boolean}
+ */
+function shouldHideToTray(context) {
+  if (!context || typeof context !== 'object') return false
+  const pipelineEngine = context.pipelineEngine
+  const systemTray = context.systemTray
+  if (!pipelineEngine || typeof pipelineEngine.hasRunningOrchestration !== 'function') return false
+  if (!systemTray || typeof systemTray.isAvailable !== 'function') return false
+  if (!systemTray.isAvailable()) return false
+  try {
+    return pipelineEngine.hasRunningOrchestration()
+  } catch (error) {
+    log.warn('window', '检测运行中任务失败：' + errorMessage(error))
+    return false
+  }
+}
+
 function clearMainWindowBindings(context) {
   for (const name of [
     'authViewManager', 'rpaViewManager', 'webviewManager', 'qrCodeLogin', 'oauthManager',
@@ -228,6 +250,15 @@ function createWindow(context) {
   if (typeof showFallbackTimer.unref === 'function') showFallbackTimer.unref()
   mainWindow.on('closed', () => {
     if (showFallbackTimer) clearTimeout(showFallbackTimer)
+  })
+  // 方案A：运行中的编排流水线在后台继续——关闭窗口时隐藏到托盘而非退出进程。
+  // 托盘不可用或无运行任务时照旧关闭（window-all-closed → before-quit 清理链）。
+  mainWindow.on('close', (event) => {
+    if (shouldHideToTray(context)) {
+      if (event && typeof event.preventDefault === 'function') event.preventDefault()
+      mainWindow.hide()
+      log.info('window', '运行中有流水线任务，窗口隐藏到托盘继续后台执行')
+    }
   })
   mainWindow.on('resize', () => {
     authViewManager._onWindowResize()

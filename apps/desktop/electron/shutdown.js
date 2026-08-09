@@ -37,6 +37,13 @@ async function performShutdown(context) {
     renderEngine, usageTracker, story2videoMediaServer,
   } = context
 
+  // 退出兜底：最先落盘运行中的编排流水线，保证应用退出后任务在历史中仍可见并可断点继续。
+  // 必须在热键/调度器等清理之前执行，避免任务被 stop 后丢失运行态（2026-08-09 方案B）。
+  await runCleanup('Error saving running pipeline state:', () => {
+    if (context.pipelineEngine && typeof context.pipelineEngine.saveRunningState === 'function') {
+      return context.pipelineEngine.saveRunningState()
+    }
+  })
   await runCleanup('Error unregistering hotkeys:', () => {
     if (hotkeys && hotkeys.unregister) return hotkeys.unregister()
   })
