@@ -81,7 +81,8 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   assert.equal(rootPackage.scripts.test, 'npm run test --workspaces --if-present');
   assert.match(unitTestStep, /shell:\s*pwsh/);
   assert.match(unitTestStep, /Start-Process -FilePath "npm\.cmd"/);
-  assert.match(unitTestStep, /"run",\s*"test",\s*"--workspaces",\s*"--if-present"/);
+  assert.match(unitTestStep, /"run",\s*"test:affected",\s*"--",\s*"--exclude=@multi-publish\/desktop"/);
+  assert.match(unitTestStep, /"run",\s*"test:all",\s*"--",\s*"--exclude=@multi-publish\/desktop"/);
   assert.match(unitTestStep, /WaitForExit\(1800000\)/);
   assert.match(unitTestStep, /taskkill \/PID \$testProcess\.Id \/T \/F/);
   assert.doesNotMatch(unitTestStep, /--maxWorkers=1|--reporter=verbose|--testTimeout=10000/);
@@ -209,4 +210,26 @@ test('Nx affected 引入契约：nx 配置与 quality-gate 双模式', () => {
   assert.match(src, /nx affected -t test --base=origin\/main/);
   assert.match(src, /nx run-many -t test --all/);
   assert.match(src, /Restore Nx cache/);
+});
+
+test('桌面测试分片契约：desktop-shards 矩阵与 unit-tests 排除桌面', () => {
+  const workflow = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  const job = workflow.jobs['desktop-shards'];
+  assert.ok(job, 'desktop-shards job 必须存在');
+  assert.deepEqual(job.strategy.matrix.shard, ['1/2', '2/2']);
+  assert.ok(workflow.jobs['gate-result'].needs.includes('desktop-shards'), 'gate-result 必须依赖 desktop-shards');
+  const src = fs.readFileSync(qualityGatePath, 'utf8');
+  assert.match(src, /--shard=\$\{\{ matrix\.shard \}\}/);
+  assert.match(src, /--exclude=@multi-publish\/desktop/);
+  // 进程内串行确定性契约必须显式保留（W2）
+  assert.match(src, /--maxWorkers=1/);
+  assert.match(src, /--no-file-parallelism/);
+  assert.match(src, /--testTimeout=10000/);
+  // shard watchdog 必须有契约守护（W3）
+  assert.match(src, /function Get-TestProcessTree/);
+  assert.match(src, /WaitForExit\(1800000\)/);
+  assert.match(src, /taskkill \/PID \$testProcess\.Id \/T \/F/);
+  const rootPkg = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));
+  // 死脚本清理（W1）：根 package.json 不应再有 test:desktop:shard
+  assert.equal(rootPkg.scripts['test:desktop:shard'], undefined);
 });
