@@ -480,14 +480,27 @@
 
     // 流水线
     pipelines: pipelinesObj,
+    // 与 electron/services/pipeline-engine.js 的 PIPELINES/listPipelines 对齐：
+    // 14 条内置流水线，story2video-compose（图片轮播）优先，screen-demo 无真实引擎标记 available=false。
     pipelineList: makeHandler('pipelineList', async () => ok([
-      { name: 'story2video-compose', description: '从文案自动生成配音、画面与成片', category: 'video', stageCount: 6, stages: ['分句', '内容增强', '提示词优化', '素材生成', '视频合成', '发布'], steps: ['分句', '内容增强', '提示词优化', '素材生成', '视频合成', '发布'] },
-      { name: '热点流水线', description: '采集热点并生成发布内容', category: 'content', stages: ['采集', 'AI写作', '优化', '发布'], steps: ['采集', 'AI写作', '优化', '发布'] },
-      { name: '长文流水线', description: '从选题到发布的长文流程', category: 'article', stages: ['选题', '写作', '校对', '发布'], steps: ['选题', '写作', '校对', '发布'] }
+      { name: 'story2video-compose', description: '将文案自动生成图片轮播视频', category: 'generated', stageCount: 6, estimatedCost: 'medium', available: true, stages: ['split', 'domain_enrich', 'optimize', 'generate_assets', 'compose', 'publish'] },
+      { name: 'animated-explainer', description: '从主题或创意自动生成完整讲解视频', category: 'generated', stageCount: 8, estimatedCost: 'medium', available: true, stages: ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish'] },
+      { name: 'talking-head', description: '上传视频和文案，生成带字幕的口播视频', category: 'talking_head', stageCount: 4, estimatedCost: 'low', available: true, stages: ['upload', 'transcribe', 'captions', 'render'] },
+      { name: 'cinematic', description: '将素材视频渲染成电影感短片', category: 'cinematic', stageCount: 4, estimatedCost: 'low', available: true, stages: ['ingest', 'grade', 'compose', 'render'] },
+      { name: 'animation', description: '使用 AI 生成动画序列', category: 'animation', stageCount: 4, estimatedCost: 'high', available: true, stages: ['concept', 'storyboard', 'animate', 'render'] },
+      { name: 'avatar-spokesperson', description: '使用数字人生成口播视频', category: 'talking_head', stageCount: 4, estimatedCost: 'high', available: true, stages: ['avatar_select', 'script', 'generate', 'render'] },
+      { name: 'character-animation', description: '使用 AI 驱动角色表演', category: 'animation', stageCount: 4, estimatedCost: 'high', available: true, stages: ['character_design', 'rigging', 'animate', 'render'] },
+      { name: 'clip-factory', description: '从长视频自动提取精彩片段', category: 'screen_recording', stageCount: 4, estimatedCost: 'low', available: true, stages: ['analyze', 'extract', 'caption', 'export'] },
+      { name: 'documentary-montage', description: '以纪录片风格编辑素材', category: 'cinematic', stageCount: 5, estimatedCost: 'medium', available: true, stages: ['research', 'ingest', 'edit', 'narrate', 'render'] },
+      { name: 'hybrid', description: '混合 AI 生成内容与实拍素材', category: 'hybrid', stageCount: 4, estimatedCost: 'high', available: true, stages: ['plan', 'generate', 'merge', 'render'] },
+      { name: 'localization-dub', description: '翻译视频并生成多语言配音', category: 'hybrid', stageCount: 4, estimatedCost: 'medium', available: true, stages: ['transcribe', 'translate', 'tts', 'sync'] },
+      { name: 'podcast-repurpose', description: '将音频播客转为可视化视频', category: 'hybrid', stageCount: 4, estimatedCost: 'medium', available: true, stages: ['analyze', 'visualize', 'assemble', 'render'] },
+      { name: 'framework-smoke', description: '快速验证流水线配置', category: 'custom', stageCount: 2, estimatedCost: 'low', available: true, stages: ['verify', 'report'] },
+      { name: 'screen-demo', description: '录制屏幕操作并自动添加标注', category: 'screen_recording', stageCount: 3, estimatedCost: 'low', available: false, stages: ['record', 'annotate', 'render'] }
     ])),
     pipelineGet: makeHandler('pipelineGet', async () => ok(null)),
-    pipelineStart: makeHandler('pipelineStart', async () => ok({ started: true })),
-    pipelineStartOrchestrated: makeHandler('pipelineStartOrchestrated', async () => ok({ runId: 'e2e-story2video-run', status: 'running' })),
+    pipelineStart: makeHandler('pipelineStart', async (name) => ok({ started: true, pipelineName: name })),
+    pipelineStartOrchestrated: makeHandler('pipelineStartOrchestrated', async (name) => ok({ runId: 'e2e-' + (name || 'story2video-compose') + '-run', status: 'running' })),
     pipelineGetRunContext: makeHandler('pipelineGetRunContext', async () => ok({
       context: { story2videoProject: { projectId: 'e2e-story2video-project' } },
       status: { status: 'running', progress: 10 },
@@ -501,6 +514,11 @@
       { pipelineName: '热点流水线', status: 'completed', startedAt: '2026-07-10T10:00:00Z', completedAt: '2026-07-10T10:05:00Z', stages: [{ name: '采集', status: 'completed' }, { name: 'AI写作', status: 'completed' }] }
     ])),
     pipelineFetch: makeHandler('pipelineFetch', async () => ok(null)),
+
+    // Story2Video 媒体导入（preload 桥接：getPathForFile 返回字符串，导入通道返回 { code, data: { path } }）
+    getPathForFile: () => 'C:/mock/e2e-video.mp4',
+    story2videoImportMedia: makeHandler('story2videoImportMedia', async (file, kind) => ok({ path: 'C:/mock/e2e-imported.' + (kind === 'video' ? 'mp4' : 'wav'), originalName: (file && file.name) || 'e2e-file' })),
+    story2videoImportMediaPath: makeHandler('story2videoImportMediaPath', async (filePath, kind) => ok({ path: 'C:/mock/e2e-imported.' + (kind === 'video' ? 'mp4' : 'wav'), originalName: 'e2e.mp4' })),
 
     // 内容情报
     intelligenceSuggestTags: makeHandler('intelligenceSuggestTags', async () => ok(['AI', '内容', '运营'])),

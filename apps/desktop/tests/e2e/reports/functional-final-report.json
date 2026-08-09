@@ -1,14 +1,14 @@
 {
   "meta": {
-    "generatedAt": "2026-07-25T13:14:18.610Z",
-    "vite": "http://127.0.0.1:5188",
+    "generatedAt": "2026-08-09T14:37:50.452Z",
+    "vite": "http://127.0.0.1:5174",
     "spec": "前端全量功能 E2E 测试 (task-29a)",
     "version": "1.0.0",
     "phase": "Phase 0-4 全部完成"
   },
   "summary": {
-    "totalChecks": 270,
-    "totalPassed": 270,
+    "totalChecks": 314,
+    "totalPassed": 314,
     "totalFailed": 0,
     "totalConsoleErrors": 0,
     "totalPageErrors": 0,
@@ -320,16 +320,16 @@
         "title": "AI 创作",
         "status": "✅ PASS",
         "checks": {
-          "total": 14,
-          "passed": 14,
+          "total": 58,
+          "passed": 58,
           "failed": 0
         },
         "consoleErrors": 0,
         "pageErrors": 0,
         "kinds": {
           "functional": {
-            "total": 12,
-            "passed": 12
+            "total": 56,
+            "passed": 56
           },
           "expectNoConsoleError": {
             "total": 1,
@@ -505,8 +505,8 @@
       }
     ],
     "totals": {
-      "totalChecks": 226,
-      "totalPassed": 226,
+      "totalChecks": 270,
+      "totalPassed": 270,
       "totalFailed": 0,
       "totalConsoleErrors": 0,
       "totalPageErrors": 0,
@@ -599,8 +599,8 @@
   },
   "issues": [],
   "totals": {
-    "totalChecks": 270,
-    "totalPassed": 270,
+    "totalChecks": 314,
+    "totalPassed": 314,
     "totalFailed": 0,
     "totalConsoleErrors": 0,
     "totalPageErrors": 0

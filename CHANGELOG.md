@@ -1,3 +1,11 @@
+## [未发布] 测试：视频创作除图片轮播外流水线整体 E2E 覆盖（2026-08-09）
+
+- 新增：桌面端前端功能 E2E 套件将「视频创作」页（CreateView）除图片轮播（story2video-compose）外的 13 条内置流水线全部纳入 UI 级端到端覆盖——自动编排 7 条（animated-explainer / framework-smoke / documentary-montage / animation / avatar-spokesperson / character-animation / hybrid）、媒体流水线 4 条（clip-factory / cinematic / talking-head / localization-dub，含视频素材导入与口播文案）、状态机流水线 podcast-repurpose；每条断言「详情渲染 → 标题渲染 → 启动携带正确流水线名（IPC method + args[0]）」。
+- 新增：screen-demo 不可用路径断言（进入详情、显示不可用提示、启动按钮存在且禁用、不触发启动 IPC）。
+- 测试设施：`tests/e2e/helpers/ipc-mock.js` 的 `pipelineList` 与 `electron/services/pipeline-engine.js` 内置 14 条流水线对齐（含 available 标记），补充媒体导入 mock（getPathForFile / story2videoImportMedia / story2videoImportMediaPath）；`tests/e2e/helpers/route-functional-suite.js` 逐条遍历流水线（用 `resetToRoute` 隔离每条流水线状态）。
+- 证据：create 路由 E2E 58/58、全量 E2E 314/314（0 console/page errors）、引擎级 vitest 145/145 + 契约 18/18 + 编排 E2E 6/6、eslint 0 warning；外部 Claude 有界审查 Critical 0（2 Warning 已修复）。
+- 边界：UI + IPC mock 端到端；各流水线真实阶段执行（模型/ffmpeg/8002 sidecar）与真实平台发布仍属外部验收。
+
 ## [未发布] 修复：展开语音克隆面板时界面被长内容撑宽（2026-08-09）
 
 - 修复：展开「音色复制 / 克隆」面板时，长不可断内容（MiniMax 克隆 voice_id/长名称）撑宽配置网格导致整个界面变宽——`.config-grid` 轨道改 `minmax(min(200px,100%),1fr)`，面板/行/输入等 grid/flex 子项加 `min-width:0`，克隆名 `overflow-wrap:anywhere` 换行而非溢出。
