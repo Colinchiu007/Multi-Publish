@@ -7,11 +7,75 @@ const {
   normalizeVoiceList,
   isSafeCatalogVoice,
 } = require('./tts-voice-catalog')
+const defaultLogger = require('./logger')
 
 const CATALOG_SCHEMA_VERSION = 2
 const DEFAULT_CACHE_TTL_MS = 15 * 60 * 1000
 const MAX_IDENTIFIER_LENGTH = 128
 const MAX_VOICE_ID_LENGTH = 256
+const MAX_DETAIL_LENGTH = 200
+const REDACTED_DETAIL = 'upstream-auth-error'
+
+/**
+ * 配置类失败判定（永久性问题，重试无效）：未配置/无效 API Key、服务商/适配器缺失、
+ * 适配器初始化失败、认证失败。不包含「模型服务尚未初始化」（瞬时，可重试）。
+ * 以 callAdapter 的稳定 message 关键词为准，避免依赖其内部错误对象结构。
+ */
+const CONFIG_FAILURE_PATTERNS = [
+  /尚未配置\s*API\s*Key/i,
+  /API\s*Key\s*not\s*configured/i,
+  /未找到服务商/i,
+  /Provider\s+["'][^"']*["']\s+not\s+found/i,
+  /未找到.*适配器/i,
+  /No\s+adapter\s+registered/i,
+  /适配器初始化失败/i,
+  /Factory\s+initialization\s+failed/i,
+  /\b401\b/i,
+  /unauthorized/i,
+  /invalid\s+api\s+key/i,
+  /认证失败/i,
+  /key\s+无效/i,
+]
+
+/** 方法/能力不支持：adapter 层 capability 不匹配（指引「暂不支持」而非「配置 API Key」） */
+const UNSUPPORTED_FAILURE_PATTERNS = [
+  /不支持该操作/i,
+  /Method\s+["'][^"']*["']\s+not\s+supported/i,
+  /not\s+supported/i,
+]
+
+/** 敏感模式：detail 只能回显分类短语，不得把 token/密钥原文带回 renderer */
+const SENSITIVE_DETAIL_PATTERNS = [
+  /Bearer\s+\S+/i,
+  /authorization\s*[:=]/i,
+  /(?:api[_-]?key|token|secret)\s*[:=]/i,
+  /\bsk-[A-Za-z0-9._~-]{6,}/i,
+]
+
+function classifyCatalogFailure (message) {
+  const raw = String(message || '')
+  if (CONFIG_FAILURE_PATTERNS.some(pattern => pattern.test(raw))) return 'config'
+  if (UNSUPPORTED_FAILURE_PATTERNS.some(pattern => pattern.test(raw))) return 'unsupported'
+  return 'transient'
+}
+
+function catalogFailureCode (message) {
+  const kind = classifyCatalogFailure(message)
+  if (kind === 'config') return 'VOICE_CATALOG_CONFIG_UNAVAILABLE'
+  if (kind === 'unsupported') return 'VOICE_CATALOG_UNSUPPORTED'
+  return 'VOICE_CATALOG_UNAVAILABLE'
+}
+
+function redactFailureDetail (message) {
+  const raw = String(message || '').trim()
+  if (!raw) return ''
+  if (SENSITIVE_DETAIL_PATTERNS.some(pattern => pattern.test(raw))) return REDACTED_DETAIL
+  return raw.length > MAX_DETAIL_LENGTH ? raw.slice(0, MAX_DETAIL_LENGTH - 1) + '…' : raw
+}
+
+function catalogFailure (message, detail) {
+  return { code: -1, message, data: { detail: redactFailureDetail(detail) } }
+}
 
 function safeIdentifier (value, maxLength = MAX_IDENTIFIER_LENGTH) {
   if (typeof value !== 'string') return null
@@ -119,6 +183,15 @@ class TtsVoiceService {
       ? deps.cacheTtlMs
       : DEFAULT_CACHE_TTL_MS
     this._cloneService = deps.cloneService || null
+    this._logger = deps.logger || defaultLogger
+  }
+
+  _logCatalogFailure (request, detail) {
+    if (!this._logger || typeof this._logger.warn !== 'function') return
+    this._logger.warn(
+      'tts-voice-catalog',
+      `catalog failed providerId=${request.providerId} model=${request.model} detail=${redactFailureDetail(detail)}`,
+    )
   }
 
   getCapability (input) {
@@ -157,8 +230,14 @@ class TtsVoiceService {
       return this._buildCatalogResponse(cached, capability, 'hit', ownerSubject)
     }
 
+    const failWith = (message, detail) => {
+      const result = catalogFailure(message, detail)
+      this._logCatalogFailure(request, detail)
+      return result
+    }
+
     if (!this._modelProviderManager || typeof this._modelProviderManager.callAdapter !== 'function') {
-      return failure('VOICE_CATALOG_UNAVAILABLE')
+      return failWith('VOICE_CATALOG_CONFIG_UNAVAILABLE', 'model provider manager is not available')
     }
 
     let adapterResult
@@ -168,12 +247,16 @@ class TtsVoiceService {
         'listVoices',
         { model: request.model },
       )
-    } catch (_) {
-      return failure('VOICE_CATALOG_UNAVAILABLE')
+    } catch (error) {
+      const underlying = error && error.message ? error.message : String(error)
+      return failWith(catalogFailureCode(underlying), underlying)
     }
 
     if (!adapterResult || adapterResult.code !== 0 || !Array.isArray(adapterResult.data)) {
-      return failure('VOICE_CATALOG_UNAVAILABLE')
+      const underlying = adapterResult && typeof adapterResult.message === 'string'
+        ? adapterResult.message
+        : 'empty or invalid adapter result'
+      return failWith(catalogFailureCode(underlying), underlying)
     }
 
     const voices = normalizeVoiceList(adapterResult.data, { source: capability.type })
@@ -376,4 +459,7 @@ module.exports = {
   catalogSettingKey,
   preferenceSettingKey,
   TtsVoiceService,
+  classifyCatalogFailure,
+  catalogFailureCode,
+  redactFailureDetail,
 }

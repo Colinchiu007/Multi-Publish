@@ -3,7 +3,7 @@
 - 布局：`App.vue` 挂载 `YixiaoerSidebar` 到工作区壳层，`isYixiaoerWorkspace` 从 3 条路由白名单改为排除少数特殊页面的黑名单模式，所有主导航可达路由（首页/账号/发布/发布记录/草稿箱等）统一使用 `YixiaoerSidebar + YixiaoerModuleNav` 双导航布局。
 - 首页：`Home.vue` 完全重写为蚁小二风格仪表盘——问候语+快捷操作、4 列数据概览（从 IPC 读取发布统计）、6 宫格快捷入口、支持平台展示、近期动态列表。
 - 导航动态化：`YixiaoerSidebar.vue` 用户头像/名称从 `identityStore` 动态读取，许可证标签从 `licenseStore` 读取；`YixiaoerModuleNav.vue` 新增 homeTabs 支持首页路由、publishTabs 新增"新建发布" tab。
-- 代码收敛：`accounts.js` 新增 `ensureLoaded()` 幂等加载方法；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`（`getLabel`/`getIcon`/`getContentCategory`）；新建 `PublishDraftList.vue` 共享草稿列表组件。
+- 代码收敛：`accounts.js` 新增 `ensureLoaded()` 幂等加载方法（含并发竞态修复：缓存 in-flight Promise）；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`（`getLabel`/`getIcon`/`getContentCategory`）；新建 `PublishDraftList.vue` 共享草稿列表组件。
 - 测试：更新 `YixiaoerSidebar.test.js`（动态用户信息断言）、`YixiaoerModuleNav.test.js`（publish 3 tabs + home 路由测试）。
 - 边界：Vite 完整构建因预存在的 node_modules 损坏（`@ctrl/tinycolor` 解析失败）未通过，Vue SFC 编译验证全部通过；真实平台登录/发布仍属外部验收。
 
@@ -30,6 +30,16 @@
 - 测试设施：`tests/e2e/helpers/ipc-mock.js` 的 `pipelineList` 与 `electron/services/pipeline-engine.js` 内置 14 条流水线对齐（含 available 标记），补充媒体导入 mock（getPathForFile / story2videoImportMedia / story2videoImportMediaPath）；`tests/e2e/helpers/route-functional-suite.js` 逐条遍历流水线（用 `resetToRoute` 隔离每条流水线状态）。
 - 证据：create 路由 E2E 58/58、全量 E2E 314/314（0 console/page errors）、引擎级 vitest 145/145 + 契约 18/18 + 编排 E2E 6/6、eslint 0 warning；外部 Claude 有界审查 Critical 0（2 Warning 已修复）。
 - 边界：UI + IPC mock 端到端；各流水线真实阶段执行（模型/ffmpeg/8002 sidecar）与真实平台发布仍属外部验收。
+
+## [未发布] 修复：音色目录错误提示误导 + 无日志 + 无重试入口（2026-08-09）
+
+- 根因：图片轮播流水线 TTS provider 无可用 API Key（未配置或 safeStorage 解密失败）时，`TtsVoiceService.getCatalog` 把 adapter 全部失败折叠为 `VOICE_CATALOG_UNAVAILABLE`，前端显示「暂时无法获取音色列表，已使用默认音色，请稍后重试。」——永久性配置错误被描述为「暂时、稍后重试」，且目录路径无日志、无重试入口，问题不可定位、不可操作。
+- 新增稳定错误码 `VOICE_CATALOG_CONFIG_UNAVAILABLE`：未配置/无效 API Key、认证失败（401/unauthorized）、服务商/适配器缺失、适配器初始化失败归配置类；adapter 方法不支持归 `VOICE_CATALOG_UNSUPPORTED`；网络/超时/未知保持 `VOICE_CATALOG_UNAVAILABLE`（fail-safe 保留重试语义）。
+- 失败响应携带脱敏 `detail`（≤200 字符；Bearer/token/api key/secret/sk- 模式只回显 `upstream-auth-error` 分类短语，先脱敏后截断，不泄漏原文）。
+- 目录失败路径补日志（provider/model/脱敏原因，不记录密钥）；IPC handler catch 分支记录日志。
+- 前端：`VOICE_CATALOG_CONFIG_UNAVAILABLE` 映射「当前语音服务商配置不可用，请在模型设置中检查并配置后重试。」；瞬时/未知错误显示「刷新音色列表」按钮（`refresh: true` 重拉），配置类等永久错误不显示；select/clear 失败路径改为友好映射（不直显错误码）。
+- 回归：tts-voice-service +8（配置/瞬时/不支持/401/脱敏/截断/无 message 兜底/日志）、CreateView +2（CONFIG 文案与刷新按钮作用域/瞬时刷新触发）、IPC handler 日志；相关套件 149 用例通过；Vue build + electron-builder 打包（QM-1：ASAR 含改动、require 链、10s 启动无 stderr 错误）通过。
+- 文档：01-docs/PRD.md 7.1.4 音色目录错误分类合同、01-docs/learnings.md 复盘、OpenSpec change voice-catalog-error-clarity。
 
 ## [未发布] 修复：展开语音克隆面板时界面被长内容撑宽（2026-08-09）
 
@@ -1152,7 +1162,9 @@ Gate 8  全自动端到端测试 (Unified E2E)  有Key阻塞/无Key提示
 应用质量节拍第 13 轮：将 quality-gate.yml 的 Gate 8 从旧版 run-agent-judge.js 升级到新版 run-autonomous-e2e.js。
 
 ### 改动
-- **Gate 8 升级**：使用 un-autonomous-e2e.js 统一端到端脚本替代 un-agent-judge.js
+- **Gate 8 升级**：使用 
+un-autonomous-e2e.js 统一端到端脚本替代 
+un-agent-judge.js
 - **更全面的检测**：统一脚本同时覆盖视觉回归和 PRD 覆盖审计
 - **退出码精简**：0=PASS / 1=FAIL / 2=INFRA_ERROR，消除 NEED_HUMAN 歧义
 - **CI 兼容**：使用 --skip-server --skip-visual 模式，复用 Gate 7 的 Vite 服务器
@@ -3119,6 +3131,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

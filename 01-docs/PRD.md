@@ -718,6 +718,14 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
   只能指向该 owner 的受控相对目录，严禁记录原始源路径、源文件名、音频字节、data URL 或绝对路径。删除时先删除远端音色，成功后标记
   `remote_deleted` 并清理本地样本；若本地清理失败，必须保留 `remote_deleted` 以便重试，重试不得再次删除远端音色。
   文件格式、大小、时长和模型限制必须来自该 provider/model 的版本化 capability 数据，不能写成跨供应商的固定规则。
+- **音色目录错误分类合同（2026-08-09）**：目录获取失败必须按原因分类而非一律「暂时失败」——配置类（未配置/无效 API Key、认证失败
+  `401/unauthorized`、服务商/适配器缺失、适配器初始化失败）返回 `VOICE_CATALOG_CONFIG_UNAVAILABLE`，前端文案
+  「当前语音服务商配置不可用，请在模型设置中检查并配置后重试。」且**不显示**「刷新音色列表」按钮（重试无效）；
+  adapter 方法不支持返回 `VOICE_CATALOG_UNSUPPORTED`（「暂不支持音色列表与克隆功能」）；网络/超时/未知返回
+  `VOICE_CATALOG_UNAVAILABLE`（「请稍后重试」），提供「刷新音色列表」按钮以 `refresh: true` 重拉。失败响应携带
+  **脱敏** `detail`（≤200 字符；Bearer/token/api key/secret/sk- 模式只回显分类短语 `upstream-auth-error`，先脱敏后截断），
+  目录失败路径与 IPC catch 必须记录日志（provider/model/脱敏原因，不记录密钥）；select/clear 失败路径同样经友好映射，
+  **不得**向用户直显技术错误码。
 - **多模态模型承担 TTS 能力（2026-08-09）**：当「语音生成器」选择 `minimax-multimodal` 时，「provider → model → 音色目录」链路按 `capability_models.tts`（`speech-2.8-turbo`）走音色目录白名单与克隆合同（详见 7.4.1.1）；前端语音模型下拉只展示 TTS 能力模型，系统音色列表、默认音色、克隆与本地管理能力与 `minimax-tts` 完全一致；未声明 tts 能力的多模态 provider 目录请求 fail-closed 返回 `VOICE_MODEL_MISMATCH`。
 - **Doubao 个人槽位**：当前配置与 TTS adapter 的已注册/已验证调用合同不证明已经把用户个人槽位同步到本地，也不允许本地创建或伪造槽位。
   UI 必须提示用户先在供应商官方控制台创建/管理音色，再点击“刷新音色目录”并仅在有官方 API 证据及已验证的
