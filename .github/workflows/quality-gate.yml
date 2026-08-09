@@ -1,16 +1,20 @@
-﻿name: quality-gate
+# quality-gate — 并行化质量门禁（2026-08-09 拆分 + 触发去重）
+# 优化依据（实测 step 耗时）：Gate 4 全 workspace 单测 636s + Gate 5 coverage 588s = 82% 总时长。
+# 拆分后关键路径 = max(unit-tests ~11min, coverage ~10min, e2e ~3min, visual ~2min, static ~1min) ≈ 12min（原 25min）。
+# 触发去重：仅 pull_request（+手动 dispatch），去掉 push 触发的同 head 双跑，CI 分钟减半。
+# 契约测试同步：.github/scripts/workflow-contract.test.js（Gate 7/8 邻接断言）、gui-ci-exit-contract.test.js（Gate 9 模式）。
+name: quality-gate
 
 on:
-  push:
-    branches-ignore: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  gate:
-    name: Quality Gate
+  static-gates:
+    name: QG Static
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -41,11 +45,35 @@ jobs:
           if ($errors -gt 0) { exit 1 }
           Write-Host "All Electron JS files pass syntax check"
 
-      # --- Gate 3: 硬编码密钥扫描 ---
+      # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
           node --test .github/scripts/check-hardcoded-secrets.test.js .github/scripts/workflow-contract.test.js .github/scripts/autonomous-loop-workflow.test.js .github/scripts/agent-review-gate.test.js
           node .github/scripts/check-hardcoded-secrets.js
+
+      # --- Gate 6: IPC bridge completeness ---
+      - name: "Gate 6 - IPC bridge completeness"
+        id: ipc-check
+        run: |
+          node .github/scripts/check-ipc-bridge.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          echo "IPC_CHECK=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+  unit-tests:
+    name: QG Unit Tests
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
 
       # --- Gate 4: 全工作区单元测试（含 Vitest 和 Node 测试）---
       - name: "Gate 4 - Workspace unit tests"
@@ -104,20 +132,45 @@ jobs:
             throw "Gate 4 left child processes alive after npm exited."
           }
 
+      # --- Gate 4b: Startup and require smoke tests ---
       - name: "Gate 4b - Startup and require smoke tests"
         run: npm run test:startup -w @multi-publish/desktop
 
-      # --- Gate 5: Coverage 检查 ---
+  coverage:
+    name: QG Coverage
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      # --- Gate 5: Coverage 检查（单 worker 串行，独立 job 避免与 Gate 4 争资源）---
       - name: "Gate 5 - Test coverage check"
         run: npm run test:coverage -w @multi-publish/desktop -- --coverage.reporter=text-summary
 
-      # --- Gate 6: IPC bridge completeness ---
-      - name: "Gate 6 - IPC bridge completeness"
-        id: ipc-check
-        run: |
-          node .github/scripts/check-ipc-bridge.js
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          echo "IPC_CHECK=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+  visual:
+    name: QG Visual
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
 
       # --- Gate 7: 视觉回归测试 ---
       - name: "Gate 7 - Visual regression"
@@ -206,6 +259,37 @@ jobs:
           }
           Write-Host "[GATE-7] All visual tests passed"
 
+      - name: "Upload GUI quality artifacts"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-visual-reports
+          path: |
+            apps/desktop/tests/visual-testing/reports/**
+            apps/desktop/tests/visual-testing/screenshots/**
+            apps/desktop/vite-visual.*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  e2e:
+    name: QG Browser E2E
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Install Playwright (for Browser E2E)
+        run: npx.cmd playwright install chromium
+
       # --- Gate 8: 真实浏览器端到端测试 ---
       - name: "Gate 8 - Browser E2E"
         id: e2e-gate
@@ -261,6 +345,33 @@ jobs:
           echo "E2E_GATE=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "[GATE-8] Browser E2E passed"
 
+      - name: "Upload GUI quality artifacts"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-e2e-reports
+          path: |
+            apps/desktop/tests/e2e/reports/**
+            apps/desktop/vite-e2e.*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  autonomous:
+    name: QG Autonomous
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
       # --- Gate 9: PRD/源码自主覆盖审计 ---
       - name: "Gate 9 - Autonomous coverage audit"
         id: autonomous-gate
@@ -309,30 +420,29 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quality-gate-gui-reports
+          name: quality-gate-autonomous-reports
           path: |
-            apps/desktop/tests/e2e/reports/**
             apps/desktop/tests/visual-testing/reports/**
-            apps/desktop/tests/visual-testing/screenshots/**
-            apps/desktop/vite-*.log
           if-no-files-found: ignore
           retention-days: 7
 
+  gate-result:
+    name: Gate Result
+    runs-on: ubuntu-latest
+    needs: [static-gates, unit-tests, coverage, visual, e2e, autonomous]
+    if: always()
+    timeout-minutes: 5
+    steps:
       # --- Gate result ---
       - name: "Gate result"
-        if: always()
         run: |
-          echo ""
           echo "=============================="
           echo "  quality-rhythm CI gate report"
           echo "=============================="
-          echo "tsc --noEmit  : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
-          echo "js syntax     : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
-          echo "secrets scan  : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
-          echo "unit tests    : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
-          echo "coverage      : see step output above"
-          echo "IPC bridge    : ${{ env.IPC_CHECK }}"
-          echo "visual gate  : ${{ job.status == 'success' && 'PASS' || 'FAIL' }}"
-          echo "browser E2E  : ${{ env.E2E_GATE }}"
-          echo "autonomous   : ${{ env.AUTONOMOUS_GATE }}"
+          echo "static       : ${{ needs.static-gates.result }}"
+          echo "unit tests   : ${{ needs.unit-tests.result }}"
+          echo "coverage     : ${{ needs.coverage.result }}"
+          echo "visual gate  : ${{ needs.visual.result }}"
+          echo "browser E2E  : ${{ needs.e2e.result }}"
+          echo "autonomous   : ${{ needs.autonomous.result }}"
           echo "=============================="

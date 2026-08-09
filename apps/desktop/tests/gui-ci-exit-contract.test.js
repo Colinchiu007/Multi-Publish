@@ -192,7 +192,8 @@ describe('GUI/CI 工作流门禁契约', () => {
 
   it('Windows 原生命令统一手动捕获退出码，不受 PowerShell 版本默认值影响', () => {
     const { workflow } = readWorkflow('quality-gate.yml');
-    const steps = workflow.jobs.gate.steps;
+    // 2026-08-09 并行化：Gate 7/8/9 分布在 visual/e2e/autonomous 三个 job，跨 job 汇总所有步骤查找
+    const allSteps = Object.values(workflow.jobs).flatMap((job) => job.steps || []);
     const guardedStepNames = [
       'Gate 7 - Visual regression',
       'Gate 8 - Browser E2E',
@@ -200,7 +201,8 @@ describe('GUI/CI 工作流门禁契约', () => {
     ];
 
     for (const name of guardedStepNames) {
-      const step = steps.find((candidate) => candidate.name === name);
+      const step = allSteps.find((candidate) => candidate.name === name);
+      expect(step, `step ${name} must exist`).toBeDefined();
       expect(step.run).toContain('$PSNativeCommandUseErrorActionPreference = $false');
     }
   });
