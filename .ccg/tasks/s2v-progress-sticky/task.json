@@ -1,0 +1,12 @@
+{
+  "id": "s2v-progress-sticky",
+  "title": "流水线进度头部固定（不随滚动离开视口）",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "desktop",
+  "currentPhase": "review",
+  "nextAction": "文档/提交/推送/PR/合并",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "branch": "codex/s2v-progress-sticky"
+}

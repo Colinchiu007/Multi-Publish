@@ -246,6 +246,12 @@ describe("CreateView", () => {
     expect(w.text()).toContain("旁白 1/2");
     expect(w.text()).toContain("已用时");
     expect(w.find('[data-testid="story2video-stage-detail-generate_assets"]').text()).toContain("图片 0/2");
+    // 进度头部固定容器：包含进度条/已用时，且位于阶段列表内（不随滚动离开视口）
+    const stickyHeader = w.find('[data-testid="story2video-stage-sticky-header"]');
+    expect(stickyHeader.exists()).toBe(true);
+    expect(stickyHeader.find('[data-testid="story2video-orchestration-progress"]').exists()).toBe(true);
+    const timeline = w.find('[data-testid="story2video-stage-list"]');
+    expect(timeline.element.contains(stickyHeader.element)).toBe(true);
     w.unmount();
   });
 
@@ -910,7 +916,7 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.advanceOrchestration();
 
     expect(w.vm.orchestrationError).toBe("");
-    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.model_configuration_required");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.model_api_key_required");
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     w.unmount();
   });
