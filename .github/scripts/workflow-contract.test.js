@@ -184,7 +184,7 @@ test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', (
 test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => {
   const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'doc-gate.yml'), 'utf8'));
   const ignored = wf.on.pull_request['paths-ignore'];
-  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**', 'package.json', 'package-lock.json', 'nx.json']) {
+  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**', 'package.json', 'package-lock.json', 'nx.json', 'packages/*/vitest.config.js']) {
     assert.ok(ignored.includes(dir), `doc-gate paths-ignore 必须包含 ${dir}`);
   }
 });
