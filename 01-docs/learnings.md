@@ -5996,3 +5996,13 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **表象 3**：文案「11」优化后出现 "I cannot generate the image prompt because the visual description of the scene is missing..."。
 - **根因 3**：LLM 对缺失描述场景返回拒绝文本，旧代码把拒绝文本当提示词（纯数字守卫在新版本已拦截；旧版本未拦截）。
 - **教训**：①「任务存在但 UI 入口默认不可见」和「任务不存在」是两类问题，排查先确认数据在哪个数据源（pipeline history vs 渲染记录）；② 前端更新实体后必须同步刷新其派生展示（图片 URL）；③ LLM 的输出除思考块外还可能是拒绝文本，凡「把 content 当产物」都要做内容合法性校验（守卫 + 拒绝检测 + 原文兜底）。
+
+## 图片轮播 compose 子进度条复盘 (2026-08-09, PR #420 ccda45d3)
+
+- **需求**：compose（视频合成）阶段增加子百分比进度，与 optimize（场景 x/y）、generate_assets（图片/旁白 x/y）对称。
+- **实现**：引擎 `compose(assetManifest, options, onProgress)` 新增可选回调（兼容 `options.onProgress`），按权重发射 `{phase, percent, segmentsDone, segmentsTotal, message?}`（preflight 0 → validated 3 → 逐片段 3+72k/N → concat 87 → narration 89 → bgm 92 → webm 95 → verify 98 → done 100）；**done/100 仅成功 return 前发射，7 条失败路径 percent 冻结 <100**；执行器字段级 fail-closed 校验后写 `context.compose_progress`；前端 mini bar + 「正在合成片段 k/N · p%」/「视频合成 p%」。
+- **教训 1（模块加载副作用）**：`stage-executor` 顶层 require `story2video-compose-engine` 会触发其模块级 `findFfmpeg()/findFfprobe()`，在 `container.setup.test.js`（mock 了无 `win32/posix` 的 path 模块）下崩溃。解决：**进度校验处惰性 require**；凡顶层有 findFfmpeg 等副作用的模块，被其他核心模块 require 时务必惰性化。
+- **教训 2（并发分支合并）**：交付分支基于的 origin/main 在 PR 期间被并发任务 PR #419 推进（同文件多处改动）。合并时仅 2 文件冲突（CHANGELOG 双条目并存、stage-executor 双 import 并存），自动合并其余。**合并后必须重跑受影响套件 + 惰性 require 回归（container.setup）**。
+- **教训 3（数值校验穿透）**：`Number(update.percent)` 会接受 `null→0 / []→0 / true→1 / '39'→39`，IPC 边界必须用 `typeof === 'number'` 严格校验；「percent 取整 ≥100 仅限 done 阶段」作为不变量收进执行器校验，杜绝潜伏假成功信号（claude W1）。
+- **教训 4（antigravity 缺失降级）**：本机 `agy` CLI 未安装 → antigravity 后端不可用；按机制硬化规则降级为 Claude + 主代理独立分析/审查，并在 change 内记录恢复条件。
+- **教训 5（进度语义）**：段进度以「段」为单位非帧级实时是 v1 有意取舍（ffmpeg `-progress pipe:1` 段内实时记 PRD 后续演进）；断点续跑必须重置旧 `compose_progress`，否则残留上次冻结值（执行器开头 `context.compose_progress = undefined`）。
