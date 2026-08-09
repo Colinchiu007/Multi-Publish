@@ -18,6 +18,7 @@ const {
   STORY2VIDEO_TEXT_CONFIG_VERSION,
   normalizeStory2VideoTextParams,
 } = require('./story2video-text-config')
+const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 
 const SETTING_KEY = 'story2video_projects_v1'
 const MAX_PROJECTS = 100
@@ -152,12 +153,23 @@ class Story2VideoProjectService {
       : MAX_PROJECTS
   }
 
+  /**
+   * 当前是否为设备级本地命名空间（未登录/无身份服务）。
+   * 供 IPC 返回 localMode 标记，渲染端据此展示「本地模式」提示。
+   */
+  isLocalOwner () {
+    return this._ownerSubject() === LEGACY_OWNER_SUBJECT
+  }
+
   _ownerSubject () {
     if (!this.store) throw new Error('Story2Video 项目存储不可用')
     const owner = typeof this.store._resolveOwnerSubject === 'function'
       ? this.store._resolveOwnerSubject()
-      : '__legacy__'
-    if (typeof owner !== 'string' || !owner.trim()) throw new Error('无法识别当前用户')
+      : LEGACY_OWNER_SUBJECT
+    // 身份服务已启用但未登录（无有效 sub）：回退设备级本地命名空间，
+    // 与「未配置身份服务」的 legacy 行为一致，保证本地历史记录可用；
+    // 登录后按 sub 隔离，未登录期间的本地数据不混入用户空间。
+    if (typeof owner !== 'string' || !owner.trim()) return LEGACY_OWNER_SUBJECT
     return owner.trim()
   }
 
@@ -181,9 +193,11 @@ class Story2VideoProjectService {
   }
 
   _readProjects () {
-    this._ownerSubject()
+    // owner 显式透传给 store：身份启用且未登录时回退 __legacy__ 必须作用到 settings 键空间，
+    // 否则 settings-store 内部二次解析 provider 会返回 null（读取空、写入静默丢弃）。
+    const owner = this._ownerSubject()
     if (!this.store || typeof this.store.getUserSetting !== 'function') return []
-    const value = this.store.getUserSetting(SETTING_KEY, [])
+    const value = this.store.getUserSetting(SETTING_KEY, [], owner)
     if (Array.isArray(value)) return value.filter(item => item && typeof item === 'object')
     if (typeof value === 'string') {
       try {
@@ -195,11 +209,11 @@ class Story2VideoProjectService {
   }
 
   _writeProjects (projects) {
-    this._ownerSubject()
+    const owner = this._ownerSubject()
     if (!this.store || typeof this.store.setUserSetting !== 'function') {
       throw new Error('Story2Video 项目存储不可写')
     }
-    this.store.setUserSetting(SETTING_KEY, projects)
+    this.store.setUserSetting(SETTING_KEY, projects, owner)
     return projects
   }
 

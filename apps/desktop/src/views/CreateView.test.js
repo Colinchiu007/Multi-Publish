@@ -819,9 +819,7 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(handled).toBe(true);
     expect(w.vm.orchestrationError).toBe("");
-    expect(w.vm.story2videoErrorDialog).toEqual({
-      visible: true,
-      messageKey: "story2video.preview_missing",
+    expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.preview_missing",
       messageParams: {},
     });
     expect(alertSpy).not.toHaveBeenCalled();
@@ -846,9 +844,7 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.startPipeline();
     await nextTick();
 
-    expect(w.vm.story2videoErrorDialog).toEqual({
-      visible: true,
-      messageKey: "story2video.model_configuration_required",
+    expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.model_configuration_required",
       messageParams: {},
     });
     expect(alertSpy).not.toHaveBeenCalled();
@@ -874,9 +870,7 @@ describe("CreateView - S2V orchestration", () => {
 
     await w.vm.startPipeline();
 
-    expect(w.vm.story2videoErrorDialog).toEqual({
-      visible: true,
-      messageKey: "story2video.access_denied",
+    expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.access_denied",
       messageParams: {},
     });
     w.unmount();
@@ -1311,9 +1305,7 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.startPipeline();
 
     expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
-    expect(w.vm.story2videoErrorDialog).toEqual({
-      visible: true,
-      messageKey: "story2video.text_input_only",
+    expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.text_input_only",
       messageParams: {},
     });
     expect(alertSpy).not.toHaveBeenCalled();
@@ -1623,6 +1615,72 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
+  it("未登录本地模式：listProjects 返回 localMode 时显示本地模式提示条", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [], localMode: true });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.vm.historyLocalMode).toBe(true);
+    expect(w.vm.story2videoErrorDialog).toMatchObject({ visible: false });
+    expect(w.text()).toContain("本机记录");
+    w.unmount();
+  });
+
+  it("历史加载失败时弹窗携带可操作建议（本地存储原因）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: -1, message: "Story2Video 项目存储不可用", data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.vm.story2videoErrorDialog).toMatchObject({ visible: true, messageKey: "story2video.history_load_failed" });
+    expect(w.vm.story2videoErrorDialog.detail).toContain("重启");
+    w.unmount();
+  });
+
+  it("历史加载失败（未登录原因）时弹窗建议登录", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: -1, message: "无法识别当前用户", data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.vm.story2videoErrorDialog).toMatchObject({ visible: true, messageKey: "story2video.history_load_failed" });
+    expect(w.vm.story2videoErrorDialog.detail).toContain("登录");
+    w.unmount();
+  });
+
+  it("未登录（listProjects 返回空本地历史）时历史记录不弹「无法加载」", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.vm.historyLoading).toBe(false);
+    expect(w.vm.history).toEqual([]);
+    expect(w.vm.story2videoErrorDialog).toMatchObject({ visible: false });
+    w.unmount();
+  });
+
   it("历史记录请求超时时停止加载、显示错误并保留已完成来源", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockImplementation(() => new Promise(() => {}));
@@ -1916,9 +1974,7 @@ describe("CreateView - UI interactions", () => {
     await nextTick();
 
     expect(w.find(".history-error").exists()).toBe(false);
-    expect(w.vm.story2videoErrorDialog).toEqual({
-      visible: true,
-      messageKey: "story2video.history_load_failed",
+    expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.history_load_failed",
       messageParams: {},
     });
   });

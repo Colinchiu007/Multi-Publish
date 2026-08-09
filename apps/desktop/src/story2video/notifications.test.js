@@ -5,6 +5,7 @@ import {
   STORY2VIDEO_NOTIFICATION_MESSAGES,
   countStory2VideoTextCharacters,
   formatStory2VideoNotification,
+  historyLoadFailureDetail,
   resolveStory2VideoNotification,
 } from './notifications'
 
@@ -127,5 +128,19 @@ describe('Story2Video 后台并发通知', () => {
   it('中文后端并发错误文本也能通过正则映射到并发通知', () => {
     const resolved = resolveStory2VideoNotification({ error: '当前已有 2 条流水线正在后台运行，最多同时运行 2 条，请等待其中一条完成后再启动。' })
     expect(resolved.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT)
+  })
+})
+
+describe('Story2Video 历史记录加载失败建议', () => {
+  it('historyLoadFailureDetail 按原因给出可操作建议（登录/存储/超时/未知）', () => {
+    expect(historyLoadFailureDetail('无法识别当前用户', 'zh')).toContain('登录')
+    expect(historyLoadFailureDetail('Story2Video 项目存储不可用', 'zh')).toContain('重启')
+    expect(historyLoadFailureDetail('历史记录加载超时', 'zh')).toContain('重试')
+    expect(historyLoadFailureDetail('', 'zh')).toBe('')
+    expect(historyLoadFailureDetail(null, 'zh')).toBe('')
+    // 非空但不可识别：不泄漏内部错误文本
+    expect(historyLoadFailureDetail('some random internal error', 'zh')).toBe('')
+    expect(historyLoadFailureDetail('cannot identify user', 'en-US')).toMatch(/sign in/i)
+    expect(historyLoadFailureDetail('store unavailable', 'en-US')).toMatch(/restart/i)
   })
 })

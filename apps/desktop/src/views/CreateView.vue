@@ -731,6 +731,9 @@
 
     <!-- ==================== 历史记录视图 ==================== -->
     <div v-if="view === 'history'">
+      <div v-if="historyLocalMode" class="history-local-mode-banner" data-testid="history-local-mode-banner">
+        {{ historyLocalModeText }}
+      </div>
       <div v-if="historyLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else>
         <div v-if="history.length === 0" class="empty-state"><p>暂无创作记录</p></div>
@@ -773,6 +776,7 @@
       @close="closeStory2VideoErrorDialog"
     >
       <p class="story2video-error-dialog-message">{{ story2videoErrorDialogMessage }}</p>
+      <p v-if="story2videoErrorDialog.detail" class="story2video-error-dialog-detail">{{ story2videoErrorDialog.detail }}</p>
       <p v-if="canResumeStory2Video" class="story2video-error-dialog-hint">{{ story2videoErrorDialogUiText.resumeHint }}</p>
       <template #footer>
         <UiButton v-if="canResumeStory2Video" variant="primary" :disabled="story2videoResuming" @click="resumeStory2Video">{{ story2videoResuming ? story2videoErrorDialogUiText.resuming : story2videoErrorDialogUiText.resume }}</UiButton>
@@ -855,6 +859,7 @@ import {
   STORY2VIDEO_NOTIFICATION_KEYS,
   countStory2VideoTextCharacters,
   formatStory2VideoNotification,
+  historyLoadFailureDetail,
   getStory2VideoLocale,
   getStory2VideoNotificationUiText,
   resolveStory2VideoNotification,
@@ -1016,7 +1021,7 @@ export default {
         platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
-      story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {} },
+      story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '' },
       story2videoResuming: false,
       story2videoRunMeta: null,
       stageClockTick: 0,
@@ -1035,7 +1040,7 @@ export default {
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       s2vOpenSections: { basic: true, appearance: false, voice: false, advanced: false, publish: false },
       // 历史
-      history: [], historyLoading: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
+      history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
       // 清理
       cleanups: [],
       quickModes: [
@@ -1258,6 +1263,9 @@ export default {
         // W3（claude 5b）：仅当当前配置实际命中语言级或更特异校准维度时才标注“已校准”
         calibrated: getCalibrationFactor(factors, ctx) > 1,
       }
+    },
+    historyLocalModeText() {
+      return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOCAL_MODE }).message
     },
     story2videoErrorDialogMessage() {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
@@ -2207,7 +2215,8 @@ export default {
     },
     showStory2VideoErrorDialog(notification = {}) {
       const resolved = resolveStory2VideoNotification(notification)
-      this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params }
+      const detail = typeof notification.detail === 'string' ? notification.detail : ''
+      this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params, detail }
     },
     closeStory2VideoErrorDialog() {
       this.story2videoErrorDialog.visible = false
@@ -2400,6 +2409,9 @@ export default {
         const hasRuns = pipelineResult.status === 'fulfilled'
           && pipelineResult.value?.code === 0
           && Array.isArray(pipelineResult.value.data)
+        // 未登录本地模式：主进程在 owner 回退设备级命名空间时标记 localMode，供历史页提示条展示
+        this.historyLocalMode = projectsResult.status === 'fulfilled'
+          && projectsResult.value?.localMode === true
         const projects = hasProjects
           ? projectsResult.value.data.map(project => ({ ...project, historyType: 'story2video-project' }))
           : []
@@ -2416,7 +2428,17 @@ export default {
         ]
         this.scheduleHistoryRefresh()
         if (!hasProjects || !hasRuns) {
-          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED })
+          // 具体原因透传：IPC 已返回 message（存储不可用/无法识别当前用户/…），
+          // 映射为用户可读的可操作建议，替代笼统的「请稍后再试」。
+          const failureMessages = [projectsResult, pipelineResult]
+            .map(result => result.status === 'fulfilled' ? (result.value?.message || '') : (result.reason?.message || ''))
+            .filter(Boolean)
+          // 优先取能映射出具体建议的原因；全部无法映射时回退第一条原始 message（空 detail 隐藏）
+          const failureMessage = failureMessages.find(message => historyLoadFailureDetail(message) !== '') || failureMessages[0] || ''
+          this.showStory2VideoErrorDialog({
+            messageKey: STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED,
+            detail: historyLoadFailureDetail(failureMessage),
+          })
         }
       } catch (_) {
         if (requestId !== this.historyRequestId) return
@@ -3139,6 +3161,8 @@ export default {
 
 /* 通用 */
 .loading-state, .empty-state, .error-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: #666; justify-content: center; }
+.history-local-mode-banner { margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; background: var(--warning-bg, #fff7e6); color: var(--warning, #b26a00); font-size: 13px; }
+.story2video-error-dialog-detail { margin-top: 8px; color: #666; font-size: 13px; }
 .error-state { color: #dc2626; background: #fef2f2; border-radius: 8px; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

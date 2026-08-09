@@ -6,6 +6,7 @@ export {
   countStory2VideoTextCharacters,
   formatStory2VideoNotification,
   getStory2VideoLocale,
+  historyLoadFailureDetail,
   normalizeStory2VideoLocale,
   resolveStory2VideoNotification,
 } from './story2video-notifications'

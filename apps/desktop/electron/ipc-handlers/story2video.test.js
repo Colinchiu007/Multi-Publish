@@ -205,9 +205,17 @@ describe('Story2Video 交付 IPC', () => {
     expect(result.message).toMatch(/格式|支持/)
   })
 
+  it('list-projects 在服务未暴露 isLocalOwner 时兜底 localMode=false', async () => {
+    const service = { listProjects: vi.fn(() => []) }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+    expect(await ipcMain.get('story2video:list-projects')(TRUSTED_EVENT)).toEqual({ code: 0, data: [], localMode: false })
+  })
+
   it('暴露用户隔离项目、分段编辑、重试和语音识别', async () => {
     const service = {
       listProjects: vi.fn(() => [{ projectId: 'project-1' }]),
+      isLocalOwner: vi.fn(() => true),
       getProject: vi.fn(() => ({ projectId: 'project-1' })),
       deleteProject: vi.fn(() => ({ projectId: 'project-1', deleted: true })),
       updateSegments: vi.fn(() => ({ projectId: 'project-1', dirty: true })),
@@ -220,7 +228,7 @@ describe('Story2Video 交付 IPC', () => {
     const ipcMain = createIpcMain()
     registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
 
-    expect(await ipcMain.get('story2video:list-projects')(TRUSTED_EVENT)).toEqual({ code: 0, data: [{ projectId: 'project-1' }] })
+    expect(await ipcMain.get('story2video:list-projects')(TRUSTED_EVENT)).toEqual({ code: 0, data: [{ projectId: 'project-1' }], localMode: true })
     expect(await ipcMain.get('story2video:get-project')(TRUSTED_EVENT, 'project-1')).toEqual({ code: 0, data: { projectId: 'project-1' } })
     expect(await ipcMain.get('story2video:delete-project')(TRUSTED_EVENT, 'project-1')).toEqual({ code: 0, data: { projectId: 'project-1', deleted: true } })
     await ipcMain.get('story2video:update-segments')(TRUSTED_EVENT, { projectId: 'project-1', segments: [{ id: 'segment-0', text: '新文案' }] })
