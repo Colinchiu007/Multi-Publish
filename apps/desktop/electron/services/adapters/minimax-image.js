@@ -186,16 +186,23 @@ class MinimaxImageAdapter extends BaseAdapter {
         || data?.base_resp?.status_message
         || data?.message
         || ''
-      const code = statusMsg && hasStrictContentPolicySignal(statusMsg)
+      const isContentPolicy = Boolean(statusMsg) && hasStrictContentPolicySignal(statusMsg)
+      const code = isContentPolicy
         ? ERROR_CODES.CONTENT_POLICY
         : ERROR_CODES.PROVIDER_ERROR
-      throw new ProviderError(
+      const error = new ProviderError(
         code,
         statusMsg
           ? 'image_generation returned no image: ' + statusMsg
           : 'image_generation returned no image (empty image_urls)',
         { providerId: this.id },
       )
+      // 2026-08-09 Bug 反哺：无明确内容政策信号的空图（如 status_msg="success" 但无图）
+      // 必须标记 emptyResult=true，让上层 runContentPolicyImageRetry 走「同提示词重试 →
+      // 第 3 次起内容安全改写 → 5 次后 needs_user_input(empty_result)」合同路径；
+      // 未标记时会被误判为普通 PROVIDER_ERROR 立即失败（26/27 场景整线失败的真实根因）。
+      if (!isContentPolicy) error.emptyResult = true
+      throw error
     }
 
     return {

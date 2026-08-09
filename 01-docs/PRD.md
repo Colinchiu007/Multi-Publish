@@ -744,6 +744,7 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
 asset-generator 在重试循环**内**校验图片结果（无 buffer 且无 URL 即视为空结果）：前 2 次同提示词重试（瞬时故障），第 3 次起切内容安全改写，
 第 5 次仍空 → `needs_user_input`（`reason=empty_result`），提示「图片生成多次未返回结果（可能是内容安全策略或服务波动），请修改文案后重试或稍后再试」。
 空结果重试与 7.1.7 的限流/瞬时重试解耦，不进入 governor 层之外的额外限流退避。
+**emptyResult 标记（2026-08-09 Bug 反哺）**：无明确内容安全信号的空图（如 `status_msg="success"` 但无图）必须由 adapter 在 `ProviderError` 上设置 `emptyResult=true`——上层 `runContentPolicyImageRetry` 以 `error.emptyResult === true` 识别空结果并进入「同提示词重试→改写→`needs_user_input(empty_result)`」路径。缺失该标记（历史真实根因：27 场景任务 Image #2 空图 → 26/27 成功仍整线 failed）会被误判为普通 `PROVIDER_ERROR` 立即失败；含内容安全信号的 `CONTENT_POLICY` 分支不设标记（走 5 次安全改写路径）。回归：adapter 空图标记/不标记 2 例 + image-retry `empty_result` 分支 + 全链路 85 用例。
 
 #### 7.1.6 运营配置与交付边界
 

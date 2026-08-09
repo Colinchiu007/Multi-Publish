@@ -285,6 +285,39 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
       }
     })
 
+    it('空 image_urls（无内容政策信号）标记 emptyResult=true，供上层走空结果重试合同（2026-08-09 Bug 反哺）', async () => {
+      // 真实链路：status_msg="success" 但无图（26/27 场景整线失败根因）——必须能触发
+      // runContentPolicyImageRetry 的 empty_result 分支（同提示词重试→改写→needs_user_input）
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_msg: 'success' }, data: { image_urls: [] } }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toMatch(/no image: success/)
+        expect(e.emptyResult).toBe(true)
+      }
+    })
+
+    it('空 image_urls 且 status_msg 含内容策略信号 → ProviderError(CONTENT_POLICY) 且不标记 emptyResult', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_msg: 'content_policy_violation' }, data: { image_urls: [] } }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.CONTENT_POLICY)
+        expect(e.emptyResult).toBeUndefined()
+      }
+    })
+
     it('空 image_urls 且 status_msg 含内容策略信号 → ProviderError(CONTENT_POLICY)', async () => {
       global.fetch = createFetchMock([
         createFetchResponse({ base_resp: { status_msg: 'content_policy_violation' }, data: { image_urls: [] } }),
