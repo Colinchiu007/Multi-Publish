@@ -11,6 +11,10 @@ function getApi() {
 
 function toPlainIpcValue(value) {
   if (value === null || typeof value !== "object") return value;
+  // File/Blob 由 contextBridge 原生支持原样传递：webUtils.getPathForFile 依赖真实 File 对象
+  // 才能解析本地路径（BGM/旁白/视频素材选择），JSON 序列化会把 File 变成 {} 导致路径丢失。
+  if (typeof File !== "undefined" && value instanceof File) return value;
+  if (typeof Blob !== "undefined" && value instanceof Blob) return value;
   try {
     return JSON.parse(JSON.stringify(value));
   } catch (error) {

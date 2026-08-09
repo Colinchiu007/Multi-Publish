@@ -1170,12 +1170,14 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 合同 | 要求 |
 |------|------|
 | 类别宾语 | `resolveMediaImportFailure(result, kindLabel)` 全部细分分支携带 `kindLabel`（图片/旁白音频/背景音乐/视频素材，`story2videoKindLabel(kind)` 统一映射）；主进程拒绝与 IPC 异常两条路径均透传。 |
+| 通道放行（系统根因） | `story2video:import-media` 加入主进程 `PUBLIC_CHANNELS`（license-access-control.js）与 preload `PUBLIC_METHODS`（access-control.js）：本地媒体导入是纯设备本地操作（webUtils 解析用户选择路径 → 受控临时目录复制，kind/扩展名/大小校验 + withSenderCheck 可信来源），未登录/未激活许可证也必须可用——此前被按 authenticated 收紧，未登录返回 code:-3「当前许可证无权访问」→ 媒体导入完全不可用（与历史记录 bug PR #428 同类）。 |
+| File 透传（系统根因） | `electron-bridge.invoke` 的 `toPlainIpcValue` 对 File/Blob **原样透传**（contextBridge 原生支持；`webUtils.getPathForFile` 依赖真实 File 对象），禁止 JSON 序列化（`JSON.stringify(File)` = `{}` → 路径丢失 → 误报「无法读取所选文件」）；其余对象仍按纯 JSON 脱壳（防 reactive proxy）。 |
 | 路径解析失败 | preload `webUtils.getPathForFile` 拿不到 File 本地路径（返回「无法读取媒体文件路径」）→ `MEDIA_PATH_UNRESOLVED`（`story2video.media_path_unresolved`）：文案「无法获取所选{kindLabel}文件的本地路径，请重新选择文件后再试；若持续出现请重启应用。」——不暗示文件损坏。 |
 | 文件不可读/被占用 | 主进程「媒体文件不存在或不可读」「媒体文件被占用，请关闭占用程序后重试」及 EBUSY/EPERM/EACCES 原始错误 → `MEDIA_UNREADABLE`：「无法读取所选{kindLabel}文件，请确认文件未被占用或已损坏后重试。」 |
 | 有界重试 | `importUserSelectedMedia` 复制文件对 EBUSY/EPERM/EACCES 做 ≤3 次短退避（150ms×n）重试；持续占用回传可读中文原因；非占用类错误原样抛出，禁止无限重试。 |
 | 无法识别 | 未匹配任何原因回退 `MEDIA_INVALID`（不泄露内部错误文本）。 |
 | 提示文字（中/英） | `MEDIA_PATH_UNRESOLVED`：zh「无法获取所选{kindLabel}文件的本地路径，请重新选择文件后再试；若持续出现请重启应用。」en「Could not resolve the local path of the selected {kindLabel} file. Choose it again; if this keeps happening, restart the app.」 |
-| 验收标准 | ① MiniMax 本地克隆「01」点删除 → 列表移除、无「服务不可用」提示、偏好清理、样本目录删除；② 有效克隆点「设为默认」→ 下拉同步、出现「默认」徽标、按钮变「已设为默认」；③ 选择正常背景音乐 mp3 → 成功显示路径；文件被占用/损坏 → 弹「无法读取所选背景音乐文件…」；无法解析路径 → 弹「无法获取所选背景音乐文件的本地路径…」；④ 既有 7.1.16 无效克隆「删除仍可用」语义保持。 |
+| 验收标准 | ① MiniMax 本地克隆「01」点删除 → 列表移除、无「服务不可用」提示、偏好清理、样本目录删除（服务层 33 用例）；② 有效克隆点「设为默认」→ 下拉同步、出现「默认」徽标、按钮变「已设为默认」（CreateView 用例）；③ 选择正常背景音乐 mp3 → 成功显示受控路径且无错误弹窗（真实 Electron 验证：`setInputFiles` 真实 mp3 → bgmPath=selected-media 受控路径、无对话框）；文件被占用/损坏 → 弹「无法读取所选背景音乐文件…」；无法解析路径 → 弹「无法获取所选背景音乐文件的本地路径…」；④ 未登录/未激活许可证下媒体导入可用（license-access-control 用例 + 真实 Electron code 0）；⑤ 既有 7.1.16 无效克隆「删除仍可用」语义保持。 |
 
 ### 7.2 上传图片快速渲染（独立路径）
 

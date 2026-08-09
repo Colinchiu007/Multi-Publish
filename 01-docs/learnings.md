@@ -6103,7 +6103,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 根因链（Bug SOP 第 1 步）
 - **Bug①（删除）**：`tts-voice-clone-service._deleteCloneLocked` 无条件执行远端 `deleteVoice`：`callAdapter` 对「方法不支持」**不抛异常而是返回 `{code:-1, message:'...not supported...'}`**，随后 `_isDeleteSuccess` 为 false → 折叠为 `VOICE_CLONE_PROVIDER_UNAVAILABLE`。MiniMax 官方 clone API（POST /v1/voice_clone）无删除端点，adapter 只实现 `cloneVoice`（`supports('deleteVoice')===false`）→ 删除恒失败。删除语义本应是**本地管理**（registry 记录 + 本地样本 + 偏好），PRD 7.1.16 也要求「删除仍可用，便于清理旧记录」。
 - **Bug②（设为默认）**：克隆列表「设为默认」`@click="selectS2VVoice(voice.id)"` 未先同步 `s2vConfig.voiceId`，而 `selectS2VVoice` 的并发守卫 `isCurrentS2VVoiceSelectionRequest` 要求 `s2vConfig.voiceId === voiceId` → 守卫 false → IPC 结果被**静默丢弃**（无反馈）；即使成功路径也不回写 `s2vConfig.voiceId` → 下拉框不同步；克隆行无「默认」标识。
-- **Bug③（BGM 读取）**：失败原因被 `resolveMediaImportFailure` 统一折叠为 `MEDIA_UNREADABLE` 且 `kindLabel:''`（文案无宾语）；preload 路径解析失败（`无法读取媒体文件路径`）与主进程文件不可读/被占用（`媒体文件不存在或不可读` / Windows EBUSY 原始错误）未区分，用户得不到可操作建议。
+- **Bug③（BGM 读取）——双层系统根因（真实 Electron 探针实证）**：
+  1. **bridge 序列化破坏 File**：`@/api/publisher.invoke` 对所有参数执行 `toPlainIpcValue` → `JSON.parse(JSON.stringify(file))` → File 变 `{}` → preload `webUtils.getPathForFile({})` 返回空 →「无法读取媒体文件路径」。视频路径因 CreateView 直连 `window.electronAPI.getPathForFile(file)`（绕过 bridge）而幸免——这是为什么视频选择正常、BGM 选择恒失败。
+  2. **IPC 通道被许可证门禁**：`story2video:import-media` 不在 `PUBLIC_CHANNELS` → 未登录/未激活返回 code:-3「当前许可证无权访问」（与历史记录 bug PR #428 同构）。
+  - 修复后真实 Electron 验证：`setInputFiles` 真实 mp3 → `handleS2VBgmFile` 全链路成功（bgmPath=selected-media 受控路径、无错误弹窗）。
+  - 附带改进（仍保留）：`resolveMediaImportFailure` 折叠为笼统文案且 `kindLabel:''`（无宾语）、路径解析失败与文件不可读未区分——新增 `MEDIA_PATH_UNRESOLVED` 细分 + 全部分支带 kindLabel。
 
 ### 逃逸链分析（Bug SOP 第 2 步）
 - 单元测试层：删除用例只 mock「支持 deleteVoice」路径（ElevenLabs），无「adapter 不支持」用例；设为默认无前端用例覆盖「按钮触发 → 守卫」链路；媒体导入测试断言了文案映射但未断言 `kindLabel` 宾语与路径解析分支。
@@ -6112,12 +6116,14 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 修复与回归保护（Bug SOP 第 4 步）
 - **Bug①**：`ModelProviderManager.supportsAdapterMethod(providerId, method)` 三态能力查询（true=明确支持 / false=明确不支持 / null=无法判定；与 callAdapter 同源 provider/adapter 缓存、不校验 API Key、异常返回 null）；`_deleteCloneLocked` 仅当明确支持远端删除时执行 `deleteVoice`，明确不支持（`verdict === false`）走纯本地删除，null/异常/API 缺失回退尝试远端删除（避免探测失败静默遗留远端音色——Claude 复审 Critical 修复）。回归：5 个新用例（不支持→本地删除成功且不调 deleteVoice / 支持→先远端 / 支持但远端失败→仍 PROVIDER_UNAVAILABLE / null 探测失败→回退远端删除且失败保留记录 / 本地清理失败→STORAGE_UNAVAILABLE 保留记录 / 无能力查询→回退旧行为）。
 - **Bug②**：`selectS2VVoice` 显式选择先同步 `s2vConfig.voiceId`（守卫不再静默丢弃），**保存失败回滚 previousVoiceId**（Claude 复审 Warning 修复）；克隆行「默认」徽标 + 高亮 + 「已设为默认」禁用态。回归：CreateView 3 个新用例（同步+IPC+徽标 / 失败回滚 / 无效克隆按钮禁用）。
-- **Bug③**：新增 `MEDIA_PATH_UNRESOLVED`（路径解析失败细分，zh/en）；`resolveMediaImportFailure` 透传 `kindLabel`；`importUserSelectedMedia` 复制加 Windows 占用有界重试（EBUSY/EPERM/EACCES ≤3 次、短退避、占用回传可读中文）。回归：paths 3 用例 + notifications 1 用例 + CreateView 2 用例。
+- **Bug③**：`electron-bridge.toPlainIpcValue` 对 File/Blob 原样透传（修复序列化破坏）；`story2video:import-media` 加入主进程 PUBLIC_CHANNELS + preload PUBLIC_METHODS（修复许可证门禁）；另保留 `MEDIA_PATH_UNRESOLVED` 细分、`kindLabel` 透传、Windows 占用有界重试。回归：electron-bridge 1 用例 + license-access-control 1 用例 + preload 1 用例 + paths 3 用例 + notifications 1 用例 + CreateView 2 用例；**真实 Electron 端到端（setInputFiles → bgmPath 成功、无弹窗）**。
 
 ### 系统性漏洞与预防（Bug SOP 第 3/5 步）
 - **漏洞 1**：`callAdapter` 的「不支持」「未配置 Key」「provider 错误」全部折叠为 `code:-1`，调用方若只判 `code===0` 会丢失原因分类。预防：涉及能力分支的服务（克隆删除等）用显式能力查询 API，不靠 message 嗅探；能力查询必须三态区分「明确不支持」与「无法判定」，探测失败应回退保守行为而非静默降级。
 - **漏洞 2**：前端「按钮 → 异步 IPC → 并发守卫」链路中，守卫条件与调用方是否先同步状态脱节会导致静默吞结果。预防：任何「显式选择型」IPC 前必须先同步本地状态（下拉/单选），守卫只用于防过时响应，不用于决定「是否应用本次结果」；乐观同步必须带失败回滚。
 - **漏洞 3**：失败提示折叠为笼统文案且无宾语。预防：`resolveMediaImportFailure` 全部分支带 `kindLabel`；路径解析失败与文件损坏分开给建议。
+- **漏洞 4（本次实证）**：统一 IPC 桥接层对参数做 JSON 序列化会破坏 File/Blob（webUtils 依赖真实 File）。预防：`toPlainIpcValue` 对 File/Blob 白名单放行（contextBridge 原生支持），其余对象仍严格脱壳；凡「选择本地文件」类功能必须走真实 File 全链路验证（Playwright setInputFiles 可复现事件路径）。
+- **漏洞 5（本次实证）**：本地纯设备操作通道（媒体导入）被许可证门禁误伤。预防：本地文件/只读通道（story2video:import-media / list-projects / get-project / pipeline:history）显式加入 PUBLIC_CHANNELS；「调用付费 provider API」的通道（clone add、pipeline 启动）保持门禁，区分「本地工具」与「云端/配额能力」。
 
 ## Phase 2：Nx affected 测试选择 + 任务缓存（2026-08-09，PR #439 → 28fe9806）
 - **选型**：Nx 20（优于 Turborepo）——project graph 含传递依赖闭包、npm workspaces 原生支持、inputs 精确缓存键、未来可开远程缓存。

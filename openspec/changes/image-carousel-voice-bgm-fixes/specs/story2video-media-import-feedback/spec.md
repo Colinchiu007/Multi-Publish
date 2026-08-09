@@ -35,6 +35,21 @@
 - **WHEN** 主进程返回「媒体文件不存在或不可读」或「媒体文件被占用，请关闭占用程序后重试」
 - **THEN** 弹窗消息为「无法读取所选背景音乐文件，请确认文件未被占用或已损坏后重试。」（`story2video.media_unreadable`）
 
+### Requirement: 媒体导入通道为本地公开操作且 File 原样透传
+
+- `story2video:import-media` MUST 在 main `PUBLIC_CHANNELS` 与 preload `PUBLIC_METHODS` 中为 `public`（未登录/未激活许可证可用）：纯设备本地操作（webUtils 解析用户选择路径 → 受控临时目录复制，kind/扩展名/大小校验 + withSenderCheck 可信来源）
+- `electron-bridge.toPlainIpcValue` MUST 对 File/Blob 原样透传（contextBridge 原生支持、`webUtils.getPathForFile` 依赖真实 File），其余对象 MUST 仍按纯 JSON 脱壳（防 reactive proxy）
+
+#### Scenario: 未登录媒体导入可用
+
+- **WHEN** 身份未登录（public）时选择背景音乐文件
+- **THEN** `story2video:import-media` 放行（code 0），返回受控临时路径；`story2video:delete-project` 等写/敏感通道仍返回 code -3
+
+#### Scenario: File 经桥接层原样传递
+
+- **WHEN** renderer 经 `@/api/publisher.story2videoImportMedia(file, kind)` 调用
+- **THEN** File 对象原样到达 preload，`webUtils.getPathForFile` 能解析真实路径并成功导入
+
 ### Requirement: Windows 文件占用有界重试
 
 `importUserSelectedMedia` 复制文件时对 `EBUSY`/`EPERM`/`EACCES` MUST 做有界重试（≤3 次、短退避），其余错误 MUST 原样抛出；持续占用回传可读中文原因「媒体文件被占用，请关闭占用程序后重试」。

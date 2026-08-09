@@ -41,6 +41,9 @@ const PUBLIC_METHODS = [
   'logsGetInfo', 'logsClear', 'logError',
   'renderGetStatus', 'renderInstallDeps', 'onRenderInstallProgress',
   'pipelineList', 'pipelineGet',
+  // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：
+  // File 路径经 webUtils 解析后仅发送路径给主进程做受控复制，纯设备本地操作。
+  'story2videoImportMedia',
   'identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'onIdentityStateChanged',
 ]
 
