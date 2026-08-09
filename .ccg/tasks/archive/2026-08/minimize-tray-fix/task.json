@@ -1,12 +1,18 @@
 {
-  "nextAction": "修改 system-tray.js 移除 minimize 拦截 + 补回归测试",
-  "status": "in_progress",
+  "nextAction": "PR #461 待 CI 与合入",
+  "status": "completed",
   "createdAt": "2026-08-09T16:00:00Z",
   "title": "移除无条件最小化进托盘行为（方案A）：minimize 恢复常规最小化，保留运行任务时关闭进托盘",
   "risk": "low",
   "branch": "codex/minimize-tray-fix",
   "id": "minimize-tray-fix",
   "complexity": "S",
-  "currentPhase": "implementation",
-  "domain": "desktop"
+  "currentPhase": "completed",
+  "domain": "desktop",
+  "remoteStatus": {
+    "state": "open",
+    "url": "https://github.com/Colinchiu007/Multi-Publish/pull/461",
+    "pr": 461,
+    "merged": false
+  }
 }
