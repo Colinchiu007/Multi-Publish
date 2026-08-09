@@ -352,6 +352,10 @@
           <input class="input" v-model="form.api_key" type="password" :placeholder="form.id === 'doubao-tts' || form.id === 'doubao-stt' ? 'Access Token' : 'sk-...'" />
           <template v-if="form.category === 'multimodal'">
             <div class="form-hint">多模态服务商：仅需填写 API Key，能力与模型由系统预设（支持：{{ (form.capabilities || []).map(cap => MULTIMODAL_CAPABILITY_LABELS[cap] || cap).join(' / ') || '—' }}）。</div>
+            <label v-if="(form.capabilities || (form.config && form.config.capabilities) || []).includes('video')" class="multimodal-preference" title="部分多模态套餐（如 MiniMax 特殊套餐）不支持视频生成。开启后该模型才参与视频模型默认解析；关闭时视频默认使用独立视频模型（如 Agnes Video）。">
+              <input type="checkbox" v-model="multimodalVideoEnabled" />
+              <span>支持生成视频（默认关闭）</span>
+            </label>
           </template>
           <template v-else-if="form.models.length === 1">
             <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
@@ -390,6 +394,12 @@
         </template>
         <label class="input-label">{{ form.id === 'doubao-tts' || form.id === 'doubao-stt' ? '豆包 Access Token' : 'API Key' }}</label>
         <input class="input" v-model="form.api_key" type="password" :placeholder="form.id === 'doubao-tts' || form.id === 'doubao-stt' ? '留空保持原 Token' : '留空保持不变'" />
+        <template v-if="form.category === 'multimodal' && ((form.capabilities || (form.config && form.config.capabilities) || []).includes('video'))">
+          <label class="multimodal-preference" title="部分多模态套餐（如 MiniMax 特殊套餐）不支持视频生成。开启后该模型才参与视频模型默认解析；关闭时视频默认使用独立视频模型（如 Agnes Video）。">
+            <input type="checkbox" v-model="multimodalVideoEnabled" />
+            <span>支持生成视频（默认关闭）</span>
+          </label>
+        </template>
         <template v-if="form.models.length === 1">
           <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
         </template>
@@ -445,6 +455,7 @@ const {
   testingId,
   safeStorageAvailable,
   preferMultimodal,
+  multimodalVideoEnabled,
   showFormDialog,
   isEditing,
   form,

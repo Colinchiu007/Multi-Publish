@@ -1,0 +1,13 @@
+{
+  "id": "minimax-multimodal-video-switch",
+  "title": "MiniMax 多模态「支持生成视频」开关（默认关闭）+ PRD",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "model-provider",
+  "currentPhase": "completed",
+  "nextAction": "TDD 实现：后端能力路由开关 + 前端开关 + 测试 + PRD",
+  "openspecChange": "minimax-multimodal-video-switch",
+  "createdAt": "2026-08-10T00:20:00Z",
+  "branch": "codex/minimax-multimodal-video-switch"
+}

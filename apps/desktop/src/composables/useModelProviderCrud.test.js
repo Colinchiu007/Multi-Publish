@@ -661,4 +661,48 @@ describe('useModelProviderCrud', function () {
     })
   })
   })
+  describe('多模态「支持生成视频」开关（默认关闭）', function () {
+    it('默认关闭（false）', function () {
+      expect(crud.multimodalVideoEnabled.value).toBe(false)
+    })
+    it('set true/false 写入 form.config.capability_enabled.video', function () {
+      crud.form.value = { config: {} }
+      crud.multimodalVideoEnabled.value = true
+      expect(crud.form.value.config.capability_enabled.video).toBe(true)
+      expect(crud.multimodalVideoEnabled.value).toBe(true)
+      crud.multimodalVideoEnabled.value = false
+      expect(crud.form.value.config.capability_enabled.video).toBe(false)
+    })
+    it('读取已有配置的开关状态', function () {
+      crud.form.value = { config: { capability_enabled: { video: true } } }
+      expect(crud.multimodalVideoEnabled.value).toBe(true)
+    })
+    it('selectPreset 新建 minimax-multimodal 时默认 capability_enabled.video=false', async function () {
+      const { modelProviderPresets } = await import('@/api/model-providers')
+      modelProviderPresets.mockResolvedValueOnce({ code: 0, data: [{ id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal', base_url: 'x', models: [], capabilities: ['llm', 'tts', 'image', 'video'], capability_models: {} }] })
+      crud.addCategory.value = 'multimodal'
+      await crud.loadAvailablePresets()
+      crud.selectPreset('minimax-multimodal')
+      expect(crud.form.value.config.capability_enabled.video).toBe(false)
+      expect(crud.multimodalVideoEnabled.value).toBe(false)
+    })
+
+    it('导出完整性：multimodalVideoEnabled 可访问', function () {
+      expect('value' in crud.multimodalVideoEnabled).toBe(true)
+    })
+    it('编辑 MiniMax 多模态时提交 config 携带 capability_enabled.video', async function () {
+      const { modelProviderUpdate } = await import('@/api/model-providers')
+      crud.form.value = {
+        id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal',
+        base_url: 'https://api.minimaxi.com/v1', models: [], modelsText: '', config: {},
+      }
+      crud.isEditing.value = true
+      crud.multimodalVideoEnabled.value = true
+      await crud.submitForm()
+      expect(modelProviderUpdate).toHaveBeenCalled()
+      const [id, data] = modelProviderUpdate.mock.calls[0]
+      expect(id).toBe('minimax-multimodal')
+      expect(data.config.capability_enabled.video).toBe(true)
+    })
+  })
 })

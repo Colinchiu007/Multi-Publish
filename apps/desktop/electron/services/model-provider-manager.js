@@ -519,7 +519,14 @@ class ModelProviderManager {
       if (p.hidden) return false
       if (!category || category === CATEGORIES.MULTIMODAL) return true
       if (p.category === CATEGORIES.MULTIMODAL) {
-        return Array.isArray(p.capabilities) && p.capabilities.includes(category)
+        if (!(Array.isArray(p.capabilities) && p.capabilities.includes(category))) return false
+        // video 能力由「支持生成视频」开关控制（默认关闭）：能力选择器（视频生成器下拉）
+        // 与默认路由一致，未开启时不并入/不展示，避免用户选中后仍被套餐限制拒绝。
+        if (category === 'video') {
+          const cfg = typeof p.config === 'object' && p.config ? p.config : safeJsonParse(p.config, {})
+          if (!(cfg.capability_enabled?.video === true)) return false
+        }
+        return true
       }
       return true
     })
@@ -806,6 +813,10 @@ class ModelProviderManager {
       if (!(hasUsableApiKey(this._getApiKey(row)) || canUseWithoutApiKey(row))) continue
       const config = safeJsonParse(row.config, {}) || {}
       if (!Array.isArray(config.capabilities) || !config.capabilities.includes(category)) continue
+      // video 能力由多模态模型设置的「支持生成视频」开关控制（默认关闭）：
+      // 仅当 capability_enabled.video === true 时才视为该能力可用，避免声明但套餐不支持视频的
+      // 多模态模型（如 MiniMax 特殊套餐）抢占 video 默认解析（回落显式视频模型如 agnes-video）。
+      if (category === 'video' && config.capability_enabled?.video !== true) continue
       return this._safeRow(row)
     }
     return null
