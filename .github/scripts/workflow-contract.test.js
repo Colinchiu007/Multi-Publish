@@ -233,3 +233,8 @@ test('桌面测试分片契约：desktop-shards 矩阵与 unit-tests 排除桌�
   // 死脚本清理（W1）：根 package.json 不应再有 test:desktop:shard
   assert.equal(rootPkg.scripts['test:desktop:shard'], undefined);
 });
+
+test('shared-utils 测试超时预算（冷启动 flaky 回归保护）', () => {
+  const cfg = fs.readFileSync(path.join(__dirname, '..', '..', 'packages', 'shared-utils', 'vitest.config.js'), 'utf8');
+  assert.match(cfg, /testTimeout:\s*10000/);
+});

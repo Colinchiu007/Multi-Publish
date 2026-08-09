@@ -14,6 +14,10 @@ export default defineConfig({
       'src/format-adapter/__tests__/markdown-input.test.js',
     ],
     environment: 'node',
+
     globals: true,
+    // 冷启动超时预算（2026-08-09）：scheduler.test.js 模块图在 Windows CI 冷加载可超默认 5000ms，
+    // 与桌面 vitest 契约（testTimeout=10000）对齐
+    testTimeout: 10000,
   },
 })
