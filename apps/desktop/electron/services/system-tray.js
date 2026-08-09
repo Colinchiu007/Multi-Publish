@@ -21,16 +21,31 @@ let tray = null
 let mainWindowRef = null
 const MAX_FLASH_TIMES = 20
 
-// dev 模式 dist/ 未构建时托盘图标缺失的兜底：内嵌 32×32 蓝色占位 PNG（base64）。
-// 保证 dev 下托盘可用（窗口关闭→托盘后台运行依赖托盘可用性）。
-const TRAY_FALLBACK_ICON_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALklEQVR4nO3OIQEAAAgDsDciIOFPDMzE/DLbfoqAgICAgICAgICAgICAgMB34AAtB6CXOGzAegAAAABJRU5ErkJggg=='
+// dev 模式 dist/ 未构建时托盘图标缺失的兜底（内嵌 base64，按平台区分）：
+// - Windows/Linux：32×32 蓝色占位 PNG（保证 dev 下托盘可用，窗口关闭→托盘后台运行依赖托盘可用性）。
+// - macOS：16×16 透明底+黑色圆环的「模板图标」（menu bar 深色/浅色自动适配），
+//   渲染时经 setTemplateImage(true) 由系统按当前菜单栏外观着色。
+const TRAY_FALLBACK_ICONS = {
+  darwin: 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAALUlEQVR4nGNgGKzgPw5MtkaiDaLIAEKKCBpCjBNHkgFkBSI2RfRNB8QYNAgBAKqRW6Wmp8r6AAAAAElFTkSuQmCC',
+  default: 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAALklEQVR4nO3OIQEAAAgDsDciIOFPDMzE/DLbfoqAgICAgICAgICAgICAgMB34AAtB6CXOGzAegAAAABJRU5ErkJggg==',
+}
 
-/** 解析托盘图标：优先应用图标（dist/assets/icon.png），缺失时回退内嵌占位图。 */
-function resolveTrayIcon () {
+/**
+ * 解析托盘图标：优先应用图标（dist/assets/icon.png），缺失时按平台回退内嵌占位图。
+ * macOS 使用模板图标（setTemplateImage(true)），其余平台使用常规占位图。
+ * @param {string} [platform] 目标平台（默认 process.platform，测试可注入）
+ * @returns {string|object} 文件路径或 nativeImage
+ */
+function resolveTrayIcon (platform = process.platform) {
   const iconPath = path.join(__dirname, '..', '..', 'dist', 'assets', 'icon.png')
   if (fs.existsSync(iconPath)) return iconPath
+  const fallbackBase64 = TRAY_FALLBACK_ICONS[platform] || TRAY_FALLBACK_ICONS.default
   try {
-    return nativeImage.createFromBuffer(Buffer.from(TRAY_FALLBACK_ICON_BASE64, 'base64'))
+    const image = nativeImage.createFromBuffer(Buffer.from(fallbackBase64, 'base64'))
+    if (platform === 'darwin' && image && typeof image.setTemplateImage === 'function') {
+      image.setTemplateImage(true)
+    }
+    return image
   } catch (e) {
     log.warn('SystemTray', 'Fallback tray icon unavailable (' + (e && e.message ? e.message : String(e)) + '), using missing path')
     return iconPath
@@ -199,5 +214,6 @@ module.exports = {
   setTooltip,
   destroy,
   isAvailable,
+  resolveTrayIcon,
   registerIpcHandlers,
 }

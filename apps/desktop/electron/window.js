@@ -11,6 +11,7 @@ const log = require('./services/logger')
 const { config, getUrl } = require('./config/app-config')
 const { isTrustedSender } = require('./core/ipc-security')
 const { createAccessControlledIpcMain } = require('./ipc-handlers/license-access-control')
+const { shouldHideToTrayOnClose } = require('./services/window-close-policy')
 const {
   isThenable,
   runOnce,
@@ -118,24 +119,35 @@ function errorMessage(error) {
 
 /**
  * 关闭窗口时是否应隐藏到托盘（方案A：运行中的编排流水线在后台继续）。
- * 条件：托盘可用 且 主进程存在运行中的编排任务。二者缺一时照旧关闭/退出，
- * 避免无托盘环境下窗口关闭后进程无法恢复。
+ *
+ * 平台决策集中在 services/window-close-policy.js：
+ * - Windows/Linux：托盘可用 且 有运行中编排任务 → 拦截 close 隐藏到托盘后台继续；
+ *   二者缺一时照旧关闭/退出，避免无托盘环境下窗口关闭后进程无法恢复。
+ * - macOS：关闭窗口不退出应用是系统约定（app 留在 Dock、window-all-closed 不退出、
+ *   activate 重建窗口），因此不拦截 close，让窗口正常关闭、任务继续后台运行。
+ *
  * @param {object} context
+ * @param {string} [platform] 目标平台（默认 process.platform，测试可注入）
  * @returns {boolean}
  */
-function shouldHideToTray(context) {
+function shouldHideToTray(context, platform = process.platform) {
   if (!context || typeof context !== 'object') return false
   const pipelineEngine = context.pipelineEngine
   const systemTray = context.systemTray
   if (!pipelineEngine || typeof pipelineEngine.hasRunningOrchestration !== 'function') return false
   if (!systemTray || typeof systemTray.isAvailable !== 'function') return false
-  if (!systemTray.isAvailable()) return false
+  let hasRunningPipeline = false
   try {
-    return pipelineEngine.hasRunningOrchestration()
+    hasRunningPipeline = pipelineEngine.hasRunningOrchestration()
   } catch (error) {
     log.warn('window', '检测运行中任务失败：' + errorMessage(error))
     return false
   }
+  return shouldHideToTrayOnClose({
+    platform,
+    hasRunningPipeline,
+    trayAvailable: systemTray.isAvailable(),
+  })
 }
 
 function clearMainWindowBindings(context) {
@@ -290,4 +302,4 @@ function createWindow(context) {
   return finishWindowSafely(context, mainWindow)
 }
 
-module.exports = { createWindow, isAllowedMainWindowUrl }
+module.exports = { createWindow, isAllowedMainWindowUrl, shouldHideToTray }

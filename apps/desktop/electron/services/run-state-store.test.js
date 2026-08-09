@@ -278,4 +278,24 @@ describe('RunStateStore saveRunning / listRunning（运行中任务持久化）'
     expect(fs.existsSync(path.join(dir, 'owners', hash('user-a'), 'run-running-rm.json'))).toBe(false)
     expect(fs.existsSync(path.join(dir, 'run-running-rm.json'))).toBe(false)
   })
+
+  it('跨平台原子写入：保存后不残留 .tmp 临时文件（rename/copy 两路径）', () => {
+    const store = makeStore()
+    store.saveFailed(makeRun('run-tmp-failed'))
+    store.saveRunning(makeRunningRun('run-tmp-running'))
+
+    // 覆盖写入已存在文件也走原子路径（Windows copy 回退 / POSIX rename 覆盖）
+    store.saveRunning(makeRunningRun('run-tmp-running'))
+
+    const leftovers = []
+    const walk = (p) => {
+      for (const entry of fs.readdirSync(p, { withFileTypes: true })) {
+        const full = path.join(p, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (entry.name.endsWith('.tmp')) leftovers.push(full)
+      }
+    }
+    walk(dir)
+    expect(leftovers).toEqual([])
+  })
 })

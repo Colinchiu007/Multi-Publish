@@ -171,4 +171,30 @@ describe('SystemTray IPC 安全合同', () => {
     expect(__electronMock.app.quit).toHaveBeenCalledTimes(1)
     expect(trayInstance.destroy).not.toHaveBeenCalled()
   })
+
+  it('macOS：图标缺失时回退模板图标并标记 setTemplateImage(true)（菜单栏明暗适配）', () => {
+    const templateImage = { setTemplateImage: vi.fn() }
+    const original = __electronMock.nativeImage.createFromBuffer
+    __electronMock.nativeImage.createFromBuffer = vi.fn(() => templateImage)
+    try {
+      const icon = systemTray.resolveTrayIcon('darwin')
+      expect(icon).toBe(templateImage)
+      expect(templateImage.setTemplateImage).toHaveBeenCalledWith(true)
+    } finally {
+      __electronMock.nativeImage.createFromBuffer = original
+    }
+  })
+
+  it('Windows：图标缺失时回退占位图且不调用 setTemplateImage', () => {
+    const image = { setTemplateImage: vi.fn() }
+    const original = __electronMock.nativeImage.createFromBuffer
+    __electronMock.nativeImage.createFromBuffer = vi.fn(() => image)
+    try {
+      const icon = systemTray.resolveTrayIcon('win32')
+      expect(icon).toBe(image)
+      expect(image.setTemplateImage).not.toHaveBeenCalled()
+    } finally {
+      __electronMock.nativeImage.createFromBuffer = original
+    }
+  })
 })
