@@ -4,6 +4,37 @@
 
 ---
 
+- **双模型审查修复（第二轮，2026-08-09）**：C1（Critical）context 敏感键拦截迁入契约咽喉
+  （`prompt-engine-contract.js` `assertNoSensitiveContext` + prompt-bridge 纵深防御）；W1 error/detail 宽判
+  （error 有值即失败，防对象/数组 error 绕回「原文当成功」）；W2 配置层与运行层一致（非法平台/风格回退默认，
+  旧值兼容不抛错）；W3/W4 枚举/别名/敏感键单一来源（text-config 直接引用契约，删死代码）；W5/W6 截断用契约收敛值、
+  包装失败原因优先。复审结论：无 Critical，可批准合入。
+
+## 图片提示词统一走 prompt-engine 复盘 (2026-08-09)
+
+- **表象/背景**：story2video-compose manifest（story2video-compose.yaml）与 PRD 早已声明 optimize 阶段
+  tools_available=[prompt_engine]、auto_detect_style=true、platform/creativeLevel/maxLength/numCandidates/context
+  等契约，但实现（story2video-stages.js 的 story2video_optimize）一直直连默认 LLM，且 story2video-text-config.js
+  显式「忽略旧 PromptBridge 专属参数」，测试锁死该背离（「优化只调用当前默认 LLM，不回退 PromptBridge」）。
+  设计与实现长期漂移，图片提示词缺少统一的风格检测、改写与输出校验。
+- **修复**：三层统一走 prompt-engine（PromptBridge / 8013）：① 新增 `prompt-engine-contract.js` 作为枚举/别名/
+  请求构造/输出校验单一来源（7 平台、14 风格、别名 cinematic→photography / dall-e→dalle / stable-diffusion→stable_diffusion 等、
+  `buildPromptEngineOptimizeRequest`、`extractOptimizedPrompt`）；② story2video_optimize 从直连默认 LLM 改为
+  逐场景 `serviceBus.optimizePrompt`，保留并发/重试/断点续传/进度语义；③ 通用 OPTIMIZE/OPTIMIZE_BATCH 补齐同一
+  请求构造与 error 优先校验；④ text-config optimize 配置扩展 platform/maxLength/numCandidates/autoDetectStyle/context
+  并做范围校验与敏感键拦截。
+- **关键教训（双模型审查提炼）**：
+  1. **error 优先校验是防静默降级的地基**：/v1/optimize 失败时兜底返回 `{ optimized_prompt: 原文, error }`
+     （rest.py:69-75），只校验 optimized_prompt 非空会把「未优化原文」当成功——校验顺序必须是
+     error 优先 → 结构（422 detail/非法）→ 内容（空串/超长截断/拒绝文本）。
+  2. **发送前枚举归一，否则必然 422**：旧默认 style='cinematic' 不是 StyleType 合法值，直发必 422；
+     FastAPI 422 返回 `{ detail: [...] }` 与 error 兜底是两种失败形态，都必须覆盖。
+  3. **context 会发给外部服务，必须过敏感键拦截**（api_key/token/secret 等），否则可能把凭据外发。
+  4. **manifest/PRD 已声明 ≠ 实现已交付**：以「是否走 prompt-engine」判断现状，不能以文档声明冒充实现；
+     测试要锁「实现与契约一致」，而不是反向锁「不调用 prompt-engine」。
+- **验收边界**：单元/集成测试用 mock PromptBridge / 本地 HTTP stub 覆盖契约与 fail-closed；真实 8013 + LLM key
+  的改写质量、风格检测准确率与配额为外部验收边界（PENDING_EXTERNAL），不冒充通过。
+
 ## MiniMax 克隆音色与官方音色需分开路由复盘 (2026-08-08)
 
 - **表象**：改用异步 T2A 后，克隆音色（本地克隆 id「01」）仍报「invalid params, voice id wrong」。

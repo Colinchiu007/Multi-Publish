@@ -521,12 +521,16 @@ const PIPELINES = [
       },
       {
         name: 'optimize',
-        type: 'story2video_optimize', // 自定义类型：当前默认 LLM 逐场景优化
-        description: '基于当前默认 LLM 的逐场景提示词优化',
+        type: 'story2video_optimize', // 自定义类型：统一走 prompt-engine（8013）
+        description: '图片提示词统一经 prompt-engine 优化（风格检测/改写/输出校验）',
         checkpointRequired: true,
         options: {
+          platform: 'generic',
           style: 'realistic',
           creative_level: 5,
+          max_length: 300,
+          num_candidates: 1,
+          auto_detect_style: true,
           negative_prompt: '',
         },
         inputFrom: 'domain_enrich', // 从 context.domain_enrich 取

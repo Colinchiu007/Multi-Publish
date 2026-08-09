@@ -8,6 +8,11 @@
  */
 const { BasePythonBridge } = require('./base-python-bridge')
 const { config } = require('../config/app-config')
+const {
+  normalizePromptEngineStyle,
+  normalizePromptEnginePlatform,
+  assertNoSensitiveContext,
+} = require('./prompt-engine-contract')
 
 const PROMPT_PORT = config.promptBridge.port
 const PROMPT_HOST = config.promptBridge.host
@@ -26,6 +31,18 @@ function normalizeOptimizeRequest (request) {
     delete normalized.context
   } else if (typeof normalized.context === 'string') {
     normalized.context = { synopsis: normalized.context }
+  } else if (normalized.context !== null && typeof normalized.context === 'object') {
+    // 纵深防御：context 会发给外部服务，敏感凭据键在此处再拦一道（契约层已拦）
+    assertNoSensitiveContext(normalized.context, 'optimize.context')
+  }
+  // 图片提示词统一契约：发送前归一平台/风格，避免历史别名（cinematic/dall-e/stable-diffusion 等）触发 422
+  if (normalized.platform !== undefined && normalized.platform !== null && normalized.platform !== '') {
+    normalized.platform = normalizePromptEnginePlatform(normalized.platform)
+  }
+  if (normalized.style !== undefined && normalized.style !== null && normalized.style !== '') {
+    normalized.style = normalizePromptEngineStyle(normalized.style)
+  } else if (normalized.style === '') {
+    delete normalized.style
   }
   return normalized
 }
@@ -51,7 +68,8 @@ class PromptBridge extends BasePythonBridge {
    * @param {object} request - { prompt, ...options }
    * @returns {Promise<object>}
    */
-  optimize (request) {
+  async optimize (request) {
+    // async 保证同步校验异常（如敏感凭据拦截）以 rejected promise 呈现，统一走调用方错误处理
     return this._post('/v1/optimize', JSON.stringify(normalizeOptimizeRequest(request)))
   }
 
@@ -60,7 +78,7 @@ class PromptBridge extends BasePythonBridge {
    * @param {object[]} requests - 优化请求数组
    * @returns {Promise<object>}
    */
-  optimizeBatch (requests) {
+  async optimizeBatch (requests) {
     const normalized = requests.map(normalizeOptimizeRequest)
     return this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }))
   }

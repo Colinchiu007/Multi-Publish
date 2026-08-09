@@ -43,6 +43,30 @@ function makePipeline(assetGenerator, aiGenerator) {
   return assetsExecutor
 }
 
+/**
+ * prompt-engine 阶段的 ServiceBus 夹具：optimizePrompt 记录调用并返回 OptimizeResult。
+ * respond 可自定义响应或抛错；默认返回 { optimized_prompt: '优化: <prompt>', platform, style, model_used, key_source }。
+ */
+function makeOptimizeBus(respond) {
+  const calls = []
+  const serviceBus = {
+    calls,
+    optimizePrompt: vi.fn(async (prompt, options) => {
+      calls.push({ prompt, options })
+      if (typeof respond === 'function') return respond({ prompt, options }, calls.length - 1)
+      return {
+        optimized_prompt: '优化: ' + prompt,
+        platform: options.platform || 'generic',
+        style: options.style || null,
+        model_used: 'mock-model',
+        key_source: 'config',
+      }
+    }),
+    optimizePromptsBatch: vi.fn(),
+  }
+  return serviceBus
+}
+
 describe('story2video 资源索引契约', () => {
   it('资源并发值被限制为安全整数范围', () => {
     expect(normalizeAssetConcurrency(Infinity)).toBe(3)
@@ -79,23 +103,12 @@ describe('story2video 资源索引契约', () => {
     expect(result.output.scenes).toEqual([{ text: '普通内容。' }])
   })
 
-  it('提示词优化只调用当前默认 LLM，逐场景保序且不回退 PromptBridge', async () => {
-    const aiGenerator = {
-      _modelProviderManager: {
-        getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })),
-      },
-      generateWithDefault: vi.fn(async (_type, params) => ({
-        content: params.messages[1].content.includes('唐代')
-          ? '唐代长安城，电影感广角镜头'
-          : '未来城市夜景，电影感航拍镜头',
-        model: 'gpt-4.1-mini',
-      })),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
-    const serviceBus = { optimizePromptsBatch: vi.fn() }
+  it('提示词优化统一走 prompt-engine：逐场景调用、携带契约参数且不回退默认 LLM', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
 
     const result = await fn({
-      stage: { options: { style: 'cinematic', creative_level: 8 } },
+      stage: { options: { style: 'cinematic', creative_level: 8, platform: 'dall-e', negative_prompt: '水印' } },
       params: {},
       context: {
         domain_enrich: {
@@ -111,55 +124,55 @@ describe('story2video 资源索引契约', () => {
     expect(result).toEqual({
       success: true,
       output: [
-        { optimized_prompt: '唐代长安城，电影感广角镜头', providerId: 'openai', model: 'gpt-4.1-mini' },
-        { optimized_prompt: '未来城市夜景，电影感航拍镜头', providerId: 'openai', model: 'gpt-4.1-mini' },
+        expect.objectContaining({ optimized_prompt: '优化: 唐代长安城夜景，无文字', providerId: 'prompt-engine', model: 'mock-model' }),
+        expect.objectContaining({ optimized_prompt: '优化: 未来城市的车流。', providerId: 'prompt-engine', model: 'mock-model' }),
       ],
     })
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(2)
-    expect(aiGenerator.generateWithDefault).toHaveBeenNthCalledWith(
-      1,
-      'llm',
-      expect.objectContaining({
-        messages: expect.arrayContaining([expect.objectContaining({ role: 'system' })]),
+    expect(serviceBus.calls).toHaveLength(2)
+    // 契约参数：平台/风格别名归一 + 自动风格检测 + 边界收敛
+    expect(serviceBus.calls[0]).toEqual({
+      prompt: '唐代长安城夜景，无文字',
+      options: expect.objectContaining({
+        platform: 'dalle',
+        style: 'photography',
+        creative_level: 8,
+        max_length: 300,
+        num_candidates: 1,
+        auto_detect_style: true,
+        negative_prompt: '水印',
       }),
-    )
+    })
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })
 
-  it('LLM 返回含 <think> 思考块的 content 时，净化后作为提示词（不带思考内容）', async () => {
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-M2.7'] })) },
-      generateWithDefault: vi.fn(async () => ({
-        content: '<think>用户让我把场景 12 变成图片提示词</think>\n\nA real final prompt',
-        model: 'MiniMax-M2.7',
-      })),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+  it('prompt-engine 返回含 <think> 思考块的结果时，净化后作为提示词（不带思考内容）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({
+      optimized_prompt: '<think>用户让我把场景 12 变成图片提示词</think>\n\nA real final prompt',
+      model_used: 'mock-model',
+    }))
     const result = await fn({
       stage: { options: {} },
       params: {},
       context: { split: [{ text: '唐朝长安城的灯火。' }] },
-      serviceBus: {},
+      serviceBus,
     })
     expect(result).toMatchObject({ success: true })
     expect(result.output[0].optimized_prompt).toBe('A real final prompt')
     expect(result.output[0].optimized_prompt).not.toContain('think')
   })
 
-  it('LLM 返回拒绝文本（missing description）时回退原文，不把拒绝内容当提示词', async () => {
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-M2.7'] })) },
-      generateWithDefault: vi.fn(async () => ({
-        content: 'I cannot generate the image prompt because the visual description of the scene is missing from your request. Please provide the details of Scene 11 (subject, action, setting, etc.) so I can convert it into a production-ready prompt.',
-        model: 'MiniMax-M2.7',
-      })),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+  it('prompt-engine 返回拒绝文本（missing description）时回退原文，不把拒绝内容当提示词', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({
+      optimized_prompt: 'I cannot generate the image prompt because the visual description of the scene is missing from your request. Please provide the details of Scene 11 (subject, action, setting, etc.) so I can convert it into a production-ready prompt.',
+      model_used: 'mock-model',
+    }))
     const result = await fn({
       stage: { options: {} },
       params: {},
       context: { split: [{ text: '一个有内容的场景描述。' }] },
-      serviceBus: {},
+      serviceBus,
     })
     expect(result).toMatchObject({ success: true })
     // 拒绝文本被拦截：有实质内容时回退原文
@@ -169,82 +182,67 @@ describe('story2video 资源索引契约', () => {
     expect(result.output[0].optimized_prompt).not.toContain('cannot generate')
   })
 
-  it('纯数字文案（如 11）守卫优先于 LLM 拒绝路径：不调用 LLM、直接用原文', async () => {
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-M2.7'] })) },
-      generateWithDefault: vi.fn(async () => ({
-        content: 'I cannot generate the image prompt because the visual description of the scene is missing from your request.',
-        model: 'MiniMax-M2.7',
-      })),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+  it('纯数字文案（如 11）守卫优先于拒绝路径：不调用 prompt-engine、直接用原文', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
     const result = await fn({
       stage: { options: {} },
       params: {},
       context: { split: [{ text: '11' }] },
-      serviceBus: {},
+      serviceBus,
     })
     expect(result).toMatchObject({ success: true })
     expect(result.output[0]).toEqual({ optimized_prompt: '11', providerId: null, model: null, skipped_optimize: true })
-    // 守卫优先：未调用 LLM，避免产生拒绝文本
-    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
+    // 守卫优先：未调用 prompt-engine
+    expect(serviceBus.calls).toHaveLength(0)
   })
-  it('纯数字文案（如 12）跳过 LLM 优化，用原文兜底，不编造场景', async () => {
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-M2.7'] })) },
-      generateWithDefault: vi.fn(async () => ({ content: '编造的场景', model: 'MiniMax-M2.7' })),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+  it('纯数字文案（如 12）跳过 prompt-engine 优化，用原文兜底，不编造场景', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
     const context = { split: [{ text: '12' }, { text: '一个有内容的场景描述。' }] }
     const result = await fn({
       stage: { options: {} },
       params: {},
       context,
-      serviceBus: {},
+      serviceBus,
     })
     expect(result).toMatchObject({ success: true })
     expect(result.output).toHaveLength(2)
     // 纯数字场景：跳过优化，用原文，标记 skipped_optimize
     expect(result.output[0]).toEqual({ optimized_prompt: '12', providerId: null, model: null, skipped_optimize: true })
-    // 有内容场景：正常调用 LLM
-    expect(result.output[1]).toMatchObject({ optimized_prompt: '编造的场景' })
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    // 有内容场景：正常调用 prompt-engine
+    expect(result.output[1]).toMatchObject({ optimized_prompt: '优化: 一个有内容的场景描述。' })
+    expect(serviceBus.calls).toHaveLength(1)
     expect(context.optimize_progress).toEqual({ done: 2, total: 2 })
   })
   it('逐场景提示词优化并行执行（有界并发，避免长文案串行拖慢）', async () => {
     // 用并发计数断言（确定性），不依赖墙钟：并发执行时活跃调用数应 ≥2
     let active = 0
     let maxActive = 0
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
-      generateWithDefault: vi.fn(async () => {
-        active += 1
-        maxActive = Math.max(maxActive, active)
-        await new Promise(resolve => setTimeout(resolve, 50))
-        active -= 1
-        return { content: '优化结果', model: 'gpt-4.1-mini' }
-      }),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(async () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise(resolve => setTimeout(resolve, 50))
+      active -= 1
+      return { optimized_prompt: '优化结果', model_used: 'mock-model' }
+    })
     const scenes = Array.from({ length: 6 }, (_, i) => ({ text: '场景' + i, imagePromptSeed: '画面' + i }))
     const result = await fn({
       stage: { options: {} },
       params: {},
       context: { domain_enrich: { scenes } },
-      serviceBus: { optimizePromptsBatch: vi.fn() },
+      serviceBus,
     })
     expect(result.success).toBe(true)
     expect(result.output).toHaveLength(6)
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(6)
+    expect(serviceBus.calls).toHaveLength(6)
     expect(maxActive).toBeGreaterThanOrEqual(2)
   })
 
   it('优化进度前置写入：阶段开始即显示「共 N 个场景，已完成 X 个」', async () => {
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
-      generateWithDefault: vi.fn(async () => ({ content: '优化后', model: 'gpt-4.1-mini' })),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
     const context = {
       domain_enrich: {
         scenes: [
@@ -258,7 +256,7 @@ describe('story2video 资源索引契约', () => {
       stage: { options: {} },
       params: {},
       context,
-      serviceBus: { optimizePromptsBatch: vi.fn() },
+      serviceBus,
     })
     expect(result.success).toBe(true)
     // 前置写入：前端在阶段执行期间即可显示数量信息，而不是等阶段结束后才出现
@@ -266,12 +264,9 @@ describe('story2video 资源索引契约', () => {
   })
 
   it('断点续传时优化进度从已完成场景数开始，成功后清理续传缓存', async () => {
-    const resumeEntry = { optimized_prompt: '已有优化', providerId: 'openai', model: 'gpt-4.1-mini' }
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
-      generateWithDefault: vi.fn(async () => ({ content: '新优化', model: 'gpt-4.1-mini' })),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const resumeEntry = { optimized_prompt: '已有优化', providerId: 'prompt-engine', model: 'mock-model' }
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
     const context = {
       domain_enrich: {
         scenes: [
@@ -285,70 +280,71 @@ describe('story2video 资源索引契约', () => {
       stage: { options: {} },
       params: {},
       context,
-      serviceBus: { optimizePromptsBatch: vi.fn() },
+      serviceBus,
     })
     expect(result.success).toBe(true)
     // 只优化未完成的场景，已完成的直接复用
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    expect(serviceBus.calls).toHaveLength(1)
     expect(result.output).toHaveLength(2)
     expect(result.output[0]).toEqual(resumeEntry)
     expect(context.optimize_progress).toEqual({ done: 2, total: 2 })
     expect(context.optimize_resume).toBeUndefined()
   })
 
-  it('默认 LLM 缺失、空响应或中途失败时优化阶段 fail closed', async () => {
-    const noDefault = makePipeline(null, {
-      _modelProviderManager: { getDefault: vi.fn(() => null) },
-      generateWithDefault: vi.fn(),
-    }).optimizeExecutor
-    const missing = await noDefault({
+  it('prompt-engine 缺失、空响应、error 兜底、422 或持续瞬时失败时优化阶段 fail closed', async () => {
+    // 服务缺失：未注入 PromptBridge → 明确错误
+    const noBus = makePipeline(null).optimizeExecutor
+    const missing = await noBus({
       stage: { options: {} }, params: {}, context: { split: [{ text: '场景' }] }, serviceBus: {},
     })
-    expect(missing).toEqual({
-      success: false,
-      error: '未找到需要的相关模型，请在设置中添加模型',
-    })
+    expect(missing).toMatchObject({ success: false, error: expect.stringMatching(/prompt-engine|PromptBridge/i) })
 
-    const empty = makePipeline(null, {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
-      generateWithDefault: vi.fn(async () => ({ content: '   ' })),
-    }).optimizeExecutor
-    const blank = await empty({
-      stage: { options: {} }, params: {}, context: { split: [{ text: '场景' }] }, serviceBus: {},
+    // 空响应
+    const emptyBus = makeOptimizeBus(() => ({ optimized_prompt: '   ' }))
+    const blank = await makePipeline(null).optimizeExecutor({
+      stage: { options: {} }, params: {}, context: { split: [{ text: '场景' }] }, serviceBus: emptyBus,
     })
-    expect(blank).toMatchObject({ success: false, error: expect.stringMatching(/empty|为空/i) })
+    expect(blank).toMatchObject({ success: false, error: expect.stringMatching(/空提示词/i) })
 
-    const serviceBus = { optimizePromptsBatch: vi.fn() }
-    const retryRecovers = makePipeline(null, {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
-      generateWithDefault: vi.fn()
-        .mockRejectedValueOnce(new Error('provider timeout'))
-        .mockResolvedValue({ content: '优化后提示词', model: 'gpt-4.1-mini' }),
-    }).optimizeExecutor
-    const recovered = await retryRecovers({
+    // error 兜底响应（返回原文 + error）→ 必须失败，不能把「未优化原文」当成功
+    const errorBus = makeOptimizeBus(() => ({ optimized_prompt: '原场景', error: 'quota exceeded' }))
+    const errored = await makePipeline(null).optimizeExecutor({
+      stage: { options: {} }, params: {}, context: { split: [{ text: '场景' }] }, serviceBus: errorBus,
+    })
+    expect(errored).toMatchObject({ success: false, error: expect.stringMatching(/quota exceeded/i) })
+
+    // 422 detail 形态
+    const detailBus = makeOptimizeBus(() => ({ detail: [{ msg: 'value is not a valid enumeration member' }] }))
+    const detailResult = await makePipeline(null).optimizeExecutor({
+      stage: { options: {} }, params: {}, context: { split: [{ text: '场景' }] }, serviceBus: detailBus,
+    })
+    expect(detailResult).toMatchObject({ success: false, error: expect.stringMatching(/422/i) })
+
+    // 瞬态错误有界重试后成功
+    const retryBus = makeOptimizeBus(() => { throw new Error('provider timeout') })
+    retryBus.optimizePrompt
+      .mockRejectedValueOnce(new Error('provider timeout'))
+      .mockResolvedValue({ optimized_prompt: '优化后提示词', model_used: 'mock-model' })
+    const recovered = await makePipeline(null).optimizeExecutor({
       stage: { options: {} },
       params: {},
       context: { split: [{ text: '第一幕' }] },
-      serviceBus,
+      serviceBus: retryBus,
     })
-    // 瞬态 provider 错误触发有界重试后成功
     expect(recovered).toMatchObject({ success: true })
-    expect(retryRecovers).toBeDefined()
     expect(recovered.output).toHaveLength(1)
 
-    const persistent = makePipeline(null, {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })) },
-      generateWithDefault: vi.fn().mockRejectedValue(new Error('provider timeout')),
-    }).optimizeExecutor
-    const failed = await persistent({
+    // 持续瞬时失败 → 场景级失败，不产生 output
+    const persistentBus = makeOptimizeBus(() => { throw new Error('provider timeout') })
+    const failed = await makePipeline(null).optimizeExecutor({
       stage: { options: { maxRetries: 0 } },
       params: {},
       context: { split: [{ text: '第一幕' }] },
-      serviceBus,
+      serviceBus: persistentBus,
     })
     expect(failed).toMatchObject({ success: false, error: expect.stringMatching(/scene 0.*provider timeout/i) })
     expect(failed).not.toHaveProperty('output')
-    expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
+    expect(persistentBus.optimizePromptsBatch).not.toHaveBeenCalled()
   })
 
   it('任一 scene 的图片或音频失败时默认阻断，不能生成错位清单', async () => {
@@ -646,26 +642,21 @@ describe('story2video 资源索引契约', () => {
     })
   })
 
-  it('61 个场景逐个调用默认 LLM 优化，不因场景数被拒绝', async () => {
-    const aiGenerator = {
-      _modelProviderManager: {
-        getDefault: vi.fn(() => ({ id: 'openai', models: ['gpt-4.1-mini'] })),
-      },
-      generateWithDefault: vi.fn(async () => ({ content: '安全的画面提示词', model: 'gpt-4.1-mini' })),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+  it('61 个场景逐个调用 prompt-engine 优化，不因场景数被拒绝', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
     const scenes = Array.from({ length: 61 }, (_, index) => ({ text: '第 ' + (index + 1) + ' 个场景' }))
 
     const result = await fn({
       stage: { options: {} },
       params: {},
       context: { split: scenes },
-      serviceBus: {},
+      serviceBus,
     })
 
     expect(result.success).toBe(true)
     expect(result.output).toHaveLength(61)
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(61)
+    expect(serviceBus.calls).toHaveLength(61)
   })
 
   it('61 个场景继续进入资源生成，不因场景数被拒绝', async () => {
@@ -785,39 +776,34 @@ describe('story2video 限流/瞬时错误有界重试', () => {
 
   it('提示词优化遇到限流时用更长退避重试并恢复', async () => {
     vi.useFakeTimers()
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-Text-01'] })) },
-      generateWithDefault: vi.fn()
-        .mockRejectedValueOnce(new Error("You've reached the API rate limit for free users."))
-        .mockRejectedValueOnce(new Error('rate limit'))
-        .mockResolvedValue({ content: '优化后提示词', model: 'MiniMax-Text-01' }),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => { throw new Error("You've reached the API rate limit for free users.") })
+    serviceBus.optimizePrompt
+      .mockRejectedValueOnce(new Error("You've reached the API rate limit for free users."))
+      .mockRejectedValueOnce(new Error('rate limit'))
+      .mockResolvedValue({ optimized_prompt: '优化后提示词', model_used: 'mock-model' })
     const promise = fn({
       stage: { options: {} },
       params: {},
       context: { split: [{ text: '第一幕' }] },
-      serviceBus: {},
+      serviceBus,
     })
     await vi.advanceTimersByTimeAsync(30000)
     const result = await promise
     expect(result).toMatchObject({ success: true })
     expect(result.output).toHaveLength(1)
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(3)
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(3)
   })
 
   it('限流持续存在时按限流次数上限失败并保留场景与原因', async () => {
     vi.useFakeTimers()
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-Text-01'] })) },
-      generateWithDefault: vi.fn().mockRejectedValue(new Error('You have reached the API rate limit for free users.')),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => { throw new Error('You have reached the API rate limit for free users.') })
     const promise = fn({
       stage: { options: {} },
       params: {},
       context: { split: [{ text: '第一幕' }] },
-      serviceBus: {},
+      serviceBus,
     })
     await vi.advanceTimersByTimeAsync(60000)
     const result = await promise
@@ -825,26 +811,23 @@ describe('story2video 限流/瞬时错误有界重试', () => {
       success: false,
       error: expect.stringMatching(/scene 0.*rate limit/i),
     })
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(4)
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(4)
   })
 
   it('非瞬时 provider 错误不重试，立即失败', async () => {
     vi.useFakeTimers()
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-Text-01'] })) },
-      generateWithDefault: vi.fn().mockRejectedValue(new Error('invalid api key')),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => { throw new Error('invalid api key') })
     const promise = fn({
       stage: { options: {} },
       params: {},
       context: { split: [{ text: '第一幕' }] },
-      serviceBus: {},
+      serviceBus,
     })
     await vi.advanceTimersByTimeAsync(1000)
     const result = await promise
     expect(result).toMatchObject({ success: false, error: expect.stringMatching(/invalid api key/) })
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(1)
   })
 
   it('资源生成遇到 TTS 限流时重试并恢复，不拖垮整阶段', async () => {
@@ -871,28 +854,25 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
   })
 
-  it('提示词优化断点续传：已完成场景结果直接复用，不重复调用 LLM', async () => {
-    const aiGenerator = {
-      _modelProviderManager: { getDefault: vi.fn(() => ({ id: 'minimax', models: ['MiniMax-Text-01'] })) },
-      generateWithDefault: vi.fn(async () => ({ content: '新结果', model: 'MiniMax-Text-01' })),
-    }
-    const fn = makePipeline(null, aiGenerator).optimizeExecutor
+  it('提示词优化断点续传：已完成场景结果直接复用，不重复调用 prompt-engine', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
     const context = {
       split: [{ text: '一' }, { text: '二' }],
-      optimize_resume: [{ optimized_prompt: '旧结果0', providerId: 'minimax', model: 'MiniMax-Text-01' }],
+      optimize_resume: [{ optimized_prompt: '旧结果0', providerId: 'prompt-engine', model: 'mock-model' }],
     }
     const result = await fn({
       stage: { options: {} },
       params: {},
       context,
-      serviceBus: {},
+      serviceBus,
     })
     expect(result).toMatchObject({ success: true })
     expect(result.output).toEqual([
-      { optimized_prompt: '旧结果0', providerId: 'minimax', model: 'MiniMax-Text-01' },
-      expect.objectContaining({ optimized_prompt: '新结果' }),
+      { optimized_prompt: '旧结果0', providerId: 'prompt-engine', model: 'mock-model' },
+      expect.objectContaining({ optimized_prompt: '优化: 二' }),
     ])
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    expect(serviceBus.calls).toHaveLength(1)
     // 实时进度：共 2 个场景，已完成 2 个
     expect(context.optimize_progress).toEqual({ done: 2, total: 2 })
   })

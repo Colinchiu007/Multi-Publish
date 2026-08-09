@@ -54,4 +54,32 @@ describe('PromptBridge prompt-engine 请求兼容', () => {
       requests: [{ prompt: '42' }],
     })
   })
+  it('发送前归一平台/风格别名（cinematic/dall-e/stable-diffusion），空 style 不发送', async () => {
+    const bridge = new PromptBridge({})
+    bridge.isRunning = true
+    bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
+
+    await bridge.optimize({ prompt: '城市夜景', platform: 'dall-e', style: 'cinematic' })
+    await bridge.optimize({ prompt: '另一个', platform: 'stable-diffusion', style: '' })
+
+    expect(JSON.parse(bridge._post.mock.calls[0][1])).toEqual({
+      prompt: '城市夜景',
+      platform: 'dalle',
+      style: 'photography',
+    })
+    expect(JSON.parse(bridge._post.mock.calls[1][1])).toEqual({
+      prompt: '另一个',
+      platform: 'stable_diffusion',
+    })
+  })
+
+  it('context 对象含敏感凭据键时 bridge 拒绝发送（纵深防御）', async () => {
+    const bridge = new PromptBridge({})
+    bridge.isRunning = true
+    bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
+
+    await expect(bridge.optimize({ prompt: 'x', context: { api_key: 'secret' } }))
+      .rejects.toThrow(/敏感凭据/)
+    expect(bridge._post).not.toHaveBeenCalled()
+  })
 })

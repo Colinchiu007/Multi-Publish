@@ -20,7 +20,7 @@ const ServiceBus = require('../services/service-bus');
 function makeMockServiceBus(overrides) {
   const bus = {
     splitText: vi.fn(async (text) => ({ code: 0, data: { sentences: text.split(/[。！？]/).filter(Boolean) } })),
-    optimizePrompt: vi.fn(async (prompt) => ({ code: 0, data: { optimized: prompt + ' [optimized]' } })),
+    optimizePrompt: vi.fn(async (prompt) => ({ optimized_prompt: prompt + ' [optimized]', platform: 'generic', model_used: 'mock' })),
     optimizePromptsBatch: vi.fn(async (prompts) => ({ code: 0, data: prompts.map(p => p + ' [opt]') })),
     composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4' } })),
     callPythonSkill: vi.fn(async (name) => ({ code: 0, data: { skill: name, result: 'ok' } })),
@@ -342,8 +342,19 @@ it('OPTIMIZE 阶段调用 serviceBus.optimizePrompt', async function () {
     context: { prompt: '一只猫坐在窗台上' },
   });
   eq(result.success, true);
-  eq(result.output.optimized, '一只猫坐在窗台上 [optimized]');
+  eq(result.output.optimized_prompt, '一只猫坐在窗台上 [optimized]');
   expect(bus.optimizePrompt).toHaveBeenCalledOnce();
+  // 统一契约参数：平台/创意度/长度/候选数/自动风格检测
+  expect(bus.optimizePrompt).toHaveBeenCalledWith(
+    '一只猫坐在窗台上',
+    expect.objectContaining({
+      platform: 'generic',
+      creative_level: 5,
+      max_length: 300,
+      num_candidates: 1,
+      auto_detect_style: true,
+    }),
+  );
 });
 
 it('OPTIMIZE_BATCH 阶段需要数组输入', async function () {
@@ -453,7 +464,12 @@ it.each([
       context: { prompts: ['prompt1', 'prompt2'] },
     });
 
-    expect(receivedBody).toEqual({ requests: [{ prompt: 'prompt1' }, { prompt: 'prompt2' }] });
+    expect(receivedBody).toEqual({
+      requests: [
+        expect.objectContaining({ prompt: 'prompt1', platform: 'generic', creative_level: 5, max_length: 300, num_candidates: 1, auto_detect_style: true }),
+        expect.objectContaining({ prompt: 'prompt2', platform: 'generic', creative_level: 5, max_length: 300, num_candidates: 1, auto_detect_style: true }),
+      ],
+    });
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/item 0.*non-empty prompt/i);
     expect(result.output).toBeUndefined();

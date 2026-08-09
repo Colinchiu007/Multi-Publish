@@ -75,9 +75,12 @@ describe('Story2Video text 参数合同', () => {
     expect(result.story2videoTextConfig).not.toHaveProperty('seconds')
     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
     expect(result.story2videoTextConfig).not.toHaveProperty('perImageDuration')
-    expect(result.stageOptions.optimize).not.toHaveProperty('platform')
-    expect(result.stageOptions.optimize).not.toHaveProperty('num_candidates')
-    expect(result.stageOptions.optimize).not.toHaveProperty('auto_detect_style')
+    expect(result.stageOptions.optimize).toMatchObject({
+      platform: 'generic',
+      max_length: 300,
+      num_candidates: 1,
+      auto_detect_style: true,
+    })
   })
 
   it('接受全自动编排策略并透传 background 后台模式，同时保留历史分句语言快照', () => {
@@ -124,20 +127,46 @@ describe('Story2Video text 参数合同', () => {
     })
   })
 
-  it('忽略旧 PromptBridge 专属参数，不把它们伪装为当前 LLM 的可用选项', () => {
+  it('接受 prompt-engine 专属参数并映射到 optimize 配置（平台/长度/候选数/自动检测/上下文）', () => {
     const result = normalizeStory2VideoTextParams({
       text: '未来城市',
       story2videoTextConfig: {
-        optimize: { platform: 'douyin', maxLength: 300, numCandidates: 3, autoDetectStyle: false, context: { synopsis: '旧路径' } },
+        optimize: { platform: 'tongyi', maxLength: 400, numCandidates: 3, autoDetectStyle: false, context: { synopsis: '角色一致性' } },
       },
     })
 
     expect(result.story2videoTextConfig.optimize).toEqual({
-      style: 'realistic', creativeLevel: 5, negativePrompt: '',
+      platform: 'tongyi', style: 'realistic', creativeLevel: 5,
+      maxLength: 400, numCandidates: 3, autoDetectStyle: false,
+      negativePrompt: '', context: { synopsis: '角色一致性' },
     })
     expect(result.stageOptions.optimize).toEqual({
-      style: 'realistic', creative_level: 5, negative_prompt: '',
+      platform: 'tongyi', style: 'realistic', creative_level: 5,
+      max_length: 400, num_candidates: 3, auto_detect_style: false,
+      negative_prompt: '', context: { synopsis: '角色一致性' },
     })
+  })
+
+  it('prompt-engine 参数处理：平台/风格非法回退默认（与运行层一致），长度/候选数越界与敏感上下文 fail closed', () => {
+    // 旧配置可能保存过非法平台值：配置层与运行层一致回退默认，不抛错（兼容回归防护）
+    const fallback = normalizeStory2VideoTextParams({
+      text: '非法平台',
+      story2videoTextConfig: { optimize: { platform: 'douyin', style: 'not-a-style' } },
+    })
+    expect(fallback.stageOptions.optimize).toMatchObject({ platform: 'generic', style: 'realistic' })
+
+    expect(() => normalizeStory2VideoTextParams({
+      text: '长度越界',
+      story2videoTextConfig: { optimize: { maxLength: 20000 } },
+    })).toThrow(/optimize.maxLength/)
+    expect(() => normalizeStory2VideoTextParams({
+      text: '候选越界',
+      story2videoTextConfig: { optimize: { numCandidates: 9 } },
+    })).toThrow(/optimize.numCandidates/)
+    expect(() => normalizeStory2VideoTextParams({
+      text: '敏感上下文',
+      story2videoTextConfig: { optimize: { context: { api_key: 'secret' } } },
+    })).toThrow(/敏感凭据/)
   })
 
   it('将完整兼容配置映射到对应阶段，并转换 BGM 兼容音量单位', () => {
@@ -181,7 +210,11 @@ describe('Story2Video text 参数合同', () => {
       tags: ['旅行'],
     })
     expect(result.stageOptions.split).toMatchObject({ mode: 'precise', max_sentence_length: 120, target_duration: 4 })
-    expect(result.stageOptions.optimize).toEqual({ style: 'anime', creative_level: 8, negative_prompt: '水印、文字' })
+    expect(result.stageOptions.optimize).toEqual({
+      platform: 'generic', style: 'anime', creative_level: 8,
+      max_length: 300, num_candidates: 1, auto_detect_style: true,
+      negative_prompt: '水印、文字',
+    })
     expect(result.stageOptions.compose).toMatchObject({
       transition: 'slide-left',
       imageEffect: 'pan-left',
@@ -194,13 +227,15 @@ describe('Story2Video text 参数合同', () => {
     })
   })
 
-  it('兼容忽略旧时长、版本、perImageDuration 和 PromptBridge 专属字段', () => {
+  it('兼容忽略旧时长、版本、perImageDuration，optimize 补齐 prompt-engine 默认值', () => {
     const result = normalizeStory2VideoTextParams({
       text: '兼容旧配置',
-      story2videoTextConfig: { seconds: 12, versions: { generateBase: false, generateMerged: false }, perImageDuration: 4, optimize: { platform: 'unknown' } },
+      story2videoTextConfig: { seconds: 12, versions: { generateBase: false, generateMerged: false }, perImageDuration: 4 },
     })
 
-    expect(result.stageOptions.optimize).not.toHaveProperty('platform')
+    expect(result.stageOptions.optimize).toMatchObject({
+      platform: 'generic', style: 'realistic', max_length: 300, num_candidates: 1, auto_detect_style: true,
+    })
     expect(result).not.toHaveProperty('seconds')
     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
     expect(result).not.toHaveProperty('perImageDuration')
@@ -438,7 +473,6 @@ describe('Story2Video text 参数合同', () => {
     [{ text: '测试', story2videoTextConfig: { image: { aspectRatio: '7:11' } } }, 'image.aspectRatio'],
     [{ text: '测试', story2videoTextConfig: { size: '1920x1080', image: { aspectRatio: '9:16' } } }, '必须与输出分辨率匹配'],
     [{ text: '测试', story2videoTextConfig: { bgm: { volume: 11 } } }, 'bgm.volume'],
-    [{ text: '测试', story2videoTextConfig: { optimize: { style: 'unknown' } } }, '不支持的视觉提示词风格'],
     [{ text: '测试', story2videoTextConfig: { optimize: { creativeLevel: 0 } } }, '1-10'],
     [{ text: '测试', story2videoTextConfig: { optimize: { negativePrompt: 'x'.repeat(501) } } }, '超过 500 字符'],
   ])('拒绝非法配置且给出明确错误 %#', (input, expected) => {
