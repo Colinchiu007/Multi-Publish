@@ -484,6 +484,39 @@ class ModelProviderManager {
     return { ...this._safeRow(row), api_key: this._getApiKey(row) }
   }
 
+  /**
+   * 查询指定 provider 的 Adapter 是否实现某方法（能力协商，如 'deleteVoice'）。
+   * 供「本地管理」类操作（如删除本地克隆音色）判断是否需要/可以调用远端 API。
+   *
+   * 返回三态：
+   * - `true`  — adapter 明确实现该方法（应调用远端 API）；
+   * - `false` — adapter 明确不支持（如 MiniMax 官方 clone API 无删除端点 → 纯本地管理）；
+   * - `null`  — 无法判定（store 未就绪 / factory 缺失 / provider 缺失 / 构造异常 / adapter 无 supports），
+   *             调用方应回退保守行为（尝试远端调用），不得把「探测失败」当作「明确不支持」。
+   *
+   * - 与 callAdapter 使用相同的 provider 数据（含解密 key）与 adapter 缓存，避免能力查询污染缓存；
+   * - 不校验 API Key 有效性：能力是静态契约，与是否已配置凭据无关。
+   *
+   * @param {string} providerId
+   * @param {string} method
+   * @returns {Promise<boolean|null>}
+   */
+  async supportsAdapterMethod (providerId, method) {
+    if (typeof providerId !== 'string' || !providerId || typeof method !== 'string' || !method) return false
+    if (!this._ready) return null
+    const factory = this._adapterFactories.get(providerId)
+    if (!factory) return null
+    const provider = this.getProviderWithKey(providerId)
+    if (!provider) return null
+    try {
+      const adapter = this._getOrCreateAdapter(providerId, provider)
+      if (typeof adapter.supports !== 'function') return null
+      return adapter.supports(method) === true
+    } catch (_) {
+      return null
+    }
+  }
+
   createProvider (data) {
     if (!this._ready) return { code: -1, message: 'Store not initialized' }
     if (!data || !data.id || !data.name || !data.category) {

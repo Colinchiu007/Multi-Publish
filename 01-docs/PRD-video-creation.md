@@ -140,6 +140,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-08 | 场景时长归一（其他会话） | 图片动效归一化到场景时长、移除单图轮播选项、UTF-8 manifest。PR #396 | PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md |
 | 2026-08-09 | 视频合成子进度条 | compose 阶段子百分比进度条：引擎 `onProgress` 发射（preflight 0 → validated 3 → 逐片段 3+72·k/N → concat 87 → narration 89 → bgm 92 → webm 95 → verify 98 → done 100）；失败冻结 <100 杜绝假成功；执行器字段级 fail-closed 写入 `context.compose_progress`；前端 mini bar + 「正在合成片段 k/N · p%」/「视频合成 p%」。详见本节 3.1.10 与总 PRD 7.1.9.1 | PRD 7.1.9.1 / 3.1.10 |
 | 2026-08-09 | 运行中任务持久化 + 托盘后台运行 | 运行中编排 run 阶段级落盘 running 快照（`saveRunning`）+ 退出兜底 `saveRunningState()`；`resumeOrchestration` 支持 running 快照断点续跑（内存中已运行幂等返回 `alreadyRunning`）；窗口关闭时有运行任务且托盘可用 → 隐藏到托盘后台继续（dev 图标缺失回退内嵌占位图）；历史 running 卡片新增「继续生成」按钮。详见总 PRD 7.1.21 | PRD 7.1.21 |
+| 2026-08-09 | 本地克隆音色删除/设为默认 + 媒体导入反馈 | 删除本地克隆音色为本地管理语义：adapter 不支持 `deleteVoice`（如 MiniMax 官方 clone API 无删除端点）时跳过远端删除，直接清理本地 registry 记录/样本/偏好，不再误报「音色克隆服务暂时不可用」；新增 `ModelProviderManager.supportsAdapterMethod` 能力查询。克隆「设为默认」先同步下拉再保存偏好，默认克隆行显示「默认」徽标 + 高亮 + 「已设为默认」禁用态。媒体导入失败提示全部透传类别宾语（背景音乐等），新增 `MEDIA_PATH_UNRESOLVED` 细分（路径解析失败 vs 文件不可读/被占用），主进程复制文件对 Windows 占用做 ≤3 次有界重试。详见总 PRD 7.1.22 | PRD 7.1.22 |
 | 2026-08-09 | 窗口关闭行为跨平台化（macOS 前瞻） | 平台决策收敛到 `services/window-close-policy.js`：darwin 关闭窗口不拦截（系统约定，进程留在 Dock、activate 重建窗口）、win32/linux 维持「运行任务+托盘可用→隐藏托盘」；托盘图标按平台回退（darwin 模板图标 setTemplateImage，其余占位图）；快照写入 POSIX rename 原子优先、Windows copy 回退。回归：window-close-policy 6 / window 51 / system-tray 28 / run-state-store 17 测试通过 | PRD 7.1.21（跨平台行） |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
@@ -394,7 +395,7 @@ locale key；未知内部 ID 只能安全回退为原始 ID，不能以 slug 标
 | 能力类型 | 用户体验 | 约束 |
 |------|------|------|
 | 内置/可列举音色 | provider/model 选择后显示缓存目录；支持时可显式刷新 | 只调用该 adapter 已实现、已认证且经能力注册的 `listVoices`；失败遵循目录回退合同 |
-| ElevenLabs 用户克隆 | 仅在 capability 数据和专用 adapter 合同均验证后显示“新增克隆音色”；用户可新增、删除、设为默认 | 只有用户明确授权且远端 `cloneVoice` 成功后，可信主进程才把验证后的样本 `Buffer` 写入 owner-scoped 私有 `userData/voice-clone-samples`；SQLite registry 只保存受限相对目录和 `sampleCount` 等最小元数据，不保存源路径、文件名或音频字节。格式、大小、时长、模型、端点和删除语义由该 provider/model 的版本化 capability 数据驱动，不能统一猜测 |
+| ElevenLabs 用户克隆 | 仅在 capability 数据和专用 adapter 合同均验证后显示“新增克隆音色”；用户可新增、删除、设为默认 | 只有用户明确授权且远端 `cloneVoice` 成功后，可信主进程才把验证后的样本 `Buffer` 写入 owner-scoped 私有 `userData/voice-clone-samples`；SQLite registry 只保存受限相对目录和 `sampleCount` 等最小元数据，不保存源路径、文件名或音频字节。格式、大小、时长、模型、端点和删除语义由该 provider/model 的版本化 capability 数据驱动，不能统一猜测。**删除语义（2026-08-09）**：删除本地克隆音色 = 本地管理（registry 记录 + 本地样本 + 偏好清理）；仅当 adapter 支持 `deleteVoice`（如 ElevenLabs `DELETE /v1/voices/{id}`）时才先执行远端删除，不支持（如 MiniMax）时纯本地删除，不得报「服务不可用」（详见总 PRD 7.1.22）。 |
 | Doubao provider personal slot | UI 明确提示用户先到供应商官方控制台创建/管理音色，再点“刷新音色目录”；只有存在官方 API 证据和已验证的 `listVoices` adapter 时才显示并允许选择返回项 | 当前配置和 adapter 的已注册/已验证 TTS 调用合同**不证明**个人槽位已同步到本地；本任务不创建、本地复制或伪造槽位。证据或 adapter 缺失时显示 `unsupported`/`unavailable`，不显示假列表 |
 | 不支持克隆 | 仅可选择内置/本地模型音色，并说明不支持个人音色复制 | 不出现上传入口，不把用户文件伪装为音色 |
 

@@ -491,4 +491,36 @@ describe("ModelProviderManager", function () {
       expect(manager.isConfigured("llm")).toBe(true)
     })
   })
+  describe("supportsAdapterMethod（能力查询）", function () {
+    beforeEach(function () { manager.init() })
+
+    it("MiniMax TTS 支持 cloneVoice 但不支持 deleteVoice（官方 clone API 无删除端点）", async function () {
+      manager.updateProvider("minimax-tts", { api_key: "sk-minimax", enabled: true })
+      await expect(manager.supportsAdapterMethod("minimax-tts", "cloneVoice")).resolves.toBe(true)
+      await expect(manager.supportsAdapterMethod("minimax-tts", "deleteVoice")).resolves.toBe(false)
+    })
+
+    it("ElevenLabs 支持 deleteVoice", async function () {
+      manager.updateProvider("elevenlabs", { api_key: "sk-eleven", enabled: true })
+      await expect(manager.supportsAdapterMethod("elevenlabs", "deleteVoice")).resolves.toBe(true)
+    })
+
+    it("能力查询不要求 API Key 有效（静态契约）", async function () {
+      // 未配置 Key 也返回真实能力（deleteVoice 仍为 false，cloneVoice 仍为 true）
+      await expect(manager.supportsAdapterMethod("minimax-tts", "deleteVoice")).resolves.toBe(false)
+      await expect(manager.supportsAdapterMethod("minimax-tts", "cloneVoice")).resolves.toBe(true)
+    })
+
+    it("三态契约：明确不支持=false / 无法判定=null / 非法参数=false，均不抛异常", async function () {
+      // adapter 明确不支持（supports 返回 false）→ false
+      await expect(manager.supportsAdapterMethod("minimax-tts", "notAMethod")).resolves.toBe(false)
+      // 非法参数 → false
+      await expect(manager.supportsAdapterMethod("", "deleteVoice")).resolves.toBe(false)
+      // provider 不存在 / factory 缺失 / store 未就绪 → null（无法判定，调用方应回退保守行为）
+      await expect(manager.supportsAdapterMethod("nonexistent", "deleteVoice")).resolves.toBeNull()
+      await expect(manager.supportsAdapterMethod("never-registered-factory", "deleteVoice")).resolves.toBeNull()
+      manager._ready = false
+      await expect(manager.supportsAdapterMethod("minimax-tts", "deleteVoice")).resolves.toBeNull()
+    })
+  })
 })

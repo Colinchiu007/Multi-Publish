@@ -42,6 +42,18 @@ describe("electron-bridge", () => {
     expect(plain).toBe("plain");
   });
 
+  it("invoke 对 File/Blob 原样透传（webUtils.getPathForFile 依赖真实 File，禁止 JSON 序列化）", async () => {
+    const fn = vi.fn().mockResolvedValue({ ok: true });
+    globalThis.window = { electronAPI: { importMedia: fn } };
+    const file = new File(["audio-bytes"], "bgm.mp3", { type: "audio/mpeg" });
+
+    const { invoke } = await import("../api/electron-bridge");
+    await invoke("importMedia", file, "bgm");
+
+    expect(fn.mock.calls[0][0]).toBe(file); // 同一 File 引用，未被 JSON 序列化
+    expect(fn.mock.calls[0][1]).toBe("bgm");
+  });
+
   it("invokeWithFallback uses fallback when electronAPI missing", async () => {
     const { invokeWithFallback } = await import("../api/electron-bridge");
     const fallback = { code: -1, message: "not available" };
