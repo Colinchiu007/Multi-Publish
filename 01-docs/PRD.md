@@ -1059,6 +1059,61 @@ Electron 打包、工作树、PR 或发布状态证据。
 - ✅ `concurrency` / `autoAdvance` 前端字段 → **R2 已移除**（concurrency 由契约默认 3 兜底、autoAdvance 由 params 字面量提供）。
 - 剩余候选：Python 后端 YAML `baseWordsPerSecond:3.3` 非语言感知（仅影响绕过 JS 语言表的直接 Python 调用，既有行为）→ 与 JS 语言表对齐时处理；`project-service._safeOptions` 保留 `voicePitch`（读归一化参数，回读安全）→ 治理目标下可保留并注明；B 类参数运营化（枚举/目录/限额转 ops-center，需 pipeline_configs 基础设施）→ 独立立项。
 
+#### 7.1.20 输出分辨率能力开关（4K，运营后台）（2026-08-09）
+
+**背景**：4K（3840×2160）输出在「2x 中间分辨率 zoompan」下会产生 7680×4320（8K）中间画布，
+内存/编码时长爆炸（E2E-PENDING 待办 D 同类，27 场景 run 曾因 4K 中间 30s 超时失败）；
+且图片生成只传 `aspect_ratio`（provider 原生分辨率生成后放大），并非真 4K。因此 4K 作为
+**运营后台能力开关**（默认关闭）：关闭时前端所有流程不出现 4K、引擎 fail-closed 拒绝 4K。
+
+**1. 配置与下发流程**
+
+| 项 | 说明 |
+|----|------|
+| 配置键 | `videoCreation.maxOutputResolution`：`'1080p'`（默认，禁止 4K）\| `'4k'`（开启） |
+| 优先级 | 环境变量 `MAX_OUTPUT_RESOLUTION`（部署/调试覆盖）→ store 运营配置（`store:get-setting`）→ 默认 `1080p` |
+| 写入方 | 运营后台/管理员通过 `storeSetSetting('videoCreation.maxOutputResolution', '4k')` 或启动环境变量开启；前端不提供用户开关 |
+| 读取方 | 主进程容器（compose 引擎构造注入）+ renderer（CreateView mount 时 `storeGetSetting` 读取，失败回退 `1080p`） |
+| 判定语义 | 以**像素面积**为界：`1080p` 档允许 ≤ 1920×1080 面积（含 720×1280 / 1080×1920 / 1080×1440 竖屏），`4k` 档允许 ≤ 3840×2160 面积 |
+
+**2. 数据校验（引擎 fail-closed）**
+
+| 校验 | 规则 |
+|------|------|
+| 能力上限 | `validateResolutionCapability(resolution, maxKey)`：面积 > 上限 → 拒绝；`compose()` 与 `renderSegment()` 入口均校验 |
+| 未知配置值 | 一律按 `1080p`（fail-closed），不因拼写错误放行 4K |
+| 非法分辨率 | 沿用 `parseResolution`（160..7680 钳制 + 像素上限 7680×4320）后进入能力校验 |
+| 错误返回 | `{ code: -1, message: '输出分辨率 {W}x{H} 超出当前允许上限（{MAX}，MAX_OUTPUT_RESOLUTION=4k 或运营配置 videoCreation.maxOutputResolution=4k 可开启 4K）' }` |
+
+**3. 功能逻辑**
+
+| 模块 | 逻辑 |
+|------|------|
+| compose 引擎 | 构造注入 `maxOutputResolution`；`compose()` / `renderSegment()` 入口能力校验；`computeWorkResolution` 长边封顶 3840 且按比例缩放（4K 输出不再产生 8K/方形中间画布） |
+| 前端单点 | `src/story2video/output-resolution.js`：`OUTPUT_RESOLUTION_OPTIONS` 全量 5 档、`getOutputResolutionOptions(maxKey)` 过滤、`normalizeResolution(res, maxKey)` 归一化（超限/非法回退到最高允许档） |
+| CreateView | 两处分辨率 `<select>`（图片轮播「比例与分辨率」+ 普通流水线「输出设置 分辨率」）均渲染 `outputResolutionOptions`；模板应用与「上次选项」恢复经 `normalizeResolution` 归一化 |
+| 历史/模板 | 历史快照或模板含 4K 且开关关闭 → 归一化到 1920×1080，不残留 4K |
+
+**4. 交互逻辑与显示项**
+
+| 开关状态 | 显示项 | 行为 |
+|----------|--------|------|
+| `1080p`（默认） | 分辨率下拉仅 4 档（720×1280 / 1920×1080 / 1080×1920 / 1080×1440），无 3840×2160 | 模板/历史含 4K 自动归一化；提交 4K 被引擎拒绝（提示见上） |
+| `4k` | 下拉含 3840×2160（5 档） | 4K 全链路可用（compose 中间分辨率仍封顶 3840） |
+| 读取失败/未知值 | 按 `1080p` | 前端不出现 4K，引擎拒绝 4K |
+
+**5. 配套修复（同次交付）**
+
+| 项 | 说明 |
+|----|------|
+| 片段编码超时 | `computeSegmentEncodeTimeoutMs` 按「时长×帧率」估算（最低 30s / 上限 5min），替代固定 30s，避免 4K 中间 zoompan 慢速编码被误杀 |
+| 编码降档重试 | `_createSegment` 失败时工作分辨率逐级降档（2x → 1.5x → 1x），全部失败才抛错 |
+| 提示词优化回退 | prompt-engine 剥离 `<think>` 推理块，仅返回推理时回退原文（详见 7.1.17；配套 prompt-engine 提交 036dc7d / 1cf449c / 61ad3b2 / 3988d54） |
+
+**6. 验收标准**
+
+① 默认（无配置）：前端两处分辨率下拉无 4K、页面无「3840×2160 / 4K」文案；② 模板/历史含 4K 时打开归一化 1920×1080；③ 直接提交 4K（绕过前端）被引擎拒绝并返回明确提示；④ `MAX_OUTPUT_RESOLUTION=4k` 或 store 配置 `4k` 后，前端出现 4K 选项且引擎放行；⑤ compose 4K 输出中间分辨率封顶 3840（无 8K 画布）；⑥ 全部回归：engine 82 / CreateView 108 / output-resolution 8 / 容器 27 测试通过。
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
