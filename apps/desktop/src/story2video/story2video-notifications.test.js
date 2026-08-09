@@ -11,6 +11,7 @@ describe('Story2Video notification messages', () => {
   it('exposes stable message keys for renderer notifications', () => {
     expect(STORY2VIDEO_NOTIFICATION_KEYS).toMatchObject({
       MODEL_CONFIGURATION_REQUIRED: 'story2video.model_configuration_required',
+      MODEL_API_KEY_REQUIRED: 'story2video.model_api_key_required',
       ACCESS_DENIED: 'story2video.access_denied',
       ORCHESTRATION_FAILED: 'story2video.orchestration_failed',
       TEXT_INPUT_ONLY: 'story2video.text_input_only',

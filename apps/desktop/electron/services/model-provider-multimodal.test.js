@@ -117,6 +117,33 @@ describe('多模态模型类别与 MiniMax 预设', () => {
     expect(config.capability_models.llm).toBe('MiniMax-M2.7')
   })
 
+  it('存量行 models 回填预设新增模型（如 MiniMax-M2.7），顺序保持不变且幂等', async () => {
+    const { db, store } = await createStore(database)
+    const manager = newManager(store)
+    // 模拟升级前的存量行（缺 MiniMax-M2.7）
+    db.prepare("UPDATE model_providers SET models = ?, updated_at = datetime('now') WHERE id = 'minimax-multimodal'")
+      .run(JSON.stringify(['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3']))
+    manager._syncPresetCapabilities()
+    const row = db.prepare("SELECT models FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    const models = JSON.parse(row.models)
+    expect(models).toContain('MiniMax-M2.7')
+    expect(models.indexOf('MiniMax-M2.7')).toBe(3) // 只追加，不改变既有顺序
+    // 幂等：再次同步不重复追加
+    manager._syncPresetCapabilities()
+    const row2 = db.prepare("SELECT models FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    expect(JSON.parse(row2.models).filter(m => m === 'MiniMax-M2.7')).toHaveLength(1)
+  })
+
+  it('非 multimodal 类别行 models 不被同步改写', async () => {
+    const { db, store } = await createStore(database)
+    const manager = newManager(store)
+    db.prepare("UPDATE model_providers SET models = ?, updated_at = datetime('now') WHERE id = 'openai'")
+      .run(JSON.stringify(['gpt-4o']))
+    manager._syncPresetCapabilities()
+    const row = db.prepare("SELECT models FROM model_providers WHERE id = 'openai'").get()
+    expect(JSON.parse(row.models)).toEqual(['gpt-4o'])
+  })
+
   it('种子持久化：预设行 config 包含 capabilities 与 capability_models', async () => {
     const { db, store } = await createStore(database)
     const manager = newManager(store)

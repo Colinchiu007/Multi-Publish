@@ -533,6 +533,10 @@ class Story2VideoComposeEngine {
     if (capabilityError) return { code: -1, message: capabilityError }
 
     const requestedBgmPath = options?.bgmPath || assetManifest.bgmPath || assetManifest.bgm?.path
+    // BGM 为可选配置：文件缺失/不可读/越界时降级为无 BGM 继续合成（不整条流水线失败），
+    // 警告随结果 data.warnings 返回，供前端提示（2026-08-09 BGM 清理时序修复）。
+    const composeWarnings = []
+    let bgmSkipped = false
     let totalInputBytes = 0
     const accountInput = (filePath) => {
       const stat = fs.statSync(filePath)
@@ -569,8 +573,14 @@ class Story2VideoComposeEngine {
         allowedRoots: this.allowedMediaRoots,
         maxBytes: this.maxInputFileBytes,
       })
-      if (!bgmPath) return { code: -1, message: 'BGM path is not allowed or unreadable' }
-      if (!accountInput(bgmPath)) return { code: -1, message: 'Input media exceeds the total size limit' }
+      if (!bgmPath) {
+        // 降级而非失败：BGM 可选。重试/断点续跑可能引用已被清理或移动的路径。
+        this.log.warn('Story2VideoCompose', 'BGM skipped: requested path could not be resolved (missing/unreadable/out-of-root/oversize)')
+        bgmSkipped = true
+        composeWarnings.push('BGM 文件不存在或不可读，已跳过背景音乐')
+      } else if (!accountInput(bgmPath)) {
+        return { code: -1, message: 'Input media exceeds the total size limit' }
+      }
     }
 
     // 子进度：素材路径/大小校验通过后进入耗时预检（probe 音频时长）
@@ -882,6 +892,9 @@ class Story2VideoComposeEngine {
           fileSize: stat.size,
           segmentCount: segments.length,
           duration: outputDuration,
+          bgmApplied: Boolean(bgmPath),
+          bgmSkipped,
+          warnings: composeWarnings.length > 0 ? [...composeWarnings] : undefined,
           format: outputFormat,
           audioPath: narrationPath,
           segments: segmentRecords,
@@ -932,6 +945,8 @@ class Story2VideoComposeEngine {
         segmentCount: segments.length,
         duration: outputDuration,
         bgmApplied: Boolean(bgmPath),
+        bgmSkipped,
+        warnings: composeWarnings.length > 0 ? [...composeWarnings] : undefined,
         format: outputFormat,
         audioPath: finalNarrationPath,
         segments: finalSegments,

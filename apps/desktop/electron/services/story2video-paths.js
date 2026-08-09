@@ -194,7 +194,8 @@ function cleanupImportedMediaPaths (params, options = {}) {
   const candidates = []
   if (Array.isArray(params?.audio)) candidates.push(...params.audio.map(item => item && (item.path || item.filePath)))
   if (typeof params?.video === 'string') candidates.push(params.video)
-  if (typeof params?.bgmPath === 'string') candidates.push(params.bgmPath)
+  // BGM 为「可复用」导入：前端配置与后续重试/断点续跑仍引用同一路径，skipBgm 时不得删除。
+  if (!options.skipBgm && typeof params?.bgmPath === 'string') candidates.push(params.bgmPath)
   let cleaned = 0
   for (const candidate of new Set(candidates.filter(Boolean))) {
     const absolute = path.resolve(candidate)

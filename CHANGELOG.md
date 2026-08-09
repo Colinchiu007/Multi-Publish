@@ -1,3 +1,12 @@
+## [未发布] 修复：图片轮播 BGM 清理时序导致重试失败 + API Key 提示拆分 + 多模态 models 回填（2026-08-09）
+
+- 修复：图片轮播（story2video-compose）运行收尾不再删除已导入的 BGM 文件（`cleanupImportedMediaPaths(run.params, { skipBgm: true })`）——此前运行结束（完成/失败/取消）会把 `%TEMP%\story2video\selected-media\bgm-*.mp3` 删掉，而前端配置仍引用该路径，重试/断点续跑时 compose 阶段 36ms 内报 `BGM path is not allowed or unreadable` 整线失败（真实日志 run_1786288681414_mnnj，27 场景资源全部生成成功后失败）。
+- 修复：compose 对不可读 BGM 降级而非失败——BGM 校验失败（缺失/不可读/越界/超限）时跳过背景音乐继续合成，结果返回 `bgmSkipped: true` 与中文警告；总输入大小超限仍 fail closed。
+- 修复：错误提示拆分——新增 `MODEL_API_KEY_REQUIRED` 通知，「尚未配置 API Key / API Key not configured / 解密失败（safeStorage Decrypt failed）」不再被归一化成「未找到需要的相关模型」，而是引导在「模型设置」重新填写 API Key；真正的模型缺失仍显示原提示。
+- 修复：多模态预设存量行 models 启动同步回填预设新增模型（如 `MiniMax-M2.7`，只增不删、顺序不变），非 multimodal 类别不自动改写。
+- 回归：story2video-paths +1（skipBgm 保留/默认清理不变）、story2video-compose-engine +1（BGM 降级）、notifications +2（key 拆分/模型缺失保持）、model-provider-multimodal +2（models 回填/非多模态不改写）、CreateView 断言更新（未配置 API Key → 新 key）；聚焦 6 文件 252 用例通过。
+- 边界：真实 provider 行为、打包产物验证与第三方平台发布仍属外部验收。
+
 ## [未发布] 修复：最小化不再强制隐藏到托盘，恢复系统常规最小化（2026-08-09）
 
 - 修复：移除 `services/system-tray.js` 中无条件的 `minimize → event.preventDefault() + hide()` 拦截——窗口最小化恢复系统常规行为（任务栏最小化），不再因任何最小化事件被藏进托盘；「运行中有流水线任务且托盘可用时，关闭窗口→隐藏到托盘后台执行」的既有行为（`window-close-policy.js`）保持不变。

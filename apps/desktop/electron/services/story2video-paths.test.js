@@ -152,6 +152,23 @@ describe('Story2Video 输入路径边界', () => {
       fs.rmSync(sourceRoot, { recursive: true, force: true })
     }
   })
+
+  it('skipBgm 时保留可复用的已导入 BGM（重试/断点续跑仍引用），默认清理语义不变', () => {
+    const importRoot = path.join(root, 'imports-bgm')
+    const source = path.join(root, 'bgm-source.mp3')
+    fs.writeFileSync(source, 'background-music')
+
+    const imported = importUserSelectedMedia(source, 'bgm', { baseDir: importRoot })
+    expect(imported.path).toMatch(/bgm-.*\.mp3$/)
+
+    // skipBgm=true：运行收尾清理不得删除 BGM（前端配置仍引用该路径）
+    expect(cleanupImportedMediaPaths({ bgmPath: imported.path }, { baseDir: importRoot, skipBgm: true })).toBe(0)
+    expect(fs.existsSync(imported.path)).toBe(true)
+
+    // 未传 skipBgm：一次性导入场景保持原清理语义
+    expect(cleanupImportedMediaPaths({ bgmPath: imported.path }, { baseDir: importRoot })).toBe(1)
+    expect(fs.existsSync(imported.path)).toBe(false)
+  })
 })
 
 describe('copyImportedMedia（Windows 占用有界重试）', () => {
