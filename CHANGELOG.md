@@ -56,6 +56,12 @@
 - 测试：CreateView（字段不存在 + 提交不携带 + params.autoAdvance 保留）、UE 契约（s2vConfig 声明块不声明三字段）。
 - 文档：PRD 7.1.19 §2/§5 更新（三字段标注 R2 已移除），CHANGELOG、learnings。
 
+## [未发布] 图片轮播参数治理 R3：语言感知基准语速回归护栏（2026-08-09）
+
+- 核实并锁定「baseWordsPerSecond 语言感知值恒覆盖静态默认」：`resolveRuntimeStageOptions` 以 normalizer 语言表值（zh 4.5 / en 2.8 / 其余 3.3）覆盖 bundled/YAML 静态 3.3，桌面流程无语言缺口。
+- 新增契约测试 `pipeline-story2video-contract.test.js`：zh→4.5 / en→2.8 / auto→3.3 三档断言，防未来合并顺序/normalizer 改动导致静态默认静默生效。
+- PRD 7.1.19 §5 候选项标记为已核实（Python YAML 3.3 仅影响绕过 JS 语言表的直接 Python 调用，既有行为保留）。
+
 ## 维护与归档（2026-08-08）
 
 - 归档 Story2Video 场景时长三层模型 CCG 任务审计轨迹（`.ccg/tasks/story2video-scene-duration-three-layer` → `archive/2026-08/`）：
