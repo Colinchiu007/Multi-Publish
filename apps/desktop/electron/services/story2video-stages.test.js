@@ -242,6 +242,39 @@ describe('story2video 资源索引契约', () => {
     expect(result.output[0]).toMatchObject({ optimized_prompt: '优化: 1949' })
     expect(serviceBus.calls).toHaveLength(1)
   })
+  it('prompt-engine 校验拒绝（Too short）时回退原文并继续，不使流水线失败（方案B 配套）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    // FastAPI 422 形态：{ detail: [{ msg: 'Too short...' }] }
+    const serviceBus = makeOptimizeBus(() => ({ detail: [{ msg: 'Too short (1 words). Try a more detailed description' }] }))
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '81' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toEqual({
+      optimized_prompt: '81',
+      providerId: null,
+      model: null,
+      skipped_optimize: true,
+      optimize_note: 'prompt_engine_too_short_use_original',
+    })
+    // 已调用 prompt-engine（方案B 放行），但拒绝被优雅回退
+    expect(serviceBus.calls).toHaveLength(1)
+  })
+  it('prompt-engine 非过短校验拒绝（如非法风格）仍按失败处理', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({ detail: [{ msg: 'unknown style value: foo' }] }))
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '一个有内容的场景描述。' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: false })
+    expect(result.error).toMatch(/prompt-engine 请求被拒绝/)
+  })
   it('逐场景提示词优化并行执行（有界并发，避免长文案串行拖慢）', async () => {
     // 用并发计数断言（确定性），不依赖墙钟：并发执行时活跃调用数应 ≥2
     let active = 0
