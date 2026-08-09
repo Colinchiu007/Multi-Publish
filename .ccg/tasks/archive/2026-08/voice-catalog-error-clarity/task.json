@@ -1,12 +1,12 @@
 {
   "id": "voice-catalog-error-clarity",
   "title": "音色目录错误信息误导 + 无日志 + 无重试入口（图片轮播「暂时无法获取音色列表」）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "desktop/story2video/tts-voice",
-  "currentPhase": "review",
-  "nextAction": "提交/推送/PR/合并 + 归档三同步",
+  "currentPhase": "completed",
+  "nextAction": "已交付（PR #462 merged 743fc37c）+ 归档三同步完成",
   "createdAt": "2026-08-09T23:05:00Z",
   "branch": "codex/voice-catalog-error-clarity",
   "openspecChange": "voice-catalog-error-clarity"

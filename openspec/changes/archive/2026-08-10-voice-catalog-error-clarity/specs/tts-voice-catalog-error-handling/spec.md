@@ -4,7 +4,7 @@
 
 定义音色目录失败的错误分类、底层原因脱敏透传、日志与前端可操作性，使配置类错误与瞬时错误可区分、可定位、可执行。
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 配置类错误与瞬时错误分类
 音色目录获取失败 SHALL 区分配置类错误、方法不支持与瞬时错误：配置类（未配置/无效 API Key、认证失败 401/unauthorized、服务商/适配器缺失、适配器初始化失败）返回稳定错误码 `VOICE_CATALOG_CONFIG_UNAVAILABLE`；adapter 方法不支持返回 `VOICE_CATALOG_UNSUPPORTED`；网络/超时/未知原因返回 `VOICE_CATALOG_UNAVAILABLE`。
