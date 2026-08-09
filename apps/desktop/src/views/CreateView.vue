@@ -1398,6 +1398,13 @@ export default {
       this.orchestrationError = ''
       this.closeStory2VideoErrorDialog()
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
+      // Bug 反哺（2026-08-09）：mounted 时 selectedPipeline 为 null，restore 守卫直接 return，
+      // 导致「上次使用的选项」保存成功但从未恢复。选中编排流水线时主动触发恢复；
+      // 生命周期内只恢复一次（由 restoreS2VLastOptions 内部设置 _s2vRestoredOnce），
+      // 避免同会话切走再切回覆盖当前编辑。
+      if (this.isOrchestratedPipeline(p?.name) && !this._s2vRestoredOnce) {
+        this.restoreS2VLastOptions()
+      }
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
     isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke', 'documentary-montage', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(name) },
@@ -1567,6 +1574,9 @@ export default {
     },
     async restoreS2VLastOptions() {
       if (!this.isOrchestratedPipeline(this.selectedPipeline?.name)) return
+      // 生命周期内只恢复一次（selectPipeline/mounted 双触发点共用），避免重复恢复覆盖当前编辑
+      if (this._s2vRestoredOnce) return
+      this._s2vRestoredOnce = true
       let raw
       try { raw = await storeGetSetting('story2video.lastOptions.v1') } catch { return }
       const snapshot = raw && typeof raw === 'object' ? (raw.data ?? raw) : raw
