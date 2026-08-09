@@ -774,12 +774,26 @@ class TtsVoiceCloneService {
     if (typeof this._modelProviderManager.getProvider !== "function") return true;
     try {
       const provider = this._modelProviderManager.getProvider(providerId);
-      if (!provider || (provider.category && provider.category !== "tts")) return false;
-      return (
-        !Array.isArray(provider.models) ||
-        provider.models.length === 0 ||
-        provider.models.includes(model)
-      );
+      if (!provider) return false;
+      // 多模态模型（category=multimodal）在能力选择器中同样承担 TTS 角色（与 tts-voice-service 同合同）：
+      // 必须声明支持 tts 能力才放行，避免把不含 TTS 能力的多模态模型用于克隆。
+      if (provider.category === "multimodal") {
+        const capabilities = Array.isArray(provider.capabilities) ? provider.capabilities : [];
+        if (!capabilities.includes("tts")) return false;
+      } else if (provider.category && provider.category !== "tts") {
+        return false;
+      }
+      if (!Array.isArray(provider.models) || provider.models.length === 0) return true;
+      if (provider.models.includes(model)) return true;
+      // 多模态：capability_models.tts 也是合法 TTS 模型（避免只列 models 时漏判默认 TTS 模型）
+      if (
+        provider.capability_models &&
+        typeof provider.capability_models === "object" &&
+        typeof provider.capability_models.tts === "string"
+      ) {
+        return provider.capability_models.tts === model;
+      }
+      return false;
     } catch (_) {
       return false;
     }

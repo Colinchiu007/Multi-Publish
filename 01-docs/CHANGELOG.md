@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-09 (多模态模型音色克隆修复)
+
+### 修复
+- **音色克隆对多模态模型放行**：`tts-voice-clone-service._hasMatchingProvider` 与音色目录同合同——`category=multimodal` 且声明 tts 能力才放行（模型匹配含 `capability_models.tts`），未声明 tts 能力仍 fail-closed `VOICE_CLONE_MODEL_MISMATCH`。
+  - 背景：上一轮只改了 `tts-voice-service`（音色目录），克隆链路漏改，用户在「MiniMax（多模态）」下添加克隆音频报「所选语音模型与克隆配置不一致，请检查模型设置」。
+- 测试：tts-voice-clone-service 新增 multimodal 克隆成功 + 未声明 tts 能力拒绝 2 用例（共 56 用例全绿）。
+
+### 文档
+- PRD 7.4.1.1「provider 能力校验」注明音色目录与克隆服务同合同。
+
 ## [Unreleased] - 2026-08-09 (能力下拉只展示已配置服务商)
 
 ### 修改
