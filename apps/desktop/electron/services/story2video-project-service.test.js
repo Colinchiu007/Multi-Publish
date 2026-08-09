@@ -25,11 +25,26 @@ describe('Story2VideoProjectService', () => {
     const controlledTempRoot = path.join(os.tmpdir(), 'story2video')
     fs.mkdirSync(controlledTempRoot, { recursive: true })
     root = fs.mkdtempSync(path.join(controlledTempRoot, 'project-service-'))
-    let saved = []
+    // 忠实模拟 settings-store：owner 未显式传入时按 _resolveOwnerSubject 二次解析（未登录→null→丢弃），
+    // 显式传入时按 owner 分桶（__legacy__ → 原 key，其他 → user:<hash>: 键空间）。
+    const buckets = new Map()
+    const normalizeOwner = (value) => {
+      if (typeof value !== 'string') return null
+      const subject = value.trim()
+      return subject ? subject : null
+    }
     store = {
       _resolveOwnerSubject: vi.fn(() => 'user-a'),
-      getUserSetting: vi.fn((_key, fallback) => saved || fallback),
-      setUserSetting: vi.fn((_key, value) => { saved = value }),
+      getUserSetting: vi.fn((key, fallback, ownerSubject) => {
+        const owner = ownerSubject !== undefined ? normalizeOwner(ownerSubject) : normalizeOwner(store._resolveOwnerSubject())
+        if (!owner) return fallback
+        return buckets.get(owner) === undefined ? fallback : buckets.get(owner)
+      }),
+      setUserSetting: vi.fn((key, value, ownerSubject) => {
+        const owner = ownerSubject !== undefined ? normalizeOwner(ownerSubject) : normalizeOwner(store._resolveOwnerSubject())
+        if (!owner) return
+        buckets.set(owner, value)
+      }),
     }
   })
 
@@ -584,10 +599,39 @@ describe('Story2VideoProjectService', () => {
       lstatSpy.mockRestore()
     }
   })
-  it('身份服务存在但无法解析用户时拒绝读取历史', () => {
+  it('身份服务启用但未登录（无有效 sub）时回退设备级命名空间，本地历史可读写', () => {
     store._resolveOwnerSubject.mockReturnValue(null)
     const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
-    expect(() => service.listProjects()).toThrow(/当前用户/)
+    // 未登录：listProjects 不抛错，返回本地（legacy）数据
+    expect(() => service.listProjects()).not.toThrow()
+    expect(service.listProjects()).toEqual([])
+    // 未登录也能写入并在同一设备级命名空间读回（本地历史可用）
+    service._writeProjects([{ projectId: 'local-1', status: 'completed', segments: [] }])
+    expect(service.listProjects().map(item => item.projectId)).toEqual(['local-1'])
+    expect(service._ownerSubject()).toBe('__legacy__')
+  })
+
+  it('store 缺失时仍 fail-closed（不静默降级）', () => {
+    const service = new Story2VideoProjectService({ store: null, projectsDir: path.join(root, 'projects') })
+    expect(() => service.listProjects()).toThrow(/项目存储不可用/)
+  })
+
+  it('登录用户与未登录 legacy 数据隔离，不串写', () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    // 未登录写入 legacy 空间
+    store._resolveOwnerSubject.mockReturnValue(null)
+    service._writeProjects([{ projectId: 'legacy-1', status: 'completed', segments: [] }])
+    expect(service.listProjects().map(item => item.projectId)).toEqual(['legacy-1'])
+    // 登录后写入 user-a 空间
+    store._resolveOwnerSubject.mockReturnValue('user-a')
+    service._writeProjects([{ projectId: 'user-1', status: 'completed', segments: [] }])
+    expect(service.listProjects().map(item => item.projectId)).toEqual(['user-1'])
+    // 切回未登录：legacy 数据仍在，且不含登录用户数据
+    store._resolveOwnerSubject.mockReturnValue(null)
+    expect(service.listProjects().map(item => item.projectId)).toEqual(['legacy-1'])
+    // 登录态：不含 legacy 数据
+    store._resolveOwnerSubject.mockReturnValue('user-a')
+    expect(service.listProjects().map(item => item.projectId)).toEqual(['user-1'])
   })
 
   it('删除项目时同步移除用户索引和受控产物目录', () => {

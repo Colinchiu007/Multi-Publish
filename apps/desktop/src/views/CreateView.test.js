@@ -1601,6 +1601,23 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
+  it("未登录（listProjects 返回空本地历史）时历史记录不弹「无法加载」", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.vm.historyLoading).toBe(false);
+    expect(w.vm.history).toEqual([]);
+    expect(w.vm.story2videoErrorDialog).toMatchObject({ visible: false });
+    w.unmount();
+  });
+
   it("历史记录请求超时时停止加载、显示错误并保留已完成来源", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockImplementation(() => new Promise(() => {}));

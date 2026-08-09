@@ -1,0 +1,17 @@
+{
+  "id": "story2video-history-not-logged-in",
+  "title": "视频创作历史记录未登录时弹「历史记录暂时无法加载」",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "identity/story2video",
+  "currentPhase": "analysis",
+  "nextAction": "TDD 修复 + 双模型审查 + 分支 PR",
+  "openspecChange": "story2video-history-not-logged-in",
+  "createdAt": "2026-08-09T11:00:00Z",
+  "branch": "codex/story2video-history-not-logged-in",
+  "evidence": {
+    "repro": "未登录(provider->null) 时 Story2VideoProjectService.listProjects() 抛「无法识别当前用户」，IPC 返回 code!=0，CreateView.loadHistory !hasProjects → 弹 HISTORY_LOAD_FAILED",
+    "rootCause": "story2video-project-service._ownerSubject 对「身份服务已启用但未登录」fail-closed 抛错；渲染端把任何失败都当作「无法加载」"
+  }
+}

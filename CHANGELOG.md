@@ -18,6 +18,11 @@
 - 文档：`01-docs/PRD.md` 7.1.9.1（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/边界/后续演进）、`01-docs/PRD-video-creation.md` 3.1.10、CHANGELOG 本条目。
 - 后续演进（v1 不做）：ffmpeg `-progress pipe:1` 段内实时百分比、chunked 拼接段级 onStep 插值。
 
+## [未发布] 修复：视频创作历史未登录弹「无法加载」（2026-08-09）
+
+- 修复：身份服务启用但未登录时，视频创作历史记录回退设备级本地命名空间，不再弹「历史记录暂时无法加载」；登录后仍按用户隔离。
+- 回归：story2video-project-service 新增「未登录回退 legacy 可读写」「store 缺失 fail-closed」用例；CreateView 新增「未登录空历史不弹错」用例（124 用例全绿）。
+
 ## [未发布] 图片提示词统一走 prompt-engine（2026-08-09）
 
 ### 行为变更

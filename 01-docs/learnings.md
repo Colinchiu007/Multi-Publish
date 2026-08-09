@@ -10,6 +10,16 @@
   旧值兼容不抛错）；W3/W4 枚举/别名/敏感键单一来源（text-config 直接引用契约，删死代码）；W5/W6 截断用契约收敛值、
   包装失败原因优先。复审结论：无 Critical，可批准合入。
 
+## 视频创作历史未登录弹「无法加载」复盘 (2026-08-09)
+
+- **表象**：身份服务已启用（identityAuthEnabled=true、IDENTITY_AUTH_REQUIRED=false）但未登录时，打开视频创作历史记录稳定弹「历史记录暂时无法加载，请稍后再试」。
+- **根因**：story2video-project-service 的 _ownerSubject() 对「有身份服务但未登录（owner provider 返回 null）」fail-closed 抛「无法识别当前用户」，story2video:list-projects 返回 code!=0，渲染端 loadHistory 的 !hasProjects 分支把任何失败都当作「无法加载」。本地设备数据被错误的 fail-closed 挡住。
+- **修复**：未登录时回退设备级本地命名空间 __legacy__（与「未配置身份服务」路径一致），本地历史可读写；登录后仍按 sub 隔离；store 缺失保持 fail-closed。渲染端新增「未登录返回空历史不弹错」用例。
+- **教训**：
+  1. fail-closed 只适用于「外部/跨用户数据」（账号、评论、云功能）；本地设备数据在未登录时应回退本地命名空间，不能一刀切。
+  2. 既有测试「身份服务存在但无法解析用户时拒绝读取历史」是 AGENTS.md 明令禁止的「反向固化错误行为」——它把缺陷行为锁成了契约；改行为时必须先改测试断言。
+- **复现脚本**：/c/tmp/ccg-image-prompts/repro-history.js（三种 owner 状态对比）。
+
 ## 图片提示词统一走 prompt-engine 复盘 (2026-08-09)
 
 - **表象/背景**：story2video-compose manifest（story2video-compose.yaml）与 PRD 早已声明 optimize 阶段
