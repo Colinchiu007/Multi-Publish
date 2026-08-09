@@ -4,6 +4,14 @@
 
 ---
 
+## BGM 降级原因区分与错误归一化收窄复盘 (2026-08-10，质量节拍审查闭环)
+
+- **背景**：PR #460 合并后，Claude 审查遗留 4 项（W2-W4 + Info）。本轮处理：① BGM 单文件超限被软降级提示「不可读」，与总大小超限硬失败结论相反；② `decrypt failed|解密失败` 正则无 api-key 上下文，可能把项目文件解密错误误归为「API Key 未配置」；③ 多模态 models 回填未清洗存量脏数据；④ skipBgm 后 `selected-media` 只增不删需老化回收。
+- **根因**：① `resolveReadableMediaFile` 对「超限」与「缺失/不可读」都返回 null，调用方未区分；② 错误归一化正则用「宽匹配优先」而不是「上下文限定」；③ 回填只对预设项 trim；④ BGM 改为可复用导入后缺少生命周期终点。
+- **修复**：① compose 增加 `diagnoseBgmSkipReason`（格式→大小→其余），`bgmSkippedReason` 机器可读；② `MODEL_API_KEY_PATTERN` 收窄 decrypt 到 api-key 上下文 + 补英文缺失表述；③ 存量项 trim/去空/去重；④ `gcImportedMedia`（>7 天，启动一次），配合 compose 降级不硬失败。
+- **回归保护**：compose 超限/格式 reason 用例、decrypt 正反例（有/无 api-key 上下文）、Missing API key 英文用例、脏 models 清洗用例、GC 过期/保留/目录用例。
+- **教训**：① 把「降级原因」当一等公民返回（机器可读 code），提示文案才能精准；② 错误归一化宁可「上下文限定 + 覆盖常见表述」也不要宽正则误伤；③ 「可复用」导入文件必须有生命周期终点（老化 GC），否则修复一个 bug 引入无界增长。
+
 ## 图片轮播 BGM 运行收尾清理导致重试失败复盘 (2026-08-09，质量节拍 Bug 反哺)
 
 - **表象**：27 场景图片轮播运行在资源全部生成成功（216s，全部走 minimax-multimodal）后，compose 阶段 36ms 失败 `BGM path is not allowed or unreadable`（run_1786288681414_mnnj）。同日更早：safeStorage `Decrypt failed` 期间各 provider 报「尚未配置 API Key」，前端弹「未找到需要的相关模型，请在设置中添加模型」，用户核对设置发现多模态 MiniMax key 已保存。
