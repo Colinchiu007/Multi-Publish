@@ -4,9 +4,35 @@ on:
   push:
     branches: [main]
     tags: [v*]
+    # tag(v*) 推送不受路径过滤影响（GitHub 官方行为），发布触发保留
+    paths-ignore:
+      # 文档/流程改动不触发 CI（清单与 .github/scripts/workflow-contract.test.js 的 CI_IGNORED_PATHS 保持同步）
+      - '01-docs/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+      - '.ccg/**'
+      - '.claude/**'
+      - '.hermes/**'
+      - '.agents/**'
+      - 'openspec/**'
   pull_request:
     branches: [main]
-
+    paths-ignore:
+      # 文档/流程改动不触发 CI（清单与 .github/scripts/workflow-contract.test.js 的 CI_IGNORED_PATHS 保持同步）
+      - '01-docs/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+      - '.ccg/**'
+      - '.claude/**'
+      - '.hermes/**'
+      - '.agents/**'
+      - 'openspec/**'
 jobs:
   build:
     strategy:
