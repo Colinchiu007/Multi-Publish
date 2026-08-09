@@ -1105,7 +1105,8 @@ class PipelineEngine {
       try {
         params = normalizeStory2VideoTextParams(params);
       } catch (error) {
-        try { cleanupImportedMediaPaths(params); } catch (_) { /* 拒绝非法模式时尽力清理已导入媒体。 */ }
+        // BGM 可复用（前端配置仍引用），归一化拒绝回滚清理同样跳过，避免重试时 BGM 丢失。
+        try { cleanupImportedMediaPaths(params, { skipBgm: true }); } catch (_) { /* 拒绝非法模式时尽力清理已导入媒体。 */ }
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
@@ -1534,7 +1535,9 @@ class PipelineEngine {
     if (run.pipeline === 'story2video-compose') {
       try {
         cleanupRunInputDir(run.id);
-        cleanupImportedMediaPaths(run.params);
+        // BGM 为可复用导入（前端配置仍引用该路径），收尾清理必须跳过，
+        // 避免重试/断点续跑时 compose 因 BGM 文件被删而失败（2026-08-09 排查）。
+        cleanupImportedMediaPaths(run.params, { skipBgm: true });
       } catch (cleanupError) {
         this.log.warn('PipelineEngine', 'Story2Video input cleanup failed: ' + cleanupError.message);
       }

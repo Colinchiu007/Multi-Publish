@@ -2,6 +2,7 @@ export const MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000
 
 export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   MODEL_CONFIGURATION_REQUIRED: 'story2video.model_configuration_required',
+  MODEL_API_KEY_REQUIRED: 'story2video.model_api_key_required',
   ACCESS_DENIED: 'story2video.access_denied',
   ORCHESTRATION_FAILED: 'story2video.orchestration_failed',
   TEXT_INPUT_ONLY: 'story2video.text_input_only',
@@ -42,6 +43,7 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
 export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
   zh: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: '未找到需要的相关模型，请在设置中添加模型',
+    [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED]: '模型已添加，但 API Key 未配置或无法读取，请在「模型设置」中重新填写对应服务商的 API Key。',
     [STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED]: '当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。',
     [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: '暂时无法完成生成，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: '目前只支持输入文案。',
@@ -80,6 +82,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
   }),
   en: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: 'The required models are not available. Add them in Settings.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED]: 'The model is configured, but its API key is missing or cannot be read. Re-enter the API key for the provider in Model Settings.',
     [STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED]: 'Sign in with an account that can access the image carousel pipeline, then try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: 'Could not finish generation right now. Please try again shortly.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: 'Only text input is supported.',
@@ -124,7 +127,9 @@ const DEGRADED_ASSET_LABELS = Object.freeze({
   zh: Object.freeze({ placeholder_image: '占位图片', silent_narration: '静音旁白' }),
   en: Object.freeze({ placeholder_image: 'placeholder images', silent_narration: 'silent narration' }),
 })
-const MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用|api\s*key\s*not\s*configured|(?:尚未配置|未配置|未设置).*api\s*key)/i
+// API Key 未配置/未设置/解密失败 → 独立提示（2026-08-09：避免被归一化成「未找到模型」误导排查）
+const MODEL_API_KEY_PATTERN = /(api\s*key\s*not\s*configured|(?:尚未配置|未配置|未设置).{0,12}api\s*key|api\s*key.{0,12}(?:not\s*configured|未配置)|decrypt failed|解密失败)/i
+const MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用)/i
 const ACCESS_DENIED_PATTERN = /(当前许可证无权访问|当前账号没有所需权益|未授权|未登录|需要登录|access denied|not authorized|permission denied|sign[ -]?in required)/i
 const RATE_LIMITED_PATTERN = /(rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|too\s*many\s*requests)/i
 const QUOTA_EXCEEDED_PATTERN = /((?:insufficient|exhausted|exceeded|out\s+of).{0,40}(?:quota|balance|token|credit)|(?:quota|balance|token|credit)s?.{0,40}(?:exceeded|insufficient|exhausted)|(?:余额|额度|配额).{0,20}(?:不足|不够|超|耗尽)|insufficient\s+balance|billing|payment\s+required)/i
@@ -259,6 +264,7 @@ function resolveMessageKey (notification, fallbackKey) {
   if (notification?.errorCode === 'RATE_LIMITED' || Number(notification?.code) === 429 || RATE_LIMITED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED
   if (notification?.errorCode === 'QUOTA_EXCEEDED' || Number(notification?.code) === 402 || QUOTA_EXCEEDED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED
   if (notification?.errorCode === 'PIPELINE_CONCURRENCY_LIMIT' || PIPELINE_CONCURRENCY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT
+  if (MODEL_API_KEY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED
   if (MODEL_CONFIGURATION_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED
   if (TEXT_ONLY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY
   if (TEXT_TOO_LONG_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG

@@ -418,6 +418,28 @@ class ModelProviderManager {
             .run(JSON.stringify(config), p.id)
           this._invalidateAdapterCache(p.id)
         }
+        // 多模态预设 models 由系统管理（UI 仅填 API Key）：存量行缺失预设模型时只增不删回填，
+        // 保持设置页展示与预设目录一致（如 MiniMax-M2.7）；其他类别 models 用户可编辑，不触碰。
+        if (p.category === CATEGORIES.MULTIMODAL && Array.isArray(p.models) && p.models.length > 0) {
+          const modelsRow = db.prepare('SELECT models FROM model_providers WHERE id = ?').get(p.id)
+          if (modelsRow) {
+            const parsedModels = safeJsonParse(modelsRow.models, [])
+            const existingModels = Array.isArray(parsedModels) ? parsedModels : []
+            const mergedModels = [...existingModels]
+            let modelsChanged = false
+            for (const model of p.models) {
+              if (typeof model === 'string' && model.trim() && !mergedModels.includes(model.trim())) {
+                mergedModels.push(model.trim())
+                modelsChanged = true
+              }
+            }
+            if (modelsChanged) {
+              db.prepare("UPDATE model_providers SET models = ?, updated_at = datetime('now') WHERE id = ?")
+                .run(JSON.stringify(mergedModels), p.id)
+              this._invalidateAdapterCache(p.id)
+            }
+          }
+        }
       } catch (e) {
         log.warn('ModelProviderManager', 'sync preset capabilities failed for ' + p.id + ': ' + e.message)
       }

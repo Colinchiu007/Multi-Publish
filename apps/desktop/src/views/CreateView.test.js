@@ -910,7 +910,7 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.advanceOrchestration();
 
     expect(w.vm.orchestrationError).toBe("");
-    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.model_configuration_required");
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.model_api_key_required");
     expect(w.vm.pipelineRunStatus).toMatchObject({ status: "failed" });
     w.unmount();
   });

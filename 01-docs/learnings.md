@@ -4,6 +4,17 @@
 
 ---
 
+## 图片轮播 BGM 运行收尾清理导致重试失败复盘 (2026-08-09，质量节拍 Bug 反哺)
+
+- **表象**：27 场景图片轮播运行在资源全部生成成功（216s，全部走 minimax-multimodal）后，compose 阶段 36ms 失败 `BGM path is not allowed or unreadable`（run_1786288681414_mnnj）。同日更早：safeStorage `Decrypt failed` 期间各 provider 报「尚未配置 API Key」，前端弹「未找到需要的相关模型，请在设置中添加模型」，用户核对设置发现多模态 MiniMax key 已保存。
+- **根因**：① 前端选 BGM 时经 `story2videoImportMedia` 复制到 `%TEMP%\story2video\selected-media\bgm-*.mp3`，`s2vConfig.bgmPath` 指向该路径；② `pipeline-engine.js` 运行收尾（完成/失败/取消）执行 `cleanupImportedMediaPaths(run.params)`，把 `params.bgmPath`（导入的 BGM）删除——归一化后 `run.params.audio=[]、video=null`，该调用唯一真实删除对象就是 BGM；③ 用户以同一配置重试时 compose 校验 `bgmPath` 文件已不存在 → 整线失败。BGM 是「可复用」导入（前端配置与重试仍引用），被按「一次性导入」清理是设计语义错配。
+- **误导链（错误提示）**：`MODEL_CONFIGURATION_PATTERN` 把 `api key not configured / 尚未配置 API Key` 与「模型缺失」合并归一化成「未找到需要的相关模型」；当 safeStorage 解密失败（key 读不出）时所有 provider 表现为未配置，用户看到「模型没找到」但实际 key 已保存 → 排查方向错。
+- **逃逸链**：① compose-engine 无「BGM 路径失效」用例（此前只测正常 BGM 混音与大小超限）；② pipeline 收尾清理无「skipBgm」概念，清理语义按「一次运行用完即删」设计，未考虑 UI 跨运行引用；③ 通知归一化测试只测「模型缺失」正向，未测「API Key 未配置」被误归一化成模型缺失；④ 真实链路 22:49 运行失败于 generate_assets（key 解密失败）→ 收尾删 BGM → 23:18 重试死在 compose，两段失败在时间上分离，单看任一运行都不完整。
+- **系统性漏洞**：① 「导入文件生命周期」没有按引用语义分类——BGM 被前端配置跨运行引用，却与一次性替换音频共用同一清理路径；② 错误归一化把「凭据/配置问题」与「能力缺失」混为一谈，掩盖真实根因；③ 运行收尾清理对归一化后 `run.params` 的清理目标是隐式的（只有 BGM），无测试锁定。
+- **修复**：① `cleanupImportedMediaPaths` 增加 `skipBgm`，pipeline 收尾以 `{ skipBgm: true }` 调用（一次性导入场景语义不变）；② compose 对 BGM 校验失败降级为无 BGM 继续合成，返回 `bgmSkipped: true` + 中文警告（BGM 可选），总大小超限仍 fail closed；③ 新增 `MODEL_API_KEY_REQUIRED` 通知并收窄 `MODEL_CONFIGURATION_PATTERN`，「API Key 未配置/解密失败」独立提示；④ 多模态预设存量行 models 启动同步回填缺失预设模型。
+- **回归保护**：paths skipBgm 保留/默认清理不变 2 例；compose BGM 降级 + 总大小超限仍失败；通知 key 拆分（API Key/decrypt → 新 key，模型缺失 → 原 key）；multimodal models 回填幂等 + 非多模态不改写；CreateView 未配置 API Key 断言更新。
+- **教训**：① 「导入/临时文件」清理必须按引用语义分类（可复用 vs 一次性），否则会破坏跨运行状态；② 错误归一化正则宁可收窄拆分，不可把「凭据问题」伪装成「能力缺失」；③ 涉及「上次运行副作用影响下次运行」的时序 bug，要用跨运行时间线（22:49 失败 → 23:18 失败）而不是单次日志定位。
+
 ## 图片轮播选项「保存成功但永不恢复」复盘 (2026-08-09，质量节拍 Bug 反哺)
 
 - **表象**：用户改图片轮播选项（如图片效果/分辨率）后，重启应用再进入，选项未恢复——「没有被持久化保存」。

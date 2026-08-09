@@ -83,6 +83,30 @@ describe('Story2Video 通知模型', () => {
     })
   })
 
+  it('将「API Key 未配置/解密失败」解析为独立提示，而非「未找到模型」', () => {
+    const zh = resolveStory2VideoNotification({
+      error: '尚未配置 API Key，请先在“模型设置”中填写 MiniMax Image 的 API Key 后重试（API Key not configured）',
+    })
+    expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
+    expect(zh.message).toContain('API Key')
+    expect(zh.message).not.toContain('未找到需要的相关模型')
+
+    const decrypt = resolveStory2VideoNotification({
+      error: 'ModelProviderCrypto Decrypt failed: Error while decrypting the ciphertext provided to safeStorage.decryptString.',
+    })
+    expect(decrypt.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
+
+    const en = resolveStory2VideoNotification({ error: 'API Key not configured' }, { locale: 'en-US' })
+    expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
+    expect(en.message).toContain('API key')
+  })
+
+  it('真正的模型缺失仍解析为「未找到需要的相关模型」', () => {
+    const resolved = resolveStory2VideoNotification({ error: '未找到需要的相关模型，请在设置中添加模型' })
+    expect(resolved.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED)
+    expect(resolved.message).toBe('未找到需要的相关模型，请在设置中添加模型')
+  })
+
   it('按 Unicode code point 计算 6000 个中文、英文和 emoji 字符', () => {
     expect(MAX_STORY2VIDEO_TEXT_CHARACTERS).toBe(6000)
     expect(countStory2VideoTextCharacters('中'.repeat(6000))).toBe(6000)
