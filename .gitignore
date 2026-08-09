@@ -195,3 +195,6 @@ packages/ai-autonomous-tester/*.traineddata
 .codex-runtime-acceptance/
 .tmp-*/
 deploy-temp/
+
+# Nx task cache (generated)
+.nx/

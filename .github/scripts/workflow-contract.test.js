@@ -169,7 +169,7 @@ test('CI 路径门控：全量 workflow 的 pull_request 使用同一 paths-igno
 });
 
 test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', () => {
-  const names = ['build.yml', 'electron-ci.yml'];
+  const names = ['build.yml', 'electron-ci.yml', 'quality-gate.yml'];
   for (const name of names) {
     const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', name), 'utf8'));
     assert.deepEqual(
@@ -186,4 +186,27 @@ test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => 
   for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**']) {
     assert.ok(ignored.includes(dir), `doc-gate paths-ignore 必须包含 ${dir}`);
   }
+});
+
+test('Nx affected 引入契约：nx 配置与 quality-gate 双模式', () => {
+  const rootPkg = JSON.parse(fs.readFileSync(rootPackagePath, 'utf8'));
+  assert.ok(rootPkg.devDependencies && rootPkg.devDependencies.nx, '根 package.json 必须声明 nx devDependency');
+  assert.match(rootPkg.scripts['test:affected'], /nx affected -t test --base=origin\/main/);
+  assert.match(rootPkg.scripts['test:all'], /nx run-many -t test --all/);
+
+  const nxJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'nx.json'), 'utf8'));
+  assert.equal(nxJson.targetDefaults.test.cache, true);
+
+  const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
+  assert.deepEqual(wf.on.push.branches, ['main']);
+  assert.deepEqual(wf.on.push['paths-ignore'], CI_IGNORED_PATHS);
+  assert.deepEqual(wf.on.pull_request['paths-ignore'], CI_IGNORED_PATHS);
+  assert.ok(Object.keys(wf.on).includes('workflow_dispatch'), 'quality-gate 必须保留 workflow_dispatch');
+
+  const src = fs.readFileSync(qualityGatePath, 'utf8');
+  assert.match(src, /TEST_MODE=affected/);
+  assert.match(src, /TEST_MODE=full/);
+  assert.match(src, /nx affected -t test --base=origin\/main/);
+  assert.match(src, /nx run-many -t test --all/);
+  assert.match(src, /Restore Nx cache/);
 });
