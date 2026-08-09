@@ -18,6 +18,11 @@
 - 文档：`01-docs/PRD.md` 7.1.9.1（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/边界/后续演进）、`01-docs/PRD-video-creation.md` 3.1.10、CHANGELOG 本条目。
 - 后续演进（v1 不做）：ffmpeg `-progress pipe:1` 段内实时百分比、chunked 拼接段级 onStep 插值。
 
+## [未发布] 修复：未登录查看历史被 IPC 访问控制层拦截（2026-08-09）
+
+- 修复：story2video:list-projects / pipeline:history 加入 PUBLIC_CHANNELS，未登录（身份启用无会话）也可查看本机历史（本地只读、owner 隔离）；list-projects/get-project/pipeline:history 三个只读通道放行（本地数据，owner 隔离或设备级）；delete-project 等写/敏感通道保持登录收紧。
+- 回归：license-access-control 新增「只读历史通道未登录放行 + 写通道仍拒」用例；真实 Electron 端到端验证不弹错 + 本地模式提示条。
+
 ## [未发布] 修复：视频创作历史未登录弹「无法加载」（2026-08-09）
 
 - 修复：身份服务启用但未登录时，视频创作历史记录回退设备级本地命名空间，不再弹「历史记录暂时无法加载」；登录后仍按用户隔离。

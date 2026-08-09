@@ -287,16 +287,67 @@ split（分句）→ domain_enrich（历史内容领域增强，可选）
 - 真实优化质量（LLM 改写效果、风格检测准确率、配额）属于**外部验收边界**：单元/集成测试用 mock PromptBridge / 本地 HTTP stub 覆盖契约与 fail-closed 行为，不冒充真实 8013 + provider 验收通过（见 learnings 与 quality-gates 记录）。
 - `creative_level ≤ 3` 走 prompt-engine 模板直出（免 LLM key），`> 3` 需要 LLM key（未配置时服务端返回 error → fail closed）。
 
-### 3.1.4.1 历史记录与本地模式边界（2026-08-09）
+### 3.1.4.1 历史记录加载与本地模式合同（2026-08-09 完整落地）
 
-| 场景 | 行为 |
-|------|------|
-| 未登录（身份服务启用但无会话） | 历史记录回退设备级本地命名空间（`__legacy__`）读取/写入，不弹「历史记录暂时无法加载」；无数据时显示空历史 |
-| 已登录 | 历史记录按用户 sub 隔离；未登录期间写入的本地数据不混入登录用户空间 |
+> 覆盖三轮修复：① 未登录历史回退设备级本地命名空间（不再抛「无法识别当前用户」）；② 失败原因映射为可操作建议
+> （不再只弹笼统「请稍后再试」）；③ IPC 访问控制层放行本地只读历史通道（真实端到端定位 code:-3 根因）。
+> 视频创作历史是**设备本地数据**，未登录不可用属于可用性缺陷；fail-closed 仅适用于账号/评论等跨用户数据域。
+
+#### 1) 流程（数据流）
+
+```
+用户打开「视频创作 → 历史记录」tab
+  → CreateView.loadHistory() 并行两个只读请求（Promise.allSettled + 5s 竞速超时）：
+       ├─ story2video:list-projects   → Story2VideoProjectService.listProjects()（本地 SQLite 项目索引，owner 隔离）
+       └─ pipeline:history            → PipelineEngine.getHistory()（本会话内存 run + 持久化失败快照，设备级）
+  → 合并：运行中流水线置顶 → 已完成项目 → 终态流水线（按 projectId 去重，项目优先）
+  → 未登录（localMode=true）时顶部显示「本地模式」提示条
+  → 任一请求失败（code!=0 / 非数组 / 超时 / reject）：
+       ├─ 收集失败 message → historyLoadFailureDetail() 按原因映射可操作建议
+       └─ 弹「历史记录暂时无法加载」+ detail 建议行（不泄漏内部错误文本）
+```
+
+#### 2) 数据校验与边界
+
+| 项 | 规则 |
+|----|------|
+| owner 解析 | `_ownerSubject()`：store 缺失 → fail-closed 抛「项目存储不可用」；身份解析无有效 sub（未登录）→ 回退设备级命名空间 `__legacy__`；有有效 sub → 按 sub 隔离（`user:<sha256(sub)>:` 键空间） |
+| 读写透传 | `getUserSetting/setUserSetting` 显式传 owner（settings-store 第三参），legacy 键为原 key `story2video_projects_v1`，登录键带 `user:` 前缀——未登录读写真正落在本地空间，不静默丢弃 |
+| localMode 标记 | `story2video:list-projects` 在 owner 为 `__legacy__` 时返回 `localMode: true`（仅用于提示条展示，不影响数据归属） |
+| IPC 访问控制 | 只读历史通道 `story2video:list-projects` / `story2video:get-project` / `pipeline:history` 列入 PUBLIC_CHANNELS，未登录可调用（项目按 owner 隔离、run 历史设备级）；`story2video:delete-project` 等写/敏感通道保持 authenticated 收紧 |
+| 已登录隔离 | 登录后项目在用户空间读写；未登录期间 legacy 数据不混入登录用户空间，反之亦然（不串写） |
 | 存储不可用 | 保持 fail-closed：明确错误，不静默降级 |
 
-- 本地历史是设备数据：未登录不可用属于可用性缺陷；fail-closed 仅适用于账号/评论等跨用户数据域。
-- 边界：未登录创建的本地项目在登录后不可见（本地单用户通常持续登录或不登录），后续如需「登录后合并本地数据」另行设计。
+#### 3) 功能逻辑
+
+- **未登录可用**：身份服务启用但未登录（或未配置身份服务）时，历史读写回退 `__legacy__` 设备级命名空间，本地历史可用；已登录按 sub 隔离。
+- **失败原因映射**（`historyLoadFailureDetail`，zh/en 双语、主进程中文错误也有 en 兜底）：未登录/登录过期 → 登录引导；本地存储异常 → 重启 + 磁盘检查；加载超时 → 重进历史重试 + 重启；无法识别的原因 → 返回空（不展示内部错误文本，弹窗保留通用文案）。
+- **防御**：`ResultView.loadProject` 对 `get-project` code:-3 单独映射登录引导（避免未来收紧时落泛化失败）。
+- **竞态**：并发 loadHistory 只保留最新请求（requestId）；进入历史 tab 必触发 loadHistory（localMode 不残留过期值）。
+
+#### 4) 交互逻辑与显示项
+
+| 显示项 | 位置 | 行为 |
+|--------|------|------|
+| 本地模式提示条 | 历史视图顶部（`data-testid="history-local-mode-banner"`） | 未登录（localMode=true）时显示；已登录/登录态变化后随下次 loadHistory 刷新 |
+| 历史列表 | 历史视图 | 运行中置顶 + 项目 + 终态流水线；空时显示「暂无创作记录」 |
+| 错误弹窗 | 应用内弹窗 | 标题「提示」+ 通用文案 + detail 建议行（仅当可映射原因时）+ 「知道了」按钮 |
+| 空态 | 历史视图 | 「暂无创作记录」（无数据时） |
+
+#### 5) 提示文字（zh / en）
+
+| 场景 | 中文 | English |
+|------|------|---------|
+| 本地模式提示条 | 当前为本地模式，仅显示本机记录。 | Local mode — showing records on this device only. |
+| 历史加载失败（通用） | 历史记录暂时无法加载，请稍后再试。 | History is unavailable right now. Please try again shortly. |
+| 失败原因·未登录 | 当前未登录或登录已过期。请登录后重试；未登录时仅显示本机记录。 | You are not signed in or your session expired. Sign in to retry; local records remain available offline. |
+| 失败原因·本地存储 | 本地存储异常。请重启应用后重试；若持续出现请检查本地磁盘空间与权限。 | Local storage is having issues. Restart the app to retry; if it persists, check local disk space and permissions. |
+| 失败原因·超时 | 加载超时。请关闭后重新进入历史记录重试；若持续出现请重启应用。 | Loading timed out. Close and reopen the history list to retry; if it persists, restart the app. |
+
+#### 6) 安全边界与已知边界
+
+- 只读通道放行不扩大数据暴露：list-projects/get-project 返回面受 owner 隔离（未登录仅见 legacy 空间）；pipeline:history 为设备级 run 历史（不过滤 owner，本地数据），已注释限定。
+- 边界：未登录创建的本地项目在登录后不可见（本地单用户通常持续登录或不登录），后续如需「登录后合并本地数据」另行设计；`pipeline:history` 若未来需按会话/owner 过滤，应先收紧通道再实现。
 
 ### 3.1.5 图片轮播全自动与多语言显示（P1）
 

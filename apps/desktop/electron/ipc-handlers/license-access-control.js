@@ -28,7 +28,11 @@ const PUBLIC_CHANNELS = new Set([
   'model-provider:is-configured', 'model-provider:logs', 'model-provider:clean-logs',
   'logs:info', 'logs:clear', 'logs:error',
   'render:status', 'render:install-deps',
-  'pipeline:list', 'pipeline:get',
+  'pipeline:list', 'pipeline:get', 'pipeline:history',
+  // 本地只读历史通道：未登录时也可查看本机创作历史（写/敏感通道仍要求登录）。
+  //  - story2video:list-projects / story2video:get-project：项目数据按 owner 隔离（__legacy__=设备级本地空间）
+  //  - pipeline:history：设备级 run 历史（不过滤 owner，本地内存/持久化快照）
+  'story2video:list-projects', 'story2video:get-project',
   'usage:stats', 'usage:daily', 'usage:track',
   'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
 ])

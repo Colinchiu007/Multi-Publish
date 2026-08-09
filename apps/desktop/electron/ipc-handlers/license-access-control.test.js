@@ -377,4 +377,41 @@ describe('主进程许可证动态鉴权', () => {
   ])('preload 公开方法对应的 %s 通道也必须公开', (channel) => {
     expect(requiredLevelForChannel(channel)).toBe('public')
   })
+
+  it('本地只读历史通道对未登录开放（list-projects / get-project / pipeline:history）', async () => {
+    expect(requiredLevelForChannel('story2video:list-projects')).toBe('public')
+    expect(requiredLevelForChannel('story2video:get-project')).toBe('public')
+    expect(requiredLevelForChannel('pipeline:history')).toBe('public')
+    // 写/删除通道仍要求登录，不扩大未登录权限面
+    expect(requiredLevelForChannel('story2video:delete-project')).toBe('authenticated')
+
+    const identityService = { getState: () => ({ status: 'signed_out' }) }
+    const { ipcMain, handlers } = createIpcMainHarness()
+    const controlledIpcMain = createAccessControlledIpcMain(
+      ipcMain,
+      null,
+      { NODE_ENV: 'production' },
+      { isPackaged: true },
+      identityService,
+    )
+    const listProjects = vi.fn(async () => ({ code: 0, data: [], localMode: true }))
+    const getProject = vi.fn(async () => ({ code: 0, data: { projectId: 'project-1' } }))
+    const pipelineHistory = vi.fn(async () => ({ code: 0, data: [] }))
+    const deleteProject = vi.fn(async () => ({ code: 0, data: {} }))
+    controlledIpcMain.handle('story2video:list-projects', listProjects)
+    controlledIpcMain.handle('story2video:get-project', getProject)
+    controlledIpcMain.handle('pipeline:history', pipelineHistory)
+    controlledIpcMain.handle('story2video:delete-project', deleteProject)
+
+    // 未登录：三个只读通道放行（本地历史/项目可用）
+    await expect(handlers['story2video:list-projects'](trustedEvent)).resolves.toEqual({ code: 0, data: [], localMode: true })
+    expect(listProjects).toHaveBeenCalledTimes(1)
+    await expect(handlers['story2video:get-project'](trustedEvent, 'project-1')).resolves.toEqual({ code: 0, data: { projectId: 'project-1' } })
+    expect(getProject).toHaveBeenCalledTimes(1)
+    await expect(handlers['pipeline:history'](trustedEvent)).resolves.toEqual({ code: 0, data: [] })
+    expect(pipelineHistory).toHaveBeenCalledTimes(1)
+    // 未登录：删除通道仍被拒
+    await expect(handlers['story2video:delete-project'](trustedEvent, 'project-1')).resolves.toMatchObject({ code: -3 })
+    expect(deleteProject).not.toHaveBeenCalled()
+  })
 })

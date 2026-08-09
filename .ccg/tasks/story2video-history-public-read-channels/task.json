@@ -1,0 +1,19 @@
+{
+  "id": "story2video-history-public-read-channels",
+  "title": "IPC 访问控制层放行本地只读历史通道（未登录可见历史）",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "high",
+  "domain": "ipc-security/story2video",
+  "currentPhase": "review",
+  "nextAction": "双模型审查 + 分支 PR + 合并",
+  "openspecChange": "story2video-history-public-read-channels",
+  "createdAt": "2026-08-09T15:00:00Z",
+  "branch": "codex/story2video-history-public-read-channels",
+  "evidence": {
+    "rootCause": "license-access-control 把 story2video:list-projects / pipeline:history 按 authenticated 收紧，identity 启用未登录返回 code:-3「当前许可证无权访问」，渲染端 !hasProjects 弹「无法加载」——前两轮修复在 service 层，未覆盖 IPC 访问控制层",
+    "repro": "真实 Electron 端到端：ipcProbe list-projects code:-3；修复后 不弹错 + 本地模式提示条 + 空态（e2e-verify-history7.log）",
+    "tests": "license-access-control 36 / story2video ipc 13（49 用例绿）",
+    "scope": "仅放行只读历史通道（list-projects/pipeline:history）；story2video:get-project/delete-project 等读写通道仍要求登录"
+  }
+}

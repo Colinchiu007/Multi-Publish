@@ -183,6 +183,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | Pipeline 编排 | 13 种视频制作管线（解释/电影/口播/数字人等） | ✅ Phase 6+7 |
 | Remotion 渲染 | 13 种 Composition，Electron 后端渲染 | ✅ v1.0.0 |
 | 图片提示词统一优化 | 所有图片提示词统一经 prompt-engine（8013）完成风格检测 → 改写 → 输出校验；Story2Video optimize 阶段不再直连默认 LLM（详见 PRD-video-creation §3.1.2.1） | ✅ 2026-08-09 |
+| 视频创作历史本地模式 | 未登录可查看本机创作历史（本地只读 IPC 通道放行 + owner 隔离回退 __legacy__ + 本地模式提示条 + 失败原因可操作建议；详见 PRD-video-creation §3.1.4.1） | ✅ 2026-08-09 |
 
 #### F7：数据存储（SQLite）
 

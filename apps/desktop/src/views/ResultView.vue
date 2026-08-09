@@ -372,6 +372,13 @@ export default {
       this.loading = true
       try {
         const result = await story2videoGetProject(projectId)
+        if (result?.code === -3) {
+          // 防御：未来若访问控制收紧，未登录打开项目应引导登录而非泛化失败
+          this.project = null
+          this.projectId = null
+          this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED })
+          return
+        }
         if (result?.code !== 0 || !result.data) throw new Error(result?.message || '项目加载失败')
         const project = result.data
         this.project = project
