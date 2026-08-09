@@ -982,4 +982,6 @@ module.exports = {
   normalizeAssetResult,
   resolveInputImage,
   resolveInputAudio,
+  hasMeaningfulText,
+  isPromptEngineTooShortRejection,
 };
