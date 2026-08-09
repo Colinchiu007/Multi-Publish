@@ -1,3 +1,25 @@
+## [未发布] 图片提示词统一走 prompt-engine（2026-08-09）
+
+### 行为变更
+- **Story2Video optimize 阶段从「直连默认 LLM」改为「统一走 prompt-engine（PromptBridge / 8013）」**：
+  逐场景调用 `POST /v1/optimize`，完成 风格检测 → 改写 → 输出校验；不再直连默认 LLM（此前实现与
+  manifest/PRD 契约长期背离）。
+- **配置契约扩展**：Story2VideoTextConfig.optimize 新增 `platform`（7 枚举，默认 generic）、`maxLength`
+  （50-2000，默认 300）、`numCandidates`（1-5，默认 1）、`autoDetectStyle`（默认 true）、`context`
+  （字符串或对象，敏感键拦截）；旧字段 style/creativeLevel/negativePrompt 保持兼容。
+- **输出校验 fail closed**：optimized_prompt 非空、error 优先（服务端失败兜底返回原文+error 不再被当成成功）、
+  422 detail 形态、超长截断、数量匹配；prompt-engine（8013）不可用时 optimize 阶段明确失败，不静默回退。
+- **枚举别名归一**：cinematic→photography、3d-render→3d_render、dall-e(-2/-3)→dalle、stable-diffusion(-xl)/sdxl/stability→stable_diffusion、通义万相→tongyi、文心一格→yizhang、即梦→jimeng（发送前归一，防 422）。
+- 通用 `OPTIMIZE` / `OPTIMIZE_BATCH` 补齐同一请求构造与 error 优先校验。
+
+### 回归
+- 新增 `prompt-engine-contract.js` 契约模块（枚举/别名/请求构造/输出校验单一来源）；
+  重写 story2video-stages / story2video-text-config / stage-executor / pipeline-story2video-contract / e2e-pipeline-orchestrator
+  相关用例；聚焦 5 套件 161 用例 + e2e orchestrator 6 用例全绿（mock PromptBridge / 本地 HTTP stub，不依赖真实 8013）。
+
+### 外部验收边界
+- 真实 8013 服务的改写质量、风格检测准确率与 LLM 配额为外部验收（PENDING_EXTERNAL）；`creative_level ≤ 3` 走模板直出。
+
 ## 维护与归档（2026-08-08）
 
 - 归档 Story2Video 场景时长三层模型 CCG 任务审计轨迹（`.ccg/tasks/story2video-scene-duration-three-layer` → `archive/2026-08/`）：

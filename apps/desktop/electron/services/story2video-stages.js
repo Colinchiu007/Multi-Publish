@@ -3,12 +3,12 @@
  * story2video-stages - Story2Video-compose 流水线的自定义阶段执行器
  *
  * 注册与 story2video-compose 流水线配套的自定义 STAGE_TYPES：
- *   - story2video_optimize: 使用当前默认 LLM 逐场景优化视觉提示词
+ *   - story2video_optimize: 逐场景视觉提示词统一走 prompt-engine（风格检测/改写/输出校验）
  *   - story2video_generate_assets: 并行生成图片 + TTS 音频
  *
  * 设计意图：
  *   split / compose / publish 阶段使用 StageExecutor 内置类型。
- *   optimize 直接调用模型设置中的默认 LLM，避免错误复用其他流水线的 PromptBridge 配置；
+ *   optimize 统一调用 prompt-engine（PromptBridge / 8013），完成风格检测、改写与输出校验；
  *   generate_assets 需要并行编排（图片+TTS 同时生成）。
  *
  * 注册方式：
@@ -29,6 +29,10 @@ const {
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
 const { ERROR_CODES } = require('./adapters/_base/provider-error');
+const {
+  buildPromptEngineOptimizeRequest,
+  extractOptimizedPrompt,
+} = require('./prompt-engine-contract');
 
 /**
  * Story2Video-compose 专用的阶段类型
@@ -287,45 +291,6 @@ function looksLikeRejection(text) {
     .test(text);
 }
 
-function getDefaultLlmConfig(aiGenerator) {
-  const manager = aiGenerator && aiGenerator._modelProviderManager;
-  const provider = manager && typeof manager.getDefault === 'function'
-    ? manager.getDefault('llm')
-    : null;
-  if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null;
-  const model = Array.isArray(provider.models)
-    ? provider.models.find(item => typeof item === 'string' && item.trim())
-    : null;
-  return model ? { providerId: provider.id.trim(), model: model.trim() } : null;
-}
-
-function buildOptimizationRequest(promptSeed, options = {}) {
-  const style = typeof options.style === 'string' && options.style.trim()
-    ? options.style.trim()
-    : 'cinematic';
-  const negativePrompt = typeof options.negative_prompt === 'string' && options.negative_prompt.trim()
-    ? '\nAvoid: ' + options.negative_prompt.trim()
-    : '';
-  const creativeLevel = Number(options.creative_level);
-  const normalizedCreativeLevel = Number.isFinite(creativeLevel)
-    ? Math.min(10, Math.max(1, creativeLevel))
-    : 5;
-  return {
-    temperature: 0.2 + normalizedCreativeLevel * 0.06,
-    max_tokens: 500,
-    messages: [
-      {
-        role: 'system',
-        content: 'You turn a Story2Video scene into one concise, production-ready visual image prompt. Preserve the subject, action, era, and composition cues. Return only the final image prompt with no explanation, labels, or markdown.',
-      },
-      {
-        role: 'user',
-        content: 'Scene source:\n' + promptSeed + '\n\nVisual style: ' + style + negativePrompt,
-      },
-    ],
-  };
-}
-
 /**
  * 注册 Story2Video-compose 流水线的自定义阶段执行器
  * @param {object} pipelineEngine - PipelineEngine 实例（需已注入 serviceBus）
@@ -362,22 +327,13 @@ function registerStory2VideoStages(pipelineEngine) {
   registered.push(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH);
 
   // ----------------------------------------------------------
-  // OPTIMIZE - 当前默认 LLM 逐场景优化视觉提示词
+  // OPTIMIZE - 统一走 prompt-engine（风格检测/改写/输出校验）
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.OPTIMIZE,
-    async ({ stage, context }) => {
-      const aiGenerator = pipelineEngine.aiGenerator ||
-        (pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
-          ? pipelineEngine.container.get('aiGenerator')
-          : null);
-      if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
-        return { success: false, error: 'Story2Video 默认 LLM 不可用，请先完成模型设置' };
-      }
-
-      const defaultLlm = getDefaultLlmConfig(aiGenerator);
-      if (!defaultLlm) {
-        return { success: false, error: '未找到需要的相关模型，请在设置中添加模型' };
+    async ({ stage, context, serviceBus }) => {
+      if (!serviceBus || typeof serviceBus.optimizePrompt !== 'function') {
+        return { success: false, error: 'Story2Video optimize 需要 prompt-engine 服务（PromptBridge 未注入）' };
       }
 
       const scenes = getOptimizationScenes(context || {});
@@ -425,25 +381,38 @@ function registerStory2VideoStages(pipelineEngine) {
             }
             return skippedEntry;
           }
-          // 瞬态 provider 错误有界重试：限流用更长退避，避免长文案多场景并发触发
-          // 限流时短退避重试不足以恢复而拖垮整阶段；非瞬时错误立即失败，不消耗重试次数。
+          // 图片提示词统一走 prompt-engine：构造请求（平台/风格别名归一、自动风格检测、
+          // 创意度/长度/候选数边界）→ 瞬态错误有界重试（限流更长退避）→ 输出校验 fail closed。
+          // 校验顺序：error 优先（/v1/optimize 失败兜底返回原文+error，忽略即静默降级）→ 结构 → 内容。
+          // 请求构造一次（含别名归一与边界收敛），重试/校验共用同一份归一化参数
+          const request = buildPromptEngineOptimizeRequest(promptSeed, stage.options || {})
+          const { prompt: enginePrompt, ...requestOptions } = request
           let result
           try {
             result = await withTransientRetry(
-              () => aiGenerator.generateWithDefault(
-                'llm',
-                buildOptimizationRequest(promptSeed, stage.options || {}),
-              ),
+              () => serviceBus.optimizePrompt(enginePrompt, requestOptions),
               { maxAttempts, rateLimitMaxAttempts: Math.max(maxAttempts + 1, 4) },
             )
           } catch (lastError) {
-            throw new Error(
-              'Story2Video optimize scene ' + index + ' failed: ' + (lastError && lastError.message ? lastError.message : String(lastError)),
-            )
+            const message = lastError && lastError.message ? lastError.message : String(lastError)
+            // I6：服务不可用/连接失败时给出可操作排查指引（PROMPT_DIR / 8013）
+            const hint = /not running|ECONNREFUSED|timed\s*out|ETIMEDOUT|network\s*error|超时|网络/i.test(message)
+              ? '（prompt-engine 未运行或不可达，请检查 PROMPT_DIR 与端口 8013）'
+              : ''
+            throw new Error('Story2Video optimize scene ' + index + ' failed: ' + message + hint)
           }
-          // 剥离思考块后才是最终提示词：带推理能力的模型（如 MiniMax-M3/M2.7）
-          // 可能把 <think> 思考过程放进 content，不能原样用作图片提示词。
-          const optimizedPrompt = sanitizeOptimizedPrompt(result && typeof result.content === 'string' ? result.content : '')
+          // 截断上限用契约收敛后的 max_length（W-2/I-4：兼容 camelCase 配置且不因原始越界值误截断）
+          const validated = extractOptimizedPrompt(result, {
+            index,
+            maxLength: request.max_length,
+            warn: (msg) => pipelineEngine.log.warn('Story2VideoStages', msg),
+          })
+          if (!validated.ok) {
+            throw new Error('Story2Video ' + validated.error)
+          }
+          // 剥离思考块后才是最终提示词：带推理能力的模型可能把 <think> 思考过程放进内容，
+          // prompt-engine 返回后仍做防御性净化，不能把思考内容当作图片提示词。
+          const optimizedPrompt = sanitizeOptimizedPrompt(validated.prompt)
           if (!optimizedPrompt) {
             throw new Error('Story2Video optimize scene ' + index + ' returned an empty prompt')
           }
@@ -472,10 +441,12 @@ function registerStory2VideoStages(pipelineEngine) {
           }
           const entry = {
             optimized_prompt: optimizedPrompt,
-            providerId: defaultLlm.providerId,
-            model: typeof result.model === 'string' && result.model.trim()
-              ? result.model.trim()
-              : defaultLlm.model,
+            providerId: 'prompt-engine',
+            model: typeof validated.meta.model_used === 'string' && validated.meta.model_used.trim()
+              ? validated.meta.model_used.trim()
+              : null,
+            ...validated.meta,
+            truncated: validated.truncated || undefined,
           }
           // 逐场景写入部分结果，失败时可断点续传（context 与 run.context 同引用）
           partialResume[index] = entry

@@ -1,6 +1,7 @@
 // E2E 集成测试 - 验证 PipelineEngine orchestrator 模式端到端执行 story2video-compose 流水线
 // 前置条件：smart-sentence-splitter 已在 8002 启动。
-// Story2Video 优化阶段使用受控的默认 LLM 夹具，不能回退到 prompt-engine。
+// Story2Video 优化阶段统一走 prompt-engine（PromptBridge / 8013），
+// 本测试注入 mock PromptBridge，不依赖真实 prompt-engine 服务与 LLM key。
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -10,27 +11,36 @@ const { StageExecutor } = require('../services/stage-executor');
 const { PipelineEngine } = require('../services/pipeline-engine');
 const { registerStory2VideoStages } = require('../services/story2video-stages');
 
-function createControlledDefaultLlm() {
+function createMockPromptEngine() {
   const calls = [];
-  return {
+  const promptBridge = {
     calls,
-    _modelProviderManager: {
-      getDefault: (type) => type === 'llm'
-        ? { id: 'e2e-llm', models: ['e2e-model'] }
-        : null,
-    },
-    generateWithDefault: async (type, params) => {
-      calls.push({ type, params });
+    start: async () => {},
+    stop: async () => {},
+    healthCheck: async () => true,
+    optimize: async (request) => {
+      calls.push(request);
       return {
-        content: 'E2E visual prompt: ' + params.messages[1].content,
-        model: 'e2e-model',
+        optimized_prompt: 'E2E visual prompt: ' + request.prompt,
+        platform: request.platform || 'generic',
+        style: request.style || null,
+        model_used: 'e2e-model',
+        key_source: 'config',
       };
     },
+    optimizeBatch: async (requests) => requests.map((request) => ({
+      optimized_prompt: 'E2E visual prompt: ' + request.prompt,
+      platform: request.platform || 'generic',
+      style: request.style || null,
+      model_used: 'e2e-model',
+      key_source: 'config',
+    })),
   };
+  return promptBridge;
 }
 
 // 构造依赖注入的容器（attach 到外部已运行的 Python 服务）
-async function buildContainer({ aiGenerator = createControlledDefaultLlm() } = {}) {
+async function buildContainer({ promptBridge = createMockPromptEngine() } = {}) {
   const splitterBridge = new SplitterBridge({});
   await splitterBridge.attach();
   const pythonBridge = {
@@ -43,6 +53,7 @@ async function buildContainer({ aiGenerator = createControlledDefaultLlm() } = {
   const serviceBus = new ServiceBus({
     pythonBridge,
     splitterBridge,
+    promptBridge,
     // E2E 测试用 mock 引擎（真实引擎需要图片/音频文件）
     story2videoEngine: {
       compose: async () => ({
@@ -61,13 +72,12 @@ async function buildContainer({ aiGenerator = createControlledDefaultLlm() } = {
     serviceBus,
     stageExecutor,
     container: {},
-    aiGenerator,
     log: { info: () => {}, warn: () => {}, error: () => {} },
   });
 
   registerStory2VideoStages(pipelineEngine);
 
-  return { pipelineEngine, serviceBus, aiGenerator };
+  return { pipelineEngine, serviceBus, promptBridge };
 }
 
 test('PipelineEngine orchestrator - story2video-compose 流水线稳定排在首位', { timeout: 10000 }, () => {
@@ -108,8 +118,8 @@ test('PipelineEngine orchestrator - stage 1 (split) 执行成功并写入 contex
   console.log('  stage 1 (split) 完成，场景数:', ctx.split.scenes?.length);
 });
 
-test('PipelineEngine orchestrator - domain_enrich 后由默认 LLM 执行 optimize', { timeout: 60000 }, async () => {
-  const { pipelineEngine, aiGenerator } = await buildContainer();
+test('PipelineEngine orchestrator - domain_enrich 后由 prompt-engine 执行 optimize', { timeout: 60000 }, async () => {
+  const { pipelineEngine, promptBridge } = await buildContainer();
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。',
     autoAdvance: false,
@@ -123,23 +133,31 @@ test('PipelineEngine orchestrator - domain_enrich 后由默认 LLM 执行 optimi
   assert.ok(ctx.split, 'context 应包含 split 结果');
   assert.ok(ctx.domain_enrich, 'context 应包含 domain_enrich 结果');
   assert.ok(ctx.optimize, 'context 应包含 optimize 结果');
-  assert.equal(ctx.optimize[0].providerId, 'e2e-llm');
+  assert.equal(ctx.optimize[0].providerId, 'prompt-engine');
   const enrichedScenes = ctx.domain_enrich.scenes || ctx.domain_enrich.sentences || ctx.domain_enrich;
   assert.ok(Array.isArray(enrichedScenes), 'domain_enrich 应提供场景数组');
-  assert.equal(aiGenerator.calls.length, enrichedScenes.length,
-    '默认 LLM 应逐场景接收 domain_enrich 输出');
-  assert.ok(aiGenerator.calls.every(call => call.type === 'llm'), '优化必须调用 LLM 默认模型');
-  assert.ok(aiGenerator.calls.every(call => call.params.messages[1].content.includes('Scene source:')),
-    '优化请求必须带入场景 prompt seed');
+  assert.equal(promptBridge.calls.length, enrichedScenes.length,
+    'prompt-engine 应逐场景接收 domain_enrich 输出');
+  assert.ok(promptBridge.calls.every(call => typeof call.prompt === 'string' && call.prompt.length > 0),
+    '优化请求必须携带场景 prompt seed');
+  assert.ok(promptBridge.calls.every(call => call.auto_detect_style === true || call.style),
+    '优化请求必须启用自动风格检测或显式风格');
   assert.ok(ctx.optimize.every(item => item.optimized_prompt.startsWith('E2E visual prompt:')),
-    '优化输出必须来自受控默认 LLM');
-  assert.ok(ctx.optimize.every(item => item.providerId === 'e2e-llm' && item.model === 'e2e-model'),
-    '优化输出必须保留默认 LLM 身份');
+    '优化输出必须来自 mock prompt-engine');
+  assert.ok(ctx.optimize.every(item => item.providerId === 'prompt-engine' && item.model === 'e2e-model'),
+    '优化输出必须保留 prompt-engine 身份');
   console.log('  domain_enrich + optimize 完成');
 });
 
-test('PipelineEngine orchestrator - 缺少默认 LLM 时 optimize 明确 fail-closed', { timeout: 60000 }, async () => {
-  const { pipelineEngine } = await buildContainer({ aiGenerator: null });
+test('PipelineEngine orchestrator - prompt-engine 不可用时 optimize 明确 fail-closed', { timeout: 60000 }, async () => {
+  const unavailablePromptBridge = {
+    start: async () => {},
+    stop: async () => {},
+    healthCheck: async () => false,
+    optimize: async () => { throw new Error('PromptBridge is not running'); },
+    optimizeBatch: async () => [],
+  };
+  const { pipelineEngine } = await buildContainer({ promptBridge: unavailablePromptBridge });
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。',
     autoAdvance: false,
@@ -150,8 +168,8 @@ test('PipelineEngine orchestrator - 缺少默认 LLM 时 optimize 明确 fail-cl
     assert.ok(execRes.success, stageName + ' 应执行成功');
   }
   const optimize = await pipelineEngine.executeStage(res.runId);
-  assert.equal(optimize.success, false, '缺失默认 LLM 必须阻止 optimize');
-  assert.match(optimize.error, /默认 LLM 不可用/, '应返回可操作的默认 LLM 配置错误');
+  assert.equal(optimize.success, false, 'prompt-engine 不可用必须阻止 optimize');
+  assert.match(optimize.error, /prompt-engine|PromptBridge|not running/i, '应返回可操作的 prompt-engine 错误');
 });
 
 test('PipelineEngine orchestrator - advanceToNextCheckpoint 推进到完成', { timeout: 120000 }, async () => {
