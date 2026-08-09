@@ -10,6 +10,7 @@ let schema
 let BatchManager
 let rawDb
 let store
+let ProjectService
 
 class SqlJsAdapter {
   constructor (db) {
@@ -107,6 +108,7 @@ beforeAll(async () => {
   Store = require('./store')
   schema = require('./store-schema')
   BatchManager = require('./batch-manager')
+  ProjectService = require('./story2video-project-service').Story2VideoProjectService
 })
 
 beforeEach(() => {
@@ -123,6 +125,21 @@ afterEach(() => {
 })
 
 describe('Store 多用户隔离', () => {
+  it('owner provider 抛错被 base-store 折叠为 null，story2video 历史回退 legacy 可用', () => {
+    const path = require('path')
+    const os = require('os')
+    const projectsDir = path.join(os.tmpdir(), 's2v-provider-throw-' + Date.now())
+    store.setOwnerSubjectProvider(() => { throw new Error('provider boom') })
+    // base-store 内部 catch：provider 异常折叠为 null，不向上抛
+    expect(store._resolveOwnerSubject()).toBeNull()
+    const service = new ProjectService({ store, projectsDir })
+    expect(() => service.listProjects()).not.toThrow()
+    // 回退 legacy 命名空间：可写入并在同空间读回
+    service._writeProjects([{ projectId: 'legacy-throw-1', status: 'completed', segments: [] }])
+    expect(service.listProjects().map(item => item.projectId)).toEqual(['legacy-throw-1'])
+  })
+
+
   it('新库为三张用户数据表创建 owner_subject 复合主键', () => {
     for (const table of ['accounts', 'publish_history', 'scheduled_tasks']) {
       const info = tableInfo(table)
