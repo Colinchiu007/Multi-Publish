@@ -38,7 +38,7 @@
 ## 五、启动脚本与已知环境差异
 
 - **启动脚本**：`scripts/launch-worktree.js`（收编自 `C:\tmp\launch-worktree-4k.js`）——以指定 worktree + 已登录 profile 启动桌面应用；参数 `--worktree/--profile/--cdp/--backend-port/--prompt-port/--splitter-port/--dev-server-port/--callback-port/--env-file`；macOS 前瞻（electron 可执行路径按平台解析）。用法：`node scripts/launch-worktree.js --env-file /d/Data/projects/prompt-engine/.env`。
-- **已知环境差异（worktree junction 双模块实例）**：worktree 的 `node_modules/@multi-publish/*` 指向主仓库 packages（junction），导致 `@multi-publish/ai-writer` 解析到主仓库副本、而 `ai-writer-flow.integration.test.js` 直连本 worktree 副本 → 本地全量测试 1 例 `instanceof AiWriter` 失败（主仓库原生路径与 CI 全绿，非代码 bug）。根治工具：`scripts/fix-worktree-node-modules.sh`（停应用 → 删 junction → 独立 `npm install` → 验证解析）；默认保留 junction 并记录差异。
+- **worktree node_modules 独立化（2026-08-09 已根治）**：交付 worktree 曾以 junction 指向主仓库 node_modules，导致 `@multi-publish/ai-writer` 解析到主仓库副本、`ai-writer-flow` 的 `instanceof AiWriter` 本地 1 例失败（主仓库/CI 全绿）。已执行 `scripts/fix-worktree-node-modules.sh`（停应用 → 删 junction → 独立 `npm install` → 验证解析指向本 worktree packages），本地全量测试恢复全绿（6673/6673）。**注意**：worktree 现持有独立 node_modules（约 1.3GB），不再共享主仓库依赖；若某 worktree 又出现 junction（如被旧脚本重建），用同一脚本再根治即可。
 
 ## 六、常用命令
 
