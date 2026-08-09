@@ -260,7 +260,10 @@ function hasMeaningfulText(text) {
   const cleaned = String(text || '')
     .replace(/[\s\p{P}\p{S}]/gu, '');
   if (!cleaned) return false;
-  if (/^\d+$/.test(cleaned)) return false;
+  // 方案B（2026-08-09）：仅「单个纯数字」视为无实质内容并跳过 LLM 优化；
+  // 2 位及以上纯数字（如 81、1949）视为有意义，正常走 prompt-engine 优化，
+  // 避免数字类文案得不到增强（同时保留对「1」这类极短数字的防编造守卫）。
+  if (/^\d$/.test(cleaned)) return false;
   return true;
 }
 
@@ -362,8 +365,9 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!promptSeed) {
             throw new Error('Story2Video optimize scene ' + index + ' is missing a prompt seed')
           }
-          // 无实质内容的文案（纯数字/纯符号/过短）：跳过 LLM 优化，直接用原文，
-          // 避免模型凭空编造与原文无关的场景（如输入「12」被编造成人物画面）。
+          // 无实质内容的文案（单个纯数字/纯符号/过短）：跳过 LLM 优化，直接用原文，
+          // 避免模型凭空编造与原文无关的场景（如输入「1」被编造成人物画面）。
+          // 2 位及以上纯数字（如 81、1949）视为有意义，正常优化（方案B，2026-08-09）。
           if (!hasMeaningfulText(promptSeed)) {
             const skippedEntry = {
               optimized_prompt: promptSeed,

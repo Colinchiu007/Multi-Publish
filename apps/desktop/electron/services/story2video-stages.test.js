@@ -182,24 +182,24 @@ describe('story2video 资源索引契约', () => {
     expect(result.output[0].optimized_prompt).not.toContain('cannot generate')
   })
 
-  it('纯数字文案（如 11）守卫优先于拒绝路径：不调用 prompt-engine、直接用原文', async () => {
+  it('单个纯数字文案（如 1）守卫优先于拒绝路径：不调用 prompt-engine、直接用原文', async () => {
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
     const result = await fn({
       stage: { options: {} },
       params: {},
-      context: { split: [{ text: '11' }] },
+      context: { split: [{ text: '1' }] },
       serviceBus,
     })
     expect(result).toMatchObject({ success: true })
-    expect(result.output[0]).toEqual({ optimized_prompt: '11', providerId: null, model: null, skipped_optimize: true })
+    expect(result.output[0]).toEqual({ optimized_prompt: '1', providerId: null, model: null, skipped_optimize: true })
     // 守卫优先：未调用 prompt-engine
     expect(serviceBus.calls).toHaveLength(0)
   })
-  it('纯数字文案（如 12）跳过 prompt-engine 优化，用原文兜底，不编造场景', async () => {
+  it('单个纯数字文案（如 5）跳过 prompt-engine 优化，用原文兜底，不编造场景', async () => {
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
-    const context = { split: [{ text: '12' }, { text: '一个有内容的场景描述。' }] }
+    const context = { split: [{ text: '5' }, { text: '一个有内容的场景描述。' }] }
     const result = await fn({
       stage: { options: {} },
       params: {},
@@ -208,12 +208,39 @@ describe('story2video 资源索引契约', () => {
     })
     expect(result).toMatchObject({ success: true })
     expect(result.output).toHaveLength(2)
-    // 纯数字场景：跳过优化，用原文，标记 skipped_optimize
-    expect(result.output[0]).toEqual({ optimized_prompt: '12', providerId: null, model: null, skipped_optimize: true })
+    // 单个纯数字场景：跳过优化，用原文，标记 skipped_optimize
+    expect(result.output[0]).toEqual({ optimized_prompt: '5', providerId: null, model: null, skipped_optimize: true })
     // 有内容场景：正常调用 prompt-engine
     expect(result.output[1]).toMatchObject({ optimized_prompt: '优化: 一个有内容的场景描述。' })
     expect(serviceBus.calls).toHaveLength(1)
     expect(context.optimize_progress).toEqual({ done: 2, total: 2 })
+  })
+  it('两位数字文案（如 81）走 prompt-engine 优化（方案B），不再用原文兜底', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '81' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toMatchObject({ optimized_prompt: '优化: 81' })
+    expect(result.output[0].skipped_optimize).not.toBe(true)
+    expect(serviceBus.calls).toHaveLength(1)
+  })
+  it('多位数文案（如 1949）走 prompt-engine 优化（方案B）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '1949' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toMatchObject({ optimized_prompt: '优化: 1949' })
+    expect(serviceBus.calls).toHaveLength(1)
   })
   it('逐场景提示词优化并行执行（有界并发，避免长文案串行拖慢）', async () => {
     // 用并发计数断言（确定性），不依赖墙钟：并发执行时活跃调用数应 ≥2
