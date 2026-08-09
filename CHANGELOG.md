@@ -1,3 +1,11 @@
+## [未发布] 新增：MiniMax 多模态「支持生成视频」开关（默认关闭，2026-08-10）
+
+- 新增：模型设置 → 多模态模型（MiniMax）表单新增「支持生成视频」开关，**默认关闭**；开关写入 `model_providers.config.capability_enabled.video`，新建/编辑均可设置。
+- 能力路由：`ModelProviderManager._multimodalProviderFor('video')` 仅当 `capability_enabled.video === true` 时才把多模态模型视为 video 能力可用；缺省/关闭时 video 默认解析回落显式视频模型（如 Agnes Video）。llm/tts/image 能力路由不受影响；`_syncPresetCapabilities` 不回填/覆盖开关。
+- 背景：用户 MiniMax 特殊套餐不支持视频生成，此前 `generateVideo` 被 ~120ms 拒绝（`Missing task_id in response`），且多模态优先抢占 video 默认导致 agnes-video 无法生效；本开关产品化解决。
+- 回归：model-provider-multimodal +6（video 开关缺省/开/关、非 video 能力不受影响、sync 不回填）、useModelProviderCrud +5（默认关、读写持久化、导出完整性、提交透传）；相关套件全绿。
+- 文档：01-docs/PRD.md 7.4.1（能力路由/交互显示/验收标准）。
+
 ## [未发布] 修复：BGM 降级原因区分 + API-Key 提示收窄 + models 清洗 + selected-media 老化回收（2026-08-10）
 
 - 修复：compose 对不可用 BGM 降级时区分原因——`bgmSkippedReason` 返回 `size_exceeded`（超 15MB）/ `format_unsupported`（扩展名不支持）/ `unreadable`（缺失/不可读/越界），对应中文警告不再把「超限」提示成「不可读」；总输入大小超限仍 fail closed。

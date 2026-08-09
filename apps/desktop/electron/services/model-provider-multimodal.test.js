@@ -192,7 +192,8 @@ describe('多模态模型类别与 MiniMax 预设', () => {
       enableProvider(db, 'minimax-multimodal', 'mm-key')
       expect(manager.listProviders('image').some(p => p.id === 'minimax-multimodal')).toBe(true)
       expect(manager.listProviders('tts').some(p => p.id === 'minimax-multimodal')).toBe(true)
-      expect(manager.listProviders('video').some(p => p.id === 'minimax-multimodal')).toBe(true)
+      // video 能力默认关闭（「支持生成视频」开关未开启），能力选择器不并入
+      expect(manager.listProviders('video').some(p => p.id === 'minimax-multimodal')).toBe(false)
       expect(manager.listProviders('llm').some(p => p.id === 'minimax-multimodal')).toBe(true)
 
       // 未声明能力（speech_recognition）不并入
@@ -236,12 +237,13 @@ describe('getDefault 多模态路由', () => {
     expect(tts.id).toBe('elevenlabs')
   })
 
-  it('开启偏好且多模态声明能力时，llm/tts/image/video 返回多模态模型', () => {
+  it('开启偏好且多模态声明能力时，llm/tts/image 返回多模态模型（video 由开关控制）', () => {
     store.setUserSetting('prefer_multimodal', true)
     expect(manager.getDefault('llm').id).toBe('minimax-multimodal')
     expect(manager.getDefault('tts').id).toBe('minimax-multimodal')
     expect(manager.getDefault('image').id).toBe('minimax-multimodal')
-    expect(manager.getDefault('video').id).toBe('minimax-multimodal')
+    // video 能力默认关闭（「支持生成视频」开关未开启），不返回多模态
+    expect(manager.getDefault('video')).toBeNull()
   })
 
   it('多模态未声明能力（speech_recognition）时回退类别 provider', () => {
@@ -253,6 +255,71 @@ describe('getDefault 多模态路由', () => {
     db.prepare("UPDATE model_providers SET enabled = ? WHERE id = 'minimax-multimodal'").run(0)
     store.setUserSetting('prefer_multimodal', true)
     expect(manager.getDefault('tts').id).toBe('elevenlabs')
+  })
+})
+
+
+describe('多模态 video 能力开关（支持生成视频，默认关闭）', () => {
+  let database
+  let db
+  let store
+  let manager
+
+  beforeAll(async () => {
+    const SQL = await initSqlJs()
+    database = new SQL.Database()
+    ;({ db, store } = await createStore(database))
+    manager = newManager(store)
+    enableProvider(db, 'agnes-video', 'agnes-key')
+    enableProvider(db, 'minimax-multimodal', 'mm-key')
+    store.setUserSetting('prefer_multimodal', true)
+  })
+  afterAll(() => { if (database) database.close() })
+
+  function setVideoEnabled (value) {
+    const row = db.prepare("SELECT config FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    const config = JSON.parse(row.config)
+    config.capability_enabled = { ...(config.capability_enabled || {}), video: value }
+    db.prepare("UPDATE model_providers SET config = ? WHERE id = 'minimax-multimodal'").run(JSON.stringify(config))
+  }
+
+  it('缺省（无 capability_enabled）时 video 默认解析回落 video 类别 provider', () => {
+    expect(manager.getDefault('video').id).toBe('agnes-video')
+  })
+
+  it('capability_enabled.video=false 时不返回多模态 video', () => {
+    setVideoEnabled(false)
+    expect(manager.getDefault('video').id).toBe('agnes-video')
+  })
+
+  it('capability_enabled.video=true 时 video 默认解析回多模态模型', () => {
+    setVideoEnabled(true)
+    expect(manager.getDefault('video').id).toBe('minimax-multimodal')
+  })
+
+  it('listProviders(video) 开关关闭时不并入多模态行（能力选择器与默认路由一致）', () => {
+    setVideoEnabled(false)
+    expect(manager.listProviders('video').some(p => p.id === 'minimax-multimodal')).toBe(false)
+  })
+
+  it('listProviders(video) 开关开启时并入多模态行', () => {
+    setVideoEnabled(true)
+    expect(manager.listProviders('video').some(p => p.id === 'minimax-multimodal')).toBe(true)
+  })
+
+  it('关闭 video 不影响 llm/image/tts 多模态路由', () => {
+    setVideoEnabled(false)
+    expect(manager.getDefault('llm').id).toBe('minimax-multimodal')
+    expect(manager.getDefault('image').id).toBe('minimax-multimodal')
+    expect(manager.getDefault('tts').id).toBe('minimax-multimodal')
+  })
+
+  it('_syncPresetCapabilities 不回填/覆盖 capability_enabled 开关', () => {
+    setVideoEnabled(true)
+    manager._syncPresetCapabilities()
+    const row = db.prepare("SELECT config FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    const config = JSON.parse(row.config)
+    expect(config.capability_enabled.video).toBe(true)
   })
 })
 

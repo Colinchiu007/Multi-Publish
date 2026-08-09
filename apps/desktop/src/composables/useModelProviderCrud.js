@@ -220,6 +220,19 @@ export function useModelProviderCrud () {
     }
   }
 
+  // 多模态「支持生成视频」开关（默认关闭；仅影响 video 能力默认路由，见 _multimodalProviderFor）
+  const multimodalVideoEnabled = computed({
+    get: () => {
+      const cfg = form.value.config || {}
+      return cfg.capability_enabled?.video === true
+    },
+    set: (value) => {
+      const cfg = (form.value.config = form.value.config || {})
+      // 克隆后写入，避免原地修改 provider.config 导致「取消」后内存态被污染
+      cfg.capability_enabled = { ...(cfg.capability_enabled || {}), video: value === true }
+    },
+  })
+
   // ─── 新增流程 ─────────────────────────────────
   function openAdd () {
     addStep.value = 1
@@ -255,7 +268,8 @@ export function useModelProviderCrud () {
         models: preset.models || [],
         modelsText: (preset.models || []).join(', '),
         capabilities: Array.isArray(preset.capabilities) ? [...preset.capabilities] : [],
-        config: {},
+        // 多模态预设「支持生成视频」默认关闭：新建即持久化 capability_enabled.video=false
+        config: preset.category === 'multimodal' ? { capability_enabled: { video: false } } : {},
       }
     }
   }
@@ -447,6 +461,7 @@ export function useModelProviderCrud () {
     testingId,
     safeStorageAvailable,
     preferMultimodal,
+    multimodalVideoEnabled,
     // 表单状态
     showFormDialog,
     isEditing,
