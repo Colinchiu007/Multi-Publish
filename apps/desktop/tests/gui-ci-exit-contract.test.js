@@ -214,10 +214,11 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(source).toContain('exit "$status"');
   });
 
-  it('Electron 自托管任务锁定 Linux runner，避免被 Windows runner 误接收', () => {
+  it('Electron CI 锁定 GitHub 官方 ubuntu-latest runner（2026-08-09 迁移，不再依赖 ECS 自托管）', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
 
-    expect(workflow.jobs['electron-tests']['runs-on']).toEqual(['self-hosted', 'linux', 'x64']);
+    expect(workflow.jobs['electron-tests']['runs-on']).toEqual('ubuntu-latest');
+    expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(45);
   });
 
   it('Electron CI 跳过桌面媒体下载脚本，并显式恢复测试所需运行时', () => {
@@ -227,7 +228,8 @@ describe('GUI/CI 工作流门禁契约', () => {
     const runtimeSteps = steps.filter((step) => step.name === 'Restore required JavaScript runtimes');
     const checksumSteps = steps.filter((step) => step.name === 'Verify Electron checksum pin');
     const electronSteps = steps.filter((step) => step.name === 'Install Electron runtime');
-    const testSteps = steps.filter((step) => step.name === 'Unit tests (Vitest, non-Electron)');
+    const rebuildSteps = steps.filter((step) => step.name === 'Rebuild native modules for Electron ABI');
+    const testSteps = steps.filter((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
     expect(dependencySteps).toHaveLength(1);
     expect(runtimeSteps).toHaveLength(1);
@@ -237,7 +239,8 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(dependencySteps[0].run.trim()).toBe(
       'npm ci --include=dev --ignore-scripts --no-audit --no-fund',
     );
-    expect(dependencySteps[0]['timeout-minutes']).toBe(5);
+    // GitHub 官方 runner 冷启动缓存下 npm ci 需要更充裕预算（ECS 自托管热缓存仅需 5min）
+    expect(dependencySteps[0]['timeout-minutes']).toBe(10);
 
     const runtimeInstall = runtimeSteps[0].run;
     expect(runtimeInstall).toContain('node node_modules/esbuild/install.js');
@@ -258,21 +261,27 @@ describe('GUI/CI 工作流门禁契约', () => {
       'unset electron_use_remote_checksums npm_config_electron_use_remote_checksums',
     );
     expect(electronSteps[0].run).toContain('node node_modules/electron/install.js');
-    expect(electronSteps[0]['timeout-minutes']).toBe(5);
+    expect(electronSteps[0]['timeout-minutes']).toBe(10);
     expect(electronSteps[0].env).toEqual({
       ELECTRON_MIRROR: 'https://cdn.npmmirror.com/binaries/electron/',
     });
+
+    // 迁移契约：Electron ABI 原生模块（better-sqlite3）必须在 Electron 安装后、vitest 前重建
+    expect(rebuildSteps).toHaveLength(1);
+    expect(rebuildSteps[0].run).toContain('@electron/rebuild -f -w better-sqlite3');
 
     const dependencyIndex = steps.indexOf(dependencySteps[0]);
     const runtimeIndex = steps.indexOf(runtimeSteps[0]);
     const checksumIndex = steps.indexOf(checksumSteps[0]);
     const electronIndex = steps.indexOf(electronSteps[0]);
+    const rebuildIndex = steps.indexOf(rebuildSteps[0]);
     const testIndex = steps.indexOf(testSteps[0]);
 
     expect(dependencyIndex).toBeLessThan(runtimeIndex);
     expect(runtimeIndex).toBeLessThan(checksumIndex);
     expect(checksumIndex).toBeLessThan(electronIndex);
-    expect(electronIndex).toBeLessThan(testIndex);
+    expect(electronIndex).toBeLessThan(rebuildIndex);
+    expect(rebuildIndex).toBeLessThan(testIndex);
   });
 
   it('Electron CI 不执行仅供桌面发布门禁使用的真实媒体工具测试', () => {
@@ -306,7 +315,7 @@ describe('GUI/CI 工作流门禁契约', () => {
     const { source, workflow } = readWorkflow('electron-ci.yml');
     const job = workflow.jobs['electron-tests'];
     const steps = job.steps;
-    const unitStep = steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron)');
+    const unitStep = steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
     const diagnosticStep = steps.find((step) => step.name === 'Vitest failure diagnostics');
 
     expect(job.env).toMatchObject({ NODE_ENV: 'test' });
