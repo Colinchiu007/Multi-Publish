@@ -6036,3 +6036,9 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **模式固化**：死字段移除四步——① grep 全仓消费点并区分「前端读取 vs normalizer/下游读归一化值」；② 确认 normalizer 兜底（硬覆盖 / firstDefined 默认 / 参数字面量）等价；③ UE 契约用「s2vConfig 声明块精确匹配」（正则截取默认对象，按 `key:` 断言，避免误伤注释）；④ 快照白名单天然兼容旧键。
 - **候选线索**：normalizer 中「单一来源派生」字段（如 speechRate=voice.speed）一旦出现在前端提交构造即为死提交；排查思路 = 找「提交键 ∈ normalizer 硬覆盖集合」的交集。
 - **剩余候选**：Python YAML baseWordsPerSecond 非语言感知；project-service._safeOptions voicePitch 残留（回读安全）；B 类运营化（ops-center pipeline_configs）。
+
+## 图片轮播参数治理 R3 复盘 (2026-08-09)
+
+- **调查方法**：候选清理项「Python YAML baseWordsPerSecond 非语言感知」经数据流追踪（renderer 提交 → normalizeStory2VideoTextParams 语言表 → resolveRuntimeStageOptions 覆盖 stageDef 静态默认 → SPLIT executor 消费）确认**无桌面缺口**——语言感知值恒胜出，静态 3.3 仅影响绕过 JS 语言表的直接 Python 调用。
+- **回归护栏价值**：对「已核实为既存正确行为」的契约补端到端测试（zh→4.5/en→2.8/auto→3.3），锁定 resolveRuntimeStageOptions 合并语义，防未来改动静默破坏；比直接改 Python YAML（跨语言、低收益、易漂移）更优。
+- **决策原则**：候选项先调查「是否有真实缺口」再决定改码；无缺口时优先补护栏 + 文档核实，而非为改而改。

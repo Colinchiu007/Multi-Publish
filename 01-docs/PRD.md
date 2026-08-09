@@ -1057,7 +1057,8 @@ Electron 打包、工作树、PR 或发布状态证据。
 **5. 后续清理候选（R2 已处理项 + 剩余）**
 - ✅ `split.speechRate` 死提交字段（normalizer 硬覆盖为 voice.speed）→ **R2 已移除前端字段与提交**（2026-08-09）。
 - ✅ `concurrency` / `autoAdvance` 前端字段 → **R2 已移除**（concurrency 由契约默认 3 兜底、autoAdvance 由 params 字面量提供）。
-- 剩余候选：Python 后端 YAML `baseWordsPerSecond:3.3` 非语言感知（仅影响绕过 JS 语言表的直接 Python 调用，既有行为）→ 与 JS 语言表对齐时处理；`project-service._safeOptions` 保留 `voicePitch`（读归一化参数，回读安全）→ 治理目标下可保留并注明；B 类参数运营化（枚举/目录/限额转 ops-center，需 pipeline_configs 基础设施）→ 独立立项。
+- ✅ `baseWordsPerSecond` 非语言感知疑虑 → **已核实无桌面缺口**（2026-08-09）：`resolveRuntimeStageOptions`（pipeline-engine.js，函数锚）以 normalizer 的 `stageOptions.split.base_words_per_second`（zh 4.5 / en 2.8 / 其余 3.3）恒覆盖 bundled/YAML 静态默认 3.3；契约测试 `pipeline-story2video-contract.test.js`「语言感知基准语速覆盖静态默认」锁定 zh→4.5 / en→2.8 / auto→3.3（覆盖语义由 zh/en 档承担）。Python YAML 3.3 保留为仅影响绕过 JS 语言表的直接 Python 调用的既有行为说明。
+- 剩余候选：`project-service._safeOptions` 保留 `voicePitch`（读归一化参数，回读安全）→ 治理目标下可保留并注明；B 类参数运营化（枚举/目录/限额转 ops-center，需 pipeline_configs 基础设施）→ 独立立项。
 
 ### 7.2 上传图片快速渲染（独立路径）
 

@@ -75,6 +75,38 @@ describe('story2video 编排契约', () => {
     expect(stages.publish.options).toMatchObject({ publishEnabled: false, platforms: [] })
   })
 
+  it('语言感知基准语速覆盖静态默认（base_words_per_second = 语言表值，非 bundled 3.3）', async () => {
+    // 回归护栏（PRD 7.1.19 §5 已核实项）：resolveRuntimeStageOptions 以 normalizer 的
+    // stageOptions.split.base_words_per_second（zh 4.5 / en 2.8 / 其余 3.3）覆盖 bundled/YAML 静态默认 3.3。
+    const cases = [
+      { language: 'zh', expected: 4.5 },
+      { language: 'en', expected: 2.8 },
+      { language: 'auto', expected: 3.3 },
+    ]
+    for (const { language, expected } of cases) {
+      const { engine, serviceBus } = createEngine()
+      const started = await engine.startOrchestrated('story2video-compose', {
+        text: '语言感知基准语速回归。',
+        story2videoTextConfig: {
+          version: 1,
+          mode: 'text',
+          prompt: '语言感知基准语速回归。',
+          split: { language, mode: 'balanced', maxSentenceLength: 200, targetCharsPerScene: 20 },
+        },
+        autoAdvance: false,
+      })
+      expect(started.success).toBe(true)
+      const executed = await engine.executeStage(started.runId)
+      expect(executed.success).toBe(true)
+      expect(serviceBus.splitText).toHaveBeenCalled()
+      const sent = serviceBus.splitText.mock.calls.at(-1)[1]
+      expect(sent).toMatchObject({ language })
+      expect(sent.config.scene.base_words_per_second).toBe(expected)
+      // 语言感知值必须覆盖 bundled 静态默认 3.3：覆盖语义由 zh(4.5)/en(2.8) 两档断言锁定；
+      // auto(3.3) 档与静态默认数值相同，仅锁定 base_words_per_second → config.scene 键映射。
+    }
+  })
+
   it('全自动 Story2Video 接受 none 策略并跨全部阶段完成', async () => {
     const stageExecutor = {
       execute: vi.fn(async ({ stage }) => ({
