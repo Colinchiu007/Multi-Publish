@@ -1,15 +1,20 @@
-# quality-gate — 并行化质量门禁（2026-08-09 拆分 + 触发去重）
-# 优化依据（实测 step 耗时）：Gate 4 全 workspace 单测 636s + Gate 5 coverage 588s = 82% 总时长。
-# 拆分后关键路径 = max(unit-tests ~11min, coverage ~10min, e2e ~3min, visual ~2min, static ~1min) ≈ 12min（原 25min）。
-# 触发去重：仅 pull_request（+手动 dispatch），去掉 push 触发的同 head 双跑，CI 分钟减半。
-# 契约测试同步：.github/scripts/workflow-contract.test.js（Gate 7/8 邻接断言）、gui-ci-exit-contract.test.js（Gate 9 模式）。
-name: quality-gate
-
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      # 文档/流程改动不触发 CI（清单与 .github/scripts/workflow-contract.test.js 的 CI_IGNORED_PATHS 保持同步）
+      - '01-docs/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+      - '.ccg/**'
+      - '.claude/**'
+      - '.hermes/**'
+      - '.agents/**'
+      - 'openspec/**'
   workflow_dispatch:
-
 jobs:
   static-gates:
     name: QG Static

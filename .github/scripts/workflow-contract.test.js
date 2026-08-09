@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const yaml = require('js-yaml');
 
 const workflowPath = path.join(__dirname, '..', 'workflows', 'visual-test.yml');
 const qualityGatePath = path.join(__dirname, '..', 'workflows', 'quality-gate.yml');
@@ -139,4 +140,50 @@ test('自主覆盖审计仅在确认是无模型 NEED_HUMAN 报告时降级为�
   assert.match(gate9, /AUTONOMOUS_GATE=FAIL/);
   assert.doesNotMatch(gate9, /Get-ChildItem|ConvertFrom-Json/);
   assert.match(workflow, /agent-review-gate\.test\.js/);
+});
+
+const CI_IGNORED_PATHS = [
+  '01-docs/**',
+  'docs/**',
+  '*.md',
+  'LICENSE',
+  '.gitignore',
+  '.editorconfig',
+  '.ccg/**',
+  '.claude/**',
+  '.hermes/**',
+  '.agents/**',
+  'openspec/**',
+];
+
+test('CI 路径门控：全量 workflow 的 pull_request 使用同一 paths-ignore 白名单', () => {
+  const names = ['build.yml', 'electron-ci.yml', 'quality-gate.yml'];
+  for (const name of names) {
+    const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', name), 'utf8'));
+    assert.deepEqual(
+      wf.on.pull_request['paths-ignore'],
+      CI_IGNORED_PATHS,
+      `${name} 的 pull_request.paths-ignore 必须与 CI_IGNORED_PATHS 一致`,
+    );
+  }
+});
+
+test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', () => {
+  const names = ['build.yml', 'electron-ci.yml'];
+  for (const name of names) {
+    const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', name), 'utf8'));
+    assert.deepEqual(
+      wf.on.push['paths-ignore'],
+      CI_IGNORED_PATHS,
+      `${name} 的 push.paths-ignore 必须与 CI_IGNORED_PATHS 一致`,
+    );
+  }
+});
+
+test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => {
+  const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'doc-gate.yml'), 'utf8'));
+  const ignored = wf.on.pull_request['paths-ignore'];
+  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**']) {
+    assert.ok(ignored.includes(dir), `doc-gate paths-ignore 必须包含 ${dir}`);
+  }
 });
