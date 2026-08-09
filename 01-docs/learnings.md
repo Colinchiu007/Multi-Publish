@@ -15,6 +15,16 @@
   未登录本地模式在历史页显示「当前未登录，仅显示本机记录」提示条（`localMode` 标记由主进程返回）。
   教训：错误信息要在 IPC 响应里携带并在渲染端展示，不能只在主进程日志里；Options API 模板不能直接引用顶层 import 常量，要经 computed。
 
+## 历史记录修复遗漏 IPC 访问控制层复盘 (2026-08-09)
+
+- **表象**：service 层修复（未登录回退 legacy）+ 渲染层友好错误后，真实 Electron 端到端仍弹「历史记录暂时无法加载」；单测与真实 sql.js store 全绿但生产路径失败。
+- **根因**：license-access-control（IPC 动态鉴权）把默认 requiredLevel 设为 authenticated，story2video:list-projects / pipeline:history 不在 PUBLIC_CHANNELS → 身份启用未登录时返回 code:-3「当前许可证无权访问」，渲染端拿不到数据。单测 mock 了 IPC 层，真实 sql.js 验证也绕过了访问控制，两层都漏掉。
+- **修复**：两通道加入 PUBLIC_CHANNELS（只读本地历史，owner 隔离）；get-project 同属只读本地项目通道一并放行（返回面 ⊂ list）；delete-project 等写通道保持收紧。
+- **教训**：
+  1. 「未登录不可用」类 bug 的修复必须验证完整 IPC 链路（preload → 访问控制 → handler → service），不能只修 service/渲染层；单测 mock 掉访问控制 = 测试盲区。
+  2. 真实 Electron e2e（playwright._electron + CDP）是发现此类跨层遗漏的唯一可靠手段；修复后必须真机复验。
+  3. 访问控制默认收紧是安全默认，但「本地只读数据」通道应显式放行并注释理由，避免把本地数据误锁在登录墙后。
+
 ## 视频创作历史未登录弹「无法加载」复盘 (2026-08-09)
 
 - **表象**：身份服务已启用（identityAuthEnabled=true、IDENTITY_AUTH_REQUIRED=false）但未登录时，打开视频创作历史记录稳定弹「历史记录暂时无法加载，请稍后再试」。
