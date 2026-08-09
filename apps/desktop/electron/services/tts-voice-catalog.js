@@ -97,6 +97,15 @@ const PROVIDER_MODEL_CAPABILITIES = Object.freeze({
     'speech-2.6-hd': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
     'speech-2.6-turbo': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
   }),
+  'minimax-multimodal': Object.freeze({
+    // 多模态预设（category=multimodal）内部委托 minimax-tts adapter 实现 TTS 能力
+    // （synthesize/listVoices/cloneVoice），音色能力边界与 minimax-tts 完全一致；
+    // capability_models.tts 默认 speech-2.8-turbo 也在此白名单内。
+    'speech-2.8-turbo': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
+    'speech-2.8-hd': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
+    'speech-2.6-hd': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
+    'speech-2.6-turbo': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
+  }),
 })
 
 function safeString (value, maxLength) {

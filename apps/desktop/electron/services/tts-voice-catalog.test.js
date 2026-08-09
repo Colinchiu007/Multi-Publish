@@ -81,4 +81,28 @@ describe('TTS 音色能力目录', () => {
     ])
     expect(JSON.stringify(voices)).not.toContain('must-not-persist')
   })
+
+  it('多模态预设（minimax-multimodal）复用 MiniMax TTS 音色能力边界', () => {
+    for (const model of ['speech-2.8-turbo', 'speech-2.8-hd', 'speech-2.6-hd', 'speech-2.6-turbo']) {
+      const capability = getVoiceCapability('minimax-multimodal', model)
+      expect(capability).toMatchObject({
+        model,
+        type: CAPABILITY_TYPES.USER_CLONE,
+        canListVoices: true,
+        defaultVoiceId: 'male-qn-qingse',
+        clone: { enabled: true, entry: 'desktop_upload', implementation: 'adapter_implemented' },
+      })
+    }
+    // 非 TTS 模型与未列入白名单的 TTS 模型必须 fail closed
+    expect(getVoiceCapability('minimax-multimodal', 'image-01')).toMatchObject({
+      type: CAPABILITY_TYPES.UNSUPPORTED,
+      canListVoices: false,
+      reason: 'model_not_whitelisted',
+    })
+    expect(getVoiceCapability('minimax-multimodal', 'speech-3.0')).toMatchObject({
+      type: CAPABILITY_TYPES.UNSUPPORTED,
+      canListVoices: false,
+      reason: 'model_not_whitelisted',
+    })
+  })
 })

@@ -464,11 +464,27 @@ class ModelProviderManager {
     let rows
     if (category) {
       rows = db.prepare('SELECT * FROM model_providers WHERE category = ? ORDER BY is_default DESC, is_preset DESC, name ASC').all(category)
+      // 能力选择器（llm/tts/image/video 等）：并入已启用且声明支持该能力的多模态模型。
+      // 多模态预设用一个 API Key 覆盖多个能力域，只保留一个多模态模型时，
+      // 图片/TTS/视频/推理下拉仍能看到并选用它（getDefault 按能力路由同理）。
+      if (category !== CATEGORIES.MULTIMODAL) {
+        rows = rows.concat(
+          db.prepare('SELECT * FROM model_providers WHERE category = ? AND enabled = 1 ORDER BY is_default DESC, is_preset DESC, name ASC').all(CATEGORIES.MULTIMODAL)
+        )
+      }
     } else {
       rows = db.prepare('SELECT * FROM model_providers ORDER BY category, is_default DESC, is_preset DESC, name ASC').all()
     }
-    // 过滤用户已删除（软删隐藏）的预设服务商
-    return rows.map(r => this._safeRow(r)).filter(p => !p.hidden)
+    // 过滤用户已删除（软删隐藏）的预设服务商；
+    // 能力过滤时，多模态行必须声明包含该能力，避免把 image 下拉混入不含 image 能力的多模态模型。
+    return rows.map(r => this._safeRow(r)).filter(p => {
+      if (p.hidden) return false
+      if (!category || category === CATEGORIES.MULTIMODAL) return true
+      if (p.category === CATEGORIES.MULTIMODAL) {
+        return Array.isArray(p.capabilities) && p.capabilities.includes(category)
+      }
+      return true
+    })
   }
 
   getProvider (id) {

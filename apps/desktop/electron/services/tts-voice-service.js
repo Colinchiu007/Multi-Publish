@@ -283,9 +283,21 @@ class TtsVoiceService {
     if (!this._modelProviderManager || typeof this._modelProviderManager.getProvider !== 'function') return true
     try {
       const provider = this._modelProviderManager.getProvider(providerId)
-      if (!provider || (provider.category && provider.category !== 'tts')) return false
-      if (!Array.isArray(provider.models) || provider.models.length === 0) return true
-      return provider.models.includes(model)
+      if (!provider) return false
+      // 多模态模型（category=multimodal）在能力选择器中同样承担 TTS 角色：必须声明支持 tts 能力。
+      if (provider.category === 'multimodal') {
+        const capabilities = Array.isArray(provider.capabilities) ? provider.capabilities : []
+        if (!capabilities.includes('tts')) return false
+      } else if (provider.category && provider.category !== 'tts') {
+        return false
+      }
+      // 模型匹配：multimodal 的 capability_models.tts 与 models 都算数（避免只列 models 时漏判默认 TTS 模型）。
+      const models = new Set(Array.isArray(provider.models) ? provider.models.filter(m => typeof m === 'string') : [])
+      if (provider.capability_models && typeof provider.capability_models === 'object' && typeof provider.capability_models.tts === 'string') {
+        models.add(provider.capability_models.tts)
+      }
+      if (models.size === 0) return true
+      return models.has(model)
     } catch (_) {
       return false
     }

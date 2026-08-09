@@ -331,3 +331,73 @@ describe('getCatalog — 失效克隆音色（voice_id 不合规）', () => {
     expect(catalog.data.selectedVoiceId).toBe('male-qn-qingse')
   })
 })
+
+describe('getCatalog — 多模态模型（minimax-multimodal）承担 TTS 能力', () => {
+  it('白名单命中且 provider 声明 tts 能力时返回音色目录', async () => {
+    const now = 1_700_000_000_000
+    const store = createUserStore()
+    const manager = {
+      getProvider: vi.fn(() => ({
+        id: 'minimax-multimodal',
+        category: 'multimodal',
+        capabilities: ['llm', 'tts', 'image', 'video'],
+        capability_models: { llm: 'MiniMax-M2.7', tts: 'speech-2.8-turbo', image: 'image-01', video: 'MiniMax-Hailuo-2.3' },
+        models: ['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3', 'MiniMax-M2.7'],
+      })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: [
+        { id: 'male-qn-qingse', name: '青年男声' },
+        { id: 'Chinese (Mandarin)_Reliable_Executive', name: '沉稳高管' },
+      ] })),
+    }
+    const service = new TtsVoiceService({ store, modelProviderManager: manager, now: () => now, cacheTtlMs: 60_000 })
+
+    const catalog = await service.getCatalog({ providerId: 'minimax-multimodal', model: 'speech-2.8-turbo' })
+    expect(catalog.code).toBe(0)
+    expect(catalog.data.providerId).toBe('minimax-multimodal')
+    expect(catalog.data.voices.map((v) => v.id)).toContain('Chinese (Mandarin)_Reliable_Executive')
+    expect(catalog.data.capability).toMatchObject({
+      type: 'user_clone',
+      canListVoices: true,
+      clone: { enabled: true, entry: 'desktop_upload' },
+    })
+    expect(manager.callAdapter).toHaveBeenCalledWith('minimax-multimodal', 'listVoices', { model: 'speech-2.8-turbo' })
+  })
+
+  it('未声明 tts 能力的多模态模型被拒绝（VOICE_MODEL_MISMATCH），不调用 adapter', async () => {
+    const now = 1_700_000_000_000
+    const store = createUserStore()
+    const manager = {
+      getProvider: vi.fn(() => ({
+        id: 'minimax-multimodal',
+        category: 'multimodal',
+        capabilities: ['image'],
+        models: ['image-01'],
+      })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: [] })),
+    }
+    const service = new TtsVoiceService({ store, modelProviderManager: manager, now: () => now, cacheTtlMs: 60_000 })
+    // 白名单命中（provider/model 均为已批准 TTS 组合）后，provider 未声明 tts 能力 → _hasMatchingProvider 拒绝
+    const result = await service.getCatalog({ providerId: 'minimax-multimodal', model: 'speech-2.8-turbo' })
+    expect(result).toMatchObject({ code: -1, message: 'VOICE_MODEL_MISMATCH' })
+    expect(manager.callAdapter).not.toHaveBeenCalled()
+  })
+
+  it('capability_models.tts 不在白名单时 fail closed（VOICE_MODEL_MISMATCH），不调用 adapter', async () => {
+    const now = 1_700_000_000_000
+    const store = createUserStore()
+    const manager = {
+      getProvider: vi.fn(() => ({
+        id: 'minimax-multimodal',
+        category: 'multimodal',
+        capabilities: ['tts'],
+        models: [],
+        capability_models: { tts: 'speech-3.0-experimental' },
+      })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: [] })),
+    }
+    const service = new TtsVoiceService({ store, modelProviderManager: manager, now: () => now, cacheTtlMs: 60_000 })
+    const result = await service.getCatalog({ providerId: 'minimax-multimodal', model: 'speech-3.0-experimental' })
+    expect(result).toMatchObject({ code: -1, message: 'VOICE_MODEL_MISMATCH' })
+    expect(manager.callAdapter).not.toHaveBeenCalled()
+  })
+})

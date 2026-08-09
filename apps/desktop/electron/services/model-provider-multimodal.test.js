@@ -129,6 +129,38 @@ describe('多模态模型类别与 MiniMax 预设', () => {
     expect([...listed.capabilities].sort()).toEqual(['image', 'llm', 'tts', 'video'])
     expect(listed.capability_models.video).toBe('MiniMax-Hailuo-2.3')
   })
+
+  it('能力选择器（image/tts 等）并入已启用且声明该能力的多模态模型', async () => {
+    const SQL = await initSqlJs()
+    const database = new SQL.Database()
+    try {
+      const { db, store } = await createStore(database)
+      const manager = newManager(store)
+
+      // 未启用：不并入能力列表
+      expect(manager.listProviders('image').some(p => p.id === 'minimax-multimodal')).toBe(false)
+
+      enableProvider(db, 'minimax-multimodal', 'mm-key')
+      expect(manager.listProviders('image').some(p => p.id === 'minimax-multimodal')).toBe(true)
+      expect(manager.listProviders('tts').some(p => p.id === 'minimax-multimodal')).toBe(true)
+      expect(manager.listProviders('video').some(p => p.id === 'minimax-multimodal')).toBe(true)
+      expect(manager.listProviders('llm').some(p => p.id === 'minimax-multimodal')).toBe(true)
+
+      // 未声明能力（speech_recognition）不并入
+      expect(manager.listProviders('speech_recognition').some(p => p.id === 'minimax-multimodal')).toBe(false)
+
+      // 并入项保留能力声明与能力默认模型，供前端限定语音模型下拉
+      const imageEntry = manager.listProviders('image').find(p => p.id === 'minimax-multimodal')
+      expect(imageEntry.category).toBe('multimodal')
+      expect(imageEntry.capabilities).toContain('image')
+      expect(imageEntry.capability_models.tts).toBe('speech-2.8-turbo')
+
+      // 多模态类别列表仍只含多模态本身
+      expect(manager.listProviders('multimodal').every(p => p.category === 'multimodal')).toBe(true)
+    } finally {
+      database.close()
+    }
+  })
 })
 
 describe('getDefault 多模态路由', () => {

@@ -39,6 +39,10 @@ vi.mock("@/api/tts-voice-catalog", () => ({
     code: 0,
     data: { providerId: "", model: "", selectedVoiceId: null, voices: [] },
   }),
+  getTtsVoiceCapability: vi.fn().mockResolvedValue({
+    code: 0,
+    data: { type: "user_clone", clone: { enabled: true } },
+  }),
   selectTtsVoice: vi.fn().mockResolvedValue({
     code: 0,
     data: { providerId: "", model: "", selectedVoiceId: null, voices: [] },
@@ -787,6 +791,52 @@ describe("CreateView - S2V orchestration", () => {
     expect(listImageProviders).toHaveBeenCalledWith("image");
     expect(imageProviderItem.find('option[value="minimax-image"]').text()).toContain("MiniMax Image");
     expect(imageProviderItem.find('option[value="disabled-image"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("Story2Video 图片/语音下拉并入多模态模型并限定语音模型为 tts 能力模型", async () => {
+    const multimodal = {
+      id: "minimax-multimodal",
+      name: "MiniMax",
+      category: "multimodal",
+      enabled: true,
+      capabilities: ["llm", "tts", "image", "video"],
+      capability_models: { llm: "MiniMax-M2.7", tts: "speech-2.8-turbo", image: "image-01", video: "MiniMax-Hailuo-2.3" },
+      models: ["speech-2.8-turbo", "image-01", "MiniMax-Hailuo-2.3", "MiniMax-M2.7"],
+    };
+    const listProviders = vi.fn(async (category) => {
+      if (category === "image") return { code: 0, data: [
+        { id: "minimax-image", name: "MiniMax Image", category: "image", enabled: true },
+        multimodal,
+      ] };
+      if (category === "tts") return { code: 0, data: [
+        { id: "minimax-tts", name: "MiniMax TTS", category: "tts", enabled: true, models: ["speech-2.8-turbo"] },
+        multimodal,
+      ] };
+      return { code: 0, data: [] };
+    });
+    window.electronAPI = { modelProviderList: listProviders };
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    // 图片生成器：多模态以「（多模态）」后缀展示
+    const imageProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "图片生成器");
+    expect(imageProviderItem.find('option[value="minimax-multimodal"]').text()).toContain("MiniMax（多模态）");
+
+    // 语音生成器：多模态出现在 tts 能力选择器中
+    const voiceProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "语音生成器");
+    expect(voiceProviderItem.find('option[value="minimax-multimodal"]').text()).toContain("MiniMax（多模态）");
+
+    // 选中多模态：语音模型只显示 tts 能力模型，默认模型取 capability_models.tts
+    w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
+    await nextTick();
+    expect(w.vm.s2vVoiceModelOptions).toEqual(["speech-2.8-turbo"]);
+    expect(w.vm.getS2VDefaultVoiceModel("minimax-multimodal")).toBe("speech-2.8-turbo");
     w.unmount();
   });
 

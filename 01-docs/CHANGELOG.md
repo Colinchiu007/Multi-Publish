@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-09 (单多模态模型覆盖全部能力：能力选择器 + 音色目录)
+
+### 新增
+- **只保留一个多模态模型即可覆盖全部能力**：用户删除单能力模型（minimax-tts/minimax-image 等）后，「图片生成器」「语音生成器」下拉、TTS 音色目录、流水线能力路由仍全部可用：
+  - `ModelProviderManager.listProviders(category)`：能力选择器在类别结果后并入**已启用且 `config.capabilities` 含该能力**的多模态 provider；未启用/未声明能力/已软删行不并入，fail-closed 过滤。
+  - `tts-voice-catalog`：`PROVIDER_MODEL_CAPABILITIES` 新增 `minimax-multimodal` 白名单（speech-2.8-turbo/hd、2.6-hd/turbo，`user_clone` + 桌面克隆，与 minimax-tts 能力边界一致）。
+  - `tts-voice-service._hasMatchingProvider`：放行声明 tts 能力的 multimodal provider（模型匹配含 `capability_models.tts`）；未声明 tts 能力 → `VOICE_MODEL_MISMATCH` fail-closed。
+  - 前端 Story2Video：多模态在下拉显示「MiniMax（多模态）」后缀；语音模型下拉只展示 `capability_models.tts`（speech-2.8-turbo）并默认选中。
+
+### 修改
+- 前端 `getS2VDefaultVoiceModel` / `s2vVoiceModelOptions`：多模态 provider 的默认语音模型取 `capability_models.tts`，不再误取 `models[0]`（可能是 image/video/llm 模型）。
+
+### 测试
+- 新增多模态能力合并/白名单/音色目录/前端下拉用例：`tts-voice-catalog`（minimax-multimodal 白名单 + 非白名单模型 fail-closed）、`tts-voice-service`（multimodal getCatalog 成功 / 未声明 tts 能力拒绝 / 白名单外模型拒绝，均不调用 adapter）、`model-provider-multimodal`（能力选择器并入已启用多模态、未启用/未声明能力不并入）、`CreateView`（图片/语音下拉展示「（多模态）」、语音模型限定与默认模型）；共 +9 用例，相关回归（manager/crypto/ai-generator/asset-generator/story2video-stages/clone-service）全绿。
+
+### 文档
+- PRD 7.4.1.1「多模态模型作为能力选择器与音色目录」+ 7.1.4 多模态 TTS 音色合同补充。
+
 ## [Unreleased] - 2026-08-09 (提示词优化思考块泄露修复 + 无实质内容守卫)
 
 ### 修复

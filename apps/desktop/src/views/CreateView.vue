@@ -232,7 +232,7 @@
               <div class="config-item">
                 <label>图片生成器</label>
                 <select v-model="s2vConfig.imageProvider" class="form-select">
-                  <option v-for="provider in s2vImageProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
+                  <option v-for="provider in s2vImageProviderOptions" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
                 </select>
               </div>
               <div class="config-item config-span-2">
@@ -367,7 +367,7 @@
               <div class="config-item">
                 <label>语音生成器</label>
                 <select v-model="s2vConfig.voiceProvider" class="form-select" @change="handleS2VVoiceProviderChange">
-                  <option v-for="provider in s2vVoiceProviderOptions" :key="provider.id" :value="provider.id">{{ provider.name }}</option>
+                  <option v-for="provider in s2vVoiceProviderOptions" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
                 </select>
               </div>
               <div v-if="s2vConfig.voiceProvider" class="config-item">
@@ -1078,12 +1078,32 @@ export default {
       // 4K 开关关闭（默认 1080p）时前端所有流程不出现 3840x2160 选项
       return getOutputResolutionOptions(this.maxOutputResolution)
     },
-    s2vImageProviderOptions() { return this.s2vImageProviders },
-    s2vVoiceProviderOptions() { return [{ id: '', name: '自动 Edge TTS' }, ...this.s2vVoiceProviders] },
+    // 多模态模型（category=multimodal）在图片/语音能力选择器中用「（多模态）」后缀区分，
+    // 便于用户识别「一个 Key 覆盖多能力」的模型，避免与单能力模型同名混淆。
+    s2vImageProviderOptions() {
+      return this.s2vImageProviders.map(provider => ({
+        ...provider,
+        displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
+      }))
+    },
+    s2vVoiceProviderOptions() {
+      return [{ id: '', name: '自动 Edge TTS' }, ...this.s2vVoiceProviders.map(provider => ({
+        ...provider,
+        displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
+      }))]
+    },
     s2vVoiceModelOptions() {
       const provider = this.s2vVoiceProviders.find(item => item?.id === this.s2vConfig.voiceProvider)
-      const models = Array.isArray(provider?.models) ? provider.models : []
-      return models.filter(model => typeof model === 'string' && model)
+      if (!provider) return []
+      const models = Array.isArray(provider.models) ? provider.models : []
+      const strings = models.filter(model => typeof model === 'string' && model)
+      // 多模态：只展示声明支持 TTS 的默认模型（capability_models.tts），
+      // 避免把 image/video/llm 模型混入「语音模型」下拉。
+      if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.tts === 'string') {
+        const ttsModel = provider.capability_models.tts
+        return strings.includes(ttsModel) ? [ttsModel] : [ttsModel, ...strings]
+      }
+      return strings
     },
     s2vVoiceOptions() {
       const voices = [
@@ -1820,6 +1840,11 @@ export default {
       const models = Array.isArray(provider?.models)
         ? provider.models.filter(model => typeof model === 'string' && model)
         : []
+      // 多模态：默认取 capability_models.tts（能力默认模型），models 首项可能是 image/video/llm 模型。
+      if (provider?.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.tts === 'string') {
+        const ttsModel = provider.capability_models.tts
+        return models.includes(ttsModel) ? ttsModel : (ttsModel || models[0] || '')
+      }
       const configuredDefault = typeof provider?.defaultModel === 'string' ? provider.defaultModel : ''
       return models.includes(configuredDefault) ? configuredDefault : (models[0] || '')
     },
