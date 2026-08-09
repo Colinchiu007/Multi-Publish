@@ -194,15 +194,73 @@ async def test_api_health():
         assert data["status"] == "ok"
 
 
+def _user_token():
+    from datetime import datetime, timedelta, timezone
+    from jose import jwt
+    from config import settings
+    payload = {
+        "sub": "user-uuid",
+        "username": "regular-user",
+        "tier": 1,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+    return jwt.encode(payload, settings.get_jwt_secret(), algorithm=settings.jwt_algorithm)
+
+
 @pytest.mark.asyncio
-async def test_api_list_projects_returns_data():
-    """Config projects endpoint returns data (list_projects is public)."""
+async def test_api_read_endpoints_require_authentication():
+    """config 只读端点（projects/audit-log/{project_code}）必须登录（401）。"""
     from httpx import AsyncClient, ASGITransport
     from main import app
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/api/v1/config/projects")
+        for path in ("/api/v1/config/projects", "/api/v1/config/audit-log",
+                     "/api/v1/config/platform-orchestrator", "/api/v1/config/platform-orchestrator/feature_flag/x"):
+            resp = await client.get(path)
+            assert resp.status_code == 401, f"{path} 应要求登录，实际 {resp.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_api_list_projects_returns_data():
+    """Config projects endpoint returns data for authenticated user."""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_user_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/config/projects", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "projects" in data
+
+
+@pytest.mark.asyncio
+async def test_audit_log_masks_secret_values():
+    """审计日志对 secret 配置项的新旧值做掩码，不返回明文。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    from database import async_session
+    from services.config_service import upsert_config
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_user_token()}"}
+
+    async with async_session() as db:
+        await upsert_config(
+            db, config_id="platform-orchestrator.feature_flag.secret_gate",
+            project_code="platform-orchestrator", category="feature_flag", key="secret_gate",
+            value="sk-super-secret-value-123", value_type="string",
+            description="secret test", is_secret=1, updated_by="admin",
+        )
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/config/audit-log", headers=headers)
+        assert resp.status_code == 200
+        logs = resp.json()["logs"]
+        assert logs
+        entry = next(l for l in logs if l["config_id"] == "platform-orchestrator.feature_flag.secret_gate")
+        assert "sk-super-secret-value-123" not in entry["new_value"]
+        assert "***" in entry["new_value"]
+        assert entry["new_value"] == "sk-s***-123"

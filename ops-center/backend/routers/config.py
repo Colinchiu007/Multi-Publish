@@ -3,14 +3,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from middleware.auth import require_admin
+from middleware.auth import get_current_user, require_admin
 from services import config_service
+from models import ConfigItem
 
 router = APIRouter(prefix="/api/v1/config", tags=["config"])
 
 
 @router.get("/projects")
-async def list_projects(db: AsyncSession = Depends(get_db)):
+async def list_projects(
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
     """List all registered projects."""
     projects = await config_service.get_all_projects(db)
     return {
@@ -22,6 +26,13 @@ async def list_projects(db: AsyncSession = Depends(get_db)):
     }
 
 
+async def _mask_audit_value(db: AsyncSession, config_id: str, value: str) -> str:
+    """审计日志值掩码：secret 配置项的 old/new 值不返回明文。"""
+    item = await config_service.get_config(db, config_id)
+    if item is not None and item.is_secret and value:
+        return value[:4] + "***" + value[-4:] if len(value) > 8 else "***"
+    return value
+
 
 @router.get("/audit-log")
 async def get_audit_log(
@@ -29,29 +40,30 @@ async def get_audit_log(
     limit: int = Query(100, le=500),
     offset: int = Query(0),
     db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
 ):
     """Query config change audit log."""
     logs = await config_service.get_audit_logs(db, config_id=config_id, limit=limit, offset=offset)
-    return {
-        "logs": [
-            {
-                "id": log.id,
-                "config_id": log.config_id,
-                "old_value": log.old_value,
-                "new_value": log.new_value,
-                "changed_by": log.changed_by,
-                "changed_at": log.changed_at,
-                "change_type": log.change_type,
-            }
-            for log in logs
-        ]
-    }
+    result = []
+    for log in logs:
+        result.append({
+            "id": log.id,
+            "config_id": log.config_id,
+            "old_value": await _mask_audit_value(db, log.config_id, log.old_value),
+            "new_value": await _mask_audit_value(db, log.config_id, log.new_value),
+            "changed_by": log.changed_by,
+            "changed_at": log.changed_at,
+            "change_type": log.change_type,
+        })
+    return {"logs": result}
+
 
 @router.get("/{project_code}")
 async def get_project_config(
     project_code: str,
     category: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
 ):
     """Get all config items for a project, optionally filtered by category."""
     project = await config_service.get_project(db, project_code)
@@ -71,6 +83,7 @@ async def get_config_item(
     category: str,
     key: str,
     db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(get_current_user),
 ):
     """Get a single config item."""
     config_id = f"{project_code}.{category}.{key}"

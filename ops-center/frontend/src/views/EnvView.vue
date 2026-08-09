@@ -5,7 +5,8 @@
     <el-card shadow="never" style="margin-bottom:16px">
       <template #header><strong>一致性检查</strong></template>
       <div v-for="c in checks" :key="c.check" style="margin-bottom:8px">
-        <el-tag :type="c.passed ? 'success' : 'danger'" size="small">{{ c.passed ? '✓ 通过' : '✗ 未通过' }}</el-tag>
+        <el-tag v-if="c.status === 'unknown'" type="info" size="small">未配置</el-tag>
+        <el-tag v-else :type="c.passed ? 'success' : 'danger'" size="small">{{ c.passed ? '✓ 通过' : '✗ 未通过' }}</el-tag>
         <span style="margin-left:8px">{{ c.detail }}</span>
       </div>
     </el-card>

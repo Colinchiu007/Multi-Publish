@@ -71,18 +71,44 @@ async def env_consistency_check(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    """Cross-project consistency check."""
+    """Cross-project consistency check.
+
+    语义：只对本进程实际可观察的变量做存在性与一致性判断。
+    - 变量未配置（empty）→ status=unknown，不计为缺陷（该变量可能属于其他服务进程）。
+    - 变量已配置但值不同 → status=mismatch（一致性缺陷）。
+    - 变量已配置且一致 → status=ok。
+    """
     checks = []
-    # Check JWT secret consistency
     jwt_vars = ["PO_SECRET_KEY", "TS_SECRET_KEY"]
-    jwts = {}
-    for var in jwt_vars:
-        val = os.environ.get(var, "")
-        jwts[var] = bool(val)
-    checks.append({
-        "check": "JWT Secret alignment",
-        "passed": all(jwts.values()),
-        "detail": "All services share the same JWT secret" if all(jwts.values()) else "Some services missing JWT secret",
-        "variables": jwts,
-    })
+    configured = {v: os.environ.get(v, "") for v in jwt_vars}
+    present = {v: val for v, val in configured.items() if val}
+    if not present:
+        checks.append({
+            "check": "JWT Secret alignment",
+            "status": "unknown",
+            "passed": None,
+            "detail": "No JWT secret configured in this process (expected for ops-center; keys live in orchestrator/trendscope env)",
+            "variables": {v: False for v in jwt_vars},
+        })
+    elif len(present) < len(jwt_vars):
+        checks.append({
+            "check": "JWT Secret alignment",
+            "status": "partial",
+            "passed": False,
+            "detail": "Partially configured JWT secrets: cross-service alignment cannot be verified",
+            "variables": {v: bool(val) for v, val in configured.items()},
+        })
+    else:
+        values = set(present.values())
+        checks.append({
+            "check": "JWT Secret alignment",
+            "status": "ok" if len(values) == 1 else "mismatch",
+            "passed": len(values) == 1,
+            "detail": (
+                "All configured services share the same JWT secret"
+                if len(values) == 1
+                else f"Configured JWT secrets differ across services ({len(values)} distinct values)"
+            ),
+            "variables": {v: bool(val) for v, val in configured.items()},
+        })
     return {"checks": checks, "timestamp": __import__("datetime").datetime.utcnow().isoformat()}

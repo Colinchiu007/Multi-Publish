@@ -353,6 +353,26 @@ CREATE TABLE config_group_items (
 - 查看密钥明文需要额外二次确认（前端输入密码或 OTP）
 - 可选：IP 白名单限制（仅 ECS 内网 + 指定公网 IP 可访问）
 
+**鉴权分级（2026-08-09 修订，与 model-presets 语义对齐）**：
+
+| 资源 | 已登录（任意 role） | Admin（role=admin） |
+|------|--------------------|--------------------|
+| 模型预设目录读取（`GET /api/v1/model-presets`，默认不含隐藏项） | ✅ | ✅ |
+| 模型预设目录读取含隐藏项（`include_hidden=true`） | ❌ 403 | ✅ |
+| 模型预设新增/编辑/删除 | ❌ 403 | ✅ |
+| 环境变量只读视图 / 一致性检查 | ✅ | ✅ |
+| 配置项读取（项目配置、feature-gates） | ✅ | ✅ |
+| 配置项写入 / 批量 / 密钥写 / 快照写 | ❌ 403 | ✅ |
+
+> 说明：orchestrator 登录签发的 JWT 不含 `role` 字段，因此普通登录用户天然是「只读」角色；
+> 运营管理写操作依赖带 `role: admin` 的 token（由 orchestrator API Key 路径或运营侧签发）。
+
+**环境一致性检查语义（2026-08-09 修订）**：
+- 检查对象是 ops-center 进程内可观察的环境变量（`PO_SECRET_KEY`/`TS_SECRET_KEY` 等）。
+- 变量未配置 → `status=unknown`（不计为缺陷；这些密钥属于 orchestrator/trendscope 各自进程）。
+- 已配置且一致 → `status=ok`；已配置但不一致 → `status=mismatch`（passed=false）。
+- 前端对 `unknown` 展示「未配置」标签，不再误报「✗ 未通过」。
+
 ---
 
 ## 7. 前端设计
@@ -378,17 +398,17 @@ OpsCenter
 ├── /feature-flags             # 功能开关管理（V0.1 核心）
 │   ├── 开关列表 + 筛选
 │   └── 开关详情弹窗
-├── /projects                  # 项目列表
-│   └── /projects/:code        # 项目配置详情
-│       ├── 配置分组 tabs
-│       └── 配置编辑器
+├── /projects                  # 项目列表（V0.1+，2026-08-09 实现）
+│   ├── 项目表格（代码/名称/描述/格式/状态）
+│   └── 点击项目 → 该项目配置项只读表格（普通登录只读；编辑需 admin，见 6.4）
 ├── /secrets                   # 密钥管理（V0.2）
 │   ├── 提供商列表
 │   └── 密钥编辑弹窗
 ├── /platforms                 # 平台凭证（V0.3）
-├── /audit-log                 # 审计日志
-│   ├── 过滤（项目、时间、操作人）
-│   └── 变更详情弹窗（diff 视图）
+├── /audit-log                 # 审计日志（2026-08-09 实现）
+│   ├── 变更记录表格（配置 ID/类型/旧值/新值/操作人/时间）
+│   ├── 按配置 ID 过滤
+│   └── 变更详情（diff 视图，后续迭代）
 ├── /snapshots                 # 配置快照（V0.5）
 └── /settings                  # OpsCenter 自身设置
 ```

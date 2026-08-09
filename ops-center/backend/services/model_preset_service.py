@@ -140,7 +140,7 @@ async def ensure_catalog_seeded(db: AsyncSession):
     await db.commit()
 
 
-async def list_model_presets(db: AsyncSession, category: str | None = None, include_hidden: bool = True):
+async def list_model_presets(db: AsyncSession, category: str | None = None, include_hidden: bool = False):
     stmt = select(ModelPreset).order_by(ModelPreset.is_multimodal.desc(), ModelPreset.category, ModelPreset.name)
     if category:
         stmt = stmt.where(ModelPreset.category == category)

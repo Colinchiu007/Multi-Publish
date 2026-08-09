@@ -167,7 +167,7 @@ const presets = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const filterCategory = ref('')
-const includeHidden = ref(true)
+const includeHidden = ref(false)
 const showDialog = ref(false)
 const editing = ref(false)
 const modelsText = ref('')
@@ -186,8 +186,15 @@ async function load() {
     if (filterCategory.value) params.category = filterCategory.value
     const data = await listModelPresets(params)
     presets.value = data.presets || []
-  } catch {
-    ElMessage.error('加载预设列表失败')
+  } catch (e) {
+    if (e.response?.status === 403) {
+      ElMessage.warning('需要管理员权限才能查看隐藏项')
+      includeHidden.value = false
+      await load()
+      return
+    } else {
+      ElMessage.error('加载预设列表失败')
+    }
   } finally {
     loading.value = false
   }

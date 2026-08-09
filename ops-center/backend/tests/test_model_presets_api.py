@@ -32,6 +32,20 @@ def _admin_token():
     return jwt.encode(payload, settings.get_jwt_secret(), algorithm=settings.jwt_algorithm)
 
 
+def _user_token():
+    """普通登录用户 token（orchestrator 签发形态：无 role 字段）。"""
+    from datetime import datetime, timedelta, timezone
+    from jose import jwt
+    from config import settings
+    payload = {
+        "sub": "user-uuid",
+        "username": "regular-user",
+        "tier": 1,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+    return jwt.encode(payload, settings.get_jwt_secret(), algorithm=settings.jwt_algorithm)
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     """Create fresh test tables and seed catalog."""
@@ -51,14 +65,131 @@ async def setup_db():
 
 
 @pytest.mark.asyncio
-async def test_list_presets_requires_admin():
+async def test_list_presets_requires_authentication():
+    """未携带 token 时列表返回 401（未认证）。"""
     from httpx import AsyncClient, ASGITransport
     from main import app
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/v1/model-presets")
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_presets_allows_regular_user():
+    """普通登录用户可读运营目录（默认不含隐藏项）。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_user_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/model-presets", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] > 0
+        # 默认不返回隐藏项（种子目录全部可见，这里至少能读）
+        assert all(p["is_visible"] for p in data["presets"])
+
+
+@pytest.mark.asyncio
+async def test_include_hidden_requires_admin():
+    """普通用户请求 include_hidden=true 返回 403。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    user_headers = {"Authorization": f"Bearer {_user_token()}"}
+    admin_headers = {"Authorization": f"Bearer {_admin_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/model-presets?include_hidden=true", headers=user_headers)
+        assert resp.status_code == 403
+
+        resp = await client.get("/api/v1/model-presets?include_hidden=true", headers=admin_headers)
+        assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_hidden_preset_hidden_from_regular_user_list():
+    """普通用户列表默认不含隐藏项（先隐藏一项再验证过滤）。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    admin_headers = {"Authorization": f"Bearer {_admin_token()}"}
+    user_headers = {"Authorization": f"Bearer {_user_token()}"}
+    body = {
+        "id": "minimax-tts",
+        "name": "MiniMax TTS",
+        "category": "tts",
+        "models": ["speech-2.8-turbo"],
+        "is_visible": False,
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.put("/api/v1/model-presets/minimax-tts", json=body, headers=admin_headers)
+
+        resp = await client.get("/api/v1/model-presets", headers=user_headers)
+        assert resp.status_code == 200
+        ids = [p["id"] for p in resp.json()["presets"]]
+        assert "minimax-tts" not in ids
+
+        resp = await client.get("/api/v1/model-presets?include_hidden=true", headers=admin_headers)
+        assert resp.status_code == 200
+        ids = [p["id"] for p in resp.json()["presets"]]
+        assert "minimax-tts" in ids
+
+
+@pytest.mark.asyncio
+async def test_hidden_preset_single_get_blocked_for_regular_user():
+    """普通用户按 ID 读取隐藏预设返回 404（与 include_hidden 语义一致）。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    admin_headers = {"Authorization": f"Bearer {_admin_token()}"}
+    user_headers = {"Authorization": f"Bearer {_user_token()}"}
+    body = {
+        "id": "minimax-tts",
+        "name": "MiniMax TTS",
+        "category": "tts",
+        "models": ["speech-2.8-turbo"],
+        "is_visible": False,
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.put("/api/v1/model-presets/minimax-tts", json=body, headers=admin_headers)
+
+        resp = await client.get("/api/v1/model-presets/minimax-tts", headers=user_headers)
+        assert resp.status_code == 404
+
+        resp = await client.get("/api/v1/model-presets/minimax-tts", headers=admin_headers)
+        assert resp.status_code == 200
+        assert resp.json()["id"] == "minimax-tts"
+
+
+@pytest.mark.asyncio
+async def test_write_operations_require_admin():
+    """新增/编辑/删除模型预设必须 admin（普通用户 403）。"""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    user_headers = {"Authorization": f"Bearer {_user_token()}"}
+    body = {
+        "id": "user-blocked",
+        "name": "User Blocked",
+        "category": "llm",
+        "models": ["m1"],
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=user_headers)
+        assert resp.status_code == 403
+
+        resp = await client.put("/api/v1/model-presets/minimax-tts", json=body, headers=user_headers)
+        assert resp.status_code == 403
+
+        resp = await client.delete("/api/v1/model-presets/minimax-tts", headers=user_headers)
+        assert resp.status_code == 403
 
 
 @pytest.mark.asyncio
