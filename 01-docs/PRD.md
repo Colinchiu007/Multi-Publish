@@ -717,6 +717,7 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
   只能指向该 owner 的受控相对目录，严禁记录原始源路径、源文件名、音频字节、data URL 或绝对路径。删除时先删除远端音色，成功后标记
   `remote_deleted` 并清理本地样本；若本地清理失败，必须保留 `remote_deleted` 以便重试，重试不得再次删除远端音色。
   文件格式、大小、时长和模型限制必须来自该 provider/model 的版本化 capability 数据，不能写成跨供应商的固定规则。
+- **多模态模型承担 TTS 能力（2026-08-09）**：当「语音生成器」选择 `minimax-multimodal` 时，「provider → model → 音色目录」链路按 `capability_models.tts`（`speech-2.8-turbo`）走音色目录白名单与克隆合同（详见 7.4.1.1）；前端语音模型下拉只展示 TTS 能力模型，系统音色列表、默认音色、克隆与本地管理能力与 `minimax-tts` 完全一致；未声明 tts 能力的多模态 provider 目录请求 fail-closed 返回 `VOICE_MODEL_MISMATCH`。
 - **Doubao 个人槽位**：当前配置与 TTS adapter 的已注册/已验证调用合同不证明已经把用户个人槽位同步到本地，也不允许本地创建或伪造槽位。
   UI 必须提示用户先在供应商官方控制台创建/管理音色，再点击“刷新音色目录”并仅在有官方 API 证据及已验证的
   `listVoices` adapter 后选择；证据缺失时显示 `unsupported`/`unavailable`，不显示假列表。
@@ -1255,6 +1256,23 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 数据校验 | `createProvider/updateProvider` 类别校验覆盖 `multimodal`；自定义多模态服务商通过 `config.capabilities` / `config.capability_models` 声明（同样 ≥2 项校验由预设层保证，自定义仅提示）。 |
 | 交互与显示 | 服务商卡片与预设卡片展示能力 chips（文字推理/TTS语音/语音识别/生图/生成视频，多语言标签）；新增/编辑对话框对 `multimodal` 类别只展示 API Key 与预设能力提示（**隐藏 Base URL 输入**，预设 Base URL 由系统写死），同时隐藏模型列表输入（单模型收敛 / 预设模型由能力映射决定）。 |
 | 验收标准 | ① 模型设置新增「多模态模型」类别，预设 MiniMax 显示 4 项能力 chips（文字推理/TTS语音/生图/生成视频）；② 多模态表单只填 API Key（无 Base URL 输入）保存成功；③ 勾选开关后 `getDefault('llm'/'tts'/'image'/'video')` 返回多模态 provider，取消勾选后返回类别 provider；④ MiniMax 多模态 LLM 走 OpenAI 兼容 chat/completions、TTS 走 t2a_async_v2 异步、生图/视频走各自端点；⑤ 流水线在未显式指定 provider 时优先使用多模态模型；⑥ 真实 provider 账号配置后可跑通 LLM/TTS/生图/视频全链路 E2E。 |
+
+### 7.4.1.1 多模态模型作为能力选择器与音色目录（2026-08-09 新增）
+
+**需求**：用户只保留一个多模态模型（`minimax-multimodal`）即可覆盖图片生成 / TTS 音色 / 文字推理 / 视频生成等全部能力。能力选择器（Story2Video「图片生成器」「语音生成器」下拉）与 TTS 音色目录必须把**已启用且声明支持对应能力**的多模态模型视为合格候选；删除全部单能力模型后，能力下拉仍能选用多模态模型，音色目录/克隆能力保持可用。
+
+| 合同 | 要求 |
+|------|------|
+| 能力选择器合并 | `ModelProviderManager.listProviders(category)`：当 `category` 为能力（llm/tts/image/video 等，**非** multimodal）时，在类别结果后追加 **已启用（enabled=1）且 `config.capabilities` 包含该能力** 的多模态 provider 行；未启用或未声明该能力的多模态行**不并入**。`category` 为空或 `category='multimodal'` 时语义不变。 |
+| 能力过滤 fail-closed | 合并后的多模态行必须再次按能力过滤：`category='multimodal'` 且 capabilities 不含请求能力 → 从结果剔除（避免 image 下拉混入不含 image 能力的多模态模型）；已软删（`preset_hidden=true`）行一律排除。数据源以持久化 `config.capabilities` 为准，禁止按模型名或供应商文档推断。 |
+| 前端下拉展示 | Story2Video「图片生成器」「语音生成器」下拉直接消费 IPC `model-provider:list`（后端已合并多模态）。多模态 provider 显示名追加「（多模态）」后缀（如「MiniMax（多模态）」），与单能力同名模型区分；`id` 不变，配置持久化/恢复/合法性校验仍按 `id` 进行。 |
+| 语音模型限定 | `s2vVoiceModelOptions`：多模态 provider 只展示 `capability_models.tts`（如 `speech-2.8-turbo`），禁止把 image/video/llm 模型混入「语音模型」下拉；单能力 provider 保持原逻辑（列出 `provider.models`）。 |
+| 默认语音模型 | `getS2VDefaultVoiceModel`：多模态 provider 优先返回 `capability_models.tts`（models 中无该值时也返回该值，避免取到 `models[0]` 的 image/video/llm 模型），其次 `models[0]`；单能力 provider 原逻辑不变。 |
+| 音色目录白名单 | `tts-voice-catalog.PROVIDER_MODEL_CAPABILITIES` 新增 `minimax-multimodal` 段：`speech-2.8-turbo / speech-2.8-hd / speech-2.6-hd / speech-2.6-turbo` 均为 `user_clone` + `canListVoices: true` + `desktop_upload` 克隆（能力边界与 `minimax-tts` 完全一致，委托同一 adapter 实现）；未列入白名单的模型（如 `image-01`、未批准的 TTS 模型）返回 `model_not_whitelisted` fail-closed。 |
+| provider 能力校验 | `tts-voice-service._hasMatchingProvider`：`category='multimodal'` 且 capabilities **包含 tts** 才放行；未声明 tts 能力 → `VOICE_MODEL_MISMATCH`，不调用 adapter、不读缓存、不写偏好。模型匹配同时考虑 `models` 与 `capability_models.tts`（避免只列 models 时漏判默认 TTS 模型）。 |
+| 克隆与本地管理 | 本地克隆音色（`tts-voice-clone-service`）对 `minimax-tts / minimax / minimax-multimodal` 使用同一 `isProviderCloneVoiceIdValid` 校验与本地管理合同（删除为纯本地管理，不涉及远端 API）；克隆要求/错误码映射沿用 7.1.4。 |
+| 交互与提示 | 用户删除全部单能力模型后，「图片生成器」「语音生成器」下拉仍列出「MiniMax（多模态）」；语音模型下拉仅显示 `speech-2.8-turbo` 并默认选中；音色目录正常加载 MiniMax 系统音色并支持克隆/设为默认；所有提示文案与错误码映射沿用 7.1.4，无新增误导性文案。 |
+| 验收标准 | ① 只配置 `minimax-multimodal` 时「图片生成器」「语音生成器」下拉可见「MiniMax（多模态）」；② 语音模型下拉只有 `speech-2.8-turbo` 且默认选中；③ 音色目录可加载 MiniMax 系统音色并支持克隆/设为默认；④ `listProviders('image'/'tts'/'video'/'llm')` 包含已启用多模态、不包含未启用/未声明能力/已软删行；⑤ 未声明 tts 能力的多模态 provider 音色目录请求返回 `VOICE_MODEL_MISMATCH`；⑥ 回归：`tts-voice-catalog / tts-voice-service / model-provider-multimodal / CreateView` 单测全绿，既有单能力 provider（elevenlabs / minimax-tts / openai-tts 等）行为不变。 |
 
 ### 7.4.2 运营后台：预设模型 / 多模态能力设置（2026-08-08 新增）
 
