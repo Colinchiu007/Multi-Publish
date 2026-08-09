@@ -67,6 +67,12 @@
 - 新增契约测试 `pipeline-story2video-contract.test.js`：zh→4.5 / en→2.8 / auto→3.3 三档断言，防未来合并顺序/normalizer 改动导致静态默认静默生效。
 - PRD 7.1.19 §5 候选项标记为已核实（Python YAML 3.3 仅影响绕过 JS 语言表的直接 Python 调用，既有行为保留）。
 
+## [未发布] CI：electron-tests 迁移 GitHub 官方 runner（A/B/C，2026-08-09）
+
+- **A 迁移**：`electron-ci.yml` 从阿里云 ECS 自托管 runner 迁移到 GitHub `ubuntu-latest`——消除单机排队（原先常 queued 30-40 分钟）与生产资源竞争（ECS 同时承载 Logto + 业务 API）；系统依赖 `dnf`→`apt`（xvfb + build-essential + python3）；新增 `@electron/rebuild better-sqlite3`（Electron ABI 原生模块）；timeout 30→45；保留 checksum pin / npmmirror / `SKIP_NATIVE_MEDIA_TOOL_TESTS=1` / 单 worker vitest / xvfb 冒烟 / deps/circular。
+- **B 职责精简**：工作流头注释明确 Linux 平台确定性回归边界（与 Quality Gate windows 互补，Electron GUI 深度门禁归 gui-test）。
+- **C 验证**：本 PR 自身 CI 即迁移验收；ECS runner 保留配置但不再必需（可移除）。
+
 ## 维护与归档（2026-08-08）
 
 - 归档 Story2Video 场景时长三层模型 CCG 任务审计轨迹（`.ccg/tasks/story2video-scene-duration-three-layer` → `archive/2026-08/`）：

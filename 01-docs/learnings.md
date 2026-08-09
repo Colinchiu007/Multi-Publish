@@ -6042,3 +6042,12 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **调查方法**：候选清理项「Python YAML baseWordsPerSecond 非语言感知」经数据流追踪（renderer 提交 → normalizeStory2VideoTextParams 语言表 → resolveRuntimeStageOptions 覆盖 stageDef 静态默认 → SPLIT executor 消费）确认**无桌面缺口**——语言感知值恒胜出，静态 3.3 仅影响绕过 JS 语言表的直接 Python 调用。
 - **回归护栏价值**：对「已核实为既存正确行为」的契约补端到端测试（zh→4.5/en→2.8/auto→3.3），锁定 resolveRuntimeStageOptions 合并语义，防未来改动静默破坏；比直接改 Python YAML（跨语言、低收益、易漂移）更优。
 - **决策原则**：候选项先调查「是否有真实缺口」再决定改码；无缺口时优先补护栏 + 文档核实，而非为改而改。
+
+## electron-tests 迁移 GitHub 官方 runner 复盘 (2026-08-09)
+
+- **背景**：electron-tests 原跑在阿里云 ECS 自托管 runner（`[self-hosted, linux, x64]`），单机排队（PR 常 queued 30-40 分钟）且与生产 Logto/业务 API 抢资源。
+- **迁移决策**：gui-test.yml 早已在 GitHub ubuntu-latest 上用 xvfb-run 跑通 Electron GUI 门禁——证明 GitHub 官方 runner 可承载 Electron；自托管的前提（需 xvfb/预配置）已过时。
+- **迁移要点（一次性适配）**：① `runs-on: ubuntu-latest`；② RHEL `dnf`→Ubuntu `apt-get`（xvfb + build-essential + python3）；③ Electron ABI 原生模块必须 `npx @electron/rebuild -f -w better-sqlite3`（gui-test 既有步骤，electron-ci 原来自托管环境缺失该步骤）；④ checksum pin / npmmirror 镜像 / `SKIP_NATIVE_MEDIA_TOOL_TESTS=1` / 单 worker vitest 保留；⑤ timeout 30→45。
+- **职责边界**：本 job = Linux 平台确定性回归（与 Quality Gate windows 全 workspace 单测跨平台互补）；Electron GUI 深度门禁归 gui-test；避免三处重复跑全量。
+- **C 验证方式**：迁移 PR 自身的 CI（electron-tests on ubuntu-latest）即为验收；ECS runner 保留配置但不再必需。
+- **可复用判断法**：迁移 CI 前先问「目标 runner 是否已有同类成功先例」（gui-test 的 xvfb Electron 即先例），有则风险大降；再核对系统依赖/原生模块/网络三项适配点。

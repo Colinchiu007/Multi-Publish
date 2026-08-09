@@ -1,5 +1,12 @@
-# Electron CI — 在阿里云 ECS 自托管 runner 上运行 headless Electron 测试
-# 需要 xvfb 提供虚拟显示器，self-hosted runner 预先配置
+# Electron CI — Linux 平台确定性回归（GitHub 官方 ubuntu-latest runner）
+# 职责边界（2026-08-09 迁移 A/B/C）：
+# 1. 本 job 从阿里云 ECS 自托管 runner 迁移至 GitHub 官方 ubuntu-latest：消除单机排队（原先常
+#    queued 30-40 分钟）与生产隔离问题（ECS 同时承载 Logto + 业务 API，20 分钟全量测试抢资源）。
+# 2. 本 job = Linux 平台桌面 vitest（单 worker、确定性）+ Electron xvfb 冒烟 + deps/circular 检查，
+#    与 Quality Gate（windows-latest 全 workspace 单测）形成跨平台互补，而非重复跑全量；
+#    Electron GUI 深度门禁由 gui-test.yml（同 ubuntu-latest + xvfb）承担。
+# 3. xvfb 提供虚拟显示器；Electron ABI 原生模块（better-sqlite3）由 @electron/rebuild 重建。
+# 4. ECS 自托管 runner 保留配置但不再必需；如需移除，见仓库 Settings → Actions → Runners。
 name: Electron CI
 
 on:
@@ -35,8 +42,8 @@ on:
       - 'openspec/**'
 jobs:
   electron-tests:
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       NODE_ENV: test
       SKIP_NATIVE_MEDIA_TOOL_TESTS: '1'
@@ -50,14 +57,13 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install system deps
+      - name: Install system deps (Xvfb + build tools + python for node-gyp)
         run: |
-          if ! command -v xvfb-run &>/dev/null; then
-            sudo dnf install -y -q xorg-x11-server-Xvfb
-          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb build-essential python3
 
       - name: Install dependencies
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
 
       - name: Restore required JavaScript runtimes
@@ -71,14 +77,19 @@ jobs:
           node -e "const checksums = require('./node_modules/electron/checksums.json'); const artifact = 'electron-v43.1.1-linux-x64.zip'; const expected = 'c1f479c52747caf1510e17500e1c8a556d0e40802837bd48c5647a84688a3880'; if (checksums[artifact] !== expected) throw new Error('Electron checksum pin mismatch: ' + artifact);"
 
       - name: Install Electron runtime
-        timeout-minutes: 5
+        timeout-minutes: 10
         env:
           ELECTRON_MIRROR: https://cdn.npmmirror.com/binaries/electron/
         run: |
           unset electron_use_remote_checksums npm_config_electron_use_remote_checksums
           node node_modules/electron/install.js
 
-      - name: Unit tests (Vitest, non-Electron)
+      - name: Rebuild native modules for Electron ABI
+        run: |
+          cd apps/desktop
+          npx @electron/rebuild -f -w better-sqlite3
+
+      - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
         run: |
           timeout --signal=TERM --kill-after=30s 20m \
             npm run test -w @multi-publish/desktop -- \

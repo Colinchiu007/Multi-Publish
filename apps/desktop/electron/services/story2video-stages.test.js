@@ -6,6 +6,8 @@ const {
   registerStory2VideoStages,
   STORY2VIDEO_STAGE_TYPES,
   normalizeAssetConcurrency,
+  hasMeaningfulText,
+  isPromptEngineTooShortRejection,
 } = require('./story2video-stages')
 const {
   cleanupRunInputDir,
@@ -182,24 +184,24 @@ describe('story2video 资源索引契约', () => {
     expect(result.output[0].optimized_prompt).not.toContain('cannot generate')
   })
 
-  it('纯数字文案（如 11）守卫优先于拒绝路径：不调用 prompt-engine、直接用原文', async () => {
+  it('单个纯数字文案（如 1）守卫优先于拒绝路径：不调用 prompt-engine、直接用原文', async () => {
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
     const result = await fn({
       stage: { options: {} },
       params: {},
-      context: { split: [{ text: '11' }] },
+      context: { split: [{ text: '1' }] },
       serviceBus,
     })
     expect(result).toMatchObject({ success: true })
-    expect(result.output[0]).toEqual({ optimized_prompt: '11', providerId: null, model: null, skipped_optimize: true })
+    expect(result.output[0]).toEqual({ optimized_prompt: '1', providerId: null, model: null, skipped_optimize: true })
     // 守卫优先：未调用 prompt-engine
     expect(serviceBus.calls).toHaveLength(0)
   })
-  it('纯数字文案（如 12）跳过 prompt-engine 优化，用原文兜底，不编造场景', async () => {
+  it('单个纯数字文案（如 5）跳过 prompt-engine 优化，用原文兜底，不编造场景', async () => {
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
-    const context = { split: [{ text: '12' }, { text: '一个有内容的场景描述。' }] }
+    const context = { split: [{ text: '5' }, { text: '一个有内容的场景描述。' }] }
     const result = await fn({
       stage: { options: {} },
       params: {},
@@ -208,12 +210,93 @@ describe('story2video 资源索引契约', () => {
     })
     expect(result).toMatchObject({ success: true })
     expect(result.output).toHaveLength(2)
-    // 纯数字场景：跳过优化，用原文，标记 skipped_optimize
-    expect(result.output[0]).toEqual({ optimized_prompt: '12', providerId: null, model: null, skipped_optimize: true })
+    // 单个纯数字场景：跳过优化，用原文，标记 skipped_optimize
+    expect(result.output[0]).toEqual({ optimized_prompt: '5', providerId: null, model: null, skipped_optimize: true })
     // 有内容场景：正常调用 prompt-engine
     expect(result.output[1]).toMatchObject({ optimized_prompt: '优化: 一个有内容的场景描述。' })
     expect(serviceBus.calls).toHaveLength(1)
     expect(context.optimize_progress).toEqual({ done: 2, total: 2 })
+  })
+  it('两位数字文案（如 81）走 prompt-engine 优化（方案B），不再用原文兜底', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '81' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toMatchObject({ optimized_prompt: '优化: 81' })
+    expect(result.output[0].skipped_optimize).not.toBe(true)
+    expect(serviceBus.calls).toHaveLength(1)
+  })
+  it('多位数文案（如 1949）走 prompt-engine 优化（方案B）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '1949' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toMatchObject({ optimized_prompt: '优化: 1949' })
+    expect(serviceBus.calls).toHaveLength(1)
+  })
+  it('prompt-engine 校验拒绝（Too short）时回退原文并继续，不使流水线失败（方案B 配套）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    // FastAPI 422 形态：{ detail: [{ msg: 'Too short...' }] }
+    const serviceBus = makeOptimizeBus(() => ({ detail: [{ msg: 'Too short (1 words). Try a more detailed description' }] }))
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '81' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toEqual({
+      optimized_prompt: '81',
+      providerId: null,
+      model: null,
+      skipped_optimize: true,
+      optimize_note: 'prompt_engine_too_short_use_original',
+    })
+    // 已调用 prompt-engine（方案B 放行），但拒绝被优雅回退
+    expect(serviceBus.calls).toHaveLength(1)
+  })
+  it('prompt-engine 非过短校验拒绝（如非法风格）仍按失败处理', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({ detail: [{ msg: 'unknown style value: foo' }] }))
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '一个有内容的场景描述。' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: false })
+    expect(result.error).toMatch(/prompt-engine 请求被拒绝/)
+  })
+  it('单字中文优化 + 纯符号/纯数字跳过（组合场景，方案B 边界）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
+    const context = { split: [{ text: '一' }, { text: '。。。' }, { text: '5' }, { text: '81' }] }
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context,
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output).toHaveLength(4)
+    // 单字中文与 2 位数字 → 优化（无 skipped_optimize）；纯符号与单个数字 → 原文跳过
+    expect(result.output[0]).toMatchObject({ optimized_prompt: '优化: 一' })
+    expect(result.output[0]).not.toHaveProperty('skipped_optimize')
+    expect(result.output[1]).toEqual({ optimized_prompt: '。。。', providerId: null, model: null, skipped_optimize: true })
+    expect(result.output[2]).toEqual({ optimized_prompt: '5', providerId: null, model: null, skipped_optimize: true })
+    expect(result.output[3]).toMatchObject({ optimized_prompt: '优化: 81' })
+    expect(result.output[3]).not.toHaveProperty('skipped_optimize')
+    expect(serviceBus.calls).toHaveLength(2)
   })
   it('逐场景提示词优化并行执行（有界并发，避免长文案串行拖慢）', async () => {
     // 用并发计数断言（确定性），不依赖墙钟：并发执行时活跃调用数应 ≥2
@@ -980,3 +1063,48 @@ describe('story2video 限流/瞬时错误有界重试', () => {
 })
 
 
+
+describe('hasMeaningfulText — 无实质内容守卫（方案B，2026-08-09）', () => {
+  it('单个纯数字 → 无实质内容（跳过优化）', () => {
+    expect(hasMeaningfulText('1')).toBe(false)
+    expect(hasMeaningfulText('5')).toBe(false)
+  })
+
+  it('2 位及以上纯数字 → 有意义（走优化，方案B）', () => {
+    expect(hasMeaningfulText('81')).toBe(true)
+    expect(hasMeaningfulText('1949')).toBe(true)
+    expect(hasMeaningfulText('123456')).toBe(true)
+  })
+
+  it('单字中文 → 有意义（正常优化）', () => {
+    expect(hasMeaningfulText('一')).toBe(true)
+    expect(hasMeaningfulText('猫')).toBe(true)
+  })
+
+  it('纯空白/纯标点/纯符号 → 无实质内容（跳过优化）', () => {
+    expect(hasMeaningfulText('   ')).toBe(false)
+    expect(hasMeaningfulText('。。。')).toBe(false)
+    expect(hasMeaningfulText('!!!')).toBe(false)
+    expect(hasMeaningfulText('……')).toBe(false)
+  })
+
+  it('数字含上下文（如 81 年、1949 年）→ 有意义', () => {
+    expect(hasMeaningfulText('81 年')).toBe(true)
+    expect(hasMeaningfulText('1949年开国大典')).toBe(true)
+  })
+})
+
+describe('isPromptEngineTooShortRejection — 过短校验拒绝判定', () => {
+  it('命中 Too short / 太短 / min length 等文案', () => {
+    expect(isPromptEngineTooShortRejection('prompt-engine 请求被拒绝(422): Too short (1 words). Try a more detailed description')).toBe(true)
+    expect(isPromptEngineTooShortRejection('Too short: please provide more detail')).toBe(true)
+    expect(isPromptEngineTooShortRejection('输入太短，无法优化')).toBe(true)
+    expect(isPromptEngineTooShortRejection('must be at least 5 characters')).toBe(true)
+  })
+
+  it('非过短拒绝不误判', () => {
+    expect(isPromptEngineTooShortRejection('prompt-engine 请求被拒绝(422): unknown style value: foo')).toBe(false)
+    expect(isPromptEngineTooShortRejection('prompt-engine 优化失败: llm error')).toBe(false)
+    expect(isPromptEngineTooShortRejection('')).toBe(false)
+  })
+})

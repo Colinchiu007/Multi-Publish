@@ -260,8 +260,23 @@ function hasMeaningfulText(text) {
   const cleaned = String(text || '')
     .replace(/[\s\p{P}\p{S}]/gu, '');
   if (!cleaned) return false;
-  if (/^\d+$/.test(cleaned)) return false;
+  // 方案B（2026-08-09）：仅「单个纯数字」视为无实质内容并跳过 LLM 优化；
+  // 2 位及以上纯数字（如 81、1949）视为有意义，正常走 prompt-engine 优化，
+  // 避免数字类文案得不到增强（同时保留对「1」这类极短数字的防编造守卫）。
+  if (/^\d$/.test(cleaned)) return false;
   return true;
+}
+
+/**
+ * prompt-engine 校验拒绝（输入过短无法优化）判定。
+ * 方案B 配套（2026-08-09）：app 侧已放行 2 位+数字，但 prompt-engine 的
+ * 最小长度校验仍会拒绝单词输入（如「81」→ 422 Too short），此时应回退原文
+ * 并继续运行，而不是让整条流水线失败。
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isPromptEngineTooShortRejection (message) {
+  return /too short|太短|must be at least|min[_ -]?length|shorter than/i.test(String(message || ''))
 }
 
 /**
@@ -362,8 +377,9 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!promptSeed) {
             throw new Error('Story2Video optimize scene ' + index + ' is missing a prompt seed')
           }
-          // 无实质内容的文案（纯数字/纯符号/过短）：跳过 LLM 优化，直接用原文，
-          // 避免模型凭空编造与原文无关的场景（如输入「12」被编造成人物画面）。
+          // 无实质内容的文案（单个纯数字/纯符号/过短）：跳过 LLM 优化，直接用原文，
+          // 避免模型凭空编造与原文无关的场景（如输入「1」被编造成人物画面）。
+          // 2 位及以上纯数字（如 81、1949）视为有意义，正常优化（方案B，2026-08-09）。
           if (!hasMeaningfulText(promptSeed)) {
             const skippedEntry = {
               optimized_prompt: promptSeed,
@@ -408,6 +424,26 @@ function registerStory2VideoStages(pipelineEngine) {
             warn: (msg) => pipelineEngine.log.warn('Story2VideoStages', msg),
           })
           if (!validated.ok) {
+            // prompt-engine 校验拒绝（如 Too short）：输入过短无法优化 → 回退原文并继续，
+            // 不因「81」这类单词数字输入让整条流水线失败（方案B 2026-08-09 配套）。
+            if (isPromptEngineTooShortRejection(validated.error)) {
+              const tooShortEntry = {
+                optimized_prompt: promptSeed,
+                providerId: null,
+                model: null,
+                skipped_optimize: true,
+                optimize_note: 'prompt_engine_too_short_use_original',
+              };
+              partialResume[index] = tooShortEntry;
+              if (context && typeof context === 'object') {
+                context.optimize_resume = partialResume;
+                context.optimize_progress = {
+                  done: partialResume.filter(Boolean).length,
+                  total: scenes.length,
+                };
+              }
+              return tooShortEntry;
+            }
             throw new Error('Story2Video ' + validated.error)
           }
           // 剥离思考块后才是最终提示词：带推理能力的模型可能把 <think> 思考过程放进内容，
@@ -946,4 +982,6 @@ module.exports = {
   normalizeAssetResult,
   resolveInputImage,
   resolveInputAudio,
+  hasMeaningfulText,
+  isPromptEngineTooShortRejection,
 };
