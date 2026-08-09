@@ -3129,9 +3129,11 @@ export default {
 .style-desc { display: block; font-size: 11px; color: #999; }
 
 /* 配置网格 */
-.config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
-.config-item { }
-.config-span-2 { grid-column: span 2; }
+/* minmax(min(200px, 100%), 1fr)：窄容器下轨道可收缩到容器宽，避免 min-content 撑宽整页；
+   grid/flex 子项 min-width: 0 + overflow-wrap:anywhere：长不可断文本（如 MiniMax 克隆 voice_id）换行而非溢出。 */
+.config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 16px; }
+.config-item { min-width: 0; }
+.config-span-2 { grid-column: span 2; min-width: 0; }
 .inline-file-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .inline-file-control .config-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .platform-checkboxes { display: flex; flex-wrap: wrap; gap: 8px 14px; }
@@ -3140,13 +3142,14 @@ export default {
 .form-select, .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; box-sizing: border-box; }
 .form-range { width: 100%; }
 .voice-slot-hint p { margin: 0; }
-.voice-clone-panel { display: grid; gap: 8px; }
+.voice-clone-panel { display: grid; gap: 8px; min-width: 0; }
 .voice-clone-panel > label { margin-bottom: 0; }
-.voice-clone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.voice-clone-actions .form-input { flex: 1 1 180px; }
+.voice-clone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.voice-clone-actions .form-input { flex: 1 1 180px; min-width: 0; }
 .voice-clone-actions .btn-secondary { margin-top: 0; }
-.voice-clone-list { display: grid; gap: 8px; }
-.voice-clone-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.voice-clone-list { display: grid; gap: 8px; min-width: 0; }
+.voice-clone-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; min-width: 0; }
+.voice-clone-row > span { min-width: 0; overflow-wrap: anywhere; }
 .voice-clone-row-default { border-color: var(--primary, #2563eb); background: color-mix(in srgb, var(--primary, #2563eb) 8%, transparent); }
 .voice-clone-invalid-badge { margin-left: 6px; font-size: 11px; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 [data-theme="dark"] .voice-clone-invalid-badge { color: #fbbf24; background: #3a2a10; border-color: #5b4a1e; }
