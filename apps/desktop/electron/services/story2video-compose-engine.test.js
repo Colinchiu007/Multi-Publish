@@ -21,6 +21,9 @@ const {
   buildWatermarkFilter,
   buildScaleFilter,
   computeSegmentEncodeTimeoutMs,
+  resolveMaxOutputDimensions,
+  validateResolutionCapability,
+  computeWorkResolution,
   parseResolution,
   resolveCjkFont,
   escapeFontFilePath,
@@ -1432,5 +1435,82 @@ describe('Story2VideoComposeEngine._createSegment — 编码失败降档重试',
     })
     expect(encodeOnce).toHaveBeenCalledTimes(1)
     expect(encodeOnce.mock.calls[0][3].workScale).toBe(2)
+  })
+})
+
+describe('4K 能力开关（maxOutputResolution）', () => {
+  it('resolveMaxOutputDimensions：默认 1080p，4k 允许 3840x2160', () => {
+    expect(resolveMaxOutputDimensions()).toEqual({ key: '1080p', width: 1920, height: 1080 })
+    expect(resolveMaxOutputDimensions('4k')).toEqual({ key: '4k', width: 3840, height: 2160 })
+    expect(resolveMaxOutputDimensions('whatever')).toEqual({ key: '1080p', width: 1920, height: 1080 })
+  })
+
+  it('computeWorkResolution：长边封顶 3840 且保持宽高比（4K 输出不再产生 8K/方形中间画布）', () => {
+    expect(computeWorkResolution(1920, 1080, 2)).toEqual({ width: 3840, height: 2160 })
+    expect(computeWorkResolution(3840, 2160, 2)).toEqual({ width: 3840, height: 2160 })
+    expect(computeWorkResolution(3840, 2160, 1.5)).toEqual({ width: 3840, height: 2160 })
+    expect(computeWorkResolution(720, 1280, 2)).toEqual({ width: 1440, height: 2560 })
+    // 竖屏 4K 输出同样按长边封顶并保持 9:16
+    expect(computeWorkResolution(2160, 3840, 2)).toEqual({ width: 2160, height: 3840 })
+  })
+
+  it('validateResolutionCapability：1080p 档拒绝 4K，1080p 档内竖屏/横屏放行，4k 档放行 4K', () => {
+    expect(validateResolutionCapability('3840x2160', '1080p')).toMatch(/超出当前允许上限/)
+    expect(validateResolutionCapability('1920x1080', '1080p')).toBeNull()
+    expect(validateResolutionCapability('1080x1920', '1080p')).toBeNull()
+    expect(validateResolutionCapability('3840x2160', '4k')).toBeNull()
+  })
+
+  it('compose 入口 fail-closed：默认（1080p）拒绝 4K 输出', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-gate-'))
+    try {
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      const result = await engine.compose(
+        { scenes: [{ imagePath: 'a.png', audioPath: 'a.mp3' }] },
+        { resolution: '3840x2160' },
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/超出当前允许上限|4K/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('compose 入口：4k 档放行 4K（不再被能力校验拦截）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-open-'))
+    try {
+      const engine = new Story2VideoComposeEngine({
+        outputDir: root,
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        maxOutputResolution: '4k',
+      })
+      const result = await engine.compose(
+        { scenes: [{ imagePath: 'a.png', audioPath: 'a.mp3' }] },
+        { resolution: '3840x2160' },
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).not.toMatch(/超出当前允许上限/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('renderSegment：默认 1080p 拒绝 4K 分段渲染', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-seg-'))
+    try {
+      const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+      const result = await engine.renderSegment(
+        { imagePath: 'a.png', audioPath: 'a.mp3' },
+        { resolution: '3840x2160' },
+        path.join(root, 'seg.mp4'),
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/超出当前允许上限|4K/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })

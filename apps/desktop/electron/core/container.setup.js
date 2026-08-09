@@ -8,6 +8,20 @@
 // Container DI 容器（JS 版本，与 container.test.ts 测试一致）
 const Container = require("./container");
 
+// 输出分辨率能力开关（运营后台）：环境变量优先，其次 store 设置，默认 1080p（禁止 4K）。
+// 运营配置键 videoCreation.maxOutputResolution：'1080p' | '4k'。
+function resolveMaxOutputResolution (store) {
+  const env = process.env.MAX_OUTPUT_RESOLUTION;
+  if (env === '4k' || env === '1080p') return env;
+  try {
+    const stored = store && typeof store.getSetting === 'function'
+      ? store.getSetting('videoCreation.maxOutputResolution')
+      : null;
+    if (stored === '4k' || stored === '1080p') return stored;
+  } catch (_) { /* store 未就绪时走默认 */ }
+  return '1080p';
+}
+
 // -- 本模块加载的依赖（最终目标是到 container 中获取） --
 const RenderEngine = require('../services/render-engine');
 const { CompositionManager } = require('../services/composition-manager');
@@ -196,7 +210,10 @@ function createContainer(options) {
   // Story2Video 合成引擎（基于 ffmpeg，替代占位 null）
   container.register("story2videoEngine", function(c) {
     const { Story2VideoComposeEngine } = require('../services/story2video-compose-engine');
-    return new Story2VideoComposeEngine({ log: c.get("logger") });
+    return new Story2VideoComposeEngine({
+      log: c.get("logger"),
+      maxOutputResolution: resolveMaxOutputResolution(c.get("store")),
+    });
   });
   container.register("story2videoProjectService", function(c) {
     const { Story2VideoProjectService } = require('../services/story2video-project-service');

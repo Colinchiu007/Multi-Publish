@@ -347,11 +347,7 @@
               <div class="config-item">
                 <label>比例与分辨率</label>
                 <select v-model="activeOutputConfig.resolution" class="form-select">
-                  <option value="720x1280">720×1280（竖屏）</option>
-                  <option value="1920x1080">1920×1080（横屏）</option>
-                  <option value="3840x2160">3840×2160（横屏）</option>
-                  <option value="1080x1920">1080×1920（竖屏）</option>
-                  <option value="1080x1440">1080×1440（竖屏）</option>
+                  <option v-for="opt in outputResolutionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
               </div>
             </div>
@@ -625,11 +621,7 @@
             <div class="config-item">
               <label>分辨率</label>
               <select v-model="activeOutputConfig.resolution" class="form-select">
-                <option value="720x1280">720×1280（竖屏）</option>
-                <option value="1920x1080">1920×1080 (Full HD)</option>
-                <option value="3840x2160">3840×2160 (4K)</option>
-                <option value="1080x1920">1080×1920 (竖屏)</option>
-                <option value="1080x1440">1080×1440 (小红书)</option>
+                <option v-for="opt in outputResolutionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
             </div>
             <div class="config-item">
@@ -879,6 +871,11 @@ import {
   estimateCost,
   getCalibrationFactor,
 } from '@/story2video/tts-calibration'
+import {
+  MAX_OUTPUT_RESOLUTION_KEY,
+  getOutputResolutionOptions,
+  normalizeResolution,
+} from '@/story2video/output-resolution'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
@@ -984,6 +981,8 @@ export default {
       checkpointPolicy: 'guided',
       outputConfig: { resolution: '1920x1080', fps: 30, format: 'mp4' },
       s2vOutputConfig: { resolution: '720x1280', fps: 30, format: 'mp4' },
+      // 输出分辨率能力开关（运营后台）：'1080p'（默认，前端不出现 4K）| '4k'
+      maxOutputResolution: '1080p',
       // 快速渲染
       quickMode: 'text', quickText: '', quickImages: [],
       quickProfile: 'youtube-landscape', quickTheme: 'clean-professional',
@@ -1069,6 +1068,10 @@ export default {
     },
     activeOutputConfig() {
       return this.isOrchestratedPipeline(this.selectedPipeline?.name) ? this.s2vOutputConfig : this.outputConfig
+    },
+    outputResolutionOptions() {
+      // 4K 开关关闭（默认 1080p）时前端所有流程不出现 3840x2160 选项
+      return getOutputResolutionOptions(this.maxOutputResolution)
     },
     s2vImageProviderOptions() { return this.s2vImageProviders },
     s2vVoiceProviderOptions() { return [{ id: '', name: '自动 Edge TTS' }, ...this.s2vVoiceProviders] },
@@ -1587,6 +1590,8 @@ export default {
           this.s2vConfig.imageModel = ''
         }
         this._applyS2VSnapshot(snapshot.s2vOutputConfig, this.s2vOutputConfig)
+        // 运营开关：恢复的旧快照若含超出上限的分辨率（如历史 4K），归一化到最高允许档
+        this.s2vOutputConfig.resolution = normalizeResolution(this.s2vOutputConfig.resolution, this.maxOutputResolution)
         // 恢复表单折叠状态（类型守卫：仅接受字符串数组）
         if (Array.isArray(snapshot.ui?.expandedGroups)) {
           const known = new Set(Object.keys(this.s2vOpenSections))
@@ -1597,6 +1602,17 @@ export default {
         await this.loadS2VVoiceData()
         this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsRestored', '已恢复上次的选项设置', 'Restored your last-used options'))
       } finally { this.s2vRestoring = false }
+    },
+    async loadMaxOutputResolution() {
+      // 运营开关（videoCreation.maxOutputResolution）：'1080p'（默认，禁止 4K）| '4k'
+      // 读取失败一律回退 1080p（fail-closed），前端所有流程不出现 4K。
+      try {
+        const raw = await storeGetSetting(MAX_OUTPUT_RESOLUTION_KEY)
+        const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw.data ?? raw) : raw
+        this.maxOutputResolution = value === '4k' ? '4k' : '1080p'
+      } catch (_) {
+        this.maxOutputResolution = '1080p'
+      }
     },
     async loadS2VTtsSamples() {
       // Batch 5b：读取本地 TTS 时长样本用于自适应校准（best-effort，失败回退静态估算）。
@@ -1771,7 +1787,7 @@ export default {
       if (template.bgm && Number.isFinite(Number(template.bgm.volume))) {
         this.s2vConfig.bgmVolume = Math.min(10, Math.max(0, Number(template.bgm.volume)))
       }
-      if (template.size) this.s2vOutputConfig.resolution = template.size
+      if (template.size) this.s2vOutputConfig.resolution = normalizeResolution(template.size, this.maxOutputResolution)
     },
     refreshS2VTemplates() {
       this.s2vTemplateLibrary = getAllTemplates('all', window.localStorage)
@@ -2903,6 +2919,7 @@ export default {
     this.refreshS2VTemplates()
     this.startStageClock()
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
+    await this.loadMaxOutputResolution()
     this.resumeRunningOrchestration()
     this.restoreS2VLastOptions()
     this.loadS2VTtsSamples()
