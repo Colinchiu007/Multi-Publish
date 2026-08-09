@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { TtsVoiceService } from './tts-voice-service'
+import { TtsVoiceService, classifyCatalogFailure, redactFailureDetail } from './tts-voice-service'
 
 const CACHE_KEY = 'tts-voice-catalog:v2:openai-tts:tts-1'
 const GPT4O_MINI_TTS_CACHE_KEY = 'tts-voice-catalog:v2:openai-tts:gpt-4o-mini-tts'
@@ -43,6 +43,7 @@ describe('TtsVoiceService', () => {
       modelProviderManager: manager,
       now: () => now,
       cacheTtlMs: 60_000,
+      logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
     })
   })
 
@@ -91,6 +92,7 @@ describe('TtsVoiceService', () => {
       modelProviderManager: manager,
       now: () => now,
       cacheTtlMs: 60_000,
+      logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
     })
 
     const legacy = await service.getCatalog({
@@ -212,6 +214,100 @@ describe('TtsVoiceService', () => {
     expect(unavailable).toMatchObject({ code: -1, message: 'VOICE_CATALOG_UNAVAILABLE' })
     expect(manager.callAdapter).toHaveBeenCalledTimes(1)
     expect(store.setUserSetting).not.toHaveBeenCalled()
+  })
+
+  it('配置类失败（未配置 API Key）返回 VOICE_CATALOG_CONFIG_UNAVAILABLE 且不写缓存', async () => {
+    manager.callAdapter.mockResolvedValueOnce({
+      code: -1,
+      message: '尚未配置 API Key，请先在“模型设置”中填写 OpenAI TTS 的 API Key 后重试（API Key not configured）',
+    })
+    const result = await service.getCatalog({ providerId: 'openai-tts', model: 'tts-1' })
+
+    expect(result).toMatchObject({ code: -1, message: 'VOICE_CATALOG_CONFIG_UNAVAILABLE' })
+    expect(result.data.detail).toContain('API Key')
+    expect(store.setUserSetting).not.toHaveBeenCalled()
+  })
+
+  it('瞬时失败（网络/超时）仍返回 VOICE_CATALOG_UNAVAILABLE 且不写缓存', async () => {
+    manager.callAdapter.mockResolvedValueOnce({ code: -1, message: 'upstream 503 gateway timeout' })
+    const result = await service.getCatalog({ providerId: 'openai-tts', model: 'tts-1' })
+
+    expect(result).toMatchObject({ code: -1, message: 'VOICE_CATALOG_UNAVAILABLE' })
+    expect(result.data.detail).toContain('503')
+    expect(store.setUserSetting).not.toHaveBeenCalled()
+  })
+
+  it('认证失败（401/unauthorized/invalid api key）归配置类错误', async () => {
+    manager.callAdapter.mockResolvedValueOnce({ code: -1, message: 'HTTP 401 Unauthorized: invalid api key' })
+    const result = await service.getCatalog({ providerId: 'openai-tts', model: 'tts-1' })
+
+    expect(result).toMatchObject({ code: -1, message: 'VOICE_CATALOG_CONFIG_UNAVAILABLE' })
+    expect(store.setUserSetting).not.toHaveBeenCalled()
+  })
+
+  it('adapter 方法不支持归 VOICE_CATALOG_UNSUPPORTED（指引「暂不支持」而非「配置 Key」）', async () => {
+    manager.callAdapter.mockResolvedValueOnce({
+      code: -1,
+      message: '服务商 openai-tts 不支持该操作，请检查模型配置后重试（Method "listVoices" not supported by adapter "openai-tts"）',
+    })
+    const result = await service.getCatalog({ providerId: 'openai-tts', model: 'tts-1' })
+
+    expect(result).toMatchObject({ code: -1, message: 'VOICE_CATALOG_UNSUPPORTED' })
+    expect(store.setUserSetting).not.toHaveBeenCalled()
+  })
+
+  it('失败 detail 截断到 200 字符上限', async () => {
+    manager.callAdapter.mockResolvedValueOnce({ code: -1, message: 'x'.repeat(500) })
+    const result = await service.getCatalog({ providerId: 'openai-tts', model: 'tts-1' })
+    expect(result.data.detail.length).toBeLessThanOrEqual(200)
+  })
+
+  it('敏感失败 message（Bearer token）不回显原文，仅回显分类短语', async () => {
+    manager.callAdapter.mockResolvedValueOnce({ code: -1, message: 'Bearer token leaked by upstream' })
+    const result = await service.getCatalog({ providerId: 'openai-tts', model: 'tts-1' })
+
+    expect(result).toMatchObject({ code: -1, message: 'VOICE_CATALOG_UNAVAILABLE' })
+    expect(result.data.detail).not.toContain('Bearer')
+    expect(result.data.detail).not.toContain('token')
+    expect(result.data.detail).not.toContain('leaked')
+  })
+
+  it('分类/脱敏纯函数：undefined message 归瞬时，空 message 详情为空', () => {
+    expect(classifyCatalogFailure(undefined)).toBe('transient')
+    expect(classifyCatalogFailure('')).toBe('transient')
+    expect(classifyCatalogFailure('尚未配置 API Key（API Key not configured）')).toBe('config')
+    expect(classifyCatalogFailure('upstream 503')).toBe('transient')
+    expect(redactFailureDetail(undefined)).toBe('')
+    expect(redactFailureDetail('Bearer abc.def token')).toBe('upstream-auth-error')
+  })
+
+  it('adapter 返回无 message 的失败默认归瞬时错误 UNAVAILABLE', async () => {
+    manager.callAdapter.mockResolvedValueOnce({ code: -1 })
+    const result = await service.getCatalog({ providerId: 'openai-tts', model: 'tts-1' })
+
+    expect(result).toMatchObject({ code: -1, message: 'VOICE_CATALOG_UNAVAILABLE' })
+    expect(result.data.detail).toBe('empty or invalid adapter result')
+    expect(store.setUserSetting).not.toHaveBeenCalled()
+  })
+
+  it('目录失败路径记录 provider/model 与脱敏原因，不含密钥原文', async () => {
+    const logger = { warn: vi.fn(), info: vi.fn(), error: vi.fn() }
+    service = new TtsVoiceService({
+      store,
+      modelProviderManager: manager,
+      now: () => now,
+      cacheTtlMs: 60_000,
+      logger,
+    })
+    manager.callAdapter.mockResolvedValueOnce({ code: -1, message: 'sk-secret-key invalid（API Key not configured）' })
+    await service.getCatalog({ providerId: 'openai-tts', model: 'tts-1' })
+
+    expect(logger.warn).toHaveBeenCalled()
+    const [moduleName, message] = logger.warn.mock.calls[0]
+    expect(String(moduleName)).toContain('tts-voice')
+    expect(String(message)).toContain('openai-tts')
+    expect(String(message)).toContain('tts-1')
+    expect(String(message)).not.toContain('sk-secret-key')
   })
 
   it('拒绝不匹配的缓存和敏感的 adapter 输出，避免把 secret 写入 settings', async () => {

@@ -33,6 +33,7 @@ function createMainWindow () {
     on: vi.fn(),
     show: vi.fn(),
     hide: vi.fn(),
+    restore: vi.fn(),
     destroy: vi.fn(),
     isMinimized: vi.fn(() => false),
     webContents: { send: vi.fn() },
@@ -196,5 +197,39 @@ describe('SystemTray IPC 安全合同', () => {
     } finally {
       __electronMock.nativeImage.createFromBuffer = original
     }
+  })
+})
+
+describe('SystemTray 窗口行为', () => {
+  it('init 不注册 minimize 拦截，最小化保持系统常规行为', () => {
+    const win = createMainWindow()
+    systemTray.destroy()
+    systemTray.init(win)
+
+    expect(win.on.mock.calls.some(([name]) => name === 'minimize')).toBe(false)
+  })
+
+  it('双击托盘图标：窗口最小化时 restore + show，否则仅 show（含关闭进托盘后的 hidden 态）', () => {
+    const win = createMainWindow()
+    systemTray.destroy()
+    systemTray.init(win)
+    const trayInstance = trayInstances[trayInstances.length - 1]
+    const dblClick = trayInstance.on.mock.calls.find(([name]) => name === 'double-click')
+    expect(dblClick).toBeDefined()
+    const handler = dblClick[1]
+
+    // 最小化态：restore + show
+    win.isMinimized.mockReturnValue(true)
+    handler()
+    expect(win.restore).toHaveBeenCalledTimes(1)
+    expect(win.show).toHaveBeenCalledTimes(1)
+
+    // 关闭进托盘后窗口为 hidden 且 isMinimized()===false：仅 show()
+    win.restore.mockClear()
+    win.show.mockClear()
+    win.isMinimized.mockReturnValue(false)
+    handler()
+    expect(win.restore).not.toHaveBeenCalled()
+    expect(win.show).toHaveBeenCalledTimes(1)
   })
 })
