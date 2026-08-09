@@ -16,6 +16,9 @@ on:
       - '.agents/**'
       - 'openspec/**'
       - '.editorconfig'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'nx.json'
 
 jobs:
   doc-sync:

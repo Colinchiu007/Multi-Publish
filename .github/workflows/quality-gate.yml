@@ -1,4 +1,18 @@
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '01-docs/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+      - '.ccg/**'
+      - '.claude/**'
+      - '.hermes/**'
+      - '.agents/**'
+      - 'openspec/**'
   pull_request:
     branches: [main]
     paths-ignore:
@@ -81,6 +95,27 @@ jobs:
         run: npm ci
 
       # --- Gate 4: 全工作区单元测试（含 Vitest 和 Node 测试）---
+
+      - name: "Set test mode"
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            git fetch origin main --depth=1 --no-tags
+            "TEST_MODE=affected" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "TEST_MODE=affected (nx affected -t test --base=origin/main)"
+          } else {
+            "TEST_MODE=full" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "TEST_MODE=full (nx run-many -t test --all)"
+          }
+
+      - name: "Restore Nx cache"
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-test-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            nx-${{ runner.os }}-test-
+
       - name: "Gate 4 - Workspace unit tests"
         shell: pwsh
         run: |
@@ -106,13 +141,13 @@ jobs:
               Select-Object ProcessId, ParentProcessId, Name
           }
 
+          if ($env:TEST_MODE -eq "affected") {
+            $testArgs = @("run", "test:affected")
+          } else {
+            $testArgs = @("run", "test", "--workspaces", "--if-present")
+          }
           $testProcess = Start-Process -FilePath "npm.cmd" `
-            -ArgumentList @(
-              "run",
-              "test",
-              "--workspaces",
-              "--if-present"
-            ) `
+            -ArgumentList $testArgs `
             -NoNewWindow -PassThru
 
           if (-not $testProcess.WaitForExit(1800000)) {

@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "defaultBase": "main",
+  "targetDefaults": {
+    "test": {
+      "cache": true,
+      "inputs": ["default", "^default", "{workspaceRoot}/package-lock.json"]
+    }
+  }
+}
