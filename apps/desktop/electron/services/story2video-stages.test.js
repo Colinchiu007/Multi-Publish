@@ -265,6 +265,24 @@ describe('story2video 资源索引契约', () => {
     // 已调用 prompt-engine（方案B 放行），但拒绝被优雅回退
     expect(serviceBus.calls).toHaveLength(1)
   })
+  it('prompt-engine 中文真实文案 422（描述太简短了（N 字））时回退原文并继续（2026-08-09 Bug 反哺）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    // 真实链路返回：FastAPI 422 detail 中文文案（不匹配旧词表「太短」，曾导致整条流水线失败）
+    const serviceBus = makeOptimizeBus(() => ({ detail: [{ msg: '描述太简短了（2 字），建议更详细描述画面' }] }))
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '测试' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toMatchObject({
+      optimized_prompt: '测试',
+      skipped_optimize: true,
+      optimize_note: 'prompt_engine_too_short_use_original',
+    })
+    expect(serviceBus.calls).toHaveLength(1)
+  })
   it('prompt-engine 非过短校验拒绝（如非法风格）仍按失败处理', async () => {
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus(() => ({ detail: [{ msg: 'unknown style value: foo' }] }))
@@ -1100,6 +1118,12 @@ describe('isPromptEngineTooShortRejection — 过短校验拒绝判定', () => {
     expect(isPromptEngineTooShortRejection('Too short: please provide more detail')).toBe(true)
     expect(isPromptEngineTooShortRejection('输入太短，无法优化')).toBe(true)
     expect(isPromptEngineTooShortRejection('must be at least 5 characters')).toBe(true)
+  })
+
+  it('命中真实中文文案（2026-08-09 Bug 反哺：描述太简短了（N 字））', () => {
+    expect(isPromptEngineTooShortRejection('prompt-engine 请求被拒绝(422): 描述太简短了（2 字），建议更详细描述画面')).toBe(true)
+    expect(isPromptEngineTooShortRejection('描述过短，请补充更多细节')).toBe(true)
+    expect(isPromptEngineTooShortRejection('描述太简短')).toBe(true)
   })
 
   it('非过短拒绝不误判', () => {

@@ -4,6 +4,21 @@
 
 ---
 
+## prompt-engine 中文过短文案未回退原文复盘 (2026-08-09，质量节拍 Bug 反哺)
+
+- **表象**：真实 Electron 链路文案输入「测试」（2 个中文字），optimize 阶段 `prompt-engine 请求被拒绝(422): 描述太简短了（2 字），建议更详细描述画面` → **整条流水线 failed**，未按 PRD 7.1.17「过短拒绝回退原文并继续」执行。
+- **根因**：`isPromptEngineTooShortRejection` 判定正则词表只含 `too short|太短|must be at least|min length|shorter than`；真实中文文案是「描述太**简短**了（N 字）」，不匹配「太短」→ 判定 false → 回退未命中。
+- **逃逸链**：① 单元测试只覆盖英文 `Too short (1 words)` 与「输入太短」；② 无真实 provider 返回文案样本驱动的回归；③ 真实 E2E 用长文案验证，未覆盖过短中文。
+- **修复**：词表扩展 `太简短|过短`（保留英文）；回归：`isPromptEngineTooShortRejection` 真实中文文案 3 例 + OPTIMIZE 中文 422 端到端回退（`skipped_optimize: true`、`prompt_engine_too_short_use_original`）。
+- **教训**：与外部服务（prompt-engine/FastAPI）的错误判定必须用**真实返回文案**做样本，不能只按文档样例写正则；「温和降级」类判定（回退原文 vs 失败）宁可多匹配（误判成本低）也不可漏匹配（漏匹配=整线失败）。
+
+## 窗口关闭行为跨平台化（macOS 前瞻） (2026-08-09)
+
+- **背景**：PR #437「关闭窗口→隐藏托盘后台运行」是 Windows/Linux UX；macOS 约定是关闭窗口不退出应用（进程留 Dock、任务后台继续、activate 重建窗口），直接沿用会残留菜单栏不可见窗口。
+- **方案**：平台决策收敛到 `apps/desktop/electron/services/window-close-policy.js`（`shouldHideToTrayOnClose`：darwin 恒 false；win32/linux 运行任务+托盘可用才隐藏）；托盘图标按平台回退（darwin 16×16 模板图标 + `setTemplateImage(true)`）；快照原子写入收敛 `atomicWriteFileSync`（POSIX rename 优先、Windows EEXIST/EPERM/EACCES/EBUSY 回退 copy+清理）。
+- **教训**：跨平台功能不要内联 `process.platform` 判断到业务逻辑里；把「平台决策」抽成纯函数策略模块（platform 可注入），未来新增平台只改一处，测试用注入平台覆盖全分支。
+- **待验收**：macOS 真机（E2E-PENDING 待办 G-6）：关窗后台、Dock 恢复、菜单栏模板图标明暗适配、断点续跑一致性。
+
 - **双模型审查修复（第二轮，2026-08-09）**：C1（Critical）context 敏感键拦截迁入契约咽喉
   （`prompt-engine-contract.js` `assertNoSensitiveContext` + prompt-bridge 纵深防御）；W1 error/detail 宽判
   （error 有值即失败，防对象/数组 error 绕回「原文当成功」）；W2 配置层与运行层一致（非法平台/风格回退默认，

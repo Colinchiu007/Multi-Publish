@@ -992,7 +992,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 思考块剥离（Adapter 层） | `minimax-llm.js` 必须对 `chatCompletion` 的 `content` 应用 `stripThinkingBlocks`（剥离成对 `<think>...</think>` 与未闭合 `<think>` 至结尾）；`streamChat` 用状态机抑制跨 chunk 思考块；纯思考无答案时返回空 content。工具导出供测试。 |
 | 输出净化（阶段层） | `story2video-stages OPTIMIZE` 对 LLM 返回内容二次净化（`sanitizeOptimizedPrompt`），不依赖具体 adapter；净化后为空 → 视为失败（原 empty prompt 错误）。 |
 | 无实质内容守卫 | `hasMeaningfulText(text)`：去掉空白/标点/符号后为空、或**为单个纯数字**（如「1」）→ 跳过 LLM 优化，`optimized_prompt` 用原文，标记 `skipped_optimize: true`，`providerId/model` 为 null；**2 位及以上纯数字（如「81」「1949」，方案B 2026-08-09）与单字中文（如「一」「猫」）视为有意义，正常走 prompt-engine 优化**。后续「生成图片与旁白」读取 `optimized_prompt` 不受影响。 |
-| 过短拒绝回退（方案B 配套） | prompt-engine 最小长度校验拒绝（422 `Too short`）时**回退原文并继续运行**：`optimized_prompt` 用原文、`skipped_optimize: true`、`optimize_note: 'prompt_engine_too_short_use_original'`，不使整条流水线失败；非过短校验拒绝（如非法风格）仍按失败处理。 |
+| 过短拒绝回退（方案B 配套） | prompt-engine 最小长度校验拒绝（422 `Too short`）时**回退原文并继续运行**：`optimized_prompt` 用原文、`skipped_optimize: true`、`optimize_note: 'prompt_engine_too_short_use_original'`，不使整条流水线失败；非过短校验拒绝（如非法风格）仍按失败处理。**判定词表（2026-08-09 Bug 反哺）**：真实链路中文文案为「描述太简短了（N 字），建议更详细描述画面」，判定正则必须覆盖 `too short | 太短 | 太简短 | 过短 | must be at least | min[_ -]?length | shorter than`（中文变体缺失曾导致回退未命中、整条流水线失败）；回归含真实中文文案端到端回退用例。 |
 | 回归测试 | ① `stripThinkingBlocks` 成对/未闭合/纯思考/无思考；② chatCompletion/streamChat 思考块剥离；③ OPTIMIZE 对含 think 的 content 净化；④ 纯数字文案跳过优化用原文（+6 用例）。 |
 | 验收标准 | ① 文案「1」运行流水线，优化阶段不出现 `<think>` 内容、不编造人物场景，图片用原文「1」生成；② 文案「81」「1949」等 2 位及以上数字正常走 prompt-engine 优化（优化结果不含思考块）；③ 正常文案优化结果不含思考块；④ 真实 provider（如 MiniMax-M2.7/M3）验证成图提示词纯净。 |
 
