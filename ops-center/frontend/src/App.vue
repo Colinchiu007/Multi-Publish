@@ -32,6 +32,10 @@
           <el-icon><DataLine /></el-icon>
           <span>模型用量</span>
         </el-menu-item>
+        <el-menu-item index="/system-health">
+          <el-icon><Monitor /></el-icon>
+          <span>系统健康</span>
+        </el-menu-item>
         <el-menu-item index="/licenses">
           <el-icon><Tickets /></el-icon>
           <span>许可证管理</span>

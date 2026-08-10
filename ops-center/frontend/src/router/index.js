@@ -45,6 +45,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/system-health',
+    name: 'SystemHealth',
+    component: () => import('../views/SystemHealth.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/licenses',
     name: 'Licenses',
     component: () => import('../views/Licenses.vue'),
