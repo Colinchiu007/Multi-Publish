@@ -864,3 +864,56 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 ### 验收状态
 
 本地 Vue build、路由状态回归和 Story2Video UI 合同测试属于可自动验证范围。真实 TTS provider 目录/个人槽位/用户音色克隆上传及图片敏感词降级必须在目标 provider 账号、网络和配额齐全时单独验收，不能以本地 mock、CI 或文档替代，状态保持 PENDING_EXTERNAL。
+
+---
+
+## 视频创作模块前端架构（2026-08-11）
+
+### 组件架构概览
+
+视频创作模块的前端由以下组件层次构成：
+
+`
+CreateView.vue (主视图，路由入口)
+├── PipelineBrowser.vue (流水线浏览网格) -- 独立组件
+├── Story2VideoConfigPanel.vue (S2V 编排配置面板) -- 新抽取组件
+├── BoardStageIndicator.vue (阶段进度指示器) -- 独立组件
+├── SceneCard.vue (场景卡片) -- 独立组件
+└── CreateHistory.vue (创作历史，独立页面路由)
+`
+
+### 设计系统分离
+
+- Design Tokens: video-creation-tokens.css -- 所有颜色、间距、语义色变量
+- 共享样式: video-creation-shared.css -- pipeline-card、badge、stability-dot、s2v-config-sections 等跨组件复用样式
+- Cohere 设计系统: cohere-design-system.css -- 全局基础样式
+- 暗色模式: tokens 文件包含 [data-theme="dark"] 完整覆盖
+
+### Story2VideoConfigPanel 组件规格
+
+**用途**: 将 S2V（图片轮播）编排配置的五个折叠区（基础/画面/声音/高级/发布）从 CreateView.vue 的3446行单体组件中抽取为独立子组件。
+
+**Props**: config(Object), openSections(Object), imageProviders(Array), voiceProviders(Array), voiceModelOptions(Array), voiceOptions(Array), voiceCatalogError(String), voiceCatalogRefreshable(Boolean), voiceClones(Array), cloneLoading(Boolean), cloneError(String), resolutionOptions(Array), outputResolution(String), imageStyleHint(String), promptStyleHint(String), bgmHint(String)
+
+**Events**: update:config, toggle-section, voice-provider-change, voice-model-change, voice-select, voice-catalog-refresh, clone-select, clone-add, bgm-file, update:resolution
+
+**折叠区内容**:
+1. 基础 (basic): 内容类型选择、图片生成器选择
+2. 画面 (appearance): 图片风格、提示词风格、图片动效、转场、字幕设置、BGM、水印、比例与分辨率
+3. 声音 (voice): 语音生成器、语音模型、音色选择、语音克隆
+4. 高级 (advanced): 分句语言、分句模式、句长限制、场景时长、字幕时序、负面提示词
+5. 发布 (publish): 启用发布、发布标题、标签、发布内容
+
+### 样式分离规则
+
+- 每个组件使用 scoped style 隔离组件内样式
+- 跨组件复用样式统一放在 video-creation-shared.css（非 scoped）
+- 所有颜色引用 CSS 变量（来自 tokens），不使用硬编码色值
+- 暗色模式通过 [data-theme="dark"] 覆盖 tokens 变量自动生效
+- 响应式断点: 720px 以下切换为单列布局
+
+### 仍需后续优化
+
+- CreateView.vue 的 methods 区段（约1691行）仍包含所有业务逻辑，可进一步按功能域拆分为 composable/独立模块
+- 历史记录内联标签页（CreateView 内约70行模板）与独立的 CreateHistory.vue 存在功能重复，后续可统一
+- PipelineBrowser.vue 和 CreateView 的 pipeline-grid 逻辑有重叠，后续可合并为单一组件引用
