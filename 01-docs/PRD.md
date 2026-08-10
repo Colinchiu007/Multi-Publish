@@ -1258,6 +1258,82 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 提示文字（中/英） | `MEDIA_PATH_UNRESOLVED`：zh「无法获取所选{kindLabel}文件的本地路径，请重新选择文件后再试；若持续出现请重启应用。」en「Could not resolve the local path of the selected {kindLabel} file. Choose it again; if this keeps happening, restart the app.」 |
 | 验收标准 | ① MiniMax 本地克隆「01」点删除 → 列表移除、无「服务不可用」提示、偏好清理、样本目录删除（服务层 33 用例）；② 有效克隆点「设为默认」→ 下拉同步、出现「默认」徽标、按钮变「已设为默认」（CreateView 用例）；③ 选择正常背景音乐 mp3 → 成功显示受控路径且无错误弹窗（真实 Electron 验证：`setInputFiles` 真实 mp3 → bgmPath=selected-media 受控路径、无对话框）；文件被占用/损坏 → 弹「无法读取所选背景音乐文件…」；无法解析路径 → 弹「无法获取所选背景音乐文件的本地路径…」；④ 未登录/未激活许可证下媒体导入可用（license-access-control 用例 + 真实 Electron code 0）；⑤ 既有 7.1.16 无效克隆「删除仍可用」语义保持。 |
 
+#### 7.1.23 视频创作 UI 设计系统与代码-设计分离合同（2026-08-10）
+
+**背景**：视频创作模块 8 个 UI 文件（CreateView.vue 3428 行、CreateHistory.vue 305 行、ResultView.vue 774 行、ReplayTimeline.vue 576 行、ApprovalGateModal.vue 368 行、BoardStageIndicator.vue 170 行、PipelineBrowser.vue 137 行、ProjectCard.vue 182 行）存在严重的样式碎片化问题：57 个硬编码 hex 颜色值、跨文件颜色体系不统一（Cohere 设计系统 vs Element Plus 色系混用）、CSS 变量定义分散、无统一的设计令牌体系。经深度分析后实施代码与设计分离重构。
+
+##### A. 设计令牌体系（Design Tokens）
+
+| 令牌类别 | 变量前缀 | 示例 | 说明 |
+|----------|----------|------|------|
+| 流水线分类色 | --pipe-* | --pipe-generated: #3b82f6 | 7 种流水线类型各自的品牌色（border + badge bg + text） |
+| 稳定性色 | --stability-* | --stability-production: #22c55e | production/beta/experimental 三级 |
+| 状态语义色 | --status-* | --status-completed-bg: #d1fae5 | completed/failed/cancelled/running/pending/waiting/needs-user-input 各自的 bg + text |
+| 阶段时间线色 | --stage-* | --stage-active-bg | done/active/waiting/failed/pending 阶段状态 |
+| Banner/Notice 色 | --banner-* | --banner-warning-bg: #fef3c7 | warning/info/success 三类提示 |
+| 成本标签色 | --cost-* | --cost-low: #10b981 | low/medium/high 三级成本 |
+| 历史记录色 | --history-* | --history-running-border: #93c5fd | 运行中边框、进度条、提示 |
+| 语音克隆色 | --clone-* | --clone-invalid-bg: #fef3c7 | 无效/默认克隆的徽标色 |
+
+##### B. Token 文件结构
+
+| 文件 | 位置 | 职责 |
+|------|------|------|
+| cohere-design-system.css | src/styles/ | 全局基础令牌（颜色、间距、圆角、布局） |
+| ideo-creation-tokens.css | src/styles/ | 视频创作专用令牌（流水线分类色、状态色、Banner 色等），继承全局令牌 |
+| main.js | src/ | 按顺序导入两个样式文件 |
+
+##### C. 暗色模式支持
+
+ideo-creation-tokens.css 内含 [data-theme="dark"] 完整覆盖层：
+- 所有 --status-*-bg 切换为暗色背景
+- 所有 --status-*-text 切换为亮色文字
+- Banner 色系适配暗色对比度
+- 语音克隆徽标适配暗色
+- 不依赖外部暗色主题库，纯 CSS 变量驱动
+
+##### D. 硬编码颜色消除进度
+
+| 文件 | 优化前 | 优化后 | 说明 |
+|------|--------|--------|------|
+| CreateView.vue | 57 个唯一 hex | 11 个（均为 var() fallback） | 核心组件，消除 80% 硬编码 |
+| CreateHistory.vue | 24 个 | 2 个（均为 var() fallback） | 历史记录页 |
+| ResultView.vue | 8 个 | 0 个 | 结果预览页完全使用令牌 |
+| ReplayTimeline.vue | 18 个 | 8 个（均为 var() fallback） | 回放时间线 |
+| ApprovalGateModal.vue | 13 个 | 未改（Element Plus 色系独立） | 审批弹窗 |
+| BoardStageIndicator.vue | 7 个 | 未改（Element Plus 色系独立） | 阶段指示器 |
+| PipelineBrowser.vue | 14 个 | 未改（与 CreateView 同色系） | 流水线浏览 |
+| ProjectCard.vue | 12 个 | 未改（Element Plus 色系独立） | 项目卡片 |
+
+##### E. 数据校验与边界
+
+| 校验项 | 合同 |
+|--------|------|
+| Token 定义完整性 | ideo-creation-tokens.css 必须覆盖所有 --status-*、--pipe-*、--stability-* 变量；缺失变量导致 CSS 回退到硬编码色时，CI 视觉回归应捕获差异 |
+| 暗色模式对比度 | 暗色模式下所有文字色与背景色对比度 >= 4.5:1（WCAG AA）；Banner 提示文字 >= 3:1 |
+| var() fallback 一致性 | --status-completed-bg 的 fallback #d1fae5 必须与 Token 定义值一致；修改 Token 时必须同步更新所有 fallback |
+| 导入顺序 | ideo-creation-tokens.css 必须在 cohere-design-system.css 之后导入，确保全局 Token 先定义 |
+| Scoped 样式隔离 | CreateView.vue 等组件的 <style scoped> 中引用 ar(--xxx) 时，Token 定义必须在全局作用域（:root），不能在 scoped 内定义 |
+
+##### F. 流程与交互逻辑
+
+| 功能模块 | 交互逻辑 | 显示项 |
+|----------|----------|--------|
+| 流水线卡片网格 | 7 种分类各有独立品牌色 border-left + badge；hover 时 translateY(-2px) + border-color: var(--primary) | 卡片标题、描述、阶段数、成本标签、可用性徽标、稳定性圆点 |
+| 阶段时间线 | sticky 进度条 + 各阶段状态色；running 阶段蓝色高亮；failed 阶段红色 | 进度百分比、已用时、完成摘要、各阶段名+状态+耗时 |
+| S2V 配置面板 | 5 个折叠区（基础/画面/声音/高级/发布）；每个区 summary 显示当前配置摘要 | 各表单项标签+值+提示文字 |
+| 历史记录 | 渲染记录 tab + 流水线记录 tab；运行中任务蓝色边框 + 提示横幅 | 任务名、状态徽标、时间、阶段进度条 |
+| 错误弹窗 | 错误消息 + 详情 + 恢复按钮（可恢复场景）/ 关闭按钮（不可恢复场景） | 错误文案、恢复提示、内容政策提示 |
+
+##### G. 验收标准
+
+1. 所有 ideo-creation-tokens.css 中定义的 Token 在 CreateView.vue、CreateHistory.vue、ResultView.vue 的 CSS 中被引用
+2. CreateView.vue <style scoped> 中唯一剩余的 hex 值均为 ar(--xxx, #fallback) 格式的 fallback 值
+3. 暗色模式（[data-theme="dark"]）下所有状态色、Banner 色、历史记录色正确显示
+4. Vite build 无编译错误；195 个相关测试全部通过
+5. 视觉回归测试（如有基线截图）无意外差异
+
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```

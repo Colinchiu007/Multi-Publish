@@ -16,6 +16,28 @@
 - 附：预设目录按桌面代码事实生成 53 项 + 一致性测试（PR #474/#3）；桌面 seeds 移除无事实 limit_per_5h 估算（PR #474）。
 
 
+## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
+
+### 变更
+- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
+- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
+
+### 硬编码颜色消除
+- CreateView.vue：57 个唯一 hex → 11 个（均为 var() fallback 值）
+- CreateHistory.vue：24 个 → 2 个
+- ResultView.vue：8 个 → 0 个
+- ReplayTimeline.vue：18 个 → 8 个（均为 var() fallback 值）
+
+### 文档
+- PRD 7.1.23 新增「视频创作 UI 设计系统与代码-设计分离合同」
+
+### 测试
+- 195 个测试通过（CreateView + CreateHistory + PipelineBrowser）
+- Vite build 无编译错误
+
+
 ## [未发布] 功能：视频创作历史记录「已暂停」状态与 UI 优化（2026-08-10）
 
 - 功能：后端 PipelineEngine.getHistory() 持久化快照状态归一化——RunStateStore 中 status=running 的快照在应用重启后自动转为 paused，并新增 pausedStage 字段记录暂停环节名称（如 animate、compose），前端可展示「暂停环节：xxx」。

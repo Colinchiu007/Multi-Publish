@@ -1,0 +1,135 @@
+/* ============================================
+   视频创作模块 Design Tokens
+   基于 Cohere 设计系统扩展，消除硬编码颜色
+   ============================================ */
+
+/* --- Pipeline Category 色彩映射 --- */
+:root {
+  --pipe-generated: #3b82f6;
+  --pipe-generated-bg: #dbeafe;
+  --pipe-generated-text: #1d4ed8;
+  --pipe-talking-head: #8b5cf6;
+  --pipe-talking-head-bg: #ede9fe;
+  --pipe-talking-head-text: #7c3aed;
+  --pipe-cinematic: #ef4444;
+  --pipe-cinematic-bg: #fee2e2;
+  --pipe-cinematic-text: #dc2626;
+  --pipe-animation: #f59e0b;
+  --pipe-animation-bg: #fef3c7;
+  --pipe-animation-text: #b45309;
+  --pipe-screen-recording: #10b981;
+  --pipe-screen-recording-bg: #d1fae5;
+  --pipe-screen-recording-text: #047857;
+  --pipe-hybrid: #06b6d4;
+  --pipe-hybrid-bg: #cffafe;
+  --pipe-hybrid-text: #0891b2;
+  --pipe-custom: #6b7280;
+  --pipe-custom-bg: #f3f4f6;
+  --pipe-custom-text: #4b5563;
+
+  /* --- Stability 色彩 --- */
+  --stability-production: #22c55e;
+  --stability-beta: #3b82f6;
+  --stability-experimental: #f59e0b;
+
+  /* --- 状态语义色 --- */
+  --status-completed-bg: #d1fae5;
+  --status-completed-text: #065f46;
+  --status-failed-bg: #fee2e2;
+  --status-failed-text: #991b1b;
+  --status-cancelled-bg: #f3f4f6;
+  --status-cancelled-text: #6b7280;
+  --status-running-bg: #dbeafe;
+  --status-running-text: #1d4ed8;
+  --status-pending-bg: #f3f4f6;
+  --status-pending-text: #999;
+  --status-waiting-bg: #fef3c7;
+  --status-waiting-text: #92400e;
+  --status-needs-user-input-bg: #fff7ed;
+  --status-needs-user-input-text: #c2410c;
+  --status-active-bg: #eff6ff;
+  --status-active-text: #1d4ed8;
+
+  /* --- Stage Timeline --- */
+  --stage-done-text: var(--text-muted, #666);
+  --stage-active-bg: var(--status-active-bg);
+  --stage-active-text: var(--status-active-text);
+  --stage-waiting-bg: var(--status-waiting-bg);
+  --stage-waiting-text: var(--status-waiting-text);
+  --stage-failed-bg: var(--status-failed-bg);
+  --stage-failed-text: #b91c1c;
+  --stage-sub-bar-bg: #e0e0e0;
+
+  /* --- Banner / Notice --- */
+  --banner-warning-color: #92400e;
+  --banner-warning-bg: #fef3c7;
+  --banner-warning-border: #fde68a;
+  --banner-info-color: #1e40af;
+  --banner-info-bg: #dbeafe;
+  --banner-info-border: #bfdbfe;
+  --banner-success-bg: #f0fdf4;
+  --banner-success-text: #166534;
+
+  /* --- Cost 标签 --- */
+  --cost-low: #10b981;
+  --cost-medium: #f59e0b;
+  --cost-high: #ef4444;
+
+  /* --- 历史记录 --- */
+  --history-running-border: #93c5fd;
+  --history-progress-active-bg: #2563eb;
+  --history-progress-active-shadow: #bfdbfe;
+  --history-running-hint-bg: #dbeafe;
+  --history-running-hint-text: #1d4ed8;
+
+  /* --- 语音克隆 --- */
+  --clone-invalid-bg: #fef3c7;
+  --clone-invalid-text: #b45309;
+  --clone-invalid-border: #fde68a;
+  --clone-default-bg: #dbeafe;
+  --clone-default-text: #1d4ed8;
+  --clone-default-border: #bfdbfe;
+
+  /* --- 暗色模式覆盖 --- */
+  [data-theme="dark"] {
+    --status-completed-bg: #064e3b;
+    --status-completed-text: #6ee7b7;
+    --status-failed-bg: #450a0a;
+    --status-failed-text: #fca5a5;
+    --status-cancelled-bg: #27272a;
+    --status-cancelled-text: #a1a1aa;
+    --status-running-bg: #172554;
+    --status-running-text: #93c5fd;
+    --status-pending-bg: #27272a;
+    --status-pending-text: #71717a;
+    --status-waiting-bg: #3a2a10;
+    --status-waiting-text: #fbbf24;
+    --status-needs-user-input-bg: #431407;
+    --status-needs-user-input-text: #fb923c;
+    --status-active-bg: #172554;
+    --status-active-text: #93c5fd;
+
+    --stage-done-text: #71717a;
+    --stage-sub-bar-bg: #3f3f46;
+
+    --banner-warning-color: #fbbf24;
+    --banner-warning-bg: #3a2a10;
+    --banner-warning-border: #5b4a1e;
+    --banner-info-color: #93c5fd;
+    --banner-info-bg: #172554;
+    --banner-info-border: #1e3a8a;
+    --banner-success-bg: #052e16;
+    --banner-success-text: #86efac;
+
+    --history-running-border: #3b82f6;
+    --history-running-hint-bg: #172554;
+    --history-running-hint-text: #93c5fd;
+
+    --clone-invalid-bg: #3a2a10;
+    --clone-invalid-text: #fbbf24;
+    --clone-invalid-border: #5b4a1e;
+    --clone-default-bg: #172554;
+    --clone-default-text: #93c5fd;
+    --clone-default-border: #1e3a8a;
+  }
+}
