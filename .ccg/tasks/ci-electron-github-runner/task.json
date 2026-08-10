@@ -1,0 +1,14 @@
+{
+  "id": "ci-electron-github-runner",
+  "title": "electron-tests 迁移 GitHub 官方 runner（A 迁移 + B 职责精简 + C 验证）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci",
+  "currentPhase": "completed",
+  "nextAction": "已交付（PR #429/#433，electron-tests 迁 GitHub runner 7m35s 通过）",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "branch": "codex/ci-electron-github-runner",
+  "openspecChange": "ci-electron-github-runner",
+  "completedAt": "2026-08-09T00:00:00Z"
+}

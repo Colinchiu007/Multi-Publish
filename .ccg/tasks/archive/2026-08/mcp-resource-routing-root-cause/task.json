@@ -1,0 +1,12 @@
+{
+  "id": "mcp-resource-routing-root-cause",
+  "title": "排查并规范 MCP Resource 工具调用路由",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "developer-workflow",
+  "currentPhase": "completed",
+  "nextAction": "已完成根因修复；后续会话验证真实工作流",
+  "createdAt": "2026-08-03T00:00:00Z",
+  "branch": "main"
+}

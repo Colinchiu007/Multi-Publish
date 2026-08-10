@@ -1,0 +1,26 @@
+schema: spec-driven
+
+# Project context — injected into ALL artifact instructions (OpenSpec 1.8 OPSX)
+context: |
+  Multi-Publish: Electron 桌面（Vue 3 + Element Plus）+ pnpm workspace 多包（api-publish-engine / rpa-engine / python-backend / remotion-composer）。
+  开发由三层机制协作：CCG（决策/执行编排：复杂度 S/M/L + 风险 低/中/高 评估、双模型分析、.ccg/tasks 任务生命周期）、质量节拍（流程门禁：Phase 0-5 + QM-1~4 + .quality-gates.md）、OpenSpec（规格工件层：change 生命周期与 specs 真相源）。
+  铁律：
+  - M+ 复杂度或中/高风险任务必须创建 OpenSpec change，完成 proposal→design→specs→tasks 后才允许进入实现；S/低风险可跳过。
+  - 对既有基线建 change 必须先做「基线 vs 现状」差异审计，change 只承载真实待办。
+  - 实现进度以 change tasks.md 为唯一来源；CCG task.json 记录 openspecChange 关联。
+  - 归档三同步：openspec archive + CCG task 归档 + 质量节拍复盘；用 scripts/openspec-sync-check.js 检查。
+  - 分层分支策略：运行时代码走 codex/ 分支 + PR；纯流程/文档变更（openspec/、.ccg/、docs/）可 main 直接小步提交。
+  - 供应商契约（TTS 音色、图片生成等）以官方文档与配置为准，禁止臆造。
+
+# Per-artifact rules — only injected into matching artifacts
+rules:
+  proposal:
+    - 对既有基线先做差异审计，禁止重复规格化已交付功能
+  specs:
+    - 每个 Requirement 必须至少一个 Scenario，场景用 4 个 # 的 WHEN/THEN 格式
+    - 新增能力用 ADDED Requirements，修改既有行为用 MODIFIED（含完整内容）
+  design:
+    - 记录决策与备选方案（为什么选 X 而非 Y）
+    - 标注风险与回退策略
+  tasks:
+    - 任务按依赖分组，每个任务 ≤ 一个会话，TDD 优先（标注测试目标）

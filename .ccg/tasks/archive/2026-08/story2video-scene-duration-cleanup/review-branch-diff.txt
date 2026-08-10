@@ -1,0 +1,566 @@
+diff --git a/01-docs/PRD-video-creation.md b/01-docs/PRD-video-creation.md
+index aa702a9..173bc47 100644
+--- a/01-docs/PRD-video-creation.md
++++ b/01-docs/PRD-video-creation.md
+@@ -194,7 +194,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收
+ | 旁白 | 豆包兼容音色 ID、`speed=1`、`volume=1`、`pitch=0`、`emotion=default` | `generate_assets` 与 `compose`；凭据仍由加密 Provider 管理器持有 |
+ | 字幕 | `enabled=false`、Noto Sans SC 字体栈、`size=size3`、`style=style1` | `compose`，兼容字号映射后交给 ffmpeg |
+ | BGM | `enabled=false`、`volume=5`（兼容范围 0-10） | 启用且有受控路径时转换为 ffmpeg `0-1` 音量 |
+-| 版本/效果 | `generateBase=true`、`generateMerged=true`、`perImageDuration=6`、`transition=fade` | 至少选择一个版本；无旁白场景时使用 `perImageDuration` |
++| 版本/效果 | `generateBase=true`、`generateMerged=true`、`transition=fade` | 至少选择一个版本；场景时长跟随旁白音频，音频时长不可探测时回退默认 6 秒 |
+ | 输出/发布 | 独立分辨率、FPS、格式；平台、标题、描述、标签、封面可选 | `compose` 与 `publish`，未启用发布时明确 `skipped` |
+ 
+ 所有运行参数必须是纯 JSON；归一化器只接受白名单字段并在创建 run 之前拒绝非法值。API Key、Access Token 和 Provider Secret 不得写入运行参数、项目历史或结果清单。
+diff --git a/01-docs/learnings.md b/01-docs/learnings.md
+index 228fe81..a72e69d 100644
+--- a/01-docs/learnings.md
++++ b/01-docs/learnings.md
+@@ -4309,8 +4309,9 @@ PR 合并前必须跑完整 workspace 测试、Browser E2E、视觉像素门禁
+   `story2videoTextConfig.config.prompt`，但持久化前的 normalizer 仍强制读取顶层 `params.text`；
+   renderer 总会重复发送两份文案，因此正常创建流程掩盖了项目恢复路径的失败。
+ - `image.aspectRatio` 只校验 `W:H` 字符格式，没有校验下游 Provider 支持集合，`7:11` 等值能进入资产阶段。
+-- normalizer、UI 和 YAML 已统一 `perImageDuration` 为 1..60 秒、默认 6 秒，compose engine 的防御性
+-  直调仍保留旧的 0.1 秒下限和 3 秒默认值。
++- 无旁白/纯图片轮播模式已下线：`perImageDuration`（单画面时长/无旁白场景时长）已从 renderer、
++  normalizer、模板库与 YAML 中彻底移除；`defaultSceneDuration` 保留为 compose 固定默认 6 秒，
++  仅作“音频时长不可探测”时的回退与动效归一化兜底（compose engine 直调下限 1 秒、默认 6 秒）。
+ 
+ ### 测试逃逸链与系统性漏洞
+ 1. 项目持久化测试始终同时传 `text` 与版本化 `prompt`，没有构造只剩项目配置的恢复形状。
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 12ef414..91ca8ff 100755
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,11 @@
++## [未发布] Story2Video 场景时长与动效归一化 (2026-08-07)
++
++### 视频创作
++- 图片动效（放大/缩小/平移/缩放平移）进度改为按**场景有效时长**归一化：音频探测成功用真实音频时长，探测失败回退上报时长/默认 6 秒；短场景不再"动效没做完就被切走"，长场景不再"动效提前定格"。
++- 移除「单画面时长/无旁白场景时长」选项及 `perImageDuration` 配置合同：无旁白/纯图片轮播模式不再属于 `story2video-compose`；`defaultSceneDuration` 保留为内部固定默认 6 秒，仅作音频时长不可探测时的回退与动效归一化兜底。旧项目历史配置中的 `perImageDuration` 会被兼容忽略。
++
++---
++
+ ## [未发布] Story2Video 参数边界与运行错误反馈 (2026-08-01)
+ 
+ ### 视频创作
+diff --git a/apps/desktop/electron/services/story2video-compose-engine.js b/apps/desktop/electron/services/story2video-compose-engine.js
+index e9a843f..1c45cea 100644
+--- a/apps/desktop/electron/services/story2video-compose-engine.js
++++ b/apps/desktop/electron/services/story2video-compose-engine.js
+@@ -156,29 +156,35 @@ function normalizeComposeScenes (assetManifest) {
+   })
+ }
+ 
+-function buildImageEffectFilter (effect, width, height, fps) {
++function buildImageEffectFilter (effect, width, height, fps, duration) {
+   const safeWidth = Math.max(160, Math.round(Number(width) || 1280))
+   const safeHeight = Math.max(160, Math.round(Number(height) || 720))
+   const safeFps = Math.max(1, Math.min(120, Math.round(Number(fps) || 30)))
++  // 有效时长已知时把动效进度归一化到场景时长（T=round(duration*fps)），
++  // 时长未知（探测失败/旧项目）时保持固定帧增量公式，向后兼容。
++  const totalFrames = Number.isFinite(duration) && duration > 0
++    ? Math.max(2, Math.round(duration * safeFps))
++    : null
++  const progress = totalFrames ? 'min(1,on/' + totalFrames + ')' : null
+   const zoompan = (zoom, x, y) =>
+     "zoompan=z='" + zoom + "':x='" + x + "':y='" + y + "':d=1:s=" +
+     safeWidth + 'x' + safeHeight + ':fps=' + safeFps
+ 
+   switch (effect) {
+     case 'zoom-in':
+-      return zoompan('min(zoom+0.0015,1.25)', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
++      return zoompan(progress ? '1+0.25*' + progress : 'min(zoom+0.0015,1.25)', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
+     case 'zoom-out':
+-      return zoompan('if(eq(on,1),1.25,max(zoom-0.0015,1))', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
++      return zoompan(progress ? 'if(eq(on,1),1.25,1.25-0.25*' + progress + ')' : 'if(eq(on,1),1.25,max(zoom-0.0015,1))', 'iw/2-(iw/zoom/2)', 'ih/2-(ih/zoom/2)')
+     case 'pan-left':
+-      return zoompan('1.12', '(iw-iw/zoom)*on/120', 'ih/2-(ih/zoom/2)')
++      return zoompan('1.12', progress ? '(iw-iw/zoom)*' + progress : '(iw-iw/zoom)*on/120', 'ih/2-(ih/zoom/2)')
+     case 'pan-right':
+-      return zoompan('1.12', '(iw-iw/zoom)*(1-on/120)', 'ih/2-(ih/zoom/2)')
++      return zoompan('1.12', progress ? '(iw-iw/zoom)*(1-' + progress + ')' : '(iw-iw/zoom)*(1-on/120)', 'ih/2-(ih/zoom/2)')
+     case 'pan-up':
+-      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*on/120')
++      return zoompan('1.12', 'iw/2-(iw/zoom/2)', progress ? '(ih-ih/zoom)*' + progress : '(ih-ih/zoom)*on/120')
+     case 'pan-down':
+-      return zoompan('1.12', 'iw/2-(iw/zoom/2)', '(ih-ih/zoom)*(1-on/120)')
++      return zoompan('1.12', 'iw/2-(iw/zoom/2)', progress ? '(ih-ih/zoom)*(1-' + progress + ')' : '(ih-ih/zoom)*(1-on/120)')
+     case 'zoom-pan':
+-      return zoompan('min(zoom+0.001,1.15)', '(iw-iw/zoom)*on/180', 'ih/2-(ih/zoom/2)')
++      return zoompan(progress ? '1+0.15*' + progress : 'min(zoom+0.001,1.15)', progress ? '(iw-iw/zoom)*' + progress : '(iw-iw/zoom)*on/180', 'ih/2-(ih/zoom/2)')
+     case 'rotate':
+       return "rotate='0.02*sin(2*PI*t/4)':fillcolor=black@0"
+     case 'blur-in':
+@@ -449,10 +455,13 @@ class Story2VideoComposeEngine {
+       const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
+       const subtitleDuration = audioDuration || duration || defaultSceneDuration
+       const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
++      // 动效归一化使用“有效时长”：真实音频时长优先，探测失败时回退上报时长/defaultSceneDuration。
++      const effectDuration = audioDuration || duration || defaultSceneDuration
+ 
+       try {
+         await this._createSegment(scene.imagePath, scene.audioPath, segPath, {
+           duration,
++          effectDuration,
+           subtitleText: subtitleEnabled ? scene.text : '',
+           subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
+           transition,
+@@ -653,9 +662,11 @@ class Story2VideoComposeEngine {
+     const subtitleBlocks = normalizeSceneSubtitleBlocks(scene)
+     const subtitleDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
+     const subtitleTimeline = buildSubtitleTimeline(subtitleBlocks, subtitleDuration)
++    const effectDuration = audioDuration || duration || clampNumber(options.defaultSceneDuration, 1, 60, 6)
+     try {
+       await this._createSegment(imagePath, audioPath, destinationPath, {
+         duration,
++        effectDuration,
+         subtitleText: options.subtitleEnabled === false ? '' : (scene.text || ''),
+         subtitleTimeline: options.subtitleEnabled === false ? [] : subtitleTimeline,
+         transition: options.transition || 'none',
+@@ -803,7 +814,7 @@ class Story2VideoComposeEngine {
+ 
+     // 字幕滤镜
+     const filters = [buildScaleFilter(opts.width, opts.height)]
+-    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps)
++    const imageEffect = buildImageEffectFilter(opts.imageEffect, opts.width, opts.height, opts.fps, opts.effectDuration)
+     if (imageEffect) filters.push(imageEffect)
+     const subtitleFilter = buildSubtitleFilter(
+       Array.isArray(opts.subtitleTimeline) && opts.subtitleTimeline.length > 0
+diff --git a/apps/desktop/electron/services/story2video-compose-engine.test.js b/apps/desktop/electron/services/story2video-compose-engine.test.js
+index 8818fdf..cc34ce8 100644
+--- a/apps/desktop/electron/services/story2video-compose-engine.test.js
++++ b/apps/desktop/electron/services/story2video-compose-engine.test.js
+@@ -193,6 +193,37 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
+     expect(buildScaleFilter(1920, 1080)).toContain('pad=1920:1080')
+   })
+ 
++  it('有效时长已知时把动效进度归一化到场景时长', () => {
++    // 6s @30fps → T=180：动效在场景结束帧恰好完成，不再受固定帧增量速度限制
++    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 6)).toContain('1+0.25*min(1,on/180)')
++    expect(buildImageEffectFilter('zoom-out', 1280, 720, 30, 6)).toContain('if(eq(on,1),1.25,1.25-0.25*min(1,on/180))')
++    expect(buildImageEffectFilter('pan-left', 1280, 720, 30, 6)).toContain('(iw-iw/zoom)*min(1,on/180)')
++    expect(buildImageEffectFilter('pan-right', 1280, 720, 30, 6)).toContain('(iw-iw/zoom)*(1-min(1,on/180))')
++    expect(buildImageEffectFilter('pan-up', 1280, 720, 30, 6)).toContain('(ih-ih/zoom)*min(1,on/180)')
++    expect(buildImageEffectFilter('pan-down', 1280, 720, 30, 6)).toContain('(ih-ih/zoom)*(1-min(1,on/180))')
++    expect(buildImageEffectFilter('zoom-pan', 1280, 720, 30, 6)).toContain('1+0.15*min(1,on/180)')
++    // 非 30fps：fps=24、4s → T=96
++    expect(buildImageEffectFilter('zoom-in', 1280, 720, 24, 4)).toContain('min(1,on/96)')
++  })
++
++  it('时长未知或无效时保持固定帧增量公式，向后兼容', () => {
++    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30)).toContain('min(zoom+0.0015,1.25)')
++    expect(buildImageEffectFilter('zoom-out', 1280, 720, 30)).toContain('max(zoom-0.0015,1)')
++    expect(buildImageEffectFilter('pan-left', 1280, 720, 30)).toContain('on/120')
++    expect(buildImageEffectFilter('zoom-pan', 1280, 720, 30)).toContain('on/180')
++    for (const bad of [0, -1, Number.NaN, null, undefined, 'x']) {
++      expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, bad)).toContain('min(zoom+0.0015,1.25)')
++    }
++  })
++
++  it('极短时长使用最小帧数下限，fps 极值按场景时长换算', () => {
++    // 0.05s @30fps → round(1.5)=2，下限 Math.max(2) 防止 on/0、on/1
++    expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 0.05)).toContain('min(1,on/2)')
++    // fps 极值：1fps×6s=6、120fps×6s=720
++    expect(buildImageEffectFilter('zoom-in', 1280, 720, 1, 6)).toContain('min(1,on/6)')
++    expect(buildImageEffectFilter('zoom-in', 1280, 720, 120, 6)).toContain('min(1,on/720)')
++  })
++
+   it('为每个字幕页生成首尾不重叠的 FFmpeg 半开时间区间', () => {
+     const filter = buildSubtitleFilter([
+       { text: '第一屏字幕', startTime: 0, endTime: 1.25 },
+@@ -484,6 +515,44 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
+       expect(result.code).toBe(0)
+       expect(result.data.duration).toBe(expectedDuration)
+       expect(result.data.segments[0].duration).toBe(expectedDuration)
++      // 音频探测失败时动效归一化同样回退到 defaultSceneDuration
++      expect(engine._createSegment.mock.calls[0][3]).toMatchObject({ effectDuration: expectedDuration })
++    } finally {
++      fs.rmSync(root, { recursive: true, force: true })
++    }
++  })
++
++  it('renderSegment 把有效时长传给动效归一化，音频优先、探测失败回退默认', async () => {
++    if (!findFfmpeg()) return
++    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-render-segment-effect-'))
++    const image = writeFixture(root, 'image.png')
++    const audio = writeFixture(root, 'audio.mp3')
++    const engine = new Story2VideoComposeEngine({
++      outputDir: root,
++      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
++    })
++    engine._probeMediaDuration = vi.fn().mockResolvedValue(null)
++    engine._createSegment = vi.fn(async () => fs.writeFileSync(path.join(root, 'out.mp4'), 'seg'))
++    try {
++      // 音频探测失败 + 无上报时长 → effectDuration 回退 defaultSceneDuration=6
++      const out = path.join(root, 'out.mp4')
++      const result = await engine.renderSegment(
++        { imagePath: image, audioPath: audio, text: '测试', duration: null },
++        { defaultSceneDuration: 6, resolution: '320x180', fps: 24, subtitleEnabled: false, transition: 'none' },
++        out,
++      )
++      expect(result.code).toBe(0)
++      expect(engine._createSegment.mock.calls[0][3]).toMatchObject({ effectDuration: 6 })
++
++      // 音频优先：ffprobe 4.2s 覆盖上报 1s
++      engine._probeMediaDuration = vi.fn().mockResolvedValue(4.2)
++      const result2 = await engine.renderSegment(
++        { imagePath: image, audioPath: audio, text: '测试', duration: 1 },
++        { defaultSceneDuration: 6, resolution: '320x180', fps: 24, subtitleEnabled: false, transition: 'none' },
++        path.join(root, 'out2.mp4'),
++      )
++      expect(result2.code).toBe(0)
++      expect(engine._createSegment.mock.calls[1][3]).toMatchObject({ effectDuration: 4.2 })
+     } finally {
+       fs.rmSync(root, { recursive: true, force: true })
+     }
+diff --git a/apps/desktop/electron/services/story2video-text-config.js b/apps/desktop/electron/services/story2video-text-config.js
+index 9276edd..651f24f 100644
+--- a/apps/desktop/electron/services/story2video-text-config.js
++++ b/apps/desktop/electron/services/story2video-text-config.js
+@@ -54,7 +54,6 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
+     color: 'white',
+   }),
+   bgm: Object.freeze({ enabled: false, path: '', volume: 5 }),
+-  perImageDuration: 6,
+   transition: 'fade',
+   templateId: '',
+   concurrency: 3,
+@@ -335,10 +334,11 @@ function normalizeStory2VideoTextParams(params = {}) {
+     volume: numberValue(firstDefined(own(bgmInput, 'volume'), hasNestedBgm ? undefined : legacyBgmVolume), 5, 'bgm.volume', 0, 10),
+   }
+ 
+-  const perImageDuration = numberValue(
+-    firstDefined(own(suppliedConfig, 'perImageDuration'), params.defaultSceneDuration),
++  // defaultSceneDuration 仅作为 compose 无可用音频时长时的回退与动效归一化兜底，不再暴露为可配置项。
++  const defaultSceneDuration = numberValue(
++    firstDefined(params.defaultSceneDuration, own(suppliedConfig, 'defaultSceneDuration')),
+     6,
+-    'perImageDuration',
++    'defaultSceneDuration',
+     1,
+     60,
+   )
+@@ -379,7 +379,6 @@ function normalizeStory2VideoTextParams(params = {}) {
+     voice,
+     subtitle,
+     bgm,
+-    perImageDuration,
+     transition,
+     templateId,
+     concurrency,
+@@ -448,7 +447,7 @@ function normalizeStory2VideoTextParams(params = {}) {
+       resolution: size,
+       fps: output.fps,
+       format: output.format,
+-      defaultSceneDuration: perImageDuration,
++      defaultSceneDuration,
+     },
+     publish: {
+       publishEnabled: publish.enabled || publish.platforms.length > 0,
+@@ -490,8 +489,7 @@ function normalizeStory2VideoTextParams(params = {}) {
+     voiceVolume: voice.volume,
+     concurrency,
+     templateId: templateId || null,
+-    defaultSceneDuration: perImageDuration,
+-    perImageDuration,
++    defaultSceneDuration,
+     imageEffect: image.effect,
+     transition,
+     subtitleEnabled: subtitle.enabled,
+diff --git a/apps/desktop/electron/services/story2video-text-config.test.js b/apps/desktop/electron/services/story2video-text-config.test.js
+index 5c3f592..d71eb87 100644
+--- a/apps/desktop/electron/services/story2video-text-config.test.js
++++ b/apps/desktop/electron/services/story2video-text-config.test.js
+@@ -63,8 +63,10 @@ describe('Story2Video text 参数合同', () => {
+     expect(result).not.toHaveProperty('seconds')
+     expect(result).not.toHaveProperty('generateBase')
+     expect(result).not.toHaveProperty('generateMerged')
++    expect(result).not.toHaveProperty('perImageDuration')
+     expect(result.story2videoTextConfig).not.toHaveProperty('seconds')
+     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
++    expect(result.story2videoTextConfig).not.toHaveProperty('perImageDuration')
+     expect(result.stageOptions.optimize).not.toHaveProperty('platform')
+     expect(result.stageOptions.optimize).not.toHaveProperty('num_candidates')
+     expect(result.stageOptions.optimize).not.toHaveProperty('auto_detect_style')
+@@ -118,7 +120,6 @@ describe('Story2Video text 参数合同', () => {
+         subtitle: { enabled: true, font: 'Noto Sans SC', size: 'size4', style: 'style2', color: '#ffffff' },
+         bgm: { enabled: true, path: 'C:/tmp/story2video/selected-media/bgm.mp3', volume: 7 },
+         versions: { generateBase: false, generateMerged: true },
+-        perImageDuration: 4,
+         transition: 'slide-left',
+         output: { fps: 24, format: 'webm' },
+         publish: { enabled: true, platforms: ['douyin'], title: '日出', content: '海上日出', tags: ['旅行'] },
+@@ -155,15 +156,20 @@ describe('Story2Video text 参数合同', () => {
+     })
+   })
+ 
+-  it('兼容忽略旧时长、版本和 PromptBridge 专属字段', () => {
++  it('兼容忽略旧时长、版本、perImageDuration 和 PromptBridge 专属字段', () => {
+     const result = normalizeStory2VideoTextParams({
+       text: '兼容旧配置',
+-      story2videoTextConfig: { seconds: 12, versions: { generateBase: false, generateMerged: false }, optimize: { platform: 'unknown' } },
++      story2videoTextConfig: { seconds: 12, versions: { generateBase: false, generateMerged: false }, perImageDuration: 4, optimize: { platform: 'unknown' } },
+     })
+ 
+     expect(result.stageOptions.optimize).not.toHaveProperty('platform')
+     expect(result).not.toHaveProperty('seconds')
+     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
++    expect(result).not.toHaveProperty('perImageDuration')
++    expect(result.story2videoTextConfig).not.toHaveProperty('perImageDuration')
++    // 旧 perImageDuration 不再暴露，defaultSceneDuration 保持固定默认 6 作为 compose 回退。
++    expect(result.defaultSceneDuration).toBe(6)
++    expect(result.stageOptions.compose.defaultSceneDuration).toBe(6)
+   })
+ 
+   it('仅提供版本化配置时使用 prompt 恢复 text 合同', () => {
+@@ -186,6 +192,23 @@ describe('Story2Video text 参数合同', () => {
+     })
+   })
+ 
++  it('defaultSceneDuration 支持扁平/嵌套别名与越界拒绝，不再是 perImageDuration 用户项', () => {
++    const alias = normalizeStory2VideoTextParams({ text: '别名', defaultSceneDuration: 8 })
++    expect(alias.defaultSceneDuration).toBe(8)
++    expect(alias.stageOptions.compose.defaultSceneDuration).toBe(8)
++    expect(alias.story2videoTextConfig).not.toHaveProperty('defaultSceneDuration')
++
++    const nested = normalizeStory2VideoTextParams({
++      text: '嵌套',
++      story2videoTextConfig: { defaultSceneDuration: 5 },
++    })
++    expect(nested.defaultSceneDuration).toBe(5)
++    expect(nested.stageOptions.compose.defaultSceneDuration).toBe(5)
++
++    expect(() => normalizeStory2VideoTextParams({ text: '越界', defaultSceneDuration: 0 })).toThrow(/defaultSceneDuration/)
++    expect(() => normalizeStory2VideoTextParams({ text: '越界', defaultSceneDuration: 61 })).toThrow(/defaultSceneDuration/)
++  })
++
+   it.each([
+     [{ inputMode: 'images', images: ['data:image/png;base64,aQ=='] }, '只支持 text'],
+     [{ text: '测试', images: {} }, 'images 必须是数组'],
+diff --git a/apps/desktop/src/views/CreateView.test.js b/apps/desktop/src/views/CreateView.test.js
+index dee34a2..d33861f 100644
+--- a/apps/desktop/src/views/CreateView.test.js
++++ b/apps/desktop/src/views/CreateView.test.js
+@@ -584,7 +584,6 @@ describe("CreateView - S2V orchestration", () => {
+       subtitleStyleName: "style2",
+       bgmPath: "C:/media/bgm.mp3",
+       bgmVolume: 7,
+-      perImageDuration: 4,
+       splitLanguage: "auto",
+       splitMode: "precise",
+       splitMaxSentenceLength: 120,
+@@ -618,7 +617,6 @@ describe("CreateView - S2V orchestration", () => {
+         voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8, pitch: -1, emotion: "warm" }),
+         subtitle: expect.objectContaining({ enabled: false, font: "Noto Sans SC", size: "size4", style: "style2" }),
+         bgm: { enabled: true, path: "C:/media/bgm.mp3", volume: 7 },
+-        perImageDuration: 4,
+         transition: "slide-right",
+         output: { fps: 24, format: "webm" },
+         publish: expect.objectContaining({ enabled: true, platforms: ["bilibili"], title: "长安夜景", tags: ["历史", "夜景"] }),
+@@ -627,6 +625,7 @@ describe("CreateView - S2V orchestration", () => {
+     const request = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
+     expect(request).not.toHaveProperty("seconds");
+     expect(request).not.toHaveProperty("versions");
++    expect(request).not.toHaveProperty("perImageDuration");
+     expect(w.vm.outputConfig).toEqual({ resolution: "3840x2160", fps: 60, format: "mp4" });
+     w.unmount();
+   });
+diff --git a/apps/desktop/src/views/CreateView.vue b/apps/desktop/src/views/CreateView.vue
+index 331267a..fa37832 100644
+--- a/apps/desktop/src/views/CreateView.vue
++++ b/apps/desktop/src/views/CreateView.vue
+@@ -275,10 +275,6 @@
+               <label>并发数</label>
+               <input type="number" v-model.number="s2vConfig.concurrency" min="1" max="8" class="form-input" />
+             </div>
+-            <div class="config-item">
+-              <label>单画面时长（秒）</label>
+-              <input type="number" v-model.number="s2vConfig.perImageDuration" min="1" max="60" step="0.5" class="form-input" />
+-            </div>
+             <div class="config-item">
+               <label>分句语言</label>
+               <select v-model="s2vConfig.splitLanguage" class="form-select">
+@@ -695,7 +691,6 @@ export default {
+         voiceId: 'default', voiceProvider: '', voiceModel: '',
+         voiceSpeed: 1, voicePitch: 0, voiceEmotion: 'default', voiceVolume: 1,
+         concurrency: 3, templateId: '', imageEffect: 'zoom-in',
+-        perImageDuration: 6,
+         splitLanguage: 'zh', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
+         splitBaseWordsPerSecond: 3.3, splitSpeechRate: 1, splitMinWords: 10, splitMaxWords: 50,
+         splitEnforceSentenceBoundary: true, splitOverflowToNext: true,
+@@ -893,7 +888,6 @@ export default {
+             color: config.subtitleStyle?.color || 'white',
+           },
+           bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
+-          perImageDuration: config.perImageDuration,
+           transition: config.transition,
+           templateId: config.templateId || '',
+           concurrency: config.concurrency,
+@@ -941,7 +935,6 @@ export default {
+       if (!template) return
+       this.s2vConfig.imageEffect = template.imageEffect
+       this.s2vConfig.transition = template.transitionEffect
+-      this.s2vConfig.perImageDuration = Number(template.perImageDuration) || 6
+       this.s2vConfig.subtitleEnabled = template.subtitleStyle?.enabled !== false
+       this.s2vConfig.subtitleFont = template.subtitleStyle?.font || this.s2vConfig.subtitleFont
+       this.s2vConfig.subtitleSize = template.subtitleStyle?.size || 'size3'
+@@ -984,7 +977,6 @@ export default {
+         category: 'custom',
+         imageEffect: this.s2vConfig.imageEffect,
+         transitionEffect: this.s2vConfig.transition,
+-        perImageDuration: Number(this.s2vConfig.perImageDuration) || 6,
+         size: this.s2vOutputConfig.resolution,
+         subtitleStyle: {
+           enabled: this.s2vConfig.subtitleEnabled !== false,
+diff --git a/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml b/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml
+index 50c8000..160e8aa 100644
+--- a/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml
++++ b/packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/story2video-compose.yaml
+@@ -75,7 +75,6 @@ runtime_defaults:
+       enabled: false
+       path: ""
+       volume: 5
+-    perImageDuration: 6
+     transition: fade
+     templateId: ""
+     concurrency: 3
+diff --git a/packages/python-backend/src/multi_publish/video_creation/pipeline/loader.py b/packages/python-backend/src/multi_publish/video_creation/pipeline/loader.py
+index 584b3fd..092964e 100644
+--- a/packages/python-backend/src/multi_publish/video_creation/pipeline/loader.py
++++ b/packages/python-backend/src/multi_publish/video_creation/pipeline/loader.py
+@@ -17,7 +17,9 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "pipelines" /
+ 
+ 
+ def _load_manifest_schema() -> dict:
+-    with open(SCHEMA_PATH) as f:
++    # 清单与 schema 均以 UTF-8 存储（含中文文案）；显式指定编码避免 Windows cp936
++    # 默认编码把 UTF-8 字节按 GBK 解码导致 UnicodeDecodeError。
++    with open(SCHEMA_PATH, encoding="utf-8") as f:
+         return json.load(f)
+ 
+ 
+@@ -36,7 +38,8 @@ def load_pipeline(name: str, defs_dir: Path | None = None) -> dict[str, Any]:
+     if not path.exists():
+         raise FileNotFoundError(f"Pipeline manifest not found: {path}")
+ 
+-    with open(path) as f:
++    # UTF-8 显式解码：manifest 含中文注释/描述，Windows cp936 默认编码会按 GBK 解码失败。
++    with open(path, encoding="utf-8") as f:
+         manifest = yaml.safe_load(f)
+ 
+     schema = _load_manifest_schema()
+diff --git a/packages/python-backend/tests/test_pipeline_loader.py b/packages/python-backend/tests/test_pipeline_loader.py
+index 8c178fa..cea9cf5 100644
+--- a/packages/python-backend/tests/test_pipeline_loader.py
++++ b/packages/python-backend/tests/test_pipeline_loader.py
+@@ -68,6 +68,23 @@ class TestPipelineLoader:
+         assert split_stage["options"]["fallback_to_local"] is True
+         assert split_stage["options"]["require_scene_output"] is True
+ 
++    def test_load_utf8_chinese_content_regression(self, tmp_path):
++        # 回归：Windows cp936 默认编码下，open() 无显式 encoding 会把 UTF-8 中文
++        # 按 GBK 解码抛 UnicodeDecodeError；loader 必须显式以 UTF-8 读取。
++        (tmp_path / "utf8-cn.yaml").write_text(
++            'name: "utf8-cn"\n'
++            'version: "1.0"\n'
++            "description: 含中文描述的清单，验证 UTF-8 解码回归\n"
++            "stages:\n"
++            "  - name: 分析阶段\n"
++            "    description: 中文阶段描述\n",
++            encoding="utf-8",
++        )
++        manifest = load_pipeline("utf8-cn", defs_dir=tmp_path)
++        assert manifest["name"] == "utf8-cn"
++        assert manifest["description"].startswith("含中文")
++        assert manifest["stages"][0]["name"] == "分析阶段"
++
+     def test_get_stage_order_default(self):
+         stages = get_stage_order(SAMPLE_MANIFEST)
+         assert stages == ["analysis", "generation", "review"]
+diff --git a/packages/story2video-engine/src/template-library.ts b/packages/story2video-engine/src/template-library.ts
+index a6ca9a1..5fa5922 100644
+--- a/packages/story2video-engine/src/template-library.ts
++++ b/packages/story2video-engine/src/template-library.ts
+@@ -4,36 +4,36 @@ import type { VideoTemplate, TemplateCategory } from './types';
+ export const BUILT_IN_TEMPLATES: VideoTemplate[] = [
+   {
+     id: 'tpl-quick', name: '快速成片', description: '标准模式，适合大多数场景', category: 'popular',
+-    imageEffect: 'zoom-in', transitionEffect: 'fade', perImageDuration: 4, size: '1920x1080',
++    imageEffect: 'zoom-in', transitionEffect: 'fade', size: '1920x1080',
+   },
+   {
+     id: 'tpl-slideshow', name: '幻灯片演示', description: '平稳切换，适合产品展示', category: 'business',
+-    imageEffect: 'none', transitionEffect: 'slide-left', perImageDuration: 5, size: '1920x1080',
++    imageEffect: 'none', transitionEffect: 'slide-left', size: '1920x1080',
+     subtitleStyle: { enabled: true, font: 'sans-serif', size: 'lg', style: 'style1' },
+   },
+   {
+     id: 'tpl-dynamic', name: '动感快剪', description: '快速切换，适合精彩集锦', category: 'creative',
+-    imageEffect: 'zoom-out', transitionEffect: 'slide-right', perImageDuration: 3, size: '1920x1080',
++    imageEffect: 'zoom-out', transitionEffect: 'slide-right', size: '1920x1080',
+     bgm: { url: '', name: '节奏明快', volume: 5 },
+   },
+   {
+     id: 'tpl-vlog', name: 'Vlog 日常', description: '自然温馨风格，适合生活记录', category: 'vlog',
+-    imageEffect: 'pan-left', transitionEffect: 'fade', perImageDuration: 4, size: '1080x1920',
++    imageEffect: 'pan-left', transitionEffect: 'fade', size: '1080x1920',
+     subtitleStyle: { enabled: true, font: 'sans-serif', size: 'md', style: 'style2' },
+   },
+   {
+     id: 'tpl-education', name: '知识讲解', description: '清晰展示，适合教程内容', category: 'education',
+-    imageEffect: 'none', transitionEffect: 'fade', perImageDuration: 6, size: '1920x1080',
++    imageEffect: 'none', transitionEffect: 'fade', size: '1920x1080',
+     subtitleStyle: { enabled: true, font: 'serif', size: 'lg', style: 'style3' },
+   },
+   {
+     id: 'tpl-promo', name: '营销推广', description: '强视觉冲击，适合广告宣传', category: 'business',
+-    imageEffect: 'zoom-in', transitionEffect: 'slide-up', perImageDuration: 3, size: '1920x1080',
++    imageEffect: 'zoom-in', transitionEffect: 'slide-up', size: '1920x1080',
+     bgm: { url: '', name: '活力电子', volume: 7 },
+   },
+   {
+     id: 'tpl-cinematic', name: '电影质感', description: '沉稳大气，适合品牌宣传', category: 'creative',
+-    imageEffect: 'pan-right', transitionEffect: 'fade', perImageDuration: 5, size: '1920x1080',
++    imageEffect: 'pan-right', transitionEffect: 'fade', size: '1920x1080',
+     subtitleStyle: { enabled: true, font: 'serif', size: 'lg', style: 'style1' },
+   },
+ ];
+@@ -64,7 +64,6 @@ function isVideoTemplate(value: unknown): value is VideoTemplate {
+     && TEMPLATE_CATEGORIES.has(template.category as TemplateCategory)
+     && IMAGE_EFFECTS.has(template.imageEffect as VideoTemplate['imageEffect'])
+     && TRANSITION_EFFECTS.has(template.transitionEffect as VideoTemplate['transitionEffect'])
+-    && Number.isFinite(template.perImageDuration) && Number(template.perImageDuration) > 0
+     && typeof template.size === 'string' && /^\d{3,5}x\d{3,5}$/.test(template.size);
+ }
+ 
+diff --git a/packages/story2video-engine/src/types.ts b/packages/story2video-engine/src/types.ts
+index 455f8b4..88ad057 100644
+--- a/packages/story2video-engine/src/types.ts
++++ b/packages/story2video-engine/src/types.ts
+@@ -94,7 +94,6 @@ export interface VideoTemplate {
+   category: TemplateCategory;
+   imageEffect: ImageEffect;
+   transitionEffect: TransitionEffect;
+-  perImageDuration: number;
+   size: string;
+   subtitleStyle?: SubtitleStyleConfig;
+   bgm?: TemplateBgmConfig;
+diff --git a/packages/story2video-engine/tests/history-template.test.ts b/packages/story2video-engine/tests/history-template.test.ts
+index 8327b91..4fcb1d1 100644
+--- a/packages/story2video-engine/tests/history-template.test.ts
++++ b/packages/story2video-engine/tests/history-template.test.ts
+@@ -92,4 +92,14 @@ describe('template-library 模板库', () => {
+     expect(loadCustomTemplates(storage).map(template => template.id)).toEqual(['custom-valid']);
+     expect(() => saveCustomTemplate({ ...BUILT_IN_TEMPLATES[0], id: 'tpl-quick' }, storage)).toThrow(/自定义模板/);
+   });
++
++  it('旧存储中带 perImageDuration 字段的模板仍能加载（兼容忽略已移除字段）', () => {
++    const storage = memoryStorage();
++    storage.setItem('video_templates_custom', JSON.stringify([
++      { ...BUILT_IN_TEMPLATES[0], id: 'custom-legacy-1', name: '旧模板', category: 'custom', perImageDuration: 4 },
++    ]));
++    const loaded = loadCustomTemplates(storage);
++    expect(loaded).toHaveLength(1);
++    expect(loaded[0].id).toBe('custom-legacy-1');
++  });
+ });

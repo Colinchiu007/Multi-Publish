@@ -18,6 +18,7 @@ const MARKER = path.join(PROJECT_ROOT, ".quality-rhythm");
 const AGENTS_FILE = path.join(PROJECT_ROOT, "AGENTS.md");
 const CLAUDE_CMDS = path.join(PROJECT_ROOT, ".claude", "commands");
 const CURSOR_CMDS = path.join(PROJECT_ROOT, ".cursor", "commands");
+const CMD_TEMPLATE = path.join(__dirname, "..", "commands", "质量节拍.md");
 
 const AGENTS_APPEND = `
 ## 强制质量流程
@@ -29,7 +30,7 @@ const AGENTS_APPEND = `
 - 阶段检查（每 Phase 结束）：verification-before-completion → /health → documentation-and-adrs
 - 特殊场景（按需触发）：/investigate | /cso | defense-in-depth | ...
 
-详细定义见 \`.codex/skills/质量节拍/SKILL.md\` 或 quality-rhythm skill。
+详细定义见 \`.agents/skills/质量节拍/SKILL.md\` 或 quality-rhythm skill。
 
 违规后果：
 - 跳过 TDD 直接写代码 = 代码不被接受
@@ -93,7 +94,9 @@ try {
   if (!fs.existsSync(CLAUDE_CMDS)) {
     fs.mkdirSync(CLAUDE_CMDS, { recursive: true });
   }
-  const cmdContent = `# 质量节拍
+  const cmdContent = fs.existsSync(CMD_TEMPLATE)
+    ? fs.readFileSync(CMD_TEMPLATE, "utf8")
+    : `# 质量节拍
 
 按质量节拍 skill 执行：日常循环(4步) + 阶段检查(3步) + 特殊场景(按需触发)。
 
@@ -110,7 +113,9 @@ try {
   if (!fs.existsSync(CURSOR_CMDS)) {
     fs.mkdirSync(CURSOR_CMDS, { recursive: true });
   }
-  const cmdContent = `# 质量节拍
+  const cmdContent = fs.existsSync(CMD_TEMPLATE)
+    ? fs.readFileSync(CMD_TEMPLATE, "utf8")
+    : `# 质量节拍
 
 按质量节拍 skill 执行：日常循环(4步) + 阶段检查(3步) + 特殊场景(按需触发)。
 

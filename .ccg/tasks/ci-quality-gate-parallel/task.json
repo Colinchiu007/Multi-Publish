@@ -1,0 +1,14 @@
+{
+  "id": "ci-quality-gate-parallel",
+  "title": "Quality Gate 并行拆分 + 触发去重",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci",
+  "currentPhase": "completed",
+  "nextAction": "已交付（PR #435/#436；并行 QG ~12min，实测 Unit 11m8s + Coverage 11m10s 并行）",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "branch": "codex/ci-quality-gate-parallel",
+  "openspecChange": "ci-quality-gate-parallel",
+  "completedAt": "2026-08-09T00:00:00Z"
+}

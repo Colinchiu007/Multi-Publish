@@ -50,7 +50,9 @@
 
     <footer class="yixiaoer-sidebar-footer">
       <span class="yixiaoer-sidebar-status"><i aria-hidden="true"></i>客户端已连接</span>
-      <button type="button" class="yixiaoer-sidebar-help" aria-label="帮助">?</button>
+      <button type="button" class="yixiaoer-sidebar-settings" aria-label="设置" title="设置" @click="emit('open-settings')">
+        <Setting aria-hidden="true" />
+      </button>
     </footer>
   </aside>
 </template>
@@ -60,13 +62,17 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown,
+  Calendar,
   ChatDotRound,
   Collection,
   DataAnalysis,
   FolderOpened,
+  Grid,
   HomeFilled,
+  Monitor,
   MoreFilled,
   Plus,
+  Setting,
   User,
   VideoCamera,
 } from '@element-plus/icons-vue'
@@ -96,6 +102,8 @@ const licenseLabel = computed(() => {
   return '免费版'
 })
 
+const emit = defineEmits(['open-settings'])
+
 const primaryItems = [
   { key: 'home', label: '主页', to: '/', icon: HomeFilled },
   { key: 'publish', label: '发布', to: '/publish/history', icon: VideoCamera },
@@ -103,11 +111,14 @@ const primaryItems = [
   { key: 'dashboard', label: '数据', to: '/dashboard', icon: DataAnalysis },
   { key: 'cloud-publish', label: 'CLI', to: '/cloud-publish', icon: FolderOpened },
   { key: 'comments', label: '私信评论', to: '/comments', icon: ChatDotRound },
+  { key: 'create', label: '视频创作', to: '/create', icon: VideoCamera },
+  { key: 'collection', label: '采集', to: '/collection', icon: Collection },
+  { key: 'calendar', label: '发布日历', to: '/calendar', icon: Calendar },
+  { key: 'monitor', label: '监控', to: '/monitor', icon: Monitor },
 ]
 
 const moreItems = [
   { key: 'collection', label: '采集', to: '/collection', icon: Collection },
-  { key: 'create', label: '视频创作', to: '/create', icon: VideoCamera },
   { key: 'library', label: '素材库', to: '/library', icon: FolderOpened },
 ]
 
@@ -324,9 +335,11 @@ function goToPublish () {
   background: #2fc27a;
 }
 
-.yixiaoer-sidebar-help {
+.yixiaoer-sidebar-settings {
   width: 20px;
   height: 20px;
+  display: grid;
+  place-items: center;
   padding: 0;
   border: 1px solid #c5c4d9;
   border-radius: 50%;
@@ -335,10 +348,15 @@ function goToPublish () {
   cursor: pointer;
 }
 
+.yixiaoer-sidebar-settings svg {
+  width: 12px;
+  height: 12px;
+}
+
 .yixiaoer-primary-item:focus-visible,
 .yixiaoer-more-item:focus-visible,
 .yixiaoer-sidebar-add:focus-visible,
-.yixiaoer-sidebar-help:focus-visible {
+.yixiaoer-sidebar-settings:focus-visible {
   outline: 2px solid #5149e8;
   outline-offset: 2px;
 }

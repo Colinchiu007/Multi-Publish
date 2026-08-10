@@ -1,0 +1,4 @@
+interface:
+  display_name: "CI Hardening"
+  short_description: "CI 迁移、并行化、去重、契约同步与项目门禁初始化"
+  default_prompt: "优化本仓库的 CI（迁移 runner、并行 Quality Gate、触发去重），或为新项目初始化质量门禁。"

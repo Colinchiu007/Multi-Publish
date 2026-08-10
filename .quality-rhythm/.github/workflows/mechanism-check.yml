@@ -1,0 +1,56 @@
+name: mechanism-check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint (node --check + dry-run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Syntax check all scripts
+        run: |
+          node --check integrations/bootstrap-env.js
+          node --check integrations/install-mechanism.js
+          node --check integrations/verify-env.js
+          node --check skills/other/ci-hardening/scripts/apply-ci-hardening.js
+          node --check skills/other/ci-hardening/scripts/analyze-ci-steps.js
+          node --check .github/scripts/tpl-contract.test.js
+      - name: ci-hardening template contract tests
+        run: node --test .github/scripts/tpl-contract.test.js
+      - name: bootstrap dry-run (plan only, no side effects)
+        run: node integrations/bootstrap-env.js --dry-run
+
+  smoke:
+    name: Smoke (project init + verify gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install mechanism CLIs
+        run: |
+          npm i -g @fission-ai/openspec @colbymchenry/codegraph fastctx
+          fastctx apply --yes || true
+      - name: Project init + verify gate smoke
+        run: |
+          rm -rf /tmp/mech-ci-smoke && mkdir -p /tmp/mech-ci-smoke && cd /tmp/mech-ci-smoke
+          git init -q
+          node "$GITHUB_WORKSPACE/integrations/install-mechanism.js" /tmp/mech-ci-smoke --yes
+      - name: Verify gate re-run (post-init)
+        run: |
+          node "$GITHUB_WORKSPACE/integrations/verify-env.js" /tmp/mech-ci-smoke
+
+      - name: ci-hardening drift contract (rendered vs template, no placeholders)
+        run: |
+          node "$GITHUB_WORKSPACE/skills/other/ci-hardening/scripts/apply-ci-hardening.js" --repo /tmp/mech-ci-smoke --dry-run
+          if grep -E "{{[A-Z_]+}}" /tmp/mech-ci-smoke/.github/workflows/quality-gate.yml; then echo "FAIL: unresolved {{VARS}} placeholders remain"; exit 1; fi
+          if grep -q "branches-ignore" /tmp/mech-ci-smoke/.github/workflows/quality-gate.yml; then echo "FAIL: legacy double-trigger"; exit 1; fi
+          grep -q "static-gates" /tmp/mech-ci-smoke/.github/workflows/quality-gate.yml || { echo "FAIL: missing static-gates job"; exit 1; }

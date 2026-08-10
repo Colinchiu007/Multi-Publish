@@ -1,0 +1,60 @@
+# Codex 用户级配置模板（机制整合包）
+# 复制到 ~/.codex/config.toml 后按本机环境替换占位符 {{...}}。
+# ⚠️ 模板不含 API Key / 绝对用户路径 / 插件市场 local source——请按需补充。
+
+# 模型（可选，按你的 provider 配置）
+# model = "deepseek-v4-flash"
+# model_provider = "custom"
+# model_context_window = 1000000
+# model_auto_compact_token_limit = 800000
+# model_reasoning_effort = "high"
+# sandbox_mode = "danger-full-access"
+# approval_policy = "never"
+
+[mcp_servers]
+
+# Node REPL（可选；Codex app 运行时自带，见 app 安装目录）
+[mcp_servers.node_repl]
+args = []
+command = '{{NODE_REPL_EXE}}'
+startup_timeout_sec = 120
+
+# CodeGraph 代码图谱（机制依赖：CCG「codegraph 优先路由」）
+# 安装: npm i -g @codegraph/cli（或官方方式）；项目内运行 codegraph init 建索引
+[mcp_servers.codegraph]
+command = "codegraph"
+args = [ "serve", "--mcp" ]
+
+[mcp_servers.codegraph.tools.codegraph_node]
+approval_mode = "approve"
+
+# Context7 库文档检索（可选）
+[mcp_servers.context7]
+type = "stdio"
+command = "cmd"
+args = [ "/c", "npx", "-y", "@upstash/context7-mcp@latest" ]
+
+# FastCtx 本地文件工具（机制依赖：overlay fastctx 区块）
+# 安装: npm i -g fastctx && fastctx apply --yes
+[mcp_servers.fastctx]
+command = "{{FASTCTX_BIN}}"   # 例如 C:/Users/<你>/.fastctx/bin/fastctx.exe
+args = ["serve", "--enable-shell"]
+startup_timeout_sec = 120
+
+[mcp_servers.fastctx.env]
+FASTCTX_TOKEN_BUDGET = "8500"
+FASTCTX_GLOB_TOKEN_BUDGET = "4300"
+
+# Stitch 设计（可选；需自备 API Key）
+# [mcp_servers.stitch]
+# url = "https://stitch.googleapis.com/mcp"
+# [mcp_servers.stitch.http_headers]
+# "X-Goog-Api-Key" = "{{STITCH_API_KEY}}"
+
+[features]
+memories = true
+goals = true
+
+[memories]
+generate_memories = true
+use_memories = true

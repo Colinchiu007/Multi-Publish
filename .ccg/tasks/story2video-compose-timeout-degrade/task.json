@@ -1,0 +1,16 @@
+{
+  "id": "story2video-compose-timeout-degrade",
+  "title": "遗留事项：compose 片段 4K zoompan 编码超时降档 + MiniMax 推理 token 预算",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video-compose+prompt-engine",
+  "currentPhase": "completed",
+  "createdAt": "2026-08-09T14:40:00Z",
+  "items": [
+    "A1: computeSegmentEncodeTimeoutMs 按时长×帧率估算（30s 下限/5min 上限），替代固定 30s",
+    "A2: _createSegment 编码失败时工作分辨率降档重试 2x→1.5x→1x",
+    "B: prompt-engine minimax max_tokens 500→1500 + MINIMAX_MAX_TOKENS 环境变量覆盖",
+    "验证: compose 单测 76 通过；真实 20s/1080p 段 23.5s 编码成功；prompt-engine 长文案返回干净提示词无回退"
+  ]
+}

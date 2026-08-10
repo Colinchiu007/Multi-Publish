@@ -1,0 +1,7 @@
+# 统一 LF 行尾（防止 Windows/python 混入 CRLF）
+* text=auto eol=lf
+*.js text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf

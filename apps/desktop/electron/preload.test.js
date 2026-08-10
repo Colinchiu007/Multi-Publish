@@ -374,6 +374,13 @@ describe('Story2Video 媒体导入桥接', () => {
     expect(result).toEqual({ code: -1, message: '无法读取媒体文件路径' })
     expect(scopedIpcRenderer.invoke).not.toHaveBeenCalled()
   })
+
+  it('本地媒体导入为公开方法且主进程通道公开（未登录可用，设备本地操作）', () => {
+    const { PUBLIC_METHODS } = require('./preload/access-control')
+    const { requiredLevelForChannel } = require('./ipc-handlers/license-access-control')
+    expect(PUBLIC_METHODS).toContain('story2videoImportMedia')
+    expect(requiredLevelForChannel('story2video:import-media')).toBe('public')
+  })
 })
 
 // === 监听器类方法返回 cancel 函数（抽样 5 个）===

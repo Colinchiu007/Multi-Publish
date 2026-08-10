@@ -1,0 +1,31 @@
+{
+  "id": "story2video-prompt-engine-port-fix",
+  "title": "图片轮播流水线启动后无法成功一直报错（PromptBridge 端口契约 + prompt-engine 推理块 + 事件循环阻塞）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video+prompt-engine",
+  "currentPhase": "completed",
+  "nextAction": "prompt-engine 侧建议调大 max_tokens 或关闭 MiniMax-M3 思考以减少推理-only 回退；真实 provider 权益验收",
+  "createdAt": "2026-08-09T14:20:00Z",
+  "branch": "codex/story2video-history-not-logged-in",
+  "rootCauses": [
+    "PromptBridge 以 PORT env 下发端口(8014)，但 prompt_engine.api 只读 config.yaml(8013)，导致端口错位/绑定冲突 → 健康检查超时 → 重启循环 → 提示词优化阶段卡死",
+    "prompt-engine 未加载 .env（MINIMAX_API_KEY 缺失）→ LLM 401",
+    "MiniMax-M3 推理模型把 <think> 内容作为返回，prompt-engine 原样返回 → 应用剥离后为空 → fail closed",
+    "/v1/optimize 在 async 端点内同步调用 LLM，阻塞事件循环 → /health 超时 → Bridge watchdog 误重启，打断在途请求"
+  ],
+  "fixes": [
+    "prompt-engine: prompt_engine/api/__main__.py 尊重 PORT env（提交 036dc7d）",
+    "prompt-engine: optimizer.py 剥离 <think> 推理块，仅推理时回退原文（提交 1cf449c）",
+    "prompt-engine: rest.py LLM 端点 to_thread 执行，避免阻塞事件循环（提交 61ad3b2）",
+    "环境：启动 prompt-engine 需带 .env（MINIMAX_API_KEY 等），launch-debug-profile.js 场景通过 source .env 后启动"
+  ],
+  "evidence": [
+    "73+45 测试通过（reasoning-strip / health-during-optimize / api / config / optimizer）",
+    "实测 PORT=8015 绑定 + /health ok",
+    "实测 POST /v1/optimize 返回干净提示词（无 <think>）",
+    "实测优化期间 /health 延迟 <1s（修复前会阻塞超时）",
+    "真实 Electron 链路：27 场景 run 优化成功进入 generate_assets；短文案 run 全流程 completed（视频已合成）"
+  ]
+}

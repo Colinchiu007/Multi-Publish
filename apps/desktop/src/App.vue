@@ -4,7 +4,7 @@
 
     <template v-if="isYixiaoerWorkspace">
       <div class="yixiaoer-shell" data-testid="yixiaoer-shell">
-        <YixiaoerSidebar />
+        <YixiaoerSidebar @open-settings="showSettingsDialog = true" />
         <div class="yixiaoer-shell-main">
           <YixiaoerModuleNav />
           <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
