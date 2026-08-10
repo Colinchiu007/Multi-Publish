@@ -30,8 +30,7 @@ async def ingest_usage(
     """桌面端脱敏聚合用量上报（X-Catalog-Key 鉴权，无需登录）。"""
     _require_catalog_key(request)
     try:
-        items = body.get("items", []) if isinstance(body, dict) else []
-        return await usage_service.ingest_usage(db, items)
+        return await usage_service.ingest_usage(db, body)
     except ValueError as e:
         raise HTTPException(400, str(e))
 

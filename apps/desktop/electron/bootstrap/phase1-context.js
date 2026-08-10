@@ -203,8 +203,12 @@ function extractContext(container) {
     getClientId: () => {
       try {
         const crypto = require('crypto')
-        return crypto.createHash('sha256').update(String(app.getPath('userData') || '')).digest('hex').slice(0, 16)
-      } catch { return '' }
+        const { app: electronApp } = require('electron')
+        return crypto.createHash('sha256').update(String(electronApp.getPath('userData') || '')).digest('hex').slice(0, 16)
+      } catch (e) {
+        log.warn('UsageReporter', 'getClientId failed: ' + e.message)
+        return ''
+      }
     },
   })
   usageReporter.start()

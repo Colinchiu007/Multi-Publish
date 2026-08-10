@@ -25,7 +25,8 @@ function classifyStatus (row) {
   if (status === 'success') return { ok: true, ratelimit: false }
   const ratelimit = status.toLowerCase().includes('ratelimit') ||
     status.toLowerCase().includes('rate_limit') ||
-    msg.includes('rate limit') || msg.includes('限流') || msg.includes('429')
+    msg.includes('rate limit') || msg.includes('限流') || msg.includes('429') ||
+    msg.includes('quota') || msg.includes('too many requests')
   return { ok: false, ratelimit }
 }
 
@@ -77,7 +78,7 @@ class UsageReporter {
     let rows
     try {
       rows = db.prepare(
-        'SELECT id, provider_id, category, action, status, latency_ms, tokens_in, tokens_out, cost, error_message ' +
+        'SELECT id, provider_id, category, action, status, latency_ms, tokens_in, tokens_out, cost, error_message, created_at ' +
         'FROM model_provider_logs WHERE id > ? ORDER BY id ASC LIMIT ?'
       ).all(lastId, MAX_ROWS_PER_REPORT)
     } catch (e) {
@@ -89,14 +90,17 @@ class UsageReporter {
     const today = new Date().toISOString().slice(0, 10)
     const buckets = new Map()
     let maxId = lastId
+    let firstId = Number.MAX_SAFE_INTEGER
     for (const row of rows) {
       const id = Number(row.id)
       if (Number.isFinite(id) && id > maxId) maxId = id
-      const key = [row.provider_id, row.category || 'llm', row.action].join('\u0000')
+      if (Number.isFinite(id) && id < firstId) firstId = id
+      const usageDate = String(row.created_at || '').slice(0, 10) || today
+      const key = [usageDate, row.provider_id, row.category || 'llm', row.action].join('\u0000')
       let b = buckets.get(key)
       if (!b) {
         b = {
-          provider_id: row.provider_id, category: row.category || 'llm', action: row.action,
+          usage_date: usageDate, provider_id: row.provider_id, category: row.category || 'llm', action: row.action,
           calls: 0, ok_count: 0, fail_count: 0, ratelimit_count: 0,
           latency_ms: 0, tokens_in: 0, tokens_out: 0, cost: 0,
           buckets: { lt1s: 0, '1to3s': 0, '3to10s': 0, gt10s: 0 },
@@ -124,7 +128,7 @@ class UsageReporter {
     const items = []
     for (const b of buckets.values()) {
       items.push({
-        usage_date: today,
+        usage_date: b.usage_date,
         client_id: this._getClientId(),
         provider_id: b.provider_id,
         category: b.category,
@@ -147,7 +151,7 @@ class UsageReporter {
       const resp = await fetch(String(auth.url).replace(/\/+$/, '') + '/api/v1/usage/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Catalog-Key': auth.apiKey, Accept: 'application/json' },
-        body: JSON.stringify({ items, synced_at: new Date().toISOString() }),
+        body: JSON.stringify({ items, batch_id: this._getClientId() + ':' + lastId + ':' + maxId, synced_at: new Date().toISOString() }),
         redirect: 'error',
         signal: controller && controller.signal,
       })

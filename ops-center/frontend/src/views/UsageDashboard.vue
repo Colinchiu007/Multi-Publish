@@ -3,9 +3,9 @@
     <h1 style="margin-bottom: 16px">模型用量</h1>
     <div style="margin-bottom: 16px">
       <el-radio-group v-model="days" @change="load">
-        <el-radio-button :label="7">近 7 天</el-radio-button>
-        <el-radio-button :label="30">近 30 天</el-radio-button>
-        <el-radio-button :label="90">近 90 天</el-radio-button>
+        <el-radio-button :value="7">近 7 天</el-radio-button>
+        <el-radio-button :value="30">近 30 天</el-radio-button>
+        <el-radio-button :value="90">近 90 天</el-radio-button>
       </el-radio-group>
       <el-button style="margin-left: 12px" :loading="loading" @click="load">刷新</el-button>
     </div>
@@ -85,7 +85,7 @@ const trendData = computed(() => {
 
 function barHeight (v) {
   if (!v) return '2px'
-  const max = Math.max(1, ...(summary.value?.by_date || []).map(r => r.calls))
+  const max = trendData.value.length ? trendData.value[0]._max : 1
   return Math.max(4, Math.round((v / max) * 120)) + 'px'
 }
 

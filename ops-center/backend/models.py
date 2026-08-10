@@ -1,5 +1,6 @@
 """SQLAlchemy models for OpsCenter config management."""
 import datetime
+import sqlalchemy as sa
 from sqlalchemy import Column, String, Integer, Text, Float, ForeignKey
 from sqlalchemy.orm import relationship
 
@@ -171,6 +172,9 @@ class ModelUsageDaily(Base):
     """
 
     __tablename__ = "model_usage_daily"
+    __table_args__ = (
+        sa.UniqueConstraint("usage_date", "client_id", "provider_id", "action", name="uq_model_usage_daily_bucket"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     usage_date = Column(String, nullable=False)  # YYYY-MM-DD
@@ -188,3 +192,17 @@ class ModelUsageDaily(Base):
     cost = Column(Float, default=0.0)
     latency_buckets = Column(Text, default="{}")  # JSON
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class ModelUsageBatch(Base):
+    """用量上报批次去重 — 客户端携带 batch_id（lastId-maxId），服务端唯一约束防超时重试翻倍。"""
+
+    __tablename__ = "model_usage_batches"
+    __table_args__ = (
+        sa.UniqueConstraint("client_id", "batch_id", name="uq_model_usage_batch"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_id = Column(String, default="")
+    batch_id = Column(String, nullable=False)
+    ingested_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())

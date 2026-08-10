@@ -10,7 +10,7 @@ import re
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ModelUsageDaily
+from models import ModelUsageBatch, ModelUsageDaily
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_ITEMS = 500
@@ -25,8 +25,10 @@ def _validate_item(item: dict) -> dict:
     if not isinstance(item, dict):
         raise ValueError("上报项必须是对象")
     usage_date = str(item.get("usage_date") or "").strip()
-    if not _DATE_RE.match(usage_date):
-        raise ValueError("usage_date 必须是 YYYY-MM-DD")
+    try:
+        datetime.date.fromisoformat(usage_date)
+    except ValueError:
+        raise ValueError("usage_date 必须是合法的 YYYY-MM-DD 日期")
     provider_id = str(item.get("provider_id") or "").strip()
     action = str(item.get("action") or "").strip()
     if not provider_id or not action:
@@ -38,6 +40,10 @@ def _validate_item(item: dict) -> dict:
         v = item.get(key)
         if v is None or str(v).strip() == "":
             return 0
+        if isinstance(v, bool):
+            raise ValueError(f"{key} 必须是整数")
+        if isinstance(v, float) and not v.is_integer():
+            raise ValueError(f"{key} 必须是整数")
         try:
             n = int(v)
         except (TypeError, ValueError):
@@ -70,15 +76,21 @@ def _validate_item(item: dict) -> dict:
     for k in _LATENCY_KEYS:
         buckets[k] = max(0, int(buckets_raw.get(k, 0) or 0))
 
+    calls = _nonneg_int("calls")
+    ok_count = _nonneg_int("ok_count")
+    fail_count = _nonneg_int("fail_count")
+    if ok_count + fail_count > calls:
+        raise ValueError("ok_count + fail_count 不能大于 calls")
+
     return {
         "usage_date": usage_date,
         "client_id": str(item.get("client_id") or "")[:64],
         "provider_id": provider_id,
         "category": str(item.get("category") or "llm")[:32],
         "action": action,
-        "calls": _nonneg_int("calls"),
-        "ok_count": _nonneg_int("ok_count"),
-        "fail_count": _nonneg_int("fail_count"),
+        "calls": calls,
+        "ok_count": ok_count,
+        "fail_count": fail_count,
         "ratelimit_count": _nonneg_int("ratelimit_count"),
         "latency_ms": _nonneg_int("latency_ms"),
         "tokens_in": _nonneg_int("tokens_in"),
@@ -88,7 +100,9 @@ def _validate_item(item: dict) -> dict:
     }
 
 
-async def ingest_usage(db: AsyncSession, items: list) -> dict:
+async def ingest_usage(db: AsyncSession, body: dict) -> dict:
+    items = body.get("items", []) if isinstance(body, dict) else []
+    batch_id = str(body.get("batch_id") or "").strip()[:200]
     if not isinstance(items, list):
         raise ValueError("items 必须是数组")
     if len(items) > MAX_ITEMS:
@@ -96,51 +110,54 @@ async def ingest_usage(db: AsyncSession, items: list) -> dict:
     validated = [_validate_item(i) for i in items]
     if not validated:
         return {"ingested": 0}
+    client_id = validated[0]["client_id"]
     now = _now()
-    for item in validated:
-        row = (await db.execute(sa.select(ModelUsageDaily).where(
-            ModelUsageDaily.usage_date == item["usage_date"],
-            ModelUsageDaily.client_id == item["client_id"],
-            ModelUsageDaily.provider_id == item["provider_id"],
-            ModelUsageDaily.action == item["action"],
-        ))).scalar_one_or_none()
-        if row is None:
-            row = ModelUsageDaily(
-                usage_date=item["usage_date"], client_id=item["client_id"],
-                provider_id=item["provider_id"], category=item["category"], action=item["action"],
-                calls=item["calls"], ok_count=item["ok_count"], fail_count=item["fail_count"],
-                ratelimit_count=item["ratelimit_count"], latency_ms=item["latency_ms"],
-                tokens_in=item["tokens_in"], tokens_out=item["tokens_out"], cost=item["cost"],
-                latency_buckets=item["latency_buckets"], updated_at=now,
+
+    async with db.begin():
+        # 批次去重：同 (client_id, batch_id) 的重复提交（超时重试）直接跳过，不重复累加
+        if batch_id:
+            inserted = await db.execute(
+                sa.dialects.sqlite.insert(ModelUsageBatch)
+                .values(client_id=client_id, batch_id=batch_id, ingested_at=now)
+                .on_conflict_do_nothing(index_elements=["client_id", "batch_id"])
             )
-            db.add(row)
-        else:
-            row.calls += item["calls"]
-            row.ok_count += item["ok_count"]
-            row.fail_count += item["fail_count"]
-            row.ratelimit_count += item["ratelimit_count"]
-            row.latency_ms += item["latency_ms"]
-            row.tokens_in += item["tokens_in"]
-            row.tokens_out += item["tokens_out"]
-            row.cost += item["cost"]
-            old_buckets = {}
-            try:
-                old_buckets = json.loads(row.latency_buckets or "{}")
-            except json.JSONDecodeError:
-                old_buckets = {}
-            new_buckets = json.loads(item["latency_buckets"] or "{}")
-            merged = {}
-            for k in _LATENCY_KEYS:
-                merged[k] = int(old_buckets.get(k, 0) or 0) + int(new_buckets.get(k, 0) or 0)
-            row.latency_buckets = json.dumps(merged, ensure_ascii=False)
-            row.updated_at = now
-    await db.commit()
+            if inserted.rowcount == 0:
+                return {"ingested": 0, "duplicate": True}
+
+        # 原子 upsert：INSERT ... ON CONFLICT(唯一键) DO UPDATE 累加
+        stmt = sa.dialects.sqlite.insert(ModelUsageDaily).values([
+            {
+                "usage_date": it["usage_date"], "client_id": it["client_id"],
+                "provider_id": it["provider_id"], "category": it["category"], "action": it["action"],
+                "calls": it["calls"], "ok_count": it["ok_count"], "fail_count": it["fail_count"],
+                "ratelimit_count": it["ratelimit_count"], "latency_ms": it["latency_ms"],
+                "tokens_in": it["tokens_in"], "tokens_out": it["tokens_out"], "cost": it["cost"],
+                "latency_buckets": it["latency_buckets"], "updated_at": now,
+            }
+            for it in validated
+        ])
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["usage_date", "client_id", "provider_id", "action"],
+            set_={
+                "calls": ModelUsageDaily.calls + stmt.excluded.calls,
+                "ok_count": ModelUsageDaily.ok_count + stmt.excluded.ok_count,
+                "fail_count": ModelUsageDaily.fail_count + stmt.excluded.fail_count,
+                "ratelimit_count": ModelUsageDaily.ratelimit_count + stmt.excluded.ratelimit_count,
+                "latency_ms": ModelUsageDaily.latency_ms + stmt.excluded.latency_ms,
+                "tokens_in": ModelUsageDaily.tokens_in + stmt.excluded.tokens_in,
+                "tokens_out": ModelUsageDaily.tokens_out + stmt.excluded.tokens_out,
+                "cost": ModelUsageDaily.cost + stmt.excluded.cost,
+                "updated_at": now,
+            },
+        )
+        await db.execute(stmt)
     return {"ingested": len(validated)}
 
 
 async def usage_summary(db: AsyncSession, days: int = 30) -> dict:
     days = max(1, min(90, int(days)))
-    start = (datetime.date.today() - datetime.timedelta(days=days - 1)).isoformat()
+    today = datetime.datetime.utcnow().date()
+    start = (today - datetime.timedelta(days=days - 1)).isoformat()
     rows = (await db.execute(
         sa.select(ModelUsageDaily).where(ModelUsageDaily.usage_date >= start)
     )).scalars().all()
@@ -192,7 +209,11 @@ async def usage_summary(db: AsyncSession, days: int = 30) -> dict:
             "cost": round(totals["cost"], 4),
             "active_providers": len(by_provider),
         },
-        "by_date": [{"date": k, **v} for k, v in sorted(by_date.items())],
+        "by_date": [
+            {"date": (today - datetime.timedelta(days=i)).isoformat(),
+             **by_date.get((today - datetime.timedelta(days=i)).isoformat(), {"calls": 0, "fail": 0, "ok": 0})}
+            for i in range(days - 1, -1, -1)
+        ],
         "by_provider": [
             {"provider_id": k, "calls": v["calls"], "fail": v["fail"], "ratelimit": v["ratelimit"],
              "cost": round(v["cost"], 4), "avg_latency_ms": round(v["latency_ms"] / v["calls"], 1) if v["calls"] else 0}

@@ -68,9 +68,9 @@ describe('UsageReporter.reportPending', () => {
 
   it('聚合上报并按水印推进；脱敏（不含 error_message）', async () => {
     const rows = [
-      { id: 1, provider_id: 'openai', category: 'llm', action: 'chat', status: 'success', latency_ms: 500, tokens_in: 100, tokens_out: 50, cost: 0.01, error_message: null },
-      { id: 2, provider_id: 'openai', category: 'llm', action: 'chat', status: 'error', latency_ms: 2000, tokens_in: 0, tokens_out: 0, cost: 0, error_message: 'rate limit exceeded 敏感信息' },
-      { id: 3, provider_id: 'minimax-multimodal', category: 'multimodal', action: 'tts', status: 'success', latency_ms: 12000, tokens_in: 0, tokens_out: 0, cost: 0.5, error_message: null },
+      { id: 1, provider_id: 'openai', category: 'llm', action: 'chat', status: 'success', latency_ms: 500, tokens_in: 100, tokens_out: 50, cost: 0.01, error_message: null, created_at: '2026-08-09 10:00:00' },
+      { id: 2, provider_id: 'openai', category: 'llm', action: 'chat', status: 'error', latency_ms: 2000, tokens_in: 0, tokens_out: 0, cost: 0, error_message: 'rate limit exceeded 敏感信息', created_at: '2026-08-09 11:00:00' },
+      { id: 3, provider_id: 'minimax-multimodal', category: 'multimodal', action: 'tts', status: 'success', latency_ms: 12000, tokens_in: 0, tokens_out: 0, cost: 0.5, error_message: null, created_at: '' },
     ]
     const store = makeStore(rows)
     const r = new UsageReporter({ store, log: LOG, getOpsCenterAuth: () => AUTH, getClientId: () => 'dev-1' })
@@ -86,7 +86,10 @@ describe('UsageReporter.reportPending', () => {
       'https://ops.example.com/api/v1/usage/ingest',
       expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ 'X-Catalog-Key': 'k' }) }),
     )
+    // 批次号随请求发出（服务端按 client_id+batch_id 去重防重试翻倍）
+    expect(body.batch_id).toContain('dev-1:0:3')
     const byAction = Object.fromEntries(body.items.map(i => [i.action, i]))
+    expect(byAction.chat.usage_date).toBe('2026-08-09') // 按 created_at 真实日期归日
     expect(byAction.chat.calls).toBe(2)
     expect(byAction.chat.ok_count).toBe(1)
     expect(byAction.chat.fail_count).toBe(1)
