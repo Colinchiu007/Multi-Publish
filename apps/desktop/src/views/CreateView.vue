@@ -1504,7 +1504,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
     historyStatusLabel(status) {
-      return { completed: '已完成', failed: '生成失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
+      return { completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
     },
 
     // 流水线操作
@@ -2705,22 +2705,7 @@ export default {
         const runs = hasRuns
           ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
           : []
-        // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停（超时/崩溃遗留）
-        const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
-        const now = Date.now()
-        for (const run of runs) {
-          if (run.status === 'running') {
-            const updatedAt = run.updatedAt ? new Date(run.updatedAt).getTime() : 0
-            if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
-              run.status = 'paused'
-              if (!run.pausedStage) {
-                const stages = Array.isArray(run.stages) ? run.stages : []
-                const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
-                run.pausedStage = runningStage ? (runningStage.name || runningStage.stage || '') : ''
-              }
-            }
-          }
-        }
+        // stale running + failed→paused 检测已由 usePipelineHistory composable 统一处理
         // 运行中流水线置顶（需求：历史记录可查看运行中未完成任务及其实时流程状态），
         // 其次是已完成项目，最后是终态流水线。
         this.history = [

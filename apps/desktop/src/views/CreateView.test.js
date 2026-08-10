@@ -2057,7 +2057,7 @@ describe("CreateView - UI interactions", () => {
 
     w.vm.view = "history";
     await w.vm.loadHistory();
-    w.vm.historyFilter = "failed";
+    w.vm.historyFilter = "paused";
     await nextTick();
 
     expect(w.vm.filteredHistory.map(item => item.id)).toEqual(["run-failed"]);
@@ -2079,7 +2079,7 @@ describe("CreateView - UI interactions", () => {
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
-    w.vm.historyFilter = "failed";
+    w.vm.historyFilter = "paused";
     await nextTick();
 
     const resumeBtn = w.find(".history-btn.resume");
@@ -2136,7 +2136,7 @@ describe("CreateView - UI interactions", () => {
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
-    w.vm.historyFilter = "failed";
+    w.vm.historyFilter = "paused";
     await nextTick();
 
     expect(w.find(".history-btn.resume").exists()).toBe(false);

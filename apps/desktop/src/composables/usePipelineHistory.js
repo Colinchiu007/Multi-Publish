@@ -104,6 +104,20 @@ export function usePipelineHistory(options = {}) {
         }
       }
 
+      // failed 任务也视为已暂停：超时/崩溃遗留的 failed 任务统一显示为"已暂停"
+      for (const run of runs) {
+        if (run.status === 'failed') {
+          run.status = 'paused'
+          if (!run.pausedStage) {
+            const stages = Array.isArray(run.stages) ? run.stages : []
+            const failedStage = stages.find(s => s && s.status === 'failed')
+              || stages.find(s => s && s.status !== 'completed')
+              || stages[stages.length - 1]
+            run.pausedStage = failedStage ? (failedStage.name || failedStage.stage || '') : ''
+          }
+        }
+      }
+
       // 运行中流水线置顶，其次已完成项目，最后终态流水线
       history.value = [
         ...runs.filter(run => run.status === 'running'),
@@ -190,7 +204,7 @@ export function usePipelineHistory(options = {}) {
    * @returns {boolean}
    */
   function historyItemResumable(item) {
-    if (!item || item.status !== 'failed' || !(item.id || item.runId)) return false
+    if (!item || (item.status !== 'failed' && item.status !== 'paused') || !(item.id || item.runId)) return false
     if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
     return true
   }

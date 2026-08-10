@@ -147,6 +147,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-11 | CreateHistory.vue stale running 检测 | 独立历史页面 loadPipelines() 新增 stale running 检测（30 分钟阈值），与 CreateView.vue 一致。详见 3.1.14 | PRD 7.1.26 |
 | 2026-08-11 | usePipelineHistory composable 提取 | 消除 CreateView/CreateHistory 历史记录逻辑重复，统一 stale 检测、轮询、辅助方法。详见 3.1.15 | PRD 7.1.27 |
 | 2026-08-11 | CreateViewHistory 卡片 UI 增强 | 状态图标、运行脉冲、进度条光泽、流水线标签、状态阴影。详见 3.1.16 | PRD 7.1.28 |
+| 2026-08-11 | failed 任务统一显示为已暂停 + UI 增强 | failed 状态统一转为 paused、暂停环节推导、阶段进度显示、筛选器优化、CSS 增强（左侧色边框/暂停脉冲/卡片圆角）。详见 3.1.17 | PRD 7.1.29 |
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
@@ -646,7 +647,7 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 
 **二、修复内容**
 
-1. historyStatusLabel()（CreateView.vue methods）：新增映射 paused: '已暂停'。完整映射：{ completed: '已完成', failed: '生成失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }
+1. historyStatusLabel()（CreateView.vue methods）：新增映射 paused: '已暂停'。完整映射：{ completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }
 2. 过滤器选项（CreateView.vue 模板）：在状态过滤下拉菜单中新增 option value="paused"「已暂停」。filteredHistory 计算属性已通过 item.status === this.historyFilter 精确匹配，无需额外修改。
 3. 暂停环节提示（CreateView.vue 模板）：新增暂停环节提示 span，条件为 h.status === 'paused' && h.pausedStage。仅在 status 为 paused 且 pausedStage 非空时显示。
 4. 断点续跑按钮（CreateView.vue 模板）：原逻辑 v-if="h.status === 'failed' && historyItemResumable(h)" 修改为 v-if="(h.status === 'failed' || h.status === 'paused') && historyItemResumable(h)"。paused 状态与 failed 状态共享「从断点继续」按钮逻辑。
@@ -842,6 +843,79 @@ export function usePipelineHistory(options = {}) {
 
 - 修改：apps/desktop/src/views/CreateViewHistory.vue（模板 + 脚本 + 样式）
 ### 3.2 参数配置（Remotion 快速路径）
+### 3.1.17 failed 任务统一显示为"已暂停" + 暂停环节信息（2026-08-11）
+
+**背景**：此前 failed 状态的任务在历史记录中显示为"生成失败"，与用户期望的"已暂停"不一致。用户希望所有因失败/超时/崩溃而中断的任务统一显示为"已暂停"，并显示暂停环节信息。
+
+**一、数据校验**
+
+1. 状态转换：usePipelineHistory.js 的 loadHistory() 中，failed 状态的任务统一转换为 paused。
+2. 暂停环节推导：若 pausedStage 字段不存在，从 stages 数组中按优先级推导：
+   - 优先取 status === 'failed' 的阶段
+   - 其次取最后一个 status !== 'completed' 的阶段
+   - 最后取数组最后一个阶段
+3. 恢复按钮判断：historyItemResumable() 同时支持 failed 和 paused 状态，内容策略类错误仍不显示恢复按钮。
+
+**二、流程**
+
+```
+用户打开历史记录
+  -> loadHistory() 并行请求 projects + pipeline runs
+  -> 对每个 run.status === 'failed' 的任务：
+      1. run.status = 'paused'
+      2. 若无 pausedStage -> 从 stages 推导
+  -> 排序：running 置顶 -> projects -> 其余
+  -> 渲染 CreateViewHistory 组件
+```
+
+**三、功能逻辑**
+
+| 场景 | 原状态 | 显示状态 | 暂停环节 | 恢复按钮 |
+|------|--------|----------|----------|----------|
+| 超时/崩溃导致失败 | failed | 已暂停 | 从 stages 推导 | 显示 |
+| 内容策略拒绝 | failed | 已暂停 | 从 stages 推导 | 不显示 |
+| 30分钟无更新的 running | running->paused | 已暂停 | 从 running 阶段推导 | 显示 |
+| 正常完成 | completed | 已完成 | - | 不显示 |
+
+**四、交互逻辑**
+
+1. 状态筛选：筛选器仅保留全部/已完成/已取消/进行中/已暂停五个选项，移除了生成失败。
+2. 暂停提示：暂停状态的卡片显示 暂停环节：{pausedStage} 提示行。
+3. 阶段进度：暂停任务同样显示阶段进度条，暂停阶段使用琥珀色柔和脉冲动画。
+4. 恢复操作：点击从断点继续按钮触发 resume-history 事件。
+
+**五、显示项**
+
+| 元素 | 位置 | 内容 |
+|------|------|------|
+| 状态色条 | 卡片左侧 4px | paused 状态为琥珀色 |
+| 状态徽章 | 标题行右侧 | 暂停 已暂停，琥珀色背景+边框 |
+| 暂停环节提示 | 标题行下方 | 暂停环节：{阶段名}，琥珀色背景条 |
+| 阶段进度条 | 提示行下方 | 暂停阶段为琥珀色 active 段+柔和脉冲 |
+| 操作按钮 | 卡片底部 | 从断点继续+打开+删除 |
+| 时间戳 | 卡片底部左侧 | updatedAt/completedAt/createdAt 格式化 |
+
+**六、提示文字**
+
+| 场景 | 文字 |
+|------|------|
+| 暂停有阶段名 | 暂停环节：optimize |
+| 暂停无阶段名 | 暂停环节：（空） |
+| 运行中 | 返回流水线创作查看进度 |
+| 恢复按钮（可用） | 从断点继续 |
+| 恢复按钮（恢复中） | 恢复中... |
+
+**七、删除的重复代码**
+
+- CreateView.vue 中内联的 stale running 检测逻辑（15行）已移除，统一由 usePipelineHistory.js composable 处理。
+
+**八、相关文件**
+
+- 修改：apps/desktop/src/composables/usePipelineHistory.js
+- 修改：apps/desktop/src/views/CreateView.vue
+- 修改：apps/desktop/src/views/CreateViewHistory.vue
+- 修改：apps/desktop/src/views/CreateView.test.js
+
 
 以下 Cut 参数属于独立 Remotion 快速路径，不等同于 `story2video-compose` 的 scene schema：
 

@@ -27,7 +27,6 @@
           <select id="history-status-filter" :value="historyFilter" @change="$emit('update:historyFilter', $event.target.value)" class="form-select history-filter">
             <option value="all">全部</option>
             <option value="completed">已完成</option>
-            <option value="failed">生成失败</option>
             <option value="cancelled">已取消</option>
             <option value="running">进行中</option>
             <option value="paused">已暂停</option>
@@ -80,8 +79,8 @@
               <span class="hint-icon">⚠</span> {{ truncateError(h.error) }}
             </div>
 
-            <!-- 第三行：阶段进度（运行中） -->
-            <div v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
+            <!-- 第三行：阶段进度（运行中/已暂停） -->
+            <div v-if="(h.status === 'running' || h.status === 'paused') && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
               <span
                 v-for="(s, si) in h.stages"
                 :key="si"
@@ -163,7 +162,7 @@ export default {
     historyStatusLabel(status) {
       const labels = {
         completed: '已完成',
-        failed: '生成失败',
+        failed: '已暂停',
         cancelled: '已取消',
         running: '进行中',
         paused: '已暂停',
@@ -180,7 +179,7 @@ export default {
       return new Date(iso).toLocaleString('zh-CN')
     },
     historyItemResumable(item) {
-      if (!item || item.status !== 'failed' || !(item.id || item.runId)) return false
+      if (!item || (item.status !== 'failed' && item.status !== 'paused') || !(item.id || item.runId)) return false
       if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
       return true
     },
@@ -471,5 +470,130 @@ export default {
   .history-item-row { flex-wrap: wrap; }
   .history-name { flex-basis: 100%; }
   .history-actions { width: 100%; justify-content: flex-end; }
+}
+
+/* === UI 增强 === */
+
+/* 暂停任务阶段进度：使用更柔和的视觉效果 */
+.history-item.status-paused .history-progress-seg.active {
+  background: var(--status-waiting-text, #92400e);
+  box-shadow: 0 0 0 2px rgba(217,119,6,0.2);
+}
+.history-item.status-paused .history-progress-seg.active::after {
+  animation: seg-paused-pulse 3s ease-in-out infinite;
+}
+@keyframes seg-paused-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+/* 暂停任务卡片：更柔和的边框和阴影 */
+.history-item.status-paused {
+  border-color: var(--status-waiting-text, #d97706);
+  border-left-width: 3px;
+}
+.history-item.status-paused:hover {
+  border-color: var(--status-waiting-text, #d97706);
+  box-shadow: 0 2px 12px rgba(217,119,6,0.12);
+}
+
+/* 已完成任务卡片：绿色左边框 */
+.history-item.status-completed {
+  border-left-width: 3px;
+  border-left-color: var(--status-completed-text, #065f46);
+}
+
+/* 失败任务卡片：红色左边框（兼容未转换的 failed） */
+.history-item.status-failed {
+  border-left-width: 3px;
+  border-left-color: var(--status-failed-text, #991b1b);
+}
+
+/* 运行中任务：蓝色左边框 + 脉冲 */
+.history-item.status-running {
+  border-left-width: 3px;
+  border-left-color: var(--status-running-text, #1d4ed8);
+}
+
+/* 状态徽章增强 */
+.history-status {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.history-status.paused {
+  background: rgba(217,119,6,0.1);
+  color: var(--status-waiting-text, #92400e);
+  border: 1px solid rgba(217,119,6,0.2);
+}
+.history-status.completed {
+  background: rgba(6,95,70,0.08);
+  color: var(--status-completed-text, #065f46);
+  border: 1px solid rgba(6,95,70,0.15);
+}
+.history-status.running {
+  background: rgba(29,78,216,0.08);
+  color: var(--status-running-text, #1d4ed8);
+  border: 1px solid rgba(29,78,216,0.15);
+}
+
+/* 暂停提示增强 */
+.history-paused-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(217,119,6,0.06);
+  font-size: 12px;
+  color: var(--banner-warning-color, #b45309);
+}
+
+/* 运行中提示增强 */
+.history-running-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(29,78,216,0.06);
+  font-size: 12px;
+  color: var(--history-running-hint-text, #1d4ed8);
+}
+
+/* 卡片整体改进 */
+.history-item {
+  border-radius: 10px;
+}
+.history-item-body {
+  padding: 12px 16px;
+}
+.history-item-footer {
+  padding-top: 4px;
+  border-top: 1px solid var(--hairline, rgba(0,0,0,0.04));
+}
+
+/* 操作按钮改进 */
+.history-btn {
+  border-radius: 6px;
+  font-weight: 500;
+}
+.history-btn.resume {
+  background: rgba(29,78,216,0.04);
+}
+
+/* 空状态改进 */
+.empty-state {
+  padding: 48px 20px;
+}
+.empty-icon {
+  font-size: 40px;
+  margin-bottom: 4px;
+}
+
+/* 工具栏改进 */
+.history-toolbar {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.04));
+  margin-bottom: 16px;
 }
 </style>
