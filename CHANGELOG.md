@@ -1,3 +1,15 @@
+## [未发布] 功能：Story2Video 视频+图片轮播混合流水线（2026-08-11）
+
+- 新增「视频增强」能力：Story2Video 流水线支持 AI 视频片段与图片轮播组合成片，AI 视频只用于最值得动态化的场景（约 20%-40% 时长），控制成本/额度/耗时。
+- 两种模式：`fixed`（成片前段按顺序约 20%-30% 时长用 AI 视频，默认 25%）与 `ai-judged`（LLM 按场景精彩度选择，总占比钳制在默认 20%-40% 且 ≤ maxScenes=3）；`off` 默认保持纯图片轮播，行为零变化。
+- 新增 `select_video_scenes` 阶段（story2video_select_video_scenes）：off 输出空 plan；fixed 顺序累计估算时长标记；ai-judged 调默认 LLM 评估 + 严格 JSON 解析 + 比例/数量钳制；视频生成器未配置 fail closed 引导设置。
+- generate_assets 扩展：视频场景串行调视频适配器（generateVideo + getVideoStatus 轮询 + 下载落盘，并发 1），不生成图片；失败回退图片轮播；断点续传快照支持 videoPath；子进度新增 videosDone/videosTotal。
+- compose-engine 扩展：混合片段合成——视频场景以 AI 视频为基底（-stream_loop + 等比缩放黑边补齐 + 帧率归一化 + 字幕/水印 + 混入 TTS），图片场景维持 zoompan；scene 画面源 videoPath/imagePath 二选一 + audioPath 必有；segment 记录新增 mediaKind；renderSegment 单段重试同步支持视频场景。
+- 前端 CreateView 新增「视频增强」折叠区（模式/视频生成器/比例滑杆/区间滑杆 + 提示文案）；阶段时间轴新增 select_video_scenes 与详情文案（「已选 N 个 AI 视频场景（约 X%）」）；选项持久化白名单新增 videoMode。
+- 契约：story2videoTextConfig 新增可选 video 段（mode/provider/model/fixedRatio/minRatio/maxRatio/maxScenes），normalizer 白名单校验；参数治理纳入（视频并发固定 1，前端不暴露）。
+- 文档：PRD §7.1.25（数据校验/流程/功能逻辑/交互/显示项/提示文字/降级/验收标准）。
+- 测试：story2video-text-config +10、story2video-stages +21（选择算法/执行器/视频分支真实下载）、story2video-compose-engine +3（混合真实编码）、pipeline-engine/pipeline-story2video-contract 阶段顺序同步。
+
 ## [未发布] 功能：模型调用用量上报与运营看板（P0 第二批）（2026-08-10）
 
 - ops-center：新增 `model_usage_daily` 聚合表 + `POST /api/v1/usage/ingest`（X-Catalog-Key 鉴权，按 (日期,客户端,服务商,动作) upsert 累加，幂等；校验：日期格式/非负/≤500 条）+ `GET /api/v1/usage/summary`（admin，totals/by_date/by_provider/by_action）。
