@@ -987,3 +987,54 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 ① 首次启动种子 12 平台且可编辑；② 非法 content_category / 负数或小数上限 → 400；③ PUT 仅传部分字段可更新（enabled 临时下线）；④ bootstrap 仅返回 enabled=1 项；⑤ 桌面端 applyRemote 覆盖同名平台、本地独有保留、远程新增不引入、yaml 不被改写；⑥ 未注入 platformConfig 时跳过应用不影响其他策略；⑦ 非 admin 写 403、读 200。
 
+
+## 12A.17 官方内容模板库下发（2026-08-11 新增，P0-2）
+
+> 官方内容模板库由运营后台统一维护，随 `runtime/bootstrap` 下发；桌面端同步时合并进本地模板（内置标记 builtin），用户自建模板保留。
+
+### 12A.17.1 数据模型与校验
+
+`content_templates` 表：
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| id | str PK | 必填、`^[a-z0-9_-]{1,64}$` | 模板 id（如 preset-weekly） |
+| name | str | 必填、≤100 | 模板名称 |
+| category | str | ≤40 | report/marketing/tutorial/event/daily 等 |
+| title | str | ≤200 | 模板标题 |
+| content | text | ≤20000 | Markdown 正文 |
+| platforms | JSON | 非空字符串数组 ≤50 | 适用平台 |
+| tags | JSON | 非空字符串数组 ≤50 | 标签 |
+| enabled | bool | 0/1 | 停用后不下发 |
+| sort_order | int | 非负整数 | 排序 |
+| deleted_at | str | 软删 | 软删不复活，可重建 |
+
+- POST 重复 → 409；PUT 部分更新（null 不修改、body 中 id 忽略）+ 404；DELETE 软删 + 404；IntegrityError 兜底 409。
+- 种子对齐桌面端 TemplateManager.getPresets() 5 个（preset-weekly/product/tutorial/event/daily），已存在（含软删）即跳过。
+
+### 12A.17.2 端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/content-templates | 列表（登录可读） |
+| POST | /api/v1/content-templates | 新增（admin） |
+| PUT / DELETE | /api/v1/content-templates/{id} | 更新/软删（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `content_templates`（enabled=1 未软删，sort_order 排序，builtin=true） |
+
+### 12A.17.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| TemplateManager.applyRemote(templates) | 按 id upsert；官方字段白名单；新增标记 builtin=true；用户自建模板保留；数组 >200 fail-closed 返回 0；变更后 save() 持久化 |
+| OpsCenterSync | setTemplateManager 注入（phase1 接线）；applyRuntime 应用 content_templates（数组 + 已注入时），异常仅 warn |
+
+### 12A.17.4 前端「内容模板库」页
+
+- 列表：ID / 名称 / 分类 tag / 标题 / 适用平台 tags / 内置标记 / 下发开关 / 操作（编辑、删除）；分类筛选 + 新增。
+- 编辑弹窗：ID（编辑禁用）/ 名称（必填）/ 分类下拉 / 标题 / Markdown 正文（≤20000）/ 适用平台（逗号分隔）/ 标签（逗号分隔）/ 排序 / 启用下发。
+- 顶部说明文案注明内置种子与用户模板不受影响。
+
+### 12A.17.5 验收标准
+
+① 首次启动种子 5 个内置模板；② 非法 id/name/platforms/sort/content → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 模板（builtin=true）；⑤ 软删种子重启不复活、可重建；⑥ 桌面端 applyRemote 按 id 覆盖/新增/保留用户模板/上限 fail-closed；⑦ 未注入 templateManager 跳过不影响其他策略。
+

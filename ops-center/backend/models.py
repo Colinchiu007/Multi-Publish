@@ -259,3 +259,22 @@ class PlatformDef(Base):
     deleted_at = Column(String, nullable=True)  # 软删除时间（非空=已删除，种子不复活）
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
+
+class ContentTemplate(Base):
+    """官方内容模板库（桌面端运行时下发）— 运营后台维护，bootstrap 下发内置模板。"""
+
+    __tablename__ = "content_templates"
+
+    id = Column(String(64), primary_key=True)  # 如 preset-weekly
+    name = Column(String(100), nullable=False)
+    category = Column(String(40), default="marketing")  # report | marketing | tutorial | event | daily ...
+    title = Column(String(200), default="")
+    content = Column(Text, default="")  # Markdown 正文
+    platforms = Column(Text, default="[]")  # JSON 数组
+    tags = Column(Text, default="[]")  # JSON 数组
+    enabled = Column(Integer, default=1)
+    sort_order = Column(Integer, default=0)
+    deleted_at = Column(String, nullable=True)  # 软删除时间（非空=已删除，种子不复活）
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
+
