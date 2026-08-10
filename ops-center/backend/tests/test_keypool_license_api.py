@@ -110,12 +110,18 @@ async def test_license_crud_and_validation():
         # 校验失败
         assert (await client.post("/api/v1/licenses", json={"plan": "", "device_limit": 1}, headers=h)).status_code == 400
         assert (await client.post("/api/v1/licenses", json={"plan": "pro", "device_limit": 0}, headers=h)).status_code == 400
+        assert (await client.post("/api/v1/licenses", json={"plan": "pro", "device_limit": 1.5}, headers=h)).status_code == 400
+        assert (await client.post("/api/v1/licenses", json={"plan": "pro", "device_limit": True}, headers=h)).status_code == 400
         assert (await client.post("/api/v1/licenses", json={"plan": "enterprise", "device_limit": 1}, headers=h)).status_code == 400
 
-        # 列表 + 禁用（吊销）
+        # 列表掩码；reveal 返回明文
         lst = (await client.get("/api/v1/licenses", headers=h)).json()
-        assert any(i["license_key"] == key for i in lst["items"])
-        lic_id = next(i["id"] for i in lst["items"] if i["license_key"] == key)
+        listed = next(i for i in lst["items"] if i["license_key"].endswith(key[-4:]))
+        assert "****" in listed["license_key"]
+        assert listed["license_key"] != key
+        lic_id = listed["id"]
+        rev = (await client.post(f"/api/v1/licenses/{lic_id}/reveal", headers=h)).json()
+        assert rev["license_key"] == key
         r = await client.put(f"/api/v1/licenses/{lic_id}", json={"plan": "pro", "device_limit": 3, "expires_at": "2099-12-31T00:00:00Z", "status": "disabled"}, headers=h)
         assert r.status_code == 200 and r.json()["status"] == "disabled"
 
@@ -136,6 +142,12 @@ async def test_license_key_uniqueness_and_expired_derivation():
         r = await client.post("/api/v1/licenses", json={"plan": "trial", "device_limit": 1, "expires_at": "2020-01-01T00:00:00Z"}, headers=h)
         assert r.status_code == 200
         assert r.json()["status"] == "expired"
+        # 启用过期许可证不给新到期时间 → 400
+        eid = r.json()["id"]
+        assert (await client.put(f"/api/v1/licenses/{eid}", json={"plan": "trial", "device_limit": 1, "expires_at": "2020-01-01T00:00:00Z", "status": "active"}, headers=h)).status_code == 400
+        # 给新到期时间 → 可启用
+        rr = await client.put(f"/api/v1/licenses/{eid}", json={"plan": "trial", "device_limit": 1, "expires_at": "2099-01-01T00:00:00Z", "status": "active"}, headers=h)
+        assert rr.status_code == 200 and rr.json()["status"] == "active"
 
         # 唯一性：生成 key 不重复（多次签发 key 各不相同）
         keys = set()

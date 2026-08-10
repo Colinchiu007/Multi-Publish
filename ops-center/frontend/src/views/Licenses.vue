@@ -7,9 +7,10 @@
 
     <el-table :data="items" border stripe v-loading="loading">
       <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column label="许可证 Key" min-width="200">
+      <el-table-column label="许可证 Key" min-width="220">
         <template #default="{ row }">
           <code style="background:#f5f5f5;padding:2px 8px;border-radius:4px;font-size:13px">{{ row.license_key }}</code>
+          <el-button link type="primary" size="small" @click="reveal(row)" style="margin-left:6px">查看</el-button>
         </template>
       </el-table-column>
       <el-table-column prop="plan" label="套餐" width="90" />
@@ -72,7 +73,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api/v1' })
@@ -124,6 +125,16 @@ async function save () {
   } finally { saving.value = false }
 }
 
+function reveal (row) {
+  ElMessageBox.confirm(`确认查看许可证 ${row.license_key} 的明文？`, '查看明文', { type: 'warning' }).then(async () => {
+    try {
+      const res = await api.post(`/licenses/${row.id}/reveal`)
+      newKey.value = res.data.license_key
+      showNewKey.value = true
+    } catch (e) { ElMessage.error(e.response?.data?.detail || '查看失败') }
+  }).catch(() => {})
+}
+
 function copyKey () {
   if (navigator.clipboard) navigator.clipboard.writeText(newKey.value)
   ElMessage.success('已复制')
@@ -138,8 +149,16 @@ async function disable (row) {
 }
 
 async function enable (row) {
+  let expiresAt = row.expires_at || ''
+  if (row.status === 'expired') {
+    const { value } = await ElMessageBox.prompt('该许可证已过期，请输入新的到期时间（ISO，如 2099-12-31T00:00:00Z）', '启用过期许可证', {
+      inputValue: expiresAt || '2099-12-31T00:00:00Z', confirmButtonText: '启用', cancelButtonText: '取消',
+    }).catch(() => ({ value: null }))
+    if (value === null) return
+    expiresAt = value
+  }
   try {
-    await api.put(`/licenses/${row.id}`, { ...row, status: 'active' })
+    await api.put(`/licenses/${row.id}`, { plan: row.plan, device_limit: row.device_limit, expires_at: expiresAt, status: 'active', note: row.note })
     ElMessage.success('已启用')
     await load()
   } catch (e) { ElMessage.error(e.response?.data?.detail || '操作失败') }

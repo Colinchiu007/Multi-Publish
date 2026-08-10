@@ -30,6 +30,22 @@ async def create_license(
         raise HTTPException(400, str(e))
 
 
+@router.post("/{license_id}/reveal")
+async def reveal_license(
+    license_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_admin),
+):
+    """查看许可证明文（admin，二次确认场景）。"""
+    from models import License
+    import sqlalchemy as sa
+
+    row = (await db.execute(sa.select(License).where(License.id == license_id))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(404, "许可证不存在")
+    return license_service._to_dict(row, reveal=True)
+
+
 @router.put("/{license_id}")
 async def update_license(
     license_id: int,

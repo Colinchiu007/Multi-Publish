@@ -90,7 +90,13 @@ async def ensure_official_key_columns(db: AsyncSession) -> None:
         }
         for col, ddl in adds.items():
             if col not in existing:
-                sync_conn.execute(text(f"ALTER TABLE official_keys ADD COLUMN {col} {ddl}"))
+                try:
+                    sync_conn.execute(text(f"ALTER TABLE official_keys ADD COLUMN {col} {ddl}"))
+                except Exception:
+                    # 并发启动时列可能已被其他实例补上：重查后跳过
+                    current = {c["name"] for c in inspect(sync_conn.connection()).get_columns("official_keys")}
+                    if col not in current:
+                        raise
 
     await db.run_sync(_migrate)
 
@@ -152,11 +158,7 @@ async def pool_summary(db: AsyncSession, days: int = 30) -> dict:
     )).all()
     cost_by_provider = {provider: round(float(cost or 0), 4) for provider, cost in cost_rows}
 
-    provider_cost = {}
-    for k in rows:
-        c = cost_by_provider.get(k.provider, 0.0)
-        provider_cost.setdefault(k.provider, 0.0)
-        provider_cost[k.provider] += c
+    provider_cost = dict(cost_by_provider)  # provider 维度一次赋值，避免按 Key 数重复累加
 
     # 配额达标率：有 daily_limit 的活跃 Key 中，其 provider 近 30 天成本已超过 alert_threshold_cost 的比例
     threshold_hit = []
@@ -257,12 +259,20 @@ async def update_key(
         return None
 
     for field, value in kwargs.items():
-        if value is None:
-            continue
         if field == "api_key":
+            if value is None or value == "":
+                continue
+            # C2: 掩码/明文与当前值相同 → 视为未变更，避免掩码串覆盖真实 Key
+            try:
+                current_plain = decrypt_key(item.api_key)
+                if value == current_plain or value == mask_key(current_plain):
+                    continue
+            except Exception:
+                pass
             value = encrypt_key(value)
         elif field == "models" and isinstance(value, list):
             value = json.dumps(value)
+        # W1: 新字段显式 null（清空配额/告警）允许写入 None；其他字段照常
         setattr(item, field, value)
 
     item.updated_at = datetime.datetime.utcnow().isoformat()
