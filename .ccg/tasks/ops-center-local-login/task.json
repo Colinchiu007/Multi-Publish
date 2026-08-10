@@ -1,0 +1,14 @@
+{
+  "id": "ops-center-local-login",
+  "title": "ops-center 自包含简单管理员登录（不依赖 orchestrator、不碰 Logto）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend,frontend,security",
+  "currentPhase": "planning",
+  "nextAction": "实现本地登录（admins 表 + PBKDF2 + JWT）+ 前端代理切换 + 测试",
+  "createdAt": "2026-08-10T16:35:46+08:00",
+  "branch": "codex/ops-center-local-login",
+  "openspecChange": "ops-center-local-login"
+}
+

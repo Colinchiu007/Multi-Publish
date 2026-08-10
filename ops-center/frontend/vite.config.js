@@ -15,9 +15,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // 登录/注册等 auth 路由由 platform-orchestrator 提供（复用其 JWT 体系）
+      // 登录由 ops-center 本地提供（自包含管理员登录，不再依赖 platform-orchestrator）
       '/api/auth': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8010',
         changeOrigin: true,
       },
       // 运营配置 API 由 ops-center 后端提供

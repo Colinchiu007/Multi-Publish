@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # JWT: share secret with orchestrator
     jwt_secret: str = ""  # Empty = fall back to secret_key
     jwt_algorithm: Literal["HS256"] = "HS256"
+    # 本地管理员登录（自包含，替代 orchestrator 认证）：未配置且无管理员时登录 fail-closed
+    admin_username: str = ""
+    admin_password: str = ""
 
     def get_jwt_secret(self) -> str:
         """返回经过安全校验的 JWT 密钥。"""

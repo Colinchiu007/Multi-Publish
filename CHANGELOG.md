@@ -1,5 +1,11 @@
-﻿## [未发布] 架构：ops-center 正式并入 Multi-Publish（git subtree 方案 A，2026-08-10）
+## [未发布] 新增：ops-center 自包含管理员登录（2026-08-10）
 
+- ops-center 后端新增本地登录：`POST /api/auth/login` + `GET /api/auth/me`；管理员凭据由 `OPS_ADMIN_USERNAME`/`OPS_ADMIN_PASSWORD` 配置（PBKDF2-SHA256 200000 迭代哈希存储，admins 表）；未配置且无管理员 → 503 fail-closed（无默认口令）。
+- JWT：HS256（OPS_JWT_SECRET），role=admin，8h 过期；现有验证中间件不变。
+- 登录失败限流：5 次/60s → 429；统一 401 不泄露用户是否存在。
+- 前端 `/api/auth` 代理 target 从 orchestrator:8000 改为 ops-center:8010——**解除对 platform-orchestrator 的运行时依赖**；不接 Logto、不集成 orchestrator。
+- 测试：认证 7 用例（成功/失败/未配置/限流/过期/权限/哈希）；ops-center pytest 73 passed。
+- 文档：ops-center PRD 12A.9。
 - 将独立仓库 `Colinchiu007/ops-center`（main 78bebac，17 commits，PR #1/#2/#3 全量）以 `git subtree add --prefix=ops-center --squash` 正式并入 monorepo（PR #475）；移除此前 vendored 快照。
 - 此后运营后台开发/PR/CI/质量门禁统一在 Multi-Publish 内：`ops-center/backend`（pytest 门禁，66 passed）、`ops-center/frontend`（npm run build）。
 - 独立仓库冻结归档（tag `archived-into-multi-publish` + README 说明，完整历史保留可追溯）。
