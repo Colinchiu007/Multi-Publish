@@ -1,0 +1,12 @@
+{
+  "nextAction": "定位错误展示、场景数量校验和可复用的中英提示边界",
+  "branch": "codex/story2video-notifications-i18n",
+  "complexity": "L",
+  "domain": "desktop-story2video",
+  "status": "in_progress",
+  "currentPhase": "analysis",
+  "risk": "medium",
+  "createdAt": "2026-08-02T14:10:00Z",
+  "id": "story2video-notifications-i18n",
+  "title": "修复 Story2Video 重复提示、场景上限与中英提示体系"
+}

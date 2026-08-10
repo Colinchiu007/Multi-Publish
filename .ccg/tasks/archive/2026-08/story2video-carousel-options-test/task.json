@@ -1,0 +1,24 @@
+{
+  "id": "story2video-carousel-options-test",
+  "title": "测试图片轮播流水线及所有选项的可用性",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend/electron",
+  "currentPhase": "completed",
+  "nextAction": "无（仅验证，无代码修改）",
+  "createdAt": "2026-08-10T09:20:00+08:00",
+  "completedAt": "2026-08-10T10:10:00+08:00",
+  "branch": "feature/yixiaoer-account-publish-parity-r2@5c2cee46",
+  "evidence": {
+    "app": "Electron dev 可见窗口 社媒管家，CDP 127.0.0.1:9333，userData=C:\\tmp\\Multi-Publish-debug-profile",
+    "identity": "authenticated（免费版 free，source=offline）",
+    "run": "真实端到端运行 100% 完成 1分48秒，2 场景（图片2/2、旁白2/2），输出 video.mp4 1,317,822B H.264 1920x1080 30fps + AAC 7.856s",
+    "outputDir": "C:\\tmp\\Multi-Publish-debug-profile\\story2video-projects\\6c90f6c64bf3efdf7fa39192fecf8cf8ab62be3acf89623f4e18e01867c37630\\run_1786325459208_4hzo",
+    "findings": [
+      "图片风格下拉为空：恢复的上次选项 imageStyle=anime-mslpadvn 不在当前选项列表（cinematic/realistic/anime/watercolor/minimalist），摘要显示陈旧值",
+      "语音生成器首选项「自动 Edge TTS」标签渲染为空（s2vVoiceProviderOptions 首项缺 displayName），origin/main 同样存在",
+      "运行进度 UI 出现 i18n 缺键警告 story2video.durationSec / story2video.elapsed"
+    ]
+  }
+}

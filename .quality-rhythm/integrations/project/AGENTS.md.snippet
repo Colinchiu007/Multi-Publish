@@ -1,0 +1,20 @@
+# Multi-Publish 项目机制片段（供新项目参考）
+
+> 提取自 Multi-Publish AGENTS.md（PROJECT-003 + 机制硬化补充），新项目按需裁剪。
+
+## 核心原则
+
+- **先文档再代码**：没有 PRD 不动手，没有架构设计不动手
+- **TDD**：测试先于代码，提交前全部测试通过
+- **Code Review**：每 2-3 个功能 review 一次
+- **git 提交**：所有变更必须 commit，不允许未跟踪代码
+- **分支隔离（分层）**：运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 审查与 CI 后合并回 main；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本）允许在 main 直接小步提交，但须保持可回滚且不得与并发会话的脏文件冲突。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
+- **错误处理**：所有关键路径必须有错误处理
+- **质量节拍强制卡点**：提交前必须完成 `.quality-gates.md` 自检清单，违反不允许提交
+
+### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）
+
+- **远程同步**：任务标记 completed 前必须核对关联 PR 已合并或记录 remoteStatus，禁止基于滞后状态做重复工作。
+- **子代理降级**：派发探子前探测子代理可用性；出现 403/超时等后端不可用错误时立即降级为主代理直接执行，不盲等。
+- **OpenSpec 引导**：OpenSpec 已启用——M+/中高风险任务须经 `/opsx:propose` 建 change，机制契约见 `openspec/specs/openspec-integration/spec.md`。
+

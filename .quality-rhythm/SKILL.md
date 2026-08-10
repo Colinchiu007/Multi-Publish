@@ -1,7 +1,44 @@
 ---
 name: quality-rhythm
-description: 质量节拍 — 所有开发/产品/需求/设计/测试/文档/管理任务的门禁强制执行系统。自动覆盖：开发、重构、产品需求、UX设计、测试计划、Bug修复、技术调研、架构设计、代码审查、部署上线、性能优化、安全审计、配置修改、项目管理、复盘总结等所有任务类型。每次会话首次任务自动执行门禁检查（触发方式D），判断变更类型和规模后路由到对应Phase。集成57+技能（gstack/superpowers/addy-agent），15项gstack优化。触发词：质量节拍、quality rhythm、门禁、流程、日常循环、阶段检查
+description: 质量节拍 — 所有开发/产品/需求/设计/测试/文档/管理任务的门禁强制执行系统。自动覆盖开发、重构、产品需求、UX 设计、测试计划、Bug 修复、技术调研、架构设计、代码审查、部署上线、性能优化、安全审计、配置修改、项目管理与复盘总结；代码修改任务自动执行门禁检查并路由到对应 Phase。
+type: workflow
 ---
+
+## 强制触发规则（MUST）
+
+> **所有涉及代码修改的任务，无论规模大小，都必须强制触发质量节拍。**
+
+### 触发条件（满足任一即触发）
+
+| 触发类型 | 具体场景 | 强制动作 |
+|---------|---------|---------|
+| **代码修改** | 编辑现有文件、创建新文件、删除文件 | 自动触发质量节拍 |
+| **用户请求** | 提到实现、修复、重构、优化、添加等动词 | 自动触发质量节拍 |
+| **功能相关** | 提到具体功能名称（如登录、发布、设置） | 自动触发质量节拍 |
+| **Bug修复** | 报错排查、行为异常、紧急修复 | 自动触发质量节拍 |
+| **新功能** | 全新模块、特性添加、功能扩展 | 自动触发质量节拍 |
+| **重构** | 代码结构调整、性能优化、安全加固 | 自动触发质量节拍 |
+| **配置变更** | 环境配置、CI/CD、依赖调整 | 自动触发质量节拍 |
+| **文档变更** | README、API文档、使用说明 | 自动触发质量节拍 |
+
+### 自动检测机制
+
+在执行任何代码修改前，AI必须自动检查：
+
+1. **文件修改检测**：即将执行 apply_patch、git add、git commit 等操作
+2. **用户意图检测**：用户消息包含代码相关关键词
+3. **任务类型检测**：当前任务涉及代码实现、修复、优化等
+
+**检测到任一条件 → 立即触发质量节拍，不等待用户确认。**
+
+### 违反后果
+
+- **未触发质量节拍的代码修改**：不允许提交
+- **跳过质量节拍流程**：Code Review 打回
+- **绕过强制检查**：视为流程违规
+
+---
+
 # 质量节拍
 
 > **开发质量不是靠检查清单堆出来的，是靠固定节奏的日常循环跑出来的。**
@@ -50,6 +87,7 @@ description: 质量节拍 — 所有开发/产品/需求/设计/测试/文档/�
 │  ├── 0.1 市场调研 ──→ /office-hours, /interview-me, idea-refine            │
 │  ├── 0.2 创意构想 ──→ /pm, /plan-ceo-review, design-consultation           │
 │  ├── 0.3 需求确认 ──→ /pm (PRD), /office-hours Phase 2.8, spec-driven-dev    │
+│  │   └─ 增强选项  ──→ quality-rhythm-sdd Preset (Spec Kit 集成)             │
 │  └── 0→1 方案输出 ──→ /create-plan, Feature List (功能点拆解+优先级)     │
 │                                                                         │
 │  Phase 1: 规划期 (Plan)                                                 │
@@ -67,7 +105,7 @@ description: 质量节拍 — 所有开发/产品/需求/设计/测试/文档/�
 │  Phase 3: 交付期 (Ship)                                                 │
 │  ├── 3.1 发布审查 ──→ /review (完整), /ship                            │
 │  ├── 3.2 灰度验证 ──→ /canary, /browse, pair-agent, Dogfooding检查清单      │
-│  ├── 3.3 发布上线 ──→ /land-and-deploy, ci-cd-and-automation, 部署手册   │
+│  ├── 3.3 发布上线 ──→ /land-and-deploy, ci-cd-and-automation, /ci-hardening, 部署手册 │
 │  ├── 3.4 文档同步 ──→ /document-release                                 │
 │  ├── 3.5 用户说明 ──→ User Manual / 使用说明                      │
 │  ├── 3.6 决策归档 ──→ Decision Log (决策+理由+替代方案)            │
@@ -96,7 +134,8 @@ description: 质量节拍 — 所有开发/产品/需求/设计/测试/文档/�
 | **gstack 核心 (33)** | /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /plan-devex-review, /plan-tune, /autoplan, /review, /investigate, /retro, /learn, /ai-collaboration, /ship, /land-and-deploy, /canary, /cso, /guard, /freeze, /unfreeze, /qa, /qa-only, /design-review, /design-consultation, /design-html, /design-shotgun, /document-release, /health, /benchmark, /browse, /pair-agent, /codex, /careful, /pm, /define-goal, /create-plan, /interview-me, /auto-exec |
 | **Superpowers (11)** | subagent-driven-development, executing-plans, writing-plans, requesting-code-review, receiving-code-review, dispatching-parallel-agents, finishing-a-development-branch, systematic-debugging, root-cause-tracing, verification-before-completion, test-driven-development, testing-anti-patterns, condition-based-waiting, remembering-conversations, using-git-worktrees, brainstorming, defense-in-depth |
 | **Addy-Agent (15)** | planning-and-task-breakdown, spec-driven-development, incremental-implementation, code-review-and-quality, idea-refine, shipping-and-launch, ci-cd-and-automation, documentation-and-adrs, source-driven-development, doubt-driven-development, code-simplification, context-engineering, api-and-interface-design, frontend-ui-engineering, performance-optimization, observability-and-instrumentation, security-and-hardening, git-workflow-and-versioning, deprecation-and-migration, interview-me |
-| **总计** | **57 个技能** |
+| **Spec Kit 集成 (1 Preset)** | quality-rhythm-sdd: Spec Kit Preset，增强 spec-template / plan-template / clarify / checklist |
+| **总计** | **58 个技能 + 1 Spec Kit Preset + awesome-cursorrules 引用** |
 
 ---
 
@@ -115,6 +154,7 @@ Phase 0.0 (目标) → /define-goal
 Phase 0.1 (调研) → /office-hours → /interview-me → idea-refine
 Phase 0.2 (构想) → /pm → /plan-ceo-review → design-consultation
 Phase 0.3 (需求) → /pm (PRD) → /office-hours Phase 2.8 → spec-driven-dev
+                      └─ [增强] quality-rhythm-sdd Preset (Spec Kit: specify→clarify→checklist→plan→tasks)
 Phase 0→1 (方案) → /create-plan
 Phase 0→1 (功能) → Feature List (功能点列表)
 Phase 1→2 (测试) → Test Plan (测试计划)
@@ -162,6 +202,8 @@ PHASE 结束                  → "要跑 /health + /retro 全身体检吗？"
 你说                        AI 调用
 ──────────────────────────────────────────────────
 "出 bug 了"                → /investigate + systematic-debugging
+"查一下这个 bug 为什么没测出来"  → Bug 反思循环 Step ② 逃逸分析 + Step ③ 系统性漏洞定位
+"做 bug 反哺"                  → Bug 反思循环 5 步完整执行（根因溯源 → 逃逸链 → 系统性漏洞 → 回归保护测试 → 预防措施）
 "帮我想个方案"              → /office-hours → /plan-ceo-review
 "审查一下"                  → /review + code-review-and-quality
 "出安全审计"               → /cso + /guard
@@ -174,8 +216,6 @@ PHASE 结束                  → "要跑 /health + /retro 全身体检吗？"
 "优化性能"                 → performance-optimization
 "做设计系统"               → design-consultation
 "写文档"                   → /document-release
-"查一下这个 bug 为什么没测出来" → Bug 反思循环 Step ② 逃逸分析
-"做 bug 反哺"               → Bug 反思循环 5 步完整执行
 "做市场营销"               → /office-hours (builder mode)
 "产品需求不清楚"           → /office-hours Phase 2.8 + /ai-collaboration Pillar 1
 "不知道怎么用 AI"          → /ai-collaboration + /codex
@@ -184,15 +224,14 @@ PHASE 结束                  → "要跑 /health + /retro 全身体检吗？"
 
 ---
 
-### 触发方式 D：会话起始自动门禁检查（新增）
-
+### 触发方式 D：代码修改任务自动门禁检查（增强版）
+在任何涉及代码修改的任务开始时，无论你怎么描述，AI 自动执行一次任务门禁检查，判断变更性质和规模后路由到合适的 Phase：**每个代码修改任务都必须触发，不例外。**
 在任何新任务的起始点，无论你怎么描述，AI 自动执行一次"任务门禁检查"，判断变更性质和规模后路由到合适的 Phase：
 
 ```
-你开始一个新任务（无论你怎么说）
+你开始一个涉及代码修改的任务（无论你怎么说）
     │
-    ▼
-⚠️ 自动门禁检查（当前会话首次任务自动触发）
+⚠️ 自动门禁检查（每个代码修改任务必须触发）
 
     ├── 1️⃣ 变更类型判断（覆盖所有任务类型）
     │   ├── 🎨 UI/UX 变更（组件改动、布局调整、样式修改、视觉回归）
@@ -200,6 +239,17 @@ PHASE 结束                  → "要跑 /health + /retro 全身体检吗？"
     │   ├── 🐛 Bug 修复（报错排查、行为异常、紧急修复）
     │   ├── 📦 新增功能（全新模块、特性添加、功能扩展）
     │   ├── 🔧 配置/工具变更（环境配置、CI/CD、依赖调整、工具链）
+
+**Bug修复强制流程（QM-5）：**
+
+1. **找到第一性原因**：不修表面，找到最原始的代码改动引入点
+2. **追溯测试逃逸**：这个Bug逃过了哪些测试？为什么逃过？
+3. **识别系统性漏洞**：找到具体的系统性漏洞
+4. **修复 + 回归保护测试**：修复方案 + 回归保护测试
+5. **防止再次发生**：具体系统性措施
+
+**违反后果：** 修复Bug的PR/提交必须包含以上5步的产出物，否则不允许合并。
+
     │   ├── 📝 纯文档变更（README、API文档、使用说明、注释）
     │   ├── 🎯 产品需求变更（PRD修改、需求确认、功能定义）
     │   ├── 🔬 技术调研/选型（框架对比、技术预研、POC验证）
@@ -220,13 +270,10 @@ PHASE 结束                  → "要跑 /health + /retro 全身体检吗？"
     │   ├── 🎨 UI 变更 + 非紧急 → "这个涉及 UI 改造，需要先跑一轮 /plan-design-review 吗？"
     │   ├── 🏗️ 架构/API 变更 + 非紧急 → "涉及架构调整，需要先跑 /plan-eng-review 吗？"
     │   ├── 👨‍💻 API/SDK/Adapter 变更 → "开发者体验审查 (/plan-devex-review) 需要先跑吗？"
-    │   ├── 🐛 Bug 修复（含完整 Bug 反哺循环）
-    │   ├── 紧急（P0/P1）→ ⚡ 热修复通道（事后补 5 步反哺）
-    │   ├── 非紧急 → 执行 Bug 反思循环（10.5）5 步完整 SOP
-    │   └── 门禁：逃逸链 + 回归保护测试 + 预防措施 → 缺一不可
+    │   ├── 🐛 Bug 修复（非紧急）→ "执行 Bug 反思循环 5 步完整 SOP（根因溯源 + 逃逸链 + 系统性漏洞 + 回归保护测试 + 预防措施）？"
     │   ├── 📦 新增功能 → "需要先出 PRD/方案吗？"
     │   ├── 🌱 微小变更 → "看起来改动不大，用轻量模式？"
-    │   ├── 🔥 紧急修复 → ⚡ "走热修复通道？"
+    │   ├── 🔥 紧急修复（P0/P1）→ ⚡ "走热修复通道？"（事后补 5 步反哺）
     │   └── ❓ 类型不确定 → Confusion Protocol
     │
     └── 4️⃣ 用户确认后开始执行
@@ -251,7 +298,7 @@ PHASE 结束                  → "要跑 /health + /retro 全身体检吗？"
 🔐 安全/合规变更                  Phase 2.3 /cso + /guard
 📊 性能优化                       Phase 5.2 /benchmark + performance-optimization
 🌱 微小变更（< 50 行）            @质量节拍 轻量模式
-🔥 紧急修复（P0/P1）              @质量节拍 热修复通道
+🔥 紧急修复（P0/P1）       热修复通道（事后补 5 步反哺）
 ⚠️ 涉及前端 UI 文件               ⚡ 自动触发视觉回归检查
 ```
 
@@ -337,7 +384,7 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 
 ## 第三章：日常循环增强版
 
-文章的核心方法论是 **"小步开发 — 一次只改一个模块 → 改完立刻测试 → AI 参与审查"**。质量节拍 的日常循环升级为 6 步，每一步都注入文章的洞察：
+文章的核心方法论是 **"小步开发 — 一次只改一个模块 → 改完立刻测试 → AI 参与审查"**。质量节拍 的日常循环升级为 7 步，每一步都注入文章的洞察：
 
 ```
 你开始一个新子任务
@@ -415,7 +462,32 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 ⑥ AI 协作质量检查（文章：AI 协作能力 — 新技能）
     ├── 用 /ai-collaboration Pillar 3 checklist 自检
     ├── 记录本次协作经验
-    └── 输出：协作质量评分
+    │
+    ├── Bug 回溯检查（新增）：
+    │   ├── 本次会话有没有发现新的 bug？→ 有 → 触发 Bug 反思循环（10.5）
+    │   ├── 本次改动会不会引入之前修过的同类 bug？
+    │   │   └── 可能 → 检查对应回归测试还在不在、是否仍通过
+    │   └── 参考 learnings 中的 pitfall 类型记录，确认未触发已知错误模式
+    │
+    └── 输出：协作质量评分 + Bug 回溯状态
+    │
+    ▼
+⑦ CI 流水线验证（铁律：本地通过 ≠ 交付通过）
+    ├── git push 后立即执行：
+    │   ├── gh run list --limit 1 确认 CI 已触发（status=in_progress）
+    │   └── gh run watch <run-id> --exit-status 等待结果
+    ├── CI 通过 → ✅ 可进入下一个子任务
+    ├── CI 失败 → ❌ 必须修复后重新 push，不得跳过
+    │   ├── 检查失败阶段：install → lint → test → build
+    │   ├── install 失败 → 检查 package-lock.json 是否同步（npm install 重新生成）
+    │   ├── lint 失败 → 修复 ESLint 错误（未使用变量加 _ 前缀等）
+    │   ├── test 失败 → 修复测试（本地必须复现）
+    │   └── build 失败 → 修复 TypeScript 编译错误
+    ├── ⚠️ 常见陷阱：
+    │   ├── Windows 本地 npm install（宽松）≠ CI npm ci（严格模式）
+    │   ├── --no-verify 跳过 hook 不能跳过 CI
+    │   └── 本地测试通过不代表 CI 环境也通过
+    └── 输出：CI 状态确认（通过/失败+修复记录）
     │
     ▼
 回到 ①，进入下一个子任务
@@ -449,7 +521,7 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 ### Phase 2（开发期）阶段检查
 
 ```
-[必] 日常循环完整性      → 6 步都走了吗？
+[必] 日常循环完整性      → 7 步都走了吗？
 [必] verification-before-completion
 [必] /health
 [按需] /cso（引入外部依赖时）
@@ -506,7 +578,7 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 
 ---
 
-## 第五章：57 个技能的集成与映射
+## 第五章：58 个技能的集成与映射
 
 ### 5.1 gstack 核心技能（27 个）
 
@@ -570,7 +642,7 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 | Skill | 文章对应 | 在全流程中的位置 | 集成方式 |
 |-------|---------|-----------------|---------|
 | **planning-and-task-breakdown** | "拆解功能" | Phase 1.3 | 验收标准+可独立测试 |
-| **spec-driven-development** | "理解需求→设计方案" | Phase 0.3→1.1 | 先写规范再编码 |
+| **spec-driven-development** | "理解需求→设计方案" | Phase 0.3→1.1 | 先写规范再编码；可通过 quality-rhythm-sdd Preset 增强 UI/交互/TDD 规格；编码阶段可通过 awesome-cursorrules 规则文件约束 |
 | **incremental-implementation** | "小步开发" | Phase 2→③ | 薄垂直切片+边界检查 |
 | **code-review-and-quality** | "代码审查" | Phase 2→④ | 五轴审查 |
 | **idea-refine** | "需求拆解" | Phase 0.1 | 发散收敛+压力测试 |
@@ -591,6 +663,179 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 
 ---
 
+## 第 5.4 节：Spec Kit 集成（quality-rhythm-sdd Preset）
+
+质量节拍通过 **quality-rhythm-sdd Preset** 与 GitHub Spec Kit 集成，提供 Spec-Driven Development 增强工作流。
+
+### 什么是 Spec Kit
+
+[GitHub Spec Kit](https://github.com/github/spec-kit) 是 GitHub 官方开源的 Spec-Driven Development (SDD) 工具包。
+核心理念：**规格（Spec）是源头真相，代码是规格的表达**。通过 `/speckit.specify -> /speckit.clarify -> /speckit.checklist -> /speckit.plan -> /speckit.tasks -> /speckit.implement` 的结构化工作流，确保从需求到实现的每一步都有质量门禁。
+
+### quality-rhythm-sdd Preset 增强内容
+
+在 Spec Kit 核心模板之上，注入 7 层执行层规格：
+
+| 增强章节 | 覆盖内容 |
+|---------|----------|
+| **UI 字段规格** | 每个表单的每个字段：类型、校验规则、错误提示、必填、显示条件 |
+| **交互控件规格** | 每个按钮/下拉/开关：触发条件、行为、状态变化、禁用条件 |
+| **弹窗/Toast 规格** | 每个弹窗：触发、内容、按钮、关闭方式、遮罩行为、动画 |
+| **视觉规范** | 组件库、颜色、字体、间距、响应式断点、WCAG 无障碍 |
+| **错误/空/加载状态** | 每个页面的三种状态：错误展示+恢复、空态 CTA、加载指示器 |
+| **字段校验规则** | 前端实时 + 后端保存 + 跨字段 + 异步校验 |
+| **TDD 测试映射** | 每个验收标准 -> Gherkin 测试场景 -> 测试类型（E2E/集成/单元） |
+
+### 与质量节拍的映射
+
+| 质量节拍 Phase | Spec Kit 命令 | 产出物 |
+|--------------|--------------|--------|
+| Phase 0 探索期 | `/speckit.specify` + `/speckit.clarify` | spec.md（含 UI/交互/弹窗/视觉/TDD 章节） |
+| Phase 0->1 | `/speckit.checklist` | 质量清单（UI 完整性 + TDD 覆盖率） |
+| Phase 1 规划期 | `/speckit.plan` + `/speckit.tasks` | plan.md + tasks.md（TDD 优先任务排序） |
+| Phase 2 开发期 | `/speckit.implement` | 代码 + 测试（先写测试再写实现） |
+
+### 安装方式
+
+```bash
+# 安装 Spec Kit CLI
+uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@vX.Y.Z
+
+# 在项目中安装 quality-rhythm-sdd Preset
+specify preset add --dev <path-to-quality-rhythm-repo>/presets/quality-rhythm-sdd
+```
+
+### 触发方式
+
+当用户说以下任意一句话时，自动路由到 Spec Kit 增强工作流：
+
+- "写个 Spec" / "写规格"
+- "用 Spec Kit 做" / "Spec 驱动开发"
+- "按 SDD 流程来"
+- "TDD + Spec"
+- "写个完整的 PRD"
+
+---
+
+
+## 第 5.5 节：awesome-cursorrules 编码规范集成
+
+质量节拍的 **Phase 0（探索期）** 和 **Phase 1（规划期）** 关注需求和架构，
+**Phase 2（开发期）** 关注编码质量。[awesome-cursorrules](https://github.com/PatrickJS/awesome-cursorrules)
+提供 170+ 个框架特定的 `.cursorrules` / `.mdc` 规则文件，可用于 Phase 2 的编码约束。
+
+### 与质量节拍的阶段映射
+
+| 质量节拍阶段 | awesome-cursorrules 对应 | 用途 |
+|-------------|------------------------|------|
+| Phase 0 探索期 | — | 不涉及编码 |
+| Phase 1 规划期 | — | 不涉及编码 |
+| Phase 2 开发期 | 框架规则文件 | 编码约束、最佳实践、反模式规避 |
+| Phase 3 交付期 | — | 不涉及编码 |
+| Phase 4 复盘期 | — | 不涉及编码 |
+
+### 推荐规则文件（按项目类型）
+
+| 项目类型 | 推荐规则文件 | 说明 |
+|---------|------------|------|
+| React/Next.js | `react-nextjs.mdc` | React + Next.js 最佳实践 |
+| Vue/Nuxt | `vue-nuxt.mdc` | Vue 3 + Nuxt 3 规范 |
+| Python/FastAPI | `python-fastapi.mdc` | FastAPI 后端规范 |
+| Python/Django | `python-django.mdc` | Django 后端规范 |
+| TypeScript | `typescript.mdc` | TypeScript 通用规范 |
+| CSS/Tailwind | `tailwind-css.mdc` | Tailwind CSS 规范 |
+| 测试 | `testing.mdc` | 测试最佳实践 |
+| 安全 | `security.mdc` | 安全编码规范 |
+
+### 安装方式
+
+```bash
+# 方式 1：直接复制规则文件到项目根目录
+cp rules/<framework>.mdc .cursorrules
+
+# 方式 2：在 Cursor 中引用
+# 将规则文件内容粘贴到 Settings > Rules 中
+```
+
+### 与 quality-rhythm-sdd Preset 的关系
+
+- **quality-rhythm-sdd Preset**：定义"做什么"（Spec + UI 字段 + 交互 + TDD）
+- **awesome-cursorrules**：定义"怎么写"（编码规范 + 最佳实践）
+- 两者互补：Preset 管需求质量，cursorrules 管代码质量
+
+## 第 5.6 节：机制集成（OpenSpec + CCG 三层分工）
+
+质量节拍是**流程门禁层**，与另外两层机制协同：
+
+```
+CCG（决策/执行编排）  →  怎么分析、谁来做、做到哪（~/.codex/AGENTS.md + .ccg/tasks）
+质量节拍（本 skill）  →  什么节奏、过什么门禁（Phase 0-5 + QM + .quality-gates.md）
+OpenSpec（规格工件）  →  规格写成什么、如何追踪（openspec/ + /opsx:* 命令）
+```
+
+**适用范围（OpenSpec 契约固化）：**
+- M+ 复杂度或中/高风险任务 → 必须建 OpenSpec change（proposal→design→specs→tasks→archive）
+- S 复杂度且低风险 → 直接 CCG + 质量节拍，不强制建 change
+- 差异审计前置：对既有基线建 change 前先核对已合并交付
+- 归档三同步：openspec archive + CCG task 归档 + 质量节拍复盘（scripts/openspec-sync-check.js 检查）
+- 分层分支策略：运行时代码走分支+PR；纯流程/文档可 main 小步提交
+
+**新环境安装（一键整合包 `integrations/`）：**
+```bash
+npx ccg-workflow                            # CCG（官方，选 Codex Mode）+ 追加 ccg/codex-overlay.md
+node integrations/bootstrap-env.js --yes    # 用户级一键：fastctx/codegraph 安装 + config.toml 合并
+npm i -g @fission-ai/openspec && openspec init --tools codex --force   # OpenSpec OPSX
+node integrations/install-mechanism.js      # 项目级：复制契约/脚本/项目模板到新项目
+# 完整核对清单: integrations/env-checklist.md（含生效验证）
+```
+
+**契约真相源：** `openspec/specs/openspec-integration/spec.md`（11 条 Requirement：规格生命周期/适用范围/归档三同步/选型/差异审计/进度单一来源/归档同步检查/M+ 模板化/场景-测试映射/分层分支策略）。
+
+---
+
+## 第 5.7 节：CI 硬化技能（ci-hardening）集成
+
+质量节拍触发条件已覆盖「配置变更：环境配置、CI/CD、依赖调整」，CI 硬化任务由独立子技能 **ci-hardening** 承接（`skills/other/ci-hardening/`，随本仓库分发）。
+
+### 触发场景
+
+- 「CI 太慢 / 排队久 / 优化 Quality Gate」→ 迁移判断 + 瓶颈实测（M1/M2）
+- 「把 CI 从自托管/ECS runner 迁到 GitHub 官方 runner」→ 适配点核对 + 迁移验证（M1）
+- 「修改 / 新建 `.github/workflows/*.yml`」→ 全仓契约测试排查 + 结构同步（M3，必做）
+- 「给新项目初始化质量门禁」→ 并行 quality-gate.yml + 本地 .quality-gates.md + 可选 electron-ci.yml（M4/B+C 脚手架）
+
+### 使用方式
+
+```bash
+# 读方法论（M1 迁移判断 / M2 优化法 / M3 契约同步法 / M4 三层门禁 / M5 交付节奏）
+references/methodology.md
+
+# 新项目门禁脚手架（B+C 集成）
+node skills/other/ci-hardening/scripts/apply-ci-hardening.js --repo <target> [--with-electron] [--dry-run]
+
+# 既有 CI 瓶颈实测（M2）
+node skills/other/ci-hardening/scripts/analyze-ci-steps.js <run-id>
+```
+
+### 与质量节拍的协同
+
+- **M4 三层门禁**：本地提交门禁（.quality-gates.md + husky）→ 流程 skill（质量节拍 Phase 0-5 + 日常循环 ⑦ CI 验证）→ 远程 CI（GitHub Actions PR 触发）——ci-hardening 是三层中的「远程 CI」层专用技能。
+- **husky pre-commit 自动化门禁**：`.husky/pre-commit.js` 提交前自动执行真实检查并生成审计记录——① 禁 protected 分支直提；② 变更源文件必须有对应测试；③ 自动语法检查（`node --check`，staged js/ts）；④ 自动密钥/敏感信息扫描（高置信模式，排除 .env.example/.md/.json 等占位文件）；⑤ 全部通过后自动在 `.quality-gates.md`「## 本次执行记录」节追加 `## <日期> <分支> <N> 个文件 提交前自检（自动）` + `- [x]` 已通过项（含证据），随提交入库（幂等：同标题不重复追加）。任一检查失败 → commit 被拒；`.quality-gates.md` 缺失仅 WARN 不阻塞（兼容未初始化项目）。深度验证（测试运行/覆盖率/视觉/E2E/安全）由 CI quality-gate 自动执行。
+- **M5 交付节奏**：隔离 worktree → 分支+PR → 双模型审查 → 全量测试+契约测试 → 合并 → 归档三同步——与质量节拍 / 第一章分层分支策略完全一致。
+- **契约测试前置**：改 workflow 前必须全仓 grep 契约测试（`.github/scripts/*.test.js` 与 `*/tests/*.test.js`），改结构后本地跑通再推 CI——这是对质量节拍「测试是底线」的 CI 域落地。
+
+### 资源清单
+
+| 资源 | 说明 |
+|------|------|
+| `SKILL.md` | 技能入口（触发/步骤/铁律） |
+| `references/methodology.md` | M1-M5 方法论 + 新项目通用清单 |
+| `assets/templates/` | quality-gate.yml.tpl / electron-ci.yml.tpl / quality-gates.md.tpl（参数化模板） |
+| `scripts/` | apply-ci-hardening.js（脚手架）/ analyze-ci-steps.js（瓶颈分析） |
+| `agents/openai.yaml` | 多 Agent 角色定义（可选） |
+
+---
+
 ## 第六章：特殊场景映射表（完整版）
 
 当你说以下任意一句话时，AI 自动路由到对应的技能组合：
@@ -600,6 +845,8 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 ────────────────────────────────────────────────────────────────
 "我有一个想法"                          /office-hours → /plan-ceo-review
 "帮我分析一下这个需求"                   /office-hours Phase 2.8 → spec-driven-dev
+"写个 Spec"                               quality-rhythm-sdd → /speckit.specify → /speckit.clarify
+"用 Spec Kit 做"                          quality-rhythm-sdd → /speckit.specify → /speckit.clarify → /speckit.checklist
 "出个技术方案"                           /plan-eng-review → api-and-interface-design
 "审查一下架构"                           /plan-eng-review (双模型审查)
 "这个设计怎么样"                         /plan-design-review
@@ -627,6 +874,7 @@ Phase 3 门禁  → /qa 中 [必] 视觉回归测试
 "AI 怎么用"                             /ai-collaboration (Pillar 1-4)
 "这个模式反复出现"                       /learn skillify
 "环境配置"                              setup-deploy + ci-cd-and-automation
+"CI 太慢/优化 CI"                        /ci-hardening（迁移 runner、并行化、触发去重、契约同步）
 "紧急修复"                          热修复通道（快速通道）
 "轻量模式"                          轻量模式（跳过非必要阶段）
 "版本管理"                              git-workflow-and-versioning
@@ -706,10 +954,6 @@ Step ⑥ 协作质量：
   - 我给了 AI 什么上下文？
   - AI 输出质量如何？
   - 下次怎么改进？
-  - Bug 回溯检查（每次子任务完成后）：
-    ├── 本次会话有没有发现新的 bug？→ 有 → 触发 Bug 反思循环（10.5）
-    ├── 本次改动会不会引入之前修过的同类 bug？→ 可能 → 检查对应回归测试还在不在
-    └── 参考 learnings 中的 pitfall 类型记录，确认未触发已知模式
 ```
 
 ---
@@ -759,7 +1003,7 @@ Step ⑥ 协作质量：
 
 > **我在质量节拍的哪一层？**
 > - Phase 0：我在想清楚还是写代码？
-> - Phase 1-2：日常循环 6 步走完了吗？
+> - Phase 1-2：日常循环 7 步走完了吗？
 > - Phase 3-4：阶段检查跑了吗？
 > - 特殊场景：当前状况触发映射表的哪一条？
 > - 协作质量：我用了 /ai-collaboration 吗？
@@ -1136,100 +1380,109 @@ L2 架构师最终审查 → merge
 - 审查聚焦在**接口兼容性**和**跨模块影响**，不在编码细节
 - 编码细节由 Step ④ `/review` 自动处理
 
-### 10.5 Bug 反思循环（增强版 — 5 步 SOP）
+### 10.5 Bug 反思循环（增强版 — 5 步完整 SOP）
 
-发现 bug，触发质量节拍的 **Bug 反思循环**：
+> 发现 Bug 或被告知 Bug 时，**必须**按以下 5 步执行，不修表面、追根溯源。
+> 与 AGENTS.md QM-5 完全对齐，确保 Skill 层和项目层规则一致。
 
 ```
 发现 bug
     │
     ▼
-① 根因溯源（第一性原因）
-    ├── 不要只修表面，找到 Bug 的**第一性原因**
-    ├── 用 git blame / git log 追溯**最原始的代码改动引入点**
-    │   └── 示例：不是"函数返回 undefined"，而是
-    │       "2026-06-15 commit abc123 引入的 null 合并运算符"
-    └── 确认该次改动的意图（重构 / 修另一个 bug / 新功能？）
+① 第一性原因溯源（不修表面）
+    ├── 这个 Bug 最原始的代码改动引入点是什么？
+    ├── 用 git log + git blame 追溯：哪次提交引入的？当时的意图是什么？
+    ├── 明确回答：为什么这段代码会写成这样？
+    │   ├── 理解错误 / 复制粘贴 / 环境假设不成立
+    │   └── 缺少 review / 工具链缺陷 / 文档过时
+    │
+    └── 门禁：必须追溯到具体 commit hash，不能停在"代码写错了"
     │
     ▼
-② 逃逸分析（核心环节）
-    ├── 追溯这个 Bug 逃过了哪些测试？
-    │   ├── 单元测试？→ 为什么没拦住？场景没覆盖？边界值没列？Mock 不正确？
-    │   ├── 集成测试？→ 为什么没拦住？跨模块交互没测？数据流场景缺失？
-    │   ├── 端到端测试？→ 为什么没拦住？业务流程没覆盖？环境差异？
-    │   ├── 视觉回归测试？→ 为什么没拦住？UI 变化没截图？diff 阈值太宽松？
-    │   └── 代码审查？→ 为什么没拦住？审查者没注意到？审查清单没这项？
+② 测试逃逸分析（追溯逃逸链）
+    ├── 这个 Bug 逃过了哪些测试？逐层列出：
+    │   ├── 单元测试层：有没有对应的单元测试？
+    │   ├── 集成测试层：有没有覆盖该场景？
+    │   ├── E2E/视觉测试层：有没有端到端验证？
+    │   └── 代码审查层：review 时为什么没发现？
     │
-    ├── 输出格式：「Bug 逃逸链」—— 按测试层级逐层列出每层为什么没拦住
-    │   └── 示例：
-    │       单元测试 → Mock 过度（网络层全 Mock，未测超时场景）
-    │       集成测试 → 缺失（该模块无集成测试）
-    │       代码审查 → 审查清单无"IPC 参数序列化"条目
+    ├── 逃过的原因分类（5 类）：
+    │   ├── 无测试 —— 根本没有针对该场景的测试
+    │   ├── Mock 过度 —— Mock 掉了真实依赖，问题在 Mock 边界之外
+    │   ├── 测试不执行 —— 测试写好了但未集成到 CI / npm test
+    │   ├── 断言不精确 —— 测试通过了但没验证关键行为
+    │   └── 环境差异 —— 测试环境与生产环境不一致（如 DB 引擎版本）
     │
-    └── 门禁：逃逸链不完整 → ❌ 不能进入下一步
+    └── 门禁：必须按测试层级列出逃逸链，不能只说"测试没覆盖"
     │
     ▼
-③ 系统性漏洞定位（核心环节）
-    ├── 在现有测试机制里找到**具体的系统性漏洞**
-    ├── 分类（四类机制漏洞）：
-    │   ├── 测试场景缺失 — 某种类型场景从未被脑暴过
-    │   ├── 测试质量不足 — 测试写了但没测到点（mock 太假 / assert 太少）
-    │   ├── 审查盲区 — 审查清单没覆盖这类问题
-    │   └── 流程缺失 — 质量节拍某一步根本没执行
+③ 系统性漏洞定位
+    ├── 在现有测试机制里找到具体的系统性漏洞
+    ├── 必须具体到：
+    │   ├── 哪个文件（具体路径）
+    │   ├── 哪个测试框架 / 环节
+    │   └── 什么系统性缺陷（如：所有 IPC mock 都跳过了序列化验证）
     │
-    ├── 输出格式：「系统性漏洞报告」
-    │   └── 示例：
-    │       类型：测试场景缺失
-    │       根因：脑暴模板无"IPC 参数序列化"类别
-    │       影响范围：所有涉及 IPC 的功能模块
+    ├── 漏洞分类模板：
+    │   ├── 测试覆盖漏洞 —— 某类文件/场景完全没有测试
+    │   ├── Mock 边界漏洞 —— Mock 与真实行为不一致
+    │   ├── 门禁缺失漏洞 —— 某类变更没有自动化检查
+    │   └── 工具链漏洞 —— 工具本身不提供安全检查（如 MCP 无编译验证）
     │
-    └── 门禁：漏洞未定位 → ❌ 不能进入下一步
+    └── 门禁：必须输出具体的漏洞描述 + 文件路径，不能泛泛说"测试不够"
     │
     ▼
 ④ 修复 + 回归保护测试
-    ├── 修复方案（最小改动 + 副作用检查）
-    │
-    ├── **回归保护测试**（必须明确以下三项）：
+    ├── 修复方案（代码变更）
+    ├── 回归保护测试（新增明确要求）：
     │   ├── 测试怎么写：描述测试场景 + 断言逻辑 + 边界值
-    │   ├── 放在哪个文件：具体相对路径
-    │   └── 用什么模式：单元测试 / 集成测试 / E2E / 视觉回归
+    │   ├── 放在哪个文件：{被测文件}.test.js，与被测文件同目录
+    │   ├── 用什么模式：单元测试 / 集成测试 / E2E / 视觉回归
+    │   └── 要求：用真实依赖（非 Mock），验证 Bug 的具体场景不会复现
     │
-    ├── 示例：
-    │   文件：apps/desktop/electron/services/model-provider-manager.test.js
-    │   模式：单元测试
-    │   场景：调用 updateProvider 传入 reactive proxy 包装的对象
-    │   断言：应自动脱壳后传 IPC，不报 "An object could not be cloned"
-    │
-    └── 门禁：没有回归保护测试 → ❌ 不能合入
+    └── 门禁：没有回归保护测试 → 不能合入
     │
     ▼
-⑤ 预防措施（闭环落地）
-    ├── 怎么防止再次发生：
-    │   ├── 更新测试场景脑暴模板 — 补充缺失的类别
-    │   ├── 更新审查清单 — 增加检查条目
-    │   ├── 更新质量节拍流程 — 如果发现流程漏洞
-    │   └── 写入 learnings（/learn）— 类型: pitfall，关联文件路径
+⑤ 预防措施（防止再次发生）
+    ├── 必须有具体的系统性措施，不能只说"以后注意"
+    ├── 至少落地以下一项：
+    │   ├── 更新 AGENTS.md QM 规则 — 增加检查条目
+    │   ├── 更新 01-docs/learnings.md — 记录根因和教训（/learn）
+    │   ├── 增加自动化测试 — 回归测试写入 CI
+    │   └── 增加代码检查 — lint 规则 / pre-commit hook
     │
-    ├── 输出格式：「预防措施清单」
-    │   └── 示例：
-    │       [ ] 更新 .quality-gates.md — 新增"IPC 参数序列化"检查项
-    │       [ ] 更新 AGENTS.md QM-2 — 补充 Vue reactive proxy 规则
-    │       [ ] 写入 01-docs/learnings.md — pitfall 类型
-    │
-    └── 门禁：预防措施未落地 → ❌ 不得关闭 bug 单
+    └── 门禁：预防措施未落地 → 不得关闭 bug
     │
     ▼
 ⑥ 执行验证
     ├── 修代码 → 补回归测试 → 实施预防措施
-    └── 标记为"已修复 + 已反哺"（cross-session 可查）
+    ├── 标记为"已修复 + 已反哺"（cross-session 可查）
+    └── 输出格式：Bug 反思报告（5 步产出物汇总）
 ```
 
-**集成到日常循环：** Step ⑥ 在完成一个子任务后，自动检查当前会话有没有发现新的 bug，有则触发反思循环。
+**与旧版 4 步结构的差异：**
 
-**逃逸链完整性检查（门禁）：**
-- 逃逸链必须覆盖至少 2 个测试层级
-- 每层必须给出具体原因（不能"没测到"这种模糊描述）
-- 回归保护测试必须写明具体文件路径和测试模式
+| 维度 | 旧版（4 步） | 新版（5 步） |
+|------|-------------|-------------|
+| 根因深度 | 5 Whys 问"为什么" | git blame 追溯到**具体 commit** |
+| 测试逃逸 | 一句话"为什么没测出来" | 按测试层级逐层输出**逃逸链** |
+| 漏洞定位 | 四维分类（PRD/代码/测试/流程） | 分类定位**具体文件 + 系统性缺陷** |
+| 回归保护 | "补测试" | 明确**写在哪个文件 + 怎么测 + 用什么模式** |
+| 预防闭环 | "生成改进措施" | 落地到**具体文件变更 + learnings 写入** |
+| 门禁强度 | 1 条检查 | **5 步逐项门禁**，缺一不可 |
+
+**集成到日常循环：** Step ⑥ 在完成一个子任务后，自动检查当前会话有没有发现新的 bug，有则触发 5 步反思循环。
+
+**触发命令（场景映射）：**
+- "这个 bug 为什么没测出来" → ② 逃逸分析
+- "做 bug 反哺" → 5 步完整执行
+- "Bug 反思" → 5 步完整执行
+```
+
+**触发时机：**
+- Phase 0 调研前自动进入（用户说"帮我分析一下X"）
+- 任务涉及陌生领域或不确定方案时
+- 项目重大决策时由 L2 架构师触发
 
 ### 10.9 AI 工具修改完整性校验（来自 Bug 反思 2026-07-17）
 
@@ -1310,10 +1563,11 @@ Phase 1 门禁：
   [ ] 每个任务有测试/文档/审查阶段（/autoplan 3.7）
 
 Phase 2 门禁：
-  [ ] 日常循环 6 步完整执行
+  [ ] 日常循环 7 步完整执行
   [ ] 代码审查无 CRITICAL 问题
   [ ] 测试覆盖 >= 3 场景/模块
   [ ] API Key 无硬编码（/cso）
+  [ ] CI 流水线通过（push 后 gh run list 确认 success）
 
 Phase 3 门禁：
   [ ] /review 全量审查通过
@@ -1324,12 +1578,7 @@ Phase 3 门禁：
 Phase 4 门禁：
   [ ] /health 评分 >= 7
   [ ] /retro 产出了 learnings
-  Bug 反哺完成（每个 bug 完整执行 5 步 SOP）：
-    ✅ ① 根因溯源 —— 第一性引入点已确认
-    ✅ ② 逃逸分析 —— 逃逸链已列出（每层测试为什么没拦住）
-    ✅ ③ 系统性漏洞 —— 测试机制漏洞已定位并分类
-    ✅ ④ 回归保护测试 —— 已写入具体文件
-    ✅ ⑤ 预防措施 —— 已落地到文件变更
+  [ ] Bug 反哺完成（每个 dogfooding bug 问“为什么没测出来”）
   [ ] learnings 已 review（/learn skillify 检查）
   [ ] 未触发 /bug-reflection 的未解决问题
 
@@ -1379,15 +1628,15 @@ Phase 2-mini: 最小日常循环
 Phase 3: 直接发布（灰度加速）
   /ship → /land-and-deploy（跳过完整 /review）
           ↓
-Phase 4-mini: 事后补复盘（增强版 Bug 反哺）
+Phase 4-mini: 事后补复盘（增强版 Bug 反哺 — 5 步完整 SOP）
   【门禁】以下 5 步全部完成才可关闭热修复单：
-    ✅ ① 根因溯源 —— 找到第一性引入点（git blame 追溯到具体 commit）
-    ✅ ② 逃逸分析 —— 按测试层级列出逃逸链（每层为什么没拦住）
-    ✅ ③ 系统性漏洞 —— 找到测试机制的具体漏洞（四类分类）
-    ✅ ④ 回归保护测试 —— 写在哪个文件、怎么测、用什么模式
-    ✅ ⑤ 预防措施 —— 落地到具体文件变更（审查清单/测试模板/learnings）
-  /bug-reflection（焦点：“这个 bug 为什么之前的测试没抓到？”）→ 更新测试场景库
-  【门禁】Bug 反哺未完成 → 不得关闭热修复单
+    ✅ ① 根因溯源 —— 找到第一性引入点（原始 commit）
+    ✅ ② 逃逸分析 —— 按测试层级输出逃逸链
+    ✅ ③ 系统性漏洞 —— 找到测试机制的具体漏洞并分类
+    ✅ ④ 回归保护测试 —— 写在哪个文件 + 怎么测 + 什么模式
+    ✅ ⑤ 预防措施 —— 落地到具体文件变更
+  焦点："这个 bug 为什么之前的测试没抓到？"→ 更新测试场景库
+  【门禁】Bug 反哺 5 步未完成 → 不得关闭热修复单
 `
 
 **规则**：热修复通道只用于 P0/P1 问题，事后必须补 Phase 4 复盘。
@@ -1409,7 +1658,7 @@ Phase 4-mini: 事后补复盘（增强版 Bug 反哺）
 
 保留必要门禁：
 `
-日常循环 6 步完整执行
+日常循环 7 步完整执行
 代码审查（/review）无 CRITICAL 问题
 CHANGELOG 更新
 `
@@ -1508,10 +1757,11 @@ Ocean（海）= 不能煮沸：
 ```
 Phase 2 门禁（增强）：
   [ ] Completeness 评分 ≥ 7/10
-  [ ] 日常循环 6 步完整执行
+  [ ] 日常循环 7 步完整执行
   [ ] 代码审查无 CRITICAL 问题
   [ ] 测试覆盖 >= 3 场景/模块
   [ ] API Key 无硬编码（/cso）
+  [ ] CI 流水线通过（push 后 gh run list 确认 success）
 ```
 
 **触发时机：** 每个 Sub-Task 完成时自动评估 Completeness 评分，低于阈值不可进入下一 Phase。
@@ -2027,6 +2277,12 @@ PHASE 切换但门禁未通过       → 自动降级到上一 Phase
 
 ## 附录：版本变更
 
+### 2026-08-02 版本整合
+
+- 以 .agents/skills/质量节拍/SKILL.md 作为 canonical 主版本。
+- 合并旧 Codex 副本中的完整任务覆盖描述；保留代码修改任务的强制门禁和 QM-5 Bug 反思流程。
+- 修正触发方式 D 的重复门禁提示，避免同一任务重复表达。
+
 ### 2026-07 重大更新
 
 
@@ -2063,7 +2319,7 @@ PHASE 切换但门禁未通过       → 自动降级到上一 Phase
 - "代码理解 > 代码生成"原则 — 日常循环以读取代码开头
 - 全流程覆盖：5 大 Phase、13 子阶段
 - 集成 52 个技能到全流程映射
-- 日常循环扩展为 6 步（新增 Step ① 上下文检查 + Step ⑥ 协作质量）
+- 日常循环扩展为 7 步（新增 Step ① 上下文检查 + Step ⑥ 协作质量 + Step ⑦ CI 验证）
 - 阶段检查扩展到每个 Phase
 - 新增 /ai-collaboration 技能集成
 - 场景映射表从 24 个扩展到 32 个

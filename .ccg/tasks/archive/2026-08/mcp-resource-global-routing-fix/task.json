@@ -1,0 +1,12 @@
+{
+  "id": "mcp-resource-global-routing-fix",
+  "title": "修复 CCG 全局 Resource 路由入口",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "developer-workflow",
+  "currentPhase": "completed",
+  "nextAction": "全局 CCG 路由和记忆已修正，下一新会话验证",
+  "createdAt": "2026-08-03T00:00:00Z",
+  "branch": "codex/stitch-publish-visual-slice"
+}

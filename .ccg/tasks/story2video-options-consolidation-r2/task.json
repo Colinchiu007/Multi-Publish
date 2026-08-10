@@ -1,0 +1,14 @@
+{
+  "id": "story2video-options-consolidation-r2",
+  "title": "图片轮播参数治理 R2：移除 splitSpeechRate/concurrency/autoAdvance 前端死字段",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "electron",
+  "currentPhase": "completed",
+  "nextAction": "已交付（R2 PR #424/#425；剩余 P1：B 类运营化独立立项）",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "branch": "codex/story2video-options-consolidation-r2",
+  "openspecChange": "story2video-options-consolidation-r2",
+  "completedAt": "2026-08-09T00:00:00Z"
+}

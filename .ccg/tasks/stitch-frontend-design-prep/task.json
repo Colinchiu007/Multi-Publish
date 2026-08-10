@@ -1,0 +1,22 @@
+{
+  "id": "stitch-frontend-design-prep",
+  "title": "Prepare Multi-Publish frontend for Stitch design-system integration",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-design",
+  "currentPhase": "review",
+  "nextAction": "Review Stitch screen ddf2c200116b4a2890bd4eb485160faa before local /publish renderer implementation",
+  "createdAt": "2026-08-02T00:00:00Z",
+  "branch": "main",
+  "scope": [
+    ".stitch/DESIGN.md",
+    ".stitch/DESIGN-current.md",
+    ".stitch/FRONTEND-DESIGN-SPEC.md",
+    ".stitch/screen-inventory.md",
+    ".stitch/metadata.json",
+    ".ccg/tasks/stitch-frontend-design-prep/review.md"
+  ],
+  "unrelatedDirtyFilesPreserved": true,
+  "lastUpdatedAt": "2026-08-02T00:00:00Z"
+}

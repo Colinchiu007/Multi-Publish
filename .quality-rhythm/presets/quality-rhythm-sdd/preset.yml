@@ -1,0 +1,50 @@
+schema_version: "1.0"
+preset:
+  id: "quality-rhythm-sdd"
+  name: "Quality Rhythm SDD"
+  version: "1.0.0"
+  description: "Spec-Driven Development preset with quality-rhythm gates: UI field specs, interaction controls, modals, visual specs, error states, and TDD test mapping"
+  author: "Quality Rhythm"
+  repository: "https://github.com/Colinchiu007/quality-rhythm"
+  license: "MIT"
+  language: "zh-CN"
+
+requires:
+  speckit_version: ">=0.1.0"
+
+provides:
+  templates:
+    # Enhanced spec template with UI/UX/TDD layers
+    - type: "template"
+      name: "spec-template"
+      file: "templates/spec-template.md"
+      description: "Enhanced PRD/Spec template with UI field specs, interaction controls, modals, visual specs, error/empty/loading states, field validation rules, and TDD test scenario mapping"
+      replaces: "spec-template"
+
+    # Enhanced plan template with TDD-first approach
+    - type: "template"
+      name: "plan-template"
+      file: "templates/plan-template.md"
+      description: "Implementation plan template with test-first development, visual regression planning, and quality-rhythm phase gates"
+      replaces: "plan-template"
+
+    # Enhanced clarify command for deeper UI/interaction probing
+    - type: "command"
+      name: "speckit.clarify"
+      file: "templates/commands/speckit.clarify.md"
+      description: "Enhanced clarify command that probes UI fields, interaction controls, modals, error states, and visual specs"
+      replaces: "speckit.clarify"
+
+    # Enhanced checklist command with UI completeness checks
+    - type: "command"
+      name: "speckit.checklist"
+      file: "templates/commands/speckit.checklist.md"
+      description: "Quality checklist with UI/UX completeness gates and TDD coverage verification"
+      replaces: "speckit.checklist"
+
+tags:
+  - "quality"
+  - "prd"
+  - "ui-spec"
+  - "tdd"
+  - "chinese"
