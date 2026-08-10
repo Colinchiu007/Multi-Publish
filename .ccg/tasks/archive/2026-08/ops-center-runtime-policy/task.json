@@ -1,12 +1,12 @@
 {
   "id": "ops-center-runtime-policy",
   "title": "运营后台 P0 第一批：公告/版本发布策略 + 内容安全策略运行时下发",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "high",
   "domain": "backend,desktop,security",
-  "currentPhase": "planning",
-  "nextAction": "OpenSpec design + 实现运行时下发（公告/更新策略/敏感词库）",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #488 merged 1f2cc837）",
   "createdAt": "2026-08-10T20:30:00+08:00",
   "branch": "codex/ops-center-runtime-policy",
   "openspecChange": "ops-center-runtime-policy"
