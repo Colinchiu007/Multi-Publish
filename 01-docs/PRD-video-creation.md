@@ -605,18 +605,25 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 **三、UI 布局重构**
 
 - 卡片结构：状态徽章移至信息区右侧（第一行），阶段标签和提示移至第二行（pipeline-card-bottom），通过分割线视觉分隔。
-- 状态色条：卡片左侧 3px 色条，颜色由 :class="p.status" 动态绑定，一眼区分状态。
+- 状态色条：卡片左侧 3px 色条，颜色由 `:class="effectiveStatus(p)"` 动态绑定，一眼区分状态。
 - 运行中脉冲：running 状态圆点带 pulse-dot 动画（1.5s 周期透明度闪烁）。
 - 阶段标签：字号从 11px 增至 12px，padding 从 2px 6px 增至 3px 8px，新增 failed（红）、paused（橙）、cancelled（灰）三种状态色。
 - 容器宽度：从 960px 拓宽至 1080px，内边距从 24px 增至 24px 32px。
 - 列表间距：卡片间距从 8px 增至 12px。
 - hover 效果：新增 translateY(-1px) 微位移 + 加深阴影。
 
-**四、数据校验**
+**四、前端核心方法**
+
+- **effectiveStatus(p)**：前端状态归一化方法。后端返回的 status 为 paused/failed/cancelled/completed 时直接透传；当 status === 'running' 时，遍历 p.stages 数组检查是否有 stage.status === 'failed'，若存在则返回 'paused'（表示后端标记为运行中但实际已中断）。所有模板绑定（状态徽章、色条、提示文案、计数器）均调用此方法而非直接读取 p.status。
+- **pausedStageOf(p)**：获取暂停环节名称。优先读取 p.pausedStage（后端快照预计算值），fallback 到遍历 stages 数组找到第一个 status === 'failed' 的 stage，返回其 name || stage 字段。用于渲染"暂停环节：xxx"提示文字。
+
+**五、数据校验**
 
 - pausedStage 仅在 snapshot.currentStage 为有效索引且对应 stage 存在时填充，否则为 null。
 - stageLabel() 函数对 pausedStage（字符串）调用时走 shortName() 路径（截断 10 字符 + ...）。
 - statusLabel() 的 paused 映射为「已暂停」。
+- effectiveStatus() 的 running→paused 判定仅基于 stages 数组中是否存在 failed 状态的 stage，不依赖其他字段。
+- pausedStageOf() 返回值可能为 null（无失败环节时），模板中通过 v-if 控制提示文字的显示/隐藏。
 
 **五、openPipeline 路由**
 
