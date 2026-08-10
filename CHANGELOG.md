@@ -5,6 +5,15 @@
 - 回归：compose-engine warnings 断言改机器码（含「不含中文字符」校验），103 用例通过。
 - 边界：data.warnings 契约形状不变（数组），内容由中文 → 机器码；renderer 契约不变（读 bgmSkippedReason）。
 
+## [未发布] 修复：视频模型流水线（videogen）错误透传 + Agnes 视频生成端点（2026-08-10）
+
+- 修复：`videogen` 的 generateVideo 经 `callAdapter` 返回失败（`{ code: -1, message }`）时原样透传真实 provider 错误（此前吞成「视频生成未返回任务 ID」，掩盖 `Missing task_id in response` / 限流 / 模型权限等真实原因）。
+- 修复：`agnes-video` 适配器视频生成端点由 `/videos/generations` 修正为 `/video/generations`（真实请求验证：`apihub.agnes-ai.com/v1/videos/generations` 服务端返回 `Invalid URL`，`/v1/video/generations` 为有效路径），提交与状态查询同步修正。
+- 回归：agnes-video 36 用例 + videogen-stages 16 用例全绿。
+- 边界：agnes 真实出片受第三方套餐限制（`agnes-video-v2.0` 被拒 Model is blocked / 每分钟 2 次限流），属外部验收。
+
+ (docs(changelog): 记录 videogen 透传 + agnes 端点修复（doc-gate）)
+
 ## [未发布] 修复：BGM 跳过前端提示（i18n）+ 导入惰性 GC + API-Key 正则拆分（2026-08-10）
 
 - 新增：compose 跳过背景音乐时前端显示可关闭提示条——由 run.context.compose（bgmSkipped/bgmSkippedReason）驱动，新增 BGM_SKIPPED 通知（zh/en）与 bgmSkippedReasonText/formatBgmSkippedNotification（size_exceeded/format_unsupported/not_allowed/unreadable 本地化）；新运行/取消后重置。
