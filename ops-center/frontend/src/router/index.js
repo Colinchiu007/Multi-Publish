@@ -63,9 +63,13 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/keyword-watchlist',
+    name: 'KeywordWatchlist',
+    component: () => import('../views/KeywordWatchlist.vue'),
     path: '/redemption-codes',
     name: 'RedemptionCodes',
     component: () => import('../views/RedemptionCodes.vue'),
+
     meta: { requiresAuth: true },
   },
   {

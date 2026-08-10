@@ -1,3 +1,13 @@
+<<<<<<< HEAD
+## [未发布] 功能：关键词监测目录下发（P1-5）（2026-08-11）
+
+- ops-center：新增 `keyword_watchlist` 表 + `GET/POST /api/v1/keyword-watchlist`、`PUT/DELETE /api/v1/keyword-watchlist/{id}`（admin）；校验 keyword 2-100 字唯一 / threshold ≥1 / interval_minutes 10-10080 / enabled；POST 重复 400、PUT/DELETE 404、DELETE 软删（不复活可重建）；`runtime/bootstrap` 增加 `keyword_watchlist`（enabled=1 未软删，sort_order 排序，X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「关键词监测」页（列表/状态筛选/新增/编辑/删除/启用停用）。
+- 桌面端：`KeywordMonitor.applyRemoteWatchlist`（按 keyword upsert、远程条目设置 interval/threshold 并标记 source=remote、缺席即停止远程监测、用户/恢复条目保留、MAX_KEYWORDS 上限 skip+warn）；`OpsCenterSync.setKeywordMonitor` + `applyRuntime` 应用 keyword_watchlist；phase1 接线。
+- 修复：main 上 3 个文件的历史冲突残留标记（01-docs/PRD.md 7.4.9/7.4.10 顺序、CHANGELOG.md 嵌套标记、ops-center-sync.js 头注释）。
+- 文档：ops-center PRD 12A.20、Multi-Publish PRD §7.4.13、CHANGELOG。
+- 测试：ops-center pytest（+2，全量 114）；桌面端 keyword-monitor-remote +3、ops-center-sync +3。
+=======
 ## [未发布] 功能：兑换码签发/吊销/查询（P1-4）（2026-08-11）
 
 - ops-center：新增 `redemption_codes` 表（id 代理主键 + code 唯一）+ `POST /api/v1/redemption-codes/batch`（admin；count 1-200/plan 枚举/expires_at ISO/note ≤200；未配置 OPS_REDEMPTION_SECRET → 400 fail-closed）+ `GET`（掩码列表，plan/status 筛选）+ `PUT /{id}/revoke` + `DELETE /{id}`（404 兜底）。
@@ -5,6 +15,7 @@
 - ops-center 前端：新增「兑换码」页（批量签发/掩码结果/列表/吊销/删除）；config.py + .env.example 新增 OPS_REDEMPTION_SECRET。
 - 文档：ops-center PRD 12A.19、Multi-Publish PRD §7.4.12、CHANGELOG。
 - 测试：ops-center pytest（+3，全量 115）。
+>>>>>>> origin/main
 
 ## [未发布] 功能：发布数据看板（P1-3）（2026-08-11）
 
