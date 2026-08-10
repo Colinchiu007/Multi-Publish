@@ -20,4 +20,4 @@
 
 - [x] 受影响 vitest 套件全绿（6 文件 275 用例，jsdom）
 - [x] 双模型审查（Claude Critical 0，Major1-3 + Minor 已修复；antigravity 降级记录）
-- [ ] PR + 合并回 main；openspec/CCG/learnings 三同步
+- [x] PR #466 已合并回 main（merge 2785ee4b，CI 全绿）；本归档为三同步
