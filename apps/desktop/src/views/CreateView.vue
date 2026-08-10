@@ -26,25 +26,13 @@
     <div v-if="view === 'pipelines'">
       <!-- 流水线列表 -->
       <div v-if="!selectedPipeline">
-        <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载流水线列表...</span></div>
-        <div v-else-if="pipelineError" class="error-state">⚠️ {{ pipelineError }}</div>
-        <div v-else class="pipeline-grid">
-          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :data-pipeline-id="p.name" :class="[p.category, { 'is-unavailable': p.available === false }]" tabindex="0" role="button" :aria-label="pipelineName(p.name)" @click="selectPipeline(p)" @keydown.enter="selectPipeline(p)">
-            <div class="card-header">
-              <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
-              <span class="stability-dot" :class="getStability(p.name)" :title="getStability(p.name)"></span>
-            </div>
-            <h3 class="card-title">{{ pipelineName(p.name) }}</h3>
-            <p class="card-desc">{{ pipelineDescription(p.name) }}</p>
-            <div class="card-meta">
-              <span class="stage-count">{{ p.stageCount ?? p.stages?.length ?? 0 }} 阶段</span>
-              <span class="cost-label" :class="p.estimatedCost">{{ costLabel(p.estimatedCost) }}</span>
-              <span class="availability-badge" :class="p.available === false ? 'dev' : 'ready'" :title="availabilityHint(p.available !== false)">
-                {{ availabilityLabel(p.available !== false) }}
-              </span>
-            </div>
-          </div>
-        </div>
+        <PipelineSelector
+          :pipelines="pipelines"
+          :loading="pipelineLoading"
+          :error="pipelineError"
+          @select="selectPipeline"
+          @retry="loadPipelines"
+        />
       </div>
 
       <!-- 流水线详情 & 配置 -->
@@ -57,30 +45,13 @@
         </div>
 
         <!-- 阶段进度 -->
-        <div v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length" class="stages-timeline" data-testid="story2video-stage-list">
-          <!-- 进度头部固定：流水线运行中页面较长时，进度条/已用时/完成摘要不随滚动离开视口 -->
-          <div class="stages-timeline-sticky" data-testid="story2video-stage-sticky-header">
-            <div class="orchestration-progress" data-testid="story2video-orchestration-progress">
-              <div class="progress-bar"><div class="progress-fill" :style="{ width: orchestrationProgressPercent + '%' }"></div></div>
-              <span class="progress-text">{{ orchestrationProgressPercent }}%</span>
-              <span v-if="orchestrationElapsedMs !== null" class="elapsed-text">{{ translateWithLocaleFallback('story2video.elapsed', '已用时 ' + formatDuration(orchestrationElapsedMs), 'Elapsed ' + formatDuration(orchestrationElapsedMs), { duration: formatDuration(orchestrationElapsedMs) }) }}</span>
-            </div>
-            <div v-if="orchestrationSummary" class="orchestration-summary" data-testid="story2video-orchestration-summary">{{ orchestrationSummary }}</div>
-          </div>
-          <div v-for="(stage, i) in (pipelineRunStatus.stages || orchestrationStages)" :key="stage.id || stage.name || i" class="stage-item" :class="stageStateClass(stage, i)" :data-testid="`story2video-stage-${stage.name || i}`">
-            <span class="stage-icon">{{ stageStateIcon(stage, i) }}</span>
-            <span class="stage-main">
-              <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
-              <span v-if="stageDetailText(stage, i)" class="stage-meta" :data-testid="`story2video-stage-detail-${stage.name || i}`">{{ stageDetailText(stage, i) }}</span>
-              <span v-if="stage.name === 'compose' && stage.status === 'running' && composeSubProgressPercent(stage) !== null" class="stage-sub-progress" data-testid="story2video-stage-compose-progress" role="progressbar" :aria-valuenow="composeSubProgressPercent(stage)" aria-valuemin="0" aria-valuemax="100">
-                <span class="stage-sub-bar"><span class="stage-sub-fill" :style="{ width: composeSubProgressPercent(stage) + '%' }"></span></span>
-              </span>
-            </span>
-            <span class="stage-status">
-              {{ stageStatusLabel(stage, i) }}<span v-if="stageTimeText(stage)" class="stage-time"> · {{ stageTimeText(stage) }}</span>
-            </span>
-          </div>
-        </div>
+        <StageProgress
+          v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length"
+          :stages="pipelineRunStatus.stages || orchestrationStages"
+          :progress-percent="orchestrationProgressPercent"
+          :elapsed-ms="orchestrationElapsedMs"
+          :summary="orchestrationSummary"
+        />
 
         <!-- 模型服务异常提示（非阻塞） -->
         <div v-if="providerWarningText" class="provider-warning-banner" role="alert">
@@ -854,6 +825,7 @@ import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
+import { PipelineSelector, StageProgress } from './video-creation'
 import {
   deleteCustomTemplate,
   getAllTemplates,
@@ -3513,7 +3485,6 @@ export default {
 @media (max-width: 720px) {
   .template-editor { grid-template-columns: 1fr; }
 }
-</style>
 
   outline: 2px solid var(--primary);
   outline-offset: 2px;
@@ -3529,3 +3500,5 @@ export default {
 @keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 .skeleton-text { height: 14px; margin-bottom: 8px; }
 .skeleton-card { height: 120px; border-radius: 12px; }
+
+</style>
