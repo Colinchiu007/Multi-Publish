@@ -857,3 +857,28 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 ### 12A.13.3 测试
 
 - `test_keypool_license_api.py` 3 用例：Key 新字段校验 + 池概览（非 admin 403）、许可证 CRUD + 校验 + 权限、Key 唯一性与过期派生。
+
+## 12A.14 云服务健康巡检（2026-08-11 新增，P1 其余）
+
+> 运营后台一键诊断云服务健康（业务 API / Logto / 存储 / 自定义目标），复用 production-smoke 的探测口径，只读不修改服务状态。
+
+### 12A.14.1 探针
+
+| 探针 | 目标 | 判定 |
+|------|------|------|
+| ops-center 自身 | 进程存活 | ok |
+| 业务 API | `OPS_HEALTH_API_URL` → `/api/v1/health` + `/api/v1/ready` | 均 2xx → ok |
+| Logto | `OPS_HEALTH_LOGTO_URL` → OIDC discovery（`/oidc/.well-known/openid-configuration`） | 2xx 且含 issuer → ok |
+| 存储可写 | config_output_dir / db 目录 | 临时写删成功 → ok |
+| 自定义目标 | `OPS_HEALTH_TARGETS` JSON `[{name,url}]` | 2xx → ok |
+
+- 单项 ≤5s 超时；URL 校验（http(s)，非本机回环强制 https）；未配置 → skipped（不计失败）。
+- `GET /api/v1/system/health`（admin）：并发探测，返回 `{overall: ok|error, checks:[{name,status,ok,latency_ms,detail}], generated_at}`。
+
+### 12A.14.2 前端
+
+「系统健康」页：一键巡检按钮 + 总体徽章 + 结果表（服务/状态/耗时/详情）；首次进入自动巡检。
+
+### 12A.14.3 测试
+
+`test_health_api.py` 2 用例：未配置跳过 + 权限、自定义目标失败 + 非法目标忽略。
