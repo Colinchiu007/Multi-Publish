@@ -1142,3 +1142,37 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 ① 签发格式与桌面端 validate() 兼容（签名可复算）；② count/plan/expires_at 非法 → 400；③ 未配置密钥 → 400；④ 列表掩码、操作按 id；⑤ 吊销/删除不存在 → 404；⑥ 非 admin 403。
 
+
+## 12A.21 流水线所需依赖目录（2026-08-11 新增）
+
+> 列出所有视频创作流水线运行所需的模型类型（推理 / 图片生成 / 视频生成 / TTS 语音 / 语音识别 / 音频生成）与候选供应商，种子对齐代码事实（pipeline-engine.js 流水线定义 + model-provider-seeds.js 供应商目录）；运营可维护，为后续「桌面端配置检查」提供依据。
+
+### 12A.21.1 数据模型与校验
+
+`pipeline_dependencies`：id（代理主键）/ pipeline_id（`^[a-z0-9_-]{1,64}$`）/ pipeline_name（≤100）/ model_type（枚举 llm/tts/speech_recognition/image/video/audio/multimodal）/ required（0=可选）/ provider_candidates（JSON 字符串数组 ≤50，去重保序）/ default_provider（必须在候选内或留空）/ description（≤200）/ enabled / sort_order（非负整数）/ deleted_at（软删，不复活，可重建）/ updated_at / updated_by；唯一约束 (pipeline_id, model_type)。
+
+- POST 重复 (pipeline_id, model_type) → 400；PUT 部分更新 + 404（改 key 撞唯一 → 400 兜底）；DELETE 软删 + 404；IntegrityError 兜底 400。
+
+### 12A.21.2 种子（代码事实，INSERT-OR-IGNORE 不覆盖运营修改）
+
+覆盖 12 个有模型依赖的流水线（story2video-compose / animated-explainer / talking-head / cinematic / animation / avatar-spokesperson / character-animation / clip-factory / documentary-montage / hybrid / localization-dub / podcast-repurpose），共 31 条；供应商候选与默认值对齐 model-provider-seeds.js 预设目录（如 llm 默认 anthropic、image 默认 flux、video 默认 minimax、tts 默认 minimax-tts、speech_recognition 默认 whisper、audio 默认 suno）。
+screen-demo（屏幕演示录制）与 framework-smoke（冒烟测试）无模型依赖，不播种。
+
+### 12A.21.3 端点（GET 登录可读；写 admin）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/pipeline-dependencies?pipeline_id=&model_type= | 列表（筛选） |
+| POST | /api/v1/pipeline-dependencies | 新增（admin） |
+| PUT | /api/v1/pipeline-dependencies/{id} | 更新（admin） |
+| DELETE | /api/v1/pipeline-dependencies/{id} | 软删（admin） |
+
+### 12A.21.4 前端「流水线依赖」页
+
+- 列表：流水线 ID / 名称 / 模型类型 tag / 必选 tag（必选=红 / 可选=灰）/ 默认供应商 / 候选供应商 tags / 说明 / 启用开关 / 操作（编辑、删除）；顶部流水线 ID 输入筛选 + 模型类型下拉筛选 + 「新增依赖」。
+- 编辑弹窗：流水线 ID（编辑禁用）/ 名称 / 模型类型（编辑禁用下拉）/ 必选开关（提示「关闭=可选（缺省时该能力降级）」）/ 候选供应商（逗号分隔，提示建议预设）/ 默认供应商（从候选中下拉）/ 说明 / 启用。
+- 顶部说明：数据种子对齐代码事实；「必选」表示运行前必须配置该类模型。
+
+### 12A.21.5 验收标准
+
+① 种子 31 条、story2video-compose 含 llm/image/tts/video(可选)；② 校验：pipeline_id 字符集 / model_type 枚举 / default 在候选内 / 候选类型 → 400；③ POST 重复 400、PUT/DELETE 404；④ 软删不复活、可重建；⑤ 筛选正确；⑥ 非 admin 写 403、读 200。

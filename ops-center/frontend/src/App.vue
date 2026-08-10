@@ -80,6 +80,10 @@
           <el-icon><Search /></el-icon>
           <span>关键词监测</span>
         </el-menu-item>
+        <el-menu-item index="/pipeline-deps">
+          <el-icon><Connection /></el-icon>
+          <span>流水线依赖</span>
+        </el-menu-item>
         <el-menu-item index="/parameters">
           <el-icon><Operation /></el-icon>
           <span>项目参数</span>

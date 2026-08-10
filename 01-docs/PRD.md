@@ -1962,6 +1962,43 @@ split → domain_enrich → optimize → select_video_scenes（新增） → gen
 ① 校验 400；② 重复 400、404 兜底；③ 软删不复活可重建；④ bootstrap 仅 enabled；⑤ applyRemoteWatchlist 新增/更新/缺席停止/用户保留；⑥ 未注入跳过；⑦ 非 admin 403。
 
 
+#### 7.4.14 流水线所需依赖目录（2026-08-11 新增）
+
+**需求**：运营后台列出所有视频创作流水线所需的模型类型（推理/图片/视频/TTS/语音识别/音频）与候选供应商，种子对齐代码事实；运营可维护，为后续桌面端配置检查提供依据。
+
+##### 7.4.14.1 数据与校验（ops-center）
+
+| 字段 | 类型 | 校验 |
+|------|------|------|
+| pipeline_id | str | 必填、`^[a-z0-9_-]{1,64}$` |
+| pipeline_name | str | ≤100 |
+| model_type | str | 枚举 llm/tts/speech_recognition/image/video/audio/multimodal |
+| required | bool | 0=可选（缺省降级） |
+| provider_candidates | JSON | 字符串数组 ≤50，去重保序 |
+| default_provider | str | 必须在候选内或留空 |
+| description | str | ≤200 |
+| deleted_at | str | 软删（不复活，可重建） |
+
+- 唯一约束 (pipeline_id, model_type)；POST 重复 400、PUT/DELETE 404、PUT 改 key 撞唯一 400。
+
+##### 7.4.14.2 种子（代码事实）
+
+12 个有模型依赖的流水线共 31 条：story2video-compose（llm/image/tts/video 可选）、animated-explainer（llm/image/tts）、talking-head（speech_recognition/video）、cinematic（video）、animation（video/llm）、avatar-spokesperson（video/tts）、character-animation（video/llm）、clip-factory（video）、documentary-montage（video/llm/tts/image 可选）、hybrid（video/image/tts/llm）、localization-dub（speech_recognition/tts/llm）、podcast-repurpose（speech_recognition/image/audio）。
+screen-demo / framework-smoke 无模型依赖不播种。供应商候选与默认值对齐 model-provider-seeds.js 目录。
+
+##### 7.4.14.3 端点与前端
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/pipeline-dependencies | 列表（登录可读，pipeline_id/model_type 筛选） |
+| POST / PUT /{id} / DELETE /{id} | /api/v1/pipeline-dependencies | 管理（admin，404/软删） |
+
+前端「流水线依赖」页：列表（ID/名称/类型 tag/必选 tag/默认供应商/候选 tags/说明/启用/编辑/删除）+ 流水线与类型筛选 + 新增；编辑弹窗含候选供应商逗号输入与默认供应商下拉，提示文字覆盖「必选/可选」语义与建议预设。
+
+##### 7.4.14.4 验收标准
+
+① 种子 31 条且 story2video-compose 覆盖 4 类（video 可选）；② 校验 400；③ 重复 400、404 兜底；④ 软删不复活可重建；⑤ 筛选正确；⑥ 非 admin 403/读 200。
+
 ---
 
 ## 八、内容采集与收藏流程

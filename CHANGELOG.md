@@ -1,3 +1,12 @@
+## [未发布] 功能：流水线所需依赖目录（2026-08-11）
+
+- ops-center：新增 `pipeline_dependencies` 表（pipeline_id+model_type 唯一）+ `GET/POST /api/v1/pipeline-dependencies`、`PUT/DELETE /{id}`（admin；校验 pipeline_id 字符集 / model_type 枚举 / provider_candidates 字符串数组 ≤50 去重 / default_provider 必须在候选内 / required / sort_order；POST 重复 400、PUT/DELETE 404、DELETE 软删不复活可重建、PUT 改 key 撞唯一 400）。
+- 种子对齐代码事实：12 个有模型依赖的视频创作流水线共 31 条（llm/image/video/tts/speech_recognition/audio 六类），供应商候选与默认值对齐 model-provider-seeds.js 预设目录（llm→anthropic、image→flux、video→minimax、tts→minimax-tts、speech_recognition→whisper、audio→suno）。
+- ops-center 前端：新增「流水线依赖」页（列表/流水线与类型筛选/新增/编辑/删除/启用停用）。
+- 修复：ops-center 前端 router 中 keyword-watchlist 条目缺失 meta/闭合的合并残留。
+- 文档：ops-center PRD 12A.21、Multi-Publish PRD §7.4.14、CHANGELOG。
+- 测试：ops-center pytest（+2，全量 120）；前端 build 通过。
+
 ## [未发布] 功能：关键词监测目录下发（P1-5）（2026-08-11）
 
 - ops-center：新增 `keyword_watchlist` 表 + `GET/POST /api/v1/keyword-watchlist`、`PUT/DELETE /api/v1/keyword-watchlist/{id}`（admin）；校验 keyword 2-100 字唯一 / threshold ≥1 / interval_minutes 10-10080 / enabled；POST 重复 400、PUT/DELETE 404、DELETE 软删（不复活可重建）；`runtime/bootstrap` 增加 `keyword_watchlist`（enabled=1 未软删，sort_order 排序，X-Catalog-Key 鉴权）。
