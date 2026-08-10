@@ -67,6 +67,19 @@ describe('clip-factory 阶段执行器', () => {
     })
   })
 
+    it('buildSegments 读取 options 中的 maxSegments/minSegmentSeconds/maxTotalSeconds（选项接线回归）', () => {
+      // maxSegments=2 只保留前 2 段
+      const s2 = buildSegments(60, [1, 5, 12], { maxSegments: 2 })
+      expect(s2).toHaveLength(2)
+      // minSegmentSeconds=8 过滤掉所有 <8s 的片段（场景 [1,5,12] → 段长 1,4,7,48 → 仅末段 ≥8）
+      const s3 = buildSegments(60, [1, 5, 12], { minSegmentSeconds: 8 })
+      expect(s3.length).toBeGreaterThanOrEqual(1)
+      expect(s3[0].duration).toBeGreaterThanOrEqual(8)
+      // maxTotalSeconds=6 截断总时长
+      const s4 = buildSegments(60, [1, 5, 12], { maxTotalSeconds: 6 })
+      let total = s4.reduce((sum, seg) => sum + seg.duration, 0)
+      expect(total).toBeLessThanOrEqual(6)
+    })
   describe('analyze 阶段', () => {
     it('缺少视频输入时报可行动错误', async () => {
       const { get } = makePipeline()
