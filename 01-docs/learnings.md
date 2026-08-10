@@ -4,6 +4,15 @@
 
 ---
 
+## 长流水线 compose 两缺陷复盘 (2026-08-11，真实 E2E Bug 反哺)
+
+- **表象**：27 场景图片轮播真实 E2E（真实 MiniMax 图/TTS + 克隆音色）中，compose 阶段两次失败：① 分块合并 ffmpeg 在 2:55 处无错误输出被终止；② 修复①后成片成功但 run 被判 failed（「Story2Video 项目保存失败: 产物不存在、不可读或超出限制」）。
+- **根因**：① `_xfadeMerge` 硬编码 `timeout: 120000`——27 场景分块（level-1 合并 4 块 ≈300s 视频）编码约 1.5x 实时需 ~200s，被固定 120s 中途杀掉（ffmpeg 无「Conversion failed」即被 kill）；② `saveRun → _persistTextConfig` 对已缺失/不可读的 BGM 路径直接 `_copyRequired` 抛错——compose 阶段已按 bgmSkipped 优雅降级，持久化却硬失败，把成功成片误判为失败（project.json 未落盘）。`_safeOptions` 有 `_resolveSource` 守卫而 `_persistTextConfig` 没有，属不一致。
+- **逃逸链**：① 单测只覆盖短流水线/正常 BGM，未覆盖「27+ 场景分块合并时长」与「BGM 已被回收/缺失」；② compose 的降级语义（bgmSkipped）与项目保存的硬校验不一致，无测试断言「成片成功时保存不得失败」。
+- **修复**：① 新增 `computeXfadeMergeTimeoutMs(totalSeconds)`（1.1s/秒 + 30s 余量，最低 120s），`_xfadeMerge` 用 `_probeMediaDuration` 探测输入总时长后按公式估算超时，maxBuffer 2MB→8MB；② `_persistTextConfig` 先 `_resolveSource` 守卫，缺失时清空 bgm 引用。
+- **回归保护**：compose-engine +3（300s→360s / 短合并下限 / 非法回退）；project-service +1（缺失 BGM 不抛错、成片保存、project.json 落盘）。真实 E2E 复跑 `terminal=completed`。
+- **预防措施**：① 任何「编码/耗时型」ffmpeg 调用的超时必须按输入规模估算，禁止固定超时；② 同一降级语义（bgmSkipped）必须贯穿 compose 与持久化全链路，保存路径不得对可选资源硬失败；③ 长流水线（场景数多/视频长）必须纳入回归场景。
+
 ## 图片轮播流水线 generate_assets 调度网关双包自死锁复盘 (2026-08-10，质量节拍 Bug 反哺)
 
 - **表象**：图片轮播流水线到达「生成图片与旁白」（generate_assets）阶段后永久卡住，前端「图片 0/N · 旁白 0/M」停滞不动；暂停/重试均无法推进，只能重启应用。

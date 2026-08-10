@@ -1,3 +1,10 @@
+## [未发布] 修复：长流水线 compose 两个缺陷（xfade 合并超时 + 缺失 BGM 阻断保存，2026-08-11 E2E）
+
+- 根因：① `_xfadeMerge` 硬编码 `timeout: 120000`，27 场景分块合并（level-1 合并 4 块 ≈300s 视频，编码 ~1.5x 需 ~200s）被固定 120s 中途杀掉 → compose 失败且 ffmpeg 无错误输出；② `saveRun → _persistTextConfig` 对已缺失/不可读的 BGM 路径直接 `_copyRequired` 抛「产物不存在、不可读或超出限制」，把已成功合成的成片误判为 run failed（compose 阶段本已按 bgmSkipped 优雅降级）。
+- 修复：① 新增 `computeXfadeMergeTimeoutMs`（按输入总时长 1.1s/秒 + 30s 余量，最低 120s），`_xfadeMerge` 探测总时长后按公式估算超时，maxBuffer 2MB→8MB；② `_persistTextConfig` 与 `_safeOptions` 一致先 `_resolveSource` 守卫，缺失 BGM 时清空引用。
+- 回归：compose-engine +3 用例（300s→360s/下限/非法回退）90 全绿；project-service +1 用例（缺失 BGM 不抛错、成片保存、project.json 落盘）24 全绿。真实 E2E 27 场景流水线 `terminal=completed`，成片 1080p30 4分12秒下载本地。
+- 文档：learnings.md「长流水线 compose 两缺陷」复盘。
+
 ## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
 
 - ops-center：新增 `GET /api/v1/system/health`（admin）——并发只读探针（自身/业务 API health+ready/Logto OIDC discovery/存储可写/`OPS_HEALTH_TARGETS` 自定义目标），单项 ≤5s 超时、URL 非回环强制 https、未配置跳过；返回 overall + 每项状态/耗时/详情。
