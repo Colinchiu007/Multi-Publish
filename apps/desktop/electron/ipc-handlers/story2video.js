@@ -148,7 +148,8 @@ function registerHandlers (ipcMain, deps = {}) {
       return { code: EC.VALIDATION_ERROR, message: '媒体导入参数必须为对象' }
     }
     try {
-      const data = importUserSelectedMedia(request.filePath, request.kind)
+      // 生产导入路径开启惰性 GC（selected-media 老化回收，默认 1h 间隔）。
+      const data = importUserSelectedMedia(request.filePath, request.kind, { gcEnabled: true })
       return { code: 0, data }
     } catch (error) {
       return { code: EC.VALIDATION_ERROR, message: error.message }

@@ -87,6 +87,12 @@
           ⚠️ {{ providerWarningText }}
         </div>
 
+        <!-- BGM 被跳过提示（非阻塞，可关闭） -->
+        <div v-if="story2videoBgmSkippedNotice" class="bgm-skipped-notice" role="alert" data-testid="story2video-bgm-skipped-notice">
+          🎵 {{ story2videoBgmSkippedNotice }}
+          <button class="bgm-skipped-notice-close" data-testid="dismiss-bgm-skipped-notice" @click="dismissBgmSkippedNotice" :aria-label="translateWithLocaleFallback('common.close', '关闭', 'Close')">✕</button>
+        </div>
+
         <!-- 输入区域 -->
         <div class="input-section">
           <h3>输入内容</h3>
@@ -867,6 +873,7 @@ import {
   STORY2VIDEO_NOTIFICATION_KEYS,
   countStory2VideoTextCharacters,
   formatStory2VideoNotification,
+  formatBgmSkippedNotification,
   historyLoadFailureDetail,
   getStory2VideoLocale,
   getStory2VideoNotificationUiText,
@@ -1036,6 +1043,7 @@ export default {
         platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
+      dismissedBgmSkippedNotice: false,
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '' },
       story2videoResuming: false,
       story2videoRunMeta: null,
@@ -1144,6 +1152,18 @@ export default {
         return w.providerId + (secs > 0 ? '（' + secs + ' 秒）' : '')
       }).join('、')
       return '检测到模型服务响应异常：' + names + '。流水线已自动重试；若反复出现，建议到【模型设置】切换模型或检查该服务商。'
+    },
+    // 由 run.context.compose（compose 阶段输出，已含 bgmSkipped/bgmSkippedReason）驱动；
+    // 用户关闭后本次运行不再显示，下次运行重新评估。
+    story2videoBgmSkippedNotice() {
+      if (this.dismissedBgmSkippedNotice) return ''
+      const rawCompose = this.orchestrationContext && typeof this.orchestrationContext === 'object'
+        ? this.orchestrationContext.compose
+        : null
+      // 兼容历史持久化运行可能的 { data } 包裹（与 extractOrchestrationVideoPath 防御范式一致）
+      const compose = (rawCompose && rawCompose.data) || rawCompose
+      if (!compose || compose.bgmSkipped !== true) return ''
+      return formatBgmSkippedNotification(compose.bgmSkippedReason).message
     },
     canAddS2VVoiceClone() {
       return Boolean(
@@ -1480,6 +1500,8 @@ export default {
       return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
     },
     async startPipeline() {
+      // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
+      this.dismissedBgmSkippedNotice = false
       if (!this.pipelineAvailable(this.selectedPipeline?.name)) {
         this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED })
         return
@@ -2472,6 +2494,12 @@ export default {
         if (Number.isFinite(start) && Number.isFinite(end) && end >= start) query.durationMs = end - start
       }
       if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) query.sizeBytes = Number(meta.outputSizeBytes)
+      // BGM 跳过信息透传到结果页（结果页展示同一 i18n 提示，避免「完成即跳转」时提示不可见）
+      const composeOut = (context.compose && context.compose.data) || context.compose || null
+      if (composeOut && composeOut.bgmSkipped === true) {
+        query.bgmSkipped = '1'
+        if (composeOut.bgmSkippedReason) query.bgmReason = composeOut.bgmSkippedReason
+      }
       this.$router.push({ path: '/create/result', query })
       return true
     },
@@ -2491,10 +2519,14 @@ export default {
     },
     async pausePipeline() { await pipelinePause(); await this.updatePipelineStatus() },
     async resumePipeline() { await pipelineResume(); await this.updatePipelineStatus() },
+    dismissBgmSkippedNotice() {
+      this.dismissedBgmSkippedNotice = true
+    },
     async cancelPipeline() {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
+      this.dismissedBgmSkippedNotice = false
       this.orchestrationStages = (this.isAutoPipeline(this.selectedPipeline?.name) || this.isMediaAutoPipeline(this.selectedPipeline?.name)) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
       this.closeStory2VideoErrorDialog()
       this.stopPipelinePolling()
@@ -3114,6 +3146,9 @@ export default {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 .provider-warning-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; font-size: 13px; line-height: 1.5; }
+.bgm-skipped-notice { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: #1e40af; background: #dbeafe; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 13px; line-height: 1.5; }
+.bgm-skipped-notice-close { margin-left: auto; border: none; background: transparent; color: #1e40af; cursor: pointer; font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+.bgm-skipped-notice-close:hover { background: rgba(30, 64, 175, 0.12); }
 .stage-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; font-size: 14px; min-width: 0; max-width: 100%; }
 .orchestration-context { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; padding: 12px 16px; background: var(--bg); border-radius: 8px; margin-bottom: 16px; }
 .context-item { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; max-width: 100%; min-width: 0; }

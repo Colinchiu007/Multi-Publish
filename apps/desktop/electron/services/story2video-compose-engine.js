@@ -831,21 +831,36 @@ class Story2VideoComposeEngine {
     // 4. 可选 BGM 混音（仅接受已下载的本地文件，避免在主进程隐式发起网络请求）
     let composedPath = outputPath
     if (bgmPath) {
-      // 子进度：混音开始
-      emitComposeProgress({
-        phase: 'bgm',
-        percent: 92,
-        segmentsDone: segments.length,
-        segmentsTotal: scenes.length,
-        message: '正在混入背景音乐',
+      // 混音前复核：文件可能在合成期间被惰性 GC 删除（运行中导入触发），降级而非硬失败。
+      const stillValid = resolveReadableMediaFile(bgmPath, {
+        kind: 'bgm',
+        allowedRoots: this.allowedMediaRoots,
+        maxBytes: this.maxInputFileBytes,
       })
-      const mixedPath = path.join(sessionDir, 'mixed.mp4')
-      try {
-        await this._mixBgm(composedPath, bgmPath, mixedPath, options?.bgmVolume)
-        composedPath = mixedPath
-      } catch (e) {
-        this._cleanupSession(sessionDir)
-        return { code: -1, message: 'BGM mix failed: ' + e.message }
+      if (!stillValid) {
+        bgmSkipped = true
+        bgmSkippedReason = 'unreadable'
+        bgmPath = null
+        composeWarnings.push(BGM_SKIP_WARNING_MESSAGES.unreadable)
+        this.log.warn('Story2VideoCompose', 'BGM skipped at mix time: file no longer readable')
+      } else {
+        bgmPath = stillValid
+        // 子进度：混音开始
+        emitComposeProgress({
+          phase: 'bgm',
+          percent: 92,
+          segmentsDone: segments.length,
+          segmentsTotal: scenes.length,
+          message: '正在混入背景音乐',
+        })
+        const mixedPath = path.join(sessionDir, 'mixed.mp4')
+        try {
+          await this._mixBgm(composedPath, bgmPath, mixedPath, options?.bgmVolume)
+          composedPath = mixedPath
+        } catch (e) {
+          this._cleanupSession(sessionDir)
+          return { code: -1, message: 'BGM mix failed: ' + e.message }
+        }
       }
     }
 

@@ -19,6 +19,14 @@
 - 代码收敛：`accounts.js` 新增 `ensureLoaded()` 幂等加载方法（含并发竞态修复：缓存 in-flight Promise）；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`（`getLabel`/`getIcon`/`getContentCategory`）；新建 `PublishDraftList.vue` 共享草稿列表组件。
 - 测试：更新 `YixiaoerSidebar.test.js`（动态用户信息断言）、`YixiaoerModuleNav.test.js`（publish 3 tabs + home 路由测试）。
 - 边界：Vite 完整构建因预存在的 node_modules 损坏（`@ctrl/tinycolor` 解析失败）未通过，Vue SFC 编译验证全部通过；真实平台登录/发布仍属外部验收。
+## [未发布] 修复：BGM 跳过前端提示（i18n）+ 导入惰性 GC + API-Key 正则拆分（2026-08-10）
+
+- 新增：compose 跳过背景音乐时前端显示可关闭提示条——由 run.context.compose（bgmSkipped/bgmSkippedReason）驱动，新增 BGM_SKIPPED 通知（zh/en）与 bgmSkippedReasonText/formatBgmSkippedNotification（size_exceeded/format_unsupported/not_allowed/unreadable 本地化）；新运行/取消后重置。
+- 新增：导入媒体惰性老化回收——importUserSelectedMedia 按间隔（默认 1h）best-effort 触发 gcImportedMedia，覆盖长会话场景，与启动时回收互补。
+- 重构：MODEL_API_KEY_PATTERN 拆分为命名子模式（未配置/缺失/解密失败）再组合，行为不变（既有正反例锁定）。
+- 回归：notifications +1（BGM_SKIPPED 4 原因中英）、CreateView +1（提示条显示/关闭/未跳过隐藏）、paths +1（惰性 GC 触发/节流）；聚焦 160 用例通过。
+- 边界：提示条为本次运行完成态提示；BGM 警告中文硬编码已由前端 i18n 取代（服务层仍返回机器可读码 + 中文兜底）。
+
 ## [未发布] 新增：MiniMax 多模态「支持生成视频」开关（默认关闭，2026-08-10）
 
 - 新增：模型设置 → 多模态模型（MiniMax）表单新增「支持生成视频」开关，**默认关闭**；开关写入 `model_providers.config.capability_enabled.video`，新建/编辑均可设置。
