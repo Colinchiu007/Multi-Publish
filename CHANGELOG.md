@@ -1,3 +1,10 @@
+## [未发布] 修复：图片轮播流水线「生成图片与旁白」阶段卡死（调度网关同 key 双包自死锁，2026-08-10）
+
+- 根因：`story2video-stages.js` generate_assets 阶段外层 `withModelBudget` → `governor.run` 与 `AIGenerator.generate` 内层 `governor.run` 使用**同一 ApiUsageGovernor 单例、同一 key（providerId:type:model）** → 并发 ≥2 时外层占满并发信号量、内层排队等自己释放 → 永久自死锁（阶段无超时、sweepAll 仅在 run 终态调用）。引入点：87796b5f（内层网关）+ 0532ac3d（外层包裹）。
+- 修复：assetGenerator 路径调度边界收敛为 AIGenerator 内部 governor 单层（阶段外层不再套 governor）；legacy python 路径（无 assetGenerator）保留外层统一调度，限流不丢。
+- 预防：`ApiUsageGovernor.run()` 增加同 key 重入保护（AsyncLocalStorage 记录当前链持有的 key，同 key 内层直接透传，不重复占槽/记账），从根上杜绝「已 governor 化调用再叠一层」的自死锁；`_pump` 排队放行时槽位转移（active+=1），修复排队后 active 漂移为负的记账缺陷。
+- 回归保护：api-usage-governor +2（同 key 重入透传不自死锁 / 同 key 单槽 + 不同 key 独立 + active 归零）；story2video-stages +2 修改 1（真实 governor 3 场景并发有界完成——负向验证旧代码 10s 超时失败；legacy 路径仍经 governor.run 且 meta 完整；assetGenerator 路径不再双包）。
+
 ## [未发布] 功能：运营后台运行时策略下发（公告 / 版本发布 / 内容安全）（2026-08-10）
 
 - ops-center：新增 `announcements` / `update_policy` / `content_policy` 三张运营表 + 管理 CRUD（require_admin，校验：标题必填/severity 三值/ISO 时间窗口/版本号 x.y.z/灰度 0-100/词库去重 ≤5000 项/替换串 ≤16）。
