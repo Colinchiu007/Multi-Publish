@@ -142,6 +142,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-09 | 运行中任务持久化 + 托盘后台运行 | 运行中编排 run 阶段级落盘 running 快照（`saveRunning`）+ 退出兜底 `saveRunningState()`；`resumeOrchestration` 支持 running 快照断点续跑（内存中已运行幂等返回 `alreadyRunning`）；窗口关闭时有运行任务且托盘可用 → 隐藏到托盘后台继续（dev 图标缺失回退内嵌占位图）；历史 running 卡片新增「继续生成」按钮。详见总 PRD 7.1.21 | PRD 7.1.21 |
 | 2026-08-09 | 本地克隆音色删除/设为默认 + 媒体导入反馈 | 删除本地克隆音色为本地管理语义：adapter 不支持 `deleteVoice`（如 MiniMax 官方 clone API 无删除端点）时跳过远端删除，直接清理本地 registry 记录/样本/偏好，不再误报「音色克隆服务暂时不可用」；新增 `ModelProviderManager.supportsAdapterMethod` 能力查询。克隆「设为默认」先同步下拉再保存偏好，默认克隆行显示「默认」徽标 + 高亮 + 「已设为默认」禁用态。媒体导入失败提示全部透传类别宾语（背景音乐等），新增 `MEDIA_PATH_UNRESOLVED` 细分（路径解析失败 vs 文件不可读/被占用），主进程复制文件对 Windows 占用做 ≤3 次有界重试。详见总 PRD 7.1.22 | PRD 7.1.22 |
 | 2026-08-09 | 窗口关闭行为跨平台化（macOS 前瞻） | 平台决策收敛到 `services/window-close-policy.js`：darwin 关闭窗口不拦截（系统约定，进程留在 Dock、activate 重建窗口）、win32/linux 维持「运行任务+托盘可用→隐藏托盘」；托盘图标按平台回退（darwin 模板图标 setTemplateImage，其余占位图）；快照写入 POSIX rename 原子优先、Windows copy 回退。回归：window-close-policy 6 / window 51 / system-tray 28 / run-state-store 17 测试通过 | PRD 7.1.21（跨平台行） |
+| 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
@@ -578,6 +579,55 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 - 文案沿用 `translateWithLocaleFallback` 内联 fallback（`story2video.composeSegments` / `story2video.composeProgress`），不写入 locale 静态文件（规避 i18n 插值陷阱）。
 
 **边界与后续**：失败冻结（片段 ≤75 / 拼接 87 / 旁白 89 / BGM 92 / webm 95 / 校验 98）；N=1 快速 3→75→100；暂停/恢复后 compose 重跑并重发进度；并发 run 按 context 隔离；`renderSegment` 单段重试不写进度。后续演进（v1 不做）：ffmpeg `-progress pipe:1` 段内实时百分比、chunked 拼接段级 onStep 插值。详细合同见总 PRD 7.1.9.1。
+
+
+### 3.1.11 历史记录已暂停状态与 UI 优化（2026-08-10）
+
+**背景**：此前应用重启后，持久化的 running 快照在历史记录中仍显示为「运行中」，用户无法区分"真正在运行"和"因关闭应用而中断"的任务。同时历史记录列表 UI 过于紧凑，信息层次不清晰。
+
+**一、已暂停状态（后端）**
+
+- **触发条件**：PipelineEngine.getHistory() 从 RunStateStore 加载持久化快照时，若 snapshot.status === running，自动将返回的 status 归一化为 paused（因为应用重启后该任务不再处于运行状态）。
+- **暂停环节**：同时从快照的 currentStage 索引计算 pausedStage 字段（阶段名称字符串），记录任务在哪个环节被中断（如 nimate、compose 等）。
+- **数据结构**：返回的 persisted 条目新增字段 pausedStage: string | null。
+- **不影响的场景**：内存中真正在运行的 run（_runs Map）保持 status: running 不变；已终态的 _history 条目保持原 status 不变；RunStateStore 中的持久化快照本身不被修改（只读投影）。
+
+**二、前端交互与显示逻辑**
+
+| 场景 | 状态显示 | 状态徽章颜色 | 左侧色条 | 底部提示 | 点击行为 |
+|------|----------|-------------|---------|---------|---------|
+| 运行中（内存中真实运行） | 运行中 | 蓝底白字 | 蓝色 | 「实时同步」 | 跳转 /create 恢复查看 |
+| 已暂停（重启后中断） | 已暂停 | 橙底深棕字 | 橙色 | 「暂停环节：xxx」 | 跳转 /create 断点续跑 |
+| 生成失败 | 生成失败 | 红底深红字 | 红色 | 「生成失败」 | 跳转 /create 恢复查看 |
+| 已完成 | 已完成 | 绿底深绿字 | 绿色 | 无 | 跳转结果页 |
+| 已取消 | 已取消 | 灰底深灰字 | 灰色 | 无 | 跳转 /create |
+
+**三、UI 布局重构**
+
+- 卡片结构：状态徽章移至信息区右侧（第一行），阶段标签和提示移至第二行（pipeline-card-bottom），通过分割线视觉分隔。
+- 状态色条：卡片左侧 3px 色条，颜色由 :class="p.status" 动态绑定，一眼区分状态。
+- 运行中脉冲：running 状态圆点带 pulse-dot 动画（1.5s 周期透明度闪烁）。
+- 阶段标签：字号从 11px 增至 12px，padding 从 2px 6px 增至 3px 8px，新增 failed（红）、paused（橙）、cancelled（灰）三种状态色。
+- 容器宽度：从 960px 拓宽至 1080px，内边距从 24px 增至 24px 32px。
+- 列表间距：卡片间距从 8px 增至 12px。
+- hover 效果：新增 translateY(-1px) 微位移 + 加深阴影。
+
+**四、数据校验**
+
+- pausedStage 仅在 snapshot.currentStage 为有效索引且对应 stage 存在时填充，否则为 null。
+- stageLabel() 函数对 pausedStage（字符串）调用时走 shortName() 路径（截断 10 字符 + ...）。
+- statusLabel() 的 paused 映射为「已暂停」。
+
+**五、openPipeline 路由**
+
+- paused 状态与 running/failed/cancelled 同等处理：跳转 /create 页面恢复。
+- 由 CreateView.vue 通过 pipelineResumeOrchestration(runId) 执行断点续跑。
+
+**六、相关文件**
+
+- 后端：apps/desktop/electron/services/pipeline-engine.js（getHistory 方法）
+- 前端：apps/desktop/src/views/CreateHistory.vue（模板 + 脚本 + 样式）
+- 测试：apps/desktop/src/views/CreateHistory.test.js（已有测试覆盖）
 
 ### 3.2 参数配置（Remotion 快速路径）
 
