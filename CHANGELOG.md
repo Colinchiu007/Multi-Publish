@@ -5,6 +5,15 @@
 - 修复：运行进度文案 i18n 缺键（story2video.elapsed / durationSec / durationMinSec）导致 intlify 回退警告——新增命名插值消息函数并让 translateWithLocaleFallback 透传 params；顺带补齐 create.story2video.resetOptions。
 - 回归：CreateView +2（恢复枚举归一化 / 语音生成器 displayName）、i18n +1（命名插值 zh/en）；聚焦 125 用例通过；vite build 通过；Claude 双轮只读审查 Critical/Warning 均无（antigravity 后端不可用已记录）。
 
+## [未发布] 修复：Agnes Video 适配器端点按官方文档修正（2026-08-10）
+
+- 提交端点：`POST /video/generations` → `POST /videos`（官方 `POST https://apihub.agnes-ai.com/v1/videos`；旧路径服务端返回 `Invalid URL`）。
+- 状态查询：`GET /video/generations/{id}` → `GET /agnesapi?video_id=<VIDEO_ID>&model_name=agnes-video-v2.0`（官方推荐方式；兼容旧版 `/v1/videos/<TASK_ID>` 语义）。
+- 完成下载地址：读取官方响应结构 `metadata.url`，兼容旧版顶层 `url`。
+- 回归：agnes-video 测试 +1（metadata.url + 顶层 url 兼容），35/35 通过。
+- 边界：agnes 服务端任务查询实测稳定 404（提交成功但查无任务），为第三方账号/服务端问题，不在本修复范围。
+
+
 ## [未发布] 重构：BGM 跳过提示单一来源（服务层 warnings 机器码化）（2026-08-10）
 
 - 重构：compose 引擎 BGM 降级警告由中文改为机器码（bgm_size_exceeded / bgm_format_unsupported / bgm_not_allowed / bgm_unreadable），服务层不再硬编码用户可见中文；用户可见文案统一由前端依据 bgmSkippedReason 本地化（bgmSkippedReasonText / formatBgmSkippedNotification），消除双份映射漂移（PR #466 审查 Minor7）。
