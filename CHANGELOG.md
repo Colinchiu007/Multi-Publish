@@ -1,3 +1,15 @@
+## [未发布] 优化：视频创作模块 UI/UX 深度优化（2026-08-10）
+
+- 可访问性：流水线卡片、渲染记录卡片、流水线历史卡片全部添加 tabindex="0" + role="button" + @keydown.enter 键盘导航支持；添加 :aria-label 无障碍标签；添加 .focus-visible 焦点环样式（outline: 2px solid var(--primary)）。
+- 视觉一致性：统一 CreateView 和 CreateHistory 页面布局（padding: 24px 32px, max-width: 1080px）；统一 H1 字号（24px）和标题间距（margin-bottom: 20px）；统一卡片圆角（12px）和内边距（16px 20px）；进度条添加 0.4s cubic-bezier(0.4, 0, 0.2, 1) 过渡动画。
+- 设计令牌扩展：新增 --upload-zone-*（拖拽反馈色）和 --skeleton-*（骨架屏加载色）令牌，含暗色模式覆盖。
+- 上传区域交互增强：拖拽悬停时边框变为主题色 + 浅色背景（.drag-over / :active 状态）。
+- 空状态优化：渲染记录和流水线记录空状态添加图标 + 提示文字；错误弹窗不可恢复场景添加"如问题持续出现，请检查日志或重新启动流水线"提示。
+- 样式隔离：BoardStageIndicator.vue 从 `<style>` 改为 `<style scoped>`，防止全局 CSS 污染。
+- CreateHistory.vue 补充缺失的 .progress-bar / .progress-fill / .progress-text / .pipeline-progress CSS 定义。
+- 文档：PRD §7.1.24 详细记录所有优化项、数据校验、交互逻辑和验收标准。
+- 测试：158 个相关测试全部通过；Vite build 无编译错误。
+
 ## [未发布] 功能：运营后台 → 桌面端模型配置运行时同步（2026-08-10）
 
 - ops-center：新增只读目录同步端点 `GET /api/v1/model-presets/catalog`（`X-Catalog-Key` 鉴权 = `OPS_CATALOG_API_KEY`，常量时间比较；未配置 → 404 fail-closed；Key 错误 → 401）；仅返回 `is_visible=1` 预设，字段含限流/模型/默认模型/能力（不含敏感项）。

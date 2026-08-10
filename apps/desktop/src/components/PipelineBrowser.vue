@@ -21,6 +21,10 @@
         :data-pipeline-id="p.name"
         :class="[p.stability || 'experimental', { 'is-unavailable': p.available === false }]"
         @click="$emit('select', p)"
+        tabindex="0"
+        role="button"
+        :aria-label="pipelineName(p.name)"
+        @keydown.enter="$emit('select', p)"
       >
         <div class="card-header">
           <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
@@ -106,7 +110,7 @@ export default {
 .section-desc { color: var(--text-muted); margin-bottom: 20px; font-size: 0.9rem; }
 .pipeline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .pipeline-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px;
   cursor: pointer; transition: all 0.2s;
 }
 .pipeline-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-2px); }
@@ -140,5 +144,16 @@ export default {
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline); border-top-color: var(--stability-beta); border-radius: 50%; animation: spin 0.6s linear infinite; }
 .error-state { color: var(--error); }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 骨架屏加载 */
+.skeleton { background: var(--skeleton-bg); border-radius: 4px; position: relative; overflow: hidden; }
+.skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent); animation: skeleton-shimmer 1.5s infinite; }
+@keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 </style>
 
+
+/* 键盘导航焦点样式 */
+.pipeline-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
