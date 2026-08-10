@@ -2003,12 +2003,18 @@ Task Queue → 各平台发布器 → 发布完成
 - URL 导航：协议校验仅允许 http/https/file；域名正则匹配标准域名格式；非 URL 输入走 Bing 搜索编码
 - IPC 参数：所有 handler 使用 withSenderCheck 校验发送者来源；参数缺失返回 VALIDATION_ERROR
 - 标签页 ID：浏览器标签使用 btab- 前缀，分屏监控使用 tab- 前缀，避免 ID 冲突
+- Home tab：tabId 固定为 'home'，不创建 WebContentsView，关闭操作返回 false
+- 创作者中心 URL：必须在 PLATFORM_DASHBOARD_URLS 白名单中，不存在时提示"暂不支持该平台"
 
 **交互逻辑**：
 - 点击标签页 → switchToTab → 隐藏当前视图 + 显示目标视图 + 更新导航状态
 - 关闭标签页 → closeTab → 移除视图 + 切换到下一个标签（无标签时广播 all-tabs-closed）
 - URL 输入 → enter → 判断 URL/域名/搜索词 → 导航或 Bing 搜索
 - 首页标签 → 隐藏 NavBar 导航按钮，显示模块导航 (YixiaoerModuleNav)
+- Home tab 保护：closeTab 拒绝关闭 Home tab（返回 false），确保首页始终存在
+- switchToTab(Home)：隐藏所有 WebContentsView，显示 router-view 内容，activeTabId 设为 'home'
+- tabStore 初始化：自动创建 Home tab（tabId='home', title='首页'），不调用 IPC 创建 WebContentsView
+- 打开创作者中心：点击账号卡片"去登录"按钮 → openCreatorCenter(platform) → 获取 PLATFORM_DASHBOARD_URLS[platform] → createTab({ url, platform, accountId }) → 新标签页全屏显示创作者中心
 
 **显示项**：
 - 标签栏高度 36px，背景 #e8eaf2，活跃标签白色背景 + 阴影
