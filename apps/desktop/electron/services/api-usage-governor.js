@@ -16,6 +16,7 @@
 'use strict'
 
 const { ProviderError, ERROR_CODES, classifyProviderFailure } = require('./adapters/_base/provider-error')
+const { AsyncLocalStorage } = require('async_hooks')
 
 const WINDOW_MS = 60 * 1000
 const MAX_QUEUE_WAIT_MS = 30 * 1000
@@ -33,6 +34,12 @@ const DEFAULT_LIMITS = Object.freeze({
   audio: Object.freeze({ rpm: 10, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   default: Object.freeze({ rpm: 20, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
 })
+
+/**
+ * 重入保护：记录当前 async 调用链已持有调度的 key 集合。
+ * AsyncLocalStorage 会随 await 在同一调用链内传播，跨调用链互不影响。
+ */
+const _reentrant = new AsyncLocalStorage()
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
 
@@ -167,6 +174,23 @@ class ApiUsageGovernor {
     const providerId = String(meta?.providerId || 'default')
     const model = typeof meta?.model === 'string' && meta.model.trim() ? ':' + meta.model.trim() : ''
     const key = providerId + ':' + type + model
+
+    // 重入保护（2026-08-10 图片轮播 generate_assets 卡死复盘）：
+    // 同一 async 调用链已对同一 key 持有调度（外层 run 已占并发信号量/时间槽/冷却）时，
+    // 内层 run 直接透传执行，避免「外层占满 maxConcurrent、内层排队等自己释放」的自死锁。
+    // 透传时内层不重复记账——外层 run 的 _executeWithRetry 已负责重试/冷却/额度记录。
+    const held = _reentrant.getStore()
+    if (held && held.has(key)) return task()
+
+    const nextHeld = held ? new Set(held) : new Set()
+    nextHeld.add(key)
+    return _reentrant.run(nextHeld, () => this._runWithGovernance(meta, task, key))
+  }
+
+  /** 受管执行主体：run 的原有调度逻辑（并发/时间槽/冷却/额度/重试）。重入透传时不进入此方法。 */
+  async _runWithGovernance(meta, task, key) {
+    const type = String(meta?.type || 'default')
+    const providerId = String(meta?.providerId || 'default')
     const limits = this._limitsFor(key, type, providerId)
     const st = this._stateFor(key)
     st.providerId = providerId
@@ -195,6 +219,9 @@ class ApiUsageGovernor {
       const maxConcurrent = (this._limitsFor(key, '', providerId).maxConcurrent) || 1
       if (st.active < maxConcurrent) {
         st.waiters.shift()
+        // 槽位转移：释放方已在 finally 中 active-=1，这里把槽位转给被放行的 waiter（active+=1），
+        // 否则该 waiter 在自身 finally 中再减一次 → active 每次排队后漂移为负（2026-08-10 记账审计）。
+        st.active += 1
         waiter.resolve()
       }
       break

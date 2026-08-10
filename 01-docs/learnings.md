@@ -4,6 +4,16 @@
 
 ---
 
+## 图片轮播流水线 generate_assets 调度网关双包自死锁复盘 (2026-08-10，质量节拍 Bug 反哺)
+
+- **表象**：图片轮播流水线到达「生成图片与旁白」（generate_assets）阶段后永久卡住，前端「图片 0/N · 旁白 0/M」停滞不动；暂停/重试均无法推进，只能重启应用。
+- **根因（git blame 溯源 + 真实模块复现）**：`story2video-stages.js` generate_assets 在阶段外层用 `modelCallScheduler.withModelBudget` → `governor.run` 包裹每项图片/TTS 调用（`0532ac3d` 引入）；而 `AIGenerator.generate` 内部已用**同一个 ApiUsageGovernor 单例**对**同一 key（providerId:type:model）**做第二次 `governor.run`（`87796b5f` 引入）。生产接线（`container.setup.js:107` + `phase1-context.js:189-191`）把同一单例同时注入 `pipelineEngine.governor` 与 `aiGenerator._governor`。并发 ≥2 时（默认 maxConcurrent=2；maxConcurrent=1 时单请求即锁），外层占满信号量，内层排队等待自己占用的槽位 → 自死锁。`StageExecutor._safeRun` 无阶段超时，`governor.sweepAll` 只在 run 终态调用（`pipeline-engine.js:1585`）→ 死锁期间无人回收排队 waiter → 阶段永不结束。复现：真实 ApiUsageGovernor + withModelBudget 外层 + governor.run 内层（同 key、maxConcurrent=2）→ x2/x3 并发均 15s 超时 HANG；单层外层对照组 4.2s 完成。
+- **逃逸链**：① `story2video-stages.test.js` 的 governor 是 `vi.fn((meta, task) => task())`（无信号量语义）+ `aiGenerator=null`（内层从不触发）→ 双包只在生产接线存在，单测永远看不到；② `api-usage-governor.test.js` 只测单层 run（并发/排队/冷却/窗口），无同 key 嵌套用例；③ 无任何集成/合同测试把**真实** governor 同时接进阶段外层与 AIGenerator 内层并解析出 providerId。
+- **系统性漏洞**：① governor 并发信号量无重入/所有权保护——同 key 二次 run 会排在自己占的信号量后面；② `withModelBudget` 作为「薄封装」不校验底层调用是否已被 governor 化，任何在已 governor 化调用上再叠一层都会静默复现同类死锁；③ 排队 waiter 被放行时槽位未转移（active 未 +1），每次排队后 active 漂移为负，闸门在突发时会临时放行超额并发。
+- **修复**：① 调用点收敛——assetGenerator 路径已由 AIGenerator 内部 governor 单层调度，阶段外层去掉 withModelBudget；legacy python 路径（无 assetGenerator）保留外层统一调度，限流不丢；② 网关重入保护（预防）——`run()` 用 AsyncLocalStorage 记录当前调用链持有的 key 集合，同 key 内层 run 直接透传执行（外层负责槽位/节奏/冷却/重试/记账）；③ `_pump` 槽位转移（active+=1）修复记账漂移。
+- **回归保护**：api-usage-governor +2（同 key 重入透传不自死锁 / 同 key 单槽 + 不同 key 独立 + active 归零）；story2video-stages +2 修改 1（真实 governor 3 场景并发有界完成——负向验证：stash 回退旧代码后该用例 10s 超时失败；legacy 路径仍经 governor.run 且 meta 含 type/providerId/model；assetGenerator 路径外层 governorRun 不调用）。聚焦 84 用例 + 关联 175 用例全绿。
+- **预防措施**：① 任何新增「governor 包裹」调用点，必须确认底层调用是否已被 AIGenerator/其他网关 governor 化，禁止同 key 双包；② 网关级重入保护（本修复）使该约束在机制上强制，不再依赖调用点自觉；③ 调度器测试契约必须覆盖「同 key 嵌套 run」与「排队槽位记账归零」；④ 涉及并发信号量/限流排队的改动，测试须用真实 governor + 有界超时断言，禁止只用无语义 mock 证明调度行为。
+
 ## 流水线「已用时」墙钟口径缺陷复盘 (2026-08-10，质量节拍 Bug 反哺)
 
 - **表象**：视频创作（Story2Video）流水线运行状态「已用时」对可断点恢复的任务显示 1245 分 33 秒（约 20 小时），远超实际执行时间。

@@ -759,14 +759,22 @@ function registerStory2VideoStages(pipelineEngine) {
             return { index, success: false, error: e.message };
           }
       };
-      // 每项调用经统一调度网关：RPM 时间槽排队 + 429 冷却 + 5h 请求窗口（provider 级）
+      // 调度边界（2026-08-10 图片轮播 generate_assets 卡死复盘）：
+      // assetGenerator 路径已由 AIGenerator.generate 内部 governor 统一调度（同 key 单层），
+      // 阶段外层再套 withModelBudget/governor.run 会与内层同 key 双包 → 并发信号量自死锁。
+      // 仅 legacy python 路径（无 assetGenerator）在此做统一调度：RPM 排队 + 429 冷却 + 5h 窗口。
       const imagePromise = _mapWithConcurrency(
         optimizedPrompts,
         imageConcurrency,
-        (prompt, index) => modelCallScheduler.withModelBudget(
-          { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: imageModel },
-          () => imageItemTask(prompt, index),
-        ),
+        (prompt, index) => {
+          const runItem = () => imageItemTask(prompt, index);
+          return assetGenerator
+            ? runItem()
+            : modelCallScheduler.withModelBudget(
+                { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: imageModel },
+                runItem,
+              );
+        },
       );
 
       // 并行生成 TTS 音频（分批控制并发）
@@ -835,13 +843,20 @@ function registerStory2VideoStages(pipelineEngine) {
             return { index, success: false, error: e.message };
           }
       };
+      // 同 image 的调度边界：assetGenerator 路径由 AIGenerator 内部 governor 单层调度；
+      // 仅 legacy python 路径在外层套 withModelBudget（避免同 key 双包自死锁）。
       const ttsPromise = _mapWithConcurrency(
         sentences,
         ttsConcurrency,
-        (sentence, index) => modelCallScheduler.withModelBudget(
-          { governor: pipelineEngine.governor, type: 'tts', providerId: resolvedVoiceProvider, model: firstDefined(params.voiceModel, stage.options?.voiceModel) },
-          () => ttsItemTask(sentence, index),
-        ),
+        (sentence, index) => {
+          const runItem = () => ttsItemTask(sentence, index);
+          return assetGenerator
+            ? runItem()
+            : modelCallScheduler.withModelBudget(
+                { governor: pipelineEngine.governor, type: 'tts', providerId: resolvedVoiceProvider, model: firstDefined(params.voiceModel, stage.options?.voiceModel) },
+                runItem,
+              );
+        },
       );
       const [imageResults, ttsResults] = await Promise.all([imagePromise, ttsPromise]);
 
