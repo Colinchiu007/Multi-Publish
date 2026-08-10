@@ -161,8 +161,20 @@ class MinimaxTtsAdapter extends BaseAdapter {
     const url = this._url(path)
     const headers = { ...this._headers(), ...(opts.headers || {}) }
 
+    // 有界超时（2026-08-11 E2E 复盘）：DEFAULT_TIMEOUT 之前从未接入 fetch，
+    // 网络/上游卡住时请求永久挂起（explainer/documentary assets 阶段偶发卡死根因之一）。
+    const controller = new AbortController()
+    const timeoutMs = Number.isFinite(Number(this.options.timeout)) && Number(this.options.timeout) > 0
+      ? Number(this.options.timeout)
+      : DEFAULT_TIMEOUT
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    let response
     try {
-      const response = await fetch(url, { ...opts, headers })
+      try {
+        response = await fetch(url, { ...opts, headers, signal: controller.signal })
+      } finally {
+        clearTimeout(timer)
+      }
 
       if (!response.ok) {
         let errorBody
@@ -188,7 +200,6 @@ class MinimaxTtsAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.NETWORK_ERROR, msg, { providerId: this.id })
     }
   }
-
   /**
    * POST /t2a_v2 — 语音合成
    *
@@ -199,7 +210,7 @@ class MinimaxTtsAdapter extends BaseAdapter {
    * @param {number} [params.speed=1.0] - 速度（0.5-2）
    * @param {number} [params.pitch=0] - 音调
    * @param {string} [params.outputFormat='mp3'] - 输出格式（mp3/wav/flac）
-   * @returns {Promise<{audio: Buffer, format: string}>} audio 为 hex 转 Buffer
+   * @returns {Promise<{audio: Buffer, format: string}>}
    */
   async synthesize(params) {
     if (!params || !params.text) {

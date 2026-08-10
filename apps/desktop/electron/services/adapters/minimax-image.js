@@ -115,8 +115,20 @@ class MinimaxImageAdapter extends BaseAdapter {
     const url = this._url(path)
     const headers = { ...this._headers(), ...(opts.headers || {}) }
 
+    // 有界超时（2026-08-11 E2E 复盘）：DEFAULT_TIMEOUT 之前从未接入 fetch，
+    // 网络/上游卡住时请求永久挂起（explainer/documentary assets 阶段偶发卡死根因之一）。
+    const controller = new AbortController()
+    const timeoutMs = Number.isFinite(Number(this.options.timeout)) && Number(this.options.timeout) > 0
+      ? Number(this.options.timeout)
+      : DEFAULT_TIMEOUT
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    let response
     try {
-      const response = await fetch(url, { ...opts, headers })
+      try {
+        response = await fetch(url, { ...opts, headers, signal: controller.signal })
+      } finally {
+        clearTimeout(timer)
+      }
 
       if (!response.ok) {
         let errorBody
@@ -142,7 +154,6 @@ class MinimaxImageAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.NETWORK_ERROR, msg, { providerId: this.id })
     }
   }
-
   /**
    * POST /image_generation — 图像生成（同步接口）
    *

@@ -805,6 +805,7 @@
               <option value="failed">生成失败</option>
               <option value="cancelled">已取消</option>
               <option value="running">进行中</option>
+              <option value="paused">已暂停</option>
             </select>
           </div>
           <div v-if="filteredHistory.length === 0" class="empty-state compact"><p>没有符合条件的记录</p></div>
@@ -814,10 +815,11 @@
                 <span class="history-name">{{ h.title || pipelineName(h.pipeline || h.name) }}</span>
                 <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
                 <span v-if="h.status === 'running'" class="history-running-hint">返回流水线创作查看进度</span>
+                <span v-if="h.status === 'paused' && h.pausedStage" class="history-paused-hint">暂停环节：{{ h.pausedStage }}</span>
                 <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
                 <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
                 <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
-                <button v-if="h.status === 'failed' && historyItemResumable(h)" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '从断点继续' }}</button>
+                <button v-if="(h.status === 'failed' || h.status === 'paused') && historyItemResumable(h)" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '从断点继续' }}</button>
                 <button v-else-if="h.status === 'running'" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '继续生成' }}</button>
               </div>
               <div v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
@@ -1556,7 +1558,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
     historyStatusLabel(status) {
-      return { completed: '已完成', failed: '生成失败', cancelled: '已取消', running: '进行中', pending: '等待中' }[status] || status || '未知'
+      return { completed: '已完成', failed: '生成失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
     },
 
     // 流水线操作
@@ -3525,8 +3527,10 @@ export default {
 .history-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
 .history-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
 .history-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
+.history-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
 .history-item.is-running { cursor: pointer; border-color: var(--history-running-border); }
 .history-item.is-running:hover { border-color: var(--primary); }
+.history-paused-hint { font-size: 11px; color: var(--banner-warning-color, #b45309); background: var(--banner-warning-bg, #fef3c7); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; }
 .history-progress { display: flex; gap: 4px; flex-wrap: wrap; align-items: stretch; }
 .history-progress-seg { flex: 1 1 0; min-width: 72px; max-width: 150px; font-size: 11px; padding: 4px 8px; border-radius: var(--r-xs); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--status-pending-bg); color: var(--status-pending-text); }
 .history-progress-seg.done { background: var(--status-completed-bg); color: var(--status-completed-text); }

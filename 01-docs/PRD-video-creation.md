@@ -1,4 +1,4 @@
-# PROJECT-003 Multi-Publish — 视频创作模块 PRD
+﻿# PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
 > **版本**: v1.8
 > **日期**: 2026-07-29
@@ -142,6 +142,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-09 | 运行中任务持久化 + 托盘后台运行 | 运行中编排 run 阶段级落盘 running 快照（`saveRunning`）+ 退出兜底 `saveRunningState()`；`resumeOrchestration` 支持 running 快照断点续跑（内存中已运行幂等返回 `alreadyRunning`）；窗口关闭时有运行任务且托盘可用 → 隐藏到托盘后台继续（dev 图标缺失回退内嵌占位图）；历史 running 卡片新增「继续生成」按钮。详见总 PRD 7.1.21 | PRD 7.1.21 |
 | 2026-08-09 | 本地克隆音色删除/设为默认 + 媒体导入反馈 | 删除本地克隆音色为本地管理语义：adapter 不支持 `deleteVoice`（如 MiniMax 官方 clone API 无删除端点）时跳过远端删除，直接清理本地 registry 记录/样本/偏好，不再误报「音色克隆服务暂时不可用」；新增 `ModelProviderManager.supportsAdapterMethod` 能力查询。克隆「设为默认」先同步下拉再保存偏好，默认克隆行显示「默认」徽标 + 高亮 + 「已设为默认」禁用态。媒体导入失败提示全部透传类别宾语（背景音乐等），新增 `MEDIA_PATH_UNRESOLVED` 细分（路径解析失败 vs 文件不可读/被占用），主进程复制文件对 Windows 占用做 ≤3 次有界重试。详见总 PRD 7.1.22 | PRD 7.1.22 |
 | 2026-08-09 | 窗口关闭行为跨平台化（macOS 前瞻） | 平台决策收敛到 `services/window-close-policy.js`：darwin 关闭窗口不拦截（系统约定，进程留在 Dock、activate 重建窗口）、win32/linux 维持「运行任务+托盘可用→隐藏托盘」；托盘图标按平台回退（darwin 模板图标 setTemplateImage，其余占位图）；快照写入 POSIX rename 原子优先、Windows copy 回退。回归：window-close-policy 6 / window 51 / system-tray 28 / run-state-store 17 测试通过 | PRD 7.1.21（跨平台行） |
+| 2026-08-11 | CreateView 历史记录已暂停状态支持 | CreateView.vue historyStatusLabel() 新增 paused 映射、过滤器新增「已暂停」选项、暂停环节提示、断点续跑按钮、CSS 样式。详见本节 3.1.12 | PRD 7.1.24 |
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
@@ -628,6 +629,60 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 - 后端：apps/desktop/electron/services/pipeline-engine.js（getHistory 方法）
 - 前端：apps/desktop/src/views/CreateHistory.vue（模板 + 脚本 + 样式）
 - 测试：apps/desktop/src/views/CreateHistory.test.js 22/22 通过；pipeline-engine.test.js 37/37 通过；run-state-store.test.js 19/19 通过。vite build 通过。
+### 3.1.12 CreateView 历史记录视图已暂停状态支持（2026-08-11）
+
+**背景**：3.1.11 仅覆盖了 CreateHistory.vue（独立历史记录页面）的已暂停状态支持，但 CreateView.vue 中的「历史记录」视图（创作页内嵌的历史列表）仍缺少 paused 状态的显示、过滤和交互支持。后端 getHistory() 已返回 paused 状态数据，但前端 CreateView 无法正确展示。
+
+**一、问题**
+
+- historyStatusLabel() 缺少 paused 映射：后端返回 status: paused 的条目在 CreateView 历史列表中显示为原始字符串 "paused" 而非「已暂停」。
+- 过滤器下拉菜单缺少「已暂停」选项：用户无法按暂停状态筛选历史记录。
+- 暂停环节信息缺失：CreateView 历史列表不显示 pausedStage（暂停在哪个阶段），用户无法直观了解任务中断位置。
+- 断点续跑按钮缺失：failed 状态有「从断点继续」按钮，但 paused 状态没有。
+
+**二、修复内容**
+
+1. historyStatusLabel()（CreateView.vue methods）：新增映射 paused: '已暂停'。完整映射：{ completed: '已完成', failed: '生成失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }
+2. 过滤器选项（CreateView.vue 模板）：在状态过滤下拉菜单中新增 option value="paused"「已暂停」。filteredHistory 计算属性已通过 item.status === this.historyFilter 精确匹配，无需额外修改。
+3. 暂停环节提示（CreateView.vue 模板）：新增暂停环节提示 span，条件为 h.status === 'paused' && h.pausedStage。仅在 status 为 paused 且 pausedStage 非空时显示。
+4. 断点续跑按钮（CreateView.vue 模板）：原逻辑 v-if="h.status === 'failed' && historyItemResumable(h)" 修改为 v-if="(h.status === 'failed' || h.status === 'paused') && historyItemResumable(h)"。paused 状态与 failed 状态共享「从断点继续」按钮逻辑。
+5. CSS 样式（CreateView.vue 样式）：.history-status.paused 使用 --status-waiting-bg/text 变量；.history-paused-hint 11px 字号琥珀色文字+浅黄背景。
+
+**三、数据流**
+
+后端 getHistory() 将 running 快照归一化为 paused 状态并附带 pausedStage 字段 → IPC pipeline:history → CreateView.vue loadHistory() → history 数组包含 paused 条目 → filteredHistory 支持 paused 过滤 → 模板渲染 historyStatusLabel 显示「已暂停」、暂停环节提示显示阶段名称、按钮显示「从断点继续」。
+
+**四、交互逻辑**
+
+| 场景 | 状态显示 | 过滤选项 | 提示 | 按钮 | 点击行为 |
+|------|----------|---------|------|------|---------|
+| 运行中 | 进行中 | 进行中 | 返回流水线创作查看进度 | 继续生成 | resumeHistoryItem |
+| 已暂停 | 已暂停 | 已暂停 | 暂停环节：xxx | 从断点继续 | resumeHistoryItem |
+| 生成失败 | 生成失败 | 生成失败 | 无 | 从断点继续（可恢复时） | resumeHistoryItem |
+| 已完成 | 已完成 | 已完成 | 无 | 打开 | openHistory |
+| 已取消 | 已取消 | 已取消 | 无 | 无 | openHistory |
+
+**五、显示项**
+
+- 状态徽章：.history-status + :class="h.status" 动态样式
+- 暂停环节文字：琥珀色背景 + 深琥珀色文字
+- 时间戳：formatTime(h.updatedAt || h.completedAt || h.createdAt)
+- 操作按钮：打开 / 删除 / 从断点继续 / 继续生成（按状态条件显示）
+
+**六、提示文字**
+
+| 位置 | 文字 | 条件 |
+|------|------|------|
+| 状态过滤下拉 | 已暂停 | 新增选项 |
+| 历史条目状态 | 已暂停 | status === paused |
+| 历史条目提示 | 暂停环节：{stageName} | status === paused 且 pausedStage 非空 |
+| 操作按钮 | 从断点继续 | (failed 或 paused) 且 historyItemResumable |
+
+**七、相关文件**
+
+- 前端：apps/desktop/src/views/CreateView.vue（historyStatusLabel、过滤器、模板、CSS）
+- 后端（无变更）：apps/desktop/electron/services/pipeline-engine.js（getHistory 已返回 paused 数据）
+- 测试：CreateHistory.test.js 22/22 通过；views-deep2.test.js 7/7 通过；pipeline-engine.test.js 37/37 通过。
 
 ### 3.2 参数配置（Remotion 快速路径）
 
