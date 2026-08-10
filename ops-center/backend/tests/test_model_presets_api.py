@@ -1,10 +1,12 @@
 """Tests for OpsCenter model preset catalog API."""
+import json
 import os
 import sys
 import tempfile
 
 import pytest
 import pytest_asyncio
+import socket
 
 # Add backend to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -313,3 +315,326 @@ async def test_create_update_delete_roundtrip():
 
         resp = await client.get("/api/v1/model-presets/custom-mm", headers=headers)
         assert resp.status_code == 404
+
+
+# ─────────────────────────────────────────────────────────────
+# 新增：运营信息字段（models_url / rate_per_minute / limit_per_5h）
+# ─────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_save_new_info_fields():
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "info-test",
+        "name": "Info Test",
+        "category": "llm",
+        "base_url": "https://api.example.com/v1",
+        "models_url": "https://api.example.com/v1/models",
+        "models": ["m1", "m2"],
+        "default_model": "m1",
+        "rate_per_minute": 30,
+        "limit_per_5h": 1000,
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["models_url"] == "https://api.example.com/v1/models"
+        assert data["rate_per_minute"] == 30
+        assert data["limit_per_5h"] == 1000
+
+        resp = await client.get("/api/v1/model-presets/info-test", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["base_url"] == "https://api.example.com/v1"
+
+
+@pytest.mark.asyncio
+async def test_new_info_fields_allow_empty():
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "empty-fields",
+        "name": "Empty Fields",
+        "category": "tts",
+        "models_url": "",
+        "rate_per_minute": None,
+        "limit_per_5h": "",
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["models_url"] == ""
+        assert data["rate_per_minute"] is None
+        assert data["limit_per_5h"] is None
+
+
+@pytest.mark.asyncio
+async def test_invalid_models_url_rejected():
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {"id": "bad-url", "name": "Bad URL", "category": "llm", "models_url": "ftp://example.com/models"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 400
+        assert "models_url" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_invalid_numbers_rejected():
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    for field, bad in [("rate_per_minute", -1), ("rate_per_minute", "abc"), ("rate_per_minute", 100001),
+                       ("limit_per_5h", -5), ("limit_per_5h", 10000001), ("limit_per_5h", 1.5)]:
+        body = {"id": "num-test", "name": "Num Test", "category": "llm", field: bad}
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+            assert resp.status_code == 400, f"{field}={bad} should fail"
+            assert field in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_default_model_must_be_in_models():
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "default-mismatch",
+        "name": "Default Mismatch",
+        "category": "llm",
+        "models": ["m1", "m2"],
+        "default_model": "not-in-list",
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 400
+        assert "默认模型 ID 必须在模型列表中" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_capability_doc_key_rejected():
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "bad-capdoc",
+        "name": "Bad Cap Doc",
+        "category": "multimodal",
+        "is_multimodal": True,
+        "capabilities": ["llm"],
+        "capability_models": {"llm": "m1"},
+        "capability_doc_links": {"hacking": ["https://example.com"]},
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 400
+        assert "未知的能力文档键" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_multimodal_seven_doc_keys_allowed():
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    caps = ["llm", "image", "video", "tts", "voice_clone", "speech_recognition", "vision"]
+    body = {
+        "id": "seven-caps",
+        "name": "Seven Caps",
+        "category": "multimodal",
+        "is_multimodal": True,
+        "capabilities": caps,
+        "capability_models": {c: f"{c}-model" for c in caps},
+        "capability_doc_links": {c: [f"https://example.com/{c}"] for c in caps},
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert set(data["capability_doc_links"].keys()) == set(caps)
+
+
+
+def _fake_async_client(fake_response):
+    """构造支持 async with 的 httpx.AsyncClient fake。"""
+    from unittest.mock import AsyncMock
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=fake_response)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    return client
+# ─────────────────────────────────────────────────────────────
+# 新增：获取模型ID 端点（fetch-models）
+# ─────────────────────────────────────────────────────────────
+class _FakeResponse:
+    def __init__(self, status_code=200, content=None, json_data=None):
+        self.status_code = status_code
+        if content is None:
+            content = json.dumps(json_data if json_data is not None else []).encode("utf-8")
+        self.content = content
+        self._json = json_data
+
+    def json(self):
+        return self._json
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_requires_models_url():
+    import socket
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    # 使用未配置 models_url 的自定义预设
+    body = {"id": "fetch-nourl", "name": "Fetch NoURL", "category": "llm", "models": [], "default_model": ""}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post("/api/v1/model-presets", json=body, headers=headers)
+        resp = await client.post("/api/v1/model-presets/fetch-nourl/fetch-models", headers=headers)
+        assert resp.status_code == 400
+        assert "models_url" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_requires_admin():
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    user_headers = {"Authorization": f"Bearer {_user_token()}"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets/openai/fetch-models", headers=user_headers)
+        assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_success_contract():
+    import json as _json
+    from unittest.mock import AsyncMock, patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "fetch-ok",
+        "name": "Fetch OK",
+        "category": "llm",
+        "models_url": "https://api.example.com/v1/models",
+        "models": ["old-a"],
+        "default_model": "old-a",
+    }
+    fake = _FakeResponse(status_code=200, json_data={"data": [{"id": "new-a"}, {"id": "new-b"}, "", 123]})
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]), \
+         patch("httpx.AsyncClient", return_value=_fake_async_client(fake)):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+            assert resp.status_code == 200
+            resp2 = await client.post("/api/v1/model-presets/fetch-ok/fetch-models", headers=headers)
+            assert resp2.status_code == 200, resp2.text
+            data = resp2.json()
+            assert data["models"] == ["new-a", "new-b"]
+            assert data["count"] == 2
+            # default_model 不在新列表 → 清空
+            assert data["default_model"] == ""
+
+            # 回写已持久化
+            got = await client.get("/api/v1/model-presets/fetch-ok", headers=headers)
+            assert got.json()["models"] == ["new-a", "new-b"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_non_json_rejected():
+    from unittest.mock import AsyncMock, patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {"id": "fetch-badjson", "name": "Fetch BadJSON", "category": "llm",
+            "models_url": "https://api.example.com/v1/models", "models": ["keep"], "default_model": "keep"}
+    fake = _FakeResponse(status_code=200, content=b"<html>not json</html>")
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]), \
+         patch("httpx.AsyncClient", return_value=_fake_async_client(fake)):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/model-presets", json=body, headers=headers)
+            resp = await client.post("/api/v1/model-presets/fetch-badjson/fetch-models", headers=headers)
+            assert resp.status_code == 400
+            assert "JSON" in resp.json()["detail"]
+            # 失败不修改已有 models
+            got = await client.get("/api/v1/model-presets/fetch-badjson", headers=headers)
+            assert got.json()["models"] == ["keep"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_redirect_rejected():
+    from unittest.mock import AsyncMock, patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {"id": "fetch-redirect", "name": "Fetch Redirect", "category": "llm",
+            "models_url": "https://api.example.com/v1/models", "models": [], "default_model": ""}
+    fake = _FakeResponse(status_code=302, content=b"")
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]), \
+         patch("httpx.AsyncClient", return_value=_fake_async_client(fake)):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/model-presets", json=body, headers=headers)
+            resp = await client.post("/api/v1/model-presets/fetch-redirect/fetch-models", headers=headers)
+            assert resp.status_code == 400
+            assert "302" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_ssrf_private_ip_rejected():
+    import socket
+    from unittest.mock import AsyncMock, patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {"id": "fetch-ssrf", "name": "Fetch SSRF", "category": "llm",
+            "models_url": "https://internal.example.com/v1/models", "models": [], "default_model": ""}
+    fake = _FakeResponse(status_code=200, json_data={"models": ["m1"]})
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 443))]), \
+         patch("httpx.AsyncClient", return_value=AsyncMock(get=AsyncMock(return_value=fake))):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/model-presets", json=body, headers=headers)
+            resp = await client.post("/api/v1/model-presets/fetch-ssrf/fetch-models", headers=headers)
+            assert resp.status_code == 400
+            assert "私网" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_url_with_userinfo_rejected():
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {"id": "userinfo-url", "name": "Userinfo URL", "category": "llm",
+            "models_url": "https://user:pass@api.example.com/v1/models"}
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+        assert resp.status_code == 400
+        assert "models_url" in resp.json()["detail"]

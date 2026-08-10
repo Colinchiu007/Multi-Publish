@@ -171,6 +171,10 @@ function extractContext(container) {
   const { ModelProviderManager } = require('../services/model-provider-manager')
   const { ProviderRouter } = require('../services/adapters/_base/router')
   const modelProviderManager = new ModelProviderManager(store)
+  // 注入统一调度网关：provider 配置的每分钟连接次数/5小时限额 → ApiUsageGovernor 预算
+  if (modelProviderManager && typeof modelProviderManager.setGovernor === 'function') {
+    modelProviderManager.setGovernor(container.get('apiUsageGovernor'))
+  }
   // 由 Phase 3 在 SQLite WASM 与 Store 均就绪后初始化，避免重启时读取到空数据库。
   // 创建 ProviderRouter（不注入 logHandler，避免与 callAdapter 内部日志双写）
   // callAdapter 内部已通过 _writeLog 统一记录到 model_provider_logs 表

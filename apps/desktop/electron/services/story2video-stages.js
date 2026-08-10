@@ -29,6 +29,7 @@ const {
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
 const { ERROR_CODES } = require('./adapters/_base/provider-error');
+const modelCallScheduler = require('./model-call-scheduler');
 const {
   buildPromptEngineOptimizeRequest,
   extractOptimizedPrompt,
@@ -571,17 +572,44 @@ function registerStory2VideoStages(pipelineEngine) {
       // （开启「优先多模态」且多模态模型声明支持该能力时返回多模态模型）。仅 assetGenerator
       // 路径生效，legacy python 路径保持原有空 provider 行为。
       const resolveCapabilityProvider = (type) => {
-        const container = pipelineEngine && pipelineEngine.container
-        const manager = container && typeof container.get === 'function'
-          ? container.get('modelProviderManager')
-          : null
+        const manager = resolveModelProviderManager()
         if (!manager || typeof manager.getDefault !== 'function') return ''
         const provider = manager.getDefault(type)
         return provider && typeof provider.id === 'string' ? provider.id.trim() : ''
       }
+      // 解析 ModelProviderManager：优先 aiGenerator（生产环境已注入 manager），
+      // 其次 pipelineEngine.container（测试/分组 context）；container.get 未注册会抛错，必须兜底。
+      const resolveModelProviderManager = () => {
+        try {
+          if (pipelineEngine && pipelineEngine.aiGenerator &&
+            typeof pipelineEngine.aiGenerator._modelProviderManager === 'object' &&
+            pipelineEngine.aiGenerator._modelProviderManager !== null) {
+            return pipelineEngine.aiGenerator._modelProviderManager
+          }
+        } catch (_) { /* ignore */ }
+        const container = pipelineEngine && pipelineEngine.container
+        if (container && typeof container.get === 'function') {
+          try {
+            const manager = container.get('modelProviderManager')
+            if (manager) return manager
+          } catch (_) { /* 未注册/抛错 → 回退 null */ }
+        }
+        return null
+      }
       const hasAssetGenerator = Boolean((pipelineEngine && pipelineEngine._assetGenerator) || (serviceBus && serviceBus._assetGenerator))
       const resolvedImageProvider = imageProvider || (hasAssetGenerator ? resolveCapabilityProvider('image') : '')
       const resolvedVoiceProvider = voiceProvider || (hasAssetGenerator ? resolveCapabilityProvider('tts') : '')
+      // 统一调度预算：按「前端设置的默认模型」+ provider 配置的每分钟连接次数（运营后台）解析并发上限。
+      // 预算来源优先级：provider config.rate_per_minute > 静态表 > 类别默认；未配置时回退请求并发。
+      const resolveBudgetConcurrency = (type, providerId, requested) => {
+        if (!providerId) return Math.max(1, Math.min(requested, MAX_ASSET_CONCURRENCY))
+        const manager = resolveModelProviderManager()
+        const provider = manager && typeof manager.getProvider === 'function' ? manager.getProvider(providerId) : null
+        const budget = modelCallScheduler.resolveProviderBudget({ provider, type, manager, governor: pipelineEngine.governor })
+        return Math.max(1, Math.min(requested, budget.maxConcurrent))
+      }
+      const imageConcurrency = resolveBudgetConcurrency('image', resolvedImageProvider, concurrency)
+      const ttsConcurrency = resolveBudgetConcurrency('tts', resolvedVoiceProvider, concurrency)
       const inputMode = firstDefined(params.inputMode, stage.options?.inputMode, 'text');
       const inputImages = Array.isArray(params.images)
         ? params.images
@@ -593,7 +621,8 @@ function registerStory2VideoStages(pipelineEngine) {
 
       log.info('Story2VideoStages',
         'Generating assets: ' + optimizedPrompts.length + ' images + ' +
-        sentences.length + ' TTS (concurrency=' + concurrency + ')');
+        sentences.length + ' TTS (imageConcurrency=' + imageConcurrency +
+        ', ttsConcurrency=' + ttsConcurrency + ', requested=' + concurrency + ')');
 
       // 断点续传：上次失败时已完成的场景直接复用本地产物，避免重复消耗图片/TTS 额度
       const resumeCompleted = new Map();
@@ -628,10 +657,7 @@ function registerStory2VideoStages(pipelineEngine) {
       // 并行生成图片（分批控制并发）
       // 使用 AssetGenerator（ffmpeg 占位图）替代 serviceBus.callPythonSkill
       const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator;
-      const imagePromise = _mapWithConcurrency(
-        optimizedPrompts,
-        concurrency,
-        async (prompt, index) => {
+      const imageItemTask = async (prompt, index) => {
           try {
             const resumed = resumeCompleted.get(index);
             if (resumed) {
@@ -732,14 +758,19 @@ function registerStory2VideoStages(pipelineEngine) {
           } catch (e) {
             return { index, success: false, error: e.message };
           }
-        }
+      };
+      // 每项调用经统一调度网关：RPM 时间槽排队 + 429 冷却 + 5h 请求窗口（provider 级）
+      const imagePromise = _mapWithConcurrency(
+        optimizedPrompts,
+        imageConcurrency,
+        (prompt, index) => modelCallScheduler.withModelBudget(
+          { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: imageModel },
+          () => imageItemTask(prompt, index),
+        ),
       );
 
       // 并行生成 TTS 音频（分批控制并发）
-      const ttsPromise = _mapWithConcurrency(
-        sentences,
-        concurrency,
-        async (sentence, index) => {
+      const ttsItemTask = async (sentence, index) => {
           try {
             const resumed = resumeCompleted.get(index);
             if (resumed) {
@@ -803,7 +834,14 @@ function registerStory2VideoStages(pipelineEngine) {
           } catch (e) {
             return { index, success: false, error: e.message };
           }
-        }
+      };
+      const ttsPromise = _mapWithConcurrency(
+        sentences,
+        ttsConcurrency,
+        (sentence, index) => modelCallScheduler.withModelBudget(
+          { governor: pipelineEngine.governor, type: 'tts', providerId: resolvedVoiceProvider, model: firstDefined(params.voiceModel, stage.options?.voiceModel) },
+          () => ttsItemTask(sentence, index),
+        ),
       );
       const [imageResults, ttsResults] = await Promise.all([imagePromise, ttsPromise]);
 

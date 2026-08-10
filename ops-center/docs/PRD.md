@@ -613,3 +613,91 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 3. `doc_links` 超过 10 条或非 URL 被拒绝（400）。
 4. 多模态能力缺少默认模型被拒绝（400）。
 5. `is_visible=false` 后列表（`include_hidden=false`）不再展示该预设。
+5. 多模态能力缺少默认模型被拒绝（400）。
+
+---
+
+## 12A. 模型更多信息字段 / 获取模型ID / 多模态分能力文档URL（2026-08-10 新增）
+
+> 在既有「预设模型设置」基础上扩展运营信息字段，指导前端调度并发与排队，并支持从模型网址拉取模型 ID 列表。
+
+### 12A.1 新增信息项（字段与数据校验）
+
+| 显示项 | 字段 | 类型 | 允许为空 | 校验规则 |
+|--------|------|------|---------|---------|
+| 接口 Base URL（端口URL） | `base_url` | string | ✅ | 空允许；非空必须 `http(s)` 开头，长度 ≤500 |
+| 获取模型ID URL | `models_url` | string | ✅ | 空允许；非空必须 `http(s)` 开头，长度 ≤500；用于「获取模型」按钮拉取模型 ID |
+| 默认模型 ID | `default_model` | string | ✅ | 空允许；**非空且模型列表非空时，必须 ∈ 模型列表**，否则 400「默认模型 ID 必须在模型列表中」 |
+| 接口技术文档URL | `doc_links` | string[] | ✅ | ≤10 条；每条 `http(s)` 开头 |
+| 每分钟连接次数 | `rate_per_minute` | integer | ✅ | 空/None 视为未配置（null）；非空必须为 `[0, 100000]` 的整数（`int()` 严格转换，拒绝 `1.5`/`'abc'`/负数/布尔），否则 400 |
+| 5小时限额次数 | `limit_per_5h` | integer | ✅ | 空/None 视为未配置（null）；非空必须为 `[0, 10000000]` 的整数，否则 400 |
+
+- 前端输入框留空 → 保存为 `null`（`rate_per_minute`/`limit_per_5h`）或空串（URL 类）。
+- 语义说明：`rate_per_minute`=该模型每分钟允许的 API 请求次数；`limit_per_5h`=每 5 小时请求次数上限。桌面端据此调度并发与排队；留空表示使用默认限流（不报错）。
+
+### 12A.2 默认模型下拉与「获取模型」按钮
+
+- **默认模型 ID 改为下拉选择**：选项来自「模型列表」（`models` 数组），支持过滤/清空；模型列表为空时下拉为空（仅可留空）。
+- **「获取模型」按钮**（编辑/新增弹窗内，默认模型下拉旁）：
+  - 点击后调用 `POST /api/v1/model-presets/{id}/fetch-models`（body 可带 `models_url` 覆盖未保存的表单值）；
+  - 成功：`models` 被更新为返回的模型 ID 列表，`default_model` 若不在新列表则清空，前端回填模型列表文本框与默认模型下拉，提示「获取成功，共 N 个模型 ID」；
+  - 失败：不修改已有 `models`，弹出错误详情（URL 未配置 / 超时 / 非 JSON / SSRF 拒绝 / HTTP 状态码）。
+- 前端必填校验：点击获取模型前需有「预设 ID」与「获取模型ID URL」；未填写时提示「请先填写…」。
+
+### 12A.3 获取模型ID 端点（fetch-models）
+
+| 项 | 契约 |
+|----|------|
+| 方法/路径 | `POST /api/v1/model-presets/{preset_id}/fetch-models` |
+| 鉴权 | admin-only（普通用户 403） |
+| 请求体 | `{"models_url": "https://..."}`（可选；未传用预设已保存的 `models_url`） |
+| 成功响应 | `{"models": [...], "default_model": "...", "count": N}`；回写 `models`（`models_url` 覆盖时一并回写）、`default_model` 不在新列表则清空 |
+| 失败 | 400 + 中文错误（不修改已有数据） |
+
+**SSRF 防护清单**：
+1. URL 必须是 `http(s)` 且长度 ≤500（`ftp://` 等拒绝）；
+2. 仅本机环回主机（`localhost` / `127.0.0.1` / `::1`）允许 `http`（供本地 ollama 等）；非环回主机必须 `https`；
+3. DNS 解析后任一地址为私网/环回/链路本地/组播/保留/未指定 → 拒绝「解析到私网/保留地址」；
+4. `follow_redirects=False`：任何 3xx 重定向视为失败（HTTP ≥300 → 400）；
+5. 超时 10s；响应体 ≤512KB；
+6. JSON 契约：支持 `{models:[...]}` / `{data:[...]}` / `{data:[{id:...}]}` / 纯数组；提取非空字符串去重，最多 500 个；无模型 ID → 400「未找到任何模型ID」。
+
+### 12A.4 多模态分能力技术文档 URL
+
+多模态模型（`is_multimodal=true`）编辑弹窗显示 **7 个固定能力标签的单 URL 输入框**（不再仅按已勾选能力动态显示）：
+
+| 能力键 | 显示 label | 存储 |
+|--------|-----------|------|
+| `llm` | 文字推理接口技术文档URL | `capability_doc_links.llm` |
+| `image` | 图片生成技术文档URL | `capability_doc_links.image` |
+| `video` | 视频生成技术文档URL | `capability_doc_links.video` |
+| `tts` | TTS语音生成技术文档URL | `capability_doc_links.tts` |
+| `voice_clone` | TTS语音克隆技术文档URL | `capability_doc_links.voice_clone` |
+| `speech_recognition` | 语音识别技术文档URL | `capability_doc_links.speech_recognition` |
+| `vision` | 视觉识别技术文档URL | `capability_doc_links.vision` |
+
+- 结构保持 `capability -> links 数组`（单 URL 也存为单元素数组），兼容存量多链接数据（编辑回填取首条，保存时保留首条避免数据丢失）。
+- 校验：`capability_doc_links` 的键必须是 7 能力键之一（另兼容历史 `audio`），未知键 → 400「未知的能力文档键」；每条链接 `http(s)`、≤10 条。
+
+### 12A.5 数据迁移与种子
+
+- `init_db` 后执行幂等列迁移：存量 `model_presets` 表补充 `models_url`（VARCHAR DEFAULT ''）、`rate_per_minute`（INTEGER）、`limit_per_5h`（INTEGER）。
+- 种子目录（`PRESET_CATALOG`）为已知预设补充 `models_url` / `rate_per_minute` / `limit_per_5h`（如 MiniMax 多模态 `https://api.minimaxi.com/v1/models`、rpm=20、5h=500；OpenAI rpm=120、5h=3000；视频类 rpm=6、5h=100；本地类高预算）；`INSERT OR IGNORE` 不覆盖用户修改。
+
+### 12A.6 前端交互与提示文案
+
+- 编辑/新增弹窗字段顺序：预设 ID → 名称 → 类别 → 接口 Base URL（端口URL）→ 获取模型ID URL → 模型列表 → 默认模型 ID（下拉 + 获取模型按钮）→ 每分钟连接次数 → 5小时限额次数 → 多模态开关 → 前端显示 →（多模态时）能力配置 + 7 能力文档 URL → 通用文档链接。
+- 提示文案：
+  - 每分钟连接次数：「留空表示未配置，前端使用默认限流；正整数」
+  - 5小时限额次数：「留空表示未配置；5 小时内请求次数上限（正整数）」
+  - 获取模型ID URL placeholder：「允许为空，用于「获取模型」按钮」
+  - 默认模型 ID placeholder：「从模型列表中选择（允许为空）」
+- 列表新增「限流（每分钟/5小时）」列，展示 `rate_per_minute / limit_per_5h`（未配置显示 `-`）。
+
+### 12A.7 验收标准
+
+1. 保存合法 `models_url`/`rate_per_minute`/`limit_per_5h` 成功且响应回显；全留空成功且字段为 null/空。
+2. 非法 URL（`ftp://`）、非法数字（`-1`/`1.5`/`'abc'`/超上限）、默认模型不在模型列表、未知能力文档键 → 均 400 且错误信息含字段名。
+3. 默认模型 ID 以下拉选择；点击「获取模型」成功回填模型列表与默认模型，失败不改动已有数据。
+4. fetch-models 对私网解析/重定向/非 JSON/超时分别返回 400，且普通用户 403。
+5. 多模态编辑弹窗显示 7 个固定能力文档 URL 输入框，保存后 `capability_doc_links` 对应键为单元素数组。

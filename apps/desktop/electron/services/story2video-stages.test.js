@@ -1132,3 +1132,141 @@ describe('isPromptEngineTooShortRejection — 过短校验拒绝判定', () => {
     expect(isPromptEngineTooShortRejection('')).toBe(false)
   })
 })
+
+describe('story2video 生成并发按 provider 每分钟连接次数收敛', () => {
+  it('provider rate_per_minute=20（maxConcurrent=2）时图片/TTS 并发上限为 2，而非请求的 5', async () => {
+    const executors = new Map()
+    let gate
+    const gateP = new Promise((resolve) => { gate = resolve })
+    let imageActive = 0
+    let imagePeak = 0
+    let ttsActive = 0
+    let ttsPeak = 0
+    const assetGenerator = {
+      generateImage: vi.fn(async () => {
+        imageActive += 1
+        imagePeak = Math.max(imagePeak, imageActive)
+        await gateP
+        imageActive -= 1
+        return { path: 'image-x.png' }
+      }),
+      generateTTS: vi.fn(async () => {
+        ttsActive += 1
+        ttsPeak = Math.max(ttsPeak, ttsActive)
+        await gateP
+        ttsActive -= 1
+        return { data: { path: 'audio-x.mp3', duration: 2 } }
+      }),
+    }
+    const manager = {
+      getDefault: vi.fn((type) => ({ id: 'minimax-multimodal' })),
+      getProvider: vi.fn((id) => ({ id, category: 'multimodal', config: { rate_per_minute: 20, limit_per_5h: 500 } })),
+    }
+    const governorRun = vi.fn((meta, task) => task())
+    const pipeline = {
+      stageExecutor: executors,
+      _assetGenerator: assetGenerator,
+      aiGenerator: null,
+      governor: { sweepAll: vi.fn(), run: governorRun },
+      container: { get: (name) => (name === 'modelProviderManager' ? manager : null) },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      registerStageExecutor(type, fn) {
+        executors.set(type, fn)
+        return { success: true }
+      },
+    }
+    registerStory2VideoStages(pipeline)
+    const assetsExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
+    assetsExecutor.domainExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
+    assetsExecutor.optimizeExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
+
+    const pending = assetsExecutor({
+      stage: { options: { concurrency: 5 } },
+      params: {},
+      context: {
+        split: [{ text: '一' }, { text: '二' }, { text: '三' }],
+        optimize: ['p1', 'p2', 'p3'],
+      },
+      serviceBus: {},
+    })
+
+    // 门打开前：每类最多并发 2 个（预算 maxConcurrent=2），而不是请求的 5
+    await vi.waitFor(() => {
+      expect(assetGenerator.generateImage).toHaveBeenCalled()
+      expect(assetGenerator.generateTTS).toHaveBeenCalled()
+    })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(imagePeak).toBeLessThanOrEqual(2)
+    expect(ttsPeak).toBeLessThanOrEqual(2)
+    expect(imagePeak).toBeGreaterThanOrEqual(1)
+
+    gate()
+    const result = await pending
+    expect(result.success).toBe(true)
+    expect(result.output.scenes.length).toBe(3)
+    // 每项调用经统一调度网关（withModelBudget → governor.run，含 providerId/type）
+    expect(governorRun.mock.calls.length).toBeGreaterThanOrEqual(6)
+    expect(governorRun.mock.calls.some(([meta]) => meta.type === 'image' && meta.providerId === 'minimax-multimodal')).toBe(true)
+    expect(governorRun.mock.calls.some(([meta]) => meta.type === 'tts' && meta.providerId === 'minimax-multimodal')).toBe(true)
+    // 日志包含预算收敛后的并发值
+    const logCalls = pipeline.log.info.mock.calls.flat().join(' ')
+    expect(logCalls).toContain('imageConcurrency=2')
+    expect(logCalls).toContain('ttsConcurrency=2')
+  })
+
+  it('provider 未配置预算时回退静态表预算（openai 静态 maxConcurrent=3，不降级）', async () => {
+    const executors = new Map()
+    let gate
+    const gateP = new Promise((resolve) => { gate = resolve })
+    let imageActive = 0
+    let imagePeak = 0
+    const assetGenerator = {
+      generateImage: vi.fn(async () => {
+        imageActive += 1
+        imagePeak = Math.max(imagePeak, imageActive)
+        await gateP
+        imageActive -= 1
+        return { path: 'image-x.png' }
+      }),
+      generateTTS: vi.fn(async () => ({ data: { path: 'audio-x.mp3', duration: 2 } })),
+    }
+    const manager = {
+      getDefault: vi.fn(() => ({ id: 'openai' })),
+      getProvider: vi.fn((id) => ({ id, category: 'llm', config: {} })),
+    }
+    const pipeline = {
+      stageExecutor: executors,
+      _assetGenerator: assetGenerator,
+      aiGenerator: null,
+      governor: { sweepAll: vi.fn() },
+      container: { get: (name) => (name === 'modelProviderManager' ? manager : null) },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      registerStageExecutor(type, fn) {
+        executors.set(type, fn)
+        return { success: true }
+      },
+    }
+    registerStory2VideoStages(pipeline)
+    const assetsExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
+    assetsExecutor.domainExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
+    assetsExecutor.optimizeExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
+
+    const pending = assetsExecutor({
+      stage: { options: { concurrency: 3 } },
+      params: {},
+      context: {
+        split: [{ text: '一' }, { text: '二' }, { text: '三' }],
+        optimize: ['p1', 'p2', 'p3'],
+      },
+      serviceBus: {},
+    })
+    await vi.waitFor(() => {
+      expect(assetGenerator.generateImage).toHaveBeenCalled()
+    })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(imagePeak).toBe(3) // 无配置 → 回退请求并发 3
+    gate()
+    const result = await pending
+    expect(result.success).toBe(true)
+  })
+})

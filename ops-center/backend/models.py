@@ -69,9 +69,12 @@ class ModelPreset(Base):
     id = Column(String, primary_key=True)  # 如 minimax-multimodal
     name = Column(String, nullable=False)
     category = Column(String, nullable=False)  # llm/tts/speech_recognition/image/video/audio/multimodal
-    base_url = Column(String, default="")
+    base_url = Column(String, default="")  # 端口URL（接口 Base URL）
+    models_url = Column(String, default="")  # 获取模型ID URL（允许为空）
     models = Column(Text, default="[]")  # JSON array
     default_model = Column(String, default="")  # 平台预设默认 Model ID（运营可填写/修改）
+    rate_per_minute = Column(Integer, nullable=True)  # 每分钟连接次数（允许为空）
+    limit_per_5h = Column(Integer, nullable=True)  # 5小时限额次数（允许为空）
     is_multimodal = Column(Integer, default=0)
     capabilities = Column(Text, default="[]")  # JSON array
     capability_models = Column(Text, default="{}")  # JSON object

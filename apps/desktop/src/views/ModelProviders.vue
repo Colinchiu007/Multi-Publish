@@ -364,6 +364,10 @@
             <label class="input-label">模型列表 (逗号分隔)</label>
             <input class="input" v-model="form.modelsText" placeholder="model-1, model-2" />
           </template>
+          <label class="input-label">每分钟连接次数（可空）</label>
+          <input class="input" v-model.number="form.config.rate_per_minute" type="number" min="1" placeholder="留空使用默认限流（运营后台配置值）" />
+          <label class="input-label">5小时限额次数（可空）</label>
+          <input class="input" v-model.number="form.config.limit_per_5h" type="number" min="1" placeholder="留空不限制；5 小时内请求次数上限" />
         </div>
       </div>
 
@@ -407,6 +411,10 @@
           <label class="input-label">模型列表 (逗号分隔)</label>
           <input class="input" v-model="form.modelsText" />
         </template>
+        <label class="input-label">每分钟连接次数（可空）</label>
+        <input class="input" v-model.number="form.config.rate_per_minute" type="number" min="1" placeholder="留空使用默认限流（运营后台配置值）" />
+        <label class="input-label">5小时限额次数（可空）</label>
+        <input class="input" v-model.number="form.config.limit_per_5h" type="number" min="1" placeholder="留空不限制；5 小时内请求次数上限" />
       </div>
       <template #footer>
         <div class="dialog-footer">

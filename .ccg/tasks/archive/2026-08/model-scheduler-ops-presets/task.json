@@ -1,0 +1,15 @@
+{
+  "id": "model-scheduler-ops-presets",
+  "title": "运营后台模型设置扩展 + 视频创作模型调用调度机制（并发/排队按每分钟连接次数）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "frontend,backend,desktop",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #471 merged a7c66ba2，2026-08-10）",
+  "createdAt": "2026-08-10T09:30:00+08:00",
+  "branch": "codex/model-scheduler-ops-presets",
+  "openspecChange": "model-scheduler-ops-presets"
+}
+
+

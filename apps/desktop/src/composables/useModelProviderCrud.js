@@ -308,6 +308,20 @@ export function useModelProviderCrud () {
 
     submitting.value = true
     try {
+      // 运营限流字段校验（每分钟连接次数 / 5小时限额次数）：正整数或留空
+      const cfg = form.value.config || {}
+      for (const field of ['rate_per_minute', 'limit_per_5h']) {
+        if (!(field in cfg)) continue
+        const raw = cfg[field]
+        if (raw === '' || raw === undefined || raw === null) { cfg[field] = null; continue }
+        const num = Number(raw)
+        if (!Number.isInteger(num) || num < 1) {
+          ElMessage.warning((field === 'rate_per_minute' ? '每分钟连接次数' : '5小时限额次数') + '必须是大于等于 1 的整数（可留空）')
+          return
+        }
+        cfg[field] = num
+      }
+
       // 解析 models 文本
       const models = form.value.modelsText
         ? form.value.modelsText.split(',').map(s => s.trim()).filter(Boolean)
