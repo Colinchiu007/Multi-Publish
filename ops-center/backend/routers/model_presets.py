@@ -1,9 +1,10 @@
 """Model preset catalog API — 预设模型设置 / 多模态能力设置 / 获取模型ID。"""
 import datetime
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from database import get_db
 from middleware.auth import get_current_user, require_admin
 from services import model_preset_service
@@ -29,6 +30,29 @@ async def list_model_presets(
     presets = await model_preset_service.list_model_presets(db, category=category, include_hidden=include_hidden)
     return {"presets": presets, "count": len(presets)}
 
+
+@router.get("/catalog")
+async def get_model_preset_catalog(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """模型目录只读同步端点（桌面端拉取运营配置，无需登录）。
+
+    鉴权：X-Catalog-Key 头 == OPS_CATALOG_API_KEY（常量时间比较）。
+    - 未配置 OPS_CATALOG_API_KEY → 404（不暴露端点存在性）
+    - key 错误 → 401
+    返回 is_visible=1 的目录（限流/模型/能力，不含敏感字段）。
+    """
+    import hmac as _hmac
+
+    expected = settings.catalog_api_key
+    if not expected:
+        raise HTTPException(404, "Not found")
+    provided = request.headers.get("x-catalog-key", "")
+    if not _hmac.compare_digest(provided.encode(), expected.encode()):
+        raise HTTPException(401, "目录同步 Key 无效")
+    items = await model_preset_service.list_catalog(db)
+    return {"items": items, "count": len(items), "synced_at": datetime.datetime.utcnow().isoformat() + "Z"}
 
 @router.get("/{preset_id}")
 async def get_model_preset(

@@ -1405,8 +1405,53 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 5h 窗口 | `limit_per_5h` → `setTokenWindows([{ windowMs:5h, field:'requests', limit }])`，按请求次数累计（无 usage 字段也计数），超限返回 `QUOTA_EXCEEDED`。 |
 | 注入时机 | `ModelProviderManager.init()` 及 `createProvider`/`updateProvider` 成功后调用 `_applyGovernorLimits()` 同步预算；预设种子 `model-provider-seeds.js` 与 ops-center 种子对齐。 |
 | 视频创作联动 | `story2video generate_assets` 图片/TTS 并行生成并发上限 = `min(请求并发, provider maxConcurrent)`（按能力分别解析 image/tts provider），超出部分 worker 队列排队；未配置预算回退静态表/请求并发，行为不回归。 |
-| 前端表单 | 模型设置新增「每分钟连接次数（可空）」「5小时限额次数（可空）」输入，正整数校验，留空保存 null（不覆盖默认限流）。 |
+| 前端表单 | 模型设置「每分钟连接次数 / 5小时限额次数」为**只读展示**（7.4.5 起由运营后台同步下发或使用服务商默认值，不再手工输入）：编辑弹窗显示当前值或「未配置（默认限流）」，新增服务商步骤 3 提示「限流策略由运营后台同步下发或使用服务商默认值」。 |
 | 种子数据来源 | 预设种子 `rate_per_minute` 与 `governor-provider-limits.js` 静态表一致（代码事实，2026-08-10 起由 ops-center 目录统一生成）；`limit_per_5h` 无代码事实 → 不预填（留空由运营填写，注入 provider 级 5h 请求窗口）；`models_url` 无适配器 `/models` 调用事实 → 不预填。运营后台目录与桌面端代码事实一致性命中测试见 ops-center PRD 12A.8。 |
+
+#### 7.4.5 运营后台 → 桌面端运行时同步（2026-08-10 新增）
+
+**需求**：运营后台填写的限流（每分钟连接次数 / 5小时限额次数）、模型 ID、默认模型、能力配置，在桌面端**运行时自动下发**（手动「立即同步」+ 启动自动同步）；前端限流/模型字段由可编辑改为**只读展示**，避免双写漂移。
+
+##### 7.4.5.1 目录同步端点（ops-center）
+
+| 项 | 要求 |
+|----|------|
+| 端点 | `GET /api/v1/model-presets/catalog`（无需登录，`X-Catalog-Key` 头鉴权） |
+| 鉴权 | `X-Catalog-Key` == `OPS_CATALOG_API_KEY`（常量时间比较）；**未配置** `OPS_CATALOG_API_KEY` → 404（不暴露端点存在性）；Key 错误/缺失 → 401 |
+| 返回 | `{ items: [...], count, synced_at }`；仅返回 `is_visible=1` 预设，按 is_multimodal/category/name 排序 |
+| item 字段 | `id` / `name` / `category` / `base_url` / `models` / `default_model` / `rate_per_minute` / `limit_per_5h` / `is_multimodal` / `capabilities` / `capability_models` / `updated_at`（**不含** API Key 等敏感字段） |
+| 数据自洽 | `default_model` 非空时必须 ∈ `models`；`rate_per_minute`/`limit_per_5h` 为 null 或正整数 |
+
+##### 7.4.5.2 桌面端同步服务（OpsCenterSync，主进程）
+
+| 合同 | 要求 |
+|------|------|
+| 配置存储 | settings key `opsCenterSync`：`{ url, apiKeyEnc, autoSync, lastSyncedAt }`；API Key 经 safeStorage 加密后 base64 序列化，`getConfig()` 永不返回明文（仅返回 `apiKeyConfigured` 布尔） |
+| URL 校验 | 必须 http(s)；**非本机回环地址强制 https**（回环 localhost/127.0.0.1/::1 允许 http）；拒绝携带用户名/密码；非法 URL 保存时拒绝并提示「Ops Center 地址必须是 http(s) URL（非本机地址强制 https）」 |
+| Key 保留 | `saveConfig` 的 apiKey 为空 = 保留现有 Key，不重复加密 |
+| 拉取契约 | `{url}/api/v1/model-presets/catalog`，头 `X-Catalog-Key`；`redirect:'error'` 禁重定向；10s 超时（AbortController）；响应 ≤1MB；非合法 JSON / 缺 `items` 数组 → fail-closed 不写本地 |
+| 错误映射 | 401/403 →「Ops Center API Key 无效（401/403）」；404 →「Ops Center 未启用目录同步（404，需配置 OPS_CATALOG_API_KEY）」；其他非 2xx →「Ops Center 返回 HTTP {status}」；超时 →「同步请求超时（10 秒）」；连接失败 →「无法连接 Ops Center: ...」 |
+| 应用写入 | 调 `ModelProviderManager.applyCatalog(items)`：合并限流/模型/能力到已有行，**不覆盖** api_key/enabled/is_default/base_url；目录有本地无 → 插入 `is_preset=1/enabled=0` 行；目录缺失的本地行**不清除**；运营未配置限流（null/''/0/布尔）→ 清除本地值并回退默认 |
+| Governor 联动 | `applyCatalog` 写库后调用 `_applyGovernorLimits()`：`rate_per_minute` → `setProviderLimits({rpm, maxConcurrent})`，`limit_per_5h` → `setProviderTokenWindows(5h 窗口)`；未配置/已清空回退静态表默认 |
+| 自动同步 | 配置 autoSync 且已有 URL+Key 时，启动 3 秒后 best-effort 同步；失败仅 warn 不阻塞启动 |
+| IPC | `ops-center-sync:get` / `ops-center-sync:save` / `ops-center-sync:now`（preload：`opsCenterSyncGet/Save/Now`；access-control PUBLIC_METHODS） |
+
+##### 7.4.5.3 前端交互（模型设置页）
+
+| 项 | 要求 |
+|----|------|
+| 同步卡片 | 模型设置顶部「🔄 运营后台同步」卡片：Ops Center 地址输入、目录同步 API Key 输入（已配置时 placeholder「已配置（留空保持不变）」）、「启动时自动同步」开关、「保存配置」「立即同步」按钮、上次同步时间、状态文案 |
+| 显示项 | 未同步时「尚未同步」；已同步显示「上次同步：{本地化时间}」；同步成功后显示「同步成功：更新 N 个服务商（时间）」 |
+| 失败提示 | 红色状态区显示映射后的错误文案（401/403/404/超时/连接失败），并 ElMessage.error 提示 |
+| 启用提示 | 同步已配置时卡片高亮并提示「已启用运营后台下发：服务商的『每分钟连接次数 / 5小时限额次数 / 模型列表』以运营后台为准，桌面端为只读展示；本地仍可配置 API Key、Base URL 与默认服务商。」 |
+| 限流只读 | 编辑服务商弹窗「每分钟连接次数 / 5小时限额次数」由输入框改为只读行：显示当前值或「未配置（默认限流）」，附提示「限流值由运营后台同步下发或使用服务商默认值，前端为只读展示。」 |
+| 新增流程 | 添加服务商步骤 3 不再显示限流输入框，改为提示「限流策略（每分钟连接次数 / 5小时限额次数）由运营后台同步下发或使用服务商默认值，无需在此填写。」 |
+| 模型只读 | 同步启用且编辑预设服务商时，「模型列表」输入禁用并提示「已启用运营后台同步：预设服务商模型列表由运营后台下发，此处为只读。」；自定义服务商模型列表仍可编辑 |
+| 数据校验 | 地址输入保存时由主进程校验（http(s)/https 强制/无凭据）；API Key 非空时加密存储；autoSync 布尔开关 |
+
+##### 7.4.5.4 验收标准
+
+① 运营后台配置 `OPS_CATALOG_API_KEY` 后，桌面端填写地址+Key 点击「立即同步」→ 服务商限流/模型更新、卡片显示「同步成功：更新 N 个服务商」；② 未配置 Key 的运营后台端点返回 404，桌面端提示「未启用目录同步」；③ Key 错误返回 401，桌面端提示「API Key 无效」；④ 同步后编辑预设服务商：限流只读展示、模型列表禁用；⑤ 自定义服务商模型仍可编辑；⑥ 勾选「启动时自动同步」重启桌面端 3 秒后自动同步；⑦ 本地 api_key/enabled/is_default/base_url 不被同步覆盖；⑧ 运营后台清空限流 → 桌面端回退默认限流（governor 预算恢复）。
 
 ---
 
