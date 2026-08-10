@@ -9,6 +9,12 @@
 - 文档：Multi-Publish PRD §7.4.5（端点/服务/交互/数据校验/验收标准）、ops-center PRD 12A.10；7.4.4.2 前端表单行同步更新。
 - 测试：ops-center pytest catalog 4 用例；桌面端 ops-center-sync 15、apply-catalog 5、IPC 3、useOpsCenterSync 6 用例全绿。
 
+## [未发布] 修复：ops-center 功能开关加载失败（启动种子接入项目/功能开关导入，2026-08-10）
+
+- 根因：`projects`/`ConfigItem` 数据此前依赖手动 `scripts/seed.py`，新建库为空 → FeatureFlags 页请求 `platform-orchestrator` 404「加载功能开关失败」。
+- 修复：新增 `services/config_seed_service.py`，启动时幂等注册 6 个预置项目 + 从 `feature_gates.yaml` 导入功能开关（源可经 `OPS_FEATURE_GATES_SOURCE` 配置；显式配置时只使用该源，未配置探测默认路径；源缺失跳过不报错）。
+- 测试：新增 4 用例（项目注册/功能开关导入/幂等/源缺失跳过）；ops-center pytest 82 passed。
+- 文档：ops-center PRD 12A.5。
 ## [未发布] 新增：ops-center 自包含管理员登录（2026-08-10）
 
 - ops-center 后端新增本地登录：`POST /api/auth/login` + `GET /api/auth/me`；管理员凭据由 `OPS_ADMIN_USERNAME`/`OPS_ADMIN_PASSWORD` 配置（PBKDF2-SHA256 200000 迭代哈希存储，admins 表）；未配置且无管理员 → 503 fail-closed（无默认口令）。
@@ -17,11 +23,36 @@
 - 前端 `/api/auth` 代理 target 从 orchestrator:8000 改为 ops-center:8010——**解除对 platform-orchestrator 的运行时依赖**；不接 Logto、不集成 orchestrator。
 - 测试：认证 7 用例（成功/失败/未配置/限流/过期/权限/哈希）；ops-center pytest 73 passed。
 - 文档：ops-center PRD 12A.9。
+
+## [未发布] 架构：ops-center 正式并入 Multi-Publish（git subtree 方案 A，2026-08-10）
+
 - 将独立仓库 `Colinchiu007/ops-center`（main 78bebac，17 commits，PR #1/#2/#3 全量）以 `git subtree add --prefix=ops-center --squash` 正式并入 monorepo（PR #475）；移除此前 vendored 快照。
 - 此后运营后台开发/PR/CI/质量门禁统一在 Multi-Publish 内：`ops-center/backend`（pytest 门禁，66 passed）、`ops-center/frontend`（npm run build）。
 - 独立仓库冻结归档（tag `archived-into-multi-publish` + README 说明，完整历史保留可追溯）。
 - 验证：subtree 内容与源仓库逐文件一致；CI 全绿（QG 全项 + build + electron-tests + gui-test）。
 - 附：预设目录按桌面代码事实生成 53 项 + 一致性测试（PR #474/#3）；桌面 seeds 移除无事实 limit_per_5h 估算（PR #474）。
+
+
+## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
+
+### 变更
+- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
+- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
+
+### 硬编码颜色消除
+- CreateView.vue：57 个唯一 hex → 11 个（均为 var() fallback 值）
+- CreateHistory.vue：24 个 → 2 个
+- ResultView.vue：8 个 → 0 个
+- ReplayTimeline.vue：18 个 → 8 个（均为 var() fallback 值）
+
+### 文档
+- PRD 7.1.23 新增「视频创作 UI 设计系统与代码-设计分离合同」
+
+### 测试
+- 195 个测试通过（CreateView + CreateHistory + PipelineBrowser）
+- Vite build 无编译错误
 
 
 ## [未发布] 功能：视频创作历史记录「已暂停」状态与 UI 优化（2026-08-10）
@@ -31,7 +62,7 @@
 - 交互：openPipeline() 支持 paused 状态跳转 /create 断点续跑；「暂停环节：xxx」和「生成失败」提示文案实时显示。
 - 数据校验：pausedStage 仅在 currentStage 有效索引且对应 stage 存在时填充，否则为 null；statusLabel() paused→「已暂停」；stageLabel() 对字符串参数走 shortName() 路径。
 - 文档：PRD-video-creation 3.1.11 新增完整合同（后端逻辑/前端交互表/UI 布局/数据校验/路由/文件清单）；迭代记录表新增 2026-08-10 条目。
-- 测试：CreateHistory.test.js 18/22 通过（4 个超时失败为 pre-existing）。
+- 测试：CreateHistory.test.js 22/22 通过；pipeline-engine 37/37 通过；run-state-store 19/19 通过。
 ## [未发布] 修复：视频创作流水线「已用时」改为步骤执行耗时总和（2026-08-10）
 
 - 修复：流水线「已用时」原按墙钟 `endedAt - createdAt`（运行中 `now - createdAt`）计算，暂停、检查点审阅与失败→断点恢复之间的空闲等待全部计入（用户实证 1245 分 33 秒）；现改为**各步骤实际执行耗时之和**——主进程 `_executeStage` 以执行器真实运行窗口为段累计 `run.activeMs`（成功/失败/取消/异常均计入，`finally` 保证不丢段），暂停/等待/空闲不计入，失败重试多次执行段累计。

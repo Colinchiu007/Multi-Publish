@@ -373,13 +373,13 @@ function statusLabel(status) {
 }
 
 .back-link {
-  color: var(--text-secondary, #666);
+  color: var(--text-muted);
   text-decoration: none;
   font-size: 14px;
 }
 
 .back-link:hover {
-  color: var(--primary, #3b82f6);
+  color: var(--primary);
 }
 
 .replay-title {
@@ -389,7 +389,7 @@ function statusLabel(status) {
 }
 
 .replay-duration {
-  color: var(--text-secondary, #666);
+  color: var(--text-muted);
   font-size: 14px;
 }
 
@@ -398,11 +398,11 @@ function statusLabel(status) {
 .replay-empty {
   text-align: center;
   padding: 60px 20px;
-  color: var(--text-secondary, #666);
+  color: var(--text-muted);
 }
 
 .replay-error p {
-  color: var(--danger, #ef4444);
+  color: var(--danger, var(--pipe-cinematic));
   margin-bottom: 12px;
 }
 
@@ -417,7 +417,7 @@ function statusLabel(status) {
   width: 16px;
   height: 16px;
   border: 2px solid #ddd;
-  border-top-color: var(--primary, #3b82f6);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -449,7 +449,7 @@ function statusLabel(status) {
 
 .speed-control label {
   font-size: 14px;
-  color: var(--text-secondary, #666);
+  color: var(--text-muted);
 }
 
 .speed-select {
@@ -462,7 +462,7 @@ function statusLabel(status) {
 .timeline-position {
   margin-left: auto;
   font-size: 14px;
-  color: var(--text-secondary, #666);
+  color: var(--text-muted);
 }
 
 .timeline-slider-wrapper {
@@ -491,17 +491,17 @@ function statusLabel(status) {
   top: 2px;
 }
 
-.marker-start { background: #3b82f6; }
-.marker-complete { background: #22c55e; }
-.marker-fail { background: #ef4444; }
-.marker-stage-start { background: #60a5fa; }
-.marker-stage-complete { background: #4ade80; }
-.marker-pause { background: #f59e0b; }
-.marker-scene { background: #a78bfa; }
-.marker-retry { background: #fb923c; }
-.marker-approved { background: #22c55e; }
-.marker-resolved { background: #8b5cf6; }
-.marker-default { background: #9ca3af; }
+.marker-start { background: var(--stability-beta); }
+.marker-complete { background: var(--stability-production); }
+.marker-fail { background: var(--pipe-cinematic); }
+.marker-stage-start { background: var(--stability-beta); }
+.marker-stage-complete { background: var(--teal); }
+.marker-pause { background: var(--stability-experimental); }
+.marker-scene { background: var(--pipe-talking-head); }
+.marker-retry { background: var(--stability-experimental); }
+.marker-approved { background: var(--stability-production); }
+.marker-resolved { background: var(--pipe-talking-head); }
+.marker-default { background: var(--text-light); }
 
 .current-event {
   padding: 12px 16px;
@@ -521,15 +521,15 @@ function statusLabel(status) {
   font-size: 13px;
   font-weight: 500;
   color: white;
-  background: #9ca3af;
+  background: var(--text-light);
 }
 
-.event-type.marker-start { background: #3b82f6; }
-.event-type.marker-complete { background: #22c55e; }
-.event-type.marker-fail { background: #ef4444; }
-.event-type.marker-stage-start { background: #60a5fa; }
-.event-type.marker-stage-complete { background: #4ade80; }
-.event-type.marker-pause { background: #f59e0b; }
+.event-type.marker-start { background: var(--stability-beta); }
+.event-type.marker-complete { background: var(--stability-production); }
+.event-type.marker-fail { background: var(--pipe-cinematic); }
+.event-type.marker-stage-start { background: var(--stability-beta); }
+.event-type.marker-stage-complete { background: var(--teal); }
+.event-type.marker-pause { background: var(--stability-experimental); }
 
 .event-stage {
   font-size: 14px;
@@ -652,6 +652,6 @@ function statusLabel(status) {
 
 .event-row-stage {
   font-size: 13px;
-  color: var(--text-secondary, #666);
+  color: var(--text-muted);
 }
 </style>

@@ -627,7 +627,7 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 
 - 后端：apps/desktop/electron/services/pipeline-engine.js（getHistory 方法）
 - 前端：apps/desktop/src/views/CreateHistory.vue（模板 + 脚本 + 样式）
-- 测试：apps/desktop/src/views/CreateHistory.test.js（已有测试覆盖）
+- 测试：apps/desktop/src/views/CreateHistory.test.js 22/22 通过；pipeline-engine.test.js 37/37 通过；run-state-store.test.js 19/19 通过。vite build 通过。
 
 ### 3.2 参数配置（Remotion 快速路径）
 

@@ -146,8 +146,8 @@ class AgnesVideoAdapter extends BaseAdapter {
       image: params.image || undefined,
       width: params.width || DEFAULT_WIDTH,
       height: params.height || DEFAULT_HEIGHT,
-      num_frames: params.numFrames || DEFAULT_NUM_FRAMES,
-      frame_rate: params.frameRate || DEFAULT_FRAME_RATE,
+      num_frames: params.numFrames || params.num_frames || DEFAULT_NUM_FRAMES,
+      frame_rate: params.frameRate || params.frame_rate || DEFAULT_FRAME_RATE,
       negative_prompt: params.negativePrompt || undefined,
       seed: params.seed || undefined,
     }

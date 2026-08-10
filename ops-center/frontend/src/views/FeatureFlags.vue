@@ -26,7 +26,7 @@
         <el-table-column label="状态" width="120" align="center">
           <template #default="{ row }">
             <el-switch
-              :model-value="row.value === 'true'"
+              :model-value="flagEnabled(row)"
               @change="(val) => handleToggle(row, val)"
               :loading="row._toggling"
               active-color="#13ce66"
@@ -35,8 +35,8 @@
         </el-table-column>
         <el-table-column label="状态标签" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.value === 'true' ? 'success' : 'info'" size="small">
-              {{ row.value === 'true' ? '启用' : '禁用' }}
+            <el-tag :type="flagEnabled(row) ? 'success' : 'info'" size="small">
+              {{ flagEnabled(row) ? '启用' : '禁用' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -114,6 +114,29 @@ async function loadFlags() {
   }
 }
 
+// 兼容两种 value 存储：JSON 结构（种子/同步产物）与裸 boolean 字符串（旧 toggle）
+function parseFlagValue(value) {
+  if (typeof value === 'string' && value.trim().startsWith('{')) {
+    try { return JSON.parse(value) } catch { return null }
+  }
+  return null
+}
+
+function flagEnabled(row) {
+  const parsed = parseFlagValue(row.value)
+  if (parsed) return parsed.enabled === true
+  return row.value === 'true'
+}
+
+// toggle 时保留 JSON 结构（tier/description 不丢）；裸值走原 boolean 格式
+function buildFlagValue(row, enabled) {
+  const parsed = parseFlagValue(row.value)
+  if (parsed) {
+    parsed.enabled = enabled
+    return { value: JSON.stringify(parsed), value_type: row.value_type || 'json' }
+  }
+  return { value: String(enabled), value_type: 'boolean' }
+}
 function handleToggle(row, val) {
   confirmKey.value = row.key
   confirmDesc.value = row.description
@@ -125,14 +148,16 @@ function handleToggle(row, val) {
 async function confirmToggle() {
   confirmLoading.value = true
   const row = pendingRow.value
+  const next = buildFlagValue(row, confirmEnabled.value)
   try {
     await updateConfigItem(
       row.project_code,
       row.category,
       row.key,
-      { value: String(confirmEnabled.value), value_type: 'boolean' }
+      next
     )
-    row.value = String(confirmEnabled.value)
+    row.value = next.value
+    row.value_type = next.value_type
     row.updated_at = new Date().toISOString()
     ElMessage.success(`${confirmEnabled.value ? '启用' : '禁用'} ${row.key} 成功`)
     confirmVisible.value = false
@@ -145,13 +170,10 @@ async function confirmToggle() {
 }
 
 async function batchToggle(enabled) {
-  const items = selectedFlags.value.map(row => ({
-    project_code: row.project_code,
-    category: row.category,
-    key: row.key,
-    value: String(enabled),
-    value_type: 'boolean',
-  }))
+  const items = selectedFlags.value.map(row => {
+    const next = buildFlagValue(row, enabled)
+    return { project_code: row.project_code, category: row.category, key: row.key, value: next.value, value_type: next.value_type }
+  })
   try {
     await batchUpdateConfig(items)
     ElMessage.success(`批量${enabled ? '启用' : '禁用'} ${items.length} 项成功`)

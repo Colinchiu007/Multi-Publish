@@ -9,6 +9,7 @@ from database import init_db
 from routers import config, sync, secrets, snapshots, env, model_presets, auth
 from services.model_preset_service import ensure_catalog_seeded, ensure_model_preset_columns
 from services.auth_service import ensure_admin_seeded
+from services.config_seed_service import ensure_feature_gates_seeded, ensure_projects_seeded
 from database import async_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
         await ensure_model_preset_columns(db)
         await ensure_catalog_seeded(db)
         await ensure_admin_seeded(db)
+        await ensure_projects_seeded(db)
+        await ensure_feature_gates_seeded(db)
     logger.info("OpsCenter ready")
     yield
     logger.info("OpsCenter shutting down")
