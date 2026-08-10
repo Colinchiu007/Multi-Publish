@@ -143,6 +143,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-09 | 本地克隆音色删除/设为默认 + 媒体导入反馈 | 删除本地克隆音色为本地管理语义：adapter 不支持 `deleteVoice`（如 MiniMax 官方 clone API 无删除端点）时跳过远端删除，直接清理本地 registry 记录/样本/偏好，不再误报「音色克隆服务暂时不可用」；新增 `ModelProviderManager.supportsAdapterMethod` 能力查询。克隆「设为默认」先同步下拉再保存偏好，默认克隆行显示「默认」徽标 + 高亮 + 「已设为默认」禁用态。媒体导入失败提示全部透传类别宾语（背景音乐等），新增 `MEDIA_PATH_UNRESOLVED` 细分（路径解析失败 vs 文件不可读/被占用），主进程复制文件对 Windows 占用做 ≤3 次有界重试。详见总 PRD 7.1.22 | PRD 7.1.22 |
 | 2026-08-09 | 窗口关闭行为跨平台化（macOS 前瞻） | 平台决策收敛到 `services/window-close-policy.js`：darwin 关闭窗口不拦截（系统约定，进程留在 Dock、activate 重建窗口）、win32/linux 维持「运行任务+托盘可用→隐藏托盘」；托盘图标按平台回退（darwin 模板图标 setTemplateImage，其余占位图）；快照写入 POSIX rename 原子优先、Windows copy 回退。回归：window-close-policy 6 / window 51 / system-tray 28 / run-state-store 17 测试通过 | PRD 7.1.21（跨平台行） |
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
+| 2026-08-10 | 历史记录页面 UI 深度优化 + 暗色模式修复 | 页面头部统计行、Banner 升级、流水线耗时显示、代码与设计分离（shared.css）、tokens 暗色模式修复。详见本节 3.1.12 | PRD 7.1.24 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
@@ -696,6 +697,63 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 | `cinematic` | 2560×1080 | 电影感 21:9 |
 | `linkedin` | 1920×1080 | LinkedIn |
 | `instagram-feed` | 1080×1080 | Instagram 信息流 |
+
+
+### 3.1.12 历史记录页面 UI 深度优化（2026-08-10）
+
+**背景**：历史记录页面（CreateHistory.vue）此前存在以下问题：
+- 页面头部仅有标题，缺少全局状态概览
+- 横幅（banner）为纯文本，操作入口不明显
+- 流水线卡片缺少耗时信息，用户无法判断任务执行效率
+- scoped 样式与共享 CSS 存在大量重复，维护成本高
+- video-creation-tokens.css 暗色模式块 `[data-theme="dark"]` 提前闭合，导致 EP 组件色系和 `--banner-attention-text` 在暗色模式下失效
+
+**变更内容**：
+
+#### A. 页面头部统计行
+- **显示项**：已完成数、运行中数、异常数（失败+取消）
+- **计算属性**：`completedCount`（新增）、`runningPipelineCount`（改用 effectiveStatus）、`failedOrCancelledPipelineCount`（改用 effectiveStatus）
+- **交互逻辑**：统计行仅在流水线数据加载完成后显示（`pipelines.length > 0`），空状态时不渲染
+- **显示规则**：
+  - 已完成数 > 0 时显示绿色圆点 + "N 已完成"
+  - 运行中数 > 0 时显示蓝色脉冲圆点 + "N 运行中"
+  - 异常数 > 0 时显示红色圆点 + "N 异常"
+- **CSS 类**：`.page-header-row`、`.page-header-stats`、`.stat-item`、`.stat-dot`（含 .completed/.running/.failed 修饰符）
+- **动画**：运行中圆点使用 `@keyframes ch-pulse`（1.5s ease-in-out infinite）
+
+#### B. Banner 升级（图标+文字+操作链接）
+- **布局**：Flex 横向排列，三段式结构
+  - 左侧图标：`.running-banner-icon`（🔄 emoji，16px）
+  - 中间文字：`.running-banner-text`（flex:1，黄色主题文字）
+  - 右侧操作：`.running-banner-action`（紫色加粗 "查看流水线记录 →"）
+- **交互**：整行可点击（role="button"），跳转到流水线记录 tab
+- **与旧版差异**：旧版为单个 `<span>` 纯文本，新版分三段独立元素
+
+#### C. 流水线耗时显示
+- **新方法**：`pipelineDuration(p)` — 取 startedAt 和 completedAt 计算差值
+- **新方法**：`formatDuration(ms)` — 毫秒转人类可读时长（<60s→"Ns"，<60m→"Nm Ns"，≥60m→"Nh Nm"）
+- **显示位置**：流水线卡片中状态标签之后
+- **CSS 类**：`.pipeline-duration`（font-variant-numeric: tabular-nums）
+- **显示条件**：`v-if="pipelineDuration(p)"`，仅当有 startedAt 时显示
+
+#### D. 代码与设计分离
+- **新增 `video-creation-shared.css`**（460 行）：提取 Pipeline Card、Badge、Status、Progress Bar、Empty State、Error State、History Page 全套样式
+- **CreateHistory.vue scoped 精简**：仅保留页面特有样式（统计行、Banner、耗时），通过 `@import` 引入共享样式
+- **命名空间**：History Page 样式使用 `.history-page` 前缀避免全局污染
+
+#### E. 暗色模式修复（video-creation-tokens.css）
+- **问题**：`[data-theme="dark"]` 块提前闭合，EP 组件色系和 `--banner-attention-text` 在暗色模式下不生效
+- **修复**：所有暗色模式变量统一放在 `[data-theme="dark"]` 块内
+- **影响范围**：ApprovalGateModal、BoardStageIndicator、ProjectCard 等使用 EP 色系的组件
+
+**交互逻辑总结**：
+1. 用户进入历史记录页 → 加载渲染记录 + 流水线记录
+2. 存在运行中/异常流水线 → 自动切到流水线 tab
+3. 页面头部显示统计行（已完成/运行中/异常数）
+4. 渲染记录 tab 有运行中/异常流水线 → 显示升级版 banner
+5. 点击 banner → 跳转流水线 tab
+6. 流水线卡片显示：名称、时间、状态标签、耗时、阶段标签、进度条、提示文字
+7. 点击流水线卡片 → 运行中/失败/暂停跳转创作页恢复；已完成跳转结果页
 
 ---
 
