@@ -29,7 +29,9 @@ const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://apihub.agnes-ai.com/v1'
+const { fetchWithTimeout } = require('./_base/fetch-utils')
 const DEFAULT_TIMEOUT = 120000
+
 const DEFAULT_MODEL = 'agnes-image-2.1-flash'
 const DEFAULT_RATIO = '16:9'
 
@@ -115,7 +117,8 @@ class AgnesImageAdapter extends BaseAdapter {
     const headers = { ...this._headers(), ...(opts.headers || {}) }
 
     try {
-      const response = await fetch(url, { ...opts, headers })
+      const timeoutMs = Number.isFinite(Number(this.options.timeout)) && Number(this.options.timeout) > 0 ? Number(this.options.timeout) : DEFAULT_TIMEOUT
+      const response = await fetchWithTimeout(url, { ...opts, headers }, timeoutMs)
 
       if (!response.ok) {
         let errorBody
@@ -211,3 +214,4 @@ class AgnesImageAdapter extends BaseAdapter {
 }
 
 module.exports = { AgnesImageAdapter, AGNES_IMAGE_MODELS, parseSizeTier }
+
