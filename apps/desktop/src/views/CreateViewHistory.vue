@@ -210,7 +210,8 @@ export default {
 </script>
 
 <style scoped>
-.create-view-history { width: 100%; }
+.create-view-history { width: 100%; animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 /* 本地模式提示 */
 .history-local-mode-banner {
@@ -229,6 +230,10 @@ export default {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
+  padding: 10px 16px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--hairline, rgba(0,0,0,0.06));
+  border-radius: 10px;
 }
 .history-toolbar-left {
   display: flex;
@@ -250,22 +255,27 @@ export default {
 .history-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 /* 卡片 */
 .history-item {
   display: flex;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--hairline, rgba(0,0,0,0.08));
+  border-radius: 10px;
   overflow: hidden;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   background: var(--surface);
 }
 .history-item:hover {
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
   border-color: var(--primary, #409eff);
+  transform: translateY(-1px);
+}
+.history-item:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
 .history-item.status-running { box-shadow: 0 1px 4px rgba(59,130,246,0.08); }
 .history-item.status-paused { box-shadow: 0 1px 4px rgba(217,119,6,0.08); }
@@ -318,18 +328,21 @@ export default {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text, #333);
+  letter-spacing: -0.01em;
 }
 
 /* 状态徽章 */
 .history-status {
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 3px 10px;
+  border-radius: 6px;
   flex-shrink: 0;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: 10px;
 }
 .history-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .history-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
@@ -366,14 +379,16 @@ export default {
   min-width: 72px;
   max-width: 150px;
   font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   background: var(--status-pending-bg);
   color: var(--status-pending-text);
+  font-weight: 500;
+  transition: all 0.2s ease;
 }
 .history-progress-seg.done { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .history-progress-seg.active {
@@ -400,10 +415,20 @@ export default {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--hairline, rgba(0,0,0,0.04));
 }
 .history-time {
   color: var(--text-light, #999);
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.history-time::before {
+  content: '🕐';
+  font-size: 11px;
 }
 
 /* 操作按钮 */
@@ -414,18 +439,19 @@ export default {
 }
 .history-btn {
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 6px;
   background: var(--surface);
   color: var(--text);
-  padding: 4px 10px;
+  padding: 5px 12px;
   cursor: pointer;
   font-size: 12px;
+  font-weight: 500;
   transition: all 0.15s ease;
   white-space: nowrap;
 }
 .history-btn:hover { border-color: var(--primary, #409eff); color: var(--primary, #409eff); }
-.history-btn.resume { border-color: var(--primary, #409eff); color: var(--primary, #409eff); font-weight: 500; gap: 4px; }
-.history-btn.resume:hover { background: var(--primary, #409eff); color: #fff; }
+.history-btn.resume { border-color: var(--primary, #409eff); color: var(--primary, #409eff); font-weight: 600; gap: 4px; }
+.history-btn.resume:hover { background: var(--primary, #409eff); color: #fff; box-shadow: 0 2px 8px rgba(64,158,255,0.2); }
 .history-btn.open { gap: 4px; }
 .history-btn.delete { gap: 4px; }
 .history-btn.delete:hover { border-color: var(--error, #f56c6c); color: var(--error, #f56c6c); }
@@ -456,13 +482,16 @@ export default {
 
 /* 流水线标签 */
 .history-pipeline-tag {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 3px;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
   background: var(--status-pending-bg, #f3f4f6);
   color: var(--text-muted, #6b7280);
   flex-shrink: 0;
   white-space: nowrap;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 /* 响应式 */
