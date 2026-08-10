@@ -250,6 +250,9 @@ class WebviewManager extends EventEmitter {
   closeTab (tabId) {
     var self = this
 
+    // Home tab 不可关闭
+    if (tabId === self._homeTabId) return false
+
     // 处理新浏览器标签
     if (self._tabViews.has(tabId)) {
       var view = self._tabViews.get(tabId)
@@ -307,6 +310,19 @@ class WebviewManager extends EventEmitter {
    */
   switchToTab (tabId) {
     var self = this
+
+    // Home tab：隐藏所有 WebContentsView，显示 router-view
+    if (tabId === self._homeTabId) {
+      self._hideAllTabs()
+      self._activeTabId = tabId
+      self._broadcast('tab-switched', {
+        tabId: tabId,
+        url: '',
+        title: '首页'
+      })
+      return true
+    }
+
     if (!self._tabViews.has(tabId)) return false
 
     // 隐藏当前活动标签
@@ -322,10 +338,11 @@ class WebviewManager extends EventEmitter {
     // 调整位置
     self._repositionAll()
 
+    var state = self._tabStates.get(tabId)
     self._broadcast('tab-switched', {
       tabId: tabId,
-      url: self._tabStates.get(tabId).url,
-      title: self._tabStates.get(tabId).title
+      url: state ? state.url : '',
+      title: state ? state.title : ''
     })
 
     return true

@@ -44,6 +44,11 @@ export const useTabStore = defineStore('tabs', () => {
     if (!api) return
     try {
       const result = await api.getAllTabs()
+      // 确保 home tab 始终存在
+      const homeExists = result.data?.some(t => t.isHome)
+      if (!homeExists && result.data) {
+        result.data.unshift({ tabId: 'home', url: '', title: '首页', loading: false, canGoBack: false, canGoForward: false, isActive: false, isHome: true })
+      }
       if (result?.code === 0 && Array.isArray(result.data)) {
         tabs.value = result.data
         // 确保 activeTabId 同步
@@ -125,6 +130,19 @@ export const useTabStore = defineStore('tabs', () => {
     // 订阅主进程事件流
     await api.subscribeEvents()
 
+    // 创建 home tab（首页标签，不创建 WebContentsView）
+    const homeTab = {
+      tabId: 'home',
+      url: '',
+      title: '首页',
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+      isActive: true,
+      isHome: true
+    }
+    tabs.value = [homeTab]
+    activeTabId.value = 'home'
     // 加载初始状态
     await _refreshTabs()
     await _refreshNavigation()
@@ -150,6 +168,11 @@ export const useTabStore = defineStore('tabs', () => {
    * @returns {string|null} tabId
    */
   async function createTab(opts = {}) {
+    // Home tab 已存在，直接切换
+    if (opts.isHome) {
+      await switchToTab('home')
+      return 'home'
+    }
     const api = _api()
     if (!api) return null
     try {
