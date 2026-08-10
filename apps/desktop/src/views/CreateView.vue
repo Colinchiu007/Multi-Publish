@@ -63,7 +63,7 @@
             <div class="orchestration-progress" data-testid="story2video-orchestration-progress">
               <div class="progress-bar"><div class="progress-fill" :style="{ width: orchestrationProgressPercent + '%' }"></div></div>
               <span class="progress-text">{{ orchestrationProgressPercent }}%</span>
-              <span v-if="orchestrationElapsedMs !== null" class="elapsed-text">{{ translateWithLocaleFallback('story2video.elapsed', '已用时 ' + formatDuration(orchestrationElapsedMs), 'Elapsed ' + formatDuration(orchestrationElapsedMs)) }}</span>
+              <span v-if="orchestrationElapsedMs !== null" class="elapsed-text">{{ translateWithLocaleFallback('story2video.elapsed', '已用时 ' + formatDuration(orchestrationElapsedMs), 'Elapsed ' + formatDuration(orchestrationElapsedMs), { duration: formatDuration(orchestrationElapsedMs) }) }}</span>
             </div>
             <div v-if="orchestrationSummary" class="orchestration-summary" data-testid="story2video-orchestration-summary">{{ orchestrationSummary }}</div>
           </div>
@@ -971,6 +971,25 @@ const S2V_PLATFORMS = [
   { value: 'youtube', label: 'YouTube' },
 ]
 
+// 恢复「上次使用的选项」时对下拉枚举字段做白名单校验：陈旧快照值（如旧版本或手工写入的
+// imageStyle）不在当前选项列表时回退到 data() 默认值，避免下拉框出现空白选中项（2026-08-10 Bug 反哺）。
+const S2V_RESTORE_ENUM_OPTIONS = Object.freeze({
+  contentType: ['general', 'history'],
+  imageStyle: ['cinematic', 'realistic', 'anime', 'watercolor', 'minimalist'],
+  promptStyle: ['realistic', 'cinematic', 'anime', 'watercolor', 'minimalist'],
+  imageEffect: ['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'zoom-pan', 'rotate', 'blur-in'],
+  transition: ['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down'],
+  subtitleSize: ['size1', 'size2', 'size3', 'size4', 'size5', 'size6'],
+  subtitleStyleName: ['style1', 'style2', 'style3'],
+  splitLanguage: ['auto', 'zh', 'en'],
+  splitMode: ['fast', 'balanced', 'precise'],
+  splitViewMode: ['seconds', 'chars'],
+})
+const S2V_RESTORE_OUTPUT_ENUM_OPTIONS = Object.freeze({
+  fps: [24, 30, 60],
+  format: ['mp4', 'webm'],
+})
+
 const CATEGORY_LABELS = {
   generated: 'AI 生成', talking_head: '说话头像', cinematic: '电影感',
   animation: '动画', screen_recording: '屏幕录制', hybrid: '混合', custom: '自定义'
@@ -1106,7 +1125,8 @@ export default {
       }))
     },
     s2vVoiceProviderOptions() {
-      return [{ id: '', name: '自动 Edge TTS' }, ...this.s2vVoiceProviders.map(provider => ({
+      // 首项「自动 Edge TTS」必须带 displayName，否则模板 {{ provider.displayName }} 渲染为空选项（2026-08-10 Bug 反哺）
+      return [{ id: '', name: '自动 Edge TTS', displayName: '自动 Edge TTS' }, ...this.s2vVoiceProviders.map(provider => ({
         ...provider,
         displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
       }))]
@@ -1393,8 +1413,8 @@ export default {
     s2vOutputConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
   },
   methods: {
-    translateWithLocaleFallback(key, zhFallback, enFallback) {
-      const translated = typeof this.$t === 'function' ? this.$t(key) : key
+    translateWithLocaleFallback(key, zhFallback, enFallback, params) {
+      const translated = typeof this.$t === 'function' ? this.$t(key, params) : key
       if (typeof translated === 'string' && translated !== key) return translated
       return this.$i18n?.locale === 'en' ? enFallback : zhFallback
     },
@@ -1654,6 +1674,9 @@ export default {
           delete config.voiceProvider; delete config.voiceModel; delete config.voiceId
         }
         this._applyS2VSnapshot(config, this.s2vConfig)
+        // 2026-08-10 Bug 反哺：陈旧快照枚举值（如 imageStyle=anime-mslpadvn）不在当前选项
+        // 列表时先归一化，避免下拉框空白选中项，也避免分镜自愈使用陈旧语言值估算。
+        this.normalizeS2VRestoredEnums()
         // 旧快照缺新字段/带回陈旧 splitTargetSeconds → 按主控字数自愈（claude review M2/M6），
         // 避免「恢复→保存」循环污染与显示/提交口径不一致
         if (Number.isFinite(Number(this.s2vConfig.splitTargetCharsPerScene))) {
@@ -1666,6 +1689,8 @@ export default {
         this._applyS2VSnapshot(snapshot.s2vOutputConfig, this.s2vOutputConfig)
         // 运营开关：恢复的旧快照若含超出上限的分辨率（如历史 4K），归一化到最高允许档
         this.s2vOutputConfig.resolution = normalizeResolution(this.s2vOutputConfig.resolution, this.maxOutputResolution)
+        // 输出枚举（fps/format）同样做白名单归一化
+        this.normalizeS2VRestoredEnums()
         // 恢复表单折叠状态（类型守卫：仅接受字符串数组）
         if (Array.isArray(snapshot.ui?.expandedGroups)) {
           const known = new Set(Object.keys(this.s2vOpenSections))
@@ -1676,6 +1701,27 @@ export default {
         await this.loadS2VVoiceData()
         this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsRestored', '已恢复上次的选项设置', 'Restored your last-used options'))
       } finally { this.s2vRestoring = false }
+    },
+    // 2026-08-10 Bug 反哺：恢复「上次使用的选项」时，把不在当前选项列表中的陈旧枚举值
+    // 归一化到 data() 默认值（幂等，可在恢复流程中多次调用）。
+    normalizeS2VRestoredEnums() {
+      const defaults = (this.$options.data || (() => ({}))).call(this)
+      const defaultConfig = defaults.s2vConfig || {}
+      for (const [field, options] of Object.entries(S2V_RESTORE_ENUM_OPTIONS)) {
+        const value = this.s2vConfig[field]
+        if (typeof value === 'string' && !options.includes(value)) {
+          // 默认值本身也须在白名单内，避免 data() 默认变更后回退到非法值（claude review W2）
+          this.s2vConfig[field] = options.includes(defaultConfig[field]) ? defaultConfig[field] : options[0]
+        }
+      }
+      const defaultOutput = defaults.s2vOutputConfig || {}
+      for (const [field, options] of Object.entries(S2V_RESTORE_OUTPUT_ENUM_OPTIONS)) {
+        const value = this.s2vOutputConfig[field]
+        const valid = options.includes(value) || (typeof value === 'string' && options.includes(Number(value)))
+        if (!valid) {
+          this.s2vOutputConfig[field] = options.includes(defaultOutput[field]) ? defaultOutput[field] : options[0]
+        }
+      }
     },
     async loadMaxOutputResolution() {
       // 运营开关（videoCreation.maxOutputResolution）：'1080p'（默认，禁止 4K）| '4k'
@@ -3034,9 +3080,9 @@ export default {
       const minutes = Math.floor(totalSeconds / 60)
       const seconds = totalSeconds % 60
       if (minutes > 0) {
-        return this.translateWithLocaleFallback('story2video.durationMinSec', minutes + ' 分 ' + seconds + ' 秒', minutes + 'm ' + seconds + 's')
+        return this.translateWithLocaleFallback('story2video.durationMinSec', minutes + ' 分 ' + seconds + ' 秒', minutes + 'm ' + seconds + 's', { minutes, seconds })
       }
-      return this.translateWithLocaleFallback('story2video.durationSec', seconds + ' 秒', seconds + 's')
+      return this.translateWithLocaleFallback('story2video.durationSec', seconds + ' 秒', seconds + 's', { seconds })
     },
     startStageClock() {
       if (this._stageClockTimer) return
