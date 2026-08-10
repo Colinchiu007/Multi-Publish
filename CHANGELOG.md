@@ -1,3 +1,11 @@
+## [未发布] 功能：发布数据看板（P1-3）（2026-08-11）
+
+- ops-center：新增 `publish_metrics_daily` 表 + `POST /api/v1/publish/ingest`（X-Catalog-Key；校验日期格式/平台字符集/非负/publish≥ok+fail/≤500；同桶 upsert 累加）+ `GET /api/v1/publish/summary`（admin，7/30/90 天，totals/by_date/by_platform 含成功率）。
+- ops-center 前端：新增「发布数据」页（汇总卡片/按平台表/每日趋势柱状图/空态）。
+- 桌面端：新增 `PublishReporter`（聚合 publish-history 按 日期+平台 分桶，success→ok、fail/error→fail、监控状态不计；水印推进/失败重试/5s+30min 周期/未配置静默；仅计数不上报敏感内容）；phase1 接线。
+- 文档：ops-center PRD 12A.18、Multi-Publish PRD §7.4.11、CHANGELOG。
+- 测试：ops-center pytest（+1，全量 109）；桌面端 publish-reporter 3 用例。
+
 ## [未发布] 功能：桌面端功能开关运行时下发（P0-1）（2026-08-11）
 
 - ops-center：新增 `feature_flags` 表 + `GET/POST /api/v1/feature-flags`、`PUT/DELETE /api/v1/feature-flags/{key}`（admin）；校验 key 字符集 / value_type 枚举 / typed value 可解析；POST 重复 409、PUT/DELETE 不存在 404；种子 `videoCreation.maxOutputResolution`='1080p'（4K 能力开关，PRD 7.1.20）；`runtime/bootstrap` 增加 `feature_flags`（enabled=1 typed value，X-Catalog-Key 鉴权）。

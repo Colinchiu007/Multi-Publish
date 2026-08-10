@@ -1859,6 +1859,31 @@ split → domain_enrich → optimize → select_video_scenes（新增） → gen
 ① 首次启动 4K 开关种子存在；② 非法 key/value_type/value → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 开关 typed value；⑤ 桌面端 applyRuntime 应用/持久化/重启恢复、非法结构空对象；⑥ 引擎惰性读取：静态 1080p + 动态 4k 放行、动态 1080p 拒绝（fail-closed）；⑦ 未配置同步桌面端用本地默认 1080p。
 
 
+#### 7.4.11 发布数据看板（2026-08-11 新增，P1-3）
+
+**需求**：桌面端把发布指标脱敏聚合上报运营后台，运营看板展示各平台产粮/失败情况；仅计数，不含标题/正文/账号等敏感内容。
+
+##### 7.4.11.1 数据与端点（ops-center）
+
+| 项 | 说明 |
+|----|------|
+| 表 | `publish_metrics_daily`（usage_date+client_id+platform 唯一，upsert 累加） |
+| 上报 | `POST /api/v1/publish/ingest`（X-Catalog-Key；校验 date/平台字符集/非负/publish≥ok+fail/≤500） |
+| 看板 | `GET /api/v1/publish/summary?days=N`（admin，默认 30 上限 90）：totals + by_date + by_platform（成功率） |
+
+##### 7.4.11.2 桌面端上报（PublishReporter）
+
+- 聚合 publish-history 按 日期+平台 分桶；success → ok、fail/error → fail、监控状态不计（防重复计数）。
+- 水印推进/失败重试/5s 首报 + 30min 周期/未配置静默；仅计数。
+
+##### 7.4.11.3 前端「发布数据」页
+
+7/30/90 天切换 + 汇总卡片 + 按平台表 + 每日趋势柱状图 + 空态提示；非 admin 403。
+
+##### 7.4.11.4 验收标准
+
+① 上报校验 400；② 同桶累加；③ Key 404/401；④ summary 非 admin 403；⑤ 聚合与成功率正确；⑥ 桌面端分桶/水印/静默；⑦ 不上报敏感内容。
+
 ---
 
 ## 八、内容采集与收藏流程

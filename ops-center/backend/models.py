@@ -259,3 +259,34 @@ class PlatformDef(Base):
     deleted_at = Column(String, nullable=True)  # 软删除时间（非空=已删除，种子不复活）
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
+
+class PublishMetricDaily(Base):
+    """发布指标日聚合 — 桌面端上报，运营看板展示。"""
+
+    __tablename__ = "publish_metrics_daily"
+    __table_args__ = (
+        sa.UniqueConstraint("usage_date", "client_id", "platform", name="uq_publish_metric_day"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    usage_date = Column(String, nullable=False)  # YYYY-MM-DD
+    client_id = Column(String, default="")  # 桌面端设备稳定哈希（脱敏）
+    platform = Column(String, default="")  # 平台 id（如 wechat_mp）
+    publish_count = Column(Integer, default=0)
+    ok_count = Column(Integer, default=0)
+    fail_count = Column(Integer, default=0)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class PublishReportBatch(Base):
+    """发布指标上报批次去重 — 客户端携带 report_id（minTs-maxTs），服务端唯一约束防网络模糊失败重复计数。"""
+
+    __tablename__ = "publish_report_batches"
+    __table_args__ = (
+        sa.UniqueConstraint("client_id", "report_id", name="uq_publish_report_batch"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_id = Column(String, default="")
+    report_id = Column(String, nullable=False)
+    ingested_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
