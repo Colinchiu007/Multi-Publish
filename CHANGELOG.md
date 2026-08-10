@@ -6,8 +6,10 @@
 - 清理：`Accounts.vue` 移除 `showGroupManager`/弹窗 watcher，groups/favorites Tab 下隐藏账号主列表工具栏；`AccountGroupManager.vue` 保留但不再挂载。
 - 测试：`Accounts.test.js` 重写分组/收藏页签用例 + 新增 4 例（面板渲染、创建携带平台、空分组过滤、收藏表格），77/77 通过；`vite build` 通过。
 - 基线：蚁小二实机截图 19 张（`01-docs/yixiaoer-reverse/screenshots/yxe-live-20260810/`，覆盖首页/账号/分组/分享/收藏/发布记录/草稿/看板/创作/评论/批量/小蚁 AI/团队/素材库/数据）。
-- 边界：状态徽章分色、卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
-- 存量：大范围回归中 `Home.test.js` / `Publish.test.js` / `PublishHistory.test.js` / `views-deep.test.js` 共 34 例失败，经确认这些文件与 HEAD 完全一致且未引用 Accounts.vue，属 Round 2 已合并的存量失败，与本次改动无关；本次 accounts 聚焦回归 98/98 通过。
+- 复刻：`AccountManagementCard` 归属徽章按蚁小二契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），新增分色回归测试。
+- 清理：`Publish.vue` 64 处 inline style 全部迁移为语义化 class（`publish-header-row`/`batch-articles`/`copy-url-button.is-copied` 等约 40 个），定义收敛至 `<style scoped>`；迁移过程中修复一处重复 class 属性导致的模板解析错误（`@vue/compiler-sfc` 0 error 验证）。
+- 边界：卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
+- 存量：大范围回归中 `Home.test.js` / `Publish.test.js` / `PublishHistory.test.js` / `views-deep.test.js` 共 34 例失败，经确认这些文件与 HEAD 完全一致且未引用 Accounts.vue，属 Round 2 已合并的存量失败，与本次改动无关；本次 accounts 聚焦回归 98/98 通过；`Publish.test.js` 8 例失败经 git diff 验证本次仅改 class/CSS（无脚本逻辑变更）仍为同一存量失败。
 
 ## [未发布] 蚁小二账号/发布模块全面对标 Round 2（2026-08-10）
 

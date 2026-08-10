@@ -725,7 +725,7 @@
 1. ✅ **账号页顶层 Tab 导航**：蚁小二有"账号管理/分组管理/分享链接/收藏分组"四个 Tab，`YixiaoerModuleNav` 已实现；**分组管理/收藏分组已从弹窗改为页面级面板**（`AccountGroupsPanel`/`AccountFavoritesPanel`，2026-08-10）
 2. ✅ **分组管理工具栏**：已对齐蚁小二布局 — 搜索分组 + 全部筛选 + 仅看包含我的分组 + 设置排序 + 紫色创建分组按钮
 3. ✅ **空态风格**：分组/收藏面板采用蚁小二同款"云朵 + 暂无数据"空态
-4. **状态徽章颜色**：蚁小二用蓝/灰/紫区分负责人/运营人/代理，Multi-Publish 当前使用统一样式（待复刻）
-5. **Publish.vue inline style**：仍有内联 style 残留（如 `style="display:flex;align-items:center;gap:var(--space-md)"`）
+4. ✅ **状态徽章颜色**：已按蚁小二契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），2026-08-10
+5. ✅ **Publish.vue inline style**：已全部迁移为语义化 class（64 处 → 0），定义收敛至 `<style scoped>`，2026-08-10
 6. **卡片视觉细节**：AccountManagementCard 的底部按钮布局与蚁小二略有差异
 7. **批量模式工具栏**：蚁小二批量选择时工具栏样式更紧凑（发布记录页已对齐：已选择 N 项内容 + 删除 + 取消选择 + 导出）

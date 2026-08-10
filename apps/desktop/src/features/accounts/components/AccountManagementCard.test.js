@@ -141,6 +141,23 @@ describe('AccountManagementCard', () => {
     expect(wrapper.get('[data-testid="account-publisher-account-1"]').text()).toContain('未设置')
     expect(wrapper.get('[data-testid="account-proxy-account-1"]').text()).toContain('未设置')
   })
+
+  it('归属徽章按蚁小二契约分色：负责人蓝、运营人灰、代理紫', () => {
+    const wrapper = mountCard()
+
+    const ownerBadge = wrapper.get('[data-testid="account-owner-account-1"] span')
+    const publisherBadge = wrapper.get('[data-testid="account-publisher-account-1"] span')
+    const proxyBadge = wrapper.get('[data-testid="account-proxy-account-1"] span')
+
+    expect(ownerBadge.classes()).toContain('assignee-owner')
+    expect(publisherBadge.classes()).toContain('assignee-publisher')
+    expect(proxyBadge.classes()).toContain('assignee-proxy')
+    // 三类徽章各不相同，确保不是统一样式
+    const kinds = new Set([ownerBadge.classes(), publisherBadge.classes(), proxyBadge.classes()]
+      .flat()
+      .filter(cls => cls.startsWith('assignee-') && cls !== 'assignee-badge'))
+    expect(kinds.size).toBe(3)
+  })
   it('只在名称非空且发生变化时上抛重命名', async () => {
     const wrapper = mountCard()
     await wrapper.get('.account-name-button').trigger('click')
