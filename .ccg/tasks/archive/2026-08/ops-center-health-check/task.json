@@ -1,12 +1,12 @@
 {
   "id": "ops-center-health-check",
   "title": "运营后台 P1：云服务健康巡检（一键诊断）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "low",
   "domain": "backend",
-  "currentPhase": "planning",
-  "nextAction": "OpenSpec design + 实现健康巡检端点与页面",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #495 merged a968cc13）",
   "createdAt": "2026-08-11T01:00:00+08:00",
   "branch": "codex/ops-center-health-check",
   "openspecChange": "ops-center-health-check"
