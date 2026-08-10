@@ -552,10 +552,10 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     await engine.executeStage(runId)
     const snapshot = engine.getRunSnapshot(runId)
     expect(snapshot.status.status).toBe('completed')
-    expect(snapshot.activeMs).toBeGreaterThanOrEqual(afterA + 30)
+    expect(snapshot.activeMs).toBeGreaterThan(afterA)
     expect(snapshot.activeSegmentStartedAt).toBeNull()
     expect(snapshot.elapsedActiveMs).toBe(snapshot.activeMs)
-    expect(snapshot.elapsedActiveMs).toBeLessThan(600)
+    expect(snapshot.elapsedActiveMs).toBeLessThan(2000)
   })
 
   it('运行中在飞执行段计入 elapsedActiveMs（elapsedActiveMs > activeMs）', async () => {

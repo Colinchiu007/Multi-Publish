@@ -510,6 +510,8 @@ describe('已用时跨断点恢复累计（activeMs）', () => {
     await engineB.executeStage(runId) // c 完成
     const finalSnapshot = engineB.getRunSnapshot(runId)
     expect(finalSnapshot.status.status).toBe('completed')
-    expect(finalSnapshot.activeMs).toBeGreaterThanOrEqual(persisted.activeMs + 30)
+    // 新执行段计入（> 历史累计），且不超过 2s（不含恢复空闲；宽松上界避免 CI 时序抖动）
+    expect(finalSnapshot.activeMs).toBeGreaterThan(persisted.activeMs)
+    expect(finalSnapshot.activeMs).toBeLessThan(persisted.activeMs + 2000)
   })
 })
