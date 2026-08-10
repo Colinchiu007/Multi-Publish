@@ -10,7 +10,7 @@
 
 | 选项 | 合法值 | 测试值 | 是否生效 | 证据 |
 |------|--------|--------|---------|------|
-| transition | none / fade / slide-left / slide-right / slide-up / slide-down | fade(默认)、slide-left、none | ⚠️ 已接线 | `TRANSITION_NAMES`+xfade 代码路径确认；单场景内容无法视觉区分转场（LLM 把测试文案拆成 1 场景），多场景测试产出不同大小文件 |
+| transition | none / fade / slide-left / slide-right / slide-up / slide-down | none / fade / slide-left（长多句文案 2 场景） | ✅ | 帧级分析：none=单帧跳变、fade=0.4s 亮度渐变（vs-prev 峰值 4.49）、slide-left=0.3s 空间位移（vs-2.7s 振荡 0.61→1.02）；buildTransitionPlan→xfade 各模式单测覆盖 |
 | imageEffect | none / zoom-in / zoom-out / pan-left / pan-right / pan-up / pan-down / zoom-pan / rotate / blur-in | zoom-in(默认)、zoom-pan、none | ✅ | 帧间 MAE：zoom-pan=20–24，none=0.1–0.3 |
 | subtitleEnabled | true / false | true | ✅ | 字幕底部区域 MAE=52（无字幕 5.7） |
 | format | mp4 / webm | webm | ✅ | ffprobe：vp9+opus+matroska/webm |
@@ -96,3 +96,4 @@
 2. S2V transition 全枚举视觉验证：需多场景文案（当前 LLM 把测试文案拆成单场景）
 3. imageEffect 全 10 值、voiceSpeed/Pitch、split.mode、optimize.style 等：运行 `apps/desktop/tests/e2e/pipeline-options-matrix.js`
 4. loc-ko：确认韩语音色后重测
+
