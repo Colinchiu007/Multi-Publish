@@ -1,0 +1,15 @@
+{
+  "id": "model-preset-info-fields",
+  "title": "运营后台预设模型设置扩展：更多信息字段/默认模型下拉/获取模型ID/多模态分能力文档URL",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend,frontend",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #2 merged 274a902，2026-08-10）",
+  "createdAt": "2026-08-10T09:30:00+08:00",
+  "branch": "codex/model-preset-info-rpm",
+  "openspecChange": "model-preset-info-fields"
+}
+
+
