@@ -51,7 +51,7 @@ async def setup_db(monkeypatch, tmp_path):
 
     src = tmp_path / "feature_gates.yaml"
     src.write_text(FIXTURE_YAML, encoding="utf-8")
-    monkeypatch.setattr(settings, "feature_gates_source", str(src))
+    monkeypatch.setattr(settings, "feature_gates_import_source", str(src))
 
     async with async_session() as db:
         await ensure_projects_seeded(db)
@@ -103,7 +103,7 @@ async def test_seed_idempotent(monkeypatch, tmp_path):
 
     src = tmp_path / "feature_gates2.yaml"
     src.write_text(FIXTURE_YAML, encoding="utf-8")
-    monkeypatch.setattr(settings, "feature_gates_source", str(src))
+    monkeypatch.setattr(settings, "feature_gates_import_source", str(src))
 
     async with async_session() as db:
         assert await ensure_projects_seeded(db) == 0  # 已存在 → 0 新增
@@ -115,6 +115,73 @@ async def test_missing_source_skips_without_error(monkeypatch, tmp_path):
     from database import async_session
     from services.config_seed_service import ensure_feature_gates_seeded
 
-    monkeypatch.setattr(settings, "feature_gates_source", str(tmp_path / "not-exists.yaml"))
+    monkeypatch.setattr(settings, "feature_gates_import_source", str(tmp_path / "not-exists.yaml"))
     async with async_session() as db:
         assert await ensure_feature_gates_seeded(db) == 0
+
+@pytest.mark.asyncio
+async def test_feature_flag_value_is_json_with_enabled():
+    """种子 value 必须是 JSON 结构且 enabled/tier 正确（前端 JSON.parse 渲染契约）。"""
+    from database import async_session
+    from models import ConfigItem
+    from sqlalchemy import select
+    import json as _json
+
+    async with async_session() as db:
+        row = (await db.execute(select(ConfigItem).where(ConfigItem.key == "premium_content"))).scalar_one()
+        parsed = _json.loads(row.value)
+        assert parsed["enabled"] is False
+        assert parsed["tier"] == 3
+        row2 = (await db.execute(select(ConfigItem).where(ConfigItem.key == "article_auto_fetch"))).scalar_one()
+        assert _json.loads(row2.value)["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_gates_key_and_scalar_bool(monkeypatch, tmp_path):
+    from database import async_session
+    from models import ConfigItem
+    from services.config_seed_service import ensure_feature_gates_seeded
+    from sqlalchemy import select
+    import json as _json
+
+    src = tmp_path / "gates2.yaml"
+    src.write_text("gates:\n  flag_a: true\n  flag_b: false\n  flag_c: off\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "feature_gates_import_source", str(src))
+    async with async_session() as db:
+        assert await ensure_feature_gates_seeded(db) == 3
+        a = _json.loads((await db.execute(select(ConfigItem).where(ConfigItem.key == "flag_a"))).scalar_one().value)
+        b = _json.loads((await db.execute(select(ConfigItem).where(ConfigItem.key == "flag_b"))).scalar_one().value)
+        c = _json.loads((await db.execute(select(ConfigItem).where(ConfigItem.key == "flag_c"))).scalar_one().value)
+        assert a["enabled"] is True and b["enabled"] is False
+        assert c["enabled"] is False  # 非 bool 标量按禁用处理
+
+
+@pytest.mark.asyncio
+async def test_broken_yaml_skips_without_crash(monkeypatch, tmp_path):
+    from database import async_session
+    from services.config_seed_service import ensure_feature_gates_seeded
+
+    src = tmp_path / "broken.yaml"
+    src.write_text("features:\n  - [unclosed", encoding="utf-8")
+    monkeypatch.setattr(settings, "feature_gates_import_source", str(src))
+    async with async_session() as db:
+        assert await ensure_feature_gates_seeded(db) == 0  # 坏 YAML 不抛错、不拖垮启动
+
+
+@pytest.mark.asyncio
+async def test_reseed_does_not_overwrite_existing(monkeypatch, tmp_path):
+    """re-seed 时已有 gate 即使源 enabled 变化也不覆盖（真·不覆盖语义）。"""
+    from database import async_session
+    from models import ConfigItem
+    from services.config_seed_service import ensure_feature_gates_seeded
+    from sqlalchemy import select
+    import json as _json
+
+    src = tmp_path / "changed.yaml"
+    src.write_text("features:\n  premium_content:\n    enabled: true\n    tier: 1\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "feature_gates_import_source", str(src))
+    async with async_session() as db:
+        assert await ensure_feature_gates_seeded(db) == 0  # 已有 premium_content → 不覆盖
+        row = (await db.execute(select(ConfigItem).where(ConfigItem.key == "premium_content"))).scalar_one()
+        parsed = _json.loads(row.value)
+        assert parsed["enabled"] is False and parsed["tier"] == 3  # 保持首次种子值
