@@ -1,3 +1,10 @@
+## [未发布] 架构：ops-center 正式并入 Multi-Publish（git subtree 方案 A，2026-08-10）
+
+- 将独立仓库 `Colinchiu007/ops-center`（main 78bebac，17 commits，PR #1/#2/#3 全量）以 `git subtree add --prefix=ops-center --squash` 正式并入 monorepo（PR #475）；移除此前 vendored 快照。
+- 此后运营后台开发/PR/CI/质量门禁统一在 Multi-Publish 内：`ops-center/backend`（pytest 门禁，66 passed）、`ops-center/frontend`（npm run build）。
+- 独立仓库冻结归档（tag `archived-into-multi-publish` + README 说明，完整历史保留可追溯）。
+- 验证：subtree 内容与源仓库逐文件一致；CI 全绿（QG 全项 + build + electron-tests + gui-test）。
+- 附：预设目录按桌面代码事实生成 53 项 + 一致性测试（PR #474/#3）；桌面 seeds 移除无事实 limit_per_5h 估算（PR #474）。
 ## [未发布] 数据对齐：预设模型目录由桌面端代码事实生成（2026-08-10）
 
 - ops-center：`PRESET_CATALOG` 扩展至 53 项（覆盖桌面端全部预设），数据来源=代码事实——`base_url`=适配器默认端点（修正 Anthropic/DeepSeek/Gemini/Ollama/Doubao/Runway/Suno 等与桌面不一致的旧值）、`models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表（与静态表一致，非估算）。
