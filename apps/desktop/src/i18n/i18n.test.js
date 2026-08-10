@@ -68,4 +68,20 @@ describe("i18n CSP-safe messages", () => {
       i18n.global.locale.value = "zh";
     }
   });
+
+  it("story2video 运行进度文案键存在且支持命名插值（zh/en）", () => {
+    i18n.global.locale.value = "zh";
+    try {
+      expect(i18n.global.t("story2video.elapsed", { duration: "12 秒" })).toBe("已用时 12 秒");
+      expect(i18n.global.t("story2video.durationSec", { seconds: 3 })).toBe("3 秒");
+      expect(i18n.global.t("story2video.durationMinSec", { minutes: 1, seconds: 48 })).toBe("1 分 48 秒");
+      i18n.global.locale.value = "en";
+      expect(i18n.global.t("story2video.elapsed", { duration: "12s" })).toBe("Elapsed 12s");
+      expect(i18n.global.t("story2video.durationSec", { seconds: 3 })).toBe("3s");
+      expect(i18n.global.t("story2video.durationMinSec", { minutes: 1, seconds: 48 })).toBe("1m 48s");
+    } finally {
+      // 断言失败时也要恢复 locale，避免污染同文件后续用例（claude review I5）
+      i18n.global.locale.value = "zh";
+    }
+  });
 });

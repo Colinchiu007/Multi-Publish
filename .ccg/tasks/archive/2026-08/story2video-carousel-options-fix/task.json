@@ -1,0 +1,24 @@
+{
+  "id": "story2video-carousel-options-fix",
+  "title": "修复图片轮播测试发现的 3 个问题",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "无（已提交，待 PR/合并）",
+  "createdAt": "2026-08-10T10:20:00+08:00",
+  "completedAt": "2026-08-10T10:30:00+08:00",
+  "branch": "codex/story2video-carousel-options-fix",
+  "fixes": [
+    "restoreS2VLastOptions 枚举白名单归一化（S2V_RESTORE_ENUM_OPTIONS / S2V_RESTORE_OUTPUT_ENUM_OPTIONS + normalizeS2VRestoredEnums）",
+    "s2vVoiceProviderOptions 首项补 displayName='自动 Edge TTS'",
+    "i18n 新增 story2video.elapsed/durationSec/durationMinSec 命名插值消息函数 + create.story2video.resetOptions 键，translateWithLocaleFallback 支持 params",
+    "补充回归测试：CreateView.test.js +2、i18n.test.js +1"
+  ],
+  "evidence": {
+    "tests": "CreateView.test.js 122 + i18n.test.js 3 全通过",
+    "build": "vite build 通过（20.98s）",
+    "review": "Claude 双轮 Critical/Warning: none（antigravity 不可用已记录）"
+  }
+}

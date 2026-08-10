@@ -1,14 +1,29 @@
+## [未发布] 修复：图片轮播选项可用性（恢复枚举归一化 + 语音生成器空标签 + 运行进度 i18n 缺键）（2026-08-10）
+
+- 修复：恢复「上次使用的选项」时对下拉枚举字段（内容类型/图片风格/提示词风格/图片动效/转场/字幕字号/字幕样式/分句语言/分句模式/分镜粒度视图/fps/格式）做白名单归一化——陈旧快照值（如 imageStyle=anime-mslpadvn）不在当前选项列表时回退到 data() 默认值（默认值本身也须在白名单内），避免下拉框空白选中项与折叠摘要/下拉不一致。
+- 修复：语音生成器下拉首项「自动 Edge TTS」标签为空（s2vVoiceProviderOptions 首项缺 displayName，模板渲染出空 `<option>`），补齐 displayName 后正常显示。
+- 修复：运行进度文案 i18n 缺键（story2video.elapsed / durationSec / durationMinSec）导致 intlify 回退警告——新增命名插值消息函数并让 translateWithLocaleFallback 透传 params；顺带补齐 create.story2video.resetOptions。
+- 回归：CreateView +2（恢复枚举归一化 / 语音生成器 displayName）、i18n +1（命名插值 zh/en）；聚焦 125 用例通过；vite build 通过；Claude 双轮只读审查 Critical/Warning 均无（antigravity 后端不可用已记录）。
+
+## [未发布] 修复：Agnes Video 适配器端点按官方文档修正（2026-08-10）
+
+- 提交端点：`POST /video/generations` → `POST /videos`（官方 `POST https://apihub.agnes-ai.com/v1/videos`；旧路径服务端返回 `Invalid URL`）。
+- 状态查询：`GET /video/generations/{id}` → `GET /agnesapi?video_id=<VIDEO_ID>&model_name=agnes-video-v2.0`（官方推荐方式；兼容旧版 `/v1/videos/<TASK_ID>` 语义）。
+- 完成下载地址：读取官方响应结构 `metadata.url`，兼容旧版顶层 `url`。
+- 回归：agnes-video 测试 +1（metadata.url + 顶层 url 兼容），35/35 通过。
+- 边界：agnes 服务端任务查询实测稳定 404（提交成功但查无任务），为第三方账号/服务端问题，不在本修复范围。
 ## [未发布] 新增：运营后台模型运营信息字段 + 桌面端统一模型调用调度机制（2026-08-10）
 
-- 新增（ops-center 仓库）：预设模型设置增加运营信息字段——接口 Base URL（端口URL）、获取模型ID URL（`models_url`）、默认模型 ID（下拉选择）、接口技术文档 URL（`doc_links`）、每分钟连接次数（`rate_per_minute`）、5小时限额次数（`limit_per_5h`）；均允许为空并按类型严格校验（URL http(s)/整数范围/默认模型必须在模型列表/多模态能力文档键白名单）。
-- 新增（ops-center）：`POST /api/v1/model-presets/{id}/fetch-models`（admin-only）「获取模型」按钮从模型网址拉取全部模型 ID；SSRF 防护（非环回强制 https、禁重定向、10s 超时、512KB 上限、私网解析拒绝、JSON 契约），成功回写 `models`（默认模型不在新列表则清空），失败不改动已有数据。
+- 新增（ops-center 仓库）：预设模型设置增加运营信息字段——接口 Base URL（端口URL）、获取模型ID URL（`models_url`）、默认模型 ID（下拉选择）、接口技术文档 URL（`doc_links`）、每分钟连接次数（`rate_per_minute`）、5小时限额次数（`limit_per_5h`）；均允许为空并按类型严格校验（URL http(s)/整数≥1/默认模型必须在模型列表/多模态能力文档键白名单）。
+- 新增（ops-center）：`POST /api/v1/model-presets/{id}/fetch-models`（admin-only）「获取模型」按钮从模型网址拉取全部模型 ID；SSRF 防护（非环回强制 https、禁重定向、10s 超时、512KB 上限、私网/CGNAT 解析拒绝、JSON 契约），成功回写 `models`（默认模型不在新列表则清空），失败不改动已有数据。
 - 新增（ops-center）：多模态模型按 7 类固定能力显示技术文档 URL 输入框（文字推理接口 / 图片生成 / 视频生成 / TTS语音生成 / TTS语音克隆 / 语音识别 / 视觉识别），`capability_doc_links` 结构兼容（单 URL 存数组）。
-- 新增（桌面端）：模型调用统一调度机制 `model-call-scheduler.js`（withModelBudget / resolveProviderBudget / mapWithModelBudget），复用 `ApiUsageGovernor`（并发信号量 + RPM 滑动窗口排队 + 429 冷却重试 + 5h 请求次数窗口）；预算来源 = provider 配置 `rate_per_minute`/`limit_per_5h`（与 ops-center 对齐）> 静态表 > 类别默认；`rate_per_minute` → `maxConcurrent = clamp(round(rpm/10),1,4)`，`limit_per_5h` → 5h requests 窗口。
-- 新增（桌面端）：`ModelProviderManager` 初始化/创建/更新 provider 时把运营限流预算注入 governor（`_applyGovernorLimits`）；预设种子 `model-provider-seeds.js` 补充限流预算（与 ops-center 种子一致）。
-- 新增（桌面端）：视频创作 `story2video generate_assets` 图片/TTS 并行生成并发上限 = `min(请求并发, provider maxConcurrent)`（按 image/tts 能力分别解析），超出部分 worker 队列排队；未配置预算回退静态表/请求并发不回归。
+- 新增（桌面端）：模型调用统一调度机制 `model-call-scheduler.js`（withModelBudget / resolveProviderBudget / mapWithModelBudget），复用 `ApiUsageGovernor`（并发信号量 + RPM 滑动窗口排队 + 429 冷却重试 + 5h 请求次数窗口 + 执行前额度预检）；预算来源 = provider 配置 `rate_per_minute`/`limit_per_5h`（与 ops-center 对齐）> 静态表 > 类别默认；`rate_per_minute` → `maxConcurrent = clamp(round(rpm/10),1,4)`，`limit_per_5h` → provider 级 5h requests 窗口（跨 type:model key 共享计数）。
+- 新增（桌面端）：`ModelProviderManager` setGovernor 接线 + 初始化/创建/更新/删除 provider 时同步 governor 预算（`_applyGovernorLimits`，清空回填静态表/移除自定义预算）；预设种子 `model-provider-seeds.js` 补充限流预算（与 ops-center 种子一致）。
+- 新增（桌面端）：视频创作 `story2video generate_assets` 图片/TTS 并行生成并发上限 = `min(请求并发, provider maxConcurrent)`（按 image/tts 能力分别解析），每项调用经 `withModelBudget` → `governor.run`（RPM 排队 + 429 冷却 + 5h 窗口）。
 - 新增（桌面端）：模型设置表单「每分钟连接次数（可空）」「5小时限额次数（可空）」输入，正整数校验，留空保存 null。
 - 文档：01-docs/PRD.md 7.4.4（字段/校验/交互/调度机制详细合同）；ops-center docs/PRD.md 12A。
 - 边界：桌面端与 ops-center 保持「种子手工对齐 + 文档契约」，无运行时 API 同步（后续项）；真实 provider 每分钟限额行为仍由 governor 429 自适应兜底。
+
 ## [未发布] 重构：BGM 跳过提示单一来源（服务层 warnings 机器码化）（2026-08-10）
 
 - 重构：compose 引擎 BGM 降级警告由中文改为机器码（bgm_size_exceeded / bgm_format_unsupported / bgm_not_allowed / bgm_unreadable），服务层不再硬编码用户可见中文；用户可见文案统一由前端依据 bgmSkippedReason 本地化（bgmSkippedReasonText / formatBgmSkippedNotification），消除双份映射漂移（PR #466 审查 Minor7）。
