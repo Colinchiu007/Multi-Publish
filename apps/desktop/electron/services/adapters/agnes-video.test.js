@@ -4,9 +4,9 @@
  *
  * Agnes Video API 关键特性：
  * - 认证头 Authorization: Bearer {key}（sk- 开头密钥）
- * - generateVideo: POST /videos/generations（OpenAI 兼容协议）
+ * - generateVideo: POST /videos（OpenAI 兼容协议）
  * - 请求体 { model: 'agnes-video-v2.0', prompt, image, width, height, num_frames, frame_rate, negative_prompt, seed }
- * - getVideoStatus: GET /videos/generations/{video_id}
+ * - getVideoStatus: GET /agnesapi?video_id=<VIDEO_ID>（官方推荐；metadata.url 为下载地址）
  * - 状态映射：queued/in_progress → processing，completed → completed，failed → failed
  * - listModels: 静态返回 1 个模型
  * - testConnection: 验证 apiKey 存在
@@ -133,7 +133,7 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
   })
 
   describe('generateVideo', () => {
-    it('POST /videos/generations 返回 { taskId, model }，默认参数正确', async () => {
+    it('POST /videos 返回 { taskId, model }，默认参数正确', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ id: 'agnes-task-1' }),
       ])
@@ -145,7 +145,7 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       expect(result.taskId).toBe('agnes-task-1')
       expect(result.model).toBe('agnes-video-v2.0')
 
-      expect(fetchMock.calls[0].url).toContain('/videos/generations')
+      expect(fetchMock.calls[0].url).toContain('/videos')
       const body = JSON.parse(fetchMock.calls[0].opts.body)
       expect(body.prompt).toBe('海浪拍岸')
       expect(body.model).toBe('agnes-video-v2.0')
@@ -292,12 +292,12 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
   })
 
   describe('getVideoStatus', () => {
-    it('GET /videos/generations/{video_id} 返回状态', async () => {
+    it('GET /agnesapi?video_id= 返回状态（官方推荐，metadata.url 为下载地址）', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({
           status: 'completed',
-          url: 'https://cdn.example.com/v.mp4',
           progress: 100,
+          metadata: { url: 'https://platform-outputs.agnes-ai.space/videos/agnes-video-v2.0/task_1.mp4' },
         }),
       ])
       global.fetch = fetchMock
@@ -306,9 +306,18 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       const result = await adapter.getVideoStatus('agnes-task-1')
 
       expect(result.status).toBe('completed')
-      expect(result.videoUrl).toBe('https://cdn.example.com/v.mp4')
+      expect(result.videoUrl).toBe('https://platform-outputs.agnes-ai.space/videos/agnes-video-v2.0/task_1.mp4')
       expect(result.progress).toBe(100)
-      expect(fetchMock.calls[0].url).toContain('/videos/generations/agnes-task-1')
+      expect(fetchMock.calls[0].url).toContain('/agnesapi?video_id=agnes-task-1')
+    })
+
+    it('completed 时兼容旧版顶层 url 字段', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ status: 'completed', url: 'https://cdn.example.com/v.mp4', progress: 100 }),
+      ])
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const result = await adapter.getVideoStatus('t1')
+      expect(result.videoUrl).toBe('https://cdn.example.com/v.mp4')
     })
 
     it('queued → processing', async () => {

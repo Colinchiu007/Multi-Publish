@@ -4,9 +4,9 @@
  *
  * Agnes Video API 关键特性：
  * - 认证头 Authorization: Bearer {key}（sk- 开头密钥）
- * - generateVideo: POST /videos/generations（OpenAI 兼容协议）
+ * - generateVideo: POST /videos（OpenAI 兼容协议）
  * - 请求体 { model: 'agnes-video-v2.0', prompt, image, width, height, num_frames, frame_rate, negative_prompt, seed }
- * - getVideoStatus: GET /videos/generations/{video_id}（推荐按 video_id 查询）
+ * - getVideoStatus: GET /videos/{video_id}（推荐按 video_id 查询）
  * - 异步任务模式：generateVideo 返回 taskId，通过 getVideoStatus 轮询
  *
  * 默认端点 https://apihub.agnes-ai.com/v1，需 API Key。
@@ -151,7 +151,7 @@ class AgnesVideoAdapter extends BaseAdapter {
       seed: params.seed || undefined,
     }
 
-    const resp = await this._request('/videos/generations', {
+    const resp = await this._request('/videos', {
       method: 'POST',
       body: JSON.stringify(body),
     })
@@ -181,7 +181,9 @@ class AgnesVideoAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'taskId is required')
     }
 
-    const resp = await this._request(`/videos/generations/${taskId}`)
+    // 官方文档（agnes-video-v2.0）：推荐查询方式 GET /agnesapi?video_id=<VIDEO_ID>
+    // （GET /v1/videos/<TASK_ID> 为兼容旧版方式，部分网关返回 task_not_exist）
+    const resp = await this._request(`/agnesapi?video_id=${encodeURIComponent(String(taskId))}&model_name=${encodeURIComponent(DEFAULT_MODEL)}`)
     const data = await resp.json()
 
     // Agnes 状态映射
@@ -192,7 +194,8 @@ class AgnesVideoAdapter extends BaseAdapter {
       'failed': 'failed',
     }
     const status = statusMap[data.status] || 'processing'
-    const videoUrl = (status === 'completed' && (data.url || '')) || ''
+    // 完成时下载 URL 位于 metadata.url（官方响应结构）；兼容旧版顶层 url
+    const videoUrl = (status === 'completed' && ((data.metadata && data.metadata.url) || data.url || '')) || ''
     const progress = data.progress !== undefined ? Number(data.progress) : (status === 'completed' ? 100 : 0)
 
     return { status, videoUrl, progress }

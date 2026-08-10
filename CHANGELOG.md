@@ -1,3 +1,18 @@
+## [未发布] 修复：图片轮播选项可用性（恢复枚举归一化 + 语音生成器空标签 + 运行进度 i18n 缺键）（2026-08-10）
+
+- 修复：恢复「上次使用的选项」时对下拉枚举字段（内容类型/图片风格/提示词风格/图片动效/转场/字幕字号/字幕样式/分句语言/分句模式/分镜粒度视图/fps/格式）做白名单归一化——陈旧快照值（如 imageStyle=anime-mslpadvn）不在当前选项列表时回退到 data() 默认值（默认值本身也须在白名单内），避免下拉框空白选中项与折叠摘要/下拉不一致。
+- 修复：语音生成器下拉首项「自动 Edge TTS」标签为空（s2vVoiceProviderOptions 首项缺 displayName，模板渲染出空 `<option>`），补齐 displayName 后正常显示。
+- 修复：运行进度文案 i18n 缺键（story2video.elapsed / durationSec / durationMinSec）导致 intlify 回退警告——新增命名插值消息函数并让 translateWithLocaleFallback 透传 params；顺带补齐 create.story2video.resetOptions。
+- 回归：CreateView +2（恢复枚举归一化 / 语音生成器 displayName）、i18n +1（命名插值 zh/en）；聚焦 125 用例通过；vite build 通过；Claude 双轮只读审查 Critical/Warning 均无（antigravity 后端不可用已记录）。
+
+## [未发布] 修复：Agnes Video 适配器端点按官方文档修正（2026-08-10）
+
+- 提交端点：`POST /video/generations` → `POST /videos`（官方 `POST https://apihub.agnes-ai.com/v1/videos`；旧路径服务端返回 `Invalid URL`）。
+- 状态查询：`GET /video/generations/{id}` → `GET /agnesapi?video_id=<VIDEO_ID>&model_name=agnes-video-v2.0`（官方推荐方式；兼容旧版 `/v1/videos/<TASK_ID>` 语义）。
+- 完成下载地址：读取官方响应结构 `metadata.url`，兼容旧版顶层 `url`。
+- 回归：agnes-video 测试 +1（metadata.url + 顶层 url 兼容），35/35 通过。
+- 边界：agnes 服务端任务查询实测稳定 404（提交成功但查无任务），为第三方账号/服务端问题，不在本修复范围。
+
 ## [未发布] 蚁小二弹窗/特殊状态深度对标：分组管理页面级化 + UI 界面清单（2026-08-10）
 
 - 深度盘点：遍历全部 67 个 `.vue` 文件、22 条路由，枚举所有弹窗/模态框/特殊状态（loading/empty/error/批量/进度）及按钮→界面映射，产出 `01-docs/UI-INVENTORY.md`（含弹窗总览、状态总览、蚁小二对标差异备忘）。
@@ -11,6 +26,8 @@
 - 视觉基线：因本分支刻意重绘 UI，像素门禁 4 视图（accounts-list/dashboard/create-history/collection）基线失效；本地 dev server + `UPDATE_BASELINE=1` 重新生成并经 CI 同款 2% 阈值回验 0% 通过，基线随代码入库。
 - 视觉门禁修复：home-baseline 就绪超时——首页已重绘为 `.yixiaoer-home` 布局，但 `run-pixel-tests.js` 的 waitFor 仍指向已删除的 `.cohere-main .page-title`，CI 连续 3 次稳定超时（appTextLength=263）；同步修正 run-pixel-tests.js / all-views / functional-test 首页选择器为 `.yixiaoer-home .yixiaoer-home-welcome`，`visual-ci.test.js` 新增合同断言防回归，重生成 home-baseline.png；本地全量 17 视图像素套件 2% 阈值全部通过。
 - GUI 门禁修复（同源）：E2E 路由检查与 flow-2 仍用旧首页文案/选择器——`route-functional-suite.js` home title 改为新首页稳定静态文案“多平台内容一键发布”，`exerciseHome` 改用 `.yixiaoer-home-shortcut` 快捷入口并把已移除的 `getVersion` IPC 断言替换为新首页真实调用的 `historyList`；`integration-flows.js` Flow2.5 平台列表选择器增加 `.yixiaoer-home-platform-tag`；本地完整 `test:e2e` 314/314 checks 通过（18 路由 + 6 集成流）。
+- Electron GUI 门禁修复（同源）：`electron-gui-v9.js` testHomePage 适配新首页——`assertTitle("社媒")`/`statCard×5` 旧断言替换为 `.yixiaoer-home` 根容器+欢迎区存在性与 `.yixiaoer-home-shortcut×6`，新选择器入 `selectors.json`（配置驱动），CI dispatch 60/60 通过。
+- CI 门禁修复：`views-deep2.test.js` accountStore mock 补 `ensureLoaded`（与存量更正同源遗漏），消除 quality-gate QG Coverage / Desktop Shards(2/2) 的 unhandled rejection；重 dispatch 后 quality-gate 全 9 job 通过。
 - 边界：卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
 - 存量更正：此前记录「Home.test.js / Publish.test.js / PublishHistory.test.js / views-deep.test.js 34 例失败属 Round 2 已合并存量」的结论**已被推翻**——main 分支 Electron CI 全绿，34 例实为本分支 UI 重绘/store 改造导致的测试失同步，全部修复如下：
   - `Home.test.js` 重写为 8 例（mock identity/platforms stores，覆盖 welcome/快捷入口/平台标签 fallback/统计 IPC/空动态/导航/无 electronAPI 降级）；`views-deep.test.js` Home 部分同步新首页选择器与 IPC。
@@ -25,12 +42,22 @@
 - 代码收敛：`accounts.js` 新增 `ensureLoaded()` 幂等加载方法（含并发竞态修复：缓存 in-flight Promise）；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`（`getLabel`/`getIcon`/`getContentCategory`）；新建 `PublishDraftList.vue` 共享草稿列表组件。
 - 测试：更新 `YixiaoerSidebar.test.js`（动态用户信息断言）、`YixiaoerModuleNav.test.js`（publish 3 tabs + home 路由测试）。
 - 边界：Vite 完整构建因预存在的 node_modules 损坏（`@ctrl/tinycolor` 解析失败）未通过，Vue SFC 编译验证全部通过；真实平台登录/发布仍属外部验收。
+
 ## [未发布] 重构：BGM 跳过提示单一来源（服务层 warnings 机器码化）（2026-08-10）
 
 - 重构：compose 引擎 BGM 降级警告由中文改为机器码（bgm_size_exceeded / bgm_format_unsupported / bgm_not_allowed / bgm_unreadable），服务层不再硬编码用户可见中文；用户可见文案统一由前端依据 bgmSkippedReason 本地化（bgmSkippedReasonText / formatBgmSkippedNotification），消除双份映射漂移（PR #466 审查 Minor7）。
 - 备注：selected-media 惰性 GC 节流按 baseDir 隔离（Minor9，注释明确生产单目录场景）。
 - 回归：compose-engine warnings 断言改机器码（含「不含中文字符」校验），103 用例通过。
 - 边界：data.warnings 契约形状不变（数组），内容由中文 → 机器码；renderer 契约不变（读 bgmSkippedReason）。
+
+## [未发布] 修复：视频模型流水线（videogen）错误透传 + Agnes 视频生成端点（2026-08-10）
+
+- 修复：`videogen` 的 generateVideo 经 `callAdapter` 返回失败（`{ code: -1, message }`）时原样透传真实 provider 错误（此前吞成「视频生成未返回任务 ID」，掩盖 `Missing task_id in response` / 限流 / 模型权限等真实原因）。
+- 修复：`agnes-video` 适配器视频生成端点由 `/videos/generations` 修正为 `/video/generations`（真实请求验证：`apihub.agnes-ai.com/v1/videos/generations` 服务端返回 `Invalid URL`，`/v1/video/generations` 为有效路径），提交与状态查询同步修正。
+- 回归：agnes-video 36 用例 + videogen-stages 16 用例全绿。
+- 边界：agnes 真实出片受第三方套餐限制（`agnes-video-v2.0` 被拒 Model is blocked / 每分钟 2 次限流），属外部验收。
+
+ (docs(changelog): 记录 videogen 透传 + agnes 端点修复（doc-gate）)
 
 ## [未发布] 修复：BGM 跳过前端提示（i18n）+ 导入惰性 GC + API-Key 正则拆分（2026-08-10）
 
