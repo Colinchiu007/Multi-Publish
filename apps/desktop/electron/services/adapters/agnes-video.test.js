@@ -481,4 +481,26 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       }
     })
   })
+
+  describe('fetch 超时（2026-08-11 E2E 复盘）', () => {
+    it('fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)', async () => {
+      global.fetch = vi.fn((url, opts = {}) => new Promise((resolve, reject) => {
+        opts.signal && opts.signal.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted')
+          err.name = 'AbortError'
+          reject(err)
+        })
+      }))
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' }, { timeout: 100 })
+      const t0 = Date.now()
+      try {
+        await adapter.generateVideo({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.TIMEOUT)
+      }
+      expect(Date.now() - t0).toBeLessThan(5000)
+    })
+  })
 })
