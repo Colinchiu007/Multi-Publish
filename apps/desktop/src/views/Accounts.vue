@@ -1,7 +1,7 @@
 <template>
   <div class="accounts-page">
     <h1 class="sr-only">账号管理</h1>
-    <section class="account-controls" aria-label="账号筛选">
+    <section v-if="accountTab !== 'groups' && accountTab !== 'favorites'" class="account-controls" aria-label="账号筛选">
       <div class="search-box platform-search-box">
         <Search class="search-icon" />
         <input v-model="platformSearchInput" type="search" placeholder="搜索平台" aria-label="搜索平台">
@@ -72,7 +72,7 @@
       <span class="account-count">{{ visiblePlatformCount }} 个平台，{{ visibleAccountCount }} 个账号</span>
     </section>
 
-    <div v-if="totalAccounts > 0 && accountBatchMode" class="batch-toolbar">
+    <div v-if="totalAccounts > 0 && accountBatchMode && accountTab !== 'groups' && accountTab !== 'favorites'" class="batch-toolbar">
       <label>
         <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll">
         <span>全选当前结果</span>
@@ -115,7 +115,24 @@
         <span class="module-placeholder-state" data-testid="account-share-state" role="status">未接入服务</span>
         <button class="page-button secondary" data-testid="account-share-create" type="button" disabled>创建分享链接</button>
       </section>
-      <div v-if="accountTab !== 'share'" class="account-workspace">
+      <AccountGroupsPanel
+        v-else-if="accountTab === 'groups'"
+        :groups="accountStore.groups || []"
+        :accounts="accountStore.accounts"
+        :platforms="allPlatforms"
+        :platform-label="platformLabel"
+        @create="createNewGroup"
+        @delete="deleteGroup"
+        @rename="renameGroup"
+        @set-platform="setGroupPlatform"
+        @toggle-account="toggleAccountInGroup"
+      />
+      <AccountFavoritesPanel
+        v-else-if="accountTab === 'favorites'"
+        :groups="accountStore.groups || []"
+        @open-group="openFavoriteGroup"
+      />
+      <div v-else class="account-workspace">
         <aside class="platform-filter-panel" aria-label="平台筛选">
           <div class="platform-filter-heading">平台</div>
           <button
@@ -230,20 +247,6 @@
       @close="closeProxyDialog"
     />
 
-    <AccountGroupManager
-      :visible="showGroupManager"
-      :groups="accountStore.groups || []"
-      :accounts="accountStore.accounts"
-      :platforms="allPlatforms"
-      :platform-label="platformLabel"
-      @create="createNewGroup"
-      @delete="deleteGroup"
-      @rename="renameGroup"
-      @set-platform="setGroupPlatform"
-      @toggle-account="toggleAccountInGroup"
-      @close="closeGroupManager"
-    />
-
     <AccountAuthorizationGuide
       :visible="showAuthorizationGuide"
       :platform-name="authPlatformName"
@@ -258,8 +261,9 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Cellphone, Close, Delete, FolderOpened, Monitor, Plus, Search, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import AccountGroupManager from '@/features/accounts/components/AccountGroupManager.vue'
 import AccountAuthorizationGuide from '@/features/accounts/components/AccountAuthorizationGuide.vue'
+import AccountFavoritesPanel from '@/features/accounts/components/AccountFavoritesPanel.vue'
+import AccountGroupsPanel from '@/features/accounts/components/AccountGroupsPanel.vue'
 import AccountLoginDialog from '@/features/accounts/components/AccountLoginDialog.vue'
 import AccountManagementCard from '@/features/accounts/components/AccountManagementCard.vue'
 import AccountProxyDialog from '@/features/accounts/components/AccountProxyDialog.vue'
@@ -295,7 +299,6 @@ const showAddDialog = ref(false)
 const showProxyDialog = ref(false)
 const proxyAccount = ref(null)
 const savingProxy = ref(false)
-const showGroupManager = ref(false)
 const adding = ref(false)
 const completingLogin = ref(false)
 const showAuthorizationGuide = ref(false)
@@ -396,13 +399,6 @@ function waitForAuthorizationGuide () {
 watch(filter, value => {
   accountStore.filterStatus = value
 }, { flush: 'sync', immediate: true })
-
-watch(accountTab, value => {
-  if (value === 'groups') showGroupManager.value = true
-  else if (showGroupManager.value) showGroupManager.value = false
-  if (value === 'favorites') filter.value = 'favorite'
-  else if (filter.value === 'favorite') filter.value = 'all'
-}, { immediate: true })
 
 watch(() => accountStore.filterPlatform, value => {
   platformFilter.value = value || ''
@@ -609,9 +605,9 @@ function toggleAccountInGroup (groupId, accountId) {
   accountStore.toggleAccountInGroup(groupId, accountId)
 }
 
-function closeGroupManager () {
-  showGroupManager.value = false
-  if (accountTab.value === 'groups') router.replace({ path: '/accounts', query: {} })
+function openFavoriteGroup (group) {
+  setGroupFilter(group.id)
+  router.replace({ path: '/accounts', query: {} })
 }
 
 async function refresh () {

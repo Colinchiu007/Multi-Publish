@@ -1,3 +1,14 @@
+## [未发布] 蚁小二弹窗/特殊状态深度对标：分组管理页面级化 + UI 界面清单（2026-08-10）
+
+- 深度盘点：遍历全部 67 个 `.vue` 文件、22 条路由，枚举所有弹窗/模态框/特殊状态（loading/empty/error/批量/进度）及按钮→界面映射，产出 `01-docs/UI-INVENTORY.md`（含弹窗总览、状态总览、蚁小二对标差异备忘）。
+- 复刻：蚁小二「分组管理」是页面级 Tab（搜索分组 + 全部筛选 + 仅看包含我的分组 + 设置排序 + 创建分组），此前我们点 Tab 弹 `AccountGroupManager` 弹窗，交互形态不符；新增页面级 `AccountGroupsPanel.vue`（工具栏 + 内联创建行 + 分组卡片 + 云朵空态）。
+- 复刻：「收藏分组」 Tab 从“收藏筛选器”改为页面级 `AccountFavoritesPanel.vue`（搜索收藏 + 分组名称/账号数/操作表格 + 云朵空态），「查看账号」回到账号列表并按分组筛选；「创建分组」未接入时 disabled（诚实能力边界）。
+- 清理：`Accounts.vue` 移除 `showGroupManager`/弹窗 watcher，groups/favorites Tab 下隐藏账号主列表工具栏；`AccountGroupManager.vue` 保留但不再挂载。
+- 测试：`Accounts.test.js` 重写分组/收藏页签用例 + 新增 4 例（面板渲染、创建携带平台、空分组过滤、收藏表格），77/77 通过；`vite build` 通过。
+- 基线：蚁小二实机截图 19 张（`01-docs/yixiaoer-reverse/screenshots/yxe-live-20260810/`，覆盖首页/账号/分组/分享/收藏/发布记录/草稿/看板/创作/评论/批量/小蚁 AI/团队/素材库/数据）。
+- 边界：状态徽章分色、卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
+- 存量：大范围回归中 `Home.test.js` / `Publish.test.js` / `PublishHistory.test.js` / `views-deep.test.js` 共 34 例失败，经确认这些文件与 HEAD 完全一致且未引用 Accounts.vue，属 Round 2 已合并的存量失败，与本次改动无关；本次 accounts 聚焦回归 98/98 通过。
+
 ## [未发布] 蚁小二账号/发布模块全面对标 Round 2（2026-08-10）
 
 - 布局：`App.vue` 挂载 `YixiaoerSidebar` 到工作区壳层，`isYixiaoerWorkspace` 从 3 条路由白名单改为排除少数特殊页面的黑名单模式，所有主导航可达路由（首页/账号/发布/发布记录/草稿箱等）统一使用 `YixiaoerSidebar + YixiaoerModuleNav` 双导航布局。

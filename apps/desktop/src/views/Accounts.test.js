@@ -253,12 +253,39 @@ describe("AccountsView", () => {
     vi.useRealTimers();
   });
 
-  it("分组页签打开分组管理并支持返回主列表", async () => {
+  it("分组页签渲染页面级分组管理面板而不是弹窗", async () => {
+    _groups.push({ id: "grp-x", name: "运营组", accountIds: ["a1"] })
     _routeState.query = { tab: 'groups' }
     const w = await mountView()
-    expect(w.vm.showGroupManager).toBe(true)
-    await w.vm.closeGroupManager()
-    expect(w.vm.showGroupManager).toBe(false)
+
+    expect(w.find('[data-testid="account-groups-panel"]').exists()).toBe(true)
+    expect(w.find('[data-testid="groups-search"]').exists()).toBe(true)
+    expect(w.find('[data-testid="groups-mine-only"]').exists()).toBe(true)
+    expect(w.find('[data-testid="groups-create-toggle"]').exists()).toBe(true)
+    expect(w.find('[data-testid="group-card-grp-x"]').text()).toContain('运营组')
+    // 页签面板不显示账号主列表工具栏
+    expect(w.find('.account-controls').exists()).toBe(false)
+  })
+
+  it("分组面板创建分组时携带平台筛选并过滤未绑定账号的空分组", async () => {
+    _groups.push(
+      { id: "grp-full", name: "有账号组", accountIds: ["a1"] },
+      { id: "grp-empty", name: "空分组", accountIds: [] },
+    )
+    _routeState.query = { tab: 'groups' }
+    const w = await mountView()
+
+    // 仅看包含我的分组（默认勾选）：空分组被隐藏
+    expect(w.find('[data-testid="group-card-grp-empty"]').exists()).toBe(false)
+    await w.get('[data-testid="groups-mine-only"]').setValue(false)
+    await nextTick()
+    expect(w.find('[data-testid="group-card-grp-empty"]').exists()).toBe(true)
+
+    await w.get('[data-testid="groups-create-toggle"]').trigger('click')
+    await w.get('[data-testid="groups-create-name"]').setValue('视频组')
+    await w.get('[data-testid="groups-create-platform"]').setValue('douyin')
+    await w.get('[data-testid="groups-create-submit"]').trigger('click')
+    expect(_spies.createGroup).toHaveBeenCalledWith('视频组', 'douyin')
   })
 
   it("分享页签显示诚实的能力边界而不是伪造团队数据", async () => {
@@ -290,12 +317,24 @@ describe("AccountsView", () => {
     expect(w.get('[data-testid="account-group-empty"]').text()).toContain('暂无分组')
   })
 
-  it("收藏页签没有收藏账号时显示专用空态", async () => {
+  it("收藏页签渲染收藏分组面板并在无数据时显示空态", async () => {
     _testAccounts.push({ id: "normal-1", platform: "zhihu", status: "active", account_name: "普通账号" })
     _routeState.query = { tab: 'favorites' }
     const w = await mountView()
 
-    expect(w.get('.empty-state h2').text()).toBe('暂无收藏账号')
+    expect(w.find('[data-testid="account-favorites-panel"]').exists()).toBe(true)
+    expect(w.find('[data-testid="favorites-search"]').exists()).toBe(true)
+    expect(w.get('[data-testid="favorites-empty"]').text()).toContain('暂无数据')
+    expect(w.get('[data-testid="favorites-create"]').attributes('disabled')).toBeDefined()
+  })
+
+  it("收藏分组面板列出含账号的分组并支持回到账号列表", async () => {
+    _groups.push({ id: "grp-fav", name: "重点账号", accountIds: ["a1"] })
+    _routeState.query = { tab: 'favorites' }
+    const w = await mountView()
+
+    expect(w.get('[data-testid="favorite-group-grp-fav"]').text()).toContain('重点账号')
+    expect(w.find('[data-testid="favorites-empty"]').exists()).toBe(false)
   })
 
   it("重命名分组委托给 Store", async () => {
