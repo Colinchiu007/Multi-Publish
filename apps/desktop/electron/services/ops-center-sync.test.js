@@ -400,4 +400,18 @@ describe('OpsCenterSync applyRuntime platform_defs', () => {
     expect(svc.getRuntimeState().announcements).toEqual([])
 
   })
+
+  it('注入 templateManager 时应用 content_templates；未注入跳过', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    const applyRemote = vi.fn(() => 2)
+    svc.setTemplateManager({ applyRemote })
+    svc.applyRuntime({ announcements: [], content_templates: [{ id: 'a' }, { id: 'b' }], synced_at: 't' })
+    expect(applyRemote).toHaveBeenCalledWith([{ id: 'a' }, { id: 'b' }])
+
+    const svc2 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc2.setTemplateManager({})
+    svc2.applyRuntime({ announcements: [], content_templates: [{ id: 'a' }], synced_at: 't' })
+    expect(svc2.getRuntimeState().announcements).toEqual([])
+  })
 })

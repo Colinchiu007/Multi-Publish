@@ -98,6 +98,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/content-templates',
+    name: 'ContentTemplates',
+    component: () => import('../views/ContentTemplates.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/parameters',
     name: 'Parameters',
     component: () => import('../views/Parameters.vue'),

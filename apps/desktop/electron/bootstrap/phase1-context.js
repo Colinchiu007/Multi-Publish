@@ -186,6 +186,10 @@ function extractContext(container) {
   if (opsCenterSync && typeof opsCenterSync.getUpdatePolicy === 'function' && autoUpdater.applyPolicy) {
     autoUpdater.applyPolicy(opsCenterSync.getUpdatePolicy())
   }
+  // 官方内容模板库运行时下发 → TemplateManager.applyRemote（先注入再启动自动同步）
+  if (opsCenterSync && typeof opsCenterSync.setTemplateManager === 'function') {
+    opsCenterSync.setTemplateManager(templateManager)
+  }
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
   }
