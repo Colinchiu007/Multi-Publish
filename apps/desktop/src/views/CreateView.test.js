@@ -2631,3 +2631,165 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     w.unmount();
   });
 });
+
+describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
+  it("已用时优先使用 activeMs（步骤执行耗时累计），不随墙钟 createdAt 膨胀", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.pipelineRunStatus = {
+      status: "running",
+      stages: [{ name: "split", status: "completed", startedAt: new Date().toISOString() }],
+    };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split"] };
+    // 墙钟 createdAt 在 20 小时前，但 activeMs 只有 65 秒 → 必须展示 65 秒量级
+    w.vm.story2videoRunMeta = {
+      createdAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString(),
+      endedAt: null,
+      activeMs: 65000,
+      activeSegmentStartedAt: null,
+    };
+    await nextTick();
+    expect(w.text()).toContain("已用时 1 分 5 秒");
+    expect(w.text()).not.toContain("已用时 19 小时");
+    w.unmount();
+  });
+
+  it("运行中在飞执行段本地每秒补差：elapsedMs = activeMs + (now - activeSegmentStartedAt)", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.pipelineRunStatus = {
+      status: "running",
+      stages: [{ name: "split", status: "running", startedAt: new Date(Date.now() - 5000).toISOString() }],
+    };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split"] };
+    w.vm.story2videoRunMeta = {
+      createdAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString(),
+      endedAt: null,
+      activeMs: 65000,
+      activeSegmentStartedAt: new Date(Date.now() - 5000).toISOString(),
+    };
+    await nextTick();
+    const elapsed = w.vm.orchestrationElapsedMs;
+    expect(elapsed).toBeGreaterThanOrEqual(69500);
+    expect(elapsed).toBeLessThanOrEqual(71000);
+    w.unmount();
+  });
+
+  it("旧数据（无 activeMs）回退墙钟 createdAt→now，展示不为空", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.pipelineRunStatus = { status: "running", stages: [{ name: "split", status: "completed" }] };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split"] };
+    w.vm.story2videoRunMeta = { createdAt: new Date(Date.now() - 65000).toISOString(), endedAt: null };
+    await nextTick();
+    const elapsed = w.vm.orchestrationElapsedMs;
+    expect(elapsed).toBeGreaterThanOrEqual(60000);
+    expect(elapsed).toBeLessThanOrEqual(70000);
+    w.unmount();
+  });
+
+  it("完成汇总「完成时间共 X 分 Y 秒」使用 activeMs 而非墙钟", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.story2videoRunMeta = {
+      createdAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString(),
+      endedAt: new Date().toISOString(),
+      outputSizeBytes: 1048576,
+      activeMs: 125000,
+      activeSegmentStartedAt: null,
+    };
+    await nextTick();
+    expect(w.vm.orchestrationSummary).toContain("完成时间共 2 分 5 秒");
+    expect(w.vm.orchestrationSummary).toContain("文件大小 1.0 M");
+    expect(w.vm.orchestrationSummary).not.toContain("19 小时");
+    w.unmount();
+  });
+
+  it("结果页 durationMs 使用 activeMs（步骤执行耗时累计）", async () => {
+    const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.story2videoRunMeta = {
+      createdAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString(),
+      endedAt: new Date().toISOString(),
+      activeMs: 125000,
+      activeSegmentStartedAt: null,
+    };
+    w.vm.orchestrationContext = { compose: { data: { videoPath: "C:/tmp/x.mp4" } } };
+    const handled = w.vm.applyOrchestrationOutcome({
+      completed: true,
+      context: { compose: { data: { videoPath: "C:/tmp/x.mp4" } } },
+    });
+    expect(handled).toBe(true);
+    const pushCall = pushSpy.mock.calls.find((args) => args[0] && args[0].path === "/create/result");
+    expect(pushCall).toBeTruthy();
+    expect(pushCall[0].query.durationMs).toBe(125000);
+    pushSpy.mockRestore();
+    w.unmount();
+  });
+});
+
+describe("视频创作「已用时」审查闭环回归（C1/W2）", () => {
+  it("activeMs 为 null（生产旧数据标记）时回退墙钟，不误显示 0 秒", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    w.vm.pipelineRunStatus = { status: "running", stages: [{ name: "split", status: "completed" }] };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split"] };
+    // updateOrchestrationStatus 对无 activeMs 的主进程响应归一化为 null（Number(null)===0 陷阱回归）
+    w.vm.story2videoRunMeta = {
+      createdAt: new Date(Date.now() - 65000).toISOString(),
+      endedAt: null,
+      activeMs: null,
+      activeSegmentStartedAt: null,
+    };
+    await nextTick();
+    const elapsed = w.vm.orchestrationElapsedMs;
+    expect(elapsed).toBeGreaterThanOrEqual(60000);
+    expect(elapsed).toBeLessThanOrEqual(70000);
+    expect(w.text()).toContain("已用时");
+    w.unmount();
+  });
+
+  it("检查点确认返回的终态 activeMs 覆盖轮询缓存，结果页 durationMs 用新值", async () => {
+    const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+    });
+    await nextTick();
+    // 模拟轮询缓存已过期（只有 10 秒）
+    w.vm.story2videoRunMeta = {
+      createdAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+      endedAt: new Date().toISOString(),
+      activeMs: 10000,
+      activeSegmentStartedAt: null,
+    };
+    w.vm.orchestrationContext = { publish: { data: { videoPath: "C:/tmp/y.mp4" } } };
+    const handled = w.vm.applyOrchestrationOutcome({
+      completed: true,
+      activeMs: 125000, // 终态权威值（主进程 advanceToNextCheckpoint/executeStage 返回）
+      context: { publish: { data: { videoPath: "C:/tmp/y.mp4" } } },
+    });
+    expect(handled).toBe(true);
+    const pushCall = pushSpy.mock.calls.find((args) => args[0] && args[0].path === "/create/result");
+    expect(pushCall).toBeTruthy();
+    expect(pushCall[0].query.durationMs).toBe(125000);
+    pushSpy.mockRestore();
+    w.unmount();
+  });
+});

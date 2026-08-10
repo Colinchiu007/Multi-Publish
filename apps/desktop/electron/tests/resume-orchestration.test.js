@@ -446,3 +446,72 @@ describe('并发上限环境变量开关（STORY2VIDEO_MAX_CONCURRENT_RUNS）', 
     expect(engine.maxConcurrentRuns).toBe(8)
   })
 })
+
+describe('已用时跨断点恢复累计（activeMs）', () => {
+  let store
+  let engine
+
+  beforeEach(() => {
+    store = makeStore()
+    engine = makeEngine(store)
+  })
+
+  it('失败段耗时累计进快照，恢复后继承并继续累计（不丢段、不双计）', async () => {
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    engine.registerStageExecutor('t_a', async () => { await sleep(30); return { success: true, output: { ok: 'a' } } })
+    engine.registerStageExecutor('t_b', async () => { await sleep(30); return { success: false, error: 'boom: retry me' } })
+    engine.registerStageExecutor('t_c', async () => { await sleep(30); return { success: true, output: { ok: 'c' } } })
+
+    const started = await engine.startOrchestrated('resume-test', { initialContext: {}, autoAdvance: false })
+    const runId = started.runId
+    await engine.executeStage(runId) // a 完成（~30ms）
+    await engine.executeStage(runId) // b 失败（~30ms）→ saveFailed
+    const failedSnapshot = engine.getRunSnapshot(runId)
+    expect(failedSnapshot.status.status).toBe('failed')
+    expect(failedSnapshot.activeMs).toBeGreaterThan(0)
+
+    // 模拟应用重启：store.load 返回的持久化快照携带 activeMs（saveFailed 已写入）
+    const persisted = store.saveFailed.mock.calls[0][0]
+    expect(persisted.activeMs).toBeGreaterThan(0)
+
+    // 新引擎从持久化快照恢复（跨重启语义）
+    const storeB = makeStore()
+    storeB.load.mockReturnValue({
+      kind: 'orchestration-run-state',
+      version: 1,
+      runId,
+      pipeline: 'resume-test',
+      status: 'failed',
+      currentStage: 1,
+      stages: [
+        { name: 'a', status: 'completed', startedAt: '2026-08-10T00:00:00.000Z', completedAt: '2026-08-10T00:00:01.000Z' },
+        { name: 'b', status: 'failed', startedAt: '2026-08-10T00:00:02.000Z' },
+        { name: 'c', status: 'pending' },
+      ],
+      context: { a: { ok: 'a' } },
+      params: {},
+      error: 'boom: retry me',
+      orchestrationMode: 'orchestrator',
+      activeMs: persisted.activeMs,
+      endedAt: new Date().toISOString(),
+    })
+    const engineB = makeEngine(storeB)
+    engineB.registerStageExecutor('t_a', async () => ({ success: true, output: { ok: 'a' } }))
+    engineB.registerStageExecutor('t_b', async () => { await sleep(30); return { success: true, output: { ok: 'b' } } })
+    engineB.registerStageExecutor('t_c', async () => ({ success: true, output: { ok: 'c' } }))
+
+    const resume = await engineB.resumeOrchestration(runId)
+    expect(resume.success).toBe(true)
+    // 恢复瞬间即继承历史累计
+    const resumedRun = engineB._runs.get(runId)
+    expect(resumedRun.activeMs).toBe(persisted.activeMs)
+    // 重试 b + c 完成后累计 = 历史累计 + 新执行段
+    await engineB.executeStage(runId) // b 重试成功（~30ms）
+    await engineB.executeStage(runId) // c 完成
+    const finalSnapshot = engineB.getRunSnapshot(runId)
+    expect(finalSnapshot.status.status).toBe('completed')
+    // 新执行段计入（> 历史累计），且不超过 2s（不含恢复空闲；宽松上界避免 CI 时序抖动）
+    expect(finalSnapshot.activeMs).toBeGreaterThan(persisted.activeMs)
+    expect(finalSnapshot.activeMs).toBeLessThan(persisted.activeMs + 2000)
+  })
+})

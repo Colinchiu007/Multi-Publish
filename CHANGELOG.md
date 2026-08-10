@@ -1,10 +1,18 @@
-## [未发布] 架构：ops-center 正式并入 Multi-Publish（git subtree 方案 A，2026-08-10）
+﻿## [未发布] 架构：ops-center 正式并入 Multi-Publish（git subtree 方案 A，2026-08-10）
 
 - 将独立仓库 `Colinchiu007/ops-center`（main 78bebac，17 commits，PR #1/#2/#3 全量）以 `git subtree add --prefix=ops-center --squash` 正式并入 monorepo（PR #475）；移除此前 vendored 快照。
 - 此后运营后台开发/PR/CI/质量门禁统一在 Multi-Publish 内：`ops-center/backend`（pytest 门禁，66 passed）、`ops-center/frontend`（npm run build）。
 - 独立仓库冻结归档（tag `archived-into-multi-publish` + README 说明，完整历史保留可追溯）。
 - 验证：subtree 内容与源仓库逐文件一致；CI 全绿（QG 全项 + build + electron-tests + gui-test）。
 - 附：预设目录按桌面代码事实生成 53 项 + 一致性测试（PR #474/#3）；桌面 seeds 移除无事实 limit_per_5h 估算（PR #474）。
+
+## [未发布] 修复：视频创作流水线「已用时」改为步骤执行耗时总和（2026-08-10）
+
+- 修复：流水线「已用时」原按墙钟 `endedAt - createdAt`（运行中 `now - createdAt`）计算，暂停、检查点审阅与失败→断点恢复之间的空闲等待全部计入（用户实证 1245 分 33 秒）；现改为**各步骤实际执行耗时之和**——主进程 `_executeStage` 以执行器真实运行窗口为段累计 `run.activeMs`（成功/失败/取消/异常均计入，`finally` 保证不丢段），暂停/等待/空闲不计入，失败重试多次执行段累计。
+- 断点恢复跨应用重启：`activeMs` 随 `run-state-store` 快照持久化（`version` 保持 1），恢复时继承历史累计继续累加；在飞段不落盘，防停机时间膨胀。
+- 前端：`已用时` = `activeMs` + 运行中当前执行段本地每秒增量（沿用 1s 时钟），完成/失败/取消后定格；旧数据（无 `activeMs`）回退墙钟展示不为空。完成汇总「完成时间共 X 分 Y 秒」与结果页时长同步使用累计口径。
+- 文档：PRD 7.1.9/7.1.9.2（数据模型/流程/数据校验/功能逻辑/交互逻辑/显示项/提示文字/边界场景）、product-manual、UI-INVENTORY。
+- 测试：主进程 pipeline-engine +7（多阶段累计/间隙不计/在飞段/暂停不计/失败段累计/终态返回 activeMs）、resume-orchestration +1（跨重启继承累计）、run-state-store +2（activeMs 往返/旧数据回退）；前端 CreateView +7（activeMs 优先/在飞补差/旧数据回退含 null 守卫/汇总同口径/结果页 durationMs/终态 activeMs 覆盖轮询缓存）；聚焦 302 用例全绿。
 ## [未发布] 数据对齐：预设模型目录由桌面端代码事实生成（2026-08-10）
 
 - ops-center：`PRESET_CATALOG` 扩展至 53 项（覆盖桌面端全部预设），数据来源=代码事实——`base_url`=适配器默认端点（修正 Anthropic/DeepSeek/Gemini/Ollama/Doubao/Runway/Suno 等与桌面不一致的旧值）、`models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表（与静态表一致，非估算）。
@@ -3233,6 +3241,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 
