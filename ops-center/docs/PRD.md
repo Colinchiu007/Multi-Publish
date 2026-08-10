@@ -836,3 +836,24 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 - ops-center pytest：`test_usage_api.py` 3 用例（鉴权+幂等累加、输入校验、汇总分组+权限）。
 - 桌面端 vitest：`usage-reporter.test.js` 6 用例（分类/静默/无数据/聚合上报+水印+脱敏/失败重试/定时）。
+
+## 12A.13 官方 Key 池配额/成本概览 + 许可证管理（2026-08-10 新增，P0/P1 第三批）
+
+> P0-1 官方 Key 池增强（配额/告警/成本）与 P1-6 许可证管理（签发/吊销/列表）运营后台管理面。桌面端消费（官方 Key 回退路由、许可证服务端验签）需商业模式确认后另行接入，本 change 不触碰桌面端 entitlement 现有合同。
+
+### 12A.13.1 官方 Key 池增强
+
+- `official_keys` 新增列（`ensure_official_key_columns` 幂等迁移）：`rate_per_minute`（每分钟配额，正整数或空）、`daily_limit`（每日上限，正整数或空）、`alert_threshold_cost`（成本告警阈值 ¥，≥0 或空）、`note`。
+- upsert 校验：布尔/小数/负数拒绝（400 + 字段提示）。
+- `GET /api/v1/secrets/summary`（admin）：总数/活跃/30 天内到期/已过期、近 30 天成本（复用 `model_usage_daily` 按 provider 聚合）、达告警阈值 Key 列表。
+- 前端 Key 管理页：新增配额/上限/告警/备注字段 + 池概览卡片。
+
+### 12A.13.2 许可证管理
+
+- `licenses` 表：`license_key`（唯一，自动生成 `MP-XXXX-XXXX-XXXX-XXXX`，去易混淆字符）、`plan`（free/trial/pro）、`device_limit`（≥1）、`expires_at`（ISO 或空=永久）、`status`（active/disabled；expired 由查询派生）、`note`。
+- 端点（require_admin）：`GET/POST /api/v1/licenses`、`PUT/DELETE /api/v1/licenses/{id}`。
+- 前端「许可证管理」页：签发（展示生成的 Key 一次）、列表（状态标签/过期高亮）、禁用/启用/删除。
+
+### 12A.13.3 测试
+
+- `test_keypool_license_api.py` 3 用例：Key 新字段校验 + 池概览（非 admin 403）、许可证 CRUD + 校验 + 权限、Key 唯一性与过期派生。

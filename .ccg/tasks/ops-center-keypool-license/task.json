@@ -1,0 +1,13 @@
+{
+  "id": "ops-center-keypool-license",
+  "title": "运营后台 P0/P1 第三批：官方 Key 池配额/成本 + 许可证管理",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "backend,security",
+  "currentPhase": "planning",
+  "nextAction": "OpenSpec design + 实现 Key 池增强与许可证管理",
+  "createdAt": "2026-08-10T23:50:00+08:00",
+  "branch": "codex/ops-center-keypool-license",
+  "openspecChange": "ops-center-keypool-license"
+}

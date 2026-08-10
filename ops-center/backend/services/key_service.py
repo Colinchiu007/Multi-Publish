@@ -62,9 +62,116 @@ def _model_to_dict(key: OfficialKey, reveal: bool = False) -> dict:
         "tier_access": key.tier_access,
         "cost_per_1k_tokens": key.cost_per_1k_tokens,
         "expires_at": key.expires_at,
+        "rate_per_minute": key.rate_per_minute,
+        "daily_limit": key.daily_limit,
+        "alert_threshold_cost": key.alert_threshold_cost,
+        "note": key.note or "",
         "created_at": key.created_at,
         "updated_at": key.updated_at,
         "is_masked": not reveal,
+    }
+
+
+async def ensure_official_key_columns(db: AsyncSession) -> None:
+    """存量库幂等补列（rate_per_minute/daily_limit/alert_threshold_cost/note）。"""
+
+    def _migrate(sync_conn) -> None:
+        from sqlalchemy import inspect, text
+
+        inspector = inspect(sync_conn.connection())
+        if "official_keys" not in inspector.get_table_names():
+            return
+        existing = {c["name"] for c in inspector.get_columns("official_keys")}
+        adds = {
+            "rate_per_minute": "INTEGER",
+            "daily_limit": "INTEGER",
+            "alert_threshold_cost": "FLOAT",
+            "note": "VARCHAR(200) DEFAULT ''",
+        }
+        for col, ddl in adds.items():
+            if col not in existing:
+                sync_conn.execute(text(f"ALTER TABLE official_keys ADD COLUMN {col} {ddl}"))
+
+    await db.run_sync(_migrate)
+
+
+def validate_key_fields(body: dict) -> dict:
+    """校验/归一化官方 Key 新字段；非法值抛 ValueError（router 转 400）。"""
+    out = {}
+    for field in ("rate_per_minute", "daily_limit"):
+        v = body.get(field)
+        if v is None or str(v).strip() == "":
+            out[field] = None
+            continue
+        if isinstance(v, bool):
+            raise ValueError(f"{field} 必须是整数")
+        if isinstance(v, float) and not v.is_integer():
+            raise ValueError(f"{field} 必须是整数")
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"{field} 必须是整数")
+        if n < 1:
+            raise ValueError(f"{field} 必须是正整数或留空")
+        out[field] = n
+    v = body.get("alert_threshold_cost")
+    if v is None or str(v).strip() == "":
+        out["alert_threshold_cost"] = None
+    else:
+        if isinstance(v, bool):
+            raise ValueError("alert_threshold_cost 必须是数字")
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            raise ValueError("alert_threshold_cost 必须是数字")
+        if f < 0:
+            raise ValueError("alert_threshold_cost 不能为负数")
+        out["alert_threshold_cost"] = f
+    out["note"] = str(body.get("note") or "").strip()[:200]
+    return out
+
+
+async def pool_summary(db: AsyncSession, days: int = 30) -> dict:
+    """官方 Key 池概览：计数/到期/成本（复用 model_usage_daily）/配额达标率。"""
+    from sqlalchemy import func
+    from models import ModelUsageDaily
+
+    rows = (await db.execute(select(OfficialKey))).scalars().all()
+    days = max(1, min(90, int(days)))
+    today = datetime.datetime.utcnow().date()
+    in30 = (today + datetime.timedelta(days=30)).isoformat()
+    active = [k for k in rows if k.is_active == 1]
+    expiring = [k for k in active if k.expires_at and k.expires_at <= in30 and (not k.expires_at or k.expires_at >= today.isoformat())]
+    expired = [k for k in active if k.expires_at and k.expires_at < today.isoformat()]
+
+    start = (today - datetime.timedelta(days=days - 1)).isoformat()
+    cost_rows = (await db.execute(
+        select(ModelUsageDaily.provider_id, func.sum(ModelUsageDaily.cost))
+        .where(ModelUsageDaily.usage_date >= start)
+        .group_by(ModelUsageDaily.provider_id)
+    )).all()
+    cost_by_provider = {provider: round(float(cost or 0), 4) for provider, cost in cost_rows}
+
+    provider_cost = {}
+    for k in rows:
+        c = cost_by_provider.get(k.provider, 0.0)
+        provider_cost.setdefault(k.provider, 0.0)
+        provider_cost[k.provider] += c
+
+    # 配额达标率：有 daily_limit 的活跃 Key 中，其 provider 近 30 天成本已超过 alert_threshold_cost 的比例
+    threshold_hit = []
+    for k in active:
+        if k.alert_threshold_cost is not None and k.alert_threshold_cost > 0:
+            if provider_cost.get(k.provider, 0.0) >= k.alert_threshold_cost:
+                threshold_hit.append(k.id)
+    return {
+        "total": len(rows),
+        "active": len(active),
+        "expiring_30d": len(expiring),
+        "expired": len(expired),
+        "threshold_hit_keys": threshold_hit,
+        "cost_by_provider": provider_cost,
+        "cost_total": round(sum(provider_cost.values()), 4),
     }
 
 
@@ -81,6 +188,10 @@ async def create_key(
     tier_access: int = 1,
     cost_per_1k_tokens: float = 0.0,
     expires_at: str = "",
+    rate_per_minute: int | None = None,
+    daily_limit: int | None = None,
+    alert_threshold_cost: float | None = None,
+    note: str = "",
 ) -> OfficialKey:
     """Create a new official key."""
     now = datetime.datetime.utcnow().isoformat()
@@ -96,6 +207,10 @@ async def create_key(
         tier_access=tier_access,
         cost_per_1k_tokens=cost_per_1k_tokens,
         expires_at=expires_at,
+        rate_per_minute=rate_per_minute,
+        daily_limit=daily_limit,
+        alert_threshold_cost=alert_threshold_cost,
+        note=note,
         created_at=now,
         updated_at=now,
     )
