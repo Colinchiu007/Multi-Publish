@@ -8,6 +8,7 @@
 - 基线：蚁小二实机截图 19 张（`01-docs/yixiaoer-reverse/screenshots/yxe-live-20260810/`，覆盖首页/账号/分组/分享/收藏/发布记录/草稿/看板/创作/评论/批量/小蚁 AI/团队/素材库/数据）。
 - 复刻：`AccountManagementCard` 归属徽章按蚁小二契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），新增分色回归测试。
 - 清理：`Publish.vue` 64 处 inline style 全部迁移为语义化 class（`publish-header-row`/`batch-articles`/`copy-url-button.is-copied` 等约 40 个），定义收敛至 `<style scoped>`；迁移过程中修复一处重复 class 属性导致的模板解析错误（`@vue/compiler-sfc` 0 error 验证）。
+- 视觉基线：因本分支刻意重绘 UI，像素门禁 4 视图（accounts-list/dashboard/create-history/collection）基线失效；本地 dev server + `UPDATE_BASELINE=1` 重新生成并经 CI 同款 2% 阈值回验 0% 通过，基线随代码入库。
 - 边界：卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
 - 存量：大范围回归中 `Home.test.js` / `Publish.test.js` / `PublishHistory.test.js` / `views-deep.test.js` 共 34 例失败，经确认这些文件与 HEAD 完全一致且未引用 Accounts.vue，属 Round 2 已合并的存量失败，与本次改动无关；本次 accounts 聚焦回归 98/98 通过；`Publish.test.js` 8 例失败经 git diff 验证本次仅改 class/CSS（无脚本逻辑变更）仍为同一存量失败。
 
