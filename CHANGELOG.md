@@ -24,6 +24,36 @@
 - 文档：01-docs/PRD.md 7.4.4（字段/校验/交互/调度机制详细合同）；ops-center docs/PRD.md 12A。
 - 边界：桌面端与 ops-center 保持「种子手工对齐 + 文档契约」，无运行时 API 同步（后续项）；真实 provider 每分钟限额行为仍由 governor 429 自适应兜底。
 
+## [未发布] 蚁小二弹窗/特殊状态深度对标：分组管理页面级化 + UI 界面清单（2026-08-10）
+
+- 深度盘点：遍历全部 67 个 `.vue` 文件、22 条路由，枚举所有弹窗/模态框/特殊状态（loading/empty/error/批量/进度）及按钮→界面映射，产出 `01-docs/UI-INVENTORY.md`（含弹窗总览、状态总览、蚁小二对标差异备忘）。
+- 复刻：蚁小二「分组管理」是页面级 Tab（搜索分组 + 全部筛选 + 仅看包含我的分组 + 设置排序 + 创建分组），此前我们点 Tab 弹 `AccountGroupManager` 弹窗，交互形态不符；新增页面级 `AccountGroupsPanel.vue`（工具栏 + 内联创建行 + 分组卡片 + 云朵空态）。
+- 复刻：「收藏分组」 Tab 从“收藏筛选器”改为页面级 `AccountFavoritesPanel.vue`（搜索收藏 + 分组名称/账号数/操作表格 + 云朵空态），「查看账号」回到账号列表并按分组筛选；「创建分组」未接入时 disabled（诚实能力边界）。
+- 清理：`Accounts.vue` 移除 `showGroupManager`/弹窗 watcher，groups/favorites Tab 下隐藏账号主列表工具栏；`AccountGroupManager.vue` 保留但不再挂载。
+- 测试：`Accounts.test.js` 重写分组/收藏页签用例 + 新增 4 例（面板渲染、创建携带平台、空分组过滤、收藏表格），77/77 通过；`vite build` 通过。
+- 基线：蚁小二实机截图 19 张（`01-docs/yixiaoer-reverse/screenshots/yxe-live-20260810/`，覆盖首页/账号/分组/分享/收藏/发布记录/草稿/看板/创作/评论/批量/小蚁 AI/团队/素材库/数据）。
+- 复刻：`AccountManagementCard` 归属徽章按蚁小二契约分色 — 负责人蓝（`assignee-owner`）/ 运营人灰（`assignee-publisher`）/ 代理紫（`assignee-proxy`），新增分色回归测试。
+- 清理：`Publish.vue` 64 处 inline style 全部迁移为语义化 class（`publish-header-row`/`batch-articles`/`copy-url-button.is-copied` 等约 40 个），定义收敛至 `<style scoped>`；迁移过程中修复一处重复 class 属性导致的模板解析错误（`@vue/compiler-sfc` 0 error 验证）。
+- 视觉基线：因本分支刻意重绘 UI，像素门禁 4 视图（accounts-list/dashboard/create-history/collection）基线失效；本地 dev server + `UPDATE_BASELINE=1` 重新生成并经 CI 同款 2% 阈值回验 0% 通过，基线随代码入库。
+- 视觉门禁修复：home-baseline 就绪超时——首页已重绘为 `.yixiaoer-home` 布局，但 `run-pixel-tests.js` 的 waitFor 仍指向已删除的 `.cohere-main .page-title`，CI 连续 3 次稳定超时（appTextLength=263）；同步修正 run-pixel-tests.js / all-views / functional-test 首页选择器为 `.yixiaoer-home .yixiaoer-home-welcome`，`visual-ci.test.js` 新增合同断言防回归，重生成 home-baseline.png；本地全量 17 视图像素套件 2% 阈值全部通过。
+- GUI 门禁修复（同源）：E2E 路由检查与 flow-2 仍用旧首页文案/选择器——`route-functional-suite.js` home title 改为新首页稳定静态文案“多平台内容一键发布”，`exerciseHome` 改用 `.yixiaoer-home-shortcut` 快捷入口并把已移除的 `getVersion` IPC 断言替换为新首页真实调用的 `historyList`；`integration-flows.js` Flow2.5 平台列表选择器增加 `.yixiaoer-home-platform-tag`；本地完整 `test:e2e` 314/314 checks 通过（18 路由 + 6 集成流）。
+- Electron GUI 门禁修复（同源）：`electron-gui-v9.js` testHomePage 适配新首页——`assertTitle("社媒")`/`statCard×5` 旧断言替换为 `.yixiaoer-home` 根容器+欢迎区存在性与 `.yixiaoer-home-shortcut×6`，新选择器入 `selectors.json`（配置驱动），CI dispatch 60/60 通过。
+- CI 门禁修复：`views-deep2.test.js` accountStore mock 补 `ensureLoaded`（与存量更正同源遗漏），消除 quality-gate QG Coverage / Desktop Shards(2/2) 的 unhandled rejection；重 dispatch 后 quality-gate 全 9 job 通过。
+- 边界：卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
+- 存量更正：此前记录「Home.test.js / Publish.test.js / PublishHistory.test.js / views-deep.test.js 34 例失败属 Round 2 已合并存量」的结论**已被推翻**——main 分支 Electron CI 全绿，34 例实为本分支 UI 重绘/store 改造导致的测试失同步，全部修复如下：
+  - `Home.test.js` 重写为 8 例（mock identity/platforms stores，覆盖 welcome/快捷入口/平台标签 fallback/统计 IPC/空动态/导航/无 electronAPI 降级）；`views-deep.test.js` Home 部分同步新首页选择器与 IPC。
+  - `Publish.test.js`：`accountStore` mock 补 `ensureLoaded`（组件 `loadAccounts()` 已从 `load()` 改调 `ensureLoaded()` 修竞态，mock 缺该方法导致 onMounted 抛错级联），36/36 通过。
+  - `PublishHistory.test.js`：新增 `@/stores/platforms` mock（组件已统一走 `platformStore.getLabel/getIcon/getContentCategory`，未 mock 导致无 active Pinia 报错），19/19 通过。
+
+## [未发布] 蚁小二账号/发布模块全面对标 Round 2（2026-08-10）
+
+- 布局：`App.vue` 挂载 `YixiaoerSidebar` 到工作区壳层，`isYixiaoerWorkspace` 从 3 条路由白名单改为排除少数特殊页面的黑名单模式，所有主导航可达路由（首页/账号/发布/发布记录/草稿箱等）统一使用 `YixiaoerSidebar + YixiaoerModuleNav` 双导航布局。
+- 首页：`Home.vue` 完全重写为蚁小二风格仪表盘——问候语+快捷操作、4 列数据概览（从 IPC 读取发布统计）、6 宫格快捷入口、支持平台展示、近期动态列表。
+- 导航动态化：`YixiaoerSidebar.vue` 用户头像/名称从 `identityStore` 动态读取，许可证标签从 `licenseStore` 读取；`YixiaoerModuleNav.vue` 新增 homeTabs 支持首页路由、publishTabs 新增"新建发布" tab。
+- 代码收敛：`accounts.js` 新增 `ensureLoaded()` 幂等加载方法（含并发竞态修复：缓存 in-flight Promise）；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`（`getLabel`/`getIcon`/`getContentCategory`）；新建 `PublishDraftList.vue` 共享草稿列表组件。
+- 测试：更新 `YixiaoerSidebar.test.js`（动态用户信息断言）、`YixiaoerModuleNav.test.js`（publish 3 tabs + home 路由测试）。
+- 边界：Vite 完整构建因预存在的 node_modules 损坏（`@ctrl/tinycolor` 解析失败）未通过，Vue SFC 编译验证全部通过；真实平台登录/发布仍属外部验收。
+
 ## [未发布] 重构：BGM 跳过提示单一来源（服务层 warnings 机器码化）（2026-08-10）
 
 - 重构：compose 引擎 BGM 降级警告由中文改为机器码（bgm_size_exceeded / bgm_format_unsupported / bgm_not_allowed / bgm_unreadable），服务层不再硬编码用户可见中文；用户可见文案统一由前端依据 bgmSkippedReason 本地化（bgmSkippedReasonText / formatBgmSkippedNotification），消除双份映射漂移（PR #466 审查 Minor7）。

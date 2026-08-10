@@ -33,13 +33,13 @@
 
     <template v-else>
     <div class="cohere-page-header">
-      <div style="display:flex;align-items:center;gap:var(--space-md);width:100%">
-        <div style="flex:1">
+      <div class="publish-header-row">
+        <div class="flex-spacer">
           <div class="page-title">一键发布<span v-if="hasExplicitPublishType" class="publish-type-context"> · {{ publishTypeLabel }}</span></div>
           <div class="page-subtitle">{{ batchMode ? '批量编辑多篇文章，各平台独立发布' : '编辑内容并发布到多个平台' }}</div>
         </div>
-        <label class="cohere-toggle" style="cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)">
-          <input data-testid="publish-batch-mode" type="checkbox" v-model="batchMode" style="accent-color:var(--coral)" @change="checkBatchAccess" />
+        <label class="cohere-toggle batch-mode-toggle">
+          <input data-testid="publish-batch-mode" type="checkbox" v-model="batchMode" class="coral-check" @change="checkBatchAccess" />
           <span>批量模式</span>
         </label>
       </div>
@@ -47,23 +47,23 @@
 
     <!-- 批量模式：文章列表 -->
     <template v-if="batchMode">
-      <div class="cohere-content" style="display:flex;flex-direction:column;gap:var(--space-md)">
-        <div v-for="(a, idx) in articles" :key="a._key" class="cohere-card" style="cursor:default;position:relative">
+      <div class="cohere-content batch-articles">
+        <div v-for="(a, idx) in articles" :key="a._key" class="cohere-card cohere-card-static">
           <!-- 文章编号 + 删除 -->
-          <div style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-md)">
+          <div class="article-card-row">
             <span class="cohere-tag cohere-tag-info">#{{ idx + 1 }}</span>
             <span v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ 定时</span>
-            <div style="flex:1"></div>
+            <div class="flex-spacer"></div>
             <UiButton variant="ghost" size="sm" @click="duplicateArticle(idx)" title="复制">📋</UiButton>
-            <UiButton variant="ghost" size="sm" @click="removeArticle(idx)" v-if="articles.length > 1" title="删除" style="color:var(--coral)">✕</UiButton>
+            <UiButton variant="ghost" size="sm" @click="removeArticle(idx)" v-if="articles.length > 1" title="删除" class="coral-text">✕</UiButton>
           </div>
 
           <!-- 文章编辑 -->
           <div class="cohere-form">
             <div class="cohere-form-item">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                <label class="cohere-form-label" style="margin-bottom:0">标题</label>
-                <button class="cohere-btn-ghost" @click="showTemplatePicker = true; templateTargetIdx = idx" style="font-size:11px;padding:2px 8px;border:none;background:none;cursor:pointer;color:var(--coral)">
+              <div class="title-row">
+                <label class="cohere-form-label no-margin-bottom">标题</label>
+                <button class="cohere-btn-ghost template-pick-button" @click="showTemplatePicker = true; templateTargetIdx = idx">
                   📝 模板
                 </button>
               </div>
@@ -90,8 +90,8 @@
             <div class="cohere-form-item">
               <label class="cohere-form-label">发布目标</label>
               <div class="batch-platform-targets">
-                <label v-for="p in platforms" :key="p.id" style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px">
-                  <input type="checkbox" :value="p.id" v-model="a.platforms" style="accent-color:var(--coral)" />
+                <label v-for="p in platforms" :key="p.id" class="batch-platform-option">
+                  <input type="checkbox" :value="p.id" v-model="a.platforms" class="coral-check" />
                   {{ p.label }}
                 </label>
                 <template v-for="p in platforms" :key="p.id + '-accounts'">
@@ -111,30 +111,30 @@
             </div>
             <div class="cohere-form-item">
               <label class="cohere-form-label">定时发布</label>
-              <UiInput type="datetime-local" v-model="a.publishTime" style="max-width:260px" />
-              <span style="font-size:12px;color:var(--muted);margin-left:8px">留空 = 立即发布</span>
+              <UiInput type="datetime-local" v-model="a.publishTime" class="input-max-260" />
+              <span class="publish-time-hint">留空 = 立即发布</span>
             </div>
           </div>
         </div>
 
         <!-- 模板面板 -->
-        <div v-if="showTemplatePicker && templateTargetIdx >= 0" style="margin-bottom:var(--space-md)">
+        <div v-if="showTemplatePicker && templateTargetIdx >= 0" class="stack-gap">
           <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
         </div>
 
         <!-- 操作 -->
-        <div style="display:flex;gap:var(--space-sm)">
+        <div class="row-actions">
           <UiButton variant="secondary" @click="addArticle">＋ 添加文章</UiButton>
-          <div style="flex:1"></div>
+          <div class="flex-spacer"></div>
           <UiButton data-testid="publish-batch-submit" @click="handleBatchPublish" :disabled="batchPublishing || articles.length === 0">
             {{ batchPublishing ? '发布中...' : `🚀 批量发布 (${totalPlatformTasks} 个任务)` }}
           </UiButton>
         </div>
 
         <!-- 进度 -->
-        <div v-if="batchProgress.length > 0" class="cohere-card" style="cursor:default">
-          <div style="font-weight:600;font-size:14px;margin-bottom:var(--space-sm)">批量发布进度</div>
-          <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-sm)">
+        <div v-if="batchProgress.length > 0" class="cohere-card cohere-card-static">
+          <div class="progress-title">批量发布进度</div>
+          <div class="progress-toolbar">
             <span class="cohere-tag cohere-tag-success">✅ {{ batchDone }} 完成</span>
             <span class="cohere-tag cohere-tag-danger">❌ {{ batchFail }} 失败</span>
             <UiButton
@@ -161,34 +161,33 @@
 
     <!-- 非批量模式：原有界面 -->
     <template v-else>
-      <div class="cohere-content" style="display:flex;gap:var(--space-xl)">
-        <div style="flex:2;min-width:0">
-          <div class="cohere-card" style="cursor:default">
+      <div class="cohere-content cohere-content-split">
+        <div class="flex-main">
+          <div class="cohere-card cohere-card-static">
             <div class="cohere-form">
               <div class="cohere-form-item">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                  <label class="cohere-form-label" style="margin-bottom:0">标题</label>
-                  <button class="cohere-btn-ghost" @click="showTemplatePicker = !showTemplatePicker; templateTargetIdx = -1" style="font-size:11px;padding:2px 8px;border:none;background:none;cursor:pointer;color:var(--coral)">
+                <div class="title-row">
+                  <label class="cohere-form-label no-margin-bottom">标题</label>
+                  <button class="cohere-btn-ghost template-pick-button" @click="showTemplatePicker = !showTemplatePicker; templateTargetIdx = -1">
                     {{ showTemplatePicker ? '✕ 关闭' : '📝 模板' }}
                   </button>
                   <button
                     type="button"
-                    class="cohere-btn-ghost"
+                    class="cohere-btn-ghost template-pick-button"
                     data-testid="open-ai-writer"
                     aria-controls="ai-writer-panel"
                     :aria-expanded="showAiWriter"
                     @click="showAiWriter = !showAiWriter"
-                    style="font-size:11px;padding:2px 8px;border:none;background:none;cursor:pointer;color:var(--coral)"
                   >
                     {{ showAiWriter ? '✕ 关闭' : '🤖 AI' }}
                   </button>
                 </div>
                 <UiInput data-testid="publish-title" v-model="article.title" placeholder="请输入文章标题" />
               </div>
-              <div v-if="showTemplatePicker && templateTargetIdx < 0" style="margin-bottom:var(--space-md)">
+              <div v-if="showTemplatePicker && templateTargetIdx < 0" class="stack-gap">
                 <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
               </div>
-              <div v-if="showAiWriter && templateTargetIdx < 0" style="margin-bottom:var(--space-md)">
+              <div v-if="showAiWriter && templateTargetIdx < 0" class="stack-gap">
                 <AiWriterPanel
                   :sourceContent="article.content"
                   @close="showAiWriter = false"
@@ -198,7 +197,7 @@
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">作者</label>
-                <UiInput v-model="article.author" placeholder="作者名称（选填）" style="max-width:300px" />
+                <UiInput v-model="article.author" placeholder="作者名称（选填）" class="input-max-300" />
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">图片素材</label>
@@ -260,8 +259,8 @@
               </div>
               <div class="cohere-form-item">
                 <label class="cohere-form-label">定时发布</label>
-                <UiInput type="datetime-local" v-model="article.publishTime" style="max-width:260px" />
-                <span style="font-size:12px;color:var(--muted);margin-left:8px">留空 = 立即发布</span>
+                <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
+                <span class="publish-time-hint">留空 = 立即发布</span>
               </div>
               <div class="cohere-form-item">
                 <button class="publish-section-toggle" type="button" @click="showDiffPanel = !showDiffPanel">
@@ -278,24 +277,24 @@
             </div>
           </div>
         </div>
-        <div style="flex:1;min-width:280px">
+        <div class="flex-side">
           <!-- 智能标签建议 -->
-          <TagSuggester v-if="showTagPanel && combinedContent.length > 3" :content="combinedContent" style="margin-bottom:var(--space-md)" @close="showTagPanel = false" />
-          <div v-if="!showTagPanel && combinedContent.length > 3" style="margin-bottom:var(--space-md);text-align:center">
+          <TagSuggester v-if="showTagPanel && combinedContent.length > 3" :content="combinedContent" class="stack-gap" @close="showTagPanel = false" />
+          <div v-if="!showTagPanel && combinedContent.length > 3" class="stack-gap stack-center">
             <UiButton variant="ghost" size="sm" @click="showTagPanel = true"># 显示标签建议</UiButton>
           </div>
 
           <!-- 最佳发布时间 -->
-          <OptimalTimeTip v-if="article.title.length > 2" :keyword="article.title" style="margin-bottom:var(--space-md)" />
+          <OptimalTimeTip v-if="article.title.length > 2" :keyword="article.title" class="stack-gap" />
 
           <!-- 标题助手 -->
-          <TitleAssistantPanel :title="article.title" :visible="showTitlePanel" @close="showTitlePanel = false" style="margin-bottom:var(--space-md)" />
-          <div v-if="!showTitlePanel && article.title.length > 5" style="margin-bottom:var(--space-md);text-align:center">
+          <TitleAssistantPanel :title="article.title" :visible="showTitlePanel" @close="showTitlePanel = false" class="stack-gap" />
+          <div v-if="!showTitlePanel && article.title.length > 5" class="stack-gap stack-center">
             <UiButton variant="ghost" size="sm" @click="showTitlePanel = true">📊 标题参考</UiButton>
           </div>
 
-          <div class="cohere-card" style="cursor:default">
-            <div class="cohere-form" style="gap:var(--space-md)">
+          <div class="cohere-card cohere-card-static">
+            <div class="cohere-form cohere-form-gap">
               <div class="cohere-form-label">发布目标</div>
               <PublishTargetSelector
                 data-testid="publish-target-selector"
@@ -307,22 +306,22 @@
                 @toggle-account="toggleAccount"
               />
               <div class="cohere-divider"></div>
-              <UiButton variant="secondary" style="width:100%;justify-content:center;margin-bottom:8px" @click="saveDraft" :disabled="publishing">💾 保存草稿</UiButton>
-              <UiButton variant="ghost" size="sm" style="width:100%;justify-content:center;margin-bottom:8px" @click="showDraftList = true; loadDrafts()">📋 草稿箱</UiButton>
-              <UiButton data-testid="publish-submit" style="width:100%;justify-content:center" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
+              <UiButton variant="secondary" class="side-button-block" @click="saveDraft" :disabled="publishing">💾 保存草稿</UiButton>
+              <UiButton variant="ghost" size="sm" class="side-button-block" @click="showDraftList = true; loadDrafts()">📋 草稿箱</UiButton>
+              <UiButton data-testid="publish-submit" class="side-button-full" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
                 {{ publishing ? '发布中...' : '🚀 一键发布' }}
               </UiButton>
               <UiButton
                 v-if="activeTaskIds.length > 0 || activeScheduleIds.length > 0"
                 variant="danger"
-                style="width:100%;justify-content:center;margin-top:8px"
+                class="side-button-block side-button-block-top"
                 @click="cancelPublish"
               >
                 取消任务
               </UiButton>
             </div>
           </div>
-          <div v-if="progress.length > 0" class="cohere-card" data-testid="publish-progress" style="margin-top:16px;cursor:default">
+          <div v-if="progress.length > 0" class="cohere-card cohere-card-offset" data-testid="publish-progress">
             <ul class="cohere-timeline">
               <li v-for="item in progress" :key="item.time + item.text" class="cohere-timeline-item" :class="item.type">
                 <span class="tl-time">{{ item.time }}</span>
@@ -332,12 +331,12 @@
           </div>
 
           <!-- 草稿箱面板 -->
-          <div v-if="showDraftList" class="cohere-card" style="margin-top:16px;cursor:default">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-              <div style="font-weight:600;font-size:14px"> 草稿箱</div>
-              <button @click="showDraftList = false" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--muted)">✕</button>
+          <div v-if="showDraftList" class="cohere-card cohere-card-offset">
+            <div class="draft-list-header">
+              <div class="draft-list-title"> 草稿箱</div>
+              <button @click="showDraftList = false" class="plain-close-button">✕</button>
             </div>
-            <div v-if="drafts.length === 0" style="text-align:center;padding:20px;color:var(--muted)">暂无草稿</div>
+            <div v-if="drafts.length === 0" class="draft-empty">暂无草稿</div>
             <div v-else class="draft-list">
               <div v-for="d in drafts" :key="d.id" class="draft-item">
                 <div class="draft-info">
@@ -347,31 +346,31 @@
                     <span v-if="d.platforms && d.platforms.length" class="cohere-tag cohere-tag-info">{{ d.platforms.length }} 个平台</span>
                   </div>
                 </div>
-                <div style="display:flex;gap:4px">
+                <div class="row-actions-compact">
                   <UiButton variant="ghost" size="sm" @click="loadDraft(d.id)">加载</UiButton>
-                  <UiButton variant="ghost" size="sm" @click="removeDraft(d.id)" style="color:var(--coral)">删除</UiButton>
+                  <UiButton variant="ghost" size="sm" @click="removeDraft(d.id)" class="coral-text">删除</UiButton>
                 </div>
               </div>
             </div>
           </div>
-          <div v-if="result" class="cohere-card" style="margin-top:16px;cursor:default">
-            <div :style="{ display:'flex', gap:'8px', alignItems:'center' }">
+          <div v-if="result" class="cohere-card cohere-card-offset">
+            <div class="result-header-row">
               <span v-if="result.success" class="cohere-tag cohere-tag-success">✓ 发布成功</span>
               <span v-else class="cohere-tag cohere-tag-danger">✗ 发布失败</span>
-              <span style="font-size:13px;color:var(--muted)">{{ result.message }}</span>
+              <span class="muted-text">{{ result.message }}</span>
             </div>
             <UiButton
               v-if="!result.success && !result.cancelled"
               variant="secondary"
               size="sm"
-              style="margin-top:12px"
+              class="stack-gap-top"
               @click="retryPublish"
             >
               重试发布
             </UiButton>
-            <div v-if="result.url" style="margin-top:12px;display:flex;align-items:center;gap:8px">
-              <a :href="result.url" target="_blank" style="font-size:13px;color:var(--action-blue);text-decoration:none">查看文章 →</a>
-              <button @click="copyUrl(result.url)" style="background:none;border:1px solid var(--border,#e0e0e0);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;color:var(--muted,#999);transition:all .2s" :style="copied ? { background:'var(--cohere-green,#67c23a)', color:'var(--surface)', borderColor:'var(--cohere-green,#67c23a)' } : {}">
+            <div v-if="result.url" class="result-link-row">
+              <a :href="result.url" target="_blank" class="result-link">查看文章 →</a>
+              <button @click="copyUrl(result.url)" class="copy-url-button" :class="{ 'is-copied': copied }">
                 {{ copied ? '✓ 已复制' : '复制链接' }}
               </button>
             </div>
@@ -448,7 +447,7 @@ const { platforms, groupedPlatforms } = usePublishPlatformCatalog(platformStore,
 
 // ── 多账号加载 ──────────────────────────
 async function loadAccounts () {
-  await accountStore.load()
+  await accountStore.ensureLoaded()
 }
 
 // ── 非批量模式（本地 UI 状态） ────────────
@@ -731,6 +730,48 @@ defineExpose({
 </script>
 
 <style scoped>
+/* —— 语义化 class（原 inline style 迁移，2026-08-10） —— */
+.publish-header-row { display: flex; align-items: center; gap: var(--space-md); width: 100%; }
+.batch-mode-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.cohere-content-split { display: flex; gap: var(--space-xl); }
+.batch-articles { display: flex; flex-direction: column; gap: var(--space-md); }
+.cohere-card-static { cursor: default; position: relative; }
+.cohere-card-offset { margin-top: 16px; cursor: default; }
+.cohere-form-gap { gap: var(--space-md); }
+.article-card-row { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md); }
+.flex-spacer { flex: 1; }
+.flex-main { flex: 2; min-width: 0; }
+.flex-side { flex: 1; min-width: 280px; }
+.coral-text { color: var(--coral); }
+.coral-check { accent-color: var(--coral); }
+.title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.no-margin-bottom { margin-bottom: 0; }
+.template-pick-button { font-size: 11px; padding: 2px 8px; border: none; background: none; cursor: pointer; color: var(--coral); }
+.batch-platform-option { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 13px; }
+.input-max-260 { max-width: 260px; }
+.input-max-300 { max-width: 300px; }
+.publish-time-hint { font-size: 12px; color: var(--muted); margin-left: 8px; }
+.stack-gap { margin-bottom: var(--space-md); }
+.stack-gap-top { margin-top: 12px; }
+.stack-center { text-align: center; }
+.row-actions { display: flex; gap: var(--space-sm); }
+.row-actions-compact { display: flex; gap: 4px; }
+.progress-title { font-weight: 600; font-size: 14px; margin-bottom: var(--space-sm); }
+.progress-toolbar { display: flex; gap: var(--space-sm); margin-bottom: var(--space-sm); }
+.muted-text { font-size: 13px; color: var(--muted); }
+.side-button-block { width: 100%; justify-content: center; margin-bottom: 8px; }
+.side-button-block-top { margin-bottom: 0; margin-top: 8px; }
+.side-button-full { width: 100%; justify-content: center; }
+.draft-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.draft-list-title { font-weight: 600; font-size: 14px; }
+.plain-close-button { background: none; border: none; cursor: pointer; font-size: 16px; color: var(--muted); }
+.draft-empty { text-align: center; padding: 20px; color: var(--muted); }
+.result-header-row { display: flex; gap: 8px; align-items: center; }
+.result-link-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+.result-link { font-size: 13px; color: var(--action-blue); text-decoration: none; }
+.copy-url-button { background: none; border: 1px solid var(--border, #e0e0e0); border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer; color: var(--muted, #999); transition: all .2s; }
+.copy-url-button.is-copied { background: var(--cohere-green, #67c23a); color: var(--surface); border-color: var(--cohere-green, #67c23a); }
+
 .publish-type-context { color: var(--coral, #f56c6c); font-size: 14px; font-weight: 600; }
 .publish-drafts-page {
   min-height: 100%;

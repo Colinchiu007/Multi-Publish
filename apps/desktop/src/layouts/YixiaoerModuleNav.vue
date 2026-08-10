@@ -7,7 +7,7 @@
     <div
       class="yixiaoer-module-tabs"
       role="tablist"
-      :aria-label="module === 'accounts' ? '账号模块' : '发布模块'"
+      :aria-label="module === 'accounts' ? '账号模块' : module === 'home' ? '主页' : '发布模块'"
     >
       <router-link
         v-for="tab in tabs"
@@ -120,12 +120,25 @@ const accountTabs = [
 ]
 
 const publishTabs = [
+  { key: 'new-publish', label: '新建发布', to: '/publish' },
   { key: 'publish-history', label: '发布记录', to: '/publish/history' },
   { key: 'drafts', label: '草稿箱', to: { path: '/publish', query: { tab: 'drafts' } } },
 ]
 
-const module = computed(() => route.path.startsWith('/accounts') ? 'accounts' : 'publish')
-const tabs = computed(() => module.value === 'accounts' ? accountTabs : publishTabs)
+const homeTabs = [
+  { key: 'home', label: '主页', to: '/' },
+]
+
+const module = computed(() => {
+  if (route.path === '/') return 'home'
+  if (route.path.startsWith('/accounts')) return 'accounts'
+  return 'publish'
+})
+const tabs = computed(() => {
+  if (module.value === 'home') return homeTabs
+  if (module.value === 'accounts') return accountTabs
+  return publishTabs
+})
 const activeTool = ref('')
 const toolPanels = {
   preview: { title: '移动端预览', body: '当前页面将在移动端预览中展示。' },
@@ -140,11 +153,13 @@ function toggleTool (tool) {
 }
 
 function isTabActive (tab) {
+  if (module.value === 'home') return route.path === '/'
   if (module.value === 'accounts') {
     if (tab.key === 'accounts') return route.path === '/accounts' && !route.query?.tab
     return route.path === '/accounts' && route.query?.tab === tab.key
   }
 
+  if (tab.key === 'new-publish') return route.path === '/publish' && !route.query?.tab
   if (tab.key === 'publish-history') return route.path === '/publish/history'
   return route.path === '/publish' && route.query?.tab === 'drafts'
 }

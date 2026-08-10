@@ -4,6 +4,7 @@
 
     <template v-if="isYixiaoerWorkspace">
       <div class="yixiaoer-shell" data-testid="yixiaoer-shell">
+        <YixiaoerSidebar />
         <div class="yixiaoer-shell-main">
           <YixiaoerModuleNav />
           <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
@@ -40,6 +41,7 @@
 import AppNavbar from '@/layouts/AppNavbar.vue'
 import AppSidebar from '@/layouts/AppSidebar.vue'
 import YixiaoerModuleNav from '@/layouts/YixiaoerModuleNav.vue'
+import YixiaoerSidebar from '@/layouts/YixiaoerSidebar.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
@@ -62,11 +64,10 @@ const dismissBanner = ref(false)
 const showSettingsDialog = ref(false)
 let unsubscribeNavigate = null
 
-const isYixiaoerWorkspace = computed(() => [
-  '/accounts',
-  '/publish',
-  '/publish/history',
-].includes(route.path))
+// 非工作区路由（使用旧布局的特殊页面）
+const NON_WORKSPACE_ROUTES = new Set(['/first-run', '/model-providers', '/keywords', '/viral-analysis'])
+
+const isYixiaoerWorkspace = computed(() => !NON_WORKSPACE_ROUTES.has(route.path))
 
 async function retryRouteLoad() {
   const failedPath = routeLoadError.value?.path || router.currentRoute.value.fullPath

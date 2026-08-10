@@ -63,8 +63,8 @@ describe('YixiaoerModuleNav', () => {
   it('renders publish tabs with route-aware active state', () => {
     const nav = mountNav('/publish/history')
 
-    expect(nav.findAll('[role="tab"]')).toHaveLength(2)
-    expect(nav.text()).not.toContain('新建发布')
+    expect(nav.findAll('[role="tab"]')).toHaveLength(3)
+    expect(nav.text()).toContain('新建发布')
     expect(nav.text()).toContain('发布记录')
     expect(nav.text()).toContain('草稿箱')
     expect(nav.get('[data-testid="yixiaoer-tab-publish-history"]').classes()).toContain('active')
@@ -76,7 +76,16 @@ describe('YixiaoerModuleNav', () => {
 
     wrapper.unmount()
     wrapper = mountNav('/publish')
+    expect(wrapper.get('[data-testid="yixiaoer-tab-new-publish"]').classes()).toContain('active')
     expect(wrapper.get('[data-testid="yixiaoer-tab-publish-history"]').classes()).not.toContain('active')
+  })
+
+  it('renders home tab when on the root route', () => {
+    const nav = mountNav('/')
+
+    expect(nav.findAll('[role="tab"]')).toHaveLength(1)
+    expect(nav.text()).toContain('主页')
+    expect(nav.get('[data-testid="yixiaoer-tab-home"]').classes()).toContain('active')
   })
 
   it('opens an honest local panel for each module tool', async () => {

@@ -25,6 +25,7 @@ const mockAccountLoad = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
     load: mockAccountLoad,
+    ensureLoaded: mockAccountLoad,
     byPlatform: { wechat_mp: [{ id: "acc1", name: "My Account", is_default: true }] },
     getDefault: (p) => { if (p === "wechat_mp") return { id: "acc1", name: "My Account" }; return null; }
   })

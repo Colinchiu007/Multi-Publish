@@ -2,10 +2,10 @@
   <aside class="yixiaoer-sidebar" data-testid="yixiaoer-sidebar" aria-label="主导航">
     <header class="yixiaoer-sidebar-header">
       <div class="yixiaoer-profile" data-testid="yixiaoer-profile">
-        <span class="yixiaoer-avatar" aria-hidden="true">邱</span>
+        <span class="yixiaoer-avatar" aria-hidden="true">{{ avatarInitial }}</span>
         <span class="yixiaoer-profile-copy">
-          <strong>邱里奥谈认知</strong>
-          <small>免费版</small>
+          <strong :title="displayName">{{ displayName }}</strong>
+          <small>{{ licenseLabel }}</small>
         </span>
       </div>
       <button class="yixiaoer-sidebar-add" type="button" aria-label="新建发布" title="新建发布" @click="goToPublish">
@@ -56,7 +56,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown,
@@ -70,10 +70,31 @@ import {
   User,
   VideoCamera,
 } from '@element-plus/icons-vue'
+import { useIdentityStore } from '@/stores/identity'
+import { useLicenseStore } from '@/stores/license'
 
 const route = useRoute()
 const router = useRouter()
+const identityStore = useIdentityStore()
+const licenseStore = useLicenseStore()
 const moreOpen = ref(false)
+
+const displayName = computed(() => {
+  if (identityStore.user?.name) return identityStore.user.name
+  if (identityStore.user?.username) return identityStore.user.username
+  return '未登录'
+})
+
+const avatarInitial = computed(() => {
+  const name = displayName.value
+  return name.charAt(0)
+})
+
+const licenseLabel = computed(() => {
+  if (licenseStore.isPro) return '专业版'
+  if (licenseStore.isTrial) return '试用版'
+  return '免费版'
+})
 
 const primaryItems = [
   { key: 'home', label: '主页', to: '/', icon: HomeFilled },

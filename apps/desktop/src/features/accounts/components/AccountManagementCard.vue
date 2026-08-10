@@ -75,9 +75,9 @@
           粉丝：{{ followersLabel(account) }}
         </div>
         <div class="account-assignees" aria-label="账号归属信息">
-          <div :data-testid="`account-owner-${account.id}`"><span>负责人</span><strong>{{ assigneeLabel(account, OWNER_KEYS) }}</strong></div>
-          <div :data-testid="`account-publisher-${account.id}`"><span>运营人</span><strong>{{ assigneeLabel(account, PUBLISHER_KEYS) }}</strong></div>
-          <div :data-testid="`account-proxy-${account.id}`"><span>代理</span><strong>{{ proxyLabel(account) }}</strong></div>
+          <div :data-testid="`account-owner-${account.id}`"><span class="assignee-badge assignee-owner">负责人</span><strong>{{ assigneeLabel(account, OWNER_KEYS) }}</strong></div>
+          <div :data-testid="`account-publisher-${account.id}`"><span class="assignee-badge assignee-publisher">运营人</span><strong>{{ assigneeLabel(account, PUBLISHER_KEYS) }}</strong></div>
+          <div :data-testid="`account-proxy-${account.id}`"><span class="assignee-badge assignee-proxy">代理</span><strong>{{ proxyLabel(account) }}</strong></div>
         </div>
       </div>
     </div>
@@ -443,9 +443,13 @@ function formatDate (value) {
 .account-assignees > div > span {
   padding: 2px 5px;
   border-radius: 4px;
-  background: #f5f5f7;
   text-align: center;
 }
+
+/* 蚁小二契约：负责人蓝 / 运营人灰 / 代理紫 */
+.account-assignees .assignee-owner { background: #e8f1ff; color: #2b6cb0; }
+.account-assignees .assignee-publisher { background: #f5f5f7; color: #85858f; }
+.account-assignees .assignee-proxy { background: #eeecff; color: var(--primary, #5048e5); }
 
 .account-assignees strong {
   overflow: hidden;

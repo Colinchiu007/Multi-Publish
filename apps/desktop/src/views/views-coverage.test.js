@@ -20,6 +20,7 @@ vi.mock("@/stores/platforms", () => ({
 vi.mock("@/stores/accounts", () => ({
   useAccountStore: () => ({
     load: vi.fn(),
+    ensureLoaded: vi.fn(),
     loadGroups: vi.fn(),
     accounts: [],
     byPlatform: {},
