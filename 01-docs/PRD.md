@@ -1610,6 +1610,34 @@ Electron 打包、工作树、PR 或发布状态证据。
 
 ① 运营后台配置 `OPS_CATALOG_API_KEY` 后，桌面端填写地址+Key 点击「立即同步」→ 服务商限流/模型更新、卡片显示「同步成功：更新 N 个服务商」；② 未配置 Key 的运营后台端点返回 404，桌面端提示「未启用目录同步」；③ Key 错误返回 401，桌面端提示「API Key 无效」；④ 同步后编辑预设服务商：限流只读展示、模型列表禁用；⑤ 自定义服务商模型仍可编辑；⑥ 勾选「启动时自动同步」重启桌面端 3 秒后自动同步；⑦ 本地 api_key/enabled/is_default/base_url 不被同步覆盖；⑧ 运营后台清空限流 → 桌面端回退默认限流（governor 预算恢复）。
 
+#### 7.4.6 运营后台运行时策略下发：公告 / 版本发布 / 内容安全（2026-08-10 新增）
+
+**需求**：运营后台集中维护公告、版本发布策略、内容安全敏感词库，桌面端启动/同步时经 `runtime/bootstrap` 一次性拉取并应用；前端无需发版即可全局生效。
+
+##### 7.4.6.1 数据与校验（ops-center）
+
+| 表 | 字段 | 允许为空 | 校验（后端 400 + 前端提示） |
+|----|------|---------|--------------------------|
+| `announcements` | title / content / severity(info\|warning\|maintenance) / active_from / active_until / enabled / sort_order | title/content 必填，其余可空 | severity 三值之一；时间 ISO 格式；active_until ≥ active_from |
+| `update_policy` | min_version / force_version / gray_ratio(0-100) / enabled / note（单条 upsert id=1） | 版本可空 | 版本号 `x.y.z`；force ≥ min；gray_ratio 整数 0-100 |
+| `content_policy` | name / word_list(JSON) / replacement(≤16) / enabled（单条 upsert id=1） | 词库可空 | 词去重保序 ≤5000 项、单项 ≤100 字符；replacement ≤16 |
+
+##### 7.4.6.2 运行时端点与桌面端应用
+
+| 合同 | 要求 |
+|------|------|
+| 端点 | `GET /api/v1/runtime/bootstrap`（`X-Catalog-Key` == `OPS_CATALOG_API_KEY`，常量时间比较；未配置→404；错→401） |
+| 返回 | `{ announcements: [活动公告按 sort_order], update_policy, content_policy, synced_at }`；活动 = enabled=1 且在有效窗口 |
+| 拉取时机 | `OpsCenterSync.syncNow()` 目录同步成功后 **best-effort** 追加拉取（失败仅 warn，不影响目录结果）；启动 autoSync 同链路 |
+| 公告 | 存 settings(`opsCenterRuntime`) + 内存；IPC `ops-center-sync:runtime` 暴露；App 顶部 `AnnouncementBanner` 展示：info/warning 可关闭（localStorage 记忆），maintenance 常驻强提示不可关闭 |
+| 内容安全 | `content_policy` 启用且词非空 → 重建 `SensitiveFilter`（内置词库 + 远程词，去重）；`sensitive:check/replace` IPC 自动使用远程过滤器（未配置回退内置） |
+| 版本发布 | `update_policy` → auto-updater `applyPolicy`：force_version 高于当前版本 → 跳过灰度强制检查；gray_ratio<100 → 按概率跳过检查（灰度）；min_version → 状态 `policy-min-version` 提示升级；enabled=false → 不生效 |
+| 安全 | 端点复用目录同步 Key；管理 CRUD require_admin；词库/公告不含用户隐私 |
+
+##### 7.4.6.3 验收标准
+
+① 运营后台发布 maintenance 公告 → 桌面端同步后顶部常驻红色横幅且不可关闭；info 公告可关闭且刷新不重现；② 配置 `force_version=2.3.53` 且当前 2.3.50 → 桌面端强制检查更新（不受灰度限制）；③ `gray_ratio=0` → 桌面端跳过更新检查（`skipped-by-policy`）；④ `min_version=2.3.53` 且当前低于 → 状态含 `policy-min-version` 提示；⑤ 运营后台配置敏感词「新词」→ 桌面端 `sensitive:check('含新词')` 命中；关闭策略 → 仅内置词库；⑥ runtime 拉取失败不影响模型目录同步；⑦ 未配置同步的桌面端公告区为空、更新走默认流程。
+
 ---
 
 ## 八、内容采集与收藏流程

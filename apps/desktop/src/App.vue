@@ -1,6 +1,7 @@
 <template>
   <div class="app-root">
     <OfflineIndicator />
+    <AnnouncementBanner />
 
     <template v-if="isYixiaoerWorkspace">
       <div class="yixiaoer-shell" data-testid="yixiaoer-shell">
@@ -43,6 +44,7 @@ import AppSidebar from '@/layouts/AppSidebar.vue'
 import YixiaoerModuleNav from '@/layouts/YixiaoerModuleNav.vue'
 import YixiaoerSidebar from '@/layouts/YixiaoerSidebar.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
+import AnnouncementBanner from '@/components/AnnouncementBanner.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'

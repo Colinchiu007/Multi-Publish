@@ -30,6 +30,13 @@ function registerHandlers (ipcMain, deps) {
     try { return await opsCenterSync.syncNow() }
     catch (e) { return { code: -1, message: e.message } }
   })
+
+  ipcMain.handle('ops-center-sync:runtime', () => {
+    try {
+      if (typeof opsCenterSync.getRuntimeState !== 'function') return { code: -1, message: '运行时策略服务未就绪' }
+      return { code: 0, data: opsCenterSync.getRuntimeState() }
+    } catch (e) { return { code: -1, message: e.message } }
+  })
 }
 
 module.exports = { registerHandlers }

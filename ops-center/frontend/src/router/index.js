@@ -39,6 +39,24 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/announcements',
+    name: 'Announcements',
+    component: () => import('../views/Announcements.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/update-policy',
+    name: 'UpdatePolicy',
+    component: () => import('../views/UpdatePolicy.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/content-policy',
+    name: 'ContentPolicy',
+    component: () => import('../views/ContentPolicy.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/model-presets',
     name: 'ModelPresets',
     component: () => import('../views/ModelPresets.vue'),

@@ -112,3 +112,43 @@ describe('sensitive IPC 可信来源正常工作', () => {
     expect(result).toEqual({ code: 0, data: { hit: ['关键词'], replaced: '***' } })
   })
 })
+
+describe('sensitive IPC 远程词库（OpsCenterSync 注入）', () => {
+  function makeIpc() {
+    const handlers = {}
+    const ipcMain = {
+      handle: vi.fn((ch, fn) => { handlers[ch] = fn }),
+      on: vi.fn(),
+    }
+    return { ipcMain, call: (ch, ...args) => handlers[ch]({ sender: { url: 'http://localhost:5174' } }, ...args) }
+  }
+
+  it('opsCenterSync 提供远程过滤器时优先使用（内置 + 远程词命中）', async () => {
+    const { ipcMain, call } = makeIpc()
+    registerHandlers(ipcMain, {
+      opsCenterSync: {
+        getSensitiveFilter: () => ({
+          check: (t) => ({ hasSensitive: t.includes('远程词'), words: t.includes('远程词') ? ['远程词'] : [], positions: [] }),
+          replace: (t) => t.replace(/远程词/g, '***'),
+        }),
+      },
+    })
+    const res = await call('sensitive:check', { text: '含远程词的内容' })
+    expect(res.code).toBe(0)
+    expect(res.data.hasSensitive).toBe(true)
+    expect(res.data.words).toEqual(['远程词'])
+
+    const replaced = await call('sensitive:replace', { text: '远程词' })
+    expect(replaced.code).toBe(0)
+    expect(replaced.data).toBe('***')
+  })
+
+  it('未注入 opsCenterSync 时回退内置过滤器', async () => {
+    const { ipcMain, call } = makeIpc()
+    const builtin = { check: vi.fn(() => ({ hasSensitive: false, words: [], positions: [] })), replace: vi.fn(t => t) }
+    registerHandlers(ipcMain, { _sensitiveFilter: builtin })
+    const res = await call('sensitive:check', { text: 'x' })
+    expect(res.code).toBe(0)
+    expect(builtin.check).toHaveBeenCalledWith('x')
+  })
+})

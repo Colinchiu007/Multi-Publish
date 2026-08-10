@@ -146,7 +146,7 @@ describe('OpsCenterSync syncNow', () => {
     global.fetch = vi.fn(async () => jsonResp({ status: 401 }))
     expect((await svc.syncNow()).message).toContain('API Key 无效')
     global.fetch = vi.fn(async () => jsonResp({ status: 404 }))
-    expect((await svc.syncNow()).message).toContain('未启用目录同步')
+    expect((await svc.syncNow()).message).toContain('未启用运营同步')
     global.fetch = vi.fn(async () => jsonResp({ status: 500 }))
     expect((await svc.syncNow()).message).toContain('HTTP 500')
   })
@@ -236,5 +236,77 @@ describe('OpsCenterSync autoSyncOnStart', () => {
     expect(spy).not.toHaveBeenCalled()
     vi.advanceTimersByTime(3001)
     expect(spy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('applyRuntime 缓存公告/策略并重建敏感词过滤器（内置 + 远程词）', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime({
+      announcements: [{ title: '维护', severity: 'maintenance', content: 'x' }],
+      update_policy: { min_version: '2.3.50', force_version: '2.3.53', gray_ratio: 50, enabled: true },
+      content_policy: { name: '默认', word_list: ['远程词甲', '远程词乙'], replacement: '***', enabled: true },
+      synced_at: '2026-08-10T00:00:00Z',
+    })
+    const state = svc.getRuntimeState()
+    expect(state.announcements).toHaveLength(1)
+    expect(state.announcements[0].severity).toBe('maintenance')
+    expect(state.updatePolicy.force_version).toBe('2.3.53')
+    // 渲染端最小权限：词库/替换串不下发
+    expect(state.contentPolicy).not.toHaveProperty('word_list')
+    expect(state.contentPolicy).not.toHaveProperty('replacement')
+    expect(state.contentPolicy.enabled).toBe(true)
+    expect(svc.getReplacement()).toBe('***')
+    expect(svc.getUpdatePolicy().gray_ratio).toBe(50)
+
+    const filter = svc.getSensitiveFilter()
+    expect(filter).toBeTruthy()
+    expect(filter.check('这里有远程词甲').hasSensitive).toBe(true)
+    expect(filter.replace('远程词乙')).toContain('***')
+    // 持久化到 settings（值包含运行时状态 JSON）
+    expect(store._getData()).toContain('"announcements"')
+    expect(store.setSetting).toHaveBeenCalledWith('opsCenterRuntime', expect.stringContaining('远程词甲'))
+  })
+
+  it('内容安全策略未启用或词为空时，敏感词过滤器仅含内置词库', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime({ announcements: [], content_policy: { enabled: false, word_list: ['远程词'] }, synced_at: 't' })
+    const filter = svc.getSensitiveFilter()
+    expect(filter.check('远程词').hasSensitive).toBe(false)
+  })
+
+  it('setUpdatePolicyConsumer 在 applyRuntime 时收到策略', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    const consumer = vi.fn()
+    svc.setUpdatePolicyConsumer(consumer)
+    svc.applyRuntime({ announcements: [], update_policy: { min_version: '2.3.50', enabled: true } })
+    expect(consumer).toHaveBeenCalledWith(expect.objectContaining({ min_version: '2.3.50' }))
+  })
+
+  it('syncNow 目录成功时 best-effort 拉取 runtime（失败仅 warn，目录结果不受影响）', async () => {
+    const store = makeStore()
+    const manager = makeManager()
+    const svc = new OpsCenterSync({ store, modelProviderManager: manager, log: LOG })
+    svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'k' })
+    const originalFetch = global.fetch
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes('/runtime/bootstrap')) {
+        return jsonResp({ body: { announcements: [{ title: '公告', severity: 'info', content: '' }], update_policy: null, content_policy: null, synced_at: 't' } })
+      }
+      return jsonResp({ body: { items: [{ id: 'openai' }] } })
+    })
+    try {
+      const res = await svc.syncNow()
+      expect(res.code).toBe(0)
+      expect(res.runtimeApplied).toBe(true)
+      expect(svc.getRuntimeState().announcements).toHaveLength(1)
+    } finally {
+      global.fetch = originalFetch
+    }
   })
 })

@@ -178,6 +178,14 @@ function extractContext(container) {
   // 运营后台 → 桌面端运行时同步（目录拉取 + applyCatalog + 启动自动同步）
   const { OpsCenterSync } = require('../services/ops-center-sync')
   const opsCenterSync = new OpsCenterSync({ store, modelProviderManager, log })
+  // 版本发布策略（强制/灰度/最低版本）→ auto-updater
+  if (opsCenterSync && typeof opsCenterSync.setUpdatePolicyConsumer === 'function') {
+    opsCenterSync.setUpdatePolicyConsumer((policy) => autoUpdater.applyPolicy(policy))
+  }
+  // 启动即水合已持久化策略，避免首次 update:check 在同步完成前绕过策略（审查 W）
+  if (opsCenterSync && typeof opsCenterSync.getUpdatePolicy === 'function' && autoUpdater.applyPolicy) {
+    autoUpdater.applyPolicy(opsCenterSync.getUpdatePolicy())
+  }
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
   }

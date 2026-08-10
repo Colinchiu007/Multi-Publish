@@ -258,6 +258,7 @@ function createSystemApi(ipcRenderer) {
     opsCenterSyncGet: () => ipcRenderer.invoke('ops-center-sync:get'),
     opsCenterSyncSave: (payload) => ipcRenderer.invoke('ops-center-sync:save', payload),
     opsCenterSyncNow: () => ipcRenderer.invoke('ops-center-sync:now'),
+    opsCenterSyncRuntime: () => ipcRenderer.invoke('ops-center-sync:runtime'),
     modelProviderGet: (id) => ipcRenderer.invoke('model-provider:get', id),
     modelProviderCreate: (data) => ipcRenderer.invoke('model-provider:create', data),
     modelProviderUpdate: (id, data) => ipcRenderer.invoke('model-provider:update', id, data),
