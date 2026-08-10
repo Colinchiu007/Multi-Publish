@@ -66,6 +66,15 @@ const routes = [
     path: '/keyword-watchlist',
     name: 'KeywordWatchlist',
     component: () => import('../views/KeywordWatchlist.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/pipeline-deps',
+    name: 'PipelineDeps',
+    component: () => import('../views/PipelineDeps.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/redemption-codes',
     name: 'RedemptionCodes',
     component: () => import('../views/RedemptionCodes.vue'),

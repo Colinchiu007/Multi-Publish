@@ -340,3 +340,24 @@ class RedemptionCode(Base):
     updated_by = Column(String(100), default="")
 
 
+class PipelineDependency(Base):
+    """流水线所需依赖 — 视频创作流水线 → 模型类型 + 候选供应商（运营后台维护）。"""
+
+    __tablename__ = "pipeline_dependencies"
+    __table_args__ = (
+        sa.UniqueConstraint("pipeline_id", "model_type", name="uq_pipeline_dep_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id = Column(String(64), nullable=False)  # 如 story2video-compose
+    pipeline_name = Column(String(100), default="")
+    model_type = Column(String(30), nullable=False)  # llm | tts | speech_recognition | image | video | audio | multimodal
+    required = Column(Integer, default=1)  # 0=可选
+    provider_candidates = Column(Text, default="[]")  # JSON 数组（供应商 id）
+    default_provider = Column(String(64), default="")
+    description = Column(String(200), default="")
+    enabled = Column(Integer, default=1)
+    sort_order = Column(Integer, default=0)
+    deleted_at = Column(String, nullable=True)  # 软删（不复活，可重建）
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
