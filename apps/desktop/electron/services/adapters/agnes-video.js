@@ -4,9 +4,9 @@
  *
  * Agnes Video API 关键特性：
  * - 认证头 Authorization: Bearer {key}（sk- 开头密钥）
- * - generateVideo: POST /videos/generations（OpenAI 兼容协议）
+ * - generateVideo: POST /video/generations（OpenAI 兼容协议）
  * - 请求体 { model: 'agnes-video-v2.0', prompt, image, width, height, num_frames, frame_rate, negative_prompt, seed }
- * - getVideoStatus: GET /videos/generations/{video_id}（推荐按 video_id 查询）
+ * - getVideoStatus: GET /video/generations/{video_id}（推荐按 video_id 查询）
  * - 异步任务模式：generateVideo 返回 taskId，通过 getVideoStatus 轮询
  *
  * 默认端点 https://apihub.agnes-ai.com/v1，需 API Key。
@@ -151,7 +151,7 @@ class AgnesVideoAdapter extends BaseAdapter {
       seed: params.seed || undefined,
     }
 
-    const resp = await this._request('/videos/generations', {
+    const resp = await this._request('/video/generations', {
       method: 'POST',
       body: JSON.stringify(body),
     })
@@ -181,7 +181,7 @@ class AgnesVideoAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'taskId is required')
     }
 
-    const resp = await this._request(`/videos/generations/${taskId}`)
+    const resp = await this._request(`/video/generations/${taskId}`)
     const data = await resp.json()
 
     // Agnes 状态映射
