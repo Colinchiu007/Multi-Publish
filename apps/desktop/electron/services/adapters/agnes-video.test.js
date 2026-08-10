@@ -84,6 +84,12 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
       expect(adapter.version).toBe(ADAPTER_VERSION)
     })
+
+    it('_url 对绝对 URL 原样返回（/agnesapi 位于域名根，不进 baseUrl 拼接）', () => {
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      expect(adapter._url('https://apihub.agnes-ai.com/agnesapi?video_id=x')).toBe('https://apihub.agnes-ai.com/agnesapi?video_id=x')
+      expect(adapter._url('/videos')).toBe('https://apihub.agnes-ai.com/v1/videos')
+    })
   })
 
   describe('validateConfig', () => {
@@ -308,7 +314,21 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       expect(result.status).toBe('completed')
       expect(result.videoUrl).toBe('https://platform-outputs.agnes-ai.space/videos/agnes-video-v2.0/task_1.mp4')
       expect(result.progress).toBe(100)
-      expect(fetchMock.calls[0].url).toContain('/agnesapi?video_id=agnes-task-1')
+      // 关键：查询端点必须位于域名根（https://apihub.agnes-ai.com/agnesapi），不能拼成 /v1/agnesapi
+      expect(fetchMock.calls[0].url).toBe('https://apihub.agnes-ai.com/agnesapi?video_id=agnes-task-1&model_name=agnes-video-v2.0')
+    })
+
+    it('callAdapter 对象参数 { videoId, taskId } 也能正确查询（统一 params 契约）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ status: 'completed', progress: 100, metadata: { url: 'https://cdn.example.com/v.mp4' } }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const result = await adapter.getVideoStatus({ videoId: 'task-obj-1', taskId: 'task-obj-1' })
+
+      expect(result.status).toBe('completed')
+      expect(fetchMock.calls[0].url).toBe('https://apihub.agnes-ai.com/agnesapi?video_id=task-obj-1&model_name=agnes-video-v2.0')
     })
 
     it('completed 时兼容旧版顶层 url 字段', async () => {
