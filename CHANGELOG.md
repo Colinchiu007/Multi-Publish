@@ -12,7 +12,10 @@
 - 视觉门禁修复：home-baseline 就绪超时——首页已重绘为 `.yixiaoer-home` 布局，但 `run-pixel-tests.js` 的 waitFor 仍指向已删除的 `.cohere-main .page-title`，CI 连续 3 次稳定超时（appTextLength=263）；同步修正 run-pixel-tests.js / all-views / functional-test 首页选择器为 `.yixiaoer-home .yixiaoer-home-welcome`，`visual-ci.test.js` 新增合同断言防回归，重生成 home-baseline.png；本地全量 17 视图像素套件 2% 阈值全部通过。
 - GUI 门禁修复（同源）：E2E 路由检查与 flow-2 仍用旧首页文案/选择器——`route-functional-suite.js` home title 改为新首页稳定静态文案“多平台内容一键发布”，`exerciseHome` 改用 `.yixiaoer-home-shortcut` 快捷入口并把已移除的 `getVersion` IPC 断言替换为新首页真实调用的 `historyList`；`integration-flows.js` Flow2.5 平台列表选择器增加 `.yixiaoer-home-platform-tag`；本地完整 `test:e2e` 314/314 checks 通过（18 路由 + 6 集成流）。
 - 边界：卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
-- 存量：大范围回归中 `Home.test.js` / `Publish.test.js` / `PublishHistory.test.js` / `views-deep.test.js` 共 34 例失败，经确认这些文件与 HEAD 完全一致且未引用 Accounts.vue，属 Round 2 已合并的存量失败，与本次改动无关；本次 accounts 聚焦回归 98/98 通过；`Publish.test.js` 8 例失败经 git diff 验证本次仅改 class/CSS（无脚本逻辑变更）仍为同一存量失败。
+- 存量更正：此前记录「Home.test.js / Publish.test.js / PublishHistory.test.js / views-deep.test.js 34 例失败属 Round 2 已合并存量」的结论**已被推翻**——main 分支 Electron CI 全绿，34 例实为本分支 UI 重绘/store 改造导致的测试失同步，全部修复如下：
+  - `Home.test.js` 重写为 8 例（mock identity/platforms stores，覆盖 welcome/快捷入口/平台标签 fallback/统计 IPC/空动态/导航/无 electronAPI 降级）；`views-deep.test.js` Home 部分同步新首页选择器与 IPC。
+  - `Publish.test.js`：`accountStore` mock 补 `ensureLoaded`（组件 `loadAccounts()` 已从 `load()` 改调 `ensureLoaded()` 修竞态，mock 缺该方法导致 onMounted 抛错级联），36/36 通过。
+  - `PublishHistory.test.js`：新增 `@/stores/platforms` mock（组件已统一走 `platformStore.getLabel/getIcon/getContentCategory`，未 mock 导致无 active Pinia 报错），19/19 通过。
 
 ## [未发布] 蚁小二账号/发布模块全面对标 Round 2（2026-08-10）
 

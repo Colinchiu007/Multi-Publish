@@ -121,19 +121,20 @@ describe("HomeView (deep)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.electronAPI = {
-      getVersion: vi.fn().mockResolvedValue({ code: 0, data: "2.1.0" }),
       storeGetPublishStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 100, success: 95, failed: 5 } }),
       storeListAccounts: vi.fn().mockResolvedValue({ code: 0, data: [{ id: "a1" }, { id: "a2" }, { id: "a3" }] }),
+      historyList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
     };
   });
 
-  it("navigates on card click", async () => {
+  it("navigates on shortcut click", async () => {
     const { mod } = await setupView("Home.vue");
     const w = mount(mod.default);
     await nextTick();
     await new Promise(r => setTimeout(r, 0));
-    const cards = w.findAll(".cohere-stat-card");
-    await cards[3].trigger("click");
+    // 首页已复刻为蚁小二风格，快捷入口第 2 格为账号管理。
+    const shortcuts = w.findAll(".yixiaoer-home-shortcut");
+    await shortcuts[1].trigger("click");
     expect(pushSpy).toHaveBeenCalledWith("/accounts");
   });
 
@@ -145,12 +146,14 @@ describe("HomeView (deep)", () => {
     expect(window.electronAPI.storeGetPublishStats).toHaveBeenCalled();
   });
 
-  it("shows version from API", async () => {
+  it("shows platform tags from store", async () => {
     const { mod } = await setupView("Home.vue");
     const w = mount(mod.default);
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
-    expect(w.text()).toContain("2.1.0");
+    expect(w.text()).toContain("多平台内容一键发布");
+    expect(w.text()).toContain("微信");
+    expect(w.text()).toContain("知乎");
   });
 });
 

@@ -23,6 +23,16 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push: pushMock }),
 }))
 
+// PublishHistory 已统一走 platformStore；mock 返回空值让组件回退到 PLATFORM_NAMES/PLATFORM_ICONS 与显式 contentType。
+vi.mock('@/stores/platforms', () => ({
+  usePlatformStore: () => ({
+    load: vi.fn(),
+    getLabel: () => '',
+    getIcon: () => '',
+    getContentCategory: () => 'ARTICLE',
+  }),
+}))
+
 import PublishHistory from './PublishHistory.vue'
 
 function mountView () {
