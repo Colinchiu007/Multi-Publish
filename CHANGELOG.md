@@ -1,3 +1,10 @@
+## [未发布] 修复：图片轮播选项可用性（恢复枚举归一化 + 语音生成器空标签 + 运行进度 i18n 缺键）（2026-08-10）
+
+- 修复：恢复「上次使用的选项」时对下拉枚举字段（内容类型/图片风格/提示词风格/图片动效/转场/字幕字号/字幕样式/分句语言/分句模式/分镜粒度视图/fps/格式）做白名单归一化——陈旧快照值（如 imageStyle=anime-mslpadvn）不在当前选项列表时回退到 data() 默认值（默认值本身也须在白名单内），避免下拉框空白选中项与折叠摘要/下拉不一致。
+- 修复：语音生成器下拉首项「自动 Edge TTS」标签为空（s2vVoiceProviderOptions 首项缺 displayName，模板渲染出空 `<option>`），补齐 displayName 后正常显示。
+- 修复：运行进度文案 i18n 缺键（story2video.elapsed / durationSec / durationMinSec）导致 intlify 回退警告——新增命名插值消息函数并让 translateWithLocaleFallback 透传 params；顺带补齐 create.story2video.resetOptions。
+- 回归：CreateView +2（恢复枚举归一化 / 语音生成器 displayName）、i18n +1（命名插值 zh/en）；聚焦 125 用例通过；vite build 通过；Claude 双轮只读审查 Critical/Warning 均无（antigravity 后端不可用已记录）。
+
 ## [未发布] 重构：BGM 跳过提示单一来源（服务层 warnings 机器码化）（2026-08-10）
 
 - 重构：compose 引擎 BGM 降级警告由中文改为机器码（bgm_size_exceeded / bgm_format_unsupported / bgm_not_allowed / bgm_unreadable），服务层不再硬编码用户可见中文；用户可见文案统一由前端依据 bgmSkippedReason 本地化（bgmSkippedReasonText / formatBgmSkippedNotification），消除双份映射漂移（PR #466 审查 Minor7）。

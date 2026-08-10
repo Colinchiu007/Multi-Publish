@@ -82,11 +82,18 @@ export default {
         templateOutput: 'Template & Output',
       },
       startPipeline: 'Start pipeline',
+      resetOptions: 'Reset to default options',
       mediaRequirementsImage: 'Supports jpg / jpeg / png / webp. Max 10MB per file.',
       mediaRequirementsAudio: 'Supports wav / m4a / mp3. Max 50MB per file.',
       mediaRequirementsBgm: 'Supports wav / m4a / mp3. Max 15MB per file.',
       mediaRequirementsVideo: 'Supports mp4 / mov / webm / mkv / avi. Max 512MB per file.',
     },
+  },
+  // Runtime progress copy (CreateView formatDuration / elapsed named interpolation; missing keys fixed 2026-08-10)
+  story2video: {
+    elapsed: (ctx) => 'Elapsed ' + ctx.named('duration'),
+    durationSec: (ctx) => String(ctx.named('seconds')) + 's',
+    durationMinSec: (ctx) => String(ctx.named('minutes')) + 'm ' + String(ctx.named('seconds')) + 's',
   },
   pipelines: {
     names: {

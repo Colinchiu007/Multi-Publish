@@ -418,6 +418,73 @@ describe("CreateView", () => {
     w.unmount();
   });
 
+  it("恢复上次选项时把不在选项列表中的枚举值归一化（陈旧值回退默认，避免下拉为空）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: {
+        version: 1,
+        s2vConfig: {
+          contentType: "mystery",
+          imageStyle: "anime-mslpadvn",
+          promptStyle: "unknown-style",
+          imageEffect: "unknown-effect",
+          transition: "unknown-transition",
+          subtitleSize: "size99",
+          subtitleStyleName: "style99",
+          splitLanguage: "xx",
+          splitMode: "random",
+          splitViewMode: "weird",
+          voiceSpeed: 1.2,
+        },
+        s2vOutputConfig: { resolution: "1920x1080", fps: 25, format: "avi" },
+        ui: {},
+      },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vVoiceProviders = [{ id: "minimax-tts" }];
+    w.vm.s2vImageProviders = [{ id: "minimax-image" }];
+    await w.vm.restoreS2VLastOptions();
+    // 陈旧枚举值回退到当前选项列表内的默认值
+    expect(w.vm.s2vConfig.contentType).toBe("general");
+    expect(w.vm.s2vConfig.imageStyle).toBe("cinematic");
+    expect(w.vm.s2vConfig.promptStyle).toBe("realistic");
+    expect(w.vm.s2vConfig.imageEffect).toBe("zoom-in");
+    expect(w.vm.s2vConfig.transition).toBe("fade");
+    expect(w.vm.s2vConfig.subtitleSize).toBe("size3");
+    expect(w.vm.s2vConfig.subtitleStyleName).toBe("style1");
+    expect(w.vm.s2vConfig.splitLanguage).toBe("auto");
+    expect(w.vm.s2vConfig.splitMode).toBe("balanced");
+    expect(w.vm.s2vConfig.splitViewMode).toBe("seconds");
+    // 输出配置归一化
+    expect(w.vm.s2vOutputConfig.fps).toBe(30);
+    expect(w.vm.s2vOutputConfig.format).toBe("mp4");
+    // 非枚举字段保持恢复值
+    expect(w.vm.s2vConfig.voiceSpeed).toBe(1.2);
+    // 合法枚举值仍被保留：重新执行归一化也不被重置（claude review I4）
+    w.vm.s2vConfig.imageStyle = "anime";
+    w.vm.normalizeS2VRestoredEnums();
+    expect(w.vm.s2vConfig.imageStyle).toBe("anime");
+    mocks.storeGetSetting.mockReset();
+    w.unmount();
+  });
+
+  it("语音生成器选项首项带「自动 Edge TTS」显示名（下拉标签不再为空）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    w.vm.s2vVoiceProviders = [{ id: "minimax-tts", name: "MiniMax TTS", category: "tts", models: ["speech-2.8-turbo"] }];
+    const options = w.vm.s2vVoiceProviderOptions;
+    expect(options[0]).toEqual({ id: "", name: "自动 Edge TTS", displayName: "自动 Edge TTS" });
+    expect(options[1].displayName).toBe("MiniMax TTS");
+    w.unmount();
+  });
+
   it("保存并重置图片轮播选项设置", async () => {
     const mocks = await import("@/api/publisher");
     mocks.storeGetSetting.mockResolvedValue(null);
