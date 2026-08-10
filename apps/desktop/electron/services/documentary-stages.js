@@ -50,9 +50,14 @@ function getDefaultProviderConfig (aiGenerator, type) {
     ? manager.getDefault(type)
     : null
   if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
-  const model = Array.isArray(provider.models)
-    ? provider.models.find(item => typeof item === 'string' && item.trim())
-    : null
+  // 复合 provider（如 minimax-multimodal）声明 capability_models 按能力选模型；
+  // 必须优先于 models[0]，否则会把 TTS 模型（speech-2.8-turbo）当图片模型传给生图。
+  const capabilityModel = provider.capability_models && provider.capability_models[type]
+  const model = typeof capabilityModel === 'string' && capabilityModel.trim()
+    ? capabilityModel.trim()
+    : (Array.isArray(provider.models)
+        ? provider.models.find(item => typeof item === 'string' && item.trim())
+        : null)
   return model ? { providerId: provider.id.trim(), model: model.trim() } : null
 }
 
