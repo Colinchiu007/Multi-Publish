@@ -1335,6 +1335,85 @@ Electron 打包、工作树、PR 或发布状态证据。
 5. 视觉回归测试（如有基线截图）无意外差异
 
 
+
+#### 7.1.24 视频创作模块 UI/UX 深度优化（2026-08-10）
+
+**背景**：在 7.1.23 设计令牌体系基础上，对视频创作模块 8 个前端文件（共 6099 行）进行 UI/UX 深度优化，覆盖可访问性、交互体验、视觉一致性、加载状态、空状态等维度。
+
+##### A. 可访问性（Accessibility）
+
+| 优化项 | 优化前 | 优化后 | 影响文件 |
+|--------|--------|--------|----------|
+| 流水线卡片键盘导航 | 仅支持鼠标点击 | tabindex="0" + role="button" + @keydown.enter | CreateView.vue, PipelineBrowser.vue |
+| 流水线卡片 ARIA 标签 | 无 aria-label | :aria-label="pipelineName(p.name)" | CreateView.vue, PipelineBrowser.vue |
+| 历史记录卡片键盘导航 | 仅支持鼠标点击 | tabindex="0" + role="button" + @keydown.enter | CreateHistory.vue |
+| 焦点可见性 | 无 focus 样式 | .pipeline-card:focus-visible, .render-card:focus-visible, .history-item:focus-visible 统一 outline: 2px solid var(--primary) | CreateView.vue, CreateHistory.vue, PipelineBrowser.vue |
+
+##### B. 视觉一致性
+
+| 优化项 | 优化前 | 优化后 | 说明 |
+|--------|--------|--------|------|
+| 页面布局 | CreateView: padding 24px, max-width 1100px; CreateHistory: padding 24px 32px, max-width 1080px | 统一为 padding: 24px 32px, max-width: 1080px | 两页面布局对齐 |
+| 页面标题间距 | CreateView: margin-bottom 24px; CreateHistory: margin-bottom 20px | 统一为 margin-bottom: 20px | 标题下方间距一致 |
+| H1 字号 | CreateView: 24px; CreateHistory: 26px | 统一为 24px | 标题字号一致 |
+| 流水线卡片圆角 | CreateView: 12px; PipelineBrowser: 8px; CreateHistory: 10px | 统一为 12px | 卡片圆角一致 |
+| 流水线卡片内边距 | CreateView: 20px; PipelineBrowser: 16px; CreateHistory: 16px 20px | 统一为 16px 20px | 卡片内边距一致 |
+| 进度条过渡动画 | 无过渡 | transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1) | 进度条平滑过渡 |
+| BoardStageIndicator 样式隔离 | <style>（全局泄漏） | <style scoped> | 防止 CSS 污染 |
+
+##### C. 设计令牌扩展
+
+| 新增令牌类别 | 变量前缀 | 示例 | 说明 |
+|-------------|----------|------|------|
+| Upload Zone 拖拽反馈 | --upload-zone-* | --upload-zone-hover-border: var(--primary) | 上传区域拖拽时的边框和背景色 |
+| 骨架屏加载 | --skeleton-* | --skeleton-bg: #e5e7eb | 骨架屏背景和微光动画色 |
+
+##### D. 上传区域交互增强
+
+| 交互状态 | 视觉反馈 | CSS 类 |
+|----------|----------|--------|
+| 默认 | 2px dashed border | .upload-zone |
+| 拖拽悬停 | 边框变为主题色 + 浅色背景 | .upload-zone.drag-over |
+| 按下 | 边框变为主题色 + 浅色背景 | .upload-zone:active |
+
+##### E. 空状态优化
+
+| 位置 | 优化前 | 优化后 |
+|------|--------|--------|
+| 渲染记录为空 | "暂无渲染记录" + 按钮 | 🎬 图标 + "暂无渲染记录" + 提示文字 + 按钮 |
+| 流水线记录为空 | "暂无流水线运行记录" + 按钮 | 🔄 图标 + "暂无流水线运行记录" + 提示文字 + 按钮 |
+| 错误弹窗（不可恢复） | 仅错误消息 + 关闭按钮 | 错误消息 + 关闭按钮 + "如问题持续出现，请检查日志或重新启动流水线" 提示 |
+
+##### F. 骨架屏加载样式
+
+| 样式类 | 用途 | 动画 |
+|--------|------|------|
+| .skeleton | 骨架屏基础容器 | 微光动画（shimmer） |
+| .skeleton-text | 文字行骨架 | 14px 高度 |
+| .skeleton-card | 卡片骨架 | 120px 高度 + 12px 圆角 |
+
+##### G. 数据校验与边界
+
+| 校验项 | 合同 |
+|--------|------|
+| ARIA 标签完整性 | 所有可交互卡片必须有 aria-label，且值为用户可见的名称文本 |
+| 键盘导航 | Tab 键可聚焦所有可交互卡片，Enter 键可激活 |
+| 焦点可见性 | focus-visible 样式必须使用 outline（不改变布局），颜色为 var(--primary) |
+| 样式隔离 | BoardStageIndicator.vue 必须使用 scoped 样式，防止全局 CSS 污染 |
+| 骨架屏 Token | --skeleton-bg 和 --skeleton-shimmer 必须在 :root 和 [data-theme="dark"] 中同时定义 |
+
+##### H. 验收标准
+
+1. 所有可交互卡片（pipeline-card、render-card、pipeline-card、history-item）支持 Tab 键聚焦 + Enter 键激活
+2. Tab 键聚焦时显示 2px solid var(--primary) 焦点环
+3. 页面布局、卡片圆角、卡片内边距在 CreateView 和 CreateHistory 中完全一致
+4. 进度条过渡动画为 0.4s cubic-bezier(0.4, 0, 0.2, 1)
+5. 上传区域拖拽悬停时边框变为主题色
+6. 空状态显示图标 + 提示文字 + 操作按钮
+7. BoardStageIndicator 使用 scoped 样式
+8. 158 个相关测试全部通过
+9. Vite build 无编译错误
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
