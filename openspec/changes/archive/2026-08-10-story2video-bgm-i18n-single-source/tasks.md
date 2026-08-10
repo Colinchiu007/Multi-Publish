@@ -14,4 +14,4 @@
 
 - [x] 受影响 vitest 套件全绿（compose-engine + paths 103 用例，含 4 码断言与无中文防回退）
 - [x] 双模型审查（Claude Critical 0，Major1-2 + Minor1-3 已修复；antigravity 降级记录）
-- [ ] PR + 合并回 main；openspec/CCG/learnings 三同步
+- [x] PR #468 已合并回 main（merge 2e2ac3f2，CI 全绿）；本归档为三同步
