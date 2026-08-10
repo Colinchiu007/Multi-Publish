@@ -66,16 +66,16 @@
           <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
         </div>
         <div v-else class="pipeline-list">
-          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="p.status" tabindex="0" role="button" @keydown.enter="openPipeline(p)" @click="openPipeline(p)">
+          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="effectiveStatus(p)" tabindex="0" role="button" @keydown.enter="openPipeline(p)" @click="openPipeline(p)">
             <div class="pipeline-info">
-              <span class="pipeline-status-dot" :class="p.status"></span>
+              <span class="pipeline-status-dot" :class="effectiveStatus(p)"></span>
               <div class="pipeline-meta">
                 <span class="pipeline-name">{{ humanName(p.pipelineName || p.name) }}</span>
                 <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt || p.createdAt) }}</span>
               </div>
             </div>
-            <span class="pipeline-status" :class="p.status">{{ statusLabel(p.status) }}</span>
-            <div v-if="p.status === 'running'" class="pipeline-progress">
+            <span class="pipeline-status" :class="effectiveStatus(p)">{{ statusLabel(effectiveStatus(p)) }}</span>
+            <div v-if="effectiveStatus(p) === 'running'" class="pipeline-progress">
               <div class="progress-bar"><div class="progress-fill" :style="{ width: pipelineProgress(p) + '%' }"></div></div>
               <span class="progress-text">{{ pipelineProgress(p) }}%</span>
             </div>
@@ -86,9 +86,9 @@
                 </span>
               </div>
               <div class="pipeline-hints">
-                <span v-if="p.status === 'running'" class="pipeline-running-hint">与流水线页面实时同步</span>
-                <span v-if="p.status === 'paused' && p.pausedStage" class="pipeline-paused-hint">暂停环节：{{ stageLabel(p.pausedStage) }}</span>
-                <span v-if="p.status === 'failed'" class="pipeline-paused-hint" style="background:var(--status-failed-bg);color:var(--status-failed-text);">生成失败</span>
+                <span v-if="effectiveStatus(p) === 'running'" class="pipeline-running-hint">与流水线页面实时同步</span>
+                <span v-if="effectiveStatus(p) === 'paused' && pausedStageOf(p)" class="pipeline-paused-hint">暂停环节：{{ stageLabel(pausedStageOf(p)) }}</span>
+                <span v-if="effectiveStatus(p) === 'failed'" class="pipeline-failed-hint">生成失败</span>
               </div>
             </div>
           </div>
@@ -139,10 +139,13 @@ export default {
   },
   computed: {
     runningPipelineCount() {
-      return (this.pipelines || []).filter((p) => p && p.status === 'running').length
+      return (this.pipelines || []).filter((p) => p && this.effectiveStatus(p) === 'running').length
     },
     failedOrCancelledPipelineCount() {
-      return (this.pipelines || []).filter((p) => p && (p.status === 'failed' || p.status === 'cancelled')).length
+      return (this.pipelines || []).filter((p) => {
+        const s = this.effectiveStatus(p)
+        return s === 'failed' || s === 'cancelled'
+      }).length
     },
   },
   methods: {
@@ -190,19 +193,20 @@ export default {
     },
     schedulePipelineRefresh() {
       if (this.pipelinePollTimer) { clearInterval(this.pipelinePollTimer); this.pipelinePollTimer = null }
-      const hasRunning = (this.pipelines || []).some((p) => p && p.status === 'running')
+      const hasRunning = (this.pipelines || []).some((p) => p && this.effectiveStatus(p) === 'running')
       if (!hasRunning) return
       // 存在后台运行中的流水线：每 5s 轮询刷新进度状态（同流水线页面一致）
       this.pipelinePollTimer = setInterval(() => { this.loadPipelines() }, 5000)
     },
     openPipeline(p) {
       if (!p) return
-      if (p.status === 'running' || p.status === 'failed' || p.status === 'cancelled' || p.status === 'paused') {
-        // 运行中/失败/已取消：跳回创作页，CreateView 恢复查看该流水线进度/支持断点继续
+      const status = this.effectiveStatus(p)
+      if (status === 'running' || status === 'failed' || status === 'cancelled' || status === 'paused') {
+        // 运行中/失败/已取消/已暂停：跳回创作页，CreateView 恢复查看该流水线进度/支持断点继续
         this.$router.push('/create')
         return
       }
-      if (p.status === 'completed') {
+      if (status === 'completed') {
         const context = p.context || {}
         const composeRaw = context.compose?.data || context.compose
         const exportRaw = context.export?.data || context.export
@@ -212,6 +216,41 @@ export default {
           (reportRaw && (reportRaw.videoPath || reportRaw.path))
         this.$router.push('/create/result?path=' + encodeURIComponent(videoPath || ''))
       }
+    },
+    /**
+     * 计算流水线的展示状态。
+     * 后端 getHistory() 已将持久化 running 快照归一化为 paused，但活跃运行中的流水线
+     * 如果某个 stage 失败了，status 仍为 running。前端需要检测这种情况并显示为 paused。
+     */
+    effectiveStatus(p) {
+      if (!p) return 'completed'
+      // 后端已明确设置的 paused/failed/cancelled/completed 直接使用
+      if (p.status === 'paused' || p.status === 'failed' || p.status === 'cancelled' || p.status === 'completed') {
+        return p.status
+      }
+      // running 状态：检查是否有 stage 失败
+      if (p.status === 'running') {
+        const stages = Array.isArray(p.stages) ? p.stages : []
+        const hasFailedStage = stages.some((s) => s && typeof s === 'object' && s.status === 'failed')
+        if (hasFailedStage) return 'paused'
+        return 'running'
+      }
+      return p.status || 'completed'
+    },
+    /**
+     * 获取流水线的暂停环节信息。
+     * 优先使用后端 pausedStage 字段；对于活跃运行中被前端判定为 paused 的流水线，
+     * 从 stages 数组中找到第一个失败的 stage。
+     */
+    pausedStageOf(p) {
+      if (!p) return null
+      // 后端已设置 pausedStage
+      if (p.pausedStage) return p.pausedStage
+      // 活跃运行中但有 stage 失败：找到第一个失败的 stage
+      const stages = Array.isArray(p.stages) ? p.stages : []
+      const failedStage = stages.find((s) => s && typeof s === 'object' && s.status === 'failed')
+      if (failedStage) return failedStage.name || failedStage.stage || null
+      return null
     },
     statusLabel(s) {
       const labels = { completed: '已完成', running: '运行中', failed: '生成失败', cancelled: '已取消', paused: '已暂停' }
@@ -266,37 +305,55 @@ export default {
 .page-header h1 { font-size: 26px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.3px; }
 .text-muted { color: var(--text-muted); font-size: 14px; line-height: 1.5; }
 .page-tabs { display: flex; gap: 2px; margin-bottom: 24px; border-bottom: 2px solid var(--hairline, rgba(0,0,0,0.08)); }
-.tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; }
+.tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; }
+.tab:hover { color: var(--text, #333); }
 .tab.active { color: var(--primary, #7c5cbf); border-bottom-color: var(--primary, #7c5cbf); font-weight: 600; }
 .loading-state, .empty-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: var(--text-muted); justify-content: center; flex-direction: column; }
-.history-error { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; color: var(--status-failed-text); background: var(--status-failed-bg); border-radius: var(--r-sm); }
-.running-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--status-running-text); background: var(--status-running-bg); border-radius: var(--r-sm); cursor: pointer; font-size: 13px; }
-.running-banner:hover { background: var(--history-progress-active-shadow); }
-.render-list, .pipeline-list { display: flex; flex-direction: column; gap: 12px; }
-.render-card, .pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 18px 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
-.pipeline-card { border-left: 3px solid transparent; }
+
+/* 运行中/失败横幅 */
+.running-banner { background: var(--banner-warning-bg); color: var(--banner-warning-color); border: 1px solid var(--banner-warning-border); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; font-size: 13px; cursor: pointer; transition: background 0.15s; }
+.running-banner:hover { filter: brightness(0.96); }
+
+/* 渲染列表 */
+.render-list { display: flex; flex-direction: column; gap: 10px; }
+.render-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
+.render-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.render-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
+.render-icon { font-size: 22px; }
+.render-meta { display: flex; flex-direction: column; gap: 2px; }
+.render-name { font-size: 14px; font-weight: 600; line-height: 1.3; }
+.render-time { font-size: 12px; color: var(--text-light); }
+.render-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+.render-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
+.render-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.render-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+.render-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
+.render-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
+.render-actions { display: flex; gap: 6px; }
+
+/* 流水线列表 */
+.pipeline-list { display: flex; flex-direction: column; gap: 12px; }
+.pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 18px 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; border-left: 3px solid transparent; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
 .pipeline-card.running { border-left-color: var(--stability-beta); }
 .pipeline-card.failed { border-left-color: var(--pipe-cinematic); }
 .pipeline-card.cancelled { border-left-color: var(--text-light); }
 .pipeline-card.paused { border-left-color: var(--stability-experimental); }
 .pipeline-card.completed { border-left-color: var(--stability-production); }
-.render-card:hover, .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
-.render-info, .pipeline-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
-.render-icon { font-size: 24px; }
-.render-meta, .pipeline-meta { display: flex; flex-direction: column; gap: 2px; }
-.render-name, .pipeline-name { font-size: 14px; font-weight: 650; line-height: 1.3; }
-.render-time, .pipeline-time { font-size: 12px; color: var(--text-light); }
-.render-status, .pipeline-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
-.render-status.completed, .pipeline-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.render-status.failed, .pipeline-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
-.render-status.cancelled, .pipeline-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
-.render-status.paused, .pipeline-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
-.render-status.running, .pipeline-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
-.render-actions { display: flex; gap: 6px; }
-.pipeline-card-bottom { display: flex; align-items: center; gap: 12px; width: 100%; padding-top: 8px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); margin-top: 4px; }
+.pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
+.pipeline-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
+.pipeline-meta { display: flex; flex-direction: column; gap: 2px; }
+.pipeline-name { font-size: 14px; font-weight: 650; line-height: 1.3; }
+.pipeline-time { font-size: 12px; color: var(--text-light); }
+.pipeline-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+.pipeline-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
+.pipeline-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.pipeline-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+.pipeline-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
+.pipeline-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
+.pipeline-card-bottom { display: flex; align-items: center; gap: 12px; width: 100%; padding-top: 10px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); margin-top: 6px; }
 .pipeline-hints { display: flex; gap: 6px; flex-shrink: 0; }
-.pipeline-stages { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; min-width: 240px; }
-.stage-tag { font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--status-pending-bg); color: var(--status-pending-text); font-weight: 500; white-space: nowrap; }
+.pipeline-stages { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; min-width: 240px; }
+.stage-tag { font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--status-pending-bg); color: var(--status-pending-text); font-weight: 500; white-space: nowrap; transition: background 0.15s, color 0.15s; }
 .stage-tag.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .stage-tag.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
 .stage-tag.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
@@ -309,8 +366,9 @@ export default {
 .pipeline-status-dot.paused { background: var(--stability-experimental); }
 .pipeline-status-dot.running { background: var(--stability-beta); animation: pulse-dot 1.5s ease-in-out infinite; }
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-.pipeline-running-hint { font-size: 11px; color: var(--history-running-hint-text); background: var(--history-running-hint-bg); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; }
-.pipeline-paused-hint { font-size: 11px; color: var(--banner-warning-color); background: var(--banner-warning-bg); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; }
+.pipeline-running-hint { font-size: 11px; color: var(--history-running-hint-text); background: var(--history-running-hint-bg); padding: 2px 8px; border-radius: var(--r-xs, 4px); white-space: nowrap; }
+.pipeline-paused-hint { font-size: 11px; color: var(--banner-warning-color); background: var(--banner-warning-bg); padding: 2px 8px; border-radius: var(--r-xs, 4px); white-space: nowrap; }
+.pipeline-failed-hint { font-size: 11px; color: var(--status-failed-text); background: var(--status-failed-bg); padding: 2px 8px; border-radius: var(--r-xs, 4px); white-space: nowrap; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline); border-top-color: var(--primary, #7c5cbf); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -329,11 +387,14 @@ export default {
 .empty-state-icon { font-size: 48px; margin-bottom: 8px; opacity: 0.6; }
 .empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 12px; }
 
-
 /* 键盘导航焦点样式 */
 .render-card:focus-visible, .pipeline-card:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
+/* 错误状态 */
+.history-error { display: flex; align-items: center; gap: 8px; padding: 16px; background: var(--status-failed-bg); color: var(--status-failed-text); border-radius: 8px; font-size: 13px; }
+.history-error p { margin: 0; flex: 1; }
+.pipeline-history-error { margin-bottom: 16px; }
 </style>
