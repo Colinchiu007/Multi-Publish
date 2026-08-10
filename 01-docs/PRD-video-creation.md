@@ -144,6 +144,9 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-09 | 窗口关闭行为跨平台化（macOS 前瞻） | 平台决策收敛到 `services/window-close-policy.js`：darwin 关闭窗口不拦截（系统约定，进程留在 Dock、activate 重建窗口）、win32/linux 维持「运行任务+托盘可用→隐藏托盘」；托盘图标按平台回退（darwin 模板图标 setTemplateImage，其余占位图）；快照写入 POSIX rename 原子优先、Windows copy 回退。回归：window-close-policy 6 / window 51 / system-tray 28 / run-state-store 17 测试通过 | PRD 7.1.21（跨平台行） |
 | 2026-08-11 | CreateView 历史记录已暂停状态支持 | CreateView.vue historyStatusLabel() 新增 paused 映射、过滤器新增「已暂停」选项、暂停环节提示、断点续跑按钮、CSS 样式。详见本节 3.1.12 | PRD 7.1.24 |
 | 2026-08-11 | CreateView 历史记录组件拆分与 UI 优化 | 提取 CreateViewHistory.vue 独立组件、卡片式布局+状态色条、运行中脉冲动画、信息分层、失败原因展示、操作按钮分层、记录计数、空状态优化。详见 3.1.13 | PRD 7.1.25 |
+| 2026-08-11 | CreateHistory.vue stale running 检测 | 独立历史页面 loadPipelines() 新增 stale running 检测（30 分钟阈值），与 CreateView.vue 一致。详见 3.1.14 | PRD 7.1.26 |
+| 2026-08-11 | usePipelineHistory composable 提取 | 消除 CreateView/CreateHistory 历史记录逻辑重复，统一 stale 检测、轮询、辅助方法。详见 3.1.15 | PRD 7.1.27 |
+| 2026-08-11 | CreateViewHistory 卡片 UI 增强 | 状态图标、运行脉冲、进度条光泽、流水线标签、状态阴影。详见 3.1.16 | PRD 7.1.28 |
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
@@ -724,6 +727,120 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 - 新增：apps/desktop/src/views/CreateViewHistory.vue
 - 修改：apps/desktop/src/views/CreateView.vue（引入组件、移除内联模板和样式）
 - 构建：vite build 通过，CreateView chunk 141KB
+### 3.1.14 CreateHistory.vue 独立页面 stale running 检测（2026-08-11）
+
+**背景**：3.1.12 仅在 CreateView.vue 的 loadHistory() 中添加了 stale running 检测（updatedAt 超过 30 分钟的 running 任务自动标记为 paused），但 CreateHistory.vue（独立历史记录页面 `#/create/history`）的 loadPipelines() 缺少相同的检测逻辑。用户在独立历史页面看到的仍然是"运行中"而非"已暂停"。
+
+**一、修复内容**
+
+1. CreateHistory.vue loadPipelines()：在数据加载成功后、schedulePipelineRefresh() 之前，新增 stale running 检测循环。
+2. 检测逻辑与 CreateView.vue 完全一致：
+   - 阈值：STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000（30 分钟）
+   - 判断：updatedAt 存在且 (now - updatedAt) > 阈值
+   - 处理：status 从 running 改为 paused；自动推断 pausedStage（从 stages 数组找到 running 状态的阶段，或取最后一个阶段）
+3. 模板已有 paused 状态支持（暂停环节提示、状态徽章、CSS 样式），无需修改模板。
+
+**二、数据流**
+
+pipelineHistory() IPC 返回 → loadPipelines() 加载 → stale running 检测循环（mutate status/pausedStage） → schedulePipelineRefresh() → 模板渲染。
+
+**三、与 CreateView.vue 的一致性**
+
+两处 stale running 检测逻辑完全相同（阈值、推断算法、字段名），确保用户无论从哪个入口查看历史记录，看到的状态一致。
+
+**四、相关文件**
+
+- 修改：apps/desktop/src/views/CreateHistory.vue（loadPipelines 方法）
+- 测试：CreateView.test.js 129/129 通过
+
+### 3.1.15 usePipelineHistory composable 提取（2026-08-11）
+
+**背景**：历史记录加载、stale running 检测、轮询刷新、辅助方法（状态标签、阶段状态、时间格式化）在 CreateView.vue 和 CreateHistory.vue 中存在重复实现。提取为共享 composable 消除重复、统一行为。
+
+**一、composable 设计**
+
+```javascript
+// apps/desktop/src/composables/usePipelineHistory.js
+export function usePipelineHistory(options = {}) {
+  // 响应式状态
+  history, historyLoading, historyLocalMode, historyFilter, filteredHistory, story2videoResuming
+  // 方法
+  loadHistory(callbacks), destroy()
+  // 辅助方法
+  historyItemResumable(item), historyStageState(stage), historyStageLabel(stage),
+  historyStageTitle(stage), formatTime(iso), truncateError(error)
+}
+```
+
+**二、接口说明**
+
+| 类型 | 名称 | 说明 |
+|------|------|------|
+| Ref | history | 历史记录数组（运行中置顶） |
+| Ref | historyLoading | 加载状态 |
+| Ref | historyLocalMode | 本地模式标记 |
+| Computed | historyLocalModeText | 本地模式提示文字 |
+| Ref | historyFilter | 过滤状态 |
+| Computed | filteredHistory | 过滤后的历史记录 |
+| Ref | story2videoResuming | 恢复中状态 |
+| Method | loadHistory(callbacks) | 加载历史记录，callbacks.onError 用于弹窗 |
+| Method | destroy() | 清理轮询定时器 |
+| Method | historyItemResumable(item) | 判断是否可断点恢复 |
+| Method | historyStageState(stage) | 阶段状态分类 |
+| Method | historyStageLabel(stage) | 阶段名称 |
+| Method | historyStageTitle(stage) | 阶段标题（名称+状态） |
+| Method | formatTime(iso) | 时间格式化 |
+| Method | truncateError(error) | 错误信息截断 |
+
+**三、依赖**
+
+- API：pipelineHistory(), story2videoListProjects()（来自 @/api/publisher）
+- 工具：historyLoadFailureDetail()（来自 @/i18n/story2video-locale）
+- 超时：HISTORY_LOAD_TIMEOUT_MS = 5000
+
+**四、消除的重复**
+
+| 逻辑 | CreateView.vue 原实现 | CreateHistory.vue 原实现 | composable |
+|------|----------------------|------------------------|------------|
+| loadHistory/loadPipelines | ~60 行 | ~20 行 | 1 个方法 |
+| stale running 检测 | ~15 行 | ~15 行（本次新增） | 内置于 loadHistory |
+| scheduleHistoryRefresh | ~10 行 | ~8 行 | 内置 |
+| refreshRunningHistory | ~30 行 | 无 | 内置 |
+| historyStageState/Label/Title | ~15 行 | ~15 行（stageTitle） | 3 个方法 |
+| formatTime | ~3 行 | ~3 行 | 1 个方法 |
+| truncateError | ~3 行 | 无 | 1 个方法 |
+
+**五、相关文件**
+
+- 新增：apps/desktop/src/composables/usePipelineHistory.js（252 行）
+- 待迁移（后续 PR）：CreateView.vue 和 CreateHistory.vue 改为使用 composable
+
+### 3.1.16 CreateViewHistory 卡片 UI 增强（2026-08-11）
+
+**背景**：在 3.1.13 组件拆分基础上，进一步优化历史记录卡片的视觉层次和交互反馈。
+
+**一、视觉增强**
+
+1. **状态图标**：状态徽章前增加图标（✓已完成/✕失败/—已取消/⟳进行中/⏸已暂停/○等待中），提升可扫描性。
+2. **运行中脉冲**：状态徽章 running 样式增加 status-pulse 动画（2s 周期 opacity 闪烁）。
+3. **进度条光泽**：运行中阶段的进度段增加 shimmer 光泽动画（2s 周期从左到右扫过），直观表示"正在处理"。
+4. **流水线标签**：卡片标题行右侧新增流水线名称标签（浅灰背景），便于区分不同流水线的任务。
+5. **状态阴影**：running 状态卡片增加蓝色微阴影，paused 状态增加琥珀色微阴影，增强状态感知。
+
+**二、交互增强**
+
+1. **操作按钮间距**：resume/open/delete 按钮增加 gap: 4px，提升可点击区域。
+2. **按钮 hover**：保持原有 hover 效果（蓝色边框+文字色），delete 按钮 hover 变红。
+
+**三、数据校验**
+
+- historyStatusIcon() 方法：对未知 status 返回空字符串，不会崩溃。
+- 流水线标签：仅在 h.pipeline 或 h.name 存在时显示，通过 pipelineName() 翻译。
+- 所有新增样式使用 CSS 变量 + 回退值，兼容亮/暗主题。
+
+**四、相关文件**
+
+- 修改：apps/desktop/src/views/CreateViewHistory.vue（模板 + 脚本 + 样式）
 ### 3.2 参数配置（Remotion 快速路径）
 
 以下 Cut 参数属于独立 Remotion 快速路径，不等同于 `story2video-compose` 的 scene schema：

@@ -63,8 +63,9 @@
               <span class="history-name" :title="h.title || pipelineName(h.pipeline || h.name)">
                 {{ h.title || pipelineName(h.pipeline || h.name) }}
               </span>
+              <span v-if="h.pipeline || h.name" class="history-pipeline-tag">{{ pipelineName(h.pipeline || h.name) }}</span>
               <span class="history-status" :class="h.status">
-                {{ historyStatusLabel(h.status) }}
+                {{ historyStatusIcon(h.status) }} {{ historyStatusLabel(h.status) }}
               </span>
             </div>
 
@@ -160,14 +161,19 @@ export default {
       return getPipelineName((key) => this.$t?.(key), id)
     },
     historyStatusLabel(status) {
-      return {
+      const labels = {
         completed: '已完成',
         failed: '生成失败',
         cancelled: '已取消',
         running: '进行中',
         paused: '已暂停',
         pending: '等待中',
-      }[status] || status || '未知'
+      }
+      return labels[status] || status || '未知'
+    },
+    historyStatusIcon(status) {
+      const icons = { completed: '✓', failed: '✕', cancelled: '—', running: '⟳', paused: '⏸', pending: '○' }
+      return icons[status] || ''
     },
     formatTime(iso) {
       if (!iso) return ''
@@ -262,6 +268,8 @@ export default {
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   border-color: var(--primary, #409eff);
 }
+.history-item.status-running { box-shadow: 0 1px 4px rgba(59,130,246,0.08); }
+.history-item.status-paused { box-shadow: 0 1px 4px rgba(217,119,6,0.08); }
 
 /* 状态色条 */
 .history-item-bar {
@@ -327,8 +335,9 @@ export default {
 .history-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .history-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
 .history-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
-.history-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
+.history-status.running { background: var(--status-running-bg); color: var(--status-running-text); animation: status-pulse 2s ease-in-out infinite; }
 .history-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
+@keyframes status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
 
 /* 提示信息 */
 .hint-icon { font-size: 12px; }
@@ -373,7 +382,17 @@ export default {
   color: #fff;
   font-weight: 600;
   box-shadow: 0 0 0 2px var(--history-progress-active-shadow, #bfdbfe);
+  position: relative;
+  overflow: hidden;
 }
+.history-progress-seg.active::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  animation: seg-shimmer 2s infinite;
+}
+@keyframes seg-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 .history-progress-seg.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
 
 /* 底部 */
@@ -406,8 +425,10 @@ export default {
   white-space: nowrap;
 }
 .history-btn:hover { border-color: var(--primary, #409eff); color: var(--primary, #409eff); }
-.history-btn.resume { border-color: var(--primary, #409eff); color: var(--primary, #409eff); font-weight: 500; }
+.history-btn.resume { border-color: var(--primary, #409eff); color: var(--primary, #409eff); font-weight: 500; gap: 4px; }
 .history-btn.resume:hover { background: var(--primary, #409eff); color: #fff; }
+.history-btn.open { gap: 4px; }
+.history-btn.delete { gap: 4px; }
 .history-btn.delete:hover { border-color: var(--error, #f56c6c); color: var(--error, #f56c6c); }
 .history-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -433,6 +454,17 @@ export default {
   animation: spin 0.6s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 流水线标签 */
+.history-pipeline-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--status-pending-bg, #f3f4f6);
+  color: var(--text-muted, #6b7280);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 
 /* 响应式 */
 @media (max-width: 720px) {

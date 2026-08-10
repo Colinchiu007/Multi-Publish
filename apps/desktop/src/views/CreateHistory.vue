@@ -178,8 +178,23 @@ export default {
         if (requestId !== this.pipelineRequestId) return
         if (r?.code === 0 && Array.isArray(r.data)) this.pipelines = r.data
         else this.pipelineError = r?.message || '流水线记录加载失败，请重试'
-      } catch (e) {
-        if (requestId !== this.pipelineRequestId) return
+      // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停（超时/崩溃遗留）
+      const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
+      const now = Date.now()
+      for (const p of this.pipelines) {
+        if (p && p.status === 'running') {
+          const updatedAt = p.updatedAt ? new Date(p.updatedAt).getTime() : 0
+          if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
+            p.status = 'paused'
+            if (!p.pausedStage) {
+              const stages = Array.isArray(p.stages) ? p.stages : []
+              const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
+              p.pausedStage = runningStage ? (runningStage.name || runningStage.stage || '') : ''
+            }
+          }
+        }
+      }
+          } catch (e) {    if (requestId !== this.pipelineRequestId) return
         this.pipelineError = e?.code === 'HISTORY_LOAD_TIMEOUT' ? '流水线记录加载超时，请重试' : '流水线记录加载失败，请重试'
       } finally {
         if (requestId === this.pipelineRequestId) {
