@@ -5,6 +5,12 @@
 - 桌面端：新增 `UsageReporter`（聚合 model_provider_logs → ingest，水印推进/失败重试/启动 5s + 30min 周期/未配置静默；脱敏不上报 error_message）；修复 `addProviderLog` INSERT 补 created_at=datetime('now')。
 - 文档：Multi-Publish PRD §7.4.7、ops-center PRD 12A.12。
 - 测试：ops-center pytest（+3 usage）、桌面端 usage-reporter 6 用例。
+## [未发布] 修复：图片轮播流水线「生成图片与旁白」阶段卡死（调度网关同 key 双包自死锁，2026-08-10）
+
+- 根因：`story2video-stages.js` generate_assets 阶段外层 `withModelBudget` → `governor.run` 与 `AIGenerator.generate` 内层 `governor.run` 使用**同一 ApiUsageGovernor 单例、同一 key（providerId:type:model）** → 并发 ≥2 时外层占满并发信号量、内层排队等自己释放 → 永久自死锁（阶段无超时、sweepAll 仅在 run 终态调用）。引入点：87796b5f（内层网关）+ 0532ac3d（外层包裹）。
+- 修复：assetGenerator 路径调度边界收敛为 AIGenerator 内部 governor 单层（阶段外层不再套 governor）；legacy python 路径（无 assetGenerator）保留外层统一调度，限流不丢。
+- 预防：`ApiUsageGovernor.run()` 增加同 key 重入保护（AsyncLocalStorage 记录当前链持有的 key，同 key 内层直接透传，不重复占槽/记账），从根上杜绝「已 governor 化调用再叠一层」的自死锁；`_pump` 排队放行时槽位转移（active+=1），修复排队后 active 漂移为负的记账缺陷。
+- 回归保护：api-usage-governor +2（同 key 重入透传不自死锁 / 同 key 单槽 + 不同 key 独立 + active 归零）；story2video-stages +2 修改 1（真实 governor 3 场景并发有界完成——负向验证旧代码 10s 超时失败；legacy 路径仍经 governor.run 且 meta 完整；assetGenerator 路径不再双包）。
 
 ## [未发布] 功能：运营后台运行时策略下发（公告 / 版本发布 / 内容安全）（2026-08-10）
 
