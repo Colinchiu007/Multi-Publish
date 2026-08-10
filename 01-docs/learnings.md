@@ -4,6 +4,14 @@
 
 ---
 
+## MiniMax Adapter 无超时 + 多模态模型错配复盘 (2026-08-11，质量节拍 Bug 反哺)
+
+- **表象**：E2E 全流水线真实验证（43 用例）中发现 explainer/documentary 的 assets 阶段偶发永久挂起（25 分钟不收敛），且图片生成被错误传入 TTS 模型。
+- **根因（git blame + 插桩溯源）**：① minimax-image.js / minimax-tts.js 的 _request() 声明了 DEFAULT_TIMEOUT（120s/60s）但从未把超时接入 etch()——共享 API Key 被并发会话占用、上游卡住时请求永久挂起，callAdapter 的 2 分钟兜底在某些路径（python-bridge/legacy）不覆盖；② xplainer-stages.js / documentary-stages.js 的 getDefaultProviderConfig 取 provider.models[0] 作为任意能力模型——对 minimax-multimodal，models[0] 是 TTS 模型 speech-2.8-turbo，导致图片生成被传 image:speech-2.8-turbo（governor key 证实），adapter 虽忽略 model 但这是配置契约错误。
+- **逃逸链**：① adapter 单测用 fetch mock 只覆盖正常/HTTP 错误/网络错误，无「fetch 挂起不返回」用例——超时未接入 fetch 的情况下 mock 永远立即返回，测不出挂起；② 多模态复合 provider 的 capability_models 字段已由 _safeRow 解析，但调用方未消费。
+- **修复**：① 两个 adapter 的 _request() 用 AbortController 实现有界超时（复用 	his.options.timeout / DEFAULT_TIMEOUT），超时归为 ProviderError(TIMEOUT) 由 governor/上层瞬时重试；② getDefaultProviderConfig 优先用 provider.capability_models[type]，回退 models[0]。
+- **回归保护**：minimax-image/tts 各新增「fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)」用例；聚焦套件 215 项测试全绿（adapters 72 / explainer+documentary 32 / pipeline-engine+model-provider 111）；修复后 documentary-montage 真实 E2E 跑通并产出视频，日志确认 model=image-01。
+- **预防措施**：① 所有 provider adapter 的 HTTP 请求必须接入有界超时（声明 timeout 未使用视为缺陷）；② 复合 provider 选模型必须按 capability_models 按能力路由，禁止 models[0] 猜测；③ adapter 测试必须包含「上游挂起」场景断言超时收敛。
 ## 图片轮播流水线 generate_assets 调度网关双包自死锁复盘 (2026-08-10，质量节拍 Bug 反哺)
 
 - **表象**：图片轮播流水线到达「生成图片与旁白」（generate_assets）阶段后永久卡住，前端「图片 0/N · 旁白 0/M」停滞不动；暂停/重试均无法推进，只能重启应用。
