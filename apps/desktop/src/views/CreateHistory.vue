@@ -229,7 +229,7 @@ export default {
     },
     stageTitle(s) {
       if (!s || typeof s !== 'object') return ''
-      const statusText = { completed: '已完成', running: '进行中', failed: '失败', cancelled: '已取消', pending: '等待中' }[s.status] || s.status || ''
+      const statusText = { completed: '已完成', running: '进行中', failed: '失败', cancelled: '已取消', pending: '等待中', paused: '已暂停' }[s.status] || s.status || ''
       const progress = typeof s.progress === 'number' ? '（' + s.progress + '%）' : ''
       return statusText + progress
     },
