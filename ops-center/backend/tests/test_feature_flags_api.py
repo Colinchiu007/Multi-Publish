@@ -95,6 +95,20 @@ async def test_feature_flags_crud_seed_and_validation():
         # 数字格式一致性：科学计数法可解析（前后端一致）
         r = await client.post("/api/v1/feature-flags", json={"key": "a.exp", "value_type": "number", "value": "1e3", "enabled": True}, headers=h)
         assert r.status_code == 200 and r.json()["typed_value"] == 1000
+        r = await client.post("/api/v1/feature-flags", json={"key": "a.float", "value_type": "number", "value": "3.5", "enabled": True}, headers=h)
+        assert r.status_code == 200 and r.json()["typed_value"] == 3.5
+        r = await client.post("/api/v1/feature-flags", json={"key": "a.small", "value_type": "number", "value": "1e-3", "enabled": True}, headers=h)
+        assert r.status_code == 200 and r.json()["typed_value"] == 0.001
+        # 非十进制格式（hex/下划线）→ 400（前后端一致）
+        assert (await client.post("/api/v1/feature-flags", json={"key": "a.hex", "value_type": "number", "value": "0x1f"}, headers=h)).status_code == 400
+        assert (await client.post("/api/v1/feature-flags", json={"key": "a.under", "value_type": "number", "value": "1_000"}, headers=h)).status_code == 400
+        # value 长度边界：512 接受 / 513 拒绝
+        assert (await client.post("/api/v1/feature-flags", json={"key": "a.len512", "value_type": "string", "value": "x" * 512}, headers=h)).status_code == 200
+        assert (await client.post("/api/v1/feature-flags", json={"key": "a.len513", "value_type": "string", "value": "x" * 513}, headers=h)).status_code == 400
+        # PUT 修改 value_type 但值不兼容 → 400
+        r = await client.post("/api/v1/feature-flags", json={"key": "a.typechange", "value_type": "string", "value": "hello", "enabled": True}, headers=h)
+        assert r.status_code == 200
+        assert (await client.put("/api/v1/feature-flags/a.typechange", json={"value_type": "boolean", "value": "notabool"}, headers=h)).status_code == 400
 
         # POST 重复 key → 409
         assert (await client.post("/api/v1/feature-flags", json={"key": "videoCreation.maxOutputResolution", "value_type": "string", "value": "4k"}, headers=h)).status_code == 409
@@ -139,3 +153,17 @@ async def test_feature_flags_runtime_bootstrap():
             "description": "重建", "enabled": True,
         }, headers=h)
         assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_feature_flags_count_cap():
+    from services.feature_flag_service import MAX_FEATURE_FLAGS
+    async with _client() as client:
+        h = _admin_headers()
+        # 种子占 1 个名额：MAX-1 个新建后达到上限
+        for i in range(MAX_FEATURE_FLAGS - 1):
+            r = await client.post("/api/v1/feature-flags", json={"key": f"cap.{i}", "value_type": "string", "value": "v"}, headers=h)
+            assert r.status_code == 200, r.text
+        # 第 MAX+1 个 → 400（避免桌面端 100 项上限静默全丢）
+        r = await client.post("/api/v1/feature-flags", json={"key": "cap.overflow", "value_type": "string", "value": "v"}, headers=h)
+        assert r.status_code == 400 and "上限" in r.text

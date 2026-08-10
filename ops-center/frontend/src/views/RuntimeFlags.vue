@@ -86,6 +86,7 @@ const TYPE_OPTIONS = [
 ]
 const TYPE_LABELS = Object.fromEntries(TYPE_OPTIONS.map(t => [t.value, t.label]))
 const KEY_RE = /^[A-Za-z0-9_.-]{1,128}$/
+const DECIMAL_RE = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/
 
 const items = ref([])
 const loading = ref(false)
@@ -160,9 +161,13 @@ async function save() {
     return
   }
   if (form.value_type === 'number' && String(form.value).trim() !== '') {
-    const n = Number(String(form.value).trim())
-    if (String(form.value).trim() === '' || isNaN(n) || !isFinite(n)) {
-      ElMessage.warning('数字开关的值必须是有限数字（如 12 或 3.5）')
+    const t = String(form.value).trim()
+    if (!DECIMAL_RE.test(t)) {
+      ElMessage.warning('数字开关的值必须是十进制数字（如 12 / 3.5 / 1e3）')
+      return
+    }
+    if (!isFinite(Number(t))) {
+      ElMessage.warning('数字开关的值超出可表示范围')
       return
     }
   }

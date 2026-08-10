@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import FeatureFlag
 
 KEY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+_NUMBER_RE = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
 VALUE_TYPES = ("string", "boolean", "number")
+MAX_FEATURE_FLAGS = 100
 
 # 种子：首个真实用例 = 4K 输出能力开关（PRD 7.1.20）；已存在即跳过，不覆盖运营修改
 SEED_FLAGS = [
@@ -45,7 +47,7 @@ def _to_dict(row: FeatureFlag) -> dict:
 
 
 def typed_value(row: FeatureFlag):
-    """按 value_type 解析 value 为布尔/数字/字符串；解析失败按字符串返回（不抛）。"""
+    """按 value_type 解析 value 为布尔/数字/字符串；解析失败按类型安全值返回（boolean False / number 0 / string raw），不抛。"""
     raw = (row.value or "").strip()
     vt = row.value_type or "string"
     if vt == "boolean":
@@ -90,10 +92,9 @@ def validate_feature_flag(body: dict) -> dict:
     if vt == "boolean" and raw.lower() not in ("true", "false", "1", "0"):
         raise FeatureFlagError("boolean 类型 value 必须是 true/false/1/0")
     if vt == "number":
-        try:
-            f = float(raw)
-        except (TypeError, ValueError):
-            raise FeatureFlagError("number 类型 value 必须是数字")
+        if not _NUMBER_RE.match(raw):
+            raise FeatureFlagError("number 类型 value 必须是十进制数字（如 12 / 3.5 / 1e3）")
+        f = float(raw)
         if not math.isfinite(f):
             raise FeatureFlagError("number 类型 value 超出可表示范围")
     desc = str(body.get("description") or "").strip()
@@ -129,6 +130,9 @@ async def create_feature_flag(db: AsyncSession, body: dict, updated_by: str) -> 
     data = validate_feature_flag(body)
     if await _get(db, data["key"]) is not None:
         raise FeatureFlagExists(f"开关 {data['key']} 已存在")
+    total = (await db.execute(sa.select(sa.func.count()).select_from(FeatureFlag))).scalar_one()
+    if total >= MAX_FEATURE_FLAGS:
+        raise FeatureFlagError(f"功能开关数量已达上限（{MAX_FEATURE_FLAGS}）")
     row = FeatureFlag(**data, updated_at=_now(), updated_by=updated_by)
     db.add(row)
     try:
