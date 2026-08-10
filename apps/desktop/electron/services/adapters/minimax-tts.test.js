@@ -285,6 +285,26 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
         expect(e.code).toBe(ERROR_CODES.NETWORK_ERROR)
       }
     })
+
+    it('fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)（回归：DEFAULT_TIMEOUT 必须接入 fetch）', async () => {
+      global.fetch = vi.fn((url, opts = {}) => new Promise((resolve, reject) => {
+        opts.signal?.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted')
+          err.name = 'AbortError'
+          reject(err)
+        })
+      }))
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' }, { timeout: 100 })
+      const t0 = Date.now()
+      try {
+        await adapter.synthesize({ text: '你好', voice: 'male-qn-qingse' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.TIMEOUT)
+      }
+      expect(Date.now() - t0).toBeLessThan(5000)
+    })
   })
 
   describe('listModels', () => {
