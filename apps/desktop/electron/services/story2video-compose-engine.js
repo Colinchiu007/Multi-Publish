@@ -288,6 +288,20 @@ function computeSegmentEncodeTimeoutMs (effectDuration, fps) {
   return Math.max(30000, Math.min(300000, estimatedMs + 20000))
 }
 
+/**
+ * xfade/acrossfade 合并编码超时：按输入视频总时长估算。
+ * 实测合并编码约 1.5x 实时，这里按 1.1 秒/秒 + 30s 余量（覆盖慢速/高负载），最低 120s。
+ * 2026-08-11 E2E 修复：27 场景分块合并（level-1 合并 4 块 ≈5 分钟视频，编码需 ~200s）
+ * 此前被固定 120s 超时中途杀掉 ffmpeg → compose 失败。
+ * @param {number} totalSeconds 输入视频总时长（秒），<=0 或非有限值时回退 120s。
+ * @returns {number} 超时毫秒数
+ */
+function computeXfadeMergeTimeoutMs (totalSeconds) {
+  const seconds = Number(totalSeconds)
+  if (!Number.isFinite(seconds) || seconds <= 0) return 120000
+  return Math.max(120000, Math.ceil(seconds * 1100) + 30000)
+}
+
 function normalizeComposeScenes (assetManifest) {
   if (!assetManifest || typeof assetManifest !== 'object') return []
   const sentences = Array.isArray(assetManifest.sentences) ? assetManifest.sentences : []
@@ -1335,6 +1349,15 @@ class Story2VideoComposeEngine {
    * 单条 ffmpeg 命令：对一组片段构建 xfade/acrossfade 图并输出。
    * @private
    */
+  /** 估算 xfade 合并超时：探测输入总时长后按 computeXfadeMergeTimeoutMs 计算；探测不足回退 120s。 */
+  async _estimateXfadeMergeTimeoutMs (segments) {
+    const durations = await Promise.all(segments.map((s) => this._probeMediaDuration(s)))
+    const known = durations.filter((d) => d !== null && d > 0)
+    // 探测不足（≥一半未知）时保守回退固定 120s
+    if (known.length === 0 || known.length < segments.length / 2) return 120000
+    return computeXfadeMergeTimeoutMs(known.reduce((sum, d) => sum + d, 0))
+  }
+
   async _xfadeMerge (segments, plan, outputPath) {
     const transitionName = plan.transitionName
     const inputArgs = []
@@ -1362,7 +1385,10 @@ class Story2VideoComposeEngine {
     const args = ['-y', ...inputArgs, '-filter_complex', filterParts.join(';'),
       '-map', currentVideo, '-map', '[aout]',
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]
-    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: 120000, maxBuffer: 2 * 1024 * 1024 })
+    // 2026-08-11 E2E 修复：超时按输入总时长估算（27 场景分块合并 ≈5 分钟视频，编码 1.5x 需 ~200s，
+    // 固定 120s 会中途杀掉 ffmpeg 导致 compose 失败）；maxBuffer 同步提高以容纳长编码进度输出。
+    const timeout = await this._estimateXfadeMergeTimeoutMs(segments)
+    const { stderr } = await execFileAsync(FFMPEG, args, { timeout, maxBuffer: 8 * 1024 * 1024 })
     if (!hasUsableFile(outputPath)) {
       throw new Error('ffmpeg xfade did not produce output: ' + (stderr || '').slice(-200))
     }
@@ -1499,6 +1525,7 @@ module.exports = {
   buildWatermarkFilter,
   buildScaleFilter,
   computeSegmentEncodeTimeoutMs,
+  computeXfadeMergeTimeoutMs,
   resolveMaxOutputDimensions,
   validateResolutionCapability,
   computeWorkResolution,

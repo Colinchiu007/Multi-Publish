@@ -21,6 +21,7 @@ const {
   buildWatermarkFilter,
   buildScaleFilter,
   computeSegmentEncodeTimeoutMs,
+  computeXfadeMergeTimeoutMs,
   resolveMaxOutputDimensions,
   validateResolutionCapability,
   computeWorkResolution,
@@ -1558,6 +1559,27 @@ describe('computeSegmentEncodeTimeoutMs — 片段编码超时按时长估算', 
   it('缺省时长/帧率使用安全默认值且不低于下限', () => {
     expect(computeSegmentEncodeTimeoutMs(null, undefined)).toBe(30000)
     expect(computeSegmentEncodeTimeoutMs(undefined, null)).toBe(30000)
+  })
+})
+
+describe('computeXfadeMergeTimeoutMs — xfade 合并超时按总时长估算（2026-08-11 E2E 修复）', () => {
+  it('27 场景 level-1 合并（≈300s 视频）超时放宽到 ~360s，避免固定 120s 中途杀掉 ffmpeg', () => {
+    // 300 * 1.1 + 30 = 360s
+    expect(computeXfadeMergeTimeoutMs(300)).toBe(360000)
+  })
+
+  it('短合并（≤~82s）不低于 120s 下限；100s 起按公式放宽', () => {
+    expect(computeXfadeMergeTimeoutMs(60)).toBe(120000)
+    expect(computeXfadeMergeTimeoutMs(80)).toBe(120000)
+    // 100 * 1.1 + 30 = 140s
+    expect(computeXfadeMergeTimeoutMs(100)).toBe(140000)
+  })
+
+  it('非法/未知时长回退 120s', () => {
+    expect(computeXfadeMergeTimeoutMs(0)).toBe(120000)
+    expect(computeXfadeMergeTimeoutMs(NaN)).toBe(120000)
+    expect(computeXfadeMergeTimeoutMs(null)).toBe(120000)
+    expect(computeXfadeMergeTimeoutMs(undefined)).toBe(120000)
   })
 })
 
