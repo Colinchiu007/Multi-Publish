@@ -124,6 +124,7 @@ jobs:
             git commit -m "test(visual): auto-update pixel baselines [skip ci]"
             $branch = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
             git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+            git pull --rebase origin $branch
             git push origin HEAD:refs/heads/$branch
           }
 
