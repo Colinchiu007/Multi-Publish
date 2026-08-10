@@ -14,4 +14,4 @@ async def system_health(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_admin),
 ):
-    return await health_service.run_health_checks()
+    return await health_service.run_health_checks(db)

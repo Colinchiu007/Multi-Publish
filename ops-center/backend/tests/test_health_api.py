@@ -71,6 +71,7 @@ async def test_health_checks_and_permissions():
         assert data["overall"] == "ok"
         by_name = {c["name"]: c for c in data["checks"]}
         assert by_name["ops-center 自身"]["status"] == "ok"
+        assert by_name["数据库"]["status"] == "ok"  # 真实 SELECT 1
         assert by_name["存储可写"]["status"] == "ok"
         assert by_name["业务 API"]["status"] == "skipped"
         assert by_name["Logto"]["status"] == "skipped"
@@ -98,3 +99,11 @@ async def test_health_custom_target_and_failure():
         r = await client.get("/api/v1/system/health", headers=_admin_headers())
         data = r.json()
         assert all(c["name"] != "bad" for c in data["checks"])
+
+    # 业务 API 配置非法 → error（区分未配置 skipped）
+    settings.health_api_url = "ftp://bad"
+    settings.health_targets = ""
+    async with _client() as client:
+        data = (await client.get("/api/v1/system/health", headers=_admin_headers())).json()
+        by_name = {c["name"]: c for c in data["checks"]}
+        assert by_name["业务 API"]["status"] == "error"
