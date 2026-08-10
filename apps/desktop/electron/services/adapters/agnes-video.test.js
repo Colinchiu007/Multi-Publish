@@ -229,6 +229,26 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       expect(body.height).toBe(1080)
     })
 
+
+    it('兼容下划线 num_frames / frame_rate 参数（videogen-stages 双写契约）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ id: 't5' }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      await adapter.generateVideo({
+        prompt: 'test',
+        num_frames: 241,
+        frame_rate: 30,
+      })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.num_frames).toBe(241)
+      expect(body.frame_rate).toBe(30)
+    })
+
+
     it('negativePrompt + seed 参数映射', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ id: 't4' }),

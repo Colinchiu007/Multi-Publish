@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     # 本地管理员登录（自包含，替代 orchestrator 认证）：未配置且无管理员时登录 fail-closed
     admin_username: str = ""
     admin_password: str = ""
+    # 功能开关导入源（可选；缺省探测 orchestrator_feature_gates_path 与开发机默认路径）
+    feature_gates_import_source: str = ""
 
     def get_jwt_secret(self) -> str:
         """返回经过安全校验的 JWT 密钥。"""
