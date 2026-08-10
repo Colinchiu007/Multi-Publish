@@ -5,7 +5,8 @@
 - ops-center 前端：新增「发布数据」页（汇总卡片/按平台表/每日趋势柱状图/空态）。
 - 桌面端：新增 `PublishReporter`（聚合 publish-history 按 日期+平台 分桶，success→ok、fail/error→fail、监控状态不计；水印推进/失败重试/5s+30min 周期/未配置静默；仅计数不上报敏感内容）；phase1 接线。
 - 文档：ops-center PRD 12A.18、Multi-Publish PRD §7.4.11、CHANGELOG。
-- 测试：ops-center pytest（+1，全量 109）；桌面端 publish-reporter 3 用例。
+- 审查修复（Claude 定向审查）：脏记录逐条跳过防毒化（桌面预过滤 + 后端 invalid_count）、批次幂等 report_id 防网络模糊重复、5000 上限不推进水印防分页丢数据、SQLite 原子 upsert、真实日历日期/浮点拒绝、本地时区分桶、状态词汇扩展、柱状图按比例。
+- 测试：ops-center pytest（+2，全量 112）；桌面端 publish-reporter 5 用例（分桶/水印去重/脏记录过滤/5000 上限/鉴权失败）。
 
 =======
 <<<<<<< HEAD
