@@ -356,7 +356,7 @@ function goToPublish () {
 .yixiaoer-primary-item:focus-visible,
 .yixiaoer-more-item:focus-visible,
 .yixiaoer-sidebar-add:focus-visible,
-.yixiaoer-sidebar-settings:focus-visible,
+.yixiaoer-sidebar-settings:focus-visible {
   outline: 2px solid #5149e8;
   outline-offset: 2px;
 }
