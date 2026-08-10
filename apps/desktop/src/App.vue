@@ -1,13 +1,34 @@
 <template>
   <div class="app-root">
     <OfflineIndicator />
-    <AnnouncementBanner />
 
     <template v-if="isYixiaoerWorkspace">
       <div class="yixiaoer-shell" data-testid="yixiaoer-shell">
         <YixiaoerSidebar @open-settings="showSettingsDialog = true" />
         <div class="yixiaoer-shell-main">
-          <YixiaoerModuleNav />
+          <!-- 浏览器式标签栏 -->
+          <TabBar
+            @switch-tab="onSwitchTab"
+            @close-tab="onCloseTab"
+            @create-tab="onCreateTab"
+          />
+          <!-- 导航栏（后退/前进/刷新/URL） -->
+          <NavBar
+            :current-url="navigation.url"
+            :current-title="navigation.title"
+            :can-go-back="navigation.canGoBack"
+            :can-go-forward="navigation.canGoForward"
+            :is-home="isHomeTab"
+            :loading="navigation.loading"
+            @go-back="tabStore.goBack()"
+            @go-forward="tabStore.goForward()"
+            @reload="tabStore.reload()"
+            @go-home="goHome"
+            @navigate="onNavigate"
+          />
+          <!-- 模块导航（仅首页标签显示） -->
+          <YixiaoerModuleNav v-if="isHomeTab" />
+          <!-- 主内容区 -->
           <main class="yixiaoer-workspace cohere-main" data-testid="yixiaoer-workspace">
             <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
             <router-view v-else />
@@ -18,11 +39,8 @@
 
     <template v-else>
       <AppNavbar @open-settings="showSettingsDialog = true" />
-
-      <!-- 主体 -->
       <div class="cohere-app-body">
         <AppSidebar />
-        <!-- 主内容 -->
         <main class="cohere-main">
           <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
           <router-view v-else />
@@ -30,10 +48,7 @@
       </div>
     </template>
 
-    <!-- 更新通知（弹窗 + Toast） -->
     <UpdateNotification />
-
-    <!-- 设置弹窗（多 Tab） -->
     <SettingsDialog :visible="showSettingsDialog" @close="showSettingsDialog = false" />
   </div>
 </template>
@@ -43,8 +58,9 @@ import AppNavbar from '@/layouts/AppNavbar.vue'
 import AppSidebar from '@/layouts/AppSidebar.vue'
 import YixiaoerModuleNav from '@/layouts/YixiaoerModuleNav.vue'
 import YixiaoerSidebar from '@/layouts/YixiaoerSidebar.vue'
+import TabBar from '@/components/TabBar.vue'
+import NavBar from '@/components/NavBar.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
-import AnnouncementBanner from '@/components/AnnouncementBanner.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
@@ -53,23 +69,48 @@ import { useRoute, useRouter } from 'vue-router'
 import { clearRouteLoadError, routeLoadError } from '@/router'
 import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
-// eslint-disable-next-line no-unused-vars
-import TrialBanner from '@/components/TrialBanner.vue'
+import { useTabStore } from '@/stores/tab'
+import { storeToRefs } from 'pinia'
 
 const router = useRouter()
 const route = useRoute()
 const licenseStore = useLicenseStore()
 const identityStore = useIdentityStore()
-// eslint-disable-next-line no-unused-vars
-const dismissBanner = ref(false)
+const tabStore = useTabStore()
+const { navigation, isHomeTab, activeTabId } = storeToRefs(tabStore)
 
 const showSettingsDialog = ref(false)
 let unsubscribeNavigate = null
 
-// 非工作区路由（使用旧布局的特殊页面）
 const NON_WORKSPACE_ROUTES = new Set(['/first-run', '/model-providers', '/keywords', '/viral-analysis'])
-
 const isYixiaoerWorkspace = computed(() => !NON_WORKSPACE_ROUTES.has(route.path))
+
+// ── 标签页操作 ──
+
+function onSwitchTab(tabId) {
+  tabStore.switchToTab(tabId)
+}
+
+function onCloseTab(tabId) {
+  tabStore.closeTab(tabId)
+}
+
+async function onCreateTab() {
+  await tabStore.createTab({ url: 'about:blank' })
+}
+
+function goHome() {
+  const homeTab = tabStore.tabs.find(t => t.isHome)
+  if (homeTab) {
+    tabStore.switchToTab(homeTab.tabId)
+  }
+}
+
+function onNavigate(query) {
+  tabStore.searchOrNavigate(query)
+}
+
+// ── 路由错误恢复 ──
 
 async function retryRouteLoad() {
   const failedPath = routeLoadError.value?.path || router.currentRoute.value.fullPath
@@ -90,11 +131,13 @@ function refreshRouteLoad() {
   window.location.reload()
 }
 
+// ── 生命周期 ──
+
 onMounted(() => {
   licenseStore.load()
   identityStore.load()
+  tabStore.init()
 
-  // 全局快捷键导航
   const api = window.electronAPI
   if (api && api.onNavigate) {
     unsubscribeNavigate = api.onNavigate((route) => {
@@ -106,6 +149,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (typeof unsubscribeNavigate === 'function') unsubscribeNavigate()
   unsubscribeNavigate = null
+  tabStore.dispose()
   identityStore.dispose()
 })
 </script>

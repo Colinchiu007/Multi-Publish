@@ -1983,6 +1983,49 @@ Task Queue → 各平台发布器 → 发布完成
 | 发布记录删除 | 选择发布记录后可批量删除；renderer API、preload、`history:delete` IPC 和 JSONL service 均按 owner 隔离，删除后刷新并保留结果提示 | 本地已实现，真实多用户共享存储待外部验收 |
 | 设计与代码分层 | 本轮新增导航面板、草稿页和反馈状态使用模块级 class/token；未对既有发布表单做无证据的大规模 CSS 重排，遗留 inline style 记录为后续拆分项 | 本轮新增代码已分层，遗留项已记录 |
 
+
+### 18.2.3 2026-08-10 浏览器式标签栏与导航系统
+
+| 能力 | 实现与合同 | 状态 |
+|------|-----------|------|
+| 浏览器式标签栏 (TabBar) | 新增 TabBar.vue 组件：标签页创建/关闭/切换，平台图标自动识别（15 个平台 emoji），加载状态 spinner，Home 标签不可关闭，ARIA role=tablist 无障碍 | 本地已实现 |
+| 导航栏 (NavBar) | 新增 NavBar.vue 组件：后退/前进/刷新/首页按钮，URL 搜索栏（支持 URL 直接访问和 Bing 搜索），复制网址，加载状态指示，焦点态样式 | 本地已实现 |
+| 标签页 Store (tab.js) | 新增 Pinia Store：tabs/activeTabId/navigation 响应式状态，IPC 事件订阅（tab-created/closed/switched/navigation-changed/loading），init/dispose 生命周期 | 本地已实现 |
+| page-manager IPC 桥接 | 新增 preload/page-manager.js：14 个 IPC 方法（CRUD + 导航 + 查询 + 事件订阅），所有 handler 使用 withSenderCheck 安全校验 | 本地已实现 |
+| WebviewManager 浏览器标签页 | 继承 EventEmitter，新增 createNewTabPage/closeTab/switchToTab/navigate/searchOrNavigate/goBack/goForward/reload 方法，独立 session 分区，Cookie 互不干扰 | 本地已实现 |
+| App.vue 集成 | TabBar + NavBar 集成到蚁小二工作区 shell，YixiaoerModuleNav 仅首页标签显示，tab store init/dispose 生命周期管理 | 本地已实现 |
+| CreateHistory 空状态增强 | 渲染记录空态显示 🎬 图标 + 提示文案；流水线记录空态显示 🔄 图标 + 提示文案；修复 style 标签闭合位置 | 本地已实现 |
+| 账号"去登录"按钮 | AccountManagementCard 新增"去登录"按钮（Monitor 图标），触发 open-creator 事件，Accounts.vue 处理事件并导航到创作者中心 | 本地已实现 |
+| 构建修复 | platform-definitions.browser.js 补充 PLATFORM_DASHBOARD_URLS 导出 | 本地已实现 |
+| 内存泄漏修复 | webview-manager.js unsubscribe-events 未传 subscriberId 时清理所有订阅者 | 本地已实现 |
+
+**数据校验**：
+- URL 导航：协议校验仅允许 http/https/file；域名正则匹配标准域名格式；非 URL 输入走 Bing 搜索编码
+- IPC 参数：所有 handler 使用 withSenderCheck 校验发送者来源；参数缺失返回 VALIDATION_ERROR
+- 标签页 ID：浏览器标签使用 btab- 前缀，分屏监控使用 tab- 前缀，避免 ID 冲突
+- Home tab：tabId 固定为 'home'，不创建 WebContentsView，关闭操作返回 false
+- 创作者中心 URL：必须在 PLATFORM_DASHBOARD_URLS 白名单中，不存在时提示"暂不支持该平台"
+
+**交互逻辑**：
+- 点击标签页 → switchToTab → 隐藏当前视图 + 显示目标视图 + 更新导航状态
+- 关闭标签页 → closeTab → 移除视图 + 切换到下一个标签（无标签时广播 all-tabs-closed）
+- URL 输入 → enter → 判断 URL/域名/搜索词 → 导航或 Bing 搜索
+- 首页标签 → 隐藏 NavBar 导航按钮，显示模块导航 (YixiaoerModuleNav)
+- Home tab 保护：closeTab 拒绝关闭 Home tab（返回 false），确保首页始终存在
+- switchToTab(Home)：隐藏所有 WebContentsView，显示 router-view 内容，activeTabId 设为 'home'
+- tabStore 初始化：自动创建 Home tab（tabId='home', title='首页'），不调用 IPC 创建 WebContentsView
+- 打开创作者中心：点击账号卡片"去登录"按钮 → openCreatorCenter(platform) → 获取 PLATFORM_DASHBOARD_URLS[platform] → createTab({ url, platform, accountId }) → 新标签页全屏显示创作者中心
+
+**显示项**：
+- 标签栏高度 36px，背景 #e8eaf2，活跃标签白色背景 + 阴影
+- 导航栏高度 40px，URL 搜索栏圆角 15px，焦点态紫色光晕
+- 平台图标：微信/抖音/小红书/微博/B站 等 15 个平台
+
+**提示文字**：
+- 渲染记录空态："暂无渲染记录" + "创作你的第一个视频，记录将在这里显示"
+- 流水线记录空态："暂无流水线运行记录" + "选择创作模式开始流水线，运行记录将在这里显示"
+- URL 搜索栏 placeholder："搜索或输入网址"
+- 标签页 title："新标签页"（about:blank）或 hostname
 ### 18.3 设计与代码分层
 
 ```text
@@ -2046,6 +2089,7 @@ Vue 展示组件
 | v2.3.53 | 2026-07-20 | 账号管理与内容发布按蚁小二交互对齐；完成前端分层、多账号发布、草稿、排期、差异化内容、二维码登录、取消/重试及安全边界 |
 | v2.3.54 | 2026-08-04 | 续作收敛账号卡片动作、失效账号重新登录、粉丝/归属字段、分组筛选、收藏空态和分享服务边界；补充真实蚁小二像素审计证据 |
 | v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
+| v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |
 
 
 
