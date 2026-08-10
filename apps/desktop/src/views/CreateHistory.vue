@@ -62,7 +62,7 @@
           <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
         </div>
         <div v-else class="pipeline-list">
-          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" @click="openPipeline(p)">
+          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="p.status" @click="openPipeline(p)">
             <div class="pipeline-info">
               <span class="pipeline-status-dot" :class="p.status"></span>
               <div class="pipeline-meta">
@@ -70,17 +70,23 @@
                 <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt || p.createdAt) }}</span>
               </div>
             </div>
+            <span class="pipeline-status" :class="p.status">{{ statusLabel(p.status) }}</span>
             <div v-if="p.status === 'running'" class="pipeline-progress">
               <div class="progress-bar"><div class="progress-fill" :style="{ width: pipelineProgress(p) + '%' }"></div></div>
               <span class="progress-text">{{ pipelineProgress(p) }}%</span>
             </div>
-            <div class="pipeline-stages">
-              <span v-for="(s, si) in (p.stages || [])" :key="si" class="stage-tag" :class="stageClass(s)" :title="stageTitle(s)">
-                {{ stageLabel(s) }}
-              </span>
+            <div class="pipeline-card-bottom">
+              <div class="pipeline-stages">
+                <span v-for="(s, si) in (p.stages || [])" :key="si" class="stage-tag" :class="stageClass(s)" :title="stageTitle(s)">
+                  {{ stageLabel(s) }}
+                </span>
+              </div>
+              <div class="pipeline-hints">
+                <span v-if="p.status === 'running'" class="pipeline-running-hint">实时同步</span>
+                <span v-if="p.status === 'paused' && p.pausedStage" class="pipeline-paused-hint">暂停环节：{{ stageLabel(p.pausedStage) }}</span>
+                <span v-if="p.status === 'failed'" class="pipeline-paused-hint" style="background:#fee2e2;color:#991b1b;">生成失败</span>
+              </div>
             </div>
-            <span class="pipeline-status" :class="p.status">{{ statusLabel(p.status) }}</span>
-            <span v-if="p.status === 'running'" class="pipeline-running-hint">与流水线页面实时同步</span>
           </div>
         </div>
       </div>
@@ -187,7 +193,7 @@ export default {
     },
     openPipeline(p) {
       if (!p) return
-      if (p.status === 'running' || p.status === 'failed' || p.status === 'cancelled') {
+      if (p.status === 'running' || p.status === 'failed' || p.status === 'cancelled' || p.status === 'paused') {
         // 运行中/失败/已取消：跳回创作页，CreateView 恢复查看该流水线进度/支持断点继续
         this.$router.push('/create')
         return
@@ -251,9 +257,9 @@ export default {
 </script>
 
 <style scoped>
-.history-page { padding: 24px; max-width: 960px; margin: 0 auto; }
+.history-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; }
 .page-header { margin-bottom: 20px; }
-.page-header h1 { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
+.page-header h1 { font-size: 26px; font-weight: 700; margin: 0 0 6px; color: #111827; }
 .text-muted { color: #666; font-size: 14px; }
 .page-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid #e0e0e0; }
 .tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; }
@@ -262,28 +268,45 @@ export default {
 .history-error { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; color: #991b1b; background: #fee2e2; border-radius: 8px; }
 .running-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: #1d4ed8; background: #dbeafe; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .running-banner:hover { background: #bfdbfe; }
-.render-list, .pipeline-list { display: flex; flex-direction: column; gap: 8px; }
-.render-card, .pipeline-card { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fff; cursor: pointer; transition: all 0.15s; }
-.render-card:hover, .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-.render-info, .pipeline-info { display: flex; align-items: center; gap: 12px; flex: 1; }
+.render-list, .pipeline-list { display: flex; flex-direction: column; gap: 12px; }
+.render-card, .pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 16px 20px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; cursor: pointer; transition: all 0.15s; }
+.pipeline-card { border-left: 3px solid transparent; }
+.pipeline-card.running { border-left-color: #3b82f6; }
+.pipeline-card.failed { border-left-color: #ef4444; }
+.pipeline-card.cancelled { border-left-color: #9ca3af; }
+.pipeline-card.paused { border-left-color: #f59e0b; }
+.pipeline-card.completed { border-left-color: #22c55e; }
+.render-card:hover, .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 2px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.render-info, .pipeline-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
 .render-icon { font-size: 24px; }
 .render-meta, .pipeline-meta { display: flex; flex-direction: column; gap: 2px; }
 .render-name, .pipeline-name { font-size: 14px; font-weight: 600; }
 .render-time, .pipeline-time { font-size: 12px; color: #999; }
-.render-status, .pipeline-status { font-size: 12px; padding: 3px 10px; border-radius: 4px; font-weight: 500; }
+.render-status, .pipeline-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
 .render-status.completed, .pipeline-status.completed { background: #d1fae5; color: #065f46; }
 .render-status.failed, .pipeline-status.failed { background: #fee2e2; color: #991b1b; }
 .render-status.cancelled, .pipeline-status.cancelled { background: #f3f4f6; color: #6b7280; }
+.render-status.paused, .pipeline-status.paused { background: #fef3c7; color: #92400e; }
+.render-status.running, .pipeline-status.running { background: #dbeafe; color: #1d4ed8; }
 .render-actions { display: flex; gap: 6px; }
-.pipeline-stages { display: flex; gap: 4px; flex-wrap: wrap; max-width: 300px; }
-.stage-tag { font-size: 11px; padding: 2px 6px; border-radius: 3px; background: #f3f4f6; color: #6b7280; }
+.pipeline-card-bottom { display: flex; align-items: center; gap: 12px; width: 100%; padding-top: 6px; border-top: 1px solid #f3f4f6; margin-top: 2px; }
+.pipeline-hints { display: flex; gap: 6px; flex-shrink: 0; }
+.pipeline-stages { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; min-width: 240px; }
+.stage-tag { font-size: 12px; padding: 3px 8px; border-radius: 4px; background: #f3f4f6; color: #6b7280; font-weight: 500; white-space: nowrap; }
 .stage-tag.completed { background: #d1fae5; color: #065f46; }
+.stage-tag.failed { background: #fee2e2; color: #991b1b; }
+.stage-tag.paused { background: #fef3c7; color: #92400e; }
+.stage-tag.cancelled { background: #f3f4f6; color: #6b7280; }
 .stage-tag.running { background: #dbeafe; color: #1d4ed8; }
 .pipeline-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .pipeline-status-dot.completed { background: #22c55e; }
 .pipeline-status-dot.failed { background: #ef4444; }
 .pipeline-status-dot.cancelled { background: #9ca3af; }
+.pipeline-status-dot.paused { background: #f59e0b; }
+.pipeline-status-dot.running { background: #3b82f6; animation: pulse-dot 1.5s ease-in-out infinite; }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .pipeline-running-hint { font-size: 11px; color: #1d4ed8; background: #dbeafe; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
+.pipeline-paused-hint { font-size: 11px; color: #92400e; background: #fef3c7; padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: var(--primary, #7c5cbf); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>

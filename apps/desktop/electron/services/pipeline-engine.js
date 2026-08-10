@@ -921,11 +921,17 @@ class PipelineEngine {
           const id = snapshot.runId
           if (!id || seenIds.has(id)) continue
           seenIds.add(id)
+          // 运行中快照在应用重启后不再是运行中状态，转为已暂停；记录暂停环节
+          const normalizedStatus = snapshot.status === 'running' ? 'paused' : (snapshot.status || 'failed')
+          const pausedStageIndex = Number.isInteger(snapshot.currentStage) ? snapshot.currentStage : -1
+          const pausedStageName = (Array.isArray(snapshot.stages) && pausedStageIndex >= 0 && pausedStageIndex < snapshot.stages.length)
+            ? (snapshot.stages[pausedStageIndex].name || snapshot.stages[pausedStageIndex].stage || '') : ''
           persisted.push({
             id,
             pipeline: snapshot.pipeline,
-            status: snapshot.status || 'failed',
-            currentStage: Number.isInteger(snapshot.currentStage) ? snapshot.currentStage : 0,
+            status: normalizedStatus,
+            currentStage: pausedStageIndex >= 0 ? pausedStageIndex : 0,
+            pausedStage: pausedStageName || null,
             stages: Array.isArray(snapshot.stages) ? snapshot.stages.map((s) => ({ ...s })) : [],
             context: snapshot.context && typeof snapshot.context === 'object' ? snapshot.context : {},
             params: snapshot.params && typeof snapshot.params === 'object' ? snapshot.params : {},
