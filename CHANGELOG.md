@@ -10,6 +10,22 @@
 - 文档：PRD §7.1.25（数据校验/流程/功能逻辑/交互/显示项/提示文字/降级/验收标准）。
 - 测试：story2video-text-config +10、story2video-stages +21（选择算法/执行器/视频分支真实下载）、story2video-compose-engine +3（混合真实编码）、pipeline-engine/pipeline-story2video-contract 阶段顺序同步。
 
+## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
+
+- ops-center：新增 `GET /api/v1/system/health`（admin）——并发只读探针（自身/业务 API health+ready/Logto OIDC discovery/存储可写/`OPS_HEALTH_TARGETS` 自定义目标），单项 ≤5s 超时、URL 非回环强制 https、未配置跳过；返回 overall + 每项状态/耗时/详情。
+- ops-center 前端：新增「系统健康」页（一键巡检 + 总体徽章 + 结果表）。
+- 配置：`.env.example` 新增 OPS_HEALTH_API_URL / OPS_HEALTH_LOGTO_URL / OPS_HEALTH_TARGETS。
+- 文档：ops-center PRD 12A.14。
+- 测试：ops-center pytest（+2 health）。
+
+## [未发布] 功能：官方 Key 池配额/成本概览 + 许可证管理（P0/P1 第三批）（2026-08-10）
+
+- ops-center：官方 Key 池增强——`official_keys` 新增 rate_per_minute/daily_limit/alert_threshold_cost/note（幂等迁移 `ensure_official_key_columns`，校验拒绝布尔/小数/负数）；`GET /api/v1/secrets/summary`（admin）返回池概览（总数/活跃/30 天内到期/已过期/近 30 天成本复用用量上报/达告警阈值）；Key 管理页新增字段与概览卡片。
+- ops-center：许可证管理——`licenses` 表（license_key 唯一自动生成 MP-XXXX-XXXX-XXXX-XXXX、plan/device_limit/expires_at/status/note）+ `GET/POST /api/v1/licenses`、`PUT/DELETE /api/v1/licenses/{id}`（admin）；前端「许可证管理」页（签发/列表/禁用/删除）。
+- 边界：桌面端 license-manager 本地激活与 entitlement 验签合同不变；官方 Key 回退路由/许可证服务端验签待商业模式确认后另行接入。
+- 文档：ops-center PRD 12A.13。
+- 测试：ops-center pytest（+3 keypool/license）。
+
 ## [未发布] 功能：模型调用用量上报与运营看板（P0 第二批）（2026-08-10）
 
 - ops-center：新增 `model_usage_daily` 聚合表 + `POST /api/v1/usage/ingest`（X-Catalog-Key 鉴权，按 (日期,客户端,服务商,动作) upsert 累加，幂等；校验：日期格式/非负/≤500 条）+ `GET /api/v1/usage/summary`（admin，totals/by_date/by_provider/by_action）。

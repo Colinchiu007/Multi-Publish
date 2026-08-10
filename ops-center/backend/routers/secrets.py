@@ -20,6 +20,16 @@ async def list_secrets(
     return {"keys": keys, "count": len(keys)}
 
 
+@router.get("/summary")
+async def get_secrets_summary(
+    days: int = 30,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_admin),
+):
+    """官方 Key 池概览（成本/到期/配额告警）。"""
+    return await key_service.pool_summary(db, days=days)
+
+
 @router.get("/{key_id}")
 async def get_secret(
     key_id: str,
@@ -41,9 +51,14 @@ async def upsert_secret(
     user: dict = Depends(require_admin),
 ):
     """Create or update an official key."""
+    try:
+        normalized = key_service.validate_key_fields(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     existing = await key_service.get_key(db, key_id, reveal=True)
     if existing:
-        updated = await key_service.update_key(db, key_id, **body)
+        merged = {**body, **normalized}
+        updated = await key_service.update_key(db, key_id, **merged)
         if not updated:
             raise HTTPException(404, f"Key not found: {key_id}")
         return key_service._model_to_dict(updated, reveal=False)
@@ -65,6 +80,10 @@ async def upsert_secret(
             tier_access=body.get("tier_access", 1),
             cost_per_1k_tokens=body.get("cost_per_1k_tokens", 0.0),
             expires_at=body.get("expires_at", ""),
+            rate_per_minute=normalized.get("rate_per_minute"),
+            daily_limit=normalized.get("daily_limit"),
+            alert_threshold_cost=normalized.get("alert_threshold_cost"),
+            note=normalized.get("note", ""),
         )
         return key_service._model_to_dict(item, reveal=False)
 
