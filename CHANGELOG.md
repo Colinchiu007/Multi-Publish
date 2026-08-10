@@ -1,3 +1,13 @@
+## [未发布] 功能：平台发布元数据管理（P1 其余）（2026-08-11）
+
+- ops-center：新增 `platform_defs` 表 + `GET/POST /api/v1/platform-defs`、`PUT/DELETE /api/v1/platform-defs/{id}`（admin）；校验：name 必填、content_category 枚举 VIDEO/IMAGE_TEXT/MIXED、max_title/max_content 正整数或空、has_api 布尔；PUT 部分更新（与已存在记录合并后全量校验，null 不修改）；种子对齐 config/platforms.yaml 12 平台（INSERT OR IGNORE 不覆盖运营修改）。
+- ops-center：`GET /api/v1/runtime/bootstrap` 增加 `platform_defs`（enabled=1 项，与公告/版本发布/内容安全同链路、同 X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「平台元数据」页（列表/筛选/新增/编辑/删除/下发开关即时切换）。
+- 桌面端：`PlatformConfig.applyRemote(defs)`（按 id 覆盖远程字段、本地独有保留、远程新增不引入、不改写 yaml、cover_size 同步重建解析）；`OpsCenterSync.setPlatformConfig` + `applyRuntime` 应用 platform_defs；phase1 接线。
+- 文档：ops-center PRD 12A.15、Multi-Publish PRD §7.4.8。
+- 审查修复（Claude 定向审查）：POST 重复 id → 409、PUT 不存在 → 404（拆分为显式 create/update）；删除改软删（deleted_at，种子不复活已删平台，软删后可重建）；id 字符集 `^[a-z0-9_-]{1,64}$`；has_api/enabled 仅 true/false/1/0；category/type 枚举；IntegrityError 兜底；前端开关只回传 `{enabled}`、id 预检、类型下拉、空串清空上限；applyRemote allowlist + 类型守卫 + 数组上限 500。
+- 测试：ops-center pytest（+3 platform_defs，全量 105）；桌面端 platform-config +7、ops-center-sync +3；全量桌面端 vitest 395 文件 / 6846 用例通过。
+
 ## [未发布] 功能：Story2Video 视频+图片轮播混合流水线（2026-08-11）
 
 - 新增「视频增强」能力：Story2Video 流水线支持 AI 视频片段与图片轮播组合成片，AI 视频只用于最值得动态化的场景（约 20%-40% 时长），控制成本/额度/耗时。
@@ -9,6 +19,7 @@
 - 契约：story2videoTextConfig 新增可选 video 段（mode/provider/model/fixedRatio/minRatio/maxRatio/maxScenes），normalizer 白名单校验；参数治理纳入（视频并发固定 1，前端不暴露）。
 - 文档：PRD §7.1.25（数据校验/流程/功能逻辑/交互/显示项/提示文字/降级/验收标准）。
 - 测试：story2video-text-config +10、story2video-stages +21（选择算法/执行器/视频分支真实下载）、story2video-compose-engine +3（混合真实编码）、pipeline-engine/pipeline-story2video-contract 阶段顺序同步。
+
 
 ## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
 
