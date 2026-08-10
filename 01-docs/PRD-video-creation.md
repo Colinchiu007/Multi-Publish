@@ -1246,3 +1246,42 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 - [ ] 性能无明显下降
 - [ ] 现有功能不受影响
 
+
+
+### 9.9 组件接入状态（2026-08-11 更新）
+
+#### 已接入组件
+
+| 组件 | 接入位置 | 接入方式 | 状态 |
+|------|----------|----------|------|
+| PipelineSelector.vue | CreateView.vue | 替换内联流水线网格（原22行→10行） | ✅ 已接入 |
+| StageProgress.vue | CreateView.vue | 替换内联阶段进度（原25行→8行） | ✅ 已接入 |
+
+#### 未接入组件及原因
+
+| 组件 | 原因 | 替代方案 |
+|------|------|----------|
+| ErrorDialog.vue | 独立overlay与设计系统UiModal不一致 | 保留UiModal |
+| ConfigSummary.vue | 与现有配置表单功能重复 | 不插入避免UI冗余 |
+
+#### 数据校验
+
+- **PipelineSelector**：pipelines数组每项需包含name、category、estimatedCost、available字段；loading/error为Boolean/String
+- **StageProgress**：stages数组每项需包含name、status（completed/running/failed/waiting_approval/pending/cancelled）；progressPercent为0-100数值
+
+#### 交互逻辑
+
+- **PipelineSelector**：点击卡片触发select事件（传递pipeline对象）；加载中显示骨架屏；错误状态显示重试按钮
+- **StageProgress**：自动根据status显示对应图标和颜色；运行中阶段显示子进度条（compose阶段）；显示每个阶段的耗时
+
+#### 显示项
+
+- **PipelineSelector**：分类标签（AI生成/说话头像/电影感等）、稳定性指示点（production/beta/experimental）、阶段数、消耗等级、可用性
+- **StageProgress**：总进度百分比、已用时间、完成摘要、各阶段名称/状态图标/状态文本/耗时
+
+#### 提示文字
+
+- PipelineSelector加载态："加载流水线列表..."
+- PipelineSelector错误态：错误信息 + "重试"按钮
+- StageProgress阶段状态：等待中/运行中/已完成/失败/等待确认/已取消
+- StageProgress时间格式："X分Y秒" 或 "Y秒"
