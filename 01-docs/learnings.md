@@ -4,6 +4,13 @@
 
 ---
 
+## BGM 提示单一来源收敛复盘 (2026-08-10，质量节拍审查闭环)
+
+- **背景**：PR #466 审查 Minor7——服务层 `BGM_SKIP_WARNING_MESSAGES`（中文）与前端 `BGM_SKIP_REASON_TEXT`（zh/en）对同一组 `bgmSkippedReason` 码维护两份映射，新增码需同步两处，且引擎侧中文 warnings 无 renderer 消费者。
+- **实现**：服务层 warnings 改为机器码（bgm_size_exceeded / bgm_format_unsupported / bgm_not_allowed / bgm_unreadable），`data.bgmSkippedReason` 为权威码；用户可见文案唯一来源=前端 `formatBgmSkippedNotification`；测试新增「warnings 不含中文字符」断言防回退；规格 `story2video-bgm-reuse` 同步更新 warnings 语义。
+- **教训**：跨层「用户可见文案」必须单一来源——服务层只回传机器码/标识，文案归前端 i18n；双份映射是漂移温床。收敛时保留契约形状（warnings 数组）只改内容，避免破坏消费者。
+- **边界**：本次为 S/低风险收敛，无行为变化（renderer 本就只读 bgmSkippedReason）。
+
 ## BGM 跳过提示接线与导入惰性 GC 复盘 (2026-08-10，质量节拍审查闭环)
 
 - **背景**：PR #464 后 compose 已把 `bgmSkippedReason` 写入 `run.context.compose`，但前端无消费者，用户「选了 BGM 却被跳过」无感知；GC 仅启动一次，长会话内 selected-media 无界增长；`MODEL_API_KEY_PATTERN` 单条正则过复杂。
