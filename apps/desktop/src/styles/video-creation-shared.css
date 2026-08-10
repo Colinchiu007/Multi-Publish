@@ -11,7 +11,10 @@
   border-radius: 12px;
   padding: 16px 20px;
   cursor: pointer;
-  transition: all 0.2s;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .pipeline-card:hover {
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
@@ -49,24 +52,33 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+    margin-bottom: 4px;
 }
 .card-title {
-  font-size: 1rem;
-  margin: 0 0 6px 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin: 0 0 4px 0;
+  line-height: 1.3;
 }
 .card-desc {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
-  line-height: 1.4;
-  margin: 0 0 12px 0;
+  line-height: 1.45;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .card-meta {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   font-size: 12px;
   color: var(--text-light);
   align-items: center;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline, rgba(0,0,0,0.06));
 }
 .card-footer {
   display: flex;
@@ -77,10 +89,11 @@
 /* Badge (Pipeline category tag) */
 .badge {
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 3px 10px;
+  border-radius: 6px;
   font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 .badge.generated { background: var(--pipe-generated-bg); color: var(--pipe-generated-text); }
 .badge.talking_head { background: var(--pipe-talking-head-bg); color: var(--pipe-talking-head-text); }
@@ -150,25 +163,25 @@
   padding: 40px;
   color: var(--text-muted);
 }
-.video-empty-state-icon { font-size: 48px; margin-bottom: 8px; opacity: 0.6; }
-.video-empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 12px; }
+.video-empty-state-icon { font-size: 52px; margin-bottom: 12px; opacity: 0.55; }
+.video-empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 16px; line-height: 1.5; }
 
 /* Pipeline Grid (shared layout) */
 .pipeline-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
   gap: 16px;
 }
 
 /* S2V Config Sections (collapsible panels) */
 .s2v-config-sections {
   display: grid;
-  gap: 10px;
-  margin-bottom: 16px;
+    gap: 12px;
+  margin-bottom: 20px;
 }
 .s2v-config-section {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface);
   overflow: hidden;
 }
@@ -176,12 +189,13 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
+    padding: 15px 18px;
   cursor: pointer;
   list-style: none;
   font-weight: 700;
 }
 .s2v-section-summary::-webkit-details-marker { display: none; }
+.s2v-section-summary:hover { background: var(--bg, #f9fafb); }
 .s2v-section-summary::before {
   content: '\203A';
   display: inline-block;
@@ -199,6 +213,11 @@
   font-size: 12px;
   color: var(--text-muted);
   margin-left: auto;
+  max-width: 50%;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Skeleton (shared) */
@@ -214,6 +233,142 @@
   inset: 0;
   background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent);
   animation: vc-skeleton-shimmer 1.5s infinite;
+}
+
+/* ============================================
+   Form Controls — Enhanced Focus & Hover
+   ============================================ */
+.vc-form-select,
+.vc-form-input,
+.vc-form-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.vc-form-select:hover,
+.vc-form-input:hover,
+.vc-form-textarea:hover {
+  border-color: var(--primary, #7c5cbf);
+}
+.vc-form-select:focus,
+.vc-form-input:focus,
+.vc-form-textarea:focus {
+  outline: none;
+  border-color: var(--primary, #7c5cbf);
+  box-shadow: 0 0 0 3px rgba(124, 92, 191, 0.12);
+}
+.vc-form-textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.5;
+}
+
+/* ============================================
+   Buttons — Primary / Secondary / Ghost Hierarchy
+   ============================================ */
+.vc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.vc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.vc-btn-primary {
+  background: var(--primary, #7c5cbf);
+  color: #fff;
+  border-color: var(--primary, #7c5cbf);
+}
+.vc-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 8px rgba(124, 92, 191, 0.3);
+}
+.vc-btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.vc-btn-secondary:hover:not(:disabled) {
+  border-color: var(--primary, #7c5cbf);
+  color: var(--primary, #7c5cbf);
+}
+.vc-btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: transparent;
+}
+.vc-btn-ghost:hover:not(:disabled) {
+  color: var(--primary, #7c5cbf);
+  background: var(--bg, #f9fafb);
+}
+
+/* ============================================
+   Status Indicator — Timeline Enhancements
+   ============================================ */
+.vc-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.vc-status-dot.completed { background: var(--stability-production); }
+.vc-status-dot.running { background: var(--stability-beta); animation: vc-pulse 1.5s ease-in-out infinite; }
+.vc-status-dot.failed { background: var(--stability-experimental); }
+.vc-status-dot.paused { background: var(--status-waiting-text); }
+@keyframes vc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.vc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vc-badge-success { background: var(--status-completed-bg); color: var(--status-completed-text); }
+.vc-badge-failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.vc-badge-running { background: var(--status-running-bg); color: var(--status-running-text); }
+.vc-badge-cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+.vc-badge-waiting { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
+
+/* ============================================
+   Progress Bar — Refined
+   ============================================ */
+.vc-progress-bar {
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.vc-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 4px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.vc-progress-text {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-left: 10px;
+  font-weight: 500;
 }
 @keyframes vc-skeleton-shimmer {
   0% { transform: translateX(-100%); }

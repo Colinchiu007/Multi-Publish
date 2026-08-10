@@ -1,6 +1,6 @@
 # PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
-> **版本**: v1.9
+> **版本**: v2.0
 > **日期**: 2026-08-11
 > **状态**: 实现基线已更新（持续迭代）
 > **产品定位**: 将 OpenMontage 的视频生成能力集成到 Multi-Publish 桌面客户端，实现"创作→渲染→发布"完整闭环  
@@ -911,6 +911,80 @@ CreateView.vue (主视图，路由入口)
 - 所有颜色引用 CSS 变量（来自 tokens），不使用硬编码色值
 - 暗色模式通过 [data-theme="dark"] 覆盖 tokens 变量自动生效
 - 响应式断点: 720px 以下切换为单列布局
+
+### UI/UX 视觉层次优化（2026-08-11 v2）
+
+**优化目标**: 在不改变功能逻辑的前提下，提升视频创作模块所有页面的视觉层次、交互体验和一致性。
+
+#### 流水线卡片（Pipeline Card）
+
+| 优化项 | 变更前 | 变更后 |
+|--------|--------|--------|
+| 内边距 | `padding: 16px 20px` | `padding: 18px 22px`，更宽松 |
+| 过渡动画 | `transition: all 0.2s` | 分别过渡 `transform`/`box-shadow`/`border-color`，更精细 |
+| 悬浮阴影 | `box-shadow: 0 4px 12px` | `box-shadow: 0 6px 20px`，层次更强 |
+| 卡片标题 | `font-size: 1rem; margin-bottom: 6px` | `font-size: 1.05rem; font-weight: 650; margin-bottom: 4px; line-height: 1.3` |
+| 卡片描述 | 无截断限制 | `display: -webkit-box; -webkit-line-clamp: 2` 限制两行，防止长描述撑开卡片 |
+| 卡片底部元数据 | 无分隔线 | `border-top: 1px solid var(--hairline)` 分隔内容与元数据区 |
+| 徽章 (badge) | `padding: 2px 8px; border-radius: 4px` | `padding: 3px 10px; border-radius: 6px; letter-spacing: 0.3px` |
+| 网格间距 | `gap: 16px` | `gap: 18px`，`minmax(300px, 1fr)` → `minmax(290px, 1fr)` |
+| 无障碍 | 基本 `focus-visible` | 增加悬浮反馈和更明显的焦点环 |
+
+#### 流水线详情页（Pipeline Detail）
+
+| 优化项 | 变更前 | 变更后 |
+|--------|--------|--------|
+| 容器布局 | `.pipeline-detail {}` 空 | `display: flex; flex-direction: column; gap: 20px`，统一垂直节奏 |
+| 返回按钮 | 无悬浮反馈 | 增加 `transition` 和 `filter: brightness(1.15)` |
+| 详情头部 | `margin-bottom: 20px` | 增加 `padding-bottom: 12px; border-bottom` 视觉分隔 |
+| 阶段时间线 | `padding: 16px; background: var(--bg)` | 增加 `border: 1px solid var(--hairline); border-radius: 12px` 包裹感 |
+| 输入区域 | 无包裹 | `.input-section` 增加 `padding: 18px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px` |
+| 配置区块 | 无包裹 | `.config-section` 同上包裹样式 |
+| 操作栏 | `border-top: 1px solid var(--border)` | 增加 `padding: 16px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px` |
+
+#### 折叠面板（S2V Config Sections）
+
+| 优化项 | 变更前 | 变更后 |
+|--------|--------|--------|
+| 间距 | `gap: 10px; margin-bottom: 16px` | `gap: 12px; margin-bottom: 20px` |
+| 圆角 | `border-radius: 10px` | `border-radius: 12px` |
+| 摘要标题 | `padding: 14px 16px` | `padding: 15px 18px`，增加悬浮背景色 |
+| 摘要文本溢出 | 无处理 | `max-width: 50%; text-overflow: ellipsis; white-space: nowrap` |
+
+#### 历史记录页（CreateHistory.vue）
+
+| 优化项 | 变更前 | 变更后 |
+|--------|--------|--------|
+| 页面标题 | `font-size: 24px` | `font-size: 26px; letter-spacing: -0.3px` |
+| 标签页切换 | `gap: 4px; border-bottom: 1px solid` | `gap: 2px; border-bottom: 2px solid` 更明显 |
+| 流水线卡片 | `padding: 16px 20px; transition: all 0.15s` | `padding: 18px 22px`，分离式过渡动画 |
+| 卡片名称 | `font-weight: 600` | `font-weight: 650; line-height: 1.3` |
+| 状态圆点 | `width: 8px; height: 8px` | `width: 10px; height: 10px` 更醒目 |
+| 阶段标签 | `padding: 3px 8px; border-radius: var(--r-xs)` | `padding: 3px 10px; border-radius: 6px` |
+| 卡片底部分隔线 | `border-top: 1px solid var(--border)` | `border-top: 1px solid var(--hairline)` 更轻柔 |
+
+#### 共享组件库新增（video-creation-shared.css）
+
+新增以下可复用 UI 组件类（全局可用）：
+
+1. **表单控件 `.vc-form-*`**: `.vc-form-select`、`.vc-form-input`、`.vc-form-textarea`，统一内边距、圆角、悬浮和聚焦阴影
+2. **按钮层级 `.vc-btn-*`**: `.vc-btn-primary`（主色填充）、`.vc-btn-secondary`（边框按钮）、`.vc-btn-ghost`（透明按钮），带悬浮和禁用状态
+3. **状态指示 `.vc-status-dot`**: 统一圆点尺寸（10px），带 `completed`/`running`/`failed`/`paused` 状态色
+4. **徽章 `.vc-badge-*`**: `.vc-badge-success`/`.vc-badge-failed`/`.vc-badge-running`/`.vc-badge-cancelled`/`.vc-badge-waiting`
+5. **进度条 `.vc-progress-*`**: `.vc-progress-bar`（高度8px）、`.vc-progress-fill`（圆角4px）、`.vc-progress-text`
+
+#### 暗色模式兼容
+
+所有新增样式均引用 CSS 变量（`var(--surface)`、`var(--border)`、`var(--primary)` 等），暗色模式通过 `video-creation-tokens.css` 的 `[data-theme="dark"]` 覆盖自动生效，无需额外处理。
+
+#### 数据校验与交互逻辑（未变更）
+
+本次优化仅涉及视觉层，不改变以下已有逻辑：
+- 流水线启动/暂停/恢复的状态机
+- S2V 配置的参数校验和提交合同
+- 历史记录的加载/轮询/筛选
+- 暂停状态 `pausedStage` 的显示逻辑（`暂停环节：{{ stageLabel(p.pausedStage) }}`）
+- 语音克隆、模板管理等业务逻辑
 
 ### 仍需后续优化
 

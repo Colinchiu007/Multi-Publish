@@ -262,10 +262,10 @@ export default {
 
 <style scoped>
 .history-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; }
-.page-header { margin-bottom: 20px; }
-.page-header h1 { font-size: 24px; font-weight: 700; margin: 0 0 6px; color: var(--ink); }
-.text-muted { color: var(--text-muted); font-size: 14px; }
-.page-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--hairline); }
+.page-header { margin-bottom: 24px; }
+.page-header h1 { font-size: 26px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.3px; }
+.text-muted { color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+.page-tabs { display: flex; gap: 2px; margin-bottom: 24px; border-bottom: 2px solid var(--hairline, rgba(0,0,0,0.08)); }
 .tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; }
 .tab.active { color: var(--primary, #7c5cbf); border-bottom-color: var(--primary, #7c5cbf); font-weight: 600; }
 .loading-state, .empty-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: var(--text-muted); justify-content: center; flex-direction: column; }
@@ -273,18 +273,18 @@ export default {
 .running-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--status-running-text); background: var(--status-running-bg); border-radius: var(--r-sm); cursor: pointer; font-size: 13px; }
 .running-banner:hover { background: var(--history-progress-active-shadow); }
 .render-list, .pipeline-list { display: flex; flex-direction: column; gap: 12px; }
-.render-card, .pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; transition: all 0.15s; }
+.render-card, .pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 18px 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
 .pipeline-card { border-left: 3px solid transparent; }
 .pipeline-card.running { border-left-color: var(--stability-beta); }
 .pipeline-card.failed { border-left-color: var(--pipe-cinematic); }
 .pipeline-card.cancelled { border-left-color: var(--text-light); }
 .pipeline-card.paused { border-left-color: var(--stability-experimental); }
 .pipeline-card.completed { border-left-color: var(--stability-production); }
-.render-card:hover, .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 2px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.render-card:hover, .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
 .render-info, .pipeline-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
 .render-icon { font-size: 24px; }
 .render-meta, .pipeline-meta { display: flex; flex-direction: column; gap: 2px; }
-.render-name, .pipeline-name { font-size: 14px; font-weight: 600; }
+.render-name, .pipeline-name { font-size: 14px; font-weight: 650; line-height: 1.3; }
 .render-time, .pipeline-time { font-size: 12px; color: var(--text-light); }
 .render-status, .pipeline-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
 .render-status.completed, .pipeline-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
@@ -293,16 +293,16 @@ export default {
 .render-status.paused, .pipeline-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
 .render-status.running, .pipeline-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
 .render-actions { display: flex; gap: 6px; }
-.pipeline-card-bottom { display: flex; align-items: center; gap: 12px; width: 100%; padding-top: 6px; border-top: 1px solid var(--border); margin-top: 2px; }
+.pipeline-card-bottom { display: flex; align-items: center; gap: 12px; width: 100%; padding-top: 8px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); margin-top: 4px; }
 .pipeline-hints { display: flex; gap: 6px; flex-shrink: 0; }
 .pipeline-stages { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; min-width: 240px; }
-.stage-tag { font-size: 12px; padding: 3px 8px; border-radius: var(--r-xs); background: var(--status-pending-bg); color: var(--status-pending-text); font-weight: 500; white-space: nowrap; }
+.stage-tag { font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--status-pending-bg); color: var(--status-pending-text); font-weight: 500; white-space: nowrap; }
 .stage-tag.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .stage-tag.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
 .stage-tag.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
 .stage-tag.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
 .stage-tag.running { background: var(--status-running-bg); color: var(--status-running-text); }
-.pipeline-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.pipeline-status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .pipeline-status-dot.completed { background: var(--stability-production); }
 .pipeline-status-dot.failed { background: var(--pipe-cinematic); }
 .pipeline-status-dot.cancelled { background: var(--text-light); }
