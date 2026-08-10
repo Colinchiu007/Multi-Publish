@@ -73,6 +73,7 @@ const nameMap = {
   report: '报告',
   split: '分句',
   optimize: '优化',
+  select_video_scenes: '视频场景选择',
   generate_assets: '资源生成',
 }
 

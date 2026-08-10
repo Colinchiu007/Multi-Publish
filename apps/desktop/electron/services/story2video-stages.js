@@ -17,6 +17,12 @@
 
 'use strict';
 
+const { execFile } = require('child_process');
+const fs = require('fs');
+const http = require('http');
+const https = require('https');
+const os = require('os');
+const path = require('path');
 const { STAGE_TYPES } = require('./stage-executor');
 const { enrichHistoryScenes, passthroughScenes } = require('./story2video-domain');
 const {
@@ -41,15 +47,420 @@ const {
 const STORY2VIDEO_STAGE_TYPES = {
   DOMAIN_ENRICH: 'story2video_domain_enrich',
   OPTIMIZE: 'story2video_optimize',
+  SELECT_VIDEO_SCENES: 'story2video_select_video_scenes',
   GENERATE_ASSETS: 'story2video_generate_assets',
 };
 
 const MAX_ASSET_CONCURRENCY = 8;
+// 视频下载大小上限（与 story2video-paths MEDIA_RULES.video 一致：512MB）
+const MAX_VIDEO_FILE_BYTES = 512 * 1024 * 1024;
 
 function normalizeAssetConcurrency(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 3;
   return Math.min(MAX_ASSET_CONCURRENCY, Math.max(1, Math.floor(number)));
+}
+
+// ----------------------------------------------------------
+// 视频+图片轮播混合模式：场景选择（select_video_scenes）辅助
+// ----------------------------------------------------------
+
+const VIDEO_MODES = new Set(['off', 'fixed', 'ai-judged'])
+
+function getAiGenerator (pipelineEngine) {
+  if (pipelineEngine && pipelineEngine.aiGenerator) return pipelineEngine.aiGenerator
+  if (pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function') {
+    try {
+      return pipelineEngine.container.get('aiGenerator')
+    } catch (_) { /* 未注册 */ }
+  }
+  return null
+}
+
+/**
+ * 解析视频生成器：显式 provider/model 优先，否则取模型管理器默认 video 能力。
+ * 返回 null 表示未配置（调用方 fail closed 引导设置）。
+ */
+function resolveVideoGeneratorConfig (pipelineEngine, explicit) {
+  if (explicit && typeof explicit === 'object') {
+    const providerId = typeof explicit.provider === 'string' ? explicit.provider.trim() : ''
+    if (providerId) {
+      return {
+        providerId,
+        model: typeof explicit.model === 'string' ? explicit.model.trim() : '',
+      }
+    }
+  }
+  const aiGenerator = getAiGenerator(pipelineEngine)
+  const manager = aiGenerator && aiGenerator._modelProviderManager
+  const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault('video') : null
+  if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
+  const models = Array.isArray(provider.models)
+    ? provider.models.filter(item => typeof item === 'string' && item.trim())
+    : []
+  // 多模态 provider：优先取 capability_models.video（能力默认模型），models 首项可能是 image/llm 模型
+  // （与前端 getS2VDefaultVideoModel 同源，2026-08-11 W1）。
+  let model = ''
+  if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
+    const videoModel = provider.capability_models.video
+    model = models.includes(videoModel) ? videoModel : (videoModel || models[0] || '')
+  } else {
+    model = models[0] || ''
+  }
+  return { providerId: provider.id.trim(), model: model ? model.trim() : '' }
+}
+
+/** 场景估算时长：sentence.duration 优先，其次 split.targetSeconds，兜底默认 6s。 */
+function estimateSceneSeconds (scene, defaultSeconds) {
+  if (scene && typeof scene === 'object') {
+    const candidate = scene.duration ?? scene.targetSeconds ?? scene.estimatedSeconds
+    const value = Number(candidate)
+    if (Number.isFinite(value) && value > 0) return value
+  }
+  const fallback = Number(defaultSeconds)
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : 6
+}
+
+/**
+ * fixed 模式：按场景顺序累计估算时长，标记累计占比首次达到 fixedRatio% 的场景。
+ * 至少标记 1 个场景（fixedRatio > 0 且场景数 > 0）。
+ */
+function pickFixedVideoScenes (scenes, fixedRatio) {
+  if (!Array.isArray(scenes) || scenes.length === 0) {
+    return { selected: [], ratio: 0 }
+  }
+  const total = scenes.reduce((sum, scene) => sum + scene.seconds, 0)
+  if (total <= 0) return { selected: [], ratio: 0 }
+  const target = total * (Number(fixedRatio) / 100)
+  const selected = []
+  let acc = 0
+  for (const scene of scenes) {
+    if (selected.length === 0 || acc < target) {
+      selected.push(scene.index)
+      acc += scene.seconds
+    } else {
+      break
+    }
+  }
+  if (selected.length === 0) selected.push(scenes[0].index)
+  const selectedSeconds = scenes
+    .filter(scene => selected.includes(scene.index))
+    .reduce((sum, scene) => sum + scene.seconds, 0)
+  return { selected, ratio: Math.round((selectedSeconds / total) * 1000) / 10 }
+}
+
+function buildVideoSelectionPrompt (scenes, config) {
+  const items = scenes.map(scene => ({
+    index: scene.index,
+    text: String(scene.text || '').slice(0, 200),
+    prompt: String(scene.prompt || '').slice(0, 200),
+    seconds: Math.round(scene.seconds * 10) / 10,
+  }))
+  const ratioHint = config.mode === 'ai-judged'
+    ? '所选场景估算总时长占比必须控制在 ' + config.minRatio + '%-' + config.maxRatio + '% 之间，场景数不超过 ' + config.maxScenes + ' 个。'
+    : ''
+  return {
+    system: '你是短视频导演。根据每个场景的文案与画面提示词，判断哪些场景「动态化」价值最高（动作/转场/情绪高潮/视觉冲击力强），适合用 AI 生成视频片段（成本高），其余场景用静态图片轮播（成本低）。' +
+      '只输出严格 JSON 数组，每个元素 {"index": 场景序号, "video": true或false, "excitement": 1-10整数, "reason": "一句话理由"}。' +
+      ratioHint + '只输出 JSON，不要其他文字。',
+    user: JSON.stringify(items),
+  }
+}
+
+/** 严格解析 LLM 返回：必须是数组，逐条校验 index 合法；非法即返回 null（fail closed）。 */
+function parseVideoSelection (raw, sceneCount) {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  const source = raw.trim()
+  let parsed = null
+  try {
+    parsed = JSON.parse(source)
+  } catch (_) { /* fallthrough */ }
+  if (!parsed && source.includes('[')) {
+    const start = source.indexOf('[')
+    const end = source.lastIndexOf(']')
+    if (start !== -1 && end > start) {
+      try {
+        parsed = JSON.parse(source.slice(start, end + 1))
+      } catch (_) { /* fallthrough */ }
+    }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null
+  const seen = new Set()
+  const result = []
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const index = Number(item.index)
+    if (!Number.isInteger(index) || index < 0 || index >= sceneCount || seen.has(index)) return null
+    seen.add(index)
+    const excitement = Number(item.excitement)
+    result.push({
+      index,
+      video: item.video === true || item.video === 'true' || item.video === 1,
+      excitement: Number.isFinite(excitement) ? Math.min(10, Math.max(1, Math.round(excitement))) : 1,
+      reason: typeof item.reason === 'string' ? item.reason.slice(0, 120) : '',
+    })
+  }
+  return result
+}
+
+/**
+ * ai-judged 钳制：把选择结果按 excitement 排序后收敛到 [minRatio, maxRatio] 且 ≤ maxScenes。
+ * - 超 maxRatio：从低 excitement 剔除；
+ * - 不足 minRatio：按高 excitement 补入未选场景（受 maxScenes 与 maxRatio 约束）；
+ * - 全部剔除后仍不足 minRatio 时，保留最高 excitement 的单场景（至少 1 个）。
+ */
+function clampVideoSelection (scenes, entries, config) {
+  if (!Array.isArray(scenes) || scenes.length === 0) {
+    return { selected: [], ratio: 0 }
+  }
+  const total = scenes.reduce((sum, scene) => sum + scene.seconds, 0)
+  if (total <= 0) return { selected: [], ratio: 0 }
+  const byIndex = new Map(scenes.map(scene => [scene.index, scene]))
+  const desired = new Set(entries.filter(entry => entry.video).map(entry => entry.index))
+  const excitementOf = (index) => {
+    const entry = entries.find(e => e.index === index)
+    return entry ? entry.excitement : 0
+  }
+  const ratioOf = (indexes) => {
+    const seconds = indexes.reduce((sum, index) => sum + (byIndex.get(index)?.seconds || 0), 0)
+    return { seconds, ratio: Math.round((seconds / total) * 1000) / 10 }
+  }
+  let selected = [...desired].sort((a, b) => excitementOf(b) - excitementOf(a))
+  let { ratio } = ratioOf(selected)
+  const minRatio = Number(config.minRatio)
+  const maxRatio = Number(config.maxRatio)
+  const maxScenes = Number(config.maxScenes)
+  // 超上限：从低 excitement 剔除
+  while (selected.length > 0 && (ratio > maxRatio || selected.length > maxScenes)) {
+    selected.pop() // 已按 excitement 降序，末尾最低
+    ratio = ratioOf(selected).ratio
+  }
+  // 不足下限：按高 excitement 补入未选场景
+  if (ratio < minRatio && selected.length < maxScenes) {
+    const candidates = scenes
+      .map(scene => scene.index)
+      .filter(index => !selected.includes(index))
+      .sort((a, b) => excitementOf(b) - excitementOf(a))
+    for (const index of candidates) {
+      if (selected.length >= maxScenes) break
+      const next = ratioOf([...selected, index])
+      if (next.ratio > maxRatio) continue
+      selected.push(index)
+      ratio = next.ratio
+    }
+  }
+  // 至少保留最高 excitement 的一个场景（若用户显式开启混合模式且存在场景）
+  if (selected.length === 0 && scenes.length > 0) {
+    const top = [...scenes].sort((a, b) => excitementOf(b.index) - excitementOf(a.index))[0]
+    selected = [top.index]
+    ratio = ratioOf(selected).ratio
+  }
+  return { selected: selected.slice(0, maxScenes), ratio }
+}
+
+/** 场景估算时长 → 视频生成帧数档位（24fps 近似，满足 8n+1 规则的保守取值）。 */
+function pickFrameCountForSceneDuration (durationSeconds) {
+  const d = Number(durationSeconds)
+  if (!Number.isFinite(d) || d <= 0) return 121
+  if (d <= 5) return 121
+  if (d <= 8) return 201
+  if (d <= 10) return 241
+  return 441
+}
+
+function parseOutputSize (value) {
+  const size = String(value || '').trim()
+  const match = /^(\d{2,4})x(\d{2,4})$/.exec(size)
+  if (match) return { width: Number(match[1]), height: Number(match[2]) }
+  return null
+}
+
+/** 视频生成分辨率：优先输出 size（如 720x1280），否则按宽高比映射默认档位。 */
+function resolveVideoSize (params, stage) {
+  const fromSize = parseOutputSize(params.resolution || params.size || (stage && stage.options && stage.options.resolution))
+  if (fromSize) return fromSize
+  const ratio = params.aspectRatio || (stage && stage.options && stage.options.aspectRatio) || '9:16'
+  const map = {
+    '16:9': [1280, 720],
+    '9:16': [720, 1280],
+    '1:1': [1024, 1024],
+    '4:3': [1280, 960],
+    '3:4': [960, 1280],
+  }
+  const pair = map[ratio] || map['9:16']
+  // 视频生成尺寸长边封顶 1280（2026-08-11 I7）：4K 输出也按 1280 请求视频，避免昂贵/易失败的超大生成
+  let width = pair[0]
+  let height = pair[1]
+  const longEdge = Math.max(width, height)
+  if (longEdge > 1280) {
+    const scale = 1280 / longEdge
+    width = Math.max(160, Math.round(width * scale))
+    height = Math.max(160, Math.round(height * scale))
+  }
+  return { width, height }
+}
+
+/**
+ * 下载视频到本地。守卫（2026-08-11 W5）：仅 http/https、重定向 ≤5 跳、流式写入按字节上限截断。
+ * @param {string} url
+ * @param {string} dest
+ * @param {object} [options] - { maxBytes?, maxRedirects? }
+ */
+function downloadVideoToFile (url, dest, options = {}) {
+  const maxBytes = Number.isFinite(Number(options.maxBytes)) && Number(options.maxBytes) > 0 ? Number(options.maxBytes) : Infinity
+  const maxRedirects = Number.isFinite(Number(options.maxRedirects)) ? Number(options.maxRedirects) : 5
+  const follow = (currentUrl, redirectsLeft) => new Promise((resolve, reject) => {
+    if (!/^https?:/i.test(currentUrl)) {
+      reject(new Error('视频下载仅允许 http/https 协议'))
+      return
+    }
+    const protocol = /^https:/i.test(currentUrl) ? https : http
+    const request = protocol.get(currentUrl, (response) => {
+      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        response.resume()
+        if (redirectsLeft <= 0) {
+          reject(new Error('视频下载重定向次数超过上限'))
+          return
+        }
+        follow(String(response.headers.location), redirectsLeft - 1).then(resolve, reject)
+        return
+      }
+      if (response.statusCode !== 200) {
+        response.resume()
+        reject(new Error('视频下载失败，HTTP ' + response.statusCode))
+        return
+      }
+      let written = 0
+      let aborted = false
+      const stream = fs.createWriteStream(dest)
+      response.on('data', (chunk) => {
+        written += chunk.length
+        if (written > maxBytes) {
+          aborted = true
+          response.destroy()
+          stream.destroy()
+          fs.unlink(dest, () => {})
+          reject(new Error('视频下载超过大小上限'))
+          return
+        }
+        stream.write(chunk)
+      })
+      response.on('end', () => {
+        if (aborted) return
+        stream.end(() => stream.close(() => resolve(dest)))
+      })
+      stream.on('error', (error) => {
+        fs.unlink(dest, () => {})
+        reject(error)
+      })
+    })
+    request.on('error', reject)
+  })
+  return follow(url, maxRedirects)
+}
+
+/**
+ * 单场景 AI 视频生成：generateVideo 提交 → getVideoStatus 轮询（≤10 分钟）→ 下载落盘。
+ * 与 videogen-stages GENERATE 阶段同一契约（复用 provider 适配器能力）。
+ */
+async function generateSceneVideo ({ manager, providerId, model, prompt, index, seconds, size, fps, runDir, pollIntervalMs }) {
+  const frameRate = Number(fps) > 0 ? Number(fps) : 24
+  const pollInterval = Number.isFinite(Number(pollIntervalMs)) && Number(pollIntervalMs) > 0 ? Number(pollIntervalMs) : 10000
+  const numFrames = pickFrameCountForSceneDuration(seconds)
+  const submit = await manager.callAdapter(providerId, 'generateVideo', {
+    prompt,
+    model: model || undefined,
+    width: size.width,
+    height: size.height,
+    numFrames,
+    frameRate,
+    num_frames: numFrames,
+    frame_rate: frameRate,
+  })
+  if (submit && submit.code !== 0) {
+    return { success: false, error: (submit && submit.message) || ('视频生成调用失败（provider: ' + providerId + '）') }
+  }
+  const data = submit && submit.data
+  const taskId = data && (data.taskId || data.videoId)
+  if (!taskId) {
+    return { success: false, error: '视频生成未返回任务 ID' + (submit && submit.message ? '：' + submit.message : '') }
+  }
+  const pollDeadline = Date.now() + 10 * 60 * 1000
+  let videoUrl = null
+  let pollError = ''
+  while (Date.now() < pollDeadline) {
+    await sleep(pollInterval)
+    const status = await manager.callAdapter(providerId, 'getVideoStatus', { videoId: taskId, taskId })
+    // provider 显式报错（code<0 / success=false，无 URL）视为终止态，避免空转整轮 10 分钟（2026-08-11 W3）
+    if (status && (Number(status.code) < 0 || status.success === false)) {
+      pollError = (status && status.message) || '视频生成任务失败（provider: ' + providerId + '）'
+      break
+    }
+    const url = status && (status.videoUrl || status.url || (status.data && (status.data.videoUrl || status.data.url)))
+    if (url) { videoUrl = url; break }
+    const state = status && (status.status || (status.data && status.data.status)) || ''
+    if (['failed', 'error', 'cancelled'].includes(String(state).toLowerCase())) {
+      pollError = '视频生成任务状态为 ' + String(state) + '（provider: ' + providerId + '）'
+      break
+    }
+  }
+  if (!videoUrl) {
+    return { success: false, error: pollError || '视频生成超时或失败（provider: ' + providerId + '）' }
+  }
+  fs.mkdirSync(runDir, { recursive: true })
+  const dest = path.join(runDir, 'scene_video_' + String(index).padStart(3, '0') + '.mp4')
+  await downloadVideoToFile(videoUrl, dest, { maxBytes: MAX_VIDEO_FILE_BYTES })
+  // 下载后校验：非空文件 + ffprobe 可解码，避免 HTML 错误页/截断文件伪装 mp4 拖到 compose 才暴露（2026-08-11 W4）
+  if (!(fs.existsSync(dest) && fs.statSync(dest).size > 0)) {
+    fs.unlink(dest, () => {})
+    return { success: false, error: '视频下载结果为空或不可用' }
+  }
+  try {
+    await probeVideoFile(dest)
+  } catch (probeError) {
+    fs.unlink(dest, () => {})
+    return {
+      success: false,
+      error: '视频文件无法解码（' + (probeError && probeError.message ? probeError.message : String(probeError)).slice(0, 120) + '）',
+    }
+  }
+  return { success: true, path: dest }
+}
+
+/** 用捆绑 ffprobe 校验视频可解码（存在视频流即可；损坏文件快速失败）。 */
+async function probeVideoFile (videoPath) {
+  const { findFfprobe } = require('./media-tool-paths')
+  const ffprobe = findFfprobe()
+  if (!ffprobe) return
+  await runTool(ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', videoPath])
+}
+
+function runTool (binary, args) {
+  return new Promise((resolve, reject) => {
+    execFile(binary, args, { timeout: 30000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(String(stderr || error.message).slice(0, 1200)))
+        return
+      }
+      const output = String(stdout || '').trim()
+      if (!output.includes('video')) {
+        reject(new Error('视频文件缺少视频流'))
+        return
+      }
+      resolve(output)
+    })
+  })
+}
+
+/** 从上下文候选结构中解包场景数组（兼容 { scenes } / { sentences } / { results } 包装）。 */
+function unwrapScenesArray (source) {
+  if (Array.isArray(source)) return source
+  if (source && typeof source === 'object') {
+    if (Array.isArray(source.scenes)) return source.scenes
+    if (Array.isArray(source.sentences)) return source.sentences
+    if (Array.isArray(source.results)) return source.results
+  }
+  return []
 }
 
 const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota/i;
@@ -347,6 +758,135 @@ function registerStory2VideoStages(pipelineEngine) {
   registered.push(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH);
 
   // ----------------------------------------------------------
+  // SELECT_VIDEO_SCENES - 视频+图片轮播混合模式的 AI 视频场景选择（2026-08-11）
+  // ----------------------------------------------------------
+  pipelineEngine.registerStageExecutor(
+    STORY2VIDEO_STAGE_TYPES.SELECT_VIDEO_SCENES,
+    async ({ stage, params, context }) => {
+      const log = pipelineEngine.log
+      params = params || {}
+      const videoConfig = (stage && stage.options && stage.options.video) || params.videoConfig || {}
+      const mode = VIDEO_MODES.has(videoConfig.mode) ? videoConfig.mode : 'off'
+      const rawOptimize = context.optimize || context.optimized_prompts
+      const optimizePrompts = unwrapScenesArray(rawOptimize)
+      const rawSentences = context.domain_enrich || context.split || context.sentences
+      const sentences = unwrapScenesArray(rawSentences)
+      const sceneCount = Math.max(optimizePrompts.length, sentences.length)
+      if (mode === 'off' || sceneCount === 0) {
+        const emptyPlan = { mode: 'off', scenes: [], ratio: 0, selectedCount: 0 }
+        if (context && typeof context === 'object') context.video_plan = emptyPlan
+        return { success: true, output: emptyPlan }
+      }
+      const generator = resolveVideoGeneratorConfig(pipelineEngine, {
+        provider: videoConfig.provider,
+        model: videoConfig.model,
+      })
+      if (!generator) {
+        return {
+          success: false,
+          error: '视频生成器未配置，请在设置中添加支持视频生成的模型（视频增强模式需要视频生成能力）',
+        }
+      }
+      // 估算基准时长：优先 split.targetSeconds（renderer 提交），其次 stageOptions.split.target_duration（归一化后）
+      const normalizedTargetSeconds = Number(params.stageOptions && params.stageOptions.split && params.stageOptions.split.target_duration)
+      const suppliedTargetSeconds = Number(params.split && params.split.targetSeconds)
+      const defaultSeconds = normalizedTargetSeconds > 0
+        ? normalizedTargetSeconds
+        : (suppliedTargetSeconds > 0 ? suppliedTargetSeconds : 6)
+      const scenes = []
+      for (let i = 0; i < sceneCount; i++) {
+        const promptItem = optimizePrompts[i]
+        const sentence = sentences[i]
+        const prompt = typeof promptItem === 'string'
+          ? promptItem
+          : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
+        const text = typeof sentence === 'string'
+          ? sentence
+          : ((sentence && (sentence.text || sentence.content)) || '')
+        scenes.push({
+          index: i,
+          prompt: String(prompt || ''),
+          text: String(text || ''),
+          seconds: estimateSceneSeconds(sentence, defaultSeconds),
+        })
+      }
+      let selected = []
+      let ratio = 0
+      let entries = []
+      if (mode === 'fixed') {
+        const plan = pickFixedVideoScenes(scenes, videoConfig.fixedRatio)
+        selected = plan.selected
+        ratio = plan.ratio
+      } else if (mode === 'ai-judged') {
+        const aiGenerator = getAiGenerator(pipelineEngine)
+        if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
+          return { success: false, error: '默认 LLM 不可用，AI 智能选择需要先完成模型设置' }
+        }
+        const { system, user } = buildVideoSelectionPrompt(scenes, {
+          mode,
+          minRatio: videoConfig.minRatio,
+          maxRatio: videoConfig.maxRatio,
+          maxScenes: videoConfig.maxScenes,
+        })
+        let raw = ''
+        try {
+          // max_tokens 随场景数放大，避免 12 场景长 reason JSON 被截断导致解析失败（2026-08-11 I4）
+          const maxTokens = Math.min(4000, 600 + scenes.length * 120)
+          const result = await aiGenerator.generateWithDefault('llm', {
+            temperature: 0.2,
+            max_tokens: maxTokens,
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: user },
+            ],
+          })
+          raw = result && typeof result.content === 'string' ? result.content.trim() : ''
+        } catch (error) {
+          return {
+            success: false,
+            error: 'AI 智能选择失败：' + (error && error.message ? error.message : String(error)),
+          }
+        }
+        entries = parseVideoSelection(raw, scenes.length)
+        if (!entries) {
+          return { success: false, error: 'AI 智能选择结果无法解析，请重试或改用固定比例模式' }
+        }
+        const plan = clampVideoSelection(scenes, entries, {
+          minRatio: videoConfig.minRatio,
+          maxRatio: videoConfig.maxRatio,
+          maxScenes: videoConfig.maxScenes,
+        })
+        selected = plan.selected
+        ratio = plan.ratio
+      }
+      const plan = {
+        mode,
+        provider: generator.providerId,
+        model: generator.model || '',
+        scenes: scenes.map(scene => {
+          const entry = entries.find(e => e.index === scene.index)
+          return {
+            index: scene.index,
+            useVideo: selected.includes(scene.index),
+            excitement: entry ? entry.excitement : null,
+            reason: entry ? entry.reason : '',
+            seconds: scene.seconds,
+          }
+        }),
+        ratio,
+        selectedCount: selected.length,
+        totalSeconds: scenes.reduce((sum, scene) => sum + scene.seconds, 0),
+      }
+      if (context && typeof context === 'object') context.video_plan = plan
+      log.info('Story2VideoStages',
+        'select_video_scenes mode=' + mode + ' selected=' + selected.length + '/' + scenes.length +
+        ' ratio=' + ratio + '% provider=' + generator.providerId)
+      return { success: true, output: plan }
+    },
+  )
+  registered.push(STORY2VIDEO_STAGE_TYPES.SELECT_VIDEO_SCENES);
+
+  // ----------------------------------------------------------
   // OPTIMIZE - 统一走 prompt-engine（风格检测/改写/输出校验）
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
@@ -619,39 +1159,136 @@ function registerStory2VideoStages(pipelineEngine) {
         : (Array.isArray(stage.options?.audio) ? stage.options.audio : []);
       const allowPartialAssets = params.allowPartialAssets === true || stage.options?.allowPartialAssets === true;
 
+      // 视频+图片轮播混合模式：读取 video_plan（select_video_scenes 阶段输出）与视频生成配置
+      const videoMode = firstDefined(params.videoMode, stage.options?.videoMode, 'off');
+      const videoConfig = stage.options?.video || params.videoConfig || {};
+      const videoPlan = context && typeof context === 'object' ? context.video_plan : null;
+      const videoSceneSet = new Set(
+        Array.isArray(videoPlan && videoPlan.scenes)
+          ? videoPlan.scenes.filter(scene => scene.useVideo === true).map(scene => scene.index)
+          : [],
+      );
+      // 复用 select_video_scenes 已解析的 provider/model（避免阶段间二次解析漂移，2026-08-11 I10）；
+      // 显式 videoConfig 仍优先（normalizer 白名单）。
+      const videoGenerator = (videoMode !== 'off' && videoSceneSet.size > 0)
+        ? resolveVideoGeneratorConfig(pipelineEngine, {
+            provider: videoConfig.provider || (videoPlan && videoPlan.provider),
+            model: videoConfig.model || (videoPlan && videoPlan.model),
+          })
+        : null;
+
       log.info('Story2VideoStages',
-        'Generating assets: ' + optimizedPrompts.length + ' images + ' +
+        'Generating assets: ' + optimizedPrompts.length + ' scenes (' +
+        videoSceneSet.size + ' AI video + ' + (optimizedPrompts.length - videoSceneSet.size) + ' image) + ' +
         sentences.length + ' TTS (imageConcurrency=' + imageConcurrency +
         ', ttsConcurrency=' + ttsConcurrency + ', requested=' + concurrency + ')');
 
-      // 断点续传：上次失败时已完成的场景直接复用本地产物，避免重复消耗图片/TTS 额度
+      // 断点续传：上次失败时已完成的场景直接复用本地产物，避免重复消耗图片/视频/TTS 额度
       const resumeCompleted = new Map();
       const priorResume = context && context.generate_assets && Array.isArray(context.generate_assets.resume?.completed)
         ? context.generate_assets.resume.completed
         : [];
       for (const item of priorResume) {
-        if (item && Number.isInteger(item.index) && typeof item.imagePath === 'string' && typeof item.audioPath === 'string') {
+        if (item && Number.isInteger(item.index) &&
+            (typeof item.imagePath === 'string' || typeof item.videoPath === 'string') &&
+            typeof item.audioPath === 'string') {
           resumeCompleted.set(item.index, item);
         }
       }
 
-      // 实时进度（供前端阶段清单展示「图片 x/y · 旁白 x/y」）
+      // 实时进度（供前端阶段清单展示「图片 x/y · 视频 a/b · 旁白 x/y」）
       let imagesDone = 0;
+      let videosDone = 0;
       let ttsDone = 0;
+      const videosTotal = videoSceneSet.size;
+      // 图片目标数：视频生成通过后，成功视频场景不再生成图片；失败回退图片的场景计入。
+      let imageTargetCount = optimizedPrompts.length - videoSceneSet.size;
       const writeAssetsProgress = () => {
         if (context && typeof context === 'object') {
           context.assets_progress = {
             imagesDone,
-            imagesTotal: optimizedPrompts.length,
+            imagesTotal: imageTargetCount,
+            videosDone,
+            videosTotal,
             ttsDone,
             ttsTotal: sentences.length,
           };
         }
       };
       const markImageDone = () => { imagesDone += 1; writeAssetsProgress(); };
+      const markVideoDone = () => { videosDone += 1; writeAssetsProgress(); };
       const markTtsDone = () => { ttsDone += 1; writeAssetsProgress(); };
-      // 进度前置写入：阶段一开始即显示「图片 0/N · 旁白 0/M」，
-      // 避免首个图片/TTS 完成前（如图片生成需 16-30s）前端长期无数量信息
+      // 进度前置写入：阶段一开始即显示「图片 0/N · 视频 0/A · 旁白 0/M」，
+      // 避免首个图片/视频/TTS 完成前（如图片生成需 16-30s）前端长期无数量信息
+      writeAssetsProgress();
+
+      // AI 视频场景生成（并发 1，串行；复用 videogen 的 provider 契约）
+      const videoResults = new Map();
+      if (videoGenerator && videosTotal > 0) {
+        const manager = resolveModelProviderManager();
+        if (!manager || typeof manager.callAdapter !== 'function') {
+          return { success: false, error: '视频生成器可用性异常：模型管理器不可用' };
+        }
+        const videoSize = resolveVideoSize(params, stage);
+        const videoFps = Number(params.fps || (params.output && params.output.fps) || (stage && stage.options && stage.options.fps)) || 30;
+        const videoRunDir = path.join(os.tmpdir(), 'story2video', 'videoscenes', String(runId || 'run'));
+        const videoSceneIndexes = [...videoSceneSet].sort((a, b) => a - b);
+        const planScenes = Array.isArray(videoPlan && videoPlan.scenes) ? videoPlan.scenes : [];
+        for (const index of videoSceneIndexes) {
+          const resumed = resumeCompleted.get(index);
+          if (resumed && typeof resumed.videoPath === 'string' && fs.existsSync(resumed.videoPath)) {
+            videoResults.set(index, { success: true, path: resumed.videoPath, meta: { resumed: true } });
+            markVideoDone();
+            continue;
+          }
+          const promptItem = optimizedPrompts[index];
+          const promptText = typeof promptItem === 'string'
+            ? promptItem
+            : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '');
+          if (!promptText) {
+            videoResults.set(index, { success: false, error: '视频场景缺少提示词' });
+            markVideoDone();
+            continue;
+          }
+          const planScene = planScenes.find(scene => scene.index === index);
+          const runItem = () => withAssetTransientRetry(() => generateSceneVideo({
+            manager,
+            providerId: videoGenerator.providerId,
+            model: videoGenerator.model,
+            prompt: promptText,
+            index,
+            seconds: (planScene && planScene.seconds) || 6,
+            size: videoSize,
+            fps: videoFps,
+            runDir: videoRunDir,
+            pollIntervalMs: videoConfig.pollIntervalMs,
+          }));
+          try {
+            // 视频 provider 调用纳入统一预算调度（RPM 排队/429 冷却，2026-08-11 W2）；
+            // 本路径直接调 manager.callAdapter，无内层 governor，不存在同 key 双包自死锁。
+            const outcome = await modelCallScheduler.withModelBudget(
+              { governor: pipelineEngine.governor, type: 'video', providerId: videoGenerator.providerId, model: videoGenerator.model },
+              runItem,
+            );
+            if (outcome.success) {
+              videoResults.set(index, outcome);
+            } else {
+              log.warn('Story2VideoStages', 'scene ' + index + ' video generation failed: ' + outcome.error + ' → fallback to image carousel');
+              videoResults.set(index, outcome);
+            }
+          } catch (error) {
+            log.warn('Story2VideoStages', 'scene ' + index + ' video generation threw: ' + (error && error.message ? error.message : String(error)) + ' → fallback to image carousel');
+            videoResults.set(index, { success: false, error: error && error.message ? error.message : String(error) });
+          }
+          markVideoDone();
+        }
+      }
+
+      // 图片目标：排除视频生成成功的场景（含断点续传复用的视频）；视频失败场景回退图片轮播。
+      const imageTargets = optimizedPrompts
+        .map((prompt, index) => ({ prompt, index }))
+        .filter(item => !(videoSceneSet.has(item.index) && videoResults.get(item.index) && videoResults.get(item.index).success));
+      imageTargetCount = imageTargets.length;
       writeAssetsProgress();
 
       // 并行生成图片（分批控制并发）
@@ -662,7 +1299,21 @@ function registerStory2VideoStages(pipelineEngine) {
             const resumed = resumeCompleted.get(index);
             if (resumed) {
               markImageDone();
-              return { index, success: true, path: resumed.imagePath, meta: { resumed: true } };
+              return {
+                index,
+                success: true,
+                path: resumed.imagePath || null,
+                videoPath: resumed.videoPath || null,
+                meta: { resumed: true },
+              };
+            }
+            // 视频场景：AI 视频已生成 → 跳过图片（省额度）；失败 → 回退图片轮播
+            if (videoSceneSet.has(index)) {
+              const video = videoResults.get(index);
+              if (video && video.success) {
+                markImageDone();
+                return { index, success: true, path: null, videoPath: video.path, meta: { video: true } };
+              }
             }
             const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
             if (inputMode === 'images' && inputImages[index] !== undefined) {
@@ -764,10 +1415,10 @@ function registerStory2VideoStages(pipelineEngine) {
       // 阶段外层再套 withModelBudget/governor.run 会与内层同 key 双包 → 并发信号量自死锁。
       // 仅 legacy python 路径（无 assetGenerator）在此做统一调度：RPM 排队 + 429 冷却 + 5h 窗口。
       const imagePromise = _mapWithConcurrency(
-        optimizedPrompts,
+        imageTargets,
         imageConcurrency,
-        (prompt, index) => {
-          const runItem = () => imageItemTask(prompt, index);
+        (item) => {
+          const runItem = () => imageItemTask(item.prompt, item.index);
           return assetGenerator
             ? runItem()
             : modelCallScheduler.withModelBudget(
@@ -869,23 +1520,30 @@ function registerStory2VideoStages(pipelineEngine) {
           failedTts.length + ' TTS');
       }
 
-      // 以 scene index 配对图片和音频，避免独立过滤后发生错位。
+      // 以 scene index 配对图片/视频和音频，避免独立过滤后发生错位。
+      // 图片结果来自过滤后的 imageTargets，必须按返回的 index 回映射到场景。
+      const imageByIndex = new Map(imageResults.map(item => [item.index, item]));
+      const videoByIndex = new Map([...videoResults.entries()].filter(([, item]) => item && item.success));
       const pairedScenes = [];
-      const maxScenes = Math.max(imageResults.length, ttsResults.length, sentences.length, optimizedPrompts.length);
+      const maxScenes = Math.max(ttsResults.length, sentences.length, optimizedPrompts.length);
       for (let i = 0; i < maxScenes; i++) {
-        const image = imageResults[i];
+        const image = imageByIndex.get(i);
+        const video = videoByIndex.get(i);
         const audio = ttsResults[i];
-        if (!image?.success || !audio?.success || !image.path || !audio.path) continue;
+        if (!audio?.success || !audio.path) continue;
+        if (!(image && image.success && image.path) && !(video && video.path)) continue;
         const sentence = sentences[i];
         const prompt = optimizedPrompts[i];
         pairedScenes.push({
           index: i,
           text: typeof sentence === 'string' ? sentence : sentence?.text || sentence?.content || '',
           prompt: typeof prompt === 'string' ? prompt : prompt?.prompt || prompt?.optimized_prompt || prompt?.optimized || '',
-          imagePath: image.path,
+          imagePath: (image && image.success && image.path) ? image.path : null,
+          videoPath: (video && video.path) ? video.path : null,
           audioPath: audio.path,
           duration: audio.duration || null,
-          imageMeta: image.meta || null,
+          imageMeta: (image && image.meta) || null,
+          videoMeta: (video && video.meta) || null,
           audioMeta: audio.meta || null,
           subtitleBlocks: Array.isArray(sentence?.subtitleBlocks) ? [...sentence.subtitleBlocks] : [],
           sceneSource: sentence?.sceneSource || null,
@@ -898,8 +1556,11 @@ function registerStory2VideoStages(pipelineEngine) {
       // 构建资源清单
       const assetManifest = {
         scenes: pairedScenes,
-        images: pairedScenes.map(scene => ({
+        images: pairedScenes.filter(scene => scene.imagePath).map(scene => ({
           index: scene.index, success: true, path: scene.imagePath, meta: scene.imageMeta,
+        })),
+        videos: pairedScenes.filter(scene => scene.videoPath).map(scene => ({
+          index: scene.index, success: true, path: scene.videoPath, meta: scene.videoMeta,
         })),
         audio: pairedScenes.map(scene => ({
           index: scene.index, success: true, path: scene.audioPath, duration: scene.duration, meta: scene.audioMeta,
@@ -919,8 +1580,10 @@ function registerStory2VideoStages(pipelineEngine) {
         optimizedPrompts: optimizedPrompts.map((p, i) => ({
           index: i,
           prompt: typeof p === 'string' ? p : p.prompt || p.optimized_prompt || p.optimized,
-          imagePath: imageResults[i]?.path || null,
-          imageMeta: imageResults[i]?.meta || null,
+          imagePath: (imageByIndex.get(i) && imageByIndex.get(i).path) || null,
+          imageMeta: (imageByIndex.get(i) && imageByIndex.get(i).meta) || null,
+          videoPath: (videoByIndex.get(i) && videoByIndex.get(i).path) || null,
+          videoMeta: (videoByIndex.get(i) && videoByIndex.get(i).meta) || null,
         })),
         failures: {
           images: failedImages.map(item => ({
@@ -939,8 +1602,10 @@ function registerStory2VideoStages(pipelineEngine) {
           fallbackReason: pairedScenes.find(scene => scene.fallbackReason)?.fallbackReason || null,
         },
         stats: {
-          totalImages: imageResults.length,
+          totalImages: imageTargets.length,
           successImages: imageResults.filter(r => r.success).length,
+          totalVideos: videoSceneSet.size,
+          successVideos: [...videoResults.values()].filter(item => item && item.success).length,
           totalTts: ttsResults.length,
           successTts: ttsResults.filter(r => r.success).length,
           totalScenes: maxScenes,
@@ -971,7 +1636,8 @@ function registerStory2VideoStages(pipelineEngine) {
           context.generate_assets.resume = {
             completed: pairedScenes.map((scene) => ({
               index: scene.index,
-              imagePath: scene.imagePath,
+              imagePath: scene.imagePath || null,
+              videoPath: scene.videoPath || null,
               audioPath: scene.audioPath,
               duration: scene.duration || null,
             })),
@@ -1041,4 +1707,14 @@ module.exports = {
   resolveInputAudio,
   hasMeaningfulText,
   isPromptEngineTooShortRejection,
+  // 视频+图片轮播混合模式辅助（供测试）
+  VIDEO_MODES,
+  resolveVideoGeneratorConfig,
+  estimateSceneSeconds,
+  pickFixedVideoScenes,
+  buildVideoSelectionPrompt,
+  parseVideoSelection,
+  clampVideoSelection,
+  unwrapScenesArray,
+  generateSceneVideo,
 };

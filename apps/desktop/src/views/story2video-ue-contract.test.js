@@ -7,11 +7,11 @@ const filePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'Create
 const source = fs.readFileSync(filePath, 'utf8')
 
 describe('Story2Video fast-mode UI contract', () => {
-  it('uses five progressive-disclosure sections', () => {
-    for (const section of ['basic', 'appearance', 'voice', 'advanced', 'publish']) {
+  it('uses progressive-disclosure sections（2026-08-11 新增 videoEnhance）', () => {
+    for (const section of ['basic', 'appearance', 'videoEnhance', 'voice', 'advanced', 'publish']) {
       expect(source).toContain(`data-testid="s2v-section-${section}"`)
     }
-    expect(source).toContain('s2vOpenSections: { basic: true, appearance: false, voice: false, advanced: false, publish: false }')
+    expect(source).toContain('s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false }')
   })
 
   it('keeps controlled defaults hidden and starts the autonomous run', () => {
