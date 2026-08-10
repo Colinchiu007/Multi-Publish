@@ -97,11 +97,11 @@ async def test_update_policy_upsert_and_validation():
     async with _client() as client:
         h = _admin_headers()
         r = await client.put("/api/v1/update-policy", json={
-            "min_version": "2.3.50", "force_version": "2.3.53", "gray_ratio": 50, "enabled": True, "note": "灰度",
+            "min_version": "2.3.53", "force_version": "2.3.50", "gray_ratio": 50, "enabled": True, "note": "灰度",
         }, headers=h)
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["min_version"] == "2.3.50"
+        assert data["min_version"] == "2.3.53"
         assert data["gray_ratio"] == 50
         assert data["enabled"] is True
 
@@ -111,7 +111,7 @@ async def test_update_policy_upsert_and_validation():
 
         # 校验：非法版本 / force < min / gray 越界
         assert (await client.put("/api/v1/update-policy", json={"min_version": "abc"}, headers=h)).status_code == 400
-        assert (await client.put("/api/v1/update-policy", json={"min_version": "2.3.53", "force_version": "2.3.50"}, headers=h)).status_code == 400
+        assert (await client.put("/api/v1/update-policy", json={"min_version": "2.3.50", "force_version": "2.3.53"}, headers=h)).status_code == 400
         assert (await client.put("/api/v1/update-policy", json={"gray_ratio": 101}, headers=h)).status_code == 400
 
 
@@ -153,11 +153,18 @@ async def test_runtime_bootstrap_auth_and_active_filter():
         # 鉴权
         assert (await client.get("/api/v1/runtime/bootstrap")).status_code == 401
         assert (await client.get("/api/v1/runtime/bootstrap", headers={"X-Catalog-Key": "wrong"})).status_code == 401
+        # 带 +08:00 偏移的活动公告：应被归一化为 UTC 后命中窗口
+        await client.post("/api/v1/announcements", json={
+            "title": "偏移窗口", "content": "x", "severity": "info",
+            "active_from": "2026-01-01T00:00:00+08:00", "active_until": "2099-12-31T00:00:00+08:00",
+        }, headers=h)
+
         r = await client.get("/api/v1/runtime/bootstrap", headers={"X-Catalog-Key": "catalog-test-key"})
         assert r.status_code == 200, r.text
         data = r.json()
         titles = [a["title"] for a in data["announcements"]]
-        assert titles == ["维护"]  # 只含活动公告
+        assert "偏移窗口" in titles  # 时区偏移被归一化，窗口命中
+        assert "维护" in titles  # 只含活动公告
         assert data["update_policy"]["min_version"] == "2.3.50"
         assert data["content_policy"]["word_list"] == ["测试词"]
         assert data["synced_at"]

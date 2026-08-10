@@ -146,7 +146,7 @@ describe('OpsCenterSync syncNow', () => {
     global.fetch = vi.fn(async () => jsonResp({ status: 401 }))
     expect((await svc.syncNow()).message).toContain('API Key 无效')
     global.fetch = vi.fn(async () => jsonResp({ status: 404 }))
-    expect((await svc.syncNow()).message).toContain('未启用目录同步')
+    expect((await svc.syncNow()).message).toContain('未启用运营同步')
     global.fetch = vi.fn(async () => jsonResp({ status: 500 }))
     expect((await svc.syncNow()).message).toContain('HTTP 500')
   })
@@ -255,7 +255,11 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     expect(state.announcements).toHaveLength(1)
     expect(state.announcements[0].severity).toBe('maintenance')
     expect(state.updatePolicy.force_version).toBe('2.3.53')
-    expect(state.contentPolicy.word_list).toEqual(['远程词甲', '远程词乙'])
+    // 渲染端最小权限：词库/替换串不下发
+    expect(state.contentPolicy).not.toHaveProperty('word_list')
+    expect(state.contentPolicy).not.toHaveProperty('replacement')
+    expect(state.contentPolicy.enabled).toBe(true)
+    expect(svc.getReplacement()).toBe('***')
     expect(svc.getUpdatePolicy().gray_ratio).toBe(50)
 
     const filter = svc.getSensitiveFilter()

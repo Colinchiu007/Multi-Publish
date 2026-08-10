@@ -103,7 +103,7 @@ async def put_update_policy(
 @router.get("/api/v1/content-policy")
 async def get_content_policy(
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
 ):
     return await runtime_service.get_content_policy(db)
 

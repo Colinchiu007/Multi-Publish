@@ -20,7 +20,7 @@ describe('useOpsCenterRuntime', () => {
       data: {
         announcements: [{ title: '维护', severity: 'maintenance', content: 'x' }],
         updatePolicy: { min_version: '2.3.50' },
-        contentPolicy: { enabled: true, word_list: ['词'] },
+        contentPolicy: { name: '默认', enabled: true, updatedAt: 't' }, // IPC 契约：词库不下发渲染端
         syncedAt: 't',
       },
     })
@@ -28,7 +28,8 @@ describe('useOpsCenterRuntime', () => {
     await s.loadRuntime()
     expect(s.announcements.value).toHaveLength(1)
     expect(s.updatePolicy.value.min_version).toBe('2.3.50')
-    expect(s.contentPolicy.value.word_list).toEqual(['词'])
+    expect(s.contentPolicy.value.enabled).toBe(true)
+    expect(s.contentPolicy.value).not.toHaveProperty('word_list')
     expect(s.loaded.value).toBe(true)
     expect(s.SEVERITY_LABELS.maintenance).toBe('系统维护')
   })

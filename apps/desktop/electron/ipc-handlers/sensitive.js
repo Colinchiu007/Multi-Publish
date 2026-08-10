@@ -8,7 +8,15 @@ function registerHandlers(ipcMain, deps) {
   function resolveFilter () {
     if (deps.opsCenterSync && typeof deps.opsCenterSync.getSensitiveFilter === 'function') {
       const remote = deps.opsCenterSync.getSensitiveFilter()
-      if (remote) return remote
+      if (remote) {
+        const replacement = (typeof deps.opsCenterSync.getReplacement === 'function')
+          ? deps.opsCenterSync.getReplacement()
+          : '***'
+        return {
+          check: (t) => remote.check(t),
+          replace: (t) => remote.replace(t, replacement),
+        }
+      }
     }
     return deps._sensitiveFilter || {
       check: () => ({ hasSensitive: false, words: [], positions: [] }),

@@ -182,6 +182,10 @@ function extractContext(container) {
   if (opsCenterSync && typeof opsCenterSync.setUpdatePolicyConsumer === 'function') {
     opsCenterSync.setUpdatePolicyConsumer((policy) => autoUpdater.applyPolicy(policy))
   }
+  // 启动即水合已持久化策略，避免首次 update:check 在同步完成前绕过策略（审查 W）
+  if (opsCenterSync && typeof opsCenterSync.getUpdatePolicy === 'function' && autoUpdater.applyPolicy) {
+    autoUpdater.applyPolicy(opsCenterSync.getUpdatePolicy())
+  }
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
   }

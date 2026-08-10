@@ -39,6 +39,8 @@ const visibleAnnouncements = computed(() => {
 })
 
 function dismissKey (a) {
+  // 优先用后端稳定 id；旧数据无 id 时回退内容摘要
+  if (a.id !== undefined && a.id !== null && a.id !== '') return 'id:' + a.id
   return (a.severity || 'info') + ':' + (a.title || '') + ':' + (a.content || '')
 }
 

@@ -162,15 +162,33 @@ function init (win, onStatus) {
 /**
  * 检查更新
  */
+function _parseVersion (v) {
+  // 预发布后缀（如 2.3.53-beta）只取主版本段，避免 NaN 比较
+  return String(v || '').split('-')[0].split('.').map(s => {
+    const n = Number(s)
+    return Number.isFinite(n) ? n : 0
+  })
+}
+
 function _compareVersions (a, b) {
-  const pa = String(a || '').split('.').map(Number)
-  const pb = String(b || '').split('.').map(Number)
+  const pa = _parseVersion(a)
+  const pb = _parseVersion(b)
   for (let i = 0; i < 3; i++) {
     const x = pa[i] || 0
     const y = pb[i] || 0
     if (x !== y) return x < y ? -1 : 1
   }
   return 0
+}
+
+/** 稳定灰度分桶：以安装目录(userData)+当前版本为种子哈希 % 100，避免每次检查随机抖动 */
+function _grayRoll (ratio) {
+  let seed = String((app && app.getPath) ? app.getPath('userData') : 'default') + '@' + String((app && app.getVersion) ? app.getVersion() : '')
+  let hash = 0
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+  }
+  return hash % 100 < ratio
 }
 
 /** 应用运营后台版本发布策略（force_version 强制 / gray_ratio 灰度 / min_version 最低提示） */
@@ -185,10 +203,13 @@ function check () {
     const forced = !!policy.force_version && _compareVersions(current, policy.force_version) < 0
     if (!forced) {
       const ratio = Number.isFinite(Number(policy.gray_ratio)) ? Number(policy.gray_ratio) : 100
-      if (ratio < 100 && Math.random() * 100 >= ratio) {
+      if (ratio < 100 && !_grayRoll(ratio)) {
         _sendStatus('skipped-by-policy', '本次更新检查被灰度策略跳过')
         return
       }
+    } else {
+      // 强制版本：自动下载（仍由用户在重启时安装；弹窗不可选忽略下载）
+      autoUpdater.autoDownload = true
     }
     if (policy.min_version && _compareVersions(current, policy.min_version) < 0) {
       _sendStatus('policy-min-version', { version: policy.min_version })

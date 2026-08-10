@@ -172,12 +172,20 @@ class OpsCenterSync {
 
   /** 运行时策略状态（公告/版本/内容安全）——IPC 暴露给渲染进程 */
   getRuntimeState() {
+    const cp = this._runtime.contentPolicy
+    // 敏感词库（word_list/replacement）仅保留在主进程，渲染端无需且最小权限
     return {
       announcements: this._runtime.announcements || [],
       updatePolicy: this._runtime.updatePolicy || null,
-      contentPolicy: this._runtime.contentPolicy || null,
+      contentPolicy: cp ? { name: cp.name, enabled: cp.enabled !== false, updatedAt: cp.updated_at || cp.updatedAt || '' } : null,
       syncedAt: this._runtime.syncedAt || '',
     }
+  }
+
+  /** 内容安全替换串（主进程消费；渲染端不返回） */
+  getReplacement() {
+    const cp = this._runtime.contentPolicy
+    return (cp && cp.replacement) ? String(cp.replacement) : '***'
   }
 
   /** 版本发布策略（auto-updater 消费） */
@@ -230,6 +238,7 @@ class OpsCenterSync {
   // ─── 拉取 ───────────────────────────────────────────────
 
   async _fetchCatalog(baseUrl, apiKey) {
+    // baseUrl 参数保留签名兼容；实际 URL 由 _fetchJson 从 getConfig().url 读取
     const data = await this._fetchJson('/api/v1/model-presets/catalog', apiKey)
     if (!data || !Array.isArray(data.items)) throw new Error('目录响应结构错误（缺少 items 数组）')
     return data.items
@@ -260,10 +269,10 @@ class OpsCenterSync {
       if (timer) clearTimeout(timer)
     }
     if (resp.status === 401 || resp.status === 403) throw new Error('Ops Center API Key 无效（401/403）')
-    if (resp.status === 404) throw new Error('Ops Center 未启用目录同步（404，需配置 OPS_CATALOG_API_KEY）')
+    if (resp.status === 404) throw new Error('Ops Center 未启用运营同步（404，需配置 OPS_CATALOG_API_KEY）')
     if (!resp.ok) throw new Error('Ops Center 返回 HTTP ' + resp.status)
     const buffer = Buffer.from(await resp.arrayBuffer())
-    if (buffer.length > MAX_CATALOG_BYTES) throw new Error('目录响应超过 1MB，已拒绝')
+    if (buffer.length > MAX_CATALOG_BYTES) throw new Error('运营同步响应超过 1MB，已拒绝')
     let data
     try { data = JSON.parse(buffer.toString('utf-8')) } catch { throw new Error('目录响应不是合法 JSON') }
     return data

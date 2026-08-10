@@ -60,6 +60,14 @@ export function useAutoUpdate() {
     } else if (payload.type === 'not-available') {
       if (!showUpdateDialog.value) showNotAvailable.value = true
       setTimeout(function () { showNotAvailable.value = false }, 4000)
+    } else if (payload.type === 'policy-min-version') {
+      // 运营后台最低版本策略：低于 min_version 提示升级（不弹强制窗）
+      updateError.value = '当前版本过低，建议升级到 ' + ((payload.data && payload.data.version) || '最新版本') + ' 以获得最新功能与安全修复'
+      showError.value = true
+      showUpdateDialog.value = false
+    } else if (payload.type === 'skipped-by-policy') {
+      // 灰度跳过：静默（仅记录 updateStatus），不打扰用户
+      showUpdateDialog.value = false
     }
   }
 

@@ -27,10 +27,14 @@ def _iso_or_empty(value) -> str:
     if not text:
         return ""
     try:
-        datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        dt = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         raise ValueError("时间必须是 ISO 格式（如 2026-08-10T00:00:00）")
-    return text
+    # 归一化为 naive UTC：带时区偏移的输入（如 +08:00）转 UTC 后去掉 tzinfo，
+    # 与 list_active_announcements 的 utcnow().isoformat() 字符串比较保持一致。
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return dt.isoformat()
 
 
 def _validate_version(value) -> str:
@@ -153,6 +157,8 @@ async def upsert_announcement(db: AsyncSession, body: dict, announcement_id: int
     content = str(body.get("content") or "").strip()
     if not title:
         raise ValueError("标题不能为空")
+    if len(title) > 200:
+        raise ValueError("标题长度不能超过 200 字符")
     severity = str(body.get("severity") or "info").strip()
     if severity not in SEVERITIES:
         raise ValueError("severity 必须是 info/warning/maintenance 之一")
@@ -164,7 +170,7 @@ async def upsert_announcement(db: AsyncSession, body: dict, announcement_id: int
         sort_order = int(body.get("sort_order") or 0)
     except (TypeError, ValueError):
         sort_order = 0
-    enabled = 1 if body.get("enabled", True) in (True, 1, "1", "true") else 0
+    enabled = 1 if str(body.get("enabled", "true")).lower() in ("true", "1") else 0
 
     now = _now()
     if announcement_id is None:
@@ -213,10 +219,10 @@ def _cmp_version(v: str) -> tuple:
 async def upsert_update_policy(db: AsyncSession, body: dict) -> dict:
     min_version = _validate_version(body.get("min_version"))
     force_version = _validate_version(body.get("force_version"))
-    if min_version and force_version and _cmp_version(force_version) < _cmp_version(min_version):
-        raise ValueError("强制版本不能低于最低版本")
+    if min_version and force_version and _cmp_version(force_version) >= _cmp_version(min_version):
+        raise ValueError("强制版本必须低于最低版本（语义：低于 force 强制升级，force ≤ 版本 < min 提示升级）")
     gray_ratio = _validate_gray_ratio(body.get("gray_ratio"))
-    enabled = 1 if body.get("enabled", True) in (True, 1, "1", "true") else 0
+    enabled = 1 if str(body.get("enabled", "true")).lower() in ("true", "1") else 0
     note = str(body.get("note") or "").strip()[:200]
     now = _now()
     row = (await db.execute(sa.select(UpdatePolicy).order_by(UpdatePolicy.id).limit(1))).scalar_one_or_none()
@@ -247,7 +253,9 @@ async def upsert_content_policy(db: AsyncSession, body: dict) -> dict:
     name = str(body.get("name") or "默认内容安全策略").strip()[:100]
     word_list = _validate_word_list(body.get("word_list"))
     replacement = _validate_replacement(body.get("replacement"))
-    enabled = 1 if body.get("enabled", True) in (True, 1, "1", "true") else 0
+    enabled = 1 if str(body.get("enabled", "true")).lower() in ("true", "1") else 0
+    if len(word_list.encode("utf-8")) > 800 * 1024:
+        raise ValueError("敏感词库序列化后不能超过 800KB，请精简词库")
     now = _now()
     row = (await db.execute(sa.select(ContentPolicy).order_by(ContentPolicy.id).limit(1))).scalar_one_or_none()
     if row is None:
@@ -279,6 +287,7 @@ async def list_active_announcements(db: AsyncSession) -> list[dict]:
         if r.active_until and r.active_until < now:
             continue
         result.append({
+            "id": r.id,
             "title": r.title,
             "content": r.content,
             "severity": r.severity,
