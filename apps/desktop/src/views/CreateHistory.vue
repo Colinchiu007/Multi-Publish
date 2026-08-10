@@ -82,7 +82,7 @@
                 </span>
               </div>
               <div class="pipeline-hints">
-                <span v-if="p.status === 'running'" class="pipeline-running-hint">实时同步</span>
+                <span v-if="p.status === 'running'" class="pipeline-running-hint">与流水线页面实时同步</span>
                 <span v-if="p.status === 'paused' && p.pausedStage" class="pipeline-paused-hint">暂停环节：{{ stageLabel(p.pausedStage) }}</span>
                 <span v-if="p.status === 'failed'" class="pipeline-paused-hint" style="background:#fee2e2;color:#991b1b;">生成失败</span>
               </div>
