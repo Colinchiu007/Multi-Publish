@@ -117,7 +117,8 @@ jobs:
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add apps/desktop/tests/visual-testing/base-screenshots/
             git commit -m "test(visual): auto-update pixel baselines [skip ci]"
-            git push
+            $branch = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
+            git push origin HEAD:refs/heads/$branch
           }
 
       - name: Generate Agent visual-judge report
