@@ -1,8 +1,17 @@
 <template>
   <div class="history-page">
     <div class="page-header">
-      <h1>创作历史</h1>
-      <p class="text-muted">查看已渲染的视频和流水线运行记录</p>
+      <div class="page-header-row">
+        <div>
+          <h1>创作历史</h1>
+          <p class="text-muted">查看已渲染的视频和流水线运行记录</p>
+        </div>
+        <div v-if="pipelines.length > 0" class="page-header-stats">
+          <span v-if="completedCount > 0" class="stat-item"><span class="stat-dot completed"></span>{{ completedCount }} 已完成</span>
+          <span v-if="runningPipelineCount > 0" class="stat-item"><span class="stat-dot running"></span>{{ runningPipelineCount }} 运行中</span>
+          <span v-if="failedOrCancelledPipelineCount > 0" class="stat-item"><span class="stat-dot failed"></span>{{ failedOrCancelledPipelineCount }} 异常</span>
+        </div>
+      </div>
     </div>
 
     <div class="page-tabs">
@@ -20,11 +29,13 @@
         @click="showRunningPipelines"
         @keydown.enter="showRunningPipelines"
       >
-        <span>
+        <span class="running-banner-icon">🔄</span>
+        <span class="running-banner-text">
           有 {{ runningPipelineCount + failedOrCancelledPipelineCount }} 条流水线记录（
           {{ runningPipelineCount > 0 ? runningPipelineCount + ' 条运行中、' : '' }}{{ failedOrCancelledPipelineCount }} 条失败或已取消
-          ），点击查看「流水线记录」
+          ）
         </span>
+        <span class="running-banner-action">查看流水线记录 →</span>
       </div>
       <div v-if="renderLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else>
@@ -66,16 +77,17 @@
           <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
         </div>
         <div v-else class="pipeline-list">
-          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="p.status" tabindex="0" role="button" @keydown.enter="openPipeline(p)" @click="openPipeline(p)">
+          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="effectiveStatus(p)" tabindex="0" role="button" @keydown.enter="openPipeline(p)" @click="openPipeline(p)">
             <div class="pipeline-info">
-              <span class="pipeline-status-dot" :class="p.status"></span>
+              <span class="pipeline-status-dot" :class="effectiveStatus(p)"></span>
               <div class="pipeline-meta">
                 <span class="pipeline-name">{{ humanName(p.pipelineName || p.name) }}</span>
                 <span class="pipeline-time">{{ formatTime(p.completedAt || p.startedAt || p.createdAt) }}</span>
               </div>
             </div>
-            <span class="pipeline-status" :class="p.status">{{ statusLabel(p.status) }}</span>
-            <div v-if="p.status === 'running'" class="pipeline-progress">
+            <span class="pipeline-status" :class="effectiveStatus(p)">{{ statusLabel(effectiveStatus(p)) }}</span>
+            <span v-if="pipelineDuration(p)" class="pipeline-duration">{{ pipelineDuration(p) }}</span>
+            <div v-if="effectiveStatus(p) === 'running'" class="pipeline-progress">
               <div class="progress-bar"><div class="progress-fill" :style="{ width: pipelineProgress(p) + '%' }"></div></div>
               <span class="progress-text">{{ pipelineProgress(p) }}%</span>
             </div>
@@ -86,9 +98,9 @@
                 </span>
               </div>
               <div class="pipeline-hints">
-                <span v-if="p.status === 'running'" class="pipeline-running-hint">与流水线页面实时同步</span>
-                <span v-if="p.status === 'paused' && p.pausedStage" class="pipeline-paused-hint">暂停环节：{{ stageLabel(p.pausedStage) }}</span>
-                <span v-if="p.status === 'failed'" class="pipeline-paused-hint" style="background:var(--status-failed-bg);color:var(--status-failed-text);">生成失败</span>
+                <span v-if="effectiveStatus(p) === 'running'" class="pipeline-running-hint">与流水线页面实时同步</span>
+                <span v-if="effectiveStatus(p) === 'paused' && pausedStageOf(p)" class="pipeline-paused-hint">暂停环节：{{ stageLabel(pausedStageOf(p)) }}</span>
+                <span v-if="effectiveStatus(p) === 'failed'" class="pipeline-failed-hint">生成失败</span>
               </div>
             </div>
           </div>
@@ -112,7 +124,6 @@ function settleHistoryRequest (request) {
   return Promise.race([Promise.resolve().then(request), timeout]).finally(() => clearTimeout(timeoutId))
 }
 export default {
-  
   components: { UiButton },
   data() {
     return {
@@ -130,8 +141,6 @@ export default {
   },
   async mounted() {
     await this.loadRenders()
-    // 同时加载流水线记录：存在运行中/失败/已取消流水线时默认展示流水线记录，
-    // 避免用户进入历史页后以为失败/取消任务「消失」（默认 tab 是渲染记录，只含成功渲染项目）。
     await this.loadPipelines()
     if ((this.runningPipelineCount > 0 || this.failedOrCancelledPipelineCount > 0) && this.tab === 'renders') {
       this.tab = 'pipelines'
@@ -139,10 +148,16 @@ export default {
   },
   computed: {
     runningPipelineCount() {
-      return (this.pipelines || []).filter((p) => p && p.status === 'running').length
+      return (this.pipelines || []).filter((p) => p && this.effectiveStatus(p) === 'running').length
     },
     failedOrCancelledPipelineCount() {
-      return (this.pipelines || []).filter((p) => p && (p.status === 'failed' || p.status === 'cancelled')).length
+      return (this.pipelines || []).filter((p) => {
+        const s = this.effectiveStatus(p)
+        return s === 'failed' || s === 'cancelled'
+      }).length
+    },
+    completedCount() {
+      return (this.pipelines || []).filter((p) => p && this.effectiveStatus(p) === 'completed').length
     },
   },
   methods: {
@@ -190,19 +205,18 @@ export default {
     },
     schedulePipelineRefresh() {
       if (this.pipelinePollTimer) { clearInterval(this.pipelinePollTimer); this.pipelinePollTimer = null }
-      const hasRunning = (this.pipelines || []).some((p) => p && p.status === 'running')
+      const hasRunning = (this.pipelines || []).some((p) => p && this.effectiveStatus(p) === 'running')
       if (!hasRunning) return
-      // 存在后台运行中的流水线：每 5s 轮询刷新进度状态（同流水线页面一致）
       this.pipelinePollTimer = setInterval(() => { this.loadPipelines() }, 5000)
     },
     openPipeline(p) {
       if (!p) return
-      if (p.status === 'running' || p.status === 'failed' || p.status === 'cancelled' || p.status === 'paused') {
-        // 运行中/失败/已取消：跳回创作页，CreateView 恢复查看该流水线进度/支持断点继续
+      const status = this.effectiveStatus(p)
+      if (status === 'running' || status === 'failed' || status === 'cancelled' || status === 'paused') {
         this.$router.push('/create')
         return
       }
-      if (p.status === 'completed') {
+      if (status === 'completed') {
         const context = p.context || {}
         const composeRaw = context.compose?.data || context.compose
         const exportRaw = context.export?.data || context.export
@@ -212,6 +226,27 @@ export default {
           (reportRaw && (reportRaw.videoPath || reportRaw.path))
         this.$router.push('/create/result?path=' + encodeURIComponent(videoPath || ''))
       }
+    },
+    effectiveStatus(p) {
+      if (!p) return 'completed'
+      if (p.status === 'paused' || p.status === 'failed' || p.status === 'cancelled' || p.status === 'completed') {
+        return p.status
+      }
+      if (p.status === 'running') {
+        const stages = Array.isArray(p.stages) ? p.stages : []
+        const hasFailedStage = stages.some((s) => s && typeof s === 'object' && s.status === 'failed')
+        if (hasFailedStage) return 'paused'
+        return 'running'
+      }
+      return p.status || 'completed'
+    },
+    pausedStageOf(p) {
+      if (!p) return null
+      if (p.pausedStage) return p.pausedStage
+      const stages = Array.isArray(p.stages) ? p.stages : []
+      const failedStage = stages.find((s) => s && typeof s === 'object' && s.status === 'failed')
+      if (failedStage) return failedStage.name || failedStage.stage || null
+      return null
     },
     statusLabel(s) {
       const labels = { completed: '已完成', running: '运行中', failed: '生成失败', cancelled: '已取消', paused: '已暂停' }
@@ -241,6 +276,25 @@ export default {
       const done = stages.filter((s) => s && typeof s === 'object' && (s.status === 'completed' || s.status === 'failed' || s.status === 'cancelled')).length
       return Math.round((done / stages.length) * 100)
     },
+    pipelineDuration(p) {
+      if (!p) return ''
+      const start = p.startedAt ? new Date(p.startedAt).getTime() : 0
+      const end = p.completedAt ? new Date(p.completedAt).getTime() : 0
+      if (!start) return ''
+      const ms = (end || Date.now()) - start
+      return this.formatDuration(ms)
+    },
+    formatDuration(ms) {
+      if (!ms || ms < 0) return ''
+      const s = Math.floor(ms / 1000)
+      if (s < 60) return s + 's'
+      const m = Math.floor(s / 60)
+      const rs = s % 60
+      if (m < 60) return m + 'm' + (rs > 0 ? ' ' + rs + 's' : '')
+      const h = Math.floor(m / 60)
+      const rm = m % 60
+      return h + 'h' + (rm > 0 ? ' ' + rm + 'm' : '')
+    },
     shortName(name) {
       if (!name) return ''
       return name.length > 10 ? name.substring(0, 10) + '...' : name
@@ -261,79 +315,106 @@ export default {
 </script>
 
 <style scoped>
+@import "@/styles/video-creation-shared.css";
+/* --- 页面布局 --- */
 .history-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; }
-.page-header { margin-bottom: 20px; }
-.page-header h1 { font-size: 24px; font-weight: 700; margin: 0 0 6px; color: var(--ink); }
-.text-muted { color: var(--text-muted); font-size: 14px; }
-.page-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--hairline); }
-.tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; }
+.page-header { margin-bottom: 24px; }
+.page-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.page-header h1 { font-size: 26px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.3px; }
+.text-muted { color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+.page-header-stats { display: flex; gap: 16px; flex-shrink: 0; align-items: center; }
+.stat-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary, #555); white-space: nowrap; }
+.stat-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.stat-dot.completed { background: var(--stability-production); }
+.stat-dot.running { background: var(--stability-beta); animation: ch-pulse 1.5s ease-in-out infinite; }
+.stat-dot.failed { background: var(--pipe-cinematic); }
+@keyframes ch-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* --- 标签页 --- */
+.page-tabs { display: flex; gap: 2px; margin-bottom: 24px; border-bottom: 2px solid var(--hairline, rgba(0,0,0,0.08)); }
+.tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; position: relative; bottom: -2px; }
 .tab.active { color: var(--primary, #7c5cbf); border-bottom-color: var(--primary, #7c5cbf); font-weight: 600; }
-.loading-state, .empty-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: var(--text-muted); justify-content: center; flex-direction: column; }
-.history-error { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; color: var(--status-failed-text); background: var(--status-failed-bg); border-radius: var(--r-sm); }
-.running-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--status-running-text); background: var(--status-running-bg); border-radius: var(--r-sm); cursor: pointer; font-size: 13px; }
-.running-banner:hover { background: var(--history-progress-active-shadow); }
-.render-list, .pipeline-list { display: flex; flex-direction: column; gap: 12px; }
-.render-card, .pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; transition: all 0.15s; }
-.pipeline-card { border-left: 3px solid transparent; }
+.tab:hover { color: var(--primary, #7c5cbf); }
+
+/* --- 横幅（升级版：图标 + 文字 + 操作链接） --- */
+.running-banner { display: flex; align-items: center; gap: 10px; padding: 12px 16px; margin-bottom: 16px; background: var(--banner-warning-bg); border: 1px solid var(--banner-warning-border); border-radius: 8px; cursor: pointer; transition: box-shadow 0.18s ease; }
+.running-banner:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.running-banner-icon { font-size: 16px; flex-shrink: 0; }
+.running-banner-text { flex: 1; font-size: 13px; color: var(--banner-warning-color); }
+.running-banner-action { font-size: 13px; font-weight: 600; color: var(--primary, #7c5cbf); white-space: nowrap; flex-shrink: 0; }
+.running-banner:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* --- 加载/空/错误状态 --- */
+.loading-state { display: flex; align-items: center; gap: 8px; padding: 24px; color: var(--text-muted); }
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 24px; text-align: center; }
+.empty-state-icon { font-size: 48px; opacity: 0.6; margin-bottom: 8px; }
+.empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 12px; }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline); border-top-color: var(--primary, #7c5cbf); border-radius: 50%; animation: ch-spin 0.6s linear infinite; }
+@keyframes ch-spin { to { transform: rotate(360deg); } }
+.history-error { display: flex; align-items: center; gap: 8px; padding: 16px; background: var(--status-failed-bg); color: var(--status-failed-text); border-radius: 8px; font-size: 13px; }
+.history-error p { margin: 0; flex: 1; }
+.pipeline-history-error { margin-bottom: 16px; }
+
+/* --- 渲染卡片列表 --- */
+.render-list { display: flex; flex-direction: column; gap: 10px; }
+.render-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease; }
+.render-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.render-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.render-info { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.render-icon { font-size: 18px; flex-shrink: 0; }
+.render-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.render-name { font-size: 14px; font-weight: 600; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.render-time { font-size: 12px; color: var(--text-light); }
+.render-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+.render-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
+.render-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.render-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+.render-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
+.render-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* --- 流水线卡片列表 --- */
+.pipeline-list { display: flex; flex-direction: column; gap: 12px; }
+.pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 18px 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; border-left: 3px solid transparent; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
 .pipeline-card.running { border-left-color: var(--stability-beta); }
 .pipeline-card.failed { border-left-color: var(--pipe-cinematic); }
 .pipeline-card.cancelled { border-left-color: var(--text-light); }
 .pipeline-card.paused { border-left-color: var(--stability-experimental); }
 .pipeline-card.completed { border-left-color: var(--stability-production); }
-.render-card:hover, .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 2px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
-.render-info, .pipeline-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
-.render-icon { font-size: 24px; }
-.render-meta, .pipeline-meta { display: flex; flex-direction: column; gap: 2px; }
-.render-name, .pipeline-name { font-size: 14px; font-weight: 600; }
-.render-time, .pipeline-time { font-size: 12px; color: var(--text-light); }
-.render-status, .pipeline-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
-.render-status.completed, .pipeline-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.render-status.failed, .pipeline-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
-.render-status.cancelled, .pipeline-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
-.render-status.paused, .pipeline-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
-.render-status.running, .pipeline-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
-.render-actions { display: flex; gap: 6px; }
-.pipeline-card-bottom { display: flex; align-items: center; gap: 12px; width: 100%; padding-top: 6px; border-top: 1px solid var(--border); margin-top: 2px; }
+.pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
+.pipeline-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.pipeline-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
+.pipeline-meta { display: flex; flex-direction: column; gap: 2px; }
+.pipeline-name { font-size: 14px; font-weight: 650; line-height: 1.3; }
+.pipeline-time { font-size: 12px; color: var(--text-light); }
+.pipeline-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+.pipeline-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
+.pipeline-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.pipeline-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+.pipeline-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
+.pipeline-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
+.pipeline-duration { font-size: 12px; color: var(--text-light); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pipeline-card-bottom { display: flex; align-items: center; gap: 12px; width: 100%; padding-top: 10px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); margin-top: 6px; }
 .pipeline-hints { display: flex; gap: 6px; flex-shrink: 0; }
-.pipeline-stages { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; min-width: 240px; }
-.stage-tag { font-size: 12px; padding: 3px 8px; border-radius: var(--r-xs); background: var(--status-pending-bg); color: var(--status-pending-text); font-weight: 500; white-space: nowrap; }
+.pipeline-stages { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; min-width: 240px; }
+.stage-tag { font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--status-pending-bg); color: var(--status-pending-text); font-weight: 500; white-space: nowrap; transition: background 0.15s, color 0.15s; }
 .stage-tag.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .stage-tag.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
 .stage-tag.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
 .stage-tag.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
 .stage-tag.running { background: var(--status-running-bg); color: var(--status-running-text); }
-.pipeline-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.pipeline-status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .pipeline-status-dot.completed { background: var(--stability-production); }
 .pipeline-status-dot.failed { background: var(--pipe-cinematic); }
 .pipeline-status-dot.cancelled { background: var(--text-light); }
 .pipeline-status-dot.paused { background: var(--stability-experimental); }
-.pipeline-status-dot.running { background: var(--stability-beta); animation: pulse-dot 1.5s ease-in-out infinite; }
-@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-.pipeline-running-hint { font-size: 11px; color: var(--history-running-hint-text); background: var(--history-running-hint-bg); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; }
-.pipeline-paused-hint { font-size: 11px; color: var(--banner-warning-color); background: var(--banner-warning-bg); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; }
-.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline); border-top-color: var(--primary, #7c5cbf); border-radius: 50%; animation: spin 0.6s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.pipeline-status-dot.running { background: var(--stability-beta); animation: ch-pulse 1.5s ease-in-out infinite; }
+.pipeline-running-hint { font-size: 11px; color: var(--history-running-hint-text); background: var(--history-running-hint-bg); padding: 2px 8px; border-radius: var(--r-xs, 4px); white-space: nowrap; }
+.pipeline-paused-hint { font-size: 11px; color: var(--banner-warning-color); background: var(--banner-warning-bg); padding: 2px 8px; border-radius: var(--r-xs, 4px); white-space: nowrap; }
+.pipeline-failed-hint { font-size: 11px; color: var(--status-failed-text); background: var(--status-failed-bg); padding: 2px 8px; border-radius: var(--r-xs, 4px); white-space: nowrap; }
 
-/* 进度条 */
+/* --- 进度条 --- */
+.pipeline-progress { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 4px; }
 .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
 .progress-text { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
-.pipeline-progress { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 4px; }
-
-/* 骨架屏加载 */
-.skeleton { background: var(--skeleton-bg); border-radius: 4px; position: relative; overflow: hidden; }
-.skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent); animation: skeleton-shimmer 1.5s infinite; }
-@keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
-
-/* 空状态增强 */
-.empty-state-icon { font-size: 48px; margin-bottom: 8px; opacity: 0.6; }
-.empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 12px; }
-
-
-/* 键盘导航焦点样式 */
-.render-card:focus-visible, .pipeline-card:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
 </style>

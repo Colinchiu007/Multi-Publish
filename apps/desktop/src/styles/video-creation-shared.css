@@ -1,0 +1,460 @@
+/* ============================================
+   视频创作模块共享样式
+   供 PipelineBrowser / CreateView / Story2VideoConfigPanel 等组件复用
+   引入方式: @import '@/styles/video-creation-shared.css';
+   ============================================ */
+
+/* --- Pipeline Card --- */
+.pipeline-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pipeline-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+  border-color: var(--primary);
+}
+.pipeline-card.is-unavailable {
+  opacity: 0.72;
+}
+.pipeline-card.is-unavailable:hover {
+  transform: none;
+  box-shadow: none;
+}
+.pipeline-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Category border colors */
+.pipeline-card.generated { border-left: 3px solid var(--pipe-generated); }
+.pipeline-card.talking_head { border-left: 3px solid var(--pipe-talking-head); }
+.pipeline-card.cinematic { border-left: 3px solid var(--pipe-cinematic); }
+.pipeline-card.animation { border-left: 3px solid var(--pipe-animation); }
+.pipeline-card.screen_recording { border-left: 3px solid var(--pipe-screen-recording); }
+.pipeline-card.hybrid { border-left: 3px solid var(--pipe-hybrid); }
+.pipeline-card.custom { border-left: 3px solid var(--pipe-custom); }
+
+/* Stability border colors (PipelineBrowser) */
+.pipeline-card.experimental { border-left: 3px solid var(--stability-experimental); }
+.pipeline-card.beta { border-left: 3px solid var(--stability-beta); }
+.pipeline-card.production { border-left: 3px solid var(--stability-production); }
+
+/* Card child elements */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+    margin-bottom: 4px;
+}
+.card-title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin: 0 0 4px 0;
+  line-height: 1.3;
+}
+.card-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-light);
+  align-items: center;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline, rgba(0,0,0,0.06));
+}
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Badge (Pipeline category tag) */
+.badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.badge.generated { background: var(--pipe-generated-bg); color: var(--pipe-generated-text); }
+.badge.talking_head { background: var(--pipe-talking-head-bg); color: var(--pipe-talking-head-text); }
+.badge.cinematic { background: var(--pipe-cinematic-bg); color: var(--pipe-cinematic-text); }
+.badge.animation { background: var(--pipe-animation-bg); color: var(--pipe-animation-text); }
+.badge.screen_recording { background: var(--pipe-screen-recording-bg); color: var(--pipe-screen-recording-text); }
+.badge.hybrid { background: var(--pipe-hybrid-bg); color: var(--pipe-hybrid-text); }
+.badge.custom { background: var(--pipe-custom-bg); color: var(--pipe-custom-text); }
+.badge.assembly { background: var(--pipe-animation-bg); color: var(--pipe-animation-text); }
+
+/* Stability Dot */
+.stability-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.stability-dot.production { background: var(--stability-production); }
+.stability-dot.beta { background: var(--stability-beta); }
+.stability-dot.experimental { background: var(--stability-experimental); }
+
+/* Availability Badge */
+.availability-badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.availability-badge.ready { background: var(--pipe-screen-recording-bg); color: var(--pipe-screen-recording-text); }
+.availability-badge.dev { background: var(--pipe-animation-bg); color: var(--pipe-animation-text); }
+
+/* Cost Label */
+.cost-label.low { color: var(--cost-low); }
+.cost-label.medium { color: var(--cost-medium); }
+.cost-label.high { color: var(--cost-high); }
+
+/* Version */
+.version { font-size: 0.75rem; color: var(--text-light); }
+
+/* Loading / Error / Spinner (video creation shared) */
+.video-loading-state,
+.video-error-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--text-muted);
+}
+.video-error-state { color: var(--error); }
+.video-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--hairline);
+  border-top-color: var(--stability-beta);
+  border-radius: 50%;
+  animation: vc-spin 0.6s linear infinite;
+}
+@keyframes vc-spin { to { transform: rotate(360deg); } }
+
+/* Empty state */
+.video-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px;
+  color: var(--text-muted);
+}
+.video-empty-state-icon { font-size: 52px; margin-bottom: 12px; opacity: 0.55; }
+.video-empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 16px; line-height: 1.5; }
+
+/* Pipeline Grid (shared layout) */
+.pipeline-grid {
+  display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 16px;
+}
+
+/* S2V Config Sections (collapsible panels) */
+.s2v-config-sections {
+  display: grid;
+    gap: 12px;
+  margin-bottom: 20px;
+}
+.s2v-config-section {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.s2v-section-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+    padding: 15px 18px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+}
+.s2v-section-summary::-webkit-details-marker { display: none; }
+.s2v-section-summary:hover { background: var(--bg, #f9fafb); }
+.s2v-section-summary::before {
+  content: '\203A';
+  display: inline-block;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform 0.15s ease;
+}
+.s2v-config-section[open] > .s2v-section-summary::before {
+  transform: rotate(90deg);
+}
+.s2v-summary {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+  max-width: 50%;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Skeleton (shared) */
+.video-skeleton {
+  background: var(--skeleton-bg);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.video-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent);
+  animation: vc-skeleton-shimmer 1.5s infinite;
+}
+
+/* ============================================
+   Form Controls — Enhanced Focus & Hover
+   ============================================ */
+.vc-form-select,
+.vc-form-input,
+.vc-form-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.vc-form-select:hover,
+.vc-form-input:hover,
+.vc-form-textarea:hover {
+  border-color: var(--primary, #7c5cbf);
+}
+.vc-form-select:focus,
+.vc-form-input:focus,
+.vc-form-textarea:focus {
+  outline: none;
+  border-color: var(--primary, #7c5cbf);
+  box-shadow: 0 0 0 3px rgba(124, 92, 191, 0.12);
+}
+.vc-form-textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.5;
+}
+
+/* ============================================
+   Buttons — Primary / Secondary / Ghost Hierarchy
+   ============================================ */
+.vc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.vc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.vc-btn-primary {
+  background: var(--primary, #7c5cbf);
+  color: #fff;
+  border-color: var(--primary, #7c5cbf);
+}
+.vc-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 8px rgba(124, 92, 191, 0.3);
+}
+.vc-btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.vc-btn-secondary:hover:not(:disabled) {
+  border-color: var(--primary, #7c5cbf);
+  color: var(--primary, #7c5cbf);
+}
+.vc-btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: transparent;
+}
+.vc-btn-ghost:hover:not(:disabled) {
+  color: var(--primary, #7c5cbf);
+  background: var(--bg, #f9fafb);
+}
+
+/* ============================================
+   Status Indicator — Timeline Enhancements
+   ============================================ */
+.vc-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.vc-status-dot.completed { background: var(--stability-production); }
+.vc-status-dot.running { background: var(--stability-beta); animation: vc-pulse 1.5s ease-in-out infinite; }
+.vc-status-dot.failed { background: var(--stability-experimental); }
+.vc-status-dot.paused { background: var(--status-waiting-text); }
+@keyframes vc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.vc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vc-badge-success { background: var(--status-completed-bg); color: var(--status-completed-text); }
+.vc-badge-failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.vc-badge-running { background: var(--status-running-bg); color: var(--status-running-text); }
+.vc-badge-cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+.vc-badge-waiting { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
+
+/* ============================================
+   Progress Bar — Refined
+   ============================================ */
+.vc-progress-bar {
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.vc-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 4px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.vc-progress-text {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-left: 10px;
+  font-weight: 500;
+}
+@keyframes vc-skeleton-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ============================================
+   History Page — 从 CreateHistory.vue 提取并优化
+   引入方式: 已随 video-creation-shared.css 全局生效
+   ============================================ */
+
+/* --- Page Layout --- */
+.history-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; }
+.history-page .page-header { margin-bottom: 24px; }
+.history-page .page-header h1 { font-size: 26px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.3px; }
+
+/* --- Tab Navigation --- */
+.history-page .page-tabs { display: flex; gap: 2px; margin-bottom: 24px; border-bottom: 2px solid var(--hairline, rgba(0,0,0,0.08)); }
+.history-page .tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; }
+.history-page .tab:hover { color: var(--text, #333); }
+.history-page .tab.active { color: var(--primary, #7c5cbf); border-bottom-color: var(--primary, #7c5cbf); font-weight: 600; }
+
+/* --- Running/Failed Banner --- */
+.history-page .running-banner { background: var(--banner-warning-bg); color: var(--banner-warning-color); border: 1px solid var(--banner-warning-border); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; font-size: 13px; cursor: pointer; transition: background 0.15s; display: flex; align-items: center; gap: 8px; }
+.history-page .running-banner:hover { filter: brightness(0.96); }
+.history-page .running-banner-icon { font-size: 16px; flex-shrink: 0; }
+
+/* --- Render List --- */
+.history-page .render-list { display: flex; flex-direction: column; gap: 10px; }
+.history-page .render-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
+.history-page .render-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.history-page .render-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
+.history-page .render-icon { font-size: 22px; }
+.history-page .render-meta { display: flex; flex-direction: column; gap: 2px; }
+.history-page .render-name { font-size: 14px; font-weight: 600; line-height: 1.3; }
+.history-page .render-time { font-size: 12px; color: var(--text-light); }
+.history-page .render-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+.history-page .render-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
+.history-page .render-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.history-page .render-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+.history-page .render-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
+.history-page .render-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
+.history-page .render-actions { display: flex; gap: 6px; }
+
+/* --- Pipeline History List --- */
+.history-page .pipeline-list { display: flex; flex-direction: column; gap: 12px; }
+.history-page .pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 18px 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; border-left: 3px solid transparent; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
+.history-page .pipeline-card.running { border-left-color: var(--stability-beta); }
+.history-page .pipeline-card.failed { border-left-color: var(--pipe-cinematic); }
+.history-page .pipeline-card.cancelled { border-left-color: var(--text-light); }
+.history-page .pipeline-card.paused { border-left-color: var(--stability-experimental); }
+.history-page .pipeline-card.completed { border-left-color: var(--stability-production); }
+.history-page .pipeline-card:hover { border-color: var(--primary, #7c5cbf); box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
+.history-page .pipeline-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 200px; }
+.history-page .pipeline-meta { display: flex; flex-direction: column; gap: 2px; }
+.history-page .pipeline-name { font-size: 14px; font-weight: 650; line-height: 1.3; }
+.history-page .pipeline-time { font-size: 12px; color: var(--text-light); }
+.history-page .pipeline-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+.history-page .pipeline-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
+.history-page .pipeline-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.history-page .pipeline-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+.history-page .pipeline-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
+.history-page .pipeline-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
+.history-page .pipeline-card-bottom { display: flex; align-items: center; gap: 12px; width: 100%; padding-top: 10px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); margin-top: 6px; }
+.history-page .pipeline-hints { display: flex; gap: 6px; flex-shrink: 0; }
+.history-page .pipeline-stages { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; min-width: 240px; }
+.history-page .stage-tag { font-size: 12px; padding: 3px 10px; border-radius: 6px; background: var(--status-pending-bg); color: var(--status-pending-text); font-weight: 500; white-space: nowrap; transition: background 0.15s, color 0.15s; }
+.history-page .stage-tag.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
+.history-page .stage-tag.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.history-page .stage-tag.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
+.history-page .stage-tag.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
+.history-page .stage-tag.running { background: var(--status-running-bg); color: var(--status-running-text); }
+.history-page .pipeline-status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.history-page .pipeline-status-dot.completed { background: var(--stability-production); }
+.history-page .pipeline-status-dot.failed { background: var(--pipe-cinematic); }
+.history-page .pipeline-status-dot.cancelled { background: var(--text-light); }
+.history-page .pipeline-status-dot.paused { background: var(--stability-experimental); }
+.history-page .pipeline-status-dot.running { background: var(--stability-beta); animation: vc-pulse-dot 1.5s ease-in-out infinite; }
+@keyframes vc-pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.history-page .pipeline-running-hint { font-size: 11px; color: var(--history-running-hint-text); background: var(--history-running-hint-bg); padding: 2px 8px; border-radius: var(--r-xs, 4px); white-space: nowrap; }
+.history-page .pipeline-paused-hint { font-size: 11px; color: var(--banner-warning-color); background: var(--banner-warning-bg); padding: 2px 8px; border-radius: var(--r-xs, 4px); white-space: nowrap; }
+.history-page .pipeline-failed-hint { font-size: 11px; color: var(--status-failed-text); background: var(--status-failed-bg); padding: 2px 8px; border-radius: var(--r-xs, 4px); white-space: nowrap; }
+
+/* --- History Progress Bar --- */
+.history-page .pipeline-progress { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 4px; }
+
+/* --- Empty State Enhancements --- */
+.history-page .empty-state-icon { font-size: 48px; margin-bottom: 8px; opacity: 0.6; }
+.history-page .empt
