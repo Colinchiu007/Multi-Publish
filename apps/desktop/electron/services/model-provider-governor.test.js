@@ -101,10 +101,10 @@ describe('ModelProviderManager 运营限流预算注入 governor', () => {
     expect(openaiLimits).toBeDefined()
     expect(openaiLimits[1]).toMatchObject({ rpm: 120, maxConcurrent: 4 })
 
-    // 5h 请求次数窗口走 provider 级注入（覆盖 openai:*:model 全部 key）
+    // 5h 请求次数窗口：种子无 limit_per_5h（无代码事实）→ 注入清除（[]），不预置估算
     const openaiWindow = spies.setProviderTokenWindows.mock.calls.find(([id]) => id === 'openai')
     expect(openaiWindow).toBeDefined()
-    expect(openaiWindow[1][0]).toMatchObject({ windowMs: 5 * 3600 * 1000, field: 'requests', limit: 3000 })
+    expect(openaiWindow[1]).toEqual([])
 
     const videoLimits = spies.setProviderLimits.mock.calls.find(([id]) => id === 'minimax')
     expect(videoLimits[1].maxConcurrent).toBe(1)

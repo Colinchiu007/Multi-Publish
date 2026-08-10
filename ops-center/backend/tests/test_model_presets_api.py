@@ -638,3 +638,44 @@ async def test_url_with_userinfo_rejected():
         resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
         assert resp.status_code == 400
         assert "models_url" in resp.json()["detail"]
+
+
+# ─────────────────────────────────────────────────────────────
+# 新增：目录与桌面端代码事实一致性（预设回填防回退）
+# ─────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_catalog_facts_consistency():
+    """目录完整性：覆盖全部桌面预设；default ∈ models；rate_per_minute 正整数或空；
+    limit_per_5h/models_url 无代码事实 → 必须为空（防估算污染）。"""
+    from services.model_preset_service import PRESET_CATALOG
+
+    assert len(PRESET_CATALOG) >= 50, "预设目录应覆盖桌面端全部预设（>=50）"
+    ids = [x["id"] for x in PRESET_CATALOG]
+    assert len(ids) == len(set(ids)), "预设 id 必须唯一"
+    for item in PRESET_CATALOG:
+        assert item.get("name") and item.get("category"), f"{item['id']} 缺少 name/category"
+        assert item.get("base_url"), f"{item['id']} base_url 不应为空（本地服务用适配器默认端点）"
+        assert item.get("models"), f"{item['id']} models 不应为空"
+        dm = item.get("default_model") or ""
+        if dm:
+            assert dm in item["models"], f"{item['id']} 默认模型不在模型列表"
+        rpm = item.get("rate_per_minute")
+        assert rpm is None or (isinstance(rpm, int) and rpm >= 1), f"{item['id']} rate_per_minute 非法"
+        assert item.get("limit_per_5h") is None, f"{item['id']} limit_per_5h 无代码事实必须为空"
+        assert not item.get("models_url"), f"{item['id']} models_url 无代码事实必须为空"
+
+
+@pytest.mark.asyncio
+async def test_catalog_minimax_multimodal_facts():
+    """MiniMax 多模态能力映射与桌面端一致（代码事实）。"""
+    from services.model_preset_service import PRESET_CATALOG
+
+    mm = next(x for x in PRESET_CATALOG if x["id"] == "minimax-multimodal")
+    assert mm["base_url"] == "https://api.minimaxi.com/v1"
+    assert mm["capabilities"] == ["llm", "tts", "image", "video"]
+    assert mm["capability_models"] == {
+        "llm": "MiniMax-M2.7", "tts": "speech-2.8-turbo",
+        "image": "image-01", "video": "MiniMax-Hailuo-2.3",
+    }
+    assert mm["default_model"] == "MiniMax-M2.7"
+    assert mm["rate_per_minute"] == 20

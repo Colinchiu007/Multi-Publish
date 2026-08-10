@@ -1337,9 +1337,10 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 预算来源 | 优先级：provider 配置 `rate_per_minute`/`limit_per_5h`（运营后台维护，桌面 config 持久化）> 静态表 `governor-provider-limits` > 类别默认。 |
 | 并发换算 | `rate_per_minute` → `maxConcurrent = clamp(round(rpm/10), 1, 4)`；未配置视频/音频保持并发 1。 |
 | 5h 窗口 | `limit_per_5h` → `setTokenWindows([{ windowMs:5h, field:'requests', limit }])`，按请求次数累计（无 usage 字段也计数），超限返回 `QUOTA_EXCEEDED`。 |
-| 注入时机 | `ModelProviderManager.init()` 及 `createProvider`/`updateProvider` 成功后调用 `_applyGovernorLimits()` 同步预算；预设种子 `model-provider-seeds.js` 与 ops-center 种子对齐（`rate_per_minute`/`limit_per_5h`）。 |
+| 注入时机 | `ModelProviderManager.init()` 及 `createProvider`/`updateProvider` 成功后调用 `_applyGovernorLimits()` 同步预算；预设种子 `model-provider-seeds.js` 与 ops-center 种子对齐。 |
 | 视频创作联动 | `story2video generate_assets` 图片/TTS 并行生成并发上限 = `min(请求并发, provider maxConcurrent)`（按能力分别解析 image/tts provider），超出部分 worker 队列排队；未配置预算回退静态表/请求并发，行为不回归。 |
 | 前端表单 | 模型设置新增「每分钟连接次数（可空）」「5小时限额次数（可空）」输入，正整数校验，留空保存 null（不覆盖默认限流）。 |
+| 种子数据来源 | 预设种子 `rate_per_minute` 与 `governor-provider-limits.js` 静态表一致（代码事实，2026-08-10 起由 ops-center 目录统一生成）；`limit_per_5h` 无代码事实 → 不预填（留空由运营填写，注入 provider 级 5h 请求窗口）；`models_url` 无适配器 `/models` 调用事实 → 不预填。运营后台目录与桌面端代码事实一致性命中测试见 ops-center PRD 12A.8。 |
 
 ---
 

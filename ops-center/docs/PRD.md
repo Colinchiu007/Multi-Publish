@@ -1,3 +1,6 @@
+## 变更日志（2026-08-10）
+
+- 预设模型目录扩展至 53 项，数据来源=Multi-Publish 桌面端代码事实（适配器端点/种子模型/静态限流表）；limit_per_5h 与 models_url 无代码事实 → 置空由运营填写；新增目录一致性测试。
 # OpsCenter — 运营配置中心 PRD v0.1
 
 > 项目 012 / 一站式运营配置后台
@@ -682,7 +685,7 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 ### 12A.5 数据迁移与种子
 
 - `init_db` 后执行幂等列迁移：存量 `model_presets` 表补充 `models_url`（VARCHAR DEFAULT ''）、`rate_per_minute`（INTEGER）、`limit_per_5h`（INTEGER）。
-- 种子目录（`PRESET_CATALOG`）为已知预设补充 `models_url` / `rate_per_minute` / `limit_per_5h`（如 MiniMax 多模态 `https://api.minimaxi.com/v1/models`、rpm=20、5h=500；OpenAI rpm=120、5h=3000；视频类 rpm=6、5h=100；本地类高预算）；`INSERT OR IGNORE` 不覆盖用户修改。
+- 种子目录（`PRESET_CATALOG`）**由 Multi-Publish 桌面端代码事实生成**（见 12A.8 数据来源）：覆盖桌面端全部 53 个预设；`base_url`=适配器默认端点/桌面预设值、`models`/`capabilities`/`capability_models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表；`limit_per_5h` 与 `models_url` **无代码事实 → 不预填（留空由运营填写）**；`INSERT OR IGNORE` 不覆盖用户修改。
 
 ### 12A.6 前端交互与提示文案
 
@@ -701,3 +704,22 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 3. 默认模型 ID 以下拉选择；点击「获取模型」成功回填模型列表与默认模型，失败不改动已有数据。
 4. fetch-models 对私网解析/重定向/非 JSON/超时分别返回 400，且普通用户 403。
 5. 多模态编辑弹窗显示 7 个固定能力文档 URL 输入框，保存后 `capability_doc_links` 对应键为单元素数组。
+6. 预设目录与桌面端代码事实一致：default_model ∈ models、rate_per_minute 与桌面静态表一致、limit_per_5h/models_url 为空（防估算污染）。
+
+---
+
+## 12A.8 预设目录数据来源（2026-08-10 补充）
+
+运营后台预设目录（`PRESET_CATALOG`）的「已确定」数据项全部来自 Multi-Publish 桌面端代码事实，禁止编造：
+
+| 数据项 | 来源（代码事实） | 说明 |
+|--------|------------------|------|
+| `base_url`（端口URL） | 适配器 `DEFAULT_BASE_URL`（`apps/desktop/electron/services/adapters/*.js`）；OpenAI 兼容类读 provider 配置，用桌面预设值 | 如 Anthropic `https://api.anthropic.com`（无 `/v1`）、MiniMax `https://api.minimaxi.com/v1`、本地类用适配器默认（localhost:8080/7860/5000/8188 等） |
+| `models` | 桌面 `model-provider-seeds.js` `PRESET_PROVIDERS[].models` | 预设可用的模型 ID 白名单 |
+| `default_model` | 已知默认值且必须 ∈ models（校验拒绝） | MiniMax 多模态 `MiniMax-M2.7` 等 |
+| `capabilities` / `capability_models` | 桌面多模态预设声明（minimax-multimodal） | llm/tts/image/video → 对应模型 |
+| `rate_per_minute`（每分钟连接次数） | 桌面 `governor-provider-limits.js` `PROVIDER_LIMITS[].rpm` | 代码常量（如 openai 120、video 类 6）；**与静态表一致，非估算** |
+| `limit_per_5h`（5小时限额次数） | **无代码事实** → 空（null） | 由运营在模型设置/运营后台填写；桌面端 `ApiUsageGovernor` 按 provider 级 5h 请求窗口使用 |
+| `models_url`（获取模型ID URL） | **无代码事实**（适配器无 `/models` 调用）→ 空 | 「获取模型」按钮需运营填写模型网址 |
+
+- 变更守则：任何桌面适配器端点/模型/限流常量变更，须同步更新本目录并跑 12A.7-6 一致性测试（`test_catalog_facts_consistency`）。
