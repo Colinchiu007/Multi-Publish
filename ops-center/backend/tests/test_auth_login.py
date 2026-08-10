@@ -157,3 +157,65 @@ def test_pbkdf2_hash_roundtrip():
     assert verify_password("secret-password", stored) is True
     assert verify_password("wrong", stored) is False
     assert verify_password("secret-password", "garbage") is False
+
+@pytest.mark.asyncio
+async def test_missing_authorization_header_returns_401():
+    """缺 Authorization 头 → 401（统一 401 契约，而非 403）。"""
+    async with _client() as client:
+        r = await client.get("/api/v1/model-presets")
+        assert r.status_code == 401
+        r2 = await client.get("/api/auth/me")
+        assert r2.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_token_with_wrong_secret_401():
+    token = _make_token(secret="different-secret")
+    async with _client() as client:
+        r = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_login_body_length_limits():
+    """超长 username/password 直接拒绝（防未认证 PBKDF2 CPU DoS）。"""
+    async with _client() as client:
+        long_user = "a" * 200
+        r = await client.post("/api/auth/login", json={"username": long_user, "password": "x"})
+        assert r.status_code == 422  # Pydantic max_length 拒绝
+        long_pwd = "p" * 500
+        r2 = await client.post("/api/auth/login", json={"username": "admin", "password": long_pwd})
+        assert r2.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_lock_expires_after_window(monkeypatch):
+    from services import auth_service as _auth
+    import time as _time
+
+    monkeypatch.setattr(_auth, "MAX_LOGIN_FAILURES", 3)
+    monkeypatch.setattr(_auth, "LOGIN_LOCK_SECONDS", 60)
+    # 锁定期内错误尝试不延长锁；过期后恢复
+    async with _client() as client:
+        for _ in range(3):
+            await client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
+        r = await client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
+        assert r.status_code == 429
+        # 锁定期内尝试不延长
+        r2 = await client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
+        assert r2.status_code == 429
+        # 快进锁定期 → 恢复
+        monkeypatch.setattr(_auth, "_now_ts", lambda: _time.time() + 120)
+        r3 = await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        assert r3.status_code == 200, r3.text
+    _auth._login_attempts.clear()
+
+
+@pytest.mark.asyncio
+async def test_existing_admin_survives_env_clear(monkeypatch):
+    """表中有管理员时，env 清空不影响登录（fail-open 场景：以表为准）。"""
+    monkeypatch.setattr(settings, "admin_username", "")
+    monkeypatch.setattr(settings, "admin_password", "")
+    async with _client() as client:
+        r = await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        assert r.status_code == 200, r.text

@@ -8,11 +8,13 @@ from jose import JWTError, jwt
 
 from config import settings
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Validate JWT token and return payload."""
+async def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(security)):
+    """Validate JWT token and return payload. 缺头/非 Bearer 统一返回 401。"""
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未提供认证令牌")
     try:
         secret = settings.get_jwt_secret()
         payload = jwt.decode(
