@@ -121,6 +121,8 @@ class RunStateStore {
       error: run.error || null,
       orchestrationMode: run.orchestrationMode || 'orchestrator',
       createdAt: run.createdAt || null,
+      // 已用时：各执行段实际耗时累计（毫秒），跨应用重启/断点恢复不丢失（version 保持 1，纯增量字段）
+      activeMs: Number.isFinite(Number(run.activeMs)) ? Number(run.activeMs) : 0,
       // 运行中快照没有终态时间；终态快照用 run.endedAt 或当前时间
       endedAt: running ? null : (run.endedAt || new Date().toISOString()),
     }
