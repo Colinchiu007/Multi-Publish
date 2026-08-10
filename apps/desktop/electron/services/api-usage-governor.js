@@ -53,7 +53,9 @@ class ApiUsageGovernor {
     this._log = options.log || { warn() {}, info() {} }
     this._limits = new Map() // key -> limits（精确 key 覆盖）
     this._providerLimits = new Map() // providerId -> limits（W3：按 provider 配置化）
-    this._tokenWindows = new Map() // key -> [{ windowMs, limit, field }]
+    this._tokenWindows = new Map() // key(type:provider:model) -> [{ windowMs, limit, field }]
+    this._providerTokenWindows = new Map() // providerId -> [{ windowMs, limit, field }]（运营 5h 请求窗口）
+    this._providerTokenUsage = new Map() // providerId -> [{ windowMs, limit, field, used, startedAt }]（跨 key 共享计数）
     this._state = new Map() // key -> { active, waiters, nextSlotAt, cooldownUntil, rateFactor, tokenWindows }
     this._maxPaceWaitMs = Number.isFinite(Number(options.maxPaceWaitMs)) && Number(options.maxPaceWaitMs) > 0
       ? Number(options.maxPaceWaitMs)
@@ -84,6 +86,43 @@ class ApiUsageGovernor {
   setTokenWindows(key, windows) {
     if (!Array.isArray(windows)) return
     this._tokenWindows.set(key, windows.map((w) => ({ ...w })))
+  }
+
+  /** W：按 providerId 设置额度窗口（覆盖该 provider 所有 type:model key，如运营 5h 请求次数限额）。
+   *  传 [] 表示清除该 provider 的窗口。 */
+  setProviderTokenWindows(providerId, windows) {
+    if (!providerId) return
+    if (!Array.isArray(windows)) return
+    this._providerTokenWindows.set(providerId, windows.map((w) => ({ ...w })))
+    // 失效该 provider 各 key 的运行时窗口快照与共享计数，避免清除/变更后继续用旧窗口累计
+    this._providerTokenUsage.delete(providerId)
+    for (const [key, st] of this._state) {
+      if (st.providerId === providerId) st.tokenWindows = null
+    }
+  }
+
+  /** W：移除按 providerId 注入的限流预算（回退静态表/类别默认） */
+  removeProviderLimits(providerId) {
+    if (!providerId) return
+    this._providerLimits.delete(providerId)
+  }
+
+  /** 解析某 key 的额度窗口：精确 key > provider 级窗口 */
+  _usageWindows(key, st) {
+    if (this._tokenWindows.has(key)) {
+      const now = Date.now()
+      st.tokenWindows = st.tokenWindows || this._tokenWindows.get(key).map((w) => ({ ...w, used: 0, startedAt: now }))
+      return st.tokenWindows
+    }
+    if (st && st.providerId && this._providerTokenWindows.has(st.providerId)) {
+      const pid = st.providerId
+      if (!this._providerTokenUsage.has(pid)) {
+        const now = Date.now()
+        this._providerTokenUsage.set(pid, this._providerTokenWindows.get(pid).map((w) => ({ ...w, used: 0, startedAt: now })))
+      }
+      return this._providerTokenUsage.get(pid)
+    }
+    return null
   }
 
   _limitsFor(key, type, providerId) {
@@ -130,6 +169,7 @@ class ApiUsageGovernor {
     const key = providerId + ':' + type + model
     const limits = this._limitsFor(key, type, providerId)
     const st = this._stateFor(key)
+    st.providerId = providerId
 
     // W2：每次请求先回收该 key 已过截止时间的排队 waiter（不依赖后续释放）
     this._sweepExpired(key, st)
@@ -137,6 +177,8 @@ class ApiUsageGovernor {
     try {
       await this._pace(key, st, limits)
       await this._waitCooldown(key, st, limits)
+      // 执行前预检额度窗口：已满则立即拒绝，避免继续消耗真实 provider 调用
+      this._preflightTokenBudget(key, st)
       return await this._executeWithRetry(key, st, limits, task)
     } finally {
       st.active -= 1
@@ -148,7 +190,10 @@ class ApiUsageGovernor {
     this._sweepExpired(key, st)
     while (st.waiters.length > 0) {
       const waiter = st.waiters[0]
-      if (st.active < (this._limitsFor(key, '', '').maxConcurrent || 1)) {
+      // 使用 st.providerId 解析 provider 级并发预算（否则回退默认 2，突发排队时并发被钳低）
+      const providerId = st && st.providerId
+      const maxConcurrent = (this._limitsFor(key, '', providerId).maxConcurrent) || 1
+      if (st.active < maxConcurrent) {
         st.waiters.shift()
         waiter.resolve()
       }
@@ -230,25 +275,45 @@ class ApiUsageGovernor {
   }
 
   _recordUsage(key, st, limits, result) {
-    const windows = this._tokenWindows.get(key)
+    const windows = this._usageWindows(key, st)
     if (!windows || !result || typeof result !== 'object') return
     const usage = result.usage || result.data?.usage
-    if (!usage || typeof usage !== 'object') return
     const now = Date.now()
-    st.tokenWindows = st.tokenWindows || windows.map((w) => ({ ...w, used: 0, startedAt: now }))
-    for (const win of st.tokenWindows) {
+    for (const win of windows) {
       if (now - win.startedAt >= win.windowMs) {
         win.used = 0
         win.startedAt = now
       }
-      const delta = Number(usage[win.field] ?? usage.total_tokens ?? 0)
+      // field='requests'：按请求次数计数（每次调用 +1），无需 usage 字段（如 5 小时限额次数）
+      const delta = win.field === 'requests'
+        ? 1
+        : Number(usage?.[win.field] ?? usage?.total_tokens ?? 0)
       win.used += Number.isFinite(delta) ? delta : 0
     }
   }
 
+  /** 只读预检：窗口已满（未过期）时立即拒绝，不修改任何状态（避免超限请求先消耗真实调用） */
+  _preflightTokenBudget(key, st) {
+    const windows = this._usageWindows(key, st)
+    if (!windows || windows.length === 0) return
+    const now = Date.now()
+    for (const win of windows) {
+      if (now - win.startedAt >= win.windowMs) continue // 已过期，由记账路径重置
+      if (win.used >= win.limit) {
+        const label = win.windowMs >= 7 * 24 * 3600 * 1000 ? '每周' : (win.windowMs >= 3600 * 1000 ? '每 5 小时' : '当前周期')
+        throw new ProviderError(
+          ERROR_CODES.QUOTA_EXCEEDED,
+          '该模型 API 的' + label + ' token 额度（' + win.limit + '）已用完，请检查套餐额度或更换模型后再试。',
+          { providerId: key },
+        )
+      }
+    }
+  }
+
   _assertTokenBudget(key, st) {
-    const windows = st.tokenWindows
+    const windows = this._usageWindows(key, st)
     if (!windows) return
+    if (windows.length === 0) return
     const now = Date.now()
     for (const win of windows) {
       if (now - win.startedAt >= win.windowMs) {

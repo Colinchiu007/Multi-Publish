@@ -15,6 +15,7 @@ const {
 } = require('./model-provider-seeds')
 const crypto = require('./crypto')
 const { providerAnomalyBus } = require('./provider-anomaly')
+const { PROVIDER_LIMITS } = require('./governor-provider-limits')
 
 /**
  * 有界超时包装：provider 请求在 timeoutMs 内未完成即抛 ProviderError(TIMEOUT)。
@@ -77,6 +78,97 @@ class ModelProviderManager {
     // P3.2: Adapter 工厂注册表 + 实例缓存
     this._adapterFactories = new Map()
     this._adapterCache = new Map()
+    // 统一调度网关（ApiUsageGovernor）：每分钟连接次数/5小时限额注入目标
+    this._governor = null
+  }
+
+  /** 注入统一调度网关（ApiUsageGovernor）；配置变更后预算会自动同步 */
+  setGovernor (governor) {
+    this._governor = governor || null
+    if (this._ready) this._applyGovernorLimits()
+  }
+
+  /** 归一化运营限流配置值：正整数或 null（允许空）；布尔/0/负数/小数视为非法 → null */
+  _normalizeConfigLimit (value) {
+    if (value === null || value === undefined || value === '') return null
+    if (typeof value === 'boolean') return null
+    const num = Number(value)
+    if (!Number.isFinite(num) || num < 1) return null
+    return Math.floor(num)
+  }
+
+  /**
+   * 把每个 provider 的运营限流预算（config.rate_per_minute / limit_per_5h）注入 governor：
+   *   - rate_per_minute → setProviderLimits({ rpm, maxConcurrent })
+   *   - limit_per_5h    → setTokenWindows(5h 请求次数窗口)
+   * 未配置的 provider 保留静态表/类别默认预算（governor 构造时已注入 PROVIDER_LIMITS）。
+   */
+  _applyGovernorLimits () {
+    const governor = this._governor
+    if (!governor || typeof governor.setProviderLimits !== 'function' || !this._ready || !this._store || !this._store.db) return
+    try {
+      const rows = this._store.db.prepare('SELECT id, config FROM model_providers').all()
+      for (const row of rows) {
+        const config = safeJsonParse(row.config, {}) || {}
+        const rpm = this._normalizeConfigLimit(config.rate_per_minute)
+        const limit5h = this._normalizeConfigLimit(config.limit_per_5h)
+        if (rpm !== null) {
+          // 并发换算：保守取每分钟连接次数的 1/10（下限 1、上限 4）
+          const maxConcurrent = Math.max(1, Math.min(4, Math.round(rpm / 10)))
+          governor.setProviderLimits(row.id, { rpm, maxConcurrent })
+        } else if (PROVIDER_LIMITS[row.id]) {
+          // 未配置/已清空 → 回填静态表预算（恢复默认，避免陈旧配置残留）
+          governor.setProviderLimits(row.id, PROVIDER_LIMITS[row.id])
+        } else if (typeof governor.removeProviderLimits === 'function') {
+          // 自定义 provider 清空配置 → 移除预算，回退类别默认
+          governor.removeProviderLimits(row.id)
+        }
+        if (limit5h !== null && typeof governor.setProviderTokenWindows === 'function') {
+          // 5h 请求次数窗口（provider 级，覆盖该 provider 所有 type:model key）
+          governor.setProviderTokenWindows(row.id, [{ windowMs: 5 * 3600 * 1000, limit: limit5h, field: 'requests' }])
+        } else if (limit5h === null && typeof governor.setProviderTokenWindows === 'function') {
+          // 未配置/已清空 → 清除该 provider 的 5h 窗口（静态表无 5h 窗口）
+          governor.setProviderTokenWindows(row.id, [])
+        }
+      }
+      log.info('ModelProviderManager', 'Governor limits applied for ' + rows.length + ' providers')
+    } catch (e) {
+      log.warn('ModelProviderManager', 'apply governor limits failed: ' + e.message)
+    }
+  }
+
+  /**
+   * 将预设声明的运营限流预算（rate_per_minute / limit_per_5h）回填到存量预设行 config，
+   * 使升级前的数据库也能拿到预算（INSERT OR IGNORE 不会更新已存在的行）。
+   * diff-merge：仅填充缺失键，保留用户已配置值。
+   */
+  _syncPresetLimits () {
+    const db = this._store && this._store.db
+    if (!db) return
+    for (const p of PRESET_PROVIDERS) {
+      if (p.rate_per_minute == null && p.limit_per_5h == null) continue
+      try {
+        const row = db.prepare('SELECT config FROM model_providers WHERE id = ?').get(p.id)
+        if (!row) continue
+        const config = safeJsonParse(row.config, {}) || {}
+        let changed = false
+        if (p.rate_per_minute != null && config.rate_per_minute == null) {
+          config.rate_per_minute = this._normalizeConfigLimit(p.rate_per_minute)
+          changed = true
+        }
+        if (p.limit_per_5h != null && config.limit_per_5h == null) {
+          config.limit_per_5h = this._normalizeConfigLimit(p.limit_per_5h)
+          changed = true
+        }
+        if (changed) {
+          db.prepare("UPDATE model_providers SET config = ?, updated_at = datetime('now') WHERE id = ?")
+            .run(JSON.stringify(config), p.id)
+          this._invalidateAdapterCache(p.id)
+        }
+      } catch (e) {
+        log.warn('ModelProviderManager', 'sync preset limits failed for ' + p.id + ': ' + e.message)
+      }
+    }
   }
 
   /**
@@ -344,10 +436,12 @@ class ModelProviderManager {
     try {
       this._seedPresets()
       this._syncPresetCapabilities()
+      this._syncPresetLimits()
       this._migrateApiKeyEncryption()
       this._collapseMiniMaxTtsModel()
       this._registerBuiltinAdapters()
       this._ready = true
+      this._applyGovernorLimits()
       log.info('ModelProviderManager', 'Initialized with ' + PRESET_PROVIDERS.length + ' preset providers')
     } catch (e) {
       log.error('ModelProviderManager', 'Init failed: ' + e.message)
@@ -365,6 +459,9 @@ class ModelProviderManager {
       const config = {}
       if (Array.isArray(p.capabilities)) config.capabilities = p.capabilities
       if (p.capability_models && typeof p.capability_models === 'object') config.capability_models = p.capability_models
+      // 运营限流预算（每分钟连接次数 / 5小时限额次数）：与 ops-center 预设目录对齐
+      if (p.rate_per_minute != null) config.rate_per_minute = this._normalizeConfigLimit(p.rate_per_minute)
+      if (p.limit_per_5h != null) config.limit_per_5h = this._normalizeConfigLimit(p.limit_per_5h)
       stmt.run(p.id, p.name, p.category, p.base_url || '', JSON.stringify(p.models || []), JSON.stringify(config))
     }
     // 将历史内置种子从已废弃的 image-01-live 组合收敛为固定模型；
@@ -619,6 +716,7 @@ class ModelProviderManager {
         JSON.stringify(data.config || {})
       )
       log.info('ModelProviderManager', 'Provider created: ' + data.id)
+      this._applyGovernorLimits()
       return { code: 0, data: this.getProvider(data.id) }
     } catch (e) {
       log.error('ModelProviderManager', 'Create failed: ' + e.message)
@@ -691,6 +789,8 @@ class ModelProviderManager {
       this._store.db.prepare('UPDATE model_providers SET ' + sets.join(', ') + ' WHERE id = ?').run(...vals)
       // P3.2: 配置变更后清除 Adapter 缓存
       this._invalidateAdapterCache(id)
+      // 运营限流预算变更后同步 governor（rate_per_minute / limit_per_5h 可能被修改）
+      this._applyGovernorLimits()
       log.info('ModelProviderManager', 'Provider updated: ' + id)
       return { code: 0, data: this.getProvider(id) }
     } catch (e) {
@@ -726,6 +826,11 @@ class ModelProviderManager {
       db.prepare('DELETE FROM model_providers WHERE id = ?').run(id)
       // P3.2: 删除后清除 Adapter 缓存
       this._invalidateAdapterCache(id)
+      // 清理 governor 中的 provider 级预算/窗口（防止残留）
+      if (this._governor) {
+        if (typeof this._governor.removeProviderLimits === 'function') this._governor.removeProviderLimits(id)
+        if (typeof this._governor.setProviderTokenWindows === 'function') this._governor.setProviderTokenWindows(id, [])
+      }
       log.info('ModelProviderManager', 'Provider deleted: ' + id)
       return { code: 0, message: '已删除' }
     } catch (e) {

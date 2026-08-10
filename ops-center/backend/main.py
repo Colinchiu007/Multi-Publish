@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database import init_db
 from routers import config, sync, secrets, snapshots, env, model_presets
+from services.model_preset_service import ensure_catalog_seeded, ensure_model_preset_columns
+from database import async_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("ops-center")
@@ -18,6 +20,10 @@ async def lifespan(app: FastAPI):
     settings.validate_security()
     logger.info("Initializing database...")
     await init_db()
+    # 模型预设表：存量库补充新列（models_url/rate_per_minute/limit_per_5h）并补齐种子（不覆盖用户修改）
+    async with async_session() as db:
+        await ensure_model_preset_columns(db)
+        await ensure_catalog_seeded(db)
     logger.info("OpsCenter ready")
     yield
     logger.info("OpsCenter shutting down")
