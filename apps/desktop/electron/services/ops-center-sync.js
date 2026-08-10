@@ -188,6 +188,11 @@ class OpsCenterSync {
     return (cp && cp.replacement) ? String(cp.replacement) : '***'
   }
 
+  /** 目录同步 Key 明文（仅供内部上报/校验服务使用，不暴露给渲染进程） */
+  getCatalogApiKey() {
+    return this._readEncryptedKey()
+  }
+
   /** 版本发布策略（auto-updater 消费） */
   getUpdatePolicy() {
     return this._runtime.updatePolicy || null

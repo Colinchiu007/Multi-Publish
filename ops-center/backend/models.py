@@ -1,5 +1,6 @@
 """SQLAlchemy models for OpsCenter config management."""
 import datetime
+import sqlalchemy as sa
 from sqlalchemy import Column, String, Integer, Text, Float, ForeignKey
 from sqlalchemy.orm import relationship
 
@@ -161,3 +162,47 @@ class ContentPolicy(Base):
     replacement = Column(String, default="***")  # 替换串，<=16 字符
     enabled = Column(Integer, default=1)
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class ModelUsageDaily(Base):
+    """模型调用用量日聚合 — 桌面端脱敏上报，运营后台看板数据源。
+
+    唯一键 (usage_date, client_id, provider_id, action)：同桶多次上报累加（幂等）。
+    latency_buckets: JSON，如 {"lt1s": n, "1to3s": n, "3to10s": n, "gt10s": n}
+    """
+
+    __tablename__ = "model_usage_daily"
+    __table_args__ = (
+        sa.UniqueConstraint("usage_date", "client_id", "provider_id", "action", name="uq_model_usage_daily_bucket"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    usage_date = Column(String, nullable=False)  # YYYY-MM-DD
+    client_id = Column(String, default="")  # 桌面端设备稳定哈希（脱敏）
+    provider_id = Column(String, nullable=False)
+    category = Column(String, default="llm")
+    action = Column(String, nullable=False)
+    calls = Column(Integer, default=0)
+    ok_count = Column(Integer, default=0)
+    fail_count = Column(Integer, default=0)
+    ratelimit_count = Column(Integer, default=0)
+    latency_ms = Column(Integer, default=0)  # 总耗时
+    tokens_in = Column(Integer, default=0)
+    tokens_out = Column(Integer, default=0)
+    cost = Column(Float, default=0.0)
+    latency_buckets = Column(Text, default="{}")  # JSON
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class ModelUsageBatch(Base):
+    """用量上报批次去重 — 客户端携带 batch_id（lastId-maxId），服务端唯一约束防超时重试翻倍。"""
+
+    __tablename__ = "model_usage_batches"
+    __table_args__ = (
+        sa.UniqueConstraint("client_id", "batch_id", name="uq_model_usage_batch"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_id = Column(String, default="")
+    batch_id = Column(String, nullable=False)
+    ingested_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
