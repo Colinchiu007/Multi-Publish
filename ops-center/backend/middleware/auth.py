@@ -1,4 +1,7 @@
-"""JWT authentication middleware — shares secret with orchestrator."""
+"""JWT authentication middleware — 验证 ops-center 本地签发的 HS256 JWT（OPS_JWT_SECRET，role=admin）。
+
+自包含登录后不再依赖 orchestrator 签发；token 由 routers/auth.py 的 POST /api/auth/login 签发。
+（兼容历史 orchestrator 同格式 token，因 secret/算法/payload 形状一致。）"""
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
