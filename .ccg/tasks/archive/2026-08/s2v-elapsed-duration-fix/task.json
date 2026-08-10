@@ -1,12 +1,12 @@
 {
   "id": "s2v-elapsed-duration-fix",
   "title": "修复视频创作流水线「已用时」计算：改为各步骤实际执行耗时总和（排除暂停/中断等待）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "desktop/story2video",
-  "currentPhase": "review",
-  "nextAction": "质量节拍门禁 + 双模型审查 + 提交",
+  "currentPhase": "completed",
+  "nextAction": "已合并 PR #479 (e8d54631)，三同步归档完成",
   "createdAt": "2026-08-10T00:00:00Z",
   "branch": "codex/s2v-elapsed-duration-fix",
   "openspecChange": "story2video-elapsed-duration"
