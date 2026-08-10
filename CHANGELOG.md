@@ -6,6 +6,9 @@
 - 前端 `/api/auth` 代理 target 从 orchestrator:8000 改为 ops-center:8010——**解除对 platform-orchestrator 的运行时依赖**；不接 Logto、不集成 orchestrator。
 - 测试：认证 7 用例（成功/失败/未配置/限流/过期/权限/哈希）；ops-center pytest 73 passed。
 - 文档：ops-center PRD 12A.9。
+
+## [未发布] 架构：ops-center 正式并入 Multi-Publish（git subtree 方案 A，2026-08-10）
+
 - 将独立仓库 `Colinchiu007/ops-center`（main 78bebac，17 commits，PR #1/#2/#3 全量）以 `git subtree add --prefix=ops-center --squash` 正式并入 monorepo（PR #475）；移除此前 vendored 快照。
 - 此后运营后台开发/PR/CI/质量门禁统一在 Multi-Publish 内：`ops-center/backend`（pytest 门禁，66 passed）、`ops-center/frontend`（npm run build）。
 - 独立仓库冻结归档（tag `archived-into-multi-publish` + README 说明，完整历史保留可追溯）。
