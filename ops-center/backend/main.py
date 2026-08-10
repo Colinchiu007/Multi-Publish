@@ -6,10 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import init_db
-from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, platform_defs
+from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, platform_defs, content_templates
 from services.model_preset_service import ensure_catalog_seeded, ensure_model_preset_columns
 from services.key_service import ensure_official_key_columns
 from services.platform_def_service import ensure_platform_def_seeded
+from services.content_template_service import ensure_content_templates_seeded
 from services.auth_service import ensure_admin_seeded
 from services.config_seed_service import ensure_feature_gates_seeded, ensure_projects_seeded
 from database import async_session
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
         await ensure_official_key_columns(db)
         await ensure_catalog_seeded(db)
         await ensure_platform_def_seeded(db)
+        await ensure_content_templates_seeded(db)
         await ensure_admin_seeded(db)
         await ensure_projects_seeded(db)
         await ensure_feature_gates_seeded(db)
@@ -66,6 +68,7 @@ app.include_router(usage.router)
 app.include_router(licenses.router)
 app.include_router(health.router)
 app.include_router(platform_defs.router)
+app.include_router(content_templates.router)
 app.include_router(auth.router)
 
 

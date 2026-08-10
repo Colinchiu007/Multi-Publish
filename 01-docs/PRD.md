@@ -1813,6 +1813,40 @@ split → domain_enrich → optimize → select_video_scenes（新增） → gen
 
 ① 首次启动种子 12 平台且可编辑；② 非法 content_category / 负数或小数上限 → 400；③ PUT 仅传部分字段可更新（enabled 临时下线）；④ bootstrap 仅返回 enabled=1 项；⑤ 桌面端 applyRemote 覆盖同名平台、本地独有保留、远程新增不引入、yaml 不被改写；⑥ 未注入 platformConfig 时跳过应用不影响其他策略；⑦ 非 admin 写 403、读 200。
 
+#### 7.4.10 官方内容模板库下发（2026-08-11 新增，P0-2）
+
+**需求**：官方内容模板库由运营后台统一维护，随 `runtime/bootstrap` 下发；桌面端同步时合并进本地模板（内置标记 builtin），用户自建模板保留；内置种子对齐桌面端 TemplateManager.getPresets() 5 个。
+
+##### 7.4.10.1 数据与校验（ops-center）
+
+| 字段 | 类型 | 校验 |
+|------|------|------|
+| id | str PK | 必填、`^[a-z0-9_-]{1,64}$` |
+| name | str | 必填、≤100 |
+| category / title | str | ≤40 / ≤200 |
+| content | text | Markdown ≤20000 |
+| platforms / tags | JSON | 非空字符串数组 ≤50 |
+| enabled / sort_order | bool / int | 0/1；非负整数 |
+| deleted_at | str | 软删（不复活，可重建） |
+
+- POST 重复 → 409；PUT 部分更新（null 不修改）+ 404；DELETE 软删 + 404。
+- 运行时：bootstrap `content_templates`（enabled=1 未软删，sort_order 排序，builtin=true）。
+
+##### 7.4.10.2 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| TemplateManager.applyRemote | 按 id upsert；官方字段白名单；新增标记 builtin；用户模板保留；数组 >200 fail-closed |
+| OpsCenterSync | setTemplateManager 注入；applyRuntime 应用 content_templates（异常仅 warn） |
+
+##### 7.4.10.3 前端「内容模板库」页
+
+列表（ID/名称/分类/标题/平台/内置/下发开关/编辑/删除）+ 分类筛选 + 新增；编辑弹窗含 Markdown 正文、平台/标签逗号分隔输入、排序、启用下发。
+
+##### 7.4.10.4 验收标准
+
+① 种子 5 个内置模板；② 非法字段 400；③ POST 重复 409、PUT/DELETE 404；④ bootstrap 仅 enabled 模板；⑤ 软删不复活可重建；⑥ applyRemote 覆盖/新增/保留用户/上限 fail-closed；⑦ 未注入跳过。
+
 ---
 
 ## 八、内容采集与收藏流程

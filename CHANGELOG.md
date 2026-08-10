@@ -1,3 +1,11 @@
+## [未发布] 功能：官方内容模板库下发（P0-2）（2026-08-11）
+
+- ops-center：新增 `content_templates` 表 + `GET/POST /api/v1/content-templates`、`PUT/DELETE /api/v1/content-templates/{id}`（admin）；校验 id 字符集 / name 必填 / content ≤20000 / platforms·tags 字符串数组 / sort_order 非负整数；POST 重复 409、PUT 部分更新+404、DELETE 软删（种子不复活、可重建）；种子对齐桌面端内置预设 5 个；`runtime/bootstrap` 增加 `content_templates`（enabled=1 未软删，sort_order 排序，builtin=true，X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「内容模板库」页（列表/分类筛选/新增/编辑/删除/启用停用/内置标记）。
+- 桌面端：`TemplateManager.applyRemote`（按 id upsert、官方字段白名单、新增标记 builtin、用户模板保留、数组 >200 fail-closed、变更持久化）；`OpsCenterSync.setTemplateManager` + `applyRuntime` 应用 content_templates；phase1 接线。
+- 文档：ops-center PRD 12A.17、Multi-Publish PRD §7.4.10、CHANGELOG。
+- 测试：ops-center pytest（+2，全量 107）；桌面端 template-manager +3、ops-center-sync +3。
+
 ## [未发布] 功能：平台发布元数据管理（P1 其余）（2026-08-11）
 
 - ops-center：新增 `platform_defs` 表 + `GET/POST /api/v1/platform-defs`、`PUT/DELETE /api/v1/platform-defs/{id}`（admin）；校验：name 必填、content_category 枚举 VIDEO/IMAGE_TEXT/MIXED、max_title/max_content 正整数或空、has_api 布尔；PUT 部分更新（与已存在记录合并后全量校验，null 不修改）；种子对齐 config/platforms.yaml 12 平台（INSERT OR IGNORE 不覆盖运营修改）。
