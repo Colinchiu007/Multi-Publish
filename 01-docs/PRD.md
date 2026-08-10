@@ -1260,12 +1260,12 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 能力→调用方法映射 | `ai-generator.TYPE_TO_METHOD` 为能力到 Adapter 方法的一对一映射（`llm→chatCompletion`、`tts→synthesize`、`image→generateImage`、`video→generateVideo`、`speech_recognition→transcribe`）；多模态 provider 按能力选择 `capability_models[type]` 后走与单类型模型完全相同的调用方法（MiniMax 文字推理走 OpenAI 兼容 `POST /v1/chat/completions`，与单类型 MiniMax LLM 一致；TTS 走 t2a_async_v2 异步；生图走 images_generation；视频走 video_generation）。 |
 | 能力同步升级 | `_syncPresetCapabilities()` 升级为 diff-merge：存量预设行只合并新增能力（保留用户已有能力与模型选择，不整体覆盖），保证旧版本数据库升级后也能拿到新增的 `llm` 能力。 |
 | 优先开关 | 主进程 `ModelProviderManager.getMultimodalPreference()`（默认 true，`settings` 表 user 级 key `prefer_multimodal`）/ `setMultimodalPreference(value)`；前端「模型服务商设置」页头部复选框「优先使用多模态模型进行所有的AI操作」（默认勾选，保存即持久化）。 |
-| 能力路由 | `getDefault(category)`：开启偏好 且 多模态 provider（category=multimodal）已配置（enabled=1 + 可用 Key）且 `config.capabilities` 包含该能力 → 直接返回该多模态 provider；否则回退类别内默认。未开启 / 未配置 / 未声明能力 → 原逻辑不变。 |
+| 能力路由 | `getDefault(category)`：开启偏好 且 多模态 provider（category=multimodal）已配置（enabled=1 + 可用 Key）且 `config.capabilities` 包含该能力 → 直接返回该多模态 provider；否则回退类别内默认。未开启 / 未配置 / 未声明能力 → 原逻辑不变。**video 能力特例**：多模态 provider 参与 video 默认路由必须同时满足 `config.capability_enabled.video === true`（「支持生成视频」开关），缺省/关闭时视为不支持视频，video 默认回落显式视频模型（如 Agnes Video）。 |
 | 能力模型选择 | `ai-generator.generateWithDefault(type)`：模型优先取 `provider.capability_models[type]`，否则回退 `provider.models[0]`（多模态 provider 按能力选对模型，避免 TTS/生图/视频混用同一模型）。 |
 | 流水线空 provider 兜底 | story2video `generate_assets`：未显式指定 image/voice provider（assetGenerator 路径）时，按能力调用 `getDefault('image'/'tts')` 解析（开启偏好即用多模态模型），legacy python 路径保持空 provider 原行为。显式下拉选择的服务商优先，不受开关影响。 |
 | 数据校验 | `createProvider/updateProvider` 类别校验覆盖 `multimodal`；自定义多模态服务商通过 `config.capabilities` / `config.capability_models` 声明（同样 ≥2 项校验由预设层保证，自定义仅提示）。 |
-| 交互与显示 | 服务商卡片与预设卡片展示能力 chips（文字推理/TTS语音/语音识别/生图/生成视频，多语言标签）；新增/编辑对话框对 `multimodal` 类别只展示 API Key 与预设能力提示（**隐藏 Base URL 输入**，预设 Base URL 由系统写死），同时隐藏模型列表输入（单模型收敛 / 预设模型由能力映射决定）。 |
-| 验收标准 | ① 模型设置新增「多模态模型」类别，预设 MiniMax 显示 4 项能力 chips（文字推理/TTS语音/生图/生成视频）；② 多模态表单只填 API Key（无 Base URL 输入）保存成功；③ 勾选开关后 `getDefault('llm'/'tts'/'image'/'video')` 返回多模态 provider，取消勾选后返回类别 provider；④ MiniMax 多模态 LLM 走 OpenAI 兼容 chat/completions、TTS 走 t2a_async_v2 异步、生图/视频走各自端点；⑤ 流水线在未显式指定 provider 时优先使用多模态模型；⑥ 真实 provider 账号配置后可跑通 LLM/TTS/生图/视频全链路 E2E。 |
+| 交互与显示 | 服务商卡片与预设卡片展示能力 chips（文字推理/TTS语音/语音识别/生图/生成视频，多语言标签）；新增/编辑对话框对 `multimodal` 类别只展示 API Key 与预设能力提示（**隐藏 Base URL 输入**，预设 Base URL 由系统写死），同时隐藏模型列表输入（单模型收敛 / 预设模型由能力映射决定）。**「支持生成视频」开关（2026-08-10 新增）**：多模态表单新增复选框「支持生成视频（默认关闭）」，读写 `config.capability_enabled.video`；新建 minimax-multimodal 默认关闭。 |
+| 验收标准 | ① 模型设置新增「多模态模型」类别，预设 MiniMax 显示 4 项能力 chips（文字推理/TTS语音/生图/生成视频）；② 多模态表单只填 API Key（无 Base URL 输入）保存成功；③ 勾选开关后 `getDefault('llm'/'tts'/'image')` 返回多模态 provider，取消勾选后返回类别 provider；`getDefault('video')` 仅在「支持生成视频」开关开启时返回多模态 provider，缺省/关闭时回落视频类别默认（如 Agnes Video），且不影响 llm/tts/image 路由；④ MiniMax 多模态 LLM 走 OpenAI 兼容 chat/completions、TTS 走 t2a_async_v2 异步、生图/视频走各自端点；⑤ 流水线在未显式指定 provider 时优先使用多模态模型；⑥ 真实 provider 账号配置后可跑通 LLM/TTS/生图/视频全链路 E2E。 |
 
 ### 7.4.1.1 多模态模型作为能力选择器与音色目录（2026-08-09 新增）
 

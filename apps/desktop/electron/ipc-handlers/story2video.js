@@ -12,6 +12,7 @@ const {
 } = require('../services/story2video-export')
 const {
   cleanupImportedMediaPaths,
+  gcImportedMedia,
   getAllowedMediaRoots,
   importUserSelectedMedia,
   resolveReadableFile,
@@ -53,6 +54,17 @@ function registerHandlers (ipcMain, deps = {}) {
   const requireProjectService = () => {
     if (!projectService) throw new Error('Story2Video 项目服务不可用')
     return projectService
+  }
+
+  // selected-media 老化回收：仅在显式开启时执行（测试环境默认不触发，避免触碰真实临时目录）。
+  // 生产接线在 ipc-handlers/index.js 传入 runImportedMediaGc: true。
+  if (deps.runImportedMediaGc === true) {
+    const gc = (deps && typeof deps.gcImportedMedia === 'function') ? deps.gcImportedMedia : gcImportedMedia
+    try {
+      gc()
+    } catch (gcError) {
+      console.warn('[story2video] imported-media GC failed: ' + (gcError && gcError.message ? gcError.message : String(gcError)))
+    }
   }
 
   ipcMain.handle('story2video:list-projects', withSenderCheck(async () => {

@@ -17,6 +17,22 @@
 - 代码收敛：`accounts.js` 新增 `ensureLoaded()` 幂等加载方法（含并发竞态修复：缓存 in-flight Promise）；`PublishHistory.vue` 平台名/图标/视频判断统一到 `platformStore`（`getLabel`/`getIcon`/`getContentCategory`）；新建 `PublishDraftList.vue` 共享草稿列表组件。
 - 测试：更新 `YixiaoerSidebar.test.js`（动态用户信息断言）、`YixiaoerModuleNav.test.js`（publish 3 tabs + home 路由测试）。
 - 边界：Vite 完整构建因预存在的 node_modules 损坏（`@ctrl/tinycolor` 解析失败）未通过，Vue SFC 编译验证全部通过；真实平台登录/发布仍属外部验收。
+## [未发布] 新增：MiniMax 多模态「支持生成视频」开关（默认关闭，2026-08-10）
+
+- 新增：模型设置 → 多模态模型（MiniMax）表单新增「支持生成视频」开关，**默认关闭**；开关写入 `model_providers.config.capability_enabled.video`，新建/编辑均可设置。
+- 能力路由：`ModelProviderManager._multimodalProviderFor('video')` 仅当 `capability_enabled.video === true` 时才把多模态模型视为 video 能力可用；缺省/关闭时 video 默认解析回落显式视频模型（如 Agnes Video）。llm/tts/image 能力路由不受影响；`_syncPresetCapabilities` 不回填/覆盖开关。
+- 背景：用户 MiniMax 特殊套餐不支持视频生成，此前 `generateVideo` 被 ~120ms 拒绝（`Missing task_id in response`），且多模态优先抢占 video 默认导致 agnes-video 无法生效；本开关产品化解决。
+- 回归：model-provider-multimodal +6（video 开关缺省/开/关、非 video 能力不受影响、sync 不回填）、useModelProviderCrud +5（默认关、读写持久化、导出完整性、提交透传）；相关套件全绿。
+- 文档：01-docs/PRD.md 7.4.1（能力路由/交互显示/验收标准）。
+
+## [未发布] 修复：BGM 降级原因区分 + API-Key 提示收窄 + models 清洗 + selected-media 老化回收（2026-08-10）
+
+- 修复：compose 对不可用 BGM 降级时区分原因——`bgmSkippedReason` 返回 `size_exceeded`（超 15MB）/ `format_unsupported`（扩展名不支持）/ `unreadable`（缺失/不可读/越界），对应中文警告不再把「超限」提示成「不可读」；总输入大小超限仍 fail closed。
+- 修复：API-Key 错误归一化收窄——`decrypt failed`/`解密失败` 仅在 api-key 上下文内匹配（非 key 解密错误不再误归类），补充 `Missing API key` / `api key required` / `No API key` 英文覆盖，均映射 `MODEL_API_KEY_REQUIRED`。
+- 修复：多模态预设存量行 models 回填前 trim/去空串/去重，避免空格重复追加。
+- 新增：`selected-media` 导入媒体老化回收（`gcImportedMedia`，默认 >7 天，启动时执行一次），BGM 可复用导入不再无界增长；被回收的 BGM 后续经 compose 降级路径处理不硬失败。
+- 回归：paths +2（GC 过期/保留/目录）、compose-engine +2（超限/格式 reason）、notifications +2（decrypt 收窄正反例/英文缺失 key）、model-provider-multimodal +1（脏 models 清洗）；聚焦 141 用例通过（本地 node env 验证，jsdom 缺传递依赖为环境问题，CI 全量验证）。
+- 边界：compose warnings 前端接线（providerWarnings 管道）为后续项；真实 provider 行为与第三方平台发布仍属外部验收。
 
 ## [未发布] 修复：图片轮播 BGM 清理时序导致重试失败 + API Key 提示拆分 + 多模态 models 回填（2026-08-09）
 

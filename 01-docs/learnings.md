@@ -4,6 +4,14 @@
 
 ---
 
+## BGM 降级原因区分与错误归一化收窄复盘 (2026-08-10，质量节拍审查闭环)
+
+- **背景**：PR #460 合并后，Claude 审查遗留 4 项（W2-W4 + Info）。本轮处理：① BGM 单文件超限被软降级提示「不可读」，与总大小超限硬失败结论相反；② `decrypt failed|解密失败` 正则无 api-key 上下文，可能把项目文件解密错误误归为「API Key 未配置」；③ 多模态 models 回填未清洗存量脏数据；④ skipBgm 后 `selected-media` 只增不删需老化回收。
+- **根因**：① `resolveReadableMediaFile` 对「超限」与「缺失/不可读」都返回 null，调用方未区分；② 错误归一化正则用「宽匹配优先」而不是「上下文限定」；③ 回填只对预设项 trim；④ BGM 改为可复用导入后缺少生命周期终点。
+- **修复**：① compose 增加 `diagnoseBgmSkipReason`（格式→大小→其余），`bgmSkippedReason` 机器可读；② `MODEL_API_KEY_PATTERN` 收窄 decrypt 到 api-key 上下文 + 补英文缺失表述；③ 存量项 trim/去空/去重；④ `gcImportedMedia`（>7 天，启动一次），配合 compose 降级不硬失败。
+- **回归保护**：compose 超限/格式 reason 用例、decrypt 正反例（有/无 api-key 上下文）、Missing API key 英文用例、脏 models 清洗用例、GC 过期/保留/目录用例。
+- **教训**：① 把「降级原因」当一等公民返回（机器可读 code），提示文案才能精准；② 错误归一化宁可「上下文限定 + 覆盖常见表述」也不要宽正则误伤；③ 「可复用」导入文件必须有生命周期终点（老化 GC），否则修复一个 bug 引入无界增长。
+
 ## 图片轮播 BGM 运行收尾清理导致重试失败复盘 (2026-08-09，质量节拍 Bug 反哺)
 
 - **表象**：27 场景图片轮播运行在资源全部生成成功（216s，全部走 minimax-multimodal）后，compose 阶段 36ms 失败 `BGM path is not allowed or unreadable`（run_1786288681414_mnnj）。同日更早：safeStorage `Decrypt failed` 期间各 provider 报「尚未配置 API Key」，前端弹「未找到需要的相关模型，请在设置中添加模型」，用户核对设置发现多模态 MiniMax key 已保存。
@@ -1557,7 +1565,7 @@ R52 是质量节拍 skill 应用以来最大的系统性技术债清理任务。
   2. `grep -an $'\x00' file` 匹配所有行（grep 在 NUL 处理上的已知 quirk）
   3. markdown 链接文本显示为 `[ 1-docs/...]` 但应该是 `[01-docs/...]`（数字 0 被替换）
   4. cat 输出正常但 grep/find 行为异常
-  
+
   排查命令：
   ```python
   with open(file, 'rb') as f: data = f.read()
@@ -1701,7 +1709,7 @@ ipcMain.handle('xxx', async (event, arg) => {
   1. **整个 arg 为 undefined/null** — `if (!arg || typeof arg !== 'object') return VALIDATION_ERROR`
   2. **必需字段缺失** — `if (!arg.field) return VALIDATION_ERROR`
   3. **字段值非法**（用于路径/URL 时）— `if (!_isSafePathSegment(arg.field)) return VALIDATION_ERROR`
-  
+
   仅做第 2 层（M-5 模式）是不完整的，必须三重都做。
 
 ### 🔁 本轮"为什么还有问题"复盘
@@ -1800,7 +1808,7 @@ ipcMain.handle('xxx', async (event, arg) => {
   // 必需参数：严格校验
   if (!arg || typeof arg !== 'object') return VALIDATION_ERROR
   const { field } = arg
-  
+
   // 可选参数：宽松校验（允许 arg 为 undefined）
   const field = (arg && typeof arg === 'object') ? arg.field : undefined
   ```
@@ -1902,15 +1910,15 @@ ipcMain.handle('xxx', async (event, arg) => {
   1. **文件完整性** — 所有 IPC handler 文件都必须有 `require('../core/error-codes')`（不能遗漏任何文件）
   2. **字面量完整性** — 文件内所有 `code: -1` / `code: -2` 等字面量都必须迁移为 EC 常量（不能只改"新增的"）
   3. **handler 完整性** — 扫描以 handler 为粒度，不以文件为粒度（文件标记"已修"不代表所有 handler 都修了）
-  
+
   验证命令：
   ```bash
   # 1. 文件完整性：找出有 catch 块但没 EC import 的文件
   grep -rL "error-codes" apps/desktop/electron/ipc-handlers/*.js | grep -v test
-  
+
   # 2. 字面量完整性：找出 code: -1 残留
   grep -rn "code: -1\b" apps/desktop/electron/ipc-handlers/ --include="*.js" | grep -v test
-  
+
   # 3. 测试同步：修改错误码后搜索测试断言
   grep -rn "code: -1" apps/desktop/electron/ipc-handlers/*.test.js
   ```
@@ -3178,7 +3186,7 @@ Why 4: 因为 window.electronAPI 是通过 preload 脚本注入的
 ### 修复详情
 - **问题**: 非批量模式缺少定时发布功能
 - **根因**: article 对象没有 publishTime 字段
-- **解决方案**: 
+- **解决方案**:
   1. article 对象新增 publishTime 字段
   2. 非批量模式添加定时发布输入框
   3. 与批量模式保持功能一致
@@ -3533,7 +3541,7 @@ if (api.getVersion) {
 
 ### �������
 - Playwright �򿪵��� Vite ҳ�棨http://localhost:5174����û�� electronAPI
-- 
+-
 enderGetStatus() ���� invokeWithFallback("renderGetStatus", {})
 - ��� electronAPI �����ã����� fallback���ն��� {}��
 - ǰ�˼�� s?.code === 0 ʧ�ܣ����� status.ready = false
@@ -6232,3 +6240,12 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **系统性漏洞**：① 错误码缺乏分类，底层原因被吞；② 目录失败路径零日志；③ 前端「请稍后重试」无对应重试入口；④ 能力白名单（canListVoices）不校验 key 可用性（并发任务 s2v-configured-provider-filter 已补「仅展示已配置服务商」）。
 - **修复+回归**：新增 `VOICE_CATALOG_CONFIG_UNAVAILABLE`（配置/认证类）+ `VOICE_CATALOG_UNSUPPORTED`（方法不支持）+ 瞬时 `UNAVAILABLE`（fail-safe）；detail 脱敏透传（先脱敏后截断 ≤200）；目录路径与 IPC catch 补日志；前端泛化文案 + 仅瞬时错误显示「刷新音色列表」；select/clear 路径友好映射。回归：service 8 新用例 + CreateView 2 新用例 + 既有断言迁移，149 通过。
 - **预防**：错误分类必须「永久 vs 瞬时」二分并保底瞬时；失败路径必须有日志（与合成路径对等）；文案中的动作（请稍后重试/去模型设置）必须对应真实 UI 入口；跨机器/重建 Local State 的调试 profile 密钥不可用是预期行为，不作为应用 Bug。
+---
+
+## MiniMax 多模态「支持生成视频」开关（2026-08-10，质量节拍复盘）
+
+- **表象**：videogen 流水线（animation/avatar-spokesperson/character-animation/hybrid）在已配置 minimax-multimodal + agnes-video 的情况下全部失败：`generateVideo` ~120ms 被拒，adapter 报 `Missing task_id in response`；显式设 `modelProviderSetDefault('video','agnes-video')` 无效——`getDefault('video')` 在多模态优先下仍返回 MiniMax。
+- **根因**：① 用户 MiniMax Key 为特殊套餐，不支持视频生成；② `_multimodalProviderFor('video')` 只看 `capabilities.includes('video')`（预设声明含 video），多模态优先抢占 video 默认路由，且 `listProviders('video')` 能力选择器同样并入 → 显式/默认两条路径都被 MiniMax 挡死；③ videogen GENERATE 把 `callAdapter` 失败（`{code:-1,message}`）吞成「视频生成未返回任务 ID」，掩盖真实 provider 错误（模型日志 `Missing task_id in response` 是唯一线索）。
+- **系统性漏洞**：① 多模态能力声明=「目录级」与「实际可用」未分离，R85 语义（目录 vs 用户配置）只覆盖预设列表，未覆盖能力路由；② 能力路由无 per-capability 用户开关；③ videogen 错误处理不透传 `submit.message`。
+- **回归保护**：新增 `config.capability_enabled.video` 开关（默认关）产品化解决——`_multimodalProviderFor('video')` 与 `listProviders('video')` 均要求 `=== true`；llm/tts/image 不受影响；`_syncPresetCapabilities` 不回填开关；后端 +6 用例、前端 composable +6 用例。
+- **预防**：多模态 provider 的「声明能力」与「能力实际可用」必须分开（目录 vs 开关）；调用适配器失败时上游不得吞掉 `message`（videogen 修复列为后续）。

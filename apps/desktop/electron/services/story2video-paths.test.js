@@ -10,6 +10,7 @@ const {
   resolveReadableMediaFile,
   importUserSelectedMedia,
   cleanupImportedMediaPaths,
+  gcImportedMedia,
   getAllowedMediaRoots,
   writeDataImage,
   getRunInputDir,
@@ -168,6 +169,29 @@ describe('Story2Video 输入路径边界', () => {
     // 未传 skipBgm：一次性导入场景保持原清理语义
     expect(cleanupImportedMediaPaths({ bgmPath: imported.path }, { baseDir: importRoot })).toBe(1)
     expect(fs.existsSync(imported.path)).toBe(false)
+  })
+
+  it('gcImportedMedia 删除过期文件、保留新鲜文件，并跳过子目录', () => {
+    const importRoot = path.join(root, 'gc-root')
+    fs.mkdirSync(importRoot, { recursive: true })
+    const oldFile = path.join(importRoot, 'bgm-old.mp3')
+    const freshFile = path.join(importRoot, 'bgm-fresh.mp3')
+    fs.writeFileSync(oldFile, 'x')
+    fs.writeFileSync(freshFile, 'y')
+    const oldTime = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+    fs.utimesSync(oldFile, oldTime, oldTime)
+    fs.mkdirSync(path.join(importRoot, 'sub'), { recursive: true })
+    fs.writeFileSync(path.join(importRoot, 'sub', 'nested.mp3'), 'z')
+
+    const removed = gcImportedMedia({ baseDir: importRoot, maxAgeMs: 7 * 24 * 60 * 60 * 1000 })
+    expect(removed).toBe(1)
+    expect(fs.existsSync(oldFile)).toBe(false)
+    expect(fs.existsSync(freshFile)).toBe(true)
+    expect(fs.existsSync(path.join(importRoot, 'sub', 'nested.mp3'))).toBe(true)
+  })
+
+  it('gcImportedMedia 目录不存在时静默返回 0', () => {
+    expect(gcImportedMedia({ baseDir: path.join(root, 'no-such-dir') })).toBe(0)
   })
 })
 

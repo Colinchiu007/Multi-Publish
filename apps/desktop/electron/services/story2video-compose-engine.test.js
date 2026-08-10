@@ -470,11 +470,113 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(result.code).toBe(0)
       expect(result.data.bgmApplied).toBe(false)
       expect(result.data.bgmSkipped).toBe(true)
+      expect(result.data.bgmSkippedReason).toBe('unreadable')
       expect(Array.isArray(result.data.warnings)).toBe(true)
       expect(result.data.warnings.some(w => /BGM/.test(String(w)))).toBe(true)
       expect(fs.existsSync(result.data.videoPath)).toBe(true)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('BGM 单文件超限时降级且 reason=size_exceeded，不提示「不可读」', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-bgm-oversize-'))
+    const image = path.join(root, 'image.png')
+    const audio = path.join(root, 'audio.mp3')
+    const bgm = path.join(root, 'big-bgm.mp3')
+    fs.writeFileSync(image, Buffer.from('image'))
+    fs.writeFileSync(audio, Buffer.from('audio'))
+    // 超过 BGM 单文件上限（15MB）
+    const handle = fs.openSync(bgm, 'w')
+    try { fs.ftruncateSync(handle, 15 * 1024 * 1024 + 1) } finally { fs.closeSync(handle) }
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._probeMediaDuration = vi.fn(async () => null)
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose(
+        { scenes: [{ imagePath: image, audioPath: audio, duration: 1, text: '字幕' }] },
+        { bgmPath: bgm, validateOutput: false }
+      )
+      expect(result.code).toBe(0)
+      expect(result.data.bgmSkipped).toBe(true)
+      expect(result.data.bgmSkippedReason).toBe('size_exceeded')
+      expect(result.data.warnings.some(w => /超过大小上限/.test(String(w)))).toBe(true)
+      expect(result.data.warnings.some(w => /不可读/.test(String(w)))).toBe(false)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('BGM 格式不支持（含无扩展名）时降级且 reason=format_unsupported', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-bgm-format-'))
+    const image = path.join(root, 'image.png')
+    const audio = path.join(root, 'audio.mp3')
+    fs.writeFileSync(image, Buffer.from('image'))
+    fs.writeFileSync(audio, Buffer.from('audio'))
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._probeMediaDuration = vi.fn(async () => null)
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const flac = await engine.compose(
+        { scenes: [{ imagePath: image, audioPath: audio, duration: 1, text: '字幕' }] },
+        { bgmPath: path.join(root, 'bgm.flac'), validateOutput: false }
+      )
+      expect(flac.code).toBe(0)
+      expect(flac.data.bgmSkipped).toBe(true)
+      expect(flac.data.bgmSkippedReason).toBe('format_unsupported')
+
+      // 无扩展名的可读文件同样判为 format_unsupported（与 resolveReadableMediaFile 一致）
+      const noExt = path.join(root, 'bgm-no-extension')
+      fs.writeFileSync(noExt, 'audio')
+      const noExtResult = await engine.compose(
+        { scenes: [{ imagePath: image, audioPath: audio, duration: 1, text: '字幕' }] },
+        { bgmPath: noExt, validateOutput: false }
+      )
+      expect(noExtResult.code).toBe(0)
+      expect(noExtResult.data.bgmSkippedReason).toBe('format_unsupported')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('BGM 可读但不在允许根目录时 reason=not_allowed', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-bgm-root-'))
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-bgm-outside-'))
+    const image = path.join(root, 'image.png')
+    const audio = path.join(root, 'audio.mp3')
+    const bgm = path.join(outside, 'outside-bgm.mp3')
+    fs.writeFileSync(image, Buffer.from('image'))
+    fs.writeFileSync(audio, Buffer.from('audio'))
+    fs.writeFileSync(bgm, 'audio')
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._probeMediaDuration = vi.fn(async () => null)
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose(
+        { scenes: [{ imagePath: image, audioPath: audio, duration: 1, text: '字幕' }] },
+        { bgmPath: bgm, validateOutput: false }
+      )
+      expect(result.code).toBe(0)
+      expect(result.data.bgmSkipped).toBe(true)
+      expect(result.data.bgmSkippedReason).toBe('not_allowed')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(outside, { recursive: true, force: true })
     }
   })
 

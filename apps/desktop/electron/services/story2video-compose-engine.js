@@ -21,6 +21,7 @@ const { promisify } = require('util')
 const {
   MAX_INPUT_FILE_BYTES,
   MAX_INPUT_TOTAL_BYTES,
+  MAX_BGM_FILE_BYTES,
   getAllowedMediaRoots,
   isPathWithin,
   resolveReadableMediaFile,
@@ -32,6 +33,32 @@ const {
 } = require('./story2video-segmentation')
 
 const execFileAsync = promisify(execFile)
+// BGM 降级原因对应的用户可见警告（i18n 接线为后续项，暂以中文返回）。
+const BGM_SKIP_WARNING_MESSAGES = Object.freeze({
+  size_exceeded: 'BGM 文件超过大小上限，已跳过背景音乐',
+  format_unsupported: 'BGM 格式不支持，已跳过背景音乐',
+  not_allowed: 'BGM 文件不在允许的读取范围内，已跳过背景音乐',
+  unreadable: 'BGM 文件不存在或不可读，已跳过背景音乐',
+})
+
+/**
+ * 判定 BGM 被跳过的最可能原因（启发式，与 resolveReadableMediaFile 最终裁决一致）：
+ * format_unsupported=扩展名不支持（含无扩展名）/ size_exceeded=可读但超 BGM 单文件上限 /
+ * not_allowed=可读未超限但不在允许根目录 / 其余=不可读（缺失/符号链接/不存在）。
+ */
+function diagnoseBgmSkipReason (candidate, allowedRoots) {
+  const localPath = typeof candidate === 'string' && candidate.trim() ? candidate.trim() : ''
+  if (!localPath) return 'unreadable'
+  const extension = path.extname(localPath).toLowerCase()
+  if (!['.wav', '.m4a', '.mp3'].includes(extension)) return 'format_unsupported'
+  try {
+    const stat = fs.statSync(localPath)
+    if (stat.isFile() && stat.size > MAX_BGM_FILE_BYTES) return 'size_exceeded'
+    if (Array.isArray(allowedRoots) && !isPathWithin(localPath, allowedRoots)) return 'not_allowed'
+  } catch (_) { /* 不存在/不可读 → unreadable */ }
+  return 'unreadable'
+}
+
 const DEFAULT_MAX_DURATION_SECONDS = 10 * 60
 const DEFAULT_MAX_AUDIO_DURATION_SECONDS = 15 * 60
 const DEFAULT_MAX_SEGMENT_DURATION_SECONDS = 3 * 60
@@ -537,6 +564,7 @@ class Story2VideoComposeEngine {
     // 警告随结果 data.warnings 返回，供前端提示（2026-08-09 BGM 清理时序修复）。
     const composeWarnings = []
     let bgmSkipped = false
+    let bgmSkippedReason = null
     let totalInputBytes = 0
     const accountInput = (filePath) => {
       const stat = fs.statSync(filePath)
@@ -575,9 +603,11 @@ class Story2VideoComposeEngine {
       })
       if (!bgmPath) {
         // 降级而非失败：BGM 可选。重试/断点续跑可能引用已被清理或移动的路径。
-        this.log.warn('Story2VideoCompose', 'BGM skipped: requested path could not be resolved (missing/unreadable/out-of-root/oversize)')
+        const reason = diagnoseBgmSkipReason(requestedBgmPath, this.allowedMediaRoots)
+        this.log.warn('Story2VideoCompose', 'BGM skipped: ' + reason + ' (requested path could not be resolved)')
         bgmSkipped = true
-        composeWarnings.push('BGM 文件不存在或不可读，已跳过背景音乐')
+        bgmSkippedReason = reason
+        composeWarnings.push(BGM_SKIP_WARNING_MESSAGES[reason] || BGM_SKIP_WARNING_MESSAGES.unreadable)
       } else if (!accountInput(bgmPath)) {
         return { code: -1, message: 'Input media exceeds the total size limit' }
       }
@@ -894,6 +924,7 @@ class Story2VideoComposeEngine {
           duration: outputDuration,
           bgmApplied: Boolean(bgmPath),
           bgmSkipped,
+          bgmSkippedReason,
           warnings: composeWarnings.length > 0 ? [...composeWarnings] : undefined,
           format: outputFormat,
           audioPath: narrationPath,
@@ -946,6 +977,7 @@ class Story2VideoComposeEngine {
         duration: outputDuration,
         bgmApplied: Boolean(bgmPath),
         bgmSkipped,
+        bgmSkippedReason,
         warnings: composeWarnings.length > 0 ? [...composeWarnings] : undefined,
         format: outputFormat,
         audioPath: finalNarrationPath,
