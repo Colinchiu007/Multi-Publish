@@ -299,3 +299,42 @@ describe('RunStateStore saveRunning / listRunning（运行中任务持久化）'
     expect(leftovers).toEqual([])
   })
 })
+
+describe('RunStateStore 已用时累计（activeMs）持久化', () => {
+  let dir
+
+  beforeEach(() => {
+    dir = tempDir('active-ms')
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('saveFailed/saveRunning 持久化 activeMs，load 往返不丢失（version 保持 1）', () => {
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+    const run = makeRun('run-active')
+    run.activeMs = 123456
+
+    expect(store.saveFailed(run)).toBe(true)
+    const loadedFailed = store.load('run-active')
+    expect(loadedFailed.activeMs).toBe(123456)
+    expect(loadedFailed.version).toBe(1)
+
+    run.status = 'running'
+    expect(store.saveRunning(run)).toBe(true)
+    const loadedRunning = store.load('run-active')
+    expect(loadedRunning.status).toBe('running')
+    expect(loadedRunning.activeMs).toBe(123456)
+  })
+
+  it('无 activeMs 的旧 run 落盘后回退为 0，不影响既有字段', () => {
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+    const legacy = makeRun('run-legacy-active')
+    delete legacy.activeMs
+    expect(store.saveFailed(legacy)).toBe(true)
+    const loaded = store.load('run-legacy-active')
+    expect(loaded.activeMs).toBe(0)
+    expect(loaded.error).toBe('network timeout')
+  })
+})

@@ -819,12 +819,12 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 生成图片与旁白 | 运行中实时显示「图片 a/b · 旁白 c/d」 | `context.assets_progress = { imagesDone, imagesTotal, ttsDone, ttsTotal }`，图片与 TTS 各自完成即写入；含断点续传复用场景；非法值不展示 |
 | 视频合成（compose） | 运行中显示子进度条（mini bar）+「正在合成片段 k/N · p%」；非片段阶段显示「视频合成 p%」 | `context.compose_progress = { phase, percent, segmentsDone, segmentsTotal, message? }`（2026-08-09 新增，见下方详细合同）；percent 单调不降、0-100 整数；失败冻结 <100；历史 run 无该字段时不渲染 |
 | 阶段耗时 | 每阶段显示「X 分 Y 秒」（running/completed/failed） | 主进程每阶段 `startedAt`/`completedAt`（推进时写入）；渲染层 1s 时钟刷新 running 阶段，不依赖轮询 |
-| 整体进度 | 阶段清单顶部细进度条 + 百分比 + 「已用时 X 分 Y 秒」 | 完成阶段数/总阶段数；已用时可从 `story2videoRunMeta.createdAt` 计算，运行中本地时钟实时刷新 |
-| 完成汇总 | 「完成时间共 X 分 Y 秒 · 文件大小 Z M」 | 快照 `endedAt - createdAt` + `outputSizeBytes`（主进程对成片 `statSync`，仅 completed 且存在成片时返回；stat 失败显示 null 不展示）；预览页通过路由 `durationMs`/`sizeBytes` 透传；项目持久化新增 `outputSizeBytes` 供历史展示 |
+| 整体进度 | 阶段清单顶部细进度条 + 百分比 + 「已用时 X 分 Y 秒」 | 完成阶段数/总阶段数；已用时 = 流水线各步骤实际执行耗时总和（主进程 `run.activeMs` 累计，2026-08-10 起），运行中本地每秒补当前执行段增量；旧数据（无 `activeMs`）回退墙钟 `createdAt` 计算 |
+| 完成汇总 | 「完成时间共 X 分 Y 秒 · 文件大小 Z M」 | 时长使用步骤执行耗时累计 `activeMs`（旧数据回退快照 `endedAt - createdAt`）+ `outputSizeBytes`（主进程对成片 `statSync`，仅 completed 且存在成片时返回；stat 失败显示 null 不展示）；预览页通过路由 `durationMs`/`sizeBytes` 透传；项目持久化新增 `outputSizeBytes` 供历史展示 |
 
 - **数据校验**：进度与汇总均为展示增强，任何字段缺失/非法不得阻断流水线；`outputSizeBytes` 只读 stat，不改变文件。
 - **本地化**：全部展示文案使用 locale 资源，默认中文，英文同步（`story2video.elapsed/summaryDuration/summaryFileSize/splitSceneCount/optimizeProgress/assetsProgress/durationMinSec/durationSec`；compose 子进度沿用 `translateWithLocaleFallback` 内联 fallback：`story2video.composeSegments` / `story2video.composeProgress`）。
-- **交互**：纯信息展示，不新增操作入口；「已用时」与 running 阶段耗时每秒刷新，完成/失败后停止。
+- **交互**：纯信息展示，不新增操作入口；「已用时」与 running 阶段耗时每秒刷新，完成/失败后停止。已用时口径变更见 7.1.9.2 详细合同（2026-08-10）。
 
 ##### 7.1.9.1 视频合成子进度详细合同（2026-08-09 新增）
 
@@ -890,6 +890,71 @@ Electron 打包、工作树、PR 或发布状态证据。
 9. IPC 载荷：`compose_progress` ≤ 5 字段，3s 轮询无压力；字段级校验为最后防线。
 
 **后续演进（v1 不做）**：ffmpeg `-progress pipe:1` 段内实时百分比（需将 `_createSegment` 从 execFileAsync 改为 spawn + 进度解析，涉及 Windows timeout/maxBuffer/错误语义重构，独立 PR 评估）；chunked 拼接（>8 段）在 75→87 区间的段级 onStep 插值。
+
+##### 7.1.9.2 「已用时」= 步骤执行耗时总和详细合同（2026-08-10 新增）
+
+**背景**：流水线支持暂停、失败后从断点恢复（可跨天）、人工检查点等机制，原「已用时」按墙钟（`endedAt - createdAt` / 运行中 `now - createdAt`）计算，会把暂停、等待与失败→恢复之间的空闲时间全部计入。用户实证：一个可从断点继续的任务显示「已用时 1245 分 33 秒」（约 20 小时），与实际执行时间严重不符。本次将口径改为**各步骤实际执行耗时之和**。
+
+**数据模型**：
+
+| 字段 | 载体 | 语义 | 持久化 |
+|------|------|------|--------|
+| `run.activeMs` | 主进程 run 对象 | 已结算的步骤执行耗时累计（毫秒），各执行段之和 | 随 `run-state-store` 快照持久化（`version` 保持 1，纯增量字段），失败/取消/运行中快照均携带 |
+| `run._activeSegmentStartedAt` | 主进程 run 对象（瞬时） | 当前在飞执行段起点（`Date.now()`）；无执行器在飞时为 `null` | **不落盘**（防应用崩溃后把停机时间误计为执行时间） |
+| `activeMs` / `activeSegmentStartedAt` / `elapsedActiveMs` | `pipeline:getRunContext` 快照返回 | 主进程权威值：`activeMs` 已结算累计；`activeSegmentStartedAt` 在飞段起点 ISO；`elapsedActiveMs = activeMs + 在飞段增量`（仅 running） | IPC 增量字段，向后兼容（旧 renderer 忽略） |
+| `story2videoRunMeta.activeMs` / `activeSegmentStartedAt` | 前端 | 从轮询快照透传，驱动「已用时」展示 | 内存态 |
+
+**流程（数据链路）**：
+
+1. 流水线启动（`start()` / `startOrchestrated()`）：run 初始化 `activeMs = 0`、`_activeSegmentStartedAt = null`。
+2. 每阶段执行（`_executeStage`）：进入执行器前记录 `execStartedAt` 并写入 `run._activeSegmentStartedAt`；执行器返回（**成功/失败/取消/异常均覆盖**，`finally` 保证）后结算 `run.activeMs += max(0, now - execStartedAt)` 并清空在飞段标记。**本处是唯一累计点**，不得再从阶段时间线二次累计。
+3. 暂停/检查点等待/失败→恢复空闲：执行器未运行，无累计，天然不计入。
+4. 断点恢复（`resumeOrchestration`）：从快照继承 `activeMs`，在飞段从恢复时刻重新起算（不落盘、不膨胀）。
+5. 运行中轮询（3s）：`getRunSnapshot` 返回 `activeMs`/`activeSegmentStartedAt`/`elapsedActiveMs`；前端每秒用「`activeMs` + 本地补当前执行段增量」平滑刷新，完成/失败/取消后定格。
+6. 终态：`pipeline:complete` 事件 `totalDuration`、完成汇总、结果页 `durationMs` 统一使用累计口径；`executeStage` / `advanceToNextCheckpoint` 的完成响应额外返回 `activeMs`，供「检查点确认直接完成」路径在未及轮询时取到终态权威值（前端 `applyOrchestrationOutcome` 以 `outcome.activeMs` 覆盖轮询缓存）。
+
+**数据校验**：
+
+- `activeMs` 仅接受有限非负数值；`activeSegmentStartedAt` 仅接受可解析 ISO 时间；任一非法视为旧数据（回退墙钟），不阻断展示。**存在性守卫**：`null`/`undefined` 均视为「无累计数据」并回退（`Number(null)===0` 陷阱——必须显式排除，禁止把旧数据误显示为 0 秒）。
+- 在飞段增量 `max(0, now - segmentStart)` 钳制非负；运行中 3s 轮询的权威值自愈本地 1s 补差可能产生的 ≤3s 漂移。
+- `elapsedActiveMs` 为瞬时值，只读展示，**不写入持久化**（持久化只存 `activeMs`）。
+
+**功能逻辑**：
+
+- 主进程 `_computeElapsedMs(run)`：running 且存在在飞段 → `activeMs + 增量`；否则 → `activeMs`；无 `activeMs`（旧 run）→ 0（不参与编排展示，由前端回退链处理）。
+- 前端 `orchestrationElapsedMs` 回退链：① `meta.activeMs` 有限 → `activeMs +（running 且有 activeSegmentStartedAt ? now - segStart : 0）`；② 无 `activeMs` → 墙钟 `endedAt - createdAt`（旧数据展示，避免为空）。
+- `orchestrationSummary` 与结果页 `query.durationMs`：优先 `activeMs`，旧数据回退墙钟。
+
+**交互逻辑**：
+
+- 运行中：每秒刷新（沿用 `stageClockTick` 1s 时钟），展示「已用时 X 分 Y 秒」；暂停期间本地补差停止（`pipelineRunStatus.status !== 'running'` 时不补），以主进程轮询值为准。
+- 完成/失败/取消：定格为终态累计值，停止计时。
+- 纯信息展示，不新增操作入口；不改变阶段条目自身的「阶段耗时」（仍按 `startedAt`/`completedAt` 展示，语义不变）。
+
+**显示项**：
+
+- 进度头部（sticky）：进度条 + 百分比 + 「已用时 X 分 Y 秒」（`data-testid="story2video-orchestration-progress"`）。
+- 完成汇总（sticky 下方，仅 ended）：「完成时间共 X 分 Y 秒 · 文件大小 Z M」（`data-testid="story2video-orchestration-summary"`）。
+- 结果页：`durationMs` 路由参数展示同口径时长。
+
+**提示文字**（locale，zh/en）：
+
+- `story2video.elapsed`：`已用时 {duration}` / `Elapsed {duration}`
+- `story2video.summaryDuration`：`完成时间共 {duration}` / `Finished in {duration}`
+- `story2video.summaryFileSize`：`文件大小 {size} M` / `Size {size} MB`
+- `story2video.durationMinSec`：`{minutes} 分 {seconds} 秒` / `{minutes}m {seconds}s`；`story2video.durationSec`：`{seconds} 秒` / `{seconds}s`
+
+**边界场景**：
+
+1. 暂停 2 小时后恢复并完成（步骤合计 3 分钟）：「已用时」≈ 3 分钟，不含 2 小时等待。
+2. 失败后 7 天从断点继续完成：已用时 = 两段执行之和，不显示 7 天墙钟。
+3. 失败重试多次执行段：同一步骤多次执行段全部累计（5 分钟失败段 + 8 分钟重试成功段 = 13 分钟）。
+4. 应用重启后断点恢复：历史累计随快照继承，续跑继续累加，不从 0 开始。
+5. 执行器异常：`finally` 保证该段照常累计，不丢段。
+6. 旧快照/旧历史（无 `activeMs`）：回退墙钟展示，不显示 0 或空。
+7. state_machine 旧模式：无编排累计，不参与「已用时」展示（前端回退链兜底），行为不回归。
+8. 暂停瞬间执行器仍在后台跑：该段实际消耗资源，仍累计（语义为「真实执行时间」）；用户看到的已用时在暂停后由轮询定格。
+9. IPC 载荷：新增 3 个字段（`activeMs`/`activeSegmentStartedAt`/`elapsedActiveMs`），3s 轮询无压力；字段校验为最后防线。
 
 #### 7.1.10 图片轮播选项持久化合同（上次使用的选项）
 

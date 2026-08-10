@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-10 (视频创作「已用时」改为步骤执行耗时总和)
+
+### 修复
+- **「已用时」计算口径**：原按墙钟 `endedAt - createdAt`（运行中 `now - createdAt`）计算，暂停/检查点审阅/失败→断点恢复之间的空闲时间全部计入（用户实证 1245 分 33 秒）；现改为各步骤实际执行耗时之和（主进程 `run.activeMs`，执行器真实运行窗口为段，`finally` 保证成功/失败/取消/异常都累计）。
+- 断点恢复跨重启：`activeMs` 随 run-state 快照持久化（version 1 不变），恢复继承累计继续累加；在飞段不落盘防停机时间膨胀。
+- 前端：`已用时` = `activeMs` + 运行中当前执行段每秒本地增量，终态定格；旧数据回退墙钟；完成汇总与结果页 `durationMs` 同步累计口径。
+
+### 测试
+- 主进程 pipeline-engine +6、resume-orchestration +1、run-state-store +2；前端 CreateView +5；聚焦 209 用例全绿。
+
+### 文档
+- PRD 7.1.9 表格口径更新 + 新增 7.1.9.2 详细合同（数据模型/流程/数据校验/功能逻辑/交互逻辑/显示项/提示文字/边界场景）；product-manual、UI-INVENTORY 同步。
+
 ## [Unreleased] - 2026-08-09 (视频创作流水线进度区固定)
 
 ### 新增
