@@ -29,7 +29,7 @@
         <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载流水线列表...</span></div>
         <div v-else-if="pipelineError" class="error-state">⚠️ {{ pipelineError }}</div>
         <div v-else class="pipeline-grid">
-          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :data-pipeline-id="p.name" :class="[p.category, { 'is-unavailable': p.available === false }]" @click="selectPipeline(p)">
+          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :data-pipeline-id="p.name" :class="[p.category, { 'is-unavailable': p.available === false }]" tabindex="0" role="button" :aria-label="pipelineName(p.name)" @click="selectPipeline(p)" @keydown.enter="selectPipeline(p)">
             <div class="card-header">
               <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
               <span class="stability-dot" :class="getStability(p.name)" :title="getStability(p.name)"></span>
@@ -792,6 +792,7 @@
       <p class="story2video-error-dialog-message">{{ story2videoErrorDialogMessage }}</p>
       <p v-if="story2videoErrorDialog.detail" class="story2video-error-dialog-detail">{{ story2videoErrorDialog.detail }}</p>
       <p v-if="canResumeStory2Video" class="story2video-error-dialog-hint">{{ story2videoErrorDialogUiText.resumeHint }}</p>
+      <p v-else class="story2video-error-dialog-hint">如问题持续出现，请检查日志或重新启动流水线。</p>
       <template #footer>
         <UiButton v-if="canResumeStory2Video" variant="primary" :disabled="story2videoResuming" @click="resumeStory2Video">{{ story2videoResuming ? story2videoErrorDialogUiText.resuming : story2videoErrorDialogUiText.resume }}</UiButton>
         <UiButton @click="closeStory2VideoErrorDialog">{{ story2videoErrorDialogUiText.acknowledge }}</UiButton>
@@ -3155,8 +3156,8 @@ export default {
 </script>
 
 <style scoped>
-.create-page { padding: 24px; max-width: 1100px; margin: 0 auto; }
-.page-header { margin-bottom: 24px; }
+.create-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; }
+.page-header { margin-bottom: 20px; }
 .page-header h1 { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
 .text-muted { color: var(--text-muted); font-size: 14px; }
 
@@ -3175,7 +3176,7 @@ export default {
 
 /* 流水线网格 */
 .pipeline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
-.pipeline-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; cursor: pointer; transition: all 0.2s; }
+.pipeline-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; cursor: pointer; transition: all 0.2s; }
 .pipeline-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-2px); border-color: var(--primary); }
 .pipeline-card.generated { border-left: 3px solid var(--pipe-generated); }
 .pipeline-card.talking_head { border-left: 3px solid var(--pipe-talking-head); }
@@ -3254,7 +3255,7 @@ export default {
 .stage-meta { font-size: 12px; color: var(--text-muted, #888); }
 .stage-sub-progress { display: flex; align-items: center; margin-top: 4px; width: 100%; }
 .stage-sub-bar { flex: 1; height: 4px; background: var(--stage-sub-bar-bg); border-radius: 2px; overflow: hidden; }
-.stage-sub-fill { display: block; height: 100%; background: var(--primary); transition: width 0.3s; }
+.stage-sub-fill { display: block; height: 100%; background: var(--primary); transition: width 0.4s cubic-bezier(0.4,0,0.2,1); }
 .stage-status { font-size: 12px; white-space: nowrap; }
 .stage-time { color: var(--text-muted, #888); }
 .orchestration-progress { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -3426,3 +3427,20 @@ export default {
   .history-name { flex-basis: 100%; }
 }
 </style>
+
+/* 键盘导航焦点样式 */
+.pipeline-card:focus-visible, .render-card:focus-visible, .pipeline-card:focus-visible, .history-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 上传区域拖拽反馈 */
+.upload-zone.drag-over { border-color: var(--upload-zone-hover-border); background: var(--upload-zone-hover-bg); }
+.upload-zone:active { border-color: var(--upload-zone-active-border); background: var(--upload-zone-active-bg); }
+
+/* 骨架屏加载 */
+.skeleton { background: var(--skeleton-bg); border-radius: 4px; position: relative; overflow: hidden; }
+.skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent); animation: skeleton-shimmer 1.5s infinite; }
+@keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+.skeleton-text { height: 14px; margin-bottom: 8px; }
+.skeleton-card { height: 120px; border-radius: 12px; }

@@ -96,7 +96,7 @@ function stageClass(stage, index) {
 }
 </script>
 
-<style>
+<style scoped>
 .stage-indicator {
   display: flex;
   align-items: flex-start;
