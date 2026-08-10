@@ -7,7 +7,16 @@
       </el-button>
     </div>
 
-    <el-card shadow="never">
+    <div v-if="summary" class="stat-grid">
+      <div class="stat-card"><div class="stat-value">{{ summary.total }}</div><div class="stat-label">Key 总数</div></div>
+      <div class="stat-card"><div class="stat-value">{{ summary.active }}</div><div class="stat-label">活跃</div></div>
+      <div class="stat-card"><div class="stat-value">{{ summary.expiring_30d }}</div><div class="stat-label">30 天内到期</div></div>
+      <div class="stat-card"><div class="stat-value">{{ summary.expired }}</div><div class="stat-label">已过期</div></div>
+      <div class="stat-card"><div class="stat-value">¥{{ summary.cost_total }}</div><div class="stat-label">近 30 天成本</div></div>
+      <div class="stat-card"><div class="stat-value">{{ summary.threshold_hit_keys.length }}</div><div class="stat-label">达告警阈值</div></div>
+    </div>
+
+    <el-card shadow="never" style="margin-top:16px">
       <div style="margin-bottom:16px;display:flex;gap:12px">
         <el-select v-model="providerFilter" placeholder="Provider 筛选" clearable @change="loadKeys" style="width:180px">
           <el-option v-for="p in providers" :key="p" :label="p" :value="p" />
@@ -43,6 +52,12 @@
           </template>
         </el-table-column>
         <el-table-column label="优先级" width="80" align="center" prop="priority" />
+        <el-table-column label="配额/上限" width="140">
+          <template #default="{ row }">{{ row.rate_per_minute || '-' }}/min · {{ row.daily_limit || '-' }}/day</template>
+        </el-table-column>
+        <el-table-column label="成本单价" width="100" align="center">
+          <template #default="{ row }">{{ row.cost_per_1k_tokens || 0 }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="140" align="center">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
@@ -102,6 +117,19 @@
         <el-form-item label="状态">
           <el-switch v-model="form.is_active" active-text="启用" inactive-text="禁用" />
         </el-form-item>
+        <el-form-item label="每分钟配额">
+          <el-input-number v-model="form.rate_per_minute" :min="1" :controls="false" placeholder="留空=不限" style="width:160px" />
+        </el-form-item>
+        <el-form-item label="每日上限">
+          <el-input-number v-model="form.daily_limit" :min="1" :controls="false" placeholder="留空=不限" style="width:160px" />
+        </el-form-item>
+        <el-form-item label="告警阈值(¥)">
+          <el-input-number v-model="form.alert_threshold_cost" :min="0" :controls="false" placeholder="留空=不告警" style="width:160px" />
+          <div class="hint">该 provider 近 30 天成本达到阈值后在概览高亮</div>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="form.note" maxlength="200" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -146,6 +174,7 @@ const providers = ['openai', 'doubao', 'minimax', 'deepseek', 'sensenova', 'tong
 const keys = ref([])
 const loading = ref(false)
 const providerFilter = ref('')
+const summary = ref(null)
 
 const dialogVisible = ref(false)
 const isEdit = ref(false)
@@ -156,7 +185,14 @@ const revealVisible = ref(false)
 const revealedKey = ref('')
 let revealTimer = null
 
-onMounted(loadKeys)
+onMounted(() => { loadKeys(); loadSummary() })
+
+async function loadSummary() {
+  try {
+    const res = await api.get('/secrets/summary')
+    summary.value = res.data
+  } catch { summary.value = null }
+}
 
 async function loadKeys() {
   loading.value = true
@@ -171,7 +207,8 @@ async function loadKeys() {
 function openCreate() {
   isEdit.value = false
   form.value = { id: '', provider: '', name: '', api_key: '', base_url: '',
-    models: [], tier_access: 1, priority: 1, cost_per_1k_tokens: 0, expires_at: '', is_active: true }
+    models: [], tier_access: 1, priority: 1, cost_per_1k_tokens: 0, expires_at: '', is_active: true,
+    rate_per_minute: null, daily_limit: null, alert_threshold_cost: null, note: '' }
   dialogVisible.value = true
 }
 
@@ -227,3 +264,11 @@ function tierTagType(tier) {
   return { 1: '', 2: 'warning', 3: 'danger' }[tier] || ''
 }
 </script>
+
+<style scoped>
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 4px; }
+.stat-card { border: 1px solid #e4e7ed; border-radius: 8px; padding: 14px; text-align: center; background: #fff; }
+.stat-value { font-size: 20px; font-weight: 700; color: #303133; }
+.stat-label { font-size: 12px; color: #909399; margin-top: 4px; }
+.hint { font-size: 12px; color: #999; margin-left: 8px; }
+</style>

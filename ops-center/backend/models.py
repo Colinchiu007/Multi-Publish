@@ -100,6 +100,27 @@ class OfficialKey(Base):
     tier_access = Column(Integer, default=1)  # 1=all tiers, 2=standard+, 3=pro only
     cost_per_1k_tokens = Column(Float, default=0.0)
     expires_at = Column(String, default="")
+    # 配额与告警（2026-08-10 P0-1 第三批）：每分钟配额 / 每日调用上限 / 成本告警阈值(¥) / 备注
+    rate_per_minute = Column(Integer, nullable=True)
+    daily_limit = Column(Integer, nullable=True)
+    alert_threshold_cost = Column(Float, nullable=True)
+    note = Column(String, default="")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class License(Base):
+    """官方许可证 — 运营后台签发/吊销，桌面端 Pro 激活凭证（管理面先行，服务端验签待商业模式确认）。"""
+
+    __tablename__ = "licenses"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    license_key = Column(String, nullable=False, unique=True)
+    plan = Column(String, nullable=False)  # free/trial/pro
+    device_limit = Column(Integer, default=1)
+    expires_at = Column(String, default="")  # ISO 或空（永久）
+    status = Column(String, default="active")  # active/disabled
+    note = Column(String, default="")
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
