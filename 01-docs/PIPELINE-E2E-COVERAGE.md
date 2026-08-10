@@ -4,6 +4,14 @@
 > 非 mock。产物目录：`C:\tmp\all-pipeline-outputs\full-e2e\`（本机验证时）。
 > 枚举值来源：`story2video-text-config.js` / `pipeline-engine.js` / `story2video-compose-engine.js` / `model-provider-seeds`。
 
+> ⚠️ **证据边界（2026-08-11 诚实性修正）**：原始全量运行（`full-e2e` 目录，debug-profile 真实 Key）的产物使用
+> **真实 AI 图片**（imageStyle/resolution/fps 已验证，segment 图为 453KB 真实 jpg）。后续补跑的全枚举运行
+> （`options-matrix` 目录，复制 profile 因 safeStorage Key 未解密）的 S2V 图片为 **ffmpeg 占位图降级**
+> （暗色 #1a1a2e + 文字，帧检查 RGB≈(23,21,43)、30 色）。由于 transition/imageEffect/subtitle/watermark/format/
+> sceneDurationMode 是 **compose 层效果**（作用于任何图片源），其选项生效性验证仍有效；但「真实 AI 图 + 该选项」
+> 的组合仅 imageStyle/resolution/fps 有真实图证据。clip-factory/cinematic/localization/talking-head 不依赖 AI 生图，
+> 验证基于源视频/音频，不受影响。
+
 ## 1. story2video-compose（合成流水线）
 
 ### compose 阶段
