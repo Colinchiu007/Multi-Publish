@@ -1,13 +1,16 @@
 {
   "id": "s2v-governor-double-wrap-deadlock",
   "title": "图片轮播 generate_assets 调度网关同 key 双包自死锁修复 + 重入保护",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "high",
   "domain": "electron/story2video-scheduler",
-  "currentPhase": "review",
-  "nextAction": "PR #489 合并后归档（openspec change s2v-governor-double-wrap-deadlock 同步）",
+  "currentPhase": "archived",
+  "nextAction": "",
   "createdAt": "2026-08-10T13:00:00Z",
   "branch": "codex/s2v-governor-deadlock-fix",
-  "openspecChange": "s2v-governor-double-wrap-deadlock"
+  "openspecChange": "s2v-governor-double-wrap-deadlock",
+  "mergedAt": "2026-08-10T15:01:54Z",
+  "mergeCommit": "2435b8f5f2b750f2204e80206818fa56b960c0a0",
+  "archivedAt": "2026-08-10T15:04:26.808Z"
 }
