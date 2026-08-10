@@ -311,22 +311,9 @@ class VisualTestRunner {
       route
     });
 
-    // 对比失败: 当 UPDATE_BASELINE=1 时自动更新基线（CI 跨平台渲染容差）
+    // 对比失败: 主动 throw, 让调用方 (run-pixel-tests.js) 记录 failed 并返回非零退出码
+    // 始于 2026-07-12 质量节拍: 避免 CI 因容错错误报告通过
     if (!result.passed) {
-      if (process.env.UPDATE_BASELINE === '1') {
-        await this.pixelDiff.updateBaseline(currentPath, baselinePath);
-        this.testMeta[testName] = {
-          route,
-          misMatchPercentage: result.misMatchPercentage,
-          threshold: this.pixelDiff.threshold,
-          autoUpdated: true,
-          updatedAt: new Date().toISOString()
-        };
-        this._saveMeta();
-        this.results[this.results.length - 1].status = 'BASELINE_UPDATED';
-        console.log('  BASELINE_UPDATED: ' + testName + ' (was ' + (Number(result.misMatchPercentage) || 0).toFixed(2) + '% mismatch)');
-        return { status: 'BASELINE_UPDATED', baselinePath, misMatchPercentage: result.misMatchPercentage };
-      }
       throw new Error(
         '像素对比失败 (' + testName + '): misMatchPercentage=' + (Number(result.misMatchPercentage) || 0).toFixed(2) + '% ' +
         '(threshold=' + (this.pixelDiff.threshold * 100) + '%); 差异图: ' + result.diffImagePath

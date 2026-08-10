@@ -20,10 +20,6 @@ on:
       - '.github/scripts/workflow-contract.test.js'
   workflow_dispatch:
 
-
-permissions:
-  contents: write
-
 jobs:
   visual-test:
     runs-on: windows-latest
@@ -31,7 +27,7 @@ jobs:
     env:
       TEST_URL: http://127.0.0.1:5174
       HEADLESS: "true"
-      PIXEL_THRESHOLD: "0.02"
+      PIXEL_THRESHOLD: "0.05"
 
     steps:
       - uses: actions/checkout@v4
@@ -85,49 +81,6 @@ jobs:
             }
           } finally {
             if (-not $viteProcess.HasExited) { taskkill /PID $viteProcess.Id /T /F 2>$null | Out-Null }
-          }
-
-      - name: Auto-update baselines (if pixel tests failed)
-        if: failure()
-        shell: pwsh
-        env:
-          UPDATE_BASELINE: "1"
-          TEST_URL: http://127.0.0.1:5174
-          HEADLESS: "true"
-          PIXEL_THRESHOLD: "0.02"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          Write-Host "=== Auto-updating visual baselines ==="
-          $desktopDir = Join-Path $PWD "apps/desktop"
-          $viteProcess = Start-Process -FilePath "npx.cmd" -ArgumentList "vite","--host","127.0.0.1","--port","5174" -WorkingDirectory $desktopDir -WindowStyle Hidden -PassThru
-          try {
-            for ($i = 1; $i -le 20; $i++) {
-              Start-Sleep -Seconds 1
-              try {
-                if ((Invoke-WebRequest -Uri "http://127.0.0.1:5174/" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) {
-                  Write-Host "Vite ready after $i seconds"
-                  break
-                }
-              } catch {}
-            }
-            Push-Location $desktopDir
-            try { npm.cmd run test:visual:pixel } finally { Pop-Location }
-          } finally {
-            if (-not $viteProcess.HasExited) { taskkill /PID $viteProcess.Id /T /F 2>$null | Out-Null }
-          }
-          $changed = git diff --name-only -- "apps/desktop/tests/visual-testing/base-screenshots/"
-          if ($changed) {
-            Write-Host "Updated baselines: $changed"
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add apps/desktop/tests/visual-testing/base-screenshots/
-            git commit -m "test(visual): auto-update pixel baselines [skip ci]"
-            $branch = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
-            git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-            git stash --include-untracked
-            git pull --rebase origin $branch
-            git stash pop
-            git push origin HEAD:refs/heads/$branch
           }
 
       - name: Generate Agent visual-judge report

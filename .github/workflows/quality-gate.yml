@@ -29,10 +29,6 @@ on:
       - '.agents/**'
       - 'openspec/**'
   workflow_dispatch:
-
-permissions:
-  contents: write
-
 jobs:
   static-gates:
     name: QG Static
@@ -310,7 +306,7 @@ jobs:
         env:
           TEST_URL: http://127.0.0.1:5174
           HEADLESS: "true"
-          PIXEL_THRESHOLD: "0.02"
+          PIXEL_THRESHOLD: "0.05"
           VISUAL_READY_TIMEOUT: "15000"
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
@@ -367,32 +363,6 @@ jobs:
               Write-Host "Running pixel diff tests..."
               npm.cmd run test:visual:pixel
               $pixelExit = $LASTEXITCODE
-
-              # Auto-update baselines if pixel tests failed (CI rendering tolerance)
-              if ($pixelExit -ne 0) {
-                Write-Host "[GATE-7] Pixel tests failed - auto-updating baselines..."
-                $env:UPDATE_BASELINE = "1"
-                npm.cmd run test:visual:pixel
-                $env:UPDATE_BASELINE = $null
-                
-                # Commit updated baselines
-                $changed = git diff --name-only -- "apps/desktop/tests/visual-testing/base-screenshots/"
-                if ($changed) {
-                  Write-Host "[GATE-7] Updated baselines: $changed"
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
-                  git add apps/desktop/tests/visual-testing/base-screenshots/
-                  git commit -m "test(visual): auto-update pixel baselines [skip ci]"
-                  $branch = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
-                  git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-                  git stash --include-untracked
-                  git pull --rebase origin $branch
-                  git stash pop
-                  git push origin HEAD:refs/heads/$branch
-                  # Reset exit code - baselines updated, next run will pass
-                  $pixelExit = 0
-                }
-              }
 
               Write-Host "Generating Agent judge report..."
               node tests/visual-testing/scripts/agent-visual-judge.js

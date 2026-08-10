@@ -55,8 +55,6 @@ async function runPixelSuite(tests = pixelTests, options = {}) {
         });
         const status = result && result.status === 'BASELINE_CREATED'
           ? 'BASELINE_CREATED'
-          : result && result.status === 'BASELINE_UPDATED'
-          ? 'BASELINE_UPDATED'
           : 'PASSED';
         results.push({ test: test.name, route: test.route, status, result });
         console.log('  ' + status);
@@ -89,8 +87,7 @@ async function runPixelSuite(tests = pixelTests, options = {}) {
 
   const failed = results.filter(result => result.status === 'FAILED').length;
   const baselined = results.filter(result => result.status === 'BASELINE_CREATED').length;
-  const updated = results.filter(result => result.status === 'BASELINE_UPDATED').length;
-  const passed = results.length - failed - baselined - updated;
+  const passed = results.length - failed - baselined;
   return { results, failed, passed, baselined };
 }
 
