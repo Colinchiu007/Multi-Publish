@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import init_db
-from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, keyword_watchlist
+from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, redemption_codes, keyword_watchlist
+
 
 
 from services.model_preset_service import ensure_catalog_seeded, ensure_model_preset_columns
@@ -75,6 +76,8 @@ app.include_router(feature_flags.router)
 app.include_router(platform_defs.router)
 app.include_router(publish_metrics.router)
 app.include_router(keyword_watchlist.router)
+app.include_router(redemption_codes.router)
+
 app.include_router(content_templates.router)
 
 
