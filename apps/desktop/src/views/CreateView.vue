@@ -3502,9 +3502,6 @@ export default {
   .pipeline-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 }
 
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
 
 /* 上传区域拖拽反馈 */
 .upload-zone.drag-over { border-color: var(--upload-zone-hover-border); background: var(--upload-zone-hover-bg); }
