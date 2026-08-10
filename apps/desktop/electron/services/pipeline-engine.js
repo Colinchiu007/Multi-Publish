@@ -479,7 +479,7 @@ const PIPELINES = [
     name: 'story2video-compose',
     description: 'Story2Video 文案转视频 - 分句+提示词优化+资源生成+合成+发布',
     category: 'generated',
-    stages: ['split', 'domain_enrich', 'optimize', 'generate_assets', 'compose', 'publish'],
+    stages: ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
     estimatedCost: 'high',
     // stageDefs 定义每个阶段的执行类型和参数（供 StageExecutor 使用）
     // 旧流水线无 stageDefs 字段，回退为 MANUAL_CHECKPOINT
@@ -536,9 +536,27 @@ const PIPELINES = [
         inputFrom: 'domain_enrich', // 从 context.domain_enrich 取
       },
       {
+        name: 'select_video_scenes',
+        type: 'story2video_select_video_scenes', // 自定义类型：视频+图片轮播混合模式的场景选择（2026-08-11）
+        description: 'AI 视频场景选择（fixed 固定比例 / ai-judged 智能判断）',
+        checkpointRequired: false,
+        options: {
+          video: {
+            mode: 'off',
+            provider: null,
+            model: null,
+            fixedRatio: 25,
+            minRatio: 20,
+            maxRatio: 40,
+            maxScenes: 3,
+          },
+        },
+        inputFrom: 'optimize', // 从 context.optimize + context.split 取（执行器内部处理）
+      },
+      {
         name: 'generate_assets',
         type: 'story2video_generate_assets', // 自定义类型，由 story2video-stages.js 注册
-        description: '并行资源生成（图片 + TTS）',
+        description: '并行资源生成（图片 + TTS + 可选 AI 视频）',
         checkpointRequired: true,
         options: {
           concurrency: 3,
@@ -1822,6 +1840,9 @@ function resolveRuntimeStageOptions(stageName, params) {
     set('templateId', input.templateId);
   } else if (stageName === 'domain_enrich') {
     set('contentType', input.contentType);
+  } else if (stageName === 'select_video_scenes') {
+    set('video', input.videoConfig);
+    set('videoMode', input.videoMode);
   } else if (stageName === 'compose') {
     set('transition', input.transition);
     set('imageEffect', input.imageEffect);

@@ -6,6 +6,7 @@
  * 重点：转义顺序（\ 必须最先）+ 字符覆盖（: , ' % { } \）
  */
 const fs = require('fs')
+const { execFile } = require('child_process')
 const os = require('os')
 const path = require('path')
 const {
@@ -1686,6 +1687,111 @@ describe('4K 能力开关（maxOutputResolution）', () => {
       )
       expect(result.code).toBe(-1)
       expect(result.message).toMatch(/超出当前允许上限|4K/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('Story2VideoComposeEngine 混合片段（AI 视频 + 图片轮播，2026-08-11）', () => {
+  // 跨平台：用 findFfmpeg() 解析捆绑二进制（CI 设 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 时返回 null，测试整体跳过）
+  const FFMPEG = findFfmpeg()
+  const runFfmpeg = (args) => new Promise((resolve, reject) => {
+    if (!FFMPEG) { reject(new Error('ffmpeg not available')); return }
+    execFile(FFMPEG, args, (error) => error ? reject(new Error(String(error).slice(0, 300))) : resolve())
+  })
+
+  function makeEngine (root) {
+    return new Story2VideoComposeEngine({
+      outputDir: root,
+      allowedMediaRoots: [root],
+      maxInputFileBytes: 100 * 1024 * 1024,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+  }
+
+  it('混合输入（videoPath 场景 + imagePath 场景）真实合成成功，segment 记录 mediaKind', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-mixed-compose-'))
+    try {
+      const videoPath = path.join(root, 'ai-clip.mp4')
+      const imagePath = path.join(root, 'image.png')
+      const audioPath = path.join(root, 'voice.m4a')
+      await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'color=c=red:s=160x240:d=1', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', videoPath])
+      await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'color=c=blue:s=160x240:d=1', '-frames:v', '1', imagePath])
+      await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'aac', audioPath])
+
+      const engine = makeEngine(root)
+      const result = await engine.compose({
+        scenes: [
+          { index: 0, text: 'AI 视频场景', videoPath, audioPath, duration: 1 },
+          { index: 1, text: '图片轮播场景', imagePath, audioPath, duration: 1 },
+        ],
+        images: [],
+        videos: [],
+        audio: [],
+      }, {
+        resolution: '160x240',
+        fps: 24,
+        format: 'mp4',
+        transition: 'none',
+        imageEffect: 'none',
+        sceneDurationMode: 'follow-audio',
+        subtitleEnabled: false,
+        validateOutput: false,
+      })
+
+      expect(result.code).toBe(0)
+      expect(fs.existsSync(result.data.videoPath)).toBe(true)
+      expect(result.data.segmentCount).toBe(2)
+      expect(result.data.segments).toEqual([
+        expect.objectContaining({ index: 0, mediaKind: 'video' }),
+        expect.objectContaining({ index: 1, mediaKind: 'image' }),
+      ])
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('视频场景缺少 audioPath 时拒绝合成', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-mixed-reject-'))
+    try {
+      const videoPath = path.join(root, 'ai-clip.mp4')
+      await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'color=c=red:s=160x240:d=1', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', videoPath])
+      const engine = makeEngine(root)
+      const result = await engine.compose({
+        scenes: [
+          { index: 0, text: '缺音频', videoPath, audioPath: null, duration: 1 },
+        ],
+        images: [],
+        videos: [],
+        audio: [],
+      }, { resolution: '160x240', fps: 24, validateOutput: false })
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/audio path is not allowed or unreadable/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('视频源文件不可读/不存在时拒绝（Scene media path）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-mixed-unreadable-'))
+    try {
+      const audioPath = path.join(root, 'voice.m4a')
+      await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'aac', audioPath])
+      const engine = makeEngine(root)
+      const result = await engine.compose({
+        scenes: [
+          { index: 0, text: '坏视频', videoPath: path.join(root, 'missing.mp4'), audioPath, duration: 1 },
+        ],
+        images: [],
+        videos: [],
+        audio: [],
+      }, { resolution: '160x240', fps: 24, validateOutput: false })
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/not allowed or unreadable/)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
