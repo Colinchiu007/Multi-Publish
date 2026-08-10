@@ -26,6 +26,15 @@
 - **修复**：新增 _base/fetch-utils.js 的 etchWithTimeout（AbortController 有界超时），接入视频流水线关键 adapter gnes-video / gnes-image；其余 adapter 共享同一 latent 模式，由 callAdapter 兜底 + 后续按需接入。
 - **回归保护**：etch-utils.test.js +3（正常/挂起超时/参数透传）；gnes-video.test.js +1（fetch 挂起 → ProviderError(TIMEOUT)）；相关套件 67 项全绿。
 - **预防措施**：① adapter 声明 timeout 必须接入 fetch（声明未使用视为缺陷）；② 新增 adapter 必须用 fetchWithTimeout 或等价 AbortSignal 实现有界请求。
+
+## clip-factory 选项接线缺失复盘 (2026-08-11，质量节拍 Bug 反哺)
+
+- **表象**：全枚举 E2E 运行器（PR #509 入库脚本）在 main 上跑出 clip-factory 所有选项（sceneThreshold/maxSegments/maxTotalSeconds）产物时长全部相同（45.69s），选项完全无效。
+- **根因（git blame）**：`clipfactory-stages.js` 的 `buildSegments`/`analyzeVideo` 使用硬编码常量（MAX_SEGMENTS=8/MIN_SEGMENT_SECONDS=2/MAX_TOTAL_SECONDS=60/SCENE_THRESHOLD=0.3），从不读取 stage options；`pipeline-engine.js` 的 `resolveRuntimeStageOptions` 也未映射 clip-factory 的 analyze 参数 → 用户在参数传入的选项被丢弃。
+- **修复**：① `buildSegments`/`analyzeVideo` 增加 options 参数（默认值回退常量），analyze 执行器把 `stage.options` 传入；② `resolveRuntimeStageOptions` 增加 pipeline 名参数，对 `clip-factory` 的 analyze 阶段映射 sceneThreshold/maxSegments/minSegmentSeconds/maxTotalSeconds（按 pipeline 名区分，避免与 podcast 的 analyze 阶段名冲突）。
+- **回归保护**：clipfactory-stages 单测 +1（options 生效）；真实 E2E 复验：T=0.1→40.69s、T=0.5→55.62s、max=2→10.19s、total=30→25.36s（全部生效）。
+- **预防措施**：① 流水线 stage options 必须经 resolveRuntimeStageOptions 接线；② 阶段执行器必须消费 stage.options，禁止硬编码常量；③ 全枚举 E2E 运行器必须跑在合并后 main 上作为选项接线回归。
+
 ## 图片轮播流水线 generate_assets 调度网关双包自死锁复盘 (2026-08-10，质量节拍 Bug 反哺)
 
 - **表象**：图片轮播流水线到达「生成图片与旁白」（generate_assets）阶段后永久卡住，前端「图片 0/N · 旁白 0/M」停滞不动；暂停/重试均无法推进，只能重启应用。

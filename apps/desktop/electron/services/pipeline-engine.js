@@ -1567,7 +1567,8 @@ class PipelineEngine {
         }
       } catch (persistError) {
         run.status = 'failed';
-        run.error = 'Story2Video 项目保存失败: ' + persistError.message;        this.log.error('PipelineEngine', run.error);
+        run.error = 'Story2Video 项目保存失败: ' + persistError.message;
+        this.log.error('PipelineEngine', run.error);
       }
     }
     const historyEntry = {
@@ -1642,7 +1643,7 @@ class PipelineEngine {
       options: {
         ...(stageDef.options || {}),
         ...(stage.options || {}),
-        ...resolveRuntimeStageOptions(stage.name, run.params),
+        ...resolveRuntimeStageOptions(stage.name, run.params, run.pipeline),
       },
     };
 
@@ -1805,7 +1806,7 @@ class PipelineEngine {
  * 将 renderer 传入的运行时配置合并到阶段 options。
  * 阶段定义提供安全默认值，用户参数只覆盖同一阶段允许的配置键。
  */
-function resolveRuntimeStageOptions(stageName, params) {
+function resolveRuntimeStageOptions(stageName, params, pipelineName) {
   const input = params || {};
   const stageOptions = input.stageOptions && input.stageOptions[stageName];
   const result = stageOptions && typeof stageOptions === 'object' ? { ...stageOptions } : {};
@@ -1860,6 +1861,12 @@ function resolveRuntimeStageOptions(stageName, params) {
     set('format', input.format || input.output?.format);
     set('sceneDurationMode', input.sceneDurationMode);
     set('minSceneDuration', input.minSceneDuration);
+  } else if (pipelineName === 'clip-factory' && stageName === 'analyze') {
+    // clip-factory 选项按 pipeline 名区分（analyze 阶段名与 podcast 共用）。
+    set('sceneThreshold', input.sceneThreshold);
+    set('maxSegments', input.maxSegments);
+    set('minSegmentSeconds', input.minSegmentSeconds);
+    set('maxTotalSeconds', input.maxTotalSeconds);
   } else if (stageName === 'publish') {
     set('platforms', input.platforms);
     set('title', input.title || input.output?.title);
