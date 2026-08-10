@@ -120,9 +120,9 @@ function stageClass(stage, index) {
   justify-content: center;
   font-size: 14px;
   font-weight: 600;
-  border: 2px solid #dcdfe6;
+  border: 2px solid var(--ep-border);
   background: #fff;
-  color: #909399;
+  color: var(--ep-info);
 }
 .stage-label {
   font-size: 12px;
@@ -136,31 +136,31 @@ function stageClass(stage, index) {
   color: var(--text, #303133);
 }
 .stage-completed .stage-icon {
-  background: #67c23a;
-  border-color: #67c23a;
+  background: var(--ep-success);
+  border-color: var(--ep-success);
   color: #fff;
 }
 .stage-running .stage-icon {
-  background: #409eff;
-  border-color: #409eff;
+  background: var(--ep-primary);
+  border-color: var(--ep-primary);
   color: #fff;
 }
 .stage-failed .stage-icon {
-  background: #f56c6c;
-  border-color: #f56c6c;
+  background: var(--ep-danger);
+  border-color: var(--ep-danger);
   color: #fff;
 }
 .stage-connector {
   flex: 1;
   min-width: 20px;
   height: 2px;
-  background: #dcdfe6;
+  background: var(--ep-border);
   margin-top: 13px;
   margin-left: 4px;
   margin-right: 4px;
 }
 .stage-connector.completed {
-  background: #67c23a;
+  background: var(--ep-success);
 }
 .pulse {
   width: 8px;

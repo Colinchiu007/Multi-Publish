@@ -135,12 +135,12 @@ function handleDelete() {
   border-radius: 10px;
   font-weight: 500;
 }
-.badge-draft { background: #f0f0f0; color: #909399; }
-.badge-running { background: #e6f0ff; color: #409eff; }
-.badge-paused { background: #fdf6ec; color: #e6a23c; }
-.badge-completed { background: #f0f9eb; color: #67c23a; }
-.badge-failed { background: #fef0f0; color: #f56c6c; }
-.badge-cancelled { background: #f0f0f0; color: #909399; }
+.badge-draft { background: var(--ep-info-light); color: var(--ep-info); }
+.badge-running { background: var(--ep-primary-light); color: var(--ep-primary); }
+.badge-paused { background: var(--ep-warning-light); color: var(--ep-warning); }
+.badge-completed { background: var(--ep-success-light); color: var(--ep-success); }
+.badge-failed { background: var(--ep-danger-light); color: var(--ep-danger); }
+.badge-cancelled { background: var(--ep-info-light); color: var(--ep-info); }
 .pipeline-tag {
   font-size: 11px;
   color: var(--text-muted, #909399);
@@ -176,19 +176,19 @@ function handleDelete() {
   opacity: 1;
 }
 .delete-btn:hover {
-  background: #fef0f0;
-  color: #f56c6c;
+  background: var(--ep-danger-light);
+  color: var(--ep-danger);
 }
 .status-running .project-card-thumb {
-  border-bottom: 3px solid #409eff;
+  border-bottom: 3px solid var(--ep-primary);
 }
 .status-completed .project-card-thumb {
-  border-bottom: 3px solid #67c23a;
+  border-bottom: 3px solid var(--ep-success);
 }
 .status-failed .project-card-thumb {
-  border-bottom: 3px solid #f56c6c;
+  border-bottom: 3px solid var(--ep-danger);
 }
 .status-paused .project-card-thumb {
-  border-bottom: 3px solid #e6a23c;
+  border-bottom: 3px solid var(--ep-warning);
 }
 </style>

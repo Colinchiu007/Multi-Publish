@@ -416,7 +416,7 @@ function statusLabel(status) {
   display: inline-block;
   width: 16px;
   height: 16px;
-  border: 2px solid #ddd;
+  border: 2px solid var(--hairline);
   border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;

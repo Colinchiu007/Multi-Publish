@@ -281,7 +281,7 @@ export default {
 .render-icon { font-size: 24px; }
 .render-meta, .pipeline-meta { display: flex; flex-direction: column; gap: 2px; }
 .render-name, .pipeline-name { font-size: 14px; font-weight: 600; }
-.render-time, .pipeline-time { font-size: 12px; color: #999; }
+.render-time, .pipeline-time { font-size: 12px; color: var(--text-light); }
 .render-status, .pipeline-status { font-size: 12px; padding: 4px 12px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
 .render-status.completed, .pipeline-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .render-status.failed, .pipeline-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }

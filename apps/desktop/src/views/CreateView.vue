@@ -3170,7 +3170,7 @@ export default {
 
 /* 视图切换 */
 .view-tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
-.view-tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; }
+.view-tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; }
 .view-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
 
 /* 流水线网格 */
@@ -3198,8 +3198,8 @@ export default {
 .stability-dot.beta { background: var(--stability-beta); }
 .stability-dot.experimental { background: var(--stability-experimental); }
 .card-title { font-size: 16px; margin: 0 0 6px 0; }
-.card-desc { font-size: 13px; color: #666; line-height: 1.4; margin: 0 0 12px 0; }
-.card-meta { display: flex; gap: 12px; font-size: 12px; color: #999; align-items: center; }
+.card-desc { font-size: 13px; color: var(--text-muted); line-height: 1.4; margin: 0 0 12px 0; }
+.card-meta { display: flex; gap: 12px; font-size: 12px; color: var(--text-light); align-items: center; }
 .cost-label.low { color: var(--cost-low); }
 .cost-label.medium { color: var(--cost-medium); }
 .cost-label.high { color: var(--cost-high); }
@@ -3208,14 +3208,14 @@ export default {
 .availability-badge.dev { background: var(--pipe-animation-bg); color: var(--pipe-animation-text); }
 .pipeline-card.is-unavailable { opacity: 0.72; }
 .pipeline-card.is-unavailable:hover { transform: none; box-shadow: none; }
-.unavailable-hint { color: #b45309; font-size: 12px; margin-top: 8px; }
+.unavailable-hint { color: var(--pipe-animation-text); font-size: 12px; margin-top: 8px; }
 
 /* 流水线详情 */
 .pipeline-detail { }
 .back-btn { background: none; border: none; color: var(--primary); cursor: pointer; font-size: 14px; padding: 0; margin-bottom: 16px; }
 .detail-header { margin-bottom: 20px; }
 .detail-header h2 { font-size: 20px; margin: 0 0 4px; }
-.detail-desc { color: #666; font-size: 14px; margin: 0; }
+.detail-desc { color: var(--text-muted); font-size: 14px; margin: 0; }
 
 /* 阶段时间线 */
 .stages-timeline { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; padding: 16px; background: var(--bg); border-radius: 8px; max-width: 100%; overflow-wrap: anywhere; }
@@ -3262,8 +3262,8 @@ export default {
 .elapsed-text { font-size: 12px; color: var(--text-muted, #888); white-space: nowrap; }
 .orchestration-summary { margin-bottom: 10px; padding: 8px 12px; background: var(--banner-success-bg); color: var(--banner-success-text); border-radius: 6px; font-size: 13px; font-weight: 600; }
 .reset-options-link { margin-left: 12px; border: none; background: none; color: var(--text-muted, #888); font-size: 12px; cursor: pointer; text-decoration: underline; }
-.reset-options-link:hover { color: #1d4ed8; }
-.orchestration-attention { margin: 0; color: #c2410c; font-size: 13px; }
+.reset-options-link:hover { color: var(--primary); }
+.orchestration-attention { margin: 0; color: var(--banner-attention-text); font-size: 13px; }
 
 /* 输入区域 */
 .input-section { margin-bottom: 24px; }
@@ -3317,7 +3317,7 @@ export default {
 .style-card:hover { border-color: var(--primary); }
 .style-card.active { border-color: var(--primary); background: #f5f3ff; }
 .style-name { display: block; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
-.style-desc { display: block; font-size: 11px; color: #999; }
+.style-desc { display: block; font-size: 11px; color: var(--text-light); }
 
 /* 配置网格 */
 /* minmax(min(200px, 100%), 1fr)：窄容器下轨道可收缩到容器宽，避免 min-content 撑宽整页；
@@ -3356,9 +3356,9 @@ export default {
 .btn-start { padding: 12px 32px; font-size: 16px; }
 .running-controls { display: flex; gap: 8px; }
 .progress-inline { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.progress-bar { height: 8px; background: #e0e0e0; border-radius: 4px; overflow: hidden; width: 120px; }
+.progress-bar { height: 8px; background: var(--stage-sub-bar-bg); border-radius: 4px; overflow: hidden; width: 120px; }
 .progress-fill { height: 100%; background: var(--primary); transition: width 0.3s; }
-.progress-text { font-size: 13px; color: #666; }
+.progress-text { font-size: 13px; color: var(--text-muted); }
 
 /* 快速渲染 */
 .quick-render { max-width: 800px; }
@@ -3397,7 +3397,7 @@ export default {
 .history-progress-seg.active { background: var(--history-progress-active-bg); color: #fff; font-weight: 600; box-shadow: 0 0 0 2px var(--history-progress-active-shadow); }
 .history-progress-seg.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
 .history-running-hint { font-size: 11px; color: var(--history-running-hint-text); background: var(--history-running-hint-bg); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; flex-shrink: 0; }
-.history-time { color: #999; font-size: 12px; }
+.history-time { color: var(--text-light); font-size: 12px; }
 .history-open, .history-delete, .history-resume { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
 .history-open:hover { border-color: var(--primary); color: var(--primary); }
 .history-delete:hover { border-color: var(--error); color: var(--error); }
@@ -3414,9 +3414,9 @@ export default {
 .inline-error { color: var(--error); font-size: 12px; }
 
 /* 通用 */
-.loading-state, .empty-state, .error-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: #666; justify-content: center; }
+.loading-state, .empty-state, .error-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: var(--text-muted); justify-content: center; }
 .history-local-mode-banner { margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; background: var(--warning-bg); color: var(--banner-warning-color); font-size: 13px; }
-.story2video-error-dialog-detail { margin-top: 8px; color: #666; font-size: 13px; }
+.story2video-error-dialog-detail { margin-top: 8px; color: var(--text-muted); font-size: 13px; }
 .error-state { color: var(--error); background: var(--status-failed-bg); border-radius: var(--r-sm); }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline, #ccc); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

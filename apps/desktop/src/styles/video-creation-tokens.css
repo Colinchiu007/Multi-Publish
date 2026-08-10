@@ -91,7 +91,25 @@
   --clone-default-border: #bfdbfe;
 
   /* --- 暗色模式覆盖 --- */
-  [data-theme="dark"] {
+  /* --- Banner Attention（编排注意力提示） --- */
+  --banner-attention-text: #c2410c;
+
+  /* --- Element Plus 组件色系映射（ApprovalGateModal / BoardStageIndicator / ProjectCard） --- */
+  --ep-primary: #409eff;
+  --ep-primary-light: #ecf5ff;
+  --ep-success: #67c23a;
+  --ep-success-light: #f0f9eb;
+  --ep-warning: #e6a23c;
+  --ep-warning-light: #fdf6ec;
+  --ep-danger: #f56c6c;
+  --ep-danger-light: #fef0f0;
+  --ep-info: #909399;
+  --ep-info-light: #f0f0f0;
+  --ep-border: #dcdfe6;
+  --ep-border-light: #e4e7ed;
+  --ep-bg: #f5f7fa;
+
+[data-theme="dark"] {
     --status-completed-bg: #064e3b;
     --status-completed-text: #6ee7b7;
     --status-failed-bg: #450a0a;
@@ -132,4 +150,19 @@
     --clone-default-text: #93c5fd;
     --clone-default-border: #1e3a8a;
   }
+--banner-attention-text: #fb923c;
+
+    --ep-primary: #66b1ff;
+    --ep-primary-light: #1a2632;
+    --ep-success: #85ce61;
+    --ep-success-light: #1a2e1a;
+    --ep-warning: #ebb563;
+    --ep-warning-light: #2e2416;
+    --ep-danger: #f78989;
+    --ep-danger-light: #2e1a1a;
+    --ep-info: #a6a9ad;
+    --ep-info-light: #1a1a1e;
+    --ep-border: #363637;
+    --ep-border-light: #2a2a2e;
+    --ep-bg: #1a1a1e;
 }
