@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import init_db
-from routers import config, sync, secrets, snapshots, env, model_presets, auth
+from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime
 from services.model_preset_service import ensure_catalog_seeded, ensure_model_preset_columns
 from services.auth_service import ensure_admin_seeded
 from services.config_seed_service import ensure_feature_gates_seeded, ensure_projects_seeded
@@ -57,6 +57,7 @@ app.include_router(secrets.router)
 app.include_router(snapshots.router)
 app.include_router(env.router)
 app.include_router(model_presets.router)
+app.include_router(runtime.router)
 app.include_router(auth.router)
 
 

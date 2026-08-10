@@ -11,6 +11,7 @@ const logger = require('./logger')
 
 let _mainWin = null
 let _statusCallback = null
+let _policy = null
 let _listenersRegistered = false
 const _reportedUnavailableErrors = new WeakSet()
 
@@ -161,7 +162,38 @@ function init (win, onStatus) {
 /**
  * 检查更新
  */
+function _compareVersions (a, b) {
+  const pa = String(a || '').split('.').map(Number)
+  const pb = String(b || '').split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] || 0
+    const y = pb[i] || 0
+    if (x !== y) return x < y ? -1 : 1
+  }
+  return 0
+}
+
+/** 应用运营后台版本发布策略（force_version 强制 / gray_ratio 灰度 / min_version 最低提示） */
+function applyPolicy (policy) {
+  _policy = (policy && typeof policy === 'object' && policy.enabled !== false) ? policy : null
+}
+
 function check () {
+  const policy = _policy
+  if (policy) {
+    const current = String((app && app.getVersion) ? app.getVersion() : '')
+    const forced = !!policy.force_version && _compareVersions(current, policy.force_version) < 0
+    if (!forced) {
+      const ratio = Number.isFinite(Number(policy.gray_ratio)) ? Number(policy.gray_ratio) : 100
+      if (ratio < 100 && Math.random() * 100 >= ratio) {
+        _sendStatus('skipped-by-policy', '本次更新检查被灰度策略跳过')
+        return
+      }
+    }
+    if (policy.min_version && _compareVersions(current, policy.min_version) < 0) {
+      _sendStatus('policy-min-version', { version: policy.min_version })
+    }
+  }
   autoUpdater.checkForUpdates().catch(err => {
     if (isUpdateCheckUnavailable(err)) {
       sendUnavailableOnce(err)
@@ -204,4 +236,4 @@ function _sendStatus (type, data) {
   }
 }
 
-module.exports = { init, check, download, quitAndInstall }
+module.exports = { init, check, download, quitAndInstall, applyPolicy, _compareVersions }

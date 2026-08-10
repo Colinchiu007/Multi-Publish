@@ -1,3 +1,14 @@
+## [未发布] 功能：运营后台运行时策略下发（公告 / 版本发布 / 内容安全）（2026-08-10）
+
+- ops-center：新增 `announcements` / `update_policy` / `content_policy` 三张运营表 + 管理 CRUD（require_admin，校验：标题必填/severity 三值/ISO 时间窗口/版本号 x.y.z/灰度 0-100/词库去重 ≤5000 项/替换串 ≤16）。
+- ops-center：新增只读端点 `GET /api/v1/runtime/bootstrap`（`X-Catalog-Key` 同目录端点鉴权），一次返回活动公告 + 版本发布策略 + 内容安全策略。
+- ops-center 前端：新增「运营公告」「版本发布策略」「内容安全策略」三个管理页（表格/表单 + 校验错误提示）。
+- 桌面端：`OpsCenterSync.syncNow` 目录同步后 best-effort 拉取 runtime/bootstrap 并 `applyRuntime`（失败仅 warn 不影响目录）；公告存 settings + IPC `ops-center-sync:runtime`；内容安全重建 SensitiveFilter（内置+远程词）；版本策略经 `setUpdatePolicyConsumer` 推给 auto-updater。
+- 桌面端：`auto-updater.applyPolicy`——force_version 强制检查、gray_ratio 灰度跳过（`skipped-by-policy`）、min_version 提示（`policy-min-version`）。
+- 桌面端：App 顶部 `AnnouncementBanner`（info/warning 可关闭、maintenance 常驻强提示）。
+- 文档：Multi-Publish PRD §7.4.6、ops-center PRD 12A.11。
+- 测试：ops-center pytest 94 passed（+4 runtime policy）；桌面端 ops-center-sync 20、auto-updater 18、sensitive 5、useOpsCenterRuntime 3、IPC 3 全绿。
+
 ## [未发布] 功能：运营后台 → 桌面端模型配置运行时同步（2026-08-10）
 
 - ops-center：新增只读目录同步端点 `GET /api/v1/model-presets/catalog`（`X-Catalog-Key` 鉴权 = `OPS_CATALOG_API_KEY`，常量时间比较；未配置 → 404 fail-closed；Key 错误 → 401）；仅返回 `is_visible=1` 预设，字段含限流/模型/默认模型/能力（不含敏感项）。

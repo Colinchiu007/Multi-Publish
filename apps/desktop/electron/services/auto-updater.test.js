@@ -236,3 +236,67 @@ describe('AutoUpdater 生产错误降级', () => {
     expect(nextStatuses).toEqual([{ type: 'checking', data: '正在检查更新...' }])
   })
 })
+
+describe('AutoUpdater 版本发布策略（运营后台下发）', () => {
+  let autoUpdaterService
+  let mainWindow
+  let statuses
+
+  beforeEach(async () => {
+    vi.resetModules()
+    mocks.reset()
+    __resetElectronMock()
+    __enableElectronMock()
+    __electronMock.app.isPackaged = true
+    __electronMock.app.getVersion = () => '2.3.50'
+    __registerMock('./logger', mocks.logger)
+    statuses = []
+    const imported = await import('./auto-updater')
+    autoUpdaterService = imported.default || imported
+    mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } }
+    autoUpdaterService.init(mainWindow, status => statuses.push(status))
+    mocks.updater.checkForUpdates.mockResolvedValue({})
+  })
+
+  afterEach(() => {
+    __electronMock.app.getVersion = undefined
+    vi.restoreAllMocks()
+  })
+
+  it('策略未设置时 check 正常调用 checkForUpdates', () => {
+    autoUpdaterService.check()
+    expect(mocks.updater.checkForUpdates).toHaveBeenCalledTimes(1)
+  })
+
+  it('force_version 高于当前版本 → 跳过灰度直接检查', () => {
+    autoUpdaterService.applyPolicy({ min_version: '', force_version: '2.3.53', gray_ratio: 0, enabled: true })
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.99)
+    autoUpdaterService.check()
+    expect(mocks.updater.checkForUpdates).toHaveBeenCalledTimes(1) // 灰度 0% 仍检查（强制）
+    randomSpy.mockRestore()
+  })
+
+  it('gray_ratio 灰度跳过（random >= ratio 时不检查）', () => {
+    autoUpdaterService.applyPolicy({ min_version: '', force_version: '', gray_ratio: 50, enabled: true })
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.9)
+    autoUpdaterService.check()
+    expect(mocks.updater.checkForUpdates).not.toHaveBeenCalled()
+    expect(statuses.at(-1).type).toBe('skipped-by-policy')
+    randomSpy.mockRestore()
+  })
+
+  it('灰度命中（random < ratio）时检查并推送 policy-min-version 提示', () => {
+    autoUpdaterService.applyPolicy({ min_version: '2.3.53', force_version: '', gray_ratio: 100, enabled: true })
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.1)
+    autoUpdaterService.check()
+    expect(mocks.updater.checkForUpdates).toHaveBeenCalledTimes(1)
+    expect(statuses).toContainEqual({ type: 'policy-min-version', data: { version: '2.3.53' } })
+    randomSpy.mockRestore()
+  })
+
+  it('enabled=false 的策略视为未设置', () => {
+    autoUpdaterService.applyPolicy({ min_version: '9.9.9', force_version: '', gray_ratio: 0, enabled: false })
+    autoUpdaterService.check()
+    expect(mocks.updater.checkForUpdates).toHaveBeenCalledTimes(1)
+  })
+})
