@@ -64,6 +64,10 @@ describe('YixiaoerSidebar', () => {
     expect(sidebar.text()).toContain('发布')
     expect(sidebar.text()).toContain('账号')
     expect(sidebar.text()).toContain('私信评论')
+    expect(sidebar.text()).toContain('视频创作')
+    expect(sidebar.text()).toContain('采集')
+    expect(sidebar.text()).toContain('发布日历')
+    expect(sidebar.text()).toContain('监控')
     expect(sidebar.get('[data-testid="yixiaoer-primary-accounts"]').classes()).toContain('active')
   })
 
@@ -74,6 +78,14 @@ describe('YixiaoerSidebar', () => {
 
     expect(sidebar.get('[role="menu"]').text()).toContain('素材库')
     expect(sidebar.get('[data-testid="yixiaoer-primary-more"]').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('settings button emits open-settings event', async () => {
+    const sidebar = mountSidebar('/accounts')
+
+    await sidebar.get('[aria-label="设置"]').trigger('click')
+
+    expect(sidebar.emitted('open-settings')).toBeTruthy()
   })
 
   it('routes the add button to the publish editor', async () => {
