@@ -1167,6 +1167,126 @@ export function usePipelineHistory(options = {}) {
 
 
 
+
+### 3.1.20 代码-设计分离与历史记录卡片优化（2026-08-11）
+
+#### 一、变更背景
+
+历史记录卡片（CreateViewHistory.vue）原先将 ~512 行 CSS 内联在组件的 `<style scoped>` 中，与模板逻辑耦合。同时存在以下问题：
+
+1. **CSS 语法错误**：`video-creation-tokens.css` 中 `[data-theme="dark"]` 块提前关闭，导致 `--banner-attention-text` 和 `--ep-*` 暗色模式变量悬空
+2. **硬编码颜色**：部分样式直接使用 rgba 值而非 CSS 变量，暗色模式覆盖不完整
+3. **信息密度不足**：卡片仅显示标题、状态、提示行、进度条和操作按钮，缺少时长、模式等元信息
+4. **布局冗余**：时间信息放在底部 footer，与操作按钮挤在同一行
+
+#### 二、代码-设计分离方案
+
+##### 1) 文件结构
+
+| 文件 | 职责 | 行数 |
+|------|------|------|
+| `apps/desktop/src/styles/create-view-history.css` | 历史记录卡片全部样式（从 Vue 抽取） | ~101 |
+| `apps/desktop/src/styles/video-creation-tokens.css` | Design Token 定义（含暗色模式） | ~189 |
+| `apps/desktop/src/views/CreateViewHistory.vue` | 模板 + 逻辑（无内联样式） | ~235 |
+
+##### 2) 引入方式
+
+`CreateViewHistory.vue` 的 `<script>` 块顶部添加：
+
+```js
+import '@/styles/create-view-history.css'
+```
+
+- 不使用 `<style scoped>`，样式通过 class 命名空间隔离（`.history-*` 前缀）
+- 好处：样式可被 DevTools 全局审查、可被其他组件复用、Vite HMR 热更新更快
+
+##### 3) CSS 变量使用规范
+
+所有颜色值必须使用 CSS 变量，格式：`var(--token-name, fallback)`。禁止直接写 rgba/hex。
+
+已定义的变量族：
+
+| 变量族 | 用途 | 示例 |
+|--------|------|------|
+| `--status-*-bg/text` | 状态语义色 | `--status-failed-bg: #fee2e2` |
+| `--history-*` | 历史记录专用 | `--history-running-border: #93c5fd` |
+| `--hairline` | 边框线 | `rgba(0,0,0,0.06)` |
+| `--surface` | 卡片背景 | `#fff` |
+
+#### 三、历史记录卡片 UI 优化
+
+##### 1) 卡片信息层次（从上到下）
+
+| 层级 | 内容 | 样式 |
+|------|------|------|
+| 第一行 | 标题 + 流水线标签 + 状态徽章 | 标题 14px bold，标签 10px uppercase，徽章 10px 带边框 |
+| 第二行 | 状态提示（运行中/已暂停/失败） | 带图标的小字提示，背景色区分 |
+| 第三行 | 元信息（时间、时长、模式、项目ID） | 12px 灰色，图标 + 文字 |
+| 第四行 | 阶段进度条（仅运行中/已暂停） | 圆角分段条，活跃段有 shimmer 动画 |
+| 底部 | 操作按钮（从断点继续/打开/删除） | 按钮组右对齐 |
+
+##### 2) 状态视觉映射
+
+| 状态 | 左边框色 | 状态徽章背景 | 提示行 |
+|------|----------|-------------|--------|
+| running | `--status-running-text` (#1d4ed8) | rgba(29,78,216,0.08) | 🔵 返回流水线创作查看进度 |
+| paused | `--status-waiting-text` (#92400e) | rgba(217,119,6,0.1) | 🟠 暂停环节：{stage} |
+| failed | `--status-failed-text` (#991b1b) | #fee2e2 | 🔴 失败环节：{stage} |
+| completed | `--status-completed-text` (#065f46) | rgba(6,95,70,0.08) | 无 |
+| cancelled | `--status-cancelled-text` (#6b7280) | #f3f4f6 | 无 |
+
+##### 3) 新增元信息行
+
+```html
+<div class="history-meta">
+  <span class="history-meta-item">🕐 {时间}</span>
+  <span class="history-meta-item">⏱ {时长}</span>
+  <span class="history-meta-item">⚙ {模式}</span>
+  <span class="history-meta-item">📁 {项目ID前8位}</span>
+</div>
+```
+
+- `formatDuration(ms)`：毫秒转 "X 分钟 Y 秒" 或 "Y 秒"
+- 时长来源于后端返回的 `duration` 字段
+- 模式来源于 `mode` 字段（如"文字标准模式"）
+- 项目ID仅显示前 8 位，hover 时 title 显示完整 ID
+
+##### 4) 操作按钮逻辑
+
+| 状态 | 可用操作 | 条件 |
+|------|---------|------|
+| running | 继续生成 | 始终可用 |
+| paused | 从断点继续 | `historyItemResumable(h) === true` |
+| failed | 从断点继续 | `historyItemResumable(h) === true` 且 error 不含 needs_user_input |
+| completed | 打开 | `h.projectId` 存在 |
+| * | 删除 | `h.projectId` 存在 |
+
+#### 四、CSS 语法修复
+
+`video-creation-tokens.css` 暗色模式修复：
+
+- **问题**：`[data-theme="dark"]` 块在第 173 行提前关闭，`--banner-attention-text` 和 `--ep-*` 变量悬空
+- **修复**：移除第 173 行的多余 `}`，将所有暗色模式变量正确嵌套在 `[data-theme="dark"]` 内
+- **验证**：大括号计数 { = 2, } = 2，平衡
+
+#### 五、数据校验
+
+| 字段 | 类型 | 必填 | 校验规则 |
+|------|------|------|---------|
+| `h.status` | enum | 是 | running/paused/failed/completed/cancelled |
+| `h.title` | string | 否 | 为空时 fallback 到 `pipelineName(h.pipeline)` |
+| `h.pausedStage` | string | 否 | running 超时自动推导，failed 从 stages 推导 |
+| `h.duration` | number(ms) | 否 | 非数字或 null 时不显示 |
+| `h.mode` | string | 否 | 非空时显示 |
+| `h.stages` | array | 否 | 仅 running/paused 时显示进度条 |
+
+#### 六、相关文件
+
+- **修改**：`apps/desktop/src/views/CreateViewHistory.vue`（移除内联 CSS，添加 CSS import，新增 meta 行和 formatDuration）
+- **修改**：`apps/desktop/src/styles/video-creation-tokens.css`（修复暗色模式 CSS 语法）
+- **新增**：`apps/desktop/src/styles/create-view-history.css`（从 Vue 抽取的历史记录样式）
+
+
 以下 Cut 参数属于独立 Remotion 快速路径，不等同于 `story2video-compose` 的 scene schema：
 
 | 参数 | 类型 | 默认值 | 说明 |
