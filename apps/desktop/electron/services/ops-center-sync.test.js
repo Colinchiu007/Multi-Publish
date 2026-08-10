@@ -310,3 +310,29 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
     }
   })
 })
+
+describe('OpsCenterSync applyRuntime platform_defs', () => {
+  it('注入 platformConfig 时应用 platform_defs', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    const applyRemote = vi.fn(() => 2)
+    svc.setPlatformConfig({ applyRemote })
+    svc.applyRuntime({ announcements: [], platform_defs: [{ id: 'a' }, { id: 'b' }], synced_at: 't' })
+    expect(applyRemote).toHaveBeenCalledWith([{ id: 'a' }, { id: 'b' }])
+  })
+
+  it('未注入 platformConfig 时跳过 platform_defs，不影响其他运行时策略', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime({ announcements: [{ title: 'x', severity: 'info', content: '' }], platform_defs: [{ id: 'a' }], synced_at: 't' })
+    expect(svc.getRuntimeState().announcements).toHaveLength(1)
+  })
+
+  it('setPlatformConfig 拒绝无 applyRemote 的对象（视为未注入）', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.setPlatformConfig({})
+    svc.applyRuntime({ announcements: [], platform_defs: [{ id: 'a' }], synced_at: 't' })
+    expect(svc.getRuntimeState().announcements).toEqual([])
+  })
+})

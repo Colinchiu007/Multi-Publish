@@ -1674,6 +1674,57 @@ Electron 打包、工作树、PR 或发布状态证据。
 
 ① 桌面端配置同步后产生调用 → 30 分钟内上报，ops-center 看板显示调用量与成功率；② 同桶重复上报（重试）计数不翻倍；③ 失败（429 识别）与耗时分布正确落桶；④ 上报失败水印不推进，恢复后补报；⑤ 未配置同步的桌面端静默不打扰；⑥ 看板非 admin 403；⑦ error_message 等敏感内容不出现在上报 payload。
 
+#### 7.4.8 平台发布元数据管理（2026-08-11 新增，P1 其余）
+
+**需求**：平台发布元数据（标题/内容上限、内容类型分类、是否支持 API、临时下线）从桌面端 `config/platforms.yaml` 迁移到运营后台统一维护，随运行时 bootstrap 下发；桌面端启动/同步时覆盖同名平台字段，不改写 yaml。
+
+##### 7.4.8.1 数据与校验（ops-center）
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| id | str PK | 必填、≤64 | 平台 id（如 wechat_mp） |
+| name | str | 必填、≤100 | 平台名称 |
+| category | str | ≤20，默认「中文」 | 中文/海外分组 |
+| content_category | str | 枚举 VIDEO/IMAGE_TEXT/MIXED | 内容类型分类（PRD F9） |
+| type | str | ≤20，默认 mixed | article/mixed 兼容字段 |
+| max_title / max_content | int | 正整数或空（拒绝布尔/小数/负数） | 标题/内容上限 |
+| has_api | bool | 0/1 | 是否支持 API 发布 |
+| enabled | bool | 0/1 | 临时下线开关（关闭后不下发） |
+| note | str | ≤200 | 运营备注 |
+
+- id 字符集 `^[a-z0-9_-]{1,64}$`；category ∈ 中文/海外；type ∈ article/mixed；has_api/enabled 仅接受 true/false/1/0。
+- 创建（POST）走全量校验，重复 id → 409；更新（PUT）为**部分更新**：与已存在记录合并后全量校验，null 视为不修改，路径 id 优先，空串清空上限，不存在 → 404。
+- 删除为**软删除**（deleted_at + enabled=0）：已删平台不再列出/下发；种子化遇已存在（含软删）即跳过，已删种子不复活；软删后同一 id 可重建。
+- 种子对齐 `config/platforms.yaml` 关键平台 12 个（已存在即跳过，不覆盖运营修改/软删）。
+
+##### 7.4.8.2 管理端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/platform-defs | 列表（登录可读） |
+| POST | /api/v1/platform-defs | 新增（admin） |
+| PUT | /api/v1/platform-defs/{id} | 更新（admin，部分更新） |
+| DELETE | /api/v1/platform-defs/{id} | 删除（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `platform_defs`（enabled=1 项，同 X-Catalog-Key 鉴权） |
+
+##### 7.4.8.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| `PlatformConfig.applyRemote(defs)` | 按 id 覆盖已存在平台的远程字段（仅覆盖远程出现的键）；本地独有平台保留；远程新增平台不自动引入（fail-closed）；**不改写 yaml**；cover_size 字符串同步重建解析尺寸 |
+| `OpsCenterSync.setPlatformConfig(pc)` | phase1 注入平台配置加载器；无 applyRemote 的对象视为未注入 |
+| `applyRuntime` | 注入 platformConfig 时应用 `platform_defs`；未注入跳过，不影响公告/版本发布/内容安全策略 |
+
+##### 7.4.8.4 前端「平台元数据」页
+
+- 列表：ID / 名称 / 类别（中文|海外 tag）/ 内容类型（视频|图文|混合 tag）/ 标题上限 / 内容上限 / 支持 API / 下发开关 / 操作（编辑、删除）；顶部「中文/海外/全部」筛选 + 「新增平台」。
+- 编辑弹窗：平台 ID（编辑禁用）/ 名称（必填）/ 类别 / 内容类型（必填下拉）/ 类型 / 标题上限 / 内容上限（正整数或留空）/ 支持 API / 启用下发（关闭提示「桌面端将不再下发该平台」）/ 备注。
+- 下发开关即时保存（部分更新 enabled），成功提示「已启用，将随下次同步下发给桌面端」。
+
+##### 7.4.8.5 验收标准
+
+① 首次启动种子 12 平台且可编辑；② 非法 content_category / 负数或小数上限 → 400；③ PUT 仅传部分字段可更新（enabled 临时下线）；④ bootstrap 仅返回 enabled=1 项；⑤ 桌面端 applyRemote 覆盖同名平台、本地独有保留、远程新增不引入、yaml 不被改写；⑥ 未注入 platformConfig 时跳过应用不影响其他策略；⑦ 非 admin 写 403、读 200。
+
 ---
 
 ## 八、内容采集与收藏流程

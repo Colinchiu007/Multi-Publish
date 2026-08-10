@@ -25,6 +25,15 @@ const PlatformCategory = Object.freeze({
   MIXED: 'MIXED'
 })
 
+// applyRemote 允许覆盖的键与期望类型（allowlist：未知键/类型不符一律忽略）
+const APPLY_REMOTE_KEY_TYPES = {
+  name: 'string', category: 'string', content_category: 'string', type: 'string',
+  note: 'string', cover_size: 'string',
+  max_title: 'number', max_content: 'number',
+  has_api: 'boolean', enabled: 'boolean',
+}
+const MAX_REMOTE_DEFS = 500
+
 class PlatformConfig {
   /**
    * @param {string} configPath - 配置文件路径
@@ -190,6 +199,55 @@ class PlatformConfig {
       if (p.content_category) cats.add(p.content_category)
     }
     return Array.from(cats)
+  }
+
+  /**
+   * 应用运营后台下发的平台发布元数据（运行时覆盖，不改写 yaml）
+   *
+   * 语义（openspec ops-center-platform-defs）：
+   * - 按 id 覆盖已存在平台的远程字段（仅覆盖远程出现的键）
+   * - 本地独有平台保留；远程新增平台不自动引入（fail-closed，避免出现无适配器/无发布能力的平台）
+   * - 远程 cover_size 字符串会同步重建 _coverSizeParsed
+   *
+   * @param {Array<object>|null|undefined} defs - 远程平台定义列表
+   * @returns {number} 实际覆盖的平台数
+   */
+  applyRemote (defs) {
+    if (!Array.isArray(defs)) return 0
+    // 数组上限 fail-closed：超出合理规模直接拒绝整批，避免异常数据污染本地
+    if (defs.length > MAX_REMOTE_DEFS) return 0
+    let updated = 0
+    for (const def of defs) {
+      if (!def || typeof def !== 'object') continue
+      const id = String(def.id || '').trim()
+      if (!id) continue
+      const local = this._platforms.get(id)
+      if (!local) continue
+      let changed = false
+      for (const [k, v] of Object.entries(def)) {
+        const expectType = APPLY_REMOTE_KEY_TYPES[k]
+        // 仅覆盖 allowlist 内且类型相符的键；id 与内部字段永不复制
+        if (!expectType) continue
+        if (v === undefined || v === null) continue
+        if (typeof v !== expectType) continue
+        if (local[k] !== v) {
+          local[k] = v
+          changed = true
+        }
+      }
+      if (changed) {
+        if (typeof local.cover_size === 'string') {
+          const parts = local.cover_size.split('x').map(Number)
+          if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            local._coverSizeParsed = { width: parts[0], height: parts[1] }
+          } else {
+            local._coverSizeParsed = null
+          }
+        }
+        updated++
+      }
+    }
+    return updated
   }
 }
 

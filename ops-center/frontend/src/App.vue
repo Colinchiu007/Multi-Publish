@@ -56,6 +56,10 @@
           <el-icon><Cpu /></el-icon>
           <span>预设模型</span>
         </el-menu-item>
+        <el-menu-item index="/platform-defs">
+          <el-icon><Grid /></el-icon>
+          <span>平台元数据</span>
+        </el-menu-item>
         <el-menu-item index="/parameters">
           <el-icon><Operation /></el-icon>
           <span>项目参数</span>

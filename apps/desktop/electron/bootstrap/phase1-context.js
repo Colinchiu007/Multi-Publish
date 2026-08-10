@@ -243,6 +243,10 @@ function extractContext(container) {
       return null
     }
   })()
+  // 平台发布元数据运行时覆盖（运营后台下发 → PlatformConfig.applyRemote）
+  if (opsCenterSync && typeof opsCenterSync.setPlatformConfig === 'function') {
+    opsCenterSync.setPlatformConfig(_platformConfig)
+  }
   const _chunkedUploader = container.get('chunkedUploader')
   const splitterBridge = container.get('splitterBridge')
   const promptBridge = container.get('promptBridge')

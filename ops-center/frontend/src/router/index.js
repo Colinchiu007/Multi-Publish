@@ -81,6 +81,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/platform-defs',
+    name: 'PlatformDefs',
+    component: () => import('../views/PlatformDefs.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/parameters',
     name: 'Parameters',
     component: () => import('../views/Parameters.vue'),
