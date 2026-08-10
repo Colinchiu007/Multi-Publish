@@ -1,3 +1,10 @@
+## [未发布] 重构：BGM 跳过提示单一来源（服务层 warnings 机器码化）（2026-08-10）
+
+- 重构：compose 引擎 BGM 降级警告由中文改为机器码（bgm_size_exceeded / bgm_format_unsupported / bgm_not_allowed / bgm_unreadable），服务层不再硬编码用户可见中文；用户可见文案统一由前端依据 bgmSkippedReason 本地化（bgmSkippedReasonText / formatBgmSkippedNotification），消除双份映射漂移（PR #466 审查 Minor7）。
+- 备注：selected-media 惰性 GC 节流按 baseDir 隔离（Minor9，注释明确生产单目录场景）。
+- 回归：compose-engine warnings 断言改机器码（含「不含中文字符」校验），103 用例通过。
+- 边界：data.warnings 契约形状不变（数组），内容由中文 → 机器码；renderer 契约不变（读 bgmSkippedReason）。
+
 ## [未发布] 修复：BGM 跳过前端提示（i18n）+ 导入惰性 GC + API-Key 正则拆分（2026-08-10）
 
 - 新增：compose 跳过背景音乐时前端显示可关闭提示条——由 run.context.compose（bgmSkipped/bgmSkippedReason）驱动，新增 BGM_SKIPPED 通知（zh/en）与 bgmSkippedReasonText/formatBgmSkippedNotification（size_exceeded/format_unsupported/not_allowed/unreadable 本地化）；新运行/取消后重置。
