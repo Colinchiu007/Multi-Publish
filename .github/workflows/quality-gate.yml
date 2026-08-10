@@ -29,6 +29,10 @@ on:
       - '.agents/**'
       - 'openspec/**'
   workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   static-gates:
     name: QG Static

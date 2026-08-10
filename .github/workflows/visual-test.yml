@@ -20,6 +20,10 @@ on:
       - '.github/scripts/workflow-contract.test.js'
   workflow_dispatch:
 
+
+permissions:
+  contents: write
+
 jobs:
   visual-test:
     runs-on: windows-latest
