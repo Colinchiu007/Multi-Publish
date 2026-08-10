@@ -186,8 +186,21 @@ function extractContext(container) {
   if (opsCenterSync && typeof opsCenterSync.getUpdatePolicy === 'function' && autoUpdater.applyPolicy) {
     autoUpdater.applyPolicy(opsCenterSync.getUpdatePolicy())
   }
+  // 官方内容模板库运行时下发 → TemplateManager.applyRemote（先注入再启动自动同步）
+  if (opsCenterSync && typeof opsCenterSync.setTemplateManager === 'function') {
+    opsCenterSync.setTemplateManager(templateManager)
+  }
+  // 关键词监测目录运行时下发 → KeywordMonitor.applyRemoteWatchlist
+  if (opsCenterSync && typeof opsCenterSync.setKeywordMonitor === 'function') {
+    opsCenterSync.setKeywordMonitor(keywordMonitor)
+  }
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
+  }
+  // 运营功能开关提供者（4K 能力开关等运行时下发 → 引擎惰性读取）
+  const { setFeatureFlagProvider } = require('../core/container.setup')
+  if (opsCenterSync && typeof opsCenterSync.getFeatureFlag === 'function' && typeof setFeatureFlagProvider === 'function') {
+    setFeatureFlagProvider((key) => opsCenterSync.getFeatureFlag(key))
   }
   // 模型调用用量脱敏上报（P0 第二批）：聚合 model_provider_logs → ops-center /usage/ingest
   const { UsageReporter } = require('../services/usage-reporter')
@@ -212,6 +225,27 @@ function extractContext(container) {
     },
   })
   usageReporter.start()
+  // 发布指标脱敏上报（P1-3）：聚合 publish-history → ops-center /publish/ingest
+  const { PublishReporter } = require('../services/publish-reporter')
+  const publishReporter = new PublishReporter({
+    store,
+    log,
+    getOpsCenterAuth: () => {
+      if (!opsCenterSync || typeof opsCenterSync.getConfig !== 'function') return null
+      const cfg = opsCenterSync.getConfig()
+      if (!cfg.url || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
+      return { url: cfg.url, apiKey: opsCenterSync.getCatalogApiKey() }
+    },
+    getHistory: () => history,
+    getClientId: () => {
+      try {
+        const crypto = require('crypto')
+        const { app: electronApp } = require('electron')
+        return crypto.createHash('sha256').update(String(electronApp.getPath('userData') || '')).digest('hex').slice(0, 16)
+      } catch (e) { return '' }
+    },
+  })
+  publishReporter.start()
   // 由 Phase 3 在 SQLite WASM 与 Store 均就绪后初始化，避免重启时读取到空数据库。
   // 创建 ProviderRouter（不注入 logHandler，避免与 callAdapter 内部日志双写）
   // callAdapter 内部已通过 _writeLog 统一记录到 model_provider_logs 表

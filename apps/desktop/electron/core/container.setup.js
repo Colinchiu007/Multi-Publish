@@ -8,11 +8,17 @@
 // Container DI 容器（JS 版本，与 container.test.ts 测试一致）
 const Container = require("./container");
 
-// 输出分辨率能力开关（运营后台）：环境变量优先，其次 store 设置，默认 1080p（禁止 4K）。
-// 运营配置键 videoCreation.maxOutputResolution：'1080p' | '4k'。
-function resolveMaxOutputResolution (store) {
+// 输出分辨率能力开关（运营后台）：环境变量 → 运营功能开关（phase1 注入）→ store 设置 → 默认 1080p（禁止 4K）。
+// 运营配置键 videoCreation.maxOutputResolution：'1080p' | '4k'；未知值一律按 1080p（fail-closed）。
+function resolveMaxOutputResolution (store, getFeatureFlag) {
   const env = process.env.MAX_OUTPUT_RESOLUTION;
   if (env === '4k' || env === '1080p') return env;
+  if (typeof getFeatureFlag === 'function') {
+    try {
+      const flag = getFeatureFlag('videoCreation.maxOutputResolution');
+      if (flag === '4k' || flag === '1080p') return flag;
+    } catch (_) { /* 功能开关读取失败走下一级 */ }
+  }
   try {
     const stored = store && typeof store.getSetting === 'function'
       ? store.getSetting('videoCreation.maxOutputResolution')
@@ -20,6 +26,15 @@ function resolveMaxOutputResolution (store) {
     if (stored === '4k' || stored === '1080p') return stored;
   } catch (_) { /* store 未就绪时走默认 */ }
   return '1080p';
+}
+
+// 运营功能开关提供者（phase1 注入 opsCenterSync.getFeatureFlag；引擎惰性读取当前值）
+let _featureFlagProvider = null;
+function setFeatureFlagProvider (fn) {
+  _featureFlagProvider = typeof fn === 'function' ? fn : null;
+}
+function getFeatureFlagProvider (key) {
+  return _featureFlagProvider ? _featureFlagProvider(key) : undefined;
 }
 
 // -- 本模块加载的依赖（最终目标是到 container 中获取） --
@@ -210,9 +225,11 @@ function createContainer(options) {
   // Story2Video 合成引擎（基于 ffmpeg，替代占位 null）
   container.register("story2videoEngine", function(c) {
     const { Story2VideoComposeEngine } = require('../services/story2video-compose-engine');
+    const store = c.get("store");
     return new Story2VideoComposeEngine({
       log: c.get("logger"),
-      maxOutputResolution: resolveMaxOutputResolution(c.get("store")),
+      maxOutputResolution: resolveMaxOutputResolution(store, getFeatureFlagProvider),
+      getMaxOutputResolution: () => resolveMaxOutputResolution(store, getFeatureFlagProvider),
     });
   });
   container.register("story2videoProjectService", function(c) {
@@ -262,4 +279,4 @@ function createContainer(options) {
   return container;
 }
 
-module.exports = { createContainer };
+module.exports = { createContainer, setFeatureFlagProvider };

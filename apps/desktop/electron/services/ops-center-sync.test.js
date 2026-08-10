@@ -311,6 +311,70 @@ describe('OpsCenterSync 运行时策略（公告/版本/内容安全）', () => 
   })
 })
 
+
+describe('OpsCenterSync featureFlags', () => {
+  it('applyRuntime 存储并暴露功能开关（typed value）', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime({
+      announcements: [],
+      feature_flags: { 'videoCreation.maxOutputResolution': '4k', 'compose.maxSegments': 12, 'allow.flag': true },
+      synced_at: 't',
+    })
+    const state = svc.getRuntimeState()
+    expect(state.featureFlags['videoCreation.maxOutputResolution']).toBe('4k')
+    expect(state.featureFlags['compose.maxSegments']).toBe(12)
+    expect(state.featureFlags['allow.flag']).toBe(true)
+    expect(svc.getFeatureFlag('videoCreation.maxOutputResolution')).toBe('4k')
+    expect(svc.getFeatureFlag('missing')).toBeUndefined()
+    // 持久化到 settings
+    expect(store._getData()).toContain('videoCreation.maxOutputResolution')
+  })
+
+  it('feature_flags 结构非法（数组/对象嵌套/超限）→ fail-closed 空对象', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime({ announcements: [], feature_flags: [1, 2], synced_at: 't' })
+    expect(svc.getRuntimeState().featureFlags).toEqual({})
+    // 嵌套对象值被忽略（仅基本类型）
+    svc.applyRuntime({ announcements: [], feature_flags: { a: { nested: 1 }, b: 'ok' }, synced_at: 't' })
+    expect(svc.getRuntimeState().featureFlags).toEqual({ b: 'ok' })
+    // 超 100 个 key 整批拒绝
+    const huge = {}
+    for (let i = 0; i < 101; i++) huge['k' + i] = i
+    svc.applyRuntime({ announcements: [], feature_flags: huge, synced_at: 't' })
+    expect(svc.getRuntimeState().featureFlags).toEqual({})
+  })
+
+  it('重启后从 settings 恢复 featureFlags', () => {
+    const store = makeStore()
+    const svc1 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc1.applyRuntime({ announcements: [], feature_flags: { 'videoCreation.maxOutputResolution': '1080p' }, synced_at: 't' })
+    const svc2 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    expect(svc2.getFeatureFlag('videoCreation.maxOutputResolution')).toBe('1080p')
+  })
+
+  it('恢复路径同样归一化：settings 中的非法结构不进入运行时状态', () => {
+    const store = makeStore()
+    // 直接注入脏 settings（模拟旧版本/手工篡改持久化）
+    store.setSetting('opsCenterRuntime', JSON.stringify({
+      announcements: [], featureFlags: { a: { nested: 1 }, b: 'ok', c: true }, syncedAt: 't',
+    }))
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    expect(svc.getRuntimeState().featureFlags).toEqual({ b: 'ok', c: true })
+  })
+
+  it('getFeatureFlag 拒绝原型键且仅返回自有属性', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.applyRuntime({ announcements: [], feature_flags: { normal: 'v', __proto__: 'x', constructor: 1 }, synced_at: 't' })
+    expect(svc.getFeatureFlag('__proto__')).toBeUndefined()
+    expect(svc.getFeatureFlag('constructor')).toBeUndefined()
+    expect(svc.getFeatureFlag('toString')).toBeUndefined() // 不读原型链
+    expect(svc.getFeatureFlag('normal')).toBe('v')
+    expect(svc.getRuntimeState().featureFlags).toEqual({ normal: 'v' })
+  })
+})
 describe('OpsCenterSync applyRuntime platform_defs', () => {
   it('注入 platformConfig 时应用 platform_defs', () => {
     const store = makeStore()
@@ -334,5 +398,34 @@ describe('OpsCenterSync applyRuntime platform_defs', () => {
     svc.setPlatformConfig({})
     svc.applyRuntime({ announcements: [], platform_defs: [{ id: 'a' }], synced_at: 't' })
     expect(svc.getRuntimeState().announcements).toEqual([])
+
+  })
+
+  it('注入 keywordMonitor 时应用 keyword_watchlist；未注入跳过', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    const applyRemoteWatchlist = vi.fn(() => 2)
+    svc.setKeywordMonitor({ applyRemoteWatchlist })
+    svc.applyRuntime({ announcements: [], keyword_watchlist: [{ keyword: 'a' }, { keyword: 'b' }], synced_at: 't' })
+    expect(applyRemoteWatchlist).toHaveBeenCalledWith([{ keyword: 'a' }, { keyword: 'b' }])
+
+    const svc2 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc2.setKeywordMonitor({})
+    svc2.applyRuntime({ announcements: [], keyword_watchlist: [{ keyword: 'a' }], synced_at: 't' })
+    expect(svc2.getRuntimeState().announcements).toEqual([])
+  })
+
+  it('注入 templateManager 时应用 content_templates；未注入跳过', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    const applyRemote = vi.fn(() => 2)
+    svc.setTemplateManager({ applyRemote })
+    svc.applyRuntime({ announcements: [], content_templates: [{ id: 'a' }, { id: 'b' }], synced_at: 't' })
+    expect(applyRemote).toHaveBeenCalledWith([{ id: 'a' }, { id: 'b' }])
+
+    const svc2 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc2.setTemplateManager({})
+    svc2.applyRuntime({ announcements: [], content_templates: [{ id: 'a' }], synced_at: 't' })
+    expect(svc2.getRuntimeState().announcements).toEqual([])
   })
 })

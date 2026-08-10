@@ -884,6 +884,57 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 `test_health_api.py` 2 用例：未配置跳过 + 权限、自定义目标失败 + 非法目标忽略。
 
 
+## 12A.16 桌面端功能开关运行时下发（2026-08-11 新增，P0-1）
+
+> 桌面端功能开关（key → typed value）由运营后台统一维护，随 `runtime/bootstrap` 下发；桌面端同步后即时生效。首个真实用例：4K 输出能力开关 `videoCreation.maxOutputResolution`（PRD 7.1.20）。
+
+### 12A.16.1 数据模型与校验
+
+`feature_flags` 表：
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| key | str PK | 必填、`^[A-Za-z0-9_.-]{1,128}$` | 开关标识（如 videoCreation.maxOutputResolution） |
+| value_type | str | 枚举 string/boolean/number，默认 string | 值类型 |
+| value | str | 按类型可解析：boolean ∈ true/false/1/0；number 可解析数字 | 存储字符串，下发时转 typed value |
+| description | str | ≤200 | 用途说明 |
+| enabled | bool | 0/1 | 停用后不下发 |
+| updated_at / updated_by | str | 自动 | 审计 |
+
+- key 拒绝 `__proto__`/`constructor`/`prototype`；value ≤512。
+- number value 统一 float 解析并校验有限（含科学计数法，前后端一致）。
+- POST 重复 key → 409；PUT / DELETE 不存在 → 404；PUT 部分更新（null 不修改、body 中 key 被忽略不可变）；并发冲突 IntegrityError → 409；种子并发冲突幂等忽略。
+- 种子：`videoCreation.maxOutputResolution` = '1080p'（默认禁止 4K），已存在即跳过，不覆盖运营修改。
+
+### 12A.16.2 端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/feature-flags | 列表（登录可读，含 typed_value） |
+| POST | /api/v1/feature-flags | 新增（admin） |
+| PUT | /api/v1/feature-flags/{key} | 更新（admin，部分更新） |
+| DELETE | /api/v1/feature-flags/{key} | 删除（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `feature_flags` = `{key: typed_value}`（enabled=1，同 X-Catalog-Key 鉴权） |
+
+### 12A.16.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| OpsCenterSync | `applyRuntime` 应用 `feature_flags`（仅接受字符串/布尔/数字值，结构非法或 >100 项 → 空对象 fail-closed）；持久化 opsCenterRuntime，重启恢复；`getFeatureFlag(key)` 供主进程/引擎读取；`getRuntimeState()` 暴露 featureFlags（渲染端经现有 `opsCenterSyncRuntime` IPC） |
+| 4K 读取优先级 | 环境变量 `MAX_OUTPUT_RESOLUTION` → 运营功能开关 `videoCreation.maxOutputResolution`（phase1 `setFeatureFlagProvider` 注入）→ store 设置 → 默认 1080p（fail-closed） |
+| 引擎 | `Story2VideoComposeEngine` 支持 `getMaxOutputResolution` 惰性读取：compose/renderSegment 能力校验时取当前值，构造期静态值兜底 |
+| 渲染端 | CreateView `loadMaxOutputResolution`：runtime featureFlags → store → 默认 |
+
+### 12A.16.4 前端「桌面端功能开关」页
+
+- 列表：Key / 类型 tag / 当前值（typed 展示，空显示「（空）」）/ 描述 / 启用开关 / 操作（编辑、删除）；顶部「全部/已启用/已停用」筛选 + 「新增开关」。
+- 编辑弹窗：Key（编辑禁用）/ 值类型下拉 / 值输入（布尔提示 true/false、数字提示数字、字符串提示如 1080p/4k）/ 描述 / 启用下发。
+- 校验提示：Key 字符集、布尔值枚举、数字可解析；保存失败显示后端 detail。
+- 顶部说明文案注明内置 4K 开关用途与 fail-closed 语义。
+
+### 12A.16.5 验收标准
+
+① 首次启动 4K 开关种子存在；② 非法 key/value_type/value → 400；③ POST 重复 → 409、PUT/DELETE 不存在 → 404；④ bootstrap 返回 enabled 开关 typed value；⑤ 桌面端 applyRuntime 应用/持久化/重启恢复；非法结构 → 空对象；⑥ 引擎惰性读取：静态 1080p + 动态 4k → 放行 4K，动态 1080p → 拒绝（fail-closed）；⑦ 未配置同步的桌面端用本地默认（1080p）。
 ## 12A.15 平台发布元数据管理（2026-08-11 新增，P1 其余）
 
 > 平台发布元数据（标题/内容上限、内容类型分类、是否支持 API、临时下线）从桌面端 `config/platforms.yaml` 迁移到运营后台维护，随运行时 bootstrap 下发；桌面端启动/同步时覆盖同名平台字段，不改写 yaml。
@@ -935,3 +986,159 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 ### 12A.15.5 验收标准
 
 ① 首次启动种子 12 平台且可编辑；② 非法 content_category / 负数或小数上限 → 400；③ PUT 仅传部分字段可更新（enabled 临时下线）；④ bootstrap 仅返回 enabled=1 项；⑤ 桌面端 applyRemote 覆盖同名平台、本地独有保留、远程新增不引入、yaml 不被改写；⑥ 未注入 platformConfig 时跳过应用不影响其他策略；⑦ 非 admin 写 403、读 200。
+
+
+## 12A.18 发布数据看板（2026-08-11 新增，P1-3）
+
+> 桌面端把发布指标脱敏聚合上报运营后台，运营看板展示各平台产粮/失败情况（发布总数/成功/失败/成功率/平台排行/每日趋势）。仅计数，不含标题/正文/账号等敏感内容。
+
+### 12A.18.1 数据模型与校验
+
+`publish_metrics_daily`：usage_date（YYYY-MM-DD）/ client_id（设备稳定哈希，脱敏）/ platform / publish_count / ok_count / fail_count / updated_at；唯一约束 (usage_date, client_id, platform)，同桶 upsert 累加（幂等由客户端水印防重）。
+
+| 校验 | 规则 |
+|------|------|
+| date | `YYYY-MM-DD` |
+| platform | `^[A-Za-z0-9_.-]{1,64}$` |
+| 计数 | 非负整数；publish_count ≥ ok+fail |
+| items | ≤500 |
+
+### 12A.18.2 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/v1/publish/ingest | 上报（X-Catalog-Key；校验失败 400） |
+| GET | /api/v1/publish/summary?days=N | 看板（admin，默认 30，上限 90）：totals + by_date + by_platform（含成功率） |
+
+### 12A.18.3 桌面端上报（PublishReporter）
+
+- 聚合 publish-history 记录按 日期+平台 分桶；status success → ok、含 fail/error → fail、监控状态（visible 等）不计（避免同一次发布重复计数）。
+- 水印 = 最后上报记录 timestamp（ISO 字典序）；成功推进，失败保留下次重试；启动 5s 首报 + 30min 周期；未配置 URL/Key 静默跳过。
+- 仅上报计数，不含标题/正文/账号/平台凭证。
+
+### 12A.18.4 前端「发布数据」页
+
+- 7/30/90 天切换 + 6 张汇总卡片（发布总数/成功/失败/成功率/平台数/设备数）+ 按平台表（发布/成功/失败/成功率）+ 每日趋势 CSS 柱状图（成功绿/失败红）+ 空态提示「尚未收到发布数据上报（桌面端需配置运营后台同步）」；非 admin 403 提示。
+
+### 12A.18.5 验收标准
+
+① 上报校验：非法日期/平台/负数/publish<ok+fail → 400；② 同桶累加正确；③ 未配置 Key 404、Key 错误 401；④ summary 非 admin 403；⑤ 按日期/平台聚合、成功率=ok/publish；⑥ 桌面端分桶正确（监控状态不计数）、水印推进/失败保留、未配置静默；⑦ 不上报敏感内容。
+## 12A.17 官方内容模板库下发（2026-08-11 新增，P0-2）
+
+> 官方内容模板库由运营后台统一维护，随 `runtime/bootstrap` 下发；桌面端同步时合并进本地模板（内置标记 builtin），用户自建模板保留。
+
+### 12A.17.1 数据模型与校验
+
+`content_templates` 表：
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| id | str PK | 必填、`^[a-z0-9_-]{1,64}$` | 模板 id（如 preset-weekly） |
+| name | str | 必填、≤100 | 模板名称 |
+| category | str | ≤40 | report/marketing/tutorial/event/daily 等 |
+| title | str | ≤200 | 模板标题 |
+| content | text | ≤20000 | Markdown 正文 |
+| platforms | JSON | 非空字符串数组 ≤50 | 适用平台 |
+| tags | JSON | 非空字符串数组 ≤50 | 标签 |
+| enabled | bool | 0/1 | 停用后不下发 |
+| sort_order | int | 非负整数 | 排序 |
+| deleted_at | str | 软删 | 软删不复活，可重建 |
+
+- POST 重复 → 409；PUT 部分更新（null 不修改、body 中 id 忽略）+ 404；DELETE 软删 + 404；IntegrityError 兜底 409。
+- 种子对齐桌面端 TemplateManager.getPresets() 5 个（preset-weekly/product/tutorial/event/daily），已存在（含软删）即跳过。
+
+### 12A.17.2 端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/content-templates | 列表（登录可读） |
+| POST | /api/v1/content-templates | 新增（admin） |
+| PUT / DELETE | /api/v1/content-templates/{id} | 更新/软删（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `content_templates`（enabled=1 未软删，sort_order 排序，builtin=true） |
+
+### 12A.17.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| TemplateManager.applyRemote(templates) | 按 id upsert；官方字段白名单；新增标记 builtin=true；用户自建模板保留；数组 >200 fail-closed 返回 0；变更后 save() 持久化 |
+| OpsCenterSync | setTemplateManager 注入（phase1 接线）；applyRuntime 应用 content_templates（数组 + 已注入时），异常仅 warn |
+
+### 12A.17.4 前端「内容模板库」页
+
+- 列表：ID / 名称 / 分类 tag / 标题 / 适用平台 tags / 内置标记 / 下发开关 / 操作（编辑、删除）；分类筛选 + 新增。
+- 编辑弹窗：ID（编辑禁用）/ 名称（必填）/ 分类下拉 / 标题 / Markdown 正文（≤20000）/ 适用平台（逗号分隔）/ 标签（逗号分隔）/ 排序 / 启用下发。
+- 顶部说明文案注明内置种子与用户模板不受影响。
+
+### 12A.17.5 验收标准
+
+① 首次启动种子 5 个内置模板；② 非法 id/name/platforms/sort/content → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 模板（builtin=true）；⑤ 软删种子重启不复活、可重建；⑥ 桌面端 applyRemote 按 id 覆盖/新增/保留用户模板/上限 fail-closed；⑦ 未注入 templateManager 跳过不影响其他策略。
+
+
+## 12A.20 关键词监测目录下发（2026-08-11 新增，P1-5）
+
+> 运营后台维护关键词监测目录（关键词/飙升阈值/轮询间隔），随 `runtime/bootstrap` 下发；桌面端同步后按目录监测热度，异常飙升触发通知；用户自建监测词不受影响。
+
+### 12A.20.1 数据模型与校验
+
+`keyword_watchlist`：id（代理主键）/ keyword（唯一，2-100 字）/ category（≤40）/ threshold（≥1，飙升倍数）/ interval_minutes（10-10080 整数分钟）/ enabled / sort_order / deleted_at（软删，不复活，可重建）/ updated_at / updated_by。
+
+- POST 重复 keyword → 400；PUT 部分更新 + 404；DELETE 软删 + 404。
+
+### 12A.20.2 端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/keyword-watchlist | 列表（登录可读） |
+| POST | /api/v1/keyword-watchlist | 新增（admin） |
+| PUT / DELETE | /api/v1/keyword-watchlist/{id} | 更新/软删（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `keyword_watchlist`（enabled=1 未软删，sort_order 排序） |
+
+### 12A.20.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| KeywordMonitor.applyRemoteWatchlist(entries) | 按 keyword upsert：已存在更新 interval/threshold 并标记 source=remote（重建定时器）；不存在新增（立即首查+定时轮询）；缺席即停止远程监测；用户/恢复条目保留；MAX_KEYWORDS(20) 上限 skip+warn |
+| OpsCenterSync | setKeywordMonitor 注入（phase1 接线）；applyRuntime 应用 keyword_watchlist（数组+已注入时，异常仅 warn） |
+
+### 12A.20.4 前端「关键词监测」页
+
+- 列表：关键词 / 分类 tag / 飙升阈值 / 轮询间隔 / 启用开关 / 操作（编辑、删除）；状态筛选 + 新增。
+- 编辑弹窗：关键词（编辑禁用，2-100 字）/ 分类 / 飙升阈值（≥1）/ 轮询间隔（10-10080 分钟）/ 启用下发。
+- 顶部说明：用户自建监测词不受影响；关闭后桌面端停止监测该词。
+
+### 12A.20.5 验收标准
+
+① 校验：keyword/threshold/interval 非法 → 400；② POST 重复 400、PUT/DELETE 404；③ 软删不复活、可重建；④ bootstrap 仅 enabled 条目；⑤ 桌面端 applyRemoteWatchlist 新增/更新/缺席停止/用户保留；⑥ 未注入跳过不影响其他策略；⑦ 非 admin 写 403。
+## 12A.19 兑换码签发/吊销/查询（2026-08-11 新增，P1-4）
+
+> 运营后台批量签发 Pro 激活码，格式与桌面端 `redemption-codes.js` 完全兼容（HMAC-SHA256，`MP-XXXX-XXXX-SIG`）。共享密钥：`OPS_REDEMPTION_SECRET` 必须等于桌面端 `REDEMPTION_SECRET`，否则桌面端无法验证。
+
+### 12A.19.1 数据模型与签发算法
+
+`redemption_codes`：id（代理主键，操作引用）/ code（唯一）/ plan（free|trial|pro）/ batch_id / status（active|revoked）/ expires_at（ISO 或空）/ note（≤200）/ created_at / updated_by。列表始终掩码 `MP-****-****-SIG`，操作按 id。
+
+签发算法（与桌面端逐字符一致）：
+- 随机段字母表 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`（去 I/O/0/1），4 字符 ×2；
+- payload = `MP-RAND-RAND`；签名 = `HMAC-SHA256(payload, secret).hexdigest().upper()[:4]`；
+- code = `payload-SIG`。
+
+### 12A.19.2 端点（均 admin）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/v1/redemption-codes/batch | 批量签发（count 1-200、plan 枚举、expires_at ISO、note ≤200；未配置 OPS_REDEMPTION_SECRET → 400 fail-closed） |
+| GET | /api/v1/redemption-codes?plan=&status=&limit=&offset= | 列表（掩码） |
+| PUT | /api/v1/redemption-codes/{id}/revoke | 吊销（404 兜底） |
+| DELETE | /api/v1/redemption-codes/{id} | 删除（404 兜底） |
+
+### 12A.19.3 前端「兑换码」页
+
+- 批量签发弹窗：数量（1-200）/ 套餐下拉（free/trial/pro）/ 过期时间（ISO）/ 备注。
+- 签发成功：批次号 + 掩码列表（提示「列表展示为掩码，完整码已存库」）。
+- 列表：掩码 / 套餐 tag / 状态 tag（有效|已吊销）/ 批次 / 过期时间 / 签发时间 / 备注 / 操作（有效→吊销、删除）。
+- 顶部说明：OPS_REDEMPTION_SECRET 与桌面端 REDEMPTION_SECRET 一致契约。
+
+### 12A.19.4 验收标准
+
+① 签发格式与桌面端 validate() 兼容（签名可复算）；② count/plan/expires_at 非法 → 400；③ 未配置密钥 → 400；④ 列表掩码、操作按 id；⑤ 吊销/删除不存在 → 404；⑥ 非 admin 403。
+

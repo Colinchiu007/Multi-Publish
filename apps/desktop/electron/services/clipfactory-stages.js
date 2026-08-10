@@ -59,15 +59,18 @@ function parseSceneTimes (output) {
   return times
 }
 
-function buildSegments (duration, sceneTimes) {
+function buildSegments (duration, sceneTimes, options = {}) {
+  const maxSegments = Number.isFinite(Number(options.maxSegments)) && Number(options.maxSegments) > 0 ? Number(options.maxSegments) : MAX_SEGMENTS
+  const minSegmentSeconds = Number.isFinite(Number(options.minSegmentSeconds)) && Number(options.minSegmentSeconds) >= 0 ? Number(options.minSegmentSeconds) : MIN_SEGMENT_SECONDS
+  const maxTotalSeconds = Number.isFinite(Number(options.maxTotalSeconds)) && Number(options.maxTotalSeconds) > 0 ? Number(options.maxTotalSeconds) : MAX_TOTAL_SECONDS
   const boundaries = [0, ...sceneTimes, duration]
     .filter((value, index, array) => Number.isFinite(value) && (index === 0 || value > array[index - 1]))
     .sort((a, b) => a - b)
   const segments = []
-  for (let index = 0; index < boundaries.length - 1 && segments.length < MAX_SEGMENTS; index++) {
+  for (let index = 0; index < boundaries.length - 1 && segments.length < maxSegments; index++) {
     const start = boundaries[index]
     const end = boundaries[index + 1]
-    if (end - start < MIN_SEGMENT_SECONDS) continue
+    if (end - start < minSegmentSeconds) continue
     segments.push({
       index: segments.length,
       start: Number(start.toFixed(3)),
@@ -82,14 +85,14 @@ function buildSegments (duration, sceneTimes) {
   let total = 0
   const capped = []
   for (const segment of segments) {
-    if (total + segment.duration > MAX_TOTAL_SECONDS) break
+    if (total + segment.duration > maxTotalSeconds) break
     capped.push(segment)
     total += segment.duration
   }
   return capped.length > 0 ? capped : [segments[0]]
 }
 
-async function analyzeVideo (inputPath) {
+async function analyzeVideo (inputPath, options = {}) {
   const ffprobe = findFfprobe()
   const ffmpeg = findFfmpeg()
   if (!ffmpeg || !ffprobe) {
@@ -104,10 +107,10 @@ async function analyzeVideo (inputPath) {
   }
   const detectionOutput = await runTool(ffmpeg, [
     '-i', inputPath,
-    '-vf', "select='gt(scene," + SCENE_THRESHOLD + ")',metadata=print",
+    '-vf', "select='gt(scene," + (Number.isFinite(Number(options.sceneThreshold)) ? Number(options.sceneThreshold) : SCENE_THRESHOLD) + ")',metadata=print",
     '-an', '-f', 'null', '-',
   ])
-  const segments = buildSegments(duration, parseSceneTimes(detectionOutput))
+  const segments = buildSegments(duration, parseSceneTimes(detectionOutput), options)
   return { inputPath, duration: Number(duration.toFixed(3)), segments }
 }
 
@@ -161,7 +164,7 @@ function registerClipFactoryStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     CLIPFACTORY_STAGE_TYPES.ANALYZE,
-    async ({ params }) => {
+    async ({ params, stage }) => {
       const rawVideo = params && (params.video || params.videoPath)
       const inputPath = resolveReadableMediaFile(rawVideo, {
         kind: 'video',
@@ -171,7 +174,7 @@ function registerClipFactoryStages (pipelineEngine) {
         return { success: false, error: 'clip-factory analyze 需要可读的本地视频（params.video）' }
       }
       try {
-        const analysis = await analyzeVideo(inputPath)
+        const analysis = await analyzeVideo(inputPath, stage && stage.options)
         return { success: true, output: analysis }
       } catch (error) {
         return { success: false, error: 'clip-factory analyze 失败：' + (error && error.message ? error.message : String(error)) }

@@ -45,6 +45,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/publish-dashboard',
+    name: 'PublishDashboard',
+    component: () => import('../views/PublishDashboard.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/system-health',
     name: 'SystemHealth',
     component: () => import('../views/SystemHealth.vue'),
@@ -54,6 +60,16 @@ const routes = [
     path: '/licenses',
     name: 'Licenses',
     component: () => import('../views/Licenses.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/keyword-watchlist',
+    name: 'KeywordWatchlist',
+    component: () => import('../views/KeywordWatchlist.vue'),
+    path: '/redemption-codes',
+    name: 'RedemptionCodes',
+    component: () => import('../views/RedemptionCodes.vue'),
+
     meta: { requiresAuth: true },
   },
   {
@@ -84,6 +100,17 @@ const routes = [
     path: '/platform-defs',
     name: 'PlatformDefs',
     component: () => import('../views/PlatformDefs.vue'),
+  },
+  {
+    path: '/runtime-flags',
+    name: 'RuntimeFlags',
+    component: () => import('../views/RuntimeFlags.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/content-templates',
+    name: 'ContentTemplates',
+    component: () => import('../views/ContentTemplates.vue'),
     meta: { requiresAuth: true },
   },
   {

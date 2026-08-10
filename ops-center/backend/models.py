@@ -229,6 +229,18 @@ class ModelUsageBatch(Base):
     ingested_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
 
+class FeatureFlag(Base):
+    """功能开关（桌面端运行时下发）— 运营后台维护，bootstrap 下发 typed value。"""
+
+    __tablename__ = "feature_flags"
+
+    key = Column(String(128), primary_key=True)
+    value_type = Column(String(20), default="string")  # string | boolean | number
+    value = Column(String, default="")
+    description = Column(String(200), default="")
+    enabled = Column(Integer, default=1)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
 class PlatformDef(Base):
     """平台发布元数据 — 运营后台管理，桌面端启动拉取覆盖（临时下线/字段上限即时生效）。"""
 
@@ -246,3 +258,85 @@ class PlatformDef(Base):
     note = Column(String(200), default="")
     deleted_at = Column(String, nullable=True)  # 软删除时间（非空=已删除，种子不复活）
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class PublishMetricDaily(Base):
+    """发布指标日聚合 — 桌面端上报，运营看板展示。"""
+
+    __tablename__ = "publish_metrics_daily"
+    __table_args__ = (
+        sa.UniqueConstraint("usage_date", "client_id", "platform", name="uq_publish_metric_day"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    usage_date = Column(String, nullable=False)  # YYYY-MM-DD
+    client_id = Column(String, default="")  # 桌面端设备稳定哈希（脱敏）
+    platform = Column(String, default="")  # 平台 id（如 wechat_mp）
+    publish_count = Column(Integer, default=0)
+    ok_count = Column(Integer, default=0)
+    fail_count = Column(Integer, default=0)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class PublishReportBatch(Base):
+    """发布指标上报批次去重 — 客户端携带 report_id（minTs-maxTs），服务端唯一约束防网络模糊失败重复计数。"""
+
+    __tablename__ = "publish_report_batches"
+    __table_args__ = (
+        sa.UniqueConstraint("client_id", "report_id", name="uq_publish_report_batch"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_id = Column(String, default="")
+    report_id = Column(String, nullable=False)
+    ingested_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+class ContentTemplate(Base):
+    """官方内容模板库（桌面端运行时下发）— 运营后台维护，bootstrap 下发内置模板。"""
+
+    __tablename__ = "content_templates"
+
+    id = Column(String(64), primary_key=True)  # 如 preset-weekly
+    name = Column(String(100), nullable=False)
+    category = Column(String(40), default="marketing")  # report | marketing | tutorial | event | daily ...
+    title = Column(String(200), default="")
+    content = Column(Text, default="")  # Markdown 正文
+    platforms = Column(Text, default="[]")  # JSON 数组
+    tags = Column(Text, default="[]")  # JSON 数组
+    enabled = Column(Integer, default=1)
+    sort_order = Column(Integer, default=0)
+    deleted_at = Column(String, nullable=True)  # 软删除时间（非空=已删除，种子不复活）
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
+
+
+class KeywordWatchlist(Base):
+    """关键词监测目录（桌面端运行时下发）— 运营后台维护，桌面端按条目监测热度与飙升告警。"""
+
+    __tablename__ = "keyword_watchlist"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    keyword = Column(String(100), unique=True, nullable=False)
+    category = Column(String(40), default="topic")
+    threshold = Column(Float, default=2.0)  # 飙升检测倍数
+    interval_minutes = Column(Integer, default=360)  # 轮询间隔（分钟）
+    enabled = Column(Integer, default=1)
+    sort_order = Column(Integer, default=0)
+    deleted_at = Column(String, nullable=True)  # 软删（不复活）
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
+class RedemptionCode(Base):
+    """兑换码管理 — 运营后台签发（与桌面端 redemption-codes.js HMAC 格式一致），吊销/查询。"""
+
+    __tablename__ = "redemption_codes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(32), unique=True, nullable=False)  # MP-XXXX-XXXX-XXXX-SIG（列表掩码，操作按 id）
+    plan = Column(String(20), default="pro")  # free | trial | pro
+    batch_id = Column(String(32), default="")
+    status = Column(String(20), default="active")  # active | revoked
+    expires_at = Column(String, nullable=True)  # ISO 或空
+    note = Column(String(200), default="")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
+
+

@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     health_api_url: str = ""
     health_logto_url: str = ""
     health_targets: str = ""  # JSON 数组 [{name, url}]
+    # 兑换码签发密钥：须与桌面端 REDEMPTION_SECRET 一致（未配置 → 签发端点 400 fail-closed）
+    redemption_secret: str = ""
 
     def get_jwt_secret(self) -> str:
         """返回经过安全校验的 JWT 密钥。"""
