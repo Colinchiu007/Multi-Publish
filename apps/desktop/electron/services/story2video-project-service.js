@@ -435,13 +435,22 @@ class Story2VideoProjectService {
     const normalized = normalizeStory2VideoTextParams(params)
     const config = JSON.parse(JSON.stringify(normalized.story2videoTextConfig))
     if (normalized.bgmPath) {
-      const persistedBgm = options.bgmPath || this._copyRequired(
-        normalized.bgmPath,
-        path.join(this._projectDir(projectId), 'bgm' + sourceExtension(normalized.bgmPath, '.mp3')),
-        'bgm',
-      )
-      options.bgmPath = persistedBgm
-      config.bgm.path = persistedBgm
+      // 缺失/不可读 BGM：compose 阶段已按 bgmSkipped 降级跳过，持久化必须同样跳过，
+      // 否则会把已成功合成的成片误判为「项目保存失败」（2026-08-11 E2E 修复）。
+      const source = this._resolveSource(normalized.bgmPath, 'bgm')
+      if (source) {
+        const persistedBgm = options.bgmPath || this._copyRequired(
+          source,
+          path.join(this._projectDir(projectId), 'bgm' + sourceExtension(source, '.mp3')),
+          'bgm',
+        )
+        options.bgmPath = persistedBgm
+        config.bgm.path = persistedBgm
+      } else {
+        // 清空对不存在文件的引用，避免项目元数据指向已回收/缺失的 BGM
+        options.bgmPath = ''
+        config.bgm.path = ''
+      }
     }
     return { version: STORY2VIDEO_TEXT_CONFIG_VERSION, config }
   }
