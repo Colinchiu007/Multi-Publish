@@ -386,9 +386,11 @@ function registerVideoGenStages (pipelineEngine) {
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.MERGE,
     async ({ runId, context }) => {
-      const videos = Array.isArray(context.generate?.videos)
-        ? context.generate.videos
-        : (Array.isArray(context.merge?.videos) ? context.merge.videos : [])
+      // 生成阶段的输出按 stage.name 写入 context（animation/character-animation=animate，
+      // avatar-spokesperson=generate，hybrid=merge），merge 必须兼容全部候选键
+      const videos = (['generate', 'merge', 'animate']
+        .map(key => context[key] && context[key].videos)
+        .find(Array.isArray)) || []
       if (videos.length === 0) return { success: false, error: '该流水线 merge 需要 context.generate/merge.videos' }
       const ffmpeg = findFfmpeg()
       if (!ffmpeg) return { success: false, error: 'ffmpeg 不可用，无法拼接视频' }

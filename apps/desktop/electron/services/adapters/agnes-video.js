@@ -77,8 +77,9 @@ class AgnesVideoAdapter extends BaseAdapter {
     }
   }
 
-  /** 构造完整 URL */
+  /** 构造完整 URL（path 为绝对 URL 时原样返回，支持 base 之外的端点） */
   _url(path) {
+    if (/^https?:\/\//i.test(String(path))) return path
     const base = this.credentials.baseUrl.replace(/\/$/, '')
     return `${base}${path}`
   }
@@ -173,17 +174,23 @@ class AgnesVideoAdapter extends BaseAdapter {
   /**
    * 查询视频任务状态
    *
-   * @param {string} taskId - 任务 ID（即 generateVideo 返回的 video_id）
+   * @param {string|object} taskIdOrParams - 任务 ID 字符串，或 callAdapter 统一参数对象 { videoId, taskId }
    * @returns {Promise<{status: string, videoUrl: string, progress: number}>}
    */
-  async getVideoStatus(taskId) {
-    if (!taskId) {
+  async getVideoStatus(taskIdOrParams) {
+    // callAdapter 统一以 params 对象调用（{ videoId, taskId }）；直接调用时传字符串，两种都兼容
+    const rawTaskId = (taskIdOrParams && typeof taskIdOrParams === 'object')
+      ? (taskIdOrParams.videoId || taskIdOrParams.taskId || taskIdOrParams.id)
+      : taskIdOrParams
+    if (!rawTaskId) {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'taskId is required')
     }
 
     // 官方文档（agnes-video-v2.0）：推荐查询方式 GET /agnesapi?video_id=<VIDEO_ID>
     // （GET /v1/videos/<TASK_ID> 为兼容旧版方式，部分网关返回 task_not_exist）
-    const resp = await this._request(`/agnesapi?video_id=${encodeURIComponent(String(taskId))}&model_name=${encodeURIComponent(DEFAULT_MODEL)}`)
+    // /agnesapi 位于域名根（base_url 之外），必须用绝对 URL，否则拼成 /v1/agnesapi 会 task not found
+    const apiRoot = this.credentials.baseUrl.replace(/\/$/, '').replace(/\/v1$/, '')
+    const resp = await this._request(`${apiRoot}/agnesapi?video_id=${encodeURIComponent(String(rawTaskId))}&model_name=${encodeURIComponent(DEFAULT_MODEL)}`)
     const data = await resp.json()
 
     // Agnes 状态映射

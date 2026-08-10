@@ -188,6 +188,28 @@ describe('videogen 共享阶段执行器', () => {
     })
   })
 
+  describe('merge 阶段（context 键兼容）', () => {
+    it('animation 流水线生成阶段名为 animate 时也能找到 videos（E2E 回归）', async () => {
+      const { get } = makePipeline(makeAi('x'))
+      const result = await get(VIDEOGEN_STAGE_TYPES.MERGE)({
+        runId: 'run_1', stage: {}, params: {}, context: { animate: { videos: [{ path: 'a.mp4' }, { path: 'b.mp4' }] } },
+      })
+      // 已成功读取 animate.videos 进入 ffmpeg 拼接；测试环境若 ffmpeg 缺失报「ffmpeg 不可用」，
+      // 但不允许再报「需要 context.generate/merge.videos」（即 videos 查找成功）
+      expect(result.success).toBe(false)
+      expect(result.error).not.toContain('需要 context.generate/merge.videos')
+    })
+
+    it('context 完全无 videos 时保持原错误', async () => {
+      const { get } = makePipeline(makeAi('x'))
+      const result = await get(VIDEOGEN_STAGE_TYPES.MERGE)({
+        runId: 'run_1', stage: {}, params: {}, context: {},
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('需要 context.generate/merge.videos')
+    })
+  })
+
   describe('工具函数', () => {
     it('concept 提示词按流水线类型区分', () => {
       expect(buildConceptPrompt('x', 'animation').system).toContain('动画视频')
