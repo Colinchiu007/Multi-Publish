@@ -154,6 +154,40 @@ describe('videogen 共享阶段执行器', () => {
     })
   })
 
+
+  describe('generate 阶段（错误透传）', () => {
+    function makeAiWithVideoManager (callAdapterImpl) {
+      return {
+        _modelProviderManager: {
+          getDefault: (type) => type === 'llm' ? { id: 'agnes-llm', models: ['agnes-2.0-flash'] } : (type === 'video' ? { id: 'agnes-video', models: ['agnes-video-v2.0'] } : null),
+          callAdapter: vi.fn(callAdapterImpl),
+        },
+        generateWithDefault: vi.fn(async () => ({ content: 'x', model: 'agnes-2.0-flash' })),
+      }
+    }
+
+    it('callAdapter 返回失败码时透传真实 provider 错误（不再吞成「未返回任务 ID」）', async () => {
+      const ai = makeAiWithVideoManager(async () => ({ code: -1, message: 'Missing task_id in response' }))
+      const { get } = makePipeline(ai)
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_1', stage: {}, params: { text: '主题' }, context: { storyboard: [{ prompt: 'p1' }] },
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Missing task_id in response')
+      expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith('agnes-video', 'generateVideo', expect.any(Object))
+    })
+
+    it('callAdapter 成功但响应无 taskId 时保留「未返回任务 ID」提示', async () => {
+      const ai = makeAiWithVideoManager(async () => ({ code: 0, data: {} }))
+      const { get } = makePipeline(ai)
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_1', stage: {}, params: { text: '主题' }, context: { storyboard: [{ prompt: 'p1' }] },
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('视频生成未返回任务 ID')
+    })
+  })
+
   describe('工具函数', () => {
     it('concept 提示词按流水线类型区分', () => {
       expect(buildConceptPrompt('x', 'animation').system).toContain('动画视频')

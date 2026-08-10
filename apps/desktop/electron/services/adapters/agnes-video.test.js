@@ -4,9 +4,9 @@
  *
  * Agnes Video API 关键特性：
  * - 认证头 Authorization: Bearer {key}（sk- 开头密钥）
- * - generateVideo: POST /videos/generations（OpenAI 兼容协议）
+ * - generateVideo: POST /video/generations（OpenAI 兼容协议）
  * - 请求体 { model: 'agnes-video-v2.0', prompt, image, width, height, num_frames, frame_rate, negative_prompt, seed }
- * - getVideoStatus: GET /videos/generations/{video_id}
+ * - getVideoStatus: GET /video/generations/{video_id}
  * - 状态映射：queued/in_progress → processing，completed → completed，failed → failed
  * - listModels: 静态返回 1 个模型
  * - testConnection: 验证 apiKey 存在
@@ -133,7 +133,7 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
   })
 
   describe('generateVideo', () => {
-    it('POST /videos/generations 返回 { taskId, model }，默认参数正确', async () => {
+    it('POST /video/generations 返回 { taskId, model }，默认参数正确', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ id: 'agnes-task-1' }),
       ])
@@ -145,7 +145,7 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       expect(result.taskId).toBe('agnes-task-1')
       expect(result.model).toBe('agnes-video-v2.0')
 
-      expect(fetchMock.calls[0].url).toContain('/videos/generations')
+      expect(fetchMock.calls[0].url).toContain('/video/generations')
       const body = JSON.parse(fetchMock.calls[0].opts.body)
       expect(body.prompt).toBe('海浪拍岸')
       expect(body.model).toBe('agnes-video-v2.0')
@@ -292,7 +292,7 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
   })
 
   describe('getVideoStatus', () => {
-    it('GET /videos/generations/{video_id} 返回状态', async () => {
+    it('GET /video/generations/{video_id} 返回状态', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({
           status: 'completed',
@@ -308,7 +308,7 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       expect(result.status).toBe('completed')
       expect(result.videoUrl).toBe('https://cdn.example.com/v.mp4')
       expect(result.progress).toBe(100)
-      expect(fetchMock.calls[0].url).toContain('/videos/generations/agnes-task-1')
+      expect(fetchMock.calls[0].url).toContain('/video/generations/agnes-task-1')
     })
 
     it('queued → processing', async () => {

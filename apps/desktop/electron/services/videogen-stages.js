@@ -334,9 +334,20 @@ function registerVideoGenStages (pipelineEngine) {
             num_frames: stage.options?.numFrames || 121,
             frame_rate: stage.options?.frameRate || 24,
           })
-          const taskId = submit && (submit.taskId || submit.videoId || (submit.data && (submit.data.taskId || submit.data.videoId)))
+          // callAdapter 失败时返回 { code: -1, message }（不透传会掩盖真实 provider 错误，
+          // 如 MiniMax 特殊套餐的 Missing task_id / 401），必须原样上报供排查。
+          if (submit && submit.code !== 0) {
+            videos.push({ index: i, success: false, error: submit.message || ('视频生成调用失败（provider: ' + videoProvider.providerId + '）') })
+            continue
+          }
+          const data = submit && submit.data
+          const taskId = data && (data.taskId || data.videoId)
           if (!taskId) {
-            videos.push({ index: i, success: false, error: '视频生成未返回任务 ID' })
+            videos.push({
+              index: i,
+              success: false,
+              error: '视频生成未返回任务 ID' + (submit && submit.message ? '：' + submit.message : ''),
+            })
             continue
           }
           // 轮询任务状态（最多 10 分钟）
