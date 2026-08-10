@@ -1311,6 +1311,36 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 失败 | 显示友好错误 `message`；仅当存在可读 `detail` 时展示，原始技术对象/堆栈不外泄。 |
 | 全项目筛查 | 全局检索 `JSON.stringify(res.data)`、`{"success":true}` 等模式，确保无其它入口回显原始技术信息。 |
 
+### 7.4.4 运营信息字段与统一模型调用调度机制（2026-08-10 新增）
+
+**需求**：运营后台模型预设补充运营信息字段（端口URL、获取模型ID URL、默认模型ID、接口技术文档URL、每分钟连接次数、5小时限额次数，均允许为空并按类型校验）；默认模型 ID 下拉选择 +「获取模型」按钮从模型网址拉取全部模型 ID；多模态模型按 7 类能力显示技术文档 URL 输入框；桌面端把模型调用方法提炼为单独调度机制（`model-call-scheduler` + `ApiUsageGovernor`），依据前端设置的默认模型与运营后台配置的「每分钟连接次数」安排并发数量与排队。
+
+#### 7.4.4.1 运营后台字段（与 ops-center 仓库 contract 对齐）
+
+| 字段 | 显示项 | 类型 | 允许为空 | 校验（后端 400 + 前端提示） |
+|------|--------|------|---------|----------------------------|
+| `base_url` | 接口 Base URL（端口URL） | string | ✅ | http(s)，长度 ≤500 |
+| `models_url` | 获取模型ID URL | string | ✅ | http(s)，长度 ≤500；用于「获取模型」按钮 |
+| `default_model` | 默认模型 ID | string | ✅ | 非空且 models 非空时必须 ∈ models，否则 400「默认模型 ID 必须在模型列表中」 |
+| `doc_links` | 接口技术文档URL | string[] | ✅ | ≤10 条，http(s) |
+| `rate_per_minute` | 每分钟连接次数 | int | ✅ | `[0,100000]` 整数（拒绝 `1.5`/`'abc'`/负数/布尔） |
+| `limit_per_5h` | 5小时限额次数 | int | ✅ | `[0,10000000]` 整数 |
+
+- 获取模型ID 端点：`POST /api/v1/model-presets/{id}/fetch-models`（admin-only），SSRF 防护（非环回必须 https、禁重定向、超时 10s、响应 ≤512KB、私网解析拒绝、JSON 契约 `{models|data:[...]}`），成功回写 `models`（`default_model` 不在新列表则清空）。
+- 多模态 7 类能力文档键：`llm`（文字推理接口）/ `image`（图片生成）/ `video`（视频生成）/ `tts`（TTS语音生成）/ `voice_clone`（TTS语音克隆）/ `speech_recognition`（语音识别）/ `vision`（视觉识别）；未知键 400。
+
+#### 7.4.4.2 桌面端统一调度机制（model-call-scheduler）
+
+| 合同 | 要求 |
+|------|------|
+| 统一机制 | 模型调用统一走 `ApiUsageGovernor`（并发信号量 + RPM 滑动窗口排队 + 429 冷却重试 + 5h/周额度窗口）；新增薄封装 `model-call-scheduler.js` 提供 `withModelBudget` / `resolveProviderBudget` / `mapWithModelBudget`。 |
+| 预算来源 | 优先级：provider 配置 `rate_per_minute`/`limit_per_5h`（运营后台维护，桌面 config 持久化）> 静态表 `governor-provider-limits` > 类别默认。 |
+| 并发换算 | `rate_per_minute` → `maxConcurrent = clamp(round(rpm/10), 1, 4)`；未配置视频/音频保持并发 1。 |
+| 5h 窗口 | `limit_per_5h` → `setTokenWindows([{ windowMs:5h, field:'requests', limit }])`，按请求次数累计（无 usage 字段也计数），超限返回 `QUOTA_EXCEEDED`。 |
+| 注入时机 | `ModelProviderManager.init()` 及 `createProvider`/`updateProvider` 成功后调用 `_applyGovernorLimits()` 同步预算；预设种子 `model-provider-seeds.js` 与 ops-center 种子对齐（`rate_per_minute`/`limit_per_5h`）。 |
+| 视频创作联动 | `story2video generate_assets` 图片/TTS 并行生成并发上限 = `min(请求并发, provider maxConcurrent)`（按能力分别解析 image/tts provider），超出部分 worker 队列排队；未配置预算回退静态表/请求并发，行为不回归。 |
+| 前端表单 | 模型设置新增「每分钟连接次数（可空）」「5小时限额次数（可空）」输入，正整数校验，留空保存 null（不覆盖默认限流）。 |
+
 ---
 
 ## 八、内容采集与收藏流程
