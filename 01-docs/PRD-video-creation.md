@@ -1,4 +1,4 @@
-﻿# PROJECT-003 Multi-Publish — 视频创作模块 PRD
+# PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
 > **版本**: v1.8
 > **日期**: 2026-07-29
@@ -149,6 +149,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-11 | CreateViewHistory 卡片 UI 增强 | 状态图标、运行脉冲、进度条光泽、流水线标签、状态阴影。详见 3.1.16 | PRD 7.1.28 |
 | 2026-08-11 | failed 任务统一显示为已暂停 + UI 增强 | failed 状态统一转为 paused、暂停环节推导、阶段进度显示、筛选器优化、CSS 增强（左侧色边框/暂停脉冲/卡片圆角）。详见 3.1.17 | PRD 7.1.29 |
 | 2026-08-11 | 视频创作模块 UI/UX 深度优化 | 视图切换胶囊化、流水线卡片悬停增强、返回按钮/详情头部卡片化、输入框聚焦效果、配置区展开动画、操作栏阴影、模式切换胶囊化、历史记录 fadeIn 动画/工具栏卡片化/状态徽章大写/时间图标、响应式断点。详见 3.1.18 | PRD 7.1.30 |
+| 2026-08-11 | failed 状态保留原始值 + 暂停环节显示修正 | failed 不再统一转为 paused，保留原始状态；前端区分执行失败和已暂停；新增 historyStatusClass()；筛选器新增执行失败；失败提示显示 pausedStage；卡片 hover 增强。详见 3.1.19 | PRD 7.1.31 |
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
@@ -1064,6 +1065,105 @@ export function usePipelineHistory(options = {}) {
 
 - 修改：apps/desktop/src/views/CreateView.vue（CSS 优化）
 - 修改：apps/desktop/src/views/CreateViewHistory.vue（CSS 优化）
+
+### 3.1.19 failed 状态保留原始值 + 暂停环节显示修正（2026-08-11）
+
+**背景**：3.1.17 将 failed 状态统一转换为 paused，导致用户无法区分"执行失败"和"用户暂停"。本次修正保留 failed 原始状态，在前端层区分显示。
+
+**一、数据校验**
+
+1. **状态保留**：usePipelineHistory.js 的 loadHistory() 中，failed 状态不再转换为 paused，保留原始值。
+2. **暂停环节推导**：若 failed 任务无 pausedStage 字段，从 stages 数组中按优先级推导：
+   - 优先取 `status === 'failed'` 的阶段
+   - 其次取最后一个 `status !== 'completed'` 的阶段
+   - 最后取数组最后一个阶段
+3. **stale running 检测**：running 状态超过 30 分钟无更新的任务，标记 `_originalStatus = 'running'` 后转为 paused（此逻辑不变）。
+4. **恢复按钮判断**：`historyItemResumable()` 同时支持 failed 和 paused 状态，内容策略类错误（`needs_user_input`/`content_policy`/`可能需要修改文案`）仍不显示恢复按钮。
+
+**二、流程**
+
+```
+用户打开历史记录
+  -> loadHistory() 并行请求 projects + pipeline runs
+  -> 对每个 run.status === 'running' 且 updatedAt > 30min 的任务：
+      1. run._originalStatus = 'running'
+      2. run.status = 'paused'
+      3. 若无 pausedStage -> 从 stages 推导
+  -> 对每个 run.status === 'failed' 且无 pausedStage 的任务：
+      1. 从 stages 推导 pausedStage（不改变 status）
+  -> 排序：running -> projects -> paused -> failed -> 其余
+  -> 渲染 CreateViewHistory 组件
+```
+
+**三、功能逻辑**
+
+| 场景 | 原状态 | 显示状态 | 暂停/失败环节 | 恢复按钮 |
+|------|--------|----------|---------------|----------|
+| 超时/崩溃导致失败 | failed | 执行失败 | 从 stages 推导（显示为"失败环节"） | 显示 |
+| 内容策略拒绝 | failed | 执行失败 | 从 stages 推导 | 不显示 |
+| 30分钟无更新的 running | running->paused | 已暂停 | 从 running 阶段推导（显示为"暂停环节"） | 显示 |
+| 用户手动暂停 | paused | 已暂停 | 使用已有 pausedStage | 显示 |
+| 正常完成 | completed | 已完成 | - | 不显示 |
+
+**四、交互逻辑**
+
+1. **状态筛选**：筛选器包含全部/进行中/已暂停/执行失败/已完成/已取消六个选项。
+2. **失败提示**：
+   - 有 pausedStage：显示"失败环节：{阶段名}"
+   - 无 pausedStage 有 error：显示截断的错误信息（60字符）
+   - 无 pausedStage 无 error：显示"执行过程中出现错误"
+3. **暂停提示**：暂停状态的卡片显示"暂停环节：{pausedStage}"提示行。
+4. **阶段进度**：运行中和暂停任务显示阶段进度条；暂停阶段使用琥珀色柔和脉冲动画。
+5. **恢复操作**：点击"从断点继续"按钮触发 resume-history 事件。
+6. **卡片悬停**：hover 时 translateY(-1px) + box-shadow 增强，0.15s ease 过渡。
+
+**五、显示项**
+
+| 元素 | 位置 | 内容/样式 |
+|------|------|-----------|
+| 状态色条 | 卡片左侧 3px | running 蓝 / paused 橙 / failed 红 / completed 绿 / cancelled 灰 |
+| 状态徽章 | 标题行右侧 | 图标 + 文本（✓已完成 / ✕执行失败 / —已取消 / ⟳进行中 / ⏸已暂停 / ○等待中） |
+| 失败徽章 | 同上 | 红色背景 + 1px 红色半透明边框 |
+| 暂停徽章 | 同上 | 琥珀色背景 + 1px 琥珀色半透明边框 |
+| 失败环节提示 | 标题行下方 | ⚠ 失败环节：{阶段名}，红色背景条 |
+| 暂停环节提示 | 标题行下方 | ⏸ 暂停环节：{阶段名}，琥珀色背景条 |
+| 运行中提示 | 标题行下方 | 🔄 返回流水线创作查看进度，蓝色背景条 |
+| 阶段进度条 | 提示行下方 | 各阶段小方块（done/active/failed/pending），暂停阶段琥珀色脉冲 |
+| 操作按钮 | 卡片底部 | 从断点继续 + 打开 + 删除 |
+| 时间戳 | 卡片底部左侧 | updatedAt/completedAt/createdAt 格式化 |
+
+**六、提示文字**
+
+| 场景 | 文字 |
+|------|------|
+| 失败有阶段名 | ⚠ 失败环节：optimize |
+| 失败无阶段名有错误 | ⚠ {截断的错误信息} |
+| 失败无阶段名无错误 | ⚠ 执行过程中出现错误 |
+| 暂停有阶段名 | ⏸ 暂停环节：generate_assets |
+| 运行中 | 🔄 返回流水线创作查看进度 |
+| 恢复按钮（可用） | 从断点继续 |
+| 恢复按钮（恢复中） | 恢复中... |
+| 筛选器选项 | 全部 / 进行中 / 已暂停 / 执行失败 / 已完成 / 已取消 |
+
+**七、CSS 增强**
+
+| 选择器 | 样式 |
+|--------|------|
+| `.history-item` | border-radius: 10px; transition: all 0.15s ease |
+| `.history-item:hover` | transform: translateY(-1px); box-shadow: 0 2px 12px rgba(0,0,0,0.06) |
+| `.history-status.failed` | background: var(--status-failed-bg); border: 1px solid rgba(239,68,68,0.15) |
+| `.history-status.paused` | background: rgba(217,119,6,0.1); border: 1px solid rgba(217,119,6,0.2) |
+| `.history-item.status-failed` | border-left: 3px solid var(--status-failed-text, #991b1b) |
+| `.history-item.status-paused` | border-left: 3px solid var(--status-waiting-text, #d97706) |
+| `.history-failed-hint` | 失败环节提示行样式 |
+| `.history-paused-hint` | 暂停环节提示行样式 |
+
+**八、相关文件**
+
+- 修改：apps/desktop/src/composables/usePipelineHistory.js（状态保留 + pausedStage 推导 + 排序）
+- 修改：apps/desktop/src/views/CreateViewHistory.vue（状态显示 + 筛选器 + CSS 增强）
+- 新增：apps/desktop/src/views/video-creation/（PipelineSelector + StageProgress + ConfigSummary + ErrorDialog）
+
 
 
 
