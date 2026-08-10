@@ -4,6 +4,15 @@
 
 ---
 
+## electron 43.x 无 postinstall 与二进制自愈方案 B 复盘 (2026-08-10，环境/工具链)
+
+- **背景**：`npm install` 后 `node_modules/electron/dist/` 反复缺失，electron 二进制不可用，需手动 `node node_modules/electron/install.js` 恢复；多次复现。
+- **根因**：`electron@43.x` 的 npm 包不再声明 `postinstall: node install.js`（31~41 版本都有；官方 npmjs tarball 实测 43.1.1 的 package.json 无 scripts 字段）。npm 重装 electron 时判定"无安装脚本"（`.package-lock.json` hasInstallScript=false），不会自动下载 dist；`install.js` 成为唯一下载/解压入口（优先本地 `@electron/get` 缓存，秒级）。
+- **方案选择**：不接 root `postinstall`——否则后端/ECS 每次 `npm ci` 都会被拖去下载 electron ~110MB，且离线/受限环境构建会直接失败。采用方案 B：`scripts/ensure-electron.js` 按需自愈 + AGENTS.md 文档约定；`electron-ci.yml` 保持现状（已手动执行 install.js）。
+- **实现**：`scripts/ensure-electron.js` 三态——dist 完整→跳过(exit 0)；缺失→触发 install.js；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 显式跳过。按仓库约定把脚本加入 `scripts/*.js` 的 .gitignore 白名单。
+- **验证**：三路实测（就绪/跳过/缺失包）+ electron v43.1.1 就绪；本条目即文档同步门禁要求的 docs 变更。
+- **教训**：① 上游 npm 包 lifecycle 声明可能被版本演进静默移除，对"下载型二进制"依赖要装后自检而非假设就绪；② 环境修复优先"按需显式触发"，避免给所有部署形态（尤其后端镜像构建）引入无关下载与失败点。
+
 ## BGM 提示单一来源收敛复盘 (2026-08-10，质量节拍审查闭环)
 
 - **背景**：PR #466 审查 Minor7——服务层 `BGM_SKIP_WARNING_MESSAGES`（中文）与前端 `BGM_SKIP_REASON_TEXT`（zh/en）对同一组 `bgmSkippedReason` 码维护两份映射，新增码需同步两处，且引擎侧中文 warnings 无 renderer 消费者。
