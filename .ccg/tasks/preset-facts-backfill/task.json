@@ -1,0 +1,13 @@
+{
+  "id": "preset-facts-backfill",
+  "title": "梳理程序内已确定的模型调用方式/信息，谨慎回填运营后台预设模型实际数据项",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend,desktop",
+  "currentPhase": "analysis",
+  "nextAction": "梳理适配器事实清单 → 回填种子（仅已确定项）",
+  "createdAt": "2026-08-10T14:32:42+08:00",
+  "branch": "codex/preset-facts-backfill",
+  "openspecChange": "preset-facts-backfill"
+}

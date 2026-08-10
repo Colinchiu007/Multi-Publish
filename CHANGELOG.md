@@ -1,3 +1,10 @@
+## [未发布] 数据对齐：预设模型目录由桌面端代码事实生成（2026-08-10）
+
+- ops-center：`PRESET_CATALOG` 扩展至 53 项（覆盖桌面端全部预设），数据来源=代码事实——`base_url`=适配器默认端点（修正 Anthropic/DeepSeek/Gemini/Ollama/Doubao/Runway/Suno 等与桌面不一致的旧值）、`models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表（与静态表一致，非估算）。
+- ops-center：`limit_per_5h`/`models_url` 无代码事实 → 全部置空（不预填估算/惯例值），由运营填写；新增目录一致性防回退测试（`test_catalog_facts_consistency` / `test_catalog_minimax_multimodal_facts`）。
+- 桌面端：`model-provider-seeds.js` `PRESET_RATE_LIMITS` 移除无事实依据的 `limit_per_5h` 估算（保留 `rate_per_minute`），5h 窗口改为运营配置驱动。
+- 文档：ops-center PRD 12A.5/12A.8（数据来源与变更守则）、Multi-Publish PRD 7.4.4.2。
+- 测试：ops-center pytest 66 passed；桌面 model-provider-*/governor/scheduler 套件全绿。
 ## [未发布] 修复：图片轮播选项可用性（恢复枚举归一化 + 语音生成器空标签 + 运行进度 i18n 缺键）（2026-08-10）
 
 - 修复：恢复「上次使用的选项」时对下拉枚举字段（内容类型/图片风格/提示词风格/图片动效/转场/字幕字号/字幕样式/分句语言/分句模式/分镜粒度视图/fps/格式）做白名单归一化——陈旧快照值（如 imageStyle=anime-mslpadvn）不在当前选项列表时回退到 data() 默认值（默认值本身也须在白名单内），避免下拉框空白选中项与折叠摘要/下拉不一致。

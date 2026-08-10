@@ -382,50 +382,50 @@ const PRESET_PROVIDERS = [
 ];
 
 /**
- * 预设限流预算（与 ops-center 预设目录对齐；单位：每分钟连接次数 / 5小时限额次数）。
- * 运营后台可维护同名字段（rate_per_minute / limit_per_5h），桌面端在 provider config 中
- * 持久化并注入 ApiUsageGovernor（model-call-scheduler 统一调度）。未列出的 provider
- * 使用 governor-provider-limits 静态表或类别默认预算。
+ * 预设限流预算（与 ops-center 预设目录对齐；单位：每分钟连接次数）。
+ * rate_per_minute 来自 governor-provider-limits 静态表（代码事实）；limit_per_5h 无代码事实
+ * 不预填（留空由运营在模型设置/运营后台填写，注入 ApiUsageGovernor 5h 请求窗口）。
+ * 未列出的 provider 使用 governor-provider-limits 静态表或类别默认预算。
  */
 const PRESET_RATE_LIMITS = {
   // ── LLM ──
-  anthropic: { rate_per_minute: 60, limit_per_5h: 1500 },
-  openai: { rate_per_minute: 120, limit_per_5h: 3000 },
-  gemini: { rate_per_minute: 60, limit_per_5h: 1500 },
-  openrouter: { rate_per_minute: 60, limit_per_5h: 1500 },
-  'doubao-llm': { rate_per_minute: 60, limit_per_5h: 1500 },
-  deepseek: { rate_per_minute: 60, limit_per_5h: 1500 },
-  'mimo-llm': { rate_per_minute: 30, limit_per_5h: 800 },
-  'sensenova-llm': { rate_per_minute: 30, limit_per_5h: 800 },
-  ollama: { rate_per_minute: 120, limit_per_5h: 5000 },
+  anthropic: { rate_per_minute: 60 },
+  openai: { rate_per_minute: 120 },
+  gemini: { rate_per_minute: 60 },
+  openrouter: { rate_per_minute: 60 },
+  'doubao-llm': { rate_per_minute: 60 },
+  deepseek: { rate_per_minute: 60 },
+  'mimo-llm': { rate_per_minute: 30 },
+  'sensenova-llm': { rate_per_minute: 30 },
+  ollama: { rate_per_minute: 120 },
   // ── TTS ──
-  elevenlabs: { rate_per_minute: 20, limit_per_5h: 500 },
-  'openai-tts': { rate_per_minute: 30, limit_per_5h: 800 },
-  'doubao-tts': { rate_per_minute: 20, limit_per_5h: 500 },
-  'minimax-tts': { rate_per_minute: 20, limit_per_5h: 500 },
-  piper: { rate_per_minute: 120, limit_per_5h: 5000 },
+  elevenlabs: { rate_per_minute: 20 },
+  'openai-tts': { rate_per_minute: 30 },
+  'doubao-tts': { rate_per_minute: 20 },
+  'minimax-tts': { rate_per_minute: 20 },
+  piper: { rate_per_minute: 120 },
   // ── 语音识别 ──
-  whisper: { rate_per_minute: 30, limit_per_5h: 800 },
-  'local-whisper': { rate_per_minute: 60, limit_per_5h: 2000 },
+  whisper: { rate_per_minute: 30 },
+  'local-whisper': { rate_per_minute: 60 },
   // ── 图片 ──
-  flux: { rate_per_minute: 15, limit_per_5h: 300 },
-  'dall-e': { rate_per_minute: 10, limit_per_5h: 200 },
-  'minimax-image': { rate_per_minute: 15, limit_per_5h: 300 },
-  'local-diffusion': { rate_per_minute: 60, limit_per_5h: 2000 },
-  comfyui: { rate_per_minute: 60, limit_per_5h: 2000 },
+  flux: { rate_per_minute: 15 },
+  'dall-e': { rate_per_minute: 10 },
+  'minimax-image': { rate_per_minute: 15 },
+  'local-diffusion': { rate_per_minute: 60 },
+  comfyui: { rate_per_minute: 60 },
   // ── 视频（异步任务制，低并发）──
-  hunyuan: { rate_per_minute: 6, limit_per_5h: 100 },
-  cogvideo: { rate_per_minute: 6, limit_per_5h: 100 },
-  heygen: { rate_per_minute: 8, limit_per_5h: 150 },
-  kling: { rate_per_minute: 6, limit_per_5h: 100 },
-  runway: { rate_per_minute: 6, limit_per_5h: 100 },
-  veo: { rate_per_minute: 6, limit_per_5h: 100 },
-  wan: { rate_per_minute: 6, limit_per_5h: 100 },
-  minimax: { rate_per_minute: 6, limit_per_5h: 100 },
+  hunyuan: { rate_per_minute: 6 },
+  cogvideo: { rate_per_minute: 6 },
+  heygen: { rate_per_minute: 8 },
+  kling: { rate_per_minute: 6 },
+  runway: { rate_per_minute: 6 },
+  veo: { rate_per_minute: 6 },
+  wan: { rate_per_minute: 6 },
+  minimax: { rate_per_minute: 6 },
   // ── 音频 ──
-  suno: { rate_per_minute: 6, limit_per_5h: 100 },
+  suno: { rate_per_minute: 6 },
   // ── 多模态 ──
-  'minimax-multimodal': { rate_per_minute: 20, limit_per_5h: 500 },
+  'minimax-multimodal': { rate_per_minute: 20 },
 };
 
 module.exports = {
