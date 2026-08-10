@@ -4,6 +4,8 @@ import hashlib
 import hmac as _hmac
 import secrets
 
+import re
+
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,7 @@ CODE_PREFIX = "MP"
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # 去易混淆 I/O/0/1（与桌面端一致）
 PLANS = ("free", "trial", "pro")
 MAX_BATCH = 200
+_ISO_RE = re.compile(r"^" + chr(92) + "d{4}-" + chr(92) + "d{2}-" + chr(92) + "d{2}(T" + chr(92) + "d{2}:" + chr(92) + "d{2}(:" + chr(92) + "d{2}(\." + chr(92) + "d+)?)?([+-]" + chr(92) + "d{2}:" + chr(92) + "d{2}|Z)?)?$")
 
 
 def _now() -> str:
@@ -34,7 +37,7 @@ def generate_code(secret: str) -> str:
 
 
 def _mask(code: str) -> str:
-    """列表掩码：MP-****-****-****-ABCD（仅末组可见）。"""
+    """列表掩码：MP-****-****-ABCD（仅末组可见，完整码不泄露）。"""
     parts = code.split("-")
     if len(parts) != 4:
         return "***"
@@ -43,6 +46,7 @@ def _mask(code: str) -> str:
 
 def _to_dict(row: RedemptionCode, mask: bool = True) -> dict:
     return {
+        "id": row.id,
         "code": _mask(row.code) if mask else row.code,
         "plan": row.plan or "pro",
         "batch_id": row.batch_id or "",
@@ -66,11 +70,18 @@ async def generate_batch(db: AsyncSession, body: dict, updated_by: str, secret: 
         raise ValueError(f"plan 必须是 {'/'.join(PLANS)} 之一")
     expires_at = str(body.get("expires_at") or "").strip()
     if expires_at:
+        if not _ISO_RE.match(expires_at):
+            raise ValueError("expires_at 必须是 ISO 时间（如 2027-01-01T00:00:00Z）或留空")
         try:
-            datetime.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            parsed = datetime.datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
         except (TypeError, ValueError):
             raise ValueError("expires_at 必须是 ISO 时间或留空")
-    note = str(body.get("note") or "").strip()[:200]
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+        expires_at = parsed.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    note = str(body.get("note") or "").strip()
+    if len(note) > 200:
+        raise ValueError("note 过长（≤200）")
     batch_id = "rc_" + secrets.token_hex(6)
     now = _now()
     codes = []
@@ -83,7 +94,7 @@ async def generate_batch(db: AsyncSession, body: dict, updated_by: str, secret: 
     return {
         "batch_id": batch_id,
         "count": count,
-        "codes": [_mask(c) for c in codes],
+        "codes": codes,  # 签发响应（admin）返回明文，列表端点仍掩码
         "plan": plan, "expires_at": expires_at, "note": note,
     }
 
@@ -91,31 +102,33 @@ async def generate_batch(db: AsyncSession, body: dict, updated_by: str, secret: 
 async def list_codes(db: AsyncSession, plan: str | None = None, status: str | None = None,
                      limit: int = 100, offset: int = 0) -> dict:
     stmt = sa.select(RedemptionCode).order_by(RedemptionCode.created_at.desc(), RedemptionCode.code)
+    count_stmt = sa.select(sa.func.count()).select_from(RedemptionCode)
     if plan:
         stmt = stmt.where(RedemptionCode.plan == plan)
+        count_stmt = count_stmt.where(RedemptionCode.plan == plan)
     if status:
         stmt = stmt.where(RedemptionCode.status == status)
-    total = len((await db.execute(sa.select(RedemptionCode.id).where(
-        *([RedemptionCode.plan == plan] if plan else []),
-        *([RedemptionCode.status == status] if status else []),
-    ))).scalars().all())
+        count_stmt = count_stmt.where(RedemptionCode.status == status)
+    total = (await db.execute(count_stmt)).scalar_one()
     rows = (await db.execute(stmt.limit(limit).offset(offset))).scalars().all()
     return {"items": [_to_dict(r) for r in rows], "count": len(rows), "total": total}
 
 
-async def revoke_code(db: AsyncSession, code: str) -> bool:
-    row = (await db.execute(sa.select(RedemptionCode).where(RedemptionCode.code == code))).scalar_one_or_none()
+async def revoke_code(db: AsyncSession, code_id: int, updated_by: str) -> bool:
+    row = (await db.execute(sa.select(RedemptionCode).where(RedemptionCode.id == code_id))).scalar_one_or_none()
     if row is None:
         return False
     row.status = "revoked"
+    row.updated_by = updated_by
     await db.commit()
     return True
 
 
-async def delete_code(db: AsyncSession, code: str) -> bool:
-    row = (await db.execute(sa.select(RedemptionCode).where(RedemptionCode.code == code))).scalar_one_or_none()
+async def delete_code(db: AsyncSession, code_id: int, updated_by: str) -> bool:
+    row = (await db.execute(sa.select(RedemptionCode).where(RedemptionCode.id == code_id))).scalar_one_or_none()
     if row is None:
         return False
+    row.updated_by = updated_by
     await db.delete(row)
     await db.commit()
     return True

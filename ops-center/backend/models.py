@@ -260,6 +260,36 @@ class PlatformDef(Base):
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
 
+class PublishMetricDaily(Base):
+    """发布指标日聚合 — 桌面端上报，运营看板展示。"""
+
+    __tablename__ = "publish_metrics_daily"
+    __table_args__ = (
+        sa.UniqueConstraint("usage_date", "client_id", "platform", name="uq_publish_metric_day"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    usage_date = Column(String, nullable=False)  # YYYY-MM-DD
+    client_id = Column(String, default="")  # 桌面端设备稳定哈希（脱敏）
+    platform = Column(String, default="")  # 平台 id（如 wechat_mp）
+    publish_count = Column(Integer, default=0)
+    ok_count = Column(Integer, default=0)
+    fail_count = Column(Integer, default=0)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class PublishReportBatch(Base):
+    """发布指标上报批次去重 — 客户端携带 report_id（minTs-maxTs），服务端唯一约束防网络模糊失败重复计数。"""
+
+    __tablename__ = "publish_report_batches"
+    __table_args__ = (
+        sa.UniqueConstraint("client_id", "report_id", name="uq_publish_report_batch"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_id = Column(String, default="")
+    report_id = Column(String, nullable=False)
+    ingested_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 class ContentTemplate(Base):
     """官方内容模板库（桌面端运行时下发）— 运营后台维护，bootstrap 下发内置模板。"""
 
@@ -284,7 +314,8 @@ class RedemptionCode(Base):
 
     __tablename__ = "redemption_codes"
 
-    code = Column(String(32), primary_key=True)  # MP-XXXX-XXXX-XXXX-SIG
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(32), unique=True, nullable=False)  # MP-XXXX-XXXX-XXXX-SIG（列表掩码，操作按 id）
     plan = Column(String(20), default="pro")  # free | trial | pro
     batch_id = Column(String(32), default="")
     status = Column(String(20), default="active")  # active | revoked
@@ -292,3 +323,4 @@ class RedemptionCode(Base):
     note = Column(String(200), default="")
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+

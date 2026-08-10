@@ -26,7 +26,7 @@ async def create_batch(
 async def list_redemption_codes(
     plan: str | None = Query(None),
     status: str | None = Query(None),
-    limit: int = Query(100, le=500),
+    limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_admin),
@@ -34,25 +34,25 @@ async def list_redemption_codes(
     return await redemption_code_service.list_codes(db, plan=plan, status=status, limit=limit, offset=offset)
 
 
-@router.put("/{code}/revoke")
+@router.put("/{code_id}/revoke")
 async def revoke_redemption_code(
-    code: str,
+    code_id: int,
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_admin),
 ):
-    ok = await redemption_code_service.revoke_code(db, code)
+    ok = await redemption_code_service.revoke_code(db, code_id, user.get("username", "unknown"))
     if not ok:
         raise HTTPException(404, "兑换码不存在")
-    return {"ok": True, "code": redemption_code_service._mask(code)}
+    return {"ok": True}
 
 
-@router.delete("/{code}")
+@router.delete("/{code_id}")
 async def delete_redemption_code(
-    code: str,
+    code_id: int,
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_admin),
 ):
-    ok = await redemption_code_service.delete_code(db, code)
+    ok = await redemption_code_service.delete_code(db, code_id, user.get("username", "unknown"))
     if not ok:
         raise HTTPException(404, "兑换码不存在")
     return {"ok": True}

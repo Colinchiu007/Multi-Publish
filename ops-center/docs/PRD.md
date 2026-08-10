@@ -988,6 +988,41 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 ① 首次启动种子 12 平台且可编辑；② 非法 content_category / 负数或小数上限 → 400；③ PUT 仅传部分字段可更新（enabled 临时下线）；④ bootstrap 仅返回 enabled=1 项；⑤ 桌面端 applyRemote 覆盖同名平台、本地独有保留、远程新增不引入、yaml 不被改写；⑥ 未注入 platformConfig 时跳过应用不影响其他策略；⑦ 非 admin 写 403、读 200。
 
 
+## 12A.18 发布数据看板（2026-08-11 新增，P1-3）
+
+> 桌面端把发布指标脱敏聚合上报运营后台，运营看板展示各平台产粮/失败情况（发布总数/成功/失败/成功率/平台排行/每日趋势）。仅计数，不含标题/正文/账号等敏感内容。
+
+### 12A.18.1 数据模型与校验
+
+`publish_metrics_daily`：usage_date（YYYY-MM-DD）/ client_id（设备稳定哈希，脱敏）/ platform / publish_count / ok_count / fail_count / updated_at；唯一约束 (usage_date, client_id, platform)，同桶 upsert 累加（幂等由客户端水印防重）。
+
+| 校验 | 规则 |
+|------|------|
+| date | `YYYY-MM-DD` |
+| platform | `^[A-Za-z0-9_.-]{1,64}$` |
+| 计数 | 非负整数；publish_count ≥ ok+fail |
+| items | ≤500 |
+
+### 12A.18.2 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/v1/publish/ingest | 上报（X-Catalog-Key；校验失败 400） |
+| GET | /api/v1/publish/summary?days=N | 看板（admin，默认 30，上限 90）：totals + by_date + by_platform（含成功率） |
+
+### 12A.18.3 桌面端上报（PublishReporter）
+
+- 聚合 publish-history 记录按 日期+平台 分桶；status success → ok、含 fail/error → fail、监控状态（visible 等）不计（避免同一次发布重复计数）。
+- 水印 = 最后上报记录 timestamp（ISO 字典序）；成功推进，失败保留下次重试；启动 5s 首报 + 30min 周期；未配置 URL/Key 静默跳过。
+- 仅上报计数，不含标题/正文/账号/平台凭证。
+
+### 12A.18.4 前端「发布数据」页
+
+- 7/30/90 天切换 + 6 张汇总卡片（发布总数/成功/失败/成功率/平台数/设备数）+ 按平台表（发布/成功/失败/成功率）+ 每日趋势 CSS 柱状图（成功绿/失败红）+ 空态提示「尚未收到发布数据上报（桌面端需配置运营后台同步）」；非 admin 403 提示。
+
+### 12A.18.5 验收标准
+
+① 上报校验：非法日期/平台/负数/publish<ok+fail → 400；② 同桶累加正确；③ 未配置 Key 404、Key 错误 401；④ summary 非 admin 403；⑤ 按日期/平台聚合、成功率=ok/publish；⑥ 桌面端分桶正确（监控状态不计数）、水印推进/失败保留、未配置静默；⑦ 不上报敏感内容。
 ## 12A.17 官方内容模板库下发（2026-08-11 新增，P0-2）
 
 > 官方内容模板库由运营后台统一维护，随 `runtime/bootstrap` 下发；桌面端同步时合并进本地模板（内置标记 builtin），用户自建模板保留。
@@ -1038,3 +1073,36 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 ① 首次启动种子 5 个内置模板；② 非法 id/name/platforms/sort/content → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 模板（builtin=true）；⑤ 软删种子重启不复活、可重建；⑥ 桌面端 applyRemote 按 id 覆盖/新增/保留用户模板/上限 fail-closed；⑦ 未注入 templateManager 跳过不影响其他策略。
 
+
+## 12A.19 兑换码签发/吊销/查询（2026-08-11 新增，P1-4）
+
+> 运营后台批量签发 Pro 激活码，格式与桌面端 `redemption-codes.js` 完全兼容（HMAC-SHA256，`MP-XXXX-XXXX-SIG`）。共享密钥：`OPS_REDEMPTION_SECRET` 必须等于桌面端 `REDEMPTION_SECRET`，否则桌面端无法验证。
+
+### 12A.19.1 数据模型与签发算法
+
+`redemption_codes`：id（代理主键，操作引用）/ code（唯一）/ plan（free|trial|pro）/ batch_id / status（active|revoked）/ expires_at（ISO 或空）/ note（≤200）/ created_at / updated_by。列表始终掩码 `MP-****-****-SIG`，操作按 id。
+
+签发算法（与桌面端逐字符一致）：
+- 随机段字母表 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`（去 I/O/0/1），4 字符 ×2；
+- payload = `MP-RAND-RAND`；签名 = `HMAC-SHA256(payload, secret).hexdigest().upper()[:4]`；
+- code = `payload-SIG`。
+
+### 12A.19.2 端点（均 admin）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/v1/redemption-codes/batch | 批量签发（count 1-200、plan 枚举、expires_at ISO、note ≤200；未配置 OPS_REDEMPTION_SECRET → 400 fail-closed） |
+| GET | /api/v1/redemption-codes?plan=&status=&limit=&offset= | 列表（掩码） |
+| PUT | /api/v1/redemption-codes/{id}/revoke | 吊销（404 兜底） |
+| DELETE | /api/v1/redemption-codes/{id} | 删除（404 兜底） |
+
+### 12A.19.3 前端「兑换码」页
+
+- 批量签发弹窗：数量（1-200）/ 套餐下拉（free/trial/pro）/ 过期时间（ISO）/ 备注。
+- 签发成功：批次号 + 掩码列表（提示「列表展示为掩码，完整码已存库」）。
+- 列表：掩码 / 套餐 tag / 状态 tag（有效|已吊销）/ 批次 / 过期时间 / 签发时间 / 备注 / 操作（有效→吊销、删除）。
+- 顶部说明：OPS_REDEMPTION_SECRET 与桌面端 REDEMPTION_SECRET 一致契约。
+
+### 12A.19.4 验收标准
+
+① 签发格式与桌面端 validate() 兼容（签名可复算）；② count/plan/expires_at 非法 → 400；③ 未配置密钥 → 400；④ 列表掩码、操作按 id；⑤ 吊销/删除不存在 → 404；⑥ 非 admin 403。

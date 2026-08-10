@@ -12,6 +12,13 @@
 - **修复**：① 两个 adapter 的 _request() 用 AbortController 实现有界超时（复用 	his.options.timeout / DEFAULT_TIMEOUT），超时归为 ProviderError(TIMEOUT) 由 governor/上层瞬时重试；② getDefaultProviderConfig 优先用 provider.capability_models[type]，回退 models[0]。
 - **回归保护**：minimax-image/tts 各新增「fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)」用例；聚焦套件 215 项测试全绿（adapters 72 / explainer+documentary 32 / pipeline-engine+model-provider 111）；修复后 documentary-montage 真实 E2E 跑通并产出视频，日志确认 model=image-01。
 - **预防措施**：① 所有 provider adapter 的 HTTP 请求必须接入有界超时（声明 timeout 未使用视为缺陷）；② 复合 provider 选模型必须按 capability_models 按能力路由，禁止 models[0] 猜测；③ adapter 测试必须包含「上游挂起」场景断言超时收敛。
+## Explainer LLM 阶段偶发整线失败复盘 (2026-08-11，质量节拍 Bug 反哺)
+
+- **表象**：E2E 验证中 animated-explainer 流水线 research/proposal/script/scenes 阶段偶发整线失败，报「Default provider returned empty content」或「scenes 阶段无法解析场景」，重试同一主题后可能成功（LLM 非确定性）。
+- **根因**：① callDefaultLlm 无任何重试——LLM 偶发返回空内容（HTTP 200 但 content 空）即抛错，4 个 LLM 阶段全部受牵连；② scenes 阶段 JSON 解析只有单次尝试，LLM 输出格式漂移（markdown 围栏/说明文字/字段缺失）直接失败，行级兜底只在解析失败后触发一次。
+- **修复**：① callDefaultLlm 增加有界重试（默认最多 2 次额外尝试，500ms×attempt 退避），仅对空内容与可判定瞬时错误重试，配置/模型缺失类错误直接抛出；② scenes 阶段 JSON 解析失败时让 LLM 把原始输出修复为严格 JSON（有界 1 次），修复失败再回落行级兜底。
+- **回归保护**：explainer 套件 +5（空内容重试成功/连续空内容达上限/配置错误不重试/JSON 修复成功/修复失败兜底），21 项全绿；documentary/ai-generator/pipeline-engine 关联 101 项全绿。
+- **预防措施**：① 外部 LLM 调用必须默认带瞬时有界重试（空内容视为瞬时）；② 结构化输出（JSON）必须有解析失败修复路径 + 行级兜底，禁止单次尝试即整线失败。
 ## 图片轮播流水线 generate_assets 调度网关双包自死锁复盘 (2026-08-10，质量节拍 Bug 反哺)
 
 - **表象**：图片轮播流水线到达「生成图片与旁白」（generate_assets）阶段后永久卡住，前端「图片 0/N · 旁白 0/M」停滞不动；暂停/重试均无法推进，只能重启应用。

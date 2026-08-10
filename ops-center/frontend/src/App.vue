@@ -36,6 +36,10 @@
           <el-icon><DataLine /></el-icon>
           <span>模型用量</span>
         </el-menu-item>
+        <el-menu-item index="/publish-dashboard">
+          <el-icon><TrendCharts /></el-icon>
+          <span>发布数据</span>
+        </el-menu-item>
         <el-menu-item index="/system-health">
           <el-icon><Monitor /></el-icon>
           <span>系统健康</span>
@@ -43,6 +47,10 @@
         <el-menu-item index="/licenses">
           <el-icon><Tickets /></el-icon>
           <span>许可证管理</span>
+        </el-menu-item>
+        <el-menu-item index="/redemption-codes">
+          <el-icon><Postcard /></el-icon>
+          <span>兑换码</span>
         </el-menu-item>
         <el-menu-item index="/announcements">
           <el-icon><Bell /></el-icon>

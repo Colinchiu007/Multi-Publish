@@ -42,6 +42,20 @@ function makeAi(content) {
   }
 }
 
+function makeAiSequence(contents) {
+  const calls = []
+  return {
+    calls,
+    _modelProviderManager: {
+      getDefault: () => ({ id: 'agnes-llm', models: ['agnes-2.0-flash'] }),
+    },
+    generateWithDefault: vi.fn(async () => {
+      const content = contents.length > 1 ? contents.shift() : contents[0]
+      calls.push(content)
+      return { content, model: 'agnes-2.0-flash' }
+    }),
+  }
+}
 describe('animated-explainer 阶段执行器', () => {
   it('注册全部 6 个自定义阶段类型', () => {
     const { reg, get } = makePipeline(makeAi('x'))
@@ -268,4 +282,70 @@ describe('generate_assets 适配与 editing', () => {
     })
     expect(bad.success).toBe(false)
   })
+
+describe('LLM 调用容错（2026-08-11 E2E 复盘）', () => {
+  it('callDefaultLlm 空内容时重试直到拿到非空内容', async () => {
+    const ai = makeAiSequence(['', '1. 主题：测试大纲'])
+    const { get } = makePipeline(ai)
+    const result = await get(EXPLAINER_STAGE_TYPES.RESEARCH)({
+      stage: {}, params: { text: '测试主题' },
+    })
+    expect(result.success).toBe(true)
+    expect(ai.calls).toHaveLength(2)
+    expect(ai.calls[1]).toContain('测试大纲')
+  })
+
+  it('callDefaultLlm 连续空内容达到上限后失败（不再无限重试）', async () => {
+    const ai = makeAiSequence(['', ''])
+    const { get } = makePipeline(ai)
+    const result = await get(EXPLAINER_STAGE_TYPES.RESEARCH)({
+      stage: {}, params: { text: '测试主题' },
+    })
+    expect(result.success).toBe(false)
+    expect(String(result.error)).toContain('空内容')
+    expect(ai.calls.length).toBeLessThanOrEqual(3)
+  })
+
+  it('callDefaultLlm 配置错误不重试直接失败', async () => {
+    const ai = {
+      _modelProviderManager: { getDefault: () => ({ id: 'agnes-llm', models: ['agnes-2.0-flash'] }) },
+      generateWithDefault: vi.fn(async () => {
+        throw new Error('未找到需要的相关模型，请在设置中添加模型')
+      }),
+    }
+    const { get } = makePipeline(ai)
+    const result = await get(EXPLAINER_STAGE_TYPES.RESEARCH)({
+      stage: {}, params: { text: '测试主题' },
+    })
+    expect(result.success).toBe(false)
+    expect(ai.generateWithDefault).toHaveBeenCalledTimes(1)
+  })
+
+  it('scenes JSON 解析失败时让 LLM 修复为严格 JSON 后成功', async () => {
+    const scenesJson = JSON.stringify([
+      { prompt: '修复后的画面', text: '修复后的旁白', duration: 6 },
+    ])
+    const ai = makeAiSequence(['不是 JSON 的文字', '```json\n' + scenesJson + '\n```'])
+    const { get } = makePipeline(ai)
+    const result = await get(EXPLAINER_STAGE_TYPES.SCENES)({
+      stage: {}, params: {},
+      context: { script: '旁白文案。' },
+    })
+    expect(result.success).toBe(true)
+    expect(result.output).toHaveLength(1)
+    expect(result.output[0].prompt).toBe('修复后的画面')
+    expect(ai.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('scenes 修复失败后回落行级兜底（不整线失败）', async () => {
+    const ai = makeAiSequence(['不是 JSON 的文字', '还是不是 JSON', '无法生成'])
+    const { get } = makePipeline(ai)
+    const result = await get(EXPLAINER_STAGE_TYPES.SCENES)({
+      stage: {}, params: {},
+      context: { script: '第一段旁白。\n\n第二段旁白。' },
+    })
+    expect(result.success).toBe(true)
+    expect(result.output.length).toBeGreaterThanOrEqual(1)
+  })
+})
 })
