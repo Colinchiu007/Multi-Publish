@@ -20,7 +20,7 @@ function hashUrl(route) {
 }
 
 const ROUTE_READY_SELECTORS = {
-  '/': '.cohere-main .page-title:has-text("社媒管家")',
+  '/': '.yixiaoer-home .yixiaoer-home-welcome',
   '/accounts': '.yixiaoer-workspace .accounts-page',
   '/publish': '.yixiaoer-workspace .page-title:has-text("一键发布")',
   '/collection': '.cohere-main .page-title:has-text("内容采集")',

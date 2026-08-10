@@ -16,7 +16,7 @@ function routeView(name, route, waitFor, checkName = '页面主标题', expected
 }
 
 const viewTests = [
-  routeView('home-default', '/', '.cohere-main .page-title:has-text("社媒管家")'),
+  routeView('home-default', '/', '.yixiaoer-home .yixiaoer-home-welcome'),
   routeView('comments-list', '/comments', '.cohere-main .page-title:has-text("评论管理")'),
   routeView('first-run', '/first-run', '.cohere-main h2:has-text("欢迎使用社媒管家")'),
   routeView(

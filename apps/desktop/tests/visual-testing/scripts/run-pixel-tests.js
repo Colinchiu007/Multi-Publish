@@ -8,7 +8,8 @@ try { require('dotenv').config({ path: __dirname + '/../.env' }); } catch (_) {}
 const { VisualTestRunner } = require('../test-runner');
 
 const pixelTests = [
-  { name: 'home-baseline', route: '/', waitFor: '.cohere-main .page-title:has-text("社媒管家")' },
+  // 首页已复刻为蚁小二风格 .yixiaoer-home 布局，旧版 .cohere-main .page-title 选择器已不存在。
+  { name: 'home-baseline', route: '/', waitFor: '.yixiaoer-home .yixiaoer-home-welcome' },
   { name: 'accounts-list', route: '/accounts', waitFor: '.yixiaoer-workspace .accounts-page' },
   // 发布目标由 IPC 异步加载；等待平台选项，避免在空列表状态截图。
   { name: 'publish-form', route: '/publish', waitFor: '.yixiaoer-workspace .target-selector [data-testid^="platform-"]' },
