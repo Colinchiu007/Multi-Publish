@@ -45,6 +45,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/publish-dashboard',
+    name: 'PublishDashboard',
+    component: () => import('../views/PublishDashboard.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/system-health',
     name: 'SystemHealth',
     component: () => import('../views/SystemHealth.vue'),

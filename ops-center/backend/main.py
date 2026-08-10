@@ -8,7 +8,7 @@ from config import settings
 from database import init_db
 from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, platform_defs, content_templates
 from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags
-from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, platform_defs
+from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, platform_defs, publish_metrics
 
 
 from services.model_preset_service import ensure_catalog_seeded, ensure_model_preset_columns
@@ -75,7 +75,9 @@ app.include_router(licenses.router)
 app.include_router(health.router)
 app.include_router(feature_flags.router)
 app.include_router(platform_defs.router)
+app.include_router(publish_metrics.router)
 app.include_router(content_templates.router)
+
 
 
 app.include_router(auth.router)
