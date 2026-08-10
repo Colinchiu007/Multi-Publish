@@ -82,11 +82,18 @@ export default {
         templateOutput: '模板与输出',
       },
       startPipeline: '启动流水线',
+      resetOptions: '恢复默认选项',
       mediaRequirementsImage: '支持 jpg / jpeg / png / webp 格式，单个文件最大 10MB。',
       mediaRequirementsAudio: '支持 wav / m4a / mp3 格式，单个文件最大 50MB。',
       mediaRequirementsBgm: '支持 wav / m4a / mp3 格式，单个文件最大 15MB。',
       mediaRequirementsVideo: '支持 mp4 / mov / webm / mkv / avi 格式，单个文件最大 512MB。',
     },
+  },
+  // 运行进度文案（CreateView formatDuration / elapsed 命名插值；2026-08-10 补齐缺键）
+  story2video: {
+    elapsed: (ctx) => '已用时 ' + ctx.named('duration'),
+    durationSec: (ctx) => String(ctx.named('seconds')) + ' 秒',
+    durationMinSec: (ctx) => String(ctx.named('minutes')) + ' 分 ' + String(ctx.named('seconds')) + ' 秒',
   },
   pipelines: {
     names: {
