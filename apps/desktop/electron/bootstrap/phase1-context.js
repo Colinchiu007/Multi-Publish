@@ -190,6 +190,10 @@ function extractContext(container) {
   if (opsCenterSync && typeof opsCenterSync.setTemplateManager === 'function') {
     opsCenterSync.setTemplateManager(templateManager)
   }
+  // 关键词监测目录运行时下发 → KeywordMonitor.applyRemoteWatchlist
+  if (opsCenterSync && typeof opsCenterSync.setKeywordMonitor === 'function') {
+    opsCenterSync.setKeywordMonitor(keywordMonitor)
+  }
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
   }

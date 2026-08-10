@@ -63,6 +63,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/keyword-watchlist',
+    name: 'KeywordWatchlist',
+    component: () => import('../views/KeywordWatchlist.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/announcements',
     name: 'Announcements',
     component: () => import('../views/Announcements.vue'),

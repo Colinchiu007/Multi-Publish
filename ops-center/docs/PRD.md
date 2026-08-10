@@ -1074,3 +1074,38 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 ① 首次启动种子 5 个内置模板；② 非法 id/name/platforms/sort/content → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 模板（builtin=true）；⑤ 软删种子重启不复活、可重建；⑥ 桌面端 applyRemote 按 id 覆盖/新增/保留用户模板/上限 fail-closed；⑦ 未注入 templateManager 跳过不影响其他策略。
 
 
+## 12A.20 关键词监测目录下发（2026-08-11 新增，P1-5）
+
+> 运营后台维护关键词监测目录（关键词/飙升阈值/轮询间隔），随 `runtime/bootstrap` 下发；桌面端同步后按目录监测热度，异常飙升触发通知；用户自建监测词不受影响。
+
+### 12A.20.1 数据模型与校验
+
+`keyword_watchlist`：id（代理主键）/ keyword（唯一，2-100 字）/ category（≤40）/ threshold（≥1，飙升倍数）/ interval_minutes（10-10080 整数分钟）/ enabled / sort_order / deleted_at（软删，不复活，可重建）/ updated_at / updated_by。
+
+- POST 重复 keyword → 400；PUT 部分更新 + 404；DELETE 软删 + 404。
+
+### 12A.20.2 端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/keyword-watchlist | 列表（登录可读） |
+| POST | /api/v1/keyword-watchlist | 新增（admin） |
+| PUT / DELETE | /api/v1/keyword-watchlist/{id} | 更新/软删（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `keyword_watchlist`（enabled=1 未软删，sort_order 排序） |
+
+### 12A.20.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| KeywordMonitor.applyRemoteWatchlist(entries) | 按 keyword upsert：已存在更新 interval/threshold 并标记 source=remote（重建定时器）；不存在新增（立即首查+定时轮询）；缺席即停止远程监测；用户/恢复条目保留；MAX_KEYWORDS(20) 上限 skip+warn |
+| OpsCenterSync | setKeywordMonitor 注入（phase1 接线）；applyRuntime 应用 keyword_watchlist（数组+已注入时，异常仅 warn） |
+
+### 12A.20.4 前端「关键词监测」页
+
+- 列表：关键词 / 分类 tag / 飙升阈值 / 轮询间隔 / 启用开关 / 操作（编辑、删除）；状态筛选 + 新增。
+- 编辑弹窗：关键词（编辑禁用，2-100 字）/ 分类 / 飙升阈值（≥1）/ 轮询间隔（10-10080 分钟）/ 启用下发。
+- 顶部说明：用户自建监测词不受影响；关闭后桌面端停止监测该词。
+
+### 12A.20.5 验收标准
+
+① 校验：keyword/threshold/interval 非法 → 400；② POST 重复 400、PUT/DELETE 404；③ 软删不复活、可重建；④ bootstrap 仅 enabled 条目；⑤ 桌面端 applyRemoteWatchlist 新增/更新/缺席停止/用户保留；⑥ 未注入跳过不影响其他策略；⑦ 非 admin 写 403。

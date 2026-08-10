@@ -309,3 +309,18 @@ class ContentTemplate(Base):
     updated_by = Column(String(100), default="")
 
 
+class KeywordWatchlist(Base):
+    """关键词监测目录（桌面端运行时下发）— 运营后台维护，桌面端按条目监测热度与飙升告警。"""
+
+    __tablename__ = "keyword_watchlist"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    keyword = Column(String(100), unique=True, nullable=False)
+    category = Column(String(40), default="topic")
+    threshold = Column(Float, default=2.0)  # 飙升检测倍数
+    interval_minutes = Column(Integer, default=360)  # 轮询间隔（分钟）
+    enabled = Column(Integer, default=1)
+    sort_order = Column(Integer, default=0)
+    deleted_at = Column(String, nullable=True)  # 软删（不复活）
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")

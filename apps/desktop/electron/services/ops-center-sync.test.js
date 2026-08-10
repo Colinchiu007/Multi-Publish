@@ -401,6 +401,20 @@ describe('OpsCenterSync applyRuntime platform_defs', () => {
 
   })
 
+  it('注入 keywordMonitor 时应用 keyword_watchlist；未注入跳过', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    const applyRemoteWatchlist = vi.fn(() => 2)
+    svc.setKeywordMonitor({ applyRemoteWatchlist })
+    svc.applyRuntime({ announcements: [], keyword_watchlist: [{ keyword: 'a' }, { keyword: 'b' }], synced_at: 't' })
+    expect(applyRemoteWatchlist).toHaveBeenCalledWith([{ keyword: 'a' }, { keyword: 'b' }])
+
+    const svc2 = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc2.setKeywordMonitor({})
+    svc2.applyRuntime({ announcements: [], keyword_watchlist: [{ keyword: 'a' }], synced_at: 't' })
+    expect(svc2.getRuntimeState().announcements).toEqual([])
+  })
+
   it('注入 templateManager 时应用 content_templates；未注入跳过', () => {
     const store = makeStore()
     const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
