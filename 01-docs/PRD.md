@@ -1813,6 +1813,52 @@ split → domain_enrich → optimize → select_video_scenes（新增） → gen
 
 ① 首次启动种子 12 平台且可编辑；② 非法 content_category / 负数或小数上限 → 400；③ PUT 仅传部分字段可更新（enabled 临时下线）；④ bootstrap 仅返回 enabled=1 项；⑤ 桌面端 applyRemote 覆盖同名平台、本地独有保留、远程新增不引入、yaml 不被改写；⑥ 未注入 platformConfig 时跳过应用不影响其他策略；⑦ 非 admin 写 403、读 200。
 
+#### 7.4.9 桌面端功能开关运行时下发（2026-08-11 新增，P0-1）
+
+**需求**：桌面端功能开关（key → typed value）由运营后台统一维护，随 `runtime/bootstrap` 下发，桌面端同步后即时生效；首个真实用例为 4K 输出能力开关（7.1.20）。
+
+##### 7.4.9.1 数据与校验（ops-center）
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| key | str PK | 必填、`^[A-Za-z0-9_.-]{1,128}$` | 开关标识 |
+| value_type | str | 枚举 string/boolean/number | 值类型 |
+| value | str | boolean ∈ true/false/1/0；number 可解析数字 | 存储字符串，下发转 typed value |
+| description | str | ≤200 | 用途说明 |
+| enabled | bool | 0/1 | 停用后不下发 |
+
+- key 拒绝 `__proto__`/`constructor`/`prototype`；value ≤512；number value 统一 float 解析并校验有限（含科学计数法，前后端一致）。
+- POST 重复 key → 409；PUT/DELETE 不存在 → 404；PUT 部分更新（null 不修改、body 中 key 被忽略不可变）；并发冲突 IntegrityError → 409；种子并发冲突幂等忽略。
+- 种子：`videoCreation.maxOutputResolution`='1080p'（已存在即跳过）。
+
+##### 7.4.9.2 端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/feature-flags | 列表（登录可读） |
+| POST / PUT /{key} / DELETE /{key} | /api/v1/feature-flags | 管理（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `feature_flags` = `{key: typed_value}`（enabled=1，X-Catalog-Key） |
+
+##### 7.4.9.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| OpsCenterSync | applyRuntime 应用并持久化 featureFlags（仅基本类型值、≤100 项、非法结构空对象 fail-closed）；getFeatureFlag(key)；getRuntimeState 暴露（opsCenterSyncRuntime IPC） |
+| 4K 读取优先级 | 环境变量 MAX_OUTPUT_RESOLUTION → 运营功能开关 → store → 默认 1080p（fail-closed） |
+| 引擎 | getMaxOutputResolution 惰性读取：compose/renderSegment 取当前值，构造期静态值兜底 |
+| 渲染端 | CreateView loadMaxOutputResolution：runtime featureFlags → store → 默认 |
+
+##### 7.4.9.4 前端「桌面端功能开关」页
+
+- 列表：Key / 类型 tag / 当前值（typed 展示）/ 描述 / 启用开关 / 编辑 / 删除；全部/已启用/已停用筛选 + 新增。
+- 编辑弹窗：Key（编辑禁用）/ 值类型下拉 / 值输入（布尔/数字/字符串提示）/ 描述 / 启用下发。
+- 顶部说明文案注明内置 4K 开关用途与 fail-closed 语义。
+
+##### 7.4.9.5 验收标准
+
+① 首次启动 4K 开关种子存在；② 非法 key/value_type/value → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 开关 typed value；⑤ 桌面端 applyRuntime 应用/持久化/重启恢复、非法结构空对象；⑥ 引擎惰性读取：静态 1080p + 动态 4k 放行、动态 1080p 拒绝（fail-closed）；⑦ 未配置同步桌面端用本地默认 1080p。
+
+
 ---
 
 ## 八、内容采集与收藏流程

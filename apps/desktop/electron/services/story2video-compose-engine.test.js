@@ -1691,6 +1691,56 @@ describe('4K 能力开关（maxOutputResolution）', () => {
       fs.rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('_currentMaxOutputResolution：惰性 getter 生效、未知值/异常回退静态值（无 ffmpeg 依赖）', () => {
+    const mk = (opts) => new Story2VideoComposeEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, ...opts })
+    expect(mk({ maxOutputResolution: '1080p', getMaxOutputResolution: () => '4k' })._currentMaxOutputResolution()).toBe('4k')
+    expect(mk({ maxOutputResolution: '4k', getMaxOutputResolution: () => 'bogus' })._currentMaxOutputResolution()).toBe('4k')
+    expect(mk({ maxOutputResolution: '1080p', getMaxOutputResolution: () => { throw new Error('x') } })._currentMaxOutputResolution()).toBe('1080p')
+    expect(mk({ maxOutputResolution: '1080p' })._currentMaxOutputResolution()).toBe('1080p')
+  })
+
+  it('getMaxOutputResolution 惰性读取：静态 1080p + 动态 4k → 放行 4K（运营开关运行时下发生效）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-lazy-'))
+    try {
+      const engine = new Story2VideoComposeEngine({
+        outputDir: root,
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        maxOutputResolution: '1080p', // 构造期快照为默认
+        getMaxOutputResolution: () => '4k', // 运行时功能开关已开启 4K
+      })
+      const result = await engine.compose(
+        { scenes: [{ imagePath: 'a.png', audioPath: 'a.mp3' }] },
+        { resolution: '3840x2160' },
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).not.toMatch(/超出当前允许上限/) // 未被能力闸拦截
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('getMaxOutputResolution 惰性读取：静态 4k + 动态 1080p → 拒绝 4K（开关回退 fail-closed）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-4k-lazy-off-'))
+    try {
+      const engine = new Story2VideoComposeEngine({
+        outputDir: root,
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        maxOutputResolution: '4k',
+        getMaxOutputResolution: () => '1080p', // 运营开关已回退
+      })
+      const result = await engine.compose(
+        { scenes: [{ imagePath: 'a.png', audioPath: 'a.mp3' }] },
+        { resolution: '3840x2160' },
+      )
+      expect(result.code).toBe(-1)
+      expect(result.message).toMatch(/超出当前允许上限|4K/)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('Story2VideoComposeEngine 混合片段（AI 视频 + 图片轮播，2026-08-11）', () => {

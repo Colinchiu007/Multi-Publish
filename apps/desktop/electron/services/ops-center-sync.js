@@ -3,7 +3,7 @@
  * ops-center-sync.js — 运营后台 → 桌面端运行时同步（主进程）
  *
  * 1. 模型目录：/api/v1/model-presets/catalog（限流/模型/能力）→ ModelProviderManager.applyCatalog
- * 2. 运行时策略：/api/v1/runtime/bootstrap（公告 / 版本发布策略 / 内容安全敏感词 / 平台发布元数据）→ applyRuntime
+ * 2. 运行时策略：/api/v1/runtime/bootstrap（公告 / 版本发布策略 / 内容安全敏感词 / 功能开关 / 平台发布元数据）→ applyRuntime
  *
  * 安全：
  *   - API Key 经 safeStorage 加密后存 settings（不落明文）
@@ -18,6 +18,22 @@ const SETTING_KEY = 'opsCenterSync'
 const RUNTIME_SETTING_KEY = 'opsCenterRuntime'
 const MAX_CATALOG_BYTES = 1024 * 1024
 const SYNC_TIMEOUT_MS = 10 * 1000
+const MAX_FEATURE_FLAGS = 100
+
+/** 功能开关结构校验：仅接受 {key: 基本类型值}，超限/非法结构 fail-closed 返回空对象 */
+function normalizeFeatureFlags(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out = {}
+  const entries = Object.entries(raw)
+  if (entries.length > MAX_FEATURE_FLAGS) return {}
+  for (const [k, v] of entries) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue
+    if (typeof v === 'string' || typeof v === 'boolean' || typeof v === 'number') {
+      out[k] = v
+    }
+  }
+  return out
+}
 
 function normalizeUrl(value) {
   const text = String(value || '').trim()
@@ -163,6 +179,7 @@ class OpsCenterSync {
       announcements: Array.isArray(state.announcements) ? state.announcements : [],
       updatePolicy: state.updatePolicy || null,
       contentPolicy: state.contentPolicy || null,
+      featureFlags: normalizeFeatureFlags(state.featureFlags),
       syncedAt: state.syncedAt || '',
     }
   }
@@ -179,6 +196,7 @@ class OpsCenterSync {
       announcements: this._runtime.announcements || [],
       updatePolicy: this._runtime.updatePolicy || null,
       contentPolicy: cp ? { name: cp.name, enabled: cp.enabled !== false, updatedAt: cp.updated_at || cp.updatedAt || '' } : null,
+      featureFlags: this._runtime.featureFlags || {},
       syncedAt: this._runtime.syncedAt || '',
     }
   }
@@ -192,6 +210,14 @@ class OpsCenterSync {
   /** 目录同步 Key 明文（仅供内部上报/校验服务使用，不暴露给渲染进程） */
   getCatalogApiKey() {
     return this._readEncryptedKey()
+  }
+
+  /** 读取功能开关 typed value（主进程/引擎消费）；不存在返回 undefined */
+  getFeatureFlag(key) {
+    const flags = this._runtime.featureFlags || {}
+    const k = String(key || '')
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') return undefined
+    return Object.prototype.hasOwnProperty.call(flags, k) ? flags[k] : undefined
   }
 
   /** 版本发布策略（auto-updater 消费） */
@@ -216,6 +242,7 @@ class OpsCenterSync {
       announcements: Array.isArray(payload.announcements) ? payload.announcements : [],
       updatePolicy: payload.update_policy && typeof payload.update_policy === 'object' ? payload.update_policy : null,
       contentPolicy: payload.content_policy && typeof payload.content_policy === 'object' ? payload.content_policy : null,
+      featureFlags: normalizeFeatureFlags(payload.feature_flags),
       syncedAt: payload.synced_at || new Date().toISOString(),
     }
     this._runtime = next

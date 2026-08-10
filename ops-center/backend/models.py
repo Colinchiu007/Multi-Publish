@@ -229,6 +229,18 @@ class ModelUsageBatch(Base):
     ingested_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
 
+class FeatureFlag(Base):
+    """功能开关（桌面端运行时下发）— 运营后台维护，bootstrap 下发 typed value。"""
+
+    __tablename__ = "feature_flags"
+
+    key = Column(String(128), primary_key=True)
+    value_type = Column(String(20), default="string")  # string | boolean | number
+    value = Column(String, default="")
+    description = Column(String(200), default="")
+    enabled = Column(Integer, default=1)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
 class PlatformDef(Base):
     """平台发布元数据 — 运营后台管理，桌面端启动拉取覆盖（临时下线/字段上限即时生效）。"""
 
@@ -246,3 +258,4 @@ class PlatformDef(Base):
     note = Column(String(200), default="")
     deleted_at = Column(String, nullable=True)  # 软删除时间（非空=已删除，种子不复活）
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
