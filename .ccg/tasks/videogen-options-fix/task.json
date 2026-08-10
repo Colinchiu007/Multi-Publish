@@ -1,0 +1,12 @@
+{
+  "id": "videogen-options-fix",
+  "title": "修复 videogen 生成参数契约（num_frames/frameRate 双写 + duration 映射），选项真实生效",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-videogen",
+  "currentPhase": "implementation",
+  "nextAction": "PR + CI + merge；并行测试其他流水线",
+  "createdAt": "2026-08-10T11:00:00Z",
+  "branch": "codex/videogen-options-fix"
+}

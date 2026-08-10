@@ -185,6 +185,7 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | 图片提示词统一优化 | 所有图片提示词统一经 prompt-engine（8013）完成风格检测 → 改写 → 输出校验；Story2Video optimize 阶段不再直连默认 LLM（详见 PRD-video-creation §3.1.2.1） | ✅ 2026-08-09 |
 | 视频创作历史本地模式 | 未登录可查看本机创作历史（本地只读 IPC 通道放行 + owner 隔离回退 __legacy__ + 本地模式提示条 + 失败原因可操作建议；详见 PRD-video-creation §3.1.4.1） | ✅ 2026-08-09 |
 | Agnes 视频生成适配 | agnes-video-v2.0：提交 POST /v1/videos；状态查询 GET /agnesapi（域名根，非 /v1/agnesapi，2026-08-10 修复）；callAdapter 以 { videoId, taskId } 对象调用 getVideoStatus；流水线 merge 兼容 generate/merge/animate 上下文键（PR #476） | ✅ 2026-08-10 |
+| videogen 生成选项生效 | animation/character-animation/avatar-spokesperson/hybrid 的生成参数（numFrames/frameRate/width/height + storyboard duration）经 stageOptions 真实作用于最终合成视频；2026-08-10 修复参数契约（num_frames 下划线丢失→双写）+ duration→帧数映射（PR 待合） | ✅ 2026-08-10 |
 
 #### F7：数据存储（SQLite）
 

@@ -37,6 +37,7 @@ const VIDEOGEN_STAGE_TYPES = {
 
 const MAX_SCENES = 12
 const DEFAULT_SCENE_SECONDS = 5
+const DEFAULT_NUM_FRAMES = 121
 
 function getAiGenerator (pipelineEngine) {
   return pipelineEngine.aiGenerator ||
@@ -111,6 +112,16 @@ function parseJsonArray (text) {
   return null
 }
 
+
+/** 场景时长（秒）→ 满足 8n+1 规则的帧数档位（24fps 近似），让 storyboard duration 真正作用于生成参数 */
+function pickFrameCountForDuration (durationSeconds) {
+  const d = Number(durationSeconds)
+  if (!Number.isFinite(d) || d <= 0) return DEFAULT_NUM_FRAMES
+  if (d <= 5) return 121
+  if (d <= 8) return 201 // 8*25+1 ≈ 8.4s@24fps
+  if (d <= 10) return 241 // 8*30+1 ≈ 10s@24fps
+  return 441
+}
 function buildConceptPrompt (topic, kind) {
   const kindLabel = { animation: '动画视频', 'character-animation': '角色动画' }[kind] || kind
   return {
@@ -326,13 +337,24 @@ function registerVideoGenStages (pipelineEngine) {
       const videos = []
       for (let i = 0; i < prompts.length; i++) {
         try {
+          // 统一参数契约：adapter 层驼峰/下划线两种命名并存（agnes 读 numFrames/frameRate，
+          // ltx 读 num_frames/frame_rate），双写保证所有 adapter 生效；
+          // 显式 stageOptions 优先，否则按场景时长映射帧数（storyboard duration 真正生效）
+          const width = Number(stage.options?.width) > 0 ? Number(stage.options.width) : 1152
+          const height = Number(stage.options?.height) > 0 ? Number(stage.options.height) : 768
+          const numFrames = Number(stage.options?.numFrames) > 0
+            ? Number(stage.options.numFrames)
+            : pickFrameCountForDuration(scenes[i] && scenes[i].duration)
+          const frameRate = Number(stage.options?.frameRate) > 0 ? Number(stage.options.frameRate) : 24
           const submit = await manager.callAdapter(videoProvider.providerId, 'generateVideo', {
             prompt: prompts[i],
             model: videoProvider.model || undefined,
-            width: stage.options?.width || 1152,
-            height: stage.options?.height || 768,
-            num_frames: stage.options?.numFrames || 121,
-            frame_rate: stage.options?.frameRate || 24,
+            width,
+            height,
+            numFrames,
+            frameRate,
+            num_frames: numFrames,
+            frame_rate: frameRate,
           })
           // callAdapter 失败时返回 { code: -1, message }（不透传会掩盖真实 provider 错误，
           // 如 MiniMax 特殊套餐的 Missing task_id / 401），必须原样上报供排查。
