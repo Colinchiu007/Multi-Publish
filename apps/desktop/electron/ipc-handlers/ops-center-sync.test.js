@@ -26,10 +26,11 @@ describe('ops-center-sync IPC handlers', () => {
       getConfig: vi.fn(() => ({ url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true, lastSyncedAt: 't1' })),
       saveConfig: vi.fn((payload) => ({ code: 0, config: { ...payload } })),
       syncNow: vi.fn(async () => ({ code: 0, updated: 3, syncedAt: 't2' })),
+      getRuntimeState: vi.fn(() => ({ announcements: [], updatePolicy: null, contentPolicy: null, syncedAt: '' })),
     }
     registerHandlers(ipcMain, { opsCenterSync, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
 
-    expect(Object.keys(handlers).sort()).toEqual(['ops-center-sync:get', 'ops-center-sync:now', 'ops-center-sync:save'])
+    expect(Object.keys(handlers).sort()).toEqual(['ops-center-sync:get', 'ops-center-sync:now', 'ops-center-sync:runtime', 'ops-center-sync:save'])
 
     const get = await call('ops-center-sync:get')
     expect(get.code).toBe(0)
@@ -44,6 +45,11 @@ describe('ops-center-sync IPC handlers', () => {
     expect(now.code).toBe(0)
     expect(now.updated).toBe(3)
     expect(opsCenterSync.syncNow).toHaveBeenCalledTimes(1)
+
+    const runtime = await call('ops-center-sync:runtime')
+    expect(runtime.code).toBe(0)
+    expect(runtime.data.announcements).toEqual([])
+    expect(opsCenterSync.getRuntimeState).toHaveBeenCalledTimes(1)
   })
 
   it('服务抛错时返回 code -1 而非崩溃', async () => {

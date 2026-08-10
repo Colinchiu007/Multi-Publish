@@ -28,6 +28,18 @@
           <el-icon><Connection /></el-icon>
           <span>平台凭证</span>
         </el-menu-item>
+        <el-menu-item index="/announcements">
+          <el-icon><Bell /></el-icon>
+          <span>运营公告</span>
+        </el-menu-item>
+        <el-menu-item index="/update-policy">
+          <el-icon><Refresh /></el-icon>
+          <span>版本发布策略</span>
+        </el-menu-item>
+        <el-menu-item index="/content-policy">
+          <el-icon><Lock /></el-icon>
+          <span>内容安全策略</span>
+        </el-menu-item>
         <el-menu-item index="/model-presets">
           <el-icon><Cpu /></el-icon>
           <span>预设模型</span>

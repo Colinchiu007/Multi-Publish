@@ -28,3 +28,10 @@ export async function opsCenterSyncNow () {
   if (!api || !api.opsCenterSyncNow) return { code: -1, message: 'electronAPI not available' }
   return api.opsCenterSyncNow()
 }
+
+/** 读取运行时策略状态（公告 / 版本发布 / 内容安全），不含敏感字段 */
+export async function opsCenterSyncRuntime () {
+  const api = getApi()
+  if (!api || !api.opsCenterSyncRuntime) return { code: -1, message: 'electronAPI not available', data: null }
+  return api.opsCenterSyncRuntime()
+}

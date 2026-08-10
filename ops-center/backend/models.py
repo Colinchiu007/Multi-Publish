@@ -113,3 +113,51 @@ class AdminUser(Base):
     password_hash = Column(String, nullable=False)  # pbkdf2_sha256$iterations$salt_hex$hash_hex
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class Announcement(Base):
+    """运营公告 — 桌面端启动时经 runtime/bootstrap 拉取展示。
+
+    severity: info=普通提示 / warning=重要提醒（可关闭） / maintenance=维护通知（常驻强提示）
+    active_from/active_until: ISO 时间串，空=不设界；活动条件 enabled=1 且窗口命中。
+    """
+
+    __tablename__ = "announcements"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String, nullable=False)
+    content = Column(Text, nullable=False, default="")
+    severity = Column(String, default="info")  # info | warning | maintenance
+    active_from = Column(String, default="")  # ISO 或空
+    active_until = Column(String, default="")  # ISO 或空
+    enabled = Column(Integer, default=1)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class UpdatePolicy(Base):
+    """版本发布策略 — 桌面端自动更新消费（强制版本/灰度比例/最低版本提示）。单条有效行 id=1。"""
+
+    __tablename__ = "update_policy"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    min_version = Column(String, default="")  # 低于此版本时提示升级（可空）
+    force_version = Column(String, default="")  # 低于此版本时强制升级（可空）
+    gray_ratio = Column(Integer, default=100)  # 0-100 灰度比例
+    enabled = Column(Integer, default=1)
+    note = Column(String, default="")
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class ContentPolicy(Base):
+    """内容安全策略 — 敏感词库 + 替换串，桌面端 SensitiveFilter 远程词源。单条有效行 id=1。"""
+
+    __tablename__ = "content_policy"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, default="默认内容安全策略")
+    word_list = Column(Text, default="[]")  # JSON array of strings
+    replacement = Column(String, default="***")  # 替换串，<=16 字符
+    enabled = Column(Integer, default=1)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
