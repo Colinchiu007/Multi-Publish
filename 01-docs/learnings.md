@@ -12,6 +12,13 @@
 - **修复**：① 两个 adapter 的 _request() 用 AbortController 实现有界超时（复用 	his.options.timeout / DEFAULT_TIMEOUT），超时归为 ProviderError(TIMEOUT) 由 governor/上层瞬时重试；② getDefaultProviderConfig 优先用 provider.capability_models[type]，回退 models[0]。
 - **回归保护**：minimax-image/tts 各新增「fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)」用例；聚焦套件 215 项测试全绿（adapters 72 / explainer+documentary 32 / pipeline-engine+model-provider 111）；修复后 documentary-montage 真实 E2E 跑通并产出视频，日志确认 model=image-01。
 - **预防措施**：① 所有 provider adapter 的 HTTP 请求必须接入有界超时（声明 timeout 未使用视为缺陷）；② 复合 provider 选模型必须按 capability_models 按能力路由，禁止 models[0] 猜测；③ adapter 测试必须包含「上游挂起」场景断言超时收敛。
+## clip-factory 选项接线缺失复盘 (2026-08-11，质量节拍 Bug 反哺)
+
+- **表象**：全枚举 E2E 运行器（PR #509 入库脚本）在 main 上跑出 clip-factory 所有选项（sceneThreshold/maxSegments/maxTotalSeconds）产物时长全部相同（45.69s），选项完全无效。
+- **根因（git blame）**：clipfactory-stages.js 的 uildSegments/nalyzeVideo 使用硬编码常量（MAX_SEGMENTS=8/MIN_SEGMENT_SECONDS=2/MAX_TOTAL_SECONDS=60/SCENE_THRESHOLD=0.3），从不读取 stage options；pipeline-engine.js 的 esolveRuntimeStageOptions 也未映射 clip-factory 的 analyze 参数 → 用户在 UI/参数传入的选项被丢弃。
+- **修复**：① uildSegments/nalyzeVideo 增加 options 参数（默认值回退常量），analyze 执行器把 stage.options 传入；② esolveRuntimeStageOptions 增加 pipeline 名参数，对 clip-factory 的 analyze 阶段映射 sceneThreshold/maxSegments/minSegmentSeconds/maxTotalSeconds（按 pipeline 名区分，避免与 podcast 的 analyze 阶段名冲突）。
+- **回归保护**：clipfactory-stages 单测 +1（options 生效：maxSegments/minSegmentSeconds/maxTotalSeconds）；真实 E2E 复验：T=0.1→40.69s、T=0.5→55.62s、max=2→10.19s、total=30→25.36s（全部生效）。
+- **预防措施**：① 流水线 stage options 必须经 resolveRuntimeStageOptions 接线；② 阶段执行器必须消费 stage.options，禁止硬编码常量；③ 全枚举 E2E 运行器必须跑在合并后 main 上作为选项接线回归。
 ## 图片轮播流水线 generate_assets 调度网关双包自死锁复盘 (2026-08-10，质量节拍 Bug 反哺)
 
 - **表象**：图片轮播流水线到达「生成图片与旁白」（generate_assets）阶段后永久卡住，前端「图片 0/N · 旁白 0/M」停滞不动；暂停/重试均无法推进，只能重启应用。

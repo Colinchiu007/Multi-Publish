@@ -26,10 +26,11 @@
           <label for="history-status-filter">状态</label>
           <select id="history-status-filter" :value="historyFilter" @change="$emit('update:historyFilter', $event.target.value)" class="form-select history-filter">
             <option value="all">全部</option>
-            <option value="completed">已完成</option>
-            <option value="cancelled">已取消</option>
             <option value="running">进行中</option>
             <option value="paused">已暂停</option>
+            <option value="failed">执行失败</option>
+            <option value="completed">已完成</option>
+            <option value="cancelled">已取消</option>
           </select>
         </div>
         <span class="history-count">{{ filteredHistory.length }} 条记录</span>
@@ -63,7 +64,7 @@
                 {{ h.title || pipelineName(h.pipeline || h.name) }}
               </span>
               <span v-if="h.pipeline || h.name" class="history-pipeline-tag">{{ pipelineName(h.pipeline || h.name) }}</span>
-              <span class="history-status" :class="h.status">
+              <span class="history-status" :class="historyStatusClass(h.status)">
                 {{ historyStatusIcon(h.status) }} {{ historyStatusLabel(h.status) }}
               </span>
             </div>
@@ -75,8 +76,11 @@
             <div v-if="h.status === 'paused' && h.pausedStage" class="history-item-row history-paused-hint">
               <span class="hint-icon">⏸</span> 暂停环节：{{ h.pausedStage }}
             </div>
-            <div v-if="h.status === 'failed' && h.error" class="history-item-row history-failed-hint">
-              <span class="hint-icon">⚠</span> {{ truncateError(h.error) }}
+            <div v-if="h.status === 'failed'" class="history-item-row history-failed-hint">
+              <span class="hint-icon">⚠</span>
+              <span v-if="h.pausedStage">失败环节：{{ h.pausedStage }}</span>
+              <span v-else-if="h.error">{{ truncateError(h.error) }}</span>
+              <span v-else>执行过程中出现错误</span>
             </div>
 
             <!-- 第三行：阶段进度（运行中/已暂停） -->
@@ -162,13 +166,17 @@ export default {
     historyStatusLabel(status) {
       const labels = {
         completed: '已完成',
-        failed: '已暂停',
+        failed: '执行失败',
         cancelled: '已取消',
         running: '进行中',
         paused: '已暂停',
         pending: '等待中',
       }
       return labels[status] || status || '未知'
+    },
+    historyStatusClass(status) {
+      if (status === 'failed') return 'failed'
+      return status || 'unknown'
     },
     historyStatusIcon(status) {
       const icons = { completed: '✓', failed: '✕', cancelled: '—', running: '⟳', paused: '⏸', pending: '○' }
@@ -345,7 +353,7 @@ export default {
   font-size: 10px;
 }
 .history-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.history-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
+.history-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); border: 1px solid rgba(239,68,68,0.15); }
 .history-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
 .history-status.running { background: var(--status-running-bg); color: var(--status-running-text); animation: status-pulse 2s ease-in-out infinite; }
 .history-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
@@ -592,6 +600,11 @@ export default {
 /* 卡片整体改进 */
 .history-item {
   border-radius: 10px;
+  transition: all 0.15s ease;
+}
+.history-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
 }
 .history-item-body {
   padding: 12px 16px;

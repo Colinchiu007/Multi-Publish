@@ -94,6 +94,7 @@ export function usePipelineHistory(options = {}) {
         if (run.status === 'running') {
           const updatedAt = run.updatedAt ? new Date(run.updatedAt).getTime() : 0
           if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
+            run._originalStatus = run.status
             run.status = 'paused'
             if (!run.pausedStage) {
               const stages = Array.isArray(run.stages) ? run.stages : []
@@ -104,17 +105,15 @@ export function usePipelineHistory(options = {}) {
         }
       }
 
-      // failed 任务也视为已暂停：超时/崩溃遗留的 failed 任务统一显示为"已暂停"
+      // failed 任务保留原始状态，不再统一转为 paused
+      // 前端根据 _originalStatus 或 pausedStage 区分"用户暂停"和"执行失败"
       for (const run of runs) {
-        if (run.status === 'failed') {
-          run.status = 'paused'
-          if (!run.pausedStage) {
-            const stages = Array.isArray(run.stages) ? run.stages : []
-            const failedStage = stages.find(s => s && s.status === 'failed')
-              || stages.find(s => s && s.status !== 'completed')
-              || stages[stages.length - 1]
-            run.pausedStage = failedStage ? (failedStage.name || failedStage.stage || '') : ''
-          }
+        if (run.status === 'failed' && !run.pausedStage) {
+          const stages = Array.isArray(run.stages) ? run.stages : []
+          const failedStage = stages.find(s => s && s.status === 'failed')
+            || stages.find(s => s && s.status !== 'completed')
+            || stages[stages.length - 1]
+          run.pausedStage = failedStage ? (failedStage.name || failedStage.stage || '') : ''
         }
       }
 
@@ -122,7 +121,9 @@ export function usePipelineHistory(options = {}) {
       history.value = [
         ...runs.filter(run => run.status === 'running'),
         ...projects,
-        ...runs.filter(run => run.status !== 'running'),
+        ...runs.filter(run => run.status === 'paused'),
+        ...runs.filter(run => run.status === 'failed'),
+        ...runs.filter(run => run.status !== 'running' && run.status !== 'paused' && run.status !== 'failed'),
       ]
 
       scheduleHistoryRefresh()
