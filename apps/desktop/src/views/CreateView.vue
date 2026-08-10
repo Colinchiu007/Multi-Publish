@@ -1370,19 +1370,45 @@ export default {
     },
     orchestrationElapsedMs() {
       const meta = this.story2videoRunMeta
-      if (!meta || !meta.createdAt) return null
+      if (!meta) return null
+      // 新口径（2026-08-10）：已用时 = 流水线各步骤实际执行耗时总和（主进程 run.activeMs 累计），
+      // 不含暂停/检查点等待/失败→断点恢复之间的空闲时间；运行中本地每秒补当前执行段增量（依赖
+      // stageClockTick 每秒触发重算，暂停/终态后停止），终态定格。
+      // 存在性守卫：必须显式排除 null/undefined（Number(null)===0 会把「无 activeMs 的旧数据」误当 0）。
+      if (meta.activeMs !== null && meta.activeMs !== undefined && Number.isFinite(Number(meta.activeMs)) && Number(meta.activeMs) >= 0) {
+        let total = Number(meta.activeMs)
+        if (this.pipelineRunStatus?.status === 'running') {
+          void this.stageClockTick // 每秒补差依赖
+          if (meta.activeSegmentStartedAt) {
+            const segmentStart = Date.parse(meta.activeSegmentStartedAt)
+            if (Number.isFinite(segmentStart)) total += Math.max(0, Date.now() - segmentStart)
+          }
+        }
+        return total
+      }
+      // 旧数据回退：无 activeMs 的历史运行按墙钟（createdAt→endedAt/now）展示，避免显示为空
+      if (!meta.createdAt) return null
       const start = Date.parse(meta.createdAt)
       if (!Number.isFinite(start)) return null
       const end = meta.endedAt ? Date.parse(meta.endedAt) : Date.now()
+      if (!Number.isFinite(end)) return null
       return Math.max(0, end - start)
     },
     orchestrationSummary() {
       const meta = this.story2videoRunMeta
-      if (!meta || !meta.endedAt || !meta.createdAt) return ''
-      const start = Date.parse(meta.createdAt)
-      const end = Date.parse(meta.endedAt)
-      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return ''
-      const durationText = this.formatDuration(end - start)
+      if (!meta || !meta.endedAt) return ''
+      let durationMs = null
+      // 新口径：完成汇总时长 = 步骤执行耗时累计（activeMs）；旧数据回退墙钟
+      // 存在性守卫：显式排除 null/undefined（Number(null)===0 陷阱）
+      if (meta.activeMs !== null && meta.activeMs !== undefined && Number.isFinite(Number(meta.activeMs)) && Number(meta.activeMs) >= 0) {
+        durationMs = Number(meta.activeMs)
+      } else if (meta.createdAt) {
+        const start = Date.parse(meta.createdAt)
+        const end = Date.parse(meta.endedAt)
+        if (Number.isFinite(start) && Number.isFinite(end) && end >= start) durationMs = end - start
+      }
+      if (durationMs === null) return ''
+      const durationText = this.formatDuration(durationMs)
       const durationLabel = this.translateWithLocaleFallback('story2video.summaryDuration', '完成时间共 ' + durationText, 'Finished in ' + durationText)
       if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) {
         const mb = (Number(meta.outputSizeBytes) / (1024 * 1024)).toFixed(1)
@@ -2462,6 +2488,9 @@ export default {
           createdAt: statusResult.data.createdAt || null,
           endedAt: statusResult.data.endedAt || null,
           outputSizeBytes: statusResult.data.outputSizeBytes || null,
+          // 已用时口径：步骤执行耗时累计（主进程 activeMs + 运行中在飞段起点）
+          activeMs: Number.isFinite(Number(statusResult.data.activeMs)) ? Number(statusResult.data.activeMs) : null,
+          activeSegmentStartedAt: statusResult.data.activeSegmentStartedAt || null,
         }
         const snapshotStatus = statusResult.data.status || {}
         const stages = Array.isArray(statusResult.data.stages)
@@ -2509,6 +2538,14 @@ export default {
     applyOrchestrationOutcome(outcome) {
       if (Array.isArray(outcome?.stages)) this.orchestrationStages = outcome.stages
       if (outcome?.context) this.orchestrationContext = outcome.context
+      // 检查点确认/单步执行返回的终态 activeMs 优先于轮询缓存，避免结果页时长偏短（W2 审查闭环）
+      if (outcome && outcome.activeMs !== null && outcome.activeMs !== undefined && Number.isFinite(Number(outcome.activeMs)) && Number(outcome.activeMs) >= 0) {
+        this.story2videoRunMeta = {
+          ...(this.story2videoRunMeta || {}),
+          activeMs: Number(outcome.activeMs),
+          activeSegmentStartedAt: null,
+        }
+      }
       if (outcome?.paused) {
         this.pipelineRunStatus = { status: 'paused', progress: this.pipelineRunStatus?.progress || 0 }
         this.needsCheckpoint = false
@@ -2534,7 +2571,11 @@ export default {
       const meta = this.story2videoRunMeta || {}
       const query = { path: videoPath }
       if (projectId) query.project = projectId
-      if (meta.createdAt && meta.endedAt) {
+      // 新口径：结果页时长 = 步骤执行耗时累计，不含暂停/断点恢复空闲时间
+      // 存在性守卫：显式排除 null/undefined（Number(null)===0 陷阱）
+      if (meta.activeMs !== null && meta.activeMs !== undefined && Number.isFinite(Number(meta.activeMs)) && Number(meta.activeMs) >= 0) {
+        query.durationMs = Number(meta.activeMs)
+      } else if (meta.createdAt && meta.endedAt) {
         const start = Date.parse(meta.createdAt)
         const end = Date.parse(meta.endedAt)
         if (Number.isFinite(start) && Number.isFinite(end) && end >= start) query.durationMs = end - start
