@@ -1,15 +1,20 @@
-"""JWT authentication middleware — shares secret with orchestrator."""
+"""JWT authentication middleware — 验证 ops-center 本地签发的 HS256 JWT（OPS_JWT_SECRET，role=admin）。
+
+自包含登录后不再依赖 orchestrator 签发；token 由 routers/auth.py 的 POST /api/auth/login 签发。
+（兼容历史 orchestrator 同格式 token，因 secret/算法/payload 形状一致。）"""
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 
 from config import settings
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Validate JWT token and return payload."""
+async def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(security)):
+    """Validate JWT token and return payload. 缺头/非 Bearer 统一返回 401。"""
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未提供认证令牌")
     try:
         secret = settings.get_jwt_secret()
         payload = jwt.decode(

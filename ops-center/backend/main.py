@@ -6,8 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import init_db
-from routers import config, sync, secrets, snapshots, env, model_presets
+from routers import config, sync, secrets, snapshots, env, model_presets, auth
 from services.model_preset_service import ensure_catalog_seeded, ensure_model_preset_columns
+from services.auth_service import ensure_admin_seeded
 from database import async_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     async with async_session() as db:
         await ensure_model_preset_columns(db)
         await ensure_catalog_seeded(db)
+        await ensure_admin_seeded(db)
     logger.info("OpsCenter ready")
     yield
     logger.info("OpsCenter shutting down")
@@ -52,6 +54,7 @@ app.include_router(secrets.router)
 app.include_router(snapshots.router)
 app.include_router(env.router)
 app.include_router(model_presets.router)
+app.include_router(auth.router)
 
 
 @app.get("/health")
