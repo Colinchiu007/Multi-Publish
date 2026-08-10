@@ -25,6 +25,7 @@ const { createReplayApi } = require('./replay')
 const { createIdentityApi } = require('./identity')
 const { createTtsVoiceCatalogApi } = require('./tts-voice-catalog')
 const { createTtsVoiceCloneApi } = require('./tts-voice-clone')
+const { createPageManagerApi } = require('./page-manager')
 const {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -65,6 +66,7 @@ const fullApi = {
   ...createIdentityApi(ipcRenderer),
   ...createTtsVoiceCatalogApi(ipcRenderer),
   ...createTtsVoiceCloneApi(ipcRenderer),
+  ...createPageManagerApi(ipcRenderer),
 }
 
 const exposedApi = createDynamicAccessApi(fullApi, getAccessLevel)

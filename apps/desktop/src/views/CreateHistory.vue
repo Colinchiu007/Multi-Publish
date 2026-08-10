@@ -30,7 +30,9 @@
       <div v-else>
         <div v-if="renderError" class="history-error"><p>{{ renderError }}</p><UiButton size="sm" @click="loadRenders">重试</UiButton></div>
         <div v-if="renders.length === 0" class="empty-state">
+          <span class="empty-state-icon">🎬</span>
           <p>暂无渲染记录</p>
+          <p class="empty-state-hint">创作你的第一个视频，记录将在这里显示</p>
           <UiButton @click="$router.push('/create')">去创作</UiButton>
         </div>
         <div v-else class="render-list">
@@ -58,7 +60,9 @@
       <div v-else>
         <div v-if="pipelineError" class="history-error pipeline-history-error"><p>{{ pipelineError }}</p><UiButton size="sm" @click="loadPipelines">重试</UiButton></div>
         <div v-if="pipelines.length === 0" class="empty-state">
+          <span class="empty-state-icon">🔄</span>
           <p>暂无流水线运行记录</p>
+          <p class="empty-state-hint">选择创作模式开始流水线，运行记录将在这里显示</p>
           <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
         </div>
         <div v-else class="pipeline-list">
@@ -324,10 +328,12 @@ export default {
 /* 空状态增强 */
 .empty-state-icon { font-size: 48px; margin-bottom: 8px; opacity: 0.6; }
 .empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 12px; }
-</style>
+
 
 /* 键盘导航焦点样式 */
 .render-card:focus-visible, .pipeline-card:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+
+</style>

@@ -219,6 +219,7 @@
               @check-login="checkLogin"
               @relogin="reloginAccount"
               @remove="removeAccount"
+            @open-creator="openCreatorCenter"
             />
           </div>
         </section>
@@ -271,7 +272,9 @@ import { useAccountActions } from '@/composables/useAccountActions'
 import { useAccountEvents } from '@/composables/useAccountEvents'
 import { useAccountStore } from '@/stores/accounts'
 import { usePlatformStore } from '@/stores/platforms'
+import { useTabStore } from '@/stores/tab'
 import { useRoute, useRouter } from 'vue-router'
+import { PLATFORM_DASHBOARD_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
 
 const filterOptions = [
   { value: 'all', label: '全部' },
@@ -290,6 +293,7 @@ const sortOptions = [
 const emptyIds = new Set()
 
 const platformStore = usePlatformStore()
+const tabStore = useTabStore()
 const accountStore = useAccountStore()
 const route = useRoute()
 const router = useRouter()
@@ -789,6 +793,22 @@ async function checkLogin (account) {
   } catch (error) {
     ElMessage.error(error?.message || '验证失败')
   }
+}
+
+/**
+ * 打开创作者中心（在新标签页中全屏显示）
+ */
+async function openCreatorCenter(account) {
+  if (!account?.platform) {
+    ElMessage.error('账号信息不完整')
+    return
+  }
+  const url = PLATFORM_DASHBOARD_URLS[account.platform]
+  if (!url) {
+    ElMessage.warning('暂不支持该平台的创作者中心')
+    return
+  }
+  await tabStore.createTab({ url, platform: account.platform, accountId: account.id })
 }
 
 async function removeAccount (account) {
