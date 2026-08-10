@@ -1,0 +1,13 @@
+{
+  "id": "ops-center-subtree-merge",
+  "title": "ops-center 正式并入 Multi-Publish（git subtree 方案 A，独立仓库冻结）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "infra,backend,frontend",
+  "currentPhase": "implementation",
+  "nextAction": "PR + CI + 合并 + 冻结独立仓库 + 文档/记忆/归档",
+  "createdAt": "2026-08-10T15:12:17+08:00",
+  "branch": "codex/ops-center-subtree-merge",
+  "openspecChange": "ops-center-subtree-merge"
+}

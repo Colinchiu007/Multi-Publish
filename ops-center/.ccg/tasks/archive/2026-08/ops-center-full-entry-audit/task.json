@@ -1,0 +1,14 @@
+{
+  "id": "ops-center-full-entry-audit",
+  "title": "运营后台全入口报错排查 + 整体测试 + 补 PRD/测试用例",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "fullstack",
+  "currentPhase": "completed",
+  "nextAction": "已交付：seed 根因修复 + P1-P4 + C1 鉴权修复，50 测试通过，PR #440 合并 (1c61a0a5)",
+  "createdAt": "2026-08-09T00:00:00Z",
+  "completedAt": "2026-08-09T11:20:00Z",
+  "branch": "codex/ops-center-integration",
+  "remoteStatus": "merged"
+}
