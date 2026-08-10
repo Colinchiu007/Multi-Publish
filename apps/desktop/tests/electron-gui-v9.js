@@ -135,9 +135,14 @@ async function testHomePage(win) {
   console.log("\n═══ 首页 ═══");
   await win.evaluate((r) => { window.location.hash = "#" + r; }, ROUTES.home);
   await wait(3000);
-  await assertTitle(win, "社媒");
-  const cards = await win.evaluate((sel) => document.querySelectorAll(sel.statCard).length, SEL);
-  assert(`快捷入口 5 个`, cards === 5);
+  // 首页已复刻为蚁小二风格 .yixiaoer-home 布局，旧版 .page-title 已不存在
+  const home = await win.evaluate((sel) => ({
+    root: !!document.querySelector(sel.yixiaoerHome),
+    welcome: !!document.querySelector(sel.yixiaoerHomeWelcome),
+  }), SEL);
+  assert("蚁小二风格首页（根容器 + 欢迎区）", home.root && home.welcome);
+  const shortcuts = await win.evaluate((sel) => document.querySelectorAll(sel.homeShortcut).length, SEL);
+  assert(`快捷入口 6 个`, shortcuts === 6);
   await win.screenshot({ path: path.join(SS, "v9-04-home.png") });
 }
 

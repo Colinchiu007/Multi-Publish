@@ -145,6 +145,9 @@
                       "navItem":  ".nav-item",
                       "sidebarList":  ".cohere-sidebar-list",
                       "emptyState":  ".cohere-empty",
-                      "sidebar":  ".cohere-sidebar"
+                      "sidebar":  ".cohere-sidebar",
+                      "yixiaoerHome":  ".yixiaoer-home",
+                      "yixiaoerHomeWelcome":  ".yixiaoer-home-welcome",
+                      "homeShortcut":  ".yixiaoer-home-shortcut"
                   }
 }
