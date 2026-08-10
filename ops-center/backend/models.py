@@ -309,3 +309,18 @@ class ContentTemplate(Base):
     updated_by = Column(String(100), default="")
 
 
+class RedemptionCode(Base):
+    """兑换码管理 — 运营后台签发（与桌面端 redemption-codes.js HMAC 格式一致），吊销/查询。"""
+
+    __tablename__ = "redemption_codes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(32), unique=True, nullable=False)  # MP-XXXX-XXXX-XXXX-SIG（列表掩码，操作按 id）
+    plan = Column(String(20), default="pro")  # free | trial | pro
+    batch_id = Column(String(32), default="")
+    status = Column(String(20), default="active")  # active | revoked
+    expires_at = Column(String, nullable=True)  # ISO 或空
+    note = Column(String(200), default="")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
+

@@ -1074,3 +1074,35 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 ① 首次启动种子 5 个内置模板；② 非法 id/name/platforms/sort/content → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 模板（builtin=true）；⑤ 软删种子重启不复活、可重建；⑥ 桌面端 applyRemote 按 id 覆盖/新增/保留用户模板/上限 fail-closed；⑦ 未注入 templateManager 跳过不影响其他策略。
 
 
+## 12A.19 兑换码签发/吊销/查询（2026-08-11 新增，P1-4）
+
+> 运营后台批量签发 Pro 激活码，格式与桌面端 `redemption-codes.js` 完全兼容（HMAC-SHA256，`MP-XXXX-XXXX-SIG`）。共享密钥：`OPS_REDEMPTION_SECRET` 必须等于桌面端 `REDEMPTION_SECRET`，否则桌面端无法验证。
+
+### 12A.19.1 数据模型与签发算法
+
+`redemption_codes`：id（代理主键，操作引用）/ code（唯一）/ plan（free|trial|pro）/ batch_id / status（active|revoked）/ expires_at（ISO 或空）/ note（≤200）/ created_at / updated_by。列表始终掩码 `MP-****-****-SIG`，操作按 id。
+
+签发算法（与桌面端逐字符一致）：
+- 随机段字母表 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`（去 I/O/0/1），4 字符 ×2；
+- payload = `MP-RAND-RAND`；签名 = `HMAC-SHA256(payload, secret).hexdigest().upper()[:4]`；
+- code = `payload-SIG`。
+
+### 12A.19.2 端点（均 admin）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/v1/redemption-codes/batch | 批量签发（count 1-200、plan 枚举、expires_at ISO、note ≤200；未配置 OPS_REDEMPTION_SECRET → 400 fail-closed） |
+| GET | /api/v1/redemption-codes?plan=&status=&limit=&offset= | 列表（掩码） |
+| PUT | /api/v1/redemption-codes/{id}/revoke | 吊销（404 兜底） |
+| DELETE | /api/v1/redemption-codes/{id} | 删除（404 兜底） |
+
+### 12A.19.3 前端「兑换码」页
+
+- 批量签发弹窗：数量（1-200）/ 套餐下拉（free/trial/pro）/ 过期时间（ISO）/ 备注。
+- 签发成功：批次号 + 掩码列表（提示「列表展示为掩码，完整码已存库」）。
+- 列表：掩码 / 套餐 tag / 状态 tag（有效|已吊销）/ 批次 / 过期时间 / 签发时间 / 备注 / 操作（有效→吊销、删除）。
+- 顶部说明：OPS_REDEMPTION_SECRET 与桌面端 REDEMPTION_SECRET 一致契约。
+
+### 12A.19.4 验收标准
+
+① 签发格式与桌面端 validate() 兼容（签名可复算）；② count/plan/expires_at 非法 → 400；③ 未配置密钥 → 400；④ 列表掩码、操作按 id；⑤ 吊销/删除不存在 → 404；⑥ 非 admin 403。

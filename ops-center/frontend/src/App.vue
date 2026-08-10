@@ -48,6 +48,10 @@
           <el-icon><Tickets /></el-icon>
           <span>许可证管理</span>
         </el-menu-item>
+        <el-menu-item index="/redemption-codes">
+          <el-icon><Postcard /></el-icon>
+          <span>兑换码</span>
+        </el-menu-item>
         <el-menu-item index="/announcements">
           <el-icon><Bell /></el-icon>
           <span>运营公告</span>

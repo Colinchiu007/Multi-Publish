@@ -63,6 +63,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/redemption-codes',
+    name: 'RedemptionCodes',
+    component: () => import('../views/RedemptionCodes.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/announcements',
     name: 'Announcements',
     component: () => import('../views/Announcements.vue'),
