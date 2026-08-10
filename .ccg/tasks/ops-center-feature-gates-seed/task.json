@@ -1,0 +1,12 @@
+{
+  "id": "ops-center-feature-gates-seed",
+  "title": "修复：运营后台功能开关加载失败（启动种子接入项目/功能开关导入）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "implementation",
+  "nextAction": "PR + CI + 合并 + 归档",
+  "createdAt": "2026-08-10T17:47:24+08:00",
+  "branch": "codex/ops-center-seed-projects"
+}
