@@ -788,47 +788,21 @@
       <div v-if="quickError" class="result-banner error"><p>{{ quickError }}</p><button class="btn-secondary" @click="quickError = null">重试</button></div>
     </div>
 
+
     <!-- ==================== 历史记录视图 ==================== -->
     <div v-if="view === 'history'">
-      <div v-if="historyLocalMode" class="history-local-mode-banner" data-testid="history-local-mode-banner">
-        {{ historyLocalModeText }}
-      </div>
-      <div v-if="historyLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
-      <div v-else>
-        <div v-if="history.length === 0" class="empty-state"><p>暂无创作记录</p></div>
-        <div v-else>
-          <div class="history-toolbar">
-            <label for="history-status-filter">状态</label>
-            <select id="history-status-filter" v-model="historyFilter" class="form-select history-filter">
-              <option value="all">全部</option>
-              <option value="completed">已完成</option>
-              <option value="failed">生成失败</option>
-              <option value="cancelled">已取消</option>
-              <option value="running">进行中</option>
-              <option value="paused">已暂停</option>
-            </select>
-          </div>
-          <div v-if="filteredHistory.length === 0" class="empty-state compact"><p>没有符合条件的记录</p></div>
-          <div v-else class="history-list">
-            <div v-for="(h, i) in filteredHistory" :key="h.projectId || h.id || i" class="history-item" :class="{ 'is-running': h.status === 'running' }" @click="openHistory(h)">
-              <div class="history-item-main">
-                <span class="history-name">{{ h.title || pipelineName(h.pipeline || h.name) }}</span>
-                <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
-                <span v-if="h.status === 'running'" class="history-running-hint">返回流水线创作查看进度</span>
-                <span v-if="h.status === 'paused' && h.pausedStage" class="history-paused-hint">暂停环节：{{ h.pausedStage }}</span>
-                <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
-                <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
-                <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
-                <button v-if="(h.status === 'failed' || h.status === 'paused') && historyItemResumable(h)" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '从断点继续' }}</button>
-                <button v-else-if="h.status === 'running'" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '继续生成' }}</button>
-              </div>
-              <div v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
-                <span v-for="(s, si) in h.stages" :key="si" class="history-progress-seg" :class="historyStageState(s)" :title="historyStageTitle(s)">{{ historyStageLabel(s) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <CreateViewHistory
+        :history="history"
+        :history-loading="historyLoading"
+        :history-local-mode="historyLocalMode"
+        :history-local-mode-text="historyLocalModeText"
+        :history-filter="historyFilter"
+        :story2video-resuming="story2videoResuming"
+        @update:historyFilter="historyFilter = $event"
+        @open-history="openHistory"
+        @resume-history="resumeHistoryItem"
+        @delete-history="requestProjectDeletion"
+      />
     </div>
 
     <UiModal
@@ -879,6 +853,7 @@
 import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
+import CreateViewHistory from './CreateViewHistory.vue'
 import {
   deleteCustomTemplate,
   getAllTemplates,
@@ -3504,36 +3479,6 @@ export default {
 .success { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .error { background: var(--status-failed-bg); color: var(--status-failed-text); }
 
-/* 历史 */
-.history-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.history-toolbar label { color: var(--text-muted); font-size: 13px; font-weight: 600; }
-.history-filter { width: min(220px, 100%); }
-.history-list { display: flex; flex-direction: column; gap: 8px; }
-.history-item { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
-.history-item-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.history-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.history-status { font-size: 12px; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
-.history-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.history-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
-.history-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
-.history-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
-.history-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
-.history-item.is-running { cursor: pointer; border-color: var(--history-running-border); }
-.history-item.is-running:hover { border-color: var(--primary); }
-.history-paused-hint { font-size: 11px; color: var(--banner-warning-color, #b45309); background: var(--banner-warning-bg, #fef3c7); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; }
-.history-progress { display: flex; gap: 4px; flex-wrap: wrap; align-items: stretch; }
-.history-progress-seg { flex: 1 1 0; min-width: 72px; max-width: 150px; font-size: 11px; padding: 4px 8px; border-radius: var(--r-xs); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--status-pending-bg); color: var(--status-pending-text); }
-.history-progress-seg.done { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.history-progress-seg.active { background: var(--history-progress-active-bg); color: #fff; font-weight: 600; box-shadow: 0 0 0 2px var(--history-progress-active-shadow); }
-.history-progress-seg.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
-.history-running-hint { font-size: 11px; color: var(--history-running-hint-text); background: var(--history-running-hint-bg); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; flex-shrink: 0; }
-.history-time { color: var(--text-light); font-size: 12px; }
-.history-open, .history-delete, .history-resume { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
-.history-open:hover { border-color: var(--primary); color: var(--primary); }
-.history-delete:hover { border-color: var(--error); color: var(--error); }
-.history-resume:hover { border-color: var(--primary); color: var(--primary); }
-.history-resume:disabled { opacity: 0.6; cursor: not-allowed; }
-.empty-state.compact { padding: 28px 0; }
 .template-editor { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; align-items: start; }
 .template-editor .btn-secondary { margin-top: 0; min-height: 38px; }
 .btn-secondary.danger { border-color: var(--error); color: var(--error); }
@@ -3545,20 +3490,15 @@ export default {
 
 /* 通用 */
 .loading-state, .empty-state, .error-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: var(--text-muted); justify-content: center; }
-.history-local-mode-banner { margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; background: var(--warning-bg); color: var(--banner-warning-color); font-size: 13px; }
 .story2video-error-dialog-detail { margin-top: 8px; color: var(--text-muted); font-size: 13px; }
 .error-state { color: var(--error); background: var(--status-failed-bg); border-radius: var(--r-sm); }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline, #ccc); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 720px) {
   .template-editor { grid-template-columns: 1fr; }
-  .history-item { align-items: flex-start; flex-wrap: wrap; }
-  .history-name { flex-basis: 100%; }
 }
 </style>
 
-/* 键盘导航焦点样式 */
-.pipeline-card:focus-visible, .render-card:focus-visible, .pipeline-card:focus-visible, .history-item:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }

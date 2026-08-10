@@ -1,4 +1,4 @@
-﻿# PROJECT-003 Multi-Publish — 视频创作模块 PRD
+# PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
 > **版本**: v1.8
 > **日期**: 2026-07-29
@@ -143,6 +143,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-09 | 本地克隆音色删除/设为默认 + 媒体导入反馈 | 删除本地克隆音色为本地管理语义：adapter 不支持 `deleteVoice`（如 MiniMax 官方 clone API 无删除端点）时跳过远端删除，直接清理本地 registry 记录/样本/偏好，不再误报「音色克隆服务暂时不可用」；新增 `ModelProviderManager.supportsAdapterMethod` 能力查询。克隆「设为默认」先同步下拉再保存偏好，默认克隆行显示「默认」徽标 + 高亮 + 「已设为默认」禁用态。媒体导入失败提示全部透传类别宾语（背景音乐等），新增 `MEDIA_PATH_UNRESOLVED` 细分（路径解析失败 vs 文件不可读/被占用），主进程复制文件对 Windows 占用做 ≤3 次有界重试。详见总 PRD 7.1.22 | PRD 7.1.22 |
 | 2026-08-09 | 窗口关闭行为跨平台化（macOS 前瞻） | 平台决策收敛到 `services/window-close-policy.js`：darwin 关闭窗口不拦截（系统约定，进程留在 Dock、activate 重建窗口）、win32/linux 维持「运行任务+托盘可用→隐藏托盘」；托盘图标按平台回退（darwin 模板图标 setTemplateImage，其余占位图）；快照写入 POSIX rename 原子优先、Windows copy 回退。回归：window-close-policy 6 / window 51 / system-tray 28 / run-state-store 17 测试通过 | PRD 7.1.21（跨平台行） |
 | 2026-08-11 | CreateView 历史记录已暂停状态支持 | CreateView.vue historyStatusLabel() 新增 paused 映射、过滤器新增「已暂停」选项、暂停环节提示、断点续跑按钮、CSS 样式。详见本节 3.1.12 | PRD 7.1.24 |
+| 2026-08-11 | CreateView 历史记录组件拆分与 UI 优化 | 提取 CreateViewHistory.vue 独立组件、卡片式布局+状态色条、运行中脉冲动画、信息分层、失败原因展示、操作按钮分层、记录计数、空状态优化。详见 3.1.13 | PRD 7.1.25 |
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
@@ -684,6 +685,45 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 - 后端（无变更）：apps/desktop/electron/services/pipeline-engine.js（getHistory 已返回 paused 数据）
 - 测试：CreateHistory.test.js 22/22 通过；views-deep2.test.js 7/7 通过；pipeline-engine.test.js 37/37 通过。
 
+
+### 3.1.13 CreateView 历史记录组件拆分与 UI 优化（2026-08-11）
+
+**背景**：CreateView.vue 原为 3575 行的巨型单文件组件，历史记录视图与流水线创作、快速渲染混杂在同一文件中。本次重构将历史记录视图提取为独立组件 CreateViewHistory.vue，并全面优化 UI。
+
+**一、组件拆分**
+
+1. 新建 `apps/desktop/src/views/CreateViewHistory.vue`：独立的历史记录视图组件。
+2. CreateView.vue 通过 props 传入数据，通过 events 传回用户操作。
+3. 历史记录 CSS 从 CreateView.vue 迁移到 CreateViewHistory.vue。
+4. CreateView.vue 从 3575 行减少到 3515 行。
+
+**二、组件 API**
+
+| 类型 | 名称 | 说明 |
+|------|------|------|
+| Prop | history | 历史记录数组 |
+| Prop | historyLoading | 加载状态 |
+| Prop | historyFilter | 过滤状态（v-model） |
+| Event | update:historyFilter | 过滤状态变更 |
+| Event | open-history | 打开历史项 |
+| Event | resume-history | 恢复/继续 |
+| Event | delete-history | 删除 |
+
+**三、UI 优化**
+
+1. 卡片式布局 + 左侧状态色条（completed=绿/failed=红/running=蓝/paused=橙/cancelled=灰）
+2. 运行中脉冲动画（蓝色边框呼吸效果）
+3. 信息分层：标题行 → 提示行 → 阶段进度 → 底部操作
+4. 失败原因截断展示（最多 60 字符）
+5. 操作按钮分层：主操作（恢复，蓝色）+ 次操作（打开/删除）
+6. 记录计数显示
+7. 空状态图标+引导提示
+
+**四、相关文件**
+
+- 新增：apps/desktop/src/views/CreateViewHistory.vue
+- 修改：apps/desktop/src/views/CreateView.vue（引入组件、移除内联模板和样式）
+- 构建：vite build 通过，CreateView chunk 141KB
 ### 3.2 参数配置（Remotion 快速路径）
 
 以下 Cut 参数属于独立 Remotion 快速路径，不等同于 `story2video-compose` 的 scene schema：
