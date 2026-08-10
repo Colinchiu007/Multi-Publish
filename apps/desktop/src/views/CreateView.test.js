@@ -2532,9 +2532,16 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
       await nextTick();
       await w.vm.loadS2VProviders();
       await nextTick();
+      // 显式选择 story2video-compose 流水线：本用例只关心克隆面板渲染，
+      // 不依赖前面用例遗留的 pipelineList mock 状态（消除顺序依赖）
+      w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "optimize", "generate_assets", "compose"] };
+      w.vm.s2vConfig.voiceProvider = "minimax-tts";
+      w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
       w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
       w.vm.s2vCloneOpen = true;
       w.vm.s2vVoiceClones = [{ id: "01", name: "克隆01", invalid: true }];
+      // 与 4K 用例一致的稳定等待：S2V 合成区随 mount 异步初始化，纯 nextTick 在隔离/额外 microtask 下时序不稳
+      await new Promise((r) => setTimeout(r, 50));
       await nextTick();
 
       const list = w.find(".voice-clone-list");

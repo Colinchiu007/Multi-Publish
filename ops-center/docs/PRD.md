@@ -884,6 +884,57 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 `test_health_api.py` 2 用例：未配置跳过 + 权限、自定义目标失败 + 非法目标忽略。
 
 
+## 12A.16 桌面端功能开关运行时下发（2026-08-11 新增，P0-1）
+
+> 桌面端功能开关（key → typed value）由运营后台统一维护，随 `runtime/bootstrap` 下发；桌面端同步后即时生效。首个真实用例：4K 输出能力开关 `videoCreation.maxOutputResolution`（PRD 7.1.20）。
+
+### 12A.16.1 数据模型与校验
+
+`feature_flags` 表：
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| key | str PK | 必填、`^[A-Za-z0-9_.-]{1,128}$` | 开关标识（如 videoCreation.maxOutputResolution） |
+| value_type | str | 枚举 string/boolean/number，默认 string | 值类型 |
+| value | str | 按类型可解析：boolean ∈ true/false/1/0；number 可解析数字 | 存储字符串，下发时转 typed value |
+| description | str | ≤200 | 用途说明 |
+| enabled | bool | 0/1 | 停用后不下发 |
+| updated_at / updated_by | str | 自动 | 审计 |
+
+- key 拒绝 `__proto__`/`constructor`/`prototype`；value ≤512。
+- number value 统一 float 解析并校验有限（含科学计数法，前后端一致）。
+- POST 重复 key → 409；PUT / DELETE 不存在 → 404；PUT 部分更新（null 不修改、body 中 key 被忽略不可变）；并发冲突 IntegrityError → 409；种子并发冲突幂等忽略。
+- 种子：`videoCreation.maxOutputResolution` = '1080p'（默认禁止 4K），已存在即跳过，不覆盖运营修改。
+
+### 12A.16.2 端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/feature-flags | 列表（登录可读，含 typed_value） |
+| POST | /api/v1/feature-flags | 新增（admin） |
+| PUT | /api/v1/feature-flags/{key} | 更新（admin，部分更新） |
+| DELETE | /api/v1/feature-flags/{key} | 删除（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `feature_flags` = `{key: typed_value}`（enabled=1，同 X-Catalog-Key 鉴权） |
+
+### 12A.16.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| OpsCenterSync | `applyRuntime` 应用 `feature_flags`（仅接受字符串/布尔/数字值，结构非法或 >100 项 → 空对象 fail-closed）；持久化 opsCenterRuntime，重启恢复；`getFeatureFlag(key)` 供主进程/引擎读取；`getRuntimeState()` 暴露 featureFlags（渲染端经现有 `opsCenterSyncRuntime` IPC） |
+| 4K 读取优先级 | 环境变量 `MAX_OUTPUT_RESOLUTION` → 运营功能开关 `videoCreation.maxOutputResolution`（phase1 `setFeatureFlagProvider` 注入）→ store 设置 → 默认 1080p（fail-closed） |
+| 引擎 | `Story2VideoComposeEngine` 支持 `getMaxOutputResolution` 惰性读取：compose/renderSegment 能力校验时取当前值，构造期静态值兜底 |
+| 渲染端 | CreateView `loadMaxOutputResolution`：runtime featureFlags → store → 默认 |
+
+### 12A.16.4 前端「桌面端功能开关」页
+
+- 列表：Key / 类型 tag / 当前值（typed 展示，空显示「（空）」）/ 描述 / 启用开关 / 操作（编辑、删除）；顶部「全部/已启用/已停用」筛选 + 「新增开关」。
+- 编辑弹窗：Key（编辑禁用）/ 值类型下拉 / 值输入（布尔提示 true/false、数字提示数字、字符串提示如 1080p/4k）/ 描述 / 启用下发。
+- 校验提示：Key 字符集、布尔值枚举、数字可解析；保存失败显示后端 detail。
+- 顶部说明文案注明内置 4K 开关用途与 fail-closed 语义。
+
+### 12A.16.5 验收标准
+
+① 首次启动 4K 开关种子存在；② 非法 key/value_type/value → 400；③ POST 重复 → 409、PUT/DELETE 不存在 → 404；④ bootstrap 返回 enabled 开关 typed value；⑤ 桌面端 applyRuntime 应用/持久化/重启恢复；非法结构 → 空对象；⑥ 引擎惰性读取：静态 1080p + 动态 4k → 放行 4K，动态 1080p → 拒绝（fail-closed）；⑦ 未配置同步的桌面端用本地默认（1080p）。
 ## 12A.15 平台发布元数据管理（2026-08-11 新增，P1 其余）
 
 > 平台发布元数据（标题/内容上限、内容类型分类、是否支持 API、临时下线）从桌面端 `config/platforms.yaml` 迁移到运营后台维护，随运行时 bootstrap 下发；桌面端启动/同步时覆盖同名平台字段，不改写 yaml。
@@ -986,3 +1037,4 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 ### 12A.17.5 验收标准
 
 ① 首次启动种子 5 个内置模板；② 非法 id/name/platforms/sort/content → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 模板（builtin=true）；⑤ 软删种子重启不复活、可重建；⑥ 桌面端 applyRemote 按 id 覆盖/新增/保留用户模板/上限 fail-closed；⑦ 未注入 templateManager 跳过不影响其他策略。
+

@@ -193,6 +193,11 @@ function extractContext(container) {
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
   }
+  // 运营功能开关提供者（4K 能力开关等运行时下发 → 引擎惰性读取）
+  const { setFeatureFlagProvider } = require('../core/container.setup')
+  if (opsCenterSync && typeof opsCenterSync.getFeatureFlag === 'function' && typeof setFeatureFlagProvider === 'function') {
+    setFeatureFlagProvider((key) => opsCenterSync.getFeatureFlag(key))
+  }
   // 模型调用用量脱敏上报（P0 第二批）：聚合 model_provider_logs → ops-center /usage/ingest
   const { UsageReporter } = require('../services/usage-reporter')
   const usageReporter = new UsageReporter({

@@ -895,6 +895,7 @@ import {
   story2videoDeleteProject
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
+import { opsCenterSyncRuntime } from '@/api/ops-center-sync'
 import {
   getTtsVoiceCatalog,
   getTtsVoiceCapability,
@@ -1823,12 +1824,21 @@ export default {
         }
       }
     },
-    async loadMaxOutputResolution() {
+        async loadMaxOutputResolution() {
       // 运营开关（videoCreation.maxOutputResolution）：'1080p'（默认，禁止 4K）| '4k'
-      // 读取失败一律回退 1080p（fail-closed），前端所有流程不出现 4K。
+      // 优先级：运营后台功能开关（runtime 下发）→ 本地 store 设置 → 默认；失败一律 1080p（fail-closed）。
       try {
-        const raw = await storeGetSetting(MAX_OUTPUT_RESOLUTION_KEY)
-        const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw.data ?? raw) : raw
+        let value = null
+        try {
+          const runtime = await opsCenterSyncRuntime()
+          const ff = runtime && runtime.code === 0 ? runtime.data?.featureFlags?.[MAX_OUTPUT_RESOLUTION_KEY] : null
+          if (ff === '4k' || ff === '1080p') value = ff
+        } catch (_) { /* runtime 不可用走下一级 */ }
+        if (value == null) {
+          const raw = await storeGetSetting(MAX_OUTPUT_RESOLUTION_KEY)
+          const stored = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw.data ?? raw) : raw
+          if (stored === '4k' || stored === '1080p') value = stored
+        }
         this.maxOutputResolution = value === '4k' ? '4k' : '1080p'
       } catch (_) {
         this.maxOutputResolution = '1080p'

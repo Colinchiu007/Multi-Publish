@@ -84,6 +84,11 @@ const routes = [
     path: '/platform-defs',
     name: 'PlatformDefs',
     component: () => import('../views/PlatformDefs.vue'),
+  },
+  {
+    path: '/runtime-flags',
+    name: 'RuntimeFlags',
+    component: () => import('../views/RuntimeFlags.vue'),
     meta: { requiresAuth: true },
   },
   {

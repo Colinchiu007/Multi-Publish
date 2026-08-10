@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ## [未发布] 功能：官方内容模板库下发（P0-2）（2026-08-11）
 
 - ops-center：新增 `content_templates` 表 + `GET/POST /api/v1/content-templates`、`PUT/DELETE /api/v1/content-templates/{id}`（admin）；校验 id 字符集 / name 必填 / content ≤20000 / platforms·tags 字符串数组 / sort_order 非负整数；POST 重复 409、PUT 部分更新+404、DELETE 软删（种子不复活、可重建）；种子对齐桌面端内置预设 5 个；`runtime/bootstrap` 增加 `content_templates`（enabled=1 未软删，sort_order 排序，builtin=true，X-Catalog-Key 鉴权）。
@@ -5,6 +6,16 @@
 - 桌面端：`TemplateManager.applyRemote`（按 id upsert、官方字段白名单、新增标记 builtin、用户模板保留、数组 >200 fail-closed、变更持久化）；`OpsCenterSync.setTemplateManager` + `applyRuntime` 应用 content_templates；phase1 接线。
 - 文档：ops-center PRD 12A.17、Multi-Publish PRD §7.4.10、CHANGELOG。
 - 测试：ops-center pytest（+2，全量 107）；桌面端 template-manager +3、ops-center-sync +3。
+=======
+## [未发布] 功能：桌面端功能开关运行时下发（P0-1）（2026-08-11）
+
+- ops-center：新增 `feature_flags` 表 + `GET/POST /api/v1/feature-flags`、`PUT/DELETE /api/v1/feature-flags/{key}`（admin）；校验 key 字符集 / value_type 枚举 / typed value 可解析；POST 重复 409、PUT/DELETE 不存在 404；种子 `videoCreation.maxOutputResolution`='1080p'（4K 能力开关，PRD 7.1.20）；`runtime/bootstrap` 增加 `feature_flags`（enabled=1 typed value，X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「桌面端功能开关」页（列表/筛选/新增/编辑/删除/启用停用/类型化值校验）。
+- 桌面端：`OpsCenterSync` 应用并持久化 featureFlags（基本类型值、≤100 项、非法结构空对象 fail-closed、重启恢复）；`getFeatureFlag`；4K 能力开关读取优先级改为 环境变量 → 运营功能开关（phase1 setFeatureFlagProvider）→ store → 默认 1080p；compose 引擎惰性读取（getMaxOutputResolution）；CreateView 渲染端优先读功能开关。
+- 文档：ops-center PRD 12A.16、Multi-Publish PRD §7.4.9、CHANGELOG。
+- 审查修复（Claude 定向审查）：number value 统一 float 解析 + `math.isfinite`（防 inf → bootstrap 500）；value ≤512（防撑爆 1MB 同步契约）；PUT 忽略 body 中 key（key 不可变）+ IntegrityError → 409；种子并发幂等；桌面端恢复路径同样归一化；`getFeatureFlag` 仅自有属性 + 拒绝 `__proto__`/`constructor`/`prototype`；前端数字校验与后端一致；CreateView 脆弱用例加固（显式 selectedPipeline/provider/model + 稳定等待，消除顺序依赖与额外 microtask 时序敏感）。
+- 测试：ops-center pytest（+2，全量 104）；桌面端 ops-center-sync +5、引擎惰性 4K/单测 +3、container 全量通过；前端 build 通过。
+>>>>>>> origin/main
 
 ## [未发布] 功能：平台发布元数据管理（P1 其余）（2026-08-11）
 

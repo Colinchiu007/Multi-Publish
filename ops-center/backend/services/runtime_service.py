@@ -298,6 +298,7 @@ async def list_active_announcements(db: AsyncSession) -> list[dict]:
 
 
 async def get_runtime_bootstrap(db: AsyncSession) -> dict:
+    from services.feature_flag_service import list_runtime_feature_flags
     from services.platform_def_service import list_runtime_platform_defs
     from services.content_template_service import list_runtime_content_templates
 
@@ -305,6 +306,7 @@ async def get_runtime_bootstrap(db: AsyncSession) -> dict:
         "announcements": await list_active_announcements(db),
         "update_policy": await get_update_policy(db),
         "content_policy": await get_content_policy(db),
+        "feature_flags": await list_runtime_feature_flags(db),
         "platform_defs": await list_runtime_platform_defs(db),
         "content_templates": await list_runtime_content_templates(db),
         "synced_at": _now(),
