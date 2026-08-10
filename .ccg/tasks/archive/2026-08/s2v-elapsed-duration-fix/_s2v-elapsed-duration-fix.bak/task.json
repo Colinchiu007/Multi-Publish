@@ -1,0 +1,14 @@
+{
+  "id": "s2v-elapsed-duration-fix",
+  "title": "修复视频创作流水线「已用时」计算：改为各步骤实际执行耗时总和（排除暂停/中断等待）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop/story2video",
+  "currentPhase": "completed",
+  "nextAction": "PR #483 merged; CI green",
+  "createdAt": "2026-08-10T00:00:00Z",
+  "completedAt": "2026-08-10T11:05:00Z",
+  "branch": "codex/s2v-elapsed-duration-fix",
+  "pr": "#483"
+}
