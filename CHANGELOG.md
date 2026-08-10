@@ -1,3 +1,11 @@
+## [未发布] 功能：官方 Key 池配额/成本概览 + 许可证管理（P0/P1 第三批）（2026-08-10）
+
+- ops-center：官方 Key 池增强——`official_keys` 新增 rate_per_minute/daily_limit/alert_threshold_cost/note（幂等迁移 `ensure_official_key_columns`，校验拒绝布尔/小数/负数）；`GET /api/v1/secrets/summary`（admin）返回池概览（总数/活跃/30 天内到期/已过期/近 30 天成本复用用量上报/达告警阈值）；Key 管理页新增字段与概览卡片。
+- ops-center：许可证管理——`licenses` 表（license_key 唯一自动生成 MP-XXXX-XXXX-XXXX-XXXX、plan/device_limit/expires_at/status/note）+ `GET/POST /api/v1/licenses`、`PUT/DELETE /api/v1/licenses/{id}`（admin）；前端「许可证管理」页（签发/列表/禁用/删除）。
+- 边界：桌面端 license-manager 本地激活与 entitlement 验签合同不变；官方 Key 回退路由/许可证服务端验签待商业模式确认后另行接入。
+- 文档：ops-center PRD 12A.13。
+- 测试：ops-center pytest（+3 keypool/license）。
+
 ## [未发布] 功能：模型调用用量上报与运营看板（P0 第二批）（2026-08-10）
 
 - ops-center：新增 `model_usage_daily` 聚合表 + `POST /api/v1/usage/ingest`（X-Catalog-Key 鉴权，按 (日期,客户端,服务商,动作) upsert 累加，幂等；校验：日期格式/非负/≤500 条）+ `GET /api/v1/usage/summary`（admin，totals/by_date/by_provider/by_action）。
