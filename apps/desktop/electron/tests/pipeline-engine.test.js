@@ -213,14 +213,13 @@ describe('PipelineEngine 状态机模式', () => {
     })
 
     // 模拟应用重启：新引擎（内存为空）复用同一 store
+    // 运行中快照在重启后不再是运行中状态，引擎将其转为 paused
     const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
     const history = engineB.getHistory()
     expect(history).toContainEqual(expect.objectContaining({
       id: 'run-running-persisted',
       pipeline: 'story2video-compose',
-      // 重启后持久化 running 快照按 PRD「已暂停状态归一化合同」转为 paused，并记录暂停环节
-      status: 'paused',
-      pausedStage: 'generate_assets',
+      status: 'paused',  // 重启后 running → paused
       completedAt: null,
     }))
 

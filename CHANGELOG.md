@@ -12,12 +12,46 @@
 - 前端 `/api/auth` 代理 target 从 orchestrator:8000 改为 ops-center:8010——**解除对 platform-orchestrator 的运行时依赖**；不接 Logto、不集成 orchestrator。
 - 测试：认证 7 用例（成功/失败/未配置/限流/过期/权限/哈希）；ops-center pytest 73 passed。
 - 文档：ops-center PRD 12A.9。
+
+## [未发布] 架构：ops-center 正式并入 Multi-Publish（git subtree 方案 A，2026-08-10）
+
 - 将独立仓库 `Colinchiu007/ops-center`（main 78bebac，17 commits，PR #1/#2/#3 全量）以 `git subtree add --prefix=ops-center --squash` 正式并入 monorepo（PR #475）；移除此前 vendored 快照。
 - 此后运营后台开发/PR/CI/质量门禁统一在 Multi-Publish 内：`ops-center/backend`（pytest 门禁，66 passed）、`ops-center/frontend`（npm run build）。
 - 独立仓库冻结归档（tag `archived-into-multi-publish` + README 说明，完整历史保留可追溯）。
 - 验证：subtree 内容与源仓库逐文件一致；CI 全绿（QG 全项 + build + electron-tests + gui-test）。
 - 附：预设目录按桌面代码事实生成 53 项 + 一致性测试（PR #474/#3）；桌面 seeds 移除无事实 limit_per_5h 估算（PR #474）。
 
+
+## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
+
+### 变更
+- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
+- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
+
+### 硬编码颜色消除
+- CreateView.vue：57 个唯一 hex → 11 个（均为 var() fallback 值）
+- CreateHistory.vue：24 个 → 2 个
+- ResultView.vue：8 个 → 0 个
+- ReplayTimeline.vue：18 个 → 8 个（均为 var() fallback 值）
+
+### 文档
+- PRD 7.1.23 新增「视频创作 UI 设计系统与代码-设计分离合同」
+
+### 测试
+- 195 个测试通过（CreateView + CreateHistory + PipelineBrowser）
+- Vite build 无编译错误
+
+
+## [未发布] 功能：视频创作历史记录「已暂停」状态与 UI 优化（2026-08-10）
+
+- 功能：后端 PipelineEngine.getHistory() 持久化快照状态归一化——RunStateStore 中 status=running 的快照在应用重启后自动转为 paused，并新增 pausedStage 字段记录暂停环节名称（如 animate、compose），前端可展示「暂停环节：xxx」。
+- 功能：前端 CreateHistory.vue 流水线卡片 UI 全面重构——状态徽章前置至第一行、阶段标签和状态提示移至第二行（pipeline-card-bottom 分割线分隔）；卡片左侧 3px 状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）；running 圆点脉冲动画；新增 paused/failed/cancelled 阶段标签状态色；容器宽度 960→1080px、卡片间距 8→12px、hover 微位移效果。
+- 交互：openPipeline() 支持 paused 状态跳转 /create 断点续跑；「暂停环节：xxx」和「生成失败」提示文案实时显示。
+- 数据校验：pausedStage 仅在 currentStage 有效索引且对应 stage 存在时填充，否则为 null；statusLabel() paused→「已暂停」；stageLabel() 对字符串参数走 shortName() 路径。
+- 文档：PRD-video-creation 3.1.11 新增完整合同（后端逻辑/前端交互表/UI 布局/数据校验/路由/文件清单）；迭代记录表新增 2026-08-10 条目。
+- 测试：CreateHistory.test.js 22/22 通过；pipeline-engine 37/37 通过；run-state-store 19/19 通过。
 ## [未发布] 修复：视频创作流水线「已用时」改为步骤执行耗时总和（2026-08-10）
 
 - 修复：流水线「已用时」原按墙钟 `endedAt - createdAt`（运行中 `now - createdAt`）计算，暂停、检查点审阅与失败→断点恢复之间的空闲等待全部计入（用户实证 1245 分 33 秒）；现改为**各步骤实际执行耗时之和**——主进程 `_executeStage` 以执行器真实运行窗口为段累计 `run.activeMs`（成功/失败/取消/异常均计入，`finally` 保证不丢段），暂停/等待/空闲不计入，失败重试多次执行段累计。
