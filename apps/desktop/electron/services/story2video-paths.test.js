@@ -193,6 +193,36 @@ describe('Story2Video 输入路径边界', () => {
   it('gcImportedMedia 目录不存在时静默返回 0', () => {
     expect(gcImportedMedia({ baseDir: path.join(root, 'no-such-dir') })).toBe(0)
   })
+
+  it('导入时惰性触发 GC：gcEnabled 开启且间隔到期删除过期文件，间隔内节流', () => {
+    const importRoot = path.join(root, 'lazy-gc')
+    fs.mkdirSync(importRoot, { recursive: true })
+    const source = path.join(root, 'src-bgm.mp3')
+    fs.writeFileSync(source, 'music')
+    const staleTime = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000)
+
+    // 未开启 gcEnabled：即使间隔到期也不触发（测试/默认调用零副作用）
+    const stale0 = path.join(importRoot, 'bgm-stale-0.mp3')
+    fs.writeFileSync(stale0, 'x')
+    fs.utimesSync(stale0, staleTime, staleTime)
+    importUserSelectedMedia(source, 'bgm', { baseDir: importRoot, gcIntervalMs: 0 })
+    expect(fs.existsSync(stale0)).toBe(true)
+
+    // gcEnabled=true + gcIntervalMs=0 → 每次导入都触发 → 过期文件被删
+    const stale1 = path.join(importRoot, 'bgm-stale-1.mp3')
+    fs.writeFileSync(stale1, 'x')
+    fs.utimesSync(stale1, staleTime, staleTime)
+    const imported = importUserSelectedMedia(source, 'bgm', { baseDir: importRoot, gcIntervalMs: 0, gcEnabled: true })
+    expect(fs.existsSync(stale1)).toBe(false)
+    expect(fs.existsSync(imported.path)).toBe(true)
+
+    // 间隔 1h → 刚触发过不再扫描 → 过期文件保留
+    const stale2 = path.join(importRoot, 'bgm-stale-2.mp3')
+    fs.writeFileSync(stale2, 'x')
+    fs.utimesSync(stale2, staleTime, staleTime)
+    importUserSelectedMedia(source, 'bgm', { baseDir: importRoot, gcIntervalMs: 60 * 60 * 1000, gcEnabled: true })
+    expect(fs.existsSync(stale2)).toBe(true)
+  })
 })
 
 describe('copyImportedMedia（Windows 占用有界重试）', () => {

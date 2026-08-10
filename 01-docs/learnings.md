@@ -4,6 +4,15 @@
 
 ---
 
+## BGM 跳过提示接线与导入惰性 GC 复盘 (2026-08-10，质量节拍审查闭环)
+
+- **背景**：PR #464 后 compose 已把 `bgmSkippedReason` 写入 `run.context.compose`，但前端无消费者，用户「选了 BGM 却被跳过」无感知；GC 仅启动一次，长会话内 selected-media 无界增长；`MODEL_API_KEY_PATTERN` 单条正则过复杂。
+- **关键洞察（数据流）**：pipeline `_executeStage` 在阶段成功时把 output 写入 `run.context[stage.name]`，而 `pipeline:getRunContext` 快照已透传 context——「BGM 被跳过」信号**无需后端管道改造**即可到达前端，只差消费者与 i18n。排查时先确认数据已流到哪一层，避免重复造管道。
+- **实现**：① 通知层新增 `BGM_SKIPPED`（zh/en）+ `bgmSkippedReasonText` + `formatBgmSkippedNotification`（服务层中文硬编码由前端 i18n 取代，机器码 `bgmSkippedReason` 保留为契约）；② CreateView 从 `orchestrationContext.compose` 读取并显示可关闭提示条，`startPipeline`/`cancelPipeline` 重置；③ `importUserSelectedMedia` 按间隔（默认 1h）惰性触发 `gcImportedMedia`；④ API-Key 正则拆分为命名子模式。
+- **回归保护**：notifications BGM_SKIPPED 4 原因中英、CreateView 提示条显示/关闭/未跳过隐藏、paths 惰性 GC 触发/节流；vite build 验证 Vue 编译。
+- **教训**：① 「信号已存在但无消费者」类需求，先沿数据流找到信号在哪一层，接线成本往往远小于预期；② 可复用导入的生命周期终点（启动 GC + 惰性 GC）要成对设计；③ 复杂正则按语义拆命名子模式再组合，可读性与可测性都更好。
+- **边界**：提示条为完成态一次性提示；历史项目恢复（context 含 compose）同样生效。
+
 ## BGM 降级原因区分与错误归一化收窄复盘 (2026-08-10，质量节拍审查闭环)
 
 - **背景**：PR #460 合并后，Claude 审查遗留 4 项（W2-W4 + Info）。本轮处理：① BGM 单文件超限被软降级提示「不可读」，与总大小超限硬失败结论相反；② `decrypt failed|解密失败` 正则无 api-key 上下文，可能把项目文件解密错误误归为「API Key 未配置」；③ 多模态 models 回填未清洗存量脏数据；④ skipBgm 后 `selected-media` 只增不删需老化回收。

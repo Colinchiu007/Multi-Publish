@@ -45,6 +45,27 @@ describe("ResultView", () => {
     expect(w.text()).toContain("\u89c6\u9891\u9884\u89c8");
   });
 
+  it("从路由 query 展示 BGM 跳过提示（bgmSkipped=1 + bgmReason）", async () => {
+    await router.push({ path: "/create/result", query: { path: "C:/tmp/x.mp4", bgmSkipped: "1", bgmReason: "size_exceeded" } });
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton } } });
+    w.vm.loading = false;
+    await nextTick();
+    expect(w.vm.bgmSkippedNotice).toContain("背景音乐已跳过");
+    expect(w.vm.bgmSkippedNotice).toContain("超过大小上限");
+    expect(w.find('[data-testid="story2video-result-bgm-skipped-notice"]').exists()).toBe(true);
+    w.unmount();
+  });
+
+  it("未带 bgmSkipped 时不显示 BGM 跳过提示", async () => {
+    await router.push({ path: "/create/result", query: { path: "C:/tmp/x.mp4" } });
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton } } });
+    w.vm.loading = false;
+    await nextTick();
+    expect(w.vm.bgmSkippedNotice).toBe("");
+    expect(w.find('[data-testid="story2video-result-bgm-skipped-notice"]').exists()).toBe(false);
+    w.unmount();
+  });
+
   it("从路由 query 展示完成汇总（时长 + 文件大小）", async () => {
     await router.push({ path: "/create/result", query: { path: "C:/tmp/x.mp4", durationMs: "125000", sizeBytes: "3145728" } });
     const w = mount(ResultView, { global: { plugins: [router], components: { UiButton } } });

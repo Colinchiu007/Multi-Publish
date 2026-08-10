@@ -3,7 +3,9 @@ import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
   STORY2VIDEO_NOTIFICATION_MESSAGES,
+  bgmSkippedReasonText,
   countStory2VideoTextCharacters,
+  formatBgmSkippedNotification,
   formatStory2VideoNotification,
   historyLoadFailureDetail,
   resolveStory2VideoNotification,
@@ -121,6 +123,22 @@ describe('Story2Video 通知模型', () => {
     const resolved = resolveStory2VideoNotification({ error: '未找到需要的相关模型，请在设置中添加模型' })
     expect(resolved.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED)
     expect(resolved.message).toBe('未找到需要的相关模型，请在设置中添加模型')
+  })
+
+  it('BGM_SKIPPED 按原因本地化（zh/en，未知 code 回退）', () => {
+    expect(bgmSkippedReasonText('size_exceeded')).toBe('文件超过大小上限')
+    expect(bgmSkippedReasonText('format_unsupported', 'en-US')).toBe('format not supported')
+    expect(bgmSkippedReasonText('not_allowed')).toBe('文件不在允许的读取范围')
+    expect(bgmSkippedReasonText('unknown-code')).toBe('文件不存在或不可读')
+
+    const zh = formatBgmSkippedNotification('size_exceeded')
+    expect(zh.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.BGM_SKIPPED)
+    expect(zh.message).toContain('背景音乐已跳过')
+    expect(zh.message).toContain('超过大小上限')
+
+    const en = formatBgmSkippedNotification('format_unsupported', 'en-US')
+    expect(en.message).toContain('Background music was skipped')
+    expect(en.message).toContain('format not supported')
   })
 
   it('按 Unicode code point 计算 6000 个中文、英文和 emoji 字符', () => {

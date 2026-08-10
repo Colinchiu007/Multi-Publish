@@ -11,6 +11,11 @@
       <span v-if="project?.dirty" class="status-badge">有未合成修改</span>
     </div>
 
+    <!-- BGM 被跳过提示（由 CreateView 完成态透传 query.bgmSkipped/bgmReason） -->
+    <div v-if="bgmSkippedNotice" class="bgm-skipped-notice" role="alert" data-testid="story2video-result-bgm-skipped-notice">
+      🎵 {{ bgmSkippedNotice }}
+    </div>
+
     <div v-if="loading" class="loading-state">
       <p>加载中...</p>
     </div>
@@ -209,7 +214,7 @@
 <script>
 import UiButton from '../components/UiButton.vue'
 import UiModal from '../components/UiModal.vue'
-import { STORY2VIDEO_NOTIFICATION_KEYS, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
+import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
 import {
   story2videoExportZip,
   story2videoCreateShareUrl,
@@ -261,6 +266,11 @@ export default {
     else this.loading = false
   },
   computed: {
+    bgmSkippedNotice() {
+      const query = this.$route?.query || {}
+      if (query.bgmSkipped !== '1') return ''
+      return formatBgmSkippedNotification(query.bgmReason).message
+    },
     completionSummary() {
       const query = this.$route?.query || {}
       const parts = []
@@ -728,6 +738,7 @@ export default {
 .back-to-list:hover { background: var(--border-light); }
 .page-subtitle { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
 .status-badge { padding: 5px 8px; border-radius: 4px; background: var(--warning-bg); color: var(--warning); font-size: 12px; }
+.bgm-skipped-notice { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: #1e40af; background: #dbeafe; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 13px; line-height: 1.5; }
 .loading-state, .empty-state { text-align: center; padding: 60px 0; color: #888; }
 .video-player { width: 100%; max-height: 68vh; border-radius: 8px; background: #000; }
 .video-info { margin: 12px 0; font-size: 13px; color: var(--text-muted); }

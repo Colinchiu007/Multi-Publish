@@ -580,6 +580,42 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     }
   })
 
+  it('混音前 BGM 文件已被删除时降级为无 BGM（不硬失败，不调用混音）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-bgm-mix-gone-'))
+    const image = path.join(root, 'image.png')
+    const audio = path.join(root, 'audio.mp3')
+    const bgm = path.join(root, 'bgm.mp3')
+    fs.writeFileSync(image, Buffer.from('image'))
+    fs.writeFileSync(audio, Buffer.from('audio'))
+    fs.writeFileSync(bgm, Buffer.from('bgm'))
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    // 模拟运行中惰性 GC：旁白合并后 BGM 被删除
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => {
+      fs.writeFileSync(output, 'narration')
+      fs.unlinkSync(bgm)
+    })
+    engine._probeMediaDuration = vi.fn(async () => null)
+    engine._validateOutput = vi.fn(async () => {})
+    engine._mixBgm = vi.fn(async () => { throw new Error('should not be called') })
+
+    try {
+      const result = await engine.compose(
+        { scenes: [{ imagePath: image, audioPath: audio, duration: 1, text: '字幕' }] },
+        { bgmPath: bgm, validateOutput: false }
+      )
+      expect(result.code).toBe(0)
+      expect(result.data.bgmApplied).toBe(false)
+      expect(result.data.bgmSkipped).toBe(true)
+      expect(result.data.bgmSkippedReason).toBe('unreadable')
+      expect(engine._mixBgm).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('format=webm 时执行最终转码并返回 webm 路径', async () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-webm-'))

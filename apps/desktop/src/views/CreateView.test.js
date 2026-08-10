@@ -2287,6 +2287,34 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
 
   });
+
+  it("BGM 被跳过时显示提示条，可关闭；未跳过不显示", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    await nextTick();
+    // 提示条位于流水线详情视图内，先选中一条流水线（与 providerWarningText 用例一致）
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+
+    // 未跳过：不显示
+    w.vm.orchestrationContext = { compose: { bgmSkipped: false } };
+    await nextTick();
+    expect(w.vm.story2videoBgmSkippedNotice).toBe("");
+    expect(w.find('[data-testid="story2video-bgm-skipped-notice"]').exists()).toBe(false);
+
+    // 跳过：显示 i18n 文案
+    w.vm.orchestrationContext = { compose: { bgmSkipped: true, bgmSkippedReason: "size_exceeded" } };
+    await nextTick();
+    expect(w.vm.story2videoBgmSkippedNotice).toContain("背景音乐已跳过");
+    expect(w.vm.story2videoBgmSkippedNotice).toContain("超过大小上限");
+    expect(w.find('[data-testid="story2video-bgm-skipped-notice"]').exists()).toBe(true);
+
+    // 关闭后隐藏
+    await w.find('[data-testid="dismiss-bgm-skipped-notice"]').trigger("click");
+    await nextTick();
+    expect(w.vm.story2videoBgmSkippedNotice).toBe("");
+    expect(w.find('[data-testid="story2video-bgm-skipped-notice"]').exists()).toBe(false);
+    w.unmount();
+  });
+
   it("选项自动保存后 toast 短暂显示并自动消失，不影响操作栏", async () => {
     vi.useFakeTimers();
     const mocks = await import("@/api/publisher");

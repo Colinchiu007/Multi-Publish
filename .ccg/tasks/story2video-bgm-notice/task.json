@@ -1,0 +1,13 @@
+{
+  "id": "story2video-bgm-notice",
+  "title": "BGM 跳过前端提示接线（i18n）+ GC 惰性触发 + API-Key 正则拆分",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "planning",
+  "nextAction": "生成 OpenSpec 工件并实现",
+  "openspecChange": "story2video-bgm-notice",
+  "createdAt": "2026-08-10T00:30:00Z",
+  "branch": "codex/story2video-bgm-notice"
+}
