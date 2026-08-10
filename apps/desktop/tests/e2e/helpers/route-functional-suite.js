@@ -132,11 +132,12 @@ async function expectIpc(r, method, name) {
 }
 
 async function exerciseHome(r) {
-  const cards = r.page.locator('.cohere-main .cohere-card, .cohere-main [class*="quick"]');
+  // 首页已复刻为蚁小二风格 .yixiaoer-home 布局，旧版 .cohere-main 选择器已不存在。
+  const cards = r.page.locator('.yixiaoer-home .yixiaoer-home-shortcut');
   record(r, '首页显示功能入口', await cards.count() > 0, { count: await cards.count() });
-  await expectIpc(r, 'getVersion', '首页加载版本');
   await expectIpc(r, 'storeGetPublishStats', '首页加载发布统计');
   await expectIpc(r, 'storeListAccounts', '首页加载账号');
+  await expectIpc(r, 'historyList', '首页加载近期动态');
 }
 
 async function exerciseComments(r) {
@@ -506,7 +507,7 @@ async function exerciseCalendar(r) {
 }
 
 const definitions = {
-  home: { route: '/', title: '社媒管家', exercise: exerciseHome },
+  home: { route: '/', title: '多平台内容一键发布', exercise: exerciseHome },
   comments: { route: '/comments', title: '评论管理', exercise: exerciseComments },
   'first-run': { route: '/first-run', title: '欢迎使用社媒管家', exercise: exerciseFirstRun },
   publish: { route: '/publish', title: '一键发布', exercise: exercisePublish },

@@ -10,6 +10,7 @@
 - 清理：`Publish.vue` 64 处 inline style 全部迁移为语义化 class（`publish-header-row`/`batch-articles`/`copy-url-button.is-copied` 等约 40 个），定义收敛至 `<style scoped>`；迁移过程中修复一处重复 class 属性导致的模板解析错误（`@vue/compiler-sfc` 0 error 验证）。
 - 视觉基线：因本分支刻意重绘 UI，像素门禁 4 视图（accounts-list/dashboard/create-history/collection）基线失效；本地 dev server + `UPDATE_BASELINE=1` 重新生成并经 CI 同款 2% 阈值回验 0% 通过，基线随代码入库。
 - 视觉门禁修复：home-baseline 就绪超时——首页已重绘为 `.yixiaoer-home` 布局，但 `run-pixel-tests.js` 的 waitFor 仍指向已删除的 `.cohere-main .page-title`，CI 连续 3 次稳定超时（appTextLength=263）；同步修正 run-pixel-tests.js / all-views / functional-test 首页选择器为 `.yixiaoer-home .yixiaoer-home-welcome`，`visual-ci.test.js` 新增合同断言防回归，重生成 home-baseline.png；本地全量 17 视图像素套件 2% 阈值全部通过。
+- GUI 门禁修复（同源）：E2E 路由检查与 flow-2 仍用旧首页文案/选择器——`route-functional-suite.js` home title 改为新首页稳定静态文案“多平台内容一键发布”，`exerciseHome` 改用 `.yixiaoer-home-shortcut` 快捷入口并把已移除的 `getVersion` IPC 断言替换为新首页真实调用的 `historyList`；`integration-flows.js` Flow2.5 平台列表选择器增加 `.yixiaoer-home-platform-tag`；本地完整 `test:e2e` 314/314 checks 通过（18 路由 + 6 集成流）。
 - 边界：卡片底部按钮布局等视觉细节待后续复刻；真实平台登录/发布仍属外部验收。
 - 存量：大范围回归中 `Home.test.js` / `Publish.test.js` / `PublishHistory.test.js` / `views-deep.test.js` 共 34 例失败，经确认这些文件与 HEAD 完全一致且未引用 Accounts.vue，属 Round 2 已合并的存量失败，与本次改动无关；本次 accounts 聚焦回归 98/98 通过；`Publish.test.js` 8 例失败经 git diff 验证本次仅改 class/CSS（无脚本逻辑变更）仍为同一存量失败。
 
