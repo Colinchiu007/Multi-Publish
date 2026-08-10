@@ -1694,8 +1694,10 @@ describe('4K 能力开关（maxOutputResolution）', () => {
 })
 
 describe('Story2VideoComposeEngine 混合片段（AI 视频 + 图片轮播，2026-08-11）', () => {
-  const FFMPEG = path.join(__dirname, '../../../../node_modules/ffmpeg-ffprobe-static/ffmpeg.exe')
+  // 跨平台：用 findFfmpeg() 解析捆绑二进制（CI 设 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 时返回 null，测试整体跳过）
+  const FFMPEG = findFfmpeg()
   const runFfmpeg = (args) => new Promise((resolve, reject) => {
+    if (!FFMPEG) { reject(new Error('ffmpeg not available')); return }
     execFile(FFMPEG, args, (error) => error ? reject(new Error(String(error).slice(0, 300))) : resolve())
   })
 
@@ -1774,6 +1776,7 @@ describe('Story2VideoComposeEngine 混合片段（AI 视频 + 图片轮播，202
   })
 
   it('视频源文件不可读/不存在时拒绝（Scene media path）', async () => {
+    if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-mixed-unreadable-'))
     try {
       const audioPath = path.join(root, 'voice.m4a')

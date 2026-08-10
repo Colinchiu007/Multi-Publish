@@ -20,6 +20,7 @@ const {
   cleanupRunInputDir,
   importUserSelectedMedia,
 } = require('./story2video-paths')
+const { findFfmpeg } = require('./media-tool-paths')
 
 afterEach(() => {
   cleanupRunInputDir('run')
@@ -1632,9 +1633,15 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
   let server
   let baseUrl
   let tinyVideoPath
-  const FFMPEG = path.join(__dirname, '../../../../node_modules/ffmpeg-ffprobe-static/ffmpeg.exe')
+  let mediaAvailable = true
+  const FFMPEG = findFfmpeg()
 
   beforeAll(async () => {
+    // 跨平台：CI 设 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 时 findFfmpeg() 返回 null，整个 describe 跳过
+    if (!FFMPEG) {
+      mediaAvailable = false
+      return
+    }
     // 生成 1 秒真实 mp4（颜色源 + 静音），供视频下载/合成测试使用
     tinyVideoPath = path.join(os.tmpdir(), 'story2video-test-tiny-' + process.pid + '.mp4')
     await new Promise((resolve, reject) => {
@@ -1658,8 +1665,9 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
 
   afterAll(() => {
     if (server) server.close()
-    try { fs.unlinkSync(tinyVideoPath) } catch (_) { /* 清理失败可忽略 */ }
+    if (tinyVideoPath) { try { fs.unlinkSync(tinyVideoPath) } catch (_) { /* 清理失败可忽略 */ } }
   })
+  const skipIfNoMedia = () => { if (!mediaAvailable) return true; return false }
 
   function makeBlendPipeline(aiGenerator, assetGenerator) {
     const stageExecutor = makeStageExecutor()
@@ -1675,6 +1683,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
   }
 
   it('视频场景产出 videoPath 且不生成图片；图片场景照常；TTS 全部生成', async () => {
+    if (skipIfNoMedia()) return
     const callAdapter = vi.fn(async (_provider, method) => {
       if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-1' } }
       if (method === 'getVideoStatus') return { videoUrl: baseUrl }
@@ -1731,6 +1740,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
   })
 
   it('视频生成失败时回退图片轮播（补生成图片）', async () => {
+    if (skipIfNoMedia()) return
     const callAdapter = vi.fn(async (_provider, method) => {
       if (method === 'generateVideo') return { code: -1, message: 'provider 欠费' }
       return { code: 0 }
@@ -1762,6 +1772,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     expect(result.error).toContain('Asset scene generation failed')
   })
   it('getVideoStatus 返回错误响应时立即终止（不空转 10 分钟）', async () => {
+    if (skipIfNoMedia()) return
     const callAdapter = vi.fn(async (_provider, method) => {
       if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-err' } }
       if (method === 'getVideoStatus') return { code: -1, message: 'provider 任务失败' }
@@ -1812,6 +1823,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
   })
 
   it('视频下载 HTTP 非 200 时视为失败并回退图片', async () => {
+    if (skipIfNoMedia()) return
     const callAdapter = vi.fn(async (_provider, method) => {
       if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-404' } }
       if (method === 'getVideoStatus') return { videoUrl: 'http://127.0.0.1:' + server.address().port + '/missing.mp4' }
