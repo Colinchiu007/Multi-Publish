@@ -1,3 +1,9 @@
+## [未发布] 修复：ops-center 功能开关加载失败（启动种子接入项目/功能开关导入，2026-08-10）
+
+- 根因：`projects`/`ConfigItem` 数据此前依赖手动 `scripts/seed.py`，新建库为空 → FeatureFlags 页请求 `platform-orchestrator` 404「加载功能开关失败」。
+- 修复：新增 `services/config_seed_service.py`，启动时幂等注册 6 个预置项目 + 从 `feature_gates.yaml` 导入功能开关（源可经 `OPS_FEATURE_GATES_SOURCE` 配置；显式配置时只使用该源，未配置探测默认路径；源缺失跳过不报错）。
+- 测试：新增 4 用例（项目注册/功能开关导入/幂等/源缺失跳过）；ops-center pytest 82 passed。
+- 文档：ops-center PRD 12A.5。
 ## [未发布] 新增：ops-center 自包含管理员登录（2026-08-10）
 
 - ops-center 后端新增本地登录：`POST /api/auth/login` + `GET /api/auth/me`；管理员凭据由 `OPS_ADMIN_USERNAME`/`OPS_ADMIN_PASSWORD` 配置（PBKDF2-SHA256 200000 迭代哈希存储，admins 表）；未配置且无管理员 → 503 fail-closed（无默认口令）。
