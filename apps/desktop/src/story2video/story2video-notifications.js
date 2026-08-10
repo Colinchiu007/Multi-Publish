@@ -3,6 +3,7 @@ export const MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000
 export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   MODEL_CONFIGURATION_REQUIRED: 'story2video.model_configuration_required',
   MODEL_API_KEY_REQUIRED: 'story2video.model_api_key_required',
+  BGM_SKIPPED: 'story2video.bgm_skipped',
   ACCESS_DENIED: 'story2video.access_denied',
   ORCHESTRATION_FAILED: 'story2video.orchestration_failed',
   TEXT_INPUT_ONLY: 'story2video.text_input_only',
@@ -44,6 +45,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
   zh: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: '未找到需要的相关模型，请在设置中添加模型',
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED]: '模型已添加，但 API Key 未配置或无法读取，请在「模型设置」中重新填写对应服务商的 API Key。',
+    [STORY2VIDEO_NOTIFICATION_KEYS.BGM_SKIPPED]: '背景音乐已跳过（{reason}），成片不含背景音乐。',
     [STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED]: '当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。',
     [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: '暂时无法完成生成，请稍后再试。',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: '目前只支持输入文案。',
@@ -83,6 +85,7 @@ export const STORY2VIDEO_NOTIFICATION_MESSAGES = Object.freeze({
   en: Object.freeze({
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED]: 'The required models are not available. Add them in Settings.',
     [STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED]: 'The model is configured, but its API key is missing or cannot be read. Re-enter the API key for the provider in Model Settings.',
+    [STORY2VIDEO_NOTIFICATION_KEYS.BGM_SKIPPED]: 'Background music was skipped ({reason}). The video has no background music.',
     [STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED]: 'Sign in with an account that can access the image carousel pipeline, then try again.',
     [STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED]: 'Could not finish generation right now. Please try again shortly.',
     [STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY]: 'Only text input is supported.',
@@ -128,8 +131,15 @@ const DEGRADED_ASSET_LABELS = Object.freeze({
   en: Object.freeze({ placeholder_image: 'placeholder images', silent_narration: 'silent narration' }),
 })
 // API Key 未配置/未设置/缺失/解密失败 → 独立提示（2026-08-09：避免被归一化成「未找到模型」误导排查）。
-// decrypt failed/解密失败 仅在 api-key 上下文内匹配，避免把非 key 解密错误误归类。
-const MODEL_API_KEY_PATTERN = /(api\s*key\s*not\s*configured|(?:尚未配置|未配置|未设置).{0,12}api\s*key|api\s*key.{0,12}(?:not\s*configured|未配置)|(?:missing api key|api key required|no api key|api key.{0,16}(?:missing|required|not found|未找到))|(?:api[ _-]?key.{0,20}(?:decrypt failed|解密失败)|(?:decrypt failed|解密失败).{0,20}api[ _-]?key))/i
+// 拆分为命名子模式便于维护；decrypt failed/解密失败 仅在 api-key 上下文内匹配，避免把非 key 解密错误误归类。
+const API_KEY_UNCONFIGURED_PATTERN = /(api\s*key\s*not\s*configured|(?:尚未配置|未配置|未设置).{0,12}api\s*key|api\s*key.{0,12}(?:not\s*configured|未配置))/i
+const API_KEY_MISSING_PATTERN = /(missing api key|api key required|no api key|api key.{0,16}(?:missing|required|not found|未找到))/i
+const API_KEY_DECRYPT_PATTERN = /(api[ _-]?key.{0,20}(?:decrypt failed|解密失败)|(?:decrypt failed|解密失败).{0,20}api[ _-]?key)/i
+const MODEL_API_KEY_PATTERN = new RegExp('(?:' + [
+  API_KEY_UNCONFIGURED_PATTERN.source,
+  API_KEY_MISSING_PATTERN.source,
+  API_KEY_DECRYPT_PATTERN.source,
+].join('|') + ')', 'i')
 const MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用)/i
 const ACCESS_DENIED_PATTERN = /(当前许可证无权访问|当前账号没有所需权益|未授权|未登录|需要登录|access denied|not authorized|permission denied|sign[ -]?in required)/i
 const RATE_LIMITED_PATTERN = /(rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|too\s*many\s*requests)/i
@@ -286,6 +296,36 @@ export function formatStory2VideoNotification (notification = {}, locale = getSt
   const params = normalizeParams(notification?.messageParams || notification?.errorParams, normalizedLocale, messageKey, rawError)
   const message = messageFor(messageKey, params, normalizedLocale)
   return { messageKey, message, codePointCount: countUnicodeCodePoints(message) }
+}
+
+// compose 的 bgmSkippedReason → 本地化原因文案（未知 code 回退 unreadable）。
+const BGM_SKIP_REASON_TEXT = Object.freeze({
+  zh: Object.freeze({
+    size_exceeded: '文件超过大小上限',
+    format_unsupported: '格式不支持',
+    not_allowed: '文件不在允许的读取范围',
+    unreadable: '文件不存在或不可读',
+  }),
+  en: Object.freeze({
+    size_exceeded: 'file exceeds the size limit',
+    format_unsupported: 'format not supported',
+    not_allowed: 'file is outside the allowed locations',
+    unreadable: 'file is missing or unreadable',
+  }),
+})
+
+export function bgmSkippedReasonText (reason, locale = getStory2VideoLocale()) {
+  const normalizedLocale = normalizeStory2VideoLocale(locale)
+  const reasons = BGM_SKIP_REASON_TEXT[normalizedLocale] || BGM_SKIP_REASON_TEXT.zh
+  return reasons[reason] || reasons.unreadable
+}
+
+/** 由 compose 的 bgmSkippedReason 生成完整通知（key + 本地化消息）。 */
+export function formatBgmSkippedNotification (reason, locale = getStory2VideoLocale()) {
+  const normalizedLocale = normalizeStory2VideoLocale(locale)
+  const key = STORY2VIDEO_NOTIFICATION_KEYS.BGM_SKIPPED
+  const message = messageFor(key, { reason: bgmSkippedReasonText(reason, normalizedLocale) }, normalizedLocale)
+  return { messageKey: key, message, codePointCount: countUnicodeCodePoints(message) }
 }
 
 const HISTORY_DETAIL_PATTERNS = Object.freeze({

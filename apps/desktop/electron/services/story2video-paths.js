@@ -160,6 +160,23 @@ function copyImportedMedia (source, destination) {
  * Electron 的 File 选择只证明用户选择过该路径，不应因此放开整块磁盘。
  * 这里把文件复制到应用控制的临时目录，后续阶段继续使用 canonical 白名单校验。
  */
+const DEFAULT_IMPORT_GC_INTERVAL_MS = 60 * 60 * 1000
+// 惰性 GC 节流按 baseDir 拆分（模块级共享，避免不同导入目录互相抑制；测试亦隔离）。
+const _lastImportedMediaGcByBaseDir = new Map()
+
+/** 惰性老化回收：仅在显式开启（gcEnabled=true，生产接线传入）时按间隔触发；best-effort 失败静默。 */
+function maybeRunLazyImportedMediaGc (baseDir, options = {}) {
+  if (options.gcEnabled !== true) return
+  const gcIntervalMs = options.gcIntervalMs !== undefined && options.gcIntervalMs !== null &&
+    Number.isFinite(Number(options.gcIntervalMs)) && Number(options.gcIntervalMs) >= 0
+    ? Number(options.gcIntervalMs)
+    : DEFAULT_IMPORT_GC_INTERVAL_MS
+  const last = _lastImportedMediaGcByBaseDir.get(baseDir) || 0
+  if (Date.now() - last < gcIntervalMs) return
+  _lastImportedMediaGcByBaseDir.set(baseDir, Date.now())
+  gcImportedMedia({ baseDir })
+}
+
 function importUserSelectedMedia (candidate, kind, options = {}) {
   const rule = getMediaRule(kind)
   const localPath = toLocalPath(candidate)
@@ -167,6 +184,7 @@ function importUserSelectedMedia (candidate, kind, options = {}) {
   const extension = path.extname(localPath).toLowerCase()
   if (!rule.extensions.has(extension)) throw new Error('不支持的媒体格式')
 
+  const baseDir = path.resolve(options.baseDir || IMPORTED_MEDIA_DIR)
   let source
   try {
     const linkStat = fs.lstatSync(localPath)
@@ -179,7 +197,9 @@ function importUserSelectedMedia (candidate, kind, options = {}) {
     throw new Error('媒体文件不存在或不可读')
   }
 
-  const baseDir = path.resolve(options.baseDir || IMPORTED_MEDIA_DIR)
+  // 惰性老化回收：源文件校验通过后、复制前触发（gcEnabled 生产开启；与启动时回收互补）。
+  maybeRunLazyImportedMediaGc(baseDir, options)
+
   fs.mkdirSync(baseDir, { recursive: true })
   const token = Date.now().toString(36) + '-' + process.pid + '-' + Math.random().toString(36).slice(2, 10)
   const destination = path.join(baseDir, kind + '-' + token + extension)
