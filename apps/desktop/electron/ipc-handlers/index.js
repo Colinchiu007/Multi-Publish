@@ -31,7 +31,7 @@ function registerAllHandlers(ipcMain, deps) {
   require('./misc')(ipcMain, deps)
   require('./onboarding')(ipcMain, deps)
   require('./model-provider')(ipcMain, deps)
-  require('./ops-center-sync')(ipcMain, deps)
+  require('./ops-center-sync').registerHandlers(ipcMain, deps)
   require('./tts-voice-catalog')(ipcMain, deps)
   require('./tts-voice-clone')(ipcMain, deps)
   require('./logs')(ipcMain, deps)

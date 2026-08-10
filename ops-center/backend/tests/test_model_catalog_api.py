@@ -23,6 +23,10 @@ async def setup_db():
     from database import engine, Base, async_session
     from services.model_preset_service import ensure_catalog_seeded, ensure_model_preset_columns
 
+    # 完整套件中 config settings 可能在别处已构造（env 变量不生效），
+    # 显式注入目录同步 Key，避免用例顺序污染导致 404。
+    settings.catalog_api_key = os.environ.get("OPS_CATALOG_API_KEY", "catalog-test-key")
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as db:
