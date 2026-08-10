@@ -1207,16 +1207,16 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 阶段级 checkpoint | `startOrchestrated` 启动即写一次；`_executeStage` 在 `stageExecutor.execute` **执行前**写一次（阶段级原子性：中断后从当前阶段重新执行，不产生半完成状态）。 |
 | 退出兜底 | `PipelineEngine.saveRunningState()` 遍历内存中 `orchestrationMode='orchestrator' && status='running'` 的运行逐个落盘；`shutdown.js performShutdown` **最先**调用（先于热键/调度器/队列清理）。 |
 | 完成清理 | 编排 run 进入 `completed` 时 `runStateStore.remove(run.id)` 清理 running 快照（防已完成任务以「运行中」重现历史）；failed/cancelled 由 `saveFailed` 覆盖同文件。 |
-| 历史合并 | `getHistory()` 合并 `listFailed()`（failed/cancelled，过滤 running）+ `listRunning()`（仅 running）；按 runId 与内存条目去重。 |
+| 历史合并 | `getHistory()` 合并 `listFailed()`（failed/cancelled）+ `listRunning()`（仅 running）；按 runId 与内存条目去重。应用重启后 `listRunning()` 返回的 `status=running` 快照自动归一化为 `paused`（因进程已不存在），同时从 `currentStage` 计算 `pausedStage`（阶段名），前端可展示「暂停环节：xxx」。内存中真正在运行的 run 保持 `running` 不变。 |
 | 断点恢复 | `resumeOrchestration` 支持 `status='running'` 快照（从中断阶段重建并自动续跑）；失败快照仍要求带 `error`；内存中已 running 的 run 幂等返回 `{ success, runId, alreadyRunning: true }` 不重复创建。 |
 | 窗口关闭→托盘 | `window.js` 主窗口 `close` 事件：托盘可用（`systemTray.isAvailable()`）且 `pipelineEngine.hasRunningOrchestration()` → `preventDefault + hide()`（进程继续后台运行）；任一条件不满足照旧关闭退出。 |
 | 托盘可用性 | dev 模式 `dist/assets/icon.png` 缺失时回退内嵌 32×32 占位图标（base64），保证 dev 下托盘可用；headless/无托盘环境仍优雅降级。 |
 | 托盘退出 | 菜单「退出」改走 `app.quit()`（触发 before-quit → 运行态落盘 + 服务清理），不再 `tray.destroy + mainWindow.destroy`（会绕过清理丢失运行态）。 |
-| 前端历史 | running 历史卡片显示「继续生成」按钮（与 failed 的「从断点继续」并列）；点击运行中卡片/按钮调用 `resumeOrchestration`（同会话幂等附加实时进度，跨重启从断点重建）。 |
+| 前端历史 | running/paused 历史卡片显示「继续生成」按钮（与 failed 的「从断点继续」并列）；paused 卡片额外显示「暂停环节：xxx」提示；点击运行中/暂停/失败/已取消卡片 → 跳回创作页（CreateView 恢复查看/断点继续）；点击已完成卡片 → 视频预览页。 |
 | 数据校验 | `saveRunning` 拒绝空 runId（与 saveFailed 一致）；运行中快照上下文保持纯 JSON（可序列化失败即跳过并告警，不阻塞运行）。 |
 | 提示文字 | 窗口隐藏时主进程日志「运行中有流水线任务，窗口隐藏到托盘继续后台执行」；前端 running 卡片按钮「继续生成」/恢复中「恢复中...」。 |
 | 跨平台（macOS 前瞻） | 窗口关闭行为收敛到 `services/window-close-policy.js`（`shouldHideToTrayOnClose`）：**darwin 不拦截 close**——关闭窗口不退出应用是 macOS 系统约定（进程留在 Dock、任务继续后台运行，`window-all-closed` 在 darwin 不退出、Dock 点击经 `app.on('activate')` 重建窗口）；win32/linux 维持「运行任务+托盘可用 → 隐藏托盘」。托盘图标按平台回退：darwin 使用 16×16 模板图标（`setTemplateImage(true)`，菜单栏明暗自动适配），其余平台用 32×32 占位图。快照原子写入收敛到 `run-state-store.atomicWriteFileSync`：POSIX `renameSync` 原子覆盖优先、Windows `EEXIST/EPERM/EACCES/EBUSY` 回退 `copyFileSync` 覆盖 + 清理临时文件。 |
-| 验收标准 | ① 启动流水线后强杀进程重启，历史出现「运行中」任务且点击可断点续跑；② 关闭窗口（有运行任务）进程不退出、任务继续，托盘可恢复窗口；③ 无运行任务关闭窗口正常退出；④ 完成后重启历史无「运行中」残留；⑤ 失败/取消语义不变；⑥（macOS，真机待验收）关闭窗口任务继续后台运行、Dock 点击恢复窗口、菜单栏图标为模板图标且明暗适配。 |
+| 验收标准 | ① 启动流水线后强杀进程重启，历史出现「已暂停」任务（非「运行中」），卡片显示暂停环节名，点击可断点续跑；② 关闭窗口（有运行任务）进程不退出、任务继续，托盘可恢复窗口；③ 无运行任务关闭窗口正常退出；④ 完成后重启历史无「已暂停」残留；⑤ 失败/取消语义不变；⑥（macOS，真机待验收）关闭窗口任务继续后台运行、Dock 点击恢复窗口、菜单栏图标为模板图标且明暗适配。 |
 
 #### 7.1.22 本地克隆音色删除/设为默认与媒体导入反馈合同（2026-08-09）
 

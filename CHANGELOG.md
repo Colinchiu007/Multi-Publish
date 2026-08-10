@@ -23,7 +23,7 @@
 - 交互：openPipeline() 支持 paused 状态跳转 /create 断点续跑；「暂停环节：xxx」和「生成失败」提示文案实时显示。
 - 数据校验：pausedStage 仅在 currentStage 有效索引且对应 stage 存在时填充，否则为 null；statusLabel() paused→「已暂停」；stageLabel() 对字符串参数走 shortName() 路径。
 - 文档：PRD-video-creation 3.1.11 新增完整合同（后端逻辑/前端交互表/UI 布局/数据校验/路由/文件清单）；迭代记录表新增 2026-08-10 条目。
-- 测试：CreateHistory.test.js 18/22 通过（4 个超时失败为 pre-existing）。
+- 测试：CreateHistory.test.js 22/22 通过；pipeline-engine 37/37 通过；run-state-store 19/19 通过。
 ## [未发布] 修复：视频创作流水线「已用时」改为步骤执行耗时总和（2026-08-10）
 
 - 修复：流水线「已用时」原按墙钟 `endedAt - createdAt`（运行中 `now - createdAt`）计算，暂停、检查点审阅与失败→断点恢复之间的空闲等待全部计入（用户实证 1245 分 33 秒）；现改为**各步骤实际执行耗时之和**——主进程 `_executeStage` 以执行器真实运行窗口为段累计 `run.activeMs`（成功/失败/取消/异常均计入，`finally` 保证不丢段），暂停/等待/空闲不计入，失败重试多次执行段累计。
