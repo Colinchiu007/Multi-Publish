@@ -184,6 +184,8 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | Remotion 渲染 | 13 种 Composition，Electron 后端渲染 | ✅ v1.0.0 |
 | 图片提示词统一优化 | 所有图片提示词统一经 prompt-engine（8013）完成风格检测 → 改写 → 输出校验；Story2Video optimize 阶段不再直连默认 LLM（详见 PRD-video-creation §3.1.2.1） | ✅ 2026-08-09 |
 | 视频创作历史本地模式 | 未登录可查看本机创作历史（本地只读 IPC 通道放行 + owner 隔离回退 __legacy__ + 本地模式提示条 + 失败原因可操作建议；详见 PRD-video-creation §3.1.4.1） | ✅ 2026-08-09 |
+| Agnes 视频生成适配 | agnes-video-v2.0：提交 POST /v1/videos；状态查询 GET /agnesapi（域名根，非 /v1/agnesapi，2026-08-10 修复）；callAdapter 以 { videoId, taskId } 对象调用 getVideoStatus；流水线 merge 兼容 generate/merge/animate 上下文键（PR #476） | ✅ 2026-08-10 |
+| videogen 生成选项生效 | animation/character-animation/avatar-spokesperson/hybrid 的生成参数（numFrames/frameRate/width/height + storyboard duration）经 stageOptions 真实作用于最终合成视频；2026-08-10 修复参数契约（num_frames 下划线丢失→双写）+ duration→帧数映射（PR 待合） | ✅ 2026-08-10 |
 
 #### F7：数据存储（SQLite）
 
@@ -818,12 +820,12 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 生成图片与旁白 | 运行中实时显示「图片 a/b · 旁白 c/d」 | `context.assets_progress = { imagesDone, imagesTotal, ttsDone, ttsTotal }`，图片与 TTS 各自完成即写入；含断点续传复用场景；非法值不展示 |
 | 视频合成（compose） | 运行中显示子进度条（mini bar）+「正在合成片段 k/N · p%」；非片段阶段显示「视频合成 p%」 | `context.compose_progress = { phase, percent, segmentsDone, segmentsTotal, message? }`（2026-08-09 新增，见下方详细合同）；percent 单调不降、0-100 整数；失败冻结 <100；历史 run 无该字段时不渲染 |
 | 阶段耗时 | 每阶段显示「X 分 Y 秒」（running/completed/failed） | 主进程每阶段 `startedAt`/`completedAt`（推进时写入）；渲染层 1s 时钟刷新 running 阶段，不依赖轮询 |
-| 整体进度 | 阶段清单顶部细进度条 + 百分比 + 「已用时 X 分 Y 秒」 | 完成阶段数/总阶段数；已用时可从 `story2videoRunMeta.createdAt` 计算，运行中本地时钟实时刷新 |
-| 完成汇总 | 「完成时间共 X 分 Y 秒 · 文件大小 Z M」 | 快照 `endedAt - createdAt` + `outputSizeBytes`（主进程对成片 `statSync`，仅 completed 且存在成片时返回；stat 失败显示 null 不展示）；预览页通过路由 `durationMs`/`sizeBytes` 透传；项目持久化新增 `outputSizeBytes` 供历史展示 |
+| 整体进度 | 阶段清单顶部细进度条 + 百分比 + 「已用时 X 分 Y 秒」 | 完成阶段数/总阶段数；已用时 = 流水线各步骤实际执行耗时总和（主进程 `run.activeMs` 累计，2026-08-10 起），运行中本地每秒补当前执行段增量；旧数据（无 `activeMs`）回退墙钟 `createdAt` 计算 |
+| 完成汇总 | 「完成时间共 X 分 Y 秒 · 文件大小 Z M」 | 时长使用步骤执行耗时累计 `activeMs`（旧数据回退快照 `endedAt - createdAt`）+ `outputSizeBytes`（主进程对成片 `statSync`，仅 completed 且存在成片时返回；stat 失败显示 null 不展示）；预览页通过路由 `durationMs`/`sizeBytes` 透传；项目持久化新增 `outputSizeBytes` 供历史展示 |
 
 - **数据校验**：进度与汇总均为展示增强，任何字段缺失/非法不得阻断流水线；`outputSizeBytes` 只读 stat，不改变文件。
 - **本地化**：全部展示文案使用 locale 资源，默认中文，英文同步（`story2video.elapsed/summaryDuration/summaryFileSize/splitSceneCount/optimizeProgress/assetsProgress/durationMinSec/durationSec`；compose 子进度沿用 `translateWithLocaleFallback` 内联 fallback：`story2video.composeSegments` / `story2video.composeProgress`）。
-- **交互**：纯信息展示，不新增操作入口；「已用时」与 running 阶段耗时每秒刷新，完成/失败后停止。
+- **交互**：纯信息展示，不新增操作入口；「已用时」与 running 阶段耗时每秒刷新，完成/失败后停止。已用时口径变更见 7.1.9.2 详细合同（2026-08-10）。
 
 ##### 7.1.9.1 视频合成子进度详细合同（2026-08-09 新增）
 
@@ -889,6 +891,71 @@ Electron 打包、工作树、PR 或发布状态证据。
 9. IPC 载荷：`compose_progress` ≤ 5 字段，3s 轮询无压力；字段级校验为最后防线。
 
 **后续演进（v1 不做）**：ffmpeg `-progress pipe:1` 段内实时百分比（需将 `_createSegment` 从 execFileAsync 改为 spawn + 进度解析，涉及 Windows timeout/maxBuffer/错误语义重构，独立 PR 评估）；chunked 拼接（>8 段）在 75→87 区间的段级 onStep 插值。
+
+##### 7.1.9.2 「已用时」= 步骤执行耗时总和详细合同（2026-08-10 新增）
+
+**背景**：流水线支持暂停、失败后从断点恢复（可跨天）、人工检查点等机制，原「已用时」按墙钟（`endedAt - createdAt` / 运行中 `now - createdAt`）计算，会把暂停、等待与失败→恢复之间的空闲时间全部计入。用户实证：一个可从断点继续的任务显示「已用时 1245 分 33 秒」（约 20 小时），与实际执行时间严重不符。本次将口径改为**各步骤实际执行耗时之和**。
+
+**数据模型**：
+
+| 字段 | 载体 | 语义 | 持久化 |
+|------|------|------|--------|
+| `run.activeMs` | 主进程 run 对象 | 已结算的步骤执行耗时累计（毫秒），各执行段之和 | 随 `run-state-store` 快照持久化（`version` 保持 1，纯增量字段），失败/取消/运行中快照均携带 |
+| `run._activeSegmentStartedAt` | 主进程 run 对象（瞬时） | 当前在飞执行段起点（`Date.now()`）；无执行器在飞时为 `null` | **不落盘**（防应用崩溃后把停机时间误计为执行时间） |
+| `activeMs` / `activeSegmentStartedAt` / `elapsedActiveMs` | `pipeline:getRunContext` 快照返回 | 主进程权威值：`activeMs` 已结算累计；`activeSegmentStartedAt` 在飞段起点 ISO；`elapsedActiveMs = activeMs + 在飞段增量`（仅 running） | IPC 增量字段，向后兼容（旧 renderer 忽略） |
+| `story2videoRunMeta.activeMs` / `activeSegmentStartedAt` | 前端 | 从轮询快照透传，驱动「已用时」展示 | 内存态 |
+
+**流程（数据链路）**：
+
+1. 流水线启动（`start()` / `startOrchestrated()`）：run 初始化 `activeMs = 0`、`_activeSegmentStartedAt = null`。
+2. 每阶段执行（`_executeStage`）：进入执行器前记录 `execStartedAt` 并写入 `run._activeSegmentStartedAt`；执行器返回（**成功/失败/取消/异常均覆盖**，`finally` 保证）后结算 `run.activeMs += max(0, now - execStartedAt)` 并清空在飞段标记。**本处是唯一累计点**，不得再从阶段时间线二次累计。
+3. 暂停/检查点等待/失败→恢复空闲：执行器未运行，无累计，天然不计入。
+4. 断点恢复（`resumeOrchestration`）：从快照继承 `activeMs`，在飞段从恢复时刻重新起算（不落盘、不膨胀）。
+5. 运行中轮询（3s）：`getRunSnapshot` 返回 `activeMs`/`activeSegmentStartedAt`/`elapsedActiveMs`；前端每秒用「`activeMs` + 本地补当前执行段增量」平滑刷新，完成/失败/取消后定格。
+6. 终态：`pipeline:complete` 事件 `totalDuration`、完成汇总、结果页 `durationMs` 统一使用累计口径；`executeStage` / `advanceToNextCheckpoint` 的完成响应额外返回 `activeMs`，供「检查点确认直接完成」路径在未及轮询时取到终态权威值（前端 `applyOrchestrationOutcome` 以 `outcome.activeMs` 覆盖轮询缓存）。
+
+**数据校验**：
+
+- `activeMs` 仅接受有限非负数值；`activeSegmentStartedAt` 仅接受可解析 ISO 时间；任一非法视为旧数据（回退墙钟），不阻断展示。**存在性守卫**：`null`/`undefined` 均视为「无累计数据」并回退（`Number(null)===0` 陷阱——必须显式排除，禁止把旧数据误显示为 0 秒）。
+- 在飞段增量 `max(0, now - segmentStart)` 钳制非负；运行中 3s 轮询的权威值自愈本地 1s 补差可能产生的 ≤3s 漂移。
+- `elapsedActiveMs` 为瞬时值，只读展示，**不写入持久化**（持久化只存 `activeMs`）。
+
+**功能逻辑**：
+
+- 主进程 `_computeElapsedMs(run)`：running 且存在在飞段 → `activeMs + 增量`；否则 → `activeMs`；无 `activeMs`（旧 run）→ 0（不参与编排展示，由前端回退链处理）。
+- 前端 `orchestrationElapsedMs` 回退链：① `meta.activeMs` 有限 → `activeMs +（running 且有 activeSegmentStartedAt ? now - segStart : 0）`；② 无 `activeMs` → 墙钟 `endedAt - createdAt`（旧数据展示，避免为空）。
+- `orchestrationSummary` 与结果页 `query.durationMs`：优先 `activeMs`，旧数据回退墙钟。
+
+**交互逻辑**：
+
+- 运行中：每秒刷新（沿用 `stageClockTick` 1s 时钟），展示「已用时 X 分 Y 秒」；暂停期间本地补差停止（`pipelineRunStatus.status !== 'running'` 时不补），以主进程轮询值为准。
+- 完成/失败/取消：定格为终态累计值，停止计时。
+- 纯信息展示，不新增操作入口；不改变阶段条目自身的「阶段耗时」（仍按 `startedAt`/`completedAt` 展示，语义不变）。
+
+**显示项**：
+
+- 进度头部（sticky）：进度条 + 百分比 + 「已用时 X 分 Y 秒」（`data-testid="story2video-orchestration-progress"`）。
+- 完成汇总（sticky 下方，仅 ended）：「完成时间共 X 分 Y 秒 · 文件大小 Z M」（`data-testid="story2video-orchestration-summary"`）。
+- 结果页：`durationMs` 路由参数展示同口径时长。
+
+**提示文字**（locale，zh/en）：
+
+- `story2video.elapsed`：`已用时 {duration}` / `Elapsed {duration}`
+- `story2video.summaryDuration`：`完成时间共 {duration}` / `Finished in {duration}`
+- `story2video.summaryFileSize`：`文件大小 {size} M` / `Size {size} MB`
+- `story2video.durationMinSec`：`{minutes} 分 {seconds} 秒` / `{minutes}m {seconds}s`；`story2video.durationSec`：`{seconds} 秒` / `{seconds}s`
+
+**边界场景**：
+
+1. 暂停 2 小时后恢复并完成（步骤合计 3 分钟）：「已用时」≈ 3 分钟，不含 2 小时等待。
+2. 失败后 7 天从断点继续完成：已用时 = 两段执行之和，不显示 7 天墙钟。
+3. 失败重试多次执行段：同一步骤多次执行段全部累计（5 分钟失败段 + 8 分钟重试成功段 = 13 分钟）。
+4. 应用重启后断点恢复：历史累计随快照继承，续跑继续累加，不从 0 开始。
+5. 执行器异常：`finally` 保证该段照常累计，不丢段。
+6. 旧快照/旧历史（无 `activeMs`）：回退墙钟展示，不显示 0 或空。
+7. state_machine 旧模式：无编排累计，不参与「已用时」展示（前端回退链兜底），行为不回归。
+8. 暂停瞬间执行器仍在后台跑：该段实际消耗资源，仍累计（语义为「真实执行时间」）；用户看到的已用时在暂停后由轮询定格。
+9. IPC 载荷：新增 3 个字段（`activeMs`/`activeSegmentStartedAt`/`elapsedActiveMs`），3s 轮询无压力；字段校验为最后防线。
 
 #### 7.1.10 图片轮播选项持久化合同（上次使用的选项）
 
@@ -1141,16 +1208,16 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 阶段级 checkpoint | `startOrchestrated` 启动即写一次；`_executeStage` 在 `stageExecutor.execute` **执行前**写一次（阶段级原子性：中断后从当前阶段重新执行，不产生半完成状态）。 |
 | 退出兜底 | `PipelineEngine.saveRunningState()` 遍历内存中 `orchestrationMode='orchestrator' && status='running'` 的运行逐个落盘；`shutdown.js performShutdown` **最先**调用（先于热键/调度器/队列清理）。 |
 | 完成清理 | 编排 run 进入 `completed` 时 `runStateStore.remove(run.id)` 清理 running 快照（防已完成任务以「运行中」重现历史）；failed/cancelled 由 `saveFailed` 覆盖同文件。 |
-| 历史合并 | `getHistory()` 合并 `listFailed()`（failed/cancelled，过滤 running）+ `listRunning()`（仅 running）；按 runId 与内存条目去重。 |
+| 历史合并 | `getHistory()` 合并 `listFailed()`（failed/cancelled）+ `listRunning()`（仅 running）；按 runId 与内存条目去重。应用重启后 `listRunning()` 返回的 `status=running` 快照自动归一化为 `paused`（因进程已不存在），同时从 `currentStage` 计算 `pausedStage`（阶段名），前端可展示「暂停环节：xxx」。内存中真正在运行的 run 保持 `running` 不变。 |
 | 断点恢复 | `resumeOrchestration` 支持 `status='running'` 快照（从中断阶段重建并自动续跑）；失败快照仍要求带 `error`；内存中已 running 的 run 幂等返回 `{ success, runId, alreadyRunning: true }` 不重复创建。 |
 | 窗口关闭→托盘 | `window.js` 主窗口 `close` 事件：托盘可用（`systemTray.isAvailable()`）且 `pipelineEngine.hasRunningOrchestration()` → `preventDefault + hide()`（进程继续后台运行）；任一条件不满足照旧关闭退出。 |
 | 托盘可用性 | dev 模式 `dist/assets/icon.png` 缺失时回退内嵌 32×32 占位图标（base64），保证 dev 下托盘可用；headless/无托盘环境仍优雅降级。 |
 | 托盘退出 | 菜单「退出」改走 `app.quit()`（触发 before-quit → 运行态落盘 + 服务清理），不再 `tray.destroy + mainWindow.destroy`（会绕过清理丢失运行态）。 |
-| 前端历史 | running 历史卡片显示「继续生成」按钮（与 failed 的「从断点继续」并列）；点击运行中卡片/按钮调用 `resumeOrchestration`（同会话幂等附加实时进度，跨重启从断点重建）。 |
+| 前端历史 | running/paused 历史卡片显示「继续生成」按钮（与 failed 的「从断点继续」并列）；paused 卡片额外显示「暂停环节：xxx」提示；点击运行中/暂停/失败/已取消卡片 → 跳回创作页（CreateView 恢复查看/断点继续）；点击已完成卡片 → 视频预览页。 |
 | 数据校验 | `saveRunning` 拒绝空 runId（与 saveFailed 一致）；运行中快照上下文保持纯 JSON（可序列化失败即跳过并告警，不阻塞运行）。 |
 | 提示文字 | 窗口隐藏时主进程日志「运行中有流水线任务，窗口隐藏到托盘继续后台执行」；前端 running 卡片按钮「继续生成」/恢复中「恢复中...」。 |
 | 跨平台（macOS 前瞻） | 窗口关闭行为收敛到 `services/window-close-policy.js`（`shouldHideToTrayOnClose`）：**darwin 不拦截 close**——关闭窗口不退出应用是 macOS 系统约定（进程留在 Dock、任务继续后台运行，`window-all-closed` 在 darwin 不退出、Dock 点击经 `app.on('activate')` 重建窗口）；win32/linux 维持「运行任务+托盘可用 → 隐藏托盘」。托盘图标按平台回退：darwin 使用 16×16 模板图标（`setTemplateImage(true)`，菜单栏明暗自动适配），其余平台用 32×32 占位图。快照原子写入收敛到 `run-state-store.atomicWriteFileSync`：POSIX `renameSync` 原子覆盖优先、Windows `EEXIST/EPERM/EACCES/EBUSY` 回退 `copyFileSync` 覆盖 + 清理临时文件。 |
-| 验收标准 | ① 启动流水线后强杀进程重启，历史出现「运行中」任务且点击可断点续跑；② 关闭窗口（有运行任务）进程不退出、任务继续，托盘可恢复窗口；③ 无运行任务关闭窗口正常退出；④ 完成后重启历史无「运行中」残留；⑤ 失败/取消语义不变；⑥（macOS，真机待验收）关闭窗口任务继续后台运行、Dock 点击恢复窗口、菜单栏图标为模板图标且明暗适配。 |
+| 验收标准 | ① 启动流水线后强杀进程重启，历史出现「已暂停」任务（非「运行中」），卡片显示暂停环节名，点击可断点续跑；② 关闭窗口（有运行任务）进程不退出、任务继续，托盘可恢复窗口；③ 无运行任务关闭窗口正常退出；④ 完成后重启历史无「已暂停」残留；⑤ 失败/取消语义不变；⑥（macOS，真机待验收）关闭窗口任务继续后台运行、Dock 点击恢复窗口、菜单栏图标为模板图标且明暗适配。 |
 
 #### 7.1.22 本地克隆音色删除/设为默认与媒体导入反馈合同（2026-08-09）
 
@@ -1191,6 +1258,161 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 面板防撑宽（2026-08-09 追加） | 展开「音色复制 / 克隆」面板不得把界面撑宽：`.config-grid` 轨道 `minmax(min(200px,100%),1fr)`（窄容器可收缩）+ 网格/flex 子项 `min-width:0` + 克隆名 `.voice-clone-row > span { overflow-wrap:anywhere }`——长不可断内容（MiniMax 生成的克隆 voice_id、长名称）换行而非溢出；回归：真实 chromium 断言（修复前 97px 溢出 → 修复后 0）+ CSS 契约测试（`voice-clone-layout-regression.test.js`）。 |
 | 提示文字（中/英） | `MEDIA_PATH_UNRESOLVED`：zh「无法获取所选{kindLabel}文件的本地路径，请重新选择文件后再试；若持续出现请重启应用。」en「Could not resolve the local path of the selected {kindLabel} file. Choose it again; if this keeps happening, restart the app.」 |
 | 验收标准 | ① MiniMax 本地克隆「01」点删除 → 列表移除、无「服务不可用」提示、偏好清理、样本目录删除（服务层 33 用例）；② 有效克隆点「设为默认」→ 下拉同步、出现「默认」徽标、按钮变「已设为默认」（CreateView 用例）；③ 选择正常背景音乐 mp3 → 成功显示受控路径且无错误弹窗（真实 Electron 验证：`setInputFiles` 真实 mp3 → bgmPath=selected-media 受控路径、无对话框）；文件被占用/损坏 → 弹「无法读取所选背景音乐文件…」；无法解析路径 → 弹「无法获取所选背景音乐文件的本地路径…」；④ 未登录/未激活许可证下媒体导入可用（license-access-control 用例 + 真实 Electron code 0）；⑤ 既有 7.1.16 无效克隆「删除仍可用」语义保持。 |
+
+#### 7.1.23 视频创作 UI 设计系统与代码-设计分离合同（2026-08-10）
+
+**背景**：视频创作模块 8 个 UI 文件（CreateView.vue 3428 行、CreateHistory.vue 305 行、ResultView.vue 774 行、ReplayTimeline.vue 576 行、ApprovalGateModal.vue 368 行、BoardStageIndicator.vue 170 行、PipelineBrowser.vue 137 行、ProjectCard.vue 182 行）存在严重的样式碎片化问题：57 个硬编码 hex 颜色值、跨文件颜色体系不统一（Cohere 设计系统 vs Element Plus 色系混用）、CSS 变量定义分散、无统一的设计令牌体系。经深度分析后实施代码与设计分离重构。
+
+##### A. 设计令牌体系（Design Tokens）
+
+| 令牌类别 | 变量前缀 | 示例 | 说明 |
+|----------|----------|------|------|
+| 流水线分类色 | --pipe-* | --pipe-generated: #3b82f6 | 7 种流水线类型各自的品牌色（border + badge bg + text） |
+| 稳定性色 | --stability-* | --stability-production: #22c55e | production/beta/experimental 三级 |
+| 状态语义色 | --status-* | --status-completed-bg: #d1fae5 | completed/failed/cancelled/running/pending/waiting/needs-user-input 各自的 bg + text |
+| 阶段时间线色 | --stage-* | --stage-active-bg | done/active/waiting/failed/pending 阶段状态 |
+| Banner/Notice 色 | --banner-* | --banner-warning-bg: #fef3c7 | warning/info/success 三类提示 |
+| 成本标签色 | --cost-* | --cost-low: #10b981 | low/medium/high 三级成本 |
+| 历史记录色 | --history-* | --history-running-border: #93c5fd | 运行中边框、进度条、提示 |
+| 语音克隆色 | --clone-* | --clone-invalid-bg: #fef3c7 | 无效/默认克隆的徽标色 |
+
+##### B. Token 文件结构
+
+| 文件 | 位置 | 职责 |
+|------|------|------|
+| cohere-design-system.css | src/styles/ | 全局基础令牌（颜色、间距、圆角、布局） |
+| ideo-creation-tokens.css | src/styles/ | 视频创作专用令牌（流水线分类色、状态色、Banner 色等），继承全局令牌 |
+| main.js | src/ | 按顺序导入两个样式文件 |
+
+##### C. 暗色模式支持
+
+ideo-creation-tokens.css 内含 [data-theme="dark"] 完整覆盖层：
+- 所有 --status-*-bg 切换为暗色背景
+- 所有 --status-*-text 切换为亮色文字
+- Banner 色系适配暗色对比度
+- 语音克隆徽标适配暗色
+- 不依赖外部暗色主题库，纯 CSS 变量驱动
+
+##### D. 硬编码颜色消除进度
+
+| 文件 | 优化前 | 优化后 | 说明 |
+|------|--------|--------|------|
+| CreateView.vue | 57 个唯一 hex | 11 个（均为 var() fallback） | 核心组件，消除 80% 硬编码 |
+| CreateHistory.vue | 24 个 | 2 个（均为 var() fallback） | 历史记录页 |
+| ResultView.vue | 8 个 | 0 个 | 结果预览页完全使用令牌 |
+| ReplayTimeline.vue | 18 个 | 8 个（均为 var() fallback） | 回放时间线 |
+| ApprovalGateModal.vue | 13 个 | 未改（Element Plus 色系独立） | 审批弹窗 |
+| BoardStageIndicator.vue | 7 个 | 未改（Element Plus 色系独立） | 阶段指示器 |
+| PipelineBrowser.vue | 14 个 | 未改（与 CreateView 同色系） | 流水线浏览 |
+| ProjectCard.vue | 12 个 | 未改（Element Plus 色系独立） | 项目卡片 |
+
+##### E. 数据校验与边界
+
+| 校验项 | 合同 |
+|--------|------|
+| Token 定义完整性 | ideo-creation-tokens.css 必须覆盖所有 --status-*、--pipe-*、--stability-* 变量；缺失变量导致 CSS 回退到硬编码色时，CI 视觉回归应捕获差异 |
+| 暗色模式对比度 | 暗色模式下所有文字色与背景色对比度 >= 4.5:1（WCAG AA）；Banner 提示文字 >= 3:1 |
+| var() fallback 一致性 | --status-completed-bg 的 fallback #d1fae5 必须与 Token 定义值一致；修改 Token 时必须同步更新所有 fallback |
+| 导入顺序 | ideo-creation-tokens.css 必须在 cohere-design-system.css 之后导入，确保全局 Token 先定义 |
+| Scoped 样式隔离 | CreateView.vue 等组件的 <style scoped> 中引用 ar(--xxx) 时，Token 定义必须在全局作用域（:root），不能在 scoped 内定义 |
+
+##### F. 流程与交互逻辑
+
+| 功能模块 | 交互逻辑 | 显示项 |
+|----------|----------|--------|
+| 流水线卡片网格 | 7 种分类各有独立品牌色 border-left + badge；hover 时 translateY(-2px) + border-color: var(--primary) | 卡片标题、描述、阶段数、成本标签、可用性徽标、稳定性圆点 |
+| 阶段时间线 | sticky 进度条 + 各阶段状态色；running 阶段蓝色高亮；failed 阶段红色 | 进度百分比、已用时、完成摘要、各阶段名+状态+耗时 |
+| S2V 配置面板 | 5 个折叠区（基础/画面/声音/高级/发布）；每个区 summary 显示当前配置摘要 | 各表单项标签+值+提示文字 |
+| 历史记录 | 渲染记录 tab + 流水线记录 tab；运行中任务蓝色边框 + 提示横幅 | 任务名、状态徽标、时间、阶段进度条 |
+| 错误弹窗 | 错误消息 + 详情 + 恢复按钮（可恢复场景）/ 关闭按钮（不可恢复场景） | 错误文案、恢复提示、内容政策提示 |
+
+##### G. 验收标准
+
+1. 所有 ideo-creation-tokens.css 中定义的 Token 在 CreateView.vue、CreateHistory.vue、ResultView.vue 的 CSS 中被引用
+2. CreateView.vue <style scoped> 中唯一剩余的 hex 值均为 ar(--xxx, #fallback) 格式的 fallback 值
+3. 暗色模式（[data-theme="dark"]）下所有状态色、Banner 色、历史记录色正确显示
+4. Vite build 无编译错误；195 个相关测试全部通过
+5. 视觉回归测试（如有基线截图）无意外差异
+
+
+
+#### 7.1.24 视频创作模块 UI/UX 深度优化（2026-08-10）
+
+**背景**：在 7.1.23 设计令牌体系基础上，对视频创作模块 8 个前端文件（共 6099 行）进行 UI/UX 深度优化，覆盖可访问性、交互体验、视觉一致性、加载状态、空状态等维度。
+
+##### A. 可访问性（Accessibility）
+
+| 优化项 | 优化前 | 优化后 | 影响文件 |
+|--------|--------|--------|----------|
+| 流水线卡片键盘导航 | 仅支持鼠标点击 | tabindex="0" + role="button" + @keydown.enter | CreateView.vue, PipelineBrowser.vue |
+| 流水线卡片 ARIA 标签 | 无 aria-label | :aria-label="pipelineName(p.name)" | CreateView.vue, PipelineBrowser.vue |
+| 历史记录卡片键盘导航 | 仅支持鼠标点击 | tabindex="0" + role="button" + @keydown.enter | CreateHistory.vue |
+| 焦点可见性 | 无 focus 样式 | .pipeline-card:focus-visible, .render-card:focus-visible, .history-item:focus-visible 统一 outline: 2px solid var(--primary) | CreateView.vue, CreateHistory.vue, PipelineBrowser.vue |
+
+##### B. 视觉一致性
+
+| 优化项 | 优化前 | 优化后 | 说明 |
+|--------|--------|--------|------|
+| 页面布局 | CreateView: padding 24px, max-width 1100px; CreateHistory: padding 24px 32px, max-width 1080px | 统一为 padding: 24px 32px, max-width: 1080px | 两页面布局对齐 |
+| 页面标题间距 | CreateView: margin-bottom 24px; CreateHistory: margin-bottom 20px | 统一为 margin-bottom: 20px | 标题下方间距一致 |
+| H1 字号 | CreateView: 24px; CreateHistory: 26px | 统一为 24px | 标题字号一致 |
+| 流水线卡片圆角 | CreateView: 12px; PipelineBrowser: 8px; CreateHistory: 10px | 统一为 12px | 卡片圆角一致 |
+| 流水线卡片内边距 | CreateView: 20px; PipelineBrowser: 16px; CreateHistory: 16px 20px | 统一为 16px 20px | 卡片内边距一致 |
+| 进度条过渡动画 | 无过渡 | transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1) | 进度条平滑过渡 |
+| BoardStageIndicator 样式隔离 | <style>（全局泄漏） | <style scoped> | 防止 CSS 污染 |
+
+##### C. 设计令牌扩展
+
+| 新增令牌类别 | 变量前缀 | 示例 | 说明 |
+|-------------|----------|------|------|
+| Upload Zone 拖拽反馈 | --upload-zone-* | --upload-zone-hover-border: var(--primary) | 上传区域拖拽时的边框和背景色 |
+| 骨架屏加载 | --skeleton-* | --skeleton-bg: #e5e7eb | 骨架屏背景和微光动画色 |
+
+##### D. 上传区域交互增强
+
+| 交互状态 | 视觉反馈 | CSS 类 |
+|----------|----------|--------|
+| 默认 | 2px dashed border | .upload-zone |
+| 拖拽悬停 | 边框变为主题色 + 浅色背景 | .upload-zone.drag-over |
+| 按下 | 边框变为主题色 + 浅色背景 | .upload-zone:active |
+
+##### E. 空状态优化
+
+| 位置 | 优化前 | 优化后 |
+|------|--------|--------|
+| 渲染记录为空 | "暂无渲染记录" + 按钮 | 🎬 图标 + "暂无渲染记录" + 提示文字 + 按钮 |
+| 流水线记录为空 | "暂无流水线运行记录" + 按钮 | 🔄 图标 + "暂无流水线运行记录" + 提示文字 + 按钮 |
+| 错误弹窗（不可恢复） | 仅错误消息 + 关闭按钮 | 错误消息 + 关闭按钮 + "如问题持续出现，请检查日志或重新启动流水线" 提示 |
+
+##### F. 骨架屏加载样式
+
+| 样式类 | 用途 | 动画 |
+|--------|------|------|
+| .skeleton | 骨架屏基础容器 | 微光动画（shimmer） |
+| .skeleton-text | 文字行骨架 | 14px 高度 |
+| .skeleton-card | 卡片骨架 | 120px 高度 + 12px 圆角 |
+
+##### G. 数据校验与边界
+
+| 校验项 | 合同 |
+|--------|------|
+| ARIA 标签完整性 | 所有可交互卡片必须有 aria-label，且值为用户可见的名称文本 |
+| 键盘导航 | Tab 键可聚焦所有可交互卡片，Enter 键可激活 |
+| 焦点可见性 | focus-visible 样式必须使用 outline（不改变布局），颜色为 var(--primary) |
+| 样式隔离 | BoardStageIndicator.vue 必须使用 scoped 样式，防止全局 CSS 污染 |
+| 骨架屏 Token | --skeleton-bg 和 --skeleton-shimmer 必须在 :root 和 [data-theme="dark"] 中同时定义 |
+
+##### H. 验收标准
+
+1. 所有可交互卡片（pipeline-card、render-card、pipeline-card、history-item）支持 Tab 键聚焦 + Enter 键激活
+2. Tab 键聚焦时显示 2px solid var(--primary) 焦点环
+3. 页面布局、卡片圆角、卡片内边距在 CreateView 和 CreateHistory 中完全一致
+4. 进度条过渡动画为 0.4s cubic-bezier(0.4, 0, 0.2, 1)
+5. 上传区域拖拽悬停时边框变为主题色
+6. 空状态显示图标 + 提示文字 + 操作按钮
+7. BoardStageIndicator 使用 scoped 样式
+8. 158 个相关测试全部通过
+9. Vite build 无编译错误
 
 ### 7.2 上传图片快速渲染（独立路径）
 
@@ -1339,8 +1561,82 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 5h 窗口 | `limit_per_5h` → `setTokenWindows([{ windowMs:5h, field:'requests', limit }])`，按请求次数累计（无 usage 字段也计数），超限返回 `QUOTA_EXCEEDED`。 |
 | 注入时机 | `ModelProviderManager.init()` 及 `createProvider`/`updateProvider` 成功后调用 `_applyGovernorLimits()` 同步预算；预设种子 `model-provider-seeds.js` 与 ops-center 种子对齐。 |
 | 视频创作联动 | `story2video generate_assets` 图片/TTS 并行生成并发上限 = `min(请求并发, provider maxConcurrent)`（按能力分别解析 image/tts provider），超出部分 worker 队列排队；未配置预算回退静态表/请求并发，行为不回归。 |
-| 前端表单 | 模型设置新增「每分钟连接次数（可空）」「5小时限额次数（可空）」输入，正整数校验，留空保存 null（不覆盖默认限流）。 |
+| 前端表单 | 模型设置「每分钟连接次数 / 5小时限额次数」为**只读展示**（7.4.5 起由运营后台同步下发或使用服务商默认值，不再手工输入）：编辑弹窗显示当前值或「未配置（默认限流）」，新增服务商步骤 3 提示「限流策略由运营后台同步下发或使用服务商默认值」。 |
 | 种子数据来源 | 预设种子 `rate_per_minute` 与 `governor-provider-limits.js` 静态表一致（代码事实，2026-08-10 起由 ops-center 目录统一生成）；`limit_per_5h` 无代码事实 → 不预填（留空由运营填写，注入 provider 级 5h 请求窗口）；`models_url` 无适配器 `/models` 调用事实 → 不预填。运营后台目录与桌面端代码事实一致性命中测试见 ops-center PRD 12A.8。 |
+
+#### 7.4.5 运营后台 → 桌面端运行时同步（2026-08-10 新增）
+
+**需求**：运营后台填写的限流（每分钟连接次数 / 5小时限额次数）、模型 ID、默认模型、能力配置，在桌面端**运行时自动下发**（手动「立即同步」+ 启动自动同步）；前端限流/模型字段由可编辑改为**只读展示**，避免双写漂移。
+
+##### 7.4.5.1 目录同步端点（ops-center）
+
+| 项 | 要求 |
+|----|------|
+| 端点 | `GET /api/v1/model-presets/catalog`（无需登录，`X-Catalog-Key` 头鉴权） |
+| 鉴权 | `X-Catalog-Key` == `OPS_CATALOG_API_KEY`（常量时间比较）；**未配置** `OPS_CATALOG_API_KEY` → 404（不暴露端点存在性）；Key 错误/缺失 → 401 |
+| 返回 | `{ items: [...], count, synced_at }`；仅返回 `is_visible=1` 预设，按 is_multimodal/category/name 排序 |
+| item 字段 | `id` / `name` / `category` / `base_url` / `models` / `default_model` / `rate_per_minute` / `limit_per_5h` / `is_multimodal` / `capabilities` / `capability_models` / `updated_at`（**不含** API Key 等敏感字段） |
+| 数据自洽 | `default_model` 非空时必须 ∈ `models`；`rate_per_minute`/`limit_per_5h` 为 null 或正整数 |
+
+##### 7.4.5.2 桌面端同步服务（OpsCenterSync，主进程）
+
+| 合同 | 要求 |
+|------|------|
+| 配置存储 | settings key `opsCenterSync`：`{ url, apiKeyEnc, autoSync, lastSyncedAt }`；API Key 经 safeStorage 加密后 base64 序列化，`getConfig()` 永不返回明文（仅返回 `apiKeyConfigured` 布尔） |
+| URL 校验 | 必须 http(s)；**非本机回环地址强制 https**（回环 localhost/127.0.0.1/::1 允许 http）；拒绝携带用户名/密码；非法 URL 保存时拒绝并提示「Ops Center 地址必须是 http(s) URL（非本机地址强制 https）」 |
+| Key 保留 | `saveConfig` 的 apiKey 为空 = 保留现有 Key，不重复加密 |
+| 拉取契约 | `{url}/api/v1/model-presets/catalog`，头 `X-Catalog-Key`；`redirect:'error'` 禁重定向；10s 超时（AbortController）；响应 ≤1MB；非合法 JSON / 缺 `items` 数组 → fail-closed 不写本地 |
+| 错误映射 | 401/403 →「Ops Center API Key 无效（401/403）」；404 →「Ops Center 未启用目录同步（404，需配置 OPS_CATALOG_API_KEY）」；其他非 2xx →「Ops Center 返回 HTTP {status}」；超时 →「同步请求超时（10 秒）」；连接失败 →「无法连接 Ops Center: ...」 |
+| 应用写入 | 调 `ModelProviderManager.applyCatalog(items)`：合并限流/模型/能力到已有行，**不覆盖** api_key/enabled/is_default/base_url；目录有本地无 → 插入 `is_preset=1/enabled=0` 行；目录缺失的本地行**不清除**；运营未配置限流（null/''/0/布尔）→ 清除本地值并回退默认；**畸形目录项**（缺 `models` 数组等）不清空本地模型列表（fail-closed） |
+| default_model | 目录契约信息字段：写入 `config.default_model` 保留运营配置；当前模型调用解析走 `capability_models[type]` 或 `models[0]`，provider 级默认走 `is_default=1`，`default_model` 供展示与后续模型选择路由使用（2026-08-10 审查记录） |
+| Governor 联动 | `applyCatalog` 写库后调用 `_applyGovernorLimits()`：`rate_per_minute` → `setProviderLimits({rpm, maxConcurrent})`，`limit_per_5h` → `setProviderTokenWindows(5h 窗口)`；未配置/已清空回退静态表默认 |
+| 自动同步 | 配置 autoSync 且已有 URL+Key 时，启动 3 秒后 best-effort 同步；失败仅 warn 不阻塞启动 |
+| IPC | `ops-center-sync:get` / `ops-center-sync:save` / `ops-center-sync:now`（preload：`opsCenterSyncGet/Save/Now`；access-control PUBLIC_METHODS） |
+
+##### 7.4.5.3 前端交互（模型设置页）
+
+| 项 | 要求 |
+|----|------|
+| 同步卡片 | 模型设置顶部「🔄 运营后台同步」卡片：Ops Center 地址输入、目录同步 API Key 输入（已配置时 placeholder「已配置（留空保持不变）」）、「启动时自动同步」开关、「保存配置」「立即同步」按钮、上次同步时间、状态文案 |
+| 显示项 | 未同步时「尚未同步」；已同步显示「上次同步：{本地化时间}」；同步成功后显示「同步成功：更新 N 个服务商（时间）」 |
+| 失败提示 | 红色状态区显示映射后的错误文案（401/403/404/超时/连接失败），并 ElMessage.error 提示 |
+| 启用提示 | 同步已配置时卡片高亮并提示「已启用运营后台下发：服务商的『每分钟连接次数 / 5小时限额次数 / 模型列表』以运营后台为准，桌面端为只读展示；本地仍可配置 API Key、Base URL 与默认服务商。」 |
+| 限流只读 | 编辑服务商弹窗「每分钟连接次数 / 5小时限额次数」由输入框改为只读行：显示当前值或「未配置（默认限流）」，附提示「限流值由运营后台同步下发或使用服务商默认值，前端为只读展示。」 |
+| 新增流程 | 添加服务商步骤 3 不再显示限流输入框，改为提示「限流策略（每分钟连接次数 / 5小时限额次数）由运营后台同步下发或使用服务商默认值，无需在此填写。」 |
+| 模型只读 | 同步启用且编辑预设服务商时，「模型列表」输入禁用并提示「已启用运营后台同步：预设服务商模型列表由运营后台下发，此处为只读。」；自定义服务商模型列表仍可编辑 |
+| 数据校验 | 地址输入保存时由主进程校验（http(s)/https 强制/无凭据）；API Key 非空时加密存储；autoSync 布尔开关 |
+
+##### 7.4.5.4 验收标准
+
+① 运营后台配置 `OPS_CATALOG_API_KEY` 后，桌面端填写地址+Key 点击「立即同步」→ 服务商限流/模型更新、卡片显示「同步成功：更新 N 个服务商」；② 未配置 Key 的运营后台端点返回 404，桌面端提示「未启用目录同步」；③ Key 错误返回 401，桌面端提示「API Key 无效」；④ 同步后编辑预设服务商：限流只读展示、模型列表禁用；⑤ 自定义服务商模型仍可编辑；⑥ 勾选「启动时自动同步」重启桌面端 3 秒后自动同步；⑦ 本地 api_key/enabled/is_default/base_url 不被同步覆盖；⑧ 运营后台清空限流 → 桌面端回退默认限流（governor 预算恢复）。
+
+#### 7.4.6 运营后台运行时策略下发：公告 / 版本发布 / 内容安全（2026-08-10 新增）
+
+**需求**：运营后台集中维护公告、版本发布策略、内容安全敏感词库，桌面端启动/同步时经 `runtime/bootstrap` 一次性拉取并应用；前端无需发版即可全局生效。
+
+##### 7.4.6.1 数据与校验（ops-center）
+
+| 表 | 字段 | 允许为空 | 校验（后端 400 + 前端提示） |
+|----|------|---------|--------------------------|
+| `announcements` | title / content / severity(info\|warning\|maintenance) / active_from / active_until / enabled / sort_order | title/content 必填，其余可空 | severity 三值之一；时间 ISO 格式；active_until ≥ active_from |
+| `update_policy` | min_version / force_version / gray_ratio(0-100) / enabled / note（单条 upsert id=1） | 版本可空 | 版本号 `x.y.z`；force ≥ min；gray_ratio 整数 0-100 |
+| `content_policy` | name / word_list(JSON) / replacement(≤16) / enabled（单条 upsert id=1） | 词库可空 | 词去重保序 ≤5000 项、单项 ≤100 字符；replacement ≤16 |
+
+##### 7.4.6.2 运行时端点与桌面端应用
+
+| 合同 | 要求 |
+|------|------|
+| 端点 | `GET /api/v1/runtime/bootstrap`（`X-Catalog-Key` == `OPS_CATALOG_API_KEY`，常量时间比较；未配置→404；错→401） |
+| 返回 | `{ announcements: [活动公告按 sort_order], update_policy, content_policy, synced_at }`；活动 = enabled=1 且在有效窗口 |
+| 拉取时机 | `OpsCenterSync.syncNow()` 目录同步成功后 **best-effort** 追加拉取（失败仅 warn，不影响目录结果）；启动 autoSync 同链路 |
+| 公告 | 存 settings(`opsCenterRuntime`) + 内存；IPC `ops-center-sync:runtime` 暴露；App 顶部 `AnnouncementBanner` 展示：info/warning 可关闭（localStorage 记忆），maintenance 常驻强提示不可关闭 |
+| 内容安全 | `content_policy` 启用且词非空 → 重建 `SensitiveFilter`（内置词库 + 远程词，去重）；`sensitive:check/replace` IPC 自动使用远程过滤器（未配置回退内置） |
+| 版本发布 | `update_policy` → auto-updater `applyPolicy`：force_version 高于当前版本 → 跳过灰度强制检查；gray_ratio<100 → 按概率跳过检查（灰度）；min_version → 状态 `policy-min-version` 提示升级；enabled=false → 不生效 |
+| 安全 | 端点复用目录同步 Key；管理 CRUD require_admin；词库/公告不含用户隐私 |
+
+##### 7.4.6.3 验收标准
+
+① 运营后台发布 maintenance 公告 → 桌面端同步后顶部常驻红色横幅且不可关闭；info 公告可关闭且刷新不重现；② 配置 `force_version=2.3.53` 且当前 2.3.50 → 桌面端强制检查更新（不受灰度限制）；③ `gray_ratio=0` → 桌面端跳过更新检查（`skipped-by-policy`）；④ `min_version=2.3.53` 且当前低于 → 状态含 `policy-min-version` 提示；⑤ 运营后台配置敏感词「新词」→ 桌面端 `sensitive:check('含新词')` 命中；关闭策略 → 仅内置词库；⑥ runtime 拉取失败不影响模型目录同步；⑦ 未配置同步的桌面端公告区为空、更新走默认流程。
 
 ---
 

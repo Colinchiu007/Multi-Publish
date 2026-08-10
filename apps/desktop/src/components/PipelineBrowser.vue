@@ -21,6 +21,10 @@
         :data-pipeline-id="p.name"
         :class="[p.stability || 'experimental', { 'is-unavailable': p.available === false }]"
         @click="$emit('select', p)"
+        tabindex="0"
+        role="button"
+        :aria-label="pipelineName(p.name)"
+        @keydown.enter="$emit('select', p)"
       >
         <div class="card-header">
           <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
@@ -103,42 +107,53 @@ export default {
 <style scoped>
 .pipeline-browser { padding: 16px; }
 .section-title { font-size: 1.4rem; margin-bottom: 4px; }
-.section-desc { color: #666; margin-bottom: 20px; font-size: 0.9rem; }
+.section-desc { color: var(--text-muted); margin-bottom: 20px; font-size: 0.9rem; }
 .pipeline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .pipeline-card {
-  background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px;
   cursor: pointer; transition: all 0.2s;
 }
 .pipeline-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-2px); }
-.pipeline-card.experimental { border-left: 3px solid #f59e0b; }
-.pipeline-card.beta { border-left: 3px solid #3b82f6; }
-.pipeline-card.production { border-left: 3px solid #22c55e; }
+.pipeline-card.experimental { border-left: 3px solid var(--stability-experimental); }
+.pipeline-card.beta { border-left: 3px solid var(--stability-beta); }
+.pipeline-card.production { border-left: 3px solid var(--stability-production); }
 .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .badge {
   font-size: 0.7rem; padding: 2px 8px; border-radius: 4px;
   text-transform: uppercase; font-weight: 600;
 }
-.badge.generated { background: #dbeafe; color: #1d4ed8; }
-.badge.assembly { background: #fef3c7; color: #b45309; }
-.badge.hybrid { background: #d1fae5; color: #047857; }
+.badge.generated { background: var(--pipe-generated-bg); color: var(--pipe-generated-text); }
+.badge.assembly { background: var(--pipe-animation-bg); color: var(--pipe-animation-text); }
+.badge.hybrid { background: var(--pipe-screen-recording-bg); color: var(--pipe-screen-recording-text); }
 .card-title { font-size: 1.05rem; margin: 0 0 6px 0; }
-.card-desc { font-size: 0.82rem; color: #666; line-height: 1.4; margin: 0 0 12px 0; }
+.card-desc { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; margin: 0 0 12px 0; }
 .card-footer { display: flex; justify-content: space-between; align-items: center; }
-.version { font-size: 0.75rem; color: #999; }
+.version { font-size: 0.75rem; color: var(--text-light); }
 .availability-badge { font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: 600; }
-.availability-badge.ready { background: #d1fae5; color: #047857; }
-.availability-badge.dev { background: #fef3c7; color: #b45309; }
+.availability-badge.ready { background: var(--pipe-screen-recording-bg); color: var(--pipe-screen-recording-text); }
+.availability-badge.dev { background: var(--pipe-animation-bg); color: var(--pipe-animation-text); }
 .pipeline-card.is-unavailable { opacity: 0.72; }
 .pipeline-card.is-unavailable:hover { transform: none; box-shadow: none; }
 .stability-dot {
   width: 8px; height: 8px; border-radius: 50%; display: inline-block;
 }
-.stability-dot.experimental { background: #f59e0b; }
-.stability-dot.beta { background: #3b82f6; }
-.stability-dot.production { background: #22c55e; }
-.loading-state, .error-state { display: flex; align-items: center; gap: 8px; padding: 24px; color: #666; }
-.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.6s linear infinite; }
-.error-state { color: #ef4444; }
+.stability-dot.experimental { background: var(--stability-experimental); }
+.stability-dot.beta { background: var(--stability-beta); }
+.stability-dot.production { background: var(--stability-production); }
+.loading-state, .error-state { display: flex; align-items: center; gap: 8px; padding: 24px; color: var(--text-muted); }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline); border-top-color: var(--stability-beta); border-radius: 50%; animation: spin 0.6s linear infinite; }
+.error-state { color: var(--error); }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 骨架屏加载 */
+.skeleton { background: var(--skeleton-bg); border-radius: 4px; position: relative; overflow: hidden; }
+.skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent); animation: skeleton-shimmer 1.5s infinite; }
+@keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 </style>
 
+
+/* 键盘导航焦点样式 */
+.pipeline-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

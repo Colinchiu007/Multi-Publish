@@ -12,6 +12,26 @@
 - **实现**：`scripts/ensure-electron.js` 三态——dist 完整→跳过(exit 0)；缺失→触发 install.js；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 显式跳过。按仓库约定把脚本加入 `scripts/*.js` 的 .gitignore 白名单。
 - **验证**：三路实测（就绪/跳过/缺失包）+ electron v43.1.1 就绪；本条目即文档同步门禁要求的 docs 变更。
 - **教训**：① 上游 npm 包 lifecycle 声明可能被版本演进静默移除，对"下载型二进制"依赖要装后自检而非假设就绪；② 环境修复优先"按需显式触发"，避免给所有部署形态（尤其后端镜像构建）引入无关下载与失败点。
+## 图片轮播流水线 generate_assets 调度网关双包自死锁复盘 (2026-08-10，质量节拍 Bug 反哺)
+
+- **表象**：图片轮播流水线到达「生成图片与旁白」（generate_assets）阶段后永久卡住，前端「图片 0/N · 旁白 0/M」停滞不动；暂停/重试均无法推进，只能重启应用。
+- **根因（git blame 溯源 + 真实模块复现）**：`story2video-stages.js` generate_assets 在阶段外层用 `modelCallScheduler.withModelBudget` → `governor.run` 包裹每项图片/TTS 调用（`0532ac3d` 引入）；而 `AIGenerator.generate` 内部已用**同一个 ApiUsageGovernor 单例**对**同一 key（providerId:type:model）**做第二次 `governor.run`（`87796b5f` 引入）。生产接线（`container.setup.js:107` + `phase1-context.js:189-191`）把同一单例同时注入 `pipelineEngine.governor` 与 `aiGenerator._governor`。并发 ≥2 时（默认 maxConcurrent=2；maxConcurrent=1 时单请求即锁），外层占满信号量，内层排队等待自己占用的槽位 → 自死锁。`StageExecutor._safeRun` 无阶段超时，`governor.sweepAll` 只在 run 终态调用（`pipeline-engine.js:1585`）→ 死锁期间无人回收排队 waiter → 阶段永不结束。复现：真实 ApiUsageGovernor + withModelBudget 外层 + governor.run 内层（同 key、maxConcurrent=2）→ x2/x3 并发均 15s 超时 HANG；单层外层对照组 4.2s 完成。
+- **逃逸链**：① `story2video-stages.test.js` 的 governor 是 `vi.fn((meta, task) => task())`（无信号量语义）+ `aiGenerator=null`（内层从不触发）→ 双包只在生产接线存在，单测永远看不到；② `api-usage-governor.test.js` 只测单层 run（并发/排队/冷却/窗口），无同 key 嵌套用例；③ 无任何集成/合同测试把**真实** governor 同时接进阶段外层与 AIGenerator 内层并解析出 providerId。
+- **系统性漏洞**：① governor 并发信号量无重入/所有权保护——同 key 二次 run 会排在自己占的信号量后面；② `withModelBudget` 作为「薄封装」不校验底层调用是否已被 governor 化，任何在已 governor 化调用上再叠一层都会静默复现同类死锁；③ 排队 waiter 被放行时槽位未转移（active 未 +1），每次排队后 active 漂移为负，闸门在突发时会临时放行超额并发。
+- **修复**：① 调用点收敛——assetGenerator 路径已由 AIGenerator 内部 governor 单层调度，阶段外层去掉 withModelBudget；legacy python 路径（无 assetGenerator）保留外层统一调度，限流不丢；② 网关重入保护（预防）——`run()` 用 AsyncLocalStorage 记录当前调用链持有的 key 集合，同 key 内层 run 直接透传执行（外层负责槽位/节奏/冷却/重试/记账）；③ `_pump` 槽位转移（active+=1）修复记账漂移。
+- **回归保护**：api-usage-governor +2（同 key 重入透传不自死锁 / 同 key 单槽 + 不同 key 独立 + active 归零）；story2video-stages +2 修改 1（真实 governor 3 场景并发有界完成——负向验证：stash 回退旧代码后该用例 10s 超时失败；legacy 路径仍经 governor.run 且 meta 含 type/providerId/model；assetGenerator 路径外层 governorRun 不调用）。聚焦 84 用例 + 关联 175 用例全绿。
+- **预防措施**：① 任何新增「governor 包裹」调用点，必须确认底层调用是否已被 AIGenerator/其他网关 governor 化，禁止同 key 双包；② 网关级重入保护（本修复）使该约束在机制上强制，不再依赖调用点自觉；③ 调度器测试契约必须覆盖「同 key 嵌套 run」与「排队槽位记账归零」；④ 涉及并发信号量/限流排队的改动，测试须用真实 governor + 有界超时断言，禁止只用无语义 mock 证明调度行为。
+
+## 流水线「已用时」墙钟口径缺陷复盘 (2026-08-10，质量节拍 Bug 反哺)
+
+- **表象**：视频创作（Story2Video）流水线运行状态「已用时」对可断点恢复的任务显示 1245 分 33 秒（约 20 小时），远超实际执行时间。
+- **根因（git blame 溯源）**：`CreateView.vue` 的 `orchestrationElapsedMs` 按墙钟 `endedAt - createdAt`（运行中 `now - createdAt`）计算；流水线支持暂停、人工检查点、失败后跨天断点恢复，墙钟把「创建→结束」之间全部空闲等待计入。`pipeline-engine.js` `_executeStage` 早已用 `stageStartMs` 测量每段执行耗时，但只用于日志（`duration_ms=`），未累计、未持久化、未下发——数据锚点存在却被丢弃。
+- **逃逸链**：① 单测只覆盖「无暂停/无恢复」的墙钟语义（65 秒 createdAt → 显示 65 秒），未覆盖「暂停/失败→恢复」跨时间段；② 完成汇总（`endedAt - createdAt`）与结果页 `durationMs` 复用同一墙钟公式，三处口径一致地错；③ 断点恢复链路（`resumeOrchestration` + `run-state-store` 快照）无任何执行时长字段，恢复后重头计时，无人校验「跨段时间」合理性；④ 无「暂停不计时 / 重试累计」的产品验收场景。
+- **系统性漏洞**：① 「展示时长」与「真实执行时长」没有独立的数据模型——用运行生命周期时间戳（createdAt/endedAt）当执行耗时；② 执行器真实窗口（`_executeStage` 的 `stageStartMs`）只服务日志，未成为一等数据（持久化 + IPC 下发）；③ 三处消费点（运行中已用时/完成汇总/结果页）共享同一错误口径，无单一权威源。
+- **修复**：① 主进程 run 新增 `activeMs`（执行段累计，`_executeStage` try/finally 唯一累计点，成功/失败/取消/异常都计入）+ 瞬时 `_activeSegmentStartedAt`（在飞段，不落盘防停机膨胀）；② `getRunSnapshot` 返回 `activeMs`/`activeSegmentStartedAt`/`elapsedActiveMs`；③ `run-state-store` 快照持久化 `activeMs`（version 保持 1），`resumeOrchestration` 继承累计继续累加；④ 前端「已用时」= `activeMs` + 运行中当前段每秒本地增量，完成/失败定格；完成汇总与结果页 `durationMs` 同步累计口径；旧数据回退墙钟不为空。
+- **回归保护**：主进程 pipeline-engine +7（多阶段累计/阶段间隙不计/在飞段/暂停不计/失败段累计/终态返回 activeMs）、resume-orchestration +1（跨重启继承累计）、run-state-store +2（activeMs 往返/旧数据回退 0）；前端 CreateView +7（activeMs 优先/在飞补差/旧数据回退含 null 守卫/汇总同口径/结果页 durationMs/终态 activeMs 覆盖轮询缓存）；聚焦 302 用例全绿。
+- **审查闭环（Claude reviewer）**：C1 `Number(null)===0` 使「无 activeMs 旧数据」守卫失效（`Number.isFinite(Number(null))` 为真 → 误显示 0）——存在性守卫必须显式排除 null/undefined，补 `activeMs: null` 用例；W2 检查点确认路径的 `applyOrchestrationOutcome` 读取轮询缓存（可能过期）→ 主进程 `executeStage`/`advanceToNextCheckpoint` 终态返回 `activeMs`，前端以 outcome.activeMs 覆盖；I1 `stageClockTick` 未接进计算属性 → 显式依赖实现每秒补差；I2 统一 `_computeElapsedMs`；I3 persisted 历史映射补 `activeMs`；W1/W3/I4（取消瞬间在飞半段不落 history、暂停-执行中瞬态冻结、检查点暂停退出按阶段原子性重跑）以注释与 learnings 说明，接受为文档化边界。
+- **预防措施**：① 涉及「时间/时长」展示，先区分「生命周期墙钟」与「执行耗时」两类语义，分别建模；② 执行器已测量的真实窗口必须沉淀为可持久化/可下发的数据，禁止只写日志；③ 流水线机制（暂停/检查点/断点恢复）相关的时长功能，测试必须覆盖跨暂停/跨恢复累计与旧数据回退；④ JS 数值守卫警惕 `Number(null)===0`，存在性判断先于数值判断。
 
 ## BGM 提示单一来源收敛复盘 (2026-08-10，质量节拍审查闭环)
 

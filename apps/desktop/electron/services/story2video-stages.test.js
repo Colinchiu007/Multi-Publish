@@ -1134,7 +1134,7 @@ describe('isPromptEngineTooShortRejection — 过短校验拒绝判定', () => {
 })
 
 describe('story2video 生成并发按 provider 每分钟连接次数收敛', () => {
-  it('provider rate_per_minute=20（maxConcurrent=2）时图片/TTS 并发上限为 2，而非请求的 5', async () => {
+  it('provider rate_per_minute=20（maxConcurrent=2）时图片/TTS 并发上限为 2，而非请求的 5（assetGenerator 路径不套外层 governor）', async () => {
     const executors = new Map()
     let gate
     const gateP = new Promise((resolve) => { gate = resolve })
@@ -1204,10 +1204,9 @@ describe('story2video 生成并发按 provider 每分钟连接次数收敛', () 
     const result = await pending
     expect(result.success).toBe(true)
     expect(result.output.scenes.length).toBe(3)
-    // 每项调用经统一调度网关（withModelBudget → governor.run，含 providerId/type）
-    expect(governorRun.mock.calls.length).toBeGreaterThanOrEqual(6)
-    expect(governorRun.mock.calls.some(([meta]) => meta.type === 'image' && meta.providerId === 'minimax-multimodal')).toBe(true)
-    expect(governorRun.mock.calls.some(([meta]) => meta.type === 'tts' && meta.providerId === 'minimax-multimodal')).toBe(true)
+    // 新契约（2026-08-10 双包死锁复盘）：assetGenerator 路径由 AIGenerator 内部 governor 单层调度，
+    // 阶段外层不再套 withModelBudget/governor.run（避免同 key 双包自死锁）→ 外层 governorRun 不应被调用。
+    expect(governorRun.mock.calls.length).toBe(0)
     // 日志包含预算收敛后的并发值
     const logCalls = pipeline.log.info.mock.calls.flat().join(' ')
     expect(logCalls).toContain('imageConcurrency=2')
@@ -1268,5 +1267,131 @@ describe('story2video 生成并发按 provider 每分钟连接次数收敛', () 
     gate()
     const result = await pending
     expect(result.success).toBe(true)
+  })
+})
+
+describe('story2video 调度边界（2026-08-10 双包死锁复盘）', () => {
+  it('legacy python 路径（无 assetGenerator）每项资源仍经 withModelBudget → governor.run 统一调度', async () => {
+    const executors = new Map()
+    const governorRun = vi.fn((meta, task) => task())
+    const pipeline = {
+      stageExecutor: { register(type, fn) { executors.set(type, fn) } },
+      _assetGenerator: null,
+      aiGenerator: null,
+      governor: { sweepAll: vi.fn(), run: governorRun },
+      container: { get: () => null },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      registerStageExecutor(type, fn) {
+        executors.set(type, fn)
+        return { success: true }
+      },
+    }
+    registerStory2VideoStages(pipeline)
+    const assetsExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
+    assetsExecutor.domainExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
+    assetsExecutor.optimizeExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
+    const serviceBus = {
+      _assetGenerator: null,
+      callPythonSkill: vi.fn(async (skill) => {
+        if (skill === 'generate_image') return { code: 0, data: { path: 'img-legacy.png' } }
+        if (skill === 'generate_tts') return { code: 0, data: { path: 'audio-legacy.mp3', duration: 2 } }
+        return { code: 0, data: {} }
+      }),
+    }
+
+    const result = await assetsExecutor({
+      stage: {
+        options: {
+          concurrency: 2,
+          imageProvider: 'minimax-multimodal',
+          imageModel: 'image-1',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'voice-1',
+        },
+      },
+      params: {},
+      context: {
+        split: [{ text: '一' }, { text: '二' }],
+        optimize: ['p1', 'p2'],
+      },
+      serviceBus,
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.output.scenes.length).toBe(2)
+    // legacy 路径保留外层统一调度：2 图片 + 2 TTS 每项都经 governor.run，且 meta 携带 type/providerId/model
+    expect(governorRun.mock.calls.length).toBe(4)
+    expect(governorRun.mock.calls.some(([meta]) => meta.type === 'image' && meta.providerId === 'minimax-multimodal' && meta.model === 'image-1')).toBe(true)
+    expect(governorRun.mock.calls.some(([meta]) => meta.type === 'tts' && meta.providerId === 'minimax-multimodal' && meta.model === 'voice-1')).toBe(true)
+  })
+
+  it('真实 governor 回归：assetGenerator 内部再入 governor 时，3 场景并发有界完成，不自死锁', async () => {
+    const { ApiUsageGovernor } = require('./api-usage-governor')
+    // 与生产接线一致：pipelineEngine.governor 与 aiGenerator._governor 指向同一个 ApiUsageGovernor 单例
+    const governor = new ApiUsageGovernor({
+      log: { warn: () => {}, info: () => {} },
+      providerLimits: { 'minimax-multimodal': { rpm: 15, maxConcurrent: 2, cooldownMs: 60000, retry429: 3 } },
+    })
+    const aiGeneratorLike = {
+      _governor: governor,
+      generate: vi.fn(async (type, providerId, params) => {
+        // 模拟 AIGenerator.generate 的 governor 网关（同实例、同 key）
+        return governor.run({ type, providerId, model: String(params.model || '') }, async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10))
+          if (type === 'image') return { code: 0, data: { path: 'img-' + params.index + '.png' } }
+          return { code: 0, data: { path: 'audio-' + params.index + '.mp3', duration: 2 } }
+        })
+      }),
+    }
+    const assetGenerator = {
+      generateImage: vi.fn(async (prompt, opts) => aiGeneratorLike.generate('image', 'minimax-multimodal', { ...opts, model: opts.image_model })),
+      generateTTS: vi.fn(async (text, opts) => aiGeneratorLike.generate('tts', 'minimax-multimodal', { ...opts, model: opts.voice_model })),
+    }
+    const executors = new Map()
+    const pipeline = {
+      stageExecutor: executors,
+      _assetGenerator: assetGenerator,
+      aiGenerator: aiGeneratorLike,
+      governor,
+      container: { get: () => null },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      registerStageExecutor(type, fn) {
+        executors.set(type, fn)
+        return { success: true }
+      },
+    }
+    registerStory2VideoStages(pipeline)
+    const assetsExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
+    assetsExecutor.domainExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
+    assetsExecutor.optimizeExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
+
+    const result = await Promise.race([
+      assetsExecutor({
+        stage: {
+          options: {
+            concurrency: 3,
+            imageProvider: 'minimax-multimodal',
+            imageModel: 'image-1',
+            voiceProvider: 'minimax-multimodal',
+            voiceModel: 'voice-1',
+          },
+        },
+        params: {},
+        context: {
+          split: [{ text: '一' }, { text: '二' }, { text: '三' }],
+          optimize: ['p1', 'p2', 'p3'],
+        },
+        serviceBus: {},
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('generate_assets 死锁：阶段外层与 AIGenerator 内层同 key 双包，互相等待信号量')), 10000)),
+    ])
+
+    expect(result.success).toBe(true)
+    expect(result.output.scenes.length).toBe(3)
+    // 3 图片 + 3 TTS 全部经内层 governor 完成；外层未再套 governor（否则此处 10s 超时）
+    expect(aiGeneratorLike.generate.mock.calls.length).toBe(6)
+    expect(governor.getStatus('minimax-multimodal:image:image-1').active).toBe(0)
+    expect(governor.getStatus('minimax-multimodal:tts:voice-1').active).toBe(0)
   })
 })

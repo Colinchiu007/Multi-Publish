@@ -325,10 +325,10 @@ onBeforeUnmount(() => {
   padding: 4px 10px;
   border-radius: 12px;
 }
-.badge-script { background: #ecf5ff; color: #409eff; }
-.badge-storyboard { background: #f0f9eb; color: #67c23a; }
-.badge-scene_assets { background: #fdf6ec; color: #e6a23c; }
-.badge-generic { background: #f0f0f0; color: #909399; }
+.badge-script { background: var(--ep-primary-light); color: var(--ep-primary); }
+.badge-storyboard { background: var(--ep-success-light); color: var(--ep-success); }
+.badge-scene_assets { background: var(--ep-warning-light); color: var(--ep-warning); }
+.badge-generic { background: var(--ep-info-light); color: var(--ep-info); }
 .gate-stage { font-size: 13px; color: var(--text-muted, #909399); }
 .gate-time { font-size: 12px; color: var(--text-muted, #c0c4cc); margin-left: auto; }
 .gate-decision-hint {

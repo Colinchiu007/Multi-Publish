@@ -21,6 +21,41 @@
       ⚠️ 系统加密不可用，API Key 将无法安全存储。请检查系统密钥链设置。
     </div>
 
+    <!-- 运营后台同步：运营配置（限流/模型/能力）自动下发，前端限流/模型字段为只读展示 -->
+    <div v-if="!loading" class="ops-sync-card" :class="{ 'ops-sync-configured': syncConfigured }">
+      <div class="ops-sync-head">
+        <span class="ops-sync-title">🔄 运营后台同步</span>
+        <span v-if="lastSyncedAt" class="ops-sync-meta">上次同步：{{ formatLastSync(lastSyncedAt) }}</span>
+        <span v-else class="ops-sync-meta muted">尚未同步</span>
+        <div class="ops-sync-actions">
+          <label class="multimodal-preference" title="启动桌面端时自动从运营后台拉取最新模型配置">
+            <input type="checkbox" v-model="syncAutoSync" @change="saveSyncConfig" />
+            <span>启动时自动同步</span>
+          </label>
+          <button class="cohere-btn-secondary" @click="saveSyncConfig">保存配置</button>
+          <button class="cohere-btn-primary" @click="runSyncNow" :disabled="syncing">
+            {{ syncing ? '同步中...' : '立即同步' }}
+          </button>
+        </div>
+      </div>
+      <div class="ops-sync-fields">
+        <div class="ops-sync-field">
+          <label class="input-label">Ops Center 地址</label>
+          <input class="input" v-model="syncUrl" placeholder="https://ops.example.com 或 http://localhost:8000" />
+        </div>
+        <div class="ops-sync-field">
+          <label class="input-label">目录同步 API Key</label>
+          <input class="input" v-model="syncApiKey" type="password"
+            :placeholder="syncApiKeyConfigured ? '已配置（留空保持不变）' : '填写运营后台 OPS_CATALOG_API_KEY'" />
+        </div>
+      </div>
+      <div v-if="syncStatus" class="ops-sync-status success" role="status">{{ syncStatus }}</div>
+      <div v-else-if="syncError" class="ops-sync-status error" role="alert">{{ syncError }}</div>
+      <div v-if="syncConfigured" class="ops-sync-hint">
+        已启用运营后台下发：服务商的「每分钟连接次数 / 5小时限额次数 / 模型列表」以运营后台为准，桌面端为只读展示；本地仍可配置 API Key、Base URL 与默认服务商。
+      </div>
+    </div>
+
     <!-- 视图模式 Tab + 分类筛选 -->
     <div class="view-mode-tabs" v-if="!loading">
       <button
@@ -357,17 +392,17 @@
               <span>支持生成视频（默认关闭）</span>
             </label>
           </template>
-          <template v-else-if="form.models.length === 1">
+          <template v-if="form.models.length === 1">
             <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
+            <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">模型由运营后台同步管理，保存后以运营后台下发为准。</div>
           </template>
           <template v-else>
             <label class="input-label">模型列表 (逗号分隔)</label>
-            <input class="input" v-model="form.modelsText" placeholder="model-1, model-2" />
+            <input class="input" v-model="form.modelsText" placeholder="model-1, model-2"
+              :disabled="syncConfigured && isPresetEditing" />
+            <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">已启用运营后台同步：预设服务商模型列表由运营后台下发，此处为只读。</div>
           </template>
-          <label class="input-label">每分钟连接次数（可空）</label>
-          <input class="input" v-model.number="form.config.rate_per_minute" type="number" min="1" placeholder="留空使用默认限流（运营后台配置值）" />
-          <label class="input-label">5小时限额次数（可空）</label>
-          <input class="input" v-model.number="form.config.limit_per_5h" type="number" min="1" placeholder="留空不限制；5 小时内请求次数上限" />
+          <div class="form-hint">限流策略（每分钟连接次数 / 5小时限额次数）由运营后台同步下发或使用服务商默认值，无需在此填写。</div>
         </div>
       </div>
 
@@ -406,15 +441,16 @@
         </template>
         <template v-if="form.models.length === 1">
           <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
+          <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">模型由运营后台同步管理，保存后以运营后台下发为准。</div>
         </template>
         <template v-else>
           <label class="input-label">模型列表 (逗号分隔)</label>
-          <input class="input" v-model="form.modelsText" />
+          <input class="input" v-model="form.modelsText" :disabled="syncConfigured && isPresetEditing" />
+          <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">已启用运营后台同步：预设服务商模型列表由运营后台下发，此处为只读。</div>
         </template>
-        <label class="input-label">每分钟连接次数（可空）</label>
-        <input class="input" v-model.number="form.config.rate_per_minute" type="number" min="1" placeholder="留空使用默认限流（运营后台配置值）" />
-        <label class="input-label">5小时限额次数（可空）</label>
-        <input class="input" v-model.number="form.config.limit_per_5h" type="number" min="1" placeholder="留空不限制；5 小时内请求次数上限" />
+        <div class="form-hint">每分钟连接次数：{{ form.config.rate_per_minute ?? '未配置（默认限流）' }}</div>
+        <div class="form-hint">5小时限额次数：{{ form.config.limit_per_5h ?? '未配置（默认限流）' }}</div>
+        <div class="form-hint muted-hint">限流值由运营后台同步下发或使用服务商默认值，前端为只读展示。</div>
       </div>
       <template #footer>
         <div class="dialog-footer">
@@ -446,9 +482,32 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
+import { useOpsCenterSync } from '@/composables/useOpsCenterSync'
+
+const {
+  syncUrl,
+  syncApiKey,
+  syncApiKeyConfigured,
+  syncAutoSync,
+  lastSyncedAt,
+  syncing,
+  syncStatus,
+  syncError,
+  syncConfigured,
+  formatLastSync,
+  loadSyncConfig,
+  saveSyncConfig,
+  runSyncNow,
+} = useOpsCenterSync()
+
+// 编辑中的服务商是否为预设（预设行的模型/限流由运营后台同步下发，字段只读）
+const isPresetEditing = computed(() => {
+  const p = providers.value.find(item => item.id === form.value.id)
+  return p ? p.is_preset === true : false
+})
 
 const {
   CATEGORY_OPTIONS,
@@ -514,6 +573,7 @@ function formatModels (models) {
 onMounted(() => {
   loadProviders()
   loadMultimodalPreference()
+  loadSyncConfig()
 })
 </script>
 
@@ -1258,5 +1318,76 @@ onMounted(() => {
 .quick-add-more {
   border-color: var(--muted, #999);
   color: var(--muted, #999);
+}
+
+/* 运营后台同步卡片 */
+.ops-sync-card {
+  margin: 0 var(--space-xxl) var(--space-lg);
+  padding: 14px 18px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--hairline, var(--border));
+  border-radius: 12px;
+}
+.ops-sync-configured {
+  border-color: var(--primary, #1a73e8);
+  background: var(--primary-light, #f0f6ff);
+}
+.ops-sync-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ops-sync-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink, #222);
+}
+.ops-sync-meta {
+  font-size: 12px;
+  color: var(--muted, #666);
+}
+.ops-sync-meta.muted { color: var(--muted, #999); }
+.ops-sync-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ops-sync-fields {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+.ops-sync-status {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.ops-sync-status.success {
+  background: #e6f4ea;
+  color: #137333;
+}
+.ops-sync-status.error {
+  background: #fce8e6;
+  color: #c5221f;
+}
+[data-theme="dark"] .ops-sync-status.success { background: #1a3c2a; color: #81c995; }
+[data-theme="dark"] .ops-sync-status.error { background: #3c1a1a; color: #f28b82; }
+.ops-sync-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted, #666);
+  line-height: 1.6;
+}
+.form-hint.muted-hint {
+  color: var(--muted, #999);
+  font-size: 12px;
+}
+@media (max-width: 720px) {
+  .ops-sync-fields { grid-template-columns: 1fr; }
+  .ops-sync-actions { margin-left: 0; }
 }
 </style>

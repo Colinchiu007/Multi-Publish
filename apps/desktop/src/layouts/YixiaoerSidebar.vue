@@ -28,6 +28,18 @@
       </router-link>
 
       <button
+        class="yixiaoer-primary-item"
+        type="button"
+        data-testid="yixiaoer-primary-settings"
+        aria-label="设置"
+        title="设置"
+        @click="emit('open-settings')"
+      >
+        <Setting aria-hidden="true" />
+        <span>设置</span>
+      </button>
+
+      <button
         class="yixiaoer-primary-item yixiaoer-more-trigger"
         :class="{ active: moreOpen }"
         type="button"
@@ -50,9 +62,6 @@
 
     <footer class="yixiaoer-sidebar-footer">
       <span class="yixiaoer-sidebar-status"><i aria-hidden="true"></i>客户端已连接</span>
-      <button type="button" class="yixiaoer-sidebar-settings" aria-label="设置" title="设置" @click="emit('open-settings')">
-        <Setting aria-hidden="true" />
-      </button>
     </footer>
   </aside>
 </template>
@@ -109,16 +118,15 @@ const primaryItems = [
   { key: 'publish', label: '发布', to: '/publish/history', icon: VideoCamera },
   { key: 'accounts', label: '账号', to: '/accounts', icon: User },
   { key: 'dashboard', label: '数据', to: '/dashboard', icon: DataAnalysis },
-  { key: 'cloud-publish', label: 'CLI', to: '/cloud-publish', icon: FolderOpened },
-  { key: 'comments', label: '私信评论', to: '/comments', icon: ChatDotRound },
   { key: 'create', label: '视频创作', to: '/create', icon: VideoCamera },
   { key: 'collection', label: '采集', to: '/collection', icon: Collection },
-  { key: 'calendar', label: '发布日历', to: '/calendar', icon: Calendar },
-  { key: 'monitor', label: '监控', to: '/monitor', icon: Monitor },
 ]
 
 const moreItems = [
-  { key: 'collection', label: '采集', to: '/collection', icon: Collection },
+  { key: 'monitor', label: '监控', to: '/monitor', icon: Monitor },
+  { key: 'calendar', label: '发布日历', to: '/calendar', icon: Calendar },
+  { key: 'comments', label: '私信评论', to: '/comments', icon: ChatDotRound },
+  { key: 'cloud-publish', label: 'CLI', to: '/cloud-publish', icon: FolderOpened },
   { key: 'library', label: '素材库', to: '/library', icon: FolderOpened },
 ]
 

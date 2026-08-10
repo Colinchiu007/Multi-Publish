@@ -810,6 +810,9 @@ class PipelineEngine {
       progress: 0,
       checkpoint: null,
       createdAt: new Date().toISOString(),
+      // 已用时统计：各执行段实际耗时累计（毫秒），_executeStage 为唯一累计点；暂停/检查点等待/失败→恢复空闲不计入
+      activeMs: 0,
+      _activeSegmentStartedAt: null,
       // 编排模式扩展字段（默认 state_machine 模式不使用）
       orchestrationMode: 'state_machine',
       context: {},
@@ -856,6 +859,9 @@ class PipelineEngine {
     run.cancelled = true;
     run.status = 'cancelled';
     run.stages[run.currentStage].status = 'cancelled';
+    // 已用时口径说明（W1 审查闭环）：cancel 为同步操作，若当前执行器在飞，本段耗时由 _executeStage 的
+    // finally 在异步结算后累加进该 run 对象；终态 history/快照在 finalize 时浅拷贝 activeMs，因此取消瞬间
+    // 的在飞半段不计入已取消记录的展示值（已取消任务不可断点恢复，仅影响取消记录的时长展示，可接受）。
     // Backlot 事件：流水线取消
     this._emit('pipeline:fail', { runId: run.id, pipelineType: run.pipeline, error: 'cancelled' });
     this._finalizeRun(run, 'cancelled', 'cancelled');
@@ -915,11 +921,17 @@ class PipelineEngine {
           const id = snapshot.runId
           if (!id || seenIds.has(id)) continue
           seenIds.add(id)
+          // 运行中快照在应用重启后不再是运行中状态，转为已暂停；记录暂停环节
+          const normalizedStatus = snapshot.status === 'running' ? 'paused' : (snapshot.status || 'failed')
+          const pausedStageIndex = Number.isInteger(snapshot.currentStage) ? snapshot.currentStage : -1
+          const pausedStageName = (Array.isArray(snapshot.stages) && pausedStageIndex >= 0 && pausedStageIndex < snapshot.stages.length)
+            ? (snapshot.stages[pausedStageIndex].name || snapshot.stages[pausedStageIndex].stage || '') : ''
           persisted.push({
             id,
             pipeline: snapshot.pipeline,
-            status: snapshot.status || 'failed',
-            currentStage: Number.isInteger(snapshot.currentStage) ? snapshot.currentStage : 0,
+            status: normalizedStatus,
+            currentStage: pausedStageIndex >= 0 ? pausedStageIndex : 0,
+            pausedStage: pausedStageName || null,
             stages: Array.isArray(snapshot.stages) ? snapshot.stages.map((s) => ({ ...s })) : [],
             context: snapshot.context && typeof snapshot.context === 'object' ? snapshot.context : {},
             params: snapshot.params && typeof snapshot.params === 'object' ? snapshot.params : {},
@@ -928,6 +940,8 @@ class PipelineEngine {
             createdAt: snapshot.createdAt || snapshot.endedAt || null,
             updatedAt: snapshot.endedAt || snapshot.createdAt || null,
             completedAt: snapshot.endedAt || null,
+            // 已用时：持久化快照携带 activeMs（旧快照无该字段时为 null，由前端回退链处理）
+            activeMs: Number.isFinite(Number(snapshot.activeMs)) ? Number(snapshot.activeMs) : null,
           })
         }
         }
@@ -1040,8 +1054,8 @@ class PipelineEngine {
     // Advance to next stage
     run.currentStage++;
     if (run.currentStage >= run.stages.length) {
-      // Backlot 事件：流水线完成
-      this._emit('pipeline:complete', { runId: run.id, pipelineType: run.pipeline, totalDuration: Date.now() - new Date(run.createdAt).getTime() });
+      // Backlot 事件：流水线完成（totalDuration 用步骤执行耗时累计口径，不用墙钟 createdAt→now）
+      this._emit('pipeline:complete', { runId: run.id, pipelineType: run.pipeline, totalDuration: this._computeElapsedMs(run) });
       this._finalizeRun(run, 'completed');
       return { success: true, message: 'Pipeline completed' };
     }
@@ -1245,6 +1259,9 @@ class PipelineEngine {
       checkpoint: null,
       createdAt: snapshot.createdAt || now,
       endedAt: null,
+      // 断点恢复继承历史累计执行耗时；在飞段从恢复时刻重新起算（不落盘，防停机时间膨胀）
+      activeMs: Number.isFinite(Number(snapshot.activeMs)) ? Number(snapshot.activeMs) : 0,
+      _activeSegmentStartedAt: null,
       orchestrationMode: 'orchestrator',
       context: JSON.parse(JSON.stringify(snapshot.context || {})),
       stageResults: [],
@@ -1304,7 +1321,7 @@ class PipelineEngine {
 
     const advResult = this._advanceRun(run);
     if (advResult.message === 'Pipeline completed') {
-      return { ...result, completed: true, context: run.context };
+      return { ...result, completed: true, context: run.context, activeMs: this._computeElapsedMs(run) };
     }
     if (!advResult.success && advResult.message !== 'Pipeline completed') {
       this.log.warn('PipelineEngine', 'advance after executeStage: ' + (advResult.message || advResult.error));
@@ -1340,7 +1357,7 @@ class PipelineEngine {
       const advanced = this._advanceRun(run);
       if (!advanced.success) return advanced;
       if (advanced.message === 'Pipeline completed') {
-        return { success: true, runId, context: run.context, completed: true, results: [] };
+        return { success: true, runId, context: run.context, completed: true, results: [], activeMs: this._computeElapsedMs(run) };
       }
       run.status = 'running';
       if (run.stages[run.currentStage]) run.stages[run.currentStage].status = 'running';
@@ -1366,6 +1383,9 @@ class PipelineEngine {
   getRunSnapshot(runId) {
     const run = this._runs.get(runId) || this._history.find((item) => item.id === runId);
     if (!run) return null;
+    // 已用时（步骤执行耗时累计口径）：activeMs 为已结算累计，elapsedActiveMs 额外包含运行中在飞段增量
+    // （统一走 _computeElapsedMs，避免公式漂移）。
+    const activeMs = Number.isFinite(Number(run.activeMs)) ? Number(run.activeMs) : null;
     return {
       runId: run.id,
       pipeline: run.pipeline,
@@ -1384,7 +1404,25 @@ class PipelineEngine {
       error: run.error || null,
       projectId: run.projectId || null,
       outputSizeBytes: this._runOutputSizeBytes(run) || null,
+      activeMs,
+      activeSegmentStartedAt: Number.isFinite(run._activeSegmentStartedAt) ? new Date(run._activeSegmentStartedAt).toISOString() : null,
+      elapsedActiveMs: activeMs !== null ? this._computeElapsedMs(run) : null,
     };
+  }
+
+  /**
+   * 计算运行已用时长（步骤执行耗时累计口径）：
+   * - 编排模式：run.activeMs（各执行段之和）+ 运行中在飞段增量；
+   * - state_machine / 旧数据：无 activeMs 时回退 0（不参与编排「已用时」展示，由前端回退链处理）。
+   * 暂停/检查点等待/失败→恢复的空闲时间不累计；唯一累计点 _executeStage。
+   */
+  _computeElapsedMs(run) {
+    if (!run) return 0;
+    const activeMs = Number.isFinite(Number(run.activeMs)) ? Number(run.activeMs) : 0;
+    if (run.status === 'running' && Number.isFinite(run._activeSegmentStartedAt)) {
+      return activeMs + Math.max(0, Date.now() - run._activeSegmentStartedAt);
+    }
+    return activeMs;
   }
 
   /** 已完成运行的成片文件大小（供「完成汇总」展示），非完成/无成片时返回 null。 */
@@ -1595,16 +1633,27 @@ class PipelineEngine {
     this.log.info('PipelineEngine', '[exec] stage start run=' + runId + ' pipeline=' + run.pipeline + ' stage=' + stage.name + ' (' + (stageIndex + 1) + '/' + run.stages.length + ')');
     // 阶段级 checkpoint：执行前落盘 running 快照（阶段级原子性——中断后从当前阶段重新执行）。
     this._saveRunningCheckpoint(run);
-    const result = await this.stageExecutor.execute({
-      runId,
-      stage: fullStage,
-      params: run.params,
-      context: run.context || {},
-    });
+    // 已用时统计（唯一权威源）：以执行器真实运行窗口为段，成功/失败/取消/异常都累计进 run.activeMs；
+    // 暂停/检查点等待/失败→恢复空闲期间执行器未运行，自然不计入；在飞段不落盘（防停机时间膨胀）。
+    const execStartedAt = Date.now();
+    run._activeSegmentStartedAt = execStartedAt;
+    let execResult;
+    try {
+      execResult = await this.stageExecutor.execute({
+        runId,
+        stage: fullStage,
+        params: run.params,
+        context: run.context || {},
+      });
+    } finally {
+      run.activeMs = (Number.isFinite(run.activeMs) ? run.activeMs : 0) + Math.max(0, Date.now() - execStartedAt);
+      run._activeSegmentStartedAt = null;
+    }
     if (run.cancelled || this._runs.get(runId) !== run) {
       this.log.warn('PipelineEngine', '[exec] stage cancelled run=' + runId + ' stage=' + stage.name);
       return { success: false, cancelled: true, error: 'Run cancelled' };
     }
+    const result = execResult;
 
     // 阶段执行成功且有输出 -> 写入 context 供后续阶段使用
     if (result.success && result.output !== undefined) {

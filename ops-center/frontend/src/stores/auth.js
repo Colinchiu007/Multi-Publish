@@ -24,7 +24,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function login(user, pwd) {
-    // Use orchestrator SSO for auth
+    // ops-center 本地管理员登录（自包含，不依赖 orchestrator）
     const res = await axios.post('/api/auth/login', { username: user, password: pwd })
     const data = res.data
     token.value = data.access_token || data.token

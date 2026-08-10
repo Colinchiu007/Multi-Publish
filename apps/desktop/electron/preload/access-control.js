@@ -35,6 +35,7 @@ const PUBLIC_METHODS = [
   'webviewSetLayout', 'webviewOpenTab', 'webviewCloseTab', 'webviewCloseAll', 'webviewListTabs',
   'onWebviewLayoutChanged', 'onWebviewTabOpened', 'onWebviewTabClosed', 'onWebviewNav', 'onWebviewAllClosed',
   'modelProviderList', 'modelProviderGet', 'modelProviderCreate', 'modelProviderUpdate',
+  'opsCenterSyncGet', 'opsCenterSyncSave', 'opsCenterSyncNow', 'opsCenterSyncRuntime',
   'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs', 'modelProviderCleanLogs',

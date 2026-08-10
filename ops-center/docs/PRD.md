@@ -685,6 +685,7 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 ### 12A.5 数据迁移与种子
 
 - `init_db` 后执行幂等列迁移：存量 `model_presets` 表补充 `models_url`（VARCHAR DEFAULT ''）、`rate_per_minute`（INTEGER）、`limit_per_5h`（INTEGER）。
+- 启动种子（`services/config_seed_service.py`）：幂等注册 6 个预置项目（含 `platform-orchestrator`，功能开关页面依赖）+ 从 `feature_gates.yaml` 导入功能开关（源可经 `OPS_FEATURE_GATES_SOURCE` 指定；显式配置时只使用该源，文件缺失即跳过不 fallback；未配置则探测 `D:/Data/projects/platform-orchestrator/feature_gates.yaml` 与 `~/feature_gates.yaml`）。修复「功能开关页面 404 → 加载失败」：原依赖手动 `scripts/seed.py`，新库为空导致项目缺失。
 - 种子目录（`PRESET_CATALOG`）**由 Multi-Publish 桌面端代码事实生成**（见 12A.8 数据来源）：覆盖桌面端全部 53 个预设；`base_url`=适配器默认端点/桌面预设值、`models`/`capabilities`/`capability_models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表；`limit_per_5h` 与 `models_url` **无代码事实 → 不预填（留空由运营填写）**；`INSERT OR IGNORE` 不覆盖用户修改。
 
 ### 12A.6 前端交互与提示文案
@@ -708,6 +709,23 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 ---
 
+## 12A.9 自包含管理员登录（2026-08-10，替代 orchestrator 认证依赖）
+
+运营后台为**内部管理工具**（非前端用户使用），不接 Logto 等外部 IdP，也不依赖 platform-orchestrator：
+
+| 项 | 契约 |
+|----|------|
+| 登录端点 | `POST /api/auth/login`（本地），body `{username, password}`；成功返回 `{token, username, role:"admin"}` |
+| 凭据配置 | `OPS_ADMIN_USERNAME` / `OPS_ADMIN_PASSWORD` 环境变量；启动时若 `admins` 表为空则创建（PBKDF2-SHA256 哈希存储） |
+| fail-closed | 未配置管理员且表为空 → 登录返回 503「未配置管理员账号，请设置 OPS_ADMIN_USERNAME/OPS_ADMIN_PASSWORD」；**无默认口令** |
+| JWT | HS256，`OPS_JWT_SECRET` 签发，payload `{sub, username, role:"admin", exp}`，8h 过期；现有验证中间件不变 |
+| 密码安全 | PBKDF2-SHA256、随机 16B salt、200000 迭代、`hmac.compare_digest` 常量时间比较；存储格式 `pbkdf2_sha256$iterations$salt_hex$hash_hex`（字面 `$` 分隔） |
+| 限流 | 内存计数（username+IP），5 次失败锁定 60s → 429「尝试次数过多，请稍后再试」；重启/多实例重置（单机内部后台可接受） |
+| 密码错误 | 统一 401「用户名或密码错误」，不区分用户是否存在 |
+| 当前用户 | `GET /api/auth/me`（受保护） |
+| 前端 | Vite `/api/auth` 代理 target → `localhost:8010`（不再指向 orchestrator:8000）；登录页/鉴权 store 路径不变 |
+| 迁移影响 | 签发方改为本地；历史由不同 secret 签发的会话 token 将失效，需重新登录 |
+
 ## 12A.8 预设目录数据来源（2026-08-10 补充）
 
 运营后台预设目录（`PRESET_CATALOG`）的「已确定」数据项全部来自 Multi-Publish 桌面端代码事实，禁止编造：
@@ -723,3 +741,71 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 | `models_url`（获取模型ID URL） | **无代码事实**（适配器无 `/models` 调用）→ 空 | 「获取模型」按钮需运营填写模型网址 |
 
 - 变更守则：任何桌面适配器端点/模型/限流常量变更，须同步更新本目录并跑 12A.7-6 一致性测试（`test_catalog_facts_consistency`）。
+
+## 12A.10 模型目录只读同步端点（catalog，桌面端运行时下发）（2026-08-10 新增）
+
+> 桌面端通过只读目录端点拉取运营配置（限流/模型/能力），实现「运营后台填写 → 桌面端运行时自动下发」，前端限流/模型字段改为只读。详见 Multi-Publish PRD §7.4.5。
+
+### 12A.10.1 端点契约
+
+| 项 | 契约 |
+|----|------|
+| 方法/路径 | `GET /api/v1/model-presets/catalog`（**在 `/{preset_id}` 动态路由之前注册**，避免被吞） |
+| 鉴权 | `X-Catalog-Key` 请求头 == `OPS_CATALOG_API_KEY`（`hmac.compare_digest` 常量时间比较），**无需登录** |
+| 未配置 | `OPS_CATALOG_API_KEY` 未配置（空）→ **404**（不暴露端点存在性，fail-closed） |
+| Key 错误/缺失 | → **401**「目录同步 Key 无效」 |
+| 成功响应 | `{ "items": [...], "count": N, "synced_at": "ISO8601Z" }` |
+| 数据范围 | 仅 `is_visible=1` 预设，按 `is_multimodal DESC, category, name` 排序 |
+| item 字段 | `id` / `name` / `category` / `base_url` / `models` / `default_model` / `rate_per_minute` / `limit_per_5h` / `is_multimodal` / `capabilities` / `capability_models` / `updated_at`；**不含** api_key、密钥、审计等敏感字段 |
+| 数据自洽 | `default_model` 非空必须 ∈ `models`；`rate_per_minute`/`limit_per_5h` 为 `null` 或正整数（`[0,100000]`/`[0,10000000]` 已由写入校验保证） |
+
+### 12A.10.2 桌面端消费契约
+
+| 项 | 契约 |
+|----|------|
+| 服务 | 主进程 `OpsCenterSync`（`apps/desktop/electron/services/ops-center-sync.js`） |
+| 配置存储 | settings `opsCenterSync`：`{url, apiKeyEnc, autoSync, lastSyncedAt}`；API Key 经 safeStorage 加密 base64，`getConfig()` 不返回明文 |
+| URL 校验 | 必须 http(s)；非本机回环强制 https；拒绝 URL 内嵌凭据 |
+| 拉取 | `{url}/api/v1/model-presets/catalog`；`X-Catalog-Key` 头；禁重定向；10s 超时；≤1MB；JSON 必须含 `items` 数组 |
+| 错误映射 | 401/403→Key 无效；404→未启用目录同步；超时→同步请求超时（10 秒）；连接失败→无法连接 Ops Center；其余→HTTP {status} |
+| 写入 | `ModelProviderManager.applyCatalog`：合并限流/模型/能力；不覆盖 api_key/enabled/is_default/base_url；缺失行插入（is_preset=1/enabled=0）；本地独有行不清除；限流 null/非法值清除本地并回退默认 |
+| Governor | 写库后 `_applyGovernorLimits()`：rate_per_minute→setProviderLimits、limit_per_5h→setProviderTokenWindows(5h) |
+| 前端 | 模型设置页「运营后台同步」卡片（地址/Key/自动同步/立即同步/上次同步时间/状态文案）；限流与预设模型列表只读 |
+
+### 12A.10.3 测试
+
+- `ops-center/backend/tests/test_model_catalog_api.py`：正确 Key 返回全部可见预设（≥50 项、minimax-multimodal 命中、default∈models、限流正整数或空）；错误/缺失 Key 401；未配置 404；隐藏项排除。
+- 桌面端：`ops-center-sync.test.js`（URL 校验/加密存储/错误映射/超时/大小/JSON/结构/成功落盘/自动同步）、`model-provider-apply-catalog.test.js`（合并/不覆盖/插入/不清除/清空回退/governor 重应用）、`ipc-handlers/ops-center-sync.test.js`、`useOpsCenterSync.test.js`。
+
+## 12A.11 运行时运营策略：公告 / 版本发布 / 内容安全（2026-08-10 新增）
+
+> 运营后台集中维护公告、版本发布策略、内容安全敏感词库；桌面端经 `GET /api/v1/runtime/bootstrap`（与模型目录同鉴权）一次性拉取应用。详见 Multi-Publish PRD §7.4.6。
+
+### 12A.11.1 数据模型与管理端点
+
+| 资源 | 端点（管理，require_admin） | 字段/校验 |
+|------|---------------------------|----------|
+| 公告 | `GET/POST /api/v1/announcements`、`PUT/DELETE /api/v1/announcements/{id}` | title/content 必填；severity ∈ info/warning/maintenance；时间 ISO 且 until ≥ from；sort_order/enabled |
+| 版本发布策略 | `GET/PUT /api/v1/update-policy`（单条 upsert） | 版本号 `x.y.z`（可空）；force ≥ min；gray_ratio 0-100；enabled/note |
+| 内容安全策略 | `GET/PUT /api/v1/content-policy`（单条 upsert） | word_list JSON 去重 ≤5000、单项 ≤100；replacement ≤16；enabled |
+
+校验失败返回 400 + 中文字段提示；不合法值拒绝保存。审计沿用 ConfigAuditLog 模式（操作方为 admin）。
+
+### 12A.11.2 运行时只读端点
+
+`GET /api/v1/runtime/bootstrap`：`X-Catalog-Key` 鉴权（`OPS_CATALOG_API_KEY`，常量时间比较；未配置→404；错→401）。返回：
+- `announcements`：enabled=1 且在 `[active_from, active_until]` 窗口内的公告（按 sort_order），仅 title/content/severity/窗口；
+- `update_policy` / `content_policy`：单条策略对象或 null；
+- `synced_at`。
+
+### 12A.11.3 桌面端消费
+
+- `OpsCenterSync.syncNow()` 目录同步后 best-effort 拉取并 `applyRuntime`（失败仅 warn）；
+- 公告 → App 顶部横幅（maintenance 常驻不可关闭，info/warning 可关闭）；
+- 内容安全 → 重建 `SensitiveFilter`（内置 + 远程词，`sensitive:check/replace` 生效）；
+- 版本发布 → auto-updater `applyPolicy`（force 强制 / gray 灰度 / min 提示）。
+
+### 12A.11.4 测试
+
+- ops-center pytest：`test_runtime_policy_api.py` 4 用例（公告 CRUD+校验、版本策略 upsert+校验、内容安全 upsert+校验、bootstrap 鉴权+活动过滤）。
+- 桌面端 vitest：ops-center-sync 运行时 4 用例（applyRuntime/敏感词重建/策略消费者/syncNow runtime）、auto-updater 策略 5 用例、sensitive 远程过滤器 2 用例、useOpsCenterRuntime 3 用例、IPC runtime 通道。

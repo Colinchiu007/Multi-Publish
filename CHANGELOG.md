@@ -1,3 +1,59 @@
+## [未发布] 修复：图片轮播流水线「生成图片与旁白」阶段卡死（调度网关同 key 双包自死锁，2026-08-10）
+
+- 根因：`story2video-stages.js` generate_assets 阶段外层 `withModelBudget` → `governor.run` 与 `AIGenerator.generate` 内层 `governor.run` 使用**同一 ApiUsageGovernor 单例、同一 key（providerId:type:model）** → 并发 ≥2 时外层占满并发信号量、内层排队等自己释放 → 永久自死锁（阶段无超时、sweepAll 仅在 run 终态调用）。引入点：87796b5f（内层网关）+ 0532ac3d（外层包裹）。
+- 修复：assetGenerator 路径调度边界收敛为 AIGenerator 内部 governor 单层（阶段外层不再套 governor）；legacy python 路径（无 assetGenerator）保留外层统一调度，限流不丢。
+- 预防：`ApiUsageGovernor.run()` 增加同 key 重入保护（AsyncLocalStorage 记录当前链持有的 key，同 key 内层直接透传，不重复占槽/记账），从根上杜绝「已 governor 化调用再叠一层」的自死锁；`_pump` 排队放行时槽位转移（active+=1），修复排队后 active 漂移为负的记账缺陷。
+- 回归保护：api-usage-governor +2（同 key 重入透传不自死锁 / 同 key 单槽 + 不同 key 独立 + active 归零）；story2video-stages +2 修改 1（真实 governor 3 场景并发有界完成——负向验证旧代码 10s 超时失败；legacy 路径仍经 governor.run 且 meta 完整；assetGenerator 路径不再双包）。
+
+## [未发布] 功能：运营后台运行时策略下发（公告 / 版本发布 / 内容安全）（2026-08-10）
+
+- ops-center：新增 `announcements` / `update_policy` / `content_policy` 三张运营表 + 管理 CRUD（require_admin，校验：标题必填/severity 三值/ISO 时间窗口/版本号 x.y.z/灰度 0-100/词库去重 ≤5000 项/替换串 ≤16）。
+- ops-center：新增只读端点 `GET /api/v1/runtime/bootstrap`（`X-Catalog-Key` 同目录端点鉴权），一次返回活动公告 + 版本发布策略 + 内容安全策略。
+- ops-center 前端：新增「运营公告」「版本发布策略」「内容安全策略」三个管理页（表格/表单 + 校验错误提示）。
+- 桌面端：`OpsCenterSync.syncNow` 目录同步后 best-effort 拉取 runtime/bootstrap 并 `applyRuntime`（失败仅 warn 不影响目录）；公告存 settings + IPC `ops-center-sync:runtime`；内容安全重建 SensitiveFilter（内置+远程词）；版本策略经 `setUpdatePolicyConsumer` 推给 auto-updater。
+- 桌面端：`auto-updater.applyPolicy`——force_version 强制检查、gray_ratio 灰度跳过（`skipped-by-policy`）、min_version 提示（`policy-min-version`）。
+- 桌面端：App 顶部 `AnnouncementBanner`（info/warning 可关闭、maintenance 常驻强提示）。
+- 文档：Multi-Publish PRD §7.4.6、ops-center PRD 12A.11。
+- 测试：ops-center pytest 94 passed（+4 runtime policy）；桌面端 ops-center-sync 20、auto-updater 18、sensitive 5、useOpsCenterRuntime 3、IPC 3 全绿。
+
+## [未发布] 优化：视频创作模块 UI/UX 深度优化（2026-08-10）
+
+- 可访问性：流水线卡片、渲染记录卡片、流水线历史卡片全部添加 tabindex="0" + role="button" + @keydown.enter 键盘导航支持；添加 :aria-label 无障碍标签；添加 .focus-visible 焦点环样式（outline: 2px solid var(--primary)）。
+- 视觉一致性：统一 CreateView 和 CreateHistory 页面布局（padding: 24px 32px, max-width: 1080px）；统一 H1 字号（24px）和标题间距（margin-bottom: 20px）；统一卡片圆角（12px）和内边距（16px 20px）；进度条添加 0.4s cubic-bezier(0.4, 0, 0.2, 1) 过渡动画。
+- 设计令牌扩展：新增 --upload-zone-*（拖拽反馈色）和 --skeleton-*（骨架屏加载色）令牌，含暗色模式覆盖。
+- 上传区域交互增强：拖拽悬停时边框变为主题色 + 浅色背景（.drag-over / :active 状态）。
+- 空状态优化：渲染记录和流水线记录空状态添加图标 + 提示文字；错误弹窗不可恢复场景添加"如问题持续出现，请检查日志或重新启动流水线"提示。
+- 样式隔离：BoardStageIndicator.vue 从 `<style>` 改为 `<style scoped>`，防止全局 CSS 污染。
+- CreateHistory.vue 补充缺失的 .progress-bar / .progress-fill / .progress-text / .pipeline-progress CSS 定义。
+- 文档：PRD §7.1.24 详细记录所有优化项、数据校验、交互逻辑和验收标准。
+- 测试：158 个相关测试全部通过；Vite build 无编译错误。
+
+## [未发布] 功能：运营后台 → 桌面端模型配置运行时同步（2026-08-10）
+
+- ops-center：新增只读目录同步端点 `GET /api/v1/model-presets/catalog`（`X-Catalog-Key` 鉴权 = `OPS_CATALOG_API_KEY`，常量时间比较；未配置 → 404 fail-closed；Key 错误 → 401）；仅返回 `is_visible=1` 预设，字段含限流/模型/默认模型/能力（不含敏感项）。
+- 桌面端：新增主进程 `OpsCenterSync`（`ops-center-sync.js`）——配置存 settings（API Key 经 safeStorage 加密 base64，getConfig 不返回明文）；URL 校验（非本机回环强制 https、拒绝内嵌凭据）；拉取目录（10s 超时/禁重定向/≤1MB/JSON 结构 fail-closed）；401/403/404/超时/连接失败均映射明确中文错误。
+- 桌面端：`ModelProviderManager.applyCatalog` 运行时下发——合并限流/模型/能力到已有行，**不覆盖** api_key/enabled/is_default/base_url；目录有本地无 → 插入 is_preset=1/enabled=0 行；目录缺失的本地行不清除；运营未配置限流（null/''/0/布尔）→ 清除本地值并回退默认；写库后重应用 governor 预算（rate_per_minute→setProviderLimits、limit_per_5h→5h 窗口）。
+- IPC：`ops-center-sync:get/save/now`（preload `opsCenterSyncGet/Save/Now`，access-control PUBLIC_METHODS）；启动时 autoSync 3 秒后 best-effort 同步（失败仅 warn）。
+- 前端：模型设置页新增「🔄 运营后台同步」卡片（地址/Key/自动同步开关/保存/立即同步/上次同步时间/成功失败状态文案）；「每分钟连接次数/5小时限额次数」由输入框改为**只读展示**（值或「未配置（默认限流）」）；同步启用后预设服务商模型列表输入禁用并提示来源；自定义服务商模型仍可编辑。
+- 修复：`pipeline-engine.test.js` 持久化 running 快照断言与 PRD「已暂停状态归一化合同」对齐（重启后 status=paused + pausedStage），修复 main 上该测试红。
+- 文档：Multi-Publish PRD §7.4.5（端点/服务/交互/数据校验/验收标准）、ops-center PRD 12A.10；7.4.4.2 前端表单行同步更新。
+- 测试：ops-center pytest catalog 4 用例；桌面端 ops-center-sync 15、apply-catalog 5、IPC 3、useOpsCenterSync 6 用例全绿。
+
+## [未发布] 修复：ops-center 功能开关加载失败（启动种子接入项目/功能开关导入，2026-08-10）
+
+- 根因：`projects`/`ConfigItem` 数据此前依赖手动 `scripts/seed.py`，新建库为空 → FeatureFlags 页请求 `platform-orchestrator` 404「加载功能开关失败」。
+- 修复：新增 `services/config_seed_service.py`，启动时幂等注册 6 个预置项目 + 从 `feature_gates.yaml` 导入功能开关（源可经 `OPS_FEATURE_GATES_SOURCE` 配置；显式配置时只使用该源，未配置探测默认路径；源缺失跳过不报错）。
+- 测试：新增 4 用例（项目注册/功能开关导入/幂等/源缺失跳过）；ops-center pytest 82 passed。
+- 文档：ops-center PRD 12A.5。
+## [未发布] 新增：ops-center 自包含管理员登录（2026-08-10）
+
+- ops-center 后端新增本地登录：`POST /api/auth/login` + `GET /api/auth/me`；管理员凭据由 `OPS_ADMIN_USERNAME`/`OPS_ADMIN_PASSWORD` 配置（PBKDF2-SHA256 200000 迭代哈希存储，admins 表）；未配置且无管理员 → 503 fail-closed（无默认口令）。
+- JWT：HS256（OPS_JWT_SECRET），role=admin，8h 过期；现有验证中间件不变。
+- 登录失败限流：5 次/60s → 429；统一 401 不泄露用户是否存在。
+- 前端 `/api/auth` 代理 target 从 orchestrator:8000 改为 ops-center:8010——**解除对 platform-orchestrator 的运行时依赖**；不接 Logto、不集成 orchestrator。
+- 测试：认证 7 用例（成功/失败/未配置/限流/过期/权限/哈希）；ops-center pytest 73 passed。
+- 文档：ops-center PRD 12A.9。
+
 ## [未发布] 架构：ops-center 正式并入 Multi-Publish（git subtree 方案 A，2026-08-10）
 
 - 将独立仓库 `Colinchiu007/ops-center`（main 78bebac，17 commits，PR #1/#2/#3 全量）以 `git subtree add --prefix=ops-center --squash` 正式并入 monorepo（PR #475）；移除此前 vendored 快照。
@@ -5,6 +61,45 @@
 - 独立仓库冻结归档（tag `archived-into-multi-publish` + README 说明，完整历史保留可追溯）。
 - 验证：subtree 内容与源仓库逐文件一致；CI 全绿（QG 全项 + build + electron-tests + gui-test）。
 - 附：预设目录按桌面代码事实生成 53 项 + 一致性测试（PR #474/#3）；桌面 seeds 移除无事实 limit_per_5h 估算（PR #474）。
+
+
+## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
+
+### 变更
+- 新增 ideo-creation-tokens.css 设计令牌文件：8 类语义 Token（流水线分类色、稳定性色、状态色、阶段色、Banner 色、成本色、历史记录色、语音克隆色）
+- cohere-design-system.css 已有全局 Token 不变，新文件在其基础上扩展视频创作专用变量
+- main.js 新增 ideo-creation-tokens.css 导入（在 cohere-design-system.css 之后）
+- 暗色模式 [data-theme="dark"] 完整覆盖层（状态色、Banner 色、克隆徽标色）
+
+### 硬编码颜色消除
+- CreateView.vue：57 个唯一 hex → 11 个（均为 var() fallback 值）
+- CreateHistory.vue：24 个 → 2 个
+- ResultView.vue：8 个 → 0 个
+- ReplayTimeline.vue：18 个 → 8 个（均为 var() fallback 值）
+
+### 文档
+- PRD 7.1.23 新增「视频创作 UI 设计系统与代码-设计分离合同」
+
+### 测试
+- 195 个测试通过（CreateView + CreateHistory + PipelineBrowser）
+- Vite build 无编译错误
+
+
+## [未发布] 功能：视频创作历史记录「已暂停」状态与 UI 优化（2026-08-10）
+
+- 功能：后端 PipelineEngine.getHistory() 持久化快照状态归一化——RunStateStore 中 status=running 的快照在应用重启后自动转为 paused，并新增 pausedStage 字段记录暂停环节名称（如 animate、compose），前端可展示「暂停环节：xxx」。
+- 功能：前端 CreateHistory.vue 流水线卡片 UI 全面重构——状态徽章前置至第一行、阶段标签和状态提示移至第二行（pipeline-card-bottom 分割线分隔）；卡片左侧 3px 状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）；running 圆点脉冲动画；新增 paused/failed/cancelled 阶段标签状态色；容器宽度 960→1080px、卡片间距 8→12px、hover 微位移效果。
+- 交互：openPipeline() 支持 paused 状态跳转 /create 断点续跑；「暂停环节：xxx」和「生成失败」提示文案实时显示。
+- 数据校验：pausedStage 仅在 currentStage 有效索引且对应 stage 存在时填充，否则为 null；statusLabel() paused→「已暂停」；stageLabel() 对字符串参数走 shortName() 路径。
+- 文档：PRD-video-creation 3.1.11 新增完整合同（后端逻辑/前端交互表/UI 布局/数据校验/路由/文件清单）；迭代记录表新增 2026-08-10 条目。
+- 测试：CreateHistory.test.js 22/22 通过；pipeline-engine 37/37 通过；run-state-store 19/19 通过。
+## [未发布] 修复：视频创作流水线「已用时」改为步骤执行耗时总和（2026-08-10）
+
+- 修复：流水线「已用时」原按墙钟 `endedAt - createdAt`（运行中 `now - createdAt`）计算，暂停、检查点审阅与失败→断点恢复之间的空闲等待全部计入（用户实证 1245 分 33 秒）；现改为**各步骤实际执行耗时之和**——主进程 `_executeStage` 以执行器真实运行窗口为段累计 `run.activeMs`（成功/失败/取消/异常均计入，`finally` 保证不丢段），暂停/等待/空闲不计入，失败重试多次执行段累计。
+- 断点恢复跨应用重启：`activeMs` 随 `run-state-store` 快照持久化（`version` 保持 1），恢复时继承历史累计继续累加；在飞段不落盘，防停机时间膨胀。
+- 前端：`已用时` = `activeMs` + 运行中当前执行段本地每秒增量（沿用 1s 时钟），完成/失败/取消后定格；旧数据（无 `activeMs`）回退墙钟展示不为空。完成汇总「完成时间共 X 分 Y 秒」与结果页时长同步使用累计口径。
+- 文档：PRD 7.1.9/7.1.9.2（数据模型/流程/数据校验/功能逻辑/交互逻辑/显示项/提示文字/边界场景）、product-manual、UI-INVENTORY。
+- 测试：主进程 pipeline-engine +7（多阶段累计/间隙不计/在飞段/暂停不计/失败段累计/终态返回 activeMs）、resume-orchestration +1（跨重启继承累计）、run-state-store +2（activeMs 往返/旧数据回退）；前端 CreateView +7（activeMs 优先/在飞补差/旧数据回退含 null 守卫/汇总同口径/结果页 durationMs/终态 activeMs 覆盖轮询缓存）；聚焦 302 用例全绿。
 ## [未发布] 数据对齐：预设模型目录由桌面端代码事实生成（2026-08-10）
 
 - ops-center：`PRESET_CATALOG` 扩展至 53 项（覆盖桌面端全部预设），数据来源=代码事实——`base_url`=适配器默认端点（修正 Anthropic/DeepSeek/Gemini/Ollama/Doubao/Runway/Suno 等与桌面不一致的旧值）、`models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表（与静态表一致，非估算）。
@@ -3233,6 +3328,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

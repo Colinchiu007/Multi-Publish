@@ -213,12 +213,15 @@ describe('PipelineEngine 状态机模式', () => {
     })
 
     // 模拟应用重启：新引擎（内存为空）复用同一 store
+    // 运行中快照在重启后不再是运行中状态，引擎将其转为 paused
     const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
     const history = engineB.getHistory()
     expect(history).toContainEqual(expect.objectContaining({
       id: 'run-running-persisted',
       pipeline: 'story2video-compose',
-      status: 'running',
+      // 重启后持久化 running 快照按 PRD「已暂停状态归一化合同」转为 paused，并记录暂停环节
+      status: 'paused',
+      pausedStage: 'generate_assets',
       completedAt: null,
     }))
 
@@ -506,5 +509,116 @@ describe('PipelineEngine animated-explainer 编排', () => {
     })
     // 空文本在 startOrchestrated 不阻断（非 story2video 无归一化），由 research 执行器校验
     expect(started.success).toBe(true)
+  })
+})
+
+describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  function makeElapsedEngine(executorFns) {
+    // 与既有编排测试一致：serviceBus 构造真实 StageExecutor，再用 registerStageExecutor 注入可测执行器
+    const engine = new PipelineEngine({
+      serviceBus: {},
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    engine.registerPipeline({
+      name: 'elapsed-test',
+      description: '已用时测试',
+      stages: Object.keys(executorFns),
+      stageDefs: Object.keys(executorFns).map((name) => ({ name, type: 'el_' + name })),
+    })
+    for (const [name, fn] of Object.entries(executorFns)) {
+      engine.registerStageExecutor('el_' + name, fn)
+    }
+    return engine
+  }
+
+  it('多阶段执行段累计，阶段间隙不计入；终态 elapsedActiveMs 定格', async () => {
+    const engine = makeElapsedEngine({
+      a: async () => { await sleep(40); return { success: true, output: {} } },
+      b: async () => { await sleep(40); return { success: true, output: {} } },
+    })
+    const started = await engine.startOrchestrated('elapsed-test', { initialContext: {}, autoAdvance: false })
+    expect(started.success).toBe(true)
+    const runId = started.runId
+
+    // 阶段 a 执行段计入
+    await engine.executeStage(runId)
+    const afterA = engine.getRunSnapshot(runId).activeMs
+    expect(afterA).toBeGreaterThan(0)
+
+    // 阶段间 60ms 空闲：不计入
+    await sleep(60)
+    expect(engine.getRunSnapshot(runId).activeMs).toBe(afterA)
+
+    // 阶段 b 执行段继续累计；完成态无在飞段
+    await engine.executeStage(runId)
+    const snapshot = engine.getRunSnapshot(runId)
+    expect(snapshot.status.status).toBe('completed')
+    expect(snapshot.activeMs).toBeGreaterThan(afterA)
+    expect(snapshot.activeSegmentStartedAt).toBeNull()
+    expect(snapshot.elapsedActiveMs).toBe(snapshot.activeMs)
+    expect(snapshot.elapsedActiveMs).toBeLessThan(2000)
+  })
+
+  it('运行中在飞执行段计入 elapsedActiveMs（elapsedActiveMs > activeMs）', async () => {
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    const engine = makeElapsedEngine({
+      a: async () => { await gate; return { success: true, output: {} } },
+    })
+    const started = await engine.startOrchestrated('elapsed-test', { initialContext: {}, autoAdvance: false })
+    const runId = started.runId
+    const executing = engine.executeStage(runId)
+    await sleep(30)
+    const live = engine.getRunSnapshot(runId)
+    expect(live.activeSegmentStartedAt).not.toBeNull()
+    expect(live.elapsedActiveMs).toBeGreaterThan(live.activeMs)
+    expect(live.elapsedActiveMs).toBeGreaterThan(0)
+    release()
+    await executing
+    const settled = engine.getRunSnapshot(runId)
+    expect(settled.activeSegmentStartedAt).toBeNull()
+    expect(settled.elapsedActiveMs).toBe(settled.activeMs)
+  })
+
+  it('用户暂停期间 activeMs 不增长（暂停不计入已用时）', async () => {
+    const engine = makeElapsedEngine({
+      a: async () => { await sleep(30); return { success: true, output: {} } },
+    })
+    const started = await engine.startOrchestrated('elapsed-test', { initialContext: {}, autoAdvance: false })
+    const runId = started.runId
+    const before = engine.getRunSnapshot(runId).activeMs
+    engine.pause()
+    await sleep(80)
+    expect(engine.getRunSnapshot(runId).activeMs).toBe(before)
+    engine.resume()
+    await engine.executeStage(runId)
+    expect(engine.getRunSnapshot(runId).activeMs).toBeGreaterThan(before)
+  })
+
+  it('executeStage 完成返回携带终态 activeMs（W2：检查点确认路径结果页用新值）', async () => {
+    const engine = makeElapsedEngine({
+      a: async () => { await sleep(30); return { success: true, output: {} } },
+    })
+    const started = await engine.startOrchestrated('elapsed-test', { initialContext: {}, autoAdvance: false })
+    const runId = started.runId
+    const res = await engine.executeStage(runId)
+    expect(res.completed).toBe(true)
+    expect(res.activeMs).toBeGreaterThan(0)
+  })
+
+  it('执行器失败时执行段仍累计（成功/失败/异常都结算，finally 保证不丢段）', async () => {
+    const engine = makeElapsedEngine({
+      a: async () => { await sleep(30); throw new Error('boom') },
+    })
+    const started = await engine.startOrchestrated('elapsed-test', { initialContext: {}, autoAdvance: false })
+    const runId = started.runId
+    // StageExecutor 把执行器异常归一为失败结果；失败段同样累计进 activeMs
+    const res = await engine.executeStage(runId)
+    expect(res.success).toBe(false)
+    expect(String(res.error)).toContain('boom')
+    const snapshot = engine.getRunSnapshot(runId)
+    expect(snapshot.activeMs).toBeGreaterThan(0)
   })
 })

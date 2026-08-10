@@ -1,0 +1,13 @@
+{
+  "id": "ops-center-runtime-sync",
+  "title": "ops-center → 桌面端运行时同步（限流/模型ID 自动下发，前端字段去除）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "backend,desktop,security",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #484 merged 6aa2e7ed）",
+  "createdAt": "2026-08-10T18:05:16+08:00",
+  "branch": "codex/ops-center-runtime-sync",
+  "openspecChange": "ops-center-runtime-sync"
+}

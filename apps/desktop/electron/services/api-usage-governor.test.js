@@ -295,3 +295,73 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     await vi.advanceTimersByTimeAsync(200)
     await a2
   })
+
+  it('同 key 嵌套 run 重入透传：外层持有时内层直接执行，不自死锁（2026-08-10 双包死锁复盘）', async () => {
+    // 生产形状：story2video-stages 外层 withModelBudget → governor.run，AIGenerator.generate 内层
+    // governor.run（同一单例、同一 key）。修复前内层排队等外层占满的信号量 → 永久死锁。
+    const g = new ApiUsageGovernor({})
+    g.setProviderLimits('p', { rpm: 100000, maxConcurrent: 2, cooldownMs: 1000, retry429: 3 })
+    const calls = []
+    const outerTask = async () => {
+      calls.push('outer-enter')
+      const inner = await g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => {
+        calls.push('inner')
+        return 'inner-ok'
+      })
+      calls.push('outer-exit')
+      return inner
+    }
+    const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, outerTask)
+    const p2 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, outerTask)
+    const result = await Promise.race([
+      Promise.all([p1, p2]),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('同 key 嵌套 run 死锁：内层排队等待外层占用的信号量，永不释放')), 5000)),
+    ])
+    expect(result).toEqual(['inner-ok', 'inner-ok'])
+    expect(calls.filter((c) => c === 'inner')).toHaveLength(2)
+    // 内层透传不重复占槽：结束后并发/排队均归零
+    expect(g.getStatus('p:llm:m').active).toBe(0)
+    expect(g.getStatus('p:llm:m').queued).toBe(0)
+  })
+
+  it('同 key 重入只占一个并发槽（maxConcurrent=1 也不会自锁），不同 key 嵌套仍独立调度', async () => {
+    const g = new ApiUsageGovernor({})
+    g.setProviderLimits('p', { rpm: 100000, maxConcurrent: 1, cooldownMs: 1000, retry429: 3 })
+    const calls = []
+    // 同 key 双层 run：maxConcurrent=1 时若内层不重入透传，单次请求就会自锁
+    const sameKeyTask = async () => {
+      calls.push('outer')
+      const r = await g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => {
+        calls.push('inner')
+        return 'ok'
+      })
+      return r
+    }
+    const sameKeyResults = await Promise.race([
+      Promise.all([
+        g.run({ type: 'llm', providerId: 'p', model: 'm' }, sameKeyTask),
+        g.run({ type: 'llm', providerId: 'p', model: 'm' }, sameKeyTask),
+      ]),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('maxConcurrent=1 同 key 双层 run 自锁')), 5000)),
+    ])
+    expect(sameKeyResults).toEqual(['ok', 'ok'])
+    expect(calls.filter((c) => c === 'inner')).toHaveLength(2)
+
+    // 不同 key 嵌套：tts key 不在 llm key 的持有集合内 → 仍走独立信号量，不误判为重入
+    const differentKeyTask = async () => {
+      return g.run({ type: 'tts', providerId: 'p', model: 'v' }, async () => 'tts-ok')
+    }
+    const differentKeyResults = await Promise.race([
+      Promise.all([
+        g.run({ type: 'llm', providerId: 'p', model: 'm' }, differentKeyTask),
+        g.run({ type: 'llm', providerId: 'p', model: 'm' }, differentKeyTask),
+      ]),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('不同 key 嵌套被误判为重入或排队死锁')), 5000)),
+    ])
+    expect(differentKeyResults).toEqual(['tts-ok', 'tts-ok'])
+    expect(g.getStatus('p:llm:m').active).toBe(0)
+    expect(g.getStatus('p:tts:v').active).toBe(0)
+  })

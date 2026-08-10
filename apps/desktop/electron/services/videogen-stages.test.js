@@ -7,6 +7,18 @@ const {
   parseJsonArray,
 } = require('./videogen-stages')
 
+// 本地 HTTP 视频源：generate 成功路径会真实下载（downloadToFile），不能用外网 URL
+const http = require('http')
+const __videoServer = http.createServer((_req, res) => { res.writeHead(200, { 'Content-Type': 'video/mp4' }); res.end(Buffer.from([0, 0, 0, 0])) })
+let VIDEO_URL = ''
+async function waitForVideoUrl () {
+  const deadline = Date.now() + 3000
+  while (!VIDEO_URL && Date.now() < deadline) { await new Promise(r => setTimeout(r, 10)) }
+  if (!VIDEO_URL) throw new Error('video server not ready')
+}
+__videoServer.listen(0, '127.0.0.1', () => { VIDEO_URL = 'http://127.0.0.1:' + __videoServer.address().port + '/v.mp4' })
+__videoServer.unref()
+
 function makeStageExecutor() {
   const executors = new Map()
   return { executors, register(type, fn) { executors.set(type, fn) } }
@@ -185,6 +197,88 @@ describe('videogen 共享阶段执行器', () => {
       })
       expect(result.success).toBe(false)
       expect(result.error).toContain('视频生成未返回任务 ID')
+    })
+
+  it('generateVideo 参数契约：双写驼峰+下划线（适配 agnes/ltx）', async () => {
+    await waitForVideoUrl()
+    let captured
+    const ai = makeAiWithVideoManager(async () => ({ code: 0, data: { taskId: 't1' } }))
+    const { get } = makePipeline(ai)
+    ai._modelProviderManager.callAdapter = vi.fn(async (providerId, method, args) => {
+      if (method === 'getVideoStatus') return { code: 0, data: { status: 'completed', videoUrl: VIDEO_URL } }
+      captured = args
+      return { code: 0, data: { taskId: 't1' } }
+    })
+    const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+      runId: 'run_1', stage: { options: {} }, params: { text: '主题' },
+      context: { storyboard: [{ prompt: 'p1', duration: 5 }] },
+    })
+    expect(result.success).toBe(true)
+    expect(captured.numFrames).toBe(121)
+    expect(captured.num_frames).toBe(121)
+    expect(captured.frameRate).toBe(24)
+    expect(captured.frame_rate).toBe(24)
+  }, 20000)
+
+  it('storyboard duration 映射帧数（8 秒场景 → 201 帧）', async () => {
+    await waitForVideoUrl()
+    let captured
+    const ai = makeAiWithVideoManager(async () => ({ code: 0, data: { taskId: 't1' } }))
+    const { get } = makePipeline(ai)
+    ai._modelProviderManager.callAdapter = vi.fn(async (providerId, method, args) => {
+      if (method === 'getVideoStatus') return { code: 0, data: { status: 'completed', videoUrl: VIDEO_URL } }
+      captured = args
+      return { code: 0, data: { taskId: 't1' } }
+    })
+    const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+      runId: 'run_1', stage: { options: {} }, params: { text: '主题' },
+      context: { storyboard: [{ prompt: 'p1', duration: 8 }] },
+    })
+    expect(result.success).toBe(true)
+    expect(captured.numFrames).toBe(201)
+    expect(captured.num_frames).toBe(201)
+  }, 20000)
+
+  it('stageOptions.numFrames 显式覆盖优先于 duration 映射', async () => {
+    await waitForVideoUrl()
+    let captured
+    const ai = makeAiWithVideoManager(async () => ({ code: 0, data: { taskId: 't1' } }))
+    const { get } = makePipeline(ai)
+    ai._modelProviderManager.callAdapter = vi.fn(async (providerId, method, args) => {
+      if (method === 'getVideoStatus') return { code: 0, data: { status: 'completed', videoUrl: VIDEO_URL } }
+      captured = args
+      return { code: 0, data: { taskId: 't1' } }
+    })
+    const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+      runId: 'run_1', stage: { options: { numFrames: 241, frameRate: 30 } }, params: { text: '主题' },
+      context: { storyboard: [{ prompt: 'p1', duration: 5 }] },
+    })
+    expect(result.success).toBe(true)
+    expect(captured.numFrames).toBe(241)
+    expect(captured.frameRate).toBe(30)
+  }, 20000)
+
+  })
+
+  describe('merge 阶段（context 键兼容）', () => {
+    it('animation 流水线生成阶段名为 animate 时也能找到 videos（E2E 回归）', async () => {
+      const { get } = makePipeline(makeAi('x'))
+      const result = await get(VIDEOGEN_STAGE_TYPES.MERGE)({
+        runId: 'run_1', stage: {}, params: {}, context: { animate: { videos: [{ path: 'a.mp4' }, { path: 'b.mp4' }] } },
+      })
+      // 已成功读取 animate.videos 进入 ffmpeg 拼接；测试环境若 ffmpeg 缺失报「ffmpeg 不可用」，
+      // 但不允许再报「需要 context.generate/merge.videos」（即 videos 查找成功）
+      expect(result.success).toBe(false)
+      expect(result.error).not.toContain('需要 context.generate/merge.videos')
+    })
+
+    it('context 完全无 videos 时保持原错误', async () => {
+      const { get } = makePipeline(makeAi('x'))
+      const result = await get(VIDEOGEN_STAGE_TYPES.MERGE)({
+        runId: 'run_1', stage: {}, params: {}, context: {},
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('需要 context.generate/merge.videos')
     })
   })
 

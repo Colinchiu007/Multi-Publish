@@ -839,6 +839,67 @@ class ModelProviderManager {
     }
   }
 
+  /**
+   * 应用运营后台目录（运行时同步）：覆盖限流/模型/能力配置，不覆盖 api_key/enabled/is_default/base_url。
+   * 目录存在但本地缺失 → 插入预设行（is_preset=1，enabled=0）。目录缺失的本地行不清除。
+   */
+  applyCatalog (items) {
+    if (!this._ready || !this._store || !this._store.db) return { code: -1, message: 'Store not initialized' }
+    if (!Array.isArray(items)) return { code: -1, message: '目录数据格式错误' }
+    const db = this._store.db
+    let updated = 0
+    let inserted = 0
+    for (const item of items) {
+      if (!item || typeof item.id !== 'string' || !item.id.trim()) continue
+      const id = item.id.trim()
+      const config = {}
+      if (Array.isArray(item.capabilities)) config.capabilities = item.capabilities
+      if (item.capability_models && typeof item.capability_models === 'object') config.capability_models = item.capability_models
+      const rpm = this._normalizeConfigLimit(item.rate_per_minute)
+      const limit5h = this._normalizeConfigLimit(item.limit_per_5h)
+      if (rpm !== null) config.rate_per_minute = rpm
+      if (limit5h !== null) config.limit_per_5h = limit5h
+      // default_model 为目录契约信息字段：写入 config 保留运营配置（供展示/后续模型选择路由使用）；
+      // 当前模型调用解析走 capability_models[type] 或 models[0]，provider 级默认走 is_default=1。
+      if (item.default_model && typeof item.default_model === 'string') config.default_model = item.default_model.trim()
+      // 模型列表仅当目录项为完整数组时视为权威；畸形/缺字段项不覆盖本地 models（fail-closed）
+      const hasModels = Array.isArray(item.models)
+      const models = hasModels ? item.models.filter(m => typeof m === 'string' && m.trim()) : []
+
+      const row = db.prepare('SELECT * FROM model_providers WHERE id = ?').get(id)
+      if (row) {
+        const existing = safeJsonParse(row.config, {}) || {}
+        const merged = { ...existing, ...config }
+        // 目录是限流的权威来源：运营未配置/非法值（null/''/0/布尔）→ 清除本地值，
+        // 由 _applyGovernorLimits 回退到静态默认或移除 provider 级预算，避免陈旧值残留。
+        if (rpm === null) delete merged.rate_per_minute
+        if (limit5h === null) delete merged.limit_per_5h
+        if (hasModels) {
+          db.prepare("UPDATE model_providers SET models = ?, config = ?, updated_at = datetime('now') WHERE id = ?")
+            .run(JSON.stringify(models), JSON.stringify(merged), id)
+        } else {
+          // 畸形/缺 models 字段的目录项：只合并 config，不清空本地模型列表
+          db.prepare("UPDATE model_providers SET config = ?, updated_at = datetime('now') WHERE id = ?")
+            .run(JSON.stringify(merged), id)
+        }
+        this._invalidateAdapterCache(id)
+        updated += 1
+      } else {
+        const category = typeof item.category === 'string' && Object.values(CATEGORIES).includes(item.category) ? item.category : 'llm'
+        const baseUrl = typeof item.base_url === 'string' ? item.base_url : ''
+        const name = typeof item.name === 'string' ? item.name : id
+        db.prepare(`
+          INSERT INTO model_providers (id, name, category, base_url, api_key, api_key_enc, models, enabled, is_default, is_preset, config, created_at, updated_at)
+          VALUES (?, ?, ?, ?, '', NULL, ?, 0, 0, 1, ?, datetime('now'), datetime('now'))
+        `).run(id, name, category, baseUrl, JSON.stringify(models), JSON.stringify(config))
+        inserted += 1
+      }
+    }
+    this._applyGovernorLimits()
+    log.info('ModelProviderManager', 'applyCatalog: updated=' + updated + ' inserted=' + inserted)
+    return { code: 0, updated, inserted }
+  }
+
   setDefault (category, providerId) {
     if (!this._ready) return { code: -1, message: 'Store not initialized' }
     const provider = this.getProvider(providerId)

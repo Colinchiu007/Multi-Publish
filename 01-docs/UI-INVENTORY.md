@@ -62,9 +62,9 @@
 |------|------|
 | 用户头像 + 名称 + 许可证标签 | 从 `identityStore` / `licenseStore` 读取 |
 | 「＋」新建发布按钮 | 点击 → `router.push('/publish')` |
-| 主导航列表 `primaryItems` | 首页、发布、账号管理、发布记录、数据看板、内容采集 |
-| 「更多」展开菜单 `moreItems` | 评论、监控、视频创作、项目库、内容情报、云端发布等 |
-| 底部状态栏 | "客户端已连接" + 帮助按钮 |
+| 主导航列表 `primaryItems` | 主页、发布、账号、数据（数据看板）、视频创作、采集、**设置** |
+| 「更多」展开菜单 `moreItems` | 监控、发布日历、私信评论、CLI、素材库 |
+| 底部状态栏 | "客户端已连接" |
 
 ### 3.2 YixiaoerModuleNav（`layouts/YixiaoerModuleNav.vue`，344 行）
 
@@ -342,7 +342,7 @@
 | pipelineError | 加载失败 | 错误提示 |
 | Remotion 未就绪 | `renderStatus.ready === false` | 黄色警告横幅 + 安装依赖按钮 |
 | 安装日志 | `installLog` 非空 | 日志面板 |
-| 编排进度 | 流水线运行中 | 进度条 + 已用时 + 摘要 |
+| 编排进度 | 流水线运行中 | 进度条 + 已用时 + 摘要（已用时 = 步骤执行耗时累计 `activeMs`，2026-08-10 起；暂停/断点恢复空闲不计入，完成/失败定格） |
 
 ### 5.10 ResultView.vue（782 行）— 视频预览
 
