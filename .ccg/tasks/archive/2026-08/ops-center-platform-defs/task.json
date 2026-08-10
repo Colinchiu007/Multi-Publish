@@ -1,0 +1,13 @@
+{
+  "id": "ops-center-platform-defs",
+  "title": "运营后台 P1：平台发布元数据迁移（platforms.yaml → 运营后台 + 桌面端拉取覆盖）",
+  "status": "review",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "backend,desktop",
+  "currentPhase": "review",
+  "nextAction": "提交 PR → CI → 合并 → 归档",
+  "createdAt": "2026-08-11T02:00:00+08:00",
+  "branch": "codex/ops-center-platform-defs",
+  "openspecChange": "ops-center-platform-defs"
+}

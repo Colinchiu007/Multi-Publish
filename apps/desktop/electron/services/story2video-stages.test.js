@@ -1,5 +1,7 @@
 // @vitest-environment node
 const fs = require('fs')
+const http = require('http')
+const { execFile } = require('child_process')
 const os = require('os')
 const path = require('path')
 const {
@@ -8,11 +10,17 @@ const {
   normalizeAssetConcurrency,
   hasMeaningfulText,
   isPromptEngineTooShortRejection,
+  pickFixedVideoScenes,
+  parseVideoSelection,
+  clampVideoSelection,
+  estimateSceneSeconds,
+  resolveVideoGeneratorConfig,
 } = require('./story2video-stages')
 const {
   cleanupRunInputDir,
   importUserSelectedMedia,
 } = require('./story2video-paths')
+const { findFfmpeg } = require('./media-tool-paths')
 
 afterEach(() => {
   cleanupRunInputDir('run')
@@ -1007,7 +1015,7 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(1)
     // 实时进度：图片 2/2 · 旁白 2/2（含续传场景）
     expect(context.assets_progress).toEqual({
-      imagesDone: 2, imagesTotal: 2, ttsDone: 2, ttsTotal: 2,
+      imagesDone: 2, imagesTotal: 2, videosDone: 0, videosTotal: 0, ttsDone: 2, ttsTotal: 2,
     })
   })
 
@@ -1023,7 +1031,7 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     const pending = fn({ stage: { options: {} }, params: {}, context, serviceBus: {} })
     // 首个资源完成前（图片生成可能耗时 16-30s），进度已前置写入
     expect(context.assets_progress).toEqual({
-      imagesDone: 0, imagesTotal: 1, ttsDone: 0, ttsTotal: 1,
+      imagesDone: 0, imagesTotal: 1, videosDone: 0, videosTotal: 0, ttsDone: 0, ttsTotal: 1,
     })
     releaseImage()
     const result = await pending
@@ -1393,5 +1401,458 @@ describe('story2video 调度边界（2026-08-10 双包死锁复盘）', () => {
     expect(aiGeneratorLike.generate.mock.calls.length).toBe(6)
     expect(governor.getStatus('minimax-multimodal:image:image-1').active).toBe(0)
     expect(governor.getStatus('minimax-multimodal:tts:voice-1').active).toBe(0)
+  })
+})
+
+describe('story2video 视频+图片轮播混合模式（2026-08-11）', () => {
+  const scenes = Array.from({ length: 10 }, (_, i) => ({
+    index: i,
+    text: '场景' + i,
+    prompt: 'prompt-' + i,
+    seconds: 6,
+  }))
+
+  describe('fixed 模式场景选择', () => {
+    it('按顺序累计估算时长标记前 fixedRatio% 的场景', () => {
+      const { selected, ratio } = pickFixedVideoScenes(scenes, 25)
+      // 目标 25%×60s=15s：场景0(6s)+场景1(6s)+场景2(6s) 累计 18s 首次 ≥15s → [0,1,2]
+      expect(selected).toEqual([0, 1, 2])
+      expect(ratio).toBe(30) // 边界含入：18s/60s
+    })
+
+    it('fixedRatio 较小时至少标记 1 个场景', () => {
+      const { selected, ratio } = pickFixedVideoScenes(scenes, 10)
+      expect(selected).toEqual([0])
+      expect(ratio).toBe(10)
+    })
+
+    it('空场景返回空选择', () => {
+      expect(pickFixedVideoScenes([], 25)).toEqual({ selected: [], ratio: 0 })
+    })
+
+    it('不同时长的场景按秒累计（非按个数）', () => {
+      const uneven = [
+        { index: 0, seconds: 2 },
+        { index: 1, seconds: 2 },
+        { index: 2, seconds: 2 },
+        { index: 3, seconds: 12 },
+      ]
+      const { selected } = pickFixedVideoScenes(uneven, 30) // 30% × 18s = 5.4s
+      expect(selected).toEqual([0, 1, 2]) // 6s ≥ 5.4s 边界场景 2 被标记
+    })
+  })
+
+  describe('ai-judged 解析与钳制', () => {
+    it('严格解析合法 JSON 数组', () => {
+      const raw = JSON.stringify([
+        { index: 0, video: true, excitement: 9, reason: '开场动作' },
+        { index: 1, video: false, excitement: 3, reason: '过渡' },
+      ])
+      const parsed = parseVideoSelection(raw, 10)
+      expect(parsed).toEqual([
+        { index: 0, video: true, excitement: 9, reason: '开场动作' },
+        { index: 1, video: false, excitement: 3, reason: '过渡' },
+      ])
+    })
+
+    it('非 JSON / 非法 index / 重复 index 一律返回 null（fail closed）', () => {
+      expect(parseVideoSelection('not json', 10)).toBeNull()
+      expect(parseVideoSelection(JSON.stringify([{ index: 99, video: true, excitement: 5 }]), 10)).toBeNull()
+      expect(parseVideoSelection(JSON.stringify([{ index: 0, video: true }, { index: 0, video: false }]), 10)).toBeNull()
+      expect(parseVideoSelection('', 10)).toBeNull()
+    })
+
+    it('超 maxRatio 时按 excitement 从低到高剔除', () => {
+      const entries = [
+        { index: 0, video: true, excitement: 9 },
+        { index: 1, video: true, excitement: 8 },
+        { index: 2, video: true, excitement: 7 },
+        { index: 3, video: true, excitement: 6 },
+      ]
+      // 4 场景各 6s → 24s/24s=100%；maxRatio 50 → 应剔除至 2 个（50%）
+      const { selected, ratio } = clampVideoSelection(scenes.slice(0, 4), entries, {
+        minRatio: 20, maxRatio: 50, maxScenes: 3,
+      })
+      expect(selected).toEqual([0, 1])
+      expect(ratio).toBe(50)
+    })
+
+    it('不足 minRatio 时按 excitement 补入未选场景', () => {
+      const entries = [
+        { index: 0, video: true, excitement: 9 },
+        { index: 1, video: false, excitement: 8 },
+        { index: 2, video: false, excitement: 7 },
+      ]
+      // 初选 1 场景 = 33.3%；minRatio 60 → 补入 index1 → 66.7%
+      const { selected, ratio } = clampVideoSelection(scenes.slice(0, 3), entries, {
+        minRatio: 60, maxRatio: 80, maxScenes: 3,
+      })
+      expect(selected).toEqual([0, 1])
+      expect(ratio).toBe(66.7)
+    })
+
+    it('maxScenes 上限截断', () => {
+      const entries = scenes.map(scene => ({ index: scene.index, video: true, excitement: 10 - scene.index }))
+      const { selected } = clampVideoSelection(scenes, entries, { minRatio: 0, maxRatio: 100, maxScenes: 3 })
+      expect(selected).toHaveLength(3)
+      expect(selected).toEqual([0, 1, 2])
+    })
+
+    it('全部剔除后保留最高 excitement 单场景', () => {
+      const entries = scenes.map(scene => ({ index: scene.index, video: true, excitement: scene.index + 1 }))
+      const { selected } = clampVideoSelection(scenes, entries, { minRatio: 100, maxRatio: 5, maxScenes: 2 })
+      expect(selected).toHaveLength(1)
+      expect(selected[0]).toBe(9)
+    })
+  })
+
+  describe('select_video_scenes 执行器', () => {
+    function makeSelectPipeline(aiGenerator) {
+      const stageExecutor = makeStageExecutor()
+      const pipeline = {
+        stageExecutor,
+        _assetGenerator: null,
+        aiGenerator,
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
+      }
+      registerStory2VideoStages(pipeline)
+      return stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.SELECT_VIDEO_SCENES)
+    }
+
+    const videoOptions = {
+      video: { mode: 'fixed', provider: '', model: '', fixedRatio: 25, minRatio: 20, maxRatio: 40, maxScenes: 3 },
+    }
+
+    it('mode=off 输出空 plan，不校验视频生成器', async () => {
+      const fn = makeSelectPipeline(null)
+      const context = { optimize: ['p0', 'p1'], split: [{ text: '一' }, { text: '二' }] }
+      const result = await fn({ stage: { options: { video: { mode: 'off' } } }, params: {}, context })
+      expect(result).toMatchObject({ success: true })
+      expect(result.output).toEqual({ mode: 'off', scenes: [], ratio: 0, selectedCount: 0 })
+      expect(context.video_plan.mode).toBe('off')
+    })
+
+    it('fixed 模式未配置视频生成器时 fail closed 引导设置', async () => {
+      const fn = makeSelectPipeline(null)
+      const context = { optimize: ['p0', 'p1'], split: [{ text: '一' }, { text: '二' }] }
+      const result = await fn({ stage: { options: videoOptions }, params: {}, context })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('视频生成器未配置')
+    })
+
+    it('fixed 模式输出视频场景计划（顺序前段）', async () => {
+      const aiGenerator = {
+        _modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video'
+            ? { id: 'kling', models: ['kling-v1'] }
+            : { id: 'openai', models: ['gpt-4.1-mini'] }),
+        },
+      }
+      const fn = makeSelectPipeline(aiGenerator)
+      const context = {
+        optimize: ['p0', 'p1', 'p2', 'p3'],
+        split: [{ text: '一' }, { text: '二' }, { text: '三' }, { text: '四' }],
+      }
+      const result = await fn({ stage: { options: videoOptions }, params: {}, context })
+      expect(result.success).toBe(true)
+      expect(result.output.mode).toBe('fixed')
+      expect(result.output.provider).toBe('kling')
+      expect(result.output.scenes.filter(s => s.useVideo).map(s => s.index)).toEqual([0])
+      expect(result.output.selectedCount).toBe(1)
+    })
+
+    it('ai-judged 模式调用 LLM 并按区间钳制', async () => {
+      const aiGenerator = {
+        _modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video'
+            ? { id: 'ltx', models: ['ltx-v1'] }
+            : { id: 'openai', models: ['gpt-4.1-mini'] }),
+        },
+        generateWithDefault: vi.fn(async (_type, _params) => ({
+          content: JSON.stringify([
+            { index: 0, video: true, excitement: 10, reason: '高潮' },
+            { index: 1, video: true, excitement: 8, reason: '动作' },
+            { index: 2, video: true, excitement: 9, reason: '转场' },
+          ]),
+        })),
+      }
+      const fn = makeSelectPipeline(aiGenerator)
+      const context = {
+        optimize: ['p0', 'p1', 'p2'],
+        split: [{ text: '一' }, { text: '二' }, { text: '三' }],
+      }
+      const result = await fn({
+        stage: { options: { video: { mode: 'ai-judged', provider: '', model: '', fixedRatio: 25, minRatio: 60, maxRatio: 80, maxScenes: 3 } } },
+        params: {},
+        context,
+      })
+      expect(result.success).toBe(true)
+      // 初选 3 场景=100%，maxRatio 80 → 剔除最低 excitement（index1）→ [0,2]=66.7%
+      expect(result.output.scenes.filter(s => s.useVideo).map(s => s.index)).toEqual([0, 2])
+    })
+
+    it('ai-judged LLM 返回无法解析时 fail closed', async () => {
+      const aiGenerator = {
+        _modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? { id: 'ltx', models: ['ltx-v1'] } : { id: 'openai', models: ['x'] }),
+        },
+        generateWithDefault: vi.fn(async () => ({ content: '不是 JSON' })),
+      }
+      const fn = makeSelectPipeline(aiGenerator)
+      const context = { optimize: ['p0'], split: [{ text: '一' }] }
+      const result = await fn({
+        stage: { options: { video: { mode: 'ai-judged', minRatio: 20, maxRatio: 40, maxScenes: 3 } } },
+        params: {},
+        context,
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('无法解析')
+    })
+
+    it('显式 provider 优先于默认视频生成器', () => {
+      const aiGenerator = {
+        _modelProviderManager: {
+          getDefault: vi.fn(() => ({ id: 'default-video', models: ['m'] })),
+        },
+      }
+      const resolved = resolveVideoGeneratorConfig({ aiGenerator }, { provider: 'minimax', model: 'minimax-v1' })
+      expect(resolved).toEqual({ providerId: 'minimax', model: 'minimax-v1' })
+    })
+
+    it('估算时长：sentence.duration 优先，其次 targetSeconds，兜底 6s', () => {
+      expect(estimateSceneSeconds({ duration: 3 }, 6)).toBe(3)
+      expect(estimateSceneSeconds({ targetSeconds: 4 }, 6)).toBe(4)
+      expect(estimateSceneSeconds({}, 6)).toBe(6)
+      expect(estimateSceneSeconds({ duration: 0 }, 6)).toBe(6)
+    })
+  })
+})
+
+describe('generate_assets 视频分支（2026-08-11）', () => {
+  let server
+  let baseUrl
+  let tinyVideoPath
+  let mediaAvailable = true
+  const FFMPEG = findFfmpeg()
+
+  beforeAll(async () => {
+    // 跨平台：CI 设 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 时 findFfmpeg() 返回 null，整个 describe 跳过
+    if (!FFMPEG) {
+      mediaAvailable = false
+      return
+    }
+    // 生成 1 秒真实 mp4（颜色源 + 静音），供视频下载/合成测试使用
+    tinyVideoPath = path.join(os.tmpdir(), 'story2video-test-tiny-' + process.pid + '.mp4')
+    await new Promise((resolve, reject) => {
+      execFile(FFMPEG, ['-y', '-f', 'lavfi', '-i', 'color=c=red:s=320x240:d=1', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', tinyVideoPath], (error) => {
+        if (error) reject(new Error(String(error).slice(0, 300)))
+        else resolve()
+      })
+    })
+    server = http.createServer((req, res) => {
+      if (req.url && req.url.includes('missing')) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' })
+        res.end('not found')
+        return
+      }
+      res.writeHead(200, { 'Content-Type': 'video/mp4' })
+      fs.createReadStream(tinyVideoPath).pipe(res)
+    })
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    baseUrl = 'http://127.0.0.1:' + server.address().port + '/video.mp4'
+  })
+
+  afterAll(() => {
+    if (server) server.close()
+    if (tinyVideoPath) { try { fs.unlinkSync(tinyVideoPath) } catch (_) { /* 清理失败可忽略 */ } }
+  })
+  const skipIfNoMedia = () => { if (!mediaAvailable) return true; return false }
+
+  function makeBlendPipeline(aiGenerator, assetGenerator) {
+    const stageExecutor = makeStageExecutor()
+    const pipeline = {
+      stageExecutor,
+      _assetGenerator: assetGenerator || null,
+      aiGenerator,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
+    }
+    registerStory2VideoStages(pipeline)
+    return stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
+  }
+
+  it('视频场景产出 videoPath 且不生成图片；图片场景照常；TTS 全部生成', async () => {
+    if (skipIfNoMedia()) return
+    const callAdapter = vi.fn(async (_provider, method) => {
+      if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-1' } }
+      if (method === 'getVideoStatus') return { videoUrl: baseUrl }
+      return { code: 0 }
+    })
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn((type) => type === 'video'
+          ? { id: 'kling', models: ['kling-v1'] }
+          : { id: 'openai', models: ['gpt-4.1-mini'] }),
+        callAdapter,
+      },
+    }
+    const fn = makeBlendPipeline(aiGenerator)
+    const context = {
+      split: [{ text: '一' }, { text: '二' }],
+      optimize: ['video-prompt-0', 'image-prompt-1'],
+      video_plan: {
+        mode: 'fixed',
+        scenes: [
+          { index: 0, useVideo: true, seconds: 6 },
+          { index: 1, useVideo: false, seconds: 6 },
+        ],
+        selectedCount: 1,
+      },
+    }
+    const serviceBus = {
+      generateTTS: vi.fn(async (text) => ({ code: 0, data: { path: 'audio-' + text + '.mp3', duration: 2 } })),
+      callPythonSkill: vi.fn(async (_skill, payload) => {
+        if (payload && payload.style) return { code: 0, data: { path: 'image-' + payload.index + '.png' } }
+        return { code: 0, data: { path: 'audio-' + (payload && payload.text) + '.mp3', duration: 2 } }
+      }),
+    }
+    const result = await fn({
+      stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: 'kling-v1', pollIntervalMs: 5 } } },
+      params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+      context,
+      serviceBus,
+    })
+    expect(result.success).toBe(true)
+    expect(result.output.scenes).toHaveLength(2)
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, videoPath: expect.stringContaining('scene_video_000.mp4'), audioPath: expect.any(String) })
+    expect(result.output.scenes[0].imagePath).toBeNull()
+    expect(result.output.scenes[1]).toMatchObject({ index: 1, imagePath: 'image-1.png', videoPath: null })
+    // 视频 provider 只被调用（提交+轮询各 1 次）
+    expect(callAdapter).toHaveBeenCalledWith('kling', 'generateVideo', expect.objectContaining({ width: 720, height: 1280, prompt: 'video-prompt-0' }))
+    expect(callAdapter).toHaveBeenCalledWith('kling', 'getVideoStatus', expect.objectContaining({ taskId: 'task-1' }))
+    // 进度：图片 1/1 · 视频 1/1 · 旁白 2/2
+    expect(context.assets_progress).toEqual({
+      imagesDone: 1, imagesTotal: 1, videosDone: 1, videosTotal: 1, ttsDone: 2, ttsTotal: 2,
+    })
+    expect(result.output.videos).toHaveLength(1)
+    expect(result.output.videos[0]).toMatchObject({ index: 0, path: expect.stringContaining('scene_video_000.mp4') })
+  })
+
+  it('视频生成失败时回退图片轮播（补生成图片）', async () => {
+    if (skipIfNoMedia()) return
+    const callAdapter = vi.fn(async (_provider, method) => {
+      if (method === 'generateVideo') return { code: -1, message: 'provider 欠费' }
+      return { code: 0 }
+    })
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn(() => ({ id: 'kling', models: ['kling-v1'] })),
+        callAdapter,
+      },
+    }
+    const fn = makeBlendPipeline(aiGenerator)
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: 'fallback-image-' + index + '.png' } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'audio-' + index + '.mp3', duration: 2 } })),
+    }
+    const context = {
+      split: [{ text: '一' }, { text: '二' }],
+      optimize: ['p0', 'p1'],
+      video_plan: { mode: 'fixed', scenes: [{ index: 0, useVideo: true, seconds: 6 }, { index: 1, useVideo: false, seconds: 6 }], selectedCount: 1 },
+    }
+    const result = await fn({
+      stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: '' } } },
+      params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+      context,
+      serviceBus: {},
+    })
+    // 无 assetGenerator → legacy python 路径：图片经 serviceBus.callPythonSkill('generate_image')
+    expect(result.success).toBe(false) // serviceBus 未提供 generate_image → 场景生成失败
+    expect(result.error).toContain('Asset scene generation failed')
+  })
+  it('getVideoStatus 返回错误响应时立即终止（不空转 10 分钟）', async () => {
+    if (skipIfNoMedia()) return
+    const callAdapter = vi.fn(async (_provider, method) => {
+      if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-err' } }
+      if (method === 'getVideoStatus') return { code: -1, message: 'provider 任务失败' }
+      return { code: 0 }
+    })
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : { id: 'openai', models: ['x'] }),
+        callAdapter,
+      },
+    }
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: 'img-' + index + '.png' } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'aud-' + index + '.mp3', duration: 2 } })),
+    }
+    const fn = makeBlendPipeline(aiGenerator, assetGenerator)
+    // 直接调用 generateSceneVideo 验证错误终止
+    const { generateSceneVideo } = require('./story2video-stages')
+    const outcome = await generateSceneVideo({
+      manager: aiGenerator._modelProviderManager,
+      providerId: 'kling',
+      model: 'kling-v1',
+      prompt: 'p',
+      index: 0,
+      seconds: 6,
+      size: { width: 720, height: 1280 },
+      fps: 24,
+      runDir: path.join(os.tmpdir(), 'story2video-video-err-test-' + process.pid),
+      pollIntervalMs: 5,
+    })
+    expect(outcome.success).toBe(false)
+    expect(outcome.error).toContain('provider 任务失败')
+    // 图片回退路径仍可用（assetGenerator 被调用）
+    const context = {
+      split: [{ text: '一' }],
+      optimize: ['p0'],
+      video_plan: { mode: 'fixed', scenes: [{ index: 0, useVideo: true, seconds: 6 }], selectedCount: 1 },
+    }
+    const result = await fn({
+      stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: '', pollIntervalMs: 5 } } },
+      params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+      context,
+      serviceBus: {},
+    })
+    expect(result.success).toBe(true)
+    expect(assetGenerator.generateImage).toHaveBeenCalled()
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: 'img-0.png', videoPath: null })
+  })
+
+  it('视频下载 HTTP 非 200 时视为失败并回退图片', async () => {
+    if (skipIfNoMedia()) return
+    const callAdapter = vi.fn(async (_provider, method) => {
+      if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-404' } }
+      if (method === 'getVideoStatus') return { videoUrl: 'http://127.0.0.1:' + server.address().port + '/missing.mp4' }
+      return { code: 0 }
+    })
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : { id: 'openai', models: ['x'] }),
+        callAdapter,
+      },
+    }
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: 'img-' + index + '.png' } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'aud-' + index + '.mp3', duration: 2 } })),
+    }
+    const fn = makeBlendPipeline(aiGenerator, assetGenerator)
+    const context = {
+      split: [{ text: '一' }],
+      optimize: ['p0'],
+      video_plan: { mode: 'fixed', scenes: [{ index: 0, useVideo: true, seconds: 6 }], selectedCount: 1 },
+    }
+    const result = await fn({
+      stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: '', pollIntervalMs: 5 } } },
+      params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+      context,
+      serviceBus: {},
+    })
+    expect(result.success).toBe(true)
+    expect(assetGenerator.generateImage).toHaveBeenCalled()
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: 'img-0.png', videoPath: null })
   })
 })

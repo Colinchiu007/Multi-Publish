@@ -292,12 +292,14 @@ function normalizeComposeScenes (assetManifest) {
   if (!assetManifest || typeof assetManifest !== 'object') return []
   const sentences = Array.isArray(assetManifest.sentences) ? assetManifest.sentences : []
   const images = Array.isArray(assetManifest.images) ? assetManifest.images : []
+  const videos = Array.isArray(assetManifest.videos) ? assetManifest.videos : []
   const audio = Array.isArray(assetManifest.audio) ? assetManifest.audio : []
   const sourceScenes = Array.isArray(assetManifest.scenes) && assetManifest.scenes.length > 0
     ? assetManifest.scenes
-    : Array.from({ length: Math.max(images.length, audio.length) }, (_, index) => ({
+    : Array.from({ length: Math.max(images.length, videos.length, audio.length) }, (_, index) => ({
         index,
         imagePath: images[index]?.path || images[index]?.imagePath,
+        videoPath: videos[index]?.path || videos[index]?.videoPath,
         audioPath: audio[index]?.path || audio[index]?.audioPath,
         duration: audio[index]?.duration,
         text: sentences[index]?.text || sentences[index]?.content || '',
@@ -311,6 +313,8 @@ function normalizeComposeScenes (assetManifest) {
     return {
       index,
       imagePath: scene?.imagePath || scene?.image?.path || image?.path || image?.imagePath || null,
+      // 混合模式（2026-08-11）：AI 视频场景保留 videoPath
+      videoPath: scene?.videoPath || scene?.video?.path || null,
       audioPath: scene?.audioPath || scene?.audio?.path || sound?.path || sound?.audioPath || null,
       duration: clampNumber(scene?.duration ?? sound?.duration, 0, 3600, null),
       text: scene?.text || scene?.content || sentence?.text || sentence?.content || '',
@@ -596,23 +600,38 @@ class Story2VideoComposeEngine {
     const preparedScenes = []
     for (let index = 0; index < scenes.length; index++) {
       const scene = scenes[index]
-      const imagePath = resolveReadableMediaFile(scene?.imagePath, {
-        kind: 'image',
+      // 混合模式（2026-08-11）：AI 视频场景提供 videoPath，图片轮播场景提供 imagePath；二选一且 audioPath 必有。
+      const videoPath = resolveReadableMediaFile(scene?.videoPath, {
+        kind: 'video',
         allowedRoots: this.allowedMediaRoots,
-        maxBytes: this.maxInputFileBytes,
+        // 视频源按媒体规则上限（512MB）校验，而非通用输入上限（100MB），与 PRD 7.1.25 一致（2026-08-11 W6）
+        maxBytes: Math.max(this.maxInputFileBytes, 512 * 1024 * 1024),
       })
+      const imagePath = videoPath
+        ? null
+        : resolveReadableMediaFile(scene?.imagePath, {
+            kind: 'image',
+            allowedRoots: this.allowedMediaRoots,
+            maxBytes: this.maxInputFileBytes,
+          })
       const audioPath = resolveReadableMediaFile(scene?.audioPath, {
         kind: 'audio',
         allowedRoots: this.allowedMediaRoots,
         maxBytes: this.maxInputFileBytes,
       })
-      if (!imagePath || !audioPath) {
+      if (!videoPath && !imagePath) {
         return { code: -1, message: 'Scene media path is not allowed or unreadable at index ' + index }
       }
-      if (!accountInput(imagePath) || !accountInput(audioPath)) {
-        return { code: -1, message: 'Input media exceeds the total size limit' }
+      if (!audioPath) {
+        return { code: -1, message: 'Scene audio path is not allowed or unreadable at index ' + index }
       }
-      preparedScenes.push({ ...scene, imagePath, audioPath })
+      const mediaInputs = videoPath ? [videoPath, audioPath] : [imagePath, audioPath]
+      for (const mediaPath of mediaInputs) {
+        if (!accountInput(mediaPath)) {
+          return { code: -1, message: 'Input media exceeds the total size limit' }
+        }
+      }
+      preparedScenes.push({ ...scene, videoPath, imagePath, audioPath })
     }
     scenes = preparedScenes
 
@@ -745,24 +764,46 @@ class Story2VideoComposeEngine {
         : null
 
       try {
-        await this._createSegment(scene.imagePath, scene.audioPath, segPath, {
-          duration,
-          effectDuration,
-          sceneDurationMode,
-          padTo,
-          subtitleText: subtitleEnabled ? scene.text : '',
-          subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
-          transition,
-          imageEffect: options?.imageEffect || 'none',
-          subtitleStyle: options?.subtitleStyle,
-          watermark: options?.watermark,
-          watermarkText: options?.watermarkText,
-          watermarkConfig: options?.watermarkConfig,
-          voiceVolume,
-          width: resolution.width,
-          height: resolution.height,
-          fps,
-        })
+        // 混合模式（2026-08-11）：AI 视频场景走视频片段编码，图片轮播场景走 zoompan 编码
+        if (scene.videoPath) {
+          await this._createVideoSegment(scene.videoPath, scene.audioPath, segPath, {
+            duration,
+            effectDuration,
+            sceneDurationMode,
+            padTo,
+            subtitleText: subtitleEnabled ? scene.text : '',
+            subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
+            transition,
+            imageEffect: options?.imageEffect || 'none',
+            subtitleStyle: options?.subtitleStyle,
+            watermark: options?.watermark,
+            watermarkText: options?.watermarkText,
+            watermarkConfig: options?.watermarkConfig,
+            voiceVolume,
+            width: resolution.width,
+            height: resolution.height,
+            fps,
+          })
+        } else {
+          await this._createSegment(scene.imagePath, scene.audioPath, segPath, {
+            duration,
+            effectDuration,
+            sceneDurationMode,
+            padTo,
+            subtitleText: subtitleEnabled ? scene.text : '',
+            subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
+            transition,
+            imageEffect: options?.imageEffect || 'none',
+            subtitleStyle: options?.subtitleStyle,
+            watermark: options?.watermark,
+            watermarkText: options?.watermarkText,
+            watermarkConfig: options?.watermarkConfig,
+            voiceVolume,
+            width: resolution.width,
+            height: resolution.height,
+            fps,
+          })
+        }
         segments.push(segPath)
         const actualDuration = await this._probeMediaDuration(segPath)
         const segmentDuration = actualDuration || duration || audioDuration || defaultSceneDuration
@@ -781,6 +822,7 @@ class Story2VideoComposeEngine {
           subtitleBlocks,
           subtitleTimeline: buildSubtitleTimeline(subtitleBlocks, segmentDuration),
           videoPath: segPath,
+          mediaKind: scene.videoPath ? 'video' : 'image',
           status: 'completed',
         })
         // 子进度：每完成一个片段更新一次（percent = 3 + 72·k/N，k=N 时精确 75）
@@ -1032,13 +1074,20 @@ class Story2VideoComposeEngine {
     // 与 compose() 同能力守卫：未开启 4K 时拒绝 4K 分段渲染
     const capabilityError = validateResolutionCapability(options.resolution, this._currentMaxOutputResolution())
     if (capabilityError) return { code: -1, message: capabilityError }
-    const imagePath = resolveReadableMediaFile(scene.imagePath, {
-      kind: 'image', allowedRoots: this.allowedMediaRoots, maxBytes: this.maxInputFileBytes,
+    const videoPath = resolveReadableMediaFile(scene.videoPath, {
+      kind: 'video', allowedRoots: this.allowedMediaRoots, maxBytes: Math.max(this.maxInputFileBytes, 512 * 1024 * 1024),
     })
+    const imagePath = videoPath
+      ? null
+      : resolveReadableMediaFile(scene.imagePath, {
+          kind: 'image', allowedRoots: this.allowedMediaRoots, maxBytes: this.maxInputFileBytes,
+        })
     const audioPath = resolveReadableMediaFile(scene.audioPath, {
       kind: 'audio', allowedRoots: this.allowedMediaRoots, maxBytes: this.maxInputFileBytes,
     })
-    if (!imagePath || !audioPath) return { code: -1, message: 'Segment media path is not allowed or unreadable' }
+    if ((!imagePath && !videoPath) || !audioPath) {
+      return { code: -1, message: 'Segment media path is not allowed or unreadable' }
+    }
     fs.mkdirSync(path.dirname(destinationPath), { recursive: true })
     const audioDuration = await this._probeMediaDuration(audioPath)
     // 与 _composeScene 对齐：上报 duration 收敛到 0.1..3600，避免极端有限值经
@@ -1062,7 +1111,7 @@ class Story2VideoComposeEngine {
       ? clampNumber(effectDuration, 0.1, 3600, null)
       : null
     try {
-      await this._createSegment(imagePath, audioPath, destinationPath, {
+      const segmentOpts = {
         duration,
         effectDuration,
         sceneDurationMode,
@@ -1078,7 +1127,12 @@ class Story2VideoComposeEngine {
         voiceVolume: clampNumber(options.voiceVolume, 0, 2, 1),
         ...parseResolution(options.resolution),
         fps: clampNumber(options.fps, 1, 120, 30),
-      })
+      }
+      if (videoPath) {
+        await this._createVideoSegment(videoPath, audioPath, destinationPath, segmentOpts)
+      } else {
+        await this._createSegment(imagePath, audioPath, destinationPath, segmentOpts)
+      }
       const measuredDuration = await this._probeMediaDuration(destinationPath)
       const finalDuration = measuredDuration || audioDuration || duration
       return {
@@ -1313,6 +1367,84 @@ class Story2VideoComposeEngine {
     args.push(outputPath)
 
     // 编码超时按时长×帧率估算（最低 30s），避免 4K zoompan 慢速编码被固定 30s 误杀
+    const encodeTimeout = computeSegmentEncodeTimeoutMs(opts.effectDuration, opts.fps)
+    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: encodeTimeout, maxBuffer: 1024 * 1024 })
+    if (!hasUsableFile(outputPath)) {
+      throw new Error('ffmpeg did not produce output: ' + (stderr || '').slice(-200))
+    }
+  }
+
+  /**
+   * AI 视频场景片段：以预生成的 AI 视频为画面基底，归一化分辨率/帧率、按片段有效时长裁剪，
+   * 叠加字幕/水印并混入 TTS 旁白。失败降档重试语义与图片片段一致。
+   * @private
+   */
+  async _createVideoSegment (videoPath, audioPath, outputPath, opts) {
+    // 视频片段无需 zoompan 超采样：直接按目标分辨率编码（不做 2x 工作分辨率，避免无谓的重编码成本，2026-08-11 W9）。
+    await this._encodeVideoSegmentOnce(videoPath, audioPath, outputPath, { ...opts, workScale: 1 })
+  }
+
+  /**
+   * 单次 AI 视频片段编码（指定工作分辨率倍率）。失败由 _createVideoSegment 的降档循环处理。
+   * @private
+   */
+  async _encodeVideoSegmentOnce (videoPath, audioPath, outputPath, opts) {
+    const args = ['-y']
+
+    const padTo = Number.isFinite(Number(opts.padTo)) && Number(opts.padTo) > 0
+      ? clampNumber(opts.padTo, 0.1, 3600, null)
+      : null
+
+    // 输入：AI 视频（循环以覆盖“视频短于旁白”场景，配合 -shortest 跟随旁白结束）+ TTS 旁白
+    // -fflags +genpts：部分 provider 产出的 mp4 时间戳不连续，-stream_loop 循环时补生成 PTS 避免卡顿/丢帧。
+    args.push('-fflags', '+genpts', '-stream_loop', '-1', '-i', videoPath, '-i', audioPath)
+
+    // 视频滤镜：归一化分辨率（等比缩放 + 黑边补齐，保留完整画面）、帧率，再叠加字幕/水印
+    const work = computeWorkResolution(opts.width, opts.height, opts.workScale)
+    const filters = []
+    filters.push('scale=' + work.width + ':' + work.height + ':force_original_aspect_ratio=decrease')
+    filters.push('pad=' + work.width + ':' + work.height + ':(ow-iw)/2:(oh-ih)/2:color=black')
+    filters.push('fps=' + clampNumber(opts.fps, 1, 120, 30))
+    filters.push(buildScaleFilter(opts.width, opts.height))
+    const subtitleFilter = buildSubtitleFilter(
+      Array.isArray(opts.subtitleTimeline) && opts.subtitleTimeline.length > 0
+        ? opts.subtitleTimeline
+        : opts.subtitleText,
+      opts.subtitleStyle,
+    )
+    if (subtitleFilter) filters.push(subtitleFilter)
+    const watermarkFilter = buildWatermarkFilter(opts)
+    if (watermarkFilter) filters.push(watermarkFilter)
+    // 单片段淡入；滑动转场由 concat 阶段的 xfade 处理
+    if (opts.transition === 'fade') {
+      filters.push('fade=t=in:st=0:d=0.5')
+    }
+    args.push('-vf', filters.join(','))
+
+    // 时长：与图片片段同一语义（follow-audio 跟随旁白 / min-duration 静音补齐）
+    if (padTo) {
+      args.push('-t', String(padTo))
+    } else if (opts.duration && Number(opts.duration) > 0) {
+      args.push('-t', String(clampNumber(opts.duration, 0.1, 3600, 3)))
+    }
+
+    const voiceVolume = clampNumber(opts.voiceVolume, 0, 2, 1)
+    if (padTo) {
+      args.push('-af', (voiceVolume !== 1 ? 'volume=' + voiceVolume.toFixed(3) + ',' : '') + 'apad')
+    } else if (voiceVolume !== 1) {
+      args.push('-af', 'volume=' + voiceVolume.toFixed(3))
+    }
+
+    // 编码：视频输入不适用 stillimage tune
+    args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p')
+    args.push('-c:a', 'aac', '-b:a', '128k')
+    if (padTo) {
+      args.push('-r', String(clampNumber(opts.fps, 1, 120, 30)))
+    } else {
+      args.push('-shortest', '-r', String(clampNumber(opts.fps, 1, 120, 30)))
+    }
+    args.push(outputPath)
+
     const encodeTimeout = computeSegmentEncodeTimeoutMs(opts.effectDuration, opts.fps)
     const { stderr } = await execFileAsync(FFMPEG, args, { timeout: encodeTimeout, maxBuffer: 1024 * 1024 })
     if (!hasUsableFile(outputPath)) {

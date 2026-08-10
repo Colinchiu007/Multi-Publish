@@ -125,7 +125,7 @@ describe('story2video 编排契约', () => {
     expect(started).toMatchObject({ success: true, completed: true })
     expect(started.paused).toBeUndefined()
     expect(stageExecutor.execute.mock.calls.map(([request]) => request.stage.name)).toEqual([
-      'split', 'domain_enrich', 'optimize', 'generate_assets', 'compose', 'publish',
+      'split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
     ])
     expect(engine.getRunSnapshot(started.runId)).toMatchObject({
       status: { status: 'completed' },

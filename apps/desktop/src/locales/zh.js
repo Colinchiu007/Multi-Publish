@@ -180,6 +180,7 @@ export default {
       split: '文案拆分',
       domain_enrich: '内容增强',
       optimize: '提示词优化',
+      select_video_scenes: 'AI 视频场景选择',
       generate_assets: '生成图片与旁白',
     },
     statuses: {

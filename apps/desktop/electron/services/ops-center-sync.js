@@ -3,7 +3,7 @@
  * ops-center-sync.js — 运营后台 → 桌面端运行时同步（主进程）
  *
  * 1. 模型目录：/api/v1/model-presets/catalog（限流/模型/能力）→ ModelProviderManager.applyCatalog
- * 2. 运行时策略：/api/v1/runtime/bootstrap（公告 / 版本发布策略 / 内容安全敏感词 / 功能开关）→ applyRuntime
+ * 2. 运行时策略：/api/v1/runtime/bootstrap（公告 / 版本发布策略 / 内容安全敏感词 / 功能开关 / 平台发布元数据）→ applyRuntime
  *
  * 安全：
  *   - API Key 经 safeStorage 加密后存 settings（不落明文）
@@ -57,6 +57,7 @@ class OpsCenterSync {
     this._runtime = this._loadRuntimeState()
     this._sensitiveFilter = null
     this._updatePolicyConsumer = null
+    this._platformConfig = null
   }
 
   /** 读取同步配置（apiKey 脱敏，不返回明文） */
@@ -229,6 +230,11 @@ class OpsCenterSync {
     this._updatePolicyConsumer = typeof fn === 'function' ? fn : null
   }
 
+  /** 注入平台配置加载器（phase1 接线）；无 applyRemote 的对象视为未注入 */
+  setPlatformConfig(pc) {
+    this._platformConfig = pc && typeof pc.applyRemote === 'function' ? pc : null
+  }
+
   /** 应用运行时策略：公告缓存 + 敏感词重建 + 更新策略推送 */
   applyRuntime(payload) {
     if (!payload || typeof payload !== 'object') return
@@ -244,6 +250,15 @@ class OpsCenterSync {
     this._saveRuntimeState()
     if (this._updatePolicyConsumer) {
       try { this._updatePolicyConsumer(next.updatePolicy) } catch (e) { this._log.warn('OpsCenterSync', 'update policy consumer error: ' + e.message) }
+    }
+    // 平台发布元数据覆盖：注入 platformConfig 时应用；未注入跳过，不影响其他策略
+    if (Array.isArray(payload.platform_defs) && this._platformConfig) {
+      try {
+        const n = this._platformConfig.applyRemote(payload.platform_defs)
+        this._log.info('OpsCenterSync', `platform defs applied: ${n} platforms`)
+      } catch (e) {
+        this._log.warn('OpsCenterSync', 'platform defs apply error: ' + e.message)
+      }
     }
     this._log.info('OpsCenterSync', `runtime applied: ${next.announcements.length} announcements, policy=${next.updatePolicy ? 'set' : 'none'}`)
   }

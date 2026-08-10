@@ -241,3 +241,21 @@ class FeatureFlag(Base):
     enabled = Column(Integer, default=1)
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+class PlatformDef(Base):
+    """平台发布元数据 — 运营后台管理，桌面端启动拉取覆盖（临时下线/字段上限即时生效）。"""
+
+    __tablename__ = "platform_defs"
+
+    id = Column(String(64), primary_key=True)  # 平台 id（如 wechat_mp）
+    name = Column(String(100), nullable=False)
+    category = Column(String(20), default="中文")  # 中文 | 海外
+    content_category = Column(String(20), default="MIXED")  # VIDEO | IMAGE_TEXT | MIXED
+    type = Column(String(20), default="mixed")  # article | mixed 兼容
+    max_title = Column(Integer, nullable=True)
+    max_content = Column(Integer, nullable=True)
+    has_api = Column(Integer, default=0)
+    enabled = Column(Integer, default=1)  # 0=临时下线（不下发桌面端）
+    note = Column(String(200), default="")
+    deleted_at = Column(String, nullable=True)  # 软删除时间（非空=已删除，种子不复活）
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+

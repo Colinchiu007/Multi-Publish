@@ -7,6 +7,29 @@
 - 审查修复（Claude 定向审查）：number value 统一 float 解析 + `math.isfinite`（防 inf → bootstrap 500）；value ≤512（防撑爆 1MB 同步契约）；PUT 忽略 body 中 key（key 不可变）+ IntegrityError → 409；种子并发幂等；桌面端恢复路径同样归一化；`getFeatureFlag` 仅自有属性 + 拒绝 `__proto__`/`constructor`/`prototype`；前端数字校验与后端一致；CreateView 脆弱用例加固（显式 selectedPipeline/provider/model + 稳定等待，消除顺序依赖与额外 microtask 时序敏感）。
 - 测试：ops-center pytest（+2，全量 104）；桌面端 ops-center-sync +5、引擎惰性 4K/单测 +3、container 全量通过；前端 build 通过。
 
+## [未发布] 功能：平台发布元数据管理（P1 其余）（2026-08-11）
+
+- ops-center：新增 `platform_defs` 表 + `GET/POST /api/v1/platform-defs`、`PUT/DELETE /api/v1/platform-defs/{id}`（admin）；校验：name 必填、content_category 枚举 VIDEO/IMAGE_TEXT/MIXED、max_title/max_content 正整数或空、has_api 布尔；PUT 部分更新（与已存在记录合并后全量校验，null 不修改）；种子对齐 config/platforms.yaml 12 平台（INSERT OR IGNORE 不覆盖运营修改）。
+- ops-center：`GET /api/v1/runtime/bootstrap` 增加 `platform_defs`（enabled=1 项，与公告/版本发布/内容安全同链路、同 X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「平台元数据」页（列表/筛选/新增/编辑/删除/下发开关即时切换）。
+- 桌面端：`PlatformConfig.applyRemote(defs)`（按 id 覆盖远程字段、本地独有保留、远程新增不引入、不改写 yaml、cover_size 同步重建解析）；`OpsCenterSync.setPlatformConfig` + `applyRuntime` 应用 platform_defs；phase1 接线。
+- 文档：ops-center PRD 12A.15、Multi-Publish PRD §7.4.8。
+- 审查修复（Claude 定向审查）：POST 重复 id → 409、PUT 不存在 → 404（拆分为显式 create/update）；删除改软删（deleted_at，种子不复活已删平台，软删后可重建）；id 字符集 `^[a-z0-9_-]{1,64}$`；has_api/enabled 仅 true/false/1/0；category/type 枚举；IntegrityError 兜底；前端开关只回传 `{enabled}`、id 预检、类型下拉、空串清空上限；applyRemote allowlist + 类型守卫 + 数组上限 500。
+- 测试：ops-center pytest（+3 platform_defs，全量 105）；桌面端 platform-config +7、ops-center-sync +3；全量桌面端 vitest 395 文件 / 6846 用例通过。
+
+## [未发布] 功能：Story2Video 视频+图片轮播混合流水线（2026-08-11）
+
+- 新增「视频增强」能力：Story2Video 流水线支持 AI 视频片段与图片轮播组合成片，AI 视频只用于最值得动态化的场景（约 20%-40% 时长），控制成本/额度/耗时。
+- 两种模式：`fixed`（成片前段按顺序约 20%-30% 时长用 AI 视频，默认 25%）与 `ai-judged`（LLM 按场景精彩度选择，总占比钳制在默认 20%-40% 且 ≤ maxScenes=3）；`off` 默认保持纯图片轮播，行为零变化。
+- 新增 `select_video_scenes` 阶段（story2video_select_video_scenes）：off 输出空 plan；fixed 顺序累计估算时长标记；ai-judged 调默认 LLM 评估 + 严格 JSON 解析 + 比例/数量钳制；视频生成器未配置 fail closed 引导设置。
+- generate_assets 扩展：视频场景串行调视频适配器（generateVideo + getVideoStatus 轮询 + 下载落盘，并发 1），不生成图片；失败回退图片轮播；断点续传快照支持 videoPath；子进度新增 videosDone/videosTotal。
+- compose-engine 扩展：混合片段合成——视频场景以 AI 视频为基底（-stream_loop + 等比缩放黑边补齐 + 帧率归一化 + 字幕/水印 + 混入 TTS），图片场景维持 zoompan；scene 画面源 videoPath/imagePath 二选一 + audioPath 必有；segment 记录新增 mediaKind；renderSegment 单段重试同步支持视频场景。
+- 前端 CreateView 新增「视频增强」折叠区（模式/视频生成器/比例滑杆/区间滑杆 + 提示文案）；阶段时间轴新增 select_video_scenes 与详情文案（「已选 N 个 AI 视频场景（约 X%）」）；选项持久化白名单新增 videoMode。
+- 契约：story2videoTextConfig 新增可选 video 段（mode/provider/model/fixedRatio/minRatio/maxRatio/maxScenes），normalizer 白名单校验；参数治理纳入（视频并发固定 1，前端不暴露）。
+- 文档：PRD §7.1.25（数据校验/流程/功能逻辑/交互/显示项/提示文字/降级/验收标准）。
+- 测试：story2video-text-config +10、story2video-stages +21（选择算法/执行器/视频分支真实下载）、story2video-compose-engine +3（混合真实编码）、pipeline-engine/pipeline-story2video-contract 阶段顺序同步。
+
+
 ## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
 
 - ops-center：新增 `GET /api/v1/system/health`（admin）——并发只读探针（自身/业务 API health+ready/Logto OIDC discovery/存储可写/`OPS_HEALTH_TARGETS` 自定义目标），单项 ≤5s 超时、URL 非回环强制 https、未配置跳过；返回 overall + 每项状态/耗时/详情。

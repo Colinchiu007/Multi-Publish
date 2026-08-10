@@ -1414,6 +1414,94 @@ Electron 打包、工作树、PR 或发布状态证据。
 8. 158 个相关测试全部通过
 9. Vite build 无编译错误
 
+#### 7.1.25 视频+图片轮播混合流水线（AI 视频片段 + 图片轮播组合，2026-08-11）
+
+**背景与目标**：当前 Story2Video 流水线只有「图片轮播」一种视觉形态；AI 视频（videogen 体系）与图片轮播是两套独立流水线。混合模式把两者整合进同一流水线：只把「最值得动态化」的场景（约占总时长 20%-40%）交给 AI 视频生成，其余场景继续图片轮播，在表现力与成本（Token/额度/耗时）之间取得平衡。用户可选两种控制方式：
+
+| 模式 | 语义 | 默认参数 |
+|------|------|----------|
+| `off`（默认） | 纯图片轮播，行为与旧版完全一致 | — |
+| `fixed`（固定比例） | 成片**前段**按顺序累计约 20%-30%（默认 25%）时长的场景使用 AI 视频 | fixedRatio=25（范围 10-50，步进 5） |
+| `ai-judged`（AI 智能选择） | LLM 依据场景文案/提示词评估「精彩度（excitement）」，选出适合 AI 视频的场景，总时长占比约束在区间内 | minRatio=20 / maxRatio=40（min 5-50、max 10-80，步进 5），maxScenes=3（1-12） |
+
+**数据校验（normalizer 白名单，story2video-text-config.js）**：
+
+| 字段 | 类型/枚举 | 默认 | 边界 | 失败行为 |
+|------|-----------|------|------|----------|
+| `video.mode` | off/fixed/ai-judged | off | — | 非法值报错「video.mode 值无效」，流水线不启动 |
+| `video.provider` | string id | '' | 空=运行时解析默认视频生成器；非空须匹配 `[a-zA-Z0-9._:@/-]+` | 非法字符报错「video.provider 格式无效」 |
+| `video.model` | string id | '' | 同上 | 同上 |
+| `video.fixedRatio` | int % | 25 | 10-50 | 越界报错「video.fixedRatio 必须在 10-50 范围内」 |
+| `video.minRatio` | int % | 20 | 5-80 | 越界报错 |
+| `video.maxRatio` | int % | 40 | 5-80 | 越界报错 |
+| `video.maxScenes` | int | 3 | 1-12 | 越界报错 |
+| minRatio ≤ maxRatio | — | — | — | 违反报错「video.minRatio 不能大于 video.maxRatio」 |
+| 未知字段 | — | — | — | 忽略，不污染归一化结果 |
+| 顶层扁平参数 | `params.videoMode/videoProvider/videoModel` | — | 兼容旧调用方 | 与 story2videoTextConfig.video 同源归一化 |
+
+**流水线流程（阶段顺序）**：
+
+```
+split → domain_enrich → optimize → select_video_scenes（新增） → generate_assets（扩展） → compose（扩展） → publish
+```
+
+1. **select_video_scenes**（type `story2video_select_video_scenes`）：
+   - 输入：`context.optimize`（优化后的逐场景提示词）+ `context.split/domain_enrich`（逐场景文案）+ video 配置。
+   - `off`：直接输出空 plan（`{ mode:'off', scenes:[], ratio:0, selectedCount:0 }`），不校验视频生成器。
+   - `fixed`：按场景顺序累计估算时长（每场景时长 = sentence.duration 优先，否则 split.targetSeconds 默认 6s），标记累计占比首次达到 fixedRatio% 的场景（含边界场景）；至少标记 1 个场景。
+   - `ai-judged`：默认 LLM 输入场景列表（index/text/prompt/seconds + 区间与数量约束），要求返回严格 JSON 数组 `[{index, video, excitement(1-10), reason}]`；逐条校验 index 合法（越界/重复/非 JSON → fail closed，提示「AI 智能选择结果无法解析，请重试或改用固定比例模式」）。
+   - **比例钳制**：按 excitement 降序排列候选；超 maxRatio 从低 excitement 剔除；不足 minRatio 按高 excitement 补入；受 maxScenes 截断；全部剔除后保留最高 excitement 单场景（保证开启混合模式必有 ≥1 个视频场景）。
+   - **前置校验**：mode ≠ off 时必须解析视频生成器（显式 provider/model 优先，否则 `_modelProviderManager.getDefault('video')`）；解析失败 fail closed：「视频生成器未配置，请在设置中添加支持视频生成的模型（视频增强模式需要视频生成能力）」。
+   - 输出 `context.video_plan = { mode, provider, model, scenes:[{index,useVideo,excitement,reason,seconds}], ratio, selectedCount, totalSeconds }`。
+2. **generate_assets（扩展）**：
+   - 视频场景（useVideo=true）：串行调用视频适配器 `generateVideo({prompt, model, width, height, numFrames, frameRate})` → 轮询 `getVideoStatus`（间隔 10s，上限 10 分钟）→ 下载到 `%TEMP%/story2video/videoscenes/<runId>/scene_video_<index>.mp4`；**不再生成图片**（省额度）。
+   - 视频生成失败：回退图片轮播（复用已生成图片或补生成图），不中断整条流水线；补图也失败则按既有 allowPartialAssets 语义处理。
+   - 图片场景与 TTS：行为与旧版一致（并发、RPM 预算、内容政策检查点、断点续传均保留）。
+   - 断点续传快照 `completed` 项新增 `videoPath`；旧快照无该字段兼容。
+   - 子进度：`assets_progress` 新增 `videosDone/videosTotal`（视频场景数）；前端在 videosTotal>0 时展示「图片 x/y · 视频 a/b · 旁白 x/y」。
+3. **compose（扩展）**：
+   - 场景画面源：AI 视频场景 `videoPath`（kind video，mp4/mov/webm/mkv/avi，≤512MB，必须在允许根内）或图片场景 `imagePath` 二选一，`audioPath` 必有；双源冲突时 videoPath 优先；源不可读/越界 → 明确错误「Scene media path is not allowed or unreadable at index N」。
+   - 视频片段编码：AI 视频 `-stream_loop -1`（覆盖「视频短于旁白」）→ 等比缩放 + 黑边补齐（`scale=force_original_aspect_ratio=decrease,pad=...`）→ 帧率归一化 → 字幕/水印滤镜 → 按片段有效时长（follow-audio 跟随旁白 / min-duration 静音补齐语义不变）→ 混入 TTS → 降档重试（2x/1.5x/1x）。
+   - 片段记录新增 `mediaKind: 'video' | 'image'`；转场拼接/BGM/WebM 转码/校验全部复用既有管线。
+
+**功能逻辑与成本控制**：
+- 视频生成并发恒为 1（系统管理，不暴露 UI），图片/TTS 并发不受影响；`maxScenes` 兜底限制视频生成数量，避免长视频超预算。
+- 分辨率：优先输出 size（如 720x1280），否则按宽高比映射默认档（16:9→1280x720、9:16→720x1280、1:1→1024x1024、4:3→1280x960、3:4→960x1280）；生成后统一 scale 到目标分辨率。
+- 帧数：按场景估算时长取档（≤5s→121、≤8s→201、≤10s→241、其余 441，24fps 近似 8n+1 规则）。
+
+**交互逻辑与显示项（CreateView）**：
+
+| 控件 | 位置 | 选项/说明 | testid |
+|------|------|-----------|--------|
+| 视频增强模式 | 新折叠区「视频增强」（画面区之后） | 关闭（纯图片轮播）/ 固定比例（成片前段 AI 视频）/ AI 智能选择（最精彩场景） | s2v-video-mode |
+| 视频生成器 | 同区，mode≠off 时显示 | 已启用且已配置的视频能力 provider 下拉；空列表提示「未找到可用的视频生成器，请先在「模型服务商」中配置并启用支持视频生成的模型」 | s2v-video-provider |
+| AI 视频占比（fixed） | 同区，mode=fixed 时显示 | 滑杆 10-50 步进 5，默认 25；提示「成片前约 X% 时长的场景使用 AI 视频（建议 20%-30%）」 | s2v-video-fixed-ratio |
+| AI 视频占比区间（ai-judged） | 同区，mode=ai-judged 时显示 | 最少 5-50、最多 10-80 双滑杆，默认 20/40；提示「AI 根据场景精彩度自动选择视频片段，总占比控制在区间内（默认 20%-40%）；可生成场景数上限 3 个」 | s2v-video-min-ratio / s2v-video-max-ratio |
+| 折叠区摘要 | 视频增强区标题右侧 | 关闭 / 固定 25% / AI 判断 20%-40% | — |
+| 阶段时间轴 | 阶段清单 | 新增 `select_video_scenes` 阶段（optimize 与 generate_assets 之间） | story2video-stage-select_video_scenes |
+| 阶段详情文案 | select_video_scenes 完成/运行 | 「已选 N 个 AI 视频场景（约 X%）」；off 模式显示「纯图片轮播模式」 | — |
+| generate_assets 详情 | 资源生成中 | videosTotal>0 时「图片 x/y · 视频 a/b · 旁白 x/y」，否则维持旧文案 | — |
+
+**提示文字清单**：
+- 配置区成本提示：「AI 视频更贵也更慢，仅用于最值得动态化的场景；其余场景继续图片轮播，节省额度。」
+- select_video_scenes 失败（未配置视频生成器）：「视频生成器未配置，请在设置中添加支持视频生成的模型（视频增强模式需要视频生成能力）」。
+- ai-judged 解析失败：「AI 智能选择结果无法解析，请重试或改用固定比例模式」。
+- 默认 LLM 不可用（ai-judged 需要 LLM 评估）：「默认 LLM 不可用，AI 智能选择需要先完成模型设置」。
+
+**降级与失败策略**：
+1. 视频 provider 未配置 → select_video_scenes fail closed（不进入资源生成）。
+2. 单个视频场景生成失败 → 回退图片轮播（复用/补生成图）；视频不中断整条流水线。
+3. 视频全部失败 → 成片退化为图片轮播；若 allowPartialAssets 关闭且图片也失败 → 既有失败语义（断点续跑记录已完成场景）。
+4. `off` 模式：全链路零变化（新增阶段直接输出空 plan，不调用 LLM/视频 provider）。
+
+**验收标准**：
+1. `video.mode='off'` 时流水线行为与旧版一致（阶段多一步 select_video_scenes 但快速通过）。
+2. fixed 模式：前段场景按顺序标记，实际占比落在 [10,50] 且记录 actualRatio。
+3. ai-judged 模式：LLM 选择结果满足 [minRatio, maxRatio] ∩ maxScenes，越界自动钳制；解析失败 fail closed。
+4. 混合成片：视频场景片段以 AI 视频为基底（mediaKind='video'），图片场景 zoompan（mediaKind='image'），顺序与场景一致，字幕/BGM/转场正常。
+5. 断点续跑：已完成视频场景复用本地 videoPath，不重复调用视频生成。
+6. 前端构建无编译错误；相关单测/集成测试全绿。
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
@@ -1674,6 +1762,57 @@ Electron 打包、工作树、PR 或发布状态证据。
 
 ① 桌面端配置同步后产生调用 → 30 分钟内上报，ops-center 看板显示调用量与成功率；② 同桶重复上报（重试）计数不翻倍；③ 失败（429 识别）与耗时分布正确落桶；④ 上报失败水印不推进，恢复后补报；⑤ 未配置同步的桌面端静默不打扰；⑥ 看板非 admin 403；⑦ error_message 等敏感内容不出现在上报 payload。
 
+#### 7.4.8 平台发布元数据管理（2026-08-11 新增，P1 其余）
+
+**需求**：平台发布元数据（标题/内容上限、内容类型分类、是否支持 API、临时下线）从桌面端 `config/platforms.yaml` 迁移到运营后台统一维护，随运行时 bootstrap 下发；桌面端启动/同步时覆盖同名平台字段，不改写 yaml。
+
+##### 7.4.8.1 数据与校验（ops-center）
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| id | str PK | 必填、≤64 | 平台 id（如 wechat_mp） |
+| name | str | 必填、≤100 | 平台名称 |
+| category | str | ≤20，默认「中文」 | 中文/海外分组 |
+| content_category | str | 枚举 VIDEO/IMAGE_TEXT/MIXED | 内容类型分类（PRD F9） |
+| type | str | ≤20，默认 mixed | article/mixed 兼容字段 |
+| max_title / max_content | int | 正整数或空（拒绝布尔/小数/负数） | 标题/内容上限 |
+| has_api | bool | 0/1 | 是否支持 API 发布 |
+| enabled | bool | 0/1 | 临时下线开关（关闭后不下发） |
+| note | str | ≤200 | 运营备注 |
+
+- id 字符集 `^[a-z0-9_-]{1,64}$`；category ∈ 中文/海外；type ∈ article/mixed；has_api/enabled 仅接受 true/false/1/0。
+- 创建（POST）走全量校验，重复 id → 409；更新（PUT）为**部分更新**：与已存在记录合并后全量校验，null 视为不修改，路径 id 优先，空串清空上限，不存在 → 404。
+- 删除为**软删除**（deleted_at + enabled=0）：已删平台不再列出/下发；种子化遇已存在（含软删）即跳过，已删种子不复活；软删后同一 id 可重建。
+- 种子对齐 `config/platforms.yaml` 关键平台 12 个（已存在即跳过，不覆盖运营修改/软删）。
+
+##### 7.4.8.2 管理端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/platform-defs | 列表（登录可读） |
+| POST | /api/v1/platform-defs | 新增（admin） |
+| PUT | /api/v1/platform-defs/{id} | 更新（admin，部分更新） |
+| DELETE | /api/v1/platform-defs/{id} | 删除（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `platform_defs`（enabled=1 项，同 X-Catalog-Key 鉴权） |
+
+##### 7.4.8.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| `PlatformConfig.applyRemote(defs)` | 按 id 覆盖已存在平台的远程字段（仅覆盖远程出现的键）；本地独有平台保留；远程新增平台不自动引入（fail-closed）；**不改写 yaml**；cover_size 字符串同步重建解析尺寸 |
+| `OpsCenterSync.setPlatformConfig(pc)` | phase1 注入平台配置加载器；无 applyRemote 的对象视为未注入 |
+| `applyRuntime` | 注入 platformConfig 时应用 `platform_defs`；未注入跳过，不影响公告/版本发布/内容安全策略 |
+
+##### 7.4.8.4 前端「平台元数据」页
+
+- 列表：ID / 名称 / 类别（中文|海外 tag）/ 内容类型（视频|图文|混合 tag）/ 标题上限 / 内容上限 / 支持 API / 下发开关 / 操作（编辑、删除）；顶部「中文/海外/全部」筛选 + 「新增平台」。
+- 编辑弹窗：平台 ID（编辑禁用）/ 名称（必填）/ 类别 / 内容类型（必填下拉）/ 类型 / 标题上限 / 内容上限（正整数或留空）/ 支持 API / 启用下发（关闭提示「桌面端将不再下发该平台」）/ 备注。
+- 下发开关即时保存（部分更新 enabled），成功提示「已启用，将随下次同步下发给桌面端」。
+
+##### 7.4.8.5 验收标准
+
+① 首次启动种子 12 平台且可编辑；② 非法 content_category / 负数或小数上限 → 400；③ PUT 仅传部分字段可更新（enabled 临时下线）；④ bootstrap 仅返回 enabled=1 项；⑤ 桌面端 applyRemote 覆盖同名平台、本地独有保留、远程新增不引入、yaml 不被改写；⑥ 未注入 platformConfig 时跳过应用不影响其他策略；⑦ 非 admin 写 403、读 200。
+
 #### 7.4.9 桌面端功能开关运行时下发（2026-08-11 新增，P0-1）
 
 **需求**：桌面端功能开关（key → typed value）由运营后台统一维护，随 `runtime/bootstrap` 下发，桌面端同步后即时生效；首个真实用例为 4K 输出能力开关（7.1.20）。
@@ -1718,6 +1857,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 ##### 7.4.9.5 验收标准
 
 ① 首次启动 4K 开关种子存在；② 非法 key/value_type/value → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 开关 typed value；⑤ 桌面端 applyRuntime 应用/持久化/重启恢复、非法结构空对象；⑥ 引擎惰性读取：静态 1080p + 动态 4k 放行、动态 1080p 拒绝（fail-closed）；⑦ 未配置同步桌面端用本地默认 1080p。
+
 
 ---
 

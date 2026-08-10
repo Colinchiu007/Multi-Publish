@@ -362,6 +362,52 @@
             </div>
           </details>
 
+          <!-- 视频增强：AI 视频片段 + 图片轮播混合（2026-08-11） -->
+          <details
+            class="s2v-config-section"
+            data-testid="s2v-section-videoEnhance"
+            :open="s2vOpenSections.videoEnhance"
+            @toggle="setS2VSectionOpen('videoEnhance', $event)"
+          >
+            <summary class="s2v-section-summary">
+              <span>{{ s2vSectionLabel('videoEnhance') }}</span>
+              <span class="s2v-summary">{{ s2vSectionSummary('videoEnhance') }}</span>
+            </summary>
+            <div class="config-grid">
+              <div class="config-item">
+                <label>视频增强模式</label>
+                <select v-model="s2vConfig.videoMode" class="form-select" data-testid="s2v-video-mode">
+                  <option value="off">关闭（纯图片轮播）</option>
+                  <option value="fixed">固定比例（成片前段 AI 视频）</option>
+                  <option value="ai-judged">AI 智能选择（最精彩场景）</option>
+                </select>
+                <p class="config-hint">AI 视频更贵也更慢，仅用于最值得动态化的场景；其余场景继续图片轮播，节省额度。</p>
+              </div>
+              <div v-if="s2vConfig.videoMode !== 'off'" class="config-item">
+                <label>视频生成器</label>
+                <select v-model="s2vConfig.videoProvider" class="form-select" @change="handleS2VVideoProviderChange" data-testid="s2v-video-provider">
+                  <option v-for="provider in s2vVideoProviderOptions" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
+                </select>
+                <p v-if="s2vVideoProviders.length === 0" class="config-hint">未找到可用的视频生成器，请先在「模型服务商」中配置并启用支持视频生成的模型。</p>
+              </div>
+              <div v-if="s2vConfig.videoMode === 'fixed'" class="config-item">
+                <label>AI 视频占比: {{ s2vConfig.videoFixedRatio }}%（前段）</label>
+                <input type="range" v-model.number="s2vConfig.videoFixedRatio" min="10" max="50" step="5" class="form-range" data-testid="s2v-video-fixed-ratio" />
+                <p class="config-hint">成片前约 {{ s2vConfig.videoFixedRatio }}% 时长的场景使用 AI 视频（建议 20%-30%）。</p>
+              </div>
+              <div v-if="s2vConfig.videoMode === 'ai-judged'" class="config-item">
+                <label>AI 视频占比区间: {{ s2vConfig.videoMinRatio }}% - {{ s2vConfig.videoMaxRatio }}%</label>
+                <div class="config-item-inline">
+                  <span class="config-hint">最少</span>
+                  <input type="range" v-model.number="s2vConfig.videoMinRatio" min="5" max="50" step="5" class="form-range" data-testid="s2v-video-min-ratio" />
+                  <span class="config-hint">最多</span>
+                  <input type="range" v-model.number="s2vConfig.videoMaxRatio" min="10" max="80" step="5" class="form-range" data-testid="s2v-video-max-ratio" />
+                </div>
+                <p class="config-hint">AI 根据场景精彩度自动选择视频片段，总占比控制在区间内（默认 20%-40%）；可生成场景数上限 {{ s2vConfig.videoMaxScenes }} 个。</p>
+              </div>
+            </div>
+          </details>
+
           <details
             class="s2v-config-section"
             data-testid="s2v-section-voice"
@@ -946,6 +992,7 @@ const STORY2VIDEO_STAGE_NAMES = Object.freeze([
   'split',
   'domain_enrich',
   'optimize',
+  'select_video_scenes',
   'generate_assets',
   'compose',
   'publish',
@@ -977,6 +1024,7 @@ const S2V_PLATFORMS = [
 // imageStyle）不在当前选项列表时回退到 data() 默认值，避免下拉框出现空白选中项（2026-08-10 Bug 反哺）。
 const S2V_RESTORE_ENUM_OPTIONS = Object.freeze({
   contentType: ['general', 'history'],
+  videoMode: ['off', 'fixed', 'ai-judged'],
   imageStyle: ['cinematic', 'realistic', 'anime', 'watercolor', 'minimalist'],
   promptStyle: ['realistic', 'cinematic', 'anime', 'watercolor', 'minimalist'],
   imageEffect: ['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'zoom-pan', 'rotate', 'blur-in'],
@@ -1044,6 +1092,9 @@ export default {
         voiceSpeed: 1, voiceVolume: 1,
         // 参数治理 R2（7.1.19）：concurrency 为系统管理参数（契约默认 3，范围 1-8），前端不暴露不提交。
         templateId: '', imageEffect: 'zoom-in',
+        // 视频+图片轮播混合模式（2026-08-11）：默认关闭保持纯图片轮播
+        videoMode: 'off', videoProvider: '', videoModel: '',
+        videoFixedRatio: 25, videoMinRatio: 20, videoMaxRatio: 40, videoMaxScenes: 3,
         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitTargetCharsPerScene: 20, splitViewMode: 'seconds',
         // 参数治理（7.1.19）：splitBaseWordsPerSecond 自 Batch 5a 起由语言感知表驱动（voice-estimate.js），
@@ -1076,13 +1127,13 @@ export default {
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
-      s2vImageProviders: [], s2vVoiceProviders: [],
+      s2vImageProviders: [], s2vVoiceProviders: [], s2vVideoProviders: [],
       s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCatalogErrorCode: '', s2vVoiceCapability: null,
       s2vVoiceProviderRequestId: 0, s2vVoiceRequestId: 0, s2vVoiceSelectionRequestId: 0, s2vVoiceCloneRequestId: 0, s2vPersistedVoiceId: '',
       s2vVoiceCloneRequirements: null, s2vVoiceClones: [],
       s2vVoiceCloneSelection: null, s2vVoiceCloneName: '', s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
-      s2vOpenSections: { basic: true, appearance: false, voice: false, advanced: false, publish: false },
+      s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false },
       // 历史
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
       // 清理
@@ -1132,6 +1183,23 @@ export default {
         ...provider,
         displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
       }))]
+    },
+    s2vVideoProviderOptions() {
+      return this.s2vVideoProviders.map(provider => ({
+        ...provider,
+        displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
+      }))
+    },
+    s2vVideoModelOptions() {
+      const provider = this.s2vVideoProviders.find(item => item?.id === this.s2vConfig.videoProvider)
+      if (!provider) return []
+      const strings = (Array.isArray(provider.models) ? provider.models : []).filter(model => typeof model === 'string' && model)
+      // 多模态：只展示声明支持视频的默认模型（capability_models.video）
+      if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
+        const videoModel = provider.capability_models.video
+        return strings.includes(videoModel) ? [videoModel] : [videoModel, ...strings]
+      }
+      return strings
     },
     s2vVoiceCatalogRefreshable() {
       // 仅瞬时/未知错误提供「刷新音色列表」；配置类/不支持/模型不匹配/身份问题重试无效
@@ -1454,8 +1522,8 @@ export default {
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
     s2vSectionLabel(section) {
       const key = `create.story2video.sections.${section}`
-      const fallback = { basic: '基础', appearance: '画面', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
-      const english = { basic: 'Basics', appearance: 'Appearance', voice: 'Voice', advanced: 'Advanced', publish: 'Publish' }[section] || section
+      const fallback = { basic: '基础', appearance: '画面', videoEnhance: '视频增强', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
+      const english = { basic: 'Basics', appearance: 'Appearance', videoEnhance: 'Video Boost', voice: 'Voice', advanced: 'Advanced', publish: 'Publish' }[section] || section
       return this.translateWithLocaleFallback(key, fallback, english)
     },
     s2vSubgroupLabel(subgroup) {
@@ -1468,6 +1536,11 @@ export default {
       const summaries = {
         basic: `${this.s2vConfig.contentType === 'history' ? '历史内容' : '通用内容'} · ${this.s2vConfig.imageProvider || '默认图片模型'}`,
         appearance: `${this.s2vConfig.imageStyle || '电影感'} · ${this.s2vConfig.imageEffect || '无效果'}`,
+        videoEnhance: this.s2vConfig.videoMode === 'off' || !this.s2vConfig.videoMode
+          ? '关闭'
+          : (this.s2vConfig.videoMode === 'fixed'
+            ? `固定 ${this.s2vConfig.videoFixedRatio}%`
+            : `AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.videoMaxRatio}%`),
         voice: `${this.s2vConfig.voiceProvider || '自动 Edge TTS'}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`,
         advanced: `${this.s2vConfig.splitLanguage === 'auto' ? '自动识别' : this.s2vConfig.splitLanguage} · ${this.s2vConfig.splitMode || '均衡'}`,
         publish: this.s2vConfig.platforms?.length ? `已选 ${this.s2vConfig.platforms.length} 个平台` : '不发布',
@@ -1855,6 +1928,16 @@ export default {
             effect: config.imageEffect,
             aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
           },
+          // 视频+图片轮播混合模式（2026-08-11）：off=纯图片轮播；fixed=前段固定比例 AI 视频；ai-judged=AI 智能选择
+          video: {
+            mode: config.videoMode || 'off',
+            provider: config.videoProvider || '',
+            model: config.videoModel || '',
+            fixedRatio: config.videoFixedRatio,
+            minRatio: config.videoMinRatio,
+            maxRatio: config.videoMaxRatio,
+            maxScenes: config.videoMaxScenes,
+          },
           voice: {
             provider: config.voiceProvider || '',
             model: config.voiceModel || '',
@@ -1969,6 +2052,27 @@ export default {
       }
       const configuredDefault = typeof provider?.defaultModel === 'string' ? provider.defaultModel : ''
       return models.includes(configuredDefault) ? configuredDefault : (models[0] || '')
+    },
+    getS2VVideoProvider(providerId = this.s2vConfig.videoProvider) {
+      return this.s2vVideoProviders.find(provider => provider?.id === providerId) || null
+    },
+    getS2VDefaultVideoModel(providerId = this.s2vConfig.videoProvider) {
+      const provider = this.getS2VVideoProvider(providerId)
+      const models = Array.isArray(provider?.models)
+        ? provider.models.filter(model => typeof model === 'string' && model)
+        : []
+      // 多模态：默认取 capability_models.video（能力默认模型），models 首项可能是 image/llm 模型。
+      if (provider?.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
+        const videoModel = provider.capability_models.video
+        return models.includes(videoModel) ? videoModel : (videoModel || models[0] || '')
+      }
+      const configuredDefault = typeof provider?.defaultModel === 'string' ? provider.defaultModel : ''
+      return models.includes(configuredDefault) ? configuredDefault : (models[0] || '')
+    },
+    handleS2VVideoProviderChange() {
+      const nextProviderId = this.getS2VVideoProvider()?.id || ''
+      this.s2vConfig.videoProvider = nextProviderId
+      this.s2vConfig.videoModel = nextProviderId ? this.getS2VDefaultVideoModel(nextProviderId) : ''
     },
     isCurrentS2VVoiceRequest(requestId, context) {
       return requestId === this.s2vVoiceRequestId
@@ -2178,9 +2282,10 @@ export default {
     },
     async loadS2VProviders() {
       const providerRequestId = ++this.s2vVoiceProviderRequestId
-      const [imageResult, voiceResult] = await Promise.allSettled([
+      const [imageResult, voiceResult, videoResult] = await Promise.allSettled([
         modelProviderList('image'),
         modelProviderList('tts'),
+        modelProviderList('video'),
       ])
       if (providerRequestId !== this.s2vVoiceProviderRequestId) return
 
@@ -2192,7 +2297,13 @@ export default {
         : []
       this.s2vImageProviders = enabledProviders(imageResult)
       this.s2vVoiceProviders = enabledProviders(voiceResult)
+      this.s2vVideoProviders = enabledProviders(videoResult)
       if (!this.s2vConfig.imageProvider && this.s2vImageProviders[0]) this.s2vConfig.imageProvider = this.s2vImageProviders[0].id
+      // 视频生成器：默认取第一个可用视频 provider（未显式选择时）；选中后同步默认模型
+      if (!this.s2vConfig.videoProvider && this.s2vVideoProviders[0]) {
+        this.s2vConfig.videoProvider = this.s2vVideoProviders[0].id
+        this.s2vConfig.videoModel = this.getS2VDefaultVideoModel(this.s2vConfig.videoProvider)
+      }
 
       const configuredProvider = this.getS2VVoiceProvider()
       const nextProviderId = configuredProvider?.id || this.s2vVoiceProviders[0]?.id || ''
@@ -3092,9 +3203,21 @@ export default {
           return this.translateWithLocaleFallback('story2video.optimizeProgress', '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个', p.done + '/' + p.total + ' scenes optimized')
         }
       }
+      if (stage.name === 'select_video_scenes') {
+        const plan = ctx.video_plan
+        if (plan && plan.mode !== 'off' && Number.isInteger(plan.selectedCount) && plan.selectedCount > 0) {
+          return this.translateWithLocaleFallback('story2video.selectVideoScenes', '已选 ' + plan.selectedCount + ' 个 AI 视频场景（约 ' + plan.ratio + '%）', plan.selectedCount + ' AI video scenes selected (~' + plan.ratio + '%)')
+        }
+        if (plan && plan.mode === 'off') {
+          return this.translateWithLocaleFallback('story2video.selectVideoScenesOff', '纯图片轮播模式', 'Image carousel mode')
+        }
+      }
       if (stage.name === 'generate_assets') {
         const p = ctx.assets_progress
         if (p && Number.isInteger(p.imagesTotal) && Number.isInteger(p.ttsTotal)) {
+          if (Number.isInteger(p.videosTotal) && p.videosTotal > 0) {
+            return this.translateWithLocaleFallback('story2video.assetsProgressVideo', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 视频 ' + p.videosDone + '/' + p.videosTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Videos ' + p.videosDone + '/' + p.videosTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal)
+          }
           return this.translateWithLocaleFallback('story2video.assetsProgress', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal)
         }
       }
@@ -3341,6 +3464,8 @@ export default {
 .platform-checkboxes { display: flex; flex-wrap: wrap; gap: 8px 14px; }
 .checkbox-label { display: inline-flex !important; align-items: center; gap: 5px; font-weight: 400 !important; white-space: nowrap; }
 .config-item label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.config-item-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; margin-top: 6px; }
+.config-item-inline .form-range { flex: 1 1 120px; min-width: 80px; }
 .form-select, .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; box-sizing: border-box; }
 .form-range { width: 100%; }
 .voice-slot-hint p { margin: 0; }
