@@ -162,6 +162,8 @@ function copyImportedMedia (source, destination) {
  */
 const DEFAULT_IMPORT_GC_INTERVAL_MS = 60 * 60 * 1000
 // 惰性 GC 节流按 baseDir 拆分（模块级共享，避免不同导入目录互相抑制；测试亦隔离）。
+// Minor9 备注：生产仅 `story2video:import-media` 单 baseDir（selected-media）场景成立；
+// 若未来出现多导入目录并行生产，此 Map 天然按 baseDir 隔离，无需迁移。
 const _lastImportedMediaGcByBaseDir = new Map()
 
 /** 惰性老化回收：仅在显式开启（gcEnabled=true，生产接线传入）时按间隔触发；best-effort 失败静默。 */

@@ -472,7 +472,8 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(result.data.bgmSkipped).toBe(true)
       expect(result.data.bgmSkippedReason).toBe('unreadable')
       expect(Array.isArray(result.data.warnings)).toBe(true)
-      expect(result.data.warnings.some(w => /BGM/.test(String(w)))).toBe(true)
+      expect(result.data.warnings).toContain('bgm_unreadable')
+      expect(result.data.warnings.join(' ')).not.toMatch(/[\u4e00-\u9fa5]/)
       expect(fs.existsSync(result.data.videoPath)).toBe(true)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
@@ -505,8 +506,9 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(result.code).toBe(0)
       expect(result.data.bgmSkipped).toBe(true)
       expect(result.data.bgmSkippedReason).toBe('size_exceeded')
-      expect(result.data.warnings.some(w => /超过大小上限/.test(String(w)))).toBe(true)
-      expect(result.data.warnings.some(w => /不可读/.test(String(w)))).toBe(false)
+      expect(result.data.warnings).toContain('bgm_size_exceeded')
+      expect(result.data.warnings).not.toContain('bgm_unreadable')
+      expect(result.data.warnings.join(' ')).not.toMatch(/[\u4e00-\u9fa5]/)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
@@ -534,6 +536,8 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(flac.code).toBe(0)
       expect(flac.data.bgmSkipped).toBe(true)
       expect(flac.data.bgmSkippedReason).toBe('format_unsupported')
+      expect(flac.data.warnings).toContain('bgm_format_unsupported')
+      expect(flac.data.warnings.join(' ')).not.toMatch(/[\u4e00-\u9fa5]/)
 
       // 无扩展名的可读文件同样判为 format_unsupported（与 resolveReadableMediaFile 一致）
       const noExt = path.join(root, 'bgm-no-extension')
@@ -544,6 +548,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       )
       expect(noExtResult.code).toBe(0)
       expect(noExtResult.data.bgmSkippedReason).toBe('format_unsupported')
+      expect(noExtResult.data.warnings).toContain('bgm_format_unsupported')
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
@@ -574,6 +579,8 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(result.code).toBe(0)
       expect(result.data.bgmSkipped).toBe(true)
       expect(result.data.bgmSkippedReason).toBe('not_allowed')
+      expect(result.data.warnings).toContain('bgm_not_allowed')
+      expect(result.data.warnings.join(' ')).not.toMatch(/[\u4e00-\u9fa5]/)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
       fs.rmSync(outside, { recursive: true, force: true })
@@ -610,6 +617,8 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(result.data.bgmApplied).toBe(false)
       expect(result.data.bgmSkipped).toBe(true)
       expect(result.data.bgmSkippedReason).toBe('unreadable')
+      expect(result.data.warnings).toContain('bgm_unreadable')
+      expect(result.data.warnings.join(' ')).not.toMatch(/[\u4e00-\u9fa5]/)
       expect(engine._mixBgm).not.toHaveBeenCalled()
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
