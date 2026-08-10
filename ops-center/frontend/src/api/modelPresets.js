@@ -44,3 +44,7 @@ export function updateModelPreset(id, data) {
 export function deleteModelPreset(id) {
   return api.delete(`/model-presets/${id}`).then(r => r.data)
 }
+
+export function fetchModelIds(id, data) {
+  return api.post(`/model-presets/${id}/fetch-models`, data).then(r => r.data)
+}

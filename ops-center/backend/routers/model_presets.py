@@ -1,4 +1,6 @@
-"""Model preset catalog API — 预设模型设置 / 多模态能力设置。"""
+"""Model preset catalog API — 预设模型设置 / 多模态能力设置 / 获取模型ID。"""
+import datetime
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,6 +71,36 @@ async def update_model_preset(
         return await model_preset_service.upsert_model_preset(db, body, updated_by=user.get("username", "admin"))
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@router.post("/{preset_id}/fetch-models")
+async def fetch_models(
+    preset_id: str,
+    body: dict | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(require_admin),
+):
+    """从预设的获取模型ID URL 拉取全部支持的模型 ID（admin-only，SSRF 防护）。
+
+    支持 body.models_url 覆盖（前端「获取模型」按钮使用未保存的表单 URL）；
+    成功回写 models/models_url（default_model 若不在新列表则清空），失败不改动已有数据。
+    """
+    override = (body or {}).get("models_url") if isinstance(body, dict) else None
+    try:
+        models, default_model, models_url = await model_preset_service.fetch_models_from_url(db, preset_id, override)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    row = await model_preset_service.get_model_preset(db, preset_id)
+    if row is None:
+        # 拉取期间预设被并发删除：不写行、返回 404（避免 AttributeError 500）
+        raise HTTPException(404, f"Model preset not found: {preset_id}")
+    row.models = json.dumps(models, ensure_ascii=False)
+    row.default_model = default_model
+    row.models_url = models_url
+    row.updated_at = datetime.datetime.utcnow().isoformat()
+    await db.commit()
+    await db.refresh(row)
+    return {"models": models, "default_model": default_model, "count": len(models)}
 
 
 @router.delete("/{preset_id}")
