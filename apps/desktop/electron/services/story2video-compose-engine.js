@@ -520,8 +520,23 @@ class Story2VideoComposeEngine {
     this.maxSegmentDurationSeconds = positiveLimit(opts.maxSegmentDurationSeconds, DEFAULT_MAX_SEGMENT_DURATION_SECONDS)
     this.maxOutputPixels = positiveLimit(opts.maxOutputPixels, DEFAULT_MAX_OUTPUT_PIXELS)
     // 输出分辨率能力开关：'1080p'（默认，禁止 4K）| '4k'。fail-closed——未知值一律按 1080p。
+    // 支持惰性读取（运营功能开关运行时下发）：getMaxOutputResolution 优先，静态值兜底
     this.maxOutputResolution = opts.maxOutputResolution === '4k' ? '4k' : '1080p'
+    this._maxOutputResolutionGetter = typeof opts.getMaxOutputResolution === 'function'
+      ? opts.getMaxOutputResolution
+      : null
     this._segmentSeq = 0
+  }
+
+  /** 当前输出分辨率能力（惰性读取运营功能开关；读取失败回退构造期静态值，fail-closed） */
+  _currentMaxOutputResolution () {
+    if (this._maxOutputResolutionGetter) {
+      try {
+        const v = this._maxOutputResolutionGetter()
+        if (v === '4k' || v === '1080p') return v
+      } catch (_) { /* 回退静态值 */ }
+    }
+    return this.maxOutputResolution
   }
 
   /**
@@ -562,7 +577,7 @@ class Story2VideoComposeEngine {
     const resolutionError = validateResolution(options?.resolution, this.maxOutputPixels)
     if (resolutionError) return { code: -1, message: resolutionError }
     // 运营开关 fail-closed：未开启 4K 时拒绝 4K 及以上输出分辨率
-    const capabilityError = validateResolutionCapability(options?.resolution, this.maxOutputResolution)
+    const capabilityError = validateResolutionCapability(options?.resolution, this._currentMaxOutputResolution())
     if (capabilityError) return { code: -1, message: capabilityError }
 
     const requestedBgmPath = options?.bgmPath || assetManifest.bgmPath || assetManifest.bgm?.path
@@ -1015,7 +1030,7 @@ class Story2VideoComposeEngine {
       return { code: -1, message: 'Invalid segment render request' }
     }
     // 与 compose() 同能力守卫：未开启 4K 时拒绝 4K 分段渲染
-    const capabilityError = validateResolutionCapability(options.resolution, this.maxOutputResolution)
+    const capabilityError = validateResolutionCapability(options.resolution, this._currentMaxOutputResolution())
     if (capabilityError) return { code: -1, message: capabilityError }
     const imagePath = resolveReadableMediaFile(scene.imagePath, {
       kind: 'image', allowedRoots: this.allowedMediaRoots, maxBytes: this.maxInputFileBytes,

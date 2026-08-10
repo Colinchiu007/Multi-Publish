@@ -1,3 +1,12 @@
+## [未发布] 功能：桌面端功能开关运行时下发（P0-1）（2026-08-11）
+
+- ops-center：新增 `feature_flags` 表 + `GET/POST /api/v1/feature-flags`、`PUT/DELETE /api/v1/feature-flags/{key}`（admin）；校验 key 字符集 / value_type 枚举 / typed value 可解析；POST 重复 409、PUT/DELETE 不存在 404；种子 `videoCreation.maxOutputResolution`='1080p'（4K 能力开关，PRD 7.1.20）；`runtime/bootstrap` 增加 `feature_flags`（enabled=1 typed value，X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「桌面端功能开关」页（列表/筛选/新增/编辑/删除/启用停用/类型化值校验）。
+- 桌面端：`OpsCenterSync` 应用并持久化 featureFlags（基本类型值、≤100 项、非法结构空对象 fail-closed、重启恢复）；`getFeatureFlag`；4K 能力开关读取优先级改为 环境变量 → 运营功能开关（phase1 setFeatureFlagProvider）→ store → 默认 1080p；compose 引擎惰性读取（getMaxOutputResolution）；CreateView 渲染端优先读功能开关。
+- 文档：ops-center PRD 12A.16、Multi-Publish PRD §7.4.9、CHANGELOG。
+- 审查修复（Claude 定向审查）：number value 统一 float 解析 + `math.isfinite`（防 inf → bootstrap 500）；value ≤512（防撑爆 1MB 同步契约）；PUT 忽略 body 中 key（key 不可变）+ IntegrityError → 409；种子并发幂等；桌面端恢复路径同样归一化；`getFeatureFlag` 仅自有属性 + 拒绝 `__proto__`/`constructor`/`prototype`；前端数字校验与后端一致；CreateView 脆弱用例加固（显式 selectedPipeline/provider/model + 稳定等待，消除顺序依赖与额外 microtask 时序敏感）。
+- 测试：ops-center pytest（+2，全量 104）；桌面端 ops-center-sync +5、引擎惰性 4K/单测 +3、container 全量通过；前端 build 通过。
+
 ## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
 
 - ops-center：新增 `GET /api/v1/system/health`（admin）——并发只读探针（自身/业务 API health+ready/Logto OIDC discovery/存储可写/`OPS_HEALTH_TARGETS` 自定义目标），单项 ≤5s 超时、URL 非回环强制 https、未配置跳过；返回 overall + 每项状态/耗时/详情。

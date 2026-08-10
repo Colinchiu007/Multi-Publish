@@ -81,6 +81,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/runtime-flags',
+    name: 'RuntimeFlags',
+    component: () => import('../views/RuntimeFlags.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/parameters',
     name: 'Parameters',
     component: () => import('../views/Parameters.vue'),
