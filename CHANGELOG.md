@@ -1,3 +1,14 @@
+## [未发布] 功能：运营后台 → 桌面端模型配置运行时同步（2026-08-10）
+
+- ops-center：新增只读目录同步端点 `GET /api/v1/model-presets/catalog`（`X-Catalog-Key` 鉴权 = `OPS_CATALOG_API_KEY`，常量时间比较；未配置 → 404 fail-closed；Key 错误 → 401）；仅返回 `is_visible=1` 预设，字段含限流/模型/默认模型/能力（不含敏感项）。
+- 桌面端：新增主进程 `OpsCenterSync`（`ops-center-sync.js`）——配置存 settings（API Key 经 safeStorage 加密 base64，getConfig 不返回明文）；URL 校验（非本机回环强制 https、拒绝内嵌凭据）；拉取目录（10s 超时/禁重定向/≤1MB/JSON 结构 fail-closed）；401/403/404/超时/连接失败均映射明确中文错误。
+- 桌面端：`ModelProviderManager.applyCatalog` 运行时下发——合并限流/模型/能力到已有行，**不覆盖** api_key/enabled/is_default/base_url；目录有本地无 → 插入 is_preset=1/enabled=0 行；目录缺失的本地行不清除；运营未配置限流（null/''/0/布尔）→ 清除本地值并回退默认；写库后重应用 governor 预算（rate_per_minute→setProviderLimits、limit_per_5h→5h 窗口）。
+- IPC：`ops-center-sync:get/save/now`（preload `opsCenterSyncGet/Save/Now`，access-control PUBLIC_METHODS）；启动时 autoSync 3 秒后 best-effort 同步（失败仅 warn）。
+- 前端：模型设置页新增「🔄 运营后台同步」卡片（地址/Key/自动同步开关/保存/立即同步/上次同步时间/成功失败状态文案）；「每分钟连接次数/5小时限额次数」由输入框改为**只读展示**（值或「未配置（默认限流）」）；同步启用后预设服务商模型列表输入禁用并提示来源；自定义服务商模型仍可编辑。
+- 修复：`pipeline-engine.test.js` 持久化 running 快照断言与 PRD「已暂停状态归一化合同」对齐（重启后 status=paused + pausedStage），修复 main 上该测试红。
+- 文档：Multi-Publish PRD §7.4.5（端点/服务/交互/数据校验/验收标准）、ops-center PRD 12A.10；7.4.4.2 前端表单行同步更新。
+- 测试：ops-center pytest catalog 4 用例；桌面端 ops-center-sync 15、apply-catalog 5、IPC 3、useOpsCenterSync 6 用例全绿。
+
 ## [未发布] 修复：ops-center 功能开关加载失败（启动种子接入项目/功能开关导入，2026-08-10）
 
 - 根因：`projects`/`ConfigItem` 数据此前依赖手动 `scripts/seed.py`，新建库为空 → FeatureFlags 页请求 `platform-orchestrator` 404「加载功能开关失败」。

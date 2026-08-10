@@ -219,7 +219,9 @@ describe('PipelineEngine 状态机模式', () => {
     expect(history).toContainEqual(expect.objectContaining({
       id: 'run-running-persisted',
       pipeline: 'story2video-compose',
-      status: 'paused',  // 重启后 running → paused
+      // 重启后持久化 running 快照按 PRD「已暂停状态归一化合同」转为 paused，并记录暂停环节
+      status: 'paused',
+      pausedStage: 'generate_assets',
       completedAt: null,
     }))
 

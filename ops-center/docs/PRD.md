@@ -741,3 +741,38 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 | `models_url`（获取模型ID URL） | **无代码事实**（适配器无 `/models` 调用）→ 空 | 「获取模型」按钮需运营填写模型网址 |
 
 - 变更守则：任何桌面适配器端点/模型/限流常量变更，须同步更新本目录并跑 12A.7-6 一致性测试（`test_catalog_facts_consistency`）。
+
+## 12A.10 模型目录只读同步端点（catalog，桌面端运行时下发）（2026-08-10 新增）
+
+> 桌面端通过只读目录端点拉取运营配置（限流/模型/能力），实现「运营后台填写 → 桌面端运行时自动下发」，前端限流/模型字段改为只读。详见 Multi-Publish PRD §7.4.5。
+
+### 12A.10.1 端点契约
+
+| 项 | 契约 |
+|----|------|
+| 方法/路径 | `GET /api/v1/model-presets/catalog`（**在 `/{preset_id}` 动态路由之前注册**，避免被吞） |
+| 鉴权 | `X-Catalog-Key` 请求头 == `OPS_CATALOG_API_KEY`（`hmac.compare_digest` 常量时间比较），**无需登录** |
+| 未配置 | `OPS_CATALOG_API_KEY` 未配置（空）→ **404**（不暴露端点存在性，fail-closed） |
+| Key 错误/缺失 | → **401**「目录同步 Key 无效」 |
+| 成功响应 | `{ "items": [...], "count": N, "synced_at": "ISO8601Z" }` |
+| 数据范围 | 仅 `is_visible=1` 预设，按 `is_multimodal DESC, category, name` 排序 |
+| item 字段 | `id` / `name` / `category` / `base_url` / `models` / `default_model` / `rate_per_minute` / `limit_per_5h` / `is_multimodal` / `capabilities` / `capability_models` / `updated_at`；**不含** api_key、密钥、审计等敏感字段 |
+| 数据自洽 | `default_model` 非空必须 ∈ `models`；`rate_per_minute`/`limit_per_5h` 为 `null` 或正整数（`[0,100000]`/`[0,10000000]` 已由写入校验保证） |
+
+### 12A.10.2 桌面端消费契约
+
+| 项 | 契约 |
+|----|------|
+| 服务 | 主进程 `OpsCenterSync`（`apps/desktop/electron/services/ops-center-sync.js`） |
+| 配置存储 | settings `opsCenterSync`：`{url, apiKeyEnc, autoSync, lastSyncedAt}`；API Key 经 safeStorage 加密 base64，`getConfig()` 不返回明文 |
+| URL 校验 | 必须 http(s)；非本机回环强制 https；拒绝 URL 内嵌凭据 |
+| 拉取 | `{url}/api/v1/model-presets/catalog`；`X-Catalog-Key` 头；禁重定向；10s 超时；≤1MB；JSON 必须含 `items` 数组 |
+| 错误映射 | 401/403→Key 无效；404→未启用目录同步；超时→同步请求超时（10 秒）；连接失败→无法连接 Ops Center；其余→HTTP {status} |
+| 写入 | `ModelProviderManager.applyCatalog`：合并限流/模型/能力；不覆盖 api_key/enabled/is_default/base_url；缺失行插入（is_preset=1/enabled=0）；本地独有行不清除；限流 null/非法值清除本地并回退默认 |
+| Governor | 写库后 `_applyGovernorLimits()`：rate_per_minute→setProviderLimits、limit_per_5h→setProviderTokenWindows(5h) |
+| 前端 | 模型设置页「运营后台同步」卡片（地址/Key/自动同步/立即同步/上次同步时间/状态文案）；限流与预设模型列表只读 |
+
+### 12A.10.3 测试
+
+- `ops-center/backend/tests/test_model_catalog_api.py`：正确 Key 返回全部可见预设（≥50 项、minimax-multimodal 命中、default∈models、限流正整数或空）；错误/缺失 Key 401；未配置 404；隐藏项排除。
+- 桌面端：`ops-center-sync.test.js`（URL 校验/加密存储/错误映射/超时/大小/JSON/结构/成功落盘/自动同步）、`model-provider-apply-catalog.test.js`（合并/不覆盖/插入/不清除/清空回退/governor 重应用）、`ipc-handlers/ops-center-sync.test.js`、`useOpsCenterSync.test.js`。

@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     admin_password: str = ""
     # 功能开关导入源（可选；缺省探测 orchestrator_feature_gates_path 与开发机默认路径）
     feature_gates_import_source: str = ""
+    # 模型目录只读同步端点（桌面端拉取运营配置）API Key；未配置 → 端点 404（fail-closed）
+    catalog_api_key: str = ""
 
     def get_jwt_secret(self) -> str:
         """返回经过安全校验的 JWT 密钥。"""

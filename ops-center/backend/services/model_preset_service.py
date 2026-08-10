@@ -742,6 +742,34 @@ async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_ove
     return models, default_model, models_url
 
 
+
+
+async def list_catalog(db: AsyncSession) -> list[dict]:
+    """目录同步端点数据：仅 is_visible=1，序列化桌面端所需字段（不含敏感项）。"""
+    import sqlalchemy as sa
+
+    rows = (await db.execute(
+        sa.select(ModelPreset).where(ModelPreset.is_visible == 1).order_by(ModelPreset.is_multimodal.desc(), ModelPreset.category, ModelPreset.name)
+    )).scalars().all()
+    return [_to_catalog_item(r) for r in rows]
+
+
+def _to_catalog_item(row: ModelPreset) -> dict:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "category": row.category,
+        "base_url": row.base_url or "",
+        "models": json.loads(row.models or "[]"),
+        "default_model": row.default_model or "",
+        "rate_per_minute": row.rate_per_minute,
+        "limit_per_5h": row.limit_per_5h,
+        "is_multimodal": bool(row.is_multimodal),
+        "capabilities": json.loads(row.capabilities or "[]"),
+        "capability_models": json.loads(row.capability_models or "{}"),
+        "updated_at": row.updated_at,
+    }
+
 def _to_dict(row: ModelPreset) -> dict:
     return {
         "id": row.id,
