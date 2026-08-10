@@ -829,6 +829,7 @@
 
 <script>
 import UiButton from '@/components/UiButton.vue'
+import Story2VideoConfigPanel from '@/components/Story2VideoConfigPanel.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import {
@@ -1006,7 +1007,7 @@ const STABILITY_MAP = {
 
 export default {
   name: 'CreateView',
-  components: { UiButton, UiModal, UiSelect },
+  components: { UiButton, UiModal, UiSelect, Story2VideoConfigPanel },
   data() {
     return {
       // 视图
