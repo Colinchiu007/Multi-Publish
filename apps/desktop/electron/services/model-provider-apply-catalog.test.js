@@ -158,6 +158,16 @@ describe('ModelProviderManager.applyCatalog', () => {
     expect(row('catalog-only-provider')).toBeTruthy() // 仍存在
   })
 
+  it('畸形目录项（缺 models 字段）不清空本地模型列表（fail-closed）', () => {
+    db.prepare(
+      "UPDATE model_providers SET models = ?, config = ?, updated_at = datetime('now') WHERE id = 'openai'"
+    ).run(JSON.stringify(['gpt-4o', 'gpt-4o-mini']), JSON.stringify({ rate_per_minute: 12 }))
+    const res = manager.applyCatalog([{ id: 'openai', name: 'OpenAI', rate_per_minute: 30 }])
+    expect(res.code).toBe(0)
+    expect(JSON.parse(row('openai').models)).toEqual(['gpt-4o', 'gpt-4o-mini']) // 模型保留
+    expect(JSON.parse(row('openai').config).rate_per_minute).toBe(30)           // 限流照常合并
+  })
+
   it('未就绪 / 非数组 → fail-closed', () => {
     const notReady = new (require('./model-provider-manager').ModelProviderManager)({ db: database })
     expect(notReady.applyCatalog([{ id: 'x' }]).code).toBe(-1)

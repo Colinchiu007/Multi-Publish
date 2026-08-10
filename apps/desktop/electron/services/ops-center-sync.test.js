@@ -50,6 +50,8 @@ describe('normalizeUrl', () => {
   it('本机回环地址允许 http', () => {
     expect(normalizeUrl('http://localhost:8000')).toBe('http://localhost:8000')
     expect(normalizeUrl('http://127.0.0.1:8000')).toBe('http://127.0.0.1:8000')
+    expect(normalizeUrl('http://127.0.0.2:8000')).toBe('http://127.0.0.2:8000')
+    expect(normalizeUrl('http://[::1]:8000')).toBe('http://[::1]:8000')
   })
 
   it('非本机地址强制 https，拒绝明文 http', () => {
@@ -81,6 +83,18 @@ describe('OpsCenterSync saveConfig/getConfig', () => {
     expect(store._getData()).not.toContain('secret-key-123')
     expect(store._getData()).toContain('apiKeyEnc')
     expect(svc.getConfig().apiKey).toBeUndefined()
+  })
+
+  it('二次保存（apiKey 为空）不把明文写进 settings（密文透传）', () => {
+    const store = makeStore()
+    const svc = new OpsCenterSync({ store, modelProviderManager: makeManager(), log: LOG })
+    svc.saveConfig({ url: 'https://ops.example.com', apiKey: 'secret-key-123', autoSync: true })
+    // 第二次保存：切换 autoSync，不填 Key —— 必须透传密文，绝不能解密后回写明文
+    const res = svc.saveConfig({ url: 'https://ops.example.com', apiKey: '', autoSync: false })
+    expect(res.code).toBe(0)
+    expect(res.config.apiKeyConfigured).toBe(true)
+    expect(store._getData()).not.toContain('secret-key-123')
+    expect(store._getData()).not.toContain('secret')
   })
 
   it('apiKey 为空时保留已有 Key，不重复加密', () => {

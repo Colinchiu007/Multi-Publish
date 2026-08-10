@@ -80,19 +80,40 @@ describe('useOpsCenterSync', () => {
     expect(res.code).toBe(-1)
   })
 
-  it('runSyncNow 成功显示条数、失败显示错误，同步中防重入', async () => {
+  it('runSyncNow 先持久化表单再同步：成功显示条数、失败显示错误', async () => {
+    apiMock.opsCenterSyncSave.mockResolvedValue({
+      code: 0,
+      config: { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true, lastSyncedAt: '' },
+    })
     apiMock.opsCenterSyncNow.mockResolvedValue({ code: 0, updated: 3, syncedAt: '2026-08-10T08:01:00.000Z' })
     const s = useOpsCenterSync()
+    s.syncUrl.value = 'https://ops.example.com'
+    s.syncApiKey.value = 'k'
     const res = await s.runSyncNow()
     expect(res.code).toBe(0)
+    // 先保存（携带表单 URL/Key/autoSync），再触发同步
+    expect(apiMock.opsCenterSyncSave).toHaveBeenCalledWith({ url: 'https://ops.example.com', apiKey: 'k', autoSync: true })
+    expect(apiMock.opsCenterSyncNow).toHaveBeenCalledTimes(1)
     expect(s.syncStatus.value).toContain('3 个服务商')
     expect(s.lastSyncedAt.value).toBe('2026-08-10T08:01:00.000Z')
 
-    apiMock.opsCenterSyncNow.mockResolvedValue({ code: -1, message: 'API Key 无效（401/403）' })
+    // 保存失败则中止同步
+    apiMock.opsCenterSyncSave.mockResolvedValue({ code: -1, message: 'URL 非法' })
     const s2 = useOpsCenterSync()
     const res2 = await s2.runSyncNow()
     expect(res2.code).toBe(-1)
-    expect(s2.syncError.value).toContain('401/403')
+    expect(s2.syncError.value).toContain('URL 非法')
+
+    // 同步失败显示映射错误
+    apiMock.opsCenterSyncSave.mockResolvedValue({
+      code: 0,
+      config: { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true, lastSyncedAt: '' },
+    })
+    apiMock.opsCenterSyncNow.mockResolvedValue({ code: -1, message: 'API Key 无效（401/403）' })
+    const s3 = useOpsCenterSync()
+    const res3 = await s3.runSyncNow()
+    expect(res3.code).toBe(-1)
+    expect(s3.syncError.value).toContain('401/403')
   })
 
   it('导出完整性：模板所需属性全部存在', () => {

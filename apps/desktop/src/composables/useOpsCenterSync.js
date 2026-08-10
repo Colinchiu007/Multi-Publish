@@ -3,7 +3,7 @@
  *
  * 职责：
  *   - 加载/保存运营后台同步配置（URL、API Key、自动同步开关）
- *   - 手动触发「立即同步」并回显结果（成功条数 / 错误提示）
+ *   - 手动触发「立即同步」（先持久化当前表单再拉取下发）并回显结果
  *   - 暴露 lastSyncedAt，供模型设置页把限流/模型字段转为只读
  */
 import { ref } from 'vue'
@@ -24,6 +24,15 @@ export function useOpsCenterSync () {
   /** 是否已配置同步（有 URL 且有 Key），驱动限流/模型只读 */
   const syncConfigured = ref(false)
 
+  function applyConfig (cfg) {
+    if (!cfg) return
+    syncUrl.value = cfg.url || ''
+    syncApiKeyConfigured.value = !!cfg.apiKeyConfigured
+    syncAutoSync.value = cfg.autoSync !== false
+    lastSyncedAt.value = cfg.lastSyncedAt || ''
+    syncConfigured.value = !!(cfg.url && cfg.apiKeyConfigured)
+  }
+
   function formatLastSync (iso) {
     if (!iso) return ''
     const d = new Date(iso)
@@ -35,13 +44,8 @@ export function useOpsCenterSync () {
   async function loadSyncConfig () {
     const res = await opsCenterSyncGet()
     if (res.code === 0 && res.config) {
-      const cfg = res.config
-      syncUrl.value = cfg.url || ''
       syncApiKey.value = ''
-      syncApiKeyConfigured.value = !!cfg.apiKeyConfigured
-      syncAutoSync.value = cfg.autoSync !== false
-      lastSyncedAt.value = cfg.lastSyncedAt || ''
-      syncConfigured.value = !!(cfg.url && cfg.apiKeyConfigured)
+      applyConfig(res.config)
     }
     return res
   }
@@ -56,26 +60,34 @@ export function useOpsCenterSync () {
     if (res.code === 0) {
       ElMessage.success('运营后台同步配置已保存')
       syncApiKey.value = ''
-      if (res.config) {
-        syncUrl.value = res.config.url || ''
-        syncApiKeyConfigured.value = !!res.config.apiKeyConfigured
-        syncAutoSync.value = res.config.autoSync !== false
-        lastSyncedAt.value = res.config.lastSyncedAt || ''
-        syncConfigured.value = !!(res.config.url && res.config.apiKeyConfigured)
-      }
+      applyConfig(res.config)
     } else {
       ElMessage.error(res.message || '保存同步配置失败')
     }
     return res
   }
 
-  /** 立即同步：拉取目录 → 下发到本地模型配置 */
+  /** 立即同步：先持久化当前表单 → 拉取目录 → 下发到本地模型配置 */
   async function runSyncNow () {
     if (syncing.value) return null
     syncing.value = true
     syncStatus.value = ''
     syncError.value = ''
     try {
+      // 用户可能未点「保存配置」直接点「立即同步」：先用当前表单保存
+      const saved = await opsCenterSyncSave({
+        url: syncUrl.value,
+        apiKey: syncApiKey.value,
+        autoSync: syncAutoSync.value,
+      })
+      if (saved.code !== 0) {
+        syncError.value = saved.message || '保存同步配置失败，无法同步'
+        ElMessage.error(syncError.value)
+        return saved
+      }
+      syncApiKey.value = ''
+      applyConfig(saved.config)
+
       const res = await opsCenterSyncNow()
       if (res.code === 0) {
         syncStatus.value = `同步成功：更新 ${res.updated || 0} 个服务商（${formatLastSync(res.syncedAt)}）`

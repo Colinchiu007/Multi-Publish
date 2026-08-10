@@ -26,8 +26,8 @@ function normalizeUrl(value) {
   try { parsed = new URL(text) } catch { return '' }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return ''
   if (parsed.username || parsed.password) return ''
-  const host = parsed.hostname.toLowerCase()
-  const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  const isLoopback = host === 'localhost' || host === '::1' || /^127\./.test(host)
   if (!isLoopback && parsed.protocol !== 'https:') return ''
   return parsed.toString().replace(/\/+$/, '')
 }
@@ -60,7 +60,8 @@ class OpsCenterSync {
     if (url && !cleanUrl) {
       return { code: -1, message: 'Ops Center 地址必须是 http(s) URL（非本机地址强制 https）' }
     }
-    let apiKeyEnc = current.apiKeyConfigured ? this._readEncryptedKey() : ''
+    // apiKey 为空时透传已有密文（绝不解密后回写，避免明文落盘/解密失败抹 Key）
+    let apiKeyEnc = this._getStoredKeyEnc()
     if (apiKey) {
       if (!crypto.isAvailable()) return { code: -1, message: '系统加密不可用，无法安全保存 API Key' }
       apiKeyEnc = crypto.encrypt(String(apiKey)).toString('base64')
@@ -88,8 +89,18 @@ class OpsCenterSync {
     try { return crypto.decrypt(cfg.apiKeyEnc) } catch { return '' }
   }
 
-  /** 立即同步：拉取目录 → applyCatalog → 更新 lastSyncedAt */
+  /** 立即同步：拉取目录 → applyCatalog → 更新 lastSyncedAt（in-flight 互斥，防手动/自动并发） */
   async syncNow() {
+    if (this._syncing) return { code: -1, message: '同步正在进行中，请稍候' }
+    this._syncing = true
+    try {
+      return await this._syncNowInner()
+    } finally {
+      this._syncing = false
+    }
+  }
+
+  async _syncNowInner() {
     const cfg = this.getConfig()
     if (!cfg.url) return { code: -1, message: '未配置 Ops Center 地址' }
     if (!cfg.apiKeyConfigured) return { code: -1, message: '未配置 Ops Center API Key' }

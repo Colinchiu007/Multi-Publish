@@ -859,8 +859,12 @@ class ModelProviderManager {
       const limit5h = this._normalizeConfigLimit(item.limit_per_5h)
       if (rpm !== null) config.rate_per_minute = rpm
       if (limit5h !== null) config.limit_per_5h = limit5h
+      // default_model 为目录契约信息字段：写入 config 保留运营配置（供展示/后续模型选择路由使用）；
+      // 当前模型调用解析走 capability_models[type] 或 models[0]，provider 级默认走 is_default=1。
       if (item.default_model && typeof item.default_model === 'string') config.default_model = item.default_model.trim()
-      const models = Array.isArray(item.models) ? item.models.filter(m => typeof m === 'string' && m.trim()) : []
+      // 模型列表仅当目录项为完整数组时视为权威；畸形/缺字段项不覆盖本地 models（fail-closed）
+      const hasModels = Array.isArray(item.models)
+      const models = hasModels ? item.models.filter(m => typeof m === 'string' && m.trim()) : []
 
       const row = db.prepare('SELECT * FROM model_providers WHERE id = ?').get(id)
       if (row) {
@@ -870,8 +874,14 @@ class ModelProviderManager {
         // 由 _applyGovernorLimits 回退到静态默认或移除 provider 级预算，避免陈旧值残留。
         if (rpm === null) delete merged.rate_per_minute
         if (limit5h === null) delete merged.limit_per_5h
-        db.prepare("UPDATE model_providers SET models = ?, config = ?, updated_at = datetime('now') WHERE id = ?")
-          .run(JSON.stringify(models), JSON.stringify(merged), id)
+        if (hasModels) {
+          db.prepare("UPDATE model_providers SET models = ?, config = ?, updated_at = datetime('now') WHERE id = ?")
+            .run(JSON.stringify(models), JSON.stringify(merged), id)
+        } else {
+          // 畸形/缺 models 字段的目录项：只合并 config，不清空本地模型列表
+          db.prepare("UPDATE model_providers SET config = ?, updated_at = datetime('now') WHERE id = ?")
+            .run(JSON.stringify(merged), id)
+        }
         this._invalidateAdapterCache(id)
         updated += 1
       } else {
