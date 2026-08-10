@@ -34,7 +34,7 @@
           <UiButton @click="$router.push('/create')">去创作</UiButton>
         </div>
         <div v-else class="render-list">
-          <div v-for="(r, i) in renders" :key="i" class="render-card" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
+          <div v-for="(r, i) in renders" :key="i" class="render-card" tabindex="0" role="button" @keydown.enter="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
             <div class="render-info">
               <span class="render-icon">🎬</span>
               <div class="render-meta">
@@ -62,7 +62,7 @@
           <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
         </div>
         <div v-else class="pipeline-list">
-          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="p.status" @click="openPipeline(p)">
+          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="p.status" tabindex="0" role="button" @keydown.enter="openPipeline(p)" @click="openPipeline(p)">
             <div class="pipeline-info">
               <span class="pipeline-status-dot" :class="p.status"></span>
               <div class="pipeline-meta">
@@ -259,7 +259,7 @@ export default {
 <style scoped>
 .history-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; }
 .page-header { margin-bottom: 20px; }
-.page-header h1 { font-size: 26px; font-weight: 700; margin: 0 0 6px; color: var(--ink); }
+.page-header h1 { font-size: 24px; font-weight: 700; margin: 0 0 6px; color: var(--ink); }
 .text-muted { color: var(--text-muted); font-size: 14px; }
 .page-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--hairline); }
 .tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; }
@@ -269,7 +269,7 @@ export default {
 .running-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--status-running-text); background: var(--status-running-bg); border-radius: var(--r-sm); cursor: pointer; font-size: 13px; }
 .running-banner:hover { background: var(--history-progress-active-shadow); }
 .render-list, .pipeline-list { display: flex; flex-direction: column; gap: 12px; }
-.render-card, .pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: pointer; transition: all 0.15s; }
+.render-card, .pipeline-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; transition: all 0.15s; }
 .pipeline-card { border-left: 3px solid transparent; }
 .pipeline-card.running { border-left-color: var(--stability-beta); }
 .pipeline-card.failed { border-left-color: var(--pipe-cinematic); }
@@ -309,4 +309,25 @@ export default {
 .pipeline-paused-hint { font-size: 11px; color: var(--banner-warning-color); background: var(--banner-warning-bg); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline); border-top-color: var(--primary, #7c5cbf); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 进度条 */
+.progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.progress-text { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
+.pipeline-progress { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 4px; }
+
+/* 骨架屏加载 */
+.skeleton { background: var(--skeleton-bg); border-radius: 4px; position: relative; overflow: hidden; }
+.skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent); animation: skeleton-shimmer 1.5s infinite; }
+@keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+/* 空状态增强 */
+.empty-state-icon { font-size: 48px; margin-bottom: 8px; opacity: 0.6; }
+.empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 12px; }
 </style>
+
+/* 键盘导航焦点样式 */
+.render-card:focus-visible, .pipeline-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
