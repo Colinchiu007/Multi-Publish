@@ -1,0 +1,13 @@
+{
+  "id": "ops-center-usage-dashboard",
+  "title": "运营后台 P0 第二批：模型调用用量上报 + 运营后台用量看板",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "backend,desktop",
+  "currentPhase": "planning",
+  "nextAction": "OpenSpec design + 实现用量上报与看板",
+  "createdAt": "2026-08-10T22:10:00+08:00",
+  "branch": "codex/ops-center-usage-dashboard",
+  "openspecChange": "ops-center-usage-dashboard"
+}

@@ -1,3 +1,11 @@
+## [未发布] 功能：模型调用用量上报与运营看板（P0 第二批）（2026-08-10）
+
+- ops-center：新增 `model_usage_daily` 聚合表 + `POST /api/v1/usage/ingest`（X-Catalog-Key 鉴权，按 (日期,客户端,服务商,动作) upsert 累加，幂等；校验：日期格式/非负/≤500 条）+ `GET /api/v1/usage/summary`（admin，totals/by_date/by_provider/by_action）。
+- ops-center 前端：新增「模型用量」页（7/30/90 天切换、汇总卡片、每日趋势 CSS 柱状图、按服务商/按动作表格、空态提示）。
+- 桌面端：新增 `UsageReporter`（聚合 model_provider_logs → ingest，水印推进/失败重试/启动 5s + 30min 周期/未配置静默；脱敏不上报 error_message）；修复 `addProviderLog` INSERT 补 created_at=datetime('now')。
+- 文档：Multi-Publish PRD §7.4.7、ops-center PRD 12A.12。
+- 测试：ops-center pytest（+3 usage）、桌面端 usage-reporter 6 用例。
+
 ## [未发布] 功能：运营后台运行时策略下发（公告 / 版本发布 / 内容安全）（2026-08-10）
 
 - ops-center：新增 `announcements` / `update_policy` / `content_policy` 三张运营表 + 管理 CRUD（require_admin，校验：标题必填/severity 三值/ISO 时间窗口/版本号 x.y.z/灰度 0-100/词库去重 ≤5000 项/替换串 ≤16）。

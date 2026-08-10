@@ -809,3 +809,30 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 - ops-center pytest：`test_runtime_policy_api.py` 4 用例（公告 CRUD+校验、版本策略 upsert+校验、内容安全 upsert+校验、bootstrap 鉴权+活动过滤）。
 - 桌面端 vitest：ops-center-sync 运行时 4 用例（applyRuntime/敏感词重建/策略消费者/syncNow runtime）、auto-updater 策略 5 用例、sensitive 远程过滤器 2 用例、useOpsCenterRuntime 3 用例、IPC runtime 通道。
+
+## 12A.12 模型调用用量上报与看板（2026-08-10 新增，P0 第二批）
+
+> 桌面端 `model_provider_logs` 脱敏聚合后上报运营后台；看板支撑限流/采购/容量决策。详见 Multi-Publish PRD §7.4.7。
+
+### 12A.12.1 上报端点
+
+`POST /api/v1/usage/ingest`（X-Catalog-Key 鉴权同目录端点，无需登录）：body `{ items: [...], synced_at }`，items 含 usage_date/client_id/provider_id/category/action/calls/ok_count/fail_count/ratelimit_count/latency_ms/tokens_in/tokens_out/cost/latency_buckets。校验：usage_date YYYY-MM-DD、数值非负、provider/action 非空、单次 ≤500 条 → 400。按 `(usage_date, client_id, provider_id, action)` upsert 累加（幂等）。
+
+### 12A.12.2 汇总查询
+
+`GET /api/v1/usage/summary?days=N`（admin，默认 30/上限 90）：totals（调用/成功率/429/平均耗时/成本/活跃服务商）、by_date、by_provider（调用降序）、by_action。
+
+### 12A.12.3 桌面端上报
+
+- `UsageReporter`：读 `model_provider_logs id > 水印`（settings `opsCenterUsageReport.lastId`），按日期+provider+action 聚合，POST ingest；成功推进水印，失败保留重试；启动 5s 首报 + 30min 周期；未配置静默跳过。
+- 脱敏：不上报 error_message/model 原文；429 识别（状态/文案含 rate limit/限流/429）。
+- 修复：`addProviderLog` INSERT 补 `created_at=datetime('now')`。
+
+### 12A.12.4 前端
+
+「模型用量」页：7/30/90 天切换、汇总卡片、每日趋势 CSS 柱状图、按服务商/按动作表格、空态提示。
+
+### 12A.12.5 测试
+
+- ops-center pytest：`test_usage_api.py` 3 用例（鉴权+幂等累加、输入校验、汇总分组+权限）。
+- 桌面端 vitest：`usage-reporter.test.js` 6 用例（分类/静默/无数据/聚合上报+水印+脱敏/失败重试/定时）。

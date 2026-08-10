@@ -1638,6 +1638,42 @@ Electron 打包、工作树、PR 或发布状态证据。
 
 ① 运营后台发布 maintenance 公告 → 桌面端同步后顶部常驻红色横幅且不可关闭；info 公告可关闭且刷新不重现；② 配置 `force_version=2.3.53` 且当前 2.3.50 → 桌面端强制检查更新（不受灰度限制）；③ `gray_ratio=0` → 桌面端跳过更新检查（`skipped-by-policy`）；④ `min_version=2.3.53` 且当前低于 → 状态含 `policy-min-version` 提示；⑤ 运营后台配置敏感词「新词」→ 桌面端 `sensitive:check('含新词')` 命中；关闭策略 → 仅内置词库；⑥ runtime 拉取失败不影响模型目录同步；⑦ 未配置同步的桌面端公告区为空、更新走默认流程。
 
+#### 7.4.7 模型调用用量上报与运营看板（2026-08-10 新增，P0 第二批）
+
+**需求**：桌面端 `model_provider_logs` 调用日志脱敏聚合后上报运营后台，落地用量看板（调用量/成功率/429/耗时/成本），支撑限流与采购决策。
+
+##### 7.4.7.1 上报契约
+
+| 项 | 要求 |
+|----|------|
+| 端点 | `POST /api/v1/usage/ingest`（`X-Catalog-Key` 鉴权同目录端点；未配置→404、错→401，无需登录） |
+| 上报内容 | `{ items: [{ usage_date(YYYY-MM-DD), client_id(设备哈希), provider_id, category, action, calls, ok_count, fail_count, ratelimit_count, latency_ms(总), tokens_in, tokens_out, cost, latency_buckets{lt1s/1to3s/3to10s/gt10s} }], synced_at }` |
+| 校验 | usage_date 格式、数值非负、provider_id/action 非空且限长、单次 ≤500 条；400 + 字段提示 |
+| 存储 | `model_usage_daily` 表，唯一键 `(usage_date, client_id, provider_id, action)`，同桶 **upsert 累加（幂等，重试不翻倍）** |
+| 脱敏 | **不上报** error_message、model 原文等；仅聚合计数与分布 |
+
+##### 7.4.7.2 桌面端上报（UsageReporter）
+
+| 合同 | 要求 |
+|------|------|
+| 数据源 | `model_provider_logs`，`id > 水印(settings opsCenterUsageReport.lastId)`，单次 ≤5000 行 |
+| 聚合 | 按「上报日期 + provider + category + action」：calls/ok/fail/ratelimit(429/限流文案识别)/总耗时/tokens/cost/耗时分布桶（<1s/1-3s/3-10s/>10s） |
+| 上报 | POST ingest（复用运营后台 URL/Key，10s 超时）；成功推进水印=最大 id；失败保留水印下次重试不丢数据 |
+| 调度 | 启动 5s 首报 + 每 30 分钟周期；未配置 URL/Key 静默跳过不影响主流程 |
+| 修复 | `addProviderLog` INSERT 补 `created_at=datetime('now')`（原实现 created_at 恒为空串） |
+
+##### 7.4.7.3 运营看板
+
+| 项 | 要求 |
+|----|------|
+| 查询 | `GET /api/v1/usage/summary?days=N`（admin，默认 30，上限 90） |
+| 返回 | totals（总调用/成功率/429/平均耗时/成本/活跃服务商）+ by_date（每日趋势）+ by_provider（排行）+ by_action |
+| 前端 | 「模型用量」页：时间范围（7/30/90 天）、6 张汇总卡片、每日趋势 CSS 柱状图（失败红色段）、按服务商/按动作表格；空态提示「尚未收到用量上报」 |
+
+##### 7.4.7.4 验收标准
+
+① 桌面端配置同步后产生调用 → 30 分钟内上报，ops-center 看板显示调用量与成功率；② 同桶重复上报（重试）计数不翻倍；③ 失败（429 识别）与耗时分布正确落桶；④ 上报失败水印不推进，恢复后补报；⑤ 未配置同步的桌面端静默不打扰；⑥ 看板非 admin 403；⑦ error_message 等敏感内容不出现在上报 payload。
+
 ---
 
 ## 八、内容采集与收藏流程

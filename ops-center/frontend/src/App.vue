@@ -28,6 +28,10 @@
           <el-icon><Connection /></el-icon>
           <span>平台凭证</span>
         </el-menu-item>
+        <el-menu-item index="/usage">
+          <el-icon><DataLine /></el-icon>
+          <span>模型用量</span>
+        </el-menu-item>
         <el-menu-item index="/announcements">
           <el-icon><Bell /></el-icon>
           <span>运营公告</span>

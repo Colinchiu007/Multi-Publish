@@ -189,6 +189,25 @@ function extractContext(container) {
   if (opsCenterSync && typeof opsCenterSync.autoSyncOnStart === 'function') {
     opsCenterSync.autoSyncOnStart()
   }
+  // 模型调用用量脱敏上报（P0 第二批）：聚合 model_provider_logs → ops-center /usage/ingest
+  const { UsageReporter } = require('../services/usage-reporter')
+  const usageReporter = new UsageReporter({
+    store,
+    log,
+    getOpsCenterAuth: () => {
+      if (!opsCenterSync || typeof opsCenterSync.getConfig !== 'function') return null
+      const cfg = opsCenterSync.getConfig()
+      if (!cfg.url || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
+      return { url: cfg.url, apiKey: opsCenterSync.getCatalogApiKey() }
+    },
+    getClientId: () => {
+      try {
+        const crypto = require('crypto')
+        return crypto.createHash('sha256').update(String(app.getPath('userData') || '')).digest('hex').slice(0, 16)
+      } catch { return '' }
+    },
+  })
+  usageReporter.start()
   // 由 Phase 3 在 SQLite WASM 与 Store 均就绪后初始化，避免重启时读取到空数据库。
   // 创建 ProviderRouter（不注入 logHandler，避免与 callAdapter 内部日志双写）
   // callAdapter 内部已通过 _writeLog 统一记录到 model_provider_logs 表
@@ -241,7 +260,7 @@ function extractContext(container) {
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,
       renderEngine, compositionManager, aiGenerator, videoEngine, pipelineEngine,
-      modelProviderManager, providerRouter, providerManager, opsCenterSync,
+      modelProviderManager, providerRouter, providerManager, opsCenterSync, usageReporter,
       _aggregatorBridge, publisherRouter, _PublishAlert,
       splitterBridge, promptBridge, serviceBus, pluginRegistry,
       projectService, boardService, contactSheetService, approvalGateService,
