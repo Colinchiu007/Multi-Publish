@@ -100,7 +100,7 @@
 
 ## 待补（环境恢复后）
 
-1. character-animation / avatar：等 agnes 限流窗口重跑
+1. character-animation / avatar：等 agnes 限流窗口重跑（运行器 `apps/desktop/tests/e2e/video-model-pipelines.js`，注入 `AGNES_API_KEY` + `LLM_API_KEY` 后一键执行）
 2. S2V transition 全枚举视觉验证：需多场景文案（当前 LLM 把测试文案拆成单场景）
 3. imageEffect 全 10 值、voiceSpeed/Pitch、split.mode、optimize.style 等：运行 `apps/desktop/tests/e2e/pipeline-options-matrix.js`
 4. loc-ko：确认韩语音色后重测
