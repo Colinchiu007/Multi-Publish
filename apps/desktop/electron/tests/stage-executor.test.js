@@ -350,7 +350,7 @@ it('OPTIMIZE 阶段调用 serviceBus.optimizePrompt', async function () {
     expect.objectContaining({
       platform: 'generic',
       creative_level: 5,
-      max_length: 300,
+      max_length: 500,
       num_candidates: 1,
       auto_detect_style: true,
     }),
@@ -466,8 +466,8 @@ it.each([
 
     expect(receivedBody).toEqual({
       requests: [
-        expect.objectContaining({ prompt: 'prompt1', platform: 'generic', creative_level: 5, max_length: 300, num_candidates: 1, auto_detect_style: true }),
-        expect.objectContaining({ prompt: 'prompt2', platform: 'generic', creative_level: 5, max_length: 300, num_candidates: 1, auto_detect_style: true }),
+        expect.objectContaining({ prompt: 'prompt1', platform: 'generic', creative_level: 5, max_length: 500, num_candidates: 1, auto_detect_style: true }),
+        expect.objectContaining({ prompt: 'prompt2', platform: 'generic', creative_level: 5, max_length: 500, num_candidates: 1, auto_detect_style: true }),
       ],
     });
     expect(result.success).toBe(false);

@@ -167,7 +167,7 @@ describe('story2video 编排契约', () => {
       expect.objectContaining({
         platform: 'generic',
         creative_level: 5,
-        max_length: 300,
+        max_length: 500,
         num_candidates: 1,
         auto_detect_style: true,
       }),
@@ -195,7 +195,7 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'realistic',
         creative_level: 5,
-        max_length: 300,
+        max_length: 500,
         num_candidates: 1,
         auto_detect_style: true,
       })
@@ -515,7 +515,7 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'anime',
         creative_level: 8,
-        max_length: 300,
+        max_length: 500,
         num_candidates: 2,
         auto_detect_style: true,
       })

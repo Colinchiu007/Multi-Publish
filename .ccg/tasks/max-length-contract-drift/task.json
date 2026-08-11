@@ -1,0 +1,13 @@
+{
+  "id": "max-length-contract-drift",
+  "title": "修复 max_length 契约漂移（300 vs 500）：对齐 stageDefs/YAML/测试断言",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-11T22:30:00+08:00",
+  "branch": "codex/fix-max-length-contract-drift",
+  "summary": "提交 bd352de1 将 prompt-engine 与 Story2Video 配置的 maxLength 默认值从 300 调整为 500，但漏改 pipeline-engine.js stageDefs、story2video-compose.yaml 与 stage-executor/pipeline-story2video-contract 测试断言，导致 Electron CI 9 用例长期失败（main 自身 CI 同样失败）。本次将 4 处 300 对齐为 500。回归：stage-executor 58 + pipeline-story2video-contract 18 全过；pipeline-engine 37 / text-config 62 / prompt-engine-contract 11 / videogen-stages 25 全过。"
+}
