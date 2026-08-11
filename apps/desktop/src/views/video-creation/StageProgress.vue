@@ -122,7 +122,12 @@ export default {
       }
       if (stage.name === 'compose' && stage.status === 'running') {
         const p = ctx.compose_progress
-        if (p && Number.isFinite(p.percent)) return '合成进度 ' + Math.round(p.percent) + '%'
+        if (p && Number.isFinite(p.percent)) {
+          if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
+            return '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%'
+          }
+          return '视频合成 ' + Math.round(p.percent) + '%'
+        }
       }
       return ''
     },
