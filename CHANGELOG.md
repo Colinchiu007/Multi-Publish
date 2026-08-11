@@ -121,6 +121,7 @@
 - 测试：story2video-text-config +10、story2video-stages +21（选择算法/执行器/视频分支真实下载）、story2video-compose-engine +3（混合真实编码）、pipeline-engine/pipeline-story2video-contract 阶段顺序同步。
 - 真实运行加固（2026-08-11）：ai-judged 的 LLM 选择改为有界重试（最多 3 次，空内容/解析失败均重试并记录 raw 诊断），修复推理型模型（deepseek-v4-flash）对 27 场景长任务偶发返回空 content/非法 JSON 导致整阶段失败；修复 video_plan 中 excitement/reason 因 entries 遮蔽恒为空的问题；真实运行证据：27 场景 AI 选中 10 个（占比 37%，区间 20%-40%），27 图 + 27 TTS 真实生成，视频场景因 provider 额度（MiniMax 2056）正确回退图片，成片 337.9s/54.9MB。
 - Agnes Video adapter 瞬时错误有界重试（2026-08-11）：`503 video_queue_full`/`429 rate_limit_exceeded`（约 2 次/分钟）标记可重试，提交最多重试 6 次、递增退避（20/30/45/60/60s）；非重试错误立即抛出。**真实混合成片达成**：27 场景 AI 选中 8 个（29.6%，区间 20-40%），6 段真实 Agnes AI 视频 + 21 段图片轮播（2 段因队列满载回退图片），27 图 + 27 TTS 真实生成，成片 338.4s/65.8MB/720x1280（s2v_1786438791564_1_output.mp4），mediaKinds 混合 video/image。
+- **视频片段旁白音频修复（W10，2026-08-11）**：视频片段合成显式映射 TTS 旁白为输出音频（`-map 0:v:0 -map 1:a:0`）——此前 ffmpeg 默认流选择会选中 AI 视频自带音频而丢弃 TTS 解说（实测 440Hz vs 880Hz 验证）。回归测试：视频场景带 440Hz 音频 + TTS 880Hz，成片音频主频必须为 880Hz（compose-engine 94/94 通过）。
 
 
 ## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
