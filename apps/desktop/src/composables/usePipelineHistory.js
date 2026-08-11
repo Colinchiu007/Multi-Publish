@@ -46,6 +46,7 @@ export function usePipelineHistory(options = {}) {
 
   const filteredHistory = computed(() => {
     if (historyFilter.value === 'all') return history.value
+    if (historyFilter.value === 'paused') return history.value.filter(item => item.status === 'paused' || item.status === 'failed')
     return history.value.filter(item => item.status === historyFilter.value)
   })
 

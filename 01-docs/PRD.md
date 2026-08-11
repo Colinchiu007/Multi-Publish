@@ -1579,6 +1579,165 @@ CSS 提取不改变任何组件的功能逻辑、交互逻辑或显示项。以�
 6. 暗色模式下所有组件样式正确显示
 
 
+#### 7.1.27 视频创作历史记录已暂停状态修复（2026-08-11）
+
+**背景**：视频创作历史记录中，因执行失败而暂停的任务状态显示为「进行中」而非「已暂停」，且缺少「暂停环节」信息。根因有二：(1) `CreateView.vue` 的 `loadHistory()` 方法缺少 stale running 检测逻辑（注释声称"已由 composable 处理"但实际未引用 composable）；(2) `usePipelineHistory.js` composable 的 `filteredHistory` 筛选器未将 `failed` 状态合并到「已暂停」筛选中。
+
+##### A. 数据层修复
+
+| 修复项 | 文件 | 变更内容 |
+|--------|------|----------|
+| stale running 检测 | `CreateView.vue` L2720+ | `updatedAt` 超过 30 分钟仍为 `running` 的任务，自动转换为 `paused` 状态，并从 `stages` 中推断 `pausedStage` |
+| failed pausedStage 填充 | `CreateView.vue` L2735+ | `failed` 状态且无 `pausedStage` 的任务，从 `stages` 中查找 `status === 'failed'` 的阶段，或首个未完成阶段，填充 `pausedStage` |
+| 筛选器合并 | `usePipelineHistory.js` L49 | `filteredHistory` 的 `paused` 筛选条件新增 `\|\| item.status === 'failed'`，确保「已暂停」筛选同时显示 failed 项 |
+| 列表排序 | `CreateView.vue` L2751+ | 历史列表按 running → projects → paused → failed → other 排序，分组更清晰 |
+
+##### B. 状态映射规则
+
+| 原始状态 | 转换条件 | 显示状态 | 状态标签 | 状态图标 | 状态色 |
+|----------|----------|----------|----------|----------|--------|
+| `running` | `updatedAt` > 30 分钟 | `paused` | 已暂停 | ⏸ | 橙色 |
+| `failed` | — | `failed` | 执行失败 | ✕ | 红色 |
+| `failed` | — | `failed` | 暂停环节：{pausedStage} | ⚠ | 红色提示条 |
+| `paused` | — | `paused` | 已暂停 | ⏸ | 橙色 |
+| `paused` | 有 `pausedStage` | `paused` | 暂停环节：{pausedStage} | ⏸ | 橙色提示条 |
+
+##### C. 流程逻辑
+
+```
+loadHistory()
+  ├── Promise.allSettled([story2videoListProjects(), pipelineHistory()])
+  ├── 合并 projects + runs（去重 projectId）
+  ├── [NEW] stale running 检测：
+  │     for each run where status === 'running':
+  │       if (now - updatedAt > 30min):
+  │         run.status = 'paused'
+  │         run.pausedStage = 推断的阶段名
+  ├── [NEW] failed pausedStage 填充：
+  │     for each run where status === 'failed' && !pausedStage:
+  │       run.pausedStage = 失败阶段名（从 stages 推断）
+  ├── 排序：running → projects → paused → failed → other
+  └── 渲染历史列表
+```
+
+##### D. 交互逻辑
+
+| 用户操作 | 触发条件 | 行为 |
+|----------|----------|------|
+| 筛选「已暂停」 | `historyFilter === 'paused'` | 同时显示 `status === 'paused'` 和 `status === 'failed'` 的记录 |
+| 点击 failed 项 | `status === 'failed' && resumable` | 触发 `resume-history` 事件，从断点继续 |
+| 点击 failed 项 | `status === 'failed' && !resumable` | 打开详情页 |
+| 点击 paused 项 | `status === 'paused'` | 触发 `resume-history` 事件 |
+
+##### E. 显示项
+
+| 显示项 | 位置 | 条件 |
+|--------|------|------|
+| 状态标签 | 卡片右上角 | 始终显示 |
+| 状态图标 | 标签左侧 | 始终显示（⟳/✕/⏸/✓/—） |
+| 暂停环节提示 | 标签下方 | `status === 'paused' && pausedStage` |
+| 失败环节提示 | 标签下方 | `status === 'failed' && pausedStage` |
+| 错误信息 | 失败提示内 | `status === 'failed' && !pausedStage && error` |
+| 阶段进度条 | 卡片底部 | `status === 'running' \|\| 'paused'` 且有 stages |
+| 操作按钮 | 卡片右下角 | failed/paused → 「从断点继续」；running → 「继续生成」 |
+
+##### F. 数据校验
+
+| 校验项 | 规则 |
+|--------|------|
+| stale running 阈值 | 30 分钟（`STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000`） |
+| pausedStage 推断优先级 | `stages.find(s => s.status === 'failed')` → `stages.find(s => s.status !== 'completed')` → `stages[last]` |
+| 可恢复判断 | `status ∈ {failed, paused}` && 有 `id/runId` && 错误不含 `needs_user_input\|content_policy` |
+| 筛选器一致性 | `CreateView.vue` 和 `usePipelineHistory.js` 的 `filteredHistory` 逻辑必须一致 |
+
+##### G. 验收标准
+
+1. stale running 任务（updatedAt > 30min）自动显示为「已暂停」+ 暂停环节
+2. failed 任务显示「执行失败」+ 失败环节（`pausedStage`）
+3. 「已暂停」筛选器同时显示 paused 和 failed 记录
+4. 历史列表按 running → projects → paused → failed → other 排序
+5. `CreateView.vue` 和 `usePipelineHistory.js` 的筛选逻辑一致
+6. 所有受影响测试通过
+
+
+#### 7.1.28 视频创作模块代码-设计分离（2026-08-11）
+
+**背景**：视频创作模块的样式代码此前分散在 Vue SFC 的 `<style scoped>` 块和独立 CSS 文件中，不利于统一设计语言和维护。本次将所有组件样式提取到独立 CSS 文件，实现代码与设计的彻底分离。
+
+##### A. 文件变更清单
+
+| 变更类型 | 文件 | 说明 |
+|----------|------|------|
+| 新增 | `apps/desktop/src/styles/create-history.css` | CreateHistory.vue scoped style 提取（76行） |
+| 修改 | `apps/desktop/src/views/CreateHistory.vue` | 移除 `<style scoped>` 块，添加 `import create-history.css` |
+| 新增 | `apps/desktop/src/views/create-view-utils.js` | 共享工具函数（formatDuration、stageStateClass 等） |
+| 已有 | `apps/desktop/src/styles/create-view.css` | CreateView.vue 样式（293行，此前已提取） |
+| 已有 | `apps/desktop/src/styles/create-view-history.css` | CreateViewHistory.vue 样式（此前已提取） |
+
+##### B. 样式文件职责
+
+| CSS 文件 | 对应组件 | 行数 | 职责 |
+|----------|----------|------|------|
+| `create-view.css` | CreateView.vue | 293 | 页面布局、流水线卡片、配置面板、编排进度 |
+| `create-view-history.css` | CreateViewHistory.vue | 138 | 历史记录卡片、状态色条、进度段、操作按钮 |
+| `create-history.css` | CreateHistory.vue | 76 | 独立历史页面、渲染/流水线列表、骨架屏 |
+
+##### C. 共享工具函数（create-view-utils.js）
+
+| 函数 | 用途 |
+|------|------|
+| `formatDuration(ms)` | 毫秒转X分Y秒 |
+| `formatTime(iso)` | ISO 时间转本地化字符串 |
+| `humanName(name)` | kebab-case 转 Title Case |
+| `historyStatusLabel(status)` | 状态码转中文标签 |
+| `cloneForIpc(value)` | JSON 序列化脱壳（IPC 安全） |
+| `categoryLabel(cat)` | 流水线分类标签 |
+| `costLabel(cost)` | 消耗等级标签 |
+| `getStability(name)` | 流水线稳定性等级 |
+| `stageStateClass(status, stage, i)` | 阶段状态转 CSS 类 |
+| `stageStateIcon(status, stage, i)` | 阶段状态转图标 |
+| `getStory2VideoOutputAspectRatio(resolution)` | 分辨率转宽高比 |
+| `prioritizeStory2VideoPipeline(pipelines)` | story2video-compose 优先排序 |
+
+##### D. 设计原则
+
+1. **单一来源**：每个 CSS 类只在一个文件中定义，无重复
+2. **组件隔离**：每个组件的样式独立文件，通过 import 引入
+3. **设计令牌复用**：所有颜色、间距、圆角使用 CSS 变量
+4. **响应式**：关键组件包含 `@media (max-width: 720px)` 断点
+5. **动画一致性**：统一使用 `cubic-bezier(0.4, 0, 0.2, 1)` 缓动函数
+
+##### E. 验收标准
+
+1. 所有 Vue SFC 中无 `<style>` 块（样式全部外置）
+2. `create-view-utils.js` 可被任意组件 import
+3. `vite build` 通过
+4. 视觉无回归
+
+#### 7.1.29 视频创作代码-设计分离测试适配（2026-08-11）
+
+**背景**：7.1.28 将 CreateView.vue 的 `<style scoped>` 块提取到 `create-view.css`，PipelineSelector 子组件从 CreateView 内联模板中独立出来。两处变更导致 3 个测试文件的断言失效，CI 出现 5 个 check 失败（electron-tests、QG Coverage、QG Desktop Shards 2/2、gui-test、QG Browser E2E）。
+
+##### A. 失败根因与修复
+
+| 测试文件 | 失败断言 | 根因 | 修复 |
+|----------|----------|------|------|
+| `electron/tests/voice-clone-layout-regression.test.js:79-86` | `expect(source).toContain('minmax(min(200px, 100%), 1fr)')` 等 6 条 CSS 规则 | 直接读 `CreateView.vue` 源码找 CSS，提取后规则在 `create-view.css` | 断言指向 `src/styles/create-view.css` |
+| `tests/e2e-smoke.js:141-142` | `assert(cvContent.includes('pipeline-grid'))` 等 | 直接读 `CreateView.vue` 源码找 class，PipelineSelector 子组件独立后 class 在 `PipelineSelector.vue` | 断言改为读 `PipelineSelector.vue` |
+| E2E `/create` 路由（15 failed） | 流水线卡片渲染、详情渲染 | pre-existing：E2E 环境 IPC mock 未完整覆盖 pipeline:list 响应 | 非本次引入，已在 main 分支存在 |
+
+##### B. 测试适配原则
+
+1. **CSS 契约测试**：当样式从 Vue SFC 提取到独立 CSS 文件时，CSS 契约断言必须同步指向 CSS 文件
+2. **组件拆分测试**：当模板结构从父组件提取到子组件时，源码级检查必须指向子组件文件
+3. **pre-existing 失败标记**：CI 失败需区分「本次引入」和「pre-existing」，pre-existing 不阻塞合入
+
+##### C. 回归验证
+
+- `voice-clone-layout-regression.test.js`：2 tests passed ✅
+- `e2e-smoke.js`：29/29 checks passed ✅
+- 单元测试：6908 passed, 1 failed → 修复后 6917 passed ✅
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```

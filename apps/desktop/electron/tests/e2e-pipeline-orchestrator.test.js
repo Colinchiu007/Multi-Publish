@@ -42,7 +42,7 @@ function createMockPromptEngine() {
 // 构造依赖注入的容器（attach 到外部已运行的 Python 服务）
 async function buildContainer({ promptBridge = createMockPromptEngine() } = {}) {
   const splitterBridge = new SplitterBridge({});
-  await splitterBridge.attach();
+  await splitterBridge.start();
   const pythonBridge = {
     isRunning: () => true,
     requestBackend: async () => ({ code: 0, data: {} }),
