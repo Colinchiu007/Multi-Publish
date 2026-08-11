@@ -1,3 +1,9 @@
+## [未发布] 修复：Story2Video 真实运行稳定性与视频错误可诊断性（2026-08-11）
+
+- compose xfade 合并超时改为按输出时长动态计算（原固定 120s 会误杀 ≥2 分钟成片的 chunk 合并）：长视频（27 场景约 337s）真实复跑稳定成功（334.4s / 52.9MB）。
+- minimax 视频 adapter 解析 MiniMax base_resp 业务错误（HTTP 200 + status_code != 0）：视频额度用尽（status_code=2056）从误导性 `Missing task_id in response` 改为可读提示并映射 QUOTA_EXCEEDED，generateVideo/getVideoStatus 均覆盖。
+- 文档：PRD §7.1.25 补充（compose 长视频超时策略、视频 provider 业务错误处理与额度提示）。
+
 ## [未发布] 功能：流水线所需依赖目录（2026-08-11）
 
 - ops-center：新增 `pipeline_dependencies` 表（pipeline_id+model_type 唯一）+ `GET/POST /api/v1/pipeline-dependencies`、`PUT/DELETE /{id}`（admin；校验 pipeline_id 字符集 / model_type 枚举 / provider_candidates 字符串数组 ≤50 去重 / default_provider 必须在候选内 / required / sort_order；POST 重复 400、PUT/DELETE 404、DELETE 软删不复活可重建、PUT 改 key 撞唯一 400）。

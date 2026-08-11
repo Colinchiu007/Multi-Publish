@@ -141,6 +141,20 @@ class MiniMaxAdapter extends BaseAdapter {
     })
     const data = await resp.json()
 
+    // MiniMax 业务错误：HTTP 200 + base_resp.status_code != 0（如额度用尽 status_code=2056，
+    // 真实复现 2026-08-11：图片 Key 调视频 API 返回「已达到 Token Plan 用量上限」，此前被误报为
+    // Missing task_id）。必须在读取 task_id 之前解析，给出可读错误并映射 QUOTA_EXCEEDED。
+    const baseResp = data && data.base_resp
+    if (baseResp && Number(baseResp.status_code) !== 0) {
+      const message = baseResp.status_msg || ('MiniMax 视频生成失败（status_code=' + baseResp.status_code + '）')
+      const isQuota = /额度|用量|token|quota|balance|exhausted|insufficient|超过|上限|升级/i.test(String(message))
+      throw new ProviderError(
+        isQuota ? ERROR_CODES.QUOTA_EXCEEDED : ERROR_CODES.PROVIDER_ERROR,
+        message,
+        { providerId: this.id, statusCode: Number(baseResp.status_code) },
+      )
+    }
+
     const taskId = data.task_id
     if (!taskId) {
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'Missing task_id in response', { providerId: this.id })
@@ -164,6 +178,18 @@ class MiniMaxAdapter extends BaseAdapter {
       query: { task_id: taskId },
     })
     const data = await resp.json()
+
+    // 查询同样可能返回 base_resp 业务错误（额度/鉴权），先解析再映射状态
+    const baseResp = data && data.base_resp
+    if (baseResp && Number(baseResp.status_code) !== 0) {
+      const message = baseResp.status_msg || ('MiniMax 视频任务查询失败（status_code=' + baseResp.status_code + '）')
+      const isQuota = /额度|用量|token|quota|balance|exhausted|insufficient|超过|上限|升级/i.test(String(message))
+      throw new ProviderError(
+        isQuota ? ERROR_CODES.QUOTA_EXCEEDED : ERROR_CODES.PROVIDER_ERROR,
+        message,
+        { providerId: this.id, statusCode: Number(baseResp.status_code) },
+      )
+    }
 
     // MiniMax 状态映射
     const statusMap = {
