@@ -232,3 +232,38 @@ describe('Story2Video 场景上下文增强中间层（story-context-engine）',
     })
   })
 })
+
+describe('scene_context 审查修复回归（2026-08-11 双模型审查 C1/W2/W3/W4）', () => {
+  it('C1: snake_case 布尔开关端到端生效（include_negative_anchors=false 关闭负面锚点）', () => {
+    expect(normalizeSceneContextOptions({ include_negative_anchors: false }).includeNegativeAnchors).toBe(false)
+    const story = extractStoryContext('唐朝长安城中，老妇人在做饭。', { include_negative_anchors: false })
+    expect(story.negativeAnchors).toHaveLength(0)
+    const result = buildSceneContextResult(
+      [{ index: 0, text: '一个老妇人在做饭' }],
+      '唐朝长安城中，老妇人在做饭。',
+      { include_negative_anchors: false },
+    )
+    expect(result.scenes[0].negativeAnchors).toHaveLength(0)
+  })
+
+  it('W2: 单关键词时代误判不注入全局负面锚点（寺庙→ancient 弱信号）', () => {
+    const story = extractStoryContext('她在寺庙里虔诚地祈祷。')
+    expect(story.era).toBe('ancient')
+    expect(story.negativeAnchors).toHaveLength(0)
+  })
+
+  it('W3: 无地域关键词时不编造默认城市（城堡→欧洲但 region 为空）', () => {
+    const story = extractStoryContext('城堡里的公主和王子过着幸福的生活。')
+    expect(story.culture).toBe('欧洲')
+    expect(story.region).toBe('')
+    expect(story.anchors).not.toContain('伦敦')
+  })
+
+  it('W4: full_text 发送上限受 MAX_FULL_TEXT_CHARS 约束', () => {
+    const longText = '长文。'.repeat(1500)
+    const story = extractStoryContext(longText)
+    const scene = { index: 0, text: '一个场景' }
+    const ctx = buildPromptEngineSceneContext(scene, story, longText)
+    expect(Array.from(ctx.full_text).length).toBeLessThanOrEqual(2000)
+  })
+})

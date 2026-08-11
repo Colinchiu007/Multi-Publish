@@ -45,6 +45,14 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     negativePrompt: '',
     context: '',
   }),
+  // 场景上下文增强中间层（2026-08-11）：分句 → 提示词优化之间的故事背景上下文
+  scene_context: Object.freeze({
+    enabled: true,
+    maxSummaryLength: 300,
+    maxAnchors: 8,
+    includeNegativeAnchors: true,
+    contextBlockMaxChars: 400,
+  }),
   image: Object.freeze({
     provider: '',
     model: '',
@@ -280,6 +288,7 @@ function normalizeStory2VideoTextParams(params = {}) {
   const size = normalizeSize(firstDefined(own(suppliedConfig, 'size'), params.resolution, params.output?.resolution))
   const splitInput = objectValue(suppliedConfig.split)
   const optimizeInput = objectValue(suppliedConfig.optimize)
+  const sceneContextInput = objectValue(suppliedConfig.scene_context)
   const imageInput = objectValue(suppliedConfig.image)
   const voiceInput = objectValue(suppliedConfig.voice)
   const subtitleInput = objectValue(suppliedConfig.subtitle)
@@ -343,6 +352,14 @@ function normalizeStory2VideoTextParams(params = {}) {
     autoDetectStyle: booleanValue(firstDefined(own(optimizeInput, 'autoDetectStyle'), params.autoDetectStyle), true),
     negativePrompt: textValue(own(optimizeInput, 'negativePrompt'), '', 'optimize.negativePrompt', 500),
     context: normalizeOptimizeContext(optimizeContext),
+  }
+
+  const sceneContext = {
+    enabled: booleanValue(firstDefined(own(sceneContextInput, 'enabled'), params.sceneContextEnabled), true),
+    maxSummaryLength: numberValue(firstDefined(own(sceneContextInput, 'maxSummaryLength'), params.sceneContextMaxSummaryLength), 300, 'scene_context.maxSummaryLength', 50, 1000, true),
+    maxAnchors: numberValue(firstDefined(own(sceneContextInput, 'maxAnchors'), params.sceneContextMaxAnchors), 8, 'scene_context.maxAnchors', 1, 20, true),
+    includeNegativeAnchors: booleanValue(firstDefined(own(sceneContextInput, 'includeNegativeAnchors'), params.sceneContextIncludeNegativeAnchors), true),
+    contextBlockMaxChars: numberValue(firstDefined(own(sceneContextInput, 'contextBlockMaxChars'), params.sceneContextContextBlockMaxChars), 400, 'scene_context.contextBlockMaxChars', 50, 1000, true),
   }
 
   const image = {
@@ -461,6 +478,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     contentType,
     split,
     optimize,
+    scene_context: sceneContext,
     image,
     video: videoConfig,
     voice,
@@ -502,6 +520,13 @@ function normalizeStory2VideoTextParams(params = {}) {
       subtitle_timing: split.subtitleTiming,
     },
     domain_enrich: { contentType },
+    scene_context: {
+      enabled: sceneContext.enabled,
+      max_summary_length: sceneContext.maxSummaryLength,
+      max_anchors: sceneContext.maxAnchors,
+      include_negative_anchors: sceneContext.includeNegativeAnchors,
+      context_block_max_chars: sceneContext.contextBlockMaxChars,
+    },
     optimize: {
       platform: optimize.platform,
       style: optimize.style,
@@ -642,3 +667,4 @@ module.exports = {
   countStory2VideoTextCharacters,
   normalizeStory2VideoTextParams,
 }
+

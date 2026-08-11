@@ -1078,15 +1078,16 @@ it('story2video-compose 流水线已注册为第 14 条', function () {
   ok(s2v, 'story2video-compose 应存在于流水线列表');
   eq(s2v.category, 'generated');
   const detail = pe.getPipeline('story2video-compose');
-  // 2026-08-11：新增 select_video_scenes 阶段（视频+图片轮播混合模式）
-  eq(detail.stages.length, 7);
+  // 2026-08-11：新增 select_video_scenes 阶段（视频+图片轮播混合模式）与 scene_context 阶段（场景上下文增强中间层）
+  eq(detail.stages.length, 8);
   eq(detail.stageDefs[0].name, 'split');
   eq(detail.stageDefs[1].name, 'domain_enrich');
-  eq(detail.stageDefs[2].name, 'optimize');
-  eq(detail.stageDefs[3].name, 'select_video_scenes');
-  eq(detail.stageDefs[4].name, 'generate_assets');
-  eq(detail.stageDefs[5].name, 'compose');
-  eq(detail.stageDefs[6].name, 'publish');
+  eq(detail.stageDefs[2].name, 'scene_context');
+  eq(detail.stageDefs[3].name, 'optimize');
+  eq(detail.stageDefs[4].name, 'select_video_scenes');
+  eq(detail.stageDefs[5].name, 'generate_assets');
+  eq(detail.stageDefs[6].name, 'compose');
+  eq(detail.stageDefs[7].name, 'publish');
 });
 
 it('现有 14 条流水线可完整 advance 到完成', function () {
@@ -1106,3 +1107,5 @@ it('现有 14 条流水线可完整 advance 到完成', function () {
 });
 
 })
+
+

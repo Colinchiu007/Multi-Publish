@@ -1,0 +1,88 @@
+/* ============================================
+   视频创作模块 — 历史记录共享样式
+   消除 history-page.css / history-panel.css 重复定义
+   ============================================ */
+
+/* 加载状态 */
+.s2v-loading {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 48px 24px; color: var(--text-muted, #666);
+}
+.s2v-spinner {
+  display: inline-block; width: 20px; height: 20px;
+  border: 2px solid var(--hairline, #ccc); border-top-color: var(--primary, #409eff);
+  border-radius: 50%; animation: s2v-spin 0.6s linear infinite;
+}
+@keyframes s2v-spin { to { transform: rotate(360deg); } }
+
+/* 空状态 */
+.s2v-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 56px 24px; color: var(--text-muted, #666); text-align: center;
+}
+.s2v-empty-icon {
+  font-size: 56px; opacity: 0.35; margin-bottom: 4px;
+  animation: s2v-empty-float 3s ease-in-out infinite;
+}
+@keyframes s2v-empty-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+.s2v-empty-title {
+  font-size: 16px; font-weight: 600; color: var(--text, #333); margin: 0;
+}
+.s2v-empty-hint {
+  font-size: 13px; color: var(--text-light, #999); margin: 0; max-width: 320px; line-height: 1.5;
+}
+
+/* 进度条 */
+.s2v-progress-bar {
+  height: 6px; background: var(--border, #dcdfe6); border-radius: 3px; overflow: hidden;
+}
+.s2v-progress-fill {
+  height: 100%; background: var(--primary, #409eff); border-radius: 3px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.s2v-progress-text {
+  font-size: 12px; color: var(--text-muted, #666); margin-left: 8px;
+}
+
+/* 错误提示 */
+.s2v-error-banner {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  margin-bottom: 16px; border-radius: var(--r-sm, 6px);
+  color: var(--status-failed-text, #991b1b); background: var(--status-failed-bg, #fee2e2);
+}
+
+/* 管道状态点 */
+.s2v-status-dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0;
+}
+.s2v-status-dot.completed { background: var(--stability-production, #22c55e); }
+.s2v-status-dot.failed { background: var(--pipe-cinematic, #ef4444); }
+.s2v-status-dot.cancelled { background: var(--text-light, #999); }
+.s2v-status-dot.paused { background: var(--status-paused-text, #92400e); }
+.s2v-status-dot.running { background: var(--stability-beta, #3b82f6); animation: s2v-pulse-dot 1.5s ease-in-out infinite; }
+@keyframes s2v-pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* 状态标签 */
+.s2v-status-badge {
+  font-size: 11px; padding: 3px 10px; border-radius: 6px; font-weight: 600;
+  letter-spacing: 0.03em; text-transform: uppercase; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.s2v-status-badge.completed { background: var(--status-completed-bg, #d1fae5); color: var(--status-completed-text, #065f46); }
+.s2v-status-badge.failed { background: var(--status-failed-bg, #fee2e2); color: var(--status-failed-text, #991b1b); }
+.s2v-status-badge.cancelled { background: var(--status-cancelled-bg, #f3f4f6); color: var(--status-cancelled-text, #6b7280); }
+.s2v-status-badge.running { background: var(--status-running-bg, #dbeafe); color: var(--status-running-text, #1d4ed8); animation: s2v-status-pulse 2s ease-in-out infinite; }
+.s2v-status-badge.paused { background: var(--status-paused-bg, #fef3c7); color: var(--status-paused-text, #92400e); }
+@keyframes s2v-status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+/* 阶段标签 */
+.s2v-stage-tag {
+  font-size: 11px; padding: 3px 8px; border-radius: var(--r-xs, 4px);
+  background: var(--status-pending-bg, #f3f4f6); color: var(--status-pending-text, #999);
+  font-weight: 500; white-space: nowrap;
+}
+.s2v-stage-tag.completed { background: var(--status-completed-bg, #d1fae5); color: var(--status-completed-text, #065f46); }
+.s2v-stage-tag.failed { background: var(--status-failed-bg, #fee2e2); color: var(--status-failed-text, #991b1b); }
+.s2v-stage-tag.paused { background: var(--status-paused-bg, #fef3c7); color: var(--status-paused-text, #92400e); }
+.s2v-stage-tag.cancelled { background: var(--status-cancelled-bg, #f3f4f6); color: var(--status-cancelled-text, #6b7280); }
+.s2v-stage-tag.running { background: var(--status-running-bg, #dbeafe); color: var(--status-running-text, #1d4ed8); }

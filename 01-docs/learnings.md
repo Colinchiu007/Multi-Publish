@@ -6338,6 +6338,15 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **回归保护**：新增 `config.capability_enabled.video` 开关（默认关）产品化解决——`_multimodalProviderFor('video')` 与 `listProviders('video')` 均要求 `=== true`；llm/tts/image 不受影响；`_syncPresetCapabilities` 不回填开关；后端 +6 用例、前端 composable +6 用例。
 - **预防**：多模态 provider 的「声明能力」与「能力实际可用」必须分开（目录 vs 开关）；调用适配器失败时上游不得吞掉 `message`（videogen 修复列为后续）。
 
+## 复盘：Story2Video 场景上下文增强中间层（2026-08-11，scene-context 设计落地）
+
+- **问题**：分句引擎只产出场景自身文字，提示词优化引擎（prompt-engine 8013）凭单场景文字生成提示词 → 场景文字缺时代/地域/文化锚点时产生背景漂移（唐代全文 + 「一个老妇人在做饭」→ 生成西方老太太现代厨房）。domain_enrich 仅 contentType=history 且按单场景识别，不读全文。
+- **设计决策**：新增 scene_context 中间层（split → domain_enrich → scene_context → optimize）：① 读完整文案做规则驱动全局故事上下文提取（题材/时代/朝代/文化地域/设定/角色/道具/风格/语气/锚点，16 朝代 + 8 文化 + 时代道具互斥）；② 全局锚点融合进每个场景形成上下文块与时代负面锚点；③ optimize 请求 context 用白名单七键（synopsis/full_text/setting/narrative_intent/scene_type/character_list/character，对齐 prompt_engine/build_context_section 已知键——未知键被服务端忽略，必须用已知键）。
+- **关键契约**：prompt-engine 只消费已知 context 键；负面锚点合并进 negative_prompt（图片模型原生约束，比文本更可靠）；规则引擎异常降级透传（增强失败不杀流水线）、输入缺失 fail closed；text-config 层越界拒绝（与 optimize.maxLength 一致）、引擎层边界收敛；场景做饭 × ancient → 正向 土灶/柴火/陶罐 + 负面 电烤箱/微波炉/西式现代厨房。
+- **回归保护**：story-context-engine 21 用例（用户示例、无关键词、多文化、道具互斥、配置边界、敏感键、空场景、降级、白名单）；stages/text-config/契约/E2E 阶段顺序同步；完整 E2E 真实合成视频通过。
+- **预防**：跨引擎流水线的「上下文路由层」必须与下游服务端契约（已知键/字段边界）对齐；新增流水线阶段必须同步 stages 列表断言、E2E 阶段顺序与渲染层配置默认值；并发会话共享工作目录时改动需频繁提交保护。
+
+
 ## electron 43.x 无 postinstall 与二进制自愈方案 B 复盘 (2026-08-10，环境/工具链)
 
 - **背景**：`npm install` 后 `node_modules/electron/dist/` 反复缺失，electron 二进制不可用，需手动 `node node_modules/electron/install.js` 恢复；多次复现。
