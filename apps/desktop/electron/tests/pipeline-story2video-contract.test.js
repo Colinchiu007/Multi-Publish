@@ -64,6 +64,18 @@ describe('story2video 编排契约', () => {
       voiceId: 'default',
     })
     expect(stages.optimize.type).toBe('story2video_optimize')
+    expect(stages.scene_context).toMatchObject({
+      type: 'story2video_scene_context',
+      inputFrom: 'domain_enrich',
+      options: {
+        enabled: true,
+        max_summary_length: 300,
+        max_anchors: 8,
+        include_negative_anchors: true,
+        context_block_max_chars: 400,
+      },
+    })
+    expect(stages.optimize.inputFrom).toBe('scene_context')
     expect(stages.compose.options).toMatchObject({
       resolution: '720x1280',
       subtitleEnabled: false,
@@ -125,7 +137,7 @@ describe('story2video 编排契约', () => {
     expect(started).toMatchObject({ success: true, completed: true })
     expect(started.paused).toBeUndefined()
     expect(stageExecutor.execute.mock.calls.map(([request]) => request.stage.name)).toEqual([
-      'split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
+      'split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
     ])
     expect(engine.getRunSnapshot(started.runId)).toMatchObject({
       status: { status: 'completed' },
@@ -151,6 +163,7 @@ describe('story2video 编排契约', () => {
 
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
+    await engine.executeStage(started.runId)
     const optimized = await engine.executeStage(started.runId)
 
     expect(optimized.success).toBe(true)
@@ -167,7 +180,7 @@ describe('story2video 编排契约', () => {
       expect.objectContaining({
         platform: 'generic',
         creative_level: 5,
-        max_length: 300,
+        max_length: 500,
         num_candidates: 1,
         auto_detect_style: true,
       }),
@@ -186,6 +199,7 @@ describe('story2video 编排契约', () => {
 
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
+    await engine.executeStage(started.runId)
     const optimized = await engine.executeStage(started.runId)
 
     expect(optimized.success).toBe(true)
@@ -195,7 +209,7 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'realistic',
         creative_level: 5,
-        max_length: 300,
+        max_length: 500,
         num_candidates: 1,
         auto_detect_style: true,
       })
@@ -499,6 +513,7 @@ describe('story2video 编排契约', () => {
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
+    await engine.executeStage(started.runId)
     expect(serviceBus.splitText).toHaveBeenCalledWith('海上日出', expect.objectContaining({
       language: 'auto',
       mode: 'precise',
@@ -515,7 +530,7 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'anime',
         creative_level: 8,
-        max_length: 300,
+        max_length: 500,
         num_candidates: 2,
         auto_detect_style: true,
       })
@@ -578,3 +593,5 @@ describe('story2video 编排契约', () => {
     }
   })
 })
+
+

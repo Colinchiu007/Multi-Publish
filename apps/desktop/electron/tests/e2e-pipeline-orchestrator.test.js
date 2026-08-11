@@ -124,7 +124,7 @@ test('PipelineEngine orchestrator - domain_enrich 后由 prompt-engine 执行 op
     text: '美丽的日落。海边的椰子树。',
     autoAdvance: false,
   });
-  for (const stageName of ['split', 'domain_enrich', 'optimize']) {
+  for (const stageName of ['split', 'domain_enrich', 'scene_context', 'optimize']) {
     const execRes = await pipelineEngine.executeStage(res.runId);
     if (!execRes.success) console.log('  ' + stageName + ' error:', execRes.error, execRes.details);
     assert.ok(execRes.success, stageName + ' 应执行成功');
@@ -132,6 +132,7 @@ test('PipelineEngine orchestrator - domain_enrich 后由 prompt-engine 执行 op
   const ctx = pipelineEngine.getRunContext(res.runId);
   assert.ok(ctx.split, 'context 应包含 split 结果');
   assert.ok(ctx.domain_enrich, 'context 应包含 domain_enrich 结果');
+  assert.ok(ctx.scene_context, 'context 应包含 scene_context 结果');
   assert.ok(ctx.optimize, 'context 应包含 optimize 结果');
   assert.equal(ctx.optimize[0].providerId, 'prompt-engine');
   const enrichedScenes = ctx.domain_enrich.scenes || ctx.domain_enrich.sentences || ctx.domain_enrich;
@@ -163,7 +164,7 @@ test('PipelineEngine orchestrator - prompt-engine 不可用时 optimize 明确 f
     autoAdvance: false,
   });
   assert.ok(res.success, '应成功创建 orchestrator run');
-  for (const stageName of ['split', 'domain_enrich']) {
+  for (const stageName of ['split', 'domain_enrich', 'scene_context']) {
     const execRes = await pipelineEngine.executeStage(res.runId);
     assert.ok(execRes.success, stageName + ' 应执行成功');
   }
@@ -186,3 +187,4 @@ test('PipelineEngine orchestrator - advanceToNextCheckpoint 推进到完成', { 
   console.log('  context keys:', Object.keys(ctx).join(', '));
   console.log('  autoAdvance 完成，paused:', res.paused);
 });
+
