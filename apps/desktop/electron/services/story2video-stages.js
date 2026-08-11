@@ -23,7 +23,6 @@ const http = require('http');
 const https = require('https');
 const os = require('os');
 const path = require('path');
-const { STAGE_TYPES } = require('./stage-executor');
 const { enrichHistoryScenes, passthroughScenes } = require('./story2video-domain');
 const {
   getAllowedMediaRoots,
@@ -45,6 +44,7 @@ const {
 } = require('./video-prompt-engine-contract');
 const {
   buildSceneContextResult,
+  CONTEXT_KEY_WHITELIST,
   buildPromptEngineSceneContext,
   mergeNegativePrompt,
 } = require('./story-context-engine');
@@ -109,7 +109,7 @@ function resolveVideoGeneratorConfig (pipelineEngine, explicit) {
     : []
   // 多模态 provider：优先取 capability_models.video（能力默认模型），models 首项可能是 image/llm 模型
   // （与前端 getS2VDefaultVideoModel 同源，2026-08-11 W1）。
-  let model = ''
+  let model
   if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
     const videoModel = provider.capability_models.video
     model = models.includes(videoModel) ? videoModel : (videoModel || models[0] || '')
@@ -1087,6 +1087,11 @@ function registerStory2VideoStages(pipelineEngine) {
           } else if (typeof userContext === 'string' && userContext && !optimizeContext.synopsis) {
             optimizeContext.synopsis = userContext;
           }
+          // 审查 W1：发送边界对 context 做白名单过滤（scene_context 七键），
+          // 防止用户显式配置携带未知键/未来服务端新增解释型键造成契约漂移。
+          for (const key of Object.keys(optimizeContext)) {
+            if (!CONTEXT_KEY_WHITELIST.includes(key)) delete optimizeContext[key];
+          }
           const requestOptionsForScene = { ...stage.options, context: optimizeContext };
           // 场景负面锚点（时代/文化排除项）合并进 negative_prompt（≤500 契约截断）
           const sceneNegativeAnchors = scene && typeof scene === 'object' && Array.isArray(scene.negativeAnchors)
@@ -1113,7 +1118,7 @@ function registerStory2VideoStages(pipelineEngine) {
             const hint = /not running|ECONNREFUSED|timed\s*out|ETIMEDOUT|network\s*error|超时|网络/i.test(message)
               ? '（prompt-engine 未运行或不可达，请检查 PROMPT_DIR 与端口 8013）'
               : ''
-            throw new Error('Story2Video optimize scene ' + index + ' failed: ' + message + hint)
+            throw new Error('Story2Video optimize scene ' + index + ' failed: ' + message + hint, { cause: lastError })
           }
           // 截断上限用契约收敛后的 max_length（W-2/I-4：兼容 camelCase 配置且不因原始越界值误截断）
           const validated = extractOptimizedPrompt(result, {
@@ -1900,3 +1905,5 @@ module.exports = {
   unwrapScenesArray,
   generateSceneVideo,
 };
+
+
