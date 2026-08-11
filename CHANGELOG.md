@@ -21,6 +21,14 @@
 - 补充排队与冷却时序预算：并发信号量 30s、RPM 时间槽 180s、429 冷却 45s、额度预检即拒；429 自适应 ×0.75 下调 / +0.05 恢复；同 key 重入透传防双包死锁；两端数据校验规则与提示文案。
 - 文档：PRD §7.1.8.1（时序预算与数据校验）、§7.4.4.3（预算来源与数据库默认值降级链路）、§7.4.4.4（并发与排队功能逻辑）、§7.4.4.5（交互逻辑与显示项/提示文字）；product-manual §3.5 模型设置 / §3.6 运营后台同步；OpenSpec model-call-scheduler（排队时序预算 + 数据库默认值降级两个 Requirement）；ops-center PRD §12A.10.4；清理 #533 合入残留的 CHANGELOG 冲突标记行。
 
+## [未发布] 功能：主动操作登录引导（渐进式登录）（2026-08-11）
+
+- 新增 `src/composables/useLoginGate.js`：主动操作登录门——未登录触发「发布/批量发布/AI 写作/启动流水线」等操作时弹登录确认框 → `identitySignIn()`（主进程 Logto OAuth）→ 登录成功自动继续原操作；已登录直接放行；身份服务不可用 fail-closed 提示；单例防重入。
+- 接入首批主动操作：`usePublishFlow.handlePublish`（发布）、`useBatchPublish.handleBatchPublish`（批量发布）、`AiWriterPanel` 三个生成函数（标题/润色/摘要）、`CreateView` UI「启动流水线」按钮 → `handleStartPipeline`（登录门 + `startPipeline`，方法本体保持同步时序语义）。
+- 边界：浏览/查看类保持轻提示；已登录缺权益走升级引导；登录门仅为 UX 前置，主进程通道级鉴权（AUTH_REQUIRED）仍是最终安全边界。
+- 文档：PRD §2.3.1「主动操作登录引导」详细合同（规则/校验/流程/交互/提示文字/接入点/边界）；CHANGELOG。
+- 测试：`useLoginGate.test.js`（8 用例：已登录放行/确认后登录/取消/登录失败/不可用/单例/requireLogin）；接入点新增 `handleStartPipeline` 2 用例；重复提交类测试适配异步登录门时序；src 全量通过。
+
 ## [未发布] 功能：MiniMax 多模态模型列表只读（2026-08-11）
 
 - 设置-模型设置-多模态模型- MiniMax 的「模型列表」编辑输入框移除：模型列表由程序预设（seeds `capability_models`/`models`）+ 运营后台（catalog 下发）控制，前端不提供编辑。

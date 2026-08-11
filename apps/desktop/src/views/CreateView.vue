@@ -685,7 +685,7 @@
         <div class="action-bar">
           <span v-if="s2vOptionsToast" class="s2v-options-toast" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</span>
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
-            <UiButton class="btn-start" data-testid="start-story2video" @click="startPipeline" :disabled="!canStartPipeline">
+            <UiButton class="btn-start" data-testid="start-story2video" @click="handleStartPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
             </UiButton>
             <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="reset-options-link" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
@@ -828,6 +828,7 @@ import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { PipelineSelector, StageProgress } from './video-creation'
+import { useLoginGate } from '@/composables/useLoginGate'
 import {
   deleteCustomTemplate,
   getAllTemplates,
@@ -1572,6 +1573,17 @@ export default {
     },
     getDefaultStory2VideoStages() {
       return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
+    },
+    async ensureLoginForStart (message) {
+      // 主动操作登录门（UI 层）：未登录弹登录窗口，登录成功后继续启动流水线。
+      // 放在 UI 点击层而非 startPipeline 方法内，避免改变 startPipeline 的同步时序语义。
+      const { ensureLogin } = useLoginGate()
+      return ensureLogin({ message: message || '启动流水线需要登录后使用，是否立即登录？' })
+    },
+    // UI「启动流水线」入口：登录门 + 启动
+    async handleStartPipeline () {
+      if (!(await this.ensureLoginForStart())) return false
+      return this.startPipeline()
     },
     async startPipeline() {
       // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）

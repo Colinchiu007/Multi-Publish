@@ -19,6 +19,7 @@ const {
   mockStoreSetSetting,
   mockElMessage,
   mockElMessageBox,
+  mockEnsureLogin,
 } = vi.hoisted(function () {
   return {
     mockPublishBatch: vi.fn(),
@@ -34,6 +35,18 @@ const {
     mockStoreSetSetting: vi.fn(),
     mockElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() },
     mockElMessageBox: { confirm: vi.fn() },
+    // 主动操作登录门：默认直接放行（登录门行为由 useLoginGate.test.js 覆盖）
+    mockEnsureLogin: vi.fn(async () => true),
+  }
+})
+
+vi.mock('@/composables/useLoginGate', function () {
+  return {
+    useLoginGate: () => ({
+      ensureLogin: mockEnsureLogin,
+      requireLogin: vi.fn(async (fn) => fn()),
+      openSignIn: vi.fn(async () => true),
+    }),
   }
 })
 
@@ -175,6 +188,8 @@ describe('usePublishFlow — composable setup', () => {
     article.content = 'Content'
 
     const firstPublish = r.handlePublish()
+    // 主动操作登录门为异步：等待第一次进入 publishing 锁后再触发重复提交
+    await Promise.resolve()
     const duplicatePublish = r.handlePublish()
     await duplicatePublish
     resolvePublish({ code: 0, data: { taskIds: ['t1'] }, message: 'ok' })

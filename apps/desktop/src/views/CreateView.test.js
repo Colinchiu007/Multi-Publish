@@ -4,6 +4,16 @@ import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import { setActivePinia, createPinia } from "pinia";
 
+const mockEnsureLogin = vi.hoisted(() => vi.fn(async () => true));
+
+vi.mock("@/composables/useLoginGate", () => ({
+  useLoginGate: () => ({
+    ensureLogin: mockEnsureLogin,
+    requireLogin: vi.fn(async (fn) => fn()),
+    openSignIn: vi.fn(async () => true),
+  }),
+}));
+
 vi.mock("@/api/publisher", () => ({
   renderStart: vi.fn(),
   renderCancel: vi.fn(),
@@ -1219,6 +1229,35 @@ describe("CreateView - S2V orchestration", () => {
     expect(request).not.toHaveProperty("versions");
     expect(request).not.toHaveProperty("perImageDuration");
     expect(w.vm.outputConfig).toEqual({ resolution: "3840x2160", fps: 60, format: "mp4" });
+    w.unmount();
+  });
+
+  it("handleStartPipeline：登录门被拒（未登录/取消）时不启动流水线", async () => {
+    mockEnsureLogin.mockResolvedValueOnce(false);
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "登录门测试";
+    await w.vm.handleStartPipeline();
+    expect(mockEnsureLogin).toHaveBeenCalled();
+    expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
+    expect(mocks.pipelineStart).not.toHaveBeenCalled();
+    w.unmount();
+  });
+
+  it("handleStartPipeline：登录通过后调用 startPipeline", async () => {
+    mockEnsureLogin.mockResolvedValue(true);
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-login-gate" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "登录门测试2";
+    await w.vm.handleStartPipeline();
+    expect(mockEnsureLogin).toHaveBeenCalled();
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalled();
     w.unmount();
   });
 
