@@ -35,7 +35,7 @@
 - [x] 真实 8013 smoke：新代码实例（PORT=8024，本机）`/v1/optimize` domain=video 返回结构化 video 字段（shot/camera/motion_intensity/scene_transition/continuity_token），MiniMax-M3 真实 LLM；生产 8013 需部署新分支后重启（外部验收边界）
 - [x] `01-docs/VIDEO-PROMPT-OPTIMIZE-ENGINE-DESIGN-2026-08-11.md` 状态更新；双仓库 CHANGELOG 追加
 - [x] `openspec validate video-prompt-optimize-engine` 有效；`scripts/openspec-sync-check.js` OK（无 completed 未归档关联）
-- [x] 双分支推送 + PR：prompt-engine #18、Multi-Publish #548（均待合并，remoteStatus=open）
+- [x] 双分支推送 + PR：prompt-engine #18（CI 全绿，等待 review 审批）、Multi-Publish #548（已解决两轮 origin/main 冲突，CI 重跑中，等待 review 审批）；remoteStatus=open
 
 ## 明确不做（边界）
 - 平台专项策略（kling/veo/runway/wan/seedance… 定制 system prompt）→ Phase 2
