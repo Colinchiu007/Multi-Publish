@@ -20,6 +20,10 @@
           <el-icon><Switch /></el-icon>
           <span>功能开关</span>
         </el-menu-item>
+        <el-menu-item index="/runtime-flags">
+          <el-icon><SwitchButton /></el-icon>
+          <span>桌面端功能开关</span>
+        </el-menu-item>
         <el-menu-item index="/secrets">
           <el-icon><Key /></el-icon>
           <span>Key 管理</span>
@@ -27,6 +31,26 @@
         <el-menu-item index="/platforms">
           <el-icon><Connection /></el-icon>
           <span>平台凭证</span>
+        </el-menu-item>
+        <el-menu-item index="/usage">
+          <el-icon><DataLine /></el-icon>
+          <span>模型用量</span>
+        </el-menu-item>
+        <el-menu-item index="/publish-dashboard">
+          <el-icon><TrendCharts /></el-icon>
+          <span>发布数据</span>
+        </el-menu-item>
+        <el-menu-item index="/system-health">
+          <el-icon><Monitor /></el-icon>
+          <span>系统健康</span>
+        </el-menu-item>
+        <el-menu-item index="/licenses">
+          <el-icon><Tickets /></el-icon>
+          <span>许可证管理</span>
+        </el-menu-item>
+        <el-menu-item index="/redemption-codes">
+          <el-icon><Postcard /></el-icon>
+          <span>兑换码</span>
         </el-menu-item>
         <el-menu-item index="/announcements">
           <el-icon><Bell /></el-icon>
@@ -43,6 +67,22 @@
         <el-menu-item index="/model-presets">
           <el-icon><Cpu /></el-icon>
           <span>预设模型</span>
+        </el-menu-item>
+        <el-menu-item index="/platform-defs">
+          <el-icon><Grid /></el-icon>
+          <span>平台元数据</span>
+        </el-menu-item>
+        <el-menu-item index="/content-templates">
+          <el-icon><Document /></el-icon>
+          <span>内容模板库</span>
+        </el-menu-item>
+        <el-menu-item index="/keyword-watchlist">
+          <el-icon><Search /></el-icon>
+          <span>关键词监测</span>
+        </el-menu-item>
+        <el-menu-item index="/pipeline-deps">
+          <el-icon><Connection /></el-icon>
+          <span>流水线依赖</span>
         </el-menu-item>
         <el-menu-item index="/parameters">
           <el-icon><Operation /></el-icon>

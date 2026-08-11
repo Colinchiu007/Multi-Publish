@@ -9,6 +9,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { opsCenterSyncGet, opsCenterSyncSave, opsCenterSyncNow } from '@/api/ops-center-sync'
+import { formatUserError } from '@/utils/user-facing-error'
 
 export function useOpsCenterSync () {
   // ─── 状态 ─────────────────────────────────────
@@ -62,7 +63,7 @@ export function useOpsCenterSync () {
       syncApiKey.value = ''
       applyConfig(res.config)
     } else {
-      ElMessage.error(res.message || '保存同步配置失败')
+      ElMessage.error(formatUserError(res, { fallback: '保存同步配置失败' }).message)
     }
     return res
   }
@@ -81,7 +82,7 @@ export function useOpsCenterSync () {
         autoSync: syncAutoSync.value,
       })
       if (saved.code !== 0) {
-        syncError.value = saved.message || '保存同步配置失败，无法同步'
+        syncError.value = formatUserError(saved, { fallback: '保存同步配置失败，无法同步' }).message
         ElMessage.error(syncError.value)
         return saved
       }
@@ -94,12 +95,12 @@ export function useOpsCenterSync () {
         lastSyncedAt.value = res.syncedAt || ''
         ElMessage.success(syncStatus.value)
       } else {
-        syncError.value = res.message || '同步失败'
+        syncError.value = formatUserError(res, { fallback: '同步失败' }).message
         ElMessage.error(syncError.value)
       }
       return res
     } catch (e) {
-      syncError.value = e.message || '同步异常'
+      syncError.value = formatUserError(e, { fallback: '同步异常' }).message
       ElMessage.error(syncError.value)
       return { code: -1, message: syncError.value }
     } finally {

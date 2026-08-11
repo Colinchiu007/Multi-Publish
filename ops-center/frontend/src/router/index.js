@@ -39,6 +39,49 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/usage',
+    name: 'UsageDashboard',
+    component: () => import('../views/UsageDashboard.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/publish-dashboard',
+    name: 'PublishDashboard',
+    component: () => import('../views/PublishDashboard.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/system-health',
+    name: 'SystemHealth',
+    component: () => import('../views/SystemHealth.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/licenses',
+    name: 'Licenses',
+    component: () => import('../views/Licenses.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/keyword-watchlist',
+    name: 'KeywordWatchlist',
+    component: () => import('../views/KeywordWatchlist.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/pipeline-deps',
+    name: 'PipelineDeps',
+    component: () => import('../views/PipelineDeps.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/redemption-codes',
+    name: 'RedemptionCodes',
+    component: () => import('../views/RedemptionCodes.vue'),
+
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/announcements',
     name: 'Announcements',
     component: () => import('../views/Announcements.vue'),
@@ -60,6 +103,23 @@ const routes = [
     path: '/model-presets',
     name: 'ModelPresets',
     component: () => import('../views/ModelPresets.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/platform-defs',
+    name: 'PlatformDefs',
+    component: () => import('../views/PlatformDefs.vue'),
+  },
+  {
+    path: '/runtime-flags',
+    name: 'RuntimeFlags',
+    component: () => import('../views/RuntimeFlags.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/content-templates',
+    name: 'ContentTemplates',
+    component: () => import('../views/ContentTemplates.vue'),
     meta: { requiresAuth: true },
   },
   {

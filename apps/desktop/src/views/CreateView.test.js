@@ -4,6 +4,16 @@ import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import { setActivePinia, createPinia } from "pinia";
 
+const mockEnsureLogin = vi.hoisted(() => vi.fn(async () => true));
+
+vi.mock("@/composables/useLoginGate", () => ({
+  useLoginGate: () => ({
+    ensureLogin: mockEnsureLogin,
+    requireLogin: vi.fn(async (fn) => fn()),
+    openSignIn: vi.fn(async () => true),
+  }),
+}));
+
 vi.mock("@/api/publisher", () => ({
   renderStart: vi.fn(),
   renderCancel: vi.fn(),
@@ -58,6 +68,8 @@ const router = createRouter({
 });
 
 import CreateView from "./CreateView.vue";
+import CreateViewHistory from './CreateViewHistory.vue'
+import { PipelineSelector, StageProgress } from './video-creation'
 import i18n from "@/i18n";
 
 describe("CreateView", () => {
@@ -70,7 +82,7 @@ describe("CreateView", () => {
 
   it("renders page header", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     expect(w.text()).toContain("视频创作");
@@ -78,7 +90,7 @@ describe("CreateView", () => {
 
   it("shows three view tabs", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     const tabs = w.findAll(".view-tab");
@@ -87,7 +99,7 @@ describe("CreateView", () => {
 
   it("switches to quick view shows mode tabs", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -98,7 +110,7 @@ describe("CreateView", () => {
 
   it("switches quick mode to gallery shows upload", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -111,7 +123,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is false with empty quickText", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -121,7 +133,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is true with non-empty quickText", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -132,7 +144,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is false when quickRendering", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -143,7 +155,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is false when gallery mode with no images", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -153,7 +165,7 @@ describe("CreateView", () => {
 
   it("canQuickRender is true when gallery has images", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -165,7 +177,7 @@ describe("CreateView", () => {
   it("gets renderStatus on mount", async () => {
     const mocks = await import("@/api/publisher");
     mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(mocks.renderGetStatus).toHaveBeenCalled();
@@ -174,7 +186,7 @@ describe("CreateView", () => {
   it("loads pipelines on mount", async () => {
     const mocks = await import("@/api/publisher");
     mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     expect(mocks.pipelineList).toHaveBeenCalled();
@@ -198,7 +210,7 @@ describe("CreateView", () => {
     });
     try {
       const w = mount(CreateView, {
-        global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+        global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
       });
       await new Promise((r) => setTimeout(r, 100));
       await nextTick();
@@ -216,7 +228,7 @@ describe("CreateView", () => {
 
   it("阶段清单展示场景数/优化进度/资源进度详情", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     const now = new Date().toISOString();
@@ -257,7 +269,7 @@ describe("CreateView", () => {
 
   it("compose 阶段展示子进度条与片段文案", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     const now = new Date().toISOString();
@@ -291,7 +303,7 @@ describe("CreateView", () => {
 
   it("compose 阶段无子进度数据时安全降级（不渲染子进度条）", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     const now = new Date().toISOString();
@@ -332,7 +344,7 @@ describe("CreateView", () => {
         ui: { expandedGroups: ["appearance", "voice"] },
       },
     });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await new Promise((r) => setTimeout(r, 50));
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
@@ -377,7 +389,7 @@ describe("CreateView", () => {
         ui: { expandedGroups: ["appearance"] },
       },
     });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await new Promise((r) => setTimeout(r, 50));
     await nextTick();
     // mounted 时 selectedPipeline 为 null（真实场景）→ mounted 的 restore 守卫不执行；
@@ -401,7 +413,7 @@ describe("CreateView", () => {
       code: 0,
       data: { version: 1, s2vConfig: { imageStyle: "anime" }, s2vOutputConfig: {}, ui: {} },
     });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await new Promise((r) => setTimeout(r, 50));
     await nextTick();
     w.vm.selectPipeline({ name: "story2video-compose", available: true, stages: [] });
@@ -442,7 +454,7 @@ describe("CreateView", () => {
         ui: {},
       },
     });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await new Promise((r) => setTimeout(r, 50));
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
@@ -476,7 +488,7 @@ describe("CreateView", () => {
   it("语音生成器选项首项带「自动 Edge TTS」显示名（下拉标签不再为空）", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.s2vVoiceProviders = [{ id: "minimax-tts", name: "MiniMax TTS", category: "tts", models: ["speech-2.8-turbo"] }];
     const options = w.vm.s2vVoiceProviderOptions;
@@ -489,7 +501,7 @@ describe("CreateView", () => {
     const mocks = await import("@/api/publisher");
     mocks.storeGetSetting.mockResolvedValue(null);
     mocks.storeSetSetting.mockResolvedValue({ code: 0 });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
     w.vm.s2vConfig.imageStyle = "cyberpunk";
@@ -509,7 +521,7 @@ describe("CreateView", () => {
   });
 
   it("音色克隆：渲染上传要求提示并映射全部克隆错误码", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.s2vVoiceCloneRequirements = {
       allowedExtensions: [".mp3", ".m4a", ".wav"],
@@ -545,7 +557,7 @@ describe("CreateView", () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValueOnce({});
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await new Promise(r => setTimeout(r, 0));
 
@@ -557,7 +569,7 @@ describe("CreateView", () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockRejectedValueOnce(new Error("IPC 不可用"));
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await new Promise(r => setTimeout(r, 0));
 
@@ -577,7 +589,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValue({ code: 0, data: { outputPath: "/tmp/test.mp4" } });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -594,7 +606,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValue({ code: 1, message: "render failed" });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -608,7 +620,7 @@ describe("CreateView - quick render", () => {
   it("cancelQuickRender calls renderCancel", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.quickRendering = true;
@@ -619,7 +631,7 @@ describe("CreateView - quick render", () => {
 
   it("aiWrite generates content", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "quick";
@@ -634,7 +646,7 @@ describe("CreateView - quick render", () => {
     const push = vi.fn();
     router.push = push;
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.quickResult = { outputPath: "/tmp/video.mp4" };
@@ -646,7 +658,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockRejectedValueOnce(new Error("渲染 IPC 缺失"));
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.quickText = "测试文案";
@@ -662,7 +674,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValueOnce({});
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.quickText = "测试文案";
@@ -677,7 +689,7 @@ describe("CreateView - quick render", () => {
     const mocks = await import("@/api/publisher");
     mocks.renderStart.mockResolvedValueOnce({ code: 0, data: { taskId: "r1" } });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.quickMode = "gallery";
@@ -707,7 +719,7 @@ describe("CreateView - callbacks", () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderComplete.mockImplementation(cb => { cb({ outputPath: "/tmp/test.mp4" }); return vi.fn(); });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.quickResult).toEqual({ outputPath: "/tmp/test.mp4" });
@@ -717,7 +729,7 @@ describe("CreateView - callbacks", () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderError.mockImplementation(cb => { cb({ message: "render failed" }); return vi.fn(); });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.quickError).toBe("render failed");
@@ -727,7 +739,7 @@ describe("CreateView - callbacks", () => {
     const mocks = await import("@/api/publisher");
     mocks.onRenderInstallProgress.mockImplementation(cb => { cb({ text: "installing..." }); return vi.fn(); });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await new Promise(r => setTimeout(r, 0));
     expect(w.vm.installLog).toContain("installing");
@@ -743,7 +755,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("isOrchestratedPipeline returns true for story2video-compose", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     expect(w.vm.isOrchestratedPipeline("story2video-compose")).toBe(true);
@@ -751,7 +763,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("isOrchestratedPipeline returns false for other pipelines", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     expect(w.vm.isOrchestratedPipeline("cinematic")).toBe(false);
@@ -760,7 +772,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("has s2vConfig with required fields", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     expect(w.vm.s2vConfig).toHaveProperty("imageStyle");
@@ -781,7 +793,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("does not expose unconfigured static image providers in the Story2Video selector", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -797,7 +809,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("Story2Video 隐藏通用视觉、LLM、预算和手动检查点控制", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -814,7 +826,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("Story2Video 隐藏无效的比例、情绪、字体和离线占位图选项", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -835,7 +847,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("Story2Video 负向提示词输入与运行配置保持 500 字符上限一致", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -857,7 +869,7 @@ describe("CreateView - S2V orchestration", () => {
     });
     window.electronAPI = { modelProviderList: listImageProviders };
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -898,7 +910,7 @@ describe("CreateView - S2V orchestration", () => {
     });
     window.electronAPI = { modelProviderList: listProviders };
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -930,7 +942,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineGetRunContext.mockResolvedValueOnce(response);
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.orchestrationRunId = "run-poll-error";
@@ -956,7 +968,7 @@ describe("CreateView - S2V orchestration", () => {
       },
     });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.orchestrationRunId = "run-terminal-error";
@@ -978,7 +990,7 @@ describe("CreateView - S2V orchestration", () => {
       data: { success: false, error: "图片服务商未配置 API Key" },
     });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.orchestrationRunId = "run-advance-error";
@@ -994,7 +1006,7 @@ describe("CreateView - S2V orchestration", () => {
   it("完成但缺少可预览视频时使用应用内弹窗", async () => {
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
 
@@ -1021,7 +1033,7 @@ describe("CreateView - S2V orchestration", () => {
     });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
@@ -1048,7 +1060,7 @@ describe("CreateView - S2V orchestration", () => {
       message: "当前许可证无权访问 pipeline:startOrchestrated",
     });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
@@ -1064,7 +1076,7 @@ describe("CreateView - S2V orchestration", () => {
   it("Story2Video 在调用 IPC 前拒绝超过 6000 个 Unicode 字符的文案", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -1086,7 +1098,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-123" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
@@ -1109,7 +1121,7 @@ describe("CreateView - S2V orchestration", () => {
       ],
     });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await w.vm.loadPipelines();
 
@@ -1121,7 +1133,7 @@ describe("CreateView - S2V orchestration", () => {
   });
   it("流水线卡片优先显示后端 stageCount", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.pipelineLoading = false;
@@ -1142,7 +1154,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-contract" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -1220,12 +1232,41 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
+  it("handleStartPipeline：登录门被拒（未登录/取消）时不启动流水线", async () => {
+    mockEnsureLogin.mockResolvedValueOnce(false);
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "登录门测试";
+    await w.vm.handleStartPipeline();
+    expect(mockEnsureLogin).toHaveBeenCalled();
+    expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
+    expect(mocks.pipelineStart).not.toHaveBeenCalled();
+    w.unmount();
+  });
+
+  it("handleStartPipeline：登录通过后调用 startPipeline", async () => {
+    mockEnsureLogin.mockResolvedValue(true);
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-login-gate" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "登录门测试2";
+    await w.vm.handleStartPipeline();
+    expect(mockEnsureLogin).toHaveBeenCalled();
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalled();
+    w.unmount();
+  });
+
   it("S2V 编排提交字数主控与最短场景时长参数（默认 + 显式开启）", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-duration-contract" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
     const mountS2V = () => {
-      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
       w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
       w.vm.pipelineText = "分镜时长契约";
       return w;
@@ -1256,7 +1297,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-images" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -1277,7 +1318,7 @@ describe("CreateView - S2V orchestration", () => {
   it("普通流水线仍保留图片、音频和视频输入", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "screen-demo", stages: [] };
@@ -1292,7 +1333,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoTranscribe.mockResolvedValue({ code: 0, data: { text: "识别后的第一段" } });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "podcast-repurpose", stages: [] };
@@ -1311,7 +1352,7 @@ describe("CreateView - S2V orchestration", () => {
     const importer = vi.fn().mockResolvedValue({ code: 0, data: { path: "C:/controlled/bgm.mp3" } });
     mocks.story2videoImportMedia.mockImplementation(importer);
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
 
@@ -1327,7 +1368,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.story2videoImportMedia.mockResolvedValue({ code: -1 });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
 
@@ -1343,7 +1384,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("BGM 格式不支持时细分提示具体格式与允许列表", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
 
@@ -1358,7 +1399,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("BGM 大小超限时细分提示最大与当前大小", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
 
@@ -1376,7 +1417,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoImportMedia.mockResolvedValue({ code: -1, message: "不支持的媒体格式" });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
 
@@ -1391,7 +1432,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoImportMedia.mockResolvedValue({ code: -1, message: "媒体文件不存在或不可读" });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
 
@@ -1404,7 +1445,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("媒体文件要求提示文字按类别渲染", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -1421,7 +1462,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStart.mockResolvedValue({ code: 0, data: {} });
     mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { status: "running", stages: [] } });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "custom-pipeline", description: "test", stages: [], category: "custom", available: true };
@@ -1436,7 +1477,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "暂不启动" });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "custom-pipeline", stages: [], available: true };
@@ -1461,7 +1502,7 @@ describe("CreateView - S2V orchestration", () => {
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "暂不启动" });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "custom-pipeline", stages: [], available: true };
@@ -1481,7 +1522,7 @@ describe("CreateView - S2V orchestration", () => {
     const mocks = await import("@/api/publisher");
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -1512,7 +1553,7 @@ describe("CreateView - S2V orchestration", () => {
     });
     const pushSpy = vi.spyOn(router, "push");
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -1530,7 +1571,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("llmConfig only has temperature (no provider/model)", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     expect(w.vm.llmConfig).toHaveProperty("temperature");
@@ -1550,7 +1591,7 @@ describe("CreateView - UI interactions", () => {
 
   it("clicks view-tab switches view (pipelines/quick/history)", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     const tabs = w.findAll(".view-tab");
@@ -1566,7 +1607,7 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("分镜粒度双视图：目标时长输入反推字数主控，切换视图保持一致", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     await nextTick();
@@ -1598,7 +1639,7 @@ describe("CreateView - UI interactions", () => {
   it("运营后台实时预估（Batch 5b）：静态估算显示分镜数/时长区间/成本", async () => {
     const mocks = await import("@/api/publisher");
     mocks.storeGetSetting.mockResolvedValue({ code: 0, data: null }); // 无样本 → 静态
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.pipelineText = "一二三四五六七八九十"; // 10 字，默认每分镜 20 字 → 1 个分镜
@@ -1624,7 +1665,7 @@ describe("CreateView - UI interactions", () => {
     }));
     mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
     mocks.storeGetSetting.mockResolvedValue({ code: 0, data: samples });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.s2vConfig = { ...w.vm.s2vConfig, splitLanguage: "zh", voiceProvider: "edge-tts", voiceId: "v1" };
@@ -1652,7 +1693,7 @@ describe("CreateView - UI interactions", () => {
     }));
     mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
     mocks.storeGetSetting.mockResolvedValue(samples); // 直接数组（生产 wrapper 解包后的形态）
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.s2vConfig = { ...w.vm.s2vConfig, splitLanguage: "zh", voiceProvider: "edge-tts", voiceId: "v1" };
@@ -1673,7 +1714,7 @@ describe("CreateView - UI interactions", () => {
     mocks.storeGetSetting.mockResolvedValue({ code: 0, data: [
       { language: "zh", provider: "edge-tts", voiceId: "v1", speed: 1, chars: 9, durationSeconds: 1, recordedAt: nowIso },
     ] }); // 仅 1 条 → 不足 CALIBRATION_MIN_SAMPLES=3
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.s2vConfig = { ...w.vm.s2vConfig, splitLanguage: "zh", voiceProvider: "edge-tts", voiceId: "v1" };
@@ -1687,7 +1728,7 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("运营后台实时预估（Batch 5b）：非 story2video-compose 流水线不显示预估行", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "animated-explainer", stages: [] };
     w.vm.pipelineText = "一二三四五六七八九十";
@@ -1697,7 +1738,7 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("运营后台实时预估（Batch 5b）：空文案不显示预估行", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     await nextTick();
@@ -1706,7 +1747,7 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("语言感知估算（Batch 5a）：zh/en 基准语速参与时长↔字数换算，auto 回退 3.3", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     await nextTick();
@@ -1732,7 +1773,7 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("分镜粒度换算边界：clamp 到 [minWords,maxWords]、无效输入 no-op、语速驱动估算、N 输入自愈", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     await nextTick();
@@ -1772,7 +1813,7 @@ describe("CreateView - UI interactions", () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-min-duration-ui" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
     w.vm.pipelineText = "最短场景时长";
@@ -1806,7 +1847,7 @@ describe("CreateView - UI interactions", () => {
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [], localMode: true });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     w.vm.view = "history";
     await w.vm.loadHistory();
@@ -1823,7 +1864,7 @@ describe("CreateView - UI interactions", () => {
     mocks.story2videoListProjects.mockResolvedValue({ code: -1, message: "Story2Video 项目存储不可用", data: [] });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     w.vm.view = "history";
     await w.vm.loadHistory();
@@ -1839,7 +1880,7 @@ describe("CreateView - UI interactions", () => {
     mocks.story2videoListProjects.mockResolvedValue({ code: -1, message: "无法识别当前用户", data: [] });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     w.vm.view = "history";
     await w.vm.loadHistory();
@@ -1855,7 +1896,7 @@ describe("CreateView - UI interactions", () => {
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     w.vm.view = "history";
     await w.vm.loadHistory();
@@ -1876,7 +1917,7 @@ describe("CreateView - UI interactions", () => {
     vi.useFakeTimers();
     try {
       const w = mount(CreateView, {
-        global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+        global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
       });
       w.vm.view = "history";
       void w.vm.loadHistory();
@@ -1907,7 +1948,7 @@ describe("CreateView - UI interactions", () => {
       .mockImplementationOnce(() => new Promise(resolve => { resolveOldRuns = resolve; }))
       .mockResolvedValueOnce({ code: 0, data: [] });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
 
     const first = w.vm.loadHistory();
@@ -1927,7 +1968,7 @@ describe("CreateView - UI interactions", () => {
     mocks.pipelineStart.mockResolvedValueOnce({ code: 1, message: "测试阻止启动" });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { id: "p1", name: "normal-pipeline", available: true };
@@ -1950,7 +1991,7 @@ describe("CreateView - UI interactions", () => {
 
   it("未实现引擎的流水线禁用启动按钮并显示提示", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.pipelines = [{ name: "animation", available: false, stages: [] }];
@@ -1969,7 +2010,7 @@ describe("CreateView - UI interactions", () => {
   it("未实现引擎的流水线 startPipeline 被守卫拦截并弹出提示", async () => {
     const mocks = await import("@/api/publisher");
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "animation", available: false, stages: [] };
@@ -1984,7 +2025,7 @@ describe("CreateView - UI interactions", () => {
 
   it("自动流水线使用各自真实阶段名（非 s2v 回退）", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.pipelines = [{ name: "documentary-montage", available: true }];
@@ -2003,7 +2044,7 @@ describe("CreateView - UI interactions", () => {
 
   it("s2v 高级区拆分为分句与时长、模板与输出两个子组", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -2025,7 +2066,7 @@ describe("CreateView - UI interactions", () => {
     }] });
     const pushSpy = vi.spyOn(router, "push");
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
 
     w.vm.view = "history";
@@ -2033,10 +2074,10 @@ describe("CreateView - UI interactions", () => {
     await nextTick();
 
     expect(w.text()).toContain("历史成片");
-    expect(w.find(".history-status").text()).toBe("已完成");
+    expect(w.find(".history-status").text()).toContain("已完成");
     expect(w.find(".history-status").classes()).toContain("completed");
 
-    await w.find(".history-open").trigger("click");
+    await w.find(".history-btn.open").trigger("click");
     expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "project-history" } });
     pushSpy.mockRestore();
   });
@@ -2051,12 +2092,12 @@ describe("CreateView - UI interactions", () => {
       { id: "run-cancelled", pipeline: "story2video-compose", status: "cancelled", title: "已取消" },
     ] });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
 
     w.vm.view = "history";
     await w.vm.loadHistory();
-    w.vm.historyFilter = "failed";
+    w.vm.historyFilter = "paused";
     await nextTick();
 
     expect(w.vm.filteredHistory.map(item => item.id)).toEqual(["run-failed"]);
@@ -2072,16 +2113,16 @@ describe("CreateView - UI interactions", () => {
     mocks.pipelineResumeOrchestration.mockResolvedValue({ code: 0, data: { success: true, runId: "run-failed-r1" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: "run-failed-r1", pipeline: "story2video-compose", status: { status: "running" }, stages: [] } });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     w.vm.pipelines = [{ name: "story2video-compose", available: true, stages: [] }];
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
-    w.vm.historyFilter = "failed";
+    w.vm.historyFilter = "paused";
     await nextTick();
 
-    const resumeBtn = w.find(".history-resume");
+    const resumeBtn = w.find(".history-btn.resume");
     expect(resumeBtn.exists()).toBe(true);
     expect(resumeBtn.text()).toContain("从断点继续");
 
@@ -2103,7 +2144,7 @@ describe("CreateView - UI interactions", () => {
     mocks.pipelineResumeOrchestration.mockResolvedValue({ code: 0, data: { success: true, runId: "run-running-r1" } });
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: "run-running-r1", pipeline: "story2video-compose", status: { status: "running" }, stages: [] } });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     w.vm.pipelines = [{ name: "story2video-compose", available: true, stages: [] }];
     w.vm.view = "history";
@@ -2112,7 +2153,7 @@ describe("CreateView - UI interactions", () => {
     w.vm.historyFilter = "running";
     await nextTick();
 
-    const resumeBtn = w.find(".history-resume");
+    const resumeBtn = w.find(".history-btn.resume");
     expect(resumeBtn.exists()).toBe(true);
     expect(resumeBtn.text()).toContain("继续生成");
 
@@ -2130,21 +2171,21 @@ describe("CreateView - UI interactions", () => {
       { id: "run-policy", pipeline: "story2video-compose", status: "failed", title: "违规任务", error: "content policy: 图片生成需要修改文案" },
     ] });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
-    w.vm.historyFilter = "failed";
+    w.vm.historyFilter = "paused";
     await nextTick();
 
-    expect(w.find(".history-resume").exists()).toBe(false);
+    expect(w.find(".history-btn.resume").exists()).toBe(false);
     w.unmount();
   });
 
   it("可把当前参数保存为自定义模板、重新应用并删除", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.s2vConfig.imageEffect = "pan-up";
@@ -2181,7 +2222,7 @@ describe("CreateView - UI interactions", () => {
     mocks.story2videoListProjects.mockResolvedValueOnce({ code: 1, message: "internal path C:/private" });
     mocks.pipelineHistory.mockResolvedValueOnce({ code: 0, data: [] });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
 
     w.vm.view = "history";
@@ -2199,7 +2240,7 @@ describe("CreateView - UI interactions", () => {
     mocks.story2videoDeleteProject.mockResolvedValue({ code: 0 });
     const confirmSpy = vi.spyOn(window, "confirm");
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     w.vm.history = [{ projectId: "project-delete" }];
 
@@ -2224,7 +2265,7 @@ describe("CreateView - UI interactions", () => {
       { id: "run-live", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z",
         stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }, { name: "compose", status: "pending" }] },
     ] });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
@@ -2254,7 +2295,7 @@ describe("CreateView - UI interactions", () => {
       { id: "run-live-2", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
     ] });
     mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { id: "run-live-2", status: "running", orchestrationMode: "orchestrator" } });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
@@ -2271,7 +2312,7 @@ describe("CreateView - UI interactions", () => {
     const running = { id: "run-live-3", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z",
       stages: [{ name: "split", status: "completed" }, { name: "optimize", status: "running" }, { name: "compose", status: "pending" }] };
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [running] });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
@@ -2298,7 +2339,7 @@ describe("CreateView - UI interactions", () => {
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
       { id: "run-fin", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
     ] });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
@@ -2318,7 +2359,7 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("providerWarningText 为空时隐藏横幅", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     expect(w.vm.providerWarningText).toBe("");
     expect(w.find(".provider-warning-banner").exists()).toBe(false);
@@ -2326,7 +2367,7 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("providerWarningText 汇总异常 provider 并给出友好建议", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     // 横幅位于流水线详情视图内，先选中一条流水线
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -2346,7 +2387,7 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("providerWarningText 忽略异常数据（非数组/空数组）", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     w.vm.providerWarnings = "not-an-array";
     await nextTick();
@@ -2356,7 +2397,7 @@ describe("CreateView - UI interactions", () => {
   });
 
   it("BGM 被跳过时显示提示条，可关闭；未跳过不显示", async () => {
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     // 提示条位于流水线详情视图内，先选中一条流水线（与 providerWarningText 用例一致）
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -2387,7 +2428,7 @@ describe("CreateView - UI interactions", () => {
     const mocks = await import("@/api/publisher");
     mocks.storeSetSetting.mockResolvedValue({ code: 0 });
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
@@ -2414,7 +2455,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
     mocks.storeGetSetting.mockResolvedValue(null); // 未配置 → 默认 1080p
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await new Promise((r) => setTimeout(r, 50));
     await nextTick();
     expect(w.vm.maxOutputResolution).toBe("1080p");
@@ -2430,7 +2471,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
     mocks.storeGetSetting.mockResolvedValue({ code: 0, data: "4k" });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await new Promise((r) => setTimeout(r, 50));
     await nextTick();
     expect(w.vm.maxOutputResolution).toBe("4k");
@@ -2453,7 +2494,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
         ui: { expandedGroups: [] },
       },
     });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await new Promise((r) => setTimeout(r, 50));
     await nextTick();
     w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
@@ -2474,7 +2515,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
         data: { providerId: "minimax-tts", model: "speech-2.8-turbo", selectedVoiceId: "MiniMaxVoice_abc123", voices: [] },
       });
       ttsMocks.selectTtsVoice.mockImplementation(selectSpy);
-      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
       await nextTick();
       // 让 mounted 触发的异步加载先收敛，避免后续 resetS2VVoiceData 覆盖测试状态
       await w.vm.loadS2VProviders();
@@ -2506,7 +2547,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     it("设为默认保存失败时回滚下拉与徽标，不显示未持久化的默认音色", async () => {
       const ttsMocks = await import("@/api/tts-voice-catalog");
       ttsMocks.selectTtsVoice.mockResolvedValue({ code: -1, message: "VOICE_PREFERENCE_STORE_UNAVAILABLE" });
-      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
       await nextTick();
       await w.vm.loadS2VProviders();
       await nextTick();
@@ -2528,13 +2569,20 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     });
 
     it("无效克隆「设为默认」按钮禁用并显示已失效徽标", async () => {
-      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
       await nextTick();
       await w.vm.loadS2VProviders();
       await nextTick();
+      // 显式选择 story2video-compose 流水线：本用例只关心克隆面板渲染，
+      // 不依赖前面用例遗留的 pipelineList mock 状态（消除顺序依赖）
+      w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "optimize", "generate_assets", "compose"] };
+      w.vm.s2vConfig.voiceProvider = "minimax-tts";
+      w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
       w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
       w.vm.s2vCloneOpen = true;
       w.vm.s2vVoiceClones = [{ id: "01", name: "克隆01", invalid: true }];
+      // 与 4K 用例一致的稳定等待：S2V 合成区随 mount 异步初始化，纯 nextTick 在隔离/额外 microtask 下时序不稳
+      await new Promise((r) => setTimeout(r, 50));
       await nextTick();
 
       const list = w.find(".voice-clone-list");
@@ -2546,7 +2594,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     });
 
     it("resolveMediaImportFailure 透传类别宾语并区分路径解析失败", () => {
-      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
       expect(w.vm.resolveMediaImportFailure({ message: "媒体文件不存在或不可读" }, "背景音乐").messageKey).toBe("story2video.media_unreadable");
       expect(w.vm.resolveMediaImportFailure({ message: "媒体文件不存在或不可读" }, "背景音乐").messageParams.kindLabel).toBe("背景音乐");
       expect(w.vm.resolveMediaImportFailure({ message: "无法读取媒体文件路径" }, "背景音乐").messageKey).toBe("story2video.media_path_unresolved");
@@ -2560,7 +2608,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     it("BGM 主进程拒绝不可读时弹带「背景音乐」宾语的细分提示", async () => {
       const mocks = await import("@/api/publisher");
       mocks.story2videoImportMedia.mockResolvedValue({ code: -1, message: "媒体文件不存在或不可读" });
-      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+      const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
       await nextTick();
 
       await w.vm.handleS2VBgmFile({ target: { files: [{ name: "bgm.mp3", size: 5 }] } });
@@ -2576,7 +2624,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     const ttsMocks = await import("@/api/tts-voice-catalog");
     ttsMocks.getTtsVoiceCatalog.mockResolvedValueOnce({ code: -1, message: "VOICE_CATALOG_CONFIG_UNAVAILABLE" });
     ttsMocks.getTtsVoiceCapability.mockResolvedValue({ code: 0, data: { type: "builtin", clone: { enabled: false } } });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     await w.vm.loadS2VProviders();
     await nextTick();
@@ -2595,7 +2643,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
     const ttsMocks = await import("@/api/tts-voice-catalog");
     ttsMocks.getTtsVoiceCatalog.mockResolvedValueOnce({ code: -1, message: "VOICE_CATALOG_UNAVAILABLE" });
     ttsMocks.getTtsVoiceCapability.mockResolvedValue({ code: 0, data: { type: "builtin", clone: { enabled: false } } });
-    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect } } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     await nextTick();
     await w.vm.loadS2VProviders();
     await nextTick();
@@ -2635,7 +2683,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
 describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
   it("已用时优先使用 activeMs（步骤执行耗时累计），不随墙钟 createdAt 膨胀", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.pipelineRunStatus = {
@@ -2659,7 +2707,7 @@ describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
 
   it("运行中在飞执行段本地每秒补差：elapsedMs = activeMs + (now - activeSegmentStartedAt)", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.pipelineRunStatus = {
@@ -2683,7 +2731,7 @@ describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
 
   it("旧数据（无 activeMs）回退墙钟 createdAt→now，展示不为空", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.pipelineRunStatus = { status: "running", stages: [{ name: "split", status: "completed" }] };
@@ -2699,7 +2747,7 @@ describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
 
   it("完成汇总「完成时间共 X 分 Y 秒」使用 activeMs 而非墙钟", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.story2videoRunMeta = {
@@ -2719,7 +2767,7 @@ describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
   it("结果页 durationMs 使用 activeMs（步骤执行耗时累计）", async () => {
     const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.story2videoRunMeta = {
@@ -2745,7 +2793,7 @@ describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
 describe("视频创作「已用时」审查闭环回归（C1/W2）", () => {
   it("activeMs 为 null（生产旧数据标记）时回退墙钟，不误显示 0 秒", async () => {
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.pipelineRunStatus = { status: "running", stages: [{ name: "split", status: "completed" }] };
@@ -2769,7 +2817,7 @@ describe("视频创作「已用时」审查闭环回归（C1/W2）", () => {
   it("检查点确认返回的终态 activeMs 覆盖轮询缓存，结果页 durationMs 用新值", async () => {
     const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
     const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect } }
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     // 模拟轮询缓存已过期（只有 10 秒）

@@ -270,6 +270,27 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
       }
     })
 
+    it('fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)（回归：DEFAULT_TIMEOUT 必须接入 fetch）', async () => {
+      // fetch 永不 resolve，仅在 abort signal 触发时 reject（模拟上游卡死）
+      global.fetch = vi.fn((url, opts = {}) => new Promise((resolve, reject) => {
+        opts.signal?.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted')
+          err.name = 'AbortError'
+          reject(err)
+        })
+      }))
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' }, { timeout: 100 })
+      const t0 = Date.now()
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.TIMEOUT)
+      }
+      expect(Date.now() - t0).toBeLessThan(5000)
+    })
+
     it('HTTP 200 但 image_urls 为空 → ProviderError(PROVIDER_ERROR)，不再静默返回空数组', async () => {
       global.fetch = createFetchMock([
         createFetchResponse({ data: { image_urls: [] } }),

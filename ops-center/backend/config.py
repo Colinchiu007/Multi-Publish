@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     feature_gates_import_source: str = ""
     # 模型目录只读同步端点（桌面端拉取运营配置）API Key；未配置 → 端点 404（fail-closed）
     catalog_api_key: str = ""
+    # 云服务健康巡检目标（可选；未配置对应探针跳过）
+    health_api_url: str = ""
+    health_logto_url: str = ""
+    health_targets: str = ""  # JSON 数组 [{name, url}]
+    # 兑换码签发密钥：须与桌面端 REDEMPTION_SECRET 一致（未配置 → 签发端点 400 fail-closed）
+    redemption_secret: str = ""
 
     def get_jwt_secret(self) -> str:
         """返回经过安全校验的 JWT 密钥。"""

@@ -793,7 +793,8 @@ describe("useAccountStore", () => {
       accountUpdate.mockRejectedValue(new Error("timeout"));
       const store = useAccountStore();
 
-      await expect(store.renameAccount("a1", "新名称")).resolves.toEqual({ code: -1, message: "timeout" });
+      // 超时类错误映射为「原因 + 建议」本地化文案，不直出英文原始文本
+      await expect(store.renameAccount("a1", "新名称")).resolves.toEqual({ code: -1, message: "操作超时。请稍后重试；若持续出现请重启应用。" });
       expect(listAccounts).not.toHaveBeenCalled();
     });
   });

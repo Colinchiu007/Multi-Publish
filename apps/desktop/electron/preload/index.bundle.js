@@ -715,6 +715,61 @@ var require_tts_voice_clone = __commonJS({
   }
 });
 
+// electron/preload/page-manager.js
+var require_page_manager = __commonJS({
+  "electron/preload/page-manager.js"(exports2, module2) {
+    function createPageManagerApi2(ipcRenderer2) {
+      return {
+        pageManager: {
+          // ── Tab CRUD ──
+          createNewTabPage: (opts) => ipcRenderer2.invoke("page-manager:create-new-tab-page", opts),
+          closeTab: (tabId) => ipcRenderer2.invoke("page-manager:close-tab", tabId),
+          switchToTab: (tabId) => ipcRenderer2.invoke("page-manager:switch-tab", tabId),
+          // ── Navigation ──
+          navigate: (tabId, url) => ipcRenderer2.invoke("page-manager:navigate", { tabId, url }),
+          goBack: (tabId) => ipcRenderer2.invoke("page-manager:go-back", tabId),
+          goForward: (tabId) => ipcRenderer2.invoke("page-manager:go-forward", tabId),
+          reload: (tabId, ignoreCache) => ipcRenderer2.invoke("page-manager:reload", { tabId, ignoreCache }),
+          searchOrNavigate: (query, tabId) => ipcRenderer2.invoke("page-manager:search-or-navigate", { query, tabId }),
+          // ── Query ──
+          getAllTabs: () => ipcRenderer2.invoke("page-manager:get-all-tabs"),
+          getActiveTab: () => ipcRenderer2.invoke("page-manager:get-active-tab"),
+          getHomeTab: () => ipcRenderer2.invoke("page-manager:get-home-tab"),
+          saveCookies: (tabId) => ipcRenderer2.invoke("page-manager:save-cookies", tabId),
+          // ── Event subscription ──
+          subscribeEvents: () => ipcRenderer2.invoke("page-manager:subscribe-events"),
+          unsubscribeEvents: () => ipcRenderer2.invoke("page-manager:unsubscribe-events"),
+          /**
+           * 监听导航状态变化（URL/标题/前进后退状态）
+           * callback 收到 { tabId, url, title, canGoBack, canGoForward }
+           */
+          onNavigationChanged: (cb) => {
+            const h = (_, payload) => cb(payload?.data || payload);
+            ipcRenderer2.on("page-manager:navigation-changed", h);
+            return () => ipcRenderer2.removeListener("page-manager:navigation-changed", h);
+          },
+          /**
+           * 监听单个 tab 事件（created/closed/switched）
+           * callback 收到 { tabId, ... } 原始数据
+           */
+          onTabEvent: (event, cb) => {
+            const h = (_, payload) => cb(payload?.data || payload);
+            ipcRenderer2.on("page-manager:" + event, h);
+            return () => ipcRenderer2.removeListener("page-manager:" + event, h);
+          },
+          // ── 通用事件监听入口 ──
+          on: (channel, cb) => {
+            const h = (_, payload) => cb(payload?.data || payload);
+            ipcRenderer2.on("page-manager:" + channel, h);
+            return () => ipcRenderer2.removeListener("page-manager:" + channel, h);
+          }
+        }
+      };
+    }
+    module2.exports = { createPageManagerApi: createPageManagerApi2 };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -799,20 +854,17 @@ var require_access_control = __commonJS({
       "onWebviewAllClosed",
       "modelProviderList",
       "modelProviderGet",
-      "modelProviderCreate",
-      "modelProviderUpdate",
       "opsCenterSyncGet",
       "opsCenterSyncSave",
       "opsCenterSyncNow",
       "opsCenterSyncRuntime",
-      "modelProviderDelete",
-      "modelProviderSetDefault",
+      // 模型服务商：读方法未登录可用（离线查看/测试已配置模型）；
+      // 写方法（Create/Update/Delete/SetDefault/CleanLogs）为 authenticated，未登录调用被拒。
       "modelProviderGetDefault",
       "modelProviderTest",
       "modelProviderPresets",
       "modelProviderIsConfigured",
       "modelProviderLogs",
-      "modelProviderCleanLogs",
       "logsGetInfo",
       "logsClear",
       "logError",
@@ -916,6 +968,7 @@ var { createReplayApi } = require_replay();
 var { createIdentityApi } = require_identity();
 var { createTtsVoiceCatalogApi } = require_tts_voice_catalog();
 var { createTtsVoiceCloneApi } = require_tts_voice_clone();
+var { createPageManagerApi } = require_page_manager();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -948,7 +1001,8 @@ var fullApi = {
   ...createReplayApi(ipcRenderer),
   ...createIdentityApi(ipcRenderer),
   ...createTtsVoiceCatalogApi(ipcRenderer),
-  ...createTtsVoiceCloneApi(ipcRenderer)
+  ...createTtsVoiceCloneApi(ipcRenderer),
+  ...createPageManagerApi(ipcRenderer)
 };
 var exposedApi = createDynamicAccessApi(fullApi, getAccessLevel);
 exposedApi.getAccessLevel = getAccessLevel;

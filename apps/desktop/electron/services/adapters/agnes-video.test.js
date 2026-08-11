@@ -303,17 +303,36 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
       }
     })
 
-    it('429 → RATE_LIMITED', async () => {
+    it('429 → RATE_LIMITED（有界重试后抛出）', async () => {
       global.fetch = createFetchMock([
         createFetchResponse({ message: 'rate limited' }, 429),
+        createFetchResponse({ message: 'rate limited' }, 429),
+        createFetchResponse({ message: 'rate limited' }, 429),
+        createFetchResponse({ message: 'rate limited' }, 429),
+        createFetchResponse({ message: 'rate limited' }, 429),
+        createFetchResponse({ message: 'rate limited' }, 429),
       ])
-      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' }, { retryBackoffMs: [1, 1, 1] })
       try {
         await adapter.generateVideo({ prompt: 'test' })
         expect.fail('Should throw')
       } catch (e) {
         expect(e.code).toBe(ERROR_CODES.RATE_LIMITED)
+        expect(e.retryableHttp).toBe(true)
       }
+      expect(global.fetch).toHaveBeenCalledTimes(6)
+    })
+
+    it('503 video_queue_full → 退避重试后提交成功（真实运行 2026-08-11 W7）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ code: 'video_queue_full', message: 'video queue is full, please retry later' }, 503),
+        createFetchResponse({ id: 'task-ok-503' }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' }, { retryBackoffMs: [1, 1, 1] })
+      const result = await adapter.generateVideo({ prompt: 'test' })
+      expect(result.taskId).toBe('task-ok-503')
+      expect(fetchMock.calls).toHaveLength(2)
     })
   })
 
@@ -459,26 +478,50 @@ describe('AgnesVideoAdapter — Agnes Video V2.0', () => {
   })
 
   describe('网络错误分类', () => {
-    it('ETIMEDOUT → TIMEOUT', async () => {
+    it('ETIMEDOUT → TIMEOUT（有界重试后抛出）', async () => {
       global.fetch = vi.fn(async () => { throw new Error('ETIMEDOUT') })
-      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' }, { retryBackoffMs: [1, 1, 1] })
       try {
         await adapter.generateVideo({ prompt: 'x' })
         expect.fail('Should throw')
       } catch (e) {
         expect(e.code).toBe(ERROR_CODES.TIMEOUT)
       }
+      expect(global.fetch).toHaveBeenCalledTimes(6)
     })
 
-    it('ECONNREFUSED → NETWORK_ERROR', async () => {
+    it('ECONNREFUSED → NETWORK_ERROR（有界重试后抛出）', async () => {
       global.fetch = vi.fn(async () => { throw new Error('ECONNREFUSED') })
-      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' })
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' }, { retryBackoffMs: [1, 1, 1] })
       try {
         await adapter.generateVideo({ prompt: 'x' })
         expect.fail('Should throw')
       } catch (e) {
         expect(e.code).toBe(ERROR_CODES.NETWORK_ERROR)
       }
+      expect(global.fetch).toHaveBeenCalledTimes(6)
+    })
+  })
+
+  describe('fetch 超时（2026-08-11 E2E 复盘）', () => {
+    it('fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)', async () => {
+      global.fetch = vi.fn((url, opts = {}) => new Promise((resolve, reject) => {
+        opts.signal && opts.signal.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted')
+          err.name = 'AbortError'
+          reject(err)
+        })
+      }))
+      const adapter = new AgnesVideoAdapter({ id: 'agnes-video', apiKey: 'sk-test' }, { timeout: 100, retryBackoffMs: [1, 1, 1] })
+      const t0 = Date.now()
+      try {
+        await adapter.generateVideo({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.TIMEOUT)
+      }
+      expect(Date.now() - t0).toBeLessThan(5000)
     })
   })
 })

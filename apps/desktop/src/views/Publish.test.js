@@ -44,6 +44,16 @@ vi.mock("element-plus", () => ({
   ElMessageBox: { confirm: vi.fn() }
 }));
 
+const mockEnsureLogin = vi.hoisted(() => vi.fn(async () => true));
+
+vi.mock("@/composables/useLoginGate", () => ({
+  useLoginGate: () => ({
+    ensureLogin: mockEnsureLogin,
+    requireLogin: vi.fn(async (fn) => fn()),
+    openSignIn: vi.fn(async () => true),
+  }),
+}));
+
 vi.mock("@element-plus/icons-vue", () => ({
   UploadFilled: { template: "<span>U</span>" },
   Refresh: { template: "<span>R</span>" },
@@ -378,7 +388,8 @@ describe("PublishView", () => {
     w.vm.articles[0].accounts = { wechat_mp: ["acc1"] };
 
     const publishPromise = w.vm.handleBatchPublish();
-    await nextTick();
+    // 主动操作登录门为异步：flushPromises 等待登录门通过并进入批量发布锁
+    await flushPromises();
 
     const batchButton = findButtonByText(w, "发布中...");
     expect(w.vm.batchPublishing).toBe(true);

@@ -15,6 +15,8 @@
  */
 import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { formatUserError } from '@/utils/user-facing-error'
+import { useLoginGate } from './useLoginGate'
 import {
   batchCreate,
   batchExecute,
@@ -72,6 +74,8 @@ export function useBatchPublish(options) {
     options.batchStatusPollMaxAttempts,
     DEFAULT_BATCH_STATUS_POLL_MAX_ATTEMPTS,
   )
+  // 主动操作登录门：批量发布前未登录 → 弹登录引导，登录成功后继续
+  const { ensureLogin } = useLoginGate()
 
   const batchMode = ref(false)
   const batchPublishing = ref(false)
@@ -272,6 +276,8 @@ export function useBatchPublish(options) {
 
   async function handleBatchPublish() {
     if (batchPublishing.value) return
+    // 主动操作登录门：未登录弹登录窗口，登录成功后继续批量发布
+    if (!(await ensureLogin({ message: '批量发布功能需要登录后使用，是否立即登录？' }))) return
     batchPublishing.value = true
 
     let offProgress
@@ -548,7 +554,7 @@ export function useBatchPublish(options) {
       keepPublishingLock = false
       clearBatchTracking()
       batchProgress.value.push({
-        text: '❌ 批量发布失败: ' + ((e && e.message) || '未知错误'),
+        text: '❌ 批量发布失败: ' + formatUserError(e, { fallback: '未知错误' }).message,
         time: new Date().toLocaleTimeString('zh-CN'),
         type: 'danger',
       })

@@ -4,14 +4,17 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const filePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'CreateView.vue')
-const source = fs.readFileSync(filePath, 'utf8')
+const spFilePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'video-creation', 'StageProgress.vue')
+const createViewSource = fs.readFileSync(filePath, 'utf8')
+const spSource = fs.readFileSync(spFilePath, 'utf8')
+const source = createViewSource + '\n' + spSource
 
 describe('Story2Video fast-mode UI contract', () => {
-  it('uses five progressive-disclosure sections', () => {
-    for (const section of ['basic', 'appearance', 'voice', 'advanced', 'publish']) {
+  it('uses progressive-disclosure sections（2026-08-11 新增 videoEnhance）', () => {
+    for (const section of ['basic', 'appearance', 'videoEnhance', 'voice', 'advanced', 'publish']) {
       expect(source).toContain(`data-testid="s2v-section-${section}"`)
     }
-    expect(source).toContain('s2vOpenSections: { basic: true, appearance: false, voice: false, advanced: false, publish: false }')
+    expect(source).toContain('s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false }')
   })
 
   it('keeps controlled defaults hidden and starts the autonomous run', () => {
@@ -40,7 +43,7 @@ describe('Story2Video fast-mode UI contract', () => {
 
   it('renders stage checklist instead of Story2Video percentage progress', () => {
     expect(source).toContain('data-testid="story2video-stage-list"')
-    expect(source).toContain('story2video-stage-${stage.name || i}')
+    expect(source).toContain('story2video-stage-${stage.name || index}')
     expect(source).toContain("!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress")
   })
 

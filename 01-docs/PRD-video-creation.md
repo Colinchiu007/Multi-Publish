@@ -142,6 +142,14 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-09 | 运行中任务持久化 + 托盘后台运行 | 运行中编排 run 阶段级落盘 running 快照（`saveRunning`）+ 退出兜底 `saveRunningState()`；`resumeOrchestration` 支持 running 快照断点续跑（内存中已运行幂等返回 `alreadyRunning`）；窗口关闭时有运行任务且托盘可用 → 隐藏到托盘后台继续（dev 图标缺失回退内嵌占位图）；历史 running 卡片新增「继续生成」按钮。详见总 PRD 7.1.21 | PRD 7.1.21 |
 | 2026-08-09 | 本地克隆音色删除/设为默认 + 媒体导入反馈 | 删除本地克隆音色为本地管理语义：adapter 不支持 `deleteVoice`（如 MiniMax 官方 clone API 无删除端点）时跳过远端删除，直接清理本地 registry 记录/样本/偏好，不再误报「音色克隆服务暂时不可用」；新增 `ModelProviderManager.supportsAdapterMethod` 能力查询。克隆「设为默认」先同步下拉再保存偏好，默认克隆行显示「默认」徽标 + 高亮 + 「已设为默认」禁用态。媒体导入失败提示全部透传类别宾语（背景音乐等），新增 `MEDIA_PATH_UNRESOLVED` 细分（路径解析失败 vs 文件不可读/被占用），主进程复制文件对 Windows 占用做 ≤3 次有界重试。详见总 PRD 7.1.22 | PRD 7.1.22 |
 | 2026-08-09 | 窗口关闭行为跨平台化（macOS 前瞻） | 平台决策收敛到 `services/window-close-policy.js`：darwin 关闭窗口不拦截（系统约定，进程留在 Dock、activate 重建窗口）、win32/linux 维持「运行任务+托盘可用→隐藏托盘」；托盘图标按平台回退（darwin 模板图标 setTemplateImage，其余占位图）；快照写入 POSIX rename 原子优先、Windows copy 回退。回归：window-close-policy 6 / window 51 / system-tray 28 / run-state-store 17 测试通过 | PRD 7.1.21（跨平台行） |
+| 2026-08-11 | CreateView 历史记录已暂停状态支持 | CreateView.vue historyStatusLabel() 新增 paused 映射、过滤器新增「已暂停」选项、暂停环节提示、断点续跑按钮、CSS 样式。详见本节 3.1.12 | PRD 7.1.24 |
+| 2026-08-11 | CreateView 历史记录组件拆分与 UI 优化 | 提取 CreateViewHistory.vue 独立组件、卡片式布局+状态色条、运行中脉冲动画、信息分层、失败原因展示、操作按钮分层、记录计数、空状态优化。详见 3.1.13 | PRD 7.1.25 |
+| 2026-08-11 | CreateHistory.vue stale running 检测 | 独立历史页面 loadPipelines() 新增 stale running 检测（30 分钟阈值），与 CreateView.vue 一致。详见 3.1.14 | PRD 7.1.26 |
+| 2026-08-11 | usePipelineHistory composable 提取 | 消除 CreateView/CreateHistory 历史记录逻辑重复，统一 stale 检测、轮询、辅助方法。详见 3.1.15 | PRD 7.1.27 |
+| 2026-08-11 | CreateViewHistory 卡片 UI 增强 | 状态图标、运行脉冲、进度条光泽、流水线标签、状态阴影。详见 3.1.16 | PRD 7.1.28 |
+| 2026-08-11 | failed 任务统一显示为已暂停 + UI 增强 | failed 状态统一转为 paused、暂停环节推导、阶段进度显示、筛选器优化、CSS 增强（左侧色边框/暂停脉冲/卡片圆角）。详见 3.1.17 | PRD 7.1.29 |
+| 2026-08-11 | 视频创作模块 UI/UX 深度优化 | 视图切换胶囊化、流水线卡片悬停增强、返回按钮/详情头部卡片化、输入框聚焦效果、配置区展开动画、操作栏阴影、模式切换胶囊化、历史记录 fadeIn 动画/工具栏卡片化/状态徽章大写/时间图标、响应式断点。详见 3.1.18 | PRD 7.1.30 |
+| 2026-08-11 | failed 状态保留原始值 + 暂停环节显示修正 | failed 不再统一转为 paused，保留原始状态；前端区分执行失败和已暂停；新增 historyStatusClass()；筛选器新增执行失败；失败提示显示 pausedStage；卡片 hover 增强。详见 3.1.19 | PRD 7.1.31 |
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
@@ -160,6 +168,8 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
     │
     ▼
 六阶段混合流水线（StageExecutor + Story2VideoComposeEngine/ffmpeg；Remotion 为独立快速路径）
+
+> **视频+图片轮播混合能力（2026-08-11 新增）**：Story2Video 支持「视频增强」模式——AI 只生成最值得动态化的场景片段，其余场景图片轮播，控制成本/额度/耗时。两种模式：`fixed`（成片前段按顺序约 20%-30% 用 AI 视频，默认 25%）与 `ai-judged`（LLM 按场景精彩度选择，总占比钳制在 20%-40% 且 ≤ maxScenes）；`off` 保持纯图片轮播零变化。流水线在 optimize 与 generate_assets 之间新增 `select_video_scenes` 阶段；视频场景片段必须显式携带 TTS 旁白音频（见 PRD §7.1.25 旁白音频合同 W10）。完整的数据校验/流程/交互/提示文字/降级策略/验收标准见 [PRD.md §7.1.25](PRD.md)。
     │
     ▼
 预览与调整
@@ -605,18 +615,25 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 **三、UI 布局重构**
 
 - 卡片结构：状态徽章移至信息区右侧（第一行），阶段标签和提示移至第二行（pipeline-card-bottom），通过分割线视觉分隔。
-- 状态色条：卡片左侧 3px 色条，颜色由 :class="p.status" 动态绑定，一眼区分状态。
+- 状态色条：卡片左侧 3px 色条，颜色由 `:class="effectiveStatus(p)"` 动态绑定，一眼区分状态。
 - 运行中脉冲：running 状态圆点带 pulse-dot 动画（1.5s 周期透明度闪烁）。
 - 阶段标签：字号从 11px 增至 12px，padding 从 2px 6px 增至 3px 8px，新增 failed（红）、paused（橙）、cancelled（灰）三种状态色。
 - 容器宽度：从 960px 拓宽至 1080px，内边距从 24px 增至 24px 32px。
 - 列表间距：卡片间距从 8px 增至 12px。
 - hover 效果：新增 translateY(-1px) 微位移 + 加深阴影。
 
-**四、数据校验**
+**四、前端核心方法**
+
+- **effectiveStatus(p)**：前端状态归一化方法。后端返回的 status 为 paused/failed/cancelled/completed 时直接透传；当 status === 'running' 时，遍历 p.stages 数组检查是否有 stage.status === 'failed'，若存在则返回 'paused'（表示后端标记为运行中但实际已中断）。所有模板绑定（状态徽章、色条、提示文案、计数器）均调用此方法而非直接读取 p.status。
+- **pausedStageOf(p)**：获取暂停环节名称。优先读取 p.pausedStage（后端快照预计算值），fallback 到遍历 stages 数组找到第一个 status === 'failed' 的 stage，返回其 name || stage 字段。用于渲染"暂停环节：xxx"提示文字。
+
+**五、数据校验**
 
 - pausedStage 仅在 snapshot.currentStage 为有效索引且对应 stage 存在时填充，否则为 null。
 - stageLabel() 函数对 pausedStage（字符串）调用时走 shortName() 路径（截断 10 字符 + ...）。
 - statusLabel() 的 paused 映射为「已暂停」。
+- effectiveStatus() 的 running→paused 判定仅基于 stages 数组中是否存在 failed 状态的 stage，不依赖其他字段。
+- pausedStageOf() 返回值可能为 null（无失败环节时），模板中通过 v-if 控制提示文字的显示/隐藏。
 
 **五、openPipeline 路由**
 
@@ -628,8 +645,656 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 - 后端：apps/desktop/electron/services/pipeline-engine.js（getHistory 方法）
 - 前端：apps/desktop/src/views/CreateHistory.vue（模板 + 脚本 + 样式）
 - 测试：apps/desktop/src/views/CreateHistory.test.js 22/22 通过；pipeline-engine.test.js 37/37 通过；run-state-store.test.js 19/19 通过。vite build 通过。
+### 3.1.12 CreateView 历史记录视图已暂停状态支持（2026-08-11）
 
+**背景**：3.1.11 仅覆盖了 CreateHistory.vue（独立历史记录页面）的已暂停状态支持，但 CreateView.vue 中的「历史记录」视图（创作页内嵌的历史列表）仍缺少 paused 状态的显示、过滤和交互支持。后端 getHistory() 已返回 paused 状态数据，但前端 CreateView 无法正确展示。
+
+**一、问题**
+
+- historyStatusLabel() 缺少 paused 映射：后端返回 status: paused 的条目在 CreateView 历史列表中显示为原始字符串 "paused" 而非「已暂停」。
+- 过滤器下拉菜单缺少「已暂停」选项：用户无法按暂停状态筛选历史记录。
+- 暂停环节信息缺失：CreateView 历史列表不显示 pausedStage（暂停在哪个阶段），用户无法直观了解任务中断位置。
+- 断点续跑按钮缺失：failed 状态有「从断点继续」按钮，但 paused 状态没有。
+
+**二、修复内容**
+
+1. historyStatusLabel()（CreateView.vue methods）：新增映射 paused: '已暂停'。完整映射：{ completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }
+2. 过滤器选项（CreateView.vue 模板）：在状态过滤下拉菜单中新增 option value="paused"「已暂停」。filteredHistory 计算属性已通过 item.status === this.historyFilter 精确匹配，无需额外修改。
+3. 暂停环节提示（CreateView.vue 模板）：新增暂停环节提示 span，条件为 h.status === 'paused' && h.pausedStage。仅在 status 为 paused 且 pausedStage 非空时显示。
+4. 断点续跑按钮（CreateView.vue 模板）：原逻辑 v-if="h.status === 'failed' && historyItemResumable(h)" 修改为 v-if="(h.status === 'failed' || h.status === 'paused') && historyItemResumable(h)"。paused 状态与 failed 状态共享「从断点继续」按钮逻辑。
+5. CSS 样式（CreateView.vue 样式）：.history-status.paused 使用 --status-waiting-bg/text 变量；.history-paused-hint 11px 字号琥珀色文字+浅黄背景。
+
+**三、数据流**
+
+后端 getHistory() 将 running 快照归一化为 paused 状态并附带 pausedStage 字段 → IPC pipeline:history → CreateView.vue loadHistory() → history 数组包含 paused 条目 → filteredHistory 支持 paused 过滤 → 模板渲染 historyStatusLabel 显示「已暂停」、暂停环节提示显示阶段名称、按钮显示「从断点继续」。
+
+**四、交互逻辑**
+
+| 场景 | 状态显示 | 过滤选项 | 提示 | 按钮 | 点击行为 |
+|------|----------|---------|------|------|---------|
+| 运行中 | 进行中 | 进行中 | 返回流水线创作查看进度 | 继续生成 | resumeHistoryItem |
+| 已暂停 | 已暂停 | 已暂停 | 暂停环节：xxx | 从断点继续 | resumeHistoryItem |
+| 生成失败 | 生成失败 | 生成失败 | 无 | 从断点继续（可恢复时） | resumeHistoryItem |
+| 已完成 | 已完成 | 已完成 | 无 | 打开 | openHistory |
+| 已取消 | 已取消 | 已取消 | 无 | 无 | openHistory |
+
+**五、显示项**
+
+- 状态徽章：.history-status + :class="h.status" 动态样式
+- 暂停环节文字：琥珀色背景 + 深琥珀色文字
+- 时间戳：formatTime(h.updatedAt || h.completedAt || h.createdAt)
+- 操作按钮：打开 / 删除 / 从断点继续 / 继续生成（按状态条件显示）
+
+**六、提示文字**
+
+| 位置 | 文字 | 条件 |
+|------|------|------|
+| 状态过滤下拉 | 已暂停 | 新增选项 |
+| 历史条目状态 | 已暂停 | status === paused |
+| 历史条目提示 | 暂停环节：{stageName} | status === paused 且 pausedStage 非空 |
+| 操作按钮 | 从断点继续 | (failed 或 paused) 且 historyItemResumable |
+
+**七、相关文件**
+
+- 前端：apps/desktop/src/views/CreateView.vue（historyStatusLabel、过滤器、模板、CSS）
+- 后端（无变更）：apps/desktop/electron/services/pipeline-engine.js（getHistory 已返回 paused 数据）
+- 测试：CreateHistory.test.js 22/22 通过；views-deep2.test.js 7/7 通过；pipeline-engine.test.js 37/37 通过。
+
+
+### 3.1.13 CreateView 历史记录组件拆分与 UI 优化（2026-08-11）
+
+**背景**：CreateView.vue 原为 3575 行的巨型单文件组件，历史记录视图与流水线创作、快速渲染混杂在同一文件中。本次重构将历史记录视图提取为独立组件 CreateViewHistory.vue，并全面优化 UI。
+
+**一、组件拆分**
+
+1. 新建 `apps/desktop/src/views/CreateViewHistory.vue`：独立的历史记录视图组件。
+2. CreateView.vue 通过 props 传入数据，通过 events 传回用户操作。
+3. 历史记录 CSS 从 CreateView.vue 迁移到 CreateViewHistory.vue。
+4. CreateView.vue 从 3575 行减少到 3515 行。
+
+**二、组件 API**
+
+| 类型 | 名称 | 说明 |
+|------|------|------|
+| Prop | history | 历史记录数组 |
+| Prop | historyLoading | 加载状态 |
+| Prop | historyFilter | 过滤状态（v-model） |
+| Event | update:historyFilter | 过滤状态变更 |
+| Event | open-history | 打开历史项 |
+| Event | resume-history | 恢复/继续 |
+| Event | delete-history | 删除 |
+
+**三、UI 优化**
+
+1. 卡片式布局 + 左侧状态色条（completed=绿/failed=红/running=蓝/paused=橙/cancelled=灰）
+2. 运行中脉冲动画（蓝色边框呼吸效果）
+3. 信息分层：标题行 → 提示行 → 阶段进度 → 底部操作
+4. 失败原因截断展示（最多 60 字符）
+5. 操作按钮分层：主操作（恢复，蓝色）+ 次操作（打开/删除）
+6. 记录计数显示
+7. 空状态图标+引导提示
+
+**四、相关文件**
+
+- 新增：apps/desktop/src/views/CreateViewHistory.vue
+- 修改：apps/desktop/src/views/CreateView.vue（引入组件、移除内联模板和样式）
+- 构建：vite build 通过，CreateView chunk 141KB
+### 3.1.14 CreateHistory.vue 独立页面 stale running 检测（2026-08-11）
+
+**背景**：3.1.12 仅在 CreateView.vue 的 loadHistory() 中添加了 stale running 检测（updatedAt 超过 30 分钟的 running 任务自动标记为 paused），但 CreateHistory.vue（独立历史记录页面 `#/create/history`）的 loadPipelines() 缺少相同的检测逻辑。用户在独立历史页面看到的仍然是"运行中"而非"已暂停"。
+
+**一、修复内容**
+
+1. CreateHistory.vue loadPipelines()：在数据加载成功后、schedulePipelineRefresh() 之前，新增 stale running 检测循环。
+2. 检测逻辑与 CreateView.vue 完全一致：
+   - 阈值：STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000（30 分钟）
+   - 判断：updatedAt 存在且 (now - updatedAt) > 阈值
+   - 处理：status 从 running 改为 paused；自动推断 pausedStage（从 stages 数组找到 running 状态的阶段，或取最后一个阶段）
+3. 模板已有 paused 状态支持（暂停环节提示、状态徽章、CSS 样式），无需修改模板。
+
+**二、数据流**
+
+pipelineHistory() IPC 返回 → loadPipelines() 加载 → stale running 检测循环（mutate status/pausedStage） → schedulePipelineRefresh() → 模板渲染。
+
+**三、与 CreateView.vue 的一致性**
+
+两处 stale running 检测逻辑完全相同（阈值、推断算法、字段名），确保用户无论从哪个入口查看历史记录，看到的状态一致。
+
+**四、相关文件**
+
+- 修改：apps/desktop/src/views/CreateHistory.vue（loadPipelines 方法）
+- 测试：CreateView.test.js 129/129 通过
+
+### 3.1.15 usePipelineHistory composable 提取（2026-08-11）
+
+**背景**：历史记录加载、stale running 检测、轮询刷新、辅助方法（状态标签、阶段状态、时间格式化）在 CreateView.vue 和 CreateHistory.vue 中存在重复实现。提取为共享 composable 消除重复、统一行为。
+
+**一、composable 设计**
+
+```javascript
+// apps/desktop/src/composables/usePipelineHistory.js
+export function usePipelineHistory(options = {}) {
+  // 响应式状态
+  history, historyLoading, historyLocalMode, historyFilter, filteredHistory, story2videoResuming
+  // 方法
+  loadHistory(callbacks), destroy()
+  // 辅助方法
+  historyItemResumable(item), historyStageState(stage), historyStageLabel(stage),
+  historyStageTitle(stage), formatTime(iso), truncateError(error)
+}
+```
+
+**二、接口说明**
+
+| 类型 | 名称 | 说明 |
+|------|------|------|
+| Ref | history | 历史记录数组（运行中置顶） |
+| Ref | historyLoading | 加载状态 |
+| Ref | historyLocalMode | 本地模式标记 |
+| Computed | historyLocalModeText | 本地模式提示文字 |
+| Ref | historyFilter | 过滤状态 |
+| Computed | filteredHistory | 过滤后的历史记录 |
+| Ref | story2videoResuming | 恢复中状态 |
+| Method | loadHistory(callbacks) | 加载历史记录，callbacks.onError 用于弹窗 |
+| Method | destroy() | 清理轮询定时器 |
+| Method | historyItemResumable(item) | 判断是否可断点恢复 |
+| Method | historyStageState(stage) | 阶段状态分类 |
+| Method | historyStageLabel(stage) | 阶段名称 |
+| Method | historyStageTitle(stage) | 阶段标题（名称+状态） |
+| Method | formatTime(iso) | 时间格式化 |
+| Method | truncateError(error) | 错误信息截断 |
+
+**三、依赖**
+
+- API：pipelineHistory(), story2videoListProjects()（来自 @/api/publisher）
+- 工具：historyLoadFailureDetail()（来自 @/i18n/story2video-locale）
+- 超时：HISTORY_LOAD_TIMEOUT_MS = 5000
+
+**四、消除的重复**
+
+| 逻辑 | CreateView.vue 原实现 | CreateHistory.vue 原实现 | composable |
+|------|----------------------|------------------------|------------|
+| loadHistory/loadPipelines | ~60 行 | ~20 行 | 1 个方法 |
+| stale running 检测 | ~15 行 | ~15 行（本次新增） | 内置于 loadHistory |
+| scheduleHistoryRefresh | ~10 行 | ~8 行 | 内置 |
+| refreshRunningHistory | ~30 行 | 无 | 内置 |
+| historyStageState/Label/Title | ~15 行 | ~15 行（stageTitle） | 3 个方法 |
+| formatTime | ~3 行 | ~3 行 | 1 个方法 |
+| truncateError | ~3 行 | 无 | 1 个方法 |
+
+**五、相关文件**
+
+- 新增：apps/desktop/src/composables/usePipelineHistory.js（252 行）
+- 待迁移（后续 PR）：CreateView.vue 和 CreateHistory.vue 改为使用 composable
+
+### 3.1.16 CreateViewHistory 卡片 UI 增强（2026-08-11）
+
+**背景**：在 3.1.13 组件拆分基础上，进一步优化历史记录卡片的视觉层次和交互反馈。
+
+**一、视觉增强**
+
+1. **状态图标**：状态徽章前增加图标（✓已完成/✕失败/—已取消/⟳进行中/⏸已暂停/○等待中），提升可扫描性。
+2. **运行中脉冲**：状态徽章 running 样式增加 status-pulse 动画（2s 周期 opacity 闪烁）。
+3. **进度条光泽**：运行中阶段的进度段增加 shimmer 光泽动画（2s 周期从左到右扫过），直观表示"正在处理"。
+4. **流水线标签**：卡片标题行右侧新增流水线名称标签（浅灰背景），便于区分不同流水线的任务。
+5. **状态阴影**：running 状态卡片增加蓝色微阴影，paused 状态增加琥珀色微阴影，增强状态感知。
+
+**二、交互增强**
+
+1. **操作按钮间距**：resume/open/delete 按钮增加 gap: 4px，提升可点击区域。
+2. **按钮 hover**：保持原有 hover 效果（蓝色边框+文字色），delete 按钮 hover 变红。
+
+**三、数据校验**
+
+- historyStatusIcon() 方法：对未知 status 返回空字符串，不会崩溃。
+- 流水线标签：仅在 h.pipeline 或 h.name 存在时显示，通过 pipelineName() 翻译。
+- 所有新增样式使用 CSS 变量 + 回退值，兼容亮/暗主题。
+
+**四、相关文件**
+
+- 修改：apps/desktop/src/views/CreateViewHistory.vue（模板 + 脚本 + 样式）
 ### 3.2 参数配置（Remotion 快速路径）
+### 3.1.17 failed 任务统一显示为"已暂停" + 暂停环节信息（2026-08-11）
+
+**背景**：此前 failed 状态的任务在历史记录中显示为"生成失败"，与用户期望的"已暂停"不一致。用户希望所有因失败/超时/崩溃而中断的任务统一显示为"已暂停"，并显示暂停环节信息。
+
+**一、数据校验**
+
+1. 状态转换：usePipelineHistory.js 的 loadHistory() 中，failed 状态的任务统一转换为 paused。
+2. 暂停环节推导：若 pausedStage 字段不存在，从 stages 数组中按优先级推导：
+   - 优先取 status === 'failed' 的阶段
+   - 其次取最后一个 status !== 'completed' 的阶段
+   - 最后取数组最后一个阶段
+3. 恢复按钮判断：historyItemResumable() 同时支持 failed 和 paused 状态，内容策略类错误仍不显示恢复按钮。
+
+**二、流程**
+
+```
+用户打开历史记录
+  -> loadHistory() 并行请求 projects + pipeline runs
+  -> 对每个 run.status === 'failed' 的任务：
+      1. run.status = 'paused'
+      2. 若无 pausedStage -> 从 stages 推导
+  -> 排序：running 置顶 -> projects -> 其余
+  -> 渲染 CreateViewHistory 组件
+```
+
+**三、功能逻辑**
+
+| 场景 | 原状态 | 显示状态 | 暂停环节 | 恢复按钮 |
+|------|--------|----------|----------|----------|
+| 超时/崩溃导致失败 | failed | 已暂停 | 从 stages 推导 | 显示 |
+| 内容策略拒绝 | failed | 已暂停 | 从 stages 推导 | 不显示 |
+| 30分钟无更新的 running | running->paused | 已暂停 | 从 running 阶段推导 | 显示 |
+| 正常完成 | completed | 已完成 | - | 不显示 |
+
+**四、交互逻辑**
+
+1. 状态筛选：筛选器仅保留全部/已完成/已取消/进行中/已暂停五个选项，移除了生成失败。
+2. 暂停提示：暂停状态的卡片显示 暂停环节：{pausedStage} 提示行。
+3. 阶段进度：暂停任务同样显示阶段进度条，暂停阶段使用琥珀色柔和脉冲动画。
+4. 恢复操作：点击从断点继续按钮触发 resume-history 事件。
+
+**五、显示项**
+
+| 元素 | 位置 | 内容 |
+|------|------|------|
+| 状态色条 | 卡片左侧 4px | paused 状态为琥珀色 |
+| 状态徽章 | 标题行右侧 | 暂停 已暂停，琥珀色背景+边框 |
+| 暂停环节提示 | 标题行下方 | 暂停环节：{阶段名}，琥珀色背景条 |
+| 阶段进度条 | 提示行下方 | 暂停阶段为琥珀色 active 段+柔和脉冲 |
+| 操作按钮 | 卡片底部 | 从断点继续+打开+删除 |
+| 时间戳 | 卡片底部左侧 | updatedAt/completedAt/createdAt 格式化 |
+
+**六、提示文字**
+
+| 场景 | 文字 |
+|------|------|
+| 暂停有阶段名 | 暂停环节：optimize |
+| 暂停无阶段名 | 暂停环节：（空） |
+| 运行中 | 返回流水线创作查看进度 |
+| 恢复按钮（可用） | 从断点继续 |
+| 恢复按钮（恢复中） | 恢复中... |
+
+**七、删除的重复代码**
+
+- CreateView.vue 中内联的 stale running 检测逻辑（15行）已移除，统一由 usePipelineHistory.js composable 处理。
+
+**八、相关文件**
+
+- 修改：apps/desktop/src/composables/usePipelineHistory.js
+- 修改：apps/desktop/src/views/CreateView.vue
+- 修改：apps/desktop/src/views/CreateViewHistory.vue
+- 修改：apps/desktop/src/views/CreateView.test.js
+
+### 3.1.18 视频创作模块 UI/UX 深度优化（2026-08-11）
+
+**背景**：在完成组件拆分和功能修复后，视频创作模块的 UI/UX 仍有优化空间。用户要求深度分析所有前端界面 UI 和交互体验，然后整体优化。
+
+**一、优化范围**
+
+1. **CreateView.vue** — 主视图（视图切换、流水线详情、配置区、操作栏）
+2. **CreateViewHistory.vue** — 历史记录视图（工具栏、卡片列表、状态徽章）
+
+**二、视图切换（view-tabs）优化**
+
+| 优化项 | 优化前 | 优化后 |
+|--------|--------|--------|
+| 容器样式 | border-bottom 分割线 | 圆角胶囊容器 + 背景色 + 边框 |
+| 标签样式 | 无圆角，底部下划线 | 圆角 8px，背景色过渡 |
+| 悬停效果 | 无 | 背景色变化 |
+| 激活状态 | 底部下划线 | 背景色 + 阴影（凸起效果） |
+| 过渡动画 | 无 | 0.2s ease 过渡 |
+
+**三、流水线卡片（pipeline-card）优化**
+
+| 优化项 | 优化前 | 优化后 |
+|--------|--------|--------|
+| 边框 | 1px solid var(--border) | 1px solid var(--hairline, rgba(0,0,0,0.08)) |
+| 内边距 | 16px 20px | 18px 22px |
+| 过渡效果 | 0.2s | 0.25s cubic-bezier(0.4, 0, 0.2, 1) |
+| 悬停阴影 | 0 4px 16px | 0 6px 20px |
+| 悬停位移 | translateY(-2px) | translateY(-3px) |
+| 按下效果 | 无 | translateY(-1px) + 更小阴影 |
+
+**四、返回按钮（back-btn）优化**
+
+| 优化项 | 优化前 | 优化后 |
+|--------|--------|--------|
+| 样式 | 纯文本链接 | 带边框的按钮 |
+| 交互 | 无过渡 | 边框色变化过渡 |
+
+**五、详情头部（detail-header）优化**
+
+| 优化项 | 优化前 | 优化后 |
+|--------|--------|--------|
+| 容器 | 无背景 | 卡片式背景 + 圆角 + 边框 |
+| 标题 | 无字间距 | letter-spacing: -0.01em |
+| 描述 | 14px | 13px + line-height: 1.5 |
+
+**六、输入区域优化**
+
+| 优化项 | 优化前 | 优化后 |
+|--------|--------|--------|
+| textarea 聚焦 | 无特殊样式 | 边框色变化 + 蓝色外发光 |
+| textarea 背景 | 无 | var(--surface) |
+| 输入框聚焦 | 无特殊样式 | 边框色变化 + 蓝色外发光 |
+| 下拉框聚焦 | 无特殊样式 | 边框色变化 + 蓝色外发光 |
+| 上传区域 | 基础虚线边框 | 更大圆角 + 背景色过渡 + 悬停蓝色 |
+| 字符计数 | 纯文本 | 带背景色的标签样式 |
+| 预估信息 | 纯文本 | 左侧蓝色边框 + 背景色 |
+
+**七、配置区（s2v-config-section）优化**
+
+| 优化项 | 优化前 | 优化后 |
+|--------|--------|--------|
+| 折叠区边框 | var(--border) | var(--hairline) + 过渡 |
+| 展开状态 | 无特殊样式 | 边框色变为蓝色 |
+| 摘要行 | 无悬停效果 | 悬停背景色变化 |
+| 字号 | 无 | 14px |
+
+**八、操作栏（action-bar）优化**
+
+| 优化项 | 优化前 | 优化后 |
+|--------|--------|--------|
+| 内边距 | 12px 16px | 14px 20px |
+| 圆角 | 无 | 底部圆角 10px |
+| 阴影 | 无 | 顶部微阴影 |
+| 启动按钮 | 基础样式 | 字重 600 + 圆角 8px + 悬停阴影/位移 |
+
+**九、模式切换（mode-tabs）优化**
+
+| 优化项 | 优化前 | 优化后 |
+|--------|--------|--------|
+| 容器 | 无 | 胶囊容器 + 背景色 |
+| 标签 | 圆角 20px 边框 | 圆角 8px 无边框 |
+| 激活状态 | 实心背景 | 背景色 + 阴影（凸起效果） |
+
+**十、历史记录视图（CreateViewHistory.vue）优化**
+
+| 优化项 | 优化前 | 优化后 |
+|--------|--------|--------|
+| 容器 | 无动画 | fadeIn 入场动画 |
+| 工具栏 | 无边框 | 卡片式背景 + 圆角 + 边框 |
+| 卡片圆角 | 8px | 10px |
+| 卡片悬停 | 2px 位移 | 1px 位移 + 更大阴影 |
+| 卡片按下 | 无 | 回弹效果 |
+| 状态徽章 | 11px 2px 8px | 10px 3px 10px + 大写 |
+| 标题文字 | font-weight: 500 | font-weight: 600 + letter-spacing |
+| 操作按钮 | 4px 10px | 5px 12px + font-weight: 600 |
+| 恢复按钮悬停 | 无阴影 | 蓝色阴影 |
+| 阶段进度段 | 3px 8px | 4px 10px + font-weight: 500 |
+| 时间显示 | 纯文本 | 带 🕐 图标前缀 |
+| 底部区域 | 无分隔线 | 顶部 1px 分隔线 |
+| 流水线标签 | 11px | 10px + font-weight: 500 + 大写 |
+| 卡片间距 | 8px | 10px |
+
+**十一、响应式优化**
+
+| 断点 | 优化内容 |
+|------|----------|
+| ≤720px | 减小页面内边距、视图切换横向滚动、配置网格单列、启动按钮全宽 |
+| 721-1024px | 适中内边距、流水线网格最小宽度 260px |
+
+**十二、交互逻辑**
+
+1. 视图切换：点击标签切换视图，无额外逻辑
+2. 卡片悬停：translateY 位移 + 阴影放大，0.2s 过渡
+3. 卡片按下：回弹到 translateY(0)，更小阴影
+4. 输入框聚焦：蓝色边框 + 外发光，0.15s 过渡
+5. 配置区展开：边框色变为蓝色，摘要行背景色变化
+6. 操作栏：底部固定，顶部微阴影分隔
+7. 模式切换：胶囊容器，激活项凸起效果
+
+**十三、显示项**
+
+| 组件 | 显示项 |
+|------|--------|
+| 视图切换 | 胶囊容器内的 3 个标签（流水线创作/快速渲染/历史记录） |
+| 流水线卡片 | 类型徽章 + 稳定性圆点 + 标题 + 描述 + 阶段数 + 成本 + 可用性 |
+| 详情头部 | 卡片式容器 + 标题 + 描述 |
+| 输入区域 | textarea + 字符计数 + 预估信息（带左侧蓝色边框） |
+| 配置区 | 折叠式卡片 + 摘要行 + 展开内容 |
+| 操作栏 | 启动按钮 + 进度条 + 控制按钮 |
+| 历史记录工具栏 | 状态筛选下拉 + 记录计数 |
+| 历史记录卡片 | 左侧色条 + 标题 + 流水线标签 + 状态徽章 + 提示信息 + 阶段进度 + 时间 + 操作按钮 |
+
+**十四、提示文字**
+
+| 场景 | 文字 |
+|------|------|
+| 空状态 | 暂无创作记录 / 开始创作后，记录将在此显示 |
+| 加载中 | 加载中... |
+| 本地模式提示 | 当前为本地模式（未登录），历史记录仅保存在本机 |
+| 恢复按钮 | 从断点继续 / 继续生成 |
+| 删除按钮 | 删除 |
+| 打开按钮 | 打开 |
+
+**十五、相关文件**
+
+- 修改：apps/desktop/src/views/CreateView.vue（CSS 优化）
+- 修改：apps/desktop/src/views/CreateViewHistory.vue（CSS 优化）
+
+### 3.1.19 failed 状态保留原始值 + 暂停环节显示修正（2026-08-11）
+
+**背景**：3.1.17 将 failed 状态统一转换为 paused，导致用户无法区分"执行失败"和"用户暂停"。本次修正保留 failed 原始状态，在前端层区分显示。
+
+**一、数据校验**
+
+1. **状态保留**：usePipelineHistory.js 的 loadHistory() 中，failed 状态不再转换为 paused，保留原始值。
+2. **暂停环节推导**：若 failed 任务无 pausedStage 字段，从 stages 数组中按优先级推导：
+   - 优先取 `status === 'failed'` 的阶段
+   - 其次取最后一个 `status !== 'completed'` 的阶段
+   - 最后取数组最后一个阶段
+3. **stale running 检测**：running 状态超过 30 分钟无更新的任务，标记 `_originalStatus = 'running'` 后转为 paused（此逻辑不变）。
+4. **恢复按钮判断**：`historyItemResumable()` 同时支持 failed 和 paused 状态，内容策略类错误（`needs_user_input`/`content_policy`/`可能需要修改文案`）仍不显示恢复按钮。
+
+**二、流程**
+
+```
+用户打开历史记录
+  -> loadHistory() 并行请求 projects + pipeline runs
+  -> 对每个 run.status === 'running' 且 updatedAt > 30min 的任务：
+      1. run._originalStatus = 'running'
+      2. run.status = 'paused'
+      3. 若无 pausedStage -> 从 stages 推导
+  -> 对每个 run.status === 'failed' 且无 pausedStage 的任务：
+      1. 从 stages 推导 pausedStage（不改变 status）
+  -> 排序：running -> projects -> paused -> failed -> 其余
+  -> 渲染 CreateViewHistory 组件
+```
+
+**三、功能逻辑**
+
+| 场景 | 原状态 | 显示状态 | 暂停/失败环节 | 恢复按钮 |
+|------|--------|----------|---------------|----------|
+| 超时/崩溃导致失败 | failed | 执行失败 | 从 stages 推导（显示为"失败环节"） | 显示 |
+| 内容策略拒绝 | failed | 执行失败 | 从 stages 推导 | 不显示 |
+| 30分钟无更新的 running | running->paused | 已暂停 | 从 running 阶段推导（显示为"暂停环节"） | 显示 |
+| 用户手动暂停 | paused | 已暂停 | 使用已有 pausedStage | 显示 |
+| 正常完成 | completed | 已完成 | - | 不显示 |
+
+**四、交互逻辑**
+
+1. **状态筛选**：筛选器包含全部/进行中/已暂停/执行失败/已完成/已取消六个选项。
+2. **失败提示**：
+   - 有 pausedStage：显示"失败环节：{阶段名}"
+   - 无 pausedStage 有 error：显示截断的错误信息（60字符）
+   - 无 pausedStage 无 error：显示"执行过程中出现错误"
+3. **暂停提示**：暂停状态的卡片显示"暂停环节：{pausedStage}"提示行。
+4. **阶段进度**：运行中和暂停任务显示阶段进度条；暂停阶段使用琥珀色柔和脉冲动画。
+5. **恢复操作**：点击"从断点继续"按钮触发 resume-history 事件。
+6. **卡片悬停**：hover 时 translateY(-1px) + box-shadow 增强，0.15s ease 过渡。
+
+**五、显示项**
+
+| 元素 | 位置 | 内容/样式 |
+|------|------|-----------|
+| 状态色条 | 卡片左侧 3px | running 蓝 / paused 橙 / failed 红 / completed 绿 / cancelled 灰 |
+| 状态徽章 | 标题行右侧 | 图标 + 文本（✓已完成 / ✕执行失败 / —已取消 / ⟳进行中 / ⏸已暂停 / ○等待中） |
+| 失败徽章 | 同上 | 红色背景 + 1px 红色半透明边框 |
+| 暂停徽章 | 同上 | 琥珀色背景 + 1px 琥珀色半透明边框 |
+| 失败环节提示 | 标题行下方 | ⚠ 失败环节：{阶段名}，红色背景条 |
+| 暂停环节提示 | 标题行下方 | ⏸ 暂停环节：{阶段名}，琥珀色背景条 |
+| 运行中提示 | 标题行下方 | 🔄 返回流水线创作查看进度，蓝色背景条 |
+| 阶段进度条 | 提示行下方 | 各阶段小方块（done/active/failed/pending），暂停阶段琥珀色脉冲 |
+| 操作按钮 | 卡片底部 | 从断点继续 + 打开 + 删除 |
+| 时间戳 | 卡片底部左侧 | updatedAt/completedAt/createdAt 格式化 |
+
+**六、提示文字**
+
+| 场景 | 文字 |
+|------|------|
+| 失败有阶段名 | ⚠ 失败环节：optimize |
+| 失败无阶段名有错误 | ⚠ {截断的错误信息} |
+| 失败无阶段名无错误 | ⚠ 执行过程中出现错误 |
+| 暂停有阶段名 | ⏸ 暂停环节：generate_assets |
+| 运行中 | 🔄 返回流水线创作查看进度 |
+| 恢复按钮（可用） | 从断点继续 |
+| 恢复按钮（恢复中） | 恢复中... |
+| 筛选器选项 | 全部 / 进行中 / 已暂停 / 执行失败 / 已完成 / 已取消 |
+
+**七、CSS 增强**
+
+| 选择器 | 样式 |
+|--------|------|
+| `.history-item` | border-radius: 10px; transition: all 0.15s ease |
+| `.history-item:hover` | transform: translateY(-1px); box-shadow: 0 2px 12px rgba(0,0,0,0.06) |
+| `.history-status.failed` | background: var(--status-failed-bg); border: 1px solid rgba(239,68,68,0.15) |
+| `.history-status.paused` | background: rgba(217,119,6,0.1); border: 1px solid rgba(217,119,6,0.2) |
+| `.history-item.status-failed` | border-left: 3px solid var(--status-failed-text, #991b1b) |
+| `.history-item.status-paused` | border-left: 3px solid var(--status-waiting-text, #d97706) |
+| `.history-failed-hint` | 失败环节提示行样式 |
+| `.history-paused-hint` | 暂停环节提示行样式 |
+
+**八、相关文件**
+
+- 修改：apps/desktop/src/composables/usePipelineHistory.js（状态保留 + pausedStage 推导 + 排序）
+- 修改：apps/desktop/src/views/CreateViewHistory.vue（状态显示 + 筛选器 + CSS 增强）
+- 新增：apps/desktop/src/views/video-creation/（PipelineSelector + StageProgress + ConfigSummary + ErrorDialog）
+
+
+
+
+
+### 3.1.20 代码-设计分离与历史记录卡片优化（2026-08-11）
+
+#### 一、变更背景
+
+历史记录卡片（CreateViewHistory.vue）原先将 ~512 行 CSS 内联在组件的 `<style scoped>` 中，与模板逻辑耦合。同时存在以下问题：
+
+1. **CSS 语法错误**：`video-creation-tokens.css` 中 `[data-theme="dark"]` 块提前关闭，导致 `--banner-attention-text` 和 `--ep-*` 暗色模式变量悬空
+2. **硬编码颜色**：部分样式直接使用 rgba 值而非 CSS 变量，暗色模式覆盖不完整
+3. **信息密度不足**：卡片仅显示标题、状态、提示行、进度条和操作按钮，缺少时长、模式等元信息
+4. **布局冗余**：时间信息放在底部 footer，与操作按钮挤在同一行
+
+#### 二、代码-设计分离方案
+
+##### 1) 文件结构
+
+| 文件 | 职责 | 行数 |
+|------|------|------|
+| `apps/desktop/src/styles/create-view-history.css` | 历史记录卡片全部样式（从 Vue 抽取） | ~101 |
+| `apps/desktop/src/styles/video-creation-tokens.css` | Design Token 定义（含暗色模式） | ~189 |
+| `apps/desktop/src/views/CreateViewHistory.vue` | 模板 + 逻辑（无内联样式） | ~235 |
+
+##### 2) 引入方式
+
+`CreateViewHistory.vue` 的 `<script>` 块顶部添加：
+
+```js
+import '@/styles/create-view-history.css'
+```
+
+- 不使用 `<style scoped>`，样式通过 class 命名空间隔离（`.history-*` 前缀）
+- 好处：样式可被 DevTools 全局审查、可被其他组件复用、Vite HMR 热更新更快
+
+##### 3) CSS 变量使用规范
+
+所有颜色值必须使用 CSS 变量，格式：`var(--token-name, fallback)`。禁止直接写 rgba/hex。
+
+已定义的变量族：
+
+| 变量族 | 用途 | 示例 |
+|--------|------|------|
+| `--status-*-bg/text` | 状态语义色 | `--status-failed-bg: #fee2e2` |
+| `--history-*` | 历史记录专用 | `--history-running-border: #93c5fd` |
+| `--hairline` | 边框线 | `rgba(0,0,0,0.06)` |
+| `--surface` | 卡片背景 | `#fff` |
+
+#### 三、历史记录卡片 UI 优化
+
+##### 1) 卡片信息层次（从上到下）
+
+| 层级 | 内容 | 样式 |
+|------|------|------|
+| 第一行 | 标题 + 流水线标签 + 状态徽章 | 标题 14px bold，标签 10px uppercase，徽章 10px 带边框 |
+| 第二行 | 状态提示（运行中/已暂停/失败） | 带图标的小字提示，背景色区分 |
+| 第三行 | 元信息（时间、时长、模式、项目ID） | 12px 灰色，图标 + 文字 |
+| 第四行 | 阶段进度条（仅运行中/已暂停） | 圆角分段条，活跃段有 shimmer 动画 |
+| 底部 | 操作按钮（从断点继续/打开/删除） | 按钮组右对齐 |
+
+##### 2) 状态视觉映射
+
+| 状态 | 左边框色 | 状态徽章背景 | 提示行 |
+|------|----------|-------------|--------|
+| running | `--status-running-text` (#1d4ed8) | rgba(29,78,216,0.08) | 🔵 返回流水线创作查看进度 |
+| paused | `--status-waiting-text` (#92400e) | rgba(217,119,6,0.1) | 🟠 暂停环节：{stage} |
+| failed | `--status-failed-text` (#991b1b) | #fee2e2 | 🔴 失败环节：{stage} |
+| completed | `--status-completed-text` (#065f46) | rgba(6,95,70,0.08) | 无 |
+| cancelled | `--status-cancelled-text` (#6b7280) | #f3f4f6 | 无 |
+
+##### 3) 新增元信息行
+
+```html
+<div class="history-meta">
+  <span class="history-meta-item">🕐 {时间}</span>
+  <span class="history-meta-item">⏱ {时长}</span>
+  <span class="history-meta-item">⚙ {模式}</span>
+  <span class="history-meta-item">📁 {项目ID前8位}</span>
+</div>
+```
+
+- `formatDuration(ms)`：毫秒转 "X 分钟 Y 秒" 或 "Y 秒"
+- 时长来源于后端返回的 `duration` 字段
+- 模式来源于 `mode` 字段（如"文字标准模式"）
+- 项目ID仅显示前 8 位，hover 时 title 显示完整 ID
+
+##### 4) 操作按钮逻辑
+
+| 状态 | 可用操作 | 条件 |
+|------|---------|------|
+| running | 继续生成 | 始终可用 |
+| paused | 从断点继续 | `historyItemResumable(h) === true` |
+| failed | 从断点继续 | `historyItemResumable(h) === true` 且 error 不含 needs_user_input |
+| completed | 打开 | `h.projectId` 存在 |
+| * | 删除 | `h.projectId` 存在 |
+
+#### 四、CSS 语法修复
+
+`video-creation-tokens.css` 暗色模式修复：
+
+- **问题**：`[data-theme="dark"]` 块在第 173 行提前关闭，`--banner-attention-text` 和 `--ep-*` 变量悬空
+- **修复**：移除第 173 行的多余 `}`，将所有暗色模式变量正确嵌套在 `[data-theme="dark"]` 内
+- **验证**：大括号计数 { = 2, } = 2，平衡
+
+#### 五、数据校验
+
+| 字段 | 类型 | 必填 | 校验规则 |
+|------|------|------|---------|
+| `h.status` | enum | 是 | running/paused/failed/completed/cancelled |
+| `h.title` | string | 否 | 为空时 fallback 到 `pipelineName(h.pipeline)` |
+| `h.pausedStage` | string | 否 | running 超时自动推导，failed 从 stages 推导 |
+| `h.duration` | number(ms) | 否 | 非数字或 null 时不显示 |
+| `h.mode` | string | 否 | 非空时显示 |
+| `h.stages` | array | 否 | 仅 running/paused 时显示进度条 |
+
+#### 六、相关文件
+
+- **修改**：`apps/desktop/src/views/CreateViewHistory.vue`（移除内联 CSS，添加 CSS import，新增 meta 行和 formatDuration）
+- **修改**：`apps/desktop/src/styles/video-creation-tokens.css`（修复暗色模式 CSS 语法）
+- **新增**：`apps/desktop/src/styles/create-view-history.css`（从 Vue 抽取的历史记录样式）
+
 
 以下 Cut 参数属于独立 Remotion 快速路径，不等同于 `story2video-compose` 的 scene schema：
 
@@ -644,6 +1309,80 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 | `animation` | string | `ken-burns` | 动画效果 |
 | `chartData` | array | — | 图表数据 |
 | `chartSeries` | array | — | 折线图序列 |
+
+
+### 3.1.21 BasePythonBridge 懒启动自愈（2026-08-11）
+
+#### 一、变更背景
+
+视频创作流水线依赖 Python Bridge（SplitterBridge、PromptBridge）提供后台服务。此前当 Bridge 进程意外退出（崩溃、看门狗放弃、启动失败）后，业务调用方（如 optimize()、_post()）直接抛出 xxx is not running 错误，用户需要手动重启应用。本次在 BasePythonBridge 基类中新增 nsureRunning() 方法，实现懒启动自愈。
+
+#### 二、实现方案
+
+##### 1) ensureRunning() 方法（base-python-bridge.js:281-293）
+
+`
+async ensureRunning () {
+  if (this.isRunning) return          // 已运行则跳过
+  if (this._starting) return this._starting  // 并发调用共享同一 Promise
+  this.log.info(this.name, ${this.name} is not running, attempting lazy-start...)
+  this.restartCount = 0
+  this._starting = this.start().catch((e) => {
+    this.log.error(this.name, Lazy-start failed: )
+    throw e
+  }).finally(() => { this._starting = null })
+  return this._starting
+}
+`
+
+##### 2) _post() 方法改造（base-python-bridge.js:228-231）
+
+原来 _post() 在 isRunning === false 时直接 reject。改造后：
+`
+if (!this.isRunning) {
+  try { await this.ensureRunning() } catch (e) {
+    throw new Error(${this.name} is not running and lazy-start failed: )
+  }
+}
+`
+
+##### 3) 子类显式调用
+
+PromptBridge 的 optimize() 和 optimizeBatch() 方法在调用 _post() 前额外调用 wait this.ensureRunning()，确保 Bridge 可用。
+
+#### 三、行为变化
+
+| 场景 | 改造前 | 改造后 |
+|------|--------|--------|
+| Bridge 未启动时调用 optimize() | 抛出 "xxx is not running" | 自动尝试启动，成功则继续，失败则抛出 "lazy-start failed" |
+| Bridge 启动中重复调用 | 无保护 | 共享同一 _starting Promise，不重复 spawn |
+| Bridge 崩溃后首次调用 | 直接报错 | 自动重启 + 重试 |
+
+#### 四、数据校验
+
+- _starting 字段类型：Promise<void> | null
+- nsureRunning() 返回值：Promise<void>
+- 并发安全：多次调用共享同一个 _starting Promise
+
+#### 五、错误处理
+
+- 懒启动失败时，错误信息包含原始异常的 message
+- 日志级别：启动尝试为 info，失败为 error
+- 不影响看门狗和正常重启逻辑
+
+#### 六、影响范围
+
+| 文件 | 变更类型 |
+|------|----------|
+| ase-python-bridge.js | 新增 nsureRunning() 方法 + _post() 改造 |
+| prompt-bridge.js | optimize() 和 optimizeBatch() 前置调用 |
+| splitter-bridge.js | 同上模式 |
+
+#### 七、回归验证
+
+- ase-python-bridge.test.js：新增 ensureRunning 懒启动测试（并发调用共享 Promise、启动失败抛出、已运行跳过）
+- 2e-full-pipeline.test.js：E2E 测试自动启动 Splitter Bridge 而非仅 attach
+
 
 ### 3.3 叠加层（Remotion 快速路径，P1）
 
@@ -864,3 +1603,212 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 ### 验收状态
 
 本地 Vue build、路由状态回归和 Story2Video UI 合同测试属于可自动验证范围。真实 TTS provider 目录/个人槽位/用户音色克隆上传及图片敏感词降级必须在目标 provider 账号、网络和配额齐全时单独验收，不能以本地 mock、CI 或文档替代，状态保持 PENDING_EXTERNAL。
+
+---
+
+## 九、UI/UX 优化方案（2026-08-11）
+
+### 9.1 优化背景
+
+视频创作模块经过多轮迭代，功能已基本完善，但代码组织和用户体验存在优化空间。本次优化旨在：
+1. 改善代码可维护性
+2. 提升用户体验
+3. 增强可访问性
+4. 优化响应式设计
+
+### 9.2 组件架构优化
+
+#### 9.2.1 当前问题
+- **CreateView.vue** 过于庞大（3531行），混合了多个职责
+- 组件间有重复代码（如历史记录加载逻辑）
+- 缺乏可复用的UI组件
+
+#### 9.2.2 优化方案
+
+**新增组件：**
+
+| 组件 | 职责 | 行数 |
+|------|------|------|
+| `PipelineSelector.vue` | 流水线选择网格 | ~200行 |
+| `StageProgress.vue` | 阶段进度显示 | ~180行 |
+| `ErrorDialog.vue` | 错误对话框 | ~120行 |
+| `ConfigSummary.vue` | 配置摘要预览 | ~100行 |
+
+**Composable 集成：**
+
+| Composable | 职责 | 状态 |
+|------------|------|------|
+| `usePipelineHistory.js` | 历史记录管理 | 已创建，待接入 |
+| `usePipelineConfig.js` | 配置状态管理 | 待创建 |
+| `usePipelineUI.js` | UI状态管理 | 待创建 |
+
+### 9.3 UI/UX 增强
+
+#### 9.3.1 流水线选择优化
+
+**当前状态：**
+- 基础卡片网格布局
+- 无加载状态
+- 无视觉层次
+
+**优化后：**
+- 添加加载骨架屏
+- 改进卡片视觉层次
+- 添加键盘快捷键
+- 优化hover效果
+
+#### 9.3.2 配置区域优化
+
+**当前状态：**
+- 6个折叠区过于复杂
+- 无配置预览
+- 无一键重置
+
+**优化后：**
+- 添加配置摘要预览
+- 改进折叠区设计
+- 添加一键重置功能
+- 优化表单布局
+
+#### 9.3.3 历史记录优化
+
+**当前状态：**
+- 基础列表展示
+- 无批量操作
+- 无搜索功能
+
+**优化后：**
+- 添加批量操作
+- 添加搜索功能
+- 改进排序选项
+- 优化卡片设计
+
+### 9.4 可访问性改进
+
+#### 9.4.1 键盘导航
+- 所有交互元素添加 `tabindex`
+- 添加 `aria-label` 和 `aria-describedby`
+- 改进焦点指示器
+- 优化Tab顺序
+
+#### 9.4.2 屏幕阅读器
+- 添加适当的 ARIA 角色
+- 动态内容更新通知
+- 状态变化提示
+- 错误信息无障碍
+
+#### 9.4.3 颜色对比度
+- 确保文本对比度符合 WCAG 2.1 AA 标准
+- 状态颜色区分明显
+- 焦点指示器清晰
+
+### 9.5 响应式设计改进
+
+#### 9.5.1 移动端优化
+- 流水线网格单列布局
+- 历史卡片自适应
+- 触摸交互优化
+- 表单元素适配
+
+#### 9.5.2 平板端优化
+- 流水线网格双列布局
+- 配置区域分栏
+- 历史卡片双列
+
+#### 9.5.3 桌面端优化
+- 流水线网格三列布局
+- 配置区域完整展示
+- 历史卡片多列
+
+### 9.6 实施计划
+
+#### 阶段 1：组件拆分（2天）
+- 拆分 CreateView.vue 为独立组件
+- 集成 usePipelineHistory.js
+- 创建新的 composable
+
+#### 阶段 2：UI 增强（2天）
+- 改进流水线卡片设计
+- 优化配置区域
+- 改进历史记录界面
+
+#### 阶段 3：无障碍访问（1天）
+- 添加 ARIA 标签
+- 改进键盘导航
+- 测试屏幕阅读器
+
+#### 阶段 4：响应式设计（1天）
+- 改进移动端布局
+- 优化触摸交互
+- 测试不同设备
+
+#### 阶段 5：测试和文档（1天）
+- 编写组件测试
+- 更新 PRD 文档
+- 创建用户指南
+
+### 9.7 预期效果
+
+#### 9.7.1 代码质量
+- CreateView.vue 从 3531 行减少到约 800 行
+- 组件职责清晰，易于维护
+- 测试覆盖率提高
+
+#### 9.7.2 用户体验
+- 更流畅的交互体验
+- 更清晰的视觉层次
+- 更好的响应式设计
+
+#### 9.7.3 可访问性
+- 符合 WCAG 2.1 AA 标准
+- 完整的键盘导航
+- 良好的屏幕阅读器支持
+
+### 9.8 验收标准
+
+- [ ] 所有新组件通过单元测试
+- [ ] 键盘导航完整可用
+- [ ] 屏幕阅读器可访问
+- [ ] 移动端布局正常
+- [ ] 性能无明显下降
+- [ ] 现有功能不受影响
+
+
+
+### 9.9 组件接入状态（2026-08-11 更新）
+
+#### 已接入组件
+
+| 组件 | 接入位置 | 接入方式 | 状态 |
+|------|----------|----------|------|
+| PipelineSelector.vue | CreateView.vue | 替换内联流水线网格（原22行→10行） | ✅ 已接入 |
+| StageProgress.vue | CreateView.vue | 替换内联阶段进度（原25行→8行） | ✅ 已接入 |
+
+#### 未接入组件及原因
+
+| 组件 | 原因 | 替代方案 |
+|------|------|----------|
+| ErrorDialog.vue | 独立overlay与设计系统UiModal不一致 | 保留UiModal |
+| ConfigSummary.vue | 与现有配置表单功能重复 | 不插入避免UI冗余 |
+
+#### 数据校验
+
+- **PipelineSelector**：pipelines数组每项需包含name、category、estimatedCost、available字段；loading/error为Boolean/String
+- **StageProgress**：stages数组每项需包含name、status（completed/running/failed/waiting_approval/pending/cancelled）；progressPercent为0-100数值
+
+#### 交互逻辑
+
+- **PipelineSelector**：点击卡片触发select事件（传递pipeline对象）；加载中显示骨架屏；错误状态显示重试按钮
+- **StageProgress**：自动根据status显示对应图标和颜色；运行中阶段显示子进度条（compose阶段）；显示每个阶段的耗时
+
+#### 显示项
+
+- **PipelineSelector**：分类标签（AI生成/说话头像/电影感等）、稳定性指示点（production/beta/experimental）、阶段数、消耗等级、可用性
+- **StageProgress**：总进度百分比、已用时间、完成摘要、各阶段名称/状态图标/状态文本/耗时
+
+#### 提示文字
+
+- PipelineSelector加载态："加载流水线列表..."
+- PipelineSelector错误态：错误信息 + "重试"按钮
+- StageProgress阶段状态：等待中/运行中/已完成/失败/等待确认/已取消
+- StageProgress时间格式："X分Y秒" 或 "Y秒"

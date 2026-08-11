@@ -1,0 +1,13 @@
+{
+  "id": "s2v-video-carousel-blend",
+  "title": "视频+图片轮播混合流水线（AI视频片段+图片轮播组合）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "frontend+backend",
+  "currentPhase": "review",
+  "nextAction": "全量测试与打包验证通过后提交推送",
+  "createdAt": "2026-08-11T00:00:00Z",
+  "branch": "codex/s2v-video-carousel-blend",
+  "openspecChange": "s2v-video-carousel-blend"
+}

@@ -16,6 +16,8 @@
  */
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { formatUserError } from '@/utils/user-facing-error'
+import { useLoginGate } from './useLoginGate'
 import {
   publishBatch,
   onProgress,
@@ -104,6 +106,8 @@ export function usePublishFlow(options) {
   const isAccountAvailable = typeof options.isAccountAvailable === 'function'
     ? options.isAccountAvailable
     : null
+  // 主动操作登录门：发布前未登录 → 弹登录引导，登录成功后继续
+  const { ensureLogin } = useLoginGate()
 
   const publishing = ref(false)
   const progress = ref([])
@@ -215,7 +219,7 @@ export function usePublishFlow(options) {
           article: { ...data, accountId: target.accountId },
         }))
         if (!res || res.code !== 0) {
-          throw new Error((res && res.message) || '定时任务创建失败')
+          throw new Error(formatUserError(res, { fallback: '定时任务创建失败' }).message)
         }
         const scheduleId = res.data && res.data.id
         if (!scheduleId) throw new Error('定时任务创建成功但未返回任务 ID')
@@ -233,8 +237,8 @@ export function usePublishFlow(options) {
       })
       activeScheduleIds.value = rollbackFailedIds
       if (rollbackFailedIds.length > 0) {
-        const message = error && error.message ? error.message : '定时任务创建失败'
-        throw new Error(`${message}；${rollbackFailedIds.length} 个定时任务回滚失败，请点击取消重试`)
+        const message = formatUserError(error, { fallback: '定时任务创建失败' }).message
+        throw new Error(message + '；' + rollbackFailedIds.length + ' 个定时任务回滚失败，请点击取消重试')
       }
       throw error
     }
@@ -242,6 +246,8 @@ export function usePublishFlow(options) {
 
   async function handlePublish() {
     if (publishing.value) return
+    // 主动操作登录门：未登录弹登录窗口，登录成功后继续发布
+    if (!(await ensureLogin({ message: '发布功能需要登录后使用，是否立即登录？' }))) return
     if (!article.title.trim()) {
       ElMessage.warning('请输入文章标题')
       return
@@ -358,13 +364,13 @@ export function usePublishFlow(options) {
         addProgress('✓ 已添加 ' + count + ' 个任务', 'success')
         result.value = { success: true, message: res.message || '任务已加入队列', url: '' }
       } else {
-        const message = res.message || '发布失败'
+        const message = formatUserError(res, { fallback: '发布失败' }).message
         addProgress('✗ 发布失败: ' + message, 'danger')
         result.value = { success: false, message }
         await notifyFailure('发布失败', message)
       }
     } catch (e) {
-      const message = e && e.message ? e.message : '发布异常'
+      const message = formatUserError(e, { fallback: '发布异常' }).message
       addProgress('✗ 错误: ' + message, 'danger')
       result.value = { success: false, message }
       await notifyFailure('发布异常', message)

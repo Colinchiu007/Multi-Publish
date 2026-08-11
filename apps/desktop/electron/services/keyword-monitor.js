@@ -59,6 +59,7 @@ class KeywordMonitor {
       history,
       timer: null,
       lastTotal: saved.length > 0 ? saved[saved.length - 1].total : null,
+      source: 'user', // user | remote | restored
     }
 
     // First poll immediately
@@ -139,6 +140,7 @@ class KeywordMonitor {
         history: Array.isArray(history) ? history : [],
         timer: null,
         lastTotal: Array.isArray(history) && history.length > 0 ? history[history.length - 1].total : null,
+        source: 'restored',
       }
       watcher.timer = setInterval(() => this._poll(watcher), DEFAULT_INTERVAL)
       // R28 修复：unref 让定时器不阻止进程退出（恢复的监控同样不应持有事件循环）
@@ -147,6 +149,68 @@ class KeywordMonitor {
       count++
     }
     if (count > 0) log.info('KeywordMonitor', `Restored ${count} keyword watchers`)
+  }
+
+  /**
+   * 应用运营后台下发的关键词监测目录（运行时同步）
+   * 契约：按 keyword upsert；远程条目设置 interval/threshold 并标记 source=remote；
+   * 本次下发未包含的远程条目停止监测（缺席即移除）；用户/恢复条目保留；
+   * 达到 MAX_KEYWORDS 上限时跳过新增并 warn。
+   * @param {Array<object>|null|undefined} entries - 远程监测目录
+   * @returns {number} 应用（新增/更新/停止）的条目数
+   */
+  applyRemoteWatchlist (entries) {
+    if (!Array.isArray(entries)) return 0
+    const remoteKeywords = new Set()
+    let applied = 0
+    for (const e of entries) {
+      if (!e || typeof e !== 'object') continue
+      const keyword = String(e.keyword || '').trim()
+      if (!keyword) continue
+      remoteKeywords.add(keyword)
+      const interval = Number.isFinite(Number(e.interval_minutes))
+        ? Math.max(10, Math.min(10080, Math.round(Number(e.interval_minutes)))) * 60 * 1000
+        : DEFAULT_INTERVAL
+      const threshold = Number.isFinite(Number(e.threshold)) ? Math.max(1, Number(e.threshold)) : 2.0
+      const existing = this._watchers.get(keyword)
+      if (existing) {
+        existing.interval = interval
+        existing.threshold = threshold
+        // 仅远程来源的词保持 remote（缺席可停止）；用户/恢复词被远程更新时保留原来源，避免缺席误停
+        if (existing.source !== 'user' && existing.source !== 'restored') existing.source = 'remote'
+        if (existing.timer) clearInterval(existing.timer)
+        existing.timer = setInterval(() => this._poll(existing), interval)
+        if (existing.timer.unref) existing.timer.unref()
+        applied++
+      } else {
+        if (this._watchers.size >= MAX_KEYWORDS) {
+          log.warn('KeywordMonitor', 'Max keywords reached, remote watchlist skip: ' + keyword)
+          continue
+        }
+        const watcher = {
+          keyword, interval, threshold,
+          history: [], timer: null, lastTotal: null, source: 'remote',
+        }
+        this._poll(watcher)
+        watcher.timer = setInterval(() => this._poll(watcher), interval)
+        if (watcher.timer.unref) watcher.timer.unref()
+        this._watchers.set(keyword, watcher)
+        applied++
+      }
+    }
+    // 缺席即停止远程监测
+    let stopped = 0
+    for (const [keyword, w] of Array.from(this._watchers.entries())) {
+      if (w.source === 'remote' && !remoteKeywords.has(keyword)) {
+        clearInterval(w.timer)
+        this._watchers.delete(keyword)
+        stopped++
+      }
+    }
+    if (applied + stopped > 0) {
+      log.info('KeywordMonitor', `remote watchlist applied: ${applied} updated, ${stopped} stopped`)
+    }
+    return applied + stopped
   }
 
   /**

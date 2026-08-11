@@ -101,6 +101,52 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | Expiry Monitor | Auto-detect cookie expiration | P1 | Done |
 | Re-login | One-click re-login flow | P1 | Done |
 
+#### 2.3.1 主动操作登录引导（渐进式登录，2026-08-11）
+
+**目标**：未登录用户触发「主动操作」（发布 / 批量发布 / AI 写作 / 启动流水线等需要登录的功能）时，不再只显示错误提示，而是**弹登录引导 → 登录成功后自动继续原操作**，减少流程断裂、提升登录转化。
+
+**规则**：
+
+| 状态 | 行为 |
+|------|------|
+| 已登录（`identityStore.isAuthenticated`） | 直接放行，不弹窗 |
+| 身份服务不可用（`status === 'disabled' \| 'error'`） | 提示「当前身份服务未配置，无法登录。请在主进程配置身份服务后重试。」并拒绝（fail-closed，不弹登录） |
+| 未登录 + 主动操作 | 弹确认框「需要登录 / 立即登录」→ 调 `identitySignIn()`（主进程打开 Logto OAuth）→ 登录成功且 authenticated → **自动继续原操作**；用户取消 / 登录失败 → 拒绝并提示 |
+
+**数据校验与流程**：
+
+- `useLoginGate.ensureLogin(options)`：返回 `Promise<boolean>`；已登录 / 登录成功 = `true`，取消 / 失败 / 身份服务不可用 = `false`。
+- `useLoginGate.requireLogin(action, options)`：`ensureLogin` 通过后执行 `action()` 并返回其结果；否则返回 `false`。
+- 单例防重入：并发多处触发只弹一次登录（模块级 `activeSignIn`），其余等待同一登录流程。
+- 登录成功判定：`identityStore.signIn()` 返回 `ok` 且 `isAuthenticated === true`。
+
+**交互逻辑与显示项**：
+
+| 场景 | 交互 | 提示文字 |
+|------|------|----------|
+| 未登录点「发布 / 批量发布」 | 弹确认框 → 登录 → 继续发布 | 发布功能需要登录后使用，是否立即登录？ |
+| 未登录点「AI 标题生成 / 润色 / 摘要」 | 弹确认框 → 登录 → 继续生成 | AI 标题生成/内容润色/摘要生成需要登录后使用，是否立即登录？ |
+| 未登录点「启动流水线」 | 弹确认框 → 登录 → 继续启动 | 启动流水线需要登录后使用，是否立即登录？ |
+| 确认框取消 | 不执行操作 | — |
+| 登录失败 / 未完成 | 提示并取消操作 | 登录未完成，操作已取消 |
+| 身份服务不可用 | 提示并拒绝 | 当前身份服务未配置，无法登录。请在主进程配置身份服务后重试。 |
+
+**接入点（2026-08-11 首批）**：
+
+| 入口 | 文件 | 位置 |
+|------|------|------|
+| 发布 | `src/composables/usePublishFlow.js` | `handlePublish` 开头（`publishing` 锁之后、校验之前） |
+| 批量发布 | `src/composables/useBatchPublish.js` | `handleBatchPublish` 开头 |
+| AI 写作 | `src/components/AiWriterPanel.vue` | `generateTitles` / `enhanceContent` / `generateSummary` 开头 |
+| 流水线启动 | `src/views/CreateView.vue` | UI「启动流水线」按钮 → `handleStartPipeline`（登录门 + `startPipeline`） |
+
+**边界与约定**：
+
+- 登录门放在**主动操作**入口；浏览/查看类（历史记录、配置查看）保持轻提示，不弹窗。
+- 已登录但缺权益（`ENTITLEMENT_REQUIRED`）不弹登录窗，走升级/权益引导（`UpgradeModal`）。
+- `CreateView.startPipeline` 方法本体**不**内置登录门（保持同步时序语义，供测试/程序化调用）；登录门在 UI 点击层 `handleStartPipeline`。
+- 被动 IPC 仍由主进程通道级鉴权兜底（`AUTH_REQUIRED`），登录门只是 UX 前置，不替代主进程安全边界。
+
 ---
 
 ## 三、功能需求
@@ -338,6 +384,88 @@ platforms:
 | 平台拒绝 | PLATFORM_REJECT | 不重试，记录原因到 task |
 | RPA 失败 | RPA_FAILED | 截图保存 -> 降级 -> 人工接管 |
 | 校验失败 | VALIDATION_FAILED | 弹窗提示具体原因 |
+
+#### 用户提示文字与多语言规范（2026-08-11 新增，user-facing-messages）
+
+**目标**：所有出现在用户面前的错误、警告、建议、状态提示与引导文字，一律输出为清晰、自然、可理解的语言；出现问题或操作失败时，必须给出「具体原因 + 解决方法建议」，禁止直接暴露内部技术文本（IPC 通道名、英文错误码、内部标识符、栈信息、IP:端口等）。
+
+**1. 语言解析规则（数据校验/流程）**
+
+| 优先级 | 来源 | 规则 |
+|--------|------|------|
+| 1 | 用户显式设置（localStorage `locale`） | `zh` / `en`，立即生效并持久化 |
+| 2 | 系统语言（`navigator.language`） | `zh*` → 中文；`en*` → 英文；其余 → 英文（与 fallbackLocale 一致） |
+| 3 | 默认 | 中文 |
+
+实现：`apps/desktop/src/i18n/index.js` 导出 `detectSystemLocale()` / `resolveAppLocale()` / `getAppLocale()` / `setAppLocale()`；`setAppLocale` 写入 localStorage 并即时更新 vue-i18n locale。测试环境通过 `test-setup.js` 固定 `navigator.language = 'zh-CN'` 保证断言确定性。
+
+**2. 错误文案统一入口（功能逻辑）**
+
+渲染端新增 `src/utils/user-facing-error.js` 的 `formatUserError(input, { locale?, fallback? })`，解析顺序（严格）：
+
+1. `input.errorCode`（主进程返回的稳定机器码，优先）→ 查 `USER_ERROR_CODES` 目录，命中输出「原因 + 建议」本地化文案；
+2. `input.code` 数值错误码 → 映射表（`-3` 认证、`-2` 校验、`-10` 未找到、`-11` 超时、`-12` 网络、`-13` IO、`429` 限流、`402` 额度）；
+3. 遗留原始 message pattern 兜底（未登录/网络/超时/存储/限流/额度/API Key 未配置等正则）；
+4. 未知错误：文本含明显技术标识（通道名 `store:xxx`、大写下划线错误码 `VOICE_CATALOG_UNAVAILABLE`、栈信息 `line N`、IP:端口）→ 使用调用方 fallback 或通用「操作失败，请稍后重试」；其余自然语言原因文本 → 原样透传，保留「具体原因」。
+
+返回 `{ errorCode, message, matched }`。任何用户可见区域都不得直接渲染 `result.message` / `e.message` 原文，必须经过 `formatUserError`。
+
+**3. 主进程错误返回契约（数据校验）**
+
+| 场景 | 返回结构 | message 规则 |
+|------|---------|-------------|
+| 未登录/未激活调用需登录通道 | `{ code:-3, errorCode:'AUTH_REQUIRED', message: 自然语言(原因+建议), messageParams:{channel} }` | 不得含通道名 |
+| 已登录但缺业务权益 | `{ code:-3, errorCode:'ENTITLEMENT_REQUIRED', message: 自然语言(原因+建议), messageParams:{channel} }` | 不得含通道名 |
+| 不可信 IPC 来源 | `{ code:-3, errorCode:'UNTRUSTED_SENDER', message:'未授权的调用来源' }` | 保持兼容 |
+| 模型服务商创建/更新/删除/默认/加密等 | `{ code:-1, errorCode:'PROVIDER_EXISTS' | 'CREATE_FAILED' | ...，message: 自然语言，messageParams:{detail} }` | 原始 detail 只进 `messageParams.detail`，不进 message |
+
+涉及文件：`apps/desktop/electron/ipc-handlers/license-access-control.js`、`apps/desktop/electron/services/model-provider-manager.js`、`apps/desktop/electron/services/webview-manager.js`。
+
+**4. 交互逻辑与显示项**
+
+| 显示项 | 交互逻辑 | 文案要求 |
+|--------|---------|---------|
+| 页面级错误行（创作历史/发布历史/流水线列表等） | 展示 `formatUserError` 输出，附「重试」按钮 | 原因 + 建议 + 重试入口 |
+| 轻提示（ElMessage / 进度条） | 模型设置、运营同步、审批门、升级弹窗等失败 | 原因 + 建议，不直出原文 |
+| 发布结果区（成功/失败摘要） | 成功显示主进程 message；失败显示格式化文案 | 失败必须含原因 + 建议 |
+| 自动更新错误 | 更新/下载失败显示格式化文案 | 网络类映射「网络连接失败。请检查网络后重试。」 |
+| Story2Video 通知 | 沿用既有 `story2video-notifications.js` pattern→key 映射（`当前许可证无权访问` 前缀保留兼容） | 原因 + 建议 |
+
+接入范围：CreateHistory / PublishHistory / CreateView / useModelProviderCrud / useOpsCenterSync / usePublishFlow / usePublishDrafts / useBatchPublish / useAutoUpdate / ApprovalGateModal / UpgradeModal / PipelineBrowser / TemplatePicker / ReplayTimeline / stores/accounts。
+
+**5. 提示文字表（核心 errorCode → zh / en）**
+
+| errorCode | 中文（原因 + 建议） | English |
+|-----------|---------------------|---------|
+| AUTH_REQUIRED | 当前未登录或登录状态已失效，无法使用该功能。请先登录后重试；若仍提示无权限，请确认当前账号已开通所需权益。 | You are not signed in or your session has expired...Please sign in and try again... |
+| ENTITLEMENT_REQUIRED | 当前账号没有所需权益，无法使用该功能。请升级或开通对应权益后重试。 | The current account does not have the required plan...Please upgrade or enable... |
+| UNTRUSTED_SENDER | 检测到非预期的调用来源，本次操作已取消。请重启应用后重试。 | An unexpected call source was detected...Please restart the app... |
+| NETWORK_ERROR | 网络连接失败。请检查网络后重试。 | Network connection failed. Please check your network and try again. |
+| TIMEOUT | 操作超时。请稍后重试；若持续出现请重启应用。 | The operation timed out. Please try again later; if it persists, restart the app. |
+| STORAGE_UNAVAILABLE | 本地存储暂时不可用。请重启应用后重试；若持续出现，请检查本地磁盘空间与读写权限。 | Local storage is temporarily unavailable... |
+| VALIDATION_ERROR | 提交的数据不符合要求。请检查输入后重试。 | The submitted data does not meet the requirements... |
+| NOT_FOUND | 未找到相关记录或资源，可能已被删除。请刷新后重试。 | The related record or resource was not found... |
+| IO_ERROR | 读写本地文件失败。请检查磁盘空间与文件权限后重试。 | Failed to read or write local files... |
+| RATE_LIMITED | 操作过于频繁，已被服务商限流。请稍等片刻后再试。 | You are being rate limited... |
+| QUOTA_EXCEEDED | 当前额度已用完。请等待额度恢复或升级套餐后重试。 | Your current quota has been used up... |
+| PROVIDER_EXISTS | 该服务商 ID 已存在。请更换 ID，或直接编辑已有服务商后重试。 | This provider ID already exists... |
+| ADAPTER_NOT_FOUND / PROVIDER_NOT_FOUND | 未找到该服务商（对应适配器）。请检查服务商配置 / 刷新列表后重试。 | No adapter / provider was found... |
+| API_KEY_NOT_CONFIGURED / API_KEY_REQUIRED | 该服务商尚未配置 API Key（远程服务商必须配置）。请在「模型设置」中填写后重试。 | Add the key in Model Settings and try again. |
+| ADAPTER_INIT_FAILED | 服务商初始化失败。请检查配置与服务商服务状态后重试。 | Provider initialization failed... |
+| OPERATION_NOT_SUPPORTED | 该服务商不支持此操作。请在「模型设置」中调整模型配置后重试。 | This provider does not support this operation... |
+| CREATE/UPDATE/DELETE/SET_DEFAULT_FAILED | 创建/更新/删除/设置默认服务商失败。请检查输入或稍后重试。 | Creation/Update/Deletion/Failed to set default... |
+| ENCRYPT_FAILED / CRYPTO_UNAVAILABLE | API Key 加密失败 / 系统安全存储不可用，无法保存 API Key。请重启应用或检查系统设置后重试。 | Failed to encrypt the API key / secure storage unavailable... |
+| OPERATION_FAILED（通用） | 操作失败，请稍后重试。 | The operation failed. Please try again later. |
+
+完整中英文文案见 `apps/desktop/src/utils/user-facing-error.js` 的 `MESSAGES` 目录（唯一事实源，本表为摘要）。
+
+**6. 回归测试（验收标准）**
+
+- `src/utils/user-facing-error.test.js`：errorCode 优先 / 数值 code / pattern / 技术文本 sanitize / 自然语言透传 / zh+en；
+- `src/i18n/i18n.test.js`：系统语言检测（zh*/en*/其余）、显式设置优先、setAppLocale 持久化；
+- `electron/ipc-handlers/license-access-control.test.js`：`AUTH_REQUIRED` / `ENTITLEMENT_REQUIRED` errorCode 且 message 不含通道名；
+- `model-provider-*` 测试：英文括号注释移除、errorCode 断言；
+- 受影响视图/composable 测试：技术文本不直出、自然语言透传。
 
 #### 审计日志
 
@@ -672,7 +800,7 @@ pending → publishing → { success | failed | partial | denied | cancelled }
 |------|------|
 | 场景层 | 8002 返回的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界，Multi-Publish 不得再次改写 |
 | 降级 | 只允许连接拒绝、超时、连接重置或服务未运行等不可用错误降级；业务错误和缺少 `scenes` 的非法响应必须失败 |
-| 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文 |
+| 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文；分割行为对齐《字幕分割规范 v1.0》（smart-sentence-splitter `docs/subtitle-segmentation-spec.md`，7 步流水线：分句→引号感知→长度切分→短块合并→标点规范化→超长强制→时间戳），与 8002 字幕输出同一字幕块序列（双实现跑同一测试向量 `subtitle_segmentation_vectors.json` 逐字一致） |
 | 时间轴 | ffprobe 的逐场景真实音频时长是权威值；字幕区间连续、互不重叠，首屏从 0 开始，末屏精确结束 |
 | 场景时长与动效 | 场景成片时长跟随 ffprobe 真实旁白音频（`-shortest`），不强制截断旁白；`defaultSceneDuration`（内部默认 6 秒，UI 不暴露）仅作音频时长不可探测时的回退。图片动效按“有效时长 = audioDuration || reportedDuration || defaultSceneDuration”归一化（zoompan `d=总帧数` + 进度 `min(1, on/T)`），短场景不切走、长场景不定格 |
 | 来源追踪 | 持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks`、`subtitleTimeline` |
@@ -808,6 +936,21 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 场景级续传 | 提示词优化与资源生成阶段把部分结果写入 context（`optimize_resume` / `generate_assets.resume.completed`）；恢复时跳过已完成场景，不重复消耗 LLM/图片/TTS 额度。 |
 | 失败类型规避 | 限流失败：恢复时由网关冷却自动等待后再继续；额度失败：恢复前用户需先确认/补充额度（提示文案引导），系统不自动重试；内容政策失败：不允许原样恢复，必须修改文案后重新启动；未知/瞬态失败：直接恢复。 |
 | 交互 | 恢复期间按钮显示「正在恢复…」；恢复成功即重新显示阶段清单并恢复 3s 轮询；恢复失败以明确原因重新弹窗。 |
+
+##### 7.1.8.1 排队与等待时序预算（详细合同，2026-08-11 补充）
+
+| 等待维度 | 有界上限 | 超限行为与提示文字 |
+|----------|----------|--------------------|
+| 并发信号量（maxConcurrent） | 30s（`MAX_QUEUE_WAIT_MS`，FIFO） | 返回 `RATE_LIMITED`：「当前请求频率已达上限，请稍后再试。」，不静默丢弃 |
+| RPM 滑动窗口时间槽（`_pace`） | 180s（`MAX_PACE_WAIT_MS`） | 抛 `RATE_LIMITED`：「当前请求频率已达上限，请稍后再试。」（错误 context 携带 `cooldownMs`） |
+| 429 冷却期（cooldownUntil） | 45s（`MAX_COOLDOWN_WAIT_MS`） | 剩余 ≤45s 自动等待；>45s 直接提示：「该模型 API 处于限流冷却期，请稍等约 N 秒后重试。」 |
+| token 额度窗口（5h/周） | 请求前预检即拒（不消耗真实调用） | `QUOTA_EXCEEDED`：「该模型 API 的每 5 小时 token 额度（N）已用完，请检查套餐额度或更换模型后再试。」 |
+
+- **429 自适应**：收到 429 后 `rateFactor ×= 0.75`（下限 0.2），成功后每笔 `+0.05` 缓慢恢复至 1；`_effectiveRpm = max(2, round(rpm × rateFactor))`（下限 2 保证不归零）。
+- **重试分级**：限流（429 / `RATE_LIMITED`）冷却+退避，最多 `retry429` 次（默认 3，支持 `Retry-After` 头）；瞬时（`TIMEOUT` / `NETWORK_ERROR` / 空响应）`500ms × attempt` 最多 2 次；额度（`402` / `QUOTA_EXCEEDED` / 余额·配额·token 文案）**不重试**；其余不重试。
+- **槽位记账**：排队被放行时释放方把槽位转移给被放行请求（active+=1），全部完成后 active 归零、不漂移为负。
+- **同 key 重入保护**：AsyncLocalStorage 记录当前 async 调用链已持有的调度 key；同 key 内层 `governor.run` 直接透传执行（不重复占信号量/时间槽/记账），不同 key 仍独立排队调度。已由 `AIGenerator.generate` 内部 governor 调度的路径（assetGenerator）外层**不得**重复包裹；legacy python 路径（无 assetGenerator）保留外层 `withModelBudget` 统一调度。
+- **数据校验（桌面端归一化）**：`normalizeRatePerMinute`：正整数 1..100000，`normalizeLimitPer5h`：正整数 1..10000000；空/None/'' → null；`0`/负数/小数/布尔/超上限 → null（由降级层兜底，不报错）。运营后台后端对非法值 400 + 前端提示（见 §7.4.4.3）。
 
 #### 7.1.9 流水线进度细化与信息视觉化合同
 
@@ -1275,6 +1418,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 成本标签色 | --cost-* | --cost-low: #10b981 | low/medium/high 三级成本 |
 | 历史记录色 | --history-* | --history-running-border: #93c5fd | 运行中边框、进度条、提示 |
 | 语音克隆色 | --clone-* | --clone-invalid-bg: #fef3c7 | 无效/默认克隆的徽标色 |
+| 通用变量映射 | --border/--text/--primary-bg | --border: var(--border-light) | 兼容 stage-progress / create-view-history 等组件的通用语义变量，light/dark 双模式覆盖 |
 
 ##### B. Token 文件结构
 
@@ -1414,6 +1558,396 @@ Electron 打包、工作树、PR 或发布状态证据。
 8. 158 个相关测试全部通过
 9. Vite build 无编译错误
 
+#### 7.1.25 视频+图片轮播混合流水线（AI 视频片段 + 图片轮播组合，2026-08-11）
+
+**背景与目标**：当前 Story2Video 流水线只有「图片轮播」一种视觉形态；AI 视频（videogen 体系）与图片轮播是两套独立流水线。混合模式把两者整合进同一流水线：只把「最值得动态化」的场景（约占总时长 20%-40%）交给 AI 视频生成，其余场景继续图片轮播，在表现力与成本（Token/额度/耗时）之间取得平衡。用户可选两种控制方式：
+
+| 模式 | 语义 | 默认参数 |
+|------|------|----------|
+| `off`（默认） | 纯图片轮播，行为与旧版完全一致 | — |
+| `fixed`（固定比例） | 成片**前段**按顺序累计约 20%-30%（默认 25%）时长的场景使用 AI 视频 | fixedRatio=25（范围 10-50，步进 5） |
+| `ai-judged`（AI 智能选择） | LLM 依据场景文案/提示词评估「精彩度（excitement）」，选出适合 AI 视频的场景，总时长占比约束在区间内 | minRatio=20 / maxRatio=40（min 5-50、max 10-80，步进 5），maxScenes=3（1-12） |
+
+**数据校验（normalizer 白名单，story2video-text-config.js）**：
+
+| 字段 | 类型/枚举 | 默认 | 边界 | 失败行为 |
+|------|-----------|------|------|----------|
+| `video.mode` | off/fixed/ai-judged | off | — | 非法值报错「video.mode 值无效」，流水线不启动 |
+| `video.provider` | string id | '' | 空=运行时解析默认视频生成器；非空须匹配 `[a-zA-Z0-9._:@/-]+` | 非法字符报错「video.provider 格式无效」 |
+| `video.model` | string id | '' | 同上 | 同上 |
+| `video.fixedRatio` | int % | 25 | 10-50 | 越界报错「video.fixedRatio 必须在 10-50 范围内」 |
+| `video.minRatio` | int % | 20 | 5-80 | 越界报错 |
+| `video.maxRatio` | int % | 40 | 5-80 | 越界报错 |
+| `video.maxScenes` | int | 3 | 1-12 | 越界报错 |
+| minRatio ≤ maxRatio | — | — | — | 违反报错「video.minRatio 不能大于 video.maxRatio」 |
+| 未知字段 | — | — | — | 忽略，不污染归一化结果 |
+| 顶层扁平参数 | `params.videoMode/videoProvider/videoModel` | — | 兼容旧调用方 | 与 story2videoTextConfig.video 同源归一化 |
+
+**流水线流程（阶段顺序）**：
+
+```
+split → domain_enrich → optimize → select_video_scenes（新增） → generate_assets（扩展） → compose（扩展） → publish
+```
+
+1. **select_video_scenes**（type `story2video_select_video_scenes`）：
+   - 输入：`context.optimize`（优化后的逐场景提示词）+ `context.split/domain_enrich`（逐场景文案）+ video 配置。
+   - `off`：直接输出空 plan（`{ mode:'off', scenes:[], ratio:0, selectedCount:0 }`），不校验视频生成器。
+   - `fixed`：按场景顺序累计估算时长（每场景时长 = sentence.duration 优先，否则 split.targetSeconds 默认 6s），标记累计占比首次达到 fixedRatio% 的场景（含边界场景）；至少标记 1 个场景。
+   - `ai-judged`：默认 LLM 输入场景列表（index/text/prompt/seconds + 区间与数量约束），要求返回严格 JSON 数组 `[{index, video, excitement(1-10), reason}]`；逐条校验 index 合法（越界/重复/非 JSON → fail closed，提示「AI 智能选择结果无法解析，请重试或改用固定比例模式」）。
+   - **比例钳制**：按 excitement 降序排列候选；超 maxRatio 从低 excitement 剔除；不足 minRatio 按高 excitement 补入；受 maxScenes 截断；全部剔除后保留最高 excitement 单场景（保证开启混合模式必有 ≥1 个视频场景）。
+   - **前置校验**：mode ≠ off 时必须解析视频生成器（显式 provider/model 优先，否则 `_modelProviderManager.getDefault('video')`）；解析失败 fail closed：「视频生成器未配置，请在设置中添加支持视频生成的模型（视频增强模式需要视频生成能力）」。
+   - 输出 `context.video_plan = { mode, provider, model, scenes:[{index,useVideo,excitement,reason,seconds}], ratio, selectedCount, totalSeconds }`。
+2. **generate_assets（扩展）**：
+   - 视频场景（useVideo=true）：串行调用视频适配器 `generateVideo({prompt, model, width, height, numFrames, frameRate})` → 轮询 `getVideoStatus`（间隔 10s，上限 10 分钟）→ 下载到 `%TEMP%/story2video/videoscenes/<runId>/scene_video_<index>.mp4`；**不再生成图片**（省额度）。
+   - 视频生成失败：回退图片轮播（复用已生成图片或补生成图），不中断整条流水线；补图也失败则按既有 allowPartialAssets 语义处理。
+   - 图片场景与 TTS：行为与旧版一致（并发、RPM 预算、内容政策检查点、断点续传均保留）。
+   - 断点续传快照 `completed` 项新增 `videoPath`；旧快照无该字段兼容。
+   - 子进度：`assets_progress` 新增 `videosDone/videosTotal`（视频场景数）；前端在 videosTotal>0 时展示「图片 x/y · 视频 a/b · 旁白 x/y」。
+3. **compose（扩展）**：
+   - 场景画面源：AI 视频场景 `videoPath`（kind video，mp4/mov/webm/mkv/avi，≤512MB，必须在允许根内）或图片场景 `imagePath` 二选一，`audioPath` 必有；双源冲突时 videoPath 优先；源不可读/越界 → 明确错误「Scene media path is not allowed or unreadable at index N」。
+   - 视频片段编码：AI 视频 `-stream_loop -1`（覆盖「视频短于旁白」）→ 等比缩放 + 黑边补齐（`scale=force_original_aspect_ratio=decrease,pad=...`）→ 帧率归一化 → 字幕/水印滤镜 → 按片段有效时长（follow-audio 跟随旁白 / min-duration 静音补齐语义不变）→ 混入 TTS → 降档重试（2x/1.5x/1x）。
+   - **视频片段旁白音频合同（W10，2026-08-11）**：视频片段 SHALL 显式映射 TTS 旁白为输出音频（`-map 0:v:0 -map 1:a:0`）；禁止依赖 ffmpeg 默认流选择——无 `-map` 时默认只挑一条音频流，实测会选中 AI 视频自带音频而丢弃 TTS 解说（440Hz 视频音频 vs 880Hz TTS 合成验证输出为 440Hz）。AI 视频自带音频默认不保留（如需环境音混合另行开放，避免音量/时长契约漂移）。回归：视频场景带 440Hz 音频 + TTS 880Hz 合成后，成片音频主频必须为 880Hz。
+   - 片段记录新增 `mediaKind: 'video' | 'image'`；转场拼接/BGM/WebM 转码/校验全部复用既有管线。
+
+**功能逻辑与成本控制**：
+- 视频生成并发恒为 1（系统管理，不暴露 UI），图片/TTS 并发不受影响；`maxScenes` 兜底限制视频生成数量，避免长视频超预算。
+- 分辨率：优先输出 size（如 720x1280），否则按宽高比映射默认档（16:9→1280x720、9:16→720x1280、1:1→1024x1024、4:3→1280x960、3:4→960x1280）；生成后统一 scale 到目标分辨率。
+- 帧数：按场景估算时长取档（≤5s→121、≤8s→201、≤10s→241、其余 441，24fps 近似 8n+1 规则）。
+
+**交互逻辑与显示项（CreateView）**：
+
+| 控件 | 位置 | 选项/说明 | testid |
+|------|------|-----------|--------|
+| 视频增强模式 | 新折叠区「视频增强」（画面区之后） | 关闭（纯图片轮播）/ 固定比例（成片前段 AI 视频）/ AI 智能选择（最精彩场景） | s2v-video-mode |
+| 视频生成器 | 同区，mode≠off 时显示 | 已启用且已配置的视频能力 provider 下拉；空列表提示「未找到可用的视频生成器，请先在「模型服务商」中配置并启用支持视频生成的模型」 | s2v-video-provider |
+| AI 视频占比（fixed） | 同区，mode=fixed 时显示 | 滑杆 10-50 步进 5，默认 25；提示「成片前约 X% 时长的场景使用 AI 视频（建议 20%-30%）」 | s2v-video-fixed-ratio |
+| AI 视频占比区间（ai-judged） | 同区，mode=ai-judged 时显示 | 最少 5-50、最多 10-80 双滑杆，默认 20/40；提示「AI 根据场景精彩度自动选择视频片段，总占比控制在区间内（默认 20%-40%）；可生成场景数上限 3 个」 | s2v-video-min-ratio / s2v-video-max-ratio |
+| 折叠区摘要 | 视频增强区标题右侧 | 关闭 / 固定 25% / AI 判断 20%-40% | — |
+| 阶段时间轴 | 阶段清单 | 新增 `select_video_scenes` 阶段（optimize 与 generate_assets 之间） | story2video-stage-select_video_scenes |
+| 阶段详情文案 | select_video_scenes 完成/运行 | 「已选 N 个 AI 视频场景（约 X%）」；off 模式显示「纯图片轮播模式」 | — |
+| generate_assets 详情 | 资源生成中 | videosTotal>0 时「图片 x/y · 视频 a/b · 旁白 x/y」，否则维持旧文案 | — |
+
+**提示文字清单**：
+- 配置区成本提示：「AI 视频更贵也更慢，仅用于最值得动态化的场景；其余场景继续图片轮播，节省额度。」
+- select_video_scenes 失败（未配置视频生成器）：「视频生成器未配置，请在设置中添加支持视频生成的模型（视频增强模式需要视频生成能力）」。
+- ai-judged 解析失败：「AI 智能选择结果无法解析，请重试或改用固定比例模式」。
+- 默认 LLM 不可用（ai-judged 需要 LLM 评估）：「默认 LLM 不可用，AI 智能选择需要先完成模型设置」。
+
+**真实运行稳定性与错误可诊断性（2026-08-11 补充）**：
+- compose 的 xfade/acrossfade 合并编码超时 SHALL 按输出时长动态计算（`computeMergeEncodeTimeoutMs` = max(2 分钟, 输出时长×3 + 2 分钟)），不得使用固定 120s——长视频（≥2 分钟成片、27 场景约 337s）的 chunk 合并会全量重编码超过 2 分钟，固定超时会导致 compose 偶发失败。回归：真实 27 场景成片（334.4s/52.9MB）须可稳定产出。
+- 视频 provider 的**业务错误响应**（HTTP 200 + 业务错误码，如 MiniMax `base_resp.status_code=2056`「已达到 Token Plan 用量上限」）SHALL 在 adapter 层解析为可读错误并映射 `QUOTA_EXCEEDED`，禁止误报为 `Missing task_id in response`；generateVideo 与 getVideoStatus 均须覆盖。真实用户遇到额度用尽时应看到明确提示（升级 Token Plan / 补充用量），而非误导性技术错误。
+- select_video_scenes 的 ai-judged LLM 调用 SHALL 采用**有界重试**（最多 3 次）：推理型模型（如 deepseek-v4-flash）对 27 场景长任务偶发返回空 content（仅 reasoning_content，思考 token 耗尽）或非法 JSON（截断/越界 index），单次失败即整阶段失败会阻断整条流水线。空内容/解析失败均重试；每次失败记录 raw（截断 1500 字符）便于诊断；max_tokens 随场景数放大（`min(5000, 800 + 场景数×140)`）。
+- select_video_scenes 的 `video_plan.scenes[].excitement/reason` SHALL 保留 AI 选择原始评分与理由：`entries` 统一为外层 `null` 声明并在序列化处加空值守卫（fixed 模式不产生 entries 不得报错/写空），禁止分支内同名声明遮蔽外层导致报告字段恒为空。
+- Agnes Video adapter（`agnes-video.js`）SHALL 对提交/查询的**瞬时错误做有界重试**：`503 video_queue_full`（队列满载，可持续 15+ 分钟）与 `429 rate_limit_exceeded`（约 2 次/分钟）标记 `retryableHttp=true`，提交最多重试 6 次、递增退避（20/30/45/60/60s，测试可注入短退避）；非重试错误（401/403/402/业务 200 无 task_id）立即抛出。真实运行证据：Agnes 队列满载时场景级回退图片，队列释放后提交成功（task_id 返回、约 108s 推理完成、`status:completed` + 顶层 `url` 下载地址）。
+
+**降级与失败策略**：
+1. 视频 provider 未配置 → select_video_scenes fail closed（不进入资源生成）。
+2. 单个视频场景生成失败 → 回退图片轮播（复用/补生成图）；视频不中断整条流水线。
+3. 视频全部失败 → 成片退化为图片轮播；若 allowPartialAssets 关闭且图片也失败 → 既有失败语义（断点续跑记录已完成场景）。
+4. `off` 模式：全链路零变化（新增阶段直接输出空 plan，不调用 LLM/视频 provider）。
+
+**验收标准**：
+1. `video.mode='off'` 时流水线行为与旧版一致（阶段多一步 select_video_scenes 但快速通过）。
+2. fixed 模式：前段场景按顺序标记，实际占比落在 [10,50] 且记录 actualRatio。
+3. ai-judged 模式：LLM 选择结果满足 [minRatio, maxRatio] ∩ maxScenes，越界自动钳制；解析失败 fail closed。
+4. 混合成片：视频场景片段以 AI 视频为基底（mediaKind='video'），图片场景 zoompan（mediaKind='image'），顺序与场景一致，字幕/BGM/转场正常。
+5. 断点续跑：已完成视频场景复用本地 videoPath，不重复调用视频生成。
+6. 前端构建无编译错误；相关单测/集成测试全绿。
+
+#### 7.1.26 视频创作子组件 CSS 代码-设计分离扩展（2026-08-11）
+
+**背景**：在 7.1.23 设计令牌体系基础上，继续将视频创作模块剩余 4 个子组件的内联 scoped CSS 提取到独立 CSS 文件，实现代码与设计的彻底分离。此前 CreateView.vue 和 CreateHistory.vue 已完成分离（见 7.1.23），本次覆盖 PipelineSelector、StageProgress、ConfigSummary、ErrorDialog 四个子组件。
+
+##### A. CSS 文件提取清单
+
+| 组件 Vue 文件 | 提取的 CSS 文件 | CSS 行数 | 移除的 scoped 样式行数 | 职责 |
+|---------------|----------------|----------|----------------------|------|
+| PipelineSelector.vue | src/styles/pipeline-selector.css | 192 行 | ~193 行 | 流水线选择卡片网格布局、卡片悬停/聚焦样式、分类徽标、可用性/稳定性指示器、响应式断点 |
+| StageProgress.vue | src/styles/stage-progress.css | 192 行 | ~193 行 | 阶段时间线进度条、阶段状态色（done/active/waiting/failed/pending）、粘性头部、compose 子进度条 |
+| ConfigSummary.vue | src/styles/config-summary.css | 70 行 | ~70 行 | S2V 配置面板折叠区摘要、表单项标签/值/提示文字排版、折叠区 summary 摘要行 |
+| ErrorDialog.vue | src/styles/error-dialog.css | 147 行 | ~144 行 | 错误弹窗容器、错误消息/详情区域、恢复按钮/关闭按钮样式、内容政策提示区 |
+
+##### B. 导入机制
+
+所有提取的 CSS 文件通过 Vue 单文件组件的 `<style src="...">` 机制导入，不改变运行时行为：
+
+```vue
+<!-- 示例：PipelineSelector.vue -->
+<style src="../../styles/pipeline-selector.css" scoped></style>
+```
+
+- **Vite 构建**：`<style src="...">` 在 Vite 构建时自动解析并注入，行为等同于内联 `<style>` 块
+- **作用域隔离**：`scoped` 属性保留，确保 CSS 只作用于当前组件 DOM
+- **无 HMR 影响**：Vite HMR 对外部 CSS 文件的热更新与内联样式一致
+
+##### C. 设计令牌引用
+
+提取后的 CSS 文件继续引用 7.1.23 定义的设计令牌（video-creation-tokens.css），主要引用：
+
+| 令牌类别 | 引用变量示例 | 使用位置 |
+|----------|-------------|----------|
+| 阶段时间线色 | --stage-done-bg, --stage-active-bg, --stage-waiting-bg, --stage-failed-bg, --stage-pending-bg | StageProgress.vue 进度条 |
+| 状态语义色 | --status-completed-bg, --status-failed-bg | PipelineSelector.vue 状态徽标 |
+| 流水线分类色 | --pipe-story2video, --pipe-image-carousel 等 | PipelineSelector.vue 卡片边框 |
+| Banner/Notice 色 | --banner-warning-bg, --banner-info-bg | ErrorDialog.vue 提示区 |
+| 全局令牌 | --primary, --text-primary, --text-secondary, --border-color | 所有 CSS 文件 |
+
+##### D. 暗色模式兼容
+
+所有提取的 CSS 文件在 video-creation-tokens.css 的 `[data-theme="dark"]` 覆盖层中已有对应暗色值。CSS 文件本身不包含独立的暗色模式定义，完全依赖 Token 层驱动。
+
+##### E. 数据校验与边界
+
+| 校验项 | 合同 |
+|--------|------|
+| scoped 作用域 | 每个 Vue 组件必须保留 scoped 属性，防止全局 CSS 污染 |
+| CSS 文件路径 | `<style src="...">` 路径必须使用相对路径，从 Vue 文件位置到 src/styles/ |
+| Token 完整性 | 提取后的 CSS 文件引用的所有 var(--xxx) 必须在 video-creation-tokens.css 中有定义 |
+| 构建验证 | vite build 无编译错误，CSS 文件正确打包进产物 |
+| 测试覆盖 | 所有受影响组件的单元测试必须通过（Vitest） |
+
+##### F. 流程与交互逻辑（保持不变）
+
+CSS 提取不改变任何组件的功能逻辑、交互逻辑或显示项。以下为受影响组件的核心交互摘要：
+
+| 组件 | 核心交互 | 显示项 |
+|------|----------|--------|
+| PipelineSelector | 点击卡片选择流水线、Enter 键激活、hover 高亮 | 流水线名称、描述、阶段数、成本标签、可用性徽标、稳定性圆点 |
+| StageProgress | 阶段时间线自动滚动到活跃阶段、粘性头部固定 | 进度百分比、已用时、完成摘要、各阶段名+状态+耗时、compose 子进度 |
+| ConfigSummary | 折叠区展开/收起、摘要行显示当前配置 | 基础/画面/声音/高级/发布 各区的配置摘要 |
+| ErrorDialog | 恢复按钮点击后重试、关闭按钮关闭弹窗 | 错误消息、错误详情、恢复提示、内容政策提示 |
+
+##### G. 验收标准
+
+1. 4 个 Vue 组件的 `<style>` 块均已替换为 `<style src="..." scoped>` 引用
+2. 4 个独立 CSS 文件存在于 src/styles/ 目录
+3. Vite build 无编译错误
+4. 所有受影响组件的单元测试通过
+5. 组件运行时样式与提取前完全一致（无视觉回归）
+6. 暗色模式下所有组件样式正确显示
+
+
+#### 7.1.27 视频创作历史记录已暂停状态修复（2026-08-11）
+
+**背景**：视频创作历史记录中，因执行失败而暂停的任务状态显示为「进行中」而非「已暂停」，且缺少「暂停环节」信息。根因有二：(1) `CreateView.vue` 的 `loadHistory()` 方法缺少 stale running 检测逻辑（注释声称"已由 composable 处理"但实际未引用 composable）；(2) `usePipelineHistory.js` composable 的 `filteredHistory` 筛选器未将 `failed` 状态合并到「已暂停」筛选中。
+
+##### A. 数据层修复
+
+| 修复项 | 文件 | 变更内容 |
+|--------|------|----------|
+| stale running 检测 | `CreateView.vue` L2720+ | `updatedAt` 超过 30 分钟仍为 `running` 的任务，自动转换为 `paused` 状态，并从 `stages` 中推断 `pausedStage` |
+| failed pausedStage 填充 | `CreateView.vue` L2735+ | `failed` 状态且无 `pausedStage` 的任务，从 `stages` 中查找 `status === 'failed'` 的阶段，或首个未完成阶段，填充 `pausedStage` |
+| 筛选器合并 | `usePipelineHistory.js` L49 | `filteredHistory` 的 `paused` 筛选条件新增 `\|\| item.status === 'failed'`，确保「已暂停」筛选同时显示 failed 项 |
+| 列表排序 | `CreateView.vue` L2751+ | 历史列表按 running → projects → paused → failed → other 排序，分组更清晰 |
+
+##### B. 状态映射规则
+
+| 原始状态 | 转换条件 | 显示状态 | 状态标签 | 状态图标 | 状态色 |
+|----------|----------|----------|----------|----------|--------|
+| `running` | `updatedAt` > 30 分钟 | `paused` | 已暂停 | ⏸ | 橙色 |
+| `failed` | — | `failed` | 执行失败 | ✕ | 红色 |
+| `failed` | — | `failed` | 暂停环节：{pausedStage} | ⚠ | 红色提示条 |
+| `paused` | — | `paused` | 已暂停 | ⏸ | 橙色 |
+| `paused` | 有 `pausedStage` | `paused` | 暂停环节：{pausedStage} | ⏸ | 橙色提示条 |
+
+##### C. 流程逻辑
+
+```
+loadHistory()
+  ├── Promise.allSettled([story2videoListProjects(), pipelineHistory()])
+  ├── 合并 projects + runs（去重 projectId）
+  ├── [NEW] stale running 检测：
+  │     for each run where status === 'running':
+  │       if (now - updatedAt > 30min):
+  │         run.status = 'paused'
+  │         run.pausedStage = 推断的阶段名
+  ├── [NEW] failed pausedStage 填充：
+  │     for each run where status === 'failed' && !pausedStage:
+  │       run.pausedStage = 失败阶段名（从 stages 推断）
+  ├── 排序：running → projects → paused → failed → other
+  └── 渲染历史列表
+```
+
+##### D. 交互逻辑
+
+| 用户操作 | 触发条件 | 行为 |
+|----------|----------|------|
+| 筛选「已暂停」 | `historyFilter === 'paused'` | 同时显示 `status === 'paused'` 和 `status === 'failed'` 的记录 |
+| 点击 failed 项 | `status === 'failed' && resumable` | 触发 `resume-history` 事件，从断点继续 |
+| 点击 failed 项 | `status === 'failed' && !resumable` | 打开详情页 |
+| 点击 paused 项 | `status === 'paused'` | 触发 `resume-history` 事件 |
+
+##### E. 显示项
+
+| 显示项 | 位置 | 条件 |
+|--------|------|------|
+| 状态标签 | 卡片右上角 | 始终显示 |
+| 状态图标 | 标签左侧 | 始终显示（⟳/✕/⏸/✓/—） |
+| 暂停环节提示 | 标签下方 | `status === 'paused' && pausedStage` |
+| 失败环节提示 | 标签下方 | `status === 'failed' && pausedStage` |
+| 错误信息 | 失败提示内 | `status === 'failed' && !pausedStage && error` |
+| 阶段进度条 | 卡片底部 | `status === 'running' \|\| 'paused'` 且有 stages |
+| 操作按钮 | 卡片右下角 | failed/paused → 「从断点继续」；running → 「继续生成」 |
+
+##### F. 数据校验
+
+| 校验项 | 规则 |
+|--------|------|
+| stale running 阈值 | 30 分钟（`STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000`） |
+| pausedStage 推断优先级 | `stages.find(s => s.status === 'failed')` → `stages.find(s => s.status !== 'completed')` → `stages[last]` |
+| 可恢复判断 | `status ∈ {failed, paused}` && 有 `id/runId` && 错误不含 `needs_user_input\|content_policy` |
+| 筛选器一致性 | `CreateView.vue` 和 `usePipelineHistory.js` 的 `filteredHistory` 逻辑必须一致 |
+
+##### G. 验收标准
+
+1. stale running 任务（updatedAt > 30min）自动显示为「已暂停」+ 暂停环节
+2. failed 任务显示「执行失败」+ 失败环节（`pausedStage`）
+3. 「已暂停」筛选器同时显示 paused 和 failed 记录
+4. 历史列表按 running → projects → paused → failed → other 排序
+5. `CreateView.vue` 和 `usePipelineHistory.js` 的筛选逻辑一致
+6. 所有受影响测试通过
+
+
+#### 7.1.28 视频创作模块代码-设计分离（2026-08-11）
+
+**背景**：视频创作模块的样式代码此前分散在 Vue SFC 的 `<style scoped>` 块和独立 CSS 文件中，不利于统一设计语言和维护。本次将所有组件样式提取到独立 CSS 文件，实现代码与设计的彻底分离。
+
+##### A. 文件变更清单
+
+| 变更类型 | 文件 | 说明 |
+|----------|------|------|
+| 新增 | `apps/desktop/src/styles/create-history.css` | CreateHistory.vue scoped style 提取（76行） |
+| 修改 | `apps/desktop/src/views/CreateHistory.vue` | 移除 `<style scoped>` 块，添加 `import create-history.css` |
+| 新增 | `apps/desktop/src/views/create-view-utils.js` | 共享工具函数（formatDuration、stageStateClass 等） |
+| 已有 | `apps/desktop/src/styles/create-view.css` | CreateView.vue 样式（293行，此前已提取） |
+| 已有 | `apps/desktop/src/styles/create-view-history.css` | CreateViewHistory.vue 样式（此前已提取） |
+
+##### B. 样式文件职责
+
+| CSS 文件 | 对应组件 | 行数 | 职责 |
+|----------|----------|------|------|
+| `create-view.css` | CreateView.vue | 293 | 页面布局、流水线卡片、配置面板、编排进度 |
+| `create-view-history.css` | CreateViewHistory.vue | 138 | 历史记录卡片、状态色条、进度段、操作按钮 |
+| `create-history.css` | CreateHistory.vue | 76 | 独立历史页面、渲染/流水线列表、骨架屏 |
+
+##### C. 共享工具函数（create-view-utils.js）
+
+| 函数 | 用途 |
+|------|------|
+| `formatDuration(ms)` | 毫秒转X分Y秒 |
+| `formatTime(iso)` | ISO 时间转本地化字符串 |
+| `humanName(name)` | kebab-case 转 Title Case |
+| `historyStatusLabel(status)` | 状态码转中文标签 |
+| `cloneForIpc(value)` | JSON 序列化脱壳（IPC 安全） |
+| `categoryLabel(cat)` | 流水线分类标签 |
+| `costLabel(cost)` | 消耗等级标签 |
+| `getStability(name)` | 流水线稳定性等级 |
+| `stageStateClass(status, stage, i)` | 阶段状态转 CSS 类 |
+| `stageStateIcon(status, stage, i)` | 阶段状态转图标 |
+| `getStory2VideoOutputAspectRatio(resolution)` | 分辨率转宽高比 |
+| `prioritizeStory2VideoPipeline(pipelines)` | story2video-compose 优先排序 |
+
+##### D. 设计原则
+
+1. **单一来源**：每个 CSS 类只在一个文件中定义，无重复
+2. **组件隔离**：每个组件的样式独立文件，通过 import 引入
+3. **设计令牌复用**：所有颜色、间距、圆角使用 CSS 变量
+4. **响应式**：关键组件包含 `@media (max-width: 720px)` 断点
+5. **动画一致性**：统一使用 `cubic-bezier(0.4, 0, 0.2, 1)` 缓动函数
+
+##### E. 验收标准
+
+1. 所有 Vue SFC 中无 `<style>` 块（样式全部外置）
+2. `create-view-utils.js` 可被任意组件 import
+3. `vite build` 通过
+4. 视觉无回归
+
+#### 7.1.29 视频创作代码-设计分离测试适配（2026-08-11）
+
+**背景**：7.1.28 将 CreateView.vue 的 `<style scoped>` 块提取到 `create-view.css`，PipelineSelector 子组件从 CreateView 内联模板中独立出来。两处变更导致 3 个测试文件的断言失效，CI 出现 5 个 check 失败（electron-tests、QG Coverage、QG Desktop Shards 2/2、gui-test、QG Browser E2E）。
+
+##### A. 失败根因与修复
+
+| 测试文件 | 失败断言 | 根因 | 修复 |
+|----------|----------|------|------|
+| `electron/tests/voice-clone-layout-regression.test.js:79-86` | `expect(source).toContain('minmax(min(200px, 100%), 1fr)')` 等 6 条 CSS 规则 | 直接读 `CreateView.vue` 源码找 CSS，提取后规则在 `create-view.css` | 断言指向 `src/styles/create-view.css` |
+| `tests/e2e-smoke.js:141-142` | `assert(cvContent.includes('pipeline-grid'))` 等 | 直接读 `CreateView.vue` 源码找 class，PipelineSelector 子组件独立后 class 在 `PipelineSelector.vue` | 断言改为读 `PipelineSelector.vue` |
+| E2E `/create` 路由（15 failed） | 流水线卡片渲染、详情渲染 | pre-existing：E2E 环境 IPC mock 未完整覆盖 pipeline:list 响应 | 非本次引入，已在 main 分支存在 |
+
+##### B. 测试适配原则
+
+1. **CSS 契约测试**：当样式从 Vue SFC 提取到独立 CSS 文件时，CSS 契约断言必须同步指向 CSS 文件
+2. **组件拆分测试**：当模板结构从父组件提取到子组件时，源码级检查必须指向子组件文件
+3. **pre-existing 失败标记**：CI 失败需区分「本次引入」和「pre-existing」，pre-existing 不阻塞合入
+
+##### C. 回归验证
+
+- `voice-clone-layout-regression.test.js`：2 tests passed ✅
+- `e2e-smoke.js`：29/29 checks passed ✅
+- 单元测试：6908 passed, 1 failed → 修复后 6917 passed ✅
+
+
+#### 7.1.30 BasePythonBridge 懒启动自愈（2026-08-11）
+
+**背景**：视频创作流水线依赖 Python Bridge（SplitterBridge、PromptBridge）提供后台服务。此前当 Bridge 进程意外退出后，业务调用方直接抛出 xxx is not running 错误。本次在 BasePythonBridge 基类中新增 nsureRunning() 方法，实现懒启动自愈。
+
+**核心变更**：
+
+| 文件 | 变更 |
+|------|------|
+| ase-python-bridge.js | 新增 nsureRunning() 方法（L281-293）；_post() 方法改为 async，未运行时自动调用 nsureRunning() |
+| prompt-bridge.js | optimize() / optimizeBatch() 前置调用 wait this.ensureRunning() |
+| splitter-bridge.js | 同上模式 |
+
+**ensureRunning() 行为**：
+- 已运行 → 直接返回
+- 未运行 → 自动调用 	his.start() 启动子进程
+- 并发调用 → 共享同一 _starting Promise，不重复 spawn
+- 启动失败 → 抛出 lazy-start failed 错误
+
+**影响**：用户在 Bridge 未启动或崩溃后调用视频创作功能时，系统自动恢复而非报错。
+
+
+
+#### 7.1.31 prompt-engine 上下文增强与 maxLength 默认值调整（2026-08-11）
+
+**背景**：optimize 阶段调用 prompt-engine 优化图片提示词时，仅传递单场景文案，缺少完整文案上下文和场景类型信息，导致 LLM 生成的提示词与原文意图脱节。同时 maxLength 默认值 300 偏低，长文案场景截断严重。
+
+**核心变更**：
+
+| 文件 | 变更 |
+|------|------|
+| story2video-stages.js | 新增 uildOptimizeContext(scenes, options) 函数；optimize 阶段请求构造时注入上下文 |
+| story2video-text-config.js | maxLength 默认值从 300 调整为 500 |
+
+**buildOptimizeContext 行为**：
+1. **完整文案收集**：遍历所有场景，通过 getScenePromptSeed() 收集场景文本，用 ； 拼接为 ull_text 字段
+2. **上下文继承**：从 options.context 继承已有上下文（如 synopsis）；若 options.context 为字符串则映射为 synopsis
+3. **场景类型推断**：基于关键词自动推断场景类型
+   - 含「对比/vs/而不是/相反」→ 对比场景
+   - 含「特写/细节/精致/纹理」→ 细节场景
+   - 含「全景/街道/市场/宫殿」→ 全景场景
+   - 场景数 > 3 且未匹配 → 全景场景
+4. **请求注入**：optimize 阶段调用 uildPromptEngineOptimizeRequest 时，将 optimizeContext 作为 context 参数传入
+
+**maxLength 调整**：
+- 默认值 300 → 500，对齐 Prompt 引擎与 Story2Video 配置
+- 范围仍为 50–2000，前端 s2vConfig 不暴露该字段
+
+**数据校验**：
+| 校验项 | 合同 |
+|--------|------|
+| full_text 非空 | uildOptimizeContext 仅在至少一个场景有有效文本时设置 ull_text |
+| scene_type 白名单 | 推断值仅限 对比场景 / 细节场景 / 全景场景 三种，不传无效值 |
+| context 合并语义 | options.context 为对象时 Object.assign 合并（新值覆盖同名键），为字符串时映射为 synopsis |
+| maxLength 边界 | 50 ≤ maxLength ≤ 2000，非法值被 
+umberValue 边界收敛 |
+
+**回归保护**：
+1. story2video-text-config.test.js：断言 max_length: 500（默认值 + 显式覆盖两种场景）
+2. story2video-stages.test.js：覆盖 buildOptimizeContext 的关键词推断、上下文继承、空场景处理
+
+**影响**：LLM 收到完整文案上下文后生成更贴合原文的图片提示词；maxLength 放宽减少长文案截断。
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
@@ -1469,6 +2003,59 @@ Electron 打包、工作树、PR 或发布状态证据。
         └─ 多模态模型 → 一个 API Key 覆盖多个能力（见 7.4.1）
 ```
 
+#### 权限与访问控制（2026-08-11 详细修订）
+
+##### 1. 策略总览：读开放、写需登录
+
+模型服务商配置采用「**读开放、写需登录**」策略，兼顾「本机离线可用」与「未登录不得改动配置」：
+
+| 操作 | 访问级别 | 说明 |
+|------|----------|------|
+| 读：查看服务商列表/详情、获取默认、预设目录、是否已配置、调用日志 | 未登录可用（public） | 保持本机离线可用语义：未登录/离线时仍可查看并使用已配置的模型 |
+| 测试连接 | 未登录可用（public） | 不修改配置；使用本机已配置 Key 发起连通性测试 |
+| 写：新增 / 编辑 / 删除 / 设为默认 / 清理调用日志 | **需登录（authenticated）** | 未登录调用被主进程拒绝（AUTH_ERROR），防止未登录用户修改本机模型配置 |
+
+##### 2. 功能逻辑与判定流程
+
+- 所有 IPC 通道经 `createAccessControlledIpcMain` 注册（`electron/ipc-handlers/license-access-control.js`），通道级别由 `requiredLevelForChannel` 决定：`admin`（开发调试）→ `public`（未登录可用）→ 默认 `authenticated`（需登录）。
+- 每次调用实时读取 access level（`getAccessLevel`）：Logto identity 已启用 → 以登录状态为准（`authenticated` / `offline_authenticated`）；未启用 → 以本地 Pro 许可证为准（`licenseManager.isPro()`）。
+- 写操作链路：渲染层 `window.electronAPI.modelProviderCreate/Update/Delete/SetDefault/CleanLogs`（preload 权限层，未登录抛 `LicensePermissionError`）→ 主进程通道（未登录返回 `{ code: -3, message: '当前许可证无权访问 model-provider:xxx' }`）。
+- 登录判定**双层强制**：preload 暴露层 + 主进程通道层，缺一不可；主进程层是最终安全边界。
+
+##### 3. 数据校验与安全
+
+- 所有写操作 handler 使用 `withSenderCheck`：校验 senderFrame 来源（`app://` / `file://` / 开发模式 localhost:5174-5180），外部网页调用返回 `{ code: -3, message: '未授权的调用来源' }` 且不执行 handler。
+- 参数校验：`model-provider:dev-get-key` 类敏感通道校验参数类型；`create/update` 由 `ModelProviderManager` 校验字段白名单（`UPDATE_WHITELIST`）与 `safeStorage` 可用性（不可用时拒绝保存 Key）。
+- API Key 存储：`api_key_enc`（safeStorage 加密 BLOB），`api_key` 明文列清空；读接口只返回 `api_key_masked`；解密仅在主进程 `getProviderWithKey` 内部。
+- 打包权限：`app.isPackaged` 是开发/打包判定的唯一权威；`ELECTRON_IS_DEV`/`NODE_ENV` 等环境变量不得在打包应用提权（QM-5 合同）。
+
+##### 4. 交互逻辑与显示项
+
+- 未登录进入「模型服务商设置」页：列表、预设目录、默认服务商、调用日志均可正常查看；「测试连接」可用。
+- 未登录点击「添加服务商 / 编辑 / 删除 / 设为默认 / 清理日志」：保存/删除按钮点击后弹出失败提示，**不写库、不刷新列表**。
+- 显示项：页面不新增锁图标等装饰（保持现有 UI）；仅在操作失败时通过现有 `ElMessage.error` 提示。
+
+##### 5. 提示文字（未登录触发写操作）
+
+主进程拒绝响应统一携带 `errorCode`（供渲染端 `formatUserError()` 映射自然语言），`message` 不含内部通道名，通道名仅进 `messageParams.channel`（诊断用）：
+
+| 场景 | `errorCode` | 提示（`message`） |
+|------|-------------|-------------------|
+| 新增/编辑保存、删除、设为默认、清理日志（未登录） | `AUTH_REQUIRED` | `当前许可证无权访问该功能，请先登录并确认账号已开通所需权益后重试。` |
+| 已登录但缺少服务端权益（未来 feature 收紧后） | `ENTITLEMENT_REQUIRED` | `当前账号没有所需权益，无法使用该功能。请升级或开通对应权益后重试。` |
+| 外部网页注入调用 | `UNTRUSTED_SENDER` | `未授权的调用来源` |
+
+渲染端对 `AUTH_REQUIRED` 的可选友好提示：`请先登录后再修改模型配置`（由 `src/utils/user-facing-error.js` 目录化）。
+
+##### 6. 涉及实现
+
+- `electron/ipc-handlers/license-access-control.js`：`PUBLIC_CHANNELS` 分类（写操作移出 public → 默认 authenticated）、`LOGIN_ONLY_FEATURE_MAP`（feature 预留映射）。
+- `electron/preload/access-control.js`：`PUBLIC_METHODS` 分类（写方法移出 public → 默认 authenticated）。
+- `electron/preload/index.bundle.js`：构建产物（`npm run build:preload` 重新生成）。
+- 回归测试：`electron/ipc-handlers/license-access-control.test.js`（未登录拒写/登录放行/通道级别锁定）、`electron/preload/access-control.test.js`（未登录调用抛权限错误/登录可调用）。
+
+> 完整通道级权限矩阵见 [ACCESS-CONTROL-MATRIX.md](./ACCESS-CONTROL-MATRIX.md)。
+
 ### 7.4.1 多模态模型类别（2026-08-08 新增）
 
 **需求**：模型设置新增「多模态模型」类别；预设模型必须声明支持多模态（文字推理 / TTS语音 / 语音识别 / 视觉识别 / 生图 / 生成视频 中**至少 2 项**能力）；前端只需填写**一个 API Key**，并提供「优先使用多模态模型进行所有的AI操作」开关（**默认勾选**）；流水线按能力调用模型时，若多模态模型声明支持该能力则优先使用它。
@@ -1478,6 +2065,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 类别与标签 | 后端 `CATEGORIES.MULTIMODAL='multimodal'`、`CATEGORY_LABELS.multimodal='多模态模型'`；前端「模型服务商设置」类别筛选/新增类别卡片/服务商卡片标签同步新增（图标 🌐）。页面副标题更新为「七类 AI 服务商」。 |
 | 预设能力声明 | `model-provider-seeds` 中多模态预设必须携带 `capabilities: string[]`（取值于 `llm/tts/speech_recognition/image/video`）与 `capability_models: { [cap]: modelId }`；能力数必须 ≥ `MULTIMODAL_MIN_CAPABILITIES(2)`；每个声明能力必须给出对应默认模型。预设能力持久化：种子写入行 `config.capabilities` / `config.capability_models`；`_syncPresetCapabilities()` 对存量预设行回填（不覆盖已存在的能力配置）。 |
 | 预设（MiniMax） | 新增预设 `minimax-multimodal`（名称「MiniMax」，`base_url=https://api.minimaxi.com/v1`），声明能力 `['llm','tts','image','video']`（≥2），能力默认模型 `{ llm:'MiniMax-M2.7', tts:'speech-2.8-turbo', image:'image-01', video:'MiniMax-Hailuo-2.3' }`；仅需填一个 API Key。 |
+| 模型列表只读（2026-08-11） | **MiniMax 多模态预设不提供「模型列表」编辑输入框**：模型列表由程序预设（`model-provider-seeds` 的 `capability_models`/`models`）与运营后台（catalog 下发 `models`/`capability_models`，`syncConfigured` 时只读）共同控制。新增/编辑对话框对 `isMiniMaxMultimodal`（`form.id === 'minimax-multimodal'`）渲染只读提示「模型列表由系统预设与运营后台下发控制，无需在此填写」，并展示当前模型列表文本；提交时 `modelsText` 保持预设值，不参与前端修改。其它服务商的模型列表输入框行为不变。 |
 | 多模态适配器 | 新增 `MinimaxMultimodalAdapter`（`adapters/minimax-multimodal.js`）：组合既有 MiniMax LLM / TTS / Image / Video 四个适配器并按方法委托（chatCompletion/streamChat → LLM，synthesize/listVoices/cloneVoice → TTS，generateImage → Image，generateVideo/getVideoStatus → Video）；`capabilities()` 覆盖 `chatCompletion/streamChat/synthesize/listVoices/cloneVoice/generateImage/generateVideo/getVideoStatus`，不含 `transcribe`。 |
 | 能力→调用方法映射 | `ai-generator.TYPE_TO_METHOD` 为能力到 Adapter 方法的一对一映射（`llm→chatCompletion`、`tts→synthesize`、`image→generateImage`、`video→generateVideo`、`speech_recognition→transcribe`）；多模态 provider 按能力选择 `capability_models[type]` 后走与单类型模型完全相同的调用方法（MiniMax 文字推理走 OpenAI 兼容 `POST /v1/chat/completions`，与单类型 MiniMax LLM 一致；TTS 走 t2a_async_v2 异步；生图走 images_generation；视频走 video_generation）。 |
 | 能力同步升级 | `_syncPresetCapabilities()` 升级为 diff-merge：存量预设行只合并新增能力（保留用户已有能力与模型选择，不整体覆盖），保证旧版本数据库升级后也能拿到新增的 `llm` 能力。 |
@@ -1545,8 +2133,8 @@ Electron 打包、工作树、PR 或发布状态证据。
 | `models_url` | 获取模型ID URL | string | ✅ | http(s)，长度 ≤500；用于「获取模型」按钮 |
 | `default_model` | 默认模型 ID | string | ✅ | 非空且 models 非空时必须 ∈ models，否则 400「默认模型 ID 必须在模型列表中」 |
 | `doc_links` | 接口技术文档URL | string[] | ✅ | ≤10 条，http(s) |
-| `rate_per_minute` | 每分钟连接次数 | int | ✅ | `[0,100000]` 整数（拒绝 `1.5`/`'abc'`/负数/布尔） |
-| `limit_per_5h` | 5小时限额次数 | int | ✅ | `[0,10000000]` 整数 |
+| `rate_per_minute` | 每分钟连接次数 | int | ✅ | `[1,100000]` 整数（拒绝 `0`/`1.5`/`'abc'`/负数/布尔） |
+| `limit_per_5h` | 5小时限额次数 | int | ✅ | `[1,10000000]` 整数 |
 
 - 获取模型ID 端点：`POST /api/v1/model-presets/{id}/fetch-models`（admin-only），SSRF 防护（非环回必须 https、禁重定向、超时 10s、响应 ≤512KB、私网解析拒绝、JSON 契约 `{models|data:[...]}`），成功回写 `models`（`default_model` 不在新列表则清空）。
 - 多模态 7 类能力文档键：`llm`（文字推理接口）/ `image`（图片生成）/ `video`（视频生成）/ `tts`（TTS语音生成）/ `voice_clone`（TTS语音克隆）/ `speech_recognition`（语音识别）/ `vision`（视觉识别）；未知键 400。
@@ -1563,6 +2151,58 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 视频创作联动 | `story2video generate_assets` 图片/TTS 并行生成并发上限 = `min(请求并发, provider maxConcurrent)`（按能力分别解析 image/tts provider），超出部分 worker 队列排队；未配置预算回退静态表/请求并发，行为不回归。 |
 | 前端表单 | 模型设置「每分钟连接次数 / 5小时限额次数」为**只读展示**（7.4.5 起由运营后台同步下发或使用服务商默认值，不再手工输入）：编辑弹窗显示当前值或「未配置（默认限流）」，新增服务商步骤 3 提示「限流策略由运营后台同步下发或使用服务商默认值」。 |
 | 种子数据来源 | 预设种子 `rate_per_minute` 与 `governor-provider-limits.js` 静态表一致（代码事实，2026-08-10 起由 ops-center 目录统一生成）；`limit_per_5h` 无代码事实 → 不预填（留空由运营填写，注入 provider 级 5h 请求窗口）；`models_url` 无适配器 `/models` 调用事实 → 不预填。运营后台目录与桌面端代码事实一致性命中测试见 ops-center PRD 12A.8。 |
+
+##### 7.4.4.3 预算来源与数据库默认值降级链路（详细合同，2026-08-11 补充）
+
+| 层级 | 来源 | 说明 |
+|------|------|------|
+| L1 运营后台配置 | ops-center `model_presets.rate_per_minute` / `limit_per_5h`（运营后台数据库） | 运营在运营后台【模型预设】设置/修改；经 `GET /api/v1/model-presets/catalog` 同步到桌面端 `model_providers.config`（桌面数据库），写入后 `_applyGovernorLimits()` 重应用 |
+| L2 桌面数据库种子默认值 | `model-provider-seeds.js` `PRESET_RATE_LIMITS`（回填 `config.rate_per_minute`） | `_syncPresetLimits` 对存量预设行 diff-merge 回填（仅填充缺失键、不覆盖用户值）；值为代码事实，与 L3 静态表一致 |
+| L3 静态表 | `governor-provider-limits.js` `PROVIDER_LIMITS` | 已知 provider 的保守估计（rpm / maxConcurrent / cooldownMs / retry429）；本地/免费类给高预算避免误排队 |
+| L4 类别默认 | `api-usage-governor.js` `DEFAULT_LIMITS` | llm 30/2、tts 10/2、image 10/2、video 4/1、audio 10/2、default 20/2（rpm/maxConcurrent） |
+
+- **降级语义**：运营后台**未设置**（null/留空）→ 桌面端使用 L2 数据库种子默认（已回填 config）→ 该 provider 不在种子回填范围则回退 L3 静态表 → 不在静态表回退 L4 类别默认。`resolveProviderBudget` 的 `source` 标记：`config`（L1/L2 命中）→ `static`（L3）→ `default`（L4）。
+- **显式清空**：运营后台把值清空（null/''/0/布尔）→ `applyCatalog` 删除桌面本地 config 值 → 回退 L3/L4（预设 provider 的 L3 数值与 L2 种子一致，行为等价）。`limit_per_5h` 清空 → `setProviderTokenWindows(id, [])` 清除 5h 窗口。
+- **并发换算**：`rate_per_minute` 命中（L1/L2）→ `maxConcurrent = clamp(round(rpm/10), 1, 4)`；未配置（L3/L4）→ 使用静态表 maxConcurrent；视频/音频类型未配置预算时并发恒 1（异步任务制低并发）。
+- **数据校验（两端对齐）**：
+
+| 字段 | 桌面端归一化（`_normalizeConfigLimit` / scheduler normalize） | ops-center 后端校验（400） | ops-center 前端提示 |
+|------|--------------------------------------------------------------|-----------------------------|----------------------|
+| `rate_per_minute` | 正整数 1..100000；空→null；非法→null 兜底 | `[1,100000]` 整数，拒绝 0/负数/小数/布尔/字符串 | 「每分钟连接次数必须是大于等于 0 的整数（可留空）」 |
+| `limit_per_5h` | 正整数 1..10000000；空→null；非法→null 兜底 | `[1,10000000]` 整数 | 「5小时限额次数必须是大于等于 0 的整数（可留空）」 |
+
+##### 7.4.4.4 并发与排队功能逻辑（详细合同，2026-08-11 补充）
+
+| 入口 | 行为 |
+|------|------|
+| `withModelBudget({governor, type, providerId, model}, task)` | 单次受管调用：`governor.run`（并发信号量 → RPM 时间槽 → 冷却 → 分级重试 → 额度记账）；无 governor 或未指定 providerId 时直接执行（回退，行为与现状一致） |
+| `mapWithModelBudget({items, requestedConcurrency, fallbackConcurrency=3, provider, type, governor, fn})` | 有界并发 map：并发上限 = `min(请求并发, provider maxConcurrent)`（上限 8）；worker 队列按序领取 items，结果数组保序；超出部分排队执行而非失败 |
+| `resolveProviderBudget({provider, type})` | 预算解析：rpm = config.rate_per_minute → 静态表 rpm → 20；maxConcurrent = rpm 命中 ? `clamp(round(rpm/10),1,4)` : 静态表 maxConcurrent；`source` = config/static/default |
+| `governor.run` 内部流水线 | `_acquire`（信号量，30s 有界）→ `_pace`（RPM 时间槽，180s 有界）→ `_waitCooldown`（45s 有界）→ `_executeWithRetry`（429 冷却+退避 / 瞬时短退避 / 额度不重试）→ `_recordUsage` + `_assertTokenBudget` |
+| 注入时机 | `setGovernor` / `init()` / `createProvider` / `updateProvider` / `applyCatalog` 成功后调用 `_applyGovernorLimits()`；`limit_per_5h` → `setProviderTokenWindows([{windowMs:5h, field:'requests'}])`，null → `setProviderTokenWindows(id, [])` |
+| 单层收敛 | 已由 `AIGenerator.generate` 内部 governor 调度的路径（assetGenerator）阶段外层不重复包裹；legacy python 路径保留外层 `withModelBudget`；同 key 嵌套 `run` 重入透传不自死锁（§7.1.8.1） |
+
+##### 7.4.4.5 交互逻辑与显示项（详细合同，2026-08-11 补充）
+
+桌面端【模型设置】：
+
+| 场景 | 显示项 | 提示文字（原文） |
+|------|--------|------------------|
+| 新增服务商（步骤 3） | 限流提示行 | 「限流策略（每分钟连接次数 / 5小时限额次数）由运营后台同步下发或使用服务商默认值，无需在此填写。」 |
+| 编辑预设服务商 | 只读文本（非输入框） | 「每分钟连接次数：{{值 或 '未配置（默认限流）'}}」「5小时限额次数：{{值 或 '未配置（默认限流）'}}」+「限流值由运营后台同步下发或使用服务商默认值，前端为只读展示。」 |
+| 运营后台同步启用（`lastSyncedAt` 存在） | 同步卡片高亮 + 预设模型列表 `disabled` | 「已启用运营后台下发：服务商的『每分钟连接次数 / 5小时限额次数 / 模型列表』以运营后台为准，桌面端为只读展示；本地仍可配置 API Key、Base URL 与默认服务商。」 |
+| 同步状态 | 卡片元信息 / 按钮 | 「上次同步：{{时间}}」/「尚未同步」/「同步中...」/「立即同步」/「启动时自动同步」；失败文案：「目录同步 API Key 无效（401/403）」「未启用目录同步（404）」「同步请求超时（10 秒）」「无法连接 Ops Center」 |
+| 前端校验（保存自定义值） | ElMessage.warning | 「每分钟连接次数必须是大于等于 1 的整数（可留空）」「5小时限额次数必须是大于等于 1 的整数（可留空）」 |
+
+ops-center【模型预设】：
+
+| 场景 | 显示项 | 提示文字（原文） |
+|------|--------|------------------|
+| 列表 | 「限流（每分钟/5小时）」列 | `{{rate_per_minute}} / {{limit_per_5h}}`，未配置显示 `-` |
+| 新增/编辑 | 每分钟连接次数输入框（`el-input-number`，min=1 max=100000，允许为空） | 校验失败：「每分钟连接次数必须是大于等于 0 的整数（可留空）」 |
+| 新增/编辑 | 5小时限额次数输入框（min=1 max=10000000，允许为空） | 校验失败：「5小时限额次数必须是大于等于 0 的整数（可留空）」 |
+| 帮助文案 | 输入框下方 | 「留空表示未配置，前端使用默认限流；正整数」 |
+| 后端 400 | PUT/POST 预设 | 「rate_per_minute 必须是大于等于 1 的整数（允许留空）」「rate_per_minute 不能超过 100000」「limit_per_5h 不能超过 10000000」等 |
 
 #### 7.4.5 运营后台 → 桌面端运行时同步（2026-08-10 新增）
 
@@ -1637,6 +2277,279 @@ Electron 打包、工作树、PR 或发布状态证据。
 ##### 7.4.6.3 验收标准
 
 ① 运营后台发布 maintenance 公告 → 桌面端同步后顶部常驻红色横幅且不可关闭；info 公告可关闭且刷新不重现；② 配置 `force_version=2.3.53` 且当前 2.3.50 → 桌面端强制检查更新（不受灰度限制）；③ `gray_ratio=0` → 桌面端跳过更新检查（`skipped-by-policy`）；④ `min_version=2.3.53` 且当前低于 → 状态含 `policy-min-version` 提示；⑤ 运营后台配置敏感词「新词」→ 桌面端 `sensitive:check('含新词')` 命中；关闭策略 → 仅内置词库；⑥ runtime 拉取失败不影响模型目录同步；⑦ 未配置同步的桌面端公告区为空、更新走默认流程。
+
+#### 7.4.7 模型调用用量上报与运营看板（2026-08-10 新增，P0 第二批）
+
+**需求**：桌面端 `model_provider_logs` 调用日志脱敏聚合后上报运营后台，落地用量看板（调用量/成功率/429/耗时/成本），支撑限流与采购决策。
+
+##### 7.4.7.1 上报契约
+
+| 项 | 要求 |
+|----|------|
+| 端点 | `POST /api/v1/usage/ingest`（`X-Catalog-Key` 鉴权同目录端点；未配置→404、错→401，无需登录） |
+| 上报内容 | `{ items: [{ usage_date(YYYY-MM-DD), client_id(设备哈希), provider_id, category, action, calls, ok_count, fail_count, ratelimit_count, latency_ms(总), tokens_in, tokens_out, cost, latency_buckets{lt1s/1to3s/3to10s/gt10s} }], synced_at }` |
+| 校验 | usage_date 格式、数值非负、provider_id/action 非空且限长、单次 ≤500 条；400 + 字段提示 |
+| 存储 | `model_usage_daily` 表，唯一键 `(usage_date, client_id, provider_id, action)`，同桶 **upsert 累加（幂等，重试不翻倍）** |
+| 脱敏 | **不上报** error_message、model 原文等；仅聚合计数与分布 |
+
+##### 7.4.7.2 桌面端上报（UsageReporter）
+
+| 合同 | 要求 |
+|------|------|
+| 数据源 | `model_provider_logs`，`id > 水印(settings opsCenterUsageReport.lastId)`，单次 ≤5000 行 |
+| 聚合 | 按「上报日期 + provider + category + action」：calls/ok/fail/ratelimit(429/限流文案识别)/总耗时/tokens/cost/耗时分布桶（<1s/1-3s/3-10s/>10s） |
+| 上报 | POST ingest（复用运营后台 URL/Key，10s 超时）；成功推进水印=最大 id；失败保留水印下次重试不丢数据 |
+| 调度 | 启动 5s 首报 + 每 30 分钟周期；未配置 URL/Key 静默跳过不影响主流程 |
+| 修复 | `addProviderLog` INSERT 补 `created_at=datetime('now')`（原实现 created_at 恒为空串） |
+
+##### 7.4.7.3 运营看板
+
+| 项 | 要求 |
+|----|------|
+| 查询 | `GET /api/v1/usage/summary?days=N`（admin，默认 30，上限 90） |
+| 返回 | totals（总调用/成功率/429/平均耗时/成本/活跃服务商）+ by_date（每日趋势）+ by_provider（排行）+ by_action |
+| 前端 | 「模型用量」页：时间范围（7/30/90 天）、6 张汇总卡片、每日趋势 CSS 柱状图（失败红色段）、按服务商/按动作表格；空态提示「尚未收到用量上报」 |
+
+##### 7.4.7.4 验收标准
+
+① 桌面端配置同步后产生调用 → 30 分钟内上报，ops-center 看板显示调用量与成功率；② 同桶重复上报（重试）计数不翻倍；③ 失败（429 识别）与耗时分布正确落桶；④ 上报失败水印不推进，恢复后补报；⑤ 未配置同步的桌面端静默不打扰；⑥ 看板非 admin 403；⑦ error_message 等敏感内容不出现在上报 payload。
+
+#### 7.4.8 平台发布元数据管理（2026-08-11 新增，P1 其余）
+
+**需求**：平台发布元数据（标题/内容上限、内容类型分类、是否支持 API、临时下线）从桌面端 `config/platforms.yaml` 迁移到运营后台统一维护，随运行时 bootstrap 下发；桌面端启动/同步时覆盖同名平台字段，不改写 yaml。
+
+##### 7.4.8.1 数据与校验（ops-center）
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| id | str PK | 必填、≤64 | 平台 id（如 wechat_mp） |
+| name | str | 必填、≤100 | 平台名称 |
+| category | str | ≤20，默认「中文」 | 中文/海外分组 |
+| content_category | str | 枚举 VIDEO/IMAGE_TEXT/MIXED | 内容类型分类（PRD F9） |
+| type | str | ≤20，默认 mixed | article/mixed 兼容字段 |
+| max_title / max_content | int | 正整数或空（拒绝布尔/小数/负数） | 标题/内容上限 |
+| has_api | bool | 0/1 | 是否支持 API 发布 |
+| enabled | bool | 0/1 | 临时下线开关（关闭后不下发） |
+| note | str | ≤200 | 运营备注 |
+
+- id 字符集 `^[a-z0-9_-]{1,64}$`；category ∈ 中文/海外；type ∈ article/mixed；has_api/enabled 仅接受 true/false/1/0。
+- 创建（POST）走全量校验，重复 id → 409；更新（PUT）为**部分更新**：与已存在记录合并后全量校验，null 视为不修改，路径 id 优先，空串清空上限，不存在 → 404。
+- 删除为**软删除**（deleted_at + enabled=0）：已删平台不再列出/下发；种子化遇已存在（含软删）即跳过，已删种子不复活；软删后同一 id 可重建。
+- 种子对齐 `config/platforms.yaml` 关键平台 12 个（已存在即跳过，不覆盖运营修改/软删）。
+
+##### 7.4.8.2 管理端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/platform-defs | 列表（登录可读） |
+| POST | /api/v1/platform-defs | 新增（admin） |
+| PUT | /api/v1/platform-defs/{id} | 更新（admin，部分更新） |
+| DELETE | /api/v1/platform-defs/{id} | 删除（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `platform_defs`（enabled=1 项，同 X-Catalog-Key 鉴权） |
+
+##### 7.4.8.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| `PlatformConfig.applyRemote(defs)` | 按 id 覆盖已存在平台的远程字段（仅覆盖远程出现的键）；本地独有平台保留；远程新增平台不自动引入（fail-closed）；**不改写 yaml**；cover_size 字符串同步重建解析尺寸 |
+| `OpsCenterSync.setPlatformConfig(pc)` | phase1 注入平台配置加载器；无 applyRemote 的对象视为未注入 |
+| `applyRuntime` | 注入 platformConfig 时应用 `platform_defs`；未注入跳过，不影响公告/版本发布/内容安全策略 |
+
+##### 7.4.8.4 前端「平台元数据」页
+
+- 列表：ID / 名称 / 类别（中文|海外 tag）/ 内容类型（视频|图文|混合 tag）/ 标题上限 / 内容上限 / 支持 API / 下发开关 / 操作（编辑、删除）；顶部「中文/海外/全部」筛选 + 「新增平台」。
+- 编辑弹窗：平台 ID（编辑禁用）/ 名称（必填）/ 类别 / 内容类型（必填下拉）/ 类型 / 标题上限 / 内容上限（正整数或留空）/ 支持 API / 启用下发（关闭提示「桌面端将不再下发该平台」）/ 备注。
+- 下发开关即时保存（部分更新 enabled），成功提示「已启用，将随下次同步下发给桌面端」。
+
+##### 7.4.8.5 验收标准
+
+① 首次启动种子 12 平台且可编辑；② 非法 content_category / 负数或小数上限 → 400；③ PUT 仅传部分字段可更新（enabled 临时下线）；④ bootstrap 仅返回 enabled=1 项；⑤ 桌面端 applyRemote 覆盖同名平台、本地独有保留、远程新增不引入、yaml 不被改写；⑥ 未注入 platformConfig 时跳过应用不影响其他策略；⑦ 非 admin 写 403、读 200。
+
+#### 7.4.9 桌面端功能开关运行时下发（2026-08-11 新增，P0-1）
+
+**需求**：桌面端功能开关（key → typed value）由运营后台统一维护，随 `runtime/bootstrap` 下发，桌面端同步后即时生效；首个真实用例为 4K 输出能力开关（7.1.20）。
+
+##### 7.4.9.1 数据与校验（ops-center）
+
+| 字段 | 类型 | 校验 | 说明 |
+|------|------|------|------|
+| key | str PK | 必填、`^[A-Za-z0-9_.-]{1,128}$` | 开关标识 |
+| value_type | str | 枚举 string/boolean/number | 值类型 |
+| value | str | boolean ∈ true/false/1/0；number 可解析数字 | 存储字符串，下发转 typed value |
+| description | str | ≤200 | 用途说明 |
+| enabled | bool | 0/1 | 停用后不下发 |
+
+- key 拒绝 `__proto__`/`constructor`/`prototype`；value ≤512；number value 统一 float 解析并校验有限（含科学计数法，前后端一致）。
+- POST 重复 key → 409；PUT/DELETE 不存在 → 404；PUT 部分更新（null 不修改、body 中 key 被忽略不可变）；并发冲突 IntegrityError → 409；种子并发冲突幂等忽略。
+- 种子：`videoCreation.maxOutputResolution`='1080p'（已存在即跳过）。
+
+##### 7.4.9.2 端点与运行时下发
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/feature-flags | 列表（登录可读） |
+| POST / PUT /{key} / DELETE /{key} | /api/v1/feature-flags | 管理（admin） |
+| GET | /api/v1/runtime/bootstrap | 增加 `feature_flags` = `{key: typed_value}`（enabled=1，X-Catalog-Key） |
+
+##### 7.4.9.3 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| OpsCenterSync | applyRuntime 应用并持久化 featureFlags（仅基本类型值、≤100 项、非法结构空对象 fail-closed）；getFeatureFlag(key)；getRuntimeState 暴露（opsCenterSyncRuntime IPC） |
+| 4K 读取优先级 | 环境变量 MAX_OUTPUT_RESOLUTION → 运营功能开关 → store → 默认 1080p（fail-closed） |
+| 引擎 | getMaxOutputResolution 惰性读取：compose/renderSegment 取当前值，构造期静态值兜底 |
+| 渲染端 | CreateView loadMaxOutputResolution：runtime featureFlags → store → 默认 |
+
+##### 7.4.9.4 前端「桌面端功能开关」页
+
+- 列表：Key / 类型 tag / 当前值（typed 展示）/ 描述 / 启用开关 / 编辑 / 删除；全部/已启用/已停用筛选 + 新增。
+- 编辑弹窗：Key（编辑禁用）/ 值类型下拉 / 值输入（布尔/数字/字符串提示）/ 描述 / 启用下发。
+- 顶部说明文案注明内置 4K 开关用途与 fail-closed 语义。
+
+##### 7.4.9.5 验收标准
+
+① 首次启动 4K 开关种子存在；② 非法 key/value_type/value → 400；③ POST 重复 409、PUT/DELETE 不存在 404；④ bootstrap 返回 enabled 开关 typed value；⑤ 桌面端 applyRuntime 应用/持久化/重启恢复、非法结构空对象；⑥ 引擎惰性读取：静态 1080p + 动态 4k 放行、动态 1080p 拒绝（fail-closed）；⑦ 未配置同步桌面端用本地默认 1080p。
+
+#### 7.4.10 官方内容模板库下发（2026-08-11 新增，P0-2）
+
+**需求**：官方内容模板库由运营后台统一维护，随 `runtime/bootstrap` 下发；桌面端同步时合并进本地模板（内置标记 builtin），用户自建模板保留；内置种子对齐桌面端 TemplateManager.getPresets() 5 个。
+
+##### 7.4.10.1 数据与校验（ops-center）
+
+| 字段 | 类型 | 校验 |
+|------|------|------|
+| id | str PK | 必填、`^[a-z0-9_-]{1,64}$` |
+| name | str | 必填、≤100 |
+| category / title | str | ≤40 / ≤200 |
+| content | text | Markdown ≤20000 |
+| platforms / tags | JSON | 非空字符串数组 ≤50 |
+| enabled / sort_order | bool / int | 0/1；非负整数 |
+| deleted_at | str | 软删（不复活，可重建） |
+
+- POST 重复 → 409；PUT 部分更新（null 不修改）+ 404；DELETE 软删 + 404。
+- 运行时：bootstrap `content_templates`（enabled=1 未软删，sort_order 排序，builtin=true）。
+
+##### 7.4.10.2 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| TemplateManager.applyRemote | 按 id upsert；官方字段白名单；新增标记 builtin；用户模板保留；数组 >200 fail-closed |
+| OpsCenterSync | setTemplateManager 注入；applyRuntime 应用 content_templates（异常仅 warn） |
+
+##### 7.4.10.3 前端「内容模板库」页
+
+列表（ID/名称/分类/标题/平台/内置/下发开关/编辑/删除）+ 分类筛选 + 新增；编辑弹窗含 Markdown 正文、平台/标签逗号分隔输入、排序、启用下发。
+
+##### 7.4.10.4 验收标准
+
+① 种子 5 个内置模板；② 非法字段 400；③ POST 重复 409、PUT/DELETE 404；④ bootstrap 仅 enabled 模板；⑤ 软删不复活可重建；⑥ applyRemote 覆盖/新增/保留用户/上限 fail-closed；⑦ 未注入跳过。
+
+
+#### 7.4.11 发布数据看板（2026-08-11 新增，P1-3）
+
+**需求**：桌面端把发布指标脱敏聚合上报运营后台，运营看板展示各平台产粮/失败情况；仅计数，不含标题/正文/账号等敏感内容。
+
+##### 7.4.11.1 数据与端点（ops-center）
+
+| 项 | 说明 |
+|----|------|
+| 表 | `publish_metrics_daily`（usage_date+client_id+platform 唯一，upsert 累加） |
+| 上报 | `POST /api/v1/publish/ingest`（X-Catalog-Key；校验 date/平台字符集/非负/publish≥ok+fail/≤500） |
+| 看板 | `GET /api/v1/publish/summary?days=N`（admin，默认 30 上限 90）：totals + by_date + by_platform（成功率） |
+
+##### 7.4.11.2 桌面端上报（PublishReporter）
+
+- 聚合 publish-history 按 日期+平台 分桶；success → ok、fail/error → fail、监控状态不计（防重复计数）。
+- 水印推进/失败重试/5s 首报 + 30min 周期/未配置静默；仅计数。
+
+##### 7.4.11.3 前端「发布数据」页
+
+7/30/90 天切换 + 汇总卡片 + 按平台表 + 每日趋势柱状图 + 空态提示；非 admin 403。
+
+##### 7.4.11.4 验收标准
+
+① 上报校验 400；② 同桶累加；③ Key 404/401；④ summary 非 admin 403；⑤ 聚合与成功率正确；⑥ 桌面端分桶/水印/静默；⑦ 不上报敏感内容。
+
+#### 7.4.12 兑换码签发/吊销/查询（2026-08-11 新增，P1-4）
+
+**需求**：运营后台批量签发 Pro 激活码，格式与桌面端 `redemption-codes.js` 完全兼容（HMAC-SHA256 `MP-XXXX-XXXX-SIG`）；共享密钥 `OPS_REDEMPTION_SECRET` = 桌面端 `REDEMPTION_SECRET`。
+
+| 项 | 说明 |
+|----|------|
+| 表 | `redemption_codes`（id 代理主键 + code 唯一；plan/batch_id/status/expires_at/note/created_at） |
+| 签发 | `POST /api/v1/redemption-codes/batch`（admin；count 1-200、plan free/trial/pro、expires_at ISO、note ≤200；未配置密钥 400） |
+| 列表/操作 | `GET`（掩码+plan/status 筛选）、`PUT /{id}/revoke`、`DELETE /{id}`（404 兜底） |
+| 算法 | `MP-RAND-RAND-HMAC_SHA256(payload, secret)[:4]`，随机字母表去 I/O/0/1 |
+
+前端「兑换码」页：批量签发弹窗 + 掩码结果 + 列表（掩码/套餐/状态/批次/过期/备注）+ 吊销/删除；侧边栏紧邻「许可证管理」。
+
+验收：① 格式与桌面端兼容（签名可复算）；② 校验/密钥缺失 400；③ 列表掩码、操作按 id；④ 404/403 正确。
+
+#### 7.4.13 关键词监测目录下发（2026-08-11 新增，P1-5）
+
+**需求**：运营后台维护关键词监测目录（关键词/飙升阈值/轮询间隔），随 `runtime/bootstrap` 下发；桌面端同步后按目录监测热度，异常飙升触发通知；用户自建监测词不受影响。
+
+##### 7.4.13.1 数据与端点（ops-center）
+
+| 项 | 说明 |
+|----|------|
+| 表 | `keyword_watchlist`（id 代理主键 + keyword 唯一；category/threshold/interval_minutes/enabled/sort_order/deleted_at） |
+| 管理 | `GET/POST /api/v1/keyword-watchlist`、`PUT/DELETE /{id}`（admin；POST 重复 400、PUT/DELETE 404、DELETE 软删不复活可重建） |
+| 校验 | keyword 2-100 字；threshold ≥1；interval_minutes 10-10080 整数 |
+| 下发 | bootstrap `keyword_watchlist`（enabled=1 未软删，sort_order 排序） |
+
+##### 7.4.13.2 桌面端消费
+
+| 项 | 要求 |
+|----|------|
+| KeywordMonitor.applyRemoteWatchlist | 按 keyword upsert（远程条目设置 interval/threshold、标记 source=remote）；缺席即停止远程监测；用户/恢复条目保留；MAX_KEYWORDS 上限 skip+warn |
+| OpsCenterSync | setKeywordMonitor 注入；applyRuntime 应用（异常仅 warn） |
+
+##### 7.4.13.3 前端「关键词监测」页
+
+列表（关键词/分类/阈值/间隔/启用开关/编辑/删除）+ 状态筛选 + 新增；编辑弹窗含阈值与间隔输入；顶部说明用户自建词不受影响。
+
+##### 7.4.13.4 验收标准
+
+① 校验 400；② 重复 400、404 兜底；③ 软删不复活可重建；④ bootstrap 仅 enabled；⑤ applyRemoteWatchlist 新增/更新/缺席停止/用户保留；⑥ 未注入跳过；⑦ 非 admin 403。
+
+
+#### 7.4.14 流水线所需依赖目录（2026-08-11 新增）
+
+**需求**：运营后台列出所有视频创作流水线所需的模型类型（推理/图片/视频/TTS/语音识别/音频）与候选供应商，种子对齐代码事实；运营可维护，为后续桌面端配置检查提供依据。
+
+##### 7.4.14.1 数据与校验（ops-center）
+
+| 字段 | 类型 | 校验 |
+|------|------|------|
+| pipeline_id | str | 必填、`^[a-z0-9_-]{1,64}$` |
+| pipeline_name | str | ≤100 |
+| model_type | str | 枚举 llm/tts/speech_recognition/image/video/audio/multimodal |
+| required | bool | 0=可选（缺省降级） |
+| provider_candidates | JSON | 字符串数组 ≤50，去重保序 |
+| default_provider | str | 必须在候选内或留空 |
+| description | str | ≤200 |
+| deleted_at | str | 软删（不复活，可重建） |
+
+- 唯一约束 (pipeline_id, model_type)；POST 重复 400、PUT/DELETE 404、PUT 改 key 撞唯一 400。
+
+##### 7.4.14.2 种子（代码事实）
+
+12 个有模型依赖的流水线共 31 条：story2video-compose（llm/image/tts/video 可选）、animated-explainer（llm/image/tts）、talking-head（speech_recognition/video）、cinematic（video）、animation（video/llm）、avatar-spokesperson（video/tts）、character-animation（video/llm）、clip-factory（video）、documentary-montage（video/llm/tts/image 可选）、hybrid（video/image/tts/llm）、localization-dub（speech_recognition/tts/llm）、podcast-repurpose（speech_recognition/image/audio）。
+screen-demo / framework-smoke 无模型依赖不播种。供应商候选与默认值对齐 model-provider-seeds.js 目录。
+
+##### 7.4.14.3 端点与前端
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /api/v1/pipeline-dependencies | 列表（登录可读，pipeline_id/model_type 筛选） |
+| POST / PUT /{id} / DELETE /{id} | /api/v1/pipeline-dependencies | 管理（admin，404/软删） |
+
+前端「流水线依赖」页：列表（ID/名称/类型 tag/必选 tag/默认供应商/候选 tags/说明/启用/编辑/删除）+ 流水线与类型筛选 + 新增；编辑弹窗含候选供应商逗号输入与默认供应商下拉，提示文字覆盖「必选/可选」语义与建议预设。
+
+##### 7.4.14.4 验收标准
+
+① 种子 31 条且 story2video-compose 覆盖 4 类（video 可选）；② 校验 400；③ 重复 400、404 兜底；④ 软删不复活可重建；⑤ 筛选正确；⑥ 非 admin 403/读 200。
 
 ---
 
@@ -1947,6 +2860,49 @@ Task Queue → 各平台发布器 → 发布完成
 | 发布记录删除 | 选择发布记录后可批量删除；renderer API、preload、`history:delete` IPC 和 JSONL service 均按 owner 隔离，删除后刷新并保留结果提示 | 本地已实现，真实多用户共享存储待外部验收 |
 | 设计与代码分层 | 本轮新增导航面板、草稿页和反馈状态使用模块级 class/token；未对既有发布表单做无证据的大规模 CSS 重排，遗留 inline style 记录为后续拆分项 | 本轮新增代码已分层，遗留项已记录 |
 
+
+### 18.2.3 2026-08-10 浏览器式标签栏与导航系统
+
+| 能力 | 实现与合同 | 状态 |
+|------|-----------|------|
+| 浏览器式标签栏 (TabBar) | 新增 TabBar.vue 组件：标签页创建/关闭/切换，平台图标自动识别（15 个平台 emoji），加载状态 spinner，Home 标签不可关闭，ARIA role=tablist 无障碍 | 本地已实现 |
+| 导航栏 (NavBar) | 新增 NavBar.vue 组件：后退/前进/刷新/首页按钮，URL 搜索栏（支持 URL 直接访问和 Bing 搜索），复制网址，加载状态指示，焦点态样式 | 本地已实现 |
+| 标签页 Store (tab.js) | 新增 Pinia Store：tabs/activeTabId/navigation 响应式状态，IPC 事件订阅（tab-created/closed/switched/navigation-changed/loading），init/dispose 生命周期 | 本地已实现 |
+| page-manager IPC 桥接 | 新增 preload/page-manager.js：14 个 IPC 方法（CRUD + 导航 + 查询 + 事件订阅），所有 handler 使用 withSenderCheck 安全校验 | 本地已实现 |
+| WebviewManager 浏览器标签页 | 继承 EventEmitter，新增 createNewTabPage/closeTab/switchToTab/navigate/searchOrNavigate/goBack/goForward/reload 方法，独立 session 分区，Cookie 互不干扰 | 本地已实现 |
+| App.vue 集成 | TabBar + NavBar 集成到蚁小二工作区 shell，YixiaoerModuleNav 仅首页标签显示，tab store init/dispose 生命周期管理 | 本地已实现 |
+| CreateHistory 空状态增强 | 渲染记录空态显示 🎬 图标 + 提示文案；流水线记录空态显示 🔄 图标 + 提示文案；修复 style 标签闭合位置 | 本地已实现 |
+| 账号"去登录"按钮 | AccountManagementCard 新增"去登录"按钮（Monitor 图标），触发 open-creator 事件，Accounts.vue 处理事件并导航到创作者中心 | 本地已实现 |
+| 构建修复 | platform-definitions.browser.js 补充 PLATFORM_DASHBOARD_URLS 导出 | 本地已实现 |
+| 内存泄漏修复 | webview-manager.js unsubscribe-events 未传 subscriberId 时清理所有订阅者 | 本地已实现 |
+
+**数据校验**：
+- URL 导航：协议校验仅允许 http/https/file；域名正则匹配标准域名格式；非 URL 输入走 Bing 搜索编码
+- IPC 参数：所有 handler 使用 withSenderCheck 校验发送者来源；参数缺失返回 VALIDATION_ERROR
+- 标签页 ID：浏览器标签使用 btab- 前缀，分屏监控使用 tab- 前缀，避免 ID 冲突
+- Home tab：tabId 固定为 'home'，不创建 WebContentsView，关闭操作返回 false
+- 创作者中心 URL：必须在 PLATFORM_DASHBOARD_URLS 白名单中，不存在时提示"暂不支持该平台"
+
+**交互逻辑**：
+- 点击标签页 → switchToTab → 隐藏当前视图 + 显示目标视图 + 更新导航状态
+- 关闭标签页 → closeTab → 移除视图 + 切换到下一个标签（无标签时广播 all-tabs-closed）
+- URL 输入 → enter → 判断 URL/域名/搜索词 → 导航或 Bing 搜索
+- 首页标签 → 隐藏 NavBar 导航按钮，显示模块导航 (YixiaoerModuleNav)
+- Home tab 保护：closeTab 拒绝关闭 Home tab（返回 false），确保首页始终存在
+- switchToTab(Home)：隐藏所有 WebContentsView，显示 router-view 内容，activeTabId 设为 'home'
+- tabStore 初始化：自动创建 Home tab（tabId='home', title='首页'），不调用 IPC 创建 WebContentsView
+- 打开创作者中心：点击账号卡片"去登录"按钮 → openCreatorCenter(platform) → 获取 PLATFORM_DASHBOARD_URLS[platform] → createTab({ url, platform, accountId }) → 新标签页全屏显示创作者中心
+
+**显示项**：
+- 标签栏高度 36px，背景 #e8eaf2，活跃标签白色背景 + 阴影
+- 导航栏高度 40px，URL 搜索栏圆角 15px，焦点态紫色光晕
+- 平台图标：微信/抖音/小红书/微博/B站 等 15 个平台
+
+**提示文字**：
+- 渲染记录空态："暂无渲染记录" + "创作你的第一个视频，记录将在这里显示"
+- 流水线记录空态："暂无流水线运行记录" + "选择创作模式开始流水线，运行记录将在这里显示"
+- URL 搜索栏 placeholder："搜索或输入网址"
+- 标签页 title："新标签页"（about:blank）或 hostname
 ### 18.3 设计与代码分层
 
 ```text
@@ -2010,6 +2966,7 @@ Vue 展示组件
 | v2.3.53 | 2026-07-20 | 账号管理与内容发布按蚁小二交互对齐；完成前端分层、多账号发布、草稿、排期、差异化内容、二维码登录、取消/重试及安全边界 |
 | v2.3.54 | 2026-08-04 | 续作收敛账号卡片动作、失效账号重新登录、粉丝/归属字段、分组筛选、收藏空态和分享服务边界；补充真实蚁小二像素审计证据 |
 | v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
+| v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |
 
 
 
@@ -2287,3 +3244,4 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 | 样式 | `style2` 加黑底 `box`（0.55 透明度 + 10px 边框）；`style3` 描边加粗（borderw=4）。 |
 | **位置（2026-08-07 修订）** | 字幕底边默认位于画面 **80% 高度**（即**距底部 20%**，`bottomMarginRatio=0.2`，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式 `y=h*(1-bottomMarginRatio)-th`。原固定 `h-th-40`（约 3%）废弃。 |
 | 水平 | 恒居中 `x=(w-text_w)/2`。 |
+

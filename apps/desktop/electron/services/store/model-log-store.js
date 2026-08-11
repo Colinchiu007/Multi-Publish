@@ -32,8 +32,8 @@ module.exports = {
     try {
       this.db.prepare(`
         INSERT INTO model_provider_logs
-          (provider_id, category, model, action, status, latency_ms, tokens_in, tokens_out, cost, error_message)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (provider_id, category, model, action, status, latency_ms, tokens_in, tokens_out, cost, error_message, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       `).run(
         entry.provider_id,
         entry.category,

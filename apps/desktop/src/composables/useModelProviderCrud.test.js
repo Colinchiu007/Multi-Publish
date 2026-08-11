@@ -321,12 +321,13 @@ describe('useModelProviderCrud', function () {
       expect(crud.loading.value).toBe(false)
     })
 
-    it('loadProviders 请求拒绝时提示原始错误并结束加载态', async function () {
+    it('loadProviders 请求拒绝时提示格式化错误并结束加载态', async function () {
       modelProviderList.mockRejectedValueOnce(new Error('IPC 不可用'))
 
       await expect(crud.loadProviders()).resolves.toBeUndefined()
 
       const { ElMessage } = await import('element-plus')
+      // 自然语言原因文本经统一文案格式化后原样透传（保留具体原因）
       expect(ElMessage.error).toHaveBeenCalledWith('IPC 不可用')
       expect(crud.loading.value).toBe(false)
     })
@@ -342,6 +343,7 @@ describe('useModelProviderCrud', function () {
       await crud.submitForm()
 
       const { ElMessage } = await import('element-plus')
+      // 自然语言原因文本经统一文案格式化后原样透传（保留具体原因）
       expect(ElMessage.error).toHaveBeenCalledWith('密钥无效')
       expect(crud.showFormDialog.value).toBe(true)
       expect(crud.submitting.value).toBe(false)
@@ -431,12 +433,14 @@ describe('useModelProviderCrud', function () {
 
       await crud.testProvider('openai')
 
-      expect(crud.testResults.value.openai).toEqual({
-        success: false,
-        code: -1,
-        message: '连接超时',
-        detail: null,
-      })
+      // formatUserError 把原始「连接超时」映射为当前语言（测试环境按系统语言 en）的
+      // 「原因 + 建议」文案，不直出原始技术文本
+      const testResult = crud.testResults.value.openai
+      expect(testResult.success).toBe(false)
+      expect(testResult.code).toBe(-1)
+      expect(testResult.message).not.toBe('连接超时')
+      expect(testResult.message.length).toBeGreaterThan(0)
+      expect(testResult.detail).toBeNull()
       expect(crud.testingId.value).toBe('')
     })
 
@@ -587,6 +591,7 @@ describe('useModelProviderCrud', function () {
         'configuredProviders', 'unconfiguredPresets', 'customProviders',
         'filteredProviders', 'configuredCount', 'presetCount',
         'categoryCounts', 'configuredCategoryCounts', 'activeCategoryCounts',
+        'isMiniMaxMultimodal',
         // 方法
         'loadProviders', 'loadMultimodalPreference', 'saveMultimodalPreference',
         'openAdd', 'nextAddStep', 'loadAvailablePresets',
@@ -685,6 +690,26 @@ describe('useModelProviderCrud', function () {
       crud.selectPreset('minimax-multimodal')
       expect(crud.form.value.config.capability_enabled.video).toBe(false)
       expect(crud.multimodalVideoEnabled.value).toBe(false)
+    })
+
+    it('isMiniMaxMultimodal：minimax-multimodal 为 true，其它服务商为 false（模型列表只读分支）', async function () {
+      const { modelProviderPresets } = await import('@/api/model-providers')
+      modelProviderPresets.mockResolvedValueOnce({ code: 0, data: [{ id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal', base_url: 'x', models: [], capabilities: ['llm', 'tts', 'image', 'video'], capability_models: {} }] })
+      crud.addCategory.value = 'multimodal'
+      await crud.loadAvailablePresets()
+      crud.selectPreset('minimax-multimodal')
+      expect(crud.isMiniMaxMultimodal.value).toBe(true)
+
+      // 编辑非 MiniMax 多模态服务商 → false（仍渲染模型列表输入框）
+      crud.openEdit({ id: 'openai', name: 'OpenAI', category: 'multimodal', models: ['gpt-4o'], config: {} })
+      expect(crud.isMiniMaxMultimodal.value).toBe(false)
+
+      // 编辑 MiniMax 多模态服务商 → true（模型列表只读，不渲染输入框）
+      crud.openEdit({
+        id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal',
+        models: [], modelsText: '', config: {},
+      })
+      expect(crud.isMiniMaxMultimodal.value).toBe(true)
     })
 
     it('导出完整性：multimodalVideoEnabled 可访问', function () {

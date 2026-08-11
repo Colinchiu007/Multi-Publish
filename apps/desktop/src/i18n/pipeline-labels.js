@@ -81,7 +81,7 @@ const PIPELINES = {
     name: 'pipelines.names.story2video-compose',
     description: 'pipelines.descriptions.story2video-compose',
     category: 'generated',
-    stages: ['split', 'domain_enrich', 'optimize', 'generate_assets', 'compose', 'publish'],
+    stages: ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
   },
 }
 
@@ -137,6 +137,7 @@ const STAGES = {
   split: 'pipelines.stages.split',
   domain_enrich: 'pipelines.stages.domain_enrich',
   optimize: 'pipelines.stages.optimize',
+  select_video_scenes: 'pipelines.stages.select_video_scenes',
   generate_assets: 'pipelines.stages.generate_assets',
 }
 

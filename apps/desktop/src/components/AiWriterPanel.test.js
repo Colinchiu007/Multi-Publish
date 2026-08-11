@@ -10,7 +10,17 @@ const publisherApi = vi.hoisted(() => ({
   aiGenerateSummary: vi.fn((content) => window.electronAPI?.aiGenerateSummary?.(content)),
 }));
 
+const mockEnsureLogin = vi.hoisted(() => vi.fn(async () => true));
+
 vi.mock("@/api/publisher", () => publisherApi);
+
+vi.mock("@/composables/useLoginGate", () => ({
+  useLoginGate: () => ({
+    ensureLogin: mockEnsureLogin,
+    requireLogin: vi.fn(async (fn) => fn()),
+    openSignIn: vi.fn(async () => true),
+  }),
+}));
 
 vi.mock("vue-router", () => ({
   useRouter: () => ({

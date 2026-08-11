@@ -479,7 +479,7 @@ const PIPELINES = [
     name: 'story2video-compose',
     description: 'Story2Video 文案转视频 - 分句+提示词优化+资源生成+合成+发布',
     category: 'generated',
-    stages: ['split', 'domain_enrich', 'optimize', 'generate_assets', 'compose', 'publish'],
+    stages: ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
     estimatedCost: 'high',
     // stageDefs 定义每个阶段的执行类型和参数（供 StageExecutor 使用）
     // 旧流水线无 stageDefs 字段，回退为 MANUAL_CHECKPOINT
@@ -536,9 +536,27 @@ const PIPELINES = [
         inputFrom: 'domain_enrich', // 从 context.domain_enrich 取
       },
       {
+        name: 'select_video_scenes',
+        type: 'story2video_select_video_scenes', // 自定义类型：视频+图片轮播混合模式的场景选择（2026-08-11）
+        description: 'AI 视频场景选择（fixed 固定比例 / ai-judged 智能判断）',
+        checkpointRequired: false,
+        options: {
+          video: {
+            mode: 'off',
+            provider: null,
+            model: null,
+            fixedRatio: 25,
+            minRatio: 20,
+            maxRatio: 40,
+            maxScenes: 3,
+          },
+        },
+        inputFrom: 'optimize', // 从 context.optimize + context.split 取（执行器内部处理）
+      },
+      {
         name: 'generate_assets',
         type: 'story2video_generate_assets', // 自定义类型，由 story2video-stages.js 注册
-        description: '并行资源生成（图片 + TTS）',
+        description: '并行资源生成（图片 + TTS + 可选 AI 视频）',
         checkpointRequired: true,
         options: {
           concurrency: 3,
@@ -1549,7 +1567,8 @@ class PipelineEngine {
         }
       } catch (persistError) {
         run.status = 'failed';
-        run.error = 'Story2Video 项目保存失败: ' + persistError.message;        this.log.error('PipelineEngine', run.error);
+        run.error = 'Story2Video 项目保存失败: ' + persistError.message;
+        this.log.error('PipelineEngine', run.error);
       }
     }
     const historyEntry = {
@@ -1624,7 +1643,7 @@ class PipelineEngine {
       options: {
         ...(stageDef.options || {}),
         ...(stage.options || {}),
-        ...resolveRuntimeStageOptions(stage.name, run.params),
+        ...resolveRuntimeStageOptions(stage.name, run.params, run.pipeline),
       },
     };
 
@@ -1787,7 +1806,7 @@ class PipelineEngine {
  * 将 renderer 传入的运行时配置合并到阶段 options。
  * 阶段定义提供安全默认值，用户参数只覆盖同一阶段允许的配置键。
  */
-function resolveRuntimeStageOptions(stageName, params) {
+function resolveRuntimeStageOptions(stageName, params, pipelineName) {
   const input = params || {};
   const stageOptions = input.stageOptions && input.stageOptions[stageName];
   const result = stageOptions && typeof stageOptions === 'object' ? { ...stageOptions } : {};
@@ -1822,6 +1841,9 @@ function resolveRuntimeStageOptions(stageName, params) {
     set('templateId', input.templateId);
   } else if (stageName === 'domain_enrich') {
     set('contentType', input.contentType);
+  } else if (stageName === 'select_video_scenes') {
+    set('video', input.videoConfig);
+    set('videoMode', input.videoMode);
   } else if (stageName === 'compose') {
     set('transition', input.transition);
     set('imageEffect', input.imageEffect);
@@ -1839,6 +1861,12 @@ function resolveRuntimeStageOptions(stageName, params) {
     set('format', input.format || input.output?.format);
     set('sceneDurationMode', input.sceneDurationMode);
     set('minSceneDuration', input.minSceneDuration);
+  } else if (pipelineName === 'clip-factory' && stageName === 'analyze') {
+    // clip-factory 选项按 pipeline 名区分（analyze 阶段名与 podcast 共用）。
+    set('sceneThreshold', input.sceneThreshold);
+    set('maxSegments', input.maxSegments);
+    set('minSegmentSeconds', input.minSegmentSeconds);
+    set('maxTotalSeconds', input.maxTotalSeconds);
   } else if (stageName === 'publish') {
     set('platforms', input.platforms);
     set('title', input.title || input.output?.title);

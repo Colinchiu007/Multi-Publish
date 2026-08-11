@@ -31,7 +31,9 @@ const { BaseAdapter } = require('./_base/base')
 const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
 
 const DEFAULT_BASE_URL = 'https://apihub.agnes-ai.com/v1'
+const { fetchWithTimeout } = require('./_base/fetch-utils')
 const DEFAULT_TIMEOUT = 120000
+
 const DEFAULT_MODEL = 'agnes-video-v2.0'
 
 // 默认参数（121 帧 @ 24fps ≈ 5s）
@@ -59,6 +61,11 @@ class AgnesVideoAdapter extends BaseAdapter {
     this.credentials.baseUrl = this.credentials.baseUrl || DEFAULT_BASE_URL
     this.options.timeout = this.options.timeout || DEFAULT_TIMEOUT
     this.options.maxRetries = this.options.maxRetries || 2
+    // 提交/查询重试退避（ms）：503 队列满载 / 429 限流时递增等待；测试可注入短退避。
+    // 真实运行（2026-08-11 W7）：Agnes 队列满载可持续 15+ 分钟，退避窗口须覆盖更长拥堵期。
+    this.options.retryBackoffMs = Array.isArray(options.retryBackoffMs) && options.retryBackoffMs.length
+      ? options.retryBackoffMs
+      : [20000, 30000, 45000, 60000, 60000]
   }
 
   /** 验证配置：apiKey + baseUrl 必填 */
@@ -92,7 +99,8 @@ class AgnesVideoAdapter extends BaseAdapter {
     const headers = { ...this._headers(), ...(opts.headers || {}) }
 
     try {
-      const response = await fetch(url, { ...opts, headers })
+      const timeoutMs = Number.isFinite(Number(this.options.timeout)) && Number(this.options.timeout) > 0 ? Number(this.options.timeout) : DEFAULT_TIMEOUT
+      const response = await fetchWithTimeout(url, { ...opts, headers }, timeoutMs)
 
       if (!response.ok) {
         let errorBody
@@ -102,7 +110,14 @@ class AgnesVideoAdapter extends BaseAdapter {
         const message = (errorBody && errorBody.error && (errorBody.error.message || errorBody.error))
           || (errorBody && errorBody.message)
           || (typeof errorBody === 'string' ? errorBody : `HTTP ${response.status}`)
-        throw fromHttpStatus(response.status, message, { providerId: this.id, url })
+        const err = fromHttpStatus(response.status, message, { providerId: this.id, url })
+        // 真实运行（2026-08-11 W7）：Agnes 提交偶发 503 video_queue_full / 429 rate_limit_exceeded
+        // （限流约 2 次/分钟），二者均为可重试瞬时条件。用专用标记 retryableHttp 区分
+        // 「HTTP 层可重试」与 ERROR_META 默认 retryable 的 PROVIDER_ERROR（后者不可重试）。
+        if (response.status === 503 || response.status === 429 || response.status === 500) {
+          err.retryableHttp = true
+        }
+        throw err
       }
 
       return response
@@ -152,23 +167,42 @@ class AgnesVideoAdapter extends BaseAdapter {
       seed: params.seed || undefined,
     }
 
-    const resp = await this._request('/videos', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    })
-    const data = await resp.json()
+    // 真实运行（2026-08-11 W7）：Agnes 视频提交偶发 503 video_queue_full（队列满载）或
+    // 429 rate_limit_exceeded（约 2 次/分钟），均为瞬时条件。有界重试 + 递增退避，
+    // 避免单次瞬时失败即回退图片轮播；非重试错误（401/403/402 等）立即抛出。
+    const maxAttempts = 6
+    const backoffMs = this.options.retryBackoffMs
+    let lastError = null
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const resp = await this._request('/videos', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
+        const data = await resp.json()
 
-    // 兼容 OpenAI 协议两种字段命名
-    const taskId = data.id || data.task_id
-    if (!taskId) {
-      throw new ProviderError(
-        ERROR_CODES.PROVIDER_ERROR,
-        'Missing task id in response',
-        { providerId: this.id }
-      )
+        // 兼容 OpenAI 协议两种字段命名
+        const taskId = data.id || data.task_id
+        if (!taskId) {
+          throw new ProviderError(
+            ERROR_CODES.PROVIDER_ERROR,
+            'Missing task id in response',
+            { providerId: this.id }
+          )
+        }
+
+        return { taskId, model }
+      } catch (error) {
+        lastError = error
+        const retryable = (error instanceof ProviderError) &&
+          (error.retryableHttp === true || error.code === ERROR_CODES.RATE_LIMITED ||
+            error.code === ERROR_CODES.TIMEOUT || error.code === ERROR_CODES.NETWORK_ERROR)
+        if (!retryable || attempt >= maxAttempts) break
+        const delay = backoffMs[Math.min(attempt - 1, backoffMs.length - 1)] || 45000
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
     }
-
-    return { taskId, model }
+    throw lastError
   }
 
   /**
@@ -190,8 +224,23 @@ class AgnesVideoAdapter extends BaseAdapter {
     // （GET /v1/videos/<TASK_ID> 为兼容旧版方式，部分网关返回 task_not_exist）
     // /agnesapi 位于域名根（base_url 之外），必须用绝对 URL，否则拼成 /v1/agnesapi 会 task not found
     const apiRoot = this.credentials.baseUrl.replace(/\/$/, '').replace(/\/v1$/, '')
-    const resp = await this._request(`${apiRoot}/agnesapi?video_id=${encodeURIComponent(String(rawTaskId))}&model_name=${encodeURIComponent(DEFAULT_MODEL)}`)
-    const data = await resp.json()
+    let data = null
+    let lastError = null
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const resp = await this._request(`${apiRoot}/agnesapi?video_id=${encodeURIComponent(String(rawTaskId))}&model_name=${encodeURIComponent(DEFAULT_MODEL)}`)
+        data = await resp.json()
+        break
+      } catch (error) {
+        lastError = error
+        const retryable = (error instanceof ProviderError) &&
+          (error.retryableHttp === true || error.code === ERROR_CODES.RATE_LIMITED ||
+            error.code === ERROR_CODES.TIMEOUT || error.code === ERROR_CODES.NETWORK_ERROR)
+        if (!retryable || attempt >= 3) break
+        await new Promise(resolve => setTimeout(resolve, 5000 * attempt))
+      }
+    }
+    if (!data) throw lastError
 
     // Agnes 状态映射
     const statusMap = {

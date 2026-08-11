@@ -168,6 +168,45 @@ describe('Story2VideoProjectService', () => {
     expect(fs.readFileSync(project.options.bgmPath, 'utf8')).toBe('background-music')
   })
 
+  it('缺失/不可读 BGM 不阻断项目保存（成片已成功时不得误判为失败，2026-08-11 E2E 修复）', () => {
+    const source = path.join(root, 'missing-bgm-source')
+    const missingBgm = path.join(source, 'bgm-does-not-exist.mp3')
+    const output = writeFile(path.join(source, 'output.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_missing_bgm',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      params: {
+        text: 'BGM 缺失的项目',
+        bgmPath: missingBgm,
+        story2videoTextConfig: {
+          version: 1,
+          mode: 'text',
+          prompt: 'BGM 缺失的项目',
+          size: '1920x1080',
+          image: { provider: 'minimax-multimodal' },
+          voice: { provider: 'minimax-multimodal' },
+          bgm: { enabled: true, path: missingBgm, volume: 5 },
+          publish: { enabled: false, platforms: [] },
+        },
+      },
+      context: { compose: { videoPath: output, segments: [] } },
+    })
+
+    // 不得抛错：成片已产出，缺失 BGM 只应降级跳过持久化
+    expect(project).not.toBeNull()
+    expect(project.projectId).toBe('run_missing_bgm')
+    expect(project.videoPath).toBeDefined()
+    expect(project.story2videoTextConfig.config.bgm.path).toBe('')
+    // 项目索引已落盘（project.json，owner 分桶目录）
+    const crypto = require('crypto')
+    const ownerDir = crypto.createHash('sha256').update('user-a', 'utf8').digest('hex')
+    const projectJson = path.join(root, 'projects', ownerDir, 'run_missing_bgm', 'project.json')
+    expect(fs.existsSync(projectJson)).toBe(true)
+  })
+
   it('保存版本化 text 配置并丢弃 Provider Secret', () => {
     const source = path.join(root, 'versioned-config-source')
     const bgm = writeFile(path.join(source, 'bgm.mp3'), 'background-music')

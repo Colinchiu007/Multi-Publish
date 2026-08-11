@@ -104,6 +104,15 @@
       >
         <Refresh />重新登录
       </button>
+      <button
+        :data-testid="`creator-${account.id}`"
+        data-e2e-scan="manual"
+        type="button"
+        @click="$emit('open-creator', account)"
+        title="打开创作者中心"
+      >
+        <Monitor />去登录
+      </button>
       <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('remove', account)">
         <Delete />删除
       </button>
@@ -113,7 +122,7 @@
 
 <script setup>
 import { nextTick, ref } from 'vue'
-import { CircleCheck, Delete, EditPen, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
+import { CircleCheck, Delete, EditPen, Monitor, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
   account: { type: Object, required: true },
@@ -133,6 +142,7 @@ const emit = defineEmits([
   'check-login',
   'relogin',
   'remove',
+  'open-creator',
 ])
 
 const editing = ref(false)

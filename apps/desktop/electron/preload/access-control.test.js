@@ -40,4 +40,29 @@ describe('preload 许可证权限', () => {
     expect(api.paymentComplete).toBeUndefined()
     expect(restrictedMethod).not.toHaveBeenCalled()
   })
+
+  it('模型服务商写方法未登录不可调用，读方法未登录可用', () => {
+    const create = vi.fn()
+    const list = vi.fn(() => Promise.resolve({ code: 0, data: [] }))
+    const publicApi = createDynamicAccessApi(
+      { modelProviderCreate: create, modelProviderList: list },
+      () => 'public',
+    )
+
+    // 未登录：写方法调用抛权限错误且不触达底层
+    expect(() => publicApi.modelProviderCreate({ id: 'openai' })).toThrow(/许可证权限不足/)
+    expect(create).not.toHaveBeenCalled()
+    // 未登录：读方法可用
+    expect(publicApi.modelProviderList()).resolves.toEqual({ code: 0, data: [] })
+    expect(list).toHaveBeenCalledTimes(1)
+  })
+
+  it('模型服务商写方法登录后可用', () => {
+    const create = vi.fn(() => Promise.resolve({ code: 0, data: { id: 'openai' } }))
+    const api = createDynamicAccessApi({ modelProviderCreate: create }, () => 'authenticated')
+
+    expect(api.modelProviderCreate({ id: 'openai', name: 'OpenAI' }))
+      .resolves.toEqual({ code: 0, data: { id: 'openai' } })
+    expect(create).toHaveBeenCalledTimes(1)
+  })
 })

@@ -1,3 +1,167 @@
+## [未发布] 修复：缺失/不可读 BGM 不再阻断项目保存，成片成功时不得误判为失败（2026-08-11）
+
+- 根因：compose 阶段对缺失/不可读 BGM 已按 bgmSkipped 降级跳过并成功合成成片，但项目保存（_persistS2VTextConfig）仍对 bgmPath 无条件 _copyRequired，源缺失时抛错，导致「成片成功却误判项目保存失败」。
+- 修复：保存时用 _resolveSource 探测 BGM 源，缺失/不可读则跳过拷贝并清空 bgmPath / config.bgm.path 引用（避免元数据指向已回收文件），不再阻断保存。
+- 测试：story2video-project-service.test.js 新增回归用例（缺失 BGM 源 + 成片存在时 saveRun 成功不误判），本地 23/23 通过。
+
+## [未发布] 功能：字幕分割规则对齐《字幕分割规范 v1.0》（2026-08-11）
+
+- `text-segmentation.ts` 的 `SubtitleSegmenter` 重构为规范 7 步流水线（与 smart-sentence-splitter Python 实现共享同一规范）：
+  - Step 1 分句优先（块不跨句；未闭合引号内句界不生效）
+  - Step 2 引号感知预分割（引号内容 ≥ min_chars 才分离，短引号并入上下文，消除孤立引号）
+  - Step 3 长度切分（标点优先 + 配对引号保护，8-15 字）
+  - Step 4 短块合并 → Step 5 标点规范化（开头修正 / 跨块引号清理 / 末尾去除）→ Step 6 超长强制（切分点须在块内部）
+  - Step 7 时间戳（proportional / equal，行为不变）
+- 新增共享测试向量断言 `tests/subtitle-vectors.test.ts`（18 断言）：与 smart-sentence-splitter `tests/vectors/subtitle_segmentation_vectors.json`（16 例）逐字一致，保证双实现输出同一字幕块序列
+- 行为变化：本地字幕块现在会清理孤立引号、去除块尾标点、短引号内容并入上下文——字幕显示更规范（原有 `subtitleSource: 'local-typescript'` 契约不变）
+- 测试：story2video-engine 全量 73 通过（含新向量 18）
+## [未发布] 文档：模型 API 调用并发 / 排队 / 限流机制详细合同补充（2026-08-11）
+
+- 核验并固化「每分钟连接次数（rate_per_minute）由运营后台设置/修改，未设置时降级到数据库默认值」的完整链路：运营后台 `model_presets`（DB）→ catalog → 桌面 `model_providers.config`（DB）→ 桌面 DB 预设种子 `PRESET_RATE_LIMITS` 回填 → 静态表 `PROVIDER_LIMITS` → 类别默认 `DEFAULT_LIMITS`；运营显式清空回退静态表/类别默认。
+- 补充排队与冷却时序预算：并发信号量 30s、RPM 时间槽 180s、429 冷却 45s、额度预检即拒；429 自适应 ×0.75 下调 / +0.05 恢复；同 key 重入透传防双包死锁；两端数据校验规则与提示文案。
+- 文档：PRD §7.1.8.1（时序预算与数据校验）、§7.4.4.3（预算来源与数据库默认值降级链路）、§7.4.4.4（并发与排队功能逻辑）、§7.4.4.5（交互逻辑与显示项/提示文字）；product-manual §3.5 模型设置 / §3.6 运营后台同步；OpenSpec model-call-scheduler（排队时序预算 + 数据库默认值降级两个 Requirement）；ops-center PRD §12A.10.4；清理 #533 合入残留的 CHANGELOG 冲突标记行。
+
+## [未发布] 功能：主动操作登录引导（渐进式登录）（2026-08-11）
+
+- 新增 `src/composables/useLoginGate.js`：主动操作登录门——未登录触发「发布/批量发布/AI 写作/启动流水线」等操作时弹登录确认框 → `identitySignIn()`（主进程 Logto OAuth）→ 登录成功自动继续原操作；已登录直接放行；身份服务不可用 fail-closed 提示；单例防重入。
+- 接入首批主动操作：`usePublishFlow.handlePublish`（发布）、`useBatchPublish.handleBatchPublish`（批量发布）、`AiWriterPanel` 三个生成函数（标题/润色/摘要）、`CreateView` UI「启动流水线」按钮 → `handleStartPipeline`（登录门 + `startPipeline`，方法本体保持同步时序语义）。
+- 边界：浏览/查看类保持轻提示；已登录缺权益走升级引导；登录门仅为 UX 前置，主进程通道级鉴权（AUTH_REQUIRED）仍是最终安全边界。
+- 文档：PRD §2.3.1「主动操作登录引导」详细合同（规则/校验/流程/交互/提示文字/接入点/边界）；CHANGELOG。
+- 测试：`useLoginGate.test.js`（8 用例：已登录放行/确认后登录/取消/登录失败/不可用/单例/requireLogin）；接入点新增 `handleStartPipeline` 2 用例；重复提交类测试适配异步登录门时序；src 全量通过。
+
+## [未发布] 功能：MiniMax 多模态模型列表只读（2026-08-11）
+
+- 设置-模型设置-多模态模型- MiniMax 的「模型列表」编辑输入框移除：模型列表由程序预设（seeds `capability_models`/`models`）+ 运营后台（catalog 下发）控制，前端不提供编辑。
+- 实现：`useModelProviderCrud.js` 新增 `isMiniMaxMultimodal`（`form.id === 'minimax-multimodal'`）；`ModelProviders.vue` 新增/编辑对话框对该预设渲染只读提示（「模型列表由系统预设与运营后台下发控制，无需在此填写」+ 当前模型列表文本），其它服务商行为不变。
+- 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
+- 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
+
+## [未发布] 功能：用户提示文字统一为多语言自然语言（原因 + 建议）（2026-08-11）
+
+- 根因：主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message（如「当前许可证无权访问 store:list-publish-history」），渲染端多个视图直接把 `result.message`/`e.message` 原样展示。
+- 主进程：`license-access-control.js` 三个拒绝函数返回稳定 `errorCode`（AUTH_REQUIRED / ENTITLEMENT_REQUIRED / UNTRUSTED_SENDER）+ 去通道名的自然语言 message + `messageParams.channel`（仅诊断）；`model-provider-manager.js` 22 处错误去英文括号注释与裸英文，补 `errorCode`（PROVIDER_EXISTS / CREATE_FAILED / UPDATE_FAILED / DELETE_FAILED / SET_DEFAULT_FAILED / ENCRYPT_FAILED / CRYPTO_UNAVAILABLE / ADAPTER_NOT_FOUND / PROVIDER_NOT_FOUND / API_KEY_NOT_CONFIGURED / ADAPTER_INIT_FAILED / OPERATION_NOT_SUPPORTED / STORE_NOT_INITIALIZED 等），原始 detail 只进 `messageParams.detail`；`webview-manager.js` 创建标签页失败改中文。
+- 渲染端：新增 `src/utils/user-facing-error.js` `formatUserError()`（errorCode → 数值 code → 遗留 pattern → 技术文本 sanitize / 自然语言透传，zh/en「原因 + 建议」目录）；`src/i18n/index.js` 新增系统语言自动检测（zh*/en*）与 `setAppLocale/getAppLocale`，语言优先级 = 显式设置 > 系统语言 > 默认；设置弹窗「通用设置」新增语言切换控件。
+- 接入 16+ 处显示路径：CreateHistory / PublishHistory / CreateView / useModelProviderCrud（含 `already exists` 改 errorCode 判断）/ useOpsCenterSync / usePublishFlow / usePublishDrafts / useBatchPublish / useAutoUpdate / ApprovalGateModal / UpgradeModal / PipelineBrowser / TemplatePicker / ReplayTimeline / stores/accounts。
+- 测试：新增 `user-facing-error.test.js`（17 用例）、i18n 系统语言检测用例；更新 license-access-control / model-provider-* / 受影响视图测试；`test-setup.js` 固定测试环境语言 zh-CN 保证确定性。
+- 文档：PRD §3.2 新增「用户提示文字与多语言规范」（语言解析/错误返回契约/交互显示项/提示文字表/回归测试）；learnings 补充复盘；CHANGELOG。
+
+## [未发布] 功能：桌面端登录门禁与会员权益判定体系（2026-08-11）
+
+- 模型服务商配置：写操作（create/update/delete/set-default/clean-logs）从 public 升级为 **需登录（authenticated）**；读操作（list/get/get-default/presets/is-configured/logs）与测试连接保持 public（离线可用语义）。未登录调用被主进程拒绝（`code: -3`），preload 层同步拦截。
+- 明确登录门禁边界：发布历史/队列/进度（history:*、queue:*、dashboard:stats）、流水线写/运行控制（pipeline:start/pause/resume/cancel/status/advance/fetch）、视频处理/渲染（video:*、render:start/cancel/validate-props/list-compositions/get-composition）、Story2Video 写操作（transcribe/recompose/export-zip/save-as/create-share-url 等）均为 authenticated；只读历史（pipeline:list/get/history、story2video:list/get、render:status）保持 public。
+- 新增 `LOGIN_ONLY_FEATURE_MAP`（feature 预留映射）：基础功能当前「登录即可、不强制服务端下发」，未来会员分级只需把目标通道移入 `CHANNEL_FEATURE_MAP` 并让服务端下发 feature；`cloud_publish` 严格权益判定不变（服务端权威）。
+- 文档：PRD §7.4「权限与访问控制」详细修订、新增 `01-docs/ACCESS-CONTROL-MATRIX.md`（完整通道矩阵/feature 映射/数据校验/交互提示/验收标准）、CHANGELOG。
+- 测试：`license-access-control.test.js`（+3：登录要求矩阵、LOGIN_ONLY 一致性、写操作拒/放行行为）、`access-control.test.js`（+2：未登录拒写/登录可用）；electron/ipc-handlers + preload 全量 735 通过。
+
+## [未发布] 修复：Story2Video 真实运行稳定性与视频错误可诊断性（2026-08-11）
+
+- compose xfade 合并超时改为按输出时长动态计算（原固定 120s 会误杀 ≥2 分钟成片的 chunk 合并）：长视频（27 场景约 337s）真实复跑稳定成功（334.4s / 52.9MB）。
+- minimax 视频 adapter 解析 MiniMax base_resp 业务错误（HTTP 200 + status_code != 0）：视频额度用尽（status_code=2056）从误导性 `Missing task_id in response` 改为可读提示并映射 QUOTA_EXCEEDED，generateVideo/getVideoStatus 均覆盖。
+- 文档：PRD §7.1.25 补充（compose 长视频超时策略、视频 provider 业务错误处理与额度提示）。
+
+## [未发布] 功能：流水线所需依赖目录（2026-08-11）
+
+- ops-center：新增 `pipeline_dependencies` 表（pipeline_id+model_type 唯一）+ `GET/POST /api/v1/pipeline-dependencies`、`PUT/DELETE /{id}`（admin；校验 pipeline_id 字符集 / model_type 枚举 / provider_candidates 字符串数组 ≤50 去重 / default_provider 必须在候选内 / required / sort_order；POST 重复 400、PUT/DELETE 404、DELETE 软删不复活可重建、PUT 改 key 撞唯一 400）。
+- 种子对齐代码事实：12 个有模型依赖的视频创作流水线共 31 条（llm/image/video/tts/speech_recognition/audio 六类），供应商候选与默认值对齐 model-provider-seeds.js 预设目录（llm→anthropic、image→flux、video→minimax、tts→minimax-tts、speech_recognition→whisper、audio→suno）。
+- ops-center 前端：新增「流水线依赖」页（列表/流水线与类型筛选/新增/编辑/删除/启用停用）。
+- 修复：ops-center 前端 router 中 keyword-watchlist 条目缺失 meta/闭合的合并残留。
+- 文档：ops-center PRD 12A.21、Multi-Publish PRD §7.4.14、CHANGELOG。
+- 测试：ops-center pytest（+2，全量 120）；前端 build 通过。
+
+## [未发布] 功能：关键词监测目录下发（P1-5）（2026-08-11）
+
+- ops-center：新增 `keyword_watchlist` 表 + `GET/POST /api/v1/keyword-watchlist`、`PUT/DELETE /api/v1/keyword-watchlist/{id}`（admin）；校验 keyword 2-100 字唯一 / threshold ≥1 / interval_minutes 10-10080 / enabled；POST 重复 400、PUT/DELETE 404、DELETE 软删（不复活可重建）；`runtime/bootstrap` 增加 `keyword_watchlist`（enabled=1 未软删，sort_order 排序，X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「关键词监测」页（列表/状态筛选/新增/编辑/删除/启用停用）。
+- 桌面端：`KeywordMonitor.applyRemoteWatchlist`（按 keyword upsert、远程条目设置 interval/threshold 并标记 source=remote、缺席即停止远程监测、用户/恢复条目保留、MAX_KEYWORDS 上限 skip+warn）；`OpsCenterSync.setKeywordMonitor` + `applyRuntime` 应用 keyword_watchlist；phase1 接线。
+- 修复：main 上 3 个文件的历史冲突残留标记（01-docs/PRD.md 7.4.9/7.4.10 顺序、CHANGELOG.md 嵌套标记、ops-center-sync.js 头注释）。
+- 文档：ops-center PRD 12A.20、Multi-Publish PRD §7.4.13、CHANGELOG。
+- 测试：ops-center pytest（+2，全量 114）；桌面端 keyword-monitor-remote +3、ops-center-sync +3。
+
+## [未发布] 功能：兑换码签发/吊销/查询（P1-4）（2026-08-11）
+
+- ops-center：新增 `redemption_codes` 表（id 代理主键 + code 唯一）+ `POST /api/v1/redemption-codes/batch`（admin；count 1-200/plan 枚举/expires_at ISO/note ≤200；未配置 OPS_REDEMPTION_SECRET → 400 fail-closed）+ `GET`（掩码列表，plan/status 筛选）+ `PUT /{id}/revoke` + `DELETE /{id}`（404 兜底）。
+- 签发算法与桌面端 `redemption-codes.js` 逐字符一致：`MP-RAND-RAND-HMAC_SHA256(payload, secret)[:4]`，随机字母表去 I/O/0/1；共享密钥契约 `OPS_REDEMPTION_SECRET` = 桌面端 `REDEMPTION_SECRET`。
+- ops-center 前端：新增「兑换码」页（批量签发/掩码结果/列表/吊销/删除）；config.py + .env.example 新增 OPS_REDEMPTION_SECRET。
+- 文档：ops-center PRD 12A.19、Multi-Publish PRD §7.4.12、CHANGELOG。
+- 测试：ops-center pytest（+3，全量 115）。
+
+
+## [未发布] 功能：发布数据看板（P1-3）（2026-08-11）
+
+- ops-center：新增 `publish_metrics_daily` 表 + `POST /api/v1/publish/ingest`（X-Catalog-Key；校验日期格式/平台字符集/非负/publish≥ok+fail/≤500；同桶 upsert 累加）+ `GET /api/v1/publish/summary`（admin，7/30/90 天，totals/by_date/by_platform 含成功率）。
+- ops-center 前端：新增「发布数据」页（汇总卡片/按平台表/每日趋势柱状图/空态）。
+- 桌面端：新增 `PublishReporter`（聚合 publish-history 按 日期+平台 分桶，success→ok、fail/error→fail、监控状态不计；水印推进/失败重试/5s+30min 周期/未配置静默；仅计数不上报敏感内容）；phase1 接线。
+- 文档：ops-center PRD 12A.18、Multi-Publish PRD §7.4.11、CHANGELOG。
+- 审查修复（Claude 定向审查）：脏记录逐条跳过防毒化（桌面预过滤 + 后端 invalid_count）、批次幂等 report_id 防网络模糊重复、5000 上限不推进水印防分页丢数据、SQLite 原子 upsert、真实日历日期/浮点拒绝、本地时区分桶、状态词汇扩展、柱状图按比例。
+- 测试：ops-center pytest（+2，全量 112）；桌面端 publish-reporter 5 用例（分桶/水印去重/脏记录过滤/5000 上限/鉴权失败）。
+
+## [未发布] 功能：官方内容模板库下发（P0-2）（2026-08-11）
+
+- ops-center：新增 `content_templates` 表 + `GET/POST /api/v1/content-templates`、`PUT/DELETE /api/v1/content-templates/{id}`（admin）；校验 id 字符集 / name 必填 / content ≤20000 / platforms·tags 字符串数组 / sort_order 非负整数；POST 重复 409、PUT 部分更新+404、DELETE 软删（种子不复活、可重建）；种子对齐桌面端内置预设 5 个；`runtime/bootstrap` 增加 `content_templates`（enabled=1 未软删，sort_order 排序，builtin=true，X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「内容模板库」页（列表/分类筛选/新增/编辑/删除/启用停用/内置标记）。
+- 桌面端：`TemplateManager.applyRemote`（按 id upsert、官方字段白名单、新增标记 builtin、用户模板保留、数组 >200 fail-closed、变更持久化）；`OpsCenterSync.setTemplateManager` + `applyRuntime` 应用 content_templates；phase1 接线。
+- 文档：ops-center PRD 12A.17、Multi-Publish PRD §7.4.10、CHANGELOG。
+- 测试：ops-center pytest（+2，全量 107）；桌面端 template-manager +3、ops-center-sync +3。
+
+## [未发布] 功能：桌面端功能开关运行时下发（P0-1）（2026-08-11）
+
+- ops-center：新增 `feature_flags` 表 + `GET/POST /api/v1/feature-flags`、`PUT/DELETE /api/v1/feature-flags/{key}`（admin）；校验 key 字符集 / value_type 枚举 / typed value 可解析；POST 重复 409、PUT/DELETE 不存在 404；种子 `videoCreation.maxOutputResolution`='1080p'（4K 能力开关，PRD 7.1.20）；`runtime/bootstrap` 增加 `feature_flags`（enabled=1 typed value，X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「桌面端功能开关」页（列表/筛选/新增/编辑/删除/启用停用/类型化值校验）。
+- 桌面端：`OpsCenterSync` 应用并持久化 featureFlags（基本类型值、≤100 项、非法结构空对象 fail-closed、重启恢复）；`getFeatureFlag`；4K 能力开关读取优先级改为 环境变量 → 运营功能开关（phase1 setFeatureFlagProvider）→ store → 默认 1080p；compose 引擎惰性读取（getMaxOutputResolution）；CreateView 渲染端优先读功能开关。
+- 文档：ops-center PRD 12A.16、Multi-Publish PRD §7.4.9、CHANGELOG。
+- 审查修复（Claude 定向审查）：number value 统一 float 解析 + `math.isfinite`（防 inf → bootstrap 500）；value ≤512（防撑爆 1MB 同步契约）；PUT 忽略 body 中 key（key 不可变）+ IntegrityError → 409；种子并发幂等；桌面端恢复路径同样归一化；`getFeatureFlag` 仅自有属性 + 拒绝 `__proto__`/`constructor`/`prototype`；前端数字校验与后端一致；CreateView 脆弱用例加固（显式 selectedPipeline/provider/model + 稳定等待，消除顺序依赖与额外 microtask 时序敏感）。
+- 测试：ops-center pytest（+2，全量 104）；桌面端 ops-center-sync +5、引擎惰性 4K/单测 +3、container 全量通过；前端 build 通过。
+
+## [未发布] 功能：平台发布元数据管理（P1 其余）（2026-08-11）
+
+- ops-center：新增 `platform_defs` 表 + `GET/POST /api/v1/platform-defs`、`PUT/DELETE /api/v1/platform-defs/{id}`（admin）；校验：name 必填、content_category 枚举 VIDEO/IMAGE_TEXT/MIXED、max_title/max_content 正整数或空、has_api 布尔；PUT 部分更新（与已存在记录合并后全量校验，null 不修改）；种子对齐 config/platforms.yaml 12 平台（INSERT OR IGNORE 不覆盖运营修改）。
+- ops-center：`GET /api/v1/runtime/bootstrap` 增加 `platform_defs`（enabled=1 项，与公告/版本发布/内容安全同链路、同 X-Catalog-Key 鉴权）。
+- ops-center 前端：新增「平台元数据」页（列表/筛选/新增/编辑/删除/下发开关即时切换）。
+- 桌面端：`PlatformConfig.applyRemote(defs)`（按 id 覆盖远程字段、本地独有保留、远程新增不引入、不改写 yaml、cover_size 同步重建解析）；`OpsCenterSync.setPlatformConfig` + `applyRuntime` 应用 platform_defs；phase1 接线。
+- 文档：ops-center PRD 12A.15、Multi-Publish PRD §7.4.8。
+- 审查修复（Claude 定向审查）：POST 重复 id → 409、PUT 不存在 → 404（拆分为显式 create/update）；删除改软删（deleted_at，种子不复活已删平台，软删后可重建）；id 字符集 `^[a-z0-9_-]{1,64}$`；has_api/enabled 仅 true/false/1/0；category/type 枚举；IntegrityError 兜底；前端开关只回传 `{enabled}`、id 预检、类型下拉、空串清空上限；applyRemote allowlist + 类型守卫 + 数组上限 500。
+- 测试：ops-center pytest（+3 platform_defs，全量 105）；桌面端 platform-config +7、ops-center-sync +3；全量桌面端 vitest 395 文件 / 6846 用例通过。
+
+## [未发布] 功能：Story2Video 视频+图片轮播混合流水线（2026-08-11）
+
+- 新增「视频增强」能力：Story2Video 流水线支持 AI 视频片段与图片轮播组合成片，AI 视频只用于最值得动态化的场景（约 20%-40% 时长），控制成本/额度/耗时。
+- 两种模式：`fixed`（成片前段按顺序约 20%-30% 时长用 AI 视频，默认 25%）与 `ai-judged`（LLM 按场景精彩度选择，总占比钳制在默认 20%-40% 且 ≤ maxScenes=3）；`off` 默认保持纯图片轮播，行为零变化。
+- 新增 `select_video_scenes` 阶段（story2video_select_video_scenes）：off 输出空 plan；fixed 顺序累计估算时长标记；ai-judged 调默认 LLM 评估 + 严格 JSON 解析 + 比例/数量钳制；视频生成器未配置 fail closed 引导设置。
+- generate_assets 扩展：视频场景串行调视频适配器（generateVideo + getVideoStatus 轮询 + 下载落盘，并发 1），不生成图片；失败回退图片轮播；断点续传快照支持 videoPath；子进度新增 videosDone/videosTotal。
+- compose-engine 扩展：混合片段合成——视频场景以 AI 视频为基底（-stream_loop + 等比缩放黑边补齐 + 帧率归一化 + 字幕/水印 + 混入 TTS），图片场景维持 zoompan；scene 画面源 videoPath/imagePath 二选一 + audioPath 必有；segment 记录新增 mediaKind；renderSegment 单段重试同步支持视频场景。
+- 前端 CreateView 新增「视频增强」折叠区（模式/视频生成器/比例滑杆/区间滑杆 + 提示文案）；阶段时间轴新增 select_video_scenes 与详情文案（「已选 N 个 AI 视频场景（约 X%）」）；选项持久化白名单新增 videoMode。
+- 契约：story2videoTextConfig 新增可选 video 段（mode/provider/model/fixedRatio/minRatio/maxRatio/maxScenes），normalizer 白名单校验；参数治理纳入（视频并发固定 1，前端不暴露）。
+- 文档：PRD §7.1.25（数据校验/流程/功能逻辑/交互/显示项/提示文字/降级/验收标准）。
+- 测试：story2video-text-config +10、story2video-stages +21（选择算法/执行器/视频分支真实下载）、story2video-compose-engine +3（混合真实编码）、pipeline-engine/pipeline-story2video-contract 阶段顺序同步。
+- 真实运行加固（2026-08-11）：ai-judged 的 LLM 选择改为有界重试（最多 3 次，空内容/解析失败均重试并记录 raw 诊断），修复推理型模型（deepseek-v4-flash）对 27 场景长任务偶发返回空 content/非法 JSON 导致整阶段失败；修复 video_plan 中 excitement/reason 因 entries 遮蔽恒为空的问题；真实运行证据：27 场景 AI 选中 10 个（占比 37%，区间 20%-40%），27 图 + 27 TTS 真实生成，视频场景因 provider 额度（MiniMax 2056）正确回退图片，成片 337.9s/54.9MB。
+- Agnes Video adapter 瞬时错误有界重试（2026-08-11）：`503 video_queue_full`/`429 rate_limit_exceeded`（约 2 次/分钟）标记可重试，提交最多重试 6 次、递增退避（20/30/45/60/60s）；非重试错误立即抛出。**真实混合成片达成**：27 场景 AI 选中 8 个（29.6%，区间 20-40%），6 段真实 Agnes AI 视频 + 21 段图片轮播（2 段因队列满载回退图片），27 图 + 27 TTS 真实生成，成片 338.4s/65.8MB/720x1280（s2v_1786438791564_1_output.mp4），mediaKinds 混合 video/image。
+- **视频片段旁白音频修复（W10，2026-08-11）**：视频片段合成显式映射 TTS 旁白为输出音频（`-map 0:v:0 -map 1:a:0`）——此前 ffmpeg 默认流选择会选中 AI 视频自带音频而丢弃 TTS 解说（实测 440Hz vs 880Hz 验证）。回归测试：视频场景带 440Hz 音频 + TTS 880Hz，成片音频主频必须为 880Hz（compose-engine 94/94 通过）。
+- **横版（1280x720）真实混合成片（2026-08-11）**：W10 修复后重跑，27 场景 AI 选中 10 个（37%），**9 段真实 Agnes AI 视频 + 18 段图片轮播**（scene 15 被 Agnes 内容安全拒绝回退图片），27 图 + 27 TTS 真实生成，成片 334.7s/78.6MB/1280x720（s2v_1786452848848_1_output.mp4），视频段音频为 TTS 旁白（采样 RMS 0.50）。
+
+
+## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
+
+- ops-center：新增 `GET /api/v1/system/health`（admin）——并发只读探针（自身/业务 API health+ready/Logto OIDC discovery/存储可写/`OPS_HEALTH_TARGETS` 自定义目标），单项 ≤5s 超时、URL 非回环强制 https、未配置跳过；返回 overall + 每项状态/耗时/详情。
+- ops-center 前端：新增「系统健康」页（一键巡检 + 总体徽章 + 结果表）。
+- 配置：`.env.example` 新增 OPS_HEALTH_API_URL / OPS_HEALTH_LOGTO_URL / OPS_HEALTH_TARGETS。
+- 文档：ops-center PRD 12A.14。
+- 测试：ops-center pytest（+2 health）。
+
+## [未发布] 功能：官方 Key 池配额/成本概览 + 许可证管理（P0/P1 第三批）（2026-08-10）
+
+- ops-center：官方 Key 池增强——`official_keys` 新增 rate_per_minute/daily_limit/alert_threshold_cost/note（幂等迁移 `ensure_official_key_columns`，校验拒绝布尔/小数/负数）；`GET /api/v1/secrets/summary`（admin）返回池概览（总数/活跃/30 天内到期/已过期/近 30 天成本复用用量上报/达告警阈值）；Key 管理页新增字段与概览卡片。
+- ops-center：许可证管理——`licenses` 表（license_key 唯一自动生成 MP-XXXX-XXXX-XXXX-XXXX、plan/device_limit/expires_at/status/note）+ `GET/POST /api/v1/licenses`、`PUT/DELETE /api/v1/licenses/{id}`（admin）；前端「许可证管理」页（签发/列表/禁用/删除）。
+- 边界：桌面端 license-manager 本地激活与 entitlement 验签合同不变；官方 Key 回退路由/许可证服务端验签待商业模式确认后另行接入。
+- 文档：ops-center PRD 12A.13。
+- 测试：ops-center pytest（+3 keypool/license）。
+
+## [未发布] 功能：模型调用用量上报与运营看板（P0 第二批）（2026-08-10）
+
+- ops-center：新增 `model_usage_daily` 聚合表 + `POST /api/v1/usage/ingest`（X-Catalog-Key 鉴权，按 (日期,客户端,服务商,动作) upsert 累加，幂等；校验：日期格式/非负/≤500 条）+ `GET /api/v1/usage/summary`（admin，totals/by_date/by_provider/by_action）。
+- ops-center 前端：新增「模型用量」页（7/30/90 天切换、汇总卡片、每日趋势 CSS 柱状图、按服务商/按动作表格、空态提示）。
+- 桌面端：新增 `UsageReporter`（聚合 model_provider_logs → ingest，水印推进/失败重试/启动 5s + 30min 周期/未配置静默；脱敏不上报 error_message）；修复 `addProviderLog` INSERT 补 created_at=datetime('now')。
+- 文档：Multi-Publish PRD §7.4.7、ops-center PRD 12A.12。
+- 测试：ops-center pytest（+3 usage）、桌面端 usage-reporter 6 用例。
 ## [未发布] 修复：图片轮播流水线「生成图片与旁白」阶段卡死（调度网关同 key 双包自死锁，2026-08-10）
 
 - 根因：`story2video-stages.js` generate_assets 阶段外层 `withModelBudget` → `governor.run` 与 `AIGenerator.generate` 内层 `governor.run` 使用**同一 ApiUsageGovernor 单例、同一 key（providerId:type:model）** → 并发 ≥2 时外层占满并发信号量、内层排队等自己释放 → 永久自死锁（阶段无超时、sweepAll 仅在 run 终态调用）。引入点：87796b5f（内层网关）+ 0532ac3d（外层包裹）。

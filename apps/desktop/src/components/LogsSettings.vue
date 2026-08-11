@@ -14,6 +14,20 @@
       </div>
     </div>
 
+    <!-- 语言设置 -->
+    <div class="lang-section" role="group" aria-label="Language">
+      <div class="lang-row">
+        <div class="lang-meta">
+          <div class="lang-title">{{ t('settings.language') }}</div>
+          <div class="lang-hint">界面显示语言；切换后立即生效，并记住你的选择。</div>
+        </div>
+        <select class="lang-select" :value="localeModel" data-testid="locale-select" @change="changeLocale">
+          <option value="zh">中文（简体）</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </div>
+
     <!-- 自动清理提示 -->
     <div class="log-hint" role="note">
       <span class="hint-icon">ℹ️</span>
@@ -60,11 +74,17 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { logsGetInfo, logsClear } from '@/api/publisher'
+import { getAppLocale, setAppLocale } from '@/i18n'
 
 const { t } = useI18n()
 const loading = ref(false)
 const clearing = ref(false)
 const info = reactive({ dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] })
+const localeModel = ref(getAppLocale())
+
+function changeLocale (event) {
+  localeModel.value = setAppLocale(event && event.target && event.target.value === 'en' ? 'en' : 'zh')
+}
 
 function formatBytes (bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -113,6 +133,48 @@ onMounted(loadInfo)
 <style scoped>
 .logs-settings {
   padding: 20px;
+}
+
+.lang-section {
+  margin-bottom: 16px;
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.lang-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.lang-meta {
+  min-width: 0;
+}
+
+.lang-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #1a202c);
+}
+
+.lang-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted, #718096);
+  line-height: 1.5;
+}
+
+.lang-select {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border-light, #cbd5e0);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  color: var(--text-primary, #1a202c);
+  font-size: 13px;
+  cursor: pointer;
 }
 
 .log-hint {

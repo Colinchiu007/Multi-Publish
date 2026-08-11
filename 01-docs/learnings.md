@@ -4,14 +4,57 @@
 
 ---
 
-## electron 43.x 无 postinstall 与二进制自愈方案 B 复盘 (2026-08-10，环境/工具链)
+## 长流水线 compose 两缺陷复盘 (2026-08-11，真实 E2E Bug 反哺)
 
-- **背景**：`npm install` 后 `node_modules/electron/dist/` 反复缺失，electron 二进制不可用，需手动 `node node_modules/electron/install.js` 恢复；多次复现。
-- **根因**：`electron@43.x` 的 npm 包不再声明 `postinstall: node install.js`（31~41 版本都有；官方 npmjs tarball 实测 43.1.1 的 package.json 无 scripts 字段）。npm 重装 electron 时判定"无安装脚本"（`.package-lock.json` hasInstallScript=false），不会自动下载 dist；`install.js` 成为唯一下载/解压入口（优先本地 `@electron/get` 缓存，秒级）。
-- **方案选择**：不接 root `postinstall`——否则后端/ECS 每次 `npm ci` 都会被拖去下载 electron ~110MB，且离线/受限环境构建会直接失败。采用方案 B：`scripts/ensure-electron.js` 按需自愈 + AGENTS.md 文档约定；`electron-ci.yml` 保持现状（已手动执行 install.js）。
-- **实现**：`scripts/ensure-electron.js` 三态——dist 完整→跳过(exit 0)；缺失→触发 install.js；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 显式跳过。按仓库约定把脚本加入 `scripts/*.js` 的 .gitignore 白名单。
-- **验证**：三路实测（就绪/跳过/缺失包）+ electron v43.1.1 就绪；本条目即文档同步门禁要求的 docs 变更。
-- **教训**：① 上游 npm 包 lifecycle 声明可能被版本演进静默移除，对"下载型二进制"依赖要装后自检而非假设就绪；② 环境修复优先"按需显式触发"，避免给所有部署形态（尤其后端镜像构建）引入无关下载与失败点。
+- **表象**：27 场景图片轮播真实 E2E（真实 MiniMax 图/TTS + 克隆音色）中，compose 阶段两次失败：① 分块合并 ffmpeg 在 2:55 处无错误输出被终止；② 修复①后成片成功但 run 被判 failed（「Story2Video 项目保存失败: 产物不存在、不可读或超出限制」）。
+- **根因**：① `_xfadeMerge` 硬编码 `timeout: 120000`——27 场景分块（level-1 合并 4 块 ≈300s 视频）编码约 1.5x 实时需 ~200s，被固定 120s 中途杀掉（ffmpeg 无「Conversion failed」即被 kill）；② `saveRun → _persistTextConfig` 对已缺失/不可读的 BGM 路径直接 `_copyRequired` 抛错——compose 阶段已按 bgmSkipped 优雅降级，持久化却硬失败，把成功成片误判为失败（project.json 未落盘）。`_safeOptions` 有 `_resolveSource` 守卫而 `_persistTextConfig` 没有，属不一致。
+- **逃逸链**：① 单测只覆盖短流水线/正常 BGM，未覆盖「27+ 场景分块合并时长」与「BGM 已被回收/缺失」；② compose 的降级语义（bgmSkipped）与项目保存的硬校验不一致，无测试断言「成片成功时保存不得失败」。
+- **修复落地**：① 合并到 main 的是 `computeMergeEncodeTimeoutMs(plan.totalDuration)`（输出时长 3x + 120s 下限，PR #521）；并行分支曾尝试按输入总时长探测的 `computeXfadeMergeTimeoutMs` 未合入（同一缺陷的两种修法，取 main 方案）；② `_persistTextConfig` 先 `_resolveSource` 守卫、缺失时清空 bgm 引用（PR #540 合入）。
+- **回归保护**：compose-engine 超时用例覆盖（300s 级长合并/短合并下限/非法回退）；project-service +1（缺失 BGM 不抛错、成片保存、project.json 落盘）。真实 E2E 复跑 `terminal=completed`。
+- **预防措施**：① 任何「编码/耗时型」ffmpeg 调用的超时必须按输入规模估算，禁止固定超时；② 同一降级语义（bgmSkipped）必须贯穿 compose 与持久化全链路，保存路径不得对可选资源硬失败；③ 长流水线（场景数多/视频长）必须纳入回归场景。
+
+## 技术性提示文字直出用户界面复盘 (2026-08-11，质量节拍 Bug 反哺)
+
+- **表象**：用户反馈页面出现「当前许可证无权访问 store:list-publish-history」这类技术性提示。主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message 返回给渲染端，渲染端（CreateHistory / PublishHistory / useModelProviderCrud 等）把 `result.message`/`e.message` 原样展示；`model-provider-manager.js` 的 message 还夹带英文括号注释（如「（No adapter registered for provider \"x\"）」）。
+- **根因（历史）**：早期优化只覆盖 Story2Video 域（story2video-notifications.js 的 pattern→key 映射），未做全应用统一；i18n 只有 zh/en 语料和 localStorage 读取，无系统语言检测、无设置入口。
+- **逃逸链**：① 主进程单元测试断言旧 message 文本（`未授权的调用来源` 等），反向固化技术文案；② 渲染端测试断言「错误 = 原始 message」把直出行为当作正确行为；③ 无「message 不得含通道名/英文括号」的契约断言。
+- **修复**：① 主进程拒绝类错误返回稳定 `errorCode` + 去通道名 message + `messageParams.channel`（诊断用），模型服务商错误去英文括号、detail 进 `messageParams.detail`；② 渲染端新增 `src/utils/user-facing-error.js` 统一 `formatUserError`（errorCode → 数值 code → 遗留 pattern → 技术文本 sanitize / 自然语言透传），接入 16+ 显示路径；③ i18n 新增系统语言检测 + 设置弹窗语言切换；④ `test-setup.js` 固定测试语言 zh-CN。
+- **关键设计教训**：统一错误格式化必须区分「技术文本」与「自然语言原因」——对已是自然语言的原因文本应原样透传保留信息（如「排期失败：任务不存在」），只对含通道名/错误码/栈信息的技术文本做 sanitize 兜底；无脑替换为通用文案会丢失「具体原因」，违背需求。
+- **回归保护**：`user-facing-error.test.js`（17 用例）覆盖 errorCode/code/pattern/技术 sanitize/自然透传/zh+en；license-access-control 断言 errorCode 且 message 不含通道名；model-provider-* 断言 errorCode；受影响视图测试同步。
+- **预防措施**：① IPC 错误 message 禁止拼内部通道名/英文括号注释，一律走 errorCode + messageParams；② 渲染端用户可见区域禁止直接渲染 IPC message 原文，必须经 `formatUserError`；③ 测试断言不得把「展示原始 message」固化为正确行为；④ 新增/修改用户可见提示必须同时提供 zh/en 文案并在 PRD §3.2 提示文字规范登记。
+
+## MiniMax Adapter 无超时 + 多模态模型错配复盘 (2026-08-11，质量节拍 Bug 反哺)
+
+- **表象**：E2E 全流水线真实验证（43 用例）中发现 explainer/documentary 的 assets 阶段偶发永久挂起（25 分钟不收敛），且图片生成被错误传入 TTS 模型。
+- **根因（git blame + 插桩溯源）**：① minimax-image.js / minimax-tts.js 的 _request() 声明了 DEFAULT_TIMEOUT（120s/60s）但从未把超时接入 etch()——共享 API Key 被并发会话占用、上游卡住时请求永久挂起，callAdapter 的 2 分钟兜底在某些路径（python-bridge/legacy）不覆盖；② xplainer-stages.js / documentary-stages.js 的 getDefaultProviderConfig 取 provider.models[0] 作为任意能力模型——对 minimax-multimodal，models[0] 是 TTS 模型 speech-2.8-turbo，导致图片生成被传 image:speech-2.8-turbo（governor key 证实），adapter 虽忽略 model 但这是配置契约错误。
+- **逃逸链**：① adapter 单测用 fetch mock 只覆盖正常/HTTP 错误/网络错误，无「fetch 挂起不返回」用例——超时未接入 fetch 的情况下 mock 永远立即返回，测不出挂起；② 多模态复合 provider 的 capability_models 字段已由 _safeRow 解析，但调用方未消费。
+- **修复**：① 两个 adapter 的 _request() 用 AbortController 实现有界超时（复用 	his.options.timeout / DEFAULT_TIMEOUT），超时归为 ProviderError(TIMEOUT) 由 governor/上层瞬时重试；② getDefaultProviderConfig 优先用 provider.capability_models[type]，回退 models[0]。
+- **回归保护**：minimax-image/tts 各新增「fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)」用例；聚焦套件 215 项测试全绿（adapters 72 / explainer+documentary 32 / pipeline-engine+model-provider 111）；修复后 documentary-montage 真实 E2E 跑通并产出视频，日志确认 model=image-01。
+- **预防措施**：① 所有 provider adapter 的 HTTP 请求必须接入有界超时（声明 timeout 未使用视为缺陷）；② 复合 provider 选模型必须按 capability_models 按能力路由，禁止 models[0] 猜测；③ adapter 测试必须包含「上游挂起」场景断言超时收敛。
+## Explainer LLM 阶段偶发整线失败复盘 (2026-08-11，质量节拍 Bug 反馈)
+
+- **表象**：E2E 验证中 animated-explainer 流水线 research/proposal/script/scenes 阶段偶发整线失败，报「Default provider returned empty content」或「scenes 阶段无法解析场景」，重试同一主题后可能成功（LLM 非确定性）。
+- **根因**：callDefaultLlm 无任何重试；scenes 阶段 JSON 解析只有单次尝试。
+- **修复**：callDefaultLlm 增加有界重试；scenes 阶段 JSON 解析失败时让 LLM 修复为严格 JSON。
+- **回归保护**：explainer 套件 +5，21 项全绿；关联 101 项全绿。
+- **预防措施**：外部 LLM 调用必须默认带瞬时有界重试；结构化输出必须有解析失败修复路径。
+
+## Provider Adapter fetch 超时系统性缺失复盘 (2026-08-11，质量节拍 Bug 反馈)
+
+- **表象**：多数 provider adapter 声明了 DEFAULT_TIMEOUT 但从未把超时接入 fetch()。
+- **修复**：新增 _base/fetch-utils.js 的 fetchWithTimeout，接入关键 adapter。
+- **回归保护**：fetch-utils.test.js +3；相关套件 67 项全绿。
+- **预防措施**：adapter 声明 timeout 必须接入 fetch。
+
+## clip-factory 选项接线缺失复盘 (2026-08-11，质量节拍 Bug 反哺)
+
+- **表象**：全枚举 E2E 运行器（PR #509 入库脚本）在 main 上跑出 clip-factory 所有选项（sceneThreshold/maxSegments/maxTotalSeconds）产物时长全部相同（45.69s），选项完全无效。
+- **根因（git blame）**：clipfactory-stages.js 的 uildSegments/nalyzeVideo 使用硬编码常量（MAX_SEGMENTS=8/MIN_SEGMENT_SECONDS=2/MAX_TOTAL_SECONDS=60/SCENE_THRESHOLD=0.3），从不读取 stage options；pipeline-engine.js 的 
+esolveRuntimeStageOptions 也未映射 clip-factory 的 analyze 参数 → 用户在 UI/参数传入的选项被丢弃。
+- **修复**：① uildSegments/nalyzeVideo 增加 options 参数（默认值回退常量），analyze 执行器把 stage.options 传入；② 
+esolveRuntimeStageOptions 增加 pipeline 名参数，对 clip-factory 的 analyze 阶段映射 sceneThreshold/maxSegments/minSegmentSeconds/maxTotalSeconds（按 pipeline 名区分，避免与 podcast 的 analyze 阶段名冲突）。
+- **回归保护**：clipfactory-stages 单测 +1（options 生效：maxSegments/minSegmentSeconds/maxTotalSeconds）；真实 E2E 复验：T=0.1→40.69s、T=0.5→55.62s、max=2→10.19s、total=30→25.36s（全部生效）。
+- **预防措施**：① 流水线 stage options 必须经 resolveRuntimeStageOptions 接线；② 阶段执行器必须消费 stage.options，禁止硬编码常量；③ 全枚举 E2E 运行器必须跑在合并后 main 上作为选项接线回归。
 ## 图片轮播流水线 generate_assets 调度网关双包自死锁复盘 (2026-08-10，质量节拍 Bug 反哺)
 
 - **表象**：图片轮播流水线到达「生成图片与旁白」（generate_assets）阶段后永久卡住，前端「图片 0/N · 旁白 0/M」停滞不动；暂停/重试均无法推进，只能重启应用。
@@ -6294,3 +6337,12 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **系统性漏洞**：① 多模态能力声明=「目录级」与「实际可用」未分离，R85 语义（目录 vs 用户配置）只覆盖预设列表，未覆盖能力路由；② 能力路由无 per-capability 用户开关；③ videogen 错误处理不透传 `submit.message`。
 - **回归保护**：新增 `config.capability_enabled.video` 开关（默认关）产品化解决——`_multimodalProviderFor('video')` 与 `listProviders('video')` 均要求 `=== true`；llm/tts/image 不受影响；`_syncPresetCapabilities` 不回填开关；后端 +6 用例、前端 composable +6 用例。
 - **预防**：多模态 provider 的「声明能力」与「能力实际可用」必须分开（目录 vs 开关）；调用适配器失败时上游不得吞掉 `message`（videogen 修复列为后续）。
+
+## electron 43.x 无 postinstall 与二进制自愈方案 B 复盘 (2026-08-10，环境/工具链)
+
+- **背景**：`npm install` 后 `node_modules/electron/dist/` 反复缺失，electron 二进制不可用，需手动 `node node_modules/electron/install.js` 恢复；多次复现。
+- **根因**：`electron@43.x` 的 npm 包不再声明 `postinstall: node install.js`（31~41 版本都有；官方 npmjs tarball 实测 43.1.1 的 package.json 无 scripts 字段）。npm 重装 electron 时判定"无安装脚本"（`.package-lock.json` hasInstallScript=false），不会自动下载 dist；`install.js` 成为唯一下载/解压入口（优先本地 `@electron/get` 缓存，秒级）。
+- **方案选择**：不接 root `postinstall`——否则后端/ECS 每次 `npm ci` 都会被拖去下载 electron ~110MB，且离线/受限环境构建会直接失败。采用方案 B：`scripts/ensure-electron.js` 按需自愈 + AGENTS.md 文档约定；`electron-ci.yml` 保持现状（已手动执行 install.js）。
+- **实现**：`scripts/ensure-electron.js` 三态——dist 完整→跳过(exit 0)；缺失→触发 install.js；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 显式跳过。按仓库约定把脚本加入 `scripts/*.js` 的 .gitignore 白名单。
+- **验证**：三路实测（就绪/跳过/缺失包）+ electron v43.1.1 就绪；本条目即文档同步门禁要求的 docs 变更。
+- **教训**：① 上游 npm 包 lifecycle 声明可能被版本演进静默移除，对"下载型二进制"依赖要装后自检而非假设就绪；② 环境修复优先"按需显式触发"，避免给所有部署形态（尤其后端镜像构建）引入无关下载与失败点。

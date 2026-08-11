@@ -167,6 +167,49 @@ describe('IdentityMenu', () => {
     expect(wrapper.find('[aria-live="polite"]').exists()).toBe(true)
   })
 
+
+  it('未登录态触发按钮显示登录文案并带 primary 样式类', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useIdentityStore } = await import('@/stores/identity')
+    const store = useIdentityStore()
+    store.status = 'signed_out'
+    const Component = (await import('./IdentityMenu.vue')).default
+    const wrapper = mount(Component, { global: { plugins: [pinia] } })
+
+    const trigger = wrapper.get('[data-testid="identity-trigger"]')
+    expect(trigger.text()).toContain('登录')
+    expect(trigger.classes()).toContain('identity-trigger-login')
+  })
+
+  it('已登录态触发按钮显示用户名且无 primary 样式类', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useIdentityStore } = await import('@/stores/identity')
+    const store = useIdentityStore()
+    store.status = 'authenticated'
+    store.user = { sub: 'sub-1', name: '用户乙', username: '', picture: '' }
+    const Component = (await import('./IdentityMenu.vue')).default
+    const wrapper = mount(Component, { global: { plugins: [pinia] } })
+
+    const trigger = wrapper.get('[data-testid="identity-trigger"]')
+    expect(trigger.text()).toContain('用户乙')
+    expect(trigger.classes()).not.toContain('identity-trigger-login')
+  })
+
+  it('disabled 状态不显示 primary 样式类', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useIdentityStore } = await import('@/stores/identity')
+    useIdentityStore().status = 'disabled'
+    const Component = (await import('./IdentityMenu.vue')).default
+    const wrapper = mount(Component, { global: { plugins: [pinia] } })
+
+    const trigger = wrapper.get('[data-testid="identity-trigger"]')
+    expect(trigger.classes()).not.toContain('identity-trigger-login')
+  })
+
+
   it.each([
     ['signing_in', '登录中'],
     ['offline_authenticated', '离线模式'],

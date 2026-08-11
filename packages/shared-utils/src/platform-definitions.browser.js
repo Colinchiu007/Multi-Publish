@@ -35,3 +35,21 @@ export const PLATFORM_ICONS = {
   instagram: '📷',
   facebook: '👍',
 }
+
+export const PLATFORM_DASHBOARD_URLS = {
+  wechat_mp: 'https://mp.weixin.qq.com/',
+  zhihu: 'https://www.zhihu.com/',
+  weibo: 'https://weibo.com/',
+  douyin: 'https://creator.douyin.com/',
+  xiaohongshu: 'https://creator.xiaohongshu.com/',
+  tencent_video: 'https://channels.weixin.qq.com/',
+  kuaishou: 'https://cp.kuaishou.com/',
+  toutiao: 'https://mp.toutiao.com/',
+  bilibili: 'https://www.bilibili.com/',
+  baijiahao: 'https://baijiahao.baidu.com/',
+  youtube: 'https://studio.youtube.com/',
+  tiktok: 'https://www.tiktok.com/',
+  twitter: 'https://twitter.com/home',
+  instagram: 'https://www.instagram.com/',
+  facebook: 'https://www.facebook.com/',
+}

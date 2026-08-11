@@ -77,7 +77,7 @@ describe('Story2Video text 参数合同', () => {
     expect(result.story2videoTextConfig).not.toHaveProperty('perImageDuration')
     expect(result.stageOptions.optimize).toMatchObject({
       platform: 'generic',
-      max_length: 300,
+      max_length: 500,
       num_candidates: 1,
       auto_detect_style: true,
     })
@@ -231,7 +231,7 @@ describe('Story2Video text 参数合同', () => {
     expect(result.stageOptions.split).toMatchObject({ mode: 'precise', max_sentence_length: 120, target_duration: 4 })
     expect(result.stageOptions.optimize).toEqual({
       platform: 'generic', style: 'anime', creative_level: 8,
-      max_length: 300, num_candidates: 1, auto_detect_style: true,
+      max_length: 500, num_candidates: 1, auto_detect_style: true,
       negative_prompt: '水印、文字',
     })
     expect(result.stageOptions.compose).toMatchObject({
@@ -253,7 +253,7 @@ describe('Story2Video text 参数合同', () => {
     })
 
     expect(result.stageOptions.optimize).toMatchObject({
-      platform: 'generic', style: 'realistic', max_length: 300, num_candidates: 1, auto_detect_style: true,
+      platform: 'generic', style: 'realistic', max_length: 500, num_candidates: 1, auto_detect_style: true,
     })
     expect(result).not.toHaveProperty('seconds')
     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
@@ -542,5 +542,86 @@ describe('Story2Video text 参数合同', () => {
     expect(() => normalizeStory2VideoTextParams({
       story2videoTextConfig: { version: 1, mode: 'text', prompt: '😀'.repeat(6001) },
     })).toThrow('最多 6000')
+  })
+})
+
+describe('Story2Video video 混合模式配置归一化（2026-08-11）', () => {
+  const base = (video) => ({
+    text: '视频+图片轮播混合模式测试文案。',
+    story2videoTextConfig: { version: 1, mode: 'text', prompt: '视频+图片轮播混合模式测试文案。', ...(video ? { video } : {}) },
+  })
+
+  it('默认 off：不携带 video 段时保持纯图片轮播契约', () => {
+    const result = normalizeStory2VideoTextParams(base())
+    expect(result.videoMode).toBe('off')
+    expect(result.videoConfig).toMatchObject({ mode: 'off', fixedRatio: 25, minRatio: 20, maxRatio: 40, maxScenes: 3 })
+    expect(result.story2videoTextConfig.video.mode).toBe('off')
+    expect(result.stageOptions.select_video_scenes.video).toMatchObject({ mode: 'off' })
+    expect(result.stageOptions.generate_assets.videoMode).toBe('off')
+    // 媒体输入 video 字段语义保持不变（text 模式为 null）
+    expect(result.video).toBeNull()
+  })
+
+  it('fixed 模式：合法比例与 provider/model 归一化', () => {
+    const result = normalizeStory2VideoTextParams(base({
+      mode: 'fixed',
+      provider: 'kling',
+      model: 'kling-v1',
+      fixedRatio: 30,
+    }))
+    expect(result.videoMode).toBe('fixed')
+    expect(result.videoConfig).toMatchObject({ mode: 'fixed', provider: 'kling', model: 'kling-v1', fixedRatio: 30 })
+    expect(result.stageOptions.select_video_scenes.video).toMatchObject({
+      mode: 'fixed', provider: 'kling', model: 'kling-v1', fixedRatio: 30,
+    })
+    expect(result.stageOptions.generate_assets.video).toMatchObject({ provider: 'kling', model: 'kling-v1' })
+  })
+
+  it('ai-judged 模式：min/max 区间与 maxScenes 归一化', () => {
+    const result = normalizeStory2VideoTextParams(base({
+      mode: 'ai-judged',
+      minRatio: 20,
+      maxRatio: 40,
+      maxScenes: 4,
+    }))
+    expect(result.videoConfig).toMatchObject({ mode: 'ai-judged', minRatio: 20, maxRatio: 40, maxScenes: 4 })
+  })
+
+  it('拒绝非法 mode', () => {
+    expect(() => normalizeStory2VideoTextParams(base({ mode: 'magic' }))).toThrow('video.mode 值无效')
+  })
+
+  it('拒绝越界 fixedRatio', () => {
+    expect(() => normalizeStory2VideoTextParams(base({ mode: 'fixed', fixedRatio: 200 }))).toThrow('video.fixedRatio')
+    expect(() => normalizeStory2VideoTextParams(base({ mode: 'fixed', fixedRatio: 5 }))).toThrow('video.fixedRatio')
+  })
+
+  it('拒绝 minRatio > maxRatio', () => {
+    expect(() => normalizeStory2VideoTextParams(base({ mode: 'ai-judged', minRatio: 50, maxRatio: 20 }))).toThrow('video.minRatio 不能大于 video.maxRatio')
+  })
+
+  it('拒绝非法 maxScenes（0 / 13）', () => {
+    expect(() => normalizeStory2VideoTextParams(base({ maxScenes: 0 }))).toThrow('video.maxScenes')
+    expect(() => normalizeStory2VideoTextParams(base({ maxScenes: 13 }))).toThrow('video.maxScenes')
+  })
+
+  it('拒绝非法 provider 字符', () => {
+    expect(() => normalizeStory2VideoTextParams(base({ provider: 'bad provider!' }))).toThrow('video.provider 格式无效')
+  })
+
+  it('未知 video 字段被忽略，不污染归一化结果', () => {
+    const result = normalizeStory2VideoTextParams(base({ mode: 'off', foo: 'bar', nested: { x: 1 } }))
+    expect(result.story2videoTextConfig.video).not.toHaveProperty('foo')
+    expect(result.story2videoTextConfig.video).not.toHaveProperty('nested')
+  })
+
+  it('顶层 videoMode/videoProvider 兼容旧扁平参数', () => {
+    const result = normalizeStory2VideoTextParams({
+      text: '兼容旧参数。',
+      videoMode: 'fixed',
+      videoProvider: 'ltx',
+    })
+    expect(result.videoMode).toBe('fixed')
+    expect(result.videoConfig.provider).toBe('ltx')
   })
 })

@@ -1,0 +1,12 @@
+{
+  "id": "login-required-feature-gating",
+  "title": "登录门禁与会员权益判定体系：模型写操作+发布历史/流水线/视频/Story2Video 写操作需登录，feature 预留映射，文档+记忆",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "electron-ipc-security",
+  "currentPhase": "completed",
+  "nextAction": "已归档，待推送合并",
+  "createdAt": "2026-08-11T16:00:00Z",
+  "branch": "codex/login-gating-entitlement"
+}

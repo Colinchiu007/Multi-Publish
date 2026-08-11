@@ -66,6 +66,28 @@ function createControlledDefaultLlm() {
     },
   };
 }
+function createMockPromptBridge() {
+  return {
+    optimize: async (request) => {
+      const prompt = (request && request.prompt) || '';
+      return {
+        optimized_prompt: 'E2E optimized: ' + prompt,
+        platform: 'douyin',
+        style: 'cinematic',
+        model_used: 'e2-optimize',
+      };
+    },
+    optimizeBatch: async (requests) => {
+      return {
+        results: requests.map(r => ({
+          optimized_prompt: 'E2E optimized: ' + ((r && r.prompt) || ''),
+          platform: 'douyin',
+          style: 'cinematic',
+        })),
+      };
+    },
+  };
+}
 async function buildRealContext() {
   const controlledTempRoot = path.join(os.tmpdir(), 'story2video');
   fs.mkdirSync(controlledTempRoot, { recursive: true });
@@ -74,9 +96,12 @@ async function buildRealContext() {
 
   const splitterBridge = new SplitterBridge({ port: 8002, log: noopLog });
 
-  const splitterOk = await splitterBridge.attach();
-  if (!splitterOk) {
-    throw new Error('Splitter bridge not available');
+    // 使用 start() 而非 attach()：如果 Splitter 未运行会自动启动子进程
+  // attach() 只能连接已有服务，start() 会先 attach 失败后 spawn 新进程
+  try {
+    await splitterBridge.start();
+  } catch (err) {
+    throw new Error('Splitter bridge failed to start: ' + (err && err.message ? err.message : String(err)));
   }
 
   const assetGenerator = new AssetGenerator({ outputDir: path.join(runRoot, 'assets'), log: noopLog });
@@ -84,6 +109,7 @@ async function buildRealContext() {
 
   const serviceBus = new ServiceBus({
     splitterBridge,
+    promptBridge: createMockPromptBridge(),
     story2videoEngine: composeEngine,
     log: noopLog,
   });
@@ -127,19 +153,20 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
     result = await pipelineEngine.advanceToNextCheckpoint(runId);
     assert.strictEqual(result.success, true, [result.error, ..._diagnostics].filter(Boolean).join('\n'));
   }
-  assert.strictEqual(result.completed, true, 'pipeline should complete all six stages');
+  assert.strictEqual(result.completed, true, 'pipeline should complete all seven stages');
 
   const completedRun = pipelineEngine.getHistory().find(run => run.id === runId);
   assert.ok(completedRun, 'completed pipeline should move to history');
   assert.strictEqual(completedRun.status, 'completed');
+  // 2026-08-11：新增 select_video_scenes 阶段（视频+图片轮播混合模式，off 模式快速通过）
   assert.deepStrictEqual(
     completedRun.stages.map(stage => stage.name),
-    ['split', 'domain_enrich', 'optimize', 'generate_assets', 'compose', 'publish'],
+    ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
   );
   assert.ok(completedRun.stages.every(stage => stage.status === 'completed'));
 
   const context = result.context || completedRun.context;
-  for (const stageName of ['split', 'domain_enrich', 'optimize', 'generate_assets', 'compose', 'publish']) {
+  for (const stageName of ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish']) {
     assert.ok(context[stageName], 'context should contain ' + stageName);
   }
 
@@ -154,14 +181,14 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
       : item?.prompt || item?.optimized_prompt || item?.optimized;
     return typeof prompt === 'string' && prompt.trim().length > 0;
   }), 'default LLM should return a non-empty optimized prompt for every scene');
-  assert.ok(context.optimize.every(item => item.providerId === 'e2e-llm' && item.model === 'e2e-model'),
-    'every optimized prompt should retain the selected default model identity');
-  assert.strictEqual(aiGenerator.calls.length, splitScenes.length,
-    'controlled default LLM should receive one optimization call per scene');
-  assert.ok(aiGenerator.calls.every(call => call.type === 'llm'),
-    'optimization should use the configured default LLM interface');
-  assert.ok(aiGenerator.calls.every(call => call.params.messages[1].content.includes('Scene source:')),
-    'each optimization request should include the scene prompt seed');
+  assert.ok(context.optimize.every(item => item.providerId === 'prompt-engine' && typeof item.model === 'string' && item.model.length > 0),
+    'every optimized prompt should retain the prompt-engine provider and a valid model');
+  // optimize 阶段已迁移到 promptBridge，aiGenerator 不再直接接收 optimize 调用
+    // removed: aiGenerator assertion - optimize now goes through promptBridge
+  // removed: aiGenerator assertion - optimize now goes through promptBridge
+    // removed: leftover assertion message
+  // removed: aiGenerator assertion - optimize now goes through promptBridge
+    // removed: leftover assertion message
 
   const assets = context.generate_assets;
   assert.ok(assets.scenes.length > 0, 'asset stage should create paired scenes');
@@ -190,7 +217,7 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
   assert.strictEqual(context.publish.skipped, true);
   assert.strictEqual(context.publish.videoPath, compose.videoPath);
 
-  console.log('  [stages] split → domain_enrich → optimize → generate_assets → compose → publish');
+  console.log('  [stages] split → domain_enrich → optimize → select_video_scenes → generate_assets → compose → publish');
   console.log('  [assets] image=' + assets.images[0].meta.source +
     ', audio=' + assets.audio[0].meta.source);
   console.log('  [compose] video created: ' + compose.fileSize + ' bytes, ' +

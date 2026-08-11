@@ -26,25 +26,13 @@
     <div v-if="view === 'pipelines'">
       <!-- 流水线列表 -->
       <div v-if="!selectedPipeline">
-        <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载流水线列表...</span></div>
-        <div v-else-if="pipelineError" class="error-state">⚠️ {{ pipelineError }}</div>
-        <div v-else class="pipeline-grid">
-          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :data-pipeline-id="p.name" :class="[p.category, { 'is-unavailable': p.available === false }]" tabindex="0" role="button" :aria-label="pipelineName(p.name)" @click="selectPipeline(p)" @keydown.enter="selectPipeline(p)">
-            <div class="card-header">
-              <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
-              <span class="stability-dot" :class="getStability(p.name)" :title="getStability(p.name)"></span>
-            </div>
-            <h3 class="card-title">{{ pipelineName(p.name) }}</h3>
-            <p class="card-desc">{{ pipelineDescription(p.name) }}</p>
-            <div class="card-meta">
-              <span class="stage-count">{{ p.stageCount ?? p.stages?.length ?? 0 }} 阶段</span>
-              <span class="cost-label" :class="p.estimatedCost">{{ costLabel(p.estimatedCost) }}</span>
-              <span class="availability-badge" :class="p.available === false ? 'dev' : 'ready'" :title="availabilityHint(p.available !== false)">
-                {{ availabilityLabel(p.available !== false) }}
-              </span>
-            </div>
-          </div>
-        </div>
+        <PipelineSelector
+          :pipelines="pipelines"
+          :loading="pipelineLoading"
+          :error="pipelineError"
+          @select="selectPipeline"
+          @retry="loadPipelines"
+        />
       </div>
 
       <!-- 流水线详情 & 配置 -->
@@ -57,30 +45,14 @@
         </div>
 
         <!-- 阶段进度 -->
-        <div v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length" class="stages-timeline" data-testid="story2video-stage-list">
-          <!-- 进度头部固定：流水线运行中页面较长时，进度条/已用时/完成摘要不随滚动离开视口 -->
-          <div class="stages-timeline-sticky" data-testid="story2video-stage-sticky-header">
-            <div class="orchestration-progress" data-testid="story2video-orchestration-progress">
-              <div class="progress-bar"><div class="progress-fill" :style="{ width: orchestrationProgressPercent + '%' }"></div></div>
-              <span class="progress-text">{{ orchestrationProgressPercent }}%</span>
-              <span v-if="orchestrationElapsedMs !== null" class="elapsed-text">{{ translateWithLocaleFallback('story2video.elapsed', '已用时 ' + formatDuration(orchestrationElapsedMs), 'Elapsed ' + formatDuration(orchestrationElapsedMs), { duration: formatDuration(orchestrationElapsedMs) }) }}</span>
-            </div>
-            <div v-if="orchestrationSummary" class="orchestration-summary" data-testid="story2video-orchestration-summary">{{ orchestrationSummary }}</div>
-          </div>
-          <div v-for="(stage, i) in (pipelineRunStatus.stages || orchestrationStages)" :key="stage.id || stage.name || i" class="stage-item" :class="stageStateClass(stage, i)" :data-testid="`story2video-stage-${stage.name || i}`">
-            <span class="stage-icon">{{ stageStateIcon(stage, i) }}</span>
-            <span class="stage-main">
-              <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
-              <span v-if="stageDetailText(stage, i)" class="stage-meta" :data-testid="`story2video-stage-detail-${stage.name || i}`">{{ stageDetailText(stage, i) }}</span>
-              <span v-if="stage.name === 'compose' && stage.status === 'running' && composeSubProgressPercent(stage) !== null" class="stage-sub-progress" data-testid="story2video-stage-compose-progress" role="progressbar" :aria-valuenow="composeSubProgressPercent(stage)" aria-valuemin="0" aria-valuemax="100">
-                <span class="stage-sub-bar"><span class="stage-sub-fill" :style="{ width: composeSubProgressPercent(stage) + '%' }"></span></span>
-              </span>
-            </span>
-            <span class="stage-status">
-              {{ stageStatusLabel(stage, i) }}<span v-if="stageTimeText(stage)" class="stage-time"> · {{ stageTimeText(stage) }}</span>
-            </span>
-          </div>
-        </div>
+        <StageProgress
+          v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length"
+          :stages="pipelineRunStatus.stages || orchestrationStages"
+          :progress-percent="orchestrationProgressPercent"
+          :elapsed-ms="orchestrationElapsedMs"
+          :summary="orchestrationSummary"
+          :orchestration-context="orchestrationContext"
+        />
 
         <!-- 模型服务异常提示（非阻塞） -->
         <div v-if="providerWarningText" class="provider-warning-banner" role="alert">
@@ -358,6 +330,52 @@
                 <select v-model="activeOutputConfig.resolution" class="form-select">
                   <option v-for="opt in outputResolutionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                 </select>
+              </div>
+            </div>
+          </details>
+
+          <!-- 视频增强：AI 视频片段 + 图片轮播混合（2026-08-11） -->
+          <details
+            class="s2v-config-section"
+            data-testid="s2v-section-videoEnhance"
+            :open="s2vOpenSections.videoEnhance"
+            @toggle="setS2VSectionOpen('videoEnhance', $event)"
+          >
+            <summary class="s2v-section-summary">
+              <span>{{ s2vSectionLabel('videoEnhance') }}</span>
+              <span class="s2v-summary">{{ s2vSectionSummary('videoEnhance') }}</span>
+            </summary>
+            <div class="config-grid">
+              <div class="config-item">
+                <label>视频增强模式</label>
+                <select v-model="s2vConfig.videoMode" class="form-select" data-testid="s2v-video-mode">
+                  <option value="off">关闭（纯图片轮播）</option>
+                  <option value="fixed">固定比例（成片前段 AI 视频）</option>
+                  <option value="ai-judged">AI 智能选择（最精彩场景）</option>
+                </select>
+                <p class="config-hint">AI 视频更贵也更慢，仅用于最值得动态化的场景；其余场景继续图片轮播，节省额度。</p>
+              </div>
+              <div v-if="s2vConfig.videoMode !== 'off'" class="config-item">
+                <label>视频生成器</label>
+                <select v-model="s2vConfig.videoProvider" class="form-select" @change="handleS2VVideoProviderChange" data-testid="s2v-video-provider">
+                  <option v-for="provider in s2vVideoProviderOptions" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
+                </select>
+                <p v-if="s2vVideoProviders.length === 0" class="config-hint">未找到可用的视频生成器，请先在「模型服务商」中配置并启用支持视频生成的模型。</p>
+              </div>
+              <div v-if="s2vConfig.videoMode === 'fixed'" class="config-item">
+                <label>AI 视频占比: {{ s2vConfig.videoFixedRatio }}%（前段）</label>
+                <input type="range" v-model.number="s2vConfig.videoFixedRatio" min="10" max="50" step="5" class="form-range" data-testid="s2v-video-fixed-ratio" />
+                <p class="config-hint">成片前约 {{ s2vConfig.videoFixedRatio }}% 时长的场景使用 AI 视频（建议 20%-30%）。</p>
+              </div>
+              <div v-if="s2vConfig.videoMode === 'ai-judged'" class="config-item">
+                <label>AI 视频占比区间: {{ s2vConfig.videoMinRatio }}% - {{ s2vConfig.videoMaxRatio }}%</label>
+                <div class="config-item-inline">
+                  <span class="config-hint">最少</span>
+                  <input type="range" v-model.number="s2vConfig.videoMinRatio" min="5" max="50" step="5" class="form-range" data-testid="s2v-video-min-ratio" />
+                  <span class="config-hint">最多</span>
+                  <input type="range" v-model.number="s2vConfig.videoMaxRatio" min="10" max="80" step="5" class="form-range" data-testid="s2v-video-max-ratio" />
+                </div>
+                <p class="config-hint">AI 根据场景精彩度自动选择视频片段，总占比控制在区间内（默认 20%-40%）；可生成场景数上限 {{ s2vConfig.videoMaxScenes }} 个。</p>
               </div>
             </div>
           </details>
@@ -667,7 +685,7 @@
         <div class="action-bar">
           <span v-if="s2vOptionsToast" class="s2v-options-toast" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</span>
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
-            <UiButton class="btn-start" data-testid="start-story2video" @click="startPipeline" :disabled="!canStartPipeline">
+            <UiButton class="btn-start" data-testid="start-story2video" @click="handleStartPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
             </UiButton>
             <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="reset-options-link" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
@@ -742,45 +760,21 @@
       <div v-if="quickError" class="result-banner error"><p>{{ quickError }}</p><button class="btn-secondary" @click="quickError = null">重试</button></div>
     </div>
 
+
     <!-- ==================== 历史记录视图 ==================== -->
     <div v-if="view === 'history'">
-      <div v-if="historyLocalMode" class="history-local-mode-banner" data-testid="history-local-mode-banner">
-        {{ historyLocalModeText }}
-      </div>
-      <div v-if="historyLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
-      <div v-else>
-        <div v-if="history.length === 0" class="empty-state"><p>暂无创作记录</p></div>
-        <div v-else>
-          <div class="history-toolbar">
-            <label for="history-status-filter">状态</label>
-            <select id="history-status-filter" v-model="historyFilter" class="form-select history-filter">
-              <option value="all">全部</option>
-              <option value="completed">已完成</option>
-              <option value="failed">生成失败</option>
-              <option value="cancelled">已取消</option>
-              <option value="running">进行中</option>
-            </select>
-          </div>
-          <div v-if="filteredHistory.length === 0" class="empty-state compact"><p>没有符合条件的记录</p></div>
-          <div v-else class="history-list">
-            <div v-for="(h, i) in filteredHistory" :key="h.projectId || h.id || i" class="history-item" :class="{ 'is-running': h.status === 'running' }" @click="openHistory(h)">
-              <div class="history-item-main">
-                <span class="history-name">{{ h.title || pipelineName(h.pipeline || h.name) }}</span>
-                <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
-                <span v-if="h.status === 'running'" class="history-running-hint">返回流水线创作查看进度</span>
-                <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
-                <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
-                <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
-                <button v-if="h.status === 'failed' && historyItemResumable(h)" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '从断点继续' }}</button>
-                <button v-else-if="h.status === 'running'" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '继续生成' }}</button>
-              </div>
-              <div v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
-                <span v-for="(s, si) in h.stages" :key="si" class="history-progress-seg" :class="historyStageState(s)" :title="historyStageTitle(s)">{{ historyStageLabel(s) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <CreateViewHistory
+        :history="history"
+        :history-loading="historyLoading"
+        :history-local-mode="historyLocalMode"
+        :history-local-mode-text="historyLocalModeText"
+        :history-filter="historyFilter"
+        :story2video-resuming="story2videoResuming"
+        @update:historyFilter="historyFilter = $event"
+        @open-history="openHistory"
+        @resume-history="resumeHistoryItem"
+        @delete-history="requestProjectDeletion"
+      />
     </div>
 
     <UiModal
@@ -828,9 +822,13 @@
 </template>
 
 <script>
+import '@/styles/create-view.css'
 import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
+import CreateViewHistory from './CreateViewHistory.vue'
+import { PipelineSelector, StageProgress } from './video-creation'
+import { useLoginGate } from '@/composables/useLoginGate'
 import {
   deleteCustomTemplate,
   getAllTemplates,
@@ -849,6 +847,8 @@ import {
   story2videoDeleteProject
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
+import { opsCenterSyncRuntime } from '@/api/ops-center-sync'
+import { formatUserError } from '@/utils/user-facing-error'
 import {
   getTtsVoiceCatalog,
   getTtsVoiceCapability,
@@ -945,6 +945,7 @@ const STORY2VIDEO_STAGE_NAMES = Object.freeze([
   'split',
   'domain_enrich',
   'optimize',
+  'select_video_scenes',
   'generate_assets',
   'compose',
   'publish',
@@ -976,6 +977,7 @@ const S2V_PLATFORMS = [
 // imageStyle）不在当前选项列表时回退到 data() 默认值，避免下拉框出现空白选中项（2026-08-10 Bug 反哺）。
 const S2V_RESTORE_ENUM_OPTIONS = Object.freeze({
   contentType: ['general', 'history'],
+  videoMode: ['off', 'fixed', 'ai-judged'],
   imageStyle: ['cinematic', 'realistic', 'anime', 'watercolor', 'minimalist'],
   promptStyle: ['realistic', 'cinematic', 'anime', 'watercolor', 'minimalist'],
   imageEffect: ['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'zoom-pan', 'rotate', 'blur-in'],
@@ -1043,6 +1045,9 @@ export default {
         voiceSpeed: 1, voiceVolume: 1,
         // 参数治理 R2（7.1.19）：concurrency 为系统管理参数（契约默认 3，范围 1-8），前端不暴露不提交。
         templateId: '', imageEffect: 'zoom-in',
+        // 视频+图片轮播混合模式（2026-08-11）：默认关闭保持纯图片轮播
+        videoMode: 'off', videoProvider: '', videoModel: '',
+        videoFixedRatio: 25, videoMinRatio: 20, videoMaxRatio: 40, videoMaxScenes: 3,
         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitTargetCharsPerScene: 20, splitViewMode: 'seconds',
         // 参数治理（7.1.19）：splitBaseWordsPerSecond 自 Batch 5a 起由语言感知表驱动（voice-estimate.js），
@@ -1075,13 +1080,13 @@ export default {
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
-      s2vImageProviders: [], s2vVoiceProviders: [],
+      s2vImageProviders: [], s2vVoiceProviders: [], s2vVideoProviders: [],
       s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCatalogErrorCode: '', s2vVoiceCapability: null,
       s2vVoiceProviderRequestId: 0, s2vVoiceRequestId: 0, s2vVoiceSelectionRequestId: 0, s2vVoiceCloneRequestId: 0, s2vPersistedVoiceId: '',
       s2vVoiceCloneRequirements: null, s2vVoiceClones: [],
       s2vVoiceCloneSelection: null, s2vVoiceCloneName: '', s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
-      s2vOpenSections: { basic: true, appearance: false, voice: false, advanced: false, publish: false },
+      s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false },
       // 历史
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
       // 清理
@@ -1108,6 +1113,7 @@ export default {
     },
     filteredHistory() {
       if (this.historyFilter === 'all') return this.history
+      if (this.historyFilter === 'paused') return this.history.filter(item => item.status === 'paused' || item.status === 'failed')
       return this.history.filter(item => item.status === this.historyFilter)
     },
     activeOutputConfig() {
@@ -1131,6 +1137,23 @@ export default {
         ...provider,
         displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
       }))]
+    },
+    s2vVideoProviderOptions() {
+      return this.s2vVideoProviders.map(provider => ({
+        ...provider,
+        displayName: provider.category === 'multimodal' ? provider.name + '（多模态）' : provider.name,
+      }))
+    },
+    s2vVideoModelOptions() {
+      const provider = this.s2vVideoProviders.find(item => item?.id === this.s2vConfig.videoProvider)
+      if (!provider) return []
+      const strings = (Array.isArray(provider.models) ? provider.models : []).filter(model => typeof model === 'string' && model)
+      // 多模态：只展示声明支持视频的默认模型（capability_models.video）
+      if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
+        const videoModel = provider.capability_models.video
+        return strings.includes(videoModel) ? [videoModel] : [videoModel, ...strings]
+      }
+      return strings
     },
     s2vVoiceCatalogRefreshable() {
       // 仅瞬时/未知错误提供「刷新音色列表」；配置类/不支持/模型不匹配/身份问题重试无效
@@ -1453,8 +1476,8 @@ export default {
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
     s2vSectionLabel(section) {
       const key = `create.story2video.sections.${section}`
-      const fallback = { basic: '基础', appearance: '画面', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
-      const english = { basic: 'Basics', appearance: 'Appearance', voice: 'Voice', advanced: 'Advanced', publish: 'Publish' }[section] || section
+      const fallback = { basic: '基础', appearance: '画面', videoEnhance: '视频增强', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
+      const english = { basic: 'Basics', appearance: 'Appearance', videoEnhance: 'Video Boost', voice: 'Voice', advanced: 'Advanced', publish: 'Publish' }[section] || section
       return this.translateWithLocaleFallback(key, fallback, english)
     },
     s2vSubgroupLabel(subgroup) {
@@ -1467,6 +1490,11 @@ export default {
       const summaries = {
         basic: `${this.s2vConfig.contentType === 'history' ? '历史内容' : '通用内容'} · ${this.s2vConfig.imageProvider || '默认图片模型'}`,
         appearance: `${this.s2vConfig.imageStyle || '电影感'} · ${this.s2vConfig.imageEffect || '无效果'}`,
+        videoEnhance: this.s2vConfig.videoMode === 'off' || !this.s2vConfig.videoMode
+          ? '关闭'
+          : (this.s2vConfig.videoMode === 'fixed'
+            ? `固定 ${this.s2vConfig.videoFixedRatio}%`
+            : `AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.videoMaxRatio}%`),
         voice: `${this.s2vConfig.voiceProvider || '自动 Edge TTS'}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`,
         advanced: `${this.s2vConfig.splitLanguage === 'auto' ? '自动识别' : this.s2vConfig.splitLanguage} · ${this.s2vConfig.splitMode || '均衡'}`,
         publish: this.s2vConfig.platforms?.length ? `已选 ${this.s2vConfig.platforms.length} 个平台` : '不发布',
@@ -1482,7 +1510,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
     historyStatusLabel(status) {
-      return { completed: '已完成', failed: '生成失败', cancelled: '已取消', running: '进行中', pending: '等待中' }[status] || status || '未知'
+      return { completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
     },
 
     // 流水线操作
@@ -1491,8 +1519,8 @@ export default {
       try {
         const res = await pipelineList()
         if (res?.code === 0) this.pipelines = prioritizeStory2VideoPipeline(res.data)
-        else this.pipelineError = res?.message || '加载失败'
-      } catch (e) { this.pipelineError = e.message }
+        else this.pipelineError = formatUserError(res, { fallback: '加载失败' }).message
+      } catch (e) { this.pipelineError = formatUserError(e, { fallback: '加载失败' }).message }
       finally { this.pipelineLoading = false }
     },
     selectPipeline(p) {
@@ -1545,6 +1573,17 @@ export default {
     },
     getDefaultStory2VideoStages() {
       return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
+    },
+    async ensureLoginForStart (message) {
+      // 主动操作登录门（UI 层）：未登录弹登录窗口，登录成功后继续启动流水线。
+      // 放在 UI 点击层而非 startPipeline 方法内，避免改变 startPipeline 的同步时序语义。
+      const { ensureLogin } = useLoginGate()
+      return ensureLogin({ message: message || '启动流水线需要登录后使用，是否立即登录？' })
+    },
+    // UI「启动流水线」入口：登录门 + 启动
+    async handleStartPipeline () {
+      if (!(await this.ensureLoginForStart())) return false
+      return this.startPipeline()
     },
     async startPipeline() {
       // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
@@ -1750,12 +1789,21 @@ export default {
         }
       }
     },
-    async loadMaxOutputResolution() {
+        async loadMaxOutputResolution() {
       // 运营开关（videoCreation.maxOutputResolution）：'1080p'（默认，禁止 4K）| '4k'
-      // 读取失败一律回退 1080p（fail-closed），前端所有流程不出现 4K。
+      // 优先级：运营后台功能开关（runtime 下发）→ 本地 store 设置 → 默认；失败一律 1080p（fail-closed）。
       try {
-        const raw = await storeGetSetting(MAX_OUTPUT_RESOLUTION_KEY)
-        const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw.data ?? raw) : raw
+        let value = null
+        try {
+          const runtime = await opsCenterSyncRuntime()
+          const ff = runtime && runtime.code === 0 ? runtime.data?.featureFlags?.[MAX_OUTPUT_RESOLUTION_KEY] : null
+          if (ff === '4k' || ff === '1080p') value = ff
+        } catch (_) { /* runtime 不可用走下一级 */ }
+        if (value == null) {
+          const raw = await storeGetSetting(MAX_OUTPUT_RESOLUTION_KEY)
+          const stored = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw.data ?? raw) : raw
+          if (stored === '4k' || stored === '1080p') value = stored
+        }
         this.maxOutputResolution = value === '4k' ? '4k' : '1080p'
       } catch (_) {
         this.maxOutputResolution = '1080p'
@@ -1844,6 +1892,16 @@ export default {
             style: config.imageStyle,
             effect: config.imageEffect,
             aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
+          },
+          // 视频+图片轮播混合模式（2026-08-11）：off=纯图片轮播；fixed=前段固定比例 AI 视频；ai-judged=AI 智能选择
+          video: {
+            mode: config.videoMode || 'off',
+            provider: config.videoProvider || '',
+            model: config.videoModel || '',
+            fixedRatio: config.videoFixedRatio,
+            minRatio: config.videoMinRatio,
+            maxRatio: config.videoMaxRatio,
+            maxScenes: config.videoMaxScenes,
           },
           voice: {
             provider: config.voiceProvider || '',
@@ -1959,6 +2017,27 @@ export default {
       }
       const configuredDefault = typeof provider?.defaultModel === 'string' ? provider.defaultModel : ''
       return models.includes(configuredDefault) ? configuredDefault : (models[0] || '')
+    },
+    getS2VVideoProvider(providerId = this.s2vConfig.videoProvider) {
+      return this.s2vVideoProviders.find(provider => provider?.id === providerId) || null
+    },
+    getS2VDefaultVideoModel(providerId = this.s2vConfig.videoProvider) {
+      const provider = this.getS2VVideoProvider(providerId)
+      const models = Array.isArray(provider?.models)
+        ? provider.models.filter(model => typeof model === 'string' && model)
+        : []
+      // 多模态：默认取 capability_models.video（能力默认模型），models 首项可能是 image/llm 模型。
+      if (provider?.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
+        const videoModel = provider.capability_models.video
+        return models.includes(videoModel) ? videoModel : (videoModel || models[0] || '')
+      }
+      const configuredDefault = typeof provider?.defaultModel === 'string' ? provider.defaultModel : ''
+      return models.includes(configuredDefault) ? configuredDefault : (models[0] || '')
+    },
+    handleS2VVideoProviderChange() {
+      const nextProviderId = this.getS2VVideoProvider()?.id || ''
+      this.s2vConfig.videoProvider = nextProviderId
+      this.s2vConfig.videoModel = nextProviderId ? this.getS2VDefaultVideoModel(nextProviderId) : ''
     },
     isCurrentS2VVoiceRequest(requestId, context) {
       return requestId === this.s2vVoiceRequestId
@@ -2168,9 +2247,10 @@ export default {
     },
     async loadS2VProviders() {
       const providerRequestId = ++this.s2vVoiceProviderRequestId
-      const [imageResult, voiceResult] = await Promise.allSettled([
+      const [imageResult, voiceResult, videoResult] = await Promise.allSettled([
         modelProviderList('image'),
         modelProviderList('tts'),
+        modelProviderList('video'),
       ])
       if (providerRequestId !== this.s2vVoiceProviderRequestId) return
 
@@ -2182,7 +2262,13 @@ export default {
         : []
       this.s2vImageProviders = enabledProviders(imageResult)
       this.s2vVoiceProviders = enabledProviders(voiceResult)
+      this.s2vVideoProviders = enabledProviders(videoResult)
       if (!this.s2vConfig.imageProvider && this.s2vImageProviders[0]) this.s2vConfig.imageProvider = this.s2vImageProviders[0].id
+      // 视频生成器：默认取第一个可用视频 provider（未显式选择时）；选中后同步默认模型
+      if (!this.s2vConfig.videoProvider && this.s2vVideoProviders[0]) {
+        this.s2vConfig.videoProvider = this.s2vVideoProviders[0].id
+        this.s2vConfig.videoModel = this.getS2VDefaultVideoModel(this.s2vConfig.videoProvider)
+      }
 
       const configuredProvider = this.getS2VVoiceProvider()
       const nextProviderId = configuredProvider?.id || this.s2vVoiceProviders[0]?.id || ''
@@ -2645,12 +2731,43 @@ export default {
         const runs = hasRuns
           ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
           : []
+        // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停
+        const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
+        const now = Date.now()
+        for (const run of runs) {
+          if (run.status === 'running') {
+            const updatedAt = run.updatedAt ? new Date(run.updatedAt).getTime() : 0
+            if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
+              run._originalStatus = run.status
+              run.status = 'paused'
+              if (!run.pausedStage) {
+                const stages = Array.isArray(run.stages) ? run.stages : []
+                const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
+                run.pausedStage = runningStage ? (runningStage.name || runningStage.stage || '') : ''
+              }
+            }
+          }
+        }
+
+        // failed 任务补充 pausedStage（失败环节）
+        for (const run of runs) {
+          if (run.status === 'failed' && !run.pausedStage) {
+            const stages = Array.isArray(run.stages) ? run.stages : []
+            const failedStage = stages.find(s => s && s.status === 'failed')
+              || stages.find(s => s && s.status !== 'completed')
+              || stages[stages.length - 1]
+            run.pausedStage = failedStage ? (failedStage.name || failedStage.stage || '') : ''
+          }
+        }
+
         // 运行中流水线置顶（需求：历史记录可查看运行中未完成任务及其实时流程状态），
         // 其次是已完成项目，最后是终态流水线。
         this.history = [
           ...runs.filter(run => run.status === 'running'),
           ...projects,
-          ...runs.filter(run => run.status !== 'running'),
+          ...runs.filter(run => run.status === 'paused'),
+          ...runs.filter(run => run.status === 'failed'),
+          ...runs.filter(run => run.status !== 'running' && run.status !== 'paused' && run.status !== 'failed'),
         ]
         this.scheduleHistoryRefresh()
         if (!hasProjects || !hasRuns) {
@@ -2989,8 +3106,8 @@ export default {
           : this.quickImages.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 }))
         const res = await renderStart({ props: { cuts, theme: this.quickTheme, renderer_family: 'explainer-data' }, profile: this.quickProfile })
         if (res?.code === 0) { this.quickResult = res.data }
-        else { this.quickError = res?.message || '渲染失败'; this.quickRendering = false }
-      } catch (e) { this.quickError = '渲染异常: ' + (e.message || '未知错误'); this.quickRendering = false }
+        else { this.quickError = formatUserError(res, { fallback: '渲染失败' }).message; this.quickRendering = false }
+      } catch (e) { this.quickError = '渲染异常: ' + formatUserError(e, { fallback: '未知错误' }).message; this.quickRendering = false }
     },
     cancelQuickRender() { renderCancel(); this.quickRendering = false },
     viewQuickResult() { this.$router.push({ path: '/create/result', query: { path: this.quickResult?.outputPath || '' } }) },
@@ -3000,7 +3117,7 @@ export default {
         const { aiGenerate } = await import('@/api/publisher')
         const r = await aiGenerate('text', 'openai', { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
         if (r?.code === 0 && r.data?.text) this.quickText = r.data.text
-      } catch (e) { this.quickError = 'AI 写稿失败: ' + (e.message || '未知错误') }
+      } catch (e) { this.quickError = 'AI 写稿失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
       this.aiLoading = false
     },
 
@@ -3010,7 +3127,7 @@ export default {
       try {
         const result = await renderInstallDeps()
         this.installLog = result?.log || '安装完成'
-      } catch (e) { this.installLog = '安装失败: ' + e.message }
+      } catch (e) { this.installLog = '安装失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
       this.installing = false
       const s = await renderGetStatus()
       this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' }
@@ -3082,9 +3199,21 @@ export default {
           return this.translateWithLocaleFallback('story2video.optimizeProgress', '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个', p.done + '/' + p.total + ' scenes optimized')
         }
       }
+      if (stage.name === 'select_video_scenes') {
+        const plan = ctx.video_plan
+        if (plan && plan.mode !== 'off' && Number.isInteger(plan.selectedCount) && plan.selectedCount > 0) {
+          return this.translateWithLocaleFallback('story2video.selectVideoScenes', '已选 ' + plan.selectedCount + ' 个 AI 视频场景（约 ' + plan.ratio + '%）', plan.selectedCount + ' AI video scenes selected (~' + plan.ratio + '%)')
+        }
+        if (plan && plan.mode === 'off') {
+          return this.translateWithLocaleFallback('story2video.selectVideoScenesOff', '纯图片轮播模式', 'Image carousel mode')
+        }
+      }
       if (stage.name === 'generate_assets') {
         const p = ctx.assets_progress
         if (p && Number.isInteger(p.imagesTotal) && Number.isInteger(p.ttsTotal)) {
+          if (Number.isInteger(p.videosTotal) && p.videosTotal > 0) {
+            return this.translateWithLocaleFallback('story2video.assetsProgressVideo', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 视频 ' + p.videosDone + '/' + p.videosTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Videos ' + p.videosDone + '/' + p.videosTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal)
+          }
           return this.translateWithLocaleFallback('story2video.assetsProgress', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal)
         }
       }
@@ -3154,293 +3283,3 @@ export default {
   },
 }
 </script>
-
-<style scoped>
-.create-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; }
-.page-header { margin-bottom: 20px; }
-.page-header h1 { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
-.text-muted { color: var(--text-muted); font-size: 14px; }
-
-/* 状态提示 */
-.status-banner { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
-.warn { background: var(--warning-bg); color: var(--warning); }
-.detail { opacity: 0.7; }
-.btn-install { padding: 4px 12px; border: 1px solid var(--warning); border-radius: 4px; background: transparent; color: var(--warning); cursor: pointer; font-size: 12px; margin-left: auto; }
-.install-log { padding: 8px 12px; background: var(--bg); border-radius: 4px; font-size: 11px; font-family: monospace; max-height: 100px; overflow-y: auto; margin-bottom: 16px; white-space: pre-wrap; }
-.story2video-text-count { margin: 8px 0 0; color: var(--text-muted); font-size: 12px; text-align: right; }
-
-/* 视图切换 */
-.view-tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
-.view-tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; }
-.view-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
-
-/* 流水线网格 */
-.pipeline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
-.pipeline-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; cursor: pointer; transition: all 0.2s; }
-.pipeline-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-2px); border-color: var(--primary); }
-.pipeline-card.generated { border-left: 3px solid var(--pipe-generated); }
-.pipeline-card.talking_head { border-left: 3px solid var(--pipe-talking-head); }
-.pipeline-card.cinematic { border-left: 3px solid var(--pipe-cinematic); }
-.pipeline-card.animation { border-left: 3px solid var(--pipe-animation); }
-.pipeline-card.screen_recording { border-left: 3px solid var(--pipe-screen-recording); }
-.pipeline-card.hybrid { border-left: 3px solid var(--pipe-hybrid); }
-.pipeline-card.custom { border-left: 3px solid var(--pipe-custom); }
-.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 600; text-transform: uppercase; }
-.badge.generated { background: var(--pipe-generated-bg); color: var(--pipe-generated-text); }
-.badge.talking_head { background: var(--pipe-talking-head-bg); color: var(--pipe-talking-head-text); }
-.badge.cinematic { background: var(--pipe-cinematic-bg); color: var(--pipe-cinematic-text); }
-.badge.animation { background: var(--pipe-animation-bg); color: var(--pipe-animation-text); }
-.badge.screen_recording { background: var(--pipe-screen-recording-bg); color: var(--pipe-screen-recording-text); }
-.badge.hybrid { background: var(--pipe-hybrid-bg); color: var(--pipe-hybrid-text); }
-.badge.custom { background: var(--pipe-custom-bg); color: var(--pipe-custom-text); }
-.stability-dot { width: 8px; height: 8px; border-radius: 50%; }
-.stability-dot.production { background: var(--stability-production); }
-.stability-dot.beta { background: var(--stability-beta); }
-.stability-dot.experimental { background: var(--stability-experimental); }
-.card-title { font-size: 16px; margin: 0 0 6px 0; }
-.card-desc { font-size: 13px; color: var(--text-muted); line-height: 1.4; margin: 0 0 12px 0; }
-.card-meta { display: flex; gap: 12px; font-size: 12px; color: var(--text-light); align-items: center; }
-.cost-label.low { color: var(--cost-low); }
-.cost-label.medium { color: var(--cost-medium); }
-.cost-label.high { color: var(--cost-high); }
-.availability-badge { font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: 600; margin-left: auto; }
-.availability-badge.ready { background: var(--pipe-screen-recording-bg); color: var(--pipe-screen-recording-text); }
-.availability-badge.dev { background: var(--pipe-animation-bg); color: var(--pipe-animation-text); }
-.pipeline-card.is-unavailable { opacity: 0.72; }
-.pipeline-card.is-unavailable:hover { transform: none; box-shadow: none; }
-.unavailable-hint { color: var(--pipe-animation-text); font-size: 12px; margin-top: 8px; }
-
-/* 流水线详情 */
-.pipeline-detail { }
-.back-btn { background: none; border: none; color: var(--primary); cursor: pointer; font-size: 14px; padding: 0; margin-bottom: 16px; }
-.detail-header { margin-bottom: 20px; }
-.detail-header h2 { font-size: 20px; margin: 0 0 4px; }
-.detail-desc { color: var(--text-muted); font-size: 14px; margin: 0; }
-
-/* 阶段时间线 */
-.stages-timeline { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; padding: 16px; background: var(--bg); border-radius: 8px; max-width: 100%; overflow-wrap: anywhere; }
-/* 进度头部 sticky：相对 .cohere-main 滚动容器贴顶，不随滚动离开视口；
-   负 margin 抵消 timeline 内边距，保证贴顶时背景完整覆盖（含左右 padding 区）；
-   底部圆角保留，顶部直角避免贴顶时露出下方滚动内容。 */
-.stages-timeline-sticky {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  margin: -16px -16px 8px;
-  padding: 12px 16px 8px;
-  background: var(--bg);
-  border-radius: 0 0 8px 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
-}
-.provider-warning-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--banner-warning-color); background: var(--banner-warning-bg); border: 1px solid var(--banner-warning-border); border-radius: var(--r-sm); font-size: 13px; line-height: 1.5; }
-.bgm-skipped-notice { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--banner-info-color); background: var(--banner-info-bg); border: 1px solid var(--banner-info-border); border-radius: var(--r-sm); font-size: 13px; line-height: 1.5; }
-.bgm-skipped-notice-close { margin-left: auto; border: none; background: transparent; color: var(--banner-info-color); cursor: pointer; font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 4px; }
-.bgm-skipped-notice-close:hover { background: rgba(30, 64, 175, 0.12); }
-.stage-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; font-size: 14px; min-width: 0; max-width: 100%; }
-.orchestration-context { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; padding: 12px 16px; background: var(--bg); border-radius: 8px; margin-bottom: 16px; }
-.context-item { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; max-width: 100%; min-width: 0; }
-.context-key { flex: 0 0 auto; font-weight: 600; color: var(--text-muted); font-size: 12px; }
-.context-value { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; word-break: break-word; color: var(--text-muted); font-size: 12px; }
-.stage-item.done { color: var(--stage-done-text); }
-.stage-item.active { background: var(--stage-active-bg); color: var(--stage-active-text); font-weight: 600; }
-.stage-item.waiting { background: var(--stage-waiting-bg); color: var(--stage-waiting-text); }
-.stage-item.failed { background: var(--stage-failed-bg); color: var(--stage-failed-text); }
-.stage-item.needs-user-input { background: var(--status-needs-user-input-bg); color: var(--status-needs-user-input-text); }
-.stage-item.cancelled { color: var(--status-cancelled-text); }
-.stage-item.pending { color: var(--status-pending-text); }
-.stage-icon { width: 24px; text-align: center; }
-.stage-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.stage-name { }
-.stage-meta { font-size: 12px; color: var(--text-muted, #888); }
-.stage-sub-progress { display: flex; align-items: center; margin-top: 4px; width: 100%; }
-.stage-sub-bar { flex: 1; height: 4px; background: var(--stage-sub-bar-bg); border-radius: 2px; overflow: hidden; }
-.stage-sub-fill { display: block; height: 100%; background: var(--primary); transition: width 0.4s cubic-bezier(0.4,0,0.2,1); }
-.stage-status { font-size: 12px; white-space: nowrap; }
-.stage-time { color: var(--text-muted, #888); }
-.orchestration-progress { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.orchestration-progress .progress-bar { flex: 1; width: auto; }
-.elapsed-text { font-size: 12px; color: var(--text-muted, #888); white-space: nowrap; }
-.orchestration-summary { margin-bottom: 10px; padding: 8px 12px; background: var(--banner-success-bg); color: var(--banner-success-text); border-radius: 6px; font-size: 13px; font-weight: 600; }
-.reset-options-link { margin-left: 12px; border: none; background: none; color: var(--text-muted, #888); font-size: 12px; cursor: pointer; text-decoration: underline; }
-.reset-options-link:hover { color: var(--primary); }
-.orchestration-attention { margin: 0; color: var(--banner-attention-text); font-size: 13px; }
-
-/* 输入区域 */
-.input-section { margin-bottom: 24px; }
-.input-section h3 { font-size: 16px; margin: 0 0 12px; }
-.input-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
-.input-tab { padding: 6px 16px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); cursor: pointer; font-size: 13px; }
-.input-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
-.input-area { }
-.form-textarea { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; line-height: 1.6; resize: vertical; box-sizing: border-box; }
-.story2video-estimate { margin-top: 8px; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
-.s2v-estimate-note { opacity: .75; }
-
-/* 上传区域 */
-.upload-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; min-height: 100px; display: flex; align-items: center; justify-content: center; }
-.upload-zone:hover { border-color: var(--primary); }
-.image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; width: 100%; }
-.image-thumb { position: relative; aspect-ratio: 1; border-radius: 4px; overflow: hidden; }
-.image-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.remove-btn { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; border: none; background: rgba(0,0,0,0.6); color: white; cursor: pointer; font-size: 12px; }
-.image-index { position: absolute; bottom: 4px; left: 4px; background: rgba(0,0,0,0.5); color: white; font-size: 10px; padding: 1px 5px; border-radius: 3px; }
-.file-list { width: 100%; text-align: left; }
-.file-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
-.file-row:last-child { border-bottom: none; }
-.file-row .remove-btn { position: static; flex: 0 0 auto; }
-
-/* 风格选择 */
-.config-section { margin-bottom: 24px; }
-.s2v-config-sections { display: grid; gap: 10px; margin-bottom: 16px; }
-.s2v-config-section { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.s2v-section-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; font-weight: 700; }
-.s2v-section-summary::-webkit-details-marker { display: none; }
-.s2v-section-summary::before { content: '›'; display: inline-block; color: var(--text-muted); font-size: 20px; line-height: 1; transform: rotate(0deg); transition: transform .15s ease; }
-.s2v-config-section[open] > .s2v-section-summary::before { transform: rotate(90deg); }
-.s2v-summary { margin-left: auto; color: var(--text-muted); font-size: 12px; font-weight: 400; text-align: right; }
-.s2v-config-section > .config-grid { padding: 0 16px 16px; }
-.s2v-split-view-toggle { display: inline-flex; gap: 6px; margin-bottom: 6px; }
-.s2v-view-btn {
-  padding: 4px 12px; font-size: 12px; border: 1px solid var(--border); border-radius: 999px;
-  background: transparent; color: var(--text-muted); cursor: pointer; transition: all .15s ease;
-}
-.s2v-view-btn.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
-.s2v-field-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
-.s2v-checkbox-label { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
-.s2v-subgroup { margin: 0 16px 12px; }
-.s2v-subgroup:first-of-type { margin-top: 2px; }
-.s2v-subgroup-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 0 0 8px; padding-bottom: 4px; border-bottom: 1px dashed var(--border); }
-.s2v-controlled-defaults { margin: -4px 16px 16px; color: var(--text-muted); font-size: 12px; }
-.config-section h3 { font-size: 16px; margin: 0 0 12px; }
-.style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-.style-card { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; text-align: left; transition: all 0.2s; }
-.style-card:hover { border-color: var(--primary); }
-.style-card.active { border-color: var(--primary); background: #f5f3ff; }
-.style-name { display: block; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
-.style-desc { display: block; font-size: 11px; color: var(--text-light); }
-
-/* 配置网格 */
-/* minmax(min(200px, 100%), 1fr)：窄容器下轨道可收缩到容器宽，避免 min-content 撑宽整页；
-   grid/flex 子项 min-width: 0 + overflow-wrap:anywhere：长不可断文本（如 MiniMax 克隆 voice_id）换行而非溢出。 */
-.config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 16px; }
-.config-item { min-width: 0; }
-.config-span-2 { grid-column: span 2; min-width: 0; }
-.inline-file-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.inline-file-control .config-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.platform-checkboxes { display: flex; flex-wrap: wrap; gap: 8px 14px; }
-.checkbox-label { display: inline-flex !important; align-items: center; gap: 5px; font-weight: 400 !important; white-space: nowrap; }
-.config-item label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-.form-select, .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; box-sizing: border-box; }
-.form-range { width: 100%; }
-.voice-slot-hint p { margin: 0; }
-.voice-clone-panel { display: grid; gap: 8px; min-width: 0; }
-.voice-clone-panel > label { margin-bottom: 0; }
-.voice-clone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-.voice-clone-actions .form-input { flex: 1 1 180px; min-width: 0; }
-.voice-clone-actions .btn-secondary { margin-top: 0; }
-.voice-clone-list { display: grid; gap: 8px; min-width: 0; }
-.voice-clone-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; min-width: 0; }
-.voice-clone-row > span { min-width: 0; overflow-wrap: anywhere; }
-.voice-clone-row-default { border-color: var(--primary, #2563eb); background: color-mix(in srgb, var(--primary, #2563eb) 8%, transparent); }
-.voice-clone-invalid-badge { margin-left: 6px; font-size: 11px; color: var(--clone-invalid-text); background: var(--clone-invalid-bg); border: 1px solid var(--clone-invalid-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
-[data-theme="dark"] .voice-clone-invalid-badge { margin-left: 6px; font-size: 11px; color: var(--clone-invalid-text); background: var(--clone-invalid-bg); border: 1px solid var(--clone-invalid-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
-.voice-clone-default-badge { margin-left: 6px; font-size: 11px; color: var(--clone-default-text); background: var(--clone-default-bg); border: 1px solid var(--clone-default-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
-[data-theme="dark"] .voice-clone-default-badge { margin-left: 6px; font-size: 11px; color: var(--clone-default-text); background: var(--clone-default-bg); border: 1px solid var(--clone-default-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
-
-/* 操作栏 */
-.action-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; }
-.s2v-options-toast { position: absolute; right: 16px; bottom: calc(100% + 10px); font-size: 12px; color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 4px 10px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out; }
-@keyframes s2v-toast-fade { 0% { opacity: 0; } 12% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; } }
-.voice-clone-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; padding: 2px 0; }
-.voice-clone-toggle-icon { font-size: 12px; color: var(--text-muted, #888); }
-.btn-start { padding: 12px 32px; font-size: 16px; }
-.running-controls { display: flex; gap: 8px; }
-.progress-inline { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.progress-bar { height: 8px; background: var(--stage-sub-bar-bg); border-radius: 4px; overflow: hidden; width: 120px; }
-.progress-fill { height: 100%; background: var(--primary); transition: width 0.3s; }
-.progress-text { font-size: 13px; color: var(--text-muted); }
-
-/* 快速渲染 */
-.quick-render { max-width: 800px; }
-.mode-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-.mode-tab { padding: 8px 20px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); cursor: pointer; font-size: 14px; }
-.mode-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
-.form-group { margin-bottom: 20px; }
-.form-group label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-.form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box; }
-.textarea { resize: vertical; font-family: inherit; line-height: 1.6; }
-.btn-secondary { padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; font-size: 13px; margin-top: 8px; }
-.actions { display: flex; gap: 12px; align-items: center; }
-.progress-section { margin-top: 24px; }
-.result-banner { margin-top: 20px; padding: 16px; border-radius: 8px; display: flex; align-items: center; gap: 16px; }
-.success { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.error { background: var(--status-failed-bg); color: var(--status-failed-text); }
-
-/* 历史 */
-.history-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.history-toolbar label { color: var(--text-muted); font-size: 13px; font-weight: 600; }
-.history-filter { width: min(220px, 100%); }
-.history-list { display: flex; flex-direction: column; gap: 8px; }
-.history-item { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
-.history-item-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.history-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.history-status { font-size: 12px; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
-.history-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.history-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
-.history-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
-.history-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
-.history-item.is-running { cursor: pointer; border-color: var(--history-running-border); }
-.history-item.is-running:hover { border-color: var(--primary); }
-.history-progress { display: flex; gap: 4px; flex-wrap: wrap; align-items: stretch; }
-.history-progress-seg { flex: 1 1 0; min-width: 72px; max-width: 150px; font-size: 11px; padding: 4px 8px; border-radius: var(--r-xs); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--status-pending-bg); color: var(--status-pending-text); }
-.history-progress-seg.done { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.history-progress-seg.active { background: var(--history-progress-active-bg); color: #fff; font-weight: 600; box-shadow: 0 0 0 2px var(--history-progress-active-shadow); }
-.history-progress-seg.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
-.history-running-hint { font-size: 11px; color: var(--history-running-hint-text); background: var(--history-running-hint-bg); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; flex-shrink: 0; }
-.history-time { color: var(--text-light); font-size: 12px; }
-.history-open, .history-delete, .history-resume { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
-.history-open:hover { border-color: var(--primary); color: var(--primary); }
-.history-delete:hover { border-color: var(--error); color: var(--error); }
-.history-resume:hover { border-color: var(--primary); color: var(--primary); }
-.history-resume:disabled { opacity: 0.6; cursor: not-allowed; }
-.empty-state.compact { padding: 28px 0; }
-.template-editor { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; align-items: start; }
-.template-editor .btn-secondary { margin-top: 0; min-height: 38px; }
-.btn-secondary.danger { border-color: var(--error); color: var(--error); }
-.audio-file-row { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
-.audio-file-row + .audio-file-row { margin-top: 8px; }
-.audio-transcript { margin-top: 8px; min-height: 58px; }
-.audio-row-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.inline-error { color: var(--error); font-size: 12px; }
-
-/* 通用 */
-.loading-state, .empty-state, .error-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: var(--text-muted); justify-content: center; }
-.history-local-mode-banner { margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; background: var(--warning-bg); color: var(--banner-warning-color); font-size: 13px; }
-.story2video-error-dialog-detail { margin-top: 8px; color: var(--text-muted); font-size: 13px; }
-.error-state { color: var(--error); background: var(--status-failed-bg); border-radius: var(--r-sm); }
-.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline, #ccc); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 720px) {
-  .template-editor { grid-template-columns: 1fr; }
-  .history-item { align-items: flex-start; flex-wrap: wrap; }
-  .history-name { flex-basis: 100%; }
-}
-</style>
-
-/* 键盘导航焦点样式 */
-.pipeline-card:focus-visible, .render-card:focus-visible, .pipeline-card:focus-visible, .history-item:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
-/* 上传区域拖拽反馈 */
-.upload-zone.drag-over { border-color: var(--upload-zone-hover-border); background: var(--upload-zone-hover-bg); }
-.upload-zone:active { border-color: var(--upload-zone-active-border); background: var(--upload-zone-active-bg); }
-
-/* 骨架屏加载 */
-.skeleton { background: var(--skeleton-bg); border-radius: 4px; position: relative; overflow: hidden; }
-.skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--skeleton-shimmer), transparent); animation: skeleton-shimmer 1.5s infinite; }
-@keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
-.skeleton-text { height: 14px; margin-bottom: 8px; }
-.skeleton-card { height: 120px; border-radius: 12px; }

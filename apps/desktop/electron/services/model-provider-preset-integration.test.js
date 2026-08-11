@@ -109,7 +109,8 @@ describe('model-provider preset catalog integration', function () {
       api_key: 'sk-flux-test-key', models: ['flux-pro'],
     })
     expect(create.code).toBe(-1)
-    expect(create.message).toContain('already exists')
+    expect(create.errorCode).toBe('PROVIDER_EXISTS')
+    expect(create.message).toContain('已存在')
 
     const update = await ipcMain.call('model-provider:update', 'flux', { api_key: 'sk-flux-test-key', enabled: true })
     expect(update.code).toBe(0)

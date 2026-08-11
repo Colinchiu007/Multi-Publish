@@ -1,0 +1,12 @@
+{
+  "id": "minimax-multimodal-models-readonly",
+  "title": "去掉多模态 MiniMax 模型信息设置的模型列表输入框（程序写死 + 运营后台控制）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已归档，待提交推送",
+  "createdAt": "2026-08-11T16:30:00Z",
+  "branch": ""
+}

@@ -39,7 +39,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     platform: 'generic',
     style: 'realistic',
     creativeLevel: 5,
-    maxLength: 300,
+    maxLength: 500,
     numCandidates: 1,
     autoDetectStyle: true,
     negativePrompt: '',
@@ -51,6 +51,17 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     style: 'cinematic',
     effect: 'zoom-in',
     aspectRatio: '9:16',
+  }),
+  // 视频+图片轮播混合模式（2026-08-11）：默认 off 保持纯图片轮播；fixed=前段固定比例 AI 视频；
+  // ai-judged=LLM 按精彩度选择场景，总时长占比落在 [minRatio, maxRatio]。
+  video: Object.freeze({
+    mode: 'off',
+    provider: '',
+    model: '',
+    fixedRatio: 25,
+    minRatio: 20,
+    maxRatio: 40,
+    maxScenes: 3,
   }),
   voice: Object.freeze({
     provider: '',
@@ -99,6 +110,7 @@ const IMAGE_EFFECTS = new Set([
 ])
 const TRANSITIONS = new Set(['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down'])
 const SCENE_DURATION_MODES = new Set(['follow-audio', 'min-duration'])
+const VIDEO_MODES = new Set(['off', 'fixed', 'ai-judged'])
 const SPLIT_MODES = new Set(['fast', 'balanced', 'precise'])
 const LANGUAGES = new Set(['auto', 'zh', 'en'])
 const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
@@ -274,6 +286,7 @@ function normalizeStory2VideoTextParams(params = {}) {
   const bgmInput = objectValue(suppliedConfig.bgm)
   const watermarkInput = objectValue(suppliedConfig.watermark)
   const outputInput = objectValue(suppliedConfig.output)
+  const videoInput = objectValue(suppliedConfig.video)
   const publishInput = objectValue(suppliedConfig.publish)
 
   // 先归一化语言（后续 split 对象内引用，避免 TDZ）
@@ -325,7 +338,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     platform: normalizePromptEnginePlatform(firstDefined(own(optimizeInput, 'platform'), params.promptPlatform)),
     style: normalizePromptEngineStyle(firstDefined(own(optimizeInput, 'style'), params.promptStyle, params.style)),
     creativeLevel: numberValue(firstDefined(own(optimizeInput, 'creativeLevel'), params.creativeLevel), 5, 'optimize.creativeLevel', 1, 10),
-    maxLength: numberValue(firstDefined(own(optimizeInput, 'maxLength'), params.maxPromptLength), 300, 'optimize.maxLength', 50, 2000, true),
+    maxLength: numberValue(firstDefined(own(optimizeInput, 'maxLength'), params.maxPromptLength), 500, 'optimize.maxLength', 50, 2000, true),
     numCandidates: numberValue(firstDefined(own(optimizeInput, 'numCandidates'), params.numCandidates), 1, 'optimize.numCandidates', 1, 5, true),
     autoDetectStyle: booleanValue(firstDefined(own(optimizeInput, 'autoDetectStyle'), params.autoDetectStyle), true),
     negativePrompt: textValue(own(optimizeInput, 'negativePrompt'), '', 'optimize.negativePrompt', 500),
@@ -387,6 +400,21 @@ function normalizeStory2VideoTextParams(params = {}) {
     volume: numberValue(firstDefined(own(bgmInput, 'volume'), hasNestedBgm ? undefined : legacyBgmVolume), 5, 'bgm.volume', 0, 10),
   }
 
+  // 视频+图片轮播混合模式（2026-08-11）：默认 off；fixed 用 fixedRatio（前段占比），
+  // ai-judged 用 [minRatio, maxRatio] 约束 LLM 选择结果，maxScenes 兜底控制成本/耗时。
+  const videoConfig = {
+    mode: enumValue(firstDefined(own(videoInput, 'mode'), params.videoMode), 'off', 'video.mode', VIDEO_MODES),
+    provider: idValue(firstDefined(own(videoInput, 'provider'), params.videoProvider), '', 'video.provider'),
+    model: idValue(firstDefined(own(videoInput, 'model'), params.videoModel), '', 'video.model'),
+    fixedRatio: numberValue(own(videoInput, 'fixedRatio'), 25, 'video.fixedRatio', 10, 50, true),
+    minRatio: numberValue(own(videoInput, 'minRatio'), 20, 'video.minRatio', 5, 80, true),
+    maxRatio: numberValue(own(videoInput, 'maxRatio'), 40, 'video.maxRatio', 5, 80, true),
+    maxScenes: numberValue(own(videoInput, 'maxScenes'), 3, 'video.maxScenes', 1, 12, true),
+  }
+  if (videoConfig.minRatio > videoConfig.maxRatio) {
+    throw new Error('Story2Video video.minRatio 不能大于 video.maxRatio')
+  }
+
   // defaultSceneDuration 仅作为 compose 无可用音频时长时的回退与动效归一化兜底，不再暴露为可配置项。
   // 优先级：顶层运行参数 params.defaultSceneDuration > story2videoTextConfig 内嵌字段
   // （新保存的 story2videoTextConfig 已不含该字段，项目恢复走 _safeOptions 顶层通道）。
@@ -434,6 +462,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     split,
     optimize,
     image,
+    video: videoConfig,
     voice,
     subtitle,
     bgm,
@@ -489,6 +518,12 @@ function normalizeStory2VideoTextParams(params = {}) {
       imageProvider: image.provider || null,
       imageModel: image.model || null,
       aspectRatio: image.aspectRatio,
+      videoMode: videoConfig.mode,
+      video: {
+        provider: videoConfig.provider || null,
+        model: videoConfig.model || null,
+        maxScenes: videoConfig.maxScenes,
+      },
       voiceId: voice.id,
       voiceProvider: voice.provider || null,
       voiceModel: voice.model || null,
@@ -498,6 +533,17 @@ function normalizeStory2VideoTextParams(params = {}) {
       contentType,
       inputMode: 'text',
       templateId: templateId || null,
+    },
+    select_video_scenes: {
+      video: {
+        mode: videoConfig.mode,
+        provider: videoConfig.provider || null,
+        model: videoConfig.model || null,
+        fixedRatio: videoConfig.fixedRatio,
+        minRatio: videoConfig.minRatio,
+        maxRatio: videoConfig.maxRatio,
+        maxScenes: videoConfig.maxScenes,
+      },
     },
     compose: {
       transition,
@@ -540,6 +586,8 @@ function normalizeStory2VideoTextParams(params = {}) {
     images: [],
     audio: [],
     video: null,
+    videoMode: videoConfig.mode,
+    videoConfig,
     size,
     contentType,
     splitMode: split.mode,

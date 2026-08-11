@@ -180,6 +180,7 @@ export default {
       split: 'Split Text',
       domain_enrich: 'Enrich Content',
       optimize: 'Optimize Prompts',
+      select_video_scenes: 'Select AI Video Scenes',
       generate_assets: 'Generate Images and Voiceover',
     },
     statuses: {
