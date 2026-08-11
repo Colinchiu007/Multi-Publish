@@ -1,3 +1,14 @@
+## [未发布] 功能：字幕分割规则对齐《字幕分割规范 v1.0》（2026-08-11）
+
+- `text-segmentation.ts` 的 `SubtitleSegmenter` 重构为规范 7 步流水线（与 smart-sentence-splitter Python 实现共享同一规范）：
+  - Step 1 分句优先（块不跨句；未闭合引号内句界不生效）
+  - Step 2 引号感知预分割（引号内容 ≥ min_chars 才分离，短引号并入上下文，消除孤立引号）
+  - Step 3 长度切分（标点优先 + 配对引号保护，8-15 字）
+  - Step 4 短块合并 → Step 5 标点规范化（开头修正 / 跨块引号清理 / 末尾去除）→ Step 6 超长强制（切分点须在块内部）
+  - Step 7 时间戳（proportional / equal，行为不变）
+- 新增共享测试向量断言 `tests/subtitle-vectors.test.ts`（18 断言）：与 smart-sentence-splitter `tests/vectors/subtitle_segmentation_vectors.json`（16 例）逐字一致，保证双实现输出同一字幕块序列
+- 行为变化：本地字幕块现在会清理孤立引号、去除块尾标点、短引号内容并入上下文——字幕显示更规范（原有 `subtitleSource: 'local-typescript'` 契约不变）
+- 测试：story2video-engine 全量 73 通过（含新向量 18）
 ## [未发布] 文档：模型 API 调用并发 / 排队 / 限流机制详细合同补充（2026-08-11）
 
 - 核验并固化「每分钟连接次数（rate_per_minute）由运营后台设置/修改，未设置时降级到数据库默认值」的完整链路：运营后台 `model_presets`（DB）→ catalog → 桌面 `model_providers.config`（DB）→ 桌面 DB 预设种子 `PRESET_RATE_LIMITS` 回填 → 静态表 `PROVIDER_LIMITS` → 类别默认 `DEFAULT_LIMITS`；运营显式清空回退静态表/类别默认。

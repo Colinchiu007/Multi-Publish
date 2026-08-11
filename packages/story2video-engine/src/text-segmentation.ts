@@ -351,6 +351,20 @@ export class SubtitleSegmenter {
   private config: SubtitleSegmentationConfig;
   private sentenceTokenizer: SentenceTokenizer;
 
+  // 规范常量（对齐《字幕分割规范 v1.0》docs/subtitle-segmentation-spec.md）
+  private static SENTENCE_BOUNDARY = new Set(['。', '！', '？', '…', '.', '!', '?']);
+  private static PRIORITY_PUNCT = new Set(['。', '！', '？', '；', '.', '!', '?', ';', '，', ',', '、']);
+  private static LEADING_PUNCT = new Set(['，', '、', '。', '！', '？', '；', ',', '!', '?', ';', '.']);
+  private static TRAILING_PUNCT = new Set(['。', '！', '？', '；', '，', '、', '.', '!', '?', ';', '…']);
+  private static QUOTE_PAIRS: [string, string][] = [
+    ['\u201c', '\u201d'], ['\u2018', '\u2019'], ['\u300c', '\u300d'], ['\u300e', '\u300f'],
+    ['\u300a', '\u300b'], ['\uff08', '\uff09'], ['\u3010', '\u3011'], ['[', ']'],
+    ['"', '"'], ["'", "'"],
+  ];
+  private static LEFT_QUOTES = new Set(SubtitleSegmenter.QUOTE_PAIRS.map((q) => q[0]));
+  private static RIGHT_QUOTES = new Set(SubtitleSegmenter.QUOTE_PAIRS.map((q) => q[1]));
+  private static QUOTE_MAP = new Map<string, string>(SubtitleSegmenter.QUOTE_PAIRS);
+
   constructor(
     config?: Partial<SubtitleSegmentationConfig>,
     sentenceTokenizer?: SentenceTokenizer,
@@ -359,92 +373,226 @@ export class SubtitleSegmenter {
     this.sentenceTokenizer = sentenceTokenizer || new SentenceTokenizer();
   }
 
-  /** 将文本分割为字幕块 */
+  /** 将文本分割为字幕块（规范 7 步流水线） */
   segment(text: string, parentDuration: number, parentId: number): SubtitleBlock[] {
-    // 1. 分割为句子
-    const sentences = this.sentenceTokenizer.split(text);
-    if (!sentences.length) return [];
-
-    // 2. 进一步分割每个句子为字幕块
-    const allBlocks: string[] = [];
-    for (const sentence of sentences) {
-      const blocks = this.splitSentenceIntoBlocks(sentence);
-      allBlocks.push(...blocks);
-    }
-
-    // 3. 计算时间戳
-    return this.calculateTimestamps(allBlocks, parentDuration, parentId);
+    const trimmed = (text || '').trim();
+    if (!trimmed) return [];
+    const blocks = this.splitToBlocks(trimmed);
+    return this.calculateTimestamps(blocks, parentDuration, parentId);
   }
 
-  /** 将单个句子分割为字幕块 */
-  private splitSentenceIntoBlocks(sentence: string): string[] {
+  /** Step 1-6：分句 → 引号 → 长度 → 合并 → 标点 → 强制（强制后再清理一次） */
+  private splitToBlocks(text: string): string[] {
+    const all: string[] = [];
+    for (const sentence of this.splitSentences(text)) {
+      for (const fragment of this.splitQuoteBoundaries(sentence)) {
+        let blocks = this.lengthSplit(fragment);
+        blocks = this.mergeShort(blocks);
+        blocks = this.clean(blocks);
+        blocks = this.enforceMax(blocks);
+        blocks = this.clean(blocks);
+        all.push(...blocks);
+      }
+    }
+    // 规范 3：过滤空块与纯标点块（含孤立引号）
+    return all.filter((b) => {
+      const s = b.trim();
+      if (!s) return false;
+      return ![...s].every((c) => this.isTrailingPunctOrQuote(c));
+    });
+  }
+
+  private isTrailingPunctOrQuote(c: string): boolean {
+    return SubtitleSegmenter.TRAILING_PUNCT.has(c)
+      || SubtitleSegmenter.LEFT_QUOTES.has(c)
+      || SubtitleSegmenter.RIGHT_QUOTES.has(c);
+  }
+
+  /** Step 1：分句（句界归属前块；未闭合引号内的句界不生效） */
+  private splitSentences(text: string): string[] {
+    const out: string[] = [];
+    let cur = '';
+    const stack: string[] = [];
+    for (const ch of text) {
+      cur += ch;
+      if (SubtitleSegmenter.LEFT_QUOTES.has(ch)) {
+        stack.push(ch);
+      } else if (SubtitleSegmenter.RIGHT_QUOTES.has(ch) && stack.length
+        && SubtitleSegmenter.QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
+        stack.pop();
+      }
+      if (SubtitleSegmenter.SENTENCE_BOUNDARY.has(ch) && stack.length === 0) {
+        out.push(cur);
+        cur = '';
+      }
+    }
+    if (cur.trim()) out.push(cur);
+    return out.filter((s) => s.trim().length > 0);
+  }
+
+  /** Step 2：闭引号后切分（引号内容 >= minChars 才切）；短引号并入上下文 */
+  private splitQuoteBoundaries(text: string): string[] {
+    const fragments: string[] = [];
+    let cur = '';
+    const stack: { q: string; start: number }[] = [];
+    for (const ch of text) {
+      if (SubtitleSegmenter.LEFT_QUOTES.has(ch)) {
+        stack.push({ q: ch, start: cur.length });
+        cur += ch;
+      } else if (SubtitleSegmenter.RIGHT_QUOTES.has(ch) && stack.length
+        && SubtitleSegmenter.QUOTE_MAP.get(stack[stack.length - 1].q) === ch) {
+        const top = stack.pop()!;
+        const contentLen = cur.length - top.start - 1;
+        cur += ch;
+        if (stack.length === 0 && contentLen >= this.config.minCharsPerBlock) {
+          fragments.push(cur);
+          cur = '';
+        }
+      } else {
+        cur += ch;
+      }
+    }
+    if (cur.trim()) fragments.push(cur);
+    return fragments.filter((f) => f.trim().length > 0);
+  }
+
+  /** Step 3：长度切分（标点优先 + 配对引号保护，min/max） */
+  private lengthSplit(text: string): string[] {
     const blocks: string[] = [];
-    let currentBlock = '';
-
-    for (const char of sentence) {
-      // 如果遇到分割符，并且当前块不为空
-      if (this.config.punctuationPriority.includes(char) && currentBlock) {
-        currentBlock += char;
-
-        // 检查当前块长度
-        if (currentBlock.length >= this.config.minCharsPerBlock) {
-          blocks.push(currentBlock);
-          currentBlock = '';
-        }
-        // 如果块太小，暂时保留（继续累积）
-      } else {
-        currentBlock += char;
+    let cur = '';
+    const stack: string[] = [];
+    for (const ch of text) {
+      cur += ch;
+      if (SubtitleSegmenter.LEFT_QUOTES.has(ch)) {
+        stack.push(ch);
+      } else if (SubtitleSegmenter.RIGHT_QUOTES.has(ch) && stack.length
+        && SubtitleSegmenter.QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
+        stack.pop();
       }
-
-      // 如果当前块达到最大长度，强制分割
-      if (currentBlock.length >= this.config.maxCharsPerBlock) {
-        const splitPos = this.findSplitPosition(currentBlock);
-        if (splitPos > 0) {
-          blocks.push(currentBlock.slice(0, splitPos));
-          currentBlock = currentBlock.slice(splitPos);
+      const isPunct = SubtitleSegmenter.PRIORITY_PUNCT.has(ch) || ch === ' ' || ch === '\n' || ch === '\u3000';
+      if (isPunct && cur.length >= this.config.minCharsPerBlock) {
+        blocks.push(cur);
+        cur = '';
+      } else if (cur.length >= this.config.maxCharsPerBlock && stack.length === 0) {
+        const pos = this.findSplitPos(cur);
+        if (pos > 0) {
+          blocks.push(cur.slice(0, pos));
+          cur = cur.slice(pos);
         } else {
-          // 没有合适的分割点，强制在最大长度处分割
-          blocks.push(currentBlock);
-          currentBlock = '';
+          blocks.push(cur);
+          cur = '';
         }
+      } else if (cur.length >= this.config.maxCharsPerBlock * 2 && stack.length > 0) {
+        blocks.push(cur);
+        cur = '';
+        stack.length = 0;
       }
     }
-
-    // 处理剩余的字符
-    if (currentBlock) {
-      // 如果最后一块太小，合并到前一块
-      if (currentBlock.length < this.config.minCharsPerBlock && blocks.length) {
-        const lastBlock = blocks.pop()!;
-        blocks.push(lastBlock + currentBlock);
-      } else {
-        blocks.push(currentBlock);
-      }
-    }
-
-    return blocks;
+    if (cur) blocks.push(cur);
+    return blocks.filter((b) => b.trim().length > 0);
   }
 
-  /** 找到合适的分割位置 */
-  private findSplitPosition(text: string): number {
-    // 优先在标点处分隔（从后向前找）
+  /** 从后往前找最近优先级标点/空格的分割位置（切后索引；无则 -1） */
+  private findSplitPos(text: string): number {
     for (let i = text.length - 1; i >= 0; i--) {
-      if (this.config.punctuationPriority.includes(text[i])) {
-        return i + 1; // 在标点后分割
-      }
+      if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i])) return i + 1;
     }
-
-    // 其次在空格处分隔
     for (let i = text.length - 1; i >= 0; i--) {
-      if ([' ', '　', '\t'].includes(text[i])) {
-        return i + 1;
-      }
+      if (text[i] === ' ' || text[i] === '\n' || text[i] === '\u3000') return i + 1;
     }
-
-    // 没有合适的分割点
     return -1;
   }
 
-  /** 计算每个字幕块的时间戳 */
+  /** Step 4：短块合并（前块 <min 合并；纯标点短块并入；短尾并入） */
+  private mergeShort(blocks: string[]): string[] {
+    if (!blocks.length) return blocks;
+    const merged = [blocks[0]];
+    for (let i = 1; i < blocks.length; i++) {
+      const b = blocks[i];
+      const stripped = b.trim();
+      const isPunctTail = stripped.length <= 2 && [...stripped].every((c) => this.isTrailingPunctOrQuote(c));
+      const isShortTail = stripped.length <= 3 && merged[merged.length - 1].length >= this.config.minCharsPerBlock;
+      if (merged[merged.length - 1].length < this.config.minCharsPerBlock || isPunctTail || isShortTail) {
+        merged[merged.length - 1] = merged[merged.length - 1] + b;
+      } else {
+        merged.push(b);
+      }
+    }
+    return merged.filter((b) => b.trim().length > 0);
+  }
+
+  /** Step 5：标点规范化（trim → 开头修正 → 跨块引号清理 → 末尾去除 → 再去除） */
+  private clean(blocks: string[]): string[] {
+    let bs = blocks.map((b) => b.trim()).filter(Boolean);
+    if (!bs.length) return [];
+    // 子步 1：开头标点修正（首块开头标点删除，后续块开头标点前移）
+    const fixed: string[] = [bs[0]];
+    if (fixed[0] && SubtitleSegmenter.LEADING_PUNCT.has(fixed[0][0])) {
+      fixed[0] = fixed[0].slice(1);
+    }
+    for (let i = 1; i < bs.length; i++) {
+      let b = bs[i];
+      if (b && SubtitleSegmenter.LEADING_PUNCT.has(b[0]) && fixed.length) {
+        fixed[fixed.length - 1] += b[0];
+        b = b.slice(1);
+      }
+      if (b) fixed.push(b);
+    }
+    bs = fixed.filter(Boolean);
+    // 子步 2：跨块引号清理（先删孤立引号，暴露末尾标点）
+    bs = bs.map((b) => this.dropUnpairedQuotes(b)).filter(Boolean);
+    // 子步 3：末尾标点去除
+    bs = bs.map((b) => b.replace(/[。！？；，、.!?;…]+$/, '')).filter(Boolean);
+    // 子步 4：再次开头修正 + 末尾去除 + trim
+    const out: string[] = [];
+    for (const b of bs) {
+      let nb = b;
+      if (nb && SubtitleSegmenter.LEADING_PUNCT.has(nb[0]) && out.length) {
+        out[out.length - 1] += nb[0];
+        nb = nb.slice(1);
+      }
+      nb = nb.replace(/[。！？；，、.!?;…]+$/, '').trim();
+      if (nb) out.push(nb);
+    }
+    return out;
+  }
+
+  /** 删除文本中未配对的引号（块内成对保留） */
+  private dropUnpairedQuotes(text: string): string {
+    const drop = new Array(text.length).fill(false);
+    const stack: number[] = [];
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (SubtitleSegmenter.LEFT_QUOTES.has(ch)) {
+        stack.push(i);
+      } else if (SubtitleSegmenter.RIGHT_QUOTES.has(ch)) {
+        if (stack.length && SubtitleSegmenter.QUOTE_MAP.get(text[stack[stack.length - 1]]) === ch) {
+          stack.pop();
+        } else {
+          drop[i] = true;
+        }
+      }
+    }
+    for (const idx of stack) drop[idx] = true;
+    return [...text].filter((_, i) => !drop[i]).join('');
+  }
+
+  /** Step 6：超长强制分割（切分点必须在块内部） */
+  private enforceMax(blocks: string[]): string[] {
+    const out: string[] = [];
+    for (let b of blocks) {
+      while (b.length > this.config.maxCharsPerBlock) {
+        let pos = this.findSplitPos(b);
+        if (pos <= 0 || pos >= b.length) pos = this.config.maxCharsPerBlock;
+        out.push(b.slice(0, pos));
+        b = b.slice(pos);
+      }
+      if (b) out.push(b);
+    }
+    return out;
+  }
+
+  /** Step 7：时间戳分配（proportional 按字数比例 / equal 等分） */
   private calculateTimestamps(
     blocks: string[],
     totalDuration: number,
@@ -453,7 +601,6 @@ export class SubtitleSegmenter {
     if (!blocks.length) return [];
 
     if (this.config.timeCalculationMethod === 'equal') {
-      // 平均分配时间
       const blockDuration = totalDuration / blocks.length;
       return blocks.map((blockText, i) => ({
         text: blockText,
@@ -489,6 +636,7 @@ export class SubtitleSegmenter {
     return subtitleBlocks;
   }
 }
+
 
 // ==================== 主模块 ====================
 
