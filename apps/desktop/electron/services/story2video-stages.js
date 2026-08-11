@@ -40,12 +40,18 @@ const {
   buildPromptEngineOptimizeRequest,
   extractOptimizedPrompt,
 } = require('./prompt-engine-contract');
+const {
+  buildSceneContextResult,
+  buildPromptEngineSceneContext,
+  mergeNegativePrompt,
+} = require('./story-context-engine');
 
 /**
  * Story2Video-compose 专用的阶段类型
  */
 const STORY2VIDEO_STAGE_TYPES = {
   DOMAIN_ENRICH: 'story2video_domain_enrich',
+  SCENE_CONTEXT: 'story2video_scene_context',
   OPTIMIZE: 'story2video_optimize',
   SELECT_VIDEO_SCENES: 'story2video_select_video_scenes',
   GENERATE_ASSETS: 'story2video_generate_assets',
@@ -647,7 +653,8 @@ function buildContentPolicyCheckpointMeta(failedImages) {
 }
 
 function getOptimizationScenes(context) {
-  const source = context.domain_enrich || context.split || context.sentences;
+  // scene_context 中间层（全局故事背景 + 逐场景上下文块）优先，回退 domain_enrich → split → sentences
+  const source = context.scene_context || context.domain_enrich || context.split || context.sentences;
   if (Array.isArray(source)) return source;
   if (source && Array.isArray(source.scenes)) return source.scenes;
   if (source && Array.isArray(source.sentences)) return source.sentences;
@@ -801,6 +808,60 @@ function registerStory2VideoStages(pipelineEngine) {
     },
   );
   registered.push(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH);
+
+  // ----------------------------------------------------------
+  // SCENE_CONTEXT - 场景上下文增强中间层（分句 → 提示词优化之间的故事背景上下文）
+  // 读完整文案提取全局故事上下文（时代/朝代/文化地域/题材/设定/角色/道具/视觉风格/语气），
+  // 再把全局锚点融合进每个场景，形成逐场景上下文块与负面锚点，注入提示词优化，
+  // 保证图片/视频生成的故事背景准确性、一致性与连贯性（如唐代全文 + 「一个老妇人在做饭」）。
+  // ----------------------------------------------------------
+  pipelineEngine.registerStageExecutor(
+    STORY2VIDEO_STAGE_TYPES.SCENE_CONTEXT,
+    async ({ stage, params, context }) => {
+      params = params || {};
+      const source = context.scene_context || context.domain_enrich || context.split || context.sentences || [];
+      const scenes = Array.isArray(source)
+        ? source
+        : (source.scenes || source.sentences || []);
+      // fail closed：无场景数组（视频生成必须基于场景）不允许静默透传
+      if (!Array.isArray(scenes) || scenes.length === 0) {
+        return { success: false, error: '场景上下文增强需要非空场景数组' };
+      }
+      const options = stage.options || {};
+      // 全文优先 params.text；图片/音频模式无文案时降级为逐场景文本拼接，仍可提取局部上下文
+      const hasFullText = typeof params.text === 'string' && params.text.trim().length > 0;
+      const fullText = hasFullText
+        ? params.text.trim()
+        : scenes.map(s => (s && (s.text || s.content)) || '').filter(Boolean).join('。');
+      try {
+        const result = buildSceneContextResult(scenes, fullText, options);
+        // 无完整文案（图片/音频模式）：场景文本拼接推导的全局上下文较弱，显式标记 degraded 供下游/展示识别
+        if (!hasFullText && result.metadata && result.metadata.enriched) {
+          result.metadata.degraded = true;
+          result.metadata.fallbackReason = 'no_full_text_scene_derived';
+        }
+        if (context && typeof context === 'object') context.scene_context = result;
+        return { success: true, output: result };
+      } catch (error) {
+        // 规则引擎异常：降级透传（增强失败不阻断流水线），记录 degraded 与原因
+        const degraded = {
+          story: null,
+          scenes,
+          metadata: {
+            enriched: false,
+            degraded: true,
+            extractor: 'rule-based',
+            fallbackReason: error && error.message ? String(error.message).slice(0, 300) : 'scene_context_engine_error',
+            sceneCount: scenes.length,
+          },
+        };
+        if (context && typeof context === 'object') context.scene_context = degraded;
+        pipelineEngine.log.warn('Story2VideoStages', 'scene_context 降级透传: ' + degraded.metadata.fallbackReason);
+        return { success: true, output: degraded };
+      }
+    },
+  );
+  registered.push(STORY2VIDEO_STAGE_TYPES.SCENE_CONTEXT);
 
   // ----------------------------------------------------------
   // SELECT_VIDEO_SCENES - 视频+图片轮播混合模式的 AI 视频场景选择（2026-08-11）
@@ -991,9 +1052,40 @@ function registerStory2VideoStages(pipelineEngine) {
           // 创意度/长度/候选数边界）→ 瞬态错误有界重试（限流更长退避）→ 输出校验 fail closed。
           // 校验顺序：error 优先（/v1/optimize 失败兜底返回原文+error，忽略即静默降级）→ 结构 → 内容。
           // 请求构造一次（含别名归一与边界收敛），重试/校验共用同一份归一化参数
-          // 构建上下文：传递文案意图、场景类型、完整文案摘要给 prompt-engine
-          const optimizeContext = buildOptimizeContext(scenes, stage.options || {})
-          const request = buildPromptEngineOptimizeRequest(promptSeed, { ...stage.options, context: optimizeContext })
+          // 构建上下文：优先使用 scene_context 中间层产出的逐场景上下文块
+          // （全局故事背景 synopsis + 场景上下文块 setting + 角色/题材/场景类型），
+          // 未产出时回退 buildOptimizeContext（文案意图/场景类型/完整文案摘要），
+          // 用户显式配置的 optimize.context 只补齐空白键，不被覆盖。
+          const sceneStoryContext = scene && typeof scene === 'object' && scene.context && typeof scene.context === 'object'
+            ? scene.context
+            : null;
+          const optimizeContext = sceneStoryContext
+            ? { ...sceneStoryContext }
+            : { ...buildOptimizeContext(scenes, stage.options || {}) };
+          const userContext = stage.options && stage.options.context;
+          if (userContext && typeof userContext === 'object') {
+            for (const [key, value] of Object.entries(userContext)) {
+              if (value !== undefined && value !== null && value !== '' &&
+                  (optimizeContext[key] === undefined || optimizeContext[key] === '')) {
+                optimizeContext[key] = value;
+              }
+            }
+          } else if (typeof userContext === 'string' && userContext && !optimizeContext.synopsis) {
+            optimizeContext.synopsis = userContext;
+          }
+          const requestOptionsForScene = { ...stage.options, context: optimizeContext };
+          // 场景负面锚点（时代/文化排除项）合并进 negative_prompt（≤500 契约截断）
+          const sceneNegativeAnchors = scene && typeof scene === 'object' && Array.isArray(scene.negativeAnchors)
+            ? scene.negativeAnchors
+            : [];
+          if (sceneNegativeAnchors.length > 0) {
+            requestOptionsForScene.negative_prompt = mergeNegativePrompt(
+              typeof stage.options?.negative_prompt === 'string' ? stage.options.negative_prompt : '',
+              sceneNegativeAnchors,
+              500,
+            );
+          }
+          const request = buildPromptEngineOptimizeRequest(promptSeed, requestOptionsForScene)
           const { prompt: enginePrompt, ...requestOptions } = request
           let result
           try {
