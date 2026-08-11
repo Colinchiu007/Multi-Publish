@@ -54,6 +54,7 @@
 </template>
 
 <script>
+import "@/styles/config-summary.css"
 const IMAGE_STYLES = {
   cinematic: '电影感', realistic: '写实', anime: '动漫', watercolor: '水彩', minimalist: '极简'
 }
