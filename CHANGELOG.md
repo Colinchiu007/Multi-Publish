@@ -72,6 +72,13 @@
 - 新增共享测试向量断言 `tests/subtitle-vectors.test.ts`（18 断言）：与 smart-sentence-splitter `tests/vectors/subtitle_segmentation_vectors.json`（16 例）逐字一致，保证双实现输出同一字幕块序列
 - 行为变化：本地字幕块现在会清理孤立引号、去除块尾标点、短引号内容并入上下文——字幕显示更规范（原有 `subtitleSource: 'local-typescript'` 契约不变）
 - 测试：story2video-engine 全量 73 通过（含新向量 18）
+## [未发布] 修复：字幕分块平衡切分 + 时间戳连续性（2026-08-12）
+
+- `text-segmentation.ts` SubtitleSegmenter 同步规范修复（splitter v0.14.1）：
+  - Step 6 平衡切分：超长块强制切分时尾块 < minChars 则前块让字，避免孤悬尾块（如 `…慢慢炖` + `煮` → `再配上八角桂皮黄` + `酒等香料慢慢炖煮`）
+  - Step 7 时间戳：startTime 改用舍入后 duration 连续累加，保证字幕区间严格连续、互不重叠
+- 测试向量同步 +2（balanced_split_long / balanced_user_case）→ fixtures 18 例；`subtitle-vectors.test.ts` 20 断言
+- 测试：story2video-engine 全量 75 通过
 ## [未发布] 文档：模型 API 调用并发 / 排队 / 限流机制详细合同补充（2026-08-11）
 
 - 核验并固化「每分钟连接次数（rate_per_minute）由运营后台设置/修改，未设置时降级到数据库默认值」的完整链路：运营后台 `model_presets`（DB）→ catalog → 桌面 `model_providers.config`（DB）→ 桌面 DB 预设种子 `PRESET_RATE_LIMITS` 回填 → 静态表 `PROVIDER_LIMITS` → 类别默认 `DEFAULT_LIMITS`；运营显式清空回退静态表/类别默认。
