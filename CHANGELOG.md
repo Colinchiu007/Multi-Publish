@@ -1,3 +1,10 @@
+## [未发布] 功能：MiniMax 多模态模型列表只读（2026-08-11）
+
+- 设置-模型设置-多模态模型- MiniMax 的「模型列表」编辑输入框移除：模型列表由程序预设（seeds `capability_models`/`models`）+ 运营后台（catalog 下发）控制，前端不提供编辑。
+- 实现：`useModelProviderCrud.js` 新增 `isMiniMaxMultimodal`（`form.id === 'minimax-multimodal'`）；`ModelProviders.vue` 新增/编辑对话框对该预设渲染只读提示（「模型列表由系统预设与运营后台下发控制，无需在此填写」+ 当前模型列表文本），其它服务商行为不变。
+- 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
+- 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
+
 ## [未发布] 功能：用户提示文字统一为多语言自然语言（原因 + 建议）（2026-08-11）
 
 - 根因：主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message（如「当前许可证无权访问 store:list-publish-history」），渲染端多个视图直接把 `result.message`/`e.message` 原样展示。
