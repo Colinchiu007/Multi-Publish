@@ -1,0 +1,17 @@
+{
+  "id": "video-prompt-optimize-engine-analysis",
+  "title": "视频提示词优化引擎设计分析（对标图片 prompt-engine）",
+  "status": "completed",
+  "complexity": "M+",
+  "risk": "medium",
+  "domain": "architecture",
+  "currentPhase": "completed",
+  "nextAction": "已完成：双 PR 合并（prompt-engine #18 15dac18e / Multi-Publish #548 1bfa98ea）、openspec archive、CCG task 归档；待生产 8013 重启加载新分支（ops）",
+  "createdAt": "2026-08-11T00:00:00Z",
+  "branch": "main",
+  "openspecChange": "video-prompt-optimize-engine",
+  "remoteStatus": {
+    "mpPR": "MERGED:1bfa98ea",
+    "promptEnginePR": "OPEN:#18 awaiting review"
+  }
+}

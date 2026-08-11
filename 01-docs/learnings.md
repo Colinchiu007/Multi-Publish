@@ -4,7 +4,16 @@
 
 ---
 
-## 长流水线 compose 两缺陷复盘 (2026-08-11，真实 E2E Bug 反哺)
+## 视频提示词优化引擎 video 领域接入复盘 (2026-08-12)
+
+- **变更**：prompt-engine（8013）新增 `video` 领域（`domain=video` + VideoPlatformType 14 枚举 + VideoPromptResult 结构化输出 + GenericVideoStrategy）；Multi-Publish 新增独立契约文件 `video-prompt-engine-contract.js`（与图片契约分文件分命名），PromptBridge `optimizeVideo/optimizeVideosBatch`，videogen_generate 前批量优化（fail-closed），Story2Video 混合模式视频场景提示词先经视频优化再提交 generateVideo（失败按混合语义回退图片轮播）。双 PR：prompt-engine #18（15dac18e）、Multi-Publish #548（1bfa98ea）。
+- **教训 1（外部 sidecar 实例滞后）**：生产运行中的 8013 是旧代码，实测 `domain=video` 请求返回 422（platform 联合枚举不存在）。**契约类功能上线前，必须重启外部 sidecar 实例加载新分支**，不能只合并 PR 就宣称可用；本地验收用独立端口（PORT=8024）启动新代码验证后再切生产。
+- **教训 2（origin/main 与本地 worktree 漂移）**：本地主 worktree 的 HEAD（含 #545/#546/#526 等）领先 origin/main；我的分支基于 origin/main 时，受影响套件出现 8 个「存量失败」（maxLength 300/500 断言漂移、CreateView 历史面板 3 例、pipeline-engine stageCount 1 例）——经 stash 基线对比与 origin/main HEAD（fa7feafd）check-runs 证实均为存量。**判断「是否本次引入」必须用同一基线的 CI/check-runs 对比，而不是看本地全绿**。
+- **教训 3（QG Browser E2E 抖动）**：合并后 main 的 QG Browser E2E 偶发 `/intelligence` 路由检查超时（0 console error），同一分支/同一 main 在不同 run 里 pass/fail 反复（分支 31508248605❌/31508415217✅；main 31509929204✅/31511331146❌）。**单次 E2E 失败需先查同内容多 run 记录 + 失败点归属，不能直接归因于 PR**。
+- **教训 4（评审门禁管理）**：GitHub 不允许作者自审（owner=author 时 `--admin` 也无法合并，GraphQL 拒绝），需在用户明确授权下临时移除 required-review 规则 → 合并 → **立即恢复原规则并校验**（本 repo 已恢复 required_reviews=1/strict/enforce_admins 等全部原值）。
+- **预防措施**：① sidecar 契约变更发布清单必须含「重启运行实例」步骤；② 跨仓库/跨分支交付以 origin/main 为基线并在 PR 描述标注存量失败证据；③ E2E 抖动以「同内容多 run + 失败点」判断，必要时 rerun 后按结果归档。
+
+## 长流水线 compose 两缺陷复盘 (2026-08-11，真实 E2E Bug 反哺)，真实 E2E Bug 反哺)
 
 - **表象**：27 场景图片轮播真实 E2E（真实 MiniMax 图/TTS + 克隆音色）中，compose 阶段两次失败：① 分块合并 ffmpeg 在 2:55 处无错误输出被终止；② 修复①后成片成功但 run 被判 failed（「Story2Video 项目保存失败: 产物不存在、不可读或超出限制」）。
 - **根因**：① `_xfadeMerge` 硬编码 `timeout: 120000`——27 场景分块（level-1 合并 4 块 ≈300s 视频）编码约 1.5x 实时需 ~200s，被固定 120s 中途杀掉（ffmpeg 无「Conversion failed」即被 kill）；② `saveRun → _persistTextConfig` 对已缺失/不可读的 BGM 路径直接 `_copyRequired` 抛错——compose 阶段已按 bgmSkipped 优雅降级，持久化却硬失败，把成功成片误判为失败（project.json 未落盘）。`_safeOptions` 有 `_resolveSource` 守卫而 `_persistTextConfig` 没有，属不一致。
