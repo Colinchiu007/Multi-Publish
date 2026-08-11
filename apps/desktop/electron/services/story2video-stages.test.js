@@ -50,6 +50,7 @@ function makePipeline(assetGenerator, aiGenerator) {
   const assetsExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
   assetsExecutor.domainExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
   assetsExecutor.optimizeExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
+  assetsExecutor.sceneContextExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.SCENE_CONTEXT)
   return assetsExecutor
 }
 
@@ -1854,5 +1855,106 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     expect(result.success).toBe(true)
     expect(assetGenerator.generateImage).toHaveBeenCalled()
     expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: 'img-0.png', videoPath: null })
+  })
+})
+
+describe('story2video 场景上下文增强中间层（scene_context，2026-08-11）', () => {
+  const TANG_FULL_TEXT = '这是一个关于中国唐代的故事。唐玄宗时期，长安城一片繁华。故事讲述一位老妇人在长安城中的日常生活与劳作。'
+  const TANG_COOKING_SCENE = '一个老妇人在做饭'
+
+  it('scene_context 阶段已注册', () => {
+    const pipeline = makePipeline(null)
+    expect(pipeline.sceneContextExecutor).toBeTypeOf('function')
+  })
+
+  it('唐代全文 + 「一个老妇人在做饭」场景 → 逐场景上下文块含唐代/中国/土灶锚点与时代负面锚点', async () => {
+    const fn = makePipeline(null).sceneContextExecutor
+    const result = await fn({
+      stage: { options: {} },
+      params: { text: TANG_FULL_TEXT },
+      context: {
+        domain_enrich: { scenes: [{ index: 0, text: TANG_COOKING_SCENE }] },
+      },
+    })
+    expect(result.success).toBe(true)
+    const output = result.output
+    expect(output.story.dynasty).toMatchObject({ name: '唐朝', period: '唐朝（618-907）' })
+    expect(output.story.culture).toBe('中国')
+    expect(output.metadata).toMatchObject({ enriched: true, degraded: false })
+    expect(output.scenes).toHaveLength(1)
+    const scene = output.scenes[0]
+    expect(scene.storyContext).toContain('唐朝')
+    expect(scene.storyContext).toContain('中国')
+    expect(scene.storyContext).toContain('做饭')
+    expect(scene.storyContext).toContain('土灶')
+    expect(scene.storyContext).toContain('柴火')
+    expect(scene.negativeAnchors).toEqual(expect.arrayContaining(['电烤箱', '微波炉', '西式现代厨房']))
+    expect(scene.character).toMatchObject({ name: '老妇人' })
+  })
+
+  it('无全文（图片/音频模式）降级透传，不阻断流水线', async () => {
+    const fn = makePipeline(null).sceneContextExecutor
+    const result = await fn({
+      stage: { options: {} },
+      params: { text: '', inputMode: 'images' },
+      context: {
+        split: { scenes: [{ index: 0, text: '图片 1', sourceImage: { path: '/tmp/a.png' } }] },
+      },
+    })
+    expect(result.success).toBe(true)
+    expect(result.output.metadata.degraded).toBe(true)
+    expect(result.output.scenes).toHaveLength(1)
+  })
+
+  it('空场景数组 fail closed', async () => {
+    const fn = makePipeline(null).sceneContextExecutor
+    const result = await fn({
+      stage: { options: {} },
+      params: { text: TANG_FULL_TEXT },
+      context: { split: { scenes: [] } },
+    })
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('非空场景数组')
+  })
+
+  it('optimize 优先消费 scene_context：请求 context 使用逐场景上下文块，负面锚点合并进 negative_prompt', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
+    const sceneContextResult = await makePipeline(null).sceneContextExecutor({
+      stage: { options: {} },
+      params: { text: TANG_FULL_TEXT },
+      context: { split: { scenes: [{ index: 0, text: TANG_COOKING_SCENE }] } },
+    })
+    const result = await fn({
+      stage: { options: { negative_prompt: '水印' } },
+      params: {},
+      context: { scene_context: sceneContextResult.output },
+      serviceBus,
+    })
+    expect(result.success).toBe(true)
+    expect(serviceBus.calls).toHaveLength(1)
+    const call = serviceBus.calls[0]
+    expect(call.options.context).toMatchObject({
+      synopsis: expect.stringContaining('唐代'),
+      full_text: expect.stringContaining('唐代'),
+      setting: expect.stringContaining('做饭'),
+    })
+    expect(call.options.context.character).toMatchObject({ name: '老妇人' })
+    // 用户 negative_prompt 与场景负面锚点合并
+    expect(call.options.negative_prompt).toContain('水印')
+    expect(call.options.negative_prompt).toContain('电烤箱')
+  })
+
+  it('optimize 在无 scene_context 时回退 buildOptimizeContext，保持旧行为兼容', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus()
+    const result = await fn({
+      stage: { options: { context: '角色一致性' } },
+      params: {},
+      context: { split: [{ text: '一个老妇人在做饭' }] },
+      serviceBus,
+    })
+    expect(result.success).toBe(true)
+    expect(serviceBus.calls[0].options.context).toMatchObject({ synopsis: '角色一致性', full_text: '一个老妇人在做饭' })
   })
 })
