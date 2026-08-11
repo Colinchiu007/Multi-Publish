@@ -17,6 +17,7 @@
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
+import { useLoginGate } from './useLoginGate'
 import {
   publishBatch,
   onProgress,
@@ -105,6 +106,8 @@ export function usePublishFlow(options) {
   const isAccountAvailable = typeof options.isAccountAvailable === 'function'
     ? options.isAccountAvailable
     : null
+  // 主动操作登录门：发布前未登录 → 弹登录引导，登录成功后继续
+  const { ensureLogin } = useLoginGate()
 
   const publishing = ref(false)
   const progress = ref([])
@@ -243,6 +246,8 @@ export function usePublishFlow(options) {
 
   async function handlePublish() {
     if (publishing.value) return
+    // 主动操作登录门：未登录弹登录窗口，登录成功后继续发布
+    if (!(await ensureLogin({ message: '发布功能需要登录后使用，是否立即登录？' }))) return
     if (!article.title.trim()) {
       ElMessage.warning('请输入文章标题')
       return

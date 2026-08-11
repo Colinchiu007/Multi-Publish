@@ -111,9 +111,11 @@ import {
   aiIsConfigured,
   modelProviderIsConfigured,
 } from "@/api/publisher"
+import { useLoginGate } from "@/composables/useLoginGate"
 
 const emit = defineEmits(["close", "apply-title", "apply-content"])
 const router = useRouter()
+const { ensureLogin } = useLoginGate()
 
 const configured = ref(false)
 const generating = ref(false)
@@ -171,6 +173,8 @@ async function checkConfig() {
 
 async function generateTitles() {
   if (!topic.value.trim()) return
+  // 主动操作登录门：未登录弹登录窗口，登录成功后继续生成标题
+  if (!(await ensureLogin({ message: "AI 标题生成需要登录后使用，是否立即登录？" }))) return
   panelError.value = ""
   generating.value = true
   try {
@@ -188,6 +192,8 @@ function selectTitle(t) {
 }
 
 async function enhanceContent() {
+  // 主动操作登录门：未登录弹登录窗口，登录成功后继续润色
+  if (!(await ensureLogin({ message: "AI 内容润色需要登录后使用，是否立即登录？" }))) return
   enhancing.value = true
   panelError.value = ""
   try {
@@ -211,6 +217,8 @@ function selectEnhanced() {
 }
 
 async function generateSummary() {
+  // 主动操作登录门：未登录弹登录窗口，登录成功后继续生成摘要
+  if (!(await ensureLogin({ message: "AI 摘要生成需要登录后使用，是否立即登录？" }))) return
   summarizing.value = true
   panelError.value = ""
   try {

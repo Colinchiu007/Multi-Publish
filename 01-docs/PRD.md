@@ -101,6 +101,52 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | Expiry Monitor | Auto-detect cookie expiration | P1 | Done |
 | Re-login | One-click re-login flow | P1 | Done |
 
+#### 2.3.1 主动操作登录引导（渐进式登录，2026-08-11）
+
+**目标**：未登录用户触发「主动操作」（发布 / 批量发布 / AI 写作 / 启动流水线等需要登录的功能）时，不再只显示错误提示，而是**弹登录引导 → 登录成功后自动继续原操作**，减少流程断裂、提升登录转化。
+
+**规则**：
+
+| 状态 | 行为 |
+|------|------|
+| 已登录（`identityStore.isAuthenticated`） | 直接放行，不弹窗 |
+| 身份服务不可用（`status === 'disabled' \| 'error'`） | 提示「当前身份服务未配置，无法登录。请在主进程配置身份服务后重试。」并拒绝（fail-closed，不弹登录） |
+| 未登录 + 主动操作 | 弹确认框「需要登录 / 立即登录」→ 调 `identitySignIn()`（主进程打开 Logto OAuth）→ 登录成功且 authenticated → **自动继续原操作**；用户取消 / 登录失败 → 拒绝并提示 |
+
+**数据校验与流程**：
+
+- `useLoginGate.ensureLogin(options)`：返回 `Promise<boolean>`；已登录 / 登录成功 = `true`，取消 / 失败 / 身份服务不可用 = `false`。
+- `useLoginGate.requireLogin(action, options)`：`ensureLogin` 通过后执行 `action()` 并返回其结果；否则返回 `false`。
+- 单例防重入：并发多处触发只弹一次登录（模块级 `activeSignIn`），其余等待同一登录流程。
+- 登录成功判定：`identityStore.signIn()` 返回 `ok` 且 `isAuthenticated === true`。
+
+**交互逻辑与显示项**：
+
+| 场景 | 交互 | 提示文字 |
+|------|------|----------|
+| 未登录点「发布 / 批量发布」 | 弹确认框 → 登录 → 继续发布 | 发布功能需要登录后使用，是否立即登录？ |
+| 未登录点「AI 标题生成 / 润色 / 摘要」 | 弹确认框 → 登录 → 继续生成 | AI 标题生成/内容润色/摘要生成需要登录后使用，是否立即登录？ |
+| 未登录点「启动流水线」 | 弹确认框 → 登录 → 继续启动 | 启动流水线需要登录后使用，是否立即登录？ |
+| 确认框取消 | 不执行操作 | — |
+| 登录失败 / 未完成 | 提示并取消操作 | 登录未完成，操作已取消 |
+| 身份服务不可用 | 提示并拒绝 | 当前身份服务未配置，无法登录。请在主进程配置身份服务后重试。 |
+
+**接入点（2026-08-11 首批）**：
+
+| 入口 | 文件 | 位置 |
+|------|------|------|
+| 发布 | `src/composables/usePublishFlow.js` | `handlePublish` 开头（`publishing` 锁之后、校验之前） |
+| 批量发布 | `src/composables/useBatchPublish.js` | `handleBatchPublish` 开头 |
+| AI 写作 | `src/components/AiWriterPanel.vue` | `generateTitles` / `enhanceContent` / `generateSummary` 开头 |
+| 流水线启动 | `src/views/CreateView.vue` | UI「启动流水线」按钮 → `handleStartPipeline`（登录门 + `startPipeline`） |
+
+**边界与约定**：
+
+- 登录门放在**主动操作**入口；浏览/查看类（历史记录、配置查看）保持轻提示，不弹窗。
+- 已登录但缺权益（`ENTITLEMENT_REQUIRED`）不弹登录窗，走升级/权益引导（`UpgradeModal`）。
+- `CreateView.startPipeline` 方法本体**不**内置登录门（保持同步时序语义，供测试/程序化调用）；登录门在 UI 点击层 `handleStartPipeline`。
+- 被动 IPC 仍由主进程通道级鉴权兜底（`AUTH_REQUIRED`），登录门只是 UX 前置，不替代主进程安全边界。
+
 ---
 
 ## 三、功能需求

@@ -1,0 +1,13 @@
+{
+  "id": "login-gate-proactive-actions",
+  "title": "主动操作未登录弹登录窗口并延续操作（useLoginGate + 核心入口接入）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "frontend-auth-ux",
+  "currentPhase": "completed",
+  "nextAction": "已归档，待推送",
+  "createdAt": "2026-08-11T17:00:00Z",
+  "branch": "codex/login-gate-proactive-actions",
+  "worktree": "C:/tmp/Multi-Publish-login-gate"
+}

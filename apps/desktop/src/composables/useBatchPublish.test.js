@@ -11,6 +11,7 @@ const {
   mockOnProgress,
   mockElMessage,
   mockElMessageBox,
+  mockEnsureLogin,
 } = vi.hoisted(function () {
   return {
     mockBatchCreate: vi.fn(),
@@ -18,6 +19,18 @@ const {
     mockOnProgress: vi.fn(function () { return vi.fn() }),
     mockElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() },
     mockElMessageBox: { confirm: vi.fn() },
+    // 主动操作登录门：默认直接放行（登录门行为由 useLoginGate.test.js 覆盖）
+    mockEnsureLogin: vi.fn(async () => true),
+  }
+})
+
+vi.mock('@/composables/useLoginGate', function () {
+  return {
+    useLoginGate: () => ({
+      ensureLogin: mockEnsureLogin,
+      requireLogin: vi.fn(async (fn) => fn()),
+      openSignIn: vi.fn(async () => true),
+    }),
   }
 })
 
@@ -336,6 +349,8 @@ describe('useBatchPublish — composable setup', () => {
     r.articles.value = [{ title: '标题', content: '正文', platforms: ['wechat_mp'] }]
 
     const firstPublish = r.handleBatchPublish()
+    // 主动操作登录门为异步：等待登录门通过并进入 batchPublishing 锁后再断言
+    await Promise.resolve()
     expect(r.batchPublishing.value).toBe(true)
     const secondPublish = r.handleBatchPublish()
     await secondPublish
