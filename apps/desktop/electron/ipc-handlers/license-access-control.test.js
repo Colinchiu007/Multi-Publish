@@ -10,9 +10,12 @@ import path from 'node:path'
 
 const {
   CHANNEL_FEATURE_MAP,
+  LOGIN_ONLY_FEATURE_MAP,
   createAccessControlledIpcMain,
   getAccessLevel,
   requiredLevelForChannel,
+  requiredFeatureForChannel,
+  isLoginOnlyFeatureChannel,
 } = require('./license-access-control')
 
 const trustedEvent = { senderFrame: { url: 'app://localhost/index.html' } }
@@ -487,5 +490,113 @@ describe('主进程许可证动态鉴权', () => {
     // 未登录：删除通道仍被拒
     await expect(handlers['story2video:delete-project'](trustedEvent, 'project-1')).resolves.toMatchObject({ code: -3 })
     expect(deleteProject).not.toHaveBeenCalled()
+  })
+
+  it('模型服务商配置写操作需登录，只读操作未登录可用', async () => {
+    // 通道级分类：写操作 authenticated，读操作 public
+    for (const writeChannel of [
+      'model-provider:create',
+      'model-provider:update',
+      'model-provider:delete',
+      'model-provider:set-default',
+      'model-provider:clean-logs',
+    ]) {
+      expect(requiredLevelForChannel(writeChannel)).toBe('authenticated')
+    }
+    for (const readChannel of [
+      'model-provider:list',
+      'model-provider:get',
+      'model-provider:get-default',
+      'model-provider:test',
+      'model-provider:presets',
+      'model-provider:is-configured',
+      'model-provider:logs',
+    ]) {
+      expect(requiredLevelForChannel(readChannel)).toBe('public')
+    }
+
+    // 行为：未登录（public）写操作被拒且 handler 不执行；登录后放行
+    const identityService = { getState: () => ({ status: 'signed_out' }) }
+    const create = vi.fn(async () => ({ code: 0, data: { id: 'openai' } }))
+    const list = vi.fn(async () => ({ code: 0, data: [] }))
+    {
+      const { ipcMain, handlers } = createIpcMainHarness()
+      const controlledIpcMain = createAccessControlledIpcMain(
+        ipcMain,
+        null,
+        { NODE_ENV: 'production' },
+        { isPackaged: true },
+        identityService,
+      )
+      controlledIpcMain.handle('model-provider:create', create)
+      controlledIpcMain.handle('model-provider:list', list)
+
+      await expect(handlers['model-provider:create'](trustedEvent, { id: 'openai', name: 'OpenAI' }))
+        .resolves.toMatchObject({ code: -3 })
+      expect(create).not.toHaveBeenCalled()
+      // 只读放行
+      await expect(handlers['model-provider:list'](trustedEvent)).resolves.toEqual({ code: 0, data: [] })
+      expect(list).toHaveBeenCalledTimes(1)
+    }
+    {
+      const { ipcMain, handlers } = createIpcMainHarness()
+      const loggedInIdentity = { getState: () => ({ status: 'authenticated' }) }
+      const controlledIpcMain = createAccessControlledIpcMain(
+        ipcMain,
+        null,
+        { NODE_ENV: 'production' },
+        { isPackaged: true },
+        loggedInIdentity,
+      )
+      controlledIpcMain.handle('model-provider:create', create)
+      await expect(handlers['model-provider:create'](trustedEvent, { id: 'openai', name: 'OpenAI' }))
+        .resolves.toEqual({ code: 0, data: { id: 'openai' } })
+      expect(create).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('发布历史/队列/流水线/视频处理/Story2Video 写操作必须登录（authenticated）', () => {
+    const LOGIN_REQUIRED_CHANNELS = [
+      // 发布历史 / 队列 / 进度
+      'history:list', 'history:get', 'history:delete',
+      'queue:status', 'queue:history', 'queue:cancel', 'queue:retry',
+      'dashboard:stats',
+      // 流水线写操作 / 运行控制
+      'pipeline:start', 'pipeline:pause', 'pipeline:resume', 'pipeline:cancel',
+      'pipeline:status', 'pipeline:advance', 'pipeline:fetch',
+      // 视频处理 / 渲染
+      'video:status', 'video:process', 'video:analyze', 'video:mix-audio',
+      'video:search-stock', 'video:generate-subtitle', 'video:list-process-types',
+      'render:start', 'render:cancel', 'render:validate-props',
+      // Story2Video 写操作
+      'story2video:delete-project', 'story2video:transcribe', 'story2video:recompose-project',
+      'story2video:export-zip', 'story2video:save-as', 'story2video:create-share-url',
+      'story2video:update-segments', 'story2video:replace-segment-audio',
+      'story2video:retry-segment', 'story2video:capabilities',
+      'story2video:copy-path', 'story2video:show-in-folder',
+    ]
+    for (const channel of LOGIN_REQUIRED_CHANNELS) {
+      expect(requiredLevelForChannel(channel), channel + ' 必须登录').toBe('authenticated')
+    }
+
+    // 只读/设备本地通道保持 public（离线可用语义）
+    for (const channel of [
+      'pipeline:list', 'pipeline:get', 'pipeline:history',
+      'story2video:list-projects', 'story2video:get-project',
+      'render:status',
+    ]) {
+      expect(requiredLevelForChannel(channel), channel + ' 保持 public').toBe('public')
+    }
+  })
+
+  it('LOGIN_ONLY_FEATURE_MAP：登录即可，不强制服务端 feature，且全部为 authenticated 通道', () => {
+    for (const channel of Object.keys(LOGIN_ONLY_FEATURE_MAP)) {
+      expect(requiredLevelForChannel(channel), channel + ' 必须登录').toBe('authenticated')
+      expect(requiredFeatureForChannel(channel), channel + ' 不应强制服务端 feature').toBeNull()
+      expect(isLoginOnlyFeatureChannel(channel), channel + ' 应命中 login-only 映射').toBe(true)
+    }
+    // cloud_publish 严格权益不受影响（服务端权威）
+    expect(requiredFeatureForChannel('publish:wechat')).toBe('cloud_publish')
+    expect(requiredFeatureForChannel('cloud-publisher:submit')).toBe('cloud_publish')
   })
 })
