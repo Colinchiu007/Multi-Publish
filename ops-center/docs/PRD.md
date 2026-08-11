@@ -632,8 +632,8 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 | 获取模型ID URL | `models_url` | string | ✅ | 空允许；非空必须 `http(s)` 开头，长度 ≤500；用于「获取模型」按钮拉取模型 ID |
 | 默认模型 ID | `default_model` | string | ✅ | 空允许；**非空且模型列表非空时，必须 ∈ 模型列表**，否则 400「默认模型 ID 必须在模型列表中」 |
 | 接口技术文档URL | `doc_links` | string[] | ✅ | ≤10 条；每条 `http(s)` 开头 |
-| 每分钟连接次数 | `rate_per_minute` | integer | ✅ | 空/None 视为未配置（null）；非空必须为 `[0, 100000]` 的整数（`int()` 严格转换，拒绝 `1.5`/`'abc'`/负数/布尔），否则 400 |
-| 5小时限额次数 | `limit_per_5h` | integer | ✅ | 空/None 视为未配置（null）；非空必须为 `[0, 10000000]` 的整数，否则 400 |
+| 每分钟连接次数 | `rate_per_minute` | integer | ✅ | 空/None 视为未配置（null）；非空必须为 `[1, 100000]` 的整数（`int()` 严格转换，拒绝 `1.5`/`'abc'`/负数/布尔），否则 400 |
+| 5小时限额次数 | `limit_per_5h` | integer | ✅ | 空/None 视为未配置（null）；非空必须为 `[1, 10000000]` 的整数，否则 400 |
 
 - 前端输入框留空 → 保存为 `null`（`rate_per_minute`/`limit_per_5h`）或空串（URL 类）。
 - 语义说明：`rate_per_minute`=该模型每分钟允许的 API 请求次数；`limit_per_5h`=每 5 小时请求次数上限。桌面端据此调度并发与排队；留空表示使用默认限流（不报错）。
@@ -757,7 +757,7 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 | 成功响应 | `{ "items": [...], "count": N, "synced_at": "ISO8601Z" }` |
 | 数据范围 | 仅 `is_visible=1` 预设，按 `is_multimodal DESC, category, name` 排序 |
 | item 字段 | `id` / `name` / `category` / `base_url` / `models` / `default_model` / `rate_per_minute` / `limit_per_5h` / `is_multimodal` / `capabilities` / `capability_models` / `updated_at`；**不含** api_key、密钥、审计等敏感字段 |
-| 数据自洽 | `default_model` 非空必须 ∈ `models`；`rate_per_minute`/`limit_per_5h` 为 `null` 或正整数（`[0,100000]`/`[0,10000000]` 已由写入校验保证） |
+| 数据自洽 | `default_model` 非空必须 ∈ `models`；`rate_per_minute`/`limit_per_5h` 为 `null` 或正整数（`[1,100000]`/`[1,10000000]` 已由写入校验保证） |
 
 ### 12A.10.2 桌面端消费契约
 
@@ -776,6 +776,17 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 - `ops-center/backend/tests/test_model_catalog_api.py`：正确 Key 返回全部可见预设（≥50 项、minimax-multimodal 命中、default∈models、限流正整数或空）；错误/缺失 Key 401；未配置 404；隐藏项排除。
 - 桌面端：`ops-center-sync.test.js`（URL 校验/加密存储/错误映射/超时/大小/JSON/结构/成功落盘/自动同步）、`model-provider-apply-catalog.test.js`（合并/不覆盖/插入/不清除/清空回退/governor 重应用）、`ipc-handlers/ops-center-sync.test.js`、`useOpsCenterSync.test.js`。
+
+### 12A.10.4 未配置时的降级链路（桌面端，2026-08-11 补充）
+
+运营后台未填写 `rate_per_minute` / `limit_per_5h`（null）时，桌面端按以下顺序降级，不报错、不阻塞：
+
+1. **桌面数据库种子默认值**：`model-provider-seeds.js` `PRESET_RATE_LIMITS` 回填 `config.rate_per_minute`（`_syncPresetLimits` diff-merge 仅填缺失键）；数值为代码事实，与桌面静态表一致；
+2. **静态表**：`governor-provider-limits.js` `PROVIDER_LIMITS`（已知 provider 的 rpm / maxConcurrent / cooldownMs / retry429）；
+3. **类别默认**：`api-usage-governor.js` `DEFAULT_LIMITS`（llm 30/2、tts 10/2、image 10/2、video 4/1、audio 10/2、default 20/2）。
+
+- 运营**显式清空**（null/''/0/布尔）→ `applyCatalog` 删除桌面本地 config 值 → 回退 2/3；`limit_per_5h` 清空 → 清除 provider 级 5h 请求窗口。
+- 桌面端排队时序预算：并发队列 30s、RPM 时间槽 180s、冷却 45s；超限返回明确限流文案，429 自适应 ×0.75 下调、成功 +0.05 恢复。详见 Multi-Publish PRD §7.1.8.1 / §7.4.4.3。
 
 ## 12A.11 运行时运营策略：公告 / 版本发布 / 内容安全（2026-08-10 新增）
 

@@ -891,6 +891,21 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 失败类型规避 | 限流失败：恢复时由网关冷却自动等待后再继续；额度失败：恢复前用户需先确认/补充额度（提示文案引导），系统不自动重试；内容政策失败：不允许原样恢复，必须修改文案后重新启动；未知/瞬态失败：直接恢复。 |
 | 交互 | 恢复期间按钮显示「正在恢复…」；恢复成功即重新显示阶段清单并恢复 3s 轮询；恢复失败以明确原因重新弹窗。 |
 
+##### 7.1.8.1 排队与等待时序预算（详细合同，2026-08-11 补充）
+
+| 等待维度 | 有界上限 | 超限行为与提示文字 |
+|----------|----------|--------------------|
+| 并发信号量（maxConcurrent） | 30s（`MAX_QUEUE_WAIT_MS`，FIFO） | 返回 `RATE_LIMITED`：「当前请求频率已达上限，请稍后再试。」，不静默丢弃 |
+| RPM 滑动窗口时间槽（`_pace`） | 180s（`MAX_PACE_WAIT_MS`） | 抛 `RATE_LIMITED`：「当前请求频率已达上限，请稍后再试。」（错误 context 携带 `cooldownMs`） |
+| 429 冷却期（cooldownUntil） | 45s（`MAX_COOLDOWN_WAIT_MS`） | 剩余 ≤45s 自动等待；>45s 直接提示：「该模型 API 处于限流冷却期，请稍等约 N 秒后重试。」 |
+| token 额度窗口（5h/周） | 请求前预检即拒（不消耗真实调用） | `QUOTA_EXCEEDED`：「该模型 API 的每 5 小时 token 额度（N）已用完，请检查套餐额度或更换模型后再试。」 |
+
+- **429 自适应**：收到 429 后 `rateFactor ×= 0.75`（下限 0.2），成功后每笔 `+0.05` 缓慢恢复至 1；`_effectiveRpm = max(2, round(rpm × rateFactor))`（下限 2 保证不归零）。
+- **重试分级**：限流（429 / `RATE_LIMITED`）冷却+退避，最多 `retry429` 次（默认 3，支持 `Retry-After` 头）；瞬时（`TIMEOUT` / `NETWORK_ERROR` / 空响应）`500ms × attempt` 最多 2 次；额度（`402` / `QUOTA_EXCEEDED` / 余额·配额·token 文案）**不重试**；其余不重试。
+- **槽位记账**：排队被放行时释放方把槽位转移给被放行请求（active+=1），全部完成后 active 归零、不漂移为负。
+- **同 key 重入保护**：AsyncLocalStorage 记录当前 async 调用链已持有的调度 key；同 key 内层 `governor.run` 直接透传执行（不重复占信号量/时间槽/记账），不同 key 仍独立排队调度。已由 `AIGenerator.generate` 内部 governor 调度的路径（assetGenerator）外层**不得**重复包裹；legacy python 路径（无 assetGenerator）保留外层 `withModelBudget` 统一调度。
+- **数据校验（桌面端归一化）**：`normalizeRatePerMinute`：正整数 1..100000，`normalizeLimitPer5h`：正整数 1..10000000；空/None/'' → null；`0`/负数/小数/布尔/超上限 → null（由降级层兜底，不报错）。运营后台后端对非法值 400 + 前端提示（见 §7.4.4.3）。
+
 #### 7.1.9 流水线进度细化与信息视觉化合同
 
 流水线运行期必须提供持续、细化的进度反馈，避免长耗时阶段让用户焦虑或误判卡死。
@@ -2069,8 +2084,8 @@ umberValue 边界收敛 |
 | `models_url` | 获取模型ID URL | string | ✅ | http(s)，长度 ≤500；用于「获取模型」按钮 |
 | `default_model` | 默认模型 ID | string | ✅ | 非空且 models 非空时必须 ∈ models，否则 400「默认模型 ID 必须在模型列表中」 |
 | `doc_links` | 接口技术文档URL | string[] | ✅ | ≤10 条，http(s) |
-| `rate_per_minute` | 每分钟连接次数 | int | ✅ | `[0,100000]` 整数（拒绝 `1.5`/`'abc'`/负数/布尔） |
-| `limit_per_5h` | 5小时限额次数 | int | ✅ | `[0,10000000]` 整数 |
+| `rate_per_minute` | 每分钟连接次数 | int | ✅ | `[1,100000]` 整数（拒绝 `0`/`1.5`/`'abc'`/负数/布尔） |
+| `limit_per_5h` | 5小时限额次数 | int | ✅ | `[1,10000000]` 整数 |
 
 - 获取模型ID 端点：`POST /api/v1/model-presets/{id}/fetch-models`（admin-only），SSRF 防护（非环回必须 https、禁重定向、超时 10s、响应 ≤512KB、私网解析拒绝、JSON 契约 `{models|data:[...]}`），成功回写 `models`（`default_model` 不在新列表则清空）。
 - 多模态 7 类能力文档键：`llm`（文字推理接口）/ `image`（图片生成）/ `video`（视频生成）/ `tts`（TTS语音生成）/ `voice_clone`（TTS语音克隆）/ `speech_recognition`（语音识别）/ `vision`（视觉识别）；未知键 400。
@@ -2087,6 +2102,58 @@ umberValue 边界收敛 |
 | 视频创作联动 | `story2video generate_assets` 图片/TTS 并行生成并发上限 = `min(请求并发, provider maxConcurrent)`（按能力分别解析 image/tts provider），超出部分 worker 队列排队；未配置预算回退静态表/请求并发，行为不回归。 |
 | 前端表单 | 模型设置「每分钟连接次数 / 5小时限额次数」为**只读展示**（7.4.5 起由运营后台同步下发或使用服务商默认值，不再手工输入）：编辑弹窗显示当前值或「未配置（默认限流）」，新增服务商步骤 3 提示「限流策略由运营后台同步下发或使用服务商默认值」。 |
 | 种子数据来源 | 预设种子 `rate_per_minute` 与 `governor-provider-limits.js` 静态表一致（代码事实，2026-08-10 起由 ops-center 目录统一生成）；`limit_per_5h` 无代码事实 → 不预填（留空由运营填写，注入 provider 级 5h 请求窗口）；`models_url` 无适配器 `/models` 调用事实 → 不预填。运营后台目录与桌面端代码事实一致性命中测试见 ops-center PRD 12A.8。 |
+
+##### 7.4.4.3 预算来源与数据库默认值降级链路（详细合同，2026-08-11 补充）
+
+| 层级 | 来源 | 说明 |
+|------|------|------|
+| L1 运营后台配置 | ops-center `model_presets.rate_per_minute` / `limit_per_5h`（运营后台数据库） | 运营在运营后台【模型预设】设置/修改；经 `GET /api/v1/model-presets/catalog` 同步到桌面端 `model_providers.config`（桌面数据库），写入后 `_applyGovernorLimits()` 重应用 |
+| L2 桌面数据库种子默认值 | `model-provider-seeds.js` `PRESET_RATE_LIMITS`（回填 `config.rate_per_minute`） | `_syncPresetLimits` 对存量预设行 diff-merge 回填（仅填充缺失键、不覆盖用户值）；值为代码事实，与 L3 静态表一致 |
+| L3 静态表 | `governor-provider-limits.js` `PROVIDER_LIMITS` | 已知 provider 的保守估计（rpm / maxConcurrent / cooldownMs / retry429）；本地/免费类给高预算避免误排队 |
+| L4 类别默认 | `api-usage-governor.js` `DEFAULT_LIMITS` | llm 30/2、tts 10/2、image 10/2、video 4/1、audio 10/2、default 20/2（rpm/maxConcurrent） |
+
+- **降级语义**：运营后台**未设置**（null/留空）→ 桌面端使用 L2 数据库种子默认（已回填 config）→ 该 provider 不在种子回填范围则回退 L3 静态表 → 不在静态表回退 L4 类别默认。`resolveProviderBudget` 的 `source` 标记：`config`（L1/L2 命中）→ `static`（L3）→ `default`（L4）。
+- **显式清空**：运营后台把值清空（null/''/0/布尔）→ `applyCatalog` 删除桌面本地 config 值 → 回退 L3/L4（预设 provider 的 L3 数值与 L2 种子一致，行为等价）。`limit_per_5h` 清空 → `setProviderTokenWindows(id, [])` 清除 5h 窗口。
+- **并发换算**：`rate_per_minute` 命中（L1/L2）→ `maxConcurrent = clamp(round(rpm/10), 1, 4)`；未配置（L3/L4）→ 使用静态表 maxConcurrent；视频/音频类型未配置预算时并发恒 1（异步任务制低并发）。
+- **数据校验（两端对齐）**：
+
+| 字段 | 桌面端归一化（`_normalizeConfigLimit` / scheduler normalize） | ops-center 后端校验（400） | ops-center 前端提示 |
+|------|--------------------------------------------------------------|-----------------------------|----------------------|
+| `rate_per_minute` | 正整数 1..100000；空→null；非法→null 兜底 | `[1,100000]` 整数，拒绝 0/负数/小数/布尔/字符串 | 「每分钟连接次数必须是大于等于 0 的整数（可留空）」 |
+| `limit_per_5h` | 正整数 1..10000000；空→null；非法→null 兜底 | `[1,10000000]` 整数 | 「5小时限额次数必须是大于等于 0 的整数（可留空）」 |
+
+##### 7.4.4.4 并发与排队功能逻辑（详细合同，2026-08-11 补充）
+
+| 入口 | 行为 |
+|------|------|
+| `withModelBudget({governor, type, providerId, model}, task)` | 单次受管调用：`governor.run`（并发信号量 → RPM 时间槽 → 冷却 → 分级重试 → 额度记账）；无 governor 或未指定 providerId 时直接执行（回退，行为与现状一致） |
+| `mapWithModelBudget({items, requestedConcurrency, fallbackConcurrency=3, provider, type, governor, fn})` | 有界并发 map：并发上限 = `min(请求并发, provider maxConcurrent)`（上限 8）；worker 队列按序领取 items，结果数组保序；超出部分排队执行而非失败 |
+| `resolveProviderBudget({provider, type})` | 预算解析：rpm = config.rate_per_minute → 静态表 rpm → 20；maxConcurrent = rpm 命中 ? `clamp(round(rpm/10),1,4)` : 静态表 maxConcurrent；`source` = config/static/default |
+| `governor.run` 内部流水线 | `_acquire`（信号量，30s 有界）→ `_pace`（RPM 时间槽，180s 有界）→ `_waitCooldown`（45s 有界）→ `_executeWithRetry`（429 冷却+退避 / 瞬时短退避 / 额度不重试）→ `_recordUsage` + `_assertTokenBudget` |
+| 注入时机 | `setGovernor` / `init()` / `createProvider` / `updateProvider` / `applyCatalog` 成功后调用 `_applyGovernorLimits()`；`limit_per_5h` → `setProviderTokenWindows([{windowMs:5h, field:'requests'}])`，null → `setProviderTokenWindows(id, [])` |
+| 单层收敛 | 已由 `AIGenerator.generate` 内部 governor 调度的路径（assetGenerator）阶段外层不重复包裹；legacy python 路径保留外层 `withModelBudget`；同 key 嵌套 `run` 重入透传不自死锁（§7.1.8.1） |
+
+##### 7.4.4.5 交互逻辑与显示项（详细合同，2026-08-11 补充）
+
+桌面端【模型设置】：
+
+| 场景 | 显示项 | 提示文字（原文） |
+|------|--------|------------------|
+| 新增服务商（步骤 3） | 限流提示行 | 「限流策略（每分钟连接次数 / 5小时限额次数）由运营后台同步下发或使用服务商默认值，无需在此填写。」 |
+| 编辑预设服务商 | 只读文本（非输入框） | 「每分钟连接次数：{{值 或 '未配置（默认限流）'}}」「5小时限额次数：{{值 或 '未配置（默认限流）'}}」+「限流值由运营后台同步下发或使用服务商默认值，前端为只读展示。」 |
+| 运营后台同步启用（`lastSyncedAt` 存在） | 同步卡片高亮 + 预设模型列表 `disabled` | 「已启用运营后台下发：服务商的『每分钟连接次数 / 5小时限额次数 / 模型列表』以运营后台为准，桌面端为只读展示；本地仍可配置 API Key、Base URL 与默认服务商。」 |
+| 同步状态 | 卡片元信息 / 按钮 | 「上次同步：{{时间}}」/「尚未同步」/「同步中...」/「立即同步」/「启动时自动同步」；失败文案：「目录同步 API Key 无效（401/403）」「未启用目录同步（404）」「同步请求超时（10 秒）」「无法连接 Ops Center」 |
+| 前端校验（保存自定义值） | ElMessage.warning | 「每分钟连接次数必须是大于等于 1 的整数（可留空）」「5小时限额次数必须是大于等于 1 的整数（可留空）」 |
+
+ops-center【模型预设】：
+
+| 场景 | 显示项 | 提示文字（原文） |
+|------|--------|------------------|
+| 列表 | 「限流（每分钟/5小时）」列 | `{{rate_per_minute}} / {{limit_per_5h}}`，未配置显示 `-` |
+| 新增/编辑 | 每分钟连接次数输入框（`el-input-number`，min=1 max=100000，允许为空） | 校验失败：「每分钟连接次数必须是大于等于 0 的整数（可留空）」 |
+| 新增/编辑 | 5小时限额次数输入框（min=1 max=10000000，允许为空） | 校验失败：「5小时限额次数必须是大于等于 0 的整数（可留空）」 |
+| 帮助文案 | 输入框下方 | 「留空表示未配置，前端使用默认限流；正整数」 |
+| 后端 400 | PUT/POST 预设 | 「rate_per_minute 必须是大于等于 1 的整数（允许留空）」「rate_per_minute 不能超过 100000」「limit_per_5h 不能超过 10000000」等 |
 
 #### 7.4.5 运营后台 → 桌面端运行时同步（2026-08-10 新增）
 
