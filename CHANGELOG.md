@@ -1,3 +1,9 @@
+## [未发布] 修复：缺失/不可读 BGM 不再阻断项目保存，成片成功时不得误判为失败（2026-08-11）
+
+- 根因：compose 阶段对缺失/不可读 BGM 已按 bgmSkipped 降级跳过并成功合成成片，但项目保存（_persistS2VTextConfig）仍对 bgmPath 无条件 _copyRequired，源缺失时抛错，导致「成片成功却误判项目保存失败」。
+- 修复：保存时用 _resolveSource 探测 BGM 源，缺失/不可读则跳过拷贝并清空 bgmPath / config.bgm.path 引用（避免元数据指向已回收文件），不再阻断保存。
+- 测试：story2video-project-service.test.js 新增回归用例（缺失 BGM 源 + 成片存在时 saveRun 成功不误判），本地 23/23 通过。
+
 ## [未发布] 功能：字幕分割规则对齐《字幕分割规范 v1.0》（2026-08-11）
 
 - `text-segmentation.ts` 的 `SubtitleSegmenter` 重构为规范 7 步流水线（与 smart-sentence-splitter Python 实现共享同一规范）：
