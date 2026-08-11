@@ -39,6 +39,33 @@ const MAX_SCENES = 12
 const DEFAULT_SCENE_SECONDS = 5
 const DEFAULT_NUM_FRAMES = 121
 
+// 默认 LLM 输出预算：普通模型 1600；推理型模型会把 <think> 思考过程算进输出，
+// 在默认预算下会导致概念/分镜的 JSON 被截断（如 MiniMax-M3 实测 2000 tokens 仍截断、
+// parseJsonArray 返回 null 阶段失败），命中推理特征时自动放大到 REASONING_LLM_MAX_TOKENS。
+const DEFAULT_LLM_MAX_TOKENS = 1600
+const REASONING_LLM_MAX_TOKENS = 5000
+
+/**
+ * 推理型 LLM 模型标识（model id 小写后命中任一特征即视为推理型）。
+ * 与 adapters/* 的 stripThinkingBlocks 配套：识别后放大 max_tokens，
+ * 给思考块留足预算，确保概念/分镜输出完整 JSON。
+ */
+const REASONING_MODEL_PATTERNS = [
+  'reasoner', // deepseek-reasoner / kimi-reasoner / gpt-o* 等
+  'deepseek-v4', // deepseek-v4-pro / deepseek-v4-flash（推理型）
+  'minimax-m3', 'minimax-m2.7', 'minimax-m2', 'm3', // MiniMax M 系列
+  'kimi-k2.8', 'kimi-k2.7', 'kimi-k2.6', 'kimi-r1', // Moonshot 长思考/推理
+  'o1', 'o3', 'o4', 'o5', // OpenAI 推理系列（o3-mini 等）
+  'r1', 'r2', // DeepSeek-R1 / Kimi-R1 等
+  'think', // gemini-flash-thinking / glm-4.5-thinking / qwen3-thinking 等
+]
+
+function isReasoningLlmModel (modelId) {
+  const id = String(modelId || '').trim().toLowerCase()
+  if (!id) return false
+  return REASONING_MODEL_PATTERNS.some(pattern => id.includes(pattern))
+}
+
 function getAiGenerator (pipelineEngine) {
   return pipelineEngine.aiGenerator ||
     (pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
@@ -74,12 +101,17 @@ async function callDefaultLlm (aiGenerator, systemPrompt, userContent, maxTokens
   if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
     throw new Error('默认 LLM 不可用，请先完成模型设置')
   }
-  if (!getLlmConfig(aiGenerator)) {
+  const llmConfig = getLlmConfig(aiGenerator)
+  if (!llmConfig) {
     throw new Error('未找到需要的相关模型，请在设置中添加模型')
   }
+  // 显式 maxTokens 优先；未指定时推理型模型自动放大预算，避免思考块截断 JSON
+  const effectiveMaxTokens = Number.isFinite(maxTokens)
+    ? maxTokens
+    : (isReasoningLlmModel(llmConfig.model) ? REASONING_LLM_MAX_TOKENS : DEFAULT_LLM_MAX_TOKENS)
   const result = await aiGenerator.generateWithDefault('llm', {
     temperature: 0.7,
-    max_tokens: Number.isFinite(maxTokens) ? maxTokens : 1600,
+    max_tokens: effectiveMaxTokens,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
@@ -488,6 +520,11 @@ function registerVideoGenStages (pipelineEngine) {
 
 module.exports = {
   VIDEOGEN_STAGE_TYPES,
+  DEFAULT_LLM_MAX_TOKENS,
+  REASONING_LLM_MAX_TOKENS,
+  REASONING_MODEL_PATTERNS,
+  isReasoningLlmModel,
+  callDefaultLlm,
   buildConceptPrompt,
   buildStoryboardPrompt,
   buildScriptPrompt,

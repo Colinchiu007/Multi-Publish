@@ -1948,6 +1948,18 @@ umberValue 边界收敛 |
 2. story2video-stages.test.js：覆盖 buildOptimizeContext 的关键词推断、上下文继承、空场景处理
 
 **影响**：LLM 收到完整文案上下文后生成更贴合原文的图片提示词；maxLength 放宽减少长文案截断。
+
+#### 7.1.32 视频创作流水线卡片渲染与 CI 门禁修复（2026-08-11）
+
+**问题**：`CreateView.vue` 的 `components` 只注册了 `UiButton/UiModal/UiSelect`，漏注册 `PipelineSelector/StageProgress/CreateViewHistory` → Vue `Failed to resolve component`，流水线卡片不渲染（`/create` 页面卡片数为 0），gui-test `/create` 15/26 检查失败。
+
+**修复**：
+- `CreateView.vue` components 补注册 3 个子组件（流水线列表/阶段进度/历史记录恢复渲染）。
+- E2E fixture（`tests/e2e/helpers/ipc-mock.js`）预置 `identityGetState` 等 **authenticated 登录态**：E2E 环境此前 identityStore=error，主动操作登录门（§2.3.1）会拦截「启动流水线」，启动 IPC 不被调用；预置后 E2E 启动路径恢复。
+- 测试契约同步：`stage-executor.test.js` / `pipeline-story2video-contract.test.js` 的 `max_length` 期望由 300 对齐契约默认 **500**（7.1.31 将 maxLength 默认调整为 500，测试未同步）；`phase5-ipc.test.js` 的 untrustedSender 断言补充 `errorCode`（#531 多语言后字段变化）。
+
+**验证**：E2E create 58/58、pipeline 11/11；src 全量 1904/1904；electron/services+tests 全量单 worker 3604/3604。
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```

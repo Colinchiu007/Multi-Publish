@@ -7,12 +7,25 @@
 - Story2Video 混合模式：视频场景提示词经 `optimizeVideo` 改写后再 `generateSceneVideo`，不再直接复用图片优化提示词；优化失败按既有混合语义回退图片轮播，不中断整线。
 - 测试：`video-prompt-engine-contract.test.js` 19 例；videogen-stages 新增 5 例；story2video-stages 视频分支新增 2 例 + 既有用例适配；相关套件 282/290 通过（8 例为 origin/main 存量失败：maxLength 300/500 断言漂移，stash 基线对比确认与本次无关）。
 - OpenSpec change：`openspec/changes/video-prompt-optimize-engine/`（proposal/design/specs/tasks）。
+## [未发布] 修复：videogen 流水线对推理型 LLM 自动放大提示词生成预算（2026-08-11）
+
+- 根因：推理型 LLM（MiniMax-M3 / deepseek-reasoner / deepseek-v4-flash 等）会把 <think> 思考过程算进输出，videogen 家族（animation / avatar-spokesperson / character-animation / hybrid）的 concept / storyboard 阶段在默认 1600 max_tokens 下 JSON 被截断，parseJsonArray 返回 null 导致分镜阶段失败（MiniMax-M3 实测 2000 tokens 仍截断）。
+- 修复：`callDefaultLlm` 新增推理模型识别（`isReasoningLlmModel`，按 model id 特征匹配），未显式传 max_tokens 且命中推理特征时默认预算放大到 5000，给思考块留足空间保证完整 JSON；显式传值仍优先。
+- 测试：videogen-stages.test.js 新增 4 用例（推理识别 / 推理型放大 5000 / 非推理保持 1600 / 显式覆盖），25/25 通过。
 
 ## [未发布] 修复：缺失/不可读 BGM 不再阻断项目保存，成片成功时不得误判为失败（2026-08-11）
 
 - 根因：compose 阶段对缺失/不可读 BGM 已按 bgmSkipped 降级跳过并成功合成成片，但项目保存（_persistS2VTextConfig）仍对 bgmPath 无条件 _copyRequired，源缺失时抛错，导致「成片成功却误判项目保存失败」。
 - 修复：保存时用 _resolveSource 探测 BGM 源，缺失/不可读则跳过拷贝并清空 bgmPath / config.bgm.path 引用（避免元数据指向已回收文件），不再阻断保存。
 - 测试：story2video-project-service.test.js 新增回归用例（缺失 BGM 源 + 成片存在时 saveRun 成功不误判），本地 23/23 通过。
+
+## [未发布] 修复：既有 CI 失败（electron-tests / gui-test / QG 系列）（2026-08-11）
+
+- **CreateView 子组件漏注册**：`components` 缺 PipelineSelector/StageProgress/CreateViewHistory → Vue 'Failed to resolve component'、流水线卡片不渲染（gui-test /create 15/26 失败）。补注册修复。
+- **E2E fixture 缺登录态**：`tests/e2e/helpers/ipc-mock.js` 无 identityGetState → identityStore=error → 主动操作登录门拦截启动。预置 authenticated 登录态（identityGetState/identitySignIn/identitySignOut/onIdentityStateChanged）。
+- **prompt-engine max_length 契约同步**：`stage-executor.test.js` / `pipeline-story2video-contract.test.js` 期望 `max_length:300` 与契约默认 500 不一致（00a581d1 引入时未同步）→ electron-tests OPTIMIZE/OPTIMIZE_BATCH 失败。改 500。
+- **phase5-ipc 断言同步**：untrustedSender 自 #531 多语言后附带 errorCode，测试断言补 `errorCode: 'UNTRUSTED_SENDER'`。
+- 验证：E2E create 58/58、pipeline 11/11；src 全量 1904/1904；electron/services+tests 全量单 worker 3604/3604。
 
 ## [未发布] 功能：字幕分割规则对齐《字幕分割规范 v1.0》（2026-08-11）
 

@@ -1,0 +1,12 @@
+{
+  "id": "fix-ci-existing-failures",
+  "title": "排查并修复 CI 既有失败：stage-executor 全量串扰 + gui-test /create E2E",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "test-infra",
+  "currentPhase": "completed",
+  "nextAction": "已归档，待推送",
+  "createdAt": "2026-08-11T21:00:00Z",
+  "branch": "codex/fix-ci-existing-failures"
+}
