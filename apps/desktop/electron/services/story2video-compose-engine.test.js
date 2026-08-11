@@ -1760,6 +1760,26 @@ describe('Story2VideoComposeEngine 混合片段（AI 视频 + 图片轮播，202
     })
   }
 
+  // Goertzel：在候选频率中找出 PCM 片段的主频（用于断言视频片段音频是 TTS 而非 AI 视频自带音频）
+  function dominantFreqAmong (samples, sampleRate, candidates) {
+    const n = Math.max(2, samples.length)
+    const scored = candidates.map(freq => {
+      const k = Math.round((n * freq) / sampleRate)
+      let s0 = 0
+      let s1 = 0
+      let s2 = 0
+      const coeff = 2 * Math.cos((2 * Math.PI * k) / n)
+      for (let i = 0; i < n; i++) {
+        s0 = samples[i] + coeff * s1 - s2
+        s2 = s1
+        s1 = s0
+      }
+      const power = s1 * s1 + s2 * s2 - coeff * s1 * s2
+      return { freq, power }
+    })
+    return scored.reduce((best, item) => (item.power > best.power ? item : best)).freq
+  }
+
   it('混合输入（videoPath 场景 + imagePath 场景）真实合成成功，segment 记录 mediaKind', async () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-mixed-compose-'))
@@ -1798,6 +1818,45 @@ describe('Story2VideoComposeEngine 混合片段（AI 视频 + 图片轮播，202
         expect.objectContaining({ index: 0, mediaKind: 'video' }),
         expect.objectContaining({ index: 1, mediaKind: 'image' }),
       ])
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('视频片段音频为 TTS 旁白（AI 视频自带音频不抢占；2026-08-11 W10）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-tts-audio-'))
+    try {
+      // AI 视频自带 440Hz 音频，TTS 旁白为 880Hz —— 若未显式映射，ffmpeg 默认输出 440Hz（丢弃解说）
+      const videoPath = path.join(root, 'ai-with-audio.mp4')
+      const audioPath = path.join(root, 'tts-voice.m4a')
+      await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'color=c=green:s=160x240:d=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', videoPath])
+      await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=1', '-c:a', 'aac', audioPath])
+
+      const engine = makeEngine(root)
+      const result = await engine.compose({
+        scenes: [{ index: 0, text: 'AI 视频场景', videoPath, audioPath, duration: 1 }],
+        images: [],
+        videos: [],
+        audio: [],
+      }, {
+        resolution: '160x240',
+        fps: 24,
+        format: 'mp4',
+        transition: 'none',
+        imageEffect: 'none',
+        sceneDurationMode: 'follow-audio',
+        subtitleEnabled: false,
+        validateOutput: false,
+      })
+      expect(result.code).toBe(0)
+
+      const pcm = path.join(root, 'out.pcm')
+      await runFfmpeg(['-y', '-v', 'error', '-i', result.data.videoPath, '-t', '1', '-ac', '1', '-ar', '8000', '-f', 'f32le', pcm])
+      const buf = fs.readFileSync(pcm)
+      const samples = new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 4)).slice(0, 8000)
+      const dom = dominantFreqAmong(samples, 8000, [440, 880])
+      expect(dom).toBe(880)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }

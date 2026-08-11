@@ -1445,6 +1445,13 @@ class Story2VideoComposeEngine {
       args.push('-af', 'volume=' + voiceVolume.toFixed(3))
     }
 
+    // 旁白音频合同（2026-08-11 W10）：显式映射 TTS 旁白为片段音频。
+    // ffmpeg 无 -map 时默认只挑一条音频流，实测会选中 AI 视频自带音频而丢弃 TTS 解说
+    // （440Hz 视频音频 vs 880Hz TTS 合成测试中输出为 440Hz）。这里强制
+    // video ← 输入0 的 AI 视频、audio ← 输入1 的 TTS 旁白；AI 视频自带音频不保留
+    // （如需环境音混合另行开放，避免音量/时长契约漂移）。
+    args.push('-map', '0:v:0', '-map', '1:a:0')
+
     // 编码：视频输入不适用 stillimage tune
     args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p')
     args.push('-c:a', 'aac', '-b:a', '128k')

@@ -1560,6 +1560,7 @@ split → domain_enrich → optimize → select_video_scenes（新增） → gen
 3. **compose（扩展）**：
    - 场景画面源：AI 视频场景 `videoPath`（kind video，mp4/mov/webm/mkv/avi，≤512MB，必须在允许根内）或图片场景 `imagePath` 二选一，`audioPath` 必有；双源冲突时 videoPath 优先；源不可读/越界 → 明确错误「Scene media path is not allowed or unreadable at index N」。
    - 视频片段编码：AI 视频 `-stream_loop -1`（覆盖「视频短于旁白」）→ 等比缩放 + 黑边补齐（`scale=force_original_aspect_ratio=decrease,pad=...`）→ 帧率归一化 → 字幕/水印滤镜 → 按片段有效时长（follow-audio 跟随旁白 / min-duration 静音补齐语义不变）→ 混入 TTS → 降档重试（2x/1.5x/1x）。
+   - **视频片段旁白音频合同（W10，2026-08-11）**：视频片段 SHALL 显式映射 TTS 旁白为输出音频（`-map 0:v:0 -map 1:a:0`）；禁止依赖 ffmpeg 默认流选择——无 `-map` 时默认只挑一条音频流，实测会选中 AI 视频自带音频而丢弃 TTS 解说（440Hz 视频音频 vs 880Hz TTS 合成验证输出为 440Hz）。AI 视频自带音频默认不保留（如需环境音混合另行开放，避免音量/时长契约漂移）。回归：视频场景带 440Hz 音频 + TTS 880Hz 合成后，成片音频主频必须为 880Hz。
    - 片段记录新增 `mediaKind: 'video' | 'image'`；转场拼接/BGM/WebM 转码/校验全部复用既有管线。
 
 **功能逻辑与成本控制**：
