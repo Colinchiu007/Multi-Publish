@@ -350,7 +350,8 @@ it('OPTIMIZE 阶段调用 serviceBus.optimizePrompt', async function () {
     expect.objectContaining({
       platform: 'generic',
       creative_level: 5,
-      max_length: 300,
+      // 与 prompt-engine-contract PROMPT_ENGINE_LIMITS.maxLength.default=500 一致（00a581d1 引入时测试期望 300 未同步）
+      max_length: 500,
       num_candidates: 1,
       auto_detect_style: true,
     }),
@@ -466,8 +467,9 @@ it.each([
 
     expect(receivedBody).toEqual({
       requests: [
-        expect.objectContaining({ prompt: 'prompt1', platform: 'generic', creative_level: 5, max_length: 300, num_candidates: 1, auto_detect_style: true }),
-        expect.objectContaining({ prompt: 'prompt2', platform: 'generic', creative_level: 5, max_length: 300, num_candidates: 1, auto_detect_style: true }),
+        // max_length 与契约默认 500 一致（00a581d1 引入时测试期望 300 未同步）
+        expect.objectContaining({ prompt: 'prompt1', platform: 'generic', creative_level: 5, max_length: 500, num_candidates: 1, auto_detect_style: true }),
+        expect.objectContaining({ prompt: 'prompt2', platform: 'generic', creative_level: 5, max_length: 500, num_candidates: 1, auto_detect_style: true }),
       ],
     });
     expect(result.success).toBe(false);

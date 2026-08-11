@@ -1008,7 +1008,9 @@ const STABILITY_MAP = {
 
 export default {
   name: 'CreateView',
-  components: { UiButton, UiModal, UiSelect },
+  // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
+  // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
+  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress },
   data() {
     return {
       // 视图
