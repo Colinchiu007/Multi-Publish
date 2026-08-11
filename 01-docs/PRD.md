@@ -1590,6 +1590,7 @@ split → domain_enrich → optimize → select_video_scenes（新增） → gen
 - 视频 provider 的**业务错误响应**（HTTP 200 + 业务错误码，如 MiniMax `base_resp.status_code=2056`「已达到 Token Plan 用量上限」）SHALL 在 adapter 层解析为可读错误并映射 `QUOTA_EXCEEDED`，禁止误报为 `Missing task_id in response`；generateVideo 与 getVideoStatus 均须覆盖。真实用户遇到额度用尽时应看到明确提示（升级 Token Plan / 补充用量），而非误导性技术错误。
 - select_video_scenes 的 ai-judged LLM 调用 SHALL 采用**有界重试**（最多 3 次）：推理型模型（如 deepseek-v4-flash）对 27 场景长任务偶发返回空 content（仅 reasoning_content，思考 token 耗尽）或非法 JSON（截断/越界 index），单次失败即整阶段失败会阻断整条流水线。空内容/解析失败均重试；每次失败记录 raw（截断 1500 字符）便于诊断；max_tokens 随场景数放大（`min(5000, 800 + 场景数×140)`）。
 - select_video_scenes 的 `video_plan.scenes[].excitement/reason` SHALL 保留 AI 选择原始评分与理由：`entries` 统一为外层 `null` 声明并在序列化处加空值守卫（fixed 模式不产生 entries 不得报错/写空），禁止分支内同名声明遮蔽外层导致报告字段恒为空。
+- Agnes Video adapter（`agnes-video.js`）SHALL 对提交/查询的**瞬时错误做有界重试**：`503 video_queue_full`（队列满载，可持续 15+ 分钟）与 `429 rate_limit_exceeded`（约 2 次/分钟）标记 `retryableHttp=true`，提交最多重试 6 次、递增退避（20/30/45/60/60s，测试可注入短退避）；非重试错误（401/403/402/业务 200 无 task_id）立即抛出。真实运行证据：Agnes 队列满载时场景级回退图片，队列释放后提交成功（task_id 返回、约 108s 推理完成、`status:completed` + 顶层 `url` 下载地址）。
 
 **降级与失败策略**：
 1. 视频 provider 未配置 → select_video_scenes fail closed（不进入资源生成）。
