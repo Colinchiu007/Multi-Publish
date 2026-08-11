@@ -28,11 +28,20 @@ function makeStageExecutor() {
   return { executors, register(type, fn) { executors.set(type, fn) } }
 }
 
-function makePipeline(aiGenerator, manager) {
+function makePipeline(aiGenerator, manager, opts = {}) {
   const stageExecutor = makeStageExecutor()
+  // 视频提示词统一走 prompt-engine：默认 pass-through mock；opts.optimizeVideoPromptsBatch 可定制行为；
+  // opts.noPromptBridge=true 模拟 PromptBridge 未注入（无视频优化方法）
+  const serviceBus = opts.noPromptBridge
+    ? {}
+    : {
+        optimizeVideoPromptsBatch: opts.optimizeVideoPromptsBatch ||
+          vi.fn(async (prompts) => (prompts || []).map(p => ({ optimized_prompt: p }))),
+      }
   const pipeline = {
     stageExecutor,
     aiGenerator,
+    serviceBus,
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
   }
@@ -167,6 +176,92 @@ describe('videogen 共享阶段执行器', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('视频生成模型')
       expect(result.errorCode).toBe('VIDEO_MODEL_NOT_CONFIGURED')
+    })
+  })
+
+
+  describe('generate 阶段（视频提示词统一走 prompt-engine）', () => {
+    function makeVideoAi (callAdapterImpl) {
+      return {
+        _modelProviderManager: {
+          getDefault: (type) => type === 'llm' ? { id: 'agnes-llm', models: ['agnes-2.0-flash'] } : (type === 'video' ? { id: 'agnes-video', models: ['agnes-video-v2.0'] } : null),
+          callAdapter: vi.fn(callAdapterImpl),
+        },
+        generateWithDefault: vi.fn(async () => ({ content: 'x', model: 'agnes-2.0-flash' })),
+      }
+    }
+
+    it('场景提示词经 optimizeVideoPromptsBatch 优化后传给 generateVideo', async () => {
+      await waitForVideoUrl()
+      let captured
+      const ai = makeVideoAi(async () => ({ code: 0, data: { taskId: 't1' } }))
+      const { get } = makePipeline(ai, null, {
+        optimizeVideoPromptsBatch: vi.fn(async (prompts) => prompts.map(p => ({ optimized_prompt: '[opt] ' + p }))),
+      })
+      ai._modelProviderManager.callAdapter = vi.fn(async (providerId, method, args) => {
+        if (method === 'getVideoStatus') return { code: 0, data: { status: 'completed', videoUrl: VIDEO_URL } }
+        captured = args
+        return { code: 0, data: { taskId: 't1' } }
+      })
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_1', stage: { options: {} }, params: { text: '主题' },
+        context: { storyboard: [{ prompt: 'p1' }] },
+      })
+      expect(result.success).toBe(true)
+      expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith(
+        'agnes-video', 'generateVideo', expect.objectContaining({ prompt: '[opt] p1' }),
+      )
+      expect(captured.prompt).toBe('[opt] p1')
+    }, 20000)
+
+    it('优化结果数量与场景不一致时 fail closed', async () => {
+      const ai = makeVideoAi(async () => ({ code: 0, data: { taskId: 't1' } }))
+      const { get } = makePipeline(ai, null, {
+        optimizeVideoPromptsBatch: vi.fn(async () => [{ optimized_prompt: 'only one' }]),
+      })
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_1', stage: { options: {} }, params: { text: '主题' },
+        context: { storyboard: [{ prompt: 'p1' }, { prompt: 'p2' }] },
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('数量与场景不一致')
+    })
+
+    it('优化结果含空提示词时 fail closed', async () => {
+      const ai = makeVideoAi(async () => ({ code: 0, data: { taskId: 't1' } }))
+      const { get } = makePipeline(ai, null, {
+        optimizeVideoPromptsBatch: vi.fn(async () => [{ optimized_prompt: '' }]),
+      })
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_1', stage: { options: {} }, params: { text: '主题' },
+        context: { storyboard: [{ prompt: 'p1' }] },
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('返回空提示词')
+    })
+
+    it('PromptBridge 未注入时明确失败（不静默绕过）', async () => {
+      const ai = makeVideoAi(async () => ({ code: 0, data: { taskId: 't1' } }))
+      const { get } = makePipeline(ai, null, { noPromptBridge: true })
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_1', stage: { options: {} }, params: { text: '主题' },
+        context: { storyboard: [{ prompt: 'p1' }] },
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('PromptBridge 未注入')
+    })
+
+    it('8013 服务异常时明确失败（不静默回退）', async () => {
+      const ai = makeVideoAi(async () => ({ code: 0, data: { taskId: 't1' } }))
+      const { get } = makePipeline(ai, null, {
+        optimizeVideoPromptsBatch: vi.fn(async () => { throw new Error('prompt-engine 未运行') }),
+      })
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_1', stage: { options: {} }, params: { text: '主题' },
+        context: { storyboard: [{ prompt: 'p1' }] },
+      })
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('视频提示词优化失败')
     })
   })
 

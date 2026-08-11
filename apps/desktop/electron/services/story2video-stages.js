@@ -40,6 +40,9 @@ const {
   extractOptimizedPrompt,
 } = require('./prompt-engine-contract');
 const {
+  extractOptimizedVideoPrompt,
+} = require('./video-prompt-engine-contract');
+const {
   buildSceneContextResult,
   CONTEXT_KEY_WHITELIST,
   buildPromptEngineSceneContext,
@@ -1405,12 +1408,41 @@ function registerStory2VideoStages(pipelineEngine) {
             markVideoDone();
             continue;
           }
+
+          // 视频提示词统一走 prompt-engine（domain=video）：不得把图片优化提示词直接当视频提示词用。
+          // 混合模式语义：视频优化失败 → 该场景回退图片轮播，不中断整条流水线（PRD 7.1.x）。
+          let videoPromptText = promptText;
+          const bus = serviceBus || pipelineEngine.serviceBus;
+          if (bus && typeof bus.optimizeVideoPrompt === 'function') {
+            try {
+              const optResult = await bus.optimizeVideoPrompt(promptText, {
+                platform: videoGenerator.providerId || undefined,
+                ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
+              });
+              const validated = extractOptimizedVideoPrompt(optResult, { index });
+              if (!validated.ok) throw new Error(validated.error);
+              videoPromptText = validated.prompt;
+            } catch (error) {
+              log.warn('Story2VideoStages', 'scene ' + index + ' video prompt optimize failed: ' +
+                (error && error.message ? error.message : String(error)) + ' → fallback to image carousel');
+              videoResults.set(index, { success: false, error: '视频提示词优化失败：' +
+                (error && error.message ? error.message : String(error)) });
+              markVideoDone();
+              continue;
+            }
+          } else {
+            log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → fallback to image carousel');
+            videoResults.set(index, { success: false, error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' });
+            markVideoDone();
+            continue;
+          }
+
           const planScene = planScenes.find(scene => scene.index === index);
           const runItem = () => withAssetTransientRetry(() => generateSceneVideo({
             manager,
             providerId: videoGenerator.providerId,
             model: videoGenerator.model,
-            prompt: promptText,
+            prompt: videoPromptText,
             index,
             seconds: (planScene && planScene.seconds) || 6,
             size: videoSize,

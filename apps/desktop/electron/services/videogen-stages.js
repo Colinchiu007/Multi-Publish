@@ -350,7 +350,7 @@ function registerVideoGenStages (pipelineEngine) {
   // GENERATE - 视频生成（provider 门控）
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.GENERATE,
-    async ({ runId, stage, params, context }) => {
+    async ({ runId, stage, params, context, serviceBus }) => {
       const scenes = resolveVideogenScenes(context) || []
       const prompts = scenes.length > 0 ? scenes.map(s => s.prompt) : [params.text || '']
       if (!prompts[0]) return { success: false, error: '该流水线 generate 需要场景提示词或主题' }
@@ -364,6 +364,43 @@ function registerVideoGenStages (pipelineEngine) {
           errorCode: 'VIDEO_MODEL_NOT_CONFIGURED',
         }
       }
+      // 视频提示词统一走 prompt-engine（domain=video）——videogen_generate 前批量优化。
+      // 8013 未运行/未注入 PromptBridge 时明确失败，不静默回退（spec video-prompt-engine: 视频提示词统一经 prompt-engine 优化）。
+      const bus = serviceBus || pipelineEngine.serviceBus
+      if (bus && typeof bus.optimizeVideoPromptsBatch === 'function') {
+        try {
+          const optResults = await bus.optimizeVideoPromptsBatch(prompts, {
+            platform: videoProvider.providerId || undefined,
+            ...(stage.options && stage.options.optimize ? stage.options.optimize : {}),
+          })
+          if (!Array.isArray(optResults) || optResults.length !== prompts.length) {
+            return {
+              success: false,
+              error: '视频提示词优化结果数量与场景不一致（expected ' + prompts.length + ', got ' +
+                (Array.isArray(optResults) ? optResults.length : '非法响应') + '）',
+            }
+          }
+          const optimized = []
+          for (let j = 0; j < optResults.length; j++) {
+            const item = optResults[j] || {}
+            const p = typeof item.optimized_prompt === 'string' && item.optimized_prompt.trim()
+              ? item.optimized_prompt.trim()
+              : ''
+            if (!p) {
+              return { success: false, error: '视频提示词优化场景 ' + j + ' 返回空提示词' }
+            }
+            optimized.push(p)
+          }
+          prompts.length = 0
+          prompts.push(...optimized)
+          log.info('VideoGenStages', '视频提示词经 prompt-engine 优化：' + prompts.length + ' 条')
+        } catch (error) {
+          return { success: false, error: '视频提示词优化失败：' + (error && error.message ? error.message : String(error)) }
+        }
+      } else {
+        return { success: false, error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' }
+      }
+
       const runDir = getRunDir(runId)
       fs.mkdirSync(runDir, { recursive: true })
       const videos = []

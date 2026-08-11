@@ -1,3 +1,12 @@
+## [未发布] 功能：视频提示词统一走 prompt-engine video 领域（2026-08-11）
+
+- 背景：项目内所有 AI 视频生成的提示词此前"裸奔"直传 provider（videogen 分镜 LLM 直出、混合模式复用图片优化提示词），缺少视频专属的镜头/运动/时序/一致性维度与统一校验。本次接入"视频提示词优化引擎"（prompt-engine 8013 `domain=video`，Phase 1 Generic 兜底）。
+- 新增 `apps/desktop/electron/services/video-prompt-engine-contract.js`（**与图片契约分文件分命名**）：视频平台枚举/别名归一、`buildVideoOptimizeRequest`（domain 默认 video）、`extractOptimizedVideoPrompt`（error→detail→空串 fail-closed + video 字段收敛）。
+- PromptBridge 新增 `optimizeVideo` / `optimizeVideosBatch`；ServiceBus 暴露 `optimizeVideoPrompt` / `optimizeVideoPromptsBatch`。
+- videogen 流水线：`videogen_generate` 前批量优化，数量/空项 fail-closed，8013 未运行/未注入 PromptBridge 明确失败，不静默绕过。
+- Story2Video 混合模式：视频场景提示词经 `optimizeVideo` 改写后再 `generateSceneVideo`，不再直接复用图片优化提示词；优化失败按既有混合语义回退图片轮播，不中断整线。
+- 测试：`video-prompt-engine-contract.test.js` 19 例；videogen-stages 新增 5 例；story2video-stages 视频分支新增 2 例 + 既有用例适配；相关套件 282/290 通过（8 例为 origin/main 存量失败：maxLength 300/500 断言漂移，stash 基线对比确认与本次无关）。
+- OpenSpec change：`openspec/changes/video-prompt-optimize-engine/`（proposal/design/specs/tasks）。
 
 ## [未发布] 修复：max_length 严格一致性对齐——stageDefs / YAML 镜像默认 300→500（2026-08-11）
 
