@@ -119,9 +119,29 @@ describe('BasePythonBridge — attach()', () => {
 })
 
 describe('BasePythonBridge — _post()', () => {
-  it('8. isRunning=false 时 reject', async () => {
+  it('8. isRunning=false 时调用 ensureRunning 尝试懒启动', async () => {
     const b = createTestBridge()
-    await expect(b._post('/test', '{}')).rejects.toThrow('TestBridge is not running')
+    b.ensureRunning = vi.fn(() => Promise.reject(new Error('lazy-start failed')))
+    await expect(b._post('/test', '{}')).rejects.toThrow('lazy-start failed')
+    expect(b.ensureRunning).toHaveBeenCalledTimes(1)
+  })
+
+  it('8a. isRunning=false 但懒启动成功后正常发请求', async () => {
+    const b = createTestBridge()
+    // ensureRunning 成功后设置 isRunning=true
+    b.ensureRunning = vi.fn(async () => { b.isRunning = true })
+    // mock http
+    const http = require('http')
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn(), destroy: vi.fn() }
+    const mockRes = { on: vi.fn((ev, cb) => { if (ev === 'end') setTimeout(cb, 0) }) }
+    const origRequest = http.request
+    http.request = vi.fn((opts, cb) => { setTimeout(() => cb(mockRes), 0); return mockReq })
+    try {
+      const result = await b._post('/test', '{"a":1}')
+      expect(b.ensureRunning).toHaveBeenCalledTimes(1)
+      expect(b.isRunning).toBe(true)
+      expect(mockReq.write).toHaveBeenCalled()
+    } finally { http.request = origRequest }
   })
 
   it('9. isRunning=true 时发起 HTTP 请求（mock http）', async () => {
@@ -197,6 +217,57 @@ describe('BasePythonBridge — stop()', () => {
   })
 })
 
+describe('BasePythonBridge — ensureRunning() 懒启动', () => {
+  it('17. isRunning=true 时直接返回不尝试启动', async () => {
+    const b = createTestBridge()
+    b.isRunning = true
+    b.start = vi.fn()
+    await b.ensureRunning()
+    expect(b.start).not.toHaveBeenCalled()
+  })
+
+  it('18. isRunning=false 时调用 start() 并重置 restartCount', async () => {
+    const b = createTestBridge()
+    b.isRunning = false
+    b.restartCount = 3
+    b.start = vi.fn(async () => { b.isRunning = true })
+    await b.ensureRunning()
+    expect(b.start).toHaveBeenCalledTimes(1)
+    expect(b.restartCount).toBe(0)
+    expect(b.isRunning).toBe(true)
+  })
+
+  it('19. start() 失败时抛出异常并设置 _starting=null', async () => {
+    const b = createTestBridge()
+    b.isRunning = false
+    b.start = vi.fn(() => Promise.reject(new Error('spawn failed')))
+    await expect(b.ensureRunning()).rejects.toThrow('spawn failed')
+    expect(b._starting).toBe(null)
+  })
+
+  it('20. 并发调用共享同一个 _starting Promise', async () => {
+    const b = createTestBridge()
+    b.isRunning = false
+    let resolveStart
+    b.start = vi.fn(() => new Promise(r => { resolveStart = r }))
+    const p1 = b.ensureRunning()
+    const p2 = b.ensureRunning()
+    // 两个调用共享同一个 _starting
+    resolveStart()
+    b.isRunning = true
+    await Promise.all([p1, p2])
+    // start 只被调用一次
+    expect(b.start).toHaveBeenCalledTimes(1)
+  })
+
+  it('21. _post 中 lazy-start 失败时错误消息包含 lazy-start failed', async () => {
+    const b = createTestBridge()
+    b.isRunning = false
+    b.start = vi.fn(() => Promise.reject(new Error('ModuleNotFoundError')))
+    await expect(b._post('/test', '{}')).rejects.toThrow('lazy-start failed')
+  })
+})
+
 describe('BasePythonBridge — 子类继承验证', () => {
   it('12. SplitterBridge 继承 BasePythonBridge 且有 split 方法', () => {
     const SplitterBridge = require('./splitter-bridge')
@@ -225,23 +296,27 @@ describe('BasePythonBridge — 子类继承验证', () => {
     expect(typeof b.healthCheck).toBe('function')
   })
 
-  it('14. SplitterBridge.split 调用 _post 并传递正确路径', async () => {
+  it('14. SplitterBridge.split 调用 ensureRunning + _post 并传递正确路径', async () => {
     const SplitterBridge = require('./splitter-bridge')
     const b = new SplitterBridge({})
     b.isRunning = true
+    b.ensureRunning = vi.fn(async () => {})
     b._post = vi.fn(() => Promise.resolve({ ok: true }))
     await b.split('hello world')
+    expect(b.ensureRunning).toHaveBeenCalled()
     expect(b._post).toHaveBeenCalledWith('/v1/split', expect.any(String))
     const body = b._post.mock.calls[0][1]
     expect(JSON.parse(body).text).toBe('hello world')
   })
 
-  it('15. PromptBridge.optimize 调用 _post 并传递正确路径', async () => {
+  it('15. PromptBridge.optimize 调用 ensureRunning + _post 并传递正确路径', async () => {
     const PromptBridge = require('./prompt-bridge')
     const b = new PromptBridge({})
     b.isRunning = true
+    b.ensureRunning = vi.fn(async () => {})
     b._post = vi.fn(() => Promise.resolve({ ok: true }))
     await b.optimize({ prompt: 'a cat' })
+    expect(b.ensureRunning).toHaveBeenCalled()
     expect(b._post).toHaveBeenCalledWith('/v1/optimize', expect.any(String))
     const body = b._post.mock.calls[0][1]
     expect(JSON.parse(body).prompt).toBe('a cat')
@@ -251,6 +326,7 @@ describe('BasePythonBridge — 子类继承验证', () => {
     const PromptBridge = require('./prompt-bridge')
     const b = new PromptBridge({})
     b.isRunning = true
+    b.ensureRunning = vi.fn(async () => {})
     b._post = vi.fn(() => Promise.resolve({ ok: true }))
     await b.optimizeBatch(['prompt1', 'prompt2'])
     const body = b._post.mock.calls[0][1]

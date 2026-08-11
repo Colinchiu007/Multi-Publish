@@ -60,6 +60,8 @@ class BasePythonBridge {
     this.watchdogTimer = null
     /** @type {NodeJS.Timeout | null} */
     this.restartTimer = null
+    /** @type {Promise<void> | null} */
+    this._starting = null
   }
 
   /**
@@ -223,10 +225,12 @@ class BasePythonBridge {
    * @returns {Promise<object>}
    * @protected
    */
-  _post (path, body, timeout) {
+  async _post (path, body, timeout) {
     const reqTimeout = timeout || this.requestTimeout
+    if (!this.isRunning) {
+      try { await this.ensureRunning() } catch (e) { throw new Error(`${this.name} is not running and lazy-start failed: ${e instanceof Error ? e.message : String(e)}`) }
+    }
     return new Promise((resolve, reject) => {
-      if (!this.isRunning) { reject(new Error(`${this.name} is not running`)); return }
       const req = http.request({
         hostname: this.host, port: this.port, path, method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
@@ -263,6 +267,29 @@ class BasePythonBridge {
     this.process = null
     this.isRunning = false
     this.log.info(this.name, `${this.name} stopped`)
+  }
+
+  /**
+   * 确保 Bridge 运行中 — 懒启动 / 自愈
+   *
+   * 当 isRunning=false（启动失败、看门狗放弃、进程崩溃后未恢复）时，
+   * 自动尝试重新 start()，避免业务调用方直接收到 "is not running" 错误。
+   * 并发调用共享同一个 _starting Promise，避免重复 spawn。
+   *
+   * @returns {Promise<void>}
+   */
+  async ensureRunning () {
+    if (this.isRunning) return
+    if (this._starting) return this._starting
+
+    this.log.info(this.name, `${this.name} is not running, attempting lazy-start...`)
+    this.restartCount = 0
+    this._starting = this.start().catch((e) => {
+      this.log.error(this.name, `Lazy-start failed: ${e instanceof Error ? e.message : String(e)}`)
+      throw e
+    }).finally(() => { this._starting = null })
+
+    return this._starting
   }
 }
 

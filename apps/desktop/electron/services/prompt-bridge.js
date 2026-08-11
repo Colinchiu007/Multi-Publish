@@ -17,7 +17,19 @@ const {
 const PROMPT_PORT = config.promptBridge.port
 const PROMPT_HOST = config.promptBridge.host
 // P1-A: 移除硬编码开发者路径，必须通过环境变量配置
-const PROMPT_DIR = process.env.PROMPT_DIR || process.cwd()
+// PROMPT_DIR 必须指向包含 prompt_engine 包的 Python 项目根目录
+const _defaultPromptDir = (() => {
+  const knownPaths = [
+    'D:\\Data\\projects\\prompt-engine',
+    'D:\\Projects\\prompt-engine',
+  ]
+  const fs = require('fs')
+  for (const p of knownPaths) {
+    try { if (fs.existsSync(p + '/prompt_engine')) return p } catch (_) { /* ignore */ }
+  }
+  return process.cwd()
+})()
+const PROMPT_DIR = process.env.PROMPT_DIR || _defaultPromptDir
 
 function normalizeOptimizeRequest (request) {
   const normalized = request !== null && typeof request === 'object' && !Array.isArray(request)
@@ -69,6 +81,7 @@ class PromptBridge extends BasePythonBridge {
    * @returns {Promise<object>}
    */
   async optimize (request) {
+    await this.ensureRunning()
     // async 保证同步校验异常（如敏感凭据拦截）以 rejected promise 呈现，统一走调用方错误处理
     return this._post('/v1/optimize', JSON.stringify(normalizeOptimizeRequest(request)))
   }
@@ -79,6 +92,7 @@ class PromptBridge extends BasePythonBridge {
    * @returns {Promise<object>}
    */
   async optimizeBatch (requests) {
+    await this.ensureRunning()
     const normalized = requests.map(normalizeOptimizeRequest)
     return this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }))
   }
