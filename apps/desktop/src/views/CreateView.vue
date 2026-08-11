@@ -26,25 +26,13 @@
     <div v-if="view === 'pipelines'">
       <!-- 流水线列表 -->
       <div v-if="!selectedPipeline">
-        <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载流水线列表...</span></div>
-        <div v-else-if="pipelineError" class="error-state">⚠️ {{ pipelineError }}</div>
-        <div v-else class="pipeline-grid">
-          <div v-for="p in pipelines" :key="p.name" class="pipeline-card" :data-pipeline-id="p.name" :class="[p.category, { 'is-unavailable': p.available === false }]" tabindex="0" role="button" :aria-label="pipelineName(p.name)" @click="selectPipeline(p)" @keydown.enter="selectPipeline(p)">
-            <div class="card-header">
-              <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>
-              <span class="stability-dot" :class="getStability(p.name)" :title="getStability(p.name)"></span>
-            </div>
-            <h3 class="card-title">{{ pipelineName(p.name) }}</h3>
-            <p class="card-desc">{{ pipelineDescription(p.name) }}</p>
-            <div class="card-meta">
-              <span class="stage-count">{{ p.stageCount ?? p.stages?.length ?? 0 }} 阶段</span>
-              <span class="cost-label" :class="p.estimatedCost">{{ costLabel(p.estimatedCost) }}</span>
-              <span class="availability-badge" :class="p.available === false ? 'dev' : 'ready'" :title="availabilityHint(p.available !== false)">
-                {{ availabilityLabel(p.available !== false) }}
-              </span>
-            </div>
-          </div>
-        </div>
+        <PipelineSelector
+          :pipelines="pipelines"
+          :loading="pipelineLoading"
+          :error="pipelineError"
+          @select="selectPipeline"
+          @retry="loadPipelines"
+        />
       </div>
 
       <!-- 流水线详情 & 配置 -->
@@ -57,30 +45,14 @@
         </div>
 
         <!-- 阶段进度 -->
-        <div v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length" class="stages-timeline" data-testid="story2video-stage-list">
-          <!-- 进度头部固定：流水线运行中页面较长时，进度条/已用时/完成摘要不随滚动离开视口 -->
-          <div class="stages-timeline-sticky" data-testid="story2video-stage-sticky-header">
-            <div class="orchestration-progress" data-testid="story2video-orchestration-progress">
-              <div class="progress-bar"><div class="progress-fill" :style="{ width: orchestrationProgressPercent + '%' }"></div></div>
-              <span class="progress-text">{{ orchestrationProgressPercent }}%</span>
-              <span v-if="orchestrationElapsedMs !== null" class="elapsed-text">{{ translateWithLocaleFallback('story2video.elapsed', '已用时 ' + formatDuration(orchestrationElapsedMs), 'Elapsed ' + formatDuration(orchestrationElapsedMs), { duration: formatDuration(orchestrationElapsedMs) }) }}</span>
-            </div>
-            <div v-if="orchestrationSummary" class="orchestration-summary" data-testid="story2video-orchestration-summary">{{ orchestrationSummary }}</div>
-          </div>
-          <div v-for="(stage, i) in (pipelineRunStatus.stages || orchestrationStages)" :key="stage.id || stage.name || i" class="stage-item" :class="stageStateClass(stage, i)" :data-testid="`story2video-stage-${stage.name || i}`">
-            <span class="stage-icon">{{ stageStateIcon(stage, i) }}</span>
-            <span class="stage-main">
-              <span class="stage-name">{{ pipelineStage(stage.name) }}</span>
-              <span v-if="stageDetailText(stage, i)" class="stage-meta" :data-testid="`story2video-stage-detail-${stage.name || i}`">{{ stageDetailText(stage, i) }}</span>
-              <span v-if="stage.name === 'compose' && stage.status === 'running' && composeSubProgressPercent(stage) !== null" class="stage-sub-progress" data-testid="story2video-stage-compose-progress" role="progressbar" :aria-valuenow="composeSubProgressPercent(stage)" aria-valuemin="0" aria-valuemax="100">
-                <span class="stage-sub-bar"><span class="stage-sub-fill" :style="{ width: composeSubProgressPercent(stage) + '%' }"></span></span>
-              </span>
-            </span>
-            <span class="stage-status">
-              {{ stageStatusLabel(stage, i) }}<span v-if="stageTimeText(stage)" class="stage-time"> · {{ stageTimeText(stage) }}</span>
-            </span>
-          </div>
-        </div>
+        <StageProgress
+          v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length"
+          :stages="pipelineRunStatus.stages || orchestrationStages"
+          :progress-percent="orchestrationProgressPercent"
+          :elapsed-ms="orchestrationElapsedMs"
+          :summary="orchestrationSummary"
+          :orchestration-context="orchestrationContext"
+        />
 
         <!-- 模型服务异常提示（非阻塞） -->
         <div v-if="providerWarningText" class="provider-warning-banner" role="alert">
@@ -788,47 +760,21 @@
       <div v-if="quickError" class="result-banner error"><p>{{ quickError }}</p><button class="btn-secondary" @click="quickError = null">重试</button></div>
     </div>
 
+
     <!-- ==================== 历史记录视图 ==================== -->
     <div v-if="view === 'history'">
-      <div v-if="historyLocalMode" class="history-local-mode-banner" data-testid="history-local-mode-banner">
-        {{ historyLocalModeText }}
-      </div>
-      <div v-if="historyLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
-      <div v-else>
-        <div v-if="history.length === 0" class="empty-state"><p>暂无创作记录</p></div>
-        <div v-else>
-          <div class="history-toolbar">
-            <label for="history-status-filter">状态</label>
-            <select id="history-status-filter" v-model="historyFilter" class="form-select history-filter">
-              <option value="all">全部</option>
-              <option value="completed">已完成</option>
-              <option value="failed">生成失败</option>
-              <option value="cancelled">已取消</option>
-              <option value="running">进行中</option>
-              <option value="paused">已暂停</option>
-            </select>
-          </div>
-          <div v-if="filteredHistory.length === 0" class="empty-state compact"><p>没有符合条件的记录</p></div>
-          <div v-else class="history-list">
-            <div v-for="(h, i) in filteredHistory" :key="h.projectId || h.id || i" class="history-item" :class="{ 'is-running': h.status === 'running' }" @click="openHistory(h)">
-              <div class="history-item-main">
-                <span class="history-name">{{ h.title || pipelineName(h.pipeline || h.name) }}</span>
-                <span class="history-status" :class="h.status">{{ historyStatusLabel(h.status) }}</span>
-                <span v-if="h.status === 'running'" class="history-running-hint">返回流水线创作查看进度</span>
-                <span v-if="h.status === 'paused' && h.pausedStage" class="history-paused-hint">暂停环节：{{ h.pausedStage }}</span>
-                <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
-                <button v-if="h.projectId && h.recoverable !== false" class="history-open" @click.stop="openHistory(h)">打开</button>
-                <button v-if="h.projectId" class="history-delete" @click.stop="requestProjectDeletion(h)">删除</button>
-                <button v-if="(h.status === 'failed' || h.status === 'paused') && historyItemResumable(h)" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '从断点继续' }}</button>
-                <button v-else-if="h.status === 'running'" class="history-resume" :disabled="story2videoResuming" @click.stop="resumeHistoryItem(h)">{{ story2videoResuming ? '恢复中...' : '继续生成' }}</button>
-              </div>
-              <div v-if="h.status === 'running' && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
-                <span v-for="(s, si) in h.stages" :key="si" class="history-progress-seg" :class="historyStageState(s)" :title="historyStageTitle(s)">{{ historyStageLabel(s) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <CreateViewHistory
+        :history="history"
+        :history-loading="historyLoading"
+        :history-local-mode="historyLocalMode"
+        :history-local-mode-text="historyLocalModeText"
+        :history-filter="historyFilter"
+        :story2video-resuming="story2videoResuming"
+        @update:historyFilter="historyFilter = $event"
+        @open-history="openHistory"
+        @resume-history="resumeHistoryItem"
+        @delete-history="requestProjectDeletion"
+      />
     </div>
 
     <UiModal
@@ -879,6 +825,8 @@
 import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
+import CreateViewHistory from './CreateViewHistory.vue'
+import { PipelineSelector, StageProgress } from './video-creation'
 import {
   deleteCustomTemplate,
   getAllTemplates,
@@ -1162,6 +1110,7 @@ export default {
     },
     filteredHistory() {
       if (this.historyFilter === 'all') return this.history
+      if (this.historyFilter === 'paused') return this.history.filter(item => item.status === 'paused' || item.status === 'failed')
       return this.history.filter(item => item.status === this.historyFilter)
     },
     activeOutputConfig() {
@@ -1558,7 +1507,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
     historyStatusLabel(status) {
-      return { completed: '已完成', failed: '生成失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
+      return { completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
     },
 
     // 流水线操作
@@ -2768,6 +2717,7 @@ export default {
         const runs = hasRuns
           ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
           : []
+        // stale running + failed→paused 检测已由 usePipelineHistory composable 统一处理
         // 运行中流水线置顶（需求：历史记录可查看运行中未完成任务及其实时流程状态），
         // 其次是已完成项目，最后是终态流水线。
         this.history = [
@@ -3292,8 +3242,8 @@ export default {
 
 <style scoped>
 .create-page { padding: 24px 32px; max-width: 1080px; margin: 0 auto; }
-.page-header { margin-bottom: 20px; }
-.page-header h1 { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
+.page-header { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
+.page-header h1 { font-size: 24px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.02em; }
 .text-muted { color: var(--text-muted); font-size: 14px; }
 
 /* 状态提示 */
@@ -3302,17 +3252,19 @@ export default {
 .detail { opacity: 0.7; }
 .btn-install { padding: 4px 12px; border: 1px solid var(--warning); border-radius: 4px; background: transparent; color: var(--warning); cursor: pointer; font-size: 12px; margin-left: auto; }
 .install-log { padding: 8px 12px; background: var(--bg); border-radius: 4px; font-size: 11px; font-family: monospace; max-height: 100px; overflow-y: auto; margin-bottom: 16px; white-space: pre-wrap; }
-.story2video-text-count { margin: 8px 0 0; color: var(--text-muted); font-size: 12px; text-align: right; }
+.story2video-text-count { margin: 8px 0 0; color: var(--text-muted); font-size: 12px; text-align: right; padding: 4px 8px; background: var(--bg, rgba(0,0,0,0.02)); border-radius: 4px; display: inline-block; }
 
 /* 视图切换 */
-.view-tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
-.view-tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-bottom: 2px solid transparent; }
-.view-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.view-tabs { display: flex; gap: 6px; margin-bottom: 24px; padding: 4px; background: var(--surface, #f8f9fa); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
+.view-tab { padding: 10px 22px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-muted); border-radius: 8px; transition: all 0.2s ease; font-weight: 500; position: relative; }
+.view-tab:hover:not(.active) { color: var(--text); background: var(--bg, rgba(0,0,0,0.03)); }
+.view-tab.active { color: var(--primary); background: var(--surface, #fff); box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-weight: 600; }
 
 /* 流水线网格 */
 .pipeline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
-.pipeline-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; cursor: pointer; transition: all 0.2s; }
-.pipeline-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-2px); border-color: var(--primary); }
+.pipeline-card { background: var(--surface); border: 1px solid var(--hairline, rgba(0,0,0,0.08)); border-radius: 12px; padding: 18px 22px; cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); }
+.pipeline-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.1); transform: translateY(-3px); border-color: var(--primary); }
+.pipeline-card:active { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
 .pipeline-card.generated { border-left: 3px solid var(--pipe-generated); }
 .pipeline-card.talking_head { border-left: 3px solid var(--pipe-talking-head); }
 .pipeline-card.cinematic { border-left: 3px solid var(--pipe-cinematic); }
@@ -3348,10 +3300,11 @@ export default {
 
 /* 流水线详情 */
 .pipeline-detail { }
-.back-btn { background: none; border: none; color: var(--primary); cursor: pointer; font-size: 14px; padding: 0; margin-bottom: 16px; }
-.detail-header { margin-bottom: 20px; }
-.detail-header h2 { font-size: 20px; margin: 0 0 4px; }
-.detail-desc { color: var(--text-muted); font-size: 14px; margin: 0; }
+.back-btn { background: none; border: 1px solid var(--border); color: var(--primary); cursor: pointer; font-size: 13px; padding: 6px 14px; border-radius: 6px; margin-bottom: 16px; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px; }
+.back-btn:hover { background: var(--surface); border-color: var(--primary); }
+.detail-header { margin-bottom: 20px; padding: 16px 20px; background: var(--surface, #fff); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
+.detail-header h2 { font-size: 20px; margin: 0 0 6px; font-weight: 700; letter-spacing: -0.01em; }
+.detail-desc { color: var(--text-muted); font-size: 13px; margin: 0; line-height: 1.5; }
 
 /* 阶段时间线 */
 .stages-timeline { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; padding: 16px; background: var(--bg); border-radius: 8px; max-width: 100%; overflow-wrap: anywhere; }
@@ -3408,13 +3361,14 @@ export default {
 .input-tab { padding: 6px 16px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); cursor: pointer; font-size: 13px; }
 .input-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
 .input-area { }
-.form-textarea { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; line-height: 1.6; resize: vertical; box-sizing: border-box; }
-.story2video-estimate { margin-top: 8px; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.form-textarea { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; line-height: 1.6; resize: vertical; box-sizing: border-box; background: var(--surface, #fff); transition: border-color 0.15s, box-shadow 0.15s; }
+.form-textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(64,158,255,0.12); }
+.story2video-estimate { margin-top: 8px; font-size: 13px; color: var(--text-muted); line-height: 1.5; padding: 8px 12px; background: var(--bg, rgba(0,0,0,0.02)); border-radius: 6px; border-left: 3px solid var(--primary, rgba(64,158,255,0.4)); }
 .s2v-estimate-note { opacity: .75; }
 
 /* 上传区域 */
-.upload-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; min-height: 100px; display: flex; align-items: center; justify-content: center; }
-.upload-zone:hover { border-color: var(--primary); }
+.upload-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 28px; text-align: center; cursor: pointer; min-height: 100px; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; background: var(--bg, rgba(0,0,0,0.01)); }
+.upload-zone:hover { border-color: var(--primary); background: rgba(64,158,255,0.03); }
 .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; width: 100%; }
 .image-thumb { position: relative; aspect-ratio: 1; border-radius: 4px; overflow: hidden; }
 .image-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -3428,8 +3382,10 @@ export default {
 /* 风格选择 */
 .config-section { margin-bottom: 24px; }
 .s2v-config-sections { display: grid; gap: 10px; margin-bottom: 16px; }
-.s2v-config-section { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.s2v-section-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; font-weight: 700; }
+.s2v-config-section { border: 1px solid var(--hairline, rgba(0,0,0,0.08)); border-radius: 10px; background: var(--surface); overflow: hidden; transition: border-color 0.2s ease; }
+.s2v-config-section[open] { border-color: var(--primary, rgba(64,158,255,0.3)); }
+.s2v-section-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; font-weight: 700; font-size: 14px; transition: background 0.15s ease; }
+.s2v-section-summary:hover { background: var(--bg, rgba(0,0,0,0.02)); }
 .s2v-section-summary::-webkit-details-marker { display: none; }
 .s2v-section-summary::before { content: '›'; display: inline-block; color: var(--text-muted); font-size: 20px; line-height: 1; transform: rotate(0deg); transition: transform .15s ease; }
 .s2v-config-section[open] > .s2v-section-summary::before { transform: rotate(90deg); }
@@ -3468,7 +3424,8 @@ export default {
 .config-item label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
 .config-item-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; margin-top: 6px; }
 .config-item-inline .form-range { flex: 1 1 120px; min-width: 80px; }
-.form-select, .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; box-sizing: border-box; }
+.form-select, .form-input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; box-sizing: border-box; background: var(--surface, #fff); transition: border-color 0.15s, box-shadow 0.15s; }
+.form-select:focus, .form-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(64,158,255,0.12); }
 .form-range { width: 100%; }
 .voice-slot-hint p { margin: 0; }
 .voice-clone-panel { display: grid; gap: 8px; min-width: 0; }
@@ -3486,12 +3443,13 @@ export default {
 [data-theme="dark"] .voice-clone-default-badge { margin-left: 6px; font-size: 11px; color: var(--clone-default-text); background: var(--clone-default-bg); border: 1px solid var(--clone-default-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
 
 /* 操作栏 */
-.action-bar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; }
+.action-bar { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; border-radius: 0 0 10px 10px; box-shadow: 0 -2px 8px rgba(0,0,0,0.04); }
 .s2v-options-toast { position: absolute; right: 16px; bottom: calc(100% + 10px); font-size: 12px; color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 4px 10px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out; }
 @keyframes s2v-toast-fade { 0% { opacity: 0; } 12% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; } }
 .voice-clone-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; padding: 2px 0; }
 .voice-clone-toggle-icon { font-size: 12px; color: var(--text-muted, #888); }
-.btn-start { padding: 12px 32px; font-size: 16px; }
+.btn-start { padding: 12px 32px; font-size: 15px; font-weight: 600; border-radius: 8px; letter-spacing: 0.02em; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(64,158,255,0.2); }
+.btn-start:hover { box-shadow: 0 4px 16px rgba(64,158,255,0.3); transform: translateY(-1px); }
 .running-controls { display: flex; gap: 8px; }
 .progress-inline { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .progress-bar { height: 8px; background: var(--stage-sub-bar-bg); border-radius: 4px; overflow: hidden; width: 120px; }
@@ -3500,12 +3458,14 @@ export default {
 
 /* 快速渲染 */
 .quick-render { max-width: 800px; }
-.mode-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-.mode-tab { padding: 8px 20px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); cursor: pointer; font-size: 14px; }
-.mode-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
+.mode-tabs { display: flex; gap: 8px; margin-bottom: 20px; padding: 4px; background: var(--surface, #f8f9fa); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
+.mode-tab { padding: 8px 22px; border: none; border-radius: 8px; background: transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--text-muted); transition: all 0.2s ease; }
+.mode-tab:hover:not(.active) { color: var(--text); background: var(--bg, rgba(0,0,0,0.03)); }
+.mode-tab.active { background: var(--surface, #fff); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-weight: 600; }
 .form-group { margin-bottom: 20px; }
 .form-group label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-.form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+.form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box; background: var(--surface, #fff); transition: border-color 0.15s, box-shadow 0.15s; }
+.form-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(64,158,255,0.12); }
 .textarea { resize: vertical; font-family: inherit; line-height: 1.6; }
 .btn-secondary { padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; font-size: 13px; margin-top: 8px; }
 .actions { display: flex; gap: 12px; align-items: center; }
@@ -3514,36 +3474,6 @@ export default {
 .success { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .error { background: var(--status-failed-bg); color: var(--status-failed-text); }
 
-/* 历史 */
-.history-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.history-toolbar label { color: var(--text-muted); font-size: 13px; font-weight: 600; }
-.history-filter { width: min(220px, 100%); }
-.history-list { display: flex; flex-direction: column; gap: 8px; }
-.history-item { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
-.history-item-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.history-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.history-status { font-size: 12px; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; }
-.history-status.completed { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.history-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
-.history-status.cancelled { background: var(--status-cancelled-bg); color: var(--status-cancelled-text); }
-.history-status.running { background: var(--status-running-bg); color: var(--status-running-text); }
-.history-status.paused { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
-.history-item.is-running { cursor: pointer; border-color: var(--history-running-border); }
-.history-item.is-running:hover { border-color: var(--primary); }
-.history-paused-hint { font-size: 11px; color: var(--banner-warning-color, #b45309); background: var(--banner-warning-bg, #fef3c7); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; }
-.history-progress { display: flex; gap: 4px; flex-wrap: wrap; align-items: stretch; }
-.history-progress-seg { flex: 1 1 0; min-width: 72px; max-width: 150px; font-size: 11px; padding: 4px 8px; border-radius: var(--r-xs); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--status-pending-bg); color: var(--status-pending-text); }
-.history-progress-seg.done { background: var(--status-completed-bg); color: var(--status-completed-text); }
-.history-progress-seg.active { background: var(--history-progress-active-bg); color: #fff; font-weight: 600; box-shadow: 0 0 0 2px var(--history-progress-active-shadow); }
-.history-progress-seg.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
-.history-running-hint { font-size: 11px; color: var(--history-running-hint-text); background: var(--history-running-hint-bg); padding: 2px 8px; border-radius: var(--r-xs); white-space: nowrap; flex-shrink: 0; }
-.history-time { color: var(--text-light); font-size: 12px; }
-.history-open, .history-delete, .history-resume { border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); padding: 5px 9px; cursor: pointer; font-size: 12px; }
-.history-open:hover { border-color: var(--primary); color: var(--primary); }
-.history-delete:hover { border-color: var(--error); color: var(--error); }
-.history-resume:hover { border-color: var(--primary); color: var(--primary); }
-.history-resume:disabled { opacity: 0.6; cursor: not-allowed; }
-.empty-state.compact { padding: 28px 0; }
 .template-editor { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; align-items: start; }
 .template-editor .btn-secondary { margin-top: 0; min-height: 38px; }
 .btn-secondary.danger { border-color: var(--error); color: var(--error); }
@@ -3554,24 +3484,26 @@ export default {
 .inline-error { color: var(--error); font-size: 12px; }
 
 /* 通用 */
-.loading-state, .empty-state, .error-state { display: flex; align-items: center; gap: 8px; padding: 40px; color: var(--text-muted); justify-content: center; }
-.history-local-mode-banner { margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; background: var(--warning-bg); color: var(--banner-warning-color); font-size: 13px; }
+.loading-state, .empty-state, .error-state { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 48px 24px; color: var(--text-muted); justify-content: center; text-align: center; }
+.empty-state p:first-of-type { font-size: 16px; font-weight: 500; color: var(--text, #333); margin: 0; }
 .story2video-error-dialog-detail { margin-top: 8px; color: var(--text-muted); font-size: 13px; }
 .error-state { color: var(--error); background: var(--status-failed-bg); border-radius: var(--r-sm); }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--hairline, #ccc); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 720px) {
+  .create-page { padding: 16px; }
   .template-editor { grid-template-columns: 1fr; }
-  .history-item { align-items: flex-start; flex-wrap: wrap; }
-  .history-name { flex-basis: 100%; }
+  .view-tabs { overflow-x: auto; }
+  .mode-tabs { overflow-x: auto; }
+  .config-grid { grid-template-columns: 1fr; }
+  .action-bar { padding: 10px 14px; }
+  .btn-start { width: 100%; }
 }
-</style>
+@media (min-width: 721px) and (max-width: 1024px) {
+  .create-page { padding: 20px 24px; }
+  .pipeline-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}
 
-/* 键盘导航焦点样式 */
-.pipeline-card:focus-visible, .render-card:focus-visible, .pipeline-card:focus-visible, .history-item:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
 
 /* 上传区域拖拽反馈 */
 .upload-zone.drag-over { border-color: var(--upload-zone-hover-border); background: var(--upload-zone-hover-bg); }
@@ -3583,3 +3515,5 @@ export default {
 @keyframes skeleton-shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
 .skeleton-text { height: 14px; margin-bottom: 8px; }
 .skeleton-card { height: 120px; border-radius: 12px; }
+
+</style>

@@ -12,29 +12,30 @@
 - **修复**：① 两个 adapter 的 _request() 用 AbortController 实现有界超时（复用 	his.options.timeout / DEFAULT_TIMEOUT），超时归为 ProviderError(TIMEOUT) 由 governor/上层瞬时重试；② getDefaultProviderConfig 优先用 provider.capability_models[type]，回退 models[0]。
 - **回归保护**：minimax-image/tts 各新增「fetch 挂起 → 有界超时 → ProviderError(TIMEOUT)」用例；聚焦套件 215 项测试全绿（adapters 72 / explainer+documentary 32 / pipeline-engine+model-provider 111）；修复后 documentary-montage 真实 E2E 跑通并产出视频，日志确认 model=image-01。
 - **预防措施**：① 所有 provider adapter 的 HTTP 请求必须接入有界超时（声明 timeout 未使用视为缺陷）；② 复合 provider 选模型必须按 capability_models 按能力路由，禁止 models[0] 猜测；③ adapter 测试必须包含「上游挂起」场景断言超时收敛。
-## Explainer LLM 阶段偶发整线失败复盘 (2026-08-11，质量节拍 Bug 反哺)
+## Explainer LLM 阶段偶发整线失败复盘 (2026-08-11，质量节拍 Bug 反馈)
 
 - **表象**：E2E 验证中 animated-explainer 流水线 research/proposal/script/scenes 阶段偶发整线失败，报「Default provider returned empty content」或「scenes 阶段无法解析场景」，重试同一主题后可能成功（LLM 非确定性）。
-- **根因**：① callDefaultLlm 无任何重试——LLM 偶发返回空内容（HTTP 200 但 content 空）即抛错，4 个 LLM 阶段全部受牵连；② scenes 阶段 JSON 解析只有单次尝试，LLM 输出格式漂移（markdown 围栏/说明文字/字段缺失）直接失败，行级兜底只在解析失败后触发一次。
-- **修复**：① callDefaultLlm 增加有界重试（默认最多 2 次额外尝试，500ms×attempt 退避），仅对空内容与可判定瞬时错误重试，配置/模型缺失类错误直接抛出；② scenes 阶段 JSON 解析失败时让 LLM 把原始输出修复为严格 JSON（有界 1 次），修复失败再回落行级兜底。
-- **回归保护**：explainer 套件 +5（空内容重试成功/连续空内容达上限/配置错误不重试/JSON 修复成功/修复失败兜底），21 项全绿；documentary/ai-generator/pipeline-engine 关联 101 项全绿。
-- **预防措施**：① 外部 LLM 调用必须默认带瞬时有界重试（空内容视为瞬时）；② 结构化输出（JSON）必须有解析失败修复路径 + 行级兜底，禁止单次尝试即整线失败。
-## Provider Adapter fetch 超时系统性缺失复盘 (2026-08-11，质量节拍 Bug 反哺)
+- **根因**：callDefaultLlm 无任何重试；scenes 阶段 JSON 解析只有单次尝试。
+- **修复**：callDefaultLlm 增加有界重试；scenes 阶段 JSON 解析失败时让 LLM 修复为严格 JSON。
+- **回归保护**：explainer 套件 +5，21 项全绿；关联 101 项全绿。
+- **预防措施**：外部 LLM 调用必须默认带瞬时有界重试；结构化输出必须有解析失败修复路径。
 
-- **表象**：E2E 验证中发现多数 provider adapter 声明了 DEFAULT_TIMEOUT 但从未把超时接入 etch()——上游卡住时请求在后台无限挂起。callAdapter 的 withCallTimeout 会让调用链在 2 分钟收敛，但底层 fetch 仍占用连接，且错误被推迟到兜底超时。
-- **范围**：全量审计 services/adapters/*.js（40+ adapter），仅 minimax-image/minimax-tts（PR #504）已接入；其余均为「声明 timeout 未使用」。
-- **修复**：新增 _base/fetch-utils.js 的 etchWithTimeout（AbortController 有界超时），接入视频流水线关键 adapter gnes-video / gnes-image；其余 adapter 共享同一 latent 模式，由 callAdapter 兜底 + 后续按需接入。
-- **回归保护**：etch-utils.test.js +3（正常/挂起超时/参数透传）；gnes-video.test.js +1（fetch 挂起 → ProviderError(TIMEOUT)）；相关套件 67 项全绿。
-- **预防措施**：① adapter 声明 timeout 必须接入 fetch（声明未使用视为缺陷）；② 新增 adapter 必须用 fetchWithTimeout 或等价 AbortSignal 实现有界请求。
+## Provider Adapter fetch 超时系统性缺失复盘 (2026-08-11，质量节拍 Bug 反馈)
+
+- **表象**：多数 provider adapter 声明了 DEFAULT_TIMEOUT 但从未把超时接入 fetch()。
+- **修复**：新增 _base/fetch-utils.js 的 fetchWithTimeout，接入关键 adapter。
+- **回归保护**：fetch-utils.test.js +3；相关套件 67 项全绿。
+- **预防措施**：adapter 声明 timeout 必须接入 fetch。
 
 ## clip-factory 选项接线缺失复盘 (2026-08-11，质量节拍 Bug 反哺)
 
 - **表象**：全枚举 E2E 运行器（PR #509 入库脚本）在 main 上跑出 clip-factory 所有选项（sceneThreshold/maxSegments/maxTotalSeconds）产物时长全部相同（45.69s），选项完全无效。
-- **根因（git blame）**：`clipfactory-stages.js` 的 `buildSegments`/`analyzeVideo` 使用硬编码常量（MAX_SEGMENTS=8/MIN_SEGMENT_SECONDS=2/MAX_TOTAL_SECONDS=60/SCENE_THRESHOLD=0.3），从不读取 stage options；`pipeline-engine.js` 的 `resolveRuntimeStageOptions` 也未映射 clip-factory 的 analyze 参数 → 用户在参数传入的选项被丢弃。
-- **修复**：① `buildSegments`/`analyzeVideo` 增加 options 参数（默认值回退常量），analyze 执行器把 `stage.options` 传入；② `resolveRuntimeStageOptions` 增加 pipeline 名参数，对 `clip-factory` 的 analyze 阶段映射 sceneThreshold/maxSegments/minSegmentSeconds/maxTotalSeconds（按 pipeline 名区分，避免与 podcast 的 analyze 阶段名冲突）。
-- **回归保护**：clipfactory-stages 单测 +1（options 生效）；真实 E2E 复验：T=0.1→40.69s、T=0.5→55.62s、max=2→10.19s、total=30→25.36s（全部生效）。
+- **根因（git blame）**：clipfactory-stages.js 的 uildSegments/nalyzeVideo 使用硬编码常量（MAX_SEGMENTS=8/MIN_SEGMENT_SECONDS=2/MAX_TOTAL_SECONDS=60/SCENE_THRESHOLD=0.3），从不读取 stage options；pipeline-engine.js 的 
+esolveRuntimeStageOptions 也未映射 clip-factory 的 analyze 参数 → 用户在 UI/参数传入的选项被丢弃。
+- **修复**：① uildSegments/nalyzeVideo 增加 options 参数（默认值回退常量），analyze 执行器把 stage.options 传入；② 
+esolveRuntimeStageOptions 增加 pipeline 名参数，对 clip-factory 的 analyze 阶段映射 sceneThreshold/maxSegments/minSegmentSeconds/maxTotalSeconds（按 pipeline 名区分，避免与 podcast 的 analyze 阶段名冲突）。
+- **回归保护**：clipfactory-stages 单测 +1（options 生效：maxSegments/minSegmentSeconds/maxTotalSeconds）；真实 E2E 复验：T=0.1→40.69s、T=0.5→55.62s、max=2→10.19s、total=30→25.36s（全部生效）。
 - **预防措施**：① 流水线 stage options 必须经 resolveRuntimeStageOptions 接线；② 阶段执行器必须消费 stage.options，禁止硬编码常量；③ 全枚举 E2E 运行器必须跑在合并后 main 上作为选项接线回归。
-
 ## 图片轮播流水线 generate_assets 调度网关双包自死锁复盘 (2026-08-10，质量节拍 Bug 反哺)
 
 - **表象**：图片轮播流水线到达「生成图片与旁白」（generate_assets）阶段后永久卡住，前端「图片 0/N · 旁白 0/M」停滞不动；暂停/重试均无法推进，只能重启应用。
