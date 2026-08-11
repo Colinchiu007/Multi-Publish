@@ -32,10 +32,10 @@
 - [x] 测试目标：`story2video-stages.test.js` — 场景「混合模式视频场景优化」（经视频优化、不得直接复用图片 optimized_prompt、失败回退）
 
 ## T7 跨仓库契约回归与文档（本分支 + 外部仓库分支）
-- [ ] 真实 8013 smoke：`/v1/optimize` domain=video 请求返回结构化结果（外部验收边界，标注执行环境）
-- [ ] `01-docs/VIDEO-PROMPT-OPTIMIZE-ENGINE-DESIGN-2026-08-11.md` 状态更新；CHANGELOG 追加；learnings 复盘（如适用）
-- [ ] 场景-测试映射核对：`openspec validate` + `scripts/openspec-sync-check.js` 通过
-- [ ] 双分支推送 + PR（prompt-engine 仓库、Multi-Publish 仓库），记录 remoteStatus
+- [x] 真实 8013 smoke：新代码实例（PORT=8024，本机）`/v1/optimize` domain=video 返回结构化 video 字段（shot/camera/motion_intensity/scene_transition/continuity_token），MiniMax-M3 真实 LLM；生产 8013 需部署新分支后重启（外部验收边界）
+- [x] `01-docs/VIDEO-PROMPT-OPTIMIZE-ENGINE-DESIGN-2026-08-11.md` 状态更新；双仓库 CHANGELOG 追加
+- [x] `openspec validate video-prompt-optimize-engine` 有效；`scripts/openspec-sync-check.js` OK（无 completed 未归档关联）
+- [x] 双分支推送 + PR：prompt-engine #18、Multi-Publish #548（均待合并，remoteStatus=open）
 
 ## 明确不做（边界）
 - 平台专项策略（kling/veo/runway/wan/seedance… 定制 system prompt）→ Phase 2
