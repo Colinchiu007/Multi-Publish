@@ -164,6 +164,7 @@ export default {
   computed: {
     filteredHistory() {
       if (this.historyFilter === 'all') return this.history
+      if (this.historyFilter === 'paused') return this.history.filter(item => item.status === 'paused' || item.status === 'failed')
       return this.history.filter(item => item.status === this.historyFilter)
     },
   },

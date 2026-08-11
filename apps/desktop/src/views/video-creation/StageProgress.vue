@@ -1,44 +1,44 @@
 <template>
   <div class="stage-progress" v-if="stages && stages.length > 0">
-    <!-- 进度头部 -->
-    <div class="progress-header">
-      <div class="progress-bar">
-        <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
-      </div>
-      <span class="progress-text">{{ progressPercent }}%</span>
-      <span v-if="elapsedMs !== null" class="elapsed-text">
-        {{ formatDuration(elapsedMs) }}
-      </span>
-    </div>
-
-    <!-- 完成摘要 -->
-    <div v-if="summary" class="progress-summary">{{ summary }}</div>
-
     <!-- 阶段列表 -->
-    <div class="stages-list">
+    <div class="stages-list" data-testid="story2video-stage-list">
+      <!-- 粘性头部：进度条 + 摘要，在阶段列表内滚动时固定在顶部 -->
+      <div class="stages-sticky-header" data-testid="story2video-stage-sticky-header">
+        <div data-testid="story2video-orchestration-progress">
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
+          </div>
+          <span class="progress-text">{{ progressPercent }}%</span>
+          <span v-if="elapsedMs !== null" class="elapsed-text">
+            已用时 {{ formatDuration(elapsedMs) }}
+          </span>
+        </div>
+        <div v-if="summary" class="progress-summary">{{ summary }}</div>
+      </div>
       <div
         v-for="(stage, index) in stages"
         :key="stage.id || stage.name || index"
         class="stage-item"
-        :class="stageStateClass(stage, index)"
+        :class="stageStateClass(stage, index)" :data-testid="`story2video-stage-${stage.name || index}`"
       >
         <span class="stage-icon">{{ stageStateIcon(stage, index) }}</span>
         <span class="stage-main">
           <span class="stage-name">{{ stageName(stage.name) }}</span>
-          <span v-if="stageDetailText(stage, index)" class="stage-meta">
-            {{ stageDetailText(stage, index) }}
+          <span v-if="stageDetailText(stage, index)" class="stage-detail" :data-testid="`story2video-stage-detail-${stage.name || index}`">{{ stageDetailText(stage, index) }}</span>
+          <span v-if="stageTimeDetailText(stage, index)" class="stage-meta">
+            {{ stageTimeDetailText(stage, index) }}
           </span>
           <!-- compose 子进度条 -->
           <span
             v-if="stage.name === 'compose' && stage.status === 'running' && composeSubProgressPercent(stage) !== null"
-            class="stage-sub-progress"
+            class="stage-sub-progress" data-testid="story2video-stage-compose-progress"
             role="progressbar"
             :aria-valuenow="composeSubProgressPercent(stage)"
             aria-valuemin="0"
             aria-valuemax="100"
           >
             <span class="stage-sub-bar">
-              <span class="stage-sub-fill" :style="{ width: composeSubProgressPercent(stage) + '%' }"></span>
+              <span class="stage-sub-fill" data-testid="story2video-stage-sub-fill" :style="{ width: composeSubProgressPercent(stage) + '%' }"></span>
             </span>
           </span>
         </span>
@@ -61,6 +61,7 @@ export default {
     progressPercent: { type: Number, default: 0 },
     elapsedMs: { type: Number, default: null },
     summary: { type: String, default: '' },
+    orchestrationContext: { type: Object, default: null },
   },
   methods: {
     stageName(name) {
@@ -85,7 +86,7 @@ export default {
       if (status === 'cancelled') return '—'
       return '○'
     },
-    stageDetailText(stage, index) {
+    stageTimeDetailText(stage, index) {
       if (!stage) return ''
       const status = stage.status || ''
       if (status === 'completed' && stage.completedAt) {
@@ -96,6 +97,31 @@ export default {
       }
       if (status === 'failed' && stage.error) {
         return stage.error.length > 50 ? stage.error.slice(0, 47) + '...' : stage.error
+      }
+      return ''
+    },
+    
+    stageDetailText(stage, index) {
+      if (!this.orchestrationContext) return this.stageTimeDetailText(stage, index)
+      const ctx = this.orchestrationContext
+      if (stage.name === 'split' && stage.status === 'completed') {
+        const scenes = ctx.split?.scenes || []
+        if (scenes.length > 0) return '拆分为了 ' + scenes.length + ' 个场景'
+      }
+      if (stage.name === 'optimize' && stage.status === 'completed') {
+        const p = ctx.optimize_progress
+        if (p && p.done != null && p.total != null) return '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个'
+      }
+      if (stage.name === 'generate_assets') {
+        const p = ctx.assets_progress
+        if (p) {
+          if (p.videosDone != null) return '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 视频 ' + p.videosDone + '/' + p.videosTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal
+          return '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal
+        }
+      }
+      if (stage.name === 'compose' && stage.status === 'running') {
+        const p = ctx.compose_progress
+        if (p && p.percent != null) return '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%'
       }
       return ''
     },
@@ -122,8 +148,7 @@ export default {
       return this.formatDuration(Math.max(0, end - start))
     },
     composeSubProgressPercent(stage) {
-      if (!stage || !stage.progress) return null
-      const p = stage.progress
+      const p = (stage && stage.progress) || (this.orchestrationContext && this.orchestrationContext.compose_progress)
       if (!p || !Number.isFinite(p.percent) || p.percent < 0 || p.percent > 100) return null
       return Math.round(p.percent)
     },
@@ -275,6 +300,12 @@ export default {
   font-size: 14px;
   font-weight: 500;
   color: var(--text);
+}
+
+.stage-detail {
+  font-size: 12px;
+  color: var(--primary);
+  margin-top: 2px;
 }
 
 .stage-meta {

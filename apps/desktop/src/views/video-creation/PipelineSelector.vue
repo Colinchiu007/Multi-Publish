@@ -24,7 +24,7 @@
       <div
         v-for="pipeline in pipelines"
         :key="pipeline.name"
-        class="pipeline-card"
+        class="pipeline-card" :data-pipeline-id="pipeline.name"
         :class="[pipeline.category, { 'is-unavailable': pipeline.available === false }]"
         tabindex="0"
         role="button"

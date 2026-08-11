@@ -51,6 +51,7 @@
           :progress-percent="orchestrationProgressPercent"
           :elapsed-ms="orchestrationElapsedMs"
           :summary="orchestrationSummary"
+          :orchestration-context="orchestrationContext"
         />
 
         <!-- 模型服务异常提示（非阻塞） -->
@@ -1109,6 +1110,7 @@ export default {
     },
     filteredHistory() {
       if (this.historyFilter === 'all') return this.history
+      if (this.historyFilter === 'paused') return this.history.filter(item => item.status === 'paused' || item.status === 'failed')
       return this.history.filter(item => item.status === this.historyFilter)
     },
     activeOutputConfig() {
