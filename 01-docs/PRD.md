@@ -1575,6 +1575,86 @@ CSS 提取不改变任何组件的功能逻辑、交互逻辑或显示项。以�
 6. 暗色模式下所有组件样式正确显示
 
 
+#### 7.1.27 视频创作历史记录已暂停状态修复（2026-08-11）
+
+**背景**：视频创作历史记录中，因执行失败而暂停的任务状态显示为「进行中」而非「已暂停」，且缺少「暂停环节」信息。根因有二：(1) `CreateView.vue` 的 `loadHistory()` 方法缺少 stale running 检测逻辑（注释声称"已由 composable 处理"但实际未引用 composable）；(2) `usePipelineHistory.js` composable 的 `filteredHistory` 筛选器未将 `failed` 状态合并到「已暂停」筛选中。
+
+##### A. 数据层修复
+
+| 修复项 | 文件 | 变更内容 |
+|--------|------|----------|
+| stale running 检测 | `CreateView.vue` L2720+ | `updatedAt` 超过 30 分钟仍为 `running` 的任务，自动转换为 `paused` 状态，并从 `stages` 中推断 `pausedStage` |
+| failed pausedStage 填充 | `CreateView.vue` L2735+ | `failed` 状态且无 `pausedStage` 的任务，从 `stages` 中查找 `status === 'failed'` 的阶段，或首个未完成阶段，填充 `pausedStage` |
+| 筛选器合并 | `usePipelineHistory.js` L49 | `filteredHistory` 的 `paused` 筛选条件新增 `\|\| item.status === 'failed'`，确保「已暂停」筛选同时显示 failed 项 |
+| 列表排序 | `CreateView.vue` L2751+ | 历史列表按 running → projects → paused → failed → other 排序，分组更清晰 |
+
+##### B. 状态映射规则
+
+| 原始状态 | 转换条件 | 显示状态 | 状态标签 | 状态图标 | 状态色 |
+|----------|----------|----------|----------|----------|--------|
+| `running` | `updatedAt` > 30 分钟 | `paused` | 已暂停 | ⏸ | 橙色 |
+| `failed` | — | `failed` | 执行失败 | ✕ | 红色 |
+| `failed` | — | `failed` | 暂停环节：{pausedStage} | ⚠ | 红色提示条 |
+| `paused` | — | `paused` | 已暂停 | ⏸ | 橙色 |
+| `paused` | 有 `pausedStage` | `paused` | 暂停环节：{pausedStage} | ⏸ | 橙色提示条 |
+
+##### C. 流程逻辑
+
+```
+loadHistory()
+  ├── Promise.allSettled([story2videoListProjects(), pipelineHistory()])
+  ├── 合并 projects + runs（去重 projectId）
+  ├── [NEW] stale running 检测：
+  │     for each run where status === 'running':
+  │       if (now - updatedAt > 30min):
+  │         run.status = 'paused'
+  │         run.pausedStage = 推断的阶段名
+  ├── [NEW] failed pausedStage 填充：
+  │     for each run where status === 'failed' && !pausedStage:
+  │       run.pausedStage = 失败阶段名（从 stages 推断）
+  ├── 排序：running → projects → paused → failed → other
+  └── 渲染历史列表
+```
+
+##### D. 交互逻辑
+
+| 用户操作 | 触发条件 | 行为 |
+|----------|----------|------|
+| 筛选「已暂停」 | `historyFilter === 'paused'` | 同时显示 `status === 'paused'` 和 `status === 'failed'` 的记录 |
+| 点击 failed 项 | `status === 'failed' && resumable` | 触发 `resume-history` 事件，从断点继续 |
+| 点击 failed 项 | `status === 'failed' && !resumable` | 打开详情页 |
+| 点击 paused 项 | `status === 'paused'` | 触发 `resume-history` 事件 |
+
+##### E. 显示项
+
+| 显示项 | 位置 | 条件 |
+|--------|------|------|
+| 状态标签 | 卡片右上角 | 始终显示 |
+| 状态图标 | 标签左侧 | 始终显示（⟳/✕/⏸/✓/—） |
+| 暂停环节提示 | 标签下方 | `status === 'paused' && pausedStage` |
+| 失败环节提示 | 标签下方 | `status === 'failed' && pausedStage` |
+| 错误信息 | 失败提示内 | `status === 'failed' && !pausedStage && error` |
+| 阶段进度条 | 卡片底部 | `status === 'running' \|\| 'paused'` 且有 stages |
+| 操作按钮 | 卡片右下角 | failed/paused → 「从断点继续」；running → 「继续生成」 |
+
+##### F. 数据校验
+
+| 校验项 | 规则 |
+|--------|------|
+| stale running 阈值 | 30 分钟（`STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000`） |
+| pausedStage 推断优先级 | `stages.find(s => s.status === 'failed')` → `stages.find(s => s.status !== 'completed')` → `stages[last]` |
+| 可恢复判断 | `status ∈ {failed, paused}` && 有 `id/runId` && 错误不含 `needs_user_input\|content_policy` |
+| 筛选器一致性 | `CreateView.vue` 和 `usePipelineHistory.js` 的 `filteredHistory` 逻辑必须一致 |
+
+##### G. 验收标准
+
+1. stale running 任务（updatedAt > 30min）自动显示为「已暂停」+ 暂停环节
+2. failed 任务显示「执行失败」+ 失败环节（`pausedStage`）
+3. 「已暂停」筛选器同时显示 paused 和 failed 记录
+4. 历史列表按 running → projects → paused → failed → other 排序
+5. `CreateView.vue` 和 `usePipelineHistory.js` 的筛选逻辑一致
+6. 所有受影响测试通过
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```

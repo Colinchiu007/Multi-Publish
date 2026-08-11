@@ -2718,13 +2718,43 @@ export default {
         const runs = hasRuns
           ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
           : []
-        // stale running + failed→paused 检测已由 usePipelineHistory composable 统一处理
+        // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停
+        const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
+        const now = Date.now()
+        for (const run of runs) {
+          if (run.status === 'running') {
+            const updatedAt = run.updatedAt ? new Date(run.updatedAt).getTime() : 0
+            if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
+              run._originalStatus = run.status
+              run.status = 'paused'
+              if (!run.pausedStage) {
+                const stages = Array.isArray(run.stages) ? run.stages : []
+                const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
+                run.pausedStage = runningStage ? (runningStage.name || runningStage.stage || '') : ''
+              }
+            }
+          }
+        }
+
+        // failed 任务补充 pausedStage（失败环节）
+        for (const run of runs) {
+          if (run.status === 'failed' && !run.pausedStage) {
+            const stages = Array.isArray(run.stages) ? run.stages : []
+            const failedStage = stages.find(s => s && s.status === 'failed')
+              || stages.find(s => s && s.status !== 'completed')
+              || stages[stages.length - 1]
+            run.pausedStage = failedStage ? (failedStage.name || failedStage.stage || '') : ''
+          }
+        }
+
         // 运行中流水线置顶（需求：历史记录可查看运行中未完成任务及其实时流程状态），
         // 其次是已完成项目，最后是终态流水线。
         this.history = [
           ...runs.filter(run => run.status === 'running'),
           ...projects,
-          ...runs.filter(run => run.status !== 'running'),
+          ...runs.filter(run => run.status === 'paused'),
+          ...runs.filter(run => run.status === 'failed'),
+          ...runs.filter(run => run.status !== 'running' && run.status !== 'paused' && run.status !== 'failed'),
         ]
         this.scheduleHistoryRefresh()
         if (!hasProjects || !hasRuns) {
