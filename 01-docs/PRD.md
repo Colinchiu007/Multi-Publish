@@ -1502,6 +1502,79 @@ split → domain_enrich → optimize → select_video_scenes（新增） → gen
 5. 断点续跑：已完成视频场景复用本地 videoPath，不重复调用视频生成。
 6. 前端构建无编译错误；相关单测/集成测试全绿。
 
+#### 7.1.26 视频创作子组件 CSS 代码-设计分离扩展（2026-08-11）
+
+**背景**：在 7.1.23 设计令牌体系基础上，继续将视频创作模块剩余 4 个子组件的内联 scoped CSS 提取到独立 CSS 文件，实现代码与设计的彻底分离。此前 CreateView.vue 和 CreateHistory.vue 已完成分离（见 7.1.23），本次覆盖 PipelineSelector、StageProgress、ConfigSummary、ErrorDialog 四个子组件。
+
+##### A. CSS 文件提取清单
+
+| 组件 Vue 文件 | 提取的 CSS 文件 | CSS 行数 | 移除的 scoped 样式行数 | 职责 |
+|---------------|----------------|----------|----------------------|------|
+| PipelineSelector.vue | src/styles/pipeline-selector.css | 192 行 | ~193 行 | 流水线选择卡片网格布局、卡片悬停/聚焦样式、分类徽标、可用性/稳定性指示器、响应式断点 |
+| StageProgress.vue | src/styles/stage-progress.css | 192 行 | ~193 行 | 阶段时间线进度条、阶段状态色（done/active/waiting/failed/pending）、粘性头部、compose 子进度条 |
+| ConfigSummary.vue | src/styles/config-summary.css | 70 行 | ~70 行 | S2V 配置面板折叠区摘要、表单项标签/值/提示文字排版、折叠区 summary 摘要行 |
+| ErrorDialog.vue | src/styles/error-dialog.css | 147 行 | ~144 行 | 错误弹窗容器、错误消息/详情区域、恢复按钮/关闭按钮样式、内容政策提示区 |
+
+##### B. 导入机制
+
+所有提取的 CSS 文件通过 Vue 单文件组件的 `<style src="...">` 机制导入，不改变运行时行为：
+
+```vue
+<!-- 示例：PipelineSelector.vue -->
+<style src="../../styles/pipeline-selector.css" scoped></style>
+```
+
+- **Vite 构建**：`<style src="...">` 在 Vite 构建时自动解析并注入，行为等同于内联 `<style>` 块
+- **作用域隔离**：`scoped` 属性保留，确保 CSS 只作用于当前组件 DOM
+- **无 HMR 影响**：Vite HMR 对外部 CSS 文件的热更新与内联样式一致
+
+##### C. 设计令牌引用
+
+提取后的 CSS 文件继续引用 7.1.23 定义的设计令牌（video-creation-tokens.css），主要引用：
+
+| 令牌类别 | 引用变量示例 | 使用位置 |
+|----------|-------------|----------|
+| 阶段时间线色 | --stage-done-bg, --stage-active-bg, --stage-waiting-bg, --stage-failed-bg, --stage-pending-bg | StageProgress.vue 进度条 |
+| 状态语义色 | --status-completed-bg, --status-failed-bg | PipelineSelector.vue 状态徽标 |
+| 流水线分类色 | --pipe-story2video, --pipe-image-carousel 等 | PipelineSelector.vue 卡片边框 |
+| Banner/Notice 色 | --banner-warning-bg, --banner-info-bg | ErrorDialog.vue 提示区 |
+| 全局令牌 | --primary, --text-primary, --text-secondary, --border-color | 所有 CSS 文件 |
+
+##### D. 暗色模式兼容
+
+所有提取的 CSS 文件在 video-creation-tokens.css 的 `[data-theme="dark"]` 覆盖层中已有对应暗色值。CSS 文件本身不包含独立的暗色模式定义，完全依赖 Token 层驱动。
+
+##### E. 数据校验与边界
+
+| 校验项 | 合同 |
+|--------|------|
+| scoped 作用域 | 每个 Vue 组件必须保留 scoped 属性，防止全局 CSS 污染 |
+| CSS 文件路径 | `<style src="...">` 路径必须使用相对路径，从 Vue 文件位置到 src/styles/ |
+| Token 完整性 | 提取后的 CSS 文件引用的所有 var(--xxx) 必须在 video-creation-tokens.css 中有定义 |
+| 构建验证 | vite build 无编译错误，CSS 文件正确打包进产物 |
+| 测试覆盖 | 所有受影响组件的单元测试必须通过（Vitest） |
+
+##### F. 流程与交互逻辑（保持不变）
+
+CSS 提取不改变任何组件的功能逻辑、交互逻辑或显示项。以下为受影响组件的核心交互摘要：
+
+| 组件 | 核心交互 | 显示项 |
+|------|----------|--------|
+| PipelineSelector | 点击卡片选择流水线、Enter 键激活、hover 高亮 | 流水线名称、描述、阶段数、成本标签、可用性徽标、稳定性圆点 |
+| StageProgress | 阶段时间线自动滚动到活跃阶段、粘性头部固定 | 进度百分比、已用时、完成摘要、各阶段名+状态+耗时、compose 子进度 |
+| ConfigSummary | 折叠区展开/收起、摘要行显示当前配置 | 基础/画面/声音/高级/发布 各区的配置摘要 |
+| ErrorDialog | 恢复按钮点击后重试、关闭按钮关闭弹窗 | 错误消息、错误详情、恢复提示、内容政策提示 |
+
+##### G. 验收标准
+
+1. 4 个 Vue 组件的 `<style>` 块均已替换为 `<style src="..." scoped>` 引用
+2. 4 个独立 CSS 文件存在于 src/styles/ 目录
+3. Vite build 无编译错误
+4. 所有受影响组件的单元测试通过
+5. 组件运行时样式与提取前完全一致（无视觉回归）
+6. 暗色模式下所有组件样式正确显示
+
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
