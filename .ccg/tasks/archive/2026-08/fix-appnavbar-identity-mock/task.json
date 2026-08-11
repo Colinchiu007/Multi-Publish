@@ -1,0 +1,12 @@
+{
+  "id": "fix-appnavbar-identity-mock",
+  "title": "修复 AppNavbar.test.js useIdentity mock user 形状（null→ref），恢复 CI",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend-test",
+  "currentPhase": "completed",
+  "nextAction": "已归档，待推送",
+  "createdAt": "2026-08-11T20:30:00Z",
+  "branch": "codex/fix-appnavbar-identity-mock"
+}
