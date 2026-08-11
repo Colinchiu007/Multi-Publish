@@ -754,7 +754,7 @@ pending → publishing → { success | failed | partial | denied | cancelled }
 |------|------|
 | 场景层 | 8002 返回的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界，Multi-Publish 不得再次改写 |
 | 降级 | 只允许连接拒绝、超时、连接重置或服务未运行等不可用错误降级；业务错误和缺少 `scenes` 的非法响应必须失败 |
-| 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文 |
+| 字幕层 | 本地 TypeScript 在每个场景内部独立二次分页，目标每页 8-15 字，字幕不得跨场景，拼接后必须保持场景原文；分割行为对齐《字幕分割规范 v1.0》（smart-sentence-splitter `docs/subtitle-segmentation-spec.md`，7 步流水线：分句→引号感知→长度切分→短块合并→标点规范化→超长强制→时间戳），与 8002 字幕输出同一字幕块序列（双实现跑同一测试向量 `subtitle_segmentation_vectors.json` 逐字一致） |
 | 时间轴 | ffprobe 的逐场景真实音频时长是权威值；字幕区间连续、互不重叠，首屏从 0 开始，末屏精确结束 |
 | 场景时长与动效 | 场景成片时长跟随 ffprobe 真实旁白音频（`-shortest`），不强制截断旁白；`defaultSceneDuration`（内部默认 6 秒，UI 不暴露）仅作音频时长不可探测时的回退。图片动效按“有效时长 = audioDuration || reportedDuration || defaultSceneDuration”归一化（zoompan `d=总帧数` + 进度 `min(1, on/T)`），短场景不切走、长场景不定格 |
 | 来源追踪 | 持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks`、`subtitleTimeline` |
@@ -1372,6 +1372,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 成本标签色 | --cost-* | --cost-low: #10b981 | low/medium/high 三级成本 |
 | 历史记录色 | --history-* | --history-running-border: #93c5fd | 运行中边框、进度条、提示 |
 | 语音克隆色 | --clone-* | --clone-invalid-bg: #fef3c7 | 无效/默认克隆的徽标色 |
+| 通用变量映射 | --border/--text/--primary-bg | --border: var(--border-light) | 兼容 stage-progress / create-view-history 等组件的通用语义变量，light/dark 双模式覆盖 |
 
 ##### B. Token 文件结构
 
