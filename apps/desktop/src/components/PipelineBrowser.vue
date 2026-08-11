@@ -49,6 +49,7 @@ import {
   getPipelineDescription,
   getPipelineName,
 } from '@/i18n/pipeline-labels'
+import { formatUserError } from '@/utils/user-facing-error'
 
 export default {
   name: "PipelineBrowser",
@@ -67,12 +68,12 @@ export default {
       if (result?.code === 0) {
         this.pipelines = result.data || []
       } else {
-        this.error = result?.message || '加载失败'
+        this.error = formatUserError(result, { fallback: '加载失败' }).message
       }
     } catch (e) {
       // Fallback for vitest/dev
       this.pipelines = [];
-      this.error = e.message;
+      this.error = formatUserError(e, { fallback: '加载失败' }).message;
     } finally {
       this.loading = false;
     }

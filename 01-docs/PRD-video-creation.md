@@ -613,18 +613,25 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 **三、UI 布局重构**
 
 - 卡片结构：状态徽章移至信息区右侧（第一行），阶段标签和提示移至第二行（pipeline-card-bottom），通过分割线视觉分隔。
-- 状态色条：卡片左侧 3px 色条，颜色由 :class="p.status" 动态绑定，一眼区分状态。
+- 状态色条：卡片左侧 3px 色条，颜色由 `:class="effectiveStatus(p)"` 动态绑定，一眼区分状态。
 - 运行中脉冲：running 状态圆点带 pulse-dot 动画（1.5s 周期透明度闪烁）。
 - 阶段标签：字号从 11px 增至 12px，padding 从 2px 6px 增至 3px 8px，新增 failed（红）、paused（橙）、cancelled（灰）三种状态色。
 - 容器宽度：从 960px 拓宽至 1080px，内边距从 24px 增至 24px 32px。
 - 列表间距：卡片间距从 8px 增至 12px。
 - hover 效果：新增 translateY(-1px) 微位移 + 加深阴影。
 
-**四、数据校验**
+**四、前端核心方法**
+
+- **effectiveStatus(p)**：前端状态归一化方法。后端返回的 status 为 paused/failed/cancelled/completed 时直接透传；当 status === 'running' 时，遍历 p.stages 数组检查是否有 stage.status === 'failed'，若存在则返回 'paused'（表示后端标记为运行中但实际已中断）。所有模板绑定（状态徽章、色条、提示文案、计数器）均调用此方法而非直接读取 p.status。
+- **pausedStageOf(p)**：获取暂停环节名称。优先读取 p.pausedStage（后端快照预计算值），fallback 到遍历 stages 数组找到第一个 status === 'failed' 的 stage，返回其 name || stage 字段。用于渲染"暂停环节：xxx"提示文字。
+
+**五、数据校验**
 
 - pausedStage 仅在 snapshot.currentStage 为有效索引且对应 stage 存在时填充，否则为 null。
 - stageLabel() 函数对 pausedStage（字符串）调用时走 shortName() 路径（截断 10 字符 + ...）。
 - statusLabel() 的 paused 映射为「已暂停」。
+- effectiveStatus() 的 running→paused 判定仅基于 stages 数组中是否存在 failed 状态的 stage，不依赖其他字段。
+- pausedStageOf() 返回值可能为 null（无失败环节时），模板中通过 v-if 控制提示文字的显示/隐藏。
 
 **五、openPipeline 路由**
 
@@ -1300,6 +1307,80 @@ import '@/styles/create-view-history.css'
 | `animation` | string | `ken-burns` | 动画效果 |
 | `chartData` | array | — | 图表数据 |
 | `chartSeries` | array | — | 折线图序列 |
+
+
+### 3.1.21 BasePythonBridge 懒启动自愈（2026-08-11）
+
+#### 一、变更背景
+
+视频创作流水线依赖 Python Bridge（SplitterBridge、PromptBridge）提供后台服务。此前当 Bridge 进程意外退出（崩溃、看门狗放弃、启动失败）后，业务调用方（如 optimize()、_post()）直接抛出 xxx is not running 错误，用户需要手动重启应用。本次在 BasePythonBridge 基类中新增 nsureRunning() 方法，实现懒启动自愈。
+
+#### 二、实现方案
+
+##### 1) ensureRunning() 方法（base-python-bridge.js:281-293）
+
+`
+async ensureRunning () {
+  if (this.isRunning) return          // 已运行则跳过
+  if (this._starting) return this._starting  // 并发调用共享同一 Promise
+  this.log.info(this.name, ${this.name} is not running, attempting lazy-start...)
+  this.restartCount = 0
+  this._starting = this.start().catch((e) => {
+    this.log.error(this.name, Lazy-start failed: )
+    throw e
+  }).finally(() => { this._starting = null })
+  return this._starting
+}
+`
+
+##### 2) _post() 方法改造（base-python-bridge.js:228-231）
+
+原来 _post() 在 isRunning === false 时直接 reject。改造后：
+`
+if (!this.isRunning) {
+  try { await this.ensureRunning() } catch (e) {
+    throw new Error(${this.name} is not running and lazy-start failed: )
+  }
+}
+`
+
+##### 3) 子类显式调用
+
+PromptBridge 的 optimize() 和 optimizeBatch() 方法在调用 _post() 前额外调用 wait this.ensureRunning()，确保 Bridge 可用。
+
+#### 三、行为变化
+
+| 场景 | 改造前 | 改造后 |
+|------|--------|--------|
+| Bridge 未启动时调用 optimize() | 抛出 "xxx is not running" | 自动尝试启动，成功则继续，失败则抛出 "lazy-start failed" |
+| Bridge 启动中重复调用 | 无保护 | 共享同一 _starting Promise，不重复 spawn |
+| Bridge 崩溃后首次调用 | 直接报错 | 自动重启 + 重试 |
+
+#### 四、数据校验
+
+- _starting 字段类型：Promise<void> | null
+- nsureRunning() 返回值：Promise<void>
+- 并发安全：多次调用共享同一个 _starting Promise
+
+#### 五、错误处理
+
+- 懒启动失败时，错误信息包含原始异常的 message
+- 日志级别：启动尝试为 info，失败为 error
+- 不影响看门狗和正常重启逻辑
+
+#### 六、影响范围
+
+| 文件 | 变更类型 |
+|------|----------|
+| ase-python-bridge.js | 新增 nsureRunning() 方法 + _post() 改造 |
+| prompt-bridge.js | optimize() 和 optimizeBatch() 前置调用 |
+| splitter-bridge.js | 同上模式 |
+
+#### 七、回归验证
+
+- ase-python-bridge.test.js：新增 ensureRunning 懒启动测试（并发调用共享 Promise、启动失败抛出、已运行跳过）
+- 2e-full-pipeline.test.js：E2E 测试自动启动 Splitter Bridge 而非仅 attach
+
 
 ### 3.3 叠加层（Remotion 快速路径，P1）
 

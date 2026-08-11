@@ -18,6 +18,7 @@ import {
   modelProviderPresets,
 } from '@/api/model-providers'
 import { storeGetSetting, storeSetSetting } from '@/api/publisher'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const CATEGORY_OPTIONS = [
   { value: 'all', label: '全部' },
@@ -190,10 +191,10 @@ export function useModelProviderCrud () {
       if (res.code === 0 && Array.isArray(res.data)) {
         providers.value = res.data
       } else {
-        ElMessage.error(res.message || '加载失败')
+        ElMessage.error(formatUserError(res, { fallback: '加载失败' }).message)
       }
     } catch (e) {
-      ElMessage.error(e.message || '加载失败')
+      ElMessage.error(formatUserError(e, { fallback: '加载失败' }).message)
     } finally {
       loading.value = false
     }
@@ -358,7 +359,7 @@ export function useModelProviderCrud () {
         showFormDialog.value = false
         showAddDialog.value = false
         await loadProviders()
-      } else if (!isEditing.value && res.message && res.message.includes('already exists')) {
+      } else if (!isEditing.value && (res.errorCode === 'PROVIDER_EXISTS' || (res.message && res.message.includes('already exists')))) {
         // ID 冲突（预设已存在）→ 自动降级为更新，允许用户配置已有预设
         const updateRes = await modelProviderUpdate(data.id, data)
         if (updateRes.code === 0) {
@@ -368,13 +369,13 @@ export function useModelProviderCrud () {
           showAddDialog.value = false
           await loadProviders()
         } else {
-          ElMessage.error(updateRes.message || '更新失败')
+          ElMessage.error(formatUserError(updateRes, { fallback: '更新失败' }).message)
         }
       } else {
-        ElMessage.error(res.message || '保存失败')
+        ElMessage.error(formatUserError(res, { fallback: '保存失败' }).message)
       }
     } catch (e) {
-      ElMessage.error(e.message || '保存失败')
+      ElMessage.error(formatUserError(e, { fallback: '保存失败' }).message)
     } finally {
       submitting.value = false
     }
@@ -397,10 +398,10 @@ export function useModelProviderCrud () {
         deleteTarget.value = null
         await loadProviders()
       } else {
-        ElMessage.error(res.message || '删除失败')
+        ElMessage.error(formatUserError(res, { fallback: '删除失败' }).message)
       }
     } catch (e) {
-      ElMessage.error(e.message || '删除失败')
+      ElMessage.error(formatUserError(e, { fallback: '删除失败' }).message)
     } finally {
       submitting.value = false
     }
@@ -414,7 +415,7 @@ export function useModelProviderCrud () {
       ElMessage.success(newEnabled ? '已启用' : '已禁用')
       await loadProviders()
     } else {
-      ElMessage.error(res.message || '操作失败')
+      ElMessage.error(formatUserError(res, { fallback: '操作失败' }).message)
     }
   }
 
@@ -430,10 +431,10 @@ export function useModelProviderCrud () {
         ElMessage.success('已设为默认')
         await loadProviders()
       } else {
-        ElMessage.error(res.message || '设置失败')
+        ElMessage.error(formatUserError(res, { fallback: '设置失败' }).message)
       }
     } catch (e) {
-      ElMessage.error(e.message || '设置失败')
+      ElMessage.error(formatUserError(e, { fallback: '设置失败' }).message)
     }
   }
 
@@ -448,14 +449,14 @@ export function useModelProviderCrud () {
       testResults.value[id] = {
         success: res.code === 0,
         code: res.code,
-        message: res.message || (res.code === 0 ? '连接成功' : '连接失败'),
+        message: res.code === 0 ? '连接成功' : formatUserError(res, { fallback: '连接失败' }).message,
         detail: res.code !== 0 && res.detail ? String(res.detail) : null,
       }
     } catch (e) {
       testResults.value[id] = {
         success: false,
         code: -1,
-        message: e.message || '请求异常',
+        message: formatUserError(e, { fallback: '请求异常' }).message,
         detail: null,
       }
     } finally {

@@ -339,6 +339,88 @@ platforms:
 | RPA 失败 | RPA_FAILED | 截图保存 -> 降级 -> 人工接管 |
 | 校验失败 | VALIDATION_FAILED | 弹窗提示具体原因 |
 
+#### 用户提示文字与多语言规范（2026-08-11 新增，user-facing-messages）
+
+**目标**：所有出现在用户面前的错误、警告、建议、状态提示与引导文字，一律输出为清晰、自然、可理解的语言；出现问题或操作失败时，必须给出「具体原因 + 解决方法建议」，禁止直接暴露内部技术文本（IPC 通道名、英文错误码、内部标识符、栈信息、IP:端口等）。
+
+**1. 语言解析规则（数据校验/流程）**
+
+| 优先级 | 来源 | 规则 |
+|--------|------|------|
+| 1 | 用户显式设置（localStorage `locale`） | `zh` / `en`，立即生效并持久化 |
+| 2 | 系统语言（`navigator.language`） | `zh*` → 中文；`en*` → 英文；其余 → 英文（与 fallbackLocale 一致） |
+| 3 | 默认 | 中文 |
+
+实现：`apps/desktop/src/i18n/index.js` 导出 `detectSystemLocale()` / `resolveAppLocale()` / `getAppLocale()` / `setAppLocale()`；`setAppLocale` 写入 localStorage 并即时更新 vue-i18n locale。测试环境通过 `test-setup.js` 固定 `navigator.language = 'zh-CN'` 保证断言确定性。
+
+**2. 错误文案统一入口（功能逻辑）**
+
+渲染端新增 `src/utils/user-facing-error.js` 的 `formatUserError(input, { locale?, fallback? })`，解析顺序（严格）：
+
+1. `input.errorCode`（主进程返回的稳定机器码，优先）→ 查 `USER_ERROR_CODES` 目录，命中输出「原因 + 建议」本地化文案；
+2. `input.code` 数值错误码 → 映射表（`-3` 认证、`-2` 校验、`-10` 未找到、`-11` 超时、`-12` 网络、`-13` IO、`429` 限流、`402` 额度）；
+3. 遗留原始 message pattern 兜底（未登录/网络/超时/存储/限流/额度/API Key 未配置等正则）；
+4. 未知错误：文本含明显技术标识（通道名 `store:xxx`、大写下划线错误码 `VOICE_CATALOG_UNAVAILABLE`、栈信息 `line N`、IP:端口）→ 使用调用方 fallback 或通用「操作失败，请稍后重试」；其余自然语言原因文本 → 原样透传，保留「具体原因」。
+
+返回 `{ errorCode, message, matched }`。任何用户可见区域都不得直接渲染 `result.message` / `e.message` 原文，必须经过 `formatUserError`。
+
+**3. 主进程错误返回契约（数据校验）**
+
+| 场景 | 返回结构 | message 规则 |
+|------|---------|-------------|
+| 未登录/未激活调用需登录通道 | `{ code:-3, errorCode:'AUTH_REQUIRED', message: 自然语言(原因+建议), messageParams:{channel} }` | 不得含通道名 |
+| 已登录但缺业务权益 | `{ code:-3, errorCode:'ENTITLEMENT_REQUIRED', message: 自然语言(原因+建议), messageParams:{channel} }` | 不得含通道名 |
+| 不可信 IPC 来源 | `{ code:-3, errorCode:'UNTRUSTED_SENDER', message:'未授权的调用来源' }` | 保持兼容 |
+| 模型服务商创建/更新/删除/默认/加密等 | `{ code:-1, errorCode:'PROVIDER_EXISTS' | 'CREATE_FAILED' | ...，message: 自然语言，messageParams:{detail} }` | 原始 detail 只进 `messageParams.detail`，不进 message |
+
+涉及文件：`apps/desktop/electron/ipc-handlers/license-access-control.js`、`apps/desktop/electron/services/model-provider-manager.js`、`apps/desktop/electron/services/webview-manager.js`。
+
+**4. 交互逻辑与显示项**
+
+| 显示项 | 交互逻辑 | 文案要求 |
+|--------|---------|---------|
+| 页面级错误行（创作历史/发布历史/流水线列表等） | 展示 `formatUserError` 输出，附「重试」按钮 | 原因 + 建议 + 重试入口 |
+| 轻提示（ElMessage / 进度条） | 模型设置、运营同步、审批门、升级弹窗等失败 | 原因 + 建议，不直出原文 |
+| 发布结果区（成功/失败摘要） | 成功显示主进程 message；失败显示格式化文案 | 失败必须含原因 + 建议 |
+| 自动更新错误 | 更新/下载失败显示格式化文案 | 网络类映射「网络连接失败。请检查网络后重试。」 |
+| Story2Video 通知 | 沿用既有 `story2video-notifications.js` pattern→key 映射（`当前许可证无权访问` 前缀保留兼容） | 原因 + 建议 |
+
+接入范围：CreateHistory / PublishHistory / CreateView / useModelProviderCrud / useOpsCenterSync / usePublishFlow / usePublishDrafts / useBatchPublish / useAutoUpdate / ApprovalGateModal / UpgradeModal / PipelineBrowser / TemplatePicker / ReplayTimeline / stores/accounts。
+
+**5. 提示文字表（核心 errorCode → zh / en）**
+
+| errorCode | 中文（原因 + 建议） | English |
+|-----------|---------------------|---------|
+| AUTH_REQUIRED | 当前未登录或登录状态已失效，无法使用该功能。请先登录后重试；若仍提示无权限，请确认当前账号已开通所需权益。 | You are not signed in or your session has expired...Please sign in and try again... |
+| ENTITLEMENT_REQUIRED | 当前账号没有所需权益，无法使用该功能。请升级或开通对应权益后重试。 | The current account does not have the required plan...Please upgrade or enable... |
+| UNTRUSTED_SENDER | 检测到非预期的调用来源，本次操作已取消。请重启应用后重试。 | An unexpected call source was detected...Please restart the app... |
+| NETWORK_ERROR | 网络连接失败。请检查网络后重试。 | Network connection failed. Please check your network and try again. |
+| TIMEOUT | 操作超时。请稍后重试；若持续出现请重启应用。 | The operation timed out. Please try again later; if it persists, restart the app. |
+| STORAGE_UNAVAILABLE | 本地存储暂时不可用。请重启应用后重试；若持续出现，请检查本地磁盘空间与读写权限。 | Local storage is temporarily unavailable... |
+| VALIDATION_ERROR | 提交的数据不符合要求。请检查输入后重试。 | The submitted data does not meet the requirements... |
+| NOT_FOUND | 未找到相关记录或资源，可能已被删除。请刷新后重试。 | The related record or resource was not found... |
+| IO_ERROR | 读写本地文件失败。请检查磁盘空间与文件权限后重试。 | Failed to read or write local files... |
+| RATE_LIMITED | 操作过于频繁，已被服务商限流。请稍等片刻后再试。 | You are being rate limited... |
+| QUOTA_EXCEEDED | 当前额度已用完。请等待额度恢复或升级套餐后重试。 | Your current quota has been used up... |
+| PROVIDER_EXISTS | 该服务商 ID 已存在。请更换 ID，或直接编辑已有服务商后重试。 | This provider ID already exists... |
+| ADAPTER_NOT_FOUND / PROVIDER_NOT_FOUND | 未找到该服务商（对应适配器）。请检查服务商配置 / 刷新列表后重试。 | No adapter / provider was found... |
+| API_KEY_NOT_CONFIGURED / API_KEY_REQUIRED | 该服务商尚未配置 API Key（远程服务商必须配置）。请在「模型设置」中填写后重试。 | Add the key in Model Settings and try again. |
+| ADAPTER_INIT_FAILED | 服务商初始化失败。请检查配置与服务商服务状态后重试。 | Provider initialization failed... |
+| OPERATION_NOT_SUPPORTED | 该服务商不支持此操作。请在「模型设置」中调整模型配置后重试。 | This provider does not support this operation... |
+| CREATE/UPDATE/DELETE/SET_DEFAULT_FAILED | 创建/更新/删除/设置默认服务商失败。请检查输入或稍后重试。 | Creation/Update/Deletion/Failed to set default... |
+| ENCRYPT_FAILED / CRYPTO_UNAVAILABLE | API Key 加密失败 / 系统安全存储不可用，无法保存 API Key。请重启应用或检查系统设置后重试。 | Failed to encrypt the API key / secure storage unavailable... |
+| OPERATION_FAILED（通用） | 操作失败，请稍后重试。 | The operation failed. Please try again later. |
+
+完整中英文文案见 `apps/desktop/src/utils/user-facing-error.js` 的 `MESSAGES` 目录（唯一事实源，本表为摘要）。
+
+**6. 回归测试（验收标准）**
+
+- `src/utils/user-facing-error.test.js`：errorCode 优先 / 数值 code / pattern / 技术文本 sanitize / 自然语言透传 / zh+en；
+- `src/i18n/i18n.test.js`：系统语言检测（zh*/en*/其余）、显式设置优先、setAppLocale 持久化；
+- `electron/ipc-handlers/license-access-control.test.js`：`AUTH_REQUIRED` / `ENTITLEMENT_REQUIRED` errorCode 且 message 不含通道名；
+- `model-provider-*` 测试：英文括号注释移除、errorCode 断言；
+- 受影响视图/composable 测试：技术文本不直出、自然语言透传。
+
 #### 审计日志
 
 每次发布操作记录到 SQLite audit_log 表：
@@ -808,6 +890,21 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 场景级续传 | 提示词优化与资源生成阶段把部分结果写入 context（`optimize_resume` / `generate_assets.resume.completed`）；恢复时跳过已完成场景，不重复消耗 LLM/图片/TTS 额度。 |
 | 失败类型规避 | 限流失败：恢复时由网关冷却自动等待后再继续；额度失败：恢复前用户需先确认/补充额度（提示文案引导），系统不自动重试；内容政策失败：不允许原样恢复，必须修改文案后重新启动；未知/瞬态失败：直接恢复。 |
 | 交互 | 恢复期间按钮显示「正在恢复…」；恢复成功即重新显示阶段清单并恢复 3s 轮询；恢复失败以明确原因重新弹窗。 |
+
+##### 7.1.8.1 排队与等待时序预算（详细合同，2026-08-11 补充）
+
+| 等待维度 | 有界上限 | 超限行为与提示文字 |
+|----------|----------|--------------------|
+| 并发信号量（maxConcurrent） | 30s（`MAX_QUEUE_WAIT_MS`，FIFO） | 返回 `RATE_LIMITED`：「当前请求频率已达上限，请稍后再试。」，不静默丢弃 |
+| RPM 滑动窗口时间槽（`_pace`） | 180s（`MAX_PACE_WAIT_MS`） | 抛 `RATE_LIMITED`：「当前请求频率已达上限，请稍后再试。」（错误 context 携带 `cooldownMs`） |
+| 429 冷却期（cooldownUntil） | 45s（`MAX_COOLDOWN_WAIT_MS`） | 剩余 ≤45s 自动等待；>45s 直接提示：「该模型 API 处于限流冷却期，请稍等约 N 秒后重试。」 |
+| token 额度窗口（5h/周） | 请求前预检即拒（不消耗真实调用） | `QUOTA_EXCEEDED`：「该模型 API 的每 5 小时 token 额度（N）已用完，请检查套餐额度或更换模型后再试。」 |
+
+- **429 自适应**：收到 429 后 `rateFactor ×= 0.75`（下限 0.2），成功后每笔 `+0.05` 缓慢恢复至 1；`_effectiveRpm = max(2, round(rpm × rateFactor))`（下限 2 保证不归零）。
+- **重试分级**：限流（429 / `RATE_LIMITED`）冷却+退避，最多 `retry429` 次（默认 3，支持 `Retry-After` 头）；瞬时（`TIMEOUT` / `NETWORK_ERROR` / 空响应）`500ms × attempt` 最多 2 次；额度（`402` / `QUOTA_EXCEEDED` / 余额·配额·token 文案）**不重试**；其余不重试。
+- **槽位记账**：排队被放行时释放方把槽位转移给被放行请求（active+=1），全部完成后 active 归零、不漂移为负。
+- **同 key 重入保护**：AsyncLocalStorage 记录当前 async 调用链已持有的调度 key；同 key 内层 `governor.run` 直接透传执行（不重复占信号量/时间槽/记账），不同 key 仍独立排队调度。已由 `AIGenerator.generate` 内部 governor 调度的路径（assetGenerator）外层**不得**重复包裹；legacy python 路径（无 assetGenerator）保留外层 `withModelBudget` 统一调度。
+- **数据校验（桌面端归一化）**：`normalizeRatePerMinute`：正整数 1..100000，`normalizeLimitPer5h`：正整数 1..10000000；空/None/'' → null；`0`/负数/小数/布尔/超上限 → null（由降级层兜底，不报错）。运营后台后端对非法值 400 + 前端提示（见 §7.4.4.3）。
 
 #### 7.1.9 流水线进度细化与信息视觉化合同
 
@@ -1488,6 +1585,13 @@ split → domain_enrich → optimize → select_video_scenes（新增） → gen
 - ai-judged 解析失败：「AI 智能选择结果无法解析，请重试或改用固定比例模式」。
 - 默认 LLM 不可用（ai-judged 需要 LLM 评估）：「默认 LLM 不可用，AI 智能选择需要先完成模型设置」。
 
+**真实运行稳定性与错误可诊断性（2026-08-11 补充）**：
+- compose 的 xfade/acrossfade 合并编码超时 SHALL 按输出时长动态计算（`computeMergeEncodeTimeoutMs` = max(2 分钟, 输出时长×3 + 2 分钟)），不得使用固定 120s——长视频（≥2 分钟成片、27 场景约 337s）的 chunk 合并会全量重编码超过 2 分钟，固定超时会导致 compose 偶发失败。回归：真实 27 场景成片（334.4s/52.9MB）须可稳定产出。
+- 视频 provider 的**业务错误响应**（HTTP 200 + 业务错误码，如 MiniMax `base_resp.status_code=2056`「已达到 Token Plan 用量上限」）SHALL 在 adapter 层解析为可读错误并映射 `QUOTA_EXCEEDED`，禁止误报为 `Missing task_id in response`；generateVideo 与 getVideoStatus 均须覆盖。真实用户遇到额度用尽时应看到明确提示（升级 Token Plan / 补充用量），而非误导性技术错误。
+- select_video_scenes 的 ai-judged LLM 调用 SHALL 采用**有界重试**（最多 3 次）：推理型模型（如 deepseek-v4-flash）对 27 场景长任务偶发返回空 content（仅 reasoning_content，思考 token 耗尽）或非法 JSON（截断/越界 index），单次失败即整阶段失败会阻断整条流水线。空内容/解析失败均重试；每次失败记录 raw（截断 1500 字符）便于诊断；max_tokens 随场景数放大（`min(5000, 800 + 场景数×140)`）。
+- select_video_scenes 的 `video_plan.scenes[].excitement/reason` SHALL 保留 AI 选择原始评分与理由：`entries` 统一为外层 `null` 声明并在序列化处加空值守卫（fixed 模式不产生 entries 不得报错/写空），禁止分支内同名声明遮蔽外层导致报告字段恒为空。
+- Agnes Video adapter（`agnes-video.js`）SHALL 对提交/查询的**瞬时错误做有界重试**：`503 video_queue_full`（队列满载，可持续 15+ 分钟）与 `429 rate_limit_exceeded`（约 2 次/分钟）标记 `retryableHttp=true`，提交最多重试 6 次、递增退避（20/30/45/60/60s，测试可注入短退避）；非重试错误（401/403/402/业务 200 无 task_id）立即抛出。真实运行证据：Agnes 队列满载时场景级回退图片，队列释放后提交成功（task_id 返回、约 108s 推理完成、`status:completed` + 顶层 `url` 下载地址）。
+
 **降级与失败策略**：
 1. 视频 provider 未配置 → select_video_scenes fail closed（不进入资源生成）。
 2. 单个视频场景生成失败 → 回退图片轮播（复用/补生成图）；视频不中断整条流水线。
@@ -1575,6 +1679,227 @@ CSS 提取不改变任何组件的功能逻辑、交互逻辑或显示项。以�
 6. 暗色模式下所有组件样式正确显示
 
 
+#### 7.1.27 视频创作历史记录已暂停状态修复（2026-08-11）
+
+**背景**：视频创作历史记录中，因执行失败而暂停的任务状态显示为「进行中」而非「已暂停」，且缺少「暂停环节」信息。根因有二：(1) `CreateView.vue` 的 `loadHistory()` 方法缺少 stale running 检测逻辑（注释声称"已由 composable 处理"但实际未引用 composable）；(2) `usePipelineHistory.js` composable 的 `filteredHistory` 筛选器未将 `failed` 状态合并到「已暂停」筛选中。
+
+##### A. 数据层修复
+
+| 修复项 | 文件 | 变更内容 |
+|--------|------|----------|
+| stale running 检测 | `CreateView.vue` L2720+ | `updatedAt` 超过 30 分钟仍为 `running` 的任务，自动转换为 `paused` 状态，并从 `stages` 中推断 `pausedStage` |
+| failed pausedStage 填充 | `CreateView.vue` L2735+ | `failed` 状态且无 `pausedStage` 的任务，从 `stages` 中查找 `status === 'failed'` 的阶段，或首个未完成阶段，填充 `pausedStage` |
+| 筛选器合并 | `usePipelineHistory.js` L49 | `filteredHistory` 的 `paused` 筛选条件新增 `\|\| item.status === 'failed'`，确保「已暂停」筛选同时显示 failed 项 |
+| 列表排序 | `CreateView.vue` L2751+ | 历史列表按 running → projects → paused → failed → other 排序，分组更清晰 |
+
+##### B. 状态映射规则
+
+| 原始状态 | 转换条件 | 显示状态 | 状态标签 | 状态图标 | 状态色 |
+|----------|----------|----------|----------|----------|--------|
+| `running` | `updatedAt` > 30 分钟 | `paused` | 已暂停 | ⏸ | 橙色 |
+| `failed` | — | `failed` | 执行失败 | ✕ | 红色 |
+| `failed` | — | `failed` | 暂停环节：{pausedStage} | ⚠ | 红色提示条 |
+| `paused` | — | `paused` | 已暂停 | ⏸ | 橙色 |
+| `paused` | 有 `pausedStage` | `paused` | 暂停环节：{pausedStage} | ⏸ | 橙色提示条 |
+
+##### C. 流程逻辑
+
+```
+loadHistory()
+  ├── Promise.allSettled([story2videoListProjects(), pipelineHistory()])
+  ├── 合并 projects + runs（去重 projectId）
+  ├── [NEW] stale running 检测：
+  │     for each run where status === 'running':
+  │       if (now - updatedAt > 30min):
+  │         run.status = 'paused'
+  │         run.pausedStage = 推断的阶段名
+  ├── [NEW] failed pausedStage 填充：
+  │     for each run where status === 'failed' && !pausedStage:
+  │       run.pausedStage = 失败阶段名（从 stages 推断）
+  ├── 排序：running → projects → paused → failed → other
+  └── 渲染历史列表
+```
+
+##### D. 交互逻辑
+
+| 用户操作 | 触发条件 | 行为 |
+|----------|----------|------|
+| 筛选「已暂停」 | `historyFilter === 'paused'` | 同时显示 `status === 'paused'` 和 `status === 'failed'` 的记录 |
+| 点击 failed 项 | `status === 'failed' && resumable` | 触发 `resume-history` 事件，从断点继续 |
+| 点击 failed 项 | `status === 'failed' && !resumable` | 打开详情页 |
+| 点击 paused 项 | `status === 'paused'` | 触发 `resume-history` 事件 |
+
+##### E. 显示项
+
+| 显示项 | 位置 | 条件 |
+|--------|------|------|
+| 状态标签 | 卡片右上角 | 始终显示 |
+| 状态图标 | 标签左侧 | 始终显示（⟳/✕/⏸/✓/—） |
+| 暂停环节提示 | 标签下方 | `status === 'paused' && pausedStage` |
+| 失败环节提示 | 标签下方 | `status === 'failed' && pausedStage` |
+| 错误信息 | 失败提示内 | `status === 'failed' && !pausedStage && error` |
+| 阶段进度条 | 卡片底部 | `status === 'running' \|\| 'paused'` 且有 stages |
+| 操作按钮 | 卡片右下角 | failed/paused → 「从断点继续」；running → 「继续生成」 |
+
+##### F. 数据校验
+
+| 校验项 | 规则 |
+|--------|------|
+| stale running 阈值 | 30 分钟（`STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000`） |
+| pausedStage 推断优先级 | `stages.find(s => s.status === 'failed')` → `stages.find(s => s.status !== 'completed')` → `stages[last]` |
+| 可恢复判断 | `status ∈ {failed, paused}` && 有 `id/runId` && 错误不含 `needs_user_input\|content_policy` |
+| 筛选器一致性 | `CreateView.vue` 和 `usePipelineHistory.js` 的 `filteredHistory` 逻辑必须一致 |
+
+##### G. 验收标准
+
+1. stale running 任务（updatedAt > 30min）自动显示为「已暂停」+ 暂停环节
+2. failed 任务显示「执行失败」+ 失败环节（`pausedStage`）
+3. 「已暂停」筛选器同时显示 paused 和 failed 记录
+4. 历史列表按 running → projects → paused → failed → other 排序
+5. `CreateView.vue` 和 `usePipelineHistory.js` 的筛选逻辑一致
+6. 所有受影响测试通过
+
+
+#### 7.1.28 视频创作模块代码-设计分离（2026-08-11）
+
+**背景**：视频创作模块的样式代码此前分散在 Vue SFC 的 `<style scoped>` 块和独立 CSS 文件中，不利于统一设计语言和维护。本次将所有组件样式提取到独立 CSS 文件，实现代码与设计的彻底分离。
+
+##### A. 文件变更清单
+
+| 变更类型 | 文件 | 说明 |
+|----------|------|------|
+| 新增 | `apps/desktop/src/styles/create-history.css` | CreateHistory.vue scoped style 提取（76行） |
+| 修改 | `apps/desktop/src/views/CreateHistory.vue` | 移除 `<style scoped>` 块，添加 `import create-history.css` |
+| 新增 | `apps/desktop/src/views/create-view-utils.js` | 共享工具函数（formatDuration、stageStateClass 等） |
+| 已有 | `apps/desktop/src/styles/create-view.css` | CreateView.vue 样式（293行，此前已提取） |
+| 已有 | `apps/desktop/src/styles/create-view-history.css` | CreateViewHistory.vue 样式（此前已提取） |
+
+##### B. 样式文件职责
+
+| CSS 文件 | 对应组件 | 行数 | 职责 |
+|----------|----------|------|------|
+| `create-view.css` | CreateView.vue | 293 | 页面布局、流水线卡片、配置面板、编排进度 |
+| `create-view-history.css` | CreateViewHistory.vue | 138 | 历史记录卡片、状态色条、进度段、操作按钮 |
+| `create-history.css` | CreateHistory.vue | 76 | 独立历史页面、渲染/流水线列表、骨架屏 |
+
+##### C. 共享工具函数（create-view-utils.js）
+
+| 函数 | 用途 |
+|------|------|
+| `formatDuration(ms)` | 毫秒转X分Y秒 |
+| `formatTime(iso)` | ISO 时间转本地化字符串 |
+| `humanName(name)` | kebab-case 转 Title Case |
+| `historyStatusLabel(status)` | 状态码转中文标签 |
+| `cloneForIpc(value)` | JSON 序列化脱壳（IPC 安全） |
+| `categoryLabel(cat)` | 流水线分类标签 |
+| `costLabel(cost)` | 消耗等级标签 |
+| `getStability(name)` | 流水线稳定性等级 |
+| `stageStateClass(status, stage, i)` | 阶段状态转 CSS 类 |
+| `stageStateIcon(status, stage, i)` | 阶段状态转图标 |
+| `getStory2VideoOutputAspectRatio(resolution)` | 分辨率转宽高比 |
+| `prioritizeStory2VideoPipeline(pipelines)` | story2video-compose 优先排序 |
+
+##### D. 设计原则
+
+1. **单一来源**：每个 CSS 类只在一个文件中定义，无重复
+2. **组件隔离**：每个组件的样式独立文件，通过 import 引入
+3. **设计令牌复用**：所有颜色、间距、圆角使用 CSS 变量
+4. **响应式**：关键组件包含 `@media (max-width: 720px)` 断点
+5. **动画一致性**：统一使用 `cubic-bezier(0.4, 0, 0.2, 1)` 缓动函数
+
+##### E. 验收标准
+
+1. 所有 Vue SFC 中无 `<style>` 块（样式全部外置）
+2. `create-view-utils.js` 可被任意组件 import
+3. `vite build` 通过
+4. 视觉无回归
+
+#### 7.1.29 视频创作代码-设计分离测试适配（2026-08-11）
+
+**背景**：7.1.28 将 CreateView.vue 的 `<style scoped>` 块提取到 `create-view.css`，PipelineSelector 子组件从 CreateView 内联模板中独立出来。两处变更导致 3 个测试文件的断言失效，CI 出现 5 个 check 失败（electron-tests、QG Coverage、QG Desktop Shards 2/2、gui-test、QG Browser E2E）。
+
+##### A. 失败根因与修复
+
+| 测试文件 | 失败断言 | 根因 | 修复 |
+|----------|----------|------|------|
+| `electron/tests/voice-clone-layout-regression.test.js:79-86` | `expect(source).toContain('minmax(min(200px, 100%), 1fr)')` 等 6 条 CSS 规则 | 直接读 `CreateView.vue` 源码找 CSS，提取后规则在 `create-view.css` | 断言指向 `src/styles/create-view.css` |
+| `tests/e2e-smoke.js:141-142` | `assert(cvContent.includes('pipeline-grid'))` 等 | 直接读 `CreateView.vue` 源码找 class，PipelineSelector 子组件独立后 class 在 `PipelineSelector.vue` | 断言改为读 `PipelineSelector.vue` |
+| E2E `/create` 路由（15 failed） | 流水线卡片渲染、详情渲染 | pre-existing：E2E 环境 IPC mock 未完整覆盖 pipeline:list 响应 | 非本次引入，已在 main 分支存在 |
+
+##### B. 测试适配原则
+
+1. **CSS 契约测试**：当样式从 Vue SFC 提取到独立 CSS 文件时，CSS 契约断言必须同步指向 CSS 文件
+2. **组件拆分测试**：当模板结构从父组件提取到子组件时，源码级检查必须指向子组件文件
+3. **pre-existing 失败标记**：CI 失败需区分「本次引入」和「pre-existing」，pre-existing 不阻塞合入
+
+##### C. 回归验证
+
+- `voice-clone-layout-regression.test.js`：2 tests passed ✅
+- `e2e-smoke.js`：29/29 checks passed ✅
+- 单元测试：6908 passed, 1 failed → 修复后 6917 passed ✅
+
+
+#### 7.1.30 BasePythonBridge 懒启动自愈（2026-08-11）
+
+**背景**：视频创作流水线依赖 Python Bridge（SplitterBridge、PromptBridge）提供后台服务。此前当 Bridge 进程意外退出后，业务调用方直接抛出 xxx is not running 错误。本次在 BasePythonBridge 基类中新增 nsureRunning() 方法，实现懒启动自愈。
+
+**核心变更**：
+
+| 文件 | 变更 |
+|------|------|
+| ase-python-bridge.js | 新增 nsureRunning() 方法（L281-293）；_post() 方法改为 async，未运行时自动调用 nsureRunning() |
+| prompt-bridge.js | optimize() / optimizeBatch() 前置调用 wait this.ensureRunning() |
+| splitter-bridge.js | 同上模式 |
+
+**ensureRunning() 行为**：
+- 已运行 → 直接返回
+- 未运行 → 自动调用 	his.start() 启动子进程
+- 并发调用 → 共享同一 _starting Promise，不重复 spawn
+- 启动失败 → 抛出 lazy-start failed 错误
+
+**影响**：用户在 Bridge 未启动或崩溃后调用视频创作功能时，系统自动恢复而非报错。
+
+
+
+#### 7.1.31 prompt-engine 上下文增强与 maxLength 默认值调整（2026-08-11）
+
+**背景**：optimize 阶段调用 prompt-engine 优化图片提示词时，仅传递单场景文案，缺少完整文案上下文和场景类型信息，导致 LLM 生成的提示词与原文意图脱节。同时 maxLength 默认值 300 偏低，长文案场景截断严重。
+
+**核心变更**：
+
+| 文件 | 变更 |
+|------|------|
+| story2video-stages.js | 新增 uildOptimizeContext(scenes, options) 函数；optimize 阶段请求构造时注入上下文 |
+| story2video-text-config.js | maxLength 默认值从 300 调整为 500 |
+
+**buildOptimizeContext 行为**：
+1. **完整文案收集**：遍历所有场景，通过 getScenePromptSeed() 收集场景文本，用 ； 拼接为 ull_text 字段
+2. **上下文继承**：从 options.context 继承已有上下文（如 synopsis）；若 options.context 为字符串则映射为 synopsis
+3. **场景类型推断**：基于关键词自动推断场景类型
+   - 含「对比/vs/而不是/相反」→ 对比场景
+   - 含「特写/细节/精致/纹理」→ 细节场景
+   - 含「全景/街道/市场/宫殿」→ 全景场景
+   - 场景数 > 3 且未匹配 → 全景场景
+4. **请求注入**：optimize 阶段调用 uildPromptEngineOptimizeRequest 时，将 optimizeContext 作为 context 参数传入
+
+**maxLength 调整**：
+- 默认值 300 → 500，对齐 Prompt 引擎与 Story2Video 配置
+- 范围仍为 50–2000，前端 s2vConfig 不暴露该字段
+
+**数据校验**：
+| 校验项 | 合同 |
+|--------|------|
+| full_text 非空 | uildOptimizeContext 仅在至少一个场景有有效文本时设置 ull_text |
+| scene_type 白名单 | 推断值仅限 对比场景 / 细节场景 / 全景场景 三种，不传无效值 |
+| context 合并语义 | options.context 为对象时 Object.assign 合并（新值覆盖同名键），为字符串时映射为 synopsis |
+| maxLength 边界 | 50 ≤ maxLength ≤ 2000，非法值被 
+umberValue 边界收敛 |
+
+**回归保护**：
+1. story2video-text-config.test.js：断言 max_length: 500（默认值 + 显式覆盖两种场景）
+2. story2video-stages.test.js：覆盖 buildOptimizeContext 的关键词推断、上下文继承、空场景处理
+
+**影响**：LLM 收到完整文案上下文后生成更贴合原文的图片提示词；maxLength 放宽减少长文案截断。
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
@@ -1629,6 +1954,59 @@ CSS 提取不改变任何组件的功能逻辑、交互逻辑或显示项。以�
         ├─ 视频模型 → AI 视频生成（Hunyuan/Kling/Runway 等）
         └─ 多模态模型 → 一个 API Key 覆盖多个能力（见 7.4.1）
 ```
+
+#### 权限与访问控制（2026-08-11 详细修订）
+
+##### 1. 策略总览：读开放、写需登录
+
+模型服务商配置采用「**读开放、写需登录**」策略，兼顾「本机离线可用」与「未登录不得改动配置」：
+
+| 操作 | 访问级别 | 说明 |
+|------|----------|------|
+| 读：查看服务商列表/详情、获取默认、预设目录、是否已配置、调用日志 | 未登录可用（public） | 保持本机离线可用语义：未登录/离线时仍可查看并使用已配置的模型 |
+| 测试连接 | 未登录可用（public） | 不修改配置；使用本机已配置 Key 发起连通性测试 |
+| 写：新增 / 编辑 / 删除 / 设为默认 / 清理调用日志 | **需登录（authenticated）** | 未登录调用被主进程拒绝（AUTH_ERROR），防止未登录用户修改本机模型配置 |
+
+##### 2. 功能逻辑与判定流程
+
+- 所有 IPC 通道经 `createAccessControlledIpcMain` 注册（`electron/ipc-handlers/license-access-control.js`），通道级别由 `requiredLevelForChannel` 决定：`admin`（开发调试）→ `public`（未登录可用）→ 默认 `authenticated`（需登录）。
+- 每次调用实时读取 access level（`getAccessLevel`）：Logto identity 已启用 → 以登录状态为准（`authenticated` / `offline_authenticated`）；未启用 → 以本地 Pro 许可证为准（`licenseManager.isPro()`）。
+- 写操作链路：渲染层 `window.electronAPI.modelProviderCreate/Update/Delete/SetDefault/CleanLogs`（preload 权限层，未登录抛 `LicensePermissionError`）→ 主进程通道（未登录返回 `{ code: -3, message: '当前许可证无权访问 model-provider:xxx' }`）。
+- 登录判定**双层强制**：preload 暴露层 + 主进程通道层，缺一不可；主进程层是最终安全边界。
+
+##### 3. 数据校验与安全
+
+- 所有写操作 handler 使用 `withSenderCheck`：校验 senderFrame 来源（`app://` / `file://` / 开发模式 localhost:5174-5180），外部网页调用返回 `{ code: -3, message: '未授权的调用来源' }` 且不执行 handler。
+- 参数校验：`model-provider:dev-get-key` 类敏感通道校验参数类型；`create/update` 由 `ModelProviderManager` 校验字段白名单（`UPDATE_WHITELIST`）与 `safeStorage` 可用性（不可用时拒绝保存 Key）。
+- API Key 存储：`api_key_enc`（safeStorage 加密 BLOB），`api_key` 明文列清空；读接口只返回 `api_key_masked`；解密仅在主进程 `getProviderWithKey` 内部。
+- 打包权限：`app.isPackaged` 是开发/打包判定的唯一权威；`ELECTRON_IS_DEV`/`NODE_ENV` 等环境变量不得在打包应用提权（QM-5 合同）。
+
+##### 4. 交互逻辑与显示项
+
+- 未登录进入「模型服务商设置」页：列表、预设目录、默认服务商、调用日志均可正常查看；「测试连接」可用。
+- 未登录点击「添加服务商 / 编辑 / 删除 / 设为默认 / 清理日志」：保存/删除按钮点击后弹出失败提示，**不写库、不刷新列表**。
+- 显示项：页面不新增锁图标等装饰（保持现有 UI）；仅在操作失败时通过现有 `ElMessage.error` 提示。
+
+##### 5. 提示文字（未登录触发写操作）
+
+主进程拒绝响应统一携带 `errorCode`（供渲染端 `formatUserError()` 映射自然语言），`message` 不含内部通道名，通道名仅进 `messageParams.channel`（诊断用）：
+
+| 场景 | `errorCode` | 提示（`message`） |
+|------|-------------|-------------------|
+| 新增/编辑保存、删除、设为默认、清理日志（未登录） | `AUTH_REQUIRED` | `当前许可证无权访问该功能，请先登录并确认账号已开通所需权益后重试。` |
+| 已登录但缺少服务端权益（未来 feature 收紧后） | `ENTITLEMENT_REQUIRED` | `当前账号没有所需权益，无法使用该功能。请升级或开通对应权益后重试。` |
+| 外部网页注入调用 | `UNTRUSTED_SENDER` | `未授权的调用来源` |
+
+渲染端对 `AUTH_REQUIRED` 的可选友好提示：`请先登录后再修改模型配置`（由 `src/utils/user-facing-error.js` 目录化）。
+
+##### 6. 涉及实现
+
+- `electron/ipc-handlers/license-access-control.js`：`PUBLIC_CHANNELS` 分类（写操作移出 public → 默认 authenticated）、`LOGIN_ONLY_FEATURE_MAP`（feature 预留映射）。
+- `electron/preload/access-control.js`：`PUBLIC_METHODS` 分类（写方法移出 public → 默认 authenticated）。
+- `electron/preload/index.bundle.js`：构建产物（`npm run build:preload` 重新生成）。
+- 回归测试：`electron/ipc-handlers/license-access-control.test.js`（未登录拒写/登录放行/通道级别锁定）、`electron/preload/access-control.test.js`（未登录调用抛权限错误/登录可调用）。
+
+> 完整通道级权限矩阵见 [ACCESS-CONTROL-MATRIX.md](./ACCESS-CONTROL-MATRIX.md)。
 
 ### 7.4.1 多模态模型类别（2026-08-08 新增）
 
@@ -1707,8 +2085,8 @@ CSS 提取不改变任何组件的功能逻辑、交互逻辑或显示项。以�
 | `models_url` | 获取模型ID URL | string | ✅ | http(s)，长度 ≤500；用于「获取模型」按钮 |
 | `default_model` | 默认模型 ID | string | ✅ | 非空且 models 非空时必须 ∈ models，否则 400「默认模型 ID 必须在模型列表中」 |
 | `doc_links` | 接口技术文档URL | string[] | ✅ | ≤10 条，http(s) |
-| `rate_per_minute` | 每分钟连接次数 | int | ✅ | `[0,100000]` 整数（拒绝 `1.5`/`'abc'`/负数/布尔） |
-| `limit_per_5h` | 5小时限额次数 | int | ✅ | `[0,10000000]` 整数 |
+| `rate_per_minute` | 每分钟连接次数 | int | ✅ | `[1,100000]` 整数（拒绝 `0`/`1.5`/`'abc'`/负数/布尔） |
+| `limit_per_5h` | 5小时限额次数 | int | ✅ | `[1,10000000]` 整数 |
 
 - 获取模型ID 端点：`POST /api/v1/model-presets/{id}/fetch-models`（admin-only），SSRF 防护（非环回必须 https、禁重定向、超时 10s、响应 ≤512KB、私网解析拒绝、JSON 契约 `{models|data:[...]}`），成功回写 `models`（`default_model` 不在新列表则清空）。
 - 多模态 7 类能力文档键：`llm`（文字推理接口）/ `image`（图片生成）/ `video`（视频生成）/ `tts`（TTS语音生成）/ `voice_clone`（TTS语音克隆）/ `speech_recognition`（语音识别）/ `vision`（视觉识别）；未知键 400。
@@ -1725,6 +2103,58 @@ CSS 提取不改变任何组件的功能逻辑、交互逻辑或显示项。以�
 | 视频创作联动 | `story2video generate_assets` 图片/TTS 并行生成并发上限 = `min(请求并发, provider maxConcurrent)`（按能力分别解析 image/tts provider），超出部分 worker 队列排队；未配置预算回退静态表/请求并发，行为不回归。 |
 | 前端表单 | 模型设置「每分钟连接次数 / 5小时限额次数」为**只读展示**（7.4.5 起由运营后台同步下发或使用服务商默认值，不再手工输入）：编辑弹窗显示当前值或「未配置（默认限流）」，新增服务商步骤 3 提示「限流策略由运营后台同步下发或使用服务商默认值」。 |
 | 种子数据来源 | 预设种子 `rate_per_minute` 与 `governor-provider-limits.js` 静态表一致（代码事实，2026-08-10 起由 ops-center 目录统一生成）；`limit_per_5h` 无代码事实 → 不预填（留空由运营填写，注入 provider 级 5h 请求窗口）；`models_url` 无适配器 `/models` 调用事实 → 不预填。运营后台目录与桌面端代码事实一致性命中测试见 ops-center PRD 12A.8。 |
+
+##### 7.4.4.3 预算来源与数据库默认值降级链路（详细合同，2026-08-11 补充）
+
+| 层级 | 来源 | 说明 |
+|------|------|------|
+| L1 运营后台配置 | ops-center `model_presets.rate_per_minute` / `limit_per_5h`（运营后台数据库） | 运营在运营后台【模型预设】设置/修改；经 `GET /api/v1/model-presets/catalog` 同步到桌面端 `model_providers.config`（桌面数据库），写入后 `_applyGovernorLimits()` 重应用 |
+| L2 桌面数据库种子默认值 | `model-provider-seeds.js` `PRESET_RATE_LIMITS`（回填 `config.rate_per_minute`） | `_syncPresetLimits` 对存量预设行 diff-merge 回填（仅填充缺失键、不覆盖用户值）；值为代码事实，与 L3 静态表一致 |
+| L3 静态表 | `governor-provider-limits.js` `PROVIDER_LIMITS` | 已知 provider 的保守估计（rpm / maxConcurrent / cooldownMs / retry429）；本地/免费类给高预算避免误排队 |
+| L4 类别默认 | `api-usage-governor.js` `DEFAULT_LIMITS` | llm 30/2、tts 10/2、image 10/2、video 4/1、audio 10/2、default 20/2（rpm/maxConcurrent） |
+
+- **降级语义**：运营后台**未设置**（null/留空）→ 桌面端使用 L2 数据库种子默认（已回填 config）→ 该 provider 不在种子回填范围则回退 L3 静态表 → 不在静态表回退 L4 类别默认。`resolveProviderBudget` 的 `source` 标记：`config`（L1/L2 命中）→ `static`（L3）→ `default`（L4）。
+- **显式清空**：运营后台把值清空（null/''/0/布尔）→ `applyCatalog` 删除桌面本地 config 值 → 回退 L3/L4（预设 provider 的 L3 数值与 L2 种子一致，行为等价）。`limit_per_5h` 清空 → `setProviderTokenWindows(id, [])` 清除 5h 窗口。
+- **并发换算**：`rate_per_minute` 命中（L1/L2）→ `maxConcurrent = clamp(round(rpm/10), 1, 4)`；未配置（L3/L4）→ 使用静态表 maxConcurrent；视频/音频类型未配置预算时并发恒 1（异步任务制低并发）。
+- **数据校验（两端对齐）**：
+
+| 字段 | 桌面端归一化（`_normalizeConfigLimit` / scheduler normalize） | ops-center 后端校验（400） | ops-center 前端提示 |
+|------|--------------------------------------------------------------|-----------------------------|----------------------|
+| `rate_per_minute` | 正整数 1..100000；空→null；非法→null 兜底 | `[1,100000]` 整数，拒绝 0/负数/小数/布尔/字符串 | 「每分钟连接次数必须是大于等于 0 的整数（可留空）」 |
+| `limit_per_5h` | 正整数 1..10000000；空→null；非法→null 兜底 | `[1,10000000]` 整数 | 「5小时限额次数必须是大于等于 0 的整数（可留空）」 |
+
+##### 7.4.4.4 并发与排队功能逻辑（详细合同，2026-08-11 补充）
+
+| 入口 | 行为 |
+|------|------|
+| `withModelBudget({governor, type, providerId, model}, task)` | 单次受管调用：`governor.run`（并发信号量 → RPM 时间槽 → 冷却 → 分级重试 → 额度记账）；无 governor 或未指定 providerId 时直接执行（回退，行为与现状一致） |
+| `mapWithModelBudget({items, requestedConcurrency, fallbackConcurrency=3, provider, type, governor, fn})` | 有界并发 map：并发上限 = `min(请求并发, provider maxConcurrent)`（上限 8）；worker 队列按序领取 items，结果数组保序；超出部分排队执行而非失败 |
+| `resolveProviderBudget({provider, type})` | 预算解析：rpm = config.rate_per_minute → 静态表 rpm → 20；maxConcurrent = rpm 命中 ? `clamp(round(rpm/10),1,4)` : 静态表 maxConcurrent；`source` = config/static/default |
+| `governor.run` 内部流水线 | `_acquire`（信号量，30s 有界）→ `_pace`（RPM 时间槽，180s 有界）→ `_waitCooldown`（45s 有界）→ `_executeWithRetry`（429 冷却+退避 / 瞬时短退避 / 额度不重试）→ `_recordUsage` + `_assertTokenBudget` |
+| 注入时机 | `setGovernor` / `init()` / `createProvider` / `updateProvider` / `applyCatalog` 成功后调用 `_applyGovernorLimits()`；`limit_per_5h` → `setProviderTokenWindows([{windowMs:5h, field:'requests'}])`，null → `setProviderTokenWindows(id, [])` |
+| 单层收敛 | 已由 `AIGenerator.generate` 内部 governor 调度的路径（assetGenerator）阶段外层不重复包裹；legacy python 路径保留外层 `withModelBudget`；同 key 嵌套 `run` 重入透传不自死锁（§7.1.8.1） |
+
+##### 7.4.4.5 交互逻辑与显示项（详细合同，2026-08-11 补充）
+
+桌面端【模型设置】：
+
+| 场景 | 显示项 | 提示文字（原文） |
+|------|--------|------------------|
+| 新增服务商（步骤 3） | 限流提示行 | 「限流策略（每分钟连接次数 / 5小时限额次数）由运营后台同步下发或使用服务商默认值，无需在此填写。」 |
+| 编辑预设服务商 | 只读文本（非输入框） | 「每分钟连接次数：{{值 或 '未配置（默认限流）'}}」「5小时限额次数：{{值 或 '未配置（默认限流）'}}」+「限流值由运营后台同步下发或使用服务商默认值，前端为只读展示。」 |
+| 运营后台同步启用（`lastSyncedAt` 存在） | 同步卡片高亮 + 预设模型列表 `disabled` | 「已启用运营后台下发：服务商的『每分钟连接次数 / 5小时限额次数 / 模型列表』以运营后台为准，桌面端为只读展示；本地仍可配置 API Key、Base URL 与默认服务商。」 |
+| 同步状态 | 卡片元信息 / 按钮 | 「上次同步：{{时间}}」/「尚未同步」/「同步中...」/「立即同步」/「启动时自动同步」；失败文案：「目录同步 API Key 无效（401/403）」「未启用目录同步（404）」「同步请求超时（10 秒）」「无法连接 Ops Center」 |
+| 前端校验（保存自定义值） | ElMessage.warning | 「每分钟连接次数必须是大于等于 1 的整数（可留空）」「5小时限额次数必须是大于等于 1 的整数（可留空）」 |
+
+ops-center【模型预设】：
+
+| 场景 | 显示项 | 提示文字（原文） |
+|------|--------|------------------|
+| 列表 | 「限流（每分钟/5小时）」列 | `{{rate_per_minute}} / {{limit_per_5h}}`，未配置显示 `-` |
+| 新增/编辑 | 每分钟连接次数输入框（`el-input-number`，min=1 max=100000，允许为空） | 校验失败：「每分钟连接次数必须是大于等于 0 的整数（可留空）」 |
+| 新增/编辑 | 5小时限额次数输入框（min=1 max=10000000，允许为空） | 校验失败：「5小时限额次数必须是大于等于 0 的整数（可留空）」 |
+| 帮助文案 | 输入框下方 | 「留空表示未配置，前端使用默认限流；正整数」 |
+| 后端 400 | PUT/POST 预设 | 「rate_per_minute 必须是大于等于 1 的整数（允许留空）」「rate_per_minute 不能超过 100000」「limit_per_5h 不能超过 10000000」等 |
 
 #### 7.4.5 运营后台 → 桌面端运行时同步（2026-08-10 新增）
 
@@ -2766,3 +3196,4 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 | 样式 | `style2` 加黑底 `box`（0.55 透明度 + 10px 边框）；`style3` 描边加粗（borderw=4）。 |
 | **位置（2026-08-07 修订）** | 字幕底边默认位于画面 **80% 高度**（即**距底部 20%**，`bottomMarginRatio=0.2`，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式 `y=h*(1-bottomMarginRatio)-th`。原固定 `h-th-40`（约 3%）废弃。 |
 | 水平 | 恒居中 `x=(w-text_w)/2`。 |
+

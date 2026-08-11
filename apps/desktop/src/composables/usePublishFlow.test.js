@@ -215,7 +215,8 @@ describe('usePublishFlow — composable setup', () => {
     await r.handlePublish()
     await nextTick()
     expect(r.result.value.success).toBe(false)
-    expect(r.result.value.message).toBe('network error')
+    // 网络类错误映射为「原因 + 建议」本地化文案，不直出英文原始文本
+    expect(r.result.value.message).toBe('网络连接失败。请检查网络后重试。')
   })
 
   // ─── 离线检测 ───────────────────────────

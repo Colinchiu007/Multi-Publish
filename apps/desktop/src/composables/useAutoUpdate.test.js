@@ -132,7 +132,7 @@ describe('useAutoUpdate — composable setup', () => {
   it('handleUpdateStatus type=error 无 data 时使用默认错误消息', () => {
     const r = useAutoUpdate()
     r.handleUpdateStatus({ type: 'error' })
-    expect(r.updateError.value).toBe('未知错误')
+    expect(r.updateError.value).toBe('更新失败，请稍后重试')
   })
 
   it('handleUpdateStatus type=not-available 显示通知（对话框未开时）', () => {
@@ -178,7 +178,7 @@ describe('useAutoUpdate — composable setup', () => {
     updateDownload.mockRejectedValueOnce({})
     const r = useAutoUpdate()
     await r.handleDownload()
-    expect(r.updateError.value).toBe('下载失败')
+    expect(r.updateError.value).toBe('下载失败，请稍后重试')
   })
 
   it('handleInstall 调用 updateInstall API', () => {

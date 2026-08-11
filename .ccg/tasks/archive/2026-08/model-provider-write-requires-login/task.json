@@ -1,0 +1,12 @@
+{
+  "id": "model-provider-write-requires-login",
+  "title": "模型服务商配置写操作需登录（读保持 public 离线可用）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "electron-ipc-security",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-11T00:00:00Z",
+  "branch": "codex/identity-menu-login-highlight"
+}

@@ -47,7 +47,7 @@ const DEFAULT_PROMPT_ENGINE_PLATFORM = 'generic'
 const PROMPT_ENGINE_LIMITS = Object.freeze({
   promptMax: 2000,
   creativeLevel: { min: 1, max: 10, default: 5 },
-  maxLength: { min: 50, max: 2000, default: 300 },
+  maxLength: { min: 50, max: 2000, default: 500 },
   numCandidates: { min: 1, max: 5, default: 1 },
   negativePromptMax: 500,
   contextDepthMax: 32,

@@ -1,0 +1,16 @@
+{
+  "pr": "#529 merged 71425220",
+  "completedAt": "2026-08-11T15:32:07Z",
+  "branch": "codex/prompt-user-friendly-i18n",
+  "domain": "desktop",
+  "remoteStatus": "merged",
+  "createdAt": "2026-08-11T12:50:08Z",
+  "complexity": "L",
+  "title": "遍历修复技术性提示文字，统一为多语言自然语言（原因+建议）",
+  "currentPhase": "completed",
+  "risk": "medium",
+  "openspecChange": "prompt-user-friendly-i18n",
+  "nextAction": "",
+  "status": "completed",
+  "id": "prompt-user-friendly-i18n"
+}

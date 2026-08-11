@@ -321,12 +321,13 @@ describe('useModelProviderCrud', function () {
       expect(crud.loading.value).toBe(false)
     })
 
-    it('loadProviders 请求拒绝时提示原始错误并结束加载态', async function () {
+    it('loadProviders 请求拒绝时提示格式化错误并结束加载态', async function () {
       modelProviderList.mockRejectedValueOnce(new Error('IPC 不可用'))
 
       await expect(crud.loadProviders()).resolves.toBeUndefined()
 
       const { ElMessage } = await import('element-plus')
+      // 自然语言原因文本经统一文案格式化后原样透传（保留具体原因）
       expect(ElMessage.error).toHaveBeenCalledWith('IPC 不可用')
       expect(crud.loading.value).toBe(false)
     })
@@ -342,6 +343,7 @@ describe('useModelProviderCrud', function () {
       await crud.submitForm()
 
       const { ElMessage } = await import('element-plus')
+      // 自然语言原因文本经统一文案格式化后原样透传（保留具体原因）
       expect(ElMessage.error).toHaveBeenCalledWith('密钥无效')
       expect(crud.showFormDialog.value).toBe(true)
       expect(crud.submitting.value).toBe(false)
@@ -431,12 +433,14 @@ describe('useModelProviderCrud', function () {
 
       await crud.testProvider('openai')
 
-      expect(crud.testResults.value.openai).toEqual({
-        success: false,
-        code: -1,
-        message: '连接超时',
-        detail: null,
-      })
+      // formatUserError 把原始「连接超时」映射为当前语言（测试环境按系统语言 en）的
+      // 「原因 + 建议」文案，不直出原始技术文本
+      const testResult = crud.testResults.value.openai
+      expect(testResult.success).toBe(false)
+      expect(testResult.code).toBe(-1)
+      expect(testResult.message).not.toBe('连接超时')
+      expect(testResult.message.length).toBeGreaterThan(0)
+      expect(testResult.detail).toBeNull()
       expect(crud.testingId.value).toBe('')
     })
 

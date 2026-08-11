@@ -5,6 +5,7 @@
       ref="trigger"
       data-testid="identity-trigger"
       class="identity-trigger"
+      :class="{ 'identity-trigger-login': isUnauthenticated }"
       type="button"
       :aria-expanded="open"
       aria-controls="identity-menu-panel"
@@ -13,8 +14,14 @@
       @click="toggleMenu"
       @keydown.down.prevent="openAndFocusFirst"
     >
-      <span class="identity-avatar" aria-hidden="true">{{ initials }}</span>
-      <span class="identity-trigger-label">{{ displayName }}</span>
+      <template v-if="isUnauthenticated">
+        <span class="identity-avatar identity-avatar-login" aria-hidden="true">⚡</span>
+        <span class="identity-trigger-label identity-trigger-label-login">登录</span>
+      </template>
+      <template v-else>
+        <span class="identity-avatar" aria-hidden="true">{{ initials }}</span>
+        <span class="identity-trigger-label">{{ displayName }}</span>
+      </template>
       <span class="identity-chevron" aria-hidden="true">⌄</span>
     </button>
     <span class="identity-status-live" aria-live="polite" aria-atomic="true">{{ statusLabel }}</span>
@@ -82,6 +89,7 @@ const open = ref(false)
 const { status, user, displayName, loading, error, signIn, switchAccount, signOut } = useIdentity()
 const isSigningOut = computed(() => status.value === 'signing_out')
 const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
+const isUnauthenticated = computed(() => !hasSessionIdentity.value && status.value !== 'disabled')
 const pendingAction = ref(null)
 
 const initials = computed(() => Array.from(displayName.value || '登')[0].toUpperCase())
@@ -209,6 +217,22 @@ onBeforeUnmount(() => {
   max-width: 100%;
 }
 .identity-trigger:hover, .identity-trigger[aria-expanded="true"] { border-color: var(--primary); }
+.identity-trigger-login {
+  background: var(--primary);
+  color: var(--on-primary, #fff);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+.identity-trigger-login:hover {
+  background: color-mix(in srgb, var(--primary) 85%, black);
+  border-color: color-mix(in srgb, var(--primary) 85%, black);
+}
+.identity-avatar-login {
+  background: rgba(255, 255, 255, 0.25);
+}
+.identity-trigger-label-login {
+  letter-spacing: 0.5px;
+}
 .identity-avatar {
   display: inline-flex;
   width: 24px;

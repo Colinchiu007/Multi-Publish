@@ -7,7 +7,7 @@
  * 两个层级：
  * 1) 真实 chromium 行为断言：用与 CreateView.vue 同步的样式 + 面板标记渲染，断言无横向溢出；
  *    浏览器不可用（如纯单元测试 job 未装 playwright chromium）时优雅跳过。
- * 2) CSS 契约断言：锁定防溢出关键规则必须存在于 src/views/CreateView.vue（防止被回退）。
+ * 2) CSS 契约断言：锁定防溢出关键规则必须存在于 src/styles/create-view.css（代码-设计分离后从 Vue 提取）。
  */
 const fs = require('fs')
 const os = require('os')
@@ -16,7 +16,7 @@ const path = require('path')
 let chromium
 try { ({ chromium } = require('playwright')) } catch { chromium = null }
 
-// 与 src/views/CreateView.vue <style scoped> 保持同步（改动该文件相关规则时必须同步此处）
+// 与 src/styles/create-view.css 保持同步（代码-设计分离后从 CreateView.vue 提取）
 const CSS = `
 * { box-sizing: border-box; }
 body { margin: 0; }
@@ -76,8 +76,8 @@ describe('voice-clone-panel 防撑宽回归', () => {
     }
   })
 
-  it('CreateView.vue 保留防溢出 CSS 契约（minmax(min(200px,100%),1fr) / min-width:0 / overflow-wrap:anywhere）', () => {
-    const source = fs.readFileSync(path.join(__dirname, '../../src/views/CreateView.vue'), 'utf8')
+  it('create-view.css 保留防溢出 CSS 契约（minmax(min(200px,100%),1fr) / min-width:0 / overflow-wrap:anywhere）', () => {
+    const source = fs.readFileSync(path.join(__dirname, '../../src/styles/create-view.css'), 'utf8')
     expect(source).toContain('minmax(min(200px, 100%), 1fr)')
     expect(source).toContain('.config-item { min-width: 0; }')
     expect(source).toContain('.config-span-2 { grid-column: span 2; min-width: 0; }')

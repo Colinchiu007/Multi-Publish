@@ -300,6 +300,7 @@ import { useRouter } from 'vue-router'
 import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { usePlatformStore } from '@/stores/platforms'
+import { formatUserError } from '@/utils/user-facing-error'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
 
 const router = useRouter()
@@ -572,7 +573,7 @@ async function openRecord (record) {
   try {
     const result = await historyGet(record.id)
     if (result?.code === 0 && result.data) selectedRecord.value = { ...record, ...result.data }
-    else if (result?.message) detailError.value = result.message
+    else if (result?.message) detailError.value = formatUserError(result, { fallback: '详情加载失败，请稍后重试' }).message
   } catch {
     detailError.value = '详情加载失败，请稍后重试'
   } finally {
@@ -591,7 +592,7 @@ async function retryRecord (record) {
   actionMessage.value = ''
   try {
     const result = await retryTask(taskId)
-    actionMessage.value = result?.code === 0 ? '已重新提交失败任务' : (result?.message || '重试失败')
+    actionMessage.value = result?.code === 0 ? '已重新提交失败任务' : formatUserError(result, { fallback: '重试失败' }).message
     if (result?.code === 0) await loadRecords()
   } catch {
     actionMessage.value = '重试失败，请稍后再试'
@@ -607,7 +608,7 @@ async function deleteSelectedRecords () {
   try {
     const result = await historyDelete(ids)
     if (!result || result.code !== 0) {
-      actionMessage.value = result?.message || '删除发布记录失败'
+      actionMessage.value = formatUserError(result, { fallback: '删除发布记录失败' }).message
       return
     }
     selectedIds.value = []

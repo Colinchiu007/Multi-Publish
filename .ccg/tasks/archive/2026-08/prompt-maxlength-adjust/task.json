@@ -1,0 +1,12 @@
+{
+  "id": "prompt-maxlength-adjust",
+  "title": "Prompt maxLength 默认值从300调整为500",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "implementation",
+  "nextAction": "提交并创建PR",
+  "createdAt": "2026-08-11T10:00:00+08:00",
+  "branch": "codex/ui"
+}

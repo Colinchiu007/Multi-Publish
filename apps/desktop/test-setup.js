@@ -13,6 +13,15 @@
  */
 const Module = require('module')
 
+// ─── 语言确定性 ───
+// 测试环境固定系统语言为 zh-CN，避免 i18n 系统语言检测（user-facing-messages 规范）
+// 随 jsdom navigator.language（通常 en-US）漂移，保证中文文案断言可复现。
+try {
+  if (typeof navigator !== 'undefined') {
+    Object.defineProperty(navigator, 'language', { value: 'zh-CN', configurable: true })
+  }
+} catch (_) {}
+
 // ─── electron mock 单例 ───
 const electronMock = {
   app: {
