@@ -152,6 +152,9 @@ const CONTEXT_KEY_WHITELIST = Object.freeze([
   'synopsis', 'full_text', 'setting', 'narrative_intent', 'scene_type', 'character_list', 'character',
 ])
 
+/** full_text 发送上限（审查 W4）：长文 × N 场景会造成请求体重复放大；服务端另截断 500。 */
+const MAX_FULL_TEXT_CHARS = 2000
+
 // ---------------------------------------------------------------------------
 // 工具函数
 // ---------------------------------------------------------------------------
@@ -168,9 +171,6 @@ function normalizeText (value) {
   return String(value || '').replace(/\s+/gu, ' ').trim()
 }
 
-function unicodeLength (value) {
-  return Array.from(String(value || '')).length
-}
 
 function integerInRange (value, min, max, fallback) {
   const number = Math.floor(Number(value))
@@ -235,21 +235,28 @@ function detectByRules (text, rules, keyName) {
  */
 function normalizeSceneContextOptions (options = {}) {
   const source = options && typeof options === 'object' && !Array.isArray(options) ? options : {}
+  // snake_case → camelCase 统一（stageOptions 走 snake_case，text-config/直调走 camelCase），
+  // 避免 include_negative_anchors 等布尔开关端到端失效（审查 C1）。
+  const camel = {}
+  for (const [key, value] of Object.entries(source)) {
+    const camelKey = key.replace(/_([a-z])/gu, (_, char) => char.toUpperCase())
+    if (camel[camelKey] === undefined) camel[camelKey] = value
+  }
   return {
-    enabled: booleanValue(source.enabled, DEFAULT_OPTIONS.enabled),
+    enabled: booleanValue(camel.enabled, DEFAULT_OPTIONS.enabled),
     maxSummaryLength: integerInRange(
-      firstDefined(source.maxSummaryLength, source.max_summary_length),
+      firstDefined(camel.maxSummaryLength),
       50, 1000, DEFAULT_OPTIONS.maxSummaryLength,
     ),
     maxAnchors: integerInRange(
-      firstDefined(source.maxAnchors, source.max_anchors),
+      firstDefined(camel.maxAnchors),
       1, 20, DEFAULT_OPTIONS.maxAnchors,
     ),
     includeNegativeAnchors: booleanValue(
-      source.includeNegativeAnchors, DEFAULT_OPTIONS.includeNegativeAnchors,
+      camel.includeNegativeAnchors, DEFAULT_OPTIONS.includeNegativeAnchors,
     ),
     contextBlockMaxChars: integerInRange(
-      firstDefined(source.contextBlockMaxChars, source.context_block_max_chars),
+      firstDefined(camel.contextBlockMaxChars),
       50, 1000, DEFAULT_OPTIONS.contextBlockMaxChars,
     ),
   }
@@ -279,7 +286,8 @@ function detectCulture (text) {
   const found = detectByRules(text, CULTURE_RULES, 'culture')
   if (found.length === 0) return { culture: '', region: '', hits: [], multiCandidates: [] }
   const top = found[0]
-  const region = top.rule.regions.find(candidate => text.includes(candidate)) || top.rule.regions[0] || ''
+  // 审查 W3：无地域关键词命中时返回空 region，禁止用规则表默认城市编造定位
+  const region = top.rule.regions.find(candidate => text.includes(candidate)) || ''
   return {
     culture: top.culture,
     region: region || '',
@@ -332,9 +340,13 @@ function detectProps (text, era) {
 }
 
 function detectVisualStyle (text, dynasty) {
-  if (dynasty && dynasty.visualStyle) return dynasty.visualStyle
+  // 审查 W2：朝代风格与文本显式风格词合并（朝代在前、文本词追加），不整体覆盖用户显式风格
   const found = detectByRules(text, VISUAL_STYLE_RULES, 'style')
-  return found.length > 0 ? found.map(item => item.style).join('、') : ''
+  const textStyle = found.length > 0 ? found.map(item => item.style).join('、') : ''
+  if (dynasty && dynasty.visualStyle) {
+    return textStyle ? dynasty.visualStyle + '、' + textStyle : dynasty.visualStyle
+  }
+  return textStyle
 }
 
 function detectTone (text) {
@@ -348,18 +360,26 @@ function detectTime (text) {
   return { timeOfDay, season }
 }
 
+/**
+ * 时代判定（审查 W2）：避免单关键词误判。
+ * 返回 { era, strong }：strong=true 才允许注入时代负面锚点（防止「寺庙」等单信号
+ * 把现代场景整篇误标古代并注入电烤箱/汽车等无关排除项）。
+ * 规则：朝代命中 → strong；否则古代/现代信号各自计数，只有「≥2 个独立信号且无对立信号」
+ * 才算 strong；`童话/战争` 不再硬编码为古代（弱信号）。
+ * @returns {{era: string, strong: boolean}}
+ */
 function detectEra (text, dynasty, genre) {
-  if (dynasty) return dynasty.era
-  const ancientGenres = new Set(['历史', '武侠', '仙侠', '宫廷', '战争', '童话'])
+  if (dynasty) return { era: dynasty.era, strong: true }
+  const ancientGenres = new Set(['历史', '武侠', '仙侠', '宫廷'])
   const modernGenres = new Set(['现代都市', '科幻'])
   const ancientTerms = ['朝廷', '皇帝', '王朝', '宫殿', '将军', '古代', '城墙', '科举', '丝绸之路', '江湖', '武林', '剑客', '寺庙', '油灯', '烛台', '马车', '轿子']
   const modernTerms = ['手机', '电脑', '互联网', '微信', '抖音', '地铁', '高铁', '飞机', '汽车', '人工智能', '外卖', '快递', '电商', '写字楼', '电烤箱', '微波炉', '冰箱']
   const ancientCount = (ancientGenres.has(genre) ? 1 : 0) + keywordHits(text, ancientTerms).length
   const modernCount = (modernGenres.has(genre) ? 1 : 0) + keywordHits(text, modernTerms).length
-  if (ancientCount > 0 && modernCount === 0) return 'ancient'
-  if (modernCount > 0 && ancientCount === 0) return 'modern'
-  if (ancientCount > 0 && modernCount > 0) return 'mixed'
-  return 'mixed'
+  if (ancientCount > 0 && modernCount === 0) return { era: 'ancient', strong: ancientCount >= 2 }
+  if (modernCount > 0 && ancientCount === 0) return { era: 'modern', strong: modernCount >= 2 }
+  if (ancientCount > 0 && modernCount > 0) return { era: 'mixed', strong: false }
+  return { era: 'mixed', strong: false }
 }
 
 function buildSummary (text, story, maxLength) {
@@ -373,12 +393,15 @@ function buildSummary (text, story, maxLength) {
   return truncateBySentence(combined, maxLength)
 }
 
-function buildGlobalNegativeAnchors (era, culture) {
+function buildGlobalNegativeAnchors (era, culture, strongEra) {
   const anchors = []
-  if (era === 'ancient') anchors.push(...NEGATIVE_ANCHOR_RULES.ancient)
-  if (era === 'modern') anchors.push(...NEGATIVE_ANCHOR_RULES.modern)
-  if (culture === '中国' && (era === 'ancient' || era === 'mixed')) {
-    anchors.push('西方现代建筑', '西式餐具')
+  // 仅时代判定 strong（朝代命中或多独立信号）时注入时代负面锚点，防止单关键词误判污染整篇（审查 W2）
+  if (strongEra) {
+    if (era === 'ancient') anchors.push(...NEGATIVE_ANCHOR_RULES.ancient)
+    if (era === 'modern') anchors.push(...NEGATIVE_ANCHOR_RULES.modern)
+    if (culture === '中国' && (era === 'ancient' || era === 'mixed')) {
+      anchors.push('西方现代建筑', '西式餐具')
+    }
   }
   return dedupe(anchors)
 }
@@ -404,14 +427,17 @@ function extractStoryContext (fullText, options = {}) {
   const dynasty = detectDynasty(text)
   const culture = detectCulture(text)
   const genre = detectGenre(text)
-  const era = detectEra(text, dynasty, genre.genre)
+  const eraDetected = detectEra(text, dynasty, genre.genre)
+  const era = eraDetected.era
   const setting = detectSetting(text)
   const characters = detectCharacters(text)
   const props = detectProps(text, era)
   const visualStyle = detectVisualStyle(text, dynasty)
   const tone = detectTone(text)
   const time = detectTime(text)
-  const negativeAnchors = buildGlobalNegativeAnchors(era, culture.culture)
+  const negativeAnchors = opts.includeNegativeAnchors
+    ? buildGlobalNegativeAnchors(era, culture.culture, eraDetected.strong)
+    : []
 
   const evidence = {
     dynasty: dynasty ? dynasty.evidence : [],
@@ -546,14 +572,20 @@ function inferSceneType (sceneText) {
  * @param {object} [options]
  * @returns {object}
  */
-function buildPromptEngineSceneContext (scene, story, fullText = '', options = {}) {
+function buildPromptEngineSceneContext (scene, story, fullText = '', options = {}, block) {
   const opts = normalizeSceneContextOptions(options)
-  const block = buildSceneContextBlock(scene, story, opts)
+  // 审查 I1：调用方可传入已计算的 block，避免同一场景重复规则扫描
+  const sceneBlock = block || buildSceneContextBlock(scene, story, opts)
   const storyObj = story && typeof story === 'object' ? story : {}
+  const normalizedFullText = normalizeText(fullText)
+  const fullTextChars = Array.from(normalizedFullText)
   return {
     synopsis: typeof storyObj.summary === 'string' ? storyObj.summary : '',
-    full_text: normalizeText(fullText),
-    setting: block.contextBlock || sceneTextOf(scene),
+    // 审查 W4：full_text 设独立上限（服务端另截断 500）
+    full_text: fullTextChars.length > MAX_FULL_TEXT_CHARS
+      ? fullTextChars.slice(0, MAX_FULL_TEXT_CHARS).join('')
+      : normalizedFullText,
+    setting: sceneBlock.contextBlock || sceneTextOf(scene),
     narrative_intent: typeof storyObj.tone === 'string' ? storyObj.tone : '',
     scene_type: (scene && typeof scene === 'object' && typeof scene.sceneType === 'string' && scene.sceneType)
       ? scene.sceneType
@@ -564,7 +596,7 @@ function buildPromptEngineSceneContext (scene, story, fullText = '', options = {
           ...(c.descriptor && c.descriptor !== c.name ? { descriptor: c.descriptor } : {}),
         }))
       : [],
-    character: block.character || null,
+    character: sceneBlock.character || null,
   }
 }
 
@@ -586,7 +618,7 @@ function enrichSceneWithContext (scene, story, fullText = '', options = {}) {
     anchors: block.anchors,
     negativeAnchors: block.negativeAnchors,
     character: block.character,
-    context: buildPromptEngineSceneContext({ ...base, ...block }, story, fullText, opts),
+    context: buildPromptEngineSceneContext({ ...base, ...block }, story, fullText, opts, block),
   }
 }
 
@@ -600,13 +632,7 @@ function enrichSceneWithContext (scene, story, fullText = '', options = {}) {
  */
 function buildSceneContextResult (scenes, fullText, options = {}) {
   const opts = normalizeSceneContextOptions(options)
-  if (!Array.isArray(scenes) || scenes.length === 0) {
-    throw new Error('场景上下文增强需要非空场景数组')
-  }
-  const text = normalizeText(fullText)
-  if (!text) {
-    throw new Error('场景上下文增强需要非空文案')
-  }
+  // 审查 I1：禁用时直接透传（不因输入校验失败而阻断），与「禁用=透传」语义一致
   if (!opts.enabled) {
     return {
       story: null,
@@ -616,9 +642,17 @@ function buildSceneContextResult (scenes, fullText, options = {}) {
         degraded: true,
         extractor: 'rule-based',
         fallbackReason: 'scene_context_disabled',
-        sceneCount: scenes.length,
+        sceneCount: Array.isArray(scenes) ? scenes.length : 0,
       },
     }
+  }
+  // 输入校验 fail closed（非空场景数组 + 非空文案）
+  if (!Array.isArray(scenes) || scenes.length === 0) {
+    throw new Error('场景上下文增强需要非空场景数组')
+  }
+  const text = normalizeText(fullText)
+  if (!text) {
+    throw new Error('场景上下文增强需要非空文案')
   }
   const story = extractStoryContext(text, opts)
   const enriched = scenes.map(scene => enrichSceneWithContext(scene, story, text, opts))
@@ -658,6 +692,7 @@ module.exports = {
   COOKING_NEGATIVE_ANCHORS,
   COOKING_POSITIVE_PROPS,
   CONTEXT_KEY_WHITELIST,
+  MAX_FULL_TEXT_CHARS,
   CULTURE_RULES,
   CHARACTER_RULES,
   DEFAULT_OPTIONS,
@@ -689,3 +724,4 @@ module.exports = {
   sceneTextOf,
   truncateBySentence,
 }
+

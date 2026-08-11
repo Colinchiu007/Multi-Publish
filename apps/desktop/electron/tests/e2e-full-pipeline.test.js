@@ -101,7 +101,7 @@ async function buildRealContext() {
   try {
     await splitterBridge.start();
   } catch (err) {
-    throw new Error('Splitter bridge failed to start: ' + (err && err.message ? err.message : String(err)));
+    throw new Error('Splitter bridge failed to start: ' + (err && err.message ? err.message : String(err)), { cause: err });
   }
 
   const assetGenerator = new AssetGenerator({ outputDir: path.join(runRoot, 'assets'), log: noopLog });
@@ -161,12 +161,12 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
   // 2026-08-11：新增 select_video_scenes 阶段（视频+图片轮播混合模式，off 模式快速通过）
   assert.deepStrictEqual(
     completedRun.stages.map(stage => stage.name),
-    ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
+    ['split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
   );
   assert.ok(completedRun.stages.every(stage => stage.status === 'completed'));
 
   const context = result.context || completedRun.context;
-  for (const stageName of ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish']) {
+  for (const stageName of ['split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish']) {
     assert.ok(context[stageName], 'context should contain ' + stageName);
   }
 
@@ -217,10 +217,12 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
   assert.strictEqual(context.publish.skipped, true);
   assert.strictEqual(context.publish.videoPath, compose.videoPath);
 
-  console.log('  [stages] split → domain_enrich → optimize → select_video_scenes → generate_assets → compose → publish');
+  console.log('  [stages] split → domain_enrich → scene_context → optimize → select_video_scenes → generate_assets → compose → publish');
   console.log('  [assets] image=' + assets.images[0].meta.source +
     ', audio=' + assets.audio[0].meta.source);
   console.log('  [compose] video created: ' + compose.fileSize + ' bytes, ' +
     compose.duration + ' seconds');
   console.log('  === E2E FULL PIPELINE PASSED ===');
 });
+
+

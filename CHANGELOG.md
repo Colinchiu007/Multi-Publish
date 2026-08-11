@@ -1,3 +1,29 @@
+
+## 2026-08-11 — 视频创作模块 UI/UX 深度优化
+
+### 新增
+- **video-creation-buttons.css**：统一按钮组件样式（primary/secondary/ghost/danger/resume），消除 btn-secondary/history-btn/原生 button 混用
+- **video-creation-shared.css**：提取历史记录共享样式（loading/empty/progress/status-dot/badge/stage-tag），消除 history-page/panel 重复定义
+- **--status-paused-bg/text** 设计令牌：暂停状态独立语义色（light: #fef3c7/#92400e，dark: #3a2a10/#fbbf24）
+
+### 优化
+- **空状态设计增强**：图标放大至56px + 浮动动画 + 引导文案 + 最大宽度限制
+- **pipeline-card 视觉层次**：hover 阴影增强（0 6px 24px）、间距优化（18px 22px）、字体层次改进（15px + letter-spacing）
+- **history-item hover**：阴影增强至 0 8px 28px、位移增大至 -3px
+- **响应式补全**：history-page 新增 @media (max-width: 720px) 断点
+- **按钮统一**：CreateViewHistory 按钮迁移至 s2v-btn-resume/s2v-btn-secondary/s2v-btn-danger
+- **paused 状态 token 统一**：history-page/panel 从 --status-waiting 迁移至 --status-paused
+
+### 技术
+- main.js 新增 video-creation-buttons.css 和 video-creation-shared.css 全局导入
+- 所有 CSS 文件花括号匹配验证通过
+
+## [未发布] 优化：视频创作模块 CSS 命名规范化与代码-设计分离完善（2026-08-11）
+
+- CSS 文件重命名消除命名混淆：`create-history.css` → `history-page.css`，`create-view-history.css` → `history-panel.css`
+- 更新 CreateHistory.vue、CreateViewHistory.vue 的 import 路径
+- 更新 PRD 和 PRD-video-creation.md 中的文件引用
+- CSS 文件职责明确：tokens / view / selector / stage-progress / history-page / history-panel / config-summary / error-dialog
 ## [未发布] 修复：videogen 流水线对推理型 LLM 自动放大提示词生成预算（2026-08-11）
 
 - 根因：推理型 LLM（MiniMax-M3 / deepseek-reasoner / deepseek-v4-flash 等）会把 <think> 思考过程算进输出，videogen 家族（animation / avatar-spokesperson / character-animation / hybrid）的 concept / storyboard 阶段在默认 1600 max_tokens 下 JSON 被截断，parseJsonArray 返回 null 导致分镜阶段失败（MiniMax-M3 实测 2000 tokens 仍截断）。

@@ -625,3 +625,59 @@ describe('Story2Video video 混合模式配置归一化（2026-08-11）', () => 
     expect(result.videoConfig.provider).toBe('ltx')
   })
 })
+
+describe('Story2Video scene_context 配置契约（2026-08-11）', () => {
+  it('默认值：enabled=true / maxSummaryLength=300 / maxAnchors=8 / includeNegativeAnchors=true / contextBlockMaxChars=400，并映射 stageOptions', () => {
+    const result = normalizeStory2VideoTextParams({ text: '唐朝长安城的灯火。' })
+    expect(result.story2videoTextConfig.scene_context).toEqual({
+      enabled: true,
+      maxSummaryLength: 300,
+      maxAnchors: 8,
+      includeNegativeAnchors: true,
+      contextBlockMaxChars: 400,
+    })
+    expect(result.stageOptions.scene_context).toEqual({
+      enabled: true,
+      max_summary_length: 300,
+      max_anchors: 8,
+      include_negative_anchors: true,
+      context_block_max_chars: 400,
+    })
+  })
+
+  it('显式配置透传并归一为 snake_case 输出', () => {
+    const result = normalizeStory2VideoTextParams({
+      text: '唐朝长安城的灯火。',
+      story2videoTextConfig: {
+        scene_context: { enabled: false, maxSummaryLength: 120, maxAnchors: 5, includeNegativeAnchors: false, contextBlockMaxChars: 200 },
+      },
+    })
+    expect(result.stageOptions.scene_context).toEqual({
+      enabled: false,
+      max_summary_length: 120,
+      max_anchors: 5,
+      include_negative_anchors: false,
+      context_block_max_chars: 200,
+    })
+  })
+
+  it('越界/非法数值 fail closed（与 optimize.maxLength 契约一致），非法 boolean 回退默认', () => {
+    expect(() => normalizeStory2VideoTextParams({
+      text: '唐朝长安城的灯火。',
+      story2videoTextConfig: { scene_context: { maxSummaryLength: 99999 } },
+    })).toThrow(/maxSummaryLength 必须在 50-1000 范围内/)
+    expect(() => normalizeStory2VideoTextParams({
+      text: '唐朝长安城的灯火。',
+      story2videoTextConfig: { scene_context: { maxAnchors: 0 } },
+    })).toThrow(/maxAnchors 必须在 1-20 范围内/)
+    expect(() => normalizeStory2VideoTextParams({
+      text: '唐朝长安城的灯火。',
+      story2videoTextConfig: { scene_context: { contextBlockMaxChars: 'abc' } },
+    })).toThrow(/contextBlockMaxChars 必须在 50-1000 范围内/)
+    const result = normalizeStory2VideoTextParams({
+      text: '唐朝长安城的灯火。',
+      story2videoTextConfig: { scene_context: { enabled: 'yes' } },
+    })
+    expect(result.stageOptions.scene_context.enabled).toBe(true)
+  })
+})

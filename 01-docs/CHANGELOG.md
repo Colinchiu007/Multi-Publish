@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-11 (Story2Video 场景上下文增强中间层 scene_context)
+
+### 新增
+- **场景上下文增强中间层（scene_context）**：分句引擎与图片提示词优化引擎之间新增故事背景上下文阶段——读完整文案提取全局故事上下文（题材/时代/朝代/文化地域/场景设定/角色/时代道具/视觉风格/叙事语气/一句话梗概/一致性锚点/时代负面锚点），并把全局锚点融合进每个场景，注入 prompt-engine 优化请求，保证图片/视频生成的故事背景准确性、一致性与连贯性（如唐代全文 + 「一个老妇人在做饭」→ 不再生成西方老太太现代厨房）。
+- 流水线 `story2video-compose` 阶段顺序更新为 `split → domain_enrich → scene_context → optimize → select_video_scenes → generate_assets → compose → publish`。
+- 新增配置 `scene_context`（enabled/maxSummaryLength/maxAnchors/includeNegativeAnchors/contextBlockMaxChars，默认 true/300/8/true/400），渲染层→normalizer→pipeline 边界一致。
+- optimize 请求 context 使用逐场景上下文块（白名单七键：synopsis/full_text/setting/narrative_intent/scene_type/character_list/character），时代负面锚点自动合并进 negative_prompt。
+
+### 测试
+- 新增 story-context-engine 用例（用户示例唐朝+做饭、无关键词、多文化、时代道具互斥、配置边界、敏感键、空场景 fail-closed、降级、白名单键、审查修复回归）；story2video-stages/text-config/契约/E2E 阶段顺序同步；Story2Video 相关用例全绿，完整 E2E 真实合成视频通过。
+
+### 文档
+- 新增 01-docs/PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md 与 ARCH-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md；PRD.md 7.1.32、learnings、.quality-gates 同步。
+
+
 ## [Unreleased] - 2026-08-10 (视频创作「已用时」改为步骤执行耗时总和)
 
 ### 修复
@@ -1544,13 +1559,6 @@
 - PipelineBrowser 测试覆盖全部状态（loading / error / empty / card rendering）
 - IPC handler 测试覆盖成功/失败/超时场景
 - Python 路由测试覆盖列表/详情/404
-
-## [v2.1.7] - 2026-07-06
-### 里程碑
-- ESLint 完全清零: 7 errors + 26 warnings 全部修复
-# CHANGELOG
-
-
 
 ## [v2.1.7] - 2026-07-06
 ### 里程碑

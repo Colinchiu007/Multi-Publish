@@ -479,7 +479,7 @@ const PIPELINES = [
     name: 'story2video-compose',
     description: 'Story2Video 文案转视频 - 分句+提示词优化+资源生成+合成+发布',
     category: 'generated',
-    stages: ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
+    stages: ['split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
     estimatedCost: 'high',
     // stageDefs 定义每个阶段的执行类型和参数（供 StageExecutor 使用）
     // 旧流水线无 stageDefs 字段，回退为 MANUAL_CHECKPOINT
@@ -520,6 +520,20 @@ const PIPELINES = [
         inputFrom: 'split',
       },
       {
+        name: 'scene_context',
+        type: 'story2video_scene_context', // 自定义类型：场景上下文增强中间层（2026-08-11）
+        description: '场景上下文增强：读全文提取全局故事背景并融合进每个场景（时代/地域/角色/道具/风格/负面锚点）',
+        checkpointRequired: false,
+        options: {
+          enabled: true,
+          max_summary_length: 300,
+          max_anchors: 8,
+          include_negative_anchors: true,
+          context_block_max_chars: 400,
+        },
+        inputFrom: 'domain_enrich', // 从 context.domain_enrich 取（scene_context 内部还读 params.text 全文）
+      },
+      {
         name: 'optimize',
         type: 'story2video_optimize', // 自定义类型：统一走 prompt-engine（8013）
         description: '图片提示词统一经 prompt-engine 优化（风格检测/改写/输出校验）',
@@ -533,7 +547,7 @@ const PIPELINES = [
           auto_detect_style: true,
           negative_prompt: '',
         },
-        inputFrom: 'domain_enrich', // 从 context.domain_enrich 取
+        inputFrom: 'scene_context', // 从 context.scene_context 取（getOptimizationScenes 优先）
       },
       {
         name: 'select_video_scenes',
@@ -1841,6 +1855,8 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
     set('templateId', input.templateId);
   } else if (stageName === 'domain_enrich') {
     set('contentType', input.contentType);
+  } else if (stageName === 'scene_context') {
+    // 渲染层未显式提交时走 stageDefs 默认值（enabled=true 等）；已提交的 stageOptions 原样透传
   } else if (stageName === 'select_video_scenes') {
     set('video', input.videoConfig);
     set('videoMode', input.videoMode);
@@ -1879,3 +1895,4 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
 }
 
 module.exports = { PipelineEngine, STAGE_TYPES, computeDefaultMaxConcurrentRuns };
+
