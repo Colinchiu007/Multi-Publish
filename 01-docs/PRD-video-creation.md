@@ -168,6 +168,8 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
     │
     ▼
 六阶段混合流水线（StageExecutor + Story2VideoComposeEngine/ffmpeg；Remotion 为独立快速路径）
+
+> **视频+图片轮播混合能力（2026-08-11 新增）**：Story2Video 支持「视频增强」模式——AI 只生成最值得动态化的场景片段，其余场景图片轮播，控制成本/额度/耗时。两种模式：`fixed`（成片前段按顺序约 20%-30% 用 AI 视频，默认 25%）与 `ai-judged`（LLM 按场景精彩度选择，总占比钳制在 20%-40% 且 ≤ maxScenes）；`off` 保持纯图片轮播零变化。流水线在 optimize 与 generate_assets 之间新增 `select_video_scenes` 阶段；视频场景片段必须显式携带 TTS 旁白音频（见 PRD §7.1.25 旁白音频合同 W10）。完整的数据校验/流程/交互/提示文字/降级策略/验收标准见 [PRD.md §7.1.25](PRD.md)。
     │
     ▼
 预览与调整
