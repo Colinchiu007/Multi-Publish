@@ -138,8 +138,15 @@ async function run() {
     if (cvExists) {
       const cvContent = fs.readFileSync(cvPath, 'utf-8');
       assert(cvContent.includes("view === 'pipelines'"), 'CreateView 包含 pipelines 视图');
-      assert(cvContent.includes('pipeline-grid'), 'CreateView 包含流水线网格');
-      assert(cvContent.includes('pipeline-card'), 'CreateView 包含流水线卡片');
+      // pipeline-grid 已提取到 PipelineSelector 子组件（代码-设计分离）
+      const psPath = path.join(__dirname, '..', 'src', 'views', 'video-creation', 'PipelineSelector.vue');
+      const psExists = fs.existsSync(psPath);
+      assert(psExists, 'PipelineSelector.vue 存在');
+      if (psExists) {
+        const psContent = fs.readFileSync(psPath, 'utf-8');
+        assert(psContent.includes('pipeline-grid'), 'PipelineSelector 包含流水线网格');
+        assert(psContent.includes('pipeline-card'), 'PipelineSelector 包含流水线卡片');
+      }
     }
   } catch (e) {
     assert(false, 'CreateView 检查失败: ' + e.message);
