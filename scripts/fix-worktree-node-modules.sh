@@ -10,10 +10,10 @@
 #
 # 用法：
 #   bash scripts/fix-worktree-node-modules.sh [--worktree <dir>] [--skip-stop]
-# 前置：确认 C 盘空间充足；运行中的应用会先被停止（除非 --skip-stop）。
+# 前置：确认目标盘（D 盘）空间充足；运行中的应用会先被停止（除非 --skip-stop）。
 set -euo pipefail
 
-WORKTREE="${1:-C:/tmp/Multi-Publish-output-resolution-capability}"
+WORKTREE="${1:-D:/Data/projects/mp-worktrees/mp-output-resolution-capability}"
 SKIP_STOP=0
 [ "${2:-}" = "--skip-stop" ] && SKIP_STOP=1
 
@@ -23,8 +23,8 @@ MAIN="/d/Data/projects/Multi-Publish"
 
 echo "[fix] worktree = $WT"
 case "$WT" in
-  /c/tmp/*|C:/tmp/*) ;;
-  *) echo "[fix] REFUSE: worktree 必须在 C:/tmp 下"; exit 1 ;;
+  /c/tmp/*|C:/tmp/*|/d/Data/projects/mp-worktrees/*|D:/Data/projects/mp-worktrees/*) ;;
+  *) echo "[fix] REFUSE: worktree 必须在 D:/Data/projects/mp-worktrees 下（历史 C:/tmp 兼容）"; exit 1 ;;
 esac
 [ -f "$WT/apps/desktop/package.json" ] || { echo "[fix] 不是有效 worktree（缺 apps/desktop/package.json）"; exit 1; }
 

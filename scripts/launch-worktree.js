@@ -23,8 +23,8 @@ const fs = require('fs')
 function printHelp() {
   console.log(`用法: node scripts/launch-worktree.js [选项]
 选项:
-  --worktree <dir>      项目 worktree 根目录（默认 C:/tmp/Multi-Publish-output-resolution-capability）
-  --profile <dir>       Electron userData 目录（默认 C:/tmp/Multi-Publish-debug-profile，已登录 profile）
+  --worktree <dir>      项目 worktree 根目录（默认 D:/Data/projects/mp-worktrees/mp-output-resolution-capability）
+  --profile <dir>       Electron userData 目录（默认 D:/Data/projects/mp-worktrees/debug-profile，已登录 profile）
   --cdp <port>          remote-debugging-port（默认 9333）
   --backend-port <p>    Python 后端端口（默认 8301）
   --prompt-port <p>     PromptBridge 端口（默认 8015）
@@ -37,8 +37,8 @@ function printHelp() {
 
 function parseArgs(argv) {
   const args = {
-    worktree: 'C:/tmp/Multi-Publish-output-resolution-capability',
-    profile: 'C:/tmp/Multi-Publish-debug-profile',
+    worktree: 'D:/Data/projects/mp-worktrees/mp-output-resolution-capability',
+    profile: 'D:/Data/projects/mp-worktrees/debug-profile',
     cdp: 9333,
     backendPort: '8301',
     promptPort: '8015',
