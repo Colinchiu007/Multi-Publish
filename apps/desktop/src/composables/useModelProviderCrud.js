@@ -220,6 +220,10 @@ export function useModelProviderCrud () {
     }
   }
 
+  // MiniMax 多模态预设：模型列表由程序预设（seeds）+ 运营后台（catalog 下发）控制，
+  // 前端不提供模型列表编辑输入框，仅只读展示。
+  const isMiniMaxMultimodal = computed(() => form.value.id === 'minimax-multimodal')
+
   // 多模态「支持生成视频」开关（默认关闭；仅影响 video 能力默认路由，见 _multimodalProviderFor）
   const multimodalVideoEnabled = computed({
     get: () => {
@@ -476,6 +480,7 @@ export function useModelProviderCrud () {
     safeStorageAvailable,
     preferMultimodal,
     multimodalVideoEnabled,
+    isMiniMaxMultimodal,
     // 表单状态
     showFormDialog,
     isEditing,

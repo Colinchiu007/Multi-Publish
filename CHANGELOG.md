@@ -1,3 +1,10 @@
+## [未发布] 功能：MiniMax 多模态模型列表只读（2026-08-11）
+
+- 设置-模型设置-多模态模型- MiniMax 的「模型列表」编辑输入框移除：模型列表由程序预设（seeds `capability_models`/`models`）+ 运营后台（catalog 下发）控制，前端不提供编辑。
+- 实现：`useModelProviderCrud.js` 新增 `isMiniMaxMultimodal`（`form.id === 'minimax-multimodal'`）；`ModelProviders.vue` 新增/编辑对话框对该预设渲染只读提示（「模型列表由系统预设与运营后台下发控制，无需在此填写」+ 当前模型列表文本），其它服务商行为不变。
+- 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
+- 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
+
 ## [未发布] 功能：流水线所需依赖目录（2026-08-11）
 
 - ops-center：新增 `pipeline_dependencies` 表（pipeline_id+model_type 唯一）+ `GET/POST /api/v1/pipeline-dependencies`、`PUT/DELETE /{id}`（admin；校验 pipeline_id 字符集 / model_type 枚举 / provider_candidates 字符串数组 ≤50 去重 / default_provider 必须在候选内 / required / sort_order；POST 重复 400、PUT/DELETE 404、DELETE 软删不复活可重建、PUT 改 key 撞唯一 400）。
