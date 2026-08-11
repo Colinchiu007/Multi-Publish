@@ -147,7 +147,7 @@
 </template>
 
 <script>
-import '@/styles/create-view-history.css'
+import '@/styles/history-panel.css'
 import { getPipelineName } from '@/i18n/pipeline-labels'
 
 export default {

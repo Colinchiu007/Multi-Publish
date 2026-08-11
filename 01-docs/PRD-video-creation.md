@@ -1192,7 +1192,7 @@ export function usePipelineHistory(options = {}) {
 
 | 文件 | 职责 | 行数 |
 |------|------|------|
-| `apps/desktop/src/styles/create-view-history.css` | 历史记录卡片全部样式（从 Vue 抽取） | ~101 |
+| `apps/desktop/src/styles/history-panel.css` | 历史记录卡片全部样式（从 Vue 抽取） | ~101 |
 | `apps/desktop/src/styles/video-creation-tokens.css` | Design Token 定义（含暗色模式） | ~189 |
 | `apps/desktop/src/views/CreateViewHistory.vue` | 模板 + 逻辑（无内联样式） | ~235 |
 
@@ -1201,7 +1201,7 @@ export function usePipelineHistory(options = {}) {
 `CreateViewHistory.vue` 的 `<script>` 块顶部添加：
 
 ```js
-import '@/styles/create-view-history.css'
+import '@/styles/history-panel.css'
 ```
 
 - 不使用 `<style scoped>`，样式通过 class 命名空间隔离（`.history-*` 前缀）
@@ -1291,7 +1291,7 @@ import '@/styles/create-view-history.css'
 
 - **修改**：`apps/desktop/src/views/CreateViewHistory.vue`（移除内联 CSS，添加 CSS import，新增 meta 行和 formatDuration）
 - **修改**：`apps/desktop/src/styles/video-creation-tokens.css`（修复暗色模式 CSS 语法）
-- **新增**：`apps/desktop/src/styles/create-view-history.css`（从 Vue 抽取的历史记录样式）
+- **新增**：`apps/desktop/src/styles/history-panel.css`（从 Vue 抽取的历史记录样式）
 
 
 以下 Cut 参数属于独立 Remotion 快速路径，不等同于 `story2video-compose` 的 scene schema：

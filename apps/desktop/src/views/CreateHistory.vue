@@ -99,7 +99,7 @@
 </template>
 
 <script>
-import '@/styles/create-history.css'
+import '@/styles/history-page.css'
 import { pipelineHistory } from '@/api/publisher'
 import UiButton from '../components/UiButton.vue'
 

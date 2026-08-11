@@ -1668,19 +1668,19 @@ loadHistory()
 
 | 变更类型 | 文件 | 说明 |
 |----------|------|------|
-| 新增 | `apps/desktop/src/styles/create-history.css` | CreateHistory.vue scoped style 提取（76行） |
-| 修改 | `apps/desktop/src/views/CreateHistory.vue` | 移除 `<style scoped>` 块，添加 `import create-history.css` |
+| 新增 | `apps/desktop/src/styles/history-page.css` | CreateHistory.vue scoped style 提取（76行） |
+| 修改 | `apps/desktop/src/views/CreateHistory.vue` | 移除 `<style scoped>` 块，添加 `import history-page.css` |
 | 新增 | `apps/desktop/src/views/create-view-utils.js` | 共享工具函数（formatDuration、stageStateClass 等） |
 | 已有 | `apps/desktop/src/styles/create-view.css` | CreateView.vue 样式（293行，此前已提取） |
-| 已有 | `apps/desktop/src/styles/create-view-history.css` | CreateViewHistory.vue 样式（此前已提取） |
+| 已有 | `apps/desktop/src/styles/history-panel.css` | CreateViewHistory.vue 样式（此前已提取） |
 
 ##### B. 样式文件职责
 
 | CSS 文件 | 对应组件 | 行数 | 职责 |
 |----------|----------|------|------|
 | `create-view.css` | CreateView.vue | 293 | 页面布局、流水线卡片、配置面板、编排进度 |
-| `create-view-history.css` | CreateViewHistory.vue | 138 | 历史记录卡片、状态色条、进度段、操作按钮 |
-| `create-history.css` | CreateHistory.vue | 76 | 独立历史页面、渲染/流水线列表、骨架屏 |
+| `history-panel.css` | CreateViewHistory.vue | 138 | 历史记录卡片、状态色条、进度段、操作按钮 |
+| `history-page.css` | CreateHistory.vue | 76 | 独立历史页面、渲染/流水线列表、骨架屏 |
 
 ##### C. 共享工具函数（create-view-utils.js）
 
@@ -1850,6 +1850,50 @@ umberValue 边界收敛 |
 5. 规则异常降级透传、空场景输入 fail closed。
 6. 流水线阶段顺序含 scene_context，旧行为不回归。
 
+
+#### 7.1.33 视频创作模块 UI/UX 优化与代码-设计分离（2026-08-11）
+
+**背景与问题**：视频创作模块经过多轮迭代，CSS 文件命名出现混淆（`create-history.css` vs `create-view-history.css`），两套历史记录实现（独立页面 `CreateHistory.vue` 与面板 `CreateViewHistory.vue`）的样式组织需要规范化。为提升代码可维护性和团队协作效率，进行 CSS 命名规范化与代码-设计分离完善。
+
+**功能**：
+1. **CSS 文件命名规范化**：
+   - `create-history.css` → `history-page.css`（独立历史页面样式）
+   - `create-view-history.css` → `history-panel.css`（CreateView 内嵌历史面板样式）
+   - 消除「create-history」与「create-view-history」的命名混淆
+2. **代码-设计分离完善**：
+   - 所有视频创作模块 CSS 样式已从 Vue 文件的 `<style scoped>` 提取到独立 CSS 文件
+   - CSS 文件职责明确：`video-creation-tokens.css`（设计 token）、`pipeline-selector.css`（流水线选择器）、`stage-progress.css`（阶段进度）、`history-page.css`（独立历史页）、`history-panel.css`（内嵌历史面板）、`create-view.css`（主视图）
+   - Design Tokens 独立管理，支持亮色/暗色模式切换
+
+**文件变更**：
+| 变更类型 | 文件路径 | 说明 |
+|---------|---------|------|
+| 重命名 | `apps/desktop/src/styles/create-history.css` → `history-page.css` | 消除命名混淆 |
+| 重命名 | `apps/desktop/src/styles/create-view-history.css` → `history-panel.css` | 消除命名混淆 |
+| 修改 | `apps/desktop/src/views/CreateHistory.vue` | 更新 import 路径 |
+| 修改 | `apps/desktop/src/views/CreateViewHistory.vue` | 更新 import 路径 |
+| 修改 | `01-docs/PRD.md` | 更新文件引用 |
+| 修改 | `01-docs/PRD-video-creation.md` | 更新文件引用 |
+
+**CSS 文件职责映射**：
+| CSS 文件 | 组件 | 职责 |
+|---------|------|------|
+| `video-creation-tokens.css` | 全局引入 | 设计 token（颜色、状态、动画） |
+| `create-view.css` | CreateView.vue | 主视图布局、流水线配置、操作栏 |
+| `pipeline-selector.css` | PipelineSelector.vue | 流水线选择卡片、骨架屏、错误状态 |
+| `stage-progress.css` | StageProgress.vue | 阶段进度条、阶段项样式 |
+| `history-page.css` | CreateHistory.vue | 独立历史页面、渲染/流水线列表 |
+| `history-panel.css` | CreateViewHistory.vue | 历史记录卡片、状态色条、进度段 |
+| `config-summary.css` | ConfigSummary.vue | 配置摘要展示 |
+| `error-dialog.css` | ErrorDialog.vue | 错误弹窗样式 |
+
+**验收标准**：
+1. 所有 CSS 文件导入路径正确，Vite HMR 无报错
+2. 页面渲染正常，样式无丢失
+3. PRD 和相关文档中的文件引用已更新
+4. CSS 文件命名清晰，无混淆
+
+**影响**：提升代码可维护性，消除命名歧义，为后续组件拆分奠定基础。
 **影响**：提升图片/视频生成的故事背景准确性、一致性与连贯性；真实生成效果依赖 prompt-engine 与厂商模型行为，属外部验收边界。
 ### 7.2 上传图片快速渲染（独立路径）
 

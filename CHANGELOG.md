@@ -1,3 +1,9 @@
+## [未发布] 优化：视频创作模块 CSS 命名规范化与代码-设计分离完善（2026-08-11）
+
+- CSS 文件重命名消除命名混淆：`create-history.css` → `history-page.css`，`create-view-history.css` → `history-panel.css`
+- 更新 CreateHistory.vue、CreateViewHistory.vue 的 import 路径
+- 更新 PRD 和 PRD-video-creation.md 中的文件引用
+- CSS 文件职责明确：tokens / view / selector / stage-progress / history-page / history-panel / config-summary / error-dialog
 ## [未发布] 修复：Story2Video 真实运行稳定性与视频错误可诊断性（2026-08-11）
 
 - compose xfade 合并超时改为按输出时长动态计算（原固定 120s 会误杀 ≥2 分钟成片的 chunk 合并）：长视频（27 场景约 337s）真实复跑稳定成功（334.4s / 52.9MB）。
