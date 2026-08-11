@@ -1738,6 +1738,28 @@ loadHistory()
 - `e2e-smoke.js`：29/29 checks passed ✅
 - 单元测试：6908 passed, 1 failed → 修复后 6917 passed ✅
 
+
+#### 7.1.30 BasePythonBridge 懒启动自愈（2026-08-11）
+
+**背景**：视频创作流水线依赖 Python Bridge（SplitterBridge、PromptBridge）提供后台服务。此前当 Bridge 进程意外退出后，业务调用方直接抛出 xxx is not running 错误。本次在 BasePythonBridge 基类中新增 nsureRunning() 方法，实现懒启动自愈。
+
+**核心变更**：
+
+| 文件 | 变更 |
+|------|------|
+| ase-python-bridge.js | 新增 nsureRunning() 方法（L281-293）；_post() 方法改为 async，未运行时自动调用 nsureRunning() |
+| prompt-bridge.js | optimize() / optimizeBatch() 前置调用 wait this.ensureRunning() |
+| splitter-bridge.js | 同上模式 |
+
+**ensureRunning() 行为**：
+- 已运行 → 直接返回
+- 未运行 → 自动调用 	his.start() 启动子进程
+- 并发调用 → 共享同一 _starting Promise，不重复 spawn
+- 启动失败 → 抛出 lazy-start failed 错误
+
+**影响**：用户在 Bridge 未启动或崩溃后调用视频创作功能时，系统自动恢复而非报错。
+
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
@@ -2928,3 +2950,4 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 | 样式 | `style2` 加黑底 `box`（0.55 透明度 + 10px 边框）；`style3` 描边加粗（borderw=4）。 |
 | **位置（2026-08-07 修订）** | 字幕底边默认位于画面 **80% 高度**（即**距底部 20%**，`bottomMarginRatio=0.2`，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式 `y=h*(1-bottomMarginRatio)-th`。原固定 `h-th-40`（约 3%）废弃。 |
 | 水平 | 恒居中 `x=(w-text_w)/2`。 |
+
