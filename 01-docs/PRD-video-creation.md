@@ -1308,6 +1308,80 @@ import '@/styles/create-view-history.css'
 | `chartData` | array | — | 图表数据 |
 | `chartSeries` | array | — | 折线图序列 |
 
+
+### 3.1.21 BasePythonBridge 懒启动自愈（2026-08-11）
+
+#### 一、变更背景
+
+视频创作流水线依赖 Python Bridge（SplitterBridge、PromptBridge）提供后台服务。此前当 Bridge 进程意外退出（崩溃、看门狗放弃、启动失败）后，业务调用方（如 optimize()、_post()）直接抛出 xxx is not running 错误，用户需要手动重启应用。本次在 BasePythonBridge 基类中新增 nsureRunning() 方法，实现懒启动自愈。
+
+#### 二、实现方案
+
+##### 1) ensureRunning() 方法（base-python-bridge.js:281-293）
+
+`
+async ensureRunning () {
+  if (this.isRunning) return          // 已运行则跳过
+  if (this._starting) return this._starting  // 并发调用共享同一 Promise
+  this.log.info(this.name, ${this.name} is not running, attempting lazy-start...)
+  this.restartCount = 0
+  this._starting = this.start().catch((e) => {
+    this.log.error(this.name, Lazy-start failed: )
+    throw e
+  }).finally(() => { this._starting = null })
+  return this._starting
+}
+`
+
+##### 2) _post() 方法改造（base-python-bridge.js:228-231）
+
+原来 _post() 在 isRunning === false 时直接 reject。改造后：
+`
+if (!this.isRunning) {
+  try { await this.ensureRunning() } catch (e) {
+    throw new Error(${this.name} is not running and lazy-start failed: )
+  }
+}
+`
+
+##### 3) 子类显式调用
+
+PromptBridge 的 optimize() 和 optimizeBatch() 方法在调用 _post() 前额外调用 wait this.ensureRunning()，确保 Bridge 可用。
+
+#### 三、行为变化
+
+| 场景 | 改造前 | 改造后 |
+|------|--------|--------|
+| Bridge 未启动时调用 optimize() | 抛出 "xxx is not running" | 自动尝试启动，成功则继续，失败则抛出 "lazy-start failed" |
+| Bridge 启动中重复调用 | 无保护 | 共享同一 _starting Promise，不重复 spawn |
+| Bridge 崩溃后首次调用 | 直接报错 | 自动重启 + 重试 |
+
+#### 四、数据校验
+
+- _starting 字段类型：Promise<void> | null
+- nsureRunning() 返回值：Promise<void>
+- 并发安全：多次调用共享同一个 _starting Promise
+
+#### 五、错误处理
+
+- 懒启动失败时，错误信息包含原始异常的 message
+- 日志级别：启动尝试为 info，失败为 error
+- 不影响看门狗和正常重启逻辑
+
+#### 六、影响范围
+
+| 文件 | 变更类型 |
+|------|----------|
+| ase-python-bridge.js | 新增 nsureRunning() 方法 + _post() 改造 |
+| prompt-bridge.js | optimize() 和 optimizeBatch() 前置调用 |
+| splitter-bridge.js | 同上模式 |
+
+#### 七、回归验证
+
+- ase-python-bridge.test.js：新增 ensureRunning 懒启动测试（并发调用共享 Promise、启动失败抛出、已运行跳过）
+- 2e-full-pipeline.test.js：E2E 测试自动启动 Splitter Bridge 而非仅 attach
+
+
 ### 3.3 叠加层（Remotion 快速路径，P1）
 
 | 类型 | 说明 | 参数 |
