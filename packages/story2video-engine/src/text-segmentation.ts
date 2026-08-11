@@ -577,19 +577,36 @@ export class SubtitleSegmenter {
     return [...text].filter((_, i) => !drop[i]).join('');
   }
 
-  /** Step 6：超长强制分割（切分点必须在块内部） */
+  /** Step 6：超长强制分割（平衡切分：尾块 < minChars 时前块让字，避免孤悬尾块） */
   private enforceMax(blocks: string[]): string[] {
     const out: string[] = [];
     for (let b of blocks) {
       while (b.length > this.config.maxCharsPerBlock) {
         let pos = this.findSplitPos(b);
         if (pos <= 0 || pos >= b.length) pos = this.config.maxCharsPerBlock;
+        // 平衡约束：尾块 < minChars 时切分点前移至 len - minChars（区间内优先找标点）
+        if (b.length - pos < this.config.minCharsPerBlock) {
+          const minPos = Math.max(1, b.length - this.config.minCharsPerBlock);
+          const balanced = this.findSplitPosInRange(b, minPos, b.length - 1);
+          pos = balanced > 0 ? balanced : minPos;
+        }
         out.push(b.slice(0, pos));
         b = b.slice(pos);
       }
       if (b) out.push(b);
     }
     return out;
+  }
+
+  /** 在 [lo, hi] 范围内从后往前找最近优先级标点/空格（返回切后索引；无则 -1） */
+  private findSplitPosInRange(text: string, lo: number, hi: number): number {
+    for (let i = hi; i >= lo; i--) {
+      if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i])) return i + 1;
+    }
+    for (let i = hi; i >= lo; i--) {
+      if (text[i] === ' ' || text[i] === '\n' || text[i] === '\u3000') return i + 1;
+    }
+    return -1;
   }
 
   /** Step 7：时间戳分配（proportional 按字数比例 / equal 等分） */
@@ -600,40 +617,34 @@ export class SubtitleSegmenter {
   ): SubtitleBlock[] {
     if (!blocks.length) return [];
 
+    const build = (blocks: string[], durs: number[]): SubtitleBlock[] => {
+      const out: SubtitleBlock[] = [];
+      let t = 0.0;
+      for (let i = 0; i < blocks.length; i++) {
+        const d = Math.round(durs[i] * 100) / 100;
+        out.push({
+          text: blocks[i],
+          displayOrder: i,
+          startTime: t,
+          duration: d,
+          parentSegmentId: parentId,
+        });
+        t = Math.round((t + d) * 100) / 100; // 舍入后连续累加，保证区间严格连续
+      }
+      return out;
+    };
+
     if (this.config.timeCalculationMethod === 'equal') {
-      const blockDuration = totalDuration / blocks.length;
-      return blocks.map((blockText, i) => ({
-        text: blockText,
-        displayOrder: i,
-        startTime: Math.round(i * blockDuration * 100) / 100,
-        duration: Math.round(blockDuration * 100) / 100,
-        parentSegmentId: parentId,
-      }));
+      const durs = blocks.map(() => totalDuration / blocks.length);
+      return build(blocks, durs);
     }
 
     // proportional: 按字数比例分配时间
     const totalChars = blocks.reduce((sum, block) => sum + block.length, 0);
-    const subtitleBlocks: SubtitleBlock[] = [];
-    let currentTime = 0.0;
-
-    for (let i = 0; i < blocks.length; i++) {
-      const blockText = blocks[i];
-      const blockDuration =
-        totalChars > 0 ? (blockText.length / totalChars) * totalDuration : totalDuration / blocks.length;
-      const roundedDuration = Math.round(blockDuration * 100) / 100;
-
-      subtitleBlocks.push({
-        text: blockText,
-        displayOrder: i,
-        startTime: Math.round(currentTime * 100) / 100,
-        duration: roundedDuration,
-        parentSegmentId: parentId,
-      });
-
-      currentTime += blockDuration;
-    }
-
-    return subtitleBlocks;
+    const durs = blocks.map((b) =>
+      totalChars > 0 ? (b.length / totalChars) * totalDuration : totalDuration / blocks.length,
+    );
+    return build(blocks, durs);
   }
 }
 

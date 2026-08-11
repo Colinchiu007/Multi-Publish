@@ -233,6 +233,38 @@
         "它们各有营养"
       ],
       "note": ""
+    },
+    {
+      "id": "balanced_split_long",
+      "input": "再配上八角桂皮黄酒等香料慢慢炖煮",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "再配上八角桂皮黄",
+        "酒等香料慢慢炖煮"
+      ],
+      "note": ""
+    },
+    {
+      "id": "balanced_user_case",
+      "input": "要知道在农耕社会，柴火、盐巴和香料那可都是绝对的硬通货。处理猪肠、牛肚这些下水，得反复搓洗焯水，再配上八角桂皮黄酒等香料慢慢炖煮。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "要知道在农耕社会，柴火",
+        "盐巴和香料那可都是绝对的硬通货",
+        "处理猪肠、牛肚这些下水",
+        "得反复搓洗焯水",
+        "再配上八角桂皮黄",
+        "酒等香料慢慢炖煮"
+      ],
+      "note": ""
     }
   ]
 }
