@@ -51,7 +51,7 @@ Multi-Publish 现有系统（发布侧）
 | 能力 | 当前状态 | 说明 |
 |------|----------|------|
 | 文案分句 | 已接入（双层） | 场景层优先由 `smart-sentence-splitter` 决定；仅连接拒绝、超时、连接重置等服务不可用错误可降级到本地场景分句，无论桥接层以 reject 还是失败对象返回。字幕层始终在每个场景内部由本地逻辑二次切分 |
-| 提示词优化 | 已接入（外部 sidecar；本地真实服务已验收） | Multi-Publish 通过 `PromptBridge` 调用 `prompt-engine` 批量优化；平台/风格枚举和数值范围与其 Pydantic 合同一致，结果数量不一致会阻断 |
+| 提示词优化 | 已接入（外部 sidecar；本地真实服务已验收） | **图片**：Multi-Publish 通过 `PromptBridge` 调用 `prompt-engine` 批量优化；平台/风格枚举和数值范围与其 Pydantic 合同一致，结果数量不一致会阻断。**视频（2026-08-12）**：新增 `domain=video` 领域，videogen `videogen_generate` 前批量优化、混合模式视频场景提示词改写后提交 `generateVideo`；结构化 video 字段（shot/camera/motion_intensity/scene_transition/continuity_token）；契约文件 `video-prompt-engine-contract.js` 与图片契约分文件分命名（详见 §3.1.2.2） |
 | 历史领域增强 | 已接入 | `contentType=history` 自动识别时代/朝代并生成 `imagePromptSeed` |
 | Story2Video 标准模式 | 已接入 | `story2video-compose` 只接受文案；图片、音频、视频素材模式不再属于该流水线 |
 | TTS | 已接入 | text 标准模式通过已配置 TTS adapter 生成逐段旁白；edge-tts 优先，ffmpeg 静音音频作为离线降级。生成阶段时长可为估算值，compose 必须以 ffprobe 的真实音频时长生成字幕时间轴并避免截断。结果页仍可替换单段旁白，但上传音频不是该模式的创作输入 |
@@ -144,6 +144,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-09 | 窗口关闭行为跨平台化（macOS 前瞻） | 平台决策收敛到 `services/window-close-policy.js`：darwin 关闭窗口不拦截（系统约定，进程留在 Dock、activate 重建窗口）、win32/linux 维持「运行任务+托盘可用→隐藏托盘」；托盘图标按平台回退（darwin 模板图标 setTemplateImage，其余占位图）；快照写入 POSIX rename 原子优先、Windows copy 回退。回归：window-close-policy 6 / window 51 / system-tray 28 / run-state-store 17 测试通过 | PRD 7.1.21（跨平台行） |
 | 2026-08-11 | CreateView 历史记录已暂停状态支持 | CreateView.vue historyStatusLabel() 新增 paused 映射、过滤器新增「已暂停」选项、暂停环节提示、断点续跑按钮、CSS 样式。详见本节 3.1.12 | PRD 7.1.24 |
 | 2026-08-11 | CreateView 历史记录组件拆分与 UI 优化 | 提取 CreateViewHistory.vue 独立组件、卡片式布局+状态色条、运行中脉冲动画、信息分层、失败原因展示、操作按钮分层、记录计数、空状态优化。详见 3.1.13 | PRD 7.1.25 |
+| 2026-08-12 | 视频提示词统一走 prompt-engine video 领域 | videogen `videogen_generate` 前批量优化（数量/空项 fail-closed）、混合模式视频场景提示词改写、结构化 video 字段、契约文件 `video-prompt-engine-contract.js`（与图片契约分文件分命名）；详见 §3.1.2.2。PR #548 + prompt-engine #18 | PRD 7.1.33 |
 | 2026-08-11 | CreateHistory.vue stale running 检测 | 独立历史页面 loadPipelines() 新增 stale running 检测（30 分钟阈值），与 CreateView.vue 一致。详见 3.1.14 | PRD 7.1.26 |
 | 2026-08-11 | usePipelineHistory composable 提取 | 消除 CreateView/CreateHistory 历史记录逻辑重复，统一 stale 检测、轮询、辅助方法。详见 3.1.15 | PRD 7.1.27 |
 | 2026-08-11 | CreateViewHistory 卡片 UI 增强 | 状态图标、运行脉冲、进度条光泽、流水线标签、状态阴影。详见 3.1.16 | PRD 7.1.28 |
@@ -299,6 +300,32 @@ split（分句）→ domain_enrich（历史内容领域增强，可选）
 - prompt-engine（`D:\\Data\\projects\\prompt-engine`，FastAPI / 8013）为图片提示词优化的**前置依赖**；本地已可 import 且 `.env` 已配置 LLM/各 provider key。
 - 真实优化质量（LLM 改写效果、风格检测准确率、配额）属于**外部验收边界**：单元/集成测试用 mock PromptBridge / 本地 HTTP stub 覆盖契约与 fail-closed 行为，不冒充真实 8013 + provider 验收通过（见 learnings 与 quality-gates 记录）。
 - `creative_level ≤ 3` 走 prompt-engine 模板直出（免 LLM key），`> 3` 需要 LLM key（未配置时服务端返回 error → fail closed）。
+
+### 3.1.2.2 视频提示词统一走 prompt-engine video 领域合同（2026-08-12 落地）
+
+**目标**：项目内所有 AI 视频生成（videogen 流水线、Story2Video 混合模式）的提示词统一经 prompt-engine（8013）`domain=video` 完成改写与输出校验，不再裸传 provider、不再把图片优化提示词直接当视频提示词用。
+
+#### 1) 数据流
+
+```text
+videogen：storyboard 场景提示词 → PromptBridge.optimizeVideosBatch（domain=video）→ 数量/空项校验 → callAdapter('generateVideo')
+混合模式：select_video_scenes 选中场景 → optimizeVideo 改写 → generateSceneVideo；优化失败 → 该场景回退图片轮播（不中断整线）
+```
+
+#### 2) 请求/响应契约（对齐 prompt_engine/models.py video 领域）
+
+- **请求**：`domain=video`（缺省 image 零回归）；`platform` 视频平台枚举（sora/kling/veo/runway/wan/seedance/minimax/hunyuan/cogvideo/ltx/higgsfield/grok/agnes/generic_video）；style/creativeLevel(1-10)/maxLength(50-2000，默认 500)/numCandidates(1-5)/negativePrompt(≤500)/context（对象透传 + 敏感凭据键拦截）。
+- **响应**：`optimized_prompt` 渲染单串（provider 直用）+ 结构化 `video` 字段（shot/camera/motion_intensity 1-10/scene_transition/continuity_token/duration_hint）；`extractOptimizedVideoPrompt` 按 error→detail→空串 fail-closed，字段越界收敛、缺失给默认。
+
+#### 3) 集成点
+
+- **videogen**：`videogen_generate` 前批量优化；结果数量与场景数不一致、含空提示词、8013 未运行或 PromptBridge 未注入 → 阶段明确失败，不静默绕过。
+- **混合模式**：`optimizeVideo` 改写后再 `generateSceneVideo`；优化失败按总 PRD 7.1.x 混合语义回退图片轮播（不中断整条流水线）。
+
+#### 4) 验收边界
+
+- 单元/集成测试不依赖真实 8013：mock PromptBridge 覆盖请求命中 domain=video、空/error/数量不匹配失败、结构化字段收敛。
+- 真实 8013 smoke 与 LLM key 为外部验收边界：本机新代码实例已验证 MiniMax-M3 返回结构化字段（shot/camera/motion_intensity/scene_transition/continuity_token）；生产 8013 已重启新分支并端到端验证。
 
 ### 3.1.4.1 历史记录加载与本地模式合同（2026-08-09 完整落地）
 
