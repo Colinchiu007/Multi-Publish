@@ -9,6 +9,7 @@
  */
 import { ref } from 'vue'
 import { onUpdateStatus, updateCheck, updateDownload, updateInstall } from '@/api/publisher'
+import { formatUserError } from '@/utils/user-facing-error'
 
 /**
  * 格式化下载速度
@@ -53,7 +54,7 @@ export function useAutoUpdate() {
       downloadPercent.value = 100
       showUpdateDialog.value = true
     } else if (payload.type === 'error') {
-      updateError.value = payload.data || '未知错误'
+      updateError.value = formatUserError(payload.data, { fallback: '更新失败，请稍后重试' }).message
       showError.value = true
       showUpdateDialog.value = false
       downloading.value = false
@@ -74,7 +75,7 @@ export function useAutoUpdate() {
   function handleDownload() {
     downloading.value = true
     updateDownload().catch(function (e) {
-      updateError.value = (e && e.message) || '下载失败'
+      updateError.value = formatUserError(e, { fallback: '下载失败，请稍后重试' }).message
       showError.value = true
       downloading.value = false
     })

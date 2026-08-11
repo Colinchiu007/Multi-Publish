@@ -16,6 +16,7 @@
  */
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { formatUserError } from '@/utils/user-facing-error'
 import {
   publishBatch,
   onProgress,
@@ -215,7 +216,7 @@ export function usePublishFlow(options) {
           article: { ...data, accountId: target.accountId },
         }))
         if (!res || res.code !== 0) {
-          throw new Error((res && res.message) || '定时任务创建失败')
+          throw new Error(formatUserError(res, { fallback: '定时任务创建失败' }).message)
         }
         const scheduleId = res.data && res.data.id
         if (!scheduleId) throw new Error('定时任务创建成功但未返回任务 ID')
@@ -233,8 +234,8 @@ export function usePublishFlow(options) {
       })
       activeScheduleIds.value = rollbackFailedIds
       if (rollbackFailedIds.length > 0) {
-        const message = error && error.message ? error.message : '定时任务创建失败'
-        throw new Error(`${message}；${rollbackFailedIds.length} 个定时任务回滚失败，请点击取消重试`)
+        const message = formatUserError(error, { fallback: '定时任务创建失败' }).message
+        throw new Error(message + '；' + rollbackFailedIds.length + ' 个定时任务回滚失败，请点击取消重试')
       }
       throw error
     }
@@ -358,13 +359,13 @@ export function usePublishFlow(options) {
         addProgress('✓ 已添加 ' + count + ' 个任务', 'success')
         result.value = { success: true, message: res.message || '任务已加入队列', url: '' }
       } else {
-        const message = res.message || '发布失败'
+        const message = formatUserError(res, { fallback: '发布失败' }).message
         addProgress('✗ 发布失败: ' + message, 'danger')
         result.value = { success: false, message }
         await notifyFailure('发布失败', message)
       }
     } catch (e) {
-      const message = e && e.message ? e.message : '发布异常'
+      const message = formatUserError(e, { fallback: '发布异常' }).message
       addProgress('✗ 错误: ' + message, 'danger')
       result.value = { success: false, message }
       await notifyFailure('发布异常', message)

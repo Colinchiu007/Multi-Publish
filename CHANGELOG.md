@@ -1,3 +1,12 @@
+## [未发布] 功能：用户提示文字统一为多语言自然语言（原因 + 建议）（2026-08-11）
+
+- 根因：主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message（如「当前许可证无权访问 store:list-publish-history」），渲染端多个视图直接把 `result.message`/`e.message` 原样展示。
+- 主进程：`license-access-control.js` 三个拒绝函数返回稳定 `errorCode`（AUTH_REQUIRED / ENTITLEMENT_REQUIRED / UNTRUSTED_SENDER）+ 去通道名的自然语言 message + `messageParams.channel`（仅诊断）；`model-provider-manager.js` 22 处错误去英文括号注释与裸英文，补 `errorCode`（PROVIDER_EXISTS / CREATE_FAILED / UPDATE_FAILED / DELETE_FAILED / SET_DEFAULT_FAILED / ENCRYPT_FAILED / CRYPTO_UNAVAILABLE / ADAPTER_NOT_FOUND / PROVIDER_NOT_FOUND / API_KEY_NOT_CONFIGURED / ADAPTER_INIT_FAILED / OPERATION_NOT_SUPPORTED / STORE_NOT_INITIALIZED 等），原始 detail 只进 `messageParams.detail`；`webview-manager.js` 创建标签页失败改中文。
+- 渲染端：新增 `src/utils/user-facing-error.js` `formatUserError()`（errorCode → 数值 code → 遗留 pattern → 技术文本 sanitize / 自然语言透传，zh/en「原因 + 建议」目录）；`src/i18n/index.js` 新增系统语言自动检测（zh*/en*）与 `setAppLocale/getAppLocale`，语言优先级 = 显式设置 > 系统语言 > 默认；设置弹窗「通用设置」新增语言切换控件。
+- 接入 16+ 处显示路径：CreateHistory / PublishHistory / CreateView / useModelProviderCrud（含 `already exists` 改 errorCode 判断）/ useOpsCenterSync / usePublishFlow / usePublishDrafts / useBatchPublish / useAutoUpdate / ApprovalGateModal / UpgradeModal / PipelineBrowser / TemplatePicker / ReplayTimeline / stores/accounts。
+- 测试：新增 `user-facing-error.test.js`（17 用例）、i18n 系统语言检测用例；更新 license-access-control / model-provider-* / 受影响视图测试；`test-setup.js` 固定测试环境语言 zh-CN 保证确定性。
+- 文档：PRD §3.2 新增「用户提示文字与多语言规范」（语言解析/错误返回契约/交互显示项/提示文字表/回归测试）；learnings 补充复盘；CHANGELOG。
+
 ## [未发布] 修复：Story2Video 真实运行稳定性与视频错误可诊断性（2026-08-11）
 
 - compose xfade 合并超时改为按输出时长动态计算（原固定 120s 会误杀 ≥2 分钟成片的 chunk 合并）：长视频（27 场景约 337s）真实复跑稳定成功（334.4s / 52.9MB）。

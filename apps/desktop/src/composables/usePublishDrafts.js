@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { draftDelete, draftList, draftSave } from '@/api/publisher'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const ARTICLE_FIELDS = [
   'title',
@@ -29,7 +30,7 @@ function replaceRecord (target, source) {
 }
 
 function errorMessage (error, fallback) {
-  return error && error.message ? error.message : fallback
+  return formatUserError(error, { fallback }).message
 }
 
 /**

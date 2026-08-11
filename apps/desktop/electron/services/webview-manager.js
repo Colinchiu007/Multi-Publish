@@ -825,7 +825,7 @@ class WebviewManager extends EventEmitter {
     ipcMain.handle('page-manager:create-new-tab-page', withSenderCheck(function (_, arg) {
       try {
         var tabId = self.createNewTabPage(arg || {})
-        return tabId ? { code: 0, data: { tabId: tabId } } : { code: EC.REQUEST_ERROR, message: 'Failed to create tab' }
+        return tabId ? { code: 0, data: { tabId: tabId } } : { code: EC.REQUEST_ERROR, message: '创建标签页失败，请重试' }
       } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
     }))
 

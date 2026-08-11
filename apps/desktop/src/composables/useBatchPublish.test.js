@@ -699,7 +699,9 @@ describe('useBatchPublish — composable setup', () => {
     await r.handleBatchPublish()
 
     expect(r.batchProgress.value.at(-1)).toMatchObject({ type: 'danger' })
-    expect(r.batchProgress.value.at(-1).text).toContain('执行失败：账号未登录')
+    // 「未登录」类错误经统一文案映射为「原因 + 建议」，不再直出后端拼接文本
+    expect(r.batchProgress.value.at(-1).text).not.toContain('执行失败：账号未登录')
+    expect(r.batchProgress.value.at(-1).text).toContain('登录')
     expect(r.batchProgress.value.some(function (item) { return item.text.includes('已提交发布') })).toBe(false)
     expect(unsubscribe).toHaveBeenCalledTimes(1)
     expect(unsubscribeBatch).toHaveBeenCalledTimes(1)

@@ -847,6 +847,7 @@ import {
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
 import { opsCenterSyncRuntime } from '@/api/ops-center-sync'
+import { formatUserError } from '@/utils/user-facing-error'
 import {
   getTtsVoiceCatalog,
   getTtsVoiceCapability,
@@ -1517,8 +1518,8 @@ export default {
       try {
         const res = await pipelineList()
         if (res?.code === 0) this.pipelines = prioritizeStory2VideoPipeline(res.data)
-        else this.pipelineError = res?.message || '加载失败'
-      } catch (e) { this.pipelineError = e.message }
+        else this.pipelineError = formatUserError(res, { fallback: '加载失败' }).message
+      } catch (e) { this.pipelineError = formatUserError(e, { fallback: '加载失败' }).message }
       finally { this.pipelineLoading = false }
     },
     selectPipeline(p) {
@@ -3093,8 +3094,8 @@ export default {
           : this.quickImages.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 }))
         const res = await renderStart({ props: { cuts, theme: this.quickTheme, renderer_family: 'explainer-data' }, profile: this.quickProfile })
         if (res?.code === 0) { this.quickResult = res.data }
-        else { this.quickError = res?.message || '渲染失败'; this.quickRendering = false }
-      } catch (e) { this.quickError = '渲染异常: ' + (e.message || '未知错误'); this.quickRendering = false }
+        else { this.quickError = formatUserError(res, { fallback: '渲染失败' }).message; this.quickRendering = false }
+      } catch (e) { this.quickError = '渲染异常: ' + formatUserError(e, { fallback: '未知错误' }).message; this.quickRendering = false }
     },
     cancelQuickRender() { renderCancel(); this.quickRendering = false },
     viewQuickResult() { this.$router.push({ path: '/create/result', query: { path: this.quickResult?.outputPath || '' } }) },
@@ -3104,7 +3105,7 @@ export default {
         const { aiGenerate } = await import('@/api/publisher')
         const r = await aiGenerate('text', 'openai', { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
         if (r?.code === 0 && r.data?.text) this.quickText = r.data.text
-      } catch (e) { this.quickError = 'AI 写稿失败: ' + (e.message || '未知错误') }
+      } catch (e) { this.quickError = 'AI 写稿失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
       this.aiLoading = false
     },
 
@@ -3114,7 +3115,7 @@ export default {
       try {
         const result = await renderInstallDeps()
         this.installLog = result?.log || '安装完成'
-      } catch (e) { this.installLog = '安装失败: ' + e.message }
+      } catch (e) { this.installLog = '安装失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
       this.installing = false
       const s = await renderGetStatus()
       this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' }

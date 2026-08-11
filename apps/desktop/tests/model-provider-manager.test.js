@@ -273,7 +273,7 @@ describe("ModelProviderManager", function () {
         expect(manager.isConfigured('llm')).toBe(false)
         await expect(manager.testConnection('openai')).resolves.toMatchObject({
           code: -1,
-          message: expect.stringContaining('API Key not configured'),
+          message: expect.stringContaining('API Key'),
         })
         expect(manager.getDefault('llm')).toBeNull()
       } finally {
@@ -287,7 +287,7 @@ describe("ModelProviderManager", function () {
       expect(manager.isConfigured('llm')).toBe(false)
       await expect(manager.testConnection('openai')).resolves.toMatchObject({
         code: -1,
-        message: expect.stringContaining('API Key not configured'),
+        message: expect.stringContaining('API Key'),
       })
       expect(manager.getDefault('llm')).toBeNull()
     })
@@ -322,13 +322,14 @@ describe("ModelProviderManager", function () {
       manager.createProvider({ id: "dup", name: "Dup", category: "llm", api_key: "sk-test" })
       const res = manager.createProvider({ id: "dup", name: "Dup2", category: "llm", api_key: "sk-test" })
       expect(res.code).toBe(-1)
-      expect(res.message).toContain("already exists")
+      expect(res.errorCode).toBe("PROVIDER_EXISTS")
+      expect(res.message).toContain("已存在")
     })
 
     it("应拒绝无效类别", function () {
       const res = manager.createProvider({ id: "bad", name: "Bad", category: "invalid" })
       expect(res.code).toBe(-1)
-      expect(res.message).toContain("Invalid category")
+      expect(res.errorCode).toBe("INVALID_CATEGORY")
     })
 
     it("缺少必填字段应返回错误", function () {
@@ -451,7 +452,8 @@ describe("ModelProviderManager", function () {
         api_key: "sk-flux-key", models: ["flux-pro"],
       })
       expect(createRes.code).toBe(-1)
-      expect(createRes.message).toContain("already exists")
+      expect(createRes.errorCode).toBe("PROVIDER_EXISTS")
+      expect(createRes.message).toContain("已存在")
 
       const updateRes = manager.updateProvider("flux", { api_key: "sk-flux-key", enabled: true })
       expect(updateRes.code).toBe(0)

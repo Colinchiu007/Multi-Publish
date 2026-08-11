@@ -58,6 +58,7 @@
 import { ref, computed, onMounted } from "vue"
 import { useTemplateStore } from "@/stores/templates"
 import { reportError } from "@/utils/report-error"
+import { formatUserError } from "@/utils/user-facing-error"
 
 const emit = defineEmits(["close", "apply"])
 
@@ -95,7 +96,7 @@ async function resetDefaults() {
     }
     await store.load()
   } catch (e) {
-    error.value = e.message
+    error.value = formatUserError(e, { fallback: '恢复默认模板失败' }).message
   } finally {
     loading.value = false
   }
