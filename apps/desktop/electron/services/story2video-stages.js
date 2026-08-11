@@ -662,6 +662,51 @@ function getScenePromptSeed(scene) {
 }
 
 /**
+ * 构建 prompt-engine 优化请求的上下文对象
+ * 包含文案意图、场景类型、完整文案摘要，帮助 LLM 生成更贴合原文的图片提示词
+ * @param {Array} scenes - 场景数组
+ * @param {object} options - stage.options
+ * @returns {object} context 对象
+ */
+function buildOptimizeContext(scenes, options = {}) {
+  const context = {};
+  
+  // 1. 收集所有场景文本作为完整文案上下文
+  const allTexts = scenes
+    .map(s => getScenePromptSeed(s))
+    .filter(t => t && t.length > 0);
+  if (allTexts.length > 0) {
+    context.full_text = allTexts.join('；');
+  }
+  
+  // 2. 从 options.context 继承已有上下文（如 synopsis）
+  if (options.context && typeof options.context === 'object') {
+    Object.assign(context, options.context);
+  } else if (typeof options.context === 'string') {
+    context.synopsis = options.context;
+  }
+  
+  // 3. 自动推断场景类型（如果未指定）
+  if (!context.scene_type) {
+    const combinedText = allTexts.join(' ').toLowerCase();
+    if (combinedText.includes('对比') || combinedText.includes('vs') || 
+        combinedText.includes('而不是') || combinedText.includes('相反')) {
+      context.scene_type = '对比场景';
+    } else if (combinedText.includes('特写') || combinedText.includes('细节') ||
+               combinedText.includes('精致') || combinedText.includes('纹理')) {
+      context.scene_type = '细节场景';
+    } else if (combinedText.includes('全景') || combinedText.includes('街道') ||
+               combinedText.includes('市场') || combinedText.includes('宫殿')) {
+      context.scene_type = '全景场景';
+    } else if (allTexts.length > 3) {
+      context.scene_type = '全景场景';
+    }
+  }
+  
+  return context;
+}
+
+/**
  * 判断文案是否有实质内容。去掉空白/标点/符号后为空、或全部是数字（如「12」）
  * 的文案没有可描绘的语义，交给 LLM 优化只会被编造出与原文无关的场景。
  * 单字中文（如「一」「猫」）仍视为有内容。
@@ -946,7 +991,9 @@ function registerStory2VideoStages(pipelineEngine) {
           // 创意度/长度/候选数边界）→ 瞬态错误有界重试（限流更长退避）→ 输出校验 fail closed。
           // 校验顺序：error 优先（/v1/optimize 失败兜底返回原文+error，忽略即静默降级）→ 结构 → 内容。
           // 请求构造一次（含别名归一与边界收敛），重试/校验共用同一份归一化参数
-          const request = buildPromptEngineOptimizeRequest(promptSeed, stage.options || {})
+          // 构建上下文：传递文案意图、场景类型、完整文案摘要给 prompt-engine
+          const optimizeContext = buildOptimizeContext(scenes, stage.options || {})
+          const request = buildPromptEngineOptimizeRequest(promptSeed, { ...stage.options, context: optimizeContext })
           const { prompt: enginePrompt, ...requestOptions } = request
           let result
           try {
