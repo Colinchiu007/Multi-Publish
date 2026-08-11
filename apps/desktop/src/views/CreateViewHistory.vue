@@ -109,7 +109,7 @@
               <div class="history-actions">
                 <button
                   v-if="(h.status === 'failed' || h.status === 'paused') && historyItemResumable(h)"
-                  class="history-btn resume"
+                  class="s2v-btn-resume s2v-btn-sm"
                   :disabled="story2videoResuming"
                   @click.stop="$emit('resume-history', h)"
                 >
@@ -117,7 +117,7 @@
                 </button>
                 <button
                   v-else-if="h.status === 'running'"
-                  class="history-btn resume"
+                  class="s2v-btn-resume s2v-btn-sm"
                   :disabled="story2videoResuming"
                   @click.stop="$emit('resume-history', h)"
                 >
@@ -125,14 +125,14 @@
                 </button>
                 <button
                   v-if="h.projectId && h.recoverable !== false"
-                  class="history-btn open"
+                  class="s2v-btn-secondary s2v-btn-sm"
                   @click.stop="$emit('open-history', h)"
                 >
                   打开
                 </button>
                 <button
                   v-if="h.projectId"
-                  class="history-btn delete"
+                  class="s2v-btn-danger s2v-btn-sm"
                   @click.stop="$emit('delete-history', h)"
                 >
                   删除

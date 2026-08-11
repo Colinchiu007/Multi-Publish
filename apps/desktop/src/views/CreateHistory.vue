@@ -6,8 +6,8 @@
     </div>
 
     <div class="page-tabs">
-      <button :class="['tab', { active: tab === 'renders' }]" @click="tab = 'renders'">渲染记录</button>
-      <button :class="['tab', { active: tab === 'pipelines' }]" @click="tab = 'pipelines'; loadPipelines()">流水线记录</button>
+      <button :class="['tab s2v-btn-ghost', { active: tab === 'renders' }]" @click="tab = 'renders'">渲染记录</button>
+      <button :class="['tab s2v-btn-ghost', { active: tab === 'pipelines' }]" @click="tab = 'pipelines'; loadPipelines()">流水线记录</button>
     </div>
 
     <!-- 渲染记录 -->
