@@ -6337,3 +6337,12 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **系统性漏洞**：① 多模态能力声明=「目录级」与「实际可用」未分离，R85 语义（目录 vs 用户配置）只覆盖预设列表，未覆盖能力路由；② 能力路由无 per-capability 用户开关；③ videogen 错误处理不透传 `submit.message`。
 - **回归保护**：新增 `config.capability_enabled.video` 开关（默认关）产品化解决——`_multimodalProviderFor('video')` 与 `listProviders('video')` 均要求 `=== true`；llm/tts/image 不受影响；`_syncPresetCapabilities` 不回填开关；后端 +6 用例、前端 composable +6 用例。
 - **预防**：多模态 provider 的「声明能力」与「能力实际可用」必须分开（目录 vs 开关）；调用适配器失败时上游不得吞掉 `message`（videogen 修复列为后续）。
+
+## electron 43.x 无 postinstall 与二进制自愈方案 B 复盘 (2026-08-10，环境/工具链)
+
+- **背景**：`npm install` 后 `node_modules/electron/dist/` 反复缺失，electron 二进制不可用，需手动 `node node_modules/electron/install.js` 恢复；多次复现。
+- **根因**：`electron@43.x` 的 npm 包不再声明 `postinstall: node install.js`（31~41 版本都有；官方 npmjs tarball 实测 43.1.1 的 package.json 无 scripts 字段）。npm 重装 electron 时判定"无安装脚本"（`.package-lock.json` hasInstallScript=false），不会自动下载 dist；`install.js` 成为唯一下载/解压入口（优先本地 `@electron/get` 缓存，秒级）。
+- **方案选择**：不接 root `postinstall`——否则后端/ECS 每次 `npm ci` 都会被拖去下载 electron ~110MB，且离线/受限环境构建会直接失败。采用方案 B：`scripts/ensure-electron.js` 按需自愈 + AGENTS.md 文档约定；`electron-ci.yml` 保持现状（已手动执行 install.js）。
+- **实现**：`scripts/ensure-electron.js` 三态——dist 完整→跳过(exit 0)；缺失→触发 install.js；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 显式跳过。按仓库约定把脚本加入 `scripts/*.js` 的 .gitignore 白名单。
+- **验证**：三路实测（就绪/跳过/缺失包）+ electron v43.1.1 就绪；本条目即文档同步门禁要求的 docs 变更。
+- **教训**：① 上游 npm 包 lifecycle 声明可能被版本演进静默移除，对"下载型二进制"依赖要装后自检而非假设就绪；② 环境修复优先"按需显式触发"，避免给所有部署形态（尤其后端镜像构建）引入无关下载与失败点。

@@ -246,6 +246,7 @@ sleep 8 && kill $!
 ## 构建与发布
 
 - **打包**：`npm run build:win`（需 node_modules 里有 electron@43.1.1 + electron-builder@25.1.8）
+- **electron 二进制自愈（方案 B）**：`electron@43.x` 的 npm 包不再声明 `postinstall: node install.js`（31~41 版本有），`npm install` 重装 electron 后 `dist/` 不会自动下载。装完依赖后执行 `node scripts/ensure-electron.js`（缺失时自动触发 `node node_modules/electron/install.js`，优先走本地 `@electron/get` 缓存）；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 可显式跳过。`electron-ci.yml` 已手动执行 install.js，无需改动。
 - **Playwright 浏览器捆绑**：打包前需执行 `cd apps/desktop && PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers npx playwright install chromium`，浏览器自动捆入 `extraResources`
 - **离线支持**：安装包自带 Chromium 浏览器（~170MB），无需代理；
   自动更新模块内置 GFW 网络错误静默处理，无网络时静默失败不弹错
