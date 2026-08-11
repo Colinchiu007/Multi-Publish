@@ -4,6 +4,14 @@
 - 修复：保存时用 _resolveSource 探测 BGM 源，缺失/不可读则跳过拷贝并清空 bgmPath / config.bgm.path 引用（避免元数据指向已回收文件），不再阻断保存。
 - 测试：story2video-project-service.test.js 新增回归用例（缺失 BGM 源 + 成片存在时 saveRun 成功不误判），本地 23/23 通过。
 
+## [未发布] 修复：既有 CI 失败（electron-tests / gui-test / QG 系列）（2026-08-11）
+
+- **CreateView 子组件漏注册**：`components` 缺 PipelineSelector/StageProgress/CreateViewHistory → Vue 'Failed to resolve component'、流水线卡片不渲染（gui-test /create 15/26 失败）。补注册修复。
+- **E2E fixture 缺登录态**：`tests/e2e/helpers/ipc-mock.js` 无 identityGetState → identityStore=error → 主动操作登录门拦截启动。预置 authenticated 登录态（identityGetState/identitySignIn/identitySignOut/onIdentityStateChanged）。
+- **prompt-engine max_length 契约同步**：`stage-executor.test.js` / `pipeline-story2video-contract.test.js` 期望 `max_length:300` 与契约默认 500 不一致（00a581d1 引入时未同步）→ electron-tests OPTIMIZE/OPTIMIZE_BATCH 失败。改 500。
+- **phase5-ipc 断言同步**：untrustedSender 自 #531 多语言后附带 errorCode，测试断言补 `errorCode: 'UNTRUSTED_SENDER'`。
+- 验证：E2E create 58/58、pipeline 11/11；src 全量 1904/1904；electron/services+tests 全量单 worker 3604/3604。
+
 ## [未发布] 功能：字幕分割规则对齐《字幕分割规范 v1.0》（2026-08-11）
 
 - `text-segmentation.ts` 的 `SubtitleSegmenter` 重构为规范 7 步流水线（与 smart-sentence-splitter Python 实现共享同一规范）：
