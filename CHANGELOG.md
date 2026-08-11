@@ -78,6 +78,7 @@
 - 契约：story2videoTextConfig 新增可选 video 段（mode/provider/model/fixedRatio/minRatio/maxRatio/maxScenes），normalizer 白名单校验；参数治理纳入（视频并发固定 1，前端不暴露）。
 - 文档：PRD §7.1.25（数据校验/流程/功能逻辑/交互/显示项/提示文字/降级/验收标准）。
 - 测试：story2video-text-config +10、story2video-stages +21（选择算法/执行器/视频分支真实下载）、story2video-compose-engine +3（混合真实编码）、pipeline-engine/pipeline-story2video-contract 阶段顺序同步。
+- 真实运行加固（2026-08-11）：ai-judged 的 LLM 选择改为有界重试（最多 3 次，空内容/解析失败均重试并记录 raw 诊断），修复推理型模型（deepseek-v4-flash）对 27 场景长任务偶发返回空 content/非法 JSON 导致整阶段失败；修复 video_plan 中 excitement/reason 因 entries 遮蔽恒为空的问题；真实运行证据：27 场景 AI 选中 10 个（占比 37%，区间 20%-40%），27 图 + 27 TTS 真实生成，视频场景因 provider 额度（MiniMax 2056）正确回退图片，成片 337.9s/54.9MB。
 
 
 ## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
