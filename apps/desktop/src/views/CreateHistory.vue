@@ -102,6 +102,7 @@
 import '@/styles/create-history.css'
 import { pipelineHistory } from '@/api/publisher'
 import UiButton from '../components/UiButton.vue'
+import { formatUserError } from '../utils/user-facing-error'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 
@@ -162,7 +163,7 @@ export default {
         })
         if (requestId !== this.renderRequestId) return
         if (res?.code === 0) this.renders = res?.data?.records || []
-        else this.renderError = res?.message || '渲染记录加载失败，请重试'
+        else this.renderError = formatUserError(res, { fallback: '渲染记录加载失败，请重试' }).message
       } catch (e) {
         if (requestId !== this.renderRequestId) return
         this.renderError = e?.code === 'HISTORY_LOAD_TIMEOUT' ? '渲染记录加载超时，请重试' : '渲染记录加载失败，请重试'
@@ -178,7 +179,7 @@ export default {
         const r = await settleHistoryRequest(() => pipelineHistory())
         if (requestId !== this.pipelineRequestId) return
         if (r?.code === 0 && Array.isArray(r.data)) this.pipelines = r.data
-        else this.pipelineError = r?.message || '流水线记录加载失败，请重试'
+        else this.pipelineError = formatUserError(r, { fallback: '流水线记录加载失败，请重试' }).message
       // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停（超时/崩溃遗留）
       const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
       const now = Date.now()

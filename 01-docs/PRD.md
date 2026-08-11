@@ -339,6 +339,88 @@ platforms:
 | RPA 失败 | RPA_FAILED | 截图保存 -> 降级 -> 人工接管 |
 | 校验失败 | VALIDATION_FAILED | 弹窗提示具体原因 |
 
+#### 用户提示文字与多语言规范（2026-08-11 新增，user-facing-messages）
+
+**目标**：所有出现在用户面前的错误、警告、建议、状态提示与引导文字，一律输出为清晰、自然、可理解的语言；出现问题或操作失败时，必须给出「具体原因 + 解决方法建议」，禁止直接暴露内部技术文本（IPC 通道名、英文错误码、内部标识符、栈信息、IP:端口等）。
+
+**1. 语言解析规则（数据校验/流程）**
+
+| 优先级 | 来源 | 规则 |
+|--------|------|------|
+| 1 | 用户显式设置（localStorage `locale`） | `zh` / `en`，立即生效并持久化 |
+| 2 | 系统语言（`navigator.language`） | `zh*` → 中文；`en*` → 英文；其余 → 英文（与 fallbackLocale 一致） |
+| 3 | 默认 | 中文 |
+
+实现：`apps/desktop/src/i18n/index.js` 导出 `detectSystemLocale()` / `resolveAppLocale()` / `getAppLocale()` / `setAppLocale()`；`setAppLocale` 写入 localStorage 并即时更新 vue-i18n locale。测试环境通过 `test-setup.js` 固定 `navigator.language = 'zh-CN'` 保证断言确定性。
+
+**2. 错误文案统一入口（功能逻辑）**
+
+渲染端新增 `src/utils/user-facing-error.js` 的 `formatUserError(input, { locale?, fallback? })`，解析顺序（严格）：
+
+1. `input.errorCode`（主进程返回的稳定机器码，优先）→ 查 `USER_ERROR_CODES` 目录，命中输出「原因 + 建议」本地化文案；
+2. `input.code` 数值错误码 → 映射表（`-3` 认证、`-2` 校验、`-10` 未找到、`-11` 超时、`-12` 网络、`-13` IO、`429` 限流、`402` 额度）；
+3. 遗留原始 message pattern 兜底（未登录/网络/超时/存储/限流/额度/API Key 未配置等正则）；
+4. 未知错误：文本含明显技术标识（通道名 `store:xxx`、大写下划线错误码 `VOICE_CATALOG_UNAVAILABLE`、栈信息 `line N`、IP:端口）→ 使用调用方 fallback 或通用「操作失败，请稍后重试」；其余自然语言原因文本 → 原样透传，保留「具体原因」。
+
+返回 `{ errorCode, message, matched }`。任何用户可见区域都不得直接渲染 `result.message` / `e.message` 原文，必须经过 `formatUserError`。
+
+**3. 主进程错误返回契约（数据校验）**
+
+| 场景 | 返回结构 | message 规则 |
+|------|---------|-------------|
+| 未登录/未激活调用需登录通道 | `{ code:-3, errorCode:'AUTH_REQUIRED', message: 自然语言(原因+建议), messageParams:{channel} }` | 不得含通道名 |
+| 已登录但缺业务权益 | `{ code:-3, errorCode:'ENTITLEMENT_REQUIRED', message: 自然语言(原因+建议), messageParams:{channel} }` | 不得含通道名 |
+| 不可信 IPC 来源 | `{ code:-3, errorCode:'UNTRUSTED_SENDER', message:'未授权的调用来源' }` | 保持兼容 |
+| 模型服务商创建/更新/删除/默认/加密等 | `{ code:-1, errorCode:'PROVIDER_EXISTS' | 'CREATE_FAILED' | ...，message: 自然语言，messageParams:{detail} }` | 原始 detail 只进 `messageParams.detail`，不进 message |
+
+涉及文件：`apps/desktop/electron/ipc-handlers/license-access-control.js`、`apps/desktop/electron/services/model-provider-manager.js`、`apps/desktop/electron/services/webview-manager.js`。
+
+**4. 交互逻辑与显示项**
+
+| 显示项 | 交互逻辑 | 文案要求 |
+|--------|---------|---------|
+| 页面级错误行（创作历史/发布历史/流水线列表等） | 展示 `formatUserError` 输出，附「重试」按钮 | 原因 + 建议 + 重试入口 |
+| 轻提示（ElMessage / 进度条） | 模型设置、运营同步、审批门、升级弹窗等失败 | 原因 + 建议，不直出原文 |
+| 发布结果区（成功/失败摘要） | 成功显示主进程 message；失败显示格式化文案 | 失败必须含原因 + 建议 |
+| 自动更新错误 | 更新/下载失败显示格式化文案 | 网络类映射「网络连接失败。请检查网络后重试。」 |
+| Story2Video 通知 | 沿用既有 `story2video-notifications.js` pattern→key 映射（`当前许可证无权访问` 前缀保留兼容） | 原因 + 建议 |
+
+接入范围：CreateHistory / PublishHistory / CreateView / useModelProviderCrud / useOpsCenterSync / usePublishFlow / usePublishDrafts / useBatchPublish / useAutoUpdate / ApprovalGateModal / UpgradeModal / PipelineBrowser / TemplatePicker / ReplayTimeline / stores/accounts。
+
+**5. 提示文字表（核心 errorCode → zh / en）**
+
+| errorCode | 中文（原因 + 建议） | English |
+|-----------|---------------------|---------|
+| AUTH_REQUIRED | 当前未登录或登录状态已失效，无法使用该功能。请先登录后重试；若仍提示无权限，请确认当前账号已开通所需权益。 | You are not signed in or your session has expired...Please sign in and try again... |
+| ENTITLEMENT_REQUIRED | 当前账号没有所需权益，无法使用该功能。请升级或开通对应权益后重试。 | The current account does not have the required plan...Please upgrade or enable... |
+| UNTRUSTED_SENDER | 检测到非预期的调用来源，本次操作已取消。请重启应用后重试。 | An unexpected call source was detected...Please restart the app... |
+| NETWORK_ERROR | 网络连接失败。请检查网络后重试。 | Network connection failed. Please check your network and try again. |
+| TIMEOUT | 操作超时。请稍后重试；若持续出现请重启应用。 | The operation timed out. Please try again later; if it persists, restart the app. |
+| STORAGE_UNAVAILABLE | 本地存储暂时不可用。请重启应用后重试；若持续出现，请检查本地磁盘空间与读写权限。 | Local storage is temporarily unavailable... |
+| VALIDATION_ERROR | 提交的数据不符合要求。请检查输入后重试。 | The submitted data does not meet the requirements... |
+| NOT_FOUND | 未找到相关记录或资源，可能已被删除。请刷新后重试。 | The related record or resource was not found... |
+| IO_ERROR | 读写本地文件失败。请检查磁盘空间与文件权限后重试。 | Failed to read or write local files... |
+| RATE_LIMITED | 操作过于频繁，已被服务商限流。请稍等片刻后再试。 | You are being rate limited... |
+| QUOTA_EXCEEDED | 当前额度已用完。请等待额度恢复或升级套餐后重试。 | Your current quota has been used up... |
+| PROVIDER_EXISTS | 该服务商 ID 已存在。请更换 ID，或直接编辑已有服务商后重试。 | This provider ID already exists... |
+| ADAPTER_NOT_FOUND / PROVIDER_NOT_FOUND | 未找到该服务商（对应适配器）。请检查服务商配置 / 刷新列表后重试。 | No adapter / provider was found... |
+| API_KEY_NOT_CONFIGURED / API_KEY_REQUIRED | 该服务商尚未配置 API Key（远程服务商必须配置）。请在「模型设置」中填写后重试。 | Add the key in Model Settings and try again. |
+| ADAPTER_INIT_FAILED | 服务商初始化失败。请检查配置与服务商服务状态后重试。 | Provider initialization failed... |
+| OPERATION_NOT_SUPPORTED | 该服务商不支持此操作。请在「模型设置」中调整模型配置后重试。 | This provider does not support this operation... |
+| CREATE/UPDATE/DELETE/SET_DEFAULT_FAILED | 创建/更新/删除/设置默认服务商失败。请检查输入或稍后重试。 | Creation/Update/Deletion/Failed to set default... |
+| ENCRYPT_FAILED / CRYPTO_UNAVAILABLE | API Key 加密失败 / 系统安全存储不可用，无法保存 API Key。请重启应用或检查系统设置后重试。 | Failed to encrypt the API key / secure storage unavailable... |
+| OPERATION_FAILED（通用） | 操作失败，请稍后重试。 | The operation failed. Please try again later. |
+
+完整中英文文案见 `apps/desktop/src/utils/user-facing-error.js` 的 `MESSAGES` 目录（唯一事实源，本表为摘要）。
+
+**6. 回归测试（验收标准）**
+
+- `src/utils/user-facing-error.test.js`：errorCode 优先 / 数值 code / pattern / 技术文本 sanitize / 自然语言透传 / zh+en；
+- `src/i18n/i18n.test.js`：系统语言检测（zh*/en*/其余）、显式设置优先、setAppLocale 持久化；
+- `electron/ipc-handlers/license-access-control.test.js`：`AUTH_REQUIRED` / `ENTITLEMENT_REQUIRED` errorCode 且 message 不含通道名；
+- `model-provider-*` 测试：英文括号注释移除、errorCode 断言；
+- 受影响视图/composable 测试：技术文本不直出、自然语言透传。
+
 #### 审计日志
 
 每次发布操作记录到 SQLite audit_log 表：

@@ -168,6 +168,7 @@ import { useRoute } from 'vue-router'
 import UiButton from '@/components/UiButton.vue'
 import BoardStageIndicator from '@/components/BoardStageIndicator.vue'
 import SceneCard from '@/components/SceneCard.vue'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const route = useRoute()
 const projectId = computed(() => route.params.projectId || '')
@@ -231,12 +232,12 @@ async function loadReplay() {
       totalDuration.value = result.data.totalDuration || 0
       currentIndex.value = 0
     } else if (result && result.code !== 0) {
-      error.value = result.message || '加载回放失败'
+      error.value = formatUserError(result, { fallback: '加载回放失败' }).message
     } else {
       events.value = []
     }
   } catch (e) {
-    error.value = e.message || '加载回放数据失败'
+    error.value = formatUserError(e, { fallback: '加载回放数据失败' }).message
   } finally {
     loading.value = false
   }

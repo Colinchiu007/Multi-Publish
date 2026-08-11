@@ -287,7 +287,8 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
     it('未注册 Adapter 返回错误', async () => {
       const result = await manager.callAdapter('nonexistent', 'chatCompletion', {})
       expect(result.code).toBe(-1)
-      expect(result.message).toMatch(/no adapter.*registered/i)
+      expect(result.errorCode).toBe('ADAPTER_NOT_FOUND')
+      expect(result.message).toContain('适配器')
     })
 
     it('provider 不存在返回错误', async () => {
@@ -299,7 +300,8 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
 
       const result = await manager.callAdapter('openai', 'chatCompletion', {})
       expect(result.code).toBe(-1)
-      expect(result.message).toMatch(/not found/i)
+      expect(result.errorCode).toBe('PROVIDER_NOT_FOUND')
+      expect(result.message).toContain('未找到服务商')
     })
 
     it('成功调用 chatCompletion', async () => {
@@ -354,7 +356,8 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
 
       const result = await manager.callAdapter('openai', 'synthesize', {})
       expect(result.code).toBe(-1)
-      expect(result.message).toMatch(/not supported|capability/i)
+      expect(result.errorCode).toBe('OPERATION_NOT_SUPPORTED')
+      expect(result.message).toContain('不支持')
     })
   })
 
@@ -580,7 +583,8 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
       manager._ready = false
       const result = await manager.callAdapter('openai', 'chatCompletion', {})
       expect(result.code).toBe(-1)
-      expect(result.message).toMatch(/not initialized/i)
+      expect(result.errorCode).toBe('STORE_NOT_INITIALIZED')
+      expect(result.message).toContain('尚未初始化')
     })
 
     it('manager._ready=false 时不访问 _adapterFactories', async () => {
@@ -589,7 +593,8 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
       manager._adapterFactories.clear()
       const result = await manager.callAdapter('openai', 'chatCompletion', {})
       // 仍返回 store not initialized（而非 no adapter）
-      expect(result.message).toMatch(/not initialized/i)
+      expect(result.errorCode).toBe('STORE_NOT_INITIALIZED')
+      expect(result.message).toContain('尚未初始化')
     })
   })
 
@@ -659,7 +664,9 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
 
       const result = await manager.callAdapter('crash-factory', 'chatCompletion', {})
       expect(result.code).toBe(-1)
-      expect(result.message).toContain('Factory initialization failed')
+      expect(result.errorCode).toBe('ADAPTER_INIT_FAILED')
+      expect(result.message).toContain('适配器初始化失败')
+      expect(result.messageParams.detail).toContain('Factory initialization failed')
     })
 
     it('factory 抛 ProviderError 时透传', async () => {
@@ -775,7 +782,8 @@ describe('ModelProviderManager — P3.2 callAdapter 集成', () => {
       // 再次调用：provider 不存在
       const result = await manager.callAdapter('temp', 'chatCompletion', {})
       expect(result.code).toBe(-1)
-      expect(result.message).toMatch(/not found/i)
+      expect(result.errorCode).toBe('PROVIDER_NOT_FOUND')
+      expect(result.message).toContain('未找到服务商')
       // factory 不应被再次调用
       expect(factoryCallCount).toBe(1)
     })

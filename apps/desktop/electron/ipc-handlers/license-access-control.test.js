@@ -222,6 +222,51 @@ describe('主进程许可证动态鉴权', () => {
     expect(completePayment).not.toHaveBeenCalled()
   })
 
+  it('拒绝未登录时返回结构化 errorCode，message 不含内部通道名', async () => {
+    const identityService = { getState: () => ({ status: 'signed_out' }) }
+    const { ipcMain, handlers } = createIpcMainHarness()
+    const controlledIpcMain = createAccessControlledIpcMain(
+      ipcMain,
+      null,
+      { NODE_ENV: 'production' },
+      { isPackaged: true },
+      identityService,
+    )
+    const protectedHandler = vi.fn(async () => ({ code: 0 }))
+    controlledIpcMain.handle('store:list-publish-history', protectedHandler)
+
+    const result = await handlers['store:list-publish-history'](trustedEvent, {})
+    expect(result).toMatchObject({ code: -3, errorCode: 'AUTH_REQUIRED' })
+    expect(result.message).not.toContain('store:list-publish-history')
+    expect(result.message).not.toContain(':')
+    expect(result.messageParams).toEqual({ channel: 'store:list-publish-history' })
+    expect(protectedHandler).not.toHaveBeenCalled()
+  })
+
+  it('缺少业务权益时返回 ENTITLEMENT_REQUIRED，message 不含通道名', async () => {
+    const identityService = {
+      getState: () => ({ status: 'authenticated' }),
+      requireEntitlement: vi.fn(async () => { throw new Error('no entitlement') }),
+    }
+    const { ipcMain, handlers } = createIpcMainHarness()
+    const controlledIpcMain = createAccessControlledIpcMain(
+      ipcMain,
+      null,
+      { NODE_ENV: 'production' },
+      { isPackaged: true },
+      identityService,
+    )
+    const publish = vi.fn(async () => ({ code: 0 }))
+    controlledIpcMain.handle('publish:wechat', publish)
+
+    const result = await handlers['publish:wechat'](trustedEvent, {})
+    expect(result).toMatchObject({ code: -3, errorCode: 'ENTITLEMENT_REQUIRED' })
+    expect(result.message).not.toContain('publish:wechat')
+    expect(result.message).toContain('权益')
+    expect(result.messageParams).toEqual({ channel: 'publish:wechat' })
+    expect(publish).not.toHaveBeenCalled()
+  })
+
   it.each([
     'payment:create-order',
     'payment:list-orders',

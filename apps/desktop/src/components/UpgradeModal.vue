@@ -139,6 +139,7 @@ import { ref, computed, onMounted } from "vue"
 import { useLicenseStore } from "@/stores/license"
 import { paymentCreateOrder, paymentSimulate, paymentCancel } from "@/api/publisher"
 import { reportError } from "@/utils/report-error"
+import { formatUserError } from "@/utils/user-facing-error"
 
 const emit = defineEmits(["close"])
 
@@ -174,11 +175,11 @@ async function submitOrder() {
       orderId.value = res.data.id
       paymentStep.value = "paying"
     } else {
-      paymentError.value = res.message
+      paymentError.value = formatUserError(res, { fallback: '创建订单失败，请稍后重试' }).message
       paymentStep.value = "failed"
     }
   } catch(e) {
-    paymentError.value = e.message
+    paymentError.value = formatUserError(e, { fallback: '创建订单失败，请稍后重试' }).message
     paymentStep.value = "failed"
   }
   orderLoading.value = false
@@ -192,11 +193,11 @@ async function simulatePayment() {
       paymentStep.value = "success"
       await store.load()
     } else {
-      paymentError.value = res.message
+      paymentError.value = formatUserError(res, { fallback: '支付确认失败，请稍后重试' }).message
       paymentStep.value = "failed"
     }
   } catch(e) {
-    paymentError.value = e.message
+    paymentError.value = formatUserError(e, { fallback: '支付确认失败，请稍后重试' }).message
     paymentStep.value = "failed"
   }
   simulating.value = false

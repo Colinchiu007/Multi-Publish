@@ -4,6 +4,16 @@
 
 ---
 
+## 技术性提示文字直出用户界面复盘 (2026-08-11，质量节拍 Bug 反哺)
+
+- **表象**：用户反馈页面出现「当前许可证无权访问 store:list-publish-history」这类技术性提示。主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message 返回给渲染端，渲染端（CreateHistory / PublishHistory / useModelProviderCrud 等）把 `result.message`/`e.message` 原样展示；`model-provider-manager.js` 的 message 还夹带英文括号注释（如「（No adapter registered for provider \"x\"）」）。
+- **根因（历史）**：早期优化只覆盖 Story2Video 域（story2video-notifications.js 的 pattern→key 映射），未做全应用统一；i18n 只有 zh/en 语料和 localStorage 读取，无系统语言检测、无设置入口。
+- **逃逸链**：① 主进程单元测试断言旧 message 文本（`未授权的调用来源` 等），反向固化技术文案；② 渲染端测试断言「错误 = 原始 message」把直出行为当作正确行为；③ 无「message 不得含通道名/英文括号」的契约断言。
+- **修复**：① 主进程拒绝类错误返回稳定 `errorCode` + 去通道名 message + `messageParams.channel`（诊断用），模型服务商错误去英文括号、detail 进 `messageParams.detail`；② 渲染端新增 `src/utils/user-facing-error.js` 统一 `formatUserError`（errorCode → 数值 code → 遗留 pattern → 技术文本 sanitize / 自然语言透传），接入 16+ 显示路径；③ i18n 新增系统语言检测 + 设置弹窗语言切换；④ `test-setup.js` 固定测试语言 zh-CN。
+- **关键设计教训**：统一错误格式化必须区分「技术文本」与「自然语言原因」——对已是自然语言的原因文本应原样透传保留信息（如「排期失败：任务不存在」），只对含通道名/错误码/栈信息的技术文本做 sanitize 兜底；无脑替换为通用文案会丢失「具体原因」，违背需求。
+- **回归保护**：`user-facing-error.test.js`（17 用例）覆盖 errorCode/code/pattern/技术 sanitize/自然透传/zh+en；license-access-control 断言 errorCode 且 message 不含通道名；model-provider-* 断言 errorCode；受影响视图测试同步。
+- **预防措施**：① IPC 错误 message 禁止拼内部通道名/英文括号注释，一律走 errorCode + messageParams；② 渲染端用户可见区域禁止直接渲染 IPC message 原文，必须经 `formatUserError`；③ 测试断言不得把「展示原始 message」固化为正确行为；④ 新增/修改用户可见提示必须同时提供 zh/en 文案并在 PRD §3.2 提示文字规范登记。
+
 ## MiniMax Adapter 无超时 + 多模态模型错配复盘 (2026-08-11，质量节拍 Bug 反哺)
 
 - **表象**：E2E 全流水线真实验证（43 用例）中发现 explainer/documentary 的 assets 阶段偶发永久挂起（25 分钟不收敛），且图片生成被错误传入 TTS 模型。

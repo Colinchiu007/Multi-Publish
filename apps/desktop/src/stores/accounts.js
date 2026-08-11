@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { listAccounts, accountDelete, accountSetDefault, accountUpdate } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
+import { formatUserError } from '@/utils/user-facing-error'
 
 /**
  * 账号管理 Store（增强版 - 蚁小二复用）
@@ -45,7 +46,7 @@ export const useAccountStore = defineStore('accounts', () => {
       if (shouldReconcileMetadata) reconcileAccountMetadata()
       loaded.value = true
     } catch (e) {
-      error.value = e.message
+      error.value = formatUserError(e, { fallback: '账号列表加载失败' }).message
       accounts.value = []
       reconcileSelection()
     } finally {
@@ -384,11 +385,11 @@ export const useAccountStore = defineStore('accounts', () => {
     const account = accounts.value.find(item => item.id === accountId)
     if (!account || account.platform !== platform) return { code: -2, message: '账号不属于指定平台' }
     try { const res = await accountSetDefault(platform, accountId); if (res.code === 0) await load(); return res }
-    catch (e) { return { code: -1, message: e.message } }
+    catch (e) { return { code: -1, message: formatUserError(e, { fallback: '操作失败' }).message } }
   }
   async function renameAccount(accountId, newName) {
     try { const res = await accountUpdate(accountId, { name: newName }); if (res.code === 0) await load(); return res }
-    catch (e) { return { code: -1, message: e.message } }
+    catch (e) { return { code: -1, message: formatUserError(e, { fallback: '操作失败' }).message } }
   }
 
   return {

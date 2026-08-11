@@ -25,13 +25,52 @@ function toMessageFunctions (value) {
   return output
 }
 
-const storedLocale = typeof localStorage === 'undefined' ? null : localStorage.getItem('locale')
-const locale = storedLocale === 'en' ? 'en' : 'zh'
+export const SUPPORTED_LOCALES = Object.freeze(['zh', 'en'])
+
+/**
+ * 系统语言自动检测（user-facing-messages 规范）：
+ * zh* → zh，en* → en，其余 → en（与 fallbackLocale 一致）；无 navigator 时回退 zh。
+ */
+export function detectSystemLocale () {
+  if (typeof navigator === 'undefined' || !navigator.language) return 'zh'
+  const lang = String(navigator.language || '').toLowerCase()
+  if (lang.startsWith('zh')) return 'zh'
+  if (lang.startsWith('en')) return 'en'
+  return 'en'
+}
+
+/** 语言解析优先级：显式设置（localStorage locale）→ 系统语言 → 默认 zh。 */
+export function resolveAppLocale () {
+  const stored = typeof localStorage === 'undefined' ? null : localStorage.getItem('locale')
+  if (stored === 'en' || stored === 'zh') return stored
+  return detectSystemLocale()
+}
+
+/** 读取当前生效语言（已解析，zh/en）。 */
+export function getAppLocale () {
+  const current = i18n.global.locale.value
+  return current === 'en' ? 'en' : 'zh'
+}
+
+/**
+ * 切换应用语言：持久化（localStorage）并即时生效。
+ * @param {'zh'|'en'} locale
+ */
+export function setAppLocale (locale) {
+  const normalized = locale === 'en' ? 'en' : 'zh'
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('locale', normalized)
+  } catch (_) {
+    // localStorage 不可用时仅内存生效
+  }
+  i18n.global.locale.value = normalized
+  return normalized
+}
 
 const i18n = createI18n({
   legacy: false,
   globalInjection: true,
-  locale,
+  locale: resolveAppLocale(),
   fallbackLocale: 'en',
   messages: { zh: toMessageFunctions(zh), en: toMessageFunctions(en) },
 })

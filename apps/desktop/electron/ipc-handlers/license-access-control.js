@@ -108,20 +108,26 @@ function hasAccess(currentLevel, requiredLevel) {
 function denied(channel) {
   return {
     code: ERROR.AUTH_ERROR,
-    message: `当前许可证无权访问 ${channel}`,
+    errorCode: 'AUTH_REQUIRED',
+    // 用户可见文案不得包含内部通道名；通道名仅作诊断（messageParams.channel）。
+    message: '当前许可证无权访问该功能，请先登录并确认账号已开通所需权益后重试。',
+    messageParams: { channel },
   }
 }
 
 function entitlementDenied(channel) {
   return {
     code: ERROR.AUTH_ERROR,
-    message: `当前账号没有所需权益，无法访问 ${channel}`,
+    errorCode: 'ENTITLEMENT_REQUIRED',
+    message: '当前账号没有所需权益，无法使用该功能。请升级或开通对应权益后重试。',
+    messageParams: { channel },
   }
 }
 
 function untrustedSender() {
   return {
     code: ERROR.AUTH_ERROR,
+    errorCode: 'UNTRUSTED_SENDER',
     message: '未授权的调用来源',
   }
 }

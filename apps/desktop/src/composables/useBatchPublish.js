@@ -15,6 +15,7 @@
  */
 import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { formatUserError } from '@/utils/user-facing-error'
 import {
   batchCreate,
   batchExecute,
@@ -548,7 +549,7 @@ export function useBatchPublish(options) {
       keepPublishingLock = false
       clearBatchTracking()
       batchProgress.value.push({
-        text: '❌ 批量发布失败: ' + ((e && e.message) || '未知错误'),
+        text: '❌ 批量发布失败: ' + formatUserError(e, { fallback: '未知错误' }).message,
         time: new Date().toLocaleTimeString('zh-CN'),
         type: 'danger',
       })
