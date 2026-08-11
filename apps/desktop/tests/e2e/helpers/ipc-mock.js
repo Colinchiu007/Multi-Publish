@@ -657,6 +657,30 @@
       return fail('not found');
     }),
 
+    // 身份（Logto）预置登录态：E2E 需要登录的功能（流水线启动/发布等）依赖 authenticated 状态；
+    // 未预置时 identityStore 为 error/disabled，主动操作登录门（useLoginGate）会拦截启动。
+    identityGetState: makeHandler('identityGetState', async () => ok({
+      status: 'authenticated',
+      user: { sub: 'e2e-user', name: 'E2E 用户', username: 'e2e', picture: '' },
+      entitlement: {
+        plan: 'pro',
+        features: [
+          'cloud_publish', 'ai_writer', 'publish_history', 'pipeline_run',
+          'video_process', 'story2video_write', 'model_provider_write',
+        ],
+        source: 'online',
+      },
+      error: null,
+    })),
+    identitySignIn: makeHandler('identitySignIn', async () => ok({
+      status: 'authenticated',
+      user: { sub: 'e2e-user', name: 'E2E 用户', username: 'e2e', picture: '' },
+      entitlement: { plan: 'pro', features: [], source: 'online' },
+      error: null,
+    })),
+    identitySignOut: makeHandler('identitySignOut', async () => ok({ status: 'signed_out', user: null })),
+    onIdentityStateChanged: makeOn('identity:state-changed'),
+
     // 嵌入浏览器登录
     authOpenLogin: makeHandler('authOpenLogin', async (platform) => ok({ opened: true, platform })),
     authClose: makeHandler('authClose', async () => ok(true)),
