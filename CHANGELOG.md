@@ -1,3 +1,8 @@
+## [未发布] 修复：max_length 严格一致性对齐——stageDefs / YAML 镜像默认 300→500（2026-08-11）
+
+- PR #546 已修复测试断言为 500，但 `pipeline-engine.js` story2video-compose optimize stageDefs 与 `story2video-compose.yaml` 镜像仍为 300，与 `prompt-engine-contract.js` / `story2video-text-config.js` 默认 500 不一致。本次将这两处 300 对齐为 500，满足「renderer/normalizer/YAML/compose engine 默认值一致」契约。
+- 回归：pipeline-engine 37/37、stage-executor 58/58、pipeline-story2video-contract 18/18；QM-1 打包验证。
+
 ## [未发布] 修复：videogen 流水线对推理型 LLM 自动放大提示词生成预算（2026-08-11）
 
 - 根因：推理型 LLM（MiniMax-M3 / deepseek-reasoner / deepseek-v4-flash 等）会把 <think> 思考过程算进输出，videogen 家族（animation / avatar-spokesperson / character-animation / hybrid）的 concept / storyboard 阶段在默认 1600 max_tokens 下 JSON 被截断，parseJsonArray 返回 null 导致分镜阶段失败（MiniMax-M3 实测 2000 tokens 仍截断）。

@@ -528,7 +528,7 @@ const PIPELINES = [
           platform: 'generic',
           style: 'realistic',
           creative_level: 5,
-          max_length: 300,
+          max_length: 500,
           num_candidates: 1,
           auto_detect_style: true,
           negative_prompt: '',

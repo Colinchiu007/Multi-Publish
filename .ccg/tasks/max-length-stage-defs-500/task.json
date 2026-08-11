@@ -1,0 +1,13 @@
+{
+  "id": "max-length-stage-defs-500",
+  "title": "max_length 严格一致性对齐：pipeline-engine stageDefs + story2video-compose.yaml 300→500",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-11T23:15:00+08:00",
+  "branch": "codex/max-length-stage-defs-500",
+  "summary": "PR #546 已修复测试断言（max_length 500），但 pipeline-engine.js optimize stageDefs 与 story2video-compose.yaml 镜像仍为 300，与 prompt-engine-contract / story2video-text-config 默认 500 不一致。本次将两处 300 对齐为 500，满足「renderer/normalizer/YAML/compose engine 默认值一致」契约。回归：pipeline-engine 37 + stage-executor 58 + pipeline-story2video-contract 18 全过；QM-1 打包验证。"
+}
