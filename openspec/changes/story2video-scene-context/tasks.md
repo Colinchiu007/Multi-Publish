@@ -7,7 +7,7 @@
 - [ ] 基线差异审计：核对 origin/main（b7819cee）已交付能力；现状确认：domain_enrich 仅 history + 单场景识别；optimize 无结构化故事上下文；PR #524 未合并（含 buildOptimizeContext）；prompt-engine build_context_section 已支持 setting/character/character_list/synopsis/narrative_intent/scene_type/full_text 键。证据：story2video-domain.js:41-60、story2video-stages.js:786-803/937+、pipeline-engine.js:482、prompt_engine/prompt_builder.py:68-90
 - [ ] OpenSpec change 创建：proposal → design → specs → tasks（本文件）并 `openspec validate` 通过
 
-## 实现（codex/story2video-scene-context 分支）
+## 实现（codex/story2video-scene-context-v2 分支（隔离 worktree，避免与并发会话共用分支））
 
 ### 任务 1：story-context-engine（新增模块，TDD）
 - [ ] story-context-engine.test.js 先写：用户示例（唐朝全文+「一个老妇人在做饭」场景 → 朝代/文化/锚点/负面锚点断言）、无关键词、多文化、配置边界、敏感键、空场景 fail-closed、降级
@@ -39,3 +39,4 @@
 - [ ] 提交（codex/story2video-scene-context）→ push → PR → CI → 合并回 main
 - [ ] OpenSpec archive + CCG task 归档 + 质量节拍复盘（三同步，一次 commit）
 - [ ] 记忆更新（用户显式要求：ad_hoc note）
+

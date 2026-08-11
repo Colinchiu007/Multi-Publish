@@ -5,9 +5,9 @@
   "complexity": "L",
   "risk": "medium",
   "domain": "story2video",
-  "currentPhase": "review",
-  "nextAction": "双模型审查完成后 push PR CI 合并",
+  "currentPhase": "delivery",
+  "nextAction": "push PR CI 合并 + 三同步归档",
   "createdAt": "2026-08-11T10:30:00+08:00",
-  "branch": "codex/story2video-scene-context",
+  "branch": "codex/story2video-scene-context-v2",
   "openspecChange": "story2video-scene-context"
 }
