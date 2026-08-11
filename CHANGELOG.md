@@ -1,3 +1,9 @@
+## [未发布] 文档：模型 API 调用并发 / 排队 / 限流机制详细合同补充（2026-08-11）
+
+- 核验并固化「每分钟连接次数（rate_per_minute）由运营后台设置/修改，未设置时降级到数据库默认值」的完整链路：运营后台 `model_presets`（DB）→ catalog → 桌面 `model_providers.config`（DB）→ 桌面 DB 预设种子 `PRESET_RATE_LIMITS` 回填 → 静态表 `PROVIDER_LIMITS` → 类别默认 `DEFAULT_LIMITS`；运营显式清空回退静态表/类别默认。
+- 补充排队与冷却时序预算：并发信号量 30s、RPM 时间槽 180s、429 冷却 45s、额度预检即拒；429 自适应 ×0.75 下调 / +0.05 恢复；同 key 重入透传防双包死锁；两端数据校验规则与提示文案。
+- 文档：PRD §7.1.8.1（时序预算与数据校验）、§7.4.4.3（预算来源与数据库默认值降级链路）、§7.4.4.4（并发与排队功能逻辑）、§7.4.4.5（交互逻辑与显示项/提示文字）；product-manual §3.5 模型设置 / §3.6 运营后台同步；OpenSpec model-call-scheduler（排队时序预算 + 数据库默认值降级两个 Requirement）；ops-center PRD §12A.10.4；清理 #533 合入残留的 CHANGELOG 冲突标记行。
+
 ## [未发布] 功能：用户提示文字统一为多语言自然语言（原因 + 建议）（2026-08-11）
 
 - 根因：主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message（如「当前许可证无权访问 store:list-publish-history」），渲染端多个视图直接把 `result.message`/`e.message` 原样展示。
@@ -14,7 +20,6 @@
 - 新增 `LOGIN_ONLY_FEATURE_MAP`（feature 预留映射）：基础功能当前「登录即可、不强制服务端下发」，未来会员分级只需把目标通道移入 `CHANNEL_FEATURE_MAP` 并让服务端下发 feature；`cloud_publish` 严格权益判定不变（服务端权威）。
 - 文档：PRD §7.4「权限与访问控制」详细修订、新增 `01-docs/ACCESS-CONTROL-MATRIX.md`（完整通道矩阵/feature 映射/数据校验/交互提示/验收标准）、CHANGELOG。
 - 测试：`license-access-control.test.js`（+3：登录要求矩阵、LOGIN_ONLY 一致性、写操作拒/放行行为）、`access-control.test.js`（+2：未登录拒写/登录可用）；electron/ipc-handlers + preload 全量 735 通过。
->>>>>>> 8aaa96d4 (feat(auth): 登录门禁与会员权益判定 — 模型写操作/发布历史/流水线/视频/Story2Video 写操作需登录，feature 预留映射，详细文档)
 
 ## [未发布] 修复：Story2Video 真实运行稳定性与视频错误可诊断性（2026-08-11）
 

@@ -97,3 +97,37 @@ model provider 配置必须支持 rate_per_minute（每分钟连接次数）与 
 - **WHEN** 未配置同步
 - **THEN** 模型列表可手动编辑（向后兼容），限流字段显示「未配置（默认限流）」
 
+### Requirement: 排队等待与冷却时序预算
+governor 的排队与冷却等待必须有界且文案明确：并发信号量队列 30s、RPM 时间槽 180s、429 冷却 45s；超限返回 RATE_LIMITED 明确文案，额度窗口请求前预检即拒返回 QUOTA_EXCEEDED，不静默丢弃。
+
+#### Scenario: 并发队列超时
+- **WHEN** 请求等待并发信号量超过 30s（MAX_QUEUE_WAIT_MS）
+- **THEN** 返回 RATE_LIMITED「当前请求频率已达上限，请稍后再试。」，不静默丢弃
+
+#### Scenario: RPM 时间槽超时
+- **WHEN** 请求预约 RPM 时间槽等待超过 180s（MAX_PACE_WAIT_MS）
+- **THEN** 抛 RATE_LIMITED 且 context 携带 cooldownMs
+
+#### Scenario: 冷却期超长直接提示
+- **WHEN** 429 冷却剩余超过 45s（MAX_COOLDOWN_WAIT_MS）
+- **THEN** 提示「该模型 API 处于限流冷却期，请稍等约 N 秒后重试。」，不阻塞等待
+
+#### Scenario: 429 自适应下调
+- **WHEN** 收到 429 后同 provider 继续请求
+- **THEN** rateFactor ×0.75（下限 0.2）下调 RPM 预算，成功后每笔 +0.05 缓慢恢复，_effectiveRpm = max(2, round(rpm × rateFactor))
+
+### Requirement: 预算来源与数据库默认值降级
+桌面端限流预算来源必须按「运营后台配置（ops-center DB → catalog → 桌面 DB config）> 桌面 DB 预设种子（PRESET_RATE_LIMITS 回填 config）> 静态表 PROVIDER_LIMITS > 类别默认 DEFAULT_LIMITS」降级；运营显式清空（null/''/0/布尔）时删除本地值并回退静态表/类别默认。
+
+#### Scenario: 运营未配置使用数据库种子默认
+- **WHEN** 运营后台 rate_per_minute 未设置且预设种子已回填 config.rate_per_minute
+- **THEN** governor 使用 config 值（resolveProviderBudget source=config），数值与静态表一致
+
+#### Scenario: 运营显式清空回退静态表
+- **WHEN** applyCatalog 收到 rate_per_minute=null
+- **THEN** 本地 config.rate_per_minute 被删除，governor 回退 PROVIDER_LIMITS（预设 provider 与种子值一致）或类别默认
+
+#### Scenario: 非法值归一化兜底
+- **WHEN** rate_per_minute/limit_per_5h 为 0、负数、小数、布尔或超上限
+- **THEN** 桌面端归一化为 null 并由降级层兜底不报错；运营后台后端 400 + 前端提示（正整数或留空）
+
