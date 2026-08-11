@@ -1712,6 +1712,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
       },
     }
     const serviceBus = {
+      optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: prompt })),
       generateTTS: vi.fn(async (text) => ({ code: 0, data: { path: 'audio-' + text + '.mp3', duration: 2 } })),
       callPythonSkill: vi.fn(async (_skill, payload) => {
         if (payload && payload.style) return { code: 0, data: { path: 'image-' + payload.index + '.png' } }
@@ -1740,6 +1741,74 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     expect(result.output.videos[0]).toMatchObject({ index: 0, path: expect.stringContaining('scene_video_000.mp4') })
   })
 
+  it('视频场景提示词经视频优化引擎改写后提交 generateVideo（不再直接复用图片提示词）', async () => {
+    if (skipIfNoMedia()) return
+    const callAdapter = vi.fn(async (_provider, method) => {
+      if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-opt' } }
+      if (method === 'getVideoStatus') return { videoUrl: baseUrl }
+      return { code: 0 }
+    })
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn((type) => type === 'video'
+          ? { id: 'kling', models: ['kling-v1'] }
+          : { id: 'openai', models: ['gpt-4.1-mini'] }),
+        callAdapter,
+      },
+    }
+    const fn = makeBlendPipeline(aiGenerator)
+    const context = {
+      split: [{ text: '一' }],
+      optimize: ['image-optimized-prompt-0'],
+      video_plan: { mode: 'fixed', scenes: [{ index: 0, useVideo: true, seconds: 6 }], selectedCount: 1 },
+    }
+    const optimizeVideoPrompt = vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt }))
+    const result = await fn({
+      stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: 'kling-v1', pollIntervalMs: 5 } } },
+      params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+      context,
+      serviceBus: {
+        optimizeVideoPrompt,
+        generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'aud-' + index + '.mp3', duration: 2 } })),
+        callPythonSkill: vi.fn(async (_skill, payload) => ({ code: 0, data: { path: 'img-' + payload.index + '.png' } })),
+      },
+    })
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, videoPath: expect.stringContaining('scene_video_000.mp4') })
+    expect(result.success).toBe(true)
+    expect(optimizeVideoPrompt).toHaveBeenCalledWith('image-optimized-prompt-0', expect.objectContaining({ platform: 'kling' }))
+    expect(callAdapter).toHaveBeenCalledWith('kling', 'generateVideo', expect.objectContaining({ prompt: '[video-opt] image-optimized-prompt-0' }))
+  })
+
+  it('视频提示词优化失败时该场景回退图片轮播，不中断整条流水线', async () => {
+    if (skipIfNoMedia()) return
+    const callAdapter = vi.fn(async () => ({ code: 0 }))
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : { id: 'openai', models: ['x'] }),
+        callAdapter,
+      },
+    }
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: 'img-' + index + '.png' } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'aud-' + index + '.mp3', duration: 2 } })),
+    }
+    const fn = makeBlendPipeline(aiGenerator, assetGenerator)
+    const context = {
+      split: [{ text: '一' }],
+      optimize: ['p0'],
+      video_plan: { mode: 'fixed', scenes: [{ index: 0, useVideo: true, seconds: 6 }], selectedCount: 1 },
+    }
+    const result = await fn({
+      stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: '', pollIntervalMs: 5 } } },
+      params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+      context,
+      serviceBus: { optimizeVideoPrompt: vi.fn(async () => { throw new Error('prompt-engine 未运行') }) },
+    })
+    expect(result.success).toBe(true)
+    expect(assetGenerator.generateImage).toHaveBeenCalled()
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: 'img-0.png', videoPath: null })
+  })
+
   it('视频生成失败时回退图片轮播（补生成图片）', async () => {
     if (skipIfNoMedia()) return
     const callAdapter = vi.fn(async (_provider, method) => {
@@ -1766,7 +1835,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
       stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: '' } } },
       params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
       context,
-      serviceBus: {},
+      serviceBus: { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: prompt })) },
     })
     // 无 assetGenerator → legacy python 路径：图片经 serviceBus.callPythonSkill('generate_image')
     expect(result.success).toBe(false) // serviceBus 未提供 generate_image → 场景生成失败
@@ -1816,7 +1885,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
       stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: '', pollIntervalMs: 5 } } },
       params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
       context,
-      serviceBus: {},
+      serviceBus: { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: prompt })) },
     })
     expect(result.success).toBe(true)
     expect(assetGenerator.generateImage).toHaveBeenCalled()
@@ -1850,7 +1919,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
       stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: '', pollIntervalMs: 5 } } },
       params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
       context,
-      serviceBus: {},
+      serviceBus: { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: prompt })) },
     })
     expect(result.success).toBe(true)
     expect(assetGenerator.generateImage).toHaveBeenCalled()

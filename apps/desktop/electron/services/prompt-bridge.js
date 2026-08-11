@@ -13,6 +13,7 @@ const {
   normalizePromptEnginePlatform,
   assertNoSensitiveContext,
 } = require('./prompt-engine-contract')
+const { buildVideoOptimizeRequest } = require('./video-prompt-engine-contract')
 
 const PROMPT_PORT = config.promptBridge.port
 const PROMPT_HOST = config.promptBridge.host
@@ -95,6 +96,38 @@ class PromptBridge extends BasePythonBridge {
     await this.ensureRunning()
     const normalized = requests.map(normalizeOptimizeRequest)
     return this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }))
+  }
+
+  /**
+   * 视频提示词优化 — POST /v1/optimize（domain=video）
+   * 与图片 optimize 同端点、同 Bridge，但走视频契约（video-prompt-engine-contract.js）。
+   * @param {string|object} promptOrRequest - 提示词或 { prompt, ...options }
+   * @param {object} [options] - 视频优化选项（platform/style/creativeLevel/maxLength/negativePrompt/context 等）
+   * @returns {Promise<object>}
+   */
+  async optimizeVideo (promptOrRequest, options) {
+    await this.ensureRunning()
+    const request = (promptOrRequest !== null && typeof promptOrRequest === 'object' && !Array.isArray(promptOrRequest))
+      ? buildVideoOptimizeRequest(promptOrRequest.prompt, { ...promptOrRequest })
+      : buildVideoOptimizeRequest(String(promptOrRequest), options)
+    return this._post('/v1/optimize', JSON.stringify(request))
+  }
+
+  /**
+   * 批量视频提示词优化 — POST /v1/optimize/batch（domain=video）
+   * @param {string[]|object[]} prompts - 提示词数组或 { prompt, ...options } 数组
+   * @param {object} [options] - 对所有纯字符串项生效的公共选项
+   * @returns {Promise<object>}
+   */
+  async optimizeVideosBatch (prompts, options) {
+    await this.ensureRunning()
+    const requests = (prompts || []).map(item => {
+      if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
+        return buildVideoOptimizeRequest(item.prompt, { ...item })
+      }
+      return buildVideoOptimizeRequest(String(item), options)
+    })
+    return this._post('/v1/optimize/batch', JSON.stringify({ requests }))
   }
 }
 

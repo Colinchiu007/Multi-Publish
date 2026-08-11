@@ -62,6 +62,26 @@ class ServiceBus {
   }
 
   /**
+   * 视频提示词优化 — 委托 PromptBridge（domain=video）
+   * @param {string} prompt
+   * @param {object} [options]
+   * @returns {Promise<object>}
+   */
+  async optimizeVideoPrompt (prompt, options) {
+    return this.promptBridge.optimizeVideo(prompt, options)
+  }
+
+  /**
+   * 批量视频提示词优化 — 委托 PromptBridge（domain=video）
+   * @param {string[]} prompts
+   * @param {object} [options]
+   * @returns {Promise<object>}
+   */
+  async optimizeVideoPromptsBatch (prompts, options) {
+    return this.promptBridge.optimizeVideosBatch(prompts, options)
+  }
+
+  /**
    * 视频合成 — 委托基于 ffmpeg 的 Story2Video 引擎
    * 引擎未注入时明确返回失败，禁止把占位结果报告为成功。
    * @param {object} assets
