@@ -110,6 +110,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import UiModal from '@/components/UiModal.vue'
 import UiButton from '@/components/UiButton.vue'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -182,10 +183,10 @@ async function loadGate() {
       gate.value = res.data || null
       modification.value = ''
     } else if (res) {
-      error.value = res.message || '加载失败'
+      error.value = formatUserError(res, { fallback: '加载失败' }).message
     }
   } catch (e) {
-    error.value = e.message || '加载失败'
+    error.value = formatUserError(e, { fallback: '加载失败' }).message
   } finally {
     loading.value = false
   }
@@ -207,10 +208,10 @@ async function handleApprove() {
       modification.value = ''
       emit('close')
     } else if (res) {
-      error.value = res.message || '审批失败'
+      error.value = formatUserError(res, { fallback: '审批失败' }).message
     }
   } catch (e) {
-    error.value = e.message || '审批失败'
+    error.value = formatUserError(e, { fallback: '审批失败' }).message
   } finally {
     submitting.value = null
   }
@@ -236,10 +237,10 @@ async function handleModify() {
       modification.value = ''
       emit('close')
     } else if (res) {
-      error.value = res.message || '修改失败'
+      error.value = formatUserError(res, { fallback: '修改失败' }).message
     }
   } catch (e) {
-    error.value = e.message || '修改失败'
+    error.value = formatUserError(e, { fallback: '修改失败' }).message
   } finally {
     submitting.value = null
   }

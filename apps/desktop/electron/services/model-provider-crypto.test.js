@@ -390,7 +390,8 @@ describe('ModelProviderManager — P2 加密集成', () => {
         models: ['gpt-4o'],
       })
       expect(result.code).toBe(-1)
-      expect(result.message).toMatch(/API Key.*required/i)
+      expect(result.errorCode).toBe('API_KEY_REQUIRED')
+      expect(result.message).toMatch(/API Key/)
       expect(mockTables.model_providers.find(r => r.id === 'no-key-provider')).toBeUndefined()
     })
 
@@ -404,7 +405,8 @@ describe('ModelProviderManager — P2 加密集成', () => {
         models: ['gpt-4o'],
       })
       expect(result.code).toBe(-1)
-      expect(result.message).toMatch(/safeStorage|加密/i)
+      expect(result.errorCode).toBe('CRYPTO_UNAVAILABLE')
+      expect(result.message).toContain('安全存储不可用')
     })
   })
 

@@ -4,6 +4,25 @@
 
 ---
 
+## 长流水线 compose 两缺陷复盘 (2026-08-11，真实 E2E Bug 反哺)
+
+- **表象**：27 场景图片轮播真实 E2E（真实 MiniMax 图/TTS + 克隆音色）中，compose 阶段两次失败：① 分块合并 ffmpeg 在 2:55 处无错误输出被终止；② 修复①后成片成功但 run 被判 failed（「Story2Video 项目保存失败: 产物不存在、不可读或超出限制」）。
+- **根因**：① `_xfadeMerge` 硬编码 `timeout: 120000`——27 场景分块（level-1 合并 4 块 ≈300s 视频）编码约 1.5x 实时需 ~200s，被固定 120s 中途杀掉（ffmpeg 无「Conversion failed」即被 kill）；② `saveRun → _persistTextConfig` 对已缺失/不可读的 BGM 路径直接 `_copyRequired` 抛错——compose 阶段已按 bgmSkipped 优雅降级，持久化却硬失败，把成功成片误判为失败（project.json 未落盘）。`_safeOptions` 有 `_resolveSource` 守卫而 `_persistTextConfig` 没有，属不一致。
+- **逃逸链**：① 单测只覆盖短流水线/正常 BGM，未覆盖「27+ 场景分块合并时长」与「BGM 已被回收/缺失」；② compose 的降级语义（bgmSkipped）与项目保存的硬校验不一致，无测试断言「成片成功时保存不得失败」。
+- **修复落地**：① 合并到 main 的是 `computeMergeEncodeTimeoutMs(plan.totalDuration)`（输出时长 3x + 120s 下限，PR #521）；并行分支曾尝试按输入总时长探测的 `computeXfadeMergeTimeoutMs` 未合入（同一缺陷的两种修法，取 main 方案）；② `_persistTextConfig` 先 `_resolveSource` 守卫、缺失时清空 bgm 引用（PR #540 合入）。
+- **回归保护**：compose-engine 超时用例覆盖（300s 级长合并/短合并下限/非法回退）；project-service +1（缺失 BGM 不抛错、成片保存、project.json 落盘）。真实 E2E 复跑 `terminal=completed`。
+- **预防措施**：① 任何「编码/耗时型」ffmpeg 调用的超时必须按输入规模估算，禁止固定超时；② 同一降级语义（bgmSkipped）必须贯穿 compose 与持久化全链路，保存路径不得对可选资源硬失败；③ 长流水线（场景数多/视频长）必须纳入回归场景。
+
+## 技术性提示文字直出用户界面复盘 (2026-08-11，质量节拍 Bug 反哺)
+
+- **表象**：用户反馈页面出现「当前许可证无权访问 store:list-publish-history」这类技术性提示。主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message 返回给渲染端，渲染端（CreateHistory / PublishHistory / useModelProviderCrud 等）把 `result.message`/`e.message` 原样展示；`model-provider-manager.js` 的 message 还夹带英文括号注释（如「（No adapter registered for provider \"x\"）」）。
+- **根因（历史）**：早期优化只覆盖 Story2Video 域（story2video-notifications.js 的 pattern→key 映射），未做全应用统一；i18n 只有 zh/en 语料和 localStorage 读取，无系统语言检测、无设置入口。
+- **逃逸链**：① 主进程单元测试断言旧 message 文本（`未授权的调用来源` 等），反向固化技术文案；② 渲染端测试断言「错误 = 原始 message」把直出行为当作正确行为；③ 无「message 不得含通道名/英文括号」的契约断言。
+- **修复**：① 主进程拒绝类错误返回稳定 `errorCode` + 去通道名 message + `messageParams.channel`（诊断用），模型服务商错误去英文括号、detail 进 `messageParams.detail`；② 渲染端新增 `src/utils/user-facing-error.js` 统一 `formatUserError`（errorCode → 数值 code → 遗留 pattern → 技术文本 sanitize / 自然语言透传），接入 16+ 显示路径；③ i18n 新增系统语言检测 + 设置弹窗语言切换；④ `test-setup.js` 固定测试语言 zh-CN。
+- **关键设计教训**：统一错误格式化必须区分「技术文本」与「自然语言原因」——对已是自然语言的原因文本应原样透传保留信息（如「排期失败：任务不存在」），只对含通道名/错误码/栈信息的技术文本做 sanitize 兜底；无脑替换为通用文案会丢失「具体原因」，违背需求。
+- **回归保护**：`user-facing-error.test.js`（17 用例）覆盖 errorCode/code/pattern/技术 sanitize/自然透传/zh+en；license-access-control 断言 errorCode 且 message 不含通道名；model-provider-* 断言 errorCode；受影响视图测试同步。
+- **预防措施**：① IPC 错误 message 禁止拼内部通道名/英文括号注释，一律走 errorCode + messageParams；② 渲染端用户可见区域禁止直接渲染 IPC message 原文，必须经 `formatUserError`；③ 测试断言不得把「展示原始 message」固化为正确行为；④ 新增/修改用户可见提示必须同时提供 zh/en 文案并在 PRD §3.2 提示文字规范登记。
+
 ## MiniMax Adapter 无超时 + 多模态模型错配复盘 (2026-08-11，质量节拍 Bug 反哺)
 
 - **表象**：E2E 全流水线真实验证（43 用例）中发现 explainer/documentary 的 assets 阶段偶发永久挂起（25 分钟不收敛），且图片生成被错误传入 TTS 模型。
@@ -6327,3 +6346,12 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **回归保护**：story-context-engine 21 用例（用户示例、无关键词、多文化、道具互斥、配置边界、敏感键、空场景、降级、白名单）；stages/text-config/契约/E2E 阶段顺序同步；完整 E2E 真实合成视频通过。
 - **预防**：跨引擎流水线的「上下文路由层」必须与下游服务端契约（已知键/字段边界）对齐；新增流水线阶段必须同步 stages 列表断言、E2E 阶段顺序与渲染层配置默认值；并发会话共享工作目录时改动需频繁提交保护。
 
+
+## electron 43.x 无 postinstall 与二进制自愈方案 B 复盘 (2026-08-10，环境/工具链)
+
+- **背景**：`npm install` 后 `node_modules/electron/dist/` 反复缺失，electron 二进制不可用，需手动 `node node_modules/electron/install.js` 恢复；多次复现。
+- **根因**：`electron@43.x` 的 npm 包不再声明 `postinstall: node install.js`（31~41 版本都有；官方 npmjs tarball 实测 43.1.1 的 package.json 无 scripts 字段）。npm 重装 electron 时判定"无安装脚本"（`.package-lock.json` hasInstallScript=false），不会自动下载 dist；`install.js` 成为唯一下载/解压入口（优先本地 `@electron/get` 缓存，秒级）。
+- **方案选择**：不接 root `postinstall`——否则后端/ECS 每次 `npm ci` 都会被拖去下载 electron ~110MB，且离线/受限环境构建会直接失败。采用方案 B：`scripts/ensure-electron.js` 按需自愈 + AGENTS.md 文档约定；`electron-ci.yml` 保持现状（已手动执行 install.js）。
+- **实现**：`scripts/ensure-electron.js` 三态——dist 完整→跳过(exit 0)；缺失→触发 install.js；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 显式跳过。按仓库约定把脚本加入 `scripts/*.js` 的 .gitignore 白名单。
+- **验证**：三路实测（就绪/跳过/缺失包）+ electron v43.1.1 就绪；本条目即文档同步门禁要求的 docs 变更。
+- **教训**：① 上游 npm 包 lifecycle 声明可能被版本演进静默移除，对"下载型二进制"依赖要装后自检而非假设就绪；② 环境修复优先"按需显式触发"，避免给所有部署形态（尤其后端镜像构建）引入无关下载与失败点。

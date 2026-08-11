@@ -72,7 +72,8 @@ describe('usageTracker context 注入', () => {
     }
     registerAllIpcHandlers({ app, BrowserWindow, context: { usageTracker } })
 
-    const expected = { code: -3, message: '未授权的调用来源' }
+    // #531 多语言后 untrustedSender 附带 errorCode（UNTRUSTED_SENDER），用 toMatchObject 断言核心字段
+    const expected = { code: -3, errorCode: 'UNTRUSTED_SENDER', message: '未授权的调用来源' }
     await expect(ipcMain._handlers['usage:stats'](makeUntrustedEvent())).resolves.toEqual(expected)
     await expect(ipcMain._handlers['usage:daily'](makeUntrustedEvent())).resolves.toEqual(expected)
     await expect(ipcMain._handlers['usage:track'](makeUntrustedEvent(), {

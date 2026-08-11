@@ -42,6 +42,7 @@ const {
 const {
   buildSceneContextResult,
   CONTEXT_KEY_WHITELIST,
+  buildPromptEngineSceneContext,
   mergeNegativePrompt,
 } = require('./story-context-engine');
 
@@ -917,7 +918,7 @@ function registerStory2VideoStages(pipelineEngine) {
       }
       let selected = []
       let ratio = 0
-      let entries = []
+      let entries = null
       if (mode === 'fixed') {
         const plan = pickFixedVideoScenes(scenes, videoConfig.fixedRatio)
         selected = plan.selected
@@ -933,28 +934,39 @@ function registerStory2VideoStages(pipelineEngine) {
           maxRatio: videoConfig.maxRatio,
           maxScenes: videoConfig.maxScenes,
         })
-        let raw
-        try {
-          // max_tokens 随场景数放大，避免 12 场景长 reason JSON 被截断导致解析失败（2026-08-11 I4）
-          const maxTokens = Math.min(4000, 600 + scenes.length * 120)
-          const result = await aiGenerator.generateWithDefault('llm', {
-            temperature: 0.2,
-            max_tokens: maxTokens,
-            messages: [
-              { role: 'system', content: system },
-              { role: 'user', content: user },
-            ],
-          })
-          raw = result && typeof result.content === 'string' ? result.content.trim() : ''
-        } catch (error) {
-          return {
-            success: false,
-            error: 'AI 智能选择失败：' + (error && error.message ? error.message : String(error)),
+        entries = null
+        let raw = ''
+        let lastError = ''
+        // 真实运行暴露（2026-08-11 W6）：deepseek-v4-flash 等推理型模型对 27 场景长任务偶发
+        // 返回空 content（仅 reasoning_content）或非法 JSON，单次失败即整阶段失败。改为有界重试：
+        // 空内容/解析失败均重试，最多 3 次，逐次记录 raw 便于诊断。
+        const maxAttempts = 3
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          raw = ''
+          try {
+            // max_tokens 随场景数放大，避免长 reason JSON 被截断导致解析失败（2026-08-11 I4）
+            const maxTokens = Math.min(5000, 800 + scenes.length * 140)
+            const result = await aiGenerator.generateWithDefault('llm', {
+              temperature: 0.2,
+              max_tokens: maxTokens,
+              messages: [
+                { role: 'system', content: system },
+                { role: 'user', content: user },
+              ],
+            })
+            raw = result && typeof result.content === 'string' ? result.content.trim() : ''
+          } catch (error) {
+            lastError = 'AI 智能选择失败：' + (error && error.message ? error.message : String(error))
+            log.warn('Story2VideoStages', 'select_video_scenes attempt ' + attempt + ' llm error: ' + lastError)
+            continue
           }
+          entries = parseVideoSelection(raw, scenes.length)
+          if (entries) break
+          lastError = 'AI 智能选择结果无法解析，请重试或改用固定比例模式'
+          log.warn('Story2VideoStages', 'select_video_scenes attempt ' + attempt + ' unparseable sceneCount=' + scenes.length + ' raw=' + String(raw).slice(0, 1500))
         }
-        entries = parseVideoSelection(raw, scenes.length)
         if (!entries) {
-          return { success: false, error: 'AI 智能选择结果无法解析，请重试或改用固定比例模式' }
+          return { success: false, error: lastError }
         }
         const plan = clampVideoSelection(scenes, entries, {
           minRatio: videoConfig.minRatio,
@@ -969,7 +981,7 @@ function registerStory2VideoStages(pipelineEngine) {
         provider: generator.providerId,
         model: generator.model || '',
         scenes: scenes.map(scene => {
-          const entry = entries.find(e => e.index === scene.index)
+          const entry = entries && entries.find(e => e.index === scene.index)
           return {
             index: scene.index,
             useVideo: selected.includes(scene.index),

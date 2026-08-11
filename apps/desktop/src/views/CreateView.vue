@@ -685,7 +685,7 @@
         <div class="action-bar">
           <span v-if="s2vOptionsToast" class="s2v-options-toast" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</span>
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
-            <UiButton class="btn-start" data-testid="start-story2video" @click="startPipeline" :disabled="!canStartPipeline">
+            <UiButton class="btn-start" data-testid="start-story2video" @click="handleStartPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
             </UiButton>
             <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="reset-options-link" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
@@ -828,6 +828,7 @@ import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { PipelineSelector, StageProgress } from './video-creation'
+import { useLoginGate } from '@/composables/useLoginGate'
 import {
   deleteCustomTemplate,
   getAllTemplates,
@@ -847,6 +848,7 @@ import {
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
 import { opsCenterSyncRuntime } from '@/api/ops-center-sync'
+import { formatUserError } from '@/utils/user-facing-error'
 import {
   getTtsVoiceCatalog,
   getTtsVoiceCapability,
@@ -1006,7 +1008,9 @@ const STABILITY_MAP = {
 
 export default {
   name: 'CreateView',
-  components: { UiButton, UiModal, UiSelect },
+  // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
+  // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
+  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress },
   data() {
     return {
       // 视图
@@ -1517,8 +1521,8 @@ export default {
       try {
         const res = await pipelineList()
         if (res?.code === 0) this.pipelines = prioritizeStory2VideoPipeline(res.data)
-        else this.pipelineError = res?.message || '加载失败'
-      } catch (e) { this.pipelineError = e.message }
+        else this.pipelineError = formatUserError(res, { fallback: '加载失败' }).message
+      } catch (e) { this.pipelineError = formatUserError(e, { fallback: '加载失败' }).message }
       finally { this.pipelineLoading = false }
     },
     selectPipeline(p) {
@@ -1571,6 +1575,17 @@ export default {
     },
     getDefaultStory2VideoStages() {
       return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
+    },
+    async ensureLoginForStart (message) {
+      // 主动操作登录门（UI 层）：未登录弹登录窗口，登录成功后继续启动流水线。
+      // 放在 UI 点击层而非 startPipeline 方法内，避免改变 startPipeline 的同步时序语义。
+      const { ensureLogin } = useLoginGate()
+      return ensureLogin({ message: message || '启动流水线需要登录后使用，是否立即登录？' })
+    },
+    // UI「启动流水线」入口：登录门 + 启动
+    async handleStartPipeline () {
+      if (!(await this.ensureLoginForStart())) return false
+      return this.startPipeline()
     },
     async startPipeline() {
       // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
@@ -3093,8 +3108,8 @@ export default {
           : this.quickImages.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 }))
         const res = await renderStart({ props: { cuts, theme: this.quickTheme, renderer_family: 'explainer-data' }, profile: this.quickProfile })
         if (res?.code === 0) { this.quickResult = res.data }
-        else { this.quickError = res?.message || '渲染失败'; this.quickRendering = false }
-      } catch (e) { this.quickError = '渲染异常: ' + (e.message || '未知错误'); this.quickRendering = false }
+        else { this.quickError = formatUserError(res, { fallback: '渲染失败' }).message; this.quickRendering = false }
+      } catch (e) { this.quickError = '渲染异常: ' + formatUserError(e, { fallback: '未知错误' }).message; this.quickRendering = false }
     },
     cancelQuickRender() { renderCancel(); this.quickRendering = false },
     viewQuickResult() { this.$router.push({ path: '/create/result', query: { path: this.quickResult?.outputPath || '' } }) },
@@ -3104,7 +3119,7 @@ export default {
         const { aiGenerate } = await import('@/api/publisher')
         const r = await aiGenerate('text', 'openai', { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
         if (r?.code === 0 && r.data?.text) this.quickText = r.data.text
-      } catch (e) { this.quickError = 'AI 写稿失败: ' + (e.message || '未知错误') }
+      } catch (e) { this.quickError = 'AI 写稿失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
       this.aiLoading = false
     },
 
@@ -3114,7 +3129,7 @@ export default {
       try {
         const result = await renderInstallDeps()
         this.installLog = result?.log || '安装完成'
-      } catch (e) { this.installLog = '安装失败: ' + e.message }
+      } catch (e) { this.installLog = '安装失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
       this.installing = false
       const s = await renderGetStatus()
       this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' }

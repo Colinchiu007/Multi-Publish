@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import i18n from "@/i18n";
+import { describe, it, expect, afterEach } from "vitest";
+import i18n, {
+  detectSystemLocale,
+  resolveAppLocale,
+  setAppLocale,
+  getAppLocale,
+} from "@/i18n";
 import {
   getPipelineCategory,
   getPipelineName,
@@ -83,5 +88,54 @@ describe("i18n CSP-safe messages", () => {
       // 断言失败时也要恢复 locale，避免污染同文件后续用例（claude review I5）
       i18n.global.locale.value = "zh";
     }
+  });
+});
+
+describe("系统语言自动检测与设置切换（user-facing-messages）", () => {
+  const originalNavigatorLanguage = globalThis.navigator?.language;
+
+  afterEach(() => {
+    try { localStorage.removeItem("locale") } catch (_) {}
+    if (typeof originalNavigatorLanguage === "string") {
+      Object.defineProperty(globalThis.navigator, "language", {
+        value: originalNavigatorLanguage,
+        configurable: true,
+      })
+    }
+    i18n.global.locale.value = "zh";
+  });
+
+  it("detectSystemLocale：zh* → zh，en* → en，其余 → en", () => {
+    const set = (value) => Object.defineProperty(globalThis.navigator, "language", { value, configurable: true })
+    set("zh-CN"); expect(detectSystemLocale()).toBe("zh")
+    set("zh-Hans"); expect(detectSystemLocale()).toBe("zh")
+    set("en-US"); expect(detectSystemLocale()).toBe("en")
+    set("en-GB"); expect(detectSystemLocale()).toBe("en")
+    set("fr-FR"); expect(detectSystemLocale()).toBe("en")
+    set("ja-JP"); expect(detectSystemLocale()).toBe("en")
+  });
+
+  it("resolveAppLocale：显式设置优先于系统语言", () => {
+    Object.defineProperty(globalThis.navigator, "language", { value: "en-US", configurable: true })
+    try { localStorage.setItem("locale", "zh") } catch (_) {}
+    expect(resolveAppLocale()).toBe("zh")
+    try { localStorage.setItem("locale", "en") } catch (_) {}
+    expect(resolveAppLocale()).toBe("en")
+  });
+
+  it("resolveAppLocale：无显式设置时按系统语言", () => {
+    Object.defineProperty(globalThis.navigator, "language", { value: "en-US", configurable: true })
+    expect(resolveAppLocale()).toBe("en")
+    Object.defineProperty(globalThis.navigator, "language", { value: "zh-CN", configurable: true })
+    expect(resolveAppLocale()).toBe("zh")
+  });
+
+  it("setAppLocale 持久化并即时生效，getAppLocale 返回当前语言", () => {
+    expect(setAppLocale("en")).toBe("en")
+    expect(getAppLocale()).toBe("en")
+    expect(i18n.global.locale.value).toBe("en")
+    try { expect(localStorage.getItem("locale")).toBe("en") } catch (_) {}
+    expect(setAppLocale("zh")).toBe("zh")
+    expect(getAppLocale()).toBe("zh")
   });
 });

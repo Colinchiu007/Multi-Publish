@@ -195,21 +195,21 @@ class ModelProviderManager {
    * @returns {Promise<{code: number, data?: any, message?: string, error?: Error}>}
    */
   async callAdapter (providerId, method, params = {}) {
-    if (!this._ready) return { code: -1, message: '模型服务尚未初始化，请稍后重试（Store not initialized）' }
+    if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '模型服务尚未初始化，请稍后重试或重启应用。' }
 
     // 检查 Adapter 工厂是否注册
     const factory = this._adapterFactories.get(providerId)
     if (!factory) {
-      return { code: -1, message: `未找到 ${providerId} 的适配器，请检查服务商配置后重试（No adapter registered for provider "${providerId}"）` }
+      return { code: -1, errorCode: 'ADAPTER_NOT_FOUND', message: `未找到「${providerId}」对应的服务商适配器，请检查服务商配置后重试。` }
     }
 
     // 获取 provider（含解密后的 api_key）
     const provider = this.getProviderWithKey(providerId)
     if (!provider) {
-      return { code: -1, message: `未找到服务商 ${providerId}，请刷新列表后重试（Provider "${providerId}" not found）` }
+      return { code: -1, errorCode: 'PROVIDER_NOT_FOUND', message: `未找到服务商「${providerId}」，可能已被删除。请刷新列表后重试。` }
     }
     if (!hasUsableApiKey(provider.api_key) && !canUseWithoutApiKey(provider)) {
-      return { code: -1, message: `尚未配置 API Key，请先在“模型设置”中填写 ${provider.name || providerId} 的 API Key 后重试（API Key not configured）` }
+      return { code: -1, errorCode: 'API_KEY_NOT_CONFIGURED', message: `尚未配置 API Key，请先在「模型设置」中填写 ${provider.name || providerId} 的 API Key 后重试。` }
     }
 
     // 获取或创建 Adapter 实例（factory 可能同步抛异常）
@@ -221,12 +221,12 @@ class ModelProviderManager {
       if (e instanceof ProviderError) {
         return { code: -1, error: e, message: e.message }
       }
-      return { code: -1, message: `适配器初始化失败：${e.message}（Factory initialization failed）` }
+      return { code: -1, errorCode: 'ADAPTER_INIT_FAILED', message: '适配器初始化失败，请检查服务商配置与服务状态后重试。', messageParams: { detail: String(e && e.message || e) } }
     }
 
     // 能力检查（在调用前完成，避免不必要的日志记录）
     if (typeof adapter.supports === 'function' && !adapter.supports(method)) {
-      return { code: -1, message: `服务商 ${providerId} 不支持该操作，请检查模型配置后重试（Method "${method}" not supported by adapter "${providerId}"）` }
+      return { code: -1, errorCode: 'OPERATION_NOT_SUPPORTED', message: `服务商「${providerId}」不支持该操作，请在「模型设置」中调整模型配置后重试。`, messageParams: { method } }
     }
 
     // 调用 + 统一日志记录（所有路径覆盖，不依赖 router logHandler）
@@ -676,31 +676,31 @@ class ModelProviderManager {
   }
 
   createProvider (data) {
-    if (!this._ready) return { code: -1, message: 'Store not initialized' }
+    if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '本地数据服务尚未就绪，请稍后重试或重启应用。' }
     if (!data || !data.id || !data.name || !data.category) {
-      return { code: -1, message: 'Missing required fields (id/name/category)' }
+      return { code: -1, errorCode: 'VALIDATION_ERROR', message: '缺少必填字段（ID / 名称 / 分类），请补全后重试。' }
     }
     const validCategories = Object.values(CATEGORIES)
     if (!validCategories.includes(data.category)) {
-      return { code: -1, message: 'Invalid category, options: ' + validCategories.join(', ') }
+      return { code: -1, errorCode: 'INVALID_CATEGORY', message: '服务商分类无效，请重新选择后重试。' }
     }
     const apiKey = typeof data.api_key === 'string' ? data.api_key.trim() : ''
     if (!hasUsableApiKey(apiKey) && !canUseWithoutApiKey(data)) {
-      return { code: -1, message: 'API Key is required for remote providers' }
+      return { code: -1, errorCode: 'API_KEY_REQUIRED', message: '远程服务商必须配置 API Key，请在「模型设置」中填写后重试。' }
     }
     const existing = this._store.db.prepare('SELECT id FROM model_providers WHERE id = ?').get(data.id)
     if (existing) {
-      return { code: -1, message: 'ID "' + data.id + '" already exists' }
+      return { code: -1, errorCode: 'PROVIDER_EXISTS', message: '服务商 ID「' + data.id + '」已存在，请更换 ID 或直接编辑已有服务商后重试。' }
     }
     let apiKeyEnc = null
     if (apiKey) {
       if (!crypto.isAvailable()) {
-        return { code: -1, message: 'safeStorage not available, cannot encrypt API Key' }
+        return { code: -1, errorCode: 'CRYPTO_UNAVAILABLE', message: '系统安全存储不可用，无法保存 API Key。请重启应用或检查系统设置后重试。' }
       }
       try {
         apiKeyEnc = crypto.encrypt(apiKey)
       } catch (e) {
-        return { code: -1, message: 'API Key encryption failed: ' + e.message }
+        return { code: -1, errorCode: 'ENCRYPT_FAILED', message: 'API Key 加密失败，请重启应用后重试。', messageParams: { detail: String(e && e.message || e) } }
       }
     }
     const db = this._store.db
@@ -720,12 +720,12 @@ class ModelProviderManager {
       return { code: 0, data: this.getProvider(data.id) }
     } catch (e) {
       log.error('ModelProviderManager', 'Create failed: ' + e.message)
-      return { code: -1, message: 'Create failed: ' + e.message }
+      return { code: -1, errorCode: 'CREATE_FAILED', message: '创建服务商失败，请检查输入后重试。', messageParams: { detail: String(e && e.message || e) } }
     }
   }
 
   updateProvider (id, updates) {
-    if (!this._ready) return { code: -1, message: 'Store not initialized' }
+    if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '本地数据服务尚未就绪，请稍后重试或重启应用。' }
     const existing = this.getProvider(id)
     if (!existing) {
       return { code: -1, message: 'Provider "' + id + '" not found' }
@@ -744,7 +744,7 @@ class ModelProviderManager {
       } else if (k === 'api_key') {
         if (v) {
           if (!crypto.isAvailable()) {
-            return { code: -1, message: 'safeStorage not available, cannot encrypt API Key' }
+            return { code: -1, errorCode: 'CRYPTO_UNAVAILABLE', message: '系统安全存储不可用，无法保存 API Key。请重启应用或检查系统设置后重试。' }
           }
           try {
             sets.push('api_key_enc = ?')
@@ -752,7 +752,7 @@ class ModelProviderManager {
             sets.push('api_key = ?')
             vals.push('')
           } catch (e) {
-            return { code: -1, message: 'API Key encryption failed: ' + e.message }
+            return { code: -1, errorCode: 'ENCRYPT_FAILED', message: 'API Key 加密失败，请重启应用后重试。', messageParams: { detail: String(e && e.message || e) } }
           }
         } else if (updates.clearApiKey) {
           sets.push('api_key_enc = ?')
@@ -774,7 +774,7 @@ class ModelProviderManager {
       }
     }
     if (sets.length === 0) {
-      return { code: -1, message: 'No updatable fields' }
+      return { code: -1, errorCode: 'NO_UPDATABLE_FIELDS', message: '没有可更新的字段，请修改内容后再保存。' }
     }
     if (updates.clearApiKey) {
       sets.push('enabled = ?')
@@ -795,12 +795,12 @@ class ModelProviderManager {
       return { code: 0, data: this.getProvider(id) }
     } catch (e) {
       log.error('ModelProviderManager', 'Update failed: ' + e.message)
-      return { code: -1, message: 'Update failed: ' + e.message }
+      return { code: -1, errorCode: 'UPDATE_FAILED', message: '更新服务商失败，请稍后重试。', messageParams: { detail: String(e && e.message || e) } }
     }
   }
 
   deleteProvider (id) {
-    if (!this._ready) return { code: -1, message: 'Store not initialized' }
+    if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '本地数据服务尚未就绪，请稍后重试或重启应用。' }
     const provider = this.getProvider(id)
     if (!provider) {
       return { code: -1, message: 'Provider "' + id + '" not found' }
@@ -835,7 +835,7 @@ class ModelProviderManager {
       return { code: 0, message: '已删除' }
     } catch (e) {
       log.error('ModelProviderManager', 'Delete failed: ' + e.message)
-      return { code: -1, message: 'Delete failed: ' + e.message }
+      return { code: -1, errorCode: 'DELETE_FAILED', message: '删除服务商失败，请稍后重试。', messageParams: { detail: String(e && e.message || e) } }
     }
   }
 
@@ -901,17 +901,17 @@ class ModelProviderManager {
   }
 
   setDefault (category, providerId) {
-    if (!this._ready) return { code: -1, message: 'Store not initialized' }
+    if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '本地数据服务尚未就绪，请稍后重试或重启应用。' }
     const provider = this.getProvider(providerId)
     if (!provider) {
       return { code: -1, message: 'Provider "' + providerId + '" not found' }
     }
     if (provider.category !== category) {
-      return { code: -1, message: 'Provider does not belong to category "' + (CATEGORY_LABELS[category] || category) + '"' }
+      return { code: -1, errorCode: 'INVALID_CATEGORY', message: '该服务商不属于所选分类，请重新选择后重试。' }
     }
     const providerWithKey = this.getProviderWithKey(providerId)
     if (!providerWithKey || (!hasUsableApiKey(providerWithKey.api_key) && !canUseWithoutApiKey(providerWithKey))) {
-      return { code: -1, message: '请先在“模型设置”中配置 API Key，再设为默认' }
+      return { code: -1, errorCode: 'API_KEY_NOT_CONFIGURED', message: '请先在「模型设置」中配置 API Key，再设为默认。' }
     }
     try {
       const db = this._store.db
@@ -927,7 +927,7 @@ class ModelProviderManager {
       return { code: 0, message: 'Set as default' }
     } catch (e) {
       log.error('ModelProviderManager', 'SetDefault failed: ' + e.message)
-      return { code: -1, message: 'Set default failed: ' + e.message }
+      return { code: -1, errorCode: 'SET_DEFAULT_FAILED', message: '设置默认服务商失败，请稍后重试。', messageParams: { detail: String(e && e.message || e) } }
     }
   }
 
@@ -989,13 +989,13 @@ class ModelProviderManager {
   }
 
   async testConnection (id) {
-    if (!this._ready) return { code: -1, message: '模型服务尚未初始化，请稍后重试（Store not initialized）' }
+    if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '模型服务尚未初始化，请稍后重试或重启应用。' }
     const provider = this.getProviderWithKey(id)
     if (!provider) {
-      return { code: -1, message: `未找到服务商 ${id}，请刷新列表后重试（Provider "${id}" not found）` }
+      return { code: -1, errorCode: 'PROVIDER_NOT_FOUND', message: `未找到服务商「${id}」，可能已被删除。请刷新列表后重试。` }
     }
     if (!hasUsableApiKey(provider.api_key) && !canUseWithoutApiKey(provider)) {
-      return { code: -1, message: `尚未配置 API Key，请先在“模型设置”中填写 ${provider.name || id} 的 API Key 后重试（API Key not configured）` }
+      return { code: -1, errorCode: 'API_KEY_NOT_CONFIGURED', message: `尚未配置 API Key，请先在「模型设置」中填写 ${provider.name || id} 的 API Key 后重试。` }
     }
     // P3.2: 若已注册 Adapter，通过 Adapter 实际调用 testConnection
     const factory = this._adapterFactories.get(id)

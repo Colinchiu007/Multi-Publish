@@ -392,7 +392,11 @@
               <span>支持生成视频（默认关闭）</span>
             </label>
           </template>
-          <template v-if="form.models.length === 1">
+          <template v-if="isMiniMaxMultimodal">
+            <div class="form-hint">模型列表由系统预设与运营后台下发控制，无需在此填写。</div>
+            <div class="form-hint muted-hint">当前模型：{{ form.modelsText || '—' }}。</div>
+          </template>
+          <template v-else-if="form.models.length === 1">
             <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
             <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">模型由运营后台同步管理，保存后以运营后台下发为准。</div>
           </template>
@@ -439,7 +443,11 @@
             <span>支持生成视频（默认关闭）</span>
           </label>
         </template>
-        <template v-if="form.models.length === 1">
+        <template v-if="isMiniMaxMultimodal">
+          <div class="form-hint">模型列表由系统预设与运营后台下发控制，无需在此填写。</div>
+          <div class="form-hint muted-hint">当前模型：{{ form.modelsText || '—' }}。</div>
+        </template>
+        <template v-else-if="form.models.length === 1">
           <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
           <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">模型由运营后台同步管理，保存后以运营后台下发为准。</div>
         </template>
@@ -523,6 +531,7 @@ const {
   safeStorageAvailable,
   preferMultimodal,
   multimodalVideoEnabled,
+  isMiniMaxMultimodal,
   showFormDialog,
   isEditing,
   form,

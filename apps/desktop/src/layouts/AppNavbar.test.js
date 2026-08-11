@@ -5,7 +5,9 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ path: '/' }),
 }))
 
-vi.mock('@/composables/useIdentity', () => ({ useIdentity: () => ({ status: 'unauthenticated', isAuthenticated: false, subject: null, loading: false, error: null, user: null, displayName: 'Guest' }) }))
+// user 必须是 ref 形状（组件内 user.value?.sub）：{ value: null } 满足 .value 访问，避免
+// "Cannot read properties of null (reading 'value')"（IdentityMenu.vue hasSessionIdentity）。
+vi.mock('@/composables/useIdentity', () => ({ useIdentity: () => ({ status: 'unauthenticated', isAuthenticated: false, subject: null, loading: false, error: null, user: { value: null }, displayName: 'Guest' }) }))
 
 vi.mock('@/stores/license', () => ({
   useLicenseStore: () => ({ isPro: false }),

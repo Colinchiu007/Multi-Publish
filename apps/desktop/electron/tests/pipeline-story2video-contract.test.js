@@ -180,6 +180,7 @@ describe('story2video 编排契约', () => {
       expect.objectContaining({
         platform: 'generic',
         creative_level: 5,
+        // 与 prompt-engine-contract maxLength.default=500 一致（00a581d1 引入时测试期望 300 未同步）
         max_length: 500,
         num_candidates: 1,
         auto_detect_style: true,
@@ -209,6 +210,7 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'realistic',
         creative_level: 5,
+        // 与 prompt-engine-contract maxLength.default=500 一致
         max_length: 500,
         num_candidates: 1,
         auto_detect_style: true,
@@ -530,6 +532,7 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'anime',
         creative_level: 8,
+        // 与 prompt-engine-contract maxLength.default=500 一致
         max_length: 500,
         num_candidates: 2,
         auto_detect_style: true,

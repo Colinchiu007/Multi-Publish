@@ -24,6 +24,75 @@
 - 更新 CreateHistory.vue、CreateViewHistory.vue 的 import 路径
 - 更新 PRD 和 PRD-video-creation.md 中的文件引用
 - CSS 文件职责明确：tokens / view / selector / stage-progress / history-page / history-panel / config-summary / error-dialog
+## [未发布] 修复：videogen 流水线对推理型 LLM 自动放大提示词生成预算（2026-08-11）
+
+- 根因：推理型 LLM（MiniMax-M3 / deepseek-reasoner / deepseek-v4-flash 等）会把 <think> 思考过程算进输出，videogen 家族（animation / avatar-spokesperson / character-animation / hybrid）的 concept / storyboard 阶段在默认 1600 max_tokens 下 JSON 被截断，parseJsonArray 返回 null 导致分镜阶段失败（MiniMax-M3 实测 2000 tokens 仍截断）。
+- 修复：`callDefaultLlm` 新增推理模型识别（`isReasoningLlmModel`，按 model id 特征匹配），未显式传 max_tokens 且命中推理特征时默认预算放大到 5000，给思考块留足空间保证完整 JSON；显式传值仍优先。
+- 测试：videogen-stages.test.js 新增 4 用例（推理识别 / 推理型放大 5000 / 非推理保持 1600 / 显式覆盖），25/25 通过。
+
+## [未发布] 修复：缺失/不可读 BGM 不再阻断项目保存，成片成功时不得误判为失败（2026-08-11）
+
+- 根因：compose 阶段对缺失/不可读 BGM 已按 bgmSkipped 降级跳过并成功合成成片，但项目保存（_persistS2VTextConfig）仍对 bgmPath 无条件 _copyRequired，源缺失时抛错，导致「成片成功却误判项目保存失败」。
+- 修复：保存时用 _resolveSource 探测 BGM 源，缺失/不可读则跳过拷贝并清空 bgmPath / config.bgm.path 引用（避免元数据指向已回收文件），不再阻断保存。
+- 测试：story2video-project-service.test.js 新增回归用例（缺失 BGM 源 + 成片存在时 saveRun 成功不误判），本地 23/23 通过。
+
+## [未发布] 修复：既有 CI 失败（electron-tests / gui-test / QG 系列）（2026-08-11）
+
+- **CreateView 子组件漏注册**：`components` 缺 PipelineSelector/StageProgress/CreateViewHistory → Vue 'Failed to resolve component'、流水线卡片不渲染（gui-test /create 15/26 失败）。补注册修复。
+- **E2E fixture 缺登录态**：`tests/e2e/helpers/ipc-mock.js` 无 identityGetState → identityStore=error → 主动操作登录门拦截启动。预置 authenticated 登录态（identityGetState/identitySignIn/identitySignOut/onIdentityStateChanged）。
+- **prompt-engine max_length 契约同步**：`stage-executor.test.js` / `pipeline-story2video-contract.test.js` 期望 `max_length:300` 与契约默认 500 不一致（00a581d1 引入时未同步）→ electron-tests OPTIMIZE/OPTIMIZE_BATCH 失败。改 500。
+- **phase5-ipc 断言同步**：untrustedSender 自 #531 多语言后附带 errorCode，测试断言补 `errorCode: 'UNTRUSTED_SENDER'`。
+- 验证：E2E create 58/58、pipeline 11/11；src 全量 1904/1904；electron/services+tests 全量单 worker 3604/3604。
+
+## [未发布] 功能：字幕分割规则对齐《字幕分割规范 v1.0》（2026-08-11）
+
+- `text-segmentation.ts` 的 `SubtitleSegmenter` 重构为规范 7 步流水线（与 smart-sentence-splitter Python 实现共享同一规范）：
+  - Step 1 分句优先（块不跨句；未闭合引号内句界不生效）
+  - Step 2 引号感知预分割（引号内容 ≥ min_chars 才分离，短引号并入上下文，消除孤立引号）
+  - Step 3 长度切分（标点优先 + 配对引号保护，8-15 字）
+  - Step 4 短块合并 → Step 5 标点规范化（开头修正 / 跨块引号清理 / 末尾去除）→ Step 6 超长强制（切分点须在块内部）
+  - Step 7 时间戳（proportional / equal，行为不变）
+- 新增共享测试向量断言 `tests/subtitle-vectors.test.ts`（18 断言）：与 smart-sentence-splitter `tests/vectors/subtitle_segmentation_vectors.json`（16 例）逐字一致，保证双实现输出同一字幕块序列
+- 行为变化：本地字幕块现在会清理孤立引号、去除块尾标点、短引号内容并入上下文——字幕显示更规范（原有 `subtitleSource: 'local-typescript'` 契约不变）
+- 测试：story2video-engine 全量 73 通过（含新向量 18）
+## [未发布] 文档：模型 API 调用并发 / 排队 / 限流机制详细合同补充（2026-08-11）
+
+- 核验并固化「每分钟连接次数（rate_per_minute）由运营后台设置/修改，未设置时降级到数据库默认值」的完整链路：运营后台 `model_presets`（DB）→ catalog → 桌面 `model_providers.config`（DB）→ 桌面 DB 预设种子 `PRESET_RATE_LIMITS` 回填 → 静态表 `PROVIDER_LIMITS` → 类别默认 `DEFAULT_LIMITS`；运营显式清空回退静态表/类别默认。
+- 补充排队与冷却时序预算：并发信号量 30s、RPM 时间槽 180s、429 冷却 45s、额度预检即拒；429 自适应 ×0.75 下调 / +0.05 恢复；同 key 重入透传防双包死锁；两端数据校验规则与提示文案。
+- 文档：PRD §7.1.8.1（时序预算与数据校验）、§7.4.4.3（预算来源与数据库默认值降级链路）、§7.4.4.4（并发与排队功能逻辑）、§7.4.4.5（交互逻辑与显示项/提示文字）；product-manual §3.5 模型设置 / §3.6 运营后台同步；OpenSpec model-call-scheduler（排队时序预算 + 数据库默认值降级两个 Requirement）；ops-center PRD §12A.10.4；清理 #533 合入残留的 CHANGELOG 冲突标记行。
+
+## [未发布] 功能：主动操作登录引导（渐进式登录）（2026-08-11）
+
+- 新增 `src/composables/useLoginGate.js`：主动操作登录门——未登录触发「发布/批量发布/AI 写作/启动流水线」等操作时弹登录确认框 → `identitySignIn()`（主进程 Logto OAuth）→ 登录成功自动继续原操作；已登录直接放行；身份服务不可用 fail-closed 提示；单例防重入。
+- 接入首批主动操作：`usePublishFlow.handlePublish`（发布）、`useBatchPublish.handleBatchPublish`（批量发布）、`AiWriterPanel` 三个生成函数（标题/润色/摘要）、`CreateView` UI「启动流水线」按钮 → `handleStartPipeline`（登录门 + `startPipeline`，方法本体保持同步时序语义）。
+- 边界：浏览/查看类保持轻提示；已登录缺权益走升级引导；登录门仅为 UX 前置，主进程通道级鉴权（AUTH_REQUIRED）仍是最终安全边界。
+- 文档：PRD §2.3.1「主动操作登录引导」详细合同（规则/校验/流程/交互/提示文字/接入点/边界）；CHANGELOG。
+- 测试：`useLoginGate.test.js`（8 用例：已登录放行/确认后登录/取消/登录失败/不可用/单例/requireLogin）；接入点新增 `handleStartPipeline` 2 用例；重复提交类测试适配异步登录门时序；src 全量通过。
+
+## [未发布] 功能：MiniMax 多模态模型列表只读（2026-08-11）
+
+- 设置-模型设置-多模态模型- MiniMax 的「模型列表」编辑输入框移除：模型列表由程序预设（seeds `capability_models`/`models`）+ 运营后台（catalog 下发）控制，前端不提供编辑。
+- 实现：`useModelProviderCrud.js` 新增 `isMiniMaxMultimodal`（`form.id === 'minimax-multimodal'`）；`ModelProviders.vue` 新增/编辑对话框对该预设渲染只读提示（「模型列表由系统预设与运营后台下发控制，无需在此填写」+ 当前模型列表文本），其它服务商行为不变。
+- 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
+- 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
+
+## [未发布] 功能：用户提示文字统一为多语言自然语言（原因 + 建议）（2026-08-11）
+
+- 根因：主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message（如「当前许可证无权访问 store:list-publish-history」），渲染端多个视图直接把 `result.message`/`e.message` 原样展示。
+- 主进程：`license-access-control.js` 三个拒绝函数返回稳定 `errorCode`（AUTH_REQUIRED / ENTITLEMENT_REQUIRED / UNTRUSTED_SENDER）+ 去通道名的自然语言 message + `messageParams.channel`（仅诊断）；`model-provider-manager.js` 22 处错误去英文括号注释与裸英文，补 `errorCode`（PROVIDER_EXISTS / CREATE_FAILED / UPDATE_FAILED / DELETE_FAILED / SET_DEFAULT_FAILED / ENCRYPT_FAILED / CRYPTO_UNAVAILABLE / ADAPTER_NOT_FOUND / PROVIDER_NOT_FOUND / API_KEY_NOT_CONFIGURED / ADAPTER_INIT_FAILED / OPERATION_NOT_SUPPORTED / STORE_NOT_INITIALIZED 等），原始 detail 只进 `messageParams.detail`；`webview-manager.js` 创建标签页失败改中文。
+- 渲染端：新增 `src/utils/user-facing-error.js` `formatUserError()`（errorCode → 数值 code → 遗留 pattern → 技术文本 sanitize / 自然语言透传，zh/en「原因 + 建议」目录）；`src/i18n/index.js` 新增系统语言自动检测（zh*/en*）与 `setAppLocale/getAppLocale`，语言优先级 = 显式设置 > 系统语言 > 默认；设置弹窗「通用设置」新增语言切换控件。
+- 接入 16+ 处显示路径：CreateHistory / PublishHistory / CreateView / useModelProviderCrud（含 `already exists` 改 errorCode 判断）/ useOpsCenterSync / usePublishFlow / usePublishDrafts / useBatchPublish / useAutoUpdate / ApprovalGateModal / UpgradeModal / PipelineBrowser / TemplatePicker / ReplayTimeline / stores/accounts。
+- 测试：新增 `user-facing-error.test.js`（17 用例）、i18n 系统语言检测用例；更新 license-access-control / model-provider-* / 受影响视图测试；`test-setup.js` 固定测试环境语言 zh-CN 保证确定性。
+- 文档：PRD §3.2 新增「用户提示文字与多语言规范」（语言解析/错误返回契约/交互显示项/提示文字表/回归测试）；learnings 补充复盘；CHANGELOG。
+
+## [未发布] 功能：桌面端登录门禁与会员权益判定体系（2026-08-11）
+
+- 模型服务商配置：写操作（create/update/delete/set-default/clean-logs）从 public 升级为 **需登录（authenticated）**；读操作（list/get/get-default/presets/is-configured/logs）与测试连接保持 public（离线可用语义）。未登录调用被主进程拒绝（`code: -3`），preload 层同步拦截。
+- 明确登录门禁边界：发布历史/队列/进度（history:*、queue:*、dashboard:stats）、流水线写/运行控制（pipeline:start/pause/resume/cancel/status/advance/fetch）、视频处理/渲染（video:*、render:start/cancel/validate-props/list-compositions/get-composition）、Story2Video 写操作（transcribe/recompose/export-zip/save-as/create-share-url 等）均为 authenticated；只读历史（pipeline:list/get/history、story2video:list/get、render:status）保持 public。
+- 新增 `LOGIN_ONLY_FEATURE_MAP`（feature 预留映射）：基础功能当前「登录即可、不强制服务端下发」，未来会员分级只需把目标通道移入 `CHANNEL_FEATURE_MAP` 并让服务端下发 feature；`cloud_publish` 严格权益判定不变（服务端权威）。
+- 文档：PRD §7.4「权限与访问控制」详细修订、新增 `01-docs/ACCESS-CONTROL-MATRIX.md`（完整通道矩阵/feature 映射/数据校验/交互提示/验收标准）、CHANGELOG。
+- 测试：`license-access-control.test.js`（+3：登录要求矩阵、LOGIN_ONLY 一致性、写操作拒/放行行为）、`access-control.test.js`（+2：未登录拒写/登录可用）；electron/ipc-handlers + preload 全量 735 通过。
+
 ## [未发布] 修复：Story2Video 真实运行稳定性与视频错误可诊断性（2026-08-11）
 
 - compose xfade 合并超时改为按输出时长动态计算（原固定 120s 会误杀 ≥2 分钟成片的 chunk 合并）：长视频（27 场景约 337s）真实复跑稳定成功（334.4s / 52.9MB）。
@@ -104,6 +173,10 @@
 - 契约：story2videoTextConfig 新增可选 video 段（mode/provider/model/fixedRatio/minRatio/maxRatio/maxScenes），normalizer 白名单校验；参数治理纳入（视频并发固定 1，前端不暴露）。
 - 文档：PRD §7.1.25（数据校验/流程/功能逻辑/交互/显示项/提示文字/降级/验收标准）。
 - 测试：story2video-text-config +10、story2video-stages +21（选择算法/执行器/视频分支真实下载）、story2video-compose-engine +3（混合真实编码）、pipeline-engine/pipeline-story2video-contract 阶段顺序同步。
+- 真实运行加固（2026-08-11）：ai-judged 的 LLM 选择改为有界重试（最多 3 次，空内容/解析失败均重试并记录 raw 诊断），修复推理型模型（deepseek-v4-flash）对 27 场景长任务偶发返回空 content/非法 JSON 导致整阶段失败；修复 video_plan 中 excitement/reason 因 entries 遮蔽恒为空的问题；真实运行证据：27 场景 AI 选中 10 个（占比 37%，区间 20%-40%），27 图 + 27 TTS 真实生成，视频场景因 provider 额度（MiniMax 2056）正确回退图片，成片 337.9s/54.9MB。
+- Agnes Video adapter 瞬时错误有界重试（2026-08-11）：`503 video_queue_full`/`429 rate_limit_exceeded`（约 2 次/分钟）标记可重试，提交最多重试 6 次、递增退避（20/30/45/60/60s）；非重试错误立即抛出。**真实混合成片达成**：27 场景 AI 选中 8 个（29.6%，区间 20-40%），6 段真实 Agnes AI 视频 + 21 段图片轮播（2 段因队列满载回退图片），27 图 + 27 TTS 真实生成，成片 338.4s/65.8MB/720x1280（s2v_1786438791564_1_output.mp4），mediaKinds 混合 video/image。
+- **视频片段旁白音频修复（W10，2026-08-11）**：视频片段合成显式映射 TTS 旁白为输出音频（`-map 0:v:0 -map 1:a:0`）——此前 ffmpeg 默认流选择会选中 AI 视频自带音频而丢弃 TTS 解说（实测 440Hz vs 880Hz 验证）。回归测试：视频场景带 440Hz 音频 + TTS 880Hz，成片音频主频必须为 880Hz（compose-engine 94/94 通过）。
+- **横版（1280x720）真实混合成片（2026-08-11）**：W10 修复后重跑，27 场景 AI 选中 10 个（37%），**9 段真实 Agnes AI 视频 + 18 段图片轮播**（scene 15 被 Agnes 内容安全拒绝回退图片），27 图 + 27 TTS 真实生成，成片 334.7s/78.6MB/1280x720（s2v_1786452848848_1_output.mp4），视频段音频为 TTS 旁白（采样 RMS 0.50）。
 
 
 ## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）

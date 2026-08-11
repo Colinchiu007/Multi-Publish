@@ -102,6 +102,7 @@ scripts/*.js
 !scripts/openspec-sync-check.js
 !scripts/affected-report.js
 !scripts/launch-worktree.js
+!scripts/ensure-electron.js
 screenshot_script*.js
 temp_debug.txt
 coverage/

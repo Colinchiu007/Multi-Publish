@@ -124,6 +124,10 @@
   --ep-border-light: #e4e7ed;
   --ep-bg: #f5f7fa;
 
+  /* --- 通用变量映射（兼容 stage-progress / create-view-history） --- */
+  --border: var(--border-light, #e8e8e8);
+  --text: var(--ink, #1e1b4b);
+  --primary-bg: var(--primary-light, #eff6fb);
 }
 
 [data-theme="dark"] {
@@ -191,4 +195,9 @@
     --ep-border: #363637;
     --ep-border-light: #2a2a2e;
     --ep-bg: #1a1a1e;
+
+    /* --- 通用变量映射（暗色模式） --- */
+    --border: var(--ep-border, #363637);
+    --text: var(--ep-bg, #1a1a1e);
+    --primary-bg: var(--ep-primary-light, #1a2632);
 }

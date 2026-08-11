@@ -1,0 +1,13 @@
+{
+  "id": "videogen-max-tokens",
+  "title": "videogen 家族 callDefaultLlm 对推理型 LLM 放大默认 max_tokens",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-11T21:40:00+08:00",
+  "branch": "codex/videogen-max-tokens",
+  "summary": "推理型 LLM（MiniMax-M3 等）的 <think> 思考块会耗尽 1600 tokens 默认预算，导致 concept/storyboard 的 JSON 被截断、parseJsonArray 返回 null 阶段失败。新增 isReasoningLlmModel + REASONING_LLM_MAX_TOKENS=5000，未显式传 maxTokens 且命中推理特征时自动放大；显式传值仍优先。videogen-stages.test.js 新增 4 用例（识别/推理放大/非推理保持/显式覆盖），25/25 通过。"
+}
