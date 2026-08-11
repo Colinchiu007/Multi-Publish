@@ -1710,6 +1710,30 @@ loadHistory()
 3. `vite build` 通过
 4. 视觉无回归
 
+#### 7.1.29 视频创作代码-设计分离测试适配（2026-08-11）
+
+**背景**：7.1.28 将 CreateView.vue 的 `<style scoped>` 块提取到 `create-view.css`，PipelineSelector 子组件从 CreateView 内联模板中独立出来。两处变更导致 3 个测试文件的断言失效，CI 出现 5 个 check 失败（electron-tests、QG Coverage、QG Desktop Shards 2/2、gui-test、QG Browser E2E）。
+
+##### A. 失败根因与修复
+
+| 测试文件 | 失败断言 | 根因 | 修复 |
+|----------|----------|------|------|
+| `electron/tests/voice-clone-layout-regression.test.js:79-86` | `expect(source).toContain('minmax(min(200px, 100%), 1fr)')` 等 6 条 CSS 规则 | 直接读 `CreateView.vue` 源码找 CSS，提取后规则在 `create-view.css` | 断言指向 `src/styles/create-view.css` |
+| `tests/e2e-smoke.js:141-142` | `assert(cvContent.includes('pipeline-grid'))` 等 | 直接读 `CreateView.vue` 源码找 class，PipelineSelector 子组件独立后 class 在 `PipelineSelector.vue` | 断言改为读 `PipelineSelector.vue` |
+| E2E `/create` 路由（15 failed） | 流水线卡片渲染、详情渲染 | pre-existing：E2E 环境 IPC mock 未完整覆盖 pipeline:list 响应 | 非本次引入，已在 main 分支存在 |
+
+##### B. 测试适配原则
+
+1. **CSS 契约测试**：当样式从 Vue SFC 提取到独立 CSS 文件时，CSS 契约断言必须同步指向 CSS 文件
+2. **组件拆分测试**：当模板结构从父组件提取到子组件时，源码级检查必须指向子组件文件
+3. **pre-existing 失败标记**：CI 失败需区分「本次引入」和「pre-existing」，pre-existing 不阻塞合入
+
+##### C. 回归验证
+
+- `voice-clone-layout-regression.test.js`：2 tests passed ✅
+- `e2e-smoke.js`：29/29 checks passed ✅
+- 单元测试：6908 passed, 1 failed → 修复后 6917 passed ✅
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
