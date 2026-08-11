@@ -41,6 +41,7 @@ const {
 } = require('./prompt-engine-contract');
 const {
   buildSceneContextResult,
+  CONTEXT_KEY_WHITELIST,
   mergeNegativePrompt,
 } = require('./story-context-engine');
 
@@ -1070,6 +1071,11 @@ function registerStory2VideoStages(pipelineEngine) {
             }
           } else if (typeof userContext === 'string' && userContext && !optimizeContext.synopsis) {
             optimizeContext.synopsis = userContext;
+          }
+          // 审查 W1：发送边界对 context 做白名单过滤（scene_context 七键），
+          // 防止用户显式配置携带未知键/未来服务端新增解释型键造成契约漂移。
+          for (const key of Object.keys(optimizeContext)) {
+            if (!CONTEXT_KEY_WHITELIST.includes(key)) delete optimizeContext[key];
           }
           const requestOptionsForScene = { ...stage.options, context: optimizeContext };
           // 场景负面锚点（时代/文化排除项）合并进 negative_prompt（≤500 契约截断）

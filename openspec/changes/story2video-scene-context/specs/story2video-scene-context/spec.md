@@ -47,7 +47,7 @@ scene_context SHALL 提供归一化配置（enabled/maxSummaryLength/maxAnchors/
 
 #### Scenario: 配置边界收敛
 - **WHEN** 上层传入越界值（如 maxSummaryLength=99999 或 maxAnchors=-1）
-- **THEN** 归一化为契约边界内值（50..1000 / 1..20），非法类型回退默认值
+- **THEN** 配置归一化层（story2video-text-config）对越界/非数值拒绝（fail closed，与 optimize.maxLength 契约一致）；引擎层（story-context-engine.normalizeSceneContextOptions）将越界值收敛到边界（50..1000 / 1..20），非法类型回退默认值
 
 #### Scenario: 敏感键拦截
 - **WHEN** 场景/文案内容含 token/secret 等敏感键名或上下文构造过程意外引入敏感字段
