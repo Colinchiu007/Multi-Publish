@@ -288,6 +288,16 @@ function computeSegmentEncodeTimeoutMs (effectDuration, fps) {
   return Math.max(30000, Math.min(300000, estimatedMs + 20000))
 }
 
+/**
+ * xfade/acrossfade 合并的编码超时：整段输出全量重编码，固定 120s 会杀掉长视频合并
+ * （真实复现：27 场景 ~337s 成片，chunk 合并需 5+ 分钟，120s 超时导致 compose 失败，2026-08-11）。
+ * 公式：max(2 分钟, 输出时长 × 3 + 2 分钟)——假设最低 1.5x 实时编码速度 + 大幅余量。
+ */
+function computeMergeEncodeTimeoutMs (outputSeconds) {
+  const seconds = Math.max(0.1, Number(outputSeconds) || 30)
+  return Math.max(120000, Math.ceil(seconds * 1000 * 3) + 120000)
+}
+
 function normalizeComposeScenes (assetManifest) {
   if (!assetManifest || typeof assetManifest !== 'object') return []
   const sentences = Array.isArray(assetManifest.sentences) ? assetManifest.sentences : []
@@ -1509,7 +1519,9 @@ class Story2VideoComposeEngine {
     const args = ['-y', ...inputArgs, '-filter_complex', filterParts.join(';'),
       '-map', currentVideo, '-map', '[aout]',
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]
-    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: 120000, maxBuffer: 2 * 1024 * 1024 })
+    // 超时随输出时长动态计算（长视频全量重编码，2026-08-11 真实 bug 修复）
+    const mergeTimeout = computeMergeEncodeTimeoutMs(plan.totalDuration)
+    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: mergeTimeout, maxBuffer: 2 * 1024 * 1024 })
     if (!hasUsableFile(outputPath)) {
       throw new Error('ffmpeg xfade did not produce output: ' + (stderr || '').slice(-200))
     }
@@ -1646,6 +1658,7 @@ module.exports = {
   buildWatermarkFilter,
   buildScaleFilter,
   computeSegmentEncodeTimeoutMs,
+  computeMergeEncodeTimeoutMs,
   resolveMaxOutputDimensions,
   validateResolutionCapability,
   computeWorkResolution,
