@@ -1655,6 +1655,61 @@ loadHistory()
 5. `CreateView.vue` 和 `usePipelineHistory.js` 的筛选逻辑一致
 6. 所有受影响测试通过
 
+
+#### 7.1.28 视频创作模块代码-设计分离（2026-08-11）
+
+**背景**：视频创作模块的样式代码此前分散在 Vue SFC 的 `<style scoped>` 块和独立 CSS 文件中，不利于统一设计语言和维护。本次将所有组件样式提取到独立 CSS 文件，实现代码与设计的彻底分离。
+
+##### A. 文件变更清单
+
+| 变更类型 | 文件 | 说明 |
+|----------|------|------|
+| 新增 | `apps/desktop/src/styles/create-history.css` | CreateHistory.vue scoped style 提取（76行） |
+| 修改 | `apps/desktop/src/views/CreateHistory.vue` | 移除 `<style scoped>` 块，添加 `import create-history.css` |
+| 新增 | `apps/desktop/src/views/create-view-utils.js` | 共享工具函数（formatDuration、stageStateClass 等） |
+| 已有 | `apps/desktop/src/styles/create-view.css` | CreateView.vue 样式（293行，此前已提取） |
+| 已有 | `apps/desktop/src/styles/create-view-history.css` | CreateViewHistory.vue 样式（此前已提取） |
+
+##### B. 样式文件职责
+
+| CSS 文件 | 对应组件 | 行数 | 职责 |
+|----------|----------|------|------|
+| `create-view.css` | CreateView.vue | 293 | 页面布局、流水线卡片、配置面板、编排进度 |
+| `create-view-history.css` | CreateViewHistory.vue | 138 | 历史记录卡片、状态色条、进度段、操作按钮 |
+| `create-history.css` | CreateHistory.vue | 76 | 独立历史页面、渲染/流水线列表、骨架屏 |
+
+##### C. 共享工具函数（create-view-utils.js）
+
+| 函数 | 用途 |
+|------|------|
+| `formatDuration(ms)` | 毫秒转X分Y秒 |
+| `formatTime(iso)` | ISO 时间转本地化字符串 |
+| `humanName(name)` | kebab-case 转 Title Case |
+| `historyStatusLabel(status)` | 状态码转中文标签 |
+| `cloneForIpc(value)` | JSON 序列化脱壳（IPC 安全） |
+| `categoryLabel(cat)` | 流水线分类标签 |
+| `costLabel(cost)` | 消耗等级标签 |
+| `getStability(name)` | 流水线稳定性等级 |
+| `stageStateClass(status, stage, i)` | 阶段状态转 CSS 类 |
+| `stageStateIcon(status, stage, i)` | 阶段状态转图标 |
+| `getStory2VideoOutputAspectRatio(resolution)` | 分辨率转宽高比 |
+| `prioritizeStory2VideoPipeline(pipelines)` | story2video-compose 优先排序 |
+
+##### D. 设计原则
+
+1. **单一来源**：每个 CSS 类只在一个文件中定义，无重复
+2. **组件隔离**：每个组件的样式独立文件，通过 import 引入
+3. **设计令牌复用**：所有颜色、间距、圆角使用 CSS 变量
+4. **响应式**：关键组件包含 `@media (max-width: 720px)` 断点
+5. **动画一致性**：统一使用 `cubic-bezier(0.4, 0, 0.2, 1)` 缓动函数
+
+##### E. 验收标准
+
+1. 所有 Vue SFC 中无 `<style>` 块（样式全部外置）
+2. `create-view-utils.js` 可被任意组件 import
+3. `vite build` 通过
+4. 视觉无回归
+
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
