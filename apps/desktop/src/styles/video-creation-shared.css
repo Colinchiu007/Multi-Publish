@@ -456,5 +456,5 @@
 .history-page .pipeline-progress { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 4px; }
 
 /* --- Empty State Enhancements --- */
-.history-page .empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 12px; }y-state-icon { font-size: 48px; margin-bottom: 8px; opacity: 0.6; }
+.history-page .empty-state-icon { font-size: 48px; margin-bottom: 8px; opacity: 0.6; }
 .history-page .empty-state-hint { font-size: 13px; color: var(--text-light); margin: 0 0 12px; }
