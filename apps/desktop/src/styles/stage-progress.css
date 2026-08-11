@@ -1,0 +1,192 @@
+/* ============================================
+   StageProgress — 阶段进度样式
+   从 StageProgress.vue 抽取，代码-设计分离
+   ============================================ */
+
+.stage-progress {
+  width: 100%;
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 40px;
+}
+
+.elapsed-text {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.progress-summary {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-radius: 6px;
+}
+
+.stages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stage-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: all 0.2s;
+}
+
+.stage-item.completed {
+  border-color: var(--status-completed-bg);
+  background: var(--status-completed-bg);
+}
+
+.stage-item.running {
+  border-color: var(--primary);
+  background: var(--primary-bg, rgba(124, 92, 191, 0.05));
+}
+
+.stage-item.failed {
+  border-color: var(--status-failed-bg);
+  background: var(--status-failed-bg);
+}
+
+.stage-item.waiting {
+  border-color: var(--status-waiting-bg);
+  background: var(--status-waiting-bg);
+}
+
+.stage-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.stage-item.completed .stage-icon {
+  background: var(--status-completed-text);
+  color: #fff;
+}
+
+.stage-item.running .stage-icon {
+  background: var(--primary);
+  color: #fff;
+  animation: pulse 2s infinite;
+}
+
+.stage-item.failed .stage-icon {
+  background: var(--status-failed-text);
+  color: #fff;
+}
+
+.stage-item.waiting .stage-icon {
+  background: var(--status-waiting-text);
+  color: #fff;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.stage-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stage-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.stage-detail {
+  font-size: 12px;
+  color: var(--primary);
+  margin-top: 2px;
+}
+
+.stage-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.stage-sub-progress {
+  margin-top: 4px;
+}
+
+.stage-sub-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.stage-sub-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.stage-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.stage-time {
+  color: var(--text-light);
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .stage-item {
+    flex-wrap: wrap;
+  }
+
+  .stage-status {
+    width: 100%;
+    text-align: right;
+    margin-top: 4px;
+  }
+}
