@@ -4,6 +4,13 @@
 - 补充排队与冷却时序预算：并发信号量 30s、RPM 时间槽 180s、429 冷却 45s、额度预检即拒；429 自适应 ×0.75 下调 / +0.05 恢复；同 key 重入透传防双包死锁；两端数据校验规则与提示文案。
 - 文档：PRD §7.1.8.1（时序预算与数据校验）、§7.4.4.3（预算来源与数据库默认值降级链路）、§7.4.4.4（并发与排队功能逻辑）、§7.4.4.5（交互逻辑与显示项/提示文字）；product-manual §3.5 模型设置 / §3.6 运营后台同步；OpenSpec model-call-scheduler（排队时序预算 + 数据库默认值降级两个 Requirement）；ops-center PRD §12A.10.4；清理 #533 合入残留的 CHANGELOG 冲突标记行。
 
+## [未发布] 功能：MiniMax 多模态模型列表只读（2026-08-11）
+
+- 设置-模型设置-多模态模型- MiniMax 的「模型列表」编辑输入框移除：模型列表由程序预设（seeds `capability_models`/`models`）+ 运营后台（catalog 下发）控制，前端不提供编辑。
+- 实现：`useModelProviderCrud.js` 新增 `isMiniMaxMultimodal`（`form.id === 'minimax-multimodal'`）；`ModelProviders.vue` 新增/编辑对话框对该预设渲染只读提示（「模型列表由系统预设与运营后台下发控制，无需在此填写」+ 当前模型列表文本），其它服务商行为不变。
+- 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
+- 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
+
 ## [未发布] 功能：用户提示文字统一为多语言自然语言（原因 + 建议）（2026-08-11）
 
 - 根因：主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message（如「当前许可证无权访问 store:list-publish-history」），渲染端多个视图直接把 `result.message`/`e.message` 原样展示。

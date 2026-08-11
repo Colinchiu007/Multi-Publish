@@ -591,6 +591,7 @@ describe('useModelProviderCrud', function () {
         'configuredProviders', 'unconfiguredPresets', 'customProviders',
         'filteredProviders', 'configuredCount', 'presetCount',
         'categoryCounts', 'configuredCategoryCounts', 'activeCategoryCounts',
+        'isMiniMaxMultimodal',
         // 方法
         'loadProviders', 'loadMultimodalPreference', 'saveMultimodalPreference',
         'openAdd', 'nextAddStep', 'loadAvailablePresets',
@@ -689,6 +690,26 @@ describe('useModelProviderCrud', function () {
       crud.selectPreset('minimax-multimodal')
       expect(crud.form.value.config.capability_enabled.video).toBe(false)
       expect(crud.multimodalVideoEnabled.value).toBe(false)
+    })
+
+    it('isMiniMaxMultimodal：minimax-multimodal 为 true，其它服务商为 false（模型列表只读分支）', async function () {
+      const { modelProviderPresets } = await import('@/api/model-providers')
+      modelProviderPresets.mockResolvedValueOnce({ code: 0, data: [{ id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal', base_url: 'x', models: [], capabilities: ['llm', 'tts', 'image', 'video'], capability_models: {} }] })
+      crud.addCategory.value = 'multimodal'
+      await crud.loadAvailablePresets()
+      crud.selectPreset('minimax-multimodal')
+      expect(crud.isMiniMaxMultimodal.value).toBe(true)
+
+      // 编辑非 MiniMax 多模态服务商 → false（仍渲染模型列表输入框）
+      crud.openEdit({ id: 'openai', name: 'OpenAI', category: 'multimodal', models: ['gpt-4o'], config: {} })
+      expect(crud.isMiniMaxMultimodal.value).toBe(false)
+
+      // 编辑 MiniMax 多模态服务商 → true（模型列表只读，不渲染输入框）
+      crud.openEdit({
+        id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal',
+        models: [], modelsText: '', config: {},
+      })
+      expect(crud.isMiniMaxMultimodal.value).toBe(true)
     })
 
     it('导出完整性：multimodalVideoEnabled 可访问', function () {
