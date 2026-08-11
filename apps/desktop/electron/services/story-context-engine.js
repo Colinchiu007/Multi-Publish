@@ -168,9 +168,6 @@ function normalizeText (value) {
   return String(value || '').replace(/\s+/gu, ' ').trim()
 }
 
-function unicodeLength (value) {
-  return Array.from(String(value || '')).length
-}
 
 function integerInRange (value, min, max, fallback) {
   const number = Math.floor(Number(value))
@@ -689,3 +686,4 @@ module.exports = {
   sceneTextOf,
   truncateBySentence,
 }
+
