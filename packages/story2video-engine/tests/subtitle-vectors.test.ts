@@ -7,10 +7,12 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { SubtitleSegmenter } from '../src/text-segmentation';
 
-// 共享向量文件在并列的 smart-sentence-splitter 仓库（开发机布局 D:/Data/projects/ 下两仓库并列）
-const VECTORS_PATH = 'D:/Data/projects/smart-sentence-splitter/tests/vectors/subtitle_segmentation_vectors.json';
+// 共享向量（规范 v1.0）：与 smart-sentence-splitter 仓库 tests/vectors/subtitle_segmentation_vectors.json
+// 保持同步（新增/修改向量时两边更新同一份内容），此处使用仓库内 fixtures 副本以便 CI 可复现。
+const VECTORS_PATH = resolve(import.meta.dirname, 'fixtures/subtitle_segmentation_vectors.json');
 
 interface Vector {
   id: string;

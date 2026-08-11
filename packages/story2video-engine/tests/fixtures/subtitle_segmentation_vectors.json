@@ -1,0 +1,238 @@
+{
+  "spec": "docs/subtitle-segmentation-spec.md",
+  "description": "共享字幕分割测试向量（smart-sentence-splitter 与 Multi-Publish story2video-engine 双实现共用）",
+  "vectors": [
+    {
+      "id": "simple_single_block",
+      "input": "今天天气真好，我们去公园散步。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "今天天气真好，我们去公园散步"
+      ],
+      "note": ""
+    },
+    {
+      "id": "punct_split_blocks",
+      "input": "今天天气真好，阳光洒在公园的长椅上，我们沿着小路散步。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "今天天气真好",
+        "阳光洒在公园的长椅上",
+        "我们沿着小路散步"
+      ],
+      "note": ""
+    },
+    {
+      "id": "multi_sentence",
+      "input": "第一部分。第二部分，包含顿号、逗号、以及更多内容；第三部分？第四部分！",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "第一部分",
+        "第二部分，包含顿号",
+        "逗号、以及更多内容",
+        "第三部分",
+        "第四部分"
+      ],
+      "note": ""
+    },
+    {
+      "id": "quotes_speech",
+      "input": "他说：“最近常来这里，清晨的空气最清新。”我点点头，继续往前走。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "他说：最近常来这里",
+        "清晨的空气最清新",
+        "我点点头，继续往前走"
+      ],
+      "note": ""
+    },
+    {
+      "id": "quote_paired_in_block",
+      "input": "他说“你好”然后离开。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "他说“你好”然后离开"
+      ],
+      "note": ""
+    },
+    {
+      "id": "book_title",
+      "input": "他推荐了《活着》这本书。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "他推荐了《活着》这本书"
+      ],
+      "note": ""
+    },
+    {
+      "id": "no_punct_long",
+      "input": "这里有一串很长的句子没有任何标点一直延续下去直到超出最大长度限制才需要被强制切分成多个字幕块来展示",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "这里有一串很长的句子没有任何标",
+        "点一直延续下去直到超出最大长度",
+        "限制才需要被强制切分成多个字幕",
+        "块来展示"
+      ],
+      "note": ""
+    },
+    {
+      "id": "leading_punct",
+      "input": "，他笑了笑。然后继续说话。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "他笑了笑",
+        "然后继续说话"
+      ],
+      "note": ""
+    },
+    {
+      "id": "punct_only_tail",
+      "input": "走吧。，",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "走吧"
+      ],
+      "note": ""
+    },
+    {
+      "id": "short_sentence",
+      "input": "嗯。好的，就这么办。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "嗯",
+        "好的，就这么办"
+      ],
+      "note": ""
+    },
+    {
+      "id": "colon_semicolon",
+      "input": "一是早起；二是锻炼。三是读书。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "一是早起；二是锻炼",
+        "三是读书"
+      ],
+      "note": ""
+    },
+    {
+      "id": "ellipsis",
+      "input": "他想了想……然后说。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "他想了想",
+        "然后说"
+      ],
+      "note": ""
+    },
+    {
+      "id": "english",
+      "input": "Hello world. How are you? I am fine.",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "Hello world",
+        "How are",
+        "you",
+        "I am fine"
+      ],
+      "note": ""
+    },
+    {
+      "id": "mixed_long_scene",
+      "input": "清晨的阳光洒在旧书桌上，一只银灰色小猫蜷在摊开的笔记本上打盹。窗外传来鸟鸣，几片梧桐叶随风飘进窗台。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "清晨的阳光洒在旧书桌上",
+        "一只银灰色小猫蜷在摊开的笔记本",
+        "上打盹",
+        "窗外传来鸟鸣",
+        "几片梧桐叶随风飘进窗台"
+      ],
+      "note": ""
+    },
+    {
+      "id": "nested_quotes",
+      "input": "她喊道：“他说‘明天见’就走了。”",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "她喊道：他说‘明天见’就走了"
+      ],
+      "note": ""
+    },
+    {
+      "id": "comma_list",
+      "input": "苹果、香蕉、橘子、葡萄和西瓜都是常见的水果，它们各有营养。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "苹果、香蕉、橘子",
+        "葡萄和西瓜都是常见的水果",
+        "它们各有营养"
+      ],
+      "note": ""
+    }
+  ]
+}
