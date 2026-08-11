@@ -39,7 +39,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     platform: 'generic',
     style: 'realistic',
     creativeLevel: 5,
-    maxLength: 300,
+    maxLength: 500,
     numCandidates: 1,
     autoDetectStyle: true,
     negativePrompt: '',
