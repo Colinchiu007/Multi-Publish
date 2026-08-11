@@ -34,11 +34,13 @@ const PUBLIC_METHODS = [
   'syncAll', 'syncPlatform', 'syncCached',
   'webviewSetLayout', 'webviewOpenTab', 'webviewCloseTab', 'webviewCloseAll', 'webviewListTabs',
   'onWebviewLayoutChanged', 'onWebviewTabOpened', 'onWebviewTabClosed', 'onWebviewNav', 'onWebviewAllClosed',
-  'modelProviderList', 'modelProviderGet', 'modelProviderCreate', 'modelProviderUpdate',
+  'modelProviderList', 'modelProviderGet',
   'opsCenterSyncGet', 'opsCenterSyncSave', 'opsCenterSyncNow', 'opsCenterSyncRuntime',
-  'modelProviderDelete', 'modelProviderSetDefault', 'modelProviderGetDefault',
+  // 模型服务商：读方法未登录可用（离线查看/测试已配置模型）；
+  // 写方法（Create/Update/Delete/SetDefault/CleanLogs）为 authenticated，未登录调用被拒。
+  'modelProviderGetDefault',
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
-  'modelProviderLogs', 'modelProviderCleanLogs',
+  'modelProviderLogs',
   'logsGetInfo', 'logsClear', 'logError',
   'renderGetStatus', 'renderInstallDeps', 'onRenderInstallProgress',
   'pipelineList', 'pipelineGet',

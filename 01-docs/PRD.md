@@ -1939,6 +1939,59 @@ umberValue 边界收敛 |
         └─ 多模态模型 → 一个 API Key 覆盖多个能力（见 7.4.1）
 ```
 
+#### 权限与访问控制（2026-08-11 详细修订）
+
+##### 1. 策略总览：读开放、写需登录
+
+模型服务商配置采用「**读开放、写需登录**」策略，兼顾「本机离线可用」与「未登录不得改动配置」：
+
+| 操作 | 访问级别 | 说明 |
+|------|----------|------|
+| 读：查看服务商列表/详情、获取默认、预设目录、是否已配置、调用日志 | 未登录可用（public） | 保持本机离线可用语义：未登录/离线时仍可查看并使用已配置的模型 |
+| 测试连接 | 未登录可用（public） | 不修改配置；使用本机已配置 Key 发起连通性测试 |
+| 写：新增 / 编辑 / 删除 / 设为默认 / 清理调用日志 | **需登录（authenticated）** | 未登录调用被主进程拒绝（AUTH_ERROR），防止未登录用户修改本机模型配置 |
+
+##### 2. 功能逻辑与判定流程
+
+- 所有 IPC 通道经 `createAccessControlledIpcMain` 注册（`electron/ipc-handlers/license-access-control.js`），通道级别由 `requiredLevelForChannel` 决定：`admin`（开发调试）→ `public`（未登录可用）→ 默认 `authenticated`（需登录）。
+- 每次调用实时读取 access level（`getAccessLevel`）：Logto identity 已启用 → 以登录状态为准（`authenticated` / `offline_authenticated`）；未启用 → 以本地 Pro 许可证为准（`licenseManager.isPro()`）。
+- 写操作链路：渲染层 `window.electronAPI.modelProviderCreate/Update/Delete/SetDefault/CleanLogs`（preload 权限层，未登录抛 `LicensePermissionError`）→ 主进程通道（未登录返回 `{ code: -3, message: '当前许可证无权访问 model-provider:xxx' }`）。
+- 登录判定**双层强制**：preload 暴露层 + 主进程通道层，缺一不可；主进程层是最终安全边界。
+
+##### 3. 数据校验与安全
+
+- 所有写操作 handler 使用 `withSenderCheck`：校验 senderFrame 来源（`app://` / `file://` / 开发模式 localhost:5174-5180），外部网页调用返回 `{ code: -3, message: '未授权的调用来源' }` 且不执行 handler。
+- 参数校验：`model-provider:dev-get-key` 类敏感通道校验参数类型；`create/update` 由 `ModelProviderManager` 校验字段白名单（`UPDATE_WHITELIST`）与 `safeStorage` 可用性（不可用时拒绝保存 Key）。
+- API Key 存储：`api_key_enc`（safeStorage 加密 BLOB），`api_key` 明文列清空；读接口只返回 `api_key_masked`；解密仅在主进程 `getProviderWithKey` 内部。
+- 打包权限：`app.isPackaged` 是开发/打包判定的唯一权威；`ELECTRON_IS_DEV`/`NODE_ENV` 等环境变量不得在打包应用提权（QM-5 合同）。
+
+##### 4. 交互逻辑与显示项
+
+- 未登录进入「模型服务商设置」页：列表、预设目录、默认服务商、调用日志均可正常查看；「测试连接」可用。
+- 未登录点击「添加服务商 / 编辑 / 删除 / 设为默认 / 清理日志」：保存/删除按钮点击后弹出失败提示，**不写库、不刷新列表**。
+- 显示项：页面不新增锁图标等装饰（保持现有 UI）；仅在操作失败时通过现有 `ElMessage.error` 提示。
+
+##### 5. 提示文字（未登录触发写操作）
+
+主进程拒绝响应统一携带 `errorCode`（供渲染端 `formatUserError()` 映射自然语言），`message` 不含内部通道名，通道名仅进 `messageParams.channel`（诊断用）：
+
+| 场景 | `errorCode` | 提示（`message`） |
+|------|-------------|-------------------|
+| 新增/编辑保存、删除、设为默认、清理日志（未登录） | `AUTH_REQUIRED` | `当前许可证无权访问该功能，请先登录并确认账号已开通所需权益后重试。` |
+| 已登录但缺少服务端权益（未来 feature 收紧后） | `ENTITLEMENT_REQUIRED` | `当前账号没有所需权益，无法使用该功能。请升级或开通对应权益后重试。` |
+| 外部网页注入调用 | `UNTRUSTED_SENDER` | `未授权的调用来源` |
+
+渲染端对 `AUTH_REQUIRED` 的可选友好提示：`请先登录后再修改模型配置`（由 `src/utils/user-facing-error.js` 目录化）。
+
+##### 6. 涉及实现
+
+- `electron/ipc-handlers/license-access-control.js`：`PUBLIC_CHANNELS` 分类（写操作移出 public → 默认 authenticated）、`LOGIN_ONLY_FEATURE_MAP`（feature 预留映射）。
+- `electron/preload/access-control.js`：`PUBLIC_METHODS` 分类（写方法移出 public → 默认 authenticated）。
+- `electron/preload/index.bundle.js`：构建产物（`npm run build:preload` 重新生成）。
+- 回归测试：`electron/ipc-handlers/license-access-control.test.js`（未登录拒写/登录放行/通道级别锁定）、`electron/preload/access-control.test.js`（未登录调用抛权限错误/登录可调用）。
+
+> 完整通道级权限矩阵见 [ACCESS-CONTROL-MATRIX.md](./ACCESS-CONTROL-MATRIX.md)。
+
 ### 7.4.1 多模态模型类别（2026-08-08 新增）
 
 **需求**：模型设置新增「多模态模型」类别；预设模型必须声明支持多模态（文字推理 / TTS语音 / 语音识别 / 视觉识别 / 生图 / 生成视频 中**至少 2 项**能力）；前端只需填写**一个 API Key**，并提供「优先使用多模态模型进行所有的AI操作」开关（**默认勾选**）；流水线按能力调用模型时，若多模态模型声明支持该能力则优先使用它。

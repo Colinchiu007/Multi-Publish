@@ -7,6 +7,15 @@
 - 测试：新增 `user-facing-error.test.js`（17 用例）、i18n 系统语言检测用例；更新 license-access-control / model-provider-* / 受影响视图测试；`test-setup.js` 固定测试环境语言 zh-CN 保证确定性。
 - 文档：PRD §3.2 新增「用户提示文字与多语言规范」（语言解析/错误返回契约/交互显示项/提示文字表/回归测试）；learnings 补充复盘；CHANGELOG。
 
+## [未发布] 功能：桌面端登录门禁与会员权益判定体系（2026-08-11）
+
+- 模型服务商配置：写操作（create/update/delete/set-default/clean-logs）从 public 升级为 **需登录（authenticated）**；读操作（list/get/get-default/presets/is-configured/logs）与测试连接保持 public（离线可用语义）。未登录调用被主进程拒绝（`code: -3`），preload 层同步拦截。
+- 明确登录门禁边界：发布历史/队列/进度（history:*、queue:*、dashboard:stats）、流水线写/运行控制（pipeline:start/pause/resume/cancel/status/advance/fetch）、视频处理/渲染（video:*、render:start/cancel/validate-props/list-compositions/get-composition）、Story2Video 写操作（transcribe/recompose/export-zip/save-as/create-share-url 等）均为 authenticated；只读历史（pipeline:list/get/history、story2video:list/get、render:status）保持 public。
+- 新增 `LOGIN_ONLY_FEATURE_MAP`（feature 预留映射）：基础功能当前「登录即可、不强制服务端下发」，未来会员分级只需把目标通道移入 `CHANNEL_FEATURE_MAP` 并让服务端下发 feature；`cloud_publish` 严格权益判定不变（服务端权威）。
+- 文档：PRD §7.4「权限与访问控制」详细修订、新增 `01-docs/ACCESS-CONTROL-MATRIX.md`（完整通道矩阵/feature 映射/数据校验/交互提示/验收标准）、CHANGELOG。
+- 测试：`license-access-control.test.js`（+3：登录要求矩阵、LOGIN_ONLY 一致性、写操作拒/放行行为）、`access-control.test.js`（+2：未登录拒写/登录可用）；electron/ipc-handlers + preload 全量 735 通过。
+>>>>>>> 8aaa96d4 (feat(auth): 登录门禁与会员权益判定 — 模型写操作/发布历史/流水线/视频/Story2Video 写操作需登录，feature 预留映射，详细文档)
+
 ## [未发布] 修复：Story2Video 真实运行稳定性与视频错误可诊断性（2026-08-11）
 
 - compose xfade 合并超时改为按输出时长动态计算（原固定 120s 会误杀 ≥2 分钟成片的 chunk 合并）：长视频（27 场景约 337s）真实复跑稳定成功（334.4s / 52.9MB）。
