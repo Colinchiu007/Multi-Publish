@@ -1,0 +1,13 @@
+{
+  "id": "identity-menu-login-highlight",
+  "title": "IdentityMenu 未登录态高亮登录入口",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-11T12:00:00Z",
+  "updatedAt": "2026-08-11T14:00:00Z",
+  "branch": "codex/ui"
+}

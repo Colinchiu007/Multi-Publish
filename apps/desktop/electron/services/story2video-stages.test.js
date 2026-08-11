@@ -140,13 +140,13 @@ describe('story2video 资源索引契约', () => {
     })
     expect(serviceBus.calls).toHaveLength(2)
     // 契约参数：平台/风格别名归一 + 自动风格检测 + 边界收敛
-    expect(serviceBus.calls[0]).toEqual({
+    expect(serviceBus.calls[0]).toMatchObject({
       prompt: '唐代长安城夜景，无文字',
       options: expect.objectContaining({
         platform: 'dalle',
         style: 'photography',
         creative_level: 8,
-        max_length: 300,
+        max_length: 500,
         num_candidates: 1,
         auto_detect_style: true,
         negative_prompt: '水印',

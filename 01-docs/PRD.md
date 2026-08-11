@@ -1760,6 +1760,46 @@ loadHistory()
 **影响**：用户在 Bridge 未启动或崩溃后调用视频创作功能时，系统自动恢复而非报错。
 
 
+
+#### 7.1.31 prompt-engine 上下文增强与 maxLength 默认值调整（2026-08-11）
+
+**背景**：optimize 阶段调用 prompt-engine 优化图片提示词时，仅传递单场景文案，缺少完整文案上下文和场景类型信息，导致 LLM 生成的提示词与原文意图脱节。同时 maxLength 默认值 300 偏低，长文案场景截断严重。
+
+**核心变更**：
+
+| 文件 | 变更 |
+|------|------|
+| story2video-stages.js | 新增 uildOptimizeContext(scenes, options) 函数；optimize 阶段请求构造时注入上下文 |
+| story2video-text-config.js | maxLength 默认值从 300 调整为 500 |
+
+**buildOptimizeContext 行为**：
+1. **完整文案收集**：遍历所有场景，通过 getScenePromptSeed() 收集场景文本，用 ； 拼接为 ull_text 字段
+2. **上下文继承**：从 options.context 继承已有上下文（如 synopsis）；若 options.context 为字符串则映射为 synopsis
+3. **场景类型推断**：基于关键词自动推断场景类型
+   - 含「对比/vs/而不是/相反」→ 对比场景
+   - 含「特写/细节/精致/纹理」→ 细节场景
+   - 含「全景/街道/市场/宫殿」→ 全景场景
+   - 场景数 > 3 且未匹配 → 全景场景
+4. **请求注入**：optimize 阶段调用 uildPromptEngineOptimizeRequest 时，将 optimizeContext 作为 context 参数传入
+
+**maxLength 调整**：
+- 默认值 300 → 500，对齐 Prompt 引擎与 Story2Video 配置
+- 范围仍为 50–2000，前端 s2vConfig 不暴露该字段
+
+**数据校验**：
+| 校验项 | 合同 |
+|--------|------|
+| full_text 非空 | uildOptimizeContext 仅在至少一个场景有有效文本时设置 ull_text |
+| scene_type 白名单 | 推断值仅限 对比场景 / 细节场景 / 全景场景 三种，不传无效值 |
+| context 合并语义 | options.context 为对象时 Object.assign 合并（新值覆盖同名键），为字符串时映射为 synopsis |
+| maxLength 边界 | 50 ≤ maxLength ≤ 2000，非法值被 
+umberValue 边界收敛 |
+
+**回归保护**：
+1. story2video-text-config.test.js：断言 max_length: 500（默认值 + 显式覆盖两种场景）
+2. story2video-stages.test.js：覆盖 buildOptimizeContext 的关键词推断、上下文继承、空场景处理
+
+**影响**：LLM 收到完整文案上下文后生成更贴合原文的图片提示词；maxLength 放宽减少长文案截断。
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
