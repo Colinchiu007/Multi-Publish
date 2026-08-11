@@ -1800,6 +1800,57 @@ umberValue 边界收敛 |
 2. story2video-stages.test.js：覆盖 buildOptimizeContext 的关键词推断、上下文继承、空场景处理
 
 **影响**：LLM 收到完整文案上下文后生成更贴合原文的图片提示词；maxLength 放宽减少长文案截断。
+
+#### 7.1.32 场景上下文增强中间层（scene_context，2026-08-11）
+
+**背景与问题**：分句引擎（8002/本地）只产出「场景自身文字」，图片提示词优化引擎（prompt-engine 8013）仅凭单场景文字生成提示词；当场景文字缺少时代/地域/文化锚点时产生**背景漂移**（如全文讲中国唐代，场景仅写「一个老妇人在做饭」，生成结果可能变成西方老太太在西式现代厨房用电烤箱做饭）。
+
+**功能**：在 `split → domain_enrich` 之后、`optimize` 之前新增 `scene_context` 阶段（场景上下文增强中间层）：
+1. **全局故事上下文提取**（读完整文案，规则驱动、可测试）：题材（genre）、时代/朝代（era/dynasty，16 朝代规则表）、文化地域（culture/region，中/日/欧/美/阿/埃/印/韩）、场景设定（setting）、昼夜·季节（time）、角色（characters+修饰语）、时代道具（props，ancient/modern 互斥）、视觉风格（visualStyle）、叙事语气（tone）、一句话梗概（summary）、一致性锚点（anchors）、负面锚点（negativeAnchors）。
+2. **逐场景上下文融合**：全局锚点合并进每个场景，生成上下文块（如「中国唐朝（618-907）时期长安民居厨房中，一个老妇人在做饭；使用土灶、柴火、陶罐」）与时代负面锚点（做饭 × 古代 → 电烤箱/微波炉/西式现代厨房）。
+3. **提示词优化注入**：optimize 请求 context 使用场景上下文块，映射 prompt-engine 已知键（synopsis/full_text/setting/narrative_intent/scene_type/character_list/character 七键白名单）；时代负面锚点合并进 `negative_prompt`（≤500）。
+4. **配置**：`scene_context.enabled/maxSummaryLength/maxAnchors/includeNegativeAnchors/contextBlockMaxChars`（默认 true/300/8/true/400）。
+
+**流程**：`split → domain_enrich → scene_context → optimize → select_video_scenes → generate_assets → compose → publish`。
+
+**数据校验**：
+| 校验项 | 合同 |
+|--------|------|
+| 输入场景数组 | 非空，否则阶段 fail closed（「场景上下文增强需要非空场景数组」） |
+| 完整文案 | params.text 优先；图片/音频模式无文案时由场景文本拼接推导并标记 degraded（no_full_text_scene_derived） |
+| 上下文白名单键 | 发送 prompt-engine 仅允许 7 键，防字段漂移 |
+| 敏感凭据拦截 | context 发送前执行 assertNoSensitiveContext（api_key/token/secret 等键名拒绝） |
+| 配置边界 | maxSummaryLength 50–1000、maxAnchors 1–20、contextBlockMaxChars 50–1000（text-config 层越界拒绝，引擎层收敛） |
+| negative_prompt 合并 | 用户负面提示 + 场景时代负面锚点去重合并，超 500 字符截断 |
+| 规则异常 | 降级透传（metadata.degraded=true + fallbackReason），不阻断流水线 |
+
+**功能逻辑**：
+- 时代互斥：era=ancient 只输出古代道具（土灶/柴火/陶罐…）；era=modern 只输出现代道具；mixed/general 不编造时代。
+- 负面锚点互斥：ancient → 排除电烤箱/微波炉/西式现代厨房/现代电器等；modern → 排除油灯/土灶/马车/长袍/宫殿等。
+- 无关键词文案：genre=general、era=mixed、culture 为空、无时代负面锚点，上下文块仅基于场景文字（等价旧行为，保证不回归）。
+- 多文化命中：按证据数排序保留多候选（multiCandidates）并带置信度。
+- 用户显式配置的 optimize.context 只补齐空白键，不被场景上下文覆盖。
+
+**交互逻辑**：
+- 提交文案后自动执行，无需用户操作；阶段进度走通用流水线进度。
+- 上下文增强结果写入 `context.scene_context`（story/scenes/metadata），历史记录与调试日志可见。
+- 失败按上表降级/失败语义处理，错误信息进入流水线错误提示。
+
+**显示项与提示文字**：
+- 流水线阶段名：「场景上下文增强」（scene_context）。
+- 优化进度沿用「共 N 个场景，已完成 M 个」。
+- 失败提示：「场景上下文增强失败：{原因}（已降级，按原文继续生成）」；输入缺失（fail closed）：「场景上下文增强需要非空文案与场景数组」。
+- 无独立 UI 面板；分析结果（题材/时代/地域/锚点等）经历史记录/调试日志展示。
+
+**验收标准**：
+1. 唐代全文 + 「一个老妇人在做饭」场景 → 上下文块含 唐代/中国/土灶/柴火，负面锚点含 电烤箱/西式现代厨房（自动化断言）。
+2. 普通现代文案 → 不套用古代设定、无时代负面锚点。
+3. optimize 请求 context 仅含白名单七键，经过敏感键拦截。
+4. 配置越界：text-config 层 fail closed，引擎层边界收敛。
+5. 规则异常降级透传、空场景输入 fail closed。
+6. 流水线阶段顺序含 scene_context，旧行为不回归。
+
+**影响**：提升图片/视频生成的故事背景准确性、一致性与连贯性；真实生成效果依赖 prompt-engine 与厂商模型行为，属外部验收边界。
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
@@ -2990,4 +3041,56 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 | 样式 | `style2` 加黑底 `box`（0.55 透明度 + 10px 边框）；`style3` 描边加粗（borderw=4）。 |
 | **位置（2026-08-07 修订）** | 字幕底边默认位于画面 **80% 高度**（即**距底部 20%**，`bottomMarginRatio=0.2`，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式 `y=h*(1-bottomMarginRatio)-th`。原固定 `h-th-40`（约 3%）废弃。 |
 | 水平 | 恒居中 `x=(w-text_w)/2`。 |
+
+
+---
+
+## 提示词优化效果评估系统（PromptEval，2026-08-11）
+
+> 完整 PRD：`01-docs/PRD-PROMPT-EVAL-SYSTEM-2026-08-11.md`；架构：`01-docs/ARCH-PROMPT-EVAL-SYSTEM-2026-08-11.md`；OpenSpec：`openspec/changes/prompt-image-eval-system/`。v1 只支持图片，视频扩展预留。
+
+### 背景与目标
+
+prompt-engine（8013）优化出的图片提示词生成图片后，缺乏量化反馈闭环。本系统对「生成图片 + 该图对应的原始文案/整个文案上下文/优化后提示词/负向提示」进行多维度评估：打分（0-100）、问题归因（原文/上下文/优化后提示词/负向提示）、产出提示词优化点清单，并通过持久化与聚合分析支撑 prompt-engine 的持续迭代。
+
+### 评估维度与权重（图片模式）
+
+| id | 维度 | 权重 | 说明 |
+|----|------|------|------|
+| relevance | 提示-输出关联度 | 30% | 图片与「原文+上下文+优化后提示词」整体语义吻合度 |
+| content_accuracy | 内容准确性 | 30% | 关键元素（主体/动作/场景/数量/风格/色彩/文字/道具）准确度与幻觉检测 |
+| aesthetic_quality | 视觉审美质量 | 20% | 构图/光影/色彩和谐/清晰度/风格执行度 |
+| cross_image_consistency | 跨图上下文一致性 | 20% | ≥2 张同文案图片：角色/风格/色调/场景连续性（单图不参与，权重归一化为 0.375/0.375/0.25） |
+
+等级：≥85 优秀 / ≥70 良好 / ≥50 一般 / <50 差。总体分为参与维度加权和。
+
+### 问题类别与归因
+
+问题类别 11 类：content_missing / content_wrong / style_deviation / layout_composition / color_lighting / text_rendering / ambiguity / context_loss / consistency_break / quality_defect / unknown。归因 promptPart 5 类：source_text / context / optimized_prompt / negative_prompt / unknown。严重度 critical / major / minor。
+
+### 提示词优化点类型（可回馈 prompt-engine）
+
+add_specificity（补充明确细节）/ resolve_ambiguity（消除歧义）/ enforce_style（强化风格约束）/ align_context（对齐文案上下文）/ add_negative（补充负向提示）/ structure_ordering（结构化/顺序化）/ consistency_anchor（一致性锚点）。
+
+### 数据校验（fail closed）
+
+- mediaType=image（video → `EVAL_MEDIA_TYPE_NOT_SUPPORTED`「视频评估暂未实现」）；
+- items 非空且 ≤20；imagePath 存在、可读、非目录、单图 ≤8MB；
+- optimizedPrompt 非空且 ≤5000；sourceText/context 至少一个非空；context 敏感键（password/token/secret/api_key/credential 等）拒绝；
+- options.language ∈ {zh,en}；temperature 收敛 [0,2]；
+- 评估器输出契约校验：overall 0-100、维度 id 白名单且不重复、score 0-100、evidence 非空、problems/promptOptimizationPoints 白名单；任一违反 → `EVAL_LLM_INVALID_RESPONSE` 整次失败，不静默降级。
+
+### 持久化与聚合
+
+`<userData>/prompt-eval/{index.json, records/<id>.json, reports/<id>.md}`，原子写（Windows 瞬时锁错误有界重试 ≤3 次），索引自愈。聚合分析输出：记录数/平均分/等级分布/维度均值/问题类别分布/归因分布/优化点汇总/推荐动作。
+
+### 使用入口
+
+- CLI：`node apps/desktop/electron/services/prompt-eval/cli.js --image <path> --source-text "..." [--optimized-prompt "..."] [--evaluator <模块>] [--json]`；`--batch input.json`；`--analyze`。
+- 桌面 IPC：`prompt-eval:run/list/get/delete/analyze/dimensions`（withSenderCheck，默认 authenticated 级）。
+- Vue 视图：`/prompt-eval`（运行评估 / 历史记录 / 聚合分析 三个 Tab），导航「提示词评估」。
+
+### 验收标准
+
+单图/多图评估、输入校验矩阵、LLM 输出 fail closed、CLI 批处理、IPC 全通道、Vue 三 Tab、聚合分析、视频拒绝、聚焦回归通过（prompt-eval 服务 45+ IPC 4+ preload 2+ composable 3+，Vue build 通过）。
 
