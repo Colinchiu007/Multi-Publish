@@ -1,3 +1,9 @@
+## [未发布] 修复：videogen 流水线对推理型 LLM 自动放大提示词生成预算（2026-08-11）
+
+- 根因：推理型 LLM（MiniMax-M3 / deepseek-reasoner / deepseek-v4-flash 等）会把 <think> 思考过程算进输出，videogen 家族（animation / avatar-spokesperson / character-animation / hybrid）的 concept / storyboard 阶段在默认 1600 max_tokens 下 JSON 被截断，parseJsonArray 返回 null 导致分镜阶段失败（MiniMax-M3 实测 2000 tokens 仍截断）。
+- 修复：`callDefaultLlm` 新增推理模型识别（`isReasoningLlmModel`，按 model id 特征匹配），未显式传 max_tokens 且命中推理特征时默认预算放大到 5000，给思考块留足空间保证完整 JSON；显式传值仍优先。
+- 测试：videogen-stages.test.js 新增 4 用例（推理识别 / 推理型放大 5000 / 非推理保持 1600 / 显式覆盖），25/25 通过。
+
 ## [未发布] 修复：缺失/不可读 BGM 不再阻断项目保存，成片成功时不得误判为失败（2026-08-11）
 
 - 根因：compose 阶段对缺失/不可读 BGM 已按 bgmSkipped 降级跳过并成功合成成片，但项目保存（_persistS2VTextConfig）仍对 bgmPath 无条件 _copyRequired，源缺失时抛错，导致「成片成功却误判项目保存失败」。

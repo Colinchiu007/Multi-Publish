@@ -5,6 +5,10 @@ const {
   buildConceptPrompt,
   buildStoryboardPrompt,
   parseJsonArray,
+  isReasoningLlmModel,
+  callDefaultLlm,
+  DEFAULT_LLM_MAX_TOKENS,
+  REASONING_LLM_MAX_TOKENS,
 } = require('./videogen-stages')
 
 // 本地 HTTP 视频源：generate 成功路径会真实下载（downloadToFile），不能用外网 URL
@@ -296,5 +300,55 @@ describe('videogen 共享阶段执行器', () => {
       const parsed = parseJsonArray('以下是场景：\n```json\n[{"prompt": "p"}]\n```')
       expect(parsed).toHaveLength(1)
     })
+  })
+})
+
+describe('推理型 LLM 的默认 max_tokens 预算', () => {
+  function makeAiWithLlmModel(model, content) {
+    return {
+      _modelProviderManager: {
+        getDefault: (type) => type === 'llm' ? { id: 'test-llm', models: [model] } : null,
+      },
+      generateWithDefault: vi.fn(async () => ({ content, model })),
+    }
+  }
+
+  it('isReasoningLlmModel 识别常见推理型模型', () => {
+    expect(isReasoningLlmModel('MiniMax-M3')).toBe(true)
+    expect(isReasoningLlmModel('deepseek-reasoner')).toBe(true)
+    expect(isReasoningLlmModel('deepseek-v4-flash')).toBe(true)
+    expect(isReasoningLlmModel('o3-mini')).toBe(true)
+    expect(isReasoningLlmModel('kimi-k2.7')).toBe(true)
+    expect(isReasoningLlmModel('agnes-2.0-flash')).toBe(false)
+    expect(isReasoningLlmModel('claude-sonnet-4-20250514')).toBe(false)
+    expect(isReasoningLlmModel('')).toBe(false)
+  })
+
+  it('默认 LLM 为推理型时 storyboard 自动放大 max_tokens 到 5000（防思考块截断 JSON）', async () => {
+    const content = JSON.stringify([{ prompt: '机器人城市全景', text: '开场', duration: 5 }])
+    const ai = makeAiWithLlmModel('MiniMax-M3', content)
+    const { get } = makePipeline(ai)
+    const result = await get(VIDEOGEN_STAGE_TYPES.STORYBOARD)({
+      stage: { kind: 'animation' }, params: {}, context: { concept: { concept: 'x' } },
+    })
+    expect(result.success).toBe(true)
+    expect(ai.generateWithDefault.mock.calls[0][1].max_tokens).toBe(REASONING_LLM_MAX_TOKENS)
+  })
+
+  it('默认 LLM 为非推理型时保持 1600', async () => {
+    const content = JSON.stringify([{ prompt: 'p', text: 't', duration: 5 }])
+    const ai = makeAiWithLlmModel('agnes-2.0-flash', content)
+    const { get } = makePipeline(ai)
+    const result = await get(VIDEOGEN_STAGE_TYPES.STORYBOARD)({
+      stage: { kind: 'animation' }, params: {}, context: { concept: { concept: 'x' } },
+    })
+    expect(result.success).toBe(true)
+    expect(ai.generateWithDefault.mock.calls[0][1].max_tokens).toBe(DEFAULT_LLM_MAX_TOKENS)
+  })
+
+  it('显式 maxTokens 覆盖推理型默认预算', async () => {
+    const ai = makeAiWithLlmModel('MiniMax-M3', 'ok')
+    await callDefaultLlm(ai, 'system', 'user', 1234)
+    expect(ai.generateWithDefault.mock.calls[0][1].max_tokens).toBe(1234)
   })
 })
