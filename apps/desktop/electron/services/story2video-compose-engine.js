@@ -329,6 +329,8 @@ function normalizeComposeScenes (assetManifest) {
       duration: clampNumber(scene?.duration ?? sound?.duration, 0, 3600, null),
       text: scene?.text || scene?.content || sentence?.text || sentence?.content || '',
       prompt: scene?.prompt || '',
+      // 历史提示词翻译（2026-08-12）：非 en 界面随分段持久化，结果页只读展示
+      promptTranslation: scene?.promptTranslation || null,
       imageMeta: scene?.imageMeta || image?.meta || null,
       audioMeta: scene?.audioMeta || sound?.meta || null,
       subtitleBlocks: Array.isArray(scene?.subtitleBlocks)

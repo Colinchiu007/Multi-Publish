@@ -1,0 +1,13 @@
+{
+  "id": "story2video-omnipotent-creation",
+  "title": "Story2Video 全能创作：流水线更名、多语言提示词翻译、分镜素材自选创作模式",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "frontend+backend",
+  "currentPhase": "analysis",
+  "nextAction": "双模型分析+代码勘察，产出 OpenSpec proposal/design/specs/tasks",
+  "createdAt": "2026-08-12T00:00:00Z",
+  "branch": "codex/omnipotent-creation",
+  "openspecChange": "story2video-omnipotent-creation"
+}

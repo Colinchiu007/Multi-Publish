@@ -79,9 +79,20 @@ export default {
   },
   create: {
     story2video: {
-      configurationTitle: 'Image Carousel Configuration',
+      configurationTitle: 'Omni Creation Configuration',
       imageStyleHint: 'Controls the visual appearance of generated images.',
       promptStyleHint: 'Controls how image prompts are written and organized; it does not replace image style.',
+      creationMode: {
+        label: 'Creation Mode',
+        auto: 'Fully automatic (recommended)',
+        manual: 'Manual scene asset selection',
+        hint: 'In "Manual scene asset selection" mode, each storyboard segment generates multiple images and 1 video for you to choose from. Token or credit consumption will increase significantly. Test with a short script first, then use it for real projects.',
+        materialModeLabel: 'Material Mode',
+        materialAllImages: 'Image carousel only',
+        materialVideoImage: 'Video + image carousel',
+        materialAllImagesHint: 'Each scene generates 2 images for you to choose from.',
+        materialVideoImageHint: 'AI-video scenes generate 2 images + 1 video (same prompt) for you to choose from; other scenes generate 2 images.',
+      },
       sections: {
         basic: 'Basics',
         appearance: 'Visuals',
@@ -141,7 +152,7 @@ export default {
     model_configuration_required: 'The required models are not available. Add them in Settings.',
     model_api_key_required: 'The model is configured, but its API key is missing or cannot be read. Re-enter the API key for the provider in Model Settings.',
     bgm_skipped: 'Background music was skipped ({reason}). The video has no background music.',
-    access_denied: 'Sign in with an account that can access the image carousel pipeline, then try again.',
+    access_denied: 'Sign in with an account that can access Omni Creation, then try again.',
     orchestration_failed: 'Could not finish generation right now. Please try again shortly.',
     text_input_only: 'Only text input is supported.',
     text_too_long: 'Your script can contain up to {maxFormatted} characters. Please shorten it and try again.',
@@ -202,6 +213,21 @@ export default {
       hybrid: 'Hybrid (faithful + visual interpretation)',
       hint: 'Auto: short text (<=80 chars) expands creatively, long text (>=300 chars) follows the original, middle ground is hybrid; storyboard extracts key entities and validates alignment.',
     },
+    // Manual scene asset selection (2026-08-12)
+    sceneAssetSelection: {
+      title: 'Choose Scene Assets',
+      subtitle: 'You pick the final asset for each scene; after all selections, narration will be generated and the video composed.',
+      sceneLabel: 'Scene {index}',
+      defaultVideoHint: 'Video selected by default',
+      defaultFirstImageHint: 'First image selected by default',
+      imageLabel: 'Image {n}',
+      videoLabel: 'Video',
+      selectHint: 'Choose the final asset for each scene (single selection).',
+      confirm: 'Confirm and continue (narration + compose)',
+      confirming: 'Submitting...',
+      confirmError: 'Failed to submit asset selection. Please try again.',
+      notReadyHint: 'Assets are still being generated, please wait…',
+    },
   },
   pipelines: {
     names: {
@@ -219,7 +245,7 @@ export default {
       'podcast-repurpose': 'Podcast Repurpose',
       'screen-demo': 'Screen Demo',
       'framework-smoke': 'Framework Smoke Test',
-      'story2video-compose': 'Image Carousel',
+      'story2video-compose': 'Omni Creation',
     },
     descriptions: {
       'animated-explainer': 'Turn a topic or idea into a complete explainer video',
@@ -236,7 +262,7 @@ export default {
       'podcast-repurpose': 'Turn an audio podcast into a visual video',
       'screen-demo': 'Record a screen demo with automatic annotations',
       'framework-smoke': 'Quickly verify a pipeline configuration',
-      'story2video-compose': 'Turn text into an image carousel video',
+      'story2video-compose': 'Turn your script into an Omni Creation video (image carousel with optional AI video blend)',
       unavailable: 'No description available',
     },
     categories: {
@@ -289,9 +315,11 @@ export default {
       report: 'Report',
       split: 'Split Text',
       domain_enrich: 'Enrich Content',
+      scene_context: 'Scene Context',
       optimize: 'Optimize Prompts',
       select_video_scenes: 'Select AI Video Scenes',
       generate_assets: 'Generate Images and Voiceover',
+      finalize_assets: 'Finalize Narration and Assets',
     },
     statuses: {
       idle: 'Idle',

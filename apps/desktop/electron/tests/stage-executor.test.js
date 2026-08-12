@@ -1086,8 +1086,10 @@ it('story2video-compose 流水线已注册为第 14 条', function () {
   eq(detail.stageDefs[3].name, 'optimize');
   eq(detail.stageDefs[4].name, 'select_video_scenes');
   eq(detail.stageDefs[5].name, 'generate_assets');
-  eq(detail.stageDefs[6].name, 'compose');
-  eq(detail.stageDefs[7].name, 'publish');
+  // 2026-08-12：分镜素材自选（manual）新增 finalize_assets 阶段定义（auto 模式不进入运行清单）
+  eq(detail.stageDefs[6].name, 'finalize_assets');
+  eq(detail.stageDefs[7].name, 'compose');
+  eq(detail.stageDefs[8].name, 'publish');
 });
 
 it('现有 14 条流水线可完整 advance 到完成', function () {

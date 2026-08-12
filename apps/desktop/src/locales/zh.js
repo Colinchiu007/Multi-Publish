@@ -79,9 +79,20 @@ export default {
   },
   create: {
     story2video: {
-      configurationTitle: '图片轮播配置',
+      configurationTitle: '全能创作配置',
       imageStyleHint: '控制每张生成图片的视觉外观。',
       promptStyleHint: '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
+      creationMode: {
+        label: '创作模式',
+        auto: '全自动（推荐）',
+        manual: '分镜素材自选',
+        hint: '选择「分镜素材自选」模式后，每个分镜段落将生成多张图片和 1 个视频供您选择。Token 或积分消耗将大量增加，建议先用短文案测试后，再用于真实创作。',
+        materialModeLabel: '素材模式',
+        materialAllImages: '全部图片轮播',
+        materialVideoImage: '视频+图片轮播',
+        materialAllImagesHint: '每个场景生成 2 张图片供您选择。',
+        materialVideoImageHint: 'AI 视频场景生成 2 张图片 + 1 个视频供您选择（同一提示词），其余场景生成 2 张图片。',
+      },
       sections: {
         basic: '基础',
         appearance: '画面',
@@ -141,7 +152,7 @@ export default {
     model_configuration_required: '未找到需要的相关模型，请在设置中添加模型',
     model_api_key_required: '模型已添加，但 API Key 未配置或无法读取，请在「模型设置」中重新填写对应服务商的 API Key。',
     bgm_skipped: '背景音乐已跳过（{reason}），成片不含背景音乐。',
-    access_denied: '当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。',
+    access_denied: '当前登录状态无法启动全能创作，请先登录并确认当前账号有对应权益。',
     orchestration_failed: '暂时无法完成生成，请稍后再试。',
     text_input_only: '目前只支持输入文案。',
     text_too_long: '文案最多可输入 {max} 个字符，请缩短后再试。',
@@ -202,6 +213,21 @@ export default {
       hybrid: '混合（保真主旨 + 允许演绎）',
       hint: '自动：短文案创意拓展，长文案按原文保真，中间态混合；分镜会按原文提取关键人物/事件并对齐校验。',
     },
+    // 分镜素材自选（2026-08-12）：素材选择面板文案
+    sceneAssetSelection: {
+      title: '选择分镜素材',
+      subtitle: '每个分镜的成品由您自主选择；全部选定后将生成旁白并完成视频合成。',
+      sceneLabel: '场景 {index}',
+      defaultVideoHint: '默认选中视频',
+      defaultFirstImageHint: '默认选中第 1 张图片',
+      imageLabel: '图片 {n}',
+      videoLabel: '视频',
+      selectHint: '请为每个场景选择最终使用的素材（单选）。',
+      confirm: '确认选择并继续（生成旁白 + 合成）',
+      confirming: '提交中...',
+      confirmError: '素材选择提交失败，请重试。',
+      notReadyHint: '素材生成中，请稍候…',
+    },
   },
   pipelines: {
     names: {
@@ -219,7 +245,7 @@ export default {
       'screen-demo': '屏幕演示',
       'framework-smoke': '框架冒烟测试',
       'video-clone': '视频克隆',
-      'story2video-compose': '图片轮播',
+      'story2video-compose': '全能创作',
     },
     descriptions: {
       'animated-explainer': '从主题或创意自动生成完整讲解视频',
@@ -236,7 +262,7 @@ export default {
       'screen-demo': '录制屏幕操作并自动添加标注',
       'framework-smoke': '快速验证流水线配置',
       'video-clone': '对标拆解与再创作：链接/本地视频 → 拆解报告 → 同款成片',
-      'story2video-compose': '将文案自动生成图片轮播视频',
+      'story2video-compose': '将文案自动生成全能创作视频（图片轮播 + 可选 AI 视频混合）',
       unavailable: '暂无描述',
     },
     categories: {
@@ -289,9 +315,11 @@ export default {
       report: '报告',
       split: '文案拆分',
       domain_enrich: '内容增强',
+      scene_context: '场景上下文',
       optimize: '提示词优化',
       select_video_scenes: 'AI 视频场景选择',
       generate_assets: '生成图片与旁白',
+      finalize_assets: '旁白与素材定稿',
     },
     statuses: {
       idle: '待开始',

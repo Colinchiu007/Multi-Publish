@@ -137,6 +137,19 @@ function registerHandlers(ipcMain, deps) {
     }
   }))
 
+  // 分镜素材自选（manual）：确认每个场景的素材选择并推进（finalize_assets → compose → publish）
+  ipcMain.handle('pipeline:confirmSceneAssets', withSenderCheck(async (_event, runId, selections) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
+    if (!Array.isArray(selections)) return { code: EC.VALIDATION_ERROR, message: '素材选择必须为数组' }
+    try {
+      const result = await pipelineEngine.confirmSceneAssets(runId, selections)
+      return { code: 0, data: result }
+    } catch (err) {
+      log.error('[pipeline] confirmSceneAssets error:', err)
+      return { code: EC.REQUEST_ERROR, message: err.message }
+    }
+  }))
+
   ipcMain.handle('pipeline:getRunContext', withSenderCheck((_event, runId) => {
     if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
     try {

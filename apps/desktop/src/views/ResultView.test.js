@@ -103,6 +103,19 @@ describe("ResultView", () => {
     expect(w.vm.loading).toBe(false);
   });
 
+  it("非 en 界面展示分段提示词的只读本地翻译（promptTranslation）", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [
+      { id: "s1", text: "旁白一", prompt: "A red apple", promptTranslation: "一个红苹果", imagePath: null, audioPath: null, status: "completed" },
+      { id: "s2", text: "旁白二", prompt: "A blue sky", promptTranslation: null, imagePath: null, audioPath: null, status: "completed" },
+    ];
+    await nextTick();
+    const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].text()).toContain("一个红苹果");
+  });
+
   it("handleError shows a localized modal", async () => {
     const w = await createView();
     w.vm.handleError();

@@ -59,6 +59,7 @@ const STORY2VIDEO_STAGE_TYPES = {
   OPTIMIZE: 'story2video_optimize',
   SELECT_VIDEO_SCENES: 'story2video_select_video_scenes',
   GENERATE_ASSETS: 'story2video_generate_assets',
+  FINALIZE_ASSETS: 'story2video_finalize_assets',
 };
 
 const MAX_ASSET_CONCURRENCY = 8;
@@ -85,6 +86,70 @@ function getAiGenerator (pipelineEngine) {
     } catch (_) { /* 未注册 */ }
   }
   return null
+}
+
+/**
+ * 提示词本地语言翻译（2026-08-12）：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
+ * fail-open：LLM 不可用/单场景失败 → 对应项 translation=null，不阻塞流水线。
+ */
+async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
+  const items = (Array.isArray(prompts) ? prompts : []).map((prompt, index) => ({
+    index,
+    prompt: typeof prompt === 'string' ? prompt : '',
+    translation: null,
+  }))
+  if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
+    if (log && typeof log.warn === 'function') {
+      log.warn('Story2VideoStages', 'prompt translation skipped: default LLM unavailable (uiLocale=' + uiLocale + ')')
+    }
+    return items
+  }
+  const targetLanguage = String(uiLocale || '').trim() || 'zh'
+  const system = '你是专业译者。把用户给出的英文图片提示词翻译成' +
+    (targetLanguage === 'zh' ? '简体中文' : targetLanguage) +
+    '。只输出严格 JSON 对象，键为序号字符串，值为译文，例如 {"0":"译文一","1":"译文二"}，不要输出其他任何文字。'
+  const batchSize = 3
+  for (let offset = 0; offset < items.length; offset += batchSize) {
+    const slice = items.slice(offset, offset + batchSize)
+    const joined = slice.map((item) => '"' + item.index + '": ' + JSON.stringify(item.prompt)).join(',\n')
+    if (!joined.trim()) continue
+    try {
+      const result = await aiGenerator.generateWithDefault('llm', {
+        temperature: 0.1,
+        max_tokens: Math.min(4000, 400 + joined.length),
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: '{\n' + joined + '\n}' },
+        ],
+      })
+      const raw = result && typeof result.content === 'string' ? result.content.trim() : ''
+      // 优先按 index 对齐的 JSON 解析；失败时回退逐行（编号前缀）映射
+      let map = null
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed
+      } catch (_) { /* fallthrough */ }
+      if (map) {
+        for (const item of slice) {
+          const translated = map[String(item.index)]
+          if (typeof translated === 'string' && translated.trim() && translated.trim() !== item.prompt) {
+            item.translation = translated.trim().slice(0, 2000)
+          }
+        }
+      } else {
+        const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+        for (let i = 0; i < slice.length && i < lines.length; i++) {
+          const line = lines[i].replace(/^\d+\s*[.)、]\s*/, '').trim()
+          if (line && line !== slice[i].prompt) slice[i].translation = line.slice(0, 2000)
+        }
+      }
+    } catch (error) {
+      if (log && typeof log.warn === 'function') {
+        log.warn('Story2VideoStages', 'prompt translation batch failed: ' + (error && error.message ? error.message : String(error)))
+      }
+    }
+  }
+  return items
 }
 
 /**
@@ -460,6 +525,342 @@ function runTool (binary, args) {
       resolve(output)
     })
   })
+}
+
+/**
+ * 分镜素材自选（manual）：把已生成素材复制到独立候选路径，避免同 index 二次生成覆盖同名文件。
+ * 目标目录 = 源文件同目录/candidates/，与源文件同卷（复制即可，无需跨卷 rename）。
+ */
+function persistCandidateCopy (sourcePath, runId, sceneIndex, seq, kind, log) {
+  if (typeof sourcePath !== 'string' || !sourcePath) return null
+  const dir = path.dirname(sourcePath)
+  const ext = path.extname(sourcePath) || (kind === 'video' ? '.mp4' : '.png')
+  const candidateDir = path.join(dir, 'candidates')
+  try { fs.mkdirSync(candidateDir, { recursive: true }) } catch (_) { /* mkdir 失败由后续复制抛出 */ }
+  const target = path.join(candidateDir, 'scene_' + String(sceneIndex) + '_' + String(seq) + ext)
+  try {
+    const sourceReal = fs.realpathSync(sourcePath)
+    let targetReal = null
+    try { targetReal = fs.realpathSync(target) } catch (_) { /* 目标不存在 */ }
+    if (targetReal && sourceReal === targetReal) return target
+    fs.copyFileSync(sourcePath, target)
+    return target
+  } catch (error) {
+    if (log && typeof log.warn === 'function') {
+      log.warn('Story2VideoStages', 'candidate copy failed scene=' + sceneIndex + ' seq=' + seq + ': ' + (error && error.message ? error.message : String(error)))
+    }
+    return null
+  }
+}
+
+/**
+ * 分镜素材自选（manual）：候选生成阶段。
+ * - all-images：每场景 2 张图片（同一优化提示词两次独立调用）；
+ * - video-image：AI 视频场景 2 张图片 + 1 个视频（同一提示词），其余场景 2 张图片；
+ * - 不生成 TTS；产出 candidates 清单并以 scene_asset_selection 检查点暂停。
+ */
+async function buildManualSceneCandidates (ctx) {
+  const {
+    pipelineEngine, serviceBus, runId, stage, params, context, log,
+    optimizedPrompts, sentences, videoSceneSet, videoConfig, videoPlan, videoGenerator,
+    imageStyle, imageProvider, imageModel, aspectRatio,
+    imageConcurrency, inputMode, inputImages, resolveModelProviderManager, manualMaterialMode,
+  } = ctx
+  const promptTranslationItems = (context && context.prompt_translations && Array.isArray(context.prompt_translations.items))
+    ? context.prompt_translations.items
+    : []
+  const promptTranslationOf = (index) => {
+    const item = promptTranslationItems.find(i => i && i.index === index)
+    return item && typeof item.translation === 'string' && item.translation ? item.translation : null
+  }
+  const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator
+  const sceneCount = optimizedPrompts.length
+  // manual 模式：all-images 忽略 video_plan（videoMode 不生效）；video-image 沿用 select_video_scenes 判定
+  const effectiveVideoSceneSet = manualMaterialMode === 'video-image' ? videoSceneSet : new Set()
+  const videoSceneIndexes = [...effectiveVideoSceneSet].sort((a, b) => a - b)
+  const imagesTotal = sceneCount * 2
+  const videosTotal = effectiveVideoSceneSet.size
+  let imagesDone = 0
+  let videosDone = 0
+  const writeAssetsProgress = () => {
+    if (context && typeof context === 'object') {
+      context.assets_progress = {
+        imagesDone, imagesTotal, videosDone, videosTotal, ttsDone: 0, ttsTotal: sentences.length,
+      }
+    }
+  }
+  writeAssetsProgress()
+
+  // 视频候选生成（并发 1，复用 generateSceneVideo 契约；失败场景回退为仅 2 图）
+  const videoResults = new Map()
+  if (videoGenerator && videosTotal > 0) {
+    const manager = resolveModelProviderManager()
+    if (!manager || typeof manager.callAdapter !== 'function') {
+      return { success: false, error: '视频生成器可用性异常：模型管理器不可用' }
+    }
+    const videoSize = resolveVideoSize(params, stage)
+    const videoFps = Number(params.fps || (params.output && params.output.fps) || (stage && stage.options && stage.options.fps)) || 30
+    const videoRunDir = path.join(os.tmpdir(), 'story2video', 'videoscenes', String(runId || 'run'))
+    const planScenes = Array.isArray(videoPlan && videoPlan.scenes) ? videoPlan.scenes : []
+    for (const index of videoSceneIndexes) {
+      const promptItem = optimizedPrompts[index]
+      const promptText = typeof promptItem === 'string'
+        ? promptItem
+        : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
+      if (!promptText) {
+        videoResults.set(index, { success: false, error: '视频场景缺少提示词' })
+        videosDone += 1
+        writeAssetsProgress()
+        continue
+      }
+      let videoPromptText = promptText
+      const bus = serviceBus || pipelineEngine.serviceBus
+      if (bus && typeof bus.optimizeVideoPrompt === 'function') {
+        try {
+          const optResult = await bus.optimizeVideoPrompt(promptText, {
+            platform: videoGenerator.providerId || undefined,
+            ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
+          })
+          const validated = extractOptimizedVideoPrompt(optResult, { index })
+          if (!validated.ok) throw new Error(validated.error)
+          videoPromptText = validated.prompt
+        } catch (error) {
+          log.warn('Story2VideoStages', 'scene ' + index + ' manual video prompt optimize failed: ' +
+            (error && error.message ? error.message : String(error)) + ' → fallback to images only')
+          videoResults.set(index, { success: false, error: '视频提示词优化失败：' + (error && error.message ? error.message : String(error)) })
+          videosDone += 1
+          writeAssetsProgress()
+          continue
+        }
+      } else {
+        log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → manual video fallback to images only')
+        videoResults.set(index, { success: false, error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' })
+        videosDone += 1
+        writeAssetsProgress()
+        continue
+      }
+      const planScene = planScenes.find(scene => scene.index === index)
+      try {
+        const outcome = await modelCallScheduler.withModelBudget(
+          { governor: pipelineEngine.governor, type: 'video', providerId: videoGenerator.providerId, model: videoGenerator.model },
+          () => withAssetTransientRetry(() => generateSceneVideo({
+            manager,
+            providerId: videoGenerator.providerId,
+            model: videoGenerator.model,
+            prompt: videoPromptText,
+            index,
+            seconds: (planScene && planScene.seconds) || 6,
+            size: videoSize,
+            fps: videoFps,
+            runDir: videoRunDir,
+            pollIntervalMs: videoConfig.pollIntervalMs,
+          })),
+        )
+        videoResults.set(index, outcome)
+      } catch (error) {
+        log.warn('Story2VideoStages', 'scene ' + index + ' manual video generation threw: ' + (error && error.message ? error.message : String(error)) + ' → fallback to images only')
+        videoResults.set(index, { success: false, error: error && error.message ? error.message : String(error) })
+      }
+      videosDone += 1
+      writeAssetsProgress()
+    }
+  }
+
+  // 每场景 2 张图片（同一优化提示词两次独立调用；index 语义保持场景号，落盘后复制到独立候选路径）
+  const generateOneImage = async (promptItem, index, seq) => {
+    const promptText = typeof promptItem === 'string'
+      ? promptItem
+      : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
+    if (!promptText) return { success: false, index, error: '场景缺少提示词' }
+    let result
+    if (assetGenerator) {
+      result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
+        style: imageStyle,
+        image_provider: imageProvider,
+        image_model: imageModel,
+        index,
+        aspect_ratio: aspectRatio,
+        runId,
+      }))
+    } else {
+      const retryResult = await runContentPolicyImageRetry({
+        prompt: promptText,
+        sceneIndex: index,
+        maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+        generate: async ({ prompt: attemptPrompt }) => {
+          const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
+            prompt: attemptPrompt,
+            style: imageStyle,
+            image_provider: imageProvider,
+            image_model: imageModel,
+            index,
+            aspect_ratio: aspectRatio,
+            runId,
+          }))
+          const providerError = attemptResult?.error || attemptResult?.data?.error
+          if (providerError && typeof providerError === 'object') throw providerError
+          if (attemptResult?.success === false || Number(attemptResult?.code) < 0) {
+            const error = new Error(
+              attemptResult?.message ||
+              (typeof providerError === 'string' ? providerError : 'Image generation failed')
+            )
+            if (attemptResult && typeof attemptResult === 'object') Object.assign(error, attemptResult)
+            throw error
+          }
+          return attemptResult
+        },
+      })
+      if (retryResult.status === 'success') {
+        result = retryResult.result
+      } else if (retryResult.status === 'needs_user_input') {
+        result = {
+          code: -1,
+          message: 'Image generation requires user input after content-policy review',
+          needsUserInput: true,
+          checkpoint: retryResult.checkpoint,
+          data: { needsUserInput: true, checkpoint: retryResult.checkpoint, generationAttempts: retryResult.attempts },
+        }
+      } else {
+        result = { code: -1, message: retryResult.error?.message || 'Image generation failed', data: { generationAttempts: retryResult.attempts } }
+      }
+    }
+    const normalized = normalizeAssetResult(result, ['path', 'url', 'image_path'])
+    if (normalized) {
+      const candidatePath = persistCandidateCopy(normalized.path, runId, index, seq, 'image', log)
+      if (!candidatePath) return { success: false, index, error: '候选图片落盘失败' }
+      imagesDone += 1
+      writeAssetsProgress()
+      return { success: true, index, path: candidatePath, seq, meta: normalized.meta }
+    }
+    const contentPolicyCheckpoint = getContentPolicyCheckpoint(result, index)
+    imagesDone += 1
+    writeAssetsProgress()
+    return {
+      success: false,
+      index,
+      error: (result && result.message) || 'Image generation failed',
+      needsUserInput: Boolean(contentPolicyCheckpoint),
+      checkpoint: contentPolicyCheckpoint,
+      generationAttempts: Array.isArray(result?.data?.generationAttempts) ? result.data.generationAttempts : [],
+    }
+  }
+
+  // 每场景 2 图：同场景内顺序生成（避免 asset-generator 同 index 输出路径并发写覆盖 → 两张候选相同），
+  // 不同场景并行（有界并发 imageConcurrency）。
+  const imageTargets = optimizedPrompts.map((prompt, index) => ({ prompt, index }))
+  const imageResults = (await _mapWithConcurrency(
+    imageTargets,
+    Math.max(1, imageConcurrency),
+    async (item) => {
+      const results = []
+      for (let seq = 0; seq < 2; seq++) results.push(await generateOneImage(item.prompt, item.index, seq))
+      return results
+    },
+  )).flat()
+
+  // 内容政策 needs_user_input 优先整体失败（与全自动路径一致，需修改文案后重启）
+  const contentPolicyFailure = imageResults.find(r => r && r.needsUserInput) || [...videoResults.values()].find(v => v && v.needsUserInput)
+  if (contentPolicyFailure) {
+    return {
+      success: false,
+      error: contentPolicyFailure.error || 'Image generation requires user input after content-policy review',
+      needsUserInput: true,
+      checkpoint: contentPolicyFailure.checkpoint || null,
+      generationAttempts: contentPolicyFailure.generationAttempts || [],
+    }
+  }
+
+  // 组装候选清单；任一场景 0 候选 → fail closed（选择检查点无法满足）
+  const candidates = []
+  const failedScenes = []
+  for (let index = 0; index < sceneCount; index++) {
+    const sceneEntries = imageResults
+      .filter(r => r && r.success && r.path && r.index === index)
+      .map(r => ({ id: 'image-' + r.seq, kind: 'image', path: r.path, seq: r.seq, meta: r.meta }))
+    const video = videoResults.get(index)
+    if (video && video.success && video.path) {
+      const videoCandidatePath = persistCandidateCopy(video.path, runId, index, 2, 'video', log)
+      if (videoCandidatePath) sceneEntries.push({ id: 'video-2', kind: 'video', path: videoCandidatePath, seq: 2, meta: video.meta })
+    }
+    if (sceneEntries.length === 0) failedScenes.push(index)
+    const promptItem = optimizedPrompts[index]
+    const promptText = typeof promptItem === 'string' ? promptItem : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
+    const sentence = sentences[index]
+    candidates.push({
+      index,
+      text: typeof sentence === 'string' ? sentence : ((sentence && (sentence.text || sentence.content)) || ''),
+      prompt: String(promptText || ''),
+      promptTranslation: promptTranslationOf(index),
+      candidates: sceneEntries,
+      subtitleBlocks: Array.isArray(sentence?.subtitleBlocks) ? [...sentence.subtitleBlocks] : [],
+      sceneSource: sentence?.sceneSource || null,
+      subtitleSource: sentence?.subtitleSource || null,
+      degraded: sentence?.degraded === true,
+      fallbackReason: sentence?.fallbackReason || null,
+    })
+  }
+  if (failedScenes.length > 0) {
+    return {
+      success: false,
+      error: '分镜素材自选：场景 ' + failedScenes.join(', ') + ' 未生成任何候选素材，请检查模型配置或额度后重试',
+    }
+  }
+
+  const assetManifest = {
+    materialMode: manualMaterialMode,
+    creationMode: 'manual',
+    candidates,
+    images: imageResults.filter(r => r && r.success && r.path).map(r => ({ index: r.index, success: true, path: r.path, meta: r.meta })),
+    videos: [...videoResults.entries()].filter(([, v]) => v && v.success && v.path).map(([index, v]) => ({ index, success: true, path: v.path, meta: v.meta })),
+    failures: {
+      images: imageResults.filter(r => !r || !r.success).map(r => ({
+        index: r && r.index,
+        error: (r && r.error) || 'Image generation failed',
+        needsUserInput: Boolean(r && r.needsUserInput),
+        checkpoint: (r && r.checkpoint) || null,
+        generationAttempts: Array.isArray(r && r.generationAttempts) ? r.generationAttempts : [],
+      })),
+      videos: [...videoResults.entries()].filter(([, v]) => !v || !v.success).map(([index, v]) => ({
+        index,
+        error: (v && v.error) || 'Video generation failed',
+      })),
+      audio: [],
+    },
+    stats: {
+      totalImages: imagesTotal,
+      successImages: imageResults.filter(r => r && r.success).length,
+      totalVideos: videosTotal,
+      successVideos: [...videoResults.values()].filter(v => v && v.success).length,
+      totalTts: 0,
+      successTts: 0,
+      totalScenes: sceneCount,
+      successScenes: candidates.length,
+      failedScenes: failedScenes.length,
+    },
+    segmentation: {
+      sceneSource: sentences.find(s => s && s.sceneSource)?.sceneSource || null,
+      subtitleSource: sentences.find(s => s && s.subtitleSource)?.subtitleSource || null,
+      degraded: false,
+      fallbackReason: null,
+    },
+  }
+  if (context && typeof context === 'object') context.generate_assets = assetManifest
+
+  log.info('Story2VideoStages',
+    'manual candidates: ' + sceneCount + ' scenes (' + imagesTotal + ' images, ' + videosTotal + ' videos) materialMode=' + manualMaterialMode +
+    ' successImages=' + assetManifest.stats.successImages + ' successVideos=' + assetManifest.stats.successVideos)
+
+  return {
+    success: true,
+    output: assetManifest,
+    checkpoint: 'scene_asset_selection',
+    checkpointMeta: {
+      stageName: 'generate_assets',
+      stageIndex: null,
+      required: true,
+      type: 'scene_asset_selection',
+    },
+  }
 }
 
 /** 从上下文候选结构中解包场景数组（兼容 { scenes } / { sentences } / { results } 包装）。 */
@@ -1012,7 +1413,7 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.OPTIMIZE,
-    async ({ stage, context, serviceBus }) => {
+    async ({ stage, context, serviceBus, params }) => {
       if (!serviceBus || typeof serviceBus.optimizePrompt !== 'function') {
         return { success: false, error: 'Story2Video optimize 需要 prompt-engine 服务（PromptBridge 未注入）' };
       }
@@ -1209,6 +1610,20 @@ function registerStory2VideoStages(pipelineEngine) {
         delete context.optimize_resume
       }
 
+      // 提示词本地语言翻译（2026-08-12）：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
+      // fail-open：LLM 不可用/单场景失败 → translation=null，不阻塞流水线；上下文独立键存储，防数组往返丢失。
+      const uiLocale = (params && params.uiLocale) || (stage && stage.options && stage.options.uiLocale) || ''
+      if (uiLocale && uiLocale !== 'en' && Array.isArray(output) && output.length > 0) {
+        const prompts = output.map((item) => {
+          if (typeof item === 'string') return item
+          return (item && (item.optimized_prompt || item.prompt)) || ''
+        })
+        const translations = await translatePromptsForLocale(getAiGenerator(pipelineEngine), prompts, uiLocale, pipelineEngine.log)
+        if (context && typeof context === 'object') {
+          context.prompt_translations = { uiLocale, items: translations }
+        }
+      }
+
       return { success: true, output };
     },
   );
@@ -1317,6 +1732,14 @@ function registerStory2VideoStages(pipelineEngine) {
         ? params.audio
         : (Array.isArray(stage.options?.audio) ? stage.options.audio : []);
       const allowPartialAssets = params.allowPartialAssets === true || stage.options?.allowPartialAssets === true;
+      // 历史提示词翻译（2026-08-12）：optimize 阶段产出，按场景 index 对齐
+      const promptTranslationItems = (context && context.prompt_translations && Array.isArray(context.prompt_translations.items))
+        ? context.prompt_translations.items
+        : [];
+      const promptTranslationOf = (index) => {
+        const item = promptTranslationItems.find(i => i && i.index === index)
+        return item && typeof item.translation === 'string' && item.translation ? item.translation : null
+      };
 
       // 视频+图片轮播混合模式：读取 video_plan（select_video_scenes 阶段输出）与视频生成配置
       const videoMode = firstDefined(params.videoMode, stage.options?.videoMode, 'off');
@@ -1335,6 +1758,19 @@ function registerStory2VideoStages(pipelineEngine) {
             model: videoConfig.model || (videoPlan && videoPlan.model),
           })
         : null;
+
+      // 分镜素材自选（creationMode='manual'，2026-08-12）：生成候选（每场景 2 图 + 可选 1 视频）、
+      // 跳过 TTS，以 scene_asset_selection 检查点暂停等待用户逐场景选择。
+      const creationMode = firstDefined(params.creationMode, stage.options?.creationMode, 'auto')
+      const manualMaterialMode = firstDefined(params.manualMaterialMode, stage.options?.manualMaterialMode, 'all-images')
+      if (creationMode === 'manual') {
+        return await buildManualSceneCandidates({
+          pipelineEngine, serviceBus, runId, stage, params, context, log,
+          optimizedPrompts, sentences, videoSceneSet, videoConfig, videoPlan, videoGenerator,
+          imageStyle, imageProvider, imageModel, aspectRatio,
+          imageConcurrency, inputMode, inputImages, resolveModelProviderManager, manualMaterialMode,
+        })
+      }
 
       log.info('Story2VideoStages',
         'Generating assets: ' + optimizedPrompts.length + ' scenes (' +
@@ -1726,6 +2162,8 @@ function registerStory2VideoStages(pipelineEngine) {
           index: i,
           text: typeof sentence === 'string' ? sentence : sentence?.text || sentence?.content || '',
           prompt: typeof prompt === 'string' ? prompt : prompt?.prompt || prompt?.optimized_prompt || prompt?.optimized || '',
+          // 历史提示词翻译（2026-08-12）：非 en 界面随分段持久化，结果页只读展示
+          promptTranslation: promptTranslationOf(i),
           imagePath: (image && image.success && image.path) ? image.path : null,
           videoPath: (video && video.path) ? video.path : null,
           audioPath: audio.path,
@@ -1860,6 +2298,208 @@ function registerStory2VideoStages(pipelineEngine) {
     }
   );
   registered.push(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS);
+
+  // ----------------------------------------------------------
+  // FINALIZE_ASSETS - 分镜素材自选（manual）确认后：校验选择 → 生成 TTS → 组装最终素材清单
+  // （auto 模式该阶段不进入运行清单；防御性快速通过）
+  // ----------------------------------------------------------
+  pipelineEngine.registerStageExecutor(
+    STORY2VIDEO_STAGE_TYPES.FINALIZE_ASSETS,
+    async ({ stage, params, context, serviceBus, runId }) => {
+      const log = pipelineEngine.log
+      const creationMode = (params && params.creationMode) || (stage && stage.options && stage.options.creationMode) || 'auto'
+      if (creationMode !== 'manual') {
+        return { success: true, output: (context && context.generate_assets) || {} }
+      }
+      const manifest = (context && context.generate_assets) || {}
+      const candidates = Array.isArray(manifest.candidates) ? manifest.candidates : []
+      if (candidates.length === 0) {
+        return { success: false, error: 'finalize_assets 缺少候选素材清单（context.generate_assets.candidates）' }
+      }
+      const selection = (context && context.scene_asset_selection) || null
+      const selections = (selection && Array.isArray(selection.selections)) ? selection.selections : null
+      if (!selections || selections.length === 0) {
+        return { success: false, error: 'finalize_assets 需要先确认分镜素材选择（scene_asset_selection）' }
+      }
+      const byIndex = new Map(selections.map((s) => [s && s.index, s]))
+      for (const scene of candidates) {
+        const picked = byIndex.get(scene.index)
+        if (!picked || typeof picked.candidateId !== 'string' || !picked.candidateId) {
+          return { success: false, error: '分镜素材自选：场景 ' + scene.index + ' 未选择素材' }
+        }
+        const match = (scene.candidates || []).find((c) => c && c.id === picked.candidateId)
+        if (!match || typeof match.path !== 'string' || !match.path) {
+          return { success: false, error: '分镜素材自选：场景 ' + scene.index + ' 选择了无效素材 ' + picked.candidateId }
+        }
+      }
+
+      // 生成所选场景的 TTS 旁白（断点续跑复用 partialTts；失败 fail closed 可重试）
+      const concurrency = normalizeAssetConcurrency((params && params.concurrency) || (stage && stage.options && stage.options.concurrency) || 3)
+      const ttsConcurrency = Math.max(1, Math.min(concurrency, MAX_ASSET_CONCURRENCY))
+      const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator
+      const voiceId = (params && params.voiceId) || (stage && stage.options && stage.options.voiceId) || 'default'
+      const voiceProvider = (params && params.voiceProvider) || (stage && stage.options && stage.options.voiceProvider) || ''
+      const voiceModel = (params && params.voiceModel) || (stage && stage.options && stage.options.voiceModel) || ''
+      const voiceSpeed = (params && params.voiceSpeed) !== undefined ? params.voiceSpeed : (stage && stage.options && stage.options.voiceSpeed)
+      const voicePitch = (params && params.voicePitch) !== undefined ? params.voicePitch : (stage && stage.options && stage.options.voicePitch)
+      const voiceEmotion = (params && params.voiceEmotion) || (stage && stage.options && stage.options.voiceEmotion) || 'default'
+      if (!context.finalize_assets || typeof context.finalize_assets !== 'object') context.finalize_assets = {}
+      const partialTts = Array.isArray(context.finalize_assets.partialTts) ? context.finalize_assets.partialTts : []
+      const partialByIndex = new Map(partialTts.filter((p) => p && Number.isInteger(p.index)).map((p) => [p.index, p]))
+      const resolvedVoiceProvider = voiceProvider || (assetGenerator ? (() => {
+        try {
+          const manager = (pipelineEngine && pipelineEngine.aiGenerator && pipelineEngine.aiGenerator._modelProviderManager) ||
+            (pipelineEngine && pipelineEngine.container && pipelineEngine.container.get && pipelineEngine.container.get('modelProviderManager'))
+          const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault('tts') : null
+          return provider && typeof provider.id === 'string' ? provider.id.trim() : ''
+        } catch (_) { return '' }
+      })() : '')
+
+      const ttsItemTask = async (scene) => {
+        const resumed = partialByIndex.get(scene.index)
+        if (resumed && typeof resumed.audioPath === 'string' && fs.existsSync(resumed.audioPath)) {
+          return { index: scene.index, success: true, path: resumed.audioPath, duration: resumed.duration || null, meta: { resumed: true } }
+        }
+        const text = String(scene.text || '')
+        if (!text) return { index: scene.index, success: false, error: '场景缺少旁白文字' }
+        try {
+          const result = await withAssetTransientRetry(() => assetGenerator
+            ? assetGenerator.generateTTS(text, {
+                voice_id: voiceId,
+                voice_provider: resolvedVoiceProvider,
+                voice_model: voiceModel,
+                rate: voiceSpeed,
+                pitch: voicePitch,
+                emotion: voiceEmotion,
+                index: scene.index,
+                runId: runId || undefined,
+              })
+            : serviceBus.callPythonSkill('generate_tts', {
+                text,
+                voice_id: voiceId,
+                voice_provider: voiceProvider,
+                voice_model: voiceModel,
+                rate: voiceSpeed,
+                pitch: voicePitch,
+                emotion: voiceEmotion,
+                index: scene.index,
+                runId: runId || undefined,
+              }))
+          const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
+          if (normalized) {
+            const partial = { index: scene.index, audioPath: normalized.path, duration: normalized.duration, meta: normalized.meta }
+            context.finalize_assets.partialTts = [...(context.finalize_assets.partialTts || []).filter((p) => p.index !== scene.index), partial]
+            return { index: scene.index, success: true, path: normalized.path, duration: normalized.duration, meta: normalized.meta }
+          }
+          return { index: scene.index, success: false, error: (result && result.message) || 'TTS generation failed' }
+        } catch (error) {
+          return { index: scene.index, success: false, error: error && error.message ? error.message : String(error) }
+        }
+      }
+      const ttsResults = await _mapWithConcurrency(candidates, ttsConcurrency, ttsItemTask)
+      const failedTts = ttsResults.filter((r) => !r.success)
+      if (failedTts.length > 0) {
+        return {
+          success: false,
+          error: '旁白生成失败（场景 ' + failedTts.map((r) => r.index).join(', ') + '）：' + failedTts[0].error,
+        }
+      }
+
+      // 组装最终素材清单（与全自动 generate_assets 输出结构兼容，compose 无需改动）
+      const pairedScenes = []
+      for (const scene of candidates) {
+        const tts = ttsResults.find((r) => r.index === scene.index)
+        const picked = byIndex.get(scene.index)
+        const pickedCandidate = (scene.candidates || []).find((c) => c && c.id === picked.candidateId)
+        if (!tts || !tts.success || !tts.path || !pickedCandidate) continue
+        pairedScenes.push({
+          index: scene.index,
+          text: scene.text || '',
+          prompt: scene.prompt || '',
+          promptTranslation: scene.promptTranslation || null,
+          imagePath: pickedCandidate.kind === 'image' ? pickedCandidate.path : null,
+          videoPath: pickedCandidate.kind === 'video' ? pickedCandidate.path : null,
+          audioPath: tts.path,
+          duration: tts.duration || null,
+          imageMeta: pickedCandidate.kind === 'image' ? (pickedCandidate.meta || null) : null,
+          videoMeta: pickedCandidate.kind === 'video' ? (pickedCandidate.meta || null) : null,
+          audioMeta: tts.meta || null,
+          subtitleBlocks: Array.isArray(scene.subtitleBlocks) ? [...scene.subtitleBlocks] : [],
+          sceneSource: scene.sceneSource || null,
+          subtitleSource: scene.subtitleSource || null,
+          degraded: scene.degraded === true,
+          fallbackReason: scene.fallbackReason || null,
+        })
+      }
+      if (pairedScenes.length > 0) {
+        await alignScenes(pairedScenes, { log })
+      }
+
+      const finalManifest = {
+        materialMode: manifest.materialMode || 'all-images',
+        creationMode: 'manual',
+        candidates: manifest.candidates,
+        selection,
+        scenes: pairedScenes,
+        images: pairedScenes.filter((scene) => scene.imagePath).map((scene) => ({
+          index: scene.index, success: true, path: scene.imagePath, meta: scene.imageMeta,
+        })),
+        videos: pairedScenes.filter((scene) => scene.videoPath).map((scene) => ({
+          index: scene.index, success: true, path: scene.videoPath, meta: scene.videoMeta,
+        })),
+        audio: pairedScenes.map((scene) => ({
+          index: scene.index, success: true, path: scene.audioPath, duration: scene.duration, meta: scene.audioMeta,
+        })),
+        sentences: candidates.map((scene) => ({
+          index: scene.index,
+          text: scene.text || '',
+          audioPath: (ttsResults.find((r) => r.index === scene.index) || {}).path || null,
+          duration: (ttsResults.find((r) => r.index === scene.index) || {}).duration || null,
+          audioMeta: (ttsResults.find((r) => r.index === scene.index) || {}).meta || null,
+          subtitleBlocks: Array.isArray(scene.subtitleBlocks) ? [...scene.subtitleBlocks] : [],
+          sceneSource: scene.sceneSource || null,
+          subtitleSource: scene.subtitleSource || null,
+          degraded: scene.degraded === true,
+          fallbackReason: scene.fallbackReason || null,
+        })),
+        optimizedPrompts: candidates.map((scene) => {
+          const picked = byIndex.get(scene.index)
+          const pickedCandidate = (scene.candidates || []).find((c) => c && c.id === picked.candidateId)
+          return {
+            index: scene.index,
+            prompt: scene.prompt || '',
+            imagePath: pickedCandidate && pickedCandidate.kind === 'image' ? pickedCandidate.path : null,
+            imageMeta: pickedCandidate && pickedCandidate.kind === 'image' ? (pickedCandidate.meta || null) : null,
+            videoPath: pickedCandidate && pickedCandidate.kind === 'video' ? pickedCandidate.path : null,
+            videoMeta: pickedCandidate && pickedCandidate.kind === 'video' ? (pickedCandidate.meta || null) : null,
+          }
+        }),
+        failures: {
+          images: [],
+          audio: failedTts.map((item) => ({ index: item.index, error: item.error || 'TTS generation failed' })),
+        },
+        stats: {
+          totalImages: candidates.length * 2,
+          successImages: pairedScenes.filter((scene) => scene.imagePath).length,
+          totalVideos: candidates.filter((scene) => (scene.candidates || []).some((c) => c.kind === 'video')).length,
+          successVideos: pairedScenes.filter((scene) => scene.videoPath).length,
+          totalTts: candidates.length,
+          successTts: pairedScenes.length,
+          totalScenes: candidates.length,
+          successScenes: pairedScenes.length,
+          failedScenes: candidates.length - pairedScenes.length,
+        },
+        segmentation: manifest.segmentation || {
+          sceneSource: null, subtitleSource: null, degraded: false, fallbackReason: null,
+        },
+      }
+      if (context && typeof context === 'object') context.generate_assets = finalManifest
+      log.info('Story2VideoStages',
+        'finalize_assets: ' + pairedScenes.length + '/' + candidates.length + ' scenes finalized (tts=' + pairedScenes.length + ')')
+      return { success: true, output: finalManifest }
+    },
+  )
+  registered.push(STORY2VIDEO_STAGE_TYPES.FINALIZE_ASSETS);
 
   return { success: true, registered };
 }

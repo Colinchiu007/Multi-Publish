@@ -1618,9 +1618,45 @@ describe("CreateView - S2V orchestration", () => {
     expect(request.split.baseWordsPerSecond).toBe(3.3);
     // params 保留字面量 autoAdvance: true（流水线自动推进）
     expect(mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].autoAdvance).toBe(true);
+    // 创作模式（2026-08-12）：默认 auto + all-images；uiLocale 随提交（非 en 触发历史提示词翻译）
+    expect(request.creation).toEqual({ mode: 'auto', materialMode: 'all-images' });
+    expect(mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].uiLocale).toBe('zh');
     expect(request).not.toHaveProperty("versions");
     expect(request).not.toHaveProperty("perImageDuration");
     expect(w.vm.outputConfig).toEqual({ resolution: "3840x2160", fps: 60, format: "mp4" });
+    w.unmount();
+  });
+
+  it("创作模式 UI：默认全自动；选择分镜素材自选后显示成本提示与素材模式，提交 creation 段", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-manual" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.pipelineText = "分镜素材自选测试文案";
+    await nextTick();
+
+    // 默认全自动 + 素材模式区隐藏
+    expect(w.vm.s2vConfig.creationMode).toBe("auto");
+    expect(w.find('[data-testid="s2v-material-mode"]').exists()).toBe(false);
+    expect(w.find('[data-testid="s2v-creation-mode-auto"]').element.checked).toBe(true);
+
+    // 切换到分镜素材自选 → 显示成本提示与素材模式，默认全部图片轮播
+    await w.find('[data-testid="s2v-creation-mode-manual"]').setValue();
+    await nextTick();
+    expect(w.find('[data-testid="s2v-creation-mode-hint"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-material-mode"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-material-mode-all-images"]').element.checked).toBe(true);
+
+    // 选择 视频+图片轮播
+    await w.find('[data-testid="s2v-material-mode-video-image"]').setValue();
+    await nextTick();
+    expect(w.vm.s2vConfig.manualMaterialMode).toBe("video-image");
+
+    await w.vm.startPipeline();
+    const request = mocks.pipelineStartOrchestrated.mock.calls.at(-1)[1].story2videoTextConfig;
+    expect(request.creation).toEqual({ mode: "manual", materialMode: "video-image" });
     w.unmount();
   });
 

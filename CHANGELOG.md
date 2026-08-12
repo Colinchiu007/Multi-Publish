@@ -1,3 +1,19 @@
+
+
+
+## [2026-08-12] Story2Video 全能创作：流水线更名、历史提示词本地翻译、分镜素材自选创作模式
+
+- 更名：流水线展示名「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」（zh/en i18n、配置标题、权限提示、阶段摘要同步；机器 ID story2video-compose 不变）。
+- 历史提示词翻译：非 en 界面下，流水线在提示词优化后按场景调用默认 LLM 生成优化后提示词的本地翻译（fail-open，缺失默认不触发），随分段持久化；ResultView 分段「画面提示词」下方只读展示（data-testid segment-prompt-translation）。
+- 创作模式：视频增强区新增「创作模式」单选（全自动（推荐）默认 / 分镜素材自选）+ 成本提示 + 「素材模式」单选（全部图片轮播 / 视频+图片轮播）+ 双语说明；manual+全部图片轮播时隐藏视频增强模式（不生成 AI 视频）。
+- 分镜素材自选：generate_assets 每场景生成 2 张图片（同一提示词，独立候选路径防覆盖），视频+图片轮播模式下 AI 视频场景额外 1 个视频（同一提示词），跳过 TTS，以 scene_asset_selection 检查点暂停（持久化 paused 快照，重启可恢复选择面板）；新增 SceneAssetSelection 面板（默认选中：有视频选视频/纯图第 1 张，确认后推进）；新 IPC pipeline:confirmSceneAssets 校验并推进 finalize_assets（TTS + 最终素材清单）→ compose → publish；resumeOrchestration 支持 paused+scene_asset_selection 恢复。
+- 契约：story2videoTextConfig 新增 creation 段（mode/materialMode 枚举校验 + normalizer/stageOptions/_safeOptions 白名单 + 前端 lastOptions 恢复白名单）；uiLocale 随提交；阶段清单 manual 插入 finalize_assets。
+- 测试：新增 story2video-manual-assets.test.js（15 例：normalizer 契约、候选生成、finalize、engine 集成）、SceneAssetSelection 组件测试（4 例）、ResultView 翻译块、CreateView 创作模式 UI；preload/ipc-contract/stage-executor/i18n 断言同步；后端 703 + 前端相关套件全绿。
+- 文档：01-docs/PRD.md §7.1.3a（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字清单、成本提示）；OpenSpec change story2video-omnipotent-creation（proposal/design/specs/tasks）。
+
+
+
+
 ## [2026-08-12] feat(ops-center): 视觉评估支持 Opencode-Go（opencode-go-vision 密钥槽位）
 
 - 「模型密钥」Provider 下拉新增 `opencode-go-vision`；后端 get_vision_key 候选顺序 minimax-vision → opencode-go-vision，评估服务按 OpenAI 兼容 base_url/model/api_key 调用（如 base_url=`https://opencode.ai/zen/go/v1`）。
@@ -9,6 +25,7 @@
 - route-functional-suite.js：内置流水线卡片断言 14 → 15（PR #626 视频克隆入口卡加入后同步；改动 CreateView 流水线卡片需同步此计数）。
 - vitest coverage exclude `**/preload/video-clone.js`：绕开 ast-v8-to-istanbul 在 Node 22 下 `column must be greater than or equal to 0` 崩溃（@jridgewell/trace-mapping 负 column；1.0.4/1.0.5 均未修复；该文件不在 include 范围，排除仅绕开 V8 coverage 转换崩溃）。
 - usePipelineHistory.js：修复坏 import `@/i18n/story2video-locale`（文件不存在）→ `@/story2video/story2video-notifications`（v8 provider 未加载该文件所以此前未暴露，istanbul 插桩 include 全量时暴露）。
+ origin/main
 
 ## [2026-08-12] fix(ops-center): 中英对照使用「模型密钥」minimax-llm + 剥离 LLM think 块
 
@@ -18,12 +35,14 @@
 - 修复2：`_strip_think()` 剥离 think 块（翻译/优化两处）；仅 think 无正文 → 视为空内容 fail closed。
 - 测试：API 新增「表内 minimax-llm 优先于环境变量」（15 例全绿）；services 新增 think 剥离矩阵（22 例全绿）。
 - 端到端：配置 minimax-llm 后真实翻译 200，prompt_zh 无 think 块、prompt_en 正常；清理历史含 think 脏缓存 1 条。
+ origin/main
 
 ## [2026-08-12] feat(ops-center): 场景模式批量生成中英对照 + 首次生成文案
 
 - 场景模式下分句后提示词为「（未生成）」是预期行为（中英对照需调 LLM 逐场景/批量生成）；新增「批量生成中英对照」按钮（PRD 12A.22.20 规划项）：串行逐场景调用 scenes/{sid}/translate，实时进度「批量生成中（n/total）」，失败场景单独列出可重试。
 - 单场景按钮首次文案由「重新生成中英对照」改为「生成中英对照」（已有提示词时仍显示「重新生成」）。
 - 前端 `npm run build` 通过；dev HMR 已验证。
+
 
 ## [2026-08-12] feat(ops-center): 场景层评测场景数上限 50 → 100
 
@@ -73,7 +92,6 @@
 - `minimax-multimodal` 克隆样本限制与 `minimax-tts` 对齐（单文件、mp3/m4a/wav、10s–5min、≤20MB）。
 - 测试：electron 服务/IPC/preload 48 例 + CreateView 149 例 + TTS 相关 81 例 + story2video 相关 102 例全绿；vite build 通过；PRD §7.1.4 同步更新（数据校验/流程/交互/文案详见 PRD）。
 
-=======
 
 ## [2026-08-12] 视频克隆 analyze CLI（一条命令出报告）
 
@@ -3943,6 +3961,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

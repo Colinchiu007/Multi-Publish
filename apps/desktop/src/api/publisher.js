@@ -313,6 +313,7 @@ export async function pipelineStartOrchestrated(name, params) { return invokeWit
 export async function pipelineResumeOrchestration(runId) { return invokeWithFallback("pipelineResumeOrchestration", { code: -1, message: 'electronAPI not available' }, runId) }
 export async function pipelineExecuteStage(runId) { return invokeWithFallback("pipelineExecuteStage", { code: -1 }, runId) }
 export async function pipelineAdvanceToNextCheckpoint(runId) { return invokeWithFallback("pipelineAdvanceToNextCheckpoint", { code: -1 }, runId) }
+export async function pipelineConfirmSceneAssets(runId, selections) { return invokeWithFallback("pipelineConfirmSceneAssets", { code: -1, message: 'electronAPI not available' }, runId, selections) }
 export async function pipelineGetRunContext(runId) { return invokeWithFallback("pipelineGetRunContext", null, runId) }
 export async function pipelinePauseWithCheckpoint() { return invokeWithFallback("pipelinePauseWithCheckpoint", { code: -1 }) }
 export async function pipelineResumeFromCheckpoint() { return invokeWithFallback("pipelineResumeFromCheckpoint", { code: -1 }) }

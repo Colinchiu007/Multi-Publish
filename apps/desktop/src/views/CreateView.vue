@@ -360,6 +360,53 @@
               <span class="s2v-summary">{{ s2vSectionSummary('videoEnhance') }}</span>
             </summary>
             <div class="config-grid">
+              <!-- 创作模式（2026-08-12）：全自动 / 分镜素材自选 -->
+              <div class="config-item" data-testid="s2v-creation-mode">
+                <label>{{ translateWithLocaleFallback('create.story2video.creationMode.label', '创作模式', 'Creation Mode') }}</label>
+                <div class="radio-group">
+                  <label class="radio-option">
+                    <input type="radio" value="auto" v-model="s2vConfig.creationMode" data-testid="s2v-creation-mode-auto" />
+                    {{ translateWithLocaleFallback('create.story2video.creationMode.auto', '全自动（推荐）', 'Fully automatic (recommended)') }}
+                  </label>
+                  <label class="radio-option">
+                    <input type="radio" value="manual" v-model="s2vConfig.creationMode" data-testid="s2v-creation-mode-manual" />
+                    {{ translateWithLocaleFallback('create.story2video.creationMode.manual', '分镜素材自选', 'Manual scene asset selection') }}
+                  </label>
+                </div>
+                <p v-if="s2vConfig.creationMode === 'manual'" class="config-hint s2v-cost-hint" data-testid="s2v-creation-mode-hint">
+                  {{ translateWithLocaleFallback('create.story2video.creationMode.hint', '选择「分镜素材自选」模式后，每个分镜段落将生成多张图片和 1 个视频供您选择。Token 或积分消耗将大量增加，建议先用短文案测试后，再用于真实创作。', 'In "Manual scene asset selection" mode, each storyboard segment generates multiple images and 1 video for you to choose from. Token or credit consumption will increase significantly. Test with a short script first, then use it for real projects.') }}
+                </p>
+              </div>
+              <template v-if="s2vConfig.creationMode === 'manual'">
+                <div class="config-item" data-testid="s2v-material-mode">
+                  <label>{{ translateWithLocaleFallback('create.story2video.creationMode.materialModeLabel', '素材模式', 'Material Mode') }}</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="radio" value="all-images" v-model="s2vConfig.manualMaterialMode" data-testid="s2v-material-mode-all-images" />
+                      {{ translateWithLocaleFallback('create.story2video.creationMode.materialAllImages', '全部图片轮播', 'Image carousel only') }}
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" value="video-image" v-model="s2vConfig.manualMaterialMode" data-testid="s2v-material-mode-video-image" />
+                      {{ translateWithLocaleFallback('create.story2video.creationMode.materialVideoImage', '视频+图片轮播', 'Video + image carousel') }}
+                    </label>
+                  </div>
+                  <p class="config-hint" data-testid="s2v-material-mode-hint">
+                    {{ translateWithLocaleFallback(
+                      s2vConfig.manualMaterialMode === 'all-images'
+                        ? 'create.story2video.creationMode.materialAllImagesHint'
+                        : 'create.story2video.creationMode.materialVideoImageHint',
+                      s2vConfig.manualMaterialMode === 'all-images'
+                        ? '每个场景生成 2 张图片供您选择。'
+                        : 'AI 视频场景生成 2 张图片 + 1 个视频供您选择（同一提示词），其余场景生成 2 张图片。',
+                      s2vConfig.manualMaterialMode === 'all-images'
+                        ? 'Each scene generates 2 images for you to choose from.'
+                        : 'AI-video scenes generate 2 images + 1 video (same prompt) for you to choose from; other scenes generate 2 images.'
+                    ) }}
+                  </p>
+                </div>
+              </template>
+              <!-- 视频增强模式：manual + 全部图片轮播 时忽略（不生成 AI 视频） -->
+              <template v-if="s2vConfig.creationMode === 'auto' || s2vConfig.manualMaterialMode === 'video-image'">
               <div class="config-item">
                 <label>视频增强模式</label>
                 <select v-model="s2vConfig.videoMode" class="form-select" data-testid="s2v-video-mode">
@@ -393,6 +440,7 @@
                 </div>
                 <p class="config-hint">AI 根据场景精彩度自动选择视频片段，总占比控制在区间内（默认 20%-40%）；可生成场景数上限 {{ s2vConfig.videoMaxScenes }} 个。</p>
               </div>
+              </template>
             </div>
           </details>
 
@@ -729,6 +777,16 @@
             </p>
           </div>
           <div v-else class="running-controls">
+            <!-- 分镜素材自选：scene_asset_selection 检查点 → 素材选择面板 -->
+            <SceneAssetSelection
+              v-if="sceneAssetSelectionActive"
+              :run-id="orchestrationRunId"
+              :candidates="sceneAssetCandidates"
+              :confirming="sceneAssetConfirming"
+              :error="sceneAssetSelectionError"
+              class="running-controls-panel"
+              @confirm="confirmSceneAssetSelections"
+            />
             <template v-if="orchestrationRunId">
               <p v-if="pipelineRunStatus?.checkpoint?.reason === 'content_policy'" class="orchestration-attention">
                 {{ pipelineRunStatus.checkpoint.recommendation || '图片内容需要处理；取消后修改文案并重新启动流水线。' }}
@@ -860,7 +918,7 @@ import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
-import { PipelineSelector, StageProgress } from './video-creation'
+import { PipelineSelector, StageProgress, SceneAssetSelection } from './video-creation'
 import { useLoginGate } from '@/composables/useLoginGate'
 import {
   deleteCustomTemplate,
@@ -874,7 +932,7 @@ import {
   onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress,
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
-  pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineGetRunContext,
+  pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineConfirmSceneAssets, pipelineGetRunContext,
   storeGetSetting, storeSetSetting,
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject
@@ -904,6 +962,7 @@ import {
   getPipelineStage,
   getPipelineStatus,
 } from '@/i18n/pipeline-labels'
+import { getAppLocale } from '@/i18n'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
@@ -990,6 +1049,7 @@ const STYLES = [
 const STORY2VIDEO_STAGE_NAMES = Object.freeze([
   'split',
   'domain_enrich',
+  'scene_context',
   'optimize',
   'select_video_scenes',
   'generate_assets',
@@ -1024,6 +1084,8 @@ const S2V_PLATFORMS = [
 const S2V_RESTORE_ENUM_OPTIONS = Object.freeze({
   contentType: ['general', 'history'],
   videoMode: ['off', 'fixed', 'ai-judged'],
+  creationMode: ['auto', 'manual'],
+  manualMaterialMode: ['all-images', 'video-image'],
   imageStyle: ['cinematic', 'realistic', 'anime', 'watercolor', 'minimalist'],
   promptStyle: ['realistic', 'cinematic', 'anime', 'watercolor', 'minimalist'],
   imageEffect: ['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'zoom-pan', 'rotate', 'blur-in'],
@@ -1056,7 +1118,7 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress },
+  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection },
   data() {
     return {
       // 视图
@@ -1098,6 +1160,8 @@ export default {
         // 视频+图片轮播混合模式（2026-08-11）：默认关闭保持纯图片轮播
         videoMode: 'off', videoProvider: '', videoModel: '',
         videoFixedRatio: 25, videoMinRatio: 20, videoMaxRatio: 40, videoMaxScenes: 3,
+        // 创作模式（2026-08-12）：auto=全自动（默认）；manual=分镜素材自选（materialMode 仅 manual 生效）
+        creationMode: 'auto', manualMaterialMode: 'all-images',
         splitLanguage: 'auto', splitMode: 'balanced', splitMaxSentenceLength: 200, splitTargetSeconds: 6,
         splitTargetCharsPerScene: 20, splitViewMode: 'seconds',
         // 参数治理（7.1.19）：splitBaseWordsPerSecond 自 Batch 5a 起由语言感知表驱动（voice-estimate.js），
@@ -1118,6 +1182,8 @@ export default {
         platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
+      // 分镜素材自选（2026-08-12）：scene_asset_selection 检查点激活与候选
+      sceneAssetSelectionActive: false, sceneAssetCandidates: [], sceneAssetSelectionError: '', sceneAssetConfirming: false,
       dismissedBgmSkippedNotice: false,
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '' },
       story2videoResuming: false,
@@ -1238,8 +1304,8 @@ export default {
     story2videoConfigurationTitle() {
       return this.translateWithLocaleFallback(
         'create.story2video.configurationTitle',
-        '图片轮播配置',
-        'Image Carousel Configuration'
+        '全能创作配置',
+        'Omni Creation Configuration'
       )
     },
     providerWarningText() {
@@ -1624,7 +1690,11 @@ export default {
       return stages.map(stageName => ({ name: stageName, status: 'pending' }))
     },
     getDefaultStory2VideoStages() {
-      return STORY2VIDEO_STAGE_NAMES.map(name => ({ name, status: 'pending' }))
+      // 分镜素材自选（manual）：generate_assets 与 compose 之间插入 finalize_assets 阶段
+      const names = this.s2vConfig?.creationMode === 'manual'
+        ? STORY2VIDEO_STAGE_NAMES.flatMap(name => name === 'compose' ? ['finalize_assets', 'compose'] : [name])
+        : STORY2VIDEO_STAGE_NAMES
+      return names.map(name => ({ name, status: 'pending' }))
     },
     async ensureLoginForStart (message) {
       // 主动操作登录门（UI 层）：未登录弹登录窗口，登录成功后继续启动流水线。
@@ -1960,6 +2030,11 @@ export default {
             maxRatio: config.videoMaxRatio,
             maxScenes: config.videoMaxScenes,
           },
+          // 创作模式（2026-08-12）：auto=全自动；manual=分镜素材自选（materialMode 仅 manual 生效）
+          creation: {
+            mode: config.creationMode || 'auto',
+            materialMode: config.manualMaterialMode || 'all-images',
+          },
           voice: {
             provider: config.voiceProvider || '',
             model: config.voiceModel || '',
@@ -2001,6 +2076,8 @@ export default {
           checkpointPolicy: 'none',
           autoAdvance: true,
           background: true,
+          // 历史记录提示词翻译（2026-08-12）：非 en 界面由主进程按场景生成只读翻译
+          uiLocale: getAppLocale(),
           story2videoTextConfig,
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
@@ -2757,6 +2834,14 @@ export default {
           stages,
           checkpoint: statusResult.data.checkpoint || snapshotStatus.checkpoint || null,
         }
+        // 分镜素材自选（2026-08-12）：scene_asset_selection 检查点 → 展示素材选择面板
+        const selectionCheckpoint = this.pipelineRunStatus.checkpoint && this.pipelineRunStatus.checkpoint.type === 'scene_asset_selection'
+        this.sceneAssetSelectionActive = Boolean(selectionCheckpoint)
+        if (selectionCheckpoint) {
+          const manifest = this.orchestrationContext && this.orchestrationContext.generate_assets
+          this.sceneAssetCandidates = Array.isArray(manifest && manifest.candidates) ? manifest.candidates : []
+          this.sceneAssetSelectionError = ''
+        }
         this.needsCheckpoint = false
         if (['completed', 'failed', 'cancelled'].includes(statusResult.data.status?.status)) {
           this.applyOrchestrationOutcome({
@@ -2777,6 +2862,27 @@ export default {
         if (!this.applyOrchestrationOutcome(res.data || {})) await this.updateOrchestrationStatus()
       }
       else { this.setOrchestrationError({ code: res?.code, error: res?.message || res?.data?.error }) }
+    },
+    // 分镜素材自选：确认全部场景素材选择并推进（finalize_assets → compose → publish）
+    async confirmSceneAssetSelections(selections) {
+      if (!this.orchestrationRunId || this.sceneAssetConfirming) return
+      this.sceneAssetConfirming = true
+      this.sceneAssetSelectionError = ''
+      try {
+        const res = await pipelineConfirmSceneAssets(this.orchestrationRunId, this.cloneForIpc(selections))
+        if (res?.code === 0 && res.data?.success !== false) {
+          this.sceneAssetSelectionActive = false
+          this.sceneAssetCandidates = []
+          if (!this.applyOrchestrationOutcome(res.data || {})) await this.updateOrchestrationStatus()
+        } else {
+          this.sceneAssetSelectionError = res?.data?.error || res?.message ||
+            this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
+        }
+      } catch (_) {
+        this.sceneAssetSelectionError = this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
+      } finally {
+        this.sceneAssetConfirming = false
+      }
     },
     extractOrchestrationVideoPath(context) {
       const publish = context?.publish?.data || context?.publish
@@ -2867,6 +2973,7 @@ export default {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
+      this.sceneAssetSelectionActive = false; this.sceneAssetCandidates = []; this.sceneAssetSelectionError = ''; this.sceneAssetConfirming = false
       this.dismissedBgmSkippedNotice = false
       this.orchestrationStages = (this.isAutoPipeline(this.selectedPipeline?.name) || this.isMediaAutoPipeline(this.selectedPipeline?.name)) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
       this.closeStory2VideoErrorDialog()
@@ -2971,6 +3078,11 @@ export default {
         this.resumeHistoryItem(item)
         return
       }
+      // 分镜素材自选暂停点：恢复为选择面板（不自动推进）
+      if (item.status === 'paused' && item.checkpoint?.type === 'scene_asset_selection') {
+        this.resumeHistoryItem(item)
+        return
+      }
       if (!item?.projectId) return
       this.$router.push({ path: '/create/result', query: { project: item.projectId } })
     },
@@ -2988,11 +3100,13 @@ export default {
         const res = await pipelineResumeOrchestration(runId)
         if (res?.code === 0 && res.data?.success && res.data?.runId) {
           const pipelineName = item.pipeline || item.name
+          // 分镜素材自选暂停点恢复：保持 paused，进入选择面板（updateOrchestrationStatus 会激活）
+          const selectionPaused = res.data.paused === true
           this.orchestrationRunId = res.data.runId
           this.orchestrationResultPath = null
           this.orchestrationError = ''
           this.pipelineRunStatus = {
-            status: 'running',
+            status: selectionPaused ? 'paused' : 'running',
             progress: 0,
             stages: Array.isArray(item.stages) && item.stages.length > 0 ? item.stages : this.getDefaultPipelineStages(pipelineName),
           }

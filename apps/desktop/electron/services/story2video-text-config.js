@@ -71,6 +71,11 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     maxRatio: 40,
     maxScenes: 3,
   }),
+  // 创作模式（2026-08-12）：auto=全自动（默认，现有流水线）；manual=分镜素材自选
+  creation: Object.freeze({
+    mode: 'auto',
+    materialMode: 'all-images',
+  }),
   voice: Object.freeze({
     provider: '',
     model: '',
@@ -119,6 +124,9 @@ const IMAGE_EFFECTS = new Set([
 const TRANSITIONS = new Set(['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down'])
 const SCENE_DURATION_MODES = new Set(['follow-audio', 'min-duration'])
 const VIDEO_MODES = new Set(['off', 'fixed', 'ai-judged'])
+// 创作模式（2026-08-12）：auto=全自动（现有流水线）；manual=分镜素材自选
+const CREATION_MODES = new Set(['auto', 'manual'])
+const MANUAL_MATERIAL_MODES = new Set(['all-images', 'video-image'])
 const SPLIT_MODES = new Set(['fast', 'balanced', 'precise'])
 const LANGUAGES = new Set(['auto', 'zh', 'en'])
 const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
@@ -297,6 +305,7 @@ function normalizeStory2VideoTextParams(params = {}) {
   const watermarkInput = objectValue(suppliedConfig.watermark)
   const outputInput = objectValue(suppliedConfig.output)
   const videoInput = objectValue(suppliedConfig.video)
+  const creationInput = objectValue(suppliedConfig.creation)
   const publishInput = objectValue(suppliedConfig.publish)
 
   // 先归一化语言（后续 split 对象内引用，避免 TDZ）
@@ -442,6 +451,13 @@ function normalizeStory2VideoTextParams(params = {}) {
     throw new Error('Story2Video video.minRatio 不能大于 video.maxRatio')
   }
 
+  // 创作模式（2026-08-12）：auto=全自动（默认，现有流水线）；manual=分镜素材自选。
+  // materialMode 仅 manual 生效：all-images=每场景 2 图；video-image=AI 视频场景 2 图 + 1 视频、其余 2 图。
+  const creation = {
+    mode: enumValue(firstDefined(own(creationInput, 'mode'), params.creationMode), 'auto', 'creation.mode', CREATION_MODES),
+    materialMode: enumValue(firstDefined(own(creationInput, 'materialMode'), params.manualMaterialMode), 'all-images', 'creation.materialMode', MANUAL_MATERIAL_MODES),
+  }
+
   // defaultSceneDuration 仅作为 compose 无可用音频时长时的回退与动效归一化兜底，不再暴露为可配置项。
   // 优先级：顶层运行参数 params.defaultSceneDuration > story2videoTextConfig 内嵌字段
   // （新保存的 story2videoTextConfig 已不含该字段，项目恢复走 _safeOptions 顶层通道）。
@@ -492,6 +508,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     video_content_fidelity: videoContentFidelity,
     image,
     video: videoConfig,
+    creation,
     voice,
     subtitle,
     bgm,
@@ -569,6 +586,11 @@ function normalizeStory2VideoTextParams(params = {}) {
       contentType,
       inputMode: 'text',
       templateId: templateId || null,
+      creationMode: creation.mode,
+      manualMaterialMode: creation.materialMode,
+    },
+    finalize_assets: {
+      creationMode: creation.mode,
     },
     select_video_scenes: {
       video: {
@@ -665,6 +687,8 @@ function normalizeStory2VideoTextParams(params = {}) {
     tags: publish.tags,
     coverUrl: publish.coverUrl,
     output: { resolution: size, fps: output.fps, format: output.format },
+    // 历史提示词翻译展示（2026-08-12）：renderer 提交当前界面语言；缺失默认 en（不触发翻译）
+    uiLocale: textValue(firstDefined(params.uiLocale, params.locale), 'en', 'uiLocale', 16),
     stageOptions,
     story2videoTextConfig: config,
   }

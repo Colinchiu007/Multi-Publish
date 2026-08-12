@@ -592,6 +592,16 @@ const PIPELINES = [
         // 从 context.optimize + context.split 取（执行器内部处理）
       },
       {
+        name: 'finalize_assets',
+        type: 'story2video_finalize_assets', // 自定义类型：分镜素材自选（manual）确认后生成 TTS 并组装最终素材清单
+        description: '素材确认后生成旁白并组装最终素材（分镜素材自选模式）',
+        checkpointRequired: false,
+        options: {
+          creationMode: 'auto',
+        },
+        inputFrom: 'generate_assets', // 从 context.generate_assets.candidates + context.scene_asset_selection 取
+      },
+      {
         name: 'compose',
         type: 'compose', // 内置 STAGE_TYPES.COMPOSE
         description: '视频合成',
@@ -977,6 +987,10 @@ class PipelineEngine {
             completedAt: snapshot.endedAt || null,
             // 已用时：持久化快照携带 activeMs（旧快照无该字段时为 null，由前端回退链处理）
             activeMs: Number.isFinite(Number(snapshot.activeMs)) ? Number(snapshot.activeMs) : null,
+            // 分镜素材自选暂停检查点：透传 checkpoint，前端据此进入选择面板（W1 修复 2026-08-12）
+            checkpoint: snapshot.checkpoint && typeof snapshot.checkpoint === 'object' && !Array.isArray(snapshot.checkpoint)
+              ? snapshot.checkpoint
+              : null,
           })
         }
         }
@@ -1193,6 +1207,24 @@ class PipelineEngine {
     run.context = serializedContext;
     run.stageResults = [];
 
+    // 分镜素材自选（creation.mode='manual'）：generate_assets 产出候选并以 scene_asset_selection
+    // 检查点暂停，用户确认后在 compose 前插入 finalize_assets 阶段生成 TTS 并组装最终素材清单。
+    if (pipelineName === 'story2video-compose' && params?.story2videoTextConfig?.creation?.mode === 'manual') {
+      const insertIndex = run.stages.findIndex((s) => s && s.name === 'compose')
+      if (insertIndex > 0 && !run.stages.some((s) => s && s.name === 'finalize_assets')) {
+        run.stages.splice(insertIndex, 0, {
+          name: 'finalize_assets',
+          type: 'story2video_finalize_assets',
+          requiresCheckpoint: false,
+          checkpointType: 'stage',
+          status: 'pending',
+          startedAt: null,
+          completedAt: null,
+        })
+        this.log.info('PipelineEngine', 'story2video-compose manual mode: inserted finalize_assets stage (run=' + runId + ')')
+      }
+    };
+
     // 阶段级 checkpoint：启动即落盘 running 快照，应用退出/强杀后任务不丢失。
     this._saveRunningCheckpoint(run);
 
@@ -1232,12 +1264,21 @@ class PipelineEngine {
     if (activeRun && activeRun.orchestrationMode === 'orchestrator' && activeRun.status === 'running') {
       return { success: true, runId: activeRun.id, alreadyRunning: true };
     }
+    // 分镜素材自选：内存中已暂停于选择检查点的 run 直接返回 paused，不重跑 generate_assets
+    if (activeRun && activeRun.orchestrationMode === 'orchestrator' && activeRun.status === 'paused' &&
+        activeRun.checkpoint && activeRun.checkpoint.type === 'scene_asset_selection') {
+      return { success: true, runId: activeRun.id, paused: true };
+    }
     const historyRun = this._history.find((item) => item.id === runId);
     let snapshot = historyRun || null;
     if (!snapshot && this.runStateStore) {
       try { snapshot = await this.runStateStore.load(runId); } catch (_) { snapshot = null; }
     }
     if (!snapshot) return { success: false, error: '未找到可恢复的运行快照', errorCode: 'RUN_SNAPSHOT_NOT_FOUND' };
+    // 分镜素材自选暂停检查点：恢复为 paused（保留 checkpoint 与候选），前端进入选择面板继续
+    if (snapshot.status === 'paused' && snapshot.checkpoint && snapshot.checkpoint.type === 'scene_asset_selection') {
+      return this._restorePausedSelectionRun(runId, snapshot);
+    }
     if (snapshot.status === 'failed') {
       // 失败快照必须携带 error 才可恢复（无 error 的 failed 属于异常数据）
       if (!snapshot.error) {
@@ -1315,6 +1356,64 @@ class PipelineEngine {
       this.log.warn('PipelineEngine', 'background resume autoAdvance failed: ' + (err && err.message ? err.message : String(err)));
     });
     return { success: true, runId: restored.id };
+  }
+
+  /**
+   * 恢复「分镜素材自选」暂停检查点：按 currentStage 恢复为 paused（保留 checkpoint/候选/选择），
+   * 不删除快照（选择期间崩溃仍可恢复；后续阶段级 running checkpoint 会覆盖）。
+   * @param {string} runId
+   * @param {object} snapshot
+   * @returns {{success: boolean, runId?: string, paused?: boolean, error?: string, errorCode?: string}}
+   */
+  _restorePausedSelectionRun(runId, snapshot) {
+    const pl = this.getPipeline(snapshot.pipeline);
+    const stages = (Array.isArray(snapshot.stages) && snapshot.stages.length > 0)
+      ? snapshot.stages
+      : ((pl && Array.isArray(pl.stages)) ? pl.stages.map((name) => ({ name })) : []);
+    const stageIndex = (Number.isInteger(snapshot.currentStage) && snapshot.currentStage >= 0)
+      ? snapshot.currentStage
+      : 0;
+    if (stages.length === 0) {
+      return { success: false, error: '恢复失败：阶段定义缺失', errorCode: 'STAGE_NOT_FOUND' };
+    }
+    const runIdentifier = String(snapshot.runId || snapshot.id || '');
+    if (!runIdentifier) {
+      return { success: false, error: '恢复失败：缺少 runId', errorCode: 'RUN_SNAPSHOT_NOT_FOUND' };
+    }
+    const now = new Date().toISOString();
+    const restored = {
+      id: runIdentifier,
+      pipeline: snapshot.pipeline,
+      status: 'paused',
+      currentStage: stageIndex,
+      stages: stages.map((s, i) => {
+        const base = { ...s };
+        delete base.error;
+        if (i < stageIndex) {
+          return { ...base, status: 'completed', startedAt: base.startedAt || now, completedAt: base.completedAt || now };
+        }
+        if (i === stageIndex) {
+          return { ...base, status: 'paused', startedAt: base.startedAt || now, completedAt: null };
+        }
+        return { ...base, status: 'pending', startedAt: null, completedAt: null };
+      }),
+      params: snapshot.params || {},
+      progress: 0,
+      checkpoint: snapshot.checkpoint || null,
+      createdAt: snapshot.createdAt || now,
+      endedAt: null,
+      activeMs: Number.isFinite(Number(snapshot.activeMs)) ? Number(snapshot.activeMs) : 0,
+      _activeSegmentStartedAt: null,
+      orchestrationMode: 'orchestrator',
+      context: JSON.parse(JSON.stringify(snapshot.context || {})),
+      stageResults: [],
+      resumedFrom: runId,
+      error: null,
+    };
+    this._runs.set(restored.id, restored);
+    this._runs.set('_' + restored.pipeline, restored);
+    this._currentPipeline = restored.pipeline;
+    return { success: true, runId: restored.id, paused: true };
   }
 
   /**
@@ -1405,6 +1504,76 @@ class PipelineEngine {
    * @param {string} runId
    * @returns {object|null}
    */
+  /**
+   * 分镜素材自选（manual）：确认每个场景的素材选择并推进流水线（finalize_assets → compose → publish）。
+   * @param {string} runId
+   * @param {Array<{index: number, candidateId: string}>} selections
+   * @returns {Promise<{success: boolean, runId?: string, paused?: boolean, completed?: boolean, error?: string, errorCode?: string}>}
+   */
+  async confirmSceneAssets(runId, selections) {
+    if (typeof runId !== 'string' || !runId.trim()) {
+      return { success: false, error: '缺少或非法 runId', errorCode: 'INVALID_SCENE_ASSET_SELECTION' }
+    }
+    if (!Array.isArray(selections) || selections.length === 0) {
+      return { success: false, error: '缺少素材选择', errorCode: 'INVALID_SCENE_ASSET_SELECTION' }
+    }
+    const run = this._runs.get(runId) || this._history.find((item) => item && item.id === runId)
+    if (!run || run.orchestrationMode !== 'orchestrator') {
+      return { success: false, error: '未找到可选择的流水线运行', errorCode: 'RUN_NOT_FOUND' }
+    }
+    if (run.status !== 'paused' || !run.checkpoint || run.checkpoint.type !== 'scene_asset_selection') {
+      return { success: false, error: '当前流水线不处于素材选择暂停点', errorCode: 'NOT_AT_SCENE_ASSET_SELECTION' }
+    }
+    if (this._advancingRuns && this._advancingRuns.has(runId)) {
+      return { success: true, runId, alreadyAdvancing: true }
+    }
+    const manifest = run.context && run.context.generate_assets
+    const candidates = Array.isArray(manifest && manifest.candidates) ? manifest.candidates : []
+    if (candidates.length === 0) {
+      return { success: false, error: '候选素材清单缺失', errorCode: 'INVALID_SCENE_ASSET_SELECTION' }
+    }
+    // 校验：覆盖全部场景、index 唯一、candidateId 属于该场景候选清单
+    const sceneIndexes = candidates.map((c) => c && c.index)
+    const seen = new Set()
+    const normalized = []
+    for (const item of selections) {
+      if (!item || typeof item !== 'object' || Array.isArray(item) ||
+          !Number.isInteger(item.index) || !sceneIndexes.includes(item.index) || seen.has(item.index) ||
+          typeof item.candidateId !== 'string' || !item.candidateId) {
+        return { success: false, error: '素材选择参数非法', errorCode: 'INVALID_SCENE_ASSET_SELECTION' }
+      }
+      seen.add(item.index)
+      const scene = candidates.find((c) => c && c.index === item.index)
+      const match = Array.isArray(scene && scene.candidates)
+        ? scene.candidates.find((c) => c && c.id === item.candidateId)
+        : null
+      if (!match || typeof match.path !== 'string' || !match.path) {
+        return { success: false, error: '场景 ' + item.index + ' 选择了无效素材 ' + item.candidateId, errorCode: 'INVALID_SCENE_ASSET_SELECTION' }
+      }
+      normalized.push({ index: item.index, candidateId: item.candidateId })
+    }
+    if (normalized.length !== candidates.length) {
+      return {
+        success: false,
+        error: '素材选择未覆盖全部场景（' + normalized.length + '/' + candidates.length + '）',
+        errorCode: 'INVALID_SCENE_ASSET_SELECTION',
+      }
+    }
+    run.context = run.context || {}
+    run.context.scene_asset_selection = {
+      selections: normalized,
+      confirmedAt: new Date().toISOString(),
+    }
+    if (!this._advancingRuns) this._advancingRuns = new Set()
+    this._advancingRuns.add(runId)
+    try {
+      // 推进：finalize_assets → compose → publish
+      return await this.advanceToNextCheckpoint(runId)
+    } finally {
+      this._advancingRuns.delete(runId)
+    }
+  }
+
   getRunContext(runId) {
     const run = this._runs.get(runId);
     if (!run) return null;
@@ -1807,6 +1976,14 @@ class PipelineEngine {
         stage.status = 'paused';
         // Backlot 事件：检查点暂停
         this._emit('checkpoint:pause', { runId, stageName: stage.name, checkpointType: execResult.checkpoint });
+        // 分镜素材自选检查点：持久化 paused 快照（含 checkpoint），应用重启后仍可回到选择面板
+        if (checkpoint.type === 'scene_asset_selection' && this.runStateStore) {
+          try {
+            this.runStateStore.savePaused(run);
+          } catch (saveError) {
+            this.log.warn('PipelineEngine', 'scene_asset_selection paused snapshot save failed: ' + (saveError && saveError.message ? saveError.message : String(saveError)));
+          }
+        }
         return {
           success: true,
           runId,
@@ -1881,6 +2058,10 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
     set('audio', input.audio);
     set('allowPartialAssets', input.allowPartialAssets);
     set('templateId', input.templateId);
+    set('creationMode', input.creationMode);
+    set('manualMaterialMode', input.manualMaterialMode);
+  } else if (stageName === 'finalize_assets') {
+    set('creationMode', input.creationMode);
   } else if (stageName === 'domain_enrich') {
     set('contentType', input.contentType);
   } else if (stageName === 'scene_context') {
