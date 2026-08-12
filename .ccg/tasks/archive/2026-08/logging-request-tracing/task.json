@@ -1,13 +1,14 @@
 {
   "id": "logging-request-tracing",
   "title": "P1 日志加固：requestId 贯穿 + 结构化 access log（api-publish-engine）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "observability",
-  "currentPhase": "planning",
-  "nextAction": "写 proposal/design/specs/tasks 后实施",
+  "currentPhase": "completed",
+  "nextAction": "PR #664 已合并，三同步归档完成",
   "createdAt": "2026-08-12T00:00:00+08:00",
   "branch": "codex/logging-request-tracing",
-  "openspecChange": "http-request-tracing"
+  "openspecChange": "http-request-tracing",
+  "remoteStatus": "MERGED_PRS_664"
 }

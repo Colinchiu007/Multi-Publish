@@ -25,4 +25,5 @@
 
 - [x] 4.1 api-publish-engine 全量测试通过
 - [x] 4.2 `openspec validate http-request-tracing` 通过
-- [ ] 4.3 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+- [x] 4.3 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+
