@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import init_db
-from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, redemption_codes, keyword_watchlist, pipeline_dependencies, scheduler, scene_context
+from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, redemption_codes, keyword_watchlist, pipeline_dependencies, scheduler, scene_context, prompt_eval
+
 
 
 
@@ -86,6 +87,7 @@ app.include_router(keyword_watchlist.router)
 app.include_router(pipeline_dependencies.router)
 app.include_router(scheduler.router)
 app.include_router(redemption_codes.router)
+app.include_router(prompt_eval.router)
 
 app.include_router(content_templates.router)
 
@@ -103,5 +105,6 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8010, reload=True)
+
 
 
