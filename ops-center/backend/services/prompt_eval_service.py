@@ -250,17 +250,23 @@ async def get_llm_key(db: AsyncSession, secret: str) -> dict | None:
             "base_url": row.base_url or "https://api.minimaxi.com/v1"}
 
 
+VISION_PROVIDERS = ("minimax-vision", "opencode-go-vision")
+
+
 async def get_vision_key(db: AsyncSession, secret: str) -> dict | None:
-    """视觉评估密钥：优先「模型密钥」表 minimax-vision，fallback 环境变量 OPS_PROMPT_EVAL_VISION_API_KEY。"""
-    row = (await db.execute(select(PromptEvalProviderKey).where(
-        PromptEvalProviderKey.provider == "minimax-vision",
-        PromptEvalProviderKey.enabled == 1,
-    ).order_by(desc(PromptEvalProviderKey.updated_at)))).scalars().first()
-    if not row:
-        return None
-    return {"provider": row.provider, "model": row.model,
-            "api_key": decrypt_key(secret, row.key_enc),
-            "base_url": row.base_url or "https://api.minimaxi.com/v1"}
+    """视觉评估密钥：依次尝试「模型密钥」表 minimax-vision / opencode-go-vision，
+    fallback 环境变量 OPS_PROMPT_EVAL_VISION_API_KEY。评估服务按 OpenAI 兼容
+    base_url/model/api_key 调用，provider 仅作密钥槽位。"""
+    for provider in VISION_PROVIDERS:
+        row = (await db.execute(select(PromptEvalProviderKey).where(
+            PromptEvalProviderKey.provider == provider,
+            PromptEvalProviderKey.enabled == 1,
+        ).order_by(desc(PromptEvalProviderKey.updated_at)))).scalars().first()
+        if row:
+            return {"provider": row.provider, "model": row.model,
+                    "api_key": decrypt_key(secret, row.key_enc),
+                    "base_url": row.base_url or "https://api.minimaxi.com/v1"}
+    return None
 
 
 # ─── 翻译 ───

@@ -1,3 +1,9 @@
+## [2026-08-12] feat(ops-center): 视觉评估支持 Opencode-Go（opencode-go-vision 密钥槽位）
+
+- 「模型密钥」Provider 下拉新增 `opencode-go-vision`；后端 get_vision_key 候选顺序 minimax-vision → opencode-go-vision，评估服务按 OpenAI 兼容 base_url/model/api_key 调用（如 base_url=`https://opencode.ai/zen/go/v1`）。
+- 测试：API 16 例全绿（新增 opencode-go-vision 场景 run 用其 base_url/api_key）。
+- PRD 12A.22.7 密钥类型同步。
+
 ## [2026-08-12] 修复 CI 门禁：/create E2E 卡片数同步 + coverage 崩溃绕行
 
 - route-functional-suite.js：内置流水线卡片断言 14 → 15（PR #626 视频克隆入口卡加入后同步；改动 CreateView 流水线卡片需同步此计数）。
