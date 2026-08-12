@@ -26,14 +26,6 @@
     <div v-if="view === 'pipelines'">
       <!-- 流水线列表 -->
       <div v-if="!selectedPipeline">
-        <!-- 视频克隆：独立流水线入口（对标拆解与再创作） -->
-        <div class="video-clone-entry" @click="$router.push('/video-clone')">
-          <div class="video-clone-entry-body">
-            <strong>视频克隆</strong>
-            <span class="text-muted">链接/本地视频 → 拆解报告 → 同款成片（独立流水线）</span>
-          </div>
-          <button type="button">进入 →</button>
-        </div>
         <PipelineSelector
           :pipelines="pipelines"
           :loading="pipelineLoading"
@@ -956,6 +948,17 @@ const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
 // 已实现真实执行引擎的流水线（与 pipeline-engine 注册表 available 字段保持一致；此处为前端兜底）
 const IMPLEMENTED_PIPELINES = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
 
+const VIDEO_CLONE_PIPELINE_ENTRY = {
+  name: 'video-clone', category: 'generated', stageCount: 6, available: true, estimatedCost: 'medium',
+}
+
+function withVideoCloneEntry(pipelines) {
+  const base = prioritizeStory2VideoPipeline(pipelines).filter((p) => p && p.name !== 'video-clone')
+  const idx = base.findIndex((p) => p.name === 'story2video-compose')
+  base.splice(idx >= 0 ? idx + 1 : 0, 0, VIDEO_CLONE_PIPELINE_ENTRY)
+  return base
+}
+
 function prioritizeStory2VideoPipeline(pipelines) {
   const values = Array.isArray(pipelines) ? pipelines : []
   return [
@@ -1059,7 +1062,7 @@ export default {
       // 视图
       view: 'pipelines',
       // 流水线
-      pipelines: [], pipelineLoading: true, pipelineError: null,
+      pipelines: [VIDEO_CLONE_PIPELINE_ENTRY], pipelineLoading: true, pipelineError: null,
       selectedPipeline: null,
       pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null, orchestrationStages: [],
       // 流水线输入
@@ -1562,12 +1565,17 @@ export default {
       this.pipelineLoading = true; this.pipelineError = null
       try {
         const res = await pipelineList()
-        if (res?.code === 0) this.pipelines = prioritizeStory2VideoPipeline(res.data)
+        if (res?.code === 0) this.pipelines = withVideoCloneEntry(res.data)
         else this.pipelineError = formatUserError(res, { fallback: '加载失败' }).message
       } catch (e) { this.pipelineError = formatUserError(e, { fallback: '加载失败' }).message }
       finally { this.pipelineLoading = false }
     },
     selectPipeline(p) {
+      // 视频克隆是独立流水线（拆解/再创作页），点击入口卡直接路由，不走通用配置详情
+      if (p?.name === 'video-clone') {
+        this.$router.push('/video-clone')
+        return
+      }
       this.stopPipelinePolling()
       this.selectedPipeline = p
       this.pipelineRunStatus = null
@@ -3452,15 +3460,3 @@ export default {
   },
 }
 </script>
-
-<style scoped>
-.video-clone-entry {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin-bottom: 16px; padding: 14px 16px;
-  border: 1px solid var(--border-color, #e4e7ed); border-radius: 8px;
-  cursor: pointer; background: var(--bg-color, #f7f8fa);
-}
-.video-clone-entry:hover { border-color: var(--primary-color, #409eff); }
-.video-clone-entry-body { display: flex; flex-direction: column; gap: 4px; }
-.video-clone-entry button { border: none; background: var(--primary-color, #409eff); color: #fff; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
-</style>

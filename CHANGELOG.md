@@ -1,3 +1,11 @@
+## [2026-08-12] 视频克隆 入口 UI 统一：与其它流水线同款标准卡片
+
+- CreateView「流水线创作」视图移除自绘 `.video-clone-entry` 条，视频克隆改为与其它流水线一致的标准流水线卡（`[data-pipeline-id="video-clone"]`：AI 生成徽标 / 标题「视频克隆」/ 描述「对标拆解与再创作…」/ 6 阶段 / 成本 / 可用性），插入位置紧随 story2video-compose。
+- 点击视频克隆卡片直接路由 /video-clone（selectPipeline 特判），不再进入通用流水线配置详情。
+- pipeline-labels 注册表新增 video-clone（category 复用 generated），zh/en locale 补齐名称与描述；CreateView.test.js（151 全绿）与 scripts/video-clone-e2e.js 选择器同步。
+- 打包应用实测：ENTRY_CARD VISIBLE（卡片结构与其他流水线一致）、点击路由成功、分析流完成（3s/320x240/16:9、综合分 1、落库）、E2E exit 0。
+- PRD v1.13 §26.1。
+
 ## [2026-08-12] 视频克隆 E2E 复验：创作入口 → 完整分析流（打包应用）
 
 - scripts/video-clone-e2e.js 新增入口段（#/create → 流水线创作 → 入口卡可见/点击 → 落入 /video-clone → 分析流）。

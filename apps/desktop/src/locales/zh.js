@@ -207,6 +207,7 @@ export default {
       'podcast-repurpose': '播客转视频',
       'screen-demo': '屏幕演示',
       'framework-smoke': '框架冒烟测试',
+      'video-clone': '视频克隆',
       'story2video-compose': '图片轮播',
     },
     descriptions: {
@@ -223,6 +224,7 @@ export default {
       'podcast-repurpose': '将音频播客转为可视化视频',
       'screen-demo': '录制屏幕操作并自动添加标注',
       'framework-smoke': '快速验证流水线配置',
+      'video-clone': '对标拆解与再创作：链接/本地视频 → 拆解报告 → 同款成片',
       'story2video-compose': '将文案自动生成图片轮播视频',
       unavailable: '暂无描述',
     },
