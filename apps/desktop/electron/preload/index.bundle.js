@@ -707,7 +707,8 @@ var require_tts_voice_clone = __commonJS({
           chooseSamples: (input) => ipcRenderer2.invoke("tts-voice-clone:choose-samples", input),
           list: (input) => ipcRenderer2.invoke("tts-voice-clone:list", input),
           add: (input) => ipcRenderer2.invoke("tts-voice-clone:add", input),
-          deleteClone: (input) => ipcRenderer2.invoke("tts-voice-clone:delete", input)
+          deleteClone: (input) => ipcRenderer2.invoke("tts-voice-clone:delete", input),
+          rename: (input) => ipcRenderer2.invoke("tts-voice-clone:rename", input)
         }
       };
     }
@@ -798,6 +799,7 @@ var require_video_clone = __commonJS({
           cancel: (runId) => ipcRendererRef.invoke("video-clone:cancel", { runId }),
           editReport: (report, patch) => ipcRendererRef.invoke("video-clone:report:edit", { report, patch }),
           regenerate: (runId) => ipcRendererRef.invoke("video-clone:report:regenerate", { runId }),
+          pickFile: () => ipcRendererRef.invoke("video-clone:pick-file"),
           onProgress: (cb) => {
             const listener = (_event, evt) => {
               try {

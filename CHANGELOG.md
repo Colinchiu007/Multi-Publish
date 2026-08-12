@@ -1,3 +1,12 @@
+## [2026-08-12] Story2Video：语音生成器默认多模态 TTS + 音色克隆自动保存/重命名
+
+- 图片轮播「语音生成器」默认选择：模型设置保存了支持 TTS 能力的多模态模型（如 MiniMax `minimax-multimodal`）时，未显式选择过其他服务商则默认选中该多模态模型，并按 `capability_models.tts` 自动带出语音模型；用户显式保存的选择始终优先。
+- 音色克隆交互调整：选择本地音频文件后**自动保存**为克隆音色（默认名「音色001/音色XXX」递增），移除底部「名称输入 + 添加克隆音色」操作框；克隆列表新增「重命名」行内编辑（新 IPC `tts-voice-clone:rename`，仅更新本地 registry 展示名，不触碰远端 voice_id/样本）。
+- `minimax-multimodal` 克隆样本限制与 `minimax-tts` 对齐（单文件、mp3/m4a/wav、10s–5min、≤20MB）。
+- 测试：electron 服务/IPC/preload 48 例 + CreateView 147 例全绿；vite build 通过；PRD §7.1.4 同步更新（数据校验/流程/交互/文案详见 PRD）。
+
+=======
+
 ## [2026-08-12] 视频克隆 切片 4c：provider 接线（assetGenerator/publisher/pick-file）+ QM-2 双模式验证
 
 - `apps/desktop/electron/services/video-clone/`：asset-generator（真实 AssetGenerator 服务优先 + 显式离线占位 degraded）、publisher（PublisherRouter 契约，无 router 则 skipped）。

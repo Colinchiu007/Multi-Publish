@@ -1264,3 +1264,224 @@ describe("listClones — MiniMax 克隆音色 voice_id 合规性", () => {
     expect(noTtsManager.callAdapter).not.toHaveBeenCalled();
   });
 })
+
+describe("renameClone — 克隆音色重命名（2026-08-12）", () => {
+  let store;
+  let sandbox;
+  let userData;
+
+  beforeEach(() => {
+    store = createOwnerStore("user-rename");
+    sandbox = nodeFs.mkdtempSync(path.join(os.tmpdir(), "rename-clone-voice-test-"));
+    userData = path.join(sandbox, "userData");
+    catalogMocks.getVoiceCapability.mockReset();
+    catalogMocks.getVoiceCapability.mockImplementation((providerId, model) => ({
+      providerId,
+      model,
+      type: "user_clone",
+      canListVoices: true,
+      defaultVoiceId: null,
+      clone: {
+        enabled: true,
+        entry: "adapter",
+        implementation: "adapter",
+        messageKey: "tts.voice.clone.available",
+      },
+      reason: null,
+    }));
+  });
+  afterEach(() => {
+    nodeFs.rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  function createService(manager) {
+    return new TtsVoiceCloneService({
+      store,
+      modelProviderManager: manager,
+      userDataPath: userData,
+      randomUUID: () => "clone-stage-rename",
+      createSelectionToken: () => "selection-rename",
+      probeDuration: vi.fn(async () => 12.5),
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+  }
+
+  async function addOneClone(service, manager, providerId = "minimax-tts", model = "speech-2.8-turbo", adapterVoiceId = "MiniMaxVoice_rename1") {
+    const samplePath = path.join(sandbox, "rename.wav");
+    await nodeFs.promises.writeFile(samplePath, Buffer.from("RIFF-rename-audio"));
+    const selection = await service.createSampleSelection(
+      { providerId, model },
+      [samplePath],
+      SENDER_KEY,
+    );
+    expect(selection.code).toBe(0);
+    const added = await service.addCloneFromSelection(
+      {
+        providerId,
+        model,
+        name: "克隆音色",
+        selectionId: selection.data.selectionId,
+        consent: true,
+      },
+      SENDER_KEY,
+    );
+    expect(added).toMatchObject({ code: 0 });
+    expect(manager.callAdapter).toHaveBeenCalledWith(providerId, "cloneVoice", expect.any(Object));
+  }
+
+  it("重命名只更新本地 registry 展示名，不调用远端 adapter，voice_id 保持不变", async () => {
+    const manager = {
+      getProvider: vi.fn(() => ({ id: "minimax-tts", category: "tts", models: ["speech-2.8-turbo"] })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: { voiceId: "MiniMaxVoice_rename1", name: "克隆音色" } })),
+    };
+    const service = createService(manager);
+    await addOneClone(service, manager);
+    manager.callAdapter.mockClear();
+
+    const renamed = await service.renameClone({
+      providerId: "minimax-tts",
+      model: "speech-2.8-turbo",
+      voiceId: "MiniMaxVoice_rename1",
+      name: "我的专属音色",
+    });
+    expect(renamed).toMatchObject({
+      code: 0,
+      data: { voice: { id: "MiniMaxVoice_rename1", name: "我的专属音色" } },
+    });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+
+    const listed = await service.listClones({ providerId: "minimax-tts", model: "speech-2.8-turbo" });
+    expect(listed.code).toBe(0);
+    expect(listed.data.voices).toContainEqual(
+      expect.objectContaining({ id: "MiniMaxVoice_rename1", name: "我的专属音色" }),
+    );
+  });
+
+  it("多模态模型（minimax-multimodal，声明 tts）重命名克隆成功", async () => {
+    const manager = {
+      getProvider: vi.fn(() => ({
+        id: "minimax-multimodal",
+        category: "multimodal",
+        capabilities: ["llm", "tts", "image", "video"],
+        capability_models: { llm: "MiniMax-M2.7", tts: "speech-2.8-turbo", image: "image-01", video: "MiniMax-Hailuo-2.3" },
+        models: ["speech-2.8-turbo", "image-01", "MiniMax-Hailuo-2.3", "MiniMax-M2.7"],
+      })),
+      callAdapter: vi.fn(async () => ({ code: 0, data: { voiceId: "MiniMaxVoice_mm_ren", name: "克隆音色" } })),
+    };
+    const service = createService(manager);
+    await addOneClone(service, manager, "minimax-multimodal", "speech-2.8-turbo", "MiniMaxVoice_mm_ren");
+    manager.callAdapter.mockClear();
+
+    const renamed = await service.renameClone({
+      providerId: "minimax-multimodal",
+      model: "speech-2.8-turbo",
+      voiceId: "MiniMaxVoice_mm_ren",
+      name: "音色001",
+    });
+    expect(renamed).toMatchObject({ code: 0, data: { voice: { id: "MiniMaxVoice_mm_ren", name: "音色001" } } });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+  });
+
+  it("未声明 tts 能力的多模态模型重命名被拒（VOICE_CLONE_MODEL_MISMATCH）", async () => {
+    const manager = {
+      getProvider: vi.fn(() => ({
+        id: "minimax-multimodal",
+        category: "multimodal",
+        capabilities: ["image"],
+        models: ["image-01"],
+      })),
+      callAdapter: vi.fn(),
+    };
+    const service = createService(manager);
+    const result = await service.renameClone({
+      providerId: "minimax-multimodal",
+      model: "speech-2.8-turbo",
+      voiceId: "MiniMaxVoice_x",
+      name: "音色001",
+    });
+    expect(result).toMatchObject({ code: -1, message: "VOICE_CLONE_MODEL_MISMATCH" });
+    expect(manager.callAdapter).not.toHaveBeenCalled();
+  });
+
+  it("重命名不存在的克隆返回 VOICE_CLONE_NOT_FOUND", async () => {
+    const manager = {
+      getProvider: vi.fn(() => ({ id: "minimax-tts", category: "tts", models: ["speech-2.8-turbo"] })),
+      callAdapter: vi.fn(),
+    };
+    const service = createService(manager);
+    const result = await service.renameClone({
+      providerId: "minimax-tts",
+      model: "speech-2.8-turbo",
+      voiceId: "MiniMaxVoice_missing",
+      name: "音色001",
+    });
+    expect(result).toMatchObject({ code: -1, message: "VOICE_CLONE_NOT_FOUND" });
+  });
+
+  it("空名称/非法 voice_id 等参数 fail closed（VOICE_CLONE_INVALID_ARGUMENTS）", async () => {
+    const service = createService({
+      getProvider: vi.fn(),
+      callAdapter: vi.fn(),
+    });
+    await expect(
+      service.renameClone({ providerId: "minimax-tts", model: "speech-2.8-turbo", voiceId: "MiniMaxVoice_x", name: "" }),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
+    await expect(
+      service.renameClone({ providerId: "minimax-tts", model: "speech-2.8-turbo", voiceId: "MiniMaxVoice_x", name: "   " }),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
+    await expect(
+      service.renameClone({ providerId: "minimax-tts", model: "speech-2.8-turbo", voiceId: "bad voice id!", name: "音色001" }),
+    ).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
+  });
+});
+
+describe("多模态模型克隆样本限制（2026-08-12）", () => {
+  it("minimax-multimodal 的本地克隆限制与 minimax-tts 完全一致（1 个样本、10s-5min、≤20MB）", () => {
+    const store = createOwnerStore("user-limits");
+    const manager = {
+      getProvider: vi.fn(() => ({
+        id: "minimax-multimodal",
+        category: "multimodal",
+        capabilities: ["tts"],
+        models: ["speech-2.8-turbo"],
+      })),
+      callAdapter: vi.fn(),
+    };
+    const service = new TtsVoiceCloneService({
+      store,
+      modelProviderManager: manager,
+      userDataPath: path.join(nodeFs.mkdtempSync(path.join(os.tmpdir(), "mm-limits-voice-test-")), "userData"),
+      randomUUID: () => "clone-stage-limits",
+      createSelectionToken: () => "selection-limits",
+      probeDuration: vi.fn(async () => 12.5),
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+    catalogMocks.getVoiceCapability.mockReset();
+    catalogMocks.getVoiceCapability.mockImplementation((providerId, model) => ({
+      providerId,
+      model,
+      type: "user_clone",
+      canListVoices: true,
+      defaultVoiceId: null,
+      clone: { enabled: true, entry: "adapter", implementation: "adapter", messageKey: "tts.voice.clone.available" },
+      reason: null,
+    }));
+
+    const mm = service.getRequirements({ providerId: "minimax-multimodal", model: "speech-2.8-turbo" });
+    const tts = service.getRequirements({ providerId: "minimax-tts", model: "speech-2.8-turbo" });
+    expect(mm.code).toBe(0);
+    expect(tts.code).toBe(0);
+    expect(mm.data).toMatchObject({
+      maxSampleCount: 1,
+      maxSampleBytes: 20 * 1024 * 1024,
+      minSampleDurationSeconds: 10,
+      maxSampleDurationSeconds: 300,
+      allowedExtensions: [".mp3", ".m4a", ".wav"],
+    });
+    expect(mm.data.maxSampleCount).toBe(tts.data.maxSampleCount);
+    expect(mm.data.maxSampleBytes).toBe(tts.data.maxSampleBytes);
+    expect(mm.data.minSampleDurationSeconds).toBe(tts.data.minSampleDurationSeconds);
+    expect(mm.data.maxSampleDurationSeconds).toBe(tts.data.maxSampleDurationSeconds);
+    expect(mm.data.allowedExtensions).toEqual(tts.data.allowedExtensions);
+  });
+});

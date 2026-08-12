@@ -12,6 +12,7 @@ describe('TTS 音色克隆 preload API', () => {
     await api.ttsVoiceClone.list({ providerId: 'elevenlabs', model: 'eleven_multilingual_v2' })
     await api.ttsVoiceClone.add({ providerId: 'elevenlabs', model: 'eleven_multilingual_v2', name: 'Voice', selectionId: 'selection-a', consent: true })
     await api.ttsVoiceClone.deleteClone({ providerId: 'elevenlabs', model: 'eleven_multilingual_v2', voiceId: 'voice-a' })
+    await api.ttsVoiceClone.rename({ providerId: 'elevenlabs', model: 'eleven_multilingual_v2', voiceId: 'voice-a', name: '我的音色' })
 
     expect(ipcRenderer.invoke.mock.calls).toEqual([
       ['tts-voice-clone:requirements', { providerId: 'elevenlabs', model: 'eleven_multilingual_v2' }],
@@ -19,6 +20,7 @@ describe('TTS 音色克隆 preload API', () => {
       ['tts-voice-clone:list', { providerId: 'elevenlabs', model: 'eleven_multilingual_v2' }],
       ['tts-voice-clone:add', { providerId: 'elevenlabs', model: 'eleven_multilingual_v2', name: 'Voice', selectionId: 'selection-a', consent: true }],
       ['tts-voice-clone:delete', { providerId: 'elevenlabs', model: 'eleven_multilingual_v2', voiceId: 'voice-a' }],
+      ['tts-voice-clone:rename', { providerId: 'elevenlabs', model: 'eleven_multilingual_v2', voiceId: 'voice-a', name: '我的音色' }],
     ])
   })
 })
