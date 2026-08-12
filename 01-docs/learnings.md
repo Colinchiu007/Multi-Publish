@@ -1,3 +1,13 @@
+## 视频内容保真 video-content-fidelity 复盘：画面-文案不匹配根因与双模式分镜 (2026-08-12)
+
+- **根因**：videogen 流水线 CONCEPT 把长文案压缩成一句 visual_style，STORYBOARD 未拿到原文事实 → 分镜场景与文案脱节（E2E Run #2：733 字三国志文案被分镜成"赛博侦探档案"，白马之战/襄樊之战等核心事件无独立场景，甚至臆造"只用了一年"与原文矛盾）。
+- **修复**：分镜双模式（creative 一句话创意原始机制保留 / fidelity 按原文保真 / hybrid 保真+演绎 / auto 按段落≥3 或字≥300 或句≥8 → fidelity、字≤80 且句≤2 → creative、其余 hybrid）；fidelity/hybrid 下 CONCEPT 强制 key_facts/entities、STORYBOARD 注入分段全文 + source_paras 绑定 + 关键事件必有场景；内容对齐门禁（词典+LLM 兜底实体抽取，覆盖度 ≥0.8，重试 ≤2，耗尽/空场景 fail closed）；优化 context 白名单注入 + prompt-engine Fact-Fidelity 指令。
+- **教训 1（信息压缩断层）**：多阶段 LLM 链路中，前序阶段的"摘要"会丢失原文事实；下游阶段必须拿到原文（或结构化事实清单），不能只依赖一句风格摘要。分镜类任务应绑定 source 段落以便追溯。
+- **教训 2（创意 vs 保真要显式建模）**："一句话→整个视频"与"长文案→按原文实现"是两种意图，不能用一个 prompt 兼顾；auto 判据用段落/字数/句数多维而非单一阈值，避免长单句误判。
+- **教训 3（可测性）**：内容匹配度从主观感受变成门禁（实体覆盖度 + fail closed + 重试），配合对齐报告写入 run 上下文，质量可验证。视觉层评估本期只留桩（not_implemented），不冒充实现。
+- **教训 4（流程）**：text-config 的 numberValue 越界语义是 fail closed（抛错），与 scene_context 一致；文档先写"收敛"与实现不符，评审时修正为 fail closed——**文档与实现语义必须同步核对**。
+
+---
 ## 运营后台限流/调度验证功能实现复盘（P0+P1+P2）(2026-08-12)
 
 - **交付**：ops-center 新增「限流与调度验证」页（模拟器 + 契约校验 + 验证记录）与用量健康度；桌面端新增 governor 排队/冷却可观测性与真实自检（假 adapter）；两端对拍脚本保证模型一致。
