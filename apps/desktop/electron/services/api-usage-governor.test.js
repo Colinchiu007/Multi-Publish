@@ -250,11 +250,15 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     const a2 = expect(p2).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a2
-    // 第 3 次调用：3 次限额已用完（used=3 >= 3）→ QUOTA_EXCEEDED（无 usage 字段也按请求次数累计）
+    // 第 3 次调用：3 次限额用完（used=3，第 limit 次允许成功）→ 第 4 次起预检拒绝
     const p3 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
-    const a3 = expect(p3).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    const a3 = expect(p3).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a3
+    const p4 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
+    const a4 = expect(p4).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    await vi.advanceTimersByTimeAsync(200)
+    await a4
   })
 
   it('provider 级 5h 请求窗口（setProviderTokenWindows）跨 type:model key 共享计数', async () => {
@@ -262,7 +266,7 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     const g = new ApiUsageGovernor({})
     g.setLimits('p:llm:m', { maxConcurrent: 2, rpm: 1000, retry429: 3 })
     // 与 ModelProviderManager._applyGovernorLimits 相同的注入方式（providerId 级）
-    // 窗口语义：请求完成后校验（used>=limit 当次即拒）→ limit=3 允许前 2 次成功
+    // 窗口语义：第 limit 次允许成功，第 limit+1 个起预检拒绝（2026-08-12 与模拟器 preflight 语义对齐）
     g.setProviderTokenWindows('p', [{ windowMs: 5 * 3600 * 1000, limit: 3, field: 'requests' }])
     const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
     const a1 = expect(p1).resolves.toMatchObject({ ok: true })
@@ -272,11 +276,16 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     const a2 = expect(p2).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a2
-    // 第 3 次（不同 model key 也命中 provider 级共享窗口）→ QUOTA_EXCEEDED
+    // 第 3 次（不同 model key 也命中 provider 级共享窗口）：第 limit 次允许成功
     const p3 = g.run({ type: 'llm', providerId: 'p', model: 'm3' }, async () => ({ ok: true }))
-    const a3 = expect(p3).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    const a3 = expect(p3).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a3
+    // 第 4 次（超过 limit）→ QUOTA_EXCEEDED
+    const p4 = g.run({ type: 'llm', providerId: 'p', model: 'm4' }, async () => ({ ok: true }))
+    const a4 = expect(p4).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    await vi.advanceTimersByTimeAsync(200)
+    await a4
   })
 
   it('清除 provider 级窗口（传 []）后不再拦截', async () => {
@@ -284,16 +293,22 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     const g = new ApiUsageGovernor({})
     g.setLimits('p:llm:m', { maxConcurrent: 2, rpm: 1000, retry429: 3 })
     g.setProviderTokenWindows('p', [{ windowMs: 5 * 3600 * 1000, limit: 1, field: 'requests' }])
+    // 第 1 次：limit=1 允许成功（第 limit 次）
     const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
-    const a1 = expect(p1).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    const a1 = expect(p1).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a1
-    // 清除后第 2 次放行
-    g.setProviderTokenWindows('p', [])
+    // 第 2 次：used=1 >= 1 → 预检拒绝
     const p2 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
-    const a2 = expect(p2).resolves.toMatchObject({ ok: true })
+    const a2 = expect(p2).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
     await vi.advanceTimersByTimeAsync(200)
     await a2
+    // 清除后第 3 次放行
+    g.setProviderTokenWindows('p', [])
+    const p3 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
+    const a3 = expect(p3).resolves.toMatchObject({ ok: true })
+    await vi.advanceTimersByTimeAsync(200)
+    await a3
   })
 
   it('同 key 嵌套 run 重入透传：外层持有时内层直接执行，不自死锁（2026-08-10 双包死锁复盘）', async () => {
@@ -365,3 +380,55 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     expect(g.getStatus('p:llm:m').active).toBe(0)
     expect(g.getStatus('p:tts:v').active).toBe(0)
   })
+
+describe('P1 调度可观测性（排队/冷却计数）', () => {
+  it('排队被记录且快照取走即清零', async () => {
+    const g = new ApiUsageGovernor({})
+    g.setProviderLimits('p1', { rpm: 120, maxConcurrent: 1 })
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    const task = async () => { await sleep(60); return { ok: true } }
+    // maxConcurrent=1：第二个请求在并发信号量排队等待第一个完成（约 60ms）
+    await Promise.all([
+      g.run({ type: 'llm', providerId: 'p1', model: '' }, task),
+      g.run({ type: 'llm', providerId: 'p1', model: '' }, task),
+    ])
+    const snap = g.takeObservabilitySnapshot()
+    expect(snap.p1).toBeTruthy()
+    expect(snap.p1.queuedCount).toBeGreaterThan(0)
+    expect(snap.p1.queueWaitMs).toBeGreaterThan(0)
+    expect(g.takeObservabilitySnapshot()).toEqual({})
+  })
+
+  it('429 冷却等待被记录', async () => {
+    const g = new ApiUsageGovernor({})
+    // rpm=600 → pace 间隔 100ms；cooldownMs=300 保证第二次请求在冷却窗口内等待
+    g.setProviderLimits('p2', { rpm: 600, maxConcurrent: 2, cooldownMs: 300, retry429: 1 })
+    const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
+    let calls = 0
+    const task = async () => {
+      calls += 1
+      if (calls === 1) throw new ProviderError(ERROR_CODES.RATE_LIMITED, 'rate limited', { providerId: 'p2' })
+      return { ok: true }
+    }
+    // 第一次：429 → 进入冷却（cooldown_until = now + 300ms）
+    await expect(g.run({ type: 'llm', providerId: 'p2', model: '' }, task)).rejects.toThrow()
+    // 第二次：在冷却窗口内立即发起 → 等待冷却
+    await g.run({ type: 'llm', providerId: 'p2', model: '' }, task)
+    const snap = g.takeObservabilitySnapshot()
+    expect(snap.p2.cooldownCount).toBeGreaterThan(0)
+    expect(snap.p2.cooldownWaitMs).toBeGreaterThan(0)
+  })
+
+  it('同 key 重入透传内层不重复计时', async () => {
+    const g = new ApiUsageGovernor({})
+    g.setProviderLimits('p3', { rpm: 120, maxConcurrent: 1 })
+    await g.run({ type: 'llm', providerId: 'p3', model: '' }, async () => {
+      // 内层同 key 重入 → 透传执行，不进入 _runWithGovernance
+      await g.run({ type: 'llm', providerId: 'p3', model: '' }, async () => ({ ok: true }))
+      return { ok: true }
+    })
+    const snap = g.takeObservabilitySnapshot()
+    // 单请求无排队；即使有也最多计 1 次（外层），内层不计时
+    expect(snap.p3.queuedCount).toBeLessThanOrEqual(1)
+  })
+})

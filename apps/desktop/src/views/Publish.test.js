@@ -4,6 +4,7 @@ import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import { setActivePinia, createPinia } from "pinia";
 import { ElMessage, ElMessageBox } from "element-plus";
+import i18n from "@/i18n";
 
 const routes = [
   { path: "/", name: "home", component: { template: "<div>home</div>" } },
@@ -68,7 +69,7 @@ import PublishView from "./Publish.vue";
 async function createWrapper() {
   const w = mount(PublishView, {
     global: {
-      plugins: [router, createPinia()],
+      plugins: [router, createPinia(), i18n],
       components: { UiButton, UiInput },
       stubs: {
         "el-checkbox-group": { template: "<div><slot/></div>" },
@@ -97,6 +98,7 @@ function findButtonByText(wrapper, text) {
 
 describe("PublishView", () => {
   beforeEach(async () => {
+    i18n.global.locale.value = "zh";
     await router.push('/')
     vi.clearAllMocks();
     setActivePinia(createPinia());
@@ -432,6 +434,7 @@ describe("PublishView", () => {
 
 describe("PublishView — extra coverage", () => {
   beforeEach(() => {
+    i18n.global.locale.value = "zh";
     vi.clearAllMocks();
     setActivePinia(createPinia());
     window.electronAPI = {

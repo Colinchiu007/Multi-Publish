@@ -1,0 +1,126 @@
+"""PromptEval 生成/翻译/评估服务测试（fake HTTP client）。"""
+import base64
+import json
+import os
+import sys
+import tempfile
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from services import prompt_eval_generation_service as gen  # noqa: E402
+from services import prompt_eval_translation_service as tr  # noqa: E402
+from services import prompt_eval_evaluation_service as ev  # noqa: E402
+from services import prompt_eval_contract as contract  # noqa: E402
+
+PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+
+class FakeResponse:
+    def __init__(self, status_code, json_data, text=""):
+        self.status_code = status_code
+        self._json = json_data
+        self.text = text
+
+    def json(self):
+        return self._json
+
+
+class FakeClient:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    async def post(self, url, json=None, headers=None):
+        self.calls.append({"url": url, "json": json})
+        if self.responses:
+            return self.responses.pop(0)
+        return FakeResponse(200, {})
+
+    async def aclose(self):
+        pass
+
+
+def _cfg():
+    return {"provider": "minimax-image", "model": "image-01", "api_key": "sk", "base_url": "https://x/v1"}
+
+
+@pytest.mark.asyncio
+async def test_generate_saves_valid_image_and_retries_429():
+    out = tempfile.mkdtemp(prefix="pe-gen-")
+    client = FakeClient([
+        FakeResponse(429, {}, "rate"),
+        FakeResponse(200, {"data": [{"b64_json": base64.b64encode(PNG).decode("ascii")}]}),
+    ])
+    files = await gen.generate_images(_cfg(), "提示词", 1, "1:1", out, 7, http=client)
+    assert len(files) == 1 and files[0].startswith("run_7_")
+    assert len(client.calls) == 2  # 429 后重试
+    saved = open(os.path.join(out, files[0]), "rb").read()
+    assert gen.validate_image_bytes(saved)
+
+
+@pytest.mark.asyncio
+async def test_generate_empty_or_invalid_fails():
+    out = tempfile.mkdtemp(prefix="pe-gen2-")
+    client = FakeClient([FakeResponse(200, {"data": []})])
+    with pytest.raises(gen.GenerationError, match="空结果"):
+        await gen.generate_images(_cfg(), "p", 1, "1:1", out, 1, http=client)
+    client2 = FakeClient([FakeResponse(200, {"data": [{"b64_json": base64.b64encode(b"not an image").decode("ascii")}]})])
+    with pytest.raises(gen.GenerationError, match="魔数"):
+        await gen.generate_images(_cfg(), "p", 1, "1:1", out, 2, http=client2)
+
+
+def test_magic_validation():
+    assert gen.validate_image_bytes(PNG)
+    assert gen.validate_image_bytes(b"\xff\xd8\xff" + b"x" * 8)
+    assert not gen.validate_image_bytes(b"hello world")
+    assert not gen.validate_image_bytes(b"")
+
+
+@pytest.mark.asyncio
+async def test_translate_success_and_failure():
+    client = FakeClient([FakeResponse(200, {"choices": [{"message": {"content": "  A realistic scene  "}}]})])
+    text = await tr.translate_prompt_zh(_cfg(), "中文提示词", http=client)
+    assert text == "A realistic scene"
+    client2 = FakeClient([FakeResponse(200, {"choices": [{"message": {"content": "  "}}]})])
+    with pytest.raises(tr.TranslationError, match="空内容"):
+        await tr.translate_prompt_zh(_cfg(), "p", http=client2)
+    client3 = FakeClient([FakeResponse(500, {}, "err")])
+    with pytest.raises(tr.TranslationError):
+        await tr.translate_prompt_zh(_cfg(), "p", http=client3)
+
+
+def _valid_eval(image_count=1):
+    dims = [{"id": d["id"], "score": 80, "evidence": "e", "issues": [], "suggestions": []} for d in contract.resolve_dimension_weights(image_count)]
+    return {"overall": 80, "dimensions": dims, "problems": [], "promptOptimizationPoints": []}
+
+
+def test_eval_prompt_and_fail_closed():
+    prompt = ev.build_eval_prompt("原文", "上下文", "中文提示词", "EN prompt", 1)
+    assert "原文" in prompt and "EN prompt" in prompt and "relevance" in prompt
+    assert "cross_image_consistency" not in prompt
+    prompt2 = ev.build_eval_prompt("原文", None, "中文", None, 2)
+    assert "cross_image_consistency" in prompt2
+
+    parsed = ev.parse_and_validate(json.dumps(_valid_eval(1)), 1)
+    assert parsed["overall"] == 80
+    with pytest.raises(ev.EvaluationError):
+        ev.parse_and_validate("not json", 1)
+    bad = _valid_eval(); bad["overall"] = 101
+    with pytest.raises(ev.EvaluationError):
+        ev.parse_and_validate(json.dumps(bad), 1)
+    bad2 = _valid_eval(); bad2.pop("problems")
+    with pytest.raises(ev.EvaluationError):
+        ev.parse_and_validate(json.dumps(bad2), 1)
+    with pytest.raises(ev.EvaluationError):
+        ev.parse_and_validate(json.dumps(_valid_eval(1)), 2)  # 单图 3 维度提交给多图
+
+
+@pytest.mark.asyncio
+async def test_evaluate_images_success():
+    raw = json.dumps(_valid_eval(1))
+    client = FakeClient([FakeResponse(200, {"choices": [{"message": {"content": raw}}]})])
+    text = await ev.evaluate_images(_cfg(), "prompt", [PNG], http=client)
+    parsed = ev.parse_and_validate(text, 1)
+    assert parsed["overall"] == 80

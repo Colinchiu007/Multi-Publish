@@ -36,6 +36,9 @@
           <button class="cohere-btn-primary" @click="runSyncNow" :disabled="syncing">
             {{ syncing ? '同步中...' : '立即同步' }}
           </button>
+          <button class="cohere-btn-secondary" @click="openSelfCheck" title="用真实调度网关（假 adapter，不消耗额度）验证并发/排队/限流机制">
+            限流自检
+          </button>
         </div>
       </div>
       <div class="ops-sync-fields">
@@ -486,11 +489,48 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 限流自检（P2）：真实 governor + 假 adapter，零额度零网络 -->
+    <el-dialog v-model="showSelfCheckDialog" title="限流自检" class="responsive-dialog-sm">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+        使用真实调度网关（ApiUsageGovernor）+ 本地假 adapter 构造并发请求，验证并发上限/排队/429 冷却/5h 限额；
+        不消耗额度、不访问网络。结果可上报运营后台「限流与调度验证」。
+      </p>
+      <div class="selfcheck-form">
+        <div class="selfcheck-row"><label>每分钟连接次数 rpm</label><el-input-number v-model="selfCheckForm.rpm" :min="1" :max="100000" /></div>
+        <div class="selfcheck-row"><label>并发上限（留空=clamp(rpm/10,1,4)）</label><el-input-number v-model="selfCheckForm.maxConcurrent" :min="1" :max="8" /></div>
+        <div class="selfcheck-row"><label>请求数</label><el-input-number v-model="selfCheckForm.requestCount" :min="1" :max="1000" /></div>
+        <div class="selfcheck-row"><label>单请求耗时(ms)</label><el-input-number v-model="selfCheckForm.requestDurationMs" :min="0" :max="60000" /></div>
+        <div class="selfcheck-row"><label>注入 429（第 N 个，留空=不注入）</label><el-input-number v-model="selfCheckForm.inject429At" :min="1" :max="1000" /></div>
+        <div class="selfcheck-row"><label>5小时限额次数（留空=不启用）</label><el-input-number v-model="selfCheckForm.limitPer5h" :min="1" :max="10000000" /></div>
+      </div>
+      <div v-if="selfCheckRunning" style="color:var(--muted);font-size:13px">自检运行中（真实调度排队，耗时取决于 rpm 预算）...</div>
+      <div v-if="selfCheckResult" style="margin-top:12px">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">
+          <span>最大并发：<b>{{ selfCheckResult.data.metrics.max_concurrent_observed }}</b></span>
+          <span>限流：<b>{{ selfCheckResult.data.metrics.rate_limited_count }}</b></span>
+          <span>额度拒绝：<b>{{ selfCheckResult.data.metrics.quota_exceeded_count }}</b></span>
+          <span>总耗时：<b>{{ selfCheckResult.data.metrics.total_duration_ms }}ms</b></span>
+        </div>
+        <div v-for="a in selfCheckResult.data.assertions" :key="a.name" style="display:flex;gap:8px;align-items:center;font-size:13px;padding:2px 0">
+          <el-tag :type="a.pass ? 'success' : 'danger'" size="small">{{ a.pass ? 'PASS' : 'FAIL' }}</el-tag>
+          <span>{{ a.name }}：{{ a.message }}</span>
+        </div>
+        <div v-if="selfCheckReportMsg" style="margin-top:6px;font-size:13px;color:var(--primary)">{{ selfCheckReportMsg }}</div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <button class="cohere-btn-secondary" @click="showSelfCheckDialog = false">关闭</button>
+          <button class="cohere-btn-secondary" @click="runSelfCheck" :disabled="selfCheckRunning">运行自检</button>
+          <button class="cohere-btn-primary" @click="reportSelfCheck" :disabled="!selfCheckResult || selfCheckRunning">上报运营后台</button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
 import { useOpsCenterSync } from '@/composables/useOpsCenterSync'
@@ -566,6 +606,77 @@ const {
   setDefault,
   testProvider,
 } = useModelProviderCrud()
+
+// ─── P2 限流自检：真实 governor + 假 adapter（零额度零网络） ───
+const showSelfCheckDialog = ref(false)
+const selfCheckRunning = ref(false)
+const selfCheckResult = ref(null)
+const selfCheckReportMsg = ref('')
+const selfCheckForm = ref({
+  rpm: 20,
+  maxConcurrent: null,
+  requestCount: 10,
+  requestDurationMs: 100,
+  inject429At: null,
+  limitPer5h: null,
+})
+
+function openSelfCheck () {
+  selfCheckResult.value = null
+  selfCheckReportMsg.value = ''
+  showSelfCheckDialog.value = true
+}
+
+async function runSelfCheck () {
+  selfCheckRunning.value = true
+  selfCheckReportMsg.value = ''
+  try {
+    if (!window.electronAPI || typeof window.electronAPI.rateLimitSelfCheck !== 'function') {
+      ElMessage.warning('当前环境无 electronAPI，请使用桌面应用运行自检')
+      return
+    }
+    const res = await window.electronAPI.rateLimitSelfCheck({
+      ...selfCheckForm.value,
+      maxConcurrent: selfCheckForm.value.maxConcurrent || null,
+      inject429At: selfCheckForm.value.inject429At || null,
+      limitPer5h: selfCheckForm.value.limitPer5h || null,
+    })
+    if (res.code !== 0) {
+      ElMessage.error(res.message || '自检失败')
+      return
+    }
+    selfCheckResult.value = res
+    const pass = res.data.assertions.filter(a => a.pass).length
+    ElMessage.success(`自检完成：断言 ${pass}/${res.data.assertions.length} 通过`)
+  } catch (e) {
+    ElMessage.error('自检失败: ' + (e.message || e))
+  } finally {
+    selfCheckRunning.value = false
+  }
+}
+
+async function reportSelfCheck () {
+  if (!selfCheckResult.value) return
+  try {
+    if (!window.electronAPI || typeof window.electronAPI.rateLimitReport !== 'function') {
+      ElMessage.warning('当前环境无 electronAPI，请使用桌面应用上报')
+      return
+    }
+    const res = await window.electronAPI.rateLimitReport({
+      preset_id: null,
+      params: { ...selfCheckForm.value },
+      result: selfCheckResult.value.data,
+    })
+    if (res.code !== 0) {
+      ElMessage.error(res.message || '上报失败')
+      return
+    }
+    selfCheckReportMsg.value = `已上报，运营后台验证记录 #${res.run_id}`
+    ElMessage.success('自检结果已上报运营后台')
+  } catch (e) {
+    ElMessage.error('上报失败: ' + (e.message || e))
+  }
+}
 
 function categoryIcon (cat) {
   const icons = { llm: '🧠', tts: '🔊', speech_recognition: '🎤', image: '🖼️', video: '🎬', audio: '🎵', multimodal: '🌐' }

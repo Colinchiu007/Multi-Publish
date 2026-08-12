@@ -10,7 +10,7 @@ import re
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import ModelUsageBatch, ModelUsageDaily
+from models import ModelPreset, ModelUsageBatch, ModelUsageDaily
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MAX_ITEMS = 500
@@ -97,6 +97,11 @@ def _validate_item(item: dict) -> dict:
         "tokens_out": _nonneg_int("tokens_out"),
         "cost": _nonneg_float("cost"),
         "latency_buckets": json.dumps(buckets, ensure_ascii=False),
+        # 调度健康度（可选字段，缺失按 0，旧客户端兼容）
+        "queued_count": _nonneg_int("queued_count"),
+        "cooldown_count": _nonneg_int("cooldown_count"),
+        "queue_wait_ms": _nonneg_int("queue_wait_ms"),
+        "cooldown_wait_ms": _nonneg_int("cooldown_wait_ms"),
     }
 
 
@@ -132,7 +137,10 @@ async def ingest_usage(db: AsyncSession, body: dict) -> dict:
                 "calls": it["calls"], "ok_count": it["ok_count"], "fail_count": it["fail_count"],
                 "ratelimit_count": it["ratelimit_count"], "latency_ms": it["latency_ms"],
                 "tokens_in": it["tokens_in"], "tokens_out": it["tokens_out"], "cost": it["cost"],
-                "latency_buckets": it["latency_buckets"], "updated_at": now,
+                "latency_buckets": it["latency_buckets"],
+                "queued_count": it["queued_count"], "cooldown_count": it["cooldown_count"],
+                "queue_wait_ms": it["queue_wait_ms"], "cooldown_wait_ms": it["cooldown_wait_ms"],
+                "updated_at": now,
             }
             for it in validated
         ])
@@ -147,6 +155,10 @@ async def ingest_usage(db: AsyncSession, body: dict) -> dict:
                 "tokens_in": ModelUsageDaily.tokens_in + stmt.excluded.tokens_in,
                 "tokens_out": ModelUsageDaily.tokens_out + stmt.excluded.tokens_out,
                 "cost": ModelUsageDaily.cost + stmt.excluded.cost,
+                "queued_count": ModelUsageDaily.queued_count + stmt.excluded.queued_count,
+                "cooldown_count": ModelUsageDaily.cooldown_count + stmt.excluded.cooldown_count,
+                "queue_wait_ms": ModelUsageDaily.queue_wait_ms + stmt.excluded.queue_wait_ms,
+                "cooldown_wait_ms": ModelUsageDaily.cooldown_wait_ms + stmt.excluded.cooldown_wait_ms,
                 "updated_at": now,
             },
         )
@@ -166,6 +178,12 @@ async def usage_summary(db: AsyncSession, days: int = 30) -> dict:
     by_date = {}
     by_provider = {}
     by_action = {}
+    # 调度健康度：预算利用率需要 rpm 预算（model_presets 目录）
+    rpm_budget = {}
+    preset_rows = (await db.execute(sa.select(ModelPreset))).scalars().all()
+    for pr in preset_rows:
+        if isinstance(pr.rate_per_minute, int) and pr.rate_per_minute >= 1:
+            rpm_budget[pr.id] = pr.rate_per_minute
     for r in rows:
         totals["calls"] += r.calls or 0
         totals["ok"] += r.ok_count or 0
@@ -181,12 +199,19 @@ async def usage_summary(db: AsyncSession, days: int = 30) -> dict:
         d["fail"] += r.fail_count or 0
         d["ok"] += r.ok_count or 0
 
-        p = by_provider.setdefault(r.provider_id, {"calls": 0, "fail": 0, "ratelimit": 0, "cost": 0.0, "latency_ms": 0})
+        p = by_provider.setdefault(r.provider_id, {
+            "calls": 0, "fail": 0, "ratelimit": 0, "cost": 0.0, "latency_ms": 0,
+            "queued_count": 0, "cooldown_count": 0, "queue_wait_ms": 0, "cooldown_wait_ms": 0,
+        })
         p["calls"] += r.calls or 0
         p["fail"] += r.fail_count or 0
         p["ratelimit"] += r.ratelimit_count or 0
         p["cost"] += r.cost or 0.0
         p["latency_ms"] += r.latency_ms or 0
+        p["queued_count"] += r.queued_count or 0
+        p["cooldown_count"] += r.cooldown_count or 0
+        p["queue_wait_ms"] += r.queue_wait_ms or 0
+        p["cooldown_wait_ms"] += r.cooldown_wait_ms or 0
 
         a = by_action.setdefault(r.action, {"calls": 0, "fail": 0, "ok": 0})
         a["calls"] += r.calls or 0
@@ -215,8 +240,20 @@ async def usage_summary(db: AsyncSession, days: int = 30) -> dict:
             for i in range(days - 1, -1, -1)
         ],
         "by_provider": [
-            {"provider_id": k, "calls": v["calls"], "fail": v["fail"], "ratelimit": v["ratelimit"],
-             "cost": round(v["cost"], 4), "avg_latency_ms": round(v["latency_ms"] / v["calls"], 1) if v["calls"] else 0}
+            {
+                "provider_id": k, "calls": v["calls"], "fail": v["fail"], "ratelimit": v["ratelimit"],
+                "cost": round(v["cost"], 4),
+                "avg_latency_ms": round(v["latency_ms"] / v["calls"], 1) if v["calls"] else 0,
+                # 调度健康度（P1）：429 率、排队/冷却事件、预算利用率（实测每分钟调用 ÷ rpm 预算）
+                "ratelimit_rate": round(v["ratelimit"] / v["calls"] * 100, 2) if v["calls"] else 0.0,
+                "queued_count": v["queued_count"],
+                "cooldown_count": v["cooldown_count"],
+                "avg_queue_wait_ms": round(v["queue_wait_ms"] / v["queued_count"], 1) if v["queued_count"] else 0,
+                "avg_cooldown_wait_ms": round(v["cooldown_wait_ms"] / v["cooldown_count"], 1) if v["cooldown_count"] else 0,
+                "rpm_budget": rpm_budget.get(k),
+                "utilization": round(v["calls"] / (days * 1440) / rpm_budget[k] * 100, 2)
+                if rpm_budget.get(k) else None,
+            }
             for k, v in sorted(by_provider.items(), key=lambda kv: -kv[1]["calls"])
         ],
         "by_action": [{"action": k, **v} for k, v in sorted(by_action.items(), key=lambda kv: -kv[1]["calls"])],

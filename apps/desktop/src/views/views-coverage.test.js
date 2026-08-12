@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 import { ElMessage } from "element-plus";
+import i18n from "@/i18n";
 
 const pushSpy = vi.fn();
 vi.mock("vue-router", () => ({ useRouter: () => ({ push: pushSpy }), useRoute: () => ({ query: {} }) }));
@@ -105,12 +106,12 @@ vi.mock("@/api/publisher", () => ({
 
 // ====== Publish.vue — add article/batch operations ======
 describe("PublishView (coverage)", () => {
-  beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); });
+  beforeEach(() => { i18n.global.locale.value = "zh"; vi.clearAllMocks(); setActivePinia(createPinia()); });
 
   async function mnt() {
     const m = await import("./Publish.vue");
     return mount(m.default || m, {
-      global: { plugins: [createPinia()],
+      global: { plugins: [createPinia(), i18n],
         components: { UiButton: { template: "<button><slot/></button>" }, UiInput: { template: "<input/>" } },
         stubs: { "el-checkbox-group": true, "el-checkbox": true, "el-upload": true, "el-icon": true,
           TagSuggester: true, OptimalTimeTip: true, TitleAssistantPanel: true, ArticleEditor: true,
@@ -191,7 +192,7 @@ describe("AccountsView (coverage)", () => {
 
   async function mnt() {
     const m = await import("./Accounts.vue");
-    return mount(m.default || m, { global: { plugins: [createPinia()],
+    return mount(m.default || m, { global: { plugins: [createPinia(), i18n],
       stubs: { "el-dialog": true, "el-input": true, "el-form": true, "el-form-item": true, UiButton: { template: "<button><slot/></button>" }, UiInput: { template: "<input/>" } }
     } });
   }

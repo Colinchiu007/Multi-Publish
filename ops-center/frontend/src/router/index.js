@@ -15,6 +15,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/scene-context-rules',
+    name: 'SceneContextRules',
+    component: () => import('../views/SceneContextRules.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/feature-flags',
     name: 'FeatureFlags',
     component: () => import('../views/FeatureFlags.vue'),
@@ -112,6 +118,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/rate-limit-verifier',
+    name: 'RateLimitVerifier',
+    component: () => import('../views/RateLimitVerifier.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/platform-defs',
     name: 'PlatformDefs',
     component: () => import('../views/PlatformDefs.vue'),
@@ -152,6 +164,18 @@ const routes = [
     component: () => import('../views/AuditLog.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/prompt-eval-workbench',
+    name: 'PromptEvalWorkbench',
+    component: () => import('../views/PromptEvalWorkbench.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/model-keys',
+    name: 'ModelKeys',
+    component: () => import('../views/ModelKeys.vue'),
+    meta: { requiresAuth: true, adminOnly: true },
+  },
 ]
 
 const router = createRouter({
@@ -171,9 +195,14 @@ router.beforeEach((to, from, next) => {
     next('/login')
   } else if (to.meta.guest && authStore.isLoggedIn) {
     next('/')
+  } else if (to.meta.adminOnly && authStore.role !== 'admin') {
+    next('/')
   } else {
     next()
   }
 })
 
 export default router
+
+
+

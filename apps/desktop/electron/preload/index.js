@@ -69,6 +69,9 @@ const fullApi = {
   ...createTtsVoiceCloneApi(ipcRenderer),
   ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer),
+  // P2 限流自检（authenticated，默认受限）
+  rateLimitSelfCheck: (params) => ipcRenderer.invoke('rate-limit:self-check', params),
+  rateLimitReport: (payload) => ipcRenderer.invoke('rate-limit:report', payload),
 }
 
 const exposedApi = createDynamicAccessApi(fullApi, getAccessLevel)
@@ -84,4 +87,5 @@ module.exports = {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
 }
+
 

@@ -20,6 +20,10 @@
           <el-icon><Switch /></el-icon>
           <span>功能开关</span>
         </el-menu-item>
+<el-menu-item index="/scene-context-rules">
+<el-icon><Setting /></el-icon>
+<span>场景上下文规则</span>
+</el-menu-item>
         <el-menu-item index="/runtime-flags">
           <el-icon><SwitchButton /></el-icon>
           <span>桌面端功能开关</span>
@@ -72,6 +76,10 @@
           <el-icon><Cpu /></el-icon>
           <span>预设模型</span>
         </el-menu-item>
+        <el-menu-item index="/rate-limit-verifier">
+          <el-icon><Timer /></el-icon>
+          <span>限流验证</span>
+        </el-menu-item>
         <el-menu-item index="/platform-defs">
           <el-icon><Grid /></el-icon>
           <span>平台元数据</span>
@@ -107,6 +115,14 @@
         <el-menu-item index="/audit-log">
           <el-icon><Document /></el-icon>
           <span>审计日志</span>
+        </el-menu-item>
+        <el-menu-item index="/prompt-eval-workbench">
+          <el-icon><MagicStick /></el-icon>
+          <span>提示词评测</span>
+        </el-menu-item>
+        <el-menu-item v-if="authStore.role === 'admin'" index="/model-keys">
+          <el-icon><Key /></el-icon>
+          <span>模型密钥</span>
         </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
