@@ -1,0 +1,14 @@
+{
+  "branch": "codex/p2-accounts-i18n",
+  "openspecChange": "desktop-ui-i18n-p2(已归档,第一批)",
+  "complexity": "M",
+  "id": "p2-accounts-i18n",
+  "pr": "#577 merged 5baf84c0",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "risk": "medium",
+  "title": "P2 存量 i18n 第三批：Accounts 账号管理页文案全量多语言化",
+  "completedAt": "2026-08-12T04:52:30Z",
+  "status": "completed",
+  "remoteStatus": "merged"
+}
