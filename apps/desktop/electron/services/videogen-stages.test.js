@@ -263,6 +263,29 @@ describe('videogen 共享阶段执行器', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('视频提示词优化失败')
     })
+
+    it('超过 10 个场景时批量优化按 ≤10 分块并合并（prompt-engine 批量上限 10 回归）', async () => {
+      const ai = makeVideoAi(async () => ({ code: -1, message: 'stop' }))
+      const batchCalls = []
+      const { get } = makePipeline(ai, null, {
+        optimizeVideoPromptsBatch: vi.fn(async (prompts) => {
+          batchCalls.push(prompts.length)
+          return prompts.map(p => ({ optimized_prompt: '[opt] ' + p }))
+        }),
+      })
+      const prompts = Array.from({ length: 12 }, (_, i) => 'scene-prompt-' + i)
+      const context = { storyboard: prompts.map(p => ({ prompt: p })) }
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_chunk', stage: { options: {} }, params: { text: '主题' },
+        context,
+      })
+      // 视频生成全部失败（mock 返回 code:-1），但批量优化必须先按 10+2 分块完成
+      expect(result.success).toBe(false)
+      expect(batchCalls).toEqual([10, 2])
+      expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith(
+        'agnes-video', 'generateVideo', expect.objectContaining({ prompt: '[opt] scene-prompt-0' }),
+      )
+    })
   })
 
 
