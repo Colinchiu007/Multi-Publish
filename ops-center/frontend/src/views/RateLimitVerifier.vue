@@ -237,7 +237,9 @@ const form = ref({
 async function loadPresets () {
   try {
     const res = await api.get('/model-presets')
-    presets.value = (res.data.items || res.data || []).filter(p => !p.hidden)
+    // 运营后台返回 { presets: [...], count }；防御性解析（兼容 items / 裸数组）
+    const raw = res.data?.presets ?? res.data?.items ?? res.data
+    presets.value = Array.isArray(raw) ? raw.filter(p => !p.hidden) : []
   } catch (e) {
     ElMessage.error('加载模型预设失败: ' + (e.response?.data?.detail || e.message))
   }
