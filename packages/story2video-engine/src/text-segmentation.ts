@@ -461,6 +461,7 @@ export class SubtitleSegmenter {
     const blocks: string[] = [];
     let cur = '';
     const stack: string[] = [];
+    let lastHardCut = false; // 最近一次切分是否为无标点硬切
     for (const ch of text) {
       cur += ch;
       if (SubtitleSegmenter.LEFT_QUOTES.has(ch)) {
@@ -473,22 +474,43 @@ export class SubtitleSegmenter {
       if (isPunct && cur.length >= this.config.minCharsPerBlock) {
         blocks.push(cur);
         cur = '';
+        lastHardCut = false;
       } else if (cur.length >= this.config.maxCharsPerBlock && stack.length === 0) {
         const pos = this.findSplitPos(cur);
         if (pos > 0) {
           blocks.push(cur.slice(0, pos));
           cur = cur.slice(pos);
+          lastHardCut = false;
         } else {
           blocks.push(cur);
           cur = '';
+          lastHardCut = true;
         }
       } else if (cur.length >= this.config.maxCharsPerBlock * 2 && stack.length > 0) {
         blocks.push(cur);
         cur = '';
         stack.length = 0;
+        lastHardCut = true;
       }
     }
-    if (cur) blocks.push(cur);
+    if (cur) {
+      // 平衡约束（与 Python 实现一致）：硬切后的尾块清理后为 4..min-1 字（非合法 ≤3 短尾）时，
+      // 从上一块让字给尾块（区间内优先标点），避免孤悬尾块（如 15+4 → 11+8）
+      const tailClean = cur.trim().replace(/[。！？；，、.!?;…]+$/, '');
+      if (lastHardCut && blocks.length > 0 && tailClean.length > 3
+        && tailClean.length < this.config.minCharsPerBlock
+        && blocks[blocks.length - 1].length >= this.config.minCharsPerBlock) {
+        const prev = blocks[blocks.length - 1];
+        const need = this.config.minCharsPerBlock - tailClean.length;
+        const lo = Math.max(1, prev.length - need);
+        const hi = prev.length - 1;
+        const balanced = this.findSplitPosInRange(prev, lo, hi);
+        const pos = balanced > 0 ? balanced : lo;
+        blocks[blocks.length - 1] = prev.slice(0, pos);
+        cur = prev.slice(pos) + cur;
+      }
+      blocks.push(cur);
+    }
     return blocks.filter((b) => b.trim().length > 0);
   }
 
