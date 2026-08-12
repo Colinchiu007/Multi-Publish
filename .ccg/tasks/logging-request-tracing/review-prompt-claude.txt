@@ -1,0 +1,16 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/claude/reviewer.md
+
+<TASK>
+审查 OpenSpec change http-request-tracing（api-publish-engine）的代码变更。请核对仓库（HEAD=09662800）中：
+- packages/api-publish-engine/src/publish-api-server.js（requestId 生成/透传校验/_ctx 上下文/accessLogWriteFn 注入/errorCodeOf）
+- packages/api-publish-engine/src/access-log.js（结构化 JSON access log）
+- test/access-log.test.js、test/request-tracing.test.js
+
+重点评估：
+1) requestId 透传白名单 /^[A-Za-z0-9._:-]{1,64}$/ 是否安全（日志注入/滥用）？
+2) res.end 钩子与 _json 的 errorCode 采集（res.req._errorCode）是否有并发/遗漏风险？gzip 分支与 OPTIONS 处理是否一致？
+3) _ctx(req) 在 _checkAuth 直接调用（测试）时 requestId 缺省是否安全？
+4) access-log JSON 是否引入敏感信息（path 截断、userAgent 截断、ip）？
+5) 结构化变更是否破坏既有 access-log 消费者（publish-api-client 等）？
+6) 遗漏点与测试盲区。
+输出：每条 Critical/Warning/Info + 依据（file:line），不要泛泛而谈。

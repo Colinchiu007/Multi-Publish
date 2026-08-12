@@ -1,3 +1,12 @@
+## requestId 贯穿 + 结构化 access log 复盘（http-request-tracing，2026-08-12）
+
+- **交付**：api-publish-engine 每请求 requestId（合法透传 / crypto.randomUUID 自生成）→ 响应头 x-request-id 回显 → 错误日志 _ctx 上下文携带 → access log 升级单行 JSON（ts/method/path/status/durationMs/requestId/ip/userAgent/errorCode）。OpenSpec change http-request-tracing（R1-R3），修复审计缺口 B4。
+- **教训 1（唯一绕过点必查）**：统一响应头注入（_json）时，全仓要 grep 所有 writeHead 直出端点（docs 用原生 writeHead 绕过 → x-request-id 缺失，Claude 审查 W1 抓出）。统一响应头应抽 helper，禁止端点自行 writeHead 带响应契约字段。
+- **教训 2（日志字段是攻击面）**：access log 的 errorCode 若允许 raw 回退会携带任意错误文本——必须脱敏 + 截断（redactText + 64 上限），不能只保证结构化字段存在。日志管线里每个字段都要过「敏感/长度」双过滤。
+- **教训 3（业务失败常不在 4xx/5xx）**：本服务发布失败是 HTTP 200 + success:false；errorCode 采集若只看 status>=400，最关键的排障行恰是 null。采集条件应为 status>=400 或 data.success===false。
+- **教训 4（测试要防进程挂起）**：HTTP 服务测试若断言失败在 server.stop() 之前，泄漏的 server 会让进程永不退出（本轮 request-tracing 挂起根因）；断言前先 stop 或 try/finally。
+
+---
 ## 日志体系审计 + P0 日志加固复盘（2026-08-12）
 
 - **交付**：全仓日志体系审计报告（PR #658，01-docs/LOGGING-AUDIT-2026-08-12.md，纯文档）+ P0 日志加固（PR #659，OpenSpec change logging-hardening-p0，R1-R4）。

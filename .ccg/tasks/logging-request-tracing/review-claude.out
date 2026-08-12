@@ -1,0 +1,94 @@
+[codeagent-wrapper]
+  Backend: claude
+  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+  PID: 55764
+  Log: C:\Users\邱领\AppData\Local\Temp\codeagent-wrapper-55764.log
+  Web UI: http://localhost:62088
+  Session-ID: be932a4d-38ed-4de2-9ec6-ffff994389c9
+I have a complete picture now. All my key findings were verified empirically (tests pass, plus targeted probes of the docs endpoint, OPTIONS, gzip branch, publish-failure, and query-string stripping). Here is the review.
+
+---
+
+## Review: http-request-tracing（api-publish-engine）· 审查对象 HEAD=09662800
+
+审查范围核对：`publish-api-server.js`、`access-log.js`、`test/access-log.test.js`、`test/request-tracing.test.js`。两套测试均通过（access-log 6/6、request-tracing 5/5）；额外用真实 server 探测了 docs/OPTIONS/gzip/publish-失败/query 剥离等边界，结果如下。
+
+---
+
+### Critical 🔴
+
+**未发现 Critical。** requestId 白名单、header/log 注入、并发、鉴权路径均无致命问题（依据见下）。
+
+---
+
+### Warning 🟡
+
+**W1 — `/api/v1/docs` 响应缺 `x-request-id` 头，违反 R1「任意业务请求…响应头包含 x-request-id」**
+- **[publish-api-server.js:1084]** 该端点用原生 `res.writeHead(200, { "Content-Type": ... })` + `res.end(html)` 直出，绕过了 `_json` 的 `headers["X-Request-Id"]` 注入（line 223）。全仓唯一一条绕过路径。
+- 实测确认：`GET /api/v1/docs` 响应**无** `x-request-id` 头，但其 access log 行里 requestId 存在 → 头与日志不一致。OPTIONS 分支（line 569）手写了该头，唯独 docs 漏了。
+- 依据：R1 Scenario「任意业务请求到达服务器并返回响应 → 响应头包含 x-request-id」。
+- Fix：给 line 1084 的 writeHead 补 `"X-Request-Id": req.requestId`，或把「统一响应头」抽成 helper 供 `_json` 与 docs/OPTIONS 共用。
+
+**W2 — `errorCodeOf` 的 raw 回退绕过脱敏/截断/过滤，errorCode 变成任意自由文本**
+- **[publish-api-server.js:41-48]** `error`/`message` 都不匹配 `/^[A-Z][A-Z0-9_]{2,63}$/` 时，直接 `return data.error` 原样。配合 `_json(res, 400/500, { error: e.message })`（line 739/836/875/913/1005/1035），errorCode 可携带任意错误文本。
+- 实测：400「platform is required」→ `errorCode:"platform is required"`；429「Too Many Requests」→ `"Too Many Requests"`；404「Not found」→ `"Not found"`。三种形态混在同一个字段里，高基数、不可聚合。
+- 三个具体危害：
+  1. **未截断**——design 只承诺 path 512 / ua 256 截断（design.md:35），errorCode 无上限，`e.message` 可把整行 access log 撑爆；
+  2. **未脱敏**——`_logMessage` 里 `redactText`（log-redact.js:22）是 P0 最后防线，但 access log 的 errorCode 完全绕过它；`{ error: e.message }` 若内嵌 token/path 会原文落盘；
+  3. **语义不一致**——机器码（`AUTH_TOKEN_INVALID`）与人类句子（`platform is required`）混用。
+- Fix：回退分支同样套严格过滤或至少截断 + `redactText`；并对 `errorCode` 加长度上限。
+
+**W3 — errorCode 采集仅限 `status>=400`，HTTP 200 的应用错误全部丢 errorCode**
+- **[publish-api-server.js:214-216] + [788]** `_json` 只在 `status >= 400` 时写 `res.req._errorCode`。而本服务**最关键的运营错误**——发布失败——走 `this._json(res, 200, { success:false, error:"PUBLISH_FAILED" })`（line 788），access log 行 `errorCode: null`。batch-publish 部分失败、schedule/plan/webhook 的 400 校验错误同理。
+- R2 规格只要求 4xx/5xx，所以这是 D3 的已知取舍（design.md:27），但**业务意图（失败可追溯）恰好落在盲区**：排障时最想看 errorCode 的行偏偏是 null。
+- Fix：采集条件改为 `status>=400 || (data && data.success===false)`，或对 `data.error` 存在即采集。
+
+---
+
+### Info 🟢
+
+**I1 — errorCode 可能来自 `message` 而非响应 `error` 字段**
+- **[publish-api-server.js:43-46] + [628]** 鉴权失败响应是 `{ error:"Unauthorized", message:"AUTH_TOKEN_INVALID" }`，`errorCodeOf` 顺序匹配到 `message` → access log errorCode=`AUTH_TOKEN_INVALID`，与响应体 `error` 字段不对应。消费者按「access log errorCode = 响应 error」关联会对不上。启发式依赖字段顺序，较脆。建议显式注释或改为优先取响应 `error`。
+
+**I2 — CORS 未暴露 `x-request-id`，浏览器端读不到**
+- **[publish-api-server.js:217-222] + [569]** 响应加了 `X-Request-Id`，但 `Access-Control-Allow-Origin/Headers` 均无 `Access-Control-Expose-Headers: X-Request-Id`。localhost:5174 的浏览器 fetch 读不到该头。Python sidecar 走服务端读取（`_http_client.py:204,221`）不受 CORS 影响——所以影响面仅在 renderer 直连场景。若 requestId 是要回显给 UI 的，应补 expose。
+
+**I3 — `res.end` 包装函数丢返回值**
+- **[publish-api-server.js:566]** `http.ServerResponse.end()` 约定返回 `this`，包装函数返回 `undefined`。当前调用点（`_json`、docs）都不依赖返回值，无实际影响，但属于契约偏离；`return res.end.apply(res, arguments)` 更稳妥。
+
+**I4 — access log 格式变更并非「纯附加」**
+- **[access-log.js:26-35]** 文本行 `[ts] method url status ms` 整体替换为 JSON。仓内已核对：publish-api-client 只解析响应体、无任何测试/脚本解析旧 access log 文本格式，python 消费者也只读 `x-request-id` 头——所以仓内无破坏（Q5 结论）。但 proposal.md:9「保持向后兼容」只对 `enabled`/`writeFn` 选项成立，**输出契约本身是破坏性变更**：任何按旧正则匹配的日志采集/监控会静默失效。建议在 change 文档明示。
+
+**I5 — access log 的 ip 与 rate limiter 的 ip 来源不一致**
+- **[access-log.js:32] vs [publish-api-server.js:616]** access log 记 `req.socket.remoteAddress`（反代后=代理 IP），rate limiter 用 `x-forwarded-for`。同一请求两条路径「客户端 IP」不同。design 选 socket 直连是防伪造的正确选择，但应注明反代部署下 access log 的 ip 是代理地址。
+
+**I6 — readiness 503 的 errorCode 采不到**
+- **[publish-api-server.js:673-687]** `READINESS_NOT_CONFIGURED`/`READINESS_CHECK_FAILED` 嵌在 `checks.runtime.code`，`errorCodeOf` 只看顶层 `error`/`message` → 503 行 `errorCode:null`。
+
+**I7 — `_ctx` 用原始 `req.method`，`_handle` 归一化为 `"GET"`**
+- **[publish-api-server.js:248] vs [561]** 日志上下文里 method 可能缺失（JSON.stringify 丢弃 undefined），与 line 561 的 `req.method || "GET"` 不一致。实际 Node 恒有 method，风险极低。
+
+---
+
+### 六问逐条结论
+
+1. **透传白名单安全性** — ✅ 安全。字符集排除空白/控制符/`"`/`\`/CR/LF，无 header 注入（`X-Request-Id` 头值安全）与日志注入（JSON.stringify 双重保险）；≤64 限制滥用；重复头被 Node 以 `, ` 拼接 → 正则拒绝 → 回落自生成。残余风险仅是「客户端可指定已知 ID 污染关联日志」，design 已明确不用作鉴权/限流（design.md:36），可接受。
+2. **res.end 钩子与 errorCode 采集** — 无并发风险（每请求独立 req/res、`_json` 同步于 end 之前、单响应）；gzip 分支实测 errorCode 正确（404 大响应+gzip → `errorCode:"PATH_NOT_UNDER_BUSINESS_API"`），OPTIONS 头/日志一致。**遗漏点**：① docs 端点头缺失（W1）；② line 566-655 之间若同步抛错（`_checkAuth`/`_resolveRequestId`/限流）或客户端在 end 前断开，钩子不触发 → 无 access log 行（traceability 盲区，try 块从 656 才开始）。
+3. **`_ctx` requestId 缺省安全** — ✅ 安全。`JSON.stringify({requestId:undefined})` 丢弃该键，不崩溃；生产路径 line 562 先设 requestId 再到 line 622 `_checkAuth`，恒有值。仅测试直接调 `_checkAuth`（integration-key-manager.test.js:29-41）会缺省，而那些路径不触达 `_ctx`。
+4. **access-log 敏感信息** — 总体已达标：path 剥离 query（实测 `?secret=TOPSECRET` 不出现在日志）、ua 截断 256、ip 为直连 peer。**残余缺口**：errorCode raw 回退未脱敏/未截断（W2）。
+5. **既有消费者破坏** — 仓内无破坏（见 I4）。publish-api-client 仅解析响应体；python `_http_client.py` 读 `x-request-id` 反而**受益**（服务端现在真正回显）。唯一风险是外部日志采集器，且该输出契约变更未被文档标注为破坏性。
+6. **遗漏点与测试盲区** — 规格遗漏见 W1/W3、I1/I6；测试盲区：docs 头缺失（W1）、发布失败 200+error 的 errorCode=null（W3）、gzip 分支（功能正常但无用例）、OPTIONS、>64 字符/含 CRLF 的 requestId、经真实 server 的 query 剥离（仅单测覆盖 fallback）、500 catch 与 readiness 503 的 errorCode、ua 256 截断、`accessLog:false` 服务级开关。
+
+---
+
+### Summary
+
+整体实现质量高：requestId 生成/校验/回显链路正确且并发安全（Q1/Q2/Q3 均实测通过），access log 结构化 JSON 达标并修复了审计 A3 的 query 泄露，`_ctx` 改造把 requestId 贯通全部错误日志调用点，gzip/OPTIONS 分支一致性已确认。`enabled`/`writeFn` 选项向后兼容，仓内消费者无破坏。
+
+**但存在 3 处 Warning，建议合并前处理**：docs 端点缺 `x-request-id`（W1，规格直接违反且是唯一绕过点）；errorCode raw 回退绕过脱敏/截断（W2，唯一涉及敏感信息落盘的缺口）；HTTP-200 应用错误（尤其发布失败）不采 errorCode（W3，直击本 change 的业务目标）。另有若干 Info（CORS expose、errorCode 语义、格式变更标注）可在后续迭代吸收。**结论：修复 W1/W2（低改动量）后即可合并；W3 可作为显式设计的后续项。**
+
+---
+*测试复验：`node test/access-log.test.js`（6/6）、`node test/request-tracing.test.js`（5/5）均通过；针对 W1/W3/query 剥离/gzip 的探测脚本为临时验证，未写入仓库。*
+
+---
+SESSION_ID: be932a4d-38ed-4de2-9ec6-ffff994389c9
