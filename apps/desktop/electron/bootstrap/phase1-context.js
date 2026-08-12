@@ -258,6 +258,31 @@ function extractContext(container) {
     },
   })
   publishReporter.start()
+  // 视频创作失败诊断脱敏上报（P0 落地运营后台）：run 终结入队 → 30min 周期上报 /diagnostics/ingest
+  const { DiagnosticsReporter } = require('../services/diagnostics-reporter')
+  const diagnosticsReporter = new DiagnosticsReporter({
+    store,
+    log,
+    getOpsCenterAuth: () => {
+      if (!opsCenterSync || typeof opsCenterSync.getConfig !== 'function') return null
+      const cfg = opsCenterSync.getConfig()
+      if (!cfg.url || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
+      return { url: cfg.url, apiKey: opsCenterSync.getCatalogApiKey() }
+    },
+    getClientId: () => {
+      try {
+        const crypto = require('crypto')
+        const { app: electronApp } = require('electron')
+        return crypto.createHash('sha256').update(String(electronApp.getPath('userData') || '')).digest('hex').slice(0, 16)
+      } catch (e) { return '' }
+    },
+  })
+  diagnosticsReporter.start()
+  if (pipelineEngine && typeof pipelineEngine.setRunFinalizedHook === 'function') {
+    pipelineEngine.setRunFinalizedHook((run) => {
+      try { diagnosticsReporter.enqueue(run) } catch (e) { log.warn('DiagnosticsReporter', 'hook error: ' + (e && e.message ? e.message : String(e))) }
+    })
+  }
   // 由 Phase 3 在 SQLite WASM 与 Store 均就绪后初始化，避免重启时读取到空数据库。
   // 创建 ProviderRouter（不注入 logHandler，避免与 callAdapter 内部日志双写）
   // callAdapter 内部已通过 _writeLog 统一记录到 model_provider_logs 表

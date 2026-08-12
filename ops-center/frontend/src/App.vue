@@ -40,6 +40,10 @@
           <el-icon><DataLine /></el-icon>
           <span>模型用量</span>
         </el-menu-item>
+        <el-menu-item index="/diagnostics">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>创作诊断</span>
+        </el-menu-item>
         <el-menu-item index="/publish-dashboard">
           <el-icon><TrendCharts /></el-icon>
           <span>发布数据</span>

@@ -393,6 +393,72 @@ class PipelineDependency(Base):
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
 
+
+
+class DiagnosticsDaily(Base):
+    """视频创作失败诊断日聚合 — 桌面端脱敏上报，运营后台看板数据源。
+
+    唯一键 (diag_date, client_id, pipeline)：同桶多次上报累加（幂等）。
+    """
+
+    __tablename__ = "diagnostics_daily"
+    __table_args__ = (
+        sa.UniqueConstraint("diag_date", "client_id", "pipeline", name="uq_diagnostics_daily_bucket"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    diag_date = Column(String, nullable=False)  # YYYY-MM-DD（桌面端本地日期）
+    client_id = Column(String, default="")  # 桌面端设备稳定哈希（脱敏）
+    pipeline = Column(String, default="")
+    total_runs = Column(Integer, default=0)
+    failed_runs = Column(Integer, default=0)
+    success_runs = Column(Integer, default=0)
+    cancelled_runs = Column(Integer, default=0)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class DiagnosticsSample(Base):
+    """失败诊断白名单样本（默认 30 天滚动保留）— 供运营查看明细与根因。
+
+    env_json 仅含白名单键（disk_free_bytes / python_backend），服务端再校验丢弃未知键。
+    """
+
+    __tablename__ = "diagnostics_samples"
+    __table_args__ = (
+        sa.UniqueConstraint("client_id", "run_id", name="uq_diagnostics_sample_run"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    diag_date = Column(String, nullable=False)
+    client_id = Column(String, default="")
+    run_id = Column(String, nullable=False)
+    pipeline = Column(String, default="")
+    status = Column(String, default="failed")
+    stage = Column(String, default="unknown")
+    failure_type = Column(String, default="unknown")
+    severity = Column(String, default="unknown")
+    recoverability = Column(String, default="unknown")
+    cause_id = Column(String, default="")
+    duration_ms = Column(Integer, default=0)
+    env_json = Column(Text, default="{}")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class DiagnosticsBatch(Base):
+    """诊断上报批次去重 — 客户端携带 batch_id，服务端唯一约束防超时重试翻倍。"""
+
+    __tablename__ = "diagnostics_batches"
+    __table_args__ = (
+        sa.UniqueConstraint("client_id", "batch_id", name="uq_diagnostics_batch"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_id = Column(String, default="")
+    batch_id = Column(String, nullable=False)
+    max_id = Column(Integer, default=0)  # 该批次覆盖的客户端队列最大 id（超时重试判重回传用）
+    ingested_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
 class SceneContextRules(Base):
     """Story2Video 场景上下文规则（运营后台管理，导出后随桌面发布/配置覆盖）。"""
 

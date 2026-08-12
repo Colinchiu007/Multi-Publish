@@ -1,3 +1,11 @@
+## [2026-08-12] 视频创作失败诊断系统（桌面端遥测 + 运营后台看板/告警/处置建议）
+
+- P0（桌面端）：统一诊断码（stage×failureType×severity×recoverability，fail-closed 到 unknown）、错误→候选根因映射（causeId/label/checks/advice/confidence）、run 级诊断摘要 + best-effort 环境快照（字段白名单）；`pipeline-engine._finalizeRun` 附加 `run.diagnostics` + 可选 `setRunFinalizedHook`（additive，IPC 契约不变）。
+- 运营落地（ops-center）：桌面端 `diagnostics-reporter`（30min watermark 上报 daily 聚合桶 + 失败样本；batch 幂等——duplicate 回传 acked_max_id 推进水印防超时重试翻倍；队列/批量上限防积压；未配置静默跳过）→ `POST /api/v1/diagnostics/ingest`（X-Catalog-Key、三级幂等、30 天样本/90 天聚合滚动清理）→ `GET /summary`（totals/by_date/by_stage/by_failure_type/by_cause/by_client/env/阈值 alerts）与 `GET /samples`（admin 分页过滤）。
+- 运营看板 `/diagnostics`：KPI、告警面板、每日趋势、分布、Top 根因+处置建议（跳转功能开关）、样本列表/详情抽屉/复制诊断信息。
+- 文档：OpenSpec changes `story2video-failure-diagnostics` + `ops-center-video-diagnostics`；`01-docs/ARCH-VIDEO-DIAGNOSTICS-OPS-2026-08-12.md`。
+- 验证：桌面聚焦 233 用例 + eslint 0 error；ops-center pytest 全量 174（合并 main 后）；前端 vite build；QM-1 打包 + 启动 10s 存活；Claude 双轮审查（Critical/Warning 全部闭合）。
+
 ## [2026-08-12] 字幕时间戳真实对齐 Tier2（ASR 词级时间）——audio-aligner sidecar + Node 聚合器 + bridge
 
 - 新增 `packages/audio-aligner/`：FastAPI :8004，faster-whisper base（模型已缓存），`/align` 返回词级时间（words/segments/language/duration/elapsed_ms）
