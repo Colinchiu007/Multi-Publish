@@ -5,8 +5,9 @@
   "complexity": "L",
   "risk": "medium",
   "domain": "desktop+pipeline+docs",
-  "currentPhase": "analysis",
-  "nextAction": "完成需求分析与架构设计，产出 PRD/设计文档",
+  "currentPhase": "review",
+  "nextAction": "Claude 审查已修复；等待全量测试通过后推送/PR/合并/归档",
   "createdAt": "2026-08-11T10:00:00+08:00",
   "branch": "codex/prompt-image-eval-system"
 }
+

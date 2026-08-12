@@ -3,6 +3,15 @@
 - 根因：#526 系列 UI 重构把历史记录操作按钮统一为 `s2v-btn-*` 类（`CreateViewHistory.vue`），但 `CreateView.test.js` 仍用旧 `.history-btn.resume` / `.history-btn.open` 选择器，导致 3 个历史恢复用例失败（main Electron CI 同步失败）。另 `create.story2video.sections.videoEnhance` 与 `common.close` locale 键缺失，仅靠硬编码兜底并产生 i18n 警告。
 - 修复：测试选择器更新为 `.s2v-btn-resume` / `.s2v-btn-secondary`；`zh.js` / `en.js` 补 `videoEnhance` 与 `close` 键。
 - 回归：CreateView 131/131、CreateHistory 22/22、story2video-ue-contract 4/4、i18n 7/7；前端 `npm run build` 通过。
+## [未发布] 功能：提示词优化效果评估系统 PromptEval（v1 图片，2026-08-11）
+
+- 新增评估引擎 `apps/desktop/electron/services/prompt-eval/`：dimensions（4 维度权重与等级）、prompt-builder（评估提示词单源，中文，JSON 契约）、llm（解析+白名单校验 fail closed）、engine（输入校验 EVAL_* 矩阵、读图 ≤8MB、瞬时错误重试 ≤2）、store（userData/prompt-eval 原子写 + 索引自愈）、report（JSON/Markdown + 聚合分析）、evaluator（ModelProviderManager 视觉模型适配）、cli（--image/--batch/--evaluator/--out/--json/--analyze，退出码 0/2）。
+- 评估维度：关联度 30% / 内容准确性 30% / 视觉审美质量 20% / 跨图上下文一致性 20%（≥2 图参与，单图权重归一化）；0-100 分，≥85 优秀 / ≥70 良好 / ≥50 一般 / <50 差。
+- 问题归因 5 类（原文/上下文/优化后提示词/负向提示/未知）与提示词优化点 7 类（add_specificity/resolve_ambiguity/enforce_style/align_context/add_negative/structure_ordering/consistency_anchor），可回馈 prompt-engine 迭代。
+- IPC 通道 `prompt-eval:run/list/get/delete/analyze/dimensions`（withSenderCheck，authenticated 级）+ preload API；Vue 视图 `/prompt-eval`（运行评估/历史记录/聚合分析 三 Tab）+ 导航「提示词评估」+ i18n。
+- 媒体类型抽象预留视频扩展（v1 mediaType=video 明确拒绝 EVAL_MEDIA_TYPE_NOT_SUPPORTED）。
+- 文档：PRD-PROMPT-EVAL-SYSTEM-2026-08-11.md、ARCH-PROMPT-EVAL-SYSTEM-2026-08-11.md、PRD.md §提示词优化效果评估系统、openspec change prompt-image-eval-system、CHANGELOG。
+- 测试：prompt-eval 服务 50、IPC 4、preload 2、composable 3、bootstrap 32、中心 IPC 15；Vue build 通过；未触碰其他在途任务脏文件。
 
 ## [未发布] 功能：视频提示词统一走 prompt-engine video 领域（2026-08-11）
 

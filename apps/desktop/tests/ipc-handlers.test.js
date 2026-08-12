@@ -54,6 +54,15 @@ describe('IPC Handlers', () => {
       keywordMonitor: { startMonitoring: () => true, stopMonitoring: () => true,
         getStatus: () => ({}), getHistory: () => [], stopAll: () => {} },
       BACKEND_PLATFORMS: new Set(),
+      // PromptEval（提示词评估）服务桩：验证通道注册
+      promptEvalService: {
+        run: async () => ({ success: true, report: { id: 'eval-test', overallScore: 80 } }),
+        list: () => [],
+        get: () => null,
+        remove: () => true,
+        analyze: () => ({ recordCount: 0, averageOverall: 0, gradeDistribution: {}, dimensionAverages: [], problemCategories: [], promptPartDistribution: [], optimizationPoints: [], recommendations: [] }),
+        dimensions: () => ({ image: [], video: [] }),
+      },
     })
   })
 
