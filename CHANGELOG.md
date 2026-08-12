@@ -19,6 +19,12 @@
 - 每场景附加 `subtitleTimeline`（真实词级时间 + charTimings）与 `subtitleAlign` 元数据（aligned/method/coverage/reason/elapsedMs，随场景持久化）
 - Electron JS 聚合器镜像 `subtitle-align-aggregator.js`（自包含、纯 JS）——行为与 TS 权威版由 parity 测试逐字锁死
 - 测试：JS 镜像 4 + 服务编排 4 + TS/JS parity 1；story2video-engine 127 全绿；stages 80/81（1 例为 origin/main 存量 governor 超时，已验证与本变更无关）
+## [未发布] 修复：fidelity 分镜鲁棒性加固 + 真实 E2E 验证（2026-08-12）
+
+- **真实 E2E 验证**（animation 流水线，关羽/三国志长文案，storyboardMode=fidelity，minimax-multimodal 真实 LLM）：12 场景逐条对应原文（《三国志》蜀书/曹魏档案对比/刘备编草鞋/万人之敌/军事训练图解/十几年岁月/政治黑手撕档案），无臆造矛盾事实；对齐报告 coverage=0.86（14 实体命中 12，缺失陈寿/桃园结义在 12 场景上限内允许），retries=0 一次通过，全部场景绑定 source_paras。对比旧创意模式"赛博侦探档案"跑偏，修复有效。
+- **加固 1**：fidelity/hybrid storyboard 输出预算显式放大到 8000 tokens（注入分段全文 + source_paras 后输出体积显著大于 creative，5000 默认预算可能截断导致 JSON 解析失败）。
+- **加固 2**：storyboard JSON 解析失败不再直接 fail，带提示重试（最多与对齐重试共享 maxAttempts 预算），重试耗尽才 fail closed。
+- 回归：videogen-stages 32 + videogen-content-fidelity 30（新增 3 用例：8000 tokens 断言 / JSON 失败重试成功 / 连续失败 fail closed）全绿。
 ## [2026-08-12] 视频创作失败诊断系统（桌面端遥测 + 运营后台看板/告警/处置建议）
 
 - P0（桌面端）：统一诊断码（stage×failureType×severity×recoverability，fail-closed 到 unknown）、错误→候选根因映射（causeId/label/checks/advice/confidence）、run 级诊断摘要 + best-effort 环境快照（字段白名单）；`pipeline-engine._finalizeRun` 附加 `run.diagnostics` + 可选 `setRunFinalizedHook`（additive，IPC 契约不变）。

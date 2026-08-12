@@ -556,13 +556,21 @@ function registerVideoGenStages (pipelineEngine) {
         })
         let raw = ''
         try {
-          raw = await callDefaultLlm(aiGenerator, system, user)
+          // fidelity/hybrid 注入分段全文 + source_paras，输出体积显著大于 creative：显式放大输出预算
+          const storyboardMaxTokens = mode === 'creative' ? undefined : 8000
+          raw = await callDefaultLlm(aiGenerator, system, user, storyboardMaxTokens)
         } catch (error) {
           lastError = error && error.message ? error.message : String(error)
           break
         }
         const parsed = parseJsonArray(raw)
         if (!Array.isArray(parsed) || parsed.length === 0) {
+          // JSON 解析失败：视为一次无效输出，带提示重试（fidelity 模式输出更长更易截断/格式漂移）
+          if (attempt < maxAttempts) {
+            retryHint = '上次输出不是合法 JSON 数组（可能被截断或含多余文字），请只输出严格 JSON 数组，不要任何其他文字'
+            log.info('VideoGenStages', '故事板 JSON 解析失败，重试 ' + attempt + '/' + (maxAttempts - 1))
+            continue
+          }
           lastError = 'storyboard 无法解析场景 JSON'
           break
         }

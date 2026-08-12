@@ -1,3 +1,10 @@
+## fidelity 分镜真实 E2E 验证 + 鲁棒性加固复盘（2026-08-12）
+
+- **验证结论**：fidelity 模式真实 LLM 分镜逐条对应原文（12/12 场景覆盖核心事件与引语），对齐报告 coverage=0.86 一次通过；对比创意模式"赛博侦探档案"跑偏，S1-S3 修复有效。
+- **新教训（输出预算与重试）**：fidelity 分镜注入全文 + source_paras 后输出体积大增，默认 5000 tokens（推理型）可能截断 → 显式 8000；且"JSON 解析失败"原本直接 fail 不重试——LLM 输出格式漂移是常态，解析失败必须纳入重试状态机（带"只输出严格 JSON 数组"提示），与覆盖度重试共享预算。
+- **机制**：验证用真实 Electron + 已登录 profile + 真实 LLM（minimax-multimodal）+ prompt-engine（Fact-Fidelity 服务）；用全自动 + storyboard 完成后立即 cancel 的方式省去视频生成成本。
+
+---
 ## 视频创作失败诊断系统（桌面端遥测 + 运营后台看板）复盘 (2026-08-12)
 
 - **交付**：P0 桌面端统一诊断码/根因映射/run 诊断遥测（`run.diagnostics`，additive）+ 运营后台落地（diagnostics-reporter 上报 → ops-center ingest/日聚合/样本/看板/告警/处置建议）。OpenSpec changes `story2video-failure-diagnostics` + `ops-center-video-diagnostics`，PR #574（cfb5ec31）合并，三同步归档完成。
