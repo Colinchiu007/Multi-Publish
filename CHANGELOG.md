@@ -4,6 +4,15 @@
 - 测试：40 用例全绿（`node --test`，零依赖）。
 - OpenSpec change `video-clone-pipeline`（proposal/design/tasks/spec delta）；PRD v1.1 新增 §11-15 详细规格（数据校验、流程与功能逻辑、交互逻辑与显示项、提示文字 zh/en 与错误码、测试与门禁）。
 - 切片 2+ 待办：真实 ingest（yt-dlp/ffprobe）、analyze（ASR/镜头/风格）、plan 改写、generate provider 接入、compose（ffmpeg）、publish（PublisherRouter）、桌面 UI。
+=======
+
+## [2026-08-12] 修复 subtitle-align-service 单测 CI 回归（mock isAlignerAvailable，PR #590）
+
+- 根因：alignScenes 调用 bridge 前先查 isAlignerAvailable()（ALIGNER_DIR/aligner 模块存在性）；CI 未部署
+  audio-aligner 时返回 false → fail-fast 跳过 mock bridge（transcribeAudio 0 次、reason=aligner_unavailable），
+  与断言不符。为 PR #588 合并引入的上游回归（与 #585 i18n 无关）。
+- 修复：单测将 ALIGNER_DIR 指向含 aligner/ 模块的临时目录（与生产 fs 检查同源）→ isAlignerAvailable 为
+  true，确定性覆盖 mock bridge 编排路径（afterAll 清理临时目录）；生产行为不变（未部署 aligner 仍 fail-fast）。
 
 ## [2026-08-12] 字幕对齐停顿吸附（silence-snap）+ 块级 <200ms 验收
 
@@ -12,12 +21,12 @@
 - 实测：`那` 4.40→4.82、`处` 6.92→7.03、`慢慢` 13.74→14.08、`盐` 3.38→3.52、`再` 11.46→11.50，均对齐静音结束
 - 块级时间定位由音频停顿独立锚定（非 ASR 自证）；ffprobe duration 与 whisper 完全一致
 - 测试：aligner 7 例全绿（snap 规则 + 解析 + API）；OpenSpec/PRD 更新验收结论
-
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
 - App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
 - 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
 - locales zh/en 新增 `historyPage`（131 键成对，含插值函数）与 `publishType`（8 键）命名空间
