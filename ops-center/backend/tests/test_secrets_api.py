@@ -79,6 +79,44 @@ class TestSecretsAPI:
             assert len(resp2.json()["keys"]) == 1
 
     @pytest.mark.asyncio
+    async def test_create_secret_without_id_generates_key(self):
+        """前端「新增 key」调用 PUT /secrets（无 id）→ 自动生成 key_id，不再 405。"""
+        from httpx import AsyncClient, ASGITransport
+        from main import app
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            h = {"Authorization": f"Bearer {admin_token()}"}
+            # 无尾斜杠（前端 axios 跟随 307 后的最终路径）
+            resp = await client.put("/api/v1/secrets", json={
+                "provider": "openai", "name": "New Auto Key",
+                "api_key": "sk-auto-123", "models": ["gpt-4o"], "tier_access": 1,
+            }, headers=h)
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert data["id"].startswith("openai-")
+            assert data["name"] == "New Auto Key"
+            assert data["api_key"] != "sk-auto-123"  # masked
+
+            # 尾斜杠（前端实际发出 PUT /secrets/）→ redirect 后同样成功
+            resp2 = await client.put("/api/v1/secrets/", json={
+                "provider": "anthropic", "name": "Slash Key",
+                "api_key": "sk-slash-456", "models": ["claude-3"],
+            }, headers=h, follow_redirects=True)
+            assert resp2.status_code == 200, resp2.text
+            assert resp2.json()["id"].startswith("anthropic-")
+
+            # 列表包含两条新增
+            lst = await client.get("/api/v1/secrets", headers=h)
+            ids = [k["id"] for k in lst.json()["keys"]]
+            assert any(i.startswith("openai-") for i in ids)
+            assert any(i.startswith("anthropic-") for i in ids)
+
+            # provider 缺失 → 400
+            resp3 = await client.put("/api/v1/secrets", json={"name": "x", "api_key": "sk"},
+                                     headers=h)
+            assert resp3.status_code == 400
+
+    @pytest.mark.asyncio
     async def test_reveal_secret_requires_admin(self):
         from httpx import AsyncClient, ASGITransport
         from main import app
