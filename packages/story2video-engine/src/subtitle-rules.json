@@ -1,0 +1,151 @@
+{
+  "version": "1.1",
+  "description": "字幕分割共享规则表（双实现单源：smart-sentence-splitter Python 与 Multi-Publish story2video-engine TypeScript 均从本文件加载；同步副本见 Multi-Publish packages/story2video-engine/src/subtitle-rules.json）",
+  "defaults": {
+    "min_chars_per_block": 8,
+    "max_chars_per_block": 15,
+    "max_chars_cap": 64
+  },
+  "rounding": {
+    "mode": "half_up",
+    "decimal_places": 2
+  },
+  "pipeline": [
+    "split_sentences",
+    "split_quote_boundaries",
+    "length_split",
+    "merge_short",
+    "clean",
+    "enforce_max",
+    "assign_timestamps"
+  ],
+  "sentence_boundary": [
+    "。",
+    "！",
+    "？",
+    "…",
+    ".",
+    "!",
+    "?"
+  ],
+  "priority_punct": [
+    "。",
+    "！",
+    "？",
+    "；",
+    ".",
+    "!",
+    "?",
+    ";",
+    "，",
+    ",",
+    "、"
+  ],
+  "leading_punct": [
+    "，",
+    "、",
+    "。",
+    "！",
+    "？",
+    "；",
+    ",",
+    "!",
+    "?",
+    ";",
+    "."
+  ],
+  "trailing_punct": [
+    "。",
+    "！",
+    "？",
+    "；",
+    "，",
+    "、",
+    ".",
+    "!",
+    "?",
+    ";",
+    "…"
+  ],
+  "quote_pairs": [
+    [
+      "“",
+      "”"
+    ],
+    [
+      "‘",
+      "’"
+    ],
+    [
+      "「",
+      "」"
+    ],
+    [
+      "『",
+      "』"
+    ],
+    [
+      "《",
+      "》"
+    ],
+    [
+      "（",
+      "）"
+    ],
+    [
+      "【",
+      "】"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "\"",
+      "\""
+    ],
+    [
+      "'",
+      "'"
+    ]
+  ],
+  "enum": {
+    "higher_punct": [
+      "。",
+      "！",
+      "？",
+      "；",
+      "…",
+      ",",
+      "!",
+      "?",
+      ";",
+      ".",
+      "，"
+    ],
+    "predicate_starters": [
+      "那",
+      "这",
+      "我",
+      "就",
+      "便",
+      "都",
+      "也",
+      "很",
+      "更",
+      "将",
+      "会",
+      "要",
+      "能",
+      "可",
+      "是",
+      "有",
+      "为"
+    ],
+    "connectors": [
+      "和",
+      "及",
+      "与"
+    ]
+  }
+}

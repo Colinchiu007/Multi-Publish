@@ -25,7 +25,9 @@ const { createReplayApi } = require('./replay')
 const { createIdentityApi } = require('./identity')
 const { createTtsVoiceCatalogApi } = require('./tts-voice-catalog')
 const { createTtsVoiceCloneApi } = require('./tts-voice-clone')
+const { createPromptEvalApi } = require('./prompt-eval')
 const { createPageManagerApi } = require('./page-manager')
+const { createVideoCloneApi } = require('./video-clone')
 const {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -66,7 +68,12 @@ const fullApi = {
   ...createIdentityApi(ipcRenderer),
   ...createTtsVoiceCatalogApi(ipcRenderer),
   ...createTtsVoiceCloneApi(ipcRenderer),
+  ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer),
+  ...createVideoCloneApi(ipcRenderer),
+  // P2 限流自检（authenticated，默认受限）
+  rateLimitSelfCheck: (params) => ipcRenderer.invoke('rate-limit:self-check', params),
+  rateLimitReport: (payload) => ipcRenderer.invoke('rate-limit:report', payload),
 }
 
 const exposedApi = createDynamicAccessApi(fullApi, getAccessLevel)
@@ -82,3 +89,5 @@ module.exports = {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
 }
+
+

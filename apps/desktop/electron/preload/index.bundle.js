@@ -715,6 +715,23 @@ var require_tts_voice_clone = __commonJS({
   }
 });
 
+// electron/preload/prompt-eval.js
+var require_prompt_eval = __commonJS({
+  "electron/preload/prompt-eval.js"(exports2, module2) {
+    function createPromptEvalApi2(ipcRenderer2) {
+      return {
+        promptEvalRun: (request) => ipcRenderer2.invoke("prompt-eval:run", request),
+        promptEvalList: () => ipcRenderer2.invoke("prompt-eval:list"),
+        promptEvalGet: (id) => ipcRenderer2.invoke("prompt-eval:get", id),
+        promptEvalDelete: (id) => ipcRenderer2.invoke("prompt-eval:delete", id),
+        promptEvalAnalyze: () => ipcRenderer2.invoke("prompt-eval:analyze"),
+        promptEvalDimensions: () => ipcRenderer2.invoke("prompt-eval:dimensions")
+      };
+    }
+    module2.exports = { createPromptEvalApi: createPromptEvalApi2 };
+  }
+});
+
 // electron/preload/page-manager.js
 var require_page_manager = __commonJS({
   "electron/preload/page-manager.js"(exports2, module2) {
@@ -767,6 +784,36 @@ var require_page_manager = __commonJS({
       };
     }
     module2.exports = { createPageManagerApi: createPageManagerApi2 };
+  }
+});
+
+// electron/preload/video-clone.js
+var require_video_clone = __commonJS({
+  "electron/preload/video-clone.js"(exports2, module2) {
+    var { ipcRenderer: ipcRenderer2 } = require("electron");
+    function createVideoCloneApi2(ipcRendererRef = ipcRenderer2) {
+      return {
+        videoClone: {
+          run: (request) => ipcRendererRef.invoke("video-clone:run", request),
+          cancel: (runId) => ipcRendererRef.invoke("video-clone:cancel", { runId }),
+          editReport: (report, patch) => ipcRendererRef.invoke("video-clone:report:edit", { report, patch }),
+          regenerate: (runId) => ipcRendererRef.invoke("video-clone:report:regenerate", { runId }),
+          pickFile: () => ipcRendererRef.invoke("video-clone:pick-file"),
+          history: () => ipcRendererRef.invoke("video-clone:history"),
+          onProgress: (cb) => {
+            const listener = (_event, evt) => {
+              try {
+                cb(evt);
+              } catch {
+              }
+            };
+            ipcRendererRef.on("video-clone:progress", listener);
+            return () => ipcRendererRef.removeListener("video-clone:progress", listener);
+          }
+        }
+      };
+    }
+    module2.exports = { createVideoCloneApi: createVideoCloneApi2 };
   }
 });
 
@@ -880,7 +927,16 @@ var require_access_control = __commonJS({
       "identitySignIn",
       "identitySwitchAccount",
       "identitySignOut",
-      "onIdentityStateChanged"
+      "onIdentityStateChanged",
+      // 视频克隆：本地分析流水线（未登录可用）；发布经 PublisherRouter 外部验收边界
+      "videoClone",
+      "videoClone.run",
+      "videoClone.cancel",
+      "videoClone.editReport",
+      "videoClone.regenerate",
+      "videoClone.pickFile",
+      "videoClone.history",
+      "videoClone.onProgress"
     ];
     function hasAccess(currentLevel, requiredLevel) {
       if (requiredLevel === "public") return true;
@@ -889,10 +945,11 @@ var require_access_control = __commonJS({
       }
       return currentLevel === "admin";
     }
-    function requiredLevelForMethod(methodName, inheritedLevel = "public") {
+    function requiredLevelForMethod(methodName, inheritedLevel = "public", fullName = null) {
+      const name = fullName || methodName;
       if (inheritedLevel !== "public") return inheritedLevel;
-      if (ADMIN_ONLY_METHODS2.includes(methodName)) return "admin";
-      if (PUBLIC_METHODS2.includes(methodName)) return "public";
+      if (ADMIN_ONLY_METHODS2.includes(name)) return "admin";
+      if (PUBLIC_METHODS2.includes(name)) return "public";
       return "authenticated";
     }
     function createPermissionError(methodName) {
@@ -910,12 +967,13 @@ var require_access_control = __commonJS({
       }
       return "public";
     }
-    function createDynamicAccessApi2(api, getCurrentAccessLevel, inheritedLevel = "public") {
+    function createDynamicAccessApi2(api, getCurrentAccessLevel, inheritedLevel = "public", prefix = "") {
       const exposed = {};
       const initialLevel = readAccessLevel(getCurrentAccessLevel);
       for (const key of Object.keys(api)) {
         const value = api[key];
-        const requiredLevel = requiredLevelForMethod(key, inheritedLevel);
+        const fullName = prefix ? prefix + "." + key : key;
+        const requiredLevel = requiredLevelForMethod(key, inheritedLevel, fullName);
         if (requiredLevel === "admin" && initialLevel !== "admin") continue;
         if (typeof value === "function") {
           if (requiredLevel === "public") {
@@ -929,7 +987,7 @@ var require_access_control = __commonJS({
             return value.apply(this, args);
           };
         } else if (value && typeof value === "object") {
-          exposed[key] = createDynamicAccessApi2(value, getCurrentAccessLevel, requiredLevel);
+          exposed[key] = createDynamicAccessApi2(value, getCurrentAccessLevel, requiredLevel, fullName);
         }
       }
       return exposed;
@@ -968,7 +1026,9 @@ var { createReplayApi } = require_replay();
 var { createIdentityApi } = require_identity();
 var { createTtsVoiceCatalogApi } = require_tts_voice_catalog();
 var { createTtsVoiceCloneApi } = require_tts_voice_clone();
+var { createPromptEvalApi } = require_prompt_eval();
 var { createPageManagerApi } = require_page_manager();
+var { createVideoCloneApi } = require_video_clone();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -1002,7 +1062,12 @@ var fullApi = {
   ...createIdentityApi(ipcRenderer),
   ...createTtsVoiceCatalogApi(ipcRenderer),
   ...createTtsVoiceCloneApi(ipcRenderer),
-  ...createPageManagerApi(ipcRenderer)
+  ...createPromptEvalApi(ipcRenderer),
+  ...createPageManagerApi(ipcRenderer),
+  ...createVideoCloneApi(ipcRenderer),
+  // P2 限流自检（authenticated，默认受限）
+  rateLimitSelfCheck: (params) => ipcRenderer.invoke("rate-limit:self-check", params),
+  rateLimitReport: (payload) => ipcRenderer.invoke("rate-limit:report", payload)
 };
 var exposedApi = createDynamicAccessApi(fullApi, getAccessLevel);
 exposedApi.getAccessLevel = getAccessLevel;

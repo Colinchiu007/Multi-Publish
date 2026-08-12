@@ -187,6 +187,16 @@
                 <option value="auto_noncreative">自动跳过非创意阶段</option>
               </select>
             </div>
+            <div class="config-item">
+              <label>分镜模式</label>
+              <select v-model="storyboardMode" class="form-select" data-testid="storyboard-mode-select">
+                <option value="auto">自动（推荐）</option>
+                <option value="creative">创意拓展（一句话生成整个视频）</option>
+                <option value="fidelity">按原文保真（长文案按原文实现）</option>
+                <option value="hybrid">混合（保真主旨 + 允许演绎）</option>
+              </select>
+              <span class="config-hint">自动：短文案（≤80 字）创意拓展，长文案（≥300 字）按原文保真，中间态混合；分镜会按原文提取关键人物/事件并对齐校验。</span>
+            </div>
           </div>
         </div>
 
@@ -210,6 +220,7 @@
                   <option value="history">历史文章（自动识别时代与朝代）</option>
                 </select>
               </div>
+
               <div class="config-item">
                 <label>图片生成器</label>
                 <select v-model="s2vConfig.imageProvider" class="form-select">
@@ -927,6 +938,8 @@ export default {
       llmConfig: { temperature: 0.7 },
       budgetConfig: { mode: 'warn', totalUsd: 10 },
       checkpointPolicy: 'guided',
+      // 分镜双模式（video-content-fidelity）：auto 自动判定 / creative 创意拓展 / fidelity 按原文保真 / hybrid 混合
+      storyboardMode: 'auto',
       outputConfig: { resolution: '1920x1080', fps: 30, format: 'mp4' },
       s2vOutputConfig: { resolution: '720x1280', fps: 30, format: 'mp4' },
       // 输出分辨率能力开关（运营后台）：'1080p'（默认，前端不出现 4K）| '4k'
@@ -1315,10 +1328,10 @@ export default {
       }
       if (durationMs === null) return ''
       const durationText = this.formatDuration(durationMs)
-      const durationLabel = this.translateWithLocaleFallback('story2video.summaryDuration', '完成时间共 ' + durationText, 'Finished in ' + durationText)
+      const durationLabel = this.translateWithLocaleFallback('story2video.summaryDuration', '完成时间共 ' + durationText, 'Finished in ' + durationText, { text: durationText })
       if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) {
         const mb = (Number(meta.outputSizeBytes) / (1024 * 1024)).toFixed(1)
-        const sizeLabel = this.translateWithLocaleFallback('story2video.summaryFileSize', '文件大小 ' + mb + ' M', 'Size ' + mb + ' MB')
+        const sizeLabel = this.translateWithLocaleFallback('story2video.summaryFileSize', '文件大小 ' + mb + ' M', 'Size ' + mb + ' MB', { size: mb })
         return durationLabel + ' · ' + sizeLabel
       }
       return durationLabel
@@ -1498,6 +1511,7 @@ export default {
           checkpointPolicy: 'none',
           autoAdvance: true,
           background: true,
+          storyboardMode: this.storyboardMode,
           style: this.selectedStyle,
           resolution: output.resolution,
           fps: output.fps,
@@ -3015,19 +3029,19 @@ export default {
       if (stage.name === 'split') {
         const scenes = Array.isArray(ctx.split) ? ctx.split : (ctx.split?.scenes || null)
         if (Array.isArray(scenes) && scenes.length > 0) {
-          return this.translateWithLocaleFallback('story2video.splitSceneCount', '拆分为了 ' + scenes.length + ' 个场景', 'Split into ' + scenes.length + ' scenes')
+          return this.translateWithLocaleFallback('story2video.splitSceneCount', '拆分为了 ' + scenes.length + ' 个场景', 'Split into ' + scenes.length + ' scenes', { count: scenes.length })
         }
       }
       if (stage.name === 'optimize') {
         const p = ctx.optimize_progress
         if (p && Number.isInteger(p.total) && Number.isInteger(p.done)) {
-          return this.translateWithLocaleFallback('story2video.optimizeProgress', '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个', p.done + '/' + p.total + ' scenes optimized')
+          return this.translateWithLocaleFallback('story2video.optimizeProgress', '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个', p.done + '/' + p.total + ' scenes optimized', { total: p.total, done: p.done })
         }
       }
       if (stage.name === 'select_video_scenes') {
         const plan = ctx.video_plan
         if (plan && plan.mode !== 'off' && Number.isInteger(plan.selectedCount) && plan.selectedCount > 0) {
-          return this.translateWithLocaleFallback('story2video.selectVideoScenes', '已选 ' + plan.selectedCount + ' 个 AI 视频场景（约 ' + plan.ratio + '%）', plan.selectedCount + ' AI video scenes selected (~' + plan.ratio + '%)')
+          return this.translateWithLocaleFallback('story2video.selectVideoScenes', '已选 ' + plan.selectedCount + ' 个 AI 视频场景（约 ' + plan.ratio + '%）', plan.selectedCount + ' AI video scenes selected (~' + plan.ratio + '%)', { count: plan.selectedCount, ratio: plan.ratio })
         }
         if (plan && plan.mode === 'off') {
           return this.translateWithLocaleFallback('story2video.selectVideoScenesOff', '纯图片轮播模式', 'Image carousel mode')
@@ -3037,16 +3051,16 @@ export default {
         const p = ctx.assets_progress
         if (p && Number.isInteger(p.imagesTotal) && Number.isInteger(p.ttsTotal)) {
           if (Number.isInteger(p.videosTotal) && p.videosTotal > 0) {
-            return this.translateWithLocaleFallback('story2video.assetsProgressVideo', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 视频 ' + p.videosDone + '/' + p.videosTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Videos ' + p.videosDone + '/' + p.videosTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal)
+            return this.translateWithLocaleFallback('story2video.assetsProgressVideo', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 视频 ' + p.videosDone + '/' + p.videosTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Videos ' + p.videosDone + '/' + p.videosTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal, { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, videosDone: p.videosDone, videosTotal: p.videosTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
           }
-          return this.translateWithLocaleFallback('story2video.assetsProgress', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal)
+          return this.translateWithLocaleFallback('story2video.assetsProgress', '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal, 'Images ' + p.imagesDone + '/' + p.imagesTotal + ' · Narration ' + p.ttsDone + '/' + p.ttsTotal, { imagesDone: p.imagesDone, imagesTotal: p.imagesTotal, ttsDone: p.ttsDone, ttsTotal: p.ttsTotal })
         }
       }
       if (stage.name === 'compose') {
         const p = ctx.compose_progress
         if (p && Number.isFinite(p.percent)) {
           if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
-            return this.translateWithLocaleFallback('story2video.composeSegments', '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', 'Composing segment ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%')
+            return this.translateWithLocaleFallback('story2video.composeSegments', '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', 'Composing segment ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
           }
           return this.translateWithLocaleFallback('story2video.composeProgress', '视频合成 ' + Math.round(p.percent) + '%', 'Composing ' + Math.round(p.percent) + '%')
         }

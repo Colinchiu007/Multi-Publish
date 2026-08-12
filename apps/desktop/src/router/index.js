@@ -44,6 +44,8 @@ const routes = [
   { path: '/board/:projectId', name: 'ProductionBoard', component: () => import('@/views/ProductionBoard.vue') },
   { path: '/board/:projectId/contact-sheet', name: 'ContactSheetView', component: () => import('@/views/ContactSheetView.vue') },
   { path: '/replay/:projectId', name: 'ReplayTimeline', component: () => import('@/views/ReplayTimeline.vue') },
+  { path: '/prompt-eval', name: 'PromptEval', component: () => import('@/views/PromptEvalView.vue') },
+  { path: '/video-clone', name: 'VideoClone', component: () => import('@/views/VideoCloneView.vue') },
 ]
 
 const router = createRouter({

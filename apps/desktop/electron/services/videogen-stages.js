@@ -24,6 +24,8 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { findFfmpeg } = require('./media-tool-paths')
+const { segmentScript } = require('./video-script-segmentation')
+const { extractKeyEntities, checkSceneAlignment, assessVisualConsistency } = require('./video-content-alignment')
 
 const VIDEOGEN_STAGE_TYPES = {
   CONCEPT: 'videogen_concept',
@@ -38,6 +40,22 @@ const VIDEOGEN_STAGE_TYPES = {
 const MAX_SCENES = 12
 const DEFAULT_SCENE_SECONDS = 5
 const DEFAULT_NUM_FRAMES = 121
+
+// 分镜双模式（video-content-fidelity）：
+//   creative — 一句话/短创意由 LLM 自由拓展（原始机制，零新增约束）
+//   fidelity — 按原文保真：人物/事件/时代/核心论点不得改变，关键事件必须有场景
+//   hybrid   — 保真主旨 + 允许可视化演绎（镜头/氛围）
+//   auto     — 按输入特征自动判定（段落≥3 或字≥300 或句≥8 → fidelity；字≤80 且句≤2 → creative；其余 hybrid）
+const STORYBOARD_MODES = Object.freeze(['creative', 'fidelity', 'hybrid', 'auto'])
+const FIDELITY_MODES = Object.freeze(['fidelity', 'hybrid'])
+const AUTO_FIDELITY_MIN_CHARS = 300
+const AUTO_FIDELITY_MIN_SENTENCES = 8
+const AUTO_FIDELITY_MIN_PARAGRAPHS = 3
+const AUTO_CREATIVE_MAX_CHARS = 80
+const AUTO_CREATIVE_MAX_SENTENCES = 2
+const STORYBOARD_ALIGNMENT_MAX_RETRIES = 2
+const STORYBOARD_ALIGNMENT_MIN_COVERAGE = 0.8
+const MAX_STORYBOARD_INJECT_CHARS = 6000
 
 // 默认 LLM 输出预算：普通模型 1600；推理型模型会把 <think> 思考过程算进输出，
 // 在默认预算下会导致概念/分镜的 JSON 被截断（如 MiniMax-M3 实测 2000 tokens 仍截断、
@@ -154,19 +172,150 @@ function pickFrameCountForDuration (durationSeconds) {
   if (d <= 10) return 241 // 8*30+1 ≈ 10s@24fps
   return 441
 }
-function buildConceptPrompt (topic, kind) {
+/**
+ * 分镜模式判定（video-content-fidelity S1）。
+ * 显式 storyboardMode 优先；auto 按输入特征：段落≥3 或字≥300 或句≥8 → fidelity；
+ * 字≤80 且句≤2 → creative；其余 hybrid。
+ * @param {unknown} text
+ * @param {unknown} explicitMode
+ * @returns {{ mode: 'creative'|'fidelity'|'hybrid', reason: string, requested?: string }}
+ */
+function resolveStoryboardMode (text, explicitMode) {
+  const requested = typeof explicitMode === 'string' ? explicitMode.trim().toLowerCase() : ''
+  if (STORYBOARD_MODES.includes(requested) && requested !== 'auto') {
+    return { mode: requested, reason: 'explicit:' + requested, requested }
+  }
+  const source = String(text || '').trim()
+  const charCount = Array.from(source).length
+  const sentenceCount = source.split(/[。！？!?；;]/).filter(s => s.trim()).length
+  const paragraphCount = source.split(/\n\s*\n|\n+/).map(s => s.trim()).filter(Boolean).length
+
+  if (paragraphCount >= AUTO_FIDELITY_MIN_PARAGRAPHS ||
+      charCount >= AUTO_FIDELITY_MIN_CHARS ||
+      sentenceCount >= AUTO_FIDELITY_MIN_SENTENCES) {
+    return {
+      mode: 'fidelity',
+      reason: 'auto:fidelity(chars=' + charCount + ',sentences=' + sentenceCount + ',paragraphs=' + paragraphCount + ')',
+    }
+  }
+  if (charCount <= AUTO_CREATIVE_MAX_CHARS && sentenceCount <= AUTO_CREATIVE_MAX_SENTENCES) {
+    return { mode: 'creative', reason: 'auto:creative(chars=' + charCount + ',sentences=' + sentenceCount + ')' }
+  }
+  return { mode: 'hybrid', reason: 'auto:hybrid(chars=' + charCount + ',sentences=' + sentenceCount + ',paragraphs=' + paragraphCount + ')' }
+}
+
+/**
+ * 解析 LLM 输出的 JSON 对象（支持 markdown 围栏与对象内嵌）。
+ * @param {string} text
+ * @returns {object | null}
+ */
+function parseJsonObject (text) {
+  const source = String(text || '').trim().replace(/^```(?:json)?\s*|\s*```$/g, '').trim()
+  if (!source) return null
+  try {
+    const parsed = JSON.parse(source)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+  } catch { /* fallthrough */ }
+  const start = source.indexOf('{')
+  const end = source.lastIndexOf('}')
+  if (start !== -1 && end > start) {
+    try {
+      const parsed = JSON.parse(source.slice(start, end + 1))
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+    } catch { /* fallthrough */ }
+  }
+  return null
+}
+
+function buildConceptPrompt (topic, kind, mode) {
   const kindLabel = { animation: '动画视频', 'character-animation': '角色动画' }[kind] || kind
+  const effectiveMode = FIDELITY_MODES.includes(mode) ? mode : 'creative'
+  if (effectiveMode === 'creative') {
+    return {
+      system: `你是资深${kindLabel}策划。根据主题输出创意概念：角色设定（2-4 个要点）、视觉风格（一句）、故事钩子（一句）。只输出 JSON 对象 {"role_design": "...", "visual_style": "...", "hook": "..."}，不要多余文字。`,
+      user: '主题：' + String(topic || '').trim(),
+    }
+  }
+  // fidelity / hybrid：硬保真约束 + 关键事实/实体提取
+  const hybridLine = effectiveMode === 'hybrid' ? '5. 允许合理可视化演绎：可补充镜头语言/氛围，但不得改变事实与主旨。\n' : ''
   return {
-    system: `你是资深${kindLabel}策划。根据主题输出创意概念：角色设定（2-4 个要点）、视觉风格（一句）、故事钩子（一句）。只输出 JSON 对象 {"role_design": "...", "visual_style": "...", "hook": "..."}，不要多余文字。`,
-    user: '主题：' + String(topic || '').trim(),
+    system: `你是资深${kindLabel}策划。用户提供了完整文案，你需要按原文内容设计视频概念。
+硬性要求：
+1. 忠实原文——不得虚构或篡改与原文矛盾的情节、人物、事件；
+2. 不得改变人物身份、时代背景、文化地域与核心论点；
+3. 提取原文关键事实（key_facts）与关键实体（entities：人物/事件/地点/作品等）；
+4. 视觉风格应服务于原文基调，不得整体偏离。
+${hybridLine}只输出 JSON 对象 {"role_design": "...", "visual_style": "...", "hook": "...", "key_facts": ["..."], "entities": ["..."], "mode": "${effectiveMode}"}，不要多余文字。`,
+    user: '主题（完整文案）：' + String(topic || '').trim(),
   }
 }
 
-function buildStoryboardPrompt (concept, kind) {
+/**
+ * 构造视频提示词优化的 context（video-content-fidelity S4）。
+ * 键与 prompt-engine OptimizeRequest.context 白名单一致（synopsis/character/setting/character_list/full_text）。
+ * @param {object} concept
+ * @param {Array<{index:number, text:string}>} [paragraphs]
+ * @returns {object | undefined}
+ */
+function buildVideoOptimizeContext (concept, paragraphs) {
+  const ctx = {}
+  const conceptObj = concept && typeof concept === 'object' ? concept : {}
+  const entities = Array.isArray(conceptObj.entities) ? conceptObj.entities.filter(e => typeof e === 'string') : []
+  const keyFacts = Array.isArray(conceptObj.key_facts) ? conceptObj.key_facts.filter(f => typeof f === 'string') : []
+
+  const synopsis = [
+    typeof conceptObj.hook === 'string' ? conceptObj.hook : '',
+    ...keyFacts.slice(0, 3),
+  ].filter(Boolean).join('；').slice(0, 500)
+  if (synopsis) ctx.synopsis = synopsis
+
+  if (typeof conceptObj.role_design === 'string' && conceptObj.role_design.trim()) {
+    ctx.character = conceptObj.role_design.trim().slice(0, 500)
+  }
+  if (entities.length > 0) ctx.character_list = entities.slice(0, 10)
+  if (typeof conceptObj.visual_style === 'string' && conceptObj.visual_style.trim()) {
+    ctx.setting = conceptObj.visual_style.trim().slice(0, 500)
+  }
+
+  const fullText = Array.isArray(paragraphs)
+    ? paragraphs.map(p => p.text).join('\n').slice(0, 2000)
+    : ''
+  if (fullText.trim()) ctx.full_text = fullText
+
+  return Object.keys(ctx).length > 0 ? ctx : undefined
+}
+
+function buildStoryboardPrompt (concept, kind, options = {}) {
   const style = typeof concept === 'string' ? concept : (concept && concept.visual_style) || '动态视觉'
+  const mode = FIDELITY_MODES.includes(options.mode) ? options.mode : 'creative'
+  if (mode === 'creative') {
+    return {
+      system: `你是分镜导演。把创意概念拆分为 ${MAX_SCENES} 个以内视频场景。输出严格 JSON 数组，每个元素 {"prompt": "画面提示词（主体/动作/构图/光线/风格，供视频生成模型直接使用）", "text": "解说文案", "duration": 4-8 秒整数}。只输出 JSON，不要其他文字。`,
+      user: '创意概念与视觉风格：' + String(style || concept || '').slice(0, 2000),
+    }
+  }
+  // fidelity / hybrid：注入分段文案全文 + key_facts/entities，要求 source_paras 绑定
+  const paragraphs = Array.isArray(options.paragraphs) ? options.paragraphs : []
+  const keyFacts = Array.isArray(options.keyFacts) ? options.keyFacts : []
+  const entities = Array.isArray(options.entities) ? options.entities : []
+  const paragraphText = paragraphs.map(p => '[' + p.index + '] ' + String(p.text || '').slice(0, MAX_STORYBOARD_INJECT_CHARS)).join('\n')
+  const user = [
+    '创意概念与视觉风格：' + String(style || concept || '').slice(0, 2000),
+    '原文分段（共 ' + paragraphs.length + ' 段）：',
+    paragraphText.slice(0, MAX_STORYBOARD_INJECT_CHARS),
+    keyFacts.length > 0 ? '关键事实：' + keyFacts.join('；').slice(0, 1500) : '',
+    entities.length > 0 ? '关键实体：' + entities.join('、').slice(0, 1500) : '',
+    options.retryHint ? '补充要求：' + options.retryHint : '',
+  ].filter(Boolean).join('\n')
   return {
-    system: `你是分镜导演。把创意概念拆分为 ${MAX_SCENES} 个以内视频场景。输出严格 JSON 数组，每个元素 {"prompt": "画面提示词（主体/动作/构图/光线/风格，供视频生成模型直接使用）", "text": "解说文案", "duration": 4-8 秒整数}。只输出 JSON，不要其他文字。`,
-    user: '创意概念与视觉风格：' + String(style || concept || '').slice(0, 2000),
+    system: `你是分镜导演。把创意概念拆分为 ${MAX_SCENES} 个以内视频场景。输出严格 JSON 数组，每个元素 {"prompt": "画面提示词（主体/动作/构图/光线/风格，供视频生成模型直接使用）", "text": "解说文案", "duration": 4-8 秒整数, "source_paras": [对应原文段落索引数组]}。
+硬性要求：
+1. 忠实原文——不得虚构或篡改与原文矛盾的情节、人物、事件；
+2. 不得改变人物身份、时代背景、文化地域与核心论点；
+3. 每个场景必须标注 source_paras（绑定原文段落索引）；
+4. 文案描述的关键事件（关键实体中的事件）必须有专属场景；
+5. 只输出 JSON 数组，不要其他文字。`,
+    user,
   }
 }
 
@@ -258,7 +407,7 @@ function registerVideoGenStages (pipelineEngine) {
   const registered = []
   const log = pipelineEngine.log
 
-  // CONCEPT - 主题 → 创意概念/角色设定
+  // CONCEPT - 主题 → 创意概念/角色设定（video-content-fidelity：双模式 + 事实/实体提取）
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.CONCEPT,
     async ({ stage, params }) => {
@@ -266,18 +415,35 @@ function registerVideoGenStages (pipelineEngine) {
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       const topic = typeof params.text === 'string' ? params.text.trim() : ''
       if (!topic) return { success: false, error: '该流水线需要非空主题（params.text）' }
-      const { system, user } = buildConceptPrompt(topic, stage.kind || 'animation')
+      const modeInfo = resolveStoryboardMode(topic, params.storyboardMode || (stage.options && stage.options.storyboardMode))
+      const fidelity = FIDELITY_MODES.includes(modeInfo.mode)
+      const { system, user } = buildConceptPrompt(topic, stage.kind || 'animation', modeInfo.mode)
       try {
-        const raw = await callDefaultLlm(aiGenerator, system, user)
-        const parsed = parseJsonArray(raw)
-        const concept = Array.isArray(parsed) && parsed.length > 0 ? parsed[0] : raw
-        return { success: true, output: { concept, topic } }
+        let raw = await callDefaultLlm(aiGenerator, system, user)
+        let concept = fidelity ? parseJsonObject(raw) : (parseJsonArray(raw) && parseJsonArray(raw)[0] || raw)
+        // fidelity/hybrid：key_facts/entities 缺失时重试一次（CONCEPT_FACTS_MISSING 兜底）
+        if (fidelity) {
+          if (!concept || !Array.isArray(concept.key_facts) || !Array.isArray(concept.entities)) {
+            raw = await callDefaultLlm(aiGenerator, system, user)
+            concept = parseJsonObject(raw)
+          }
+          if (!concept || !Array.isArray(concept.key_facts) || !Array.isArray(concept.entities)) {
+            return {
+              success: false,
+              error: 'concept 未提取关键事实/实体（key_facts/entities 缺失）',
+              errorCode: 'CONCEPT_FACTS_MISSING',
+            }
+          }
+          concept.mode = concept.mode || modeInfo.mode
+        }
+        return { success: true, output: { concept, topic, storyboardMode: modeInfo.mode, modeReason: modeInfo.reason } }
       } catch (error) {
         return { success: false, error: 'concept 失败：' + (error && error.message ? error.message : String(error)) }
       }
     },
   )
   registered.push(VIDEOGEN_STAGE_TYPES.CONCEPT)
+
 
   // AVATAR - 数字人选择校验 + 口播文案（avatar-spokesperson）
   pipelineEngine.registerStageExecutor(
@@ -318,7 +484,7 @@ function registerVideoGenStages (pipelineEngine) {
   )
   registered.push(VIDEOGEN_STAGE_TYPES.SCRIPT)
 
-  // STORYBOARD - 概念 → 分镜场景数组
+  // STORYBOARD - 概念 → 分镜场景数组（video-content-fidelity：段落化 + 保真注入 + 对齐门禁）
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.STORYBOARD,
     async ({ stage, context }) => {
@@ -326,26 +492,142 @@ function registerVideoGenStages (pipelineEngine) {
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       const concept = resolveVideogenConcept(context)
       if (!concept) return { success: false, error: '该流水线 storyboard 需要前序概念或文案（context.concept/character_design/plan/script）' }
-      const { system, user } = buildStoryboardPrompt(concept, stage.kind || 'animation')
+
+      const conceptBox = context.concept && typeof context.concept === 'object' ? context.concept : {}
+      const mode = FIDELITY_MODES.includes(conceptBox.storyboardMode) ? conceptBox.storyboardMode : 'creative'
+      const keyFacts = Array.isArray(conceptBox.key_facts) ? conceptBox.key_facts.filter(f => typeof f === 'string') : []
+      const entities = Array.isArray(conceptBox.entities) ? conceptBox.entities.filter(e => typeof e === 'string') : []
+      // 原文：优先 context.params.text，其次 CONCEPT 输出 topic
+      const fullText = String(
+        (context.params && typeof context.params.text === 'string' && context.params.text.trim()) ||
+        (typeof conceptBox.topic === 'string' && conceptBox.topic.trim()) ||
+        '',
+      ).trim()
+      const paragraphs = mode === 'creative' ? [] : (fullText ? segmentScript(fullText).paragraphs : [])
+
+      const alignmentConfig = {
+        enabled: true,
+        minCoverage: STORYBOARD_ALIGNMENT_MIN_COVERAGE,
+        maxRetries: STORYBOARD_ALIGNMENT_MAX_RETRIES,
+        llmExtractFallback: true,
+      }
       try {
-        const raw = await callDefaultLlm(aiGenerator, system, user)
-        const scenes = parseJsonArray(raw)
-        if (!Array.isArray(scenes) || scenes.length === 0) {
-          return { success: false, error: 'storyboard 无法解析场景 JSON' }
+        const cfg = (context.config && context.config.videoContentFidelity) || {}
+        if (typeof cfg.enabled === 'boolean') alignmentConfig.enabled = cfg.enabled
+        if (Number.isFinite(Number(cfg.minCoverage))) {
+          alignmentConfig.minCoverage = Math.min(1, Math.max(0, Number(cfg.minCoverage)))
         }
-        const normalized = scenes.slice(0, MAX_SCENES).map((s, i) => ({
+        if (Number.isFinite(Number(cfg.maxRetries))) {
+          alignmentConfig.maxRetries = Math.min(5, Math.max(0, Math.floor(Number(cfg.maxRetries))))
+        }
+        if (typeof cfg.llmExtractFallback === 'boolean') alignmentConfig.llmExtractFallback = cfg.llmExtractFallback
+      } catch (_) { /* 配置异常走默认 */ }
+
+      const extractLlm = alignmentConfig.llmExtractFallback && fullText
+        ? async (system, user) => callDefaultLlm(aiGenerator, system, user, 2000)
+        : null
+
+      let scenes = null
+      let report = {
+        mode,
+        enabled: alignmentConfig.enabled,
+        coverage: 0,
+        matched: [],
+        missing: [],
+        retries: 0,
+        truncated: false,
+        paragraphCount: paragraphs.length,
+        entityCount: 0,
+        assessVisual: assessVisualConsistency(),
+      }
+      const maxAttempts = alignmentConfig.enabled ? 1 + alignmentConfig.maxRetries : 1
+      let attempt = 0
+      let retryHint = ''
+      let lastError = ''
+
+      while (attempt < maxAttempts) {
+        attempt++
+        const { system, user } = buildStoryboardPrompt(concept, stage.kind || 'animation', {
+          mode,
+          paragraphs,
+          keyFacts,
+          entities,
+          retryHint,
+        })
+        let raw = ''
+        try {
+          // fidelity/hybrid 注入分段全文 + source_paras，输出体积显著大于 creative：显式放大输出预算
+          const storyboardMaxTokens = mode === 'creative' ? undefined : 8000
+          raw = await callDefaultLlm(aiGenerator, system, user, storyboardMaxTokens)
+        } catch (error) {
+          lastError = error && error.message ? error.message : String(error)
+          break
+        }
+        const parsed = parseJsonArray(raw)
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          // JSON 解析失败：视为一次无效输出，带提示重试（fidelity 模式输出更长更易截断/格式漂移）
+          if (attempt < maxAttempts) {
+            retryHint = '上次输出不是合法 JSON 数组（可能被截断或含多余文字），请只输出严格 JSON 数组，不要任何其他文字'
+            log.info('VideoGenStages', '故事板 JSON 解析失败，重试 ' + attempt + '/' + (maxAttempts - 1))
+            continue
+          }
+          lastError = 'storyboard 无法解析场景 JSON'
+          break
+        }
+        const normalized = parsed.slice(0, MAX_SCENES).map((s, i) => ({
           index: i,
           prompt: typeof s === 'string' ? s : (s.prompt || s.text || ''),
           text: typeof s === 'string' ? '' : (s.text || ''),
           duration: Number(s.duration) >= 4 ? Number(s.duration) : DEFAULT_SCENE_SECONDS,
+          ...(s && typeof s === 'object' && Array.isArray(s.source_paras) ? { source_paras: s.source_paras } : {}),
         }))
-        return { success: true, output: normalized }
-      } catch (error) {
-        return { success: false, error: 'storyboard 失败：' + (error && error.message ? error.message : String(error)) }
+        if (!alignmentConfig.enabled) {
+          scenes = normalized
+          report = { ...report, retries: attempt - 1, truncated: false }
+          break
+        }
+        // 对齐门禁：实体抽取 + 覆盖度校验
+        const extraction = await extractKeyEntities(fullText, {
+          llmExtractFallback: alignmentConfig.llmExtractFallback,
+          extractLlm,
+        })
+        const check = checkSceneAlignment(normalized, extraction.entities, alignmentConfig.minCoverage)
+        report = {
+          ...report,
+          coverage: check.coverage,
+          matched: check.matched,
+          missing: check.missing,
+          entityCount: check.entityCount,
+          retries: attempt - 1,
+          truncated: false,
+        }
+        if (check.pass) {
+          scenes = normalized
+          break
+        }
+        if (attempt < maxAttempts && check.missing.length > 0) {
+          retryHint = '上次分镜未覆盖以下关键内容，请补充对应场景：' + check.missing.join('、')
+          log.info('VideoGenStages', '故事板对齐不足，重试 ' + attempt + '/' + (maxAttempts - 1) + ' missing=' + check.missing.join('、'))
+          continue
+        }
+        lastError = '视频分镜未覆盖文案关键内容：' + check.missing.join('、') + '（已重试 ' + (attempt - 1) + ' 次）'
+        break
       }
+
+      if (!scenes) {
+        const errorCode = lastError.indexOf('无法解析') !== -1 ? 'STORYBOARD_EMPTY_SCENES' : 'STORYBOARD_ALIGNMENT_FAILED'
+        return { success: false, error: lastError || 'storyboard 失败', errorCode }
+      }
+
+      // 对齐报告写入 run 上下文（video-content-fidelity S5）
+      try {
+        context.videoContentFidelity = { ...report, truncated: false }
+      } catch (_) { /* 上下文不可写时忽略 */ }
+      return { success: true, output: scenes }
     },
   )
   registered.push(VIDEOGEN_STAGE_TYPES.STORYBOARD)
+
 
   // GENERATE - 视频生成（provider 门控）
   pipelineEngine.registerStageExecutor(
@@ -373,10 +655,20 @@ function registerVideoGenStages (pipelineEngine) {
           // storyboard 上限 MAX_SCENES=12 可单批通过；>20 极端场景仍分块（≤20）后按序合并，保持全量 fail-closed 校验。
           const CHUNK_SIZE = 20
           const optResults = []
+          // video-content-fidelity S4：把文案摘要/实体通过 context 透传给 prompt-engine
+          const conceptBox = context && context.concept && typeof context.concept === 'object' ? context.concept : {}
+          const fullTextForContext = String(
+            (context && context.params && typeof context.params.text === 'string' && context.params.text.trim()) ||
+            (typeof conceptBox.topic === 'string' && conceptBox.topic.trim()) ||
+            '',
+          ).trim()
+          const paragraphsForContext = fullTextForContext ? segmentScript(fullTextForContext).paragraphs : []
+          const optimizeContext = buildVideoOptimizeContext(conceptBox, paragraphsForContext)
           for (let start = 0; start < prompts.length; start += CHUNK_SIZE) {
             const chunk = prompts.slice(start, start + CHUNK_SIZE)
             const part = await bus.optimizeVideoPromptsBatch(chunk, {
               platform: videoProvider.providerId || undefined,
+              ...(optimizeContext ? { context: optimizeContext } : {}),
               ...(stage.options && stage.options.optimize ? stage.options.optimize : {}),
             })
             if (!Array.isArray(part)) {
@@ -481,6 +773,15 @@ function registerVideoGenStages (pipelineEngine) {
       if (ok.length === 0) {
         return { success: false, error: '该流水线视频生成全部失败：' + videos.map(v => v.error).join('；') }
       }
+      // video-content-fidelity S5：对齐报告补视觉评估桩
+      try {
+        if (context && typeof context === 'object') {
+          context.videoContentFidelity = {
+            ...(context.videoContentFidelity || {}),
+            assessVisual: assessVisualConsistency(),
+          }
+        }
+      } catch (_) { /* 上下文不可写时忽略 */ }
       return { success: true, output: { videos: ok, scenes } }
     },
   )
@@ -533,10 +834,15 @@ function registerVideoGenStages (pipelineEngine) {
 
 module.exports = {
   VIDEOGEN_STAGE_TYPES,
+  STORYBOARD_MODES,
+  FIDELITY_MODES,
   DEFAULT_LLM_MAX_TOKENS,
   REASONING_LLM_MAX_TOKENS,
   REASONING_MODEL_PATTERNS,
   isReasoningLlmModel,
+  resolveStoryboardMode,
+  parseJsonObject,
+  buildVideoOptimizeContext,
   callDefaultLlm,
   buildConceptPrompt,
   buildStoryboardPrompt,

@@ -137,8 +137,8 @@ async function testAccountPage(page) {
   await injectAccounts(page);
 
   // 筛选
-  for (const label of ["未登录", "已登录", "全部"]) {
-    const btn = await page.$(`${SEL.filterChips}:has-text("${label}")`);
+  for (const [value, label] of [["inactive", "未登录"], ["active", "已登录"], ["all", "全部"]]) {
+    const btn = await page.$(`#account-status-tab-${value}`);
     if (btn) { await btn.click(); await wait(800); }
     const cnt = await page.evaluate((sel) => document.querySelectorAll(sel.accountRow).length, SEL);
     const expected = { "未登录": 3, "已登录": 9, "全部": 12 }[label];
@@ -147,7 +147,7 @@ async function testAccountPage(page) {
 
   // 弹窗
   await page.evaluate(() => {
-    Array.from(document.querySelectorAll("button")).find(b => b.textContent.includes("添加账号"))?.click();
+    document.querySelector('[data-testid="account-add"]')?.click();
   });
   await wait(1500);
   const dialogOpen = await page.evaluate(() => !!document.querySelector(".el-dialog"));
@@ -169,7 +169,7 @@ async function testPublishPage(page) {
 
   // 标题
   const titleVal = await page.evaluate(() => {
-    const inp = document.querySelector('input[placeholder*="标题"]');
+    const inp = document.querySelector('[data-testid="publish-title"]');
     if (!inp) return null;
     inp.value = "v9 测试标题"; inp.dispatchEvent(new Event("input", { bubbles: true }));
     return inp.value;
@@ -181,8 +181,8 @@ async function testPublishPage(page) {
   await wait(3000);
   const batchState = await page.evaluate(() => ({
     cards: document.querySelectorAll(".cohere-card").length,
-    hasDel: !!document.querySelector('button[title="删除"]'),
-    hasDup: !!document.querySelector('button[title="复制"]'),
+    hasDel: !!document.querySelector('[data-testid^="batch-delete-"]'),
+    hasDup: !!document.querySelector('[data-testid^="batch-copy-"]'),
   }));
   assert("批量卡片", batchState.cards >= 2, `${batchState.cards} 个`);
   // 删除按钮仅在 ≥2 篇文章时可见 (v-if="articles.length > 1")
@@ -417,7 +417,7 @@ async function testPublishDeep(page) {
   await ensurePlatformStore(page);
   await wait(3000);
   const publishBtnState = await page.evaluate(() => {
-    const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('一键发布'));
+    const btn = document.querySelector('[data-testid="publish-submit"]');
     return btn ? { exists: true, disabled: btn.disabled || btn.hasAttribute('disabled') } : { exists: false };
   });
   assert('发布按钮存在', publishBtnState.exists);

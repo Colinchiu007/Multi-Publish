@@ -79,11 +79,33 @@ describe('buildVideoOptimizeRequest', () => {
     expect(req.negative_prompt.length).toBe(500)
   })
 
-  it('context 对象透传，字符串映射 synopsis', () => {
+  it('context 白名单透传（未知键丢弃），字符串映射 synopsis', () => {
     const req1 = buildVideoOptimizeRequest('x', { context: { full_text: 'abc', narration: 'n' } })
-    expect(req1.context).toEqual({ full_text: 'abc', narration: 'n' })
+    expect(req1.context).toEqual({ full_text: 'abc' })
     const req2 = buildVideoOptimizeRequest('x', { context: 'story' })
     expect(req2.context).toEqual({ synopsis: 'story' })
+  })
+
+  it('context 长度收敛（full_text≤2000、synopsis/character/setting≤500、character_list≤10）', () => {
+    const req = buildVideoOptimizeRequest('x', {
+      context: {
+        full_text: 'a'.repeat(3000),
+        synopsis: 'b'.repeat(800),
+        setting: 'c'.repeat(600),
+        character: 'd'.repeat(600),
+        character_list: Array.from({ length: 15 }, (_, i) => '角色' + i),
+      },
+    })
+    expect(req.context.full_text.length).toBe(2000)
+    expect(req.context.synopsis.length).toBe(500)
+    expect(req.context.setting.length).toBe(500)
+    expect(req.context.character.length).toBe(500)
+    expect(req.context.character_list).toHaveLength(10)
+  })
+
+  it('context 空对象不附加 context 字段', () => {
+    const req = buildVideoOptimizeRequest('x', { context: {} })
+    expect(req.context).toBeUndefined()
   })
 
   it('context 含敏感凭据键拒绝（fail closed）', () => {
@@ -181,5 +203,21 @@ describe('PromptBridge 视频方法', () => {
     expect(res.requests[0].domain).toBe('video')
     expect(res.requests[0].platform).toBe('sora')
     expect(res.requests[1].platform).toBe('sora')
+  })
+})
+
+
+describe('normalizeVideoContext（video-content-fidelity S4）', () => {
+  const { normalizeVideoContext } = require('./video-prompt-engine-contract')
+  it('只保留白名单键并收敛长度', () => {
+    const out = normalizeVideoContext({ full_text: 'x'.repeat(3000), bogus: 'y', synopsis: 's', character_list: ['a', 'b', 'c'] })
+    expect(Object.keys(out).sort()).toEqual(['character_list', 'full_text', 'synopsis'])
+    expect(out.full_text.length).toBe(2000)
+    expect(out.bogus).toBeUndefined()
+  })
+  it('非对象/空返回 undefined', () => {
+    expect(normalizeVideoContext(null)).toBeUndefined()
+    expect(normalizeVideoContext({})).toBeUndefined()
+    expect(normalizeVideoContext('str')).toBeUndefined()
   })
 })

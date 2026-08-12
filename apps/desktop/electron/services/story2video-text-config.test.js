@@ -681,3 +681,44 @@ describe('Story2Video scene_context 配置契约（2026-08-11）', () => {
     expect(result.stageOptions.scene_context.enabled).toBe(true)
   })
 })
+
+describe('videoContentFidelity 配置归一化（video-content-fidelity）', () => {
+  const { normalizeStory2VideoTextParams } = require('./story2video-text-config')
+
+  it('默认值：enabled/minCoverage=0.8/maxRetries=2/llmExtractFallback=true/maxFullTextChars=6000', () => {
+    const result = normalizeStory2VideoTextParams({ text: '测试文案。' })
+    const cfg = result.story2videoTextConfig.video_content_fidelity
+    expect(cfg.enabled).toBe(true)
+    expect(cfg.minCoverage).toBe(0.8)
+    expect(cfg.maxRetries).toBe(2)
+    expect(cfg.llmExtractFallback).toBe(true)
+    expect(cfg.maxFullTextChars).toBe(6000)
+  })
+
+  it('越界 fail closed（与 scene_context 契约一致）', () => {
+    expect(() => normalizeStory2VideoTextParams({
+      text: '测试文案。',
+      story2videoTextConfig: { video_content_fidelity: { minCoverage: 5 } },
+    })).toThrow(/minCoverage/)
+    expect(() => normalizeStory2VideoTextParams({
+      text: '测试文案。',
+      story2videoTextConfig: { video_content_fidelity: { maxRetries: 99 } },
+    })).toThrow(/maxRetries/)
+    expect(() => normalizeStory2VideoTextParams({
+      text: '测试文案。',
+      story2videoTextConfig: { video_content_fidelity: { maxFullTextChars: 10 } },
+    })).toThrow(/maxFullTextChars/)
+  })
+
+  it('边界值合法 + 非法 boolean 回退默认', () => {
+    const result = normalizeStory2VideoTextParams({
+      text: '测试文案。',
+      story2videoTextConfig: { video_content_fidelity: { minCoverage: 0.5, maxRetries: 0, maxFullTextChars: 500, enabled: 'yes' } },
+    })
+    const cfg = result.story2videoTextConfig.video_content_fidelity
+    expect(cfg.minCoverage).toBe(0.5)
+    expect(cfg.maxRetries).toBe(0)
+    expect(cfg.maxFullTextChars).toBe(500)
+    expect(cfg.enabled).toBe(true)
+  })
+})

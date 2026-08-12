@@ -20,6 +20,10 @@
           <el-icon><Switch /></el-icon>
           <span>功能开关</span>
         </el-menu-item>
+<el-menu-item index="/scene-context-rules">
+<el-icon><Setting /></el-icon>
+<span>场景上下文规则</span>
+</el-menu-item>
         <el-menu-item index="/runtime-flags">
           <el-icon><SwitchButton /></el-icon>
           <span>桌面端功能开关</span>
@@ -35,6 +39,10 @@
         <el-menu-item index="/usage">
           <el-icon><DataLine /></el-icon>
           <span>模型用量</span>
+        </el-menu-item>
+        <el-menu-item index="/diagnostics">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>创作诊断</span>
         </el-menu-item>
         <el-menu-item index="/publish-dashboard">
           <el-icon><TrendCharts /></el-icon>
@@ -67,6 +75,10 @@
         <el-menu-item index="/model-presets">
           <el-icon><Cpu /></el-icon>
           <span>预设模型</span>
+        </el-menu-item>
+        <el-menu-item index="/rate-limit-verifier">
+          <el-icon><Timer /></el-icon>
+          <span>限流验证</span>
         </el-menu-item>
         <el-menu-item index="/platform-defs">
           <el-icon><Grid /></el-icon>
@@ -104,6 +116,14 @@
           <el-icon><Document /></el-icon>
           <span>审计日志</span>
         </el-menu-item>
+        <el-menu-item index="/prompt-eval-workbench">
+          <el-icon><MagicStick /></el-icon>
+          <span>提示词评测</span>
+        </el-menu-item>
+        <el-menu-item v-if="authStore.role === 'admin'" index="/model-keys">
+          <el-icon><Key /></el-icon>
+          <span>模型密钥</span>
+        </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
         <span>{{ authStore.username }}</span>
@@ -131,11 +151,18 @@ function logout() {
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-.app-container { min-height: 100vh; }
+.app-container { height: 100vh; overflow: hidden; }
 .app-sidebar {
   background: #001529;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.app-sidebar .el-menu {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .logo {
   display: flex;
@@ -157,4 +184,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 }
 .sidebar-footer .el-button { color: #ffffffb3; }
 .el-menu { border-right: none !important; }
+.el-main {
+  height: 100%;
+  overflow-y: auto;
+}
 </style>

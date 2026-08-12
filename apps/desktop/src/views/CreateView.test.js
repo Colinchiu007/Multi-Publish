@@ -3023,3 +3023,56 @@ describe("视频创作「已用时」审查闭环回归（C1/W2）", () => {
     w.unmount();
   });
 });
+
+describe("分镜模式 storyboardMode（video-content-fidelity UI）", () => {
+  it("默认 auto，animation 流水线启动透传 storyboardMode=auto", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-sbm-auto" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "animation", stages: [] };
+    w.vm.pipelineText = "一只戴帽子的猫在月球上喝茶";
+    await w.vm.startPipeline();
+    expect(w.vm.storyboardMode).toBe("auto");
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("animation", expect.objectContaining({
+      storyboardMode: "auto",
+    }));
+    w.unmount();
+  });
+
+  it("切换 fidelity 后 animation 启动透传 storyboardMode=fidelity", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-sbm-fid" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "paused" }, context: {} } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "animation", stages: [] };
+    w.vm.pipelineText = "关羽那么厉害，为什么三国志里没有细节描写？这是一段用于测试分镜保真的长文案。";
+    w.vm.storyboardMode = "fidelity";
+    await w.vm.startPipeline();
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledWith("animation", expect.objectContaining({
+      storyboardMode: "fidelity",
+    }));
+    // 与 checkpointPolicy 一致：通用高级配置为会话内记忆，不做 lastOptions 持久化
+    w.unmount();
+  });
+
+  it("分镜模式下拉在动画流水线高级配置区渲染四个选项", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "animation", stages: [] };
+    await nextTick();
+    const select = w.find("[data-testid='storyboard-mode-select']");
+    expect(select.exists()).toBe(true);
+    const options = select.findAll("option").map(o => o.attributes("value"));
+    expect(options).toEqual(["auto", "creative", "fidelity", "hybrid"]);
+    w.unmount();
+  });
+});

@@ -124,6 +124,24 @@ function createContainer(options) {
     // 注册 story2video-compose 流水线的自定义阶段执行器
     if (engine.stageExecutor) {
       try {
+        // 场景上下文规则：优先加载 <userData>/config/story-context-rules.json（运营后台导出），失败回退内置并告警
+        try {
+          const electronApp = require('electron').app;
+          const nodeFs = require('fs');
+          const nodePath = require('path');
+          const userRulesPath = nodePath.join(electronApp.getPath('userData'), 'config', 'story-context-rules.json');
+          if (nodeFs.existsSync(userRulesPath)) {
+            const { setContextRulesOverride } = require('../services/story-context-engine');
+            const overrideResult = setContextRulesOverride(userRulesPath);
+            if (!overrideResult.ok && c.get('logger') && typeof c.get('logger').warn === 'function') {
+              c.get('logger').warn('container', 'story-context-rules 加载失败，回退内置: ' + overrideResult.error);
+            }
+          }
+        } catch (e) {
+          if (c.get('logger') && typeof c.get('logger').warn === 'function') {
+            c.get('logger').warn('container', 'story-context-rules 加载异常（保持内置）: ' + (e instanceof Error ? e.message : String(e)));
+          }
+        }
         registerStory2VideoStages(engine);
         registerExplainerStages(engine);
         registerClipFactoryStages(engine);

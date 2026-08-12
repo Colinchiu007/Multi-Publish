@@ -123,3 +123,57 @@ async def test_summary_grouping_and_permissions():
         assert len(s["by_date"]) == 30  # 连续补零
         assert s["by_provider"][0]["provider_id"] == "openai"  # 调用最多在前
         assert len(s["by_action"]) >= 2
+
+@pytest.mark.asyncio
+async def test_ingest_scheduler_health_fields():
+    """P1：ingest 接受排队/冷却字段并累加；summary 健康度输出（429 率/排队/利用率）。"""
+    async with _client() as c:
+        h = {"X-Catalog-Key": "catalog-test-key"}
+        # 调用桶 + scheduler-observation 桶
+        r = await c.post("/api/v1/usage/ingest", json={"items": [
+            _item(provider_id="minimax-tts", action="tts", calls=5, ok_count=5, fail_count=0, ratelimit_count=1),
+            _item(provider_id="minimax-tts", action="scheduler-observation", category="scheduler",
+                  calls=0, ok_count=0, fail_count=0, ratelimit_count=0,
+                  queued_count=3, cooldown_count=1, queue_wait_ms=4500, cooldown_wait_ms=30000),
+        ], "batch_id": "b-sched-1"}, headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["ingested"] == 2
+
+        summary = (await c.get("/api/v1/usage/summary?days=30", headers=_admin_headers())).json()
+        prov = next((p for p in summary["by_provider"] if p["provider_id"] == "minimax-tts"), None)
+        assert prov is not None
+        assert prov["queued_count"] == 3
+        assert prov["cooldown_count"] == 1
+        assert prov["avg_queue_wait_ms"] == 1500  # 4500 / 3
+        assert prov["avg_cooldown_wait_ms"] == 30000
+        # 429 率 = 1/5 = 20%（调用桶）；利用率：rpm 预算未配置时为 None（无 model_presets 种子）
+        assert prov["ratelimit_rate"] == 20.0
+        assert prov["rpm_budget"] is None
+        assert prov["utilization"] is None
+
+
+@pytest.mark.asyncio
+async def test_ingest_legacy_client_compatible():
+    """P1：旧客户端不携带新字段 → 兼容（按 0 计，不破坏幂等键）。"""
+    async with _client() as c:
+        h = {"X-Catalog-Key": "catalog-test-key"}
+        r = await c.post("/api/v1/usage/ingest", json={"items": [_item()], "batch_id": "b-legacy-1"}, headers=h)
+        assert r.status_code == 200
+        r2 = await c.post("/api/v1/usage/ingest", json={"items": [_item(calls=5, ok_count=5, fail_count=0)], "batch_id": "b-legacy-2"}, headers=h)
+        assert r2.status_code == 200
+        summary = (await c.get("/api/v1/usage/summary?days=30", headers=_admin_headers())).json()
+        assert summary["totals"]["calls"] == 15
+        prov = next((p for p in summary["by_provider"] if p["provider_id"] == "openai"), None)
+        assert prov["queued_count"] == 0
+        assert prov["cooldown_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_negative_scheduler_fields():
+    """P1：新字段负值 → 400。"""
+    async with _client() as c:
+        h = {"X-Catalog-Key": "catalog-test-key"}
+        r = await c.post("/api/v1/usage/ingest", json={"items": [
+            _item(queued_count=-1),
+        ], "batch_id": "b-bad"}, headers=h)
+        assert r.status_code == 400

@@ -33,6 +33,9 @@
       <router-link to="/calendar" class="nav-item" :class="{ active: route.path === '/calendar' }">
         发布日历
       </router-link>
+      <router-link to="/prompt-eval" class="nav-item" :class="{ active: route.path === '/prompt-eval' }">
+        提示词评估
+      </router-link>
       <button class="nav-item nav-settings-trigger" @click="openSettings">设置</button>
     </div>
     <div class="nav-right">

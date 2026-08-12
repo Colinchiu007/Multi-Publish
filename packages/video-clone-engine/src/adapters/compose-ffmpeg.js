@@ -1,0 +1,153 @@
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const { VideoCloneError } = require('../errors');
+const { resolveBinary, runCommand, runFfprobe } = require('./runners');
+
+const DEFAULT_TARGET = { w: 1080, h: 1920 }; // 默认 9:16 竖屏
+const ASPECT_TARGETS = {
+  '9:16': { w: 1080, h: 1920 }, '16:9': { w: 1920, h: 1080 },
+  '1:1': { w: 1080, h: 1080 }, '4:5': { w: 1080, h: 1350 }, '3:4': { w: 1080, h: 1440 },
+};
+
+function resolveTargetSize(report) {
+  const meta = (report && report.meta) || {};
+  let w = meta.width;
+  let h = meta.height;
+  if ((!w || !h) && typeof meta.resolution === 'string') {
+    const m = meta.resolution.match(/^([0-9]+)x([0-9]+)$/);
+    if (m) { w = Number(m[1]); h = Number(m[2]); }
+  }
+  if (w && h) return { w, h };
+  const aspect = (report && report.platformParams && report.platformParams.aspect) || '9:16';
+  return ASPECT_TARGETS[aspect] || DEFAULT_TARGET;
+}
+
+/** ASS 字幕（script.lines → Dialogue 行；样式简版：白字描边居中底部） */
+function buildAssScript(lines, style = {}) {
+  const BS = String.fromCharCode(92);
+  const header = [
+    '[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 1080', 'PlayResY: 1920', '',
+    '[V4+ Styles]', 'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Outline, Shadow, Alignment, MarginL, MarginR, MarginV',
+    'Style: Default,' + (style.font || 'Microsoft YaHei') + ',' + (style.size || 48) + ',&H00FFFFFF,&H00000000,&H80000000,0,2,2,2,60,60,60', '',
+    '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+  ];
+  const fmt = (s) => {
+    const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const sec = Math.floor(s % 60);
+    const cs = Math.round((s - Math.floor(s)) * 100);
+    return String(h).padStart(1, '0') + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0') + '.' + String(cs).padStart(2, '0');
+  };
+  for (const l of lines || []) {
+    if (!l || !l.text) continue;
+    header.push('Dialogue: 0,' + fmt(l.t0 || 0) + ',' + fmt(l.t1 || (l.t0 || 0) + 1) + ',Default,,0,0,0,,{' + BS + 'an2}' + String(l.text).replace(new RegExp(String.fromCharCode(10), 'g'), BS + 'N'));
+  }
+  return header.join('\n');
+}
+
+/** ASS 字幕路径转义（反斜杠→正斜杠；冒号/引号转义，规避工具链转义折叠用 fromCharCode） */
+function escapeAssPath(p) {
+  const bs = String.fromCharCode(92);
+  return String(p).split(bs).join('/').split(':').join(bs + ':').split(String.fromCharCode(39)).join(bs + String.fromCharCode(39));
+}
+
+/** ffmpeg 合成命令构建（纯函数）：图片序列 + 可选音频/水印/字幕 → 输出（PRD F3.2/§17） */
+function buildComposeCommand({ report, assets, outputPath, fps = 30 }) {
+  const shots = (report && report.visual && report.visual.shots) || [];
+  const scenes = (assets && assets.scenes) || [];
+  if (shots.length === 0) {
+    throw new VideoCloneError('VIDEOCLONE_COMPOSE_FAILED', { phase: 'compose', params: { reason: '报告无镜头' } });
+  }
+  if (scenes.length < shots.length) {
+    throw new VideoCloneError('VIDEOCLONE_COMPOSE_FAILED', { phase: 'compose', params: { reason: '素材数量不足' } });
+  }
+  const target = resolveTargetSize(report);
+  const args = ['-y'];
+  const inputs = [];
+  shots.forEach((s, i) => {
+    const dur = Math.max(0.5, (s.t1 || 0) - (s.t0 || 0));
+    args.push('-loop', '1', '-t', String(dur), '-i', scenes[i].path);
+    inputs.push({ dur });
+  });
+  let audioIdx = null;
+  if (assets && assets.audio && assets.audio.path) {
+    audioIdx = inputs.length;
+    args.push('-i', assets.audio.path);
+  }
+  let wmIdx = null;
+  if (assets && assets.watermark && assets.watermark.path) {
+    wmIdx = audioIdx === null ? inputs.length : inputs.length + 1;
+    args.push('-i', assets.watermark.path);
+  }
+
+  const fc = [];
+  const labels = [];
+  for (let i = 0; i < inputs.length; i++) {
+    const label = 'v' + i;
+    fc.push('[' + i + ':v]scale=' + target.w + ':' + target.h + ':force_original_aspect_ratio=decrease,pad=' + target.w + ':' + target.h + ':(ow-iw)/2:(oh-ih)/2,setsar=1,fps=' + fps + '[' + label + ']');
+    labels.push('[' + label + ']');
+  }
+  fc.push(labels.join('') + 'concat=n=' + inputs.length + ':v=1:a=0[outv]');
+
+  let outLabel = '[outv]';
+  if (assets && assets.subtitles && assets.subtitles.path) {
+    const esc = escapeAssPath(assets.subtitles.path);
+    fc.push(outLabel + 'subtitles=' + "'" + esc + "'" + '[outv2]');
+    outLabel = '[outv2]';
+  }
+  if (wmIdx !== null) {
+    fc.push(outLabel + '[' + wmIdx + ':v]overlay=W-w-16:16[outv3]');
+    outLabel = '[outv3]';
+  }
+  args.push('-filter_complex', fc.join(';'), '-map', outLabel);
+  if (audioIdx !== null) args.push('-map', audioIdx + ':a');
+  const total = inputs.reduce((a, s) => a + s.dur, 0);
+  args.push('-t', String(total), '-pix_fmt', 'yuv420p', '-movflags', '+faststart', outputPath);
+  return { args, totalDurationSec: total };
+}
+
+/**
+ * compose adapter（PRD F3.2/§17）：buildComposeCommand → ffmpeg 执行 → ffprobe 校验。
+ * 失败 VIDEOCLONE_COMPOSE_FAILED（retryable）；输出写 artifacts.output。
+ */
+function createFfmpegCompose({
+  ffmpegRunner = null, ffprobeRunner = runFfprobe, outputDir = null, fps = 30,
+} = {}) {
+  async function run(ctx) {
+    const report = ctx.report;
+    const assets = ctx.artifacts.assets || {};
+    const dir = outputDir || (await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vc-out-')));
+    const outputPath = path.join(dir, 'clone.mp4');
+    let built;
+    try {
+      built = buildComposeCommand({ report, assets, outputPath, fps });
+    } catch (err) {
+      if (err instanceof VideoCloneError) throw err;
+      throw new VideoCloneError('VIDEOCLONE_COMPOSE_FAILED', { phase: 'compose', cause: err });
+    }
+    const runner = ffmpegRunner || (async (args) => {
+      const bin = resolveBinary('VC_FFMPEG_PATH', 'FFMPEG_PATH', 'ffmpeg');
+      await runCommand(bin, args, { timeoutMs: 600000 });
+    });
+    try {
+      await runner(built.args);
+    } catch (err) {
+      throw new VideoCloneError('VIDEOCLONE_COMPOSE_FAILED', { phase: 'compose', cause: err });
+    }
+    let meta = null;
+    try { meta = await ffprobeRunner(outputPath); } catch { /* 输出校验失败仍返回，由相似度/门禁兜底 */ }
+    ctx.artifacts.output = {
+      path: outputPath,
+      durationSec: meta ? meta.durationSec : built.totalDurationSec,
+      width: meta ? meta.width : null,
+      height: meta ? meta.height : null,
+      sizeBytes: fs.existsSync(outputPath) ? fs.statSync(outputPath).size : null,
+    };
+    return 'compose';
+  }
+
+  return { id: 'compose', run };
+}
+
+module.exports = { createFfmpegCompose, buildComposeCommand, buildAssScript, escapeAssPath, resolveTargetSize, ASPECT_TARGETS };

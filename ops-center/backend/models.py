@@ -86,6 +86,32 @@ class ModelPreset(Base):
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
 
+class SchedulerVerificationRun(Base):
+    """限流/调度验证记录 — 运营后台调度模拟（simulated=1）与桌面端真实自检上报（simulated=0）。"""
+
+    __tablename__ = "scheduler_verification_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    preset_id = Column(String, nullable=True)
+    rpm = Column(Integer, nullable=False)
+    max_concurrent = Column(Integer, nullable=False)
+    limit_per_5h = Column(Integer, nullable=True)
+    request_count = Column(Integer, nullable=False)
+    request_duration_ms = Column(Integer, default=0)
+    arrival_interval_ms = Column(Integer, default=0)
+    inject_429_at = Column(Integer, nullable=True)
+    exceed_5h = Column(Integer, default=0)
+    simulated = Column(Integer, default=1)
+    engine = Column(String, default="python-simulator")
+    client_id = Column(String, default="")
+    metrics_json = Column(Text, default="{}")
+    assertions_json = Column(Text, default="[]")
+    timeline_json = Column(Text, default="[]")
+    status = Column(String, default="completed")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    created_by = Column(String, default="")
+
+
 class OfficialKey(Base):
     __tablename__ = "official_keys"
 
@@ -212,6 +238,11 @@ class ModelUsageDaily(Base):
     tokens_out = Column(Integer, default=0)
     cost = Column(Float, default=0.0)
     latency_buckets = Column(Text, default="{}")  # JSON
+    # 调度健康度（2026-08-12 P1）：桌面端 governor 排队/冷却观测，可选字段（旧客户端按 0）
+    queued_count = Column(Integer, default=0)
+    cooldown_count = Column(Integer, default=0)
+    queue_wait_ms = Column(Integer, default=0)
+    cooldown_wait_ms = Column(Integer, default=0)
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
 
@@ -361,3 +392,165 @@ class PipelineDependency(Base):
     deleted_at = Column(String, nullable=True)  # 软删（不复活，可重建）
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+
+
+
+class DiagnosticsDaily(Base):
+    """视频创作失败诊断日聚合 — 桌面端脱敏上报，运营后台看板数据源。
+
+    唯一键 (diag_date, client_id, pipeline)：同桶多次上报累加（幂等）。
+    """
+
+    __tablename__ = "diagnostics_daily"
+    __table_args__ = (
+        sa.UniqueConstraint("diag_date", "client_id", "pipeline", name="uq_diagnostics_daily_bucket"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    diag_date = Column(String, nullable=False)  # YYYY-MM-DD（桌面端本地日期）
+    client_id = Column(String, default="")  # 桌面端设备稳定哈希（脱敏）
+    pipeline = Column(String, default="")
+    total_runs = Column(Integer, default=0)
+    failed_runs = Column(Integer, default=0)
+    success_runs = Column(Integer, default=0)
+    cancelled_runs = Column(Integer, default=0)
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class DiagnosticsSample(Base):
+    """失败诊断白名单样本（默认 30 天滚动保留）— 供运营查看明细与根因。
+
+    env_json 仅含白名单键（disk_free_bytes / python_backend），服务端再校验丢弃未知键。
+    """
+
+    __tablename__ = "diagnostics_samples"
+    __table_args__ = (
+        sa.UniqueConstraint("client_id", "run_id", name="uq_diagnostics_sample_run"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    diag_date = Column(String, nullable=False)
+    client_id = Column(String, default="")
+    run_id = Column(String, nullable=False)
+    pipeline = Column(String, default="")
+    status = Column(String, default="failed")
+    stage = Column(String, default="unknown")
+    failure_type = Column(String, default="unknown")
+    severity = Column(String, default="unknown")
+    recoverability = Column(String, default="unknown")
+    cause_id = Column(String, default="")
+    duration_ms = Column(Integer, default=0)
+    env_json = Column(Text, default="{}")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class DiagnosticsBatch(Base):
+    """诊断上报批次去重 — 客户端携带 batch_id，服务端唯一约束防超时重试翻倍。"""
+
+    __tablename__ = "diagnostics_batches"
+    __table_args__ = (
+        sa.UniqueConstraint("client_id", "batch_id", name="uq_diagnostics_batch"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_id = Column(String, default="")
+    batch_id = Column(String, nullable=False)
+    max_id = Column(Integer, default=0)  # 该批次覆盖的客户端队列最大 id（超时重试判重回传用）
+    ingested_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class SceneContextRules(Base):
+    """Story2Video 场景上下文规则（运营后台管理，导出后随桌面发布/配置覆盖）。"""
+
+    __tablename__ = "scene_context_rules"
+
+    key = Column(String(64), primary_key=True)  # 固定 'default'
+    version = Column(Integer, default=1)
+    content = Column(Text, default="")  # 规则 JSON 文本
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
+
+class PromptEvalCase(Base):
+    """提示词评测 case（运营后台评测工作台）— 原文 + 优化后提示词（中英对照）。"""
+
+    __tablename__ = "prompt_eval_cases"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(200), default="")
+    source_mode = Column(String(16), default="manual")  # manual / scene
+    source_text = Column(Text, nullable=False)
+    context = Column(Text, nullable=True)
+    prompt_zh = Column(Text, nullable=False)
+    prompt_en = Column(Text, nullable=True)
+    prompt_en_source = Column(String(32), nullable=True)  # machine_translation / manual
+    prompt_en_translated_at = Column(String, nullable=True)
+    prompt_en_cache_zh = Column(Text, nullable=True)  # 幂等缓存键（prompt_zh 快照）
+    provider = Column(String(64), nullable=False)
+    model = Column(String(128), nullable=False)
+    image_count = Column(Integer, default=1)
+    aspect_ratio = Column(String(16), default="1:1")
+    created_by = Column(String(100), default="")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    deleted_at = Column(String, nullable=True)  # 软删
+
+
+class PromptEvalRun(Base):
+    """提示词评测 run（生成 + 评估 状态机）。"""
+
+    __tablename__ = "prompt_eval_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    case_id = Column(Integer, ForeignKey("prompt_eval_cases.id"), nullable=False, index=True)
+    scene_id = Column(Integer, ForeignKey("prompt_eval_scenes.id"), nullable=True, index=True)
+    provider = Column(String(64), nullable=False)
+    model = Column(String(128), nullable=False)
+    status = Column(String(16), default="queued")  # queued/processing/succeeded/failed
+    image_paths = Column(Text, nullable=True)  # JSON 数组（落盘/COS URL）
+    video_path = Column(String(512), nullable=True)  # v2 预留
+    eval_status = Column(String(16), default="pending")  # pending/succeeded/failed
+    overall_score = Column(Float, nullable=True)
+    grade = Column(String(16), nullable=True)
+    dimensions = Column(Text, nullable=True)  # JSON
+    problems = Column(Text, nullable=True)  # JSON
+    optimization_points = Column(Text, nullable=True)  # JSON
+    error = Column(Text, nullable=True)  # 阶段 + 原因
+    created_by = Column(String(100), default="")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    completed_at = Column(String, nullable=True)
+
+
+class PromptEvalProviderKey(Base):
+    """评测生成/评估 provider 密钥（admin 维护，加密存储，不返回明文）。"""
+
+    __tablename__ = "prompt_eval_provider_keys"
+    __table_args__ = (sa.UniqueConstraint("provider", "model", name="uq_prompt_eval_provider_key"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    provider = Column(String(64), nullable=False)
+    model = Column(String(128), nullable=False)
+    key_enc = Column(Text, nullable=False)
+    base_url = Column(String(255), default="")
+    enabled = Column(Integer, default=1)
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
+
+class PromptEvalScene(Base):
+    """提示词评测场景层（scene 模式）：场景文字 + 字幕二次分句 + 场景上下文 + 中英优化提示词。"""
+
+    __tablename__ = "prompt_eval_scenes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    case_id = Column(Integer, ForeignKey("prompt_eval_cases.id"), nullable=False, index=True)
+    index = Column(Integer, nullable=False)
+    scene_text = Column(Text, nullable=False)
+    subtitle_blocks = Column(Text, nullable=True)  # JSON [{text, displayOrder, startTime, duration}]
+    scene_context = Column(Text, nullable=True)  # JSON（白名单键）
+    prompt_zh = Column(Text, nullable=True)
+    prompt_en = Column(Text, nullable=True)
+    prompt_en_source = Column(String(32), nullable=True)
+    prompt_en_translated_at = Column(String, nullable=True)
+    prompt_en_cache_zh = Column(Text, nullable=True)  # 幂等缓存键（prompt_zh 快照）
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())

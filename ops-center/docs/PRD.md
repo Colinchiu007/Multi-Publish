@@ -1187,3 +1187,211 @@ screen-demo（屏幕演示录制）与 framework-smoke（冒烟测试）无模�
 ### 12A.21.5 验收标准
 
 ① 种子 31 条、story2video-compose 含 llm/image/tts/video(可选)；② 校验：pipeline_id 字符集 / model_type 枚举 / default 在候选内 / 候选类型 → 400；③ POST 重复 400、PUT/DELETE 404；④ 软删不复活、可重建；⑤ 筛选正确；⑥ 非 admin 写 403、读 200。
+## 12A.22 提示词评测工作台 PromptEval Workbench（2026-08-12 新增）
+
+> 由运营人员在运营后台**真实生成**图片/视频，对「提示词优化引擎」的改写效果进行同屏比对与聚合分析。桌面端 PromptEval（PR #559，eaf067c8）提供评估契约；本功能在运营后台落地「评测工作台」。配套独立文档：`01-docs/PRD-PROMPT-EVAL-OPS-WORKBENCH-2026-08-12.md`。
+
+### 12A.22.1 背景与目标
+
+桌面端 PromptEval v1 已实现「图片评估」（关联度/内容准确性/视觉审美/跨图一致性打分、问题归因、提示词优化点），但评估数据只存在于用户本机，运营/产品完全不可见，无法形成「评估 → 改进 → 复评」的运营侧实证闭环。
+
+本功能在运营后台建设**评测工作台**：运营人员录入「原文文本 + 优化后的提示词（中文）」，后台 LLM 自动生成**英文对照（标注「机器翻译」来源）**，真实调用图片生成模型产出素材，再调用视觉评估模型打分，页面同屏展示 **原文 | 中英提示词 | 生成物 | 评估结果**，支持多次生成对比、历史回溯与聚合分析，为 prompt-engine 改写模板迭代提供运营侧数据依据。
+
+### 12A.22.2 决策点定案（2026-08-12 用户确认）
+
+| 决策点 | 定案 |
+|--------|------|
+| A 生成 provider 选型 | **A1：ops-center 后端服务端直连模型 API**。v1 图片：`minimax-image`（image-01）与 `flux` 至少其一（可配置多 provider，默认 minimax-image）；v2 视频：minimax / hunyuan |
+| A 密钥管理 | ops-center 环境变量 + 后台「模型密钥」配置（复用 `OPS_CATALOG_API_KEY` 管理模式）；密钥仅服务端持有、加密存储、**绝不返回前端** |
+| B 中英对照 | **后台 LLM 自动翻译**优化后提示词 → 英文对照，UI 标注「机器翻译」徽标；来源写库可审计；可配置启用/禁用与目标语言（默认 zh→en） |
+| 视频范围 | **v1 图片先行；视频 v2**（与桌面端口径一致：mediaType=video 明确拒绝，v2 再实现时序一致性/运动准确性/音画同步维度） |
+
+### 12A.22.3 角色与权限
+
+| 角色 | 能力 |
+|------|------|
+| 运营（登录） | 创建评测 case、触发翻译、创建/查看 run、查看/对比/删除**自己创建**的评测、查看聚合分析 |
+| 管理员（`require_admin`） | 管理「模型密钥」、查看/删除全部评测、清理数据 |
+| 未登录 | 不可访问（全部接口 `get_current_user` 起） |
+
+- 读接口：`get_current_user`；写接口（cases/runs/translate）：`get_current_user`；密钥管理：`require_admin`。
+
+### 12A.22.4 数据模型
+
+| 表 | 字段（要点） |
+|----|--------------|
+| `prompt_eval_cases` | id、title、source_text（原文）、context（可选）、prompt_zh（优化后提示词·中文，必填）、prompt_en（LLM 翻译结果，服务端生成）、prompt_en_source（`machine_translation`/`manual`/null）、prompt_en_translated_at、provider、model、image_count（1-20，默认 1）、aspect_ratio、created_by、created_at、updated_at、deleted_at |
+| `prompt_eval_runs` | id、case_id、provider、model、status（`queued/processing/succeeded/failed`）、image_paths（JSON 数组，落盘/COS URL）、video_path（v2 预留）、eval_status（`pending/succeeded/failed`）、overall_score、grade、dimensions（JSON）、problems（JSON）、optimization_points（JSON）、error（阶段+原因）、created_by、created_at、completed_at |
+| `prompt_eval_provider_keys`（admin） | provider、model、key_enc（加密）、base_url（可选）、enabled、created_at |
+
+- 生成物只存 URL/路径，不存 base64；删除 case 时级联删除 run 与本地生成物（回收）。
+
+### 12A.22.5 接口契约（`/api/v1/prompt-eval/*`）
+
+| 方法/路径 | 权限 | 说明 |
+|-----------|------|------|
+| `POST /cases` | 登录 | 创建评测 case（全字段校验，见 12A.22.8） |
+| `POST /cases/{id}/translate` | 登录/创建者 | 触发 LLM 翻译 prompt_zh→prompt_en（幂等：同 prompt_zh 已翻译且未过期则复用） |
+| `POST /cases/{id}/runs` | 登录/创建者 | 创建 run 并异步执行「生成 → 评估」流水线（立即返回 run，前端轮询） |
+| `GET /runs/{id}` | 登录/创建者/管理员 | run 详情（含 status/eval_status/结果），轮询用 |
+| `GET /cases` | 登录 | 列表（分页、按创建人/状态/时间筛选） |
+| `GET /cases/{id}` | 登录/创建者/管理员 | case + 全部 runs（详情/对比用） |
+| `DELETE /cases/{id}` | 创建者/管理员 | 删除 case（级联 runs 与本地生成物） |
+| `GET /summary` | 登录 | 聚合分析（记录数/平均分/等级分布/维度均值/问题类别分布/优化点 Top/按 provider·model 对比） |
+| `GET/PUT /providers` | admin | 模型密钥目录管理（provider/model/base_url/enabled；返回不含密钥明文） |
+
+### 12A.22.6 异步流程与状态机
+
+```
+POST /cases/{id}/runs → status=queued
+  → processing：生成图片（有界瞬时重试；429 退避）
+      ├─ 失败 → status=failed（error 记录阶段+原因；不静默降级）
+      └─ 成功 → 生成物落盘/COS → status=succeeded，eval_status=pending
+  → eval_status=evaluating：调用视觉评估 LLM
+      ├─ 非法输出（非 JSON/分数越界/白名单外）→ eval_status=failed（生成物保留）
+      └─ 合法 → eval_status=succeeded，写入 overall/grade/dimensions/problems/optimization_points
+```
+
+- 前端轮询 `GET /runs/{id}`：图片 2-5s；视频 v2 放宽到 10-30s。
+- 断点/并发：同一 case 可多次创建 run（多次生成对比）；`POST /cases/{id}/runs` 对进行中 run 不做互斥（允许并行生成，额度由后台配置限制并发 ≤3）。
+
+### 12A.22.7 生成服务与密钥管理（决策点 A）
+
+- 新增 `services/prompt_eval_generation.py`：provider 适配（v1 至少 `minimax-image`、`flux`；OpenAI 兼容 `/images/generations` 或各 provider 原生），HTTP 客户端 + 超时 + 有界重试 + 429 退避；
+- 请求参数与桌面端 AssetGenerator 对齐（prompt/style/image_provider/aspect_ratio/image_count）；
+- 结果校验：返回必须为受支持图片（扩展名/魔数），空/错误 → run failed（不降级）；
+- 密钥：`prompt_eval_provider_keys` 加密存储，admin 维护；未配置任何可用密钥时创建 run 返回可操作错误（**按角色区分**：admin →「未配置可用的图片生成模型，请先在侧边栏「模型密钥」（/model-keys）中配置」；非 admin →「…请联系管理员在「模型密钥」中配置」——因「模型密钥」菜单仅 admin 可见，非 admin 不应被引导到不可见页面）；
+- 与桌面端一致：密钥/凭据不出现在任何响应、日志、评估提示词中。
+
+### 12A.22.8 数据校验（fail closed，对齐桌面端契约）
+
+| 字段 | 规则 |
+|------|------|
+| source_text | 非空，≤20000 |
+| context（可选） | 序列化 ≤20000；**递归**过滤敏感键（password/token/secret/api_key/credential 等，任意嵌套命中即 400） |
+| prompt_zh | 非空，≤5000 |
+| provider/model | 必须在已配置密钥目录内（否则 400 + 引导文案） |
+| image_count | 整数 1-20 |
+| aspect_ratio | 枚举：`1:1/16:9/9:16/3:4/4:3` |
+| prompt_en | 只能由服务端翻译生成（`prompt_en_source` 服务端标注，客户端不可伪造） |
+| 生成结果 | 图片扩展名/魔数校验，空/非法 → run failed |
+| 评估结果 | overall 0-100、维度 id 白名单且不重复、score 0-100、evidence 非空、problems/promptOptimizationPoints 必须为数组且白名单；任一违反 → eval_status=failed（不静默降级） |
+
+错误响应统一 `{ code, message, details? }`（对齐桌面端 EVAL_* 语义，前缀 `OPS_PROMPT_EVAL_*`）。
+
+### 12A.22.9 中英对照（决策点 B）
+
+- `services/prompt_eval_translation.py`：LLM 翻译 prompt_zh → prompt_en，输出契约 `{ prompt_en, source: 'machine_translation' }`；
+- 幂等：同一 case 同一 prompt_zh 已翻译且 7 天内不重复翻译；翻译失败可重试（不阻塞生图，生图仍用 prompt_zh）；
+- UI：英文提示词旁显示「机器翻译」徽标；来源字段可审计；
+- 配置：`prompt_eval.translation.enabled`（默认 true）、`target_language`（默认 en）。
+
+### 12A.22.10 评估服务
+
+- 复用桌面端 PromptEval 维度/评分/问题分类/优化点**契约常量**（`IMAGE_DIMENSIONS` 权重、11 类问题、7 类优化点、severity 3 类），以共享常量表或一致性测试保证两端对齐；
+- `services/prompt_eval_evaluation.py`：调视觉 LLM（OpenAI 兼容 `image_url` content），构造评估提示词（复用桌面端 prompt-builder 的「输入快照 + JSON 契约」语义：原文/上下文/prompt_zh/prompt_en/图片数）；
+- 解析 + 白名单校验 fail closed；评估输入快照存库（可审计、可复现）。
+
+### 12A.22.11 交互逻辑与显示项（前端「评测工作台」页）
+
+**Tab1 新建评测**
+- 显示项：标题、原文（多行）、上下文（可选多行）、优化后提示词·中文（多行）、英文对照（只读，生成后显示 + 「机器翻译」徽标）、provider/模型下拉（从密钥配置读取，无密钥时显示引导）、图片数（1-20）、画幅下拉；
+- 操作按钮：①「生成英文对照」（调 translate，成功后双语并排显示）②「生成并评估」（创建 run）；
+- 校验：字段级错误提示；翻译失败可重试。
+
+**Tab2 评测列表/详情**
+- 列表：标题、创建时间、创建人、provider/模型、状态徽章（生成中/评估中/成功/失败）、总体分；
+- 详情：**同屏四栏 = 原文 | 中英提示词（英文标「机器翻译」）| 生成图片缩略图（点击放大）| 评估结果**（总分/等级/维度条/问题清单按严重度/提示词优化点）；
+- 操作：重新生成（新 run）、删除（二次确认）；同 case 多 run **并排对比**（分数对比表：维度 × run）。
+
+**Tab3 聚合分析**
+- 显示项：记录数/平均分/等级分布（优秀/良好/一般/差）、维度均值条形、问题类别 Top（次数+严重度）、优化点类型 Top（含示例）、按 provider/模型分数对比、推荐动作文本。
+
+**关键提示文字（文案清单）**
+- 「生成英文对照」「机器翻译」「生成并评估」「评估中（第 {n}/{m} 张）...」「生成失败：{原因}」「评估失败：评估模型未返回有效结果」「请先填写原文与优化后的提示词」「未配置可用的图片生成模型，请先在「模型密钥」中配置」「确认删除该评测及其生成物？」
+
+### 12A.22.12 存储与安全
+
+- 生成物：ops-center 媒体目录（或 COS），记录 URL；删除 case 级联清理；
+- 密钥：加密存储、admin 管理、不出现在响应/日志/评估提示词；评估与翻译请求中不携带凭据；
+- 敏感上下文递归过滤（对齐桌面端 `assertNoSensitiveContext` 语义）；图片/文案上云为运营自测内容（无用户数据合规风险）。
+
+### 12A.22.13 验收标准
+
+1. 创建 case 全字段校验矩阵通过（pytest）；
+2. 中英对照：LLM 翻译成功 → 展示+「机器翻译」标注+来源入库；失败可重试；幂等复用；
+3. 真实生图：至少 1 个 provider 真实生成图片并落盘/URL 可访问（外部验收边界：真实 provider 与密钥）；
+4. 评估：真实视觉模型对生成图打分并落库；非法响应 → eval_status=failed（fail closed 测试用 mock）；
+5. 前端三 Tab 可用；无密钥时给出引导文案；双语标注正确；
+6. 聚合分析输出正确（数值与桌面端 analyze 口径一致）；
+7. `pytest` 全量通过 + 前端 `npm run build` 通过 + 与桌面端 prompt-eval 契约一致性测试；
+8. 视频 v2 预留：`video_path` 字段与 video 维度占位，v1 不暴露视频生成入口。
+
+### 12A.22.14 视频扩展（v2，不在本期实现）
+
+- provider 增加视频生成（minimax/hunyuan）；runs 增加 video_path 与抽帧（首/中/尾）；
+- 评估维度增加 `temporal_consistency/motion_accuracy/audio_visual_sync/video_aesthetic_quality`（与桌面端 v2 对齐）；
+- 中英对照、聚合分析、鉴权与存储模式不变。
+
+### 12A.22.15 测试策略
+
+- 后端 pytest：cases/runs/summary 接口、校验矩阵、翻译服务（mock LLM）、生成服务（mock provider HTTP + 真实 provider 外部验收）、评估服务（mock 视觉 LLM + 非法响应 fail closed）、鉴权（登录/管理员/未登录）、删除级联；
+- 前端：组件测试（表单校验/状态徽章/双语标注/非空数据路径）；
+- 契约：桌面端 prompt-eval 维度/错误码一致性断言（两端共享枚举表）。
+
+
+### 12A.22.16 场景层评测工作流（2026-08-12 调整）
+
+> 运营人员**输入整篇文案原文**，后台按**桌面端分句机制**拆成场景层，逐场景自动展示「场景文字 / 字幕二次分句 / 场景上下文 / 优化后提示词（中英对照）」，并可逐场景「生成图片」+ 评估（复用 12A.22 既有流程，生成部分不变）。
+
+**工作流**：输入整篇文案 → 后台分句（场景级分割 + 字幕二次分句 + 场景上下文提取）→ 场景层列表 → 逐场景生成/展示 中英优化提示词 → 逐场景「生成图片」→ 生成物 + 评估结果 → 多 run 对比 / 聚合分析。
+
+### 12A.22.17 场景层数据模型
+
+| 表/字段 | 说明 |
+|---------|------|
+| `prompt_eval_cases`（扩展） | 新增 `source_mode`（`manual`=旧整 case 模式 / `scene`=场景层模式）；`scene` 模式时 `source_text` 为整篇文案原文 |
+| `prompt_eval_scenes`（新增） | id、case_id（FK）、index、scene_text、subtitle_blocks（JSON）、scene_context（JSON）、prompt_zh、prompt_en、prompt_en_source（machine_translation/manual）、prompt_en_translated_at、created_at、updated_at |
+| `prompt_eval_runs`（扩展） | 新增 `scene_id`（可空 FK；NULL=旧模式整 case 生成） |
+| subtitle_blocks 结构 | `[{ index, text, start_seconds?, end_seconds?, duration? }]`（对齐桌面端字幕分句输出） |
+| scene_context 结构 | 白名单键（对齐桌面端 story-context-engine 语义）：`genre/era/culture/setting/time/characters/props/visual_style/tone/summary/anchors/negative_anchors` |
+
+### 12A.22.18 场景层接口
+
+| 方法/路径 | 权限 | 说明 |
+|-----------|------|------|
+| `POST /cases`（scene 模式） | 登录 | 传 `source_mode=scene` + 整篇原文 + 分句配置 → 后台分句并创建 scenes，返回 case+scenes |
+| `GET /cases/{id}` | 登录/创建者/管理员 | 含 scenes（每场景：scene_text / subtitle_blocks / scene_context / prompt_zh / prompt_en） |
+| `POST /cases/{id}/scenes/{sid}/translate` | 登录/创建者 | 按场景生成中英对照（LLM 优化 + 翻译，source=machine_translation，幂等 7 天） |
+| `POST /cases/{id}/scenes/{sid}/runs` | 登录/创建者 | 按场景生成图片（prompt 用该场景 prompt_zh；provider/model/画幅/图片数来自 case）→ 复用生成→评估状态机 |
+| `GET /runs/{id}`、`GET /summary` | 登录 | 不变；summary 可按 scene 维度聚合 |
+
+**分句配置（scene 模式请求体）**：`target_chars_per_scene`（默认 20，1-200）、`subtitle_min_chars`（默认 8）、`subtitle_max_chars`（默认 15）、`subtitle_timing`（proportional/equal，默认 proportional）、`language`（默认 zh）——与桌面端 story2video-compose split 阶段默认一致。
+
+### 12A.22.19 分句与优化提示词生成（复用桌面端分句机制）
+
+- **分句语义基准**：桌面端 `packages/story2video-engine/src/text-segmentation.ts`（三级分割：句子边界消歧 → 场景级分割 → 字幕级分割，纯本地无网络）与 smart-sentence-splitter（8002）契约；ops-center 后端提供 Python 分句实现（场景级 + 字幕级），**一致性测试**用 node 加载桌面端 `text-segmentation.ts` 对同一输入断言 scenes/subtitle_blocks 一致（参照 prompt_eval_contract 的 node 加载断言模式）。
+- **场景上下文**：按桌面端 `story-context-engine.js` 语义提取（白名单键见 12A.22.17），后台实现；提取失败不静默降级（明确错误或标记 degraded）。
+- **优化提示词生成**：后台 LLM 以「整篇原文 + 场景文字 + 场景上下文」为输入生成该场景中文优化提示词（prompt_zh），再翻译英文（prompt_en，source=machine_translation）；支持运营编辑覆盖 prompt_zh（编辑后 prompt_en 标记需重新生成）。
+- **分句失败处理**：分句服务异常 → 返回可操作错误（「分句失败：{原因}」），不落库、不降级。
+
+### 12A.22.20 交互与显示（场景层评测工作台）
+
+**Tab「新建评测」**新增「场景模式」：
+- 输入：整篇文案原文（多行，≤20000）+ 分句配置（折叠高级项）+ provider/模型/画幅/图片数；
+- 按钮：「分句并生成场景」→ 调 `POST /cases`（scene 模式）→ 展示场景层列表；
+- **每场景卡片四区**：① 场景文字（序号 + scene_text）；② 字幕二次分句（subtitle_blocks 逐条：文字 + 目标时长，来源标注 local/分句服务语义）；③ 场景上下文（scene_context 键值展示：时代/地域/角色/道具/视觉风格/负面锚点等）；④ 优化提示词中英文（中文可编辑 + 英文「机器翻译」徽标 + 「重新生成中英对照」）；
+- 每场景操作：「生成图片」（复用生成→评估）+ 评估结果卡（总分/等级/维度/问题/优化点）+ 多 run 对比；
+- 可选：「批量生成中英对照」（全部场景一次生成）。
+
+**新增提示文字**：「分句并生成场景」「场景 {n}」「字幕二次分句」「场景上下文」「重新生成中英对照」「批量生成中英对照」「分句失败：{原因}」「请先输入整篇文案原文」。
+
+**校验（scene 模式）**：原文非空 ≤20000；分句配置边界（target_chars_per_scene 1-200、subtitle_min 1-50、subtitle_max min+1..200、subtitle_min < subtitle_max）；provider/model 已配置密钥；场景数上限 50（超出 400）。
+
+### 12A.22.21 验收标准（场景层增补）
+
+1. scene 模式分句：同一输入与桌面端 `text-segmentation.ts` 输出场景数/字幕块一致（一致性测试）；
+2. 每场景四区完整展示（场景文字/字幕块/上下文/中英提示词），且「生成图片」→ 评估结果可用（真实 provider 外部验收）；
+3. 中英对照幂等、可编辑覆盖；编辑 prompt_zh 后 prompt_en 标记待重生成；
+4. 分句失败明确报错不降级；场景数超限 400；
+5. pytest（分句/场景接口/一致性）+ 前端 build；12A.22.13 既有验收不回归。

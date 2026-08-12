@@ -39,6 +39,9 @@ const PUBLIC_CHANNELS = new Set([
   // 临时目录（kind/扩展名/大小校验 + withSenderCheck 可信来源），纯设备本地操作、不暴露私有数据，
   // 未登录/未激活许可证时也必须可用，否则图片轮播的背景音乐/旁白/视频素材选择完全不可用（2026-08-09）。
   'story2video:import-media',
+  // 视频克隆（本地分析流水线）：run/cancel/edit/regenerate/history/pick-file 未登录可用；发布经 PublisherRouter（外部验收边界）
+  'video-clone:run', 'video-clone:cancel', 'video-clone:report:edit', 'video-clone:report:regenerate',
+  'video-clone:pick-file', 'video-clone:history',
   'usage:stats', 'usage:daily', 'usage:track',
   'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
 ])

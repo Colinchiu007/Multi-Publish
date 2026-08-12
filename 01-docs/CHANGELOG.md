@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-12 (Story2Video 场景上下文规则数据化 + 运营后台规则管理)
+
+### 新增
+- **场景上下文规则数据化**：规则表抽取为随包 `story-context-rules.json`（单一来源），支持环境变量/userData 配置覆盖加载 + 结构校验（非法规则回退内置并告警）。
+- **运营后台「场景上下文规则」管理**（ops-center，admin）：查看/编辑/校验/保存/导出规则 JSON，版本与操作人追踪；API `GET/POST validate/PUT/GET export`。
+- **打磨修复**：历史题材词表补全（北宋/南宋/汴京/临安/岳飞/元朝/大都）；场景内特有角色识别；上下文块措辞自然化（消除「欧洲中/现代中」）。
+
+### 测试
+- 引擎 +7 用例（规则加载/外部覆盖/非法回退/打磨回归）32 全绿；ops-center pytest 5 新用例 + 全量 126 通过；前端 build 通过。
+
+### 文档
+- PRD.md 7.1.33 补充运营后台规则管理小节；CHANGELOG/learnings/.quality-gates 同步。
+- **2026-08-12 追补**：PRD.md §7.1.33(1) 与独立 PRD §9.1 的 Mermaid 架构图改为 TB 布局并渲染为 PNG（`01-docs/assets/story2video-scene-context-architecture.png`，本地 mermaid v10.9.1 + Edge headless 生成）嵌入文档；openspec `story2video-scene-context` / `story2video-scene-context-ops` spec 补充 `context.scene_context` 完整 JSON 样例与 `story-context-rules.json` 规则结构/校验语义样例（与主 PRD 一致）。
+
 ## [Unreleased] - 2026-08-12 (图片轮播模型下拉空白 / 新增模型后不刷新修复)
 
 ### 修复
