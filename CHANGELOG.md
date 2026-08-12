@@ -25,6 +25,15 @@
   向量双轨管理规则（禁止自证）→ story2video-engine 111 例全绿
 - PRD 7.1.1 补充字幕分割质量护栏条款
 
+## [未发布] 功能：视频内容保真 video-content-fidelity — 分镜-文案对齐 S1-S5（2026-08-12）
+
+- **双模式分镜**：CONCEPT/STORYBOARD 支持 creative（一句话创意，原始机制不变）/ fidelity（按原文保真）/ hybrid（保真+演绎）/ auto（段落≥3 或字≥300 或句≥8 → fidelity；字≤80 且句≤2 → creative；其余 hybrid）；显式 storyboardMode 可覆盖。
+- **长文段落化**：新模块 video-script-segmentation（空行/句号两级切分，6000 字截断标记）；fidelity/hybrid 下 storyboard 场景绑定 source_paras。
+- **内容对齐门禁**：新模块 video-content-alignment（内置词典 + LLM 兜底实体抽取；覆盖度 ≥0.8；不达标带缺失清单重试 ≤2 次；耗尽/空场景 fail closed：STORYBOARD_ALIGNMENT_FAILED / STORYBOARD_EMPTY_SCENES）。
+- **优化 context 注入**：videogen 批量优化请求携带 context（白名单 synopsis/character/setting/character_list/full_text + 长度收敛 + 敏感键拦截）；prompt-engine 视频策略追加 Fact-Fidelity 指令 + context 未知键忽略 warning。
+- **对齐评估报告**：mode/coverage/matched/missing/retries 写入 run 上下文 videoContentFidelity；视觉评估接口预留 not_implemented（不冒充实现）。
+- **配置**：story2videoTextConfig.video_content_fidelity（enabled/minCoverage=0.8/maxRetries=2/llmExtractFallback/maxFullTextChars=6000），越界 fail closed。
+- **回归**：videogen-stages 32、videogen-content-fidelity 27、contract 23、text-config 68、agnes-video 40、prompt-engine test_video_optimize 20 全绿；creative 短输入行为不变。
 ## [未发布] 修复：补 story2video.summaryDuration/summaryFileSize locale 缺键（2026-08-12）
 
 - CreateView 完成摘要行使用 `story2video.summaryDuration` / `story2video.summaryFileSize` 键但 zh/en locale 缺失，产生 intlify 警告（此前仅靠硬编码兜底）。补两个命名插值键（`ctx.named('text')` / `ctx.named('size')`），`CreateView.vue` 两处调用补传 `{ text }` / `{ size }` 参数。
