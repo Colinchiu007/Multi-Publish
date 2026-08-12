@@ -15,7 +15,7 @@ TBD - created by archiving change video-prompt-optimize-engine. Update Purpose a
 - **THEN** 该提示词先经视频优化引擎（domain=video）改写，再提交 generateSceneVideo；不得直接复用图片 optimized_prompt
 
 #### Scenario: 服务不可用明确失败
-- **WHEN** prompt-engine（8013）未运行或 /v1/optimize 网络失败
+- **WHEN** prompt-engine（8013）未运行或 /v1/optimize 网络失败（或独立视频引擎 8020 已配置但不可用）
 - **THEN** 视频优化阶段返回明确错误（如「prompt-engine 未运行，无法优化视频提示词」），不静默回退到默认 LLM，也不把原 prompt 当作优化结果继续
 
 ### Requirement: 领域与视频平台契约
