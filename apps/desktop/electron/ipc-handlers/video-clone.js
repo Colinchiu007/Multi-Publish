@@ -1,9 +1,9 @@
 // @ts-check
 /**
- * 视频克隆 IPC handlers（切片 4b/4c）
- * 通道：video-clone:run / video-clone:cancel / video-clone:report:edit / video-clone:report:regenerate / video-clone:pick-file
+ * 视频克隆 IPC handlers（切片 4b/4c/4d）
+ * 通道：video-clone:run / cancel / report:edit / report:regenerate / pick-file / history
  * 进度：video-clone:progress（主 → 渲染事件）
- * 独立流水线：仅新增 handler，不修改既有管线 handler。
+ * 4d：运行记录持久化（store）+ regenerate（部分流水线 generate→compose→publish，initialReport 复用编辑后报告）
  */
 const { withSenderCheck } = require('./helpers')
 const engine = require('@multi-publish/video-clone-engine')
@@ -12,27 +12,45 @@ const {
   createPlaceholderImageGenerator,
 } = require('../services/video-clone/asset-generator')
 const { createVideoClonePublisher } = require('../services/video-clone/publisher')
+const { createVideoCloneStore } = require('../services/video-clone/store')
 
 function registerHandlers(ipcMain, deps) {
   const { BrowserWindow, dialog } = deps
   const tmp = require('node:os').tmpdir()
-  // 4c：真实 AssetGenerator 服务优先；无服务时用显式标注的离线占位生成器（degraded）
+  const store = createVideoCloneStore({ baseDir: deps.videoCloneStoreDir || tmp })
+
   const assetGenerator = deps.assetGenerator
     ? createVideoCloneAssetGenerator({ assetGenerator: deps.assetGenerator })
     : createPlaceholderImageGenerator({ outputDir: tmp })
   const publisher = createVideoClonePublisher({ publisherRouter: deps.publisherRouter })
 
+  const pipelineOptions = { assetGenerator, publisher, outputDir: tmp, fps: 24 }
+
   const service = engine.createVideoCloneService({
-    createPipeline: (opts) => engine.createSlice3Pipeline(
-      Object.assign({}, opts, { assetGenerator, publisher, outputDir: tmp, fps: 24 }),
-    ),
+    createPipeline: (opts) => engine.createSlice3Pipeline(Object.assign({}, opts, pipelineOptions)),
   })
+
+  function partialRegeneratePipeline(opts) {
+    return engine.createVideoClonePipeline({
+      generate: engine.createGenerateAssets({ assetGenerator }),
+      compose: engine.createFfmpegCompose({ outputDir: tmp, fps: 24 }),
+      publish: engine.createPublish({ publisher }),
+    }, { stageIds: ['generate', 'compose', 'publish'], eventSink: opts.eventSink, abortSignal: opts.abortSignal })
+  }
 
   ipcMain.handle('video-clone:run', withSenderCheck(async (event, arg) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const sendProgress = (evt) => win?.webContents.send('video-clone:progress', evt)
     try {
       const result = await service.run(arg, { sendProgress })
+      if (result.ok) {
+        store.saveRun({
+          runId: result.runId, request: arg,
+          report: result.report, reportSource: result.reportSource,
+          similarity: result.similarity, publishResult: result.publishResult,
+          createdAt: new Date().toISOString(), status: 'completed',
+        })
+      }
       return { code: 0, data: result }
     } catch (e) {
       return { code: -1, message: e.message, errorCode: e.code || 'VIDEOCLONE_INTERNAL' }
@@ -54,9 +72,37 @@ function registerHandlers(ipcMain, deps) {
     }
   })
 
-  ipcMain.handle('video-clone:report:regenerate', (_event, arg) => {
-    // 基于已编辑报告重跑 generate→compose（4c 简化：返回 not-wired，4d 接线持久化报告）
-    return { code: 0, data: { status: 'not-wired', runId: arg && arg.runId } }
+  ipcMain.handle('video-clone:report:regenerate', withSenderCheck(async (event, arg) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const sendProgress = (evt) => win?.webContents.send('video-clone:progress', evt)
+    const runId = arg && arg.runId
+    const record = runId ? store.loadRun(runId) : null
+    if (!record) return { code: -1, message: '运行记录不存在', errorCode: 'VIDEOCLONE_RUN_NOT_FOUND' }
+    try {
+      const pipeline = partialRegeneratePipeline({ eventSink: sendProgress })
+      const controller = new AbortController()
+      const result = await pipeline.run({
+        source: record.request.source,
+        options: Object.assign({}, record.request.options, { initialReport: record.report, rewriteScript: false }),
+      })
+      if (result.ok) {
+        store.saveRun({
+          runId: result.runId, request: record.request,
+          report: result.report, reportSource: result.reportSource || record.reportSource,
+          similarity: result.similarity, publishResult: result.publishResult,
+          createdAt: new Date().toISOString(), status: 'completed', regeneratedFrom: runId,
+        })
+      }
+      return { code: 0, data: result }
+    } catch (e) {
+      return { code: -1, message: e.message, errorCode: e.code || 'VIDEOCLONE_INTERNAL' }
+    }
+  }))
+
+  ipcMain.handle('video-clone:history', (_event) => {
+    try {
+      return { code: 0, data: store.listRuns() }
+    } catch (e) { return { code: -1, message: e.message } }
   })
 
   ipcMain.handle('video-clone:pick-file', withSenderCheck(async (_event) => {

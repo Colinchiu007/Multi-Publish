@@ -1,3 +1,11 @@
+## [2026-08-12] 视频克隆 切片 4d：运行记录持久化 + regenerate（部分流水线 initialReport）
+
+- engine pipeline：executorOptions.stageIds 部分执行 + request.options.initialReport + 成功结果 reportSource。
+- desktop services/video-clone/store.js：runs/<runId>.json 持久化 + history（倒序元数据列表）。
+- handler：run 成功后落库；video-clone:report:regenerate 真实实现（部分流水线 generate→compose→publish，initialReport 复用编辑后报告）；video-clone:history 通道；preload/composable/view 接线「重新生成」。
+- 验证：engine 99（+3）+ desktop store 3（合计 352+）全绿；vite build + QM-1 打包 exit 0 + 启动无关键错误。
+- 外部验收边界（PENDING_EXTERNAL）：真实 provider 图/真实账号发布/平台链接下载，需用户凭据与环境。
+
 ## [2026-08-12] 视频克隆 切片 4c：provider 接线（assetGenerator/publisher/pick-file）+ QM-2 双模式验证
 
 - `apps/desktop/electron/services/video-clone/`：asset-generator（真实 AssetGenerator 服务优先 + 显式离线占位 degraded）、publisher（PublisherRouter 契约，无 router 则 skipped）。
