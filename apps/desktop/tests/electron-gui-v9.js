@@ -97,7 +97,7 @@ async function testPublishPage(win) {
 
   // 标题
   const titleVal = await win.evaluate(() => {
-    const inp = document.querySelector('input[placeholder*="标题"]');
+    const inp = document.querySelector('[data-testid="publish-title"]');
     if (!inp) return null;
     inp.value = "v9 测试标题"; inp.dispatchEvent(new Event("input", { bubbles: true }));
     return inp.value;
@@ -109,8 +109,8 @@ async function testPublishPage(win) {
   await wait(3000);
   const batchState = await win.evaluate(() => ({
     cards: document.querySelectorAll(".cohere-card").length,
-    hasDel: !!document.querySelector('button[title="删除"]'),
-    hasDup: !!document.querySelector('button[title="复制"]'),
+    hasDel: !!document.querySelector('[data-testid^="batch-delete-"]'),
+    hasDup: !!document.querySelector('[data-testid^="batch-copy-"]'),
   }));
   assert("批量卡片", batchState.cards >= 2, `${batchState.cards} 个`);
   // 删除按钮仅在 ≥2 篇文章时可见 (v-if="articles.length > 1")
@@ -376,7 +376,7 @@ async function testPublishDeep(win) {
   await ensurePlatformStore(win);
   await wait(3000);
   const publishBtnState = await win.evaluate(() => {
-    const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('一键发布'));
+    const btn = document.querySelector('[data-testid="publish-submit"]');
     return btn ? { exists: true, disabled: btn.disabled || btn.hasAttribute('disabled') } : { exists: false };
   });
   assert('发布按钮存在', publishBtnState.exists);

@@ -74,17 +74,18 @@ vi.mock("@/api/publisher", () => ({
   pipelineAdvance: vi.fn(),
   pipelineHistory: vi.fn().mockResolvedValue({ code: 0, data: [] }),
 }));
+import i18n from "@/i18n";
 import PublishView from "./Publish.vue";
 import CreateView from "./CreateView.vue";
 import ResultView from "./ResultView.vue";
 
 // Publish.vue
 describe("PublishView (deep)", () => {
-  beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); });
+  beforeEach(() => { i18n.global.locale.value = "zh"; vi.clearAllMocks(); setActivePinia(createPinia()); });
 
   function mountPublish() {
     return mount(PublishView, {
-      global: { plugins: [createPinia()],
+      global: { plugins: [createPinia(), i18n],
         components: { UiButton: { template: "<button><slot/></button>" }, UiInput: { template: "<input/>" } },
         stubs: { "el-checkbox-group": true, "el-checkbox": true, "el-upload": true, "el-icon": true, TagSuggester: true, OptimalTimeTip: true, TitleAssistantPanel: true, ArticleEditor: true, TemplatePicker: true, UpgradeModal: true, AiWriterPanel: true }
       }
