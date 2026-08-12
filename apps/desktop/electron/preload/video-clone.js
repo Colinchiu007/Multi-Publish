@@ -12,6 +12,7 @@ function createVideoCloneApi(ipcRendererRef = ipcRenderer) {
       cancel: (runId) => ipcRendererRef.invoke('video-clone:cancel', { runId }),
       editReport: (report, patch) => ipcRendererRef.invoke('video-clone:report:edit', { report, patch }),
       regenerate: (runId) => ipcRendererRef.invoke('video-clone:report:regenerate', { runId }),
+      pickFile: () => ipcRendererRef.invoke('video-clone:pick-file'),
       onProgress: (cb) => {
         const listener = (_event, evt) => { try { cb(evt) } catch { /* 回调异常忽略 */ } }
         ipcRendererRef.on('video-clone:progress', listener)

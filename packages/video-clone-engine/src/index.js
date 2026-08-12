@@ -9,4 +9,5 @@ module.exports = {
   ...require('./pipeline'),
   ...require('./runner'),
   ...require('./service'),
+  ...require('./adapters/runners'),
 };

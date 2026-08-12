@@ -1,3 +1,11 @@
+## [2026-08-12] 视频克隆 切片 4c：provider 接线（assetGenerator/publisher/pick-file）+ QM-2 双模式验证
+
+- `apps/desktop/electron/services/video-clone/`：asset-generator（真实 AssetGenerator 服务优先 + 显式离线占位 degraded）、publisher（PublisherRouter 契约，无 router 则 skipped）。
+- IPC：video-clone:pick-file（系统文件选择对话框）；preload/composable/视图接线「选择文件」。
+- 门禁：QM-2 sandbox 双模式 PASS（TRUE_OK/FALSE_OK/BOTH_MODES_OK）；QM-1 打包 exit 0 + 可见主窗口（MainWindowHandle=15729924）；engine 96 + desktop 新增 7 用例全绿。
+- PRD v1.6 §20；待 4d：真实 provider 图/账号发布外部验收、报告持久化 regenerate。
+=======
+
 ## [未发布] 修复：限流验证页加载模型预设解析（适配 {presets:[]} 响应）（2026-08-12）
 
 - 根因：`GET /api/v1/model-presets` 返回 `{ presets: [...], count }`，`RateLimitVerifier.vue` 的 `loadPresets()` 误假设 `items` 字段 → `(res.data.items || res.data || []).filter is not a function`，预设下拉加载失败。

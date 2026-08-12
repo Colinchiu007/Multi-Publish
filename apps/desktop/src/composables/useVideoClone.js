@@ -95,6 +95,15 @@ export function useVideoClone() {
     running.value = false
   }
 
+  async function pickFile() {
+    const a = api()
+    if (!a || typeof a.pickFile !== 'function') { ElMessage.warning('当前环境未提供桌面端能力'); return }
+    try {
+      const resp = await a.pickFile()
+      if (resp && resp.code === 0 && resp.data && resp.data.path) filePath.value = resp.data.path
+    } catch (e) { ElMessage.error(formatUserError(e, {})) }
+  }
+
   async function editReport(path, value) {
     const a = api()
     if (!a || !report.value) return null
@@ -115,6 +124,6 @@ export function useVideoClone() {
   return {
     sourceType, linkUrl, filePath, replicationLevel, mode, rewriteScript,
     running, runId, stageStatus, report, similarity, publishResult, error,
-    start, cancel, editReport, STAGE_LABELS,
+    start, cancel, editReport, pickFile, STAGE_LABELS,
   }
 }
