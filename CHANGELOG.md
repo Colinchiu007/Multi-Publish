@@ -1,3 +1,9 @@
+## [2026-08-12] 视频克隆：视频创作模块入口集成（CreateView 流水线创作视图）
+
+- CreateView「流水线创作」视图新增「视频克隆」入口卡（→ /video-clone），补齐创作模块可见入口。
+- 测试：CreateView.test.js 150 全绿（+1 入口用例）；vite build 通过。
+- PRD v1.11 §13.1/§25。
+
 ## [2026-08-12] Story2Video：语音生成器默认多模态 TTS + 音色克隆自动保存/重命名
 
 - 图片轮播「语音生成器」默认选择：模型设置保存了支持 TTS 能力的多模态模型（如 MiniMax `minimax-multimodal`）时，未显式选择过其他服务商则默认选中该多模态模型，并按 `capability_models.tts` 自动带出语音模型；用户显式保存的选择（含显式「自动 Edge TTS」）始终优先。

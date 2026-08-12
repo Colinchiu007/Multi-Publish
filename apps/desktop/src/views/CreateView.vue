@@ -26,6 +26,14 @@
     <div v-if="view === 'pipelines'">
       <!-- 流水线列表 -->
       <div v-if="!selectedPipeline">
+        <!-- 视频克隆：独立流水线入口（对标拆解与再创作） -->
+        <div class="video-clone-entry" @click="$router.push('/video-clone')">
+          <div class="video-clone-entry-body">
+            <strong>视频克隆</strong>
+            <span class="text-muted">链接/本地视频 → 拆解报告 → 同款成片（独立流水线）</span>
+          </div>
+          <button type="button">进入 →</button>
+        </div>
         <PipelineSelector
           :pipelines="pipelines"
           :loading="pipelineLoading"
@@ -3444,3 +3452,15 @@ export default {
   },
 }
 </script>
+
+<style scoped>
+.video-clone-entry {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 16px; padding: 14px 16px;
+  border: 1px solid var(--border-color, #e4e7ed); border-radius: 8px;
+  cursor: pointer; background: var(--bg-color, #f7f8fa);
+}
+.video-clone-entry:hover { border-color: var(--primary-color, #409eff); }
+.video-clone-entry-body { display: flex; flex-direction: column; gap: 4px; }
+.video-clone-entry button { border: none; background: var(--primary-color, #409eff); color: #fff; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+</style>

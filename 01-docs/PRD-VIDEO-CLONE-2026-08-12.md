@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.10（analyze CLI：一条命令出报告）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.11（视频创作模块入口集成）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -351,9 +351,10 @@ VideoClonePipeline：
 
 ## 13. 详细规格：交互逻辑与显示项（桌面 UI，切片 2 落地）
 
-### 13.1 入口
+### 13.1 入口（v1.11 已落地）
 
-- 「新建创作」→ 选择「视频克隆」流水线（与 Story2Video 平级，独立入口）。
+- 「新建创作」→「流水线创作」视图顶部新增「视频克隆」入口卡（对标拆解与再创作）→ 进入 /video-clone（与 Story2Video 平级，独立入口）；
+- 路由 /video-clone + VideoCloneView.vue（v1.10 前已接线，本次补可见入口）。
 - 首次使用展示授权确认：**「请确认你拥有该视频内容的合法使用权；克隆他人受版权保护内容需获授权」**（确认后记忆，设置可重置）。
 
 ### 13.2 输入区
@@ -701,4 +702,13 @@ VideoClonePipeline：
 
 - test/scripts/analyze-cli.test.js：本地样例 exit 0 + report.json/summary.txt 断言 + 无参 exit 2（ffmpeg 缺失 skip）；
 - engine 全量 105（104 pass + 1 skip）。
+
+
+## 25. 详细规格：视频创作模块入口集成（v1.11 追加）
+
+- CreateView「流水线创作」视图（view=pipelines）顶部新增「视频克隆」入口卡：标题 + 描述（链接/本地视频 → 拆解报告 → 同款成片）+ 「进入 →」按钮，点击 $router.push('/video-clone')；
+- 样式：独立 scoped 卡片（hover 主色边框），与流水线列表并列；
+- 测试：CreateView.test.js 新增「流水线创作视图包含视频克隆入口」（150 用例全绿）；
+- 构建：vite build 通过（模板编译无错误）；
+- 后续可选：主导航/首页快捷入口（未做，视需要再加）。
 
