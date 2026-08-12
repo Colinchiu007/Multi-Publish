@@ -65,8 +65,8 @@ async function testAccountPage(win) {
   await injectAccounts(win);
 
   // 筛选
-  for (const label of ["未登录", "已登录", "全部"]) {
-    const btn = await win.$(`${SEL.filterChips}:has-text("${label}")`);
+  for (const [value, label] of [["inactive", "未登录"], ["active", "已登录"], ["all", "全部"]]) {
+    const btn = await win.$(`#account-status-tab-${value}`);
     if (btn) { await btn.click(); await wait(800); }
     const cnt = await win.evaluate((sel) => document.querySelectorAll(sel.accountRow).length, SEL);
     const expected = { "未登录": 3, "已登录": 9, "全部": 12 }[label];
@@ -75,7 +75,7 @@ async function testAccountPage(win) {
 
   // 弹窗
   await win.evaluate(() => {
-    Array.from(document.querySelectorAll("button")).find(b => b.textContent.includes("添加账号"))?.click();
+    document.querySelector('[data-testid="account-add"]')?.click();
   });
   await wait(1500);
   const dialogOpen = await win.evaluate((sel) => !!document.querySelector(sel.accountModal), SEL);

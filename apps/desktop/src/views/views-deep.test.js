@@ -165,14 +165,14 @@ describe("AccountsView (deep)", () => {
 
   it("renders platforms from store", async () => {
     const { mod, pinia } = await setupView("Accounts.vue");
-    const w = mount(mod.default, { global: { plugins: [pinia] } });
+    const w = mount(mod.default, { global: { plugins: [pinia, i18n] } });
     await nextTick();
     expect(w.vm.totalAccounts).toBeGreaterThanOrEqual(1);
   });
 
   it("filters accounts", async () => {
     const { mod, pinia } = await setupView("Accounts.vue");
-    const w = mount(mod.default, { global: { plugins: [pinia] } });
+    const w = mount(mod.default, { global: { plugins: [pinia, i18n] } });
     await nextTick();
     w.vm.filter = "active";
     await nextTick();

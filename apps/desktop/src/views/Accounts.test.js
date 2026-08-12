@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { nextTick, ref } from "vue";
 import { setActivePinia, createPinia } from "pinia";
 import fs from "fs";
+import i18n from "@/i18n";
 
 vi.mock("@/stores/platforms", () => ({
   usePlatformStore: () => ({
@@ -197,7 +198,7 @@ import AccountsView from "./Accounts.vue";
 // Helper to create a pre-configured mount
 function createAccountsView(props = {}) {
   return mount(AccountsView, {
-    global: { plugins: [createPinia()] },
+    global: { plugins: [createPinia(), i18n] },
     ...props,
   });
 }
@@ -212,6 +213,7 @@ async function mountView() {
 
 describe("AccountsView", () => {
   beforeEach(async () => {
+    i18n.global.locale.value = "zh";
     vi.clearAllMocks();
     const publisher = await import("@/api/publisher");
     publisher.listAccounts.mockResolvedValue({ code: 0, data: [] });
@@ -892,7 +894,7 @@ describe("AccountsView", () => {
   });
   it("account-row has flex-wrap for responsive layout", async () => {
     _testAccounts.push({ id: "a1", platform: "zhihu", status: "active", account_name: "知乎账号" });
-    const w = mount(AccountsView, { global: { plugins: [createPinia()] } });
+    const w = mount(AccountsView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick(); await new Promise(r => setTimeout(r, 0)); await nextTick();
     const rows = w.findAll(".account-row");
     expect(rows.length).toBeGreaterThan(0);
@@ -904,7 +906,7 @@ describe("AccountsView", () => {
   it("账号身份区域允许收缩并由稳定网格控制响应式布局", async () => {
     _testAccounts.length = 0;
     _testAccounts.push({ id: "a1", platform: "zhihu", status: "active", account_name: "知乎账号" });
-    const w = mount(AccountsView, { global: { plugins: [createPinia()] } });
+    const w = mount(AccountsView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick(); await new Promise(r => setTimeout(r, 0)); await nextTick();
     const info = w.find(".account-identity");
     expect(info.exists()).toBe(true);
@@ -1175,7 +1177,7 @@ describe("AccountsView", () => {
     });
     const pinia = createRealPinia();
     setRealActivePinia(pinia);
-    const w = mount(RealAccountsView, { global: { plugins: [pinia] } });
+    const w = mount(RealAccountsView, { global: { plugins: [pinia, i18n] } });
     await nextTick();
     await new Promise(resolve => setTimeout(resolve, 0));
     await nextTick();

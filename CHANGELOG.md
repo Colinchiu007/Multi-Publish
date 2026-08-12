@@ -186,6 +186,15 @@
 - 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
 - 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
 
+## [未发布] 功能：账号管理页 Accounts 文案全量多语言化（P2 第三批）（2026-08-12）
+
+- `src/locales/zh.js` / `en.js` 新增 `accountsPage` 命名空间（126 键成对，含插值函数）：搜索/筛选/排序/批量操作/平台分组/登录状态/分组管理/代理/校验等。
+- `src/views/Accounts.vue`：模板全部用户可见文案替换 `t('accountsPage.*')`；filterOptions/sortOptions 改 computed（locale 响应式）；loginStateText/emptyStateTitle/sortOrderLabel/authPlatformName/ElMessage 与 confirm 全部接入 i18n。
+- 测试适配：Accounts.test.js / views-deep.test.js / views-coverage.test.js mount 安装 vue-i18n 插件。
+- GUI 适配：electron-gui-v9.js / server-gui-test.js 筛选 chips 改用 `#account-status-tab-<value>` id、添加账号按钮改用 `[data-testid="account-add"]`（en 系统语言下中文文本定位失效）。
+- 文档：PROMPT-TEXT-SPEC §8 P2 进度；CHANGELOG。
+- 验证：zh/en 键一致性 126/126；模板/脚本剩余中文仅注释与数据字段别名；CI 权威验证。
+
 ## [未发布] 功能：发布页 Publish 文案全量多语言化（P2 第二批）（2026-08-12）
 
 - `src/locales/zh.js` / `en.js` 新增 `publishPage` 命名空间（76 键成对，含插值函数）：草稿箱/批量模式/表单标签与占位符/媒体上传提示/进度/结果/发布类型等。
