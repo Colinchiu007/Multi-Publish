@@ -1,3 +1,15 @@
+## 日志体系审计 + P0 日志加固复盘（2026-08-12）
+
+- **交付**：全仓日志体系审计报告（PR #658，01-docs/LOGGING-AUDIT-2026-08-12.md，纯文档）+ P0 日志加固（PR #659，OpenSpec change logging-hardening-p0，R1-R4）。
+- **审计结论**：日志"地基已有、深度不足"——5 套 logger 并存（desktop services/logger 最完善；shared-utils logger 仍被 rules/presets 引用但能力不一致；api-publish-engine console-only；python loguru 最规范；ops-center basicConfig）；1 处敏感 token 明文落盘；api-publish-engine 5xx/auth/webhook/重试熔断路径大面积静默。
+- **P0 修复**：① douyin.py 上传授权日志不再输出 token/签名 URL（新增 _upload_auth_log_message，仅元信息）；② publish-api-server 统一 _logError/_logWarn（脱敏 + stack 截断 500）并接入全部 catch（含 plugins 空 catch 吞错）；③ 鉴权失败（token 无效/缺失/provider 不可用带堆栈）与 webhook 验签/投递失败记录 warn/error（不含 token 原文）；④ retry-middleware 支持 logger 注入记录重试与熔断状态迁移。
+- **教训 1（日志脱敏要"源头不打印"优先，正则只是兜底）**：douyin token 泄漏根因是直接 json.dumps 整个 data 字典；正确做法是日志层只接收已脱敏/仅元信息的字段，正则兜底（新增零依赖 log-redact.js 覆盖 Bearer/apiKey/access_token/refresh_token/password/secret/cookie/sk-/JWT）防调用方误拼。
+- **教训 2（空 catch 吞错比无日志更糟）**：plugins 列表 catch(e){/*empty*/} 与 webhook req.on("error", function(){}) 让故障完全不可见；静默失败路径必须至少记 error（可注入 logger 便于测试断言）。
+- **教训 3（鉴权失败要可观测但不能记 token）**：_checkAuth 失败路径 0 日志 = 爆破不可观测；统一在鉴权收敛点记 warn（原因码 + path/method），provider 不可用额外记 error 带堆栈（status>=500 避免双重日志）。
+- **教训 4（测试注入 logger 而非真 console）**：重试/熔断/服务错误日志用 spy logger 断言（注意 logger 签名为 (tag, msg)，断言要查 msg 参数）。
+- **教训 5（编辑陷阱）**：Windows CRLF 仓库里做多行文本替换必须 CRLF-aware；"\n" 全量替换会毁掉整个文件（本次 test_douyin_publisher.py 误伤后 git restore 恢复）；行尾不一致的文件改前先归一化并核对 git diff。
+
+---
 ## main CI 既有失败定位记录：locale 缺键（已修）+ e2e-quality-infrastructure 扫描（遗留）（2026-08-12）
 
 - **已修（本 PR）**：`create.story2video.voice.catalogLoadFailed` 等 27 个 voice locale 键缺失（CreateView 引用但 zh/en 未定义）→ intlify 告警 → QG Coverage Gate 5 失败。补齐后消除。

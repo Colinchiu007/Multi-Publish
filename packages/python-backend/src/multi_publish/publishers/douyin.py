@@ -121,6 +121,13 @@ def _build_launch_kwargs(*, user_data_dir: str, headless: bool, viewport: dict, 
     return kwargs
 
 
+def _upload_auth_log_message(code: object, upload_token: object) -> str:
+    """上传授权成功日志：仅输出非敏感元信息，禁止 token/签名 URL 明文。"""
+    has_data = isinstance(upload_token, dict) and bool(upload_token)
+    has_upload_url = bool(isinstance(upload_token, dict) and upload_token.get("upload_url"))
+    return f"上传授权成功 code={code} has_data={has_data} has_upload_url={has_upload_url}"
+
+
 class DouyinPublisher(BasePublisher):
     """
     抖音视频发布器 — API + RPA 双模式
@@ -442,7 +449,7 @@ class DouyinPublisher(BasePublisher):
                 raise RuntimeError(f"获取上传授权失败: {auth_body.get('msg', 'unknown')}")
 
             upload_token = auth_body.get("data", {})
-            logger.info(f"上传授权成功: {json.dumps(upload_token, ensure_ascii=False)[:200]}")
+            logger.info(_upload_auth_log_message(auth_body.get("code"), upload_token))
 
             # ── Step 2: 上传视频文件 ──────────────────────
             await self._report_progress(PublishPhase.UPLOADING, "上传视频中...", 40)

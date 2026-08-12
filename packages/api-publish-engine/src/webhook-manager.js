@@ -59,6 +59,13 @@ class WebhookManager {
     this._httpRequest = typeof opts.httpRequest === "function" ? opts.httpRequest : http.request;
     this._httpsRequest = typeof opts.httpsRequest === "function" ? opts.httpsRequest : https.request;
     this._requestTimeoutMs = Number.isFinite(opts.requestTimeoutMs) ? Math.max(100, opts.requestTimeoutMs) : 5000;
+    this._log = opts.logger && typeof opts.logger.warn === "function" ? opts.logger : null;
+  }
+
+  _logWarn(code, url, error) {
+    if (!this._log) return;
+    var detail = error && error.message ? error.message : String(error);
+    this._log.warn("WebhookManager", code + " url=" + url + " error=" + detail);
   }
 
   async register(data) {
@@ -103,14 +110,25 @@ class WebhookManager {
     var filterByOwner = arguments.length >= 3;
     var expectedOwner = typeof ownerSubject === "string" && ownerSubject ? ownerSubject : null;
     var pending = [];
+    var pendingHooks = [];
     for (var i = 0; i < this._webhooks.length; i++) {
       var wh = this._webhooks[i];
       if (filterByOwner && wh.ownerSubject !== expectedOwner) continue;
       // events empty means match all
       if (wh.events.length > 0 && wh.events.indexOf(event) === -1) continue;
       pending.push(this._send(wh.url, payload));
+      pendingHooks.push(wh);
     }
-    await Promise.allSettled(pending);
+    var settled = await Promise.allSettled(pending);
+    for (var i = 0; i < settled.length; i++) {
+      var settledEntry = settled[i];
+      var target = pendingHooks[i];
+      if (settledEntry.status === "rejected") {
+        this._logWarn("webhook-fire-rejected", target ? target.url : "", settledEntry.reason);
+      } else if (settledEntry.value === false) {
+        this._logWarn("webhook-delivery-failed", target ? target.url : "", new Error("send failed"));
+      }
+    }
   }
 
   async _resolvePublicAddress(hostname) {
@@ -132,6 +150,7 @@ class WebhookManager {
   }
 
   async _send(url, payload) {
+    var self = this;
     try {
       var parsed = parseWebhookUrl(url);
       var isHttps = parsed.protocol === "https:";
@@ -153,7 +172,7 @@ class WebhookManager {
         headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
       };
       var req = request(opts);
-      req.on('error', function() {});
+      req.on('error', function(err) { self._logWarn('webhook-request-error', url, err); });
       if (typeof req.setTimeout === "function") {
         req.setTimeout(this._requestTimeoutMs, function() {
           if (typeof req.destroy === "function") req.destroy();
@@ -163,6 +182,7 @@ class WebhookManager {
       req.end();
       return true;
     } catch(e) {
+      this._logWarn('webhook-send-error', url, e);
       return false;
     }
   }
