@@ -1,3 +1,14 @@
+## 视频创作失败诊断系统（桌面端遥测 + 运营后台看板）复盘 (2026-08-12)
+
+- **交付**：P0 桌面端统一诊断码/根因映射/run 诊断遥测（`run.diagnostics`，additive）+ 运营后台落地（diagnostics-reporter 上报 → ops-center ingest/日聚合/样本/看板/告警/处置建议）。OpenSpec changes `story2video-failure-diagnostics` + `ops-center-video-diagnostics`，PR #574（cfb5ec31）合并，三同步归档完成。
+- **教训 1（复用既有上报模式，避免新造轮子）**：运营后台落地完全镜像 `usage-reporter`/`publish-reporter` 的「watermark + 30min + 未配置静默跳过 + X-Catalog-Key + batch 幂等」模式；ops-center 侧镜像 usage 三表（日聚合/样本/批次）+ `_require_catalog_key`/`require_admin`。跨端新链路优先找仓库内已验收通道复制，不要自创协议。
+- **教训 2（batch 幂等键必须对「超时重试 + 期间新增行」稳定）**：初版 batch_id=client:watermark:maxId，服务端已提交但响应超时、期间又有新行入队时，重试 maxId 变大 → 服务端不判重 → daily 桶二次累加翻倍。修复：服务端 batch 表记录 max_id，duplicate 时回传 `acked_max_id`，客户端据此推进水印并保留新行。**超时重试场景必须考虑「提交成功但响应丢失 + 窗口内新增数据」的组合**，不能只测固定窗口。
+- **教训 3（枚举单一来源 + 两端 fail-closed）**：桌面端 reporter 直接复用 taxonomy 枚举并归一化未知值，服务端对未知枚举整条 400（fail-closed）；两端各自校验会漂移，必须单一来源 + 客户端先归一化防自锁（整批拒收 + 水印不动 = 永久重试死锁）。
+- **教训 4（文档门禁是真门禁）**：`scripts/check-docs-sync.sh` 要求代码变更 PR 必须带 PRD/CHANGELOG/01-docs 文档；功能交付前先补文档（本 PR 补 ARCH-VIDEO-DIAGNOSTICS-OPS + CHANGELOG），避免 CI 打回。
+- **教训 5（并发仓库合并竞态）**：main 在 PR 生命周期内被并发合入多次（59+ 提交），需 `git merge origin/main` 两次 + 全量 CI 重跑后才合并成功；活跃仓库交付要接受「合并前再同步一次 main」为常态。
+
+---
+
 ## 视频内容保真 video-content-fidelity 复盘：画面-文案不匹配根因与双模式分镜 (2026-08-12)
 
 - **根因**：videogen 流水线 CONCEPT 把长文案压缩成一句 visual_style，STORYBOARD 未拿到原文事实 → 分镜场景与文案脱节（E2E Run #2：733 字三国志文案被分镜成"赛博侦探档案"，白马之战/襄樊之战等核心事件无独立场景，甚至臆造"只用了一年"与原文矛盾）。

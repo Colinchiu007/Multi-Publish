@@ -31,4 +31,4 @@
 ## 6. 收尾
 
 - [x] 6.1 (openspec validate --strict 通过) `openspec validate --change story2video-failure-diagnostics` 通过
-- [ ] 6.2 更新 task.json currentPhase=completed；归档（apply 合入 specs 后按「归档三同步」执行）
+- [x] 6.2 更新 task.json currentPhase=completed；归档（apply 合入 specs 后按「归档三同步」执行）
