@@ -2,8 +2,17 @@
 from __future__ import annotations
 
 import json
+import re
 
 import httpx
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.S)
+
+
+def _strip_think(text: str) -> str:
+    """剥离推理模型的 <think>...</think> 思维链块，只保留最终输出。"""
+    return _THINK_RE.sub("", text or "").strip()
+
 
 TRANSLATION_SYSTEM = (
     "你是专业的提示词翻译助手。把给定的中文图片生成提示词翻译成英文，"
@@ -41,7 +50,7 @@ async def translate_prompt_zh(cfg: dict, prompt_zh: str, http: httpx.AsyncClient
             raise TranslationError(f"翻译服务返回 {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
-        text = content.strip()
+        text = _strip_think(content)
         if not text:
             raise TranslationError("翻译服务返回空内容")
         return text
@@ -84,7 +93,7 @@ async def optimize_scene_prompt(cfg: dict, full_text: str, scene_text: str, scen
             raise TranslationError(f"优化服务返回 {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
-        text = content.strip()
+        text = _strip_think(content)
         if not text:
             raise TranslationError("优化服务返回空内容")
         return text
