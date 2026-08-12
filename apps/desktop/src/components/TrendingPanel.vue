@@ -111,6 +111,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { intelligenceFetchTrending } from '@/api/publisher'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const props = defineProps({
   sources: {
@@ -157,7 +158,7 @@ async function fetchTrending() {
     })
     items.value = result?.items ?? result ?? []
   } catch (err) {
-    error.value = err.message || '获取热门趋势失败，请稍后重试'
+    error.value = formatUserError(err, { fallback: '获取热门趋势失败，请稍后重试' }).message
     items.value = []
   } finally {
     loading.value = false

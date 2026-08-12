@@ -2312,7 +2312,7 @@ export default {
         const result = await clearTtsVoicePreference(this.cloneForIpc(context))
         if (!this.isCurrentS2VVoiceSelectionRequest(requestId, context, this.s2vConfig.voiceId)) return false
         if (result?.code !== 0) {
-          this.s2vVoiceCatalogError = result?.message
+          this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: '音色目录加载失败' }).message
             ? this.friendlyVoiceCatalogError(result?.message)
             : '音色默认值恢复失败。'
           return false
@@ -2339,7 +2339,7 @@ export default {
       if (result?.code !== 0) {
         // 保存失败：回滚下拉与徽标，避免显示一个从未持久化的「默认」音色
         this.s2vConfig.voiceId = previousVoiceId
-        this.s2vVoiceCatalogError = result?.message
+        this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: '音色目录加载失败' }).message
           ? this.friendlyVoiceCatalogError(result?.message)
           : '音色选择保存失败。'
         return false
@@ -3273,7 +3273,7 @@ export default {
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
-    this.cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = err?.message || err || '渲染错误' }))
+    this.cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = formatUserError(err, { fallback: '渲染错误' }).message }))
     this.cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n' }))
   },
   beforeUnmount() {

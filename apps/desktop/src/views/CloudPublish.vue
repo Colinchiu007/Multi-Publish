@@ -115,6 +115,7 @@ import { cloudPublishSubmit, cloudPublishListTasks, cloudPublishGetTask, cloudPu
 import UiInput from '../components/UiInput.vue'
 import UiButton from '../components/UiButton.vue'
 import { reportError } from '../utils/report-error'
+import { formatUserError } from '@/utils/user-facing-error'
 
 export default {
   name: 'CloudPublish',
@@ -218,7 +219,7 @@ export default {
           coverUrl: this.form.coverUrl,
         })
 
-        this.submitResult = res?.code === 0 ? { ok: true, data: res.data } : { ok: false, message: res?.message }
+        this.submitResult = res?.code === 0 ? { ok: true, data: res.data } : { ok: false, message: formatUserError(res, { fallback: '提交失败' }).message }
 
         if (res?.code === 0) {
           // Reset form

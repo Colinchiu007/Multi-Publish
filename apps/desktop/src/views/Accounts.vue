@@ -275,6 +275,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { useTabStore } from '@/stores/tab'
 import { useRoute, useRouter } from 'vue-router'
 import { PLATFORM_DASHBOARD_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const filterOptions = [
   { value: 'all', label: '全部' },
@@ -340,7 +341,7 @@ const accountEvents = useAccountEvents({
     if (Number(data?.expiredCount) > 0) ElMessage.warning(`${data.expiredCount} 个账号登录已失效`)
   },
   onError: error => {
-    ElMessage.error(error?.message || '账号事件处理失败')
+    ElMessage.error(formatUserError(error, { fallback: '账号事件处理失败' }).message)
   },
 })
 const {
@@ -644,13 +645,13 @@ async function addAccount () {
     } else if (result?.code !== 0) {
       loginVisible.value = false
       pendingAuthAction.value = null
-      ElMessage.error(result?.message || '添加失败')
+      ElMessage.error(formatUserError(result, { fallback: '添加失败' }).message)
     }
     if (result?.code === 0) newPlatform.value = ''
   } catch (error) {
     loginVisible.value = false
     pendingAuthAction.value = null
-    ElMessage.error(error?.message || '添加账号失败')
+    ElMessage.error(formatUserError(error, { fallback: '添加账号失败' }).message)
   } finally {
     adding.value = false
   }
@@ -672,12 +673,12 @@ async function reloginAccount (account) {
     } else if (result?.code !== 0) {
       loginVisible.value = false
       pendingAuthAction.value = null
-      ElMessage.error(result?.message || '重新登录失败')
+      ElMessage.error(formatUserError(result, { fallback: '重新登录失败' }).message)
     }
   } catch (error) {
     loginVisible.value = false
     pendingAuthAction.value = null
-    ElMessage.error(error?.message || '重新登录失败')
+    ElMessage.error(formatUserError(error, { fallback: '重新登录失败' }).message)
   }
 }
 
@@ -685,10 +686,10 @@ async function completeAuthView () {
   completingLogin.value = true
   try {
     const result = await accountActions.completeLogin(loginMode.value)
-    if (result?.code !== 0) ElMessage.error(result?.message || '未能保存账号')
+    if (result?.code !== 0) ElMessage.error(formatUserError(result, { fallback: '未能保存账号' }).message)
     else ElMessage.info('正在保存账号...')
   } catch (error) {
-    ElMessage.error(error?.message || '未能保存账号')
+    ElMessage.error(formatUserError(error, { fallback: '未能保存账号' }).message)
   } finally {
     completingLogin.value = false
   }
@@ -713,9 +714,9 @@ async function setDefault (account) {
   try {
     const result = await accountStore.setDefault(account.id, account.platform)
     if (result?.code === 0) ElMessage.success(`已设为 ${platformLabel(account.platform)} 默认账号`)
-    else ElMessage.error(result?.message || '设置默认账号失败')
+    else ElMessage.error(formatUserError(result, { fallback: '设置默认账号失败' }).message)
   } catch (error) {
-    ElMessage.error(error?.message || '设置默认账号失败')
+    ElMessage.error(formatUserError(error, { fallback: '设置默认账号失败' }).message)
   }
 }
 
@@ -724,9 +725,9 @@ async function renameAccount (account, nextName) {
   if (!name || name === (account.account_name || account.name)) return
   try {
     const result = await accountStore.renameAccount(account.id, name)
-    if (result?.code !== 0) ElMessage.error(result?.message || '重命名失败')
+    if (result?.code !== 0) ElMessage.error(formatUserError(result, { fallback: '重命名失败' }).message)
   } catch (error) {
-    ElMessage.error(error?.message || '重命名失败')
+    ElMessage.error(formatUserError(error, { fallback: '重命名失败' }).message)
   }
 }
 
@@ -752,14 +753,14 @@ async function saveProxy (proxy) {
   try {
     const result = await accountActions.setProxy(proxyAccount.value, proxy)
     if (result?.code !== 0) {
-      ElMessage.error(result?.message || '保存代理失败')
+      ElMessage.error(formatUserError(result, { fallback: '保存代理失败' }).message)
       return
     }
     ElMessage.success('账号代理已保存')
     await refresh()
     closeProxyDialog()
   } catch (error) {
-    ElMessage.error(error?.message || '保存代理失败')
+    ElMessage.error(formatUserError(error, { fallback: '保存代理失败' }).message)
   } finally {
     savingProxy.value = false
   }
@@ -771,14 +772,14 @@ async function clearProxy () {
   try {
     const result = await accountActions.setProxy(proxyAccount.value, null)
     if (result?.code !== 0) {
-      ElMessage.error(result?.message || '清除代理失败')
+      ElMessage.error(formatUserError(result, { fallback: '清除代理失败' }).message)
       return
     }
     ElMessage.success('账号代理已清除')
     await refresh()
     closeProxyDialog()
   } catch (error) {
-    ElMessage.error(error?.message || '清除代理失败')
+    ElMessage.error(formatUserError(error, { fallback: '清除代理失败' }).message)
   } finally {
     savingProxy.value = false
   }
@@ -791,7 +792,7 @@ async function checkLogin (account) {
     if (result?.code === 0 && result.data?.valid) ElMessage.success('登录状态有效')
     else ElMessage.warning(result?.data?.message || '登录已失效')
   } catch (error) {
-    ElMessage.error(error?.message || '验证失败')
+    ElMessage.error(formatUserError(error, { fallback: '验证失败' }).message)
   }
 }
 
@@ -820,13 +821,13 @@ async function removeAccount (account) {
     )
     const result = await accountActions.remove(account.id)
     if (result?.code !== 0) {
-      ElMessage.error(result?.message || '删除失败')
+      ElMessage.error(formatUserError(result, { fallback: '删除失败' }).message)
       return
     }
     ElMessage.success('账号已删除')
     await refresh()
   } catch (error) {
-    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error(`操作失败: ${error?.message || '未知错误'}`)
+    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error('操作失败: ' + formatUserError(error, { fallback: '未知错误' }).message)
   }
 }
 
@@ -849,7 +850,7 @@ async function handleBatchDelete () {
     else if (success > 0) ElMessage.warning(`已删除 ${success} 个账号，${failed} 个删除失败`)
     else ElMessage.error(`${failed} 个账号删除失败`)
   } catch (error) {
-    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error(`批量删除失败: ${error?.message || '未知错误'}`)
+    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error('批量删除失败: ' + formatUserError(error, { fallback: '未知错误' }).message)
   }
 }
 
@@ -864,7 +865,7 @@ async function handleBatchStatus (status) {
     else if (success > 0) ElMessage.warning(`${status === 'active' ? '已启用' : '已禁用'} ${success} 个账号，${failed} 个失败`)
     else ElMessage.error(`批量${status === 'active' ? '启用' : '禁用'}失败`)
   } catch (error) {
-    ElMessage.error(error?.message || `批量${status === 'active' ? '启用' : '禁用'}失败`)
+    ElMessage.error(formatUserError(error, { fallback: `批量${status === 'active' ? '启用' : '禁用'}失败` }).message)
   } finally {
     batchStatusBusy.value = false
   }
