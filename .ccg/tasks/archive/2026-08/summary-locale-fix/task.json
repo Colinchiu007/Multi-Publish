@@ -1,0 +1,14 @@
+{
+  "id": "summary-locale-fix",
+  "title": "补 story2video.summaryDuration/summaryFileSize locale 缺键（消除 i18n 警告）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-12T09:40:00+08:00",
+  "branch": "codex/summary-locale-fix",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-summary-locale-fix",
+  "summary": "CreateView 摘要行使用 story2video.summaryDuration/summaryFileSize 键但 locale 缺失，产生 intlify 警告（仅靠硬编码兜底）。修复：zh/en 补两个命名插值键（ctx.named），CreateView.vue 两处调用补传 { text }/{ size } 参数。回归：CreateView 131 + i18n 7 全过，警告消失。"
+}

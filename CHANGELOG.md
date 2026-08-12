@@ -1,3 +1,7 @@
+## [未发布] 修复：补 story2video.summaryDuration/summaryFileSize locale 缺键（2026-08-12）
+
+- CreateView 完成摘要行使用 `story2video.summaryDuration` / `story2video.summaryFileSize` 键但 zh/en locale 缺失，产生 intlify 警告（此前仅靠硬编码兜底）。补两个命名插值键（`ctx.named('text')` / `ctx.named('size')`），`CreateView.vue` 两处调用补传 `{ text }` / `{ size }` 参数。
+- 回归：CreateView 131/131、i18n 7/7；警告消失；前端 build 验证。
 ## [未发布] 修复：main CI 既有失败收尾 — Windows 启动冒烟 hook 超时 + CreateView 断言并发修复记录（2026-08-12）
 
 - 背景：main（1fe02e74）4 个工作流持续失败（electron-tests / QG Coverage / QG Desktop Shards 1/2 / build windows-latest），根因两类均为**既有回归**（9a028b2b 起已存在，与 PR #535 无关）。

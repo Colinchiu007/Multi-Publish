@@ -96,6 +96,8 @@ export default {
     elapsed: (ctx) => 'Elapsed ' + ctx.named('duration'),
     durationSec: (ctx) => String(ctx.named('seconds')) + 's',
     durationMinSec: (ctx) => String(ctx.named('minutes')) + 'm ' + String(ctx.named('seconds')) + 's',
+    summaryDuration: (ctx) => 'Finished in ' + ctx.named('text'),
+    summaryFileSize: (ctx) => 'Size ' + ctx.named('size') + ' MB',
   },
   pipelines: {
     names: {
