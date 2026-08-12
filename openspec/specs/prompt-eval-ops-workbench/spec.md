@@ -14,6 +14,10 @@
 - **WHEN** source_text 为空/超长、prompt_zh 空/超长、context 含敏感键（递归）、provider 未配置密钥、aspect_ratio 非法
 - **THEN** 返回 400 + OPS_PROMPT_EVAL_* 错误，不创建 case
 
+#### Scenario: scene 模式创建 case（场景层评测工作流扩展）
+- **WHEN** 运营选择场景模式并提交整篇文案（≤20000 字）与分句配置
+- **THEN** 创建 source_mode=scene 的 case（prompt_zh 不必需，由逐场景 LLM 生成）并同步分句返回 scenes 列表；manual 模式行为与校验不变
+
 ### Requirement: 真实生成与评估状态机
 创建 run SHALL 异步执行「生成 → 评估」：queued→processing→succeeded（生成物落盘/COS）→ evaluating→succeeded/failed；生成失败（空/非法图片、provider 错误）SHALL run failed 且不静默降级；评估输出非法（非 JSON/分数越界/维度白名单外/problems·points 非数组）SHALL eval_status=failed 且生成物保留；error 记录阶段与原因。
 
@@ -53,3 +57,9 @@ v1 SHALL 仅支持图片（mediaType=image）；runs 表 SHALL 预留 video_path
 - **WHEN** 请求含视频生成参数
 - **THEN** 返回 OPS_PROMPT_EVAL_MEDIA_TYPE_NOT_SUPPORTED「视频评测暂未实现」
 
+### Requirement: 评测列表/详情（场景维度）
+评测列表 SHALL 展示 source_mode 列；scene 模式详情 SHALL 额外返回 scenes（含每场景字幕块/上下文/中英提示词）并展示场景摘要，runs 可按 scene_id 归属到场景卡片。
+
+#### Scenario: scene 模式详情
+- **WHEN** 打开 scene 模式 case 详情
+- **THEN** 展示 scenes 列表与场景 run 关联（scene_id），manual case 不返回 scenes
