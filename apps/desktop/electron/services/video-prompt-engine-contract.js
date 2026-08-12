@@ -254,10 +254,13 @@ function languageFromVideoPlatform (platform) {
  * @returns {'zh'|'en'|''}
  */
 function languageFromVideoModel (model) {
-  const m = String(model || '').toLowerCase()
+  if (typeof model !== 'string') return ''  // 非标量（对象/数组）不参与判定，避免 [object Object] 误命中
+  const m = model.toLowerCase()
   if (!m) return ''
-  if (MODEL_LANGUAGE_KEYWORDS.en.some(k => m.includes(k))) return 'en'
-  if (MODEL_LANGUAGE_KEYWORDS.zh.some(k => m.includes(k))) return 'zh'
+  // 词边界匹配：避免 'wan' 误命中 'swan-video'、'veo' 误命中 'wevideo' 等子串
+  const hit = (kw) => new RegExp('(^|[^a-z0-9])' + kw + '($|[^a-z0-9])').test(m)
+  if (MODEL_LANGUAGE_KEYWORDS.en.some(hit)) return 'en'
+  if (MODEL_LANGUAGE_KEYWORDS.zh.some(hit)) return 'zh'
   return ''
 }
 

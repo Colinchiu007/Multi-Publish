@@ -313,7 +313,8 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
       const parsed = JSON.parse(body)
       expect(parsed.domain).toBeUndefined()
       expect(parsed.platform).toBe('veo')
-      expect(parsed.output_language).toBe('zh')
+      // 语言路由：veo（国外模型）→ en，即使输入为中文（避免中文提示词发给 Veo）
+      expect(parsed.output_language).toBe('en')
       expect(res.optimized_prompt).toBe('ok')
     })
 
@@ -340,19 +341,22 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
         standaloneBody = JSON.parse(body)
         return [{ optimized_prompt: 'a' }, { optimized_prompt: 'b' }]
       })
-      const resOk = await bridge.optimizeVideosBatch(['关羽白马之战', 'a cat'], { platform: 'veo' })
+      // 平台未指定（回退 generic_video，不在平台集合）→ 按文本逐条检测 zh/en
+      const resOk = await bridge.optimizeVideosBatch(['关羽白马之战', 'a cat'])
       expect(standaloneBody.requests).toHaveLength(2)
       expect(standaloneBody.requests[0].output_language).toBe('zh')
       expect(standaloneBody.requests[1].output_language).toBe('en')
       expect(resOk).toHaveLength(2)
       // 回退路径：8013 请求 domain=video、无 output_language
       bridge._postStandalone.mockRejectedValue(new Error('timeout'))
-      const res = await bridge.optimizeVideosBatch(['关羽白马之战', 'a cat'], { platform: 'veo' })
+      const res = await bridge.optimizeVideosBatch(['关羽白马之战', 'a cat'])
       expect(bridge._post.mock.calls[0][0]).toBe('/v1/optimize/batch')
       expect(res.requests).toHaveLength(2)
       expect(res.requests[0].domain).toBe('video')
       expect(res.requests[0].output_language).toBeUndefined()
       expect(res.requests[1].output_language).toBeUndefined()
+      // 8013 零回归：回退请求不携带独立引擎新增字段（model/output_language）
+      expect(res.requests[0].model).toBeUndefined()
     })
 
     it('未启用 8020 时直接走 8013（零回归）', async () => {
@@ -401,6 +405,28 @@ describe('独立引擎语言路由（按目标平台，2026-08-12 增强）', ()
   it('未知平台 + 未知 model → 文本 CJK 检测兜底（现状不变）', () => {
     expect(buildStandaloneVideoOptimizeRequest('关羽白马之战', { platform: 'unknown', model: 'some-model' }).output_language).toBe('zh')
     expect(buildStandaloneVideoOptimizeRequest('a cat runs', { platform: 'unknown', model: 'some-model' }).output_language).toBe('en')
+  })
+
+  it('model 词边界匹配：swan-video 不命中 wan、wevideo 不命中 veo', () => {
+    expect(buildStandaloneVideoOptimizeRequest('中文文案', { platform: 'unknown', model: 'swan-video' }).output_language).toBe('zh')
+    expect(languageFromVideoModel('swan-video')).toBe('')
+    expect(languageFromVideoModel('wevideo-pro')).toBe('')
+    expect(languageFromVideoModel('veo-3.1')).toBe('en')
+    expect(languageFromVideoModel('minimax-video-01')).toBe('zh')
+  })
+
+  it('model 非标量返回空（不误命中）', () => {
+    expect(languageFromVideoModel({ name: 'veo' })).toBe('')
+    expect(languageFromVideoModel(['veo'])).toBe('')
+    expect(buildStandaloneVideoOptimizeRequest('a cat', { platform: 'unknown', model: { name: 'veo' } }).output_language).toBe('en')
+  })
+
+  it('平台与 model 冲突时平台恒胜（veo provider + 国产 model → en）', () => {
+    expect(buildStandaloneVideoOptimizeRequest('中文文案', { platform: 'veo', model: 'hunyuan-video-pro' }).output_language).toBe('en')
+  })
+
+  it('model 同命中两组关键词时锁 en（en 优先判定，当前集合无交集）', () => {
+    expect(languageFromVideoModel('minimax-veo-pro')).toBe('en')
   })
 
   it('languageFromVideoPlatform / languageFromVideoModel 单元', () => {
