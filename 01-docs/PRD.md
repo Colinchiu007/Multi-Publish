@@ -11,9 +11,10 @@
 | 契约层 | 新增 `video-prompt-engine-contract.js`（与图片契约 `prompt-engine-contract.js` 分文件分命名）：视频平台/别名归一、`buildVideoOptimizeRequest`（domain 默认 video、边界收敛、敏感键拦截）、`extractOptimizedVideoPrompt`（error→detail→空串 fail-closed + video 字段收敛） |
 | 桥层 | PromptBridge `optimizeVideo`/`optimizeVideosBatch`；ServiceBus `optimizeVideoPrompt`/`optimizeVideoPromptsBatch` |
 | videogen | `videogen_generate` 前批量优化；结果数量/空项 fail-closed；8013 未运行或 PromptBridge 未注入时明确失败，不静默绕过 |
+| 批量契约 | `/v1/optimize/batch` 单批上限 10→**20**（2026-08-12 调整，prompt-engine #19：覆盖 videogen 12 场景单批 + 余量；服务端有界并发 8 防 LLM 并发风暴）；videogen 批量优化按 ≤20 分块兜底（PR #554/#555），全量 fail-closed |
 | 混合模式 | 视频场景提示词先经 `optimizeVideo` 改写再 `generateSceneVideo`，不再直接复用图片优化提示词；优化失败按既有混合语义回退图片轮播，不中断整线 |
 
-**验收**：`video-prompt-engine-contract.test.js` 19 例；videogen-stages 新增 5 例；story2video-stages 视频分支新增 2 例；受影响 7 套件 294/294（存量 8 失败为 origin/main 基线问题，经 stash/基线对比确认与本次无关）；真实 8013 smoke（MiniMax-M3）返回结构化 video 字段；生产 8013 已重启新分支并验证。
+**验收**：`video-prompt-engine-contract.test.js` 19 例；videogen-stages 新增 5 例；story2video-stages 视频分支新增 2 例；受影响 7 套件 294/294（存量 8 失败为 origin/main 基线问题，经 stash/基线对比确认与本次无关）；真实 8013 smoke（MiniMax-M3）返回结构化 video 字段；生产 8013 已重启新分支并验证。真实 E2E（长文案 animation 流水线）storyboard 12 场景批量优化单批 200（真实 MiniMax-M3 + agnes-video，22s 返回 12 条结构化 video）。
 
 **影响**：视频提示词质量与可审计性提升；videogen 与混合模式新增对 8013 的前置依赖（未运行时明确报错而非静默直传）。
 

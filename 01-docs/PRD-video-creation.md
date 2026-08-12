@@ -315,11 +315,12 @@ videogen：storyboard 场景提示词 → PromptBridge.optimizeVideosBatch（dom
 #### 2) 请求/响应契约（对齐 prompt_engine/models.py video 领域）
 
 - **请求**：`domain=video`（缺省 image 零回归）；`platform` 视频平台枚举（sora/kling/veo/runway/wan/seedance/minimax/hunyuan/cogvideo/ltx/higgsfield/grok/agnes/generic_video）；style/creativeLevel(1-10)/maxLength(50-2000，默认 500)/numCandidates(1-5)/negativePrompt(≤500)/context（对象透传 + 敏感凭据键拦截）。
+- **批量契约**：`/v1/optimize/batch` 单批上限 **20 条**（prompt-engine `BatchOptimizeRequest.max_length`，2026-08-12 由 10 上调）；服务端有界并发 8（防 LLM 并发风暴，结果顺序与请求一致）；videogen 场景数 ≤12 单批通过，>20 由调用方分块兜底（videogen CHUNK_SIZE=20）。
 - **响应**：`optimized_prompt` 渲染单串（provider 直用）+ 结构化 `video` 字段（shot/camera/motion_intensity 1-10/scene_transition/continuity_token/duration_hint）；`extractOptimizedVideoPrompt` 按 error→detail→空串 fail-closed，字段越界收敛、缺失给默认。
 
 #### 3) 集成点
 
-- **videogen**：`videogen_generate` 前批量优化；结果数量与场景数不一致、含空提示词、8013 未运行或 PromptBridge 未注入 → 阶段明确失败，不静默绕过。
+- **videogen**：`videogen_generate` 前批量优化；场景 ≤20 单批（覆盖 storyboard 上限 12），>20 按 ≤20 分块并合并；结果数量与场景数不一致、含空提示词、8013 未运行或 PromptBridge 未注入 → 阶段明确失败，不静默绕过。
 - **混合模式**：`optimizeVideo` 改写后再 `generateSceneVideo`；优化失败按总 PRD 7.1.x 混合语义回退图片轮播（不中断整条流水线）。
 
 #### 4) 验收边界

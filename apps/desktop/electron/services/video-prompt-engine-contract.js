@@ -11,6 +11,8 @@
  *   - 视频优化请求构造（/v1/optimize domain=video 请求体，字段与边界对齐 prompt_engine/models.py）
  *   - 结构化 video 字段收敛（shot/camera/motion_intensity/scene_transition/continuity_token/duration_hint）
  *   - fail-closed 输出校验（error 优先 → 结构 → 内容，与图片契约语义一致）
+ *   - 批量契约：/v1/optimize/batch 单批上限 20 条（prompt-engine BatchOptimizeRequest.max_length，2026-08-12 由 10 上调，
+ *     服务端有界并发 8）；videogen 场景数 ≤12 单批通过，>20 由调用方分块兜底。
  */
 'use strict'
 

@@ -264,7 +264,7 @@ describe('videogen 共享阶段执行器', () => {
       expect(result.error).toContain('视频提示词优化失败')
     })
 
-    it('超过 10 个场景时批量优化按 ≤10 分块并合并（prompt-engine 批量上限 10 回归）', async () => {
+    it('12 场景单批优化（prompt-engine 批量上限 20，videogen 上限 12 回归）', async () => {
       const ai = makeVideoAi(async () => ({ code: -1, message: 'stop' }))
       const batchCalls = []
       const { get } = makePipeline(ai, null, {
@@ -276,12 +276,34 @@ describe('videogen 共享阶段执行器', () => {
       const prompts = Array.from({ length: 12 }, (_, i) => 'scene-prompt-' + i)
       const context = { storyboard: prompts.map(p => ({ prompt: p })) }
       const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_12', stage: { options: {} }, params: { text: '主题' },
+        context,
+      })
+      expect(result.success).toBe(false)
+      expect(batchCalls).toEqual([12])
+      expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith(
+        'agnes-video', 'generateVideo', expect.objectContaining({ prompt: '[opt] scene-prompt-0' }),
+      )
+    })
+
+    it('超过 20 个场景时批量优化按 ≤20 分块并合并（>20 兜底回归）', async () => {
+      const ai = makeVideoAi(async () => ({ code: -1, message: 'stop' }))
+      const batchCalls = []
+      const { get } = makePipeline(ai, null, {
+        optimizeVideoPromptsBatch: vi.fn(async (prompts) => {
+          batchCalls.push(prompts.length)
+          return prompts.map(p => ({ optimized_prompt: '[opt] ' + p }))
+        }),
+      })
+      const prompts = Array.from({ length: 22 }, (_, i) => 'scene-prompt-' + i)
+      const context = { storyboard: prompts.map(p => ({ prompt: p })) }
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
         runId: 'run_chunk', stage: { options: {} }, params: { text: '主题' },
         context,
       })
-      // 视频生成全部失败（mock 返回 code:-1），但批量优化必须先按 10+2 分块完成
+      // 视频生成全部失败（mock 返回 code:-1），但批量优化必须先按 20+2 分块完成
       expect(result.success).toBe(false)
-      expect(batchCalls).toEqual([10, 2])
+      expect(batchCalls).toEqual([20, 2])
       expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith(
         'agnes-video', 'generateVideo', expect.objectContaining({ prompt: '[opt] scene-prompt-0' }),
       )

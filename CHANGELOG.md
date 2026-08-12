@@ -47,6 +47,13 @@
 - 修复：`callDefaultLlm` 新增推理模型识别（`isReasoningLlmModel`，按 model id 特征匹配），未显式传 max_tokens 且命中推理特征时默认预算放大到 5000，给思考块留足空间保证完整 JSON；显式传值仍优先。
 - 测试：videogen-stages.test.js 新增 4 用例（推理识别 / 推理型放大 5000 / 非推理保持 1600 / 显式覆盖），25/25 通过。
 
+## [未发布] 调整：视频提示词批量优化上限 10→20 + 有界并发（2026-08-12）
+
+- 背景：真实 E2E 发现 animation 流水线 storyboard 最多产出 12 个视频场景，一次性批量优化触发 prompt-engine 批量上限 10 → 422 整线失败（已先以客户端 ≤10 分块修复，PR #554）。
+- 调整：prompt-engine `/v1/optimize/batch` 单批上限 **10→20**（prompt-engine #19），覆盖 videogen 12 场景单批 + 余量；服务端执行从全量并行改为**有界并发（Semaphore 8）**，防放大上限后对 LLM 造成并发风暴；videogen 批量优化 CHUNK_SIZE 对齐为 20，>20 极端场景仍分块兜底。
+- 测试：prompt-engine test_batch（20/超限 21/12 条单批合法）；videogen-stages 新增「12 场景单批」「>20 分块 [20,2]」回归；真实 12 条 batch smoke 200（MiniMax-M3，22s）。
+- 文档：PRD.md 7.1.33 批量契约行 + PRD-video-creation §3.1.2.2 批量契约/集成点更新。
+
 ## [未发布] 修复：缺失/不可读 BGM 不再阻断项目保存，成片成功时不得误判为失败（2026-08-11）
 
 - 根因：compose 阶段对缺失/不可读 BGM 已按 bgmSkipped 降级跳过并成功合成成片，但项目保存（_persistS2VTextConfig）仍对 bgmPath 无条件 _copyRequired，源缺失时抛错，导致「成片成功却误判项目保存失败」。
