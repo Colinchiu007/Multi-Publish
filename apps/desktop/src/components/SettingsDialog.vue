@@ -1,7 +1,7 @@
 <template>
   <UiModal
     :visible="visible"
-    title="设置"
+    :title="t('settings.title')"
     size="xl"
     width="1100px"
     @close="$emit('close')"
@@ -16,7 +16,7 @@
           @click="onTabClick(tab)"
         >
           <span class="tab-label">{{ tab.label }}</span>
-          <span v-if="tab.disabled" class="tab-badge">敬请期待</span>
+          <span v-if="tab.disabled" class="tab-badge">{{ t('settings.tabComingSoon') }}</span>
         </button>
       </div>
       <!-- 右侧内容区 -->
@@ -25,7 +25,7 @@
         <LogsSettings v-else-if="activeTab === 'general'" />
         <div v-else class="placeholder-panel">
           <div class="placeholder-icon">🚧</div>
-          <p>该功能正在开发中，敬请期待</p>
+          <p>{{ t('settings.placeholder') }}</p>
         </div>
       </div>
     </div>
@@ -33,7 +33,8 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import UiModal from './UiModal.vue'
 import ModelProviders from '@/views/ModelProviders.vue'
 import LogsSettings from './LogsSettings.vue'
@@ -43,13 +44,14 @@ defineProps({
 })
 defineEmits(['close'])
 
+const { t } = useI18n()
 const activeTab = ref('model')
-const tabs = [
-  { key: 'model', label: '模型设置', disabled: false },
-  { key: 'general', label: '通用设置', disabled: false },
-  { key: 'publish', label: '发布设置', disabled: true },
-  { key: 'account', label: '账号设置', disabled: true },
-]
+const tabs = computed(() => [
+  { key: 'model', label: t('settings.tabModel'), disabled: false },
+  { key: 'general', label: t('settings.tabGeneral'), disabled: false },
+  { key: 'publish', label: t('settings.tabPublish'), disabled: true },
+  { key: 'account', label: t('settings.tabAccount'), disabled: true },
+])
 
 function onTabClick (tab) {
   if (tab.disabled) return
