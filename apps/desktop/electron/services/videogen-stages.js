@@ -476,12 +476,19 @@ function registerVideoGenStages (pipelineEngine) {
         } catch (error) {
           videos.push({ index: i, success: false, error: (error && error.message ? error.message : String(error)) })
         }
+        // 逐场景进度事件（execution-recorder 已订阅 scene:complete/scene:fail）
+        const _lastScene = videos[videos.length - 1]
+        if (_lastScene && _lastScene.success) {
+          pipelineEngine._emit('scene:complete', { runId, sceneIndex: i, total: scenes.length })
+        } else if (_lastScene) {
+          pipelineEngine._emit('scene:fail', { runId, sceneIndex: i, total: scenes.length, error: _lastScene.error })
+        }
       }
       const ok = videos.filter(v => v.success)
       if (ok.length === 0) {
         return { success: false, error: '该流水线视频生成全部失败：' + videos.map(v => v.error).join('；') }
       }
-      return { success: true, output: { videos: ok, scenes } }
+      return { success: true, output: { videos: ok, scenes, sceneProgress: { completed: videos.filter(v => v.success).length, total: scenes.length } } }
     },
   )
   registered.push(VIDEOGEN_STAGE_TYPES.GENERATE)
