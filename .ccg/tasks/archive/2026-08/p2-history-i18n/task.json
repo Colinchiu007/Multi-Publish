@@ -1,0 +1,14 @@
+{
+  "branch": "codex/p2-history-i18n",
+  "openspecChange": "desktop-ui-i18n-p2(已归档,第一批)",
+  "complexity": "M",
+  "id": "p2-history-i18n",
+  "pr": "#585 merged 54a4522e",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "risk": "medium",
+  "title": "P2 存量 i18n 第四批：PublishHistory 发布历史页文案全量多语言化",
+  "completedAt": "2026-08-12T07:25:16Z",
+  "status": "completed",
+  "remoteStatus": "merged"
+}

@@ -4,6 +4,28 @@
 - 修复：改为 `res.data?.presets ?? res.data?.items ?? res.data` 防御性解析 + `Array.isArray` 兜底（结构异常时置空而非崩溃）。
 - 验证：ops-center 前端 `npm run build` 通过。
 
+## [2026-08-12] 字幕对齐真实 E2E 集成验证（stage 接线链路）
+
+- 新增 `subtitle-align-e2e.test.js`（RUN_ALIGNER_E2E=1 时执行，CI 默认 skip）：真实 edge-tts 合成旁白 → 真实 aligner 子进程（faster-whisper base）→ 真实 `alignScenes` 服务 → subtitleTimeline/subtitleAlign
+- 实测：7 块全部 aligned=true / method=asr / coverage≥0.9；块区间连续且存在真实停顿间隔（比例估算无间隔）；charTimings 与块区间一致
+- 时间轴：0.22~1.84 / 2.30~4.14 / 4.65~6.10 / 6.56~8.66 / 9.05~10.36 / 10.73~12.02 / 12.43~14.14（15.72s 音频）
+- 覆盖：stage 接线链路（此前仅 mock 单测）现已含真实子进程/ASR 集成证据
+
+## [2026-08-12] 视频克隆 切片 2：真实 ingest / analyze / plan adapter（PR #596 前身）
+
+- `packages/video-clone-engine/src/adapters/`：runners（ffprobe 元数据 / ffmpeg scene 场景检测 / yt-dlp 下载 / 下载错误文本分类）、ingest-local（存在/大小/扩展名/时长校验 + 错误映射）、ingest-url（下载 + 平台提示 + 私密/会员/地区/反爬分类）、analyze-ffprobe（补探元数据 + 场景检测降级合成分段 + ASR 契约 + 7 层骨架 + aspect 派生）、plan-script（改写契约 + inspiration 模式 + 防御归一化）、index（createDefaultIngest / createSlice2Pipeline）。
+- 错误码新增 VIDEOCLONE_FILE_NOT_FOUND；测试 67 用例全绿（含 2 个真实 ffprobe/ffmpeg 集成 smoke，工具缺失自动 skip）。
+- PRD v1.2 §16 切片 2 详细规格（本地校验流程 / 下载分类 / 场景检测参数 / ASR 与改写契约 / runner 环境变量 / 集成验证）。
+
+## [2026-08-12] 视频克隆独立流水线 切片 1：engine 核心（契约/编排/相似度）+ 详细规格
+
+- 新增 `packages/video-clone-engine`（纯 Node、零依赖）：CloneReport 7 层 schema 校验/归一化/编辑往返/IPC 脱壳；23 个错误码分类（阶段×可重试×用户提示键）；六阶段编排（ingest→analyze→plan→generate→compose→publish，checkpoint 断点续跑 + 有界重试 + fail-closed）；F4 相似度自检（结构/文案/风格/时长 + 证据门控 + verbatim 照抄警告）；Pipeline 门面与阶段 adapter 注入契约。
+- 测试：40 用例全绿（`node --test`，零依赖）。
+- OpenSpec change `video-clone-pipeline`（proposal/design/tasks/spec delta）；PRD v1.1 新增 §11-15 详细规格（数据校验、流程与功能逻辑、交互逻辑与显示项、提示文字 zh/en 与错误码、测试与门禁）。
+- 切片 2+ 待办：真实 ingest（yt-dlp/ffprobe）、analyze（ASR/镜头/风格）、plan 改写、generate provider 接入、compose（ffmpeg）、publish（PublisherRouter）、桌面 UI。
+=======
+>>>>>>> origin/main
+
 ## [2026-08-12] 修复 subtitle-align-service 单测 CI 回归（mock isAlignerAvailable，PR #590）
 
 - 根因：alignScenes 调用 bridge 前先查 isAlignerAvailable()（ALIGNER_DIR/aligner 模块存在性）；CI 未部署

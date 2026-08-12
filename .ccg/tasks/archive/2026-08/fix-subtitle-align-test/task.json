@@ -1,0 +1,14 @@
+{
+  "branch": "codex/fix-subtitle-align-test",
+  "openspecChange": "",
+  "complexity": "S",
+  "id": "fix-subtitle-align-test",
+  "pr": "#590 merged 3956fbbd",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "risk": "low",
+  "title": "修复 subtitle-align-service 测试 CI 上游回归（ALIGNER_DIR 环境化）",
+  "completedAt": "2026-08-12T07:25:16Z",
+  "status": "completed",
+  "remoteStatus": "merged"
+}
