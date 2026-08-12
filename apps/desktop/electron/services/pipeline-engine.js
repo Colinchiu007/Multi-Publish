@@ -674,6 +674,8 @@ class PipelineEngine {
     this.story2videoProjectService = deps.story2videoProjectService || null;
     this.runStateStore = deps.runStateStore || null;
     this.governor = deps.governor || null;
+    // 可选：run 终结后的上报/扩展钩子（additive，默认 null；_finalizeRun 内 try/catch 调用）
+    this._runFinalizedHook = typeof deps.runFinalizedHook === 'function' ? deps.runFinalizedHook : null;
     // 后台并行运行上限（编排模式）：同机资源有限（ffmpeg 合成 CPU 密集、API 受 governor 限流）。
     // 优先级：deps.maxConcurrentRuns 显式注入（测试/调优）> STORY2VIDEO_MAX_CONCURRENT_RUNS 环境变量开关
     // （如设 2 即固定 2 条，1-8 合法，非法/空回退自适应）> 机器资源自适应（computeDefaultMaxConcurrentRuns，1-4 条）。
@@ -1539,6 +1541,12 @@ class PipelineEngine {
     return this._runs.get('_' + this._currentPipeline);
   }
 
+  /** 设置 run 终结钩子（additive）：run 完成/失败/取消并附加 diagnostics 后调用。 */
+  setRunFinalizedHook (fn) {
+    this._runFinalizedHook = typeof fn === 'function' ? fn : null
+    return this
+  }
+
   _finalizeRun(run, status, error) {
     if (!run || run.endedAt) return;
     run.status = status;
@@ -1556,6 +1564,12 @@ class PipelineEngine {
       }));
     } catch (diagError) {
       this.log.warn('PipelineEngine', 'diagnostics build failed: ' + (diagError instanceof Error ? diagError.message : String(diagError)));
+    }
+    // 可选上报钩子（additive）：入队诊断样本；失败仅记 warn，不影响终态
+    if (typeof this._runFinalizedHook === 'function') {
+      try { this._runFinalizedHook(run) } catch (hookError) {
+        this.log.warn('PipelineEngine', 'runFinalizedHook failed: ' + (hookError instanceof Error ? hookError.message : String(hookError)));
+      }
     }
     // 执行日志：运行终态（完成/失败/取消）+ 总耗时 + 错误摘要（截断，不含敏感原文）
     const finalizeDurationMs = run.startedAt ? Date.now() - new Date(run.startedAt).getTime() : null;

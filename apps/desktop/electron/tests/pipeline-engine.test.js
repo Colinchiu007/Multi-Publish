@@ -647,4 +647,23 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     expect(Array.isArray(run.diagnostics.failure.candidates)).toBe(true)
     expect(() => JSON.stringify(run.diagnostics)).not.toThrow()
   })
+
+  it('setRunFinalizedHook 在 _finalizeRun 终态后调用（additive，失败仅 warn）', () => {
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const calls = []
+    engine.setRunFinalizedHook((run) => { calls.push(run.id) })
+    const run = { id: 'run-hook-1', pipeline: 'story2video-compose', status: 'running', stages: [], context: {}, orchestrationMode: 'orchestrator', startedAt: new Date().toISOString() }
+    engine._runs.set(run.id, run)
+    engine._finalizeRun(run, 'failed', 'boom')
+    expect(calls).toEqual(['run-hook-1'])
+    expect(run.diagnostics).toBeTruthy()
+
+    // 钩子抛错不影响终态
+    const engine2 = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    engine2.setRunFinalizedHook(() => { throw new Error('hook boom') })
+    const run2 = { id: 'run-hook-2', pipeline: 'story2video-compose', status: 'running', stages: [], context: {}, orchestrationMode: 'orchestrator', startedAt: new Date().toISOString() }
+    engine2._runs.set(run2.id, run2)
+    expect(() => engine2._finalizeRun(run2, 'completed', null)).not.toThrow()
+    expect(run2.status).toBe('completed')
+  })
 })
