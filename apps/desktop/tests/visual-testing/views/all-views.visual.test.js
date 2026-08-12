@@ -50,6 +50,7 @@ const viewTests = [
   routeView('viral-analysis', '/viral-analysis', '.cohere-main .page-title:has-text("爆款分析")'),
   routeView('providers-redirect', '/providers', '.cohere-main .page-title:has-text("模型服务商设置")', '页面主标题', '/model-providers'),
   routeView('model-providers', '/model-providers', '.cohere-main .page-title:has-text("模型服务商设置")'),
+  routeView('video-clone', '/video-clone', '.video-clone-view'),
   routeView('create-editor', '/create', '.cohere-main h1:has-text("视频创作")'),
   routeView('create-pipeline-redirect', '/create/pipeline', '.cohere-main h1:has-text("视频创作")', '页面主标题', '/create'),
   routeView('create-result', '/create/result', '.cohere-main h1:has-text("视频预览")'),

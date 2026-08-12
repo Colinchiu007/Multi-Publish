@@ -32,7 +32,7 @@ const HIDDEN = new Set([
 const GAPS = new Set([]);
 
 const RE1 = /ipcMain\.handle\s*\(\s*['"]([^'"]+)['"]/g;
-const RE2 = /ipcRenderer\.invoke\s*\(\s*['"]([^'"]+)['"]/g;
+const RE2 = /\bipcRenderer\w*\.invoke\s*\(\s*['"]([^'"]+)['"]/g;
 
 function isProductionSourceFile(name) {
   return name.endsWith('.js') && !name.endsWith('.test.js') && name !== 'types.js';
