@@ -302,6 +302,15 @@ split（分句）→ domain_enrich（历史内容领域增强，可选）
 - 真实优化质量（LLM 改写效果、风格检测准确率、配额）属于**外部验收边界**：单元/集成测试用 mock PromptBridge / 本地 HTTP stub 覆盖契约与 fail-closed 行为，不冒充真实 8013 + provider 验收通过（见 learnings 与 quality-gates 记录）。
 - `creative_level ≤ 3` 走 prompt-engine 模板直出（免 LLM key），`> 3` 需要 LLM key（未配置时服务端返回 error → fail closed）。
 
+### 3.1.2.3 独立视频提示词优化引擎（video-prompt-engine，2026-08-12 规划）
+
+**正式落点**：视频提示词优化引擎已独立为 `video_prompt_engine/`（prompt-engine 仓库，端口 8020），与图片引擎（8013）**完全分离**——独立包/知识库/策略/模型/配置，不 import `prompt_engine.*`。
+
+- 端点：`POST /v1/video/optimize`、`/v1/video/optimize/batch`（≤20、并发 8）、`GET /v1/video/platforms`、`GET /v1/video/keywords`、`GET /health`
+- 视频知识库：`keywords_video.json`（7 维度 2059 关键词，源自 img-prompt）+ `seed_video_prompts.json`（结构化种子，源自 awesome-video-prompts 等 7 个开源仓库）
+- 策略：generic_video（六要素+Fact-Fidelity）/ seedance（@引用/多模态）；结构化输出 shot/camera/motion_intensity/scene_transition/continuity_token/duration_hint
+- 与既有 §3.1.2.2（domain=video 分支，8013）并存兼容；**后续 videogen 集成将切换至 8020 独立引擎**（迁移任务，本版本文档标注，不强制）
+
 ### 3.1.2.2 视频提示词统一走 prompt-engine video 领域合同（2026-08-12 落地）
 
 **目标**：项目内所有 AI 视频生成（videogen 流水线、Story2Video 混合模式）的提示词统一经 prompt-engine（8013）`domain=video` 完成改写与输出校验，不再裸传 provider、不再把图片优化提示词直接当视频提示词用。
@@ -323,6 +332,28 @@ videogen：storyboard 场景提示词 → PromptBridge.optimizeVideosBatch（dom
 
 - **videogen**：`videogen_generate` 前批量优化；场景 ≤20 单批（覆盖 storyboard 上限 12），>20 按 ≤20 分块并合并；结果数量与场景数不一致、含空提示词、8013 未运行或 PromptBridge 未注入 → 阶段明确失败，不静默绕过。
 - **混合模式**：`optimizeVideo` 改写后再 `generateSceneVideo`；优化失败按总 PRD 7.1.x 混合语义回退图片轮播（不中断整条流水线）。
+
+#### 3.5) 内容保真：分镜-文案对齐（video-content-fidelity，2026-08-12）
+
+**目标**：让视频画面与输入文案在人物、事件、时代、核心论点上对齐，同时保留"一句话 → LLM 完成整个视频创意"的原始能力。详见 PRD-video-content-fidelity.md / ARCH-video-content-fidelity.md / IMPLEMENTATION-ANALYSIS-video-content-fidelity.md。
+
+**分镜双模式**：storyboardMode 显式参数或 auto 自动判定（段落≥3 或字≥300 或句≥8 → fidelity；字≤80 且句≤2 → creative；其余 hybrid）。
+
+| 模式 | 语义 | 对齐门禁 | context 注入 |
+|---|---|---|---|
+| creative | LLM 自由拓展创意（原始机制） | 关闭 | 无 |
+| fidelity | 按原文保真：人物/事件/时代/核心论点不得改变，关键事件必须有场景 | 启用 | 有 |
+| hybrid | 保真主旨 + 允许可视化演绎 | 启用 | 有 |
+
+**段落化**：fidelity/hybrid 下输入文案按空行/句号切分为有序段落，storyboard 每场景绑定 source_paras；全文 >6000 字截断并标记 truncated。
+
+**对齐门禁**：从文案抽取关键实体（内置词典 + LLM 兜底），校验场景覆盖度 ≥ minCoverage(0.8)；不达标带缺失清单重试（≤2 次），耗尽 fail closed（STORYBOARD_ALIGNMENT_FAILED）；空场景 fail closed（STORYBOARD_EMPTY_SCENES）。
+
+**优化 context 注入**：videogen 批量优化请求每项携带 context（白名单键 synopsis/character/setting/character_list/full_text，长度收敛 + 敏感键拦截），prompt-engine 视频策略追加 Fact-Fidelity 指令（不得改变主体身份/时代/事件）。
+
+**对齐报告**：mode/coverage/matched/missing/retries 写入 run 上下文 videoContentFidelity；视觉层评估接口预留（返回 not_implemented，不冒充实现）。
+
+**配置**：story2videoTextConfig.video_content_fidelity（enabled/minCoverage/maxRetries/llmExtractFallback/maxFullTextChars），越界 fail closed（与 scene_context 契约一致）。
 
 #### 4) 验收边界
 

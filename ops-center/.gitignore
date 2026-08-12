@@ -6,8 +6,11 @@ __pycache__/
 dist/
 node_modules/
 .env
-data/
+data/*
+!data/scene_context_rules.template.json
 .codegraph/
 *.log
 *.tmp
 .login-token.txt
+
+

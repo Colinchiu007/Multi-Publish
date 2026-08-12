@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import fs from 'node:fs'
 import path from 'node:path'
+import i18n from '@/i18n'
 
 const historyListMock = vi.fn()
 const draftListMock = vi.fn()
@@ -36,7 +37,7 @@ vi.mock('@/stores/platforms', () => ({
 import PublishHistory from './PublishHistory.vue'
 
 function mountView () {
-  return mount(PublishHistory)
+  return mount(PublishHistory, { global: { plugins: [i18n] } })
 }
 
 async function flushHistory () {
@@ -48,6 +49,7 @@ async function flushHistory () {
 
 describe('PublishHistory', () => {
   beforeEach(() => {
+    i18n.global.locale.value = 'zh'
     vi.clearAllMocks()
     historyListMock.mockReset().mockResolvedValue({
       code: 0,

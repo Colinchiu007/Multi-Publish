@@ -122,7 +122,7 @@
 | 批次 | 范围 | 说明 |
 |------|------|------|
 | P1 | 错误/警告/技术性提示统一接入 `formatUserError` | ✅ 已完成（PR #529 + 2026-08-12） |
-| P2 | 高频页面导航/操作类文案抽入 vue-i18n（Home/Publish/Accounts/History/Settings） | 进行中（建议优先） |
+| P2 | 高频页面导航/操作类文案抽入 vue-i18n（Home/Publish/Accounts/History/Settings） | 进行中：✅ Home.vue（PR #565）；✅ Publish.vue（PR #570）；✅ Accounts.vue（PR #577）；✅ PublishHistory.vue + PublishTypeDialog（PR #585）；待办 Settings |
 | P3 | 视频创作（CreateView ~1000 处）分批抽取 | 需配合视觉回归 |
 | P4 | 采集/监控/项目库/其余面板 | 低优先级 |
 

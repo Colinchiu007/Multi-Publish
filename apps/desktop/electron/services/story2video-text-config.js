@@ -289,6 +289,7 @@ function normalizeStory2VideoTextParams(params = {}) {
   const splitInput = objectValue(suppliedConfig.split)
   const optimizeInput = objectValue(suppliedConfig.optimize)
   const sceneContextInput = objectValue(suppliedConfig.scene_context)
+  const videoContentFidelityInput = objectValue(suppliedConfig.video_content_fidelity)
   const imageInput = objectValue(suppliedConfig.image)
   const voiceInput = objectValue(suppliedConfig.voice)
   const subtitleInput = objectValue(suppliedConfig.subtitle)
@@ -360,6 +361,15 @@ function normalizeStory2VideoTextParams(params = {}) {
     maxAnchors: numberValue(firstDefined(own(sceneContextInput, 'maxAnchors'), params.sceneContextMaxAnchors), 8, 'scene_context.maxAnchors', 1, 20, true),
     includeNegativeAnchors: booleanValue(firstDefined(own(sceneContextInput, 'includeNegativeAnchors'), params.sceneContextIncludeNegativeAnchors), true),
     contextBlockMaxChars: numberValue(firstDefined(own(sceneContextInput, 'contextBlockMaxChars'), params.sceneContextContextBlockMaxChars), 400, 'scene_context.contextBlockMaxChars', 50, 1000, true),
+  }
+
+  // video-content-fidelity：分镜双模式 + 内容对齐门禁配置（S1/S3）
+  const videoContentFidelity = {
+    enabled: booleanValue(firstDefined(own(videoContentFidelityInput, 'enabled'), params.videoContentFidelityEnabled), true),
+    minCoverage: numberValue(firstDefined(own(videoContentFidelityInput, 'minCoverage'), params.videoContentFidelityMinCoverage), 0.8, 'video_content_fidelity.minCoverage', 0, 1),
+    maxRetries: numberValue(firstDefined(own(videoContentFidelityInput, 'maxRetries'), params.videoContentFidelityMaxRetries), 2, 'video_content_fidelity.maxRetries', 0, 5, true),
+    llmExtractFallback: booleanValue(firstDefined(own(videoContentFidelityInput, 'llmExtractFallback'), params.videoContentFidelityLlmExtractFallback), true),
+    maxFullTextChars: numberValue(firstDefined(own(videoContentFidelityInput, 'maxFullTextChars'), params.videoContentFidelityMaxFullTextChars), 6000, 'video_content_fidelity.maxFullTextChars', 500, 20000, true),
   }
 
   const image = {
@@ -479,6 +489,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     split,
     optimize,
     scene_context: sceneContext,
+    video_content_fidelity: videoContentFidelity,
     image,
     video: videoConfig,
     voice,

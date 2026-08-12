@@ -4,27 +4,27 @@
       <section class="publish-drafts-page" data-testid="publish-drafts-page" aria-labelledby="publish-drafts-title">
         <header class="publish-drafts-header">
           <div>
-            <div id="publish-drafts-title" class="page-title">草稿箱</div>
-            <div class="page-subtitle">查看、编辑或删除已保存的内容草稿</div>
+            <div id="publish-drafts-title" class="page-title">{{ t('publishPage.draftsTitle') }}</div>
+            <div class="page-subtitle">{{ t('publishPage.draftsSubtitle') }}</div>
           </div>
-          <UiButton data-testid="publish-drafts-back" variant="secondary" @click="goToPublish">返回发布</UiButton>
+          <UiButton data-testid="publish-drafts-back" variant="secondary" @click="goToPublish">{{ t('publishPage.backToPublish') }}</UiButton>
         </header>
 
-        <div v-if="loadingDrafts" class="publish-drafts-state" data-testid="publish-drafts-loading" role="status">正在加载草稿...</div>
+        <div v-if="loadingDrafts" class="publish-drafts-state" data-testid="publish-drafts-loading" role="status">{{ t('publishPage.loadingDrafts') }}</div>
         <div v-else-if="drafts.length === 0" class="publish-drafts-state" data-testid="publish-drafts-empty">
-          <strong>暂无草稿</strong>
-          <span>保存草稿后，可以从这里继续编辑。</span>
+          <strong>{{ t('publishPage.noDrafts') }}</strong>
+          <span>{{ t('publishPage.draftsHint') }}</span>
         </div>
         <div v-else class="publish-drafts-list">
           <article v-for="draft in drafts" :key="draft.id" class="publish-draft-card">
             <div class="publish-draft-info">
-              <strong>{{ draft.title || '无标题' }}</strong>
-              <span>{{ draft.updatedAt || draft.updated_at ? new Date(draft.updatedAt || draft.updated_at).toLocaleString('zh-CN') : '更新时间未知' }}</span>
-              <span v-if="draft.platforms?.length" class="cohere-tag cohere-tag-info">{{ draft.platforms.length }} 个平台</span>
+              <strong>{{ draft.title || t('publishPage.untitled') }}</strong>
+              <span>{{ draft.updatedAt || draft.updated_at ? new Date(draft.updatedAt || draft.updated_at).toLocaleString(getAppLocale() === 'en' ? 'en-US' : 'zh-CN') : t('publishPage.updatedUnknown') }}</span>
+              <span v-if="draft.platforms?.length" class="cohere-tag cohere-tag-info">{{ t('publishPage.platformCount', { count: draft.platforms.length }) }}</span>
             </div>
             <div class="publish-draft-actions">
-              <UiButton :data-testid="`edit-draft-${draft.id}`" variant="ghost" size="sm" @click="editDraft(draft)">继续编辑</UiButton>
-              <UiButton :data-testid="`delete-draft-${draft.id}`" variant="ghost" size="sm" @click="removeDraft(draft.id)">删除</UiButton>
+              <UiButton :data-testid="`edit-draft-${draft.id}`" variant="ghost" size="sm" @click="editDraft(draft)">{{ t('publishPage.continueEdit') }}</UiButton>
+              <UiButton :data-testid="`delete-draft-${draft.id}`" variant="ghost" size="sm" @click="removeDraft(draft.id)">{{ t('publishPage.delete') }}</UiButton>
             </div>
           </article>
         </div>
@@ -35,12 +35,12 @@
     <div class="cohere-page-header">
       <div class="publish-header-row">
         <div class="flex-spacer">
-          <div class="page-title">一键发布<span v-if="hasExplicitPublishType" class="publish-type-context"> · {{ publishTypeLabel }}</span></div>
-          <div class="page-subtitle">{{ batchMode ? '批量编辑多篇文章，各平台独立发布' : '编辑内容并发布到多个平台' }}</div>
+          <div class="page-title">{{ t('publishPage.publishTitle') }}<span v-if="hasExplicitPublishType" class="publish-type-context"> · {{ publishTypeLabel }}</span></div>
+          <div class="page-subtitle">{{ batchMode ? t('publishPage.batchSubtitle') : t('publishPage.singleSubtitle') }}</div>
         </div>
         <label class="cohere-toggle batch-mode-toggle">
           <input data-testid="publish-batch-mode" type="checkbox" v-model="batchMode" class="coral-check" @change="checkBatchAccess" />
-          <span>批量模式</span>
+          <span>{{ t('publishPage.batchMode') }}</span>
         </label>
       </div>
     </div>
@@ -52,43 +52,43 @@
           <!-- 文章编号 + 删除 -->
           <div class="article-card-row">
             <span class="cohere-tag cohere-tag-info">#{{ idx + 1 }}</span>
-            <span v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ 定时</span>
+            <span v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ {{ t('publishPage.scheduled') }}</span>
             <div class="flex-spacer"></div>
-            <UiButton variant="ghost" size="sm" @click="duplicateArticle(idx)" title="复制">📋</UiButton>
-            <UiButton variant="ghost" size="sm" @click="removeArticle(idx)" v-if="articles.length > 1" title="删除" class="coral-text">✕</UiButton>
+            <UiButton :data-testid="`batch-copy-${idx}`" variant="ghost" size="sm" @click="duplicateArticle(idx)" :title="t('publishPage.copy')">📋</UiButton>
+            <UiButton :data-testid="`batch-delete-${idx}`" variant="ghost" size="sm" @click="removeArticle(idx)" v-if="articles.length > 1" :title="t('publishPage.delete')" class="coral-text">✕</UiButton>
           </div>
 
           <!-- 文章编辑 -->
           <div class="cohere-form">
             <div class="cohere-form-item">
               <div class="title-row">
-                <label class="cohere-form-label no-margin-bottom">标题</label>
+                <label class="cohere-form-label no-margin-bottom">{{ t('publishPage.title') }}</label>
                 <button class="cohere-btn-ghost template-pick-button" @click="showTemplatePicker = true; templateTargetIdx = idx">
-                  📝 模板
+                  📝 {{ t('publishPage.template') }}
                 </button>
               </div>
-              <UiInput v-model="a.title" placeholder="请输入文章标题" />
+              <UiInput v-model="a.title" :placeholder="t('publishPage.titlePlaceholder')" />
             </div>
             <div class="cohere-form-item">
-              <label class="cohere-form-label">正文</label>
-              <UiInput type="textarea" v-model="a.content" placeholder="请输入正文" :rows="5" />
+              <label class="cohere-form-label">{{ t('publishPage.content') }}</label>
+              <UiInput type="textarea" v-model="a.content" :placeholder="t('publishPage.contentPlaceholder')" :rows="5" />
             </div>
             <div class="cohere-form-item batch-metadata-grid">
               <div>
-                <label class="cohere-form-label">标签</label>
-                <UiInput v-model="a.tagsText" placeholder="多个标签用逗号分隔" />
+                <label class="cohere-form-label">{{ t('publishPage.tags') }}</label>
+                <UiInput v-model="a.tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
               </div>
               <div>
-                <label class="cohere-form-label">话题</label>
-                <UiInput v-model="a.topicsText" placeholder="多个话题用逗号分隔" />
+                <label class="cohere-form-label">{{ t('publishPage.topics') }}</label>
+                <UiInput v-model="a.topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
               </div>
               <div>
-                <label class="cohere-form-label">@好友</label>
-                <UiInput v-model="a.mentionsText" placeholder="输入昵称或 @昵称" />
+                <label class="cohere-form-label">{{ t('publishPage.mentions') }}</label>
+                <UiInput v-model="a.mentionsText" :placeholder="t('publishPage.mentionsPlaceholder')" />
               </div>
             </div>
             <div class="cohere-form-item">
-              <label class="cohere-form-label">发布目标</label>
+              <label class="cohere-form-label">{{ t('publishPage.publishTarget') }}</label>
               <div class="batch-platform-targets">
                 <label v-for="p in platforms" :key="p.id" class="batch-platform-option">
                   <input type="checkbox" :value="p.id" v-model="a.platforms" class="coral-check" />
@@ -96,7 +96,7 @@
                 </label>
                 <template v-for="p in platforms" :key="p.id + '-accounts'">
                   <div v-if="a.platforms.includes(p.id) && getAccounts(p.id).length > 0" class="batch-account-targets">
-                    <span class="batch-account-label">{{ p.label }}账号</span>
+                    <span class="batch-account-label">{{ p.label }}{{ t('publishPage.accountSuffix') }}</span>
                     <label v-for="account in getAccounts(p.id)" :key="account.id" class="batch-account-option">
                       <input
                         type="checkbox"
@@ -110,9 +110,9 @@
               </div>
             </div>
             <div class="cohere-form-item">
-              <label class="cohere-form-label">定时发布</label>
+              <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
               <UiInput type="datetime-local" v-model="a.publishTime" class="input-max-260" />
-              <span class="publish-time-hint">留空 = 立即发布</span>
+              <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
             </div>
           </div>
         </div>
@@ -124,29 +124,29 @@
 
         <!-- 操作 -->
         <div class="row-actions">
-          <UiButton variant="secondary" @click="addArticle">＋ 添加文章</UiButton>
+          <UiButton variant="secondary" @click="addArticle">{{ t('publishPage.addArticle') }}</UiButton>
           <div class="flex-spacer"></div>
           <UiButton data-testid="publish-batch-submit" @click="handleBatchPublish" :disabled="batchPublishing || articles.length === 0">
-            {{ batchPublishing ? '发布中...' : `🚀 批量发布 (${totalPlatformTasks} 个任务)` }}
+            {{ batchPublishing ? t('publishPage.publishing') : t('publishPage.batchPublish', { count: totalPlatformTasks }) }}
           </UiButton>
         </div>
 
         <!-- 进度 -->
         <div v-if="batchProgress.length > 0" class="cohere-card cohere-card-static">
-          <div class="progress-title">批量发布进度</div>
+          <div class="progress-title">{{ t('publishPage.batchProgressTitle') }}</div>
           <div class="progress-toolbar">
-            <span class="cohere-tag cohere-tag-success">✅ {{ batchDone }} 完成</span>
-            <span class="cohere-tag cohere-tag-danger">❌ {{ batchFail }} 失败</span>
+            <span class="cohere-tag cohere-tag-success">✅ {{ t('publishPage.doneCount', { count: batchDone }) }}</span>
+            <span class="cohere-tag cohere-tag-danger">❌ {{ t('publishPage.failCount', { count: batchFail }) }}</span>
             <UiButton
               v-if="failedBatchTasks.length > 0"
               variant="secondary"
               size="sm"
               :disabled="retryingFailed || batchPublishing"
-              title="重新发布失败任务"
+              :title="t('publishPage.retryFailed')"
               @click="retryFailedBatch"
             >
               <Refresh class="batch-retry-icon" />
-              {{ retryingFailed ? '重新提交中...' : `重新发布失败任务 (${failedBatchTasks.length})` }}
+              {{ retryingFailed ? t('publishPage.retrying') : t('publishPage.retryFailedCount', { count: failedBatchTasks.length }) }}
             </UiButton>
           </div>
           <ul class="cohere-timeline">
@@ -167,9 +167,9 @@
             <div class="cohere-form">
               <div class="cohere-form-item">
                 <div class="title-row">
-                  <label class="cohere-form-label no-margin-bottom">标题</label>
+                  <label class="cohere-form-label no-margin-bottom">{{ t('publishPage.title') }}</label>
                   <button class="cohere-btn-ghost template-pick-button" @click="showTemplatePicker = !showTemplatePicker; templateTargetIdx = -1">
-                    {{ showTemplatePicker ? '✕ 关闭' : '📝 模板' }}
+                    {{ showTemplatePicker ? t('publishPage.close') : '📝 ' + t('publishPage.template') }}
                   </button>
                   <button
                     type="button"
@@ -179,10 +179,10 @@
                     :aria-expanded="showAiWriter"
                     @click="showAiWriter = !showAiWriter"
                   >
-                    {{ showAiWriter ? '✕ 关闭' : '🤖 AI' }}
+                    {{ showAiWriter ? t('publishPage.close') : t('publishPage.aiWriter') }}
                   </button>
                 </div>
-                <UiInput data-testid="publish-title" v-model="article.title" placeholder="请输入文章标题" />
+                <UiInput data-testid="publish-title" v-model="article.title" :placeholder="t('publishPage.titlePlaceholder')" />
               </div>
               <div v-if="showTemplatePicker && templateTargetIdx < 0" class="stack-gap">
                 <TemplatePicker @close="showTemplatePicker = false" @apply="applyTemplate" />
@@ -196,11 +196,11 @@
                 />
               </div>
               <div class="cohere-form-item">
-                <label class="cohere-form-label">作者</label>
-                <UiInput v-model="article.author" placeholder="作者名称（选填）" class="input-max-300" />
+                <label class="cohere-form-label">{{ t('publishPage.author') }}</label>
+                <UiInput v-model="article.author" :placeholder="t('publishPage.authorPlaceholder')" class="input-max-300" />
               </div>
               <div class="cohere-form-item">
-                <label class="cohere-form-label">图片素材</label>
+                <label class="cohere-form-label">{{ t('publishPage.images') }}</label>
                 <el-upload
                   v-model:file-list="imageFileList"
                   class="publish-media-upload"
@@ -211,24 +211,24 @@
                   :on-change="handleImageFileChange"
                   :on-remove="handleImageFileRemove"
                 >
-                  <button type="button" class="media-upload-trigger">选择图片</button>
-                  <template #tip><div class="el-upload__tip">支持 JPG/PNG/WebP，最多 9 张；图片会随发布任务传给平台适配器</div></template>
+                  <button type="button" class="media-upload-trigger">{{ t('publishPage.selectImages') }}</button>
+                  <template #tip><div class="el-upload__tip">{{ t('publishPage.imageTip') }}</div></template>
                 </el-upload>
               </div>
               <div class="cohere-form-item">
-                <label class="cohere-form-label">正文</label>
+                <label class="cohere-form-label">{{ t('publishPage.content') }}</label>
                 <ArticleEditor data-testid="publish-editor" v-model="article.content" />
               </div>
               <div class="cohere-form-item" v-if="hasVideoPlatforms">
-                <label class="cohere-form-label">视频文件</label>
+                <label class="cohere-form-label">{{ t('publishPage.videoFile') }}</label>
                 <el-upload drag :auto-upload="false" :limit="1" accept="video/*" :on-change="(file) => { article.video_path = (file.raw && (file.raw.path || file.raw.name)) || file.name || '' }">
                   <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-                  <div class="el-upload__text">拖拽视频文件到这里，或 <em>点击选择</em></div>
-                  <template #tip><div class="el-upload__tip">支持 mp4/mov/avi，最大 500MB</div></template>
+                  <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
+                  <template #tip><div class="el-upload__tip">{{ t('publishPage.videoTip') }}</div></template>
                 </el-upload>
               </div>
               <div class="cohere-form-item">
-                <label class="cohere-form-label">封面图</label>
+                <label class="cohere-form-label">{{ t('publishPage.cover') }}</label>
                 <el-upload
                   v-model:file-list="coverFileList"
                   class="publish-media-upload"
@@ -238,34 +238,34 @@
                   :on-change="handleCoverFileChange"
                   :on-remove="handleCoverFileRemove"
                 >
-                  <button type="button" class="media-upload-trigger">选择封面</button>
-                  <template #tip><div class="el-upload__tip">可选择本地封面，也可以填写图片链接</div></template>
+                  <button type="button" class="media-upload-trigger">{{ t('publishPage.selectCover') }}</button>
+                  <template #tip><div class="el-upload__tip">{{ t('publishPage.coverTip') }}</div></template>
                 </el-upload>
-                <UiInput v-model="article.cover_url" placeholder="封面图片链接（选填）" />
+                <UiInput v-model="article.cover_url" :placeholder="t('publishPage.coverUrlPlaceholder')" />
               </div>
               <div class="cohere-form-item publish-metadata-grid">
                 <div>
-                  <label class="cohere-form-label" for="publish-tags">标签</label>
-                  <UiInput id="publish-tags" v-model="tagsText" placeholder="多个标签用逗号分隔" />
+                  <label class="cohere-form-label" for="publish-tags">{{ t('publishPage.tags') }}</label>
+                  <UiInput id="publish-tags" v-model="tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
                 </div>
                 <div>
-                  <label class="cohere-form-label" for="publish-topics">话题</label>
-                  <UiInput id="publish-topics" v-model="topicsText" placeholder="多个话题用逗号分隔" />
+                  <label class="cohere-form-label" for="publish-topics">{{ t('publishPage.topics') }}</label>
+                  <UiInput id="publish-topics" v-model="topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
                 </div>
                 <div>
-                  <label class="cohere-form-label" for="publish-mentions">@好友</label>
-                  <UiInput id="publish-mentions" v-model="mentionsText" placeholder="输入昵称或 @昵称" />
+                  <label class="cohere-form-label" for="publish-mentions">{{ t('publishPage.mentions') }}</label>
+                  <UiInput id="publish-mentions" v-model="mentionsText" :placeholder="t('publishPage.mentionsPlaceholder')" />
                 </div>
               </div>
               <div class="cohere-form-item">
-                <label class="cohere-form-label">定时发布</label>
+                <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
                 <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
-                <span class="publish-time-hint">留空 = 立即发布</span>
+                <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
               </div>
               <div class="cohere-form-item">
                 <button class="publish-section-toggle" type="button" @click="showDiffPanel = !showDiffPanel">
-                  <span>平台差异化内容</span>
-                  <span class="publish-section-toggle__state">{{ showDiffPanel ? '收起' : '展开' }}</span>
+                  <span>{{ t('publishPage.diffContent') }}</span>
+                  <span class="publish-section-toggle__state">{{ showDiffPanel ? t('publishPage.collapse') : t('publishPage.expand') }}</span>
                 </button>
                 <PlatformOverridePanel
                   v-if="showDiffPanel"
@@ -281,7 +281,7 @@
           <!-- 智能标签建议 -->
           <TagSuggester v-if="showTagPanel && combinedContent.length > 3" :content="combinedContent" class="stack-gap" @close="showTagPanel = false" />
           <div v-if="!showTagPanel && combinedContent.length > 3" class="stack-gap stack-center">
-            <UiButton variant="ghost" size="sm" @click="showTagPanel = true"># 显示标签建议</UiButton>
+            <UiButton variant="ghost" size="sm" @click="showTagPanel = true">{{ t('publishPage.showTagSuggest') }}</UiButton>
           </div>
 
           <!-- 最佳发布时间 -->
@@ -290,12 +290,12 @@
           <!-- 标题助手 -->
           <TitleAssistantPanel :title="article.title" :visible="showTitlePanel" @close="showTitlePanel = false" class="stack-gap" />
           <div v-if="!showTitlePanel && article.title.length > 5" class="stack-gap stack-center">
-            <UiButton variant="ghost" size="sm" @click="showTitlePanel = true">📊 标题参考</UiButton>
+            <UiButton variant="ghost" size="sm" @click="showTitlePanel = true">{{ t('publishPage.titleReference') }}</UiButton>
           </div>
 
           <div class="cohere-card cohere-card-static">
             <div class="cohere-form cohere-form-gap">
-              <div class="cohere-form-label">发布目标</div>
+              <div class="cohere-form-label">{{ t('publishPage.publishTarget') }}</div>
               <PublishTargetSelector
                 data-testid="publish-target-selector"
                 :groups="groupedPlatforms"
@@ -306,10 +306,10 @@
                 @toggle-account="toggleAccount"
               />
               <div class="cohere-divider"></div>
-              <UiButton variant="secondary" class="side-button-block" @click="saveDraft" :disabled="publishing">💾 保存草稿</UiButton>
-              <UiButton variant="ghost" size="sm" class="side-button-block" @click="showDraftList = true; loadDrafts()">📋 草稿箱</UiButton>
+              <UiButton variant="secondary" class="side-button-block" @click="saveDraft" :disabled="publishing">{{ t('publishPage.saveDraft') }}</UiButton>
+              <UiButton variant="ghost" size="sm" class="side-button-block" @click="showDraftList = true; loadDrafts()">{{ t('publishPage.drafts') }}</UiButton>
               <UiButton data-testid="publish-submit" class="side-button-full" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
-                {{ publishing ? '发布中...' : '🚀 一键发布' }}
+                {{ publishing ? t('publishPage.publishing') : t('publishPage.quickPublish') }}
               </UiButton>
               <UiButton
                 v-if="activeTaskIds.length > 0 || activeScheduleIds.length > 0"
@@ -317,7 +317,7 @@
                 class="side-button-block side-button-block-top"
                 @click="cancelPublish"
               >
-                取消任务
+                {{ t('publishPage.cancelTasks') }}
               </UiButton>
             </div>
           </div>
@@ -333,30 +333,30 @@
           <!-- 草稿箱面板 -->
           <div v-if="showDraftList" class="cohere-card cohere-card-offset">
             <div class="draft-list-header">
-              <div class="draft-list-title"> 草稿箱</div>
+              <div class="draft-list-title"> {{ t('publishPage.draftsTitle') }}</div>
               <button @click="showDraftList = false" class="plain-close-button">✕</button>
             </div>
-            <div v-if="drafts.length === 0" class="draft-empty">暂无草稿</div>
+            <div v-if="drafts.length === 0" class="draft-empty">{{ t('publishPage.noDrafts') }}</div>
             <div v-else class="draft-list">
               <div v-for="d in drafts" :key="d.id" class="draft-item">
                 <div class="draft-info">
-                  <div class="draft-title">{{ d.title || '无标题' }}</div>
+                  <div class="draft-title">{{ d.title || t('publishPage.untitled') }}</div>
                   <div class="draft-meta">
-                    <span class="draft-time">{{ d.updatedAt ? new Date(d.updatedAt).toLocaleString('zh-CN') : '' }}</span>
-                    <span v-if="d.platforms && d.platforms.length" class="cohere-tag cohere-tag-info">{{ d.platforms.length }} 个平台</span>
+                    <span class="draft-time">{{ d.updatedAt ? new Date(d.updatedAt).toLocaleString(getAppLocale() === 'en' ? 'en-US' : 'zh-CN') : '' }}</span>
+                    <span v-if="d.platforms && d.platforms.length" class="cohere-tag cohere-tag-info">{{ t('publishPage.platformCount', { count: d.platforms.length }) }}</span>
                   </div>
                 </div>
                 <div class="row-actions-compact">
-                  <UiButton variant="ghost" size="sm" @click="loadDraft(d.id)">加载</UiButton>
-                  <UiButton variant="ghost" size="sm" @click="removeDraft(d.id)" class="coral-text">删除</UiButton>
+                  <UiButton variant="ghost" size="sm" @click="loadDraft(d.id)">{{ t('publishPage.load') }}</UiButton>
+                  <UiButton variant="ghost" size="sm" @click="removeDraft(d.id)" class="coral-text">{{ t('publishPage.delete') }}</UiButton>
                 </div>
               </div>
             </div>
           </div>
           <div v-if="result" class="cohere-card cohere-card-offset">
             <div class="result-header-row">
-              <span v-if="result.success" class="cohere-tag cohere-tag-success">✓ 发布成功</span>
-              <span v-else class="cohere-tag cohere-tag-danger">✗ 发布失败</span>
+              <span v-if="result.success" class="cohere-tag cohere-tag-success">{{ t('publishPage.publishSuccess') }}</span>
+              <span v-else class="cohere-tag cohere-tag-danger">{{ t('publishPage.publishFailed') }}</span>
               <span class="muted-text">{{ result.message }}</span>
             </div>
             <UiButton
@@ -366,12 +366,12 @@
               class="stack-gap-top"
               @click="retryPublish"
             >
-              重试发布
+              {{ t('publishPage.retryPublish') }}
             </UiButton>
             <div v-if="result.url" class="result-link-row">
-              <a :href="result.url" target="_blank" class="result-link">查看文章 →</a>
+              <a :href="result.url" target="_blank" class="result-link">{{ t('publishPage.viewArticle') }}</a>
               <button @click="copyUrl(result.url)" class="copy-url-button" :class="{ 'is-copied': copied }">
-                {{ copied ? '✓ 已复制' : '复制链接' }}
+                {{ copied ? t('publishPage.copied') : t('publishPage.copyLink') }}
               </button>
             </div>
           </div>
@@ -387,6 +387,8 @@ import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { getAppLocale } from '@/i18n'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { Refresh, UploadFilled } from '@element-plus/icons-vue'
@@ -418,6 +420,7 @@ import { usePublishPlatformCatalog } from '@/features/publish/usePublishPlatform
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const publishTab = computed(() => String(route.query?.tab || 'publish'))
 const publishType = computed(() => {
   const value = String(route.query?.type || '').toLowerCase()
@@ -425,10 +428,10 @@ const publishType = computed(() => {
 })
 const hasExplicitPublishType = computed(() => ['video', 'image', 'article', 'wechat'].includes(String(route.query?.type || '').toLowerCase()))
 const publishTypeLabel = computed(() => ({
-  video: '视频发布',
-  image: '图文发布',
-  article: '文章发布',
-  wechat: '公众号',
+  video: t('publishPage.typeVideo'),
+  image: t('publishPage.typeImage'),
+  article: t('publishPage.typeArticle'),
+  wechat: t('publishPage.typeWechat'),
 }[publishType.value]))
 
 const showDiffPanel = ref(false)

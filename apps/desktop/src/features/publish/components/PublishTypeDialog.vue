@@ -15,8 +15,8 @@
           tabindex="-1"
         >
           <header class="publish-type-header">
-            <h2 id="publish-type-dialog-title" data-testid="publish-type-dialog-title">选择发布类型</h2>
-            <button class="publish-type-close" type="button" aria-label="关闭" @click="emit('close')">×</button>
+            <h2 id="publish-type-dialog-title" data-testid="publish-type-dialog-title">{{ t('publishType.title') }}</h2>
+            <button class="publish-type-close" type="button" :aria-label="t('publishType.close')" @click="emit('close')">×</button>
           </header>
 
           <div class="publish-type-grid">
@@ -30,8 +30,8 @@
             >
               <span class="publish-type-icon" :class="`tone-${option.tone}`" aria-hidden="true">{{ option.icon }}</span>
               <span class="publish-type-card-title">{{ option.label }}</span>
-              <span class="publish-type-support">支持平台 ({{ option.platforms.length }})</span>
-              <span v-if="option.platforms.length" class="publish-type-platforms" aria-label="支持的平台">
+              <span class="publish-type-support">{{ t('publishType.supportCount', { count: option.platforms.length }) }}</span>
+              <span v-if="option.platforms.length" class="publish-type-platforms" :aria-label="t('publishType.supportedAria')">
                 <span
                   v-for="platform in option.platforms.slice(0, 7)"
                   :key="platform.id"
@@ -50,7 +50,10 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
+
+const { t } = useI18n()
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -66,10 +69,10 @@ const fallbackPlatforms = Object.entries(PLATFORM_NAMES).map(([id, label]) => ({
 }))
 
 const typeDefinitions = [
-  { value: 'video', label: '视频发布', icon: '▶', tone: 'violet', ids: ['douyin', 'kuaishou', 'tencent_video', 'bilibili', 'youtube', 'tiktok', 'weibo', 'xiaohongshu', 'toutiao'] },
-  { value: 'image', label: '图文发布', icon: '▧', tone: 'blue', ids: ['douyin', 'xiaohongshu', 'weibo', 'zhihu', 'toutiao', 'baijiahao', 'wechat_mp', 'instagram', 'facebook'] },
-  { value: 'article', label: '文章发布', icon: '▤', tone: 'pink', ids: ['wechat_mp', 'zhihu', 'baijiahao', 'toutiao', 'weibo', 'bilibili', 'instagram', 'twitter'] },
-  { value: 'wechat', label: '公众号', icon: '◉', tone: 'purple', ids: ['wechat_mp'] },
+  { value: 'video', labelKey: 'typeVideo', icon: '▶', tone: 'violet', ids: ['douyin', 'kuaishou', 'tencent_video', 'bilibili', 'youtube', 'tiktok', 'weibo', 'xiaohongshu', 'toutiao'] },
+  { value: 'image', labelKey: 'typeImage', icon: '▧', tone: 'blue', ids: ['douyin', 'xiaohongshu', 'weibo', 'zhihu', 'toutiao', 'baijiahao', 'wechat_mp', 'instagram', 'facebook'] },
+  { value: 'article', labelKey: 'typeArticle', icon: '▤', tone: 'pink', ids: ['wechat_mp', 'zhihu', 'baijiahao', 'toutiao', 'weibo', 'bilibili', 'instagram', 'twitter'] },
+  { value: 'wechat', labelKey: 'typeWechat', icon: '◉', tone: 'purple', ids: ['wechat_mp'] },
 ]
 
 const availablePlatforms = computed(() => {
@@ -83,6 +86,7 @@ const availablePlatforms = computed(() => {
 
 const typeOptions = computed(() => typeDefinitions.map(definition => ({
   ...definition,
+  label: t('publishType.' + definition.labelKey),
   platforms: availablePlatforms.value.filter(platform => definition.ids.includes(platform.id)),
 })))
 </script>

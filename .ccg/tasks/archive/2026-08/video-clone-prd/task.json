@@ -1,0 +1,12 @@
+{
+  "id": "video-clone-prd",
+  "title": "视频克隆产品需求细化（PM 技能应用）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "product",
+  "currentPhase": "review",
+  "nextAction": "PR #595 CI 运行中（gui-test 安装修复已推）；待全绿后合并并归档",
+  "createdAt": "2026-08-12T00:00:00Z",
+  "branch": "main"
+}

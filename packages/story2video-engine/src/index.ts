@@ -12,6 +12,7 @@ export * from './types';
 export * from './slideshow';
 export * from './audio-mixer';
 export * from './text-segmentation';
+export * from './subtitle-aligner';
 export * from './effects-library';
 export * from './bgm-library';
 export * from './watermark';

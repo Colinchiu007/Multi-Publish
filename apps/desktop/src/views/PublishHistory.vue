@@ -1,11 +1,11 @@
 <template>
   <div class="publish-history-page">
     <header class="history-header">
-      <h1>发布记录</h1>
-      <span>{{ totalRecords }} 条发布任务</span>
+      <h1>{{ t('historyPage.pageTitle') }}</h1>
+      <span>{{ t('historyPage.totalTasks', { count: totalRecords }) }}</span>
     </header>
 
-    <div class="history-tabs" role="tablist" aria-label="发布内容">
+    <div class="history-tabs" role="tablist" :aria-label="t('historyPage.tablistAria')">
       <button
         id="records-tab"
         class="history-tab"
@@ -19,7 +19,7 @@
         @click="activeTab = 'records'"
         @keydown="onTabKeydown($event, 0)"
       >
-        发布记录
+        {{ t('historyPage.tabRecords') }}
       </button>
       <button
         id="drafts-tab"
@@ -34,7 +34,7 @@
         @click="openDrafts"
         @keydown="onTabKeydown($event, 1)"
       >
-        草稿箱
+        {{ t('historyPage.tabDrafts') }}
       </button>
     </div>
 
@@ -48,20 +48,20 @@
                 v-model="searchQuery"
                 data-testid="history-search"
                 type="search"
-                placeholder="搜索作品描述或任务标题..."
-                aria-label="搜索作品描述或任务标题"
+                :placeholder="t('historyPage.searchPlaceholder')"
+                :aria-label="t('historyPage.searchAria')"
               >
             </label>
             <div class="history-command-bar">
               <button class="secondary-action" type="button" data-testid="start-selection" @click="selectionMode = true">
-                <Operation />批量管理
+                <Operation />{{ t('historyPage.batchManage') }}
               </button>
-              <div class="view-toggle" role="group" aria-label="记录视图">
+              <div class="view-toggle" role="group" :aria-label="t('historyPage.viewAria')">
                 <button
                   class="icon-action"
                   type="button"
-                  title="网格视图"
-                  aria-label="网格视图"
+                  :title="t('historyPage.gridView')"
+                  :aria-label="t('historyPage.gridView')"
                   :aria-pressed="viewMode === 'grid'"
                   data-testid="view-grid"
                   @click="viewMode = 'grid'"
@@ -71,8 +71,8 @@
                 <button
                   class="icon-action"
                   type="button"
-                  title="列表视图"
-                  aria-label="列表视图"
+                  :title="t('historyPage.listView')"
+                  :aria-label="t('historyPage.listView')"
                   :aria-pressed="viewMode === 'list'"
                   data-testid="view-list"
                   @click="viewMode = 'list'"
@@ -81,95 +81,95 @@
                 </button>
               </div>
               <button class="secondary-action" type="button" data-testid="export-history" :disabled="filteredRecords.length === 0" @click="exportHistory">
-                <Download />导出
+                <Download />{{ t('historyPage.export') }}
               </button>
               <button class="primary-action" type="button" data-testid="new-publish" @click="goToEditor()">
-                <CirclePlus />新建发布
+                <CirclePlus />{{ t('historyPage.newPublish') }}
               </button>
             </div>
           </div>
           <div class="history-filters">
-            <select v-model="publisherFilter" data-testid="publisher-filter" aria-label="发布人筛选">
-              <option value="">全部发布人</option>
+            <select v-model="publisherFilter" data-testid="publisher-filter" :aria-label="t('historyPage.filterPublisherAria')">
+              <option value="">{{ t('historyPage.allPublishers') }}</option>
               <option v-for="publisher in publisherOptions" :key="publisher" :value="publisher">{{ publisher }}</option>
             </select>
-            <select v-model="contentTypeFilter" data-testid="content-type-filter" aria-label="作品类型筛选">
-              <option value="">全部作品类型</option>
-              <option value="article">图文</option>
-              <option value="video">视频</option>
-              <option value="image">图片</option>
+            <select v-model="contentTypeFilter" data-testid="content-type-filter" :aria-label="t('historyPage.filterContentTypeAria')">
+              <option value="">{{ t('historyPage.allContentTypes') }}</option>
+              <option value="article">{{ t('historyPage.contentTypeArticle') }}</option>
+              <option value="video">{{ t('historyPage.contentTypeVideo') }}</option>
+              <option value="image">{{ t('historyPage.contentTypeImage') }}</option>
             </select>
-            <select v-model="statusFilter" data-testid="status-filter" aria-label="发布状态筛选">
-              <option value="">全部发布状态</option>
-              <option value="success">发布成功</option>
-              <option value="failed">发布失败</option>
-              <option value="pending">处理中</option>
+            <select v-model="statusFilter" data-testid="status-filter" :aria-label="t('historyPage.filterStatusAria')">
+              <option value="">{{ t('historyPage.allStatuses') }}</option>
+              <option value="success">{{ t('historyPage.filterStatusSuccess') }}</option>
+              <option value="failed">{{ t('historyPage.filterStatusFailed') }}</option>
+              <option value="pending">{{ t('historyPage.filterStatusPending') }}</option>
             </select>
-            <select v-model="publishModeFilter" data-testid="publish-mode-filter" aria-label="发布模式筛选">
-              <option value="">全部发布模式</option>
-              <option value="immediate">立即发布</option>
-              <option value="scheduled">定时发布</option>
+            <select v-model="publishModeFilter" data-testid="publish-mode-filter" :aria-label="t('historyPage.filterModeAria')">
+              <option value="">{{ t('historyPage.allModes') }}</option>
+              <option value="immediate">{{ t('historyPage.modeImmediate') }}</option>
+              <option value="scheduled">{{ t('historyPage.modeScheduled') }}</option>
             </select>
-            <select v-model="platformFilter" data-testid="platform-filter" aria-label="平台筛选">
-              <option value="">全部平台</option>
+            <select v-model="platformFilter" data-testid="platform-filter" :aria-label="t('historyPage.filterPlatformAria')">
+              <option value="">{{ t('historyPage.allPlatforms') }}</option>
               <option v-for="platform in platformOptions" :key="platform" :value="platform">{{ platformName(platform) }}</option>
             </select>
-            <select v-model="dateFilter" data-testid="date-filter" aria-label="时间筛选">
-              <option value="">全部时间</option>
-              <option value="today">今天</option>
-              <option value="7d">最近 7 天</option>
-              <option value="30d">最近 30 天</option>
+            <select v-model="dateFilter" data-testid="date-filter" :aria-label="t('historyPage.filterDateAria')">
+              <option value="">{{ t('historyPage.allDates') }}</option>
+              <option value="today">{{ t('historyPage.dateToday') }}</option>
+              <option value="7d">{{ t('historyPage.date7d') }}</option>
+              <option value="30d">{{ t('historyPage.date30d') }}</option>
             </select>
           </div>
         </template>
         <div v-else class="selection-toolbar">
           <span class="selection-summary">
             <span aria-hidden="true" class="selection-box"></span>
-            已选择 {{ selectedIds.length }} 项内容
+            {{ t('historyPage.selectedSummary', { count: selectedIds.length }) }}
           </span>
           <button class="toolbar-button" type="button" :disabled="filteredRecords.length === 0" @click="toggleSelectAll">
-            {{ allSelected ? '取消全选' : '全选' }}
+            {{ allSelected ? t('historyPage.deselectAll') : t('historyPage.selectAll') }}
           </button>
           <button
             class="toolbar-button danger"
             type="button"
             data-testid="delete-selected-history"
             :disabled="selectedIds.length === 0 || deletingSelected"
-            :title="selectedIds.length === 0 ? '请选择要删除的发布记录' : '删除选中的发布记录'"
+            :title="selectedIds.length === 0 ? t('historyPage.deleteSelectedHint') : t('historyPage.deleteSelectedTitle')"
             @click="deleteSelectedRecords"
           >
-            <Delete />{{ deletingSelected ? '删除中...' : '删除' }}
+            <Delete />{{ deletingSelected ? t('historyPage.deleting') : t('historyPage.delete') }}
           </button>
-          <button class="toolbar-button" type="button" @click="cancelSelection"><Close />取消选择</button>
-          <div class="view-toggle" role="group" aria-label="记录视图">
-            <button class="icon-action" type="button" title="网格视图" aria-label="网格视图" :aria-pressed="viewMode === 'grid'" data-testid="view-grid" @click="viewMode = 'grid'"><Grid /></button>
-            <button class="icon-action" type="button" title="列表视图" aria-label="列表视图" :aria-pressed="viewMode === 'list'" data-testid="view-list" @click="viewMode = 'list'"><List /></button>
+          <button class="toolbar-button" type="button" @click="cancelSelection"><Close />{{ t('historyPage.cancelSelection') }}</button>
+          <div class="view-toggle" role="group" :aria-label="t('historyPage.viewAria')">
+            <button class="icon-action" type="button" :title="t('historyPage.gridView')" :aria-label="t('historyPage.gridView')" :aria-pressed="viewMode === 'grid'" data-testid="view-grid" @click="viewMode = 'grid'"><Grid /></button>
+            <button class="icon-action" type="button" :title="t('historyPage.listView')" :aria-label="t('historyPage.listView')" :aria-pressed="viewMode === 'list'" data-testid="view-list" @click="viewMode = 'list'"><List /></button>
           </div>
-          <button class="secondary-action" type="button" data-testid="export-history" :disabled="filteredRecords.length === 0" @click="exportHistory"><Download />导出</button>
-          <button class="primary-action" type="button" data-testid="new-publish" @click="goToEditor()"><CirclePlus />新建发布</button>
+          <button class="secondary-action" type="button" data-testid="export-history" :disabled="filteredRecords.length === 0" @click="exportHistory"><Download />{{ t('historyPage.export') }}</button>
+          <button class="primary-action" type="button" data-testid="new-publish" @click="goToEditor()"><CirclePlus />{{ t('historyPage.newPublish') }}</button>
         </div>
       </div>
 
       <div class="panel-toolbar">
-        <span class="record-count">共 {{ filteredRecords.length }} 条记录</span>
-        <span v-if="hasActiveFilters" class="filter-result">已从 {{ records.length }} 条任务中筛选</span>
+        <span class="record-count">{{ t('historyPage.recordsCount', { count: filteredRecords.length }) }}</span>
+        <span v-if="hasActiveFilters" class="filter-result">{{ t('historyPage.filteredFrom', { count: records.length }) }}</span>
         <span v-if="actionMessage" class="action-message" role="status">{{ actionMessage }}</span>
       </div>
 
-      <div v-if="loading" class="state-panel" role="status">正在加载发布记录...</div>
+      <div v-if="loading" class="state-panel" role="status">{{ t('historyPage.loadingRecords') }}</div>
       <div v-else-if="errorMessage" class="state-panel state-error" role="alert">
-        <p>发布记录加载失败</p>
+        <p>{{ t('historyPage.recordsLoadFailed') }}</p>
         <span>{{ errorMessage }}</span>
-        <button class="secondary-action" type="button" data-testid="retry-history" @click="loadRecords()">重试</button>
+        <button class="secondary-action" type="button" data-testid="retry-history" @click="loadRecords()">{{ t('historyPage.retry') }}</button>
       </div>
       <div v-else-if="records.length === 0" class="state-panel">
-        <p>暂无发布记录</p>
-        <span>完成一次发布后，任务状态会显示在这里。</span>
+        <p>{{ t('historyPage.noRecords') }}</p>
+        <span>{{ t('historyPage.noRecordsHint') }}</span>
       </div>
-      <div v-else-if="hasActiveFilters && loadingMore" class="state-panel" role="status">正在检索全部发布记录...</div>
+      <div v-else-if="hasActiveFilters && loadingMore" class="state-panel" role="status">{{ t('historyPage.searchingAll') }}</div>
       <div v-else-if="filteredRecords.length === 0" class="state-panel">
-        <p>没有匹配的发布记录</p>
-        <button class="secondary-action" type="button" @click="clearFilters">清除筛选</button>
+        <p>{{ t('historyPage.noMatchingRecords') }}</p>
+        <button class="secondary-action" type="button" @click="clearFilters">{{ t('historyPage.clearFilters') }}</button>
       </div>
       <div v-else class="record-list" :class="{ 'grid-view': viewMode === 'grid' }">
         <article v-for="record in filteredRecords" :key="record.id" class="record-card">
@@ -178,7 +178,7 @@
               v-model="selectedIds"
               type="checkbox"
               :value="record.id"
-              :aria-label="`选择${recordTitle(record)}`"
+              :aria-label="t('historyPage.selectRecordAria', { title: recordTitle(record) })"
             >
           </label>
           <div class="record-preview">
@@ -190,8 +190,8 @@
             <div class="record-title-row">
               <h2>{{ recordTitle(record) }}</h2>
               <div class="record-actions">
-                <button type="button" class="record-action" :data-testid="`detail-${record.id}`" @click="openRecord(record)">详情</button>
-                <button v-if="normalizedStatusGroup(record) === 'failed'" type="button" class="record-action retry" :data-testid="`retry-${record.id}`" @click="retryRecord(record)">重试</button>
+                <button type="button" class="record-action" :data-testid="`detail-${record.id}`" @click="openRecord(record)">{{ t('historyPage.detail') }}</button>
+                <button v-if="normalizedStatusGroup(record) === 'failed'" type="button" class="record-action retry" :data-testid="`retry-${record.id}`" @click="retryRecord(record)">{{ t('historyPage.retryRecord') }}</button>
               </div>
             </div>
             <div class="record-meta">
@@ -204,15 +204,15 @@
               <span class="platform-name"><span aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
             </div>
           </div>
-          <div class="record-stats" aria-label="发布统计">
-            <div><span>账号数</span><strong>{{ metricValue(record.accountCount, 1) }}</strong></div>
-            <div><span>任务数</span><strong>{{ metricValue(record.taskCount, 1) }}</strong></div>
-            <div><span>失败</span><strong class="failure-value">{{ failedCount(record) }}</strong></div>
-            <div><span>播放</span><strong>{{ metricValue(record.views) }}</strong></div>
-            <div><span>评论</span><strong>{{ metricValue(record.comments) }}</strong></div>
-            <div><span>点赞</span><strong>{{ metricValue(record.likes) }}</strong></div>
-            <div><span>收藏</span><strong>{{ metricValue(record.favorites) }}</strong></div>
-            <div><span>分享</span><strong>{{ metricValue(record.shares) }}</strong></div>
+          <div class="record-stats" :aria-label="t('historyPage.statsAria')">
+            <div><span>{{ t('historyPage.metricAccounts') }}</span><strong>{{ metricValue(record.accountCount, 1) }}</strong></div>
+            <div><span>{{ t('historyPage.metricTasks') }}</span><strong>{{ metricValue(record.taskCount, 1) }}</strong></div>
+            <div><span>{{ t('historyPage.metricFailed') }}</span><strong class="failure-value">{{ failedCount(record) }}</strong></div>
+            <div><span>{{ t('historyPage.metricViews') }}</span><strong>{{ metricValue(record.views) }}</strong></div>
+            <div><span>{{ t('historyPage.metricComments') }}</span><strong>{{ metricValue(record.comments) }}</strong></div>
+            <div><span>{{ t('historyPage.metricLikes') }}</span><strong>{{ metricValue(record.likes) }}</strong></div>
+            <div><span>{{ t('historyPage.metricFavorites') }}</span><strong>{{ metricValue(record.favorites) }}</strong></div>
+            <div><span>{{ t('historyPage.metricShares') }}</span><strong>{{ metricValue(record.shares) }}</strong></div>
           </div>
         </article>
       </div>
@@ -224,37 +224,37 @@
           :disabled="loadingMore"
           @click="loadMoreRecords"
         >
-          {{ loadingMore ? '正在加载...' : `加载更多（已加载 ${records.length}/${totalRecords}）` }}
+          {{ loadingMore ? t('historyPage.loadingMore') : t('historyPage.loadMore', { loaded: records.length, total: totalRecords }) }}
         </button>
       </div>
     </section>
 
     <section v-else id="drafts-panel" class="history-panel drafts-panel" role="tabpanel" aria-labelledby="drafts-tab">
       <div class="panel-toolbar">
-        <span class="record-count">共 {{ drafts.length }} 个草稿</span>
-        <button class="secondary-action" type="button" @click="loadDrafts">刷新</button>
+        <span class="record-count">{{ t('historyPage.draftsCount', { count: drafts.length }) }}</span>
+        <button class="secondary-action" type="button" @click="loadDrafts">{{ t('historyPage.refresh') }}</button>
       </div>
-      <div v-if="draftLoading" class="state-panel" role="status">正在加载草稿...</div>
+      <div v-if="draftLoading" class="state-panel" role="status">{{ t('historyPage.loadingDrafts') }}</div>
       <div v-else-if="draftError" class="state-panel state-error" role="alert">
-        <p>草稿箱加载失败</p>
+        <p>{{ t('historyPage.draftsLoadFailed') }}</p>
         <span>{{ draftError }}</span>
         <button class="secondary-action" type="button" @click="loadDrafts">重试</button>
       </div>
       <div v-else-if="drafts.length === 0" class="state-panel">
-        <p>暂无草稿</p>
-        <span>保存草稿后，可以从这里继续编辑。</span>
+        <p>{{ t('historyPage.noDrafts') }}</p>
+        <span>{{ t('historyPage.noDraftsHint') }}</span>
       </div>
       <div v-else class="record-list">
         <article v-for="draft in drafts" :key="draft.id" class="record-card draft-card">
-          <div class="record-preview draft-preview" aria-hidden="true"><span>草</span></div>
+          <div class="record-preview draft-preview" aria-hidden="true"><span>{{ t('historyPage.draftMark') }}</span></div>
           <div class="record-main">
-            <div class="record-title-row"><h2>{{ draft.title || '未命名草稿' }}</h2></div>
+            <div class="record-title-row"><h2>{{ draft.title || t('historyPage.unnamedDraft') }}</h2></div>
             <div class="record-meta">
               <span><Clock />{{ formatTime(draft.updated_at || draft.updatedAt || draft.created_at || draft.createdAt) }}</span>
               <span v-if="draft.content">{{ contentPreview(draft.content) }}</span>
             </div>
           </div>
-          <button class="secondary-action" type="button" :data-testid="`edit-draft-${draft.id}`" @click="editDraft(draft.id)">继续编辑</button>
+          <button class="secondary-action" type="button" :data-testid="`edit-draft-${draft.id}`" @click="editDraft(draft.id)">{{ t('historyPage.continueEditing') }}</button>
         </article>
       </div>
     </section>
@@ -266,27 +266,27 @@
     />    <div v-if="selectedRecord" class="record-detail-backdrop" role="presentation" @click.self="closeRecordDetail">
       <section class="record-detail-modal" role="dialog" aria-modal="true" aria-labelledby="record-detail-title">
         <header class="record-detail-header">
-          <div><span class="record-detail-eyebrow">发布详情</span><h2 id="record-detail-title">{{ recordTitle(selectedRecord) }}</h2></div>
-          <button type="button" class="record-detail-close" data-testid="close-record-detail" aria-label="关闭详情" @click="closeRecordDetail">×</button>
+          <div><span class="record-detail-eyebrow">{{ t('historyPage.detailEyebrow') }}</span><h2 id="record-detail-title">{{ recordTitle(selectedRecord) }}</h2></div>
+          <button type="button" class="record-detail-close" data-testid="close-record-detail" :aria-label="t('historyPage.closeDetail')" @click="closeRecordDetail">×</button>
         </header>
-        <div v-if="detailLoading" class="record-detail-state">正在加载详情...</div>
+        <div v-if="detailLoading" class="record-detail-state">{{ t('historyPage.loadingDetail') }}</div>
         <div v-else-if="detailError" class="record-detail-state state-error">{{ detailError }}</div>
         <dl v-else class="record-detail-grid">
-          <div><dt>发布人</dt><dd>{{ publisherName(selectedRecord) }}</dd></div>
-          <div><dt>平台</dt><dd>{{ platformName(selectedRecord.platform) }}</dd></div>
-          <div><dt>状态</dt><dd>{{ statusLabel(selectedRecord) }}</dd></div>
-          <div><dt>内容类型</dt><dd>{{ contentTypeLabel(selectedRecord) }}</dd></div>
-          <div><dt>发布模式</dt><dd>{{ publishModeLabel(selectedRecord) }}</dd></div>
-          <div><dt>发布时间</dt><dd>{{ formatTime(selectedRecord.timestamp || selectedRecord.createdAt || selectedRecord.publishedAt) }}</dd></div>
-          <div><dt>账号数</dt><dd>{{ metricValue(selectedRecord.accountCount, 1) }}</dd></div>
-          <div><dt>任务数</dt><dd>{{ metricValue(selectedRecord.taskCount, 1) }}</dd></div>
-          <div><dt>失败</dt><dd>{{ failedCount(selectedRecord) }}</dd></div>
-          <div><dt>播放</dt><dd>{{ metricValue(selectedRecord.views) }}</dd></div>
-          <div><dt>评论</dt><dd>{{ metricValue(selectedRecord.comments) }}</dd></div>
-          <div><dt>点赞</dt><dd>{{ metricValue(selectedRecord.likes) }}</dd></div>
-          <div><dt>收藏</dt><dd>{{ metricValue(selectedRecord.favorites) }}</dd></div>
-          <div><dt>分享</dt><dd>{{ metricValue(selectedRecord.shares) }}</dd></div>
-          <div class="record-detail-content"><dt>内容摘要</dt><dd>{{ selectedRecord.content || selectedRecord.description || '暂无内容摘要' }}</dd></div>
+          <div><dt>{{ t('historyPage.detailPublisher') }}</dt><dd>{{ publisherName(selectedRecord) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailPlatform') }}</dt><dd>{{ platformName(selectedRecord.platform) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailStatus') }}</dt><dd>{{ statusLabel(selectedRecord) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailContentType') }}</dt><dd>{{ contentTypeLabel(selectedRecord) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailMode') }}</dt><dd>{{ publishModeLabel(selectedRecord) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailTime') }}</dt><dd>{{ formatTime(selectedRecord.timestamp || selectedRecord.createdAt || selectedRecord.publishedAt) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailAccounts') }}</dt><dd>{{ metricValue(selectedRecord.accountCount, 1) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailTasks') }}</dt><dd>{{ metricValue(selectedRecord.taskCount, 1) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailFailed') }}</dt><dd>{{ failedCount(selectedRecord) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailViews') }}</dt><dd>{{ metricValue(selectedRecord.views) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailComments') }}</dt><dd>{{ metricValue(selectedRecord.comments) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailLikes') }}</dt><dd>{{ metricValue(selectedRecord.likes) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailFavorites') }}</dt><dd>{{ metricValue(selectedRecord.favorites) }}</dd></div>
+          <div><dt>{{ t('historyPage.detailShares') }}</dt><dd>{{ metricValue(selectedRecord.shares) }}</dd></div>
+          <div class="record-detail-content"><dt>{{ t('historyPage.detailContent') }}</dt><dd>{{ selectedRecord.content || selectedRecord.description || t('historyPage.noContentSummary') }}</dd></div>
         </dl>
       </section>
     </div>
@@ -296,6 +296,8 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { CirclePlus, Clock, Close, Delete, Download, Grid, List, Operation, Search, User } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+import { getAppLocale } from '@/i18n'
 import { useRouter } from 'vue-router'
 import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
@@ -303,6 +305,7 @@ import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
 
+const { t } = useI18n()
 const router = useRouter()
 const platformStore = usePlatformStore()
 platformStore.load()
@@ -336,7 +339,7 @@ const PAGE_SIZE = 50
 let pendingFilterLoad = null
 const loadedPageSignatures = new Set()
 
-const publisherOptions = computed(() => [...new Set(records.value.map(publisherName))].sort((a, b) => a.localeCompare(b, 'zh-CN')))
+const publisherOptions = computed(() => [...new Set(records.value.map(publisherName))].sort((a, b) => a.localeCompare(b, getAppLocale() === 'en' ? 'en' : 'zh-CN')))
 const platformOptions = computed(() => [...new Set(records.value.map(record => String(record?.platform || '')).filter(Boolean))].sort())
 const publishTypePlatforms = computed(() => Object.entries(PLATFORM_NAMES).map(([id, label]) => ({
   id,
@@ -372,7 +375,7 @@ const allSelected = computed(() => (
 const hasMoreRecords = computed(() => !paginationExhausted.value && records.value.length < totalRecords.value)
 
 function normalizeRecords (result) {
-  if (!result || result.code !== 0) throw new Error(result?.message || '发布记录读取失败')
+  if (!result || result.code !== 0) throw new Error(result?.message || t('historyPage.recordsReadFailed'))
   const data = result.data
   if (Array.isArray(data)) return { total: data.length, records: data }
   const pageRecords = Array.isArray(data?.records) ? data.records : []
@@ -444,7 +447,7 @@ async function loadRecords (options = {}) {
       paginationExhausted.value = true
       loadedPageSignatures.clear()
     }
-    errorMessage.value = '请检查服务连接后重试'
+    errorMessage.value = t('historyPage.checkService')
     return false
   } finally {
     if (append) loadingMore.value = false
@@ -483,11 +486,11 @@ async function loadDrafts () {
   draftError.value = ''
   try {
     const result = await draftList()
-    if (!result || result.code !== 0) throw new Error(result?.message || '草稿读取失败')
+    if (!result || result.code !== 0) throw new Error(result?.message || t('historyPage.draftsReadFailed'))
     drafts.value = Array.isArray(result.data) ? result.data : []
   } catch {
     drafts.value = []
-    draftError.value = '请检查服务连接后重试'
+    draftError.value = t('historyPage.checkService')
   } finally {
     draftLoading.value = false
   }
@@ -548,7 +551,7 @@ function clearFilters () {
 }
 
 function platformName (platform) {
-  return platformStore.getLabel(platform) || PLATFORM_NAMES[platform] || platform || '未指定平台'
+  return platformStore.getLabel(platform) || PLATFORM_NAMES[platform] || platform || t('historyPage.unknownPlatform')
 }
 
 function platformIcon (platform) {
@@ -573,9 +576,9 @@ async function openRecord (record) {
   try {
     const result = await historyGet(record.id)
     if (result?.code === 0 && result.data) selectedRecord.value = { ...record, ...result.data }
-    else if (result?.message) detailError.value = formatUserError(result, { fallback: '详情加载失败，请稍后重试' }).message
+    else if (result?.message) detailError.value = formatUserError(result, { fallback: t('historyPage.detailLoadFailed') }).message
   } catch {
-    detailError.value = '详情加载失败，请稍后重试'
+    detailError.value = t('historyPage.detailLoadFailed')
   } finally {
     detailLoading.value = false
   }
@@ -592,10 +595,10 @@ async function retryRecord (record) {
   actionMessage.value = ''
   try {
     const result = await retryTask(taskId)
-    actionMessage.value = result?.code === 0 ? '已重新提交失败任务' : formatUserError(result, { fallback: '重试失败' }).message
+    actionMessage.value = result?.code === 0 ? t('historyPage.retrySubmitted') : formatUserError(result, { fallback: t('historyPage.retryFailed') }).message
     if (result?.code === 0) await loadRecords()
   } catch {
-    actionMessage.value = '重试失败，请稍后再试'
+    actionMessage.value = t('historyPage.retryFailedRetry')
   }
 }
 
@@ -608,25 +611,25 @@ async function deleteSelectedRecords () {
   try {
     const result = await historyDelete(ids)
     if (!result || result.code !== 0) {
-      actionMessage.value = formatUserError(result, { fallback: '删除发布记录失败' }).message
+      actionMessage.value = formatUserError(result, { fallback: t('historyPage.deleteFailed') }).message
       return
     }
     selectedIds.value = []
     await loadRecords()
-    actionMessage.value = `已删除 ${result.data?.deleted || ids.length} 条发布记录`
+    actionMessage.value = t('historyPage.deletedCount', { count: result.data?.deleted || ids.length })
   } catch {
-    actionMessage.value = '删除发布记录失败，请稍后重试'
+    actionMessage.value = t('historyPage.deleteFailedRetry')
   } finally {
     deletingSelected.value = false
   }
 }
 
 function recordTitle (record) {
-  return record?.title || record?.name || '未命名发布任务'
+  return record?.title || record?.name || t('historyPage.unnamedTask')
 }
 
 function publisherName (record) {
-  return record?.publisher || record?.author || record?.operator || '系统账号'
+  return record?.publisher || record?.author || record?.operator || t('historyPage.systemAccount')
 }
 
 function statusValue (record) {
@@ -643,16 +646,16 @@ function normalizedStatusGroup (record) {
 
 function statusLabel (record) {
   const labels = {
-    success: '全部发布成功',
-    completed: '全部发布成功',
-    published: '全部发布成功',
-    failed: '发布失败',
-    error: '发布失败',
-    running: '发布中',
-    pending: '等待发布',
-    scheduled: '已排期',
+    success: 'statusAllSuccess',
+    completed: 'statusAllSuccess',
+    published: 'statusAllSuccess',
+    failed: 'statusFailed',
+    error: 'statusFailed',
+    running: 'statusRunning',
+    pending: 'statusWaiting',
+    scheduled: 'statusScheduled',
   }
-  return labels[statusValue(record)] || '处理中'
+  return t('historyPage.' + (labels[statusValue(record)] || 'statusPending'))
 }
 
 function statusClass (record) {
@@ -671,7 +674,8 @@ function contentTypeValue (record) {
 }
 
 function contentTypeLabel (record) {
-  return { article: '图文', video: '视频', image: '图片' }[contentTypeValue(record)]
+  const keys = { article: 'contentTypeArticle', video: 'contentTypeVideo', image: 'contentTypeImage' }
+  return t('historyPage.' + keys[contentTypeValue(record)])
 }
 
 function publishModeValue (record) {
@@ -682,7 +686,7 @@ function publishModeValue (record) {
 }
 
 function publishModeLabel (record) {
-  return publishModeValue(record) === 'scheduled' ? '定时发布' : '立即发布'
+  return t(publishModeValue(record) === 'scheduled' ? 'historyPage.modeScheduled' : 'historyPage.modeImmediate')
 }
 
 function thumbnailUrl (record) {
@@ -700,9 +704,10 @@ function metricValue (value, fallback = '-') {
 }
 
 function formatTime (value) {
-  if (!value) return '时间未知'
+  if (!value) return t('historyPage.unknownTime')
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN')
+  const locale = getAppLocale() === 'en' ? 'en-US' : 'zh-CN'
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(locale)
 }
 
 function contentPreview (content) {
@@ -715,7 +720,23 @@ function csvCell (value) {
 }
 
 function exportHistory () {
-  const headers = ['标题', '发布人', '平台', '作品类型', '发布状态', '发布模式', '发布时间', '账号数', '任务数', '失败', '播放', '评论', '点赞', '收藏', '分享']
+  const headers = [
+    t('historyPage.csvHeaderTitle'),
+    t('historyPage.csvHeaderPublisher'),
+    t('historyPage.csvHeaderPlatform'),
+    t('historyPage.csvHeaderContentType'),
+    t('historyPage.csvHeaderStatus'),
+    t('historyPage.csvHeaderMode'),
+    t('historyPage.csvHeaderTime'),
+    t('historyPage.csvHeaderAccounts'),
+    t('historyPage.csvHeaderTasks'),
+    t('historyPage.csvHeaderFailed'),
+    t('historyPage.csvHeaderViews'),
+    t('historyPage.csvHeaderComments'),
+    t('historyPage.csvHeaderLikes'),
+    t('historyPage.csvHeaderFavorites'),
+    t('historyPage.csvHeaderShares'),
+  ]
   const rows = filteredRecords.value.map(record => [
     recordTitle(record),
     publisherName(record),

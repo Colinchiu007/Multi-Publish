@@ -1,3 +1,46 @@
+## main CI 既有失败定位记录：locale 缺键（已修）+ e2e-quality-infrastructure 扫描（遗留）（2026-08-12）
+
+- **已修（本 PR）**：`create.story2video.voice.catalogLoadFailed` 等 27 个 voice locale 键缺失（CreateView 引用但 zh/en 未定义）→ intlify 告警 → QG Coverage Gate 5 失败。补齐后消除。
+- **遗留 1（e2e-quality-infrastructure 字段被遮挡）**：路由通用扫描在真实 E2E 中发现某页 `textarea name=content testid=content placeholder=正文` 字段 fill 失败「字段被遮挡」（Publish.vue 批量正文 UiInput 与 ArticleEditor 并存区域，需真实 Playwright+Electron 复现定位，可能为加载时序/覆盖层问题）。
+- **遗留 2（Flow3.3 唯一默认服务商）**：真实 E2E 中 setDefault(anthropic) 后重读列表 defaultIds 仍含 preset_openai+preset_anthropic 两个 → 可能为 CI userData 种子状态污染或 setDefault 清理逻辑边界，需隔离 userData 复现。
+- **教训**：main 上并发 PR 引入的既有失败会传播到所有新 PR；处理前先判断是否本次引入（本次改动测试全绿 + 失败模块无关），已修部分单独 PR 先行，扫描类失败需真实 E2E 环境，避免盲目修复与其他会话冲突。
+
+---
+## fidelity 分镜真实 E2E 验证 + 鲁棒性加固复盘（2026-08-12）
+
+- **验证结论**：fidelity 模式真实 LLM 分镜逐条对应原文（12/12 场景覆盖核心事件与引语），对齐报告 coverage=0.86 一次通过；对比创意模式"赛博侦探档案"跑偏，S1-S3 修复有效。
+- **新教训（输出预算与重试）**：fidelity 分镜注入全文 + source_paras 后输出体积大增，默认 5000 tokens（推理型）可能截断 → 显式 8000；且"JSON 解析失败"原本直接 fail 不重试——LLM 输出格式漂移是常态，解析失败必须纳入重试状态机（带"只输出严格 JSON 数组"提示），与覆盖度重试共享预算。
+- **机制**：验证用真实 Electron + 已登录 profile + 真实 LLM（minimax-multimodal）+ prompt-engine（Fact-Fidelity 服务）；用全自动 + storyboard 完成后立即 cancel 的方式省去视频生成成本。
+
+---
+## 视频创作失败诊断系统（桌面端遥测 + 运营后台看板）复盘 (2026-08-12)
+
+- **交付**：P0 桌面端统一诊断码/根因映射/run 诊断遥测（`run.diagnostics`，additive）+ 运营后台落地（diagnostics-reporter 上报 → ops-center ingest/日聚合/样本/看板/告警/处置建议）。OpenSpec changes `story2video-failure-diagnostics` + `ops-center-video-diagnostics`，PR #574（cfb5ec31）合并，三同步归档完成。
+- **教训 1（复用既有上报模式，避免新造轮子）**：运营后台落地完全镜像 `usage-reporter`/`publish-reporter` 的「watermark + 30min + 未配置静默跳过 + X-Catalog-Key + batch 幂等」模式；ops-center 侧镜像 usage 三表（日聚合/样本/批次）+ `_require_catalog_key`/`require_admin`。跨端新链路优先找仓库内已验收通道复制，不要自创协议。
+- **教训 2（batch 幂等键必须对「超时重试 + 期间新增行」稳定）**：初版 batch_id=client:watermark:maxId，服务端已提交但响应超时、期间又有新行入队时，重试 maxId 变大 → 服务端不判重 → daily 桶二次累加翻倍。修复：服务端 batch 表记录 max_id，duplicate 时回传 `acked_max_id`，客户端据此推进水印并保留新行。**超时重试场景必须考虑「提交成功但响应丢失 + 窗口内新增数据」的组合**，不能只测固定窗口。
+- **教训 3（枚举单一来源 + 两端 fail-closed）**：桌面端 reporter 直接复用 taxonomy 枚举并归一化未知值，服务端对未知枚举整条 400（fail-closed）；两端各自校验会漂移，必须单一来源 + 客户端先归一化防自锁（整批拒收 + 水印不动 = 永久重试死锁）。
+- **教训 4（文档门禁是真门禁）**：`scripts/check-docs-sync.sh` 要求代码变更 PR 必须带 PRD/CHANGELOG/01-docs 文档；功能交付前先补文档（本 PR 补 ARCH-VIDEO-DIAGNOSTICS-OPS + CHANGELOG），避免 CI 打回。
+- **教训 5（并发仓库合并竞态）**：main 在 PR 生命周期内被并发合入多次（59+ 提交），需 `git merge origin/main` 两次 + 全量 CI 重跑后才合并成功；活跃仓库交付要接受「合并前再同步一次 main」为常态。
+
+---
+
+## 视频内容保真 video-content-fidelity 复盘：画面-文案不匹配根因与双模式分镜 (2026-08-12)
+
+- **根因**：videogen 流水线 CONCEPT 把长文案压缩成一句 visual_style，STORYBOARD 未拿到原文事实 → 分镜场景与文案脱节（E2E Run #2：733 字三国志文案被分镜成"赛博侦探档案"，白马之战/襄樊之战等核心事件无独立场景，甚至臆造"只用了一年"与原文矛盾）。
+- **修复**：分镜双模式（creative 一句话创意原始机制保留 / fidelity 按原文保真 / hybrid 保真+演绎 / auto 按段落≥3 或字≥300 或句≥8 → fidelity、字≤80 且句≤2 → creative、其余 hybrid）；fidelity/hybrid 下 CONCEPT 强制 key_facts/entities、STORYBOARD 注入分段全文 + source_paras 绑定 + 关键事件必有场景；内容对齐门禁（词典+LLM 兜底实体抽取，覆盖度 ≥0.8，重试 ≤2，耗尽/空场景 fail closed）；优化 context 白名单注入 + prompt-engine Fact-Fidelity 指令。
+- **教训 1（信息压缩断层）**：多阶段 LLM 链路中，前序阶段的"摘要"会丢失原文事实；下游阶段必须拿到原文（或结构化事实清单），不能只依赖一句风格摘要。分镜类任务应绑定 source 段落以便追溯。
+- **教训 2（创意 vs 保真要显式建模）**："一句话→整个视频"与"长文案→按原文实现"是两种意图，不能用一个 prompt 兼顾；auto 判据用段落/字数/句数多维而非单一阈值，避免长单句误判。
+- **教训 3（可测性）**：内容匹配度从主观感受变成门禁（实体覆盖度 + fail closed + 重试），配合对齐报告写入 run 上下文，质量可验证。视觉层评估本期只留桩（not_implemented），不冒充实现。
+- **教训 4（流程）**：text-config 的 numberValue 越界语义是 fail closed（抛错），与 scene_context 一致；文档先写"收敛"与实现不符，评审时修正为 fail closed——**文档与实现语义必须同步核对**。
+
+---
+## 运营后台限流/调度验证功能实现复盘（P0+P1+P2）(2026-08-12)
+
+- **交付**：ops-center 新增「限流与调度验证」页（模拟器 + 契约校验 + 验证记录）与用量健康度；桌面端新增 governor 排队/冷却可观测性与真实自检（假 adapter）；两端对拍脚本保证模型一致。
+- **教训 1（对拍发现真实语义缺陷）**：`ApiUsageGovernor._assertTokenBudget` 原为 `used >= limit` 抛——第 limit 次成功调用被误判 QUOTA_EXCEEDED（限额 N 实际只允许 N-1 次成功）。模拟器 preflight 语义（第 L+1 起拒）与真实实现不一致暴露该缺陷。修复为 `used > limit` 并对拍对齐。**验证/观测层是发现调度实现缺陷的有效手段；两端对拍测试必须覆盖临界边界（第 limit 次 vs 第 limit+1 次）。**
+- **教训 2（观测口径一致性）**：模拟器「并发峰值」若按信号量占用（已开始未完成）统计，与真实「实际执行中」口径不一致（pace 推迟的请求仍在占用）。观测指标必须以「started 未 finished」为准，否则对拍假阳性。
+- **教训 3（并发会话/仓库约束）**：ops-center 测试文件各自设置 OPS_DB_PATH + 共享 engine 单例，全量 `pytest tests/` 存在既有 DB 冲突（无 conftest）；CI 中该命令「失败不阻塞」。新测试沿用既有模式，隔离跑 + 相关文件组合跑全绿即达标；全量红为既有问题，不属本任务范围。
+- **教训 4（机制）**：双模型分析/审查受 antigravity 区域限制与 Claude wrapper 不稳定影响降级本地核验；子代理后端 403 不可用，全部主代理执行。
 
 ---
 
@@ -6402,3 +6445,20 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 3（Copy-Item -Recurse 语义）**：目标目录已存在时会把源目录复制为目标子目录（nested copy）；stage 后必须 `git diff --cached --name-only` 检查嵌套残留。
 - **教训 4（fail closed 契约细节）**：评估 LLM 输出 `problems/promptOptimizationPoints` 缺失或非数组必须整次失败（不允许静默降级为空数组）；契约抛错统一带 `code`，避免上层误报 EVAL_INTERNAL。Claude 审查 1C+8W 全部修复（魔数校验/记录 id 白名单/递归敏感键/逐项上下文/长度上限等）。
 - **预防**：① 共享 checkout 禁止 git 写操作；② 新增路由=新增视图门禁+更新聚合计数；③ 文档类共享文件（PRD.md/CHANGELOG/.quality-gates）并发会话会互相叠加，合并前 fetch main 并以已合入版本为准。
+## 复盘：场景上下文规则数据化 + 运营后台管理（2026-08-12，scene-context-ops）
+
+- **背景**：scene_context 规则表硬编码桌面引擎，运营无法查看/调整；L1 体验发现打磨点（北宋 genre 误判/场景角色/措辞）。
+- **设计**：规则抽为随包 JSON（单一来源）+ 外部覆盖（env/userData）→ 校验 → 回退内置；运营后台（ops-center FastAPI+Vue）提供查看/编辑/校验/保存/导出；Python 与 Node 双端实现同一 schema 校验（Node 为权威，Python 对齐）。
+- **关键点**：规则常量解构在加载时固定 → setContextRulesOverride 后检测函数仍用旧常量（测试暴露）→ 常量改 let + _refreshRuleConstants 在切换/重置时刷新；模块级可变状态需显式 reset API 供测试隔离。
+- **预防**：跨语言（Node 桌面 / Python 运营后台）共享规则 schema 时，双端校验逻辑必须同构并各自有测试锚定；运营后台导出的规则经「合入随包 / userData 覆盖」两通道生效，文档须写明发布时差。
+
+
+## 运营后台提示词评测工作台 PromptEval Workbench 交付复盘 (2026-08-12)
+
+- **变更**：运营后台新增「提示词评测工作台」——运营人员录入原文 + 优化后提示词（中文）→ 后台 LLM 自动生成英文对照（机器翻译标注）→ 真实生图（服务端直连 minimax-image/flux）→ 视觉评估（复用桌面端 PromptEval 维度契约）→ 同屏比对 + 多 run 对比 + 聚合分析。PR #571（d93e9528）。决策点：A=服务端直连 provider+密钥管理（Fernet 加密、admin、不返明文）、B=LLM 自动翻译（source=machine_translation、幂等 7 天）、视频 v1 图片先行/v2 预留。
+- **教训 1（密钥加密键）**：Fernet 键必须用强密钥派生并对缺省值 fail closed；密钥表加 UniqueConstraint + upsert 冲突回滚（IntegrityError），避免并发重复行。
+- **教训 2（后台任务 ORM）**：asyncio.create_task 里传 ORM 实例会 detached；只传 case_id + 字段快照，worker 内重查库，挂 add_done_callback + logger + 失败态落库。
+- **教训 3（授权最小面）**：run/media 端点必须校验创建者/管理员（媒体文件按 run→case 归属过滤）；视觉评估密钥独立配置，缺失 502 fail closed（禁止静默回退翻译 key）。
+- **教训 4（ops-center 全量 pytest 既有 DB 干扰）**：各测试模块顶部各设 OPS_DB_PATH，database engine 首个 import 固定 → 全量必互踩（排除本次文件仍有 4 failed + 17 errors）；门禁按「本次文件单独运行」+ 与既有模块同模式。
+- **教训 5（并发会话 rebase 洪流）**：main 高频前进导致 PR 反复 CONFLICTING；处理=每次 fetch 最新 main→rebase→仅共享文档（CHANGELOG/quality-gates/PRD.md）冲突按「双方保留」消解→force-push；auto-merge 可在合并计算完成后生效。
+- **预防**：① 新增受保护资源（媒体/密钥）默认 owner+admin 校验；② 后台任务用快照+重查；③ 评估/生成密钥独立配置并启动/保存时强校验；④ 大 diff 给 Claude 审查用文件路径而非 stdin（>1000 行管道会崩溃）。

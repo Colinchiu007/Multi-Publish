@@ -172,8 +172,9 @@ function extractContext(container) {
   const { ProviderRouter } = require('../services/adapters/_base/router')
   const modelProviderManager = new ModelProviderManager(store)
   // 注入统一调度网关：provider 配置的每分钟连接次数/5小时限额 → ApiUsageGovernor 预算
+  const apiUsageGovernor = container.get('apiUsageGovernor')
   if (modelProviderManager && typeof modelProviderManager.setGovernor === 'function') {
-    modelProviderManager.setGovernor(container.get('apiUsageGovernor'))
+    modelProviderManager.setGovernor(apiUsageGovernor)
   }
   // 运营后台 → 桌面端运行时同步（目录拉取 + applyCatalog + 启动自动同步）
   const { OpsCenterSync } = require('../services/ops-center-sync')
@@ -223,6 +224,17 @@ function extractContext(container) {
         return ''
       }
     },
+    // P1：调度可观测性（governor 排队/冷却计数，取走即清零）
+    getSchedulerMetrics: () => {
+      try {
+        if (apiUsageGovernor && typeof apiUsageGovernor.takeObservabilitySnapshot === 'function') {
+          return apiUsageGovernor.takeObservabilitySnapshot()
+        }
+      } catch (e) {
+        log.warn('UsageReporter', 'getSchedulerMetrics failed: ' + e.message)
+      }
+      return {}
+    },
   })
   usageReporter.start()
   // 发布指标脱敏上报（P1-3）：聚合 publish-history → ops-center /publish/ingest
@@ -246,6 +258,31 @@ function extractContext(container) {
     },
   })
   publishReporter.start()
+  // 视频创作失败诊断脱敏上报（P0 落地运营后台）：run 终结入队 → 30min 周期上报 /diagnostics/ingest
+  const { DiagnosticsReporter } = require('../services/diagnostics-reporter')
+  const diagnosticsReporter = new DiagnosticsReporter({
+    store,
+    log,
+    getOpsCenterAuth: () => {
+      if (!opsCenterSync || typeof opsCenterSync.getConfig !== 'function') return null
+      const cfg = opsCenterSync.getConfig()
+      if (!cfg.url || !cfg.apiKeyConfigured || typeof opsCenterSync.getCatalogApiKey !== 'function') return null
+      return { url: cfg.url, apiKey: opsCenterSync.getCatalogApiKey() }
+    },
+    getClientId: () => {
+      try {
+        const crypto = require('crypto')
+        const { app: electronApp } = require('electron')
+        return crypto.createHash('sha256').update(String(electronApp.getPath('userData') || '')).digest('hex').slice(0, 16)
+      } catch (e) { return '' }
+    },
+  })
+  diagnosticsReporter.start()
+  if (pipelineEngine && typeof pipelineEngine.setRunFinalizedHook === 'function') {
+    pipelineEngine.setRunFinalizedHook((run) => {
+      try { diagnosticsReporter.enqueue(run) } catch (e) { log.warn('DiagnosticsReporter', 'hook error: ' + (e && e.message ? e.message : String(e))) }
+    })
+  }
   // 由 Phase 3 在 SQLite WASM 与 Store 均就绪后初始化，避免重启时读取到空数据库。
   // 创建 ProviderRouter（不注入 logHandler，避免与 callAdapter 内部日志双写）
   // callAdapter 内部已通过 _writeLog 统一记录到 model_provider_logs 表

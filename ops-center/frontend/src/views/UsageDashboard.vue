@@ -51,6 +51,23 @@
           </el-table-column>
           <el-table-column prop="avg_latency_ms" label="平均耗时(ms)" width="110" />
           <el-table-column prop="cost" label="成本(¥)" width="100" />
+          <!-- P1 调度健康度 -->
+          <el-table-column label="429率" width="80" align="center">
+            <template #default="{ row }">
+              <el-tag :type="row.ratelimit_rate > 10 ? 'warning' : 'success'" size="small">{{ row.ratelimit_rate }}%</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="queued_count" label="排队次数" width="90" align="center" />
+          <el-table-column prop="cooldown_count" label="冷却次数" width="90" align="center" />
+          <el-table-column label="平均排队ms" width="110" align="center">
+            <template #default="{ row }">{{ row.queued_count ? row.avg_queue_wait_ms : '-' }}</template>
+          </el-table-column>
+          <el-table-column label="预算利用率" width="110" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.utilization != null" :type="row.utilization > 90 ? 'warning' : 'success'" size="small">{{ row.utilization }}%</el-tag>
+              <span v-else class="muted">未配置</span>
+            </template>
+          </el-table-column>
         </el-table>
       </el-card>
 

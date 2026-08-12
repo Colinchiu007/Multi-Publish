@@ -47,6 +47,65 @@ describe('SubtitleSegmenter 共享向量（规范 v1.0）', () => {
     });
   }
 
+  for (const v of vectors) {
+    it(`向量 ${v.id} min_chars 不变量（例外须显式声明）`, () => {
+      const minChars = v.config?.min_chars_per_block ?? 8;
+      const exceptions = new Map(
+        (v as { short_block_exceptions?: Array<{ index: number; reason?: string }> }).short_block_exceptions
+          ?.map((e) => [e.index, e.reason ?? '']) ?? [],
+      );
+      const cfg = {
+        minCharsPerBlock: minChars,
+        maxCharsPerBlock: v.config?.max_chars_per_block ?? 15,
+        timeCalculationMethod: 'proportional' as const,
+      };
+      const seg = new SubtitleSegmenter(cfg);
+      const subs = seg.segment(v.input, 10, 0);
+      const actual = subs.map((s) => s.text);
+      for (let i = 0; i < actual.length; i++) {
+        if (actual[i].length >= minChars) continue;
+        expect(exceptions.has(i)).toBe(true);
+        expect(exceptions.get(i) || '').not.toBe('');
+      }
+      for (const i of exceptions.keys()) {
+        expect(i).toBeLessThan(actual.length);
+        expect(actual[i].length).toBeLessThan(minChars);
+      }
+    });
+  }
+
+  for (const v of vectors) {
+    it(`向量 ${v.id} 时间戳舍入后严格连续（proportional/equal）`, () => {
+      for (const method of ['proportional', 'equal'] as const) {
+        const cfg = {
+          minCharsPerBlock: v.config?.min_chars_per_block ?? 8,
+          maxCharsPerBlock: v.config?.max_chars_per_block ?? 15,
+          timeCalculationMethod: method,
+        };
+        const seg = new SubtitleSegmenter(cfg);
+        const subs = seg.segment(v.input, 10, 0);
+        if (!subs.length) continue;
+        expect(subs[0].startTime).toBe(0);
+        for (let i = 1; i < subs.length; i++) {
+          const expectStart = Math.round((subs[i - 1].startTime + subs[i - 1].duration) * 100) / 100;
+          expect(subs[i].startTime).toBe(expectStart);
+        }
+        for (const s of subs) {
+          expect(s.startTime).toBe(Math.round(s.startTime * 100) / 100);
+          expect(s.duration).toBe(Math.round(s.duration * 100) / 100);
+          expect(s.duration).toBeGreaterThan(0);
+        }
+      }
+    });
+  }
+
+  it('时间戳：half-up 舍入与 Python 一致（0.625 → 0.63，禁止 0.62）', () => {
+    const seg = new SubtitleSegmenter({});
+    const subs = seg.segment('嗯。一二三四五六七八九十甲乙丙丁戊', 10, 0);
+    expect(subs.map((s) => s.duration)).toEqual([0.63, 9.38]);
+    expect(subs.map((s) => s.startTime)).toEqual([0, 0.63]);
+  });
+
   it('时间戳：proportional 首块从 0 开始且总时长一致', () => {
     const seg = new SubtitleSegmenter({ timeCalculationMethod: 'proportional' });
     const subs = seg.segment('今天天气真好，我们去公园散步。', 10, 0);

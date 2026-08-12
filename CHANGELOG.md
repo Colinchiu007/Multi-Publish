@@ -4,6 +4,211 @@
 - 修复：① 百家号关闭 URL 自动完成（模式清空，fail-closed），改由用户点击「我已完成登录」（`auth:complete-login`）在提取到真实凭证后入库；② `AuthViewManager`/`QrCodeLogin` 增加初始加载守卫（`initialRedirectPhase`），登录页首次 `did-finish-load` 前的重定向链一律不判定登录成功（douyin/xiaohongshu/toutiao 等裸 host 模式平台同类防护）；③ CDP 回调同步加守卫。
 - 回归：platform-definitions 6、auth-view-manager+qrcode-login 28、account IPC/account-manager/auth-view-session/auth-view-cdp 82、shared-utils 全量 231、桌面全量 7095/7099（4 个失败为 videogen-stages 基线预存，stash 对比证实）；QM-1 `electron-builder --win --x64` exit 0，ASAR 含修复文件，打包应用启动 10s 窗口句柄有效。
 
+## [2026-08-12] 视频克隆 切片 4d：运行记录持久化 + regenerate（部分流水线 initialReport）
+
+- engine pipeline：executorOptions.stageIds 部分执行 + request.options.initialReport + 成功结果 reportSource。
+- desktop services/video-clone/store.js：runs/<runId>.json 持久化 + history（倒序元数据列表）。
+- handler：run 成功后落库；video-clone:report:regenerate 真实实现（部分流水线 generate→compose→publish，initialReport 复用编辑后报告）；video-clone:history 通道；preload/composable/view 接线「重新生成」。
+- 验证：engine 99（+3）+ desktop store 3（合计 352+）全绿；vite build + QM-1 打包 exit 0 + 启动无关键错误。
+- 外部验收边界（PENDING_EXTERNAL）：真实 provider 图/真实账号发布/平台链接下载，需用户凭据与环境。
+
+## [2026-08-12] 视频克隆 切片 4c：provider 接线（assetGenerator/publisher/pick-file）+ QM-2 双模式验证
+
+- `apps/desktop/electron/services/video-clone/`：asset-generator（真实 AssetGenerator 服务优先 + 显式离线占位 degraded）、publisher（PublisherRouter 契约，无 router 则 skipped）。
+- IPC：video-clone:pick-file（系统文件选择对话框）；preload/composable/视图接线「选择文件」。
+- 门禁：QM-2 sandbox 双模式 PASS（TRUE_OK/FALSE_OK/BOTH_MODES_OK）；QM-1 打包 exit 0 + 可见主窗口（MainWindowHandle=15729924）；engine 96 + desktop 新增 7 用例全绿。
+- PRD v1.6 §20；待 4d：真实 provider 图/账号发布外部验收、报告持久化 regenerate。
+
+## [未发布] 修复：限流验证页加载模型预设解析（适配 {presets:[]} 响应）（2026-08-12）
+
+- 根因：`GET /api/v1/model-presets` 返回 `{ presets: [...], count }`，`RateLimitVerifier.vue` 的 `loadPresets()` 误假设 `items` 字段 → `(res.data.items || res.data || []).filter is not a function`，预设下拉加载失败。
+- 修复：改为 `res.data?.presets ?? res.data?.items ?? res.data` 防御性解析 + `Array.isArray` 兜底（结构异常时置空而非崩溃）。
+- 验证：ops-center 前端 `npm run build` 通过。
+## [2026-08-12] fix(ops-center): 「模型密钥」未配置提示按角色区分（admin 引导配置 / 非 admin 联系管理员）
+
+- 问题：错误「未配置可用的图片生成模型，请先在「模型密钥」中配置」对所有角色相同，但「模型密钥」菜单仅 admin 可见（App.vue `v-if role==='admin'`）——非 admin 用户被引导到一个不可见页面
+- 修复：`routers/prompt_eval.py` create_run 按 `_is_admin(user)` 区分提示文案；admin 提示「侧边栏「模型密钥」（/model-keys）中配置」，非 admin 提示「请联系管理员在「模型密钥」中配置」
+- 测试：新增 `test_run_provider_key_message_role_aware`（prompt-eval API 9 例全绿）
+
+## [2026-08-12] 视频克隆 切片 4b：Electron 接线（服务/IPC/preload/Vue 视图）+ QM-1 打包验证
+
+- `packages/video-clone-engine/src/service.js`：createVideoCloneService（会话表 + cancel + 报告编辑校验）。
+- 主进程：ipc-handlers/video-clone.js（run/cancel/report:edit/report:regenerate + 进度事件）注册进中心；preload videoClone API + index.bundle.js 重建。
+- 渲染层：useVideoClone.js + VideoCloneView.vue（输入/进度/报告编辑/相似度仪表）+ 路由 /video-clone + i18n videoClone zh/en。
+- 门禁：engine 96 / preload 333 / composable 5 / i18n 7 全绿；vite build 通过；QM-1 electron-builder --win --dir exit 0 + 启动 10s 无关键错误（主窗口已显示、ASAR 含 engine）。
+- 待 4c：ModelProviderManager 生成接入、PublisherRouter 发布、文件选择器、QM-2 完整实窗验证。
+
+## [2026-08-12] 视频克隆 切片 4a：IPC-ready runner（进度事件/协作中止）+ IPC 与 UI 详细规格
+
+- `packages/video-clone-engine`：pipeline 支持 executorOptions.eventSink（stage:started/succeeded/failed/aborted）与 abortSignal（阶段边界协作中止）；新增 runner.js（createVideoCloneRunner 注入事件/中止 + completed 生命周期事件）。
+- 测试 91 用例全绿（runner 5：事件序列/失败/运行前中止/阶段内中止/elapsedMs）。
+- PRD v1.4 §18 IPC 契约与桌面 UI 详细规格（video-clone:run/progress/cancel/report:edit/report:regenerate 通道、preload API、VideoCloneView 交互逻辑、主进程服务生命周期、QM-1/QM-2 门禁前置）。
+- 切片 4b（Electron 接线：服务/IPC/preload/Vue 视图）契约已定义，待 node_modules 环境（npm ci 后台进行）与 QM-1 打包验证后提交。
+
+## [2026-08-12] 视频克隆 切片 3：generate / compose / publish adapter（真实 ffmpeg 合成）
+
+- `packages/video-clone-engine/src/adapters/`：generate-assets（createAssetPlan 逐镜头资产规格 + provider fail-closed 契约）、compose-ffmpeg（resolveTargetSize / buildAssScript ASS 字幕 / buildComposeCommand 纯函数 + createFfmpegCompose 执行与 ffprobe 校验）、publish（可选发布 skipped/成功/失败映射）、index（createSlice3Pipeline 六阶段组装）。
+- 测试 86 用例全绿（含真实 ffmpeg 合成 + 全链路 smoke：2s 样例 → 纯色 PNG → 合成 mp4 → ffprobe 校验 → F4 相似度；工具缺失自动 skip）。
+- PRD v1.3 §17 切片 3 详细规格（资产规划/命令构建/ASS 字幕/可选发布/集成验证）。
+
+## [2026-08-12] 字幕对齐真实 E2E 集成验证（stage 接线链路）
+
+- 新增 `subtitle-align-e2e.test.js`（RUN_ALIGNER_E2E=1 时执行，CI 默认 skip）：真实 edge-tts 合成旁白 → 真实 aligner 子进程（faster-whisper base）→ 真实 `alignScenes` 服务 → subtitleTimeline/subtitleAlign
+- 实测：7 块全部 aligned=true / method=asr / coverage≥0.9；块区间连续且存在真实停顿间隔（比例估算无间隔）；charTimings 与块区间一致
+- 时间轴：0.22~1.84 / 2.30~4.14 / 4.65~6.10 / 6.56~8.66 / 9.05~10.36 / 10.73~12.02 / 12.43~14.14（15.72s 音频）
+- 覆盖：stage 接线链路（此前仅 mock 单测）现已含真实子进程/ASR 集成证据
+
+## [2026-08-12] 视频克隆 切片 2：真实 ingest / analyze / plan adapter（PR #596 前身）
+
+- `packages/video-clone-engine/src/adapters/`：runners（ffprobe 元数据 / ffmpeg scene 场景检测 / yt-dlp 下载 / 下载错误文本分类）、ingest-local（存在/大小/扩展名/时长校验 + 错误映射）、ingest-url（下载 + 平台提示 + 私密/会员/地区/反爬分类）、analyze-ffprobe（补探元数据 + 场景检测降级合成分段 + ASR 契约 + 7 层骨架 + aspect 派生）、plan-script（改写契约 + inspiration 模式 + 防御归一化）、index（createDefaultIngest / createSlice2Pipeline）。
+- 错误码新增 VIDEOCLONE_FILE_NOT_FOUND；测试 67 用例全绿（含 2 个真实 ffprobe/ffmpeg 集成 smoke，工具缺失自动 skip）。
+- PRD v1.2 §16 切片 2 详细规格（本地校验流程 / 下载分类 / 场景检测参数 / ASR 与改写契约 / runner 环境变量 / 集成验证）。
+
+## [2026-08-12] 视频克隆独立流水线 切片 1：engine 核心（契约/编排/相似度）+ 详细规格
+
+- 新增 `packages/video-clone-engine`（纯 Node、零依赖）：CloneReport 7 层 schema 校验/归一化/编辑往返/IPC 脱壳；23 个错误码分类（阶段×可重试×用户提示键）；六阶段编排（ingest→analyze→plan→generate→compose→publish，checkpoint 断点续跑 + 有界重试 + fail-closed）；F4 相似度自检（结构/文案/风格/时长 + 证据门控 + verbatim 照抄警告）；Pipeline 门面与阶段 adapter 注入契约。
+- 测试：40 用例全绿（`node --test`，零依赖）。
+- OpenSpec change `video-clone-pipeline`（proposal/design/tasks/spec delta）；PRD v1.1 新增 §11-15 详细规格（数据校验、流程与功能逻辑、交互逻辑与显示项、提示文字 zh/en 与错误码、测试与门禁）。
+- 切片 2+ 待办：真实 ingest（yt-dlp/ffprobe）、analyze（ASR/镜头/风格）、plan 改写、generate provider 接入、compose（ffmpeg）、publish（PublisherRouter）、桌面 UI。
+
+## [2026-08-12] 修复 subtitle-align-service 单测 CI 回归（mock isAlignerAvailable，PR #590）
+
+- 根因：alignScenes 调用 bridge 前先查 isAlignerAvailable()（ALIGNER_DIR/aligner 模块存在性）；CI 未部署
+  audio-aligner 时返回 false → fail-fast 跳过 mock bridge（transcribeAudio 0 次、reason=aligner_unavailable），
+  与断言不符。为 PR #588 合并引入的上游回归（与 #585 i18n 无关）。
+- 修复：单测将 ALIGNER_DIR 指向含 aligner/ 模块的临时目录（与生产 fs 检查同源）→ isAlignerAvailable 为
+  true，确定性覆盖 mock bridge 编排路径（afterAll 清理临时目录）；生产行为不变（未部署 aligner 仍 fail-fast）。
+
+## [未发布] 修复：补齐 story2video 全部缺失 locale 键（QG Coverage Gate 5 根因闭环，2026-08-12）
+
+- 除 voice 块外，`STORY2VIDEO_NOTIFICATION_KEYS` 38 个通知键（access_denied / text_required / media_invalid / rate_limited 等）与 CreateView 进度类键（splitSceneCount / optimizeProgress / selectVideoScenes / assetsProgress / composeSegments 等）zh/en locale 均缺失 → intlify「Not found key」告警 → QG Coverage Gate 5 失败。
+- 修复：zh.js/en.js story2video 块补齐 38 通知键（文案与 story2video-notifications.js MESSAGES 一致）；进度类 9 键改为 vue-i18n 插值模板（{count}/{done}/{total}/{percent} 等），CreateView 6 处调用改 `translateWithLocaleFallback(key, zh, en, params)` 传参（保留 fallback 拼接，不丢失动态数字）。
+- 回归：CreateView 140/140、i18n 7/7；zh/en key parity 一致。
+## [2026-08-12] 字幕对齐停顿吸附（silence-snap）+ 块级 <200ms 验收
+
+- aligner core 新增 `detect_silences`（ffmpeg silencedetect 独立停顿检测）+ `snap_words_to_silence`
+  （落在/覆盖停顿的词起点吸附到停顿结束，lead_tolerance 0.30s，不修改入参）
+- 实测：`那` 4.40→4.82、`处` 6.92→7.03、`慢慢` 13.74→14.08、`盐` 3.38→3.52、`再` 11.46→11.50，均对齐静音结束
+- 块级时间定位由音频停顿独立锚定（非 ASR 自证）；ffprobe duration 与 whisper 完全一致
+- 测试：aligner 7 例全绿（snap 规则 + 解析 + API）；OpenSpec/PRD 更新验收结论
+
+
+## [未发布] 修复：补齐 create.story2video.voice locale 缺键（catalogLoadFailed + 26 VOICE 键）消除 intlify 告警（2026-08-12）
+
+- 背景：main CI QG Coverage 失败根因之一 —— CreateView 引用 `create.story2video.voice.catalogLoadFailed`（及音色错误映射表 26 个 VOICE_* 键）但 zh/en locale 未定义 → intlify「Not found key」告警。
+- 修复：zh.js/en.js 的 create.story2video 块新增 voice 子对象（catalogLoadFailed + VOICE_CATALOG_* / VOICE_CLONE_* 共 27 键），文案与 CreateView 兜底一致；zh/en key parity 一致。
+- 回归：CreateView 140/140、i18n 7/7。
+## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
+
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
+- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+
+## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
+
+- locales zh/en 新增 `historyPage`（131 键成对，含插值函数）与 `publishType`（8 键）命名空间
+- PublishHistory.vue 全量 i18n：模板全部文案 t('historyPage.*')；statusLabel/contentTypeLabel/publishModeLabel
+  按 key 映射；formatTime 随语言（zh-CN/en-US）；CSV 导出表头本地化；重试/删除/详情/草稿等错误与操作提示接入
+- PublishTypeDialog.vue（新建发布选型弹窗）标题/关闭/支持平台计数/四类发布类型 i18n
+- 测试：PublishHistory.test.js / PublishTypeDialog.test.js 装 i18n 插件；zh/en 键对等校验 131/131 + 8/8；
+  模板与脚本非注释中文为 0
+- PROMPT-TEXT-SPEC §8 P2 进度：Home/Publish/Accounts/PublishHistory 已完成，待办 Settings
+
+## [2026-08-12] 字幕时间戳真实对齐 Tier2 — stage 接线 + JS 聚合器镜像（对齐层闭环）
+
+- `story2video-stages.js` TTS 后接入 `alignScenes`（aligner 可用性 fail-fast 门控；并发 2 路；fail-open）
+- 每场景附加 `subtitleTimeline`（真实词级时间 + charTimings）与 `subtitleAlign` 元数据（aligned/method/coverage/reason/elapsedMs，随场景持久化）
+- Electron JS 聚合器镜像 `subtitle-align-aggregator.js`（自包含、纯 JS）——行为与 TS 权威版由 parity 测试逐字锁死
+- 测试：JS 镜像 4 + 服务编排 4 + TS/JS parity 1；story2video-engine 127 全绿；stages 80/81（1 例为 origin/main 存量 governor 超时，已验证与本变更无关）
+## [未发布] 修复：fidelity 分镜鲁棒性加固 + 真实 E2E 验证（2026-08-12）
+
+- **真实 E2E 验证**（animation 流水线，关羽/三国志长文案，storyboardMode=fidelity，minimax-multimodal 真实 LLM）：12 场景逐条对应原文（《三国志》蜀书/曹魏档案对比/刘备编草鞋/万人之敌/军事训练图解/十几年岁月/政治黑手撕档案），无臆造矛盾事实；对齐报告 coverage=0.86（14 实体命中 12，缺失陈寿/桃园结义在 12 场景上限内允许），retries=0 一次通过，全部场景绑定 source_paras。对比旧创意模式"赛博侦探档案"跑偏，修复有效。
+- **加固 1**：fidelity/hybrid storyboard 输出预算显式放大到 8000 tokens（注入分段全文 + source_paras 后输出体积显著大于 creative，5000 默认预算可能截断导致 JSON 解析失败）。
+- **加固 2**：storyboard JSON 解析失败不再直接 fail，带提示重试（最多与对齐重试共享 maxAttempts 预算），重试耗尽才 fail closed。
+- 回归：videogen-stages 32 + videogen-content-fidelity 30（新增 3 用例：8000 tokens 断言 / JSON 失败重试成功 / 连续失败 fail closed）全绿。
+## [2026-08-12] 视频创作失败诊断系统（桌面端遥测 + 运营后台看板/告警/处置建议）
+
+- P0（桌面端）：统一诊断码（stage×failureType×severity×recoverability，fail-closed 到 unknown）、错误→候选根因映射（causeId/label/checks/advice/confidence）、run 级诊断摘要 + best-effort 环境快照（字段白名单）；`pipeline-engine._finalizeRun` 附加 `run.diagnostics` + 可选 `setRunFinalizedHook`（additive，IPC 契约不变）。
+- 运营落地（ops-center）：桌面端 `diagnostics-reporter`（30min watermark 上报 daily 聚合桶 + 失败样本；batch 幂等——duplicate 回传 acked_max_id 推进水印防超时重试翻倍；队列/批量上限防积压；未配置静默跳过）→ `POST /api/v1/diagnostics/ingest`（X-Catalog-Key、三级幂等、30 天样本/90 天聚合滚动清理）→ `GET /summary`（totals/by_date/by_stage/by_failure_type/by_cause/by_client/env/阈值 alerts）与 `GET /samples`（admin 分页过滤）。
+- 运营看板 `/diagnostics`：KPI、告警面板、每日趋势、分布、Top 根因+处置建议（跳转功能开关）、样本列表/详情抽屉/复制诊断信息。
+- 文档：OpenSpec changes `story2video-failure-diagnostics` + `ops-center-video-diagnostics`；`01-docs/ARCH-VIDEO-DIAGNOSTICS-OPS-2026-08-12.md`。
+- 验证：桌面聚焦 233 用例 + eslint 0 error；ops-center pytest 全量 174（合并 main 后）；前端 vite build；QM-1 打包 + 启动 10s 存活；Claude 双轮审查（Critical/Warning 全部闭合）。
+
+## [2026-08-12] 字幕时间戳真实对齐 Tier2（ASR 词级时间）——audio-aligner sidecar + Node 聚合器 + bridge
+
+- 新增 `packages/audio-aligner/`：FastAPI :8004，faster-whisper base（模型已缓存），`/align` 返回词级时间（words/segments/language/duration/elapsed_ms）
+- 新增 `story2video-engine/src/subtitle-aligner.ts`：词级时间 → 分句块聚合（Levenshtein 容差匹配、区间连续 half-up、失败块回退估算 + warning、coverage/method 度量）并导出
+- 新增 `apps/desktop/electron/services/aligner-bridge.js`（BasePythonBridge 模式 :8004，5min 超时）+ app-config `alignerBridge` + 契约测试
+- 真实 E2E 验证：edge-tts 合成用户实例旁白 → ASR 55 词 / 15.72s（ffprobe 锚定一致）→ 7 字幕块 100% 命中真实时间（0 warning），真实时间替代字数比例估算
+- 测试：aligner API 4 例 + 聚合器 8 例 + bridge 2 例；story2video-engine 全量通过
+- OpenSpec `subtitle-audio-alignment` 更新实施状态；stage 接线（TTS 后调用 + aligned 持久化）待并发工作流让出后接入
+
+## [未发布] 功能：视频创作页「分镜模式」设置（video-content-fidelity UI 落地，2026-08-12）
+
+- CreateView 视频创作页 basic 配置区新增「分镜模式」下拉：自动（推荐）/ 创意拓展（一句话生成整个视频）/ 按原文保真（长文案按原文实现）/ 混合（保真主旨 + 允许演绎），默认自动。
+- 透传 params.storyboardMode 到流水线（animation/avatar/character-animation/hybrid 等 videogen 流水线生效）；与 checkpointPolicy 一致采用会话内记忆。
+- locale：zh/en 新增 story2video.storyboardMode.* 键（label/auto/creative/fidelity/hybrid/hint）。
+- 回归：CreateView 新增 3 用例（默认 auto 透传 / fidelity 透传 + lastOptions 持久化 / 下拉四选项渲染）。
+
+## [2026-08-12] 字幕分割规则表单源（对齐 splitter v0.15.2）
+
+- 新增 `packages/story2video-engine/src/subtitle-rules.json`（与 splitter 同步副本）：字符集/默认参数/舍入模式
+  统一由规则表加载，禁止再手写硬编码
+- `text-segmentation.ts` 常量区 + `DEFAULT_CONFIG` 改为从规则表读取；tsconfig 补 `resolveJsonModule`
+- 顺带对齐 `enum.higher_punct` 补全角逗号（与 Python/规范一致）
+- 验证：story2video-engine 118 例全绿；tsc --noEmit 通过；跨实现差分 38/38 文本+时间戳一致
+
+## [2026-08-12] 字幕时间戳舍入统一 half-up（对齐 splitter v0.15.1）+ 跨实现差分测试
+
+- 背景：跨实现差分测试（38 例语料）证实文本块 38/38 一致，但时间戳在 .xx5 边界分歧
+  （Python 银行家舍入 0.625→0.62 vs TS 四舍五入 0.63，等分场景累计 0.15s）——TS 侧本就为 half-up，无需改代码
+- 共享向量 +1（rounding_half_up，20 例）+ TS 新增 half-up 舍入断言（0.625→0.63）→ story2video-engine 118 例全绿
+- PRD 7.1.1 注明舍入模式（half-up）；差分工具：splitter scripts/cross-parity/（双端运行 + compare.py）
+
+## [未发布] 功能：运营后台限流与调度验证（P0 模拟器+契约校验 / P1 用量观测 / P2 真实自检对拍）（2026-08-12）
+
+- P0（ops-center）：新增与桌面端 ApiUsageGovernor 同契约的确定性调度模拟器 `scheduler_simulator.py`（RPM 时间槽/并发信号量/429 冷却/5h 预检/429 自适应，含 6 条断言库）；`POST /api/v1/scheduler/verify`（模拟落库）、`GET /verify`、`GET /verify/{id}`、`GET /contract`（预设契约校验：范围/default∈models/并发换算）；新表 `scheduler_verification_runs`；前端「限流与调度验证」页 `/rate-limit-verifier`（模拟验证/契约校验/验证记录三 tab）。全部 admin-only、零真实 provider 调用。
+- P1（可观测性）：桌面端 governor 采集每请求排队/冷却等待（计数器，不改调度语义、重入内层不计时）；用量上报新增 `scheduler-observation` 聚合项（queued_count/cooldown_count/queue_wait_ms/cooldown_wait_ms，旧客户端兼容）；`model_usage_daily` 加可空列；用量看板「按服务商」新增 429 率/排队/冷却/预算利用率列。
+- P2（真实自检 + 对拍）：桌面端 `rate-limit-self-check`（独立 governor + 假 adapter，零额度零网络）；IPC `rate-limit:self-check`/`rate-limit:report`（authenticated，上报 simulated=0）；模型设置页「限流自检」按钮；对拍脚本 + parity 测试（四组固定输入）。
+- 修复（对拍审计发现）：`ApiUsageGovernor._assertTokenBudget` 由 `used >= limit` 改为 `used > limit`——此前第 limit 次成功调用会被误判 QUOTA_EXCEEDED；现与 preflight「第 limit+1 起拒」语义对齐；既有额度测试断言同步。
+- 文档：OpenSpec change `ops-center-rate-limit-verifier`（2 新 capability）；CHANGELOG/learnings/.quality-gates。
+- 测试：桌面 58（含 parity）+ ops-center 相关 49；Vue build + preload build 通过。
+## [2026-08-12] 字幕分割 v1.1：顿号枚举单元整体保护（对齐 splitter v0.15.0）+ 时间戳真实对齐立项
+
+- **顿号枚举整体切分**（TS 同步 Python）：切分锚点顿号降为最低优先级；锚点落在顿号上时切分点前移到
+  枚举单元结束之后（枚举 = 顿号分隔项 + 和/及/与 连接末项；结束于更高优先级标点/谓词引导词/片段尾）——
+  修复 `柴火、盐巴和香料那可都是绝对的硬通货` 主语枚举被撕裂的问题 → `柴火、盐巴和香料` + `那可都是绝对的硬通货`
+- 共享向量 +1（`enumeration_whole`，19 例）+ `balanced_user_case` 按新规则更新 → story2video-engine 114 例全绿
+- **时间戳真实对齐立项**（OpenSpec `openspec/changes/subtitle-audio-alignment/`）：分句保持纯文本驱动，
+  时间戳改为三级来源（TTS 词边界事件 → ASR 强制对齐 → 比例估算兜底），渲染期用真实音频对齐替换估算
+- PRD 7.1.1 补充顿号枚举保护 + 时间戳对齐设计
+
+## [2026-08-12] 字幕分割回归护栏（对齐 splitter v0.14.2）
+
+- Step 3 硬切尾块平衡（TS 同步 Python）：无标点硬切后尾块清理长度 4..min-1 字时从上一块让字，
+  避免孤悬尾块（no_punct_long 15+15+15+4 → 15+15+11+8）
+- 共享向量同步：no_punct_long 更新为手工真值 + 全部向量补齐 `short_block_exceptions`（显式例外声明）
+- 测试加固：min_chars 不变量断言（例外须声明）、时间戳舍入后严格连续断言（proportional/equal）、
+  向量双轨管理规则（禁止自证）→ story2video-engine 111 例全绿
+- PRD 7.1.1 补充字幕分割质量护栏条款
+
+## [未发布] 功能：视频内容保真 video-content-fidelity — 分镜-文案对齐 S1-S5（2026-08-12）
+
+- **双模式分镜**：CONCEPT/STORYBOARD 支持 creative（一句话创意，原始机制不变）/ fidelity（按原文保真）/ hybrid（保真+演绎）/ auto（段落≥3 或字≥300 或句≥8 → fidelity；字≤80 且句≤2 → creative；其余 hybrid）；显式 storyboardMode 可覆盖。
+- **长文段落化**：新模块 video-script-segmentation（空行/句号两级切分，6000 字截断标记）；fidelity/hybrid 下 storyboard 场景绑定 source_paras。
+- **内容对齐门禁**：新模块 video-content-alignment（内置词典 + LLM 兜底实体抽取；覆盖度 ≥0.8；不达标带缺失清单重试 ≤2 次；耗尽/空场景 fail closed：STORYBOARD_ALIGNMENT_FAILED / STORYBOARD_EMPTY_SCENES）。
+- **优化 context 注入**：videogen 批量优化请求携带 context（白名单 synopsis/character/setting/character_list/full_text + 长度收敛 + 敏感键拦截）；prompt-engine 视频策略追加 Fact-Fidelity 指令 + context 未知键忽略 warning。
+- **对齐评估报告**：mode/coverage/matched/missing/retries 写入 run 上下文 videoContentFidelity；视觉评估接口预留 not_implemented（不冒充实现）。
+- **配置**：story2videoTextConfig.video_content_fidelity（enabled/minCoverage=0.8/maxRetries=2/llmExtractFallback/maxFullTextChars=6000），越界 fail closed。
+- **回归**：videogen-stages 32、videogen-content-fidelity 27、contract 23、text-config 68、agnes-video 40、prompt-engine test_video_optimize 20 全绿；creative 短输入行为不变。
+## [未发布] 功能：运营后台「提示词评测工作台」PromptEval Workbench（2026-08-12）
+
+- 运营后台新增评测工作台：运营人员录入原文 + 优化后提示词（中文）→ 后台 LLM 自动生成英文对照（标注「机器翻译」）→ 真实生图（服务端直连 minimax-image/flux）→ 视觉评估（复用桌面端 PromptEval 维度契约）→ 同屏比对 原文|中英提示词|生成物|评估结果 + 多 run 对比 + 聚合分析。
+- 后端：prompt_eval_cases/runs/provider_keys 3 表；/api/v1/prompt-eval/*（读=登录、写=登录/创建者、密钥=admin）；契约/生成/翻译/评估/流水线服务；异步状态机（queued→processing→succeeded→evaluating→succeeded/failed，失败不静默降级）；密钥 Fernet 加密存储。
+- 前端：PromptEvalWorkbench.vue（新建/列表详情/聚合分析 三 Tab）+ ModelKeys.vue（admin 密钥）+ 路由/菜单。
+- 与桌面端契约一致性：prompt_eval_contract.py 与 dimensions.js 一致性测试（node 加载断言）。
+- 测试：后端新增 16 例（契约 5/API 5/服务 6）单独运行全绿；前端 npm run build 通过。（全量 pytest 套件 DB 路径交叉干扰为既有问题，排除本次文件仍有 4 failed + 17 errors）
+- 文档：ops-center/docs/PRD.md 12A.22、PRD-PROMPT-EVAL-OPS-WORKBENCH、ARCH-PROMPT-EVAL-OPS-WORKBENCH、openspec change、CHANGELOG。
 ## [未发布] 修复：补 story2video.summaryDuration/summaryFileSize locale 缺键（2026-08-12）
 
 - CreateView 完成摘要行使用 `story2video.summaryDuration` / `story2video.summaryFileSize` 键但 zh/en locale 缺失，产生 intlify 警告（此前仅靠硬编码兜底）。补两个命名插值键（`ctx.named('text')` / `ctx.named('size')`），`CreateView.vue` 两处调用补传 `{ text }` / `{ size }` 参数。
@@ -140,6 +345,31 @@
 - 实现：`useModelProviderCrud.js` 新增 `isMiniMaxMultimodal`（`form.id === 'minimax-multimodal'`）；`ModelProviders.vue` 新增/编辑对话框对该预设渲染只读提示（「模型列表由系统预设与运营后台下发控制，无需在此填写」+ 当前模型列表文本），其它服务商行为不变。
 - 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
 - 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
+
+## [未发布] 功能：账号管理页 Accounts 文案全量多语言化（P2 第三批）（2026-08-12）
+
+- `src/locales/zh.js` / `en.js` 新增 `accountsPage` 命名空间（126 键成对，含插值函数）：搜索/筛选/排序/批量操作/平台分组/登录状态/分组管理/代理/校验等。
+- `src/views/Accounts.vue`：模板全部用户可见文案替换 `t('accountsPage.*')`；filterOptions/sortOptions 改 computed（locale 响应式）；loginStateText/emptyStateTitle/sortOrderLabel/authPlatformName/ElMessage 与 confirm 全部接入 i18n。
+- 测试适配：Accounts.test.js / views-deep.test.js / views-coverage.test.js mount 安装 vue-i18n 插件。
+- GUI 适配：electron-gui-v9.js / server-gui-test.js 筛选 chips 改用 `#account-status-tab-<value>` id、添加账号按钮改用 `[data-testid="account-add"]`（en 系统语言下中文文本定位失效）。
+- 文档：PROMPT-TEXT-SPEC §8 P2 进度；CHANGELOG。
+- 验证：zh/en 键一致性 126/126；模板/脚本剩余中文仅注释与数据字段别名；CI 权威验证。
+
+## [未发布] 功能：发布页 Publish 文案全量多语言化（P2 第二批）（2026-08-12）
+
+- `src/locales/zh.js` / `en.js` 新增 `publishPage` 命名空间（76 键成对，含插值函数）：草稿箱/批量模式/表单标签与占位符/媒体上传提示/进度/结果/发布类型等。
+- `src/views/Publish.vue`：模板全部用户可见文案替换为 `t('publishPage.*')`；`publishTypeLabel` 按类型 key 映射；草稿/面板时间格式化按当前语言 zh-CN/en-US；`{{ p.label }}账号` 后缀 i18n。
+- `src/views/Publish.test.js`：mount 安装 vue-i18n 插件；locale 固定 zh（两处 describe beforeEach）。
+- 文档：PROMPT-TEXT-SPEC §8 P2 进度；OpenSpec change `desktop-ui-i18n-p2`（第二批）。
+- 验证：zh/en 键一致性 76/76；模板剩余中文 0；语法 node --check 通过；CI 权威验证。
+
+## [未发布] 功能：首页 Home 文案全量多语言化（P2 存量 i18n 首批）（2026-08-12）
+
+- `src/locales/zh.js` / `en.js` 新增 `home` 命名空间（约 30 键）：副标题、快捷操作/入口、统计标签、时段问候（5）、状态标签（6）、平台 fallback 标签（11）、空态/无标题/用户默认名。
+- `src/views/Home.vue`：模板硬编码中文全部替换为 `t('home.*')`；问候语按时段 key 映射、状态按 key 映射、displayName 默认名、平台 fallback 标签、`formatTime` 按当前语言使用 zh-CN/en-US 区域格式。
+- `src/views/Home.test.js`：mount 安装 vue-i18n 插件；新增 en 语言断言（英文文案 + 平台英文 fallback 标签）；原 zh 断言保持原文。
+- 文档：PROMPT-TEXT-SPEC §8 P2 进度登记；OpenSpec change `desktop-ui-i18n-p2`。
+- 测试：Home 11 用例 + i18n 全绿；eslint 0 errors。
 
 ## [未发布] 文档：提示文字规范独立成册 + 补齐契约类文档（2026-08-12）
 
@@ -3605,6 +3835,8 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
+
 
 
 

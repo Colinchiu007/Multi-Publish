@@ -31,11 +31,13 @@ function classifyStatus (row) {
 }
 
 class UsageReporter {
-  constructor ({ store, log, getOpsCenterAuth, getClientId }) {
+  constructor ({ store, log, getOpsCenterAuth, getClientId, getSchedulerMetrics }) {
     this._store = store
     this._log = log || { info() {}, warn() {}, error() {} }
     this._getOpsCenterAuth = typeof getOpsCenterAuth === 'function' ? getOpsCenterAuth : () => null
     this._getClientId = typeof getClientId === 'function' ? getClientId : () => ''
+    // P1：governor 调度可观测性提供者（取走并清零排队/冷却计数）；未注入则跳过
+    this._getSchedulerMetrics = typeof getSchedulerMetrics === 'function' ? getSchedulerMetrics : () => ({})
     this._timer = null
   }
 
@@ -142,6 +144,34 @@ class UsageReporter {
         tokens_out: b.tokens_out,
         cost: b.cost,
         latency_buckets: b.buckets,
+      })
+    }
+
+    // P1：调度可观测性（governor 排队/冷却计数，按 provider 聚合）→ 独立 scheduler 聚合项（与调用桶分开计数）
+    let schedulerMetrics = {}
+    try { schedulerMetrics = this._getSchedulerMetrics() || {} } catch { schedulerMetrics = {} }
+    const clientId = this._getClientId()
+    for (const [providerId, s] of Object.entries(schedulerMetrics)) {
+      if (!s || !s.queuedCount && !s.cooldownCount) continue
+      items.push({
+        usage_date: today,
+        client_id: clientId,
+        provider_id: providerId,
+        category: 'scheduler',
+        action: 'scheduler-observation',
+        calls: 0,
+        ok_count: 0,
+        fail_count: 0,
+        ratelimit_count: 0,
+        latency_ms: 0,
+        tokens_in: 0,
+        tokens_out: 0,
+        cost: 0,
+        latency_buckets: { lt1s: 0, '1to3s': 0, '3to10s': 0, gt10s: 0 },
+        queued_count: s.queuedCount || 0,
+        cooldown_count: s.cooldownCount || 0,
+        queue_wait_ms: s.queueWaitMs || 0,
+        cooldown_wait_ms: s.cooldownWaitMs || 0,
       })
     }
 

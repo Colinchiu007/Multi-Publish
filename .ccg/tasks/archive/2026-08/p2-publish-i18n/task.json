@@ -1,0 +1,14 @@
+{
+  "currentPhase": "completed",
+  "remoteStatus": "merged",
+  "branch": "codex/p2-publish-i18n",
+  "id": "p2-publish-i18n",
+  "risk": "medium",
+  "openspecChange": "desktop-ui-i18n-p2(已归档,第一批)",
+  "complexity": "M",
+  "completedAt": "2026-08-12T12:06:31Z",
+  "status": "completed",
+  "domain": "desktop",
+  "title": "P2 存量 i18n 第二批：Publish 发布页文案全量多语言化",
+  "pr": "#570 merged 098147eb"
+}
