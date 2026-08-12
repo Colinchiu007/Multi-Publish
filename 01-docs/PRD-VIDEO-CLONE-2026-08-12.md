@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.4（切片 4：IPC 契约与桌面 UI 详细规格）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.5（切片 4b：Electron 接线实现与门禁记录）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -550,4 +550,22 @@ VideoClonePipeline：
 - preload 增改后 sandbox:true/false 双模式验证 window.electronAPI；
 - 受保护 IPC 通道 file:// sender canonical 校验（realpathSync.native 双向）；
 - 环境前提：node_modules 完整（npm ci）+ workspace junction 指向当前 worktree——当前所有 worktree 无 node_modules，4b 接线待环境就绪后执行。
+
+
+## 19. 详细规格：切片 4b — Electron 接线实现（v1.5 追加）
+
+### 19.1 已实现（本切片）
+
+- 引擎：src/service.js（createVideoCloneService：run 会话表 + cancel + applyReportPatch + activeCount，Electron 无关可测）。
+- 主进程：ipc-handlers/video-clone.js（video-clone:run/cancel/report:edit/report:regenerate；进度经 BrowserWindow.fromWebContents(sender).webContents.send('video-clone:progress')；错误统一 { code, message, errorCode }）；已注册进 ipc-handlers/index.js。
+- preload：preload/video-clone.js（window.electronAPI.videoClone.{ run, cancel, editReport, regenerate, onProgress }）；index.bundle.js 已重建。
+- 渲染层：composables/useVideoClone.js（输入/进度/报告/相似度/错误 formatUserError）；views/VideoCloneView.vue（输入区/进度卡片/报告编辑/相似度仪表）；路由 /video-clone；i18n videoClone 命名空间 zh/en（23 错误键 + UI 文案，与 §14 对齐）。
+- 依赖：apps/desktop 声明 @multi-publish/video-clone-engine（package-lock 同步）。
+
+### 19.2 门禁证据（QM-1 / 构建）
+
+- QM-1 打包：electron-builder --win --dir exit 0（electron 43.1.1）；启动 10s：无 Cannot find module / 平台配置 / ENOTDIR 关键错误；日志含 window 主窗口已显示；ASAR 含 node_modules/@multi-publish/video-clone-engine。
+- 构建：vite build 通过（VideoCloneView 模板无编译错误）。
+- 测试：engine 96（含 service 5）+ desktop preload 333 + composable 5 + i18n 7 = 全绿。
+- 待 4c：真实 assetGenerator（ModelProviderManager）/ PublisherRouter 接线、文件选择对话框、sandbox 双模式实窗验证（QM-2 完整）、visible-window handle 截图证据。
 

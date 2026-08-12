@@ -787,6 +787,34 @@ var require_page_manager = __commonJS({
   }
 });
 
+// electron/preload/video-clone.js
+var require_video_clone = __commonJS({
+  "electron/preload/video-clone.js"(exports2, module2) {
+    var { ipcRenderer: ipcRenderer2 } = require("electron");
+    function createVideoCloneApi2(ipcRendererRef = ipcRenderer2) {
+      return {
+        videoClone: {
+          run: (request) => ipcRendererRef.invoke("video-clone:run", request),
+          cancel: (runId) => ipcRendererRef.invoke("video-clone:cancel", { runId }),
+          editReport: (report, patch) => ipcRendererRef.invoke("video-clone:report:edit", { report, patch }),
+          regenerate: (runId) => ipcRendererRef.invoke("video-clone:report:regenerate", { runId }),
+          onProgress: (cb) => {
+            const listener = (_event, evt) => {
+              try {
+                cb(evt);
+              } catch {
+              }
+            };
+            ipcRendererRef.on("video-clone:progress", listener);
+            return () => ipcRendererRef.removeListener("video-clone:progress", listener);
+          }
+        }
+      };
+    }
+    module2.exports = { createVideoCloneApi: createVideoCloneApi2 };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -987,6 +1015,7 @@ var { createTtsVoiceCatalogApi } = require_tts_voice_catalog();
 var { createTtsVoiceCloneApi } = require_tts_voice_clone();
 var { createPromptEvalApi } = require_prompt_eval();
 var { createPageManagerApi } = require_page_manager();
+var { createVideoCloneApi } = require_video_clone();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -1022,6 +1051,7 @@ var fullApi = {
   ...createTtsVoiceCloneApi(ipcRenderer),
   ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer),
+  ...createVideoCloneApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke("rate-limit:self-check", params),
   rateLimitReport: (payload) => ipcRenderer.invoke("rate-limit:report", payload)

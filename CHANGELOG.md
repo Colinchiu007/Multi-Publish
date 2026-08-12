@@ -1,3 +1,11 @@
+## [2026-08-12] 视频克隆 切片 4b：Electron 接线（服务/IPC/preload/Vue 视图）+ QM-1 打包验证
+
+- `packages/video-clone-engine/src/service.js`：createVideoCloneService（会话表 + cancel + 报告编辑校验）。
+- 主进程：ipc-handlers/video-clone.js（run/cancel/report:edit/report:regenerate + 进度事件）注册进中心；preload videoClone API + index.bundle.js 重建。
+- 渲染层：useVideoClone.js + VideoCloneView.vue（输入/进度/报告编辑/相似度仪表）+ 路由 /video-clone + i18n videoClone zh/en。
+- 门禁：engine 96 / preload 333 / composable 5 / i18n 7 全绿；vite build 通过；QM-1 electron-builder --win --dir exit 0 + 启动 10s 无关键错误（主窗口已显示、ASAR 含 engine）。
+- 待 4c：ModelProviderManager 生成接入、PublisherRouter 发布、文件选择器、QM-2 完整实窗验证。
+
 ## [2026-08-12] 视频克隆 切片 4a：IPC-ready runner（进度事件/协作中止）+ IPC 与 UI 详细规格
 
 - `packages/video-clone-engine`：pipeline 支持 executorOptions.eventSink（stage:started/succeeded/failed/aborted）与 abortSignal（阶段边界协作中止）；新增 runner.js（createVideoCloneRunner 注入事件/中止 + completed 生命周期事件）。
