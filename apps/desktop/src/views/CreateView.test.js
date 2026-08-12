@@ -69,7 +69,7 @@ const router = createRouter({
 
 import CreateView from "./CreateView.vue";
 import CreateViewHistory from './CreateViewHistory.vue'
-import { PipelineSelector, StageProgress } from './video-creation'
+import { PipelineSelector, StageProgress, QuickRenderPanel } from './video-creation'
 import i18n from "@/i18n";
 
 describe("CreateView", () => {
@@ -104,7 +104,7 @@ describe("CreateView", () => {
     await nextTick();
     w.vm.view = "quick";
     await nextTick();
-    const tabs = w.findAll(".mode-tab");
+    const tabs = w.findComponent(QuickRenderPanel).findAll(".mode-tab");
     expect(tabs.length).toBe(2);
   });
 
@@ -115,7 +115,7 @@ describe("CreateView", () => {
     await nextTick();
     w.vm.view = "quick";
     await nextTick();
-    const tabs = w.findAll(".mode-tab");
+    const tabs = w.findComponent(QuickRenderPanel).findAll(".mode-tab");
     await tabs[1].trigger("click");
     await nextTick();
     expect(w.text()).toContain("上传图片");
@@ -128,7 +128,7 @@ describe("CreateView", () => {
     await nextTick();
     w.vm.view = "quick";
     await nextTick();
-    expect(w.vm.canQuickRender).toBe(false);
+    expect(w.findComponent(QuickRenderPanel).vm.canQuickRender).toBe(false);
   });
 
   it("canQuickRender is true with non-empty quickText", async () => {
@@ -137,9 +137,10 @@ describe("CreateView", () => {
     });
     await nextTick();
     w.vm.view = "quick";
-    w.vm.quickText = "hello world";
     await nextTick();
-    expect(w.vm.canQuickRender).toBe(true);
+    w.findComponent(QuickRenderPanel).vm.quickText = "hello world";
+    await nextTick();
+    expect(w.findComponent(QuickRenderPanel).vm.canQuickRender).toBe(true);
   });
 
   it("canQuickRender is false when quickRendering", async () => {
@@ -148,9 +149,10 @@ describe("CreateView", () => {
     });
     await nextTick();
     w.vm.view = "quick";
-    w.vm.quickText = "test";
-    w.vm.quickRendering = true;
-    expect(w.vm.canQuickRender).toBe(false);
+    await nextTick();
+    w.findComponent(QuickRenderPanel).vm.quickText = "test";
+    w.findComponent(QuickRenderPanel).vm.quickRendering = true;
+    expect(w.findComponent(QuickRenderPanel).vm.canQuickRender).toBe(false);
   });
 
   it("canQuickRender is false when gallery mode with no images", async () => {
@@ -159,8 +161,9 @@ describe("CreateView", () => {
     });
     await nextTick();
     w.vm.view = "quick";
-    w.vm.quickMode = "gallery";
-    expect(w.vm.canQuickRender).toBe(false);
+    await nextTick();
+    w.findComponent(QuickRenderPanel).vm.quickMode = "gallery";
+    expect(w.findComponent(QuickRenderPanel).vm.canQuickRender).toBe(false);
   });
 
   it("canQuickRender is true when gallery has images", async () => {
@@ -169,9 +172,10 @@ describe("CreateView", () => {
     });
     await nextTick();
     w.vm.view = "quick";
-    w.vm.quickMode = "gallery";
-    w.vm.quickImages = [{ path: "/img.png", preview: "blob:1" }];
-    expect(w.vm.canQuickRender).toBe(true);
+    await nextTick();
+    w.findComponent(QuickRenderPanel).vm.quickMode = "gallery";
+    w.findComponent(QuickRenderPanel).vm.quickImages = [{ path: "/img.png", preview: "blob:1" }];
+    expect(w.findComponent(QuickRenderPanel).vm.canQuickRender).toBe(true);
   });
 
   it("gets renderStatus on mount", async () => {
@@ -593,8 +597,9 @@ describe("CreateView - quick render", () => {
     });
     await nextTick();
     w.vm.view = "quick";
-    w.vm.quickText = "scene1\nscene2\nscene3";
-    await w.vm.startQuickRender();
+    await nextTick();
+    w.findComponent(QuickRenderPanel).vm.quickText = "scene1\nscene2\nscene3";
+    await w.findComponent(QuickRenderPanel).vm.startQuickRender();
     await nextTick();
     expect(mocks.renderStart).toHaveBeenCalled();
     const arg = mocks.renderStart.mock.calls[0][0];
@@ -610,11 +615,12 @@ describe("CreateView - quick render", () => {
     });
     await nextTick();
     w.vm.view = "quick";
-    w.vm.quickText = "test";
-    await w.vm.startQuickRender();
     await nextTick();
-    expect(w.vm.quickError).toBe("render failed");
-    expect(w.vm.quickRendering).toBe(false);
+    w.findComponent(QuickRenderPanel).vm.quickText = "test";
+    await w.findComponent(QuickRenderPanel).vm.startQuickRender();
+    await nextTick();
+    expect(w.findComponent(QuickRenderPanel).vm.quickError).toBe("render failed");
+    expect(w.findComponent(QuickRenderPanel).vm.quickRendering).toBe(false);
   });
 
   it("cancelQuickRender calls renderCancel", async () => {
@@ -623,10 +629,12 @@ describe("CreateView - quick render", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
-    w.vm.quickRendering = true;
-    await w.vm.cancelQuickRender();
+    w.vm.view = "quick";
+    await nextTick();
+    w.findComponent(QuickRenderPanel).vm.quickRendering = true;
+    await w.findComponent(QuickRenderPanel).vm.cancelQuickRender();
     expect(mocks.renderCancel).toHaveBeenCalled();
-    expect(w.vm.quickRendering).toBe(false);
+    expect(w.findComponent(QuickRenderPanel).vm.quickRendering).toBe(false);
   });
 
   it("aiWrite generates content", async () => {
@@ -636,10 +644,10 @@ describe("CreateView - quick render", () => {
     await nextTick();
     w.vm.view = "quick";
     await nextTick();
-    w.vm.aiWrite();
+    w.findComponent(QuickRenderPanel).vm.aiWrite();
     await new Promise(r => setTimeout(r, 1100));
     await nextTick();
-    expect(w.vm.quickText.length).toBeGreaterThan(0);
+    expect(w.findComponent(QuickRenderPanel).vm.quickText.length).toBeGreaterThan(0);
   });
 
   it("viewQuickResult navigates to result page", async () => {
@@ -649,8 +657,10 @@ describe("CreateView - quick render", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
-    w.vm.quickResult = { outputPath: "/tmp/video.mp4" };
-    w.vm.viewQuickResult();
+    w.vm.view = "quick";
+    await nextTick();
+    w.findComponent(QuickRenderPanel).vm.quickResult = { outputPath: "/tmp/video.mp4" };
+    w.findComponent(QuickRenderPanel).vm.viewQuickResult();
     expect(push).toHaveBeenCalledWith({ path: "/create/result", query: { path: "/tmp/video.mp4" } });
   });
 
@@ -661,13 +671,15 @@ describe("CreateView - quick render", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
-    w.vm.quickText = "测试文案";
+    w.vm.view = "quick";
+    await nextTick();
+    w.findComponent(QuickRenderPanel).vm.quickText = "测试文案";
 
-    await expect(w.vm.startQuickRender()).resolves.toBeUndefined();
+    await expect(w.findComponent(QuickRenderPanel).vm.startQuickRender()).resolves.toBeUndefined();
 
-    expect(w.vm.quickError).toBe("渲染异常: 渲染 IPC 缺失");
-    expect(w.vm.quickRendering).toBe(false);
-    expect(w.vm.quickResult).toBeNull();
+    expect(w.findComponent(QuickRenderPanel).vm.quickError).toBe("渲染异常: 渲染 IPC 缺失");
+    expect(w.findComponent(QuickRenderPanel).vm.quickRendering).toBe(false);
+    expect(w.findComponent(QuickRenderPanel).vm.quickResult).toBeNull();
   });
 
   it("renderStart 返回异常格式时展示默认错误并复位", async () => {
@@ -677,12 +689,14 @@ describe("CreateView - quick render", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
-    w.vm.quickText = "测试文案";
+    w.vm.view = "quick";
+    await nextTick();
+    w.findComponent(QuickRenderPanel).vm.quickText = "测试文案";
 
-    await w.vm.startQuickRender();
+    await w.findComponent(QuickRenderPanel).vm.startQuickRender();
 
-    expect(w.vm.quickError).toBe("渲染失败");
-    expect(w.vm.quickRendering).toBe(false);
+    expect(w.findComponent(QuickRenderPanel).vm.quickError).toBe("渲染失败");
+    expect(w.findComponent(QuickRenderPanel).vm.quickRendering).toBe(false);
   });
 
   it("图库渲染只提交图片预览并按五秒生成镜头", async () => {
@@ -692,13 +706,15 @@ describe("CreateView - quick render", () => {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
-    w.vm.quickMode = "gallery";
-    w.vm.quickImages = [
+    w.vm.view = "quick";
+    await nextTick();
+    w.findComponent(QuickRenderPanel).vm.quickMode = "gallery";
+    w.findComponent(QuickRenderPanel).vm.quickImages = [
       { name: "a.png", preview: "data:image/png;base64,a" },
       { name: "b.png", preview: "data:image/png;base64,b" },
     ];
 
-    await w.vm.startQuickRender();
+    await w.findComponent(QuickRenderPanel).vm.startQuickRender();
 
     const cuts = mocks.renderStart.mock.calls.at(-1)[0].props.cuts;
     expect(cuts).toEqual([
@@ -717,22 +733,32 @@ describe("CreateView - callbacks", () => {
 
   it("onRenderComplete sets quickResult", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.onRenderComplete.mockImplementation(cb => { cb({ outputPath: "/tmp/test.mp4" }); return vi.fn(); });
+    mocks.onRenderComplete.mockImplementation(() => vi.fn());
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
-    await new Promise(r => setTimeout(r, 0));
-    expect(w.vm.quickResult).toEqual({ outputPath: "/tmp/test.mp4" });
+    await new Promise(r => setTimeout(r, 50));
+    w.vm.view = "quick";
+    await nextTick();
+    const cb = mocks.onRenderComplete.mock.calls[0][0];
+    cb({ outputPath: "/tmp/test.mp4" });
+    await nextTick();
+    expect(w.findComponent(QuickRenderPanel).vm.quickResult).toEqual({ outputPath: "/tmp/test.mp4" });
   });
 
   it("onRenderError sets quickError", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.onRenderError.mockImplementation(cb => { cb({ message: "render failed" }); return vi.fn(); });
+    mocks.onRenderError.mockImplementation(() => vi.fn());
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
-    await new Promise(r => setTimeout(r, 0));
-    expect(w.vm.quickError).toBe("render failed");
+    await new Promise(r => setTimeout(r, 50));
+    w.vm.view = "quick";
+    await nextTick();
+    const cb = mocks.onRenderError.mock.calls[0][0];
+    cb({ message: "render failed" });
+    await nextTick();
+    expect(w.findComponent(QuickRenderPanel).vm.quickError).toBe("render failed");
   });
 
   it("onRenderInstallProgress updates installLog", async () => {

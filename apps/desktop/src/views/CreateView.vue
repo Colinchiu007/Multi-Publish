@@ -717,48 +717,7 @@
     </div>
 
     <!-- ==================== 快速渲染视图 ==================== -->
-    <div v-if="view === 'quick'" class="quick-render">
-      <div class="mode-tabs">
-        <button v-for="m in quickModes" :key="m.value" :class="['mode-tab', { active: quickMode === m.value }]" @click="quickMode = m.value">{{ m.label }}</button>
-      </div>
-      <div class="form-group" v-if="quickMode === 'text'">
-        <label>输入文案</label>
-        <textarea v-model="quickText" placeholder="输入视频文案，每行一个场景..." rows="8" class="form-input textarea"></textarea>
-        <button class="btn-secondary" @click="aiWrite" :disabled="aiLoading">{{ aiLoading ? '生成中...' : 'AI 写稿' }}</button>
-      </div>
-      <div class="form-group" v-if="quickMode === 'gallery'">
-        <label>上传图片</label>
-        <div class="upload-zone" @click="$refs.quickFileInput?.click()" @dragover.prevent @drop.prevent="handleQuickDrop">
-          <p v-if="quickImages.length === 0">点击或拖拽图片到此处</p>
-          <div v-else class="image-grid">
-            <div v-for="(img, i) in quickImages" :key="i" class="image-thumb">
-              <img :src="img.preview" />
-              <button class="remove-btn" @click.stop="quickImages.splice(i, 1)">×</button>
-              <span class="image-index">{{ i + 1 }}</span>
-            </div>
-          </div>
-        </div>
-        <input ref="quickFileInput" type="file" accept="image/*" multiple style="display:none" @change="handleQuickFiles" />
-      </div>
-      <div class="form-group">
-        <label>输出平台</label>
-        <UiSelect v-model="quickProfile" :options="profileOptions" />
-      </div>
-      <div class="form-group">
-        <label>视频主题</label>
-        <UiSelect v-model="quickTheme" :options="themeOptions" />
-      </div>
-      <div class="actions">
-        <UiButton @click="startQuickRender" :disabled="!canQuickRender || quickRendering">{{ quickRendering ? '渲染中...' : '开始渲染' }}</UiButton>
-        <button v-if="quickRendering" class="btn-secondary" @click="cancelQuickRender">取消</button>
-      </div>
-      <div v-if="quickRendering" class="progress-section">
-        <div class="progress-bar"><div class="progress-fill" :style="{ width: quickProgress + '%' }"></div></div>
-        <p class="progress-text">{{ quickProgress }}% — {{ quickStage }}</p>
-      </div>
-      <div v-if="quickResult" class="result-banner success"><p>视频渲染完成</p><UiButton @click="viewQuickResult">查看视频</UiButton></div>
-      <div v-if="quickError" class="result-banner error"><p>{{ quickError }}</p><button class="btn-secondary" @click="quickError = null">重试</button></div>
-    </div>
+    <QuickRenderPanel v-if="view === 'quick'" ref="quickRenderPanel" />
 
 
     <!-- ==================== 历史记录视图 ==================== -->
@@ -827,7 +786,7 @@ import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
-import { PipelineSelector, StageProgress } from './video-creation'
+import { PipelineSelector, StageProgress, QuickRenderPanel } from './video-creation'
 import { useLoginGate } from '@/composables/useLoginGate'
 import {
   deleteCustomTemplate,
@@ -837,7 +796,7 @@ import {
 } from '@multi-publish/story2video-engine/template-library'
 
 import {
-  renderStart, renderCancel, renderGetStatus, renderInstallDeps,
+  renderGetStatus, renderInstallDeps,
   onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress,
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
@@ -936,7 +895,7 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress },
+  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, QuickRenderPanel },
   data() {
     return {
       // 视图
@@ -956,11 +915,7 @@ export default {
       s2vOutputConfig: { resolution: '720x1280', fps: 30, format: 'mp4' },
       // 输出分辨率能力开关（运营后台）：'1080p'（默认，前端不出现 4K）| '4k'
       maxOutputResolution: '1080p',
-      // 快速渲染
-      quickMode: 'text', quickText: '', quickImages: [],
-      quickProfile: 'youtube-landscape', quickTheme: 'clean-professional',
-      quickRendering: false, quickProgress: 0, quickStage: '', quickResult: null, quickError: null,
-      aiLoading: false,
+      // 快速渲染（逻辑迁移至 QuickRenderPanel.vue，父组件仅保留 IPC 桥接）
       // Remotion 状态
       renderStatus: null, installing: false, installLog: '',
       // S2V 编排模式（story2video-compose）
@@ -1019,10 +974,6 @@ export default {
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
       // 清理
       cleanups: [],
-      quickModes: [
-        { value: 'text', label: '文案生成' },
-        { value: 'gallery', label: '图片轮播' },
-      ],
     }
   },
   computed: {
@@ -1237,19 +1188,6 @@ export default {
       )
     },
     s2vPlatforms() { return S2V_PLATFORMS },
-    profileOptions() {
-      return [
-        { value: 'youtube-landscape', label: 'YouTube 横屏 (1920x1080)' },
-        { value: 'youtube-shorts', label: 'YouTube Shorts (1080x1920)' },
-        { value: 'tiktok', label: '抖音/TikTok (1080x1920)' },
-        { value: 'bilibili', label: 'B站 (1920x1080)' },
-        { value: 'wechat', label: '微信视频号 (1080x1920)' },
-        { value: 'xiaohongshu', label: '小红书 (1080x1440)' },
-      ]
-    },
-    themeOptions() {
-      return STYLES.map(s => ({ value: s.value, label: s.label }))
-    },
     canStartPipeline() {
       if (!this.selectedPipeline) return false
       if (!this.pipelineAvailable(this.selectedPipeline.name)) return false
@@ -1377,12 +1315,6 @@ export default {
     },
     story2videoTemplateDeleteDialogMessage() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM }).message
-    },
-    canQuickRender() {
-      if (this.quickRendering) return false
-      if (this.quickMode === 'text') return this.quickText.trim().length > 0
-      if (this.quickMode === 'gallery') return this.quickImages.length > 0
-      return false
     },
   },
   watch: {
@@ -3005,46 +2937,6 @@ export default {
       }
       this.s2vConfig.bgmPath = imported.path
     },
-    handleQuickFiles(e) {
-      Array.from(e.target.files || []).forEach(file => {
-        const reader = new FileReader()
-        reader.onload = (ev) => { this.quickImages.push({ name: file.name, preview: ev.target.result }) }
-        reader.readAsDataURL(file)
-      })
-    },
-    handleQuickDrop(e) {
-      Array.from(e.dataTransfer?.files || []).forEach(file => {
-        if (!file.type.startsWith('image/')) return
-        const reader = new FileReader()
-        reader.onload = (ev) => { this.quickImages.push({ name: file.name, preview: ev.target.result }) }
-        reader.readAsDataURL(file)
-      })
-    },
-
-    // 快速渲染
-    async startQuickRender() {
-      this.quickRendering = true; this.quickProgress = 0; this.quickStage = '开始渲染'; this.quickError = null; this.quickResult = null
-      try {
-        const cuts = this.quickMode === 'text'
-          ? this.quickText.split('\n').filter(l => l.trim()).map((t, i) => ({ id: 'scene-' + i, type: 'text_card', text: t.trim(), in_seconds: i * 8, out_seconds: (i + 1) * 8 - 0.5 }))
-          : this.quickImages.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 }))
-        const res = await renderStart({ props: { cuts, theme: this.quickTheme, renderer_family: 'explainer-data' }, profile: this.quickProfile })
-        if (res?.code === 0) { this.quickResult = res.data }
-        else { this.quickError = formatUserError(res, { fallback: '渲染失败' }).message; this.quickRendering = false }
-      } catch (e) { this.quickError = '渲染异常: ' + formatUserError(e, { fallback: '未知错误' }).message; this.quickRendering = false }
-    },
-    cancelQuickRender() { renderCancel(); this.quickRendering = false },
-    viewQuickResult() { this.$router.push({ path: '/create/result', query: { path: this.quickResult?.outputPath || '' } }) },
-    async aiWrite() {
-      this.aiLoading = true
-      try {
-        const { aiGenerate } = await import('@/api/publisher')
-        const r = await aiGenerate('text', 'openai', { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
-        if (r?.code === 0 && r.data?.text) this.quickText = r.data.text
-      } catch (e) { this.quickError = 'AI 写稿失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
-      this.aiLoading = false
-    },
-
     // Remotion 安装
     async installDeps() {
       this.installing = true; this.installLog = ''
@@ -3193,9 +3085,9 @@ export default {
     this.restoreS2VLastOptions()
     this.loadS2VTtsSamples()
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
-    this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
-    this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
-    this.cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = err?.message || err || '渲染错误' }))
+    this.cleanups.push(onRenderProgress((pct, stg) => { this.$refs.quickRenderPanel?.applyRenderProgress(pct, stg) }))
+    this.cleanups.push(onRenderComplete((res) => { this.$refs.quickRenderPanel?.applyRenderComplete(res) }))
+    this.cleanups.push(onRenderError((err) => { this.$refs.quickRenderPanel?.applyRenderError(err) }))
     this.cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n' }))
   },
   beforeUnmount() {
