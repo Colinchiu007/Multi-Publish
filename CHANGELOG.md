@@ -1,3 +1,10 @@
+## [2026-08-12] 字幕时间戳真实对齐 Tier2 — stage 接线 + JS 聚合器镜像（对齐层闭环）
+
+- `story2video-stages.js` TTS 后接入 `alignScenes`（aligner 可用性 fail-fast 门控；并发 2 路；fail-open）
+- 每场景附加 `subtitleTimeline`（真实词级时间 + charTimings）与 `subtitleAlign` 元数据（aligned/method/coverage/reason/elapsedMs，随场景持久化）
+- Electron JS 聚合器镜像 `subtitle-align-aggregator.js`（自包含、纯 JS）——行为与 TS 权威版由 parity 测试逐字锁死
+- 测试：JS 镜像 4 + 服务编排 4 + TS/JS parity 1；story2video-engine 127 全绿；stages 80/81（1 例为 origin/main 存量 governor 超时，已验证与本变更无关）
+
 ## [2026-08-12] 视频创作失败诊断系统（桌面端遥测 + 运营后台看板/告警/处置建议）
 
 - P0（桌面端）：统一诊断码（stage×failureType×severity×recoverability，fail-closed 到 unknown）、错误→候选根因映射（causeId/label/checks/advice/confidence）、run 级诊断摘要 + best-effort 环境快照（字段白名单）；`pipeline-engine._finalizeRun` 附加 `run.diagnostics` + 可选 `setRunFinalizedHook`（additive，IPC 契约不变）。
