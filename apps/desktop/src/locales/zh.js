@@ -96,6 +96,8 @@ export default {
     elapsed: (ctx) => '已用时 ' + ctx.named('duration'),
     durationSec: (ctx) => String(ctx.named('seconds')) + ' 秒',
     durationMinSec: (ctx) => String(ctx.named('minutes')) + ' 分 ' + String(ctx.named('seconds')) + ' 秒',
+    summaryDuration: (ctx) => '完成时间共 ' + ctx.named('text'),
+    summaryFileSize: (ctx) => '文件大小 ' + ctx.named('size') + ' M',
   },
   pipelines: {
     names: {

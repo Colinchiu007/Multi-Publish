@@ -1,3 +1,8 @@
+## [未发布] 修复：补 story2video.summaryDuration/summaryFileSize locale 缺键（2026-08-12）
+
+- CreateView 完成摘要行使用 `story2video.summaryDuration` / `story2video.summaryFileSize` 键但 zh/en locale 缺失，产生 intlify 警告（此前仅靠硬编码兜底）。补两个命名插值键（`ctx.named('text')` / `ctx.named('size')`），`CreateView.vue` 两处调用补传 `{ text }` / `{ size }` 参数。
+- 回归：CreateView 131/131、i18n 7/7；警告消失；前端 build 验证。
+
 ## [未发布] 修复：CreateView 历史按钮类名重构回归（s2v-btn-*）+ 补 videoEnhance/common.close locale 键（2026-08-12）
 
 - 根因：#526 系列 UI 重构把历史记录操作按钮统一为 `s2v-btn-*` 类（`CreateViewHistory.vue`），但 `CreateView.test.js` 仍用旧 `.history-btn.resume` / `.history-btn.open` 选择器，导致 3 个历史恢复用例失败（main Electron CI 同步失败）。另 `create.story2video.sections.videoEnhance` 与 `common.close` locale 键缺失，仅靠硬编码兜底并产生 i18n 警告。

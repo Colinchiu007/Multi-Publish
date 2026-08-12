@@ -1435,10 +1435,10 @@ export default {
       }
       if (durationMs === null) return ''
       const durationText = this.formatDuration(durationMs)
-      const durationLabel = this.translateWithLocaleFallback('story2video.summaryDuration', '完成时间共 ' + durationText, 'Finished in ' + durationText)
+      const durationLabel = this.translateWithLocaleFallback('story2video.summaryDuration', '完成时间共 ' + durationText, 'Finished in ' + durationText, { text: durationText })
       if (Number.isFinite(Number(meta.outputSizeBytes)) && Number(meta.outputSizeBytes) > 0) {
         const mb = (Number(meta.outputSizeBytes) / (1024 * 1024)).toFixed(1)
-        const sizeLabel = this.translateWithLocaleFallback('story2video.summaryFileSize', '文件大小 ' + mb + ' M', 'Size ' + mb + ' MB')
+        const sizeLabel = this.translateWithLocaleFallback('story2video.summaryFileSize', '文件大小 ' + mb + ' M', 'Size ' + mb + ' MB', { size: mb })
         return durationLabel + ' · ' + sizeLabel
       }
       return durationLabel
