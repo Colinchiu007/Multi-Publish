@@ -15,15 +15,15 @@
     </div>
 
     <!-- 语言设置 -->
-    <div class="lang-section" role="group" aria-label="Language">
+    <div class="lang-section" role="group" :aria-label="t('settings.langAria')">
       <div class="lang-row">
         <div class="lang-meta">
           <div class="lang-title">{{ t('settings.language') }}</div>
-          <div class="lang-hint">界面显示语言；切换后立即生效，并记住你的选择。</div>
+          <div class="lang-hint">{{ t('settings.langHint') }}</div>
         </div>
         <select class="lang-select" :value="localeModel" data-testid="locale-select" @change="changeLocale">
-          <option value="zh">中文（简体）</option>
-          <option value="en">English</option>
+          <option value="zh">{{ t('settings.langZh') }}</option>
+          <option value="en">{{ t('settings.langEn') }}</option>
         </select>
       </div>
     </div>
