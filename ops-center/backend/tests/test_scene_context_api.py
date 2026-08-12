@@ -123,3 +123,21 @@ async def test_scene_context_rules_save_invalid_rejected():
         resp = await c.put("/api/v1/scene-context/rules", json={"rules": {"version": 1, "dynasty": [{"name": "x"}]}}, headers=_admin_headers())
     assert resp.status_code == 400
     assert "校验失败" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_scene_context_rules_validate_version_bool_and_props_name():
+    from services.scene_context_service import load_template
+
+    template = load_template()
+    bad_bool = dict(template)
+    bad_bool["version"] = True
+    bad_missing_name = dict(template)
+    bad_missing_name["props"] = {"ancient": [{"keywords": ["土灶"]}], "modern": []}
+    async with _client() as c:
+        r1 = await c.post("/api/v1/scene-context/rules/validate", json={"rules": bad_bool}, headers=_admin_headers())
+        r2 = await c.post("/api/v1/scene-context/rules/validate", json={"rules": bad_missing_name}, headers=_admin_headers())
+    assert r1.json()["ok"] is False
+    assert any(e["path"] == "version" for e in r1.json()["errors"])
+    assert r2.json()["ok"] is False
+    assert any("props.ancient[0]" in e["path"] for e in r2.json()["errors"])

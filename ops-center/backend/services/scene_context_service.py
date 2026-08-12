@@ -45,7 +45,8 @@ def validate_rules(rules) -> dict:
     push = lambda p, m: errors.append({"path": p, "message": m})  # noqa: E731
     if not isinstance(rules, dict):
         return {"ok": False, "errors": [{"path": "", "message": "规则必须是对象"}]}
-    if not isinstance(rules.get("version"), int) or rules["version"] < 1:
+    v = rules.get("version")
+    if not isinstance(v, int) or isinstance(v, bool) or v < 1:
         push("version", "version 必须为正整数")
     for key, required in _REQUIRED_KEYWORD_RULES.items():
         items = rules.get(key)
@@ -90,7 +91,7 @@ def validate_rules(rules) -> dict:
                 push(f"props.{side}", "必须为数组")
             else:
                 for i, item in enumerate(items):
-                    if not isinstance(item, dict) or not _is_str_list(item.get("keywords")):
+                    if not isinstance(item, dict) or not _is_str_list(item.get("keywords")) or not isinstance(item.get("name"), str) or not item["name"].strip():
                         push(f"props.{side}[{i}].keywords", "keywords 必须为非空字符串数组")
     neg = rules.get("negativeAnchors")
     if isinstance(neg, dict):
@@ -124,6 +125,11 @@ def _to_dict(row: SceneContextRules) -> dict:
         rules = json.loads(row.content or "null")
     except (json.JSONDecodeError, TypeError):
         rules = None
+    note = ""
+    if not isinstance(rules, dict):
+        # 审查 I4：存储内容损坏时回退模板（避免前端编辑 null），并提示人工修复
+        rules = load_template()
+        note = "存储的规则内容损坏，已回退模板展示；请重新保存以修复"
     return {
         "key": row.key,
         "version": row.version or 1,
@@ -131,6 +137,7 @@ def _to_dict(row: SceneContextRules) -> dict:
         "source": "db",
         "updated_at": row.updated_at,
         "updated_by": row.updated_by or "",
+        **({"note": note} if note else {}),
     }
 
 
@@ -179,4 +186,6 @@ async def export_rules(db: AsyncSession) -> dict:
         "exported_at": _now(),
         "note": "将 rules 导出为 JSON 后：合入桌面仓库 apps/desktop/electron/services/story-context-rules.json（随包）或放置 <userData>/config/story-context-rules.json（配置覆盖，桌面端校验失败回退内置）",
     }
+
+
 

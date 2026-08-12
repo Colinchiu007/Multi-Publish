@@ -275,6 +275,7 @@ describe('规则数据化与打磨修复（2026-08-12）', () => {
   const path = require('path')
 
   afterEach(() => {
+    delete process.env.STORY2VIDEO_CONTEXT_RULES_PATH
     m.resetContextRules()
   })
 

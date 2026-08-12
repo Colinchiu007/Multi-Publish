@@ -7,7 +7,9 @@ dist/
 node_modules/
 .env
 data/
+!data/scene_context_rules.template.json
 .codegraph/
 *.log
 *.tmp
 .login-token.txt
+

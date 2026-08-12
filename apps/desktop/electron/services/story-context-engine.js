@@ -94,8 +94,8 @@ function validateContextRules (rules) {
     for (const side of ['ancient', 'modern']) {
       if (!Array.isArray(rules.props[side])) push('props.' + side, '必须为数组')
       else rules.props[side].forEach((item, index) => {
-        if (!item || typeof item !== 'object' || !_isNonEmptyStringArray(item.keywords)) {
-          push('props.' + side + '[' + index + '].keywords', 'keywords 必须为非空字符串数组')
+        if (!item || typeof item !== 'object' || !_isNonEmptyStringArray(item.keywords) || typeof item.name !== 'string' || !item.name.trim()) {
+          push('props.' + side + '[' + index + '].keywords/name', 'keywords 必须为非空字符串数组且 name 必须为非空字符串')
         }
       })
     }
@@ -143,12 +143,14 @@ function loadContextRules ({ overridePath } = {}) {
   const candidates = []
   if (typeof envPath === 'string' && envPath.trim()) candidates.push({ path: envPath.trim(), source: 'env' })
   if (typeof overridePath === 'string' && overridePath.trim()) candidates.push({ path: overridePath.trim(), source: 'file' })
+  const warnings = []
   for (const candidate of candidates) {
     const loaded = _readRulesFile(candidate.path, candidate.source)
-    if (loaded.ok) return { rules: loaded.rules, source: candidate.source, warning: null }
+    if (loaded.ok) return { rules: loaded.rules, source: candidate.source, warning: warnings.length > 0 ? warnings.join('; ') : null }
+    warnings.push(loaded.error)
   }
   const builtinValid = validateContextRules(BUILTIN_CONTEXT_RULES)
-  if (builtinValid.ok) return { rules: BUILTIN_CONTEXT_RULES, source: 'builtin', warning: null }
+  if (builtinValid.ok) return { rules: BUILTIN_CONTEXT_RULES, source: 'builtin', warning: warnings.length > 0 ? warnings.join('; ') : null }
   return {
     rules: EMPTY_CONTEXT_RULES,
     source: 'empty',
@@ -192,6 +194,19 @@ function _refreshRuleConstants () {
   NEGATIVE_ANCHOR_RULES = contextRulesState.rules.negativeAnchors
   COOKING_NEGATIVE_ANCHORS = contextRulesState.rules.cooking.negativeAnchors
   COOKING_POSITIVE_PROPS = contextRulesState.rules.cooking.positiveProps
+  // 审查 W1：CommonJS module.exports 是值快照，外部解构常量的消费者需同步刷新
+  module.exports.DYNASTY_RULES = DYNASTY_RULES
+  module.exports.CULTURE_RULES = CULTURE_RULES
+  module.exports.GENRE_RULES = GENRE_RULES
+  module.exports.SETTING_RULES = SETTING_RULES
+  module.exports.PROP_RULES = PROP_RULES
+  module.exports.CHARACTER_RULES = CHARACTER_RULES
+  module.exports.TIME_RULES = TIME_RULES
+  module.exports.VISUAL_STYLE_RULES = VISUAL_STYLE_RULES
+  module.exports.TONE_RULES = TONE_RULES
+  module.exports.NEGATIVE_ANCHOR_RULES = NEGATIVE_ANCHOR_RULES
+  module.exports.COOKING_NEGATIVE_ANCHORS = COOKING_NEGATIVE_ANCHORS
+  module.exports.COOKING_POSITIVE_PROPS = COOKING_POSITIVE_PROPS
 }
 function setContextRulesOverride (overridePath) {
   const loaded = _readRulesFile(overridePath, 'file')
