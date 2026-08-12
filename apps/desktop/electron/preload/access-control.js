@@ -48,6 +48,10 @@ const PUBLIC_METHODS = [
   // File 路径经 webUtils 解析后仅发送路径给主进程做受控复制，纯设备本地操作。
   'story2videoImportMedia',
   'identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'onIdentityStateChanged',
+  // 视频克隆：本地分析流水线（未登录可用）；发布经 PublisherRouter 外部验收边界
+  'videoClone',
+  'videoClone.run', 'videoClone.cancel', 'videoClone.editReport', 'videoClone.regenerate',
+  'videoClone.pickFile', 'videoClone.history', 'videoClone.onProgress',
 ]
 
 function hasAccess(currentLevel, requiredLevel) {
@@ -58,10 +62,11 @@ function hasAccess(currentLevel, requiredLevel) {
   return currentLevel === 'admin'
 }
 
-function requiredLevelForMethod(methodName, inheritedLevel = 'public') {
+function requiredLevelForMethod(methodName, inheritedLevel = 'public', fullName = null) {
+  const name = fullName || methodName
   if (inheritedLevel !== 'public') return inheritedLevel
-  if (ADMIN_ONLY_METHODS.includes(methodName)) return 'admin'
-  if (PUBLIC_METHODS.includes(methodName)) return 'public'
+  if (ADMIN_ONLY_METHODS.includes(name)) return 'admin'
+  if (PUBLIC_METHODS.includes(name)) return 'public'
   return 'authenticated'
 }
 
@@ -87,13 +92,14 @@ function readAccessLevel(getCurrentAccessLevel) {
  * 创建稳定的 renderer API 表面。受限函数每次调用时重新读取主进程权限，
  * 因此许可证升级或降级都不需要重载窗口。
  */
-function createDynamicAccessApi(api, getCurrentAccessLevel, inheritedLevel = 'public') {
+function createDynamicAccessApi(api, getCurrentAccessLevel, inheritedLevel = 'public', prefix = '') {
   const exposed = {}
   const initialLevel = readAccessLevel(getCurrentAccessLevel)
 
   for (const key of Object.keys(api)) {
     const value = api[key]
-    const requiredLevel = requiredLevelForMethod(key, inheritedLevel)
+    const fullName = prefix ? prefix + '.' + key : key
+    const requiredLevel = requiredLevelForMethod(key, inheritedLevel, fullName)
 
     // admin 能力不会在生产 renderer 中出现，避免扩大敏感 API 暴露面。
     if (requiredLevel === 'admin' && initialLevel !== 'admin') continue
@@ -110,7 +116,7 @@ function createDynamicAccessApi(api, getCurrentAccessLevel, inheritedLevel = 'pu
         return value.apply(this, args)
       }
     } else if (value && typeof value === 'object') {
-      exposed[key] = createDynamicAccessApi(value, getCurrentAccessLevel, requiredLevel)
+      exposed[key] = createDynamicAccessApi(value, getCurrentAccessLevel, requiredLevel, fullName)
     }
   }
 

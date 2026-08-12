@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.7（切片 4d：运行记录持久化与 regenerate）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.8（切片 4e：真实桌面 E2E 验收与权限放行）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -628,4 +628,25 @@ VideoClonePipeline：
 
 - 测试：engine 99（+3 部分流水线/initialReport/reportSource）+ desktop store 3 + 既有（asset-gen 4/publisher 3/composable 5/i18n 7/preload 333）= 352+ 全绿；
 - 构建：vite build exit 0；QM-1 electron-builder --win --dir exit 0 + 启动无关键错误（可见窗口证据见 §20.4）。
+
+
+## 22. 详细规格：切片 4e — 真实桌面 E2E 验收与权限放行（v1.8 追加）
+
+### 22.1 权限放行修复（QM-2 关键）
+
+- 渲染层 access-control：PUBLIC_METHODS 增加 videoClone 命名空间与 videoClone.* 子方法；createDynamicAccessApi 支持点号全名门控（递归传递 prefix，子方法按 'videoClone.xxx' 判定）；
+- 主进程 license-access-control：PUBLIC_CHANNELS 增加 video-clone:run/cancel/report:edit/report:regenerate/pick-file/history（本地分析流水线未登录可用）；
+- 回归：access-control.test.js 新增「public 可调用 videoClone.onProgress」用例；preload.test.js 支持点号路径 + api 键数 271 + 公开方法→公开通道闭环。
+
+### 22.2 可复用 E2E 脚本（apps/desktop/scripts/video-clone-e2e.js）
+
+- 流程：ffmpeg 生成 3s 样例 → Playwright _electron 启动打包应用（ELECTRON_USER_DATA_DIR 独立 profile）→ #/video-clone → 填路径 → 开始分析 → 轮询报告卡/相似度卡 → 校验 runs 落库 → 截图；
+- 用法：node scripts/video-clone-e2e.js [--exe <path>] [--out <png>]；exit 0 = 通过。
+
+### 22.3 E2E 验收证据（2026-08-12，打包应用真实运行）
+
+- WINDOW_TITLE=社媒管家；REPORT_CARD=VISIBLE（时长 3s · 分辨率 320x240 · 画幅 16:9）；SIMILARITY=综合分 1 · 判定 needs_review（无 ASR/风格证据时的证据门控语义）；
+- RUNS_DIR 落库 COUNT=1 LATEST=vc-mspw1lou-4fkpcz.json（持久化生效）；
+- 截图：01-docs/evidence/video-clone-e2e.png；
+- 外部边界不变（PENDING_EXTERNAL）：真实 provider 图/真实账号发布/平台下载需用户凭据。
 

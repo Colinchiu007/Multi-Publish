@@ -1,3 +1,10 @@
+## [2026-08-12] 视频克隆 切片 4e：真实桌面 E2E 验收 + 权限放行
+
+- 权限放行：preload access-control（videoClone 命名空间 + 点号全名门控）与主进程 license-access-control（video-clone:* PUBLIC_CHANNELS）——本地分析流水线未登录可用（QM-2 回归：public 可调 onProgress、公开方法→公开通道闭环、api 键数 271）。
+- 可复用 E2E 脚本 apps/desktop/scripts/video-clone-e2e.js（Playwright _electron：样例 → #/video-clone → 分析 → 报告/相似度 → runs 落库 → 截图）。
+- 验收证据：打包应用真实运行：报告卡 VISIBLE（3s/320x240/16:9）、F4 综合分 1（needs_review=证据门控）、历史落库 vc-mspw1lou-4fkpcz.json、截图 01-docs/evidence/video-clone-e2e.png。
+- 外部验收边界不变（PENDING_EXTERNAL）：真实 provider 图/账号发布/平台下载需用户凭据。
+
 ## [2026-08-12] 视频克隆 切片 4d：运行记录持久化 + regenerate（部分流水线 initialReport）
 
 - engine pipeline：executorOptions.stageIds 部分执行 + request.options.initialReport + 成功结果 reportSource。
