@@ -8,7 +8,7 @@
     "src"
   ],
   "scripts": {
-    "test": "node --test test/clone-report.test.js test/similarity.test.js test/stage-executor.test.js test/pipeline.test.js"
+    "test": "node --test test/clone-report.test.js test/similarity.test.js test/stage-executor.test.js test/pipeline.test.js test/adapters/ingest-local.test.js test/adapters/ingest-url.test.js test/adapters/analyze-ffprobe.test.js test/adapters/plan-script.test.js test/adapters/slice2-integration.test.js"
   },
   "engines": {
     "node": ">=20"

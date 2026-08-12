@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.1（实现切片 1 详细规格）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.2（切片 2：真实 ingest/analyze/plan adapter 详细规格）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -408,6 +408,7 @@ VideoClonePipeline：
 | VIDEOCLONE_FILE_TOO_LARGE | ingest | 否 | 文件超过 500MB 上限，请压缩后重试 | File exceeds the 500MB limit, compress and retry |
 | VIDEOCLONE_FILE_TOO_LONG | ingest | 否 | 视频超过 30 分钟上限，请裁剪后重试 | Video exceeds the 30-minute limit, trim and retry |
 | VIDEOCLONE_FILE_FORMAT | ingest | 否 | 不支持的视频格式，请使用 mp4/mov/webm | Unsupported format, use mp4/mov/webm |
+| VIDEOCLONE_FILE_NOT_FOUND | ingest | 否 | 文件不存在或不可读，请重新选择文件 | File not found or unreadable, choose the file again |
 | VIDEOCLONE_PROBE_FAILED | ingest | 是 | 视频信息读取失败，请重试 | Failed to read video info, retry |
 | VIDEOCLONE_ASR_FAILED | analyze | 是 | 语音识别失败，请重试 | Speech recognition failed, retry |
 | VIDEOCLONE_ANALYZE_FAILED | analyze | 是 | 视频拆解分析失败，请重试 | Video analysis failed, retry |
@@ -430,3 +431,57 @@ VideoClonePipeline：
 - 单元测试：40 用例全绿（`node --test packages/video-clone-engine/test/clone-report.test.js test/similarity.test.js test/stage-executor.test.js test/pipeline.test.js`，零依赖；Windows npm script 使用显式文件列表避免 glob 差异）。
 - 覆盖映射（OpenSpec 场景 → 测试文件）：clone-report.test.js（校验/编辑往返/IPC 脱壳）、similarity.test.js（F4 指标与阈值）、stage-executor.test.js（顺序/重试/checkpoint/fail-closed）、pipeline.test.js（happy/错误/请求校验/未接线/相似度过低）。
 - 质量门禁：.quality-gates.md 执行记录；真实下载/ASR/生成/发布属外部边界（切片 2+ 验收）。
+
+
+## 16. 详细规格：切片 2 — 真实 ingest / analyze / plan（v1.2 追加）
+
+### 16.1 本地文件 ingest 流程（ingest-local.js）
+
+1. 请求校验层已保证 source.path 非空；
+2. fs.stat：存在且为文件，否则 VIDEOCLONE_FILE_NOT_FOUND；
+3. size ≤ 500MB，否则 VIDEOCLONE_FILE_TOO_LARGE；
+4. 扩展名 ∈ { mp4, mov, webm, mkv, avi }，否则 VIDEOCLONE_FILE_FORMAT；
+5. ffprobe 探测元数据，失败 VIDEOCLONE_PROBE_FAILED（retryable）；
+6. durationSec ≤ 1800s，否则 VIDEOCLONE_FILE_TOO_LONG；
+7. 写入 artifacts.media { path, sizeBytes, durationSec, width, height, fps, hasAudio, format, ext } 与 report.meta（durationSec/resolution/fps）。
+
+### 16.2 链接下载流程（ingest-url.js）
+
+- yt-dlp --no-playlist -f "bv*+ba/b" 下载到临时目录；hintPlatform 按域名提示平台（诊断展示，不阻断下载）；
+- 失败按 stderr 文本分类（classifyDownloadError）：私密 → LINK_PRIVATE；会员 → LINK_MEMBERSHIP；地区 → LINK_REGION；反爬/验证 → LINK_ANTI_BOT；其余 → LINK_UNAVAILABLE；
+- 产物 >500MB → VIDEOCLONE_FILE_TOO_LARGE；链接来源元数据由 analyze 用 probeRunner 补探。
+
+### 16.3 场景检测（analyze-ffprobe.js）
+
+- ffmpeg -vf "select='gt(scene,0.3)',showinfo" 解析 stderr pts_time → 镜头区间（t0,t1]，末段延伸到视频末尾；
+- scene 阈值默认 0.3（可在 adapter 注入时覆盖）；
+- 检测失败降级为合成均匀分段（默认 4s/段），artifacts.analysis.scene.synthetic=true、method=synthetic-uniform，不 fail-closed（诚实标注，避免假证据）。
+
+### 16.4 ASR 契约
+
+- sttRunner(mediaPath) → { fullText, lines[{t0,t1,text}], language }；
+- 未注入 sttRunner：script 留空 + asr=skipped（不失败）；options.requireTranscript=true 且 stt 失败 → VIDEOCLONE_ASR_FAILED（retryable）；
+- 切片 3 接入 ModelProviderManager STT adapter。
+
+### 16.5 改写契约（plan-script.js）
+
+- options.rewriteScript=true 且注入 llmRunner → 改写 script.fullText（失败 VIDEOCLONE_REWRITE_FAILED，retryable）；
+- rewriteScript=true 但未注入 llmRunner → rewrite=skipped（配置缺失 ≠ 失败）；
+- inspiration 模式：清空文案与风格类字段（仅借结构），rewrite.inspiration=true；
+- 复刻层级/模式写入 report.replication；防御性归一化先补全 7 层默认结构。
+
+### 16.6 runner 环境变量（开发回退，打包资源优先）
+
+| 能力 | 环境变量（优先级从高到低） | 默认 |
+|---|---|---|
+| ffprobe | VC_FFPROBE_PATH → FFPROBE_PATH | ffprobe（PATH） |
+| ffmpeg | VC_FFMPEG_PATH → FFMPEG_PATH | ffmpeg（PATH） |
+| yt-dlp | VC_YTDLP_PATH → YTDLP_PATH | yt-dlp（PATH） |
+
+### 16.7 集成验证
+
+- 真实 ffprobe/ffmpeg 生成 2s 样例（testsrc + sine）冒烟：
+  a) 默认管线（createSlice2Pipeline）→ ok:false 停在 generate（VIDEOCLONE_STAGE_NOT_IMPLEMENTED），报告已填充（时长/分辨率/画幅/镜头时间轴）；
+  b) 注入 generate/compose/publish stub → ok:true 且 F4 相似度已计算（结构=1、时长通过、confidence≥0.5）；
+- 工具缺失时用例自动 skip（CI 可复现，不依赖外部二进制）。
+
