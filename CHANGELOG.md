@@ -1,3 +1,9 @@
+## [2026-08-12] 修复 CI 上游回归：visual /video-clone 覆盖 + IPC bridge 正则 + Gate7 阈值契约
+
+- visual-view-runner：/video-clone 路由（视频克隆切片 4b 引入）缺单视图门禁 → all-views.visual.test.js 补 routeView 条目
+- check-ipc-bridge.js：preload 用 ipcRendererRef.invoke（注入模式）被正则漏检 → RE2 兼容 ipcRenderer\w*
+- workflow-contract.test.js：PIXEL_THRESHOLD 契约期望 0.02 已过时（visual 工作流与 QG 均为 0.06，历次有意放宽）→ 对齐 0.06
+
 ## [2026-08-12] fix(ops-center): 密钥管理新增 key 405（PUT /secrets 缺路由，自动生成 key_id）
 
 - 根因：Secrets.vue 新增 key 时 form.id 为空 → `PUT /api/v1/secrets/` → redirect_slashes 307 → `PUT /api/v1/secrets` 无路由 → 405 Method Not Allowed；后端仅注册 `PUT /secrets/{key_id}`（按客户端 id upsert）。

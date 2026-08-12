@@ -31,7 +31,7 @@ test('Quality Gate Gate 7 与视觉工作流使用一致的渲染参数', () => 
   assert.ok(gate7, 'Gate 7 workflow step must exist');
   assert.match(gate7, /TEST_URL:\s*http:\/\/127\.0\.0\.1:5174/);
   assert.match(gate7, /HEADLESS:\s*["']?true["']?/);
-  assert.match(gate7, /PIXEL_THRESHOLD:\s*["']?0\.02["']?/);
+  assert.match(gate7, /PIXEL_THRESHOLD:\s*["']?0\.06["']?/);
 });
 
 test('Quality Gate Gate 8 在真实浏览器扫描前执行 manual 控件合同测试', () => {

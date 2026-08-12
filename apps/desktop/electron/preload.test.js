@@ -578,6 +578,8 @@ describe('preload 动态许可证权限', () => {
     for (const methodName of PUBLIC_METHODS) {
     const resolvePath = (obj, p) => p.split('.').reduce((o, k) => (o ? o[k] : undefined), obj)
       const fn = resolvePath(api, methodName)
+      // namespace 前缀（如 videoClone）是对象而非方法；其子方法以点路径单独在列表中并逐个断言
+      if (fn && typeof fn === 'object') continue
       expect(fn, methodName).toBeTypeOf('function')
       ipcRenderer.invoke.mockClear()
       fn(vi.fn(), vi.fn(), vi.fn())
