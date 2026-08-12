@@ -15,6 +15,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/scene-context-rules',
+    name: 'SceneContextRules',
+    component: () => import('../views/SceneContextRules.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/feature-flags',
     name: 'FeatureFlags',
     component: () => import('../views/FeatureFlags.vue'),
@@ -171,3 +177,5 @@ router.beforeEach((to, from, next) => {
 })
 
 export default router
+
+

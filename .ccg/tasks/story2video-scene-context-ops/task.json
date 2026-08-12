@@ -1,0 +1,13 @@
+{
+  "id": "story2video-scene-context-ops",
+  "title": "场景上下文增强落地：引擎规则数据化+打磨修复 + 运营后台规则管理功能",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "story2video+ops-center",
+  "currentPhase": "planning",
+  "nextAction": "生成 OpenSpec change 并实现",
+  "createdAt": "2026-08-12T10:00:00+08:00",
+  "branch": "codex/story2video-scene-context-ops",
+  "openspecChange": "story2video-scene-context-ops"
+}
