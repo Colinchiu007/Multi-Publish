@@ -56,8 +56,9 @@ function serializeErr(err) {
  * - abortSignal：AbortSignal（阶段边界协作中止）
  */
 function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
-  const { eventSink = null, abortSignal = null, ...execOpts } = executorOptions || {};
+  const { eventSink = null, abortSignal = null, stageIds = null, ...execOpts } = executorOptions || {};
   const executor = createStageExecutor(execOpts);
+  const ACTIVE_STAGES = stageIds && Array.isArray(stageIds) && stageIds.length > 0 ? stageIds : STAGE_IDS;
 
   function emit(type, data) {
     if (typeof eventSink === 'function') { try { eventSink(Object.assign({ type }, data || {})); } catch { /* 事件回调异常不阻断 */ } }
@@ -84,8 +85,16 @@ function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
       request, report: emptyReport(), sourceReport: null,
       artifacts: {}, similarity: null, publishResult: null,
     };
+    if (request.options && request.options.initialReport) {
+      const v = validateCloneReport(request.options.initialReport);
+      if (!v.ok) {
+        return failureResult(null, null, new VideoCloneError('VIDEOCLONE_INVALID_REPORT', { params: { errors: v.errors } }));
+      }
+      context.report = sanitizeReportForIpc(request.options.initialReport);
+      context.sourceReport = sanitizeReportForIpc(request.options.initialReport);
+    }
 
-    const wrapped = STAGE_IDS.map((id) => {
+    const wrapped = ACTIVE_STAGES.map((id) => {
       const base = stageFor(id);
       return {
         id,
@@ -129,6 +138,7 @@ function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
     return {
       ok: true, runId,
       report: sanitizeReportForIpc(context.report),
+      reportSource: sanitizeReportForIpc(context.sourceReport),
       artifacts: sanitizeReportForIpc(context.artifacts),
       similarity: context.similarity,
       publishResult: context.publishResult,

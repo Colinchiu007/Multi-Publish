@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.6（切片 4c：provider 接线与门禁证据）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.7（切片 4d：运行记录持久化与 regenerate）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -594,4 +594,38 @@ VideoClonePipeline：
 - QM-2 sandbox 双模式：PRELOAD_SANDBOX_TRUE_OK / FALSE_OK / BOTH_MODES_OK（真实 Electron，window.electronAPI 双模式可用）；
 - QM-1：electron-builder --win --dir exit 0；启动后可见主窗口：MainWindowHandle=15729924、标题=应用主窗口；日志无关键错误（无 Cannot find module / ENOTDIR / 平台配置失败）；
 - 测试：engine 96（含 service 5）+ desktop asset-generator 4 + publisher 3 + composable 5 + i18n 7 + preload 333。
+
+
+## 21. 详细规格：切片 4d — 运行记录持久化与 regenerate（v1.7 追加）
+
+### 21.1 引擎部分流水线（pipeline.js）
+
+- executorOptions.stageIds：仅运行指定阶段（默认全部六阶段）；
+- request.options.initialReport：预置报告（校验后作为 context.report 与 sourceReport；非法 → VIDEOCLONE_INVALID_REPORT）；
+- 成功结果新增 reportSource（原片分析报告深拷贝，供相似度对比与持久化）。
+
+### 21.2 运行记录存储（services/video-clone/store.js）
+
+- createVideoCloneStore({ baseDir })：runs/<runId>.json；saveRun/loadRun/listRuns（按 createdAt 倒序，返回 { runId, createdAt, status, hasReport, hasSimilarity }）；
+- baseDir 注入：生产 userData/video-clone，测试临时目录；handler 默认 tmp。
+
+### 21.3 regenerate 语义
+
+- video-clone:report:regenerate({ runId })：加载记录 → 部分流水线（stageIds: generate→compose→publish，initialReport=已编辑报告，rewriteScript=false）→ 重新生成成片与相似度 → 保存新记录（regeneratedFrom 标记原 runId）；
+- 进度事件沿用 video-clone:progress；记录缺失 → VIDEOCLONE_RUN_NOT_FOUND。
+
+### 21.4 IPC / preload / UI
+
+- 新增 video-clone:history（返回运行记录列表）；preload videoClone.history/regenerate；composable regenerate()（结果卡「重新生成」按钮）。
+
+### 21.5 外部验收边界（PENDING_EXTERNAL，需用户凭据/环境）
+
+- 真实 provider 图像生成（API 密钥/配额；当前无配置 → AssetGenerator 离线占位 degraded）；
+- 真实账号发布（PublisherRouter → RPA/API 登录态；当前无 router → skipped）；
+- 平台链接下载（yt-dlp 真实站点行为/反爬）。
+
+### 21.6 门禁证据
+
+- 测试：engine 99（+3 部分流水线/initialReport/reportSource）+ desktop store 3 + 既有（asset-gen 4/publisher 3/composable 5/i18n 7/preload 333）= 352+ 全绿；
+- 构建：vite build exit 0；QM-1 electron-builder --win --dir exit 0 + 启动无关键错误（可见窗口证据见 §20.4）。
 

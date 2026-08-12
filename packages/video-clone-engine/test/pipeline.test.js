@@ -142,3 +142,42 @@ test('W5: 请求校验加强（https/交叉字段/target/类型）', () => {
   assert.equal(validateRequest(validRequest({ options: { failOnLowSimilarity: 1 } })).ok, false);
   assert.equal(validateRequest(validRequest({ options: { target: 'P2' } })).ok, true);
 });
+
+// —— 4d：部分流水线（stageIds）+ initialReport + reportSource ——
+
+test('部分执行：仅运行指定阶段，initialReport 保留，similarity 计算', async () => {
+  const ran = [];
+  const stub = { run: async (ctx) => { ran.push('x'); return 'x'; } };
+  const p = createVideoClonePipeline(
+    { ingest: stub, analyze: stub, plan: stub, generate: stub, compose: stub, publish: stub },
+    { stageIds: ['generate', 'compose'] },
+  );
+  const r = emptyReport();
+  r.visual.shots = [{ t0: 0, t1: 2, type: 'unknown' }];
+  r.meta.durationSec = 2;
+  const res = await p.run({ source: { type: 'local', path: 'C:/x.mp4' }, options: { initialReport: r } });
+  assert.equal(res.ok, true, JSON.stringify(res.error));
+  assert.equal(res.report.script.fullText, ''); // 保留 initialReport 结构
+  assert.ok(res.similarity);
+  assert.equal(res.similarity.metrics.structure, 1);
+});
+
+test('initialReport 非法 → VIDEOCLONE_INVALID_REPORT（阶段前失败）', async () => {
+  let ran = false;
+  const p = createVideoClonePipeline({ generate: { run: async () => { ran = true; } } }, { stageIds: ['generate'] });
+  const bad = emptyReport();
+  bad.replication.level = 'L9';
+  const res = await p.run({ source: { type: 'local', path: 'C:/x.mp4' }, options: { initialReport: bad } });
+  assert.equal(res.ok, false);
+  assert.equal(res.error.code, 'VIDEOCLONE_INVALID_REPORT');
+  assert.equal(ran, false);
+});
+
+test('成功结果含 reportSource', async () => {
+  const stub = { run: async (ctx) => { ctx.report.script.fullText = 'x'; return 'x'; } };
+  const p = createVideoClonePipeline({ analyze: stub }, { stageIds: ['analyze'] });
+  const res = await p.run({ source: { type: 'local', path: 'C:/x.mp4' }, options: {} });
+  assert.equal(res.ok, true);
+  assert.ok(res.reportSource);
+  assert.equal(res.reportSource.script.fullText, 'x');
+});

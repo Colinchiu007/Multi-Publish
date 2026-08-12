@@ -86,6 +86,9 @@
       <el-tag v-if="similarity.warnings && similarity.warnings.verbatimScript" type="warning">
         文案近乎照抄，建议改写后再发布
       </el-tag>
+      <div class="vc-actions">
+        <el-button :loading="running" @click="regenerate" :disabled="!runId || running">重新生成</el-button>
+      </div>
     </el-card>
   </div>
 </template>
@@ -96,7 +99,7 @@ import { useVideoClone } from '@/composables/useVideoClone'
 const {
   sourceType, linkUrl, filePath, replicationLevel, mode, rewriteScript,
   running, stageStatus, report, similarity, STAGE_LABELS,
-  start, cancel, editReport, pickFile,
+  start, cancel, editReport, pickFile, regenerate, runId,
 } = useVideoClone()
 
 function stageLabel(s) {
