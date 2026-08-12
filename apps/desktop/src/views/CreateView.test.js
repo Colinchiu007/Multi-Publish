@@ -104,6 +104,18 @@ describe("CreateView", () => {
     expect(w.text()).toContain("视频创作");
   });
 
+  it("流水线创作视图包含视频克隆入口", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.view = "pipelines";
+    await nextTick();
+    const entry = w.find(".video-clone-entry");
+    expect(entry.exists()).toBe(true);
+    expect(entry.text()).toContain("视频克隆");
+  });
+
   it("shows three view tabs", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
