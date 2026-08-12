@@ -57,6 +57,19 @@ vi.mock("@/api/tts-voice-catalog", () => ({
     code: 0,
     data: { providerId: "", model: "", selectedVoiceId: null, voices: [] },
   }),
+  clearTtsVoicePreference: vi.fn().mockResolvedValue({
+    code: 0,
+    data: { providerId: "", model: "", selectedVoiceId: null },
+  }),
+}));
+
+vi.mock("@/api/tts-voice-clone", () => ({
+  addTtsVoiceClone: vi.fn().mockResolvedValue({ code: -1, message: "TTS_VOICE_CLONE_API_UNAVAILABLE" }),
+  chooseTtsVoiceCloneSamples: vi.fn().mockResolvedValue({ code: -1, message: "TTS_VOICE_CLONE_API_UNAVAILABLE" }),
+  deleteTtsVoiceClone: vi.fn().mockResolvedValue({ code: -1, message: "TTS_VOICE_CLONE_API_UNAVAILABLE" }),
+  getTtsVoiceCloneRequirements: vi.fn().mockResolvedValue({ code: -1, message: "TTS_VOICE_CLONE_API_UNAVAILABLE" }),
+  listTtsVoiceClones: vi.fn().mockResolvedValue({ code: -1, message: "TTS_VOICE_CLONE_API_UNAVAILABLE" }),
+  renameTtsVoiceClone: vi.fn().mockResolvedValue({ code: -1, message: "TTS_VOICE_CLONE_API_UNAVAILABLE" }),
 }));
 
 import UiButton from "@/components/UiButton.vue";
@@ -553,6 +566,203 @@ describe("CreateView", () => {
     expect(w.vm.friendlyVoiceCatalogError("VOICE_CATALOG_CONFIG_UNAVAILABLE")).toContain("配置");
     // 未知错误仍走兜底，不回退到函数文本
     expect(w.vm.friendlyVoiceCatalogError("SOME_UNKNOWN_X")).toContain("无法加载音色列表");
+    w.unmount();
+  });
+
+  it("语音生成器默认选择已配置的多模态 TTS 模型（minimax-multimodal 优先于普通 TTS 服务商）", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "elevenlabs", name: "ElevenLabs", category: "tts", enabled: true, is_configured: true, models: ["eleven_multilingual_v2"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, capabilities: ["llm", "tts", "image", "video"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo", "image-01"] },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("minimax-multimodal");
+    expect(w.vm.s2vConfig.voiceModel).toBe("speech-2.8-turbo");
+    w.unmount();
+  });
+
+  it("语音生成器默认选择多模态 TTS 模型时仍尊重用户显式保存过的选择", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "elevenlabs", name: "ElevenLabs", category: "tts", enabled: true, is_configured: true, models: ["eleven_multilingual_v2"] },
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, capabilities: ["tts"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo"] },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.s2vConfig.voiceProvider = "elevenlabs";
+    w.vm.s2vConfig.voiceModel = "eleven_multilingual_v2";
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("elevenlabs");
+    w.unmount();
+  });
+
+  it("无多模态 TTS 模型时回退普通 TTS 服务商首项", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "elevenlabs", name: "ElevenLabs", category: "tts", enabled: true, is_configured: true, models: ["eleven_multilingual_v2"] },
+            { id: "openai-tts", name: "OpenAI TTS", category: "tts", enabled: true, is_configured: true, models: ["gpt-4o-mini-tts"] },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("elevenlabs");
+    w.unmount();
+  });
+
+  it("选择本地音频文件后自动保存为克隆音色（默认名音色001，无需手动添加）", async () => {
+    const cloneApi = await import("@/api/tts-voice-clone");
+    cloneApi.chooseTtsVoiceCloneSamples.mockResolvedValue({
+      code: 0,
+      data: { selectionId: "sel-1", samples: [{ name: "a.wav", contentType: "audio/wav", durationSeconds: 12 }] },
+    });
+    cloneApi.addTtsVoiceClone.mockResolvedValue({
+      code: 0,
+      data: { voice: { id: "MiniMaxVoice_auto1", name: "音色001" } },
+    });
+    const catalogApi = await import("@/api/tts-voice-catalog");
+    catalogApi.selectTtsVoice.mockResolvedValue({ code: 0, data: { selectedVoiceId: "MiniMaxVoice_auto1" } });
+
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
+    w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+    w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
+    await w.vm.chooseS2VVoiceCloneSamples();
+
+    expect(cloneApi.chooseTtsVoiceCloneSamples).toHaveBeenCalled();
+    expect(cloneApi.addTtsVoiceClone).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "minimax-multimodal",
+      model: "speech-2.8-turbo",
+      name: "音色001",
+      selectionId: "sel-1",
+      consent: true,
+    }));
+    expect(w.vm.s2vVoiceClones).toContainEqual(expect.objectContaining({ id: "MiniMaxVoice_auto1", name: "音色001" }));
+    expect(w.vm.s2vConfig.voiceId).toBe("MiniMaxVoice_auto1");
+    w.unmount();
+  });
+
+  it("自动克隆默认名按音色XXX递增，重命名后不回退旧序号", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.s2vVoiceClones = [{ id: "a", name: "音色001" }, { id: "b", name: "音色002" }];
+    expect(w.vm.nextS2VVoiceCloneName()).toBe("音色003");
+    w.vm.s2vVoiceClones = [{ id: "a", name: "我的声音" }];
+    expect(w.vm.nextS2VVoiceCloneName()).toBe("音色002");
+    w.vm.s2vVoiceClones = [];
+    expect(w.vm.nextS2VVoiceCloneName()).toBe("音色001");
+    w.unmount();
+  });
+
+  it("克隆音色可在列表中重命名（保存后名称与下拉同步）", async () => {
+    const cloneApi = await import("@/api/tts-voice-clone");
+    cloneApi.renameTtsVoiceClone.mockResolvedValue({
+      code: 0,
+      data: { voice: { id: "MiniMaxVoice_auto1", name: "我的声音" } },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
+    w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+    w.vm.s2vVoiceClones = [{ id: "MiniMaxVoice_auto1", name: "音色001" }];
+    w.vm.startS2VVoiceCloneRename("MiniMaxVoice_auto1");
+    expect(w.vm.s2vVoiceCloneRenamingId).toBe("MiniMaxVoice_auto1");
+    expect(w.vm.s2vVoiceCloneRenameDraft).toBe("音色001");
+    w.vm.s2vVoiceCloneRenameDraft = "我的声音";
+    await w.vm.renameS2VVoiceClone("MiniMaxVoice_auto1");
+    expect(cloneApi.renameTtsVoiceClone).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "minimax-multimodal",
+      model: "speech-2.8-turbo",
+      voiceId: "MiniMaxVoice_auto1",
+      name: "我的声音",
+    }));
+    expect(w.vm.s2vVoiceClones[0].name).toBe("我的声音");
+    expect(w.vm.s2vVoiceCloneRenamingId).toBe("");
+    expect(w.vm.s2vVoiceCloneRenameDraft).toBe("");
+    w.unmount();
+  });
+
+  it("重命名失效克隆时保留 invalid 标记（不复活坏音色）", async () => {
+    const cloneApi = await import("@/api/tts-voice-clone");
+    cloneApi.renameTtsVoiceClone.mockResolvedValue({
+      code: 0,
+      data: { voice: { id: "01", name: "我的声音" } },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
+    w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+    w.vm.s2vVoiceClones = [{ id: "01", name: "音色001", invalid: true }];
+    w.vm.startS2VVoiceCloneRename("01");
+    w.vm.s2vVoiceCloneRenameDraft = "我的声音";
+    await w.vm.renameS2VVoiceClone("01");
+    expect(w.vm.s2vVoiceClones[0]).toMatchObject({ id: "01", name: "我的声音", invalid: true });
+    w.unmount();
+  });
+
+  it("显式选择「自动 Edge TTS」后 loadS2VProviders 重入不被多模态默认覆盖", async () => {
+    window.electronAPI.modelProviderList = vi.fn(async (category) => {
+      if (category === "tts") {
+        return {
+          code: 0,
+          data: [
+            { id: "minimax-multimodal", name: "MiniMax", category: "multimodal", enabled: true, is_configured: true, capabilities: ["tts"], capability_models: { tts: "speech-2.8-turbo" }, models: ["speech-2.8-turbo"] },
+          ],
+        };
+      }
+      return { code: 0, data: [] };
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    // 模拟用户显式选择「自动 Edge TTS」（下拉选中 id='' 或快照恢复）
+    w.vm.s2vVoiceProviderExplicitEdge = true;
+    w.vm.s2vConfig.voiceProvider = "";
+    w.vm.s2vConfig.voiceModel = "";
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.voiceProvider).toBe("");
+    w.unmount();
+  });
+
+  it("音色克隆区域不再显示「添加克隆音色」操作框（选择文件后自动保存）", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    // 旧的「名称输入 + 添加按钮」状态与计算属性已移除
+    expect(w.vm.s2vVoiceCloneName).toBeUndefined();
+    expect(w.vm.canAddS2VVoiceClone).toBeUndefined();
+    // 展开克隆面板后：自动保存提示存在、手动添加按钮不存在
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vOpenSections.voice = true;
+    w.vm.s2vConfig.voiceProvider = "minimax-multimodal";
+    w.vm.s2vConfig.voiceModel = "speech-2.8-turbo";
+    w.vm.s2vVoiceCapability = { type: "user_clone", clone: { enabled: true } };
+    w.vm.s2vCloneOpen = true;
+    await nextTick();
+    expect(w.text()).toContain("自动保存为克隆音色");
+    expect(w.text()).not.toContain("添加克隆音色");
+    expect(w.find("input[placeholder='克隆音色名称']").exists()).toBe(false);
     w.unmount();
   });
 

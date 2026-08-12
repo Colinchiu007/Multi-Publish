@@ -910,15 +910,18 @@ provider adapter `listVoices`，把规范化的内置音色/目录和当前选�
   目录失败路径与 IPC catch 必须记录日志（provider/model/脱敏原因，不记录密钥）；select/clear 失败路径同样经友好映射，
   **不得**向用户直显技术错误码。
 - **多模态模型承担 TTS 能力（2026-08-09）**：当「语音生成器」选择 `minimax-multimodal` 时，「provider → model → 音色目录」链路按 `capability_models.tts`（`speech-2.8-turbo`）走音色目录白名单与克隆合同（详见 7.4.1.1）；前端语音模型下拉只展示 TTS 能力模型，系统音色列表、默认音色、克隆与本地管理能力与 `minimax-tts` 完全一致；未声明 tts 能力的多模态 provider 目录请求 fail-closed 返回 `VOICE_MODEL_MISMATCH`。
+- **语音生成器默认选择多模态 TTS 模型（2026-08-12）**：当「模型服务商」中保存了支持 TTS 能力的多模态模型（`category=multimodal` 且 `capabilities` 包含 `tts`，当前为 MiniMax `minimax-multimodal`）时，图片轮播「语音生成器」下拉在用户没有显式保存过其他服务商选择时**默认选中该多模态模型**，并按 `capability_models.tts` 自动带出默认语音模型（如 `speech-2.8-turbo`）；用户显式保存过的服务商选择（lastOptions 快照回填）始终优先于该默认。下拉首项「自动 Edge TTS」免费兜底与空态引导文案不变；未声明 tts 能力的多模态 provider 不会出现在语音生成器列表（`listProviders` 按 tts 能力过滤，fail-closed）。
 - **Doubao 个人槽位**：当前配置与 TTS adapter 的已注册/已验证调用合同不证明已经把用户个人槽位同步到本地，也不允许本地创建或伪造槽位。
   UI 必须提示用户先在供应商官方控制台创建/管理音色，再点击“刷新音色目录”并仅在有官方 API 证据及已验证的
   `listVoices` adapter 后选择；证据缺失时显示 `unsupported`/`unavailable`，不显示假列表。
 - **多模态模型克隆（2026-08-09，与 7.4.1.1 同合同）**：当语音生成器选择多模态模型（如 `minimax-multimodal`）时，克隆链路的 provider 能力校验与音色目录一致——`category=multimodal` 且 capabilities **包含 tts** 才放行，模型匹配同时认 `models` 与 `capability_models.tts`；未声明 tts 能力的多模态模型返回 `VOICE_CLONE_MODEL_MISMATCH`（文案「所选语音模型与克隆配置不一致，请检查模型设置」），不调用 adapter、不落样本、不写 registry。删除本地克隆音色为纯本地管理（MiniMax 无远端删除端点），与 provider 类别无关。
+- **多模态克隆样本限制对齐（2026-08-12）**：`minimax-multimodal` 的本地克隆样本限制与 `minimax-tts` 完全一致（单文件、mp3/m4a/wav、时长 10s–5min、大小 ≤20MB），「语音生成器默认多模态模型」后克隆要求提示仍按 MiniMax 官方合同显示真实数值。
 - **音色克隆区域交互合同**：
   - 入口按钮文案固定为「选择本地音频文件」（已选样本后为「重新选择音频文件」）；上传要求提示由主进程返回的
     `getRequirements` 数据驱动渲染（格式 mp3/m4a/wav、时长 10s–5min、大小 ≤20MB），提示必须显示真实数值，不得把
     函数/方法引用渲染为文本（回归：模板中调用 `s2vVoiceCloneHint()`）。
   - **授权勾选已移除（2026-08-07 需求调整）**：不再要求用户勾选「我确认已取得样本上传、使用和克隆的权利，并已作出明确同意。」；选择样本 + 填写克隆音色名称即可添加。IPC/服务层 `consent` 内部契约保持不变（renderer 恒传 `true`，fail-closed 防御不变），仅移除前端勾选 UI 与关联状态/校验；添加按钮可用条件 = 已选样本 + 名称非空 + 非加载中。
+  - **自动保存与默认命名（2026-08-12 需求调整）**：选择本地音频文件（`choose-samples` 成功返回 `selectionId`）后，前端**自动调用添加克隆接口**，不再需要填写名称或点击「添加克隆音色」；底部「名称输入 + 添加克隆音色」操作框已移除。自动名称预设为「音色001」（音色XXX：以「当前克隆数量」与「现有最大音色N序号」较大者 +1，3 位零填充——首个为 `音色001`，按创建顺序递增 `音色002/003…`，重命名后不回退旧序号，用户手动命名 `音色100` 后下一个自动名继续为 `音色101`）。克隆列表中每行提供「重命名」入口（行内编辑：Enter 或「保存」确认、「取消」放弃），经新 IPC `tts-voice-clone:rename` 仅更新当前 owner 的本地 registry 展示名，不调用远端 adapter、`voice_id` 与样本不变；名称校验与添加一致（trim 后 1..128 字符、无控制字符，空名/非法参数返回 `VOICE_CLONE_INVALID_ARGUMENTS`）。添加失败时清除一次性样本选择（主进程令牌已销毁）并显示错误提示，用户可「重新选择音频文件」重试；`consent` 内部契约保持不变（renderer 恒传 `true`，fail-closed 防御不变）。重命名仅更新展示名，失效克隆（非法 voice_id）的 `invalid` 标记在重命名后保留，避免坏音色被误选；用户显式选择「自动 Edge TTS」（`voiceProvider=''`）不会被多模态默认覆盖。
   - 克隆链路全部错误码必须映射为友好本地化文案：`VOICE_CLONE_SAMPLE_INVALID / SAMPLE_DURATION_INVALID /
     SAMPLE_EXTENSION_UNSUPPORTED / SAMPLE_TOO_LARGE / TOTAL_SIZE_EXCEEDED / TOTAL_DURATION_EXCEEDED /
     PROVIDER_UNAVAILABLE / UNAVAILABLE / UNSUPPORTED / DIALOG_UNAVAILABLE / DUPLICATE_ID / MODEL_MISMATCH /

@@ -707,7 +707,8 @@ var require_tts_voice_clone = __commonJS({
           chooseSamples: (input) => ipcRenderer2.invoke("tts-voice-clone:choose-samples", input),
           list: (input) => ipcRenderer2.invoke("tts-voice-clone:list", input),
           add: (input) => ipcRenderer2.invoke("tts-voice-clone:add", input),
-          deleteClone: (input) => ipcRenderer2.invoke("tts-voice-clone:delete", input)
+          deleteClone: (input) => ipcRenderer2.invoke("tts-voice-clone:delete", input),
+          rename: (input) => ipcRenderer2.invoke("tts-voice-clone:rename", input)
         }
       };
     }

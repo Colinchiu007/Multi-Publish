@@ -478,23 +478,37 @@
                   </button>
                   <span v-if="s2vVoiceCloneSelection" class="config-hint">已选择 {{ s2vVoiceCloneSelection.sampleCount }} 个样本</span>
                 </div>
-                <p class="config-hint">已授权样本只由可信主进程写入当前用户的本机私有目录，用于管理此克隆音色；页面不会接收原始文件路径或音频内容。</p>
-                <div class="voice-clone-actions">
-                  <input v-model.trim="s2vVoiceCloneName" class="form-input" maxlength="128" placeholder="克隆音色名称" />
-                  <button type="button" class="btn-secondary" :disabled="!canAddS2VVoiceClone" @click="addS2VVoiceClone">{{ s2vVoiceCloneLoading ? '处理中…' : '添加克隆音色' }}</button>
-                </div>
+                <p class="config-hint">选择本地音频文件后将自动保存为克隆音色（默认名「音色001」，可点击「重命名」修改）。已授权样本只由可信主进程写入当前用户的本机私有目录，用于管理此克隆音色；页面不会接收原始文件路径或音频内容。</p>
                 <p v-if="s2vVoiceCloneError" class="inline-error">{{ s2vVoiceCloneError }}</p>
                 <div v-if="s2vVoiceClones.length > 0" class="voice-clone-list">
                   <div v-for="voice in s2vVoiceClones" :key="voice.id" class="voice-clone-row" :class="{ 'voice-clone-row-default': isS2VDefaultVoice(voice.id) }">
-                    <span>
-                      {{ voice.name }}
-                      <span v-if="voice.invalid" class="voice-clone-invalid-badge">已失效，请重新克隆</span>
-                      <span v-else-if="isS2VDefaultVoice(voice.id)" class="voice-clone-default-badge">默认</span>
-                    </span>
-                    <div class="voice-clone-actions">
-                      <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading || voice.invalid || isS2VDefaultVoice(voice.id)" @click="selectS2VVoice(voice.id)">{{ isS2VDefaultVoice(voice.id) ? '已设为默认' : '设为默认' }}</button>
-                      <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
-                    </div>
+                    <template v-if="s2vVoiceCloneRenamingId === voice.id">
+                      <input
+                        v-model.trim="s2vVoiceCloneRenameDraft"
+                        class="form-input"
+                        maxlength="128"
+                        :placeholder="voice.name"
+                        data-testid="s2v-voice-clone-rename-input"
+                        @keyup.enter="renameS2VVoiceClone(voice.id)"
+                        @keyup.esc="cancelS2VVoiceCloneRename"
+                      />
+                      <div class="voice-clone-actions">
+                        <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading || !String(s2vVoiceCloneRenameDraft || '').trim()" @click="renameS2VVoiceClone(voice.id)">保存</button>
+                        <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="cancelS2VVoiceCloneRename">取消</button>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <span>
+                        {{ voice.name }}
+                        <span v-if="voice.invalid" class="voice-clone-invalid-badge">已失效，请重新克隆</span>
+                        <span v-else-if="isS2VDefaultVoice(voice.id)" class="voice-clone-default-badge">默认</span>
+                      </span>
+                      <div class="voice-clone-actions">
+                        <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="startS2VVoiceCloneRename(voice.id)">重命名</button>
+                        <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading || voice.invalid || isS2VDefaultVoice(voice.id)" @click="selectS2VVoice(voice.id)">{{ isS2VDefaultVoice(voice.id) ? '已设为默认' : '设为默认' }}</button>
+                        <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
+                      </div>
+                    </template>
                   </div>
                 </div>
                 </template>
@@ -881,6 +895,7 @@ import {
   deleteTtsVoiceClone,
   getTtsVoiceCloneRequirements,
   listTtsVoiceClones,
+  renameTtsVoiceClone,
 } from '@/api/tts-voice-clone'
 import {
   getPipelineCategory,
@@ -1108,7 +1123,11 @@ export default {
       s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCatalogErrorCode: '', s2vVoiceCapability: null,
       s2vVoiceProviderRequestId: 0, s2vVoiceRequestId: 0, s2vVoiceSelectionRequestId: 0, s2vVoiceCloneRequestId: 0, s2vPersistedVoiceId: '',
       s2vVoiceCloneRequirements: null, s2vVoiceClones: [],
-      s2vVoiceCloneSelection: null, s2vVoiceCloneName: '', s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
+      s2vVoiceCloneSelection: null, s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
+      s2vVoiceCloneRenamingId: '', s2vVoiceCloneRenameDraft: '',
+      // 用户显式选择了「自动 Edge TTS」（voiceProvider=''）时为 true；用于区分「未选择」与「显式 Edge」，
+      // 避免 loadS2VProviders 重入时被多模态默认覆盖。
+      s2vVoiceProviderExplicitEdge: false,
       s2vTemplateLibrary: [], s2vTemplateCategory: 'all', s2vCustomTemplateName: '',
       s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false },
       // 历史
@@ -1232,13 +1251,6 @@ export default {
       const compose = (rawCompose && rawCompose.data) || rawCompose
       if (!compose || compose.bgmSkipped !== true) return ''
       return formatBgmSkippedNotification(compose.bgmSkippedReason).message
-    },
-    canAddS2VVoiceClone() {
-      return Boolean(
-        this.s2vVoiceCloneSelection?.selectionId
-          && String(this.s2vVoiceCloneName || '').trim()
-          && this.s2vVoiceCloneLoading !== true
-      )
     },
     story2videoImageStyleHint() {
       return this.translateWithLocaleFallback(
@@ -1760,6 +1772,8 @@ export default {
         const voiceProviders = new Set((this.s2vVoiceProviders || []).map(p => p.id))
         const imageProviders = new Set((this.s2vImageProviders || []).map(p => p.id))
         const config = { ...(snapshot.s2vConfig || {}) }
+        // 快照显式保存过「自动 Edge TTS」（voiceProvider=''）时标记，loadS2VProviders 重入不再切走
+        this.s2vVoiceProviderExplicitEdge = config.voiceProvider === ''
         // 已不启用的 provider 不回填，避免恢复到无效模型
         if (config.voiceProvider && !voiceProviders.has(config.voiceProvider)) {
           delete config.voiceProvider; delete config.voiceModel; delete config.voiceId
@@ -1851,6 +1865,8 @@ export default {
       try {
         this.s2vConfig = JSON.parse(JSON.stringify(defaults.s2vConfig || {}))
         this.s2vOutputConfig = JSON.parse(JSON.stringify(defaults.s2vOutputConfig || {}))
+        // 重置后回到「未选择」状态，多模态默认重新生效
+        this.s2vVoiceProviderExplicitEdge = false
         await this.loadS2VVoiceData()
         try { await storeSetSetting('story2video.lastOptions.v1', null) } catch { /* 清理失败可忽略 */ }
       } finally { this.s2vRestoring = false }
@@ -2181,9 +2197,10 @@ export default {
       this.s2vVoiceCloneRequirements = null
       this.s2vVoiceClones = []
       this.s2vVoiceCloneSelection = null
-      this.s2vVoiceCloneName = ''
       this.s2vVoiceCloneLoading = false
       this.s2vVoiceCloneError = ''
+      this.s2vVoiceCloneRenamingId = ''
+      this.s2vVoiceCloneRenameDraft = ''
     },
     async loadS2VVoiceData(options = {}) {
       // 卸载守卫：弹窗关闭触发的语音目录/能力重载可能跨越组件卸载（2026-08-12 复审 I1）
@@ -2326,7 +2343,18 @@ export default {
       if (nextVoiceProviders) {
         this.s2vVoiceProviders = nextVoiceProviders
         const configuredProvider = this.getS2VVoiceProvider()
-        const nextProviderId = configuredProvider?.id || this.s2vVoiceProviders[0]?.id || ''
+        // 默认选择多模态 TTS 模型（2026-08-12）：当模型设置保存了支持 TTS 能力的多模态模型
+        // Key（category=multimodal 且 capabilities 含 tts，如 MiniMax）时，语音生成器默认选中它，
+        // 其次才回退到普通 TTS 服务商首项；用户显式保存过的选择（configuredProvider / 显式 Edge）
+        // 始终优先。多模态候选额外要求 capability_models.tts 存在，避免缺默认 TTS 模型时
+        // getS2VDefaultVoiceModel 落到 image/video 模型（fail-closed 回退普通 TTS 首项）。
+        const multimodalProvider = nextVoiceProviders.find(
+          provider => provider?.category === 'multimodal' && typeof provider?.capability_models?.tts === 'string'
+        ) || null
+        const explicitEdge = this.s2vVoiceProviderExplicitEdge === true && !this.s2vConfig.voiceProvider
+        const nextProviderId = explicitEdge
+          ? ''
+          : (configuredProvider?.id || multimodalProvider?.id || this.s2vVoiceProviders[0]?.id || '')
         const nextModel = nextProviderId
           ? (this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
             ? this.s2vConfig.voiceModel
@@ -2341,6 +2369,8 @@ export default {
     },
     async handleS2VVoiceProviderChange() {
       const nextProviderId = this.getS2VVoiceProvider()?.id || ''
+      // 记录「显式选择自动 Edge TTS」：空 id 既是未选择也是显式 Edge，需区分以免被多模态默认覆盖
+      this.s2vVoiceProviderExplicitEdge = !nextProviderId
       this.s2vConfig.voiceProvider = nextProviderId
       this.s2vConfig.voiceModel = nextProviderId ? this.getS2VDefaultVoiceModel(nextProviderId) : ''
       this.s2vConfig.voiceId = ''
@@ -2420,6 +2450,11 @@ export default {
         const sampleCount = Array.isArray(result?.data?.samples) ? result.data.samples.length : 0
         if (result?.code === 0 && selectionId && sampleCount > 0) {
           this.s2vVoiceCloneSelection = { selectionId, sampleCount }
+          // 2026-08-12 需求调整：选择本地文件后自动保存为克隆音色（默认名「音色XXX」），
+          // 不再需要手动填写名称并点击「添加克隆音色」；如需改名使用列表中的「重命名」。
+          // 先释放「选择中」加载态，让 addS2VVoiceClone 进入自己的加载流程。
+          if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
+          await this.addS2VVoiceClone(this.nextS2VVoiceCloneName())
           return
         }
         this.s2vVoiceCloneSelection = null
@@ -2428,11 +2463,31 @@ export default {
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
       }
     },
-    async addS2VVoiceClone() {
+    nextS2VVoiceCloneName() {
+      // 自动克隆默认名「音色XXX」：以「当前克隆数量」与「现有最大音色序号」较大者 +1（3 位零填充）。
+      // - 首个克隆为 音色001；按创建顺序递增 音色002/003…，重命名后不回退旧序号；
+      // - 用户手动命名为 音色100 后，下一个自动名继续用 音色101。
+      // 序号用 BigInt 解析/比较，避免超长数字名（如 128 位）经 Number 转浮点后污染名称。
+      const clones = Array.isArray(this.s2vVoiceClones) ? this.s2vVoiceClones : []
+      let maxIndex = 0n
+      for (const voice of clones) {
+        const match = /^音色(\d+)$/.exec(String(voice?.name || '').trim())
+        if (match) {
+          try {
+            const index = BigInt(match[1])
+            if (index > maxIndex) maxIndex = index
+          } catch (_) { /* 非数字忽略 */ }
+        }
+      }
+      const count = BigInt(clones.length)
+      const nextIndex = (count > maxIndex ? count : maxIndex) + 1n
+      return '音色' + String(nextIndex).padStart(3, '0')
+    },
+    async addS2VVoiceClone(name = this.nextS2VVoiceCloneName()) {
       const context = this.getS2VVoiceContext()
       const selectionId = this.s2vVoiceCloneSelection?.selectionId
-      const name = String(this.s2vVoiceCloneName || '').trim()
-      if (!context || !selectionId || !name || this.s2vVoiceCloneLoading) return
+      const normalizedName = String(name || '').trim()
+      if (!context || !selectionId || !normalizedName || this.s2vVoiceCloneLoading) return
 
       const requestId = ++this.s2vVoiceCloneRequestId
       this.s2vVoiceCloneLoading = true
@@ -2440,13 +2495,15 @@ export default {
       try {
         const result = await addTtsVoiceClone(this.cloneForIpc({
           ...context,
-          name,
+          name: normalizedName,
           selectionId,
           consent: true,
         }))
         if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
         const voice = result?.code === 0 ? this.toS2VVoiceOption(result.data?.voice) : null
         if (!voice) {
+          // 自动保存失败：一次性选择令牌已被主进程销毁，清除本地快照避免「已选择 N 个样本」误导
+          this.s2vVoiceCloneSelection = null
           this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法添加克隆音色。'
           return
         }
@@ -2455,7 +2512,6 @@ export default {
           voice,
         ]
         this.s2vVoiceCloneSelection = null
-        this.s2vVoiceCloneName = ''
         this.s2vConfig.voiceId = voice.id
         await this.selectS2VVoice(voice.id)
       } finally {
@@ -2485,6 +2541,45 @@ export default {
           this.s2vPersistedVoiceId = ''
           if (fallbackVoiceId) await this.selectS2VVoice(fallbackVoiceId)
         }
+      } finally {
+        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
+      }
+    },
+    startS2VVoiceCloneRename(voiceId) {
+      const voice = this.s2vVoiceClones.find(item => item.id === voiceId)
+      if (!voice || this.s2vVoiceCloneLoading) return
+      this.s2vVoiceCloneRenamingId = voiceId
+      this.s2vVoiceCloneRenameDraft = voice.name || ''
+      this.s2vVoiceCloneError = ''
+    },
+    cancelS2VVoiceCloneRename() {
+      this.s2vVoiceCloneRenamingId = ''
+      this.s2vVoiceCloneRenameDraft = ''
+      this.s2vVoiceCloneError = ''
+    },
+    async renameS2VVoiceClone(voiceId) {
+      const context = this.getS2VVoiceContext()
+      const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
+      const name = String(this.s2vVoiceCloneRenameDraft || '').trim()
+      if (!context || !normalizedVoiceId || !name || this.s2vVoiceCloneLoading) return
+
+      const requestId = ++this.s2vVoiceCloneRequestId
+      this.s2vVoiceCloneLoading = true
+      this.s2vVoiceCloneError = ''
+      try {
+        const result = await renameTtsVoiceClone(this.cloneForIpc({ ...context, voiceId: normalizedVoiceId, name }))
+        if (!this.isCurrentS2VVoiceCloneRequest(requestId, context)) return
+        const voice = result?.code === 0 ? this.toS2VVoiceOption(result.data?.voice) : null
+        if (!voice) {
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法重命名克隆音色。'
+          return
+        }
+        // 重命名只更新展示名；保留旧条目的 invalid 标记，避免失效克隆在重命名后被误判为可用
+        const previous = this.s2vVoiceClones.find(item => item.id === voice.id)
+        if (previous?.invalid === true) voice.invalid = true
+        this.s2vVoiceClones = this.s2vVoiceClones.map(item => item.id === voice.id ? voice : item)
+        this.s2vVoiceCloneRenamingId = ''
+        this.s2vVoiceCloneRenameDraft = ''
       } finally {
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
       }

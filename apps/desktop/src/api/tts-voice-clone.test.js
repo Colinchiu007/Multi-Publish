@@ -6,6 +6,7 @@ import {
   deleteTtsVoiceClone,
   getTtsVoiceCloneRequirements,
   listTtsVoiceClones,
+  renameTtsVoiceClone,
 } from './tts-voice-clone'
 
 afterEach(() => {
@@ -19,7 +20,8 @@ describe('renderer TTS 音色克隆 API', () => {
     const list = vi.fn(async input => ({ code: 0, data: input }))
     const add = vi.fn(async input => ({ code: 0, data: input }))
     const deleteClone = vi.fn(async input => ({ code: 0, data: input }))
-    vi.stubGlobal('window', { electronAPI: { ttsVoiceClone: { requirements, chooseSamples, list, add, deleteClone } } })
+    const rename = vi.fn(async input => ({ code: 0, data: input }))
+    vi.stubGlobal('window', { electronAPI: { ttsVoiceClone: { requirements, chooseSamples, list, add, deleteClone, rename } } })
 
     const input = { providerId: 'elevenlabs', model: 'eleven_multilingual_v2', nested: { value: 'safe' } }
     await getTtsVoiceCloneRequirements(input)
@@ -27,12 +29,14 @@ describe('renderer TTS 音色克隆 API', () => {
     await listTtsVoiceClones(input)
     await addTtsVoiceClone({ providerId: 'elevenlabs', model: 'eleven_multilingual_v2', name: 'Voice', selectionId: 'selection-a', consent: true })
     await deleteTtsVoiceClone({ ...input, voiceId: 'voice-a' })
+    await renameTtsVoiceClone({ ...input, voiceId: 'voice-a', name: '我的音色' })
 
     expect(requirements).toHaveBeenCalledWith(input)
     expect(chooseSamples).toHaveBeenCalledWith(input)
     expect(list).toHaveBeenCalledWith(input)
     expect(add).toHaveBeenCalledWith({ providerId: 'elevenlabs', model: 'eleven_multilingual_v2', name: 'Voice', selectionId: 'selection-a', consent: true })
     expect(deleteClone).toHaveBeenCalledWith({ ...input, voiceId: 'voice-a' })
+    expect(rename).toHaveBeenCalledWith({ ...input, voiceId: 'voice-a', name: '我的音色' })
   })
 
   it('在 Electron API 缺失时对列表 fail closed', async () => {

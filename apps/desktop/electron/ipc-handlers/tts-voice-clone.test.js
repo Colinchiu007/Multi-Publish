@@ -47,6 +47,7 @@ describe("TTS 音色克隆 IPC", () => {
         data: { ...input, senderKey },
       })),
       deleteClone: vi.fn(async (input) => ({ code: 0, data: input })),
+      renameClone: vi.fn(async (input) => ({ code: 0, data: input })),
     };
 
     registerTtsVoiceCloneHandlers(ipcMain, { ttsVoiceCloneService, dialog });
@@ -57,6 +58,7 @@ describe("TTS 音色克隆 IPC", () => {
       "tts-voice-clone:list",
       "tts-voice-clone:add",
       "tts-voice-clone:delete",
+      "tts-voice-clone:rename",
     ]);
     await expect(
       ipcMain.handlers.get("tts-voice-clone:requirements")(validEvent(), {
@@ -79,6 +81,20 @@ describe("TTS 音色克隆 IPC", () => {
     expect(ttsVoiceCloneService.getRequirements).toHaveBeenCalledWith({
       providerId: "elevenlabs",
       model: "eleven_multilingual_v2",
+    });
+    await expect(
+      ipcMain.handlers.get("tts-voice-clone:rename")(validEvent(), {
+        providerId: "elevenlabs",
+        model: "eleven_multilingual_v2",
+        voiceId: "voice-a",
+        name: "我的音色",
+      }),
+    ).resolves.toMatchObject({ code: 0 });
+    expect(ttsVoiceCloneService.renameClone).toHaveBeenCalledWith({
+      providerId: "elevenlabs",
+      model: "eleven_multilingual_v2",
+      voiceId: "voice-a",
+      name: "我的音色",
     });
     expect(ttsVoiceCloneService.createSampleSelection).toHaveBeenCalledWith(
       {
@@ -105,6 +121,7 @@ describe("TTS 音色克隆 IPC", () => {
       createSampleSelection: vi.fn(),
       addCloneFromSelection: vi.fn(),
       deleteClone: vi.fn(),
+      renameClone: vi.fn(),
     };
     registerTtsVoiceCloneHandlers(ipcMain, { ttsVoiceCloneService, dialog });
     const base = { providerId: "elevenlabs", model: "eleven_multilingual_v2" };
@@ -162,11 +179,33 @@ describe("TTS 音色克隆 IPC", () => {
         samples: [{ bytes: "audio" }],
       }),
     ).resolves.toMatchObject({ code: -2, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
+    await expect(
+      ipcMain.handlers.get("tts-voice-clone:rename")(validEvent(), {
+        ...base,
+        voiceId: "voice-a",
+        name: "",
+      }),
+    ).resolves.toMatchObject({ code: -2, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
+    await expect(
+      ipcMain.handlers.get("tts-voice-clone:rename")(validEvent(), {
+        ...base,
+        voiceId: "voice-a",
+        name: "Voice",
+        extra: true,
+      }),
+    ).resolves.toMatchObject({ code: -2, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
+    await expect(
+      ipcMain.handlers.get("tts-voice-clone:rename")(validEvent(), {
+        ...base,
+        name: "Voice",
+      }),
+    ).resolves.toMatchObject({ code: -2, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
 
     expect(ttsVoiceCloneService.getRequirements).not.toHaveBeenCalled();
     expect(ttsVoiceCloneService.createSampleSelection).not.toHaveBeenCalled();
     expect(ttsVoiceCloneService.addCloneFromSelection).not.toHaveBeenCalled();
     expect(ttsVoiceCloneService.deleteClone).not.toHaveBeenCalled();
+    expect(ttsVoiceCloneService.renameClone).not.toHaveBeenCalled();
     expect(dialog.showOpenDialog).not.toHaveBeenCalled();
   });
 

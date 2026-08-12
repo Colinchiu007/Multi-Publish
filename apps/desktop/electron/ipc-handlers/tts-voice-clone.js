@@ -83,6 +83,19 @@ function normalizeDeleteArgs(args) {
   return { ...base, voiceId: args.voiceId };
 }
 
+function normalizeRenameArgs(args) {
+  if (
+    !args ||
+    typeof args !== "object" ||
+    Array.isArray(args) ||
+    !hasOnlyAllowedKeys(args, ["providerId", "model", "voiceId", "name"])
+  )
+    return null;
+  const base = normalizeBaseValues(args);
+  if (!base || !isSafeIdentifier(args.voiceId) || !isSafeName(args.name)) return null;
+  return { ...base, voiceId: args.voiceId, name: args.name.trim() };
+}
+
 function invalidArguments() {
   return { code: EC.VALIDATION_ERROR, message: "VOICE_CLONE_INVALID_ARGUMENTS" };
 }
@@ -209,10 +222,24 @@ function registerTtsVoiceCloneHandlers(ipcMain, deps = {}) {
       }
     }),
   );
+
+  ipcMain.handle(
+    "tts-voice-clone:rename",
+    withSenderCheck(async (_event, args) => {
+      const input = normalizeRenameArgs(args);
+      if (!input) return invalidArguments();
+      try {
+        return await service.renameClone(input);
+      } catch (_) {
+        return { code: EC.REQUEST_ERROR, message: "VOICE_CLONE_UNAVAILABLE" };
+      }
+    }),
+  );
 }
 
 module.exports = registerTtsVoiceCloneHandlers;
 module.exports.normalizeAddArgs = normalizeAddArgs;
 module.exports.normalizeBaseArgs = normalizeBaseArgs;
 module.exports.normalizeDeleteArgs = normalizeDeleteArgs;
+module.exports.normalizeRenameArgs = normalizeRenameArgs;
 module.exports.senderKey = senderKey;

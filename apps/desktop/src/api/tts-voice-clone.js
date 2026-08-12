@@ -54,3 +54,7 @@ export function addTtsVoiceClone (input) {
 export function deleteTtsVoiceClone (input) {
   return callTtsVoiceCloneApi('deleteClone', input, null)
 }
+
+export function renameTtsVoiceClone (input) {
+  return callTtsVoiceCloneApi('rename', input, null)
+}

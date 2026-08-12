@@ -39,6 +39,15 @@ const LOCAL_CLONE_SAMPLE_LIMITS = Object.freeze({
     'speech-2.6-hd': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
     'speech-2.6-turbo': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
   }),
+  // 多模态模型（minimax-multimodal）内部委托 minimax-tts adapter 实现 TTS/克隆能力，
+  // 样本限制必须与 minimax-tts 完全一致（官方单文件 10s-5min、≤20MB），
+  // 否则「语音生成器默认多模态模型」后克隆提示会出现错误的宽松限制。
+  'minimax-multimodal': Object.freeze({
+    'speech-2.8-turbo': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
+    'speech-2.8-hd': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
+    'speech-2.6-hd': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
+    'speech-2.6-turbo': Object.freeze({ maxSampleCount: 1, maxSampleBytes: 20 * 1024 * 1024, minSampleDurationSeconds: 10, maxSampleDurationSeconds: 300, allowedExtensions: ['.mp3', '.m4a', '.wav'] }),
+  }),
 });
 const DELETE_STATES = Object.freeze({
   ACTIVE: "active",
@@ -616,6 +625,47 @@ class TtsVoiceCloneService {
   }
 
   /**
+   * 重命名本地克隆音色（2026-08-12）。
+   *
+   * 仅更新当前 owner 的本地 registry 展示名（name），不触碰远端 voice_id 与样本：
+   * - voice_id 由供应商在 cloneVoice 时生成并作为合成标识，改名不改变身份；
+   * - 新名称走 safeDisplayName 同款校验（1..128、无控制字符）；
+   * - 名称允许重复（供应商不要求唯一），前端以「音色XXX」自动命名避免默认冲突。
+   */
+  async renameClone(input) {
+    const request = this._normalizeRenameRequest(input);
+    if (!request) return failure("VOICE_CLONE_INVALID_ARGUMENTS");
+    const owner = this._captureOwner();
+    if (!owner) return failure("VOICE_OWNER_UNAVAILABLE");
+    return this._withRegistryLock(request, owner, () =>
+      this._renameCloneLocked(request, owner),
+    );
+  }
+
+  async _renameCloneLocked(request, owner) {
+    const capability = this._getCloneCapability(request);
+    if (!capability) return this._unsupportedResponse(request);
+    if (!this._hasUserSettings()) return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    if (!this._hasMatchingProvider(request.providerId, request.model))
+      return failure("VOICE_CLONE_MODEL_MISMATCH");
+
+    const registryResult = this._readRegistry(request, owner);
+    if (registryResult.error) return registryResult.error;
+    const clone = registryResult.registry.voices.find((voice) => voice.id === request.voiceId);
+    if (!clone) return failure("VOICE_CLONE_NOT_FOUND");
+
+    const nextClone = { ...clone, name: request.name };
+    const nextRegistry = this._replaceClone(registryResult.registry, nextClone);
+    if (!this._writeRegistry(registryResult.key, nextRegistry, owner.subject))
+      return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    return success({
+      providerId: request.providerId,
+      model: request.model,
+      voice: publicVoice(nextClone),
+    });
+  }
+
+  /**
    * 判断当前 provider 的 adapter 是否支持远端删除克隆音色。
    * - 明确支持（如 ElevenLabs DELETE /v1/voices/{id}）→ 删除需先完成远端 deleteVoice；
    * - 明确不支持（如 MiniMax 官方 clone API 无删除端点）→ 删除为纯本地管理操作；
@@ -663,6 +713,13 @@ class TtsVoiceCloneService {
     const request = this._normalizeRequest(input);
     const voiceId = input && safeIdentifier(input.voiceId, MAX_VOICE_ID_LENGTH);
     return request && voiceId ? { ...request, voiceId } : null;
+  }
+
+  _normalizeRenameRequest(input) {
+    const request = this._normalizeRequest(input);
+    const voiceId = input && safeIdentifier(input.voiceId, MAX_VOICE_ID_LENGTH);
+    const name = input && safeDisplayName(input.name);
+    return request && voiceId && name ? { ...request, voiceId, name } : null;
   }
 
   _normalizeSelectionAddRequest(input) {
