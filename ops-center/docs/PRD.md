@@ -1339,3 +1339,59 @@ POST /cases/{id}/runs → status=queued
 - 前端：组件测试（表单校验/状态徽章/双语标注/非空数据路径）；
 - 契约：桌面端 prompt-eval 维度/错误码一致性断言（两端共享枚举表）。
 
+
+### 12A.22.16 场景层评测工作流（2026-08-12 调整）
+
+> 运营人员**输入整篇文案原文**，后台按**桌面端分句机制**拆成场景层，逐场景自动展示「场景文字 / 字幕二次分句 / 场景上下文 / 优化后提示词（中英对照）」，并可逐场景「生成图片」+ 评估（复用 12A.22 既有流程，生成部分不变）。
+
+**工作流**：输入整篇文案 → 后台分句（场景级分割 + 字幕二次分句 + 场景上下文提取）→ 场景层列表 → 逐场景生成/展示 中英优化提示词 → 逐场景「生成图片」→ 生成物 + 评估结果 → 多 run 对比 / 聚合分析。
+
+### 12A.22.17 场景层数据模型
+
+| 表/字段 | 说明 |
+|---------|------|
+| `prompt_eval_cases`（扩展） | 新增 `source_mode`（`manual`=旧整 case 模式 / `scene`=场景层模式）；`scene` 模式时 `source_text` 为整篇文案原文 |
+| `prompt_eval_scenes`（新增） | id、case_id（FK）、index、scene_text、subtitle_blocks（JSON）、scene_context（JSON）、prompt_zh、prompt_en、prompt_en_source（machine_translation/manual）、prompt_en_translated_at、created_at、updated_at |
+| `prompt_eval_runs`（扩展） | 新增 `scene_id`（可空 FK；NULL=旧模式整 case 生成） |
+| subtitle_blocks 结构 | `[{ index, text, start_seconds?, end_seconds?, duration? }]`（对齐桌面端字幕分句输出） |
+| scene_context 结构 | 白名单键（对齐桌面端 story-context-engine 语义）：`genre/era/culture/setting/time/characters/props/visual_style/tone/summary/anchors/negative_anchors` |
+
+### 12A.22.18 场景层接口
+
+| 方法/路径 | 权限 | 说明 |
+|-----------|------|------|
+| `POST /cases`（scene 模式） | 登录 | 传 `source_mode=scene` + 整篇原文 + 分句配置 → 后台分句并创建 scenes，返回 case+scenes |
+| `GET /cases/{id}` | 登录/创建者/管理员 | 含 scenes（每场景：scene_text / subtitle_blocks / scene_context / prompt_zh / prompt_en） |
+| `POST /cases/{id}/scenes/{sid}/translate` | 登录/创建者 | 按场景生成中英对照（LLM 优化 + 翻译，source=machine_translation，幂等 7 天） |
+| `POST /cases/{id}/scenes/{sid}/runs` | 登录/创建者 | 按场景生成图片（prompt 用该场景 prompt_zh；provider/model/画幅/图片数来自 case）→ 复用生成→评估状态机 |
+| `GET /runs/{id}`、`GET /summary` | 登录 | 不变；summary 可按 scene 维度聚合 |
+
+**分句配置（scene 模式请求体）**：`target_chars_per_scene`（默认 20，1-200）、`subtitle_min_chars`（默认 8）、`subtitle_max_chars`（默认 15）、`subtitle_timing`（proportional/equal，默认 proportional）、`language`（默认 zh）——与桌面端 story2video-compose split 阶段默认一致。
+
+### 12A.22.19 分句与优化提示词生成（复用桌面端分句机制）
+
+- **分句语义基准**：桌面端 `packages/story2video-engine/src/text-segmentation.ts`（三级分割：句子边界消歧 → 场景级分割 → 字幕级分割，纯本地无网络）与 smart-sentence-splitter（8002）契约；ops-center 后端提供 Python 分句实现（场景级 + 字幕级），**一致性测试**用 node 加载桌面端 `text-segmentation.ts` 对同一输入断言 scenes/subtitle_blocks 一致（参照 prompt_eval_contract 的 node 加载断言模式）。
+- **场景上下文**：按桌面端 `story-context-engine.js` 语义提取（白名单键见 12A.22.17），后台实现；提取失败不静默降级（明确错误或标记 degraded）。
+- **优化提示词生成**：后台 LLM 以「整篇原文 + 场景文字 + 场景上下文」为输入生成该场景中文优化提示词（prompt_zh），再翻译英文（prompt_en，source=machine_translation）；支持运营编辑覆盖 prompt_zh（编辑后 prompt_en 标记需重新生成）。
+- **分句失败处理**：分句服务异常 → 返回可操作错误（「分句失败：{原因}」），不落库、不降级。
+
+### 12A.22.20 交互与显示（场景层评测工作台）
+
+**Tab「新建评测」**新增「场景模式」：
+- 输入：整篇文案原文（多行，≤20000）+ 分句配置（折叠高级项）+ provider/模型/画幅/图片数；
+- 按钮：「分句并生成场景」→ 调 `POST /cases`（scene 模式）→ 展示场景层列表；
+- **每场景卡片四区**：① 场景文字（序号 + scene_text）；② 字幕二次分句（subtitle_blocks 逐条：文字 + 目标时长，来源标注 local/分句服务语义）；③ 场景上下文（scene_context 键值展示：时代/地域/角色/道具/视觉风格/负面锚点等）；④ 优化提示词中英文（中文可编辑 + 英文「机器翻译」徽标 + 「重新生成中英对照」）；
+- 每场景操作：「生成图片」（复用生成→评估）+ 评估结果卡（总分/等级/维度/问题/优化点）+ 多 run 对比；
+- 可选：「批量生成中英对照」（全部场景一次生成）。
+
+**新增提示文字**：「分句并生成场景」「场景 {n}」「字幕二次分句」「场景上下文」「重新生成中英对照」「批量生成中英对照」「分句失败：{原因}」「请先输入整篇文案原文」。
+
+**校验（scene 模式）**：原文非空 ≤20000；分句配置边界（target_chars_per_scene 1-200、subtitle_min 1-50、subtitle_max min+1..200、subtitle_min < subtitle_max）；provider/model 已配置密钥；场景数上限 50（超出 400）。
+
+### 12A.22.21 验收标准（场景层增补）
+
+1. scene 模式分句：同一输入与桌面端 `text-segmentation.ts` 输出场景数/字幕块一致（一致性测试）；
+2. 每场景四区完整展示（场景文字/字幕块/上下文/中英提示词），且「生成图片」→ 评估结果可用（真实 provider 外部验收）；
+3. 中英对照幂等、可编辑覆盖；编辑 prompt_zh 后 prompt_en 标记待重生成；
+4. 分句失败明确报错不降级；场景数超限 400；
+5. pytest（分句/场景接口/一致性）+ 前端 build；12A.22.13 既有验收不回归。
