@@ -4,6 +4,18 @@
 - IPC：video-clone:pick-file（系统文件选择对话框）；preload/composable/视图接线「选择文件」。
 - 门禁：QM-2 sandbox 双模式 PASS（TRUE_OK/FALSE_OK/BOTH_MODES_OK）；QM-1 打包 exit 0 + 可见主窗口（MainWindowHandle=15729924）；engine 96 + desktop 新增 7 用例全绿。
 - PRD v1.6 §20；待 4d：真实 provider 图/账号发布外部验收、报告持久化 regenerate。
+=======
+
+## [未发布] 修复：限流验证页加载模型预设解析（适配 {presets:[]} 响应）（2026-08-12）
+
+- 根因：`GET /api/v1/model-presets` 返回 `{ presets: [...], count }`，`RateLimitVerifier.vue` 的 `loadPresets()` 误假设 `items` 字段 → `(res.data.items || res.data || []).filter is not a function`，预设下拉加载失败。
+- 修复：改为 `res.data?.presets ?? res.data?.items ?? res.data` 防御性解析 + `Array.isArray` 兜底（结构异常时置空而非崩溃）。
+- 验证：ops-center 前端 `npm run build` 通过。
+## [2026-08-12] fix(ops-center): 「模型密钥」未配置提示按角色区分（admin 引导配置 / 非 admin 联系管理员）
+
+- 问题：错误「未配置可用的图片生成模型，请先在「模型密钥」中配置」对所有角色相同，但「模型密钥」菜单仅 admin 可见（App.vue `v-if role==='admin'`）——非 admin 用户被引导到一个不可见页面
+- 修复：`routers/prompt_eval.py` create_run 按 `_is_admin(user)` 区分提示文案；admin 提示「侧边栏「模型密钥」（/model-keys）中配置」，非 admin 提示「请联系管理员在「模型密钥」中配置」
+- 测试：新增 `test_run_provider_key_message_role_aware`（prompt-eval API 9 例全绿）
 
 ## [2026-08-12] 视频克隆 切片 4b：Electron 接线（服务/IPC/preload/Vue 视图）+ QM-1 打包验证
 
@@ -3812,6 +3824,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 
