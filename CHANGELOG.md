@@ -4,6 +4,14 @@
 - 修复：改为 `res.data?.presets ?? res.data?.items ?? res.data` 防御性解析 + `Array.isArray` 兜底（结构异常时置空而非崩溃）。
 - 验证：ops-center 前端 `npm run build` 通过。
 
+## [2026-08-12] 修复 subtitle-align-service 单测 CI 回归（mock isAlignerAvailable，PR #590）
+
+- 根因：alignScenes 调用 bridge 前先查 isAlignerAvailable()（ALIGNER_DIR/aligner 模块存在性）；CI 未部署
+  audio-aligner 时返回 false → fail-fast 跳过 mock bridge（transcribeAudio 0 次、reason=aligner_unavailable），
+  与断言不符。为 PR #588 合并引入的上游回归（与 #585 i18n 无关）。
+- 修复：单测将 ALIGNER_DIR 指向含 aligner/ 模块的临时目录（与生产 fs 检查同源）→ isAlignerAvailable 为
+  true，确定性覆盖 mock bridge 编排路径（afterAll 清理临时目录）；生产行为不变（未部署 aligner 仍 fail-fast）。
+
 ## [2026-08-12] 字幕对齐停顿吸附（silence-snap）+ 块级 <200ms 验收
 
 - aligner core 新增 `detect_silences`（ffmpeg silencedetect 独立停顿检测）+ `snap_words_to_silence`
@@ -16,6 +24,7 @@
 - App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
 - 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
 - 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
+
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
 - locales zh/en 新增 `historyPage`（131 键成对，含插值函数）与 `publishType`（8 键）命名空间

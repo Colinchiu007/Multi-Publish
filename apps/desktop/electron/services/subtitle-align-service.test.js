@@ -1,20 +1,22 @@
 // @vitest-environment node
-const os = require('os')
-const path = require('path')
-const fs = require('fs')
+import { afterAll, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
-// 适配：subtitle-align-service 依赖 aligner-bridge.isAlignerAvailable()（检查 ALIGNER_DIR/aligner 目录，
-// 测试环境默认未部署 → fail-fast 跳过 bridge）。在模块加载前设置 ALIGNER_DIR 指向含 aligner/ 的临时目录，
-// 使「已部署」路径可测（2026-08-12 顺带适配 main 既有失败）。
-const alignerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aligner-test-'))
-fs.mkdirSync(path.join(alignerDir, 'aligner'))
+// 对齐服务在调用 bridge 前先检查 isAlignerAvailable()（aligner-bridge 模块加载时读取
+// ALIGNER_DIR/aligner 模块存在性）。CI（Linux、无 ALIGNER_DIR）默认为 false → fail-fast 跳过
+// mock bridge（原 #588 用例仅在 Windows 本机存在 D:\...\packages\audio-aligner 时通过，CI 必挂）。
+// 这里将 ALIGNER_DIR 指向带 aligner/ 模块的临时目录，使可用性判定与生产同源（真实 fs 检查）为 true，
+// 确定性覆盖编排路径；生产行为不变（未部署 aligner 仍 fail-fast）。
+const alignerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-aligner-test-'))
+fs.mkdirSync(path.join(alignerDir, 'aligner'), { recursive: true })
 process.env.ALIGNER_DIR = alignerDir
+afterAll(() => {
+  fs.rmSync(alignerDir, { recursive: true, force: true })
+})
 
 const { alignScenes, buildTimelineItem } = require('./subtitle-align-service')
-
-afterAll(() => {
-  try { fs.rmSync(alignerDir, { recursive: true, force: true }) } catch (_) { /* ignore */ }
-})
 
 describe('subtitle-align-service 编排', () => {
   it('有音频+字幕块的场景被对齐并附加 subtitleTimeline/subtitleAlign', async () => {
