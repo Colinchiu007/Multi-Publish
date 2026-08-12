@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * videogen-stages - animation / avatar-spokesperson / character-animation / hybrid 流水线的共享阶段执行器
  *
