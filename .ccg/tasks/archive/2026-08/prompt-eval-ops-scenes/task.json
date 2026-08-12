@@ -1,0 +1,13 @@
+{
+  "id": "prompt-eval-ops-scenes",
+  "title": "运营后台提示词评测场景层工作流（分句/场景上下文/逐场景生成评估）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "ops-center",
+  "currentPhase": "completed",
+  "nextAction": "已归档：PR #614 合并 da501af7，三同步完成",
+  "createdAt": "2026-08-12T08:00:00Z",
+  "branch": "codex/prompt-eval-scenes",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/614"
+}

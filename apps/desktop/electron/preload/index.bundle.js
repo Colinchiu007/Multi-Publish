@@ -928,7 +928,16 @@ var require_access_control = __commonJS({
       "identitySignIn",
       "identitySwitchAccount",
       "identitySignOut",
-      "onIdentityStateChanged"
+      "onIdentityStateChanged",
+      // 视频克隆：本地分析流水线（未登录可用）；发布经 PublisherRouter 外部验收边界
+      "videoClone",
+      "videoClone.run",
+      "videoClone.cancel",
+      "videoClone.editReport",
+      "videoClone.regenerate",
+      "videoClone.pickFile",
+      "videoClone.history",
+      "videoClone.onProgress"
     ];
     function hasAccess(currentLevel, requiredLevel) {
       if (requiredLevel === "public") return true;
@@ -937,10 +946,11 @@ var require_access_control = __commonJS({
       }
       return currentLevel === "admin";
     }
-    function requiredLevelForMethod(methodName, inheritedLevel = "public") {
+    function requiredLevelForMethod(methodName, inheritedLevel = "public", fullName = null) {
+      const name = fullName || methodName;
       if (inheritedLevel !== "public") return inheritedLevel;
-      if (ADMIN_ONLY_METHODS2.includes(methodName)) return "admin";
-      if (PUBLIC_METHODS2.includes(methodName)) return "public";
+      if (ADMIN_ONLY_METHODS2.includes(name)) return "admin";
+      if (PUBLIC_METHODS2.includes(name)) return "public";
       return "authenticated";
     }
     function createPermissionError(methodName) {
@@ -958,12 +968,13 @@ var require_access_control = __commonJS({
       }
       return "public";
     }
-    function createDynamicAccessApi2(api, getCurrentAccessLevel, inheritedLevel = "public") {
+    function createDynamicAccessApi2(api, getCurrentAccessLevel, inheritedLevel = "public", prefix = "") {
       const exposed = {};
       const initialLevel = readAccessLevel(getCurrentAccessLevel);
       for (const key of Object.keys(api)) {
         const value = api[key];
-        const requiredLevel = requiredLevelForMethod(key, inheritedLevel);
+        const fullName = prefix ? prefix + "." + key : key;
+        const requiredLevel = requiredLevelForMethod(key, inheritedLevel, fullName);
         if (requiredLevel === "admin" && initialLevel !== "admin") continue;
         if (typeof value === "function") {
           if (requiredLevel === "public") {
@@ -977,7 +988,7 @@ var require_access_control = __commonJS({
             return value.apply(this, args);
           };
         } else if (value && typeof value === "object") {
-          exposed[key] = createDynamicAccessApi2(value, getCurrentAccessLevel, requiredLevel);
+          exposed[key] = createDynamicAccessApi2(value, getCurrentAccessLevel, requiredLevel, fullName);
         }
       }
       return exposed;
