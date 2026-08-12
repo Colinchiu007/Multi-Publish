@@ -1,3 +1,8 @@
+## [未发布] 修复：限流验证页加载模型预设解析（适配 {presets:[]} 响应）（2026-08-12）
+
+- 根因：`GET /api/v1/model-presets` 返回 `{ presets: [...], count }`，`RateLimitVerifier.vue` 的 `loadPresets()` 误假设 `items` 字段 → `(res.data.items || res.data || []).filter is not a function`，预设下拉加载失败。
+- 修复：改为 `res.data?.presets ?? res.data?.items ?? res.data` 防御性解析 + `Array.isArray` 兜底（结构异常时置空而非崩溃）。
+- 验证：ops-center 前端 `npm run build` 通过。
 ## [2026-08-12] fix(ops-center): 「模型密钥」未配置提示按角色区分（admin 引导配置 / 非 admin 联系管理员）
 
 - 问题：错误「未配置可用的图片生成模型，请先在「模型密钥」中配置」对所有角色相同，但「模型密钥」菜单仅 admin 可见（App.vue `v-if role==='admin'`）——非 admin 用户被引导到一个不可见页面
@@ -3811,6 +3816,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 
