@@ -1,0 +1,5 @@
+## 6. 双模型交叉验证
+
+- **antigravity**：后端不可用（区域限制），已记录降级，未产出有效意见。
+- **Claude**（review-claude.out）：独立逐行核对后结论——核心缺口（A1/A3/A4、B1/B2/B3/B5、C2/C3/C4/C5）**证据准确、分级恰当**；更正 4 处事实：① B4 并非全仓 0 命中 requestId（python `_http_client.py:204,221` 透传上游 `x-request-id`，但仍无自生成 id）；② C1 shared-utils logger 并非死代码（`rules.js:1`、`presets.js:1` 引用）；③ C6 story2video 编排层 `story2video-compose-engine.js:525` 有日志（引擎库静默才成立）；④ "全仓无第三方日志库"不成立（Python 用 loguru）。另补充 8 个发现（见 4.4）。
+- **合并结论**：维持 A1/B1/B2 为 **Critical**，建议按 P0 清单先修；补充发现全部采纳并已并入报告。完整审查输出保留于 `.ccg/tasks/logging-system-audit/review-{anti,claude}.out`。

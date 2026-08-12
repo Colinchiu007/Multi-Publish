@@ -1,0 +1,12 @@
+{
+  "id": "logging-system-audit",
+  "title": "评估项目日志体系与日志内容完善度，输出补充细化建议",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "low",
+  "domain": "observability",
+  "currentPhase": "completed",
+  "nextAction": "已产出报告并归档",
+  "createdAt": "2026-08-12T00:00:00+08:00",
+  "branch": "codex/logging-system-audit"
+}

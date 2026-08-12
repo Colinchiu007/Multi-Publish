@@ -1,0 +1,38 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/antigravity/reviewer.md
+
+<TASK>
+你是独立 reviewer。请审查以下"Multi-Publish 日志体系审计"证据摘要（来源：仓库 origin/main 17a75dcc，代码 file:line 已核对）。请：
+1) 判断每条缺口是否成立、有无证据误读；
+2) 补充遗漏的高风险点；
+3) 对每条给 Critical/Warning/Info 分级 + 一句话建议。不要泛泛而谈，务必针对证据行。
+
+【现状：5 套日志设施】
+- 桌面主进程 apps/desktop/electron/services/logger.js：console+文件双写，按日 userData/logs/app-YYYY-MM-DD.log，级别 env LOG_LEVEL 默认 INFO，文件侧脱敏(Bearer/apiKey/authorization/sk-)，异步队列+flush，单文件>500MB 直接删除，设置页可查看/清理；约 90 个主进程文件引用；renderer 错误经 IPC logs:error 落盘；进程级 unhandledRejection/uncaughtException 有日志。
+- packages/shared-utils/src/logger.js：另一套(userData/logs/app.log 非按日，同步写，5MB 滚动到 .1，无脱敏，无 meta)。未发现源码引用（疑似死代码）。
+- packages/api-publish-engine/src/logger.js：console-only 极简；debug 由 env DEBUG 控制；无文件、无脱敏。另有 access-log.js(console 文本: method url status duration，无 requestId/ip/ua)与 audit-log.js(JSON 文件审计 publish 成败)。
+- packages/python-backend/src/multi_publish/core/logging_setup.py：loguru，stderr+全局按日文件+per-module 文件，3MB 轮转/15 天/gz；server.py 导入即初始化；Electron base-python-bridge 捕获 sidecar stdout→info / stderr→warn 进桌面日志。
+- ops-center/backend：标准 logging basicConfig INFO + uvicorn 默认 access log(stderr/journald)；登录成败/快照/写出有日志；ops-center.service 走 systemd。
+
+【缺口清单（主代理初判）】
+A. 敏感信息
+1 [High] python douyin.py:445 logger.info(f"上传授权成功: {json.dumps(upload_token,...)[:200]}") — 抖音上传授权 token 明文落盘。
+2 [Med] services/logger.js:142-143 控制台输出未脱敏（console.log 原始值），仅文件侧 body 脱敏。
+3 [Med] api-publish-engine logger/access-log 无脱敏。
+4 [Low-Med] 脱敏正则仅 4 类；Cookie/JWT(非sk-)/refresh_token/密码不在覆盖内。
+B. 静默关键路径
+5 [High] publish-api-server.js 所有 catch 只回 JSON 响应，从不记录错误详情(535-538,583-586,639-642,719-721,934-935,964-965,1062-1063)；生产 5xx 不可诊断（仅 publish 路径有 audit-log error code）。
+6 [High] packages/api-publish-engine/src/auth/* 10 文件 0 console/logger；OIDC introspection/JWKS/entitlement/webhook 签名失败全静默；webhook-manager.js 也 0 日志。
+7 [Med] retry-middleware.js 重试/熔断开启无日志。
+8 [Med] access-log 过简且全仓无 requestId/correlation id（grep 0 命中）。
+9 [Med] python uvicorn access log 不落 daily 文件（loguru 不接标准 logging）；仅靠 Electron stderr 捕获或 journald。
+10 [Low-Med] ops-center 无请求中间件/requestId/统一 access 格式。
+C. 基础设施一致性
+11 [Med] 4+ 套 logger 并存能力不一致；shared-utils/src/logger.js 死代码且注释声称与 desktop 一致实为不同。
+12 [Med] 全仓文本行日志，无 JSON/结构化，无统一 level 枚举（大写 vs 小写）。
+13 [Med] 保留策略不完整：桌面按日文件无自动清理旧文件；shared-utils 仅 1 个备份；容器默认 json-file 无 rotation；python 3MB/15 天较合理。
+14 [Low] desktop logger 仅 meta 8000 cap，message 不截断。
+15 [Low] 无统一 traceId 串联 IPC/Bridge/Python（PipelineEngine 有 run.id 是正面例子）。
+16 [Low] remotion-composer/story2video-engine 0 console 全静默（当前主要被桌面引擎调度，可接受但未文档化）。
+【正面】IPC helpers 统一 try-catch 日志；renderer 全局错误上报齐全；shutdown flush；PipelineEngine 阶段级日志(runId/stage/duration/error slice 500)；CI artifacts 保留 7-30 天；logger.test.js 有脱敏测试；全仓无第三方日志库。
+
+OUTPUT: 结构化审查意见（每条 gap 标 [成立/不成立/部分成立] + 分级 + 建议；另列你补充的遗漏点）。
