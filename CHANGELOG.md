@@ -1,3 +1,8 @@
+## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
+
+- App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
+- 同时确认「创作诊断」看板入口位于菜单第 7 项（模型用量之后、发布数据之前），路由 /diagnostics。
+- 验证：ops-center 前端 ite build 通过；纯布局 CSS，无逻辑变更。
 ## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
 
 - locales zh/en 新增 `historyPage`（131 键成对，含插值函数）与 `publishType`（8 键）命名空间
