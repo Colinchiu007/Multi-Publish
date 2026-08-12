@@ -1,5 +1,6 @@
 
 
+
 ## [2026-08-12] Story2Video 全能创作：流水线更名、历史提示词本地翻译、分镜素材自选创作模式
 
 - 更名：流水线展示名「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」（zh/en i18n、配置标题、权限提示、阶段摘要同步；机器 ID story2video-compose 不变）。
@@ -11,6 +12,20 @@
 - 文档：01-docs/PRD.md §7.1.3a（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字清单、成本提示）；OpenSpec change story2video-omnipotent-creation（proposal/design/specs/tasks）。
 
 
+
+
+## [2026-08-12] feat(ops-center): 视觉评估支持 Opencode-Go（opencode-go-vision 密钥槽位）
+
+- 「模型密钥」Provider 下拉新增 `opencode-go-vision`；后端 get_vision_key 候选顺序 minimax-vision → opencode-go-vision，评估服务按 OpenAI 兼容 base_url/model/api_key 调用（如 base_url=`https://opencode.ai/zen/go/v1`）。
+- 测试：API 16 例全绿（新增 opencode-go-vision 场景 run 用其 base_url/api_key）。
+- PRD 12A.22.7 密钥类型同步。
+
+## [2026-08-12] 修复 CI 门禁：/create E2E 卡片数同步 + coverage 崩溃绕行
+
+- route-functional-suite.js：内置流水线卡片断言 14 → 15（PR #626 视频克隆入口卡加入后同步；改动 CreateView 流水线卡片需同步此计数）。
+- vitest coverage exclude `**/preload/video-clone.js`：绕开 ast-v8-to-istanbul 在 Node 22 下 `column must be greater than or equal to 0` 崩溃（@jridgewell/trace-mapping 负 column；1.0.4/1.0.5 均未修复；该文件不在 include 范围，排除仅绕开 V8 coverage 转换崩溃）。
+- usePipelineHistory.js：修复坏 import `@/i18n/story2video-locale`（文件不存在）→ `@/story2video/story2video-notifications`（v8 provider 未加载该文件所以此前未暴露，istanbul 插桩 include 全量时暴露）。
+ origin/main
 
 ## [2026-08-12] fix(ops-center): 中英对照使用「模型密钥」minimax-llm + 剥离 LLM think 块
 

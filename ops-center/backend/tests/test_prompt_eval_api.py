@@ -409,6 +409,47 @@ async def test_translate_uses_llm_key_from_provider_table(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_vision_key_supports_opencode_go(monkeypatch):
+    """视觉评估支持 opencode-go-vision（Opencode-Go 视觉模型，OpenAI 兼容 base_url）。"""
+    import services.prompt_eval_service as svc
+
+    def fake_start(factory, run_id, snapshot, gen_cfg, eval_cfg):
+        captured["eval_cfg"] = eval_cfg
+
+    captured = {}
+    monkeypatch.setattr(svc, "start_scene_run_pipeline", fake_start)
+    async with _client() as client:
+        admin = _headers(role="admin")
+        h = _headers()
+        body = {"source_mode": "scene", "title": "t", "source_text": "她点燃了柴火。",
+                "provider": "minimax-image", "model": "image-01", "image_count": 1, "aspect_ratio": "1:1"}
+        data = (await client.post("/api/v1/prompt-eval/cases", json=body, headers=h)).json()
+        cid = data["case"]["id"]
+        sid = data["scenes"][0]["id"]
+        # 配置生图 + LLM + opencode-go-vision 视觉
+        await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-image", "model": "image-01", "api_key": "sk-img", "base_url": "https://x/v1",
+        }, headers=admin)
+        async def fake_translate(db, scene, case, cfg, http=None):
+            scene.prompt_zh = "写实风格，老妇人做饭"
+            scene.prompt_en = "A realistic scene"
+            scene.prompt_en_source = "machine_translation"
+            scene.prompt_en_translated_at = "2026-08-12T00:00:00"
+            await db.commit()
+            return svc.scene_to_dict(scene)
+        monkeypatch.setattr(svc, "translate_scene", fake_translate)
+        await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/translate", headers=h)
+        await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "opencode-go-vision", "model": "opencode-go-vision",
+            "api_key": "sk-oc-vision", "base_url": "https://opencode.ai/zen/go/v1",
+        }, headers=admin)
+        r = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/runs", headers=h)
+        assert r.status_code == 200, r.text
+        assert captured["eval_cfg"]["base_url"] == "https://opencode.ai/zen/go/v1"
+        assert captured["eval_cfg"]["api_key"] == "sk-oc-vision"
+
+
+@pytest.mark.asyncio
 async def test_scene_translate_idempotent_cache(monkeypatch):
     """真实 translate_scene 幂等缓存：7 天内同 prompt_zh 复用，不重复调用 LLM（回归 prompt_en_cache_zh 缺失崩溃）。"""
     import services.prompt_eval_service as svc

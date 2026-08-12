@@ -1,0 +1,13 @@
+{
+  "id": "p2-settings-i18n",
+  "title": "P2 存量 i18n 第五批（收官）：Settings 设置文案全量多语言化",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "analysis",
+  "nextAction": "分析 SettingsDialog/LogsSettings 硬编码文案并实施 i18n",
+  "createdAt": "2026-08-12T07:39:06Z",
+  "branch": "codex/p2-settings-i18n",
+  "openspecChange": "desktop-ui-i18n-p2(已归档,第一批)"
+}

@@ -6,7 +6,7 @@
     <el-form inline style="margin: 12px 0">
       <el-form-item label="Provider">
         <el-select v-model="form.provider" style="width: 160px">
-          <el-option v-for="p in ['minimax-image','flux','minimax-llm','hunyuan']" :key="p" :label="p" :value="p" />
+          <el-option v-for="p in ['minimax-image','flux','minimax-llm','minimax-vision','opencode-go-vision','hunyuan']" :key="p" :label="p" :value="p" />
         </el-select>
       </el-form-item>
       <el-form-item label="模型">

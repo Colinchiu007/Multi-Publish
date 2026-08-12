@@ -8,6 +8,8 @@ const { AuditLog } = require("./audit-log");
 const { PublishingPlan } = require("./publish-plan");
 const { RateLimiter } = require("./rate-limiter");
 const { AccessLogger } = require("./access-log");
+const logger = require("./logger");
+const { redactText } = require("./log-redact");
 const { loadConfig } = require("./config-loader");
 const ApiKeyManager = require("./api-key-manager");
 const { requireScopes } = require("./auth/logto-auth");
@@ -84,13 +86,16 @@ class PublishApiServer {
     this._entitlementSigner = this._opts.entitlementSigner || null
     this._readinessProbe = this._opts.readinessProbe || null
     this._publishViaApi = typeof this._opts.publishViaApi === "function" ? this._opts.publishViaApi : publishViaApi
+    this._log = this._opts.log || logger
     this._keyManager = new ApiKeyManager(this._opts.keysPath)
     this._autoMigrateApiKey = Boolean(this._apiKey && this._opts.autoMigrate !== false)
     this._scheduler = null;
-    this._webhookManager = new WebhookManager();
+    this._webhookManager = new WebhookManager({ logger: this._log });
     this._auditLog = new AuditLog({ storageFile: this._opts.auditLogFile || null });
     this._planManager = new PublishingPlan({ dryRun: this._opts.dryRun, storageFile: this._opts.planFile || null });
     this._startedAt = null;
+    this._pluginLoader = this._opts.pluginLoader || pluginLoader
+    this._reloadPlugins = this._opts.reloadPlugins || reloadPlugins
     this._rateLimiter = this._opts.maxRpm ? new RateLimiter({ maxRequests: this._opts.maxRpm, windowMs: 60000 }) : null;
     this._accessLogger = new AccessLogger({ enabled: this._opts.accessLog !== false });
     if (this._opts.enableSchedule) {
@@ -218,6 +223,28 @@ class PublishApiServer {
     res.end(body);
   }
 
+  _logWarn(code, error, context) {
+    this._logMessage("warn", code, error, context)
+  }
+
+  _logError(code, error, context) {
+    this._logMessage("error", code, error, context)
+  }
+
+  _logMessage(level, code, error, context) {
+    if (!this._log || typeof this._log[level] !== "function") return;
+    var parts = [redactText(String(code || "INTERNAL_SERVER_ERROR"))];
+    if (error) {
+      var message = String(error && error.message ? error.message : error);
+      parts.push(redactText(message.slice(0, 500)));
+      if (error.stack) parts.push(redactText(String(error.stack).slice(0, 500)));
+    }
+    if (context) {
+      try { parts.push(redactText(JSON.stringify(context))); } catch (_) {}
+    }
+    this._log[level]("PublishApiServer", parts.join(" "));
+  }
+
   _checkApiKeyAuth(req, requiredScope, allowAnonymous) {
     const url = requestPath(req)
     if (url === "/api/v1/health" || url === "/api/v1/ready") return { authorized: true }
@@ -278,10 +305,12 @@ class PublishApiServer {
       })
       .catch((error) => {
         if (authDependencyUnavailable(error)) {
+          const providerCode = safeErrorCode(error, 'AUTH_PROVIDER_UNAVAILABLE')
+          this._logError(providerCode, error, { path: url })
           return {
             authorized: false,
             status: 503,
-            error: safeErrorCode(error, 'AUTH_PROVIDER_UNAVAILABLE'),
+            error: providerCode,
           }
         }
         if (!this._identityAuthRequired) {
@@ -535,6 +564,7 @@ class PublishApiServer {
       } catch (error) {
         var webhookStatus = error && Number.isInteger(error.status) ? error.status : 500;
         var webhookCode = error && error.code ? error.code : "WEBHOOK_PROCESSING_FAILED";
+        this._logError(webhookCode, error, { path: url, hook: "logto-webhook" });
         this._json(res, webhookStatus, { success: false, error: webhookCode });
       }
       return;
@@ -562,6 +592,9 @@ class PublishApiServer {
       ? await this._checkAuth(req, this._requiredScope(req))
       : this._checkAuth(req)
     if (!authResult.authorized) {
+      if (!(authResult.status && authResult.status >= 500)) {
+        this._logWarn(authResult.error || "UNAUTHORIZED", null, { path: url, method });
+      }
       this._json(res, authResult.status || 401, { error: "Unauthorized", message: authResult.error || "Valid API key required" });
       return;
     }
@@ -581,6 +614,7 @@ class PublishApiServer {
         await this._ensureRequestIdentity(req, url);
         await this._assertEntitlementFeature(req, this._requiredFeature(req));
       } catch (error) {
+        this._logError(error && error.code ? error.code : "BUSINESS_USER_UNAVAILABLE", error, { path: url, method });
         this._json(res, error && error.status ? error.status : 503, {
           error: error && error.code ? error.code : "BUSINESS_USER_UNAVAILABLE",
           message: error && error.status === 403 ? "当前账号无权执行此操作" : "业务用户或权益服务暂时不可用",
@@ -637,6 +671,7 @@ class PublishApiServer {
           entitlement = await this._buildEntitlement(req);
           entitlementSnapshot = await this._buildEntitlementSnapshot(req, entitlement);
         } catch (error) {
+          this._logError(error && error.code ? error.code : "ENTITLEMENT_UNAVAILABLE", error, { path: url, method });
           this._json(res, error && error.status ? error.status : 503, {
             error: error && error.code ? error.code : "ENTITLEMENT_UNAVAILABLE",
             message: error && error.status === 400 ? "设备标识无效" : "权益暂时不可用",
@@ -700,6 +735,7 @@ class PublishApiServer {
         try {
           await this._consumeEntitlementFeature(req, "cloud_publish", 1);
         } catch (error) {
+          this._logError(error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE", error, { path: url, method });
           this._json(res, error && error.status ? error.status : 503, {
             error: error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE",
           });
@@ -718,6 +754,7 @@ class PublishApiServer {
           }
         } catch (e) {
           this._auditLog.log({ ownerSubject: this._ownerSubject(req), type: "publish", platform: platform, title: taskData.title, status: "failed", error: safeErrorCode(e, "PUBLISH_FAILED") });
+          this._logError("PUBLISH_FAILED", e, { platform: platform, path: url, method });
           this._json(res, 200, { success: false, platform: platform, error: "PUBLISH_FAILED" });
         }
         return;
@@ -734,6 +771,7 @@ class PublishApiServer {
         try {
           await this._consumeEntitlementFeature(req, "cloud_publish", Math.max(1, platforms.length));
         } catch (error) {
+          this._logError(error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE", error, { path: url, method });
           this._json(res, error && error.status ? error.status : 503, {
             error: error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE",
           });
@@ -867,6 +905,7 @@ class PublishApiServer {
             try {
               await this._consumeEntitlementFeature(req, "cloud_publish", usageAmount);
             } catch (error) {
+              this._logError(error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE", error, { path: url, method });
               this._json(res, error && error.status ? error.status : 503, {
                 error: error && error.code ? error.code : "ENTITLEMENT_USAGE_UNAVAILABLE",
               });
@@ -912,26 +951,27 @@ class PublishApiServer {
         if (method === "GET") {
           var plugins = [];
           try {
-            var all = pluginLoader.listAll ? pluginLoader.listAll() : [];
+            var all = this._pluginLoader.listAll ? this._pluginLoader.listAll() : [];
             for (var i = 0; i < all.length; i++) {
               var p = all[i];
               plugins.push({
                 platform: p.platform || p.name,
                 name: p.displayName || p.platform || p.name,
-                enabled: pluginLoader.isEnabled ? pluginLoader.isEnabled(p.platform || p.name) : true,
+                enabled: this._pluginLoader.isEnabled ? this._pluginLoader.isEnabled(p.platform || p.name) : true,
                 version: p.version || (p.manifest && p.manifest.version) || "unknown"
               });
             }
-          } catch(e) { /* empty */ }
+          } catch(e) { this._logError("PLUGIN_LIST_FAILED", e, { path: url, method }); }
           this._json(res, 200, { plugins: plugins, count: plugins.length });
           return;
         }
       }
       if (method === "POST" && url === "/api/v1/plugins/reload") {
         try {
-          reloadPlugins();
+          this._reloadPlugins();
           this._json(res, 200, { success: true, reloaded: true, timestamp: new Date().toISOString() });
         } catch(e) {
+          this._logError("PLUGIN_RELOAD_FAILED", e, { path: url, method });
           this._json(res, 500, { success: false, error: e.message });
         }
         return;
@@ -942,26 +982,27 @@ class PublishApiServer {
         if (method === "GET") {
           var plugins = [];
           try {
-            var all = pluginLoader.listAll ? pluginLoader.listAll() : [];
+            var all = this._pluginLoader.listAll ? this._pluginLoader.listAll() : [];
             for (var i = 0; i < all.length; i++) {
               var p = all[i];
               plugins.push({
                 platform: p.platform || p.name,
                 name: p.displayName || p.platform || p.name,
-                enabled: pluginLoader.isEnabled ? pluginLoader.isEnabled(p.platform || p.name) : true,
+                enabled: this._pluginLoader.isEnabled ? this._pluginLoader.isEnabled(p.platform || p.name) : true,
                 version: p.version || (p.manifest && p.manifest.version) || "unknown"
               });
             }
-          } catch(e) { /* empty */ }
+          } catch(e) { this._logError("PLUGIN_LIST_FAILED", e, { path: url, method }); }
           this._json(res, 200, { plugins: plugins, count: plugins.length });
           return;
         }
       }
       if (method === "POST" && url === "/api/v1/plugins/reload") {
         try {
-          reloadPlugins();
+          this._reloadPlugins();
           this._json(res, 200, { success: true, reloaded: true, timestamp: new Date().toISOString() });
         } catch(e) {
+          this._logError("PLUGIN_RELOAD_FAILED", e, { path: url, method });
           this._json(res, 500, { success: false, error: e.message });
         }
         return;
@@ -1060,6 +1101,7 @@ p{color:#6e6e73}
 
       this._json(res, 404, { error: "Not found", path: url });
       } catch (e) {
+        this._logError("INTERNAL_SERVER_ERROR", e, { path: url, method });
         this._json(res, 500, { error: "INTERNAL_SERVER_ERROR" });
     }
   }

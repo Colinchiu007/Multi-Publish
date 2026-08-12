@@ -1,0 +1,14 @@
+{
+  "id": "logging-p0-fixes",
+  "title": "P0 日志加固：token 泄漏修复 + 服务/auth/webhook/retry 错误日志",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "observability",
+  "currentPhase": "completed",
+  "nextAction": "PR #659 已合并，三同步归档完成",
+  "createdAt": "2026-08-12T00:00:00+08:00",
+  "branch": "codex/logging-p0-fixes",
+  "openspecChange": "logging-hardening-p0",
+  "remoteStatus": "MERGED_PRS_658_659"
+}

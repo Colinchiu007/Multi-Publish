@@ -71,4 +71,40 @@ t("auth failure (401) not retried", async function() {
   eq(callCount, 1);
 });
 
+
+t("withRetry logs retry attempts with injected logger", async function() {
+  var calls = [];
+  var spy = { warn: function(tag, msg) { calls.push(["warn", tag, msg]); }, info: function(tag, msg) { calls.push(["info", tag, msg]); } };
+  var callCount = 0;
+  var result = await withRetry(function() {
+    callCount++;
+    if (callCount < 3) throw new Error("transient-boom");
+    return "ok";
+  }, { maxRetries: 3, baseDelay: 1, circuitKey: "retry_log_key", logger: spy });
+  eq(result, "ok");
+  eq(callCount, 3);
+  var retries = calls.filter(function(c) { return c[0] === "warn" && c[2] && c[2].indexOf("retry attempt=") === 0 });
+  eq(retries.length >= 2, true);
+});
+
+t("circuit transitions logged and open rejects are logged", async function() {
+  var calls = [];
+  var spy = { warn: function(tag, msg) { calls.push(["warn", tag, msg]); }, info: function(tag, msg) { calls.push(["info", tag, msg]); } };
+  var key = "circuit_log_key_" + Date.now();
+  var callCount = 0;
+  try {
+    await withRetry(function() { callCount++; throw new Error("fail-forever"); }, { maxRetries: 4, baseDelay: 1, circuitKey: key, logger: spy });
+  } catch(e) {}
+  eq(callCount, 5);
+  var opened = calls.filter(function(c) { return c[0] === "warn" && c[2] && c[2].indexOf("circuit opened key=" + key) === 0 });
+  eq(opened.length, 1);
+  var rejected;
+  try {
+    await withRetry(function() { throw new Error("should-not-run"); }, { maxRetries: 0, circuitKey: key, logger: spy });
+  } catch(e) { rejected = e; }
+  eq(rejected && rejected.code, "CIRCUIT_OPEN");
+  var rej = calls.filter(function(c) { return c[0] === "warn" && c[2] && c[2].indexOf("circuit open rejected key=" + key) === 0 });
+  eq(rej.length >= 1, true);
+});
+
 setTimeout(function() { console.log("\\n========== " + p + "/" + (p + f) + " =========="); if (f) process.exit(1); }, 200);

@@ -1,0 +1,16 @@
+### 4.4 双模型审查补充发现（Claude 独立审查 2026-08-12）
+
+> antigravity 因账户区域不可用失败（review-anti.out："not eligible for Antigravity... not currently available in your location"），按降级规则未盲等；Claude 审查完成（review-claude.out，Session c3ad4d35）。Claude 确认核心缺口证据准确，并更正 4 处事实（已并入上文 A1/B4/C1/C6 与正面清单），另补充以下发现：
+
+| ID | 级别 | 位置 | 发现 |
+|----|------|------|------|
+| N1 | **Med** | `packages/api-publish-engine/src/audit-log.js:25-32` | 每次 `log()` 同步 `JSON.stringify` 整个 entries 数组落盘（O(n²)），无条数上限/保留期，启动 `_load` 读全文件；发布路径每发一条写一次。建议追加式 append + 上限截断 |
+| N2 | **Med** | `packages/api-publish-engine/src/api-key-manager.js`（0 日志）、`publish-api-server.js:672-685` | API key 创建/撤销与登录失败**零审计**；`_checkAuth` 失败路径 0 日志 → 爆破/误用不可观测。建议 key 生命周期 + auth 失败记 audit 级日志 |
+| N3 | **Med** | `apps/desktop/electron/services/logger.js:59-61,121-124` | 单文件达 500MB 上限时**直接删除整个当日文件**（非轮转），繁忙日一次性丢光全天日志——数据丢失风险。建议改 rename 滚动 + 启动时按保留 N 天清理旧文件 |
+| N4 | **Med** | `apps/desktop/electron/services/base-python-bridge.js:120-121` | sidecar stdout→info / stderr→warn；loguru 的 WARNING/ERROR 与 uvicorn access 全混在 stderr，导致桌面日志里每行请求都是 WARN，**按级别过滤失真**。建议按行内容识别或 python 侧明确分级输出 |
+| N5 | **Low** | `packages/api-publish-engine/src/retry-middleware.js:2-8` | 注释为乱码 `?`（提交时 GBK→UTF-8 编码损坏），误导后续维护，建议重写 |
+| N6 | **Low** | `apps/desktop/electron/services/logger.js:113-116` | 文件写失败完全静默（appendFile 错误回调内只 `settle()` 丢弃），磁盘满时用户无从知晓日志停写。建议失败降级 console + 计数暴露到 `getLogsInfo` |
+
+---
+
+## 5. 补充与细化建议
