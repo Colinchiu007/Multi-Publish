@@ -1177,7 +1177,7 @@ describe("AccountsView", () => {
     });
     const pinia = createRealPinia();
     setRealActivePinia(pinia);
-    const w = mount(RealAccountsView, { global: { plugins: [pinia] } });
+    const w = mount(RealAccountsView, { global: { plugins: [pinia, i18n] } });
     await nextTick();
     await new Promise(resolve => setTimeout(resolve, 0));
     await nextTick();

@@ -540,7 +540,7 @@ function setGroupFilter (value) {
 }
 
 function onFilterKeydown (event, index) {
-  const lastIndex = filterOptions.length - 1
+  const lastIndex = filterOptions.value.length - 1
   let nextIndex = index
   if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = index === lastIndex ? 0 : index + 1
   else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = index === 0 ? lastIndex : index - 1
@@ -550,7 +550,7 @@ function onFilterKeydown (event, index) {
 
   event.preventDefault()
   const tablist = event.currentTarget?.parentElement
-  setFilter(filterOptions[nextIndex].value)
+  setFilter(filterOptions.value[nextIndex].value)
   nextTick(() => {
     const tabs = tablist?.querySelectorAll('[role="tab"]')
     tabs?.[nextIndex]?.focus()
