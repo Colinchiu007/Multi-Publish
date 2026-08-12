@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.2（切片 2：真实 ingest/analyze/plan adapter 详细规格）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.5（切片 4b：Electron 接线实现与门禁记录）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -484,4 +484,88 @@ VideoClonePipeline：
   a) 默认管线（createSlice2Pipeline）→ ok:false 停在 generate（VIDEOCLONE_STAGE_NOT_IMPLEMENTED），报告已填充（时长/分辨率/画幅/镜头时间轴）；
   b) 注入 generate/compose/publish stub → ok:true 且 F4 相似度已计算（结构=1、时长通过、confidence≥0.5）；
 - 工具缺失时用例自动 skip（CI 可复现，不依赖外部二进制）。
+
+
+## 17. 详细规格：切片 3 — generate / compose / publish（v1.3 追加）
+
+### 17.1 generate：逐镜头资产规划（generate-assets.js）
+
+- createAssetPlan：每镜头 → { index, t0, t1, durationSec, kind, promptSeed }；
+- kind：replication.mode=full 且镜头 type=video → video，否则 image；
+- promptSeed = palette:tone:person:plot 组合锚点（供 provider 提示词注入）；
+- createGenerateAssets：未注入 assetGenerator → VIDEOCLONE_PROVIDER_UNAVAILABLE（fail-closed，retryable）；生成失败 → VIDEOCLONE_ASSET_GENERATION_FAILED（retryable）；产物必须含 path；成功 → artifacts.assets.scenes 按镜头序。
+
+### 17.2 compose：ffmpeg 合成（compose-ffmpeg.js）
+
+- resolveTargetSize：meta.resolution（WxH 字符串）优先 → width/height 数值 → platformParams.aspect 映射表（9:16=1080x1920、16:9=1920x1080、1:1、4:5、3:4）→ 默认 1080x1920；
+- buildAssScript：script.lines → ASS（[Script Info]/[V4+ Styles] Default 白字描边底部居中 {\an2}；换行 \N；时间轴 t0/t1 → H:MM:SS.cc）；
+- buildComposeCommand（纯函数）：每镜头 -loop 1 -t dur -i 图片 → scale/pad/setsar/fps → concat → 可选 subtitles/overlay 水印 → -map 视频 + 可选 -map 音频 → -t 总时长 -pix_fmt yuv420p -movflags +faststart 输出；无镜头/素材不足 → VIDEOCLONE_COMPOSE_FAILED；
+- createFfmpegCompose：执行（VC_FFMPEG_PATH/FFMPEG_PATH/ffmpeg）→ ffprobe 校验 → artifacts.output { path, durationSec, width, height, sizeBytes }；失败 COMPOSE_FAILED（retryable）。
+
+### 17.3 publish：可选发布（publish.js）
+
+- 未注入 publisher 或 enabled=false → publishResult { status:'skipped', reason:'no-publisher' }（不失败，发布为可选步骤）；
+- publisher({ media, report }) 成功 → publishResult 透传；抛错 → VIDEOCLONE_PUBLISH_FAILED（retryable）；
+- 切片 4 接 PublisherRouter（15 平台）。
+
+### 17.4 切片 3 集成（createSlice3Pipeline）
+
+- 六阶段组装：ingest/analyze/plan 真实 + generate/compose/publish 契约；
+- 验证：本地 2s 样例 → 纯色 PNG 素材（真实 ffmpeg）→ 真实合成 → ffprobe 校验（时长≈源/分辨率/音轨）→ F4 相似度（structure=1、confidence≥0.5）；
+- 未注入 assetGenerator → 停在 generate（PROVIDER_UNAVAILABLE）。
+
+
+## 18. 详细规格：切片 4 — IPC 契约与桌面 UI（v1.4 追加）
+
+### 18.1 IPC 通道契约（主进程 ↔ 渲染层）
+
+| 通道 | 方向 | 请求 | 响应 / 事件 |
+|---|---|---|---|
+| video-clone:run | invoke | { source:{ type:'local'|'url', path?, url?, platform? }, options:{ replicationLevel, mode, videoTypes, rewriteScript, target, failOnLowSimilarity } } | { ok, runId, report, similarity, publishResult, error? }（report 经 sanitizeReportForIpc 深拷贝） |
+| video-clone:progress | 主→渲染 事件 | — | { type: 'stage:started'|'stage:succeeded'|'stage:failed'|'aborted'|'completed', stage?, error?, runId?, elapsedMs? } |
+| video-clone:cancel | invoke | { runId } | { ok }（AbortController.abort；阶段边界协作中止） |
+| video-clone:report:edit | invoke | { runId, patch:{ path, value } } | { ok, report }（非法 patch → VIDEOCLONE_REPORT_EDIT_INVALID） |
+| video-clone:report:regenerate | invoke | { runId } | 重跑 generate→compose（复用已编辑报告） |
+
+- preload 暴露：window.electronAPI.videoClone.{ run, onProgress, cancel, editReport, regenerate }；
+- 错误统一 { code, phase, retryable, userMessageKey, params } → 渲染端 formatUserError 映射（PRD §14 表）；
+- IPC 参数必须是纯 JSON（QM-2：Vue reactive 对象先 JSON.parse(JSON.stringify()) 脱壳）。
+
+### 18.2 渲染层视图（VideoCloneView.vue，路由 /video-clone）
+
+- **输入区**：链接输入（8 平台徽标识别）/ 本地文件（拖拽 + 选择，显示 文件名/大小/时长/分辨率）；复刻层级（L0/L1/L2）、模式、视频类型（剧情短剧/B-roll/口播）、文案改写开关；「开始分析」按钮，输入校验就地提示（§14 错误码）。
+- **分析进度**：六阶段卡片（等待/进行中/成功/失败可重试/跳过），进度事件驱动，取消按钮。
+- **报告编辑**：7 层 Tab + 时间轴编辑器 + 原片/当前双栏对比 + 保存并重新生成 / 放弃修改。
+- **结果页**：成片预览、F4 相似度仪表（综合分 + 结构/文案/风格/时长四项 + 达标徽标 + verbatim 照抄警告）、AI 生成标识（强制）、发布按钮（PublisherRouter，可选）、历史入口。
+- 显示项清单见 §13.6；提示文字见 §14 + 通用提示（分析中/生成中/已完成/已取消）。
+
+### 18.3 主进程服务（video-clone-service.js，切片 4b 接线）
+
+- createVideoCloneRunner({ createPipeline: createSlice3Pipeline, pipelineOptions, onEvent → webContents.send('video-clone:progress', ...), signal → AbortController.signal })；
+- run 会话表：runId → { controller, runner, tmpDirs }；cancel 中止并清理；窗口销毁时释放监听器（全局单例事件一次注册）。
+
+### 18.4 Electron 门禁（QM-1/QM-2，切片 4b 提交前必须满足）
+
+- 修改 apps/desktop/electron 后本地打包验证（QM-1：electron-builder --win --dir 成功 + 启动 8s 无关键 stderr）；
+- preload 增改后 sandbox:true/false 双模式验证 window.electronAPI；
+- 受保护 IPC 通道 file:// sender canonical 校验（realpathSync.native 双向）；
+- 环境前提：node_modules 完整（npm ci）+ workspace junction 指向当前 worktree——当前所有 worktree 无 node_modules，4b 接线待环境就绪后执行。
+
+
+## 19. 详细规格：切片 4b — Electron 接线实现（v1.5 追加）
+
+### 19.1 已实现（本切片）
+
+- 引擎：src/service.js（createVideoCloneService：run 会话表 + cancel + applyReportPatch + activeCount，Electron 无关可测）。
+- 主进程：ipc-handlers/video-clone.js（video-clone:run/cancel/report:edit/report:regenerate；进度经 BrowserWindow.fromWebContents(sender).webContents.send('video-clone:progress')；错误统一 { code, message, errorCode }）；已注册进 ipc-handlers/index.js。
+- preload：preload/video-clone.js（window.electronAPI.videoClone.{ run, cancel, editReport, regenerate, onProgress }）；index.bundle.js 已重建。
+- 渲染层：composables/useVideoClone.js（输入/进度/报告/相似度/错误 formatUserError）；views/VideoCloneView.vue（输入区/进度卡片/报告编辑/相似度仪表）；路由 /video-clone；i18n videoClone 命名空间 zh/en（23 错误键 + UI 文案，与 §14 对齐）。
+- 依赖：apps/desktop 声明 @multi-publish/video-clone-engine（package-lock 同步）。
+
+### 19.2 门禁证据（QM-1 / 构建）
+
+- QM-1 打包：electron-builder --win --dir exit 0（electron 43.1.1）；启动 10s：无 Cannot find module / 平台配置 / ENOTDIR 关键错误；日志含 window 主窗口已显示；ASAR 含 node_modules/@multi-publish/video-clone-engine。
+- 构建：vite build 通过（VideoCloneView 模板无编译错误）。
+- 测试：engine 96（含 service 5）+ desktop preload 333 + composable 5 + i18n 7 = 全绿。
+- 待 4c：真实 assetGenerator（ModelProviderManager）/ PublisherRouter 接线、文件选择对话框、sandbox 双模式实窗验证（QM-2 完整）、visible-window handle 截图证据。
 

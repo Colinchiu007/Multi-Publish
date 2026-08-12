@@ -8,7 +8,7 @@ const { computeSimilarityReport } = require('./similarity');
 
 const STAGE_IDS = STAGES;
 
-/** 请求校验（PRD §3 F1 + §11.1；W5/I9 加固） */
+/** 请求校验（PRD §3 F1 + §11.1） */
 function validateRequest(request) {
   const errors = [];
   if (!request || typeof request !== 'object') return { ok: false, errors: ['request 缺失'] };
@@ -19,7 +19,7 @@ function validateRequest(request) {
     if (src.url !== undefined && src.url !== null) errors.push('source.url: 本地来源不允许携带 url');
   }
   if (src.type === 'url') {
-    if (typeof src.url !== 'string' || src.url.trim() === '' || !/^https:\/\//i.test(src.url)) errors.push('source.url: 必须提供 https 链接');
+    if (typeof src.url !== 'string' || src.url.trim() === '' || !String(src.url).toLowerCase().startsWith('https://')) errors.push('source.url: 必须提供 https 链接');
     if (src.path !== undefined && src.path !== null) errors.push('source.path: 链接来源不允许携带 path');
   }
   const opts = request.options || {};
@@ -35,7 +35,7 @@ function validateRequest(request) {
   return { ok: errors.length === 0, errors };
 }
 
-/** 统一失败形状（I6：所有路径都带 runId/report/artifacts/similarity/publishResult 键） */
+/** 统一失败形状 */
 function failureResult(runId, context, error) {
   return {
     ok: false, runId: runId || null, error,
@@ -46,12 +46,22 @@ function failureResult(runId, context, error) {
   };
 }
 
+function serializeErr(err) {
+  return err && err.toJSON && typeof err.toJSON === 'function' ? err.toJSON() : { code: String((err && err.code) || (err && err.message) || 'UNKNOWN') };
+}
+
 /**
- * 创建视频克隆流水线。adapters 按阶段注入：
- * { ingest, analyze, plan, generate, compose, publish }（缺省 fail-closed）。
+ * 创建视频克隆流水线。executorOptions 支持：
+ * - eventSink({type, ...})：stage:started|stage:succeeded|stage:failed|aborted
+ * - abortSignal：AbortSignal（阶段边界协作中止）
  */
 function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
-  const executor = createStageExecutor(executorOptions);
+  const { eventSink = null, abortSignal = null, ...execOpts } = executorOptions || {};
+  const executor = createStageExecutor(execOpts);
+
+  function emit(type, data) {
+    if (typeof eventSink === 'function') { try { eventSink(Object.assign({ type }, data || {})); } catch { /* 事件回调异常不阻断 */ } }
+  }
 
   function stageFor(id) {
     const adapter = adapters[id];
@@ -63,6 +73,10 @@ function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
     const check = validateRequest(request);
     if (!check.ok) {
       return failureResult(null, null, new VideoCloneError('VIDEOCLONE_INVALID_REQUEST', { params: { errors: check.errors } }));
+    }
+    if (abortSignal && abortSignal.aborted) {
+      emit('aborted', { stage: null, reason: 'request-aborted' });
+      return failureResult(null, null, new VideoCloneError('VIDEOCLONE_INTERNAL', { params: { reason: 'aborted' } }));
     }
 
     const runId = 'vc-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
@@ -76,26 +90,35 @@ function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
       return {
         id,
         run: async (ctx) => {
-          const out = await base.run(ctx);
-          if (id === 'analyze') {
-            // 固化原片分析报告 + 立即校验（W3：非法报告 fail-closed）
-            if (!ctx.sourceReport) ctx.sourceReport = sanitizeReportForIpc(ctx.report);
-            const v = validateCloneReport(ctx.report);
-            if (!v.ok) throw new VideoCloneError('VIDEOCLONE_INVALID_REPORT', { phase: 'analyze', params: { errors: v.errors } });
+          if (abortSignal && abortSignal.aborted) {
+            emit('aborted', { stage: id });
+            throw new VideoCloneError('VIDEOCLONE_INTERNAL', { phase: id, params: { reason: 'aborted' } });
           }
-          if (id === 'compose') {
-            // F4 自检在 compose 阶段内（publish 之前）执行（C2：门禁可拦截发布）
-            const v = validateCloneReport(ctx.report);
-            if (!v.ok) throw new VideoCloneError('VIDEOCLONE_INVALID_REPORT', { phase: 'compose', params: { errors: v.errors } });
-            const target = (ctx.request.options && ctx.request.options.target) || 'P1';
-            const sim = computeSimilarityReport({ source: ctx.sourceReport || ctx.report, clone: ctx.report, target });
-            ctx.similarity = sim;
-            const failOnLow = ctx.request.options && ctx.request.options.failOnLowSimilarity === true;
-            if (failOnLow && (sim.verdict === 'needs_review' || sim.verdict === 'insufficient_evidence')) {
-              throw new VideoCloneError('VIDEOCLONE_SIMILARITY_LOW', { phase: 'compose', params: { similarity: sim } });
+          emit('stage:started', { stage: id });
+          try {
+            const out = await base.run(ctx);
+            if (id === 'analyze') {
+              if (!ctx.sourceReport) ctx.sourceReport = sanitizeReportForIpc(ctx.report);
+              const v = validateCloneReport(ctx.report);
+              if (!v.ok) throw new VideoCloneError('VIDEOCLONE_INVALID_REPORT', { phase: 'analyze', params: { errors: v.errors } });
             }
+            if (id === 'compose') {
+              const v = validateCloneReport(ctx.report);
+              if (!v.ok) throw new VideoCloneError('VIDEOCLONE_INVALID_REPORT', { phase: 'compose', params: { errors: v.errors } });
+              const target = (ctx.request.options && ctx.request.options.target) || 'P1';
+              const sim = computeSimilarityReport({ source: ctx.sourceReport || ctx.report, clone: ctx.report, target });
+              ctx.similarity = sim;
+              const failOnLow = ctx.request.options && ctx.request.options.failOnLowSimilarity === true;
+              if (failOnLow && (sim.verdict === 'needs_review' || sim.verdict === 'insufficient_evidence')) {
+                throw new VideoCloneError('VIDEOCLONE_SIMILARITY_LOW', { phase: 'compose', params: { similarity: sim } });
+              }
+            }
+            emit('stage:succeeded', { stage: id });
+            return out;
+          } catch (err) {
+            emit('stage:failed', { stage: id, error: serializeErr(err) });
+            throw err;
           }
-          return out;
         },
       };
     });

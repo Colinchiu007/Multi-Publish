@@ -3,6 +3,33 @@
 - 根因：`GET /api/v1/model-presets` 返回 `{ presets: [...], count }`，`RateLimitVerifier.vue` 的 `loadPresets()` 误假设 `items` 字段 → `(res.data.items || res.data || []).filter is not a function`，预设下拉加载失败。
 - 修复：改为 `res.data?.presets ?? res.data?.items ?? res.data` 防御性解析 + `Array.isArray` 兜底（结构异常时置空而非崩溃）。
 - 验证：ops-center 前端 `npm run build` 通过。
+## [2026-08-12] fix(ops-center): 「模型密钥」未配置提示按角色区分（admin 引导配置 / 非 admin 联系管理员）
+
+- 问题：错误「未配置可用的图片生成模型，请先在「模型密钥」中配置」对所有角色相同，但「模型密钥」菜单仅 admin 可见（App.vue `v-if role==='admin'`）——非 admin 用户被引导到一个不可见页面
+- 修复：`routers/prompt_eval.py` create_run 按 `_is_admin(user)` 区分提示文案；admin 提示「侧边栏「模型密钥」（/model-keys）中配置」，非 admin 提示「请联系管理员在「模型密钥」中配置」
+- 测试：新增 `test_run_provider_key_message_role_aware`（prompt-eval API 9 例全绿）
+
+## [2026-08-12] 视频克隆 切片 4b：Electron 接线（服务/IPC/preload/Vue 视图）+ QM-1 打包验证
+
+- `packages/video-clone-engine/src/service.js`：createVideoCloneService（会话表 + cancel + 报告编辑校验）。
+- 主进程：ipc-handlers/video-clone.js（run/cancel/report:edit/report:regenerate + 进度事件）注册进中心；preload videoClone API + index.bundle.js 重建。
+- 渲染层：useVideoClone.js + VideoCloneView.vue（输入/进度/报告编辑/相似度仪表）+ 路由 /video-clone + i18n videoClone zh/en。
+- 门禁：engine 96 / preload 333 / composable 5 / i18n 7 全绿；vite build 通过；QM-1 electron-builder --win --dir exit 0 + 启动 10s 无关键错误（主窗口已显示、ASAR 含 engine）。
+- 待 4c：ModelProviderManager 生成接入、PublisherRouter 发布、文件选择器、QM-2 完整实窗验证。
+
+## [2026-08-12] 视频克隆 切片 4a：IPC-ready runner（进度事件/协作中止）+ IPC 与 UI 详细规格
+
+- `packages/video-clone-engine`：pipeline 支持 executorOptions.eventSink（stage:started/succeeded/failed/aborted）与 abortSignal（阶段边界协作中止）；新增 runner.js（createVideoCloneRunner 注入事件/中止 + completed 生命周期事件）。
+- 测试 91 用例全绿（runner 5：事件序列/失败/运行前中止/阶段内中止/elapsedMs）。
+- PRD v1.4 §18 IPC 契约与桌面 UI 详细规格（video-clone:run/progress/cancel/report:edit/report:regenerate 通道、preload API、VideoCloneView 交互逻辑、主进程服务生命周期、QM-1/QM-2 门禁前置）。
+- 切片 4b（Electron 接线：服务/IPC/preload/Vue 视图）契约已定义，待 node_modules 环境（npm ci 后台进行）与 QM-1 打包验证后提交。
+
+## [2026-08-12] 视频克隆 切片 3：generate / compose / publish adapter（真实 ffmpeg 合成）
+
+- `packages/video-clone-engine/src/adapters/`：generate-assets（createAssetPlan 逐镜头资产规格 + provider fail-closed 契约）、compose-ffmpeg（resolveTargetSize / buildAssScript ASS 字幕 / buildComposeCommand 纯函数 + createFfmpegCompose 执行与 ffprobe 校验）、publish（可选发布 skipped/成功/失败映射）、index（createSlice3Pipeline 六阶段组装）。
+- 测试 86 用例全绿（含真实 ffmpeg 合成 + 全链路 smoke：2s 样例 → 纯色 PNG → 合成 mp4 → ffprobe 校验 → F4 相似度；工具缺失自动 skip）。
+- PRD v1.3 §17 切片 3 详细规格（资产规划/命令构建/ASS 字幕/可选发布/集成验证）。
+=======
 
 ## [2026-08-12] 字幕对齐真实 E2E 集成验证（stage 接线链路）
 
@@ -32,6 +59,12 @@
 - 修复：单测将 ALIGNER_DIR 指向含 aligner/ 模块的临时目录（与生产 fs 检查同源）→ isAlignerAvailable 为
   true，确定性覆盖 mock bridge 编排路径（afterAll 清理临时目录）；生产行为不变（未部署 aligner 仍 fail-fast）。
 
+=======
+## [未发布] 修复：补齐 story2video 全部缺失 locale 键（QG Coverage Gate 5 根因闭环，2026-08-12）
+
+- 除 voice 块外，`STORY2VIDEO_NOTIFICATION_KEYS` 38 个通知键（access_denied / text_required / media_invalid / rate_limited 等）与 CreateView 进度类键（splitSceneCount / optimizeProgress / selectVideoScenes / assetsProgress / composeSegments 等）zh/en locale 均缺失 → intlify「Not found key」告警 → QG Coverage Gate 5 失败。
+- 修复：zh.js/en.js story2video 块补齐 38 通知键（文案与 story2video-notifications.js MESSAGES 一致）；进度类 9 键改为 vue-i18n 插值模板（{count}/{done}/{total}/{percent} 等），CreateView 6 处调用改 `translateWithLocaleFallback(key, zh, en, params)` 传参（保留 fallback 拼接，不丢失动态数字）。
+- 回归：CreateView 140/140、i18n 7/7；zh/en key parity 一致。
 ## [2026-08-12] 字幕对齐停顿吸附（silence-snap）+ 块级 <200ms 验收
 
 - aligner core 新增 `detect_silences`（ffmpeg silencedetect 独立停顿检测）+ `snap_words_to_silence`
@@ -39,6 +72,13 @@
 - 实测：`那` 4.40→4.82、`处` 6.92→7.03、`慢慢` 13.74→14.08、`盐` 3.38→3.52、`再` 11.46→11.50，均对齐静音结束
 - 块级时间定位由音频停顿独立锚定（非 ASR 自证）；ffprobe duration 与 whisper 完全一致
 - 测试：aligner 7 例全绿（snap 规则 + 解析 + API）；OpenSpec/PRD 更新验收结论
+
+
+## [未发布] 修复：补齐 create.story2video.voice locale 缺键（catalogLoadFailed + 26 VOICE 键）消除 intlify 告警（2026-08-12）
+
+- 背景：main CI QG Coverage 失败根因之一 —— CreateView 引用 `create.story2video.voice.catalogLoadFailed`（及音色错误映射表 26 个 VOICE_* 键）但 zh/en locale 未定义 → intlify「Not found key」告警。
+- 修复：zh.js/en.js 的 create.story2video 块新增 voice 子对象（catalogLoadFailed + VOICE_CATALOG_* / VOICE_CLONE_* 共 27 键），文案与 CreateView 兜底一致；zh/en key parity 一致。
+- 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
 - App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。

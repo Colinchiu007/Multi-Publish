@@ -7,4 +7,6 @@ module.exports = {
   ...require('./similarity'),
   ...require('./stage-executor'),
   ...require('./pipeline'),
+  ...require('./runner'),
+  ...require('./service'),
 };

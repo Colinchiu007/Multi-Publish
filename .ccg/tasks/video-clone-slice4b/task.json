@@ -1,0 +1,12 @@
+{
+  "id": "video-clone-slice4b",
+  "title": "视频克隆切片 4b：Electron 接线 + QM-1",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "review",
+  "nextAction": "推送合并；随后 4c（ModelProviderManager/PublisherRouter/文件选择器/QM-2 实窗）",
+  "createdAt": "2026-08-12T11:00:00Z",
+  "branch": "codex/video-clone-slice4b"
+}
