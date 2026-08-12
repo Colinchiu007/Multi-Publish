@@ -1260,7 +1260,7 @@ POST /cases/{id}/runs → status=queued
 - 新增 `services/prompt_eval_generation.py`：provider 适配（v1 至少 `minimax-image`、`flux`；OpenAI 兼容 `/images/generations` 或各 provider 原生），HTTP 客户端 + 超时 + 有界重试 + 429 退避；
 - 请求参数与桌面端 AssetGenerator 对齐（prompt/style/image_provider/aspect_ratio/image_count）；
 - 结果校验：返回必须为受支持图片（扩展名/魔数），空/错误 → run failed（不降级）；
-- 密钥：`prompt_eval_provider_keys` 加密存储，admin 维护；未配置任何可用密钥时创建 run 返回可操作错误「未配置可用的图片生成模型，请先在「模型密钥」中配置」；
+- 密钥：`prompt_eval_provider_keys` 加密存储，admin 维护；未配置任何可用密钥时创建 run 返回可操作错误（**按角色区分**：admin →「未配置可用的图片生成模型，请先在侧边栏「模型密钥」（/model-keys）中配置」；非 admin →「…请联系管理员在「模型密钥」中配置」——因「模型密钥」菜单仅 admin 可见，非 admin 不应被引导到不可见页面）；
 - 与桌面端一致：密钥/凭据不出现在任何响应、日志、评估提示词中。
 
 ### 12A.22.8 数据校验（fail closed，对齐桌面端契约）
