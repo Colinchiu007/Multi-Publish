@@ -135,6 +135,14 @@
 - 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
 - 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
 
+## [未发布] 功能：发布页 Publish 文案全量多语言化（P2 第二批）（2026-08-12）
+
+- `src/locales/zh.js` / `en.js` 新增 `publishPage` 命名空间（76 键成对，含插值函数）：草稿箱/批量模式/表单标签与占位符/媒体上传提示/进度/结果/发布类型等。
+- `src/views/Publish.vue`：模板全部用户可见文案替换为 `t('publishPage.*')`；`publishTypeLabel` 按类型 key 映射；草稿/面板时间格式化按当前语言 zh-CN/en-US；`{{ p.label }}账号` 后缀 i18n。
+- `src/views/Publish.test.js`：mount 安装 vue-i18n 插件；locale 固定 zh（两处 describe beforeEach）。
+- 文档：PROMPT-TEXT-SPEC §8 P2 进度；OpenSpec change `desktop-ui-i18n-p2`（第二批）。
+- 验证：zh/en 键一致性 76/76；模板剩余中文 0；语法 node --check 通过；CI 权威验证。
+
 ## [未发布] 功能：首页 Home 文案全量多语言化（P2 存量 i18n 首批）（2026-08-12）
 
 - `src/locales/zh.js` / `en.js` 新增 `home` 命名空间（约 30 键）：副标题、快捷操作/入口、统计标签、时段问候（5）、状态标签（6）、平台 fallback 标签（11）、空态/无标题/用户默认名。
