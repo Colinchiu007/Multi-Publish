@@ -1,3 +1,10 @@
+## [2026-08-12] 视频克隆 切片 4c：provider 接线（assetGenerator/publisher/pick-file）+ QM-2 双模式验证
+
+- `apps/desktop/electron/services/video-clone/`：asset-generator（真实 AssetGenerator 服务优先 + 显式离线占位 degraded）、publisher（PublisherRouter 契约，无 router 则 skipped）。
+- IPC：video-clone:pick-file（系统文件选择对话框）；preload/composable/视图接线「选择文件」。
+- 门禁：QM-2 sandbox 双模式 PASS（TRUE_OK/FALSE_OK/BOTH_MODES_OK）；QM-1 打包 exit 0 + 可见主窗口（MainWindowHandle=15729924）；engine 96 + desktop 新增 7 用例全绿。
+- PRD v1.6 §20；待 4d：真实 provider 图/账号发布外部验收、报告持久化 regenerate。
+
 ## [2026-08-12] 视频克隆 切片 4b：Electron 接线（服务/IPC/preload/Vue 视图）+ QM-1 打包验证
 
 - `packages/video-clone-engine/src/service.js`：createVideoCloneService（会话表 + cancel + 报告编辑校验）。

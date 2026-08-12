@@ -96,7 +96,7 @@ import { useVideoClone } from '@/composables/useVideoClone'
 const {
   sourceType, linkUrl, filePath, replicationLevel, mode, rewriteScript,
   running, stageStatus, report, similarity, STAGE_LABELS,
-  start, cancel, editReport, pickFile: _pick,
+  start, cancel, editReport, pickFile,
 } = useVideoClone()
 
 function stageLabel(s) {
@@ -104,11 +104,6 @@ function stageLabel(s) {
 }
 function stageStatusText(s) {
   return { idle: '等待', running: '进行中', success: '成功', failed: '失败' }[stageStatus[s]] || ''
-}
-async function pickFile() {
-  // 文件选择经 window.electronAPI（4c 接入系统对话框）；当前提示
-  const { ElMessage } = await import('element-plus')
-  ElMessage.info('文件选择器将在桌面端接线后开放，可先手动输入路径')
 }
 </script>
 

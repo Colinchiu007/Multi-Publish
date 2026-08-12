@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.5（切片 4b：Electron 接线实现与门禁记录）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.6（切片 4c：provider 接线与门禁证据）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -568,4 +568,30 @@ VideoClonePipeline：
 - 构建：vite build 通过（VideoCloneView 模板无编译错误）。
 - 测试：engine 96（含 service 5）+ desktop preload 333 + composable 5 + i18n 7 = 全绿。
 - 待 4c：真实 assetGenerator（ModelProviderManager）/ PublisherRouter 接线、文件选择对话框、sandbox 双模式实窗验证（QM-2 完整）、visible-window handle 截图证据。
+
+
+## 20. 详细规格：切片 4c — provider 接线与门禁证据（v1.6 追加）
+
+### 20.1 assetGenerator 接线（services/video-clone/asset-generator.js）
+
+- createVideoCloneAssetGenerator：走既有 AssetGenerator.generateImage（ModelProviderManager provider 优先，无 provider 时 ffmpeg 占位 degraded）；结果取 data.path；失败映射 ASSET_GENERATION_FAILED / PROVIDER_UNAVAILABLE。
+- createPlaceholderImageGenerator：无 AssetGenerator 服务时的显式离线占位（ffmpeg 纯色 PNG，source=ffmpeg-placeholder，degraded=true，诚实标注不冒充真实素材）；按画幅取尺寸（9:16→540x960、1:1→720x720、其余→960x540）。
+- 接线优先级：deps.assetGenerator 存在 → 服务 adapter；否则离线占位（保证端到端可跑，真实 provider 图属外部验收）。
+
+### 20.2 publisher 接线（services/video-clone/publisher.js）
+
+- 无 publisherRouter / enabled=false → { status:'skipped', reason:'no-publisher-router' }（不失败）；
+- 有 router → 构造任务 { title, content, video_path, platform:[], accounts:[], source:'video-clone' } → router.publish(task)；抛错 → VIDEOCLONE_PUBLISH_FAILED；
+- 真实账号/平台发布（PublisherRouter → RPA/API）属外部验收边界。
+
+### 20.3 文件选择器
+
+- IPC：video-clone:pick-file（dialog.showOpenDialog，过滤 mp4/mov/webm/mkv/avi；取消 → { path:null }）；
+- preload：window.electronAPI.videoClone.pickFile()；composable：pickFile() 写入 filePath；视图「选择文件」按钮已接线。
+
+### 20.4 门禁证据（QM-2 / 可见窗口）
+
+- QM-2 sandbox 双模式：PRELOAD_SANDBOX_TRUE_OK / FALSE_OK / BOTH_MODES_OK（真实 Electron，window.electronAPI 双模式可用）；
+- QM-1：electron-builder --win --dir exit 0；启动后可见主窗口：MainWindowHandle=15729924、标题=应用主窗口；日志无关键错误（无 Cannot find module / ENOTDIR / 平台配置失败）；
+- 测试：engine 96（含 service 5）+ desktop asset-generator 4 + publisher 3 + composable 5 + i18n 7 + preload 333。
 
