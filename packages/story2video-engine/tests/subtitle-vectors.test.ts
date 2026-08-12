@@ -99,6 +99,13 @@ describe('SubtitleSegmenter 共享向量（规范 v1.0）', () => {
     });
   }
 
+  it('时间戳：half-up 舍入与 Python 一致（0.625 → 0.63，禁止 0.62）', () => {
+    const seg = new SubtitleSegmenter({});
+    const subs = seg.segment('嗯。一二三四五六七八九十甲乙丙丁戊', 10, 0);
+    expect(subs.map((s) => s.duration)).toEqual([0.63, 9.38]);
+    expect(subs.map((s) => s.startTime)).toEqual([0, 0.63]);
+  });
+
   it('时间戳：proportional 首块从 0 开始且总时长一致', () => {
     const seg = new SubtitleSegmenter({ timeCalculationMethod: 'proportional' });
     const subs = seg.segment('今天天气真好，我们去公园散步。', 10, 0);
