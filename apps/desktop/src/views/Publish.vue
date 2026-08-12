@@ -54,8 +54,8 @@
             <span class="cohere-tag cohere-tag-info">#{{ idx + 1 }}</span>
             <span v-if="a.publishTime" class="cohere-tag cohere-tag-warning">⏰ {{ t('publishPage.scheduled') }}</span>
             <div class="flex-spacer"></div>
-            <UiButton variant="ghost" size="sm" @click="duplicateArticle(idx)" :title="t('publishPage.copy')">📋</UiButton>
-            <UiButton variant="ghost" size="sm" @click="removeArticle(idx)" v-if="articles.length > 1" :title="t('publishPage.delete')" class="coral-text">✕</UiButton>
+            <UiButton :data-testid="`batch-copy-${idx}`" variant="ghost" size="sm" @click="duplicateArticle(idx)" :title="t('publishPage.copy')">📋</UiButton>
+            <UiButton :data-testid="`batch-delete-${idx}`" variant="ghost" size="sm" @click="removeArticle(idx)" v-if="articles.length > 1" :title="t('publishPage.delete')" class="coral-text">✕</UiButton>
           </div>
 
           <!-- 文章编辑 -->
