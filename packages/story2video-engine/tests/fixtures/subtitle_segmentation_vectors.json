@@ -28,7 +28,14 @@
         "阳光洒在公园的长椅上",
         "我们沿着小路散步"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 6,
+          "reason": "句首短片段：逗号边界标点优先切分（Step 3/6）"
+        }
+      ]
     },
     {
       "id": "multi_sentence",
@@ -45,7 +52,24 @@
         "第三部分",
         "第四部分"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 4,
+          "reason": "独立短句（Step 1 句界优先，块不跨句）"
+        },
+        {
+          "index": 3,
+          "len": 4,
+          "reason": "独立短句"
+        },
+        {
+          "index": 4,
+          "len": 4,
+          "reason": "独立短句"
+        }
+      ]
     },
     {
       "id": "quotes_speech",
@@ -99,10 +123,10 @@
       "expected_blocks": [
         "这里有一串很长的句子没有任何标",
         "点一直延续下去直到超出最大长度",
-        "限制才需要被强制切分成多个字幕",
-        "块来展示"
+        "限制才需要被强制切分成",
+        "多个字幕块来展示"
       ],
-      "note": ""
+      "note": "硬切尾块平衡（15+4 → 11+8）：expected_blocks 为手工真值；平衡后无 <min_chars 块"
     },
     {
       "id": "leading_punct",
@@ -116,7 +140,19 @@
         "他笑了笑",
         "然后继续说话"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 4,
+          "reason": "短句（Step 5 开头标点修正后）"
+        },
+        {
+          "index": 1,
+          "len": 6,
+          "reason": "独立短句"
+        }
+      ]
     },
     {
       "id": "punct_only_tail",
@@ -129,7 +165,14 @@
       "expected_blocks": [
         "走吧"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 2,
+          "reason": "独立短句（纯标点尾块已过滤）"
+        }
+      ]
     },
     {
       "id": "short_sentence",
@@ -143,7 +186,19 @@
         "嗯",
         "好的，就这么办"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 1,
+          "reason": "独立短句（单字应答）"
+        },
+        {
+          "index": 1,
+          "len": 7,
+          "reason": "独立短句"
+        }
+      ]
     },
     {
       "id": "colon_semicolon",
@@ -157,7 +212,14 @@
         "一是早起；二是锻炼",
         "三是读书"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 1,
+          "len": 4,
+          "reason": "独立短句"
+        }
+      ]
     },
     {
       "id": "ellipsis",
@@ -171,7 +233,19 @@
         "他想了想",
         "然后说"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 4,
+          "reason": "省略号边界短片段（句界归属前块）"
+        },
+        {
+          "index": 1,
+          "len": 3,
+          "reason": "独立短句（合法 ≤3 短尾）"
+        }
+      ]
     },
     {
       "id": "english",
@@ -187,7 +261,19 @@
         "you",
         "I am fine"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 1,
+          "len": 7,
+          "reason": "空格切分英文短片段"
+        },
+        {
+          "index": 2,
+          "len": 3,
+          "reason": "空格切分英文单词（合法 ≤3 短尾）"
+        }
+      ]
     },
     {
       "id": "mixed_long_scene",
@@ -204,7 +290,19 @@
         "窗外传来鸟鸣",
         "几片梧桐叶随风飘进窗台"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 2,
+          "len": 3,
+          "reason": "句内逗号边界短尾（合法 ≤3）"
+        },
+        {
+          "index": 3,
+          "len": 6,
+          "reason": "句首短片段：逗号边界标点优先切分"
+        }
+      ]
     },
     {
       "id": "nested_quotes",
@@ -232,7 +330,14 @@
         "葡萄和西瓜都是常见的水果",
         "它们各有营养"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 2,
+          "len": 6,
+          "reason": "逗号边界短片段"
+        }
+      ]
     },
     {
       "id": "balanced_split_long",
@@ -264,7 +369,14 @@
         "再配上八角桂皮黄",
         "酒等香料慢慢炖煮"
       ],
-      "note": ""
+      "note": "",
+      "short_block_exceptions": [
+        {
+          "index": 3,
+          "len": 7,
+          "reason": "逗号边界短片段"
+        }
+      ]
     }
   ]
 }

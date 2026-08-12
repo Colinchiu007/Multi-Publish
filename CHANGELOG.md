@@ -1,3 +1,12 @@
+## [2026-08-12] 字幕分割回归护栏（对齐 splitter v0.14.2）
+
+- Step 3 硬切尾块平衡（TS 同步 Python）：无标点硬切后尾块清理长度 4..min-1 字时从上一块让字，
+  避免孤悬尾块（no_punct_long 15+15+15+4 → 15+15+11+8）
+- 共享向量同步：no_punct_long 更新为手工真值 + 全部向量补齐 `short_block_exceptions`（显式例外声明）
+- 测试加固：min_chars 不变量断言（例外须声明）、时间戳舍入后严格连续断言（proportional/equal）、
+  向量双轨管理规则（禁止自证）→ story2video-engine 111 例全绿
+- PRD 7.1.1 补充字幕分割质量护栏条款
+
 ## [未发布] 修复：补 story2video.summaryDuration/summaryFileSize locale 缺键（2026-08-12）
 
 - CreateView 完成摘要行使用 `story2video.summaryDuration` / `story2video.summaryFileSize` 键但 zh/en locale 缺失，产生 intlify 警告（此前仅靠硬编码兜底）。补两个命名插值键（`ctx.named('text')` / `ctx.named('size')`），`CreateView.vue` 两处调用补传 `{ text }` / `{ size }` 参数。
