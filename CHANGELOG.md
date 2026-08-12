@@ -1,3 +1,9 @@
+## [2026-08-12] fix(ops-center): 「模型密钥」未配置提示按角色区分（admin 引导配置 / 非 admin 联系管理员）
+
+- 问题：错误「未配置可用的图片生成模型，请先在「模型密钥」中配置」对所有角色相同，但「模型密钥」菜单仅 admin 可见（App.vue `v-if role==='admin'`）——非 admin 用户被引导到一个不可见页面
+- 修复：`routers/prompt_eval.py` create_run 按 `_is_admin(user)` 区分提示文案；admin 提示「侧边栏「模型密钥」（/model-keys）中配置」，非 admin 提示「请联系管理员在「模型密钥」中配置」
+- 测试：新增 `test_run_provider_key_message_role_aware`（9 例全绿）
+
 ## [2026-08-12] 视频克隆 切片 4a：IPC-ready runner（进度事件/协作中止）+ IPC 与 UI 详细规格
 
 - `packages/video-clone-engine`：pipeline 支持 executorOptions.eventSink（stage:started/succeeded/failed/aborted）与 abortSignal（阶段边界协作中止）；新增 runner.js（createVideoCloneRunner 注入事件/中止 + completed 生命周期事件）。

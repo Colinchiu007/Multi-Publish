@@ -59,7 +59,11 @@ async def create_run(case_id: int, db: AsyncSession = Depends(get_db), user: dic
         _not_found()
     gen_cfg = await service.get_provider_key(db, row.provider, row.model, _secret())
     if gen_cfg is None:
-        raise HTTPException(400, "未配置可用的图片生成模型，请先在「模型密钥」中配置")
+        # 角色感知提示：「模型密钥」菜单仅 admin 可见（App.vue v-if role==='admin'），
+        # 非 admin 用户不应被引导到一个不可见的页面——提示区分「自行配置」与「联系管理员」。
+        if _is_admin(user):
+            raise HTTPException(400, "未配置可用的图片生成模型，请先在侧边栏「模型密钥」（/model-keys）中配置")
+        raise HTTPException(400, "未配置可用的图片生成模型，请联系管理员在「模型密钥」中配置")
     vision_key = os.environ.get("OPS_PROMPT_EVAL_VISION_API_KEY")
     if not vision_key:
         raise HTTPException(502, "未配置视觉评估模型密钥（OPS_PROMPT_EVAL_VISION_API_KEY），无法评估")

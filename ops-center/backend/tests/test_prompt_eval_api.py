@@ -246,3 +246,17 @@ async def test_summary_empty():
         r = await client.get("/api/v1/prompt-eval/summary", headers=_headers())
         assert r.status_code == 200
         assert r.json()["recordCount"] == 0
+
+
+
+@pytest.mark.asyncio
+async def test_run_provider_key_message_role_aware():
+    """未配置图片生成模型密钥时，提示按角色区分：admin 引导到「模型密钥」，非 admin 提示联系管理员。"""
+    async with _client() as client:
+        cid = (await client.post("/api/v1/prompt-eval/cases", json=_valid_case(), headers=_headers())).json()["id"]
+        r_admin = await client.post(f"/api/v1/prompt-eval/cases/{cid}/runs", headers=_headers(role="admin"))
+        assert r_admin.status_code == 400
+        assert "侧边栏「模型密钥」" in r_admin.text and "/model-keys" in r_admin.text
+        r_user = await client.post(f"/api/v1/prompt-eval/cases/{cid}/runs", headers=_headers())
+        assert r_user.status_code == 400
+        assert "联系管理员" in r_user.text and "模型密钥" in r_user.text
