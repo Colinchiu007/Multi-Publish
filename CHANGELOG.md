@@ -1,3 +1,9 @@
+## [2026-08-12] 视频克隆 E2E 复验：创作入口 → 完整分析流（打包应用）
+
+- scripts/video-clone-e2e.js 新增入口段（#/create → 流水线创作 → 入口卡可见/点击 → 落入 /video-clone → 分析流）。
+- 打包应用实测：ENTRY_CARD VISIBLE、点击路由成功、分析流完成（3s/320x240/16:9、F4 综合分 1、历史落库）、E2E exit 0；截图 video-clone-entry.png / video-clone-e2e.png。
+- PRD v1.12 §26。
+
 ## [2026-08-12] 视频克隆：视频创作模块入口集成（CreateView 流水线创作视图）
 
 - CreateView「流水线创作」视图新增「视频克隆」入口卡（→ /video-clone），补齐创作模块可见入口。

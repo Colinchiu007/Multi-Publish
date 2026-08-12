@@ -1,0 +1,12 @@
+{
+  "id": "video-clone-e2e-entry",
+  "title": "视频克隆 E2E 复验（创作入口→分析流）",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "desktop",
+  "currentPhase": "review",
+  "nextAction": "推送合并",
+  "createdAt": "2026-08-12T18:00:00Z",
+  "branch": "codex/video-clone-e2e-entry"
+}

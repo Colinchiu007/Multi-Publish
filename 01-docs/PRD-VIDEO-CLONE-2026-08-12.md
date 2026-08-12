@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.11（视频创作模块入口集成）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.12（E2E 复验：创作入口 → 完整分析流）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -711,4 +711,19 @@ VideoClonePipeline：
 - 测试：CreateView.test.js 新增「流水线创作视图包含视频克隆入口」（150 用例全绿）；
 - 构建：vite build 通过（模板编译无错误）；
 - 后续可选：主导航/首页快捷入口（未做，视需要再加）。
+
+
+## 26. 详细规格：E2E 复验 — 创作入口 → 完整分析流（v1.12 追加）
+
+### 26.1 复验脚本增强（scripts/video-clone-e2e.js）
+
+- 新增入口段：hash=#/create → 流水线创作视图 → 断言 .video-clone-entry 可见（含文案）→ 截图 → 点击 → 断言落入 .video-clone-view（/video-clone）→ 继续既有分析流（填路径→开始分析→报告/相似度→落库）。
+
+### 26.2 打包应用实测证据（2026-08-12，electron 43.1.1，vite build + electron-builder --win --dir）
+
+- ENTRY_CARD=VISIBLE；ENTRY_TEXT=视频克隆 链接/本地视频 → 拆解报告 → 同款成片（独立流水线）进入 →
+- ENTRY_CLICK_LANDS=VIDEO_CLONE_VIEW（入口卡点击成功路由）
+- 分析流：REPORT_CARD=VISIBLE（3s/320x240/16:9）、SIMILARITY=综合分 1（needs_review 证据门控）、历史落库 vc-mspyg0rn-tf7i1h.json
+- 截图（gitignored，磁盘留存）：01-docs/evidence/video-clone-entry.png、video-clone-e2e.png
+- E2E_EXIT=0；无关告警：首页 onTabEvent/onRenderProgress 权限提示（未登录既有行为，与视频克隆无关）
 
