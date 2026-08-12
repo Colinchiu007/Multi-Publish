@@ -1,0 +1,12 @@
+{
+  "id": "video-clone-dl-hardening",
+  "title": "视频克隆下载加固：URL 时长上限 + 探针",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "review",
+  "nextAction": "推送合并",
+  "createdAt": "2026-08-12T15:00:00Z",
+  "branch": "codex/video-clone-dl-hardening"
+}

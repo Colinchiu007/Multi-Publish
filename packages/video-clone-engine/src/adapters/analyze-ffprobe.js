@@ -23,7 +23,7 @@ function aspectFromResolution(width, height) {
  */
 function createFfprobeAnalyze({
   probeRunner = runFfprobe, sceneRunner = runFfmpegSceneDetect, sttRunner = null,
-  sceneThreshold = 0.3, uniformSegmentSec = 4,
+  sceneThreshold = 0.3, uniformSegmentSec = 4, maxDurationSec = 1800,
 } = {}) {
   async function run(ctx) {
     const media = ctx.artifacts.media;
@@ -37,6 +37,12 @@ function createFfprobeAnalyze({
       catch (err) { throw new VideoCloneError('VIDEOCLONE_PROBE_FAILED', { phase: 'analyze', cause: err }); }
     }
     ctx.artifacts.media = meta;
+    if (maxDurationSec > 0 && meta.durationSec > maxDurationSec) {
+      throw new VideoCloneError('VIDEOCLONE_FILE_TOO_LONG', {
+        phase: 'analyze',
+        params: { durationSec: meta.durationSec, maxDurationSec },
+      });
+    }
 
     // 2) 场景检测（shots timeline）
     let shots = [];
