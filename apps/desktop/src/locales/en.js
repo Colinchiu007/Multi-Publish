@@ -98,6 +98,14 @@ export default {
     durationMinSec: (ctx) => String(ctx.named('minutes')) + 'm ' + String(ctx.named('seconds')) + 's',
     summaryDuration: (ctx) => 'Finished in ' + ctx.named('text'),
     summaryFileSize: (ctx) => 'Size ' + ctx.named('size') + ' MB',
+    storyboardMode: {
+      label: 'Storyboard Mode',
+      auto: 'Auto (recommended)',
+      creative: 'Creative (expand from a short line)',
+      fidelity: 'Fidelity (follow the full script)',
+      hybrid: 'Hybrid (faithful + visual interpretation)',
+      hint: 'Auto: short text (<=80 chars) expands creatively, long text (>=300 chars) follows the original, middle ground is hybrid; storyboard extracts key entities and validates alignment.',
+    },
   },
   pipelines: {
     names: {

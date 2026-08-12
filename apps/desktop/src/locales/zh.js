@@ -98,6 +98,14 @@ export default {
     durationMinSec: (ctx) => String(ctx.named('minutes')) + ' 分 ' + String(ctx.named('seconds')) + ' 秒',
     summaryDuration: (ctx) => '完成时间共 ' + ctx.named('text'),
     summaryFileSize: (ctx) => '文件大小 ' + ctx.named('size') + ' M',
+    storyboardMode: {
+      label: '分镜模式',
+      auto: '自动（推荐）',
+      creative: '创意拓展（一句话生成整个视频）',
+      fidelity: '按原文保真（长文案按原文实现）',
+      hybrid: '混合（保真主旨 + 允许演绎）',
+      hint: '自动：短文案创意拓展，长文案按原文保真，中间态混合；分镜会按原文提取关键人物/事件并对齐校验。',
+    },
   },
   pipelines: {
     names: {
