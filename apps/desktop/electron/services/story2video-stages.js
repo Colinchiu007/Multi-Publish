@@ -1767,7 +1767,7 @@ function registerStory2VideoStages(pipelineEngine) {
         return await buildManualSceneCandidates({
           pipelineEngine, serviceBus, runId, stage, params, context, log,
           optimizedPrompts, sentences, videoSceneSet, videoConfig, videoPlan, videoGenerator,
-          imageStyle, imageProvider, imageModel, aspectRatio,
+          imageStyle, imageProvider: resolvedImageProvider, imageModel, aspectRatio,
           imageConcurrency, inputMode, inputImages, resolveModelProviderManager, manualMaterialMode,
         })
       }
