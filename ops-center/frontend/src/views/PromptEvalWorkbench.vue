@@ -68,7 +68,13 @@
 
         <!-- 场景层列表 -->
         <div v-if="mode === 'scene' && scenes.length" class="scenes-list">
-          <h3>场景层（{{ scenes.length }}）</h3>
+          <div class="scenes-head">
+            <h3>场景层（{{ scenes.length }}）</h3>
+            <el-button size="small" type="warning" :loading="batchTranslating" @click="batchTranslateAll">
+              {{ batchTranslating ? `批量生成中（${batchDone}/${scenes.length}）` : '批量生成中英对照' }}
+            </el-button>
+            <span v-if="batchTranslating" class="muted">逐个调用 LLM 生成优化提示词与英文翻译，请稍候</span>
+          </div>
           <div v-for="s in scenes" :key="s.id" class="scene-card">
             <div class="scene-head">
               <span class="scene-no">场景 {{ s.index + 1 }}</span>
@@ -90,7 +96,7 @@
                 <h4>优化后提示词（中英对照）</h4>
                 <pre class="zh">{{ s.prompt_zh || '（未生成）' }}</pre>
                 <div v-if="s.prompt_en" class="en-prompt"><el-tag size="small" type="info">机器翻译</el-tag><pre class="en">{{ s.prompt_en }}</pre></div>
-                <el-button size="small" :loading="translatingSceneId === s.id" @click="doSceneTranslate(s)">重新生成中英对照</el-button>
+                <el-button size="small" :loading="translatingSceneId === s.id" @click="doSceneTranslate(s)">{{ s.prompt_zh ? '重新生成中英对照' : '生成中英对照' }}</el-button>
               </div>
             </div>
             <div class="scene-actions">
@@ -206,6 +212,8 @@ const sceneCaseId = ref(null)
 const sceneSplitting = ref(false)
 const translatingSceneId = ref(null)
 const runningSceneId = ref(null)
+const batchTranslating = ref(false)
+const batchDone = ref(0)
 const sceneRunMap = ref({})
 const scenePolling = ref(false)
 let scenePollTimer = null
@@ -408,6 +416,26 @@ async function doSceneTranslate(s) {
   }
 }
 
+async function batchTranslateAll() {
+  errorMsg.value = ''
+  batchTranslating.value = true
+  batchDone.value = 0
+  const failed = []
+  for (const s of scenes.value) {
+    try {
+      const updated = await translatePromptEvalScene(sceneCaseId.value, s.id)
+      patchScene(s.id, updated)
+    } catch (e) {
+      failed.push(s.index + 1)
+    }
+    batchDone.value += 1
+  }
+  batchTranslating.value = false
+  if (failed.length) {
+    errorMsg.value = '批量生成完成：' + (batchDone.value - failed.length) + ' 个成功，' + failed.length + ' 个失败（场景 ' + failed.join('、') + '，请单独重试）'
+  }
+}
+
 async function doSceneRun(s) {
   errorMsg.value = ''
   runningSceneId.value = s.id
@@ -467,6 +495,8 @@ onBeforeUnmount(() => {
 .stat-num { font-size: 28px; font-weight: 700; color: #409eff; }
 .cat-line { font-size: 13px; padding: 2px 0; }
 .scenes-list { margin-top: 16px; }
+.scenes-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.scenes-head h3 { margin: 0; }
 .scene-card { border: 1px solid #e4e7ed; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #fff; }
 .scene-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .scene-no { font-weight: 600; color: #303133; }
