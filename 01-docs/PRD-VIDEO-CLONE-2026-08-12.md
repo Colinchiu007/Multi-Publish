@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.9（下载加固：URL 时长上限 + 探针）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.10（analyze CLI：一条命令出报告）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -675,4 +675,30 @@ VideoClonePipeline：
 - 时长上限生效：同链接 → INGEST_OK 后 analyze 抛 FILE_TOO_LONG（fail-closed）；
 - 瞬时失败：LINK_UNAVAILABLE（retryable）→ 有界重试语义；
 - 平台管控对比与测试建议见对话结论：B 站（宽松/首选）> YouTube（中等）> 抖音/小红书/快手/TikTok（较严，仅测错误分类）> 视频号（无公开 extractor，不测）。
+
+
+## 24. 详细规格：analyze CLI（v1.10 追加）
+
+### 24.1 用法
+
+- node packages/video-clone-engine/scripts/video-clone-analyze.js <https-url|本地视频路径> [--out <dir>] [--max-duration 1800]
+- 或 npm run analyze -w @multi-publish/video-clone-engine -- <url> [--out ./video-clone-output]
+
+### 24.2 流程与产物
+
+- 输入分派：https:// → createUrlIngest（媒体保留在 outDir 下 vc-dl-*/）；本地路径 → createLocalFileIngest（不复制源文件）；
+- 分析：createFfprobeAnalyze（maxDurationSec 默认 1800，sceneThreshold 0.3）；
+- 产物：report.json（7 层 CloneReport，可编辑/可复用）+ summary.txt（源/媒体/时长/分辨率/画幅/镜头/场景方法/报告校验/ASR 状态/耗时/产物路径）；
+- 退出码：0=成功，1=业务失败（打印 code/phase/retryable），2=用法错误；默认 outDir=cwd/video-clone-output。
+
+### 24.3 实测（2026-08-12，B 站 BV1GJ411x7h7）
+
+- CLI exit 0：report.json（13KB，校验 OK）、summary.txt、媒体 20.5MB；
+- 报告内容：platform=bilibili、212.3s、1920x1080、16:9、63 镜头（ffmpeg-scene）、transitions=[cut]；
+- ASR/风格/剧情维度未填充（未注入 sttRunner/LLM，属外部 provider 边界，见 §21.5）。
+
+### 24.4 测试
+
+- test/scripts/analyze-cli.test.js：本地样例 exit 0 + report.json/summary.txt 断言 + 无参 exit 2（ffmpeg 缺失 skip）；
+- engine 全量 105（104 pass + 1 skip）。
 

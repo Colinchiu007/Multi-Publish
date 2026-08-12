@@ -1,3 +1,10 @@
+## [2026-08-12] 视频克隆 analyze CLI（一条命令出报告）
+
+- 新增 scripts/video-clone-analyze.js（npm run analyze）：<url|本地文件> → ingest → analyze → report.json + summary.txt；退出码 0/1/2；URL 媒体保留、本地不复制。
+- 测试：test/scripts/analyze-cli.test.js（本地样例 + 无参 exit 2，ffmpeg 缺失 skip）；engine 105（104 pass + 1 skip）。
+- 实测：B 站 BV1GJ411x7h7 → CLI exit 0，report.json（212.3s/1080p/63 镜头）校验 OK。
+- PRD v1.10 §24；OpenSpec change video-clone-analyze-cli。
+
 ## [2026-08-12] 视频克隆 下载加固：URL 时长上限 + 可复用探针
 
 - analyze-ffprobe 新增 maxDurationSec（默认 1800）：URL 下载统一执行 ≤30min 上限（超限 → VIDEOCLONE_FILE_TOO_LONG，phase=analyze）。
