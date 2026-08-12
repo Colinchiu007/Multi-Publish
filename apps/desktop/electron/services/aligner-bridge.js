@@ -24,6 +24,12 @@ const _defaultAlignerDir = (() => {
 })()
 const ALIGNER_DIR = process.env.ALIGNER_DIR || _defaultAlignerDir
 
+/** aligner Python 包是否可用（存在 aligner/ 模块）——不可用时对齐服务 fail-fast 跳过，不 spawn */
+function isAlignerAvailable () {
+  const fs = require('fs')
+  try { return fs.existsSync(ALIGNER_DIR + '/aligner') } catch (_) { return false }
+}
+
 class AlignerBridge extends BasePythonBridge {
   /**
    * @param {{ log?: any }} opts
@@ -63,3 +69,5 @@ class AlignerBridge extends BasePythonBridge {
 }
 
 module.exports = AlignerBridge
+module.exports.isAlignerAvailable = isAlignerAvailable
+module.exports.ALIGNER_DIR = ALIGNER_DIR

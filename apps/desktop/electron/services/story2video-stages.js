@@ -24,6 +24,7 @@ const https = require('https');
 const os = require('os');
 const path = require('path');
 const { enrichHistoryScenes, passthroughScenes } = require('./story2video-domain');
+const { alignScenes } = require('./subtitle-align-service')
 const {
   getAllowedMediaRoots,
   resolveReadableMediaFile,
@@ -1738,6 +1739,11 @@ function registerStory2VideoStages(pipelineEngine) {
           degraded: sentence?.degraded === true,
           fallbackReason: sentence?.fallbackReason || null,
         });
+      }
+
+      // 字幕时间戳真实对齐（Tier2 ASR）：TTS 音频就绪后，用真实词级时间替换比例估算（fail-open）
+      if (pairedScenes.length > 0) {
+        await alignScenes(pairedScenes, { log })
       }
 
       // 构建资源清单
