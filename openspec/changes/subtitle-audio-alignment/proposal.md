@@ -1,7 +1,7 @@
 ---
 id: subtitle-audio-alignment
 title: 字幕时间戳真实对齐（Tier2 ASR 强制对齐）
-status: proposed
+status: implemented-partial
 created: 2026-08-12
 ---
 
@@ -53,9 +53,11 @@ created: 2026-08-12
 - [ ] 契约测试覆盖：空音频/缺文本/超时/ASR 返回错位等边界；
 - [ ] 双实现（8002/本地）跑同一对齐测试向量。
 
-## 待决策
+## 实施状态（2026-08-12）
 
-- ASR 运行时选型：faster-whisper（Python sidecar，复用 8002 生态）vs whisper.cpp（Node 原生）vs
-  云端 ASR（隐私/成本）；
-- 对齐层归属：新增 sidecar 服务 vs 并入 8002；
-- 词级聚合粒度：按句块裁剪 vs 允许块边界微调（±1 词）。
+- ✅ ASR sidecar：`packages/audio-aligner/`（FastAPI :8004，faster-whisper base 已缓存模型，`/align` 返回词级时间）；
+- ✅ Node 聚合器：`packages/story2video-engine/src/subtitle-aligner.ts`（Levenshtein 容差匹配 + 区间连续 + half-up + fail-open 估算）；
+- ✅ Electron bridge：`apps/desktop/electron/services/aligner-bridge.js`（BasePythonBridge 模式，:8004，5min 超时）+ 契约测试；
+- ✅ 真实验证：edge-tts 合成旁白 → ASR 55 词 / 15.72s（ffprobe 一致）→ 7 块全部命中（coverage 100%），真实时间替代估算；
+- ⏳ 流水线 stage 接线（TTS 后、合成前调用 + aligned 持久化）：bridge 与聚合器就绪，stage 文件由并发工作流占用，接线留待下一步；
+- 待决策：绝对误差 <200ms 需人工标注抽样（edge-tts 免费端点无 WordBoundary 真值）；ASR 模型可切 large-v3 提升精度。

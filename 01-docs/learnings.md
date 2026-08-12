@@ -6416,3 +6416,13 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **关键点**：规则常量解构在加载时固定 → setContextRulesOverride 后检测函数仍用旧常量（测试暴露）→ 常量改 let + _refreshRuleConstants 在切换/重置时刷新；模块级可变状态需显式 reset API 供测试隔离。
 - **预防**：跨语言（Node 桌面 / Python 运营后台）共享规则 schema 时，双端校验逻辑必须同构并各自有测试锚定；运营后台导出的规则经「合入随包 / userData 覆盖」两通道生效，文档须写明发布时差。
 
+
+## 运营后台提示词评测工作台 PromptEval Workbench 交付复盘 (2026-08-12)
+
+- **变更**：运营后台新增「提示词评测工作台」——运营人员录入原文 + 优化后提示词（中文）→ 后台 LLM 自动生成英文对照（机器翻译标注）→ 真实生图（服务端直连 minimax-image/flux）→ 视觉评估（复用桌面端 PromptEval 维度契约）→ 同屏比对 + 多 run 对比 + 聚合分析。PR #571（d93e9528）。决策点：A=服务端直连 provider+密钥管理（Fernet 加密、admin、不返明文）、B=LLM 自动翻译（source=machine_translation、幂等 7 天）、视频 v1 图片先行/v2 预留。
+- **教训 1（密钥加密键）**：Fernet 键必须用强密钥派生并对缺省值 fail closed；密钥表加 UniqueConstraint + upsert 冲突回滚（IntegrityError），避免并发重复行。
+- **教训 2（后台任务 ORM）**：asyncio.create_task 里传 ORM 实例会 detached；只传 case_id + 字段快照，worker 内重查库，挂 add_done_callback + logger + 失败态落库。
+- **教训 3（授权最小面）**：run/media 端点必须校验创建者/管理员（媒体文件按 run→case 归属过滤）；视觉评估密钥独立配置，缺失 502 fail closed（禁止静默回退翻译 key）。
+- **教训 4（ops-center 全量 pytest 既有 DB 干扰）**：各测试模块顶部各设 OPS_DB_PATH，database engine 首个 import 固定 → 全量必互踩（排除本次文件仍有 4 failed + 17 errors）；门禁按「本次文件单独运行」+ 与既有模块同模式。
+- **教训 5（并发会话 rebase 洪流）**：main 高频前进导致 PR 反复 CONFLICTING；处理=每次 fetch 最新 main→rebase→仅共享文档（CHANGELOG/quality-gates/PRD.md）冲突按「双方保留」消解→force-push；auto-merge 可在合并计算完成后生效。
+- **预防**：① 新增受保护资源（媒体/密钥）默认 owner+admin 校验；② 后台任务用快照+重查；③ 评估/生成密钥独立配置并启动/保存时强校验；④ 大 diff 给 Claude 审查用文件路径而非 stdin（>1000 行管道会崩溃）。
