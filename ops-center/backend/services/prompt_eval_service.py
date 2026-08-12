@@ -236,6 +236,33 @@ async def list_provider_keys(db: AsyncSession) -> list[dict]:
     return [{"provider": r.provider, "model": r.model, "base_url": r.base_url, "enabled": r.enabled, "updated_at": r.updated_at} for r in rows]
 
 
+async def get_llm_key(db: AsyncSession, secret: str) -> dict | None:
+    """LLM（中英对照优化/翻译）密钥：优先「模型密钥」表 minimax-llm（运营后台 UI 配置），
+    fallback 由 router 读环境变量 OPS_PROMPT_EVAL_LLM_*。"""
+    row = (await db.execute(select(PromptEvalProviderKey).where(
+        PromptEvalProviderKey.provider == "minimax-llm",
+        PromptEvalProviderKey.enabled == 1,
+    ).order_by(desc(PromptEvalProviderKey.updated_at)))).scalars().first()
+    if not row:
+        return None
+    return {"provider": row.provider, "model": row.model,
+            "api_key": decrypt_key(secret, row.key_enc),
+            "base_url": row.base_url or "https://api.minimaxi.com/v1"}
+
+
+async def get_vision_key(db: AsyncSession, secret: str) -> dict | None:
+    """视觉评估密钥：优先「模型密钥」表 minimax-vision，fallback 环境变量 OPS_PROMPT_EVAL_VISION_API_KEY。"""
+    row = (await db.execute(select(PromptEvalProviderKey).where(
+        PromptEvalProviderKey.provider == "minimax-vision",
+        PromptEvalProviderKey.enabled == 1,
+    ).order_by(desc(PromptEvalProviderKey.updated_at)))).scalars().first()
+    if not row:
+        return None
+    return {"provider": row.provider, "model": row.model,
+            "api_key": decrypt_key(secret, row.key_enc),
+            "base_url": row.base_url or "https://api.minimaxi.com/v1"}
+
+
 # ─── 翻译 ───
 
 async def translate_case(db: AsyncSession, row: PromptEvalCase, translate_cfg: dict, http=None) -> dict:

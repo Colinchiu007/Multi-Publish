@@ -1,4 +1,5 @@
 
+
 ## [2026-08-12] Story2Video 全能创作：流水线更名、历史提示词本地翻译、分镜素材自选创作模式
 
 - 更名：流水线展示名「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」（zh/en i18n、配置标题、权限提示、阶段摘要同步；机器 ID story2video-compose 不变）。
@@ -9,6 +10,17 @@
 - 测试：新增 story2video-manual-assets.test.js（15 例：normalizer 契约、候选生成、finalize、engine 集成）、SceneAssetSelection 组件测试（4 例）、ResultView 翻译块、CreateView 创作模式 UI；preload/ipc-contract/stage-executor/i18n 断言同步；后端 703 + 前端相关套件全绿。
 - 文档：01-docs/PRD.md §7.1.3a（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字清单、成本提示）；OpenSpec change story2video-omnipotent-creation（proposal/design/specs/tasks）。
 
+
+
+## [2026-08-12] fix(ops-center): 中英对照使用「模型密钥」minimax-llm + 剥离 LLM think 块
+
+- 根因1：translate/optimize 只读环境变量 OPS_PROMPT_EVAL_LLM_*，运营后台「模型密钥」配置的 minimax-llm 不生效 → 批量生成进度走完但提示词仍「（未生成）」。
+- 修复1：`_llm_cfg(db)` 优先读 `prompt_eval_provider_keys` 表 provider=minimax-llm（decrypt），fallback 环境变量；`_vision_cfg(db)` 优先表内 minimax-vision，fallback OPS_PROMPT_EVAL_VISION_API_KEY；translate_case/translate_scene/create_run/create_scene_run 全部走新配置。
+- 根因2：MiniMax 推理模型返回 `<think>...</think>` 思维链混入 content → 提示词含推理文本。
+- 修复2：`_strip_think()` 剥离 think 块（翻译/优化两处）；仅 think 无正文 → 视为空内容 fail closed。
+- 测试：API 新增「表内 minimax-llm 优先于环境变量」（15 例全绿）；services 新增 think 剥离矩阵（22 例全绿）。
+- 端到端：配置 minimax-llm 后真实翻译 200，prompt_zh 无 think 块、prompt_en 正常；清理历史含 think 脏缓存 1 条。
+ origin/main
 
 ## [2026-08-12] feat(ops-center): 场景模式批量生成中英对照 + 首次生成文案
 
