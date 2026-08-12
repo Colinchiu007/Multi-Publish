@@ -394,6 +394,27 @@
       ],
       "short_block_exceptions": [],
       "note": "顿号枚举单元整体保护（v1.1）：max 切分锚点落在顿号上时，切分点移到枚举单元结束之后（谓词引导词『那』前），枚举整体保留"
+    },
+    {
+      "id": "rounding_half_up",
+      "input": "嗯。一二三四五六七八九十甲乙丙丁戊",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "嗯",
+        "一二三四五六七八九十甲乙丙丁戊"
+      ],
+      "short_block_exceptions": [
+        {
+          "index": 0,
+          "len": 1,
+          "reason": "独立短句（单字应答）"
+        }
+      ],
+      "note": "时间戳 half-up 舍入锁定（v0.15.1）：1/16*10=0.625 → 0.63、15/16*10=9.375 → 9.38，与 TS Math.round(x*100)/100 一致；禁止 Python 银行家舍入 0.62"
     }
   ]
 }

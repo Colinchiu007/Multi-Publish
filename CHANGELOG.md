@@ -1,3 +1,10 @@
+## [2026-08-12] 字幕时间戳舍入统一 half-up（对齐 splitter v0.15.1）+ 跨实现差分测试
+
+- 背景：跨实现差分测试（38 例语料）证实文本块 38/38 一致，但时间戳在 .xx5 边界分歧
+  （Python 银行家舍入 0.625→0.62 vs TS 四舍五入 0.63，等分场景累计 0.15s）——TS 侧本就为 half-up，无需改代码
+- 共享向量 +1（rounding_half_up，20 例）+ TS 新增 half-up 舍入断言（0.625→0.63）→ story2video-engine 118 例全绿
+- PRD 7.1.1 注明舍入模式（half-up）；差分工具：splitter scripts/cross-parity/（双端运行 + compare.py）
+
 ## [未发布] 功能：运营后台限流与调度验证（P0 模拟器+契约校验 / P1 用量观测 / P2 真实自检对拍）（2026-08-12）
 
 - P0（ops-center）：新增与桌面端 ApiUsageGovernor 同契约的确定性调度模拟器 `scheduler_simulator.py`（RPM 时间槽/并发信号量/429 冷却/5h 预检/429 自适应，含 6 条断言库）；`POST /api/v1/scheduler/verify`（模拟落库）、`GET /verify`、`GET /verify/{id}`、`GET /contract`（预设契约校验：范围/default∈models/并发换算）；新表 `scheduler_verification_runs`；前端「限流与调度验证」页 `/rate-limit-verifier`（模拟验证/契约校验/验证记录三 tab）。全部 admin-only、零真实 provider 调用。
