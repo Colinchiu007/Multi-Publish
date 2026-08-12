@@ -10,4 +10,5 @@ module.exports = {
   ...require('./runner'),
   ...require('./service'),
   ...require('./adapters/runners'),
+  ...require('./adapters'),
 };

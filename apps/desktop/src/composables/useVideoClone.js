@@ -95,6 +95,24 @@ export function useVideoClone() {
     running.value = false
   }
 
+  async function regenerate() {
+    const a = api()
+    if (!a || !runId.value) return null
+    running.value = true
+    resetStages()
+    try {
+      const resp = await a.regenerate(runId.value)
+      if (resp && resp.code === 0 && resp.data) {
+        const d = resp.data
+        report.value = d.report || report.value
+        similarity.value = d.similarity || null
+        publishResult.value = d.publishResult || null
+        if (!d.ok && d.error) error.value = { code: d.error.code, phase: d.error.phase }
+      }
+    } catch (e) { error.value = { code: 'UNKNOWN', message: String(e && e.message) } }
+    finally { running.value = false }
+  }
+
   async function pickFile() {
     const a = api()
     if (!a || typeof a.pickFile !== 'function') { ElMessage.warning('当前环境未提供桌面端能力'); return }
@@ -124,6 +142,6 @@ export function useVideoClone() {
   return {
     sourceType, linkUrl, filePath, replicationLevel, mode, rewriteScript,
     running, runId, stageStatus, report, similarity, publishResult, error,
-    start, cancel, editReport, pickFile, STAGE_LABELS,
+    start, cancel, editReport, pickFile, regenerate, STAGE_LABELS,
   }
 }

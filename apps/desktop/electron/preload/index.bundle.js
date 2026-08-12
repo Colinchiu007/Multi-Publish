@@ -800,6 +800,7 @@ var require_video_clone = __commonJS({
           editReport: (report, patch) => ipcRendererRef.invoke("video-clone:report:edit", { report, patch }),
           regenerate: (runId) => ipcRendererRef.invoke("video-clone:report:regenerate", { runId }),
           pickFile: () => ipcRendererRef.invoke("video-clone:pick-file"),
+          history: () => ipcRendererRef.invoke("video-clone:history"),
           onProgress: (cb) => {
             const listener = (_event, evt) => {
               try {

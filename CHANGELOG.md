@@ -1,11 +1,19 @@
 ## [2026-08-12] Story2Video：语音生成器默认多模态 TTS + 音色克隆自动保存/重命名
 
-- 图片轮播「语音生成器」默认选择：模型设置保存了支持 TTS 能力的多模态模型（如 MiniMax `minimax-multimodal`）时，未显式选择过其他服务商则默认选中该多模态模型，并按 `capability_models.tts` 自动带出语音模型；用户显式保存的选择始终优先。
-- 音色克隆交互调整：选择本地音频文件后**自动保存**为克隆音色（默认名「音色001/音色XXX」递增），移除底部「名称输入 + 添加克隆音色」操作框；克隆列表新增「重命名」行内编辑（新 IPC `tts-voice-clone:rename`，仅更新本地 registry 展示名，不触碰远端 voice_id/样本）。
+- 图片轮播「语音生成器」默认选择：模型设置保存了支持 TTS 能力的多模态模型（如 MiniMax `minimax-multimodal`）时，未显式选择过其他服务商则默认选中该多模态模型，并按 `capability_models.tts` 自动带出语音模型；用户显式保存的选择（含显式「自动 Edge TTS」）始终优先。
+- 音色克隆交互调整：选择本地音频文件后**自动保存**为克隆音色（默认名「音色001/音色XXX」递增），移除底部「名称输入 + 添加克隆音色」操作框；克隆列表新增「重命名」行内编辑（新 IPC `tts-voice-clone:rename`，仅更新本地 registry 展示名，不触碰远端 voice_id/样本，失效克隆保留 invalid 标记）。
 - `minimax-multimodal` 克隆样本限制与 `minimax-tts` 对齐（单文件、mp3/m4a/wav、10s–5min、≤20MB）。
-- 测试：electron 服务/IPC/preload 48 例 + CreateView 147 例全绿；vite build 通过；PRD §7.1.4 同步更新（数据校验/流程/交互/文案详见 PRD）。
+- 测试：electron 服务/IPC/preload 48 例 + CreateView 149 例 + TTS 相关 81 例 + story2video 相关 102 例全绿；vite build 通过；PRD §7.1.4 同步更新（数据校验/流程/交互/文案详见 PRD）。
 
 =======
+
+## [2026-08-12] 视频克隆 切片 4d：运行记录持久化 + regenerate（部分流水线 initialReport）
+
+- engine pipeline：executorOptions.stageIds 部分执行 + request.options.initialReport + 成功结果 reportSource。
+- desktop services/video-clone/store.js：runs/<runId>.json 持久化 + history（倒序元数据列表）。
+- handler：run 成功后落库；video-clone:report:regenerate 真实实现（部分流水线 generate→compose→publish，initialReport 复用编辑后报告）；video-clone:history 通道；preload/composable/view 接线「重新生成」。
+- 验证：engine 99（+3）+ desktop store 3（合计 352+）全绿；vite build + QM-1 打包 exit 0 + 启动无关键错误。
+- 外部验收边界（PENDING_EXTERNAL）：真实 provider 图/真实账号发布/平台链接下载，需用户凭据与环境。
 
 ## [2026-08-12] 视频克隆 切片 4c：provider 接线（assetGenerator/publisher/pick-file）+ QM-2 双模式验证
 
