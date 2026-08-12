@@ -77,6 +77,10 @@ module.exports = defineConfig({
         '**/*.spec.*',
         'vite.config.*',
         'test-setup.js',
+        // ast-v8-to-istanbul 对 preload/video-clone.js 的 sourcemap 映射触发 `column must be >= 0` 崩溃
+        // （@jridgewell/trace-mapping 负 column，Node 22 + vitest 4.1.x；1.0.4/1.0.5 均未修复）。
+        // 该文件不在 include 范围（preload 非 coverage 目标），排除仅绕开 V8 coverage 转换崩溃。
+        '**/preload/video-clone.js',
       ],
     },
   },

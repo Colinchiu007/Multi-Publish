@@ -10,7 +10,7 @@
  */
 import { ref, computed } from 'vue'
 import { pipelineHistory, story2videoListProjects } from '@/api/publisher'
-import { historyLoadFailureDetail } from '@/i18n/story2video-locale'
+import { historyLoadFailureDetail } from '@/story2video/story2video-notifications'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000

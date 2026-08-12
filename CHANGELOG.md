@@ -1,3 +1,9 @@
+## [2026-08-12] 修复 CI 门禁：/create E2E 卡片数同步 + coverage 崩溃绕行
+
+- route-functional-suite.js：内置流水线卡片断言 14 → 15（PR #626 视频克隆入口卡加入后同步；改动 CreateView 流水线卡片需同步此计数）。
+- vitest coverage exclude `**/preload/video-clone.js`：绕开 ast-v8-to-istanbul 在 Node 22 下 `column must be greater than or equal to 0` 崩溃（@jridgewell/trace-mapping 负 column；1.0.4/1.0.5 均未修复；该文件不在 include 范围，排除仅绕开 V8 coverage 转换崩溃）。
+- usePipelineHistory.js：修复坏 import `@/i18n/story2video-locale`（文件不存在）→ `@/story2video/story2video-notifications`（v8 provider 未加载该文件所以此前未暴露，istanbul 插桩 include 全量时暴露）。
+
 ## [2026-08-12] fix(ops-center): 中英对照使用「模型密钥」minimax-llm + 剥离 LLM think 块
 
 - 根因1：translate/optimize 只读环境变量 OPS_PROMPT_EVAL_LLM_*，运营后台「模型密钥」配置的 minimax-llm 不生效 → 批量生成进度走完但提示词仍「（未生成）」。
