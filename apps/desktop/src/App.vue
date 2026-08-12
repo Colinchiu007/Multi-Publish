@@ -166,7 +166,13 @@ onBeforeUnmount(() => {
 body { margin: 0; padding: 0; }
 html, body { height: 100%; }
 #app { height: 100%; }
+/* 根容器锁定高度：保证侧栏固定、右侧内容独立滚动（2026-08-12 修复）
+   #app 高度 100% 但 .app-root 默认 height:auto，子级 height:100% 解析失效，
+   内容超高时 .app-root 撑开使 body 滚动，侧栏随之滚动。 */
+.app-root { height: 100%; overflow: hidden; }
 .yixiaoer-shell { height: 100%; display: flex; min-width: 0; overflow: hidden; background: #f7f7fb; }
 .yixiaoer-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .yixiaoer-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
+.cohere-sidebar { flex-shrink: 0; }
+.cohere-main { min-height: 0; }
 </style>
