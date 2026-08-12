@@ -78,6 +78,7 @@ import i18n from "@/i18n";
 import PublishView from "./Publish.vue";
 import CreateView from "./CreateView.vue";
 import ResultView from "./ResultView.vue";
+import { QuickRenderPanel } from "./video-creation";
 
 // Publish.vue
 describe("PublishView (deep)", () => {
@@ -128,7 +129,7 @@ describe("CreateView (deep)", () => {
     const w = await mountCreate();
     w.vm.view = 'quick';
     await nextTick();
-    const tabs = w.findAll(".mode-tab");
+    const tabs = w.findComponent(QuickRenderPanel).findAll(".mode-tab");
     expect(tabs.length).toBe(2);
   });
 
@@ -136,20 +137,22 @@ describe("CreateView (deep)", () => {
     const w = await mountCreate();
     w.vm.view = 'quick';
     await nextTick();
-    expect(w.vm.canQuickRender).toBe(false);
-    w.vm.quickText = "hello";
+    const qp = w.findComponent(QuickRenderPanel);
+    expect(qp.vm.canQuickRender).toBe(false);
+    qp.vm.quickText = "hello";
     await nextTick();
-    expect(w.vm.canQuickRender).toBe(true);
+    expect(qp.vm.canQuickRender).toBe(true);
   });
 
   it("aiWrite generates content", async () => {
     const w = await mountCreate();
     w.vm.view = 'quick';
     await nextTick();
-    w.vm.aiWrite();
+    const qp = w.findComponent(QuickRenderPanel);
+    qp.vm.aiWrite();
     await new Promise(r => setTimeout(r, 1100));
     await nextTick();
-    expect(w.vm.quickText.length).toBeGreaterThan(0);
+    expect(qp.vm.quickText.length).toBeGreaterThan(0);
   });
 });
 
