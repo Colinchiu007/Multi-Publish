@@ -1,0 +1,12 @@
+{
+  "id": "video-clone-analyze-cli",
+  "title": "视频克隆 analyze CLI",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "review",
+  "nextAction": "推送合并",
+  "createdAt": "2026-08-12T16:00:00Z",
+  "branch": "codex/video-clone-analyze-cli"
+}

@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 /**
  * usePipelineHistory.js — 流水线历史记录 composable
  *
@@ -118,6 +118,11 @@ export function usePipelineHistory(options = {}) {
         }
       }
 
+      // enrich stages with sceneProgress from context
+      for (const run of runs) {
+        run.stages = _enrichStages(run.stages, run.context)
+      }
+
       // 运行中流水线置顶，其次已完成项目，最后终态流水线
       history.value = [
         ...runs.filter(run => run.status === 'running'),
@@ -173,7 +178,7 @@ export function usePipelineHistory(options = {}) {
         if (!item || item.status !== 'running') continue
         const fresh = runningById.get(item.id)
         if (fresh) {
-          item.stages = fresh.stages || item.stages
+          item.stages = _enrichStages(fresh.stages || item.stages, fresh.context || item.context)
           item.currentStage = fresh.currentStage
           item.updatedAt = fresh.updatedAt || item.updatedAt
           runningById.delete(item.id)
@@ -225,9 +230,26 @@ export function usePipelineHistory(options = {}) {
     return 'pending'
   }
 
+  /** 将 context 中的 sceneProgress 合并到 stages 对象，供模板展示逐场景进度 */
+  function _enrichStages(stages, context) {
+    if (!Array.isArray(stages) || !context || typeof context !== 'object') return stages
+    return stages.map(s => {
+      if (!s || typeof s !== 'object' || s.name !== 'animate') return s
+      const sp = context.animate && context.animate.sceneProgress
+      if (sp && typeof sp.completed === 'number' && typeof sp.total === 'number') {
+        return { ...s, sceneProgress: sp }
+      }
+      return s
+    })
+  }
+
   function historyStageLabel(stage) {
     if (!stage) return ''
-    return typeof stage === 'object' ? (stage.name || stage.stage || '') : String(stage)
+    const name = typeof stage === 'object' ? (stage.name || stage.stage || '') : String(stage)
+    const sp = stage && stage.sceneProgress
+    return sp && typeof sp.completed === 'number' && sp.total > 0
+      ? name + ' (' + sp.completed + '/' + sp.total + ')'
+      : name
   }
 
   function historyStageTitle(stage) {

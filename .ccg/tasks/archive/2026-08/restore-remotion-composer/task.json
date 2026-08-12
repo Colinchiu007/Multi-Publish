@@ -1,0 +1,12 @@
+{
+  "id": "restore-remotion-composer",
+  "title": "恢复被误删的 packages/remotion-composer（Remotion 渲染引擎未就绪）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "desktop-render",
+  "currentPhase": "completed",
+  "nextAction": "已修复并归档",
+  "createdAt": "2026-08-12T16:00:00+08:00",
+  "branch": "codex/subtitle-regression-guard"
+}

@@ -76,3 +76,26 @@ test('链接来源无元数据时用 probeRunner 补探', async () => {
   assert.equal(ctx.report.meta.resolution, '720x1280');
   assert.equal(ctx.report.platformParams.aspect, '9:16');
 });
+
+// —— 下载加固：URL 时长上限（与本地文件 ≤30min 对齐）——
+
+test('时长超过 30 分钟（URL 下载统一执行点）→ VIDEOCLONE_FILE_TOO_LONG', async () => {
+  const a = createFfprobeAnalyze({ sceneRunner: async () => [] });
+  const ctx = baseCtx({ durationSec: 31 * 60 });
+  await assert.rejects(() => a.run(ctx), (e) => e instanceof VideoCloneError && e.code === 'VIDEOCLONE_FILE_TOO_LONG' && e.phase === 'analyze');
+});
+
+test('自定义 maxDurationSec 生效', async () => {
+  const a = createFfprobeAnalyze({ sceneRunner: async () => [], maxDurationSec: 60 });
+  await assert.rejects(() => a.run(baseCtx({ durationSec: 2000 })), (e) => e.code === 'VIDEOCLONE_FILE_TOO_LONG');
+  const okCtx = baseCtx({ durationSec: 10 });
+  await a.run(okCtx);
+  assert.equal(okCtx.report.meta.durationSec, 10);
+});
+
+test('时长在限制内不拦截', async () => {
+  const a = createFfprobeAnalyze({ sceneRunner: async () => [] });
+  const ctx = baseCtx({ durationSec: 100 });
+  await a.run(ctx);
+  assert.equal(ctx.report.meta.durationSec, 100);
+});

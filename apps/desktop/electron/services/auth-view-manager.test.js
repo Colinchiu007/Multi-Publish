@@ -37,7 +37,7 @@ function createMainWindow() {
     getBounds: () => ({ width: 1440, height: 900 }),
     isDestroyed: () => false,
     webContents: { send: vi.fn() },
-    contentView: { removeChildView: vi.fn() },
+    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
   }
 }
 
@@ -239,6 +239,98 @@ describe('AuthViewManager 凭证边界', () => {
       localStorage: {},
       indexedDB: { auth: { refreshToken: 'indexed-only' } },
     }))
+  })
+
+  it('初始加载完成前的导航（登录页自身重定向链）不会触发登录完成提取', async () => {
+    const manager = new AuthViewManager()
+    const resolveLogin = vi.fn()
+    manager.mainWindow = createMainWindow()
+    manager.currentView = createView([{ name: 'pre', value: '1', domain: '.mp.weixin.qq.com' }])
+    manager.currentPlatform = 'wechat_mp'
+    manager.currentAccountId = 'auth-wechat_mp-redirect'
+    manager._resolveLogin = resolveLogin
+    const attempt = manager._getLoginAttempt()
+    expect(attempt.initialRedirectPhase).toBe(true)
+    const extract = vi.spyOn(manager, '_extractAuthData')
+
+    // 初始重定向链：即使 URL 命中成功模式也不得安排提取
+    manager._handleNavigation('https://mp.weixin.qq.com/cgi-bin/home?t=home/index', attempt)
+    await vi.advanceTimersByTimeAsync(3500)
+
+    expect(extract).not.toHaveBeenCalled()
+    expect(resolveLogin).not.toHaveBeenCalled()
+    expect(manager.currentView).not.toBeNull()
+
+    // 页面加载完成后，成功导航才可能触发自动完成
+    attempt.initialRedirectPhase = false
+    manager._handleNavigation('https://mp.weixin.qq.com/cgi-bin/home?t=home/index', attempt)
+    await vi.advanceTimersByTimeAsync(3500)
+
+    expect(extract).toHaveBeenCalledTimes(1)
+    expect(resolveLogin).toHaveBeenCalledTimes(1)
+  })
+
+  it('openLogin 接线：did-finish-load 前的导航被忽略，加载完成后才放行自动完成', async () => {
+    // auth-view-manager.js 顶层已解构 WebContentsView，必须在模块加载前覆盖 mock
+    vi.resetModules()
+    __resetElectronMock()
+    const handlers = {}
+    const view = {
+      setBounds: vi.fn(),
+      setVisible: vi.fn(),
+      webContents: {
+        session: { cookies: { get: vi.fn().mockResolvedValue([{ name: 'session', value: '1', domain: '.mp.weixin.qq.com' }]) } },
+        loadURL: vi.fn().mockResolvedValue(undefined),
+        executeJavaScript: vi.fn().mockResolvedValue({}),
+        close: vi.fn(),
+        isDestroyed: vi.fn(() => false),
+        on: vi.fn((event, callback) => { handlers[event] = callback }),
+        debugger: { attach: vi.fn(), detach: vi.fn(), sendCommand: vi.fn().mockResolvedValue({}), on: vi.fn() },
+      },
+    }
+    __electronMock.WebContentsView = vi.fn(function () { return view })
+
+    const freshModule = await import('./auth-view-manager.js')
+    const FreshAuthViewManager = freshModule.default || freshModule
+    const manager = new FreshAuthViewManager()
+    const mainWindow = createMainWindow()
+    manager.setMainWindow(mainWindow)
+    const loginPromise = manager.openLogin('wechat_mp', 0)
+
+    // 初始加载完成前：即使 URL 命中成功模式也不得安排提取（登录页自身重定向链）
+    handlers['did-navigate']({}, 'https://mp.weixin.qq.com/cgi-bin/home?t=home/index')
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(manager._resolveLogin).toBeTruthy()
+    expect(mainWindow.webContents.send).not.toHaveBeenCalledWith('auth:view-closed', expect.anything())
+
+    // 页面加载完成后：成功导航才触发自动完成并关闭登录视图
+    handlers['did-finish-load']()
+    handlers['did-navigate']({}, 'https://mp.weixin.qq.com/cgi-bin/home?t=home/index')
+    await vi.advanceTimersByTimeAsync(3500)
+
+    await expect(loginPromise).resolves.toMatchObject({
+      cookies: [{ name: 'session', value: '1', domain: '.mp.weixin.qq.com' }],
+    })
+    expect(mainWindow.webContents.send).toHaveBeenCalledWith('auth:view-closed')
+  })
+
+  it('百家号登录页 URL 即使存在预登录 Cookie 也不自动完成（回归：登录视图提前关闭）', async () => {
+    const manager = new AuthViewManager()
+    const view = createView([{ name: 'BAIDUID', value: 'pre-login-tracker', domain: '.baijiahao.baidu.com' }])
+    const resolveLogin = vi.fn()
+    manager.mainWindow = createMainWindow()
+    manager.currentView = view
+    manager.currentPlatform = 'baijiahao'
+    manager.currentAccountId = 'auth-baijiahao-1'
+    manager._resolveLogin = resolveLogin
+
+    // 未登录时百家号主页会落在 /builder/theme/bjh/login（与创作后台同域）
+    manager._checkLoginCompleted('https://baijiahao.baidu.com/builder/theme/bjh/login')
+    await vi.advanceTimersByTimeAsync(3500)
+
+    expect(resolveLogin).not.toHaveBeenCalled()
+    expect(manager.currentView).toBe(view)
+    expect(manager._urlExtractTimer).toBeFalsy()
   })
 
   it('旧会话已开始的异步提取不能完成后续新会话', async () => {

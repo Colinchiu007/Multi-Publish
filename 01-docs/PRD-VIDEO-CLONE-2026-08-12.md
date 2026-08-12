@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.8（切片 4e：真实桌面 E2E 验收与权限放行）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.10（analyze CLI：一条命令出报告）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -447,7 +447,7 @@ VideoClonePipeline：
 
 ### 16.2 链接下载流程（ingest-url.js）
 
-- yt-dlp --no-playlist -f "bv*+ba/b" 下载到临时目录；hintPlatform 按域名提示平台（诊断展示，不阻断下载）；
+- yt-dlp --no-playlist -f "bv*+ba/b" 下载到临时目录；hintPlatform 按域名提示平台（诊断展示，不阻断下载）；时长上限 ≤30min 在 analyze 统一执行（VIDEOCLONE_FILE_TOO_LONG，见 §23）；
 - 失败按 stderr 文本分类（classifyDownloadError）：私密 → LINK_PRIVATE；会员 → LINK_MEMBERSHIP；地区 → LINK_REGION；反爬/验证 → LINK_ANTI_BOT；其余 → LINK_UNAVAILABLE；
 - 产物 >500MB → VIDEOCLONE_FILE_TOO_LARGE；链接来源元数据由 analyze 用 probeRunner 补探。
 
@@ -649,4 +649,56 @@ VideoClonePipeline：
 - RUNS_DIR 落库 COUNT=1 LATEST=vc-mspw1lou-4fkpcz.json（持久化生效）；
 - 截图：01-docs/evidence/video-clone-e2e.png；
 - 外部边界不变（PENDING_EXTERNAL）：真实 provider 图/真实账号发布/平台下载需用户凭据。
+
+
+## 23. 详细规格：下载加固 — URL 时长上限与探针（v1.9 追加）
+
+### 23.1 URL 下载时长上限（analyze-ffprobe.js）
+
+- createFfprobeAnalyze 新增 maxDurationSec（默认 1800s=30min）；元数据探测后统一校验，超限抛 VIDEOCLONE_FILE_TOO_LONG（phase=analyze，retryable=false）；
+- 与本地文件对齐：本地在 ingest-local 前置校验，URL 在 analyze 补探后校验——两路共用同一上限；
+- 提示文字（§14）：视频超过 30 分钟上限，请裁剪后重试 / Video exceeds the 30-minute limit, trim and retry。
+
+### 23.2 可复用下载探针（scripts/video-clone-dl-probe.js）
+
+- 用法：node packages/video-clone-engine/scripts/video-clone-dl-probe.js <https-url> [--max-duration 1800] [--out <dir>]（或 npm run dl:probe -w @multi-publish/video-clone-engine -- <url>）；
+- 流程：createUrlIngest（yt-dlp）→ createFfprobeAnalyze（元数据/时长上限/场景检测）→ 摘要（platform/sizeMB/duration/shots/aspect/elapsed/media path）；
+- 退出码：0=成功，1=业务失败（打印错误码/phase/retryable），2=用法错误；下载文件保留供复测。
+
+### 23.3 可选真实网络集成测试（test/adapters/dl-probe.test.js）
+
+- VC_DL_TEST_URL 未设置 → skip（CI 零外部依赖）；设置后断言探针 exit 0 且含 INGEST_OK/ANALYZE_OK。
+
+### 23.4 真实平台实测（2026-08-12）
+
+- B 站公开视频：happy path 84MB/34min 下载+拆解 23s（389 镜头，无验证码/风控）；
+- 时长上限生效：同链接 → INGEST_OK 后 analyze 抛 FILE_TOO_LONG（fail-closed）；
+- 瞬时失败：LINK_UNAVAILABLE（retryable）→ 有界重试语义；
+- 平台管控对比与测试建议见对话结论：B 站（宽松/首选）> YouTube（中等）> 抖音/小红书/快手/TikTok（较严，仅测错误分类）> 视频号（无公开 extractor，不测）。
+
+
+## 24. 详细规格：analyze CLI（v1.10 追加）
+
+### 24.1 用法
+
+- node packages/video-clone-engine/scripts/video-clone-analyze.js <https-url|本地视频路径> [--out <dir>] [--max-duration 1800]
+- 或 npm run analyze -w @multi-publish/video-clone-engine -- <url> [--out ./video-clone-output]
+
+### 24.2 流程与产物
+
+- 输入分派：https:// → createUrlIngest（媒体保留在 outDir 下 vc-dl-*/）；本地路径 → createLocalFileIngest（不复制源文件）；
+- 分析：createFfprobeAnalyze（maxDurationSec 默认 1800，sceneThreshold 0.3）；
+- 产物：report.json（7 层 CloneReport，可编辑/可复用）+ summary.txt（源/媒体/时长/分辨率/画幅/镜头/场景方法/报告校验/ASR 状态/耗时/产物路径）；
+- 退出码：0=成功，1=业务失败（打印 code/phase/retryable），2=用法错误；默认 outDir=cwd/video-clone-output。
+
+### 24.3 实测（2026-08-12，B 站 BV1GJ411x7h7）
+
+- CLI exit 0：report.json（13KB，校验 OK）、summary.txt、媒体 20.5MB；
+- 报告内容：platform=bilibili、212.3s、1920x1080、16:9、63 镜头（ffmpeg-scene）、transitions=[cut]；
+- ASR/风格/剧情维度未填充（未注入 sttRunner/LLM，属外部 provider 边界，见 §21.5）。
+
+### 24.4 测试
+
+- test/scripts/analyze-cli.test.js：本地样例 exit 0 + report.json/summary.txt 断言 + 无参 exit 2（ffmpeg 缺失 skip）；
+- engine 全量 105（104 pass + 1 skip）。
 

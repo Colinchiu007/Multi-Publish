@@ -66,7 +66,12 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   kuaishou: ['cp.kuaishou.com'],
   toutiao: ['mp.toutiao.com'],
   bilibili: ['www.bilibili.com/'],
-  baijiahao: ['baijiahao.baidu.com'],
+  // 百家号登录页与创作后台同域：未登录访问 baijiahao.baidu.com/ 会 302 到
+  // /pcui/register/index 与 /builder/theme/bjh/login（2026-08-12 实测），裸域名
+  // 模式会把预登录登录页误判为“登录成功”，导致登录视图提前关闭并保存无效账号。
+  // 该平台关闭 URL 自动完成，改由用户点击“我已完成登录”（auth:complete-login）
+  // 在提取到真实凭证后完成入库。
+  baijiahao: [],
   youtube: ['studio.youtube.com', 'accounts.google.com/o/oauth2/approval'],
   tiktok: ['tiktok.com/upload'],
   twitter: ['twitter.com/home', 'twitter.com/explore', 'x.com/home', 'x.com/explore'],
