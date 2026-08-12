@@ -5,10 +5,12 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "story2video-pipeline+diagnostics",
-  "currentPhase": "implementation",
-  "nextAction": "提交/推送/创建 PR",
+  "currentPhase": "review",
+  "nextAction": "等待 PR #574 合并；合并后执行三同步归档（openspec archive + CCG 归档 + learnings）",
   "createdAt": "2026-08-12T00:00:00Z",
   "branch": "codex/video-diag-system",
   "openspecChange": "story2video-failure-diagnostics",
-  "worktree": "D:/Data/projects/mp-worktrees/mp-video-diag-system"
+  "worktree": "D:/Data/projects/mp-worktrees/mp-video-diag-system",
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/574",
+  "remoteStatus": "PR created, pending merge"
 }
