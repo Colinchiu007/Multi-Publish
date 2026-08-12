@@ -1,3 +1,9 @@
+## [2026-08-12] 视频克隆 切片 2：真实 ingest / analyze / plan adapter（PR #596 前身）
+
+- `packages/video-clone-engine/src/adapters/`：runners（ffprobe 元数据 / ffmpeg scene 场景检测 / yt-dlp 下载 / 下载错误文本分类）、ingest-local（存在/大小/扩展名/时长校验 + 错误映射）、ingest-url（下载 + 平台提示 + 私密/会员/地区/反爬分类）、analyze-ffprobe（补探元数据 + 场景检测降级合成分段 + ASR 契约 + 7 层骨架 + aspect 派生）、plan-script（改写契约 + inspiration 模式 + 防御归一化）、index（createDefaultIngest / createSlice2Pipeline）。
+- 错误码新增 VIDEOCLONE_FILE_NOT_FOUND；测试 67 用例全绿（含 2 个真实 ffprobe/ffmpeg 集成 smoke，工具缺失自动 skip）。
+- PRD v1.2 §16 切片 2 详细规格（本地校验流程 / 下载分类 / 场景检测参数 / ASR 与改写契约 / runner 环境变量 / 集成验证）。
+
 ## [2026-08-12] 视频克隆独立流水线 切片 1：engine 核心（契约/编排/相似度）+ 详细规格
 
 - 新增 `packages/video-clone-engine`（纯 Node、零依赖）：CloneReport 7 层 schema 校验/归一化/编辑往返/IPC 脱壳；23 个错误码分类（阶段×可重试×用户提示键）；六阶段编排（ingest→analyze→plan→generate→compose→publish，checkpoint 断点续跑 + 有界重试 + fail-closed）；F4 相似度自检（结构/文案/风格/时长 + 证据门控 + verbatim 照抄警告）；Pipeline 门面与阶段 adapter 注入契约。

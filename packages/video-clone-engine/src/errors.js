@@ -15,6 +15,7 @@ const ERROR_CATALOG = Object.freeze({
   VIDEOCLONE_LINK_ANTI_BOT: { phase: 'ingest', retryable: true, userMessageKey: 'videoClone.error.linkAntiBot' },
   VIDEOCLONE_FILE_TOO_LARGE: { phase: 'ingest', retryable: false, userMessageKey: 'videoClone.error.fileTooLarge' },
   VIDEOCLONE_FILE_TOO_LONG: { phase: 'ingest', retryable: false, userMessageKey: 'videoClone.error.fileTooLong' },
+  VIDEOCLONE_FILE_NOT_FOUND: { phase: 'ingest', retryable: false, userMessageKey: 'videoClone.error.fileNotFound' },
   VIDEOCLONE_FILE_FORMAT: { phase: 'ingest', retryable: false, userMessageKey: 'videoClone.error.fileFormat' },
   VIDEOCLONE_PROBE_FAILED: { phase: 'ingest', retryable: true, userMessageKey: 'videoClone.error.probeFailed' },
   VIDEOCLONE_ASR_FAILED: { phase: 'analyze', retryable: true, userMessageKey: 'videoClone.error.asrFailed' },
