@@ -1,3 +1,11 @@
+## [2026-08-12] 视频克隆独立流水线 切片 1：engine 核心（契约/编排/相似度）+ 详细规格
+
+- 新增 `packages/video-clone-engine`（纯 Node、零依赖）：CloneReport 7 层 schema 校验/归一化/编辑往返/IPC 脱壳；23 个错误码分类（阶段×可重试×用户提示键）；六阶段编排（ingest→analyze→plan→generate→compose→publish，checkpoint 断点续跑 + 有界重试 + fail-closed）；F4 相似度自检（结构/文案/风格/时长 + 证据门控 + verbatim 照抄警告）；Pipeline 门面与阶段 adapter 注入契约。
+- 测试：40 用例全绿（`node --test`，零依赖）。
+- OpenSpec change `video-clone-pipeline`（proposal/design/tasks/spec delta）；PRD v1.1 新增 §11-15 详细规格（数据校验、流程与功能逻辑、交互逻辑与显示项、提示文字 zh/en 与错误码、测试与门禁）。
+- 切片 2+ 待办：真实 ingest（yt-dlp/ffprobe）、analyze（ASR/镜头/风格）、plan 改写、generate provider 接入、compose（ffmpeg）、publish（PublisherRouter）、桌面 UI。
+=======
+
 ## [2026-08-12] 修复 subtitle-align-service 单测 CI 回归（mock isAlignerAvailable，PR #590）
 
 - 根因：alignScenes 调用 bridge 前先查 isAlignerAvailable()（ALIGNER_DIR/aligner 模块存在性）；CI 未部署
