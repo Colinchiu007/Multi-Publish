@@ -1,0 +1,13 @@
+{
+  "id": "video-content-fidelity",
+  "title": "视频内容保真：分镜-文案对齐 S1-S5 + CONCEPT 双模式升级",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "planning",
+  "nextAction": "写 PRD/架构文档 + openspec proposal/design/specs/tasks",
+  "createdAt": "2026-08-12T03:00:00Z",
+  "branch": "codex/video-content-fidelity",
+  "openspecChange": "video-content-fidelity"
+}
