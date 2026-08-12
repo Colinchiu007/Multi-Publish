@@ -1,3 +1,11 @@
+## 运营后台限流/调度验证功能实现复盘（P0+P1+P2）(2026-08-12)
+
+- **交付**：ops-center 新增「限流与调度验证」页（模拟器 + 契约校验 + 验证记录）与用量健康度；桌面端新增 governor 排队/冷却可观测性与真实自检（假 adapter）；两端对拍脚本保证模型一致。
+- **教训 1（对拍发现真实语义缺陷）**：`ApiUsageGovernor._assertTokenBudget` 原为 `used >= limit` 抛——第 limit 次成功调用被误判 QUOTA_EXCEEDED（限额 N 实际只允许 N-1 次成功）。模拟器 preflight 语义（第 L+1 起拒）与真实实现不一致暴露该缺陷。修复为 `used > limit` 并对拍对齐。**验证/观测层是发现调度实现缺陷的有效手段；两端对拍测试必须覆盖临界边界（第 limit 次 vs 第 limit+1 次）。**
+- **教训 2（观测口径一致性）**：模拟器「并发峰值」若按信号量占用（已开始未完成）统计，与真实「实际执行中」口径不一致（pace 推迟的请求仍在占用）。观测指标必须以「started 未 finished」为准，否则对拍假阳性。
+- **教训 3（并发会话/仓库约束）**：ops-center 测试文件各自设置 OPS_DB_PATH + 共享 engine 单例，全量 `pytest tests/` 存在既有 DB 冲突（无 conftest）；CI 中该命令「失败不阻塞」。新测试沿用既有模式，隔离跑 + 相关文件组合跑全绿即达标；全量红为既有问题，不属本任务范围。
+- **教训 4（机制）**：双模型分析/审查受 antigravity 区域限制与 Claude wrapper 不稳定影响降级本地核验；子代理后端 403 不可用，全部主代理执行。
+
 
 ---
 
@@ -6392,3 +6400,4 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 3（Copy-Item -Recurse 语义）**：目标目录已存在时会把源目录复制为目标子目录（nested copy）；stage 后必须 `git diff --cached --name-only` 检查嵌套残留。
 - **教训 4（fail closed 契约细节）**：评估 LLM 输出 `problems/promptOptimizationPoints` 缺失或非数组必须整次失败（不允许静默降级为空数组）；契约抛错统一带 `code`，避免上层误报 EVAL_INTERNAL。Claude 审查 1C+8W 全部修复（魔数校验/记录 id 白名单/递归敏感键/逐项上下文/长度上限等）。
 - **预防**：① 共享 checkout 禁止 git 写操作；② 新增路由=新增视图门禁+更新聚合计数；③ 文档类共享文件（PRD.md/CHANGELOG/.quality-gates）并发会话会互相叠加，合并前 fetch main 并以已合入版本为准。
+
