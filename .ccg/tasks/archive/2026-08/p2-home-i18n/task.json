@@ -1,0 +1,14 @@
+{
+  "branch": "codex/p2-home-i18n",
+  "openspecChange": "desktop-ui-i18n-p2",
+  "complexity": "M",
+  "id": "p2-home-i18n",
+  "pr": "#565 merged fec83098",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "risk": "medium",
+  "title": "P2 存量 i18n 首批：Home 首页文案全量多语言化",
+  "completedAt": "2026-08-12T11:12:01Z",
+  "status": "completed",
+  "remoteStatus": "merged"
+}
