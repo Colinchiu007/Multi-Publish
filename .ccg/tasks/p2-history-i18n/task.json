@@ -1,0 +1,13 @@
+{
+  "id": "p2-history-i18n",
+  "title": "P2 存量 i18n 第四批：PublishHistory 发布历史页文案全量多语言化",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "analysis",
+  "nextAction": "分析 PublishHistory.vue 硬编码文案并实施 i18n",
+  "createdAt": "2026-08-12T05:10:18Z",
+  "branch": "codex/p2-history-i18n",
+  "openspecChange": "desktop-ui-i18n-p2(已归档,第一批)"
+}

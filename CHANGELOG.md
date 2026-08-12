@@ -1,10 +1,19 @@
+## [2026-08-12] P2 发布历史页 i18n（PublishHistory + PublishTypeDialog，PR #585）
+
+- locales zh/en 新增 `historyPage`（131 键成对，含插值函数）与 `publishType`（8 键）命名空间
+- PublishHistory.vue 全量 i18n：模板全部文案 t('historyPage.*')；statusLabel/contentTypeLabel/publishModeLabel
+  按 key 映射；formatTime 随语言（zh-CN/en-US）；CSV 导出表头本地化；重试/删除/详情/草稿等错误与操作提示接入
+- PublishTypeDialog.vue（新建发布选型弹窗）标题/关闭/支持平台计数/四类发布类型 i18n
+- 测试：PublishHistory.test.js / PublishTypeDialog.test.js 装 i18n 插件；zh/en 键对等校验 131/131 + 8/8；
+  模板与脚本非注释中文为 0
+- PROMPT-TEXT-SPEC §8 P2 进度：Home/Publish/Accounts/PublishHistory 已完成，待办 Settings
+
 ## [2026-08-12] 字幕时间戳真实对齐 Tier2 — stage 接线 + JS 聚合器镜像（对齐层闭环）
 
 - `story2video-stages.js` TTS 后接入 `alignScenes`（aligner 可用性 fail-fast 门控；并发 2 路；fail-open）
 - 每场景附加 `subtitleTimeline`（真实词级时间 + charTimings）与 `subtitleAlign` 元数据（aligned/method/coverage/reason/elapsedMs，随场景持久化）
 - Electron JS 聚合器镜像 `subtitle-align-aggregator.js`（自包含、纯 JS）——行为与 TS 权威版由 parity 测试逐字锁死
 - 测试：JS 镜像 4 + 服务编排 4 + TS/JS parity 1；story2video-engine 127 全绿；stages 80/81（1 例为 origin/main 存量 governor 超时，已验证与本变更无关）
-
 ## [2026-08-12] 视频创作失败诊断系统（桌面端遥测 + 运营后台看板/告警/处置建议）
 
 - P0（桌面端）：统一诊断码（stage×failureType×severity×recoverability，fail-closed 到 unknown）、错误→候选根因映射（causeId/label/checks/advice/confidence）、run 级诊断摘要 + best-effort 环境快照（字段白名单）；`pipeline-engine._finalizeRun` 附加 `run.diagnostics` + 可选 `setRunFinalizedHook`（additive，IPC 契约不变）。
@@ -28,6 +37,7 @@
 - 透传 params.storyboardMode 到流水线（animation/avatar/character-animation/hybrid 等 videogen 流水线生效）；与 checkpointPolicy 一致采用会话内记忆。
 - locale：zh/en 新增 story2video.storyboardMode.* 键（label/auto/creative/fidelity/hybrid/hint）。
 - 回归：CreateView 新增 3 用例（默认 auto 透传 / fidelity 透传 + lastOptions 持久化 / 下拉四选项渲染）。
+
 ## [2026-08-12] 字幕分割规则表单源（对齐 splitter v0.15.2）
 
 - 新增 `packages/story2video-engine/src/subtitle-rules.json`（与 splitter 同步副本）：字符集/默认参数/舍入模式
