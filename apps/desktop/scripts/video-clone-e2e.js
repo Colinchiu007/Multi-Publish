@@ -63,6 +63,21 @@ async function main() {
   win.on('pageerror', (e) => console.log('APP_PAGEERROR ' + String(e && e.message).slice(0, 300)))
   console.log('WINDOW_TITLE=' + (await win.title()))
 
+  // —— E2E 复验：创作模块入口卡（v1.11）——
+  await win.evaluate(() => { window.location.hash = '#/create' })
+  await sleep(2500)
+  const entryVisible = await win.locator('.video-clone-entry').first().waitFor({ state: 'visible', timeout: 20000 }).then(() => true).catch(() => false)
+  console.log('ENTRY_CARD=' + (entryVisible ? 'VISIBLE' : 'NOT_FOUND'))
+  if (entryVisible) {
+    const entryText = (await win.locator('.video-clone-entry').first().textContent() || '').replace(/s+/g, ' ').trim()
+    console.log('ENTRY_TEXT=' + entryText)
+    await win.screenshot({ path: path.join(ROOT, '01-docs', 'evidence', 'video-clone-entry.png') })
+    console.log('ENTRY_SCREENSHOT=' + path.join(ROOT, '01-docs', 'evidence', 'video-clone-entry.png'))
+    await win.locator('.video-clone-entry').first().click()
+    await sleep(2500)
+    const landed = await win.locator('.video-clone-view').first().waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false)
+    console.log('ENTRY_CLICK_LANDS=' + (landed ? 'VIDEO_CLONE_VIEW' : 'NO'))
+  }
   await win.evaluate(() => { window.location.hash = '#/video-clone' })
   await sleep(2500)
 
