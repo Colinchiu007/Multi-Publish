@@ -1,3 +1,11 @@
+## [2026-08-12] 字幕分割规则表单源（对齐 splitter v0.15.2）
+
+- 新增 `packages/story2video-engine/src/subtitle-rules.json`（与 splitter 同步副本）：字符集/默认参数/舍入模式
+  统一由规则表加载，禁止再手写硬编码
+- `text-segmentation.ts` 常量区 + `DEFAULT_CONFIG` 改为从规则表读取；tsconfig 补 `resolveJsonModule`
+- 顺带对齐 `enum.higher_punct` 补全角逗号（与 Python/规范一致）
+- 验证：story2video-engine 118 例全绿；tsc --noEmit 通过；跨实现差分 38/38 文本+时间戳一致
+
 ## [2026-08-12] 字幕时间戳舍入统一 half-up（对齐 splitter v0.15.1）+ 跨实现差分测试
 
 - 背景：跨实现差分测试（38 例语料）证实文本块 38/38 一致，但时间戳在 .xx5 边界分歧

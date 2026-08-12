@@ -15,6 +15,9 @@
 // 原依赖 @/services/external-config 和 @/services/sentence-splitter-api 已移除
 // API 增强包装函数 (splitTextToScenesSmart, splitTextToSubtitlesSmart) 已移除
 
+// 字幕分割规则单源（subtitle-rules.json，与 smart-sentence-splitter Python 共享同一份规则）
+import subtitleRules from './subtitle-rules.json';
+
 // ==================== 配置类型定义 ====================
 
 /** 句子边界消歧配置 */
@@ -72,8 +75,8 @@ export const DEFAULT_CONFIG: TextSegmentationConfig = {
     allowSingleSentenceOverflow: true,
   },
   subtitle: {
-    minCharsPerBlock: 8,
-    maxCharsPerBlock: 15,
+    minCharsPerBlock: subtitleRules.defaults.min_chars_per_block,
+    maxCharsPerBlock: subtitleRules.defaults.max_chars_per_block,
     punctuationPriority: [
       '。', '！', '？', '；',
       '.', '!', '?', ';',
@@ -351,23 +354,20 @@ export class SubtitleSegmenter {
   private config: SubtitleSegmentationConfig;
   private sentenceTokenizer: SentenceTokenizer;
 
-  // 规范常量（对齐《字幕分割规范 v1.0》docs/subtitle-segmentation-spec.md）
-  private static SENTENCE_BOUNDARY = new Set(['。', '！', '？', '…', '.', '!', '?']);
-  private static PRIORITY_PUNCT = new Set(['。', '！', '？', '；', '.', '!', '?', ';', '，', ',', '、']);
+  // 规范常量（规则单源：subtitle-rules.json，与 Python 共享同一份规则；禁止再手写硬编码字符集）
+  private static SENTENCE_BOUNDARY = new Set(subtitleRules.sentence_boundary);
+  private static PRIORITY_PUNCT = new Set(subtitleRules.priority_punct);
   // v1.1 顿号枚举单元保护：枚举结束判定用（顿号之上）更高优先级标点
-  private static ENUM_HIGHER_PUNCT = new Set(['。', '！', '？', '…', ',', '!', '?', ';', '.']);
+  private static ENUM_HIGHER_PUNCT = new Set(subtitleRules.enum.higher_punct);
   // 枚举结束判定的谓词/主语引导词（常见分句起始字，启发式）
-  private static ENUM_PREDICATE_STARTERS = new Set(['那', '这', '我', '就', '便', '都', '也', '很', '更', '将', '会', '要', '能', '可', '是', '有', '为']);
-  private static LEADING_PUNCT = new Set(['，', '、', '。', '！', '？', '；', ',', '!', '?', ';', '.']);
-  private static TRAILING_PUNCT = new Set(['。', '！', '？', '；', '，', '、', '.', '!', '?', ';', '…']);
-  private static QUOTE_PAIRS: [string, string][] = [
-    ['\u201c', '\u201d'], ['\u2018', '\u2019'], ['\u300c', '\u300d'], ['\u300e', '\u300f'],
-    ['\u300a', '\u300b'], ['\uff08', '\uff09'], ['\u3010', '\u3011'], ['[', ']'],
-    ['"', '"'], ["'", "'"],
-  ];
-  private static LEFT_QUOTES = new Set(SubtitleSegmenter.QUOTE_PAIRS.map((q) => q[0]));
-  private static RIGHT_QUOTES = new Set(SubtitleSegmenter.QUOTE_PAIRS.map((q) => q[1]));
-  private static QUOTE_MAP = new Map<string, string>(SubtitleSegmenter.QUOTE_PAIRS);
+  private static ENUM_PREDICATE_STARTERS = new Set(subtitleRules.enum.predicate_starters);
+  private static ENUM_CONNECTORS = new Set(subtitleRules.enum.connectors);
+  private static LEADING_PUNCT = new Set(subtitleRules.leading_punct);
+  private static TRAILING_PUNCT = new Set(subtitleRules.trailing_punct);
+  private static QUOTE_PAIRS = subtitleRules.quote_pairs as [string, string][];
+  private static LEFT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[0]));
+  private static RIGHT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[1]));
+  private static QUOTE_MAP = new Map<string, string>(subtitleRules.quote_pairs as [string, string][]);
 
   constructor(
     config?: Partial<SubtitleSegmentationConfig>,
