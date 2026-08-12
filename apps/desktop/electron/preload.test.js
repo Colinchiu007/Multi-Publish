@@ -33,11 +33,13 @@ beforeEach(() => {
   const { createAccountApi } = require('./preload/account')
   const { createSystemApi } = require('./preload/system')
   const { createIdentityApi } = require('./preload/identity')
+  const { createVideoCloneApi } = require('./preload/video-clone')
   api = {
     ...createPublishApi(ipcRenderer),
     ...createAccountApi(ipcRenderer),
     ...createSystemApi(ipcRenderer),
     ...createIdentityApi(ipcRenderer),
+    ...createVideoCloneApi(ipcRenderer),
   }
 })
 
@@ -153,6 +155,7 @@ describe('preload 子模块工厂函数', () => {
 
   it('createIdentityApi 应为函数', () => {
     const { createIdentityApi } = require('./preload/identity')
+  const { createVideoCloneApi } = require('./preload/video-clone')
     expect(typeof createIdentityApi).toBe('function')
   })
 
@@ -202,8 +205,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(140)
   })
 
-  it('合并后 api 总键数应为 270', () => {
-    expect(Object.keys(api).length).toBe(270)
+  it('合并后 api 总键数应为 271（含 videoClone 命名空间）', () => {
+    expect(Object.keys(api).length).toBe(271)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
@@ -573,9 +576,11 @@ describe('preload 动态许可证权限', () => {
     const { requiredLevelForChannel } = require('./ipc-handlers/license-access-control')
 
     for (const methodName of PUBLIC_METHODS) {
-      expect(api).toHaveProperty(methodName)
+    const resolvePath = (obj, p) => p.split('.').reduce((o, k) => (o ? o[k] : undefined), obj)
+      const fn = resolvePath(api, methodName)
+      expect(fn, methodName).toBeTypeOf('function')
       ipcRenderer.invoke.mockClear()
-      api[methodName](vi.fn(), vi.fn(), vi.fn())
+      fn(vi.fn(), vi.fn(), vi.fn())
 
       for (const [channel] of ipcRenderer.invoke.mock.calls) {
         expect(requiredLevelForChannel(channel), `${methodName} -> ${channel}`).toBe('public')
