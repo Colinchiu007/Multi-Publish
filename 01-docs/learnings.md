@@ -21,7 +21,7 @@
 - **审查修复（Claude 双轮只读审查反哺）**：M1 仅成功拉取才归一化/替换列表，IPC 瞬时失败保留旧值（防表单数据丢失）；M2 视频生成器空下拉/陈旧值对齐图片；W1 语音空态引导提示（不显示「无」避免与 Edge TTS 重复空 value）；m3/I1 `_s2vAlive` 卸载守卫覆盖 `loadS2VProviders` 与 `loadS2VVoiceData`；W2 验证 `#/model-providers` 链接在 hash 路由下有效。
 - **回归保护**：CreateView.test.js 新增 6 用例（空列表「无」+ 提示、弹窗关闭后刷新且音色克隆可用、陈旧 provider 清空、IPC 失败保留旧值、视频空态、语音空态引导）；137/137 全绿；vite build 通过；Claude 复审闭合后 Approve。
 - **预防措施**：① 依赖模型配置的页面必须对「设置弹窗/路由等外部配置变更」建立刷新信号（复用 settings-dialog revision），禁止只依赖 mounted 一次性加载；② 所有能力下拉必须有空状态占位与提示断言；③ UI 重构改 class 时必须同步搜索测试断言；④「拉取失败」与「确实无配置」必须区分——失败保留旧值，禁止用空态文案覆盖临时故障。
->>>>>>> origin/main
+
 
 ## 视频提示词优化引擎 video 领域接入复盘 (2026-08-12)
 
