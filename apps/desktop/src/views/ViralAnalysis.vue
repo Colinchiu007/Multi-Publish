@@ -222,6 +222,7 @@
 <script>
 import { viralAnalyze, viralGenerate } from '@/api/publisher'
 import UiButton from '../components/UiButton.vue'
+import { formatUserError } from '@/utils/user-facing-error'
 export default {
   
   components: { UiButton },
@@ -260,10 +261,10 @@ export default {
         if (res?.code === 0) {
           this.result = res.data
         } else {
-          this.result = { overall_score: 0, error: res?.message || '分析失败' }
+          this.result = { overall_score: 0, error: formatUserError(res, { fallback: '分析失败' }).message }
         }
       } catch (err) {
-        this.result = { overall_score: 0, error: err.message }
+        this.result = { overall_score: 0, error: formatUserError(err, { fallback: '分析失败' }).message }
       } finally {
         this.loading = false
       }
@@ -285,7 +286,7 @@ export default {
           this.genResult = res.data
         }
       } catch (err) {
-        this.genResult = { task: 'titles', error: err.message }
+        this.genResult = { task: 'titles', error: formatUserError(err, { fallback: '标题生成失败' }).message }
       } finally {
         this.loading = false
       }

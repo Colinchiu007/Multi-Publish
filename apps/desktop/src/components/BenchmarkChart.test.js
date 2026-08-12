@@ -54,7 +54,7 @@ describe("BenchmarkChart", () => {
     const w = mount(BenchmarkChart, { props: { title: "\u6d4b\u8bd5\u6587\u7ae0\u6807\u9898" } });
     await nextTick();
     await new Promise(function(r) { return setTimeout(r, 50); });
-    expect(w.text()).toContain("API");
+    expect(w.text()).toContain("\u989d\u5ea6");
   });
 
   it("renders error state when API throws", async () => {

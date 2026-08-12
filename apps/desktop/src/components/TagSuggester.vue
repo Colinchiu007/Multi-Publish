@@ -76,6 +76,7 @@ import { ref, watch, onBeforeUnmount } from 'vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { ElMessage } from 'element-plus'
 import { intelligenceSuggestTags } from '@/api/publisher'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const props = defineProps({
   content: { type: String, required: true },
@@ -117,7 +118,7 @@ watch(() => props.content, (newVal) => {
         suggestions.value = { keywords: [], relatedTerms: [], byPlatform: {} }
       }
     } catch (e) {
-      error.value = '标签分析失败: ' + e.message
+      error.value = '标签分析失败: ' + formatUserError(e, { fallback: '未知错误' }).message
       suggestions.value = null
     } finally {
       loading.value = false

@@ -15,6 +15,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { formatUserError } from '@/utils/user-facing-error'
 
 export const useBacklotStore = defineStore('backlot', () => {
   // ─── State ───
@@ -73,7 +74,7 @@ export const useBacklotStore = defineStore('backlot', () => {
       }
       return projects.value
     } catch (e) {
-      error.value = e && e.message ? e.message : String(e)
+      error.value = formatUserError(e, { fallback: '项目操作失败' }).message
       projects.value = []
       return []
     } finally {
@@ -98,7 +99,7 @@ export const useBacklotStore = defineStore('backlot', () => {
       }
       return true
     } catch (e) {
-      error.value = e && e.message ? e.message : String(e)
+      error.value = formatUserError(e, { fallback: '项目操作失败' }).message
       return false
     }
   }
@@ -122,7 +123,7 @@ export const useBacklotStore = defineStore('backlot', () => {
       }
       return res
     } catch (e) {
-      error.value = e && e.message ? e.message : String(e)
+      error.value = formatUserError(e, { fallback: '项目操作失败' }).message
       return null
     }
   }
@@ -164,7 +165,7 @@ export const useBacklotStore = defineStore('backlot', () => {
       }
       return null
     } catch (e) {
-      error.value = e && e.message ? e.message : String(e)
+      error.value = formatUserError(e, { fallback: '项目操作失败' }).message
       return null
     }
   }
@@ -206,7 +207,7 @@ export const useBacklotStore = defineStore('backlot', () => {
       pendingApprovals.value = pendingApprovals.value.filter(a => a && a.id !== approvalId)
       return true
     } catch (e) {
-      error.value = e && e.message ? e.message : String(e)
+      error.value = formatUserError(e, { fallback: '项目操作失败' }).message
       return false
     }
   }
@@ -228,7 +229,7 @@ export const useBacklotStore = defineStore('backlot', () => {
       pendingApprovals.value = pendingApprovals.value.filter(a => a && a.id !== approvalId)
       return true
     } catch (e) {
-      error.value = e && e.message ? e.message : String(e)
+      error.value = formatUserError(e, { fallback: '项目操作失败' }).message
       return false
     }
   }

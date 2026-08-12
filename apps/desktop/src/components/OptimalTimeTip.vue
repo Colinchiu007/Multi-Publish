@@ -76,6 +76,7 @@
 <script setup>
 import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { intelligenceGetOptimalTime } from '@/api/publisher'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const props = defineProps({
   keyword: { type: String, required: true },
@@ -134,7 +135,7 @@ watch(() => props.keyword, (newVal) => {
         notEnoughData.value = true
       }
     } catch (e) {
-      error.value = '分析失败: ' + e.message
+      error.value = '分析失败: ' + formatUserError(e, { fallback: '未知错误' }).message
     } finally {
       loading.value = false
     }

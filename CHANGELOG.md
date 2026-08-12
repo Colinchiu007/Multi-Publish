@@ -113,6 +113,14 @@
 - 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
 - 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
 
+## [未发布] 文档：提示文字规范独立成册 + 补齐契约类文档（2026-08-12）
+
+- 新增独立规范 `01-docs/PROMPT-TEXT-SPEC.md`：语言解析规则、主进程错误返回契约、formatUserError 解析顺序、完整提示文字表（zh/en）、显示项与交互、**多语言覆盖现状与差距审计**（含存量硬编码中文 i18n 分批推进计划）、测试验收、维护 Checklist。
+- `01-docs/DESIGN.md` 新增「Copy & Microcopy（交互文案分册）」：写作原则、四类文案口径（错误/警告/成功/引导）、渲染约束。
+- 修复审计发现的遗漏直出路径：主进程 `model-provider-manager.js` 2 处 `Store not initialized` 补 `errorCode` + 自然语言；渲染端 8 文件（Accounts/Monitor/Collection/ContactSheetView/ViralAnalysis/CloudPublish/useProviderCrud/templates/backlot）+ 面板组件（TrendingPanel/TitleAssistantPanel/TagSuggester/OptimalTimeTip/KeywordMonitorPanel/BenchmarkChart/AiWriterPanel）+ CreateView 音色目录/quickError + useBatchPublish 进度文本统一接入 `formatUserError`。
+- 测试：受影响 14 文件 372 项全绿（CreateView 3 项为基线预存失败，stash 验证）；更新 BenchmarkChart/Accounts/Monitor 断言（网络/额度错误映射后文案）。
+- 文档：PRD §3.2 增加指向独立规范；CHANGELOG。
+
 ## [未发布] 功能：用户提示文字统一为多语言自然语言（原因 + 建议）（2026-08-11）
 
 - 根因：主进程 `license-access-control.js` 把内部 IPC 通道名直接拼进 message（如「当前许可证无权访问 store:list-publish-history」），渲染端多个视图直接把 `result.message`/`e.message` 原样展示。
