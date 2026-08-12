@@ -245,6 +245,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 ```
 split（分句）→ domain_enrich（历史内容领域增强，可选）
+  → scene_context（场景上下文增强中间层，2026-08-11：读完整文案提取全局故事背景并融合进每个场景，注入时代/地域/角色/道具/风格锚点与时代负面锚点，供 optimize 逐场景携带；详见 PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md）
   → optimize（story2video_optimize）＝ 逐场景调用 prompt-engine POST /v1/optimize
        ├─ 1. 无实质内容守卫：纯数字/纯符号/过短文案直接透传原文（skipped_optimize=true），不调用服务
        ├─ 2. 请求构造：platform/style 别名归一 + 边界收敛 + auto_detect_style + context
