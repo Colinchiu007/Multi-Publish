@@ -4,6 +4,16 @@
 
 ---
 
+## 百家号新增账号登录窗口未登录即关闭复盘 (2026-08-12)
+
+- **表象**：账号管理 → 新增账号 → 选择「百家号」→ 弹出网页登录，还没来及登录页面就消失；账号管理首页随即出现该百家号账号，给人「新增成功」的错觉。
+- **根因溯源**：`PLATFORM_LOGIN_SUCCESS_PATTERNS.baijiahao = ['baijiahao.baidu.com']` 是**裸域名模式**。未登录访问 `https://baijiahao.baidu.com/` 会 302 到 `http://baijiahao.baidu.com/pcui/register/index`，最终落在 `https://baijiahao.baidu.com/builder/theme/bjh/login`（登录/注册页，与创作后台**同域**）。`isPlatformLoginSuccessUrl` 只排除精确登录路径 `/`，无法排除同域登录页重定向路径 → 登录页自身命中「登录成功」。AuthViewManager 的 `did-navigate` 监听从视图打开即生效，3 秒后 `_extractAuthData` 提取到预登录跟踪 Cookie（BAIDUID 等），`hasCapturedCredentials` 只要有任意 Cookie 就判定有凭证 → `_settleLogin` 关闭视图；`auth:open-login` IPC handler 在 resolve 后无条件 `saveCapturedAccount` 入库并回「账号添加成功」。
+- **逃逸链**：① platform-definitions 单测只断言「精确登录 URL 非成功」（`never treats a configured initial login URL`），未覆盖平台登录页的**重定向路径**；② auth-view-manager 单测只覆盖 wechat_mp 的 URL 匹配与凭证边界，未测「登录页重定向链 + 预登录 Cookie → 自动完成」；③ qrcode-login 单测导航事件未按真实时序建模（直接 did-navigate，无 did-finish-load 前置）；④ 真实平台登录属外部验收，CI 不覆盖；⑤ 审查未做真实网络验证，裸域名模式被当作合理配置。
+- **系统性漏洞**：① 登录成功判定=「URL 命中模式」+「有任意 Cookie」双重弱信号，且 URL 检测无「初始加载完成前」的阶段门；② 平台登录页与后台同域时（baijiahao/douyin/xiaohongshu/toutiao 等裸 host 模式），URL 嗅探本质不可靠却仍开启自动完成；③ 登录会话成功入库前缺少「真实登录态凭证」判定。
+- **修复 + 回归保护**：① 百家号成功模式清空（fail-closed），改由用户点击「我已完成登录」（`auth:complete-login`）在提取到真实凭证后入库；② `AuthViewManager`/`QrCodeLogin` 增加 `initialRedirectPhase` 守卫：登录页首次 `did-finish-load` 前的重定向链一律不判定登录成功；③ CDP 回调同步加守卫（bilibili 真实登录信号在 did-finish-load 之后，不受影响）；④ 回归测试：platform-definitions 新增百家号预登录路径全 false 契约、auth-view-manager 新增初始加载守卫 + openLogin 真实接线测试、qrcode-login 修正事件时序并新增守卫测试。
+- **预防措施**：① 平台登录页与创作后台同域时禁止用裸 hostname 作为登录成功模式（fail-closed 走手动确认）；② URL 自动完成必须跳过「初始加载完成前」的导航（登录页自身重定向链不可能包含登录成功信号）；③ 新增/修改平台登录判定时必须用真实网络请求验证未登录时的重定向链（`curl -L -w '%{url_effective}'`），并断言登录/注册页路径非成功；④ 「登录成功」判定应双信号（URL/DOM 信号 + 真实登录态凭证），不能只凭任意 Cookie。
+- **遗留（受限后续项）**：手动「我已完成登录」路径的 `hasCapturedCredentials` 仍把预登录跟踪 Cookie 当凭证——因百家号真实登录态 Cookie（BDUSS）位于 `.baidu.com` 域，被平台 Cookie 域过滤排除，严格 Cookie 名校验会破坏真实登录，故不在此次改动；后续可加「当前仍在登录页时拒绝完成」的交互提示。
+
 ## main CI 既有失败修复复盘：测试断言未随模板重构同步 + Electron 二进制冷启动进入 smoke hook 预算 (2026-08-12)
 
 - **根因溯源**：① `CreateViewHistory.vue` 在 §7.1.33「视频创作模块UI/UX深度优化」把历史按钮类从 `.history-btn.*` 统一为 `.s2v-btn-*`（`video-creation-buttons.css` 明确「消除 btn-secondary / history-btn / 原生 button 混用」），但 `CreateView.test.js` 4 处 `.history-btn.open/.resume` 断言未同步 → 3 用例失败（历史记录打开 / 从断点继续 / 继续生成）。② `build.yml` 的 Startup smoke 在 `npm ci` 后直接 `test:startup`；electron@43 无 postinstall，首次 `require('electron')` 链触发「Downloading Electron binary...」，Windows 冷 runner 下超过 vitest 默认 10s `hookTimeout`。

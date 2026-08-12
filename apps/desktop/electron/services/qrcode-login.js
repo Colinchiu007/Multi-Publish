@@ -100,6 +100,8 @@ class QrCodeLogin {
         cancelled: false,
         cleaned: false,
         phase: 'waiting',
+        // 登录页首次加载完成前（初始 URL 自身的重定向链）不可能是登录成功信号。
+        initialRedirectPhase: true,
         scanTimer: null,
         loginTimeout: null,
         extractTimer: null,
@@ -142,12 +144,15 @@ class QrCodeLogin {
       // 页面加载后开始检测 QR 码
       view.webContents.on('did-finish-load', () => {
         if (!this._isSessionActive(loginSession)) return
+        // 初始重定向链结束，此后导航才可能是用户登录成功的信号
+        loginSession.initialRedirectPhase = false
         log.info('QrCodeLogin', `Page loaded for ${platform}, starting QR detection`)
         this._startQrDetection(loginSession)
       })
 
-      // 监听导航检测登录完成
+      // 监听导航检测登录完成（初始加载完成前的重定向链不判定登录成功）
       view.webContents.on('did-navigate', (event, url) => {
+        if (loginSession.initialRedirectPhase) return
         this._checkLoginCompleted(url, loginSession)
       })
 

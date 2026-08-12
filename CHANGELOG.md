@@ -1,3 +1,9 @@
+## [未发布] 修复：百家号新增账号登录窗口未登录即关闭 + 无效账号提前入库（2026-08-12）
+
+- 根因：`PLATFORM_LOGIN_SUCCESS_PATTERNS.baijiahao` 为裸域名模式，未登录访问 `https://baijiahao.baidu.com/` 会 302 到同域登录/注册页 `/pcui/register/index`、`/builder/theme/bjh/login`，被 `isPlatformLoginSuccessUrl` 误判为「登录成功」；AuthViewManager 3 秒后提取到预登录跟踪 Cookie 判定有凭证即自动完成 → 关闭登录视图，`auth:open-login` 随即把只有无效凭证的百家号账号入库，账号列表立即显示「新增成功」。
+- 修复：① 百家号关闭 URL 自动完成（模式清空，fail-closed），改由用户点击「我已完成登录」（`auth:complete-login`）在提取到真实凭证后入库；② `AuthViewManager`/`QrCodeLogin` 增加初始加载守卫（`initialRedirectPhase`），登录页首次 `did-finish-load` 前的重定向链一律不判定登录成功（douyin/xiaohongshu/toutiao 等裸 host 模式平台同类防护）；③ CDP 回调同步加守卫。
+- 回归：platform-definitions 6、auth-view-manager+qrcode-login 28、account IPC/account-manager/auth-view-session/auth-view-cdp 82、shared-utils 全量 231、桌面全量 7095/7099（4 个失败为 videogen-stages 基线预存，stash 对比证实）；QM-1 `electron-builder --win --x64` exit 0，ASAR 含修复文件，打包应用启动 10s 窗口句柄有效。
+
 ## [未发布] 修复：补 story2video.summaryDuration/summaryFileSize locale 缺键（2026-08-12）
 
 - CreateView 完成摘要行使用 `story2video.summaryDuration` / `story2video.summaryFileSize` 键但 zh/en locale 缺失，产生 intlify 警告（此前仅靠硬编码兜底）。补两个命名插值键（`ctx.named('text')` / `ctx.named('size')`），`CreateView.vue` 两处调用补传 `{ text }` / `{ size }` 参数。
