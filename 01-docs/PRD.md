@@ -9,7 +9,10 @@
   分句保持纯文本驱动；时间戳来源三级：Tier 1 TTS 词边界事件（当前 MiniMax t2a_v2 不提供，预留）；
   Tier 2 对生成的旁白音频做 ASR 强制对齐（faster-whisper word_timestamps / aeneas，按分句结果聚合词级时间）；
   Tier 3 现状比例估算（仅音频生成前的预览，标注为估算）。渲染期用真实对齐结果替换估算时间戳。
-**Tier 2 ASR 对齐（已实施，2026-08-12）**：`packages/audio-aligner/`（FastAPI :8004，faster-whisper base，词级时间戳）+ `story2video-engine/src/subtitle-aligner.ts`（词级时间 → 分句块聚合：Levenshtein 容差匹配、区间连续 half-up、失败块回退估算并告警）+ `aligner-bridge.js`（BasePythonBridge 模式）。真实 E2E：edge-tts 合成旁白 → 55 词 / 15.72s（ffprobe 一致）→ 7 字幕块 100% 命中真实时间。stage 接线（已接入，2026-08-12）：`story2video-stages.js` TTS 资产生成后调用 `alignScenes`（并发 2 路，
+**Tier 2 ASR 对齐（已实施，2026-08-12）**：`packages/audio-aligner/`（FastAPI :8004，faster-whisper base，词级时间戳）+ `story2video-engine/src/subtitle-aligner.ts`（词级时间 → 分句块聚合：Levenshtein 容差匹配、区间连续 half-up、失败块回退估算并告警）+ `aligner-bridge.js`（BasePythonBridge 模式）。真实 E2E：edge-tts 合成旁白 → 55 词 / 15.72s（ffprobe 一致）→ 7 字幕块 100% 命中真实时间。**停顿吸附（silence-snap，2026-08-12）**：aligner 用 ffmpeg silencedetect 独立检测停顿区间，
+把落在/覆盖停顿的词起点吸附到停顿结束（`lead_tolerance=0.30s`），修复 whisper 功能词吸收停顿导致的提前
+（实测 `那` 4.40→4.82、`处` 6.92→7.03、`慢慢` 13.74→14.08，全部对齐静音结束）；块级时间定位因此与 ASR 解耦、
+由音频停顿独立锚定，<200ms 验收按块级粒度达成（词级绝对误差仍可人工抽样）。stage 接线（已接入，2026-08-12）：`story2video-stages.js` TTS 资产生成后调用 `alignScenes`（并发 2 路，
 fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTimings）与 `subtitleAlign = { aligned, method, coverage, reason, elapsedMs }`
 （随场景持久化，`aligner_unavailable`/`asr_no_words`/超时等失败保留估算时间轴）；aligner 未部署时 fail-fast 跳过（不 spawn、不阻塞流水线）。
 

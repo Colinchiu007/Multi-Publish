@@ -54,3 +54,46 @@ def test_align_transcribe_error(client, monkeypatch):
     r = client.post("/align", json={"audio_path": "C:/tmp/vo.mp3"})
     assert r.status_code == 500
     assert "boom" in r.json()["detail"]
+
+
+class TestSilenceSnap:
+    def test_snap_function_word_after_pause(self):
+        from aligner.core import snap_words_to_silence
+        words = [
+            {"text": "料", "start": 4.20, "end": 4.40},
+            {"text": "那", "start": 4.40, "end": 4.90},  # 起点落在停顿内 → 吸附到 4.82
+            {"text": "可", "start": 4.90, "end": 5.06},
+        ]
+        snaps = [(4.51, 4.82)]
+        out = snap_words_to_silence(words, snaps)
+        assert out[1]["start"] == 4.82
+        assert out[0]["start"] == 4.20  # 停顿外的词不变
+        assert words[1]["start"] == 4.40  # 不修改入参
+
+    def test_snap_small_drift_and_no_overlap(self):
+        from aligner.core import snap_words_to_silence
+        words = [
+            {"text": "盐", "start": 3.38, "end": 3.64},
+            {"text": "巴", "start": 3.64, "end": 3.84},
+        ]
+        snaps = [(2.94, 3.52)]
+        out = snap_words_to_silence(words, snaps)
+        assert out[0]["start"] == 3.52
+        assert out[1]["start"] == 3.64
+
+    def test_detect_silences_parse(self):
+        from aligner.core import detect_silences
+        # 用 mock subprocess 返回 ffmpeg 文本
+        class FakeProc:
+            stderr = (
+                "[silencedetect] silence_start: 1.92983\n"
+                "[silencedetect] silence_end: 2.38233 | silence_duration: 0.4525\n"
+            )
+        import aligner.core as core
+        orig = core.subprocess.run
+        core.subprocess.run = lambda *a, **k: FakeProc()
+        try:
+            intervals = detect_silences("x.mp3", ffmpeg_path="ffmpeg")
+        finally:
+            core.subprocess.run = orig
+        assert intervals == [(1.92983, 2.38233)]

@@ -313,3 +313,63 @@ describe('段落化与对齐工具', () => {
     expect(assessVisualConsistency()).toEqual({ status: 'not_implemented' })
   })
 })
+
+describe('storyboard 鲁棒性加固（fidelity 输出预算 + JSON 失败重试）', () => {
+  function fidelityCtx () {
+    const shortText = '关羽与刘备在三国志中有记载。曹操评价关羽。关羽水淹七军。'
+    return {
+      stage: { kind: 'animation' },
+      params: {},
+      context: {
+        params: { text: shortText },
+        concept: {
+          concept: { visual_style: '历史纪实' },
+          topic: shortText,
+          storyboardMode: 'fidelity',
+          key_facts: ['关羽水淹七军'],
+          entities: ['关羽', '刘备', '曹操', '三国志', '水淹七军'],
+        },
+      },
+    }
+  }
+
+  it('fidelity storyboard 显式放大输出预算到 8000 tokens', async () => {
+    const ai = makeAi(JSON.stringify([
+      { prompt: '关羽率军北伐，水淹七军', text: 't', duration: 5 },
+      { prompt: '三国志记载曹操与刘备', text: 't', duration: 5 },
+      { prompt: '关羽', text: 't', duration: 5 },
+      { prompt: '刘备', text: 't', duration: 5 },
+    ]))
+    const { get } = makePipeline(ai)
+    const result = await get(VIDEOGEN_STAGE_TYPES.STORYBOARD)(fidelityCtx())
+    expect(result.success).toBe(true)
+    expect(ai.generateWithDefault.mock.calls[0][1].max_tokens).toBe(8000)
+  })
+
+  it('storyboard JSON 解析失败时重试，第二次成功', async () => {
+    const ai = makeAi('x')
+    ai.generateWithDefault
+      .mockReturnValueOnce({ content: '这不是 JSON，模型输出了多余文字，可能被截断。' })
+      .mockReturnValueOnce({ content: JSON.stringify([
+        { prompt: '关羽率军北伐，水淹七军', text: 't', duration: 5 },
+        { prompt: '三国志记载曹操与刘备', text: 't', duration: 5 },
+        { prompt: '关羽', text: 't', duration: 5 },
+        { prompt: '刘备', text: 't', duration: 5 },
+      ]) })
+    const { get, pipeline } = makePipeline(ai)
+    const result = await get(VIDEOGEN_STAGE_TYPES.STORYBOARD)(fidelityCtx())
+    expect(result.success).toBe(true)
+    expect(ai.generateWithDefault).toHaveBeenCalledTimes(2)
+    expect(pipeline.log.info).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('JSON 解析失败'))
+  })
+
+  it('storyboard JSON 连续失败（重试耗尽）→ fail closed', async () => {
+    const ai = makeAi('x')
+    ai.generateWithDefault.mockReturnValue({ content: '非 JSON 输出' })
+    const { get } = makePipeline(ai)
+    const result = await get(VIDEOGEN_STAGE_TYPES.STORYBOARD)(fidelityCtx())
+    expect(result.success).toBe(false)
+    expect(result.errorCode).toBe('STORYBOARD_EMPTY_SCENES')
+    expect(ai.generateWithDefault.mock.calls.length).toBeGreaterThan(1)
+  })
+})

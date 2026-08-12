@@ -67,3 +67,27 @@
 - `ops-center/docs/PRD.md §12A.22`（主 PRD 章节，详细版）
 - 架构文档：`01-docs/ARCH-PROMPT-EVAL-OPS-WORKBENCH-2026-08-12.md`（实施前产出）
 - OpenSpec：`openspec/changes/prompt-eval-ops-workbench/`（实施前建 change）
+
+---
+
+## 11. 场景层评测工作流（2026-08-12 调整）
+
+> 详细见 `ops-center/docs/PRD.md §12A.22.16-21`。
+
+### 11.1 目标
+运营人员**输入整篇文案原文**，后台按**桌面端分句机制**（text-segmentation.ts / smart-sentence-splitter 8002 契约）拆成场景层；每场景自动展示：**场景文字 / 字幕二次分句 / 场景上下文 / 优化后提示词（中英对照）**，可逐场景「生成图片」（复用既有生成→评估流程，生成部分不变）。
+
+### 11.2 流程
+输入整篇文案 → 后台分句（场景级 + 字幕二次分句 + 场景上下文）→ 场景层列表 → 逐场景生成/展示中英优化提示词 → 逐场景「生成图片」→ 生成物 + 评估结果 → 多 run 对比 / 聚合分析。
+
+### 11.3 数据与接口
+- 新增 `prompt_eval_scenes`（scene_text / subtitle_blocks / scene_context / prompt_zh / prompt_en / source）；`prompt_eval_cases.source_mode`（manual|scene）；`prompt_eval_runs.scene_id`（可空）。
+- `POST /cases`（scene 模式，分句配置 target_chars_per_scene 默认 20 / subtitle 8-15 / proportional）、`GET /cases/{id}`（含 scenes）、`POST /cases/{id}/scenes/{sid}/translate`、`POST /cases/{id}/scenes/{sid}/runs`。
+
+### 11.4 复用桌面端分句机制
+- ops-center 后端 Python 分句实现，语义对齐桌面端 `text-segmentation.ts`；**一致性测试**用 node 加载桌面端模块对同一输入断言 scenes/subtitle_blocks 一致。
+- 场景上下文按 `story-context-engine.js` 语义（白名单键）。
+- 优化提示词：后台 LLM 按「整篇原文+场景文字+场景上下文」生成中文 + 翻译英文（机器翻译标注，幂等，支持编辑覆盖）。
+
+### 11.5 验收（增补）
+分句一致性测试通过；每场景四区展示 + 生成图片/评估可用；分句失败明确报错不降级；场景数上限 50；既有 12A.22 验收不回归。

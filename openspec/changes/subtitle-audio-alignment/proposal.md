@@ -60,4 +60,5 @@ created: 2026-08-12
 - ✅ Electron bridge：`apps/desktop/electron/services/aligner-bridge.js`（BasePythonBridge 模式，:8004，5min 超时）+ 契约测试；
 - ✅ 真实验证：edge-tts 合成旁白 → ASR 55 词 / 15.72s（ffprobe 一致）→ 7 块全部命中（coverage 100%），真实时间替代估算；
 - ⏳ 流水线 stage 接线（TTS 后、合成前调用 + aligned 持久化）：bridge 与聚合器就绪，stage 文件由并发工作流占用，接线留待下一步；
-- 待决策：绝对误差 <200ms 需人工标注抽样（edge-tts 免费端点无 WordBoundary 真值）；ASR 模型可切 large-v3 提升精度。
+- ✅ **停顿吸附（silence-snap，2026-08-12）**：ffmpeg silencedetect 独立检测停顿，把落在/覆盖停顿的词起点吸附到停顿结束——修复 whisper 功能词吸收停顿导致的提前（如 `那` 4.40→4.82、`处` 6.92→7.03、`慢慢` 13.74→14.08，均与静音表一致）；
+- **<200ms 验收结论**：块级时间定位已由独立停顿检测锚定（非 ASR 自证）；edge-tts 免费端点无 WordBoundary，词级绝对误差仍建议人工标注抽样（或按块级字幕显示粒度验收）；ASR 模型可切 large-v3 提升精度。
