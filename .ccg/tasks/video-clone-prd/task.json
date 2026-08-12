@@ -1,0 +1,12 @@
+{
+  "id": "video-clone-prd",
+  "title": "视频克隆产品需求细化（PM 技能应用）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "product",
+  "currentPhase": "planning",
+  "nextAction": "需求已确认（§8 拍板）；下一步 /opsx:propose + /create-plan",
+  "createdAt": "2026-08-12T00:00:00Z",
+  "branch": "main"
+}

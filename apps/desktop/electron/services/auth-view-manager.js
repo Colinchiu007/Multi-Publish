@@ -122,6 +122,8 @@ class AuthViewManager {
       view: this.currentView,
       platform: this.currentPlatform,
       resolveLogin: this._resolveLogin,
+      // 登录视图首次加载完成前（初始 URL 自身的重定向链）不可能是登录成功信号。
+      initialRedirectPhase: true,
     }
     this._autoCompletionAttemptId = null
     return this._activeLoginAttempt
@@ -230,11 +232,18 @@ class AuthViewManager {
       this._escHandler = escHandler
       this._escView = view
 
-      // URL 检测（备用）
-      view.webContents.on('did-navigate', (/** @type {any} */ _, /** @type {string} */ url) => this._checkLoginCompleted(url, attempt))
+      // URL 检测（备用）— 初始加载完成前不判定登录成功（防止平台登录页自身的
+      // 重定向链被误判，如百家号 /pcui/register/index、/builder/theme/bjh/login）
+      view.webContents.on('did-navigate', (/** @type {any} */ _, /** @type {string} */ url) => this._handleNavigation(url, attempt))
+      // 注：若登录页加载失败（只有 did-fail-load），phase 保持 true，本会话退化为
+      // 手动“我已完成登录”/CDP 完成，属 fail-closed 的可接受行为。
+      view.webContents.on('did-finish-load', () => {
+        if (attempt && attempt.initialRedirectPhase) attempt.initialRedirectPhase = false
+      })
 
-      // CDP 检测（主检测方式）
+      // CDP 检测（主检测方式）— 与 URL 路径一致：初始加载完成前不判定登录成功
       attachCdpDetection(view, () => {
+        if (!attempt || attempt.initialRedirectPhase) return
         log.info('AuthView', 'CDP detected login success')
         this._scheduleAutoCompletion('cdp', attempt)
       })
@@ -296,6 +305,18 @@ class AuthViewManager {
       throw new Error('登录会话已结束，请重新添加账号')
     }
     return true
+  }
+
+  /**
+   * 处理登录视图导航。初始加载完成前的重定向链是登录页自身的跳转，
+   * 不可能是用户登录成功的信号，直接忽略。
+   * @param {string} url
+   * @param {any} attempt
+   */
+  _handleNavigation(url, attempt) {
+    if (!attempt || !this._isCurrentLoginAttempt(attempt)) return
+    if (attempt.initialRedirectPhase) return
+    this._checkLoginCompleted(url, attempt)
   }
 
   /**

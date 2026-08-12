@@ -132,6 +132,7 @@ describe('QrCodeLogin 凭证边界', () => {
     qrCodeLogin.setMainWindow(createMainWindow())
     vi.spyOn(qrCodeLogin, '_extractAuthData').mockReturnValue(extract.promise)
     const errorPromise = qrCodeLogin.openLogin('wechat_mp', 0).catch(error => error)
+    createdViews[0].handlers['did-finish-load']({})
     createdViews[0].handlers['did-navigate']({}, 'https://mp.weixin.qq.com/cgi-bin/home')
     await vi.advanceTimersByTimeAsync(2000)
 
@@ -156,6 +157,7 @@ describe('QrCodeLogin 凭证边界', () => {
       accountName: '公众号',
     })
     const errorPromise = qrCodeLogin.openLogin('wechat_mp', 0).catch(error => error)
+    createdViews[0].handlers['did-finish-load']({})
     createdViews[0].handlers['did-navigate']({}, 'https://mp.weixin.qq.com/cgi-bin/home')
     await vi.advanceTimersByTimeAsync(2000)
     expect(accountManager.saveCapturedAccount).toHaveBeenCalledTimes(1)
@@ -177,6 +179,7 @@ describe('QrCodeLogin 凭证边界', () => {
     qrCodeLogin.setMainWindow(createMainWindow())
     vi.spyOn(qrCodeLogin, '_extractAuthData').mockReturnValueOnce(extract.promise)
     const firstError = qrCodeLogin.openLogin('wechat_mp', 0).catch(error => error)
+    createdViews[0].handlers['did-finish-load']({})
     createdViews[0].handlers['did-navigate']({}, 'https://mp.weixin.qq.com/cgi-bin/home')
     await vi.advanceTimersByTimeAsync(2000)
 
@@ -202,6 +205,7 @@ describe('QrCodeLogin 凭证边界', () => {
       accountName: '公众号',
     })
     const loginPromise = qrCodeLogin.openLogin('wechat_mp', 0)
+    createdViews[0].handlers['did-finish-load']({})
     const navigate = createdViews[0].handlers['did-navigate']
 
     navigate({}, 'https://mp.weixin.qq.com/cgi-bin/home')
@@ -223,6 +227,7 @@ describe('QrCodeLogin 凭证边界', () => {
       accountName: '不应保存',
     })
     const loginPromise = qrCodeLogin.openLogin('wechat_mp', 0).catch(error => error)
+    createdViews[0].handlers['did-finish-load']({})
     const navigate = createdViews[0].handlers['did-navigate']
 
     navigate({}, 'https://evil.example/?next=https%3A%2F%2Fmp.weixin.qq.com%2Fcgi-bin%2Fhome')
@@ -265,5 +270,33 @@ describe('QrCodeLogin 凭证边界', () => {
     await expect(qrCodeLogin._extractAuthData(session)).resolves.toMatchObject({
       cookies: [{ name: 'valid', value: '1', domain: '.mp.weixin.qq.com' }],
     })
+  })
+
+  it('登录页初始加载完成前的导航不触发凭证提取（回归：登录页重定向链误判）', async () => {
+    const accountManager = createManager()
+    const qrCodeLogin = new QrCodeLogin({ accountManager })
+    qrCodeLogin.setMainWindow(createMainWindow())
+    const extractAuthData = vi.spyOn(qrCodeLogin, '_extractAuthData').mockResolvedValue({
+      cookies: [{ name: 'session', value: 'secret' }],
+      localStorage: {},
+      accountName: '公众号',
+    })
+    const loginPromise = qrCodeLogin.openLogin('wechat_mp', 0)
+    const handlers = createdViews[0].handlers
+
+    // 初始加载完成前：登录页重定向链中的“成功 URL”不得触发提取
+    handlers['did-navigate']({}, 'https://mp.weixin.qq.com/cgi-bin/home')
+    await vi.advanceTimersByTimeAsync(2500)
+    expect(extractAuthData).not.toHaveBeenCalled()
+    expect(accountManager.saveCapturedAccount).not.toHaveBeenCalled()
+
+    // 页面加载完成后：成功导航才触发提取并入库
+    handlers['did-finish-load']({})
+    handlers['did-navigate']({}, 'https://mp.weixin.qq.com/cgi-bin/home')
+    await vi.advanceTimersByTimeAsync(2500)
+    await loginPromise
+
+    expect(extractAuthData).toHaveBeenCalledTimes(1)
+    expect(accountManager.saveCapturedAccount).toHaveBeenCalledTimes(1)
   })
 })

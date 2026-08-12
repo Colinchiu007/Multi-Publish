@@ -1,10 +1,14 @@
+## [未发布] 修复：百家号新增账号登录窗口未登录即关闭 + 无效账号提前入库（2026-08-12）
+
+- 根因：`PLATFORM_LOGIN_SUCCESS_PATTERNS.baijiahao` 为裸域名模式，未登录访问 `https://baijiahao.baidu.com/` 会 302 到同域登录/注册页 `/pcui/register/index`、`/builder/theme/bjh/login`，被 `isPlatformLoginSuccessUrl` 误判为「登录成功」；AuthViewManager 3 秒后提取到预登录跟踪 Cookie 判定有凭证即自动完成 → 关闭登录视图，`auth:open-login` 随即把只有无效凭证的百家号账号入库，账号列表立即显示「新增成功」。
+- 修复：① 百家号关闭 URL 自动完成（模式清空，fail-closed），改由用户点击「我已完成登录」（`auth:complete-login`）在提取到真实凭证后入库；② `AuthViewManager`/`QrCodeLogin` 增加初始加载守卫（`initialRedirectPhase`），登录页首次 `did-finish-load` 前的重定向链一律不判定登录成功（douyin/xiaohongshu/toutiao 等裸 host 模式平台同类防护）；③ CDP 回调同步加守卫。
+- 回归：platform-definitions 6、auth-view-manager+qrcode-login 28、account IPC/account-manager/auth-view-session/auth-view-cdp 82、shared-utils 全量 231、桌面全量 7095/7099（4 个失败为 videogen-stages 基线预存，stash 对比证实）；QM-1 `electron-builder --win --x64` exit 0，ASAR 含修复文件，打包应用启动 10s 窗口句柄有效。
 ## [2026-08-12] 视频克隆 切片 4e：真实桌面 E2E 验收 + 权限放行
 
 - 权限放行：preload access-control（videoClone 命名空间 + 点号全名门控）与主进程 license-access-control（video-clone:* PUBLIC_CHANNELS）——本地分析流水线未登录可用（QM-2 回归：public 可调 onProgress、公开方法→公开通道闭环、api 键数 271）。
 - 可复用 E2E 脚本 apps/desktop/scripts/video-clone-e2e.js（Playwright _electron：样例 → #/video-clone → 分析 → 报告/相似度 → runs 落库 → 截图）。
 - 验收证据：打包应用真实运行：报告卡 VISIBLE（3s/320x240/16:9）、F4 综合分 1（needs_review=证据门控）、历史落库 vc-mspw1lou-4fkpcz.json、截图 01-docs/evidence/video-clone-e2e.png。
 - 外部验收边界不变（PENDING_EXTERNAL）：真实 provider 图/账号发布/平台下载需用户凭据。
-=======
 
 ## [2026-08-12] 运营后台提示词评测工作台：场景层评测工作流（codex/prompt-eval-scenes）
 
@@ -31,7 +35,6 @@
 - IPC：video-clone:pick-file（系统文件选择对话框）；preload/composable/视图接线「选择文件」。
 - 门禁：QM-2 sandbox 双模式 PASS（TRUE_OK/FALSE_OK/BOTH_MODES_OK）；QM-1 打包 exit 0 + 可见主窗口（MainWindowHandle=15729924）；engine 96 + desktop 新增 7 用例全绿。
 - PRD v1.6 §20；待 4d：真实 provider 图/账号发布外部验收、报告持久化 regenerate。
-=======
 
 ## [未发布] 修复：限流验证页加载模型预设解析（适配 {presets:[]} 响应）（2026-08-12）
 
@@ -64,7 +67,6 @@
 - `packages/video-clone-engine/src/adapters/`：generate-assets（createAssetPlan 逐镜头资产规格 + provider fail-closed 契约）、compose-ffmpeg（resolveTargetSize / buildAssScript ASS 字幕 / buildComposeCommand 纯函数 + createFfmpegCompose 执行与 ffprobe 校验）、publish（可选发布 skipped/成功/失败映射）、index（createSlice3Pipeline 六阶段组装）。
 - 测试 86 用例全绿（含真实 ffmpeg 合成 + 全链路 smoke：2s 样例 → 纯色 PNG → 合成 mp4 → ffprobe 校验 → F4 相似度；工具缺失自动 skip）。
 - PRD v1.3 §17 切片 3 详细规格（资产规划/命令构建/ASS 字幕/可选发布/集成验证）。
-=======
 
 ## [2026-08-12] 字幕对齐真实 E2E 集成验证（stage 接线链路）
 
@@ -94,7 +96,6 @@
 - 修复：单测将 ALIGNER_DIR 指向含 aligner/ 模块的临时目录（与生产 fs 检查同源）→ isAlignerAvailable 为
   true，确定性覆盖 mock bridge 编排路径（afterAll 清理临时目录）；生产行为不变（未部署 aligner 仍 fail-fast）。
 
-=======
 ## [未发布] 修复：补齐 story2video 全部缺失 locale 键（QG Coverage Gate 5 根因闭环，2026-08-12）
 
 - 除 voice 块外，`STORY2VIDEO_NOTIFICATION_KEYS` 38 个通知键（access_denied / text_required / media_invalid / rate_limited 等）与 CreateView 进度类键（splitSceneCount / optimizeProgress / selectVideoScenes / assetsProgress / composeSegments 等）zh/en locale 均缺失 → intlify「Not found key」告警 → QG Coverage Gate 5 失败。

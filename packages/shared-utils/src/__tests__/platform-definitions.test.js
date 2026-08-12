@@ -24,6 +24,17 @@ describe('platform authentication URL boundaries', () => {
     }
   })
 
+  it('never auto-completes Baijiahao from URL alone (login page and creator home share the same host)', () => {
+    // 2026-08-12 实测：未登录访问 https://baijiahao.baidu.com/ 会 302 到
+    // /pcui/register/index，最终落在 /builder/theme/bjh/login（登录/注册页）。
+    // 登录页与创作后台同域，URL 嗅探不可靠 → 百家号关闭 URL 自动完成（fail-closed），
+    // 必须由用户点击“我已完成登录”并在提取到真实凭证后完成入库。
+    expect(isPlatformLoginSuccessUrl('baijiahao', 'https://baijiahao.baidu.com/')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('baijiahao', 'http://baijiahao.baidu.com/pcui/register/index')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('baijiahao', 'https://baijiahao.baidu.com/builder/theme/bjh/login')).toBe(false)
+    expect(isPlatformLoginSuccessUrl('baijiahao', 'https://baijiahao.baidu.com/bjh/author/index')).toBe(false)
+  })
+
   it('recognizes explicit YouTube OAuth completion and X success pages without accepting login pages', () => {
     expect(isPlatformLoginSuccessUrl('youtube', 'https://accounts.google.com/o/oauth2/approval?state=done')).toBe(true)
     expect(isPlatformLoginSuccessUrl('youtube', 'https://accounts.google.com/ServiceLogin?service=youtube')).toBe(false)
