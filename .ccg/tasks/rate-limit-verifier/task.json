@@ -1,0 +1,13 @@
+{
+  "id": "rate-limit-verifier",
+  "title": "运营后台限流/调度验证功能（P0 模拟器+契约校验 / P1 用量观测 / P2 真实自检对拍）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "ops-center+desktop",
+  "currentPhase": "planning",
+  "nextAction": "P0 实现：scheduler_simulator + 接口 + 页面",
+  "openspecChange": "ops-center-rate-limit-verifier",
+  "createdAt": "2026-08-12T10:30:00+08:00",
+  "branch": "codex/rate-limit-verifier"
+}
