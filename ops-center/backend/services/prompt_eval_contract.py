@@ -137,6 +137,9 @@ def validate_eval_result(payload: dict, image_count: int) -> None:
             raise ValueError(f"dimension score 越界: {dim.get('id')}")
         if not isinstance(dim.get("evidence"), str) or not dim["evidence"].strip():
             raise ValueError(f"dimension evidence 必须非空: {dim.get('id')}")
+        for key in ("issues", "suggestions"):
+            if key in dim and not isinstance(dim[key], list):
+                raise ValueError(f"dimension {key} 必须为数组: {dim.get('id')}")
     if seen != allowed:
         raise ValueError(f"dimensions 缺失或多余: expected={sorted(allowed)} got={sorted(seen)}")
     if "problems" not in payload or not isinstance(payload["problems"], list):

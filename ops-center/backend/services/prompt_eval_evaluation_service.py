@@ -46,10 +46,19 @@ def build_eval_prompt(source_text: str, context: str | None, prompt_zh: str, pro
     ])
 
 
+_MIME_BY_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp"}
+
+
+def _mime_for(data: bytes) -> str:
+    from services.prompt_eval_generation_service import ext_for_magic
+    ext = ext_for_magic(data) or ".png"
+    return _MIME_BY_EXT.get(ext, "image/png")
+
+
 def build_vision_messages(prompt: str, images: list[bytes]) -> list[dict]:
     content: list[dict] = [{"type": "text", "text": prompt}]
     for data in images:
-        content.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(data).decode("ascii")}})
+        content.append({"type": "image_url", "image_url": {"url": "data:" + _mime_for(data) + ";base64," + base64.b64encode(data).decode("ascii")}})
     return [{"role": "user", "content": content}]
 
 

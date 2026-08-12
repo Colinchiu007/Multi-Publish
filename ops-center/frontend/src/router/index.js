@@ -168,7 +168,7 @@ const routes = [
     path: '/model-keys',
     name: 'ModelKeys',
     component: () => import('../views/ModelKeys.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, adminOnly: true },
   },
 ]
 
@@ -188,6 +188,8 @@ router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth && !authStore.isLoggedIn) {
     next('/login')
   } else if (to.meta.guest && authStore.isLoggedIn) {
+    next('/')
+  } else if (to.meta.adminOnly && authStore.role !== 'admin') {
     next('/')
   } else {
     next()

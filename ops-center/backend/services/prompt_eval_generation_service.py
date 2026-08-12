@@ -14,6 +14,7 @@ import pathlib
 import httpx
 
 ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 _MAGIC = {
     "png": bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
@@ -42,7 +43,7 @@ def ext_for_magic(data: bytes) -> str | None:
 
 
 def validate_image_bytes(data: bytes) -> bool:
-    return bool(data and len(data) >= 8 and ext_for_magic(data))
+    return bool(data and 8 <= len(data) <= MAX_IMAGE_BYTES and ext_for_magic(data))
 
 
 def is_retryable_status(status: int) -> bool:
@@ -96,6 +97,8 @@ async def generate_images(
     http: httpx.AsyncClient | None = None,
     now: datetime.datetime | None = None,
 ) -> list[str]:
+    own_client = http is None
+    client = http or httpx.AsyncClient(timeout=120)
     """调用 provider 生成图片并落盘，返回文件名单。失败抛 GenerationError。"""
     base_url = str(cfg.get("base_url") or "").rstrip("/")
     if not base_url:
@@ -104,8 +107,6 @@ async def generate_images(
     payload = build_image_payload(cfg["provider"], cfg["model"], prompt, image_count, aspect_ratio)
     url = f"{base_url}/images/generations"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    own_client = http is None
-    client = http or httpx.AsyncClient(timeout=120)
     try:
         last_error: Exception | None = None
         for attempt in range(MAX_RETRIES + 1):
@@ -122,7 +123,13 @@ async def generate_images(
                 results: list[str] = []
                 for i, data in enumerate(raw_images):
                     if data.startswith(b"url:"):
-                        results.append("url:" + data[4:].decode("utf-8"))
+                        # url 型结果：下载落盘 + 魔数校验（避免评估/展示破图）
+                        dl = await client.get(data[4:].decode("utf-8"))
+                        if dl.status_code >= 400:
+                            raise GenerationError(f"下载生成图片失败: {dl.status_code}")
+                        if not validate_image_bytes(dl.content):
+                            raise GenerationError("生成图片魔数校验失败")
+                        results.append(save_image_bytes(dl.content, out_dir, i, run_id))
                         continue
                     if not validate_image_bytes(data):
                         raise GenerationError("生成图片魔数校验失败")

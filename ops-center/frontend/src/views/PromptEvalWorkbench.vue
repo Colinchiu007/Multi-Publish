@@ -158,7 +158,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import {
-  createPromptEvalCase, translatePromptEvalCase, createPromptEvalRun,
+  createPromptEvalCase, updatePromptEvalCase, translatePromptEvalCase, createPromptEvalRun,
   listPromptEvalCases, getPromptEvalCase, deletePromptEvalCase, getPromptEvalSummary,
   listPromptEvalProviders, getPromptEvalRun, mediaUrl,
 } from '../api/promptEval'
@@ -191,12 +191,17 @@ async function loadProviders() {
 }
 
 async function ensureCase() {
-  if (form.value.id) return form.value.id
   const payload = {
     title: form.value.title, source_text: form.value.source_text,
     context: form.value.context || undefined, prompt_zh: form.value.prompt_zh,
     provider: form.value.provider, model: form.value.model,
     image_count: form.value.image_count, aspect_ratio: form.value.aspect_ratio,
+  }
+  if (form.value.id) {
+    // 已存在：先更新为表单最新值，避免 run 使用陈旧快照
+    const updated = await updatePromptEvalCase(form.value.id, payload)
+    form.value.prompt_en = updated.prompt_en || form.value.prompt_en
+    return form.value.id
   }
   const created = await createPromptEvalCase(payload)
   form.value.id = created.id
@@ -233,14 +238,22 @@ async function doCreateRun() {
 }
 
 async function loadCases() {
-  const data = await listPromptEvalCases()
-  cases.value = data.items || []
+  try {
+    const data = await listPromptEvalCases()
+    cases.value = data.items || []
+  } catch (e) {
+    errorMsg.value = '加载评测列表失败：' + (e?.response?.data?.detail || e.message)
+  }
 }
 
 async function openCase(id) {
-  detail.value = await getPromptEvalCase(id)
-  currentRunId.value = detail.value.runs?.[0]?.id || null
-  drawerVisible.value = true
+  try {
+    detail.value = await getPromptEvalCase(id)
+    currentRunId.value = detail.value.runs?.[0]?.id || null
+    drawerVisible.value = true
+  } catch (e) {
+    errorMsg.value = '加载评测详情失败：' + (e?.response?.data?.detail || e.message)
+  }
 }
 
 function selectRun(id) {
@@ -261,7 +274,11 @@ async function doDelete(id) {
 }
 
 async function loadSummary() {
-  stats.value = await getPromptEvalSummary()
+  try {
+    stats.value = await getPromptEvalSummary()
+  } catch (e) {
+    errorMsg.value = '加载聚合分析失败：' + (e?.response?.data?.detail || e.message)
+  }
 }
 
 onMounted(async () => {

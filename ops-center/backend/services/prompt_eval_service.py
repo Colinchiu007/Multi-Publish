@@ -33,7 +33,13 @@ def _fernet(secret: str) -> Fernet:
     return Fernet(key)
 
 
+def _require_secret(secret: str) -> None:
+    if not secret or secret == "change-me" or secret == "dev-secret-change-in-production":
+        raise RuntimeError("未配置安全的 OPS_SECRET_KEY，无法加密评测 provider 密钥")
+
+
 def encrypt_key(secret: str, value: str) -> str:
+    _require_secret(secret)
     return _fernet(secret).encrypt(value.encode("utf-8")).decode("ascii")
 
 
@@ -87,12 +93,16 @@ def validate_case_body(body: dict) -> dict:
     }
 
 
-def validate_provider_key_body(body: dict) -> dict:
+def validate_provider_key_body(body: dict, existing_key: str | None = None) -> dict:
     provider = str(body.get("provider") or "").strip()
     model = str(body.get("model") or "").strip()
+    if not provider or not model:
+        raise ValueError("provider/model 均不能为空")
     api_key = str(body.get("api_key") or "").strip()
-    if not provider or not model or not api_key:
-        raise ValueError("provider/model/api_key 均不能为空")
+    if not api_key and not existing_key:
+        raise ValueError("api_key 不能为空（新增密钥必须提供）")
+    if not api_key and existing_key:
+        api_key = existing_key  # 更新时留空保留旧密文
     return {
         "provider": provider[:64],
         "model": model[:128],
@@ -131,7 +141,8 @@ async def get_case(db: AsyncSession, case_id: int) -> PromptEvalCase | None:
 
 
 async def list_cases(db: AsyncSession, username: str, admin: bool, limit: int = 50) -> list[dict]:
-    stmt = select(PromptEvalCase).where(PromptEvalCase.deleted_at.is_(None)).order_by(desc(PromptEvalCase.id)).limit(min(limit, 200))
+    limit = max(1, min(int(limit or 50), 200))
+    stmt = select(PromptEvalCase).where(PromptEvalCase.deleted_at.is_(None)).order_by(desc(PromptEvalCase.id)).limit(limit)
     if not admin:
         stmt = stmt.where(PromptEvalCase.created_by == username)
     rows = (await db.execute(stmt)).scalars().all()
@@ -181,23 +192,42 @@ async def get_provider_key(db: AsyncSession, provider: str, model: str, secret: 
 
 
 async def upsert_provider_key(db: AsyncSession, body: dict, username: str, secret: str) -> dict:
-    data = validate_provider_key_body(body)
-    row = (await db.execute(select(PromptEvalProviderKey).where(
-        PromptEvalProviderKey.provider == data["provider"], PromptEvalProviderKey.model == data["model"]
+    existing = (await db.execute(select(PromptEvalProviderKey).where(
+        PromptEvalProviderKey.provider == str(body.get("provider") or "").strip(),
+        PromptEvalProviderKey.model == str(body.get("model") or "").strip(),
     ))).scalar_one_or_none()
-    if row:
+    data = validate_provider_key_body(body, decrypt_key(secret, existing.key_enc) if existing else None)
+    try:
+        if existing:
+            existing.key_enc = encrypt_key(secret, data["api_key"])
+            existing.base_url = data["base_url"]
+            existing.enabled = data["enabled"]
+            existing.updated_at = _now()
+            existing.updated_by = username
+        else:
+            row = PromptEvalProviderKey(provider=data["provider"], model=data["model"],
+                                        key_enc=encrypt_key(secret, data["api_key"]),
+                                        base_url=data["base_url"], enabled=data["enabled"], updated_by=username)
+            db.add(row)
+        await db.commit()
+        if existing:
+            await db.refresh(existing)
+            row = existing
+        else:
+            row = (await db.execute(select(PromptEvalProviderKey).where(
+                PromptEvalProviderKey.provider == data["provider"], PromptEvalProviderKey.model == data["model"]
+            ))).scalar_one()
+    except IntegrityError:
+        await db.rollback()
+        row = (await db.execute(select(PromptEvalProviderKey).where(
+            PromptEvalProviderKey.provider == data["provider"], PromptEvalProviderKey.model == data["model"]
+        ))).scalar_one()
         row.key_enc = encrypt_key(secret, data["api_key"])
         row.base_url = data["base_url"]
         row.enabled = data["enabled"]
         row.updated_at = _now()
         row.updated_by = username
-    else:
-        row = PromptEvalProviderKey(provider=data["provider"], model=data["model"],
-                                    key_enc=encrypt_key(secret, data["api_key"]),
-                                    base_url=data["base_url"], enabled=data["enabled"], updated_by=username)
-        db.add(row)
-    await db.commit()
-    await db.refresh(row)
+        await db.commit()
     return {"provider": row.provider, "model": row.model, "base_url": row.base_url, "enabled": row.enabled}
 
 
@@ -214,7 +244,7 @@ async def translate_case(db: AsyncSession, row: PromptEvalCase, translate_cfg: d
     if cached:
         try:
             ts = datetime.datetime.fromisoformat(row.prompt_en_translated_at).timestamp()
-            if _now_ts() - ts < contract.TRANSLATION_CACHE_SECONDS:
+            if _now_ts() - ts < contract.TRANSLATION_CACHE_SECONDS and row.prompt_en_cache_zh == row.prompt_zh:
                 return case_to_dict(row)
         except ValueError:
             pass
@@ -224,6 +254,7 @@ async def translate_case(db: AsyncSession, row: PromptEvalCase, translate_cfg: d
     row.prompt_en = prompt_en
     row.prompt_en_source = "machine_translation"
     row.prompt_en_translated_at = _now()
+    row.prompt_en_cache_zh = row.prompt_zh
     row.updated_at = _now()
     await db.commit()
     await db.refresh(row)
@@ -231,6 +262,34 @@ async def translate_case(db: AsyncSession, row: PromptEvalCase, translate_cfg: d
 
 
 # ─── run 流水线 ───
+
+
+async def update_case(db: AsyncSession, row: PromptEvalCase, body: dict) -> dict:
+    """更新 case 的可编辑字段（服务端生成字段 prompt_en 系列不受影响）。"""
+    data = validate_case_body(body)
+    row.title = data["title"]
+    row.source_text = data["source_text"]
+    row.context = data["context"]
+    row.prompt_zh = data["prompt_zh"]
+    row.provider = data["provider"]
+    row.model = data["model"]
+    row.image_count = data["image_count"]
+    row.aspect_ratio = data["aspect_ratio"]
+    row.updated_at = _now()
+    await db.commit()
+    await db.refresh(row)
+    return case_to_dict(row)
+
+
+async def run_owns_media(db: AsyncSession, name: str, username: str, admin: bool) -> bool:
+    """媒体授权：文件必须被「当前用户创建或有权限访问的 case」的 run 引用。"""
+    runs = (await db.execute(select(PromptEvalRun).where(PromptEvalRun.image_paths.is_not(None)))).scalars().all()
+    case_ids = {r.case_id for r in runs if r.image_paths and name in json.loads(r.image_paths)}
+    if not case_ids:
+        return False
+    cases = (await db.execute(select(PromptEvalCase).where(PromptEvalCase.id.in_(case_ids)))).scalars().all()
+    return any(admin or c.created_by == username for c in cases)
+
 
 async def create_run(db: AsyncSession, row: PromptEvalCase, username: str) -> dict:
     run = PromptEvalRun(case_id=row.id, provider=row.provider, model=row.model, status="queued", created_by=username)
@@ -245,7 +304,7 @@ def media_dir() -> pathlib.Path:
 
 
 async def run_pipeline(db: AsyncSession, run_id: int, case: PromptEvalCase, gen_cfg: dict, eval_cfg: dict, http=None) -> dict:
-    """生成 → 评估 异步流水线（失败不静默降级）。"""
+    """生成 → 评估 异步流水线（失败不静默降级）。case 为快照 dict。"""
     run = await get_run(db, run_id)
     if run is None:
         return {}
@@ -255,7 +314,7 @@ async def run_pipeline(db: AsyncSession, run_id: int, case: PromptEvalCase, gen_
         out_dir = media_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
         images = await generation.generate_images(
-            gen_cfg, case.prompt_zh, case.image_count, case.aspect_ratio, str(out_dir), run.id, http=http,
+            gen_cfg, case["prompt_zh"], case["image_count"], case["aspect_ratio"], str(out_dir), run.id, http=http,
         )
         run.image_paths = json.dumps(images, ensure_ascii=False)
         run.status = "succeeded"
@@ -270,12 +329,12 @@ async def run_pipeline(db: AsyncSession, run_id: int, case: PromptEvalCase, gen_
 
     # 评估阶段
     try:
-        prompt = evaluation.build_eval_prompt(case.source_text, case.context, case.prompt_zh, case.prompt_en, case.image_count)
+        prompt = evaluation.build_eval_prompt(case["source_text"], case["context"], case["prompt_zh"], case["prompt_en"], case["image_count"])
         image_data: list[bytes] = []
         for item in images:
-            if item.startswith("url:"):
-                raise evaluation.EvaluationError("暂不支持评估远程 URL 图片")
             image_data.append((out_dir / item).read_bytes())
+            if len(image_data[-1]) > 8 * 1024 * 1024:
+                raise evaluation.EvaluationError("评估图片超过 8MB 上限")
         raw = await evaluation.evaluate_images(eval_cfg, prompt, image_data, http=http)
         parsed = evaluation.parse_and_validate(raw, case.image_count)
         run.overall_score = float(parsed["overall"])
@@ -293,11 +352,35 @@ async def run_pipeline(db: AsyncSession, run_id: int, case: PromptEvalCase, gen_
 
 
 def start_run_pipeline(db_factory, run_id: int, case: PromptEvalCase, gen_cfg: dict, eval_cfg: dict) -> asyncio.Task:
-    async def _worker():
-        async with db_factory() as db:
-            await run_pipeline(db, run_id, case, gen_cfg, eval_cfg)
+    """后台任务：只传 case_id + 必要字段快照，worker 内重新查库，避免 ORM detached。"""
+    snapshot = {
+        "source_text": case.source_text, "context": case.context,
+        "prompt_zh": case.prompt_zh, "prompt_en": case.prompt_en,
+        "image_count": case.image_count, "aspect_ratio": case.aspect_ratio,
+    }
+    import logging
+    logger = logging.getLogger("ops-center.prompt-eval")
 
-    return asyncio.create_task(_worker())
+    async def _worker():
+        try:
+            async with db_factory() as db:
+                await run_pipeline(db, run_id, snapshot, gen_cfg, eval_cfg)
+        except Exception as e:
+            logger.exception("prompt_eval run %s worker failed", run_id)
+            try:
+                async with db_factory() as db:
+                    run = await get_run(db, run_id)
+                    if run and run.status not in ("succeeded", "failed"):
+                        run.status = "failed"
+                        run.error = f"worker: {e}"
+                        run.completed_at = _now()
+                        await db.commit()
+            except Exception:
+                logger.exception("prompt_eval run %s failure persist failed", run_id)
+
+    task = asyncio.create_task(_worker())
+    task.add_done_callback(lambda t: None if not t.exception() else logger.error("prompt_eval run %s task exception", run_id))
+    return task
 
 
 # ─── 聚合 ───

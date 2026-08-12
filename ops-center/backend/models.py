@@ -417,6 +417,7 @@ class PromptEvalCase(Base):
     prompt_en = Column(Text, nullable=True)
     prompt_en_source = Column(String(32), nullable=True)  # machine_translation / manual
     prompt_en_translated_at = Column(String, nullable=True)
+    prompt_en_cache_zh = Column(Text, nullable=True)  # 幂等缓存键（prompt_zh 快照）
     provider = Column(String(64), nullable=False)
     model = Column(String(128), nullable=False)
     image_count = Column(Integer, default=1)
@@ -455,6 +456,7 @@ class PromptEvalProviderKey(Base):
     """评测生成/评估 provider 密钥（admin 维护，加密存储，不返回明文）。"""
 
     __tablename__ = "prompt_eval_provider_keys"
+    __table_args__ = (sa.UniqueConstraint("provider", "model", name="uq_prompt_eval_provider_key"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     provider = Column(String(64), nullable=False)

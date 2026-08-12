@@ -16,6 +16,10 @@ os.environ["OPS_PROMPT_EVAL_MEDIA_DIR"] = os.path.join(tempfile.gettempdir(), f"
 os.environ["OPS_SECRET_KEY"] = "test-secret"
 os.environ["OPS_JWT_SECRET"] = "test-secret"
 os.environ["OPS_CATALOG_API_KEY"] = "catalog-test-key"
+os.environ["OPS_PROMPT_EVAL_VISION_API_KEY"] = "vision-test-key"
+os.environ["OPS_PROMPT_EVAL_LLM_BASE_URL"] = "https://x/v1"
+os.environ["OPS_PROMPT_EVAL_LLM_MODEL"] = "MiniMax-M2.7"
+os.environ["OPS_PROMPT_EVAL_LLM_API_KEY"] = "llm-test-key"
 
 import models  # noqa: F401
 from config import settings  # noqa: E402
@@ -166,6 +170,75 @@ async def test_run_requires_provider_key_and_pipeline(monkeypatch):
         detail = (await client.get(f"/api/v1/prompt-eval/cases/{cid}", headers=h)).json()
         assert len(detail["runs"]) == 1
 
+
+
+@pytest.mark.asyncio
+async def test_update_case_endpoint():
+    async with _client() as client:
+        h = _headers()
+        cid = (await client.post("/api/v1/prompt-eval/cases", json=_valid_case(), headers=h)).json()["id"]
+        body = {**_valid_case(), "prompt_zh": "更新后的提示词"}
+        r = await client.put(f"/api/v1/prompt-eval/cases/{cid}", json=body, headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["prompt_zh"] == "更新后的提示词"
+        assert (await client.put(f"/api/v1/prompt-eval/cases/{cid}", json={**_valid_case(), "image_count": 99}, headers=h)).status_code == 400
+        assert (await client.put("/api/v1/prompt-eval/cases/999999", json=_valid_case(), headers=h)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_run_requires_vision_key(monkeypatch):
+    import services.prompt_eval_service as svc
+    async with _client() as client:
+        admin = _headers(role="admin")
+        h = _headers()
+        await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-image", "model": "image-01", "api_key": "sk-test", "base_url": "https://x/v1",
+        }, headers=admin)
+        cid = (await client.post("/api/v1/prompt-eval/cases", json=_valid_case(), headers=h)).json()["id"]
+        monkeypatch.delenv("OPS_PROMPT_EVAL_VISION_API_KEY")
+        r = await client.post(f"/api/v1/prompt-eval/cases/{cid}/runs", headers=h)
+        assert r.status_code == 502
+        assert "视觉评估" in r.text
+
+
+@pytest.mark.asyncio
+async def test_media_unauthorized(monkeypatch):
+    import services.prompt_eval_service as svc
+    from services import prompt_eval_generation_service as gen
+    async with _client() as client:
+        admin = _headers(role="admin")
+        h = _headers()
+        cid = (await client.post("/api/v1/prompt-eval/cases", json=_valid_case(), headers=h)).json()["id"]
+        await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-image", "model": "image-01", "api_key": "sk-test", "base_url": "https://x/v1",
+        }, headers=admin)
+
+        async def fake_pipeline(db, run_id, case, gen_cfg, eval_cfg, http=None):
+            run = await svc.get_run(db, run_id)
+            out = svc.media_dir(); out.mkdir(parents=True, exist_ok=True)
+            png = gen.__dict__.get("PNG") or b""
+            import base64 as b64
+            png = b64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+            name = f"run_{run_id}_0.png"
+            (out / name).write_bytes(png)
+            run.image_paths = "[" + '"' + name + '"]'
+            run.status = "succeeded"
+            run.eval_status = "succeeded"
+            run.overall_score = 80
+            run.grade = "good"
+            await db.commit()
+
+        monkeypatch.setattr(svc, "run_pipeline", fake_pipeline)
+        import asyncio
+        r = await client.post(f"/api/v1/prompt-eval/cases/{cid}/runs", headers=h)
+        assert r.status_code == 200, r.text
+        await asyncio.sleep(0.3)  # 等待后台任务写入图片
+        # 其他用户访问媒体 → 404
+        other = _headers(username="other")
+        run = (await client.get(f"/api/v1/prompt-eval/cases/{cid}", headers=h)).json()["runs"][0]
+        img = run["image_paths"][0]
+        assert (await client.get(f"/api/v1/prompt-eval/media/{img}", headers=other)).status_code == 404
+        assert (await client.get(f"/api/v1/prompt-eval/media/{img}", headers=h)).status_code == 200
 
 @pytest.mark.asyncio
 async def test_summary_empty():

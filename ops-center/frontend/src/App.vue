@@ -116,7 +116,7 @@
           <el-icon><MagicStick /></el-icon>
           <span>提示词评测</span>
         </el-menu-item>
-        <el-menu-item index="/model-keys">
+        <el-menu-item v-if="authStore.role === 'admin'" index="/model-keys">
           <el-icon><Key /></el-icon>
           <span>模型密钥</span>
         </el-menu-item>

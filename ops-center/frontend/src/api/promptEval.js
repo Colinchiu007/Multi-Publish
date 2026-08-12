@@ -45,6 +45,10 @@ export function getPromptEvalCase(caseId) {
   return api.get(`/prompt-eval/cases/${caseId}`).then(r => r.data)
 }
 
+export function updatePromptEvalCase(caseId, data) {
+  return api.put(`/prompt-eval/cases/${caseId}`, data).then(r => r.data)
+}
+
 export function deletePromptEvalCase(caseId) {
   return api.delete(`/prompt-eval/cases/${caseId}`).then(r => r.data)
 }
