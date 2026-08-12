@@ -1,0 +1,12 @@
+{
+  "id": "story2video-multimodal-tts-voice-clone",
+  "title": "Story2Video 多模态模型默认TTS + 音色克隆自动保存",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "frontend+backend",
+  "currentPhase": "review",
+  "nextAction": "质量节拍自检后提交/推送/PR/合并",
+  "createdAt": "2026-08-12T16:00:00+08:00",
+  "branch": "codex/story2video-multimodal-tts-voice-clone"
+}
