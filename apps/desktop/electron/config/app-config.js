@@ -31,6 +31,10 @@ const config = {
     host: process.env.SPLITTER_HOST || '127.0.0.1',
     port: parseInt(process.env.SPLITTER_PORT || '8002', 10),
   },
+  alignerBridge: {
+    host: process.env.ALIGNER_HOST || '127.0.0.1',
+    port: parseInt(process.env.ALIGNER_PORT || '8004', 10),
+  },
 }
 
 /**

@@ -1,3 +1,12 @@
+## [2026-08-12] 字幕时间戳真实对齐 Tier2（ASR 词级时间）——audio-aligner sidecar + Node 聚合器 + bridge
+
+- 新增 `packages/audio-aligner/`：FastAPI :8004，faster-whisper base（模型已缓存），`/align` 返回词级时间（words/segments/language/duration/elapsed_ms）
+- 新增 `story2video-engine/src/subtitle-aligner.ts`：词级时间 → 分句块聚合（Levenshtein 容差匹配、区间连续 half-up、失败块回退估算 + warning、coverage/method 度量）并导出
+- 新增 `apps/desktop/electron/services/aligner-bridge.js`（BasePythonBridge 模式 :8004，5min 超时）+ app-config `alignerBridge` + 契约测试
+- 真实 E2E 验证：edge-tts 合成用户实例旁白 → ASR 55 词 / 15.72s（ffprobe 锚定一致）→ 7 字幕块 100% 命中真实时间（0 warning），真实时间替代字数比例估算
+- 测试：aligner API 4 例 + 聚合器 8 例 + bridge 2 例；story2video-engine 全量通过
+- OpenSpec `subtitle-audio-alignment` 更新实施状态；stage 接线（TTS 后调用 + aligned 持久化）待并发工作流让出后接入
+
 ## [2026-08-12] 字幕分割规则表单源（对齐 splitter v0.15.2）
 
 - 新增 `packages/story2video-engine/src/subtitle-rules.json`（与 splitter 同步副本）：字符集/默认参数/舍入模式
