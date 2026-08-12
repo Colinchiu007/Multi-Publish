@@ -362,21 +362,38 @@
         "time_calculation_method": "proportional"
       },
       "expected_blocks": [
-        "要知道在农耕社会，柴火",
-        "盐巴和香料那可都是绝对的硬通货",
+        "要知道在农耕社会",
+        "柴火、盐巴和香料",
+        "那可都是绝对的硬通货",
         "处理猪肠、牛肚这些下水",
         "得反复搓洗焯水",
         "再配上八角桂皮黄",
         "酒等香料慢慢炖煮"
       ],
-      "note": "",
+      "note": "含用户实例全文：首句按顿号枚举整体切分（v1.1），其余不变",
       "short_block_exceptions": [
         {
-          "index": 3,
+          "index": 4,
           "len": 7,
           "reason": "逗号边界短片段"
         }
       ]
+    },
+    {
+      "id": "enumeration_whole",
+      "input": "要知道在农耕社会，柴火、盐巴和香料那可都是绝对的硬通货。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "要知道在农耕社会",
+        "柴火、盐巴和香料",
+        "那可都是绝对的硬通货"
+      ],
+      "short_block_exceptions": [],
+      "note": "顿号枚举单元整体保护（v1.1）：max 切分锚点落在顿号上时，切分点移到枚举单元结束之后（谓词引导词『那』前），枚举整体保留"
     }
   ]
 }
