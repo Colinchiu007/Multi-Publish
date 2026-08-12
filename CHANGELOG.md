@@ -4,7 +4,6 @@
 - 测试：40 用例全绿（`node --test`，零依赖）。
 - OpenSpec change `video-clone-pipeline`（proposal/design/tasks/spec delta）；PRD v1.1 新增 §11-15 详细规格（数据校验、流程与功能逻辑、交互逻辑与显示项、提示文字 zh/en 与错误码、测试与门禁）。
 - 切片 2+ 待办：真实 ingest（yt-dlp/ffprobe）、analyze（ASR/镜头/风格）、plan 改写、generate provider 接入、compose（ffmpeg）、publish（PublisherRouter）、桌面 UI。
-=======
 
 ## [2026-08-12] 修复 subtitle-align-service 单测 CI 回归（mock isAlignerAvailable，PR #590）
 
@@ -14,6 +13,12 @@
 - 修复：单测将 ALIGNER_DIR 指向含 aligner/ 模块的临时目录（与生产 fs 检查同源）→ isAlignerAvailable 为
   true，确定性覆盖 mock bridge 编排路径（afterAll 清理临时目录）；生产行为不变（未部署 aligner 仍 fail-fast）。
 
+=======
+## [未发布] 修复：补齐 story2video 全部缺失 locale 键（QG Coverage Gate 5 根因闭环，2026-08-12）
+
+- 除 voice 块外，`STORY2VIDEO_NOTIFICATION_KEYS` 38 个通知键（access_denied / text_required / media_invalid / rate_limited 等）与 CreateView 进度类键（splitSceneCount / optimizeProgress / selectVideoScenes / assetsProgress / composeSegments 等）zh/en locale 均缺失 → intlify「Not found key」告警 → QG Coverage Gate 5 失败。
+- 修复：zh.js/en.js story2video 块补齐 38 通知键（文案与 story2video-notifications.js MESSAGES 一致）；进度类 9 键改为 vue-i18n 插值模板（{count}/{done}/{total}/{percent} 等），CreateView 6 处调用改 `translateWithLocaleFallback(key, zh, en, params)` 传参（保留 fallback 拼接，不丢失动态数字）。
+- 回归：CreateView 140/140、i18n 7/7；zh/en key parity 一致。
 ## [2026-08-12] 字幕对齐停顿吸附（silence-snap）+ 块级 <200ms 验收
 
 - aligner core 新增 `detect_silences`（ffmpeg silencedetect 独立停顿检测）+ `snap_words_to_silence`
