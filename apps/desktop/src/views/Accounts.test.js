@@ -631,7 +631,7 @@ describe("AccountsView", () => {
     w.vm.newPlatform = "douyin";
     await w.vm.addAccount();
     const { ElMessage } = await import("element-plus");
-    expect(ElMessage.error).toHaveBeenCalledWith("network error");
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining("\u7f51\u7edc"));
   });
 
   it("失效账号重新登录复用网页登录 IPC 且不重新打开添加账号弹窗", async () => {

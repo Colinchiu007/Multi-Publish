@@ -69,6 +69,7 @@ const router = createRouter({
 
 import CreateView from "./CreateView.vue";
 import CreateViewHistory from './CreateViewHistory.vue'
+import { settingsDialogRevision } from "@/stores/settings-dialog";
 import { PipelineSelector, StageProgress, QuickRenderPanel } from './video-creation'
 import i18n from "@/i18n";
 
@@ -78,6 +79,8 @@ describe("CreateView", () => {
     setActivePinia(createPinia());
     window.electronAPI = {};
     window.localStorage.clear();
+    // 设置弹窗 revision 是模块级单例：复位避免跨用例 watcher 触发（2026-08-12 审查 m4）
+    settingsDialogRevision.value = 0;
   });
 
   it("renders page header", async () => {
@@ -958,6 +961,159 @@ describe("CreateView - S2V orchestration", () => {
     await nextTick();
     expect(w.vm.s2vVoiceModelOptions).toEqual(["speech-2.8-turbo"]);
     expect(w.vm.getS2VDefaultVoiceModel("minimax-multimodal")).toBe("speech-2.8-turbo");
+    w.unmount();
+  });
+
+  it("Story2Video 无可用图片生成器时下拉显示「无」并给出配置提示（2026-08-12 Bug 回归）", async () => {
+    window.electronAPI = {
+      modelProviderList: vi.fn(async () => ({ code: 0, data: [] })),
+    };
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    const imageProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "图片生成器");
+    expect(imageProviderItem.find('option[value=""]').text()).toBe("无");
+    expect(imageProviderItem.text()).toContain("未找到可用的图片生成器");
+    expect(w.vm.s2vConfig.imageProvider).toBe("");
+    w.unmount();
+  });
+
+  it("Story2Video 设置弹窗关闭后重新加载服务商列表（新增多模态模型立即出现在下拉且音色克隆可用，2026-08-12 Bug 回归）", async () => {
+    const { notifySettingsDialogClosed } = await import("@/stores/settings-dialog");
+    const multimodal = {
+      id: "minimax-multimodal",
+      name: "MiniMax",
+      category: "multimodal",
+      enabled: true,
+      is_configured: true,
+      capabilities: ["llm", "tts", "image"],
+      capability_models: { tts: "speech-2.8-turbo", image: "image-01" },
+      models: ["speech-2.8-turbo", "image-01"],
+    };
+    // 首次挂载：还没有任何模型 → 图片生成器显示「无」，下拉中不出现 MiniMax
+    window.electronAPI = {
+      modelProviderList: vi.fn(async () => ({ code: 0, data: [] })),
+    };
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    let imageProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "图片生成器");
+    expect(imageProviderItem.find('option[value="minimax-multimodal"]').exists()).toBe(false);
+    expect(imageProviderItem.find('option[value=""]').text()).toBe("无");
+    expect(w.vm.s2vVoiceCapability).toBeNull();
+
+    // 模拟「设置 → 模型设置」新增 MiniMax 后关闭弹窗：CreateView 应重新拉取服务商列表
+    window.electronAPI = {
+      modelProviderList: vi.fn(async (category) => {
+        if (category === "image" || category === "tts") return { code: 0, data: [multimodal] };
+        return { code: 0, data: [] };
+      }),
+    };
+    notifySettingsDialogClosed();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+    await nextTick();
+
+    // 图片生成器下拉出现 MiniMax（多模态后缀），「无」占位项消失
+    imageProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "图片生成器");
+    expect(imageProviderItem.find('option[value="minimax-multimodal"]').text()).toContain("MiniMax（多模态）");
+    expect(imageProviderItem.find('option[value=""]').exists()).toBe(false);
+
+    // 语音生成器下拉出现 MiniMax，且自动选中 → 音色克隆面板可用
+    const voiceProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "语音生成器");
+    expect(voiceProviderItem.find('option[value="minimax-multimodal"]').text()).toContain("MiniMax（多模态）");
+    expect(w.vm.s2vConfig.voiceProvider).toBe("minimax-multimodal");
+    expect(w.vm.s2vVoiceCapability).toMatchObject({ type: "user_clone", clone: { enabled: true } });
+    expect(w.find('[data-testid="s2v-voice-clone-toggle"]').exists()).toBe(true);
+    expect(w.text()).toContain("音色复制 / 克隆");
+    w.unmount();
+  });
+
+  it("Story2Video 重新加载时清空已不存在的图片生成器选中值（避免下拉空白选中项，2026-08-12 Bug 回归）", async () => {
+    window.electronAPI = {
+      modelProviderList: vi.fn(async () => ({ code: 0, data: [] })),
+    };
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    // 用户曾选择图片 provider，但该 provider 已被删除/停用 → 重新加载后清空，而不是空白选中
+    w.vm.s2vConfig.imageProvider = "stale-provider";
+    w.vm.s2vConfig.imageModel = "stale-model";
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vConfig.imageProvider).toBe("");
+    expect(w.vm.s2vConfig.imageModel).toBe("");
+    w.unmount();
+  });
+
+  it("Story2Video 重载时 IPC 失败保留旧列表与已选图片生成器（不把临时故障当未配置，2026-08-12 审查 M1 回归）", async () => {
+    const imageProvider = { id: "minimax-image", name: "MiniMax Image", category: "image", enabled: true, is_configured: true };
+    window.electronAPI = {
+      modelProviderList: vi.fn(async (category) => {
+        if (category === "image") return { code: 0, data: [imageProvider] };
+        return { code: 0, data: [] };
+      }),
+    };
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+    expect(w.vm.s2vImageProviders[0].id).toBe("minimax-image");
+    expect(w.vm.s2vConfig.imageProvider).toBe("minimax-image");
+
+    // 模拟重载时 IPC 瞬时失败（reject）：必须保留旧列表与旧选中值，禁止清空
+    window.electronAPI = {
+      modelProviderList: vi.fn(async () => { throw new Error("ipc busy"); }),
+    };
+    await w.vm.loadS2VProviders();
+    expect(w.vm.s2vImageProviders[0].id).toBe("minimax-image");
+    expect(w.vm.s2vConfig.imageProvider).toBe("minimax-image");
+    w.unmount();
+  });
+
+  it("Story2Video 无可用视频生成器时下拉显示「无」（与图片对齐，2026-08-12 审查 M2 回归）", async () => {
+    window.electronAPI = {
+      modelProviderList: vi.fn(async () => ({ code: 0, data: [] })),
+    };
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.s2vConfig.videoMode = "fixed";
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    const videoProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "视频生成器");
+    expect(videoProviderItem.find('option[value=""]').text()).toBe("无");
+    expect(videoProviderItem.text()).toContain("未找到可用的视频生成器");
+    w.unmount();
+  });
+
+  it("Story2Video 无 TTS 服务商时语音生成器保留「自动 Edge TTS」并给出配置引导（2026-08-12 复审 W1 回归）", async () => {
+    window.electronAPI = {
+      modelProviderList: vi.fn(async () => ({ code: 0, data: [] })),
+    };
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    const voiceProviderItem = w.findAll(".config-item").find(item => item.find("label").text() === "语音生成器");
+    // 常驻「自动 Edge TTS」兜底（value=""）仍存在，下拉不空白
+    expect(voiceProviderItem.find('option[value=""]').text()).toBe("自动 Edge TTS");
+    // 空态配置引导提示 + 前往配置链接
+    expect(voiceProviderItem.text()).toContain("自动 Edge TTS");
+    expect(voiceProviderItem.text()).toContain("音色克隆");
+    expect(voiceProviderItem.find('a.config-hint-link').exists()).toBe(true);
     w.unmount();
   });
 

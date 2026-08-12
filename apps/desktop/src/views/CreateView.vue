@@ -213,8 +213,11 @@
               <div class="config-item">
                 <label>图片生成器</label>
                 <select v-model="s2vConfig.imageProvider" class="form-select">
+                  <!-- 无可用图片生成器时下拉显示「无」，避免空白选中项（2026-08-12 Bug 修复） -->
+                  <option v-if="s2vImageProviders.length === 0" value="">无</option>
                   <option v-for="provider in s2vImageProviderOptions" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
                 </select>
+                <p v-if="s2vImageProviders.length === 0" class="config-hint">未找到可用的图片生成器，请先在「模型服务商」中配置并启用支持图片生成的模型（含多模态模型）。<a href="#/model-providers" class="config-hint-link">前往配置 →</a></p>
               </div>
               <div class="config-item config-span-2">
                 <label>基础说明</label>
@@ -358,9 +361,11 @@
               <div v-if="s2vConfig.videoMode !== 'off'" class="config-item">
                 <label>视频生成器</label>
                 <select v-model="s2vConfig.videoProvider" class="form-select" @change="handleS2VVideoProviderChange" data-testid="s2v-video-provider">
+                  <!-- 无可用视频生成器时下拉显示「无」，避免空白选中项（2026-08-12 审查 M2 对齐图片） -->
+                  <option v-if="s2vVideoProviders.length === 0" value="">无</option>
                   <option v-for="provider in s2vVideoProviderOptions" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
                 </select>
-                <p v-if="s2vVideoProviders.length === 0" class="config-hint">未找到可用的视频生成器，请先在「模型服务商」中配置并启用支持视频生成的模型。</p>
+                <p v-if="s2vVideoProviders.length === 0" class="config-hint">未找到可用的视频生成器，请先在「模型服务商」中配置并启用支持视频生成的模型。<a href="#/model-providers" class="config-hint-link">前往配置 →</a></p>
               </div>
               <div v-if="s2vConfig.videoMode === 'fixed'" class="config-item">
                 <label>AI 视频占比: {{ s2vConfig.videoFixedRatio }}%（前段）</label>
@@ -394,8 +399,11 @@
               <div class="config-item">
                 <label>语音生成器</label>
                 <select v-model="s2vConfig.voiceProvider" class="form-select" @change="handleS2VVoiceProviderChange">
+                  <!-- 首项「自动 Edge TTS」为常驻免费兜底（id=''），列表为空时下拉仍非空白；
+                       仅补充配置引导提示（2026-08-12 复审 W1，与图片/视频空态提示对齐）。 -->
                   <option v-for="provider in s2vVoiceProviderOptions" :key="provider.id" :value="provider.id">{{ provider.displayName }}</option>
                 </select>
+                <p v-if="s2vVoiceProviders.length === 0" class="config-hint">未配置 TTS 模型时将使用自动 Edge TTS（免费）；如需 MiniMax 等语音模型与音色克隆能力，请先在「模型服务商」中配置。<a href="#/model-providers" class="config-hint-link">前往配置 →</a></p>
               </div>
               <div v-if="s2vConfig.voiceProvider" class="config-item">
                 <label>语音模型</label>
@@ -806,6 +814,7 @@ import {
   story2videoDeleteProject
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
+import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { opsCenterSyncRuntime } from '@/api/ops-center-sync'
 import { formatUserError } from '@/utils/user-facing-error'
 import {
@@ -2017,6 +2026,8 @@ export default {
       this.s2vVoiceCloneError = ''
     },
     async loadS2VVoiceData(options = {}) {
+      // 卸载守卫：弹窗关闭触发的语音目录/能力重载可能跨越组件卸载（2026-08-12 复审 I1）
+      if (this._s2vAlive === false) return
       const context = this.getS2VVoiceContext()
       const requestId = ++this.s2vVoiceRequestId
       this.s2vVoiceSelectionRequestId += 1
@@ -2102,42 +2113,71 @@ export default {
       await this.loadS2VVoiceData({ refresh: true })
     },
     async loadS2VProviders() {
+      // 卸载守卫：弹窗关闭触发的重拉可能跨越组件卸载，异步恢复后不再写已卸载组件状态（2026-08-12 审查 m3 修复）。
+      if (this._s2vAlive === false) return
       const providerRequestId = ++this.s2vVoiceProviderRequestId
       const [imageResult, voiceResult, videoResult] = await Promise.allSettled([
         modelProviderList('image'),
         modelProviderList('tts'),
         modelProviderList('video'),
       ])
-      if (providerRequestId !== this.s2vVoiceProviderRequestId) return
+      if (providerRequestId !== this.s2vVoiceProviderRequestId || this._s2vAlive === false) return
 
       // 只展示「已启用且已配置」的服务商（is_configured=true：有可用 API Key 或免 Key 本地模型）。
       // 未配置/Key 解密失败的 provider 不进入能力下拉，避免旧配置恢复选中后流水线反复重试
       // 「尚未配置 API Key」导致卡在 generate_assets（2026-08-09 排查：debug profile 残留失效 key）。
-      const enabledProviders = (result) => result.status === 'fulfilled' && result.value?.code === 0 && Array.isArray(result.value.data)
+      // 仅本次拉取成功才替换列表/归一化；IPC 瞬时失败时保留旧列表与旧选中值，
+      // 避免把「临时故障」误渲染成「未配置模型」并清空用户已选 provider（2026-08-12 审查 M1 修复）。
+      const isFetchedOk = (result) => result.status === 'fulfilled' && result.value?.code === 0 && Array.isArray(result.value.data)
+      const enabledProviders = (result) => isFetchedOk(result)
         ? result.value.data.filter(provider => provider?.enabled === true && provider.is_configured === true && provider.id && provider.name)
-        : []
-      this.s2vImageProviders = enabledProviders(imageResult)
-      this.s2vVoiceProviders = enabledProviders(voiceResult)
-      this.s2vVideoProviders = enabledProviders(videoResult)
-      if (!this.s2vConfig.imageProvider && this.s2vImageProviders[0]) this.s2vConfig.imageProvider = this.s2vImageProviders[0].id
-      // 视频生成器：默认取第一个可用视频 provider（未显式选择时）；选中后同步默认模型
-      if (!this.s2vConfig.videoProvider && this.s2vVideoProviders[0]) {
-        this.s2vConfig.videoProvider = this.s2vVideoProviders[0].id
-        this.s2vConfig.videoModel = this.getS2VDefaultVideoModel(this.s2vConfig.videoProvider)
+        : null
+
+      const nextImageProviders = enabledProviders(imageResult)
+      if (nextImageProviders) {
+        this.s2vImageProviders = nextImageProviders
+        // 图片生成器下拉归一化：已不存在/未配置的 provider 清空（含 imageModel），
+        // 避免下拉出现空白选中项；无显式选择时默认取第一个可用图片 provider（2026-08-12 Bug 修复）。
+        const imageProviderIds = new Set(this.s2vImageProviders.map(p => p.id))
+        if (this.s2vConfig.imageProvider && !imageProviderIds.has(this.s2vConfig.imageProvider)) {
+          this.s2vConfig.imageProvider = ''
+          this.s2vConfig.imageModel = ''
+        }
+        if (!this.s2vConfig.imageProvider && this.s2vImageProviders[0]) this.s2vConfig.imageProvider = this.s2vImageProviders[0].id
       }
 
-      const configuredProvider = this.getS2VVoiceProvider()
-      const nextProviderId = configuredProvider?.id || this.s2vVoiceProviders[0]?.id || ''
-      const nextModel = nextProviderId
-        ? (this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
-          ? this.s2vConfig.voiceModel
-          : this.getS2VDefaultVoiceModel(nextProviderId))
-        : ''
-      const contextChanged = nextProviderId !== this.s2vConfig.voiceProvider || nextModel !== this.s2vConfig.voiceModel
-      this.s2vConfig.voiceProvider = nextProviderId
-      this.s2vConfig.voiceModel = nextModel
-      if (contextChanged) this.s2vConfig.voiceId = ''
-      await this.loadS2VVoiceData()
+      const nextVideoProviders = enabledProviders(videoResult)
+      if (nextVideoProviders) {
+        this.s2vVideoProviders = nextVideoProviders
+        // 视频生成器与图片对齐（2026-08-12 审查 M2）：陈旧 provider 清空（含 videoModel），
+        // 未显式选择时默认取第一个可用视频 provider。
+        const videoProviderIds = new Set(this.s2vVideoProviders.map(p => p.id))
+        if (this.s2vConfig.videoProvider && !videoProviderIds.has(this.s2vConfig.videoProvider)) {
+          this.s2vConfig.videoProvider = ''
+          this.s2vConfig.videoModel = ''
+        }
+        if (!this.s2vConfig.videoProvider && this.s2vVideoProviders[0]) {
+          this.s2vConfig.videoProvider = this.s2vVideoProviders[0].id
+          this.s2vConfig.videoModel = this.getS2VDefaultVideoModel(this.s2vConfig.videoProvider)
+        }
+      }
+
+      const nextVoiceProviders = enabledProviders(voiceResult)
+      if (nextVoiceProviders) {
+        this.s2vVoiceProviders = nextVoiceProviders
+        const configuredProvider = this.getS2VVoiceProvider()
+        const nextProviderId = configuredProvider?.id || this.s2vVoiceProviders[0]?.id || ''
+        const nextModel = nextProviderId
+          ? (this.s2vVoiceModelOptions.includes(this.s2vConfig.voiceModel)
+            ? this.s2vConfig.voiceModel
+            : this.getS2VDefaultVoiceModel(nextProviderId))
+          : ''
+        const contextChanged = nextProviderId !== this.s2vConfig.voiceProvider || nextModel !== this.s2vConfig.voiceModel
+        this.s2vConfig.voiceProvider = nextProviderId
+        this.s2vConfig.voiceModel = nextModel
+        if (contextChanged) this.s2vConfig.voiceId = ''
+        await this.loadS2VVoiceData()
+      }
     },
     async handleS2VVoiceProviderChange() {
       const nextProviderId = this.getS2VVoiceProvider()?.id || ''
@@ -2166,7 +2206,7 @@ export default {
         const result = await clearTtsVoicePreference(this.cloneForIpc(context))
         if (!this.isCurrentS2VVoiceSelectionRequest(requestId, context, this.s2vConfig.voiceId)) return false
         if (result?.code !== 0) {
-          this.s2vVoiceCatalogError = result?.message
+          this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: '音色目录加载失败' }).message
             ? this.friendlyVoiceCatalogError(result?.message)
             : '音色默认值恢复失败。'
           return false
@@ -2193,7 +2233,7 @@ export default {
       if (result?.code !== 0) {
         // 保存失败：回滚下拉与徽标，避免显示一个从未持久化的「默认」音色
         this.s2vConfig.voiceId = previousVoiceId
-        this.s2vVoiceCatalogError = result?.message
+        this.s2vVoiceCatalogError = this.friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: '音色目录加载失败' }).message
           ? this.friendlyVoiceCatalogError(result?.message)
           : '音色选择保存失败。'
         return false
@@ -3077,8 +3117,16 @@ export default {
     },
   },
   async mounted() {
+    this._s2vAlive = true
     this.refreshS2VTemplates()
     this.startStageClock()
+    // 「设置 → 模型设置」弹窗关闭后重新加载模型服务商列表（2026-08-12 Bug 修复）：
+    // 用户在当前页新增/启用多模态模型（如 MiniMax）后，图片/语音生成器下拉与
+    // 音色克隆能力立即可见，不再停留在 mounted 时的旧列表。
+    this._settingsDialogUnwatch = this.$watch(
+      () => settingsDialogRevision.value,
+      () => { this.loadS2VProviders() }
+    )
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
     await this.loadMaxOutputResolution()
     this.resumeRunningOrchestration()
@@ -3087,11 +3135,13 @@ export default {
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { this.$refs.quickRenderPanel?.applyRenderProgress(pct, stg) }))
     this.cleanups.push(onRenderComplete((res) => { this.$refs.quickRenderPanel?.applyRenderComplete(res) }))
-    this.cleanups.push(onRenderError((err) => { this.$refs.quickRenderPanel?.applyRenderError(err) }))
+    this.cleanups.push(onRenderError((err) => { this.$refs.quickRenderPanel?.applyRenderError(formatUserError(err, { fallback: '渲染错误' }).message) }))
     this.cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n' }))
   },
   beforeUnmount() {
+    this._s2vAlive = false
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
+    if (this._settingsDialogUnwatch) { this._settingsDialogUnwatch(); this._settingsDialogUnwatch = null }
     if (this.pollTimer) clearInterval(this.pollTimer)
     if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
     if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }

@@ -112,6 +112,7 @@ import {
   modelProviderIsConfigured,
 } from "@/api/publisher"
 import { useLoginGate } from "@/composables/useLoginGate"
+import { formatUserError } from '@/utils/user-facing-error'
 
 const emit = defineEmits(["close", "apply-title", "apply-content"])
 const router = useRouter()
@@ -168,7 +169,7 @@ async function checkConfig() {
   } catch (error) {
     providerError = error
   }
-  if (providerError) panelError.value = providerError.message || "读取 AI 配置失败"
+  if (providerError) panelError.value = formatUserError(providerError, { fallback: "读取 AI 配置失败" }).message
 }
 
 async function generateTitles() {
@@ -181,7 +182,7 @@ async function generateTitles() {
     const res = await aiGenerateTitles(topic.value)
     if (res && res.code === 0) titles.value = res.data || []
   } catch (e) {
-    panelError.value = e?.message || "生成标题失败"
+    panelError.value = formatUserError(e, { fallback: "生成标题失败" }).message
   } finally {
     generating.value = false
   }
@@ -206,7 +207,7 @@ async function enhanceContent() {
     const res = await aiEnhanceContent(content, selectedStyle.value)
     if (res && res.code === 0) enhancedResult.value = res.data
   } catch (e) {
-    panelError.value = e?.message || "润色正文失败"
+    panelError.value = formatUserError(e, { fallback: "润色正文失败" }).message
   } finally {
     enhancing.value = false
   }
@@ -230,7 +231,7 @@ async function generateSummary() {
     const res = await aiGenerateSummary(content)
     if (res && res.code === 0) summary.value = res.data || ""
   } catch (e) {
-    panelError.value = e?.message || "生成摘要失败"
+    panelError.value = formatUserError(e, { fallback: "生成摘要失败" }).message
   } finally {
     summarizing.value = false
   }

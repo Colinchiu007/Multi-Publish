@@ -4,6 +4,7 @@
  */
 import { defineStore } from "pinia"
 import { ref, computed } from "vue"
+import { formatUserError } from '@/utils/user-facing-error'
 
 const getApi = () => window.electronAPI || null
 
@@ -25,7 +26,7 @@ export const useTemplateStore = defineStore("templates", () => {
         templates.value = []
       }
     } catch (e) {
-      error.value = e.message
+      error.value = formatUserError(e, { fallback: '模板操作失败' }).message
       templates.value = []
     } finally {
       loading.value = false
@@ -43,7 +44,7 @@ export const useTemplateStore = defineStore("templates", () => {
       }
       return null
     } catch (e) {
-      error.value = e.message
+      error.value = formatUserError(e, { fallback: '模板操作失败' }).message
       return null
     }
   }
@@ -60,7 +61,7 @@ export const useTemplateStore = defineStore("templates", () => {
       }
       return null
     } catch (e) {
-      error.value = e.message
+      error.value = formatUserError(e, { fallback: '模板操作失败' }).message
       return null
     }
   }
@@ -76,7 +77,7 @@ export const useTemplateStore = defineStore("templates", () => {
       }
       return false
     } catch (e) {
-      error.value = e.message
+      error.value = formatUserError(e, { fallback: '模板操作失败' }).message
       return false
     }
   }

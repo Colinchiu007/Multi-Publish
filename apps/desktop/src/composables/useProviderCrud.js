@@ -12,6 +12,7 @@
  *   - useProviderFilters 的 filterProviders / enabledCount 纯函数
  */
 import { ref, computed } from 'vue'
+import { formatUserError } from '@/utils/user-facing-error'
 import { ElMessage } from 'element-plus'
 import {
   providerList,
@@ -70,10 +71,10 @@ export function useProviderCrud() {
       if (res.code === 0 && Array.isArray(res.data)) {
         providers.value = res.data
       } else {
-        ElMessage.error(res.message || '加载失败')
+        ElMessage.error(formatUserError(res, { fallback: '加载失败' }).message)
       }
     } catch (e) {
-      ElMessage.error(e.message)
+      ElMessage.error(formatUserError(e, { fallback: '加载失败' }).message)
     } finally {
       loading.value = false
     }
@@ -112,10 +113,10 @@ export function useProviderCrud() {
         showFormDialog.value = false
         await loadProviders()
       } else {
-        ElMessage.error(res.message || '保存失败')
+        ElMessage.error(formatUserError(res, { fallback: '保存失败' }).message)
       }
     } catch (e) {
-      ElMessage.error(e.message)
+      ElMessage.error(formatUserError(e, { fallback: '保存失败' }).message)
     } finally {
       submitting.value = false
     }
@@ -138,10 +139,10 @@ export function useProviderCrud() {
         deleteTarget.value = null
         await loadProviders()
       } else {
-        ElMessage.error(res.message || '删除失败')
+        ElMessage.error(formatUserError(res, { fallback: '删除失败' }).message)
       }
     } catch (e) {
-      ElMessage.error(e.message)
+      ElMessage.error(formatUserError(e, { fallback: '删除失败' }).message)
     } finally {
       submitting.value = false
     }
@@ -156,10 +157,10 @@ export function useProviderCrud() {
       if (res.code === 0) {
         testResults.value[name] = { success: true, message: res.message || 'ok' }
       } else {
-        testResults.value[name] = { success: false, message: res.message || '连接失败' }
+        testResults.value[name] = { success: false, message: formatUserError(res, { fallback: '连接失败' }).message }
       }
     } catch (e) {
-      testResults.value[name] = { success: false, message: e.message }
+      testResults.value[name] = { success: false, message: formatUserError(e, { fallback: '连接失败' }).message }
     } finally {
       testingName.value = ''
       // 5 秒后自动清除结果
@@ -182,7 +183,7 @@ export function useProviderCrud() {
       ElMessage.success('用户 Key 已保存')
       showUserKeyDialog.value = false
     } catch (e) {
-      ElMessage.error(e.message)
+      ElMessage.error(formatUserError(e, { fallback: '保存用户 Key 失败' }).message)
     }
   }
 

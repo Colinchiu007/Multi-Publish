@@ -408,6 +408,8 @@ platforms:
 
 #### 用户提示文字与多语言规范（2026-08-11 新增，user-facing-messages）
 
+> 独立规范文档：`01-docs/PROMPT-TEXT-SPEC.md`（含完整提示文字表、多语言覆盖现状与差距、存量 i18n 分批推进计划、维护 Checklist）。
+
 **目标**：所有出现在用户面前的错误、警告、建议、状态提示与引导文字，一律输出为清晰、自然、可理解的语言；出现问题或操作失败时，必须给出「具体原因 + 解决方法建议」，禁止直接暴露内部技术文本（IPC 通道名、英文错误码、内部标识符、栈信息、IP:端口等）。
 
 **1. 语言解析规则（数据校验/流程）**
@@ -1981,6 +1983,58 @@ umberValue 边界收敛 |
 
 **验证**：E2E create 58/58、pipeline 11/11；src 全量 1904/1904；electron/services+tests 全量单 worker 3604/3604。
 
+#### 7.1.33 场景上下文增强中间层（scene_context，2026-08-11）
+
+> 完整 PRD：`01-docs/PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md`；架构：`01-docs/ARCH-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md`；OpenSpec：`openspec/specs/story2video-scene-context/spec.md`。
+
+**背景与问题**：分句引擎（8002/本地）只产出「场景自身文字」，图片提示词优化引擎（prompt-engine 8013）仅凭单场景文字生成提示词；当场景文字缺少时代/地域/文化锚点时产生**背景漂移**（如全文讲中国唐代，场景仅写「一个老妇人在做饭」，生成结果可能变成西方老太太在西式现代厨房用电烤箱做饭）。
+
+**功能**：在 `split → domain_enrich` 之后、`optimize` 之前新增 `scene_context` 阶段（场景上下文增强中间层）：
+1. **全局故事上下文提取**（读完整文案，规则驱动、可测试）：题材（genre）、时代/朝代（era/dynasty，16 朝代规则表）、文化地域（culture/region，中/日/欧/美/阿/埃/印/韩）、场景设定（setting）、昼夜·季节（time）、角色（characters+修饰语）、时代道具（props，ancient/modern 互斥）、视觉风格（visualStyle）、叙事语气（tone）、一句话梗概（summary）、一致性锚点（anchors）、负面锚点（negativeAnchors）。
+2. **逐场景上下文融合**：全局锚点合并进每个场景，生成上下文块（如「中国唐朝（618-907）时期长安民居厨房中，一个老妇人在做饭；使用土灶、柴火、陶罐」）与时代负面锚点（做饭 × 古代 → 电烤箱/微波炉/西式现代厨房）。
+3. **提示词优化注入**：optimize 请求 context 使用场景上下文块，映射 prompt-engine 已知键（synopsis/full_text/setting/narrative_intent/scene_type/character_list/character 七键白名单）；时代负面锚点合并进 `negative_prompt`（≤500）。
+4. **配置**：`scene_context.enabled/maxSummaryLength/maxAnchors/includeNegativeAnchors/contextBlockMaxChars`（默认 true/300/8/true/400）。
+
+**流程**：`split → domain_enrich → scene_context → optimize → select_video_scenes → generate_assets → compose → publish`。
+
+**数据校验**：
+| 校验项 | 合同 |
+|--------|------|
+| 输入场景数组 | 非空，否则阶段 fail closed（「场景上下文增强需要非空场景数组」） |
+| 完整文案 | params.text 优先；图片/音频模式无文案时由场景文本拼接推导并标记 degraded（no_full_text_scene_derived） |
+| 上下文白名单键 | 发送 prompt-engine 仅允许 7 键（synopsis/full_text/setting/narrative_intent/scene_type/character_list/character），防字段漂移 |
+| 敏感凭据拦截 | context 发送前执行 assertNoSensitiveContext（api_key/token/secret 等键名拒绝） |
+| 配置边界 | maxSummaryLength 50–1000、maxAnchors 1–20、contextBlockMaxChars 50–1000（text-config 层越界拒绝 fail closed，引擎层收敛） |
+| negative_prompt 合并 | 用户负面提示 + 场景时代负面锚点去重合并，超 500 字符截断 |
+| 规则异常 | 降级透传（metadata.degraded=true + fallbackReason），不阻断流水线 |
+
+**功能逻辑**：
+- 时代互斥：era=ancient 只输出古代道具（土灶/柴火/陶罐…）；era=modern 只输出现代道具；mixed/general 不编造时代。
+- 负面锚点互斥：ancient → 排除电烤箱/微波炉/西式现代厨房/现代电器等；modern → 排除油灯/土灶/马车/长袍/宫殿等；全局负面锚点仅在时代判定 strong（朝代命中或 ≥2 独立信号）时注入，防单关键词误判污染整篇。
+- 无关键词文案：genre=general、era=mixed、culture 为空、无时代负面锚点，上下文块仅基于场景文字（等价旧行为，保证不回归）。
+- 多文化命中：按证据数排序保留多候选（multiCandidates）并带置信度；无地域关键词时不编造默认城市（region 为空）。
+- 用户显式配置的 optimize.context 只补齐空白键并做白名单过滤，不被场景上下文覆盖。
+
+**交互逻辑**：
+- 提交文案后自动执行，无需用户操作；阶段进度走通用流水线进度。
+- 上下文增强结果写入 `context.scene_context`（story/scenes/metadata），历史记录与调试日志可见。
+- 失败按上表降级/失败语义处理，错误信息进入流水线错误提示。
+
+**显示项与提示文字**：
+- 流水线阶段名：「场景上下文增强」（scene_context）。
+- 优化进度沿用「共 N 个场景，已完成 M 个」。
+- 失败提示：「场景上下文增强失败：{原因}（已降级，按原文继续生成）」；输入缺失（fail closed）：「场景上下文增强需要非空文案与场景数组」。
+- 无独立 UI 面板；分析结果（题材/时代/地域/锚点等）经历史记录/调试日志展示。
+
+**验收标准**：
+1. 唐代全文 + 「一个老妇人在做饭」场景 → 上下文块含 唐代/中国/土灶/柴火，负面锚点含 电烤箱/西式现代厨房（自动化断言）。
+2. 普通现代文案 → 不套用古代设定、无时代负面锚点。
+3. optimize 请求 context 仅含白名单七键，经过敏感键拦截。
+4. 配置越界：text-config 层 fail closed，引擎层边界收敛。
+5. 规则异常降级透传、空场景输入 fail closed。
+6. 流水线阶段顺序含 scene_context，旧行为不回归。
+
+**影响**：提升图片/视频生成的故事背景准确性、一致性与连贯性；真实生成效果依赖 prompt-engine 与厂商模型行为，属外部验收边界。
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
@@ -2126,6 +2180,9 @@ umberValue 边界收敛 |
 | provider 能力校验 | `tts-voice-service._hasMatchingProvider` 与 `tts-voice-clone-service._hasMatchingProvider` **同合同**：`category='multimodal'` 且 capabilities **包含 tts** 才放行（音色目录与克隆链路一致）；未声明 tts 能力 → 音色目录 `VOICE_MODEL_MISMATCH` / 克隆 `VOICE_CLONE_MODEL_MISMATCH`，不调用 adapter、不读缓存、不写偏好。模型匹配同时考虑 `models` 与 `capability_models.tts`（避免只列 models 时漏判默认 TTS 模型）。 |
 | 克隆与本地管理 | 本地克隆音色（`tts-voice-clone-service`）对 `minimax-tts / minimax / minimax-multimodal` 使用同一 `isProviderCloneVoiceIdValid` 校验与本地管理合同（删除为纯本地管理，不涉及远端 API）；克隆要求/错误码映射沿用 7.1.4。 |
 | 交互与提示 | 用户删除全部单能力模型后，「图片生成器」「语音生成器」下拉仍列出「MiniMax（多模态）」；语音模型下拉仅显示 `speech-2.8-turbo` 并默认选中；音色目录正常加载 MiniMax 系统音色并支持克隆/设为默认；所有提示文案与错误码映射沿用 7.1.4，无新增误导性文案。 |
+| 空能力下拉占位（2026-08-12 加固） | 当某能力（图片生成器/视频生成器）**没有任何已启用且已配置**的候选时，下拉必须显示「无」占位项（value=""），并展示配置引导提示 +「前往配置 →」链接（`#/model-providers`，hash 路由），**禁止空白选中项**；视频生成器与图片同合同。语音生成器因常驻「自动 Edge TTS」首项（id=''，下拉永不空白）**不显示「无」占位**（避免重复空 value），但必须显示空态引导提示「未配置 TTS 模型时将使用自动 Edge TTS（免费）；如需 MiniMax 等语音模型与音色克隆能力，请先在「模型服务商」中配置。」+ 链接。 |
+| 能力下拉刷新合同（2026-08-12 加固） | 刷新/重载/恢复 provider 列表后，指向已不存在 provider 的 `s2vConfig.imageProvider/imageModel`、`videoProvider/videoModel` 必须归一化清空（避免下拉空白选中项与陈旧配置提交）；**仅当本次拉取成功（`code===0 && Array.isArray(data)`）才替换列表并归一化**——IPC 瞬时失败时必须保留旧列表与旧选中值，禁止把临时故障误渲染成「未配置模型」并清空用户已选 provider；语音分支仅在成功时重选 provider/model 并重载音色能力。 |
+| 设置弹窗关闭刷新（2026-08-12 加固） | 依赖模型配置的视图（CreateView）必须监听「设置 → 模型设置」弹窗关闭信号（`stores/settings-dialog.js` 的 `settingsDialogRevision`，App.vue `@close` 时 `notifySettingsDialogClosed()`），关闭后重新调用 `model-provider:list(image/tts/video)` 并刷新 `s2vImageProviders / s2vVoiceProviders / s2vVideoProviders / s2vVoiceCapability`。**不得**只依赖 `mounted()` 一次性加载——否则用户在当前页新增/启用多模态模型（如 MiniMax）并关闭弹窗后，图片/语音生成器下拉仍是旧列表、音色克隆能力不出现，用户会在错误模型配置下启动流水线，generate_assets 长时间停留/失败（见 7.1.5 卡住风险）。 |
 | 验收标准 | ① 只配置 `minimax-multimodal` 时「图片生成器」「语音生成器」下拉可见「MiniMax（多模态）」；② 语音模型下拉只有 `speech-2.8-turbo` 且默认选中；③ 音色目录可加载 MiniMax 系统音色（`canListVoices=true`、克隆 `enabled=true`）；④ `listProviders('image'/'tts'/'video'/'llm')` 包含已启用多模态、不包含未启用/未声明能力/已软删行；⑤ 未声明 tts 能力的多模态 provider 音色目录请求返回 `VOICE_MODEL_MISMATCH`；⑥ 多模态（`minimax-multimodal` + `speech-2.8-turbo`）下「选择本地音频 → 添加克隆音色」成功（`VOICE_CLONE_MODEL_MISMATCH` 不复现），克隆音色可列出/设为默认/删除（纯本地管理）；⑦ 未声明 tts 能力的多模态 provider 克隆请求返回 `VOICE_CLONE_MODEL_MISMATCH` 且不调用 adapter；⑧ 能力下拉不展示 `is_configured=false` 的 provider，旧配置指向失效 provider 时自动回退到已配置项；⑨ 回归：`tts-voice-catalog / tts-voice-service / tts-voice-clone-service / model-provider-multimodal / CreateView` 单测全绿，既有单能力 provider（elevenlabs / minimax-tts / openai-tts 等）行为不变。 |
 
 ### 7.4.2 运营后台：预设模型 / 多模态能力设置（2026-08-08 新增）

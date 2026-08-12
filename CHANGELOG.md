@@ -1,3 +1,12 @@
+## [未发布] 修复：main CI 既有失败收尾 — Windows 启动冒烟 hook 超时 + CreateView 断言并发修复记录（2026-08-12）
+
+- 背景：main（1fe02e74）4 个工作流持续失败（electron-tests / QG Coverage / QG Desktop Shards 1/2 / build windows-latest），根因两类均为**既有回归**（9a028b2b 起已存在，与 PR #535 无关）。
+- CreateView 历史按钮断言未随 §7.1.33 统一按钮重构同步（`.history-btn.*` → `s2v-btn-*`）→ 3 用例失败：**已由并发 PR #555 先行合入修复**（选择器同步 + 补 `videoEnhance`/`common.close` locale 键）。本 PR 冲突消解取其版本，不重复改动；本地复验 `CreateView.test.js` 131/131 全绿。
+- Windows 启动冒烟 hook 超时（本 PR 新增修复）：`build.yml` Startup smoke 在 `npm ci` 后直接运行，electron@43 无 postinstall，首次 `require('electron')` 链触发「Downloading Electron binary...」超过 vitest 默认 10s hookTimeout → Windows 冷 runner **偶发**失败（1fe02e74 失败 / 763bf856 通过 = 抖动）。修复：`build.yml` 冒烟前新增 `node scripts/ensure-electron.js`（脚本已在 origin/main 提交 67d295e3）；`vitest.smoke.config.js` 增 `hookTimeout: 30000`（注释注明回归，仅冷加载方差容差）。
+- 验证：`npm run test:startup` 12/12 全绿（含 ensure-electron 前置）；build.yml YAML 解析通过；审查见 `.ccg/tasks/` review.md（Claude --lite exit 0，antigravity 区域不可用降级）。
+- 文档：learnings 复盘（测试选择器同步强制项 + electron 二进制冷启动进入 smoke hook 预算 + 并发 worktree 同根因双修复）；.quality-gates.md 执行记录。
+- 备注：`autonomous-loop` 在 push 事件仍失败——仓库缺少 `OPENAI_API_KEY` secret（当前仅 GITEE_TOKEN），需在仓库 Settings → Secrets and variables → Actions 添加该 secret（环境配置，非代码问题）。
+
 ## [未发布] 修复：CreateView 历史按钮类名重构回归（s2v-btn-*）+ 补 videoEnhance/common.close locale 键（2026-08-12）
 
 - 根因：#526 系列 UI 重构把历史记录操作按钮统一为 `s2v-btn-*` 类（`CreateViewHistory.vue`），但 `CreateView.test.js` 仍用旧 `.history-btn.resume` / `.history-btn.open` 选择器，导致 3 个历史恢复用例失败（main Electron CI 同步失败）。另 `create.story2video.sections.videoEnhance` 与 `common.close` locale 键缺失，仅靠硬编码兜底并产生 i18n 警告。
@@ -112,6 +121,14 @@
 - 实现：`useModelProviderCrud.js` 新增 `isMiniMaxMultimodal`（`form.id === 'minimax-multimodal'`）；`ModelProviders.vue` 新增/编辑对话框对该预设渲染只读提示（「模型列表由系统预设与运营后台下发控制，无需在此填写」+ 当前模型列表文本），其它服务商行为不变。
 - 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
 - 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
+
+## [未发布] 文档：提示文字规范独立成册 + 补齐契约类文档（2026-08-12）
+
+- 新增独立规范 `01-docs/PROMPT-TEXT-SPEC.md`：语言解析规则、主进程错误返回契约、formatUserError 解析顺序、完整提示文字表（zh/en）、显示项与交互、**多语言覆盖现状与差距审计**（含存量硬编码中文 i18n 分批推进计划）、测试验收、维护 Checklist。
+- `01-docs/DESIGN.md` 新增「Copy & Microcopy（交互文案分册）」：写作原则、四类文案口径（错误/警告/成功/引导）、渲染约束。
+- 修复审计发现的遗漏直出路径：主进程 `model-provider-manager.js` 2 处 `Store not initialized` 补 `errorCode` + 自然语言；渲染端 8 文件（Accounts/Monitor/Collection/ContactSheetView/ViralAnalysis/CloudPublish/useProviderCrud/templates/backlot）+ 面板组件（TrendingPanel/TitleAssistantPanel/TagSuggester/OptimalTimeTip/KeywordMonitorPanel/BenchmarkChart/AiWriterPanel）+ CreateView 音色目录/quickError + useBatchPublish 进度文本统一接入 `formatUserError`。
+- 测试：受影响 14 文件 372 项全绿（CreateView 3 项为基线预存失败，stash 验证）；更新 BenchmarkChart/Accounts/Monitor 断言（网络/额度错误映射后文案）。
+- 文档：PRD §3.2 增加指向独立规范；CHANGELOG。
 
 ## [未发布] 功能：用户提示文字统一为多语言自然语言（原因 + 建议）（2026-08-11）
 

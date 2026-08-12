@@ -108,6 +108,7 @@ import { ref, onMounted } from 'vue'
 import { keywordStatus, keywordStart, keywordStop, keywordHistory } from '@/api/publisher'
 // eslint-disable-next-line no-unused-vars
 import { ElMessage, ElDialog } from 'element-plus'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const newKeyword = ref('')
 const keywords = ref([])
@@ -126,7 +127,7 @@ async function loadStatus() {
       keywords.value = result.data
     }
   } catch (err) {
-    ElMessage.error('获取监测状态失败: ' + (err.message || '未知错误'))
+    ElMessage.error('获取监测状态失败: ' + formatUserError(err, { fallback: '未知错误' }).message)
   } finally {
     loading.value = false
   }
@@ -154,10 +155,10 @@ async function addKeyword() {
       newKeyword.value = ''
       await loadStatus()
     } else {
-      ElMessage.error(result?.message || '添加失败')
+      ElMessage.error(formatUserError(result, { fallback: '添加失败' }).message)
     }
   } catch (err) {
-    ElMessage.error('添加失败: ' + (err.message || '未知错误'))
+    ElMessage.error('添加失败: ' + formatUserError(err, { fallback: '未知错误' }).message)
   }
 }
 
@@ -168,10 +169,10 @@ async function stopKeyword(kw) {
       ElMessage.success('已停止监测: ' + kw)
       await loadStatus()
     } else {
-      ElMessage.error(result?.message || '停止失败')
+      ElMessage.error(formatUserError(result, { fallback: '停止失败' }).message)
     }
   } catch (err) {
-    ElMessage.error('停止失败: ' + (err.message || '未知错误'))
+    ElMessage.error('停止失败: ' + formatUserError(err, { fallback: '未知错误' }).message)
   }
 }
 
@@ -186,7 +187,7 @@ async function openHistory(kw) {
       historyEntries.value = result.data
     }
   } catch (err) {
-    ElMessage.error('获取历史失败: ' + (err.message || '未知错误'))
+    ElMessage.error('获取历史失败: ' + formatUserError(err, { fallback: '未知错误' }).message)
   } finally {
     historyLoading.value = false
   }

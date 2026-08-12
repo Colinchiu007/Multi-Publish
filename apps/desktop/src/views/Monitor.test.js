@@ -158,7 +158,7 @@ describe("MonitorView", () => {
     w.vm.newPlatform = "douyin";
     await w.vm.confirmAdd();
     const { ElMessage } = await import("element-plus");
-    expect(ElMessage.error).toHaveBeenCalledWith("network error");
+    expect(ElMessage.error).toHaveBeenCalledWith(expect.stringContaining("\u7f51\u7edc"));
   });
 
   it("closeAllTabs clears tabs and calls webviewCloseAll", async () => {

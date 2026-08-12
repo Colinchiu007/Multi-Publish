@@ -99,6 +99,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { storeGetSetting, storeSetSetting } from '@/api/publisher'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const router = useRouter()
 const drafts = ref([])
@@ -152,7 +153,7 @@ async function importFromClipboard () {
     saveDrafts()
     ElMessage.success(`已导入 ${lines.length} 行内容`)
   } catch (e) {
-    ElMessage.error('剪贴板读取失败: ' + e.message)
+    ElMessage.error('剪贴板读取失败: ' + formatUserError(e, { fallback: '未知错误' }).message)
   }
 }
 
@@ -199,13 +200,13 @@ async function collectUrl () {
   try {
     const result = await api.urlCollectFetch(linkUrl.value.trim())
     if (result.code !== 0) {
-      ElMessage.error(result.message || '采集失败')
+      ElMessage.error(formatUserError(result, { fallback: '采集失败' }).message)
       return
     }
     collectedResult.value = result.data
     ElMessage.success('内容采集成功')
   } catch (e) {
-    ElMessage.error('采集请求失败: ' + e.message)
+    ElMessage.error('采集请求失败: ' + formatUserError(e, { fallback: '未知错误' }).message)
   } finally {
     collecting.value = false
   }

@@ -255,7 +255,7 @@ export function useBatchPublish(options) {
         } catch (error) {
           remaining.push(task)
           batchProgress.value.push({
-            text: `✗ [${task.platform}] ${task.title || task.taskId}: ${error?.message || '重新提交失败'}`,
+            text: `✗ [${task.platform}] ${task.title || task.taskId}: ${formatUserError(error, { fallback: '重新提交失败' }).message}`,
             time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             type: 'danger',
           })

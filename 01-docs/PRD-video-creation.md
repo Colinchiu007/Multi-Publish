@@ -245,6 +245,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 ```
 split（分句）→ domain_enrich（历史内容领域增强，可选）
+  → scene_context（场景上下文增强中间层，2026-08-11：读完整文案提取全局故事背景并融合进每个场景，注入时代/地域/角色/道具/风格锚点与时代负面锚点，供 optimize 逐场景携带；详见 PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md）
   → optimize（story2video_optimize）＝ 逐场景调用 prompt-engine POST /v1/optimize
        ├─ 1. 无实质内容守卫：纯数字/纯符号/过短文案直接透传原文（skipped_optimize=true），不调用服务
        ├─ 2. 请求构造：platform/style 别名归一 + 边界收敛 + auto_detect_style + context
@@ -1411,6 +1412,105 @@ PromptBridge 的 optimize() 和 optimizeBatch() 方法在调用 _post() 前额�
 - ase-python-bridge.test.js：新增 ensureRunning 懒启动测试（并发调用共享 Promise、启动失败抛出、已运行跳过）
 - 2e-full-pipeline.test.js：E2E 测试自动启动 Splitter Bridge 而非仅 attach
 
+
+### 3.1.22 图片轮播模型下拉空白 / 新增模型后不刷新修复（2026-08-12）
+
+#### 一、问题（用户 Bug 报告）
+
+1. **空状态下拉空白**：进入视频创作 → 图片轮播，尚未新增任何模型时，「图片生成器」下拉为空（无任何选项），应显示「无」。
+2. **新增模型后下拉不刷新**：打开「设置 → 模型设置」新增支持语音、生成图片的多模态模型（MiniMax）后关闭弹窗，回到创作页「图片生成器」下拉仍空白、「语音生成器」下拉仍无 MiniMax、「音色复制 / 克隆」选项不出现。
+
+#### 二、根因
+
+| 现象 | 根因 |
+|------|------|
+| 图片生成器下拉空白 | `CreateView.vue` 图片生成器 `<select>` 无「无」占位项；`s2vImageProviders` 为空时 `s2vConfig.imageProvider=''` 不在选项列表 → 渲染空白选中项 |
+| 新增 MiniMax 后下拉不刷新 | `loadS2VProviders()` 仅在 `mounted()` 调用一次；「设置」弹窗（`SettingsDialog`，内嵌 `ModelProviders`）是覆盖层，**不卸载 CreateView**，关闭弹窗后无任何刷新信号 → `s2vImageProviders / s2vVoiceProviders / s2vVideoProviders` 停留在挂载时的旧列表 |
+| 音色克隆选项不出现 | 音色克隆面板（`s2vVoiceCapability.type==='user_clone' && clone.enabled`）依赖已选语音 provider 的 `getTtsVoiceCapability` 结果；语音列表陈旧导致无法选中 MiniMax → 能力不加载 |
+| 连带风险 | 用户在下拉空白/陈旧时启动流水线：提交 `image.provider=''` → 主进程 `story2video-stages.js:1298` 走 `resolveCapabilityProvider('image')`（`getDefault` 兜底）→ 可能解析到 enabled 但无有效 Key 的 provider → generate_assets 阶段逐场景重试/长时间停留，或解析不到 → ffmpeg 占位图降级（假图） |
+
+#### 三、修复内容
+
+1. **空状态占位（CreateView.vue 模板）**：图片生成器下拉在 `s2vImageProviders.length === 0` 时渲染 `<option value="">无</option>`，并新增配置引导提示「未找到可用的图片生成器，请先在「模型服务商」中配置并启用支持图片生成的模型（含多模态模型）。」+「前往配置 →」链接（`#/model-providers`，App 路由为 hash 模式，链接有效）。视频生成器对齐：空列表渲染「无」+ 引导提示 + 链接（2026-08-12 复审 M2/W2）。语音生成器因常驻「自动 Edge TTS」首项（id=''），下拉永不空白、**不加「无」占位**（避免重复空 value），仅补充空态引导提示「未配置 TTS 模型时将使用自动 Edge TTS（免费）；如需 MiniMax 等语音模型与音色克隆能力，请先在「模型服务商」中配置。」+ 链接（2026-08-12 复审 W1）。
+2. **设置弹窗关闭刷新（App.vue + stores/settings-dialog.js + CreateView.vue）**：
+   - 新增 `apps/desktop/src/stores/settings-dialog.js`：`settingsDialogRevision`（ref）与 `notifySettingsDialogClosed()`（关闭时 +1）。
+   - `App.vue`：`<SettingsDialog @close>` 改为 `closeSettingsDialog()`（先 `showSettingsDialog=false`，再 `notifySettingsDialogClosed()`）。
+   - `CreateView.vue`：`mounted()` 注册 `this.$watch(() => settingsDialogRevision.value, () => this.loadS2VProviders())`，`beforeUnmount()` 解除监听。弹窗关闭后自动重拉 `model-provider:list(image/tts/video)` 并刷新 `s2vVoiceCapability`（音色目录/克隆能力随之重载）。
+3. **陈旧选中值归一化（CreateView.vue `loadS2VProviders`，2026-08-12 审查 M1/M2 加固）**：**仅当本次拉取成功**（`code===0 && Array.isArray(data)`）才替换列表并归一化——图片 `imageProvider/imageModel`、视频 `videoProvider/videoModel` 不在新列表时清空；**IPC 瞬时失败时保留旧列表与旧选中值**，禁止把「临时故障」误渲染成「未配置模型」并清空用户已选 provider。语音分支同样仅在成功时重选 provider/model 并重载音色能力。无显式选择时保持默认取第一个可用 provider。
+
+#### 四、数据流
+
+```
+SettingsDialog 关闭（App.vue @close）
+  → closeSettingsDialog() → notifySettingsDialogClosed() → settingsDialogRevision += 1
+  → CreateView $watch 触发 → loadS2VProviders()
+  → IPC model-provider:list(image/tts/video)（后端 listProviders 已合并多模态 + is_configured 过滤）
+  → enabledProviders 过滤（enabled===true && is_configured===true）
+  → s2vImageProviders / s2vVoiceProviders / s2vVideoProviders 更新
+  → 图片生成器下拉出现「MiniMax（多模态）」；语音生成器默认选中首个可用 provider
+  → loadS2VVoiceData() → getTtsVoiceCapability → s2vVoiceCapability=user_clone+enabled
+  → 音色复制 / 克隆面板出现
+```
+
+#### 五、数据校验 / 边界条件
+
+| 边界 | 行为 |
+|------|------|
+| 无任何已配置模型 | 图片生成器显示「无」+ 引导提示；语音生成器只有「自动 Edge TTS」；音色克隆面板不出现（无 provider 上下文） |
+| 新增 MiniMax（multimodal，声明 tts+image）后关闭弹窗 | 下拉立即出现「MiniMax（多模态）」；语音默认选中 MiniMax + `speech-2.8-turbo`；音色克隆可用（`user_clone` + `clone.enabled=true`） |
+| 已选 provider 被删除/停用后重载 | `imageProvider/imageModel`、`videoProvider/videoModel` 归一化清空；有可用项时自动选中首个 |
+| IPC 返回异常/拒绝 | `Promise.allSettled` + 请求 id 守卫，旧请求不覆盖新结果；**拉取失败时保留旧列表与旧选中值**（2026-08-12 审查 M1），仅首次挂载无旧值时才显示「无」+ 引导提示 |
+| 视频生成器空列表（videoMode≠off） | 下拉显示「无」+ 引导提示 + 前往配置链接（2026-08-12 审查 M2） |
+| 语音生成器无 TTS 服务商 | 保留「自动 Edge TTS」常驻首项（下拉不空白），显示「未配置 TTS 模型时将使用自动 Edge TTS…」引导提示 + 链接（2026-08-12 复审 W1） |
+| 弹窗关闭触发重拉时组件已卸载 | `_s2vAlive` 守卫：`loadS2VProviders` 顶部/恢复点与 `loadS2VVoiceData` 顶部均检查，不写已卸载组件（2026-08-12 审查 m3/I1） |
+| 弹窗关闭时组件已卸载 | watcher 在 `beforeUnmount` 解除，无泄漏/无残留回调 |
+| 多次打开/关闭弹窗 | 每次关闭均重拉；请求 id 递增保证最终一致 |
+
+#### 六、交互逻辑
+
+| 场景 | 交互 |
+|------|------|
+| 无模型进入图片轮播 | 图片生成器显示「无」；下方显示引导提示，用户可点击「前往配置」跳转模型设置 |
+| 在设置弹窗新增 MiniMax 并关闭 | 回到创作页自动刷新：图片/语音下拉出现 MiniMax，语音自动选中并加载音色目录，克隆面板出现 |
+| 用户主动切换语音 provider | 不变：`handleS2VVoiceProviderChange` 按新 provider 重载音色目录与能力 |
+| 删除全部模型 | 图片生成器回到「无」+ 提示；语音回退「自动 Edge TTS」；克隆面板消失 |
+
+#### 七、显示项与提示文字
+
+| 位置 | 显示项 / 文字 | 条件 |
+|------|--------------|------|
+| 图片生成器下拉 | 「无」（option value=""） | `s2vImageProviders.length === 0` |
+| 图片生成器下方 | 「未找到可用的图片生成器，请先在「模型服务商」中配置并启用支持图片生成的模型（含多模态模型）。」+「前往配置 →」链接 | `s2vImageProviders.length === 0` |
+| 图片生成器下拉选项 | `{provider.name}（多模态）` 后缀 | `provider.category === 'multimodal'` |
+| 视频生成器下拉 | 「无」（option value=""） | `s2vVideoProviders.length === 0` 且 `videoMode !== 'off'` |
+| 视频生成器下方 | 「未找到可用的视频生成器，请先在「模型服务商」中配置并启用支持视频生成的模型。」+「前往配置 →」链接 | `s2vVideoProviders.length === 0` |
+| 语音生成器下拉 | 「自动 Edge TTS」常驻首项 + 已配置 provider | 恒有首项（不显示「无」，避免重复空 value） |
+| 语音生成器下方 | 「未配置 TTS 模型时将使用自动 Edge TTS（免费）；如需 MiniMax 等语音模型与音色克隆能力，请先在「模型服务商」中配置。」+「前往配置 →」链接 | `s2vVoiceProviders.length === 0` |
+| 音色复制 / 克隆面板 | 展开按钮「音色复制 / 克隆」 | `s2vVoiceCapability.type==='user_clone' && clone.enabled===true` |
+
+#### 八、相关文件
+
+- 新增：`apps/desktop/src/stores/settings-dialog.js`
+- 修改：`apps/desktop/src/App.vue`（closeSettingsDialog + notify）
+- 修改：`apps/desktop/src/views/CreateView.vue`（「无」占位 + 引导提示 + 弹窗关闭 watcher + 陈旧 provider 归一化）
+- 修改：`apps/desktop/src/views/CreateView.test.js`（3 个新回归测试 + 3 个 3.1.16 重构后过时断言同步为 `s2v-btn-resume`/`s2v-btn-secondary`）
+- 后端（无变更）：`model-provider-manager.listProviders` 已合并多模态并过滤 `is_configured`
+
+#### 九、回归测试
+
+- 「Story2Video 无可用图片生成器时下拉显示「无」并给出配置提示」：空列表 → option「无」+ 提示文字 + `imageProvider=''`。
+- 「Story2Video 设置弹窗关闭后重新加载服务商列表（新增多模态模型立即出现在下拉且音色克隆可用）」：空列表挂载 → `notifySettingsDialogClosed()` → 图片/语音下拉出现「MiniMax（多模态）」→ `s2vVoiceCapability=user_clone+enabled` → 克隆面板出现。
+- 「Story2Video 重新加载时清空已不存在的图片生成器选中值」：陈旧 `imageProvider` → 重载后清空。
+- 「重载时 IPC 失败保留旧列表与已选图片生成器」：reject 路径不清空旧值（2026-08-12 审查 M1 回归）。
+- 「无可用视频生成器时下拉显示「无」」：视频空态对齐图片（2026-08-12 审查 M2 回归）。
+- 「无 TTS 服务商时语音生成器保留「自动 Edge TTS」并给出配置引导」：语音空态提示 + 链接（2026-08-12 复审 W1 回归）。
+- 完整 `CreateView.test.js` 137/137 通过；`vite build` 通过；Claude 双轮只读审查（首轮 M1/M2/m1/m3/m4 修复，复审 W1 闭合 + W2 验证 hash 路由链接有效）后 Approve。
+
+#### 十、预防措施（QM-5）
+
+- 逃逸链：该 Bug 未被拦截——CreateView 测试没有覆盖「设置弹窗关闭后刷新」的跨组件信号场景；下拉空状态无断言。
+- 系统性漏洞：组件挂载后对**外部模型配置变更**（弹窗/路由）缺乏响应机制；空列表 UI 无占位断言。
+- 落地：新增 settings-dialog revision 信号 + 空状态占位/提示断言；后续任何「弹窗/外部配置变更 → 页面刷新」需求复用该信号；PRD 7.4.1.1 合同补充「空能力下拉占位」「设置弹窗关闭刷新」。
 
 ### 3.3 叠加层（Remotion 快速路径，P1）
 

@@ -49,7 +49,7 @@
     </template>
 
     <UpdateNotification />
-    <SettingsDialog :visible="showSettingsDialog" @close="showSettingsDialog = false" />
+    <SettingsDialog :visible="showSettingsDialog" @close="closeSettingsDialog" />
   </div>
 </template>
 
@@ -70,6 +70,7 @@ import { clearRouteLoadError, routeLoadError } from '@/router'
 import { useLicenseStore } from '@/stores/license'
 import { useIdentityStore } from '@/stores/identity'
 import { useTabStore } from '@/stores/tab'
+import { notifySettingsDialogClosed } from '@/stores/settings-dialog'
 import { storeToRefs } from 'pinia'
 
 const router = useRouter()
@@ -81,6 +82,13 @@ const { navigation, isHomeTab, activeTabId } = storeToRefs(tabStore)
 
 const showSettingsDialog = ref(false)
 let unsubscribeNavigate = null
+
+// 关闭「设置」弹窗并通知依赖模型配置的视图刷新（如图片轮播的服务商/音色能力下拉），
+// 避免“新增模型后关闭弹窗仍看不到新模型”的陈旧状态（2026-08-12 Bug 修复）。
+function closeSettingsDialog () {
+  showSettingsDialog.value = false
+  notifySettingsDialogClosed()
+}
 
 const NON_WORKSPACE_ROUTES = new Set(['/first-run', '/model-providers', '/keywords', '/viral-analysis'])
 const isYixiaoerWorkspace = computed(() => !NON_WORKSPACE_ROUTES.has(route.path))
