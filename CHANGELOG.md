@@ -3,6 +3,14 @@
 - `packages/video-clone-engine/src/adapters/`：generate-assets（createAssetPlan 逐镜头资产规格 + provider fail-closed 契约）、compose-ffmpeg（resolveTargetSize / buildAssScript ASS 字幕 / buildComposeCommand 纯函数 + createFfmpegCompose 执行与 ffprobe 校验）、publish（可选发布 skipped/成功/失败映射）、index（createSlice3Pipeline 六阶段组装）。
 - 测试 86 用例全绿（含真实 ffmpeg 合成 + 全链路 smoke：2s 样例 → 纯色 PNG → 合成 mp4 → ffprobe 校验 → F4 相似度；工具缺失自动 skip）。
 - PRD v1.3 §17 切片 3 详细规格（资产规划/命令构建/ASS 字幕/可选发布/集成验证）。
+=======
+
+## [2026-08-12] 字幕对齐真实 E2E 集成验证（stage 接线链路）
+
+- 新增 `subtitle-align-e2e.test.js`（RUN_ALIGNER_E2E=1 时执行，CI 默认 skip）：真实 edge-tts 合成旁白 → 真实 aligner 子进程（faster-whisper base）→ 真实 `alignScenes` 服务 → subtitleTimeline/subtitleAlign
+- 实测：7 块全部 aligned=true / method=asr / coverage≥0.9；块区间连续且存在真实停顿间隔（比例估算无间隔）；charTimings 与块区间一致
+- 时间轴：0.22~1.84 / 2.30~4.14 / 4.65~6.10 / 6.56~8.66 / 9.05~10.36 / 10.73~12.02 / 12.43~14.14（15.72s 音频）
+- 覆盖：stage 接线链路（此前仅 mock 单测）现已含真实子进程/ASR 集成证据
 
 ## [2026-08-12] 视频克隆 切片 2：真实 ingest / analyze / plan adapter（PR #596 前身）
 
