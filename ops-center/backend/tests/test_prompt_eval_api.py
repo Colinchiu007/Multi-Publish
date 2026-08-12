@@ -265,12 +265,14 @@ async def test_scene_mode_create_and_list():
         # GET case 含 scenes
         detail = (await client.get(f"/api/v1/prompt-eval/cases/{data['case']['id']}", headers=h)).json()
         assert len(detail["scenes"]) == len(data["scenes"])
-        # 校验：场景数上限 / 分句配置
+        # 校验：场景数上限 100 / 分句配置
         bad = {**body, "target_chars_per_scene": 0}
         assert (await client.post("/api/v1/prompt-eval/cases", json=bad, headers=h)).status_code == 400
-        bad2 = {**body, "source_text": ("今天天气很好，我们去公园散步吧。" * 60)}
+        # 15 字/句 × 120 句 = 120 场景 > 100 → 400
+        bad2 = {**body, "source_text": ("今天天气很好，我们去公园散步吧。" * 120)}
         rr = await client.post("/api/v1/prompt-eval/cases", json=bad2, headers=h)
         assert rr.status_code == 400, rr.text
+        assert "场景数超过上限 100" in rr.json()["detail"], rr.text
 
 
 @pytest.mark.asyncio

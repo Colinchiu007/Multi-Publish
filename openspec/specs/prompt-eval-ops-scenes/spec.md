@@ -45,10 +45,10 @@
 - **THEN** 创建带 scene_id 的 run 并异步执行；状态可轮询；完成后场景卡片展示总分/等级/维度/问题/优化点
 
 ### Requirement: 场景接口
-后台 SHALL 提供：`POST /api/v1/prompt-eval/cases`（scene 模式：整篇文案+分句配置→建 case+scenes，同步返回）、`GET /api/v1/prompt-eval/cases/{id}`（scene 模式含 scenes）、`POST /api/v1/prompt-eval/cases/{id}/scenes/{sid}/translate`、`POST /api/v1/prompt-eval/cases/{id}/scenes/{sid}/runs`；鉴权与 manual 模式一致（读=登录、写=登录/创建者、密钥=admin）。场景数超 50 SHALL 拒绝。
+后台 SHALL 提供：`POST /api/v1/prompt-eval/cases`（scene 模式：整篇文案+分句配置→建 case+scenes，同步返回）、`GET /api/v1/prompt-eval/cases/{id}`（scene 模式含 scenes）、`POST /api/v1/prompt-eval/cases/{id}/scenes/{sid}/translate`、`POST /api/v1/prompt-eval/cases/{id}/scenes/{sid}/runs`；鉴权与 manual 模式一致（读=登录、写=登录/创建者、密钥=admin）。场景数超 100 SHALL 拒绝。
 
 #### Scenario: 场景接口鉴权与边界
-- **WHEN** 非创建者/非 admin 访问他人场景；或场景数超 50；或 provider 未配置密钥
+- **WHEN** 非创建者/非 admin 访问他人场景；或场景数超 100；或 provider 未配置密钥
 - **THEN** 404/400 可操作错误；未配置密钥提示「未配置可用的图片生成模型」
 
 ### Requirement: 前端场景工作流

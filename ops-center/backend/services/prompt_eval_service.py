@@ -459,8 +459,8 @@ async def create_case_scene(db: AsyncSession, body: dict, username: str) -> dict
     scenes = segmentation.split_to_scenes(text, scene_cfg["target_chars_per_scene"])
     if not scenes:
         raise ValueError("分句结果为空，请检查文案内容")
-    if len(scenes) > 50:
-        raise ValueError(f"场景数超过上限 50（当前 {len(scenes)}），请调整分句配置")
+    if len(scenes) > 100:
+        raise ValueError(f"场景数超过上限 100（当前 {len(scenes)}），请调整分句配置")
     case = PromptEvalCase(source_mode="scene", title=data["title"], source_text=text,
                           context=data["context"], prompt_zh=data["prompt_zh"], provider=data["provider"],
                           model=data["model"], image_count=data["image_count"],
