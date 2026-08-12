@@ -23,7 +23,8 @@ const OUT = process.env.OUTPUT_DIR || 'C:/tmp/s2v-manual-e2e'
 fs.mkdirSync(OUT, { recursive: true })
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
-const TEST_TEXT = '春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。'
+// 长文案（多场景）验证分镜素材自选；可用 E2E_TEXT 环境变量覆盖
+const TEST_TEXT = process.env.E2E_TEXT || '人工智能正在改变我们的生活方式。从自动驾驶汽车到智能语音助手，AI 技术已经深入日常生活的方方面面。医疗领域，AI 辅助诊断帮助医生更快发现病灶。教育领域，智能辅导系统让每个孩子都能获得个性化学习。交通领域，智能调度系统让城市出行更加高效。农业领域，无人机与传感器帮助农民精准灌溉。金融领域，智能风控系统守护每一笔交易的安全。未来十年，人工智能将继续带来更多惊喜，而我们每个人都是这场变革的见证者与参与者。'
 
 function probe (file) {
   try {
@@ -80,7 +81,8 @@ function probe (file) {
 
   // 2) 轮询到 scene_asset_selection 检查点
   let snap = null
-  const deadline = Date.now() + 15 * 60 * 1000
+  // 长文案多场景图片生成较慢，放宽到 30 分钟
+  const deadline = Date.now() + 30 * 60 * 1000
   while (Date.now() < deadline) {
     const r = await es(rid => window.electronAPI.pipelineGetRunContext(rid), runId)
     const data = r && r.data
