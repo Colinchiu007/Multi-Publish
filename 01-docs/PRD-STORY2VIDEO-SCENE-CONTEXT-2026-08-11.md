@@ -217,6 +217,20 @@ optimize 阶段调用 prompt-engine 时，请求 `context` 携带场景上下文
 - **生产方/消费方解耦**：分句引擎不知道下游消费的是提示词优化；提示词优化不直接读全文。中间层承担「全文理解 + 按场景路由背景」的单一职责。
 - **默认对一切内容生效**：不同于 `domain_enrich`（仅 history），`scene_context` 对历史/现代/无关键词文案都执行；无关键词时退化为「仅场景文字」等价旧行为。
 
+```mermaid
+flowchart LR
+    A["完整文案 params.text（≤6000 字符）"] --> B["split 分句引擎<br/>8002 / 本地回退"]
+    B --> C["domain_enrich<br/>历史内容领域增强（可选）"]
+    C --> D["scene_context 场景上下文增强中间层"]
+    A -.-> D
+    D --> D1["① 全局故事上下文提取<br/>extractStoryContext（全文通读）"]
+    D1 --> D2["② 逐场景上下文融合<br/>enrichSceneWithContext（背景按场景路由）"]
+    D2 --> D3["③ 契约收敛：七键白名单 + 敏感键拦截 + 结构校验"]
+    D3 --> E["optimize 提示词优化引擎<br/>prompt-engine 8013"]
+    E --> F["图片 / 视频生成"]
+    G["运营后台 ops-center<br/>「场景上下文规则」"] -. 查看/编辑/校验/保存/导出 .-> D
+```
+
 ### 9.2 核心逻辑速览
 
 | 环节 | 逻辑 | 关键约束 |
@@ -233,6 +247,7 @@ optimize 阶段调用 prompt-engine 时，请求 `context` 携带场景上下文
 
 - 全局 `story` 字段表（genre/era/dynasty/culture/region/setting/time/characters/props/visualStyle/tone/summary/anchors/negativeAnchors/confidence/evidence/multiCandidates）：见主 PRD §7.1.33(3)。
 - 规则表（16 朝代 / 8 文化 / 11 题材 / 10 设定 / 道具 ancient+modern / 41 角色 / 时间 / 7 视觉风格 / 4 语气 / 负面锚点互斥）：见主 PRD §7.1.33(4)；规则以 `story-context-rules.json` 承载并可被运营后台管理。
+- **完整 JSON 样例**：`context.scene_context`（story/scenes/metadata）与 `story-context-rules.json` 规则结构的完整样例见主 PRD §7.1.33(3)（含用户示例的逐字段取值）。
 - 逐场景融合算法（location 拼接/做饭锚点/角色识别/负面锚点合并）：见主 PRD §7.1.33(5)。
 
 ### 9.4 运营后台规则管理（2026-08-12）

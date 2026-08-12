@@ -2002,6 +2002,20 @@ Story2Video 的图片/视频生成链路是串行的：**分句引擎（8002/本
 - **处理**：先**通读全文**提取全局故事背景（时代/朝代/文化地域/题材/设定/角色/道具/风格/语气/锚点），再把全局背景**按场景路由/融合**进每个场景，形成逐场景上下文块与时代负面锚点。
 - **输出**：`context.scene_context = { story（全局故事上下文）, scenes（增强后场景数组）, metadata（来源/降级/置信度） }`，供 optimize 逐场景携带。
 
+```mermaid
+flowchart LR
+    A["完整文案 params.text（≤6000 字符）"] --> B["split 分句引擎<br/>8002 / 本地回退"]
+    B --> C["domain_enrich<br/>历史内容领域增强（可选）"]
+    C --> D["scene_context 场景上下文增强中间层"]
+    A -.-> D
+    D --> D1["① 全局故事上下文提取<br/>extractStoryContext（全文通读）"]
+    D1 --> D2["② 逐场景上下文融合<br/>enrichSceneWithContext（背景按场景路由）"]
+    D2 --> D3["③ 契约收敛：七键白名单 + 敏感键拦截 + 结构校验"]
+    D3 --> E["optimize 提示词优化引擎<br/>prompt-engine 8013"]
+    E --> F["图片 / 视频生成"]
+    G["运营后台 ops-center<br/>「场景上下文规则」"] -. 查看/编辑/校验/保存/导出 .-> D
+```
+
 **为什么必须有这一层**：分句结果只携带「场景自身文字」，提示词优化引擎仅凭单场景文字无法感知全文设定。当场景文字缺少时代/地域/文化锚点时，模型按训练分布自由发挥，产生**背景漂移**——典型例子：全文讲中国唐代，某场景仅写「一个老妇人在做饭」，无中间层时优化后的提示词可能生成「西方老太太在西式现代厨房用电烤箱做西餐」；有中间层后该场景被路由到「唐代中国 · 长安民居厨房 · 土灶柴火」背景并附带「排除电烤箱/微波炉/西式厨房」负面锚点。
 
 **与既有 `domain_enrich` 的关系**：`domain_enrich`（7.1.x）仅对 `contentType=history` 生效、且按**单场景文字**做时代/朝代识别；`scene_context` 是**通用中间层**（任何内容都执行）、基于**完整文案**做全局上下文，两者串接（`domain_enrich → scene_context`）互不替代。
@@ -2056,6 +2070,88 @@ select_video_scenes → generate_assets（图片+视频+TTS）→ compose（ffmp
 | `confidence` | number | 规则命中置信度 | 0.95 |
 | `evidence` / `multiCandidates` | object | 命中的关键词证据 / 多文化候选 | — |
 
+**`context.scene_context` 完整 JSON 样例**（用户示例：唐代全文 + 「一个老妇人在做饭」）：
+
+```json
+{
+  "story": {
+    "genre": "历史",
+    "era": "ancient",
+    "dynasty": {
+      "name": "唐朝",
+      "period": "唐朝（618-907）",
+      "visualStyle": "唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线",
+      "era": "ancient",
+      "confidence": 0.92,
+      "method": "keyword",
+      "evidence": ["唐代", "长安"]
+    },
+    "culture": "中国",
+    "region": "长安",
+    "setting": ["民居厨房"],
+    "time": { "timeOfDay": "黄昏", "season": "秋" },
+    "characters": [{ "name": "老妇人", "descriptor": "讲述一位老妇人", "appearances": 3 }],
+    "props": { "ancient": ["土灶", "柴火", "陶罐"], "modern": [] },
+    "visualStyle": "唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线",
+    "tone": "平和",
+    "summary": "历史·唐朝（618-907）·中国的故事：这是一个关于中国唐代的故事。唐玄宗时期，长安城一片繁华。…",
+    "anchors": ["唐朝", "中国", "长安"],
+    "negativeAnchors": ["电烤箱", "微波炉", "冰箱", "燃气灶", "电磁炉", "西式现代厨房", "现代电器"],
+    "confidence": 0.95,
+    "evidence": { "dynasty": ["唐代", "长安"], "culture": ["中国", "长安"], "genre": ["唐代"] },
+    "method": "rule-based",
+    "multiCandidates": []
+  },
+  "scenes": [
+    {
+      "index": 0,
+      "text": "一个老妇人在做饭",
+      "storyContext": "中国唐朝（618-907）时期长安民居厨房，一个老妇人在做饭；视觉唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；使用土灶、柴火、陶罐、铜锅；光线平和",
+      "anchors": ["唐朝", "中国", "长安", "民居厨房"],
+      "negativeAnchors": ["电烤箱", "微波炉", "冰箱", "燃气灶", "西式现代厨房", "现代电器"],
+      "character": { "name": "老妇人", "descriptor": "讲述一位老妇人" },
+      "context": {
+        "synopsis": "历史·唐朝（618-907）·中国的故事：这是一个关于中国唐代的故事。…",
+        "full_text": "这是一个关于中国唐代的故事。唐玄宗时期，长安城一片繁华。…",
+        "setting": "中国唐朝（618-907）时期长安民居厨房，一个老妇人在做饭；视觉唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；使用土灶、柴火、陶罐、铜锅；光线平和",
+        "narrative_intent": "平和",
+        "scene_type": "常规场景",
+        "character_list": [{ "name": "老妇人", "descriptor": "讲述一位老妇人" }],
+        "character": { "name": "老妇人", "descriptor": "讲述一位老妇人" }
+      }
+    }
+  ],
+  "metadata": {
+    "enriched": true,
+    "degraded": false,
+    "extractor": "rule-based",
+    "confidence": 0.95,
+    "sceneCount": 1
+  }
+}
+```
+
+**规则 JSON 结构样例**（`story-context-rules.json`，随包内置 / 运营后台管理）：
+
+```json
+{
+  "version": 1,
+  "dynasty": [{ "keywords": ["唐朝", "唐代", "长安"], "name": "唐朝", "period": "唐朝（618-907）", "visualStyle": "…", "era": "ancient" }],
+  "culture": [{ "keywords": ["中国", "长安", "汉服"], "culture": "中国", "regions": ["长安", "洛阳"] }],
+  "genre": [{ "keywords": ["唐朝", "北宋", "汴京", "岳飞"], "genre": "历史" }],
+  "setting": [{ "keywords": ["做饭", "厨房", "灶台"], "setting": "民居厨房" }],
+  "props": { "ancient": [{ "keywords": ["土灶", "柴火"], "name": "土灶柴火" }], "modern": [{ "keywords": ["电烤箱", "微波炉"], "name": "现代厨电" }] },
+  "characters": ["老妇人", "将军", "书生"],
+  "time": { "timeOfDay": ["清晨", "黄昏", "夜晚"], "season": ["春", "夏", "秋", "冬"] },
+  "visualStyle": [{ "keywords": ["水墨", "国画"], "style": "水墨国画风格" }],
+  "tone": [{ "keywords": ["悲壮", "凄凉"], "tone": "悲壮" }],
+  "negativeAnchors": { "ancient": ["电烤箱", "微波炉", "西式现代厨房"], "modern": ["油灯", "土灶", "柴火", "马车"] },
+  "cooking": {
+    "positiveProps": { "ancient": ["土灶", "柴火", "陶罐", "铜锅"], "modern": [] },
+    "negativeAnchors": { "ancient": ["电烤箱", "微波炉", "西式现代厨房"], "modern": ["土灶", "柴火", "油灯"] }
+  }
+}
+```
 ##### 4) 规则表与判定逻辑（数据驱动，可被运营后台管理）
 
 规则以 `story-context-rules.json` 承载（桌面随包内置，单一来源；运营后台可查看/编辑/校验/导出，详见「运营后台规则管理」）：
