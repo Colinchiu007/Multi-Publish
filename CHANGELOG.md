@@ -1,3 +1,10 @@
+## [2026-08-12] 视频克隆 下载加固：URL 时长上限 + 可复用探针
+
+- analyze-ffprobe 新增 maxDurationSec（默认 1800）：URL 下载统一执行 ≤30min 上限（超限 → VIDEOCLONE_FILE_TOO_LONG，phase=analyze）。
+- 新增 scripts/video-clone-dl-probe.js（npm run dl:probe）：下载→分析→摘要，退出码 0/1/2；test/adapters/dl-probe.test.js 以 VC_DL_TEST_URL 门控（默认 skip）。
+- 验证：engine 103（102 pass + 1 skip）；真实 B 站探针实证（happy path 84MB/23s；时长上限触发 FILE_TOO_LONG；瞬时 LINK_UNAVAILABLE retryable）。
+- PRD v1.9 §23（时长上限/探针用法/平台对比实测）。
+
 ## [未发布] 修复：百家号新增账号登录窗口未登录即关闭 + 无效账号提前入库（2026-08-12）
 
 - 根因：`PLATFORM_LOGIN_SUCCESS_PATTERNS.baijiahao` 为裸域名模式，未登录访问 `https://baijiahao.baidu.com/` 会 302 到同域登录/注册页 `/pcui/register/index`、`/builder/theme/bjh/login`，被 `isPlatformLoginSuccessUrl` 误判为「登录成功」；AuthViewManager 3 秒后提取到预登录跟踪 Cookie 判定有凭证即自动完成 → 关闭登录视图，`auth:open-login` 随即把只有无效凭证的百家号账号入库，账号列表立即显示「新增成功」。
