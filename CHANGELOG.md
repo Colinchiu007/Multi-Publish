@@ -1,3 +1,9 @@
+## [2026-08-12] 视频克隆 切片 3：generate / compose / publish adapter（真实 ffmpeg 合成）
+
+- `packages/video-clone-engine/src/adapters/`：generate-assets（createAssetPlan 逐镜头资产规格 + provider fail-closed 契约）、compose-ffmpeg（resolveTargetSize / buildAssScript ASS 字幕 / buildComposeCommand 纯函数 + createFfmpegCompose 执行与 ffprobe 校验）、publish（可选发布 skipped/成功/失败映射）、index（createSlice3Pipeline 六阶段组装）。
+- 测试 86 用例全绿（含真实 ffmpeg 合成 + 全链路 smoke：2s 样例 → 纯色 PNG → 合成 mp4 → ffprobe 校验 → F4 相似度；工具缺失自动 skip）。
+- PRD v1.3 §17 切片 3 详细规格（资产规划/命令构建/ASS 字幕/可选发布/集成验证）。
+
 ## [2026-08-12] 视频克隆 切片 2：真实 ingest / analyze / plan adapter（PR #596 前身）
 
 - `packages/video-clone-engine/src/adapters/`：runners（ffprobe 元数据 / ffmpeg scene 场景检测 / yt-dlp 下载 / 下载错误文本分类）、ingest-local（存在/大小/扩展名/时长校验 + 错误映射）、ingest-url（下载 + 平台提示 + 私密/会员/地区/反爬分类）、analyze-ffprobe（补探元数据 + 场景检测降级合成分段 + ASR 契约 + 7 层骨架 + aspect 派生）、plan-script（改写契约 + inspiration 模式 + 防御归一化）、index（createDefaultIngest / createSlice2Pipeline）。

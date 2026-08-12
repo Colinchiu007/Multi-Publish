@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.2（切片 2：真实 ingest/analyze/plan adapter 详细规格）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.3（切片 3：generate/compose/publish adapter 详细规格）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -484,4 +484,33 @@ VideoClonePipeline：
   a) 默认管线（createSlice2Pipeline）→ ok:false 停在 generate（VIDEOCLONE_STAGE_NOT_IMPLEMENTED），报告已填充（时长/分辨率/画幅/镜头时间轴）；
   b) 注入 generate/compose/publish stub → ok:true 且 F4 相似度已计算（结构=1、时长通过、confidence≥0.5）；
 - 工具缺失时用例自动 skip（CI 可复现，不依赖外部二进制）。
+
+
+## 17. 详细规格：切片 3 — generate / compose / publish（v1.3 追加）
+
+### 17.1 generate：逐镜头资产规划（generate-assets.js）
+
+- createAssetPlan：每镜头 → { index, t0, t1, durationSec, kind, promptSeed }；
+- kind：replication.mode=full 且镜头 type=video → video，否则 image；
+- promptSeed = palette:tone:person:plot 组合锚点（供 provider 提示词注入）；
+- createGenerateAssets：未注入 assetGenerator → VIDEOCLONE_PROVIDER_UNAVAILABLE（fail-closed，retryable）；生成失败 → VIDEOCLONE_ASSET_GENERATION_FAILED（retryable）；产物必须含 path；成功 → artifacts.assets.scenes 按镜头序。
+
+### 17.2 compose：ffmpeg 合成（compose-ffmpeg.js）
+
+- resolveTargetSize：meta.resolution（WxH 字符串）优先 → width/height 数值 → platformParams.aspect 映射表（9:16=1080x1920、16:9=1920x1080、1:1、4:5、3:4）→ 默认 1080x1920；
+- buildAssScript：script.lines → ASS（[Script Info]/[V4+ Styles] Default 白字描边底部居中 {\an2}；换行 \N；时间轴 t0/t1 → H:MM:SS.cc）；
+- buildComposeCommand（纯函数）：每镜头 -loop 1 -t dur -i 图片 → scale/pad/setsar/fps → concat → 可选 subtitles/overlay 水印 → -map 视频 + 可选 -map 音频 → -t 总时长 -pix_fmt yuv420p -movflags +faststart 输出；无镜头/素材不足 → VIDEOCLONE_COMPOSE_FAILED；
+- createFfmpegCompose：执行（VC_FFMPEG_PATH/FFMPEG_PATH/ffmpeg）→ ffprobe 校验 → artifacts.output { path, durationSec, width, height, sizeBytes }；失败 COMPOSE_FAILED（retryable）。
+
+### 17.3 publish：可选发布（publish.js）
+
+- 未注入 publisher 或 enabled=false → publishResult { status:'skipped', reason:'no-publisher' }（不失败，发布为可选步骤）；
+- publisher({ media, report }) 成功 → publishResult 透传；抛错 → VIDEOCLONE_PUBLISH_FAILED（retryable）；
+- 切片 4 接 PublisherRouter（15 平台）。
+
+### 17.4 切片 3 集成（createSlice3Pipeline）
+
+- 六阶段组装：ingest/analyze/plan 真实 + generate/compose/publish 契约；
+- 验证：本地 2s 样例 → 纯色 PNG 素材（真实 ffmpeg）→ 真实合成 → ffprobe 校验（时长≈源/分辨率/音轨）→ F4 相似度（structure=1、confidence≥0.5）；
+- 未注入 assetGenerator → 停在 generate（PROVIDER_UNAVAILABLE）。
 
