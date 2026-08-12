@@ -302,6 +302,15 @@ split（分句）→ domain_enrich（历史内容领域增强，可选）
 - 真实优化质量（LLM 改写效果、风格检测准确率、配额）属于**外部验收边界**：单元/集成测试用 mock PromptBridge / 本地 HTTP stub 覆盖契约与 fail-closed 行为，不冒充真实 8013 + provider 验收通过（见 learnings 与 quality-gates 记录）。
 - `creative_level ≤ 3` 走 prompt-engine 模板直出（免 LLM key），`> 3` 需要 LLM key（未配置时服务端返回 error → fail closed）。
 
+### 3.1.2.3 独立视频提示词优化引擎（video-prompt-engine，2026-08-12 规划）
+
+**正式落点**：视频提示词优化引擎已独立为 `video_prompt_engine/`（prompt-engine 仓库，端口 8020），与图片引擎（8013）**完全分离**——独立包/知识库/策略/模型/配置，不 import `prompt_engine.*`。
+
+- 端点：`POST /v1/video/optimize`、`/v1/video/optimize/batch`（≤20、并发 8）、`GET /v1/video/platforms`、`GET /v1/video/keywords`、`GET /health`
+- 视频知识库：`keywords_video.json`（7 维度 2059 关键词，源自 img-prompt）+ `seed_video_prompts.json`（结构化种子，源自 awesome-video-prompts 等 7 个开源仓库）
+- 策略：generic_video（六要素+Fact-Fidelity）/ seedance（@引用/多模态）；结构化输出 shot/camera/motion_intensity/scene_transition/continuity_token/duration_hint
+- 与既有 §3.1.2.2（domain=video 分支，8013）并存兼容；**后续 videogen 集成将切换至 8020 独立引擎**（迁移任务，本版本文档标注，不强制）
+
 ### 3.1.2.2 视频提示词统一走 prompt-engine video 领域合同（2026-08-12 落地）
 
 **目标**：项目内所有 AI 视频生成（videogen 流水线、Story2Video 混合模式）的提示词统一经 prompt-engine（8013）`domain=video` 完成改写与输出校验，不再裸传 provider、不再把图片优化提示词直接当视频提示词用。
