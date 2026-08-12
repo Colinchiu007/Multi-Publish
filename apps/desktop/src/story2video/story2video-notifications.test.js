@@ -83,17 +83,17 @@ describe('Story2Video notification messages', () => {
 
     expect(notification).toEqual({
       messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED,
-      message: '当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。',
-      codePointCount: countUnicodeCodePoints('当前登录状态无法启动图片轮播，请先登录并确认当前账号有对应权益。'),
+      message: '当前登录状态无法启动全能创作，请先登录并确认当前账号有对应权益。',
+      codePointCount: countUnicodeCodePoints('当前登录状态无法启动全能创作，请先登录并确认当前账号有对应权益。'),
     })
   })
 
   it('弹窗标题统一为「提示」/「Notice」，不携带流水线名词前缀', () => {
     // UX 规范（2026-08-08）：{流水线名} 提示 → 提示；无论是否传入流水线名
-    expect(getStory2VideoNotificationUiText('zh', '图片轮播').dialogTitle).toBe('提示')
+    expect(getStory2VideoNotificationUiText('zh', '全能创作').dialogTitle).toBe('提示')
     expect(getStory2VideoNotificationUiText('zh', 'Story2Video').dialogTitle).toBe('提示')
     expect(getStory2VideoNotificationUiText('zh', '').dialogTitle).toBe('提示')
-    expect(getStory2VideoNotificationUiText('en', 'Image Carousel').dialogTitle).toBe('Notice')
+    expect(getStory2VideoNotificationUiText('en', 'Omni Creation').dialogTitle).toBe('Notice')
     expect(getStory2VideoNotificationUiText('en', '').dialogTitle).toBe('Notice')
   })
 

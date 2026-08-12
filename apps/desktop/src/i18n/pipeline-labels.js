@@ -142,9 +142,11 @@ const STAGES = {
   report: 'pipelines.stages.report',
   split: 'pipelines.stages.split',
   domain_enrich: 'pipelines.stages.domain_enrich',
+  scene_context: 'pipelines.stages.scene_context',
   optimize: 'pipelines.stages.optimize',
   select_video_scenes: 'pipelines.stages.select_video_scenes',
   generate_assets: 'pipelines.stages.generate_assets',
+  finalize_assets: 'pipelines.stages.finalize_assets',
 }
 
 const STATUSES = {

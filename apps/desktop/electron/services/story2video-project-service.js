@@ -359,6 +359,7 @@ class Story2VideoProjectService {
         sourceIndex: index,
         text: safeText(segment.text || segment.content, 10000),
         prompt: safeText(segment.prompt, 20000),
+        promptTranslation: safeText(segment.promptTranslation, 20000) || null,
         imagePath: segment.imagePath
           ? this._copyRequired(segment.imagePath, path.join(projectDir, prefix + '_image' + sourceExtension(segment.imagePath, '.png')), 'image')
           : null,

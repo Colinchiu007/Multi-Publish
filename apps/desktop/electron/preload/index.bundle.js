@@ -105,6 +105,7 @@ var require_publish = __commonJS({
         pipelineResumeOrchestration: (runId) => ipcRenderer2.invoke("pipeline:resumeOrchestration", runId),
         pipelineExecuteStage: (runId) => ipcRenderer2.invoke("pipeline:executeStage", runId),
         pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer2.invoke("pipeline:advanceToNextCheckpoint", runId),
+        pipelineConfirmSceneAssets: (runId, selections) => ipcRenderer2.invoke("pipeline:confirmSceneAssets", runId, selections),
         pipelineGetRunContext: (runId) => ipcRenderer2.invoke("pipeline:getRunContext", runId),
         // Story2Video 本地交付
         story2videoImportMedia: (file, kind) => {

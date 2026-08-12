@@ -505,6 +505,9 @@
       context: { story2videoProject: { projectId: 'e2e-story2video-project' } },
       status: { status: 'running', progress: 10 },
     })),
+    pipelineConfirmSceneAssets: makeHandler('pipelineConfirmSceneAssets', async (runId, selections) => ok({
+      success: true, runId: runId || 'e2e-run', selections: Array.isArray(selections) ? selections.length : 0,
+    })),
     pipelinePause: makeHandler('pipelinePause', async () => ok(true)),
     pipelineResume: makeHandler('pipelineResume', async () => ok(true)),
     pipelineCancel: makeHandler('pipelineCancel', async () => ok(true)),

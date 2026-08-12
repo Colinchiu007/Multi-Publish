@@ -70,7 +70,7 @@ describe("PipelineBrowser", () => {
   it("shows 开发中 badge for unavailable pipelines", async () => {
     const mockPipelines = [
       { name: "animation", description: "动画视频", category: "animation", available: false },
-      { name: "story2video-compose", description: "图片轮播", category: "generated", available: true },
+      { name: "story2video-compose", description: "全能创作", category: "generated", available: true },
     ];
     pipelineList.mockResolvedValue({ code: 0, data: mockPipelines });
     const wrapper = mountBrowser();

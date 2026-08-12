@@ -118,6 +118,10 @@ class RunStateStore {
       stages: Array.isArray(run.stages) ? run.stages.map((s) => ({ ...s })) : [],
       context: run.context && typeof run.context === 'object' ? run.context : {},
       params: run.params && typeof run.params === 'object' ? run.params : {},
+      // 检查点快照（分镜素材自选 scene_asset_selection 等）：恢复为 paused 时使用（增量字段，version 保持 1）
+      checkpoint: run.checkpoint && typeof run.checkpoint === 'object' && !Array.isArray(run.checkpoint)
+        ? run.checkpoint
+        : null,
       error: run.error || null,
       orchestrationMode: run.orchestrationMode || 'orchestrator',
       createdAt: run.createdAt || null,
@@ -151,6 +155,14 @@ class RunStateStore {
    */
   saveRunning(run) {
     return this._write(run, 'running')
+  }
+
+  /**
+   * 保存「分镜素材自选」暂停检查点快照（status='paused' + checkpoint）。
+   * 应用重启后历史记录显示已暂停，resumeOrchestration 可恢复到选择面板。
+   */
+  savePaused(run) {
+    return this._write(run, 'paused')
   }
 
   load(runId) {

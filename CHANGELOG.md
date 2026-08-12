@@ -1,3 +1,12 @@
+## [2026-08-12] Story2Video 全能创作：流水线更名、历史提示词本地翻译、分镜素材自选创作模式
+
+- 更名：流水线展示名「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」（zh/en i18n、配置标题、权限提示、阶段摘要同步；机器 ID story2video-compose 不变）。
+- 历史提示词翻译：非 en 界面下，流水线在提示词优化后按场景调用默认 LLM 生成优化后提示词的本地翻译（fail-open，缺失默认不触发），随分段持久化；ResultView 分段「画面提示词」下方只读展示（data-testid segment-prompt-translation）。
+- 创作模式：视频增强区新增「创作模式」单选（全自动（推荐）默认 / 分镜素材自选）+ 成本提示 + 「素材模式」单选（全部图片轮播 / 视频+图片轮播）+ 双语说明；manual+全部图片轮播时隐藏视频增强模式（不生成 AI 视频）。
+- 分镜素材自选：generate_assets 每场景生成 2 张图片（同一提示词，独立候选路径防覆盖），视频+图片轮播模式下 AI 视频场景额外 1 个视频（同一提示词），跳过 TTS，以 scene_asset_selection 检查点暂停（持久化 paused 快照，重启可恢复选择面板）；新增 SceneAssetSelection 面板（默认选中：有视频选视频/纯图第 1 张，确认后推进）；新 IPC pipeline:confirmSceneAssets 校验并推进 finalize_assets（TTS + 最终素材清单）→ compose → publish；resumeOrchestration 支持 paused+scene_asset_selection 恢复。
+- 契约：story2videoTextConfig 新增 creation 段（mode/materialMode 枚举校验 + normalizer/stageOptions/_safeOptions 白名单 + 前端 lastOptions 恢复白名单）；uiLocale 随提交；阶段清单 manual 插入 finalize_assets。
+- 测试：新增 story2video-manual-assets.test.js（15 例：normalizer 契约、候选生成、finalize、engine 集成）、SceneAssetSelection 组件测试（4 例）、ResultView 翻译块、CreateView 创作模式 UI；preload/ipc-contract/stage-executor/i18n 断言同步；后端 703 + 前端相关套件全绿。
+- 文档：01-docs/PRD.md §7.1.3a（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字清单、成本提示）；OpenSpec change story2video-omnipotent-creation（proposal/design/specs/tasks）。
 ## [2026-08-12] feat(ops-center): 场景层评测场景数上限 50 → 100
 
 - 需求：运营整篇文案分句常超 50 场景（如 54 场景报「场景数超过上限 50」），放宽到 100。
@@ -3916,6 +3925,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

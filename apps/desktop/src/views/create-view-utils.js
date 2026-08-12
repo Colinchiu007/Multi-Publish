@@ -93,7 +93,7 @@ export const AUTO_PIPELINE_STAGES = Object.freeze({
  * Story2Video 阶段名
  */
 export const STORY2VIDEO_STAGE_NAMES = Object.freeze([
-  'split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
+  'split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
 ])
 
 /**

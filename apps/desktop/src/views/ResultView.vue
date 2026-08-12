@@ -180,6 +180,10 @@
             画面提示词
             <textarea v-model="segment.prompt" rows="3" @input="segmentsDirty = true"></textarea>
           </label>
+          <div v-if="showPromptTranslation(segment)" class="segment-prompt-translation" data-testid="segment-prompt-translation">
+            <span class="segment-prompt-translation-label">{{ promptTranslationLabel }}</span>
+            <p class="segment-prompt-translation-text">{{ segment.promptTranslation }}</p>
+          </div>
 
           <div class="segment-actions">
             <label class="segment-file-action" :class="{ disabled: isSegmentBusy(segment.id) }">
@@ -214,6 +218,7 @@
 <script>
 import UiButton from '../components/UiButton.vue'
 import UiModal from '../components/UiModal.vue'
+import { getAppLocale } from '@/i18n'
 import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
 import {
   story2videoExportZip,
@@ -266,6 +271,11 @@ export default {
     else this.loading = false
   },
   computed: {
+    // 历史记录提示词翻译（2026-08-12）：非 en 界面且分段存在翻译时展示只读文案
+    promptTranslationLabel() {
+      const locale = getAppLocale()
+      return locale === 'zh' ? '中文翻译' : (locale === 'en' ? '' : '翻译')
+    },
     bgmSkippedNotice() {
       const query = this.$route?.query || {}
       if (query.bgmSkipped !== '1') return ''
@@ -341,6 +351,11 @@ export default {
         messageKey: STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING,
         messageParams: { assetKinds: this.degradedAssetKinds },
       })
+    },
+    showPromptTranslation(segment) {
+      if (getAppLocale() === 'en') return false
+      const translation = segment && segment.promptTranslation
+      return typeof translation === 'string' && translation.trim() !== ''
     },
     async resolveLocalUrl(filePath) {
       if (!filePath) return null
