@@ -23,7 +23,7 @@ def _desktop_constants() -> dict:
         "OPTIMIZATION_POINT_TYPES:d.OPTIMIZATION_POINT_TYPES,SEVERITIES:d.SEVERITIES,"
         "single:d.resolveDimensionWeights(1),multi:d.resolveDimensionWeights(2)}))"
     )
-    out = subprocess.run(["node", "-e", script, mod], capture_output=True, text=True, check=True)
+    out = subprocess.run(["node", "-e", script, mod], capture_output=True, text=True, encoding="utf-8", check=True)
     return json.loads(out.stdout)
 
 

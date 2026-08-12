@@ -477,6 +477,7 @@ class PromptEvalCase(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(200), default="")
+    source_mode = Column(String(16), default="manual")  # manual / scene
     source_text = Column(Text, nullable=False)
     context = Column(Text, nullable=True)
     prompt_zh = Column(Text, nullable=False)
@@ -501,6 +502,7 @@ class PromptEvalRun(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     case_id = Column(Integer, ForeignKey("prompt_eval_cases.id"), nullable=False, index=True)
+    scene_id = Column(Integer, ForeignKey("prompt_eval_scenes.id"), nullable=True, index=True)
     provider = Column(String(64), nullable=False)
     model = Column(String(128), nullable=False)
     status = Column(String(16), default="queued")  # queued/processing/succeeded/failed
@@ -533,3 +535,22 @@ class PromptEvalProviderKey(Base):
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+
+class PromptEvalScene(Base):
+    """提示词评测场景层（scene 模式）：场景文字 + 字幕二次分句 + 场景上下文 + 中英优化提示词。"""
+
+    __tablename__ = "prompt_eval_scenes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    case_id = Column(Integer, ForeignKey("prompt_eval_cases.id"), nullable=False, index=True)
+    index = Column(Integer, nullable=False)
+    scene_text = Column(Text, nullable=False)
+    subtitle_blocks = Column(Text, nullable=True)  # JSON [{text, displayOrder, startTime, duration}]
+    scene_context = Column(Text, nullable=True)  # JSON（白名单键）
+    prompt_zh = Column(Text, nullable=True)
+    prompt_en = Column(Text, nullable=True)
+    prompt_en_source = Column(String(32), nullable=True)
+    prompt_en_translated_at = Column(String, nullable=True)
+    prompt_en_cache_zh = Column(Text, nullable=True)  # 幂等缓存键（prompt_zh 快照）
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
