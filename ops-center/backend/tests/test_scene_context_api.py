@@ -141,3 +141,24 @@ async def test_scene_context_rules_validate_version_bool_and_props_name():
     assert any(e["path"] == "version" for e in r1.json()["errors"])
     assert r2.json()["ok"] is False
     assert any("props.ancient[0]" in e["path"] for e in r2.json()["errors"])
+
+
+@pytest.mark.asyncio
+async def test_template_syncs_with_desktop_builtin():
+    """W5：ops-center 模板必须与桌面随包 story-context-rules.json 保持同步。"""
+    import json as _json
+    import os as _os
+
+    from services.scene_context_service import load_template
+
+    template = load_template()
+    desktop_path = _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))),
+        "apps", "desktop", "electron", "services", "story-context-rules.json",
+    )
+    with open(desktop_path, encoding="utf-8") as fh:
+        desktop = _json.load(fh)
+    assert _json.dumps(template, sort_keys=True, ensure_ascii=False) == _json.dumps(
+        desktop, sort_keys=True, ensure_ascii=False
+    )
+

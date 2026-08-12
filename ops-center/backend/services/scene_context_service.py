@@ -109,8 +109,12 @@ def validate_rules(rules) -> dict:
                 push(f"cooking.{sub}", "必须为对象")
                 continue
             for side in ("ancient", "modern"):
-                if not isinstance(obj.get(side), list):
+                items = obj.get(side)
+                if not isinstance(items, list):
                     push(f"cooking.{sub}.{side}", "必须为数组")
+                    continue
+                if any(not isinstance(x, str) or not x.strip() for x in items):
+                    push(f"cooking.{sub}.{side}", "每项必须为非空字符串")
     return {"ok": len(errors) == 0, "errors": errors}
 
 
@@ -168,6 +172,20 @@ async def save_rules(db: AsyncSession, body: dict, updated_by: str) -> dict:
     if row is None:
         row = SceneContextRules(key=DEFAULT_KEY, version=1, content=json.dumps(rules, ensure_ascii=False), updated_at=now, updated_by=updated_by)
         db.add(row)
+        try:
+            await db.commit()
+            return await get_rules(db)
+        except Exception as exc:  # 并发首次保存唯一键冲突 → 回退为更新
+            await db.rollback()
+            row = (await db.execute(select(SceneContextRules).where(SceneContextRules.key == DEFAULT_KEY))).scalar_one_or_none()
+            if row is None:
+                raise exc
+            row.version = (row.version or 0) + 1
+            row.content = json.dumps(rules, ensure_ascii=False)
+            row.updated_at = now
+            row.updated_by = updated_by
+            await db.commit()
+            return await get_rules(db)
     else:
         row.version = (row.version or 0) + 1
         row.content = json.dumps(rules, ensure_ascii=False)
@@ -186,6 +204,8 @@ async def export_rules(db: AsyncSession) -> dict:
         "exported_at": _now(),
         "note": "将 rules 导出为 JSON 后：合入桌面仓库 apps/desktop/electron/services/story-context-rules.json（随包）或放置 <userData>/config/story-context-rules.json（配置覆盖，桌面端校验失败回退内置）",
     }
+
+
 
 
 

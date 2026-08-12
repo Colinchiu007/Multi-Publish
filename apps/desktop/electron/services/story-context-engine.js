@@ -18,7 +18,12 @@
 // ---------------------------------------------------------------------------
 const fs = require('fs')
 
-const BUILTIN_CONTEXT_RULES = require('./story-context-rules.json')
+let BUILTIN_CONTEXT_RULES = null
+try {
+  BUILTIN_CONTEXT_RULES = require('./story-context-rules.json')
+} catch (_) {
+  // 语法级损坏属打包错误：loadContextRules 会回退空规则兜底并告警
+}
 
 const EMPTY_CONTEXT_RULES = Object.freeze({
   version: 0,
@@ -162,7 +167,7 @@ let contextRulesState = loadContextRules({})
 
 /** 当前生效规则（外部覆盖失败时回退内置）。 */
 function getContextRules () {
-  return contextRulesState.rules
+  return { ...contextRulesState.rules }
 }
 
 /** 规则来源信息（供日志/展示）。 */
