@@ -192,7 +192,7 @@ describe("AccountsView (coverage)", () => {
 
   async function mnt() {
     const m = await import("./Accounts.vue");
-    return mount(m.default || m, { global: { plugins: [createPinia()],
+    return mount(m.default || m, { global: { plugins: [createPinia(), i18n],
       stubs: { "el-dialog": true, "el-input": true, "el-form": true, "el-form-item": true, UiButton: { template: "<button><slot/></button>" }, UiInput: { template: "<input/>" } }
     } });
   }

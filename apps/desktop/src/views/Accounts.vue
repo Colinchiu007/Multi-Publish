@@ -1,58 +1,58 @@
 <template>
   <div class="accounts-page">
-    <h1 class="sr-only">账号管理</h1>
-    <section v-if="accountTab !== 'groups' && accountTab !== 'favorites'" class="account-controls" aria-label="账号筛选">
+    <h1 class="sr-only">{{ t('accountsPage.pageTitle') }}</h1>
+    <section v-if="accountTab !== 'groups' && accountTab !== 'favorites'" class="account-controls" :aria-label="t('accountsPage.filterAria')">
       <div class="search-box platform-search-box">
         <Search class="search-icon" />
-        <input v-model="platformSearchInput" type="search" placeholder="搜索平台" aria-label="搜索平台">
-        <button v-if="platformSearchInput" class="clear-search" type="button" title="清空平台搜索" aria-label="清空平台搜索" @click="platformSearchInput = ''"><Close /></button>
+        <input v-model="platformSearchInput" type="search" :placeholder="t('accountsPage.searchPlatform')" :aria-label="t('accountsPage.searchPlatform')">
+        <button v-if="platformSearchInput" class="clear-search" type="button" :title="t('accountsPage.clearPlatformSearch')" :aria-label="t('accountsPage.clearPlatformSearch')" @click="platformSearchInput = ''"><Close /></button>
       </div>
       <div class="search-box">
         <Search class="search-icon" />
         <input
           v-model="searchInput"
           type="search"
-          placeholder="搜索账号名称"
-          aria-label="搜索账号或平台"
+          :placeholder="t('accountsPage.searchAccountName')"
+          :aria-label="t('accountsPage.searchAccountOrPlatform')"
           @input="onSearchInput"
         >
-        <button v-if="searchInput" class="clear-search" type="button" title="清空搜索" aria-label="清空搜索" @click="clearSearch"><Close /></button>
+        <button v-if="searchInput" class="clear-search" type="button" :title="t('accountsPage.clearSearch')" :aria-label="t('accountsPage.clearSearch')" @click="clearSearch"><Close /></button>
       </div>
 
-      <div class="account-toolbar-selects" aria-label="账号高级筛选">
-        <select v-model="ownerFilter" aria-label="负责人" :disabled="ownerOptions.length === 0">
-          <option value="">{{ ownerOptions.length ? '负责人' : '负责人（暂无数据）' }}</option>
+      <div class="account-toolbar-selects" :aria-label="t('accountsPage.advancedFilterAria')">
+        <select v-model="ownerFilter" :aria-label="t('accountsPage.owner')" :disabled="ownerOptions.length === 0">
+          <option value="">{{ ownerOptions.length ? t('accountsPage.owner') : t('accountsPage.ownerEmpty') }}</option>
           <option v-for="owner in ownerOptions" :key="owner" :value="owner">{{ owner }}</option>
         </select>
-        <select v-model="publisherFilter" aria-label="选择发布人" :disabled="publisherOptions.length === 0">
-          <option value="">{{ publisherOptions.length ? '选择发布人' : '选择发布人（暂无数据）' }}</option>
+        <select v-model="publisherFilter" :aria-label="t('accountsPage.publisher')" :disabled="publisherOptions.length === 0">
+          <option value="">{{ publisherOptions.length ? t('accountsPage.publisher') : t('accountsPage.publisherEmpty') }}</option>
           <option v-for="publisher in publisherOptions" :key="publisher" :value="publisher">{{ publisher }}</option>
         </select>
       </div>
-      <div class="account-sort-controls" role="group" aria-label="账号排序">
-        <select v-model="accountStore.sortBy" data-testid="account-sort" aria-label="账号排序字段">
+      <div class="account-sort-controls" role="group" :aria-label="t('accountsPage.sortAria')">
+        <select v-model="accountStore.sortBy" data-testid="account-sort" :aria-label="t('accountsPage.sortFieldAria')">
           <option v-for="option in sortOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
         </select>
         <button
           type="button"
           data-testid="account-sort-order"
-          :aria-label="`排序${sortOrderLabel}`"
-          :title="`排序${sortOrderLabel}`"
+          :aria-label="t('accountsPage.sortAction') + sortOrderLabel"
+          :title="t('accountsPage.sortAction') + sortOrderLabel"
           @click="toggleSortOrder"
         >
           <span aria-hidden="true">{{ accountStore.sortOrder === 'desc' ? '↓' : '↑' }}</span>
           <span class="sr-only">{{ sortOrderLabel }}</span>
         </button>
       </div>
-      <div class="account-view-toggle" role="group" aria-label="账号视图">
+      <div class="account-view-toggle" role="group" :aria-label="t('accountsPage.viewAria')">
         <button type="button" data-testid="account-view-grid" :aria-pressed="accountViewMode === 'grid'" @click="accountViewMode = 'grid'">▦</button>
         <button type="button" data-testid="account-view-list" :aria-pressed="accountViewMode === 'list'" @click="accountViewMode = 'list'">☷</button>
       </div>
-      <div class="account-command-bar" aria-label="账号操作">
-        <button class="page-button secondary" type="button" data-testid="account-batch" @click="accountBatchMode = !accountBatchMode">批量操作</button>
-        <button class="page-button primary" type="button" data-testid="account-add" @click="showAddDialog = true"><Plus />添加账号</button>
+      <div class="account-command-bar" :aria-label="t('accountsPage.actionsAria')">
+        <button class="page-button secondary" type="button" data-testid="account-batch" @click="accountBatchMode = !accountBatchMode">{{ t('accountsPage.batchAction') }}</button>
+        <button class="page-button primary" type="button" data-testid="account-add" @click="showAddDialog = true"><Plus />{{ t('accountsPage.addAccount') }}</button>
       </div>
-      <div class="filter-tabs" role="tablist" aria-label="账号状态">
+      <div class="filter-tabs" role="tablist" :aria-label="t('accountsPage.statusAria')">
         <button
           v-for="(item, index) in filterOptions"
           :key="item.value"
@@ -69,20 +69,20 @@
           {{ item.label }}
         </button>
       </div>
-      <span class="account-count">{{ visiblePlatformCount }} 个平台，{{ visibleAccountCount }} 个账号</span>
+      <span class="account-count">{{ t('accountsPage.countSummary', { platforms: visiblePlatformCount, accounts: visibleAccountCount }) }}</span>
     </section>
 
     <div v-if="totalAccounts > 0 && accountBatchMode && accountTab !== 'groups' && accountTab !== 'favorites'" class="batch-toolbar">
       <label>
         <input type="checkbox" :checked="isAllSelected" @change="toggleSelectAll">
-        <span>全选当前结果</span>
+        <span>{{ t('accountsPage.selectAll') }}</span>
       </label>
       <template v-if="selectedCount > 0">
-        <span class="selected-count">已选 {{ selectedCount }} 个</span>
-        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('active')">{{ batchStatusBusy ? '处理中...' : '批量启用' }}</button>
-        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('inactive')">{{ batchStatusBusy ? '处理中...' : '批量禁用' }}</button>
-        <button class="batch-delete" type="button" @click="handleBatchDelete"><Delete />批量删除</button>
-        <button class="batch-cancel" type="button" @click="clearSelection">取消选择</button>
+        <span class="selected-count">{{ t('accountsPage.selectedCount', { count: selectedCount }) }}</span>
+        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('active')">{{ batchStatusBusy ? t('accountsPage.processing') : t('accountsPage.batchEnable') }}</button>
+        <button class="batch-status" type="button" :disabled="batchStatusBusy" @click="handleBatchStatus('inactive')">{{ batchStatusBusy ? t('accountsPage.processing') : t('accountsPage.batchDisable') }}</button>
+        <button class="batch-delete" type="button" @click="handleBatchDelete"><Delete />{{ t('accountsPage.batchDelete') }}</button>
+        <button class="batch-cancel" type="button" @click="clearSelection">{{ t('accountsPage.cancelSelection') }}</button>
       </template>
     </div>
 
@@ -93,13 +93,13 @@
         <span>{{ loginStateText }}</span>
       </div>
       <div class="login-state-actions">
-        <button v-if="loginMode === 'browser'" class="complete-login" type="button" :disabled="completingLogin" @click="completeAuthView">{{ completingLogin ? '正在保存' : '我已完成登录' }}</button>
-        <button type="button" @click="closeAuthView">关闭</button>
+        <button v-if="loginMode === 'browser'" class="complete-login" type="button" :disabled="completingLogin" @click="completeAuthView">{{ completingLogin ? t('accountsPage.completeLoginSaving') : t('accountsPage.completeLoginDone') }}</button>
+        <button type="button" @click="closeAuthView">{{ t('accountsPage.close') }}</button>
       </div>
     </div>
-    <aside v-if="authViewVisible && loginMode === 'qrcode' && qrImageSource" class="login-qr-preview" data-testid="account-qr-preview" aria-label="扫码登录二维码">
-      <img :src="qrImageSource" alt="扫码登录二维码" referrerpolicy="no-referrer">
-      <span>请使用对应平台客户端扫描二维码</span>
+    <aside v-if="authViewVisible && loginMode === 'qrcode' && qrImageSource" class="login-qr-preview" data-testid="account-qr-preview" :aria-label="t('accountsPage.qrPreviewAria')">
+      <img :src="qrImageSource" :alt="t('accountsPage.qrPreviewAria')" referrerpolicy="no-referrer">
+      <span>{{ t('accountsPage.qrScanHint') }}</span>
     </aside>
 
     <main
@@ -110,10 +110,10 @@
     >
       <section v-if="accountTab === 'share'" class="module-placeholder" data-testid="account-share-panel">
         <div class="module-placeholder-icon" aria-hidden="true">🔗</div>
-        <h2>分享链接</h2>
-        <p>当前工作区尚未接入团队分享服务；账号数据仍按当前设备和登录身份隔离。</p>
-        <span class="module-placeholder-state" data-testid="account-share-state" role="status">未接入服务</span>
-        <button class="page-button secondary" data-testid="account-share-create" type="button" disabled>创建分享链接</button>
+        <h2>{{ t('accountsPage.shareTitle') }}</h2>
+        <p>{{ t('accountsPage.shareHint') }}</p>
+        <span class="module-placeholder-state" data-testid="account-share-state" role="status">{{ t('accountsPage.shareNotConnected') }}</span>
+        <button class="page-button secondary" data-testid="account-share-create" type="button" disabled>{{ t('accountsPage.createShareLink') }}</button>
       </section>
       <AccountGroupsPanel
         v-else-if="accountTab === 'groups'"
@@ -133,8 +133,8 @@
         @open-group="openFavoriteGroup"
       />
       <div v-else class="account-workspace">
-        <aside class="platform-filter-panel" aria-label="平台筛选">
-          <div class="platform-filter-heading">平台</div>
+        <aside class="platform-filter-panel" :aria-label="t('accountsPage.platformFilterAria')">
+          <div class="platform-filter-heading">{{ t('accountsPage.platform') }}</div>
           <button
             type="button"
             :class="{ active: !platformFilter }"
@@ -143,7 +143,7 @@
             @click="setPlatformFilter('')"
           >
             <span class="platform-filter-icon">全</span>
-            <span>全部平台</span>
+            <span>{{ t('accountsPage.allPlatforms') }}</span>
             <strong>{{ filteredAccountCount }}</strong>
           </button>
           <button
@@ -159,17 +159,17 @@
             <span>{{ platformLabel(item.id) }}</span>
             <strong>{{ item.count }}</strong>
           </button>
-          <section class="group-filter-section" data-testid="account-group-filter" aria-label="分组筛选">
+          <section class="group-filter-section" data-testid="account-group-filter" :aria-label="t('accountsPage.groupFilterAria')">
             <div class="group-filter-heading">
-              <span>分组</span>
-              <label title="仅显示团队共享分组">
+              <span>{{ t('accountsPage.groups') }}</span>
+              <label :title="t('accountsPage.sharedOnly')">
                 <input v-model="sharedOnly" type="checkbox" data-testid="group-shared-only">
-                <span>仅看共享</span>
+                <span>{{ t('accountsPage.sharedOnly') }}</span>
               </label>
             </div>
             <div class="search-box group-search-box">
               <Search class="search-icon" />
-              <input v-model="groupSearchInput" type="search" placeholder="搜索分组" aria-label="搜索分组">
+              <input v-model="groupSearchInput" type="search" :placeholder="t('accountsPage.searchGroup')" :aria-label="t('accountsPage.searchGroup')">
             </div>
             <button
               type="button"
@@ -178,7 +178,7 @@
               @click="setGroupFilter('')"
             >
               <FolderOpened class="group-filter-icon" />
-              <span>全部分组</span>
+              <span>{{ t('accountsPage.allGroups') }}</span>
             </button>
             <button
               v-for="group in visibleGroups"
@@ -192,12 +192,12 @@
               <span>{{ group.name }}</span>
               <strong>{{ group.accountIds?.length || 0 }}</strong>
             </button>
-            <div v-if="visibleGroups.length === 0" class="group-empty" data-testid="account-group-empty">暂无分组</div>
+            <div v-if="visibleGroups.length === 0" class="group-empty" data-testid="account-group-empty">{{ t('accountsPage.noGroups') }}</div>
           </section>
         </aside>
 
-        <section class="account-results-panel" aria-label="账号列表">
-          <div v-if="loading" class="loading-state">正在加载账号...</div>
+        <section class="account-results-panel" :aria-label="t('accountsPage.accountListAria')">
+          <div v-if="loading" class="loading-state">{{ t('accountsPage.loadingAccounts') }}</div>
           <div v-else-if="visibleAccounts.length === 0" class="empty-state">
             <UserFilled />
             <h2>{{ emptyStateTitle }}</h2>
@@ -254,7 +254,7 @@
       @acknowledge="acknowledgeAuthorizationGuide"
     />
 
-    <button v-if="authViewVisible" class="floating-close-button" type="button" @click="closeAuthView"><Close />关闭登录</button>
+    <button v-if="authViewVisible" class="floating-close-button" type="button" @click="closeAuthView"><Close />{{ t('accountsPage.closeLogin') }}</button>
   </div>
 </template>
 
@@ -274,23 +274,24 @@ import { useAccountStore } from '@/stores/accounts'
 import { usePlatformStore } from '@/stores/platforms'
 import { useTabStore } from '@/stores/tab'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { PLATFORM_DASHBOARD_URLS } from '@multi-publish/shared-utils/src/platform-definitions'
 import { formatUserError } from '@/utils/user-facing-error'
 
-const filterOptions = [
-  { value: 'all', label: '全部' },
-  { value: 'active', label: '已登录' },
-  { value: 'inactive', label: '未登录' },
-  { value: 'favorite', label: '收藏' },
-]
-const sortOptions = [
-  { value: 'name', label: '名称' },
-  { value: 'platform', label: '平台' },
-  { value: 'created_at', label: '添加时间' },
-  { value: 'last_used_at', label: '最后使用' },
-  { value: 'followers', label: '粉丝数' },
-  { value: 'status', label: '登录状态' },
-]
+const filterOptions = computed(() => [
+  { value: 'all', label: t('accountsPage.filterAll') },
+  { value: 'active', label: t('accountsPage.filterActive') },
+  { value: 'inactive', label: t('accountsPage.filterInactive') },
+  { value: 'favorite', label: t('accountsPage.filterFavorite') },
+])
+const sortOptions = computed(() => [
+  { value: 'name', label: t('accountsPage.sortName') },
+  { value: 'platform', label: t('accountsPage.sortPlatform') },
+  { value: 'created_at', label: t('accountsPage.sortCreated') },
+  { value: 'last_used_at', label: t('accountsPage.sortLastUsed') },
+  { value: 'followers', label: t('accountsPage.sortFollowers') },
+  { value: 'status', label: t('accountsPage.sortStatus') },
+])
 const emptyIds = new Set()
 
 const platformStore = usePlatformStore()
@@ -298,6 +299,7 @@ const tabStore = useTabStore()
 const accountStore = useAccountStore()
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const accountActions = useAccountActions()
 const loading = ref(false)
 const showAddDialog = ref(false)
@@ -330,18 +332,18 @@ platformStore.load()
 const accountEvents = useAccountEvents({
   onCompleted: async (_data, mode) => {
     const message = pendingAuthAction.value === 'relogin'
-      ? '账号重新登录成功'
-      : mode === 'qrcode' ? '扫码登录成功' : '账号添加成功'
+      ? t('accountsPage.reloginSuccess')
+      : mode === 'qrcode' ? t('accountsPage.qrcodeSuccess') : t('accountsPage.addSuccess')
     pendingAuthAction.value = null
     ElMessage.success(message)
     await refresh()
   },
   onStatusChanged: async data => {
     await refresh()
-    if (Number(data?.expiredCount) > 0) ElMessage.warning(`${data.expiredCount} 个账号登录已失效`)
+    if (Number(data?.expiredCount) > 0) ElMessage.warning(t('accountsPage.expiredWarning', { count: data.expiredCount }))
   },
   onError: error => {
-    ElMessage.error(formatUserError(error, { fallback: '账号事件处理失败' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.eventFailed') }).message)
   },
 })
 const {
@@ -359,17 +361,17 @@ const authViewVisible = computed({
   get: () => loginVisible.value,
   set: value => { loginVisible.value = Boolean(value) },
 })
-const authPlatformName = computed(() => loginPlatform.value ? platformLabel(loginPlatform.value) : '账号登录')
+const authPlatformName = computed(() => loginPlatform.value ? platformLabel(loginPlatform.value) : t('accountsPage.loginTitle'))
 const accountTab = computed(() => String(route.query?.tab || 'accounts'))
 const loginStateText = computed(() => {
-  if (loginMode.value !== 'qrcode') return '网页登录窗口已打开'
+  if (loginMode.value !== 'qrcode') return t('accountsPage.loginStateBrowser')
   return {
-    opening: '正在打开扫码页',
-    waiting: '等待二维码加载',
-    detected: '二维码已就绪',
-    completed: '账号保存完成',
-    closed: '扫码窗口已关闭',
-  }[qrStatus.value] || '扫码登录进行中'
+    opening: t('accountsPage.loginStateOpening'),
+    waiting: t('accountsPage.loginStateWaiting'),
+    detected: t('accountsPage.loginStateDetected'),
+    completed: t('accountsPage.loginStateCompleted'),
+    closed: t('accountsPage.loginStateClosed'),
+  }[qrStatus.value] || t('accountsPage.loginStateRunning')
 })
 const qrImageSource = computed(() => {
   const image = qrImage.value
@@ -380,7 +382,7 @@ const qrImageSource = computed(() => {
 const allPlatforms = computed(() => platformStore.platforms.map(item => ({ id: item.id, label: item.label })))
 const totalAccounts = computed(() => accountStore.accounts.length)
 const qrAvailable = computed(() => platformStore.supportsQrCode(newPlatform.value))
-const sortOrderLabel = computed(() => accountStore.sortOrder === 'desc' ? '降序' : '升序')
+const sortOrderLabel = computed(() => accountStore.sortOrder === 'desc' ? t('accountsPage.sortDesc') : t('accountsPage.sortAsc'))
 
 function shouldShowAuthorizationGuide () {
   try { return localStorage.getItem('account-authorization-guide-seen') !== '1' } catch (_) { return true }
@@ -515,10 +517,10 @@ const visibleGroups = computed(() => {
   })
 })
 const emptyStateTitle = computed(() => {
-  if (totalAccounts.value === 0) return '暂无账号'
-  if (filter.value === 'favorite') return '暂无收藏账号'
-  if (groupFilter.value) return '分组内暂无账号'
-  return '没有匹配的账号'
+  if (totalAccounts.value === 0) return t('accountsPage.emptyNone')
+  if (filter.value === 'favorite') return t('accountsPage.emptyNoFavorite')
+  if (groupFilter.value) return t('accountsPage.emptyNoGroup')
+  return t('accountsPage.emptyNoMatch')
 })
 const visibleAccountIds = computed(() => visibleAccounts.value.map(account => account.id))
 const selectedVisibleIds = computed(() => visibleAccountIds.value.filter(id => accountStore.selectedIds.has(id)))
@@ -583,15 +585,15 @@ function toggleFavorite (id) {
 
 function createNewGroup (name, platformFilter = '') {
   accountStore.createGroup(name.trim(), platformFilter)
-  ElMessage.success('分组创建成功')
+  ElMessage.success(t('accountsPage.groupCreated'))
 }
 
 function renameGroup (groupId, name) {
   if (!accountStore.renameGroup(groupId, name)) {
-    ElMessage.error('分组名称不能为空且不能重复')
+    ElMessage.error(t('accountsPage.groupNameInvalid'))
     return
   }
-  ElMessage.success('分组已重命名')
+  ElMessage.success(t('accountsPage.groupRenamed'))
 }
 
 function setGroupPlatform (groupId, platformFilter) {
@@ -600,9 +602,9 @@ function setGroupPlatform (groupId, platformFilter) {
 
 async function deleteGroup (groupId) {
   try {
-    await ElMessageBox.confirm('确定删除此分组吗？', '确认', { type: 'warning' })
+    await ElMessageBox.confirm(t('accountsPage.confirmDeleteGroup'), t('accountsPage.confirmTitle'), { type: 'warning' })
     accountStore.deleteGroup(groupId)
-    ElMessage.success('分组已删除')
+    ElMessage.success(t('accountsPage.groupDeleted'))
   } catch (_) { /* 用户取消 */ }
 }
 
@@ -627,7 +629,7 @@ async function refresh () {
 
 async function addAccount () {
   if (!newPlatform.value) {
-    ElMessage.warning('请选择平台')
+    ElMessage.warning(t('accountsPage.selectPlatform'))
     return
   }
   const platform = newPlatform.value
@@ -645,13 +647,13 @@ async function addAccount () {
     } else if (result?.code !== 0) {
       loginVisible.value = false
       pendingAuthAction.value = null
-      ElMessage.error(formatUserError(result, { fallback: '添加失败' }).message)
+      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.addFailed') }).message)
     }
     if (result?.code === 0) newPlatform.value = ''
   } catch (error) {
     loginVisible.value = false
     pendingAuthAction.value = null
-    ElMessage.error(formatUserError(error, { fallback: '添加账号失败' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.addAccountFailed') }).message)
   } finally {
     adding.value = false
   }
@@ -659,7 +661,7 @@ async function addAccount () {
 
 async function reloginAccount (account) {
   if (!account?.platform) {
-    ElMessage.error('账号信息不完整，无法重新登录')
+    ElMessage.error(t('accountsPage.accountIncompleteRelogin'))
     return
   }
   pendingAuthAction.value = 'relogin'
@@ -669,16 +671,16 @@ async function reloginAccount (account) {
     if (result?.cancelled) {
       loginVisible.value = false
       pendingAuthAction.value = null
-      ElMessage.info('已取消重新登录')
+      ElMessage.info(t('accountsPage.reloginCancelled'))
     } else if (result?.code !== 0) {
       loginVisible.value = false
       pendingAuthAction.value = null
-      ElMessage.error(formatUserError(result, { fallback: '重新登录失败' }).message)
+      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.reloginFailed') }).message)
     }
   } catch (error) {
     loginVisible.value = false
     pendingAuthAction.value = null
-    ElMessage.error(formatUserError(error, { fallback: '重新登录失败' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.reloginFailed') }).message)
   }
 }
 
@@ -686,10 +688,10 @@ async function completeAuthView () {
   completingLogin.value = true
   try {
     const result = await accountActions.completeLogin(loginMode.value)
-    if (result?.code !== 0) ElMessage.error(formatUserError(result, { fallback: '未能保存账号' }).message)
-    else ElMessage.info('正在保存账号...')
+    if (result?.code !== 0) ElMessage.error(formatUserError(result, { fallback: t('accountsPage.saveFailed') }).message)
+    else ElMessage.info(t('accountsPage.savingAccount'))
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: '未能保存账号' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.saveFailed') }).message)
   } finally {
     completingLogin.value = false
   }
@@ -713,10 +715,10 @@ async function closeAuthView () {
 async function setDefault (account) {
   try {
     const result = await accountStore.setDefault(account.id, account.platform)
-    if (result?.code === 0) ElMessage.success(`已设为 ${platformLabel(account.platform)} 默认账号`)
-    else ElMessage.error(formatUserError(result, { fallback: '设置默认账号失败' }).message)
+    if (result?.code === 0) ElMessage.success(t('accountsPage.setDefaultSuccess', { platform: platformLabel(account.platform) }))
+    else ElMessage.error(formatUserError(result, { fallback: t('accountsPage.setDefaultFailed') }).message)
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: '设置默认账号失败' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.setDefaultFailed') }).message)
   }
 }
 
@@ -725,9 +727,9 @@ async function renameAccount (account, nextName) {
   if (!name || name === (account.account_name || account.name)) return
   try {
     const result = await accountStore.renameAccount(account.id, name)
-    if (result?.code !== 0) ElMessage.error(formatUserError(result, { fallback: '重命名失败' }).message)
+    if (result?.code !== 0) ElMessage.error(formatUserError(result, { fallback: t('accountsPage.renameFailed') }).message)
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: '重命名失败' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.renameFailed') }).message)
   }
 }
 
@@ -753,14 +755,14 @@ async function saveProxy (proxy) {
   try {
     const result = await accountActions.setProxy(proxyAccount.value, proxy)
     if (result?.code !== 0) {
-      ElMessage.error(formatUserError(result, { fallback: '保存代理失败' }).message)
+      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.saveProxyFailed') }).message)
       return
     }
-    ElMessage.success('账号代理已保存')
+    ElMessage.success(t('accountsPage.proxySaved'))
     await refresh()
     closeProxyDialog()
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: '保存代理失败' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.saveProxyFailed') }).message)
   } finally {
     savingProxy.value = false
   }
@@ -772,27 +774,27 @@ async function clearProxy () {
   try {
     const result = await accountActions.setProxy(proxyAccount.value, null)
     if (result?.code !== 0) {
-      ElMessage.error(formatUserError(result, { fallback: '清除代理失败' }).message)
+      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.clearProxyFailed') }).message)
       return
     }
-    ElMessage.success('账号代理已清除')
+    ElMessage.success(t('accountsPage.proxyCleared'))
     await refresh()
     closeProxyDialog()
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: '清除代理失败' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.clearProxyFailed') }).message)
   } finally {
     savingProxy.value = false
   }
 }
 
 async function checkLogin (account) {
-  ElMessage.info(`正在验证 ${platformLabel(account.platform)} 登录状态...`)
+  ElMessage.info(t('accountsPage.verifyingLogin', { platform: platformLabel(account.platform) }))
   try {
     const result = await accountActions.checkLogin(account)
-    if (result?.code === 0 && result.data?.valid) ElMessage.success('登录状态有效')
-    else ElMessage.warning(result?.data?.message || '登录已失效')
+    if (result?.code === 0 && result.data?.valid) ElMessage.success(t('accountsPage.loginValid'))
+    else ElMessage.warning(result?.data?.message || t('accountsPage.loginExpired'))
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: '验证失败' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.verifyFailed') }).message)
   }
 }
 
@@ -801,12 +803,12 @@ async function checkLogin (account) {
  */
 async function openCreatorCenter(account) {
   if (!account?.platform) {
-    ElMessage.error('账号信息不完整')
+    ElMessage.error(t('accountsPage.accountIncomplete'))
     return
   }
   const url = PLATFORM_DASHBOARD_URLS[account.platform]
   if (!url) {
-    ElMessage.warning('暂不支持该平台的创作者中心')
+    ElMessage.warning(t('accountsPage.creatorUnsupported'))
     return
   }
   await tabStore.createTab({ url, platform: account.platform, accountId: account.id })
@@ -815,19 +817,19 @@ async function openCreatorCenter(account) {
 async function removeAccount (account) {
   try {
     await ElMessageBox.confirm(
-      `确定删除「${platformLabel(account.platform)}」账号「${account.account_name || account.name || ''}」吗？`,
-      '确认删除',
+      t('accountsPage.confirmDeleteAccount', { platform: platformLabel(account.platform), name: account.account_name || account.name || '' }),
+      t('accountsPage.confirmDeleteTitle'),
       { type: 'warning' },
     )
     const result = await accountActions.remove(account.id)
     if (result?.code !== 0) {
-      ElMessage.error(formatUserError(result, { fallback: '删除失败' }).message)
+      ElMessage.error(formatUserError(result, { fallback: t('accountsPage.deleteFailed') }).message)
       return
     }
-    ElMessage.success('账号已删除')
+    ElMessage.success(t('accountsPage.accountDeleted'))
     await refresh()
   } catch (error) {
-    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error('操作失败: ' + formatUserError(error, { fallback: '未知错误' }).message)
+    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error(t('accountsPage.operationFailed') + formatUserError(error, { fallback: t('accountsPage.unknownError') }).message)
   }
 }
 
@@ -837,20 +839,20 @@ async function handleBatchDelete () {
   if (count === 0) return
   try {
     await ElMessageBox.confirm(
-      `确定删除选中的 ${count} 个账号吗？此操作不可恢复。`,
-      '批量删除确认',
-      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' },
+      t('accountsPage.confirmBatchDelete', { count }),
+      t('accountsPage.confirmBatchDeleteTitle'),
+      { type: 'warning', confirmButtonText: t('accountsPage.confirmDeleteBtn'), cancelButtonText: t('accountsPage.cancelBtn') },
     )
     const result = await accountStore.batchDelete(ids)
     const { success, failed } = result || {}
     if (!Number.isInteger(success) || !Number.isInteger(failed) || success < 0 || failed < 0 || success + failed !== count) {
-      throw new Error('批量删除返回了无效结果')
+      throw new Error(t('accountsPage.batchDeleteInvalid'))
     }
-    if (failed === 0) ElMessage.success(`已删除 ${success} 个账号`)
-    else if (success > 0) ElMessage.warning(`已删除 ${success} 个账号，${failed} 个删除失败`)
-    else ElMessage.error(`${failed} 个账号删除失败`)
+    if (failed === 0) ElMessage.success(t('accountsPage.deletedCount', { count: success }))
+    else if (success > 0) ElMessage.warning(t('accountsPage.deletedPartial', { success, failed }))
+    else ElMessage.error(t('accountsPage.deletedFailed', { count: failed }))
   } catch (error) {
-    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error('批量删除失败: ' + formatUserError(error, { fallback: '未知错误' }).message)
+    if (error !== 'cancel' && error?.message !== 'canceled') ElMessage.error(t('accountsPage.batchDeleteFailed') + formatUserError(error, { fallback: t('accountsPage.unknownError') }).message)
   }
 }
 
@@ -861,11 +863,11 @@ async function handleBatchStatus (status) {
   try {
     const result = await accountStore.batchSetStatus(status, ids)
     const { success = 0, failed = 0 } = result || {}
-    if (failed === 0) ElMessage.success(`${status === 'active' ? '已启用' : '已禁用'} ${success} 个账号`)
-    else if (success > 0) ElMessage.warning(`${status === 'active' ? '已启用' : '已禁用'} ${success} 个账号，${failed} 个失败`)
-    else ElMessage.error(`批量${status === 'active' ? '启用' : '禁用'}失败`)
+    if (failed === 0) ElMessage.success(status === 'active' ? t('accountsPage.enabledCount', { count: success }) : t('accountsPage.disabledCount', { count: success }))
+    else if (success > 0) ElMessage.warning(t('accountsPage.statusPartial', { action: status === 'active' ? 'enable' : 'disable', success, failed }))
+    else ElMessage.error(t('accountsPage.statusFailed', { action: status === 'active' ? 'enable' : 'disable' }))
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: `批量${status === 'active' ? '启用' : '禁用'}失败` }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accountsPage.statusFailed', { action: status === 'active' ? 'enable' : 'disable' }) }).message)
   } finally {
     batchStatusBusy.value = false
   }
