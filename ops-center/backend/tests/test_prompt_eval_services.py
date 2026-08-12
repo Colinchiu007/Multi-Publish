@@ -33,7 +33,13 @@ class FakeClient:
         self.calls = []
 
     async def post(self, url, json=None, headers=None):
-        self.calls.append({"url": url, "json": json})
+        self.calls.append({"url": url, "json": json, "method": "post"})
+        if self.responses:
+            return self.responses.pop(0)
+        return FakeResponse(200, {})
+
+    async def get(self, url, headers=None):
+        self.calls.append({"url": url, "method": "get"})
         if self.responses:
             return self.responses.pop(0)
         return FakeResponse(200, {})
@@ -76,6 +82,51 @@ def test_magic_validation():
     assert gen.validate_image_bytes(b"\xff\xd8\xff" + b"x" * 8)
     assert not gen.validate_image_bytes(b"hello world")
     assert not gen.validate_image_bytes(b"")
+
+
+@pytest.mark.asyncio
+async def test_provider_connection_probe():
+    from services import prompt_eval_service as svc
+
+    class FakeDB:
+        async def execute(self, stmt):
+            class _R:
+                def scalar_one_or_none(self):
+                    return None
+
+                def scalars(self):
+                    return []
+
+            return _R()
+
+    db = FakeDB()
+    # 1) chat 探测 200 → ok
+    client = FakeClient([FakeResponse(200, {})])
+    r = await svc.test_provider_connection(db, {"provider": "minimax-llm", "model": "M2.7",
+                                                "api_key": "sk", "base_url": "https://x/v1"}, "secret", http=client)
+    assert r["ok"] is True
+    assert "chat/completions" in r["detail"]
+    assert client.calls[0]["url"] == "https://x/v1/chat/completions"
+    assert client.calls[0]["json"]["max_tokens"] == 1
+
+    # 2) chat 401 → ValueError 带状态码
+    client2 = FakeClient([FakeResponse(401, {}, "unauthorized")])
+    with pytest.raises(svc.ValueError if hasattr(svc, "ValueError") else ValueError, match="401"):
+        await svc.test_provider_connection(db, {"provider": "x", "model": "m", "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client2)
+
+    # 3) chat 404 → fallback /models 200 → ok
+    client3 = FakeClient([FakeResponse(404, {}, "nf"), FakeResponse(200, {})])
+    r3 = await svc.test_provider_connection(db, {"provider": "flux", "model": "f", "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client3)
+    assert r3["ok"] is True and "/models" in r3["detail"]
+
+    # 4) chat 404 + models 404 → ValueError 提示真实生成验证
+    client4 = FakeClient([FakeResponse(404, {}, "nf"), FakeResponse(404, {}, "nf")])
+    with pytest.raises(ValueError, match="真实生成"):
+        await svc.test_provider_connection(db, {"provider": "flux", "model": "f", "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client4)
+
+    # 5) 无 api_key 且未保存 → ValueError
+    with pytest.raises(ValueError, match="API Key"):
+        await svc.test_provider_connection(db, {"provider": "flux", "model": "f", "base_url": "https://x/v1"}, "s", http=FakeClient([]))
 
 
 def test_strip_think_block():

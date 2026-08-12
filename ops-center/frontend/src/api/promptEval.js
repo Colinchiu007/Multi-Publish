@@ -65,6 +65,10 @@ export function upsertPromptEvalProvider(data) {
   return api.put('/prompt-eval/providers', data).then(r => r.data)
 }
 
+export function testPromptEvalProvider(data) {
+  return api.post('/prompt-eval/providers/test', data).then(r => r.data)
+}
+
 export function mediaUrl(name) {
   return `/api/v1/prompt-eval/media/${encodeURIComponent(name)}`
 }

@@ -211,6 +211,17 @@ async def list_providers(db: AsyncSession = Depends(get_db), user: dict = Depend
     return {"items": await service.list_provider_keys(db)}
 
 
+@router.post("/providers/test")
+async def test_provider(body: dict, db: AsyncSession = Depends(get_db), user: dict = Depends(require_admin)):
+    """测试 provider 密钥连通性（admin）：表单值或已保存密钥均可，不落库。"""
+    try:
+        return await service.test_provider_connection(db, body, _secret())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"连通性测试失败: {e}")
+
+
 @router.put("/providers")
 async def upsert_provider(body: dict, db: AsyncSession = Depends(get_db), user: dict = Depends(require_admin)):
     try:

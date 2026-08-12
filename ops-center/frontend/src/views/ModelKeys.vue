@@ -20,6 +20,7 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button :loading="testing" @click="testForm">测试连通</el-button>
       </el-form-item>
     </el-form>
     <el-alert v-if="msg" :title="msg" :type="msgType" show-icon closable @close="msg=''" />
@@ -32,23 +33,61 @@
         <template #default="{ row }">{{ row.enabled ? '是' : '否' }}</template>
       </el-table-column>
       <el-table-column prop="updated_at" label="更新时间" width="200" />
+      <el-table-column label="操作" width="140">
+        <template #default="{ row }">
+          <el-button size="small" :loading="testingRow === row.provider + '/' + row.model" @click="testRow(row)">测试连通</el-button>
+        </template>
+      </el-table-column>
     </el-table>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { listPromptEvalProviders, upsertPromptEvalProvider } from '../api/promptEval'
+import { listPromptEvalProviders, upsertPromptEvalProvider, testPromptEvalProvider } from '../api/promptEval'
 
 const form = ref({ provider: 'minimax-image', model: 'image-01', api_key: '', base_url: '' })
 const items = ref([])
 const saving = ref(false)
+const testing = ref(false)
+const testingRow = ref('')
 const msg = ref('')
 const msgType = ref('success')
 
 async function load() {
   const data = await listPromptEvalProviders()
   items.value = data.items || []
+}
+
+async function testConnection(payload) {
+  try {
+    const r = await testPromptEvalProvider(payload)
+    msgType.value = 'success'
+    msg.value = '✅ 测试成功：' + (r.detail || '连接成功')
+  } catch (e) {
+    msgType.value = 'error'
+    msg.value = '❌ 测试失败：' + (e?.response?.data?.detail || e.message)
+  }
+}
+
+async function testForm() {
+  if (!form.value.api_key) {
+    msgType.value = 'error'
+    msg.value = '请先填写 API Key 再测试（或保存后对下方列表项测试）'
+    return
+  }
+  testing.value = true
+  await testConnection({
+    provider: form.value.provider, model: form.value.model,
+    api_key: form.value.api_key, base_url: form.value.base_url,
+  })
+  testing.value = false
+}
+
+async function testRow(row) {
+  testingRow.value = row.provider + '/' + row.model
+  await testConnection({ provider: row.provider, model: row.model })
+  testingRow.value = ''
 }
 
 async function save() {

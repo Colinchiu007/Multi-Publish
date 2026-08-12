@@ -253,6 +253,68 @@ async def get_llm_key(db: AsyncSession, secret: str) -> dict | None:
 VISION_PROVIDERS = ("minimax-vision", "opencode-go-vision")
 
 
+async def test_provider_connection(db: AsyncSession, body: dict, secret: str,
+                                   http: "httpx.AsyncClient | None" = None) -> dict:
+    """测试 provider 密钥连通性（不落库、不产生真实生成费用）。
+
+    探测策略（OpenAI 兼容最小请求）：
+    1) POST {base}/chat/completions（max_tokens=1）——覆盖 llm/vision/opencode 等 chat 类；
+    2) 若返回 404/405 → fallback GET {base}/models —— 覆盖 image 类 provider；
+    3) 均不可达 → 报错并提示「请用真实生成验证」。
+    api_key/base_url 未提供时回退到已保存密钥（按 provider+model）。
+    """
+    import httpx
+
+    provider = str(body.get("provider") or "").strip()
+    model = str(body.get("model") or "").strip()
+    if not provider or not model:
+        raise ValueError("provider 与 model 不能为空")
+    api_key = str(body.get("api_key") or "").strip()
+    base_url = str(body.get("base_url") or "").strip().rstrip("/")
+    if not api_key or not base_url:
+        row = (await db.execute(select(PromptEvalProviderKey).where(
+            PromptEvalProviderKey.provider == provider,
+            PromptEvalProviderKey.model == model,
+            PromptEvalProviderKey.enabled == 1,
+        ))).scalar_one_or_none()
+        if row:
+            if not api_key:
+                api_key = decrypt_key(secret, row.key_enc)
+            if not base_url:
+                base_url = (row.base_url or "").rstrip("/")
+    if not api_key:
+        raise ValueError("未提供 API Key（表单未填且未找到已保存密钥）")
+    if not base_url:
+        base_url = "https://api.minimaxi.com/v1"
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    own = http is None
+    client = http or httpx.AsyncClient(timeout=15)
+    try:
+        url = f"{base_url}/chat/completions"
+        resp = await client.post(url, json={
+            "model": model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+        }, headers=headers)
+        if resp.status_code < 400:
+            return {"ok": True, "detail": "连接成功（chat/completions 可达）"}
+        if resp.status_code in (404, 405):
+            url2 = f"{base_url}/models"
+            resp2 = await client.get(url2, headers=headers)
+            if resp2.status_code < 400:
+                return {"ok": True, "detail": "连接成功（/models 可达）"}
+            raise ValueError(
+                f"连通性探测失败：chat/completions={resp.status_code}，/models={resp2.status_code}；"
+                "该端点可能不支持轻量探测，请改用真实生成/评估验证")
+        raise ValueError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+    except httpx.HTTPError as e:
+        raise ValueError(f"连接失败：{e.__class__.__name__}: {e}")
+    finally:
+        if own:
+            await client.aclose()
+
+
 async def get_vision_key(db: AsyncSession, secret: str) -> dict | None:
     """视觉评估密钥：依次尝试「模型密钥」表 minimax-vision / opencode-go-vision，
     fallback 环境变量 OPS_PROMPT_EVAL_VISION_API_KEY。评估服务按 OpenAI 兼容
