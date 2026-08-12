@@ -24,6 +24,7 @@ const {
   STORY2VIDEO_PIPELINE,
   normalizeStory2VideoTextParams,
 } = require('./story2video-text-config');
+const { buildRunDiagnostics, captureEnvSnapshot } = require('./diagnostics/run-diagnostics');
 
 /**
  * 依据机器资源计算默认后台并发上限（低配保守、高配放宽）：
@@ -1543,6 +1544,19 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
+    // 诊断附加字段（additive）：失败分类 + 根因候选 + 环境快照。构建失败仅记 warn，不改变 run 终态。
+    try {
+      run.diagnostics = buildRunDiagnostics(run, captureEnvSnapshot({
+        sidecarProbe: () => {
+          const bridge = this._getPythonBridge();
+          return bridge && typeof bridge.isRunning === 'function'
+            ? { pythonBackend: bridge.isRunning() === true }
+            : null;
+        },
+      }));
+    } catch (diagError) {
+      this.log.warn('PipelineEngine', 'diagnostics build failed: ' + (diagError instanceof Error ? diagError.message : String(diagError)));
+    }
     // 执行日志：运行终态（完成/失败/取消）+ 总耗时 + 错误摘要（截断，不含敏感原文）
     const finalizeDurationMs = run.startedAt ? Date.now() - new Date(run.startedAt).getTime() : null;
     const finalizeDurationText = Number.isFinite(finalizeDurationMs) ? 'duration_ms=' + finalizeDurationMs : 'duration_ms=null';
