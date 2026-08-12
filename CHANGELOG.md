@@ -1,3 +1,10 @@
+## [2026-08-12] fix(ops-center): 密钥管理新增 key 405（PUT /secrets 缺路由，自动生成 key_id）
+
+- 根因：Secrets.vue 新增 key 时 form.id 为空 → `PUT /api/v1/secrets/` → redirect_slashes 307 → `PUT /api/v1/secrets` 无路由 → 405 Method Not Allowed；后端仅注册 `PUT /secrets/{key_id}`（按客户端 id upsert）。
+- 修复：`routers/secrets.py` 新增 `PUT /secrets`（admin）：body 不提供 key_id 时自动生成 `{provider}-{uuid12}` 并创建（复用 key_service.create_key 与字段校验）；既有 `PUT /secrets/{key_id}` upsert 契约不变。
+- 测试：`test_secrets_api.py` 新增无 id 创建（尾斜杠 307 跟随 + 直接路径）、自动 id 前缀、掩码、列表可见、provider 缺失 400；secrets 6 例全绿。
+- 端到端：登录后新增 key 200（自动 id + 脱敏）、编辑 upsert 200、列表正常。
+
 ## [2026-08-12] 视频克隆 入口 UI 统一：与其它流水线同款标准卡片
 
 - CreateView「流水线创作」视图移除自绘 `.video-clone-entry` 条，视频克隆改为与其它流水线一致的标准流水线卡（`[data-pipeline-id="video-clone"]`：AI 生成徽标 / 标题「视频克隆」/ 描述「对标拆解与再创作…」/ 6 阶段 / 成本 / 可用性），插入位置紧随 story2video-compose。
