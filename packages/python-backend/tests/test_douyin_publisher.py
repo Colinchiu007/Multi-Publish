@@ -8,7 +8,7 @@ from pytest import fixture
 
 from multi_publish.models import PlatformType
 from multi_publish.publishers.base import PublisherConfig
-from multi_publish.publishers.douyin import DouyinPublisher
+from multi_publish.publishers.douyin import DouyinPublisher, _upload_auth_log_message
 
 
 @fixture(autouse=True)
@@ -133,3 +133,21 @@ class TestSaveLoadAuthData:
         loaded = publisher._load_auth_data()
         assert loaded["cookies"] == [{"name": "v2"}]
         assert loaded["local_storage"] == {"ls": "data"}
+
+class TestUploadAuthLogMessage:
+    """上传授权日志脱敏回归（logging-hardening R1）。"""
+
+    def test_no_token_plaintext(self):
+        token = {
+            "upload_token": "secret-token-xyz",
+            "upload_url": "https://example.com/upload?X-Amz-Signature=deadbeef123",
+        }
+        msg = _upload_auth_log_message(0, token)
+        assert "secret-token-xyz" not in msg
+        assert "deadbeef123" not in msg
+        assert "has_upload_url=True" in msg
+
+    def test_empty_data(self):
+        msg = _upload_auth_log_message(0, {})
+        assert "has_data=False" in msg
+        assert "has_upload_url=False" in msg
