@@ -1,3 +1,11 @@
+## [未发布] 功能：运营后台限流与调度验证（P0 模拟器+契约校验 / P1 用量观测 / P2 真实自检对拍）（2026-08-12）
+
+- P0（ops-center）：新增与桌面端 ApiUsageGovernor 同契约的确定性调度模拟器 `scheduler_simulator.py`（RPM 时间槽/并发信号量/429 冷却/5h 预检/429 自适应，含 6 条断言库）；`POST /api/v1/scheduler/verify`（模拟落库）、`GET /verify`、`GET /verify/{id}`、`GET /contract`（预设契约校验：范围/default∈models/并发换算）；新表 `scheduler_verification_runs`；前端「限流与调度验证」页 `/rate-limit-verifier`（模拟验证/契约校验/验证记录三 tab）。全部 admin-only、零真实 provider 调用。
+- P1（可观测性）：桌面端 governor 采集每请求排队/冷却等待（计数器，不改调度语义、重入内层不计时）；用量上报新增 `scheduler-observation` 聚合项（queued_count/cooldown_count/queue_wait_ms/cooldown_wait_ms，旧客户端兼容）；`model_usage_daily` 加可空列；用量看板「按服务商」新增 429 率/排队/冷却/预算利用率列。
+- P2（真实自检 + 对拍）：桌面端 `rate-limit-self-check`（独立 governor + 假 adapter，零额度零网络）；IPC `rate-limit:self-check`/`rate-limit:report`（authenticated，上报 simulated=0）；模型设置页「限流自检」按钮；对拍脚本 + parity 测试（四组固定输入）。
+- 修复（对拍审计发现）：`ApiUsageGovernor._assertTokenBudget` 由 `used >= limit` 改为 `used > limit`——此前第 limit 次成功调用会被误判 QUOTA_EXCEEDED；现与 preflight「第 limit+1 起拒」语义对齐；既有额度测试断言同步。
+- 文档：OpenSpec change `ops-center-rate-limit-verifier`（2 新 capability）；CHANGELOG/learnings/.quality-gates。
+- 测试：桌面 58（含 parity）+ ops-center 相关 49；Vue build + preload build 通过。
 ## [2026-08-12] 字幕分割 v1.1：顿号枚举单元整体保护（对齐 splitter v0.15.0）+ 时间戳真实对齐立项
 
 - **顿号枚举整体切分**（TS 同步 Python）：切分锚点顿号降为最低优先级；锚点落在顿号上时切分点前移到
@@ -3634,6 +3642,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

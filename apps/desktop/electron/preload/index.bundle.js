@@ -1021,7 +1021,10 @@ var fullApi = {
   ...createTtsVoiceCatalogApi(ipcRenderer),
   ...createTtsVoiceCloneApi(ipcRenderer),
   ...createPromptEvalApi(ipcRenderer),
-  ...createPageManagerApi(ipcRenderer)
+  ...createPageManagerApi(ipcRenderer),
+  // P2 限流自检（authenticated，默认受限）
+  rateLimitSelfCheck: (params) => ipcRenderer.invoke("rate-limit:self-check", params),
+  rateLimitReport: (payload) => ipcRenderer.invoke("rate-limit:report", payload)
 };
 var exposedApi = createDynamicAccessApi(fullApi, getAccessLevel);
 exposedApi.getAccessLevel = getAccessLevel;

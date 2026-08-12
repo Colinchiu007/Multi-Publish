@@ -72,6 +72,10 @@
           <el-icon><Cpu /></el-icon>
           <span>预设模型</span>
         </el-menu-item>
+        <el-menu-item index="/rate-limit-verifier">
+          <el-icon><Timer /></el-icon>
+          <span>限流验证</span>
+        </el-menu-item>
         <el-menu-item index="/platform-defs">
           <el-icon><Grid /></el-icon>
           <span>平台元数据</span>

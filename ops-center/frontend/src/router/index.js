@@ -112,6 +112,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/rate-limit-verifier',
+    name: 'RateLimitVerifier',
+    component: () => import('../views/RateLimitVerifier.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/platform-defs',
     name: 'PlatformDefs',
     component: () => import('../views/PlatformDefs.vue'),

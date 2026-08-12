@@ -86,6 +86,32 @@ class ModelPreset(Base):
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
 
+class SchedulerVerificationRun(Base):
+    """限流/调度验证记录 — 运营后台调度模拟（simulated=1）与桌面端真实自检上报（simulated=0）。"""
+
+    __tablename__ = "scheduler_verification_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    preset_id = Column(String, nullable=True)
+    rpm = Column(Integer, nullable=False)
+    max_concurrent = Column(Integer, nullable=False)
+    limit_per_5h = Column(Integer, nullable=True)
+    request_count = Column(Integer, nullable=False)
+    request_duration_ms = Column(Integer, default=0)
+    arrival_interval_ms = Column(Integer, default=0)
+    inject_429_at = Column(Integer, nullable=True)
+    exceed_5h = Column(Integer, default=0)
+    simulated = Column(Integer, default=1)
+    engine = Column(String, default="python-simulator")
+    client_id = Column(String, default="")
+    metrics_json = Column(Text, default="{}")
+    assertions_json = Column(Text, default="[]")
+    timeline_json = Column(Text, default="[]")
+    status = Column(String, default="completed")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    created_by = Column(String, default="")
+
+
 class OfficialKey(Base):
     __tablename__ = "official_keys"
 
@@ -212,6 +238,11 @@ class ModelUsageDaily(Base):
     tokens_out = Column(Integer, default=0)
     cost = Column(Float, default=0.0)
     latency_buckets = Column(Text, default="{}")  # JSON
+    # 调度健康度（2026-08-12 P1）：桌面端 governor 排队/冷却观测，可选字段（旧客户端按 0）
+    queued_count = Column(Integer, default=0)
+    cooldown_count = Column(Integer, default=0)
+    queue_wait_ms = Column(Integer, default=0)
+    cooldown_wait_ms = Column(Integer, default=0)
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
 
