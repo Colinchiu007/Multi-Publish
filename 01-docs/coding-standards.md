@@ -37,6 +37,13 @@ const { launchBrowser } = require('@multi-publish/rpa-engine')
 - 所有 IPC 通道在 `preload.js` 中白名单暴露
 - 敏感操作在主进程执行，不要泄露到渲染进程
 
+### IPC 错误返回与用户提示文字（2026-08-11 新增，user-facing-messages）
+
+- **主进程错误返回结构**：`{ code, errorCode?, message, messageParams? }`；`errorCode` 为稳定机器码，`messageParams` 只放诊断上下文（channel/detail）。
+- **message 铁律**：必须为自然语言（具体原因 + 解决方法建议）；禁止拼入内部通道名、英文括号注释、内部错误码、栈信息、IP:端口。
+- **渲染端统一出口**：用户可见区域禁止直接渲染 `result.message` / `e.message` 原文，必须经 `src/utils/user-facing-error.js` 的 `formatUserError()` 映射为当前语言文案。
+- **登记要求**：新增错误码须在 `USER_ERROR_CODES` + `MESSAGES`（zh/en）登记，并同步 PRD §3.2 提示文字表与 `01-docs/ipc-manifest.md` 错误返回契约。
+
 ### 发布器接口规范
 
 ```javascript

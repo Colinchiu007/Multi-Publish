@@ -39,6 +39,28 @@ multi-publish/                           # Monorepo (npm workspaces)
 | better-sqlite3 | 本地数据持久化 | native module, @electron/rebuild 编译 |
 | playwright | 浏览器 RPA | Chromium ~170MB，extraResources 捆绑 |
 
+## 用户提示文字（user-facing messages）集成
+
+主进程错误 → 渲染端统一出口的集成契约（2026-08-11，PR #529）：
+
+```
+主进程 handler 返回 { code, errorCode?, message(自然语言), messageParams? }
+  → preload contextBridge 透传
+  → 渲染端 api/electron-bridge.js (invoke / invokeWithFallback)
+  → 视图/composable 展示前必须经 formatUserError(input, { fallback })
+      ├─ errorCode 命中 USER_ERROR_CODES → zh/en「原因 + 建议」本地化文案
+      ├─ 数值 code（-3/-2/-10/-11/-12/-13/429/402）→ 映射本地化文案
+      ├─ 遗留原始 message pattern（未登录/网络/超时/存储/限流/额度/API Key）→ 映射
+      ├─ 技术文本（通道名/大写下划线错误码/栈信息/IP:端口）→ 通用兜底（不泄露）
+      └─ 其余自然语言原因文本 → 原样透传（保留具体原因）
+```
+
+- **单一事实源**：`apps/desktop/src/utils/user-facing-error.js`（`USER_ERROR_CODES` + zh/en `MESSAGES` + `formatUserError`）。
+- **语言解析**：显式设置（localStorage `locale`）> 系统语言（`navigator.language`，zh*→zh、en*→en、其余→en）> 默认 zh；设置弹窗「通用设置」可切换并持久化。
+- **接入规范**：新增/修改任何会展示 IPC 错误的视图或 composable，必须通过 `formatUserError`；禁止直接渲染 `result.message` / `e.message` 原文。
+- **兼容性**：Story2Video 通知系统（`story2video-notifications.js`）的 pattern→key 映射继续有效——访问控制新 message 保留「当前许可证无权访问」「当前账号没有所需权益」前缀。
+- **详细规格**：PRD §3.2「用户提示文字与多语言规范」；`01-docs/ipc-manifest.md`「错误返回契约」。
+
 ## 依赖关系
 
 ```

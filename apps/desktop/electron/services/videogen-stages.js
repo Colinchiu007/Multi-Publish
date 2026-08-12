@@ -369,15 +369,28 @@ function registerVideoGenStages (pipelineEngine) {
       const bus = serviceBus || pipelineEngine.serviceBus
       if (bus && typeof bus.optimizeVideoPromptsBatch === 'function') {
         try {
-          const optResults = await bus.optimizeVideoPromptsBatch(prompts, {
-            platform: videoProvider.providerId || undefined,
-            ...(stage.options && stage.options.optimize ? stage.options.optimize : {}),
-          })
-          if (!Array.isArray(optResults) || optResults.length !== prompts.length) {
+          // prompt-engine 批量接口单次上限 20 条（BatchOptimizeRequest.max_length=20，2026-08-12 由 10 上调）：
+          // storyboard 上限 MAX_SCENES=12 可单批通过；>20 极端场景仍分块（≤20）后按序合并，保持全量 fail-closed 校验。
+          const CHUNK_SIZE = 20
+          const optResults = []
+          for (let start = 0; start < prompts.length; start += CHUNK_SIZE) {
+            const chunk = prompts.slice(start, start + CHUNK_SIZE)
+            const part = await bus.optimizeVideoPromptsBatch(chunk, {
+              platform: videoProvider.providerId || undefined,
+              ...(stage.options && stage.options.optimize ? stage.options.optimize : {}),
+            })
+            if (!Array.isArray(part)) {
+              return {
+                success: false,
+                error: '视频提示词优化结果数量与场景不一致（expected ' + chunk.length + ', got 非法响应）',
+              }
+            }
+            optResults.push(...part)
+          }
+          if (optResults.length !== prompts.length) {
             return {
               success: false,
-              error: '视频提示词优化结果数量与场景不一致（expected ' + prompts.length + ', got ' +
-                (Array.isArray(optResults) ? optResults.length : '非法响应') + '）',
+              error: '视频提示词优化结果数量与场景不一致（expected ' + prompts.length + ', got ' + optResults.length + '）',
             }
           }
           const optimized = []

@@ -10,6 +10,7 @@ export default {
     loading: '加载中...',
     success: '成功',
     error: '错误',
+    close: '关闭',
   },
   nav: {
     home: '首页',
@@ -73,6 +74,7 @@ export default {
       sections: {
         basic: '基础',
         appearance: '画面',
+        videoEnhance: '视频增强',
         voice: '声音',
         advanced: '高级',
         publish: '发布',

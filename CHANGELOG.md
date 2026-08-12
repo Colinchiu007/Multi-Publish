@@ -1,10 +1,17 @@
-## [未发布] 修复：main CI 既有失败 — CreateView 历史按钮断言同步 + Windows 启动冒烟 hook 超时（2026-08-12）
+## [未发布] 修复：main CI 既有失败收尾 — Windows 启动冒烟 hook 超时 + CreateView 断言并发修复记录（2026-08-12）
 
-- 背景：main（1fe02e74）4 个工作流持续失败（electron-tests / QG Coverage / QG Desktop Shards 1/2 / build windows-latest）。根因分两类，均为**既有回归**（与 PR #535 无关，9a028b2b/#534 已存在）。
-- 根因 1（测试未同步）：`CreateViewHistory.vue` 模板在「视频创作模块UI/UX深度优化」（§7.1.33，`video-creation-buttons.css` 统一按钮）中把 `.history-btn.*` 改为 `.s2v-btn-*`（`s2v-btn-resume` / `s2v-btn-secondary` / `s2v-btn-danger`），但 `CreateView.test.js` 4 处断言仍用旧类名 → 3 用例失败（历史记录打开/从断点继续/继续生成）。修复：断言选择器同步为 `.history-item .s2v-btn-*`，保留用户可见文案断言（已完成/从断点继续/继续生成），负向用例（content policy 不显示恢复按钮）同步。
-- 根因 2（CI 冷启动）：`build.yml` 的 Startup smoke（`tests/smoke/startup.test.js`）在 `npm ci` 后直接运行，electron@43 无 postinstall，首次 `require(electron)` 链触发「Downloading Electron binary...」超过 vitest 默认 10s hookTimeout → Windows 冷 runner 失败。修复：build.yml 在冒烟前新增 `node scripts/ensure-electron.js`；`vitest.smoke.config.js` 增 `hookTimeout: 30000`（吸收冷加载方差，注释注明回归）。
-- 验证：`CreateView.test.js` 131/131 全绿；`npm run test:startup` 12/12 全绿；build.yml YAML 解析通过；全量 desktop 串行套件结果见交付记录。
-- 文档：CHANGELOG；learnings 复盘（测试断言未随模板重构同步 / electron 二进制冷启动进入 smoke hook 预算）。
+- 背景：main（1fe02e74）4 个工作流持续失败（electron-tests / QG Coverage / QG Desktop Shards 1/2 / build windows-latest），根因两类均为**既有回归**（9a028b2b 起已存在，与 PR #535 无关）。
+- CreateView 历史按钮断言未随 §7.1.33 统一按钮重构同步（`.history-btn.*` → `s2v-btn-*`）→ 3 用例失败：**已由并发 PR #555 先行合入修复**（选择器同步 + 补 `videoEnhance`/`common.close` locale 键）。本 PR 冲突消解取其版本，不重复改动；本地复验 `CreateView.test.js` 131/131 全绿。
+- Windows 启动冒烟 hook 超时（本 PR 新增修复）：`build.yml` Startup smoke 在 `npm ci` 后直接运行，electron@43 无 postinstall，首次 `require('electron')` 链触发「Downloading Electron binary...」超过 vitest 默认 10s hookTimeout → Windows 冷 runner **偶发**失败（1fe02e74 失败 / 763bf856 通过 = 抖动）。修复：`build.yml` 冒烟前新增 `node scripts/ensure-electron.js`（脚本已在 origin/main 提交 67d295e3）；`vitest.smoke.config.js` 增 `hookTimeout: 30000`（注释注明回归，仅冷加载方差容差）。
+- 验证：`npm run test:startup` 12/12 全绿（含 ensure-electron 前置）；build.yml YAML 解析通过；审查见 `.ccg/tasks/` review.md（Claude --lite exit 0，antigravity 区域不可用降级）。
+- 文档：learnings 复盘（测试选择器同步强制项 + electron 二进制冷启动进入 smoke hook 预算 + 并发 worktree 同根因双修复）；.quality-gates.md 执行记录。
+- 备注：`autonomous-loop` 在 push 事件仍失败——仓库缺少 `OPENAI_API_KEY` secret（当前仅 GITEE_TOKEN），需在仓库 Settings → Secrets and variables → Actions 添加该 secret（环境配置，非代码问题）。
+
+## [未发布] 修复：CreateView 历史按钮类名重构回归（s2v-btn-*）+ 补 videoEnhance/common.close locale 键（2026-08-12）
+
+- 根因：#526 系列 UI 重构把历史记录操作按钮统一为 `s2v-btn-*` 类（`CreateViewHistory.vue`），但 `CreateView.test.js` 仍用旧 `.history-btn.resume` / `.history-btn.open` 选择器，导致 3 个历史恢复用例失败（main Electron CI 同步失败）。另 `create.story2video.sections.videoEnhance` 与 `common.close` locale 键缺失，仅靠硬编码兜底并产生 i18n 警告。
+- 修复：测试选择器更新为 `.s2v-btn-resume` / `.s2v-btn-secondary`；`zh.js` / `en.js` 补 `videoEnhance` 与 `close` 键。
+- 回归：CreateView 131/131、CreateHistory 22/22、story2video-ue-contract 4/4、i18n 7/7；前端 `npm run build` 通过。
 
 ## [未发布] 功能：视频提示词统一走 prompt-engine video 领域（2026-08-11）
 
@@ -54,6 +61,13 @@
 - 根因：推理型 LLM（MiniMax-M3 / deepseek-reasoner / deepseek-v4-flash 等）会把 <think> 思考过程算进输出，videogen 家族（animation / avatar-spokesperson / character-animation / hybrid）的 concept / storyboard 阶段在默认 1600 max_tokens 下 JSON 被截断，parseJsonArray 返回 null 导致分镜阶段失败（MiniMax-M3 实测 2000 tokens 仍截断）。
 - 修复：`callDefaultLlm` 新增推理模型识别（`isReasoningLlmModel`，按 model id 特征匹配），未显式传 max_tokens 且命中推理特征时默认预算放大到 5000，给思考块留足空间保证完整 JSON；显式传值仍优先。
 - 测试：videogen-stages.test.js 新增 4 用例（推理识别 / 推理型放大 5000 / 非推理保持 1600 / 显式覆盖），25/25 通过。
+
+## [未发布] 调整：视频提示词批量优化上限 10→20 + 有界并发（2026-08-12）
+
+- 背景：真实 E2E 发现 animation 流水线 storyboard 最多产出 12 个视频场景，一次性批量优化触发 prompt-engine 批量上限 10 → 422 整线失败（已先以客户端 ≤10 分块修复，PR #554）。
+- 调整：prompt-engine `/v1/optimize/batch` 单批上限 **10→20**（prompt-engine #19），覆盖 videogen 12 场景单批 + 余量；服务端执行从全量并行改为**有界并发（Semaphore 8）**，防放大上限后对 LLM 造成并发风暴；videogen 批量优化 CHUNK_SIZE 对齐为 20，>20 极端场景仍分块兜底。
+- 测试：prompt-engine test_batch（20/超限 21/12 条单批合法）；videogen-stages 新增「12 场景单批」「>20 分块 [20,2]」回归；真实 12 条 batch smoke 200（MiniMax-M3，22s）。
+- 文档：PRD.md 7.1.33 批量契约行 + PRD-video-creation §3.1.2.2 批量契约/集成点更新。
 
 ## [未发布] 修复：缺失/不可读 BGM 不再阻断项目保存，成片成功时不得误判为失败（2026-08-11）
 
