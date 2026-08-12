@@ -187,6 +187,16 @@
                 <option value="auto_noncreative">自动跳过非创意阶段</option>
               </select>
             </div>
+            <div class="config-item">
+              <label>分镜模式</label>
+              <select v-model="storyboardMode" class="form-select" data-testid="storyboard-mode-select">
+                <option value="auto">自动（推荐）</option>
+                <option value="creative">创意拓展（一句话生成整个视频）</option>
+                <option value="fidelity">按原文保真（长文案按原文实现）</option>
+                <option value="hybrid">混合（保真主旨 + 允许演绎）</option>
+              </select>
+              <span class="config-hint">自动：短文案（≤80 字）创意拓展，长文案（≥300 字）按原文保真，中间态混合；分镜会按原文提取关键人物/事件并对齐校验。</span>
+            </div>
           </div>
         </div>
 
@@ -210,6 +220,7 @@
                   <option value="history">历史文章（自动识别时代与朝代）</option>
                 </select>
               </div>
+
               <div class="config-item">
                 <label>图片生成器</label>
                 <select v-model="s2vConfig.imageProvider" class="form-select">
@@ -1035,6 +1046,8 @@ export default {
       llmConfig: { temperature: 0.7 },
       budgetConfig: { mode: 'warn', totalUsd: 10 },
       checkpointPolicy: 'guided',
+      // 分镜双模式（video-content-fidelity）：auto 自动判定 / creative 创意拓展 / fidelity 按原文保真 / hybrid 混合
+      storyboardMode: 'auto',
       outputConfig: { resolution: '1920x1080', fps: 30, format: 'mp4' },
       s2vOutputConfig: { resolution: '720x1280', fps: 30, format: 'mp4' },
       // 输出分辨率能力开关（运营后台）：'1080p'（默认，前端不出现 4K）| '4k'
@@ -1635,6 +1648,7 @@ export default {
           checkpointPolicy: 'none',
           autoAdvance: true,
           background: true,
+          storyboardMode: this.storyboardMode,
           style: this.selectedStyle,
           resolution: output.resolution,
           fps: output.fps,

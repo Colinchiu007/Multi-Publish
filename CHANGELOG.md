@@ -7,6 +7,12 @@
 - 测试：aligner API 4 例 + 聚合器 8 例 + bridge 2 例；story2video-engine 全量通过
 - OpenSpec `subtitle-audio-alignment` 更新实施状态；stage 接线（TTS 后调用 + aligned 持久化）待并发工作流让出后接入
 
+## [未发布] 功能：视频创作页「分镜模式」设置（video-content-fidelity UI 落地，2026-08-12）
+
+- CreateView 视频创作页 basic 配置区新增「分镜模式」下拉：自动（推荐）/ 创意拓展（一句话生成整个视频）/ 按原文保真（长文案按原文实现）/ 混合（保真主旨 + 允许演绎），默认自动。
+- 透传 params.storyboardMode 到流水线（animation/avatar/character-animation/hybrid 等 videogen 流水线生效）；与 checkpointPolicy 一致采用会话内记忆。
+- locale：zh/en 新增 story2video.storyboardMode.* 键（label/auto/creative/fidelity/hybrid/hint）。
+- 回归：CreateView 新增 3 用例（默认 auto 透传 / fidelity 透传 + lastOptions 持久化 / 下拉四选项渲染）。
 ## [2026-08-12] 字幕分割规则表单源（对齐 splitter v0.15.2）
 
 - 新增 `packages/story2video-engine/src/subtitle-rules.json`（与 splitter 同步副本）：字符集/默认参数/舍入模式

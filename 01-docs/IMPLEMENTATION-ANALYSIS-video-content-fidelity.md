@@ -87,7 +87,7 @@
 **数据校验**：fidelity/hybrid 强制 key_facts/entities 为数组；解析用 parseJsonObject（支持 markdown 围栏、对象内嵌提取），失败返回 null。
 
 ### 2.4 交互逻辑
-- 前端高级选项可暴露 storyboardMode 下拉（自动/创意拓展/按原文保真/混合），默认"自动"；本次前端 UI 不改，仅 IPC/参数透传支持，UI 落地列为后续项。
+- 前端视频创作页（CreateView.vue）「常规流水线高级配置」区新增「分镜模式」下拉（自动/创意拓展/按原文保真/混合，默认自动，data-testid=storyboard-mode-select，对 animation/avatar/character-animation/hybrid 等 videogen 流水线可见）；透传 params.storyboardMode 到流水线；与 checkpointPolicy 一致采用会话内记忆（不做 lastOptions 持久化）。
 
 ---
 
