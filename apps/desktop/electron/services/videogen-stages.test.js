@@ -214,6 +214,28 @@ describe('videogen 共享阶段执行器', () => {
       expect(captured.prompt).toBe('[opt] p1')
     }, 20000)
 
+    it('优化请求透传 providerId 与 model（语言路由入参）', async () => {
+      await waitForVideoUrl()
+      let capturedOpts
+      const ai = makeVideoAi(async () => ({ code: 0, data: { taskId: 't1' } }))
+      const { get } = makePipeline(ai, null, {
+        optimizeVideoPromptsBatch: vi.fn(async (prompts, opts) => {
+          capturedOpts = opts
+          return prompts.map(p => ({ optimized_prompt: '[opt] ' + p }))
+        }),
+      })
+      ai._modelProviderManager.callAdapter = vi.fn(async (providerId, method, args) => {
+        if (method === 'getVideoStatus') return { code: 0, data: { status: 'completed', videoUrl: VIDEO_URL } }
+        return { code: 0, data: { taskId: 't1' } }
+      })
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_1', stage: { options: {} }, params: { text: '主题' },
+        context: { storyboard: [{ prompt: 'p1' }] },
+      })
+      expect(result.success).toBe(true)
+      expect(capturedOpts).toMatchObject({ platform: 'agnes-video', model: 'agnes-video-v2.0' })
+    }, 20000)
+
     it('优化结果数量与场景不一致时 fail closed', async () => {
       const ai = makeVideoAi(async () => ({ code: 0, data: { taskId: 't1' } }))
       const { get } = makePipeline(ai, null, {

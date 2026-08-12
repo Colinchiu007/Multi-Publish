@@ -217,6 +217,71 @@ function getStandaloneVideoEngineTarget () {
 }
 
 /**
+ * 按目标视频平台推荐输出语言（2026-08-12 语言路由增强）：
+ *   国产视频模型（MiniMax/即梦/可灵/海螺/豆包/混元/万相/CogVideo/Agnes）→ zh（中文主体 + 镜头术语双语）；
+ *   国外视频模型（Veo/Runway/Sora/Pika/Luma/LTX）→ en（模型按英文语料优化）。
+ * 与 8020 引擎平台策略对齐：doubao 中文优先 / veo 英文长镜头。
+ */
+const VIDEO_PLATFORM_LANGUAGE = Object.freeze({
+  zh: Object.freeze(new Set(['minimax', 'seedance', 'kling', 'hailuo', 'doubao', 'cogvideo', 'hunyuan', 'wan', 'agnes'])),
+  en: Object.freeze(new Set(['veo', 'runway', 'sora', 'ltx', 'pika', 'luma'])),
+})
+
+/**
+ * 通用网关 provider（openai_compat / 自定义 base_url 承载多模型）场景：
+ * providerId 无法命中平台集合时，按 model 名关键词兜底判定语言。
+ */
+const MODEL_LANGUAGE_KEYWORDS = Object.freeze({
+  zh: Object.freeze(['minimax', 'seedance', 'kling', 'hailuo', 'doubao', 'cogvideo', 'hunyuan', 'wan', 'agnes']),
+  en: Object.freeze(['veo', 'runway', 'sora', 'pika', 'luma', 'ltx']),
+})
+
+/**
+ * 按（已归一）平台推荐语言；未知平台返回 ''。
+ * @param {string} platform
+ * @returns {'zh'|'en'|''}
+ */
+function languageFromVideoPlatform (platform) {
+  const p = normalizeVideoPlatform(platform)
+  if (VIDEO_PLATFORM_LANGUAGE.zh.has(p)) return 'zh'
+  if (VIDEO_PLATFORM_LANGUAGE.en.has(p)) return 'en'
+  return ''
+}
+
+/**
+ * 按 model 名关键词兜底判定语言；无命中返回 ''。
+ * @param {unknown} model
+ * @returns {'zh'|'en'|''}
+ */
+function languageFromVideoModel (model) {
+  if (typeof model !== 'string') return ''  // 非标量（对象/数组）不参与判定，避免 [object Object] 误命中
+  const m = model.toLowerCase()
+  if (!m) return ''
+  // 词边界匹配：避免 'wan' 误命中 'swan-video'、'veo' 误命中 'wevideo' 等子串
+  const hit = (kw) => new RegExp('(^|[^a-z0-9])' + kw + '($|[^a-z0-9])').test(m)
+  if (MODEL_LANGUAGE_KEYWORDS.en.some(hit)) return 'en'
+  if (MODEL_LANGUAGE_KEYWORDS.zh.some(hit)) return 'zh'
+  return ''
+}
+
+/**
+ * 输出语言解析（优先序：显式参数 → 平台集合 → model 关键词 → 文本 CJK 检测）。
+ * @param {{ langRaw?: unknown, platform?: string, model?: unknown, texts: string[] }} input
+ * @returns {'zh'|'en'}
+ */
+function _resolveOutputLanguage ({ langRaw, platform, model, texts }) {
+  const explicit = typeof langRaw === 'string' && langRaw.trim()
+    ? langRaw.trim().toLowerCase()
+    : ''
+  if (explicit === 'zh' || explicit === 'en') return explicit
+  const byPlatform = languageFromVideoPlatform(platform)
+  if (byPlatform) return byPlatform
+  const byModel = languageFromVideoModel(model)
+  if (byModel) return byModel
+  return _detectOutputLanguage(texts)
+}
+
+/**
  * 自动检测输出语言：文本中 CJK 字符占比 ≥30% → zh，否则 en（图片引擎无此维度，仅独立引擎使用）。
  * @param {string|string[]} texts
  * @returns {'zh'|'en'}
@@ -231,7 +296,8 @@ function _detectOutputLanguage (texts) {
 
 /**
  * 构造独立视频引擎（8020）请求体 — VideoOptimizeRequest（无 domain 字段）。
- * 平台/风格/边界收敛与 8013 共用同一归一化；额外支持 output_language（显式优先，缺省按文本自动检测）。
+ * 平台/风格/边界收敛与 8013 共用同一归一化；output_language 解析：显式参数 → 目标平台集合
+ * （国产模型 zh / 国外模型 en）→ model 关键词兜底 → 文本 CJK 自动检测。
  * @param {string} prompt
  * @param {object} [options]
  * @returns {object}
@@ -278,16 +344,16 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
     }
   }
 
-  const langRaw = options.output_language !== undefined ? options.output_language : options.outputLanguage
-  const langExplicit = typeof langRaw === 'string' && langRaw.trim()
-    ? langRaw.trim().toLowerCase()
-    : ''
   const contextText = request.context && typeof request.context === 'object'
     ? request.context.full_text || request.context.synopsis || ''
     : ''
-  request.output_language = langExplicit === 'zh' || langExplicit === 'en'
-    ? langExplicit
-    : _detectOutputLanguage([request.prompt, contextText])
+  // 语言路由：显式参数 → 目标平台集合 → model 关键词兜底 → 文本 CJK 检测
+  request.output_language = _resolveOutputLanguage({
+    langRaw: options.output_language !== undefined ? options.output_language : options.outputLanguage,
+    platform: request.platform,
+    model: options.model !== undefined ? options.model : options.modelName,
+    texts: [request.prompt, contextText],
+  })
 
   return request
 }
@@ -407,6 +473,10 @@ module.exports = {
   buildStandaloneVideoOptimizeRequest,
   isStandaloneVideoEngineEnabled,
   getStandaloneVideoEngineTarget,
+  VIDEO_PLATFORM_LANGUAGE,
+  MODEL_LANGUAGE_KEYWORDS,
+  languageFromVideoPlatform,
+  languageFromVideoModel,
   normalizeVideoContext,
   normalizeVideoMeta,
   extractOptimizedVideoPrompt,

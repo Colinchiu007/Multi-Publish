@@ -1,3 +1,4 @@
+
 ## [2026-08-12] Story2Video 全能创作：流水线更名、历史提示词本地翻译、分镜素材自选创作模式
 
 - 更名：流水线展示名「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」（zh/en i18n、配置标题、权限提示、阶段摘要同步；机器 ID story2video-compose 不变）。
@@ -7,6 +8,15 @@
 - 契约：story2videoTextConfig 新增 creation 段（mode/materialMode 枚举校验 + normalizer/stageOptions/_safeOptions 白名单 + 前端 lastOptions 恢复白名单）；uiLocale 随提交；阶段清单 manual 插入 finalize_assets。
 - 测试：新增 story2video-manual-assets.test.js（15 例：normalizer 契约、候选生成、finalize、engine 集成）、SceneAssetSelection 组件测试（4 例）、ResultView 翻译块、CreateView 创作模式 UI；preload/ipc-contract/stage-executor/i18n 断言同步；后端 703 + 前端相关套件全绿。
 - 文档：01-docs/PRD.md §7.1.3a（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字清单、成本提示）；OpenSpec change story2video-omnipotent-creation（proposal/design/specs/tasks）。
+
+
+## [2026-08-12] feat(ops-center): 场景模式批量生成中英对照 + 首次生成文案
+
+- 场景模式下分句后提示词为「（未生成）」是预期行为（中英对照需调 LLM 逐场景/批量生成）；新增「批量生成中英对照」按钮（PRD 12A.22.20 规划项）：串行逐场景调用 scenes/{sid}/translate，实时进度「批量生成中（n/total）」，失败场景单独列出可重试。
+- 单场景按钮首次文案由「重新生成中英对照」改为「生成中英对照」（已有提示词时仍显示「重新生成」）。
+- 前端 `npm run build` 通过；dev HMR 已验证。
+
+
 ## [2026-08-12] feat(ops-center): 场景层评测场景数上限 50 → 100
 
 - 需求：运营整篇文案分句常超 50 场景（如 54 场景报「场景数超过上限 50」），放宽到 100。
@@ -55,7 +65,6 @@
 - `minimax-multimodal` 克隆样本限制与 `minimax-tts` 对齐（单文件、mp3/m4a/wav、10s–5min、≤20MB）。
 - 测试：electron 服务/IPC/preload 48 例 + CreateView 149 例 + TTS 相关 81 例 + story2video 相关 102 例全绿；vite build 通过；PRD §7.1.4 同步更新（数据校验/流程/交互/文案详见 PRD）。
 
-=======
 
 ## [2026-08-12] 视频克隆 analyze CLI（一条命令出报告）
 
