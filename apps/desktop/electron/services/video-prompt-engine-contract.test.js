@@ -18,6 +18,8 @@ const {
   buildStandaloneVideoOptimizeRequest,
   isStandaloneVideoEngineEnabled,
   getStandaloneVideoEngineTarget,
+  languageFromVideoPlatform,
+  languageFromVideoModel,
   normalizeVideoMeta,
   extractOptimizedVideoPrompt,
 } = require('./video-prompt-engine-contract')
@@ -361,5 +363,53 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
       expect(bridge._post).toHaveBeenCalledTimes(1)
       expect(res.platform).toBe('veo')
     })
+  })
+})
+
+describe('独立引擎语言路由（按目标平台，2026-08-12 增强）', () => {
+  it('中文文案 + veo → en（平台集合覆盖文本检测，避免中文提示词发给国外模型）', () => {
+    const req = buildStandaloneVideoOptimizeRequest('关羽白马之战，万军之中取上将首级', { platform: 'veo' })
+    expect(req.output_language).toBe('en')
+  })
+
+  it('中文文案 + seedance → zh（国产模型中文优先）', () => {
+    const req = buildStandaloneVideoOptimizeRequest('关羽白马之战，万军之中取上将首级', { platform: 'seedance' })
+    expect(req.output_language).toBe('zh')
+  })
+
+  it('英文文案 + minimax → zh（国产模型强制中文，模型理解更强）', () => {
+    const req = buildStandaloneVideoOptimizeRequest('a cat runs in the city', { platform: 'minimax' })
+    expect(req.output_language).toBe('zh')
+  })
+
+  it('显式 output_language 覆盖平台映射（用户说了算）', () => {
+    expect(buildStandaloneVideoOptimizeRequest('中文文案', { platform: 'veo', output_language: 'zh' }).output_language).toBe('zh')
+    expect(buildStandaloneVideoOptimizeRequest('中文文案', { platform: 'seedance', outputLanguage: 'en' }).output_language).toBe('en')
+  })
+
+  it('平台别名归一后参与映射（veo3→veo→en、kling-v3→kling→zh）', () => {
+    expect(buildStandaloneVideoOptimizeRequest('中文文案', { platform: 'veo3' }).output_language).toBe('en')
+    expect(buildStandaloneVideoOptimizeRequest('a cat', { platform: 'kling-v3' }).output_language).toBe('zh')
+  })
+
+  it('通用网关 provider：model 关键词兜底（veo→en / hunyuan→zh）', () => {
+    expect(buildStandaloneVideoOptimizeRequest('中文文案', { platform: 'openai_compat', model: 'veo-3.1' }).output_language).toBe('en')
+    expect(buildStandaloneVideoOptimizeRequest('english text', { platform: 'openai_compat', model: 'hunyuan-video-pro' }).output_language).toBe('zh')
+    expect(buildStandaloneVideoOptimizeRequest('中文文案', { platform: 'generic_video', modelName: 'runway-gen4' }).output_language).toBe('en')
+  })
+
+  it('未知平台 + 未知 model → 文本 CJK 检测兜底（现状不变）', () => {
+    expect(buildStandaloneVideoOptimizeRequest('关羽白马之战', { platform: 'unknown', model: 'some-model' }).output_language).toBe('zh')
+    expect(buildStandaloneVideoOptimizeRequest('a cat runs', { platform: 'unknown', model: 'some-model' }).output_language).toBe('en')
+  })
+
+  it('languageFromVideoPlatform / languageFromVideoModel 单元', () => {
+    expect(languageFromVideoPlatform('veo')).toBe('en')
+    expect(languageFromVideoPlatform('seedance')).toBe('zh')
+    expect(languageFromVideoPlatform('generic_video')).toBe('')
+    expect(languageFromVideoPlatform('unknown')).toBe('')
+    expect(languageFromVideoModel('runway-gen4')).toBe('en')
+    expect(languageFromVideoModel('MiniMax-M2.7')).toBe('zh')
+    expect(languageFromVideoModel('')).toBe('')
   })
 })

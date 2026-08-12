@@ -668,6 +668,8 @@ function registerVideoGenStages (pipelineEngine) {
             const chunk = prompts.slice(start, start + CHUNK_SIZE)
             const part = await bus.optimizeVideoPromptsBatch(chunk, {
               platform: videoProvider.providerId || undefined,
+              // model 供语言路由兜底（通用网关 provider 场景按模型名判定 zh/en）
+              ...(videoProvider.model ? { model: videoProvider.model } : {}),
               ...(optimizeContext ? { context: optimizeContext } : {}),
               ...(stage.options && stage.options.optimize ? stage.options.optimize : {}),
             })
