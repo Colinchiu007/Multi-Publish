@@ -6383,3 +6383,12 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **实现**：`scripts/ensure-electron.js` 三态——dist 完整→跳过(exit 0)；缺失→触发 install.js；`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 显式跳过。按仓库约定把脚本加入 `scripts/*.js` 的 .gitignore 白名单。
 - **验证**：三路实测（就绪/跳过/缺失包）+ electron v43.1.1 就绪；本条目即文档同步门禁要求的 docs 变更。
 - **教训**：① 上游 npm 包 lifecycle 声明可能被版本演进静默移除，对"下载型二进制"依赖要装后自检而非假设就绪；② 环境修复优先"按需显式触发"，避免给所有部署形态（尤其后端镜像构建）引入无关下载与失败点。
+
+## 提示词优化效果评估系统 PromptEval 交付复盘 (2026-08-12)
+
+- **变更**：新增「提示词优化效果评估体系」（v1 图片）——对 prompt-engine（8013）优化出的图片提示词生成的图片做多维度打分（关联度 30%/内容准确性 30%/视觉审美 20%/跨图一致性 20%，单图权重归一化 0.375/0.375/0.25）、问题归因（原文/上下文/优化后提示词/负向提示）、提示词优化点清单（7 类），持久化到 userData/prompt-eval/ 并支持聚合分析，形成 prompt-engine 持续迭代闭环；入口 CLI + IPC（prompt-eval:*，authenticated）+ Vue `/prompt-eval` 三 Tab。PR #559（eaf067c8）。视频 v2 预留（mediaType=video 明确拒绝）。
+- **教训 1（并发会话共享 checkout 是事故源）**：另一会话在同一主 checkout 上 rebase/commit，把我 `git add` 的 PRD.md 卷进其提交、重置我改过的已跟踪文件。**git 写操作必须只在隔离 worktree 执行**；备份交付物后再动 git；发现 reflog 出现他人 rebase 立即切 worktree。
+- **教训 2（新路由必须补视觉门禁契约）**：`visual-view-runner.test.js` 要求每条真实路由都有单视图门禁；新增 `/prompt-eval` 路由后必须同步 `all-views.visual.test.js` viewTests 条目，并更新 `condition-waiting.test.js` 聚合场景数（94→95）。CI electron-tests 以此类计数契约抓回归——本地跑不到不代表 CI 不过。
+- **教训 3（Copy-Item -Recurse 语义）**：目标目录已存在时会把源目录复制为目标子目录（nested copy）；stage 后必须 `git diff --cached --name-only` 检查嵌套残留。
+- **教训 4（fail closed 契约细节）**：评估 LLM 输出 `problems/promptOptimizationPoints` 缺失或非数组必须整次失败（不允许静默降级为空数组）；契约抛错统一带 `code`，避免上层误报 EVAL_INTERNAL。Claude 审查 1C+8W 全部修复（魔数校验/记录 id 白名单/递归敏感键/逐项上下文/长度上限等）。
+- **预防**：① 共享 checkout 禁止 git 写操作；② 新增路由=新增视图门禁+更新聚合计数；③ 文档类共享文件（PRD.md/CHANGELOG/.quality-gates）并发会话会互相叠加，合并前 fetch main 并以已合入版本为准。

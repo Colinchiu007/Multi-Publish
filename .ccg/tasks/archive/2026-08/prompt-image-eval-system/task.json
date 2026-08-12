@@ -1,13 +1,14 @@
 {
   "id": "prompt-image-eval-system",
   "title": "提示词优化引擎输出评估体系（图片先行，视频后续）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "medium",
   "domain": "desktop+pipeline+docs",
-  "currentPhase": "review",
-  "nextAction": "Claude 审查已修复；等待全量测试通过后推送/PR/合并/归档",
+  "currentPhase": "completed",
+  "nextAction": "已归档：PR #559 合并（eaf067c8），三同步完成",
   "createdAt": "2026-08-11T10:00:00+08:00",
   "branch": "codex/prompt-image-eval-system"
 }
+
 
