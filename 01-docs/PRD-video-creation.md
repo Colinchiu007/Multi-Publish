@@ -1804,6 +1804,26 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 
 ### 9.9 组件接入状态（2026-08-12 更新）
 
+#### CSS 文件分离状态（2026-08-12 更新）
+
+| CSS 文件 | 对应组件 | 行数 | 职责 |
+|----------|----------|------|------|
+| video-creation-tokens.css | 全局 | 203 | 设计令牌（流水线分类色、状态色、Banner 色、Upload Zone、骨架屏、Element Plus 映射、通用变量映射）；含暗色模式覆盖 |
+| video-creation-buttons.css | 全局 | 105 | 统一按钮系统（s2v-btn-primary/secondary/ghost/danger/resume/sm/icon） |
+| video-creation-shared.css | 全局 | 88 | 共享 UI 模式（加载状态、空状态、进度条、错误提示、状态点、状态徽章、阶段标签、动画定义） |
+| create-view.css | CreateView.vue | 293 | 页面布局、流水线卡片、配置面板、编排进度、骨架屏、标签切换动画 |
+| pipeline-selector.css | PipelineSelector.vue | 192 | 流水线选择卡片网格、悬停/聚焦样式、分类徽标、响应式断点 |
+| stage-progress.css | StageProgress.vue | 192 | 阶段时间线进度条、阶段状态色、粘性头部、compose 子进度条 |
+| config-summary.css | ConfigSummary.vue | 70 | S2V 配置面板折叠区摘要 |
+| error-dialog.css | ErrorDialog.vue | 147 | 错误弹窗容器、消息/详情区域、按钮样式 |
+| create-history.css | CreateHistory.vue | 76 | 独立历史页面、渲染/流水线列表、骨架屏 |
+
+**导入顺序**：cohere-design-system.css → video-creation-tokens.css → 各组件 CSS（通过 Vue <style src="..." scoped> 引入）
+
+**暗色模式**：所有 CSS 文件依赖 video-creation-tokens.css 的 [data-theme="dark"] 覆盖层，不包含独立暗色定义
+
+
+
 #### 已接入组件
 
 | 组件 | 接入位置 | 接入方式 | 状态 |
