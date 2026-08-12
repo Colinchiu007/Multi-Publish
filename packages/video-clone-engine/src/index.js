@@ -8,4 +8,5 @@ module.exports = {
   ...require('./stage-executor'),
   ...require('./pipeline'),
   ...require('./runner'),
+  ...require('./service'),
 };

@@ -28,6 +28,7 @@ function registerAllHandlers(ipcMain, deps) {
   // 测试环境不传该标记，避免 registerHandlers 触碰真实临时目录。
   require('./story2video')(ipcMain, { ...deps, runImportedMediaGc: true })
   require('./video')(ipcMain, deps)
+  require('./video-clone')(ipcMain, deps)
   require('./misc')(ipcMain, deps)
   require('./onboarding')(ipcMain, deps)
   require('./model-provider')(ipcMain, deps)

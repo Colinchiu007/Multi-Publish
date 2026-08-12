@@ -10,9 +10,9 @@
 - [x] `node --test` 91 用例全绿
 
 ## 阶段 3：契约文档
-- [ ] PRD v1.4 §18（IPC 契约 / preload API / UI 交互 / 服务生命周期 / QM 门禁）
-- [ ] CHANGELOG / .quality-gates.md / CCG task
-- [ ] commit → push → PR → 合并
+- [x] PRD v1.4 §18（IPC 契约 / preload API / UI 交互 / 服务生命周期 / QM 门禁）
+- [x] CHANGELOG / .quality-gates.md / CCG task
+- [ ] commit → push → PR → 合并（4b 已实现：engine service + IPC/preload/Vue，QM-1 通过；PR 待推）
 
 ## 阶段 4：Electron 接线（4b，待 node_modules + QM-1 打包）
 - [ ] video-clone-service.js（runner 会话表 + 清理）

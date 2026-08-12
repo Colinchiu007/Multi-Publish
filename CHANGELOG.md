@@ -1,8 +1,18 @@
+<<<<<<< HEAD
 ## [2026-08-12] fix(ops-center): 「模型密钥」未配置提示按角色区分（admin 引导配置 / 非 admin 联系管理员）
 
 - 问题：错误「未配置可用的图片生成模型，请先在「模型密钥」中配置」对所有角色相同，但「模型密钥」菜单仅 admin 可见（App.vue `v-if role==='admin'`）——非 admin 用户被引导到一个不可见页面
 - 修复：`routers/prompt_eval.py` create_run 按 `_is_admin(user)` 区分提示文案；admin 提示「侧边栏「模型密钥」（/model-keys）中配置」，非 admin 提示「请联系管理员在「模型密钥」中配置」
 - 测试：新增 `test_run_provider_key_message_role_aware`（9 例全绿）
+=======
+## [2026-08-12] 视频克隆 切片 4b：Electron 接线（服务/IPC/preload/Vue 视图）+ QM-1 打包验证
+
+- `packages/video-clone-engine/src/service.js`：createVideoCloneService（会话表 + cancel + 报告编辑校验）。
+- 主进程：ipc-handlers/video-clone.js（run/cancel/report:edit/report:regenerate + 进度事件）注册进中心；preload videoClone API + index.bundle.js 重建。
+- 渲染层：useVideoClone.js + VideoCloneView.vue（输入/进度/报告编辑/相似度仪表）+ 路由 /video-clone + i18n videoClone zh/en。
+- 门禁：engine 96 / preload 333 / composable 5 / i18n 7 全绿；vite build 通过；QM-1 electron-builder --win --dir exit 0 + 启动 10s 无关键错误（主窗口已显示、ASAR 含 engine）。
+- 待 4c：ModelProviderManager 生成接入、PublisherRouter 发布、文件选择器、QM-2 完整实窗验证。
+>>>>>>> origin/main
 
 ## [2026-08-12] 视频克隆 切片 4a：IPC-ready runner（进度事件/协作中止）+ IPC 与 UI 详细规格
 
