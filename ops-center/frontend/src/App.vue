@@ -20,6 +20,10 @@
           <el-icon><Switch /></el-icon>
           <span>功能开关</span>
         </el-menu-item>
+<el-menu-item index="/scene-context-rules">
+<el-icon><Setting /></el-icon>
+<span>场景上下文规则</span>
+</el-menu-item>
         <el-menu-item index="/runtime-flags">
           <el-icon><SwitchButton /></el-icon>
           <span>桌面端功能开关</span>

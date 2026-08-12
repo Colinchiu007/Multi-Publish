@@ -354,6 +354,10 @@ export class SubtitleSegmenter {
   // 规范常量（对齐《字幕分割规范 v1.0》docs/subtitle-segmentation-spec.md）
   private static SENTENCE_BOUNDARY = new Set(['。', '！', '？', '…', '.', '!', '?']);
   private static PRIORITY_PUNCT = new Set(['。', '！', '？', '；', '.', '!', '?', ';', '，', ',', '、']);
+  // v1.1 顿号枚举单元保护：枚举结束判定用（顿号之上）更高优先级标点
+  private static ENUM_HIGHER_PUNCT = new Set(['。', '！', '？', '…', ',', '!', '?', ';', '.']);
+  // 枚举结束判定的谓词/主语引导词（常见分句起始字，启发式）
+  private static ENUM_PREDICATE_STARTERS = new Set(['那', '这', '我', '就', '便', '都', '也', '很', '更', '将', '会', '要', '能', '可', '是', '有', '为']);
   private static LEADING_PUNCT = new Set(['，', '、', '。', '！', '？', '；', ',', '!', '?', ';', '.']);
   private static TRAILING_PUNCT = new Set(['。', '！', '？', '；', '，', '、', '.', '!', '?', ';', '…']);
   private static QUOTE_PAIRS: [string, string][] = [
@@ -461,6 +465,7 @@ export class SubtitleSegmenter {
     const blocks: string[] = [];
     let cur = '';
     const stack: string[] = [];
+    let lastHardCut = false; // 最近一次切分是否为无标点硬切
     for (const ch of text) {
       cur += ch;
       if (SubtitleSegmenter.LEFT_QUOTES.has(ch)) {
@@ -473,34 +478,81 @@ export class SubtitleSegmenter {
       if (isPunct && cur.length >= this.config.minCharsPerBlock) {
         blocks.push(cur);
         cur = '';
+        lastHardCut = false;
       } else if (cur.length >= this.config.maxCharsPerBlock && stack.length === 0) {
-        const pos = this.findSplitPos(cur);
+        const pos = this.applyEnumerationShift(cur, this.findSplitPos(cur), false);
         if (pos > 0) {
           blocks.push(cur.slice(0, pos));
           cur = cur.slice(pos);
+          lastHardCut = false;
         } else {
           blocks.push(cur);
           cur = '';
+          lastHardCut = true;
         }
       } else if (cur.length >= this.config.maxCharsPerBlock * 2 && stack.length > 0) {
         blocks.push(cur);
         cur = '';
         stack.length = 0;
+        lastHardCut = true;
       }
     }
-    if (cur) blocks.push(cur);
+    if (cur) {
+      // 平衡约束（与 Python 实现一致）：硬切后的尾块清理后为 4..min-1 字（非合法 ≤3 短尾）时，
+      // 从上一块让字给尾块（区间内优先标点），避免孤悬尾块（如 15+4 → 11+8）
+      const tailClean = cur.trim().replace(/[。！？；，、.!?;…]+$/, '');
+      if (lastHardCut && blocks.length > 0 && tailClean.length > 3
+        && tailClean.length < this.config.minCharsPerBlock
+        && blocks[blocks.length - 1].length >= this.config.minCharsPerBlock) {
+        const prev = blocks[blocks.length - 1];
+        const need = this.config.minCharsPerBlock - tailClean.length;
+        const lo = Math.max(1, prev.length - need);
+        const hi = prev.length - 1;
+        const balanced = this.findSplitPosInRange(prev, lo, hi);
+        const pos = balanced > 0 ? balanced : lo;
+        blocks[blocks.length - 1] = prev.slice(0, pos);
+        cur = prev.slice(pos) + cur;
+      }
+      blocks.push(cur);
+    }
     return blocks.filter((b) => b.trim().length > 0);
   }
 
-  /** 从后往前找最近优先级标点/空格的分割位置（切后索引；无则 -1） */
+  /** 从后往前找切分锚点（切后索引；无则 -1）。v1.1 顿号优先级最低：更高优先级标点 → 空格 → 顿号兜底 */
   private findSplitPos(text: string): number {
     for (let i = text.length - 1; i >= 0; i--) {
-      if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i])) return i + 1;
+      if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i]) && text[i] !== '、') return i + 1;
     }
     for (let i = text.length - 1; i >= 0; i--) {
       if (text[i] === ' ' || text[i] === '\n' || text[i] === '\u3000') return i + 1;
     }
+    for (let i = text.length - 1; i >= 0; i--) {
+      if (text[i] === '、') return i + 1;
+    }
     return -1;
+  }
+
+  /** 顿号枚举单元结束位置（v1.1）：结束于更高优先级标点/谓词引导词/片段尾 */
+  private enumerationEnd(text: string, pos: number): number {
+    for (let i = pos; i < text.length; i++) {
+      const ch = text[i];
+      if (SubtitleSegmenter.ENUM_HIGHER_PUNCT.has(ch) || SubtitleSegmenter.ENUM_PREDICATE_STARTERS.has(ch)) {
+        return i;
+      }
+    }
+    return text.length;
+  }
+
+  /** 若切分锚点落在顿号上，把切分点前移到枚举单元结束之后（头块 ≤ max 才生效；requireTailMin 用于完整块） */
+  private applyEnumerationShift(text: string, pos: number, requireTailMin: boolean): number {
+    if (pos <= 0 || pos >= text.length || text[pos - 1] !== '、') return pos;
+    const eend = this.enumerationEnd(text, pos);
+    if (eend > pos && eend <= this.config.maxCharsPerBlock) {
+      if (!requireTailMin || text.length - eend >= this.config.minCharsPerBlock) {
+        return eend;
+      }
+    }
+    return pos;
   }
 
   /** Step 4：短块合并（前块 <min 合并；纯标点短块并入；短尾并入） */
@@ -582,7 +634,7 @@ export class SubtitleSegmenter {
     const out: string[] = [];
     for (let b of blocks) {
       while (b.length > this.config.maxCharsPerBlock) {
-        let pos = this.findSplitPos(b);
+        let pos = this.applyEnumerationShift(b, this.findSplitPos(b), true);
         if (pos <= 0 || pos >= b.length) pos = this.config.maxCharsPerBlock;
         // 平衡约束：尾块 < minChars 时切分点前移至 len - minChars（区间内优先找标点）
         if (b.length - pos < this.config.minCharsPerBlock) {

@@ -1,11 +1,29 @@
 ## [未发布] 功能：运营后台限流与调度验证（P0 模拟器+契约校验 / P1 用量观测 / P2 真实自检对拍）（2026-08-12）
 
-- P0（ops-center）：新增与桌面端 ApiUsageGovernor 同契约的确定性调度模拟器 `scheduler_simulator.py`（RPM 时间槽/并发信号量/429 冷却/5h 预检/429 自适应，含 6 条断言库）；`POST /api/v1/scheduler/verify`（模拟落库）、`GET /verify`、`GET /verify/{id}`、`GET /contract`（预设契约校验：范围/default∈models/并发换算）；新表 `scheduler_verification_runs`；前端「限流与调度验证」页 `/rate-limit-verifier`（模拟验证/契约校验/验证记录三 tab，时间线+指标卡+断言+历史详情）。全部 admin-only、零真实 provider 调用。
-- P1（可观测性）：桌面端 governor 采集每请求排队/冷却等待（`queuedMs`/`cooldownMs` 计数器，不改调度语义、同 key 重入内层不计时）；用量上报新增 `scheduler-observation` 聚合项（queued_count/cooldown_count/queue_wait_ms/cooldown_wait_ms，旧客户端缺失按 0 兼容）；`model_usage_daily` 加可空列；用量看板「按服务商」表新增 429 率/排队/冷却/预算利用率列（429率>10% 或利用率>90% warning）。
-- P2（真实自检 + 对拍）：桌面端 `rate-limit-self-check` 用独立 governor + 本地假 adapter（零额度零网络）驱动 N 个并发请求，产出与模拟器同构的 metrics/assertions/timeline；IPC `rate-limit:self-check`/`rate-limit:report`（authenticated，上报 `simulated=0` 到运营后台）；模型设置页「运营后台同步」卡片新增「限流自检」按钮（弹窗运行 + 结果 + 上报）；对拍脚本 `scripts/compare-scheduler-models.js` + parity 测试（四组固定输入：rpm120/并发2、rpm30/并发1、注入429、5h 额度）。
-- 修复（对拍审计发现）：`ApiUsageGovernor._assertTokenBudget` 由 `used >= limit` 改为 `used > limit`——此前第 limit 次成功调用会被误判 QUOTA_EXCEEDED（5h 限额 N 实际只允许 N-1 次成功）；现与 `_preflightTokenBudget` 的「第 limit+1 起拒绝」语义对齐；既有额度测试断言同步。
-- 文档：OpenSpec change `ops-center-rate-limit-verifier`（proposal/design/specs/tasks，2 新 capability）；CHANGELOG/learnings/.quality-gates。
-- 测试：桌面 58（self-check/parity/governor/reporter/scheduler/governor-provider/ipc）+ ops-center 相关 49；Vue build 通过；preload 双 sandbox 见交付记录。
+- P0（ops-center）：新增与桌面端 ApiUsageGovernor 同契约的确定性调度模拟器 `scheduler_simulator.py`（RPM 时间槽/并发信号量/429 冷却/5h 预检/429 自适应，含 6 条断言库）；`POST /api/v1/scheduler/verify`（模拟落库）、`GET /verify`、`GET /verify/{id}`、`GET /contract`（预设契约校验：范围/default∈models/并发换算）；新表 `scheduler_verification_runs`；前端「限流与调度验证」页 `/rate-limit-verifier`（模拟验证/契约校验/验证记录三 tab）。全部 admin-only、零真实 provider 调用。
+- P1（可观测性）：桌面端 governor 采集每请求排队/冷却等待（计数器，不改调度语义、重入内层不计时）；用量上报新增 `scheduler-observation` 聚合项（queued_count/cooldown_count/queue_wait_ms/cooldown_wait_ms，旧客户端兼容）；`model_usage_daily` 加可空列；用量看板「按服务商」新增 429 率/排队/冷却/预算利用率列。
+- P2（真实自检 + 对拍）：桌面端 `rate-limit-self-check`（独立 governor + 假 adapter，零额度零网络）；IPC `rate-limit:self-check`/`rate-limit:report`（authenticated，上报 simulated=0）；模型设置页「限流自检」按钮；对拍脚本 + parity 测试（四组固定输入）。
+- 修复（对拍审计发现）：`ApiUsageGovernor._assertTokenBudget` 由 `used >= limit` 改为 `used > limit`——此前第 limit 次成功调用会被误判 QUOTA_EXCEEDED；现与 preflight「第 limit+1 起拒」语义对齐；既有额度测试断言同步。
+- 文档：OpenSpec change `ops-center-rate-limit-verifier`（2 新 capability）；CHANGELOG/learnings/.quality-gates。
+- 测试：桌面 58（含 parity）+ ops-center 相关 49；Vue build + preload build 通过。
+## [2026-08-12] 字幕分割 v1.1：顿号枚举单元整体保护（对齐 splitter v0.15.0）+ 时间戳真实对齐立项
+
+- **顿号枚举整体切分**（TS 同步 Python）：切分锚点顿号降为最低优先级；锚点落在顿号上时切分点前移到
+  枚举单元结束之后（枚举 = 顿号分隔项 + 和/及/与 连接末项；结束于更高优先级标点/谓词引导词/片段尾）——
+  修复 `柴火、盐巴和香料那可都是绝对的硬通货` 主语枚举被撕裂的问题 → `柴火、盐巴和香料` + `那可都是绝对的硬通货`
+- 共享向量 +1（`enumeration_whole`，19 例）+ `balanced_user_case` 按新规则更新 → story2video-engine 114 例全绿
+- **时间戳真实对齐立项**（OpenSpec `openspec/changes/subtitle-audio-alignment/`）：分句保持纯文本驱动，
+  时间戳改为三级来源（TTS 词边界事件 → ASR 强制对齐 → 比例估算兜底），渲染期用真实音频对齐替换估算
+- PRD 7.1.1 补充顿号枚举保护 + 时间戳对齐设计
+
+## [2026-08-12] 字幕分割回归护栏（对齐 splitter v0.14.2）
+
+- Step 3 硬切尾块平衡（TS 同步 Python）：无标点硬切后尾块清理长度 4..min-1 字时从上一块让字，
+  避免孤悬尾块（no_punct_long 15+15+15+4 → 15+15+11+8）
+- 共享向量同步：no_punct_long 更新为手工真值 + 全部向量补齐 `short_block_exceptions`（显式例外声明）
+- 测试加固：min_chars 不变量断言（例外须声明）、时间戳舍入后严格连续断言（proportional/equal）、
+  向量双轨管理规则（禁止自证）→ story2video-engine 111 例全绿
+- PRD 7.1.1 补充字幕分割质量护栏条款
 
 ## [未发布] 修复：补 story2video.summaryDuration/summaryFileSize locale 缺键（2026-08-12）
 
@@ -143,6 +161,14 @@
 - 实现：`useModelProviderCrud.js` 新增 `isMiniMaxMultimodal`（`form.id === 'minimax-multimodal'`）；`ModelProviders.vue` 新增/编辑对话框对该预设渲染只读提示（「模型列表由系统预设与运营后台下发控制，无需在此填写」+ 当前模型列表文本），其它服务商行为不变。
 - 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
 - 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
+
+## [未发布] 功能：首页 Home 文案全量多语言化（P2 存量 i18n 首批）（2026-08-12）
+
+- `src/locales/zh.js` / `en.js` 新增 `home` 命名空间（约 30 键）：副标题、快捷操作/入口、统计标签、时段问候（5）、状态标签（6）、平台 fallback 标签（11）、空态/无标题/用户默认名。
+- `src/views/Home.vue`：模板硬编码中文全部替换为 `t('home.*')`；问候语按时段 key 映射、状态按 key 映射、displayName 默认名、平台 fallback 标签、`formatTime` 按当前语言使用 zh-CN/en-US 区域格式。
+- `src/views/Home.test.js`：mount 安装 vue-i18n 插件；新增 en 语言断言（英文文案 + 平台英文 fallback 标签）；原 zh 断言保持原文。
+- 文档：PROMPT-TEXT-SPEC §8 P2 进度登记；OpenSpec change `desktop-ui-i18n-p2`。
+- 测试：Home 11 用例 + i18n 全绿；eslint 0 errors。
 
 ## [未发布] 文档：提示文字规范独立成册 + 补齐契约类文档（2026-08-12）
 

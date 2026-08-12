@@ -196,3 +196,72 @@ optimize 阶段调用 prompt-engine 时，请求 `context` 携带场景上下文
 
 - 真实图片/视频生成效果（西方老太太问题是否消除）依赖 prompt-engine 与图片/视频生成厂商模型行为，属于**外部验收边界**：本期以「注入上下文锚点提高生成概率」为交付口径，不做第三方视觉断言。
 - 需要真实 LLM key 与图片生成额度，由真实使用验收单独记录。
+
+---
+
+## 9. 概念与逻辑细化（2026-08-12）
+
+> 主 PRD §7.1.33 已扩写为 9 小节详细版（概念/数据流/字段表/规则表/融合算法/配置校验/降级/运营后台/验收）。本节点名关键概念与逻辑，供评审与实施对齐。
+
+### 9.1 概念定位：故事背景上下文「路由层」
+
+`scene_context` 不是新的生成引擎，而是**上下文路由层**：
+
+```
+分句引擎（场景生产方） ──场景文字──►  scene_context（故事背景路由层）  ──场景+全局背景──►  提示词优化引擎（场景消费方）
+                                           │
+                                    全文通读 → 全局故事上下文
+                                    按场景融合 → 逐场景上下文块 + 时代负面锚点
+```
+
+- **生产方/消费方解耦**：分句引擎不知道下游消费的是提示词优化；提示词优化不直接读全文。中间层承担「全文理解 + 按场景路由背景」的单一职责。
+- **默认对一切内容生效**：不同于 `domain_enrich`（仅 history），`scene_context` 对历史/现代/无关键词文案都执行；无关键词时退化为「仅场景文字」等价旧行为。
+
+```mermaid
+flowchart TB
+    A["完整文案 params.text（≤6000 字符）"] --> B["split 分句引擎<br/>8002 / 本地回退"]
+    B --> C["domain_enrich<br/>历史内容领域增强（可选）"]
+    C --> D["scene_context 场景上下文增强中间层"]
+    A -.-> D
+    D --> D1["① 全局故事上下文提取<br/>extractStoryContext（全文通读）"]
+    D1 --> D2["② 逐场景上下文融合<br/>enrichSceneWithContext（背景按场景路由）"]
+    D2 --> D3["③ 契约收敛：七键白名单 + 敏感键拦截 + 结构校验"]
+    D3 --> E["optimize 提示词优化引擎<br/>prompt-engine 8013"]
+    E --> F["图片 / 视频生成"]
+    G["运营后台 ops-center<br/>「场景上下文规则」"] -. 查看/编辑/校验/保存/导出 .-> D
+```
+
+![scene_context 架构图](assets/story2video-scene-context-architecture.png)
+
+### 9.2 核心逻辑速览
+
+| 环节 | 逻辑 | 关键约束 |
+|---|---|---|
+| 全局提取 | 关键词计数 → 题材/朝代/文化/设定/角色/道具/风格/语气 | 多候选排序 + 置信度；无关键词不编造 |
+| era 判定 | 朝代命中→strong；否则 ≥2 独立信号 | 弱信号不注入全局负面锚点 |
+| 时代互斥 | ancient 只输出古代道具；modern 只输出现代道具 | 防跨时代混搭 |
+| 逐场景融合 | 全局锚点 + 场景文字 → 上下文块/锚点/负面锚点/角色 | 措辞自然；做饭×古代 → 土灶/柴火 + 排除电烤箱 |
+| 提示词注入 | 七键白名单 context + negative_prompt 合并 | 服务端已知键；敏感键拦截 |
+| 规则加载 | env → userData 覆盖 → 内置 JSON → 空兜底 | 校验失败回退内置 + 告警 |
+| 运营管理 | ops-center 查看/编辑/校验/保存/导出 | 与桌面端同构校验；双源同步断言 |
+
+### 9.3 数据模型与规则表
+
+- 全局 `story` 字段表（genre/era/dynasty/culture/region/setting/time/characters/props/visualStyle/tone/summary/anchors/negativeAnchors/confidence/evidence/multiCandidates）：见主 PRD §7.1.33(3)。
+- 规则表（16 朝代 / 8 文化 / 11 题材 / 10 设定 / 道具 ancient+modern / 41 角色 / 时间 / 7 视觉风格 / 4 语气 / 负面锚点互斥）：见主 PRD §7.1.33(4)；规则以 `story-context-rules.json` 承载并可被运营后台管理。
+- **完整 JSON 样例**：`context.scene_context`（story/scenes/metadata）与 `story-context-rules.json` 规则结构的完整样例见主 PRD §7.1.33(3)（含用户示例的逐字段取值）。
+- 逐场景融合算法（location 拼接/做饭锚点/角色识别/负面锚点合并）：见主 PRD §7.1.33(5)。
+
+### 9.4 运营后台规则管理（2026-08-12）
+
+- 页面「运营 → 场景上下文规则」（`/scene-context-rules`）：JSON 编辑 / 校验 / 保存 / 导出 `story-context-rules.json`，展示来源/版本/更新人；未配置时基于模板编辑。
+- API：`GET/POST validate/PUT/GET export /api/v1/scene-context/rules`（登录读、admin 写；非法规则 400 拒绝）。
+- 生效方式：合入随包发布 或 `<userData>/config/story-context-rules.json` 覆盖加载（桌面校验失败自动回退内置）。
+- 同步保障：ops-center 模板与桌面内置 JSON 由 pytest 断言归一化相等。
+
+### 9.5 验收证据（本地可复现）
+
+- **L1 引擎直调**：唐代全文 + 「一个老妇人在做饭」→ `唐朝·中国·长安`、上下文块含「土灶/柴火/陶罐/铜锅」、负面锚点含「电烤箱/微波炉/西式现代厨房」；无关键词不编造；现代文案不误判古代；城堡题材不编造城市。
+- **L2 真实 prompt-engine A/B（8013，真实 LLM）**：A 组（带 scene_context）提示词含 `Tang Dynasty / Chang'an / Chinese / earthen stove / firewood / clay pot`；B 组（对照组）无时代/地域锚点 → **PASS**（中间层把背景锚点真实注入下游提示词，负面提示随请求生效）。
+- 完整记录：`01-docs/STORY2VIDEO-SCENE-CONTEXT-ACCEPTANCE-2026-08-12.md`。
+- 外部边界：真实图片/视频生成效果依赖厂商模型行为，属外部验收（L3 真实出图可复用已配置的 minimax-image 进行）。

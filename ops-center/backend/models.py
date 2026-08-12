@@ -392,3 +392,14 @@ class PipelineDependency(Base):
     deleted_at = Column(String, nullable=True)  # 软删（不复活，可重建）
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+
+class SceneContextRules(Base):
+    """Story2Video 场景上下文规则（运营后台管理，导出后随桌面发布/配置覆盖）。"""
+
+    __tablename__ = "scene_context_rules"
+
+    key = Column(String(64), primary_key=True)  # 固定 'default'
+    version = Column(Integer, default=1)
+    content = Column(Text, default="")  # 规则 JSON 文本
+    updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    updated_by = Column(String(100), default="")
