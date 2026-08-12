@@ -67,6 +67,7 @@ import UiButton from "../components/UiButton.vue";
 import UiSelect from "../components/UiSelect.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const layouts = [
   { count: 1, icon: '⬜', label: '单屏' },
@@ -176,11 +177,11 @@ async function confirmAdd () {
         showDialog.value = false
         newPlatform.value = ''
       } else {
-        ElMessage.error(res.message || '添加失败')
+        ElMessage.error(formatUserError(res, { fallback: '添加失败' }).message)
       }
     }
   } catch (e) {
-    ElMessage.error(e.message)
+    ElMessage.error(formatUserError(e, { fallback: '添加失败' }).message)
   } finally {
     adding.value = false
   }

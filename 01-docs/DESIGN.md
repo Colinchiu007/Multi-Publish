@@ -389,6 +389,35 @@ Rounded white form panel set against dark green or warm stone sections. Inputs a
 
 Dark footer subscription block with coral "AI moves fast" label, white headline, muted legal microcopy, a single-line email field, and arrow submit marker. Footer columns use white section labels and muted links.
 
+## Copy & Microcopy（交互文案分册，2026-08-12）
+
+交互文案（提示/错误/警告/建议/状态/引导）与视觉 token 同等重要。完整规范见 `01-docs/PROMPT-TEXT-SPEC.md`（唯一事实源：`src/utils/user-facing-error.js`）。
+
+### 写作原则
+
+1. **自然语言**：像人说话，不用内部标识符（IPC 通道名、英文错误码、栈信息、IP:端口、英文括号注释）。
+2. **原因 + 建议**：失败提示必须同时给「具体原因」和「解决方法建议」。
+   - ❌ 「当前许可证无权访问 store:list-publish-history」
+   - ✅ 「当前未登录或登录状态已失效，无法使用该功能。请先登录后重试；若仍提示无权限，请确认当前账号已开通所需权益。」
+3. **具体 > 笼统**：优先保留业务原因（「排期失败：任务不存在」），不无脑替换为「操作失败」。
+4. **多语言**：zh/en 成对提供；语言解析 = 用户显式设置 > 系统语言（`zh*`→zh、`en*`→en、其余→en）> 默认 zh；设置弹窗「通用设置」可切换。
+5. **语气**：礼貌、克制、无责备；错误不 panic，给可执行的下一步。
+
+### 四类文案口径
+
+| 类型 | 要求 | 示例（zh） |
+|------|------|-----------|
+| 错误 | 原因 + 建议 | 「网络连接失败。请检查网络后重试。」 |
+| 警告 | 风险 + 选择 | 「操作过于频繁，已被服务商限流。请稍等片刻后再试。」 |
+| 成功/状态 | 结果 + 下一步（可选） | 「已复制视频文件位置。」 |
+| 引导 | 目的 + 操作 | 「请在「模型设置」中填写对应服务商的 API Key 后重试。」 |
+
+### 渲染约束
+
+- 用户可见区域禁止直接渲染 `result.message` / `e.message` 原文，必须经 `formatUserError()`。
+- 主进程 `message` 不得包含内部通道名；诊断信息放 `messageParams.channel` / `messageParams.detail`。
+- Story2Video 通知沿用 pattern→key 映射（保留「当前许可证无权访问」「当前账号没有所需权益」前缀兼容）。
+
 ## Do's and Don'ts
 
 ### Do

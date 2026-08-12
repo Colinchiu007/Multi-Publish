@@ -59,6 +59,7 @@
 <script setup>
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { intelligenceSearchTitles } from '@/api/publisher'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const props = defineProps({
   title: { type: String, default: '' },
@@ -105,7 +106,7 @@ watch(() => props.title, (newVal) => {
         data.value = null
       }
     } catch (e) {
-      error.value = '搜索失败: ' + e.message
+      error.value = '搜索失败: ' + formatUserError(e, { fallback: '未知错误' }).message
       data.value = null
     } finally {
       loading.value = false

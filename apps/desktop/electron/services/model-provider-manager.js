@@ -844,7 +844,7 @@ class ModelProviderManager {
    * 目录存在但本地缺失 → 插入预设行（is_preset=1，enabled=0）。目录缺失的本地行不清除。
    */
   applyCatalog (items) {
-    if (!this._ready || !this._store || !this._store.db) return { code: -1, message: 'Store not initialized' }
+    if (!this._ready || !this._store || !this._store.db) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '本地数据服务尚未就绪，请稍后重试或重启应用。' }
     if (!Array.isArray(items)) return { code: -1, message: '目录数据格式错误' }
     const db = this._store.db
     let updated = 0
@@ -956,7 +956,7 @@ class ModelProviderManager {
 
   /** 持久化多模态优先开关。 */
   setMultimodalPreference (value) {
-    if (!this._store || typeof this._store.setUserSetting !== 'function') return { code: -1, message: 'Store not initialized' }
+    if (!this._store || typeof this._store.setUserSetting !== 'function') return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '本地数据服务尚未就绪，请稍后重试或重启应用。' }
     try {
       this._store.setUserSetting('prefer_multimodal', value === true)
       return { code: 0, data: { preferMultimodal: value === true } }

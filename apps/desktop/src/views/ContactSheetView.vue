@@ -117,6 +117,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, reactive, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import UiButton from '@/components/UiButton.vue'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const route = useRoute()
 const projectId = computed(() => route.params.projectId || null)
@@ -168,7 +169,7 @@ async function approveScene(scene) {
       Object.assign(scene, res.data.scene)
     }
   } catch (e) {
-    error.value = e.message || '批准失败'
+    error.value = formatUserError(e, { fallback: '批准失败' }).message
   }
 }
 
@@ -183,7 +184,7 @@ async function rejectScene(scene) {
       rejectInputs[scene.id] = false
     }
   } catch (e) {
-    error.value = e.message || '驳回失败'
+    error.value = formatUserError(e, { fallback: '驳回失败' }).message
   }
 }
 
@@ -207,10 +208,10 @@ async function refresh() {
         sceneRefs[awaiting.id].scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
     } else if (res) {
-      error.value = res.message || '加载失败'
+      error.value = formatUserError(res, { fallback: '加载失败' }).message
     }
   } catch (e) {
-    error.value = e.message || '加载失败'
+    error.value = formatUserError(e, { fallback: '加载失败' }).message
   } finally {
     loading.value = false
   }

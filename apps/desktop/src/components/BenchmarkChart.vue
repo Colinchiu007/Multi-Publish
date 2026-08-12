@@ -125,6 +125,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { intelligenceGetBenchmark } from '@/api/publisher'
+import { formatUserError } from '@/utils/user-facing-error'
 
 const props = defineProps({
   title: {
@@ -151,10 +152,10 @@ async function fetchBenchmark() {
     const result = await intelligenceGetBenchmark({ keyword: props.title, sampleSize: 12 })
     data.value = result?.code === 0 ? result.data : null
     if (result?.code !== 0) {
-      error.value = result?.message
+      error.value = formatUserError(result, { fallback: '获取基准数据失败' }).message
     }
   } catch (err) {
-    error.value = err.message || '获取基准数据失败'
+    error.value = formatUserError(err, { fallback: '获取基准数据失败' }).message
   } finally {
     loading.value = false
   }

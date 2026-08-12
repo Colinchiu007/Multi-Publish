@@ -1,0 +1,12 @@
+{
+  "id": "story2video-model-dropdown-fix",
+  "title": "修复图片轮播模型下拉空白/音色克隆缺失（新增模型后不刷新）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "review",
+  "nextAction": "实现+测试完成（CreateView 134/134 全绿，vite build 通过）；文档已更新（PRD 3.1.22 / PRD.md 7.4.1.1 / CHANGELOG / learnings）；待双模型审查后提交推送合并",
+  "createdAt": "2026-08-12T00:00:00+08:00",
+  "branch": "codex/story2video-model-dropdown-fix"
+}

@@ -106,7 +106,7 @@ describe("ViralAnalysisView", () => {
     await nextTick();
     w.vm.topic = "AI";
     await w.vm.doAnalyze();
-    expect(w.vm.result.error).toBe("network error");
+    expect(w.vm.result.error).toEqual(expect.stringContaining("\u7f51\u7edc"));
   });
 
   it("doGenerate validates non-empty topic", async () => {
@@ -154,7 +154,7 @@ describe("ViralAnalysisView", () => {
     await nextTick();
     w.vm.topic = "AI";
     await w.vm.doGenerate();
-    expect(w.vm.genResult.error).toBe("network error");
+    expect(w.vm.genResult.error).toEqual(expect.stringContaining("\u7f51\u7edc"));
   });
 
   it("initial data values are correct", async () => {
