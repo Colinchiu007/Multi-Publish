@@ -1,3 +1,11 @@
+## main CI 既有失败定位记录：locale 缺键（已修）+ e2e-quality-infrastructure 扫描（遗留）（2026-08-12）
+
+- **已修（本 PR）**：`create.story2video.voice.catalogLoadFailed` 等 27 个 voice locale 键缺失（CreateView 引用但 zh/en 未定义）→ intlify 告警 → QG Coverage Gate 5 失败。补齐后消除。
+- **遗留 1（e2e-quality-infrastructure 字段被遮挡）**：路由通用扫描在真实 E2E 中发现某页 `textarea name=content testid=content placeholder=正文` 字段 fill 失败「字段被遮挡」（Publish.vue 批量正文 UiInput 与 ArticleEditor 并存区域，需真实 Playwright+Electron 复现定位，可能为加载时序/覆盖层问题）。
+- **遗留 2（Flow3.3 唯一默认服务商）**：真实 E2E 中 setDefault(anthropic) 后重读列表 defaultIds 仍含 preset_openai+preset_anthropic 两个 → 可能为 CI userData 种子状态污染或 setDefault 清理逻辑边界，需隔离 userData 复现。
+- **教训**：main 上并发 PR 引入的既有失败会传播到所有新 PR；处理前先判断是否本次引入（本次改动测试全绿 + 失败模块无关），已修部分单独 PR 先行，扫描类失败需真实 E2E 环境，避免盲目修复与其他会话冲突。
+
+---
 ## fidelity 分镜真实 E2E 验证 + 鲁棒性加固复盘（2026-08-12）
 
 - **验证结论**：fidelity 模式真实 LLM 分镜逐条对应原文（12/12 场景覆盖核心事件与引语），对齐报告 coverage=0.86 一次通过；对比创意模式"赛博侦探档案"跑偏，S1-S3 修复有效。
