@@ -1,0 +1,13 @@
+{
+  "id": "prompt-eval-ops-workbench",
+  "title": "运营后台提示词评测工作台（PromptEval Workbench）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "ops-center+desktop-contract",
+  "currentPhase": "completed",
+  "nextAction": "已归档：PR #571 合并（d93e9528），三同步完成；真实 provider/视觉模型为外部验收边界",
+  "createdAt": "2026-08-12T09:00:00+08:00",
+  "branch": "codex/prompt-eval-workbench",
+  "openspecChange": "prompt-eval-ops-workbench"
+}
