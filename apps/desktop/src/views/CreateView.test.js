@@ -2077,7 +2077,7 @@ describe("CreateView - UI interactions", () => {
     expect(w.find(".history-status").text()).toContain("已完成");
     expect(w.find(".history-status").classes()).toContain("completed");
 
-    await w.find(".history-btn.open").trigger("click");
+    await w.find(".history-item .s2v-btn-secondary").trigger("click");
     expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "project-history" } });
     pushSpy.mockRestore();
   });
@@ -2122,7 +2122,7 @@ describe("CreateView - UI interactions", () => {
     w.vm.historyFilter = "paused";
     await nextTick();
 
-    const resumeBtn = w.find(".history-btn.resume");
+    const resumeBtn = w.find(".history-item .s2v-btn-resume");
     expect(resumeBtn.exists()).toBe(true);
     expect(resumeBtn.text()).toContain("从断点继续");
 
@@ -2153,7 +2153,7 @@ describe("CreateView - UI interactions", () => {
     w.vm.historyFilter = "running";
     await nextTick();
 
-    const resumeBtn = w.find(".history-btn.resume");
+    const resumeBtn = w.find(".history-item .s2v-btn-resume");
     expect(resumeBtn.exists()).toBe(true);
     expect(resumeBtn.text()).toContain("继续生成");
 
@@ -2179,7 +2179,7 @@ describe("CreateView - UI interactions", () => {
     w.vm.historyFilter = "paused";
     await nextTick();
 
-    expect(w.find(".history-btn.resume").exists()).toBe(false);
+    expect(w.find(".history-item .s2v-btn-resume").exists()).toBe(false);
     w.unmount();
   });
 

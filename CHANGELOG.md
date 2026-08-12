@@ -1,3 +1,11 @@
+## [未发布] 修复：main CI 既有失败 — CreateView 历史按钮断言同步 + Windows 启动冒烟 hook 超时（2026-08-12）
+
+- 背景：main（1fe02e74）4 个工作流持续失败（electron-tests / QG Coverage / QG Desktop Shards 1/2 / build windows-latest）。根因分两类，均为**既有回归**（与 PR #535 无关，9a028b2b/#534 已存在）。
+- 根因 1（测试未同步）：`CreateViewHistory.vue` 模板在「视频创作模块UI/UX深度优化」（§7.1.33，`video-creation-buttons.css` 统一按钮）中把 `.history-btn.*` 改为 `.s2v-btn-*`（`s2v-btn-resume` / `s2v-btn-secondary` / `s2v-btn-danger`），但 `CreateView.test.js` 4 处断言仍用旧类名 → 3 用例失败（历史记录打开/从断点继续/继续生成）。修复：断言选择器同步为 `.history-item .s2v-btn-*`，保留用户可见文案断言（已完成/从断点继续/继续生成），负向用例（content policy 不显示恢复按钮）同步。
+- 根因 2（CI 冷启动）：`build.yml` 的 Startup smoke（`tests/smoke/startup.test.js`）在 `npm ci` 后直接运行，electron@43 无 postinstall，首次 `require(electron)` 链触发「Downloading Electron binary...」超过 vitest 默认 10s hookTimeout → Windows 冷 runner 失败。修复：build.yml 在冒烟前新增 `node scripts/ensure-electron.js`；`vitest.smoke.config.js` 增 `hookTimeout: 30000`（吸收冷加载方差，注释注明回归）。
+- 验证：`CreateView.test.js` 131/131 全绿；`npm run test:startup` 12/12 全绿；build.yml YAML 解析通过；全量 desktop 串行套件结果见交付记录。
+- 文档：CHANGELOG；learnings 复盘（测试断言未随模板重构同步 / electron 二进制冷启动进入 smoke hook 预算）。
+
 ## [未发布] 功能：视频提示词统一走 prompt-engine video 领域（2026-08-11）
 
 - 背景：项目内所有 AI 视频生成的提示词此前"裸奔"直传 provider（videogen 分镜 LLM 直出、混合模式复用图片优化提示词），缺少视频专属的镜头/运动/时序/一致性维度与统一校验。本次接入"视频提示词优化引擎"（prompt-engine 8013 `domain=video`，Phase 1 Generic 兜底）。

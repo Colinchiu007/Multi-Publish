@@ -1,0 +1,12 @@
+{
+  "id": "fix-main-ci-regressions",
+  "title": "修复 main CI 既有失败：CreateView 历史按钮断言 + Windows 启动冒烟 hook 超时",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "test+ci",
+  "currentPhase": "implementation",
+  "nextAction": "全量测试后审查提交",
+  "createdAt": "2026-08-12T09:20:00+08:00",
+  "branch": "codex/fix-main-ci-regressions"
+}

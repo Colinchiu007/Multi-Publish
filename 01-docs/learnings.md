@@ -4,6 +4,14 @@
 
 ---
 
+## main CI 既有失败修复复盘：测试断言未随模板重构同步 + Electron 二进制冷启动进入 smoke hook 预算 (2026-08-12)
+
+- **根因溯源**：① `CreateViewHistory.vue` 在 §7.1.33「视频创作模块UI/UX深度优化」把历史按钮类从 `.history-btn.*` 统一为 `.s2v-btn-*`（`video-creation-buttons.css` 明确「消除 btn-secondary / history-btn / 原生 button 混用」），但 `CreateView.test.js` 4 处 `.history-btn.open/.resume` 断言未同步 → 3 用例失败（历史记录打开 / 从断点继续 / 继续生成）。② `build.yml` 的 Startup smoke 在 `npm ci` 后直接 `test:startup`；electron@43 无 postinstall，首次 `require('electron')` 链触发「Downloading Electron binary...」，Windows 冷 runner 下超过 vitest 默认 10s `hookTimeout`。
+- **逃逸链**：① UI 重构 PR 只改模板与样式，未同步 CreateView 历史用例断言；② 全量 CI 失败在 main 上持续存在（9a028b2b 起），被当作「既有失败」拖延未清；③ smoke hook 超时只在冷 CI runner（无 electron 缓存）出现，本地有缓存环境复现不出。
+- **系统性漏洞**：① 模板/样式 class 变更缺少「测试选择器同步」强制项；② electron 二进制就绪未纳入 smoke 前置步骤，测试 hook 预算被「下载 + require」挤占。
+- **修复 + 回归保护**：① 断言改 `.history-item .s2v-btn-*`（保留用户可见文案「已完成/从断点继续/继续生成」断言），`CreateView.test.js` 131/131 全绿；② `build.yml` 冒烟前新增 `node scripts/ensure-electron.js`；`vitest.smoke.config.js` 增 `hookTimeout: 30000`（注释注明回归）；`test:startup` 12/12 全绿。
+- **预防措施**：① CSS/模板 class 重构类改动，合入前 `rg "旧类名" --glob "*.test.js"` 检查测试引用；② 依赖 `require('electron')` 的 node 侧测试，前置 `ensure-electron` 或给足 hook 预算；③ 判断「是否本次引入」必须用同一基线 check-runs 对比（本任务先证 9a028b2b 已存在同一批失败才动手）。
+
 ## 视频提示词优化引擎 video 领域接入复盘 (2026-08-12)
 
 - **变更**：prompt-engine（8013）新增 `video` 领域（`domain=video` + VideoPlatformType 14 枚举 + VideoPromptResult 结构化输出 + GenericVideoStrategy）；Multi-Publish 新增独立契约文件 `video-prompt-engine-contract.js`（与图片契约分文件分命名），PromptBridge `optimizeVideo/optimizeVideosBatch`，videogen_generate 前批量优化（fail-closed），Story2Video 混合模式视频场景提示词先经视频优化再提交 generateVideo（失败按混合语义回退图片轮播）。双 PR：prompt-engine #18（15dac18e）、Multi-Publish #548（1bfa98ea）。

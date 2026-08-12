@@ -73,6 +73,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # electron@43 无 postinstall，先确保二进制就绪，避免启动冒烟的 require 链在 10s hook 内触发下载超时
+      - name: Ensure Electron binary
+        run: node scripts/ensure-electron.js
+
       # 1. 启动冒烟测试 — 验证 require 路径、路由表、配置一致性
       #    不依赖 Electron 运行时，在非 Electron 环境自动 mock
       - name: Startup smoke test
