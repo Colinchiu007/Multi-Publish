@@ -24,4 +24,5 @@
 
 - [x] 5.1 运行受影响测试套件：api-publish-engine node 测试 + python-backend pytest（相关用例）
 - [x] 5.2 `openspec validate --change logging-hardening-p0` 通过
-- [ ] 5.3 提交到 `codex/logging-p0-fixes`、推送、创建 PR（含 CCG task 关联）
+- [x] 5.3 提交到 `codex/logging-p0-fixes`、推送、创建 PR（含 CCG task 关联）
+
