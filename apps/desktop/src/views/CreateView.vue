@@ -900,30 +900,29 @@ import {
   getOutputResolutionOptions,
   normalizeResolution,
 } from '@/story2video/output-resolution'
+import {
+  STYLES,
+  S2V_PLATFORMS,
+  CATEGORY_LABELS,
+  COST_LABELS,
+  STABILITY_MAP,
+  IMPLEMENTED_PIPELINES,
+  AUTO_PIPELINE_STAGES,
+  STORY2VIDEO_STAGE_NAMES,
+  S2V_RESTORE_ENUM_OPTIONS,
+  S2V_RESTORE_OUTPUT_ENUM_OPTIONS,
+  prioritizeStory2VideoPipeline,
+  getStory2VideoOutputAspectRatio,
+  categoryLabel as utilCategoryLabel,
+  costLabel as utilCostLabel,
+  getStability as utilGetStability,
+  formatTime as utilFormatTime,
+  humanName as utilHumanName,
+  historyStatusLabel as utilHistoryStatusLabel,
+  cloneForIpc as utilCloneForIpc,
+} from './create-view-utils'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
-const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
-  '720x1280': '9:16',
-  '1920x1080': '16:9',
-  '3840x2160': '16:9',
-  '1080x1920': '9:16',
-  '1080x1440': '3:4',
-})
-
-// 已实现真实执行引擎的流水线（与 pipeline-engine 注册表 available 字段保持一致；此处为前端兜底）
-const IMPLEMENTED_PIPELINES = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
-
-function prioritizeStory2VideoPipeline(pipelines) {
-  const values = Array.isArray(pipelines) ? pipelines : []
-  return [
-    ...values.filter(pipeline => pipeline?.name === 'story2video-compose'),
-    ...values.filter(pipeline => pipeline?.name !== 'story2video-compose'),
-  ]
-}
-
-function getStory2VideoOutputAspectRatio(resolution) {
-  return STORY2VIDEO_OUTPUT_ASPECT_RATIOS[resolution] || '9:16'
-}
 
 function settleHistoryRequest (request) {
   let timeoutId
@@ -931,79 +930,6 @@ function settleHistoryRequest (request) {
     timeoutId = setTimeout(() => reject(Object.assign(new Error('历史记录加载超时'), { code: 'HISTORY_LOAD_TIMEOUT' })), HISTORY_LOAD_TIMEOUT_MS)
   })
   return Promise.race([Promise.resolve().then(request), timeout]).finally(() => clearTimeout(timeoutId))
-}
-
-const STYLES = [
-  { value: 'clean-professional', label: '简洁专业', desc: '干净排版，适合商业内容' },
-  { value: 'flat-motion-graphics', label: '扁平动效', desc: '现代扁平化动画风格' },
-  { value: 'anime-ghibli', label: '吉卜力动漫', desc: '温暖的手绘动漫质感' },
-  { value: 'minimalist-diagram', label: '极简图表', desc: '数据可视化优先' },
-  { value: 'cinematic-dark', label: '电影暗调', desc: '深色电影感渲染' },
-]
-
-const STORY2VIDEO_STAGE_NAMES = Object.freeze([
-  'split',
-  'domain_enrich',
-  'optimize',
-  'select_video_scenes',
-  'generate_assets',
-  'compose',
-  'publish',
-])
-
-// 自动流水线的真实阶段名（列表接口不返回 stages，按流水线名映射，避免回退到 s2v 阶段名）
-const AUTO_PIPELINE_STAGES = Object.freeze({
-  'story2video-compose': STORY2VIDEO_STAGE_NAMES,
-  'animated-explainer': ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish'],
-  'framework-smoke': ['verify', 'report'],
-  'documentary-montage': ['research', 'ingest', 'edit', 'narrate', 'render'],
-  'localization-dub': ['transcribe', 'translate', 'tts', 'sync'],
-  'animation': ['concept', 'storyboard', 'animate', 'render'],
-  'avatar-spokesperson': ['avatar_select', 'script', 'generate', 'render'],
-  'character-animation': ['character_design', 'rigging', 'animate', 'render'],
-  'hybrid': ['plan', 'generate', 'merge', 'render'],
-})
-
-const S2V_PLATFORMS = [
-  { value: 'douyin', label: '抖音' },
-  { value: 'xiaohongshu', label: '小红书' },
-  { value: 'bilibili', label: 'B站' },
-  { value: 'wechat', label: '微信视频号' },
-  { value: 'tiktok', label: 'TikTok' },
-  { value: 'youtube', label: 'YouTube' },
-]
-
-// 恢复「上次使用的选项」时对下拉枚举字段做白名单校验：陈旧快照值（如旧版本或手工写入的
-// imageStyle）不在当前选项列表时回退到 data() 默认值，避免下拉框出现空白选中项（2026-08-10 Bug 反哺）。
-const S2V_RESTORE_ENUM_OPTIONS = Object.freeze({
-  contentType: ['general', 'history'],
-  videoMode: ['off', 'fixed', 'ai-judged'],
-  imageStyle: ['cinematic', 'realistic', 'anime', 'watercolor', 'minimalist'],
-  promptStyle: ['realistic', 'cinematic', 'anime', 'watercolor', 'minimalist'],
-  imageEffect: ['none', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'zoom-pan', 'rotate', 'blur-in'],
-  transition: ['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down'],
-  subtitleSize: ['size1', 'size2', 'size3', 'size4', 'size5', 'size6'],
-  subtitleStyleName: ['style1', 'style2', 'style3'],
-  splitLanguage: ['auto', 'zh', 'en'],
-  splitMode: ['fast', 'balanced', 'precise'],
-  splitViewMode: ['seconds', 'chars'],
-})
-const S2V_RESTORE_OUTPUT_ENUM_OPTIONS = Object.freeze({
-  fps: [24, 30, 60],
-  format: ['mp4', 'webm'],
-})
-
-const CATEGORY_LABELS = {
-  generated: 'AI 生成', talking_head: '说话头像', cinematic: '电影感',
-  animation: '动画', screen_recording: '屏幕录制', hybrid: '混合', custom: '自定义'
-}
-const COST_LABELS = { low: '低消耗', medium: '中等', high: '高消耗' }
-const STABILITY_MAP = {
-  'cinematic': 'production', 'animated-explainer': 'production', 'talking-head': 'beta',
-  'documentary-montage': 'beta', 'clip-factory': 'beta', 'screen-demo': 'beta',
-  'podcast-repurpose': 'experimental', 'localization-dub': 'experimental',
-  'avatar-spokesperson': 'experimental', 'character-animation': 'experimental',
-  'animation': 'experimental', 'hybrid': 'experimental', 'framework-smoke': 'experimental'
 }
 
 export default {
@@ -1475,7 +1401,7 @@ export default {
     pipelineCategory(id) { return getPipelineCategory((key) => this.$t?.(key), id) },
     pipelineStage(id) { return getPipelineStage((key) => this.$t?.(key), id) },
     pipelineStatus(id) { return getPipelineStatus((key) => this.$t?.(key), id) },
-    humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
+    humanName(name) { return utilHumanName(name) },
     s2vSectionLabel(section) {
       const key = `create.story2video.sections.${section}`
       const fallback = { basic: '基础', appearance: '画面', videoEnhance: '视频增强', voice: '声音', advanced: '高级', publish: '发布' }[section] || section
@@ -1507,13 +1433,11 @@ export default {
       if (!Object.prototype.hasOwnProperty.call(this.s2vOpenSections, section)) return
       this.s2vOpenSections[section] = Boolean(event?.target?.open)
     },
-    categoryLabel(cat) { return CATEGORY_LABELS[cat] || cat },
-    costLabel(cost) { return COST_LABELS[cost] || cost },
-    getStability(name) { return STABILITY_MAP[name] || 'experimental' },
-    formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
-    historyStatusLabel(status) {
-      return { completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
-    },
+    categoryLabel(cat) { return utilCategoryLabel(cat) },
+    costLabel(cost) { return utilCostLabel(cost) },
+    getStability(name) { return utilGetStability(name) },
+    formatTime(iso) { return utilFormatTime(iso) },
+    historyStatusLabel(status) { return utilHistoryStatusLabel(status) },
 
     // 流水线操作
     async loadPipelines() {
@@ -1963,9 +1887,7 @@ export default {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
-    cloneForIpc(value) {
-      try { return JSON.parse(JSON.stringify(value)) } catch { return {} }
-    },
+    cloneForIpc(value) { return utilCloneForIpc(value) },
     // 分镜字数主控：clamp 到 [minWords, maxWords] ∩ [1,200]，并同步旧 targetSeconds（估算，与 normalizer 幂等反推一致）
     applyS2VTargetChars(rawChars) {
       const chars = Number(rawChars)
