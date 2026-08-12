@@ -21,6 +21,13 @@
 - 实测：`那` 4.40→4.82、`处` 6.92→7.03、`慢慢` 13.74→14.08、`盐` 3.38→3.52、`再` 11.46→11.50，均对齐静音结束
 - 块级时间定位由音频停顿独立锚定（非 ASR 自证）；ffprobe duration 与 whisper 完全一致
 - 测试：aligner 7 例全绿（snap 规则 + 解析 + API）；OpenSpec/PRD 更新验收结论
+
+
+## [未发布] 修复：补齐 create.story2video.voice locale 缺键（catalogLoadFailed + 26 VOICE 键）消除 intlify 告警（2026-08-12）
+
+- 背景：main CI QG Coverage 失败根因之一 —— CreateView 引用 `create.story2video.voice.catalogLoadFailed`（及音色错误映射表 26 个 VOICE_* 键）但 zh/en locale 未定义 → intlify「Not found key」告警。
+- 修复：zh.js/en.js 的 create.story2video 块新增 voice 子对象（catalogLoadFailed + VOICE_CATALOG_* / VOICE_CLONE_* 共 27 键），文案与 CreateView 兜底一致；zh/en key parity 一致。
+- 回归：CreateView 140/140、i18n 7/7。
 ## [2026-08-12] 运营后台布局：侧边菜单固定，右侧内容独立滚动
 
 - App.vue 布局调整：容器锁定 100vh 禁止整页滚动；左侧菜单（含 23 项）在侧栏内独立滚动、底部用户/退出固定；右侧主内容在 l-main 内独立滚动，滚动右侧内容时左侧菜单不再随动。
