@@ -1,12 +1,12 @@
 {
   "id": "story2video-scene-context",
   "title": "Story2Video 场景上下文增强中间层（分句→提示词优化之间的故事背景路由/上下文层）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "medium",
   "domain": "story2video",
-  "currentPhase": "review",
-  "nextAction": "双模型审查完成后 push PR CI 合并",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档（PR #527 superseded——内容已由并行会话合入 main）",
   "createdAt": "2026-08-11T10:30:00+08:00",
   "branch": "codex/story2video-scene-context",
   "openspecChange": "story2video-scene-context"
