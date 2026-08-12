@@ -1,3 +1,11 @@
+## [2026-08-12] feat(ops-center): 场景层评测场景数上限 50 → 100
+
+- 需求：运营整篇文案分句常超 50 场景（如 54 场景报「场景数超过上限 50」），放宽到 100。
+- `prompt_eval_service.py` create_case_scene 上限 50→100，错误文案同步。
+- 测试：`test_prompt_eval_api.py` bad2 改为 120 场景断言 400 + 文案「场景数超过上限 100」；API 14 例全绿。
+- 文档：ops-center/docs/PRD.md 12A.22.20 校验、openspec/specs/prompt-eval-ops-scenes（超 100 SHALL 拒绝）同步。
+- 端到端：54 场景分句 200（54 场景）；120 场景 400 上限 100。
+
 ## [2026-08-12] 修复 CI 上游回归：visual /video-clone 覆盖 + IPC bridge 正则 + Gate7 阈值契约
 
 - visual-view-runner：/video-clone 路由（视频克隆切片 4b 引入）缺单视图门禁 → all-views.visual.test.js 补 routeView 条目

@@ -1386,7 +1386,7 @@ POST /cases/{id}/runs → status=queued
 
 **新增提示文字**：「分句并生成场景」「场景 {n}」「字幕二次分句」「场景上下文」「重新生成中英对照」「批量生成中英对照」「分句失败：{原因}」「请先输入整篇文案原文」。
 
-**校验（scene 模式）**：原文非空 ≤20000；分句配置边界（target_chars_per_scene 1-200、subtitle_min 1-50、subtitle_max min+1..200、subtitle_min < subtitle_max）；provider/model 已配置密钥；场景数上限 50（超出 400）。
+**校验（scene 模式）**：原文非空 ≤20000；分句配置边界（target_chars_per_scene 1-200、subtitle_min 1-50、subtitle_max min+1..200、subtitle_min < subtitle_max）；provider/model 已配置密钥；场景数上限 100（超出 400）。
 
 ### 12A.22.21 验收标准（场景层增补）
 
