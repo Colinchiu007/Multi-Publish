@@ -151,11 +151,18 @@ function logout() {
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-.app-container { min-height: 100vh; }
+.app-container { height: 100vh; overflow: hidden; }
 .app-sidebar {
   background: #001529;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.app-sidebar .el-menu {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 .logo {
   display: flex;
@@ -177,4 +184,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 }
 .sidebar-footer .el-button { color: #ffffffb3; }
 .el-menu { border-right: none !important; }
+.el-main {
+  height: 100%;
+  overflow-y: auto;
+}
 </style>

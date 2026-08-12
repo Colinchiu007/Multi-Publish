@@ -1,0 +1,12 @@
+{
+  "id": "ops-center-layout-fix",
+  "title": "运营后台布局：左侧菜单固定，右侧内容独立滚动",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "ops-center-frontend",
+  "currentPhase": "implementation",
+  "nextAction": "提交/推送/PR",
+  "createdAt": "2026-08-12T00:00:00Z",
+  "branch": "codex/ops-center-layout-fix"
+}
