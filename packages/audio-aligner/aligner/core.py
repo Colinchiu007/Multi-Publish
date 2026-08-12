@@ -5,9 +5,12 @@ faster-whisper（Systran）词级时间戳 → 供 Node 聚合器对齐到分句
 """
 from __future__ import annotations
 
+import json
 import os
+import re
+import subprocess
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 _MODEL_CACHE: dict = {}
 
@@ -21,6 +24,68 @@ def get_model(model_size: str = "base", device: str = "cpu", compute_type: str =
     return _MODEL_CACHE[key]
 
 
+
+
+def detect_silences(
+    audio_path: str,
+    ffmpeg_path: str = "ffmpeg",
+    noise_db: float = -35.0,
+    min_duration: float = 0.12,
+) -> List[Tuple[float, float]]:
+    """ffmpeg silencedetect 检测停顿区间（独立于 ASR 的时序证据）。
+
+    返回 [(silence_start, silence_end), ...]；ffmpeg 不可用/执行失败返回 []（fail-open）。
+    """
+    try:
+        proc = subprocess.run(
+            [
+                ffmpeg_path,
+                "-hide_banner",
+                "-i", audio_path,
+                "-af", f"silencedetect=noise={noise_db}dB:d={min_duration}",
+                "-f", "null", "-",
+            ],
+            capture_output=True, text=True, timeout=60,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    intervals: List[Tuple[float, float]] = []
+    start = None
+    for line in proc.stderr.splitlines():
+        m = re.search(r"silence_start:\s*([0-9.]+)", line)
+        if m:
+            start = float(m.group(1))
+            continue
+        m = re.search(r"silence_end:\s*([0-9.]+)", line)
+        if m and start is not None:
+            intervals.append((start, float(m.group(1))))
+            start = None
+    return intervals
+
+
+def snap_words_to_silence(
+    words: List[dict],
+    silence_intervals: List[Tuple[float, float]],
+    lead_tolerance: float = 0.30,
+) -> List[dict]:
+    """把"落在/覆盖停顿区间"的词起点吸附到停顿结束（修复 whisper 功能词吸收停顿导致的提前）。
+
+    规则（实证校准）：词起点 s 满足 `silence_start - lead_tolerance <= s < silence_end` 且词与停顿有交集
+    （e > silence_start）时，start = silence_end。lead_tolerance=0.30s 覆盖"词起点略早于停顿起点"的
+    吸收场景（如 whisper 把停顿并入单字功能词）；对停顿外的词不生效。
+    返回新列表（不修改入参）。
+    """
+    if not words or not silence_intervals:
+        return words
+    out = [dict(w) for w in words]
+    for w in out:
+        s, e = w["start"], w["end"]
+        for (ss, se) in silence_intervals:
+            if (ss - lead_tolerance) <= s < se and e > ss:
+                w["start"] = round(se, 3)
+                break
+    return out
+
 def transcribe(
     audio_path: str,
     *,
@@ -30,6 +95,9 @@ def transcribe(
     vad_filter: bool = True,
     initial_prompt: Optional[str] = None,
     max_seconds: int = 600,
+    silence_snap: bool = True,
+    ffmpeg_path: str = "ffmpeg",
+    silence_intervals: Optional[List[Tuple[float, float]]] = None,
 ) -> dict:
     """转写音频 → { words, segments, language, duration, elapsed_ms }。
 
@@ -72,6 +140,13 @@ def transcribe(
             )
         if words and words[-1]["end"] > max_seconds:
             break
+    # 停顿吸附（可选）：ffmpeg silencedetect 独立校正词起点，修复功能词吸收停顿导致的提前
+    snaps = None
+    if silence_snap and words:
+        intervals = silence_intervals if silence_intervals is not None else detect_silences(audio_path, ffmpeg_path=ffmpeg_path)
+        if intervals:
+            words = snap_words_to_silence(words, intervals)
+            snaps = intervals
     return {
         "words": words,
         "segments": segments,
@@ -80,4 +155,5 @@ def transcribe(
         "duration": round(total_duration, 3),
         "elapsed_ms": int((time.time() - started) * 1000),
         "model": model_size,
+        "silence_intervals": snaps,
     }
