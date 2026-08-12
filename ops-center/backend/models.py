@@ -238,6 +238,11 @@ class ModelUsageDaily(Base):
     tokens_out = Column(Integer, default=0)
     cost = Column(Float, default=0.0)
     latency_buckets = Column(Text, default="{}")  # JSON
+    # 调度健康度（2026-08-12 P1）：桌面端 governor 排队/冷却观测，可选字段（旧客户端按 0）
+    queued_count = Column(Integer, default=0)
+    cooldown_count = Column(Integer, default=0)
+    queue_wait_ms = Column(Integer, default=0)
+    cooldown_wait_ms = Column(Integer, default=0)
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
 

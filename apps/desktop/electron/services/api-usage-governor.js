@@ -64,6 +64,9 @@ class ApiUsageGovernor {
     this._providerTokenWindows = new Map() // providerId -> [{ windowMs, limit, field }]（运营 5h 请求窗口）
     this._providerTokenUsage = new Map() // providerId -> [{ windowMs, limit, field, used, startedAt }]（跨 key 共享计数）
     this._state = new Map() // key -> { active, waiters, nextSlotAt, cooldownUntil, rateFactor, tokenWindows }
+    // P1 调度可观测性：providerId -> { queuedCount, cooldownCount, queueWaitMs, cooldownWaitMs }
+    // 仅计数排队/冷却实际等待，不改调度语义；由用量上报取走并清零（内存计数，重启归零可接受）
+    this._observability = new Map()
     this._maxPaceWaitMs = Number.isFinite(Number(options.maxPaceWaitMs)) && Number(options.maxPaceWaitMs) > 0
       ? Number(options.maxPaceWaitMs)
       : MAX_PACE_WAIT_MS
@@ -197,17 +200,51 @@ class ApiUsageGovernor {
 
     // W2：每次请求先回收该 key 已过截止时间的排队 waiter（不依赖后续释放）
     this._sweepExpired(key, st)
+
+    // P1 调度可观测性：采集并发信号量 + RPM 时间槽排队等待与冷却等待（仅计时，不改调度语义）
+    const obs = { queuedMs: 0, cooldownMs: 0 }
+    let tick = Date.now()
     await this._acquireSlot(key, st, limits)
+    obs.queuedMs += Date.now() - tick
     try {
+      tick = Date.now()
       await this._pace(key, st, limits)
+      obs.queuedMs += Date.now() - tick
+      tick = Date.now()
       await this._waitCooldown(key, st, limits)
+      obs.cooldownMs += Date.now() - tick
       // 执行前预检额度窗口：已满则立即拒绝，避免继续消耗真实 provider 调用
       this._preflightTokenBudget(key, st)
       return await this._executeWithRetry(key, st, limits, task)
     } finally {
       st.active -= 1
       this._pump(key, st)
+      this._recordObservability(providerId, obs)
     }
+  }
+
+  /** P1：按 providerId 累加调度可观测性（排队/冷却事件与总等待毫秒）。 */
+  _recordObservability(providerId, obs) {
+    if (!providerId || providerId === 'default' || providerId === '') return
+    const prev = this._observability.get(providerId) ||
+      { queuedCount: 0, cooldownCount: 0, queueWaitMs: 0, cooldownWaitMs: 0 }
+    prev.queuedCount += obs.queuedMs > 0 ? 1 : 0
+    prev.cooldownCount += obs.cooldownMs > 0 ? 1 : 0
+    prev.queueWaitMs += obs.queuedMs
+    prev.cooldownWaitMs += obs.cooldownMs
+    this._observability.set(providerId, prev)
+  }
+
+  /**
+   * P1：取走并清零调度可观测性快照（按 providerId），供用量上报聚合。
+   * @returns {Record<string, {queuedCount: number, cooldownCount: number, queueWaitMs: number, cooldownWaitMs: number}>}
+   */
+  takeObservabilitySnapshot() {
+    if (this._observability.size === 0) return {}
+    const snap = {}
+    for (const [pid, v] of this._observability) snap[pid] = { ...v }
+    this._observability.clear()
+    return snap
   }
 
   _pump(key, st) {

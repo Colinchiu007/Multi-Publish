@@ -130,3 +130,49 @@ describe('UsageReporter.reportPending', () => {
     r.stop()
   })
 })
+
+describe('P1 调度可观测性上报（scheduler 聚合项）', () => {
+  let originalFetch
+  beforeEach(() => { originalFetch = global.fetch })
+  afterEach(() => {
+    global.fetch = originalFetch
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('governor 排队/冷却计数以 scheduler-observation 项上报', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true })
+    // 至少一条调用日志触发上报路径（scheduler 项追加在调用桶之后）
+    const store = makeStore([{ id: 1, provider_id: 'openai', category: 'llm', action: 'chat', status: 'success', latency_ms: 10, tokens_in: 1, tokens_out: 1, cost: 0, error_message: null, created_at: new Date().toISOString().slice(0, 10) }])
+    const r = new UsageReporter({
+      store,
+      log: LOG,
+      getOpsCenterAuth: () => AUTH,
+      getClientId: () => 'dev-1',
+      getSchedulerMetrics: () => ({
+        'minimax-tts': { queuedCount: 3, cooldownCount: 1, queueWaitMs: 4500, cooldownWaitMs: 30000 },
+      }),
+    })
+    const res = await r.reportPending()
+    expect(res.code).toBe(0)
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body)
+    const sched = body.items.find(i => i.action === 'scheduler-observation')
+    expect(sched).toBeTruthy()
+    expect(sched.provider_id).toBe('minimax-tts')
+    expect(sched.category).toBe('scheduler')
+    expect(sched.queued_count).toBe(3)
+    expect(sched.cooldown_count).toBe(1)
+    expect(sched.queue_wait_ms).toBe(4500)
+    expect(sched.cooldown_wait_ms).toBe(30000)
+  })
+
+  it('未注入 getSchedulerMetrics 时不上报 scheduler 项（向后兼容）', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true })
+    const store = makeStore([{ id: 1, provider_id: 'openai', category: 'llm', action: 'chat', status: 'success', latency_ms: 10, tokens_in: 1, tokens_out: 1, cost: 0, error_message: null, created_at: new Date().toISOString().slice(0, 10) }])
+    const r = new UsageReporter({ store, log: LOG, getOpsCenterAuth: () => AUTH, getClientId: () => 'dev-1' })
+    const res = await r.reportPending()
+    expect(res.code).toBe(0)
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body)
+    expect(body.items.filter(i => i.action === 'scheduler-observation')).toHaveLength(0)
+  })
+})

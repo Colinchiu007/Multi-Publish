@@ -365,3 +365,55 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     expect(g.getStatus('p:llm:m').active).toBe(0)
     expect(g.getStatus('p:tts:v').active).toBe(0)
   })
+
+describe('P1 调度可观测性（排队/冷却计数）', () => {
+  it('排队被记录且快照取走即清零', async () => {
+    const g = new ApiUsageGovernor({})
+    g.setProviderLimits('p1', { rpm: 120, maxConcurrent: 1 })
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    const task = async () => { await sleep(60); return { ok: true } }
+    // maxConcurrent=1：第二个请求在并发信号量排队等待第一个完成（约 60ms）
+    await Promise.all([
+      g.run({ type: 'llm', providerId: 'p1', model: '' }, task),
+      g.run({ type: 'llm', providerId: 'p1', model: '' }, task),
+    ])
+    const snap = g.takeObservabilitySnapshot()
+    expect(snap.p1).toBeTruthy()
+    expect(snap.p1.queuedCount).toBeGreaterThan(0)
+    expect(snap.p1.queueWaitMs).toBeGreaterThan(0)
+    expect(g.takeObservabilitySnapshot()).toEqual({})
+  })
+
+  it('429 冷却等待被记录', async () => {
+    const g = new ApiUsageGovernor({})
+    // rpm=600 → pace 间隔 100ms；cooldownMs=300 保证第二次请求在冷却窗口内等待
+    g.setProviderLimits('p2', { rpm: 600, maxConcurrent: 2, cooldownMs: 300, retry429: 1 })
+    const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
+    let calls = 0
+    const task = async () => {
+      calls += 1
+      if (calls === 1) throw new ProviderError(ERROR_CODES.RATE_LIMITED, 'rate limited', { providerId: 'p2' })
+      return { ok: true }
+    }
+    // 第一次：429 → 进入冷却（cooldown_until = now + 300ms）
+    await expect(g.run({ type: 'llm', providerId: 'p2', model: '' }, task)).rejects.toThrow()
+    // 第二次：在冷却窗口内立即发起 → 等待冷却
+    await g.run({ type: 'llm', providerId: 'p2', model: '' }, task)
+    const snap = g.takeObservabilitySnapshot()
+    expect(snap.p2.cooldownCount).toBeGreaterThan(0)
+    expect(snap.p2.cooldownWaitMs).toBeGreaterThan(0)
+  })
+
+  it('同 key 重入透传内层不重复计时', async () => {
+    const g = new ApiUsageGovernor({})
+    g.setProviderLimits('p3', { rpm: 120, maxConcurrent: 1 })
+    await g.run({ type: 'llm', providerId: 'p3', model: '' }, async () => {
+      // 内层同 key 重入 → 透传执行，不进入 _runWithGovernance
+      await g.run({ type: 'llm', providerId: 'p3', model: '' }, async () => ({ ok: true }))
+      return { ok: true }
+    })
+    const snap = g.takeObservabilitySnapshot()
+    // 单请求无排队；即使有也最多计 1 次（外层），内层不计时
+    expect(snap.p3.queuedCount).toBeLessThanOrEqual(1)
+  })
+})
