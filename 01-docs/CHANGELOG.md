@@ -12,6 +12,7 @@
 
 ### 文档
 - PRD.md 7.1.33 补充运营后台规则管理小节；CHANGELOG/learnings/.quality-gates 同步。
+- **2026-08-12 追补**：PRD.md §7.1.33(1) 与独立 PRD §9.1 的 Mermaid 架构图改为 TB 布局并渲染为 PNG（`01-docs/assets/story2video-scene-context-architecture.png`，本地 mermaid v10.9.1 + Edge headless 生成）嵌入文档；openspec `story2video-scene-context` / `story2video-scene-context-ops` spec 补充 `context.scene_context` 完整 JSON 样例与 `story-context-rules.json` 规则结构/校验语义样例（与主 PRD 一致）。
 
 ## [Unreleased] - 2026-08-12 (图片轮播模型下拉空白 / 新增模型后不刷新修复)
 

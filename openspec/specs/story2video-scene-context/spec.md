@@ -65,3 +65,94 @@ scene_context SHALL 对每个场景提供自动化测试：用户示例（唐朝
 - **WHEN** 实现完成
 - **THEN** tasks.md 对应任务标注测试文件/用例，归档前可追踪
 
+## 数据契约样例（2026-08-12 补充）
+
+### context.scene_context 完整 JSON 样例
+
+> 与主 PRD §7.1.33(3) 一致；用户示例：唐代全文 + 场景「一个老妇人在做饭」。
+
+```json
+{
+  "story": {
+    "genre": "历史",
+    "era": "ancient",
+    "dynasty": {
+      "name": "唐朝",
+      "period": "唐朝（618-907）",
+      "visualStyle": "唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线",
+      "era": "ancient",
+      "confidence": 0.92,
+      "method": "keyword",
+      "evidence": ["唐代", "长安"]
+    },
+    "culture": "中国",
+    "region": "长安",
+    "setting": ["民居厨房"],
+    "time": { "timeOfDay": "黄昏", "season": "秋" },
+    "characters": [{ "name": "老妇人", "descriptor": "讲述一位老妇人", "appearances": 3 }],
+    "props": { "ancient": ["土灶", "柴火", "陶罐"], "modern": [] },
+    "visualStyle": "唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线",
+    "tone": "平和",
+    "summary": "历史·唐朝（618-907）·中国的故事：这是一个关于中国唐代的故事。唐玄宗时期，长安城一片繁华。…",
+    "anchors": ["唐朝", "中国", "长安"],
+    "negativeAnchors": ["电烤箱", "微波炉", "冰箱", "燃气灶", "电磁炉", "西式现代厨房", "现代电器"],
+    "confidence": 0.95,
+    "evidence": { "dynasty": ["唐代", "长安"], "culture": ["中国", "长安"], "genre": ["唐代"] },
+    "method": "rule-based",
+    "multiCandidates": []
+  },
+  "scenes": [
+    {
+      "index": 0,
+      "text": "一个老妇人在做饭",
+      "storyContext": "中国唐朝（618-907）时期长安民居厨房，一个老妇人在做饭；视觉唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；使用土灶、柴火、陶罐、铜锅；光线平和",
+      "anchors": ["唐朝", "中国", "长安", "民居厨房"],
+      "negativeAnchors": ["电烤箱", "微波炉", "冰箱", "燃气灶", "西式现代厨房", "现代电器"],
+      "character": { "name": "老妇人", "descriptor": "讲述一位老妇人" },
+      "context": {
+        "synopsis": "历史·唐朝（618-907）·中国的故事：这是一个关于中国唐代的故事。…",
+        "full_text": "这是一个关于中国唐代的故事。唐玄宗时期，长安城一片繁华。…",
+        "setting": "中国唐朝（618-907）时期长安民居厨房，一个老妇人在做饭；视觉唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；使用土灶、柴火、陶罐、铜锅；光线平和",
+        "narrative_intent": "平和",
+        "scene_type": "常规场景",
+        "character_list": [{ "name": "老妇人", "descriptor": "讲述一位老妇人" }],
+        "character": { "name": "老妇人", "descriptor": "讲述一位老妇人" }
+      }
+    }
+  ],
+  "metadata": {
+    "enriched": true,
+    "degraded": false,
+    "extractor": "rule-based",
+    "confidence": 0.95,
+    "sceneCount": 1
+  }
+}
+```
+
+约束：`context` 仅允许七键白名单（synopsis/full_text/setting/narrative_intent/scene_type/character_list/character）；发送 prompt-engine 前必须 `assertNoSensitiveContext` 拦截敏感键；`metadata.degraded=true` 表示规则异常降级（场景透传）。
+
+### story-context-rules.json 规则结构样例
+
+```json
+{
+  "version": 1,
+  "dynasty": [{ "keywords": ["唐朝", "唐代", "长安"], "name": "唐朝", "period": "唐朝（618-907）", "visualStyle": "…", "era": "ancient" }],
+  "culture": [{ "keywords": ["中国", "长安", "汉服"], "culture": "中国", "regions": ["长安", "洛阳"] }],
+  "genre": [{ "keywords": ["唐朝", "北宋", "汴京", "岳飞"], "genre": "历史" }],
+  "setting": [{ "keywords": ["做饭", "厨房", "灶台"], "setting": "民居厨房" }],
+  "props": { "ancient": [{ "keywords": ["土灶", "柴火"], "name": "土灶柴火" }], "modern": [{ "keywords": ["电烤箱", "微波炉"], "name": "现代厨电" }] },
+  "characters": ["老妇人", "将军", "书生"],
+  "time": { "timeOfDay": ["清晨", "黄昏", "夜晚"], "season": ["春", "夏", "秋", "冬"] },
+  "visualStyle": [{ "keywords": ["水墨", "国画"], "style": "水墨国画风格" }],
+  "tone": [{ "keywords": ["悲壮", "凄凉"], "tone": "悲壮" }],
+  "negativeAnchors": { "ancient": ["电烤箱", "微波炉", "西式现代厨房"], "modern": ["油灯", "土灶", "柴火", "马车"] },
+  "cooking": {
+    "positiveProps": { "ancient": ["土灶", "柴火", "陶罐", "铜锅"], "modern": [] },
+    "negativeAnchors": { "ancient": ["电烤箱", "微波炉", "西式现代厨房"], "modern": ["土灶", "柴火", "油灯"] }
+  }
+}
+```
+
+校验规则：必需键（version/dynasty/culture/genre/setting/props/characters/time/visualStyle/tone/negativeAnchors）缺失或类型错误即判非法；非法外部规则回退内置 JSON 并告警。
+

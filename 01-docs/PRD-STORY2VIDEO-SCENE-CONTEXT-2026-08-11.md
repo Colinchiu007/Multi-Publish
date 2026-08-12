@@ -218,7 +218,7 @@ optimize 阶段调用 prompt-engine 时，请求 `context` 携带场景上下文
 - **默认对一切内容生效**：不同于 `domain_enrich`（仅 history），`scene_context` 对历史/现代/无关键词文案都执行；无关键词时退化为「仅场景文字」等价旧行为。
 
 ```mermaid
-flowchart LR
+flowchart TB
     A["完整文案 params.text（≤6000 字符）"] --> B["split 分句引擎<br/>8002 / 本地回退"]
     B --> C["domain_enrich<br/>历史内容领域增强（可选）"]
     C --> D["scene_context 场景上下文增强中间层"]
@@ -230,6 +230,8 @@ flowchart LR
     E --> F["图片 / 视频生成"]
     G["运营后台 ops-center<br/>「场景上下文规则」"] -. 查看/编辑/校验/保存/导出 .-> D
 ```
+
+![scene_context 架构图](assets/story2video-scene-context-architecture.png)
 
 ### 9.2 核心逻辑速览
 

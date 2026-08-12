@@ -2012,7 +2012,7 @@ Story2Video 的图片/视频生成链路是串行的：**分句引擎（8002/本
 - **输出**：`context.scene_context = { story（全局故事上下文）, scenes（增强后场景数组）, metadata（来源/降级/置信度） }`，供 optimize 逐场景携带。
 
 ```mermaid
-flowchart LR
+flowchart TB
     A["完整文案 params.text（≤6000 字符）"] --> B["split 分句引擎<br/>8002 / 本地回退"]
     B --> C["domain_enrich<br/>历史内容领域增强（可选）"]
     C --> D["scene_context 场景上下文增强中间层"]
@@ -2024,6 +2024,8 @@ flowchart LR
     E --> F["图片 / 视频生成"]
     G["运营后台 ops-center<br/>「场景上下文规则」"] -. 查看/编辑/校验/保存/导出 .-> D
 ```
+
+![scene_context 架构图](assets/story2video-scene-context-architecture.png)
 
 **为什么必须有这一层**：分句结果只携带「场景自身文字」，提示词优化引擎仅凭单场景文字无法感知全文设定。当场景文字缺少时代/地域/文化锚点时，模型按训练分布自由发挥，产生**背景漂移**——典型例子：全文讲中国唐代，某场景仅写「一个老妇人在做饭」，无中间层时优化后的提示词可能生成「西方老太太在西式现代厨房用电烤箱做西餐」；有中间层后该场景被路由到「唐代中国 · 长安民居厨房 · 土灶柴火」背景并附带「排除电烤箱/微波炉/西式厨房」负面锚点。
 

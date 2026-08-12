@@ -47,3 +47,36 @@ ops-center SHALL 提供「场景上下文规则」管理功能（admin）：查�
 - **WHEN** 实现完成
 - **THEN** tasks.md 标注测试文件/用例，归档前可追踪
 
+## 数据契约样例（2026-08-12 补充）
+
+### story-context-rules.json 规则结构样例
+
+> 与主 PRD §7.1.33(3) 及引擎内置 JSON 一致；随包内置、可被运营后台编辑/导出。
+
+```json
+{
+  "version": 1,
+  "dynasty": [{ "keywords": ["唐朝", "唐代", "长安"], "name": "唐朝", "period": "唐朝（618-907）", "visualStyle": "…", "era": "ancient" }],
+  "culture": [{ "keywords": ["中国", "长安", "汉服"], "culture": "中国", "regions": ["长安", "洛阳"] }],
+  "genre": [{ "keywords": ["唐朝", "北宋", "汴京", "岳飞"], "genre": "历史" }],
+  "setting": [{ "keywords": ["做饭", "厨房", "灶台"], "setting": "民居厨房" }],
+  "props": { "ancient": [{ "keywords": ["土灶", "柴火"], "name": "土灶柴火" }], "modern": [{ "keywords": ["电烤箱", "微波炉"], "name": "现代厨电" }] },
+  "characters": ["老妇人", "将军", "书生"],
+  "time": { "timeOfDay": ["清晨", "黄昏", "夜晚"], "season": ["春", "夏", "秋", "冬"] },
+  "visualStyle": [{ "keywords": ["水墨", "国画"], "style": "水墨国画风格" }],
+  "tone": [{ "keywords": ["悲壮", "凄凉"], "tone": "悲壮" }],
+  "negativeAnchors": { "ancient": ["电烤箱", "微波炉", "西式现代厨房"], "modern": ["油灯", "土灶", "柴火", "马车"] },
+  "cooking": {
+    "positiveProps": { "ancient": ["土灶", "柴火", "陶罐", "铜锅"], "modern": [] },
+    "negativeAnchors": { "ancient": ["电烤箱", "微波炉", "西式现代厨房"], "modern": ["土灶", "柴火", "油灯"] }
+  }
+}
+```
+
+### 规则 JSON 校验语义
+
+- 必需键：`version`（number）、`dynasty`（array，含 keywords/name/period/visualStyle/era）、`culture`（array，含 keywords/culture/regions）、`genre`（array，含 keywords/genre）、`setting`（array，含 keywords/setting）、`props`（对象含 ancient/modern 数组，每项含 keywords/name）、`characters`（string 数组）、`time`（对象含 timeOfDay/season 数组）、`visualStyle`（array，含 keywords/style）、`tone`（array，含 keywords/tone）、`negativeAnchors`（对象含 ancient/modern 数组）。
+- 缺失必需键、类型不符或数组元素结构非法 → `validate` 返回逐项错误（path + message），保存被 400/422 拒绝且不写入数据库。
+- 桌面端加载外部规则失败时回退内置 JSON 并告警，流水线不中断。
+- 双源同步：ops-center 模板（`ops-center/backend/data/scene_context_rules.template.json`）与桌面内置 JSON 由 pytest 断言归一化后相等。
+
