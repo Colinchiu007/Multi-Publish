@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import init_db
-from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, redemption_codes, keyword_watchlist, pipeline_dependencies
+from routers import config, sync, secrets, snapshots, env, model_presets, auth, runtime, usage, licenses, health, feature_flags, platform_defs, content_templates, publish_metrics, redemption_codes, keyword_watchlist, pipeline_dependencies, scheduler
 
 
 
@@ -15,6 +15,7 @@ from services.key_service import ensure_official_key_columns
 from services.platform_def_service import ensure_platform_def_seeded
 from services.content_template_service import ensure_content_templates_seeded
 from services.pipeline_dependency_service import ensure_pipeline_deps_seeded
+from services.scheduler_service import ensure_scheduler_verification_table
 from services.auth_service import ensure_admin_seeded
 from services.config_seed_service import ensure_feature_gates_seeded, ensure_projects_seeded
 from services.feature_flag_service import ensure_feature_flags_seeded
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI):
         await ensure_platform_def_seeded(db)
         await ensure_content_templates_seeded(db)
         await ensure_pipeline_deps_seeded(db)
+        await ensure_scheduler_verification_table(db)
         await ensure_admin_seeded(db)
         await ensure_projects_seeded(db)
         await ensure_feature_gates_seeded(db)
@@ -79,6 +81,7 @@ app.include_router(platform_defs.router)
 app.include_router(publish_metrics.router)
 app.include_router(keyword_watchlist.router)
 app.include_router(pipeline_dependencies.router)
+app.include_router(scheduler.router)
 app.include_router(redemption_codes.router)
 
 app.include_router(content_templates.router)
@@ -97,3 +100,4 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8010, reload=True)
+

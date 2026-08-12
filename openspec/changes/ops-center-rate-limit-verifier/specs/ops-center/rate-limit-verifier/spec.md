@@ -26,7 +26,7 @@
 
 #### Scenario: 5h 额度预检
 - **WHEN** limit_per_5h=L 且 exceed_5h=true 且请求数 > L
-- **THEN** 第 L+1 个请求预检即拒（`quota_exceeded_count=1`、`started_at` 为空、不消耗执行），断言 `quota_at_limit_plus_1` 通过
+- **THEN** 第 L+1 个起全部预检即拒（`quota_exceeded_count = n - L`、`started_at` 为空、不消耗执行），断言 `quota_at_limit_plus_1` 通过
 
 #### Scenario: 参数非法被拒
 - **WHEN** rpm 非 [1,100000]、requestCount 非 [1,1000]、inject_429 越界、duration 为负等
