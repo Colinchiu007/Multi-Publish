@@ -2035,6 +2035,15 @@ umberValue 边界收敛 |
 6. 流水线阶段顺序含 scene_context，旧行为不回归。
 
 **影响**：提升图片/视频生成的故事背景准确性、一致性与连贯性；真实生成效果依赖 prompt-engine 与厂商模型行为，属外部验收边界。
+**运营后台规则管理（2026-08-12 新增）**：
+- **规则数据化**：规则表（朝代/文化/题材/设定/道具/角色/时间/视觉风格/语气/负面锚点/做饭关联）以 `story-context-rules.json` 承载（桌面随包内置，单一来源），引擎加载优先级「环境变量 `STORY2VIDEO_CONTEXT_RULES_PATH` → `<userData>/config/story-context-rules.json`（运行时覆盖）→ 内置 JSON → 空规则兜底」；加载/覆盖时执行结构校验（`validateContextRules`），非法外部规则回退内置并告警，不静默使用坏规则、不使流水线失败。
+- **运营后台功能**（ops-center，登录可读、admin 可写）：
+  - 页面：「运营 → 场景上下文规则」（`/scene-context-rules`）：规则 JSON 编辑、校验、保存、导出 `story-context-rules.json`，展示来源/版本/最后更新/操作人；未配置时显示「使用随包内置规则」提示并可基于模板编辑。
+  - API：`GET /api/v1/scene-context/rules`（当前规则，未配置返回模板基线）、`POST /api/v1/scene-context/rules/validate`（结构校验，逐项 path+message）、`PUT /api/v1/scene-context/rules`（保存，version 递增、记录 updated_by，admin）、`GET /api/v1/scene-context/rules/export`（导出含发布指引）。
+  - 校验语义：与桌面端 `validateContextRules` 对齐（必需键/非空 keywords/era 枚举/结构），非法规则拒绝保存（400）。
+- **生效方式**：运营后台保存的规则为运营配置；导出 JSON 后 ① 合入桌面仓库 `apps/desktop/electron/services/story-context-rules.json` 随包发布，或 ② 放置 `<userData>/config/story-context-rules.json` 由桌面端运行时覆盖加载（校验失败自动回退内置）。
+- **打磨修复（2026-08-12）**：历史题材词表补全（北宋/南宋/汴京/临安/岳飞/元朝/大都等 → genre=历史）；场景内特有角色识别（全文未出现时从场景文本识别，descriptor 回退角色名）；上下文块措辞用自然逗号拼接（消除「欧洲中/现代中」生硬读法）。
+- **验收补充**：运营后台保存→导出→桌面端加载链路（含非法规则回退）以 pytest + 引擎单测覆盖；真实出图/视频生成效果属外部验收边界。
 ### 7.2 上传图片快速渲染（独立路径）
 
 ```
