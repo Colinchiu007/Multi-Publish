@@ -1,3 +1,12 @@
+## [未发布] 修复：main CI 既有失败收尾 — Windows 启动冒烟 hook 超时 + CreateView 断言并发修复记录（2026-08-12）
+
+- 背景：main（1fe02e74）4 个工作流持续失败（electron-tests / QG Coverage / QG Desktop Shards 1/2 / build windows-latest），根因两类均为**既有回归**（9a028b2b 起已存在，与 PR #535 无关）。
+- CreateView 历史按钮断言未随 §7.1.33 统一按钮重构同步（`.history-btn.*` → `s2v-btn-*`）→ 3 用例失败：**已由并发 PR #555 先行合入修复**（选择器同步 + 补 `videoEnhance`/`common.close` locale 键）。本 PR 冲突消解取其版本，不重复改动；本地复验 `CreateView.test.js` 131/131 全绿。
+- Windows 启动冒烟 hook 超时（本 PR 新增修复）：`build.yml` Startup smoke 在 `npm ci` 后直接运行，electron@43 无 postinstall，首次 `require('electron')` 链触发「Downloading Electron binary...」超过 vitest 默认 10s hookTimeout → Windows 冷 runner **偶发**失败（1fe02e74 失败 / 763bf856 通过 = 抖动）。修复：`build.yml` 冒烟前新增 `node scripts/ensure-electron.js`（脚本已在 origin/main 提交 67d295e3）；`vitest.smoke.config.js` 增 `hookTimeout: 30000`（注释注明回归，仅冷加载方差容差）。
+- 验证：`npm run test:startup` 12/12 全绿（含 ensure-electron 前置）；build.yml YAML 解析通过；审查见 `.ccg/tasks/` review.md（Claude --lite exit 0，antigravity 区域不可用降级）。
+- 文档：learnings 复盘（测试选择器同步强制项 + electron 二进制冷启动进入 smoke hook 预算 + 并发 worktree 同根因双修复）；.quality-gates.md 执行记录。
+- 备注：`autonomous-loop` 在 push 事件仍失败——仓库缺少 `OPENAI_API_KEY` secret（当前仅 GITEE_TOKEN），需在仓库 Settings → Secrets and variables → Actions 添加该 secret（环境配置，非代码问题）。
+
 ## [未发布] 修复：CreateView 历史按钮类名重构回归（s2v-btn-*）+ 补 videoEnhance/common.close locale 键（2026-08-12）
 
 - 根因：#526 系列 UI 重构把历史记录操作按钮统一为 `s2v-btn-*` 类（`CreateViewHistory.vue`），但 `CreateView.test.js` 仍用旧 `.history-btn.resume` / `.history-btn.open` 选择器，导致 3 个历史恢复用例失败（main Electron CI 同步失败）。另 `create.story2video.sections.videoEnhance` 与 `common.close` locale 键缺失，仅靠硬编码兜底并产生 i18n 警告。
