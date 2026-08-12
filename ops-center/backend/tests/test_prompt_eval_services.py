@@ -78,11 +78,29 @@ def test_magic_validation():
     assert not gen.validate_image_bytes(b"")
 
 
+def test_strip_think_block():
+    # 推理模型返回 <think>...</think> 思维链 + 最终内容 → 只保留最终内容
+    assert tr._strip_think("<think>让我分析</think>写实风格，老妇人做饭") == "写实风格，老妇人做饭"
+    assert tr._strip_think("<think>第一段\n第二段</think>\n\nA realistic scene") == "A realistic scene"
+    # 无 think 块 → 原样（去除首尾空白）
+    assert tr._strip_think("  写实风格  ") == "写实风格"
+    # 仅 think 块 → 空
+    assert tr._strip_think("<think>only reasoning</think>") == ""
+
+
 @pytest.mark.asyncio
 async def test_translate_success_and_failure():
     client = FakeClient([FakeResponse(200, {"choices": [{"message": {"content": "  A realistic scene  "}}]})])
     text = await tr.translate_prompt_zh(_cfg(), "中文提示词", http=client)
     assert text == "A realistic scene"
+    # 推理模型：content 含 <think> 块 → 剥离后返回
+    client_th = FakeClient([FakeResponse(200, {"choices": [{"message": {"content": "<think>翻译思路</think>A realistic old woman cooking over a fire"}}]})])
+    text_th = await tr.translate_prompt_zh(_cfg(), "中文提示词", http=client_th)
+    assert text_th == "A realistic old woman cooking over a fire"
+    # 仅 think 块 → 视为空内容 fail closed
+    client_empty = FakeClient([FakeResponse(200, {"choices": [{"message": {"content": "<think>only</think>"}}]})])
+    with pytest.raises(tr.TranslationError, match="空内容"):
+        await tr.translate_prompt_zh(_cfg(), "p", http=client_empty)
     client2 = FakeClient([FakeResponse(200, {"choices": [{"message": {"content": "  "}}]})])
     with pytest.raises(tr.TranslationError, match="空内容"):
         await tr.translate_prompt_zh(_cfg(), "p", http=client2)

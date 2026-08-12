@@ -372,6 +372,43 @@ async def test_scene_subtitle_timing_equal_effective():
         assert len(durs) == 1, f"equal 模式下各块时长应一致，实际 {sorted(b['duration'] for b in blocks)}"
 
 @pytest.mark.asyncio
+async def test_translate_uses_llm_key_from_provider_table(monkeypatch):
+    """「模型密钥」页配置 minimax-llm 后，中英对照应使用表内密钥（优先于环境变量）。"""
+    import services.prompt_eval_translation_service as tr
+
+    captured = {}
+
+    async def fake_optimize(cfg, source_text, scene_text, scene_context, http=None):
+        captured["cfg"] = cfg
+        return "写实风格，老妇人在土灶前用柴火做饭"
+
+    async def fake_translate(cfg, text, http=None):
+        return "A realistic old woman cooking over a fire"
+
+    monkeypatch.setattr(tr, "optimize_scene_prompt", fake_optimize)
+    monkeypatch.setattr(tr, "translate_prompt_zh", fake_translate)
+    async with _client() as client:
+        admin = _headers(role="admin")
+        h = _headers()
+        # admin 在「模型密钥」配置 minimax-llm
+        r = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-llm", "model": "MiniMax-M2.7",
+            "api_key": "sk-table-llm-001", "base_url": "https://llm.example/v1",
+        }, headers=admin)
+        assert r.status_code == 200, r.text
+        body = {"source_mode": "scene", "title": "t", "source_text": "她点燃了柴火，架上铁锅。",
+                "provider": "minimax-image", "model": "image-01", "image_count": 1, "aspect_ratio": "1:1"}
+        data = (await client.post("/api/v1/prompt-eval/cases", json=body, headers=h)).json()
+        cid = data["case"]["id"]
+        sid = data["scenes"][0]["id"]
+        resp = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/translate", headers=h)
+        assert resp.status_code == 200, resp.text
+        assert captured["cfg"]["api_key"] == "sk-table-llm-001"
+        assert captured["cfg"]["base_url"] == "https://llm.example/v1"
+        assert captured["cfg"]["model"] == "MiniMax-M2.7"
+
+
+@pytest.mark.asyncio
 async def test_scene_translate_idempotent_cache(monkeypatch):
     """真实 translate_scene 幂等缓存：7 天内同 prompt_zh 复用，不重复调用 LLM（回归 prompt_en_cache_zh 缺失崩溃）。"""
     import services.prompt_eval_service as svc

@@ -1,3 +1,12 @@
+## [2026-08-12] fix(ops-center): 中英对照使用「模型密钥」minimax-llm + 剥离 LLM think 块
+
+- 根因1：translate/optimize 只读环境变量 OPS_PROMPT_EVAL_LLM_*，运营后台「模型密钥」配置的 minimax-llm 不生效 → 批量生成进度走完但提示词仍「（未生成）」。
+- 修复1：`_llm_cfg(db)` 优先读 `prompt_eval_provider_keys` 表 provider=minimax-llm（decrypt），fallback 环境变量；`_vision_cfg(db)` 优先表内 minimax-vision，fallback OPS_PROMPT_EVAL_VISION_API_KEY；translate_case/translate_scene/create_run/create_scene_run 全部走新配置。
+- 根因2：MiniMax 推理模型返回 `<think>...</think>` 思维链混入 content → 提示词含推理文本。
+- 修复2：`_strip_think()` 剥离 think 块（翻译/优化两处）；仅 think 无正文 → 视为空内容 fail closed。
+- 测试：API 新增「表内 minimax-llm 优先于环境变量」（15 例全绿）；services 新增 think 剥离矩阵（22 例全绿）。
+- 端到端：配置 minimax-llm 后真实翻译 200，prompt_zh 无 think 块、prompt_en 正常；清理历史含 think 脏缓存 1 条。
+
 ## [2026-08-12] feat(ops-center): 场景模式批量生成中英对照 + 首次生成文案
 
 - 场景模式下分句后提示词为「（未生成）」是预期行为（中英对照需调 LLM 逐场景/批量生成）；新增「批量生成中英对照」按钮（PRD 12A.22.20 规划项）：串行逐场景调用 scenes/{sid}/translate，实时进度「批量生成中（n/total）」，失败场景单独列出可重试。

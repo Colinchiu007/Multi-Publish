@@ -21,12 +21,28 @@ def _secret() -> str:
     return os.environ.get("OPS_SECRET_KEY") or "change-me"
 
 
-def _translate_cfg() -> dict:
+async def _llm_cfg(db) -> dict:
+    """中英对照 LLM 配置：优先「模型密钥」表 minimax-llm（运营后台 UI 配置），fallback 环境变量。"""
+    row = await service.get_llm_key(db, _secret())
+    if row:
+        return {"base_url": row["base_url"], "model": row["model"], "api_key": row["api_key"]}
     return {
         "base_url": os.environ.get("OPS_PROMPT_EVAL_LLM_BASE_URL") or "https://api.minimaxi.com/v1",
         "model": os.environ.get("OPS_PROMPT_EVAL_LLM_MODEL") or "MiniMax-M2.7",
         "api_key": os.environ.get("OPS_PROMPT_EVAL_LLM_API_KEY") or "",
     }
+
+
+async def _vision_cfg(db) -> dict | None:
+    """视觉评估配置：优先「模型密钥」表 minimax-vision，fallback 环境变量（仅 api_key）。"""
+    row = await service.get_vision_key(db, _secret())
+    if row:
+        return {"base_url": row["base_url"], "model": row["model"], "api_key": row["api_key"]}
+    key = os.environ.get("OPS_PROMPT_EVAL_VISION_API_KEY")
+    if not key:
+        return None
+    return {"base_url": os.environ.get("OPS_PROMPT_EVAL_LLM_BASE_URL") or "https://api.minimaxi.com/v1",
+            "model": os.environ.get("OPS_PROMPT_EVAL_VISION_MODEL") or "MiniMax-M2.7", "api_key": key}
 
 
 def _not_found():
@@ -50,7 +66,7 @@ async def translate_case(case_id: int, db: AsyncSession = Depends(get_db), user:
     if row is None or (row.created_by not in (user.get("username"), user.get("sub"), "unknown") and not _is_admin(user)):
         _not_found()
     try:
-        return await service.translate_case(db, row, _translate_cfg())
+        return await service.translate_case(db, row, await _llm_cfg(db))
     except Exception as e:
         raise HTTPException(502, f"翻译失败: {e}")
 
@@ -67,11 +83,11 @@ async def create_run(case_id: int, db: AsyncSession = Depends(get_db), user: dic
         if _is_admin(user):
             raise HTTPException(400, "未配置可用的图片生成模型，请先在侧边栏「模型密钥」（/model-keys）中配置")
         raise HTTPException(400, "未配置可用的图片生成模型，请联系管理员在「模型密钥」中配置")
-    vision_key = os.environ.get("OPS_PROMPT_EVAL_VISION_API_KEY")
-    if not vision_key:
-        raise HTTPException(502, "未配置视觉评估模型密钥（OPS_PROMPT_EVAL_VISION_API_KEY），无法评估")
+    vision_cfg = await _vision_cfg(db)
+    if vision_cfg is None:
+        raise HTTPException(502, "未配置视觉评估模型密钥：请在「模型密钥」添加 minimax-vision 或设置 OPS_PROMPT_EVAL_VISION_API_KEY")
     run = await service.create_run(db, row, user.get("username") or user.get("sub") or "unknown")
-    eval_cfg = {**_translate_cfg(), "api_key": vision_key}
+    eval_cfg = vision_cfg
     service.start_run_pipeline(async_session, run["id"], row, gen_cfg, eval_cfg)
     return run
 
@@ -122,7 +138,7 @@ async def translate_scene(case_id: int, scene_id: int, db: AsyncSession = Depend
     if scene is None or scene.case_id != case_id:
         _not_found()
     try:
-        return await service.translate_scene(db, scene, row, _translate_cfg())
+        return await service.translate_scene(db, scene, row, await _llm_cfg(db))
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception:
@@ -142,11 +158,11 @@ async def create_scene_run(case_id: int, scene_id: int, db: AsyncSession = Depen
     gen_cfg = await service.get_provider_key(db, row.provider, row.model, _secret())
     if gen_cfg is None:
         raise HTTPException(400, "未配置可用的图片生成模型，请先在「模型密钥」中配置")
-    vision_key = os.environ.get("OPS_PROMPT_EVAL_VISION_API_KEY")
-    if not vision_key:
-        raise HTTPException(502, "未配置视觉评估模型密钥（OPS_PROMPT_EVAL_VISION_API_KEY），无法评估")
+    vision_cfg = await _vision_cfg(db)
+    if vision_cfg is None:
+        raise HTTPException(502, "未配置视觉评估模型密钥：请在「模型密钥」添加 minimax-vision 或设置 OPS_PROMPT_EVAL_VISION_API_KEY")
     run = await service.create_scene_run(db, scene, row, user.get("username") or user.get("sub") or "unknown")
-    eval_cfg = {**_translate_cfg(), "api_key": vision_key}
+    eval_cfg = vision_cfg
     service.start_scene_run_pipeline(async_session, run["id"], service.scene_snapshot(scene, row), gen_cfg, eval_cfg)
     return run
 
