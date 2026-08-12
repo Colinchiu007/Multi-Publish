@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-12 (视频提示词优化：独立引擎 8020 优先 + 8013 回退)
+
+### 新增
+- **视频提示词优化双后端支持**：videogen 视频提示词优化支持独立视频提示词引擎（video_prompt_engine，8020）优先；配置 `VIDEO_PROMPT_PORT=8020`（可选 `VIDEO_PROMPT_HOST`，默认 127.0.0.1）启用，独立引擎不可用时自动回退 8013 `domain=video`（记录 warning，结果契约一致）。
+- **独立引擎请求/响应契约**（`video-prompt-engine-contract.js`）：`buildStandaloneVideoOptimizeRequest`（8020 VideoOptimizeRequest：无 domain、含 output_language/num_candidates/context）、`isStandaloneVideoEngineEnabled` / `getStandaloneVideoEngineTarget` 环境开关与目标解析。
+- **output_language 自动检测**：独立引擎请求按输入文本 CJK 字符占比（≥30%）自动选择 zh（中文主体 + 英文镜头术语双语）/ en；显式 `output_language`/`outputLanguage` 参数优先。
+
+### 测试
+- `video-prompt-engine-contract.test.js` 新增 10 用例：独立请求构造（无 domain/平台归一/边界收敛）、语言检测（显式优先/自动 zh/en/context 全文判 zh）、环境开关（合法端口/非法值）、8020 优先、失败回退 8013、批量成功与回退、未启用零回归。
+
+### 文档
+- `01-docs/VIDEO-PROMPT-OPTIMIZE-ENGINE-DESIGN-2026-08-11.md` v1.1 附注：最终方案由「8013 domain=video」升级为「独立引擎 8020 + 回退兼容」（用户要求视频/图片引擎分离）。
+- 关联 prompt-engine 仓库 `video-prompt-engine-enhancement`（PR #29，已合并）。
+
 ## [Unreleased] - 2026-08-12 (Story2Video 场景上下文规则数据化 + 运营后台规则管理)
 
 ### 新增

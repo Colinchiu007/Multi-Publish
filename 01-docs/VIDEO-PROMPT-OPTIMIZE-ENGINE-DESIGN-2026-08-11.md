@@ -237,3 +237,15 @@ POST /v1/optimize   // 兼容：domain 缺省 = image，字段与现状完全一
 2. 确认方向后：走 **`/opsx:propose`** 建 change（M+/架构级，机制硬化规则要求）+ 质量节拍门禁
 3. 实施前建议先跑一轮 **双模型交叉验证**（antigravity + Claude 并行 review 本设计；本次子代理后端 403，未执行外部模型分析，可稍后补跑）
 4. 任务记录 `.ccg/tasks/video-prompt-optimize-engine-analysis/task.json`（分析阶段，未提交/归档，等确认后推进）
+
+
+---
+
+## 十一、v1.1 附注（2026-08-12）：最终方案升级为独立引擎 8020
+
+v1.0 推荐的「8013 domain=video 分支」方案在实施阶段被用户要求否决：**视频提示词优化引擎必须与图片引擎完全分离**。
+
+最终落地方案：
+- **独立视频引擎**（prompt-engine 仓库 `video_prompt_engine/`，端口 8020）：独立包/知识库/缓存/策略/配置，源码不 import 图片 `prompt_engine.*`；支持 140 条视频种子、SQLite 双级缓存、JSON 结构化重试、veo/kling/hailuo/doubao/seedance/generic_video 六平台策略、输入分类、评估反馈闭环、中文输出（`output_language=zh`）。
+- **Multi-Publish videogen 集成**：`VIDEO_PROMPT_PORT=8020` 启用独立引擎优先，失败/未配置回退 8013 `domain=video`（兼容；`video-prompt-engine-contract.js` 分文件分命名，与图片契约不混）。
+- 契约单一来源仍为 `video-prompt-engine-contract.js`（独立引擎请求/响应 + 8013 兼容路径共用 `extractOptimizedVideoPrompt` 输出校验）。

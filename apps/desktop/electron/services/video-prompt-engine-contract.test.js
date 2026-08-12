@@ -15,6 +15,9 @@ const {
   normalizeVideoDomain,
   normalizeVideoPlatform,
   buildVideoOptimizeRequest,
+  buildStandaloneVideoOptimizeRequest,
+  isStandaloneVideoEngineEnabled,
+  getStandaloneVideoEngineTarget,
   normalizeVideoMeta,
   extractOptimizedVideoPrompt,
 } = require('./video-prompt-engine-contract')
@@ -219,5 +222,144 @@ describe('normalizeVideoContext（video-content-fidelity S4）', () => {
     expect(normalizeVideoContext(null)).toBeUndefined()
     expect(normalizeVideoContext({})).toBeUndefined()
     expect(normalizeVideoContext('str')).toBeUndefined()
+  })
+})
+
+describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', () => {
+  describe('buildStandaloneVideoOptimizeRequest', () => {
+    it('无 domain 字段；平台/边界归一与 8013 共用', () => {
+      const req = buildStandaloneVideoOptimizeRequest('a cat', { platform: 'veo3', creativeLevel: 99, maxLength: 10 })
+      expect(req.domain).toBeUndefined()
+      expect(req.platform).toBe('veo')
+      expect(req.creative_level).toBe(10)
+      expect(req.max_length).toBe(50)
+      expect(req.num_candidates).toBe(1)
+    })
+
+    it('output_language 显式优先（zh/en）', () => {
+      expect(buildStandaloneVideoOptimizeRequest('x', { output_language: 'zh' }).output_language).toBe('zh')
+      expect(buildStandaloneVideoOptimizeRequest('x', { outputLanguage: 'en' }).output_language).toBe('en')
+      expect(buildStandaloneVideoOptimizeRequest('x', { output_language: 'fr' }).output_language).toBe('en')
+    })
+
+    it('output_language 缺省按文本自动检测（CJK≥30% → zh）', () => {
+      expect(buildStandaloneVideoOptimizeRequest('关羽白马之战，万军之中取上将首级').output_language).toBe('zh')
+      expect(buildStandaloneVideoOptimizeRequest('a cat runs in the city').output_language).toBe('en')
+      // context 提供中文全文时同样判 zh
+      expect(buildStandaloneVideoOptimizeRequest('scene one', { context: { full_text: '三国历史，关羽率军冲锋，旌旗猎猎，尘土飞扬' } }).output_language).toBe('zh')
+    })
+
+    it('negative_prompt 截断 / context 白名单 / 敏感键拒绝', () => {
+      const req = buildStandaloneVideoOptimizeRequest('x', { negative_prompt: 'a'.repeat(600), context: { full_text: 'abc' } })
+      expect(req.negative_prompt.length).toBe(500)
+      expect(req.context).toEqual({ full_text: 'abc' })
+      expect(() => buildStandaloneVideoOptimizeRequest('x', { context: { api_key: 'sk' } })).toThrow(/敏感凭据/)
+    })
+  })
+
+  describe('环境开关', () => {
+    const saved = process.env.VIDEO_PROMPT_PORT
+    afterEach(() => {
+      if (saved === undefined) delete process.env.VIDEO_PROMPT_PORT
+      else process.env.VIDEO_PROMPT_PORT = saved
+      delete process.env.VIDEO_PROMPT_HOST
+    })
+
+    it('VIDEO_PROMPT_PORT 合法端口才启用', () => {
+      delete process.env.VIDEO_PROMPT_PORT
+      expect(isStandaloneVideoEngineEnabled()).toBe(false)
+      process.env.VIDEO_PROMPT_PORT = '8020'
+      expect(isStandaloneVideoEngineEnabled()).toBe(true)
+      expect(getStandaloneVideoEngineTarget()).toEqual({ host: '127.0.0.1', port: '8020' })
+      process.env.VIDEO_PROMPT_HOST = '10.0.0.2'
+      expect(getStandaloneVideoEngineTarget().host).toBe('10.0.0.2')
+    })
+
+    it('非法端口不启用', () => {
+      process.env.VIDEO_PROMPT_PORT = 'abc'
+      expect(isStandaloneVideoEngineEnabled()).toBe(false)
+      process.env.VIDEO_PROMPT_PORT = ''
+      expect(isStandaloneVideoEngineEnabled()).toBe(false)
+    })
+  })
+
+  describe('PromptBridge 独立引擎优先 + 回退', () => {
+    const savedPort = process.env.VIDEO_PROMPT_PORT
+    afterEach(() => {
+      if (savedPort === undefined) delete process.env.VIDEO_PROMPT_PORT
+      else process.env.VIDEO_PROMPT_PORT = savedPort
+      delete process.env.VIDEO_PROMPT_HOST
+    })
+
+    function makeBridge () {
+      const bridge = new PromptBridge({ log: mockLog })
+      bridge.ensureRunning = vi.fn(async () => {})
+      bridge._post = vi.fn(async (path, body) => JSON.parse(body))
+      bridge._postStandalone = vi.fn()
+      return bridge
+    }
+
+    it('启用 8020 时走独立引擎 /v1/video/optimize（无 domain、含 output_language）', async () => {
+      process.env.VIDEO_PROMPT_PORT = '8020'
+      const bridge = makeBridge()
+      bridge._postStandalone.mockResolvedValue({ optimized_prompt: 'ok', language: 'zh' })
+      const res = await bridge.optimizeVideo('关羽白马之战', { platform: 'veo3' })
+      expect(bridge._postStandalone).toHaveBeenCalledTimes(1)
+      expect(bridge._post).not.toHaveBeenCalled()
+      const [path, body] = bridge._postStandalone.mock.calls[0]
+      expect(path).toBe('/v1/video/optimize')
+      const parsed = JSON.parse(body)
+      expect(parsed.domain).toBeUndefined()
+      expect(parsed.platform).toBe('veo')
+      expect(parsed.output_language).toBe('zh')
+      expect(res.optimized_prompt).toBe('ok')
+    })
+
+    it('独立引擎不可用 → warning + 回退 8013 /v1/optimize（domain=video）', async () => {
+      process.env.VIDEO_PROMPT_PORT = '8020'
+      const bridge = makeBridge()
+      bridge._postStandalone.mockRejectedValue(new Error('ECONNREFUSED'))
+      const res = await bridge.optimizeVideo('a cat', { platform: 'kling-pro' })
+      expect(bridge._postStandalone).toHaveBeenCalledTimes(1)
+      expect(bridge._post).toHaveBeenCalledTimes(1)
+      expect(bridge._post.mock.calls[0][0]).toBe('/v1/optimize')
+      expect(res.domain).toBe('video')
+      expect(res.platform).toBe('kling')
+      expect(mockLog.warn).toHaveBeenCalled()
+    })
+
+    it('批量：8020 /v1/video/optimize/batch 优先（含 output_language），失败回退 8013 /v1/optimize/batch（无该字段）', async () => {
+      process.env.VIDEO_PROMPT_PORT = '8020'
+      const bridge = makeBridge()
+      // 成功路径：8020 请求带 output_language 自动检测
+      let standaloneBody
+      bridge._postStandalone.mockImplementation(async (path, body) => {
+        expect(path).toBe('/v1/video/optimize/batch')
+        standaloneBody = JSON.parse(body)
+        return [{ optimized_prompt: 'a' }, { optimized_prompt: 'b' }]
+      })
+      const resOk = await bridge.optimizeVideosBatch(['关羽白马之战', 'a cat'], { platform: 'veo' })
+      expect(standaloneBody.requests).toHaveLength(2)
+      expect(standaloneBody.requests[0].output_language).toBe('zh')
+      expect(standaloneBody.requests[1].output_language).toBe('en')
+      expect(resOk).toHaveLength(2)
+      // 回退路径：8013 请求 domain=video、无 output_language
+      bridge._postStandalone.mockRejectedValue(new Error('timeout'))
+      const res = await bridge.optimizeVideosBatch(['关羽白马之战', 'a cat'], { platform: 'veo' })
+      expect(bridge._post.mock.calls[0][0]).toBe('/v1/optimize/batch')
+      expect(res.requests).toHaveLength(2)
+      expect(res.requests[0].domain).toBe('video')
+      expect(res.requests[0].output_language).toBeUndefined()
+      expect(res.requests[1].output_language).toBeUndefined()
+    })
+
+    it('未启用 8020 时直接走 8013（零回归）', async () => {
+      delete process.env.VIDEO_PROMPT_PORT
+      const bridge = makeBridge()
+      const res = await bridge.optimizeVideo('a cat', { platform: 'veo3' })
+      expect(bridge._postStandalone).not.toHaveBeenCalled()
+      expect(bridge._post).toHaveBeenCalledTimes(1)
+      expect(res.platform).toBe('veo')
+    })
   })
 })

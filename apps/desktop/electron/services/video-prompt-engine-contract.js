@@ -1,6 +1,13 @@
 // @ts-check
 /**
- * video-prompt-engine-contract — 视频提示词优化引擎（prompt-engine video 领域，8013）契约单一来源。
+ * video-prompt-engine-contract — 视频提示词优化引擎契约单一来源（双后端）。
+ *
+ * 双后端（2026-08-12 video-prompt-engine-enhancement D8）：
+ *   - 独立视频引擎（video_prompt_engine，8020）：/v1/video/optimize，环境变量 VIDEO_PROMPT_PORT=<端口> 启用，
+ *     请求体为 VideoOptimizeRequest（prompt/platform/style/creative_level/max_length/num_candidates/
+ *     negative_prompt/context/output_language），响应含 language/cache_hit/retried/classification 增强字段；
+ *   - 兼容后端（prompt-engine video 领域，8013）：/v1/optimize domain=video（未配置 VIDEO_PROMPT_PORT 或独立引擎
+ *     不可用时回退；回退由 PromptBridge 记录 warning，本契约输出校验两者共用 extractOptimizedVideoPrompt）。
  *
  * ⚠️ 与图片提示词契约刻意分文件、分命名，避免混淆：
  *   - 图片提示词优化：prompt-engine-contract.js（domain=image，/v1/optimize 图片路径）
@@ -191,6 +198,101 @@ function buildVideoOptimizeRequest (prompt, options = {}) {
 }
 
 /**
+ * 独立视频引擎（video_prompt_engine，8020）是否启用：VIDEO_PROMPT_PORT 为合法端口即启用。
+ * @returns {boolean}
+ */
+function isStandaloneVideoEngineEnabled () {
+  const raw = String(process.env.VIDEO_PROMPT_PORT || '').trim()
+  return /^\d{2,5}$/.test(raw) && Number(raw) > 0
+}
+
+/**
+ * 独立视频引擎目标 host/port（VIDEO_PROMPT_HOST 可选，默认 127.0.0.1）。
+ * @returns {{ host: string, port: string }}
+ */
+function getStandaloneVideoEngineTarget () {
+  const port = String(process.env.VIDEO_PROMPT_PORT || '').trim()
+  const host = String(process.env.VIDEO_PROMPT_HOST || '127.0.0.1').trim()
+  return { host, port }
+}
+
+/**
+ * 自动检测输出语言：文本中 CJK 字符占比 ≥30% → zh，否则 en（图片引擎无此维度，仅独立引擎使用）。
+ * @param {string|string[]} texts
+ * @returns {'zh'|'en'}
+ */
+function _detectOutputLanguage (texts) {
+  const joined = (Array.isArray(texts) ? texts : [texts]).map(t => String(t || '')).join(' ')
+  const chars = joined.replace(/\s/g, '')
+  if (!chars) return 'en'
+  const cjk = (chars.match(/[一-鿿]/g) || []).length
+  return (cjk / chars.length) >= 0.3 ? 'zh' : 'en'
+}
+
+/**
+ * 构造独立视频引擎（8020）请求体 — VideoOptimizeRequest（无 domain 字段）。
+ * 平台/风格/边界收敛与 8013 共用同一归一化；额外支持 output_language（显式优先，缺省按文本自动检测）。
+ * @param {string} prompt
+ * @param {object} [options]
+ * @returns {object}
+ */
+function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
+  const styleRaw = typeof options.style === 'string' ? options.style.trim() : ''
+  const autoDetectStyle = options.auto_detect_style !== undefined
+    ? Boolean(options.auto_detect_style)
+    : (options.autoDetectStyle !== undefined ? Boolean(options.autoDetectStyle) : true)
+
+  const request = {
+    prompt: String(prompt).trim(),
+    platform: normalizeVideoPlatform(options.platform),
+    creative_level: _normalizeVideoCreativeLevel(
+      options.creative_level !== undefined ? options.creative_level : options.creativeLevel,
+    ),
+    max_length: _normalizeVideoMaxLength(
+      options.max_length !== undefined ? options.max_length : options.maxLength,
+    ),
+    num_candidates: _normalizeVideoNumCandidates(
+      options.num_candidates !== undefined ? options.num_candidates : options.numCandidates,
+    ),
+  }
+
+  if (styleRaw) {
+    request.style = normalizePromptEngineStyle(styleRaw)
+  } else if (!autoDetectStyle) {
+    request.style = 'realistic'
+  }
+
+  const negativePrompt = typeof options.negative_prompt === 'string' && options.negative_prompt.trim()
+    ? options.negative_prompt.trim().slice(0, PROMPT_ENGINE_LIMITS.negativePromptMax)
+    : ''
+  if (negativePrompt) request.negative_prompt = negativePrompt
+
+  const context = options.context
+  if (context !== undefined && context !== null && context !== '') {
+    if (typeof context === 'object') assertNoSensitiveContext(context, 'video-optimize.context')
+    const normalizedContext = typeof context === 'string'
+      ? { synopsis: String(context).trim().slice(0, VIDEO_ENGINE_LIMITS.contextKeyMax.synopsis) }
+      : normalizeVideoContext(context)
+    if (normalizedContext && Object.keys(normalizedContext).length > 0) {
+      request.context = normalizedContext
+    }
+  }
+
+  const langRaw = options.output_language !== undefined ? options.output_language : options.outputLanguage
+  const langExplicit = typeof langRaw === 'string' && langRaw.trim()
+    ? langRaw.trim().toLowerCase()
+    : ''
+  const contextText = request.context && typeof request.context === 'object'
+    ? request.context.full_text || request.context.synopsis || ''
+    : ''
+  request.output_language = langExplicit === 'zh' || langExplicit === 'en'
+    ? langExplicit
+    : _detectOutputLanguage([request.prompt, contextText])
+
+  return request
+}
+
+/**
  * 归一化响应中的 video 结构化字段；越界收敛、缺失给默认值。
  * @param {unknown} raw
  * @returns {object | null}
@@ -302,6 +404,9 @@ module.exports = {
   normalizeVideoDomain,
   normalizeVideoPlatform,
   buildVideoOptimizeRequest,
+  buildStandaloneVideoOptimizeRequest,
+  isStandaloneVideoEngineEnabled,
+  getStandaloneVideoEngineTarget,
   normalizeVideoContext,
   normalizeVideoMeta,
   extractOptimizedVideoPrompt,
