@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
+import i18n from "@/i18n";
 
 const pushSpy = vi.fn();
 vi.mock("vue-router", () => ({
@@ -30,8 +31,13 @@ async function flushMounted(w) {
   return w;
 }
 
+function mountHome() {
+  return mount(HomeView, { global: { plugins: [i18n] } });
+}
+
 describe("HomeView", () => {
   beforeEach(() => {
+    i18n.global.locale.value = "zh";
     vi.clearAllMocks();
     platformStoreMock.platforms = [];
     window.electronAPI = {
@@ -42,7 +48,7 @@ describe("HomeView", () => {
   });
 
   it("renders welcome section with greeting and static subtitle", async () => {
-    const w = await flushMounted(mount(HomeView));
+    const w = await flushMounted(mountHome());
     const text = w.text();
     expect(text).toContain("多平台内容一键发布");
     expect(text).toContain("测试用户");
@@ -50,7 +56,7 @@ describe("HomeView", () => {
   });
 
   it("shows six shortcut entries", async () => {
-    const w = await flushMounted(mount(HomeView));
+    const w = await flushMounted(mountHome());
     const shortcuts = w.findAll(".yixiaoer-home-shortcut");
     expect(shortcuts.length).toBe(6);
     expect(w.text()).toContain("一键发布");
@@ -59,7 +65,7 @@ describe("HomeView", () => {
   });
 
   it("falls back to built-in platform tags when platform store is empty", async () => {
-    const w = await flushMounted(mount(HomeView));
+    const w = await flushMounted(mountHome());
     const tags = w.findAll(".yixiaoer-home-platform-tag");
     expect(tags.length).toBeGreaterThan(0);
     expect(w.text()).toContain("微信公众号");
@@ -68,7 +74,7 @@ describe("HomeView", () => {
   it("uses platform store entries when available", async () => {
     platformStoreMock.platforms = [{ id: "weibo", label: "微博" }];
     platformStoreMock.getIcon.mockImplementation((id) => (id === "weibo" ? "✧" : ""));
-    const w = await flushMounted(mount(HomeView));
+    const w = await flushMounted(mountHome());
     const tags = w.findAll(".yixiaoer-home-platform-tag");
     expect(tags.length).toBe(1);
     expect(tags[0].text()).toContain("微博");
@@ -79,7 +85,7 @@ describe("HomeView", () => {
       code: 0,
       data: [{ id: "h1", title: "测试文章", platform: "weibo", status: "success", created_at: "2026-08-10T00:00:00Z" }],
     });
-    const w = await flushMounted(mount(HomeView));
+    const w = await flushMounted(mountHome());
     const text = w.text();
     expect(text).toContain("42");
     expect(text).toContain("38");
@@ -92,12 +98,12 @@ describe("HomeView", () => {
   });
 
   it("shows empty recent state when there is no history", async () => {
-    const w = await flushMounted(mount(HomeView));
+    const w = await flushMounted(mountHome());
     expect(w.text()).toContain("暂无发布记录，开始你的第一次发布吧！");
   });
 
   it("navigates on shortcut and quick action click", async () => {
-    const w = await flushMounted(mount(HomeView));
+    const w = await flushMounted(mountHome());
     await w.findAll(".yixiaoer-home-shortcut")[0].trigger("click");
     expect(pushSpy).toHaveBeenCalledWith("/publish");
     await w.get('[data-testid="home-add-account"]').trigger("click");
@@ -106,8 +112,37 @@ describe("HomeView", () => {
 
   it("handles missing electronAPI gracefully", async () => {
     delete window.electronAPI;
-    const w = await flushMounted(mount(HomeView));
+    const w = await flushMounted(mountHome());
     expect(w.find(".yixiaoer-home").exists()).toBe(true);
     expect(w.text()).toContain("暂无发布记录，开始你的第一次发布吧！");
+  });
+
+  it("renders English copy when locale is en", async () => {
+    i18n.global.locale.value = "en";
+    try {
+      const w = await flushMounted(mountHome());
+      const text = w.text();
+      expect(text).toContain("Publish everywhere with one click");
+      expect(text).toContain("New Publish");
+      expect(text).toContain("Add Account");
+      expect(text).toContain("Total Published");
+      expect(text).toContain("Shortcuts");
+      expect(text).toContain("Recent Activity");
+      expect(text).toContain("No publish records yet. Start your first one!");
+      expect(text).toMatch(/Late night|Good morning|Good noon|Good afternoon|Good evening/);
+    } finally {
+      i18n.global.locale.value = "zh";
+    }
+  });
+
+  it("renders English platform fallback labels when locale is en", async () => {
+    i18n.global.locale.value = "en";
+    try {
+      const w = await flushMounted(mountHome());
+      expect(w.text()).toContain("WeChat Official Account");
+      expect(w.text()).toContain("WeChat Channels");
+    } finally {
+      i18n.global.locale.value = "zh";
+    }
   });
 });

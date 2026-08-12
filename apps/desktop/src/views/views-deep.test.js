@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { ElMessage } from "element-plus";
+import i18n from "@/i18n";
 
 const pushSpy = vi.fn();
 const routeState = { path: '/accounts', query: {} };
@@ -119,6 +120,7 @@ async function setupView(path) {
 // ====== Home.vue ======
 describe("HomeView (deep)", () => {
   beforeEach(() => {
+    i18n.global.locale.value = "zh";
     vi.clearAllMocks();
     window.electronAPI = {
       storeGetPublishStats: vi.fn().mockResolvedValue({ code: 0, data: { total: 100, success: 95, failed: 5 } }),
@@ -129,7 +131,7 @@ describe("HomeView (deep)", () => {
 
   it("navigates on shortcut click", async () => {
     const { mod } = await setupView("Home.vue");
-    const w = mount(mod.default);
+    const w = mount(mod.default, { global: { plugins: [i18n] } });
     await nextTick();
     await new Promise(r => setTimeout(r, 0));
     // 首页已复刻为蚁小二风格，快捷入口第 2 格为账号管理。
@@ -140,7 +142,7 @@ describe("HomeView (deep)", () => {
 
   it("loads stats from API", async () => {
     const { mod } = await setupView("Home.vue");
-    mount(mod.default);
+    mount(mod.default, { global: { plugins: [i18n] } });
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
     expect(window.electronAPI.storeGetPublishStats).toHaveBeenCalled();
@@ -148,7 +150,7 @@ describe("HomeView (deep)", () => {
 
   it("shows platform tags from store", async () => {
     const { mod } = await setupView("Home.vue");
-    const w = mount(mod.default);
+    const w = mount(mod.default, { global: { plugins: [i18n] } });
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
     expect(w.text()).toContain("多平台内容一键发布");

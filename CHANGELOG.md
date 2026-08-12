@@ -135,6 +135,14 @@
 - 文档：PRD §7.4.1 补充「模型列表只读」合同；CHANGELOG。
 - 测试：composable +1（isMiniMaxMultimodal 分支）、导出完整性 +1；src 全量 1873 通过；vite build 通过。
 
+## [未发布] 功能：首页 Home 文案全量多语言化（P2 存量 i18n 首批）（2026-08-12）
+
+- `src/locales/zh.js` / `en.js` 新增 `home` 命名空间（约 30 键）：副标题、快捷操作/入口、统计标签、时段问候（5）、状态标签（6）、平台 fallback 标签（11）、空态/无标题/用户默认名。
+- `src/views/Home.vue`：模板硬编码中文全部替换为 `t('home.*')`；问候语按时段 key 映射、状态按 key 映射、displayName 默认名、平台 fallback 标签、`formatTime` 按当前语言使用 zh-CN/en-US 区域格式。
+- `src/views/Home.test.js`：mount 安装 vue-i18n 插件；新增 en 语言断言（英文文案 + 平台英文 fallback 标签）；原 zh 断言保持原文。
+- 文档：PROMPT-TEXT-SPEC §8 P2 进度登记；OpenSpec change `desktop-ui-i18n-p2`。
+- 测试：Home 11 用例 + i18n 全绿；eslint 0 errors。
+
 ## [未发布] 文档：提示文字规范独立成册 + 补齐契约类文档（2026-08-12）
 
 - 新增独立规范 `01-docs/PROMPT-TEXT-SPEC.md`：语言解析规则、主进程错误返回契约、formatUserError 解析顺序、完整提示文字表（zh/en）、显示项与交互、**多语言覆盖现状与差距审计**（含存量硬编码中文 i18n 分批推进计划）、测试验收、维护 Checklist。

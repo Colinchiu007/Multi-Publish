@@ -4,20 +4,20 @@
     <section class="yixiaoer-home-welcome">
       <div class="yixiaoer-home-greeting">
         <h2>{{ greetingText }}，{{ displayName }}</h2>
-        <p>多平台内容一键发布</p>
+        <p>{{ t('home.subtitle') }}</p>
       </div>
       <div class="yixiaoer-home-quick-actions">
         <button class="yixiaoer-home-action-btn yixiaoer-home-action-btn--primary" data-testid="home-new-publish" @click="go('/publish')">
           <span class="action-icon">✏️</span>
-          <span>新建发布</span>
+          <span>{{ t('home.newPublish') }}</span>
         </button>
         <button class="yixiaoer-home-action-btn" data-testid="home-add-account" @click="go('/accounts')">
           <span class="action-icon">👤</span>
-          <span>添加账号</span>
+          <span>{{ t('home.addAccount') }}</span>
         </button>
         <button class="yixiaoer-home-action-btn" @click="go('/publish/history')">
           <span class="action-icon">📋</span>
-          <span>发布记录</span>
+          <span>{{ t('home.publishHistory') }}</span>
         </button>
       </div>
     </section>
@@ -26,56 +26,56 @@
     <section class="yixiaoer-home-stats" data-testid="yixiaoer-home-stats">
       <div class="yixiaoer-home-stat-card">
         <div class="stat-number">{{ stats.total }}</div>
-        <div class="stat-label">总发布</div>
+        <div class="stat-label">{{ t('home.statTotal') }}</div>
       </div>
       <div class="yixiaoer-home-stat-card yixiaoer-home-stat-card--success">
         <div class="stat-number">{{ stats.success }}</div>
-        <div class="stat-label">成功</div>
+        <div class="stat-label">{{ t('home.statSuccess') }}</div>
       </div>
       <div class="yixiaoer-home-stat-card yixiaoer-home-stat-card--danger">
         <div class="stat-number">{{ stats.failed }}</div>
-        <div class="stat-label">失败</div>
+        <div class="stat-label">{{ t('home.statFailed') }}</div>
       </div>
       <div class="yixiaoer-home-stat-card yixiaoer-home-stat-card--info">
         <div class="stat-number">{{ accountCount }}</div>
-        <div class="stat-label">已绑定账号</div>
+        <div class="stat-label">{{ t('home.boundAccounts') }}</div>
       </div>
     </section>
 
     <!-- 快捷入口 -->
     <section class="yixiaoer-home-shortcuts" data-testid="yixiaoer-home-shortcuts">
-      <h3 class="yixiaoer-home-section-title">快捷入口</h3>
+      <h3 class="yixiaoer-home-section-title">{{ t('home.shortcuts') }}</h3>
       <div class="yixiaoer-home-shortcut-grid">
         <div class="yixiaoer-home-shortcut" @click="go('/publish')">
           <span class="shortcut-icon">🚀</span>
-          <span class="shortcut-label">一键发布</span>
+          <span class="shortcut-label">{{ t('home.quickPublish') }}</span>
         </div>
         <div class="yixiaoer-home-shortcut" @click="go('/accounts')">
           <span class="shortcut-icon">🔐</span>
-          <span class="shortcut-label">账号管理</span>
+          <span class="shortcut-label">{{ t('home.accountManage') }}</span>
         </div>
         <div class="yixiaoer-home-shortcut" @click="go('/publish/history')">
           <span class="shortcut-icon">📊</span>
-          <span class="shortcut-label">发布记录</span>
+          <span class="shortcut-label">{{ t('home.publishHistory') }}</span>
         </div>
         <div class="yixiaoer-home-shortcut" @click="go('/dashboard')">
           <span class="shortcut-icon">📈</span>
-          <span class="shortcut-label">数据看板</span>
+          <span class="shortcut-label">{{ t('home.dashboard') }}</span>
         </div>
         <div class="yixiaoer-home-shortcut" @click="go('/collection')">
           <span class="shortcut-icon">📋</span>
-          <span class="shortcut-label">内容采集</span>
+          <span class="shortcut-label">{{ t('home.collection') }}</span>
         </div>
         <div class="yixiaoer-home-shortcut" @click="go('/comments')">
           <span class="shortcut-icon">💬</span>
-          <span class="shortcut-label">私信评论</span>
+          <span class="shortcut-label">{{ t('home.comments') }}</span>
         </div>
       </div>
     </section>
 
     <!-- 支持平台 -->
     <section class="yixiaoer-home-platforms" data-testid="yixiaoer-home-platforms">
-      <h3 class="yixiaoer-home-section-title">支持平台</h3>
+      <h3 class="yixiaoer-home-section-title">{{ t('home.supportedPlatforms') }}</h3>
       <div class="yixiaoer-home-platform-list">
         <span v-for="p in platforms" :key="p.id" class="yixiaoer-home-platform-tag">
           {{ p.icon }} {{ p.label }}
@@ -85,14 +85,14 @@
 
     <!-- 近期动态 -->
     <section class="yixiaoer-home-recent" data-testid="yixiaoer-home-recent">
-      <h3 class="yixiaoer-home-section-title">近期动态</h3>
+      <h3 class="yixiaoer-home-section-title">{{ t('home.recentActivity') }}</h3>
       <div v-if="recentItems.length === 0" class="yixiaoer-home-empty">
-        <span>暂无发布记录，开始你的第一次发布吧！</span>
+        <span>{{ t('home.emptyRecent') }}</span>
       </div>
       <div v-else class="yixiaoer-home-recent-list">
         <div v-for="item in recentItems" :key="item.id" class="yixiaoer-home-recent-item">
           <div class="recent-item-info">
-            <span class="recent-item-title">{{ item.title || '无标题' }}</span>
+            <span class="recent-item-title">{{ item.title || t('home.untitled') }}</span>
             <span class="recent-item-platform">{{ getPlatformLabel(item.platform) }}</span>
           </div>
           <div class="recent-item-status" :class="`status-${item.status || 'unknown'}`">
@@ -108,11 +108,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useIdentityStore } from '@/stores/identity'
 import { usePlatformStore } from '@/stores/platforms'
+import { getAppLocale } from '@/i18n'
 import { reportError } from '../utils/report-error'
 
 const router = useRouter()
+const { t } = useI18n()
 const identityStore = useIdentityStore()
 const platformStore = usePlatformStore()
 
@@ -120,15 +123,12 @@ const stats = ref({ total: 0, success: 0, failed: 0 })
 const accountCount = ref(0)
 const recentItems = ref([])
 
-const displayName = computed(() => identityStore.displayName || '用户')
+const displayName = computed(() => identityStore.displayName || t('home.user'))
 
 const greetingText = computed(() => {
   const hour = new Date().getHours()
-  if (hour < 6) return '夜深了'
-  if (hour < 12) return '早上好'
-  if (hour < 14) return '中午好'
-  if (hour < 18) return '下午好'
-  return '晚上好'
+  const key = hour < 6 ? 'lateNight' : hour < 12 ? 'morning' : hour < 14 ? 'noon' : hour < 18 ? 'afternoon' : 'evening'
+  return t('home.greetings.' + key)
 })
 
 const platforms = computed(() => {
@@ -140,32 +140,39 @@ const platforms = computed(() => {
     }))
   }
   return [
-    { id: 'wechat_mp', label: '微信公众号', icon: '💬' },
-    { id: 'zhihu', label: '知乎', icon: '❓' },
-    { id: 'weibo', label: '微博', icon: '✧' },
-    { id: 'douyin', label: '抖音', icon: '🎵' },
-    { id: 'xiaohongshu', label: '小红书', icon: '📕' },
-    { id: 'tencent_video', label: '视频号', icon: '▶' },
-    { id: 'kuaishou', label: '快手', icon: '🎬' },
-    { id: 'toutiao', label: '今日头条', icon: '📰' },
-    { id: 'bilibili', label: 'B站', icon: '📺' },
-    { id: 'youtube', label: 'YouTube', icon: '▶️' },
-    { id: 'tiktok', label: 'TikTok', icon: '🎶' },
-  ]
+    { id: 'wechat_mp', icon: '💬' },
+    { id: 'zhihu', icon: '❓' },
+    { id: 'weibo', icon: '✧' },
+    { id: 'douyin', icon: '🎵' },
+    { id: 'xiaohongshu', icon: '📕' },
+    { id: 'tencent_video', icon: '▶' },
+    { id: 'kuaishou', icon: '🎬' },
+    { id: 'toutiao', icon: '📰' },
+    { id: 'bilibili', icon: '📺' },
+    { id: 'youtube', icon: '▶️' },
+    { id: 'tiktok', icon: '🎶' },
+  ].map(p => ({ ...p, label: fallbackPlatformLabel(p.id) }))
 })
 
 function getPlatformLabel(id) {
-  return platformStore.getLabel(id) || id
+  return platformStore.getLabel(id) || fallbackPlatformLabel(id)
+}
+
+function fallbackPlatformLabel(id) {
+  const key = 'home.platforms.' + id
+  const label = t(key)
+  return label === key ? id : label
 }
 
 function statusLabel(status) {
-  const map = { success: '成功', failed: '失败', pending: '等待中', publishing: '发布中', error: '异常' }
-  return map[status] || '未知'
+  const map = { success: 'success', failed: 'failed', pending: 'pending', publishing: 'publishing', error: 'error' }
+  return t('home.status.' + (map[status] || 'unknown'))
 }
 
 function formatTime(value) {
   if (!value) return ''
-  try { return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
+  const locale = getAppLocale() === 'en' ? 'en-US' : 'zh-CN'
+  try { return new Date(value).toLocaleString(locale, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
   catch { return '' }
 }
 
