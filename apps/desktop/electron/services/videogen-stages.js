@@ -369,9 +369,9 @@ function registerVideoGenStages (pipelineEngine) {
       const bus = serviceBus || pipelineEngine.serviceBus
       if (bus && typeof bus.optimizeVideoPromptsBatch === 'function') {
         try {
-          // prompt-engine 批量接口单次上限 10 条（BatchOptimizeRequest.max_length=10）：
-          // storyboard 可达 MAX_SCENES=12，必须分块（≤10）后按序合并，保持全量 fail-closed 校验。
-          const CHUNK_SIZE = 10
+          // prompt-engine 批量接口单次上限 20 条（BatchOptimizeRequest.max_length=20，2026-08-12 由 10 上调）：
+          // storyboard 上限 MAX_SCENES=12 可单批通过；>20 极端场景仍分块（≤20）后按序合并，保持全量 fail-closed 校验。
+          const CHUNK_SIZE = 20
           const optResults = []
           for (let start = 0; start < prompts.length; start += CHUNK_SIZE) {
             const chunk = prompts.slice(start, start + CHUNK_SIZE)
