@@ -56,6 +56,7 @@
 
 ### 任务 10：文档与门禁
 - [x] 01-docs/PRD.md 增补章节；CHANGELOG.md；.quality-gates.md 执行记录
-- [ ] 聚焦回归 + 质量门禁自检；双模型审查（CCG）；提交/推送/PR/合并
+- [x] 聚焦回归 + 质量门禁自检（156 聚焦 + CI 18/18 全绿）；Claude 审查已修复（antigravity 地区不可用已记录）；PR #559 已合并
+
 
 
