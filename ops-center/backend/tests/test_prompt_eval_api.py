@@ -240,6 +240,171 @@ async def test_media_unauthorized(monkeypatch):
         assert (await client.get(f"/api/v1/prompt-eval/media/{img}", headers=other)).status_code == 404
         assert (await client.get(f"/api/v1/prompt-eval/media/{img}", headers=h)).status_code == 200
 
+
+@pytest.mark.asyncio
+async def test_scene_mode_create_and_list():
+    async with _client() as client:
+        h = _headers()
+        body = {
+            "source_mode": "scene",
+            "title": "整篇文案评测",
+            "source_text": "她点燃了柴火，架上铁锅。热气腾腾，香味飘散。她沿着小路走到院子里。",
+            "provider": "minimax-image", "model": "image-01",
+            "image_count": 1, "aspect_ratio": "1:1",
+            "target_chars_per_scene": 20, "subtitle_min_chars": 8, "subtitle_max_chars": 15,
+        }
+        r = await client.post("/api/v1/prompt-eval/cases", json=body, headers=h)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["case"]["source_mode"] == "scene"
+        assert len(data["scenes"]) >= 2
+        s0 = data["scenes"][0]
+        assert s0["scene_text"]
+        assert isinstance(s0["subtitle_blocks"], list)
+        assert isinstance(s0["scene_context"], dict)
+        # GET case 含 scenes
+        detail = (await client.get(f"/api/v1/prompt-eval/cases/{data['case']['id']}", headers=h)).json()
+        assert len(detail["scenes"]) == len(data["scenes"])
+        # 校验：场景数上限 / 分句配置
+        bad = {**body, "target_chars_per_scene": 0}
+        assert (await client.post("/api/v1/prompt-eval/cases", json=bad, headers=h)).status_code == 400
+        bad2 = {**body, "source_text": ("今天天气很好，我们去公园散步吧。" * 60)}
+        rr = await client.post("/api/v1/prompt-eval/cases", json=bad2, headers=h)
+        assert rr.status_code == 400, rr.text
+
+
+@pytest.mark.asyncio
+async def test_scene_translate(monkeypatch):
+    import services.prompt_eval_service as svc
+
+    async def fake_translate(db, scene, case, cfg, http=None):
+        scene.prompt_zh = "写实风格，老妇人在土灶前用柴火做饭"
+        scene.prompt_en = "A realistic scene of an old woman cooking over a fire"
+        scene.prompt_en_source = "machine_translation"
+        scene.prompt_en_translated_at = "2026-08-12T00:00:00"
+        await db.commit()
+        return svc.scene_to_dict(scene)
+
+    monkeypatch.setattr(svc, "translate_scene", fake_translate)
+    async with _client() as client:
+        h = _headers()
+        body = {"source_mode": "scene", "title": "t", "source_text": "她点燃了柴火。",
+                "provider": "minimax-image", "model": "image-01", "image_count": 1, "aspect_ratio": "1:1"}
+        data = (await client.post("/api/v1/prompt-eval/cases", json=body, headers=h)).json()
+        sid = data["scenes"][0]["id"]
+        cid = data["case"]["id"]
+        r = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/translate", headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["prompt_en_source"] == "machine_translation"
+        assert r.json()["prompt_en"]
+
+
+@pytest.mark.asyncio
+async def test_scene_run_requires_keys(monkeypatch):
+    import services.prompt_eval_service as svc
+    async with _client() as client:
+        admin = _headers(role="admin")
+        h = _headers()
+        body = {"source_mode": "scene", "title": "t", "source_text": "她点燃了柴火。",
+                "provider": "minimax-image", "model": "image-01", "image_count": 1, "aspect_ratio": "1:1"}
+        data = (await client.post("/api/v1/prompt-eval/cases", json=body, headers=h)).json()
+        cid = data["case"]["id"]
+        sid = data["scenes"][0]["id"]
+
+        # W3 fail closed：未生成中英对照 → 400（先于密钥校验）
+        r = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/runs", headers=h)
+        assert r.status_code == 400
+        assert "中英对照" in r.json()["detail"]
+
+        # 先生成中英对照（fake LLM 写入 scene.prompt_zh）
+        async def fake_translate(db, scene, case, cfg, http=None):
+            scene.prompt_zh = "写实风格，老妇人在土灶前用柴火做饭"
+            scene.prompt_en = "A realistic old woman cooking over a fire"
+            scene.prompt_en_source = "machine_translation"
+            scene.prompt_en_translated_at = "2026-08-12T00:00:00"
+            await db.commit()
+            return svc.scene_to_dict(scene)
+
+        monkeypatch.setattr(svc, "translate_scene", fake_translate)
+        tr = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/translate", headers=h)
+        assert tr.status_code == 200, tr.text
+
+        # 未配置密钥 → 400
+        r = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/runs", headers=h)
+        assert r.status_code == 400
+        await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-image", "model": "image-01", "api_key": "sk-test", "base_url": "https://x/v1",
+        }, headers=admin)
+        captured = {}
+
+        def fake_start(factory, run_id, snapshot, gen_cfg, eval_cfg):
+            captured["run_id"] = run_id
+            captured["snapshot"] = snapshot
+
+        monkeypatch.setattr(svc, "start_scene_run_pipeline", fake_start)
+        r = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/runs", headers=h)
+        assert r.status_code == 200, r.text
+        assert captured["snapshot"]["image_count"] == 1
+        run = await client.get(f"/api/v1/prompt-eval/runs/{captured['run_id']}", headers=h)
+        assert run.status_code == 200 and run.json()["scene_id"] == sid
+
+        # W5 轻量轮询接口
+        runs = await client.get(f"/api/v1/prompt-eval/cases/{cid}/runs", headers=h)
+        assert runs.status_code == 200
+        assert any(x["id"] == captured["run_id"] for x in runs.json()["items"])
+        assert "source_text" not in runs.json()["items"][0]
+
+
+@pytest.mark.asyncio
+async def test_scene_subtitle_timing_equal_effective():
+    """W1：subtitle_timing=equal 必须真正生效（各字幕块时长均等），不是静默忽略。"""
+    async with _client() as client:
+        h = _headers()
+        body = {"source_mode": "scene", "title": "t", "source_text": "她点燃了柴火架上铁锅慢慢烧水热气腾腾香味飘散沿着小路走到院子里",
+                "provider": "minimax-image", "model": "image-01", "image_count": 1, "aspect_ratio": "1:1",
+                "subtitle_timing": "equal"}
+        data = (await client.post("/api/v1/prompt-eval/cases", json=body, headers=h)).json()
+        blocks = data["scenes"][0]["subtitle_blocks"]
+        assert len(blocks) >= 2
+        durs = {round(b["duration"], 2) for b in blocks}
+        assert len(durs) == 1, f"equal 模式下各块时长应一致，实际 {sorted(b['duration'] for b in blocks)}"
+
+@pytest.mark.asyncio
+async def test_scene_translate_idempotent_cache(monkeypatch):
+    """真实 translate_scene 幂等缓存：7 天内同 prompt_zh 复用，不重复调用 LLM（回归 prompt_en_cache_zh 缺失崩溃）。"""
+    import services.prompt_eval_service as svc
+    import services.prompt_eval_translation_service as tr
+
+    calls = {"opt": 0, "tr": 0}
+
+    async def fake_optimize(cfg, source_text, scene_text, scene_context, http=None):
+        calls["opt"] += 1
+        return "写实风格，老妇人在土灶前用柴火做饭"
+
+    async def fake_translate(cfg, text, http=None):
+        calls["tr"] += 1
+        return "A realistic old woman cooking over a fire"
+
+    monkeypatch.setattr(tr, "optimize_scene_prompt", fake_optimize)
+    monkeypatch.setattr(tr, "translate_prompt_zh", fake_translate)
+    async with _client() as client:
+        h = _headers()
+        body = {"source_mode": "scene", "title": "t", "source_text": "她点燃了柴火，架上铁锅。",
+                "provider": "minimax-image", "model": "image-01", "image_count": 1, "aspect_ratio": "1:1"}
+        data = (await client.post("/api/v1/prompt-eval/cases", json=body, headers=h)).json()
+        cid = data["case"]["id"]
+        sid = data["scenes"][0]["id"]
+        r1 = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/translate", headers=h)
+        assert r1.status_code == 200, r1.text
+        assert calls["opt"] == 1 and calls["tr"] == 1
+        assert r1.json()["prompt_en_source"] == "machine_translation"
+        # 第二次：缓存命中，不重复调用 LLM
+        r2 = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/translate", headers=h)
+        assert r2.status_code == 200, r2.text
+        assert calls["opt"] == 1 and calls["tr"] == 1
+        assert r2.json()["prompt_zh"] == r1.json()["prompt_zh"]
+
+
 @pytest.mark.asyncio
 async def test_summary_empty():
     async with _client() as client:

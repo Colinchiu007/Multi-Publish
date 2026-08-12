@@ -49,14 +49,14 @@ def decrypt_key(secret: str, value: str) -> str:
 
 # ─── 校验 ───
 
-def validate_case_body(body: dict) -> dict:
+def validate_case_body(body: dict, require_prompt_zh: bool = True) -> dict:
     source_text = str(body.get("source_text") or "").strip()
     if not source_text:
         raise ValueError("source_text 不能为空")
     if len(source_text) > contract.MAX_SOURCE_TEXT:
         raise ValueError(f"source_text 不能超过 {contract.MAX_SOURCE_TEXT} 字符")
     prompt_zh = str(body.get("prompt_zh") or "").strip()
-    if not prompt_zh:
+    if require_prompt_zh and not prompt_zh:
         raise ValueError("prompt_zh 不能为空")
     if len(prompt_zh) > contract.MAX_PROMPT_ZH:
         raise ValueError(f"prompt_zh 不能超过 {contract.MAX_PROMPT_ZH} 字符")
@@ -125,7 +125,7 @@ async def create_case(db: AsyncSession, body: dict, username: str) -> dict:
 
 def case_to_dict(row: PromptEvalCase) -> dict:
     return {
-        "id": row.id, "title": row.title, "source_text": row.source_text,
+        "id": row.id, "title": row.title, "source_mode": row.source_mode, "source_text": row.source_text,
         "context": row.context, "prompt_zh": row.prompt_zh, "prompt_en": row.prompt_en,
         "prompt_en_source": row.prompt_en_source, "prompt_en_translated_at": row.prompt_en_translated_at,
         "provider": row.provider, "model": row.model,
@@ -156,7 +156,7 @@ async def soft_delete_case(db: AsyncSession, row: PromptEvalCase) -> None:
 
 def run_to_dict(row: PromptEvalRun) -> dict:
     return {
-        "id": row.id, "case_id": row.case_id, "provider": row.provider, "model": row.model,
+        "id": row.id, "case_id": row.case_id, "scene_id": row.scene_id, "provider": row.provider, "model": row.model,
         "status": row.status, "eval_status": row.eval_status,
         "image_paths": json.loads(row.image_paths) if row.image_paths else [],
         "video_path": row.video_path,
@@ -431,3 +431,138 @@ async def summary(db: AsyncSession) -> dict:
         "optimizationPoints": optimization_points,
         "providerComparison": provider_comparison,
     }
+
+
+# ─── 场景层（scene 模式） ───
+
+from models import PromptEvalScene  # noqa: E402
+from services import prompt_eval_segmentation as segmentation  # noqa: E402
+from services import prompt_eval_scene_context as scene_context_service  # noqa: E402
+
+
+def scene_to_dict(row: PromptEvalScene) -> dict:
+    return {
+        "id": row.id, "case_id": row.case_id, "index": row.index, "scene_text": row.scene_text,
+        "subtitle_blocks": json.loads(row.subtitle_blocks) if row.subtitle_blocks else [],
+        "scene_context": json.loads(row.scene_context) if row.scene_context else {},
+        "prompt_zh": row.prompt_zh, "prompt_en": row.prompt_en,
+        "prompt_en_source": row.prompt_en_source, "prompt_en_translated_at": row.prompt_en_translated_at,
+        "created_at": row.created_at, "updated_at": row.updated_at,
+    }
+
+
+async def create_case_scene(db: AsyncSession, body: dict, username: str) -> dict:
+    """scene 模式：整篇文案 + 分句配置 → 分句并创建 case + scenes。"""
+    data = validate_case_body(body, require_prompt_zh=False)
+    scene_cfg = segmentation.normalize_scene_config(body)
+    text = data["source_text"]
+    scenes = segmentation.split_to_scenes(text, scene_cfg["target_chars_per_scene"])
+    if not scenes:
+        raise ValueError("分句结果为空，请检查文案内容")
+    if len(scenes) > 50:
+        raise ValueError(f"场景数超过上限 50（当前 {len(scenes)}），请调整分句配置")
+    case = PromptEvalCase(source_mode="scene", title=data["title"], source_text=text,
+                          context=data["context"], prompt_zh=data["prompt_zh"], provider=data["provider"],
+                          model=data["model"], image_count=data["image_count"],
+                          aspect_ratio=data["aspect_ratio"], created_by=username)
+    db.add(case)
+    await db.flush()
+    for idx, scene_text in enumerate(scenes):
+        est_duration = round(max(6.0, (len(scene_text) / scene_cfg["target_chars_per_scene"]) * 6.0), 2)
+        subtitles = segmentation.segment_subtitles(
+            scene_text, est_duration, scene_cfg["subtitle_min_chars"], scene_cfg["subtitle_max_chars"],
+            config={"timeCalculationMethod": scene_cfg["subtitle_timing"]})
+        ctx = scene_context_service.extract_scene_context(text, scene_text)
+        row = PromptEvalScene(case_id=case.id, index=idx, scene_text=scene_text,
+                              subtitle_blocks=json.dumps(subtitles, ensure_ascii=False),
+                              scene_context=json.dumps(ctx, ensure_ascii=False))
+        db.add(row)
+    await db.commit()
+    await db.refresh(case)
+    return {"case": case_to_dict(case), "scenes": await list_scenes(db, case.id)}
+
+
+async def list_scenes(db: AsyncSession, case_id: int) -> list[dict]:
+    rows = (await db.execute(select(PromptEvalScene).where(PromptEvalScene.case_id == case_id).order_by(PromptEvalScene.index))).scalars().all()
+    return [scene_to_dict(r) for r in rows]
+
+
+async def get_scene(db: AsyncSession, scene_id: int) -> PromptEvalScene | None:
+    return (await db.execute(select(PromptEvalScene).where(PromptEvalScene.id == scene_id))).scalar_one_or_none()
+
+
+async def translate_scene(db: AsyncSession, scene: PromptEvalScene, case: PromptEvalCase,
+                          translate_cfg: dict, http=None) -> dict:
+    """按场景生成中英对照：LLM 优化 prompt_zh + 翻译 prompt_en（machine_translation，幂等 7 天）。"""
+    cached = scene.prompt_en and scene.prompt_en_source == "machine_translation" and scene.prompt_en_translated_at
+    if cached:
+        try:
+            ts = datetime.datetime.fromisoformat(scene.prompt_en_translated_at).timestamp()
+            if _now_ts() - ts < contract.TRANSLATION_CACHE_SECONDS and scene.prompt_en_cache_zh == scene.prompt_zh:
+                return scene_to_dict(scene)
+        except ValueError:
+            pass
+    prompt_zh = await translation.optimize_scene_prompt(
+        translate_cfg, case.source_text, scene.scene_text,
+        json.dumps(json.loads(scene.scene_context) if scene.scene_context else {}, ensure_ascii=False),
+        http=http)
+    prompt_en = await translation.translate_prompt_zh(translate_cfg, prompt_zh, http=http)
+    if not prompt_zh.strip() or not prompt_en.strip():
+        raise ValueError("优化/翻译结果为空")
+    scene.prompt_zh = prompt_zh
+    scene.prompt_en = prompt_en
+    scene.prompt_en_source = "machine_translation"
+    scene.prompt_en_translated_at = _now()
+    scene.prompt_en_cache_zh = prompt_zh
+    scene.updated_at = _now()
+    await db.commit()
+    await db.refresh(scene)
+    return scene_to_dict(scene)
+
+
+async def create_scene_run(db: AsyncSession, scene: PromptEvalScene, case: PromptEvalCase, username: str) -> dict:
+    run = PromptEvalRun(case_id=case.id, scene_id=scene.id, provider=case.provider, model=case.model,
+                        status="queued", created_by=username)
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    return run_to_dict(run)
+
+
+def scene_snapshot(scene: PromptEvalScene, case: PromptEvalCase) -> dict:
+    return {
+        "source_text": scene.scene_text,
+        "context": scene.scene_context or "{}",
+        "prompt_zh": scene.prompt_zh or case.prompt_zh,
+        "prompt_en": scene.prompt_en,
+        "image_count": case.image_count,
+        "aspect_ratio": case.aspect_ratio,
+    }
+
+
+def start_scene_run_pipeline(db_factory, run_id: int, scene_snapshot_data: dict, gen_cfg: dict, eval_cfg: dict) -> asyncio.Task:
+    """场景 run：worker 重查库后执行生成→评估（快照不含图片，场景变化不影响已提交 run）。"""
+    import logging
+    logger = logging.getLogger("ops-center.prompt-eval")
+
+    async def _worker():
+        try:
+            async with db_factory() as db:
+                await run_pipeline(db, run_id, scene_snapshot_data, gen_cfg, eval_cfg)
+        except Exception as e:
+            logger.exception("prompt_eval scene run %s worker failed", run_id)
+            try:
+                async with db_factory() as db:
+                    run = await get_run(db, run_id)
+                    if run and run.status not in ("succeeded", "failed"):
+                        run.status = "failed"
+                        run.error = f"worker: {e}"
+                        run.completed_at = _now()
+                        await db.commit()
+            except Exception:
+                logger.exception("prompt_eval scene run %s failure persist failed", run_id)
+
+    task = asyncio.create_task(_worker())
+    task.add_done_callback(lambda t: None if not t.exception() else logger.error("prompt_eval scene run %s task exception", run_id))
+    return task
+
