@@ -58,6 +58,9 @@ const VIDEO_ENGINE_LIMITS = Object.freeze({
   cameraMax: 50,
   transitionMax: 50,
   continuityTokenMax: 100,
+  // video-content-fidelity S4：context 白名单键与长度上限（对齐 prompt-engine OptimizeRequest.context 已知键）
+  contextKeys: Object.freeze(['synopsis', 'character', 'setting', 'character_list', 'full_text']),
+  contextKeyMax: Object.freeze({ synopsis: 500, character: 500, setting: 500, full_text: 2000, character_list: 10 }),
 })
 
 function _clampNumber (value, min, max) {
@@ -106,6 +109,32 @@ function _normalizeVideoNumCandidates (value) {
 }
 
 /**
+ * 归一化视频优化 context（video-content-fidelity S4）：
+ * 只保留白名单键，越界收敛；非对象/空返回 undefined。
+ * @param {unknown} context
+ * @returns {object | undefined}
+ */
+function normalizeVideoContext (context) {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return undefined
+  const out = {}
+  for (const key of VIDEO_ENGINE_LIMITS.contextKeys) {
+    const value = context[key]
+    if (value === undefined || value === null) continue
+    if (key === 'character_list') {
+      if (Array.isArray(value)) {
+        const names = value.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim())
+        if (names.length > 0) out[key] = names.slice(0, VIDEO_ENGINE_LIMITS.contextKeyMax[key])
+      }
+      continue
+    }
+    if (typeof value === 'string' && value.trim()) {
+      out[key] = value.trim().slice(0, VIDEO_ENGINE_LIMITS.contextKeyMax[key])
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/**
  * 构造视频领域 /v1/optimize 请求体（domain=video）。
  * context 会发给外部服务：对象型上下文先过敏感凭据键拦截。
  * @param {string} prompt
@@ -150,7 +179,12 @@ function buildVideoOptimizeRequest (prompt, options = {}) {
   const context = options.context
   if (context !== undefined && context !== null && context !== '') {
     if (typeof context === 'object') assertNoSensitiveContext(context, 'video-optimize.context')
-    request.context = typeof context === 'string' ? { synopsis: context } : context
+    const normalizedContext = typeof context === 'string'
+      ? { synopsis: String(context).trim().slice(0, VIDEO_ENGINE_LIMITS.contextKeyMax.synopsis) }
+      : normalizeVideoContext(context)
+    if (normalizedContext && Object.keys(normalizedContext).length > 0) {
+      request.context = normalizedContext
+    }
   }
 
   return request
@@ -268,6 +302,7 @@ module.exports = {
   normalizeVideoDomain,
   normalizeVideoPlatform,
   buildVideoOptimizeRequest,
+  normalizeVideoContext,
   normalizeVideoMeta,
   extractOptimizedVideoPrompt,
 }
