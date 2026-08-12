@@ -267,3 +267,81 @@ describe('scene_context 审查修复回归（2026-08-11 双模型审查 C1/W2/W3
     expect(Array.from(ctx.full_text).length).toBeLessThanOrEqual(2000)
   })
 })
+
+describe('规则数据化与打磨修复（2026-08-12）', () => {
+  const m = require('./story-context-engine')
+  const os = require('os')
+  const fs = require('fs')
+  const path = require('path')
+
+  afterEach(() => {
+    m.resetContextRules()
+  })
+
+  it('内置规则加载：source=builtin 且规则完整（朝代≥16、文化≥8、角色≥40、题材≥11）', () => {
+    expect(m.getContextRulesInfo()).toMatchObject({ source: 'builtin', warning: null, version: 1 })
+    expect(m.DYNASTY_RULES.length).toBeGreaterThanOrEqual(16)
+    expect(m.CULTURE_RULES.length).toBeGreaterThanOrEqual(8)
+    expect(m.GENRE_RULES.length).toBeGreaterThanOrEqual(11)
+    expect(m.CHARACTER_RULES.length).toBeGreaterThanOrEqual(40)
+  })
+
+  it('validateContextRules：非法结构逐项报错（缺 version / 坏 dynasty / 空 keywords）', () => {
+    expect(m.validateContextRules({}).ok).toBe(false)
+    const bad = m.validateContextRules({ version: 1, dynasty: [{ name: 'x', period: 'y', visualStyle: 'z', era: 'bad' }], culture: [], genre: [], setting: [], characters: [], time: {}, props: {}, negativeAnchors: {}, cooking: {}, visualStyle: [], tone: [] })
+    expect(bad.ok).toBe(false)
+    expect(bad.errors.some(e => e.path.includes('era'))).toBe(true)
+    expect(m.validateContextRules(m.getContextRules()).ok).toBe(true)
+  })
+
+  it('setContextRulesOverride：合法外部规则生效（新增文化关键词被识别）', () => {
+    const builtin = m.getContextRules()
+    const custom = JSON.parse(JSON.stringify(builtin))
+    custom.culture.push({ keywords: ['测试文明'], culture: '测试文明', regions: [] })
+    const tmp = path.join(os.tmpdir(), 'scene-context-rules-' + process.pid + '-' + Date.now() + '.json')
+    fs.writeFileSync(tmp, JSON.stringify(custom), 'utf8')
+    try {
+      const r = m.setContextRulesOverride(tmp)
+      expect(r).toMatchObject({ ok: true, source: 'file' })
+      expect(m.getContextRulesInfo().source).toBe('file')
+      const story = m.extractStoryContext('这是一个测试文明的场景，人们和平生活。')
+      expect(story.culture).toBe('测试文明')
+    } finally {
+      fs.unlinkSync(tmp)
+    }
+  })
+
+  it('setContextRulesOverride：非法外部规则回退内置（source 保持 builtin 且返回 error）', () => {
+    const tmp = path.join(os.tmpdir(), 'scene-context-rules-bad-' + process.pid + '-' + Date.now() + '.json')
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, dynasty: [{ name: 'x' }] }), 'utf8')
+    try {
+      const r = m.setContextRulesOverride(tmp)
+      expect(r.ok).toBe(false)
+      expect(r.error).toContain('校验失败')
+      expect(m.getContextRulesInfo().source).toBe('builtin')
+    } finally {
+      fs.unlinkSync(tmp)
+    }
+  })
+
+  it('打磨回归：北宋汴京文案 → genre=历史、dynasty=宋朝', () => {
+    const story = m.extractStoryContext('北宋汴京的市集上，商贩们正在吆喝叫卖。岳飞在军营中擦拭长枪。')
+    expect(story.genre).toBe('历史')
+    expect(story.dynasty).toMatchObject({ name: '宋朝' })
+  })
+
+  it('打磨回归：场景内特有角色（全文无「将军」）也被识别', () => {
+    const story = m.extractStoryContext('北宋汴京的市集上，商贩们正在吆喝叫卖。')
+    const block = m.buildSceneContextBlock({ text: '一位将军在擦拭兵器' }, story)
+    expect(block.character).toMatchObject({ name: '将军' })
+  })
+
+  it('打磨回归：措辞使用自然逗号拼接（不含「欧洲中/现代中」）', () => {
+    const europe = m.buildSceneContextBlock({ text: '公主在城堡塔楼里眺望' }, m.extractStoryContext('城堡里的公主和王子过着幸福的生活。'))
+    expect(europe.contextBlock).toContain('欧洲，公主')
+    expect(europe.contextBlock).not.toContain('欧洲中')
+    const modern = m.buildSceneContextBlock({ text: '一个年轻人在办公室加班' }, m.extractStoryContext('小明在写字楼里用手机点外卖。'))
+    expect(modern.contextBlock).not.toContain('现代中')
+    expect(modern.contextBlock).toContain('现代')
+  })
+})

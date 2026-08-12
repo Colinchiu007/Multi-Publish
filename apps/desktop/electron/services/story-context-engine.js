@@ -12,140 +12,211 @@
  * 敏感凭据键拦截由 prompt-engine-contract.assertNoSensitiveContext 在发送层执行。
  */
 'use strict'
+// ---------------------------------------------------------------------------
+// 规则表加载（单一来源 story-context-rules.json 内置随包，支持外部覆盖）
+// 优先级：env STORY2VIDEO_CONTEXT_RULES_PATH → overridePath（调用方传入）→ 内置 JSON → 空规则兜底
+// ---------------------------------------------------------------------------
+const fs = require('fs')
+
+const BUILTIN_CONTEXT_RULES = require('./story-context-rules.json')
+
+const EMPTY_CONTEXT_RULES = Object.freeze({
+  version: 0,
+  dynasty: [], culture: [], genre: [], setting: [], visualStyle: [], tone: [],
+  characters: [], time: { timeOfDay: [], season: [] },
+  props: { ancient: [], modern: [] },
+  negativeAnchors: { ancient: [], modern: [] },
+  cooking: { positiveProps: { ancient: [], modern: [] }, negativeAnchors: { ancient: [], modern: [] } },
+})
+
+function _isNonEmptyStringArray (value) {
+  return Array.isArray(value) && value.length > 0 && value.every(item => typeof item === 'string' && item.trim().length > 0)
+}
+
+/**
+ * 规则结构校验（fail-fast）：非法字段逐项报错（path + message）。
+ * @param {unknown} rules
+ * @returns {{ok: boolean, errors: Array<{path: string, message: string}>}}
+ */
+function validateContextRules (rules) {
+  const errors = []
+  const push = (rulePath, message) => errors.push({ path: rulePath, message })
+  if (!rules || typeof rules !== 'object' || Array.isArray(rules)) {
+    return { ok: false, errors: [{ path: '', message: '规则必须是对象' }] }
+  }
+  if (typeof rules.version !== 'number' || !Number.isInteger(rules.version) || rules.version < 1) {
+    push('version', 'version 必须为正整数')
+  }
+  const keywordRules = [
+    ['dynasty', ['keywords', 'name', 'period', 'visualStyle', 'era']],
+    ['culture', ['keywords', 'culture', 'regions']],
+    ['genre', ['keywords', 'genre']],
+    ['setting', ['keywords', 'setting']],
+    ['visualStyle', ['keywords', 'style']],
+    ['tone', ['keywords', 'tone']],
+  ]
+  for (const [key, required] of keywordRules) {
+    if (!Array.isArray(rules[key])) { push(key, '必须为数组'); continue }
+    rules[key].forEach((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) { push(key + '[' + index + ']', '项必须是对象'); return }
+      for (const field of required) {
+        if (field === 'keywords') {
+          if (!_isNonEmptyStringArray(item[field])) push(key + '[' + index + '].keywords', 'keywords 必须为非空字符串数组')
+        } else if (field === 'regions') {
+          if (!Array.isArray(item[field])) push(key + '[' + index + '].regions', 'regions 必须为数组')
+        } else if (typeof item[field] !== 'string' || item[field].trim().length === 0) {
+          push(key + '[' + index + '].' + field, '必须为非空字符串')
+        }
+      }
+      if (key === 'dynasty' && item.era !== 'ancient' && item.era !== 'modern') {
+        push('dynasty[' + index + '].era', 'era 必须为 ancient 或 modern')
+      }
+    })
+  }
+  if (!Array.isArray(rules.characters)) {
+    push('characters', '必须为数组')
+  } else {
+    rules.characters.forEach((item, index) => {
+      if (typeof item !== 'string' || item.trim().length === 0) push('characters[' + index + ']', '必须为非空字符串')
+    })
+  }
+  if (!rules.time || typeof rules.time !== 'object') {
+    push('time', '必须为对象')
+  } else {
+    for (const key of ['timeOfDay', 'season']) {
+      if (!Array.isArray(rules.time[key])) push('time.' + key, '必须为数组')
+    }
+  }
+  for (const key of ['props', 'negativeAnchors', 'cooking']) {
+    if (!rules[key] || typeof rules[key] !== 'object' || Array.isArray(rules[key])) push(key, '必须为对象')
+  }
+  if (rules.props && typeof rules.props === 'object') {
+    for (const side of ['ancient', 'modern']) {
+      if (!Array.isArray(rules.props[side])) push('props.' + side, '必须为数组')
+      else rules.props[side].forEach((item, index) => {
+        if (!item || typeof item !== 'object' || !_isNonEmptyStringArray(item.keywords)) {
+          push('props.' + side + '[' + index + '].keywords', 'keywords 必须为非空字符串数组')
+        }
+      })
+    }
+  }
+  if (rules.negativeAnchors && typeof rules.negativeAnchors === 'object') {
+    for (const side of ['ancient', 'modern']) {
+      if (!Array.isArray(rules.negativeAnchors[side])) push('negativeAnchors.' + side, '必须为数组')
+      else rules.negativeAnchors[side].forEach((item, index) => {
+        if (typeof item !== 'string' || item.trim().length === 0) push('negativeAnchors.' + side + '[' + index + ']', '必须为非空字符串')
+      })
+    }
+  }
+  if (rules.cooking && typeof rules.cooking === 'object') {
+    for (const sub of ['positiveProps', 'negativeAnchors']) {
+      if (!rules.cooking[sub] || typeof rules.cooking[sub] !== 'object') { push('cooking.' + sub, '必须为对象'); continue }
+      for (const side of ['ancient', 'modern']) {
+        if (!Array.isArray(rules.cooking[sub][side])) push('cooking.' + sub + '.' + side, '必须为数组')
+      }
+    }
+  }
+  return { ok: errors.length === 0, errors }
+}
+
+function _readRulesFile (filePath, source) {
+  try {
+    const text = fs.readFileSync(filePath, 'utf8')
+    const parsed = JSON.parse(text)
+    const result = validateContextRules(parsed)
+    if (!result.ok) {
+      return { ok: false, error: source + ' 规则校验失败: ' + result.errors.slice(0, 3).map(e => e.path + ' ' + e.message).join('; ') }
+    }
+    return { ok: true, rules: parsed, source }
+  } catch (error) {
+    return { ok: false, error: source + ' 读取/解析失败: ' + (error && error.message ? error.message : String(error)) }
+  }
+}
+
+/**
+ * 加载规则：外部覆盖（env/overridePath）→ 内置 JSON → 空规则兜底。
+ * @param {{overridePath?: string}} [options]
+ * @returns {{rules: object, source: string, warning: (string|null)}}
+ */
+function loadContextRules ({ overridePath } = {}) {
+  const envPath = process.env.STORY2VIDEO_CONTEXT_RULES_PATH
+  const candidates = []
+  if (typeof envPath === 'string' && envPath.trim()) candidates.push({ path: envPath.trim(), source: 'env' })
+  if (typeof overridePath === 'string' && overridePath.trim()) candidates.push({ path: overridePath.trim(), source: 'file' })
+  for (const candidate of candidates) {
+    const loaded = _readRulesFile(candidate.path, candidate.source)
+    if (loaded.ok) return { rules: loaded.rules, source: candidate.source, warning: null }
+  }
+  const builtinValid = validateContextRules(BUILTIN_CONTEXT_RULES)
+  if (builtinValid.ok) return { rules: BUILTIN_CONTEXT_RULES, source: 'builtin', warning: null }
+  return {
+    rules: EMPTY_CONTEXT_RULES,
+    source: 'empty',
+    warning: '内置规则校验失败: ' + builtinValid.errors.slice(0, 3).map(e => e.path + ' ' + e.message).join('; '),
+  }
+}
+
+let contextRulesState = loadContextRules({})
+
+/** 当前生效规则（外部覆盖失败时回退内置）。 */
+function getContextRules () {
+  return contextRulesState.rules
+}
+
+/** 规则来源信息（供日志/展示）。 */
+function getContextRulesInfo () {
+  return { source: contextRulesState.source, warning: contextRulesState.warning, version: contextRulesState.rules.version }
+}
+
+/**
+ * 运行时切换外部规则（如 <userData>/config/story-context-rules.json）。
+ * 失败保持现状（回退内置），不抛错。
+ * @param {string} overridePath
+ * @returns {{ok: boolean, source?: string, error?: string}}
+ */
+function resetContextRules () {
+  contextRulesState = loadContextRules({})
+  _refreshRuleConstants()
+  return getContextRulesInfo()
+}
+function _refreshRuleConstants () {
+  DYNASTY_RULES = contextRulesState.rules.dynasty
+  CULTURE_RULES = contextRulesState.rules.culture
+  GENRE_RULES = contextRulesState.rules.genre
+  SETTING_RULES = contextRulesState.rules.setting
+  PROP_RULES = contextRulesState.rules.props
+  CHARACTER_RULES = contextRulesState.rules.characters
+  TIME_RULES = contextRulesState.rules.time
+  VISUAL_STYLE_RULES = contextRulesState.rules.visualStyle
+  TONE_RULES = contextRulesState.rules.tone
+  NEGATIVE_ANCHOR_RULES = contextRulesState.rules.negativeAnchors
+  COOKING_NEGATIVE_ANCHORS = contextRulesState.rules.cooking.negativeAnchors
+  COOKING_POSITIVE_PROPS = contextRulesState.rules.cooking.positiveProps
+}
+function setContextRulesOverride (overridePath) {
+  const loaded = _readRulesFile(overridePath, 'file')
+  if (!loaded.ok) return { ok: false, error: loaded.error }
+  contextRulesState = { rules: loaded.rules, source: 'file', warning: null }
+  _refreshRuleConstants()
+  return { ok: true, source: 'file' }
+}
 
 // ---------------------------------------------------------------------------
-// 规则表（数据驱动，可扩展；命中均携带 evidence 与置信度）
 // ---------------------------------------------------------------------------
-
-/** 朝代规则：keywords → 朝代名/年代/视觉风格/时代归类 */
-const DYNASTY_RULES = Object.freeze([
-  { keywords: ['商朝', '商代', '殷商', '纣王'], name: '商朝', period: '商朝（约前1600-前1046）', visualStyle: '商代青铜器、甲骨文、粗犷古朴的殷商色调', era: 'ancient' },
-  { keywords: ['周朝', '周代', '西周', '东周', '诸侯'], name: '周朝', period: '周朝（前1046-前256）', visualStyle: '周代礼制、青铜礼器、编钟、克制的土黄色调', era: 'ancient' },
-  { keywords: ['春秋战国', '春秋', '战国', '诸子百家', '孔子', '屈原'], name: '春秋战国', period: '春秋战国（前770-前221）', visualStyle: '列国争霸、战车旌旗、竹简与青铜剑、苍茫色调', era: 'ancient' },
-  { keywords: ['秦朝', '秦代', '秦始皇', '兵马俑', '万里长城', '咸阳'], name: '秦朝', period: '秦朝（前221-前207）', visualStyle: '秦代城墙、兵马俑、铠甲、青铜与尘土色调', era: 'ancient' },
-  { keywords: ['汉朝', '汉代', '西汉', '东汉', '刘邦', '汉武帝', '霍去病', '张骞'], name: '汉朝', period: '汉朝（前202-220）', visualStyle: '汉代宫阙、古城、曲裾深衣、黛青与赭石色调', era: 'ancient' },
-  { keywords: ['三国', '曹操', '刘备', '孙权', '诸葛亮', '赤壁之战'], name: '三国', period: '三国（220-280）', visualStyle: '汉末城寨、战场、战袍旌旗、冷暖对比光线', era: 'ancient' },
-  { keywords: ['晋朝', '晋代', '两晋', '东晋', '西晋', '魏晋'], name: '晋朝', period: '晋朝（265-420）', visualStyle: '魏晋风骨、竹林清谈、宽袍大袖、水墨淡彩', era: 'ancient' },
-  { keywords: ['南北朝', '南朝', '北朝'], name: '南北朝', period: '南北朝（420-589）', visualStyle: '南北对峙、石窟造像、胡服与汉装并存', era: 'ancient' },
-  { keywords: ['隋朝', '隋代', '隋炀帝', '大运河'], name: '隋朝', period: '隋朝（581-618）', visualStyle: '隋代宫城、大运河、庄重浑厚的赭石色调', era: 'ancient' },
-  { keywords: ['唐朝', '唐代', '大唐', '李世民', '武则天', '唐玄宗', '长安', '安史之乱'], name: '唐朝', period: '唐朝（618-907）', visualStyle: '唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线', era: 'ancient' },
-  { keywords: ['五代十国', '五代'], name: '五代十国', period: '五代十国（907-960）', visualStyle: '五代动荡、藩镇城寨、简朴的灰褐色调', era: 'ancient' },
-  { keywords: ['宋朝', '宋代', '北宋', '南宋', '苏轼', '岳飞', '清明上河图', '宋徽宗'], name: '宋朝', period: '宋朝（960-1279）', visualStyle: '宋代城楼、市井、宋装、烟雨与克制的青灰色调', era: 'ancient' },
-  { keywords: ['元朝', '元代', '成吉思汗', '忽必烈', '大都'], name: '元朝', period: '元朝（1271-1368）', visualStyle: '元代草原与大都、蒙元服饰、苍阔的冷色调', era: 'ancient' },
-  { keywords: ['明朝', '明代', '大明', '朱元璋', '朱棣', '永乐', '锦衣卫'], name: '明朝', period: '明朝（1368-1644）', visualStyle: '明代建筑、宫城、汉服、乌纱帽、深红与青绿色调', era: 'ancient' },
-  { keywords: ['清朝', '清代', '大清', '清军', '康熙', '乾隆', '慈禧', '甲午', '鸦片战争'], name: '清朝', period: '清朝（1644-1912）', visualStyle: '清代宫殿、园林、清装、马褂、暖灰与金色电影光线', era: 'ancient' },
-  { keywords: ['民国', '辛亥革命', '上海滩', '中山装', '旗袍'], name: '民国', period: '民国（1912-1949）', visualStyle: '民国洋楼、街巷、旗袍与胶片棕黄色调', era: 'modern' },
-])
-
-/** 文化地域规则：关键词 → 文化 + 地域候选 */
-const CULTURE_RULES = Object.freeze([
-  { keywords: ['中国', '长安', '洛阳', '北京', '故宫', '汉服', '科举', '长城', '瓷器', '唐朝', '唐代', '宋朝', '明代', '清代', '皇帝', '太监', '御花园', '茶道', '丝绸'], culture: '中国', regions: ['长安', '洛阳', '北京'] },
-  { keywords: ['日本', '京都', '东京', '武士', '和服', '樱花', '神社', '寿司', '榻榻米', '艺伎', '富士山', '幕府'], culture: '日本', regions: ['京都', '东京'] },
-  { keywords: ['欧洲', '伦敦', '巴黎', '罗马', '城堡', '骑士', '教堂', '女皇', '壁炉', '绅士', '贵妇', '凡尔赛'], culture: '欧洲', regions: ['伦敦', '巴黎', '罗马'] },
-  { keywords: ['美国', '纽约', '白宫', '好莱坞', '汉堡', '汽车旅馆', '摩天大楼'], culture: '美国', regions: ['纽约'] },
-  { keywords: ['阿拉伯', '清真寺', '沙漠', '骆驼', '酋长', '一千零一夜'], culture: '阿拉伯', regions: ['沙漠'] },
-  { keywords: ['埃及', '金字塔', '法老', '尼罗河', '狮身人面像'], culture: '埃及', regions: ['尼罗河畔'] },
-  { keywords: ['印度', '泰姬陵', '纱丽', '恒河', '宝莱坞', '大象'], culture: '印度', regions: ['恒河畔'] },
-  { keywords: ['韩国', '首尔', '韩服', '泡菜', '汉江'], culture: '韩国', regions: ['首尔'] },
-])
-
-/** 题材规则 */
-const GENRE_RULES = Object.freeze([
-  { keywords: ['唐朝', '唐代', '宋朝', '明代', '清代', '王朝', '朝代', '皇帝', '史官', '古代', '长安', '洛阳', '宫廷', '史记'], genre: '历史' },
-  { keywords: ['江湖', '武侠', '剑客', '掌门', '大侠', '武林', '门派', '内力', '轻功'], genre: '武侠' },
-  { keywords: ['修仙', '仙侠', '御剑', '灵气', '仙界', '金丹', '飞升', '道法'], genre: '仙侠' },
-  { keywords: ['科幻', '飞船', '星际', '机器人', '未来', '赛博', 'AI', '克隆', '时空'], genre: '科幻' },
-  { keywords: ['魔法', '奇幻', '龙', '精灵', '法师', '炼金', '异世界', '魔戒'], genre: '奇幻' },
-  { keywords: ['现代都市', '都市', '写字楼', '公司', '地铁', '外卖', '职场'], genre: '现代都市' },
-  { keywords: ['童话', '公主', '王子', '城堡', '森林小屋', '小精灵', '魔法森林'], genre: '童话' },
-  { keywords: ['悬疑', '侦探', '凶案', '谜团', '案件', '推理', '凶手'], genre: '悬疑' },
-  { keywords: ['战场', '士兵', '硝烟', '战役', '打仗', '冲锋', '军旗'], genre: '战争' },
-  { keywords: ['宫廷', '宫斗', '娘娘', '嫔妃', '御花园', '太监', '皇后'], genre: '宫廷' },
-  { keywords: ['日常生活', '家庭', '学校', '邻里', '市井生活', '田园'], genre: '日常' },
-])
-
-/** 场景设定规则 */
-const SETTING_RULES = Object.freeze([
-  { keywords: ['做饭', '烹饪', '炒菜', '煮饭', '烧饭', '厨房', '灶台', '做饭', '炊烟'], setting: '民居厨房' },
-  { keywords: ['宫殿', '大殿', '金銮殿', '御花园', '宫墙'], setting: '宫殿' },
-  { keywords: ['市集', '街市', '摊位', '集市', '庙会'], setting: '市井街市' },
-  { keywords: ['书房', '书案', '笔墨', '古籍', '书架'], setting: '书房' },
-  { keywords: ['庭院', '院落', '花园', '后花园'], setting: '庭院' },
-  { keywords: ['战场', '军营', '城墙', '烽火台'], setting: '战场' },
-  { keywords: ['学堂', '书院', '私塾', '课堂'], setting: '学堂' },
-  { keywords: ['码头', '渡口', '船坞', '港口'], setting: '码头' },
-  { keywords: ['森林', '山林', '竹林', '荒野'], setting: '山林' },
-  { keywords: ['雪山', '雪原', '冰原'], setting: '雪山' },
-])
-
-/** 时代道具规则（ancient/modern 双向，按 era 互斥输出） */
-const PROP_RULES = Object.freeze({
-  ancient: [
-    { keywords: ['土灶', '柴火', '灶台', '柴'], name: '土灶柴火' },
-    { keywords: ['陶罐', '瓷碗', '瓦罐', '铜锅', '铁锅', '鼎'], name: '陶罐铜锅' },
-    { keywords: ['油灯', '烛台', '灯笼', '火把'], name: '油灯烛台' },
-    { keywords: ['马车', '轿子', '驿站'], name: '马车轿子' },
-    { keywords: ['襦裙', '长袍', '汉服', '马褂', '深衣', '旗袍'], name: '传统服饰' },
-    { keywords: ['竹简', '毛笔', '宣纸', '砚台', '书信'], name: '笔墨纸砚' },
-  ],
-  modern: [
-    { keywords: ['电烤箱', '微波炉', '冰箱', '燃气灶', '电磁炉', '电饭煲'], name: '现代厨电' },
-    { keywords: ['手机', '电脑', '平板', '耳机'], name: '电子设备' },
-    { keywords: ['汽车', '地铁', '高铁', '飞机', '电梯'], name: '现代交通' },
-    { keywords: ['外卖', '快递', '电商', '网购'], name: '现代生活' },
-    { keywords: ['写字楼', '玻璃幕墙', '摩天大楼'], name: '现代建筑' },
-  ],
-})
-
-/** 角色词表（人物名词 + 修饰语前窗提取） */
-const CHARACTER_RULES = Object.freeze([
-  '老妇人', '老翁', '老太太', '少女', '姑娘', '少年', '书生', '将军', '士兵', '皇帝', '皇后', '公主', '王子',
-  '农夫', '渔夫', '猎人', '商贩', '掌柜', '伙计', '工匠', '铁匠', '织女', '绣娘', '丫鬟', '仆人', '管家',
-  '刺客', '侠客', '剑客', '僧人', '道士', '郎中', '大夫', '教书先生', '小姐', '少爷', '孩子', '婴儿', '青年', '中年妇人', '主妇',
-])
-
-/** 时间规则 */
-const TIME_RULES = Object.freeze({
-  timeOfDay: ['清晨', '早晨', '白天', '正午', '中午', '黄昏', '傍晚', '夜晚', '深夜', '午夜'],
-  season: ['春', '夏', '秋', '冬', '春天', '夏天', '秋天', '冬天'],
-})
-
-/** 视觉风格规则 */
-const VISUAL_STYLE_RULES = Object.freeze([
-  { keywords: ['水墨', '国画', '工笔'], style: '水墨国画风格' },
-  { keywords: ['写实', '真实', '纪录片'], style: '写实风格' },
-  { keywords: ['动漫', '卡通', '二次元'], style: '动漫风格' },
-  { keywords: ['油画', '古典油画'], style: '古典油画风格' },
-  { keywords: ['电影', '史诗', '大片'], style: '电影感' },
-  { keywords: ['赛博朋克', '霓虹'], style: '赛博朋克风格' },
-  { keywords: ['复古', '胶片', '老照片'], style: '复古胶片风格' },
-])
-
-/** 叙事语气规则 */
-const TONE_RULES = Object.freeze([
-  { keywords: ['悲壮', '凄凉', '悲伤', '哀伤', '痛苦', '死亡'], tone: '悲壮' },
-  { keywords: ['欢快', '喜悦', '幸福', '快乐', '热闹', '喜庆'], tone: '欢快' },
-  { keywords: ['紧张', '危机', '危险', '惊险', '追杀'], tone: '紧张' },
-  { keywords: ['平静', '日常', '宁静', '祥和', '温馨', '温情'], tone: '平和' },
-])
-
-/** 时代负面锚点（era 互斥；发送前合并进 negative_prompt） */
-const NEGATIVE_ANCHOR_RULES = Object.freeze({
-  ancient: ['电烤箱', '微波炉', '冰箱', '燃气灶', '电磁炉', '西式现代厨房', '现代电器', '汽车', '摩天大楼', '现代服饰', '西方现代建筑'],
-  modern: ['油灯', '烛台', '土灶', '柴火', '马车', '轿子', '长袍', '宫殿', '古代服饰'],
-})
-
-/** 场景上下文涉及做饭/烹饪时的追加负面锚点（时代互斥） */
-const COOKING_NEGATIVE_ANCHORS = Object.freeze({
-  ancient: ['电烤箱', '微波炉', '西式现代厨房', '西式餐点', '西式餐具'],
-  modern: ['土灶', '柴火', '油灯', '陶罐', '古装', '宫殿'],
-})
-
-/** 场景上下文涉及做饭/烹饪时的正向器物锚点（时代互斥） */
-const COOKING_POSITIVE_PROPS = Object.freeze({
-  ancient: ['土灶', '柴火', '陶罐', '铜锅'],
-  modern: [],
-})
+// 规则表（单一来源：story-context-rules.json；由 loadContextRules 加载，支持外部覆盖）
+// ---------------------------------------------------------------------------
+let DYNASTY_RULES = contextRulesState.rules.dynasty
+let CULTURE_RULES = contextRulesState.rules.culture
+let GENRE_RULES = contextRulesState.rules.genre
+let SETTING_RULES = contextRulesState.rules.setting
+let PROP_RULES = contextRulesState.rules.props
+let CHARACTER_RULES = contextRulesState.rules.characters
+let TIME_RULES = contextRulesState.rules.time
+let VISUAL_STYLE_RULES = contextRulesState.rules.visualStyle
+let TONE_RULES = contextRulesState.rules.tone
+let NEGATIVE_ANCHOR_RULES = contextRulesState.rules.negativeAnchors
+let COOKING_NEGATIVE_ANCHORS = contextRulesState.rules.cooking.negativeAnchors
+let COOKING_POSITIVE_PROPS = contextRulesState.rules.cooking.positiveProps
 
 /** 发送 prompt-engine 的 context 白名单键（对齐 prompt_engine/prompt_builder.py） */
 const CONTEXT_KEY_WHITELIST = Object.freeze([
@@ -522,7 +593,7 @@ function buildSceneContextBlock (scene, story, options = {}) {
     : []
 
   const contextBlock = truncateBySentence(joinNonEmpty([
-    location ? location + '中，' + sceneText : sceneText,
+    location ? location + '，' + sceneText : sceneText,
     storyObj.visualStyle ? '；视觉' + storyObj.visualStyle : '',
     positiveProps.length > 0 ? '；使用' + positiveProps.join('、') : '',
     storyObj.tone ? '；光线' + storyObj.tone : '',
@@ -544,9 +615,14 @@ function buildSceneContextBlock (scene, story, options = {}) {
     sceneSetting,
   ]).slice(0, opts.maxAnchors)
 
-  const character = storyObj.characters && Array.isArray(storyObj.characters)
+  let character = storyObj.characters && Array.isArray(storyObj.characters)
     ? storyObj.characters.find(c => c && c.name && sceneText.includes(c.name)) || null
     : null
+  // 打磨（2026-08-12）：场景内特有角色（未出现在全文）也从场景文本识别，descriptor 回退角色名
+  if (!character) {
+    const sceneRole = CHARACTER_RULES.find(name => sceneText.includes(name))
+    if (sceneRole) character = { name: sceneRole, descriptor: sceneRole }
+  }
 
   return {
     contextBlock,
@@ -689,6 +765,12 @@ function mergeNegativePrompt (base, negativeAnchors, maxLength = 500) {
 }
 
 module.exports = {
+  getContextRules,
+  getContextRulesInfo,
+  loadContextRules,
+  setContextRulesOverride,
+  validateContextRules,
+  resetContextRules,
   COOKING_NEGATIVE_ANCHORS,
   COOKING_POSITIVE_PROPS,
   CONTEXT_KEY_WHITELIST,
