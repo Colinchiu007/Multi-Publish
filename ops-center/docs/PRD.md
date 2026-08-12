@@ -1262,7 +1262,9 @@ POST /cases/{id}/runs → status=queued
 - 结果校验：返回必须为受支持图片（扩展名/魔数），空/错误 → run failed（不降级）；
 - 密钥：`prompt_eval_provider_keys` 加密存储，admin 维护；未配置任何可用密钥时创建 run 返回可操作错误（**按角色区分**：admin →「未配置可用的图片生成模型，请先在侧边栏「模型密钥」（/model-keys）中配置」；非 admin →「…请联系管理员在「模型密钥」中配置」——因「模型密钥」菜单仅 admin 可见，非 admin 不应被引导到不可见页面）；
 - 密钥类型（「模型密钥」页 Provider 下拉）：`minimax-image` / `flux`（生图）、`minimax-llm`（中英对照优化+翻译）、`minimax-vision` / `opencode-go-vision`（生成物视觉评估，OpenAI 兼容 base_url/model/api_key，如 Opencode-Go 视觉模型 base_url=`https://opencode.ai/zen/go/v1`）；LLM/视觉密钥优先读密钥表（视觉候选顺序 minimax-vision → opencode-go-vision），fallback 环境变量 `OPS_PROMPT_EVAL_LLM_*` / `OPS_PROMPT_EVAL_VISION_API_KEY`；
-- 与桌面端一致：密钥/凭据不出现在任何响应、日志、评估提示词中。
+- 与桌面端一致：密钥/凭据不出现在任何响应、日志、评估提示词中；
+- **测试连通**：`POST /providers/test`（admin）用表单值或已保存密钥探测连通性——先 `POST {base}/chat/completions`（`max_tokens=1` 最小请求，覆盖 llm/vision/opencode），404/405 时 fallback `GET {base}/models`（覆盖 image 类）；均不可达提示「请用真实生成验证」；不落库、不产生真实生成费用。前端「模型密钥」表单与列表项均提供「测试连通」按钮。
+- **修改**：列表项「编辑」回填表单（provider/model 锁定为唯一键），可改 Base URL / 启用状态 / API Key（留空保留原密文）；保存走 `PUT /providers` upsert（存在则更新 key_enc/base_url/enabled/updated_by）；表单含「启用」switch（编辑可停用/启用）。
 
 ### 12A.22.8 数据校验（fail closed，对齐桌面端契约）
 

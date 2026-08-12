@@ -1,3 +1,18 @@
+## [2026-08-12] feat(ops-center): 模型密钥「修改」功能（编辑回填 + 启用开关）
+
+- 前端「模型密钥」列表项新增「编辑」：回填表单（provider/model 编辑锁定，唯一键），可修改 Base URL / 启用状态 / API Key（留空保留原密文，后端 validate_provider_key_body 已有 existing_key 保留语义）；表单新增「启用」switch；保存按钮区分「保存/保存修改」+「取消编辑」。
+- 后端无改动（PUT /providers upsert 已支持更新 key_enc/base_url/enabled）。
+- 端到端：编辑 enabled=0→1 生效、api_key 保留（改后测试连通仍 200）。
+- PRD 12A.22.7 修改契约同步。
+
+## [2026-08-12] feat(ops-center): 模型密钥「测试连通」功能
+
+- 后端 `POST /api/v1/prompt-eval/providers/test`（admin）：用表单值或已保存密钥探测连通性——`POST {base}/chat/completions`（max_tokens=1，覆盖 llm/vision/opencode）→ 404/405 fallback `GET {base}/models`（覆盖 image 类）→ 均不可达提示真实生成验证；不落库、不产生生成费用。
+- 前端「模型密钥」表单新增「测试连通」按钮（表单值）+ 列表每行「测试连通」（已保存密钥）；结果以成功/失败 alert 展示（失败透出 HTTP 状态与原因）。
+- 测试：services 5 例（chat 200/401/404 fallback/双 404/缺 key）+ API 权限 3 例（admin 200/非 admin 403/未登录 401）全绿。
+- 端到端：已保存 minimax-llm 真实连通 200「chat/completions 可达」；无效 key 返回 401 详情；未配置 400。
+- PRD 12A.22.7 测试连通契约同步。
+
 
 
 

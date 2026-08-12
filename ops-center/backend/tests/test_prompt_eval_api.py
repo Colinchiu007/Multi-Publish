@@ -409,6 +409,28 @@ async def test_translate_uses_llm_key_from_provider_table(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_provider_test_endpoint_admin_only(monkeypatch):
+    import services.prompt_eval_service as svc
+
+    async def fake_test(db, body, secret, http=None):
+        return {"ok": True, "detail": "连接成功（chat/completions 可达）"}
+
+    monkeypatch.setattr(svc, "test_provider_connection", fake_test)
+    async with _client() as client:
+        body = {"provider": "minimax-llm", "model": "MiniMax-M2.7", "api_key": "sk", "base_url": "https://x/v1"}
+        # 非 admin → 403
+        r = await client.post("/api/v1/prompt-eval/providers/test", json=body, headers=_headers(role="user"))
+        assert r.status_code == 403
+        # admin → 200
+        r2 = await client.post("/api/v1/prompt-eval/providers/test", json=body, headers=_headers(role="admin"))
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["ok"] is True
+        # 未登录 → 401
+        r3 = await client.post("/api/v1/prompt-eval/providers/test", json=body)
+        assert r3.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_vision_key_supports_opencode_go(monkeypatch):
     """视觉评估支持 opencode-go-vision（Opencode-Go 视觉模型，OpenAI 兼容 base_url）。"""
     import services.prompt_eval_service as svc
