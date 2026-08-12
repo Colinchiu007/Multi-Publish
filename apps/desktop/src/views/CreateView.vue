@@ -889,6 +889,13 @@ import {
   historyStatusLabel as utilHistoryStatusLabel,
   cloneForIpc as utilCloneForIpc,
 } from './create-view-utils'
+import {
+  toS2VVoiceOption as utilToS2VVoiceOption,
+  story2videoKindLabel as utilStory2videoKindLabel,
+  toS2VVoiceCloneRequirements as utilToS2VVoiceCloneRequirements,
+  formatS2VVoiceCloneBytes as utilFormatS2VVoiceCloneBytes,
+  formatS2VVoiceCloneDuration as utilFormatS2VVoiceCloneDuration,
+} from './s2v-voice-utils'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 
@@ -1920,39 +1927,12 @@ export default {
         && this.s2vConfig.voiceModel === context.model
         && this.s2vConfig.voiceId === voiceId
     },
-    toS2VVoiceOption(voice) {
-      const id = typeof voice?.id === 'string' ? voice.id.trim() : ''
-      const name = typeof voice?.name === 'string' ? voice.name.trim() : ''
-      if (!id || !name) return null
-      return { id, name, invalid: voice.invalid === true }
-    },
+    toS2VVoiceOption(voice) { return utilToS2VVoiceOption(voice) },
     isS2VDefaultVoice(voiceId) {
       return typeof voiceId === 'string' && voiceId.length > 0 && this.s2vConfig.voiceId === voiceId
     },
-    story2videoKindLabel(kind) {
-      const labels = {
-        image: '图片',
-        audio: '旁白音频',
-        bgm: '背景音乐',
-        video: '视频素材',
-      }
-      return labels[kind] || ''
-    },
-    toS2VVoiceCloneRequirements(requirements) {
-      if (!requirements || typeof requirements !== 'object' || Array.isArray(requirements)) return null
-      const toFiniteNumber = (value) => Number.isFinite(value) && value >= 0 ? value : null
-      return {
-        allowedExtensions: Array.isArray(requirements.allowedExtensions)
-          ? requirements.allowedExtensions.filter(extension => typeof extension === 'string' && extension)
-          : [],
-        maxSampleCount: toFiniteNumber(requirements.maxSampleCount),
-        maxSampleBytes: toFiniteNumber(requirements.maxSampleBytes),
-        maxTotalBytes: toFiniteNumber(requirements.maxTotalBytes),
-        minSampleDurationSeconds: toFiniteNumber(requirements.minSampleDurationSeconds) || 0,
-        maxSampleDurationSeconds: toFiniteNumber(requirements.maxSampleDurationSeconds),
-        maxTotalDurationSeconds: toFiniteNumber(requirements.maxTotalDurationSeconds),
-      }
-    },
+    story2videoKindLabel(kind) { return utilStory2videoKindLabel(kind) },
+    toS2VVoiceCloneRequirements(requirements) { return utilToS2VVoiceCloneRequirements(requirements) },
     friendlyVoiceCatalogError(message) {
       const raw = String(message || '')
       const map = {
@@ -2329,19 +2309,8 @@ export default {
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
       }
     },
-    formatS2VVoiceCloneBytes(value) {
-      if (!Number.isFinite(value) || value < 0) return '—'
-      if (value < 1024) return `${value} B`
-      if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`
-      return `${(value / (1024 * 1024)).toFixed(value % (1024 * 1024) === 0 ? 0 : 1)} MB`
-    },
-    formatS2VVoiceCloneDuration(value) {
-      if (!Number.isFinite(value) || value < 0) return '—'
-      const seconds = Math.floor(value)
-      const minutes = Math.floor(seconds / 60)
-      const remainingSeconds = seconds % 60
-      return minutes > 0 ? `${minutes} 分${remainingSeconds ? ` ${remainingSeconds} 秒` : ''}` : `${seconds} 秒`
-    },
+    formatS2VVoiceCloneBytes(value) { return utilFormatS2VVoiceCloneBytes(value) },
+    formatS2VVoiceCloneDuration(value) { return utilFormatS2VVoiceCloneDuration(value) },
     saveCurrentS2VTemplate() {
       const name = String(this.s2vCustomTemplateName || '').trim()
       if (!name) return
