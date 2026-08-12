@@ -1,0 +1,14 @@
+{
+  "id": "createview-regression-fix",
+  "title": "修复 CreateView 历史按钮类名重构导致的 3 个 UI 测试失败（#526 回归）+ 补 locale 缺键",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-12T09:05:00+08:00",
+  "branch": "codex/createview-regression-fix",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-createview-regression-fix",
+  "summary": "#526 系列把历史按钮统一为 s2v-btn-* 类（CreateViewHistory.vue），但 CreateView.test.js 仍用旧 .history-btn.resume/.open 选择器，导致 3 用例失败（main Electron CI 同步红）。另缺 videoEnhance/common.close locale 键产生 i18n 警告。修复：测试选择器更新为 .s2v-btn-resume/.s2v-btn-secondary；zh/en 补 videoEnhance 与 close。回归：CreateView 131 + CreateHistory 22 + ue-contract 4 + i18n 7 全过；前端 build 验证。"
+}

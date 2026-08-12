@@ -10,6 +10,7 @@ export default {
     loading: 'Loading...',
     success: 'Success',
     error: 'Error',
+    close: 'Close',
   },
   nav: {
     home: 'Home',
@@ -73,6 +74,7 @@ export default {
       sections: {
         basic: 'Basics',
         appearance: 'Visuals',
+        videoEnhance: 'Video Boost',
         voice: 'Voice',
         advanced: 'Advanced',
         publish: 'Publish',

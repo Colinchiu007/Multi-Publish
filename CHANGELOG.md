@@ -1,3 +1,9 @@
+## [未发布] 修复：CreateView 历史按钮类名重构回归（s2v-btn-*）+ 补 videoEnhance/common.close locale 键（2026-08-12）
+
+- 根因：#526 系列 UI 重构把历史记录操作按钮统一为 `s2v-btn-*` 类（`CreateViewHistory.vue`），但 `CreateView.test.js` 仍用旧 `.history-btn.resume` / `.history-btn.open` 选择器，导致 3 个历史恢复用例失败（main Electron CI 同步失败）。另 `create.story2video.sections.videoEnhance` 与 `common.close` locale 键缺失，仅靠硬编码兜底并产生 i18n 警告。
+- 修复：测试选择器更新为 `.s2v-btn-resume` / `.s2v-btn-secondary`；`zh.js` / `en.js` 补 `videoEnhance` 与 `close` 键。
+- 回归：CreateView 131/131、CreateHistory 22/22、story2video-ue-contract 4/4、i18n 7/7；前端 `npm run build` 通过。
+
 ## [未发布] 功能：视频提示词统一走 prompt-engine video 领域（2026-08-11）
 
 - 背景：项目内所有 AI 视频生成的提示词此前"裸奔"直传 provider（videogen 分镜 LLM 直出、混合模式复用图片优化提示词），缺少视频专属的镜头/运动/时序/一致性维度与统一校验。本次接入"视频提示词优化引擎"（prompt-engine 8013 `domain=video`，Phase 1 Generic 兜底）。
