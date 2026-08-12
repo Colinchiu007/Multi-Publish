@@ -68,3 +68,20 @@ export function upsertPromptEvalProvider(data) {
 export function mediaUrl(name) {
   return `/api/v1/prompt-eval/media/${encodeURIComponent(name)}`
 }
+
+
+export function createPromptEvalSceneCase(data) {
+  return api.post('/prompt-eval/cases', data).then(r => r.data)
+}
+
+export function listPromptEvalCaseRuns(caseId) {
+  return api.get(`/prompt-eval/cases/${caseId}/runs`).then(r => r.data)
+}
+
+export function translatePromptEvalScene(caseId, sceneId) {
+  return api.post(`/prompt-eval/cases/${caseId}/scenes/${sceneId}/translate`).then(r => r.data)
+}
+
+export function createPromptEvalSceneRun(caseId, sceneId) {
+  return api.post(`/prompt-eval/cases/${caseId}/scenes/${sceneId}/runs`).then(r => r.data)
+}

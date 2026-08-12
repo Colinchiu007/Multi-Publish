@@ -66,3 +66,16 @@ describe('preload 许可证权限', () => {
     expect(create).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('videoClone 命名空间 public 放行（4e 回归）', () => {
+  it('未登录（public）可调用 videoClone.onProgress（命名空间 + 子方法均 public）', () => {
+    const { createDynamicAccessApi } = require('./access-control')
+    const onProgress = vi.fn(() => 'ok')
+    const api = createDynamicAccessApi(
+      { videoClone: { onProgress, run: vi.fn() } },
+      () => 'public',
+    )
+    expect(() => api.videoClone.onProgress(() => {})).not.toThrow()
+    expect(() => api.videoClone.run({})).not.toThrow()
+  })
+})

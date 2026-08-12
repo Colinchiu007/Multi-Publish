@@ -3,6 +3,23 @@
 - 根因：`PLATFORM_LOGIN_SUCCESS_PATTERNS.baijiahao` 为裸域名模式，未登录访问 `https://baijiahao.baidu.com/` 会 302 到同域登录/注册页 `/pcui/register/index`、`/builder/theme/bjh/login`，被 `isPlatformLoginSuccessUrl` 误判为「登录成功」；AuthViewManager 3 秒后提取到预登录跟踪 Cookie 判定有凭证即自动完成 → 关闭登录视图，`auth:open-login` 随即把只有无效凭证的百家号账号入库，账号列表立即显示「新增成功」。
 - 修复：① 百家号关闭 URL 自动完成（模式清空，fail-closed），改由用户点击「我已完成登录」（`auth:complete-login`）在提取到真实凭证后入库；② `AuthViewManager`/`QrCodeLogin` 增加初始加载守卫（`initialRedirectPhase`），登录页首次 `did-finish-load` 前的重定向链一律不判定登录成功（douyin/xiaohongshu/toutiao 等裸 host 模式平台同类防护）；③ CDP 回调同步加守卫。
 - 回归：platform-definitions 6、auth-view-manager+qrcode-login 28、account IPC/account-manager/auth-view-session/auth-view-cdp 82、shared-utils 全量 231、桌面全量 7095/7099（4 个失败为 videogen-stages 基线预存，stash 对比证实）；QM-1 `electron-builder --win --x64` exit 0，ASAR 含修复文件，打包应用启动 10s 窗口句柄有效。
+## [2026-08-12] 视频克隆 切片 4e：真实桌面 E2E 验收 + 权限放行
+
+- 权限放行：preload access-control（videoClone 命名空间 + 点号全名门控）与主进程 license-access-control（video-clone:* PUBLIC_CHANNELS）——本地分析流水线未登录可用（QM-2 回归：public 可调 onProgress、公开方法→公开通道闭环、api 键数 271）。
+- 可复用 E2E 脚本 apps/desktop/scripts/video-clone-e2e.js（Playwright _electron：样例 → #/video-clone → 分析 → 报告/相似度 → runs 落库 → 截图）。
+- 验收证据：打包应用真实运行：报告卡 VISIBLE（3s/320x240/16:9）、F4 综合分 1（needs_review=证据门控）、历史落库 vc-mspw1lou-4fkpcz.json、截图 01-docs/evidence/video-clone-e2e.png。
+- 外部验收边界不变（PENDING_EXTERNAL）：真实 provider 图/账号发布/平台下载需用户凭据。
+
+## [2026-08-12] 运营后台提示词评测工作台：场景层评测工作流（codex/prompt-eval-scenes）
+
+- ops-center 后端分句服务 `services/prompt_eval_segmentation.py`：场景级分割 + 字幕二次分句 + proportional/equal 时间线，语义对齐桌面端 `story2video-engine/src/text-segmentation.ts`；一致性测试用 esbuild 打包桌面端 TS 模块（`tests/fixtures/segmentation-ref.mjs`）由 node 对照断言 scenes/subtitles/duration。
+- 场景上下文 `services/prompt_eval_scene_context.py`：白名单键提取（genre/era/culture/setting/time/characters/props/visual_style/tone/summary/anchors/negative_anchors）+ 敏感键 fail closed + 提取异常标记 degraded。
+- 数据模型：`prompt_eval_cases.source_mode`（manual/scene）、新增 `prompt_eval_scenes` 表、`prompt_eval_runs.scene_id`（可空，manual 兼容）；存量库幂等补列迁移（`services/prompt_eval_migration.py` + main.py lifespan 注册，避免上线全线 500）。
+- 接口：`POST /cases`（scene 模式：整篇文案 + 分句配置 → 分句建 scenes）、`GET /cases/{id}`（scene 模式含 scenes）、`POST /cases/{id}/scenes/{sid}/translate`（LLM 按「整篇原文+场景文字+场景上下文」生成场景中文优化提示词 + 机器翻译英文 + 7 天幂等缓存）、`POST /cases/{id}/scenes/{sid}/runs`（逐场景生成→评估状态机，run 快照化；未生成中英对照 fail closed 400）、轻量 `GET /cases/{id}/runs`（轮询专用）。
+- 前端 `PromptEvalWorkbench.vue`：manual/scene 切换、分句表单（高级配置默认 20/8/15/proportional）、场景卡片四区（场景文字/字幕二次分句/场景上下文/中英提示词带「机器翻译」标注）、逐场景「重新生成中英对照」「生成图片并评估」（无中英对照禁用）、状态徽章 + 8s 轮询（终态自动停止 + in-flight 守卫 + 重分句/openCase 清理）、评测列表 source_mode 列与详情场景摘要。
+- 双模型审查修复（Claude 独立审查 1C/5W/8I 全落地）：C1 存量库补列迁移；W1 `subtitle_timing=equal` 真正生效；W2 分句与桌面端 TS 全对齐（budget 钳制 [10,50]、超长无标点 200 字强制分段、顿号最低优先级 + 枚举位移），一致性语料扩至 9 条（target 8/1/200、440 字无句号、顿号枚举）node 对照 20 例全绿；W3 scene run prompt_zh fail closed；W4 轮询停止/并发守卫；W5 轻量 runs 轮询接口；翻译异常 ValueError→400、502 归一化不透出 provider 细节。
+- 修复：`translate_scene` 幂等缓存缺少 `prompt_en_cache_zh` 列导致二次翻译崩溃（新增幂等缓存回归测试）；契约测试 node 子进程显式 `encoding="utf-8"`（Windows GBK 控制台加固）。
+- 测试：后端 pytest 205 全绿 + 前端 `npm run build` 通过；OpenSpec change `prompt-eval-ops-scenes`（proposal/design/specs/tasks/review）validate 通过；PRD 12A.22.16-21 已于 PR #593 合入（运营后台 PRD 独立于桌面 PRD）。
 
 ## [2026-08-12] 视频克隆 切片 4d：运行记录持久化 + regenerate（部分流水线 initialReport）
 

@@ -35,8 +35,11 @@ def _not_found():
 
 @router.post("/cases")
 async def create_case(body: dict, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+    username = user.get("username") or user.get("sub") or "unknown"
     try:
-        return await service.create_case(db, body, user.get("username") or user.get("sub") or "unknown")
+        if body.get("source_mode") == "scene":
+            return await service.create_case_scene(db, body, username)
+        return await service.create_case(db, body, username)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -73,6 +76,15 @@ async def create_run(case_id: int, db: AsyncSession = Depends(get_db), user: dic
     return run
 
 
+@router.get("/cases/{case_id}/runs")
+async def list_case_runs(case_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+    """轻量轮询接口：只返回 case 的 runs（不携带 scenes/大文本），供前端场景状态轮询。"""
+    row = await service.get_case(db, case_id)
+    if row is None or not _can_access(row, user):
+        _not_found()
+    return {"items": await service.list_runs_for_case(db, case_id)}
+
+
 @router.get("/runs/{run_id}")
 async def get_run(run_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     run = await service.get_run(db, run_id)
@@ -93,9 +105,50 @@ async def list_cases(db: AsyncSession = Depends(get_db), user: dict = Depends(ge
 @router.get("/cases/{case_id}")
 async def get_case(case_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     row = await service.get_case(db, case_id)
-    if row is None or (row.created_by not in (user.get("username"), user.get("sub"), "unknown") and not _is_admin(user)):
+    if row is None or not _can_access(row, user):
         _not_found()
-    return {"case": service.case_to_dict(row), "runs": await service.list_runs_for_case(db, case_id)}
+    result = {"case": service.case_to_dict(row), "runs": await service.list_runs_for_case(db, case_id)}
+    if row.source_mode == "scene":
+        result["scenes"] = await service.list_scenes(db, case_id)
+    return result
+
+
+@router.post("/cases/{case_id}/scenes/{scene_id}/translate")
+async def translate_scene(case_id: int, scene_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+    row = await service.get_case(db, case_id)
+    if row is None or not _can_access(row, user):
+        _not_found()
+    scene = await service.get_scene(db, scene_id)
+    if scene is None or scene.case_id != case_id:
+        _not_found()
+    try:
+        return await service.translate_scene(db, scene, row, _translate_cfg())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception:
+        raise HTTPException(502, "中英对照生成失败，请稍后重试（若持续失败请检查 LLM 密钥配置）")
+
+
+@router.post("/cases/{case_id}/scenes/{scene_id}/runs")
+async def create_scene_run(case_id: int, scene_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+    row = await service.get_case(db, case_id)
+    if row is None or not _can_access(row, user):
+        _not_found()
+    scene = await service.get_scene(db, scene_id)
+    if scene is None or scene.case_id != case_id:
+        _not_found()
+    if not (scene.prompt_zh or "").strip():
+        raise HTTPException(400, "该场景尚未生成中英对照，请先点击「重新生成中英对照」")
+    gen_cfg = await service.get_provider_key(db, row.provider, row.model, _secret())
+    if gen_cfg is None:
+        raise HTTPException(400, "未配置可用的图片生成模型，请先在「模型密钥」中配置")
+    vision_key = os.environ.get("OPS_PROMPT_EVAL_VISION_API_KEY")
+    if not vision_key:
+        raise HTTPException(502, "未配置视觉评估模型密钥（OPS_PROMPT_EVAL_VISION_API_KEY），无法评估")
+    run = await service.create_scene_run(db, scene, row, user.get("username") or user.get("sub") or "unknown")
+    eval_cfg = {**_translate_cfg(), "api_key": vision_key}
+    service.start_scene_run_pipeline(async_session, run["id"], service.scene_snapshot(scene, row), gen_cfg, eval_cfg)
+    return run
 
 
 @router.put("/cases/{case_id}")
