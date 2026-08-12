@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-08-12 (视频提示词输出语言按目标平台路由)
+
+### 新增
+- **语言路由增强**：独立引擎请求 output_language 解析升级为「显式参数 → 目标平台集合 → model 关键词兜底 → 文本 CJK 检测」：
+  - 国产视频模型（minimax/seedance/kling/hailuo/doubao/cogvideo/hunyuan/wan/agnes）→ `zh`（中文主体 + 镜头术语双语，保真最高）
+  - 国外视频模型（veo/runway/sora/ltx/pika/luma）→ `en`（模型按英文语料优化）
+  - 避免「中文文案 + Veo/Runway」时中文提示词发给国外模型的错配
+- **videogen 透传 model**：优化请求额外携带 `model`（`getDefault('video')` 返回的模型名），供通用网关 provider 场景按模型名兜底判 zh/en。
+
+### 测试
+- `video-prompt-engine-contract.test.js` 新增 8 用例（中文文案+veo→en / 中文文案+seedance→zh / 英文+minimax→zh / 显式覆盖 / 别名归一 / model 兜底 / 未知兜底 / languageFrom* 单元）；`videogen-stages.test.js` 新增透传断言（platform+model 转发）。
+- 关联 prompt-engine 策略对齐（veo 英文优先 / doubao 中文优先注记，PR 待合）。
+
+### 文档
+- 关联 prompt-engine `01-docs/PRD-video-prompt-engine.md` §3.9 语言路由段落更新。
+
 ## [Unreleased] - 2026-08-12 (视频提示词优化：独立引擎 8020 优先 + 8013 回退)
 
 ### 新增
