@@ -715,6 +715,23 @@ var require_tts_voice_clone = __commonJS({
   }
 });
 
+// electron/preload/prompt-eval.js
+var require_prompt_eval = __commonJS({
+  "electron/preload/prompt-eval.js"(exports2, module2) {
+    function createPromptEvalApi2(ipcRenderer2) {
+      return {
+        promptEvalRun: (request) => ipcRenderer2.invoke("prompt-eval:run", request),
+        promptEvalList: () => ipcRenderer2.invoke("prompt-eval:list"),
+        promptEvalGet: (id) => ipcRenderer2.invoke("prompt-eval:get", id),
+        promptEvalDelete: (id) => ipcRenderer2.invoke("prompt-eval:delete", id),
+        promptEvalAnalyze: () => ipcRenderer2.invoke("prompt-eval:analyze"),
+        promptEvalDimensions: () => ipcRenderer2.invoke("prompt-eval:dimensions")
+      };
+    }
+    module2.exports = { createPromptEvalApi: createPromptEvalApi2 };
+  }
+});
+
 // electron/preload/page-manager.js
 var require_page_manager = __commonJS({
   "electron/preload/page-manager.js"(exports2, module2) {
@@ -968,6 +985,7 @@ var { createReplayApi } = require_replay();
 var { createIdentityApi } = require_identity();
 var { createTtsVoiceCatalogApi } = require_tts_voice_catalog();
 var { createTtsVoiceCloneApi } = require_tts_voice_clone();
+var { createPromptEvalApi } = require_prompt_eval();
 var { createPageManagerApi } = require_page_manager();
 var {
   ADMIN_ONLY_METHODS,
@@ -1002,6 +1020,7 @@ var fullApi = {
   ...createIdentityApi(ipcRenderer),
   ...createTtsVoiceCatalogApi(ipcRenderer),
   ...createTtsVoiceCloneApi(ipcRenderer),
+  ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer)
 };
 var exposedApi = createDynamicAccessApi(fullApi, getAccessLevel);

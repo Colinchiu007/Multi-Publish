@@ -263,6 +263,25 @@ function extractContext(container) {
   const story2videoProjectService = container.get('story2videoProjectService')
   story2videoProjectService.modelProviderManager = modelProviderManager
 
+  // ─── 提示词评估服务（PromptEval，v1 图片）───
+  const { app: electronAppForPromptEval } = require('electron')
+  const { createPromptEvalService } = require('../services/prompt-eval')
+  const { createModelProviderEvaluator } = require('../services/prompt-eval/evaluator')
+  const promptEvalUserDataDir = electronAppForPromptEval && typeof electronAppForPromptEval.getPath === 'function'
+    ? electronAppForPromptEval.getPath('userData')
+    : require('path').join(require('os').tmpdir(), 'multi-publish-prompt-eval')
+  // 评估器依赖真实 ModelProviderManager；缺失时传 null（引擎在调用时 fail closed 返回 EVAL_LLM_UNAVAILABLE）
+  const promptEvalEvaluator = modelProviderManager &&
+    typeof modelProviderManager.getDefault === 'function' &&
+    typeof modelProviderManager.callAdapter === 'function'
+    ? createModelProviderEvaluator({ manager: modelProviderManager, log })
+    : null
+  const promptEvalService = createPromptEvalService({
+    userDataDir: promptEvalUserDataDir,
+    evaluator: promptEvalEvaluator,
+    log,
+  })
+
   // ─── 平台配置 + 敏感词 + 横切服务 ───
   const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
   const BACKEND_PLATFORMS = new Set(['youtube', 'tiktok', 'twitter'])
@@ -308,6 +327,7 @@ function extractContext(container) {
       projectService, boardService, contactSheetService, approvalGateService,
       executionRecorder,
       story2videoProjectService,
+      promptEvalService,
     },
     windows: {
       authViewManager, rpaViewManager, webviewManager, qrCodeLogin,
