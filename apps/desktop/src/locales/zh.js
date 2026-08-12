@@ -233,6 +233,7 @@ export default {
     dimContentAccuracy: '内容准确性',
     dimAestheticQuality: '视觉审美质量',
     dimCrossImageConsistency: '跨图上下文一致性',
+  },
   home: {
     subtitle: '多平台内容一键发布',
     newPublish: '新建发布',

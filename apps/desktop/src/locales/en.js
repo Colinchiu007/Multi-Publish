@@ -233,6 +233,7 @@ export default {
     dimContentAccuracy: 'Content Accuracy',
     dimAestheticQuality: 'Aesthetic Quality',
     dimCrossImageConsistency: 'Cross-Image Consistency',
+  },
   home: {
     subtitle: 'Publish everywhere with one click',
     newPublish: 'New Publish',
