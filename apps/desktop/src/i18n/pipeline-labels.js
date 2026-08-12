@@ -83,6 +83,12 @@ const PIPELINES = {
     category: 'generated',
     stages: ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
   },
+  'video-clone': {
+    name: 'pipelines.names.video-clone',
+    description: 'pipelines.descriptions.video-clone',
+    category: 'generated',
+    stages: ['ingest', 'analyze', 'plan', 'generate', 'compose', 'publish'],
+  },
 }
 
 const CATEGORIES = {

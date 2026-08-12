@@ -104,16 +104,29 @@ describe("CreateView", () => {
     expect(w.text()).toContain("视频创作");
   });
 
-  it("流水线创作视图包含视频克隆入口", async () => {
+  it("流水线创作视图包含视频克隆入口卡片（与其他流水线同款 UI）", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
     w.vm.view = "pipelines";
     await nextTick();
-    const entry = w.find(".video-clone-entry");
-    expect(entry.exists()).toBe(true);
-    expect(entry.text()).toContain("视频克隆");
+    const card = w.find('[data-pipeline-id="video-clone"]');
+    expect(card.exists()).toBe(true);
+    expect(card.text()).toContain("视频克隆");
+    expect(card.text()).toContain("对标拆解");
+  });
+
+  it("点击视频克隆入口卡片路由到 /video-clone", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.view = "pipelines";
+    await nextTick();
+    const push = vi.spyOn(w.vm.$router, "push");
+    await w.find('[data-pipeline-id="video-clone"]').trigger("click");
+    expect(push).toHaveBeenCalledWith("/video-clone");
   });
 
   it("shows three view tabs", async () => {
@@ -1504,9 +1517,10 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.loadPipelines();
 
     expect(w.vm.pipelines.map(pipeline => pipeline.name)).toEqual([
-      "story2video-compose", "cinematic", "animated-explainer",
+      "story2video-compose", "video-clone", "cinematic", "animated-explainer",
     ]);
     expect(w.find('[data-pipeline-id="story2video-compose"]').exists()).toBe(true);
+    expect(w.find('[data-pipeline-id="video-clone"]').exists()).toBe(true);
     w.unmount();
   });
   it("流水线卡片优先显示后端 stageCount", async () => {

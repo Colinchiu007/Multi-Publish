@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.12（E2E 复验：创作入口 → 完整分析流）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.13（入口 UI 统一：标准流水线卡）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -706,8 +706,9 @@ VideoClonePipeline：
 
 ## 25. 详细规格：视频创作模块入口集成（v1.11 追加）
 
-- CreateView「流水线创作」视图（view=pipelines）顶部新增「视频克隆」入口卡：标题 + 描述（链接/本地视频 → 拆解报告 → 同款成片）+ 「进入 →」按钮，点击 $router.push('/video-clone')；
-- 样式：独立 scoped 卡片（hover 主色边框），与流水线列表并列；
+- ~~CreateView「流水线创作」视图（view=pipelines）顶部新增「视频克隆」入口卡：标题 + 描述（链接/本地视频 → 拆解报告 → 同款成片）+ 「进入 →」按钮，点击 $router.push('/video-clone')；~~
+- ~~样式：独立 scoped 卡片（hover 主色边框），与流水线列表并列；~~
+- **（v1.13 已废弃自绘入口卡，改为标准流水线卡，见 §27）**；
 - 测试：CreateView.test.js 新增「流水线创作视图包含视频克隆入口」（150 用例全绿）；
 - 构建：vite build 通过（模板编译无错误）；
 - 后续可选：主导航/首页快捷入口（未做，视需要再加）。
@@ -717,7 +718,7 @@ VideoClonePipeline：
 
 ### 26.1 复验脚本增强（scripts/video-clone-e2e.js）
 
-- 新增入口段：hash=#/create → 流水线创作视图 → 断言 .video-clone-entry 可见（含文案）→ 截图 → 点击 → 断言落入 .video-clone-view（/video-clone）→ 继续既有分析流（填路径→开始分析→报告/相似度→落库）。
+- 新增入口段：hash=#/create → 流水线创作视图 → 断言 `[data-pipeline-id="video-clone"]` 标准流水线卡可见（与其他流水线同款 UI：标题「视频克隆」+ 描述「对标拆解与再创作…」+ 徽标/阶段数/成本/可用性）→ 截图 → 点击 → 断言落入 .video-clone-view（/video-clone）→ 继续既有分析流（填路径→开始分析→报告/相似度→落库）。
 
 ### 26.2 打包应用实测证据（2026-08-12，electron 43.1.1，vite build + electron-builder --win --dir）
 
@@ -726,4 +727,21 @@ VideoClonePipeline：
 - 分析流：REPORT_CARD=VISIBLE（3s/320x240/16:9）、SIMILARITY=综合分 1（needs_review 证据门控）、历史落库 vc-mspyg0rn-tf7i1h.json
 - 截图（gitignored，磁盘留存）：01-docs/evidence/video-clone-entry.png、video-clone-e2e.png
 - E2E_EXIT=0；无关告警：首页 onTabEvent/onRenderProgress 权限提示（未登录既有行为，与视频克隆无关）
+
+## 27. 详细规格：入口 UI 统一 — 标准流水线卡（v1.13 追加）
+
+### 27.1 规格
+
+- CreateView「流水线创作」视图（view=pipelines）移除 v1.11 自绘 `.video-clone-entry` 条（§25 废弃），视频克隆改为与其它流水线一致的标准流水线卡（`PipelineSelector` 渲染，`[data-pipeline-id="video-clone"]`）。
+- 卡片结构与其它流水线同款：分类徽标 / 标题「视频克隆」/ 描述「对标拆解与再创作：链接/本地视频 → 拆解报告 → 同款成片」/ 阶段数（6）/ 成本（中等）/ 可用性（可用）。
+- category 复用既有 `generated`（「AI 生成」），复用既有徽标/卡片 CSS，不新增分类；注册表 `pipeline-labels.js` PIPELINES 新增 `video-clone`（stages: ingest/analyze/plan/generate/compose/publish）。
+- 点击视频克隆卡片直接路由 `/video-clone`（`selectPipeline` 特判，不走通用流水线配置详情）；入口卡位置紧随 story2video-compose，且独立于后端 `pipelineList` 结果（`withVideoCloneEntry` 前端兜底注入）。
+- 测试同步：CreateView.test.js 断言 `[data-pipeline-id="video-clone"]` 卡片存在/文案/点击路由；`scripts/video-clone-e2e.js` 入口段选择器同步更新。
+
+### 27.2 打包应用实测证据（2026-08-12，electron 43.1.1，vite build + electron-builder --win --dir）
+
+- ENTRY_CARD=VISIBLE；ENTRY_TEXT=「AI 生成 视频克隆 对标拆解与再创作：链接/本地视频 → 拆解报告 → 同款成片 6 阶段 中等 可用」（与其它流水线卡同款结构）
+- ENTRY_CLICK_LANDS=VIDEO_CLONE_VIEW（卡片点击路由成功）
+- 分析流：REPORT_CARD=VISIBLE（3s/320x240/16:9）、SIMILARITY=综合分 1（needs_review 证据门控）、历史落库 vc-mspz7dvq-74rwfe.json
+- 测试：CreateView.test.js 151 全绿（含入口卡 + 点击路由 + 排序含 video-clone）；eslint 0 error；E2E exit 0
 
