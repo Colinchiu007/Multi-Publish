@@ -1,3 +1,10 @@
+## [2026-08-12] 字幕对齐真实 E2E 集成验证（stage 接线链路）
+
+- 新增 `subtitle-align-e2e.test.js`（RUN_ALIGNER_E2E=1 时执行，CI 默认 skip）：真实 edge-tts 合成旁白 → 真实 aligner 子进程（faster-whisper base）→ 真实 `alignScenes` 服务 → subtitleTimeline/subtitleAlign
+- 实测：7 块全部 aligned=true / method=asr / coverage≥0.9；块区间连续且存在真实停顿间隔（比例估算无间隔）；charTimings 与块区间一致
+- 时间轴：0.22~1.84 / 2.30~4.14 / 4.65~6.10 / 6.56~8.66 / 9.05~10.36 / 10.73~12.02 / 12.43~14.14（15.72s 音频）
+- 覆盖：stage 接线链路（此前仅 mock 单测）现已含真实子进程/ASR 集成证据
+
 ## [2026-08-12] 视频克隆 切片 2：真实 ingest / analyze / plan adapter（PR #596 前身）
 
 - `packages/video-clone-engine/src/adapters/`：runners（ffprobe 元数据 / ffmpeg scene 场景检测 / yt-dlp 下载 / 下载错误文本分类）、ingest-local（存在/大小/扩展名/时长校验 + 错误映射）、ingest-url（下载 + 平台提示 + 私密/会员/地区/反爬分类）、analyze-ffprobe（补探元数据 + 场景检测降级合成分段 + ASR 契约 + 7 层骨架 + aspect 派生）、plan-script（改写契约 + inspiration 模式 + 防御归一化）、index（createDefaultIngest / createSlice2Pipeline）。
