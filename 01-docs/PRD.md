@@ -1445,8 +1445,11 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 文件 | 位置 | 职责 |
 |------|------|------|
 | cohere-design-system.css | src/styles/ | 全局基础令牌（颜色、间距、圆角、布局） |
-| ideo-creation-tokens.css | src/styles/ | 视频创作专用令牌（流水线分类色、状态色、Banner 色等），继承全局令牌 |
-| main.js | src/ | 按顺序导入两个样式文件 |
+| video-creation-tokens.css | src/styles/ | 视频创作专用令牌（流水线分类色、状态色、Banner 色、Upload Zone、骨架屏、Element Plus 映射、通用变量映射），继承全局令牌；含 `[data-theme="dark"]` 暗色模式完整覆盖层 |
+| video-creation-buttons.css | src/styles/ | 视频创作统一按钮系统（s2v-btn-primary/secondary/ghost/danger/resume/sm/icon），消除 btn-secondary / history-btn / 原生 button 混用；含暗色模式适配 |
+| video-creation-shared.css | src/styles/ | 视频创作共享 UI 模式（加载状态 s2v-loading、空状态 s2v-empty、进度条 s2v-progress-bar、错误提示 s2v-error-banner、状态点 s2v-status-dot、状态徽章 s2v-status-badge、阶段标签 s2v-stage-tag），消除 history-page / history-panel 重复定义 |
+| create-view.css | src/styles/ | CreateView.vue 页面布局、流水线卡片、配置面板、编排进度、骨架屏、标签切换动画（293 行） |
+| main.js | src/ | 按顺序导入全局令牌 + 视频创作令牌样式文件 |
 
 ##### C. 暗色模式支持
 
