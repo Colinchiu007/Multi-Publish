@@ -112,6 +112,14 @@
           <el-icon><Document /></el-icon>
           <span>审计日志</span>
         </el-menu-item>
+        <el-menu-item index="/prompt-eval-workbench">
+          <el-icon><MagicStick /></el-icon>
+          <span>提示词评测</span>
+        </el-menu-item>
+        <el-menu-item index="/model-keys">
+          <el-icon><Key /></el-icon>
+          <span>模型密钥</span>
+        </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
         <span>{{ authStore.username }}</span>

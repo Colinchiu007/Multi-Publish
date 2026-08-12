@@ -49,6 +49,14 @@
 - **对齐评估报告**：mode/coverage/matched/missing/retries 写入 run 上下文 videoContentFidelity；视觉评估接口预留 not_implemented（不冒充实现）。
 - **配置**：story2videoTextConfig.video_content_fidelity（enabled/minCoverage=0.8/maxRetries=2/llmExtractFallback/maxFullTextChars=6000），越界 fail closed。
 - **回归**：videogen-stages 32、videogen-content-fidelity 27、contract 23、text-config 68、agnes-video 40、prompt-engine test_video_optimize 20 全绿；creative 短输入行为不变。
+## [未发布] 功能：运营后台「提示词评测工作台」PromptEval Workbench（2026-08-12）
+
+- 运营后台新增评测工作台：运营人员录入原文 + 优化后提示词（中文）→ 后台 LLM 自动生成英文对照（标注「机器翻译」）→ 真实生图（服务端直连 minimax-image/flux）→ 视觉评估（复用桌面端 PromptEval 维度契约）→ 同屏比对 原文|中英提示词|生成物|评估结果 + 多 run 对比 + 聚合分析。
+- 后端：prompt_eval_cases/runs/provider_keys 3 表；/api/v1/prompt-eval/*（读=登录、写=登录/创建者、密钥=admin）；契约/生成/翻译/评估/流水线服务；异步状态机（queued→processing→succeeded→evaluating→succeeded/failed，失败不静默降级）；密钥 Fernet 加密存储。
+- 前端：PromptEvalWorkbench.vue（新建/列表详情/聚合分析 三 Tab）+ ModelKeys.vue（admin 密钥）+ 路由/菜单。
+- 与桌面端契约一致性：prompt_eval_contract.py 与 dimensions.js 一致性测试（node 加载断言）。
+- 测试：后端新增 16 例（契约 5/API 5/服务 6）单独运行全绿；前端 npm run build 通过。（全量 pytest 套件 DB 路径交叉干扰为既有问题，排除本次文件仍有 4 failed + 17 errors）
+- 文档：ops-center/docs/PRD.md 12A.22、PRD-PROMPT-EVAL-OPS-WORKBENCH、ARCH-PROMPT-EVAL-OPS-WORKBENCH、openspec change、CHANGELOG。
 ## [未发布] 修复：补 story2video.summaryDuration/summaryFileSize locale 缺键（2026-08-12）
 
 - CreateView 完成摘要行使用 `story2video.summaryDuration` / `story2video.summaryFileSize` 键但 zh/en locale 缺失，产生 intlify 警告（此前仅靠硬编码兜底）。补两个命名插值键（`ctx.named('text')` / `ctx.named('size')`），`CreateView.vue` 两处调用补传 `{ text }` / `{ size }` 参数。

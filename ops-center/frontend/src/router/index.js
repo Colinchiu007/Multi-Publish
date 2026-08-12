@@ -158,6 +158,18 @@ const routes = [
     component: () => import('../views/AuditLog.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/prompt-eval-workbench',
+    name: 'PromptEvalWorkbench',
+    component: () => import('../views/PromptEvalWorkbench.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/model-keys',
+    name: 'ModelKeys',
+    component: () => import('../views/ModelKeys.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({
@@ -183,5 +195,6 @@ router.beforeEach((to, from, next) => {
 })
 
 export default router
+
 
 
