@@ -97,7 +97,8 @@ def simulate(params: dict) -> dict:
     cooldown_until = 0
     rate_factor = 1.0
     used_5h = 0
-    finish_heap = []  # 执行中请求的完成时间；堆长度 = 当前并发
+    finish_heap = []  # 执行中请求的完成时间；堆长度 = 并发信号量占用（含已开始未完成）
+    executing_now = 0  # 实际执行中请求数（started 后 - finished 前）；观测口径与真实 governor 一致
     timeline = []
     factor_curve = []
     max_concurrent_observed = 0
@@ -107,14 +108,19 @@ def simulate(params: dict) -> dict:
     quota_exceeded_count = 0
     started_times = []
 
+    def _release_finished():
+        nonlocal executing_now
+        while finish_heap and finish_heap[0] <= now:
+            heapq.heappop(finish_heap)
+            executing_now -= 1
+
     for i in range(1, n + 1):
         arrive_at = (i - 1) * interval
         now = max(now, arrive_at)
         # 释放已完成的槽
-        while finish_heap and finish_heap[0] <= now:
-            heapq.heappop(finish_heap)
+        _release_finished()
         active = len(finish_heap)
-        max_concurrent_observed = max(max_concurrent_observed, active)
+        max_concurrent_observed = max(max_concurrent_observed, executing_now)
 
         entry = {
             "req": i, "arrived_at": arrive_at,
@@ -137,7 +143,8 @@ def simulate(params: dict) -> dict:
                 timeline.append(entry)
                 continue
             now = finish_heap[0]
-            heapq.heappop(finish_heap)  # 复用槽位
+            heapq.heappop(finish_heap)  # 复用槽位（该请求完成）
+            executing_now -= 1
             queue_wait += wait
         # RPM 时间槽（先同步预约，再判超时；与桌面端 _pace 一致）
         rpm_eff = _effective_rpm(rpm, rate_factor)
@@ -174,6 +181,7 @@ def simulate(params: dict) -> dict:
         entry["finished_at"] = finished
         entry["state"] = "completed"
         heapq.heappush(finish_heap, finished)
+        executing_now += 1
         used_5h += 1
         # 记账：注入 429 → 冷却 + 自适应下调；否则缓慢恢复
         if inject_at is not None and i == inject_at:

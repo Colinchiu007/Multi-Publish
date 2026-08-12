@@ -32,6 +32,7 @@ function registerAllHandlers(ipcMain, deps) {
   require('./onboarding')(ipcMain, deps)
   require('./model-provider')(ipcMain, deps)
   require('./ops-center-sync').registerHandlers(ipcMain, deps)
+  require('./rate-limit').registerHandlers(ipcMain, deps)
   require('./tts-voice-catalog')(ipcMain, deps)
   require('./tts-voice-clone')(ipcMain, deps)
   require('./prompt-eval')(ipcMain, deps)
@@ -49,4 +50,5 @@ function registerAllHandlers(ipcMain, deps) {
 }
 
 module.exports = registerAllHandlers
+
 

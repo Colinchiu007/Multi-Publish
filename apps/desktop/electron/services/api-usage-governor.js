@@ -385,7 +385,9 @@ class ApiUsageGovernor {
         win.startedAt = now
         continue
       }
-      if (win.used >= win.limit) {
+      // 执行后断言：仅当「已超上限」（used > limit）才抛——第 limit 次成功调用应被允许，
+      // 与 _preflightTokenBudget 的「used >= limit 即拒」（第 limit+1 个起拒绝）语义对齐（2026-08-12 对拍审计）。
+      if (win.used > win.limit) {
         const label = win.windowMs >= 7 * 24 * 3600 * 1000 ? '每周' : (win.windowMs >= 3600 * 1000 ? '每 5 小时' : '当前周期')
         throw new ProviderError(
           ERROR_CODES.QUOTA_EXCEEDED,

@@ -250,11 +250,15 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     const a2 = expect(p2).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a2
-    // 第 3 次调用：3 次限额已用完（used=3 >= 3）→ QUOTA_EXCEEDED（无 usage 字段也按请求次数累计）
+    // 第 3 次调用：3 次限额用完（used=3，第 limit 次允许成功）→ 第 4 次起预检拒绝
     const p3 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
-    const a3 = expect(p3).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    const a3 = expect(p3).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a3
+    const p4 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
+    const a4 = expect(p4).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    await vi.advanceTimersByTimeAsync(200)
+    await a4
   })
 
   it('provider 级 5h 请求窗口（setProviderTokenWindows）跨 type:model key 共享计数', async () => {
@@ -262,7 +266,7 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     const g = new ApiUsageGovernor({})
     g.setLimits('p:llm:m', { maxConcurrent: 2, rpm: 1000, retry429: 3 })
     // 与 ModelProviderManager._applyGovernorLimits 相同的注入方式（providerId 级）
-    // 窗口语义：请求完成后校验（used>=limit 当次即拒）→ limit=3 允许前 2 次成功
+    // 窗口语义：第 limit 次允许成功，第 limit+1 个起预检拒绝（2026-08-12 与模拟器 preflight 语义对齐）
     g.setProviderTokenWindows('p', [{ windowMs: 5 * 3600 * 1000, limit: 3, field: 'requests' }])
     const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
     const a1 = expect(p1).resolves.toMatchObject({ ok: true })
@@ -272,11 +276,16 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     const a2 = expect(p2).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a2
-    // 第 3 次（不同 model key 也命中 provider 级共享窗口）→ QUOTA_EXCEEDED
+    // 第 3 次（不同 model key 也命中 provider 级共享窗口）：第 limit 次允许成功
     const p3 = g.run({ type: 'llm', providerId: 'p', model: 'm3' }, async () => ({ ok: true }))
-    const a3 = expect(p3).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    const a3 = expect(p3).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a3
+    // 第 4 次（超过 limit）→ QUOTA_EXCEEDED
+    const p4 = g.run({ type: 'llm', providerId: 'p', model: 'm4' }, async () => ({ ok: true }))
+    const a4 = expect(p4).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    await vi.advanceTimersByTimeAsync(200)
+    await a4
   })
 
   it('清除 provider 级窗口（传 []）后不再拦截', async () => {
@@ -284,16 +293,22 @@ describe('ApiUsageGovernor 并发/限流/排队/重试', () => {
     const g = new ApiUsageGovernor({})
     g.setLimits('p:llm:m', { maxConcurrent: 2, rpm: 1000, retry429: 3 })
     g.setProviderTokenWindows('p', [{ windowMs: 5 * 3600 * 1000, limit: 1, field: 'requests' }])
+    // 第 1 次：limit=1 允许成功（第 limit 次）
     const p1 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
-    const a1 = expect(p1).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
+    const a1 = expect(p1).resolves.toMatchObject({ ok: true })
     await vi.advanceTimersByTimeAsync(200)
     await a1
-    // 清除后第 2 次放行
-    g.setProviderTokenWindows('p', [])
+    // 第 2 次：used=1 >= 1 → 预检拒绝
     const p2 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
-    const a2 = expect(p2).resolves.toMatchObject({ ok: true })
+    const a2 = expect(p2).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' })
     await vi.advanceTimersByTimeAsync(200)
     await a2
+    // 清除后第 3 次放行
+    g.setProviderTokenWindows('p', [])
+    const p3 = g.run({ type: 'llm', providerId: 'p', model: 'm' }, async () => ({ ok: true }))
+    const a3 = expect(p3).resolves.toMatchObject({ ok: true })
+    await vi.advanceTimersByTimeAsync(200)
+    await a3
   })
 
   it('同 key 嵌套 run 重入透传：外层持有时内层直接执行，不自死锁（2026-08-10 双包死锁复盘）', async () => {
