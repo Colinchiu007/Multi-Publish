@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.3（切片 3：generate/compose/publish adapter 详细规格）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.4（切片 4：IPC 契约与桌面 UI 详细规格）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -513,4 +513,41 @@ VideoClonePipeline：
 - 六阶段组装：ingest/analyze/plan 真实 + generate/compose/publish 契约；
 - 验证：本地 2s 样例 → 纯色 PNG 素材（真实 ffmpeg）→ 真实合成 → ffprobe 校验（时长≈源/分辨率/音轨）→ F4 相似度（structure=1、confidence≥0.5）；
 - 未注入 assetGenerator → 停在 generate（PROVIDER_UNAVAILABLE）。
+
+
+## 18. 详细规格：切片 4 — IPC 契约与桌面 UI（v1.4 追加）
+
+### 18.1 IPC 通道契约（主进程 ↔ 渲染层）
+
+| 通道 | 方向 | 请求 | 响应 / 事件 |
+|---|---|---|---|
+| video-clone:run | invoke | { source:{ type:'local'|'url', path?, url?, platform? }, options:{ replicationLevel, mode, videoTypes, rewriteScript, target, failOnLowSimilarity } } | { ok, runId, report, similarity, publishResult, error? }（report 经 sanitizeReportForIpc 深拷贝） |
+| video-clone:progress | 主→渲染 事件 | — | { type: 'stage:started'|'stage:succeeded'|'stage:failed'|'aborted'|'completed', stage?, error?, runId?, elapsedMs? } |
+| video-clone:cancel | invoke | { runId } | { ok }（AbortController.abort；阶段边界协作中止） |
+| video-clone:report:edit | invoke | { runId, patch:{ path, value } } | { ok, report }（非法 patch → VIDEOCLONE_REPORT_EDIT_INVALID） |
+| video-clone:report:regenerate | invoke | { runId } | 重跑 generate→compose（复用已编辑报告） |
+
+- preload 暴露：window.electronAPI.videoClone.{ run, onProgress, cancel, editReport, regenerate }；
+- 错误统一 { code, phase, retryable, userMessageKey, params } → 渲染端 formatUserError 映射（PRD §14 表）；
+- IPC 参数必须是纯 JSON（QM-2：Vue reactive 对象先 JSON.parse(JSON.stringify()) 脱壳）。
+
+### 18.2 渲染层视图（VideoCloneView.vue，路由 /video-clone）
+
+- **输入区**：链接输入（8 平台徽标识别）/ 本地文件（拖拽 + 选择，显示 文件名/大小/时长/分辨率）；复刻层级（L0/L1/L2）、模式、视频类型（剧情短剧/B-roll/口播）、文案改写开关；「开始分析」按钮，输入校验就地提示（§14 错误码）。
+- **分析进度**：六阶段卡片（等待/进行中/成功/失败可重试/跳过），进度事件驱动，取消按钮。
+- **报告编辑**：7 层 Tab + 时间轴编辑器 + 原片/当前双栏对比 + 保存并重新生成 / 放弃修改。
+- **结果页**：成片预览、F4 相似度仪表（综合分 + 结构/文案/风格/时长四项 + 达标徽标 + verbatim 照抄警告）、AI 生成标识（强制）、发布按钮（PublisherRouter，可选）、历史入口。
+- 显示项清单见 §13.6；提示文字见 §14 + 通用提示（分析中/生成中/已完成/已取消）。
+
+### 18.3 主进程服务（video-clone-service.js，切片 4b 接线）
+
+- createVideoCloneRunner({ createPipeline: createSlice3Pipeline, pipelineOptions, onEvent → webContents.send('video-clone:progress', ...), signal → AbortController.signal })；
+- run 会话表：runId → { controller, runner, tmpDirs }；cancel 中止并清理；窗口销毁时释放监听器（全局单例事件一次注册）。
+
+### 18.4 Electron 门禁（QM-1/QM-2，切片 4b 提交前必须满足）
+
+- 修改 apps/desktop/electron 后本地打包验证（QM-1：electron-builder --win --dir 成功 + 启动 8s 无关键 stderr）；
+- preload 增改后 sandbox:true/false 双模式验证 window.electronAPI；
+- 受保护 IPC 通道 file:// sender canonical 校验（realpathSync.native 双向）；
+- 环境前提：node_modules 完整（npm ci）+ workspace junction 指向当前 worktree——当前所有 worktree 无 node_modules，4b 接线待环境就绪后执行。
 

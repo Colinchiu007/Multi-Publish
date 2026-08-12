@@ -1,3 +1,10 @@
+## [2026-08-12] 视频克隆 切片 4a：IPC-ready runner（进度事件/协作中止）+ IPC 与 UI 详细规格
+
+- `packages/video-clone-engine`：pipeline 支持 executorOptions.eventSink（stage:started/succeeded/failed/aborted）与 abortSignal（阶段边界协作中止）；新增 runner.js（createVideoCloneRunner 注入事件/中止 + completed 生命周期事件）。
+- 测试 91 用例全绿（runner 5：事件序列/失败/运行前中止/阶段内中止/elapsedMs）。
+- PRD v1.4 §18 IPC 契约与桌面 UI 详细规格（video-clone:run/progress/cancel/report:edit/report:regenerate 通道、preload API、VideoCloneView 交互逻辑、主进程服务生命周期、QM-1/QM-2 门禁前置）。
+- 切片 4b（Electron 接线：服务/IPC/preload/Vue 视图）契约已定义，待 node_modules 环境（npm ci 后台进行）与 QM-1 打包验证后提交。
+
 ## [2026-08-12] 视频克隆 切片 3：generate / compose / publish adapter（真实 ffmpeg 合成）
 
 - `packages/video-clone-engine/src/adapters/`：generate-assets（createAssetPlan 逐镜头资产规格 + provider fail-closed 契约）、compose-ffmpeg（resolveTargetSize / buildAssScript ASS 字幕 / buildComposeCommand 纯函数 + createFfmpegCompose 执行与 ffprobe 校验）、publish（可选发布 skipped/成功/失败映射）、index（createSlice3Pipeline 六阶段组装）。
