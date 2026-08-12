@@ -1,0 +1,146 @@
+[codeagent-wrapper]
+  Backend: claude
+  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+  PID: 44616
+  Log: C:\Users\邱领\AppData\Local\Temp\codeagent-wrapper-44616.log
+  Web UI: http://localhost:56512
+  Session-ID: c3ad4d35-433f-4cf6-8828-286821998fb3
+我已完成对仓库（HEAD `17a75dcc`）的逐行证据核对。所有 file:line 均已在工作树核实，其中有 3 处关键 grep 结论与代码事实不符。以下为结构化审查意见。
+
+---
+
+# 独立审查：Multi-Publish 日志体系审计
+
+**总评**：主代理证据总体扎实、分级基本合理，**但存在 3 处证据误读**（B8 的"requestId grep 0 命中"、C11 的"shared-utils logger 疑似死代码"、C16 的"story2video 全静默"），以及正面清单 1 处事实错误（"全仓无第三方日志库"——Python 侧在用 loguru）。另补充 7 个被遗漏的高风险点。**建议：按 Critical 优先级修复后批准。**
+
+---
+
+## A. 敏感信息
+
+**A1 抖音上传授权 token 明文落盘 — [成立] 🔴 Critical**
+- 证据核对：`packages/python-backend/src/multi_publish/publishers/douyin.py:445` 确认存在 `logger.info(f"上传授权成功: {json.dumps(upload_token,...)[:200]}")`；且该文件用 `from loguru import logger`（douyin.py:28）。
+- **比审计结论更严重**：loguru 有 3 个 sink——全局按日文件、per-module `publish_douyin_*.log`（`logging_setup.py:73-82`）、stderr→被 `base-python-bridge.js:120` 以 info 级转发进桌面日志。token 一式三份落盘，且保留 15 天。
+- 建议：该行改为只记录 `upload_url` 的 host/状态码，或完全删除；`data` 字典整体（含签名上传 URL）不得进日志。
+
+**A2 桌面 logger 控制台未脱敏 — [成立] 🟡 Warning**
+- 证据核对：`apps/desktop/electron/services/logger.js:142-143` 确认 `console.log(prefix, module, message, meta)` 输出原始值，仅 144 行文件侧用脱敏后的 `body`。
+- 补充：142 行还把原始 `meta` **对象**直接传给 console（非 8000 截断的字符串版），控制台泄露量大于审计描述。
+- 建议：控制台同样输出脱敏值，或在注释中明确"控制台视为本地可信通道"；一旦用户重定向 stdout 即绕过脱敏。
+
+**A3 api-publish-engine logger/access-log 无脱敏 — [成立] 🟡 Warning**
+- 证据核对：`packages/api-publish-engine/src/logger.js:16-19` 确认 console-only 无 redact；`access-log.js:11` 确认 `method url status duration` 原文拼接。
+- 补充风险：access-log 记录完整 `req.url`，若 URL 带 `?token=`/`?sign=` 查询参数会原文落盘。
+- 建议：access-log 至少对 query string 做脱敏，或改成只记 path。
+
+**A4 脱敏正则仅 4 类 — [成立] 🟢 Info**
+- 证据核对：`logger.js:68-73` 确认仅 Bearer/apiKey/authorization/sk- 四类。
+- 建议：扩增 Cookie/JWT（非 sk-）/refresh_token/password；注意正则 `Bearer` 分支是**全局替换**但大小写匹配范围有限，建议补 `RefreshToken`、`access_token`（`_http_client.py` 等 python 侧常见字段名）。
+
+---
+
+## B. 静默关键路径
+
+**B5 publish-api-server 各 catch 无错误日志 — [成立] 🔴 Critical**
+- 证据核对：所列 7 处全部确认——535-539、583-588、639-644、702-707、719-722、934-936、964-966、1062-1064 均只 `_json(res,...)` 不记日志。`_json`（198-219）也只写响应头，无副作用日志。
+- **补充证据**：`publish-api-server.js:925` 与 `955` 是 `catch(e) { /* empty */ }`——比"无日志"更糟，错误被完全吞掉（plugins 列表路径）。
+- 建议：catch 统一加 `this.log.warn/error(code, stack)`，并连带生成 requestId 回传响应头，否则生产 5xx 永远不可诊断。
+
+**B6 auth/* 10 文件 0 日志 — [成立] 🔴 Critical**
+- 证据核对：`src/auth/` 恰好 10 文件，`console|logger` 检索 0 命中（唯一命中 `production-config.js:3` 是本地校验函数，非日志）。
+- 补充：`webhook-manager.js:156` `req.on('error', function() {})` 空处理、`:166` `catch(e) { return false }`——webhook 投递失败连错误码都没有；`_checkAuth`（`publish-api-server.js:254-289`）校验失败路径 0 日志，暴力破解不可观测。
+- 建议：验签失败/entitlement 失败记 WARN（不带 token 原文），webhook 投递失败记 ERROR（含目标 host + status）。
+
+**B7 retry-middleware 重试/熔断无日志 — [成立] 🟡 Warning**
+- 证据核对：`retry-middleware.js` 全文无任何输出；`recordFailure`（43-50）触发熔断打开无日志。
+- 建议：熔断 open/half-open/close 与每次重试退避记 WARN/INFO，否则限流误杀无从排查。
+
+**B8 全仓无 requestId/correlation id（grep 0 命中）— [部分成立] 🟡 Warning ⚠️证据误读**
+- **"grep 0 命中"不成立**。实命中：`packages/python-backend/src/multi_publish/_http_client.py:204,212,221,227`（读取上游 `x-request-id`）、`_errors.py:63,73,78-79`（`request_id` 进错误 `__str__`）。主代理的 grep 显然漏了 python 层。
+- 但**实质缺口成立**：这些是上游 provider 的 request id，全仓**没有**自生成的请求级 id、无中间件、access-log 无 requestId/ip/ua。
+- 建议：`_http_client.py` 读取上游 id 的模式应推广为全链路自生成 id；该条证据描述需更正。
+
+**B9 python uvicorn access log 不进 daily 文件 — [成立] 🟡 Warning**
+- 证据核对：`server.py:124` 确认 import 即 `setup_logging`；`server.py:654` `uvicorn.run(..., log_level="info")` 用标准 logging，loguru 不拦截 stdlib；`logging_setup.py:76` 的 `"server": ["uvicorn"]` filter 只对 loguru record 生效，对 uvicorn 无效。
+- 补充：uvicorn access 走 stderr→`base-python-bridge.js:121` 以 **warn** 级进桌面日志，严重级别错标（见补充 #6）。
+- 建议：`uvicorn.run` 加 `access_log=False` 自定义 middleware，或把 uvicorn logger handler 重定向到 loguru。
+
+**B10 ops-center 无请求中间件/requestId — [成立] 🟢 Info**
+- 证据核对：`ops-center/backend/main.py:27` basicConfig、`middleware/auth.py` 仅 JWT 鉴权，无 request-id。
+- 建议：该服务是 nginx 后管理后台、用户量小，加个 5 行 request-id middleware 即可，不必过度工程。
+
+---
+
+## C. 基础设施一致性
+
+**C11 多套 logger 并存 + shared-utils 死代码 — [部分成立] 🟡 Warning ⚠️证据误读**
+- **"未发现源码引用（疑似死代码）"不成立**：`packages/shared-utils/src/logger.js` 被 `format-adapter/rules.js:1` 和 `cover-processor/presets.js:1` `require('../logger')`，二者经 `index.js` 链可达，且 desktop 多处 require shared-utils（scheduler.js、webview-manager.js 等）。rules.js:14 在 platform 配置加载失败时会经它写 `userData/logs/app.log`（同步、无脱敏）。
+- "注释声称与 desktop 一致"**成立**：`logger.js:7` 指向的 `apps/desktop/electron/logger.js` 路径都不存在（实际为 `services/logger.js`），行为也确实不一致。
+- 建议：要么删除 shared-utils logger 并让 rules/presets 注入 logger，要么改为复用 desktop logger；同时修正误导注释。
+
+**C12 全仓文本行日志、无 JSON、无统一 level — [部分成立] 🟢 Info**
+- 级别大小写差异确认（desktop/engine 大写、shared-utils 小写 + `toUpperCase()`）。但"无 JSON/结构化"**以偏概全**：`audit-log.js` 就是 JSON 落盘，pipeline run-state 快照也是 JSON。日志流确为文本，但审计≠全仓无 JSON。
+- 建议：给桌面 logger 增加可选 `structured: true` 输出 JSON 行，逐步收敛到统一格式。
+
+**C13 保留策略不完整 — [成立] 🟡 Warning**
+- 桌面按日文件无自动清理（仅 `clearLogs()` 手动 / 500MB 删除）确认；`logger.js:171-184`。且 **500MB 是整文件删除而非轮转**——见补充 #5。
+- 建议：启动时按"保留 N 天"清理旧 `app-*.log`，把 500MB 整删改为滚到 `.1`。
+
+**C14 desktop logger 仅 meta 8000 cap — [成立] 🟢 Info**
+- 证据核对：`logger.js:88` 确认 message 不截断。
+- 建议：`safeMessage` 同样加长度上限（如 4096），防单条巨行撑爆文件与 UI。
+
+**C15 无统一 traceId 串联 IPC/Bridge/Python — [成立] 🟢 Info**
+- PipelineEngine `run.id` 正面例子确认（`pipeline-engine.js:826-864, 1577-1581, 1694, 1735` 均带 runId/duration/error slice 500）。
+- 建议：把 run.id 经 bridge 传入 python 侧日志（loguru `bind(run_id=...)`），即可在桌面日志反查整条发布链。
+
+**C16 remotion/story2video 0 console 全静默 — [部分成立] 🟢 Info ⚠️证据误读**
+- **"story2video 全静默"不成立**：`story2video-compose-engine.js` 有 `this.log = opts.log || require('./logger')`（525），并在 658/742/846/848/919/997/1049/1181-1285 大量 `this.log.info/warn`。它"0 console"为真，但经 desktop logger 落盘，并非静默。
+- remotion-composer 0 console/logger 为真，但它是确定性 React 渲染组件，且 `render-engine.js:74-75,167-168` 已捕获渲染子进程 stdout/stderr。
+- 建议：审计注记需更正为"remotion 渲染层无日志（子进程流被 render-engine 捕获）；story2video 有日志"。
+
+---
+
+## 正面清单核查
+
+| 声明 | 核对结果 |
+|---|---|
+| ~90 个主进程文件引用 | ✅ 91 处/90 文件 |
+| renderer 错误经 logs:error 落盘 | ✅ `ipc-handlers/logs.js:32` + preload |
+| unhandledRejection/uncaughtException | ✅ `main.js:56-59` |
+| shutdown flush | ✅ `shutdown.js:118` |
+| PipelineEngine 阶段级日志 | ✅ 如上 C15 |
+| CI artifacts 7-30 天 | ✅ 7/14/30 天均有 |
+| logger.test.js 脱敏测试 | ✅ `logger.test.js:49-59` |
+| **全仓无第三方日志库** | ❌ **错误**：Python 用 loguru（`requirements-runtime.txt:5`）。JS 侧确实零第三方库。 |
+| IPC helpers 统一 try-catch | ⚠️ 未逐文件全验，抽样成立 |
+
+---
+
+## 补充遗漏点（主代理未覆盖）
+
+1. **[成立] 🔴 空 catch 吞错比无日志更糟** — `publish-api-server.js:925,955` `catch(e) { /* empty */ }`（plugins 列表路径），连 500 都不回。建议并入 B5 一并修。
+
+2. **[成立] 🟡 audit-log 无上限 + 每次全量重写** — `audit-log.js:25-32`：每次 `log()` 同步 `JSON.stringify` 整个 entries 数组落盘（随时间 O(n²)），数组无 cap、无保留期、启动 `_load` 读全文件。发布路径（719-721）每发一条写一次。建议：追加式 append 或上限截断。
+
+3. **[成立] 🟡 API key 生命周期与登录失败零审计** — `api-key-manager.js` 0 日志；`publish-api-server.js:672` 创建 key 仅回显，672-685 无审计；`_checkAuth` 失败路径无日志 → 爆破/误用不可观测。建议：key create/revoke + auth 失败记 audit 级日志。
+
+4. **[成立] 🟡 webhook 投递失败完全静默** — `webhook-manager.js:156` `req.on('error', function(){})` 空处理、`:165-167` `catch(e){return false}`。即使修了 B6，投递失败仍无任何记录。建议：记录失败 webhook id/event/host + error。
+
+5. **[成立] 🟡 桌面 logger 500MB = 当日日志整体丢失（非轮转）** — `logger.js:59-61,121-124` 达到上限直接 `rmSync` 删除**整个当日文件**（而非滚到 `.1`），繁忙日一次性丢光全天日志。这是审计当"特性"描述、实际是数据丢失风险。建议：改为 rename 滚动 + 按天清理。
+
+6. **[成立] 🟡 python sidecar stderr→warn 严重级别错标** — `base-python-bridge.js:120-121` stdout→info / stderr→warn：loguru 的 WARNING/ERROR 与 uvicorn access 全混在 stderr，导致桌面日志里 uvicorn 每行请求都是 WARN，按级别过滤失真。建议：按行内容识别或 python 侧明确分级输出到 stdout/stderr。
+
+7. **[成立] 🟢 retry-middleware.js 注释乱码** — 全文 `?`（如 `retry-middleware.js:2-8` 等），提交时编码损坏（疑似 GBK→UTF-8 丢失）。会误导后续维护，建议重写注释。
+
+8. **[成立] 🟢 桌面 logger 文件写失败完全静默** — `logger.js:113-116` appendFile 错误回调内只 `settle()` 丢弃错误，不降级打 console 提示；磁盘满时用户无从知晓日志已停写。建议：写失败降级输出到 console + 计数暴露到 getLogsInfo。
+
+---
+
+## Summary
+
+**证据可靠性**：核心缺口（A1/A3/A4、B5/B6/B7/B9、C12/C13/C14/C15）证据准确、分级恰当。**3 处 grep 级误读**（B8、C11、C16）与 **1 处正面事实错误**（"无第三方日志库"）需在最终审计报告中更正，否则会把本已存在的 request_id 复用模式、shared-utils logger 可达性、story2video 已有日志误判为空白。
+
+**结论：需修改（Request Changes）**。优先修复 4 个 Critical：A1（token 落盘×3 sink）、B5（5xx 不可诊断 + 空 catch）、B6（鉴权全静默）。B8/C11 证据需更正后再发布。修复后建议补一条 `retention` 与 `audit-log` 上限的单测。
+
+---
+SESSION_ID: c3ad4d35-433f-4cf6-8828-286821998fb3
