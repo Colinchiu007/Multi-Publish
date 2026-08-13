@@ -17,6 +17,6 @@
 
 - [x] parity 测试文件（10 组语料：普通中文/多标点/短场景/长句无句号/顿号枚举/引号/英文缩写/超长逗号句/emoji/中英混合）
 - [x] 受影响套件：story2video-segmentation、stage-executor、pipeline-story2video-contract、story2video-compose-engine、story2video-text-config、story2video-stages、talkinghead/podcast/localization stages、story2video-manual-assets、story2video-engine 包（合计 327 用例通过）
-- [ ] QM-1 打包验证：electron-builder + asar 清单含 subtitle-rules.json
-- [ ] 双模型审查（antigravity + claude，降级记录）→ review.md
+- [x] QM-1 打包验证：electron-builder --win --dir exit 0；asar 清单含 `story2video-engine/subtitle-rules.js` + `src/subtitle-rules.json` + `segmentation-engine.js`；从 asar 提取目录 require 子路径成功；打包应用启动 9s 存活且 stderr 无失败模式
+- [x] 双模型审查：antigravity 不可用（账户地区限制）→ 降级记录 review.md；claude 完成审查（W1-W5 全部闭环）
 - [ ] PR + 合并；归档三同步（openspec archive + CCG task 归档 + learnings/CHANGELOG）
