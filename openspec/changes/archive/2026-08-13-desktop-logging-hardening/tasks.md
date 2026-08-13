@@ -20,4 +20,5 @@
 - [x] 4.1 vitest logger.test.js 全通过
 - [x] 4.2 QM-1 打包验证（electron-builder --win --x64 + asar logger 清单 + 启动 8s 无 stderr 错误）
 - [x] 4.3 `openspec validate desktop-logging-hardening` 通过
-- [ ] 4.4 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+- [x] 4.4 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+

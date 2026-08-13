@@ -1,13 +1,14 @@
 {
   "id": "desktop-logging-hardening",
   "title": "P1 日志加固：桌面 logger console 脱敏 + 正则扩展 + 保留策略/滚动 + 消息长度上限",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "observability",
-  "currentPhase": "planning",
-  "nextAction": "写 proposal/design/specs/tasks 后实施",
+  "currentPhase": "completed",
+  "nextAction": "PR #684 已合并，三同步归档完成",
   "createdAt": "2026-08-13T00:00:00+08:00",
   "branch": "codex/desktop-logging-hardening",
-  "openspecChange": "desktop-logging-hardening"
+  "openspecChange": "desktop-logging-hardening",
+  "remoteStatus": "MERGED_PRS_684"
 }
