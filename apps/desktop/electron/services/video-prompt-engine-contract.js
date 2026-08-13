@@ -121,6 +121,13 @@ function _normalizeVideoNumCandidates (value) {
  * @param {unknown} context
  * @returns {object | undefined}
  */
+
+/**
+ * 内置 no-text 负面提示词（最高优先级）。
+ * 所有视频优化请求自动注入，防止视频模型在画面中生成文字/字幕/水印伪影。
+ */
+const BUILT_IN_VIDEO_NO_TEXT_NEGATIVE = 'clean frame, no text, no subtitles, no watermarks, no logos, no text overlays, no burned-in text, no characters or letters rendered in the frame, no watermark artifacts';
+
 function normalizeVideoContext (context) {
   if (!context || typeof context !== 'object' || Array.isArray(context)) return undefined
   const out = {}
@@ -178,10 +185,11 @@ function buildVideoOptimizeRequest (prompt, options = {}) {
   if (options.auto_detect_style !== undefined) request.auto_detect_style = Boolean(options.auto_detect_style)
   else if (options.autoDetectStyle !== undefined) request.auto_detect_style = Boolean(options.autoDetectStyle)
 
-  const negativePrompt = typeof options.negative_prompt === 'string' && options.negative_prompt.trim()
+  const userNegative = typeof options.negative_prompt === 'string' && options.negative_prompt.trim()
     ? options.negative_prompt.trim().slice(0, PROMPT_ENGINE_LIMITS.negativePromptMax)
     : ''
-  if (negativePrompt) request.negative_prompt = negativePrompt
+  const mergedNegative = [BUILT_IN_VIDEO_NO_TEXT_NEGATIVE, userNegative].filter(Boolean).join(', ').slice(0, PROMPT_ENGINE_LIMITS.negativePromptMax)
+  if (mergedNegative) request.negative_prompt = mergedNegative
 
   const context = options.context
   if (context !== undefined && context !== null && context !== '') {
@@ -328,10 +336,11 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
     request.style = 'realistic'
   }
 
-  const negativePrompt = typeof options.negative_prompt === 'string' && options.negative_prompt.trim()
+  const userNegative = typeof options.negative_prompt === 'string' && options.negative_prompt.trim()
     ? options.negative_prompt.trim().slice(0, PROMPT_ENGINE_LIMITS.negativePromptMax)
     : ''
-  if (negativePrompt) request.negative_prompt = negativePrompt
+  const mergedNegative = [BUILT_IN_VIDEO_NO_TEXT_NEGATIVE, userNegative].filter(Boolean).join(', ').slice(0, PROMPT_ENGINE_LIMITS.negativePromptMax)
+  if (mergedNegative) request.negative_prompt = mergedNegative
 
   const context = options.context
   if (context !== undefined && context !== null && context !== '') {
@@ -463,6 +472,7 @@ function extractOptimizedVideoPrompt (result, opts = {}) {
 }
 
 module.exports = {
+  BUILT_IN_VIDEO_NO_TEXT_NEGATIVE,
   VIDEO_PLATFORMS,
   VIDEO_PLATFORM_ALIASES,
   DEFAULT_VIDEO_PLATFORM,
