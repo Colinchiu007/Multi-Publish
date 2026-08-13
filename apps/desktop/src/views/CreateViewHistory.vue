@@ -69,6 +69,14 @@
               </span>
             </div>
 
+            <!-- 提示词预览 + 翻译（只读） -->
+            <div v-if="firstSegmentPreview(h)" class="history-item-row history-prompt-preview">
+              <span class="prompt-preview-text">{{ truncatePreview(firstSegmentPreview(h), 100) }}</span>
+              <div v-if="currentLocale() !== 'en' && firstSegmentTranslation(h)" class="prompt-translation-readonly">
+                <span class="translation-label">🌐</span>
+                <span class="translation-text">{{ truncatePreview(firstSegmentTranslation(h), 120) }}</span>
+              </div>
+            </div>
             <!-- 第二行：提示信息 -->
             <div v-if="h.status === 'running'" class="history-item-row history-running-hint">
               <span class="hint-icon">🔄</span> 返回流水线创作查看进度
@@ -148,6 +156,7 @@
 
 <script>
 import '@/styles/history-panel.css'
+import { getAppLocale } from '@/i18n'
 import { getPipelineName } from '@/i18n/pipeline-labels'
 
 export default {
@@ -169,6 +178,24 @@ export default {
     },
   },
   methods: {
+    currentLocale () {
+      try { return getAppLocale() } catch (_) { return 'zh' }
+    },
+    firstSegmentPreview (h) {
+      const segments = Array.isArray(h?.segments) ? h.segments : []
+      const first = segments.find(s => s && s.text)
+      return first?.text || ''
+    },
+    firstSegmentTranslation (h) {
+      const segments = Array.isArray(h?.segments) ? h.segments : []
+      const first = segments.find(s => s && (s.promptTranslation || s.prompt))
+      return first?.promptTranslation || null
+    },
+    truncatePreview (text, max) {
+      if (!text) return ''
+      const s = String(text)
+      return s.length > max ? s.slice(0, max) + '…' : s
+    },
     pipelineName(id) {
       return getPipelineName((key) => this.$t?.(key), id)
     },
