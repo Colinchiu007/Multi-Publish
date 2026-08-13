@@ -1,4 +1,11 @@
-## 桌面启动依赖可靠性复盘（desktop-deps-reliability，2026-08-13）
+## manual 视频候选串行 + 「队列满」误判非瞬时复盘（s2v-manual-video-parallel，2026-08-13）
+
+- **交付**：manual（分镜素材自选）视频候选生成与 auto 对齐——`_mapWithConcurrency` 有界并行（请求默认 2、provider 预算收敛）+ 图片候选与视频候选 `Promise.all` 并行启动；`isRateLimitErrorLike` 扩展匹配 `queue is full`/`队列满` → 限流语义有界重试（最多 4 次、2.5s×attempt）。PR #742 merged c0510955；manual 21 / stages 83 / text-config 68 = 172 全绿；OpenSpec change 已归档（specs 合入 story2video-creation-mode）。
+- **教训 1（同机制改动必须双路径同步）**：auto 路径 2026-08-13 已做三路并行，manual 路径（2026-08-12 引入）未同步，仍视频串行 + 图片等视频 → 2 个视频场景实测 11+ 分钟无图产出。两个路径共享同一执行器文件却行为漂移，是测试盲区：manual 专项测试没有「视频 in-flight / 图片先于视频完成」断言。此后任何生成编排改动，auto/manual 双路径都要补并发与进度断言。
+- **教训 2（瞬时错误分类必须覆盖 provider 自定义文案）**：`isTransientErrorLike` 只匹配 rate limit/超时/网络关键词，agnes-video 的 "video queue is full, please retry later" 被当非瞬时 → 不重试直接回退，丢失「队列拥塞稍后可恢复」的机会。分类器命中「语义」而非「HTTP 码」时，必须在真机/真实 provider 文案上补用例（本次 fake-timer 断言 4 次重试）。「队列满/限流/拥塞」归限流语义（更长退避、更多次数）比归普通瞬时更合理。
+- **教训 3（provider 错误需要可操作回退而不是静默降级）**：重试耗尽后的回退（manual 仅 2 图 / auto 补图）是产品契约，但要先耗尽有界重试再回退；「立即回退」只应发生在配置/内容政策等确定性失败上，否则用户看到的「图代替视频」其实是可恢复的瞬时问题被过早吞掉。
+
+---## 桌面启动依赖可靠性复盘（desktop-deps-reliability，2026-08-13）
 
 - **交付**：remotion 系列精确 pin `4.0.484`（root + remotion-composer）+ `scripts/ensure-desktop-deps.js`（自检/自愈/Vite 缓存失效）+ 9 例 node --test 全绿 + 真实 npm pack 冒烟（精确版与 range 版均恢复成功）。
 - **教训 1（不完整版本集是 npm install 隐形杀手）**：`^4.0.484` 被重解析到 `4.0.509`，但 `@remotion/renderer@4.0.509` 未发布 → ETARGET 整树失败；**失败/中断的 npm 操作会删除并损坏已装依赖**（@img/colour、icons-vue、tinycolor 整包消失），是「每次启动连环故障」的真正源头。改依赖前先核版本集完整性（`npm view <pkg>@<v>`），`^` 范围遇到发布不同步的包族必须精确 pin。
@@ -13222,3 +13229,4 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训**：文档化的「铁律」若无机器执行点等于不存在；提交级保护必须 fail closed，不能依赖人工确认；`.agent_context/` 这类检测信号必须由代码创建，否则检测永远空转。
 - **修复迭代（Claude 审查发现）**：① 单槽位声明可被并发会话覆盖导致守卫 fail-open → session-guard 拒绝覆盖另一活跃会话（session.json pid 存活）的声明；② 安装脚本从子目录运行 `--git-common-dir` 返回相对路径会装错位置 → 改用 `--path-format=absolute` + HEAD 合法性校验；③ 补 fail-closed 边界测试（空声明/detached 无 rebase/wrapper 缺失/非代码扩展名/真实 rebase 重放）。
 - **自动化迭代（用户反馈手动声明太麻烦）**：隔离 worktree（per-worktree git-dir != 公共 git-dir）由 pre-commit 提交时自动声明当前分支、切分支自动跟随，零手动步骤；共享主工作区保留严格 fail-closed（需 session-guard 锁定一次，不传 -Branch 自动取当前分支）。测试 13 场景 21 断言。
+
