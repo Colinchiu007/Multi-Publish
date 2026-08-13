@@ -161,6 +161,18 @@
 
 ---
 
+### 3.5 已知局限：模拟器与真实 governor 的口径差异（2026-08-13 对拍实证）
+
+对拍（`scripts/compare-scheduler-models.js`，Python 模拟器 vs 桌面端真实 governor）在官方四组固定输入下 **PARITY OK**，但用真实预设参数（慢调用 / 5h 额度）对拍发现两个**已知观测口径差异**，解读模拟结果时须注意：
+
+| 用例 | 模拟器（python-simulator） | 桌面端真实自检（real-governor） | 差异 | 影响 |
+|------|---------------------------|-------------------------------|------|------|
+| 慢调用并发（如 ElevenLabs TTS 3s×8，rpm=20→并发2） | 串行事件循环：同批到达逐条推进时钟 → `max_concurrent_observed=1` | Promise 并发：前 2 个请求同时执行 → `max_concurrent_observed=2` | 并发峰值低估 | 模拟器的「最大并发」在「单请求耗时 ≥ RPM 节流间隔」场景会低于真实行为；真实并发受 `maxConcurrent` 约束，不超预算 |
+| 5h 额度拒绝耗时（如豆包 TTS limit=5、8 请求） | 排队/时间槽**之前**立即预检拒绝 → total≈12.1s | 被拒请求仍经历排队/时间槽后才报 QUOTA_EXCEEDED → total≈21s | 总耗时偏差约 9s（超官方对拍 1.5s 容差） | 模拟器的 `total_duration_ms` 只反映成功请求路径；解读「5h 拒绝场景总耗时」以真实自检/实测为准 |
+
+- 两者的**拒绝数/限流数/额度数口径一致**（对拍断言 `quota_exceeded_count`、`rate_limited_count` 均相等）；差异仅在并发峰值观测与总耗时口径。
+- 官方对拍四组用 20ms 短请求，因此两端一致（PARITY OK）；用真实慢调用参数才会暴露上述差异，已作为 KNOWN_DIFF_CASES 记录在脚本中（退出码不受影响，防止差异悄悄漂移）。
+- 运营建议：需要精确的「真实调度行为」证据时，优先看桌面端「真实自检」记录（simulated=false）或实际用量看板；模拟验证用于配置合理性快速判断。
 ## 4. 配置调优建议（基于验证结果）
 
 | 观察 | 建议 |
@@ -207,3 +219,4 @@
 | POST | /api/v1/usage/ingest | X-Catalog-Key | 桌面端用量上报（含排队/冷却聚合字段） |
 | GET | /api/v1/usage/summary | admin | 用量汇总（含 429率/排队/冷却/预算利用率） |
 | GET | /api/v1/model-presets | admin | 预设列表（模拟验证页预设下拉数据源） |
+
