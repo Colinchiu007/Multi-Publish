@@ -57,19 +57,19 @@ const PROVIDER_LIMITS = Object.freeze({
   comfyui: Object.freeze({ rpm: 60, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }), // 本地
 
   // ── 视频（多为异步任务制，并发低、冷却长）──
-  hunyuan: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  cogvideo: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  'grok-video': Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  heygen: Object.freeze({ rpm: 8, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  kling: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  runway: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  veo: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  wan: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  minimax: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  'agnes-video': Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  ltx: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  seedance: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
-  higgsfield: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
+  hunyuan: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  cogvideo: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  'grok-video': Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  heygen: Object.freeze({ rpm: 8, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  kling: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  runway: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  veo: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  wan: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  minimax: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  'agnes-video': Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  ltx: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  seedance: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  higgsfield: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
 
   // ── 音频 ──
   suno: Object.freeze({ rpm: 6, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),

@@ -366,7 +366,7 @@ export default {
       scene_context: '场景上下文',
       optimize: '提示词优化',
       select_video_scenes: 'AI 视频场景选择',
-      generate_assets: '生成图片与旁白',
+      generate_assets: '图片/视频/旁白生成',
       finalize_assets: '旁白与素材定稿',
     },
     statuses: {

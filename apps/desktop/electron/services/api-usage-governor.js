@@ -30,7 +30,9 @@ const DEFAULT_LIMITS = Object.freeze({
   llm: Object.freeze({ rpm: 30, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   tts: Object.freeze({ rpm: 10, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   image: Object.freeze({ rpm: 10, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
-  video: Object.freeze({ rpm: 4, maxConcurrent: 1, cooldownMs: 60000, retry429: 2 }),
+  // 2026-08-13：视频为异步任务制（提交+轮询+下载），服务端任务队列支持多路并行；
+  // 并发默认 2 可将视频串行时长减半（配合 model-call-scheduler 视频并发评估）。rpm 仍约束提交速率。
+  video: Object.freeze({ rpm: 4, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
   audio: Object.freeze({ rpm: 10, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
   default: Object.freeze({ rpm: 20, maxConcurrent: 2, cooldownMs: 30000, retry429: 3 }),
 })

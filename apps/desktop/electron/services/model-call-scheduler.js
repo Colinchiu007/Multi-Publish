@@ -55,14 +55,23 @@ function resolveProviderBudget({ provider, type = '', manager, governor }) {
   const rpm = normalizeRatePerMinute(config.rate_per_minute)
   const limit5h = normalizeLimitPer5h(config.limit_per_5h)
 
-  // 并发换算：每分钟连接次数 → 并发上限（保守取 1/10，下限 1、上限 4）
+  // 并发换算：每分钟连接次数 → 并发上限。
+  // 同步类（llm/tts/image/stt）：保守取 1/10，下限 1、上限 4（rpm 120 → 4）。
+  // 视频（异步任务制，2026-08-13 评估）：生成 = 提交 + 轮询 + 下载；提交/轮询为轻量请求，
+  // 服务端任务队列支持多路并行，主流 provider（Kling/Runway/Hailuo/HeyGen/CogVideo/LTX 等）
+  // 2 路并行安全，可将视频串行时长减半；rpm 只约束提交速率，并发 = 在途任务数，二者正交。
+  // rpm 6 → ceil(6/3)=2；rpm 8 → ceil(8/3)=3→cap 2；rpm 20 → 7→cap 2。
   const baseRpm = rpm || staticLimits.rpm || 20
   const staticConcurrent = clampInt(staticLimits.maxConcurrent, 1, MAX_SAFE_CONCURRENCY, 2)
+  const isVideo = type === 'video'
+  const isAudio = type === 'audio'
   const maxConcurrent = rpm
-    ? Math.max(1, Math.min(4, Math.round(baseRpm / 10)))
+    ? (isVideo
+        ? Math.max(1, Math.min(2, Math.ceil(baseRpm / 3)))
+        : Math.max(1, Math.min(4, Math.round(baseRpm / 10))))
     : staticConcurrent
-  // 视频/音频生成多为异步任务制，未配置时保持低并发
-  const finalConcurrent = (!rpm && (type === 'video' || type === 'audio')) ? 1 : maxConcurrent
+  // 未配置 rpm：视频默认并发 2（保守可并行）；音频保持 1（场景少、provider 单一）
+  const finalConcurrent = (!rpm && isVideo) ? 2 : (!rpm && isAudio) ? 1 : maxConcurrent
 
   const source = rpm ? 'config' : (staticLimits.rpm ? 'static' : 'default')
   return { rpm: baseRpm, maxConcurrent: finalConcurrent, limitPer5h: limit5h, source }

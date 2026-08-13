@@ -107,14 +107,23 @@ class ModelProviderManager {
     const governor = this._governor
     if (!governor || typeof governor.setProviderLimits !== 'function' || !this._ready || !this._store || !this._store.db) return
     try {
-      const rows = this._store.db.prepare('SELECT id, config FROM model_providers').all()
+      const rows = this._store.db.prepare('SELECT id, category, config FROM model_providers').all()
       for (const row of rows) {
         const config = safeJsonParse(row.config, {}) || {}
         const rpm = this._normalizeConfigLimit(config.rate_per_minute)
         const limit5h = this._normalizeConfigLimit(config.limit_per_5h)
         if (rpm !== null) {
-          // 并发换算：保守取每分钟连接次数的 1/10（下限 1、上限 4）
-          const maxConcurrent = Math.max(1, Math.min(4, Math.round(rpm / 10)))
+          // 并发换算（2026-08-13 与 model-call-scheduler 对齐）：
+          // 同步类（llm/tts/image/stt）：取 1/10（下限 1、上限 4）。
+          // 视频（异步任务制）：rpm 只约束提交速率，2 路并行安全 → ceil(rpm/3) 上限 2；
+          // 音频：保持 1（场景少、provider 单一）。
+          const isVideo = row.category === 'video'
+          const isAudio = row.category === 'audio'
+          const maxConcurrent = isVideo
+            ? Math.max(1, Math.min(2, Math.ceil(rpm / 3)))
+            : isAudio
+              ? 1
+              : Math.max(1, Math.min(4, Math.round(rpm / 10)))
           governor.setProviderLimits(row.id, { rpm, maxConcurrent })
         } else if (PROVIDER_LIMITS[row.id]) {
           // 未配置/已清空 → 回填静态表预算（恢复默认，避免陈旧配置残留）

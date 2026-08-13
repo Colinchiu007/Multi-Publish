@@ -366,7 +366,7 @@ export default {
       scene_context: 'Scene Context',
       optimize: 'Optimize Prompts',
       select_video_scenes: 'Select AI Video Scenes',
-      generate_assets: 'Generate Images and Voiceover',
+      generate_assets: 'Generate Images/Videos/Voiceover',
       finalize_assets: 'Finalize Narration and Assets',
     },
     statuses: {
