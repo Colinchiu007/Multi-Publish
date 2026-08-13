@@ -19,4 +19,4 @@
 - [x] 受影响套件：story2video-segmentation、stage-executor、pipeline-story2video-contract、story2video-compose-engine、story2video-text-config、story2video-stages、talkinghead/podcast/localization stages、story2video-manual-assets、story2video-engine 包（合计 327 用例通过）
 - [x] QM-1 打包验证：electron-builder --win --dir exit 0；asar 清单含 `story2video-engine/subtitle-rules.js` + `src/subtitle-rules.json` + `segmentation-engine.js`；从 asar 提取目录 require 子路径成功；打包应用启动 9s 存活且 stderr 无失败模式
 - [x] 双模型审查：antigravity 不可用（账户地区限制）→ 降级记录 review.md；claude 完成审查（W1-W5 全部闭环）
-- [ ] PR + 合并；归档三同步（openspec archive + CCG task 归档 + learnings/CHANGELOG）
+- [x] PR #712 合并（squash merge commit `f207e7ef`，CI 16 项全绿）；归档三同步（openspec archive + CCG task 归档 + learnings/CHANGELOG）
