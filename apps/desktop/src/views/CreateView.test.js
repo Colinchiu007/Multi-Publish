@@ -3713,3 +3713,127 @@ describe("分镜素材自选等待态 UX（2026-08-13）", () => {
     w.unmount();
   });
 });
+
+describe("流水线后台运行按钮（2026-08-13）", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  const mountRunning = async () => {
+    // 顺序无关：前序用例可能泄漏 pipelineStatus mock（运行中 run），重置为无运行，避免 mounted 自动重挂干扰断言
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStatus.mockResolvedValue({ code: 0, data: null });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, stages: [], context: {}, checkpoint: null } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } },
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["split", "optimize", "generate_assets", "compose"] };
+    w.vm.pipelineRunStatus = {
+      status: "running",
+      progress: 30,
+      stages: [
+        { name: "split", status: "completed" },
+        { name: "optimize", status: "running" },
+      ],
+    };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.orchestrationRunId = "run-bg-1";
+    w.vm.orchestrationContext = { split: { scenes: [{}, {}] } };
+    w.vm.story2videoRunMeta = { createdAt: new Date().toISOString(), endedAt: null };
+    await nextTick();
+    return w;
+  };
+
+  it("运行中编排流水线：取消按钮旁显示「后台运行」按钮", async () => {
+    const w = await mountRunning();
+    const bg = w.find('[data-testid="s2v-background-trigger"]');
+    expect(bg.exists()).toBe(true);
+    expect(bg.text()).toContain("后台运行");
+    expect(w.find('[data-testid="s2v-cancel-trigger"]').exists()).toBe(true);
+    w.unmount();
+  });
+
+  it("idle / paused / 无 runId 时不显示后台运行按钮", async () => {
+    const w = await mountRunning();
+    expect(w.find('[data-testid="s2v-background-trigger"]').exists()).toBe(true);
+    // paused（检查点等待）：不显示后台运行
+    w.vm.pipelineRunStatus = { status: "paused", progress: 30, stages: [] };
+    await nextTick();
+    expect(w.find('[data-testid="s2v-background-trigger"]').exists()).toBe(false);
+    // idle：启动按钮出现、后台运行按钮消失
+    w.vm.pipelineRunStatus = null;
+    w.vm.orchestrationRunId = null;
+    await nextTick();
+    expect(w.find('[data-testid="s2v-background-trigger"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("点击后台运行：不调用 pipelineCancel，前端恢复初始化，启动按钮重新出现，toast 提示", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockClear();
+    const w = await mountRunning();
+    expect(w.find('[data-testid="start-story2video"]').exists()).toBe(false);
+    await w.find('[data-testid="s2v-background-trigger"]').trigger("click");
+    await new Promise((r) => setTimeout(r, 20));
+    await nextTick();
+    expect(mocks.pipelineCancel).not.toHaveBeenCalled();
+    expect(w.vm.orchestrationRunId).toBeNull();
+    expect(w.vm.pipelineRunStatus).toBeNull();
+    expect(w.vm.orchestrationContext).toBeNull();
+    expect(w.vm.orchestrationError).toBe("");
+    expect(w.vm.providerWarnings).toEqual([]);
+    expect(w.vm.sceneAssetSelectionActive).toBe(false);
+    expect(w.vm.story2videoRunMeta).toBeNull();
+    expect(w.vm.pollTimer).toBeNull();
+    expect(w.vm.s2vOptionsToast).toContain("后台运行");
+    expect(w.find('[data-testid="start-story2video"]').exists()).toBe(true);
+    w.unmount();
+  });
+
+  it("后台运行后，在飞的轮询过期响应不写回状态（审查 Critical 1 竞态守卫）", async () => {
+    const mocks = await import("@/api/publisher");
+    let resolveStatus;
+    mocks.pipelineGetRunContext.mockReturnValue(new Promise((resolve) => { resolveStatus = resolve; }));
+    const w = await mountRunning();
+    const pollPromise = w.vm.updateOrchestrationStatus();
+    // 模拟用户点击后台运行：清空 runId（resetPipelineUiState 同步执行）
+    w.vm.detachPipelineToBackground();
+    await nextTick();
+    // 过期响应此刻才返回 running 数据：不得写回 context/stages，不得僵尸重挂
+    resolveStatus({ code: 0, data: { status: { status: "running" }, stages: [{ name: "optimize", status: "running" }], context: { split: { scenes: [{}] } }, checkpoint: null } });
+    await pollPromise;
+    await nextTick();
+    expect(w.vm.orchestrationRunId).toBeNull();
+    expect(w.vm.pipelineRunStatus).toBeNull();
+    expect(w.vm.orchestrationContext).toBeNull();
+    w.unmount();
+  });
+
+  it("检查点等待态（sceneAssetSelectionActive）不允许转后台", async () => {
+    const w = await mountRunning();
+    w.vm.sceneAssetSelectionActive = true;
+    w.vm.needsCheckpoint = true;
+    await nextTick();
+    await w.find('[data-testid="s2v-background-trigger"]').trigger("click");
+    await nextTick();
+    expect(w.vm.orchestrationRunId).toBe("run-bg-1");
+    expect(w.vm.pipelineRunStatus?.status).toBe("running");
+    w.unmount();
+  });
+
+  it("取消流水线仍调用 pipelineCancel（resetPipelineUiState 抽取后回归）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockClear();
+    mocks.pipelineCancel.mockResolvedValue({ code: 0, data: true });
+    const w = await mountRunning();
+    w.vm.sceneAssetSelectionActive = false;
+    await nextTick();
+    await w.vm.cancelPipeline();
+    await nextTick();
+    expect(mocks.pipelineCancel).toHaveBeenCalled();
+    expect(w.vm.orchestrationRunId).toBeNull();
+    expect(w.vm.pipelineRunStatus).toBeNull();
+    w.unmount();
+  });
+});

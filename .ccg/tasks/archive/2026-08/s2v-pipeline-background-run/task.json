@@ -1,0 +1,12 @@
+{
+  "complexity": "M",
+  "nextAction": "已合并 PR #753 (d537e243)",
+  "currentPhase": "completed",
+  "title": "Story2Video 流水线新增后台运行按钮（前端脱离 + 恢复初始化 + 支持再次启动）",
+  "id": "s2v-pipeline-background-run",
+  "status": "completed",
+  "risk": "medium",
+  "domain": "frontend",
+  "createdAt": "2026-08-13T19:29:56+08:00",
+  "branch": "codex/s2v-pipeline-background-run"
+}

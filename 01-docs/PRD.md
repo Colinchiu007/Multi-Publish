@@ -4014,6 +4014,44 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - **槽位释放**：run 进入终态（completed/failed/cancelled）即从 `_runs` 移除，槽位释放。
 - **提示文字（前端）**：`story2video-notifications.js` 新增 `PIPELINE_CONCURRENCY_LIMIT`（zh/en），通过 `errorCode` 显式映射 + 中文错误文本正则兜底解析；弹窗展示友好文案，不展示技术细节。
 
+### 3a. 前台/后台切换（后台运行按钮，2026-08-13）
+
+**需求**：运行流水线状态下，在【取消】按钮旁增加【后台运行】按钮。点击后当前流水线在后台继续运行，前端流水线详情恢复初始化状态（重新显示【启动流水线】），用户可再次启动流水线（受 §3 并发上限约束）。
+
+**功能逻辑**
+- **按钮可见性**：仅编排流水线运行中显示——`orchestrationRunId` 非空 且 `pipelineRunStatus.status === 'running'`；idle / 暂停（检查点等待）/ 非编排（无 runId）不显示。
+- **点击 = 前端脱离（detach）**：停止 3s 轮询 + 重置前端运行态（`resetPipelineUiState()`，与取消后重置共用，另清 `orchestrationResultPath` / `story2videoRunMeta`）→ UI 回到初始化（【启动流水线】重新出现）。
+- **不调用 `pipelineCancel()`**：主进程 `PipelineEngine` 的 run 继续后台执行，仍占用并发槽位（§3 统计口径不变）；历史记录「运行中」置顶、5s 轮询刷新阶段，点击卡片经 `resumeHistoryItem → pipelineResumeOrchestration`（幂等 `alreadyRunning`）重新挂回并恢复轮询。
+- **轮询竞态守卫（审查 Critical 1 修复）**：`updateOrchestrationStatus` 捕获请求发起时的 runId 快照，响应返回后若 `orchestrationRunId` 已变化（detach/取消/切换 run）则丢弃，不写回 context/stages、不触发结果页跳转，防止僵尸重挂或污染新 run。
+- **检查点守卫（审查 Warning 2 修复）**：方法内重校验 `sceneAssetSelectionActive` / `needsCheckpoint`，检查点等待态即使以 running 呈现也不允许转后台（避免需人工输入的 run 转入后台无人处理）。
+
+**数据校验 / 前置条件**
+- `orchestrationRunId` 非空；`pipelineRunStatus.status === 'running'`；`sceneAssetSelectionActive === false`；`needsCheckpoint === false`。
+- 幂等：重置为同步操作，重复点击第二次因 runId 已清空直接 return。
+- 并发校验由引擎统一门禁承担（§3），前端不做预校验。
+
+**交互逻辑**
+- 位置：running-controls 操作区【取消】按钮左侧；`secondary` 变体按钮。
+- 无二次确认（可逆操作：历史记录可随时重挂恢复查看）。
+- 点击后轻提示 toast 展示 3s：「流水线已转入后台运行（仍占用并发名额），可在「流水线记录」中查看进度并继续操作。」
+- 同会话切页返回：`resumeRunningOrchestration()`（mounted）会重新挂起首个运行中编排 run（既有合同）；用户可再次点击【后台运行】脱离。
+
+**显示项**
+- 按钮文案：后台运行 / Run in background（locale `create.story2video.backgroundRun`，zh/en 成对）。
+- toast 文案：`create.story2video.backgroundRunToast`（zh/en 成对，内容见上）。
+- 历史记录「运行中」卡片展示与既有合同一致（状态圆点 / 阶段色块 / 5s 刷新 / 点击重挂）。
+
+**提示文字**
+| 场景 | zh | en |
+|------|----|----|
+| 按钮 | 后台运行 | Run in background |
+| 转后台成功 toast | 流水线已转入后台运行（仍占用并发名额），可在「流水线记录」中查看进度并继续操作。 | Pipeline moved to background (still occupies a run slot). Track progress under Pipeline history and resume there. |
+| 并发超限（既有） | 当前已有 N 条流水线正在后台运行，最多同时运行 M 条，请等待其中一条完成后再启动。 | （engine 原样返回，前端映射弹窗） |
+
+**验收标准**
+- 前端单测：运行中+runId 显示按钮；idle / paused / 无 runId 不显示；点击后 `pipelineCancel` 未被调用、状态恢复初始化、启动按钮重新出现、toast 显示；在飞轮询过期响应不写回；检查点等待态点击无效；取消路径回归（`pipelineCancel` 仍被调用）。
+- 交互验收（人工）：启动流水线 → 点击【后台运行】→ 详情恢复初始化 → 历史记录可见运行中任务 → 点击卡片重挂恢复进度 → 并发满时启动新流水线弹并发提示（既有文案）。
+
 ### 4. 验收标准
 - 引擎单测：`getHistory` 含运行中且无重复；上限 2 拒绝第 3 条；注入 1 时第 2 条拒绝、取消后释放；`resumeOrchestration` 超限拒绝；`computeDefaultMaxConcurrentRuns` 覆盖 1/2/3/4 资源档位与注入覆盖。
 - 前端单测：CreateHistory 运行中任务显示 + 5s 轮询 + 结束后停止 + 点击跳 `/create`；notifications 并发文案解析（zh/en/errorCode/正则）。
