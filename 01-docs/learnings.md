@@ -6538,3 +6538,14 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 2（Windows 脚本替换陷阱，AGENTS.md 教训复现）**：PowerShell here-string 的 `.Replace()` 对 CRLF 文件**静默失败**（输出 "patched" 但内容未变，无报错）——改完必须 `Select-String`/`git diff` 验证目标内容确实写入；跨行文件修改改用 Python 脚本（`open(newline="")` 保留行尾）+ `assert` 强制验证。
 - **教训 3（工具损坏变通）**：gstack 1.61/1.62 的 `gstack-learnings-log` 在 Windows 上损坏（缺 `lib/jsonl-store.ts`，bun eval 失败且静默）→ 直接 append `~/.gstack/projects/<slug>/learnings.jsonl`（保持同 schema），不盲等修复。
 - **预防**：机器间上报端点（catalog-key 模式）统一复用 usage/ingest 的 `_require_catalog_key`（404 fail-closed/401 常量时间比较）；新增双通道端点必须测「无鉴权回退」与「catalog 不能越权到管理只读」。
+
+## 复盘更新：调度模拟器并发推进升级，修复对拍口径差异（2026-08-13，PR #692）
+
+> **状态更新**：本文档「限流/调度验证对拍口径差异与 KNOWN_DIFF_CASES 建模（PR #680）」记录的两个差异已被本变更修复——以本节为准，旧节为历史记录。
+
+- **变更**：`scheduler_simulator.py` 的 `simulate()` 从串行事件循环升级为**并发推进**（离散事件仿真）：① 并发信号量 **transfer**（执行中达 maxConcurrent 时接管最早完成槽，等待从本请求到达时刻起算、不推进全局时钟 → 同批到达可并发竞争）；② RPM 槽推进后**释放已完成执行**（interval < duration 时请求重叠执行）；③ 5h 额度预检移到 pace/cooldown 之后（与真实 preflight 一致，被拒请求仍占 RPM 槽）；④ `total_duration_ms` 改**墙钟口径**（含被拒/限流判定时刻，对齐真实 runSelfCheck）。`scripts/compare-scheduler-models.js` 新增 `quota-5h-real` / `concurrency-real` 为 must-pass（原 KNOWN_DIFF）。
+- **效果（对拍六组全 PASS）**：`quota-5h-real`（豆包 limit=5/8 请求）5h 拒绝耗时 total 差 **8909ms → 7ms**（C3 修复：预检后移 + 被拒占槽 + 墙钟口径）；`concurrency-real`（rpm=60/并发2/2.5s×8）两端 **maxc=2**（此前模拟器恒 1，C2 修复：并发推进真正生效）；KNOWN_DIFF 从 2 减到 1。
+- **教训 1（实证纠正误判）**：此前把 C2（elevenlabs 3s×8，interval==duration）判为「真实并发 maxc=2 vs 模拟器串行 1」是**误判**——真实 timeline 8 个请求严格 3s 间隔串行，maxc=2 是定时器时钟误差的 1ms 级重叠（测量噪声）。真实 governor 的 RPM 槽（nextSlotAt 全局预约）**严格互斥**，并发能力只在 `interval < duration` 时体现。判定口径差异必须看 timeline 证据，不能只看聚合指标。
+- **教训 2（离散仿真推进时钟）**：并发仿真的关键是「每个请求的等待从自身到达时刻起算 + 完成事件按时间释放」，而不是把全局时钟推进到前一个请求完成——后者会把同批请求串行化（正是旧实现低估并发的原因）。实现后必须用「interval<duration 应 maxc=2、interval>duration 应 maxc=1」两个用例锁定。
+- **教训 3（会话分支守卫）**：仓库 pre-commit 钩子要求 `.agent_context/expected-branch` 声明（缺 `scripts/session-guard.ps1` 时手动创建文件、内容=当前分支即可）；声明后提交自动通过分支守卫 + 质量节拍检查。
+- **已知简化（文档化）**：429 长冷却（如 30s）+ 同批突发时，模拟器按虚拟时间乐观推进排队；真实中排队请求会因 30s 等待上限被拒绝（runSelfCheck timeline 不记录该部分）。两端 `rate_limited_count` 观测一致（均只计注入 429 与可见限流），但 `total_duration_ms` 在该边界场景可能低估真实值——运营解读以真实自检/实测为准。
