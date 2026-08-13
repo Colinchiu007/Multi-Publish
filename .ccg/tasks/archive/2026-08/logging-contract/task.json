@@ -1,13 +1,14 @@
 {
   "id": "logging-contract",
   "title": "P2：日志合同文档 — 统一 level/脱敏/字段/保留/强制日志点/静默边界，挂 01-docs 与 .ccg/spec",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "low",
   "domain": "observability",
-  "currentPhase": "planning",
-  "nextAction": "写 proposal/design/specs/tasks 后实施",
+  "currentPhase": "completed",
+  "nextAction": "PR #713 已合并，三同步归档完成",
   "createdAt": "2026-08-13T12:00:00+08:00",
   "branch": "codex/logging-contract",
-  "openspecChange": "logging-contract"
+  "openspecChange": "logging-contract",
+  "remoteStatus": "MERGED_PRS_713"
 }

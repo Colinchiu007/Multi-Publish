@@ -15,6 +15,14 @@
 - **教训 2（引擎返回的结构先验证再丢弃）**：smart-sentence-splitter 的 SplitResponse 已含 scenes[].subtitles（text/display_order/start_time/duration）；归一化层应优先消费，而不是无理由本地重切。
 - **教训 3（JS 镜像 + parity 是 Electron 主进程复用 TS 算法的既定范式）**：主进程纯 JS 无法 require TS，仓库已有 subtitle-aligner 同款范式；手抄算法必须用同一语料差分测试锁死（本 change 10 组语料 21 用例）。
 - **教训 4（UTF-16 码元 vs Unicode 字符）**：引擎/TS 的字数边界按 string.length（UTF-16 码元）计数，emoji 占 2 码元；旧本地测试按 Array.from（码点）断言会与新引擎行为冲突，更新断言时应以引擎实测为准。
+---
+## 日志合同文档复盘（logging-contract，2026-08-13）
+
+- **交付**：新增 01-docs/LOGGING-CONTRACT.md（人读单一权威合同：level 枚举/5 组脱敏清单/字段格式/保留策略/强制日志点/禁止项/静默边界/证据索引）+ .ccg/spec/observability/index.md（代理读，首个 observability spec 条目）+ 契约防漂移测试（shared-utils vitest：3 处 JS 脱敏同源含替换串、level 默认断言、保留/截断常量与文档一致、强制日志点证据）；PR #713。
+- **教训 1（文档事实必须先核实再落笔）**：合同初稿把 Python stderr/stdout 级别路由写反（代码实况：stderr 仅 WARNING+、stdout 仅 DEBUG/INFO）；Claude 审查抓出 1 Critical + 7 Warning。「单一权威文档」每一条都必须对照实现 file:line，不能凭印象。
+- **教训 2（合同测试锚定要到位）**：仅断言 5 组模式标记不够（同源到 marker 粒度、替换串零断言、level 默认零断言会让 spec Scenario 落空）；同源断言应含替换串 + level 枚举/默认级别断言。
+- **教训 3（webhook 路径要区分入站/出站）**：webhook-manager 记录的是出站投递失败（含 url）；入站签名校验失败（WEBHOOK_SIGNATURE_INVALID）走 logto-webhook 异常上抛 → API 统一错误路径——两条路径证据不同，文档不可混写。
+- **教训 4（已知边界显式文档化）**：桌面 .1 滚动备份不匹配按日清理正则（不受 30 天清理）、audit sink 不经 5 组脱敏——「文档化限制」优于「假装不存在」。
 
 ---
 ## 容器日志轮转复盘（container-log-rotation，2026-08-13）
