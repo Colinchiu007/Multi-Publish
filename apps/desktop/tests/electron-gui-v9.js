@@ -219,20 +219,17 @@ async function testProvidersPage(win) {
   console.log("\n╔══ Provider 配置页 ══╗");
   await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.providers);
   await wait(3000);
-  await assertTitle(win, '模型服务商');
-  await win.getByRole('button', { name: /全部/ }).first().click();
+  const providersTitle = await win.evaluate(() => document.querySelector('[data-testid="model-providers-title"]')?.textContent?.trim() || '');
+  assert('Provider 页标题非空', providersTitle.length > 0, 'title is empty');
+  await win.getByTestId('view-mode-all').click();
   await wait(500);
   const chips = await win.evaluate(() =>
     Array.from(document.querySelectorAll('.filter-chip')).map(c => c.textContent.trim())
   );
   assert('过滤器芯片 ≥3', chips.length >= 3, 'found: ' + chips.join(', '));
-  const hasAdd = await win.evaluate(() =>
-    Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('添加'))
-  );
+  const hasAdd = await win.evaluate(() => !!document.querySelector('[data-testid="add-provider"]'));
   assert('添加 Provider 按钮', hasAdd);
-  const hasRefresh = await win.evaluate(() =>
-    Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('刷新'))
-  );
+  const hasRefresh = await win.evaluate(() => !!document.querySelector('[data-testid="refresh-providers"]'));
   assert('刷新按钮', hasRefresh);
   await win.screenshot({ path: path.join(SS, 'v9-09-providers.png') });
 }
