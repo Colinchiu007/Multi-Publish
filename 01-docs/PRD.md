@@ -1114,6 +1114,17 @@ key，未知内部 ID 只能回退为原始 ID。
 - 分镜素材自选模式下，图片调用数 = 场景数 × 2（全自动为场景数 × 1），视频场景额外 1 次视频生成；Token/积分消耗大幅增加，UI 强制提示「建议先用短文案测试后，再用于真实创作」。
 - 视频+图片轮播的 AI 视频场景判定沿用「视频增强模式」（关闭/固定比例/AI 智能选择）现有语义与比例约束；未配置视频生成器时按现有 fail-closed 语义引导设置。
 
+##### 七、已知缺陷与修复记录
+
+**Bug #1：分镜素材自选模式图片 provider 未解析（2026-08-12 发现，2026-08-13 修复）**
+
+- **现象**：分镜素材自选模式（creation.mode=manual）下，所有场景的图片都是 ffmpeg 占位符（5-18KB），而非真实 AI 生成图片。
+- **根因**：`buildManualSceneCandidates` 接收的 `imageProvider` 参数是原始未解析值（可能为 `undefined`），而非经过 `resolveCapabilityProvider('image')` 解析后的 `resolvedImageProvider`。导致 fallback 逻辑失效，图片 provider 无法自动降级到多模态模型（如 minimax-multimodal）。
+- **修复**：在 `story2video-stages.js` 第 1770 行，将 `imageProvider` 改为 `resolvedImageProvider`。
+- **验证**：短文案 E2E 通过，`segment_0000_image.jpg` 为 415KB（MiniMax image-01 真实生成），之前所有图片为 5-18KB 的 ffmpeg 占位符。
+- **逃逸链**：单元测试未覆盖 manual 分支的 provider 解析路径 → 集成测试未验证真实图片生成 → E2E 仅验证了自动模式 → 代码审查未发现 manual 分支的参数传递差异。
+- **预防措施**：在 `buildManualSceneCandidates` 入口增加断言，确保 `imageProvider` 非 undefined；在 manual 分支的单元测试中覆盖 provider fallback 场景。
+
 #### 7.1.4 TTS 音色、个人克隆与隐私边界
 
 创作端按“已启用 provider → model → 音色目录”选择，不接受任意手填音色 ID。优先调用具备能力且已认证的
