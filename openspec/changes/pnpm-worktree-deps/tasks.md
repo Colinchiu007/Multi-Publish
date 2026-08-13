@@ -32,8 +32,8 @@
 
 ## Phase 5: worktree 复用验收
 
-- [ ] T17 throwaway worktree：`pnpm install --frozen-lockfile` 计时验收 + verify-worktree-deps + 少量桌面测试
-- [ ] T18 验证 junction worktree 被 fix-worktree-node-modules.sh 正确修复
+- [x] T17 throwaway worktree：`pnpm install --frozen-lockfile` 计时验收 + verify-worktree-deps + 少量桌面测试
+- [x] T18 验证 junction worktree 被 fix-worktree-node-modules.sh 正确修复
 
 ## Phase 6: 文档与交付
 
