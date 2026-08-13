@@ -3522,6 +3522,31 @@ describe("分镜模式 storyboardMode（video-content-fidelity UI）", () => {
     expect(options).toEqual(["auto", "creative", "fidelity", "hybrid"]);
     w.unmount();
   });
+
+  it("reportEvolutionFeedback 在 preload API 缺失时静默跳过（P0 反馈管道 fallback）", async () => {
+    window.electronAPI = {};
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-fallback-test";
+    await expect(w.vm.reportEvolutionFeedback({ type: "accepted", detail: { mode: "scene-asset-selection" } })).resolves.toBeUndefined();
+    w.unmount();
+  });
+
+  it("reportEvolutionFeedback 调用 preload generationFeedback 并透传类型", async () => {
+    const fb = vi.fn(async () => ({ code: 0 }));
+    window.electronAPI = { generationFeedback: fb };
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-fb-test";
+    await w.vm.reportEvolutionFeedback({ type: "downloaded", detail: { file: "x.png" } });
+    expect(fb).toHaveBeenCalledTimes(1);
+    expect(fb.mock.calls[0][0]).toMatchObject({ type: "downloaded", sessionId: "run-fb-test" });
+    w.unmount();
+  });
 });
 
 describe("分镜素材自选等待态 UX（2026-08-13）", () => {

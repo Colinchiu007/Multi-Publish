@@ -37,6 +37,7 @@ function registerAllHandlers(ipcMain, deps) {
   require('./tts-voice-catalog')(ipcMain, deps)
   require('./tts-voice-clone')(ipcMain, deps)
   require('./prompt-eval')(ipcMain, deps)
+  require('./generation-feedback')(ipcMain, deps)
   require('./logs')(ipcMain, deps)
   // Backlot 项目库
   require('./project')(ipcMain, deps)

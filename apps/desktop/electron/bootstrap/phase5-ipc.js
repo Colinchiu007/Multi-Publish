@@ -182,7 +182,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, usageTracker, cloudPublisher, identityService,
     story2videoProjectService, story2videoMediaServer,
-    promptEvalService,
+    promptEvalService, signalCollector,
   } = context
 
   const registerAllHandlers = require('../ipc-handlers')
@@ -197,7 +197,7 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, identityService, credentialStore, accountStateRestorer,
     story2videoProjectService, story2videoMediaServer,
-    promptEvalService,
+    promptEvalService, signalCollector,
   }
   let state = registrationStates.get(context)
   if (!state) {

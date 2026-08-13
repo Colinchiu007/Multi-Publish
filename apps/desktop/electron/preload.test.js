@@ -198,15 +198,16 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(42)
   })
 
-  it('system 模块应导出 140 个方法', () => {
+  it('system 模块应导出 142 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime（运营后台同步 + 运行时策略）
-    expect(Object.keys(r).length).toBe(140)
+    // + generationFeedback/promptLibraryList（提示词引擎自进化 P0 反馈管道）
+    expect(Object.keys(r).length).toBe(142)
   })
 
-  it('合并后 api 总键数应为 272（含 videoClone 命名空间）', () => {
-    expect(Object.keys(api).length).toBe(272)
+  it('合并后 api 总键数应为 274（含 videoClone 命名空间）', () => {
+    expect(Object.keys(api).length).toBe(274)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
