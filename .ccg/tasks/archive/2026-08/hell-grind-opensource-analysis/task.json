@@ -1,0 +1,14 @@
+{
+  "id": "hell-grind-opensource-analysis",
+  "title": "Higgsfield《Hell Grind》开源项目深度调研与视频提示词引擎强化分析",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "low",
+  "domain": "research",
+  "currentPhase": "completed",
+  "nextAction": "已完成：报告 01-docs/HELL-GRIND-OPENSOURCE-ANALYSIS-2026-08-13.md（540 行）；A/B/C 分级清单 30 项；Phase 1-5 落地路径；待 Phase 1 实施前双模型评审",
+  "createdAt": "2026-08-13T23:00:00Z",
+  "completedAt": "2026-08-13T23:30:00Z",
+  "branch": "main",
+  "remoteStatus": { "notes": "纯文档报告，无 PR；子代理后端 403 已降级主代理核验" }
+}
