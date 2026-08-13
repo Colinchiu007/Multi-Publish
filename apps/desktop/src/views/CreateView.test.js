@@ -545,6 +545,73 @@ describe("CreateView", () => {
     w.unmount();
   });
 
+  it("水印选项恢复吸附：陈旧位置/字号/透明度归一化到合法档位（watermark-options）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: {
+        version: 1,
+        s2vConfig: {
+          watermarkText: "品牌",
+          watermarkConfig: { enabled: false, position: "middle", fontSize: 30, opacity: 0.55, color: "white" },
+        },
+        s2vOutputConfig: {},
+        ui: {},
+      },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vVoiceProviders = [{ id: "minimax-tts" }];
+    w.vm.s2vImageProviders = [{ id: "minimax-image" }];
+    await w.vm.restoreS2VLastOptions();
+    expect(w.vm.s2vConfig.watermarkText).toBe("品牌");
+    expect(w.vm.s2vConfig.watermarkConfig.position).toBe("bottom-right");
+    expect(w.vm.s2vConfig.watermarkConfig.fontSize).toBe(32);
+    expect(w.vm.s2vConfig.watermarkConfig.opacity).toBe(0.6);
+    // 合法档位保持不被重置（idempotent）
+    w.vm.s2vConfig.watermarkConfig.position = "moving";
+    w.vm.s2vConfig.watermarkConfig.fontSize = 48;
+    w.vm.s2vConfig.watermarkConfig.opacity = 1;
+    w.vm.normalizeS2VRestoredEnums();
+    expect(w.vm.s2vConfig.watermarkConfig.position).toBe("moving");
+    expect(w.vm.s2vConfig.watermarkConfig.fontSize).toBe(48);
+    expect(w.vm.s2vConfig.watermarkConfig.opacity).toBe(1);
+    mocks.storeGetSetting.mockReset();
+    w.unmount();
+  });
+
+  it("水印选项恢复吸附：null/空串字号与透明度回退默认值，不吸附到最小档（watermark-options）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: {
+        version: 1,
+        s2vConfig: {
+          watermarkText: "品牌",
+          watermarkConfig: { enabled: false, position: "moving", fontSize: null, opacity: "", color: "white" },
+        },
+        s2vOutputConfig: {},
+        ui: {},
+      },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vVoiceProviders = [{ id: "minimax-tts" }];
+    w.vm.s2vImageProviders = [{ id: "minimax-image" }];
+    await w.vm.restoreS2VLastOptions();
+    expect(w.vm.s2vConfig.watermarkConfig.position).toBe("moving");
+    expect(w.vm.s2vConfig.watermarkConfig.fontSize).toBe(24);
+    expect(w.vm.s2vConfig.watermarkConfig.opacity).toBe(0.6);
+    mocks.storeGetSetting.mockReset();
+    w.unmount();
+  });
+
   it("语音生成器选项首项带「自动 Edge TTS」显示名（下拉标签不再为空）", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
@@ -1711,6 +1778,7 @@ describe("CreateView - S2V orchestration", () => {
       splitTargetSeconds: 4,
       promptStyle: "anime",
       watermarkText: "测试水印",
+      watermarkConfig: { enabled: false, position: "center", fontSize: 32, opacity: 0.4, color: "white" },
       platforms: ["bilibili"],
       publishEnabled: true,
       title: "长安夜景",
@@ -1737,6 +1805,8 @@ describe("CreateView - S2V orchestration", () => {
         subtitle: expect.objectContaining({ enabled: false, size: "size4", style: "style2" }),
         bgm: { enabled: true, path: "C:/media/bgm.mp3", volume: 7 },
         transition: "slide-right",
+        // 水印选项（watermark-options）：UI 配置原样透传，enabled/text 由文字输入派生
+        watermark: expect.objectContaining({ position: "center", fontSize: 32, opacity: 0.4, enabled: true, text: "测试水印" }),
         output: { fps: 24, format: "webm" },
         publish: expect.objectContaining({ enabled: true, platforms: ["bilibili"], title: "长安夜景", tags: ["历史", "夜景"] }),
       }),

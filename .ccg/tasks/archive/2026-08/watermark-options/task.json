@@ -1,0 +1,14 @@
+{
+  "id": "watermark-options",
+  "title": "全能创作水印修复 + 透明度/字号/位置选项（含移动）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "desktop-video",
+  "currentPhase": "archived",
+  "nextAction": "无",
+  "createdAt": "2026-08-13T23:30:00Z",
+  "branch": "codex/watermark-options",
+  "openspecChange": "watermark-options",
+  "remoteStatus": "PR #792 merged (3c3835d1)"
+}

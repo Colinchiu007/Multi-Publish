@@ -130,6 +130,9 @@ const MANUAL_MATERIAL_MODES = new Set(['all-images', 'video-image'])
 const SPLIT_MODES = new Set(['fast', 'balanced', 'precise'])
 const LANGUAGES = new Set(['auto', 'zh', 'en'])
 const SUBTITLE_TIMINGS = new Set(['proportional', 'equal'])
+// 水印位置白名单（2026-08-14）：与 compose engine buildWatermarkFilter 的 positions 表
+// 单一来源同步（契约测试锁定一致性）；moving=确定性平滑漂移（见 openspec change watermark-options）。
+const WATERMARK_POSITIONS = new Set(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center', 'moving'])
 const OUTPUT_FORMATS = new Set(['mp4', 'webm'])
 const CONTENT_TYPES = new Set(['general', 'history'])
 const CHECKPOINT_POLICIES = new Set(['guided', 'manual_all', 'auto_noncreative', 'none'])
@@ -478,7 +481,7 @@ function normalizeStory2VideoTextParams(params = {}) {
   const watermark = {
     enabled: booleanValue(firstDefined(own(watermarkInput, 'enabled'), params.watermark), false),
     text: textValue(firstDefined(own(watermarkInput, 'text'), params.watermarkText), '', 'watermark.text', 200),
-    position: idValue(firstDefined(own(watermarkInput, 'position'), params.watermarkConfig?.position), 'bottom-right', 'watermark.position'),
+    position: enumValue(firstDefined(own(watermarkInput, 'position'), params.watermarkConfig?.position), 'bottom-right', 'watermark.position', WATERMARK_POSITIONS),
     fontSize: numberValue(firstDefined(own(watermarkInput, 'fontSize'), params.watermarkConfig?.fontSize), 24, 'watermark.fontSize', 10, 96),
     opacity: numberValue(firstDefined(own(watermarkInput, 'opacity'), params.watermarkConfig?.opacity), 0.6, 'watermark.opacity', 0, 1),
     color: textValue(firstDefined(own(watermarkInput, 'color'), params.watermarkConfig?.color), 'white', 'watermark.color', 32),

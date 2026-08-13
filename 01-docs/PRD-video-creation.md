@@ -130,6 +130,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 | 日期 | 范围 | 核心内容 | 主文档 |
 |------|------|----------|--------|
+| 2026-08-14 | 水印坐标修复 + 位置/字号/透明度选项 | 全能创作水印成片不可见修复：根因 `buildWatermarkFilter` drawtext 坐标出画布（bottom-* 用 `y=h-20`、center 用 `y=(h+text_h)/2`，drawtext 按文字左上角定位），自 commit `e1b46eba0`（2026-07-23）引入，保存链路无断点；修复后六位置 + moving 帧级验证可见。新增位置 6 枚举（top-left/top-right/bottom-left/bottom-right/center/moving，moving 为确定性 Lissajous 平滑漂移非随机）、字号 5 档（16/24/32/40/48 默认 24）、透明度 10 档（10%-100% 步进 10% 默认 60%）；normalizer 白名单 fail-closed + compose clamp 二次防线；快照恢复陈旧枚举吸附合法档位；文案 locales zh/en 成对 14 键。详见本节 3.1.24 | PRD 3.1.24 / openspec watermark-options |
 | 2026-08-13 | 视频克隆：入口卡 + 默认链接 + 自动复刻层级 | CreateView「流水线创作」新增「视频克隆」标准流水线卡（`[data-pipeline-id="video-clone"]`，紧随全能创作，点击直达 /video-clone）；视频克隆页输入来源默认「链接」（v1.14）；复刻层级下拉移除（v1.15），改为程序按拆解报告证据自动定级 L0/L1/L2（v1.16，驱动 generate/compose 分支 + F4 按层级验收，UI 展示「自动目标层级 → 达成 grade」）；打包 E2E 回捕修复（L0 封面负索引 + E2E 脚本适配默认链接）。详见 PRD-VIDEO-CLONE v1.14–v1.16 | PRD-VIDEO-CLONE-2026-08-12 |
 | 2026-08-07 | 模型服务异常检测 | ProviderAnomalyBus（慢响应 llm/tts/audio 30s、image 60s、video 120s；超时/网络错误）→ `pipeline:getRunContext` 下发 `providerWarnings` → 前端非阻塞横幅；`callAdapter` 有界超时（视频 10min/其余 2min）；pipeline-engine 阶段/运行执行日志；提示词优化进度前置 `optimize_progress`。PR #397 | PRD 7.1.12 |
 | 2026-08-08 | 提示与反馈规范 | 弹窗标题统一「提示」/「Notice」（去掉「{流水线名} 提示」）；选项保存 toast 改操作栏上方绝对定位（不挤占启动按钮）；媒体校验细分（格式/大小/不可读）+ 文件要求常驻提示（i18n）。PR #398 | PRD 7.1.13 |
@@ -1579,6 +1580,45 @@ SettingsDialog 关闭（App.vue @close）
 
 **分期**：Phase 1 契约 + UI 通用化 → Phase 2 onProgress 通道 + 逐阶段接入 → Phase 3 实时推送/快照裁剪（可选）。实施前须经 OpenSpec propose。
 
+### 3.1.24 水印功能修复与选项扩展（2026-08-14）
+
+> 需求来源：用户反馈「全能创作水印功能没生效，输入框填写了文字，但最终视频没有水印」，并要求新增透明度、字号、位置（含移动）选项。
+> 机制合同：`openspec/changes/watermark-options/specs/story2video-watermark/spec.md`；实现 PR #？；测试：`story2video-compose-engine.test.js`（buildWatermarkFilter 契约 10 项）、`story2video-text-config.test.js`（位置枚举 fail-closed 4 项）、`CreateView.test.js`（恢复吸附 + 提交透传 3 项）、`pipeline-story2video-contract.test.js`（18 项）、真实 ffmpeg 渲染帧级验证。
+
+**缺陷根因（QM-5 复盘）**：`buildWatermarkFilter`（`apps/desktop/electron/services/story2video-compose-engine.js`）坐标表达式错误。drawtext 的 `x/y` 是文字**左上角**坐标，而旧实现 bottom-* 用 `y=h-20`（基线贴底，文字主体在画面外）、center 用 `y=(h+text_h)/2`（把文字底部压到中线以下，`text_h` 语义错配），导致所有 bottom-* 与 center 位置的水印文字整体画出画布，成片无可见水印。该逻辑自 commit `e1b46eba0`（2026-07-23）引入；保存链路（UI 提交 → 快照持久化 → normalizer → compose 参数）经验证无断点，属渲染层坐标缺陷。逃逸链：既有单测只断言 top-left 位置 filter 存在，未断言 bottom-right/center 的坐标数值，坐标 bug 未被拦截。
+
+**功能逻辑（位置坐标语义）**：以 drawtext 左上角定位（`x,y` = 文字左上角）；水平边距 20px、底部边距 20px、顶部边距 40px（top-* 的 `y=40` 为既有约定，本次未改动）：
+
+| 位置 | x 表达式 | y 表达式 | 说明 |
+|------|----------|----------|------|
+| top-left | `20` | `40` | 左上角 |
+| top-right | `w-text_w-20` | `40` | 右上角 |
+| bottom-left | `20` | `h-text_h-20` | 左下角 |
+| bottom-right | `w-text_w-20` | `h-text_h-20` | 右下角（默认） |
+| center | `(w-text_w)/2` | `(h-text_h)/2` | 水平垂直居中 |
+| moving | `'(w-text_w)/2*(1+0.9*sin(2*PI*t/10))'` | `'(h-text_h)/2*(1+0.9*cos(2*PI*t/14))'` | 确定性 Lissajous 平滑漂移 |
+
+**moving 语义（确定性漂移，非随机闪烁）**：用户期望「随机移动」，实现为确定性 Lissajous 曲线平滑循环漂移：t=0 位于画面正中（sin/cos=0），x 周期 10s、y 周期 14s，幅度 0.9 倍中心区间，任意时刻不出画布；同参数重复渲染逐帧可复现（可回归、可测试），不用 `random()`（避免逐帧抖动与不可复现）。
+
+**透明度契约**：`opacity` 为 0-1 数值，drawtext 输出 `fontcolor=white@<opacity>`；UI 下拉 10%-100%（步进 10%）共 10 档，默认 60%。
+
+**字号契约**：`fontSize` 为 10-96 整数，drawtext 输出 `fontsize=<size>`；UI 五档下拉 16/24/32/40/48，默认 24。
+
+**数据校验（fail-closed 双层防线）**：
+1. **normalizer 层**（`story2video-text-config.js`）：`WATERMARK_POSITIONS` 白名单（top-left/top-right/bottom-left/bottom-right/center/moving），白名单外值（middle/random/center-right/bottomright/TOP-LEFT 等）抛错拒绝（`Story2Video watermark.position 值无效: <值>`），不静默回退；`opacity` 越界（<0 或 >1）抛错；`fontSize` 越界（<10 或 >96）抛错。UI 提交路径（`story2videoTextConfig.watermark.*`）同样受白名单约束。
+2. **compose 层二次防线**：`buildWatermarkFilter` 对 position 白名单外值 fail-closed 抛错；fontSize/opacity 经 `clampNumber` 收敛到合法边界，非法/NaN 回退默认（24 / 0.6）。
+3. **恢复吸附**：加载「上次选项」快照时 `normalizeS2VWatermarkOptions()` 将陈旧枚举吸附到合法档位（position 非白名单吸附 bottom-right；fontSize 吸附最近档位；opacity 吸附最近档位），下拉框不出现空白选项。
+
+**UI 交互逻辑（CreateView.vue 视频增强区水印块）**：
+- **显示项**：水印开关（既有）+ 水印文字输入框 + 位置下拉（正中/左上/左下/右上/右下/移动，6 项）+ 字号下拉（16/24/32/40/48，5 项）+ 透明度下拉（10%/20%/…/100%，10 项）。
+- **交互**：勾选水印开关并填写文字后启用水印；任一选项修改即自动保存「上次选项」快照（`buildS2VLastOptions`），下次进入自动恢复；顶部「恢复默认选项」重置为默认契约（bottom-right / 24 / 60%）；历史项目旧配置（如 position=middle）恢复时自动吸附，不报错。
+- **提示文字**：全部走 locales（`create.story2video.watermark.*` 14 键 zh/en 成对），`src/` 无新增中文硬编码；CI 门禁（locale 成对 + CJK 基线扫描）守护。
+- **测试钩子**：`data-testid` = `s2v-watermark-position` / `s2v-watermark-fontsize` / `s2v-watermark-opacity`。
+
+**流程**：CreateView 水印块提交 `watermark: {enabled, text, position, fontSize, opacity}` → `buildS2VLastOptions` 持久化快照 → 六阶段编排 compose 阶段 → normalizer 校验（fail-closed）→ compose engine `buildWatermarkFilter` 生成 drawtext filter → ffmpeg 渲染 → 输出 ffprobe 校验。透传链路（`pipeline-story2video-contract`）已覆盖：watermarkConfig 从 params → stageOptions.compose 无损透传。
+
+**兼容性**：旧项目快照中 position/fontSize/opacity 缺失或陈旧 → 恢复吸附默认/最近档位；快照中无 watermark 字段 → 保持既有默认（bottom-right/24/0.6）。`normalizeStory2VideoTextParams` 顶层 `watermark: true/false` 布尔透传不变（options-matrix E2E 参数 `watermark:true, watermarkText:'TEST-WM'` 契约保持）。
+
 ### 3.3 叠加层（Remotion 快速路径，P1）
 
 | 类型 | 说明 | 参数 |
@@ -1786,6 +1826,9 @@ SettingsDialog 关闭（App.vue @close）
 - [x] 旁白有可探测音频时长时以音频时长决定场景时长；`defaultSceneDuration`（默认 6 秒，UI 不暴露）只作为音频时长不可探测时的回退，不承诺强制截断旁白；“无旁白场景时长/单画面时长（perImageDuration）”已随无旁白纯图片轮播模式下线。
 - [x] 结果页本地视频和旁白预览通过仅绑定 127.0.0.1 的短期令牌媒体服务提供，不向 renderer 暴露绝对路径；CSP 仅允许该回环来源的媒体请求。
 - [x] 图片动效、转场、字幕、BGM、水印、分辨率/FPS 和 MP4/WebM 输出有自动化合同测试与真实 ffmpeg 验证。
+- [x] 水印六位置（top-left/top-right/bottom-left/bottom-right/center/moving）坐标契约有单测断言（drawtext 左上角语义），且经真实 ffmpeg 渲染帧级验证水印可见、moving 不越界（t=0 居中，Lissajous 确定性漂移）。
+- [x] watermark.position/opacity/fontSize 非法值 normalizer fail-closed 拒绝；compose 层 clamp 二次防线；快照恢复陈旧枚举吸附合法档位，下拉无空白选项。
+- [x] 水印新 UI（位置/字号/透明度下拉）文案走 locales zh/en 成对，CJK 基线扫描无新增硬编码；打包产物（asar）含新 renderer 与主进程代码。
 - [x] 图片动效按场景有效时长归一化：zoompan `d=总帧数` + 进度 `min(1, on/T)`，短场景动效不被切走、长场景不提前定格；回归覆盖字符串断言与（可选）真实 ffmpeg 帧级验证；`renderSegment` 上报时长与 compose 一致收敛到 0.1..3600。
 - [x] `perImageDuration`（单画面时长/无旁白场景时长）已从 renderer/normalizer/模板库/YAML 移除；旧项目历史配置兼容忽略，`defaultSceneDuration` 保留为内部默认 6 秒回退。
 - [x] 场景层正常路径由 8002 的 `scenes` 决定；仅服务不可用时本地降级，非法响应不降级，并在运行结果和项目清单保留来源字段。

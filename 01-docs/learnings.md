@@ -13328,3 +13328,13 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训**：含 CSS 动画或 `loading="lazy"` 图片的页面，像素门禁必须关闭动画并等待图片就绪，否则截图不可确定。Playwright `reducedMotion` 是最干净的方式——比手动 `animation: none` 更可靠，且覆盖所有元素。
 - **落地**：`apps/desktop/tests/visual-testing/test-runner.js`（reducedMotion + _waitForImagesSettled）；9 张基线快照更新。
 
+## 复盘：全能创作水印成片不可见——drawtext 坐标出画布（2026-08-14，水印坐标修复 + 选项扩展）
+
+- **现象**：用户反馈「全能创作（Story2Video）水印功能没生效，输入框填写了文字，但最终视频没有水印」。保存链路检查无断点（UI 提交 → 快照 → normalizer → compose 参数均正常），是渲染层坐标缺陷。
+- **第一性原因（QM-5）**：`story2video-compose-engine.js` 的 `buildWatermarkFilter` 坐标表达式错误，引入自 commit `e1b46eba0`（2026-07-23）。ffmpeg drawtext 的 `x/y` 是文字**左上角**坐标，旧实现 bottom-* 用 `y=h-20`（基线贴底，文字主体在画面外）、center 用 `y=(h+text_h)/2`（把文字底部压到中线以下，且 `text_h` 语义错配）→ 所有 bottom-* 与 center 位置文字整体出画布，成片无水印。
+- **逃逸分析（逐层）**：① 单元测试——既有 `buildWatermarkFilter` 用例只断言 top-left 位置 filter 字符串存在，未断言 bottom-right/center 的坐标数值，坐标 bug 未被拦截；② 集成/合同测试——`pipeline-story2video-contract` 断言参数透传，不校验 filter 坐标；③ E2E——无水印可见性断言（当时成片检查只验证文件非空 + ffmpeg 解码）；④ 视觉回归——未对水印渲染帧做像素级/OCR 级检查；⑤ 代码审查——坐标表达式无注释说明 drawtext 左上角语义，审查时未发现语义错配。
+- **系统性漏洞定位**：测试场景缺失（渲染坐标契约无数值断言）+ 审查盲区（坐标语义未文档化）。
+- **修复 + 回归保护测试**：① 坐标修复为基于左上角语义的正确表达式（六位置 + moving）；② `story2video-compose-engine.test.js` 新增 `buildWatermarkFilter` 契约 describe——逐位置断言 x/y 表达式（bottom-right=`y=h-text_h-20`、center=`(h-text_h)/2` 等）+ moving 确定性（含 sin/cos、无 random、t=0 居中）+ 非法 position fail-closed；③ `story2video-text-config.test.js` 新增位置白名单 fail-closed describe（合法 6 枚举透传 / middle 等非法拒绝 / 越界拒绝 / 默认值契约）；④ 真实 ffmpeg 渲染帧级验证（`D:\Temp\wm-regress\` 五帧：bottom-right/center/moving t=0/5/10 水印可见且轨迹正确）；⑤ 打包产物 asar 校验含新 renderer/主进程代码。
+- **教训 1（坐标类渲染契约要数值断言）**：filter 字符串「存在」≠「坐标正确」；凡涉及 drawtext/overlay 等以左上角定位的滤镜，测试必须断言具体坐标表达式，并附带真实渲染帧验证。
+- **教训 2（moving 语义选择）**：用户期望「随机移动」，实现为确定性 Lissajous 平滑漂移（x 周期 10s / y 周期 14s、幅度 0.9、t=0 居中、无 random()）——可复现、可回归、可测试；「随机」需求以文档明确为「确定性循环漂移」而非逐帧随机（避免不可复现与观感闪烁）。若未来真需要随机，应走 seeded RNG。
+- **预防**：① 渲染坐标契约测试模板加入「坐标数值断言 + 真实渲染帧验证」；② PRD/spec 文档化 drawtext 左上角定位语义（已写入 PRD 3.1.24 与 openspec story2video-watermark）；③ 新增滤镜/坐标逻辑时审查清单增加「定位语义（左上角 vs 中心）核对」。

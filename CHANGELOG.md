@@ -83,6 +83,18 @@
 - 修复：`getMasterKey()` lastError 分支新增自愈——`hasAnyCredentialFiles(credDir)` 递归（含 owners/）确认无任何加密凭证文件且系统凭据保护可用时，生成新随机主密钥并原子重建 `.masterkey`/`.masterkey.bak`（error 日志记录原始错误与重建动作，不含敏感字段）；库中存在凭证或 safeStorage 不可用时保持 fail-closed 抛原始错误（延续「拒绝明文主密钥」安全姿态，不静默破坏既有数据）。
 - 测试：credential-store.test.js +5 回归（根目录/owners 空库自愈 + round-trip；根目录/owners 有凭证 fail-closed 且文件不被改写；safeStorage 不可用 fail-closed），状态化 mock（历史密文失败 + 新密文可用）模拟真实 DPAPI 故障。
 - 文档：OpenSpec change credential-store-safe-storage-recovery（proposal/design/specs/tasks，archive 合入 openspec/specs/）；01-docs/learnings.md 复盘；.quality-gates.md 门禁记录。
+
+## [2026-08-14] fix(story2video): 水印坐标出画布修复 + 位置/字号/透明度选项（含移动漂移）
+
+- 根因：全能创作水印「填了文字但成片无水印」——`buildWatermarkFilter` drawtext 坐标表达式错误（bottom-* 用 `y=h-20`、center 用 `y=(h+text_h)/2`，而 drawtext 按文字左上角定位），文字整体出画布；自 commit `e1b46eba0`（2026-07-23）引入，保存链路（UI→快照→normalizer→compose）无断点。
+- 修复：六位置坐标全部改为左上角语义 + 20px 边距：top-left `(20,20)`、top-right `(w-text_w-20,20)`、bottom-left `(20,h-text_h-20)`、bottom-right `(w-text_w-20,h-text_h-20)`、center `((w-text_w)/2,(h-text_h)/2)`。
+- 新增「移动」位置：确定性 Lissajous 平滑循环漂移（非随机）：`x='(w-text_w)/2*(1+0.9*sin(2*PI*t/10))'`、`y='(h-text_h)/2*(1+0.9*cos(2*PI*t/14))'`——t=0 居中、x 周期 10s / y 周期 14s、幅度 0.9 中心区间、任意时刻不出画布、同参数可复现。
+- 新增字号 5 档下拉（16/24/32/40/48，默认 24，契约 10-96）与透明度 10 档下拉（10%-100% 步进 10%，默认 60%，契约 0-1）；drawtext 输出 `fontsize=<size>`、`fontcolor=white@<opacity>`。
+- 数据校验双层防线：normalizer `WATERMARK_POSITIONS` 白名单 + opacity/fontSize 越界 fail-closed 拒绝（不静默回退）；compose 层 clampNumber 二次防线；快照恢复 `normalizeS2VWatermarkOptions` 将陈旧枚举吸附合法档位（下拉无空白）。
+- UI：CreateView 视频增强区水印块 = 开关 + 文字输入 + 位置/字号/透明度三下拉（data-testid `s2v-watermark-position/fontsize/opacity`）；文案全部走 locales（`create.story2video.watermark.*` 14 键 zh/en 成对），无新增中文硬编码；locale 成对 + CJK 基线扫描通过。
+- 测试：compose-engine 契约 +10（逐位置坐标/moving/非法 fail-closed）、text-config 位置枚举契约 +4、CreateView 恢复吸附/提交透传 +3；contract 18 / 真实 ffmpeg 1/1 / 受影响 343 全绿；真实渲染帧级验证水印可见（bottom-right/center/moving t=0/5/10）。
+- 文档：PRD-video-creation.md §1.6 修订表 + §3.1.24（坐标语义表/moving 语义/数据校验/UI 交互/流程/兼容性）；product-manual.md §13.1.1.1；learnings.md 复盘（QM-5 五步）；OpenSpec change `watermark-options`。
+
 ## [2026-08-13] fix(s2v): 视频 provider「队列满 queue is full」纳入瞬时重试（限流语义 4 次）
 
 - 现状：`withAssetTransientRetry` 仅对瞬时类错误（超时/网络/限流 429/额度）有界重试；agnes-video 的 "video queue is full, please retry later" 不含限流/超时关键词 → 被判定非瞬时 → 不重试直接回退仅 2 图，丢失「队列拥塞稍后可恢复」的机会。
