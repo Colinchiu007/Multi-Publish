@@ -2939,6 +2939,89 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
 
   });
+  it("providerWarningText 支持 X 关闭，关闭后本次运行内不再显示", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.providerWarnings = [
+      { providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" },
+    ];
+    await nextTick();
+    expect(w.find(".provider-warning-banner").exists()).toBe(true);
+    expect(w.find('[data-testid="dismiss-provider-warning"]').exists()).toBe(true);
+
+    await w.find('[data-testid="dismiss-provider-warning"]').trigger("click");
+    await nextTick();
+    expect(w.vm.providerWarningText).toBe("");
+    expect(w.find(".provider-warning-banner").exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("updateOrchestrationStatus 返回无 providerWarnings 时清空旧警告（跨运行不残留）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {}, createdAt: "2026-08-13T01:00:00.000Z" } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-new";
+    w.vm.providerWarnings = [{ providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" }];
+
+    await w.vm.updateOrchestrationStatus();
+    await nextTick();
+
+    expect(w.vm.providerWarnings).toEqual([]);
+    expect(w.vm.providerWarningText).toBe("");
+    w.unmount();
+  });
+
+  it("切换流水线后旧运行警告不残留（selectPipeline 重置）", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    // 上一运行残留的警告与关闭状态
+    w.vm.providerWarnings = [{ providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" }];
+    w.vm.dismissedProviderWarnings = true;
+
+    w.vm.selectPipeline({ name: "cinematic", description: "test", stages: [], category: "generated" });
+    await nextTick();
+
+    expect(w.vm.providerWarnings).toEqual([]);
+    expect(w.vm.dismissedProviderWarnings).toBe(false);
+    w.unmount();
+  });
+
+  it("cancelPipeline 重置警告列表与关闭状态", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockResolvedValue({ code: 0, data: true });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.providerWarnings = [{ providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" }];
+    w.vm.dismissedProviderWarnings = true;
+
+    await w.vm.cancelPipeline();
+    await nextTick();
+
+    expect(w.vm.providerWarnings).toEqual([]);
+    expect(w.vm.dismissedProviderWarnings).toBe(false);
+    w.unmount();
+  });
+
+  it("启动新流水线时重置警告列表与关闭状态（跨运行不残留）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: -1, message: "Story2Video 默认 LLM 不可用，请先完成模型设置" });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
+    w.vm.pipelineText = "测试文案";
+    // 模拟上一运行残留的警告与关闭状态（复现跨运行残留）
+    w.vm.providerWarnings = [{ providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" }];
+    w.vm.dismissedProviderWarnings = true;
+
+    await w.vm.startPipeline();
+
+    expect(w.vm.providerWarnings).toEqual([]);
+    expect(w.vm.dismissedProviderWarnings).toBe(false);
+    w.unmount();
+  });
+
 
   it("BGM 被跳过时显示提示条，可关闭；未跳过不显示", async () => {
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });

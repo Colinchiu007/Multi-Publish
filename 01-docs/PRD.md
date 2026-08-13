@@ -702,7 +702,9 @@ platforms:
 
 **验收**：上述门禁全部落地并在 CI 生效；`i18n.test.js` 覆盖键对称与占位符；术语改名（如 zh 侧修改名词）时 en 侧同步由测试/CI 强制校验。
 
-**实施状态（2026-08-13）**：L0 门禁已落地——`i18n.test.js` 键对称 + 占位符断言；L1 `.github/scripts/check-locale-sync.js`（locale diff 配对 + CJK 基线扫描）挂载 CI Gate 7；L2 语料源收敛完成（`story2video-notifications.js` 不再持有 zh/en 文案，统一从 locales 读取，重复源校验随之移除）；L3 术语词典 `01-docs/i18n-glossary.md` + `glossary.test.js` 已落地。实施分支 `codex/i18n-content-sync`（OpenSpec change `i18n-content-sync`）。
+**实施状态（2026-08-13）**：L0 门禁已落地——`i18n.test.js` 键对称 + 占位符断言；L1 `.github/scripts/check-locale-sync.js`（locale diff 配对 + CJK 基线扫描）挂载 CI Gate 7；L2 语料源收敛完成（`story2video-notifications.js` 不再持有 zh/en 文案，统一从 locales 读取，重复源校验随之移除）；L3 术语词典 `01-docs/i18n-glossary.md` + `glossary.test.js` 已落地。实施分支 `codex/i18n-content-sync`（OpenSpec change `i18n-content-sync`），PR #693 合并（2695b15f）。
+
+**硬化状态（2026-08-13，i18n-sync-hardening）**：① `.vue <template>` 纳入 CJK 扫描（文本 + 属性值，基线 1650 条存量，新增硬编码被 Gate 7 拦截）；② `utils/user-facing-error.js` 的 30 个 errorCode 文案并入 locales `userErrors` 命名空间（模块不再持有第二份 zh/en 文案，扫描豁免移除）；③ 术语词典扩充至 10 条产品核心名词（en 侧大小写不敏感校验）。
 
 #### 审计日志
 

@@ -11,7 +11,7 @@
 - **Code Review**：每 2-3 个功能 review 一次
 - **git 提交**：所有变更必须 commit，不允许未跟踪代码
 - **分支隔离（分层）**：运行时代码变更（apps/、packages/ 及关联配置/CI）必须在 git 分支上进行，禁止直接在 main 主分支上修改，经 PR 审查与 CI 后合并回 main；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本）允许在 main 直接小步提交，但须保持可回滚且不得与并发会话的脏文件冲突。分层边界以 openspec/specs/openspec-integration/spec.md「分层分支策略」Requirement 为准。
-- **⛔ Worktree 隔离（并发会话铁律）**：多个 Codex/AI 会话不得共享同一个 Git 工作目录。每个会话必须在独立的 Git worktree 中工作，杜绝分支切换冲突。启动会话时：(0) 先运行 `powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch <预期分支>` 声明期望提交分支（pre-commit 将强制校验当前分支与声明一致，docs-only 提交同样校验）；(1) 检查当前工作目录是否已有其他活跃会话（通过 .agent_context/ 或进程列表判断）；(2) 若是，则创建独立 worktree：git worktree add D:/Data/projects/mp-worktrees/mp-<task-name> -b codex/<branch-name>；(3) 在新 worktree 中执行所有操作。worktree 目录统一建在 D 盘 `D:/Data/projects/mp-worktrees/` 下（目录名 `mp-<task-name>`；禁止使用 C 盘临时目录，禁止建在仓库内部）。绝对禁止在共享工作目录上执行 git checkout / git switch，因为这会改变所有共享该目录的会话的 HEAD。违反此规则会导致其他会话的分支被意外切走、代码丢失、CI 状态混乱。
+- **⛔ Worktree 隔离（并发会话铁律）**：多个 Codex/AI 会话不得共享同一个 Git 工作目录。每个会话必须在独立的 Git worktree 中工作，杜绝分支切换冲突。启动会话时：(0) 隔离 worktree 由 pre-commit 自动声明当前分支（零手动步骤）；若在共享主工作区工作，先运行 `powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch <预期分支>` 声明期望提交分支（pre-commit 将强制校验当前分支与声明一致，docs-only 提交同样校验）；(1) 检查当前工作目录是否已有其他活跃会话（通过 .agent_context/ 或进程列表判断）；(2) 若是，则创建独立 worktree：git worktree add D:/Data/projects/mp-worktrees/mp-<task-name> -b codex/<branch-name>；(3) 在新 worktree 中执行所有操作。worktree 目录统一建在 D 盘 `D:/Data/projects/mp-worktrees/` 下（目录名 `mp-<task-name>`；禁止使用 C 盘临时目录，禁止建在仓库内部）。绝对禁止在共享工作目录上执行 git checkout / git switch，因为这会改变所有共享该目录的会话的 HEAD。违反此规则会导致其他会话的分支被意外切走、代码丢失、CI 状态混乱。
 - **⛔ Worktree 清理防护铁律（R1-R5）**：删除任何 worktree 前必须：(R1) 对主工作区做基线快照（`git status --porcelain` + stash 数），删除后 diff 基线，出现新增 D/消失的 M 立即报错；(R2) 禁止宽目录恢复/清理（`git checkout -- <目录>`、`git restore <目录>`、`Remove-Item <目录> -Recurse` 一律禁用），恢复只针对 `git status` 精确列出的文件；(R3) 删除前扫描目标 worktree 的 junction/reparse point，凡指向主工作区的共享链接先解除再删，否则会级联删除主工作区物理文件；(R4) 对主工作区做批量操作前，未提交修改（M/A）先备份到 `%TEMP%` 或精确 `git stash push -- <路径>`；(R5) `git worktree remove --force` 是最后手段，使用前必须完成 R1/R3 并确认 dirty 清单无价值。标准流程已落地为 `scripts/safe-worktree-remove.ps1`（删除）与 `scripts/safe-restore-deleted.ps1`（恢复），涉及 worktree 删除/文件恢复一律调用这两个脚本。
 - **错误处理**：所有关键路径必须有错误处理
 - **质量节拍强制卡点**：提交前必须完成 `.quality-gates.md` 自检清单，违反不允许提交
@@ -22,7 +22,7 @@
 - **子代理降级**：派发探子前探测子代理可用性；出现 403/超时等后端不可用错误时立即降级为主代理直接执行，不盲等。
 - **OpenSpec 引导**：OpenSpec 已启用——M+/中高风险任务须经 `/opsx:propose` 建 change，机制契约见 `openspec/specs/openspec-integration/spec.md`。
 - **locale 成对修改（i18n-content-sync）**：修改 `apps/desktop/src/locales/zh.js` 或 `en.js` 必须成对提交（CI Gate 7 `.github/scripts/check-locale-sync.js` 拦截）；新增用户可见文案一律写入 locales（zh/en 成对），渲染端 `src/` 非 locales 文件新增中文字符串字面量由 CI 基线扫描拦截；产品名词翻译集中维护于 `01-docs/i18n-glossary.md`。
-- **提交分支守卫**：pre-commit 强制校验当前分支 == `.agent_context/expected-branch`（会话声明），无声明或分支不符一律拦截，docs-only 提交同样校验；会话启动必须运行 `scripts/session-guard.ps1 -Branch <期望分支>`。钩子安装在共享 `.git/hooks/`，对**所有在途 worktree 立即生效**——每个会话下次提交前必须先运行 session-guard 声明，否则提交被拦截并提示声明命令；`--no-verify` 可绕过钩子，属流程纪律威慑，禁止使用。
+- **提交分支守卫**：pre-commit 强制校验当前分支 == `.agent_context/expected-branch`（会话声明），无声明或分支不符一律拦截，docs-only 提交同样校验；隔离 worktree 提交时自动声明当前分支（无需手动）；共享主工作区必须运行 `scripts/session-guard.ps1 -Branch <期望分支>`（不传 -Branch 自动取当前分支）。钩子安装在共享 `.git/hooks/`：隔离 worktree 零手动步骤；共享主工作区无声明/不符一律拦截并提示声明命令；`--no-verify` 可绕过钩子，属流程纪律威慑，禁止使用。
 
 ## 强制流程规则（MUST）
 

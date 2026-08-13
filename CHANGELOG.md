@@ -5,6 +5,34 @@
 - 自愈：新增 `scripts/ensure-desktop-deps.js`（零依赖 Node）——启动前校验脆弱依赖（sharp 平台包 / @img/colour / @element-plus/icons-vue / @ctrl/tinycolor + apps/desktop 全部直接依赖），缺失时以 node 直跑 npm-cli 旁路补装（npm pack + 解包，不改 package.json/lockfile）；`--invalidate-vite-cache` 失效陈旧 Vite optimize 缓存（改名保留可回退）。平台感知：sharp 平台包仅在 win32-x64 校验。
 - 测试：`scripts/ensure-desktop-deps.test.js` 9 例全绿（node --test）；真实冒烟：精确版（tinycolor 4.2.0）与 range（picocolors@^1.1.0 → 1.1.1）均经真实 npm pack 恢复成功，恢复后重检 0 缺失。
 - 文档：OpenSpec change `desktop-deps-reliability`（proposal/design/specs/tasks，validate 通过）；`01-docs/learnings.md` 复盘；`.quality-gates.md` 门禁记录。
+## [2026-08-13] Story2Video 全能创作：分句链路统一使用分句引擎算法（story2video-split-engine-unify）
+
+- 问题：全能创作合成视频中分句「没生效」——分句引擎 smart-sentence-splitter（:8002）返回的 `scenes[].subtitles` 被丢弃，场景内字幕块由桌面本地旧贪心算法（硬编码 8/15 字）重新切分；引擎离线时整条链路降级为同一旧算法。
+- 修复：
+  - 在线路径：`normalizeServiceSplitResult` 优先采用引擎返回的字幕（subtitleSource='smart-sentence-splitter'），缺字幕或覆盖率不足（<60%）时逐场景回退本地分块并保留来源标记。
+  - 离线路径：新增 `story2video-segmentation-engine.js`（v0.15.2 JS 镜像，逐行对齐 `text-segmentation.ts`：句子边界消歧 → targetChars 场景分组 → 字幕 7 步管道（分句/引号边界/长度切分/短块合并/标点清理/强制上限/时间戳）），规则读 `subtitle-rules.json` 单源；旧贪心实现删除，`createLocalSplitResult` 与 compose 兜底自动受益。
+  - 一致性：新增 parity 测试（JS 镜像 vs TS 权威版，10 组语料 21 用例逐项一致）；`@multi-publish/story2video-engine` 新增 `./subtitle-rules` 导出。
+- 测试：story2video-segmentation（20）、parity（21）、stage-executor（57）、story2video-compose-engine（94）、pipeline-story2video-contract、text-config、stages、talkinghead/podcast/localization stages、story2video-manual-assets、story2video-engine 包（127）全绿；QM-1 打包验证通过。
+- 审查：antigravity 后端不可用（降级记录），claude 审查 W1-W5 全部闭环。
+
+## [2026-08-13] feat(i18n): 同步机制硬化（i18n-sync-hardening）
+
+- **模板硬编码扫描**：`.vue <template>` 纳入 Gate 7 CJK 扫描（标签间文本 + 属性值，注释剥离）；存量债务入基线（783→1650 条），新增模板硬编码中文被 CI 拦截（冒烟已验证）。
+- **错误目录收口**：`utils/user-facing-error.js` 的 30 个 errorCode 文案并入 locales `userErrors` 命名空间（zh/en 各 30 键），模块只保留 code 常量/数值映射/pattern 归一化；扫描豁免移除（模块现仅注释与正则含中文，不误报）。
+- **术语词典扩充**：`01-docs/i18n-glossary.md` 扩至 10 条产品核心名词（视频克隆/运营后台/模型设置/历史记录/发布历史/提示词/草稿箱/流水线 + 原有 2 条）；`glossary.test.js` en 侧改为大小写不敏感匹配。
+- 测试：user-facing-error 17 + i18n 9 + glossary 2 全绿；CJK 扫描 1650 基线 PASS；模板新增中文拦截冒烟通过。
+
+## [2026-08-13] Story2Video 全能创作：模型服务异常横幅跨运行残留修复 + X 关闭按钮
+
+- 根因：`ProviderAnomalyBus` 全局内存快照从不清理，`pipeline:getRunContext` 把全部历史异常附加到任意运行上下文；不退出应用重新进入「全能创作」启动新流水线后，旧运行（如 agnes-video 160s）的警告仍显示。
+- 修复（主进程 IPC 契约语义 + 渲染层）：
+  - `ProviderAnomalyBus.snapshotSince(sinceIso)` 按运行创建时间为边界过滤异常快照（先过滤后截断；支持 ISO/epoch ms；非法边界回退全量不隐藏警告）；
+  - `pipeline:getRunContext` 以运行 `createdAt` 为界下发 `providerWarnings`，新运行不再携带旧运行异常；
+  - 异常横幅增加 X 关闭按钮（复用 BGM notice 模式 `dismissedProviderWarnings`），启动/取消/切换流水线时重置警告与关闭状态；
+  - `.provider-warning-banner-close` 样式（color-mix 主题色 hover）。
+- 测试：provider-anomaly 14、pipeline 44、CreateView 160 全绿（新增 snapshotSince 边界/未来/数值/非法回退；按 createdAt 过滤、旧异常不附加、无 createdAt 回退；X 关闭、新运行/切换/取消重置、轮询清空旧警告）；vite build exit 0。
+- 文档：01-docs/CHANGELOG.md；行为契约由 OpenSpec change `story2video-provider-warning-ux` 固化。
+- CI：QG Static locale-sync CJK 基线刷新 1650→1651（CreateView.vue 行号位移致 195 处误报 + 关闭按钮 aria-label 回退文案镜像既有 BGM `common.close` 模式，净增 1 处已基线化）。
 ## [2026-08-13] feat(i18n): 多语言内容同步机制实施（i18n-content-sync）
 
 - L0 门禁：`i18n.test.js` 新增 zh/en 叶子键完全对称断言 + 同 key `{param}` 占位符一致性断言；`story2video.text_too_long` 统一为 `{maxFormatted}`（zh 展示带千分位，与 en 一致）。

@@ -98,6 +98,8 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 .provider-warning-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--banner-warning-color); background: var(--banner-warning-bg); border: 1px solid var(--banner-warning-border); border-radius: var(--r-sm); font-size: 13px; line-height: 1.5; }
+.provider-warning-banner-close { margin-left: auto; border: none; background: transparent; color: var(--banner-warning-color); cursor: pointer; font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+.provider-warning-banner-close:hover { background: color-mix(in srgb, var(--banner-warning-color) 12%, transparent); }
 .bgm-skipped-notice { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--banner-info-color); background: var(--banner-info-bg); border: 1px solid var(--banner-info-border); border-radius: var(--r-sm); font-size: 13px; line-height: 1.5; }
 .bgm-skipped-notice-close { margin-left: auto; border: none; background: transparent; color: var(--banner-info-color); cursor: pointer; font-size: 14px; line-height: 1; padding: 2px 6px; border-radius: 4px; }
 .bgm-skipped-notice-close:hover { background: rgba(30, 64, 175, 0.12); }

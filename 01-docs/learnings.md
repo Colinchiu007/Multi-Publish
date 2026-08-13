@@ -6,6 +6,16 @@
 - **教训 3（npm pack range 产物名是解析后版本）**：`npm pack picocolors@^1.1.0` 的产物名是 `picocolors-1.1.1.tgz`（解析版本）而非 range 字符串；恢复逻辑必须按前缀从输出目录发现实际 tgz，不能假设文件名。
 - **教训 4（Vite 504 Outdated Optimize Dep 排查链）**：空白页 + `#app` 0 子节点 + 504 的定位路径：CDP `Runtime.evaluate` 看挂载 → `Log.enable` + reload 抓 504 → `Network` 抓 504 URL → 磁盘发现 deps 缓存未生成 → 重定向 Vite stdout/stderr 才暴露 esbuild 缺依赖。Vite 日志默认被 dev.js 隐藏窗口吞掉，排障第一步就是重定向输出。
 - **教训 5（审查降级取部分结果）**：antigravity 区域不可用（Eligibility check failed）、claude 后端长任务超 10 分钟未收尾——按机制硬化停止并取已产出发现（cmd caret/redirect 问题、平台感知、真实 registry 模拟证据）+ 主代理独立审查；部分结果仍具修复价值，不浪费。
+## 全能创作分句未生效复盘（story2video-split-engine-unify，2026-08-13）
+
+- **问题**：用户优化了 smart-sentence-splitter 与本仓库 TS 镜像（text-segmentation.ts v0.15.2），但全能创作视频里的分句仍是旧方法。调查结论：桌面主进程 split 阶段虽然调用 :8002 引擎生成场景，但 `normalizeServiceSplitResult` 丢弃引擎返回的 `scenes[].subtitles`，用 `story2video-segmentation.js` 旧贪心算法本地重切；引擎离线时整条链路降级为同一旧算法。`text-segmentation.ts` 在桌面主进程完全未被引用（仅 CreateView 用 template-library），是「对齐了但没接入」的死代码。
+- **修复**：在线路径直接采纳引擎字幕；离线路径以 JS 镜像（story2video-segmentation-engine.js）逐行对齐 text-segmentation.ts，subtitle-rules.json 单源；parity 测试锁死双实现一致。
+- **教训 1（对齐 ≠ 接入）**：双实现「规则对齐」若没有运行时消费方，优化不会到达用户可见产物。落地时必须全链路核对：配置入口 → 阶段执行器 → 消费方（合成引擎）实际 require/import 的模块路径。
+- **教训 2（引擎返回的结构先验证再丢弃）**：smart-sentence-splitter 的 SplitResponse 已含 scenes[].subtitles（text/display_order/start_time/duration）；归一化层应优先消费，而不是无理由本地重切。
+- **教训 3（JS 镜像 + parity 是 Electron 主进程复用 TS 算法的既定范式）**：主进程纯 JS 无法 require TS，仓库已有 subtitle-aligner 同款范式；手抄算法必须用同一语料差分测试锁死（本 change 10 组语料 21 用例）。
+- **教训 4（UTF-16 码元 vs Unicode 字符）**：引擎/TS 的字数边界按 string.length（UTF-16 码元）计数，emoji 占 2 码元；旧本地测试按 Array.from（码点）断言会与新引擎行为冲突，更新断言时应以引擎实测为准。
+
+---
 ## 容器日志轮转复盘（container-log-rotation，2026-08-13）
 
 - **交付**：为 publish-api / logto / postgres / blackbox / prometheus / alertmanager 六个 Compose 服务统一添加 `logging: driver=json-file, options={max-size: 50m, max-file: 5}`（每容器 ≤250MB）；契约测试 logto-deploy-contract.test.js 新增 assertLogRotation 断言；spec 明确作用域（仅 Compose 容器，systemd/journald 豁免）。
@@ -6573,3 +6583,4 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训**：文档化的「铁律」若无机器执行点等于不存在；提交级保护必须 fail closed，不能依赖人工确认；`.agent_context/` 这类检测信号必须由代码创建，否则检测永远空转。
 - **修复迭代（Claude 审查发现）**：① 单槽位声明可被并发会话覆盖导致守卫 fail-open → session-guard 拒绝覆盖另一活跃会话（session.json pid 存活）的声明；② 安装脚本从子目录运行 `--git-common-dir` 返回相对路径会装错位置 → 改用 `--path-format=absolute` + HEAD 合法性校验；③ 补 fail-closed 边界测试（空声明/detached 无 rebase/wrapper 缺失/非代码扩展名/真实 rebase 重放）。
 
+- **自动化迭代（用户反馈手动声明太麻烦）**：隔离 worktree（per-worktree git-dir != 公共 git-dir）由 pre-commit 提交时自动声明当前分支、切分支自动跟随，零手动步骤；共享主工作区保留严格 fail-closed（需 session-guard 锁定一次，不传 -Branch 自动取当前分支）。测试 13 场景 21 断言。

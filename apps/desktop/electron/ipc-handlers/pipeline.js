@@ -157,9 +157,10 @@ function registerHandlers(ipcMain, deps) {
         ? pipelineEngine.getRunSnapshot(runId)
         : pipelineEngine.getRunContext(runId)
       if (!snapshot) return { code: EC.NOT_FOUND, message: '未找到指定的流水线运行' }
-      // 附带模型服务异常快照：前端据此展示「模型响应异常」友好提示（非阻塞）
+      // 附带模型服务异常快照：仅包含该运行创建后（含）记录的异常（按运行归属过滤，避免跨运行残留）；
+      // 运行无 createdAt 时由 snapshotSince 回退全量快照，不隐藏警告。
       const { providerAnomalyBus } = require('../services/provider-anomaly')
-      const providerWarnings = providerAnomalyBus.snapshot()
+      const providerWarnings = providerAnomalyBus.snapshotSince(snapshot.createdAt)
       return { code: 0, data: providerWarnings.length > 0 ? { ...snapshot, providerWarnings } : snapshot }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))

@@ -19,4 +19,4 @@
 
 - [x] 3.1 logto-deploy-contract.test.js + 相关 production 测试通过
 - [x] 3.2 `openspec validate container-log-rotation` 通过
-- [ ] 3.3 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+- [x] 3.3 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）

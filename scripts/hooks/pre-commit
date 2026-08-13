@@ -2,49 +2,74 @@
 # 质量节拍 + 分支守卫 Pre-commit Hook
 # 权威源：scripts/hooks/pre-commit；安装：scripts/install-git-hooks.ps1（同步到共享 .git/hooks/）
 # 行为：
-#   1) 分支守卫（所有提交，含 docs-only）：当前分支必须等于 .agent_context/expected-branch 声明
+#   1) 分支守卫（所有提交，含 docs-only）：
+#      - 隔离 worktree（per-worktree git-dir != 公共 git-dir）：声明自动跟随当前分支，零手动步骤
+#      - 共享主工作区：严格 fail-closed，当前分支必须 == .agent_context/expected-branch
 #   2) 质量节拍检查（保留原逻辑）：代码文件变更时执行 scripts/quality-rhythm-wrapper.js check
 set -u
 
 echo "=== 质量节拍 + 分支守卫 Pre-commit 检查 ==="
 
 GIT_DIR="$(git rev-parse --git-dir)"
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
 CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
 EXPECTED_FILE=".agent_context/expected-branch"
 
-# ---------- 1. 分支守卫（fail closed，docs-only 同样强制） ----------
-if [ -f "$EXPECTED_FILE" ]; then
-    EXPECTED_BRANCH="$(tr -d '[:space:]' < "$EXPECTED_FILE")"
-    if [ -z "$EXPECTED_BRANCH" ]; then
-        echo "错误：.agent_context/expected-branch 内容为空"
-        echo "  修复：powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch <期望分支>"
-        exit 1
-    fi
+# 隔离 worktree 判定：linked worktree 的 per-worktree git-dir 与公共 git-dir 不同
+ISOLATED_WORKTREE=0
+if [ -n "$GIT_DIR" ] && [ -n "$GIT_COMMON_DIR" ] && [ "$GIT_DIR" != "$GIT_COMMON_DIR" ]; then
+    ISOLATED_WORKTREE=1
+fi
+
+# ---------- 1. 分支守卫 ----------
+if [ "$ISOLATED_WORKTREE" = "1" ]; then
+    # 隔离 worktree：单会话独占，无共享竞态 → 声明自动跟随当前分支（零手动步骤）
     if [ -z "$CURRENT_BRANCH" ]; then
-        # rebase 重放时 HEAD 处于 detached 状态，跳过断言避免误拦；其余 detached 提交视为上下文缺失
+        # detached：rebase 重放等，跳过断言
         if [ -d "$GIT_DIR/rebase-merge" ] || [ -d "$GIT_DIR/rebase-apply" ]; then
             echo "分支守卫：HEAD 处于 rebase 重放（detached），跳过本次分支断言"
-        else
-            echo "错误：会话声明期望分支 $EXPECTED_BRANCH，但当前 HEAD 未指向任何命名分支"
-            echo "  修复：git switch $EXPECTED_BRANCH"
-            exit 1
         fi
-    elif [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
-        echo "错误：分支守卫拦截 —— 期望分支: $EXPECTED_BRANCH，当前分支: $CURRENT_BRANCH"
-        echo "  可能原因：共享工作区被并发会话执行了 git checkout，HEAD 被切到其他分支"
-        echo "  修复选项："
-        echo "    1) 若本次提交本应落在 $EXPECTED_BRANCH：先 git switch $EXPECTED_BRANCH，再重试提交"
-        echo "    2) 若确实要提交到 $CURRENT_BRANCH：先更新声明 scripts/session-guard.ps1 -Branch $CURRENT_BRANCH"
-        exit 1
     else
-        echo "分支守卫：当前分支 $CURRENT_BRANCH 与会话声明一致"
+        mkdir -p ".agent_context"
+        printf '%s' "$CURRENT_BRANCH" > "$EXPECTED_FILE"
+        echo "分支守卫：隔离 worktree 自动声明期望分支 $CURRENT_BRANCH"
     fi
 else
-    echo "错误：缺少会话分支声明 .agent_context/expected-branch"
-    echo "  会话开始时必须声明期望提交分支，防止共享工作区被并发切换后提交落到错误分支"
-    echo "  修复：powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch <期望分支>"
-    echo "  例：  powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch main"
-    exit 1
+    # 共享主工作区：严格 fail-closed（事故场景保护层）
+    if [ -f "$EXPECTED_FILE" ]; then
+        EXPECTED_BRANCH="$(tr -d '[:space:]' < "$EXPECTED_FILE")"
+        if [ -z "$EXPECTED_BRANCH" ]; then
+            echo "错误：.agent_context/expected-branch 内容为空"
+            echo "  修复：powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch <期望分支>"
+            exit 1
+        fi
+        if [ -z "$CURRENT_BRANCH" ]; then
+            # rebase 重放时 HEAD 处于 detached 状态，跳过断言避免误拦；其余 detached 提交视为上下文缺失
+            if [ -d "$GIT_DIR/rebase-merge" ] || [ -d "$GIT_DIR/rebase-apply" ]; then
+                echo "分支守卫：HEAD 处于 rebase 重放（detached），跳过本次分支断言"
+            else
+                echo "错误：会话声明期望分支 $EXPECTED_BRANCH，但当前 HEAD 未指向任何命名分支"
+                echo "  修复：git switch $EXPECTED_BRANCH"
+                exit 1
+            fi
+        elif [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
+            echo "错误：分支守卫拦截 —— 期望分支: $EXPECTED_BRANCH，当前分支: $CURRENT_BRANCH"
+            echo "  可能原因：共享工作区被并发会话执行了 git checkout，HEAD 被切到其他分支"
+            echo "  修复选项："
+            echo "    1) 若本次提交本应落在 $EXPECTED_BRANCH：先 git switch $EXPECTED_BRANCH，再重试提交"
+            echo "    2) 若确实要提交到 $CURRENT_BRANCH：先更新声明 scripts/session-guard.ps1 -Branch $CURRENT_BRANCH"
+            exit 1
+        else
+            echo "分支守卫：当前分支 $CURRENT_BRANCH 与会话声明一致（共享主工作区）"
+        fi
+    else
+        echo "错误：缺少会话分支声明 .agent_context/expected-branch"
+        echo "  共享主工作区存在并发切换风险，提交前必须声明期望分支："
+        echo "  修复：powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch <期望分支>"
+        echo "  例：  powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch main"
+        echo "  （隔离 worktree 会自动声明，无需手动执行）"
+        exit 1
+    fi
 fi
 
 # ---------- 2. 质量节拍检查（保留既有逻辑） ----------

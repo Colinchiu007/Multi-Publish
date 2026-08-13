@@ -100,6 +100,58 @@ describe('ProviderAnomalyBus', () => {
     expect(bus.snapshot()).toEqual([])
   })
 
+  it('snapshotSince 只返回边界之后（含）记录的异常（按运行归属过滤）', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-08-13T00:00:00.000Z'))
+      bus.report({ providerId: 'old', latencyMs: 1, kind: 'slow' })
+      vi.setSystemTime(new Date('2026-08-13T00:00:10.000Z'))
+      bus.report({ providerId: 'mid', latencyMs: 2, kind: 'slow' })
+      vi.setSystemTime(new Date('2026-08-13T00:00:20.000Z'))
+      bus.report({ providerId: 'new', latencyMs: 3, kind: 'slow' })
+
+      const afterMid = bus.snapshotSince('2026-08-13T00:00:10.000Z')
+      expect(afterMid.map(s => s.providerId)).toEqual(['new', 'mid'])
+      const afterNew = bus.snapshotSince('2026-08-13T00:00:20.000Z')
+      expect(afterNew.map(s => s.providerId)).toEqual(['new'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('snapshotSince 边界非法/缺失时回退全量快照（不隐藏警告）', () => {
+    bus.report({ providerId: 'p', latencyMs: 1, kind: 'slow' })
+    expect(bus.snapshotSince('')).toEqual(bus.snapshot())
+    expect(bus.snapshotSince('not-a-date')).toEqual(bus.snapshot())
+    expect(bus.snapshotSince(undefined)).toEqual(bus.snapshot())
+  })
+
+  it('snapshotSince 未来时间边界返回空数组（无新异常不显示）', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-08-13T00:00:00.000Z'))
+      bus.report({ providerId: 'p', latencyMs: 1, kind: 'slow' })
+      const snap = bus.snapshotSince('2099-01-01T00:00:00.000Z')
+      expect(snap).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('snapshotSince 支持数值边界（epoch ms）', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-08-13T00:00:00.000Z'))
+      bus.report({ providerId: 'old', latencyMs: 1, kind: 'slow' })
+      vi.setSystemTime(new Date('2026-08-13T00:01:00.000Z'))
+      bus.report({ providerId: 'new', latencyMs: 2, kind: 'slow' })
+      const snap = bus.snapshotSince(Date.parse('2026-08-13T00:00:30.000Z'))
+      expect(snap.map(s => s.providerId)).toEqual(['new'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('上报时发出 anomaly 事件', () => {
     const handler = vi.fn()
     bus.on('anomaly', handler)

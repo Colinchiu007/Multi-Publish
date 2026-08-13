@@ -1,0 +1,14 @@
+{
+  "id": "i18n-sync-hardening-implement",
+  "title": "i18n-sync 硬化：.vue template CJK 扫描 + user-facing-error 语料收敛 + 术语词典扩充 + 豁免收窄",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-i18n",
+  "currentPhase": "completed",
+  "nextAction": "已交付并归档",
+  "openspecChange": "i18n-sync-hardening",
+  "remoteStatus": "PR #704 merged 401f16e4 (2026-08-13); 全 CI 绿（18 项检查 0 失败）",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "codex/i18n-sync-hardening"
+}
