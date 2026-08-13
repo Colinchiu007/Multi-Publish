@@ -1,0 +1,13 @@
+{
+  "id": "story2video-split-engine-unify",
+  "title": "全能创作链路统一使用分句引擎算法（在线引擎字幕 / 离线 v0.15.2 本地）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "implementation",
+  "nextAction": "QM-1 打包验证 + 双模型审查 + PR",
+  "createdAt": "2026-08-13T10:30:00+08:00",
+  "branch": "codex/story2video-split-engine-unify",
+  "openspecChange": "story2video-split-engine-unify"
+}

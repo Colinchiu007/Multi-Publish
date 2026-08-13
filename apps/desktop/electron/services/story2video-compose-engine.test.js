@@ -409,7 +409,8 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
         expect(item.startTime).toBe(timeline[index].endTime)
       })
       expect(timeline.at(-1).endTime).toBe(4)
-      expect(timeline.map(item => item.text).join('')).toBe(text)
+      // v0.15.2 兜底分页清理块尾标点：join 等于去掉块界标点后的文本
+      expect(timeline.map(item => item.text).join('')).toBe('第一屏字幕内容需要完整呈现第二屏字幕内容也要连续显示')
       expect(result.data.segments[0].subtitleBlocks).toEqual(timeline.map(item => item.text))
       expect(result.data.segments[0].subtitleTimeline.at(-1).endTime).toBe(4)
     } finally {

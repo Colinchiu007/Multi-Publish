@@ -1,3 +1,13 @@
+## 全能创作分句未生效复盘（story2video-split-engine-unify，2026-08-13）
+
+- **问题**：用户优化了 smart-sentence-splitter 与本仓库 TS 镜像（text-segmentation.ts v0.15.2），但全能创作视频里的分句仍是旧方法。调查结论：桌面主进程 split 阶段虽然调用 :8002 引擎生成场景，但 `normalizeServiceSplitResult` 丢弃引擎返回的 `scenes[].subtitles`，用 `story2video-segmentation.js` 旧贪心算法本地重切；引擎离线时整条链路降级为同一旧算法。`text-segmentation.ts` 在桌面主进程完全未被引用（仅 CreateView 用 template-library），是「对齐了但没接入」的死代码。
+- **修复**：在线路径直接采纳引擎字幕；离线路径以 JS 镜像（story2video-segmentation-engine.js）逐行对齐 text-segmentation.ts，subtitle-rules.json 单源；parity 测试锁死双实现一致。
+- **教训 1（对齐 ≠ 接入）**：双实现「规则对齐」若没有运行时消费方，优化不会到达用户可见产物。落地时必须全链路核对：配置入口 → 阶段执行器 → 消费方（合成引擎）实际 require/import 的模块路径。
+- **教训 2（引擎返回的结构先验证再丢弃）**：smart-sentence-splitter 的 SplitResponse 已含 scenes[].subtitles（text/display_order/start_time/duration）；归一化层应优先消费，而不是无理由本地重切。
+- **教训 3（JS 镜像 + parity 是 Electron 主进程复用 TS 算法的既定范式）**：主进程纯 JS 无法 require TS，仓库已有 subtitle-aligner 同款范式；手抄算法必须用同一语料差分测试锁死（本 change 10 组语料 21 用例）。
+- **教训 4（UTF-16 码元 vs Unicode 字符）**：引擎/TS 的字数边界按 string.length（UTF-16 码元）计数，emoji 占 2 码元；旧本地测试按 Array.from（码点）断言会与新引擎行为冲突，更新断言时应以引擎实测为准。
+
+---
 ## 容器日志轮转复盘（container-log-rotation，2026-08-13）
 
 - **交付**：为 publish-api / logto / postgres / blackbox / prometheus / alertmanager 六个 Compose 服务统一添加 `logging: driver=json-file, options={max-size: 50m, max-file: 5}`（每容器 ≤250MB）；契约测试 logto-deploy-contract.test.js 新增 assertLogRotation 断言；spec 明确作用域（仅 Compose 容器，systemd/journald 豁免）。

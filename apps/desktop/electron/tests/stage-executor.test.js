@@ -120,7 +120,8 @@ it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块'
       degraded: false,
     },
   });
-  expect(result.output.scenes[0].subtitleBlocks.join('')).toBe(result.output.scenes[0].text);
+  // v0.15.2 本地分块清理块尾标点（引擎离线/缺字幕回退路径）
+  expect(result.output.scenes[0].subtitleBlocks.join('')).toBe('第一幕包含足够长的画面说明随后继续补充细节');
   const sentOptions = bus.splitText.mock.calls[0][1];
   expect(sentOptions).toMatchObject({
     language: 'zh',
