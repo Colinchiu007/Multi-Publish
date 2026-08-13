@@ -1,13 +1,14 @@
 {
   "id": "cross-process-traceid",
   "title": "P2 C5：跨进程 traceId 贯穿 — runId → StageExecutor → serviceBus → Bridge → X-Request-Id → Python 日志",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "medium",
   "domain": "observability",
-  "currentPhase": "planning",
-  "nextAction": "写 proposal/design/specs/tasks，Claude 设计审查后实施",
+  "currentPhase": "completed",
+  "nextAction": "PR #720 已合并，三同步归档完成",
   "createdAt": "2026-08-13T14:00:00+08:00",
   "branch": "codex/cross-process-traceid",
-  "openspecChange": "cross-process-traceid"
+  "openspecChange": "cross-process-traceid",
+  "remoteStatus": "MERGED_PRS_720"
 }

@@ -48,6 +48,16 @@
 - **教训 4（已知边界显式文档化）**：桌面 .1 滚动备份不匹配按日清理正则（不受 30 天清理）、audit sink 不经 5 组脱敏——「文档化限制」优于「假装不存在」。
 
 ---
+## 跨进程 traceId 贯穿复盘（cross-process-traceid，2026-08-13）
+
+- **交付**：pipeline runId 经 StageExecutor（内置 SPLIT/OPTIMIZE/OPTIMIZE_BATCH + story2video 自定义执行器 6 处）→ serviceBus → splitter/prompt/aligner Bridge → `X-Request-Id` 头 → Python 日志；audio-aligner 消费头并写 request_id（成功/异常）；Bridge 日志 `POST <path> traceId=<id>`。PR #720。
+- **教训 1（Node http 头值限制是硬约束）**：`X-Request-Id` 头值含 CJK 时 `http.request` 同步抛 `ERR_INVALID_CHAR`，**请求根本没发出**（测试 4ms 即失败，服务端 receivedBody=null 才暴露）。所有入头值必须过 ASCII 校验（`[A-Za-z0-9._:-_]` ≤64），非法值降级不发送 + warn。Claude 设计审查 W3「头值校验」正是此坑，实现时才真正落地。
+- **教训 2（控制字段与业务 payload 必须分离）**：traceId 若随 options 展开进请求体（serviceBus optimize 的 `{ prompt, ...options }`、splitter 的 `{ text, ...options }`），会污染发送给 Python 的 JSON——必须在每层显式提取后再透传，契约测试断言「body 不含 traceId」。
+- **教训 3（设计审查抓「漏接线」比抓「错接线」更值钱）**：Claude 审查 3 个 Critical 全是接线遗漏——主流水线 story2video_optimize 未覆盖、GENERATE_ASSETS 内 optimizeVideoPrompt 同执行器只接了一半、FINALIZE_ASSETS 二次 alignScenes 漏掉。执行器 runId 全在作用域（_safeRun 已注入），遗漏纯属范围盘点不全——L 复杂度变更的接线清单要逐执行器核对，不能只按「内置执行器」划范围。
+- **教训 4（无 handler 的 logger = 假绿）**：audio-aligner 用 stdlib logging 但全仓无 basicConfig，INFO 级被 lastResort 静默丢弃（仅 WARNING+ 落 stderr）——按「成功路径写 request_id」实施会「pytest 绿、生产无日志」。补 `logging.basicConfig(INFO)` 一行。
+
+
+---
 ## 容器日志轮转复盘（container-log-rotation，2026-08-13）
 
 - **交付**：为 publish-api / logto / postgres / blackbox / prometheus / alertmanager 六个 Compose 服务统一添加 `logging: driver=json-file, options={max-size: 50m, max-file: 5}`（每容器 ≤250MB）；契约测试 logto-deploy-contract.test.js 新增 assertLogRotation 断言；spec 明确作用域（仅 Compose 容器，systemd/journald 豁免）。

@@ -23,4 +23,4 @@
 ## 5. 验证与交付
 
 - [x] 5.1 本地测试全绿 + `openspec validate cross-process-traceid` 通过
-- [ ] 5.2 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+- [x] 5.2 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
