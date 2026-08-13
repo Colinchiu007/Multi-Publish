@@ -157,7 +157,9 @@
 | 「上报超时」 | 10 秒内未收到运营后台响应 | 检查网络与 Ops Center 服务；稍后重试 |
 | 「HTTP 401 / 403」 | 服务端鉴权拒绝 | 见下方「已知差异」 |
 
-> **已知差异（P2 待对齐）**：服务端 `/api/v1/scheduler/verify` 当前为 admin JWT 鉴权；桌面端上报按设计契约发送 `X-Catalog-Key`（= `OPS_CATALOG_API_KEY`）。在服务端放开 X-Catalog-Key 之前，桌面端「上报运营后台」会收到 401。变通：由 admin 会话在运营后台「模拟验证」页用相同参数执行验证（simulated=true）核对结果；服务端与桌面端鉴权对齐后即可直接上报。
+- **上报通道**：桌面端「上报运营后台」通过 `X-Catalog-Key`（= `OPS_CATALOG_API_KEY`，与用量上报同一 Key）鉴权，**无需登录**；服务端需已配置 `OPS_CATALOG_API_KEY`（未配置 → 404 fail-closed，Key 错误 → 401「目录同步 Key 无效」）。
+- **上报数据保真**：服务端对 simulated=false 上报直接保存桌面端真实自检的 metrics/assertions/timeline（engine=real-governor），**不会用模拟器重算覆盖**；上报缺 metrics/timeline → 400。
+- **权限边界**：目录同步 Key 仅允许 simulated=false 上报；simulated=true（运营后台模拟验证）与列表/详情/契约查询仍为 admin JWT。
 
 ---
 
@@ -219,4 +221,5 @@
 | POST | /api/v1/usage/ingest | X-Catalog-Key | 桌面端用量上报（含排队/冷却聚合字段） |
 | GET | /api/v1/usage/summary | admin | 用量汇总（含 429率/排队/冷却/预算利用率） |
 | GET | /api/v1/model-presets | admin | 预设列表（模拟验证页预设下拉数据源） |
+
 

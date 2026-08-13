@@ -32,8 +32,29 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials | None = De
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效")
 
 
+async def get_current_user_optional(credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> dict | None:
+    """Validate JWT token if present; return None when header is absent (双通道端点用，如 scheduler 上报)。"""
+    if credentials is None:
+        return None
+    try:
+        secret = settings.get_jwt_secret()
+        return jwt.decode(
+            credentials.credentials,
+            secret,
+            algorithms=[settings.jwt_algorithm],
+        )
+    except RuntimeError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="认证服务配置不完整",
+        )
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌无效")
+
+
 async def require_admin(user: dict = Depends(get_current_user)):
     """Require admin role."""
     if user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
     return user
+

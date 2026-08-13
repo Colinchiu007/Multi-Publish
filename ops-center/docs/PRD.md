@@ -1621,3 +1621,4 @@ parity 测试（`apps/desktop/electron/tests/test_scheduler_parity.test.js`）�
 8. 文档：本 PRD 12A.23 与 `ops-center/docs/OPERATIONS.md` 运营手册同步维护；桌面端机制文档见 Multi-Publish PRD §7.1.8.1 / §7.4.4.3-5。
 
 
+
