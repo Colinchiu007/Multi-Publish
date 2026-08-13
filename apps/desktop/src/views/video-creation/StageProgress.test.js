@@ -3,16 +3,28 @@ import { describe, it, expect } from "vitest";
 import { mount } from "@vue/test-utils";
 import StageProgress from "./StageProgress.vue";
 
-const tStub = (key) => ({
-  "stageProgress.statusCompleted": "已完成",
-  "stageProgress.statusRunning": "运行中",
-  "stageProgress.statusFailed": "失败",
-  "stageProgress.statusWaitingApproval": "等待确认",
-  "stageProgress.statusCancelled": "已取消",
-  "stageProgress.statusPending": "等待中",
-  "create.story2video.selectionWait.stageLabel": "等待选择素材",
-  "pipelines.statuses.paused": "已暂停",
-}[key] || key);
+const tStub = (key, params = {}) => {
+  const map = {
+    "stageProgress.statusCompleted": "已完成",
+    "stageProgress.statusRunning": "运行中",
+    "stageProgress.statusFailed": "失败",
+    "stageProgress.statusWaitingApproval": "等待确认",
+    "stageProgress.statusCancelled": "已取消",
+    "stageProgress.statusPending": "等待中",
+    "create.story2video.selectionWait.stageLabel": "等待选择素材",
+    "pipelines.statuses.paused": "已暂停",
+    "stageProgress.startedAt": "开始于 {time}",
+    "stageProgress.completedAt": "完成于 {time}",
+    "stageProgress.splitScenes": "拆分为了 {count} 个场景",
+    "stageProgress.optimizeDone": "共 {total} 个场景，已完成 {done} 个",
+    "stageProgress.composeSegments": "正在合成片段 {done}/{total} · {percent}%",
+    "stageProgress.composeVideo": "视频合成 {percent}%",
+    "stageProgress.assetsDetail": "图片 {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal}",
+    "stageProgress.assetsDetailNoVideo": "图片 {images}/{imagesTotal} · 旁白 {tts}/{ttsTotal}",
+  };
+  const template = map[key] || key;
+  return Object.keys(params).reduce((s, k) => s.replace(`{${k}}`, String(params[k])), template);
+};
 
 const makeStage = (overrides = {}) => ({
   name: "generate_assets",
