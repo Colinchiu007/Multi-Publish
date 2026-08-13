@@ -6502,3 +6502,22 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 4（ops-center 全量 pytest 既有 DB 干扰）**：各测试模块顶部各设 OPS_DB_PATH，database engine 首个 import 固定 → 全量必互踩（排除本次文件仍有 4 failed + 17 errors）；门禁按「本次文件单独运行」+ 与既有模块同模式。
 - **教训 5（并发会话 rebase 洪流）**：main 高频前进导致 PR 反复 CONFLICTING；处理=每次 fetch 最新 main→rebase→仅共享文档（CHANGELOG/quality-gates/PRD.md）冲突按「双方保留」消解→force-push；auto-merge 可在合并计算完成后生效。
 - **预防**：① 新增受保护资源（媒体/密钥）默认 owner+admin 校验；② 后台任务用快照+重查；③ 评估/生成密钥独立配置并启动/保存时强校验；④ 大 diff 给 Claude 审查用文件路径而非 stdin（>1000 行管道会崩溃）。
+
+## 复盘：限流/调度验证对拍口径差异与 KNOWN_DIFF_CASES 建模（2026-08-13，PR #680）
+
+- **变更**：`scripts/compare-scheduler-models.js` 新增 `KNOWN_DIFF_CASES` + `runKnownDiffs()`（slow-call-concurrency / quota-5h-real 两组实证差异，仅记录不影响退出码）；`apps/desktop/electron/tests/test_scheduler_parity.test.js` 新增防漂移断言；文档 OPERATIONS.md §3.5 / PRD §12A.23.10 记录两端口径差异。
+- **发现（真实验证驱动）**：官方四组对拍（20ms 短请求）全 PASS（PARITY OK），但用真实预设慢调用参数对拍暴露两个**已知观测口径差异**：
+  1. **并发峰值口径**：真实 governor（Promise 并发+信号量）在单请求耗时 ≥ RPM 节流间隔时并发可到 maxConcurrent（elevenlabs 3s×8/rpm20 → real maxc=2 vs python maxc=1）；模拟器是串行事件循环（同批到达逐条推进时钟）→ 低估并发；
+  2. **5h 拒绝耗时口径**：被 5h 额度拒绝的请求真实 governor 仍经历排队/时间槽后才报 QUOTA_EXCEEDED（limit=5/8 请求 → total≈21s），模拟器在等待前立即预检拒绝（total≈12s）→ 差约 9s 超官方对拍 1.5s 容差。**拒绝数/限流数/额度数两端一致**，仅观测口径不同。
+- **教训 1（对拍覆盖参数域）**：官方对拍用例全绿 ≠ 全参数域一致；对拍必须覆盖真实业务参数（慢调用、真实 5h 额度），否则口径差异被短请求用例掩盖。
+- **教训 2（差异显式建模）**：已知差异要用「记录在案 + 防漂移断言」处理（KNOWN_DIFF_CASES 不影响退出码；测试断言差异值存在，未来修复模拟器会 FAIL 提示更新），而不是塞进 must-pass 用例把 CI 弄红，也不是静默忽略。
+- **预防**：新增模拟器/governor 行为变更时，先跑 `node scripts/compare-scheduler-models.js`（strict + known diff 两组输出）再改文档。
+
+## 复盘：P2 限流自检上报闭环（X-Catalog-Key 双通道 + 上报数据保真）（2026-08-13，PR #685）
+
+- **变更**：`POST /api/v1/scheduler/verify` 双通道鉴权——simulated=true 仅 admin JWT；simulated=false 接受 `X-Catalog-Key`（=`OPS_CATALOG_API_KEY`，未配置→404 fail-closed、错 key→401）或 admin JWT；catalog key 携带 simulated=true→403；GET 列表/详情/契约保持 admin-only。`scheduler_service` simulated=false 上报**优先保存桌面端真实自检 metrics/assertions/timeline**（engine=real-governor），不再被模拟器重算覆盖；缺 metrics/timeline→400。`middleware/auth.py` 新增 `get_current_user_optional`。测试 +6 用例，pytest 20/20。
+- **两个缺陷**：① 桌面端「限流自检→上报运营后台」发 `X-Catalog-Key` 但服务端仅 admin JWT → 上报 401，P2 闭环未打通；② 即使放行，服务端会用模拟器**重算**结果覆盖上报数据 → 「真实自检记录」名不副实（存储的是模拟结果）。
+- **教训 1（上报链路要端到端验证）**：服务端单测用 admin token 覆盖 simulated=0 落库路径 ≠ 桌面端真实上报路径可用；必须用 `X-Catalog-Key` 头 + 真实自检 payload 做 E2E（验证 metrics 保真 = 上报值而非重算值）。本次 E2E 脚本导出 `C:\tmp\rate-limit-verify-20260813b\report-auth-verify.json`。
+- **教训 2（Windows 脚本替换陷阱，AGENTS.md 教训复现）**：PowerShell here-string 的 `.Replace()` 对 CRLF 文件**静默失败**（输出 "patched" 但内容未变，无报错）——改完必须 `Select-String`/`git diff` 验证目标内容确实写入；跨行文件修改改用 Python 脚本（`open(newline="")` 保留行尾）+ `assert` 强制验证。
+- **教训 3（工具损坏变通）**：gstack 1.61/1.62 的 `gstack-learnings-log` 在 Windows 上损坏（缺 `lib/jsonl-store.ts`，bun eval 失败且静默）→ 直接 append `~/.gstack/projects/<slug>/learnings.jsonl`（保持同 schema），不盲等修复。
+- **预防**：机器间上报端点（catalog-key 模式）统一复用 usage/ingest 的 `_require_catalog_key`（404 fail-closed/401 常量时间比较）；新增双通道端点必须测「无鉴权回退」与「catalog 不能越权到管理只读」。
