@@ -1,3 +1,14 @@
+## 提示词引擎自进化 P1b 主题指纹复盘（prompt-engine-evolution-p1b，2026-08-13）
+
+- **交付**：`fingerprint.js`（~300 行）——DOMAIN_DICTIONARY 6 领域强/弱词 + INTENT_ALIASES 8 意图强/弱档 + extractTopics（≤2000 截断、≤8 topics、2-6 字、词典词子串剔除）+ buildFingerprint + score（4/2/2/1 分量上限）+ findSimilarTemplates（NONE/MID/HIGH 置信档位、探索 ε ≤0.3 仅重排 active 集、activeCount<10 时 ε=0、rand 注入可测、tie-break）。PR #752 merged fd269294；fingerprint 19 例（14 规格 + 2 parity + 3 审查补充）+ P0 collector 18 全绿；Codex 双模型审查 9 MAJOR 全部修复（Claude 后端瞬态不可用按降级路径）；OpenSpec change 已归档（4 条需求合入 prompt-engine-evolution）。
+- **教训 1（CJK 词边界没有 \b）**：JS 正则 `\b` 只认 ASCII 词边界，`\bAI\b` 对中文文本不可靠；英文词边界用 split token 精确判断 + 缩写白名单（ai/app），避免 "apple" 命中 "app"、"AI 改变教育" 子串误判。
+- **教训 2（topics 必须剔除词典子串）**：extractTopics 若保留 "AI"/"教育" 等词典词，topics 与 domains 冗余、score 分量重复计算；词典词子串剔除后 "AI 改变教育" topics=[]，符合「domains 表达领域、topics 表达自由命名实体」的分层。
+- **教训 3（探索必须受控且可测）**：探索 ε 若对全库重排会污染置信排序；限定 active 模板集内重排 + activeCount<10 直接 ε=0 + rand 注入（测试传固定 rand）保证行为确定可回归；provenance 标注 learnedFrom+explored 且不泄漏模板内部字段。
+- **教训 4（parity 是词典漂移的唯一防线）**：JS 词表副本与 story2video-engine TS 权威版（applyWhen 8 组 + SentimentAnalyzer 12 词）逐字对齐并锁测试；任何单侧加词都会在 CI 报警，避免双实现长期分叉。
+- **教训 5（main 极活跃 → 合并窗口要短）**：实现期 rebase 4 次（CHANGELOG 反复冲突、CJK 基线行号偏移），每次 rebase 都有丢失风险；CI 全绿瞬间立即合并，归档（docs/process 直推 main）紧随其后，压缩暴露窗口。
+- **预防措施**：① 中英文混合词典维护走 parity 测试；② 探索/随机逻辑一律 rand 注入 + 边界 ε 策略；③ CJK 词边界用例进 fingerprint 测试模板；④ 长周期分支定期 rebase + 合并窗口纪律。
+
+---
 ## [2026-08-13] 视频创作首页卡片 UI：宽屏多列 + MiniMax 背景缓存服务的落地要点（pipeline-card-backgrounds-ui）
 
 - 根因/机会：`create-page` 被 `max-width:1080px` 封顶（`src/styles/create-view.css`），即便网格用 `auto-fill minmax(300px,1fr)`，宽屏列数也被容器压死——「不是多列动态」的真相是容器宽度而非网格定义。

@@ -18,6 +18,6 @@
 - 测试目标：fingerprint.test.js 内 parity 断言
 
 ### 任务 3：文档与门禁
-- [ ] CHANGELOG、`.quality-gates.md` 自检记录、tasks.md 全部勾选
+- [x] CHANGELOG、`.quality-gates.md` 自检记录、tasks.md 全部勾选
 - [x] 双模型审查（Codex 9 MAJOR 全部修复 + 主代理复核；Claude 后端瞬态不可用按降级）
-- [ ] 提交/推送/PR/合并；OpenSpec archive + CCG task 归档三同步
+- [x] 提交/推送/PR/合并（PR #752 merged fd269294）；OpenSpec archive + CCG task 归档三同步

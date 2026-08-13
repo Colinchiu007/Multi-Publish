@@ -1,12 +1,12 @@
 {
   "id": "prompt-engine-evolution-p1b",
   "title": "主题指纹与同类模板检索实现（fingerprint.js）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "desktop",
-  "currentPhase": "implementation",
-  "nextAction": "TDD 实现 fingerprint.js 与 14 例测试",
+  "currentPhase": "completed",
+  "nextAction": "归档完成：PR #752 merged fd269294，三同步已落地",
   "createdAt": "2026-08-13T11:00:00+08:00",
   "branch": "codex/prompt-engine-evolution-p1b",
   "openspecChange": "prompt-engine-evolution-p1b"
