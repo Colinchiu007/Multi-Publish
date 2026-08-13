@@ -1,3 +1,13 @@
+## 共享 worktree 批量清理级联误删主工作区文件复盘（shared-worktree-cascade-delete，2026-08-13）
+
+- **表象**：主工作区 `git status --porcelain` 突发 **255 个 ` D`**（工作区文件从磁盘消失，但 HEAD 中仍存在、上游未提交删除、目录外壳还在）；同一时段大量 worktree 从 `git worktree list` 消失（含本会话 mp-video-clone-default-url），主工作区 HEAD 也被并发会话推进（c0510955 → 1a248ed7）。
+- **根因**：共享 `.git` 多 worktree 环境中，其他会话执行批量 worktree 清理时对主工作区物理文件造成级联删除（AGENTS.md R3「junction/reparse point 级联删除」风险真实发生）；清理未逐目录走 `safe-worktree-remove.ps1` 的 R1 基线快照 + R3 junction 扫描门禁。
+- **逃逸链**：文件系统层无单测/集成可拦；`git status` 的 ` D` 在删除后立即可见，但无自动监控告警；清理工具防护依赖会话自觉，跨会话无强制校验——删除方未对比删除后状态。
+- **系统性漏洞**：批量清理缺少「删除前 R1 基线快照 → 删除后 diff 基线 → 新增 D 立即报错」的强制执行；标准脚本存在但未被执行方调用。
+- **修复（本会话）**：按规范用 `scripts/safe-restore-deleted.ps1` 精确逐文件恢复（先备份同目录未提交修改，再对每个 D 路径 `git checkout -- <path>`），验证 D 归零、`git status` 干净；恢复后与最新 origin/main 一致性复核通过（HEAD=1a248ed7）。
+- **预防措施**：① 批量清理 worktree 必须逐目录走 `safe-worktree-remove.ps1`（R1/R3/R5），禁止绕过；② 清理后立即 `git status --porcelain` 对比基线，出现新增 D 立即停止并报告；③ 任何会话发现主工作区 D 数量异常，第一时间用 `safe-restore-deleted.ps1` 恢复，禁止手动 rm/移动；④ 共享主工作区做大动作（pull/清理/恢复）前后留状态快照；⑤ 会话结束前确认自己的 worktree 分支已合并再允许清理方删除。
+
+---
 ## 提示词引擎自进化 P0 反馈管道复盘（prompt-engine-evolution-p0，2026-08-13）
 
 - **交付**：GenerationEvent/FeedbackEvent 双日志（append-only JSONL、月轮转 30 天清理、eventId join、sessionId 解析、孤儿标记不丢弃）+ signal-collector + generation:feedback IPC + preload API + CreateView 采纳埋点 + generateImagePromptsSmart onEvent 钩子。PR #722 merged 0a900b80；桌面全量 7378 测试 + 新增 100+ 全绿；Claude + Codex 双模型审查（CRITICAL 修复后通过）；OpenSpec change 已归档（specs 合入 prompt-engine-evolution）。
