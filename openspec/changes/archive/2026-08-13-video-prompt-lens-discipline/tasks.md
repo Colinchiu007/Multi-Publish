@@ -24,6 +24,6 @@
 
 ## Phase C — 收尾
 
-- [ ] C1. 双仓库 PR（codex/ 分支）：prompt-engine PR + Multi-Publish PR，附变更说明
+- [x] C1. 双仓库 PR（codex/ 分支）：prompt-engine PR #34 + Multi-Publish PR #779，附变更说明
 - [x] C2. 双模型审查（antigravity + Claude 并行；均不可用 → 降级主代理）→ review.md 记录（含 Critical 修复）
-- [ ] C3. OpenSpec apply + archive 三同步（openspec archive / CCG task 归档 / learnings）
+- [x] C3. OpenSpec apply + archive 三同步（openspec archive / CCG task 归档 / learnings）

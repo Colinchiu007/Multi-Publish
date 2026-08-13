@@ -13249,3 +13249,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **修复迭代（Claude 审查发现）**：① 单槽位声明可被并发会话覆盖导致守卫 fail-open → session-guard 拒绝覆盖另一活跃会话（session.json pid 存活）的声明；② 安装脚本从子目录运行 `--git-common-dir` 返回相对路径会装错位置 → 改用 `--path-format=absolute` + HEAD 合法性校验；③ 补 fail-closed 边界测试（空声明/detached 无 rebase/wrapper 缺失/非代码扩展名/真实 rebase 重放）。
 - **自动化迭代（用户反馈手动声明太麻烦）**：隔离 worktree（per-worktree git-dir != 公共 git-dir）由 pre-commit 提交时自动声明当前分支、切分支自动跟随，零手动步骤；共享主工作区保留严格 fail-closed（需 session-guard 锁定一次，不传 -Branch 自动取当前分支）。测试 13 场景 21 断言。
 
+
+---
+## 视频提示词镜头纪律落地复盘（video-prompt-lens-discipline，2026-08-13）
+
+- **交付**：Hell Grind 方法论 Phase 1 落地——prompt-engine（8020）：VideoPromptMeta 新增 positive_constraints/final_frame；strategies/base.py `_coerce_constraints` 双形态解析（数组/字符串换行分号，上限 10）+ `build_lens_discipline_section` 六平台公共纪律模板（EXACT N 角色锁定/单镜单运镜+slow/三角色上限/正负向分块/FINAL FRAME/负面 plausible-only）；generic/seedance system prompt 注入；veo/kling/hailuo/doubao 签名同步透传；optimizer `derive_character_count`。Multi-Publish：契约层 VIDEO_ENGINE_LIMITS（positiveConstraintsMax=10/finalFrameMax=500）+ normalizeVideoMeta 收敛。PR prompt-engine #34 + Multi-Publish #779；pytest 56 + vitest 51 全绿；OpenSpec change 已归档（specs 合入 video-prompt-engine）。
+- **教训 1（子类覆盖签名漂移 = 跨层改动第一雷）**：optimizer 无条件透传新参数 character_count，generic/seedance 签名已加，但 veo/kling/hailuo/doubao 四个子类**自己覆盖** build_system_prompt 且签名未同步 → 真实链路（平台非 generic/seedance 且 context 含角色）必 TypeError，而全平台测试恰好不带新参数 → 全绿掩盖崩溃。主代理补位审查用真实调用实证抓到并修复。此后基类签名加参 + 调用方透传的改动，回归测试必须「带新参数调用全子类/全平台」。
+- **教训 2（平台级测试要复制生产调用形态）**：test_lens_discipline_in_all_platforms 直接调 strategy 且省略 character_count，与生产调用形态（VideoPromptBuilder 总是全参数透传）不符。策略层测试应模拟调用链（builder → strategy 全参数），而不是简化签名——简化签名必然漏掉透传链断裂。
+- **教训 3（双模型审查降级链再验证）**：antigravity 地区不可用（Eligibility check failed）、claude wrapper 两次 exit 1 无日志 → 降级主代理补位：逐行通读双仓库 diff + 对可疑链路做真实运行实证（`build_system_prompt(character_count=2)` 六平台遍历）抓到 Critical。降级 ≠ 无审查，主代理必须完整读 diff 并对可疑链路实证。
