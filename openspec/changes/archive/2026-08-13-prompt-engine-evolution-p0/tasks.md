@@ -31,4 +31,4 @@
 - [x] CHANGELOG 追加、`.quality-gates.md` 自检记录
 - [x] 桌面 Vitest 全量测试通过（7378 passed / 1 failed→构建 preload 后重跑 build-preload + preload 336 全绿；单 worker 全量 1470s）
 - [x] 双模型审查（Claude + Codex，均「需修改后通过」→ 已修复全部 CRITICAL C1/C2 与 MAJOR M1-M6，G1/G2 一并修复，测试全绿）
-- [ ] 提交/推送/PR/合并；OpenSpec archive + CCG task 归档三同步
+- [x] 提交/推送/PR/合并（PR #722 merged 0a900b80）；OpenSpec archive + CCG task 归档三同步完成

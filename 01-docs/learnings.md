@@ -1,3 +1,12 @@
+## 提示词引擎自进化 P0 反馈管道复盘（prompt-engine-evolution-p0，2026-08-13）
+
+- **交付**：GenerationEvent/FeedbackEvent 双日志（append-only JSONL、月轮转 30 天清理、eventId join、sessionId 解析、孤儿标记不丢弃）+ signal-collector + generation:feedback IPC + preload API + CreateView 采纳埋点 + generateImagePromptsSmart onEvent 钩子。PR #722 merged 0a900b80；桌面全量 7378 测试 + 新增 100+ 全绿；Claude + Codex 双模型审查（CRITICAL 修复后通过）；OpenSpec change 已归档（specs 合入 prompt-engine-evolution）。
+- **教训 1（双日志分离是审查逼出来的正确架构）**：初版设计把 feedback 写回 GenerationEvent 主记录（append-only 矛盾），双模型审查 C1 指出后改为 generation-log + feedback/score-log 双文件按 eventId join——异步回填与 append-only 不再冲突。异步回填型数据流应先拆主记录与回填流，而非事后补丁。
+- **教训 2（cleanup 必须按真实文件布局写测试）**：signal-collector 的 30 天清理最初按「目录」布局实现，真实写入是「YYYY-MM.jsonl 文件」→ 清理永不触发；测试还固化了错误布局（反向固化）。任何按路径/布局实现的清理逻辑，测试必须用生产真实布局构造，并断言「保留当前月/删除过期月」双向。
+- **教训 3（明文标识落盘使加盐哈希形同虚设）**：GenerationEvent 同时写 userId 明文 + userHash（HMAC），哈希失去意义——脱敏设计必须「不落盘明文」而非「同时落盘两份」。测试要断言日志不含明文 userId。
+- **教训 4（CI 基线行号脆弱性再次验证）**：locale-sync CJK 基线以 script-relative 行号为 id，上游合并改 template 导致 script 块起点偏移 → 基线整体失效（误报 38 处存量）；`--update-baseline` 权威重排修复，但 origin/main 自身也会因其他会话未同步基线而 FAIL。基线 id 应改为内容摘要（文本+文件）而非行号（与 provider-warning-ux 教训 3 一致，待落地）。
+- **教训 5（Antigravity 地区不可用的双模型降级路径稳定复用）**：`--backend antigravity` 报 Eligibility check failed（地区限制）、gemini 未安装 → 用 `--backend codex` 作为第二模型完成交叉验证；两次审查（P0 diff、P1b 指纹规格）均产出高质量共识 CRITICAL。降级路径：antigravity → codex，保留双模型意图。
+
 ## manual 视频候选串行 + 「队列满」误判非瞬时复盘（s2v-manual-video-parallel，2026-08-13）
 
 - **交付**：manual（分镜素材自选）视频候选生成与 auto 对齐——`_mapWithConcurrency` 有界并行（请求默认 2、provider 预算收敛）+ 图片候选与视频候选 `Promise.all` 并行启动；`isRateLimitErrorLike` 扩展匹配 `queue is full`/`队列满` → 限流语义有界重试（最多 4 次、2.5s×attempt）。PR #742 merged c0510955；manual 21 / stages 83 / text-config 68 = 172 全绿；OpenSpec change 已归档（specs 合入 story2video-creation-mode）。
