@@ -1,0 +1,13 @@
+{
+  "id": "p3-createview-i18n",
+  "title": "P3 视频创作 CreateView 文案多语言化（第一批：模板区）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "review",
+  "nextAction": "等待 PR #749 CI 通过后合并；后续批次 StageProgress/SceneAssetSelection/CreateView",
+  "createdAt": "2026-08-13T11:00:21Z",
+  "branch": "codex/p3-createview-i18n",
+  "openspecChange": ""
+}
