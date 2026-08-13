@@ -139,6 +139,13 @@ export default {
         VOICE_CLONE_STORE_UNAVAILABLE: 'Clone voice storage is unavailable. Check disk space and retry.',
         VOICE_CLONE_STORAGE_UNAVAILABLE: 'Clone voice storage is unavailable. Check disk space and retry.',
         VOICE_CLONE_INVALID_ARGUMENTS: 'Invalid clone voice parameters. Select the audio file again.',
+        // 2026-08-13 In-progress feedback while cloning a voice after choosing a local audio file
+        cloneSelectButton: 'Choose local audio file',
+        cloneReselectButton: 'Choose audio file again',
+        cloneInProgressButton: 'Cloning...',
+        cloneStatusPending: 'Selected {count} sample(s). Uploading and cloning the voice... (usually 10-60 s, please wait)',
+        clonePendingLabel: 'Creating...',
+        cloneSuccessToast: 'Cloned voice "{name}" added',
       },
     },
   },
