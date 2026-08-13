@@ -1,0 +1,14 @@
+{
+  "branch": "codex/p3-createview-i18n",
+  "openspecChange": "",
+  "complexity": "L",
+  "id": "p3-createview-i18n",
+  "pr": "#749 merged 53d08302",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "risk": "medium",
+  "title": "P3 第一批：video-creation 子组件（ConfigSummary/ErrorDialog/PipelineSelector）多语言化 + locale-cjk 基线修复",
+  "completedAt": "2026-08-13T12:04:49Z",
+  "status": "completed",
+  "remoteStatus": "merged"
+}

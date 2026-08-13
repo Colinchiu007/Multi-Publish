@@ -1,3 +1,10 @@
+## [2026-08-13] P3 第一批：video-creation 子组件多语言化（PR #749 merged 53d08302）
+
+- locales zh/en 新增 videoConfig（40）/pipelineSelector（16）/errorDialog（5）三命名空间（键对等）
+- ConfigSummary.vue：枚举表改键映射 + \；ErrorDialog.vue：props 默认置空 + \ fallback；PipelineSelector.vue：分类/成本/可用性/阶段/重试接入 \
+- 新增 ConfigSummary.test.js（zh/en 切换回归）；CreateView.test.js 169/169 本地全绿；CI 全绿（electron-tests 11m17s/gui-test/Coverage/Gate）
+- 修复 locale-sync --cjk 门禁基线不完整（CreateView 存量 7867 处仅 1 条入基线 → 全 PR 误报）：--update-baseline 重建（1562→1531）
+- P3 待办：StageProgress/SceneAssetSelection/CreateView 主体（需配合视觉回归）
 ## [2026-08-13] build(monorepo): npm → pnpm 迁移（worktree 依赖复用同一 store）
 
 - 依赖管理切换为 pnpm 11.13.1（`packageManager` 声明），`pnpm-lock.yaml` 为唯一锁文件，`package-lock.json` 退役；`pnpm-workspace.yaml` 承载 workspaces、`node-linker=hoisted`（扁平布局与 npm 一致）与构建脚本放行（esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js）。
