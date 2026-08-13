@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.13（入口 UI 统一：标准流水线卡）· 日期：2026-08-12 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.14（输入来源默认链接）· 日期：2026-08-13 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -359,7 +359,7 @@ VideoClonePipeline：
 
 ### 13.2 输入区
 
-- 两种输入：**链接输入**（8 平台识别：抖音/小红书/快手/B站/视频号/YouTube/TikTok/Ins，粘贴后自动识别平台并显示徽标）与**本地文件**（拖拽或选择，显示文件名/大小/时长/分辨率）。
+- 两种输入：**链接输入**（8 平台识别：抖音/小红书/快手/B站/视频号/YouTube/TikTok/Ins，粘贴后自动识别平台并显示徽标）与**本地文件**（拖拽或选择，显示文件名/大小/时长/分辨率）。**默认选中「链接」（v1.14 起，此前默认本地文件）**。
 - 校验即时反馈：链接非法/平台不支持、文件超 500MB/超 30 分钟/格式不支持，就地标红并给出原因（§14 错误码）。
 - 选项：复刻层级（L0 信息一致 / L1 结构近似 / L2 风格迁移，默认 L1）、复刻模式（结构/风格/灵感/全量）、视频类型（剧情短剧/B-roll/口播，多选，默认剧情短剧）、是否改写文案（默认开）。
 
@@ -744,4 +744,10 @@ VideoClonePipeline：
 - ENTRY_CLICK_LANDS=VIDEO_CLONE_VIEW（卡片点击路由成功）
 - 分析流：REPORT_CARD=VISIBLE（3s/320x240/16:9）、SIMILARITY=综合分 1（needs_review 证据门控）、历史落库 vc-mspz7dvq-74rwfe.json
 - 测试：CreateView.test.js 151 全绿（含入口卡 + 点击路由 + 排序含 video-clone）；eslint 0 error；E2E exit 0
+
+## 28. 详细规格：输入来源默认改为链接（v1.14 追加）
+
+- `useVideoClone.js` `sourceType` 默认值由 `local` 改为 `url`：进入视频克隆页默认显示「链接」输入框（粘贴链接即可开始）。
+- 切换逻辑不变：radio 切到「本地文件」后映射 `source.type=local`；请求 `options` 不受影响。
+- 测试：useVideoClone.test.js 7 全绿（新增「默认 url 映射」+「切本地映射 local」2 例，真实数据路径经 mock api.run 断言）。
 
