@@ -1,0 +1,23 @@
+{
+  "id": "pipeline-progress-feedback-docs",
+  "title": "视频创作流水线进行中信息反馈颗粒度统一方案（分析 + PRD/文档补充）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "docs",
+  "currentPhase": "completed",
+  "nextAction": "已归档。文档经 PR #746 合并进 main（1a248ed7，2026-08-13T10:48:54Z）。待确认后按 PRD 7.1.9.3 实施 Phase 1（stage.progress 契约 + UI 通用化）/ Phase 2（onProgress 通道 + 逐阶段接入），实施前须经 OpenSpec propose。",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "completedAt": "2026-08-13T10:48:54Z",
+  "branch": "codex/pipeline-progress-merge",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/746",
+  "commit": "f8eb7ad5",
+  "remoteStatus": "merged",
+  "artifacts": [
+    "01-docs/PLAN-VIDEO-PIPELINE-PROGRESS-FEEDBACK-2026-08-13.md",
+    "01-docs/PRD.md §7.1.9.3",
+    "01-docs/PRD-video-creation.md §1.6 + §3.1.23",
+    "01-docs/PIPELINE-MATRIX.md §9",
+    "01-docs/CHANGELOG.md"
+  ]
+}
