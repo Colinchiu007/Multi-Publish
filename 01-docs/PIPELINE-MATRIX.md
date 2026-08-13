@@ -113,3 +113,21 @@
 - `apps/desktop/electron/services/{explainer,talkinghead,cinematic,videogen,clipfactory,documentary,podcast-repurpose,localization,smoketest,story2video}-stages.js`：阶段执行器注册
 - `apps/desktop/src/views/CreateView.vue`：UI 入口(:769-770, :1706, :1755)
 - `01-docs/PRD-video-creation.md`：创作模式收敛(:56,68,212-213)、启动合同(:438)
+- `01-docs/PLAN-VIDEO-PIPELINE-PROGRESS-FEEDBACK-2026-08-13.md`：阶段进行中信息反馈颗粒度统一方案（PRD 7.1.9.3 / 3.1.23）
+
+## 9. 阶段进度反馈能力矩阵（2026-08-13 基线）
+
+> 口径：`getRunSnapshot().stages[i]` + `run.context` 中各阶段运行期实际可观测的进行中反馈；「细」= 百分比/计数 + 文案，「中」= 仅完成态摘要或数据有但 UI 未展示，「粗」= 仅「运行中 + 开始时间」。目标态见 `PLAN-VIDEO-PIPELINE-PROGRESS-FEEDBACK-2026-08-13.md` §五。
+
+| 阶段 | 数据载体 | 运行中反馈（现状） | 粒度 | 目标（7.1.9.3） |
+|------|---------|------------------|------|----------------|
+| compose（全部流水线） | `context.compose_progress` | phase + percent + 片段计数 + 子进度条 | 细 | 沿用 |
+| generate_assets（story2video/explainer 内嵌） | `context.assets_progress` | 图片 a/b · 视频 c/d · 旁白 e/f | 细 | + 综合百分比 |
+| optimize | `context.optimize_progress` | 无（数据有，UI 仅完成后展示） | 中 | 「正在优化第 i/N 个场景」+ 百分比 |
+| split | `context.split` | 无（完成后「拆分为了 N 个场景」） | 中 | 进行中文案 + 完成摘要 |
+| domain_enrich / scene_context / select_video_scenes | — | 无 | 粗 | LLM 调用前后 message（i/N） |
+| finalize_assets | `context.finalize_assets.partialTts` | 无 | 粗 | 逐段 TTS「正在生成第 i/N 段旁白」 |
+| publish | —（结果仅 output） | 无 | 粗 | 逐平台「正在发布到 {平台} (i/N)」 |
+| animated-explainer：research/proposal/script/scenes/editing | — | 无 | 粗 | 「正在{执行动作}…」 |
+| talking-head：upload/transcribe/captions/render | — | 无 | 粗 | 同上 |
+| 其余（cinematic/documentary/podcast/localization/video-clone/clip-factory） | — | 无 | 粗 | 同上 |
