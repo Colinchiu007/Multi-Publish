@@ -14,6 +14,13 @@
 - 测试：PipelineSelector 重写 5 例全绿；preload/license/CreateView/i18n/video-creation 598 全绿；vite build 通过。
 - 文档：PRD-video-creation §3.1.24 改写（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/安全边界）；OpenSpec change pipeline-card-bg-static-bundle（pipeline-card-backgrounds-ui MODIFIED）。
 
+## [2026-08-13] test(visual): 像素门禁确定性改进——reducedMotion + 图片就绪等待
+
+- `test-runner.js` 新增 `reducedMotion: 'reduce'`：模拟用户「减少动态效果」偏好，关闭入场/循环动画，避免截图截到动画中间态导致像素对比不稳定。
+- `test-runner.js` 新增 `_waitForImagesSettled()`：等待视口内 `loading="lazy"` 图片解码完成 + 两帧绘制提交，确保静态背景图在截图前完全渲染。
+- 更新 9 张基线快照（create-editor/create-pipeline/accounts-list 等），匹配静态背景 UI 的确定性渲染结果。
+- CI visual-test 从 26.15% mismatch 降至 0%（全部 17 页通过）。
+
 ## [2026-08-13] P3 第二批：StageProgress 阶段进度组件文案多语言化（PR #757 merged ed116a84）
 
 - locales zh/en 新增 `stageProgress` 命名空间（17 键对等：阶段时间/状态标签/插值提示消息/时长格式化）。

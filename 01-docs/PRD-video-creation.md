@@ -1691,6 +1691,13 @@ SettingsDialog 关闭（App.vue @close）
 - 未收录背景资源的新流水线以渐变兜底呈现，不阻塞使用；补充资源后随下一次发版生效。
 - 免费模型生成仅发生在开发期预生成阶段（一次性），产物已校验（JPEG magic/尺寸/数量），不依赖任何运行时服务可用性。
 
+#### 7) 视觉测试确定性（2026-08-13 补充）
+
+- `test-runner.js` 配置 `reducedMotion: 'reduce'`，关闭 CSS 动画/过渡，确保截图无动画中间态干扰。
+- `_waitForImagesSettled()` 等待视口内 `loading="lazy"` 图片解码完成后再截图，消除懒加载时序差异。
+- 基线快照 `apps/desktop/tests/visual-testing/base-screenshots/create-editor.png` 等 9 张已更新，匹配静态背景 UI 的确定性渲染。
+- 门禁：像素对比阈值 6%，全部 17 页通过。
+
 ---
 
 ## 四、非功能需求
