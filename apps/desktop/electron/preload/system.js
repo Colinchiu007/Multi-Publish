@@ -158,6 +158,10 @@ function createSystemApi(ipcRenderer) {
     analyticsPlatform: (platform) => ipcRenderer.invoke('analytics:platform', { platform }),
     analyticsPlatforms: () => ipcRenderer.invoke('analytics:platforms'),
 
+    // Prompt engine evolution API (P0 反馈管道)
+    generationFeedback: (payload) => ipcRenderer.invoke('generation:feedback', payload),
+    promptLibraryList: () => ipcRenderer.invoke('prompt-library:list'),
+
     // Hotkeys API
     hotkeysList: () => ipcRenderer.invoke('hotkeys:list'),
 

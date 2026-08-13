@@ -3029,6 +3029,8 @@ export default {
         if (res?.code === 0 && res.data?.success !== false) {
           this.sceneAssetSelectionActive = false
           this.sceneAssetCandidates = []
+          // P0 反馈管道：采纳事件埋点（feature flag 开启且 API 存在时生效，缺失静默跳过）
+          this.reportEvolutionFeedback({ type: 'accepted', detail: { mode: 'scene-asset-selection', runId: this.orchestrationRunId } })
           if (!this.applyOrchestrationOutcome(res.data || {})) await this.updateOrchestrationStatus()
         } else {
           this.sceneAssetSelectionError = res?.data?.error || res?.message ||
@@ -3038,6 +3040,24 @@ export default {
         this.sceneAssetSelectionError = this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
       } finally {
         this.sceneAssetConfirming = false
+      }
+    },
+    // P0 反馈管道：向主进程上报用户操作反馈（采纳/重新生成/编辑/下载）
+    // feature flag（MP_EVOLUTION_ENABLED）与 preload API 均由主进程侧控制；
+    // API 缺失（旧 preload / 浏览器 dev 环境）时静默跳过，绝不抛出。
+    async reportEvolutionFeedback(payload) {
+      try {
+        const api = window.electronAPI
+        if (!api || typeof api.generationFeedback !== 'function') return
+        const body = {
+          type: payload?.type,
+          detail: payload?.detail,
+        }
+        const sessionId = this.orchestrationRunId || this.pipelineRunStatus?.runId || null
+        if (sessionId) body.sessionId = sessionId
+        await api.generationFeedback(body)
+      } catch (_) {
+        // 埋点失败不影响用户操作
       }
     },
     extractOrchestrationVideoPath(context) {

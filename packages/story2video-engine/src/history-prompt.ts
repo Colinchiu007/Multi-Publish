@@ -106,11 +106,16 @@ export function generateRawImagePrompts(texts: string[], imageEffect?: ImageEffe
 /**
  * 领域增强后再交给 prompt-engine 优化。优化回调失败时保留本地提示词，
  * 让没有远端服务时的错误边界仍然可解释。
+ *
+ * onEvent（可选）：每个场景处理后触发一次最小化生成事件（raw/optimized/index），
+ * 供提示词引擎自进化信号采集器（P0 反馈管道）消费；不传则行为与旧版完全一致。
+ * 支持同步与异步回调；回调抛错/拒绝均不阻断生成主流程（G2 修复）。
  */
 export async function generateImagePromptsSmart(
   texts: string[],
   optimizeFn?: (prompt: string, index: number) => Promise<string> | string,
   imageEffect?: ImageEffect,
+  onEvent?: (event: { index: number; raw: string; optimized: string }) => void | Promise<void>,
 ): Promise<Array<HistorySceneEnrichment & { optimizedPrompt: string }>> {
   const raw = generateRawImagePrompts(texts, imageEffect);
   const output: Array<HistorySceneEnrichment & { optimizedPrompt: string }> = [];
@@ -125,6 +130,13 @@ export async function generateImagePromptsSmart(
       }
     }
     output.push({ ...item, optimizedPrompt });
+    if (typeof onEvent === 'function') {
+      try {
+        await onEvent({ index, raw: item.promptSeed, optimized: optimizedPrompt });
+      } catch {
+        // 采集回调失败不得影响提示词生成主流程。
+      }
+    }
   }
   return output;
 }

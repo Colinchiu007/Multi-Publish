@@ -1,0 +1,13 @@
+{
+  "id": "prompt-engine-evolution-p0",
+  "title": "图片/视频提示词引擎自进化 P0 反馈管道落地",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "implementation",
+  "nextAction": "TDD 实现 schema 与 signal-collector",
+  "createdAt": "2026-08-13T14:20:00+08:00",
+  "branch": "codex/prompt-engine-evolution-p0",
+  "openspecChange": "prompt-engine-evolution-p0"
+}

@@ -51,6 +51,43 @@ describe('history-prompt 领域增强', () => {
     const result = await generateImagePromptsSmart(['第二幕'], async () => { throw new Error('offline'); });
     expect(result[0].optimizedPrompt).toBe(result[0].promptSeed);
   });
+
+  it('onEvent 回调按场景触发一次且携带 raw/optimized/index（P0 反馈管道）', async () => {
+    const events: Array<{ index: number; raw: string; optimized: string }> = [];
+    await generateImagePromptsSmart(
+      ['第一幕', '第二幕'],
+      async (prompt, index) => `${prompt}|opt-${index}`,
+      undefined,
+      (event) => events.push(event),
+    );
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ index: 0 });
+    expect(events[0].optimized).toContain('opt-0');
+    expect(events[1]).toMatchObject({ index: 1 });
+    expect(events[1].optimized).toContain('opt-1');
+  });
+
+  it('onEvent 回调抛错不影响生成结果（采集失败不阻断）', async () => {
+    const result = await generateImagePromptsSmart(
+      ['第一幕'],
+      undefined,
+      undefined,
+      () => { throw new Error('collector-boom'); },
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].optimizedPrompt).toBe(result[0].promptSeed);
+  });
+
+  it('onEvent 异步回调拒绝也不影响生成结果（G2 修复）', async () => {
+    const result = await generateImagePromptsSmart(
+      ['第一幕'],
+      undefined,
+      undefined,
+      async () => { throw new Error('async-collector-boom'); },
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].optimizedPrompt).toBe(result[0].promptSeed);
+  });
 });
 
 describe('template-library 模板库', () => {

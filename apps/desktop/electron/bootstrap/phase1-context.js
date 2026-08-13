@@ -319,6 +319,28 @@ function extractContext(container) {
     log,
   })
 
+  // ─── 提示词引擎自进化信号采集器（feature flag 控制，默认关闭）───
+  // 设计参考 01-docs/prompt-engine-evolution-design.md（v2，P0 反馈管道）
+  const evolutionEnabled = process.env.MP_EVOLUTION_ENABLED === '1'
+  let signalCollector = null
+  if (evolutionEnabled) {
+    const { createSignalCollector } = require('../services/prompt-evolution/signal-collector')
+    const evolutionLogDir = electronAppForPromptEval && typeof electronAppForPromptEval.getPath === 'function'
+      ? require('path').join(electronAppForPromptEval.getPath('userData'), 'generation-logs')
+      : require('path').join(require('os').tmpdir(), 'multi-publish-evolution')
+    signalCollector = createSignalCollector({
+      logDir: evolutionLogDir,
+      config: { collection: 'enabled', userHashSalt: process.env.MP_EVOLUTION_SALT || 'mp-evolution-default-salt' },
+      log,
+    })
+    // 启动时执行一次 30 天清理（C2 修复：cleanup 需要有生产调用点）
+    try {
+      signalCollector.cleanup()
+    } catch (e) {
+      log.warn('SignalCollector', '启动清理失败: ' + (e && e.message))
+    }
+  }
+
   // ─── 平台配置 + 敏感词 + 横切服务 ───
   const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
   const BACKEND_PLATFORMS = new Set(['youtube', 'tiktok', 'twitter'])
@@ -365,6 +387,7 @@ function extractContext(container) {
       executionRecorder,
       story2videoProjectService,
       promptEvalService,
+      signalCollector,
     },
     windows: {
       authViewManager, rpaViewManager, webviewManager, qrCodeLogin,
