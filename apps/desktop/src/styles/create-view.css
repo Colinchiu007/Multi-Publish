@@ -130,6 +130,15 @@
 .reset-options-link:hover { color: var(--primary); }
 .orchestration-attention { margin: 0; color: var(--banner-attention-text); font-size: 13px; }
 
+/* 分镜素材自选等待态（2026-08-13）：引导横幅 + 就近面板 + 等待文案 */
+.orchestration-waiting { margin: 0; color: var(--banner-attention-text); font-size: 13px; }
+.s2v-selection-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; margin: 12px 0 4px; border: 1px solid var(--banner-warning-border); background: var(--banner-warning-bg); color: var(--banner-warning-color); border-radius: var(--r-sm); font-size: 13px; line-height: 1.5; }
+.s2v-selection-banner-text { flex: 1; min-width: 0; }
+.s2v-selection-banner-cta { flex-shrink: 0; }
+.s2v-scene-asset-panel { margin: 8px 0 16px; border-radius: var(--r-sm); transition: box-shadow 0.3s ease; }
+.s2v-scene-asset-panel-attention { box-shadow: 0 0 0 3px var(--primary); animation: s2v-panel-pulse 1s ease 2; }
+@keyframes s2v-panel-pulse { 0%, 100% { box-shadow: 0 0 0 3px var(--primary); } 50% { box-shadow: 0 0 0 6px rgba(124, 92, 191, 0.35); } }
+
 /* 输入区域 */
 .input-section { margin-bottom: 24px; }
 .input-section h3 { font-size: 16px; margin: 0 0 12px; }

@@ -1,3 +1,13 @@
+## 分镜素材自选等待态无反馈复盘（story2video-asset-selection-ux，2026-08-13）
+
+- **交付**：`scene_asset_selection` 检查点等待态 UX 反馈（P0 状态语义 + P1 引导横幅/自动滚动 + P2 面板位置/取消兜底）。StageProgress 增加 `paused` 映射（图标 ⏸、样式类 `waiting paused`、标签按检查点区分「等待选择素材/已暂停」，zh/en i18n）；检查点激活时进度区下方渲染引导横幅（场景数经 vue-i18n MessageFunction `ctx.named('count')` 插值）+「去选择素材」按钮；首次激活自动 `scrollIntoView` + 2s 高亮（一次性 `selectionGuided` 标记，轮询不重复）；素材选择面板从底部 action-bar 上移到进度区下方；运行控制区等待文案 + 取消二次确认。zh/en 新增 `create.story2video.selectionWait.*` 8 键。测试：StageProgress.test.js 新建 4 例、CreateView.test.js 新增 4 例（159 全绿）、SceneAssetSelection.test.js 基线 4 例。
+- **教训 1（状态映射枚举必须有渲染测试护栏）**：StageProgress 状态标签映射表漏了 `paused`，`labels[status] || status` 直接渲染引擎原始枚举字符串（英文 "paused"）且样式回落灰色待定——用户看到「暂停+灰色」误判出错。状态展示组件必须对全部状态枚举（含引擎侧 paused/waiting_approval 等）有映射 + 渲染测试，禁止直渲原始枚举。
+- **教训 2（等待用户输入必须可感知）**：检查点暂停是「等待用户操作」而非「失败/停滞」，但 UI 既无提示文案、无滚动定位，面板还在首屏之外，且 `orchestrationRunId` 存在时继续/暂停按钮被隐藏——用户唯一可见操作是「取消」。等待用户输入的状态必须有：状态语义文案、注意力引导（横幅/高亮/定位）、主操作入口、防误触（取消二次确认）。
+- **教训 3（vue-i18n 静态语料不做 {param} 运行时插值）**：本仓库 i18n 用 `toMessageFunctions` 把所有字符串转 MessageFunction 以避开 Electron CSP unsafe-eval，`{count}` 不会被运行时插值，会原样渲染。带参文案必须写成 `(ctx) => ... + ctx.named('count') + ...`（i18n/index.js 注释明确该模式）。
+- **教训 4（Element.prototype.scrollIntoView 测试污染）**：jsdom 无 scrollIntoView，测试里给 Element.prototype 补 no-op + spy；若断言失败提前退出未 mockRestore，后续用例 spy 叠加导致调用计数翻倍——scroll 用例需保证 finally/afterEach 恢复。
+- **预防措施**：① 状态展示组件枚举映射进组件测试；② 交互审查清单增加「等待用户输入可感知性」检查项；③ 新增带参 i18n 文案必须用 MessageFunction；④ 等待态相关新增文案 zh/en 成对（CI Gate 7 强制）。
+
+---
 ## 容器日志轮转复盘（container-log-rotation，2026-08-13）
 
 - **交付**：为 publish-api / logto / postgres / blackbox / prometheus / alertmanager 六个 Compose 服务统一添加 `logging: driver=json-file, options={max-size: 50m, max-file: 5}`（每容器 ≤250MB）；契约测试 logto-deploy-contract.test.js 新增 assertLogRotation 断言；spec 明确作用域（仅 Compose 容器，systemd/journald 豁免）。

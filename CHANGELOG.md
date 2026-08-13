@@ -1,3 +1,12 @@
+## [2026-08-13] feat(story2video): 分镜素材自选检查点等待态 UX 反馈优化（story2video-asset-selection-ux）
+
+- StageProgress 增加 `paused` 状态映射：`scene_asset_selection` 检查点 →「等待选择素材」，手动暂停 →「已暂停」；⏸ 图标 + `waiting paused` 呼吸样式，zh/en i18n（不再直渲原始 "paused" 字符串）。
+- 检查点激活引导：StageProgress 下方高对比横幅（场景数插值）+「去选择素材」按钮；首次激活自动滚动到面板 + 2s 注意力高亮（一次性 `selectionGuided`，3s 轮询不重复打扰）。
+- 素材选择面板位置提升：从底部 action-bar 上移到进度区下方（与进度区同屏可及）；运行控制区新增等待文案；「✕ 取消」增加二次确认防误触。
+- locales zh/en 新增 `create.story2video.selectionWait.*`（stageLabel/banner/goSelect/controlText/cancelTitle/cancelBody/cancelKeep/cancelConfirm，banner 用 MessageFunction 插值）。
+- 测试：StageProgress.test.js 新建（paused/手动暂停/waiting_approval 不回归）；CreateView.test.js +4（横幅+面板+等待文案、首激活滚动一次、轮询不重复、无检查点不显示、取消二次确认），CreateView 159 全绿。
+- 文档：PRD §7.1.3a-1 等待态 UX 反馈（功能逻辑/数据校验/交互逻辑/显示项/提示文字）；learnings.md 复盘（状态映射测试护栏/等待可感知性/MessageFunction 插值/scroll spy 污染）。
+
 ## [2026-08-13] feat(i18n): 多语言内容同步机制实施（i18n-content-sync）
 
 - L0 门禁：`i18n.test.js` 新增 zh/en 叶子键完全对称断言 + 同 key `{param}` 占位符一致性断言；`story2video.text_too_long` 统一为 `{maxFormatted}`（zh 展示带千分位，与 en 一致）。

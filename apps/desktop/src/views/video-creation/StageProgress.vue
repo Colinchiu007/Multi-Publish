@@ -63,6 +63,8 @@ export default {
     elapsedMs: { type: Number, default: null },
     summary: { type: String, default: '' },
     orchestrationContext: { type: Object, default: null },
+    // 当前运行检查点（scene_asset_selection 等）：用于区分「等待用户选择素材」与「手动暂停」
+    checkpoint: { type: Object, default: null },
   },
   methods: {
     stageName(name) {
@@ -75,6 +77,7 @@ export default {
       if (status === 'running') return 'running'
       if (status === 'failed') return 'failed'
       if (status === 'waiting_approval') return 'waiting'
+      if (status === 'paused') return 'waiting paused'
       return 'pending'
     },
     stageStateIcon(stage, index) {
@@ -83,7 +86,7 @@ export default {
       if (status === 'completed') return '✓'
       if (status === 'running') return '⟳'
       if (status === 'failed') return '✕'
-      if (status === 'waiting_approval') return '⏸'
+      if (status === 'waiting_approval' || status === 'paused') return '⏸'
       if (status === 'cancelled') return '—'
       return '○'
     },
@@ -134,6 +137,12 @@ export default {
     stageStatusLabel(stage, index) {
       if (!stage || !stage.status) return '等待中'
       const status = stage.status
+      if (status === 'paused') {
+        if (this.checkpoint && this.checkpoint.type === 'scene_asset_selection') {
+          return this.translateStageStatus('create.story2video.selectionWait.stageLabel', 'Awaiting asset selection')
+        }
+        return this.translateStageStatus('pipelines.statuses.paused', 'Paused')
+      }
       const labels = {
         completed: '已完成',
         running: '运行中',
@@ -143,6 +152,10 @@ export default {
         pending: '等待中',
       }
       return labels[status] || status
+    },
+    translateStageStatus(key, fallback) {
+      const value = this.$t?.(key)
+      return typeof value === 'string' && value && value !== key ? value : fallback
     },
     stageTimeText(stage) {
       if (!stage || !stage.startedAt) return ''
