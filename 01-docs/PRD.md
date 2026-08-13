@@ -1635,6 +1635,39 @@ Electron 打包、工作树、PR 或发布状态证据。
 8. 暂停瞬间执行器仍在后台跑：该段实际消耗资源，仍累计（语义为「真实执行时间」）；用户看到的已用时在暂停后由轮询定格。
 9. IPC 载荷：新增 3 个字段（`activeMs`/`activeSegmentStartedAt`/`elapsedActiveMs`），3s 轮询无压力；字段校验为最后防线。
 
+##### 7.1.9.3 阶段进行中信息反馈颗粒度统一契约（2026-08-13 规划）
+
+**背景**：7.1.9 表格仅覆盖 split / optimize / generate_assets / compose 四个阶段的子进度；其余阶段（domain_enrich、scene_context、select_video_scenes、finalize_assets、publish，以及 animated-explainer / talking-head 等其余流水线全部阶段）运行中只有「运行中 + 开始时间」，无任何进行中细节；optimize 的 `optimize_progress` 数据运行中已更新但 UI 只在完成后展示。整体「进行中信息」颗粒度不统一。完整分析与分期方案见 `01-docs/PLAN-VIDEO-PIPELINE-PROGRESS-FEEDBACK-2026-08-13.md`。
+
+**统一进度契约**（Phase 1）：
+
+| 字段 | 载体 | 语义与约束 |
+|------|------|-----------|
+| `stage.progress` | `getRunSnapshot().stages[i].progress` | 阶段内进度对象：`{ percent, message, detail?, updatedAt }`；`percent` 为 0-100 整数且单调不降；`message` 为用户可见进行中文案（内部生成、纯文本插值、≤80 字，非法/空值不渲染）；`detail = { done, total, kind }` 结构化计数 |
+| `stage.summary` | 同上 | 完成态摘要（如「拆分为了 N 个场景」），可选 |
+| `context.stage_progress` | `run.context` | 与 `stage.progress` 双写（兼容 3s 轮询读取路径），执行器写入 |
+
+**执行器上报通道**（Phase 2）：`StageExecutor.execute` 增加统一 `onProgress({ percent, message, detail })` 参数；`_executeStage` 注入并双写 `stage.progress` + `context.stage_progress`；字段级归一化/校验统一收口（percent 0-100 单调、message 限长、非法值 fail-closed 或拒绝展示）；该通道为 additive 扩展，不改变现有执行器默认行为。
+
+**各阶段目标反馈**：
+
+| 阶段 | 运行中反馈（目标） | 上报粒度 |
+|------|------------------|---------|
+| split | 「正在分析文案…」；完成后 summary「拆分为了 N 个场景」 | 完成点 |
+| optimize | 「正在优化第 i/N 个场景提示词」+ 百分比 | 逐场景（已有 optimize_progress） |
+| generate_assets | 「图片 a/b · 视频 c/d · 旁白 e/f」+ 百分比 | 逐资源项（已有 assets_progress） |
+| select_video_scenes / scene_context / domain_enrich | 「正在分析场景…（i/N）」 | LLM 调用前后 |
+| finalize_assets | 「正在生成第 i/N 段旁白…」 | 逐段 TTS |
+| compose | 沿用 7.1.9.1（phase + percent + 片段计数 + 子进度条） | 片段级 |
+| publish | 「正在发布到 {平台} (i/N)」 | 逐平台 |
+| 其余流水线 LLM/资源阶段 | 「正在{执行动作}…」 | 子步骤前后 |
+
+**UI 通用化**（Phase 1）：StageProgress.vue 移除按 `stage.name` 特判，统一渲染 `stage.progress.message` + 迷你进度条（percent 合法即显示）；compose 子进度条泛化为任意阶段；总进度从「阶段数占比」升级为「阶段数占比 + 当前阶段 percent 加权」。
+
+**数据校验与本地化**：进度为展示增强，字段缺失/非法不得阻断流水线；新增用户可见文案必须写入 locale（zh/en 成对，CI Gate 7 拦截）；进度 message 仅内部生成、纯文本插值，禁止直接渲染外部输入。
+
+**分期与门禁**：Phase 1（契约 + UI 通用化）→ Phase 2（onProgress 通道 + 逐阶段接入）→ Phase 3（实时推送/快照裁剪，可选）。实施前须经 OpenSpec propose；改动涉及 `apps/desktop/electron/services/{pipeline-engine,stage-executor,story2video-stages}.js` 与 `apps/desktop/src/views/video-creation/StageProgress.vue`、`CreateView.vue`；回归保留 `story2video-ue-contract.test.js` 阶段清单用例并新增契约/UI 测试。
+
 #### 7.1.10 图片轮播选项持久化合同（上次使用的选项）
 
 | 合同 | 要求 |

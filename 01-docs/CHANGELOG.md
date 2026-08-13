@@ -11,6 +11,14 @@
 - OpenSpec change `story2video-provider-warning-ux`（proposal/design/specs/tasks）固化行为契约。
 # CHANGELOG
 
+## [Unreleased] - 2026-08-13 (视频创作流水线阶段进行中信息反馈颗粒度统一方案)
+
+### 文档
+- 新增 `01-docs/PLAN-VIDEO-PIPELINE-PROGRESS-FEEDBACK-2026-08-13.md`：整体梳理 14 条流水线各阶段「进行中」反馈现状（仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节），提出统一 `stage.progress` 契约 + `StageExecutor.onProgress` 通道 + UI 去特判 + 三期实施（契约/通道/实时推送），含代码出处索引。
+- `01-docs/PRD.md` 新增 7.1.9.3「阶段进行中信息反馈颗粒度统一契约」：统一进度契约（`stage.progress`/`stage.summary`/`context.stage_progress`）、执行器上报通道、各阶段目标反馈表、UI 通用化、数据校验与本地化、分期与门禁。
+- `01-docs/PRD-video-creation.md`：修订记录新增 2026-08-13 行；新增 3.1.23「流水线阶段进行中信息反馈颗粒度统一」需求节（现状矩阵 + 目标合同摘要 + 分期）。
+- `01-docs/PIPELINE-MATRIX.md`：新增 §9「阶段进度反馈能力矩阵」（各阶段数据载体/现状粒度/目标粒度），出处索引补充方案文档。
+
 ## [Unreleased] - 2026-08-12 (视频提示词输出语言按目标平台路由)
 
 ### 新增
