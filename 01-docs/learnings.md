@@ -7,6 +7,16 @@
 - **教训 4（字符串边界断言要带终结符心智）**：`'NON-IP.'.endsWith('NON-IP') === false`（句点后移一位）。appendVideoTrailer 截断形态末段去句点后以 `NON-IP` 结尾，测试 `endsWith('NON-IP')` 才成立；实现初版保留句点导致测试失败。教训：断言「以 X 结尾」时先想清楚 X 与最后一个字符的关系。
 - **教训 5（宽松标记集 + 截断前校验防 fail-closed 反噬）**：结构完整性校验（声明 excluded_characters/no_swap_pairs 但正文无 `<<<`/`[ABSENT]` → 拒绝）若基于截断后文本，maxLength 截断会削掉尾部标记导致合法响应误杀；校验必须基于截断前 `optimized_prompt` 原文。标记集抽为常量（VIDEO_REFERENCE_MARKERS），引擎侧输出格式漂移时在此扩展。
 - **跨仓库挂起**：prompt-engine 侧 change（输出新字段 + evaluator 100-400 词判据层级感知 + 模型边界抬高）未实现；契约层已按「契约先行」部署顺序就绪（tasks 4.4），联调验收待引擎侧就绪后执行。
+## 水印四角边距调远与打包内容验证要点（watermark-margin，2026-08-14）
+
+- **交付**：`buildWatermarkFilter` 四角坐标边距调远（用户反馈四角距边过近）：水平/底部 20px→40px、顶部 40px→60px（`x=40` / `w-text_w-40` / `y=60` / `h-text_h-40`）；center/moving 不受影响。PR #794；测试契约断言同步 + 真实 ffmpeg 渲染像素包围盒验证（left≈42/right≈40/top=60/bottom=40，不越界）。
+- **教训 1（drawtext 渲染有内边距，断言用包围盒而非精确坐标）**：drawtext 文字 glyph 带 ~2px 抗锯齿/阴影边距，像素 bbox 与表达式数值存在 ±2px 偏差（x=40 → bbox left=42）。断言「水印可见且距边≥N」应看包围盒，断言「表达式正确」应看 filter 字符串，两者分开。
+- **教训 2（渲染回归的廉价像素验证法）**：`ffmpeg -vf drawtext... -f rawvideo -pix_fmt rgb24` 输出原始帧 → Node 逐像素扫描非背景色包围盒，即可量化验证「距边距离/居中/不越界」，无需截图人工目检；适合 CI 无法跑、人工目检不可重复的场景。
+- **教训 3（asar 内容验证路径怪癖）**：`@electron/asar` 的 `listPackage` 返回 `\electron\...`（前导反斜杠）条目，但 `extractFile` 用同串匹配仍报 not found；可靠做法是 `extractAll` 到临时目录后直接读文件验证（打包产物内容校验以 extractAll 为准）。
+- **教训 4（asar extract-file 误删源文件的坑）**：`asar extract-file` 的 CWD 相对路径若恰好等于源文件路径会**覆盖源文件**，随后清理 `rm` 可能把真实源码删掉（本次已发生，靠 `git show HEAD:path` + 重放小改动恢复）；涉及打包产物验证一律先 `cd` 到临时目录，恢复源码优先 `git show HEAD:` 重放，不依赖 asar 副本。
+
+---
+
 ## views-deep2 mock 缺失导致 CI 必红复盘（fix-publisher-mock-onpipelineupdate，2026-08-14）
 
 - **第一性原因**：PR #770 新增 `@/api/publisher.onPipelineUpdate` 导出并在 CreateView async mounted 调用，但未同步 views-deep2.test.js 的 vi.mock factory；由于 mounted 是 async，缺失导出在 `--no-file-parallelism` 下以「运行尾部 unhandled rejection」呈现（441 文件全过、仅 3 errors、退出码 1），electron-tests 与 QG 4 个 job 必红，且 main@240fe9b3 自身 electron-ci 以完全相同错误失败。

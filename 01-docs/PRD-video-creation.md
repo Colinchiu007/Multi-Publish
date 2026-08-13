@@ -130,6 +130,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 | 日期 | 范围 | 核心内容 | 主文档 |
 |------|------|----------|--------|
+| 2026-08-14 | 水印四角边距调远 | 用户反馈左上/左下/右上/右下四角距边过近；水平/底部边距 20px→40px、顶部边距 40px→60px（center/moving 不受影响）；`buildWatermarkFilter` 坐标表达式与测试断言同步更新，真实 ffmpeg 渲染回归确认不越界。详见本节 3.1.24 | PRD 3.1.24 |
 | 2026-08-14 | 水印坐标修复 + 位置/字号/透明度选项 | 全能创作水印成片不可见修复：根因 `buildWatermarkFilter` drawtext 坐标出画布（bottom-* 用 `y=h-20`、center 用 `y=(h+text_h)/2`，drawtext 按文字左上角定位），自 commit `e1b46eba0`（2026-07-23）引入，保存链路无断点；修复后六位置 + moving 帧级验证可见。新增位置 6 枚举（top-left/top-right/bottom-left/bottom-right/center/moving，moving 为确定性 Lissajous 平滑漂移非随机）、字号 5 档（16/24/32/40/48 默认 24）、透明度 10 档（10%-100% 步进 10% 默认 60%）；normalizer 白名单 fail-closed + compose clamp 二次防线；快照恢复陈旧枚举吸附合法档位；文案 locales zh/en 成对 14 键。详见本节 3.1.24 | PRD 3.1.24 / openspec watermark-options |
 | 2026-08-13 | 视频克隆：入口卡 + 默认链接 + 自动复刻层级 | CreateView「流水线创作」新增「视频克隆」标准流水线卡（`[data-pipeline-id="video-clone"]`，紧随全能创作，点击直达 /video-clone）；视频克隆页输入来源默认「链接」（v1.14）；复刻层级下拉移除（v1.15），改为程序按拆解报告证据自动定级 L0/L1/L2（v1.16，驱动 generate/compose 分支 + F4 按层级验收，UI 展示「自动目标层级 → 达成 grade」）；打包 E2E 回捕修复（L0 封面负索引 + E2E 脚本适配默认链接）。详见 PRD-VIDEO-CLONE v1.14–v1.16 | PRD-VIDEO-CLONE-2026-08-12 |
 | 2026-08-07 | 模型服务异常检测 | ProviderAnomalyBus（慢响应 llm/tts/audio 30s、image 60s、video 120s；超时/网络错误）→ `pipeline:getRunContext` 下发 `providerWarnings` → 前端非阻塞横幅；`callAdapter` 有界超时（视频 10min/其余 2min）；pipeline-engine 阶段/运行执行日志；提示词优化进度前置 `optimize_progress`。PR #397 | PRD 7.1.12 |
@@ -1587,14 +1588,14 @@ SettingsDialog 关闭（App.vue @close）
 
 **缺陷根因（QM-5 复盘）**：`buildWatermarkFilter`（`apps/desktop/electron/services/story2video-compose-engine.js`）坐标表达式错误。drawtext 的 `x/y` 是文字**左上角**坐标，而旧实现 bottom-* 用 `y=h-20`（基线贴底，文字主体在画面外）、center 用 `y=(h+text_h)/2`（把文字底部压到中线以下，`text_h` 语义错配），导致所有 bottom-* 与 center 位置的水印文字整体画出画布，成片无可见水印。该逻辑自 commit `e1b46eba0`（2026-07-23）引入；保存链路（UI 提交 → 快照持久化 → normalizer → compose 参数）经验证无断点，属渲染层坐标缺陷。逃逸链：既有单测只断言 top-left 位置 filter 存在，未断言 bottom-right/center 的坐标数值，坐标 bug 未被拦截。
 
-**功能逻辑（位置坐标语义）**：以 drawtext 左上角定位（`x,y` = 文字左上角）；水平边距 20px、底部边距 20px、顶部边距 40px（top-* 的 `y=40` 为既有约定，本次未改动）：
+**功能逻辑（位置坐标语义）**：以 drawtext 左上角定位（`x,y` = 文字左上角）；水平边距 40px、底部边距 40px、顶部边距 60px（2026-08-14 用户反馈四角距边过近后由 20/20/40 调远，center/moving 不受影响）：
 
 | 位置 | x 表达式 | y 表达式 | 说明 |
 |------|----------|----------|------|
-| top-left | `20` | `40` | 左上角 |
-| top-right | `w-text_w-20` | `40` | 右上角 |
-| bottom-left | `20` | `h-text_h-20` | 左下角 |
-| bottom-right | `w-text_w-20` | `h-text_h-20` | 右下角（默认） |
+| top-left | `40` | `60` | 左上角 |
+| top-right | `w-text_w-40` | `60` | 右上角 |
+| bottom-left | `40` | `h-text_h-40` | 左下角 |
+| bottom-right | `w-text_w-40` | `h-text_h-40` | 右下角（默认） |
 | center | `(w-text_w)/2` | `(h-text_h)/2` | 水平垂直居中 |
 | moving | `'(w-text_w)/2*(1+0.9*sin(2*PI*t/10))'` | `'(h-text_h)/2*(1+0.9*cos(2*PI*t/14))'` | 确定性 Lissajous 平滑漂移 |
 

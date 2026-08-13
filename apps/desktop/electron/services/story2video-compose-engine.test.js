@@ -215,7 +215,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     }
     expect(buildWatermarkFilter({
       watermark: { enabled: true, text: '品牌', position: 'top-left', opacity: 0.5 },
-    })).toContain('x=20:y=40')
+    })).toContain('x=40:y=60')
     expect(parseResolution('1920x1080')).toEqual({ width: 1920, height: 1080 })
     expect(parseResolution('../bad')).toEqual({ width: 1280, height: 720 })
     expect(buildScaleFilter(1920, 1080)).toContain('scale=1920:1080')
@@ -225,19 +225,20 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
   describe('buildWatermarkFilter — 水印位置/透明度/字号契约（2026-08-14）', () => {
     const base = { watermark: { enabled: true, text: '品牌' } }
 
-    it('默认 bottom-right 修复：y=h-text_h-20，文字不越界', () => {
+    it('默认 bottom-right 修复：y=h-text_h-40，文字不越界', () => {
       const filter = buildWatermarkFilter(base)
-      expect(filter).toContain(':x=w-text_w-20:y=h-text_h-20')
+      expect(filter).toContain(':x=w-text_w-40:y=h-text_h-40')
       // 回归：旧公式 y=h-20 把文字主体画到画布外（成片无水印的直接根因）
       expect(filter).not.toContain(':y=h-20')
       expect(filter).not.toContain('y=h-20:')
     })
 
     it('四角与正中坐标符合画布内契约', () => {
-      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'top-left' } })).toContain(':x=20:y=40')
-      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'top-right' } })).toContain(':x=w-text_w-20:y=40')
-      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'bottom-left' } })).toContain(':x=20:y=h-text_h-20')
-      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'bottom-right' } })).toContain(':x=w-text_w-20:y=h-text_h-20')
+      // 边距契约（2026-08-14 调整）：水平/底部 40px、顶部 60px
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'top-left' } })).toContain(':x=40:y=60')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'top-right' } })).toContain(':x=w-text_w-40:y=60')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'bottom-left' } })).toContain(':x=40:y=h-text_h-40')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'bottom-right' } })).toContain(':x=w-text_w-40:y=h-text_h-40')
       const center = buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'center' } })
       expect(center).toContain(':x=(w-text_w)/2:y=(h-text_h)/2')
       // 回归：旧公式 y=(h+text_h)/2 使文字整体下移 text_h
@@ -255,7 +256,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
 
     it('未知位置 fail-closed 到默认 bottom-right（修复后表达式）', () => {
       const filter = buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'middle' } })
-      expect(filter).toContain(':x=w-text_w-20:y=h-text_h-20')
+      expect(filter).toContain(':x=w-text_w-40:y=h-text_h-40')
     })
 
     it('透明度 0-1 契约：透传、clamp 边界、非法回退 0.6', () => {
