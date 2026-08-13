@@ -11,8 +11,8 @@
           <input type="checkbox" :checked="preferMultimodal" @change="saveMultimodalPreference($event.target.checked)" />
           <span>{{ t('modelProviders.preferMultimodalLabel') }}</span>
         </label>
-        <button class="cohere-btn-secondary" @click="loadProviders">⟳ {{ t('modelProviders.refresh') }}</button>
-        <button class="cohere-btn-primary" @click="openAdd">＋ {{ t('modelProviders.addProvider') }}</button>
+        <button class="cohere-btn-secondary" data-testid="refresh-providers" @click="loadProviders">⟳ {{ t('modelProviders.refresh') }}</button>
+        <button class="cohere-btn-primary" data-testid="add-provider" @click="openAdd">＋ {{ t('modelProviders.addProvider') }}</button>
       </div>
     </div>
 

@@ -227,13 +227,9 @@ async function testProvidersPage(win) {
     Array.from(document.querySelectorAll('.filter-chip')).map(c => c.textContent.trim())
   );
   assert('过滤器芯片 ≥3', chips.length >= 3, 'found: ' + chips.join(', '));
-  const hasAdd = await win.evaluate(() =>
-    Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('添加'))
-  );
+  const hasAdd = await win.evaluate(() => !!document.querySelector('[data-testid="add-provider"]'));
   assert('添加 Provider 按钮', hasAdd);
-  const hasRefresh = await win.evaluate(() =>
-    Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('刷新'))
-  );
+  const hasRefresh = await win.evaluate(() => !!document.querySelector('[data-testid="refresh-providers"]'));
   assert('刷新按钮', hasRefresh);
   await win.screenshot({ path: path.join(SS, 'v9-09-providers.png') });
 }
