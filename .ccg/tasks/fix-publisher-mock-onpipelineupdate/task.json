@@ -1,0 +1,14 @@
+{
+  "id": "fix-publisher-mock-onpipelineupdate",
+  "title": "CI 红修复：views-deep2 的 @/api/publisher mock 缺 onPipelineUpdate（PR #770 引入）",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend-test",
+  "currentPhase": "implementation",
+  "nextAction": "补 mock 导出，本地 CI 参数复跑，开 PR 合并",
+  "createdAt": "2026-08-14T01:00:00Z",
+  "branch": "codex/fix-publisher-mock-onpipelineupdate",
+  "rootCause": "commit 240fe9b3 (PR #770) 新增 publisher.onPipelineUpdate 并在 CreateView.mounted 调用，未同步 views-deep2.test.js 的 vi.mock factory；async mounted 的拒绝在 --no-file-parallelism 下表现为 run 尾部 unhandled rejection，4 个 CI job 必红",
+  "remoteStatus": "PR 未创建"
+}
