@@ -24,6 +24,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { findFfmpeg } = require('./media-tool-paths')
+const { mapWithModelBudget, withModelBudget } = require('./model-call-scheduler')
 const { segmentScript } = require('./video-script-segmentation')
 const { extractKeyEntities, checkSceneAlignment, assessVisualConsistency } = require('./video-content-alignment')
 
@@ -726,8 +727,17 @@ function registerVideoGenStages (pipelineEngine) {
 
       const runDir = getRunDir(runId)
       fs.mkdirSync(runDir, { recursive: true })
-      const videos = []
-      for (let i = 0; i < prompts.length; i++) {
+
+      // 视频生成并行（2026-08-13）：异步任务制（提交 + 轮询 + 下载），2 路并行安全（与全能创作一致）。
+      // - 复用 model-call-scheduler 预算调度：provider rpm 约束提交速率（governor RPM 排队/429 冷却）；
+      // - 保序 map（mapWithModelBudget 结果与输入同序）：MERGE 按场景顺序拼接 concat-list，不得乱序；
+      // - 显式 stage.options.videoConcurrency 仅作请求值，仍受 provider 预算上限收敛。
+      const governor = pipelineEngine && pipelineEngine.governor
+      const provider = manager && typeof manager.getProvider === 'function'
+        ? manager.getProvider(videoProvider.providerId)
+        : null
+      const requestedConcurrency = Number(stage.options?.videoConcurrency) > 0 ? Number(stage.options.videoConcurrency) : 2
+      const videoTask = async (prompt, index) => {
         try {
           // 统一参数契约：adapter 层驼峰/下划线两种命名并存（agnes 读 numFrames/frameRate，
           // ltx 读 num_frames/frame_rate），双写保证所有 adapter 生效；
@@ -736,10 +746,10 @@ function registerVideoGenStages (pipelineEngine) {
           const height = Number(stage.options?.height) > 0 ? Number(stage.options.height) : 768
           const numFrames = Number(stage.options?.numFrames) > 0
             ? Number(stage.options.numFrames)
-            : pickFrameCountForDuration(scenes[i] && scenes[i].duration)
+            : pickFrameCountForDuration(scenes[index] && scenes[index].duration)
           const frameRate = Number(stage.options?.frameRate) > 0 ? Number(stage.options.frameRate) : 24
           const submit = await manager.callAdapter(videoProvider.providerId, 'generateVideo', {
-            prompt: prompts[i],
+            prompt: prompts[index],
             model: videoProvider.model || undefined,
             width,
             height,
@@ -751,18 +761,16 @@ function registerVideoGenStages (pipelineEngine) {
           // callAdapter 失败时返回 { code: -1, message }（不透传会掩盖真实 provider 错误，
           // 如 MiniMax 特殊套餐的 Missing task_id / 401），必须原样上报供排查。
           if (submit && submit.code !== 0) {
-            videos.push({ index: i, success: false, error: submit.message || ('视频生成调用失败（provider: ' + videoProvider.providerId + '）') })
-            continue
+            return { index, success: false, error: submit.message || ('视频生成调用失败（provider: ' + videoProvider.providerId + '）') }
           }
           const data = submit && submit.data
           const taskId = data && (data.taskId || data.videoId)
           if (!taskId) {
-            videos.push({
-              index: i,
+            return {
+              index,
               success: false,
               error: '视频生成未返回任务 ID' + (submit && submit.message ? '：' + submit.message : ''),
-            })
-            continue
+            }
           }
           // 轮询任务状态（最多 10 分钟）
           const pollDeadline = Date.now() + 10 * 60 * 1000
@@ -776,17 +784,34 @@ function registerVideoGenStages (pipelineEngine) {
             if (['failed', 'error', 'cancelled'].includes(String(state).toLowerCase())) break
           }
           if (!videoUrl) {
-            videos.push({ index: i, success: false, error: '视频生成超时或失败（provider: ' + videoProvider.providerId + '）' })
-            continue
+            return { index, success: false, error: '视频生成超时或失败（provider: ' + videoProvider.providerId + '）' }
           }
-          const dest = path.join(runDir, 'scene_' + String(i).padStart(3, '0') + '.mp4')
+          const dest = path.join(runDir, 'scene_' + String(index).padStart(3, '0') + '.mp4')
           await downloadToFile(videoUrl, dest)
-          videos.push({ index: i, success: true, path: dest })
-          log.info('VideoGenStages', 'scene ' + i + ' video generated: ' + dest)
+          log.info('VideoGenStages', 'scene ' + index + ' video generated: ' + dest)
+          return { index, success: true, path: dest }
         } catch (error) {
-          videos.push({ index: i, success: false, error: (error && error.message ? error.message : String(error)) })
+          return { index, success: false, error: (error && error.message ? error.message : String(error)) }
         }
       }
+      const videoResults = await mapWithModelBudget({
+        items: prompts,
+        requestedConcurrency,
+        fallbackConcurrency: 2,
+        type: 'video',
+        providerId: videoProvider.providerId,
+        provider,
+        manager,
+        governor,
+        fn: (prompt, index) => {
+          const runItem = () => videoTask(prompt, index)
+          return withModelBudget(
+            { governor, type: 'video', providerId: videoProvider.providerId, model: videoProvider.model },
+            runItem,
+          )
+        },
+      })
+      const videos = videoResults.filter(Boolean)
       const ok = videos.filter(v => v.success)
       if (ok.length === 0) {
         return { success: false, error: '该流水线视频生成全部失败：' + videos.map(v => v.error).join('；') }
