@@ -232,7 +232,9 @@ function buildConceptPrompt (topic, kind, mode) {
   const effectiveMode = FIDELITY_MODES.includes(mode) ? mode : 'creative'
   if (effectiveMode === 'creative') {
     return {
-      system: `你是资深${kindLabel}策划。根据主题输出创意概念：角色设定（2-4 个要点）、视觉风格（一句）、故事钩子（一句）。只输出 JSON 对象 {"role_design": "...", "visual_style": "...", "hook": "..."}，不要多余文字。`,
+      system: `你是资深${kindLabel}策划。根据主题输出创意概念：角色设定（2-4 个要点）、视觉风格（一句）、故事钩子（一句）。只输出 JSON 对象 {"role_design": "...", "visual_style": "...", "hook": "..."}，不要多余文字。
+
+【最高优先级约束】视频画面严禁出现文字/字幕/水印/标志。每个视觉描述末尾必须附加: clean frame, no text, no subtitles, no watermarks, no logos。`,
       user: '主题：' + String(topic || '').trim(),
     }
   }
@@ -290,7 +292,9 @@ function buildStoryboardPrompt (concept, kind, options = {}) {
   const mode = FIDELITY_MODES.includes(options.mode) ? options.mode : 'creative'
   if (mode === 'creative') {
     return {
-      system: `你是分镜导演。把创意概念拆分为 ${MAX_SCENES} 个以内视频场景。输出严格 JSON 数组，每个元素 {"prompt": "画面提示词（主体/动作/构图/光线/风格，供视频生成模型直接使用）", "text": "解说文案", "duration": 4-8 秒整数}。只输出 JSON，不要其他文字。`,
+      system: `你是分镜导演。把创意概念拆分为 ${MAX_SCENES} 个以内视频场景。输出严格 JSON 数组，每个元素 {"prompt": "画面提示词（主体/动作/构图/光线/风格，供视频生成模型直接使用）", "text": "解说文案", "duration": 4-8 秒整数}。只输出 JSON，不要其他文字。
+
+【最高优先级约束】每个场景的 prompt 字段末尾必须附加: clean frame, no text, no subtitles, no watermarks, no logos。严禁视频画面生成任何文字/字幕/水印伪影。`,
       user: '创意概念与视觉风格：' + String(style || concept || '').slice(0, 2000),
     }
   }

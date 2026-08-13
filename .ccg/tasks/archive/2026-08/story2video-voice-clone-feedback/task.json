@@ -1,0 +1,12 @@
+{
+  "id": "story2video-voice-clone-feedback",
+  "title": "Story2Video 全能创作音色克隆选择文件后无反馈体验优化（进行中状态/占位行/成功失败反馈）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "PR #686 已合并 d43be9bf（2026-08-13 02:52Z，全 CI 绿含 QG Coverage/Desktop Shards/electron-tests）",
+  "createdAt": "2026-08-13T00:00:00+08:00",
+  "branch": "codex/story2video-voice-clone-feedback"
+}
