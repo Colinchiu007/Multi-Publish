@@ -1398,3 +1398,221 @@ POST /cases/{id}/runs → status=queued
 3. 中英对照幂等、可编辑覆盖；编辑 prompt_zh 后 prompt_en 标记待重生成；
 4. 分句失败明确报错不降级；场景数超限 400；
 5. pytest（分句/场景接口/一致性）+ 前端 build；12A.22.13 既有验收不回归。
+
+## 12A.23 限流与调度验证（2026-08-13 新增）
+
+> 在运营后台提供「限流与调度验证」闭环，验证「每分钟连接次数（rate_per_minute）/ 5小时限额次数（limit_per_5h）」配置下的并发与排队机制：**契约校验（配置是否合法/合理）→ 参数模拟（与桌面端同契约的确定性模拟）→ 真实观测（用量上报排队/冷却指标）→ 真实自检（桌面端 governor + 假 adapter 对拍）**。
+> 背景：运营在「预设模型」页配置限流后，无法确认桌面端调度器会如何执行（并发上限怎么换算、排队预算多少、429 冷却如何自适应、5h 额度何时拒绝）。本功能提供可复现、可审计的验证手段，且不修改既有调度行为（`ApiUsageGovernor` / `model-call-scheduler` 参数不变，只增加观测与验证层）。降级链路见 12A.10.4；桌面端机制详见 Multi-Publish PRD §7.1.8.1 / §7.4.4.3 / §7.4.4.4 / §7.4.4.5。
+
+### 12A.23.1 背景与目标
+
+1. **契约校验**：对全部可见预设批量校验限流配置范围、`default_model ∈ models`、并发换算公式，供运营发现存量脏数据；
+2. **参数模拟**：按与桌面端 `ApiUsageGovernor` 同契约的确定性事件驱动模拟器，输入 rpm / 并发上限 / 5h 限额 / 请求数 / 单请求耗时 / 到达间隔 / 429 注入 / 5h 超限开关，输出逐请求时间线、指标与 6 条断言 PASS/FAIL；
+3. **真实观测**：桌面端用量上报携带排队/冷却聚合指标，用量看板按服务商展示 429 率、排队/冷却次数、平均排队时长、预算利用率；
+4. **真实自检**：桌面端用**独立** `ApiUsageGovernor` + 本地假 adapter（零额度、零网络）真实跑调度，结果可上报运营后台（simulated=0）并与 Python 模拟器对拍。
+5. **边界声明**：模拟/自检结果 ≠ 真实 provider 限流；真实 provider 的 429/配额行为属于外部验收，不在本功能断言范围内。
+
+### 12A.23.2 契约常量（模拟器与桌面端同源）
+
+以下常量在 `ops-center/backend/services/scheduler_simulator.py` 与桌面端 `apps/desktop/electron/services/api-usage-governor.js` / `model-call-scheduler.js` 保持同值，由两端常量测试 + 对拍脚本防止漂移：
+
+| 常量 | 值 | 语义 |
+|------|----|------|
+| 滑动窗口 | 60_000ms | RPM 预算窗口（WINDOW_MS） |
+| 并发队列等待上限 | 30_000ms | `MAX_QUEUE_WAIT_MS`：并发信号量等待超过即判限流 |
+| RPM 时间槽等待上限 | 180_000ms | `MAX_PACE_WAIT_MS`：RPM 时间槽预约等待超过即判限流 |
+| 冷却等待上限 | 45_000ms | `MAX_COOLDOWN_WAIT_MS` |
+| 默认冷却时长 | 30_000ms | `DEFAULT_COOLDOWN_MS`（桌面端 cooldownMs 允许 100..60000ms） |
+| 429 自适应 | ×0.75，下限 0.2 | `RATE_ADAPT_FACTOR` / `RATE_FACTOR_MIN`；成功后 +0.05 恢复（`RATE_RECOVER_STEP`，上限 1.0） |
+| 有效 RPM | max(2, round(rpm × rateFactor)) | `_effectiveRpm`：rateFactor 下调后仍保底 2 |
+| 并发换算 | clamp(round(rpm/10), 1, 4) | `maxConcurrent` 未配置时的默认值（JS Math.round half-up 语义） |
+| 5h 窗口 | windowMs=5h, field=requests | 请求前预检即拒（QUOTA_EXCEEDED），不消耗真实调用 |
+| 参数上限 | rpm≤100000、请求数≤1000、耗时≤60000ms、到达间隔≤60000ms、并发≤8、5h 限额≤10000000 | 越界 400 |
+
+### 12A.23.3 数据模型（scheduler_verification_runs）与字段校验
+
+新表独立（`CREATE TABLE IF NOT EXISTS`，启动时幂等建表，无存量迁移）：
+
+| 字段 | 类型 | 说明/校验 |
+|------|------|----------|
+| id | INTEGER PK AUTOINCREMENT | run 号 |
+| preset_id | VARCHAR NULL | 关联预设 ID（可空，允许手工参数） |
+| rpm | INTEGER NOT NULL | 每分钟连接次数，[1,100000] |
+| max_concurrent | INTEGER NOT NULL | 并发上限 [1,8]；未传按 clamp 换算后落库 |
+| limit_per_5h | INTEGER NULL | 5h 限额 [1,10000000]；空=无 5h 窗口 |
+| request_count | INTEGER NOT NULL | 请求数 [1,1000] |
+| request_duration_ms | INTEGER DEFAULT 0 | 单请求耗时 [0,60000] |
+| arrival_interval_ms | INTEGER DEFAULT 0 | 到达间隔 [0,60000]；0=同时到达 |
+| inject_429_at | INTEGER NULL | 注入 429 的请求序号 [1,request_count]；空=不注入 |
+| exceed_5h | INTEGER DEFAULT 0 | 模拟 5h 额度超限开关（bool） |
+| simulated | INTEGER DEFAULT 1 | 1=运营后台模拟；0=桌面端真实自检上报 |
+| engine | VARCHAR DEFAULT 'python-simulator' | 引擎标识：python-simulator / real-governor |
+| client_id | VARCHAR DEFAULT '' | 桌面端上报的设备指纹（sha256(userData) 前 16 位） |
+| metrics_json | TEXT DEFAULT '{}' | 指标 |
+| assertions_json | TEXT DEFAULT '[]' | 断言 |
+| timeline_json | TEXT DEFAULT '[]' | 逐请求时间线 |
+| status | VARCHAR DEFAULT 'completed' | 状态 |
+| created_at / created_by | VARCHAR | 审计字段 |
+
+**参数校验（服务端 `_validate`，非法 → 400 + 中文字段提示，不落库）**：
+- `rpm`：必须为 [1,100000] 的整数（拒绝布尔、浮点、字符串）；
+- `request_count`：[1,1000] 整数；
+- `request_duration_ms`：[0,60000] 整数；
+- `arrival_interval_ms`：[0,60000] 整数；
+- `max_concurrent`：留空或 [1,8] 整数；留空按 `clamp(round(rpm/10),1,4)` 换算；
+- `limit_per_5h`：留空或 [1,10000000] 整数；
+- `inject_429_at`：留空或 [1,request_count] 整数（越界 400）；
+- `exceed_5h`：bool（缺省 false）；
+- 记录字段：`preset_id`/`client_id`/`created_by` 长度截断（64/128/64）；`engine` 缺省 python-simulator。
+
+### 12A.23.4 接口契约（/api/v1/scheduler/*）
+
+全部端点 `require_admin`（非 admin → 403；未登录 → 401）。前端路由 `/rate-limit-verifier`（meta.requiresAuth），菜单「限流验证」。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | /api/v1/scheduler/verify | 运行调度模拟（simulated=1）或接收桌面端真实自检上报（simulated=0），落库并返回结果 |
+| GET | /api/v1/scheduler/verify | 验证记录列表（created_at 倒序；preset_id/simulated 过滤；limit 1-200 默认 20；offset；摘要不含 timeline） |
+| GET | /api/v1/scheduler/verify/{run_id} | 单条详情（含 timeline JSON）；不存在 → 404「验证记录不存在」 |
+| GET | /api/v1/scheduler/contract | 批量契约校验（全部 is_visible=1 预设） |
+
+**POST /verify 请求体**：`preset_id?` / `rpm` / `max_concurrent?` / `limit_per_5h?` / `request_count` / `request_duration_ms?`(0) / `arrival_interval_ms?`(0) / `inject_429_at?` / `exceed_5h?`(false) / `simulated?`(true) / `engine?`('python-simulator') / `client_id?`('') / `created_by?`('admin')。
+**成功响应**：`{code:0, run_id, id, preset_id, rpm, max_concurrent, limit_per_5h, request_count, request_duration_ms, arrival_interval_ms, inject_429_at, exceed_5h, simulated, engine, client_id, metrics, assertions, timeline, status, created_at, created_by}`。
+**参数非法**：400 + 字段级中文提示（如「rpm 必须是 [1, 100000] 的整数」）。
+
+**GET /contract 输出**：按 `category, name` 排序的可见预设清单，每项 `{preset_id, name, category, rpm, limit_per_5h, max_concurrent(换算), rules:[{rule, pass, actual, expected}]}`。规则：
+1. `rate_per_minute 范围`：空 或 [1,100000]；
+2. `limit_per_5h 范围`：空 或 [1,10000000]；
+3. `default_model ∈ models`：空 或 ∈ models；
+4. `并发换算 clamp(round(rpm/10),1,4)`：rpm 有值时必可换算。
+
+### 12A.23.5 调度模拟器功能逻辑（确定性事件驱动）
+
+`services/scheduler_simulator.py` 纯标准库实现（heapq + 全局时钟），同参数同结果、无随机，供验证与桌面端对拍。每个请求 i 按以下顺序推进：
+
+1. **到达**：`arrive_at = (i-1) × arrival_interval_ms`；`now = max(now, arrive_at)`；释放已完成槽位；
+2. **5h 额度预检**（仅 exceed_5h=true 且 limit_per_5h 有值）：`used_5h >= limit_per_5h` → 状态 `quota_exceeded`（`started_at=None`，不执行、不消耗调用），计数 `quota_exceeded_count`；
+3. **并发信号量**：当前执行中（started 未 finished）≥ max_concurrent → 等到最早完成时刻；等待 > 30s（MAX_QUEUE_WAIT_MS）→ 状态 `rate_limited`；否则复用槽位并累计 queue_wait；
+4. **RPM 时间槽**：`rpm_eff = max(2, round(rpm × rateFactor))`，`interval_ms = 60000/rpm_eff`；`slot_base = max(now, next_slot_at)`，预约后 `next_slot_at += interval_ms`；`pace_wait = slot_base - now` > 180s（MAX_PACE_WAIT_MS）→ 状态 `rate_limited`（先同步预约再判超时，与桌面端 `_pace` 一致）；
+5. **429 冷却**：`now < cooldown_until` → 等待，> 45s（MAX_COOLDOWN_WAIT_MS）→ 状态 `rate_limited`；否则跳到 cooldown_until，`cooldown_count+1`；
+6. **执行**：`started_at = now`，`finished_at = now + request_duration_ms`，`used_5h+1`，状态 `completed`；
+7. **记账**：若 `inject_429_at == i` → `cooldown_until = finished + cooldown_ms`，`rate_factor × 0.75`（下限 0.2），`rate_limited_count+1`；否则 `rate_factor + 0.05`（上限 1.0）；追加 factor 曲线点 `{t: finished, factor}`。
+
+**timeline 条目**：`{req, arrived_at, queued_at, started_at, finished_at, state, queue_wait_ms, cooldown_wait_ms}`；最终状态 ∈ {completed, rate_limited, quota_exceeded}（前端状态标签还兼容 queued/running 显示映射）。
+
+**metrics**：
+- `total_duration_ms`：全部 completed 的 max(finished_at) − min(started_at)；
+- `throughput_per_min`：任意 60s 窗口内最大放行（开始）数，与 RPM 预算语义一致；
+- `max_concurrent_observed`：观测口径为「实际执行中 = started 未 finished」的峰值（与真实 governor 一致，避免 pace 推迟请求仍在占用导致的假阳性）；
+- `max_queue_wait_ms`、`rate_limited_count`、`cooldown_count`、`quota_exceeded_count`、`rate_factor_curve`。
+
+### 12A.23.6 断言库（6 条规则）
+
+| 断言名 | 判定 | 期望 | 说明 |
+|--------|------|------|------|
+| max_concurrent | 观测并发峰值 ≤ max_concurrent | ≤ 配置值 | 并发预算不超限 |
+| no_rate_limited | 未注入 429 时 rate_limited_count == 0 | 0 | 无注入不应限流 |
+| throughput | 60s 窗口放行数 ≤ max(rpm, 2) | ≤ 预算（含 effectiveRpm 下限 2） | 吞吐不超预算 |
+| max_queue_wait | max_queue_wait_ms < 180000 | < 180000 | RPM 时间槽排队有界 |
+| quota_at_limit_plus_1 | exceed_5h 且 limit 有值时：第 limit+1 个请求恰好被预检拒绝（started_at=None） | 1 (req=limit+1) | 5h 额度第 limit+1 个起拒绝（对应真实 governor `used > limit` 修复） |
+| fifo | max_concurrent==1 时完成顺序 == 到达顺序 1..N | 1..N | 单并发 FIFO |
+
+### 12A.23.7 前端「限流与调度验证」页（交互逻辑与显示项）
+
+**页面顶部说明（el-alert）**：「验证『每分钟连接次数 / 5小时限额次数』配置下的并发与排队机制（与桌面端 ApiUsageGovernor 同契约）。**模拟结果 ≠ 真实 provider 限流**；桌面端真实自检以 P2『上报自检』记录为准。」
+
+**Tab 1 模拟验证**：
+- 参数表单（inline）：
+  - 模型预设（select，filterable+clearable，placeholder「选预设自动带出限流」）：选择后带出 `rate_per_minute`（空→20）、`limit_per_5h`（空→null）、并发上限重置为 null、请求数重置 10、单请求耗时重置 100ms；
+  - 每分钟连接次数 rpm：1..100000（默认 20）；
+  - 并发上限 maxConcurrent：1..8（留空 → hint「未配置按 clamp(rpm/10,1,4)」）；
+  - 5小时限额次数：1..10000000（placeholder「留空=无5h窗口」）；
+  - 请求数：1..1000（默认 10）；
+  - 单请求耗时(ms)：0..60000（默认 100）；
+  - 到达间隔(ms)：0..60000（默认 0=同时到达）；
+  - 注入 429（第 N 个）：1..1000（placeholder「留空=不注入」）；
+  - 模拟 5h 额度超限：switch；
+  - 按钮「运行验证」（loading 态）。
+- 表单下 hint：「默认并发 = clamp(round(rpm/10),1,4)；排队预算：并发队列 30s / RPM 时间槽 180s / 冷却 45s；429 自适应 ×0.75（下限 0.2）、成功 +0.05。」
+- 结果区（成功提示：「验证完成 #N：断言 X/Y 通过」）：
+  - 指标卡 ×7：总耗时(ms) / 吞吐(60s 窗口) / 最大并发 / 最长排队(ms) / 限流次数 / 冷却次数 / 额度拒绝；
+  - 断言表：断言 / 结果（PASS 绿 / FAIL 红 tag）/ 实际 / 期望 / 说明；
+  - 请求时间线表（max-height 360）：# / 到达 / 排队完成 / 开始 / 完成 / 状态（排队中/执行中/已完成/限流/额度超限，色 tag）/ 排队ms / 冷却ms；
+  - rateFactor 曲线（文本序列，如 `1 → 0.75 → 0.8 → …`，展示自适应路径）；
+  - 落库提示：「验证记录 #N（simulated=true，已落库可审计）」。
+- 失败提示：「验证失败: {detail}」。
+
+**Tab 2 契约校验**：
+- 顶部 hint：「对全部可见预设校验限流配置范围、default∈models、并发换算（clamp(round(rpm/10),1,4)）」+ 按钮「刷新校验」；
+- 表格：预设 ID / 类别 / rpm / 5h 限额（空显示 —）/ 换算并发（空显示 —）/ 校验规则（每规则一行 PASS/FAIL tag + 规则名；FAIL 时红字「实际={actual}（期望 {expected}）」）。
+- 失败提示：「契约校验失败: {detail}」。
+
+**Tab 3 验证记录**：
+- 顶部 hint：「模拟（simulated=true）与桌面端自检上报（simulated=false + client_id）的历史记录」+ 按钮「刷新」；
+- 表格：`#` / 来源（模拟=灰 tag / 真实自检=黄 tag + client_id）/ 预设（空显示 —）/ rpm / maxConcurrent / 指标（hint：并发={max_concurrent_observed} · 限流={rate_limited_count} · 冷却={cooldown_count} · 最长排队={max_queue_wait_ms}ms）/ 时间；
+- 点击行 → 详情抽屉（60%）：描述区（预设/rpm/maxConcurrent/请求数/5h 限额/来源（模拟|真实自检）+ engine）、指标 JSON（pre）、断言表、时间线表；
+- 分页：20/页（prev/pager/next）；
+- 提示：「加载验证记录失败/加载详情失败: {detail}」。
+
+### 12A.23.8 P1 用量健康度（用量看板调度健康度）
+
+**数据来源**：桌面端 30min 用量上报（`POST /api/v1/usage/ingest`，X-Catalog-Key 鉴权）携带可选聚合字段 `queued_count` / `cooldown_count` / `queue_wait_ms` / `cooldown_wait_ms`（非负整数；旧客户端缺失按 0，upsert 幂等累加）；`model_usage_daily` 对应可空列（启动 ensure 幂等 ALTER）。
+
+**用量看板「按服务商」表新增列**（`GET /api/v1/usage/summary`，admin）：
+
+| 列 | 口径 | 阈值/展示 |
+|----|------|----------|
+| 429率 | ratelimit / calls × 100 | >10% 黄 warning tag，否则绿 success；无调用 0% |
+| 排队次数 | queued_count | 数字 |
+| 冷却次数 | cooldown_count | 数字 |
+| 平均排队ms | queue_wait_ms / queued_count | queued_count=0 显示 `-` |
+| 预算利用率 | calls / (天数×1440) / rpm预算 × 100 | >90% 黄 warning；rpm 未配置（null）显示「未配置」 |
+
+- rpm 预算取自 model_presets 目录 `rate_per_minute`（preset_id ↔ provider_id 匹配）；
+- 总览卡同步展示「限流(429)次数」等聚合。
+- **口径注意**：利用率按「日均每分钟实测调用 ÷ rpm 预算」估算（非实时窗口），rpm 未配置时无法计算，属于正常展示而非错误。
+
+### 12A.23.9 P2 桌面端真实自检与上报
+
+**入口**：模型设置页「运营后台同步」卡片操作区按钮「限流自检」（title 提示：用真实调度网关（假 adapter，不消耗额度）验证并发/排队/限流机制）。
+
+**弹窗「限流自检」**：
+- 说明：「使用真实调度网关（ApiUsageGovernor）+ 本地假 adapter 构造并发请求，验证并发上限/排队/429 冷却/5h 限额；不消耗额度、不访问网络。结果可上报运营后台『限流与调度验证』。」
+- 参数行：每分钟连接次数 rpm（1..100000，默认 20）/ 并发上限（1..8，留空=clamp(rpm/10,1,4)）/ 请求数（1..1000，默认 10）/ 单请求耗时(ms)（0..60000，默认 100）/ 注入 429（第 N 个，留空=不注入，1..1000）/ 5小时限额次数（留空=不启用，1..10000000）；
+- 运行中提示：「自检运行中（真实调度排队，耗时取决于 rpm 预算）...」；
+- 结果区：指标（最大并发 / 限流 / 额度拒绝 / 总耗时）+ 断言列表（PASS/FAIL tag + name + message）+ 上报状态文案（「已上报，运营后台验证记录 #N」）；
+- 按钮：关闭 / 运行自检（运行中禁用）/ 上报运营后台（无结果时禁用）；
+- 提示：「自检完成：断言 X/Y 通过」「自检失败: {原因}」「当前环境无 electronAPI，请使用桌面应用运行自检/上报」「上报失败: {原因}」；
+- 非桌面环境（浏览器 Vite）无 `window.electronAPI` → 明确提示，不静默失败。
+
+**IPC（preload 暴露 `rateLimitSelfCheck` / `rateLimitReport`，authenticated）**：
+- `rate-limit:self-check`：参数 → `runSelfCheck` → `{code:0, data:{engine:'real-governor', metrics, assertions, timeline}}`；参数非法 `{code:-1, message}`；
+- `rate-limit:report`：要求已配置运营后台同步（url + apiKeyConfigured），未配置 → `{code:-1, message:'未配置运营后台同步（地址/Key），无法上报自检结果'}`；构造 body（simulated=false、engine='real-governor'、client_id=sha256(userData)[:16]、metrics/assertions/timeline 原样）POST `{url}/api/v1/scheduler/verify`；10s 超时（AbortController，超时报「上报超时」）、`redirect:'error'`、`X-Catalog-Key` 头；成功返回 `{code:0, run_id, message:'自检结果已上报运营后台'}`。
+
+**runSelfCheck 实现要点**（`services/rate-limit-self-check.js`）：
+- **独立** `ApiUsageGovernor` 实例（同契约常量，不污染生产单例的 rateFactor/时间槽/额度窗口）；
+- 假 adapter：仅内存 `sleep(requestDurationMs)`，可选注入真实 `ProviderError(RATE_LIMITED)`；全程无 fetch/网络、无额度消耗（断言含 `no_network`，metrics 含 `network_calls`）；
+- 5h 窗口（limitPer5h 有值时）`setProviderTokenWindows('selfcheck', [{windowMs:5h, limit, field:'requests'}])`；
+- 断言：max_concurrent / no_rate_limited / no_network / quota_at_limit_plus_1（limit 有值时，期望拒绝数 = requestCount − limit，req=limit+1 起）/ fifo（maxConcurrent=1）；
+- 校验与模拟器同界：rpm [1,100000]、requestCount [1,1000]、duration [0,60000]、maxConcurrent [1,8]、limitPer5h [1,10000000]、inject429At [1,requestCount]、cooldownMs [100,60000]。
+
+**鉴权契约（已知差异，P2 待对齐）**：服务端 `/api/v1/scheduler/verify` 当前为 admin JWT（`require_admin`）；桌面端上报按设计契约（OpenSpec design §7 安全条款）发送 `X-Catalog-Key`（`OPS_CATALOG_API_KEY`）。在服务端放开 X-Catalog-Key 前，桌面端「上报运营后台」对 `/api/v1/scheduler/*` 会返回 401；服务端单测以 admin token 覆盖 simulated=0 落库路径。此为 P2 后续对齐项，不阻塞模拟验证与契约校验（均 admin 会话内使用）。
+
+### 12A.23.10 对拍与测试
+
+- **对拍脚本** `scripts/compare-scheduler-models.js`：固定四组输入（rpm=6/并发1/8 请求；rpm=20/并发2/10 请求；注入 429；5h 超限）分别调 Python 模拟器（subprocess）与桌面端 `runSelfCheck`，比对 `max_concurrent_observed` / `rate_limited_count` / `quota_exceeded_count` / 完成顺序（total_duration_ms 允许时钟容差）；
+- **parity 测试** `apps/desktop/electron/tests/test_scheduler_parity.test.js`（spec 场景映射）；
+- 后端：`ops-center/backend/tests/test_scheduler_simulator.py`（确定性/并发上限/RPM 排队/冷却自适应/5h 预检/断言库/参数 400）+ `test_scheduler_api.py`（admin 403、落库、历史/详情、契约校验、simulated=0 上报落库）；
+- 桌面端：`rate-limit-self-check.test.js`（时间线/断言/无网络泄漏——假 adapter 不触发 fetch/不污染生产 governor）、`api-usage-governor.test.js`（observability 计时断言）、`usage-reporter.test.js`（聚合字段）、`ipc-handlers/rate-limit.test.js`、ops-center `test_usage_api.py`（可选字段兼容/累加/看板聚合）。
+
+### 12A.23.11 验收标准
+
+1. 契约校验：对全部可见预设输出 4 条规则 PASS/FAIL；rpm=0 或 limit_per_5h 负数或 default_model 不在 models → 对应规则 FAIL；rpm=6 → max_concurrent=1、rpm=20 → 2；
+2. 模拟验证：rpm=20（换算并发 2）+ 10 请求同时到达 → `max_concurrent_observed ≤ 2` 且未注入时 `rate_limited_count=0`；rpm=6/并发 1/8 请求 → 吞吐 ≤6、最长排队 <180s、FIFO；注入第 k 个 429 → cooldown_count≥1、rateFactor 曲线先 ×0.75 后 +0.05；5h=L 且超限 → 第 L+1 个起全部预检拒绝（started_at 空、不执行）；
+3. 参数非法 → 400 + 中文字段提示，不落库；
+4. 权限：非 admin 调 `/api/v1/scheduler/*` → 403；
+5. 验证记录：每次模拟/上报自动落库；列表倒序 + preset_id/simulated 过滤 + 分页；详情含 timeline；来源区分模拟/真实自检（+client_id）；
+6. 用量健康度：按服务商显示 429 率/排队/冷却/平均排队/预算利用率，>10% 或 >90% warning，rpm 未配置显示「未配置」；旧客户端上报无新字段按 0，不报错；
+7. 桌面端自检：独立 governor + 假 adapter，断言 `no_network`（fetch 未调用）；结果与 Python 模拟器对拍一致（四组固定输入）；
+8. 文档：本 PRD 12A.23 与 `ops-center/docs/OPERATIONS.md` 运营手册同步维护；桌面端机制文档见 Multi-Publish PRD §7.1.8.1 / §7.4.4.3-5。
+
