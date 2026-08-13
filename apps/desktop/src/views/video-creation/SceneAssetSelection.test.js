@@ -72,4 +72,65 @@ describe('SceneAssetSelection', () => {
     const w = mount(SceneAssetSelection, { props: { runId: 'run-1', candidates: CANDIDATES, confirming: true } })
     expect(w.find('[data-testid="sas-confirm"]').attributes('disabled')).toBeDefined()
   })
+
+  it('点击图片缩略图打开预览弹窗并显示大图', async () => {
+    const w = mount(SceneAssetSelection, { props: { runId: 'run-1', candidates: CANDIDATES } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const thumb = w.find('[data-testid="sas-preview-1-image-0"]')
+    expect(thumb.exists()).toBe(true)
+    await thumb.trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const modal = document.body.querySelector('[data-testid="sas-preview-modal"]')
+    expect(modal).toBeTruthy()
+    const img = document.body.querySelector('[data-testid="sas-preview-image"]')
+    expect(img).toBeTruthy()
+    expect(img.getAttribute('src')).toContain('media://C:/tmp/b1.png')
+  })
+
+  it('点击视频缩略图打开预览弹窗并显示播放器', async () => {
+    const w = mount(SceneAssetSelection, { props: { runId: 'run-1', candidates: CANDIDATES } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const thumb = w.find('[data-testid="sas-preview-0-video-2"]')
+    expect(thumb.exists()).toBe(true)
+    await thumb.trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const modal = document.body.querySelector('[data-testid="sas-preview-modal"]')
+    expect(modal).toBeTruthy()
+    const video = document.body.querySelector('[data-testid="sas-preview-video"]')
+    expect(video).toBeTruthy()
+    expect(video.getAttribute('src')).toContain('media://C:/tmp/a.mp4')
+  })
+
+  it('点击遮罩/关闭可退出预览，且再次点击可重新打开', async () => {
+    const w = mount(SceneAssetSelection, { props: { runId: 'run-1', candidates: CANDIDATES } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await w.find('[data-testid="sas-preview-1-image-0"]').trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const modalComp = w.findComponent({ name: 'UiModal' })
+    expect(modalComp.props('visible')).toBe(true)
+    expect(w.vm.preview).toBeTruthy()
+    // 触发 UiModal close（模拟点击 ×/遮罩）
+    modalComp.vm.$emit('close')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview).toBeNull()
+    expect(modalComp.props('visible')).toBe(false)
+    // 再次点击可重新打开
+    await w.find('[data-testid="sas-preview-1-image-0"]').trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview).toBeTruthy()
+    expect(modalComp.props('visible')).toBe(true)
+  })
+
+  it('预览提示文案展示且不影响单选选择', async () => {
+    const w = mount(SceneAssetSelection, { props: { runId: 'run-1', candidates: CANDIDATES } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.text()).toContain('点击缩略图可放大预览')
+    const radios = w.findAll('input[type=radio]')
+    expect(radios[2].element.checked).toBe(true) // video-2 默认选中
+    // 点击图片缩略图（不改变选择）
+    await w.find('[data-testid="sas-preview-1-image-0"]').trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(radios[2].element.checked).toBe(true)
+    expect(radios[3].element.checked).toBe(true)
+  })
 })
