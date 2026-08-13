@@ -1,3 +1,11 @@
+## 容器日志轮转复盘（container-log-rotation，2026-08-13）
+
+- **交付**：为 publish-api / logto / postgres / blackbox / prometheus / alertmanager 六个 Compose 服务统一添加 `logging: driver=json-file, options={max-size: 50m, max-file: 5}`（每容器 ≤250MB）；契约测试 logto-deploy-contract.test.js 新增 assertLogRotation 断言；spec 明确作用域（仅 Compose 容器，systemd/journald 豁免）。
+- **教训 1（测试断言应绑定语义而非字面序列化）**：js-yaml 解析的 `max-file: 5`（数字）与 `"5"`（字符串）、`50M` 与 `50m` 语义等价但字面不同；契约测试若 strictEqual 字面量，会对 Docker 合法写法产生假阴性。断言前归一化（String() + toLowerCase）。
+- **教训 2（json-file 日志生命周期）**：json-file 日志存于 /var/lib/docker/containers/<id>/，`docker compose down` 即丢；max-size 达上限轮转、max-file 超限删最旧。容器级轮转只是保底，长期留痕需集中采集（Loki/ELK，P2 后续）。
+- **教训 3（merge 继承要实测）**：webhook-retry / monitoring overlay 不声明 logging 即继承 base（compose 合并语义），已用 `docker compose config` 实测合并结果保留 logging。
+
+---
 ## shared-utils logger 收敛复盘（shared-utils-logging，2026-08-13）
 
 - **交付**：packages/shared-utils/src/logger.js——修正误导注释（原指向不存在的 apps/desktop/electron/logger.js）；内联 SECRET_PATTERNS 5 组（与 api-publish-engine log-redact 逐字节一致）；文件与控制台同源脱敏；rotateIfNeeded 改读模块 MAX_LOG_SIZE；新增 setLogOptions({file,maxSize,level})。新增 4 个测试。

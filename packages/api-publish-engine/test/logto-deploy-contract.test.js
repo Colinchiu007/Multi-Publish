@@ -224,4 +224,24 @@ const deployReadme = fs.readFileSync(path.resolve(__dirname, '../../../deploy/lo
 assert.match(deployReadme, /docker-compose\.yml -f docker-compose\.webhook-retry\.yml[\s\S]*build --no-cache logto/)
 assert.match(deployReadme, /docker compose -f docker-compose\.yml --env-file \.env up -d --no-deps --force-recreate logto/)
 
+
+// ---- 容器日志轮转（container-log-rotation R1） ----
+function assertLogRotation (svc, name) {
+  assert.ok(svc, name + ' 服务缺失')
+  assert.ok(svc.logging, name + ' 必须声明 logging 配置')
+  assert.ok(svc.logging.options, name + ' 必须声明 logging.options')
+  assert.strictEqual(svc.logging.driver, 'json-file', name + ' logging.driver 应为 json-file')
+  // 按语义断言：Docker 接受 max-size=50M/50MB、max-file=5（数字）等写法
+  assert.strictEqual(String(svc.logging.options['max-size']).toLowerCase(), '50m', name + ' 应限制单文件 50m')
+  assert.strictEqual(String(svc.logging.options['max-file']), '5', name + ' 应最多保留 5 个文件')
+}
+assertLogRotation(compose.services.postgres, 'logto/postgres')
+assertLogRotation(compose.services.logto, 'logto')
+assertLogRotation(apiCompose.services['publish-api'], 'publish-api')
+const monitoringCompose = yaml.load(fs.readFileSync(path.resolve(__dirname, '../../../deploy/logto/docker-compose.monitoring.yml'), 'utf8'))
+for (const name of ['blackbox', 'prometheus', 'alertmanager']) {
+  assertLogRotation(monitoringCompose.services[name], 'monitoring/' + name)
+}
+console.log('  ✅ 容器日志轮转（json-file / max-size=50m / max-file=5）合同完整')
+
 console.log('  ✅ Logto Compose 与业务 API 生产配置合同完整且不包含默认密钥')
