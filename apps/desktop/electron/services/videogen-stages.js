@@ -232,7 +232,9 @@ function buildConceptPrompt (topic, kind, mode) {
   const effectiveMode = FIDELITY_MODES.includes(mode) ? mode : 'creative'
   if (effectiveMode === 'creative') {
     return {
-      system: `你是资深${kindLabel}策划。根据主题输出创意概念：角色设定（2-4 个要点）、视觉风格（一句）、故事钩子（一句）。只输出 JSON 对象 {"role_design": "...", "visual_style": "...", "hook": "..."}，不要多余文字。
+      system: `你是资深${kindLabel}策划。根据主题输出创意概念：角色设定（2-4 个要点）、视觉风格（一句）、故事钩子（一句）。只输出 JSON 对象 {"role_design": "每个角色的独立视觉特征（年龄/发型/面部/服饰/体型），用 | 分隔多角色", "characters": [{"name": "角色名", "visual": "独立视觉特征标签（年龄/发型/面部/服饰，确保多角色可区分）"}], "visual_style": "...", "hook": "..."}，不要多余文字。
+
+【多角色视觉差异化】当场景中出现多个角色时，每个角色必须有独立且可区分的视觉特征标签（年龄差异、发型差异、面部特征差异、服饰差异、体型差异）。禁止多个角色使用相同的面部描述。这是视频画面中区分不同角色的唯一依据。
 
 【最高优先级约束】视频画面严禁出现文字/字幕/水印/标志。每个视觉描述末尾必须附加: clean frame, no text, no subtitles, no watermarks, no logos。`,
       user: '主题：' + String(topic || '').trim(),
@@ -247,7 +249,7 @@ function buildConceptPrompt (topic, kind, mode) {
 2. 不得改变人物身份、时代背景、文化地域与核心论点；
 3. 提取原文关键事实（key_facts）与关键实体（entities：人物/事件/地点/作品等）；
 4. 视觉风格应服务于原文基调，不得整体偏离。
-${hybridLine}只输出 JSON 对象 {"role_design": "...", "visual_style": "...", "hook": "...", "key_facts": ["..."], "entities": ["..."], "mode": "${effectiveMode}"}，不要多余文字。`,
+${hybridLine}只输出 JSON 对象 {"role_design": "每个角色的独立视觉特征（年龄/发型/面部/服饰/体型），用 | 分隔多角色", "characters": [{"name": "角色名", "visual": "独立视觉特征标签（年龄/发型/面部/服饰，确保多角色可区分）"}], "visual_style": "...", "hook": "...", "key_facts": ["..."], "entities": ["..."], "mode": "${effectiveMode}"}，不要多余文字。`,
     user: '主题（完整文案）：' + String(topic || '').trim(),
   }
 }
@@ -294,7 +296,9 @@ function buildStoryboardPrompt (concept, kind, options = {}) {
     return {
       system: `你是分镜导演。把创意概念拆分为 ${MAX_SCENES} 个以内视频场景。输出严格 JSON 数组，每个元素 {"prompt": "画面提示词（主体/动作/构图/光线/风格，供视频生成模型直接使用）", "text": "解说文案", "duration": 4-8 秒整数}。只输出 JSON，不要其他文字。
 
-【最高优先级约束】每个场景的 prompt 字段末尾必须附加: clean frame, no text, no subtitles, no watermarks, no logos。严禁视频画面生成任何文字/字幕/水印伪影。`,
+【最高优先级约束】每个场景的 prompt 字段末尾必须附加: clean frame, no text, no subtitles, no watermarks, no logos。严禁视频画面生成任何文字/字幕/水印伪影。
+
+【多角色视觉锚定】当场景中出现多个角色时，每个角色的 prompt 必须包含其独立视觉特征标签（来自概念阶段的 characters 数组）。格式示例: "Character A: [老者，白须，红袍] standing next to Character B: [年轻将领，黑发短寸，蓝甲]"。禁止省略角色视觉标签——这是视频模型区分不同角色的唯一依据。`,
       user: '创意概念与视觉风格：' + String(style || concept || '').slice(0, 2000),
     }
   }
@@ -318,7 +322,9 @@ function buildStoryboardPrompt (concept, kind, options = {}) {
 2. 不得改变人物身份、时代背景、文化地域与核心论点；
 3. 每个场景必须标注 source_paras（绑定原文段落索引）；
 4. 文案描述的关键事件（关键实体中的事件）必须有专属场景；
-5. 只输出 JSON 数组，不要其他文字。`,
+5. 只输出 JSON 数组，不要其他文字。
+
+【多角色视觉锚定】当场景中出现多个角色时，每个角色的 prompt 必须包含其独立视觉特征标签（来自概念阶段的 characters 数组）。格式: "Character A: [视觉标签] ... Character B: [视觉标签] ..."。禁止省略角色视觉标签——这是视频模型区分不同角色的唯一依据。`,
     user,
   }
 }
