@@ -327,6 +327,11 @@ export default {
       hybrid: 'Hybrid',
       custom: 'Custom',
     },
+    modes: {
+      'story2video-compose': 'Voice-over (TTS narration + Image Carousel)',
+      'talking-head': 'Talking-head mode (on-camera)',
+      'avatar-spokesperson': 'Talking-head mode (digital avatar)',
+    },
     stages: {
       research: 'Research',
       proposal: 'Proposal',

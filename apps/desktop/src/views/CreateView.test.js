@@ -269,6 +269,22 @@ describe("CreateView", () => {
     }
   });
 
+  it("流水线详情头展示创作模式标签（旁白式/口播式，无模式不显示）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    await nextTick();
+    const label = w.find('[data-testid="pipeline-mode-label"]');
+    expect(label.exists()).toBe(true);
+    expect(label.text()).toContain("旁白式");
+    w.vm.selectedPipeline = { name: "cinematic", available: true, stages: [] };
+    await nextTick();
+    expect(w.find('[data-testid="pipeline-mode-label"]').exists()).toBe(false);
+    w.unmount();
+  });
+
   it("阶段清单展示场景数/优化进度/资源进度详情", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }

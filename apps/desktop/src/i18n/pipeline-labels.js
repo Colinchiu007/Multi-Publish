@@ -101,6 +101,17 @@ const CATEGORIES = {
   custom: 'pipelines.categories.custom',
 }
 
+/**
+ * Creation-mode labels (voice-over vs talking-head):
+ * only pipelines with an explicit "script role" semantics are registered;
+ * others render no mode label. See 01-docs/i18n-glossary.md.
+ */
+const MODES = {
+  'story2video-compose': 'pipelines.modes.story2video-compose',
+  'talking-head': 'pipelines.modes.talking-head',
+  'avatar-spokesperson': 'pipelines.modes.avatar-spokesperson',
+}
+
 const STAGES = {
   research: 'pipelines.stages.research',
   proposal: 'pipelines.stages.proposal',
@@ -172,6 +183,7 @@ const translate = (t, key, fallback) => {
 
 export const PIPELINE_REGISTRY = Object.freeze(PIPELINES)
 export const PIPELINE_CATEGORY_KEYS = Object.freeze(CATEGORIES)
+export const PIPELINE_MODE_KEYS = Object.freeze(MODES)
 export const PIPELINE_STAGE_KEYS = Object.freeze(STAGES)
 export const PIPELINE_STATUS_KEYS = Object.freeze(STATUSES)
 
@@ -188,6 +200,12 @@ export const getPipelineDescription = (t, pipelineId) => {
 export const getPipelineCategory = (t, categoryId) => {
   const fallback = fallbackLabel(categoryId)
   return translate(t, CATEGORIES[categoryId], fallback)
+}
+
+/** Creation-mode label for a pipeline; returns '' (not rendered) when unregistered. */
+export const getPipelineMode = (t, pipelineId) => {
+  const key = MODES[pipelineId]
+  return key ? translate(t, key, '') : ''
 }
 
 export const getPipelineStage = (t, stageId) => {
