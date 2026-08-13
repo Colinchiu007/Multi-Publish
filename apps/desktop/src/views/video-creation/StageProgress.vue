@@ -106,6 +106,9 @@ export default {
     },
     
     stageDetailText(stage, index) {
+      // 优先：统一 stage.progress.message（新契约，Phase 1-2 后所有阶段走此路径）
+      if (stage.progress && stage.progress.message) return stage.progress.message
+      // 兼容：旧 context 键（optimize_progress / assets_progress / compose_progress / split.scenes）
       if (!this.orchestrationContext) return this.stageTimeDetailText(stage, index)
       const ctx = this.orchestrationContext
       if (stage.name === 'split' && stage.status === 'completed') {

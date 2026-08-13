@@ -850,6 +850,7 @@ class PipelineEngine {
         status: i === 0 ? 'running' : 'pending',
         startedAt: i === 0 ? new Date().toISOString() : null,
         completedAt: null,
+        progress: null,
       })),
       params: params || {},
       progress: 0,
@@ -1096,6 +1097,7 @@ class PipelineEngine {
     // Complete current stage
     run.stages[run.currentStage].status = 'completed';
     run.stages[run.currentStage].completedAt = new Date().toISOString();
+    run.stages[run.currentStage].progress = null;
 
     // Backlot 事件：阶段完成
     this._emit('stage:complete', { runId: run.id, stageName: completedStageName, stageIndex: run.currentStage });
@@ -1819,9 +1821,33 @@ class PipelineEngine {
     }
   }
 
+
+  /** 通用阶段进度归一化：fail-closed，非法值丢弃 */
+  _normalizeStageProgress(update) {
+    if (!update || typeof update !== 'object' || Array.isArray(update)) return null;
+    const percent = update.percent;
+    if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+    const roundedPercent = Math.round(percent);
+    const message = typeof update.message === 'string' ? update.message.trim().slice(0, 200) : '';
+    // percent > 0 时 message 不得为空
+    if (roundedPercent > 0 && !message) return null;
+    return {
+      percent: roundedPercent,
+      message,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
   _calcProgress(run) {
-    const completed = run.stages.filter((s) => s.status === 'completed').length;
-    return Math.round((completed / run.stages.length) * 100);
+    const stages = run.stages;
+    if (!Array.isArray(stages) || stages.length === 0) return 0;
+    const completed = stages.filter((s) => s.status === 'completed').length;
+    // 加权：已完成阶段 + 当前阶段 progress 加权
+    const current = stages[run.currentStage];
+    const currentPercent = (current && current.progress && Number.isFinite(current.progress.percent))
+      ? Math.max(0, Math.min(100, current.progress.percent))
+      : 0;
+    return Math.round(((completed + currentPercent / 100) / stages.length) * 100);
   }
 
   _getPythonBridge() {
@@ -1856,6 +1882,21 @@ class PipelineEngine {
         ...(stage.options || {}),
         ...resolveRuntimeStageOptions(stage.name, run.params, run.pipeline),
       },
+    };
+
+    // 注入 onProgress 回调：执行器通过 stage.onProgress({...}) 上报进度
+    const _stageRef = run.stages[run.currentStage];
+    fullStage.onProgress = (update) => {
+      try {
+        const normalized = this._normalizeStageProgress(update);
+        if (normalized) {
+          _stageRef.progress = normalized;
+          // 双写到 context 供前端 fallback
+          if (run.context && typeof run.context === 'object') {
+            run.context[stage.name + '_progress'] = normalized;
+          }
+        }
+      } catch (_) { /* onProgress 异常不阻断阶段执行 */ }
     };
 
     const stageStartMs = Date.now();
