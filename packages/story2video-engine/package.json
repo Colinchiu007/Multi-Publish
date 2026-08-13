@@ -8,7 +8,7 @@
     ".": "./src/index.ts",
     "./template-library": "./src/template-library.ts",
     "./subtitle-aligner": "./src/subtitle-aligner.ts",
-    "./subtitle-rules": "./src/subtitle-rules.json"
+    "./subtitle-rules": "./subtitle-rules.js"
   },
   "scripts": {
     "build": "tsc",

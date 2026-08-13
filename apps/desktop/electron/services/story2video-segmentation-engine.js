@@ -76,6 +76,7 @@ function boolValue (value, fallback) {
 /**
  * 归一化调用方选项 → 引擎配置。
  * 兼容三套键：引擎 partial config（options.config）、stage.options snake_case、既有测试 camelCase。
+ * @param {Record<string, any>} [options]
  */
 function normalizeSegmentationOptions (options = {}) {
   const src = options && typeof options === 'object' ? options : {}
@@ -243,6 +244,8 @@ function calculateTargetWords (config) {
 
 /**
  * 场景级分组（对齐 text-segmentation.ts SceneSegmenter.segment）。
+ * @param {string} text
+ * @param {Record<string, any>} [options]
  * @returns {{ scenes: string[], sentences: string[] }}
  */
 function splitScenesLocally (text, options = {}) {
@@ -281,7 +284,10 @@ function splitScenesLocally (text, options = {}) {
   return { scenes: sceneTexts, sentences }
 }
 
-/** 对齐 text-segmentation.ts splitTextToScenes：返回场景文本数组。 */
+/** 对齐 text-segmentation.ts splitTextToScenes：返回场景文本数组。
+ * @param {string} text
+ * @param {Record<string, any>} [options]
+ */
 function splitTextToScenes (text, options = {}) {
   const trimmed = String(text || '').trim()
   if (!trimmed) return []
@@ -539,9 +545,9 @@ function subtitleSplitToBlocks (text, config) {
     for (const fragment of subtitleSplitQuoteBoundaries(sentence, config)) {
       let blocks = subtitleLengthSplit(fragment, config)
       blocks = subtitleMergeShort(blocks, config)
-      blocks = subtitleClean(blocks, config)
+      blocks = subtitleClean(blocks)
       blocks = subtitleEnforceMax(blocks, config)
-      blocks = subtitleClean(blocks, config)
+      blocks = subtitleClean(blocks)
       all.push(...blocks)
     }
   }
@@ -555,6 +561,8 @@ function subtitleSplitToBlocks (text, config) {
 /**
  * 将文本分割为字幕块文本数组（对齐 text-segmentation.ts splitTextToSubtitles）。
  * 不含时间戳（时间轴由调用方 buildSubtitleTimeline 分配）。
+ * @param {string} text
+ * @param {Record<string, any>} [options]
  */
 function splitTextToSubtitles (text, options = {}) {
   const config = normalizeSegmentationOptions(options)
