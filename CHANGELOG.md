@@ -1,3 +1,13 @@
+## [2026-08-13] build(monorepo): npm → pnpm 迁移（worktree 依赖复用同一 store）
+
+- 依赖管理切换为 pnpm 11.13.1（`packageManager` 声明），`pnpm-lock.yaml` 为唯一锁文件，`package-lock.json` 退役；`pnpm-workspace.yaml` 承载 workspaces、`node-linker=hoisted`（扁平布局与 npm 一致）与构建脚本放行（esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js）。
+- workspace 协议：`@multi-publish/*` 依赖统一改为 `workspace:*`，保证解析到本地包而非 registry；remotion 依赖采纳 main 钉版本 4.0.484。
+- 新 worktree 依赖就绪秒级化：`pnpm install --frozen-lockfile` + `node scripts/ensure-electron.js` + 新增 `node scripts/verify-worktree-deps.js`（解析门禁：每个被消费 workspace 包必须落在当前 worktree）。
+- 新增 `scripts/run-package-install.js`（require.resolve 穿透 pnpm symlink + .pnpm 虚拟存储兜底执行 esbuild/vue-demi install 脚本，替代 electron-ci 硬编码嵌套路径）；重写 `scripts/fix-worktree-node-modules.sh`（junction 检测 → 移除 → pnpm install --frozen-lockfile → 门禁；整目录 Junction 复用废弃）。
+- 7 个 CI workflow（quality-gate/visual-test/gui-test/electron-ci/build/autonomous-loop/agent-judge）迁移 pnpm/action-setup + `pnpm install --frozen-lockfile` + pnpm 等价命令；`nx.json`、`workflow-contract.test.js`、doc-gate 的 lockfile 引用同步；electron-ci/gui-test 移除 no-op 的 better-sqlite3 rebuild 步骤（sql.js 兼容层）。
+- electron-builder `files` 增加 `!node_modules/.pnpm/**` 避免虚拟存储卷入打包产物；desktop 补声明 `@multi-publish/ai-autonomous-tester`（npm 幻影依赖修复）。
+- 验证：桌面全量 Vitest 串行（7282+）+ 其余 workspace 全量、build:vue、check:deps/check:circular、win 打包 QM-1、CI 全绿（Quality Gate 8/8、Electron CI、Build & Release win+linux、GUI/Visual/AgentJudge）；PR #705 合并（54e30e73）；OpenSpec change `pnpm-worktree-deps`。
+
 ## [2026-08-13] fix(s2v): 视频 provider「队列满 queue is full」纳入瞬时重试（限流语义 4 次）
 
 - 现状：`withAssetTransientRetry` 仅对瞬时类错误（超时/网络/限流 429/额度）有界重试；agnes-video 的 "video queue is full, please retry later" 不含限流/超时关键词 → 被判定非瞬时 → 不重试直接回退仅 2 图，丢失「队列拥塞稍后可恢复」的机会。
