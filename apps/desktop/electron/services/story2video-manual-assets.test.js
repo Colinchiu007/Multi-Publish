@@ -362,7 +362,7 @@ describe('generate_assets manual 候选生成', () => {
     it('video-image：视频生成失败回退仅 2 图，不中断流水线', async () => {
       const generator = makeImageGenerator()
       const adapter = {
-        generateVideo: vi.fn(async () => ({ code: -1, message: 'video queue is full, please retry later' })),
+        generateVideo: vi.fn(async () => ({ code: -1, message: 'video generation failed' })),
         getVideoStatus: vi.fn(),
       }
       const { generateAssets, manager } = wireVideoPipeline(generator, null)
@@ -400,7 +400,7 @@ describe('generate_assets manual 候选生成', () => {
         const adapter = {
           // 按提示词确定成败：场景 0 成功、场景 2（prompt-C）失败——与 worker 调度顺序无关，确定性断言
           generateVideo: vi.fn(async (args) => {
-            if (String(args && args.prompt).includes('prompt-C')) return { code: -1, message: 'video queue is full, please retry later' }
+            if (String(args && args.prompt).includes('prompt-C')) return { code: -1, message: 'video generation failed' }
             return { code: 0, data: { taskId: 't-ok' } }
           }),
           getVideoStatus: vi.fn(async () => ({ code: 0, videoUrl: baseUrl })),
@@ -423,6 +423,42 @@ describe('generate_assets manual 候选生成', () => {
         expect(context.assets_progress.imagesDone).toBe(6)
       } finally {
         fixture.server.close()
+      }
+    })
+
+    it('video-image：视频队列满（queue is full）→ 限流语义有界重试 4 次后回退仅 2 图', async () => {
+      vi.useFakeTimers()
+      try {
+        const generator = makeImageGenerator()
+        const { generateAssets, manager } = wireVideoPipeline(generator, null)
+        const context = {
+          ...JSON.parse(JSON.stringify(BASE_CONTEXT)),
+          video_plan: { mode: 'ai-judged', scenes: [{ index: 0, useVideo: true, seconds: 6 }], provider: 'mock', model: 'v1' },
+        }
+        const adapter = {
+          // queue is full 属瞬时拥塞 → 按限流语义重试（rateLimitMaxAttempts=4，2.5s×attempt 退避）后仍失败才回退
+          generateVideo: vi.fn(async () => ({ code: -1, message: 'video queue is full, please retry later' })),
+          getVideoStatus: vi.fn(),
+        }
+        manager.callAdapter.mockImplementation(async (provider, method, args) => adapter[method](args))
+        const serviceBus = { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt })) }
+        const pending = generateAssets({
+          stage: { ...BASE_STAGE, options: { ...BASE_STAGE.options, manualMaterialMode: 'video-image' } },
+          params: { creationMode: 'manual', manualMaterialMode: 'video-image', runId: 'run-queue', videoMode: 'ai-judged', videoConfig: { pollIntervalMs: 5 } },
+          context,
+          serviceBus,
+        })
+        await vi.advanceTimersByTimeAsync(30000)
+        const result = await pending
+        expect(result.success).toBe(true)
+        expect(result.checkpoint).toBe('scene_asset_selection')
+        // 4 次尝试（rateLimitMaxAttempts），非瞬时错误才不重试
+        expect(adapter.generateVideo).toHaveBeenCalledTimes(4)
+        expect(result.output.candidates[0].candidates.map(c => c.kind).sort()).toEqual(['image', 'image'])
+        expect(result.output.failures.videos.map(v => v.index)).toEqual([0])
+        expect(context.assets_progress.videosDone).toBe(1)
+      } finally {
+        vi.useRealTimers()
       }
     })
   })

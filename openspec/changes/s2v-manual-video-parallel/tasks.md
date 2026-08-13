@@ -15,4 +15,6 @@ created: 2026-08-13
 - [x] 测试：`npx vitest run services/story2video-manual-assets.test.js services/story2video-stages.test.js` 全绿（83+19）；story2video-text-config 68 全绿
 - [x] 文档：PRD.md 7.1.3a 候选生成补充 manual 并行机制（三副本同步）；CHANGELOG.md 记录
 - [x] 审查：质量节拍上下文审查（并发安全/契约不变/scope）；Claude 审查 0 Critical/2 Major 已修复（antigravity 区域不可用降级记录）；见 .ccg/tasks/s2v-manual-video-parallel/review.md
-- [ ] 门禁：openspec validate 通过；提交 codex/ 分支；PR；归档三同步（openspec archive + CCG task 归档 + learnings）
+- [x] 门禁：openspec validate 通过；已提交 codex/s2v-manual-video-parallel（4c76a9d1 + 63389237）并推送；PR #742 已建
+- [x] 重试机制补充（2026-08-13）：`queue is full`/`队列满` 纳入限流语义有界重试（RATE_LIMIT_PATTERN 扩展 + fake-timer 用例 + PRD 机制说明）
+- [ ] 归档三同步（PR 合并后）：openspec archive + CCG task 归档 + learnings 复盘（remoteStatus=pending）

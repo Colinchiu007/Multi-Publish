@@ -886,7 +886,7 @@ function unwrapScenesArray (source) {
   return []
 }
 
-const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota/i;
+const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota|queue\s*(?:is\s+)?full|队列.*(?:满|饱和)/i;
 const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i;
 
 function messageOf(value) {
