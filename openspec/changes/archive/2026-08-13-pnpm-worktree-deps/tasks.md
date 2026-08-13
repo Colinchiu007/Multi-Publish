@@ -37,6 +37,6 @@
 
 ## Phase 6: 文档与交付
 
-- [ ] T19 文档：AGENTS.md（worktree 流程）、01-docs/build.md（store-dir 机器配置 + 新 worktree 流程）、CHANGELOG
-- [ ] T20 双模型审查（claude；antigravity 重试，不可用则记录降级）→ 修复 Critical
-- [ ] T21 PR + CI 全绿 + 合并证据 + 三同步归档（openspec archive + .ccg/tasks 归档 + learnings）
+- [x] T19 文档：AGENTS.md（worktree 流程）、01-docs/build.md（store-dir 机器配置 + 新 worktree 流程）、CHANGELOG
+- [x] T20 双模型审查（claude；antigravity 重试，不可用则记录降级）→ 修复 Critical
+- [x] T21 PR + CI 全绿 + 合并证据 + 三同步归档（openspec archive + .ccg/tasks 归档 + learnings）

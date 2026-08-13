@@ -1,0 +1,13 @@
+{
+  "id": "pipeline-progress-feedback-unification",
+  "title": "视频创作流水线阶段进行中信息反馈颗粒度统一（Phase 1+2）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "planning",
+  "nextAction": "OpenSpec change 规划已完成（pipeline-progress-feedback-unification）。等待用户确认后启动 openspec apply：阶段进度契约 + onProgress 通道 + 逐阶段接入 + UI 通用化。",
+  "openspecChange": "pipeline-progress-feedback-unification",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "codex/pipeline-progress-propose"
+}

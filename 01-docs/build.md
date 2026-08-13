@@ -8,19 +8,34 @@
 ```bash
 cd apps/desktop
 rm -rf dist-electron
-npx electron-builder --win --dir --publish never
+pnpm exec electron-builder --win --dir --publish never
 
 # 验证 1：asar 文件清单
-npx asar list dist-electron/win-unpacked/resources/app.asar | grep "logger"
+pnpm exec asar list dist-electron/win-unpacked/resources/app.asar | grep "logger"
 
 # 验证 2：require 链测试
-npx asar extract dist-electron/win-unpacked/resources/app.asar /tmp/app-test
+pnpm exec asar extract dist-electron/win-unpacked/resources/app.asar /tmp/app-test
 node -e "require('/tmp/app-test/node_modules/@multi-publish/rpa-engine')"
 
 # 验证 3：启动测试（8 秒不崩溃）
 dist-electron/win-unpacked/Multi-Publish.exe &
 sleep 8 && kill $!
 ```
+
+## 依赖安装与 Worktree 复用（pnpm，2026-08-13 起）
+
+- 唯一包管理器：pnpm 11.13.1（`packageManager` 声明），锁文件 `pnpm-lock.yaml`，`node-linker=hoisted`（扁平布局与 npm workspaces 一致）。
+- 机器级 store（不提交）：`pnpm config set store-dir D:/Data/projects/.pnpm-store`；所有 worktree 依赖从该 store 硬链接复用，不重复下载。
+- 新 worktree 依赖就绪（秒级）：
+  ```bash
+  git worktree add D:/Data/projects/mp-worktrees/mp-<task> -b codex/<task>
+  cd D:/Data/projects/mp-worktrees/mp-<task>
+  pnpm install --frozen-lockfile
+  node scripts/ensure-electron.js        # electron@43 无 postinstall，手动确保二进制
+  node scripts/verify-worktree-deps.js   # 解析门禁：@multi-publish/* 必须落在当前 worktree
+  ```
+- ⛔ 禁止整目录 Junction 复用 node_modules（双模块实例根因）；历史 junction 用 `scripts/fix-worktree-node-modules.sh` 检测修复。
+- 锁文件更新：只在单一 worktree 执行 `pnpm install` 并提交 pnpm-lock.yaml；其余 worktree 使用 `--frozen-lockfile`。
 
 > 本文件由 Hermes `professional-ai-coding-workflow` 技能转换生成，适配通用 AI 编码工具。
 

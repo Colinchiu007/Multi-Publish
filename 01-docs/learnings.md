@@ -8,6 +8,21 @@
 - 门禁坑：`check-locale-sync.js --cjk` 基线是 `path:line` 集合，**行号敏感**；重写 .vue 会因行位移产生大量「新增」命中——新增用户可见文案必须只走 locales（不在 .vue script/template 留中文字面量 fallback），存量位移用 `--update-baseline` 重新锚定（并核对 HEAD 基线已过期 127 处的先决事实）。
 - 外部双模型本次全部不可用（子代理 403 / antigravity 区域限制 / claude CLI 挂起）→ 按机制硬化降级主代理直接执行，审查以本地自审 + 测试门禁补充；下次先探测再承诺双模型审查。
 
+
+## npm → pnpm 迁移复盘（pnpm-worktree-deps，2026-08-13）
+
+- **交付**：依赖管理迁移 pnpm 11.13.1（`pnpm-workspace.yaml`：nodeLinker=hoisted + allowBuilds 放行 esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js），`pnpm-lock.yaml` 唯一锁文件；7 个 CI workflow + nx.json + workflow-contract 同步；新增 `scripts/verify-worktree-deps.js`（解析门禁）与 `scripts/run-package-install.js`；重写 `scripts/fix-worktree-node-modules.sh`；electron-builder 排除 `!node_modules/.pnpm/**`。新 worktree `pnpm install --frozen-lockfile` 实测 17.1s（1104 包 store 复用、0 下载）；桌面全量 vitest + 其余 workspace 全绿；win 打包 QM-1 通过；CI 全绿后合并（PR #705）。
+- **教训 1（pnpm 11 配置键迁移）**：`onlyBuiltDependencies` 在 v11 移入 `pnpm-workspace.yaml` 且改名 **`allowBuilds`**（布尔 map）；`.npmrc` 只接受 auth/registry/network，工程设置（nodeLinker 等）一律放 pnpm-workspace.yaml（camelCase）。
+- **教训 2（workspace 协议必须显式）**：依赖裸 `"*"` 会被 pnpm 当 registry 包拉取（`ERR_PNPM_FETCH_404`）；统一 `workspace:*` 后 `pnpm import` 的 importers 段才生成 `link:` 指向本地包。
+- **教训 3（pnpm hoisted 的 workspace 链接位置）**：根 `node_modules/@multi-publish` 目录不存在——链接建在**消费方自己的 node_modules**（apps/desktop/node_modules/@multi-publish/*）；解析门禁必须按「消费方 require.resolve + realpath 落在当前 worktree」设计，不能只扫根目录。
+- **教训 4（npm 幻影依赖被 pnpm 暴露）**：desktop 的 visual-ci.js 用 `@multi-publish/ai-autonomous-tester` 但从未声明（npm 时代靠根目录全量 workspace 链接）；pnpm 只链接被消费包 → 全量测试唯一失败点；修复为显式声明 devDependency `workspace:*`。
+- **教训 5（pnpm exec ≠ npx）**：`pnpm exec` 只执行已声明依赖的 bin（不像 npx 会临时下载）；未声明的 `@electron/rebuild` 直接 `Command not found`。且 better-sqlite3 不在依赖图（sqlite-wrapper.js 是 sql.js 兼容层）——electron-ci/gui-test 的 rebuild 步骤本就是 no-op，应移除而非"修好"。
+- **教训 6（pnpm broken 版本通告）**：11.12.0 被官方标记 `This release is broken`（升级 11.13.1+）；packageManager 字段与 `pnpm/action-setup` 的 version 必须同步，否则 CI 与本地行为不一致。
+- **教训 7（`--if-present` 位置）**：必须写 `pnpm -r --if-present run test`（选项在 `run` 之前）；放在 `run test` 之后会被当成脚本参数传给 vitest → `vitest run "--if-present"` 过滤 0 测试 → exit 1。
+- **教训 8（整目录 Junction 复用废弃）**：并发 worktree 整目录 Junction 使 `@multi-publish/*` 共享物理链接，无法各自解析分支源码（双模块实例根因）；pnpm store 硬链接 + 消费方链接是正解，历史 junction 用 fix-worktree-node-modules.sh 检测修复。
+- **教训 9（scripts/*.js 被 .gitignore 忽略）**：`.gitignore` 有 `scripts/*.js` 规则；新增的必提交工具脚本（verify-worktree-deps/run-package-install）会静默不入库，必须加 `!` 例外并 `git status` 复核。
+
+---
 ## 共享 worktree 批量清理级联误删主工作区文件复盘（shared-worktree-cascade-delete，2026-08-13）
 
 - **表象**：主工作区 `git status --porcelain` 突发 **255 个 ` D`**（工作区文件从磁盘消失，但 HEAD 中仍存在、上游未提交删除、目录外壳还在）；同一时段大量 worktree 从 `git worktree list` 消失（含本会话 mp-video-clone-default-url），主工作区 HEAD 也被并发会话推进（c0510955 → 1a248ed7）。

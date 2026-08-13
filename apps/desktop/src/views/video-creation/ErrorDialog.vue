@@ -2,8 +2,8 @@
   <div v-if="visible" class="error-dialog-overlay" @click.self="$emit('close')">
     <div class="error-dialog" role="dialog" aria-labelledby="error-dialog-title" aria-describedby="error-dialog-message">
       <div class="dialog-header">
-        <h3 id="error-dialog-title" class="dialog-title">{{ title }}</h3>
-        <button class="close-btn" @click="$emit('close')" aria-label="关闭">×</button>
+        <h3 id="error-dialog-title" class="dialog-title">{{ title || $t('errorDialog.title') }}</h3>
+        <button class="close-btn" @click="$emit('close')" :aria-label="$t('errorDialog.close')">×</button>
       </div>
       <div class="dialog-body">
         <p id="error-dialog-message" class="dialog-message">{{ message }}</p>
@@ -12,10 +12,10 @@
       </div>
       <div class="dialog-footer">
         <button v-if="showResume" class="btn-primary" :disabled="resuming" @click="$emit('resume')">
-          {{ resuming ? '恢复中...' : resumeText }}
+          {{ resuming ? $t('errorDialog.resumeInProgress') : (resumeText || $t('errorDialog.resume')) }}
         </button>
         <button class="btn-secondary" @click="$emit('close')">
-          {{ acknowledgeText }}
+          {{ acknowledgeText || $t('errorDialog.acknowledge') }}
         </button>
       </div>
     </div>
@@ -28,14 +28,14 @@ export default {
   name: 'ErrorDialog',
   props: {
     visible: { type: Boolean, default: false },
-    title: { type: String, default: '错误' },
+    title: { type: String, default: '' },
     message: { type: String, default: '' },
     detail: { type: String, default: '' },
     hint: { type: String, default: '' },
     showResume: { type: Boolean, default: false },
     resuming: { type: Boolean, default: false },
-    resumeText: { type: String, default: '重试' },
-    acknowledgeText: { type: String, default: '确定' },
+    resumeText: { type: String, default: '' },
+    acknowledgeText: { type: String, default: '' },
   },
   emits: ['close', 'resume'],
   watch: {

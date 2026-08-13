@@ -123,7 +123,7 @@
 |------|------|------|
 | P1 | 错误/警告/技术性提示统一接入 `formatUserError` | ✅ 已完成（PR #529 + 2026-08-12） |
 | P2 | 高频页面导航/操作类文案抽入 vue-i18n（Home/Publish/Accounts/History/Settings） | ✅ 完成：Home（PR #565）；Publish（PR #570）；Accounts（PR #577）；PublishHistory + PublishTypeDialog（PR #585）；Settings 弹窗（PR #602）；ModelProviders 模型服务商设置（PR #675）。待办：CreateView 视频创作（P3） |
-| P3 | 视频创作（CreateView ~1000 处）分批抽取 | 需配合视觉回归 |
+| P3 | 视频创作（CreateView ~1000 处）分批抽取 | 进行中：✅ video-creation 子组件 ConfigSummary/ErrorDialog/PipelineSelector（PR #749）；待办 StageProgress/SceneAssetSelection/CreateView 主体（需配合视觉回归） |
 | P4 | 采集/监控/项目库/其余面板 | 低优先级 |
 
 每条文案抽取标准：`src/locales/zh.js` + `en.js` 成对登记；动态插值用 `(ctx) => ctx.named(...)`（CSP 安全，禁止运行时编译）；组件内用 `useI18n().t` 或 `$t`。
