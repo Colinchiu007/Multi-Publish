@@ -10,11 +10,19 @@
 # 用法：bash scripts/fix-worktree-node-modules.sh [--worktree <dir>] [--skip-stop]
 set -euo pipefail
 
-WORKTREE="${1:-D:/Data/projects/mp-worktrees/mp-pnpm-worktree-deps}"
+WORKTREE=""
 SKIP_STOP=0
-[ "${2:-}" = "--skip-stop" ] && SKIP_STOP=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --worktree) WORKTREE="${2:-}"; shift 2 ;;
+    --skip-stop) SKIP_STOP=1; shift ;;
+    *) WORKTREE="$1"; shift ;;
+  esac
+done
+[ -n "$WORKTREE" ] || WORKTREE="D:/Data/projects/mp-worktrees/mp-pnpm-worktree-deps"
 
 realpath_worktree() { (cd "$WORKTREE" && pwd -W 2>/dev/null || pwd); }
+sleep_or_pause() { sleep "$1" 2>/dev/null || powershell -NoProfile -Command "Start-Sleep -Seconds $1" 2>/dev/null || true; }
 WT="$(realpath_worktree)"
 
 echo "[fix] worktree = $WT"
@@ -39,7 +47,7 @@ echo "[fix] 检测到 junction/symlink（历史 npm 环境差异状态），执�
 if [ "$SKIP_STOP" = "0" ]; then
   echo "[fix] 停止运行中的 Electron 实例（CDP 9333）..."
   powershell -NoProfile -Command "\$p = Get-NetTCPConnection -LocalPort 9333 -State Listen -ErrorAction SilentlyContinue; if (\$p) { taskkill /PID \$p.OwningProcess /T /F | Out-Null; Write-Output 'stopped' } else { Write-Output 'none' }" || true
-  sleep 2
+  sleep_or_pause 2
 fi
 
 echo "[fix] 移除 junction..."
@@ -48,7 +56,7 @@ if [ -L "$WT/node_modules" ]; then rm -rf "$WT/node_modules"; fi
 
 echo "[fix] 在 worktree 内执行 pnpm install（全局 store 硬链接复用）..."
 cd "$WT"
-pnpm install --no-audit --no-fund
+pnpm install
 
 echo "[fix] 校验 electron 二进制..."
 node scripts/ensure-electron.js || true

@@ -102,6 +102,8 @@ scripts/*.js
 !scripts/quality-rhythm-wrapper.js
 !scripts/openspec-sync-check.js
 !scripts/affected-report.js
+!scripts/verify-worktree-deps.js
+!scripts/run-package-install.js
 !scripts/launch-worktree.js
 !scripts/ensure-electron.js
 !scripts/ensure-desktop-deps.js
