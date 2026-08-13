@@ -275,6 +275,11 @@ export default {
       previewVideoTitle: 'Video Preview',
       previewCloseHint: 'Click outside or press × to close preview',
       previewAriaLabel: 'Enlarge preview {label}',
+      previewPrevLabel: 'Previous asset',
+      previewNextLabel: 'Next asset',
+      previewPositionLabel: 'Asset {pos}/{total}',
+      previewSelectedLabel: 'Selected',
+      previewUnselectedLabel: 'Not selected',
     },
   },
   pipelines: {
