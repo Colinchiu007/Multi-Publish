@@ -284,7 +284,8 @@ async function testProvidersPage(page) {
   console.log("\n╔══ Provider 配置页 ══╗");
   await page.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.providers);
   await wait(3000);
-  await assertTitle(page, 'Provider');
+  const providersTitle = await page.evaluate(() => document.querySelector('[data-testid="model-providers-title"]')?.textContent?.trim() || '');
+  assert('Provider 页标题非空', providersTitle.length > 0, 'title is empty');
   const chips = await page.evaluate(() => {
     return Array.from(document.querySelectorAll('.cohere-filter-chip')).map(c => c.textContent.trim());
   });

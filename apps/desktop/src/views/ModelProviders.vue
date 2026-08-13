@@ -3,7 +3,7 @@
     <!-- 页面头部 -->
     <div class="cohere-page-header">
       <div>
-        <div class="page-title">{{ t('modelProviders.pageTitle') }}</div>
+        <div class="page-title" data-testid="model-providers-title">{{ t('modelProviders.pageTitle') }}</div>
         <div class="page-subtitle">{{ t('modelProviders.pageSubtitle') }}</div>
       </div>
       <div class="page-actions">
@@ -63,6 +63,7 @@
     <div class="view-mode-tabs" v-if="!loading">
       <button
         class="view-mode-tab"
+        data-testid="view-mode-configured"
         :class="{ active: viewMode === 'configured' }"
         @click="viewMode = 'configured'"
       >
@@ -72,6 +73,7 @@
       </button>
       <button
         class="view-mode-tab"
+        data-testid="view-mode-all"
         :class="{ active: viewMode === 'all' }"
         @click="viewMode = 'all'"
       >

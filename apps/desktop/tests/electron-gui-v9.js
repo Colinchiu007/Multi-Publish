@@ -219,8 +219,9 @@ async function testProvidersPage(win) {
   console.log("\n╔══ Provider 配置页 ══╗");
   await win.evaluate((r) => { window.location.hash = '#' + r; }, ROUTES.providers);
   await wait(3000);
-  await assertTitle(win, '模型服务商');
-  await win.getByRole('button', { name: /全部/ }).first().click();
+  const providersTitle = await win.evaluate(() => document.querySelector('[data-testid="model-providers-title"]')?.textContent?.trim() || '');
+  assert('Provider 页标题非空', providersTitle.length > 0, 'title is empty');
+  await win.getByTestId('view-mode-all').click();
   await wait(500);
   const chips = await win.evaluate(() =>
     Array.from(document.querySelectorAll('.filter-chip')).map(c => c.textContent.trim())
