@@ -677,6 +677,30 @@ platforms:
 - `model-provider-*` 测试：英文括号注释移除、errorCode 断言；
 - 受影响视图/composable 测试：技术文本不直出、自然语言透传。
 
+#### 多语言内容同步机制（2026-08-13 新增，i18n-content-sync）
+
+> 独立设计文档：`01-docs/i18n-sync-mechanism.md`；OpenSpec change：`openspec/changes/i18n-content-sync/`（proposal / spec / design / tasks）。
+
+**背景**：zh/en 双语文案目前依赖人工同步，无自动化机制保证「改了中文就一定改了英文」。`src/locales/zh.js` + `en.js`（vue-i18n）与 `src/story2video/story2video-notifications.js`（第二份 zh/en 语料，38 个通知键 + 弹窗按钮 + BGM reason + 历史详情规则）内容必须始终一致；AI 会话单独修改一个名词（如只改 zh.js）不会自动同步其他语言。历史已多次出现「漏键后补」修复：26f36e78（补 38 通知键）、46072426（补 26 VOICE 键）、86a409df（补 summaryDuration/summaryFileSize）、94fdd3c8（补 videoEnhance/common.close）。
+
+**目标**：所有用户可见文案（名词、提示文字、错误/通知、状态、引导）多语言化，且 zh/en 永不漂移——要么由机制保证同步，要么在提交时被门禁拦截。
+
+**原则**：
+
+1. **单一事实源**：用户可见文案只存在于 `locales/zh.js` + `en.js`（vue-i18n）；服务层/主进程只发稳定机器码（如 `bgm_skipped`、`AUTH_REQUIRED`），文案由渲染端本地化（沿用 user-facing-messages 与 BGM single-source 既有模式）。
+2. **键驱动**：所有展示走 locale key，禁止散落硬编码中文/英文字符串（`pipeline-labels.js` 这类 id→key 元数据映射是正确范式）。
+3. **术语词典**：产品名词（如「全能创作 / Omni Creation」）集中维护，改名只改一处并触发全量校验。
+
+**自动化门禁（L0-L1）**：
+
+- 键对称测试：zh/en locale 叶子键集完全一致（含嵌套路径），缺键即测试失败；
+- 插值占位符一致性：同一 key 的 zh/en 文案 `{param}` 集合必须一致；
+- 重复源校验：`locales` 与 `story2video-notifications.js` 同 key 文案值一致（语料源收敛前兜底；收敛后删除本条）；
+- diff 配对检查：locale 文件变更必须 zh/en 成对出现在同一提交，CI 拦截「只改 zh.js」的提交；
+- 渲染端硬编码扫描：`apps/desktop/src/` 非 locales 文件出现 CJK 字符串字面量即失败（注释除外）。
+
+**验收**：上述门禁全部落地并在 CI 生效；`i18n.test.js` 覆盖键对称与占位符；术语改名（如 zh 侧修改名词）时 en 侧同步由测试/CI 强制校验。
+
 #### 审计日志
 
 每次发布操作记录到 SQLite audit_log 表：
@@ -3537,6 +3561,7 @@ Vue 展示组件
 | v2.3.54 | 2026-08-04 | 续作收敛账号卡片动作、失效账号重新登录、粉丝/归属字段、分组筛选、收藏空态和分享服务边界；补充真实蚁小二像素审计证据 |
 | v2.3.55 | 2026-08-04 | 收口顶部工具面板、草稿独立页签、发布进度稳定选择器和发布记录 owner-scoped 批量删除；同步测试与外部能力边界 |
 | v2.3.56 | 2026-08-10 | 浏览器式标签栏(TabBar/NavBar/tab store)、page-manager IPC、WebviewManager 标签页系统、CreateHistory 空状态增强、账号去登录入口、构建和内存泄漏修复 |
+| v2.3.57 | 2026-08-13 | 多语言内容同步机制（i18n-content-sync）：单一事实源 + 键对称/占位符/diff 配对/硬编码扫描门禁 + 术语词典；PRD §3.2 新增小节 + 独立设计文档 `01-docs/i18n-sync-mechanism.md` + OpenSpec change |
 
 
 
