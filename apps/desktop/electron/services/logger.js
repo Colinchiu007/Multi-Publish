@@ -22,6 +22,8 @@ let currentLevel = process.env.LOG_LEVEL || 'INFO'
 
 let logsDir = null
 let maxLogFileBytes = 500 * 1024 * 1024 // 默认单文件 500MB
+let retentionDays = 30 // 按日保留天数（默认 30 天）
+const MAX_MESSAGE_LENGTH = 4096 // 单条消息长度上限
 let currentLogPath = null
 let bytesSinceCheck = 0
 const CHECK_INTERVAL_BYTES = 64 * 1024 // 每追加约 64KB 做一次真实 size 核对（低成本）
@@ -48,6 +50,30 @@ function todayFileName() {
   return `app-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}.log`
 }
 
+function pruneOldLogs() {
+  const dir = logsDir || defaultLogsDir()
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith('app-') || !name.endsWith('.log')) continue
+      const m = /^app-(\d{4})-(\d{2})-(\d{2})\.log$/.exec(name)
+      if (!m) continue
+      const day = Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`)
+      if (!Number.isNaN(day) && day < cutoff) fs.rmSync(path.join(dir, name), { force: true })
+    }
+  } catch { /* 目录不可读等 */ }
+}
+
+function rollCurrentLogFile(filePath) {
+  // 超限滚动：保留最近两份（当前文件 + .1），不再整文件删除
+  try {
+    fs.renameSync(filePath, filePath + '.1')
+    currentLogPath = null
+    return true
+  } catch { /* rename 失败（占用等）静默，下一检查点重试 */ }
+  return false
+}
+
 function ensureLogPath() {
   if (!logsDir) logsDir = defaultLogsDir()
   try { fs.mkdirSync(logsDir, { recursive: true }) } catch { /* 目录不可写时回退控制台 */ }
@@ -55,21 +81,24 @@ function ensureLogPath() {
   if (next !== currentLogPath) {
     currentLogPath = next
     bytesSinceCheck = 0
+    pruneOldLogs()
     try {
       if (fs.statSync(currentLogPath).size > maxLogFileBytes) {
-        fs.rmSync(currentLogPath, { force: true })
+        rollCurrentLogFile(currentLogPath)
+        currentLogPath = next // 滚动后重建当前文件路径，保证本次写入落到新文件
       }
     } catch { /* 文件不存在或不可读 */ }
   }
   return currentLogPath
 }
 
-// 敏感信息脱敏（Bearer / apiKey / authorization / sk- 前缀密钥）
+// 敏感信息脱敏（对齐 api-publish-engine log-redact：Bearer / quoted+unquoted 键值 / sk- / 通用 JWT）
 const SECRET_PATTERNS = [
   [/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer ***'],
-  [/(["']?api[_-]?key["']?\s*[:=]\s*["'])[^"'\s,}]+/gi, '$1***'],
-  [/(["']?authorization["']?\s*[:=]\s*["'])[^"'\s,}]+/gi, '$1***'],
+  [/([\"']?(?:api[_-]?key|access_token|refresh_token|password|secret|authorization|cookie)[\"']?\s*[:=]\s*[\"'])[^\"'\s,}]+/gi, '$1***'],
+  [/\b(api[_-]?key|access_token|refresh_token|password|secret|cookie)\s*=\s*[^&\s,;\"']+/gi, '$1=***'],
   [/\b(sk-[A-Za-z0-9_-]{4})[A-Za-z0-9_-]+/g, '$1***'],
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\b/g, 'eyJ***'],
 ]
 
 function redact(value) {
@@ -119,9 +148,8 @@ function enqueueFileWrite(line) {
         bytesSinceCheck = 0
         try {
           if (fs.statSync(filePath).size > maxLogFileBytes) {
-            // 单个文件达到 500MB → 自动删除
-            fs.rmSync(filePath, { force: true })
-            currentLogPath = null
+            // 单个文件达到上限 → 滚动到 .1（保留最近两份）
+            rollCurrentLogFile(filePath)
           }
         } catch { /* 核对失败忽略 */ }
       }
@@ -136,11 +164,12 @@ function log(level, module, message, meta) {
   const timestamp = new Date().toISOString()
   const prefix = `[${timestamp}] [${level}]`
   const safeModule = redact(String(module ?? ''))
-  const safeMessage = redact(String(message ?? ''))
+  let safeMessage = redact(String(message ?? ''))
+  if (safeMessage.length > MAX_MESSAGE_LENGTH) safeMessage = safeMessage.slice(0, MAX_MESSAGE_LENGTH) + '…'
   const suffix = safeMeta(meta)
   const body = [safeModule, safeMessage].filter((part) => part !== '').join(' ') + suffix
-  if (meta !== undefined && meta !== null) console.log(prefix, module, message, meta)
-  else console.log(prefix, module, message)
+  // 控制台与文件共用同一脱敏后的 body，避免 stdout 被捕获时泄露敏感原文
+  console.log(prefix, body)
   enqueueFileWrite(`${prefix} ${body}`)
 }
 
@@ -163,8 +192,11 @@ const logger = {
     if (Number.isFinite(numeric) && numeric > 0) maxLogFileBytes = numeric
     const timeout = Number(options.writeTimeoutMs)
     if (Number.isFinite(timeout) && timeout > 0) writeTimeoutMs = timeout
+    const days = Number(options.retentionDays)
+    if (Number.isFinite(days) && days >= 1) retentionDays = Math.floor(days)
     currentLogPath = null
     bytesSinceCheck = 0
+    pruneOldLogs()
   },
 
   /** 手动清理全部应用日志文件（app-*.log） */
@@ -203,6 +235,7 @@ const logger = {
       totalBytes,
       fileCount: files.length,
       maxFileBytes: maxLogFileBytes,
+      retentionDays,
       files: files.sort((a, b) => a.name.localeCompare(b.name)),
     }
   },

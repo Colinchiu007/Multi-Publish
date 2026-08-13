@@ -1,3 +1,13 @@
+## 桌面 logger 加固复盘（desktop-logging-hardening，2026-08-13）
+
+- **交付**：apps/desktop/electron/services/logger.js——console 与文件同源脱敏（console 不再输出原文）；SECRET_PATTERNS 扩展 5 组（对齐 api-publish-engine log-redact：Bearer/quoted+unquoted 键值/sk-/eyJ JWT）；500MB 超限改滚动 .1（不再整删当日日志）；retentionDays 30 默认按日清理；message 4096 截断。QM-1 打包通过。
+- **教训 1（Shell 转义双重处理）**：工具命令字符串经 JSON→bash→JS 模板字面量逐层解转义，`\s` 会退化成 `s`、`\b` 退化成退格字符、`\d` 退化成 `d`——多行正则/模板写入必须用 `String.raw` 或在独立脚本文件里保留单层转义；写完用 `node -e` 校验真实字节。
+- **教训 2（vitest console spy 不可靠）**：`vi.spyOn(console, 'log')` 在本项目 vitest 4.x 环境下捕获不到任何调用（console 被包装且非 configurable）；改用直接赋值 `console.log = (...a)=>captured.push(a)` + finally 恢复。
+- **教训 3（滚动后写路径自洽）**：ensureLogPath 在超限滚动后若直接返回（currentLogPath 被置 null），本次写入会落到 null → appendFile 抛错静默丢失该行；滚动后必须重建 currentLogPath=next。
+- **教训 4（QM-1 本地打包是真实门禁）**：改动 apps/desktop/electron/ 必须本地 electron-builder --win --x64 + asar logger 清单 + require 链 + 8s 启动 stderr 检查 + junction 指向当前 worktree；渲染层 dist/index.html 缺失（未先构建 renderer）会报 ERR_FILE_NOT_FOUND，但不在 QM-1 失败模式列表内，主进程存活即通过。
+- **教训 5（降级规则）**：Claude 后端连续 exit 1 时按机制硬化降级——记录 review.md 降级说明，用主代理自查 + 本地验证替代，不盲等。
+
+---
 ## Python 服务日志桥接复盘（python-logging-hardening，2026-08-13）
 
 - **交付**：packages/python-backend 标准库日志（uvicorn/fastapi/server 业务日志）经 InterceptHandler 桥接 loguru 按日文件；新增结构化请求日志中间件（method/path/status/duration_ms/request_id + x-request-id 回显，500 异常路径也覆盖）；uvicorn 默认 access log 关闭避免双写；INFO 走 stdout / WARNING+ 走 stderr，匹配 Electron sidecar（stdout→info / stderr→warn）语义。

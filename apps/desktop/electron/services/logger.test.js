@@ -68,7 +68,7 @@ describe('logger 服务', () => {
     expect(content).toContain('{"stage":"split","count":5}')
   })
 
-  it('单文件超过上限时自动删除（多次写入跨 64KB 检查点）', async () => {
+  it('单文件超过上限时滚动到 .1 并重建主文件（多次写入跨 64KB 检查点）', async () => {
     logger.setLogOptions({ dir, maxBytes: 1024 })
     const payload = 'x'.repeat(1024)
     const totalWritten = 100 * payload.length
@@ -88,7 +88,7 @@ describe('logger 服务', () => {
     }
   })
 
-  it('启动核对：历史超限文件在首次写入时被删除', async () => {
+  it('启动核对：历史超限文件在首次写入时被滚动到 .1', async () => {
     logger.setLogOptions({ dir, maxBytes: 1024 })
     // 预置一个超限的当天日志文件
     const today = new Date()
@@ -101,8 +101,9 @@ describe('logger 服务', () => {
     logger.info('Test', 'after startup')
     await logger.flush()
 
-    // 超限历史文件被删除后重建为新日志行（不再包含 5000 字节旧内容）
+    // 超限历史文件被滚动到 .1 后重建为新日志行（不再包含 5000 字节旧内容）
     expect(fs.statSync(bigPath).size).toBeLessThan(2000)
+    expect(fs.existsSync(bigPath + '.1')).toBe(true)
     const files = listLogFiles(dir)
     expect(files.length).toBe(1)
   })
@@ -154,5 +155,76 @@ describe('logger 服务', () => {
     await logger.flush()
     const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
     expect(content).toContain('after recover')
+  })
+
+  it('控制台输出与文件同源脱敏：扩展敏感模式不泄露原文', async () => {
+    logger.setLogOptions({ dir, maxBytes: 500 * 1024 * 1024 })
+    const captured = []
+    const origConsoleLog = console.log
+    // vitest 环境下 vi.spyOn(console,'log') 不可靠（console 被包装），直接赋值替换
+    console.log = (...args) => { captured.push(args) }
+    const secretMsg = 'Bearer sk-abcdef1234567890 access_token=token123 refresh_token=rt-x "cookie":"sid=abc" eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.sig12345 password="p@ss"'
+    try {
+      logger.info('Test', secretMsg)
+      await logger.flush()
+    } finally {
+      console.log = origConsoleLog
+    }
+    const consoleLine = captured.map((args) => args.join(' ')).join(' | ')
+    expect(consoleLine).toContain('Bearer ***')
+    expect(consoleLine).not.toContain('sk-abcdef1234567890')
+    expect(consoleLine).not.toContain('token123')
+    expect(consoleLine).not.toContain('rt-x')
+    expect(consoleLine).not.toContain('sid=abc')
+    expect(consoleLine).not.toContain('eyJhbGciOiJIUzI1NiJ9')
+    expect(consoleLine).not.toContain('p@ss')
+    const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
+    expect(content).not.toContain('sk-abcdef1234567890')
+    expect(content).not.toContain('token123')
+    expect(content).not.toContain('eyJhbGciOiJIUzI1NiJ9')
+  })
+
+  it('超限滚动保留 .1 备份且主文件继续可写', async () => {
+    logger.setLogOptions({ dir, maxBytes: 1024 })
+    const payload = 'x'.repeat(1024)
+    for (let i = 0; i < 100; i += 1) {
+      logger.info('Test', payload)
+      await logger.flush()
+    }
+    const files = fs.readdirSync(dir).filter((name) => name.startsWith('app-'))
+    const backups = files.filter((name) => name.endsWith('.1'))
+    expect(backups.length).toBeGreaterThanOrEqual(1)
+    const main = files.find((name) => name.endsWith('.log') && !name.endsWith('.1'))
+    expect(fs.statSync(path.join(dir, main)).size).toBeLessThan(64 * 1024)
+  })
+
+  it('按 retentionDays 清理过期日志并保留期内文件', async () => {
+    fs.mkdirSync(dir, { recursive: true })
+    const pad = (value) => String(value).padStart(2, '0')
+    const dateName = (offsetDays) => {
+      const d = new Date(Date.now() - offsetDays * 24 * 60 * 60 * 1000)
+      return 'app-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '.log'
+    }
+    const oldName = dateName(40)
+    const recentName = dateName(1)
+    fs.writeFileSync(path.join(dir, oldName), 'old')
+    fs.writeFileSync(path.join(dir, recentName), 'recent')
+
+    logger.setLogOptions({ dir, retentionDays: 30 })
+    logger.info('Test', 'trigger')
+    await logger.flush()
+
+    expect(fs.existsSync(path.join(dir, oldName))).toBe(false)
+    expect(fs.existsSync(path.join(dir, recentName))).toBe(true)
+    expect(logger.getLogsInfo().retentionDays).toBe(30)
+  })
+
+  it('超长消息截断并带截断标记', async () => {
+    logger.setLogOptions({ dir, maxBytes: 500 * 1024 * 1024 })
+    logger.info('Test', 'y'.repeat(6000))
+    await logger.flush()
+    const content = fs.readFileSync(path.join(dir, listLogFiles(dir)[0]), 'utf8')
+    expect(content.length).toBeLessThan(5000)
+    expect(content).toContain('…')
   })
 })
