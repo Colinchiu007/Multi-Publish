@@ -306,6 +306,11 @@ export default {
       hybrid: '混合制作',
       custom: '自定义',
     },
+    modes: {
+      'story2video-compose': '旁白式（TTS 画外解说 + 图片轮播）',
+      'talking-head': '口播式（真人出镜）',
+      'avatar-spokesperson': '口播式（数字人出镜）',
+    },
     stages: {
       research: '内容调研',
       proposal: '方案提议',

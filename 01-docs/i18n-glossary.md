@@ -11,6 +11,9 @@
 | 口播视频 | Talking Head | `talking-head` |
 | 数字人口播 | Avatar Spokesperson | `avatar-spokesperson` |
 | 旁白 | Narration | — |
+| 旁白式 | Voice-over | — |
+| 口播式 | Talking-head mode | — |
+| 图片轮播 | Image Carousel | — |
 
 ## 维护规则
 
@@ -21,8 +24,9 @@
 
 ## 视频生成模式术语边界（2026-08-13）
 
-> 用于区分「旁白式」与「口播式」，避免 UI/文案混用。下列分析性术语**不作为登记条目**：
-> locales 中无对应文案时不得登记（登记即触发 glossary.test.js 状态校验），需成为 UI 文案时先成对加入 locales。
+> 用于区分「旁白式」与「口播式」，避免 UI/文案混用。
+> 登记纪律：分析性术语只有在 zh/en locales 成对出现文案后才能登记（登记即触发 glossary.test.js 状态校验）；
+> 「旁白式 / 口播式 / 图片轮播」已于 2026-08-13 随 `locales.pipelines.modes` 成对落地并登记。
 
 - **旁白式**（对应流水线 `story2video-compose`，外显「全能创作」）：画面无说话人，TTS 人声为画外解说（Narration），文案角色 = 解说词。
 - **口播式**（`talking_head` 类别，外显「口播视频」/「数字人口播」）：画面有说话人（真人视频或数字人），文案角色 = 口播台词。

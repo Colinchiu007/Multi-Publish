@@ -42,6 +42,7 @@
         <div class="detail-header">
           <h2>{{ pipelineName(selectedPipeline.name) }}</h2>
           <p class="detail-desc">{{ pipelineDescription(selectedPipeline.name) }}</p>
+          <p v-if="pipelineMode(selectedPipeline.name)" class="detail-mode" data-testid="pipeline-mode-label">{{ pipelineMode(selectedPipeline.name) }}</p>
         </div>
 
         <!-- 阶段进度 -->
@@ -975,6 +976,7 @@ import {
 import {
   getPipelineCategory,
   getPipelineDescription,
+  getPipelineMode,
   getPipelineName,
   getPipelineStage,
   getPipelineStatus,
@@ -1603,6 +1605,7 @@ export default {
     pipelineName(id) { return getPipelineName((key) => this.$t?.(key), id) },
     pipelineDescription(id) { return getPipelineDescription((key) => this.$t?.(key), id) },
     pipelineCategory(id) { return getPipelineCategory((key) => this.$t?.(key), id) },
+    pipelineMode(id) { return getPipelineMode((key) => this.$t?.(key), id) },
     pipelineStage(id) { return getPipelineStage((key) => this.$t?.(key), id) },
     pipelineStatus(id) { return getPipelineStatus((key) => this.$t?.(key), id) },
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
