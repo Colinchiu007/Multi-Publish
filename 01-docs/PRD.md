@@ -1493,9 +1493,9 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 慢响应阈值 | 超过类别阈值即记为异常：llm/tts/audio 30s、image 60s、video 120s、未知类别 60s。成功但超阈值（慢响应）同样记录。 |
 | 异常上报 | `providerAnomalyBus.report({ providerId, category, model, latencyMs, kind })`；kind ∈ `slow` / `timeout` / `network`。超时（TIMEOUT）与网络错误（NETWORK_ERROR）在失败路径上报；成功但慢响应在成功路径上报。 |
 | 快照 | 仅内存、按 provider 去重保留最新、最多 5 条、按最近更新时间倒序；重启即清空，不落库、不膨胀。 |
-| 下发 | `pipeline:getRunContext` 在存在异常时附带 `providerWarnings` 数组；无异常时不附加该字段，保持返回结构稳定。 |
-| 前端展示 | 流水线详情页顶部显示非阻塞警告横幅（role=alert）：「检测到模型服务响应异常：{provider}（{秒} 秒）、…。流水线已自动重试；若反复出现，建议到【模型设置】切换模型或检查该服务商。」横幅随轮询实时更新，运行结束/取消时清空。 |
-| 数据校验 | `providerWarnings` 非数组/空数组视为无异常；latencyMs 非数值按 0 处理；横幅纯展示，不阻断流水线、不改变运行逻辑。 |
+| 下发 | `pipeline:getRunContext` 在存在异常时附带 `providerWarnings` 数组；**仅包含该运行创建时间（含）之后记录的异常（按运行归属过滤，跨运行不残留；运行无 createdAt 时回退全量快照，不隐藏警告）**；无异常时不附加该字段，保持返回结构稳定。 |
+| 前端展示 | 流水线详情页顶部显示非阻塞警告横幅（role=alert）：「检测到模型服务响应异常：{provider}（{秒} 秒）、…。流水线已自动重试；若反复出现，建议到【模型设置】切换模型或检查该服务商。」横幅随轮询实时更新；**提供 X 关闭按钮（关闭后本次运行内不再显示）；启动新流水线/取消/切换流水线时重置警告与关闭状态；轮询响应无 providerWarnings 字段时清空旧警告**。 |
+| 数据校验 | `providerWarnings` 非数组/空数组视为无异常；latencyMs 非数值按 0 处理；横幅纯展示，不阻断流水线、不改变运行逻辑。**按运行归属过滤的时间边界支持 ISO 字符串或 epoch 毫秒；非法/缺失边界回退全量快照（fail-open，不隐藏警告）。** |
 | 本地化 | 横幅文案走 i18n（默认中文，英文同步），不做硬编码英文。 |
 | 执行日志 | pipeline-engine 在每阶段开始/结束记录 INFO 日志（runId、pipeline、stage、序号/总数、success、duration_ms）；运行终态（completed/failed/cancelled）记录 INFO/WARN 日志（总耗时、错误摘要截断 ≤500 字符，不含敏感原文）；配合既有 provider 调用日志（model_provider_logs）定位「模型自身问题」。 |
 | 优化进度前置 | 提示词优化阶段一开始即写入 `context.optimize_progress = { done, total }`（done 从断点续传已完成数开始，total 为场景总数），前端在阶段执行期间即可显示「共 N 个场景，已完成 M 个」，不再等阶段结束才出现；非法值不展示。 |

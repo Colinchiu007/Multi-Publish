@@ -24,7 +24,7 @@
   - 异常横幅增加 X 关闭按钮（复用 BGM notice 模式 `dismissedProviderWarnings`），启动/取消/切换流水线时重置警告与关闭状态；
   - `.provider-warning-banner-close` 样式（color-mix 主题色 hover）。
 - 测试：provider-anomaly 14、pipeline 44、CreateView 160 全绿（新增 snapshotSince 边界/未来/数值/非法回退；按 createdAt 过滤、旧异常不附加、无 createdAt 回退；X 关闭、新运行/切换/取消重置、轮询清空旧警告）；vite build exit 0。
-- 文档：01-docs/CHANGELOG.md；行为契约由 OpenSpec change `story2video-provider-warning-ux` 固化。
+- 文档：PRD.md 7.1.12 合同同步（providerWarnings 按运行归属下发 + 横幅 X 可关闭/重置）；01-docs/CHANGELOG.md；行为契约由 OpenSpec change `story2video-provider-warning-ux` 固化。
 - CI：QG Static locale-sync CJK 基线刷新 1650→1651（CreateView.vue 行号位移致 195 处误报 + 关闭按钮 aria-label 回退文案镜像既有 BGM `common.close` 模式，净增 1 处已基线化）。
 ## [2026-08-13] feat(i18n): 多语言内容同步机制实施（i18n-content-sync）
 
