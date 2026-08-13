@@ -107,6 +107,7 @@ var require_publish = __commonJS({
         pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer2.invoke("pipeline:advanceToNextCheckpoint", runId),
         pipelineConfirmSceneAssets: (runId, selections) => ipcRenderer2.invoke("pipeline:confirmSceneAssets", runId, selections),
         pipelineGetRunContext: (runId) => ipcRenderer2.invoke("pipeline:getRunContext", runId),
+        pipelineCardBackgrounds: (payload) => ipcRenderer2.invoke("pipeline-card:backgrounds", payload),
         // Story2Video 本地交付
         story2videoImportMedia: (file, kind) => {
           let filePath = "";
@@ -925,6 +926,7 @@ var require_access_control = __commonJS({
       "onRenderInstallProgress",
       "pipelineList",
       "pipelineGet",
+      "pipelineCardBackgrounds",
       // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：
       // File 路径经 webUtils 解析后仅发送路径给主进程做受控复制，纯设备本地操作。
       "story2videoImportMedia",

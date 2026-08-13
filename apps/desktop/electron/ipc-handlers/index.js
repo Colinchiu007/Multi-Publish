@@ -24,6 +24,7 @@ function registerAllHandlers(ipcMain, deps) {
   require('./offline')(ipcMain, deps)
   require('./payment')(ipcMain, deps)
   require('./pipeline')(ipcMain, deps)
+  require('./pipeline-card-backgrounds')(ipcMain, deps)
   // runImportedMediaGc 仅生产接线开启：selected-media 老化回收（>7 天）在注册时执行一次；
   // 测试环境不传该标记，避免 registerHandlers 触碰真实临时目录。
   require('./story2video')(ipcMain, { ...deps, runImportedMediaGc: true })

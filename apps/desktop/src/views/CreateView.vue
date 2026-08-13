@@ -1,5 +1,5 @@
 <template>
-  <div class="create-page">
+  <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline }">
     <div class="page-header">
       <h1>视频创作</h1>
       <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
