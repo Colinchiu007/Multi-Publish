@@ -1,3 +1,11 @@
+## [2026-08-13] 模型服务商设置 ModelProviders 全量 i18n（PR #675 merged 9baefcc4）
+
+- locales zh/en 新增 `modelProviders` 命名空间（167 键对等，含插值函数）
+- ModelProviders.vue 模板/脚本全量接入 t()（页面/运营同步/视图Tab/筛选/引导/卡片/统计/添加3步骤/删除确认/限流自检）
+- useModelProviderCrud.js：CATEGORY_OPTIONS/CATEGORY_LABELS/MULTIMODAL_CAPABILITY_LABELS 改 computed 随 locale；全部 ElMessage 接入 t()
+- useOpsCenterSync.js：formatLastSync 随语言；同步配置/结果消息接入 t()
+- 测试：composable 测试 mount 宿主组件（useI18n 需 setup 上下文）+ i18n 插件，本地 60/60；gui-test 定位改 data-testid（CI en 环境中文失效教训再次验证）
+- P2 附注的 ModelProviders 遗留已闭环；待办 CreateView 视频创作（P3）
 ## [2026-08-12] feat(ops-center): 模型密钥「修改」功能（编辑回填 + 启用开关）
 
 - 前端「模型密钥」列表项新增「编辑」：回填表单（provider/model 编辑锁定，唯一键），可修改 Base URL / 启用状态 / API Key（留空保留原密文，后端 validate_provider_key_body 已有 existing_key 保留语义）；表单新增「启用」switch；保存按钮区分「保存/保存修改」+「取消编辑」。
