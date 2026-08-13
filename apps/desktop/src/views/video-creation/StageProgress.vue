@@ -28,17 +28,17 @@
           <span v-if="stageTimeDetailText(stage, index)" class="stage-meta">
             {{ stageTimeDetailText(stage, index) }}
           </span>
-          <!-- compose 子进度条 -->
+          <!-- 子进度条：已完成=100%，运行中=上下文进度，其他=隐藏 -->
           <span
-            v-if="stage.name === 'compose' && stage.status === 'running' && composeSubProgressPercent(stage) !== null"
-            class="stage-sub-progress" data-testid="story2video-stage-compose-progress"
+            v-if="stageSubProgressPercent(stage) !== null"
+            class="stage-sub-progress" :data-testid="`story2video-stage-${stage.name || index}-progress`"
             role="progressbar"
-            :aria-valuenow="composeSubProgressPercent(stage)"
+            :aria-valuenow="stageSubProgressPercent(stage)"
             aria-valuemin="0"
             aria-valuemax="100"
           >
             <span class="stage-sub-bar">
-              <span class="stage-sub-fill" data-testid="story2video-stage-sub-fill" :style="{ width: composeSubProgressPercent(stage) + '%' }"></span>
+              <span class="stage-sub-fill" :data-testid="`story2video-stage-${stage.name || index}-sub-fill`" :style="{ width: stageSubProgressPercent(stage) + '%' }"></span>
             </span>
           </span>
         </span>
@@ -166,10 +166,29 @@ export default {
       if (!Number.isFinite(end)) return ''
       return this.formatDuration(Math.max(0, end - start))
     },
+    /** 通用阶段子进度：已完成→100%，运行中→上下文百分比，其他→null（不显示） */
+    stageSubProgressPercent(stage) {
+      if (!stage) return null
+      if (stage.status === 'completed') return 100
+      if (stage.status === 'running') {
+        const stageProgress = stage.progress
+        if (stageProgress && Number.isFinite(stageProgress.percent)) {
+          const v = Math.round(stageProgress.percent)
+          if (v >= 0 && v <= 100) return v
+        }
+        const ctx = this.orchestrationContext
+        if (ctx) {
+          const ctxProgress = ctx[`${stage.name}_progress`]
+          if (ctxProgress && Number.isFinite(ctxProgress.percent)) {
+            const v = Math.round(ctxProgress.percent)
+            if (v >= 0 && v <= 100) return v
+          }
+        }
+      }
+      return null
+    },
     composeSubProgressPercent(stage) {
-      const p = (stage && stage.progress) || (this.orchestrationContext && this.orchestrationContext.compose_progress)
-      if (!p || !Number.isFinite(p.percent) || p.percent < 0 || p.percent > 100) return null
-      return Math.round(p.percent)
+      return this.stageSubProgressPercent(stage)
     },
     formatDuration(ms) {
       const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000))

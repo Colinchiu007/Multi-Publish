@@ -1,3 +1,9 @@
+## [2026-08-14] fix(s2v): 流水线阶段进度条一致性修复——已完成阶段显示 100% 进度条
+
+- 现状：StageProgress 子进度条硬编码为 compose-only（`stage.name === 'compose' && stage.status === 'running'`），其他阶段（split/domain_enrich/optimize 等）无进度条；已完成阶段进度条消失而非显示满条，用户看到「内容增强已完成但进度条只有一点」。
+- 修复：新增通用 `stageSubProgressPercent(stage)` 方法——completed→100%，running→读 `stage.progress` 或 `orchestrationContext[name + '_progress']`，其他→null（不显示）；模板 v-if 改为调用通用方法，data-testid 改为动态模板字符串；`composeSubProgressPercent` 保留为向后兼容 wrapper。
+- 测试：StageProgress 4/4、CreateView compose 6/6、UE contract 4/4 全绿；UE contract 断言同步更新。
+- 文档：PRD 无受影响；无架构/API 变更。
 ## [2026-08-13] fix(s2v): 视频 provider「队列满 queue is full」纳入瞬时重试（限流语义 4 次）
 
 - 现状：`withAssetTransientRetry` 仅对瞬时类错误（超时/网络/限流 429/额度）有界重试；agnes-video 的 "video queue is full, please retry later" 不含限流/超时关键词 → 被判定非瞬时 → 不重试直接回退仅 2 图，丢失「队列拥塞稍后可恢复」的机会。
