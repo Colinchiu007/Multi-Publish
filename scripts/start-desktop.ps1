@@ -29,6 +29,9 @@
 .PARAMETER CheckIdentity
   窗口出现后经 CDP 校验登录态（scripts/start-desktop-identity.js）。
 
+.PARAMETER SelfTest
+  自检模式：验证「枚举后 PID 已退出」竞态被容忍（不启动应用）。
+
 .PARAMETER Json
   输出 JSON 证据块。
 
@@ -44,6 +47,7 @@ param(
   [switch]$InvalidateViteCache,
   [switch]$CheckIdentity,
   [switch]$ForceShared,
+  [switch]$SelfTest,
   [switch]$Json
 )
 
@@ -53,6 +57,21 @@ $evidence = [ordered]@{ worktree = $repoRoot; startedAt = (Get-Date).ToString('o
 
 function Write-Line($msg) { if (-not $Json) { Write-Host $msg } }
 function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
+function Stop-ProcessIfAlive([int]$ProcessId, [string]$Label) {
+  if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
+    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+    Write-Line "stop     : $Label PID $ProcessId"
+  } else {
+    Write-Line "skip     : $Label PID $ProcessId 已退出（忽略）"
+  }
+}
+
+# ---- 0. 自检（回归保护：枚举后 PID 已退出的竞态必须被容忍）----
+if ($SelfTest) {
+  Stop-ProcessIfAlive -ProcessId 99999999 -Label 'selftest'
+  Write-Line 'SELFTEST_OK'
+  exit 0
+}
 
 # ---- 1. 工作区校验 ----
 if (-not (Test-Path -LiteralPath $repoRoot)) { Fail "worktree 不存在: $repoRoot" }
@@ -105,10 +124,10 @@ if ($conn) {
 
 # ---- 4. 清理旧实例（单实例锁）----
 $oldElectron = Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$repoRoot*" }
-foreach ($p in $oldElectron) { Stop-Process -Id $p.Id -Force; Write-Line "stop     : electron PID $($p.Id)" }
+foreach ($p in $oldElectron) { Stop-ProcessIfAlive -ProcessId $p.Id -Label 'electron' }
 $oldLaunchers = Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
   Where-Object { $_.CommandLine -like "*$repoRoot*" -and ($_.CommandLine -like '*dev.js*' -or $_.CommandLine -like '*vite*5174*') }
-foreach ($p in $oldLaunchers) { Stop-Process -Id $p.ProcessId -Force; Write-Line "stop     : node PID $($p.ProcessId)" }
+foreach ($p in $oldLaunchers) { Stop-ProcessIfAlive -ProcessId $p.ProcessId -Label 'node' }
 Start-Sleep -Seconds 2
 
 # ---- 5. 依赖健康 ----
@@ -202,4 +221,5 @@ if ($CheckIdentity) {
 Write-Line 'START_CONTRACT_OK'
 if ($Json) { $evidence | ConvertTo-Json -Depth 6 }
 exit 0
+
 
