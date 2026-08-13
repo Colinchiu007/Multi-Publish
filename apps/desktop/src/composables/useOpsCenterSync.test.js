@@ -3,6 +3,9 @@
  * useOpsCenterSync.test.js — 运营后台同步 composable 测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { defineComponent } from 'vue'
+import { mount } from '@vue/test-utils'
+import i18n from '@/i18n'
 
 const apiMock = {
   opsCenterSyncGet: vi.fn(),
@@ -27,8 +30,18 @@ vi.mock('element-plus', function () {
 
 import { useOpsCenterSync } from '../composables/useOpsCenterSync'
 
+// useOpsCenterSync 内部调用 useI18n()，必须在组件 setup 上下文中实例化
+function setupSync () {
+  let sync
+  mount(defineComponent({
+    setup () { sync = useOpsCenterSync(); return {} },
+  }), { global: { plugins: [i18n] } })
+  return sync
+}
+
 describe('useOpsCenterSync', () => {
   beforeEach(() => {
+    i18n.global.locale.value = 'zh'
     vi.clearAllMocks()
   })
 
@@ -37,7 +50,7 @@ describe('useOpsCenterSync', () => {
       code: 0,
       config: { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true, lastSyncedAt: '2026-08-10T08:00:00.000Z' },
     })
-    const s = useOpsCenterSync()
+    const s = setupSync()
     await s.loadSyncConfig()
     expect(s.syncUrl.value).toBe('https://ops.example.com')
     expect(s.syncApiKey.value).toBe('')
@@ -49,7 +62,7 @@ describe('useOpsCenterSync', () => {
 
   it('IPC 不可用时 fail-closed（不抛错，保持空状态）', async () => {
     apiMock.opsCenterSyncGet.mockResolvedValue({ code: -1, message: 'electronAPI not available', config: null })
-    const s = useOpsCenterSync()
+    const s = setupSync()
     const res = await s.loadSyncConfig()
     expect(res.code).toBe(-1)
     expect(s.syncConfigured.value).toBe(false)
@@ -61,7 +74,7 @@ describe('useOpsCenterSync', () => {
       code: 0,
       config: { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: false, lastSyncedAt: '' },
     })
-    const s = useOpsCenterSync()
+    const s = setupSync()
     s.syncUrl.value = 'https://ops.example.com'
     s.syncApiKey.value = 'secret'
     s.syncAutoSync.value = true
@@ -75,7 +88,7 @@ describe('useOpsCenterSync', () => {
 
   it('saveSyncConfig 失败时提示错误并返回 code -1', async () => {
     apiMock.opsCenterSyncSave.mockResolvedValue({ code: -1, message: 'URL 非法' })
-    const s = useOpsCenterSync()
+    const s = setupSync()
     const res = await s.saveSyncConfig()
     expect(res.code).toBe(-1)
   })
@@ -86,7 +99,7 @@ describe('useOpsCenterSync', () => {
       config: { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true, lastSyncedAt: '' },
     })
     apiMock.opsCenterSyncNow.mockResolvedValue({ code: 0, updated: 3, syncedAt: '2026-08-10T08:01:00.000Z' })
-    const s = useOpsCenterSync()
+    const s = setupSync()
     s.syncUrl.value = 'https://ops.example.com'
     s.syncApiKey.value = 'k'
     const res = await s.runSyncNow()
@@ -99,7 +112,7 @@ describe('useOpsCenterSync', () => {
 
     // 保存失败则中止同步
     apiMock.opsCenterSyncSave.mockResolvedValue({ code: -1, message: 'URL 非法' })
-    const s2 = useOpsCenterSync()
+    const s2 = setupSync()
     const res2 = await s2.runSyncNow()
     expect(res2.code).toBe(-1)
     expect(s2.syncError.value).toContain('URL 非法')
@@ -110,14 +123,14 @@ describe('useOpsCenterSync', () => {
       config: { url: 'https://ops.example.com', apiKeyConfigured: true, autoSync: true, lastSyncedAt: '' },
     })
     apiMock.opsCenterSyncNow.mockResolvedValue({ code: -1, message: 'API Key 无效（401/403）' })
-    const s3 = useOpsCenterSync()
+    const s3 = setupSync()
     const res3 = await s3.runSyncNow()
     expect(res3.code).toBe(-1)
     expect(s3.syncError.value).toContain('401/403')
   })
 
   it('导出完整性：模板所需属性全部存在', () => {
-    const s = useOpsCenterSync()
+    const s = setupSync()
     for (const key of ['syncUrl', 'syncApiKey', 'syncApiKeyConfigured', 'syncAutoSync', 'lastSyncedAt', 'syncing', 'syncStatus', 'syncError', 'syncConfigured', 'formatLastSync', 'loadSyncConfig', 'saveSyncConfig', 'runSyncNow']) {
       expect(s).toHaveProperty(key)
     }

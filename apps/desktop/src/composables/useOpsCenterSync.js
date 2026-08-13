@@ -7,11 +7,14 @@
  *   - 暴露 lastSyncedAt，供模型设置页把限流/模型字段转为只读
  */
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import { getAppLocale } from '@/i18n'
 import { opsCenterSyncGet, opsCenterSyncSave, opsCenterSyncNow } from '@/api/ops-center-sync'
 import { formatUserError } from '@/utils/user-facing-error'
 
 export function useOpsCenterSync () {
+  const { t } = useI18n()
   // ─── 状态 ─────────────────────────────────────
   const syncUrl = ref('')
   const syncApiKey = ref('')
@@ -38,7 +41,7 @@ export function useOpsCenterSync () {
     if (!iso) return ''
     const d = new Date(iso)
     if (Number.isNaN(d.getTime())) return iso
-    return d.toLocaleString('zh-CN', { hour12: false })
+    return d.toLocaleString(getAppLocale() === 'en' ? 'en-US' : 'zh-CN', { hour12: false })
   }
 
   /** 从主进程加载配置 */
@@ -59,11 +62,11 @@ export function useOpsCenterSync () {
       autoSync: syncAutoSync.value,
     })
     if (res.code === 0) {
-      ElMessage.success('运营后台同步配置已保存')
+      ElMessage.success(t('modelProviders.syncConfigSaved'))
       syncApiKey.value = ''
       applyConfig(res.config)
     } else {
-      ElMessage.error(formatUserError(res, { fallback: '保存同步配置失败' }).message)
+      ElMessage.error(formatUserError(res, { fallback: t('modelProviders.saveSyncConfigFailed') }).message)
     }
     return res
   }
@@ -82,7 +85,7 @@ export function useOpsCenterSync () {
         autoSync: syncAutoSync.value,
       })
       if (saved.code !== 0) {
-        syncError.value = formatUserError(saved, { fallback: '保存同步配置失败，无法同步' }).message
+        syncError.value = formatUserError(saved, { fallback: t('modelProviders.syncUnavailable') }).message
         ElMessage.error(syncError.value)
         return saved
       }
@@ -91,16 +94,16 @@ export function useOpsCenterSync () {
 
       const res = await opsCenterSyncNow()
       if (res.code === 0) {
-        syncStatus.value = `同步成功：更新 ${res.updated || 0} 个服务商（${formatLastSync(res.syncedAt)}）`
+        syncStatus.value = t('modelProviders.syncSuccess', { count: res.updated || 0, time: formatLastSync(res.syncedAt) })
         lastSyncedAt.value = res.syncedAt || ''
         ElMessage.success(syncStatus.value)
       } else {
-        syncError.value = formatUserError(res, { fallback: '同步失败' }).message
+        syncError.value = formatUserError(res, { fallback: t('modelProviders.syncFailed') }).message
         ElMessage.error(syncError.value)
       }
       return res
     } catch (e) {
-      syncError.value = formatUserError(e, { fallback: '同步异常' }).message
+      syncError.value = formatUserError(e, { fallback: t('modelProviders.syncError') }).message
       ElMessage.error(syncError.value)
       return { code: -1, message: syncError.value }
     } finally {

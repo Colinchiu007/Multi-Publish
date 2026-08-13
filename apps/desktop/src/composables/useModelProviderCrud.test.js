@@ -7,6 +7,9 @@
  * 修复：submitForm 中用 JSON.parse(JSON.stringify()) 脱壳
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { defineComponent } from 'vue'
+import { mount } from '@vue/test-utils'
+import i18n from '@/i18n'
 
 // ─── Mock API ──────────────────────────────────────────────
 vi.mock('@/api/model-providers', function () {
@@ -86,9 +89,19 @@ import {
 
 describe('useModelProviderCrud', function () {
   let crud
+  let hostWrapper
+
+  // useModelProviderCrud 内部调用 useI18n()，必须在组件 setup 上下文中实例化
+  const Host = defineComponent({
+    setup () {
+      crud = useModelProviderCrud()
+      return {}
+    },
+  })
 
   beforeEach(function () {
-    crud = useModelProviderCrud()
+    i18n.global.locale.value = 'zh'
+    hostWrapper = mount(Host, { global: { plugins: [i18n] } })
     vi.clearAllMocks()
   })
 
@@ -631,12 +644,15 @@ describe('useModelProviderCrud', function () {
     })
 
     // ─── 多模态模型类别与优先开关 ────────────────────────────
-    it('CATEGORY_OPTIONS 包含多模态模型类别与中文标签', function () {
-      const option = crud.CATEGORY_OPTIONS.find(opt => opt.value === 'multimodal')
+    it('CATEGORY_OPTIONS 包含多模态模型类别与本地化标签', function () {
+      const option = crud.CATEGORY_OPTIONS.value.find(opt => opt.value === 'multimodal')
       expect(option).toBeDefined()
       expect(option.label).toBe('多模态模型')
-      expect(crud.CATEGORY_LABELS.multimodal).toBe('多模态模型')
-      expect(crud.MULTIMODAL_CAPABILITY_LABELS.tts).toBe('TTS语音')
+      expect(crud.CATEGORY_LABELS.value.multimodal).toBe('多模态模型')
+      expect(crud.MULTIMODAL_CAPABILITY_LABELS.value.tts).toBe('TTS语音')
+      // en 语言下标签切换为英文
+      i18n.global.locale.value = 'en'
+      expect(crud.CATEGORY_LABELS.value.multimodal).toBe('Multimodal Models')
     })
 
     it('preferMultimodal 默认开启（true）', function () {

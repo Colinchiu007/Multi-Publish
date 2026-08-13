@@ -7,6 +7,7 @@
  *   - filteredProviders / configuredCount 计算属性
  */
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import {
   modelProviderList,
@@ -19,36 +20,6 @@ import {
 } from '@/api/model-providers'
 import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
-
-const CATEGORY_OPTIONS = [
-  { value: 'all', label: '全部' },
-  { value: 'llm', label: '推理模型' },
-  { value: 'tts', label: 'TTS语音' },
-  { value: 'speech_recognition', label: '语音识别' },
-  { value: 'image', label: '图片生成' },
-  { value: 'video', label: '视频模型' },
-  { value: 'audio', label: '音频生成' },
-  { value: 'multimodal', label: '多模态模型' },
-]
-
-const CATEGORY_LABELS = {
-  llm: '推理模型',
-  tts: 'TTS语音',
-  speech_recognition: '语音识别',
-  image: '图片生成',
-  video: '视频模型',
-  audio: '音频生成',
-  multimodal: '多模态模型',
-}
-
-/** 多模态能力的中文标签（用于前端展示预设能力） */
-const MULTIMODAL_CAPABILITY_LABELS = {
-  llm: '文字推理',
-  tts: 'TTS语音',
-  speech_recognition: '语音识别',
-  image: '生图',
-  video: '生成视频',
-}
 
 /** 偏好开关的持久化 key（与主进程 ModelProviderManager 一致） */
 const PREFER_MULTIMODAL_SETTING_KEY = 'prefer_multimodal'
@@ -98,6 +69,35 @@ function createEditForm (provider) {
 }
 
 export function useModelProviderCrud () {
+  const { t } = useI18n()
+
+  const CATEGORY_OPTIONS = computed(() => [
+    { value: 'all', label: t('modelProviders.catAll') },
+    { value: 'llm', label: t('modelProviders.catLlm') },
+    { value: 'tts', label: t('modelProviders.catTts') },
+    { value: 'speech_recognition', label: t('modelProviders.catSpeechRecognition') },
+    { value: 'image', label: t('modelProviders.catImage') },
+    { value: 'video', label: t('modelProviders.catVideo') },
+    { value: 'audio', label: t('modelProviders.catAudio') },
+    { value: 'multimodal', label: t('modelProviders.catMultimodal') },
+  ])
+  const CATEGORY_LABELS = computed(() => ({
+    llm: t('modelProviders.catLlm'),
+    tts: t('modelProviders.catTts'),
+    speech_recognition: t('modelProviders.catSpeechRecognition'),
+    image: t('modelProviders.catImage'),
+    video: t('modelProviders.catVideo'),
+    audio: t('modelProviders.catAudio'),
+    multimodal: t('modelProviders.catMultimodal'),
+  }))
+  const MULTIMODAL_CAPABILITY_LABELS = computed(() => ({
+    llm: t('modelProviders.capLlm'),
+    tts: t('modelProviders.capTts'),
+    speech_recognition: t('modelProviders.capSpeechRecognition'),
+    image: t('modelProviders.capImage'),
+    video: t('modelProviders.capVideo'),
+  }))
+
   // ─── 数据状态 ─────────────────────────────────
   const providers = ref([])
   const loading = ref(true)
@@ -191,10 +191,10 @@ export function useModelProviderCrud () {
       if (res.code === 0 && Array.isArray(res.data)) {
         providers.value = res.data
       } else {
-        ElMessage.error(formatUserError(res, { fallback: '加载失败' }).message)
+        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.loadFailed') }).message)
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: '加载失败' }).message)
+      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.loadFailed') }).message)
     } finally {
       loading.value = false
     }
@@ -217,7 +217,7 @@ export function useModelProviderCrud () {
     try {
       await storeSetSetting(PREFER_MULTIMODAL_SETTING_KEY, next)
     } catch (_) {
-      ElMessage.error('多模态优先设置保存失败')
+      ElMessage.error(t('modelProviders.preferMultimodalSaveFailed'))
     }
   }
 
@@ -303,11 +303,11 @@ export function useModelProviderCrud () {
 
   async function submitForm () {
     if (!form.value.name && !form.value.id) {
-      ElMessage.warning('请填写服务商名称')
+      ElMessage.warning(t('modelProviders.nameRequired'))
       return
     }
     if (!isEditing.value && !String(form.value.api_key || '').trim() && !canUseWithoutApiKey(form.value)) {
-      ElMessage.warning('请填写 API Key；仅本地 Piper、Local Diffusion 或 ComfyUI 可免填')
+      ElMessage.warning(t('modelProviders.apiKeyRequired'))
       return
     }
 
@@ -321,7 +321,7 @@ export function useModelProviderCrud () {
         if (raw === '' || raw === undefined || raw === null) { cfg[field] = null; continue }
         const num = Number(raw)
         if (!Number.isInteger(num) || num < 1) {
-          ElMessage.warning((field === 'rate_per_minute' ? '每分钟连接次数' : '5小时限额次数') + '必须是大于等于 1 的整数（可留空）')
+          ElMessage.warning(t(field === 'rate_per_minute' ? 'modelProviders.ratePerMinuteInvalid' : 'modelProviders.limitPer5hInvalid'))
           return
         }
         cfg[field] = num
@@ -354,7 +354,7 @@ export function useModelProviderCrud () {
       }
 
       if (res.code === 0) {
-        ElMessage.success(isEditing.value ? '更新成功' : '添加成功')
+        ElMessage.success(t(isEditing.value ? 'modelProviders.updateSuccess' : 'modelProviders.addSuccess'))
         filterCategory.value = 'all'
         showFormDialog.value = false
         showAddDialog.value = false
@@ -363,19 +363,19 @@ export function useModelProviderCrud () {
         // ID 冲突（预设已存在）→ 自动降级为更新，允许用户配置已有预设
         const updateRes = await modelProviderUpdate(data.id, data)
         if (updateRes.code === 0) {
-          ElMessage.success('已更新已有服务商配置')
+          ElMessage.success(t('modelProviders.updatedExisting'))
           filterCategory.value = 'all'
           showFormDialog.value = false
           showAddDialog.value = false
           await loadProviders()
         } else {
-          ElMessage.error(formatUserError(updateRes, { fallback: '更新失败' }).message)
+          ElMessage.error(formatUserError(updateRes, { fallback: t('modelProviders.updateFailed') }).message)
         }
       } else {
-        ElMessage.error(formatUserError(res, { fallback: '保存失败' }).message)
+        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.saveFailed') }).message)
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: '保存失败' }).message)
+      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.saveFailed') }).message)
     } finally {
       submitting.value = false
     }
@@ -393,15 +393,15 @@ export function useModelProviderCrud () {
     try {
       const res = await modelProviderDelete(deleteTarget.value.id)
       if (res.code === 0) {
-        ElMessage.success('已删除')
+        ElMessage.success(t('modelProviders.deleted'))
         showDeleteDialog.value = false
         deleteTarget.value = null
         await loadProviders()
       } else {
-        ElMessage.error(formatUserError(res, { fallback: '删除失败' }).message)
+        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.deleteFailed') }).message)
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: '删除失败' }).message)
+      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.deleteFailed') }).message)
     } finally {
       submitting.value = false
     }
@@ -412,29 +412,29 @@ export function useModelProviderCrud () {
     const newEnabled = !provider.enabled
     const res = await modelProviderUpdate(provider.id, { enabled: newEnabled })
     if (res.code === 0) {
-      ElMessage.success(newEnabled ? '已启用' : '已禁用')
+      ElMessage.success(t(newEnabled ? 'modelProviders.enabledMsg' : 'modelProviders.disabledMsg'))
       await loadProviders()
     } else {
-      ElMessage.error(formatUserError(res, { fallback: '操作失败' }).message)
+      ElMessage.error(formatUserError(res, { fallback: t('modelProviders.operationFailed') }).message)
     }
   }
 
   // ─── 设为默认 ─────────────────────────────────
   async function setDefault (provider) {
     if (!isProviderConfigured(provider)) {
-      ElMessage.warning('请先配置 API Key 后再设为默认')
+      ElMessage.warning(t('modelProviders.configureFirst'))
       return
     }
     try {
       const res = await modelProviderSetDefault(provider.category, provider.id)
       if (res.code === 0) {
-        ElMessage.success('已设为默认')
+        ElMessage.success(t('modelProviders.setDefaultSuccess'))
         await loadProviders()
       } else {
-        ElMessage.error(formatUserError(res, { fallback: '设置失败' }).message)
+        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.setDefaultFailed') }).message)
       }
     } catch (e) {
-      ElMessage.error(formatUserError(e, { fallback: '设置失败' }).message)
+      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.setDefaultFailed') }).message)
     }
   }
 
@@ -449,14 +449,14 @@ export function useModelProviderCrud () {
       testResults.value[id] = {
         success: res.code === 0,
         code: res.code,
-        message: res.code === 0 ? '连接成功' : formatUserError(res, { fallback: '连接失败' }).message,
+        message: res.code === 0 ? t('modelProviders.connectionSuccess') : formatUserError(res, { fallback: t('modelProviders.connectionFailed') }).message,
         detail: res.code !== 0 && res.detail ? String(res.detail) : null,
       }
     } catch (e) {
       testResults.value[id] = {
         success: false,
         code: -1,
-        message: formatUserError(e, { fallback: '请求异常' }).message,
+        message: formatUserError(e, { fallback: t('modelProviders.requestError') }).message,
         detail: null,
       }
     } finally {

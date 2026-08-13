@@ -3,59 +3,59 @@
     <!-- 页面头部 -->
     <div class="cohere-page-header">
       <div>
-        <div class="page-title">模型服务商设置</div>
-        <div class="page-subtitle">管理推理 / TTS语音 / 语音识别 / 图片生成 / 视频模型 / 音频生成 / 多模态模型 七类 AI 服务商</div>
+        <div class="page-title">{{ t('modelProviders.pageTitle') }}</div>
+        <div class="page-subtitle">{{ t('modelProviders.pageSubtitle') }}</div>
       </div>
       <div class="page-actions">
-        <label class="multimodal-preference" title="开启后，流水线按能力调用模型时，若多模态模型声明支持该能力，将优先使用多模态模型（仅一个 API Key）。">
+        <label class="multimodal-preference" :title="t('modelProviders.preferMultimodalTitle')">
           <input type="checkbox" :checked="preferMultimodal" @change="saveMultimodalPreference($event.target.checked)" />
-          <span>优先使用多模态模型进行所有的AI操作</span>
+          <span>{{ t('modelProviders.preferMultimodalLabel') }}</span>
         </label>
-        <button class="cohere-btn-secondary" @click="loadProviders">⟳ 刷新</button>
-        <button class="cohere-btn-primary" @click="openAdd">＋ 添加服务商</button>
+        <button class="cohere-btn-secondary" @click="loadProviders">⟳ {{ t('modelProviders.refresh') }}</button>
+        <button class="cohere-btn-primary" @click="openAdd">＋ {{ t('modelProviders.addProvider') }}</button>
       </div>
     </div>
 
     <!-- P0: safeStorage 不可用警告横幅 -->
     <div v-if="!safeStorageAvailable" class="safe-storage-warning" role="alert">
-      ⚠️ 系统加密不可用，API Key 将无法安全存储。请检查系统密钥链设置。
+      {{ t('modelProviders.safeStorageWarning') }}
     </div>
 
     <!-- 运营后台同步：运营配置（限流/模型/能力）自动下发，前端限流/模型字段为只读展示 -->
     <div v-if="!loading" class="ops-sync-card" :class="{ 'ops-sync-configured': syncConfigured }">
       <div class="ops-sync-head">
-        <span class="ops-sync-title">🔄 运营后台同步</span>
-        <span v-if="lastSyncedAt" class="ops-sync-meta">上次同步：{{ formatLastSync(lastSyncedAt) }}</span>
-        <span v-else class="ops-sync-meta muted">尚未同步</span>
+        <span class="ops-sync-title">{{ t('modelProviders.opsSyncTitle') }}</span>
+        <span v-if="lastSyncedAt" class="ops-sync-meta">{{ t('modelProviders.lastSyncedAt', { time: formatLastSync(lastSyncedAt) }) }}</span>
+        <span v-else class="ops-sync-meta muted">{{ t('modelProviders.neverSynced') }}</span>
         <div class="ops-sync-actions">
-          <label class="multimodal-preference" title="启动桌面端时自动从运营后台拉取最新模型配置">
+          <label class="multimodal-preference" :title="t('modelProviders.autoSyncTitle')">
             <input type="checkbox" v-model="syncAutoSync" @change="saveSyncConfig" />
-            <span>启动时自动同步</span>
+            <span>{{ t('modelProviders.autoSyncLabel') }}</span>
           </label>
-          <button class="cohere-btn-secondary" @click="saveSyncConfig">保存配置</button>
+          <button class="cohere-btn-secondary" @click="saveSyncConfig">{{ t('modelProviders.saveConfig') }}</button>
           <button class="cohere-btn-primary" @click="runSyncNow" :disabled="syncing">
-            {{ syncing ? '同步中...' : '立即同步' }}
+            {{ syncing ? t('modelProviders.syncingNow') : t('modelProviders.syncNow') }}
           </button>
-          <button class="cohere-btn-secondary" @click="openSelfCheck" title="用真实调度网关（假 adapter，不消耗额度）验证并发/排队/限流机制">
-            限流自检
+          <button class="cohere-btn-secondary" @click="openSelfCheck" :title="t('modelProviders.selfCheckTitle')">
+            {{ t('modelProviders.selfCheck') }}
           </button>
         </div>
       </div>
       <div class="ops-sync-fields">
         <div class="ops-sync-field">
-          <label class="input-label">Ops Center 地址</label>
-          <input class="input" v-model="syncUrl" placeholder="https://ops.example.com 或 http://localhost:8000" />
+          <label class="input-label">{{ t('modelProviders.opsUrlLabel') }}</label>
+          <input class="input" v-model="syncUrl" :placeholder="t('modelProviders.opsUrlPlaceholder')" />
         </div>
         <div class="ops-sync-field">
-          <label class="input-label">目录同步 API Key</label>
+          <label class="input-label">{{ t('modelProviders.syncApiKeyLabel') }}</label>
           <input class="input" v-model="syncApiKey" type="password"
-            :placeholder="syncApiKeyConfigured ? '已配置（留空保持不变）' : '填写运营后台 OPS_CATALOG_API_KEY'" />
+            :placeholder="syncApiKeyConfigured ? t('modelProviders.apiKeyConfiguredPlaceholder') : t('modelProviders.apiKeyPlaceholder')" />
         </div>
       </div>
       <div v-if="syncStatus" class="ops-sync-status success" role="status">{{ syncStatus }}</div>
       <div v-else-if="syncError" class="ops-sync-status error" role="alert">{{ syncError }}</div>
       <div v-if="syncConfigured" class="ops-sync-hint">
-        已启用运营后台下发：服务商的「每分钟连接次数 / 5小时限额次数 / 模型列表」以运营后台为准，桌面端为只读展示；本地仍可配置 API Key、Base URL 与默认服务商。
+        {{ t('modelProviders.opsSyncHint') }}
       </div>
     </div>
 
@@ -67,7 +67,7 @@
         @click="viewMode = 'configured'"
       >
         <span class="tab-icon">✓</span>
-        <span>已配置</span>
+        <span>{{ t('modelProviders.configuredTab') }}</span>
         <span class="tab-count">{{ configuredCount }}</span>
       </button>
       <button
@@ -76,7 +76,7 @@
         @click="viewMode = 'all'"
       >
         <span class="tab-icon">📦</span>
-        <span>全部</span>
+        <span>{{ t('modelProviders.allTab') }}</span>
         <span class="tab-count">{{ providers.length }}</span>
       </button>
     </div>
@@ -120,10 +120,10 @@
         <!-- 引导状态：一个都没配置 -->
         <div v-if="configuredProviders.length === 0" class="onboarding-empty">
           <div class="onboarding-icon">🚀</div>
-          <h3>还没有配置任何服务商</h3>
-          <p>选择一个 AI 服务商，填入 API Key 即可开始使用</p>
+          <h3>{{ t('modelProviders.noProvidersTitle') }}</h3>
+          <p>{{ t('modelProviders.noProvidersHint') }}</p>
           <button class="cohere-btn-primary" @click="viewMode = 'all'; openAdd()">
-            <span>浏览全部服务商</span>
+            <span>{{ t('modelProviders.browseAll') }}</span>
           </button>
         </div>
 
@@ -131,11 +131,11 @@
         <div v-else>
           <!-- 统计摘要 -->
           <div class="configured-stats">
-            <span class="stats-primary">已配置 <strong>{{ configuredCount }}</strong> 个服务商</span>
+            <span class="stats-primary">{{ t('modelProviders.configuredStats', { count: configuredCount }) }}</span>
             <span class="stats-separator">·</span>
-            <span class="stats-secondary">预设可用 <strong>{{ unconfiguredPresets.length }}</strong> 个</span>
+            <span class="stats-secondary">{{ t('modelProviders.presetsAvailable', { count: unconfiguredPresets.length }) }}</span>
             <span v-if="customProviders.length > 0" class="stats-separator">·</span>
-            <span v-if="customProviders.length > 0" class="stats-secondary">自定义 <strong>{{ customProviders.length }}</strong> 个</span>
+            <span v-if="customProviders.length > 0" class="stats-secondary">{{ t('modelProviders.customCount', { count: customProviders.length }) }}</span>
           </div>
           <div class="provider-grid">
             <div
@@ -149,40 +149,40 @@
                     {{ CATEGORY_LABELS[p.category] || p.category }}
                   </div>
                   <div class="card-badges">
-                    <span v-if="p.is_default" class="default-badge" title="默认服务商">★ 默认</span>
-                    <span class="configured-badge" title="已配置">✓ 已配置</span>
-                    <span v-if="!p.is_preset" class="custom-badge" title="自定义服务商">自定义</span>
+                    <span v-if="p.is_default" class="default-badge" :title="t('modelProviders.defaultBadge')">★ {{ t('modelProviders.defaultBadge') }}</span>
+                    <span class="configured-badge" :title="t('modelProviders.configuredBadge')">✓ {{ t('modelProviders.configuredBadge') }}</span>
+                    <span v-if="!p.is_preset" class="custom-badge" :title="t('modelProviders.customBadge')">{{ t('modelProviders.customBadge') }}</span>
                   </div>
                 </div>
                 <div class="provider-name">{{ p.name }}</div>
                 <div class="provider-id">
                   <code>{{ p.id }}</code>
                   <span class="status-label" :class="p.enabled ? 'enabled' : 'disabled'">
-                    {{ p.enabled ? '已启用' : '已禁用' }}
+                    {{ p.enabled ? t('modelProviders.enabled') : t('modelProviders.disabled') }}
                   </span>
                 </div>
               </div>
               <div class="card-body">
                 <div class="provider-field">
-                  <span class="field-label">Base URL</span>
+                  <span class="field-label">{{ t('modelProviders.baseUrlLabel') }}</span>
                   <span class="field-value mono">{{ p.base_url || '-' }}</span>
                 </div>
                 <div class="provider-field">
-                  <span class="field-label">模型</span>
+                  <span class="field-label">{{ t('modelProviders.modelsLabel') }}</span>
                   <span class="field-value" :title="(p.models || []).join(', ')">
                     {{ formatModels(p.models) }}
                   </span>
                 </div>
                 <div v-if="p.capabilities && p.capabilities.length > 0" class="provider-field">
-                  <span class="field-label">能力</span>
+                  <span class="field-label">{{ t('modelProviders.capabilityLabel') }}</span>
                   <span class="field-value capability-list">
                     <span v-for="cap in p.capabilities" :key="cap" class="capability-chip">{{ MULTIMODAL_CAPABILITY_LABELS[cap] || cap }}</span>
                   </span>
                 </div>
                 <div class="provider-field">
-                  <span class="field-label">API Key</span>
+                  <span class="field-label">{{ t('modelProviders.apiKeyLabel') }}</span>
                   <span class="field-value mono configured">
-                    {{ p.api_key_masked || (p.is_configured ? '本地免 Key' : (p.api_key ? '已配置' : '未配置')) }}
+                    {{ p.api_key_masked || (p.is_configured ? t('modelProviders.localNoKey') : (p.api_key ? t('modelProviders.configuredKey') : t('modelProviders.notConfiguredKey'))) }}
                   </span>
                 </div>
               </div>
@@ -194,20 +194,20 @@
                 <div v-if="testResults[p.id].detail" class="test-detail">{{ testResults[p.id].detail }}</div>
               </div>
               <div class="card-actions">
-                <button class="cohere-icon-btn" aria-label="测试连接" title="测试连接"
+                <button class="cohere-icon-btn" :aria-label="t('modelProviders.testConnection')" :title="t('modelProviders.testConnection')"
                   @click="testProvider(p.id)" :disabled="!(isProviderConfigured(p))">
                   <span v-if="testingId !== p.id">⚡</span>
                   <span v-else class="rotating">⟳</span>
                 </button>
-                <button class="cohere-icon-btn" aria-label="编辑" title="编辑" @click="openEdit(p)">✎</button>
+                <button class="cohere-icon-btn" :aria-label="t('modelProviders.edit')" :title="t('modelProviders.edit')" @click="openEdit(p)">✎</button>
                 <button class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
-                  :aria-label="p.is_default ? '当前默认' : '设为默认'"
-                  :title="p.is_default ? '当前默认' : '设为默认'"
+                  :aria-label="p.is_default ? t('modelProviders.isDefault') : t('modelProviders.setDefault')"
+                  :title="p.is_default ? t('modelProviders.isDefault') : t('modelProviders.setDefault')"
                   @click="!p.is_default && setDefault(p)"
                   :disabled="p.is_default || !(isProviderConfigured(p))"
                 >★</button>
                 <button class="cohere-icon-btn cohere-icon-btn-danger"
-                  aria-label="删除" title="删除" @click="confirmDelete(p)"
+                  :aria-label="t('modelProviders.delete')" :title="t('modelProviders.delete')" @click="confirmDelete(p)"
                 >✕</button>
               </div>
             </div>
@@ -216,8 +216,8 @@
           <!-- 快速添加区域 -->
           <div v-if="unconfiguredPresets.length > 0" class="quick-add-section">
             <div class="quick-add-header">
-              <span class="quick-add-title">更多服务商</span>
-              <span class="quick-add-meta">{{ unconfiguredPresets.length }} 个预设可用</span>
+              <span class="quick-add-title">{{ t('modelProviders.moreProviders') }}</span>
+              <span class="quick-add-meta">{{ t('modelProviders.presetsAvailableMeta', { count: unconfiguredPresets.length }) }}</span>
             </div>
             <div class="quick-add-grid">
               <button
@@ -234,7 +234,7 @@
                 @click="viewMode = 'all'"
               >
                 <span class="quick-add-icon">···</span>
-                <span class="quick-add-name">查看全部 {{ unconfiguredPresets.length }} 个</span>
+                <span class="quick-add-name">{{ t('modelProviders.viewAll', { count: unconfiguredPresets.length }) }}</span>
               </button>
             </div>
           </div>
@@ -245,8 +245,8 @@
       <template v-else>
         <div v-if="filteredProviders.length === 0" class="cohere-empty">
           <div class="empty-icon">🔌</div>
-          <h3>暂无服务商</h3>
-          <p>点击右上角「添加服务商」配置第一个 AI 模型</p>
+          <h3>{{ t('modelProviders.noProvidersEmpty') }}</h3>
+          <p>{{ t('modelProviders.noProvidersEmptyHint') }}</p>
         </div>
         <div v-else class="provider-grid">
           <div
@@ -260,35 +260,35 @@
                   {{ CATEGORY_LABELS[p.category] || p.category }}
                 </div>
                 <div class="card-badges">
-                  <span v-if="p.is_default" class="default-badge" title="默认服务商">★ 默认</span>
-                  <span v-if="isProviderConfigured(p)" class="configured-badge" title="已配置">✓ 已配置</span>
-                  <span v-if="!p.is_preset" class="custom-badge" title="自定义服务商">自定义</span>
-                  <span v-if="p.is_preset && !(isProviderConfigured(p))" class="preset-badge" title="预设服务商">预设</span>
+                  <span v-if="p.is_default" class="default-badge" :title="t('modelProviders.defaultBadge')">★ {{ t('modelProviders.defaultBadge') }}</span>
+                  <span v-if="isProviderConfigured(p)" class="configured-badge" :title="t('modelProviders.configuredBadge')">✓ {{ t('modelProviders.configuredBadge') }}</span>
+                  <span v-if="!p.is_preset" class="custom-badge" :title="t('modelProviders.customBadge')">{{ t('modelProviders.customBadge') }}</span>
+                  <span v-if="p.is_preset && !(isProviderConfigured(p))" class="preset-badge" :title="t('modelProviders.presetBadge')">{{ t('modelProviders.presetBadge') }}</span>
                 </div>
               </div>
               <div class="provider-name">{{ p.name }}</div>
               <div class="provider-id">
                 <code>{{ p.id }}</code>
                 <span class="status-label" :class="p.enabled ? 'enabled' : 'disabled'">
-                  {{ p.enabled ? '已启用' : '已禁用' }}
+                  {{ p.enabled ? t('modelProviders.enabled') : t('modelProviders.disabled') }}
                 </span>
               </div>
             </div>
             <div class="card-body">
               <div class="provider-field">
-                <span class="field-label">Base URL</span>
+                <span class="field-label">{{ t('modelProviders.baseUrlLabel') }}</span>
                 <span class="field-value mono">{{ p.base_url || '-' }}</span>
               </div>
               <div class="provider-field">
-                <span class="field-label">模型</span>
+                <span class="field-label">{{ t('modelProviders.modelsLabel') }}</span>
                 <span class="field-value" :title="(p.models || []).join(', ')">
                   {{ formatModels(p.models) }}
                 </span>
               </div>
               <div class="provider-field">
-                <span class="field-label">API Key</span>
+                <span class="field-label">{{ t('modelProviders.apiKeyLabel') }}</span>
                 <span class="field-value mono" :class="(isProviderConfigured(p)) ? 'configured' : 'not-configured'">
-                  {{ p.api_key_masked || (p.is_configured ? '本地免 Key' : (p.api_key ? '已配置' : '未配置')) }}
+                  {{ p.api_key_masked || (p.is_configured ? t('modelProviders.localNoKey') : (p.api_key ? t('modelProviders.configuredKey') : t('modelProviders.notConfiguredKey'))) }}
                 </span>
               </div>
             </div>
@@ -300,20 +300,20 @@
               <div v-if="testResults[p.id].detail" class="test-detail">{{ testResults[p.id].detail }}</div>
             </div>
             <div class="card-actions">
-              <button class="cohere-icon-btn" aria-label="测试连接" title="测试连接"
+              <button class="cohere-icon-btn" :aria-label="t('modelProviders.testConnection')" :title="t('modelProviders.testConnection')"
                 @click="testProvider(p.id)" :disabled="!(isProviderConfigured(p))">
                 <span v-if="testingId !== p.id">⚡</span>
                 <span v-else class="rotating">⟳</span>
               </button>
-              <button class="cohere-icon-btn" aria-label="编辑" title="编辑" @click="openEdit(p)">✎</button>
+              <button class="cohere-icon-btn" :aria-label="t('modelProviders.edit')" :title="t('modelProviders.edit')" @click="openEdit(p)">✎</button>
               <button class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
-                :aria-label="p.is_default ? '当前默认' : '设为默认'"
-                :title="p.is_default ? '当前默认' : '设为默认'"
+                :aria-label="p.is_default ? t('modelProviders.isDefault') : t('modelProviders.setDefault')"
+                :title="p.is_default ? t('modelProviders.isDefault') : t('modelProviders.setDefault')"
                 @click="!p.is_default && setDefault(p)"
                 :disabled="p.is_default || !(isProviderConfigured(p))"
               >★</button>
               <button class="cohere-icon-btn cohere-icon-btn-danger"
-                aria-label="删除" title="删除" @click="confirmDelete(p)"
+                :aria-label="t('modelProviders.delete')" :title="t('modelProviders.delete')" @click="confirmDelete(p)"
               >✕</button>
             </div>
           </div>
@@ -321,18 +321,18 @@
       </template>
     </div>
     <!-- 添加服务商对话框（多步骤） -->
-    <el-dialog v-model="showAddDialog" title="添加服务商" class="responsive-dialog" :close-on-click-modal="false">
+    <el-dialog v-model="showAddDialog" :title="t('modelProviders.addDialogTitle')" class="responsive-dialog" :close-on-click-modal="false">
       <!-- P1: 步骤进度指示器 -->
       <div class="step-progress">
         <div v-for="n in 3" :key="n" class="step-indicator" :class="{ active: addStep >= n, current: addStep === n }">
           <span class="step-number">{{ n }}</span>
-          <span class="step-text">{{ ['选择类别', '选择预设', '填写配置'][n - 1] }}</span>
+          <span class="step-text">{{ [t('modelProviders.stepChooseCategory'), t('modelProviders.stepChoosePreset'), t('modelProviders.stepFillConfig')][n - 1] }}</span>
         </div>
       </div>
 
       <!-- 步骤 1: 选择类别 -->
       <div v-if="addStep === 1" class="add-step">
-        <p class="step-hint">第一步：选择模型类别</p>
+        <p class="step-hint">{{ t('modelProviders.step1Hint') }}</p>
         <div class="category-grid">
           <button
             v-for="opt in CATEGORY_OPTIONS.filter(o => o.value !== 'all')" :key="opt.value"
@@ -347,7 +347,7 @@
 
       <!-- 步骤 2: 选择预设或自定义 -->
       <div v-if="addStep === 2" class="add-step">
-        <p class="step-hint">第二步：选择预设服务商或自定义</p>
+        <p class="step-hint">{{ t('modelProviders.step2Hint') }}</p>
         <div v-if="availablePresets.length > 0" class="preset-grid">
           <button
             v-for="preset in availablePresets" :key="preset.id"
@@ -362,52 +362,52 @@
             </div>
           </button>
         </div>
-        <div v-else class="no-presets">该类别暂无可添加的预设服务商</div>
-        <div class="divider">或</div>
+        <div v-else class="no-presets">{{ t('modelProviders.noPresets') }}</div>
+        <div class="divider">{{ t('modelProviders.or') }}</div>
         <button class="preset-card custom" :class="{ active: isCustomAdd }" @click="selectCustom">
-          <div class="preset-card-name">✏️ 自定义服务商</div>
-          <div class="preset-card-url">手动填写配置信息</div>
+          <div class="preset-card-name">{{ t('modelProviders.customProvider') }}</div>
+          <div class="preset-card-url">{{ t('modelProviders.customProviderHint') }}</div>
         </button>
       </div>
 
       <!-- 步骤 3: 填写配置 -->
       <div v-if="addStep === 3" class="add-step">
-        <p class="step-hint">第三步：配置服务商信息</p>
+        <p class="step-hint">{{ t('modelProviders.step3Hint') }}</p>
         <div class="form-fields">
-          <label class="input-label">标识名 (ID)</label>
-          <input class="input" v-model="form.id" placeholder="如 openai, anthropic" :disabled="!!addPresetId" />
-          <label class="input-label">显示名称</label>
-          <input class="input" v-model="form.name" placeholder="如 OpenAI" />
+          <label class="input-label">{{ t('modelProviders.idLabel') }}</label>
+          <input class="input" v-model="form.id" :placeholder="t('modelProviders.idPlaceholder')" :disabled="!!addPresetId" />
+          <label class="input-label">{{ t('modelProviders.nameLabel') }}</label>
+          <input class="input" v-model="form.name" :placeholder="t('modelProviders.namePlaceholder')" />
           <template v-if="form.category !== 'multimodal'">
-            <label class="input-label">Base URL</label>
-            <input class="input" v-model="form.base_url" placeholder="https://api.example.com/v1" />
+            <label class="input-label">{{ t('modelProviders.baseUrlLabel2') }}</label>
+            <input class="input" v-model="form.base_url" :placeholder="t('modelProviders.baseUrlPlaceholder2')" />
           </template>
           <template v-if="form.id === 'doubao-tts' || form.id === 'doubao-stt'">
-            <label class="input-label">豆包 App ID</label>
-            <input class="input" v-model.trim="form.config.appId" placeholder="火山引擎 App ID" />
+            <label class="input-label">{{ t('modelProviders.doubaoAppId') }}</label>
+            <input class="input" v-model.trim="form.config.appId" :placeholder="t('modelProviders.doubaoAppIdPlaceholder')" />
           </template>
-          <label class="input-label">{{ form.id === 'doubao-tts' || form.id === 'doubao-stt' ? '豆包 Access Token' : 'API Key' }}</label>
-          <input class="input" v-model="form.api_key" type="password" :placeholder="form.id === 'doubao-tts' || form.id === 'doubao-stt' ? 'Access Token' : 'sk-...'" />
+          <label class="input-label">{{ form.id === 'doubao-tts' || form.id === 'doubao-stt' ? t('modelProviders.doubaoAccessToken') : t('modelProviders.apiKeyLabel2') }}</label>
+          <input class="input" v-model="form.api_key" type="password" :placeholder="form.id === 'doubao-tts' || form.id === 'doubao-stt' ? t('modelProviders.accessTokenPlaceholder') : t('modelProviders.apiKeyPlaceholder2')" />
           <template v-if="form.category === 'multimodal'">
-            <div class="form-hint">多模态服务商：仅需填写 API Key，能力与模型由系统预设（支持：{{ (form.capabilities || []).map(cap => MULTIMODAL_CAPABILITY_LABELS[cap] || cap).join(' / ') || '—' }}）。</div>
+            <div class="form-hint">{{ t('modelProviders.multimodalHint', { caps: (form.capabilities || []).map(cap => MULTIMODAL_CAPABILITY_LABELS[cap] || cap).join(' / ') || '—' }) }}</div>
             <label v-if="(form.capabilities || (form.config && form.config.capabilities) || []).includes('video')" class="multimodal-preference" title="部分多模态套餐（如 MiniMax 特殊套餐）不支持视频生成。开启后该模型才参与视频模型默认解析；关闭时视频默认使用独立视频模型（如 Agnes Video）。">
               <input type="checkbox" v-model="multimodalVideoEnabled" />
               <span>支持生成视频（默认关闭）</span>
             </label>
           </template>
           <template v-if="isMiniMaxMultimodal">
-            <div class="form-hint">模型列表由系统预设与运营后台下发控制，无需在此填写。</div>
-            <div class="form-hint muted-hint">当前模型：{{ form.modelsText || '—' }}。</div>
+            <div class="form-hint">{{ t('modelProviders.multimodalModelsHint') }}</div>
+            <div class="form-hint muted-hint">{{ t('modelProviders.currentModels', { models: form.modelsText || '—' }) }}</div>
           </template>
           <template v-else-if="form.models.length === 1">
-            <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
-            <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">模型由运营后台同步管理，保存后以运营后台下发为准。</div>
+            <div class="form-hint">{{ t('modelProviders.singleModelHint', { models: form.modelsText }) }}</div>
+            <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.syncManagedModelsHint') }}</div>
           </template>
           <template v-else>
-            <label class="input-label">模型列表 (逗号分隔)</label>
+            <label class="input-label">{{ t('modelProviders.modelsLabel2') }}</label>
             <input class="input" v-model="form.modelsText" placeholder="model-1, model-2"
               :disabled="syncConfigured && isPresetEditing" />
-            <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">已启用运营后台同步：预设服务商模型列表由运营后台下发，此处为只读。</div>
+            <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.opsReadonlyHint') }}</div>
           </template>
           <div class="form-hint">限流策略（每分钟连接次数 / 5小时限额次数）由运营后台同步下发或使用服务商默认值，无需在此填写。</div>
         </div>
@@ -415,11 +415,11 @@
 
       <template #footer>
         <div class="dialog-footer">
-          <button class="cohere-btn-secondary" @click="showAddDialog = false">取消</button>
+          <button class="cohere-btn-secondary" @click="showAddDialog = false">{{ t('modelProviders.cancel') }}</button>
           <button v-if="addStep > 1" class="cohere-btn-secondary" @click="addStep--">上一步</button>
           <button v-if="addStep < 3" class="cohere-btn-primary" @click="nextAddStep" :disabled="addStep === 1 && !addCategory">下一步</button>
           <button v-if="addStep === 3" class="cohere-btn-primary" @click="submitForm" :disabled="submitting">
-            {{ submitting ? '保存中...' : '保存' }}
+            {{ submitting ? t('modelProviders.saving') : t('modelProviders.save') }}
           </button>
         </div>
       </template>
@@ -428,17 +428,17 @@
     <!-- 编辑对话框 -->
     <el-dialog v-model="showFormDialog" title="编辑服务商" class="responsive-dialog">
       <div class="form-fields">
-        <label class="input-label">显示名称</label>
+        <label class="input-label">{{ t('modelProviders.nameLabel') }}</label>
         <input class="input" v-model="form.name" />
         <template v-if="form.category !== 'multimodal'">
-          <label class="input-label">Base URL</label>
+          <label class="input-label">{{ t('modelProviders.baseUrlLabel2') }}</label>
           <input class="input" v-model="form.base_url" />
         </template>
         <template v-if="form.id === 'doubao-tts' || form.id === 'doubao-stt'">
-          <label class="input-label">豆包 App ID</label>
-          <input class="input" v-model.trim="form.config.appId" placeholder="火山引擎 App ID" />
+          <label class="input-label">{{ t('modelProviders.doubaoAppId') }}</label>
+          <input class="input" v-model.trim="form.config.appId" :placeholder="t('modelProviders.doubaoAppIdPlaceholder')" />
         </template>
-        <label class="input-label">{{ form.id === 'doubao-tts' || form.id === 'doubao-stt' ? '豆包 Access Token' : 'API Key' }}</label>
+        <label class="input-label">{{ form.id === 'doubao-tts' || form.id === 'doubao-stt' ? t('modelProviders.doubaoAccessToken') : t('modelProviders.apiKeyLabel2') }}</label>
         <input class="input" v-model="form.api_key" type="password" :placeholder="form.id === 'doubao-tts' || form.id === 'doubao-stt' ? '留空保持原 Token' : '留空保持不变'" />
         <template v-if="form.category === 'multimodal' && ((form.capabilities || (form.config && form.config.capabilities) || []).includes('video'))">
           <label class="multimodal-preference" title="部分多模态套餐（如 MiniMax 特殊套餐）不支持视频生成。开启后该模型才参与视频模型默认解析；关闭时视频默认使用独立视频模型（如 Agnes Video）。">
@@ -447,82 +447,81 @@
           </label>
         </template>
         <template v-if="isMiniMaxMultimodal">
-          <div class="form-hint">模型列表由系统预设与运营后台下发控制，无需在此填写。</div>
-          <div class="form-hint muted-hint">当前模型：{{ form.modelsText || '—' }}。</div>
+          <div class="form-hint">{{ t('modelProviders.multimodalModelsHint') }}</div>
+          <div class="form-hint muted-hint">{{ t('modelProviders.currentModels', { models: form.modelsText || '—' }) }}</div>
         </template>
         <template v-else-if="form.models.length === 1">
-          <div class="form-hint">模型: {{ form.modelsText }}（单模型服务商，无需填写 Model ID）</div>
-          <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">模型由运营后台同步管理，保存后以运营后台下发为准。</div>
+          <div class="form-hint">{{ t('modelProviders.singleModelHint', { models: form.modelsText }) }}</div>
+          <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.syncManagedModelsHint') }}</div>
         </template>
         <template v-else>
-          <label class="input-label">模型列表 (逗号分隔)</label>
+          <label class="input-label">{{ t('modelProviders.modelsLabel2') }}</label>
           <input class="input" v-model="form.modelsText" :disabled="syncConfigured && isPresetEditing" />
-          <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">已启用运营后台同步：预设服务商模型列表由运营后台下发，此处为只读。</div>
+          <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.opsReadonlyHint') }}</div>
         </template>
-        <div class="form-hint">每分钟连接次数：{{ form.config.rate_per_minute ?? '未配置（默认限流）' }}</div>
-        <div class="form-hint">5小时限额次数：{{ form.config.limit_per_5h ?? '未配置（默认限流）' }}</div>
-        <div class="form-hint muted-hint">限流值由运营后台同步下发或使用服务商默认值，前端为只读展示。</div>
+        <div class="form-hint">{{ t('modelProviders.ratePerMinuteLabel') }}：{{ form.config.rate_per_minute ?? t('modelProviders.notConfiguredRate') }}</div>
+        <div class="form-hint">{{ t('modelProviders.limitPer5hLabel') }}：{{ form.config.limit_per_5h ?? t('modelProviders.notConfiguredRate') }}</div>
+        <div class="form-hint muted-hint">{{ t('modelProviders.rateHint') }}</div>
       </div>
       <template #footer>
         <div class="dialog-footer">
-          <button class="cohere-btn-secondary" @click="showFormDialog = false">取消</button>
+          <button class="cohere-btn-secondary" @click="showFormDialog = false">{{ t('modelProviders.cancel') }}</button>
           <button class="cohere-btn-primary" @click="submitForm" :disabled="submitting">
-            {{ submitting ? '保存中...' : '保存' }}
+            {{ submitting ? t('modelProviders.saving') : t('modelProviders.save') }}
           </button>
         </div>
       </template>
     </el-dialog>
 
     <!-- 删除确认对话框 -->
-    <el-dialog v-model="showDeleteDialog" title="确认删除" class="responsive-dialog-sm">
-      <p>确定要删除服务商 <strong>{{ deleteTarget?.name }}</strong> 吗？</p>
+    <el-dialog v-model="showDeleteDialog" :title="t('modelProviders.deleteDialogTitle')" class="responsive-dialog-sm">
+      <p>{{ t('modelProviders.deleteConfirmText', { name: deleteTarget?.name }) }}</p>
       <p style="font-size:13px;color:var(--muted)">
-        此操作不可恢复，关联的 API Key 也会一并移除。
-        <template v-if="deleteTarget?.is_preset">预设服务商删除后将从列表隐藏，可在「添加服务商」中重新添加。</template>
+        {{ t('modelProviders.deleteIrreversible') }}
+        <template v-if="deleteTarget?.is_preset">{{ t('modelProviders.presetDeleteHint') }}</template>
       </p>
       <template #footer>
         <div class="dialog-footer">
-          <button class="cohere-btn-secondary" @click="showDeleteDialog = false">取消</button>
+          <button class="cohere-btn-secondary" @click="showDeleteDialog = false">{{ t('modelProviders.cancel') }}</button>
           <button class="cohere-btn-danger" @click="doDelete" :disabled="submitting">
-            {{ submitting ? '删除中...' : '确认删除' }}
+            {{ submitting ? t('modelProviders.deleting') : t('modelProviders.confirmDelete') }}
           </button>
         </div>
       </template>
     </el-dialog>
 
     <!-- 限流自检（P2）：真实 governor + 假 adapter，零额度零网络 -->
-    <el-dialog v-model="showSelfCheckDialog" title="限流自检" class="responsive-dialog-sm">
+    <el-dialog v-model="showSelfCheckDialog" :title="t('modelProviders.selfCheckDialogTitle')" class="responsive-dialog-sm">
       <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
-        使用真实调度网关（ApiUsageGovernor）+ 本地假 adapter 构造并发请求，验证并发上限/排队/429 冷却/5h 限额；
-        不消耗额度、不访问网络。结果可上报运营后台「限流与调度验证」。
+        {{ t('modelProviders.selfCheckHint') }}
       </p>
       <div class="selfcheck-form">
-        <div class="selfcheck-row"><label>每分钟连接次数 rpm</label><el-input-number v-model="selfCheckForm.rpm" :min="1" :max="100000" /></div>
-        <div class="selfcheck-row"><label>并发上限（留空=clamp(rpm/10,1,4)）</label><el-input-number v-model="selfCheckForm.maxConcurrent" :min="1" :max="8" /></div>
-        <div class="selfcheck-row"><label>请求数</label><el-input-number v-model="selfCheckForm.requestCount" :min="1" :max="1000" /></div>
-        <div class="selfcheck-row"><label>单请求耗时(ms)</label><el-input-number v-model="selfCheckForm.requestDurationMs" :min="0" :max="60000" /></div>
-        <div class="selfcheck-row"><label>注入 429（第 N 个，留空=不注入）</label><el-input-number v-model="selfCheckForm.inject429At" :min="1" :max="1000" /></div>
-        <div class="selfcheck-row"><label>5小时限额次数（留空=不启用）</label><el-input-number v-model="selfCheckForm.limitPer5h" :min="1" :max="10000000" /></div>
+        <div class="selfcheck-row"><label>{{ t('modelProviders.rpmLabel') }}</label><el-input-number v-model="selfCheckForm.rpm" :min="1" :max="100000" /></div>
+        <div class="selfcheck-row"><label>{{ t('modelProviders.maxConcurrentLabel') }}</label><el-input-number v-model="selfCheckForm.maxConcurrent" :min="1" :max="8" /></div>
+        <div class="selfcheck-row"><label>{{ t('modelProviders.requestCountLabel') }}</label><el-input-number v-model="selfCheckForm.requestCount" :min="1" :max="1000" /></div>
+        <div class="selfcheck-row"><label>{{ t('modelProviders.requestDurationLabel') }}</label><el-input-number v-model="selfCheckForm.requestDurationMs" :min="0" :max="60000" /></div>
+        <div class="selfcheck-row"><label>{{ t('modelProviders.inject429Label') }}</label><el-input-number v-model="selfCheckForm.inject429At" :min="1" :max="1000" /></div>
+        <div class="selfcheck-row"><label>{{ t('modelProviders.limitPer5hLabel2') }}</label><el-input-number v-model="selfCheckForm.limitPer5h" :min="1" :max="10000000" /></div>
       </div>
-      <div v-if="selfCheckRunning" style="color:var(--muted);font-size:13px">自检运行中（真实调度排队，耗时取决于 rpm 预算）...</div>
+      <div v-if="selfCheckRunning" style="color:var(--muted);font-size:13px">{{ t('modelProviders.selfCheckRunning') }}</div>
       <div v-if="selfCheckResult" style="margin-top:12px">
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">
-          <span>最大并发：<b>{{ selfCheckResult.data.metrics.max_concurrent_observed }}</b></span>
-          <span>限流：<b>{{ selfCheckResult.data.metrics.rate_limited_count }}</b></span>
-          <span>额度拒绝：<b>{{ selfCheckResult.data.metrics.quota_exceeded_count }}</b></span>
-          <span>总耗时：<b>{{ selfCheckResult.data.metrics.total_duration_ms }}ms</b></span>
+          <span>{{ t('modelProviders.maxConcurrent') }}：<b>{{ selfCheckResult.data.metrics.max_concurrent_observed }}</b></span>
+          <span>{{ t('modelProviders.rateLimited') }}：<b>{{ selfCheckResult.data.metrics.rate_limited_count }}</b></span>
+          <span>{{ t('modelProviders.quotaExceeded') }}：<b>{{ selfCheckResult.data.metrics.quota_exceeded_count }}</b></span>
+          <span>{{ t('modelProviders.totalDuration') }}：<b>{{ selfCheckResult.data.metrics.total_duration_ms }}ms</b></span>
         </div>
         <div v-for="a in selfCheckResult.data.assertions" :key="a.name" style="display:flex;gap:8px;align-items:center;font-size:13px;padding:2px 0">
-          <el-tag :type="a.pass ? 'success' : 'danger'" size="small">{{ a.pass ? 'PASS' : 'FAIL' }}</el-tag>
+          <el-tag :type="a.pass ? 'success' : 'danger'" size="small">{{ a.pass ? t('modelProviders.passTag') : t('modelProviders.failTag') }}</el-tag>
           <span>{{ a.name }}：{{ a.message }}</span>
         </div>
         <div v-if="selfCheckReportMsg" style="margin-top:6px;font-size:13px;color:var(--primary)">{{ selfCheckReportMsg }}</div>
       </div>
       <template #footer>
         <div class="dialog-footer">
-          <button class="cohere-btn-secondary" @click="showSelfCheckDialog = false">关闭</button>
-          <button class="cohere-btn-secondary" @click="runSelfCheck" :disabled="selfCheckRunning">运行自检</button>
-          <button class="cohere-btn-primary" @click="reportSelfCheck" :disabled="!selfCheckResult || selfCheckRunning">上报运营后台</button>
+          <button class="cohere-btn-secondary" @click="showSelfCheckDialog = false">{{ t('modelProviders.close') }}</button>
+          <button class="cohere-btn-secondary" @click="runSelfCheck" :disabled="selfCheckRunning">{{ t('modelProviders.runSelfCheck') }}</button>
+          <button class="cohere-btn-primary" @click="reportSelfCheck" :disabled="!selfCheckResult || selfCheckRunning">{{ t('modelProviders.reportSelfCheck') }}</button>
         </div>
       </template>
     </el-dialog>
@@ -531,10 +530,12 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
 import { useOpsCenterSync } from '@/composables/useOpsCenterSync'
 
+const { t } = useI18n()
 const {
   syncUrl,
   syncApiKey,
@@ -632,7 +633,7 @@ async function runSelfCheck () {
   selfCheckReportMsg.value = ''
   try {
     if (!window.electronAPI || typeof window.electronAPI.rateLimitSelfCheck !== 'function') {
-      ElMessage.warning('当前环境无 electronAPI，请使用桌面应用运行自检')
+      ElMessage.warning(t('modelProviders.noElectronApiSelfCheck'))
       return
     }
     const res = await window.electronAPI.rateLimitSelfCheck({
@@ -642,14 +643,14 @@ async function runSelfCheck () {
       limitPer5h: selfCheckForm.value.limitPer5h || null,
     })
     if (res.code !== 0) {
-      ElMessage.error(res.message || '自检失败')
+      ElMessage.error(res.message || t('modelProviders.selfCheckFailed'))
       return
     }
     selfCheckResult.value = res
     const pass = res.data.assertions.filter(a => a.pass).length
-    ElMessage.success(`自检完成：断言 ${pass}/${res.data.assertions.length} 通过`)
+    ElMessage.success(t('modelProviders.selfCheckDone', { pass, total: res.data.assertions.length }))
   } catch (e) {
-    ElMessage.error('自检失败: ' + (e.message || e))
+    ElMessage.error(t('modelProviders.selfCheckFailedDetail', { msg: e.message || e }))
   } finally {
     selfCheckRunning.value = false
   }
@@ -659,7 +660,7 @@ async function reportSelfCheck () {
   if (!selfCheckResult.value) return
   try {
     if (!window.electronAPI || typeof window.electronAPI.rateLimitReport !== 'function') {
-      ElMessage.warning('当前环境无 electronAPI，请使用桌面应用上报')
+      ElMessage.warning(t('modelProviders.noElectronApiReport'))
       return
     }
     const res = await window.electronAPI.rateLimitReport({
@@ -668,13 +669,13 @@ async function reportSelfCheck () {
       result: selfCheckResult.value.data,
     })
     if (res.code !== 0) {
-      ElMessage.error(res.message || '上报失败')
+      ElMessage.error(res.message || t('modelProviders.reportFailed'))
       return
     }
-    selfCheckReportMsg.value = `已上报，运营后台验证记录 #${res.run_id}`
-    ElMessage.success('自检结果已上报运营后台')
+    selfCheckReportMsg.value = t('modelProviders.reportDone', { id: res.run_id })
+    ElMessage.success(t('modelProviders.reportSuccess'))
   } catch (e) {
-    ElMessage.error('上报失败: ' + (e.message || e))
+    ElMessage.error(t('modelProviders.reportFailedDetail', { msg: e.message || e }))
   }
 }
 
