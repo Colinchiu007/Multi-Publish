@@ -259,6 +259,11 @@ export default {
       confirming: '提交中...',
       confirmError: '素材选择提交失败，请重试。',
       notReadyHint: '素材生成中，请稍候…',
+      clickToPreviewHint: '点击缩略图可放大预览',
+      previewImageTitle: '图片预览',
+      previewVideoTitle: '视频预览',
+      previewCloseHint: '点击关闭或按 × 退出预览',
+      previewAriaLabel: '放大预览 {label}',
     },
   },
   pipelines: {

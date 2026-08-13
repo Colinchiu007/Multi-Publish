@@ -259,6 +259,11 @@ export default {
       confirming: 'Submitting...',
       confirmError: 'Failed to submit asset selection. Please try again.',
       notReadyHint: 'Assets are still being generated, please wait…',
+      clickToPreviewHint: 'Click a thumbnail to enlarge and preview',
+      previewImageTitle: 'Image Preview',
+      previewVideoTitle: 'Video Preview',
+      previewCloseHint: 'Click outside or press × to close preview',
+      previewAriaLabel: 'Enlarge preview {label}',
     },
   },
   pipelines: {
