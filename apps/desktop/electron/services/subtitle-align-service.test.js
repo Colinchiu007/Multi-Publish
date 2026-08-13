@@ -65,6 +65,23 @@ describe('subtitle-align-service 编排', () => {
     expect(scenes[0].subtitleTimeline).toBeUndefined()
   })
 
+  it('alignScenes 把 opts.traceId 透传给 transcribeAudio（R3/R4）', async () => {
+    const scenes = [{
+      index: 0,
+      audioPath: 'C:/tmp/vo.mp3',
+      duration: 6,
+      subtitleBlocks: [{ displayOrder: 0, text: '今天天气真好' }],
+    }]
+    const bridge = {
+      transcribeAudio: vi.fn(async () => ({ words: [{ text: '今天', start: 0.0, end: 0.5 }] })),
+    }
+    await alignScenes(scenes, { alignerBridge: bridge, log: { warn: () => {} }, traceId: 'run_5' })
+    const body = bridge.transcribeAudio.mock.calls[0][1]
+    expect(body.traceId).toBe('run_5')
+    // traceId 只进控制字段，不进入发送给 Python 的 payload 相关字段
+    expect(body.model).toBe('base')
+  })
+
   it('无音频或无字幕块的场景跳过', async () => {
     const scenes = [{ index: 0, audioPath: 'C:/tmp/vo.mp3', subtitleBlocks: [] }, { index: 1, audioPath: null, subtitleBlocks: [{ displayOrder: 0, text: 'x' }] }]
     const bridge = { transcribeAudio: vi.fn(async () => ({ words: [] })) }

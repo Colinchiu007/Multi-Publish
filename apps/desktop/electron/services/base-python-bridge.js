@@ -222,18 +222,30 @@ class BasePythonBridge {
    * @param {string} path - URL 路径
    * @param {string} body - 请求体（JSON 字符串）
    * @param {number} [timeout] - 超时 ms（默认使用 this.requestTimeout）
+   * @param {string} [traceId] - 跨进程 traceId（如 pipeline runId）：存在时写 X-Request-Id 头并记 Bridge 日志，便于桌面↔Python 日志关联
    * @returns {Promise<object>}
    * @protected
    */
-  async _post (path, body, timeout) {
+  async _post (path, body, timeout, traceId) {
     const reqTimeout = timeout || this.requestTimeout
     if (!this.isRunning) {
       try { await this.ensureRunning() } catch (e) { throw new Error(`${this.name} is not running and lazy-start failed: ${e instanceof Error ? e.message : String(e)}`) }
     }
+    // 仅记录 path + traceId，绝不记录 body（body 为业务数据，无需入日志）。
+    // traceId 必须为 header 安全 ASCII（允许字母/数字/._:-，≤64），否则跳过头发送——
+    // Node http.request 对非法头字符（如 CJK）会同步抛错，宁可降级不发送也不破坏请求。
+    const safeTraceId = typeof traceId === 'string' && /^[A-Za-z0-9._:\-_]{1,64}$/.test(traceId) ? traceId : null
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    if (safeTraceId) {
+      headers['X-Request-Id'] = safeTraceId
+      this.log.info(this.name, `POST ${path} traceId=${safeTraceId}`)
+    } else if (traceId) {
+      this.log.warn(this.name, `POST ${path} 跳过非法 traceId（非 header 安全字符）`)
+    }
     return new Promise((resolve, reject) => {
       const req = http.request({
         hostname: this.host, port: this.port, path, method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        headers,
         timeout: reqTimeout
       }, (res) => {
         let data = ''

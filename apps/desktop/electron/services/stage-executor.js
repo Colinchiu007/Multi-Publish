@@ -238,7 +238,7 @@ class StageExecutor {
     const self = this;
 
     // SPLIT - 文本分句
-    map.set(STAGE_TYPES.SPLIT, async ({ stage, params, context }) => {
+    map.set(STAGE_TYPES.SPLIT, async ({ stage, params, context, runId }) => {
       const text = _resolveInput(stage, params, context);
       // 图片轮播模式可以没有文案：为每张用户素材建立一个可优化、可配音的场景。
       // 这样 renderer 传入的图片不会在 split 阶段被误判为缺少输入。
@@ -287,7 +287,7 @@ class StageExecutor {
 
       let result;
       try {
-        result = await self.serviceBus.splitText(text, serviceOptions);
+        result = await self.serviceBus.splitText(text, { ...serviceOptions, traceId: runId });
       } catch (error) {
         if (!fallbackToLocal || !isSplitterUnavailableError(error)) throw error;
         return createFallback(error);
@@ -319,7 +319,7 @@ class StageExecutor {
     });
 
     // OPTIMIZE - 单个提示词优化（图片提示词统一契约：error 优先 → 结构 → 内容）
-    map.set(STAGE_TYPES.OPTIMIZE, async ({ stage, params, context }) => {
+    map.set(STAGE_TYPES.OPTIMIZE, async ({ stage, params, context, runId }) => {
       const prompt = _resolveInput(stage, params, context);
       if (!prompt) {
         return { success: false, error: 'No prompt input for optimize stage' };
@@ -328,7 +328,7 @@ class StageExecutor {
       // 图片提示词统一契约：构造请求（平台/风格别名归一、自动风格检测、边界收敛）
       const request = buildPromptEngineOptimizeRequest(prompt, options);
       const { prompt: enginePrompt, ...requestOptions } = request;
-      const result = await self.serviceBus.optimizePrompt(enginePrompt, requestOptions);
+      const result = await self.serviceBus.optimizePrompt(enginePrompt, { ...requestOptions, traceId: runId });
       const warn = (msg) => { if (self.log && typeof self.log.warn === 'function') self.log.warn('StageExecutor', msg) }
       // 截断上限用契约收敛后的 max_length（I-4：不因原始 stage 越界值误截断/漏截断）
       const validated = extractOptimizedPrompt(result, { maxLength: request.max_length, warn });
@@ -355,7 +355,7 @@ class StageExecutor {
     });
 
     // OPTIMIZE_BATCH - 批量提示词优化
-    map.set(STAGE_TYPES.OPTIMIZE_BATCH, async ({ stage, params, context }) => {
+    map.set(STAGE_TYPES.OPTIMIZE_BATCH, async ({ stage, params, context, runId }) => {
       let prompts = _resolveInput(stage, params, context);
       // 适配 split 阶段输出：{ scenes: [{ text }], sentences: [{ text }] }
       // 自动从 scenes/sentences 提取文本作为 prompts 数组
@@ -373,7 +373,7 @@ class StageExecutor {
       // 响应逐项做 error 优先 → 结构 → 内容 校验。
       const requestOptions = buildPromptEngineOptimizeRequest('', stage.options || {});
       delete requestOptions.prompt;
-      const result = await self.serviceBus.optimizePromptsBatch(prompts, requestOptions);
+      const result = await self.serviceBus.optimizePromptsBatch(prompts, { ...requestOptions, traceId: runId });
       // 响应格式适配：Bridge 返回数组或 { results: [...] } 或 { code: 0, data: ... }
       if (result && (Array.isArray(result) || Array.isArray(result.results) || (result.code === 0 && result.data))) {
         const output = normalizeBatchOptimizeResult(result);

@@ -99,10 +99,10 @@ class PromptBridge extends BasePythonBridge {
    * @param {object} request - { prompt, ...options }
    * @returns {Promise<object>}
    */
-  async optimize (request) {
+  async optimize (request, traceId) {
     await this.ensureRunning()
     // async 保证同步校验异常（如敏感凭据拦截）以 rejected promise 呈现，统一走调用方错误处理
-    return this._post('/v1/optimize', JSON.stringify(normalizeOptimizeRequest(request)))
+    return this._post('/v1/optimize', JSON.stringify(normalizeOptimizeRequest(request)), undefined, traceId)
   }
 
   /**
@@ -110,10 +110,10 @@ class PromptBridge extends BasePythonBridge {
    * @param {object[]} requests - 优化请求数组
    * @returns {Promise<object>}
    */
-  async optimizeBatch (requests) {
+  async optimizeBatch (requests, traceId) {
     await this.ensureRunning()
     const normalized = requests.map(normalizeOptimizeRequest)
-    return this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }))
+    return this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }), undefined, traceId)
   }
 
   /**
@@ -124,17 +124,26 @@ class PromptBridge extends BasePythonBridge {
    * @returns {Promise<object>}
    * @protected
    */
-  _postStandalone (path, body, timeout) {
+  _postStandalone (path, body, timeout, traceId) {
     const target = _standaloneTarget()
     if (!target) return Promise.reject(new Error('standalone video engine not configured (VIDEO_PROMPT_PORT)'))
     const reqTimeout = timeout || this.requestTimeout
+    // 仅记录 path + traceId，绝不记录 body；traceId 非 header 安全 ASCII 时跳过头发送
+    const safeTraceId = typeof traceId === 'string' && /^[A-Za-z0-9._:\-_]{1,64}$/.test(traceId) ? traceId : null
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    if (safeTraceId) {
+      headers['X-Request-Id'] = safeTraceId
+      this.log.info(this.name, `POST ${path} traceId=${safeTraceId}`)
+    } else if (traceId) {
+      this.log.warn(this.name, `POST ${path} 跳过非法 traceId（非 header 安全字符）`)
+    }
     return new Promise((resolve, reject) => {
       const req = http.request({
         hostname: target.host,
         port: target.port,
         path,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        headers,
         timeout: reqTimeout,
       }, (res) => {
         let data = ''
@@ -159,18 +168,20 @@ class PromptBridge extends BasePythonBridge {
     const isObjectReq = promptOrRequest !== null && typeof promptOrRequest === 'object' && !Array.isArray(promptOrRequest)
     const prompt = isObjectReq ? promptOrRequest.prompt : String(promptOrRequest)
     const opts = isObjectReq ? { ...promptOrRequest } : options
+    // traceId 是控制字段：提取后不进业务 payload，仅用于 X-Request-Id 头
+    const { traceId, ...rest } = opts || {}
     if (_standaloneTarget()) {
       try {
-        const standaloneReq = buildStandaloneVideoOptimizeRequest(prompt, opts)
-        return await this._postStandalone('/v1/video/optimize', JSON.stringify(standaloneReq))
+        const standaloneReq = buildStandaloneVideoOptimizeRequest(prompt, rest)
+        return await this._postStandalone('/v1/video/optimize', JSON.stringify(standaloneReq), undefined, traceId)
       } catch (e) {
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video：${e instanceof Error ? e.message : String(e)}`)
       }
     }
     await this.ensureRunning()
-    const legacyReq = buildVideoOptimizeRequest(prompt, opts)
-    return this._post('/v1/optimize', JSON.stringify(legacyReq))
+    const legacyReq = buildVideoOptimizeRequest(prompt, rest)
+    return this._post('/v1/optimize', JSON.stringify(legacyReq), undefined, traceId)
   }
 
   /**
@@ -180,11 +191,13 @@ class PromptBridge extends BasePythonBridge {
    * @returns {Promise<object>}
    */
   async optimizeVideosBatch (prompts, options) {
+    // traceId 是控制字段：从顶层 options 提取，不进业务 payload
+    const { traceId, ...restOptions } = options || {}
     const build = (item) => {
       if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
         return { prompt: item.prompt, opts: { ...item } }
       }
-      return { prompt: String(item), opts: options }
+      return { prompt: String(item), opts: restOptions }
     }
     if (_standaloneTarget()) {
       try {
@@ -192,7 +205,7 @@ class PromptBridge extends BasePythonBridge {
           const { prompt, opts } = build(item)
           return buildStandaloneVideoOptimizeRequest(prompt, opts)
         })
-        return await this._postStandalone('/v1/video/optimize/batch', JSON.stringify({ requests }))
+        return await this._postStandalone('/v1/video/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
       } catch (e) {
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video 批量：${e instanceof Error ? e.message : String(e)}`)
@@ -203,7 +216,7 @@ class PromptBridge extends BasePythonBridge {
       const { prompt, opts } = build(item)
       return buildVideoOptimizeRequest(prompt, opts)
     })
-    return this._post('/v1/optimize/batch', JSON.stringify({ requests }))
+    return this._post('/v1/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
   }
 }
 

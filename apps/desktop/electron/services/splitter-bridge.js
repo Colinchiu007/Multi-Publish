@@ -51,8 +51,10 @@ class SplitterBridge extends BasePythonBridge {
    */
   async split (text, options = {}) {
     await this.ensureRunning()
-    const body = JSON.stringify({ text, language: 'auto', mode: 'balanced', ...options })
-    return this._post('/v1/split', body)
+    // traceId 是控制字段：提取后不进业务 payload，仅用于 X-Request-Id 头
+    const { traceId, ...rest } = options || {}
+    const body = JSON.stringify({ text, language: 'auto', mode: 'balanced', ...rest })
+    return this._post('/v1/split', body, undefined, traceId)
   }
 }
 

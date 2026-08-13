@@ -41,6 +41,35 @@ describe('PromptBridge prompt-engine 请求兼容', () => {
     expect(body).toEqual({ prompt: '山间日出' })
   })
 
+  it('optimize 透传 traceId 且 body 不含 traceId（R1/R3）', async () => {
+    const bridge = new PromptBridge({})
+    bridge.isRunning = true
+    bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
+
+    await bridge.optimize({ prompt: '城市夜景', style: 'realistic' }, 'run_9')
+
+    expect(bridge._post.mock.calls[0][3]).toBe('run_9')
+    const body = JSON.parse(bridge._post.mock.calls[0][1])
+    expect(body).toEqual({ prompt: '城市夜景', style: 'realistic' })
+    expect(body).not.toHaveProperty('traceId')
+  })
+
+  it('optimizeVideo 从 options 提取 traceId（字符串 + 对象双形态，R1）', async () => {
+    const bridge = new PromptBridge({})
+    bridge.isRunning = true
+    bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
+
+    await bridge.optimizeVideo('a cat', { platform: 'veo3', traceId: 'run_7' })
+    expect(bridge._post.mock.calls[0][3]).toBe('run_7')
+    const body = JSON.parse(bridge._post.mock.calls[0][1])
+    expect(body).not.toHaveProperty('traceId')
+
+    await bridge.optimizeVideo({ prompt: 'b dog', platform: 'kling-pro', traceId: 'run_8' })
+    expect(bridge._post.mock.calls[1][3]).toBe('run_8')
+    const body2 = JSON.parse(bridge._post.mock.calls[1][1])
+    expect(body2).not.toHaveProperty('traceId')
+  })
+
   it('单个和批量优化对非对象输入使用相同的 prompt 兼容规则', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true

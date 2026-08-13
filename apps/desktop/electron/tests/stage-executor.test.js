@@ -359,6 +359,35 @@ it('OPTIMIZE 阶段调用 serviceBus.optimizePrompt', async function () {
   );
 });
 
+it('SPLIT/OPTIMIZE 把 runId 作为 traceId 传给 serviceBus（R2）', async function () {
+  const bus = makeMockServiceBus();
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+
+  await exec.execute({
+    runId: 'run_42',
+    stage: { name: 'split', type: STAGE_TYPES.SPLIT, inputFrom: 'input' },
+    params: {},
+    context: { input: '第一句。第二句！' },
+  });
+  expect(bus.splitText).toHaveBeenCalledWith('第一句。第二句！', expect.objectContaining({ traceId: 'run_42' }));
+
+  await exec.execute({
+    runId: 'run_43',
+    stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt' },
+    params: {},
+    context: { prompt: '一只猫' },
+  });
+  expect(bus.optimizePrompt).toHaveBeenCalledWith('一只猫', expect.objectContaining({ traceId: 'run_43' }));
+
+  await exec.execute({
+    runId: 'run_44',
+    stage: { name: 'ob', type: STAGE_TYPES.OPTIMIZE_BATCH, inputFrom: 'prompts' },
+    params: { prompts: ['a', 'b'] },
+    context: {},
+  });
+  expect(bus.optimizePromptsBatch).toHaveBeenCalledWith(['a', 'b'], expect.objectContaining({ traceId: 'run_44' }));
+});
+
 it('OPTIMIZE_BATCH 阶段需要数组输入', async function () {
   const bus = makeMockServiceBus();
   const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });

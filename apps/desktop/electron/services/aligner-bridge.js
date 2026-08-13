@@ -54,17 +54,19 @@ class AlignerBridge extends BasePythonBridge {
    */
   async transcribeAudio (audioPath, options = {}) {
     await this.ensureRunning()
+    // traceId 是控制字段：提取后不进业务 payload，仅用于 X-Request-Id 头
+    const { traceId, ...rest } = options || {}
     const body = JSON.stringify({
       audio_path: audioPath,
       options: {
-        model: options.model || 'base',
-        language: options.language || undefined,
-        beam_size: options.beamSize ?? 5,
-        vad_filter: options.vadFilter ?? true,
-        initial_prompt: options.initialPrompt || undefined,
+        model: rest.model || 'base',
+        language: rest.language || undefined,
+        beam_size: rest.beamSize ?? 5,
+        vad_filter: rest.vadFilter ?? true,
+        initial_prompt: rest.initialPrompt || undefined,
       },
     })
-    return this._post('/align', body)
+    return this._post('/align', body, undefined, traceId)
   }
 }
 

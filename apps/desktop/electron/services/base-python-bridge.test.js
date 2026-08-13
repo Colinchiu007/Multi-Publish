@@ -176,6 +176,39 @@ describe('BasePythonBridge — _post()', () => {
   })
 })
 
+  it('11a. traceId 存在时写 X-Request-Id 头并记 traceId 日志（R1）', async () => {
+    const b = createTestBridge()
+    b.isRunning = true
+    const http = require('http')
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn(), destroy: vi.fn() }
+    const mockRes = { on: vi.fn((event, cb) => { if (event === 'end') setTimeout(() => cb(), 0) }) }
+    const origRequest = http.request
+    let reqOpts
+    http.request = vi.fn((opts, cb) => { reqOpts = opts; setTimeout(() => cb(mockRes), 0); return mockReq })
+    try {
+      await b._post('/test', '{"a":1}', undefined, 'run_123_abcd')
+      expect(reqOpts.headers['X-Request-Id']).toBe('run_123_abcd')
+      expect(reqOpts.headers['Content-Type']).toBe('application/json')
+      expect(b.log.info).toHaveBeenCalledWith('TestBridge', 'POST /test traceId=run_123_abcd')
+    } finally { http.request = origRequest }
+  })
+
+  it('11b. 未提供 traceId 时不写 X-Request-Id 头也不记 traceId 日志（R1 无头态）', async () => {
+    const b = createTestBridge()
+    b.isRunning = true
+    const http = require('http')
+    const mockReq = { on: vi.fn(), write: vi.fn(), end: vi.fn(), destroy: vi.fn() }
+    const mockRes = { on: vi.fn((event, cb) => { if (event === 'end') setTimeout(() => cb(), 0) }) }
+    const origRequest = http.request
+    let reqOpts
+    http.request = vi.fn((opts, cb) => { reqOpts = opts; setTimeout(() => cb(mockRes), 0); return mockReq })
+    try {
+      await b._post('/test', '{"a":1}')
+      expect(reqOpts.headers['X-Request-Id']).toBeUndefined()
+      expect(b.log.info).not.toHaveBeenCalledWith('TestBridge', expect.stringContaining('traceId='))
+    } finally { http.request = origRequest }
+  })
+
 describe('BasePythonBridge — stop()', () => {
   it('10. process=null 时直接返回', async () => {
     const b = createTestBridge()
@@ -304,7 +337,7 @@ describe('BasePythonBridge — 子类继承验证', () => {
     b._post = vi.fn(() => Promise.resolve({ ok: true }))
     await b.split('hello world')
     expect(b.ensureRunning).toHaveBeenCalled()
-    expect(b._post).toHaveBeenCalledWith('/v1/split', expect.any(String))
+    expect(b._post).toHaveBeenCalledWith('/v1/split', expect.any(String), undefined, undefined)
     const body = b._post.mock.calls[0][1]
     expect(JSON.parse(body).text).toBe('hello world')
   })
@@ -317,7 +350,7 @@ describe('BasePythonBridge — 子类继承验证', () => {
     b._post = vi.fn(() => Promise.resolve({ ok: true }))
     await b.optimize({ prompt: 'a cat' })
     expect(b.ensureRunning).toHaveBeenCalled()
-    expect(b._post).toHaveBeenCalledWith('/v1/optimize', expect.any(String))
+    expect(b._post).toHaveBeenCalledWith('/v1/optimize', expect.any(String), undefined, undefined)
     const body = b._post.mock.calls[0][1]
     expect(JSON.parse(body).prompt).toBe('a cat')
   })
