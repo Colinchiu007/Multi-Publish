@@ -247,6 +247,7 @@ class StageExecutor {
           const name = typeof image === 'object' ? image.name : ''
           return { index, text: name || ('图片 ' + (index + 1)), sourceImage: image }
         })
+        if (stage.onProgress) stage.onProgress({ percent: 100, message: '拆分为了 ' + scenes.length + ' 个场景' })
         return { success: true, output: { scenes, sentences: scenes } }
       }
       // 音频模式没有文案时，以每个用户音频建立一个场景；后续阶段会跳过 TTS。
@@ -262,6 +263,7 @@ class StageExecutor {
             sourceAudio: audio,
           }
         })
+        if (stage.onProgress) stage.onProgress({ percent: 100, message: '拆分为了 ' + scenes.length + ' 个场景' })
         return { success: true, output: { scenes, sentences: scenes } }
       }
       if (!text) {
@@ -309,6 +311,7 @@ class StageExecutor {
             };
           }
         }
+        if (stage.onProgress) stage.onProgress({ percent: 100, message: '拆分为了 ' + ((output && output.scenes) || (output && output.sentences) || []).length + ' 个场景' })
         return { success: true, output };
       }
       if (fallbackToLocal && isSplitterUnavailableError(result)) {
@@ -538,7 +541,9 @@ class StageExecutor {
 
       // 4. 逐平台发布（createPublisher + publisher.publish 模式）
       const results = [];
-      for (const platform of platforms) {
+      for (let _pubIdx = 0; _pubIdx < platforms.length; _pubIdx++) {
+        const platform = platforms[_pubIdx];
+        if (stage.onProgress) stage.onProgress({ percent: Math.round((_pubIdx) / platforms.length * 100), message: '正在发布到 ' + platform + ' (' + (_pubIdx + 1) + '/' + platforms.length + ')' });
         try {
           const publisher = router.createPublisher(platform, publishDeps);
           const task = {
