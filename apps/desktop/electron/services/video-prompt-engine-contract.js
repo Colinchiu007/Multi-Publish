@@ -9,17 +9,19 @@
  *   - 兼容后端（prompt-engine video 领域，8013）：/v1/optimize domain=video（未配置 VIDEO_PROMPT_PORT 或独立引擎
  *     不可用时回退；回退由 PromptBridge 记录 warning，本契约输出校验两者共用 extractOptimizedVideoPrompt）。
  *
- * ⚠️ 与图片提示词契约刻意分文件、分命名，避免混淆：
- *   - 图片提示词优化：prompt-engine-contract.js（domain=image，/v1/optimize 图片路径）
- *   - 视频提示词优化：本文件（domain=video，/v1/optimize 视频路径 + 结构化 video 字段）
+ * 结构（openspec change prompt-engine-kernel-refactor）：
+ *   - 领域中立逻辑（风格归一/敏感凭据守卫/中立 limits/fail-closed 核心 extractOptimizedBase）
+ *     来自共享内核 prompt-engine-kernel.js；⚠️ max_length 禁止借用 PROMPT_ENGINE_LIMITS.maxLength
+ *     （图片/8013 语义 [50,2000]），必须使用 VIDEO_ENGINE_LIMITS.videoMaxLengthRanges。
+ *   - 领域专属（平台/语言路由/字段收敛/画像/trailer）保留在本文件。
  *
- * 职责：
- *   - 视频平台枚举/别名归一（sora/kling/veo/... → 契约枚举，避免历史别名触发 422）
- *   - 视频优化请求构造（/v1/optimize domain=video 请求体，字段与边界对齐 prompt_engine/models.py）
- *   - 结构化 video 字段收敛（shot/camera/motion_intensity/scene_transition/continuity_token/duration_hint）
- *   - fail-closed 输出校验（error 优先 → 结构 → 内容，与图片契约语义一致）
- *   - 批量契约：/v1/optimize/batch 单批上限 20 条（prompt-engine BatchOptimizeRequest.max_length，2026-08-12 由 10 上调，
- *     服务端有界并发 8）；videogen 场景数 ≤12 单批通过，>20 由调用方分块兜底。
+ * 导演工作流（openspec change video-prompt-higgsfield-mechanics）：
+ *   - 双向约束字段收敛（excluded_characters / no_swap_pairs / color_ratio）+ 多切时间块（shots[]/beats[]）
+ *   - 收尾参数行 appendVideoTrailer + 平台参数画像（PLATFORM_VIDEO_PROFILES）
+ *   - 结构完整性 fail-closed 校验（声明排除/防替换但正文无引用协议标记 → 拒绝）
+ *   - 精修层 max_length 层级语义（按后端能力门控：8013 [50,2000] / 8020 [200,4000]）
+ *
+ * ⚠️ 与图片提示词契约刻意分文件、分命名，避免混淆（共享逻辑经 kernel）。
  */
 'use strict'
 
@@ -27,7 +29,9 @@ const {
   PROMPT_ENGINE_LIMITS,
   normalizePromptEngineStyle,
   assertNoSensitiveContext,
-} = require('./prompt-engine-contract')
+  clampNumber,
+  extractOptimizedBase,
+} = require('./prompt-engine-kernel')
 
 const VIDEO_PLATFORMS = Object.freeze(new Set([
   'sora', 'kling', 'veo', 'runway', 'wan', 'seedance', 'minimax',
@@ -68,10 +72,51 @@ const VIDEO_ENGINE_LIMITS = Object.freeze({
   // video-content-fidelity S4：context 白名单键与长度上限（对齐 prompt-engine OptimizeRequest.context 已知键）
   contextKeys: Object.freeze(['synopsis', 'character', 'setting', 'character_list', 'full_text']),
   contextKeyMax: Object.freeze({ synopsis: 500, character: 500, setting: 500, full_text: 2000, character_list: 10 }),
+  // 导演工作流（video-prompt-higgsfield-mechanics）：双向约束/多切时间块上限
+  excludedCharactersMax: 10,
+  noSwapPairsMax: 5,
+  shotsMax: 3,
+  beatsPerShotMax: 6,
+  beatTimeMax: 40,
+  beatActionMax: 500,
+  shotDurationMax: 15,
+  // 精修层预算目标值：引擎侧模型边界抬高（8013 le≥2000 或视频域专用、8020 le≥5000）后自动生效（tasks 4.4）。
+  // videoMaxLengthMax 为引擎侧边界抬高后的目标上限，当前未被直接引用（显式值一律被
+  // videoMaxLengthRanges 能力范围收敛），保留作跨仓库联调锚点。
+  videoMaxLengthRefinedDefault: 5000,
+  videoMaxLengthMax: 20000,
+  // 目标后端能力范围（防 422，评审 C1 证据）：8013 prompt_engine/models.py ge=50/le=2000；
+  // 8020 video_prompt_engine/models.py ge=200/le=4000
+  videoMaxLengthRanges: Object.freeze({
+    legacy: Object.freeze({ min: 50, max: 2000 }),
+    standalone: Object.freeze({ min: 200, max: 4000 }),
+  }),
 })
 
-function _clampNumber (value, min, max) {
-  return Math.min(max, Math.max(min, value))
+/**
+ * 引用协议标记集（结构完整性校验，可扩展）。
+ * 语料实证：引擎输出可能为 `<<<...>>>` 或 `[ABSENT] 角色名` 形态；大小写敏感。
+ */
+const VIDEO_REFERENCE_MARKERS = Object.freeze(['<<<', '[ABSENT]'])
+
+/**
+ * 平台参数画像（四键：duration/aspect/resolution/audio）。
+ * seedance 语料实证默认 15s/21:9/1080p/audio on；未登记平台回退 generic_video。
+ * 画像键 → appendVideoTrailer options 的类型映射（audio 布尔 → "SFX"/"No audio"）由调用方接线转换。
+ */
+const PLATFORM_VIDEO_PROFILES = Object.freeze({
+  seedance: Object.freeze({ duration: 15, aspect: '21:9', resolution: '1080p', audio: true }),
+  generic_video: Object.freeze({ duration: 15, aspect: '16:9', resolution: '1080p', audio: false }),
+})
+
+/**
+ * 查询平台参数画像；未登记平台（含归一后 generic_video）回退通用画像，不抛出。
+ * @param {unknown} platform
+ * @returns {{ duration: number, aspect: string, resolution: string, audio: boolean }}
+ */
+function getVideoProfile (platform) {
+  const normalized = normalizeVideoPlatform(platform)
+  return PLATFORM_VIDEO_PROFILES[normalized] || PLATFORM_VIDEO_PROFILES.generic_video
 }
 
 /**
@@ -100,27 +145,38 @@ function normalizeVideoPlatform (value) {
 function _normalizeVideoCreativeLevel (value) {
   const raw = Number(value)
   if (!Number.isFinite(raw)) return PROMPT_ENGINE_LIMITS.creativeLevel.default
-  return _clampNumber(raw, PROMPT_ENGINE_LIMITS.creativeLevel.min, PROMPT_ENGINE_LIMITS.creativeLevel.max)
+  return clampNumber(raw, PROMPT_ENGINE_LIMITS.creativeLevel.min, PROMPT_ENGINE_LIMITS.creativeLevel.max)
 }
 
-function _normalizeVideoMaxLength (value) {
-  const raw = Number(value)
-  if (!Number.isFinite(raw)) return PROMPT_ENGINE_LIMITS.maxLength.default
-  return _clampNumber(raw, PROMPT_ENGINE_LIMITS.maxLength.min, PROMPT_ENGINE_LIMITS.maxLength.max)
+/**
+ * 视频 max_length 层级语义（按后端能力门控，video-prompt-higgsfield-mechanics R6）：
+ *   - 显式传入（非 null/非空串/非纯空白/有限数值）→ 在后端能力范围 [range.min, range.max] 内收敛，始终优先；
+ *   - 未显式传（含 null/空串/纯空白串/非有限）→ creative_level ≥ 7 使用精修层默认 5000 并收敛到后端上限；
+ *     < 7 保持现有默认 500（零回归）。
+ * 禁止借用 PROMPT_ENGINE_LIMITS.maxLength（图片/8013 语义）。
+ * @param {unknown} explicit
+ * @param {number} creativeLevel - 已归一化（1-10）
+ * @param {{ min: number, max: number }} range - 目标后端能力范围
+ * @returns {number}
+ */
+function _resolveVideoMaxLength (explicit, creativeLevel, range) {
+  const isExplicit = explicit !== undefined && explicit !== null && explicit !== '' &&
+    !(typeof explicit === 'string' && !explicit.trim())
+  if (isExplicit) {
+    const raw = Number(explicit)
+    if (Number.isFinite(raw)) return clampNumber(raw, range.min, range.max)
+  }
+  if (creativeLevel >= 7) {
+    return Math.min(VIDEO_ENGINE_LIMITS.videoMaxLengthRefinedDefault, range.max)
+  }
+  return PROMPT_ENGINE_LIMITS.maxLength.default
 }
 
 function _normalizeVideoNumCandidates (value) {
   const raw = Number(value)
   if (!Number.isFinite(raw)) return PROMPT_ENGINE_LIMITS.numCandidates.default
-  return _clampNumber(raw, PROMPT_ENGINE_LIMITS.numCandidates.min, PROMPT_ENGINE_LIMITS.numCandidates.max)
+  return clampNumber(raw, PROMPT_ENGINE_LIMITS.numCandidates.min, PROMPT_ENGINE_LIMITS.numCandidates.max)
 }
-
-/**
- * 归一化视频优化 context（video-content-fidelity S4）：
- * 只保留白名单键，越界收敛；非对象/空返回 undefined。
- * @param {unknown} context
- * @returns {object | undefined}
- */
 
 /**
  * 内置 no-text 负面提示词（最高优先级）。
@@ -149,7 +205,7 @@ function normalizeVideoContext (context) {
 }
 
 /**
- * 构造视频领域 /v1/optimize 请求体（domain=video）。
+ * 构造视频领域 /v1/optimize 请求体（domain=video，8013 兼容后端）。
  * context 会发给外部服务：对象型上下文先过敏感凭据键拦截。
  * @param {string} prompt
  * @param {object} [options]
@@ -161,20 +217,19 @@ function buildVideoOptimizeRequest (prompt, options = {}) {
     ? Boolean(options.auto_detect_style)
     : (options.autoDetectStyle !== undefined ? Boolean(options.autoDetectStyle) : true)
 
+  const creativeLevel = _normalizeVideoCreativeLevel(options.creative_level ?? options.creativeLevel)
   const request = {
     prompt: String(prompt).trim(),
     // 本构造器即视频领域专用：未显式传 domain 时默认 video（显式 image 也按字段透传归一）
     domain: options.domain === undefined ? 'video' : normalizeVideoDomain(options.domain),
     platform: normalizeVideoPlatform(options.platform),
-    creative_level: _normalizeVideoCreativeLevel(
-      options.creative_level !== undefined ? options.creative_level : options.creativeLevel,
-    ),
-    max_length: _normalizeVideoMaxLength(
+    creative_level: creativeLevel,
+    max_length: _resolveVideoMaxLength(
       options.max_length !== undefined ? options.max_length : options.maxLength,
+      creativeLevel,
+      VIDEO_ENGINE_LIMITS.videoMaxLengthRanges.legacy,
     ),
-    num_candidates: _normalizeVideoNumCandidates(
-      options.num_candidates !== undefined ? options.num_candidates : options.numCandidates,
-    ),
+    num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }
 
   if (styleRaw) {
@@ -304,8 +359,8 @@ function _detectOutputLanguage (texts) {
 
 /**
  * 构造独立视频引擎（8020）请求体 — VideoOptimizeRequest（无 domain 字段）。
- * 平台/风格/边界收敛与 8013 共用同一归一化；output_language 解析：显式参数 → 目标平台集合
- * （国产模型 zh / 国外模型 en）→ model 关键词兜底 → 文本 CJK 自动检测。
+ * 平台/风格/边界收敛与 8013 共用同一归一化；max_length 按 8020 能力范围 [200,4000] 门控；
+ * output_language 解析：显式参数 → 目标平台集合（国产模型 zh / 国外模型 en）→ model 关键词兜底 → 文本 CJK 自动检测。
  * @param {string} prompt
  * @param {object} [options]
  * @returns {object}
@@ -315,19 +370,18 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
   const autoDetectStyle = options.auto_detect_style !== undefined
     ? Boolean(options.auto_detect_style)
     : (options.autoDetectStyle !== undefined ? Boolean(options.autoDetectStyle) : true)
+  const creativeLevel = _normalizeVideoCreativeLevel(options.creative_level ?? options.creativeLevel)
 
   const request = {
     prompt: String(prompt).trim(),
     platform: normalizeVideoPlatform(options.platform),
-    creative_level: _normalizeVideoCreativeLevel(
-      options.creative_level !== undefined ? options.creative_level : options.creativeLevel,
-    ),
-    max_length: _normalizeVideoMaxLength(
+    creative_level: creativeLevel,
+    max_length: _resolveVideoMaxLength(
       options.max_length !== undefined ? options.max_length : options.maxLength,
+      creativeLevel,
+      VIDEO_ENGINE_LIMITS.videoMaxLengthRanges.standalone,
     ),
-    num_candidates: _normalizeVideoNumCandidates(
-      options.num_candidates !== undefined ? options.num_candidates : options.numCandidates,
-    ),
+    num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }
 
   if (styleRaw) {
@@ -369,6 +423,8 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
 
 /**
  * 归一化响应中的 video 结构化字段；越界收敛、缺失给默认值。
+ * 导演工作流字段（video-prompt-higgsfield-mechanics）：excluded_characters / no_swap_pairs /
+ * color_ratio / shots[]（含 beats[]）——非法输入丢弃而非抛出，超限截断。
  * @param {unknown} raw
  * @returns {object | null}
  */
@@ -385,109 +441,246 @@ function normalizeVideoMeta (raw) {
   }
   const mi = Number(raw.motion_intensity)
   video.motion_intensity = Number.isFinite(mi)
-    ? _clampNumber(mi, VIDEO_ENGINE_LIMITS.motionIntensity.min, VIDEO_ENGINE_LIMITS.motionIntensity.max)
+    ? clampNumber(mi, VIDEO_ENGINE_LIMITS.motionIntensity.min, VIDEO_ENGINE_LIMITS.motionIntensity.max)
     : VIDEO_ENGINE_LIMITS.motionIntensity.default
   const dh = Number(raw.duration_hint)
   if (Number.isFinite(dh) && dh > 0) video.duration_hint = dh
+
+  const excluded = _normalizeExcludedCharacters(raw.excluded_characters)
+  if (excluded) video.excluded_characters = excluded
+  const swapPairs = _normalizeNoSwapPairs(raw.no_swap_pairs)
+  if (swapPairs) video.no_swap_pairs = swapPairs
+  const colorRatio = _normalizeColorRatio(raw.color_ratio)
+  if (colorRatio) video.color_ratio = colorRatio
+  const shots = _normalizeShots(raw.shots)
+  if (shots) video.shots = shots
+
   return video
 }
 
-/**
- * 公共校验核心：error → detail → optimized_prompt 非空 fail-closed（与图片契约语义一致）。
- * @param {unknown} result
- * @param {{ index?: number, maxLength?: number, warn?: (msg: string) => void }} [opts]
- * @returns {{ ok: true, prompt: string, meta: object, truncated: boolean } | { ok: false, error: string }}
- */
-function _extractVideoBase (result, opts = {}) {
-  const label = opts.index === undefined ? '' : '场景 ' + opts.index + ' '
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    return { ok: false, error: label + 'prompt-engine 返回了非法响应（非对象）' }
-  }
-
-  const error = result.error !== undefined && result.error !== null && result.error !== ''
-    ? String(result.error).trim()
-    : ''
-  if (error) {
-    return { ok: false, error: label + 'prompt-engine 视频优化失败: ' + error.slice(0, 500) }
-  }
-
-  const detail = result.detail !== undefined && result.detail !== null && result.detail !== ''
-    ? (Array.isArray(result.detail)
-        ? result.detail
-            .map(item => (item && typeof item === 'object' && typeof item.msg === 'string' ? item.msg : JSON.stringify(item)))
-            .join('; ')
-        : String(result.detail))
-    : ''
-  if (detail) {
-    return { ok: false, error: label + 'prompt-engine 请求被拒绝(422): ' + detail.slice(0, 500) }
-  }
-
-  if (typeof result.optimized_prompt !== 'string') {
-    return { ok: false, error: label + 'prompt-engine 返回缺少 optimized_prompt 字段' }
-  }
-
-  const prompt = result.optimized_prompt.trim()
-  if (!prompt) {
-    return { ok: false, error: label + 'prompt-engine 返回了空提示词' }
-  }
-
-  let finalPrompt = prompt
-  let truncated = false
-  const maxLength = Number(opts.maxLength)
-  if (Number.isFinite(maxLength)) {
-    const points = Array.from(finalPrompt)
-    if (points.length > maxLength) {
-      finalPrompt = points.slice(0, maxLength).join('')
-      truncated = true
-      if (typeof opts.warn === 'function') {
-        opts.warn(label + 'prompt-engine 结果超过 ' + maxLength + ' 字符，已截断')
-      }
+/** 去空白后按 trim 精确去重（大小写敏感，保留首次出现序）。 */
+function _dedupePreserveOrder (items) {
+  const seen = new Set()
+  const out = []
+  for (const item of items) {
+    if (!seen.has(item)) {
+      seen.add(item)
+      out.push(item)
     }
   }
+  return out
+}
 
-  const meta = {}
-  if (typeof result.platform === 'string') meta.platform = result.platform
-  if (typeof result.style === 'string') meta.style = result.style
-  if (typeof result.model_used === 'string') meta.model_used = result.model_used
-  if (typeof result.key_source === 'string') meta.key_source = result.key_source
+/**
+ * excluded_characters 收敛：兼容字符串（按 [\n;,]+ 分割）与字符串数组；
+ * 输出去空白、trim 后精确去重（大小写敏感）、上限 10；非法输入返回 undefined。
+ * @param {unknown} value
+ * @returns {string[] | undefined}
+ */
+function _normalizeExcludedCharacters (value) {
+  const names = typeof value === 'string'
+    ? value.split(/[\n;,]+/).map(s => s.trim()).filter(Boolean)
+    : (Array.isArray(value)
+        ? value.filter(item => typeof item === 'string').map(s => s.trim()).filter(Boolean)
+        : [])
+  if (names.length === 0) return undefined
+  return _dedupePreserveOrder(names).slice(0, VIDEO_ENGINE_LIMITS.excludedCharactersMax)
+}
 
-  return { ok: true, prompt: finalPrompt, meta, truncated }
+/**
+ * no_swap_pairs 收敛：每对为恰含两个非空字符串的二元组，任一元素非法整对丢弃；
+ * 上限 5，超限截断；非法输入返回 undefined。
+ * @param {unknown} value
+ * @returns {string[][] | undefined}
+ */
+function _normalizeNoSwapPairs (value) {
+  if (!Array.isArray(value)) return undefined
+  const pairs = []
+  for (const pair of value) {
+    if (!Array.isArray(pair) || pair.length !== 2) continue
+    const first = typeof pair[0] === 'string' ? pair[0].trim() : ''
+    const second = typeof pair[1] === 'string' ? pair[1].trim() : ''
+    if (!first || !second) continue
+    pairs.push([first, second])
+    if (pairs.length >= VIDEO_ENGINE_LIMITS.noSwapPairsMax) break
+  }
+  return pairs.length > 0 ? pairs : undefined
+}
+
+/**
+ * color_ratio 收敛：格式 ^\d{1,3}(:\d{1,3}){2}$ 且三段均为正整数；不匹配/缺失丢弃且不填充。
+ * @param {unknown} value
+ * @returns {string | undefined}
+ */
+function _normalizeColorRatio (value) {
+  if (typeof value !== 'string') return undefined
+  const parts = value.split(':')
+  if (parts.length !== 3) return undefined
+  if (!parts.every(part => /^\d{1,3}$/.test(part) && Number(part) > 0)) return undefined
+  return value
+}
+
+/**
+ * shots[] 收敛：每切需非空 shot/camera、正数 duration（超 15 clamp 而非丢弃）、
+ * beats 存在时须为数组；任一子字段非法整切丢弃；数组上限 3；全部非法不输出 shots 键。
+ * @param {unknown} value
+ * @returns {object[] | undefined}
+ */
+function _normalizeShots (value) {
+  if (!Array.isArray(value)) return undefined
+  const shots = []
+  for (const rawShot of value) {
+    if (!rawShot || typeof rawShot !== 'object' || Array.isArray(rawShot)) continue
+    const shot = typeof rawShot.shot === 'string' ? rawShot.shot.trim() : ''
+    const camera = typeof rawShot.camera === 'string' ? rawShot.camera.trim() : ''
+    const duration = Number(rawShot.duration)
+    if (!shot || !camera || !Number.isFinite(duration) || duration <= 0) continue
+    if (rawShot.beats !== undefined && !Array.isArray(rawShot.beats)) continue
+    const beats = _normalizeBeats(rawShot.beats)
+    const normalized = {
+      shot: shot.slice(0, VIDEO_ENGINE_LIMITS.shotMax),
+      camera: camera.slice(0, VIDEO_ENGINE_LIMITS.cameraMax),
+      duration: clampNumber(duration, 1, VIDEO_ENGINE_LIMITS.shotDurationMax),
+    }
+    if (beats && beats.length > 0) normalized.beats = beats
+    shots.push(normalized)
+    if (shots.length >= VIDEO_ENGINE_LIMITS.shotsMax) break
+  }
+  return shots.length > 0 ? shots : undefined
+}
+
+/**
+ * beats[] 收敛：time/action 任一为空即非法先丢弃，再取前 6 条；每项 time ≤40、action ≤500。
+ * @param {unknown} value
+ * @returns {object[] | undefined}
+ */
+function _normalizeBeats (value) {
+  if (!Array.isArray(value)) return undefined
+  const beats = []
+  for (const rawBeat of value) {
+    if (!rawBeat || typeof rawBeat !== 'object' || Array.isArray(rawBeat)) continue
+    const time = typeof rawBeat.time === 'string' ? rawBeat.time.trim() : ''
+    const action = typeof rawBeat.action === 'string' ? rawBeat.action.trim() : ''
+    if (!time || !action) continue
+    beats.push({
+      time: time.slice(0, VIDEO_ENGINE_LIMITS.beatTimeMax),
+      action: action.slice(0, VIDEO_ENGINE_LIMITS.beatActionMax),
+    })
+    if (beats.length >= VIDEO_ENGINE_LIMITS.beatsPerShotMax) break
+  }
+  return beats.length > 0 ? beats : undefined
+}
+
+/**
+ * 收尾参数行（可选能力，默认不改变既有输出；调用方显式启用）。
+ * 语义：`Photoreal. NON-IP. {aspect}. {duration}s. {audio} only.`；
+ * aspect 默认 "16:9"、duration 默认 15、audio 默认 "SFX"、nonIp 默认 true。
+ * 幂等：提示词已含 "NON-IP" 不重复追加；不修改原始 prompt。
+ * 超长：按模板段从尾部丢弃可选段（保留 Photoreal./NON-IP. 段），再从头部截断 prompt 至预算内。
+ * @param {string} src
+ * @param {{ aspect?: string, duration?: number, audio?: string, nonIp?: boolean, maxLength?: number }} [options]
+ * @returns {string}
+ */
+function appendVideoTrailer (src, options = {}) {
+  const source = String(src || '')
+  if (source.includes('NON-IP')) return source
+
+  const aspect = typeof options.aspect === 'string' && options.aspect.trim() ? options.aspect.trim() : '16:9'
+  const durationRaw = Number(options.duration)
+  const duration = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : 15
+  const audio = typeof options.audio === 'string' && options.audio.trim() ? options.audio.trim() : 'SFX'
+  const nonIp = options.nonIp !== undefined ? Boolean(options.nonIp) : true
+
+  const essential = ['Photoreal.', ...(nonIp ? ['NON-IP.'] : [])].join(' ')
+  const optional = [aspect + '.', duration + 's.', audio + ' only.']
+
+  const maxLength = Number(options.maxLength)
+  if (Number.isFinite(maxLength)) {
+    // 截断形态：仅保留能完整放入预算的模板段（保证 NON-IP 段保留），
+    // 最后一段去掉句点，保证以 NON-IP 结尾且无残缺模板段
+    const kept = [...essential.split(' ')]
+    for (const segment of optional) {
+      const candidate = [...kept, segment].join(' ')
+      if (source.length + 1 + candidate.length <= maxLength) kept.push(segment)
+    }
+    const lastSegment = kept[kept.length - 1]
+    const trailer = (lastSegment && lastSegment.endsWith('.')
+      ? kept.slice(0, -1).concat(lastSegment.slice(0, -1))
+      : kept
+    ).join(' ')
+    const budget = maxLength - 1 - trailer.length
+    const sourcePart = budget > 0 ? source.slice(-budget) : ''
+    return (sourcePart + ' ' + trailer).trim()
+  }
+
+  return source + ' ' + [essential, ...optional].join(' ')
+}
+
+/**
+ * 导演工作流结构完整性校验：声明 excluded_characters/no_swap_pairs 非空时，
+ * 截断前 optimized_prompt 必须包含引用协议标记（<<< / [ABSENT]，大小写敏感，见 VIDEO_REFERENCE_MARKERS）。
+ * 校验基于截断前原文，避免 maxLength 截断削掉尾部标记导致合法响应误报。
+ * @param {unknown} result
+ * @param {object | null} video - 已归一化的 video meta
+ * @param {{ index?: number }} [opts]
+ * @returns {string | null} 错误信息；通过返回 null
+ */
+function _assertReferenceProtocol (result, video, opts = {}) {
+  if (!video) return null
+  const declared = []
+  if (Array.isArray(video.excluded_characters) && video.excluded_characters.length > 0) declared.push('excluded_characters')
+  if (Array.isArray(video.no_swap_pairs) && video.no_swap_pairs.length > 0) declared.push('no_swap_pairs')
+  if (declared.length === 0) return null
+  const rawPrompt = result && typeof result === 'object' && typeof result.optimized_prompt === 'string'
+    ? result.optimized_prompt
+    : ''
+  const hasMarker = VIDEO_REFERENCE_MARKERS.some(marker => rawPrompt.includes(marker))
+  if (hasMarker) return null
+  const label = opts.index === undefined ? '' : '场景 ' + opts.index + ' '
+  return label + '视频优化响应声明了 ' + declared.join(' / ') + ' 但正文未包含引用协议标记（' + VIDEO_REFERENCE_MARKERS.join(' / ') + '）'
 }
 
 /**
  * 从 PromptBridge 响应提取视频优化结果并做 fail-closed 校验。
- * 额外收敛 video 结构化字段（motion_intensity 越界收敛，缺失可选字段默认填充）。
+ * 共享内核 base（error → detail → 空串 → maxLength 截断，engineLabel=视频 保留既有文案）
+ * + 导演工作流完整性校验（基于截断前文本）+ video 结构化字段收敛（越界收敛/缺失默认）。
  *
  * @param {unknown} result - PromptBridge._post 的解析结果
  * @param {{ index?: number, maxLength?: number, warn?: (msg: string) => void }} [opts]
  * @returns {{ ok: true, prompt: string, meta: object, video: object | null, truncated: boolean } | { ok: false, error: string }}
  */
 function extractOptimizedVideoPrompt (result, opts = {}) {
-  const base = _extractVideoBase(result, opts)
+  const base = extractOptimizedBase(result, { ...opts, engineLabel: '视频' })
   if (!base.ok) return base
   const video = normalizeVideoMeta(result && typeof result === 'object' ? result.video : undefined)
+  const integrityError = _assertReferenceProtocol(result, video, opts)
+  if (integrityError) return { ok: false, error: integrityError }
   const meta = { ...base.meta }
   if (video) meta.video = video
   return { ok: true, prompt: base.prompt, meta, video, truncated: base.truncated }
 }
 
 module.exports = {
-  BUILT_IN_VIDEO_NO_TEXT_NEGATIVE,
   VIDEO_PLATFORMS,
   VIDEO_PLATFORM_ALIASES,
   DEFAULT_VIDEO_PLATFORM,
   VIDEO_ENGINE_LIMITS,
+  VIDEO_REFERENCE_MARKERS,
+  PLATFORM_VIDEO_PROFILES,
+  BUILT_IN_VIDEO_NO_TEXT_NEGATIVE,
+  VIDEO_PLATFORM_LANGUAGE,
+  MODEL_LANGUAGE_KEYWORDS,
   normalizeVideoDomain,
   normalizeVideoPlatform,
+  normalizeVideoContext,
+  normalizeVideoMeta,
+  getVideoProfile,
+  appendVideoTrailer,
+  languageFromVideoPlatform,
+  languageFromVideoModel,
   buildVideoOptimizeRequest,
   buildStandaloneVideoOptimizeRequest,
   isStandaloneVideoEngineEnabled,
   getStandaloneVideoEngineTarget,
-  VIDEO_PLATFORM_LANGUAGE,
-  MODEL_LANGUAGE_KEYWORDS,
-  languageFromVideoPlatform,
-  languageFromVideoModel,
-  normalizeVideoContext,
-  normalizeVideoMeta,
   extractOptimizedVideoPrompt,
 }

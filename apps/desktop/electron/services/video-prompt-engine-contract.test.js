@@ -234,7 +234,7 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
       expect(req.domain).toBeUndefined()
       expect(req.platform).toBe('veo')
       expect(req.creative_level).toBe(10)
-      expect(req.max_length).toBe(50)
+      expect(req.max_length).toBe(200) // 8020 ge=200，旧断言 50 会在引擎侧 422（评审 W1 修正）
       expect(req.num_candidates).toBe(1)
     })
 
@@ -437,5 +437,238 @@ describe('独立引擎语言路由（按目标平台，2026-08-12 增强）', ()
     expect(languageFromVideoModel('runway-gen4')).toBe('en')
     expect(languageFromVideoModel('MiniMax-M2.7')).toBe('zh')
     expect(languageFromVideoModel('')).toBe('')
+  })
+})
+
+describe('导演工作流字段收敛（video-prompt-higgsfield-mechanics）', () => {
+  it('excluded_characters：去空白/大小写敏感去重/空串剔除', () => {
+    const out = normalizeVideoMeta({ excluded_characters: ['JAX', ' jax ', ''] })
+    expect(out.excluded_characters).toEqual(['JAX', 'jax'])
+  })
+
+  it('excluded_characters：字符串按 [\\n;,]+ 分割兼容', () => {
+    const out = normalizeVideoMeta({ excluded_characters: 'JAX, Rein; JAX\nROKO' })
+    expect(out.excluded_characters).toEqual(['JAX', 'Rein', 'ROKO'])
+  })
+
+  it('excluded_characters：对象非法丢弃、超限截断', () => {
+    expect(normalizeVideoMeta({ excluded_characters: { a: 1 } }).excluded_characters).toBeUndefined()
+    const many = normalizeVideoMeta({ excluded_characters: Array.from({ length: 15 }, (_, i) => 'C' + i) })
+    expect(many.excluded_characters).toHaveLength(10)
+  })
+
+  it('no_swap_pairs：合法对透传', () => {
+    const out = normalizeVideoMeta({ no_swap_pairs: [['ROKO', 'JAX']] })
+    expect(out.no_swap_pairs).toEqual([['ROKO', 'JAX']])
+  })
+
+  it('no_swap_pairs：任一元素非法整对丢弃', () => {
+    const out = normalizeVideoMeta({ no_swap_pairs: [['ROKO', 123], ['ROKO'], ['A', 'B']] })
+    expect(out.no_swap_pairs).toEqual([['A', 'B']])
+  })
+
+  it('no_swap_pairs：超限截断到 5', () => {
+    const out = normalizeVideoMeta({ no_swap_pairs: Array.from({ length: 8 }, (_, i) => ['A' + i, 'B' + i]) })
+    expect(out.no_swap_pairs).toHaveLength(5)
+  })
+
+  it('color_ratio：合法格式透传', () => {
+    expect(normalizeVideoMeta({ color_ratio: '60:30:10' }).color_ratio).toBe('60:30:10')
+    expect(normalizeVideoMeta({ color_ratio: '999:1:7' }).color_ratio).toBe('999:1:7')
+  })
+
+  it('color_ratio：非法格式丢弃且缺失不填充', () => {
+    expect(normalizeVideoMeta({ color_ratio: 'abc' }).color_ratio).toBeUndefined()
+    expect(normalizeVideoMeta({ color_ratio: '60:30:10:5' }).color_ratio).toBeUndefined()
+    expect(normalizeVideoMeta({ color_ratio: '0:30:10' }).color_ratio).toBeUndefined()
+    expect(normalizeVideoMeta({ color_ratio: '60:0:10' }).color_ratio).toBeUndefined()
+    expect(normalizeVideoMeta({}).color_ratio).toBeUndefined()
+  })
+
+  it('shots[]：合法多切与 beats 透传', () => {
+    const shots = [
+      { shot: 'wide', camera: 'push_in', duration: 5, beats: [{ time: '0.0-1.0s', action: 'A enters' }] },
+      { shot: 'close_up', camera: 'static', duration: 10, beats: [{ time: 'BEAT 1 (0-1s)', action: 'B reacts' }] },
+    ]
+    const out = normalizeVideoMeta({ shots })
+    expect(out.shots).toEqual(shots)
+  })
+
+  it('shots[]：超 3 切截断、duration 超限 clamp 15', () => {
+    const shots = Array.from({ length: 5 }, (_, i) => ({ shot: 'wide', camera: 'static', duration: 20, beats: [] }))
+    const out = normalizeVideoMeta({ shots })
+    expect(out.shots).toHaveLength(3)
+    expect(out.shots[0].duration).toBe(15)
+  })
+
+  it('shots[]：beats 先丢非法再取前 6', () => {
+    const beats = [
+      { time: '0-1s', action: 'a' },
+      { time: '1-2s', action: '' },
+      { time: '2-3s', action: 'b' },
+      { time: '3-4s', action: 'c' },
+      { time: '4-5s', action: 'd' },
+      { time: '5-6s', action: 'e' },
+      { time: '6-7s', action: 'f' },
+    ]
+    const out = normalizeVideoMeta({ shots: [{ shot: 'wide', camera: 'static', duration: 7, beats }] })
+    expect(out.shots[0].beats).toHaveLength(6)
+    expect(out.shots[0].beats[0].action).toBe('a')
+    expect(out.shots[0].beats.map(b => b.action)).not.toContain('')
+  })
+
+  it('shots[]：单切局部非法整切丢弃、全非法无键', () => {
+    const out1 = normalizeVideoMeta({ shots: [{ shot: '', camera: 'static', duration: 5, beats: [] }, { shot: 'wide', camera: 'pan', duration: 3, beats: [] }] })
+    expect(out1.shots).toHaveLength(1)
+    expect(out1.shots[0].camera).toBe('pan')
+    const out2 = normalizeVideoMeta({ shots: [{ shot: 'wide', duration: 5, beats: [] }, { shot: 'x', camera: 'y', beats: 'bad' }] })
+    expect(out2.shots).toBeUndefined()
+  })
+
+  it('shots[]：非法切不占 3 切上限（第 2 非法仍保留 1/3/4 切）', () => {
+    const shots = [
+      { shot: 'wide', camera: 'static', duration: 3, beats: [] },
+      { shot: '', camera: 'pan', duration: 4, beats: [] },
+      { shot: 'close_up', camera: 'push_in', duration: 5, beats: [] },
+      { shot: 'aerial', camera: 'drone', duration: 6, beats: [] },
+    ]
+    const out = normalizeVideoMeta({ shots })
+    expect(out.shots.map(s => s.shot)).toEqual(['wide', 'close_up', 'aerial'])
+  })
+
+  it('shots[]：duration 非数字/0/负数整切丢弃', () => {
+    const out = normalizeVideoMeta({ shots: [
+      { shot: 'a', camera: 'static', duration: 'abc', beats: [] },
+      { shot: 'b', camera: 'static', duration: 0, beats: [] },
+      { shot: 'c', camera: 'static', duration: -1, beats: [] },
+      { shot: 'd', camera: 'pan', duration: 2, beats: [] },
+    ] })
+    expect(out.shots).toHaveLength(1)
+    expect(out.shots[0].shot).toBe('d')
+  })
+
+  it('shots[]：beats 非对象元素丢弃，不中断整切', () => {
+    const out = normalizeVideoMeta({ shots: [{
+      shot: 'wide',
+      camera: 'static',
+      duration: 5,
+      beats: ['junk', null, 42, { time: '0-1s', action: 'ok' }],
+    }] })
+    expect(out.shots[0].beats).toEqual([{ time: '0-1s', action: 'ok' }])
+  })
+
+  it('零回归：无新字段时输出与既有字段一致', () => {
+    const out = normalizeVideoMeta({ shot: 'wide', camera: 'drone', motion_intensity: 7, scene_transition: 'cut', continuity_token: 'tok', duration_hint: 5 })
+    expect(Object.keys(out).sort()).toEqual(['camera', 'continuity_token', 'duration_hint', 'motion_intensity', 'scene_transition', 'shot'])
+  })
+})
+
+describe('appendVideoTrailer 与平台画像', () => {
+  const { PLATFORM_VIDEO_PROFILES, getVideoProfile, appendVideoTrailer } = require('./video-prompt-engine-contract')
+
+  it('seedance 画像四键', () => {
+    expect(PLATFORM_VIDEO_PROFILES.seedance).toEqual({ duration: 15, aspect: '21:9', resolution: '1080p', audio: true })
+  })
+
+  it('未登记平台回退 generic 四键', () => {
+    expect(getVideoProfile('not-a-platform')).toEqual({ duration: 15, aspect: '16:9', resolution: '1080p', audio: false })
+  })
+
+  it('默认参数行追加且原字符串不可变', () => {
+    const src = 'A hero walks.'
+    const out = appendVideoTrailer(src, {})
+    expect(out).toBe('A hero walks. Photoreal. NON-IP. 16:9. 15s. SFX only.')
+    expect(src).toBe('A hero walks.')
+  })
+
+  it('options 覆盖 aspect/duration/audio/nonIp', () => {
+    const out = appendVideoTrailer('x', { aspect: '21:9', duration: 10, audio: 'Music', nonIp: false })
+    expect(out).toContain('Photoreal. 21:9. 10s. Music only.')
+    expect(out).not.toContain('NON-IP')
+  })
+
+  it('幂等：已含 NON-IP 不重复追加', () => {
+    const src = 'A hero walks. Photoreal. NON-IP. 16:9. 15s. SFX only.'
+    expect(appendVideoTrailer(src, {})).toBe(src)
+  })
+
+  it('超长截断保 NON-IP 无残缺段', () => {
+    const out = appendVideoTrailer('x'.repeat(95), { maxLength: 100 })
+    expect(out.endsWith('NON-IP')).toBe(true)
+    expect(out).not.toMatch(/\{\w+\}/)
+    expect(out).not.toMatch(/\d+s\.\s*$/)
+  })
+})
+
+describe('结构完整性校验（截断前）', () => {
+  it('声明 excluded_characters 但正文无标记 → 失败', () => {
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: 'JAX stands alone', video: { excluded_characters: ['JAX'] } })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('excluded_characters')
+  })
+
+  it('仅声明 no_swap_pairs 同样校验', () => {
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: 'plain text', video: { no_swap_pairs: [['ROKO', 'JAX']] } })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('no_swap_pairs')
+  })
+
+  it('声明与正文一致（[ABSENT] 标记）→ 通过', () => {
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: 'hero walks. [ABSENT] JAX stays off-frame', video: { excluded_characters: ['JAX'] } })
+    expect(r.ok).toBe(true)
+    expect(r.video.excluded_characters).toEqual(['JAX'])
+  })
+
+  it('超长截断不误杀：标记在截断区外，校验基于截断前文本', () => {
+    const prompt = 'a'.repeat(79) + ' [ABSENT] JAX'
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: prompt, video: { excluded_characters: ['JAX'] } }, { maxLength: 80 })
+    expect(r.ok).toBe(true)
+    expect(r.prompt.length).toBe(80)
+    expect(r.truncated).toBe(true)
+    expect(r.prompt).not.toContain('[ABSENT]')
+  })
+
+  it('未声明新字段零回归：无标记也通过', () => {
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: 'plain prompt without markers' })
+    expect(r.ok).toBe(true)
+  })
+})
+
+describe('精修层 max_length 层级语义（R6，按后端能力门控）', () => {
+  it('8013：creative_level ≥ 7 未显式传 → 收敛到能力上限 2000', () => {
+    const req = buildVideoOptimizeRequest('director shot', { creative_level: 8 })
+    expect(req.max_length).toBe(2000)
+  })
+
+  it('8020：creative_level ≥ 7 未显式传 → 收敛到能力上限 4000', () => {
+    const req = buildStandaloneVideoOptimizeRequest('director shot', { creative_level: 8 })
+    expect(req.max_length).toBe(4000)
+  })
+
+  it('creative_level < 7 未显式传 → 保持 500（双后端零回归）', () => {
+    expect(buildVideoOptimizeRequest('a cat', { creative_level: 5 }).max_length).toBe(500)
+    expect(buildStandaloneVideoOptimizeRequest('a cat', { creative_level: 5 }).max_length).toBe(500)
+  })
+
+  it('显式值优先于层级默认（8013 能力范围内）', () => {
+    const req = buildVideoOptimizeRequest('x', { creative_level: 9, max_length: 1500 })
+    expect(req.max_length).toBe(1500)
+  })
+
+  it('显式值超上限收敛（8013 → 2000 / 8020 → 4000）', () => {
+    expect(buildVideoOptimizeRequest('x', { max_length: 99999 }).max_length).toBe(2000)
+    expect(buildVideoOptimizeRequest('x', { max_length: 3000 }).max_length).toBe(2000)
+    expect(buildStandaloneVideoOptimizeRequest('x', { max_length: 99999 }).max_length).toBe(4000)
+  })
+
+  it('8020 min 边界修复：显式 10 → 200（8020 ge=200）', () => {
+    expect(buildStandaloneVideoOptimizeRequest('x', { max_length: 10 }).max_length).toBe(200)
+  })
+
+  it('null/空串/纯空白视为未显式传（精修层默认生效）', () => {
+    expect(buildVideoOptimizeRequest('x', { creative_level: 8, max_length: null }).max_length).toBe(2000)
+    expect(buildVideoOptimizeRequest('x', { creative_level: 8, max_length: '' }).max_length).toBe(2000)
+    expect(buildVideoOptimizeRequest('x', { creative_level: 8, max_length: '  ' }).max_length).toBe(2000)
+    expect(buildStandaloneVideoOptimizeRequest('x', { creative_level: 8, max_length: '  ' }).max_length).toBe(4000)
   })
 })

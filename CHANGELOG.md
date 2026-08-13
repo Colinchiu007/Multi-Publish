@@ -1,3 +1,11 @@
+## [2026-08-14] 提示词引擎共享内核重构 + Higgsfield 导演工作流机制落地（prompt-engine-kernel-refactor + video-prompt-higgsfield-mechanics，PR #793）
+
+- 新增共享内核 `apps/desktop/electron/services/prompt-engine-kernel.js`：风格归一、敏感凭据守卫、中立 limits、clampNumber、fail-closed 核心 extractOptimizedBase（可选 engineLabel 保留领域失败文案）；图片契约 re-export 公共 API 零变化；视频契约改从 kernel 引入，不再借用图片 maxLength 语义（videoMaxLengthRanges 承接）。
+- 视频契约新增导演工作流能力（Higgsfield 语料实证落地）：双向约束字段收敛（excluded_characters 兼容字符串/数组、no_swap_pairs 整对校验、color_ratio 三段正整数格式）、多切时间块（shots[] ≤3 切、duration 正数 clamp 15、beats[] 先丢非法再取前 6）、收尾参数行 appendVideoTrailer（幂等 + 超长保 NON-IP 段）+ 平台画像 PLATFORM_VIDEO_PROFILES、结构完整性 fail-closed 校验（声明 excluded_characters/no_swap_pairs 但正文无 <<< / [ABSENT] 标记 → 拒绝，基于截断前文本防误杀）。
+- 精修层 max_length 按后端能力门控（双模型评审 C1 修正）：8013 [50,2000] / 8020 [200,4000] 防 422；creative_level ≥ 7 未显式传 → 收敛到能力上限（2000/4000），< 7 保持 500 零回归；显式值优先、null/空串/纯空白视为未显式传；8020 显式 min 修复 50→200。
+- 双模型评审：Claude 0 Critical / 1 Warning（纯空白 max_length 已修复）/ 7 Info（记录对齐：trailer 超预算语义、标记跨仓库对齐、R6 测试耦合引擎能力等）；评审补 3 组边界测试（非法切不占位/duration 非法/beats 非对象）+ W1 用例。
+- 测试：kernel 12 + 图片/视频契约 103 + prompt-bridge/story2video-stages/text-config 158 + stage-executor 64 + story2video 全量 244 全绿；QM-1 electron-builder exit 0 + asar 含 kernel + 8s 启动存活 stderr 干净。
+- 文档：01-docs/HELL-GRIND-OPENSOURCE-ANALYSIS-DEEP-2026-08-14.md（语料实证报告）；OpenSpec 双 change（kernel-refactor + higgsfield-mechanics）；跨仓库联调（prompt-engine 侧输出新字段/evaluator 层级长度）挂起 tasks 4.4。
 ## [2026-08-14] fix(test): views-deep2 补全 @/api/publisher mock 的 onPipelineUpdate（解除 CI 必红，PR #788）
 
 - 根因：PR #770（240fe9b3）新增 `publisher.onPipelineUpdate` 并在 `CreateView.vue` async mounted 调用，未同步 `views-deep2.test.js` 的 `vi.mock` factory；`--no-file-parallelism` 下表现为运行尾部 3 个 unhandled rejection，electron-tests 与 QG 4 个 job 必红（main@240fe9b3 自身同样失败）。
@@ -4225,6 +4233,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

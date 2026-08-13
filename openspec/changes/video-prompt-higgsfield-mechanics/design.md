@@ -2,7 +2,7 @@
 
 见 proposal.md（Why）与 `01-docs/HELL-GRIND-OPENSOURCE-ANALYSIS-DEEP-2026-08-14.md`（语料实证）。约束与现状：
 
-- 契约层 `apps/desktop/electron/services/video-prompt-engine-contract.js`：`normalizeVideoMeta`（L375-406）已收敛 8 个结构化字段（shot/camera/motion_intensity/scene_transition/continuity_token/duration_hint/positive_constraints/final_frame）；`VIDEO_ENGINE_LIMITS`（L61-73）定义上限；`_extractVideoBase`（L414-468）做 fail-closed 基础校验与 maxLength 截断；`extractOptimizedVideoPrompt`（L478-485）合并 video meta；`buildVideoOptimizeRequest`（L174-176）默认 `max_length=500`。
+- 契约层 `apps/desktop/electron/services/video-prompt-engine-contract.js`：`normalizeVideoMeta`（L375-393）已收敛 6 个结构化字段（shot/camera/motion_intensity/scene_transition/continuity_token/duration_hint；注：positive_constraints/final_frame 属未合入 main 的旧分支能力，评审 I1 修正）；`VIDEO_ENGINE_LIMITS`（L61-73）定义上限；`_extractVideoBase`（L401-455）做 fail-closed 基础校验与 maxLength 截断；`extractOptimizedVideoPrompt`（L465-472）合并 video meta；`buildVideoOptimizeRequest`（L158-206）默认 `max_length=500`。
 - 消费方：`story2video-stages.js` 经 PromptBridge 调用；测试 `video-prompt-engine-contract.test.js` 已覆盖现有字段收敛与 fail-closed。
 - 外部引擎：prompt-engine（`D:\Data\projects\prompt-engine`，8020/8013 双后端）负责提示词生成；`evaluator.py` 长度判据 100-400 词与精修模板冲突属引擎侧问题，本 change 不规格化跨仓库代码，只声明联调验收。
 
@@ -42,9 +42,9 @@
 v2.0 报告与早期 proposal 草案写"color_ratio 默认 60:30:10"，与 spec 的"缺失不填充"冲突（评审 C1）。裁决：**默认值落在引擎侧**（prompt-engine generic_video.py 在精修层输出 60:30:10），契约层只做格式校验与透传——保持"无新字段零回归"承诺（旧响应不会凭空多出 color_ratio 键），且契约层不承担内容决策。
 **备选**：契约层填充默认——违反零回归，旧响应多键。**采纳 D5**。
 
-### D6: 精修层 max_length 由契约层按 creative_level 上浮默认
-请求侧默认 `max_length=500`（字符）会从源头压制导演级输出（评审 W1）。`creative_level ≥ 7` 且调用方未显式传值时默认 5000（上限 20000）；`< 7` 保持 500 零回归。显式传值始终优先。
-**备选 A**：契约层不处理、只记录缺口——导演级输出在默认路径仍不可达，change 核心价值打折。**备选 B**：全部层级统一上浮默认——改变现有行为，回归面大。**采纳 D6**（仅精修层，范围最小）。
+### D6: 精修层 max_length 由契约层按 creative_level 上浮默认，并按后端能力范围门控（实现前双模型评审 C1/C2 修正）
+请求侧默认 `max_length=500`（字符）会从源头压制导演级输出。`creative_level ≥ 7` 且调用方未显式传值时使用精修层默认 5000，并**按目标后端能力上限收敛**：8013 兼容后端（`buildVideoOptimizeRequest`）能力范围 [50, 2000]（`prompt_engine/models.py` ge=50/le=2000，直发 5000 必 422）；8020 独立引擎（`buildStandaloneVideoOptimizeRequest`）能力范围 [200, 4000]（`video_prompt_engine/models.py` ge=200/le=4000）。因此 8013 精修层默认实际为 2000、8020 为 4000；`< 7` 保持 500 零回归。显式传值始终优先并在能力范围收敛；`null`/空串视为未显式传（与 PromptBridge 归一一致）。8020 路径显式 min 由 50 修正为 200（修复既有 `maxLength:10 → 50` 低于引擎 ge=200 的 422 隐患）。精修层目标上限（默认 5000 / 上限 20000）在引擎侧模型边界抬高后自动生效（tasks 4.4）。
+**备选 A**：契约层不处理、只记录缺口——导演级输出在默认路径仍不可达。**备选 B**：全部层级统一上浮默认——改变现有行为，回归面大。**备选 C**：按 spec 原值 5000/20000 直发——8013/8020 当前模型边界均 422（评审 C1 证据）。**采纳 D6 修正版**（能力门控，仅精修层、线上可达）。
 
 ### D7: trailer 模板不包含 `No {text}.` 段
 语料样本参数行含 `NO words, NO music` 等，但契约模板只保留 `NON-IP/{aspect}/{duration}/{audio}` 四段：no-text 约束已由既有 `BUILT_IN_VIDEO_NO_TEXT_NEGATIVE` 负面提示词（契约层 L129+）统一承载，模板重复会与用户自定义负面词竞争。
@@ -56,14 +56,14 @@ v2.0 报告与早期 proposal 草案写"color_ratio 默认 60:30:10"，与 spec 
 - [完整性校验误杀（引擎输出合法但无标记）] → 宽松标记集 + 仅在声明字段非空时触发 + 基于截断前文本；若线上出现误报，标记集可扩展（常量区配置）。
 - [跨仓库联调延迟（引擎侧 evaluator/输出字段未同步）] → 本 change 的契约层测试用本地构造响应（stub）覆盖，不依赖真实引擎；引擎侧 change 就绪后补真实联调（tasks 记录验收项）。
 - [maxLength 截断与收尾参数行冲突] → `appendVideoTrailer` 在截断后追加；超限时按模板段从尾部截断但保留 NON-IP 段（spec R3 场景 3 已固化）。
-- [精修层 max_length 上浮放大下游成本] → 仅 creative_level ≥ 7 且未显式传值时生效；显式传值优先，调用方（videogen/story2video）可自行收紧。
+- [精修层 max_length 上浮放大下游成本] → 仅 creative_level ≥ 7 且未显式传值时生效，且按后端能力上限收敛（8013≤2000 / 8020≤4000）；显式传值优先，调用方（videogen/story2video）可自行收紧。
 
 ## Migration Plan
 
 1. 契约层新增常量与字段收敛 + 测试（纯增量，可独立合入 codex/ 分支）。
 2. `appendVideoTrailer` + 画像常量（默认未启用，零行为变化）。
 3. 完整性校验接入 `extractOptimizedVideoPrompt`（仅新字段触发，基于截断前文本）。
-4. `buildVideoOptimizeRequest` 增加 creative_level ≥ 7 的 max_length 上浮（< 7 零回归）。
+4. 双 builder（`buildVideoOptimizeRequest` 8013 / `buildStandaloneVideoOptimizeRequest` 8020）增加 creative_level ≥ 7 的 max_length 能力门控上浮（< 7 零回归；8020 显式 min 修正 200）。
 5. prompt-engine 仓库另建 change 输出新字段（含 color_ratio 60:30:10 默认）与 evaluator 层级长度+规则违规扣分；联调：真实 8020 返回含新字段 → 契约层通过；evaluator 精修层长模板得分不再因长度硬扣、违规项正确扣分。
 6. 回滚：契约层改动为纯增量，移除新字段收敛与 max_length 上浮即可回滚；trailer 未启用无回滚面。
 

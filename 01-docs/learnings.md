@@ -1,3 +1,12 @@
+## 提示词引擎共享内核重构 + Higgsfield 机制复盘（prompt-engine-kernel-refactor + video-prompt-higgsfield-mechanics，2026-08-14）
+
+- **交付**：新增 `prompt-engine-kernel.js`（领域中立共享内核：风格归一/敏感守卫/中立 limits/clampNumber/extractOptimizedBase），图片契约 re-export 公共 API 零变化，视频契约改从 kernel 引入并用 `extractOptimizedBase` 替换本地 `_extractVideoBase`（engineLabel='视频' 保留既有失败文案）；视频契约新增导演工作流（excluded_characters/no_swap_pairs/color_ratio/shots[]/beats[]/appendVideoTrailer/平台画像/结构完整性校验）与精修层 max_length 按后端能力门控（8013 [50,2000] / 8020 [200,4000]）。双模型评审 0C/1W/7I，W 已修复；测试 566 全绿；QM-1 打包 + 启动验证通过。
+- **教训 1（共享层必须区分「领域中立内核」与「领域能力边界」）**：视频契约此前从图片契约借用 `PROMPT_ENGINE_LIMITS.maxLength`（min 50/max 2000 是图片/8013 语义），Higgsfield 精修层预算与 8013 模型边界（le=2000）冲突直发必 422——实现前双模型评审 C1 在测试之外用模型边界证据（`prompt_engine/models.py ge=50/le=2000`、`video_prompt_engine/models.py ge=200/le=4000`）钉死。落地：kernel 只收领域中立逻辑，能力范围下沉到各自契约（`videoMaxLengthRanges`），JSDoc 显式标注禁止借用。
+- **教训 2（能力门控而非理想值直发）**：spec 初版写「精修层默认 5000 收敛到 20000」，实现前评审改为「默认 5000 收敛到后端能力上限（8013→2000 / 8020→4000）」，引擎侧模型边界抬高后再自动上浮（tasks 4.4 挂起）。教训：契约层默认值必须以**真实后端模型边界**为准，理想值只能作为引擎侧抬高后的目标锚点（videoMaxLengthRefinedDefault/Max 保留作联调锚点并注释说明）。
+- **教训 3（heredoc 大段写入会被命令通道截断，必须小段追加 + 语法校验）**：单次 ~340 行 heredoc 被截断到一半且 exit 0（`wanted 'EOF'` 警告不报错），截断点恰好落在 token 中间；恢复路径：`git show HEAD:file` 取基线 + 重写为 ≤100 行小段追加 + 每段 `node --check`。教训：任何大文件写入（>150 行）一律分块并逐步校验，不能信任单次 heredoc。
+- **教训 4（字符串边界断言要带终结符心智）**：`'NON-IP.'.endsWith('NON-IP') === false`（句点后移一位）。appendVideoTrailer 截断形态末段去句点后以 `NON-IP` 结尾，测试 `endsWith('NON-IP')` 才成立；实现初版保留句点导致测试失败。教训：断言「以 X 结尾」时先想清楚 X 与最后一个字符的关系。
+- **教训 5（宽松标记集 + 截断前校验防 fail-closed 反噬）**：结构完整性校验（声明 excluded_characters/no_swap_pairs 但正文无 `<<<`/`[ABSENT]` → 拒绝）若基于截断后文本，maxLength 截断会削掉尾部标记导致合法响应误杀；校验必须基于截断前 `optimized_prompt` 原文。标记集抽为常量（VIDEO_REFERENCE_MARKERS），引擎侧输出格式漂移时在此扩展。
+- **跨仓库挂起**：prompt-engine 侧 change（输出新字段 + evaluator 100-400 词判据层级感知 + 模型边界抬高）未实现；契约层已按「契约先行」部署顺序就绪（tasks 4.4），联调验收待引擎侧就绪后执行。
 ## views-deep2 mock 缺失导致 CI 必红复盘（fix-publisher-mock-onpipelineupdate，2026-08-14）
 
 - **第一性原因**：PR #770 新增 `@/api/publisher.onPipelineUpdate` 导出并在 CreateView async mounted 调用，但未同步 views-deep2.test.js 的 vi.mock factory；由于 mounted 是 async，缺失导出在 `--no-file-parallelism` 下以「运行尾部 unhandled rejection」呈现（441 文件全过、仅 3 errors、退出码 1），electron-tests 与 QG 4 个 job 必红，且 main@240fe9b3 自身 electron-ci 以完全相同错误失败。
