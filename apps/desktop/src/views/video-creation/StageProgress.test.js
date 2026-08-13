@@ -4,10 +4,14 @@ import { mount } from "@vue/test-utils";
 import StageProgress from "./StageProgress.vue";
 
 const tStub = (key) => ({
+  "stageProgress.statusCompleted": "已完成",
+  "stageProgress.statusRunning": "运行中",
+  "stageProgress.statusFailed": "失败",
+  "stageProgress.statusWaitingApproval": "等待确认",
+  "stageProgress.statusCancelled": "已取消",
+  "stageProgress.statusPending": "等待中",
   "create.story2video.selectionWait.stageLabel": "等待选择素材",
   "pipelines.statuses.paused": "已暂停",
-  "pipelines.statuses.waiting_approval": "等待确认",
-  "pipelines.statuses.pending": "等待中",
 }[key] || key);
 
 const makeStage = (overrides = {}) => ({
