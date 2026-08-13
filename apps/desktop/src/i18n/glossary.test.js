@@ -46,7 +46,8 @@ describe('多语言术语词典（i18n-content-sync L3）', () => {
     const enValues = allStringValues(en)
     for (const entry of entries) {
       const zhUsed = zhValues.some(v => v.includes(entry.zh))
-      const enUsed = enValues.some(v => v.includes(entry.en))
+      // en 侧不区分大小写（兼容 'pipeline' / 'Pipeline' 等用法差异）
+      const enUsed = enValues.some(v => v.toLowerCase().includes(entry.en.toLowerCase()))
       expect(zhUsed, `术语「${entry.zh} / ${entry.en}」在 zh locale 中${zhUsed ? '已' : '未'}出现，但 en locale ${enUsed ? '已' : '未'}出现——zh/en 出现状态不一致，请成对同步`).toBe(enUsed)
     }
   })
