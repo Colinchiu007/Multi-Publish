@@ -9,6 +9,37 @@ import {
   getPipelineCategory,
   getPipelineName,
 } from "@/i18n/pipeline-labels";
+import zh from "@/locales/zh";
+import en from "@/locales/en";
+
+function collectPaths(node, path = "", acc = []) {
+  for (const [key, value] of Object.entries(node)) {
+    const next = path ? `${path}.${key}` : key;
+    if (value && typeof value === "object") {
+      collectPaths(value, next, acc);
+    } else {
+      acc.push(next);
+    }
+  }
+  return acc;
+}
+
+function collectStringLeaves(node, path = "", acc = []) {
+  for (const [key, value] of Object.entries(node)) {
+    const next = path ? `${path}.${key}` : key;
+    if (value && typeof value === "object") {
+      collectStringLeaves(value, next, acc);
+    } else if (typeof value === "string") {
+      acc.push({ path: next, value });
+    }
+  }
+  return acc;
+}
+
+function placeholderTokens(value) {
+  const tokens = String(value).match(/\{([^{}]+)\}/g) || [];
+  return [...new Set(tokens)].sort();
+}
 
 function collectLeaves(node, path = "") {
   const leaves = [];
@@ -137,5 +168,32 @@ describe("系统语言自动检测与设置切换（user-facing-messages）", ()
     try { expect(localStorage.getItem("locale")).toBe("en") } catch (_) {}
     expect(setAppLocale("zh")).toBe("zh")
     expect(getAppLocale()).toBe("zh")
+  });
+});
+
+describe("zh/en 内容同步（i18n-content-sync）", () => {
+  it("zh/en locale 叶子键完全对称（缺键即失败）", () => {
+    const zhPaths = collectPaths(zh);
+    const enPaths = collectPaths(en);
+    const zhSet = new Set(zhPaths);
+    const enSet = new Set(enPaths);
+    expect(zhPaths.filter((p) => !enSet.has(p)), "zh 有而 en 缺失").toEqual([]);
+    expect(enPaths.filter((p) => !zhSet.has(p)), "en 有而 zh 缺失").toEqual([]);
+  });
+
+  it("zh/en 同 key 文案 {param} 占位符集合一致", () => {
+    const zhLeaves = new Map(
+      collectStringLeaves(zh).map((l) => [l.path, l.value])
+    );
+    const enLeaves = new Map(
+      collectStringLeaves(en).map((l) => [l.path, l.value])
+    );
+    for (const [path, zhValue] of zhLeaves) {
+      const enValue = enLeaves.get(path);
+      if (enValue === undefined) continue; // 缺键由键对称测试覆盖
+      expect(placeholderTokens(zhValue), `${path} zh 占位符`).toEqual(
+        placeholderTokens(enValue)
+      );
+    }
   });
 });

@@ -162,7 +162,7 @@ export default {
     access_denied: '当前登录状态无法启动全能创作，请先登录并确认当前账号有对应权益。',
     orchestration_failed: '暂时无法完成生成，请稍后再试。',
     text_input_only: '目前只支持输入文案。',
-    text_too_long: '文案最多可输入 {max} 个字符，请缩短后再试。',
+    text_too_long: '文案最多可输入 {maxFormatted} 个字符，请缩短后再试。',
     text_required: '请先输入视频文案。',
     run_status_unavailable: '暂时无法获取生成进度，请在历史记录中查看。',
     preview_missing: '生成已完成，但未找到可预览的视频，请在历史记录中查看。',
@@ -203,6 +203,31 @@ export default {
     assetsProgressVideo: '图片 {imagesDone}/{imagesTotal} · 视频 {videosDone}/{videosTotal} · 旁白 {ttsDone}/{ttsTotal}',
     assetsProgress: '图片 {imagesDone}/{imagesTotal} · 旁白 {ttsDone}/{ttsTotal}',
     composeSegments: '正在合成片段 {done}/{total} · {percent}%',
+    // i18n-content-sync（2026-08-13）：story2video-notifications.js 文案单源收敛，模块不再持有 zh/en 文案
+    dialog: {
+      title: '提示',
+      acknowledge: '知道了',
+      cancel: '取消',
+      confirmDelete: '删除',
+      resume: '从断点继续',
+      resuming: '正在恢复…',
+      resumeHint: '可从上一步失败的阶段继续生成；遇到暂时的服务繁忙或网络波动时，会自动等待片刻后重试。',
+    },
+    bgmSkipReasons: {
+      size_exceeded: '文件超过大小上限',
+      format_unsupported: '格式不支持',
+      not_allowed: '文件不在允许的读取范围',
+      unreadable: '文件不存在或不可读',
+    },
+    degradedAssetLabels: {
+      placeholder_image: '占位图片',
+      silent_narration: '静音旁白',
+    },
+    historyDetail: {
+      login: '当前未登录或登录已过期。请登录后重试；未登录时仅显示本机记录。',
+      storage: '本地存储异常。请重启应用后重试；若持续出现请检查本地磁盘空间与权限。',
+      timeout: '加载超时。请关闭后重新进入历史记录重试；若持续出现请重启应用。',
+    },
 
 
 

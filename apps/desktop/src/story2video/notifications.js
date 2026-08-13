@@ -1,7 +1,6 @@
 export {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
-  STORY2VIDEO_NOTIFICATION_MESSAGES,
   bgmSkippedReasonText,
   countUnicodeCodePoints,
   countStory2VideoTextCharacters,
