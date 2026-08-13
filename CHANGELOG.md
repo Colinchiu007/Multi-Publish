@@ -1,3 +1,18 @@
+## [2026-08-13] fix(s2v): 视频 provider「队列满 queue is full」纳入瞬时重试（限流语义 4 次）
+
+- 现状：`withAssetTransientRetry` 仅对瞬时类错误（超时/网络/限流 429/额度）有界重试；agnes-video 的 "video queue is full, please retry later" 不含限流/超时关键词 → 被判定非瞬时 → 不重试直接回退仅 2 图，丢失「队列拥塞稍后可恢复」的机会。
+- 修复：`isRateLimitErrorLike` 扩展匹配 `queue is full` / `queue full` / `队列满（饱和）` → 归入限流语义：最多 4 次、退避 2.5s×attempt；重试耗尽后仍回退（manual 仅 2 图 / auto 图片轮播补图）。分类判定同时作用于 manual 与 auto 的视频/图片/TTS 瞬时重试路径。
+- 测试：manual 新增「队列满 → 限流语义重试 4 次后回退」用例（fake timers）；既有失败回退/混合用例改用非瞬时消息保持快速；manual 21 / stages 83 / text-config 68，合计 172 全绿。
+- 文档：PRD.md 7.1.3a 候选生成补充「瞬时失败有界重试」机制（三副本一致）；OpenSpec change s2v-manual-video-parallel 增补队列满场景。
+
+## [2026-08-13] feat(s2v): 分镜素材自选（manual）视频候选生成与全自动对齐——有界并行 + 图片并行启动（s2v-manual-video-parallel）
+
+- 根因：manual 候选生成（buildManualSceneCandidates）视频候选是 for...await 串行循环，且图片候选必须等视频全部完成——2 个视频场景实测纯视频阶段 11+ 分钟无图片产出，与全自动（PR #717 三路并行 + 视频并发 2）体验割裂。
+- 修复：executor manual 分支计算视频并发（请求默认 2，经 provider 预算 rate_per_minute > 静态表 > 类别默认、maxConcurrent 封顶）并输出与 auto 同格式日志；buildManualSceneCandidates 视频候选改用 _mapWithConcurrency 有界并行，图片候选与视频候选 Promise.all 并行启动。
+- 契约不变：每场景 2 图（同场景 seq 0→1 顺序防覆盖）、视频场景 2 图 + 1 视频、视频失败回退仅 2 图、候选清单结构、scene_asset_selection 检查点、finalize_assets 流程均不变；auto 路径零改动。额度契约保持 manual「每视频场景 2 图 + 1 视频」（与 auto 视频成功跳图不同，属自选 UX 设计，非并行机制变更）。
+- 测试：story2video-manual-assets.test.js +4（in-flight=2 并行且图片并行启动、provider 预算 maxConcurrent=1 收敛为串行、视频失败回退、一路成功一路失败混合），manual 专项 20 全绿；story2video-stages 83、story2video-text-config 68 全绿。
+- 文档：PRD.md 7.1.3a 候选生成（video-image bullet 补充并行机制，三副本同步）；OpenSpec change s2v-manual-video-parallel（proposal/design/specs/tasks）。
+
 ## [2026-08-13] 桌面启动依赖可靠性：remotion 精确 pin + 依赖自愈脚本（desktop-deps-reliability）
 
 - 根因：`@remotion/renderer@4.0.509` 未发布（registry ETARGET），`^4.0.484` 范围重解析必挂 → `npm install` 必然失败；中断的失败安装会删除/损坏 node_modules（@img/*、@element-plus/icons-vue、@ctrl/tinycolor 整包丢失）→ Vite 预构建失败 → `504 (Outdated Optimize Dep)` → 启动空白。
@@ -18,7 +33,6 @@
 - 修复（打包 E2E 回捕）：L0 封面 spec 负索引导致占位图生成器 `colors[-1]` 取色失败（index 改 0 + 桌面生成器 `Math.abs` 防御）；`scripts/video-clone-e2e.js` 适配默认链接（先切「本地文件」再按 placeholder 填路径）。
 - 复盘：01-docs/learnings.md 视频克隆自动复刻层级复盘（装饰字段陷阱 / verdict 证据门禁语义 / schema 默认值流入分支 / 负索引取模）。
 - 关联文档：PRD-video-creation.md §1.6 修订表补录视频克隆条目（入口卡/默认链接/自动复刻层级）。
-
 ## [2026-08-13] refactor(video-clone): 移除无效的「复刻层级」下拉
 
 - 复刻层级（L0/L1/L2）当前仅写入报告作为目标声明，analyze/generate/compose/F4 均未按层级分支，属无效选项 → 从 UI 移除。
@@ -4122,6 +4136,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

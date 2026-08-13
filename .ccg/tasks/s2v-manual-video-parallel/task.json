@@ -1,0 +1,14 @@
+{
+  "id": "s2v-manual-video-parallel",
+  "title": "manual 模式视频候选生成与 auto 对齐（有界并行 + 图片并行启动）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "review",
+  "nextAction": "等待 PR #742 合并后执行归档三同步（openspec archive + CCG task archive + learnings）",
+  "createdAt": "2026-08-13T17:00:00+08:00",
+  "branch": "codex/s2v-manual-video-parallel",
+  "openspecChange": "s2v-manual-video-parallel",
+  "remoteStatus": { "pr": 742, "state": "open", "url": "https://github.com/Colinchiu007/Multi-Publish/pull/742", "merged": false }
+}
