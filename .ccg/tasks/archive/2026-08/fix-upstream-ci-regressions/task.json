@@ -1,0 +1,14 @@
+{
+  "branch": "codex/fix-upstream-ci-regressions",
+  "openspecChange": "",
+  "complexity": "M",
+  "id": "fix-upstream-ci-regressions",
+  "pr": "#616 merged 6e20c037",
+  "domain": "ci",
+  "currentPhase": "completed",
+  "risk": "low",
+  "title": "修复 CI 上游回归：visual /video-clone 覆盖 + IPC bridge 正则 + Gate7 阈值契约",
+  "completedAt": "2026-08-13T00:34:14Z",
+  "status": "completed",
+  "remoteStatus": "merged"
+}

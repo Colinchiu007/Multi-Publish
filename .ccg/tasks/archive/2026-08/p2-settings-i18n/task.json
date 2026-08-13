@@ -1,0 +1,14 @@
+{
+  "branch": "codex/p2-settings-i18n",
+  "openspecChange": "desktop-ui-i18n-p2(已归档,第一批)",
+  "complexity": "M",
+  "id": "p2-settings-i18n",
+  "pr": "#602 merged 1bc36e64",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "risk": "medium",
+  "title": "P2 存量 i18n 第五批（收官）：Settings 设置弹窗文案全量多语言化",
+  "completedAt": "2026-08-13T00:34:14Z",
+  "status": "completed",
+  "remoteStatus": "merged"
+}
