@@ -92,18 +92,30 @@
 - **WHEN** 查询未登记平台
 - **THEN** 返回 generic 画像（duration 15、aspect "16:9"、resolution "1080p"、audio false），不抛出异常
 
-### Requirement: 精修层 max_length 层级语义
+### Requirement: 精修层 max_length 层级语义（按后端能力门控）
 
-请求构造 SHALL 按 creative_level 分层处理 `max_length`：`creative_level ≥ 7` 且调用方未显式传 `max_length` 时 SHALL 使用精修层默认 5000（上限 20000）；`creative_level < 7` 且未显式传时 SHALL 保持现有默认 500。显式传入的值 SHALL 始终优先且 SHALL 在视频契约允许范围内收敛。
+请求构造 SHALL 按 creative_level 分层处理 `max_length`，并 SHALL 按目标后端能力范围收敛（防止 422）：8013 兼容后端（`buildVideoOptimizeRequest`）能力范围为 [50, 2000]（对齐 `prompt_engine/models.py` ge=50/le=2000）；8020 独立引擎（`buildStandaloneVideoOptimizeRequest`）能力范围为 [200, 4000]（对齐 `video_prompt_engine/models.py` ge=200/le=4000）。`creative_level ≥ 7` 且调用方未显式传 `max_length` 时 SHALL 使用精修层默认 5000，并 SHALL 收敛到后端能力上限（8013 → 2000；8020 → 4000）；`creative_level < 7` 且未显式传时 SHALL 保持现有默认 500。显式传入的值 SHALL 始终优先，且 SHALL 在目标后端能力范围内收敛；`null`/空串 SHALL 视为未显式传（与 PromptBridge 归一一致）。精修层目标上限（默认 5000 / 上限 20000）在引擎侧模型边界抬高后自动生效（跨仓库联调项，见 tasks 4.4）。
 
-#### Scenario: 精修层默认上浮
-- **WHEN** `creative_level = 8` 且调用方未传 `max_length`
-- **THEN** 请求携带 `max_length = 5000`
+#### Scenario: 精修层默认上浮（8013）
+- **WHEN** `creative_level = 8` 且调用方未传 `max_length`，构造 8013 请求
+- **THEN** 请求携带 `max_length = 2000`（精修层默认 5000 收敛到 8013 能力上限）
+
+#### Scenario: 精修层默认上浮（8020）
+- **WHEN** `creative_level = 8` 且调用方未传 `max_length`，构造 8020 请求
+- **THEN** 请求携带 `max_length = 4000`（收敛到 8020 能力上限）
 
 #### Scenario: 常规层零回归
 - **WHEN** `creative_level = 5` 且调用方未传 `max_length`
-- **THEN** 请求携带 `max_length = 500`（与改动前一致）
+- **THEN** 8013 与 8020 请求均携带 `max_length = 500`（与改动前一致）
 
-#### Scenario: 显式值优先
-- **WHEN** `creative_level = 9` 且调用方显式传 `max_length = 3000`
-- **THEN** 请求携带 `max_length = 3000`，不被层级默认覆盖
+#### Scenario: 显式值优先（8013 能力范围内）
+- **WHEN** `creative_level = 9` 且调用方显式传 `max_length = 1500`
+- **THEN** 请求携带 `max_length = 1500`，不被层级默认覆盖
+
+#### Scenario: 显式值超上限收敛（8013）
+- **WHEN** 调用方显式传 `max_length = 3000`，构造 8013 请求
+- **THEN** 请求携带 `max_length = 2000`（收敛到 8013 能力上限）
+
+#### Scenario: 8020 能力范围（含 min 边界修复）
+- **WHEN** 调用方显式传 `max_length = 99999` 或 `max_length = 10`，构造 8020 请求
+- **THEN** 分别携带 `max_length = 4000` 与 `max_length = 200`（收敛到 8020 [200, 4000]；修复既有 min 50 低于引擎 ge=200 的 422 隐患）
