@@ -242,14 +242,14 @@
 [data-theme="dark"] .voice-clone-pending-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--clone-pending-text, var(--text-muted, #888)); background: var(--clone-pending-bg, rgba(255, 255, 255, 0.06)); border: 1px solid var(--clone-pending-border, var(--border, #444)); border-radius: var(--r-xs, 4px); padding: 1px 6px; white-space: nowrap; }
 
 /* 操作栏 */
-.action-bar { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; border-radius: 0 0 10px 10px; box-shadow: 0 -2px 8px rgba(0,0,0,0.04); }
+.action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; border-radius: 0 0 10px 10px; box-shadow: 0 -2px 8px rgba(0,0,0,0.04); }
 .s2v-options-toast { position: absolute; right: 16px; bottom: calc(100% + 10px); font-size: 12px; color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 4px 10px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out; }
 @keyframes s2v-toast-fade { 0% { opacity: 0; } 12% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; } }
 .voice-clone-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; padding: 2px 0; }
 .voice-clone-toggle-icon { font-size: 12px; color: var(--text-muted, #888); }
 .btn-start { padding: 12px 32px; font-size: 15px; font-weight: 600; border-radius: 8px; letter-spacing: 0.02em; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(64,158,255,0.2); }
 .btn-start:hover { box-shadow: 0 4px 16px rgba(64,158,255,0.3); transform: translateY(-1px); }
-.running-controls { display: flex; gap: 8px; }
+.running-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .progress-inline { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .progress-bar { height: 8px; background: var(--stage-sub-bar-bg); border-radius: 4px; overflow: hidden; width: 120px; }
 .progress-fill { height: 100%; background: var(--primary); transition: width 0.3s; }
