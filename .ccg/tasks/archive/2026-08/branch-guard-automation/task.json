@@ -1,0 +1,13 @@
+{
+  "id": "branch-guard-automation",
+  "title": "分支守卫自动化：隔离 worktree 提交时自动声明当前分支（零手动步骤）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "tooling",
+  "currentPhase": "completed",
+  "nextAction": "已归档；PR 合并后核验 origin/main",
+  "remoteStatus": "PR 待创建（合并后核验）",
+  "createdAt": "2026-08-13T12:55:00+08:00",
+  "branch": "codex/branch-guard-automation"
+}

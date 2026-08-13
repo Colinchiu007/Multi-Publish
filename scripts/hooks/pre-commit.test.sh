@@ -3,8 +3,8 @@
 # 运行：bash scripts/hooks/pre-commit.test.sh（仓库任意位置）
 # 场景：
 #   1) 声明分支 == 当前分支，docs-only 提交 → 通过
-#   2) 声明 main，当前分支 codex/x（事故场景复现）→ 拦截，不产生提交
-#   3) 无声明 → 拦截并提示声明命令
+#   2) 声明 main，当前分支 codex/x（事故场景复现，主工作区严格模式）→ 拦截，不产生提交
+#   3) 无声明（主工作区严格模式）→ 拦截并提示声明命令
 #   4) .quality-rhythm-pending 存在 → 拦截（保留原行为）
 #   5) 代码文件变更 + wrapper 通过 → 通过
 #   6) detached + rebase-merge 目录（rebase 重放模拟）→ 跳过断言，通过
@@ -13,6 +13,8 @@
 #   9) wrapper 缺失 → 拦截（保留原行为）
 #   10) 非代码扩展名（.ps1）变更 → 跳过 wrapper，通过
 #   11) 真实 git rebase 重放 → 跳过断言，重放成功
+#   12) 隔离 worktree：提交时自动声明当前分支（零手动步骤）→ 通过且声明=当前分支
+#   13) 隔离 worktree：切分支后提交自动更新声明 → 通过且声明=新分支
 set -u
 
 HOOK_SRC="$(cd "$(dirname "$0")" && pwd)/pre-commit"
@@ -25,7 +27,7 @@ ok()  { echo "  PASS: $1"; PASS=$((PASS+1)); }
 bad() { echo "  FAIL: $1"; FAIL=$((FAIL+1)); }
 
 new_repo() {
-    rm -rf "$TMP/repo"
+    rm -rf "$TMP/repo" "$TMP/wt2"
     mkdir -p "$TMP/repo"
     git -C "$TMP/repo" init -q -b main 2>/dev/null || git -C "$TMP/repo" init -q
     if [ "$(git -C "$TMP/repo" branch --show-current 2>/dev/null)" != "main" ]; then
@@ -35,7 +37,7 @@ new_repo() {
     git -C "$TMP/repo" config user.name "Hook Test"
     git -C "$TMP/repo" config commit.gpgsign false
     git -C "$TMP/repo" commit --allow-empty -q -m "base"
-    # 安装待测 hook（在 base 提交之后）
+    # 安装待测 hook（在 base 提交之后；linked worktree 共享同一 hooks 目录）
     mkdir -p "$TMP/repo/scripts"
     cat > "$TMP/repo/scripts/quality-rhythm-wrapper.js" <<'EOF'
 process.exit(0);
@@ -98,7 +100,7 @@ scenario2() {
     commit_expect_block "scenario2 wrong-branch-blocked" "分支守卫拦截"
 }
 
-# 场景 3：无声明 → 拦截
+# 场景 3：无声明（主工作区严格模式）→ 拦截
 scenario3() {
     new_repo
     echo "hello" > "$TMP/repo/docs.md"
@@ -200,6 +202,54 @@ scenario11() {
     fi
 }
 
+# 场景 12：隔离 worktree 提交时自动声明当前分支（零手动步骤）→ 通过
+scenario12() {
+    new_repo
+    git -C "$TMP/repo" worktree add -q "$TMP/wt2" -b feat2
+    mkdir -p "$TMP/wt2/scripts"
+    cp "$TMP/repo/scripts/quality-rhythm-wrapper.js" "$TMP/wt2/scripts/quality-rhythm-wrapper.js"
+    echo "hello" > "$TMP/wt2/docs.md"
+    git -C "$TMP/wt2" add docs.md
+    if git -C "$TMP/wt2" commit -q -m "scenario12 isolated-auto-declare" 2>"$TMP/err.log"; then
+        ok "scenario12 isolated-auto-declare-passed"
+    else
+        bad "scenario12 isolated-auto-declare（应通过）：$(head -5 "$TMP/err.log" | tr '\n' ' ')"
+    fi
+    local decl
+    decl="$(cat "$TMP/wt2/.agent_context/expected-branch" 2>/dev/null || true)"
+    if [ "$decl" = "feat2" ]; then
+        ok "scenario12 auto-declared-branch=feat2"
+    else
+        bad "scenario12 auto-declared-branch（应为 feat2，实际: $decl）"
+    fi
+}
+
+# 场景 13：隔离 worktree 切分支后提交自动更新声明 → 通过
+scenario13() {
+    new_repo
+    git -C "$TMP/repo" worktree add -q "$TMP/wt2" -b feat2
+    mkdir -p "$TMP/wt2/scripts"
+    cp "$TMP/repo/scripts/quality-rhythm-wrapper.js" "$TMP/wt2/scripts/quality-rhythm-wrapper.js"
+    echo "a" > "$TMP/wt2/a.md"
+    git -C "$TMP/wt2" add a.md
+    git -C "$TMP/wt2" commit -q -m "c1"
+    git -C "$TMP/wt2" switch -q -c feat3
+    echo "b" > "$TMP/wt2/b.md"
+    git -C "$TMP/wt2" add b.md
+    if git -C "$TMP/wt2" commit -q -m "scenario13 auto-update-on-switch" 2>"$TMP/err.log"; then
+        ok "scenario13 auto-update-on-switch-passed"
+    else
+        bad "scenario13 auto-update-on-switch（应通过）：$(head -5 "$TMP/err.log" | tr '\n' ' ')"
+    fi
+    local decl
+    decl="$(cat "$TMP/wt2/.agent_context/expected-branch" 2>/dev/null || true)"
+    if [ "$decl" = "feat3" ]; then
+        ok "scenario13 auto-updated-branch=feat3"
+    else
+        bad "scenario13 auto-updated-branch（应为 feat3，实际: $decl）"
+    fi
+}
+
 scenario1
 scenario2
 scenario3
@@ -211,6 +261,8 @@ scenario8
 scenario9
 scenario10
 scenario11
+scenario12
+scenario13
 
 echo "----"
 echo "结果: PASS=$PASS FAIL=$FAIL"
