@@ -11,6 +11,19 @@
 - OpenSpec change `story2video-provider-warning-ux`（proposal/design/specs/tasks）固化行为契约。
 # CHANGELOG
 
+## [Unreleased] - 2026-08-13 (阶段进行中信息实时推送与快照裁剪)
+
+### 新增
+- **`pipeline:update` 实时事件推送**：PipelineEngine 阶段事件（stage:start/complete/fail/checkpoint:pause/stage:progress/pipeline:complete/fail）桥接到受信主窗口；500ms 窗口节流合并，run 终态立即发送；cleanup 可卸载（无监听泄漏）。
+- **轻量快照**：`getRunSnapshot(runId, { progressOnly })` 不含 context（checkpoint 仅类型元数据），事件/轮询载荷最小化；完整 `pipeline:getRunContext` 保留。
+- **renderer 事件驱动**：preload `onPipelineUpdate`（可取消订阅）+ `src/api/publisher.js` 封装；CreateView 收到事件即更新阶段进度（仅进度子集，不覆盖完整 context——竞态缓解），3s 轮询保留为兜底并重置计时。
+
+### 测试
+- 推送桥 5 用例（节流合并/终态立即/无窗口静默/cleanup）、progressOnly 契约 2 用例、CreateView 事件 3 用例、preload 键数同步；6 文件 659/659 通过；Vite build + electron-builder --win --dir + 打包启动冒烟通过。
+
+### 文档
+- PRD 7.1.9.3 Phase 3 实施标注；OpenSpec change `pipeline-progress-real-time-push` tasks 13/13（PR #770）。
+
 ## [Unreleased] - 2026-08-13 (阶段进行中信息反馈颗粒度统一实施)
 
 ### 新增

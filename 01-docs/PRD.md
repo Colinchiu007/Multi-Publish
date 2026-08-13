@@ -1637,7 +1637,8 @@ Electron 打包、工作树、PR 或发布状态证据。
 
 ##### 7.1.9.3 阶段进行中信息反馈颗粒度统一契约（2026-08-13 规划 / 2026-08-13 已实施）
 
-> 实施状态：PR #756（`35f809a5`+），OpenSpec change `pipeline-progress-feedback-unification`（tasks 18/18）。验证：测试 8 文件 411/411、Vite build、`electron-builder --win --dir` + 打包启动冒烟通过。边界：真实 provider（8002/8013/图片/TTS）完整流水线逐阶段进行中文案目验属外部验收；Phase 3 实时事件推送/快照裁剪为后续 change。
+> 实施状态：PR #756（`35f809a5`+），OpenSpec change `pipeline-progress-feedback-unification`（tasks 18/18）。验证：测试 8 文件 411/411、Vite build、`electron-builder --win --dir` + 打包启动冒烟通过。边界：真实 provider（8002/8013/图片/TTS）完整流水线逐阶段进行中文案目验属外部验收。
+> Phase 3 实施：PR #770（`ea51ab4d`+），OpenSpec change `pipeline-progress-real-time-push`（tasks 13/13）——`pipeline:update` 实时事件推送（500ms 节流合并、终态立即发送）+ `getRunSnapshot(runId, { progressOnly })` 轻量快照（不含 context，checkpoint 仅类型元数据）+ preload `onPipelineUpdate`（可取消）+ renderer 事件驱动更新 + 3s 轮询兜底重置。验证：测试 6 文件 659/659、Vite build、locale CJK PASS、`electron-builder --win --dir` + 打包启动冒烟通过。
 
 **背景**：7.1.9 表格仅覆盖 split / optimize / generate_assets / compose 四个阶段的子进度；其余阶段（domain_enrich、scene_context、select_video_scenes、finalize_assets、publish，以及 animated-explainer / talking-head 等其余流水线全部阶段）运行中只有「运行中 + 开始时间」，无任何进行中细节；optimize 的 `optimize_progress` 数据运行中已更新但 UI 只在完成后展示。整体「进行中信息」颗粒度不统一。完整分析与分期方案见 `01-docs/PLAN-VIDEO-PIPELINE-PROGRESS-FEEDBACK-2026-08-13.md`。
 
