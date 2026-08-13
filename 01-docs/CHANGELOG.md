@@ -11,6 +11,19 @@
 - OpenSpec change `story2video-provider-warning-ux`（proposal/design/specs/tasks）固化行为契约。
 # CHANGELOG
 
+## [Unreleased] - 2026-08-13 (阶段进行中信息反馈颗粒度统一实施)
+
+### 新增
+- **阶段级进行中信息统一契约**：`stage.progress`（percent/message/detail/updatedAt）+ `stage.summary` 经 `getRunSnapshot()` 下发，与 `context.stage_progress` 双写；`StageExecutor` 统一 `onProgress` 通道 + `normalizeStageProgress` 字段级校验（fail-closed、单调不降、异常不阻断流水线）。
+- **逐阶段进行中反馈**：publish 逐平台（「正在发布到 {平台} (i/N)」）、finalize_assets 逐段 TTS、split 完成摘要、optimize 运行中展示（修复仅完成后展示缺口）、LLM 阶段（domain_enrich/scene_context/select_video_scenes/explainer research·proposal·script·scenes）。
+- **UI 通用化**：StageProgress 移除阶段名特判，统一渲染 message + 迷你进度条 + summary 优先；compose 旧快照降级保留；总进度加权当前阶段 percent。
+
+### 测试
+- 契约测试：onProgress → 快照可见 / 非法与降序拒绝 / 双写一致 / 加权公式 / UI 通用渲染（StageProgress 新增 5 用例）；8 测试文件 411/411 通过；Vite build + electron-builder --win --dir + 打包启动冒烟通过。
+
+### 文档
+- PRD 7.1.9.3 标注实施状态；PRD-video-creation §3.1.23 同步；OpenSpec change `pipeline-progress-feedback-unification` tasks 18/18（PR #756）。
+
 ## [Unreleased] - 2026-08-13 (视频创作流水线阶段进行中信息反馈颗粒度统一方案)
 
 ### 文档

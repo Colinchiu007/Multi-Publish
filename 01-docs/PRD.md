@@ -1635,7 +1635,9 @@ Electron 打包、工作树、PR 或发布状态证据。
 8. 暂停瞬间执行器仍在后台跑：该段实际消耗资源，仍累计（语义为「真实执行时间」）；用户看到的已用时在暂停后由轮询定格。
 9. IPC 载荷：新增 3 个字段（`activeMs`/`activeSegmentStartedAt`/`elapsedActiveMs`），3s 轮询无压力；字段校验为最后防线。
 
-##### 7.1.9.3 阶段进行中信息反馈颗粒度统一契约（2026-08-13 规划）
+##### 7.1.9.3 阶段进行中信息反馈颗粒度统一契约（2026-08-13 规划 / 2026-08-13 已实施）
+
+> 实施状态：PR #756（`35f809a5`+），OpenSpec change `pipeline-progress-feedback-unification`（tasks 18/18）。验证：测试 8 文件 411/411、Vite build、`electron-builder --win --dir` + 打包启动冒烟通过。边界：真实 provider（8002/8013/图片/TTS）完整流水线逐阶段进行中文案目验属外部验收；Phase 3 实时事件推送/快照裁剪为后续 change。
 
 **背景**：7.1.9 表格仅覆盖 split / optimize / generate_assets / compose 四个阶段的子进度；其余阶段（domain_enrich、scene_context、select_video_scenes、finalize_assets、publish，以及 animated-explainer / talking-head 等其余流水线全部阶段）运行中只有「运行中 + 开始时间」，无任何进行中细节；optimize 的 `optimize_progress` 数据运行中已更新但 UI 只在完成后展示。整体「进行中信息」颗粒度不统一。完整分析与分期方案见 `01-docs/PLAN-VIDEO-PIPELINE-PROGRESS-FEEDBACK-2026-08-13.md`。
 
