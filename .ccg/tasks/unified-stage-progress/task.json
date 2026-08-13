@@ -1,13 +1,15 @@
 {
   "id": "unified-stage-progress",
   "title": "流水线阶段进度反馈颗粒度统一——stage.progress 契约 + onProgress 通道 + UI 通用化",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "medium",
   "domain": "backend+frontend",
-  "currentPhase": "implementation",
-  "nextAction": "Phase 1: pipeline-engine.js stage.progress 契约",
+  "currentPhase": "completed",
+  "nextAction": "Phase 3 (可选): 实时推送——视效果决定是否实施",
   "createdAt": "2026-08-14T01:30:00Z",
   "branch": "codex/video-prompt-lens-discipline",
-  "openspecChange": "unified-stage-progress"
+  "openspecChange": "unified-stage-progress",
+  "completedAt": "2026-08-13T17:48:43.604Z",
+  "remoteStatus": "PR pending on codex/video-prompt-lens-discipline"
 }

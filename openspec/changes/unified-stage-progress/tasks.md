@@ -28,18 +28,18 @@
 
 ## Layer 2（依赖 Layer 1）
 
-### Task 4: optimize 阶段接入
+### Task 4: optimize 阶段接入 ✅
 - **文件**：`apps/desktop/electron/services/story2video-stages.js`
 - **改动**：optimize 执行循环中调用 `stage.onProgress?.({ percent, message })`
 - **数据源**：复用现有 `optimize_progress.done/total`
 - **测试**：断言 onProgress 被调用且 stage.progress 更新
 
-### Task 5: publish 阶段接入
+### Task 5: publish 阶段接入 ✅
 - **文件**：`apps/desktop/electron/services/stage-executor.js`
 - **改动**：PUBLISH 循环中调用 `stage.onProgress?.({ percent, message })`
 - **测试**：断言逐平台进度上报
 
-### Task 6: split/select_video_scenes 增强
+### Task 6: split/select_video_scenes 增强 ✅
 - **文件**：`apps/desktop/electron/services/stage-executor.js` + `story2video-stages.js`
 - **改动**：split 完成写 summary；select_video_scenes 启动时上报初始 message
 - **测试**：断言 summary/message 写入
@@ -54,8 +54,8 @@
 
 ## 验收标准
 
-- [ ] 任意阶段运行中均显示进行中文案
-- [ ] 可计数阶段（optimize/publish/generate_assets）显示 done/total + 百分比
+- [x] 任意阶段运行中均显示进行中文案
+- [x] 可计数阶段（optimize/publish/generate_assets）显示 done/total + 百分比
 - [ ] 总进度条平滑前进（加权计算）
 - [ ] 旧数据（无 stage.progress）正常 fallback
 - [ ] onProgress 异常不阻断阶段执行
