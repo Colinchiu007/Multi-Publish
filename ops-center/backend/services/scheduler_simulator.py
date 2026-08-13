@@ -97,8 +97,8 @@ def simulate(params: dict) -> dict:
     cooldown_until = 0
     rate_factor = 1.0
     used_5h = 0
-    finish_heap = []  # 执行中请求的完成时间；堆长度 = 并发信号量占用（含已开始未完成）
-    executing_now = 0  # 实际执行中请求数（started 后 - finished 前）；观测口径与真实 governor 一致
+    finish_heap = []  # 执行中请求的完成时刻（最小堆）；长度 = 执行中数（started 未 finished）
+    executing_now = 0  # 实际执行中请求数（观测口径：started 后 - finished 前，与真实 governor 一致）
     timeline = []
     factor_curve = []
     max_concurrent_observed = 0
@@ -107,98 +107,112 @@ def simulate(params: dict) -> dict:
     cooldown_count = 0
     quota_exceeded_count = 0
     started_times = []
+    end_times = []  # 每个请求的结束时刻（completed=finished；quota/rate_limited=判定时刻）→ 墙钟 total 口径
 
-    def _release_finished():
+    def _release(t):
+        """释放所有在时刻 t 之前（含）完成的执行（真实时钟推进语义）。"""
         nonlocal executing_now
-        while finish_heap and finish_heap[0] <= now:
+        while finish_heap and finish_heap[0] <= t:
             heapq.heappop(finish_heap)
             executing_now -= 1
 
     for i in range(1, n + 1):
         arrive_at = (i - 1) * interval
         now = max(now, arrive_at)
-        # 释放已完成的槽
-        _release_finished()
-        active = len(finish_heap)
-        max_concurrent_observed = max(max_concurrent_observed, executing_now)
+        _release(now)
 
+        t = now
         entry = {
             "req": i, "arrived_at": arrive_at,
             "queued_at": None, "started_at": None, "finished_at": None,
             "state": "queued", "queue_wait_ms": 0, "cooldown_wait_ms": 0,
         }
-        # 5h 额度预检（不消耗调用）
-        if exceed and limit5h is not None and used_5h >= limit5h:
-            entry["state"] = "quota_exceeded"
-            quota_exceeded_count += 1
-            timeline.append(entry)
-            continue
         queue_wait = 0
-        # 并发信号量（有界 30s）
-        if active >= max_concurrent:
-            wait = finish_heap[0] - now
+
+        # 1) 并发信号量（transfer：占满时接管最早完成槽；等待从本请求到达时刻起算，不串行化同批后续请求）
+        if executing_now >= max_concurrent:
+            earliest = finish_heap[0]
+            wait = earliest - t
             if wait > MAX_QUEUE_WAIT_MS:
                 entry["state"] = "rate_limited"
                 rate_limited_count += 1
+                end_times.append(t)
                 timeline.append(entry)
                 continue
-            now = finish_heap[0]
-            heapq.heappop(finish_heap)  # 复用槽位（该请求完成）
+            heapq.heappop(finish_heap)
             executing_now -= 1
+            t = earliest
             queue_wait += wait
-        # RPM 时间槽（先同步预约，再判超时；与桌面端 _pace 一致）
+
+        # 2) RPM 时间槽（先同步预约，再判超时；与桌面端 _pace 一致）
         rpm_eff = _effective_rpm(rpm, rate_factor)
         interval_ms = WINDOW_MS / rpm_eff
-        slot_base = max(now, next_slot_at)
+        slot_base = max(t, next_slot_at)
         next_slot_at = slot_base + interval_ms
-        pace_wait = slot_base - now
+        pace_wait = slot_base - t
         if pace_wait > MAX_PACE_WAIT_MS:
             entry["state"] = "rate_limited"
             rate_limited_count += 1
+            end_times.append(t)
             timeline.append(entry)
             continue
-        now = slot_base
+        t = slot_base
         queue_wait += pace_wait
-        # 429 冷却（有界 45s）
+        # 推进到槽位时刻后，释放所有已完成执行（并发语义：interval < duration 时请求可重叠）
+        _release(t)
+
+        # 3) 429 冷却（有界 45s）
         cooldown_wait = 0
-        if now < cooldown_until:
-            wait = cooldown_until - now
+        if t < cooldown_until:
+            wait = cooldown_until - t
             if wait > MAX_COOLDOWN_WAIT_MS:
                 entry["state"] = "rate_limited"
                 rate_limited_count += 1
+                end_times.append(t)
                 timeline.append(entry)
                 continue
-            now = cooldown_until
+            t = cooldown_until
             cooldown_wait = wait
             cooldown_count += 1
+
+        # 4) 5h 额度预检（与真实 preflight 位置一致：在 pace/cooldown 之后、执行之前；
+        #    被拒请求仍占用 RPM 槽 → 墙钟 total 含其等待，对齐真实 C3 行为）
+        if exceed and limit5h is not None and used_5h >= limit5h:
+            entry["state"] = "quota_exceeded"
+            entry["queue_wait_ms"] = int(queue_wait)
+            entry["cooldown_wait_ms"] = int(cooldown_wait)
+            quota_exceeded_count += 1
+            end_times.append(t)
+            timeline.append(entry)
+            continue
+
         entry["queue_wait_ms"] = int(queue_wait)
         entry["cooldown_wait_ms"] = int(cooldown_wait)
         max_queue_wait_ms = max(max_queue_wait_ms, int(queue_wait))
-        entry["queued_at"] = int(now)
-        entry["started_at"] = int(now)
-        started_times.append(int(now))
-        finished = int(now + duration)
+        entry["queued_at"] = int(t)
+        entry["started_at"] = int(t)
+        started_times.append(int(t))
+        finished = int(t + duration)
         entry["finished_at"] = finished
         entry["state"] = "completed"
         heapq.heappush(finish_heap, finished)
         executing_now += 1
+        max_concurrent_observed = max(max_concurrent_observed, executing_now)
         used_5h += 1
+        end_times.append(finished)
         # 记账：注入 429 → 冷却 + 自适应下调；否则缓慢恢复
         if inject_at is not None and i == inject_at:
             cooldown_until = finished + cooldown_ms
             rate_factor = max(RATE_FACTOR_MIN, rate_factor * RATE_ADAPT_FACTOR)
             rate_limited_count += 1
-            cooldown_count += 0  # 注入的 429 本身不计冷却等待（后续请求才算）
         else:
             rate_factor = min(1.0, rate_factor + RATE_RECOVER_STEP)
         factor_curve.append({"t": int(finished), "factor": round(rate_factor, 4)})
         timeline.append(entry)
+        now = max(now, t)
 
-    executed = [t for t in timeline if t["state"] == "completed"]
-    if executed:
-        total_duration_ms = max(t["finished_at"] for t in executed) - min(t["started_at"] for t in executed)
-    else:
-        total_duration_ms = 0
+    # 墙钟 total：全部请求（含被拒/限流的判定时刻）的最晚结束时刻 - 起始 0（对齐真实 runSelfCheck 墙钟口径）
+    total_duration_ms = max(end_times) if end_times else 0
     # 吞吐：60s 滑动窗口内最大放行数（与 RPM 预算语义一致）
     throughput_per_min = 0
     for s in started_times:
