@@ -41,6 +41,16 @@
 - **教训 7（`--if-present` 位置）**：必须写 `pnpm -r --if-present run test`（选项在 `run` 之前）；放在 `run test` 之后会被当成脚本参数传给 vitest → `vitest run "--if-present"` 过滤 0 测试 → exit 1。
 - **教训 8（整目录 Junction 复用废弃）**：并发 worktree 整目录 Junction 使 `@multi-publish/*` 共享物理链接，无法各自解析分支源码（双模块实例根因）；pnpm store 硬链接 + 消费方链接是正解，历史 junction 用 fix-worktree-node-modules.sh 检测修复。
 - **教训 9（scripts/*.js 被 .gitignore 忽略）**：`.gitignore` 有 `scripts/*.js` 规则；新增的必提交工具脚本（verify-worktree-deps/run-package-install）会静默不入库，必须加 `!` 例外并 `git status` 复核。
+## 加密凭证主密钥解密失败导致账号添加永久阻断复盘（credential-store-safe-storage-recovery，2026-08-13）
+
+- **问题**：用户添加抖音账号（扫码登录成功）后报「加密凭证保存失败，账号创建已回滚」。日志铁证：`CredentialStore Failed to save credentials for a3f80984: Error while decrypting the ciphertext provided to safeStorage.decryptString.` 即 `credentials/.masterkey`（safeStorage:v1: 包裹）存在但 Electron safeStorage（Windows DPAPI）无法解密——典型于用户目录迁移、不同 Windows 用户上下文创建、或 DPAPI 状态变化。`getMasterKey()` 对 keyFile/.bak 全部解码失败后 `throw lastError`（fail-closed），`saveCredential` 返回 false，account-manager 按契约回滚后端账号；用户凭证库中无任何 `*.json.enc`，本可安全自愈却永久阻断。
+- **根因**：安全加固（44e2c6ea）引入的 fail-closed 只覆盖「防静默破坏」，未区分「有凭证不可恢复」与「无凭证可安全重建」两种状态，导致环境级 DPAPI 故障下整个账号功能不可用且无恢复路径。
+- **逃逸链**：单测覆盖了「decryptString 抛错 → saveCredential false」的 mock 路径（account-manager.test.js 回滚用例），但未覆盖「masterkey 已存在 + 解密失败 + 库为空」的真实恢复语义；真实 Windows DPAPI 状态变化（用户切换/目录迁移）无任何自动化可拦，属于环境性故障，测试只能验证代码自愈行为。
+- **系统性漏洞**：fail-closed 决策缺少「损失评估」维度——恢复动作的破坏性应以库中既有数据为判据（有凭证→fail-closed；无凭证→重建），而非一律 fail-closed。
+- **修复**：`getMasterKey()` 在 lastError 分支新增自愈：`hasAnyCredentialFiles(credDir)` 递归（含 owners/ 命名空间）确认无任何 `*.json.enc` 且 `canUseSafeStorage` 为真时，随机生成新主密钥并原子重建 `.masterkey`/`.masterkey.bak`（error 日志记录原错误+重建动作）；有凭证或 safeStorage 不可用时保持 fail-closed 抛原始错误（延续明文主密钥禁令）。回归测试 5 组：根目录/owners 空库自愈、根目录/owners 有凭证 fail-closed、safeStorage 不可用 fail-closed。
+- **预防措施**：① 新增 OpenSpec 契约 `openspec/specs/credential-store-safe-storage-recovery/spec.md` 固化「无凭证自愈重建 / 有凭证 fail-closed」二分语义；② 涉及 safeStorage/DPAPI 的改动必须覆盖「历史密文失败+新密文可用」的状态化 mock（createLegacyCiphertextFailingSafeStorage），禁止用无条件抛错 mock 反向固化错误行为；③ 环境性故障（DPAPI/用户目录迁移）应在 learnings 中登记，产品层可考虑主密钥导出/重新绑定引导（后续演进）。
+
+---
 ## 共享 worktree 批量清理级联误删主工作区文件复盘（shared-worktree-cascade-delete，2026-08-13）
 
 - **表象**：主工作区 `git status --porcelain` 突发 **255 个 ` D`**（工作区文件从磁盘消失，但 HEAD 中仍存在、上游未提交删除、目录外壳还在）；同一时段大量 worktree 从 `git worktree list` 消失（含本会话 mp-video-clone-default-url），主工作区 HEAD 也被并发会话推进（c0510955 → 1a248ed7）。

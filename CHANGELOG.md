@@ -45,6 +45,12 @@
 - electron-builder `files` 增加 `!node_modules/.pnpm/**` 避免虚拟存储卷入打包产物；desktop 补声明 `@multi-publish/ai-autonomous-tester`（npm 幻影依赖修复）。
 - 验证：桌面全量 Vitest 串行（7282+）+ 其余 workspace 全量、build:vue、check:deps/check:circular、win 打包 QM-1、CI 全绿（Quality Gate 8/8、Electron CI、Build & Release win+linux、GUI/Visual/AgentJudge）；PR #705 合并（54e30e73）；OpenSpec change `pnpm-worktree-deps`。
 
+## [2026-08-13] fix(auth): 加密凭证主密钥解密失败自愈重建，解除账号添加永久阻断（credential-store-safe-storage-recovery）
+
+- 根因：用户添加抖音账号（扫码登录成功）后报「加密凭证保存失败，账号创建已回滚」。日志铁证：`CredentialStore Failed to save credentials for a3f80984: Error while decrypting the ciphertext provided to safeStorage.decryptString.`——`credentials/.masterkey`（safeStorage:v1: 包裹）已存在但 Electron safeStorage（Windows DPAPI）无法解密（用户目录迁移/不同用户上下文创建/DPAPI 状态变化）；`getMasterKey()` 对 keyFile/.bak 全部解码失败后 fail-closed 抛错 → saveCredential false → 账号创建回滚。用户凭证库中无任何 `*.json.enc`（含 owners/ 命名空间），本可安全重建却永久阻断账号功能。
+- 修复：`getMasterKey()` lastError 分支新增自愈——`hasAnyCredentialFiles(credDir)` 递归（含 owners/）确认无任何加密凭证文件且系统凭据保护可用时，生成新随机主密钥并原子重建 `.masterkey`/`.masterkey.bak`（error 日志记录原始错误与重建动作，不含敏感字段）；库中存在凭证或 safeStorage 不可用时保持 fail-closed 抛原始错误（延续「拒绝明文主密钥」安全姿态，不静默破坏既有数据）。
+- 测试：credential-store.test.js +5 回归（根目录/owners 空库自愈 + round-trip；根目录/owners 有凭证 fail-closed 且文件不被改写；safeStorage 不可用 fail-closed），状态化 mock（历史密文失败 + 新密文可用）模拟真实 DPAPI 故障。
+- 文档：OpenSpec change credential-store-safe-storage-recovery（proposal/design/specs/tasks，archive 合入 openspec/specs/）；01-docs/learnings.md 复盘；.quality-gates.md 门禁记录。
 ## [2026-08-13] fix(s2v): 视频 provider「队列满 queue is full」纳入瞬时重试（限流语义 4 次）
 
 - 现状：`withAssetTransientRetry` 仅对瞬时类错误（超时/网络/限流 429/额度）有界重试；agnes-video 的 "video queue is full, please retry later" 不含限流/超时关键词 → 被判定非瞬时 → 不重试直接回退仅 2 图，丢失「队列拥塞稍后可恢复」的机会。
