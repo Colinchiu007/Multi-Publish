@@ -75,12 +75,14 @@
 
 ## 6. 验收清单
 
-- [ ] `i18n.test.js` 含键对称与占位符断言，zh/en 各 738+ 键通过
-- [ ] 重复源校验测试存在并通过（收敛前）
-- [ ] CI job：locale diff 配对检查生效（构造「只改 zh.js」提交可复现失败）
-- [ ] CI job：renderer CJK 硬编码扫描生效
-- [ ] 术语词典文件 + 校验测试存在
-- [ ] `.quality-gates.md` 增加「locale 成对修改」条款
+> 状态：2026-08-13 全部实施完成（分支 `codex/i18n-content-sync`，OpenSpec change `i18n-content-sync`）。
+
+- [x] `i18n.test.js` 含键对称与占位符断言，zh/en 各 738+ 键通过
+- [x] 重复源校验测试落地，并在 L2 语料源收敛后按设计移除（`story2video-notifications.js` 不再持有文案）
+- [x] CI job：locale diff 配对检查生效（quality-gate.yml Gate 7，`.github/scripts/check-locale-sync.js --pair-base origin/main`）
+- [x] CI job：renderer CJK 硬编码扫描生效（Gate 7，基线 `.github/scripts/locale-cjk-baseline.json` 836 条）
+- [x] 术语词典 `01-docs/i18n-glossary.md` + `glossary.test.js` 存在
+- [x] `.quality-gates.md` 与 AGENTS.md 增加「locale 成对修改」条款
 
 ## 7. 相关文档
 

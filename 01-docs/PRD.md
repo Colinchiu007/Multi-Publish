@@ -701,6 +701,8 @@ platforms:
 
 **验收**：上述门禁全部落地并在 CI 生效；`i18n.test.js` 覆盖键对称与占位符；术语改名（如 zh 侧修改名词）时 en 侧同步由测试/CI 强制校验。
 
+**实施状态（2026-08-13）**：L0 门禁已落地——`i18n.test.js` 键对称 + 占位符断言；L1 `.github/scripts/check-locale-sync.js`（locale diff 配对 + CJK 基线扫描）挂载 CI Gate 7；L2 语料源收敛完成（`story2video-notifications.js` 不再持有 zh/en 文案，统一从 locales 读取，重复源校验随之移除）；L3 术语词典 `01-docs/i18n-glossary.md` + `glossary.test.js` 已落地。实施分支 `codex/i18n-content-sync`（OpenSpec change `i18n-content-sync`）。
+
 #### 审计日志
 
 每次发布操作记录到 SQLite audit_log 表：

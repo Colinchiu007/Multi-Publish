@@ -1,0 +1,12 @@
+{
+  "id": "i18n-content-sync-implement",
+  "title": "实施 i18n-content-sync：L0 门禁测试 + CI 配对 + 语料源收敛 + 术语词典",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-i18n",
+  "currentPhase": "implementation",
+  "nextAction": "L0 门禁测试（键对称/占位符/重复源）→ CI 配对 → L2 收敛 → L3 词典",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "codex/i18n-content-sync"
+}

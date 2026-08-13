@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
-  STORY2VIDEO_NOTIFICATION_MESSAGES,
   bgmSkippedReasonText,
   countStory2VideoTextCharacters,
   formatBgmSkippedNotification,
@@ -12,10 +11,12 @@ import {
 } from './notifications'
 
 describe('Story2Video 通知模型', () => {
-  it('维护完整的中文和英文消息目录，并默认显示中文', () => {
+  it('每个通知键在 locales（zh/en）中均有非空文案，并默认显示中文（i18n-content-sync 单源收敛）', () => {
     for (const key of Object.values(STORY2VIDEO_NOTIFICATION_KEYS)) {
-      expect(STORY2VIDEO_NOTIFICATION_MESSAGES.zh[key]).toEqual(expect.any(String))
-      expect(STORY2VIDEO_NOTIFICATION_MESSAGES.en[key]).toEqual(expect.any(String))
+      const zh = resolveStory2VideoNotification({ messageKey: key }, { locale: 'zh' })
+      const en = resolveStory2VideoNotification({ messageKey: key }, { locale: 'en' })
+      expect(zh.message.length, `zh ${key} 文案为空`).toBeGreaterThan(0)
+      expect(en.message.length, `en ${key} 文案为空`).toBeGreaterThan(0)
     }
 
     expect(resolveStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED })).toEqual({

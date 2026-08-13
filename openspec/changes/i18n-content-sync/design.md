@@ -22,7 +22,7 @@
 **D1：门禁以测试 + CI 脚本实现，不引入新依赖。**
 - `i18n.test.js` 内增加 `collectLeaves` 键对称与占位符断言（该文件已有 `collectLeaves` 工具函数，复用成本最低）。
 - 重复源校验做成独立测试文件 `src/story2video/story2video-notifications.sync.test.js`（或并入现有测试），对比 locales 与模块同 key 值。
-- CI 配对与 CJK 扫描做成 `scripts/check-locale-sync.js`（Node，无依赖），在现有 CI workflow 挂一个 job。
+- CI 配对与 CJK 扫描做成 `.github/scripts/check-locale-sync.js`（Node，无依赖），在现有 CI workflow 挂一个 job。
 - 备选：eslint-plugin-vue-i18n / formatjs 等第三方 lint。不选：引入新依赖 + 需对齐项目 lint 体系，成本高于收益；测试脚本对项目现状更直接。
 
 **D2：收敛策略——`story2video-notifications.js` 只留逻辑，文案并入 locales。**
@@ -47,7 +47,7 @@
 
 ## Migration Plan
 
-1. Phase A（L0 + L1）：加测试 + `scripts/check-locale-sync.js` + CI job；先验证「构造只改 zh.js 的提交」能复现失败。
+1. Phase A（L0 + L1）：加测试 + `.github/scripts/check-locale-sync.js` + CI job；先验证「构造只改 zh.js 的提交」能复现失败。
 2. Phase B（L2）：迁移 `story2video-notifications.js` 文案入 locales → 删除 L0-3 → 全量测试。
 3. Phase C（L3）：建词典 + 校验测试；更新 AGENTS.md / `.quality-gates.md`。
 4. 回滚：门禁全部为增量检查，回滚 = 撤销对应 commit；L2 迁移可用 git revert 回退（文案已入 locales，无数据迁移）。
