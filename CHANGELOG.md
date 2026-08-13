@@ -15,6 +15,9 @@
 - 测试：引擎全量 124 pass（+replication-level 5 例 + plan/similarity/generate/compose 分层用例）；桌面 composable 7 绿；vite build/eslint 0。
 - 真实运行：testsrc 3s 样例 → 自动 L0 → 封面生成 → L0 合成 → 成片产出、F4 level=L0。
 - PRD v1.16 §13.2/§29/§30。
+- 修复（打包 E2E 回捕）：L0 封面 spec 负索引导致占位图生成器 `colors[-1]` 取色失败（index 改 0 + 桌面生成器 `Math.abs` 防御）；`scripts/video-clone-e2e.js` 适配默认链接（先切「本地文件」再按 placeholder 填路径）。
+- 复盘：01-docs/learnings.md 视频克隆自动复刻层级复盘（装饰字段陷阱 / verdict 证据门禁语义 / schema 默认值流入分支 / 负索引取模）。
+- 关联文档：PRD-video-creation.md §1.6 修订表补录视频克隆条目（入口卡/默认链接/自动复刻层级）。
 
 ## [2026-08-13] refactor(video-clone): 移除无效的「复刻层级」下拉
 
@@ -47,6 +50,17 @@
 - 文档：PRD §7.1.3a-1 等待态 UX 反馈（功能逻辑/数据校验/交互逻辑/显示项/提示文字）；learnings.md 复盘（状态映射测试护栏/等待可感知性/MessageFunction 插值/scroll spy 污染）。
 
 
+## [2026-08-13] 提示词引擎自进化 P0：生成/反馈双日志反馈管道（prompt-engine-evolution-p0）
+
+- 新增桌面端反馈管道（设计：01-docs/prompt-engine-evolution-design.md v2，经 Claude + Codex 双模型架构审查）：
+  - `GenerationEvent`/`FeedbackEvent` 双日志（append-only JSONL，`userData/generation-logs/`，月轮转 30 天清理，按 eventId join；sessionId 可解析到最新生成事件，无法 join 标记 orphan 不丢弃）。
+  - `services/prompt-evolution/`（schema.js fail-closed 校验 + signal-collector.js 采集/统计/孤儿检测/轮转），`ipc-handlers/generation-feedback.js`（`generation:feedback`：eventId 或 sessionId 至少其一 + EC 错误码；`prompt-library:list` P0 骨架）。
+  - feature flag `MP_EVOLUTION_ENABLED=1` 开启（默认关闭）；preload 新增 `generationFeedback`/`promptLibraryList`。
+  - Story2Video 素材自选采纳埋点（`reportEvolutionFeedback`，API 缺失静默跳过，不阻断用户操作）。
+  - `generateImagePromptsSmart` 增加可选 `onEvent` 回调（不传行为不变，回调抛错不阻断生成）。
+- 测试：prompt-evolution 18 + generation-feedback 7 + preload 333 + bootstrap 32 + CreateView 162 + story2video-engine 129 全绿。
+- 双模型审查修复：cleanup 30 天清理按真实文件布局（YYYY-MM.jsonl）生效并有启动调用点；明文 userId 不落盘（仅加盐 HMAC）；跨月 join（当月+上月）；IPC 校验错误码统一 VALIDATION_ERROR、muted 返回成功语义；onEvent 支持异步回调；测试月份本地化。recordGeneration 生产接线明确列为 P1 交付项（本 change 仅交付采集器能力 + 反馈回填流 + onEvent 钩子）。
+- 范围：P0 仅反馈管道；评估/记忆/优化/治理（P1-P3）后续 change 承载。
 ## [2026-08-13] Story2Video 全能创作：分句链路统一使用分句引擎算法（story2video-split-engine-unify）
 
 - 问题：全能创作合成视频中分句「没生效」——分句引擎 smart-sentence-splitter（:8002）返回的 `scenes[].subtitles` 被丢弃，场景内字幕块由桌面本地旧贪心算法（硬编码 8/15 字）重新切分；引擎离线时整条链路降级为同一旧算法。

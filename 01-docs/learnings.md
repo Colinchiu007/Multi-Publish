@@ -6575,6 +6575,17 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 1（实证纠正误判）**：此前把 C2（elevenlabs 3s×8，interval==duration）判为「真实并发 maxc=2 vs 模拟器串行 1」是**误判**——真实 timeline 8 个请求严格 3s 间隔串行，maxc=2 是定时器时钟误差的 1ms 级重叠（测量噪声）。真实 governor 的 RPM 槽（nextSlotAt 全局预约）**严格互斥**，并发能力只在 `interval < duration` 时体现。判定口径差异必须看 timeline 证据，不能只看聚合指标。
 - **教训 2（离散仿真推进时钟）**：并发仿真的关键是「每个请求的等待从自身到达时刻起算 + 完成事件按时间释放」，而不是把全局时钟推进到前一个请求完成——后者会把同批请求串行化（正是旧实现低估并发的原因）。实现后必须用「interval<duration 应 maxc=2、interval>duration 应 maxc=1」两个用例锁定。
 - **教训 3（会话分支守卫）**：仓库 pre-commit 钩子要求 `.agent_context/expected-branch` 声明（缺 `scripts/session-guard.ps1` 时手动创建文件、内容=当前分支即可）；声明后提交自动通过分支守卫 + 质量节拍检查。
+## 复刻层级「装饰字段」→ 自动定级驱动行为复盘（video-clone-auto-replication-level，2026-08-13）
+
+- **交付（PR #729 → 746b6bf4）**：复刻层级从「固定 L1 的装饰字段」变为真功能——引擎 `replication-level.js` 按证据自动定级（结构/文案/风格标签/时长 → L0/L1/L2），plan 写入 `replication.level + replication.auto`；generate 按层级分支（L0 单封面图 text-first，L1/L2 逐镜头，L2 加锚点）；compose 按层级分支（L0 单图循环，无 concat）；F4 按层级验收（`LEVEL_THRESHOLDS/LEVEL_REQUIRED`，兼容 target P1→L1/P2→L2）；UI 展示「自动目标层级 → 达成 grade」。引擎 124 pass、桌面 7 绿、真实运行 L0 链路 + 打包复验。
+- **教训 1（「声明字段 ≠ 行为」的装饰陷阱）**：旧的复刻层级下拉只写入报告元数据，analyze/generate/compose/F4 全都不读它——用户问「那这个有什么用」是正确直觉。新增任何选项/字段前必须确认**消费方**（谁读它、产生什么行为差异）；无消费方则不加 UI、不进报告，或立即实现消费方。
+- **教训 2（验收判定要区分「证据不足」与「未达标」）**：初版把「该层级必须维度缺证据 → insufficient_evidence」当独立规则，破坏了无 ASR 场景（L1 无文案证据直接被判 insufficient 而非 needs_review），被 slice2 集成测试拦截。正确组合：**全局置信度门禁（<0.5 → insufficient_evidence）防空报告假通过 + 层级必须维度决定 pass/needs_review**。verdict 规则改动必须有「无 STT 真实链路」的集成回归。
+- **教训 3（schema 默认值会流入业务分支）**：`emptyReport()` 默认 `replication.level='L0'`，generate/compose 新分支直接读 level——旧测试夹具 `reportWithShots()` 隐式依赖默认 L1 行为，新分支一加 3 个用例立即炸。读取派生字段的 adapter，测试夹具必须**显式设置**该字段，禁止依赖 schema 默认值。
+- **教训 4（ffmpeg `-loop 1` 只对图片输入有效）**：L0 封面合成探针误把 mp4 当封面素材 → compose 失败（loop 作用于视频输入非法）；生产占位图生成器产出 PNG 无此问题。合成探针必须按真实资产类型构造（图片用图片）。
+- **教训 5（负索引在 JS 取模为负 → 数组越界）**：L0 封面 spec 初版用 `index:-1`，桌面占位图生成器 `colors[index % len]` 得到 `colors[-1]=undefined` → ffmpeg 生成失败（打包 E2E 抓出，本地探针因用自定义生成器而漏网）。教训：引擎产出的 index 必须非负（消费方依赖 `index % len` 取色/命名），且消费方加 `Math.abs` 防御；**打包 E2E 用的是真实占位图生成器，比自定义生成器探针更能暴露集成问题**。
+- **预防措施**：① 字段/选项评审增加「消费方清单」检查项；② 验收判定规则改动回归覆盖「证据不足 vs 未达标」两类 verdict 的真实链路用例；③ 分支逻辑读取的报告字段在测试夹具显式赋值；④ 引擎合成探针按资产类型（图/视频/音频）分别构造；⑤ 新资产 spec 字段（index/kind）必须与全部消费方核对（取模/命名/校验），打包 E2E 用生产 wiring 复验。
+
+---
 ## 图片/视频/旁白串行阻塞复盘（s2v-asset-parallel，2026-08-13）
 
 - **表象**：混合模式（视频+图片轮播）流水线「图片/视频/旁白生成」阶段长期显示「图片 0/16 · 视频 1/3 · 旁白 0/8」——视频在推进但图片/旁白停滞，用户预期三类工作同时并行。

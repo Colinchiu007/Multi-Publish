@@ -44,7 +44,7 @@ function createPlaceholderImageGenerator({ outputDir = null } = {}) {
   return async (spec, report) => {
     const bin = resolveBinary('VC_FFMPEG_PATH', 'FFMPEG_PATH', 'ffmpeg')
     const out = path.join(dir, 'shot_' + spec.index + '.png')
-    const color = colors[spec.index % colors.length]
+    const color = colors[Math.abs(spec.index) % colors.length] // 防御：负索引在 JS 取模为负 → colors[-1] undefined
     const ratio = (report && report.platformParams && report.platformParams.aspect) || '16:9'
     const size = ratio === '9:16' ? '540x960' : ratio === '1:1' ? '720x720' : '960x540'
     try {

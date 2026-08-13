@@ -330,6 +330,34 @@ describe('videogen 共享阶段执行器', () => {
         'agnes-video', 'generateVideo', expect.objectContaining({ prompt: '[opt] scene-prompt-0' }),
       )
     })
+
+    it('视频生成并行启动：首个视频轮询未完成时其余场景已提交，结果保序（2026-08-13）', async () => {
+      await waitForVideoUrl()
+      let release
+      const gate = new Promise((resolve) => { release = resolve })
+      let submitCount = 0
+      const ai = makeVideoAi(async (_providerId, method) => {
+        if (method === 'generateVideo') { submitCount++; return { code: 0, data: { taskId: 't-' + submitCount } } }
+        if (method === 'getVideoStatus') { await gate; return { code: 0, data: { status: 'completed', videoUrl: VIDEO_URL } } }
+        return { code: 0 }
+      })
+      const { get } = makePipeline(ai, null, {
+        optimizeVideoPromptsBatch: vi.fn(async (prompts) => prompts.map(p => ({ optimized_prompt: '[opt] ' + p }))),
+      })
+      const runPromise = get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_par', stage: { options: {} }, params: { text: '主题' },
+        context: { storyboard: [{ prompt: 'p1' }, { prompt: 'p2' }] },
+      })
+      // 视频 1 被 gate 卡住轮询时，其余场景应已提交 generateVideo（并行）
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(submitCount).toBe(2)
+      release()
+      const result = await runPromise
+      expect(result.success).toBe(true)
+      expect(result.output.videos).toHaveLength(2)
+      // 保序：mapWithModelBudget 结果与输入同序（MERGE 按场景顺序拼接）
+      expect(result.output.videos.map(v => v.index)).toEqual([0, 1])
+    }, 30000)
   })
 
 

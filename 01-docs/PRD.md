@@ -71,7 +71,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 | 视频增强配置区 | 成本提示（自选时）：「选择「分镜素材自选」模式后，每个分镜段落将生成多张图片和 1 个视频供您选择。Token 或积分消耗将大量增加，建议先用短文案测试后，再用于真实创作。」 | 只读提示（data-testid `s2v-creation-mode-hint`） |
 | 视频增强配置区 | 「素材模式」单选（全部图片轮播 / 视频+图片轮播）+ 说明（全部图片轮播：每个场景生成 2 张图片供您选择；视频+图片轮播：AI 视频场景生成 2 张图片 + 1 个视频供您选择（同一提示词），其余场景生成 2 张图片） | 仅自选模式显示 |
 | 视频增强配置区 | 「视频增强模式」（关闭/固定比例/AI 智能选择）+ 视频生成器 | manual+全部图片轮播 时隐藏（不生成 AI 视频） |
-| 运行中 | `SceneAssetSelection` 面板（data-testid `scene-asset-selection`）：每场景候选缩略图（图片 img / 视频 video 元素，经 `story2videoCreateShareUrl` 生成媒体 URL）、单选、默认选中徽标（「默认选中视频」/「默认选中第 1 张图片」）、确认按钮（禁用直到全部选择）；**素材放大预览（2026-08-13 新增）**：点击图片/视频缩略图（`sas-preview-<scene>-<id>`，图片悬停显示放大镜遮罩）→ 打开 `UiModal` 大图预览/视频播放（图片 `max-width:100%`、`max-height:70vh`；视频 `controls autoplay playsinline`），标题按类型显示「图片预览/视频预览」，正文含「场景 n · 图片 m/视频」元信息与关闭提示；遮罩点击/× 关闭（`preview=null`） | 缩略图点击 `openPreview(scene, candidate)` 打开预览（不改变单选，radio 选择独立）；`closePreview()` 关闭；键盘 Enter 也可打开（图片缩略图 `role=button` + `tabindex=0`） |
+| 运行中 | `SceneAssetSelection` 面板（data-testid `scene-asset-selection`）：每场景候选缩略图（图片 img / 视频 video 元素，经 `story2videoCreateShareUrl` 生成媒体 URL）、单选、默认选中徽标（「默认选中视频」/「默认选中第 1 张图片」）、确认按钮（禁用直到全部选择）；**素材放大预览（2026-08-13 新增）**：点击图片/视频缩略图（`sas-preview-<scene>-<id>`，图片悬停显示放大镜遮罩）→ 打开 `UiModal` 大图预览/视频播放（图片 `max-width:100%`、`max-height:70vh`；视频 `controls autoplay playsinline`），标题按类型显示「图片预览/视频预览」，正文含「场景 n · 图片 m/视频」元信息与关闭提示；遮罩点击/× 关闭（`preview=null`）；**左右箭头循环切换（2026-08-13 新增）**：媒体两侧 ◀/▶ 按钮（data-testid `sas-preview-prev/next`，aria-label「上一个素材/下一个素材」），在当前场景全部候选（图片+视频混合）间前后循环切换——第一条的上一条为最后一条、最后一条的下一条为第一条（`(idx±1+len)%len`）；单候选时按钮禁用 | 缩略图点击 `openPreview(scene, candidate)` 打开预览（不改变单选，radio 选择独立）；`previewPrev()/previewNext()` 在 `preview.scene.candidates` 中循环切换（切换后图片/视频元素随之更换，视频自动播放）；`closePreview()` 关闭；键盘 Enter 也可打开（图片缩略图 `role=button` + `tabindex=0`） |
 | 历史/暂停 | 已暂停任务点击「从断点继续」→ 回到选择面板（不自动推进） | resumeOrchestration 返回 paused |
 | 项目详情（ResultView） | 分段「画面提示词」文本域下方只读翻译块（data-testid `segment-prompt-translation`，标签「中文翻译」） | 只读；界面语言 en 或无翻译时不显示 |
 
@@ -1302,6 +1302,51 @@ key，未知内部 ID 只能回退为原始 ID。
 ##### 六、成本提示（不变）
 
 分镜素材自选模式下图片调用数 = 场景数 × 2（全自动为场景数 × 1），视频场景额外 1 次视频生成；Token/积分消耗大幅增加，UI 强制提示「建议先用短文案测试后，再用于真实创作」。
+
+#### 7.1.36 videogen 系列流水线视频生成并行（2026-08-13）
+
+##### 一、背景与设计权衡
+
+videogen 系列（animation AI 讲解动画 / avatar-spokesperson 数字人口播 / character-animation 角色动画 / hybrid 混合）的 `videogen_generate` 阶段此前为**纯串行**：`for` 循环逐场景「提交 generateVideo → 轮询 getVideoStatus（10s 间隔，≤10 分钟）→ 下载」，每个场景约 1-3 分钟，N 个场景串行时长 ≈ 总和。
+
+**串行设计的原始原因**：
+1. 视频 provider 为异步任务制（rpm 6-8、按任务限额），早期静态表 `maxConcurrent: 1`，串行是最保守可靠调度；
+2. `videogen_generate` 为**裸调用** `manager.callAdapter`（无 governor/预算调度层），并行前必须先补预算机制避免超 RPM；
+3. MERGE 阶段用 `videos.map()` 按数组当前顺序写 concat-list 拼接（不按 index 排序），串行时顺序天然正确，并行必须保序。
+
+##### 二、优化方案
+
+| 维度 | 旧行为 | 新行为（2026-08-13） |
+|------|--------|----------------------|
+| 生成方式 | for 串行（提交+轮询+下载逐个） | **有界并发 2**（`mapWithModelBudget`，保序） |
+| 预算调度 | 裸调用，无 governor | **每项经 `withModelBudget(type:'video')`**：provider rpm 约束提交速率 + governor RPM 排队/429 冷却 |
+| 结果顺序 | videos.push 循环序 = 场景序 | `mapWithModelBudget` 保序（结果与输入同序），MERGE 拼接顺序不变 |
+| 并发上限 | 1 | `min(请求值, provider 预算 maxConcurrent)`；默认 2，`stage.options.videoConcurrency` 可显式覆盖 |
+
+**流程逻辑**：
+1. 场景提示词批量优化（prompt-engine `optimizeVideoPromptsBatch`，≤20 分块，全量 fail-closed）不变；
+2. `mapWithModelBudget({ items: prompts, requestedConcurrency: 2, type: 'video', providerId, provider, manager, governor, fn })`：worker 并发执行 `withModelBudget(..., videoTask)`，每项 `videoTask(prompt, index)` 执行「提交 → 轮询 → 下载」，返回 `{ index, success, path|error }`；
+3. `videos = videoResults.filter(Boolean)` 保序；`ok = videos.filter(success)` 全失败时 fail closed（错误逐项聚合）；
+4. 并发预算：provider 配置 `rate_per_minute` 或静态表（视频类别 `ceil(rpm/3)` cap 2，与全能创作 7.1.35 同源）；governor 信号量 = 该 provider 视频类别并发上限（ModelProviderManager 按类别注入）。
+
+**交互逻辑**：无新增用户操作；进度沿既有逐场景完成日志；`stage.options.videoConcurrency` 仅系统/调试可调，不暴露 UI。
+
+##### 三、数据校验与边界
+
+| 项 | 合同 |
+|----|------|
+| 并发收敛 | `requestedConcurrency = stage.options.videoConcurrency || 2`；`mapWithModelBudget` 内部 `min(请求值, budget.maxConcurrent)`，非法/非正数回退默认 |
+| 预算来源 | provider config `rate_per_minute` > 静态表 > 类别默认（视频未配置兜底 2） |
+| 保序 | `mapWithModelBudget` 结果与 items 同序，MERGE concat-list 按场景顺序，禁止乱序 |
+| 失败语义 | 单项失败保留 `{ index, success:false, error }` 供聚合提示；全部失败 fail closed（「该流水线视频生成全部失败：...」） |
+| 限流 | governor RPM 排队/429 冷却对视频调用生效（此前裸调用无此保障） |
+
+##### 四、验收标准
+
+1. 自动化：首个视频轮询未完成时，其余场景已提交 generateVideo（并行，2 worker）；结果保序 `[0,1]`（videogen-stages 并行测试）。
+2. 自动化：33+ 既有 videogen 测试全通过（provider 门控 / 提示词优化 / 错误透传 / 帧数映射等不回归）。
+3. CI 全绿：QG 桌面 shards / coverage / electron-tests / build 通过。
+4. 真实 E2E：多场景动画/口播流水线运行中视频逐场景完成间隔显著缩短（并发 2 减半），成片可 ffprobe 解码且场景顺序正确。
 
 #### 7.1.4 TTS 音色、个人克隆与隐私边界
 

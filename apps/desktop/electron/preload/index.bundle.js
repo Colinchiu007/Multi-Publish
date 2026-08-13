@@ -395,6 +395,9 @@ var require_system = __commonJS({
         analyticsOverview: () => ipcRenderer2.invoke("analytics:overview"),
         analyticsPlatform: (platform) => ipcRenderer2.invoke("analytics:platform", { platform }),
         analyticsPlatforms: () => ipcRenderer2.invoke("analytics:platforms"),
+        // Prompt engine evolution API (P0 反馈管道)
+        generationFeedback: (payload) => ipcRenderer2.invoke("generation:feedback", payload),
+        promptLibraryList: () => ipcRenderer2.invoke("prompt-library:list"),
         // Hotkeys API
         hotkeysList: () => ipcRenderer2.invoke("hotkeys:list"),
         // Keyword API
