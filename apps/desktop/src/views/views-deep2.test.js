@@ -59,6 +59,7 @@ vi.mock("@/api/publisher", () => ({
   onRenderInstallProgress: vi.fn(() => vi.fn()),
   publishBatch: vi.fn(),
   onProgress: vi.fn(() => vi.fn()),
+  onPipelineUpdate: vi.fn(() => vi.fn()),
   sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
   batchCreate: vi.fn(),
   storeGetSetting: vi.fn(),
