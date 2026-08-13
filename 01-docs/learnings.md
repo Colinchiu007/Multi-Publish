@@ -13302,3 +13302,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **修复迭代（Claude 审查发现）**：① 单槽位声明可被并发会话覆盖导致守卫 fail-open → session-guard 拒绝覆盖另一活跃会话（session.json pid 存活）的声明；② 安装脚本从子目录运行 `--git-common-dir` 返回相对路径会装错位置 → 改用 `--path-format=absolute` + HEAD 合法性校验；③ 补 fail-closed 边界测试（空声明/detached 无 rebase/wrapper 缺失/非代码扩展名/真实 rebase 重放）。
 - **自动化迭代（用户反馈手动声明太麻烦）**：隔离 worktree（per-worktree git-dir != 公共 git-dir）由 pre-commit 提交时自动声明当前分支、切分支自动跟随，零手动步骤；共享主工作区保留严格 fail-closed（需 session-guard 锁定一次，不传 -Branch 自动取当前分支）。测试 13 场景 21 断言。
 
+
+## [2026-08-13] 像素视觉门禁不稳定：动画中间态 + 懒加载时序（pipeline-card-bg-static-bundle）
+
+- **现象**：引入静态背景图后，`create-editor` 像素对比 mismatch 26.15%（阈值 6%），其他页正常。
+- **根因**：PipelineSelector 入场动画（fadeInUp stagger）+ `loading="lazy"` 图片解码时序不确定——CI 截图可能截到动画中间态或图片未解码的帧，导致同一代码在不同机器/轮次产生不同截图。
+- **修复**：test-runner.js 新增 `reducedMotion: 'reduce'`（Playwright context 级别）+ `_waitForImagesSettled()`（轮询视口内 img.complete + img.decode() + requestAnimationFrame 双帧）。
+- **教训**：含 CSS 动画或 `loading="lazy"` 图片的页面，像素门禁必须关闭动画并等待图片就绪，否则截图不可确定。Playwright `reducedMotion` 是最干净的方式——比手动 `animation: none` 更可靠，且覆盖所有元素。
+- **落地**：`apps/desktop/tests/visual-testing/test-runner.js`（reducedMotion + _waitForImagesSettled）；9 张基线快照更新。

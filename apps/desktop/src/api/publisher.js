@@ -310,13 +310,6 @@ export async function pipelineCancel() { return invokeWithFallback("pipelineCanc
 export async function pipelineStatus(name) { return invokeWithFallback("pipelineStatus", null, name) }
 export async function pipelineAdvance() { return invokeWithFallback("pipelineAdvance", { code: -1 }) }
 export async function pipelineHistory() { return invokeWithFallback("pipelineHistory", { code: 0, data: [] }) }
-/**
- * 获取/生成流水线卡片背景（MiniMax image-01，主进程缓存 + loopback URL）
- * 无 IPC 或未配置 provider 时返回空背景，前端回退渐变。
- */
-export async function pipelineCardBackgrounds(payload) {
-  return invokeWithFallback("pipelineCardBackgrounds", { code: 0, data: { available: false, provider: null, backgrounds: {}, generated: [], cached: [], failed: [], skipped: [] } }, payload)
-}
 
 // ═══ Pipeline 编排模式 API（story2video-compose 等新流水线使用） ═══
 export async function pipelineStartOrchestrated(name, params) { return invokeWithFallback("pipelineStartOrchestrated", { code: -1, message: 'electronAPI not available' }, name, params) }

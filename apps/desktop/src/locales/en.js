@@ -407,12 +407,6 @@ export default {
       readyHint: 'This pipeline can generate videos',
       notImplementedHint: 'This pipeline has no execution engine yet.',
     },
-    selector: {
-      bgGenerating: 'Generating card backgrounds…',
-      bgUnavailable: 'No image-generation model configured — using default styles (configure one in Model Providers)',
-      bgPartialFailure: 'Some card backgrounds failed — fell back to default styles',
-      bgClose: 'Close',
-    },
   },
   promptEval: {
     pageTitle: 'Prompt Eval',

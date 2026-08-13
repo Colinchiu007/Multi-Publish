@@ -408,12 +408,6 @@ export default {
       readyHint: '该流水线可生成视频',
       notImplementedHint: '该流水线尚未实现执行引擎，暂不能生成视频',
     },
-    selector: {
-      bgGenerating: '正在生成卡片背景…',
-      bgUnavailable: '未配置图片生成模型，已使用默认样式（可在「模型服务商」中配置）',
-      bgPartialFailure: '部分卡片背景生成失败，已回退默认样式',
-      bgClose: '关闭',
-    },
   },
   promptEval: {
     pageTitle: '提示词优化效果评估',
