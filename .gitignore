@@ -103,6 +103,9 @@ scripts/*.js
 !scripts/affected-report.js
 !scripts/launch-worktree.js
 !scripts/ensure-electron.js
+!scripts/ensure-desktop-deps.js
+!scripts/ensure-desktop-deps.test.js
+!scripts/start-desktop-identity.js
 screenshot_script*.js
 temp_debug.txt
 coverage/
@@ -205,3 +208,5 @@ deploy-temp/
 
 # Session-local branch guard state (written by scripts/session-guard.ps1)
 .agent_context/
+
+

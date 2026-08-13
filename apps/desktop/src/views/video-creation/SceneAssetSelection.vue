@@ -100,22 +100,54 @@
     >
       <div class="sas-preview" data-testid="sas-preview-modal">
         <p v-if="previewMetaText" class="sas-preview-meta">{{ previewMetaText }}</p>
-        <img
-          v-if="preview && preview.candidate.kind === 'image'"
-          class="sas-preview-media"
-          :src="previewUrl"
-          :alt="previewLabel"
-          data-testid="sas-preview-image"
-        />
-        <video
-          v-else-if="preview && preview.candidate.kind === 'video'"
-          class="sas-preview-media"
-          :src="previewUrl"
-          controls
-          playsinline
-          autoplay
-          data-testid="sas-preview-video"
-        ></video>
+        <div class="sas-preview-stage">
+          <button
+            type="button"
+            class="sas-preview-nav sas-preview-prev"
+            :disabled="previewCount < 2"
+            :aria-label="previewPrevLabel"
+            data-testid="sas-preview-prev"
+            @click="previewPrev"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          </button>
+          <img
+            v-if="preview && preview.candidate.kind === 'image'"
+            class="sas-preview-media"
+            :src="previewUrl"
+            :alt="previewLabel"
+            data-testid="sas-preview-image"
+          />
+          <video
+            v-else-if="preview && preview.candidate.kind === 'video'"
+            class="sas-preview-media"
+            :src="previewUrl"
+            controls
+            playsinline
+            autoplay
+            data-testid="sas-preview-video"
+          ></video>
+          <button
+            type="button"
+            class="sas-preview-nav sas-preview-next"
+            :disabled="previewCount < 2"
+            :aria-label="previewNextLabel"
+            data-testid="sas-preview-next"
+            @click="previewNext"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+        </div>
+        <button
+          type="button"
+          class="sas-preview-select-toggle"
+          :class="{ 'is-selected': previewSelected }"
+          :aria-pressed="previewSelected"
+          data-testid="sas-preview-toggle"
+          @click="togglePreviewSelection"
+        >
+          {{ previewSelectedLabel }}
+        </button>
         <p v-if="previewHintText" class="sas-preview-close-hint">{{ previewHintText }}</p>
       </div>
     </UiModal>
@@ -184,10 +216,44 @@ export default {
       if (!this.preview) return ''
       const sceneText = this.sceneLabelText(this.preview.scene.index)
       const mediaText = this.candidateLabel(this.preview.candidate)
-      return sceneText + ' · ' + mediaText
+      const pos = this.previewAllIndex >= 0 ? this.previewAllIndex + 1 : 0
+      const total = this.allCandidates.length
+      const template = this.$t?.('story2video.sceneAssetSelection.previewPositionLabel') || '第 {pos}/{total} 个素材'
+      const position = typeof template === 'string' ? template.replace('{pos}', String(pos)).replace('{total}', String(total)) : ''
+      return [sceneText + ' · ' + mediaText, position].filter(Boolean).join(' · ')
     },
     previewHintText() {
       return this.$t?.('story2video.sceneAssetSelection.previewCloseHint') || '点击关闭或按 × 退出预览'
+    },
+    previewCount() {
+      return this.allCandidates.length
+    },
+    // 全部素材有序列表：按场景 index 升序，场景内按候选顺序（供预览跨场景循环切换）
+    allCandidates() {
+      return (Array.isArray(this.candidates) ? this.candidates : [])
+        .slice()
+        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+        .flatMap(scene => (Array.isArray(scene.candidates) ? scene.candidates : []).map(candidate => ({ scene, candidate })))
+    },
+    previewAllIndex() {
+      if (!this.preview) return -1
+      return this.allCandidates.findIndex(item =>
+        item.scene.index === this.preview.scene.index && item.candidate.id === this.preview.candidate.id)
+    },
+    previewSelected() {
+      if (!this.preview) return false
+      return this.selected[this.preview.scene.index] === this.preview.candidate.id
+    },
+    previewSelectedLabel() {
+      return this.previewSelected
+        ? (this.$t?.('story2video.sceneAssetSelection.previewSelectedLabel') || '已选定')
+        : (this.$t?.('story2video.sceneAssetSelection.previewUnselectedLabel') || '未选定')
+    },
+    previewPrevLabel() {
+      return this.$t?.('story2video.sceneAssetSelection.previewPrevLabel') || '上一个素材'
+    },
+    previewNextLabel() {
+      return this.$t?.('story2video.sceneAssetSelection.previewNextLabel') || '下一个素材'
     },
     allSelected() {
       return Array.isArray(this.candidates) && this.candidates.length > 0
@@ -251,6 +317,31 @@ export default {
     },
     closePreview() {
       this.preview = null
+    },
+    previewPrev() {
+      const list = this.allCandidates
+      if (!this.preview || list.length < 2) return
+      const idx = this.previewAllIndex
+      if (idx < 0) return
+      const next = (idx - 1 + list.length) % list.length
+      this.preview = { ...list[next] }
+    },
+    previewNext() {
+      const list = this.allCandidates
+      if (!this.preview || list.length < 2) return
+      const idx = this.previewAllIndex
+      if (idx < 0) return
+      const next = (idx + 1) % list.length
+      this.preview = { ...list[next] }
+    },
+    // 已选定/未选定切换：与素材选定界面单选状态一致（同场景只保留一个已选定）
+    togglePreviewSelection() {
+      if (!this.preview) return
+      const { scene, candidate } = this.preview
+      const current = this.selected[scene.index]
+      this.selected = current === candidate.id
+        ? { ...this.selected, [scene.index]: '' }
+        : { ...this.selected, [scene.index]: candidate.id }
     },
     previewAriaLabel(candidate) {
       const template = this.$t?.('story2video.sceneAssetSelection.previewAriaLabel') || '放大预览 {label}'
@@ -320,7 +411,16 @@ export default {
 .sas-preview-hint { margin: 2px 0 0; font-size: 11px; color: #8b5cf6; }
 .sas-preview { text-align: center; }
 .sas-preview-meta { margin: 0 0 8px; font-size: 13px; color: #c9d1d9; }
+.sas-preview-stage { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .sas-preview-media { max-width: 100%; max-height: 70vh; border-radius: 6px; background: #0d1117; }
+.sas-preview-nav { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid #33373f; border-radius: 50%; background: #1d2026; color: #c9d1d9; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease; }
+.sas-preview-nav:hover:not(:disabled) { border-color: #58a6ff; color: #58a6ff; }
+.sas-preview-nav:disabled { opacity: 0.35; cursor: not-allowed; }
+.sas-preview-nav:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
+.sas-preview-select-toggle { margin: 12px auto 0; display: inline-flex; align-items: center; gap: 6px; padding: 6px 16px; font-size: 13px; border: 1px solid #33373f; border-radius: 6px; background: #1d2026; color: #8a8f98; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease; }
+.sas-preview-select-toggle.is-selected { border-color: #2ea043; color: #2ea043; background: rgba(46, 160, 67, 0.1); }
+.sas-preview-select-toggle:hover { border-color: #58a6ff; color: #c9d1d9; }
+.sas-preview-select-toggle:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
 .sas-preview-close-hint { margin: 8px 0 0; font-size: 11px; color: #8a8f98; }
 .sas-actions { margin-top: 12px; text-align: right; }
 .s2v-btn-primary { background: #2f81f7; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; }

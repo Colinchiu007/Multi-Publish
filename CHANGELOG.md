@@ -4,6 +4,7 @@
 - 修复：`isRateLimitErrorLike` 扩展匹配 `queue is full` / `queue full` / `队列满（饱和）` → 归入限流语义：最多 4 次、退避 2.5s×attempt；重试耗尽后仍回退（manual 仅 2 图 / auto 图片轮播补图）。分类判定同时作用于 manual 与 auto 的视频/图片/TTS 瞬时重试路径。
 - 测试：manual 新增「队列满 → 限流语义重试 4 次后回退」用例（fake timers）；既有失败回退/混合用例改用非瞬时消息保持快速；manual 21 / stages 83 / text-config 68，合计 172 全绿。
 - 文档：PRD.md 7.1.3a 候选生成补充「瞬时失败有界重试」机制（三副本一致）；OpenSpec change s2v-manual-video-parallel 增补队列满场景。
+
 ## [2026-08-13] feat(s2v): 分镜素材自选（manual）视频候选生成与全自动对齐——有界并行 + 图片并行启动（s2v-manual-video-parallel）
 
 - 根因：manual 候选生成（buildManualSceneCandidates）视频候选是 for...await 串行循环，且图片候选必须等视频全部完成——2 个视频场景实测纯视频阶段 11+ 分钟无图片产出，与全自动（PR #717 三路并行 + 视频并发 2）体验割裂。
@@ -12,6 +13,13 @@
 - 测试：story2video-manual-assets.test.js +4（in-flight=2 并行且图片并行启动、provider 预算 maxConcurrent=1 收敛为串行、视频失败回退、一路成功一路失败混合），manual 专项 20 全绿；story2video-stages 83、story2video-text-config 68 全绿。
 - 文档：PRD.md 7.1.3a 候选生成（video-image bullet 补充并行机制，三副本同步）；OpenSpec change s2v-manual-video-parallel（proposal/design/specs/tasks）。
 
+## [2026-08-13] 桌面启动依赖可靠性：remotion 精确 pin + 依赖自愈脚本（desktop-deps-reliability）
+
+- 根因：`@remotion/renderer@4.0.509` 未发布（registry ETARGET），`^4.0.484` 范围重解析必挂 → `npm install` 必然失败；中断的失败安装会删除/损坏 node_modules（@img/*、@element-plus/icons-vue、@ctrl/tinycolor 整包丢失）→ Vite 预构建失败 → `504 (Outdated Optimize Dep)` → 启动空白。
+- 修复：root `package.json` `remotion` 与 `packages/remotion-composer` 全部 `@remotion/*` 从 `^4.0.484` 精确 pin 为 `4.0.484`（与 lockfile 一致、全部已发布）；`npm install --package-lock-only --ignore-scripts` 验证成功（无 ETARGET）。
+- 自愈：新增 `scripts/ensure-desktop-deps.js`（零依赖 Node）——启动前校验脆弱依赖（sharp 平台包 / @img/colour / @element-plus/icons-vue / @ctrl/tinycolor + apps/desktop 全部直接依赖），缺失时以 node 直跑 npm-cli 旁路补装（npm pack + 解包，不改 package.json/lockfile）；`--invalidate-vite-cache` 失效陈旧 Vite optimize 缓存（改名保留可回退）。平台感知：sharp 平台包仅在 win32-x64 校验。
+- 测试：`scripts/ensure-desktop-deps.test.js` 9 例全绿（node --test）；真实冒烟：精确版（tinycolor 4.2.0）与 range（picocolors@^1.1.0 → 1.1.1）均经真实 npm pack 恢复成功，恢复后重检 0 缺失。
+- 文档：OpenSpec change `desktop-deps-reliability`（proposal/design/specs/tasks，validate 通过）；`01-docs/learnings.md` 复盘；`.quality-gates.md` 门禁记录。- 启动契约封装：新增 `scripts/start-desktop.ps1`（定工作区/同步最新/5174 端口归属 fail-closed/清旧实例/依赖健康/证据输出）+ `scripts/start-desktop-identity.js`（CDP 登录态校验）；端到端验证：从专用 worktree `mp-desktop-dev`（origin/main `22a96962`）启动，窗口 handle 非零、Vite 归属同 worktree、identity authenticated。
 ## [2026-08-13] feat(video-clone): 复刻层级程序自动决定并驱动行为（L0/L1/L2）
 
 - 引擎新增 `replication-level.js`：`assessReplicationLevel(report)` 按证据完备度自动定级（结构≥2 段 / 文案非空 / 风格标签≥2 / 时长）→ L0/L1/L2，plan 阶段写入 `replication.level` + `replication.auto`（inspiration 只借结构自然落 L0；显式 replicationLevel 仍优先）。

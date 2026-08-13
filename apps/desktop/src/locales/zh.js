@@ -275,6 +275,11 @@ export default {
       previewVideoTitle: '视频预览',
       previewCloseHint: '点击关闭或按 × 退出预览',
       previewAriaLabel: '放大预览 {label}',
+      previewPrevLabel: '上一个素材',
+      previewNextLabel: '下一个素材',
+      previewPositionLabel: '第 {pos}/{total} 个素材',
+      previewSelectedLabel: '已选定',
+      previewUnselectedLabel: '未选定',
     },
   },
   pipelines: {

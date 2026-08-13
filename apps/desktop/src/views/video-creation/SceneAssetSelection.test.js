@@ -31,6 +31,13 @@ const CANDIDATES = [
   },
 ]
 
+
+// jsdom 中 UiModal Transition 残留 DOM：取最后一个匹配元素（当前激活 modal）
+function lastEl (sel) {
+  const els = document.querySelectorAll(sel)
+  return els[els.length - 1]
+}
+
 describe('SceneAssetSelection', () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -132,5 +139,90 @@ describe('SceneAssetSelection', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(radios[2].element.checked).toBe(true)
     expect(radios[3].element.checked).toBe(true)
+  })
+
+  it('预览左右箭头全局循环：全部素材按场景顺序前后切换（2026-08-13）', async () => {
+    const w = mount(SceneAssetSelection, { props: { runId: 'run-1', candidates: CANDIDATES } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // 全局顺序：场景0[image-0,image-1,video-2] → 场景1[image-0,image-1]
+    await w.find('[data-testid="sas-preview-0-image-0"]').trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview.scene.index).toBe(0)
+    expect(w.vm.preview.candidate.id).toBe('image-0')
+    // 右箭头 → 场景0 image-1
+    lastEl('[data-testid="sas-preview-next"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview.scene.index).toBe(0)
+    expect(w.vm.preview.candidate.id).toBe('image-1')
+    // 右箭头 → 场景0 video-2
+    lastEl('[data-testid="sas-preview-next"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview.candidate.kind).toBe('video')
+    // 右箭头 → 跨到场景1 image-0
+    lastEl('[data-testid="sas-preview-next"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview.scene.index).toBe(1)
+    expect(w.vm.preview.candidate.id).toBe('image-0')
+    // 右箭头 → 场景1 image-1（最后一条）
+    lastEl('[data-testid="sas-preview-next"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview.scene.index).toBe(1)
+    expect(w.vm.preview.candidate.id).toBe('image-1')
+    // 右箭头 → 循环回第一条（场景0 image-0）
+    lastEl('[data-testid="sas-preview-next"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview.scene.index).toBe(0)
+    expect(w.vm.preview.candidate.id).toBe('image-0')
+    // 左箭头 → 循环回最后一条（场景1 image-1）
+    lastEl('[data-testid="sas-preview-prev"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview.scene.index).toBe(1)
+    expect(w.vm.preview.candidate.id).toBe('image-1')
+    // 左箭头 → 场景1 image-0
+    lastEl('[data-testid="sas-preview-prev"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview.scene.index).toBe(1)
+    expect(w.vm.preview.candidate.id).toBe('image-0')
+  })
+
+  it('预览状态按钮：未选定→已选定，同场景原选定自动取消，可切回未选定（2026-08-13）', async () => {
+    const w = mount(SceneAssetSelection, { props: { runId: 'run-1', candidates: CANDIDATES } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // 场景0 默认选中 video-2（视频优先）；打开 image-0 预览
+    expect(w.vm.selected[0]).toBe('video-2')
+    await w.find('[data-testid="sas-preview-0-image-0"]').trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const toggle = () => lastEl('[data-testid="sas-preview-toggle"]')
+    expect(toggle().textContent).toContain('未选定')
+    // 点击 → 已选定；同场景原 video-2 自动取消
+    toggle().click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.selected[0]).toBe('image-0')
+    expect(toggle().textContent).toContain('已选定')
+    // 单选 radio 同步
+    const radios = w.findAll('input[type=radio]')
+    expect(radios[0].element.checked).toBe(true) // image-0 scene0
+    expect(radios[2].element.checked).toBe(false) // video-2 scene0
+    // 再点已选定按钮 → 切回未选定（该场景无选定）
+    toggle().click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.selected[0]).toBe('')
+    expect(toggle().textContent).toContain('未选定')
+  })
+
+  it('切换后媒体类型跟随候选（图片→视频显示播放器）', async () => {
+    const w = mount(SceneAssetSelection, { props: { runId: 'run-1', candidates: CANDIDATES } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await w.find('[data-testid="sas-preview-0-image-0"]').trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(document.body.querySelector('[data-testid="sas-preview-image"]')).toBeTruthy()
+    // 切到 video-2
+    lastEl('[data-testid="sas-preview-next"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    lastEl('[data-testid="sas-preview-next"]').click()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(w.vm.preview.candidate.kind).toBe('video')
+    expect(document.body.querySelector('[data-testid="sas-preview-video"]')).toBeTruthy()
   })
 })
