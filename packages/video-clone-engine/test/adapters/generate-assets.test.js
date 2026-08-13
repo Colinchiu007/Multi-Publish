@@ -45,6 +45,7 @@ test('L0 文案级：单封面图规划（kind=cover, text-first）', () => {
   r.script.fullText = '这是文案';
   const plan = createAssetPlan(r);
   assert.equal(plan.length, 1);
+  assert.equal(plan[0].index, 0); // 非负索引：占位图生成器 colors[index % len] 依赖
   assert.equal(plan[0].kind, 'cover');
   assert.ok(plan[0].promptSeed.includes('text-first'));
   assert.ok(plan[0].promptSeed.includes('text:这是文案'));
