@@ -6549,3 +6549,10 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **变更**：并发信号量超时判定从「处理时刻 + 30s」改为「**本请求到达时刻 + 30s**」（真实 governor waiter deadline）。429 长冷却（30s）+ 同批突发时，排队请求在 deadline 处被拒（rate_limited_count=4 = 注入记账 1 + 排队超时 3），不再乐观放行；被拒请求 end_time 记 deadline 墙钟。
 - **新教训（观测盲区）**：桌面端 runSelfCheck 对「排队超时被拒的请求」存在**观测盲区**——timeline 只记录 task 内开始执行的请求，排队被拒的不进 timeline 也不计数，故其 rate_limited_count=1 只是「可见限流」；模拟器 rate_limited=4 反映 governor 内部真实行为。对拍脚本 must-pass 用例无排队超时场景，不受影响；若要验证该边界，以模拟器语义 + governor 源码为准。
 - **测试**：waiter deadline 长冷却用例锁定（timeline rate_limited=3 + 注入记账 1 → count=4、completed=5）。
+## 复盘：共享工作区并发 checkout 导致提交错落分支 + 提交分支守卫（2026-08-13，commit-branch-guard）
+
+- **现象**：提交前人工确认分支为 main，提交后 docs 提交 `1624ae9f` 落到并发会话新建的 codex/video-no-text-prompt-enhancement（reflog：11:04:24 checkout -b，11:06:07 提交，差 1 分 43 秒）。
+- **根因**：共享工作目录 + 无强制分支校验 = TOCTOU 竞态；`.agent_context/` 信号从未被创建；原 pre-commit 无分支断言且 docs-only 跳过全部检查。
+- **预防落地**：`scripts/hooks/pre-commit` 分支守卫（所有提交强制校验当前分支 == `.agent_context/expected-branch`，无声明/不符一律拦截，rebase 重放跳过）；`scripts/session-guard.ps1` 会话声明；`scripts/install-git-hooks.ps1` 安装；`scripts/hooks/pre-commit.test.sh` 11 场景 17 断言。
+- **教训**：文档化的「铁律」若无机器执行点等于不存在；提交级保护必须 fail closed，不能依赖人工确认；`.agent_context/` 这类检测信号必须由代码创建，否则检测永远空转。
+- **修复迭代（Claude 审查发现）**：① 单槽位声明可被并发会话覆盖导致守卫 fail-open → session-guard 拒绝覆盖另一活跃会话（session.json pid 存活）的声明；② 安装脚本从子目录运行 `--git-common-dir` 返回相对路径会装错位置 → 改用 `--path-format=absolute` + HEAD 合法性校验；③ 补 fail-closed 边界测试（空声明/detached 无 rebase/wrapper 缺失/非代码扩展名/真实 rebase 重放）。
