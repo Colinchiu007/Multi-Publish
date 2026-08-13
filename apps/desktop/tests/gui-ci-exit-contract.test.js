@@ -267,22 +267,21 @@ describe('GUI/CI 工作流门禁契约', () => {
       ELECTRON_MIRROR: 'https://cdn.npmmirror.com/binaries/electron/',
     });
 
-    // 迁移契约：Electron ABI 原生模块（better-sqlite3）必须在 Electron 安装后、vitest 前重建
-    expect(rebuildSteps).toHaveLength(1);
-    expect(rebuildSteps[0].run).toContain('@electron/rebuild -f -w better-sqlite3');
+    // 迁移契约（2026-08-13 pnpm）：better-sqlite3 不在依赖图（sqlite-wrapper.js 为 sql.js 兼容层），
+    // `pnpm exec @electron/rebuild` 无法解析未声明的 bin（npm npx 会临时下载，pnpm exec 不会）——
+    // electron-ci 必须不再包含 better-sqlite3 rebuild 步骤（历史 npm no-op 步骤已移除）。
+    expect(rebuildSteps).toHaveLength(0);
 
     const dependencyIndex = steps.indexOf(dependencySteps[0]);
     const runtimeIndex = steps.indexOf(runtimeSteps[0]);
     const checksumIndex = steps.indexOf(checksumSteps[0]);
     const electronIndex = steps.indexOf(electronSteps[0]);
-    const rebuildIndex = steps.indexOf(rebuildSteps[0]);
     const testIndex = steps.indexOf(testSteps[0]);
 
     expect(dependencyIndex).toBeLessThan(runtimeIndex);
     expect(runtimeIndex).toBeLessThan(checksumIndex);
     expect(checksumIndex).toBeLessThan(electronIndex);
-    expect(electronIndex).toBeLessThan(rebuildIndex);
-    expect(rebuildIndex).toBeLessThan(testIndex);
+    expect(electronIndex).toBeLessThan(testIndex);
   });
 
   it('Electron CI 不执行仅供桌面发布门禁使用的真实媒体工具测试', () => {
