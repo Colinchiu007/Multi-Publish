@@ -1,0 +1,14 @@
+{
+  "id": "container-log-rotation",
+  "title": "P2：容器日志 rotation（publish-api / logto / postgres 等 compose 统一 json-file 轮转）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "observability",
+  "currentPhase": "completed",
+  "nextAction": "PR #696 已合并，三同步归档完成",
+  "createdAt": "2026-08-13T00:00:00+08:00",
+  "branch": "codex/container-log-rotation",
+  "openspecChange": "container-log-rotation",
+  "remoteStatus": "MERGED_PRS_696"
+}

@@ -1,0 +1,52 @@
+[codeagent-wrapper]
+  Backend: claude
+  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+  PID: 28860
+  Log: D:\Temp\codeagent-wrapper-28860.log
+  Web UI: http://localhost:63792
+  Session-ID: 118d3e20-1427-4440-adcd-c6d8b187cca9
+I've completed the review with verification runs (contract test, `docker compose config` on all three files and both overlay merges, `openspec validate`). Here are the findings.
+
+## Review: container-log-rotation
+
+### Critical 🔴
+无。变更正确、低风险：三个 compose 文件语法与语义均通过 `docker compose config`；合并形态（base + monitoring、base + webhook-retry）日志配置继承正确；契约测试与 `openspec validate container-log-rotation` 均通过。
+
+### Major 🟡
+
+**1. 契约断言绑定 YAML 字面序列化，而非配置语义——合法配置会误报**
+- **依据**: `packages/api-publish-engine/test/logto-deploy-contract.test.js:232-233`
+- 断言为 `assert.strictEqual(svc.logging.options['max-size'], '50m')` 与 `strictEqual(options['max-file'], '5')`，直接比较 js-yaml 解析后的原始字面量。但 Docker 接受语义等价的写法：`max-file: 5`（未加引号的整数，js-yaml 解析为 number `5`）、`max-size: 50M`/`50MB`（单位大小写/后缀合法）。任何一处改为这类写法，部署行为完全一致，契约测试却会报"应最多保留 5 个文件"失败——产生对合法变更的假阴性。
+- 规格场景（`openspec/changes/container-log-rotation/specs/container-log-rotation/spec.md:12`）只要求 options **含** `max-size` 与 `max-file`，未固定序列化形式；测试比规格更严且严在不必要的维度。
+- **建议**: 断言前归一化，如 `assert.strictEqual(String(svc.logging.options['max-file']), '5')`、`String(...['max-size']).toLowerCase() === '50m'`；或在 spec.md 场景中明确"值必须为字面 `"50m"` / `"5"`"，让测试严格性与文档契约对齐。
+
+### Minor 🟢
+
+**2. `assertLogRotation` 对缺失的 `options` / 缺失的监控服务抛裸 TypeError，而非可读断言**
+- **依据**: `test/logto-deploy-contract.test.js:230,238-240`
+- `assert.ok(svc.logging)` 只守卫了 `logging`；若 `options` 缺失，`svc.logging.options['max-size']` 抛 `TypeError: Cannot read properties of undefined`；`monitoringCompose.services[name]` 为 undefined 时 `.logging` 同样抛 TypeError。测试仍会失败（目标达成），但失败信息是引擎异常而非中文断言文案，排障成本高。
+- **建议**: 补 `assert.ok(svc.logging.options, ...)`；对 monitoring 服务先 `assert.ok(svc, name + ' 服务缺失')`。
+
+**3. 契约只校验原始 compose 文件，未校验合并结果；未来 overlay 若覆盖 logging 无法被发现**
+- **依据**: `test/logto-deploy-contract.test.js:235-241`（base 与 monitoring 分开断言）、`:56-66`（webhook-retry overlay 的 deepStrictEqual）
+- 当前通过 `deepStrictEqual(webhookRetryOverlay, {services:{logto:{image,build}}})` 保证 overlay 不声明 logging，从而"继承 base"成立——我已用 `docker compose config -f base -f webhook-retry.yml` 实测合并后的 logto 服务保留 `logging`（`max-file: "5"` / `max-size: 50m`），故现状正确。但未来若新增 overlay（或已有 monitoring overlay）在 logto/postgres 上声明不同 driver，base 文件断言仍会通过，而实际部署日志驱动与契约不符。
+- **建议（可选）**: 在测试中用 `deepmerge` 复算合并结果再断言，或至少注释说明该间接保证。
+
+**4. 规格未固化作用域边界（仅 Compose 容器；systemd/journald 豁免），与 design 的 Non-Goal 不同步**
+- **依据**: `design.md:16`（Non-Goals：不改 systemd / ops-center 走 journald）；`spec.md:4-8`（规格只写"部署 Compose SHALL…"，未声明适用范围）
+- 审计 `01-docs/LOGGING-AUDIT-2026-08-12.md:122` 明确 ops-center 属 journald 保留策略范畴，design 也已豁免；但作为长期契约的 spec.md 没有这句话。若后续有人在非 Compose 部署（systemd 直接跑容器、裸 `docker run`）套用本规格，会产生歧义。
+- **建议**: 在 spec.md Purpose 或 Requirement 后补一句"仅约束 Compose 管理的长期运行容器；systemd/journald 部署（ops-center）不适用"。
+
+**5. json-file 日志生命周期绑定容器：`docker compose down` 即丢，且 250MB 窗口为未压缩上限**
+- **依据**: `deploy/logto/docker-compose.yml:7-11,28-32`、`packages/api-publish-engine/docker-compose.yml:47-51`、`deploy/logto/docker-compose.monitoring.yml:5-9,17-21,39-43`
+- 参数语义正确：`max-size` 单文件达到即轮转，`max-file=5` 时最旧文件被删除，任意时刻 ≤5×50m=250MB（含活动文件），与 design 的 ≤250MB 一致。但 json-file 日志存于 `/var/lib/docker/containers/<id>/`，`docker compose down` 删除容器即丢失；且未设 `compress`，250MB 为未压缩 JSON（json 逐行包装会占用更多磁盘用于同样长度的原始文本）。此点 design 已以"集中采集为 Non-Goal"（`design.md:14`）声明，属已知取舍，仅建议在 RUNBOOK/README 一句话说明"容器日志保留 ≤250MB/容器、随容器生命周期"。
+
+**6. 工作区存在与本次变更无关的行尾噪声文件，提交前需确认不夹带**
+- **依据**: `git status`（`packages/ai-writer/src/cli.js`、`packages/api-publish-engine/bin/publish-api` 显示 modified）
+- `git diff --numstat` 显示这两文件 **0 行内容差异**（仅 LF→CRLF 行尾归一化噪声）。提交/开 PR 时若按目录 `git add` 可能夹带行尾 churn，建议按 4 个目标文件精确 `git add`。
+
+### Summary
+**批准（approve），无阻塞项。** 核心交付正确且已实测验证：轮转参数符合 Docker json-file 语义（50m 单文件、5 文件上限、最旧丢弃），250MB/容器上限与 design 一致；无遗漏服务——全仓仅 4 个 compose 文件，6 个服务全部覆盖，webhook-retry 与 monitoring 两种合并形态经 `docker compose config` 实测均保留 logging 配置；既有契约断言与 RUNBOOK/README 命令不受影响（测试全绿）。主要改进点是 #1（测试对字面序列化的过度约束）与 #3/#4（测试与规格的作用域/合并语义的显式化），均非本次合入阻塞。
+
+---
+SESSION_ID: 118d3e20-1427-4440-adcd-c6d8b187cca9

@@ -1,12 +1,20 @@
-
 ## [2026-08-13] Story2Video 全能创作：分句链路统一使用分句引擎算法（story2video-split-engine-unify）
 
 - 问题：全能创作合成视频中分句「没生效」——分句引擎 smart-sentence-splitter（:8002）返回的 `scenes[].subtitles` 被丢弃，场景内字幕块由桌面本地旧贪心算法（硬编码 8/15 字）重新切分；引擎离线时整条链路降级为同一旧算法。
 - 修复：
-  - 在线路径：`normalizeServiceSplitResult` 优先采用引擎返回的字幕（subtitleSource='smart-sentence-splitter'），缺字幕场景逐场景回退本地分块并保留来源标记。
+  - 在线路径：`normalizeServiceSplitResult` 优先采用引擎返回的字幕（subtitleSource='smart-sentence-splitter'），缺字幕或覆盖率不足（<60%）时逐场景回退本地分块并保留来源标记。
   - 离线路径：新增 `story2video-segmentation-engine.js`（v0.15.2 JS 镜像，逐行对齐 `text-segmentation.ts`：句子边界消歧 → targetChars 场景分组 → 字幕 7 步管道（分句/引号边界/长度切分/短块合并/标点清理/强制上限/时间戳）），规则读 `subtitle-rules.json` 单源；旧贪心实现删除，`createLocalSplitResult` 与 compose 兜底自动受益。
   - 一致性：新增 parity 测试（JS 镜像 vs TS 权威版，10 组语料 21 用例逐项一致）；`@multi-publish/story2video-engine` 新增 `./subtitle-rules` 导出。
-- 测试：story2video-segmentation（16）、parity（21）、stage-executor（57）、story2video-compose-engine（94）、pipeline-story2video-contract、text-config、stages、talkinghead/podcast/localization stages、story2video-manual-assets、story2video-engine 包（127）全绿。
+- 测试：story2video-segmentation（20）、parity（21）、stage-executor（57）、story2video-compose-engine（94）、pipeline-story2video-contract、text-config、stages、talkinghead/podcast/localization stages、story2video-manual-assets、story2video-engine 包（127）全绿；QM-1 打包验证通过。
+- 审查：antigravity 后端不可用（降级记录），claude 审查 W1-W5 全部闭环。
+
+## [2026-08-13] feat(i18n): 同步机制硬化（i18n-sync-hardening）
+
+- **模板硬编码扫描**：`.vue <template>` 纳入 Gate 7 CJK 扫描（标签间文本 + 属性值，注释剥离）；存量债务入基线（783→1650 条），新增模板硬编码中文被 CI 拦截（冒烟已验证）。
+- **错误目录收口**：`utils/user-facing-error.js` 的 30 个 errorCode 文案并入 locales `userErrors` 命名空间（zh/en 各 30 键），模块只保留 code 常量/数值映射/pattern 归一化；扫描豁免移除（模块现仅注释与正则含中文，不误报）。
+- **术语词典扩充**：`01-docs/i18n-glossary.md` 扩至 10 条产品核心名词（视频克隆/运营后台/模型设置/历史记录/发布历史/提示词/草稿箱/流水线 + 原有 2 条）；`glossary.test.js` en 侧改为大小写不敏感匹配。
+- 测试：user-facing-error 17 + i18n 9 + glossary 2 全绿；CJK 扫描 1650 基线 PASS；模板新增中文拦截冒烟通过。
+
 ## [2026-08-13] feat(i18n): 多语言内容同步机制实施（i18n-content-sync）
 
 - L0 门禁：`i18n.test.js` 新增 zh/en 叶子键完全对称断言 + 同 key `{param}` 占位符一致性断言；`story2video.text_too_long` 统一为 `{maxFormatted}`（zh 展示带千分位，与 en 一致）。
@@ -4040,7 +4048,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
-
 
 
 

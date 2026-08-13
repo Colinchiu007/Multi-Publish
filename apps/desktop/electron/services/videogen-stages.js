@@ -236,6 +236,8 @@ function buildConceptPrompt (topic, kind, mode) {
 
 【多角色视觉差异化】当场景中出现多个角色时，每个角色必须有独立且可区分的视觉特征标签（年龄差异、发型差异、面部特征差异、服饰差异、体型差异）。禁止多个角色使用相同的面部描述。这是视频画面中区分不同角色的唯一依据。
 
+【文化地域锚定·最高优先级】必须从主题推断时代背景、文化地域与人种，并显式写入每个角色的 visual 标签与 visual_style。例如中国古代（东汉/三国）题材必须写"中国古代汉族男性，束发髻，汉式服饰/铠甲"；禁止西方人种特征（金发、碧眼、高鼻深目、西方面孔）、禁止西方服饰（西式盔甲、西装、欧式宫廷装）。这是防止视频模型生成错误人种的唯一依据。
+
 【最高优先级约束】视频画面严禁出现文字/字幕/水印/标志。每个视觉描述末尾必须附加: clean frame, no text, no subtitles, no watermarks, no logos。`,
       user: '主题：' + String(topic || '').trim(),
     }
@@ -249,6 +251,7 @@ function buildConceptPrompt (topic, kind, mode) {
 2. 不得改变人物身份、时代背景、文化地域与核心论点；
 3. 提取原文关键事实（key_facts）与关键实体（entities：人物/事件/地点/作品等）；
 4. 视觉风格应服务于原文基调，不得整体偏离。
+5. 【文化地域锚定·最高优先级】必须从原文推断时代背景(era)、文化地域(culture)与人种，并显式写入每个角色的 visual 标签与 visual_style。例如中国古代（东汉/三国）题材必须写"中国古代汉族男性，束发髻，汉式服饰/铠甲"；禁止西方人种特征（金发、碧眼、高鼻深目、西方面孔）、禁止西方服饰（西式盔甲、西装、欧式宫廷装）。这是防止视频模型生成错误人种的唯一依据。
 ${hybridLine}只输出 JSON 对象 {"role_design": "每个角色的独立视觉特征（年龄/发型/面部/服饰/体型），用 | 分隔多角色", "characters": [{"name": "角色名", "visual": "独立视觉特征标签（年龄/发型/面部/服饰，确保多角色可区分）"}], "visual_style": "...", "hook": "...", "key_facts": ["..."], "entities": ["..."], "mode": "${effectiveMode}"}，不要多余文字。`,
     user: '主题（完整文案）：' + String(topic || '').trim(),
   }
@@ -298,7 +301,9 @@ function buildStoryboardPrompt (concept, kind, options = {}) {
 
 【最高优先级约束】每个场景的 prompt 字段末尾必须附加: clean frame, no text, no subtitles, no watermarks, no logos。严禁视频画面生成任何文字/字幕/水印伪影。
 
-【多角色视觉锚定】当场景中出现多个角色时，每个角色的 prompt 必须包含其独立视觉特征标签（来自概念阶段的 characters 数组）。格式示例: "Character A: [老者，白须，红袍] standing next to Character B: [年轻将领，黑发短寸，蓝甲]"。禁止省略角色视觉标签——这是视频模型区分不同角色的唯一依据。`,
+【多角色视觉锚定】当场景中出现多个角色时，每个角色的 prompt 必须包含其独立视觉特征标签（来自概念阶段的 characters 数组）。格式示例: "Character A: [老者，白须，红袍] standing next to Character B: [年轻将领，黑发短寸，蓝甲]"。禁止省略角色视觉标签——这是视频模型区分不同角色的唯一依据。
+
+【文化锚定·最高优先级】每个场景的 prompt 必须显式包含时代背景、文化地域与人种锚定（来自概念阶段的 era/culture/visual_style），例如中国古代题材必须写 "ancient Chinese (Eastern Han dynasty), East Asian Han Chinese faces, period-appropriate Hanfu and armor"。禁止金发碧眼、西方面孔、西方服饰出现在画面中。`,
       user: '创意概念与视觉风格：' + String(style || concept || '').slice(0, 2000),
     }
   }
@@ -322,7 +327,8 @@ function buildStoryboardPrompt (concept, kind, options = {}) {
 2. 不得改变人物身份、时代背景、文化地域与核心论点；
 3. 每个场景必须标注 source_paras（绑定原文段落索引）；
 4. 文案描述的关键事件（关键实体中的事件）必须有专属场景；
-5. 只输出 JSON 数组，不要其他文字。
+5. 【文化锚定·最高优先级】每个场景的 prompt 必须显式包含时代背景、文化地域与人种锚定（来自概念阶段的 era/culture/visual_style），例如中国古代题材必须写 "ancient Chinese (Eastern Han dynasty), East Asian Han Chinese faces, period-appropriate Hanfu and armor"。禁止金发碧眼、西方面孔、西方服饰出现在画面中。
+6. 只输出 JSON 数组，不要其他文字。
 
 【多角色视觉锚定】当场景中出现多个角色时，每个角色的 prompt 必须包含其独立视觉特征标签（来自概念阶段的 characters 数组）。格式: "Character A: [视觉标签] ... Character B: [视觉标签] ..."。禁止省略角色视觉标签——这是视频模型区分不同角色的唯一依据。`,
     user,

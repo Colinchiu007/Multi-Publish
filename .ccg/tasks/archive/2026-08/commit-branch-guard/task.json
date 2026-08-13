@@ -1,0 +1,14 @@
+{
+  "id": "commit-branch-guard",
+  "title": "pre-commit 分支守卫：防止共享工作区并发 checkout 导致提交落到错误分支",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "tooling",
+  "currentPhase": "completed",
+  "nextAction": "已归档；推送/PR 待用户决定",
+  "openspecChange": "commit-branch-guard",
+  "remoteStatus": "local-only: branch codex/commit-branch-guard @ f636db07 未推送，PR 待创建",
+  "createdAt": "2026-08-13T12:10:00+08:00",
+  "branch": "codex/commit-branch-guard"
+}

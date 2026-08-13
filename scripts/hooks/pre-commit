@@ -1,0 +1,79 @@
+#!/bin/bash
+# 质量节拍 + 分支守卫 Pre-commit Hook
+# 权威源：scripts/hooks/pre-commit；安装：scripts/install-git-hooks.ps1（同步到共享 .git/hooks/）
+# 行为：
+#   1) 分支守卫（所有提交，含 docs-only）：当前分支必须等于 .agent_context/expected-branch 声明
+#   2) 质量节拍检查（保留原逻辑）：代码文件变更时执行 scripts/quality-rhythm-wrapper.js check
+set -u
+
+echo "=== 质量节拍 + 分支守卫 Pre-commit 检查 ==="
+
+GIT_DIR="$(git rev-parse --git-dir)"
+CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
+EXPECTED_FILE=".agent_context/expected-branch"
+
+# ---------- 1. 分支守卫（fail closed，docs-only 同样强制） ----------
+if [ -f "$EXPECTED_FILE" ]; then
+    EXPECTED_BRANCH="$(tr -d '[:space:]' < "$EXPECTED_FILE")"
+    if [ -z "$EXPECTED_BRANCH" ]; then
+        echo "错误：.agent_context/expected-branch 内容为空"
+        echo "  修复：powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch <期望分支>"
+        exit 1
+    fi
+    if [ -z "$CURRENT_BRANCH" ]; then
+        # rebase 重放时 HEAD 处于 detached 状态，跳过断言避免误拦；其余 detached 提交视为上下文缺失
+        if [ -d "$GIT_DIR/rebase-merge" ] || [ -d "$GIT_DIR/rebase-apply" ]; then
+            echo "分支守卫：HEAD 处于 rebase 重放（detached），跳过本次分支断言"
+        else
+            echo "错误：会话声明期望分支 $EXPECTED_BRANCH，但当前 HEAD 未指向任何命名分支"
+            echo "  修复：git switch $EXPECTED_BRANCH"
+            exit 1
+        fi
+    elif [ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]; then
+        echo "错误：分支守卫拦截 —— 期望分支: $EXPECTED_BRANCH，当前分支: $CURRENT_BRANCH"
+        echo "  可能原因：共享工作区被并发会话执行了 git checkout，HEAD 被切到其他分支"
+        echo "  修复选项："
+        echo "    1) 若本次提交本应落在 $EXPECTED_BRANCH：先 git switch $EXPECTED_BRANCH，再重试提交"
+        echo "    2) 若确实要提交到 $CURRENT_BRANCH：先更新声明 scripts/session-guard.ps1 -Branch $CURRENT_BRANCH"
+        exit 1
+    else
+        echo "分支守卫：当前分支 $CURRENT_BRANCH 与会话声明一致"
+    fi
+else
+    echo "错误：缺少会话分支声明 .agent_context/expected-branch"
+    echo "  会话开始时必须声明期望提交分支，防止共享工作区被并发切换后提交落到错误分支"
+    echo "  修复：powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch <期望分支>"
+    echo "  例：  powershell -ExecutionPolicy Bypass -File scripts/session-guard.ps1 -Branch main"
+    exit 1
+fi
+
+# ---------- 2. 质量节拍检查（保留既有逻辑） ----------
+if [ ! -f "scripts/quality-rhythm-wrapper.js" ]; then
+    echo "错误：未找到质量节拍wrapper（scripts/quality-rhythm-wrapper.js）"
+    echo "请先安装质量节拍系统"
+    exit 1
+fi
+
+if git diff --cached --name-only | grep -qE '\.(js|ts|vue|jsx|tsx|py|java|go|rs|c|cpp|h|json|yaml|yml|toml|css|scss|less)$'; then
+    echo "检测到代码文件修改，执行质量节拍检查..."
+    node scripts/quality-rhythm-wrapper.js check
+    CHECK_RESULT=$?
+    if [ $CHECK_RESULT -ne 0 ]; then
+        echo "质量节拍检查失败，禁止提交"
+        echo "请先执行质量节拍"
+        exit 1
+    fi
+    echo "质量节拍检查通过"
+else
+    echo "未检测到代码文件修改，跳过质量节拍检查"
+fi
+
+if [ -f ".quality-rhythm-pending" ]; then
+    echo "警告：存在未完成的质量节拍检查"
+    echo "请先完成质量节拍检查再提交"
+    rm -f ".quality-rhythm-pending"
+    exit 1
+fi
+
+echo "=== Pre-commit 检查完成 ==="
+exit 0

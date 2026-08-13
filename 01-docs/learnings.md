@@ -6,6 +6,15 @@
 - **教训 2（引擎返回的结构先验证再丢弃）**：smart-sentence-splitter 的 SplitResponse 已含 scenes[].subtitles（text/display_order/start_time/duration）；归一化层应优先消费，而不是无理由本地重切。
 - **教训 3（JS 镜像 + parity 是 Electron 主进程复用 TS 算法的既定范式）**：主进程纯 JS 无法 require TS，仓库已有 subtitle-aligner 同款范式；手抄算法必须用同一语料差分测试锁死（本 change 10 组语料 21 用例）。
 - **教训 4（UTF-16 码元 vs Unicode 字符）**：引擎/TS 的字数边界按 string.length（UTF-16 码元）计数，emoji 占 2 码元；旧本地测试按 Array.from（码点）断言会与新引擎行为冲突，更新断言时应以引擎实测为准。
+
+---
+## 容器日志轮转复盘（container-log-rotation，2026-08-13）
+
+- **交付**：为 publish-api / logto / postgres / blackbox / prometheus / alertmanager 六个 Compose 服务统一添加 `logging: driver=json-file, options={max-size: 50m, max-file: 5}`（每容器 ≤250MB）；契约测试 logto-deploy-contract.test.js 新增 assertLogRotation 断言；spec 明确作用域（仅 Compose 容器，systemd/journald 豁免）。
+- **教训 1（测试断言应绑定语义而非字面序列化）**：js-yaml 解析的 `max-file: 5`（数字）与 `"5"`（字符串）、`50M` 与 `50m` 语义等价但字面不同；契约测试若 strictEqual 字面量，会对 Docker 合法写法产生假阴性。断言前归一化（String() + toLowerCase）。
+- **教训 2（json-file 日志生命周期）**：json-file 日志存于 /var/lib/docker/containers/<id>/，`docker compose down` 即丢；max-size 达上限轮转、max-file 超限删最旧。容器级轮转只是保底，长期留痕需集中采集（Loki/ELK，P2 后续）。
+- **教训 3（merge 继承要实测）**：webhook-retry / monitoring overlay 不声明 logging 即继承 base（compose 合并语义），已用 `docker compose config` 实测合并结果保留 logging。
+
 ---
 ## shared-utils logger 收敛复盘（shared-utils-logging，2026-08-13）
 
@@ -6558,4 +6567,10 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **变更**：并发信号量超时判定从「处理时刻 + 30s」改为「**本请求到达时刻 + 30s**」（真实 governor waiter deadline）。429 长冷却（30s）+ 同批突发时，排队请求在 deadline 处被拒（rate_limited_count=4 = 注入记账 1 + 排队超时 3），不再乐观放行；被拒请求 end_time 记 deadline 墙钟。
 - **新教训（观测盲区）**：桌面端 runSelfCheck 对「排队超时被拒的请求」存在**观测盲区**——timeline 只记录 task 内开始执行的请求，排队被拒的不进 timeline 也不计数，故其 rate_limited_count=1 只是「可见限流」；模拟器 rate_limited=4 反映 governor 内部真实行为。对拍脚本 must-pass 用例无排队超时场景，不受影响；若要验证该边界，以模拟器语义 + governor 源码为准。
 - **测试**：waiter deadline 长冷却用例锁定（timeline rate_limited=3 + 注入记账 1 → count=4、completed=5）。
+## 复盘：共享工作区并发 checkout 导致提交错落分支 + 提交分支守卫（2026-08-13，commit-branch-guard）
 
+- **现象**：提交前人工确认分支为 main，提交后 docs 提交 `1624ae9f` 落到并发会话新建的 codex/video-no-text-prompt-enhancement（reflog：11:04:24 checkout -b，11:06:07 提交，差 1 分 43 秒）。
+- **根因**：共享工作目录 + 无强制分支校验 = TOCTOU 竞态；`.agent_context/` 信号从未被创建；原 pre-commit 无分支断言且 docs-only 跳过全部检查。
+- **预防落地**：`scripts/hooks/pre-commit` 分支守卫（所有提交强制校验当前分支 == `.agent_context/expected-branch`，无声明/不符一律拦截，rebase 重放跳过）；`scripts/session-guard.ps1` 会话声明；`scripts/install-git-hooks.ps1` 安装；`scripts/hooks/pre-commit.test.sh` 11 场景 17 断言。
+- **教训**：文档化的「铁律」若无机器执行点等于不存在；提交级保护必须 fail closed，不能依赖人工确认；`.agent_context/` 这类检测信号必须由代码创建，否则检测永远空转。
+- **修复迭代（Claude 审查发现）**：① 单槽位声明可被并发会话覆盖导致守卫 fail-open → session-guard 拒绝覆盖另一活跃会话（session.json pid 存活）的声明；② 安装脚本从子目录运行 `--git-common-dir` 返回相对路径会装错位置 → 改用 `--path-format=absolute` + HEAD 合法性校验；③ 补 fail-closed 边界测试（空声明/detached 无 rebase/wrapper 缺失/非代码扩展名/真实 rebase 重放）。
