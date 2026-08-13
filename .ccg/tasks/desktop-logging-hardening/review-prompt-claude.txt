@@ -1,0 +1,15 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/claude/reviewer.md
+
+<TASK>
+审查 OpenSpec change desktop-logging-hardening（apps/desktop/electron/services/logger.js + logger.test.js）的代码变更。请核对仓库（HEAD=831c407d）：
+- logger.js：console 与文件同源脱敏、SECRET_PATTERNS 扩展（5 组）、pruneOldLogs（retentionDays 30 默认）、rollCurrentLogFile（超限滚动 .1）、message 4096 截断、setLogOptions/getLogsInfo 接入 retentionDays
+- logger.test.js：12 个用例（含 console 脱敏用直接赋值替换 console.log、滚动、清理、截断）
+
+重点评估：
+1) 控制台输出改为单 body 参数（console.log(prefix, body)）是否有破坏性（其他模块/测试对 console 参数格式的依赖）？
+2) SECRET_PATTERNS 5 组正则的匹配正确性与误伤风险（如 key=value 无引号分支是否误脱敏普通文本、eyJ 是否误伤 base64 文本）？
+3) pruneOldLogs 的日期解析/时区边界（UTC 解析文件名 vs 本地生成）与删除安全性（是否可能误删今天的文件）？
+4) rollCurrentLogFile 的 Windows rename 语义（.1 覆盖、占用失败路径）与 ensureLogPath 滚动后重建 currentLogPath 是否自洽？
+5) message 截断 4096 与 meta 8000 的边界；retentionDays 非法值处理。
+6) 遗漏点与测试盲区。
+输出：每条 Critical/Warning/Info + 依据（file:line），不要泛泛而谈。
