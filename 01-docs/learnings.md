@@ -1,3 +1,11 @@
+## 桌面启动依赖可靠性复盘（desktop-deps-reliability，2026-08-13）
+
+- **交付**：remotion 系列精确 pin `4.0.484`（root + remotion-composer）+ `scripts/ensure-desktop-deps.js`（自检/自愈/Vite 缓存失效）+ 9 例 node --test 全绿 + 真实 npm pack 冒烟（精确版与 range 版均恢复成功）。
+- **教训 1（不完整版本集是 npm install 隐形杀手）**：`^4.0.484` 被重解析到 `4.0.509`，但 `@remotion/renderer@4.0.509` 未发布 → ETARGET 整树失败；**失败/中断的 npm 操作会删除并损坏已装依赖**（@img/colour、icons-vue、tinycolor 整包消失），是「每次启动连环故障」的真正源头。改依赖前先核版本集完整性（`npm view <pkg>@<v>`），`^` 范围遇到发布不同步的包族必须精确 pin。
+- **教训 2（Windows cmd 元字符与引号陷阱）**：`cmd /c npm pack vue@^3.5.0` 中 `^` 被 cmd 吃掉；`>=` 变成重定向（实测在仓库根创建 0 字节 `3.5.0` 杂散文件）；`cmd /s` 又会对裸引号参数保留引号，npm 收到 `""pack""`。最稳方案：**node 直跑 npm-cli.js**（`where npm.cmd` → 同目录 `node_modules/npm/bin/npm-cli.js`），完全绕开 cmd 引号语义。
+- **教训 3（npm pack range 产物名是解析后版本）**：`npm pack picocolors@^1.1.0` 的产物名是 `picocolors-1.1.1.tgz`（解析版本）而非 range 字符串；恢复逻辑必须按前缀从输出目录发现实际 tgz，不能假设文件名。
+- **教训 4（Vite 504 Outdated Optimize Dep 排查链）**：空白页 + `#app` 0 子节点 + 504 的定位路径：CDP `Runtime.evaluate` 看挂载 → `Log.enable` + reload 抓 504 → `Network` 抓 504 URL → 磁盘发现 deps 缓存未生成 → 重定向 Vite stdout/stderr 才暴露 esbuild 缺依赖。Vite 日志默认被 dev.js 隐藏窗口吞掉，排障第一步就是重定向输出。
+- **教训 5（审查降级取部分结果）**：antigravity 区域不可用（Eligibility check failed）、claude 后端长任务超 10 分钟未收尾——按机制硬化停止并取已产出发现（cmd caret/redirect 问题、平台感知、真实 registry 模拟证据）+ 主代理独立审查；部分结果仍具修复价值，不浪费。
 ## 容器日志轮转复盘（container-log-rotation，2026-08-13）
 
 - **交付**：为 publish-api / logto / postgres / blackbox / prometheus / alertmanager 六个 Compose 服务统一添加 `logging: driver=json-file, options={max-size: 50m, max-file: 5}`（每容器 ≤250MB）；契约测试 logto-deploy-contract.test.js 新增 assertLogRotation 断言；spec 明确作用域（仅 Compose 容器，systemd/journald 豁免）。
@@ -6564,3 +6572,4 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **预防落地**：`scripts/hooks/pre-commit` 分支守卫（所有提交强制校验当前分支 == `.agent_context/expected-branch`，无声明/不符一律拦截，rebase 重放跳过）；`scripts/session-guard.ps1` 会话声明；`scripts/install-git-hooks.ps1` 安装；`scripts/hooks/pre-commit.test.sh` 11 场景 17 断言。
 - **教训**：文档化的「铁律」若无机器执行点等于不存在；提交级保护必须 fail closed，不能依赖人工确认；`.agent_context/` 这类检测信号必须由代码创建，否则检测永远空转。
 - **修复迭代（Claude 审查发现）**：① 单槽位声明可被并发会话覆盖导致守卫 fail-open → session-guard 拒绝覆盖另一活跃会话（session.json pid 存活）的声明；② 安装脚本从子目录运行 `--git-common-dir` 返回相对路径会装错位置 → 改用 `--path-format=absolute` + HEAD 合法性校验；③ 补 fail-closed 边界测试（空声明/detached 无 rebase/wrapper 缺失/非代码扩展名/真实 rebase 重放）。
+

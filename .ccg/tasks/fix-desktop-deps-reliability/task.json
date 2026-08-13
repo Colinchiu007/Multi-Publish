@@ -1,0 +1,15 @@
+{
+  "id": "fix-desktop-deps-reliability",
+  "title": "桌面启动依赖可靠性：remotion 版本 pin + 关键依赖自愈脚本",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "devops/desktop",
+  "currentPhase": "review",
+  "nextAction": "跑门禁验证 + 审查后提交 PR",
+  "openspecChange": "desktop-deps-reliability",
+  "createdAt": "2026-08-13T13:30:00Z",
+  "branch": "codex/desktop-deps-reliability"
+}
+
+

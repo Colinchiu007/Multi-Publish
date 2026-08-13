@@ -103,6 +103,8 @@ scripts/*.js
 !scripts/affected-report.js
 !scripts/launch-worktree.js
 !scripts/ensure-electron.js
+!scripts/ensure-desktop-deps.js
+!scripts/ensure-desktop-deps.test.js
 screenshot_script*.js
 temp_debug.txt
 coverage/
