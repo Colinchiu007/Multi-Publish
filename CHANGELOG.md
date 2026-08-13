@@ -1,3 +1,9 @@
+## [2026-08-13] 提示词引擎自进化 P1b：主题指纹与同类模板检索（prompt-engine-evolution-p1b）
+
+- 新增 `apps/desktop/electron/services/prompt-evolution/fingerprint.js`：DOMAIN_DICTIONARY（6 领域强/弱词）+ INTENT_ALIASES（8 意图强/弱档）+ extractTopics（≤2000 截断、≤8 topics、2-6 字、词典词子串剔除）+ buildFingerprint + score（4/2/2/1 + 分量上限）+ findSimilarTemplates（NONE/MID/HIGH + 探索 ε + rand 注入 + tie-break）。
+- 规格：01-docs/ARCH-PROMPT-ENGINE-EVOLUTION-FINGERPRINT-2026-08-13.md（v3，双模型评审定稿）；OpenSpec change prompt-engine-evolution-p1b。
+- 双模型审查修复：英文泛化词（user/experience）抑制、词典词子串剔除（"AI 改变教育" topics=[]）、中文片段 6 字上限、探索分支返回契约（不泄漏 template + learnedFrom）、score null 防御、lastUsedAt 时间戳比较。
+- 测试：fingerprint 19 例（14 规格 + 2 parity + 3 审查补充）+ P0 collector 18 全绿；parity 锁死 applyWhen/SentimentAnalyzer 与 TS 权威版一致。
 ## [2026-08-13] P3 第二批：StageProgress 阶段进度组件文案多语言化（PR #757 merged ed116a84）
 
 - locales zh/en 新增 `stageProgress` 命名空间（17 键对等：阶段时间/状态标签/插值提示消息/时长格式化）。
@@ -23,16 +29,13 @@
 - 文案：locales zh/en 成对新增 `create.story2video.backgroundRun` / `backgroundRunToast`；i18n-glossary 登记「后台运行 / Run in background」；CJK 基线随 CreateView 行号重排更新（无新增硬编码）。
 - 测试：CreateView.test.js +6（按钮可见性 ×2、点击脱离不取消+toast+启动按钮恢复、轮询竞态守卫、检查点禁止转后台、取消回归）；175 全绿；vite build exit 0；eslint 0 error。
 - 文档：PRD.md「视频创作后台运行与并发合同」新增 §3a 前台/后台切换合同（数据校验/流程/交互/显示项/提示文字/验收标准）；PRD-video-creation.md 版本表；learnings 复盘。
->>>>>>> a4f14cce (feat(s2v): 流水线新增后台运行按钮（前端脱离+恢复初始化+可再次启动）+ PRD §3a 合同)
-
 ## [2026-08-13] P3 第一批：video-creation 子组件多语言化（PR #749 merged 53d08302）
 
 - locales zh/en 新增 videoConfig（40）/pipelineSelector（16）/errorDialog（5）三命名空间（键对等）
 - ConfigSummary.vue：枚举表改键映射 + \；ErrorDialog.vue：props 默认置空 + \ fallback；PipelineSelector.vue：分类/成本/可用性/阶段/重试接入 \
 - 新增 ConfigSummary.test.js（zh/en 切换回归）；CreateView.test.js 169/169 本地全绿；CI 全绿（electron-tests 11m17s/gui-test/Coverage/Gate）
 - 修复 locale-sync --cjk 门禁基线不完整（CreateView 存量 7867 处仅 1 条入基线 → 全 PR 误报）：--update-baseline 重建（1562→1531）
-- P3 待办：StageProgress/SceneAssetSelection/CreateView 主体（需配合视觉回归）
-## [2026-08-13] build(monorepo): npm → pnpm 迁移（worktree 依赖复用同一 store）
+- P3 待办：StageProgress/SceneAssetSelection/CreateView 主体（需配合视觉回归）## [2026-08-13] build(monorepo): npm → pnpm 迁移（worktree 依赖复用同一 store）
 
 - 依赖管理切换为 pnpm 11.13.1（`packageManager` 声明），`pnpm-lock.yaml` 为唯一锁文件，`package-lock.json` 退役；`pnpm-workspace.yaml` 承载 workspaces、`node-linker=hoisted`（扁平布局与 npm 一致）与构建脚本放行（esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js）。
 - workspace 协议：`@multi-publish/*` 依赖统一改为 `workspace:*`，保证解析到本地包而非 registry；remotion 依赖采纳 main 钉版本 4.0.484。
