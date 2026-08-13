@@ -6541,3 +6541,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 2（离散仿真推进时钟）**：并发仿真的关键是「每个请求的等待从自身到达时刻起算 + 完成事件按时间释放」，而不是把全局时钟推进到前一个请求完成——后者会把同批请求串行化（正是旧实现低估并发的原因）。实现后必须用「interval<duration 应 maxc=2、interval>duration 应 maxc=1」两个用例锁定。
 - **教训 3（会话分支守卫）**：仓库 pre-commit 钩子要求 `.agent_context/expected-branch` 声明（缺 `scripts/session-guard.ps1` 时手动创建文件、内容=当前分支即可）；声明后提交自动通过分支守卫 + 质量节拍检查。
 - **已知简化（文档化）**：429 长冷却（如 30s）+ 同批突发时，模拟器按虚拟时间乐观推进排队；真实中排队请求会因 30s 等待上限被拒绝（runSelfCheck timeline 不记录该部分）。两端 `rate_limited_count` 观测一致（均只计注入 429 与可见限流），但 `total_duration_ms` 在该边界场景可能低估真实值——运营解读以真实自检/实测为准。
+
+## 复盘更新 2：waiter deadline 精确化，消除 429 长冷却已知简化（2026-08-13）
+
+> 状态更新：「复盘更新：调度模拟器并发推进升级（PR #692）」末尾的「已知简化（429 长冷却乐观推进排队）」已被本变更修复——以本节为准。
+
+- **变更**：并发信号量超时判定从「处理时刻 + 30s」改为「**本请求到达时刻 + 30s**」（真实 governor waiter deadline）。429 长冷却（30s）+ 同批突发时，排队请求在 deadline 处被拒（rate_limited_count=4 = 注入记账 1 + 排队超时 3），不再乐观放行；被拒请求 end_time 记 deadline 墙钟。
+- **新教训（观测盲区）**：桌面端 runSelfCheck 对「排队超时被拒的请求」存在**观测盲区**——timeline 只记录 task 内开始执行的请求，排队被拒的不进 timeline 也不计数，故其 rate_limited_count=1 只是「可见限流」；模拟器 rate_limited=4 反映 governor 内部真实行为。对拍脚本 must-pass 用例无排队超时场景，不受影响；若要验证该边界，以模拟器语义 + governor 源码为准。
+- **测试**：waiter deadline 长冷却用例锁定（timeline rate_limited=3 + 注入记账 1 → count=4、completed=5）。
