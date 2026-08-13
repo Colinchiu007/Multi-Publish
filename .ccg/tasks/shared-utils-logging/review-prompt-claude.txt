@@ -1,0 +1,16 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/claude/reviewer.md
+
+<TASK>
+审查 OpenSpec change shared-utils-logging（packages/shared-utils/src/logger.js + src/__tests__/logger.test.js）的代码变更。请核对仓库（HEAD=4cacb5d2）：
+- logger.js：内联 SECRET_PATTERNS 5 组 + redact()、writeLog 对 tag/msg 脱敏后同源写文件与控制台、
+  rotateIfNeeded 改用模块 MAX_LOG_SIZE、setLogOptions({file,maxSize,level})、修正误导注释
+- logger.test.js：4 个用例（注入路径写入/脱敏/轮转 .1/级别过滤）
+
+重点评估：
+1) SECRET_PATTERNS 内联复制的正确性（与 api-publish-engine log-redact 一致？有无转义损坏如 s* 代替 s*）与误伤风险？
+2) 脱敏后 console 与文件同源是否一致；line 含尾部换行时 console.error(line.trim()) 行为？
+3) rotateIfNeeded 从参数默认值改为模块 MAX_LOG_SIZE 是否破坏既有调用（grep rotateIfNeeded 调用点）？
+4) setLogOptions 的边界（非法 file/maxSize/level）与模块级可变状态的测试污染风险？
+5) 引用方（format-adapter/rules、cover-processor/presets）兼容性。
+6) 遗漏点与测试盲区。
+输出：每条 Critical/Warning/Info + 依据（file:line），不要泛泛而谈。

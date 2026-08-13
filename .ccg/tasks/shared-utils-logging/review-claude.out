@@ -1,0 +1,51 @@
+[codeagent-wrapper]
+  Backend: claude
+  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+  PID: 36140
+  Log: D:\Temp\codeagent-wrapper-36140.log
+  Web UI: http://localhost:61138
+  Session-ID: 72df830e-d680-4669-bea3-a6fda2133646
+核对完毕。已读取 logger.js / logger.test.js / 变更 spec / log-redact 参考实现 / 桌面 services/logger.js / 引用方，并实跑验证：`logger.test.js` 4/4 通过、shared-utils 全量 18 文件 235 通过、format-adapter+cover-processor 19 通过；用 Node 逐字节比对 5 组正则、mock console 核对同源输出。以下为审查结论。
+
+## Review: shared-utils-logging（logger.js + logger.test.js）
+
+### Critical 🔴
+
+无。脱敏集与参考实现逐字节一致、console/file 共用脱敏后 line、无调用方破坏、引用方回归通过，未发现数据泄露或 breaking change。
+
+### Warning 🟡
+
+- **[logger.test.js:29-39] R1 的「控制台同源」半契约完全没有测试** — 4 个用例只读文件（`readFileSync`），从不捕获 console 输出。若有人把 console 回退成未脱敏的原始 line（正是本次变更修复前的泄露形态），全部用例仍会通过。对照桌面同源实现 `apps/desktop/electron/services/logger.test.js:163-180` 明确 mock `console.log` 并断言 `toContain('Bearer ***')` / `not.toContain('sk-...')`，本测试未对齐。
+  - Why: R1 规格措辞是「写入文件与控制台的内容应用相同的脱敏」，控制台侧是本 change 的修复对象，测试却完全盲区。
+  - Fix: 参考桌面测试，`afterEach` 替换 `console.log/error` 捕获，断言脱敏结果与文件内容一致。
+
+- **[logger.test.js:16-19] afterEach 不重置模块级可变状态，用例顺序耦合** — 用例 3 把 `MAX_LOG_SIZE` 设为 1024（logger.js:19），用例 4 及后续新增用例直接继承；用例 4 又留下 `CURRENT_LEVEL='error'`。当前碰巧自洽（每个用例先 `setLogOptions`），但若新增一个不设 options 就 `logger.info` 的用例，会被静默过滤（level=error）并写到已被删除的 tmp 路径，极难排查。
+  - Why: `setLogOptions`（logger.js:91-96）是可变的模块级副作用，测试没有建立「用完还原」的约定；vitest 按文件隔离使跨文件不泄露，但同文件内是共享的。
+  - Fix: `afterEach` 内显式 `setLogOptions({ level: 'debug', maxSize: 5*1024*1024, file: <默认> })` 或提供一个 reset。
+
+- **[logger.js:93-94] `maxSize` 边界校验存在类型强转漏洞** — `Number(true)`→1、`Number([2])`→2 均通过 `Number.isFinite(numeric) && numeric > 0`，会把轮转上限压到 1 字节，导致每次写入都触发 rotate。`file`/`level` 的守卫（typeof 检查）是严格的，唯独 `maxSize` 用了宽松的 `Number()` 强转。
+  - Why: 守卫意图明显是「正数」，但 `Number()` 会接受布尔/数组/数字字符串。
+  - Fix: 改为 `typeof options.maxSize === 'number' && options.maxSize > 0`。
+
+### Info 🟢
+
+- **[logger.js:22-28] SECRET_PATTERNS 与 `api-publish-engine/src/log-redact.js:12-20` 逐字节一致，无 `\s`→`s` 类转义损坏** — 用 Node 抽取两文件正则字面量逐一比对，5/5 全等（含 `\s`、`\b`、`[\"']`、字符类中的尾置 `-`）。误伤面与已验收的 log-redact 相同（`Bearer ` 前缀、`key=`/`key:` 键值、`sk-`、`eyJ` 三段），对 rules.js/presets.js 实际会打的「Failed to load platform config: …」消息不命中。✓
+
+- **[logger.js:62-68] `rotateIfNeeded` 去参改模块 `MAX_LOG_SIZE` 无破坏** — 全仓 grep 仅 logger.js:73 一处内部调用，无外部引用点；且只有改读模块级 `MAX_LOG_SIZE`，`setLogOptions({maxSize})`（logger.js:94）才能真正生效。改动必要且安全。✓
+
+- **[logger.js:79-80] console 与文件「同源」对尾部空白不逐字节一致** — 实测 `logger.error('Tag', 'multi\nline  ')`：文件保留 `line  \n`（含两空格），console 经 `line.trim()` 输出 `multi\nline`（尾空白被剥）。脱敏对齐不受影响，仅格式差异；若要真正同源，用 `line.replace(/\n$/, '')` 代替 `.trim()`。注意 `.trim()` 是既有代码，非本次引入。
+
+- **[logger.test.js:35] pattern 4（独立 `sk-`，非 Bearer 前缀）未被独立测试** — `not.toContain('sk-abcdef1234567890')` 实际由 pattern 1 的 `Bearer\s+...` 匹配后置空，pattern 4 坏了该断言也照样过；同理 JWT 断言（:38）只有 `not.toContain(完整JWT)`，没有正向 `toContain('eyJ***')`，换成部分脱敏/空替换也判过。
+
+- **[logger.js:17,71] `LOG_LEVEL` 环境变量不校验（既有行为）** — `LOG_LEVEL=ERROR`（大写/非法值）使 `LOG_LEVELS[CURRENT_LEVEL]` 为 undefined，`LOG_LEVELS[level] < undefined` 恒 false → 全级别都会写。`setLogOptions` 已守卫 level，env 路径可顺手对齐。
+
+- **[logger.js:49 + 91-96] 引用方兼容性确认** — `format-adapter/rules.js:14`、`cover-processor/presets.js:13` 仅用 `logger.error('rules'|'presets', msg)`，API 全部保留；format-adapter/cover-processor 测试 19 项通过，规则文件顶层 try/catch 的 `logger.error` 路径正常。✓
+
+- **工作区杂项** — `packages/ai-writer/src/cli.js`、`packages/api-publish-engine/bin/publish-api` 在 git status 显示 modified，但 `git diff`/`git diff -w` 内容为空，纯 autocrlf 行尾噪声，勿随本 change 提交。
+
+### Summary
+
+变更本身正确、安全、向后兼容：脱敏集与参考实现一致（已逐字节核验）、console/file 共用脱敏 line、rotate 改动无破坏、引用方回归通过，R1/R2 规格主体达成。**建议修改**：补上 console 侧脱敏断言（W1，R1 核心契约目前只测了一半）与 afterEach 状态还原（W2），并收紧 `maxSize` 的 `typeof number` 守卫（W3）；Info 项多为测试增强与已知继承行为，不阻塞合并。
+
+---
+SESSION_ID: 72df830e-d680-4669-bea3-a6fda2133646

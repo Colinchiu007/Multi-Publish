@@ -1,3 +1,12 @@
+## shared-utils logger 收敛复盘（shared-utils-logging，2026-08-13）
+
+- **交付**：packages/shared-utils/src/logger.js——修正误导注释（原指向不存在的 apps/desktop/electron/logger.js）；内联 SECRET_PATTERNS 5 组（与 api-publish-engine log-redact 逐字节一致）；文件与控制台同源脱敏；rotateIfNeeded 改读模块 MAX_LOG_SIZE；新增 setLogOptions({file,maxSize,level})。新增 4 个测试。
+- **教训 1（工具链反斜杠确定性加倍）**：本会话工具链对 heredoc 内容一律把 `\s` 变成 `\s`（探针实测单/双输入都输出双反斜杠）。修复手段：写脚本时**完全不键入反斜杠**，用 `String.fromCharCode(92)` 构造；验证用同样 fromCharCode 脚本比对，不靠肉眼/JSON。
+- **教训 2（console 侧契约必须显式测试）**：R1「控制台与文件同源脱敏」若只断言文件，console 回退成未脱敏原始 line 时测试全绿（Claude W1）。vitest 环境 vi.spyOn(console) 不可靠，用直接赋值替换 + finally 恢复。
+- **教训 3（模块级可变状态要还原）**：setLogOptions 是模块级副作用；测试 afterEach 必须还原 level/maxSize，否则用例顺序耦合（Claude W2）。
+- **教训 4（宽松类型强转是守卫漏洞）**：`Number(options.maxSize)` 会把 true/[2] 转成 1/2，轮转上限被压到 1 字节；守卫应 `typeof === 'number' && > 0`（Claude W3）。
+
+---
 ## 桌面 logger 加固复盘（desktop-logging-hardening，2026-08-13）
 
 - **交付**：apps/desktop/electron/services/logger.js——console 与文件同源脱敏（console 不再输出原文）；SECRET_PATTERNS 扩展 5 组（对齐 api-publish-engine log-redact：Bearer/quoted+unquoted 键值/sk-/eyJ JWT）；500MB 超限改滚动 .1（不再整删当日日志）；retentionDays 30 默认按日清理；message 4096 截断。QM-1 打包通过。
