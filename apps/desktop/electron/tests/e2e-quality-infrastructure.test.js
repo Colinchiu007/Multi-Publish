@@ -187,7 +187,7 @@ describe('根脚本入口门禁', () => {
     const dependencyStep = source.match(/- name: Dependency check[\s\S]*?(?=\n\s+- name:|$)/)?.[0] || ''
 
     expect(dependencyStep).not.toContain('continue-on-error')
-    expect(dependencyStep).toContain('npm run check:deps')
+    expect(dependencyStep).toContain('pnpm run check:deps')
   })
 })
 

@@ -7,7 +7,7 @@ on:
       - 'apps/desktop/**'
       - 'packages/**'
       - 'package.json'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/gui-test.yml'
   push:
     branches: [codex/gui-test*, main]
@@ -15,7 +15,7 @@ on:
       - 'apps/desktop/**'
       - 'packages/**'
       - 'package.json'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/gui-test.yml'
   workflow_dispatch:
 
@@ -27,11 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.13.1
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: 'pnpm'
 
       - name: Install system deps (Xvfb + libvips)
         run: |
@@ -39,7 +44,7 @@ jobs:
           sudo apt-get install -y -qq xvfb libvips libvips-dev build-essential python3
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Install Python backend runtime and test dependencies
         run: python3 -m pip install -e "packages/python-backend[web,video]" pytest
@@ -52,15 +57,10 @@ jobs:
         run: python3 -c "import server, uvicorn, yaml; print('Python backend entrypoint imports ready')"
 
       - name: Install Playwright (for GUI tests)
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Build Vue frontend
-        run: npm run build:vue -w @multi-publish/desktop
-
-      - name: Rebuild native modules
-        run: |
-          cd apps/desktop
-          npx @electron/rebuild -f -w better-sqlite3
+        run: pnpm --filter @multi-publish/desktop build:vue
 
       - name: Start Vite server
         shell: bash
@@ -68,7 +68,7 @@ jobs:
           set -euo pipefail
           (
             cd apps/desktop
-            exec npx vite --host 127.0.0.1 --port 5174
+            exec pnpm exec vite --host 127.0.0.1 --port 5174
           ) > apps/desktop/vite-ci.log 2>&1 &
           vite_pid=$!
           echo "$vite_pid" > "$RUNNER_TEMP/multi-publish-vite.pid"
@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           node apps/desktop/tests/e2e-smoke.js
-          npm run test:e2e -w @multi-publish/desktop
+          pnpm --filter @multi-publish/desktop test:e2e
 
       - name: Electron GUI gate
         shell: bash

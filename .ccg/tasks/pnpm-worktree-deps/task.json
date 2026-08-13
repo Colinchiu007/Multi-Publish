@@ -1,0 +1,13 @@
+{
+  "id": "pnpm-worktree-deps",
+  "title": "pnpm workspaces 迁移：worktree 依赖复用同一份 store",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "build-tooling",
+  "currentPhase": "implementation",
+  "nextAction": "门禁验证（全量测试/打包/worktree 验收）",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "codex/pnpm-worktree-deps",
+  "openspecChange": "pnpm-worktree-deps"
+}

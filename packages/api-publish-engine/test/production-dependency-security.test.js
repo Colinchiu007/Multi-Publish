@@ -21,8 +21,14 @@ function isAtLeast(actual, minimum) {
 
 test('生产依赖不允许解析到存在高危公告的 Axios 版本', () => {
   const apiPackage = JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8'))
-  const lockfile = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../..', 'package-lock.json'), 'utf8'))
+  // pnpm-lock.yaml 为唯一锁文件（2026-08-13 由 package-lock.json 迁移）
+  const lockfile = fs.readFileSync(path.resolve(__dirname, '../../..', 'pnpm-lock.yaml'), 'utf8')
+  const axiosMatches = [...lockfile.matchAll(/axios@(\d+\.\d+\.\d+)/g)].map((m) => m[1])
 
   assert(isAtLeast(apiPackage.dependencies.axios, '1.18.1'))
-  assert(isAtLeast(lockfile.packages['node_modules/axios'].version, '1.18.1'))
+  assert(axiosMatches.length > 0, 'pnpm-lock.yaml 未找到 axios 条目')
+  // 断言锁文件中所有 axios 版本均 ≥ 1.18.1，避免首个字典序匹配掩盖低危版本
+  for (const version of axiosMatches) {
+    assert(isAtLeast(version, '1.18.1'), `pnpm-lock.yaml 存在低危 axios 版本 ${version}`)
+  }
 })

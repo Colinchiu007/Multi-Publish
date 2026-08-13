@@ -34,7 +34,7 @@ describe('preload 单文件构建', () => {
     expect(packageJson.devDependencies).toHaveProperty('esbuild')
     expect(packageJson.scripts['build:preload']).toBe('node scripts/build-preload.js')
     expect(packageJson.scripts['test:preload:sandbox'])
-      .toBe('npm run build:preload && node scripts/verify-preload-sandbox.js')
+      .toBe('pnpm run build:preload && node scripts/verify-preload-sandbox.js')
     expect(packageJson.build.beforePack).toBe('scripts/before-pack.js')
   })
 

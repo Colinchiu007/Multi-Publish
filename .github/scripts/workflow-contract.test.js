@@ -16,9 +16,10 @@ test('视觉工作流使用与基线一致的 Windows 渲染环境', () => {
 
   assert.match(workflow, /runs-on:\s*windows-latest/);
   assert.match(workflow, /shell:\s*pwsh/);
-  assert.match(workflow, /Start-Process -FilePath "npx\.cmd"/);
+  assert.match(workflow, /Start-Process -FilePath "pnpm\.cmd"/);
+  assert.match(workflow, /ArgumentList @\("exec", "vite", "--host", "127\.0\.0\.1", "--port", "5174"\)/);
   assert.match(workflow, /taskkill \/PID/);
-  assert.match(workflow, /npm\.cmd run test:visual:pixel/);
+  assert.match(workflow, /pnpm\.cmd run test:visual:pixel/);
   assert.doesNotMatch(workflow, /sudo apt-get|setsid bash|trap cleanup EXIT/);
   assert.doesNotMatch(workflow, /agent-visual-judge\.js \|\| true/);
 });
@@ -42,7 +43,7 @@ test('Quality Gate Gate 8 在真实浏览器扫描前执行 manual 控件合同�
   assert.ok(gate8, 'Gate 8 workflow step must exist');
   assert.match(gate8, /node apps\/desktop\/tests\/e2e\/helpers\/route-functional-suite\.test\.js/);
   assert.ok(
-    gate8.indexOf('route-functional-suite.test.js') < gate8.indexOf('npm.cmd run test:e2e'),
+    gate8.indexOf('route-functional-suite.test.js') < gate8.indexOf('pnpm.cmd --filter @multi-publish/desktop run test:e2e'),
     'manual 控件合同测试必须先于真实 Browser E2E',
   );
   assert.match(gate8, /\$contractExit\s*=\s*\$LASTEXITCODE/);
@@ -78,9 +79,9 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   )?.[0];
 
   assert.ok(unitTestStep, 'Gate 4 全工作区单元测试步骤必须存在');
-  assert.equal(rootPackage.scripts.test, 'npm run test --workspaces --if-present');
+  assert.equal(rootPackage.scripts.test, 'pnpm -r --if-present run test');
   assert.match(unitTestStep, /shell:\s*pwsh/);
-  assert.match(unitTestStep, /Start-Process -FilePath "npm\.cmd"/);
+  assert.match(unitTestStep, /Start-Process -FilePath "pnpm\.cmd"/);
   assert.match(unitTestStep, /"run",\s*"test:affected",\s*"--",\s*"--exclude=@multi-publish\/desktop"/);
   assert.match(unitTestStep, /"run",\s*"test:all",\s*"--",\s*"--exclude=@multi-publish\/desktop"/);
   assert.match(unitTestStep, /WaitForExit\(1800000\)/);
@@ -89,7 +90,7 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   assert.match(unitTestStep, /function Get-TestProcessTree/);
   assert.match(unitTestStep, /Get-TestProcessTree -RootProcessId \$testProcess\.Id/);
   assert.match(unitTestStep, /\$remainingTestProcesses = @\(Get-TestProcessTree -RootProcessId \$testProcess\.Id\)/);
-  assert.match(unitTestStep, /Gate 4 left child processes alive after npm exited/);
+  assert.match(unitTestStep, /Gate 4 left child processes alive after pnpm exited/);
   assert.doesNotMatch(unitTestStep, /CommandLine/);
 });
 
@@ -184,7 +185,7 @@ test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', (
 test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => {
   const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'doc-gate.yml'), 'utf8'));
   const ignored = wf.on.pull_request['paths-ignore'];
-  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**', 'package.json', 'package-lock.json', 'nx.json', 'packages/*/vitest.config.js']) {
+  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**', 'package.json', 'pnpm-lock.yaml', 'nx.json', 'packages/*/vitest.config.js']) {
     assert.ok(ignored.includes(dir), `doc-gate paths-ignore 必须包含 ${dir}`);
   }
 });
