@@ -1593,9 +1593,32 @@ class PipelineEngine {
    * 获取供 renderer 使用的运行快照。
    * getRunContext 保持返回原始 context 的兼容性；新接口同时返回状态、阶段和检查点。
    */
-  getRunSnapshot(runId) {
+  /**
+   * 获取供 renderer 使用的运行快照。
+   * @param {string} runId
+   * @param {{ progressOnly?: boolean }} [opts] - progressOnly 时返回轻量快照（不含 context 与运行明细），
+   *   用于实时事件推送/轮询进度展示；checkpoint 仅保留类型元数据（不携带 context 快照，避免敏感载荷）。
+   */
+  getRunSnapshot(runId, opts) {
     const run = this._runs.get(runId) || this._history.find((item) => item.id === runId);
     if (!run) return null;
+    const progressOnly = Boolean(opts && opts.progressOnly);
+    if (progressOnly) {
+      return {
+        runId: run.id,
+        pipeline: run.pipeline,
+        status: {
+          status: run.status,
+          currentStage: run.currentStage,
+          progress: this._calcProgress(run),
+        },
+        currentStage: run.currentStage,
+        stages: run.stages,
+        checkpoint: this._sanitizeCheckpoint(run.checkpoint),
+        orchestrationMode: run.orchestrationMode || 'state_machine',
+        progressOnly: true,
+      };
+    }
     // 已用时（步骤执行耗时累计口径）：activeMs 为已结算累计，elapsedActiveMs 额外包含运行中在飞段增量
     // （统一走 _computeElapsedMs，避免公式漂移）。
     const activeMs = Number.isFinite(Number(run.activeMs)) ? Number(run.activeMs) : null;
@@ -1621,6 +1644,20 @@ class PipelineEngine {
       activeSegmentStartedAt: Number.isFinite(run._activeSegmentStartedAt) ? new Date(run._activeSegmentStartedAt).toISOString() : null,
       elapsedActiveMs: activeMs !== null ? this._computeElapsedMs(run) : null,
     };
+  }
+
+  /**
+   * 轻量快照用 checkpoint 裁剪：仅保留类型/阶段元数据，不携带 context 快照（防敏感载荷）。
+   */
+  _sanitizeCheckpoint(checkpoint) {
+    if (!checkpoint || typeof checkpoint !== 'object') return null;
+    const { type, stageName, stageIndex, required } = checkpoint;
+    const sanitized = {};
+    if (typeof type === 'string' && type) sanitized.type = type;
+    if (typeof stageName === 'string' && stageName) sanitized.stageName = stageName;
+    if (Number.isInteger(stageIndex)) sanitized.stageIndex = stageIndex;
+    if (typeof required === 'boolean') sanitized.required = required;
+    return Object.keys(sanitized).length > 0 ? sanitized : null;
   }
 
   /**
@@ -1902,6 +1939,9 @@ class PipelineEngine {
         stage.progress = stamped;
         if (normalized.summary) stage.summary = normalized.summary;
         if (run.context && typeof run.context === 'object') run.context.stage_progress = stamped;
+        // 实时推送（openspec pipeline-progress-real-time-push）：进度落盘后发射事件，
+        // 由 ipc-handlers/pipeline.js 桥接 renderer（500ms 节流合并）。
+        this._emit('stage:progress', { runId, stageName: stage.name, stageIndex: run.currentStage });
       } catch (error) {
         // 进度为展示增强：上报/写入异常不得阻断流水线（fail-closed 语义）
         this.log.warn('PipelineEngine', '[progress] onProgress 更新被忽略: ' + (error && error.message ? error.message : String(error)));

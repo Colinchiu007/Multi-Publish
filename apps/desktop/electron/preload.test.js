@@ -49,6 +49,7 @@ const PUBLISH_METHODS = [
   'publishWechat', 'publishBatch', 'listAccounts',
   'renderStart', 'renderCancel', 'renderGetStatus', 'renderInstallDeps',
   'onRenderProgress', 'onRenderComplete', 'onRenderError', 'onRenderInstallProgress',
+  'onPipelineUpdate',
   'renderListCompositions', 'renderGetComposition', 'renderValidateProps',
   'intelligenceSuggestTags', 'intelligenceGetOptimalTime',
   'intelligenceSearch', 'intelligenceSearchTitles', 'intelligenceFetchTrending',
@@ -189,7 +190,7 @@ describe('preload 子模块方法数', () => {
   it('publish 模块应导出 85 个键（84 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(85)
+    expect(Object.keys(r).length).toBe(86)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -207,11 +208,11 @@ describe('preload 子模块方法数', () => {
   })
 
   it('合并后 api 总键数应为 275（含 videoClone 命名空间）', () => {
-    expect(Object.keys(api).length).toBe(275)
+    expect(Object.keys(api).length).toBe(276)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(77)
+    expect(PUBLISH_METHODS.length).toBe(78)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',

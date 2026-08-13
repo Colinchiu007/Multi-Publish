@@ -336,3 +336,84 @@ describe('pipeline IPC 可信来源写操作正常工作', () => {
     },
   )
 })
+
+// ============================================================
+// 阶段进度实时推送（openspec pipeline-progress-real-time-push）
+// ============================================================
+describe('阶段进度实时推送桥（pipeline:update）', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.clearAllTimers()
+  })
+
+  function installBridge({ withWindow = true, events = ['stage:progress'] } = {}) {
+    const listeners = {}
+    const on = vi.fn((event, cb) => { listeners[event] = cb; return () => {} })
+    const getRunSnapshot = vi.fn((runId, opts) => ({
+      runId,
+      progressOnly: Boolean(opts && opts.progressOnly),
+      stages: [],
+      status: { status: 'running', progress: 40 },
+    }))
+    const send = vi.fn()
+    const windows = withWindow
+      ? [{ isDestroyed: () => false, webContents: { isDestroyed: () => false, send }, isVisible: () => true }]
+      : []
+    const deps = createMockDeps({
+      pipelineEngine: { on, getRunSnapshot },
+      BrowserWindow: { getAllWindows: vi.fn(() => windows) },
+    })
+    const ipcMain = createMockIpcMain()
+    const cleanup = registerHandlers(ipcMain, deps)
+    return { listeners, on, getRunSnapshot, send, deps, ipcMain, cleanup }
+  }
+
+  it('安装事件桥：订阅 stage:start/stage:progress/stage:complete/stage:fail/checkpoint:pause/pipeline:complete/pipeline:fail', () => {
+    const { on } = installBridge()
+    const subscribed = on.mock.calls.map(c => c[0])
+    expect(subscribed).toEqual(expect.arrayContaining([
+      'stage:start', 'stage:progress', 'stage:complete', 'stage:fail',
+      'checkpoint:pause', 'pipeline:complete', 'pipeline:fail',
+    ]))
+  })
+
+  it('stage:progress 高频更新：500ms 窗口内合并为一次 webContents.send（progressOnly 快照）', () => {
+    vi.useFakeTimers()
+    const { listeners, send, getRunSnapshot } = installBridge()
+    listeners['stage:progress']({ runId: 'run-1' })
+    listeners['stage:progress']({ runId: 'run-1' })
+    listeners['stage:progress']({ runId: 'run-1' })
+    expect(send).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(500)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith('pipeline:update', expect.objectContaining({ runId: 'run-1', progressOnly: true }))
+    expect(getRunSnapshot).toHaveBeenCalledWith('run-1', { progressOnly: true })
+  })
+
+  it('run 终态（pipeline:complete）立即发送，不等节流窗口', () => {
+    vi.useFakeTimers()
+    const { listeners, send } = installBridge({ events: ['pipeline:complete'] })
+    listeners['pipeline:complete']({ runId: 'run-1' })
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith('pipeline:update', expect.objectContaining({ runId: 'run-1' }))
+  })
+
+  it('无可见/受信窗口时静默跳过发送（不抛错）', () => {
+    vi.useFakeTimers()
+    const { listeners, send } = installBridge({ withWindow: false })
+    expect(() => listeners['stage:progress']({ runId: 'run-1' })).not.toThrow()
+    vi.advanceTimersByTime(500)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('cleanup 清空计时器并取消订阅（不泄漏）', () => {
+    vi.useFakeTimers()
+    const { listeners, send, cleanup } = installBridge()
+    listeners['stage:progress']({ runId: 'run-1' })
+    expect(typeof cleanup).toBe('object')
+    expect(typeof cleanup.cleanup).toBe('function')
+    cleanup.cleanup()
+    vi.advanceTimersByTime(500)
+    expect(send).not.toHaveBeenCalled()
+  })
+})

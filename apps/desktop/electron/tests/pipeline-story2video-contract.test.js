@@ -700,4 +700,62 @@ describe('阶段级进行中信息契约（stage.progress）', () => {
   })
 })
 
+// ============================================================
+// 轻量快照（progressOnly，openspec pipeline-progress-real-time-push）
+// ============================================================
+describe('getRunSnapshot progressOnly 轻量快照', () => {
+  it('progressOnly 不含 context，保留阶段进度/状态与 run 级 progress', async () => {
+    const { engine } = createEngine()
+    engine.registerStageExecutor('contract_push_emit', async ({ onProgress }) => {
+      onProgress({ percent: 60, message: '正在发布到 weibo (3/5)', detail: { done: 3, total: 5, kind: 'platform' } })
+      onProgress({ percent: 100, message: '发布完成', summary: '已发布到 5 个平台' })
+      return { success: true, output: { publishedTo: ['weibo'] } }
+    })
+    engine.registerPipeline({
+      name: 'contract-light-snapshot',
+      description: 'c',
+      stages: ['custom'],
+      stageDefs: [{ name: 'custom', type: 'contract_push_emit' }],
+    })
+    const started = await engine.startOrchestrated('contract-light-snapshot', {
+      autoAdvance: false,
+      initialContext: { secret: 'should-not-leak' },
+    })
+    await engine.executeStage(started.runId)
+
+    const light = engine.getRunSnapshot(started.runId, { progressOnly: true })
+    expect(light.progressOnly).toBe(true)
+    expect(light.context).toBeUndefined()
+    expect(light.stages[0].progress).toMatchObject({ percent: 100, message: '发布完成' })
+    expect(light.stages[0].summary).toBe('已发布到 5 个平台')
+    expect(light.status.progress).toBe(100)
+    // 单阶段流水线 executeStage 后 run 已终态（completed）
+    expect(light.status.status).toBe('completed')
+    expect(light.runId).toBe(started.runId)
+
+    // 完整快照仍含 context（不回归）
+    const full = engine.getRunSnapshot(started.runId)
+    expect(full.context.secret).toBe('should-not-leak')
+    expect(full.context.custom).toEqual({ publishedTo: ['weibo'] })
+  })
+
+  it('progressOnly checkpoint 仅保留类型元数据（不携带 context 快照）', () => {
+    const { engine } = createEngine()
+    const run = {
+      id: 'run-cp',
+      pipeline: 'p',
+      status: 'paused',
+      currentStage: 0,
+      stages: [{ name: 'a', status: 'paused' }],
+      checkpoint: { type: 'scene_asset_selection', stageName: 'finalize_assets', stageIndex: 5, required: true, context: { sensitive: 'x' }, savedAt: '2026-01-01' },
+      orchestrationMode: 'orchestrator',
+    }
+    engine._runs.set('run-cp', run)
+    const light = engine.getRunSnapshot('run-cp', { progressOnly: true })
+    expect(light.checkpoint).toEqual({ type: 'scene_asset_selection', stageName: 'finalize_assets', stageIndex: 5, required: true })
+    expect(light.checkpoint.context).toBeUndefined()
+    expect(light.checkpoint.savedAt).toBeUndefined()
+  })
+})
+
 

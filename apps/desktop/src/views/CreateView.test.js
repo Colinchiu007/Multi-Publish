@@ -23,6 +23,7 @@ vi.mock("@/api/publisher", () => ({
   onRenderComplete: vi.fn().mockReturnValue(vi.fn()),
   onRenderError: vi.fn().mockReturnValue(vi.fn()),
   onRenderInstallProgress: vi.fn().mockReturnValue(vi.fn()),
+  onPipelineUpdate: vi.fn().mockReturnValue(vi.fn()),
   aiGenerate: vi.fn().mockResolvedValue({ code: 0, data: { text: "AI生成文案内容" } }),
   pipelineList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   pipelineStart: vi.fn(),
@@ -3834,6 +3835,59 @@ describe("流水线后台运行按钮（2026-08-13）", () => {
     expect(mocks.pipelineCancel).toHaveBeenCalled();
     expect(w.vm.orchestrationRunId).toBeNull();
     expect(w.vm.pipelineRunStatus).toBeNull();
+    w.unmount();
+  });
+});
+
+describe("pipeline:update 实时推送（openspec pipeline-progress-real-time-push）", () => {
+  it("handlePipelinePush 更新阶段进度/run 级 progress 且忽略非当前 run", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await new Promise(r => setTimeout(r, 100));
+    await nextTick();
+    w.vm.orchestrationRunId = "run-1";
+    w.vm.orchestrationStages = [{ name: "publish", status: "pending" }];
+    w.vm.pipelineRunStatus = { status: "running", progress: 30, stages: [{ name: "publish", status: "pending" }] };
+    w.vm.handlePipelinePush({
+      runId: "run-1",
+      status: { status: "running", currentStage: 0, progress: 66 },
+      stages: [{ name: "publish", status: "running", progress: { percent: 50, message: "正在发布到 weibo (2/4)" } }],
+      progressOnly: true,
+    });
+    await nextTick();
+    expect(w.vm.orchestrationStages[0].status).toBe("running");
+    expect(w.vm.orchestrationStages[0].progress.message).toContain("正在发布到 weibo");
+    expect(w.vm.pipelineRunStatus.progress).toBe(66);
+    // 非当前 run 事件忽略，不覆盖
+    w.vm.handlePipelinePush({ runId: "other-run", status: { status: "completed", progress: 100 }, stages: [] });
+    expect(w.vm.pipelineRunStatus.progress).toBe(66);
+    w.unmount();
+  });
+
+  it("收到事件后重置轮询计时（restartOrchestrationPolling 被调用）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await new Promise(r => setTimeout(r, 100));
+    await nextTick();
+    w.vm.orchestrationRunId = "run-1";
+    const spy = vi.spyOn(w.vm, "restartOrchestrationPolling");
+    w.vm.handlePipelinePush({ runId: "run-1", status: { status: "running", progress: 10 }, stages: [] });
+    expect(spy).toHaveBeenCalled();
+    w.unmount();
+  });
+
+  it("cleanups 注册 onPipelineUpdate 订阅（卸载时清理）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.onPipelineUpdate.mockClear();
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await new Promise(r => setTimeout(r, 100));
+    await nextTick();
+    expect(mocks.onPipelineUpdate).toHaveBeenCalled();
+    expect(w.vm.cleanups.length).toBeGreaterThan(0);
     w.unmount();
   });
 });

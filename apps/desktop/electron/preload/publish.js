@@ -56,6 +56,8 @@ function createPublishApi(ipcRenderer, options = {}) {
     renderGetStatus: () => ipcRenderer.invoke('render:status'),
     renderInstallDeps: () => ipcRenderer.invoke('render:install-deps'),
     onRenderProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:progress', h); return () => ipcRenderer.removeListener('render:progress', h); },
+    // 流水线阶段进度实时推送（openspec pipeline-progress-real-time-push）：轻量快照（progressOnly），取消函数移除监听
+    onPipelineUpdate: (callback) => { const h = (_e, payload) => callback(payload); ipcRenderer.on('pipeline:update', h); return () => ipcRenderer.removeListener('pipeline:update', h); },
     onRenderComplete: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:complete', h); return () => ipcRenderer.removeListener('render:complete', h); },
     onRenderError: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:error', h); return () => ipcRenderer.removeListener('render:error', h); },
     onRenderInstallProgress: (callback) => { const h = (_e, p) => callback(p); ipcRenderer.on('render:install-progress', h); return () => ipcRenderer.removeListener('render:install-progress', h); },
