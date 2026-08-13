@@ -49,7 +49,10 @@ def test_rpm_queuing_and_fifo():
 def test_429_cooldown_adaptive():
     r = simulate(dict(rpm=20, request_count=8, request_duration_ms=50, inject_429_at=3))
     m = r["metrics"]
-    assert m["rate_limited_count"] == 1
+    # 精确语义（2026-08-13 waiter deadline）：注入 429 触发 30s 冷却，期间同批后续 3 个请求
+    # 在并发信号量排队超过 30s deadline 被拒 → rate_limited = 注入 1 + 排队超时 3 = 4。
+    # （真实 runSelfCheck 对排队超时请求不计数（观测盲区）只显示 1；模拟器反映 governor 内部真实行为。）
+    assert m["rate_limited_count"] == 4
     assert m["cooldown_count"] >= 1
     # rateFactor 先下调后恢复
     factors = [p["factor"] for p in m["rate_factor_curve"]]
@@ -131,4 +134,19 @@ def test_serial_when_interval_gt_duration():
     assert m["max_concurrent_observed"] == 1
     assert m["rate_limited_count"] == 0
     assert m["total_duration_ms"] == 7 * 3000 + 100
+
+
+def test_semaphore_waiter_deadline_long_cooldown():
+    """429 长冷却 + 同批突发：排队请求在信号量等待超过 30s deadline 被拒（真实 governor 内部语义）。"""
+    r = simulate(dict(rpm=20, request_count=8, request_duration_ms=50, inject_429_at=3, cooldown_ms=30000))
+    m = r["metrics"]
+    # 注入 429 1 个 + 排队超时 3 个（req6-8 在 cooldown 期间等待 > 30s deadline）
+    assert m["rate_limited_count"] == 4
+    assert m["cooldown_count"] >= 1
+    states = [t["state"] for t in r["timeline"]]
+    # 注入 429 的 req3 记账为 rate_limited_count（状态 completed）；排队超时 3 个状态为 rate_limited
+    assert states.count("rate_limited") == 3
+    assert states.count("completed") == 5
+    # 被拒请求 deadline 墙钟 = 到达时刻 + 30s；total 墙钟 ≥ 冷却后最后完成时刻
+    assert m["total_duration_ms"] >= 30000
 

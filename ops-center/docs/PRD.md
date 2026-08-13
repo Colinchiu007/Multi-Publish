@@ -1490,18 +1490,18 @@ POST /cases/{id}/runs → status=queued
 
 `services/scheduler_simulator.py` 纯标准库实现（heapq + 全局时钟），同参数同结果、无随机，供验证与桌面端对拍。每个请求 i 按以下顺序推进：
 
-1. **到达**：`arrive_at = (i-1) × arrival_interval_ms`；`now = max(now, arrive_at)`；释放已完成槽位；
-2. **5h 额度预检**（仅 exceed_5h=true 且 limit_per_5h 有值）：`used_5h >= limit_per_5h` → 状态 `quota_exceeded`（`started_at=None`，不执行、不消耗调用），计数 `quota_exceeded_count`；
-3. **并发信号量**：当前执行中（started 未 finished）≥ max_concurrent → 等到最早完成时刻；等待 > 30s（MAX_QUEUE_WAIT_MS）→ 状态 `rate_limited`；否则复用槽位并累计 queue_wait；
-4. **RPM 时间槽**：`rpm_eff = max(2, round(rpm × rateFactor))`，`interval_ms = 60000/rpm_eff`；`slot_base = max(now, next_slot_at)`，预约后 `next_slot_at += interval_ms`；`pace_wait = slot_base - now` > 180s（MAX_PACE_WAIT_MS）→ 状态 `rate_limited`（先同步预约再判超时，与桌面端 `_pace` 一致）；
-5. **429 冷却**：`now < cooldown_until` → 等待，> 45s（MAX_COOLDOWN_WAIT_MS）→ 状态 `rate_limited`；否则跳到 cooldown_until，`cooldown_count+1`；
-6. **执行**：`started_at = now`，`finished_at = now + request_duration_ms`，`used_5h+1`，状态 `completed`；
-7. **记账**：若 `inject_429_at == i` → `cooldown_until = finished + cooldown_ms`，`rate_factor × 0.75`（下限 0.2），`rate_limited_count+1`；否则 `rate_factor + 0.05`（上限 1.0）；追加 factor 曲线点 `{t: finished, factor}`。
+1. **到达**：`arrive_at = (i-1) × arrival_interval_ms`；`now = max(now, arrive_at)`；释放所有已完成（finished_at ≤ now）执行；
+2. **并发信号量（transfer，2026-08-13 升级）**：当前执行中（started 未 finished）≥ max_concurrent → 接管最早完成槽（等待从本请求到达时刻起算，**不推进全局时钟**——同批到达的后续请求仍可并发竞争，真实 Promise 并发语义）；超时判定 = 本请求**到达时刻 + 30s**（MAX_QUEUE_WAIT_MS，与真实 waiter deadline 一致）→ 状态 `rate_limited`（end_time 记 deadline 墙钟）；否则复用槽位并累计 queue_wait；
+3. **RPM 时间槽**：`rpm_eff = max(2, round(rpm × rateFactor))`，`interval_ms = 60000/rpm_eff`；`slot_base = max(t, next_slot_at)`，预约后 `next_slot_at += interval_ms`；`pace_wait = slot_base - t` > 180s（MAX_PACE_WAIT_MS）→ 状态 `rate_limited`（先同步预约再判超时，与桌面端 `_pace` 一致）；推进到槽位时刻后**释放所有已完成执行**（interval < duration 时请求可重叠执行 → 真实并发）；
+4. **429 冷却**：`t < cooldown_until` → 等待，> 45s（MAX_COOLDOWN_WAIT_MS）→ 状态 `rate_limited`；否则 `t = cooldown_until`，`cooldown_count+1`；
+5. **5h 额度预检**（2026-08-13 后移，与真实 preflight 位置一致）：`used_5h >= limit_per_5h` → 状态 `quota_exceeded`（`started_at=None`，不执行、不消耗调用；被拒请求仍占用已预约的 RPM 槽 → 墙钟 total 含其等待）；
+6. **执行**：`started_at = t`，`finished_at = t + request_duration_ms`，`used_5h+1`，状态 `completed`；
+7. **记账**：若 `inject_429_at == i` → `cooldown_until = finished + cooldown_ms`，`rate_factor × 0.75`（下限 0.2），`rate_limited_count+1`；否则 `rate_factor + 0.05`（上限 1.0）；追加 factor 曲线点 `{t: finished, factor}`；`now = max(now, t)`。
 
 **timeline 条目**：`{req, arrived_at, queued_at, started_at, finished_at, state, queue_wait_ms, cooldown_wait_ms}`；最终状态 ∈ {completed, rate_limited, quota_exceeded}（前端状态标签还兼容 queued/running 显示映射）。
 
 **metrics**：
-- `total_duration_ms`：全部 completed 的 max(finished_at) − min(started_at)；
+- `total_duration_ms`：墙钟口径——全部请求（含被拒/限流的判定时刻）最晚结束时刻 − 起始 0，对齐真实 governor runSelfCheck（2026-08-13 升级；此前仅成功请求 span）；
 - `throughput_per_min`：任意 60s 窗口内最大放行（开始）数，与 RPM 预算语义一致；
 - `max_concurrent_observed`：观测口径为「实际执行中 = started 未 finished」的峰值（与真实 governor 一致，避免 pace 推迟请求仍在占用导致的假阳性）；
 - `max_queue_wait_ms`、`rate_limited_count`、`cooldown_count`、`quota_exceeded_count`、`rate_factor_curve`。
@@ -1605,7 +1605,7 @@ POST /cases/{id}/runs → status=queued
 - 后端：`ops-center/backend/tests/test_scheduler_simulator.py`（确定性/并发上限/RPM 排队/冷却自适应/5h 预检/断言库/参数 400）+ `test_scheduler_api.py`（admin 403、落库、历史/详情、契约校验、simulated=0 上报落库）；
 - 桌面端：`rate-limit-self-check.test.js`（时间线/断言/无网络泄漏——假 adapter 不触发 fetch/不污染生产 governor）、`api-usage-governor.test.js`（observability 计时断言）、`usage-reporter.test.js`（聚合字段）、`ipc-handlers/rate-limit.test.js`、ops-center `test_usage_api.py`（可选字段兼容/累加/看板聚合）。
 
-**对拍状态（2026-08-13 模拟器并发推进升级后）**：`scripts/compare-scheduler-models.js` 六组固定输入**全 PASS（PARITY OK）**——官方四组（短请求）+ `quota-5h-real`（5h 拒绝耗时口径，total 差 <10ms）+ `concurrency-real`（rpm=60/并发2/2.5s×8，两端 `max_concurrent_observed=2`，验证 interval<duration 的并发推进）。模拟器已从串行事件循环升级为并发推进（离散事件仿真：信号量 transfer 不推进全局时钟、RPM 槽推进后释放完成事件、5h 预检移到 pace/cooldown 之后、`total_duration_ms` 改墙钟口径）。剩余 `KNOWN_DIFF_CASES` 仅 `slow-call-concurrency`（elevenlabs 3s×8，interval==duration 临界）：真实 governor 定时器误差产生 1ms 级重叠显示 maxc=2，属**测量噪声非并发能力**（真实时间线严格串行），parity 测试做防漂移断言（噪声存在、total 差 <1.5s）。已知简化：429 长冷却+同批突发时模拟器乐观推进排队（真实排队超时被 runSelfCheck 漏计数），两端 rate_limited_count 观测一致。
+**对拍状态（2026-08-13 模拟器并发推进升级后）**：`scripts/compare-scheduler-models.js` 六组固定输入**全 PASS（PARITY OK）**——官方四组（短请求）+ `quota-5h-real`（5h 拒绝耗时口径，total 差 <10ms）+ `concurrency-real`（rpm=60/并发2/2.5s×8，两端 `max_concurrent_observed=2`，验证 interval<duration 的并发推进）。模拟器已从串行事件循环升级为并发推进（离散事件仿真：信号量 transfer 不推进全局时钟、RPM 槽推进后释放完成事件、5h 预检移到 pace/cooldown 之后、`total_duration_ms` 改墙钟口径）。剩余 `KNOWN_DIFF_CASES` 仅 `slow-call-concurrency`（elevenlabs 3s×8，interval==duration 临界）：真实 governor 定时器误差产生 1ms 级重叠显示 maxc=2，属**测量噪声非并发能力**（真实时间线严格串行），parity 测试做防漂移断言（噪声存在、total 差 <1.5s）。waiter deadline 已精确模拟（到达时刻+30s 判定）；429 长冷却+同批突发可精确复现（模拟器 rate_limited=4=注入1+排队超时3，反映 governor 内部真实行为；runSelfCheck 对排队超时存在观测盲区仅显示 1）。
 ### 12A.23.11 验收标准
 
 1. 契约校验：对全部可见预设输出 4 条规则 PASS/FAIL；rpm=0 或 limit_per_5h 负数或 default_model 不在 models → 对应规则 FAIL；rpm=6 → max_concurrent=1、rpm=20 → 2；
@@ -1616,6 +1616,7 @@ POST /cases/{id}/runs → status=queued
 6. 用量健康度：按服务商显示 429 率/排队/冷却/平均排队/预算利用率，>10% 或 >90% warning，rpm 未配置显示「未配置」；旧客户端上报无新字段按 0，不报错；
 7. 桌面端自检：独立 governor + 假 adapter，断言 `no_network`（fetch 未调用）；结果与 Python 模拟器对拍一致（四组固定输入）；
 8. 文档：本 PRD 12A.23 与 `ops-center/docs/OPERATIONS.md` 运营手册同步维护；桌面端机制文档见 Multi-Publish PRD §7.1.8.1 / §7.4.4.3-5。
+
 
 
 

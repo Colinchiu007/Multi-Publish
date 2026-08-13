@@ -180,6 +180,12 @@
 - 门禁：QM-2 sandbox 双模式 PASS（TRUE_OK/FALSE_OK/BOTH_MODES_OK）；QM-1 打包 exit 0 + 可见主窗口（MainWindowHandle=15729924）；engine 96 + desktop 新增 7 用例全绿。
 - PRD v1.6 §20；待 4d：真实 provider 图/账号发布外部验收、报告持久化 regenerate。
 
+## [未发布] fix(ops-center): 调度模拟器 waiter deadline 精确化（429 长冷却排队超时，2026-08-13）
+
+- 并发信号量超时判定改为「本请求到达时刻 + 30s」（真实 governor waiter deadline），不再按处理时刻乐观放行；429 长冷却 + 同批突发场景现可精确复现（rate_limited_count=4 = 注入记账 1 + 排队超时 3，反映 governor 内部真实行为）；被拒请求 end_time 记 deadline 墙钟。
+- 说明：桌面端 runSelfCheck 对排队超时请求存在观测盲区（timeline 只记录已开始执行的请求），展示 rate_limited=1 只是「可见限流」；模拟器数值更接近 governor 内部语义。对拍 must-pass 用例不受影响（无排队超时场景）。
+- 测试：test_scheduler_simulator.py +1（waiter deadline 长冷却用例）12/12；pytest 23/23；对拍六组 PARITY OK。
+- 文档：OPERATIONS.md §3.5（已知简化→已修复 + runSelfCheck 观测盲区说明）、PRD §12A.23.5（信号量 deadline/5h 后移/释放/墙钟全段修正）。
 ## [未发布] feat(ops-center): 调度模拟器并发推进升级（scheduler_simulator 串行事件循环 → 离散事件仿真，2026-08-13）
 
 - 模拟器支持**并发推进**：信号量 transfer（占满时接管最早完成槽，不推进全局时钟，同批到达可并发竞争）；RPM 槽推进后释放完成事件（interval < duration 时请求重叠执行）；5h 额度预检移到 pace/cooldown 之后（被拒请求仍占 RPM 槽）；`total_duration_ms` 改墙钟口径（含被拒/限流判定时刻，对齐真实 governor）。
@@ -4007,6 +4013,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

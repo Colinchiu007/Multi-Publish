@@ -130,13 +130,16 @@ def simulate(params: dict) -> dict:
         queue_wait = 0
 
         # 1) 并发信号量（transfer：占满时接管最早完成槽；等待从本请求到达时刻起算，不串行化同批后续请求）
+        #    超时判定与真实 waiter deadline 一致：本请求到达时刻 + MAX_QUEUE_WAIT_MS（2026-08-13 精确化，
+        #    修复 429 长冷却+同批突发时排队请求被乐观放行的问题）；被拒请求 end_time 记 deadline 墙钟时刻。
         if executing_now >= max_concurrent:
             earliest = finish_heap[0]
             wait = earliest - t
-            if wait > MAX_QUEUE_WAIT_MS:
+            deadline = arrive_at + MAX_QUEUE_WAIT_MS
+            if earliest > deadline:
                 entry["state"] = "rate_limited"
                 rate_limited_count += 1
-                end_times.append(t)
+                end_times.append(deadline)
                 timeline.append(entry)
                 continue
             heapq.heappop(finish_heap)
