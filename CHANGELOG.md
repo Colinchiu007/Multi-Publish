@@ -1,3 +1,14 @@
+## [2026-08-13] feat(ui): 视频创作首页卡片 UI 优化——多列动态布局 + MiniMax 生成卡片背景 + 交互动效（pipeline-card-backgrounds-ui）
+
+- 布局：流水线选择视图容器从 1080px 封顶放宽至 1600px（`.create-page--pipeline-list`），`pipeline-selector.css` 增加显式断点（≤768px 1 列 / 769-1199px auto-fill / 1200-1439px 3 列 / 1440-1919px 4 列 / ≥1920px 5 列），宽屏/高分屏自动多列排布。
+- 背景生成：新增主进程服务 `electron/services/pipeline-card-backgrounds.js`——经已配置图片生成 provider（默认 MiniMax image-01）按统一风格提示词逐流水线生成差异化背景；HTTPS-only + 地址黑名单 + image/* + 12MB 上限的安全下载；`userData/pipeline-card-bg/` 磁盘缓存 + manifest（命中不重复调用 API，force 可刷新，并发 2、批量 50）；最小 loopback 静态服务（127.0.0.1 随机端口 + 随机 token，仅服务缓存目录文件，GET/HEAD + nosniff）。
+- IPC：`pipeline-card:backgrounds`（withSenderCheck）+ preload `pipelineCardBackgrounds`（PUBLIC_METHODS）+ `src/api/publisher.js` 封装（fallback 空背景）。
+- 前端：`PipelineSelector.vue` 渲染背景层（img + 双层暗色遮罩）与浅色前景保证文字对比度；加载 shimmer + 「正在生成卡片背景…」轻提示；无 provider/失败回退分类渐变并可显示一次性提示（可关闭）；入场 stagger、悬停抬升/背景缩放/光晕、focus-visible 外环；`prefers-reduced-motion` 降级；ARIA 保留（role=button/aria-label/aria-busy，背景层 aria-hidden）。
+- 本地化：`pipelines.selector.*` 4 个 key zh/en 成对新增。
+- 测试：主进程服务 16 + IPC handler 6 + PipelineSelector 组件 6 + access-control 6；CreateView 回归 169 全绿；vite build 通过。
+- 文档：PRD-video-creation §3.1.24（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）；OpenSpec change pipeline-card-backgrounds-ui（proposal/design/specs/tasks）；learnings；i18n 术语表。
+- 交付：隔离 worktree + codex/pipeline-card-backgrounds-ui 分支 + PR + CI + 合并回 main。
+
 ## [2026-08-13] P3 第一批：video-creation 子组件多语言化（PR #749 merged 53d08302）
 
 - locales zh/en 新增 videoConfig（40）/pipelineSelector（16）/errorDialog（5）三命名空间（键对等）

@@ -32,6 +32,7 @@ vi.mock("@/api/publisher", () => ({
   pipelineStatus: vi.fn(),
   pipelineAdvance: vi.fn(),
   pipelineHistory: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  pipelineCardBackgrounds: vi.fn().mockResolvedValue({ code: 0, data: { available: false, provider: null, backgrounds: {}, generated: [], cached: [], failed: [], skipped: [] } }),
   pipelineStartOrchestrated: vi.fn(),
   pipelineResumeOrchestration: vi.fn(),
   pipelineAdvanceToNextCheckpoint: vi.fn(),
