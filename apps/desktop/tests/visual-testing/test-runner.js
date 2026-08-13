@@ -70,6 +70,9 @@ class VisualTestRunner {
     this.context = await this.browser.newContext({
       viewport: { width: 1920, height: 1080 },
       locale: 'zh-CN',
+      // 像素门禁需要确定性渲染：模拟用户「减少动态效果」偏好，
+      // 关闭入场/循环动画，避免截图截到动画中间态导致对比不稳定。
+      reducedMotion: 'reduce',
     });
     if (this.useFixtures) {
       await this.context.addInitScript({ content: buildInitScript() });
@@ -252,6 +255,44 @@ class VisualTestRunner {
   }
 
   /**
+   * 等待视口内图片加载/解码完成，并让绘制提交两帧。
+   * 页面使用 loading="lazy" 的装饰背景图时，仅等业务选择器会出现
+   * 图片未解码、动画未落定的中间态，导致像素对比在不同机器/轮次间不稳定。
+   * 注：整段等待逻辑放在单次 evaluate 内执行，便于单测 mock 兼容。
+   */
+  async _waitForImagesSettled(timeoutMs = 4000) {
+    await this.page.evaluate(async (budget) => {
+      const deadline = Date.now() + budget;
+      const visibleUnloaded = () => {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        return Array.from(document.images).filter((img) => {
+          const rect = img.getBoundingClientRect();
+          const inViewport = rect.bottom > 0 && rect.top < vh && rect.right > 0 && rect.left < vw;
+          return inViewport && !(img.complete && img.naturalWidth > 0);
+        });
+      };
+      while (Date.now() < deadline) {
+        const pending = visibleUnloaded();
+        if (pending.length === 0) break;
+        await Promise.all(pending.map((img) => new Promise((resolve) => {
+          if (typeof img.decode === 'function') {
+            img.decode().then(resolve, resolve);
+          } else {
+            const done = () => resolve();
+            img.addEventListener('load', done, { once: true });
+            img.addEventListener('error', done, { once: true });
+            if (img.complete) done();
+          }
+        })));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      // 再等两帧，确保 decode 完成后的绘制已提交到合成层
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }, timeoutMs);
+  }
+
+  /**
    * 像素对比测试
    */
   async pixelRegressionTest(testName, route, options = {}) {
@@ -262,6 +303,8 @@ class VisualTestRunner {
       options.waitFor || '#app',
       options.expectedRoute || route,
     );
+    // 等待视口图片就绪，避免懒加载/异步解码导致截图不稳定
+    await this._waitForImagesSettled();
     
     const currentPath = path.join(this.screenshotDir, `${testName}-current.png`);
     const baselinePath = path.join(this.baselineDir, `${testName}.png`);
