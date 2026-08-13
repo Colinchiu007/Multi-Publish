@@ -10,7 +10,7 @@
           </div>
           <span class="progress-text">{{ progressPercent }}%</span>
           <span v-if="elapsedMs !== null" class="elapsed-text">
-            已用时 {{ formatDuration(elapsedMs) }}
+            {{ $t('stageProgress.elapsed', { duration: formatDuration(elapsedMs) }) }}
           </span>
         </div>
         <div v-if="summary" class="progress-summary">{{ summary }}</div>
@@ -54,6 +54,7 @@
 <script>
 import '@/styles/stage-progress.css'
 import { getPipelineStage } from '@/i18n/pipeline-labels'
+import { getAppLocale } from '@/i18n'
 
 export default {
   name: 'StageProgress',
@@ -93,11 +94,12 @@ export default {
     stageTimeDetailText(stage, index) {
       if (!stage) return ''
       const status = stage.status || ''
+      const locale = getAppLocale() === 'en' ? 'en-US' : 'zh-CN'
       if (status === 'completed' && stage.completedAt) {
-        return `完成于 ${new Date(stage.completedAt).toLocaleTimeString('zh-CN')}`
+        return this.$t('stageProgress.completedAt', { time: new Date(stage.completedAt).toLocaleTimeString(locale) })
       }
       if (status === 'running' && stage.startedAt) {
-        return `开始于 ${new Date(stage.startedAt).toLocaleTimeString('zh-CN')}`
+        return this.$t('stageProgress.startedAt', { time: new Date(stage.startedAt).toLocaleTimeString(locale) })
       }
       if (status === 'failed' && stage.error) {
         return stage.error.length > 50 ? stage.error.slice(0, 47) + '...' : stage.error
@@ -110,32 +112,32 @@ export default {
       const ctx = this.orchestrationContext
       if (stage.name === 'split' && stage.status === 'completed') {
         const scenes = ctx.split?.scenes || []
-        if (scenes.length > 0) return '拆分为了 ' + scenes.length + ' 个场景'
+        if (scenes.length > 0) return this.$t('stageProgress.splitScenes', { count: scenes.length })
       }
       if (stage.name === 'optimize' && stage.status === 'completed') {
         const p = ctx.optimize_progress
-        if (p && p.done != null && p.total != null) return '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个'
+        if (p && p.done != null && p.total != null) return this.$t('stageProgress.optimizeDone', { total: p.total, done: p.done })
       }
       if (stage.name === 'generate_assets') {
         const p = ctx.assets_progress
         if (p) {
-          if (p.videosDone != null) return '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 视频 ' + p.videosDone + '/' + p.videosTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal
-          return '图片 ' + p.imagesDone + '/' + p.imagesTotal + ' · 旁白 ' + p.ttsDone + '/' + p.ttsTotal
+          if (p.videosDone != null) return this.$t('stageProgress.assetsDetail', { images: p.imagesDone, imagesTotal: p.imagesTotal, videos: p.videosDone, videosTotal: p.videosTotal, tts: p.ttsDone, ttsTotal: p.ttsTotal })
+          return this.$t('stageProgress.assetsDetailNoVideo', { images: p.imagesDone, imagesTotal: p.imagesTotal, tts: p.ttsDone, ttsTotal: p.ttsTotal })
         }
       }
       if (stage.name === 'compose' && stage.status === 'running') {
         const p = ctx.compose_progress
         if (p && Number.isFinite(p.percent)) {
           if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
-            return '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%'
+            return this.$t('stageProgress.composeSegments', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
           }
-          return '视频合成 ' + Math.round(p.percent) + '%'
+          return this.$t('stageProgress.composeVideo', { percent: Math.round(p.percent) })
         }
       }
       return ''
     },
     stageStatusLabel(stage, index) {
-      if (!stage || !stage.status) return '等待中'
+      if (!stage || !stage.status) return this.$t('stageProgress.statusPending')
       const status = stage.status
       if (status === 'paused') {
         if (this.checkpoint && this.checkpoint.type === 'scene_asset_selection') {
@@ -144,14 +146,14 @@ export default {
         return this.translateStageStatus('pipelines.statuses.paused', 'Paused')
       }
       const labels = {
-        completed: '已完成',
-        running: '运行中',
-        failed: '失败',
-        waiting_approval: '等待确认',
-        cancelled: '已取消',
-        pending: '等待中',
+        completed: 'statusCompleted',
+        running: 'statusRunning',
+        failed: 'statusFailed',
+        waiting_approval: 'statusWaitingApproval',
+        cancelled: 'statusCancelled',
+        pending: 'statusPending',
       }
-      return labels[status] || status
+      return labels[status] ? this.$t('stageProgress.' + labels[status]) : status
     },
     translateStageStatus(key, fallback) {
       const value = this.$t?.(key)
@@ -176,9 +178,9 @@ export default {
       const minutes = Math.floor(totalSeconds / 60)
       const seconds = totalSeconds % 60
       if (minutes > 0) {
-        return `${minutes} 分 ${seconds} 秒`
+        return this.$t('stageProgress.durationMin', { minutes, seconds })
       }
-      return `${seconds} 秒`
+      return this.$t('stageProgress.durationSec', { seconds })
     },
   },
 }
