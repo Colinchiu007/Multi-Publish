@@ -1,0 +1,13 @@
+{
+  "id": "hell-grind-opensource-deep-dive",
+  "title": "Hell Grind 语料实证深度挖掘续篇（v2.0 报告）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "research",
+  "currentPhase": "completed",
+  "nextAction": "报告已交付，待实施 P0 时走 OpenSpec propose",
+  "createdAt": "2026-08-14T01:00:00Z",
+  "branch": "main",
+  "deliverables": ["01-docs/HELL-GRIND-OPENSOURCE-ANALYSIS-DEEP-2026-08-14.md"]
+}
