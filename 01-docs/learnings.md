@@ -1,3 +1,11 @@
+## views-deep2 mock 缺失导致 CI 必红复盘（fix-publisher-mock-onpipelineupdate，2026-08-14）
+
+- **第一性原因**：PR #770 新增 `@/api/publisher.onPipelineUpdate` 导出并在 CreateView async mounted 调用，但未同步 views-deep2.test.js 的 vi.mock factory；由于 mounted 是 async，缺失导出在 `--no-file-parallelism` 下以「运行尾部 unhandled rejection」呈现（441 文件全过、仅 3 errors、退出码 1），electron-tests 与 QG 4 个 job 必红，且 main@240fe9b3 自身 electron-ci 以完全相同错误失败。
+- **逃逸链**：单测（views-deep2 自身 7 tests 全过，错误只出现在 run 收尾的 unhandled 收集，不指向具体用例）→ 集成（同层，mock 缺失只在真实组件 mounted 时才触发）→ E2E/视觉（不跑 vitest mock 路径）→ 审查（PR #770 未做 mock 契约核对）→ 流程（main 无 required status checks，红 CI 照样合入，漏洞直接进入 main 并持续红）。
+- **系统性漏洞**：审查盲区（新增导出未同步既有 mock）+ 流程缺失（main 分支保护未启用）。
+- **预防措施**：① 新增 `publisher.js` 导出（尤其订阅类 onXxx）时，全局检索 `vi.mock("@/api/publisher")` 的 factory 同步补齐；② 建议 main 启用 required checks（QG/electron-tests），红 CI 禁止合入；③ 本地跑测试优先带 `--maxWorkers=1 --no-file-parallelism`（与 CI 一致，可暴露 run 尾部 unhandled rejection）。
+
+---
 ## 提示词引擎自进化 P1b 主题指纹复盘（prompt-engine-evolution-p1b，2026-08-13）
 
 - **交付**：`fingerprint.js`（~300 行）——DOMAIN_DICTIONARY 6 领域强/弱词 + INTENT_ALIASES 8 意图强/弱档 + extractTopics（≤2000 截断、≤8 topics、2-6 字、词典词子串剔除）+ buildFingerprint + score（4/2/2/1 分量上限）+ findSimilarTemplates（NONE/MID/HIGH 置信档位、探索 ε ≤0.3 仅重排 active 集、activeCount<10 时 ε=0、rand 注入可测、tie-break）。PR #752 merged fd269294；fingerprint 19 例（14 规格 + 2 parity + 3 审查补充）+ P0 collector 18 全绿；Codex 双模型审查 9 MAJOR 全部修复（Claude 后端瞬态不可用按降级路径）；OpenSpec change 已归档（4 条需求合入 prompt-engine-evolution）。

@@ -57,6 +57,7 @@ vi.mock("@/api/publisher", () => ({
   onRenderComplete: vi.fn(() => vi.fn()),
   onRenderError: vi.fn(() => vi.fn()),
   onRenderInstallProgress: vi.fn(() => vi.fn()),
+  onPipelineUpdate: vi.fn(() => vi.fn()),
   publishBatch: vi.fn(),
   onProgress: vi.fn(() => vi.fn()),
   onPipelineUpdate: vi.fn(() => vi.fn()),

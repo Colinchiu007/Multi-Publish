@@ -1,3 +1,10 @@
+## [2026-08-14] fix(test): views-deep2 补全 @/api/publisher mock 的 onPipelineUpdate（解除 CI 必红，PR #788）
+
+- 根因：PR #770（240fe9b3）新增 `publisher.onPipelineUpdate` 并在 `CreateView.vue` async mounted 调用，未同步 `views-deep2.test.js` 的 `vi.mock` factory；`--no-file-parallelism` 下表现为运行尾部 3 个 unhandled rejection，electron-tests 与 QG 4 个 job 必红（main@240fe9b3 自身同样失败）。
+- 修复：mock factory 补 `onPipelineUpdate: vi.fn(() => vi.fn())`（与 CreateView.test.js 既有 mock 对齐）；全仓检索确认消费方仅 CreateView.vue、缺失 mock 仅此一处。
+- 验证：本地 CI 同参（--maxWorkers=1 --no-file-parallelism）修复前 3 errors → 修复后 0 errors；全量 desktop 套件 CI 同参回归通过。
+- 预防：建议为 main 启用 required status checks（当前无分支保护，红 CI 可合入）。
+
 ## [2026-08-13] 提示词引擎自进化 P1b：主题指纹与同类模板检索（prompt-engine-evolution-p1b）
 
 - 新增 `apps/desktop/electron/services/prompt-evolution/fingerprint.js`：DOMAIN_DICTIONARY（6 领域强/弱词）+ INTENT_ALIASES（8 意图强/弱档）+ extractTopics（≤2000 截断、≤8 topics、2-6 字、词典词子串剔除）+ buildFingerprint + score（4/2/2/1 + 分量上限）+ findSimilarTemplates（NONE/MID/HIGH + 探索 ε + rand 注入 + tie-break）。
