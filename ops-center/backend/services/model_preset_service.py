@@ -503,30 +503,44 @@ async def ensure_model_preset_columns(db: AsyncSession):
 
 
 async def ensure_catalog_seeded(db: AsyncSession):
-    """INSERT OR IGNORE 风格初始化：仅填充不存在的预设行。"""
+    """INSERT OR IGNORE 风格初始化：填充不存在的预设行；已存在但 rpm/限额缺失的行按目录默认值回填。
+
+    回填规则（2026-08-13）：旧目录版本可能遗留 rate_per_minute/limit_per_5h 为 NULL 的行，
+    只要目录（PRESET_CATALOG）有默认值且 DB 行为空，就补齐，保证运营后台模型 rpm 配置始终有默认初始值。
+    仅当目录有值而 DB 为空时才写，避免覆盖运营手工修改过的值。
+    """
+    changed = False
     for item in PRESET_CATALOG:
-        exists = (await db.execute(select(ModelPreset).where(ModelPreset.id == item["id"]))).scalar_one_or_none()
-        if exists:
+        row = (await db.execute(select(ModelPreset).where(ModelPreset.id == item["id"]))).scalar_one_or_none()
+        if row is None:
+            row = ModelPreset(
+                id=item["id"],
+                name=item["name"],
+                category=item["category"],
+                base_url=item.get("base_url", ""),
+                models_url=item.get("models_url", ""),
+                models=json.dumps(item.get("models", []), ensure_ascii=False),
+                default_model=item.get("default_model", ""),
+                rate_per_minute=item.get("rate_per_minute"),
+                limit_per_5h=item.get("limit_per_5h"),
+                is_multimodal=int(item.get("is_multimodal", 0)),
+                capabilities=json.dumps(item.get("capabilities", []), ensure_ascii=False),
+                capability_models=json.dumps(item.get("capability_models", {}), ensure_ascii=False),
+                doc_links=json.dumps(item.get("doc_links", []), ensure_ascii=False),
+                capability_doc_links=json.dumps(item.get("capability_doc_links", {}), ensure_ascii=False),
+                is_visible=1,
+            )
+            db.add(row)
+            changed = True
             continue
-        row = ModelPreset(
-            id=item["id"],
-            name=item["name"],
-            category=item["category"],
-            base_url=item.get("base_url", ""),
-            models_url=item.get("models_url", ""),
-            models=json.dumps(item.get("models", []), ensure_ascii=False),
-            default_model=item.get("default_model", ""),
-            rate_per_minute=item.get("rate_per_minute"),
-            limit_per_5h=item.get("limit_per_5h"),
-            is_multimodal=int(item.get("is_multimodal", 0)),
-            capabilities=json.dumps(item.get("capabilities", []), ensure_ascii=False),
-            capability_models=json.dumps(item.get("capability_models", {}), ensure_ascii=False),
-            doc_links=json.dumps(item.get("doc_links", []), ensure_ascii=False),
-            capability_doc_links=json.dumps(item.get("capability_doc_links", {}), ensure_ascii=False),
-            is_visible=1,
-        )
-        db.add(row)
-    await db.commit()
+        if row.rate_per_minute is None and item.get("rate_per_minute") is not None:
+            row.rate_per_minute = item["rate_per_minute"]
+            changed = True
+        if row.limit_per_5h is None and item.get("limit_per_5h") is not None:
+            row.limit_per_5h = item["limit_per_5h"]
+            changed = True
+    if changed:
+        await db.commit()
 
 
 async def list_model_presets(db: AsyncSession, category: str | None = None, include_hidden: bool = False):

@@ -67,6 +67,46 @@ async def setup_db():
 
 
 @pytest.mark.asyncio
+async def test_ensure_catalog_seeded_backfills_missing_rate_per_minute():
+    """已存在但 rate_per_minute 为 NULL 的预设行按目录默认值回填（2026-08-13 默认初始值）。"""
+    from database import async_session
+    from models import ModelPreset
+    from sqlalchemy import select
+    from services.model_preset_service import ensure_catalog_seeded, PRESET_CATALOG
+
+    async with async_session() as db:
+        row = (await db.execute(select(ModelPreset).where(ModelPreset.id == "kling"))).scalar_one()
+        assert row.rate_per_minute is not None  # 种子已填
+        row.rate_per_minute = None  # 模拟旧目录版本遗留 NULL
+        await db.commit()
+
+        await ensure_catalog_seeded(db)
+
+        row2 = (await db.execute(select(ModelPreset).where(ModelPreset.id == "kling"))).scalar_one()
+        catalog_rpm = next(i["rate_per_minute"] for i in PRESET_CATALOG if i["id"] == "kling")
+        assert row2.rate_per_minute == catalog_rpm
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_seeded_keeps_manual_rpm():
+    """回填不覆盖运营手工设置过的 rpm（仅补 NULL）。"""
+    from database import async_session
+    from models import ModelPreset
+    from sqlalchemy import select
+    from services.model_preset_service import ensure_catalog_seeded
+
+    async with async_session() as db:
+        row = (await db.execute(select(ModelPreset).where(ModelPreset.id == "kling"))).scalar_one()
+        row.rate_per_minute = 99  # 运营手工值
+        await db.commit()
+
+        await ensure_catalog_seeded(db)
+
+        row2 = (await db.execute(select(ModelPreset).where(ModelPreset.id == "kling"))).scalar_one()
+        assert row2.rate_per_minute == 99
+
+
+@pytest.mark.asyncio
 async def test_list_presets_requires_authentication():
     """未携带 token 时列表返回 401（未认证）。"""
     from httpx import AsyncClient, ASGITransport
