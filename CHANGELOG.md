@@ -18,6 +18,14 @@
 - useOpsCenterSync.js：formatLastSync 随语言；同步配置/结果消息接入 t()
 - 测试：composable 测试 mount 宿主组件（useI18n 需 setup 上下文）+ i18n 插件，本地 60/60；gui-test 定位改 data-testid（CI en 环境中文失效教训再次验证）
 - P2 附注的 ModelProviders 遗留已闭环；待办 CreateView 视频创作（P3）
+## [2026-08-13] docs(i18n): 多语言内容同步机制（i18n-content-sync）
+
+- PRD §3.2 新增「多语言内容同步机制」小节：单一事实源 / 键驱动 / 术语词典三原则 + L0-L1 门禁（zh/en 键对称、插值占位符一致、重复语料源校验、locale 成对提交 diff 检查、渲染端硬编码 CJK 扫描）；更新历史 v2.3.57。
+- 新增独立设计文档 `01-docs/i18n-sync-mechanism.md`（L0-L3 分层方案 + 检测手段 + 落地路线 + 验收清单）。
+- OpenSpec change `i18n-content-sync`：proposal / specs（i18n-content-sync 新能力 + user-facing-messages 增量）/ design / tasks，validate 通过。
+- 影响：`apps/desktop/src/locales/{zh,en}.js` 与 `story2video-notifications.js` 的同步将由门禁强制；后续按 tasks.md 落地测试与 CI（/openspec-apply-change 实施）。
+
+
 ## [2026-08-12] feat(ops-center): 模型密钥「修改」功能（编辑回填 + 启用开关）
 
 - 前端「模型密钥」列表项新增「编辑」：回填表单（provider/model 编辑锁定，唯一键），可修改 Base URL / 启用状态 / API Key（留空保留原密文，后端 validate_provider_key_body 已有 existing_key 保留语义）；表单新增「启用」switch；保存按钮区分「保存/保存修改」+「取消编辑」。
