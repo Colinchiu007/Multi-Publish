@@ -1,0 +1,13 @@
+{
+  "id": "shared-utils-logging",
+  "title": "P1 收尾：shared-utils logger 收敛（脱敏 + 注释修正 + 可注入路径/上限）",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "observability",
+  "currentPhase": "planning",
+  "nextAction": "写 proposal/design/specs/tasks 后实施",
+  "createdAt": "2026-08-13T00:00:00+08:00",
+  "branch": "codex/shared-utils-logging",
+  "openspecChange": "shared-utils-logging"
+}
