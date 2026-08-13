@@ -1,0 +1,14 @@
+{
+  "id": "credential-save-fail-rollback",
+  "title": "抖音账号登录后加密凭证保存失败，账号创建回滚",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已归档；PR codex/credential-store-safe-storage-recovery",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "codex/credential-store-safe-storage-recovery",
+  "rootCause": "safeStorage/DPAPI 无法解密既有 .masterkey，getMasterKey fail-closed 且库中无凭证可安全重建",
+  "remoteStatus": "PR #786 已创建，待审查合并"
+}
