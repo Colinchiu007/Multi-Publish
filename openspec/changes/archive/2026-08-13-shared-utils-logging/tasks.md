@@ -14,4 +14,5 @@
 - [x] 3.1 shared-utils vitest 通过（logger.test.js + scheduler 等既有测试）
 - [x] 3.2 引用方回归：format-adapter/cover-processor 相关测试
 - [x] 3.3 `openspec validate shared-utils-logging` 通过
-- [ ] 3.4 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+- [x] 3.4 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+
