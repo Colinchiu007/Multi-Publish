@@ -10,5 +10,5 @@
   "createdAt": "2026-08-13T00:00:00Z",
   "branch": "codex/credential-store-safe-storage-recovery",
   "rootCause": "safeStorage/DPAPI 无法解密既有 .masterkey，getMasterKey fail-closed 且库中无凭证可安全重建",
-  "remoteStatus": "PR 待审查合并"
+  "remoteStatus": "PR #786 已创建，待审查合并"
 }
