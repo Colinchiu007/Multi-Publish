@@ -134,7 +134,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-08 | 提示与反馈规范 | 弹窗标题统一「提示」/「Notice」（去掉「{流水线名} 提示」）；选项保存 toast 改操作栏上方绝对定位（不挤占启动按钮）；媒体校验细分（格式/大小/不可读）+ 文件要求常驻提示（i18n）。PR #398 | PRD 7.1.13 |
 | 2026-08-08 | 失败任务历史 | `RunStateStore.listFailed()` + `getHistory()` 合并持久化失败快照（重启后仍显示）；失败状态文案「生成失败」。PR #399 | PRD 历史章节 |
 | 2026-08-08 | 视频预览修复 | 媒体服务 Content-Type 补齐图片类型（分段图片显示）；下载统一走主进程 `story2video:save-as`（系统保存对话框）。PR #400 | PRD 7.1.14 |
-| 2026-08-08 | MiniMax 异步 T2A | `speech-2.8-*` 异步模型改走 `/t2a_async_v2` → 轮询 → 下载（修复生成图片与旁白阶段整段失败）；资源进度前置 `assets_progress={0/N,0/M}`。PR #402 | PRD 7.1.15 |
+| 2026-08-08 | MiniMax 异步 T2A | `speech-2.8-*` 异步模型改走 `/t2a_async_v2` → 轮询 → 下载（修复图片/视频/旁白生成阶段整段失败）；资源进度前置 `assets_progress={0/N,0/M}`。PR #402 | PRD 7.1.15 |
 | 2026-08-08 | 克隆音色 voice_id 合规 | `cloneVoice` 用 `buildMiniMaxCloneVoiceId` 生成合规 id（长度[8,256]/首字母英文字母）；存量非法克隆标记失效并自动回退默认音色（旁白 0/1 第一层根因）。PR #413 | PRD 7.1.16 |
 | 2026-08-08 | 异步 T2A 查询层级 | 官方查询响应 `status/file_id` 在顶层、实现只读 `data.*` 致 90s 超时；轮询改为顶层与 data 双层兼容（旁白 0/1 第二层根因，真实验证 synthesize 13s 成片 20s）。PR #414 | PRD 7.1.15 |
 | 2026-08-08 | 场景时长归一（其他会话） | 图片动效归一化到场景时长、移除单图轮播选项、UTF-8 manifest。PR #396 | PLAN-STORY2VIDEO-SCENE-DURATION-2026-08-08.md |
@@ -154,6 +154,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-11 | failed 状态保留原始值 + 暂停环节显示修正 | failed 不再统一转为 paused，保留原始状态；前端区分执行失败和已暂停；新增 historyStatusClass()；筛选器新增执行失败；失败提示显示 pausedStage；卡片 hover 增强。详见 3.1.19 | PRD 7.1.31 |
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 | 2026-08-13 | 流水线矩阵文档 | 新增 [PIPELINE-MATRIX.md](./PIPELINE-MATRIX.md)：14 条流水线 × 阶段 × 执行引擎 × 可用性 × 供应商要求总览，含 JS stageDefs 与 Python YAML manifest 阶段命名漂移基线（§6）。commit f51bb852 | PIPELINE-MATRIX.md |
+| 2026-08-13 | 生成阶段三路并行 + 阶段改名 | **图片/视频/旁白并行生成**：非视频场景图片与 TTS 旁白在阶段启动时立即并行；AI 视频有界并发（请求值默认 2，受 provider 每分钟预算收敛）同步生成；视频失败场景在视频结束后补生成图片（`assets_progress.imagesTotal` 动态纳入，先更新计数再启动补图）；进度展示「图片 a/b · 视频 c/d · 旁白 e/f」（纯图模式回退「图片 a/b · 旁白 c/d」）。阶段名「生成图片与旁白」→「图片/视频/旁白生成」（zh）/「Generate Images/Videos/Voiceover」（en）。PR #717 | PRD 7.1.9.x |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
@@ -294,7 +295,7 @@ split（分句）→ domain_enrich（历史内容领域增强，可选）
 | 创意程度 | 受控默认（表单隐藏） | 版本化默认 5，1-10 |
 | 负向提示词 | 高级折叠区「负向提示词」textarea | ≤500 字符，trim 后透传 negative_prompt |
 | 平台（目标平台） | 受控默认（表单隐藏） | 默认 generic；后续可按图片生成服务商派生 |
-| 阶段清单 | 运行页条目式阶段 | 「文案拆分 / 内容增强 / 画面提示词优化 / 生成图片与旁白 / 合成轮播视频 / 发布（可选）」 |
+| 阶段清单 | 运行页条目式阶段 | 「文案拆分 / 内容增强 / 画面提示词优化 / 图片/视频/旁白生成 / 合成轮播视频 / 发布（可选）」 |
 | optimize 进度 | 运行页阶段详情 | 「共 N 个场景，已完成 X 个」 |
 | 错误提示 | 阶段失败/检查点 | 区分「prompt-engine 未运行（检查 PROMPT_DIR / 8013）」「服务返回：<error>」「请求超时」「422：<detail>」「场景 #N 优化失败：<原因>」 |
 
@@ -437,7 +438,7 @@ locale key；未知内部 ID 只能安全回退为原始 ID，不能以 slug 标
 |------|------|------|
 | 默认语言 | 默认 `zh`，缺失 key 回退 `en`；切换语言后卡片、详情、历史和阶段清单同步更新 | 中英文渲染测试覆盖所有 pipeline registry ID 与六个 Story2Video 阶段 |
 | 启动动作 | 创作者确认文案与参数后，按钮统一显示“启动流水线”；Story2Video 固定提交 `autoAdvance=true` 与 `checkpointPolicy='none'` | 从 `split` 连续执行到 `completed`、`failed` 或 `needs_user_input`，不得在 optimize/generate_assets/compose/publish 因默认 checkpoint 暂停 |
-| 运行反馈 | 图片轮播只使用“文案拆分、内容增强、画面提示词优化、生成图片与旁白、合成轮播视频、发布（可选）”的条目式阶段清单；显示当前项、完成、跳过、失败或需要处理，**不显示 S2V 百分比进度** | pipeline snapshot 顶层的 `stages` 能准确映射 `completed/running/pending/skipped/failed/needs_user_input`，错误保留可读摘要和取消入口 |
+| 运行反馈 | 图片轮播只使用“文案拆分、内容增强、画面提示词优化、图片/视频/旁白生成、合成轮播视频、发布（可选）”的条目式阶段清单；显示当前项、完成、跳过、失败或需要处理，**不显示 S2V 百分比进度** | pipeline snapshot 顶层的 `stages` 能准确映射 `completed/running/pending/skipped/failed/needs_user_input`，错误保留可读摘要和取消入口 |
 | 无人工检查点 | 图片轮播不暴露 guided/manual checkpoint、继续或推进操作；其他流水线的通用编排能力不因此删除 | 禁止只隐藏按钮却仍让后端因 `checkpointRequired` 暂停 |
 | 内容政策耗尽 | `needs_user_input` 是不可在原 run 上继续的用户输入状态，不是人工 checkpoint；用户修改文案后必须取消旧运行并新建运行 | 无 resume/advance 路径、无占位图、无 `allowPartialAssets` 静默成功 |
 | 受控默认 | 分句语言默认“自动识别”；音调、并发数和创意强度从图片轮播表单隐藏，只由版本化、可审计、可回滚的受控默认值决定 | 表单不发送用户随意填写的上述工程参数；无有效远程配置时使用本地已测试安全默认值 |
@@ -1749,7 +1750,7 @@ SettingsDialog 关闭（App.vue @close）
 
 story2video-compose 的创作配置使用五个可折叠区：基础、外观、声音、高级、发布；基础区默认展开，其余按需展开。音调、并发数、创意强度仍作为受控默认值发送但不作为用户输入展示，分句语言默认 auto。图片风格与提示词风格保留为两个独立字段，并在界面分别解释视觉输出与提示词组织的职责。
 
-运行反馈统一为六项阶段清单（文案拆分、内容增强、画面提示词优化、生成图片与旁白、合成轮播视频、发布），展示阶段状态与摘要，不显示 Story2Video 百分比。启动按钮统一显示“启动流水线”；英文 locale 对应 “Start pipeline”。
+运行反馈统一为六项阶段清单（文案拆分、内容增强、画面提示词优化、图片/视频/旁白生成、合成轮播视频、发布），展示阶段状态与摘要，不显示 Story2Video 百分比。启动按钮统一显示“启动流水线”；英文 locale 对应 “Start pipeline”。
 
 ### 身份与权益错误边界（2026-08-05）
 

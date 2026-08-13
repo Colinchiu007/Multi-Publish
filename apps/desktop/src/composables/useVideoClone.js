@@ -20,10 +20,9 @@ const api = () => (typeof window !== 'undefined' && window.electronAPI && window
 const STAGE_LABELS = ['ingest', 'analyze', 'plan', 'generate', 'compose', 'publish']
 
 export function useVideoClone() {
-  const sourceType = ref('local')
+  const sourceType = ref('url')
   const linkUrl = ref('')
   const filePath = ref('')
-  const replicationLevel = ref('L1')
   const mode = ref('structure')
   const rewriteScript = ref(false)
 
@@ -43,7 +42,7 @@ export function useVideoClone() {
   function buildRequest() {
     return {
       source: sourceType.value === 'url' ? { type: 'url', url: linkUrl.value } : { type: 'local', path: filePath.value },
-      options: { replicationLevel: replicationLevel.value, mode: mode.value, rewriteScript: rewriteScript.value },
+      options: { mode: mode.value, rewriteScript: rewriteScript.value },
     }
   }
 
@@ -140,7 +139,7 @@ export function useVideoClone() {
   }
 
   return {
-    sourceType, linkUrl, filePath, replicationLevel, mode, rewriteScript,
+    sourceType, linkUrl, filePath, mode, rewriteScript,
     running, runId, stageStatus, report, similarity, publishResult, error,
     start, cancel, editReport, pickFile, regenerate, STAGE_LABELS,
   }

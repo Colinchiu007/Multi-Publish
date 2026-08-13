@@ -107,7 +107,8 @@ describe('ModelProviderManager 运营限流预算注入 governor', () => {
     expect(openaiWindow[1]).toEqual([])
 
     const videoLimits = spies.setProviderLimits.mock.calls.find(([id]) => id === 'minimax')
-    expect(videoLimits[1].maxConcurrent).toBe(1)
+    // minimax 为 video 类别（rpm 6）：ceil(6/3)=2（2026-08-13 视频并发评估）
+    expect(videoLimits[1].maxConcurrent).toBe(2)
   })
 
   it('updateProvider 修改 rate_per_minute 后预算被重新应用', () => {

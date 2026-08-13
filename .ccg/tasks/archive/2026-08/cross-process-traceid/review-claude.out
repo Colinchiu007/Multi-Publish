@@ -1,0 +1,93 @@
+[codeagent-wrapper]
+  Backend: claude
+  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+  PID: 26616
+  Log: D:\Temp\codeagent-wrapper-26616.log
+  Web UI: http://localhost:51192
+  Session-ID: 01c9784f-6c21-4bee-bea5-e26ee591518d
+Review 完成。以下基于对工作区源码的逐项抽查验证（`stage-executor.js`、`base-python-bridge.js`、`service-bus.js`、`splitter/aligner/prompt-bridge.js`、`story2video-stages.js`、`subtitle-align-service.js`、`audio-aligner/api.py`、`python-backend/src/server.py`、`LOGGING-CONTRACT.md` 及对应测试）。背景事实全部属实：`execute({runId,...})` 在 `stage-executor.js:192`、内置 SPLIT/OPTIMIZE/OPTIMIZE_BATCH 未解构 runId（`:241/:322/:358`，仅 CUSTOM `:638` 保留）、`_post` 仅发 Content-Type/Length（`base-python-bridge.js:236`）、server.py 白名单 `^[A-Za-z0-9._:-]{1,64}$` 拒绝 `_`（`server.py:121-128`）、runId 实际格式 `run_<ts>_<rand>`（`pipeline-engine.js:836`，含 `_`）。
+
+---
+
+# 审查报告：cross-process-traceid 设计
+
+## 一、Critical（会阻断设计目标或产出功能缺失）
+
+### C1 主流水线 optimize 路径（story2video_optimize）完全未覆盖
+- **文件**：`apps/desktop/electron/services/story2video-stages.js:1414-1629`（注册 `STORY2VIDEO_STAGE_TYPES.OPTIMIZE` 的自定义执行器），`serviceBus.optimizePrompt` 调用点 `:1514`。
+- **问题**：设计 R2 只覆盖 `stage-executor.js` 内置 SPLIT/OPTIMIZE/OPTIMIZE_BATCH。但 story2video-compose（主流水线）的 optimize 阶段是自定义执行器 `story2video_optimize`，其签名 `({ stage, context, serviceBus, params })` 未解构 runId。该执行器对**每个场景**（长文案 20+ 场景）调用一次 prompt-engine，是整条流水线里 Python 侧 HTTP 调用最密集的路径——按现设计这些调用**全部不带 X-Request-Id**。Why 里「一次 pipeline 失败要跨桌面/Python 日志手工拼时间线」针对的正是这条主链路。
+- **可行性**：runId 经 `_safeRun`（`stage-executor.js:215-224`）已传给所有执行器，只需解构 `runId`，在 `requestOptions` 上挂 `traceId: runId`（`requestOptions` 是 `buildPromptEngineOptimizeRequest` 产出后的展开，`prompt-engine-contract.js:134-168` 是白名单构造，不冲突）。
+- **修改建议**：补 `story2video_optimize` 执行器的 runId→traceId 透传 + 测试；或明确写入 Non-Goals 与 spec 为「后续项」，不能留白。
+
+### C2 GENERATE_ASSETS 内的 optimizeVideoPrompt 调用被遗漏（同执行器内做了一半）
+- **文件**：`story2video-stages.js:1855`（auto 视频提示词优化）、`:620`（`buildManualSceneCandidates` manual 视频提示词优化），均调用 `bus.optimizeVideoPrompt(promptText, {...})`。
+- **问题**：设计只给该执行器接了 alignScenes 的 runId，但同一个执行器里另外两处 Bridge 调用（视频提示词优化，走 8013/8020）不传 traceId。**同一 run 的 Bridge 请求一部分可关联、一部分不可关联**——正是范围边界问里「做了一半」的典型隐患。
+- **修改建议**：GENERATE_ASSETS 与 `buildManualSceneCandidates` 里两处 `optimizeVideoPrompt` 的 options 也挂 `traceId: runId`，并加测试。
+
+### C3 FINALIZE_ASSETS 的 alignScenes 调用点（:2435）缺失
+- **文件**：`story2video-stages.js:2435`（manual 分镜素材自选 finalize 后二次 align），`FINALIZE_ASSETS` 执行器签名 `:2308` 已解构 `runId`。
+- **问题**：设计 What Changes 与 tasks 2.3 只提 GENERATE_ASSETS → alignScenes（即 `:2184`），漏了 `:2435`。manual 模式流水线的 aligner 请求将无 request_id。审查点 5 明确点名 :2184/:2435 两个上下文，二者 runId 都在作用域内。
+- **修改建议**：tasks 2.3 改为「GENERATE_ASSETS(:2184) 与 FINALIZE_ASSETS(:2435) 两处 alignScenes 均传 `{ traceId: runId }`」+ 各一条测试。
+
+---
+
+## 二、Warning（实现/生产会踩，或契约/文档缺口）
+
+### W1 audio-aligner 无日志 handler，成功路径 request_id 会被静默丢弃
+- **文件**：`packages/audio-aligner/aligner/api.py:12`（`logger = logging.getLogger("audio-aligner")`）；`aligner/__main__.py:11`（`uvicorn.run(..., log_level="info")`）。
+- **问题**：audio-aligner 全仓无 `basicConfig`/`addHandler`。uvicorn 默认 `LOGGING_CONFIG` 只配置 uvicorn 三个 logger、不配 root handler；Python logging `lastResort` 仅对 **WARNING+** 落 stderr。因此 R4 的「成功路径日志含 request_id」这条 **INFO 级日志在生产会完全静默丢弃**——按设计实施会产出「测试通过（pytest caplog 自配 handler）但生产无日志」的假绿。异常路径 `logger.exception`（ERROR）目前能经 stderr 汇入桌面，是唯一幸存者。
+- **修改建议**：audio-aligner 加日志配置（如 `__main__.py`/`api.py` 顶部 `logging.basicConfig(level=logging.INFO)`），并用 caplog 断言成功/异常两条路径均含 `request_id=`。
+
+### W2 LOGGING-CONTRACT.md 未列入显式变更计划
+- **文件**：`01-docs/LOGGING-CONTRACT.md`（§9 门禁：改设施行为必须同步本文档 + spec + 契约测试；§8 静默边界表）。
+- **问题**：本变更新增 L1 Bridge `traceId=` 日志行、audio-aligner `request_id=` 日志、sidecar 请求的 `X-Request-Id` 头——都属于「设施行为变更」。tasks 4.1 只提「标注外部边界」，未明确规划：①LOGGING-CONTRACT 新增 traceId 契约条目；②§8 静默边界补两行——python-backend skills 路径（runId 已在 body 但无 header 关联，`server.py` 中间件自生成 uuid）、外部 sidecar 消费为外部契约。CI 有 `check-docs-sync`，不规划可能临门补文档。
+- **修改建议**：tasks 4.1 显式列入 LOGGING-CONTRACT.md 同步项。
+
+### W3 头值卫生：R5 的 options.traceId 无校验，存在 CRLF 注入/异常风险
+- **文件**：`base-python-bridge.js:234-237`（`http.request` headers）。
+- **问题**：pipeline runId 格式安全（`[a-z0-9_]`），但 R5 允许任意调用方经 `options.traceId` 传入。Node `http.request` 对含 `\r\n`/控制字符的头值抛 `ERR_INVALID_CHAR`——一个脏 traceId 会把业务调用变成异常。且该值会直接进桌面日志，需与脱敏同源。
+- **修改建议**：`_post` 内对 traceId 做防御（剥离 `[\r\n]`、限 ≤64、ASCII 白名单，与 server.py 同思路但**含 `_`**），并加一个换行用例测试。
+
+### W4 测试计划缺口（按审查点 3）
+- **缺 subtitle-align-service 透传测试**：`subtitle-align-service.js:38` 的 `alignScenes(scenes, opts)` → `bridge.transcribeAudio(scene.audioPath, { model, language, initialPrompt, traceId })`，需在 `subtitle-align-service.test.js`（现 mock `transcribeAudio`，断言第 2 参）补一条 traceId 透传断言。
+- **缺 `_postStandalone` 头测试**：`prompt-bridge.js:127-149` 是独立 `http.request`，tasks 1.3 提了它但 R1 测试清单未点名。
+- **缺 bridge 层「body 无 traceId」断言**：R1 只断言「头有/无两态」，但 split 的 body 是 `{ text, language, mode, ...options }`（`splitter-bridge.js:54`），若提取漏了会污染 payload——需在 splitter/aligner/prompt 三个 bridge 测试各加一条「body 不含 traceId」。
+- **缺 prompt-bridge 双形态/回退分支覆盖**：`optimizeVideo(promptOrRequest, options)`（`prompt-bridge.js:158-174`）首参可为对象形态（`isObjectReq`），且 standalone→8013 回退分支需同带 traceId，设计未指定从哪种形态提取。
+
+### W5 文档漂移与签名尴尬
+- tasks 1.3 提 `_postStandalone`，但 proposal/design 未提（设计 D4/What Changes 只列「三个 Bridge 业务方法」）；`_post(path, body, timeout, traceId)` 第 4 参使所有调用点都得写 `_post(path, body, undefined, traceId)`。
+- **建议**：统一文档口径；可接受现状（4 参向后兼容，现有测试 mock `_post` 并断言 `calls[0][1]` 为 body，不受影响），或改用 `_post(path, body, { timeout, traceId })`（需同步改所有 bridge 测试的 mock 断言，成本高，不推荐）。
+
+---
+
+## 三、Info（观察项，非阻塞）
+
+- **I1**：runId = `run_<ts>_<rand>`（23 字符，`pipeline-engine.js:836`），作为 X-Request-Id 值合法且 ≤64，但 `_` 不被 server.py 白名单采纳——设计把 server.py 路径列边界是**正确决策**。提醒：若将来给 audio-aligner 加 request-id 中间件（如回显响应头），白名单必须放行 `_` 或不校验，否则关联静默断裂；建议在 api.py 留注释。
+- **I2**：`alignScenes` 的 2 路并发 worker 共用同一 runId，所有 `/align` 请求共享 request_id，无需 per-scene id，设计自洽。
+- **I3**：Bridge 的 `traceId=` 日志行应只记 path + traceId，**绝不记 body**（prompt 文本是业务数据，虽经 L1 脱敏但没必要入日志）。设计表述应显式排除 body。
+- **I4**：链路关键点已逐项确认：`_safeRun` 给所有执行器注入 runId（含自定义）；serviceBus 需先提取再展开的散点已定位（`service-bus.js:50/:60/:71/:81`，其中 `optimizePromptsBatch:60` 会把 options 展开进**每个** request 项，是提取的易漏点）；`buildVideoOptimizeRequest`/`buildPromptEngineOptimizeRequest` 是白名单构造，traceId 不会意外进 payload，但**也不会自动成为头**——必须显式提取后传给 `_post`。
+- **I5**：既有契约无冲突：头名 `X-Request-Id`、字段 `request_id=` 与 server.py/L3 access log 一致；桌面侧 `traceId=run_xxx` 无可脱敏内容；`_post` 改 4 参不影响既有 bridge 测试的 body 断言。
+
+---
+
+## 四、测试计划评估（审查点 3）
+
+| 契约 | 覆盖 | 缺口 |
+|---|---|---|
+| 头有/无两态 | ✓ tasks 1.1 | `_postStandalone` 未点名（W4） |
+| traceId 不进 payload | ✓ tasks 2.1/2.2（执行器/编排层） | bridge 层 body 断言缺失（W4） |
+| runId 传递 | ✓ tasks 2.1 | story2video_optimize / optimizeVideoPrompt / :2435 三处未覆盖（C1/C2/C3） |
+| audio-aligner request_id | ✓ tasks 3.1 | 生产 handler 缺失致成功路径静默丢弃（W1） |
+
+## 五、结论
+
+**暂缓进入实施，需先补齐 3 个 Critical 与 W1，其余可并入 tasks。**
+
+1. **C1/C2/C3 是范围决策问题而非技术障碍**：三处执行器 runId 全在作用域内，改动成本都极低（各加一行 `traceId` 透传）。建议直接把 story2video_optimize（:1514）、GENERATE_ASSETS 内两处 optimizeVideoPrompt（:620/:1855）、FINALIZE_ASSETS alignScenes（:2435）纳入本变更，否则「pipeline runId 贯穿」目标对**主流水线的主力调用**不成立，且同执行器内「部分请求带 id、部分不带」的割裂感会让排障困惑。若坚持增量，必须在设计 Non-Goals + spec 边界里显式写明并建 follow-up 任务。
+2. **W1 必须先解**：audio-aligner 加 `logging.basicConfig` 一行，否则 R4 验收在「测试绿、生产静默」的假象下交付。
+3. **W2/W3/W4/W5 建议在 tasks.md 内补齐条目后一并实施**，其中 W3 头值校验与 W2 的 LOGGING-CONTRACT 同步属低成本高收益。
+
+风险预判（审查点 5）：实现顺序按「桥接层（R1）→ 编排层（R2/R3）→ Python 消费（R4）→ 契约/回归」合理；唯一需在编码前敲定的是 C1–C3 的范围归属，避免返工。
+
+---
+SESSION_ID: 01c9784f-6c21-4bee-bea5-e26ee591518d

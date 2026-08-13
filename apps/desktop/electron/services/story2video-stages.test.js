@@ -905,6 +905,19 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(3)
   })
 
+  it('story2video_optimize 把 runId 作为 traceId 传给 serviceBus（R2/C1）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({ optimized_prompt: '优化后提示词' }))
+    await fn({
+      runId: 'run_77',
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '第一幕' }] },
+      serviceBus,
+    })
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledWith('第一幕', expect.objectContaining({ traceId: 'run_77' }))
+  })
+
   it('限流持续存在时按限流次数上限失败并保留场景与原因', async () => {
     vi.useFakeTimers()
     const fn = makePipeline(null).optimizeExecutor
@@ -1764,6 +1777,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     }
     const optimizeVideoPrompt = vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt }))
     const result = await fn({
+      runId: 'run_blend',
       stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: 'kling-v1', pollIntervalMs: 5 } } },
       params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
       context,
@@ -1775,7 +1789,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     })
     expect(result.output.scenes[0]).toMatchObject({ index: 0, videoPath: expect.stringContaining('scene_video_000.mp4') })
     expect(result.success).toBe(true)
-    expect(optimizeVideoPrompt).toHaveBeenCalledWith('image-optimized-prompt-0', expect.objectContaining({ platform: 'kling' }))
+    expect(optimizeVideoPrompt).toHaveBeenCalledWith('image-optimized-prompt-0', expect.objectContaining({ platform: 'kling', traceId: 'run_blend' }))
     expect(callAdapter).toHaveBeenCalledWith('kling', 'generateVideo', expect.objectContaining({ prompt: '[video-opt] image-optimized-prompt-0' }))
   })
 
@@ -1924,6 +1938,58 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     expect(result.success).toBe(true)
     expect(assetGenerator.generateImage).toHaveBeenCalled()
     expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: 'img-0.png', videoPath: null })
+  })
+
+  it('图片/旁白与视频并行启动：视频轮询未完成时，非视频场景图片与全部 TTS 已开始生成（2026-08-13 优化）', async () => {
+    if (skipIfNoMedia()) return
+    let releaseVideo
+    const videoGate = new Promise((resolve) => { releaseVideo = resolve })
+    const callAdapter = vi.fn(async (_provider, method) => {
+      if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-slow' } }
+      if (method === 'getVideoStatus') { await videoGate; return { videoUrl: baseUrl } }
+      return { code: 0 }
+    })
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : { id: 'openai', models: ['gpt-4.1-mini'] }),
+        callAdapter,
+      },
+    }
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: 'img-' + index + '.png' } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'aud-' + index + '.mp3', duration: 2 } })),
+    }
+    const fn = makeBlendPipeline(aiGenerator, assetGenerator)
+    const context = {
+      split: [{ text: '一' }, { text: '二' }, { text: '三' }],
+      optimize: ['video-p0', 'p1', 'p2'],
+      video_plan: { mode: 'fixed', scenes: [{ index: 0, useVideo: true, seconds: 6 }], selectedCount: 1 },
+    }
+    const runPromise = fn({
+      stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: 'kling-v1', pollIntervalMs: 5 } } },
+      params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+      context,
+      serviceBus: { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: prompt })) },
+    })
+    // 视频被 gate 卡住：断言非视频场景图片（场景 1/2）与全部 TTS（3 条）已开始生成
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(2)
+    expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(3)
+    // 进度：视频 0 但图片/旁白已推进
+    expect(context.assets_progress.videosDone).toBe(0)
+    expect(context.assets_progress.videosTotal).toBe(1)
+    expect(context.assets_progress.imagesDone).toBeGreaterThan(0)
+    expect(context.assets_progress.ttsDone).toBeGreaterThan(0)
+    // 放行视频，等待整阶段完成
+    releaseVideo()
+    const result = await runPromise
+    expect(result.success).toBe(true)
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, videoPath: expect.stringContaining('scene_video_000.mp4') })
+    expect(result.output.scenes).toHaveLength(3)
+    expect(context.assets_progress.videosDone).toBe(1)
+    expect(context.assets_progress.imagesTotal).toBe(2)
+    expect(context.assets_progress.imagesDone).toBe(2)
+    expect(context.assets_progress.ttsDone).toBe(3)
   })
 })
 

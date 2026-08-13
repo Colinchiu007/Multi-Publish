@@ -5,6 +5,48 @@
 - 自愈：新增 `scripts/ensure-desktop-deps.js`（零依赖 Node）——启动前校验脆弱依赖（sharp 平台包 / @img/colour / @element-plus/icons-vue / @ctrl/tinycolor + apps/desktop 全部直接依赖），缺失时以 node 直跑 npm-cli 旁路补装（npm pack + 解包，不改 package.json/lockfile）；`--invalidate-vite-cache` 失效陈旧 Vite optimize 缓存（改名保留可回退）。平台感知：sharp 平台包仅在 win32-x64 校验。
 - 测试：`scripts/ensure-desktop-deps.test.js` 9 例全绿（node --test）；真实冒烟：精确版（tinycolor 4.2.0）与 range（picocolors@^1.1.0 → 1.1.1）均经真实 npm pack 恢复成功，恢复后重检 0 缺失。
 - 文档：OpenSpec change `desktop-deps-reliability`（proposal/design/specs/tasks，validate 通过）；`01-docs/learnings.md` 复盘；`.quality-gates.md` 门禁记录。- 启动契约封装：新增 `scripts/start-desktop.ps1`（定工作区/同步最新/5174 端口归属 fail-closed/清旧实例/依赖健康/证据输出）+ `scripts/start-desktop-identity.js`（CDP 登录态校验）；端到端验证：从专用 worktree `mp-desktop-dev`（origin/main `22a96962`）启动，窗口 handle 非零、Vite 归属同 worktree、identity authenticated。
+## [2026-08-13] feat(video-clone): 复刻层级程序自动决定并驱动行为（L0/L1/L2）
+
+- 引擎新增 `replication-level.js`：`assessReplicationLevel(report)` 按证据完备度自动定级（结构≥2 段 / 文案非空 / 风格标签≥2 / 时长）→ L0/L1/L2，plan 阶段写入 `replication.level` + `replication.auto`（inspiration 只借结构自然落 L0；显式 replicationLevel 仍优先）。
+- generate 按层级：L0 单封面图（text-first，无内容 fail-closed）；L1/L2 逐镜头（L2 promptSeed 加 `level:L2` 锚点）。
+- compose 按层级：L0 单图循环全时长（无 concat）；L1/L2 逐镜头拼接。
+- F4 按层级验收（similarity.js `LEVEL_THRESHOLDS`/`LEVEL_REQUIRED`）：L0 仅文案必须；L1/L2 结构/文案/风格/时长分级阈值；兼容 target P1→L1、P2→L2；`level` 入结果；verdict 保持置信度门禁。
+- UI：报告元信息行 + 相似度卡展示「自动目标层级 → 达成 grade（F4 按 Lx 验收）」。
+- 测试：引擎全量 124 pass（+replication-level 5 例 + plan/similarity/generate/compose 分层用例）；桌面 composable 7 绿；vite build/eslint 0。
+- 真实运行：testsrc 3s 样例 → 自动 L0 → 封面生成 → L0 合成 → 成片产出、F4 level=L0。
+- PRD v1.16 §13.2/§29/§30。
+
+## [2026-08-13] refactor(video-clone): 移除无效的「复刻层级」下拉
+
+- 复刻层级（L0/L1/L2）当前仅写入报告作为目标声明，analyze/generate/compose/F4 均未按层级分支，属无效选项 → 从 UI 移除。
+- `VideoCloneView.vue` 删除「复刻层级」el-select；`useVideoClone.js` 删除 `replicationLevel` state 与请求 options 字段（引擎对缺失值默认 L1，报告仍记录 level=L1）。
+- 测试：useVideoClone.test.js 7 全绿（请求 options 断言同步更新）。
+- PRD v1.15 §13.2/§18.2/§29。
+## [2026-08-13] feat(s2v): 生成阶段三路并行 + 视频并发 2 + rpm 默认值 + 阶段改名（PR #717）
+
+- 根因：generate_assets 阶段视频生成是 `for...of await` 串行循环（并发 1）且必须全部完成后才启动图片/TTS——视频单段可达分钟级（如 agnes-video 慢响应 160s），用户看到「图片 0/16 · 视频 1/3 · 旁白 0/8」长期停滞。
+- 修复：非视频场景图片与 TTS 旁白在阶段启动时立即并行；AI 视频有界并发（请求值默认 2，受 provider 每分钟预算收敛，静态默认 maxConcurrent=1）同步生成；视频失败场景在视频结束后补生成图片（`assets_progress.imagesTotal` 动态纳入，先更新计数再启动补图，避免 done > total）；视频管理器不可用时仍在启动图片/TTS 前阶段级快失败（额度保护）。
+- 阶段改名：「生成图片与旁白」→「图片/视频/旁白生成」（zh）/「Generate Images/Videos/Voiceover」（en），i18n key `pipelines.stages.generate_assets` 成对更新（CI Gate 7 locale 同步）。
+- 配套：视频 provider rpm 默认值（governor-provider-limits / model-provider-seeds）、ops-center 模型预设 rpm 同步。
+- 测试：story2video-stages 视频分支 + 三路并行/补图断言、model-call-scheduler、model-provider-governor、model-provider-seeds、test_model_presets_api 全绿。
+- 文档：PRD.md 7.1.9.x 并行编排合同 + 六阶段/重试边界/进度表格同步；PRD-video-creation.md、product-manual.md、learnings.md 同步。
+
+## [2026-08-13] fix(video-clone): 输入来源标签默认改为「链接」（url）
+
+- `useVideoClone.js`：`sourceType` 默认值由 `local`（本地文件）改为 `url`（链接）——进入视频克隆页默认显示链接输入框。
+- 测试：新增「默认来源为链接，run 请求映射为 url source」与「切换到本地文件后映射为 local source」两条真实数据路径用例（useVideoClone.test.js 7 全绿）。
+- PRD-VIDEO-CLONE v1.13 §13.2 同步说明。
+
+## [2026-08-13] feat(story2video): 分镜素材自选检查点等待态 UX 反馈优化（story2video-asset-selection-ux）
+
+- StageProgress 增加 `paused` 状态映射：`scene_asset_selection` 检查点 →「等待选择素材」，手动暂停 →「已暂停」；⏸ 图标 + `waiting paused` 呼吸样式，zh/en i18n（不再直渲原始 "paused" 字符串）。
+- 检查点激活引导：StageProgress 下方高对比横幅（场景数插值）+「去选择素材」按钮；首次激活自动滚动到面板 + 2s 注意力高亮（一次性 `selectionGuided`，3s 轮询不重复打扰）。
+- 素材选择面板位置提升：从底部 action-bar 上移到进度区下方（与进度区同屏可及）；运行控制区新增等待文案；「✕ 取消」增加二次确认防误触。
+- locales zh/en 新增 `create.story2video.selectionWait.*`（stageLabel/banner/goSelect/controlText/cancelTitle/cancelBody/cancelKeep/cancelConfirm，banner 用 MessageFunction 插值）。
+- 测试：StageProgress.test.js 新建（paused/手动暂停/waiting_approval 不回归）；CreateView.test.js +4（横幅+面板+等待文案、首激活滚动一次、轮询不重复、无检查点不显示、取消二次确认），CreateView 159 全绿。
+- 文档：PRD §7.1.3a-1 等待态 UX 反馈（功能逻辑/数据校验/交互逻辑/显示项/提示文字）；learnings.md 复盘（状态映射测试护栏/等待可感知性/MessageFunction 插值/scroll spy 污染）。
+
+
 ## [2026-08-13] Story2Video 全能创作：分句链路统一使用分句引擎算法（story2video-split-engine-unify）
 
 - 问题：全能创作合成视频中分句「没生效」——分句引擎 smart-sentence-splitter（:8002）返回的 `scenes[].subtitles` 被丢弃，场景内字幕块由桌面本地旧贪心算法（硬编码 8/15 字）重新切分；引擎离线时整条链路降级为同一旧算法。
@@ -31,7 +73,7 @@
   - 异常横幅增加 X 关闭按钮（复用 BGM notice 模式 `dismissedProviderWarnings`），启动/取消/切换流水线时重置警告与关闭状态；
   - `.provider-warning-banner-close` 样式（color-mix 主题色 hover）。
 - 测试：provider-anomaly 14、pipeline 44、CreateView 160 全绿（新增 snapshotSince 边界/未来/数值/非法回退；按 createdAt 过滤、旧异常不附加、无 createdAt 回退；X 关闭、新运行/切换/取消重置、轮询清空旧警告）；vite build exit 0。
-- 文档：01-docs/CHANGELOG.md；行为契约由 OpenSpec change `story2video-provider-warning-ux` 固化。
+- 文档：PRD.md 7.1.12 合同同步（providerWarnings 按运行归属下发 + 横幅 X 可关闭/重置）；01-docs/CHANGELOG.md；行为契约由 OpenSpec change `story2video-provider-warning-ux` 固化。
 - CI：QG Static locale-sync CJK 基线刷新 1650→1651（CreateView.vue 行号位移致 195 处误报 + 关闭按钮 aria-label 回退文案镜像既有 BGM `common.close` 模式，净增 1 处已基线化）。
 ## [2026-08-13] feat(i18n): 多语言内容同步机制实施（i18n-content-sync）
 

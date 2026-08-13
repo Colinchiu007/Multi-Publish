@@ -24,6 +24,31 @@ describe('useVideoClone', () => {
   })
   afterEach(() => { vi.unstubAllGlobals() })
 
+  it('默认来源为链接（url）：run 请求映射为 url source（真实数据路径）', async () => {
+    const { api } = installMockApi()
+    vi.stubGlobal('window', { electronAPI: { videoClone: api } })
+    const c = useVideoClone()
+    expect(c.sourceType.value).toBe('url')
+    c.linkUrl.value = 'https://example.com/v.mp4'
+    await c.start()
+    expect(api.run).toHaveBeenCalledWith({
+      source: { type: 'url', url: 'https://example.com/v.mp4' },
+      options: { mode: 'structure', rewriteScript: false },
+    })
+  })
+
+  it('切换到本地文件后 run 请求映射为 local source', async () => {
+    const { api } = installMockApi()
+    vi.stubGlobal('window', { electronAPI: { videoClone: api } })
+    const c = useVideoClone()
+    c.sourceType.value = 'local'
+    c.filePath.value = 'C:/tmp/demo.mp4'
+    await c.start()
+    expect(api.run).toHaveBeenCalledWith(expect.objectContaining({
+      source: { type: 'local', path: 'C:/tmp/demo.mp4' },
+    }))
+  })
+
   it('run 成功：状态流转 + 报告写入（真实数据路径）', async () => {
     const c = useVideoClone()
     c.filePath.value = 'C:/tmp/demo.mp4'

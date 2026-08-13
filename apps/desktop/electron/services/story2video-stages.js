@@ -620,6 +620,7 @@ async function buildManualSceneCandidates (ctx) {
           const optResult = await bus.optimizeVideoPrompt(promptText, {
             platform: videoGenerator.providerId || undefined,
             ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
+            traceId: runId,
           })
           const validated = extractOptimizedVideoPrompt(optResult, { index })
           if (!validated.ok) throw new Error(validated.error)
@@ -1413,7 +1414,7 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.OPTIMIZE,
-    async ({ stage, context, serviceBus, params }) => {
+    async ({ stage, context, serviceBus, params, runId }) => {
       if (!serviceBus || typeof serviceBus.optimizePrompt !== 'function') {
         return { success: false, error: 'Story2Video optimize 需要 prompt-engine 服务（PromptBridge 未注入）' };
       }
@@ -1511,7 +1512,7 @@ function registerStory2VideoStages(pipelineEngine) {
           let result
           try {
             result = await withTransientRetry(
-              () => serviceBus.optimizePrompt(enginePrompt, requestOptions),
+              () => serviceBus.optimizePrompt(enginePrompt, { ...requestOptions, traceId: runId }),
               { maxAttempts, rateLimitMaxAttempts: Math.max(maxAttempts + 1, 4) },
             )
           } catch (lastError) {
@@ -1817,8 +1818,11 @@ function registerStory2VideoStages(pipelineEngine) {
       // 避免首个图片/视频/TTS 完成前（如图片生成需 16-30s）前端长期无数量信息
       writeAssetsProgress();
 
-      // AI 视频场景生成（并发 1，串行；复用 videogen 的 provider 契约）
+      // AI 视频场景生成（有界并发，受 provider 每分钟预算约束；与图片/旁白并行启动，2026-08-13 优化：
+      // 此前视频串行且必须全部完成才启动图片/旁白，导致「视频 4/5 · 图片 0/16 · 旁白 0/8」长期无进展）。
       const videoResults = new Map();
+      const videoSceneIndexes = [...videoSceneSet].sort((a, b) => a - b);
+      let videoPromise = Promise.resolve();
       if (videoGenerator && videosTotal > 0) {
         const manager = resolveModelProviderManager();
         if (!manager || typeof manager.callAdapter !== 'function') {
@@ -1827,14 +1831,19 @@ function registerStory2VideoStages(pipelineEngine) {
         const videoSize = resolveVideoSize(params, stage);
         const videoFps = Number(params.fps || (params.output && params.output.fps) || (stage && stage.options && stage.options.fps)) || 30;
         const videoRunDir = path.join(os.tmpdir(), 'story2video', 'videoscenes', String(runId || 'run'));
-        const videoSceneIndexes = [...videoSceneSet].sort((a, b) => a - b);
         const planScenes = Array.isArray(videoPlan && videoPlan.scenes) ? videoPlan.scenes : [];
-        for (const index of videoSceneIndexes) {
+        // 视频并发预算：provider 每分钟限额（视频类别静态默认 maxConcurrent=1，用户配置 rpm 时可并行）；
+        // 显式 videoConcurrency 参数仅作请求值，仍受预算上限收敛，避免触发 provider 限流。
+        const requestedVideoConcurrency = firstDefined(params.videoConcurrency, stage.options?.videoConcurrency, 2);
+        const videoConcurrency = resolveBudgetConcurrency('video', videoGenerator.providerId, requestedVideoConcurrency);
+        log.info('Story2VideoStages', 'video generation concurrency=' + videoConcurrency +
+          ' (requested=' + requestedVideoConcurrency + ', scenes=' + videosTotal + ')');
+        videoPromise = _mapWithConcurrency(videoSceneIndexes, videoConcurrency, async (index) => {
           const resumed = resumeCompleted.get(index);
           if (resumed && typeof resumed.videoPath === 'string' && fs.existsSync(resumed.videoPath)) {
             videoResults.set(index, { success: true, path: resumed.videoPath, meta: { resumed: true } });
             markVideoDone();
-            continue;
+            return { index, success: true };
           }
           const promptItem = optimizedPrompts[index];
           const promptText = typeof promptItem === 'string'
@@ -1843,7 +1852,7 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!promptText) {
             videoResults.set(index, { success: false, error: '视频场景缺少提示词' });
             markVideoDone();
-            continue;
+            return { index, success: false };
           }
 
           // 视频提示词统一走 prompt-engine（domain=video）：不得把图片优化提示词直接当视频提示词用。
@@ -1855,6 +1864,7 @@ function registerStory2VideoStages(pipelineEngine) {
               const optResult = await bus.optimizeVideoPrompt(promptText, {
                 platform: videoGenerator.providerId || undefined,
                 ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
+                traceId: runId,
               });
               const validated = extractOptimizedVideoPrompt(optResult, { index });
               if (!validated.ok) throw new Error(validated.error);
@@ -1865,13 +1875,13 @@ function registerStory2VideoStages(pipelineEngine) {
               videoResults.set(index, { success: false, error: '视频提示词优化失败：' +
                 (error && error.message ? error.message : String(error)) });
               markVideoDone();
-              continue;
+              return { index, success: false };
             }
           } else {
             log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → fallback to image carousel');
             videoResults.set(index, { success: false, error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' });
             markVideoDone();
-            continue;
+            return { index, success: false };
           }
 
           const planScene = planScenes.find(scene => scene.index === index);
@@ -1900,18 +1910,22 @@ function registerStory2VideoStages(pipelineEngine) {
               log.warn('Story2VideoStages', 'scene ' + index + ' video generation failed: ' + outcome.error + ' → fallback to image carousel');
               videoResults.set(index, outcome);
             }
+            markVideoDone();
+            return { index, success: Boolean(outcome && outcome.success) };
           } catch (error) {
             log.warn('Story2VideoStages', 'scene ' + index + ' video generation threw: ' + (error && error.message ? error.message : String(error)) + ' → fallback to image carousel');
             videoResults.set(index, { success: false, error: error && error.message ? error.message : String(error) });
+            markVideoDone();
+            return { index, success: false };
           }
-          markVideoDone();
-        }
+        });
       }
 
-      // 图片目标：排除视频生成成功的场景（含断点续传复用的视频）；视频失败场景回退图片轮播。
+      // 图片首批目标：非视频场景立即并行生成（不再等待视频完成）。
+      // 视频场景的图片由视频结果决定：视频生成成功 → 跳过图片（省额度）；失败 → 视频完成后补生成图片。
       const imageTargets = optimizedPrompts
         .map((prompt, index) => ({ prompt, index }))
-        .filter(item => !(videoSceneSet.has(item.index) && videoResults.get(item.index) && videoResults.get(item.index).success));
+        .filter(item => !videoSceneSet.has(item.index));
       imageTargetCount = imageTargets.length;
       writeAssetsProgress();
 
@@ -2133,7 +2147,33 @@ function registerStory2VideoStages(pipelineEngine) {
               );
         },
       );
-      const [imageResults, ttsResults] = await Promise.all([imagePromise, ttsPromise]);
+      // 三路并行：图片（首批非视频场景）+ 旁白 + 视频 同时启动（2026-08-13 优化），
+      // 视频串行完成不再是图片/旁白的前置条件。
+      const [imageResults, ttsResults] = await Promise.all([imagePromise, ttsPromise, videoPromise]);
+
+      // 视频失败场景回退图片轮播（补生成图片；imageItemTask 内对视频失败场景走图片分支）。
+      // 视频生成成功场景已由视频承担，不重复生成图片（省额度）。
+      const fallbackTargets = [...videoSceneSet]
+        .filter(index => !(videoResults.get(index) && videoResults.get(index).success))
+        .map(index => ({ prompt: optimizedPrompts[index], index }));
+      if (fallbackTargets.length > 0) {
+        imageTargetCount += fallbackTargets.length;
+        writeAssetsProgress();
+        const fallbackResults = await _mapWithConcurrency(
+          fallbackTargets,
+          imageConcurrency,
+          (item) => {
+            const runItem = () => imageItemTask(item.prompt, item.index);
+            return assetGenerator
+              ? runItem()
+              : modelCallScheduler.withModelBudget(
+                  { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: imageModel },
+                  runItem,
+                );
+          },
+        );
+        imageResults.push(...fallbackResults);
+      }
 
       // 检查失败
       const failedImages = imageResults.filter(r => !r.success);
@@ -2181,7 +2221,7 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 字幕时间戳真实对齐（Tier2 ASR）：TTS 音频就绪后，用真实词级时间替换比例估算（fail-open）
       if (pairedScenes.length > 0) {
-        await alignScenes(pairedScenes, { log })
+        await alignScenes(pairedScenes, { log, traceId: runId })
       }
 
       // 构建资源清单
@@ -2233,7 +2273,7 @@ function registerStory2VideoStages(pipelineEngine) {
           fallbackReason: pairedScenes.find(scene => scene.fallbackReason)?.fallbackReason || null,
         },
         stats: {
-          totalImages: imageTargets.length,
+          totalImages: imageTargetCount,
           successImages: imageResults.filter(r => r.success).length,
           totalVideos: videoSceneSet.size,
           successVideos: [...videoResults.values()].filter(item => item && item.success).length,
@@ -2432,7 +2472,7 @@ function registerStory2VideoStages(pipelineEngine) {
         })
       }
       if (pairedScenes.length > 0) {
-        await alignScenes(pairedScenes, { log })
+        await alignScenes(pairedScenes, { log, traceId: runId })
       }
 
       const finalManifest = {

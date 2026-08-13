@@ -12,4 +12,4 @@
 
 - [x] 3.1 shared-utils vitest + 引用方回归通过
 - [x] 3.2 `openspec validate logging-contract` 通过
-- [ ] 3.3 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+- [x] 3.3 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）

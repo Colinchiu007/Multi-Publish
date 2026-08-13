@@ -32,7 +32,7 @@ function buildTimelineItem (block, totalDuration) {
 
 /**
  * @param {object[]} scenes - TTS 后的场景（含 audioPath/duration/subtitleBlocks）
- * @param {{ log?: any, alignerBridge?: any, concurrency?: number }} [opts]
+ * @param {{ log?: any, alignerBridge?: any, concurrency?: number, traceId?: string }} [opts] - traceId 经 AlignerBridge 以 X-Request-Id 头透传到 audio-aligner
  * @returns {Promise<object[]>} 附加 subtitleTimeline/subtitleAlign 的场景（原数组原地增强）
  */
 async function alignScenes (scenes, opts = {}) {
@@ -69,6 +69,7 @@ async function alignScenes (scenes, opts = {}) {
           model: 'base',
           language: 'zh',
           initialPrompt,
+          traceId: opts.traceId,
         })
         const words = Array.isArray(result?.words) ? result.words : []
         if (words.length === 0) {

@@ -20,12 +20,22 @@ describe('model-call-scheduler 预算解析', () => {
     expect(budget.source).toBe('config')
   })
 
-  it('低 rpm 配置并发下限为 1', () => {
-    const budget = resolveProviderBudget({
+  it('视频 rpm→并发：rpm 3 → 1；rpm 6 → 2；rpm 20 → 2（cap，2026-08-13）', () => {
+    const low = resolveProviderBudget({
       provider: { id: 'minimax', category: 'video', config: { rate_per_minute: 3 } },
       type: 'video',
     })
-    expect(budget.maxConcurrent).toBe(1)
+    expect(low.maxConcurrent).toBe(1)
+    const mid = resolveProviderBudget({
+      provider: { id: 'kling', category: 'video', config: { rate_per_minute: 6 } },
+      type: 'video',
+    })
+    expect(mid.maxConcurrent).toBe(2)
+    const high = resolveProviderBudget({
+      provider: { id: 'kling', category: 'video', config: { rate_per_minute: 20 } },
+      type: 'video',
+    })
+    expect(high.maxConcurrent).toBe(2)
   })
 
   it('未配置时回退静态表（静态 source）', () => {
@@ -34,10 +44,12 @@ describe('model-call-scheduler 预算解析', () => {
     expect(budget.rpm).toBeGreaterThanOrEqual(1)
   })
 
-  it('视频/音频未配置预算时并发保持 1', () => {
+  it('视频未配置预算时并发为 2（保守可并行，2026-08-13），音频保持 1', () => {
     const budget = resolveProviderBudget({ provider: { id: 'unknown-video', category: 'video', config: {} }, type: 'video' })
-    expect(budget.maxConcurrent).toBe(1)
+    expect(budget.maxConcurrent).toBe(2)
     expect(budget.source).toBe('default')
+    const audioBudget = resolveProviderBudget({ provider: { id: 'unknown-audio', category: 'audio', config: {} }, type: 'audio' })
+    expect(audioBudget.maxConcurrent).toBe(1)
   })
 
   it('无 provider 时使用默认预算', () => {

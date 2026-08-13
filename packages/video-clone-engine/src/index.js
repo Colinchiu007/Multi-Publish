@@ -9,6 +9,7 @@ module.exports = {
   ...require('./pipeline'),
   ...require('./runner'),
   ...require('./service'),
+  ...require('./replication-level'),
   ...require('./adapters/runners'),
   ...require('./adapters'),
 };

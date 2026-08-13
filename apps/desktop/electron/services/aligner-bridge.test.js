@@ -41,3 +41,17 @@ describe('AlignerBridge /align 请求契约', () => {
     expect(body.options.vad_filter).toBe(true)
   })
 })
+describe('AlignerBridge traceId（cross-process-traceid R1/R3）', () => {
+  it('transcribeAudio 透传 traceId 且 body 不含 traceId', async () => {
+    const bridge = new AlignerBridge({})
+    bridge.isRunning = true
+    bridge._post = vi.fn(() => Promise.resolve({ words: [], segments: [], language: 'zh', duration: 0.5, elapsed_ms: 10, model: 'base' }))
+
+    await bridge.transcribeAudio('C:/tmp/vo.mp3', { model: 'base', language: 'zh', traceId: 'run_2' })
+
+    expect(bridge._post.mock.calls[0][3]).toBe('run_2')
+    const body = JSON.parse(bridge._post.mock.calls[0][1])
+    expect(body.audio_path).toBe('C:/tmp/vo.mp3')
+    expect(JSON.stringify(body)).not.toContain('traceId')
+  })
+})

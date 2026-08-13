@@ -2,6 +2,7 @@
 
 const { VideoCloneError } = require('../errors');
 const { emptyReport } = require('../clone-report');
+const { assessReplicationLevel } = require('../replication-level');
 
 /**
  * plan 阶段：文案改写 + 复刻模式应用（PRD F3.1 / §16）。
@@ -21,8 +22,7 @@ function createScriptPlan({ llmRunner = null } = {}) {
       if (!r[layer] || typeof r[layer] !== 'object') r[layer] = base[layer];
     }
 
-    // 复刻层级/模式写入
-    r.replication.level = opts.replicationLevel || 'L1';
+    // 复刻模式写入
     r.replication.mode = opts.mode || 'structure';
 
     // 文案改写
@@ -53,6 +53,19 @@ function createScriptPlan({ llmRunner = null } = {}) {
       r.script.fullText = '';
       analysis.rewrite = analysis.rewrite || {};
       analysis.rewrite.inspiration = true;
+    }
+
+    // 复刻层级：显式请求优先（遗留/测试）；否则按最终克隆报告证据自动定级（v1.16）
+    if (opts.replicationLevel) {
+      r.replication.level = opts.replicationLevel;
+      r.replication.auto = { determined: false, source: 'explicit', level: opts.replicationLevel };
+    } else {
+      const assess = assessReplicationLevel(r);
+      r.replication.level = assess.level;
+      r.replication.auto = {
+        determined: true, method: 'evidence-based',
+        level: assess.level, evidence: assess.evidence, confidence: assess.confidence,
+      };
     }
 
     ctx.artifacts.analysis = analysis;
