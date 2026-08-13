@@ -1,6 +1,6 @@
 # PLAN — 视频创作流水线「进行中信息反馈」颗粒度统一方案（2026-08-13）
 
-> 状态：方案（待确认后实施）
+> 状态：Phase 1 UI 通用化已实施（2026-08-14），Phase 1 契约 + Phase 2/3 待实施
 > 快照基线：`main` b0053cef（2026-08-13）
 > 关联 PRD：`01-docs/PRD.md` 7.1.9 / 7.1.9.1 / 7.1.9.2（本方案扩展为 7.1.9.3）；`01-docs/PRD-video-creation.md` 3.1.23
 > 关联矩阵：`01-docs/PIPELINE-MATRIX.md` §9 阶段进度反馈能力矩阵
@@ -75,7 +75,7 @@
    stage.summary = '拆分为了 12 个场景'   // 完成态摘要（可选）
    ```
    `getRunSnapshot`（pipeline-engine.js:1587）直接下发 stage.progress，不动 context 兼容层。
-2. **StageProgress.vue 去特判**：统一渲染 `stage.progress.message` + 迷你进度条（有合法 percent 就显示），compose 子进度条泛化为任意阶段；`optimize` 运行中立即能显示「正在优化 3/10」（数据已有）。
+2. **StageProgress.vue 去特判** ✅ 已实施（2026-08-14）：新增通用 `stageSubProgressPercent(stage)` 方法——completed→100%，running→读 `stage.progress` 或 `orchestrationContext[name + '_progress']`，其他→null；模板 v-if 泛化为任意阶段；`composeSubProgressPercent` 保留向后兼容 wrapper。待 Phase 1 契约落地后，`stage.progress` 字段将直接驱动进度条。
 3. 现有 compose/generate_assets 数据先映射进新模型，UI 立即变一致。
 
 ### Phase 2 — 执行器上报通道 + 补齐各阶段（M）
@@ -98,7 +98,7 @@
   - `apps/desktop/electron/services/pipeline-engine.js`（stage.progress 模型、快照下发）
   - `apps/desktop/electron/services/stage-executor.js`（onProgress 通道、通用归一化）
   - `apps/desktop/electron/services/story2video-stages.js`（+ explainer/talkinghead 等按需接入）
-  - `apps/desktop/src/views/video-creation/StageProgress.vue`（去特判、通用渲染）
+  - `apps/desktop/src/views/video-creation/StageProgress.vue`（✅ 去特判、通用渲染 — 2026-08-14 已实施）
   - `apps/desktop/src/views/CreateView.vue`（快照字段透传，如有需要）
 - 测试：
   - 阶段契约测试：onProgress → `getRunSnapshot().stages[i].progress` 可见；越界 percent 拒绝；空 message 过滤；

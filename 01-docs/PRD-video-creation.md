@@ -156,6 +156,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 | 2026-08-13 | 流水线矩阵文档 | 新增 [PIPELINE-MATRIX.md](./PIPELINE-MATRIX.md)：14 条流水线 × 阶段 × 执行引擎 × 可用性 × 供应商要求总览，含 JS stageDefs 与 Python YAML manifest 阶段命名漂移基线（§6）。commit f51bb852 | PIPELINE-MATRIX.md |
 | 2026-08-13 | 生成阶段三路并行 + 阶段改名 | **图片/视频/旁白并行生成**：非视频场景图片与 TTS 旁白在阶段启动时立即并行；AI 视频有界并发（请求值默认 2，受 provider 每分钟预算收敛）同步生成；视频失败场景在视频结束后补生成图片（`assets_progress.imagesTotal` 动态纳入，先更新计数再启动补图）；进度展示「图片 a/b · 视频 c/d · 旁白 e/f」（纯图模式回退「图片 a/b · 旁白 c/d」）。阶段名「生成图片与旁白」→「图片/视频/旁白生成」（zh）/「Generate Images/Videos/Voiceover」（en）。PR #717 | PRD 7.1.9.x |
+| 2026-08-14 | 流水线阶段进度条一致性修复（Phase 1 UI） | StageProgress 子进度条从 compose-only 泛化为全阶段通用：completed→100%，running→读 stage.progress 或 orchestrationContext[name+'_progress']，其他→隐藏。UE contract 测试同步更新。Phase 1 契约（stage.progress 模型）+ Phase 2/3 待实施 | PRD 7.1.9.3 / 3.1.23 |
 | 2026-08-13 | 阶段进行中信息反馈颗粒度统一方案 | 整体梳理 14 条流水线各阶段「进行中」反馈现状：仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节；提出统一 stage.progress 契约 + StageExecutor onProgress 通道 + UI 去特判 + 分期实施。详见本节 3.1.23 与总 PRD 7.1.9.3 | PRD 7.1.9.3 / 3.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
