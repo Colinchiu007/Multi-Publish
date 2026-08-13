@@ -1,0 +1,16 @@
+{
+  "id": "pipeline-progress-real-time-push",
+  "title": "流水线阶段进行中信息实时推送 + 快照裁剪（Phase 3）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档。PR #770 merged (240fe9b3, 2026-08-13T14:02:41Z)；openspec archive 2026-08-13-pipeline-progress-real-time-push + spec 同步；Phase 1-3 全部落地，外部验收边界（真实 provider 链路端到端目测）标记为后续手动验证。",
+  "openspecChange": "pipeline-progress-real-time-push",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "codex/pipeline-progress-push-impl",
+  "remoteStatus": "merged",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/770",
+  "mergeCommit": "240fe9b3"
+}
