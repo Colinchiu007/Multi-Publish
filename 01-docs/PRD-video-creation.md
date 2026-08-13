@@ -156,7 +156,9 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 | 2026-08-13 | 流水线矩阵文档 | 新增 [PIPELINE-MATRIX.md](./PIPELINE-MATRIX.md)：14 条流水线 × 阶段 × 执行引擎 × 可用性 × 供应商要求总览，含 JS stageDefs 与 Python YAML manifest 阶段命名漂移基线（§6）。commit f51bb852 | PIPELINE-MATRIX.md |
 | 2026-08-13 | 生成阶段三路并行 + 阶段改名 | **图片/视频/旁白并行生成**：非视频场景图片与 TTS 旁白在阶段启动时立即并行；AI 视频有界并发（请求值默认 2，受 provider 每分钟预算收敛）同步生成；视频失败场景在视频结束后补生成图片（`assets_progress.imagesTotal` 动态纳入，先更新计数再启动补图）；进度展示「图片 a/b · 视频 c/d · 旁白 e/f」（纯图模式回退「图片 a/b · 旁白 c/d」）。阶段名「生成图片与旁白」→「图片/视频/旁白生成」（zh）/「Generate Images/Videos/Voiceover」（en）。PR #717 | PRD 7.1.9.x |
-| 2026-08-13 | 阶段进行中信息反馈颗粒度统一方案 | 整体梳理 14 条流水线各阶段「进行中」反馈现状：仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节；提出统一 stage.progress 契约 + StageExecutor onProgress 通道 + UI 去特判 + 分期实施。详见本节 3.1.23 与总 PRD 7.1.9.3 | PRD 7.1.9.3 / 3.1.23 |
+| 2026-08-13 | 阶段进行中信息反馈颗粒度统一方案 |
+| 2026-08-13 | 视频创作首页卡片 UI：多列动态布局 + MiniMax 生成背景 + 交互动效 | `/create` 流水线选择视图容器放宽至 1600px + 显式 1-5 列断点；新增主进程 `pipeline-card-backgrounds` 服务（MiniMax image-01 生成、HTTPS 安全下载、磁盘缓存 + manifest、loopback 静态服务）；卡片渲染生成背景 + 暗色遮罩 + 浅色前景、加载 shimmer、渐变回退、入场/悬停动效与 reduced-motion 降级；提示文字 `pipelines.selector.*` zh/en 成对；IPC `pipeline-card:backgrounds` + preload + 前端封装。详见本节 3.1.24 | PRD 3.1.24 |
+ 整体梳理 14 条流水线各阶段「进行中」反馈现状：仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节；提出统一 stage.progress 契约 + StageExecutor onProgress 通道 + UI 去特判 + 分期实施。详见本节 3.1.23 与总 PRD 7.1.9.3 | PRD 7.1.9.3 / 3.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
@@ -1626,6 +1628,82 @@ SettingsDialog 关闭（App.vue @close）
 | `cinematic` | 2560×1080 | 电影感 21:9 |
 | `linkedin` | 1920×1080 | LinkedIn |
 | `instagram-feed` | 1080×1080 | Instagram 信息流 |
+
+### 3.1.24 视频创作首页流水线卡片 UI：多列动态布局 + MiniMax 生成背景 + 交互动效（2026-08-13 落地）
+
+> 范围：`/create` → 「流水线创作」视图（`PipelineSelector.vue` + `pipeline-selector.css`）。纯前端展示与
+> 主进程背景缓存服务，不改变流水线数据模型、执行引擎与发布流程。
+
+#### 1) 流程（数据流）
+
+```
+进入 /create（流水线创作视图，未选流水线）
+  ├─ 1. CreateView 加载流水线列表（pipeline:list → PipelineEngine.listPipelines + video-clone 入口）
+  ├─ 2. PipelineSelector 挂载/流水线变化 → 计算合法名称集合（/^[A-Za-z0-9_-]{1,80}$/）
+  ├─ 3. 调用 IPC pipeline-card:backgrounds { names, force:false }
+  │     └─ 主进程 pipeline-card-backgrounds 服务：
+  │          ├─ 解析图片生成 provider：getDefault('image') → 回退 listProviders('image') 首个已配置
+  │          ├─ 无 provider → { available:false }（前端渐变回退，不报错）
+  │          ├─ 有缓存（manifest + 文件 realpath 校验通过）→ 直接复用，不调用生成 API
+  │          ├─ 无缓存/force → callAdapter(providerId,'generateImage',{prompt,size:'1280x720'})
+  │          │     → 安全下载（HTTPS-only + 地址黑名单 + image/* + 12MB 上限）
+  │          │     → 原子写入 userData/pipeline-card-bg/<name>.png + manifest.json
+  │          └─ 注册 loopback token（127.0.0.1:<port>/pipeline-card-bg/<token>）返回 URL
+  ├─ 4. 前端逐卡渲染：成功 → 背景层 + 暗色遮罩 + 浅色前景；加载中 → shimmer；失败/无 provider → 分类渐变
+  └─ 5. 提示条：生成中（spinner 轻提示）→ 结果提示（未配置/部分失败，可关闭）
+```
+
+#### 2) 数据校验
+
+| 项 | 规则 | 违规行为 |
+|----|------|----------|
+| 流水线名称 | 非空字符串，`/^[A-Za-z0-9_-]{1,80}$/`（IPC 与主进程服务双重校验） | 返回 `VALIDATION_ERROR`（code -2），不触发任何生成 |
+| 批量上限 | 单次 ≤ 50 个名称（去重后处理） | 返回 `VALIDATION_ERROR` |
+| force | 仅接受布尔 true/false，缺省 false | 非布尔按 false 处理 |
+| 生成尺寸 | 固定 `1280x720`（16:9，卡片 object-fit: cover 裁剪） | — |
+| 下载 URL | 必须 `https:`、不得带凭据、不得跟随重定向（redirect:'error'） | 该卡记 failed，回退渐变 |
+| 下载目标地址 | DNS 解析后拒绝 私有/环回/链路本地（10/8、172.16/12、192.168/16、127/8、169.254/16、::1、fc00::/7、fe80::/10、224+） | 该卡记 failed |
+| 下载响应 | Content-Type 必须 `image/*`，大小 ≤ 12MB，内容非空 | 该卡记 failed |
+| 本地服务 | 仅 127.0.0.1、随机端口、随机 token（16B hex）、GET/HEAD only、nosniff、仅缓存目录内 realpath 文件、条目上限 200、TTL 7 天 | 越界一律 404，不泄露路径 |
+
+#### 3) 功能逻辑
+
+- **背景生成**：每流水线一条提示词，共享统一风格块（极简低饱和深色渐变、抽象几何、留白、无文字/无人物/无 logo、柔和光效、16:9），仅主题意象不同（如全能创作=极光光轨、口播=声波线、电影感=胶片光晕、视频克隆=镜像光分等）。未收录流水线使用通用主题。
+- **磁盘缓存**：`userData/pipeline-card-bg/<safe-name>.png` + `manifest.json`（version/items{path,provider,generatedAt}）；命中且文件真实存在且在缓存目录内 → cached 复用；manifest 损坏/文件丢失 → 视为未缓存重新生成（安全重建）。
+- **并发与失败隔离**：并发生成上限 2；单卡失败只记入 `failed`，不影响其他卡；整批不因部分失败报错（code 0）。
+- **安全下载**：HTTPS-only + 地址黑名单 + Content-Type/大小校验 + 有界超时（30s）+ AbortController；失败信息脱敏（不含完整 URL）。
+- **前端降级**：无 provider / IPC 不可用 / 全部失败 → 卡片保持分类色系渐变背景，可正常选择流水线；`available:false` 时显示一次性提示（可关闭）。
+
+#### 4) 交互逻辑与显示项
+
+| 显示项/交互 | 说明 |
+|-------------|------|
+| 多列网格 | ≤768px 1 列；769-1199px auto-fill（280px 基数）；1200-1439px 3 列；1440-1919px 4 列；≥1920px 5 列；gap 16px（窄屏 12px） |
+| 页面容器 | 流水线选择视图放宽至 max-width 1600px（`.create-page--pipeline-list`），宽屏不再被 1080px 封顶压缩 |
+| 背景层 | `card-bg`（img + 双层暗色渐变遮罩，`aria-hidden`）；hover 背景图 scale(1.06) |
+| 前景文字 | 有背景时强制浅色（标题 #f5f6fa、描述/元信息 rgba 浅色、badge 半透明白底），保证对比度 |
+| 加载态 | 背景生成中卡片显示 shimmer 骨架 + 顶部「正在生成卡片背景…」spinner 轻提示 |
+| 结果提示 | 未配置模型：「未配置图片生成模型，已使用默认样式（可在「模型服务商」中配置）」；部分失败：「部分卡片背景生成失败，已回退默认样式」；均可关闭（一次性） |
+| 交互动效 | 卡片入场 fadeInUp（stagger 30ms/卡，最多 12 档）；悬停抬升 -4px + 阴影 + 背景缩放 + 边框高亮；`:focus-visible` 外环 |
+| 可访问性 | 卡片 role=button + tabindex=0 + aria-label（流水线名）；背景层 aria-hidden；生成中 aria-busy；`prefers-reduced-motion: reduce` 关闭动画 |
+| 骨架屏/错误态 | 沿用现有 skeleton-grid 与 error-state + 重试按钮 |
+
+#### 5) 提示文字（zh / en，locales `pipelines.selector.*`）
+
+| key | zh | en |
+|-----|----|----|
+| `bgGenerating` | 正在生成卡片背景… | Generating card backgrounds… |
+| `bgUnavailable` | 未配置图片生成模型，已使用默认样式（可在「模型服务商」中配置） | No image-generation model configured — using default styles (configure one in Model Providers) |
+| `bgPartialFailure` | 部分卡片背景生成失败，已回退默认样式 | Some card backgrounds failed — fell back to default styles |
+| `bgClose` | 关闭 | Close |
+
+#### 6) 安全边界与已知边界
+
+- 主进程 loopback 静态服务仅服务缓存目录内文件；token 随机不可猜测；端口随机绑定 127.0.0.1；无目录列举。
+- 下载使用 `redirect:'error'`，杜绝重定向式 SSRF 绕过；地址解析结果参与黑名单判定。
+- 生成图片不回流 Story2Video 素材流程（纯展示缓存），删除 `userData/pipeline-card-bg/` 即可完全重置（下次进入自动重新生成）。
+- 真实 MiniMax 生成依赖用户配置的图片生成服务商 API Key/配额，属外部验收；无 Key 时系统始终可用（渐变回退）。
+- 缓存 7 天 TTL 仅作用于内存 token 注册表；磁盘缓存长期保留，由 `force` 或手动删除目录刷新。
 
 ---
 

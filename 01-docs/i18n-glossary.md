@@ -22,6 +22,7 @@
 | 提示词 | Prompt | — |
 | 草稿箱 | Drafts | — |
 | 流水线 | Pipeline | — |
+| 卡片背景 | Card Background | — |
 
 ## 维护规则
 

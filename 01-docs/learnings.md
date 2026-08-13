@@ -1,3 +1,13 @@
+## [2026-08-13] 视频创作首页卡片 UI：宽屏多列 + MiniMax 背景缓存服务的落地要点（pipeline-card-backgrounds-ui）
+
+- 根因/机会：`create-page` 被 `max-width:1080px` 封顶（`src/styles/create-view.css`），即便网格用 `auto-fill minmax(300px,1fr)`，宽屏列数也被容器压死——「不是多列动态」的真相是容器宽度而非网格定义。
+- 落地：选择视图加 `.create-page--pipeline-list`（1600px）+ 显式断点（1200/1440/1920 → 3/4/5 列）；卡片背景走主进程服务：provider 解析用 `modelProviderManager.getDefault('image')`（自动含多模态偏好）→ 回退 `listProviders('image')`；`callAdapter(id,'generateImage',{prompt,size:'1280x720'})`；下载必须 HTTPS-only + DNS 黑名单（10/8、172.16/12、192.168/16、127/8、169.254/16、::1、fc00::/7、fe80::/10、224+）+ `redirect:'error'` 防重定向 SSRF + image/* + 12MB。
+- 本地媒体 URL 铁律：dev（http://localhost:5173）下渲染端不能加载 `file://` 图片（Chromium 拦截），必须走 loopback HTTP token URL（仿 Story2VideoMediaServer 的最小静态服务，仅缓存目录 + realpath + nosniff）。
+- 缓存：`userData/pipeline-card-bg/` + manifest（version/items）；文件丢失/manifest 损坏 → 安全重建；`force` 刷新；TTL 仅作用于内存 token 注册表（磁盘长期保留）。
+- 提示词风格：统一风格块 + 每卡主题意象（英文，克制、低饱和、留白、无文字无人物），有背景时前景强制浅色 + 双层暗色遮罩保证对比度。
+- 门禁坑：`check-locale-sync.js --cjk` 基线是 `path:line` 集合，**行号敏感**；重写 .vue 会因行位移产生大量「新增」命中——新增用户可见文案必须只走 locales（不在 .vue script/template 留中文字面量 fallback），存量位移用 `--update-baseline` 重新锚定（并核对 HEAD 基线已过期 127 处的先决事实）。
+- 外部双模型本次全部不可用（子代理 403 / antigravity 区域限制 / claude CLI 挂起）→ 按机制硬化降级主代理直接执行，审查以本地自审 + 测试门禁补充；下次先探测再承诺双模型审查。
+
 ## 共享 worktree 批量清理级联误删主工作区文件复盘（shared-worktree-cascade-delete，2026-08-13）
 
 - **表象**：主工作区 `git status --porcelain` 突发 **255 个 ` D`**（工作区文件从磁盘消失，但 HEAD 中仍存在、上游未提交删除、目录外壳还在）；同一时段大量 worktree 从 `git worktree list` 消失（含本会话 mp-video-clone-default-url），主工作区 HEAD 也被并发会话推进（c0510955 → 1a248ed7）。
