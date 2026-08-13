@@ -23,10 +23,13 @@
 - [x] 双模型审查或降级记录（antigravity/claude 不可用时 codex 独立审查 + 主代理 6 项自检）
 - 验证：`.quality-gates.md` 记录表 + CHANGELOG + 01-docs/learnings.md 复盘
 
-## Task 6: 交付
+## Task 6b: 启动契约封装（start-desktop.ps1）
+- [x] scripts/start-desktop.ps1：定工作区/同步/端口归属 fail-closed/清旧实例/依赖健康/证据输出
 - [x] 提交（分支）→ push → PR #714 → remoteStatus 记录（CI pending）
 - [ ] PR 合并后三同步归档：openspec archive + .ccg archive + learnings 复盘（同一 commit）
 - 验证：`scripts/openspec-sync-check.js` 无未归档警告（合并后）
+
+
 
 
 
