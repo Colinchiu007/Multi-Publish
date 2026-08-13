@@ -160,6 +160,11 @@
 - 门禁：QM-2 sandbox 双模式 PASS（TRUE_OK/FALSE_OK/BOTH_MODES_OK）；QM-1 打包 exit 0 + 可见主窗口（MainWindowHandle=15729924）；engine 96 + desktop 新增 7 用例全绿。
 - PRD v1.6 §20；待 4d：真实 provider 图/账号发布外部验收、报告持久化 regenerate。
 
+## [未发布] fix(ops-center): 限流自检上报打通 X-Catalog-Key 双通道 + 上报数据保真（2026-08-13）
+
+- `POST /api/v1/scheduler/verify` 双通道鉴权：simulated=true 仅 admin JWT；simulated=false 接受 `X-Catalog-Key`（= `OPS_CATALOG_API_KEY`，与用量上报同模式；未配置 → 404 fail-closed、Key 错误 → 401）或 admin JWT；目录同步 Key 携带 simulated=true → 403。GET 列表/详情/契约保持 admin-only。
+- 上报数据保真：simulated=false 直接保存桌面端真实自检 metrics/assertions/timeline（engine=real-governor），不再用模拟器重算覆盖；缺 metrics/timeline → 400。桌面端「限流自检 → 上报运营后台」闭环打通。
+- 配套：`middleware/auth.py` 新增 `get_current_user_optional`；测试新增 catalog 双通道/保真/403/401/404/缺字段 400（共 10 用例）；文档 OPERATIONS.md §3.4、PRD §12A.23.9 更新。
 ## [未发布] 修复：限流验证页加载模型预设解析（适配 {presets:[]} 响应）（2026-08-12）
 
 - 根因：`GET /api/v1/model-presets` 返回 `{ presets: [...], count }`，`RateLimitVerifier.vue` 的 `loadPresets()` 误假设 `items` 字段 → `(res.data.items || res.data || []).filter is not a function`，预设下拉加载失败。
@@ -3976,6 +3981,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

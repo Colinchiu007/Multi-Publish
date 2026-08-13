@@ -79,7 +79,31 @@ def _validate_run_payload(body: dict) -> dict:
 
 async def create_verification_run(db: AsyncSession, body: dict) -> dict:
     parsed = _validate_run_payload(body)
-    result = scheduler_simulator.simulate(parsed["config"])
+    if parsed["simulated"]:
+        result = scheduler_simulator.simulate(parsed["config"])
+    else:
+        # 桌面端真实自检上报：优先使用上报的 metrics/assertions/timeline（engine=real-governor 结果），
+        # 不再用模拟器重算覆盖，保证「验证记录」里真实自检数据保真。
+        metrics = body.get("metrics")
+        timeline = body.get("timeline")
+        if not isinstance(metrics, dict) or not isinstance(timeline, list):
+            raise ValueError("simulated=false 上报必须携带 metrics 与 timeline")
+        required_metrics = (
+            "total_duration_ms", "throughput_per_min", "max_concurrent_observed",
+            "max_queue_wait_ms", "rate_limited_count", "cooldown_count", "quota_exceeded_count",
+        )
+        missing = [k for k in required_metrics if k not in metrics]
+        if missing:
+            raise ValueError("上报 metrics 缺少字段: " + ", ".join(missing))
+        assertions = body.get("assertions")
+        if assertions is not None and not isinstance(assertions, list):
+            raise ValueError("assertions 必须是数组")
+        result = {
+            "metrics": metrics,
+            "assertions": assertions if isinstance(assertions, list) else [],
+            "timeline": timeline,
+            "config": parsed["config"],
+        }
     now = datetime.datetime.utcnow().isoformat()
     row = SchedulerVerificationRun(
         preset_id=parsed["preset_id"],

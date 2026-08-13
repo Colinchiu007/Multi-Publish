@@ -1,21 +1,51 @@
-"""Scheduler verification API — 限流/调度模拟验证、契约校验、验证记录（admin-only）。"""
-from fastapi import APIRouter, Depends, HTTPException, Query
+"""Scheduler verification API — 限流/调度模拟验证、契约校验、验证记录。
+
+鉴权：GET 列表/详情/契约 admin-only；POST /verify 双通道：
+- simulated=true（运营后台模拟）→ admin JWT；
+- simulated=false（桌面端真实自检上报）→ X-Catalog-Key（== OPS_CATALOG_API_KEY，与 usage/ingest 同模式）或 admin JWT。
+"""
+import hmac as _hmac
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from database import get_db
-from middleware.auth import require_admin
+from middleware.auth import get_current_user_optional, require_admin
 from services import scheduler_service
 
 router = APIRouter(prefix="/api/v1/scheduler", tags=["scheduler"])
 
 
+def _require_report_catalog_key(request: Request) -> None:
+    """桌面端上报通道：X-Catalog-Key == OPS_CATALOG_API_KEY（未配置 → 404 fail-closed，Key 错误 → 401）。"""
+    expected = settings.catalog_api_key
+    if not expected:
+        raise HTTPException(404, "Not found")
+    provided = request.headers.get("x-catalog-key", "")
+    if not _hmac.compare_digest(provided.encode(), expected.encode()):
+        raise HTTPException(401, "目录同步 Key 无效")
+
+
 @router.post("/verify")
 async def create_verification(
+    request: Request,
     body: dict,
     db: AsyncSession = Depends(get_db),
-    _user: dict = Depends(require_admin),
+    user: dict | None = Depends(get_current_user_optional),
 ):
-    """运行调度模拟（simulated=1）或接收桌面端真实自检上报（simulated=0），落库并返回结果。"""
+    """运行调度模拟（simulated=1，admin）或接收桌面端真实自检上报（simulated=0，X-Catalog-Key 或 admin），落库并返回结果。"""
+    simulated = bool(body.get("simulated", True))
+    has_catalog_key = "x-catalog-key" in request.headers
+    if has_catalog_key:
+        _require_report_catalog_key(request)
+        if simulated:
+            raise HTTPException(403, "目录同步 Key 仅允许桌面端自检上报（simulated=false）")
+    else:
+        if user is None:
+            raise HTTPException(401, "未提供认证令牌")
+        if user.get("role") != "admin":
+            raise HTTPException(403, "需要管理员权限")
     try:
         run = await scheduler_service.create_verification_run(db, body)
     except ValueError as e:
@@ -58,3 +88,4 @@ async def contract_check(
 ):
     """批量契约校验：预设配置范围 / default∈models / 并发换算。"""
     return {"items": await scheduler_service.contract_check(db)}
+
