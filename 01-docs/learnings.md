@@ -1,3 +1,12 @@
+## 模型服务异常横幅跨运行残留复盘（story2video-provider-warning-ux，2026-08-13）
+
+- **交付**：ProviderAnomalyBus 全局内存快照（最近 5 条、从不 clear）导致 `pipeline:getRunContext` 把旧运行异常附加到新运行 → 新增 `snapshotSince(runCreatedAt)` 按运行归属过滤（先过滤后截断，支持 ISO/epoch ms，非法边界回退全量）；CreateView 异常横幅加 X 关闭按钮 + start/cancel/selectPipeline 重置。PR #702 merged 49ea4dd7。
+- **教训 1（内存快照必须定义生命周期）**：CHANGELOG 声称「运行结束清空」但生产代码从未调用 clear()——「声称的行为」不等于「已实现的行为」，审查/验收要按代码事实核对。
+- **教训 2（跨运行残留 = 缺少归属维度）**：全局单例快照如果按时间近似归属（lastAt >= run.createdAt）只能防「旧→新」单向泄漏；精确归属需 report() 携带 runId。时间边界方案已注释为已知边界。
+- **教训 3（CI 基线用 file:line 作 id 极脆）**：locale-sync CJK 基线以「文件:行号」为唯一 id，任何前置行号位移都会把整个文件误判为「新增 195 处硬编码中文」。本 PR 用官方 `--update-baseline` 刷新（净增 1 处为镜像既有 BGM `common.close` aria-label 回退模式）；后续应把基线 id 改为内容摘要（文本+文件）而非行号。
+- **教训 4（共享仓库的 stash 是全局的）**：多 worktree 共享 .git，`git stash pop/drop` 会命中其他会话的 stash；本会话误 pop/drop 过 `WIP on codex/s2v-asset-preview`（内容仅 .agent_context 一行，已用 update-ref 恢复）。共享仓库内禁用 stash 操作。
+
+---
 ## 全能创作分句未生效复盘（story2video-split-engine-unify，2026-08-13）
 
 - **问题**：用户优化了 smart-sentence-splitter 与本仓库 TS 镜像（text-segmentation.ts v0.15.2），但全能创作视频里的分句仍是旧方法。调查结论：桌面主进程 split 阶段虽然调用 :8002 引擎生成场景，但 `normalizeServiceSplitResult` 丢弃引擎返回的 `scenes[].subtitles`，用 `story2video-segmentation.js` 旧贪心算法本地重切；引擎离线时整条链路降级为同一旧算法。`text-segmentation.ts` 在桌面主进程完全未被引用（仅 CreateView 用 template-library），是「对齐了但没接入」的死代码。

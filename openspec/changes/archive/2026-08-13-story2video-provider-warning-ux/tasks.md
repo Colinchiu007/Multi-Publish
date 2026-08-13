@@ -17,5 +17,5 @@
 - [x] 样式：`.provider-warning-banner-close`（color-mix 主题色 hover）
 - [x] 门禁：受影响单测 218 全绿 + `vite build` 通过
 - [x] 双模型审查（claude + codex 降级替代 antigravity）并修复 W1/采纳 filter-first 加固
-- [ ] PR 合并与远程状态核对
-- [ ] 三同步归档：openspec archive + CCG task 归档 + learnings 追加
+- [x] PR 合并与远程状态核对（PR #702 merged 49ea4dd7，2026-08-13）
+- [x] 三同步归档：openspec archive + CCG task 归档 + learnings 追加
