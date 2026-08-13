@@ -6564,3 +6564,4 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **预防落地**：`scripts/hooks/pre-commit` 分支守卫（所有提交强制校验当前分支 == `.agent_context/expected-branch`，无声明/不符一律拦截，rebase 重放跳过）；`scripts/session-guard.ps1` 会话声明；`scripts/install-git-hooks.ps1` 安装；`scripts/hooks/pre-commit.test.sh` 11 场景 17 断言。
 - **教训**：文档化的「铁律」若无机器执行点等于不存在；提交级保护必须 fail closed，不能依赖人工确认；`.agent_context/` 这类检测信号必须由代码创建，否则检测永远空转。
 - **修复迭代（Claude 审查发现）**：① 单槽位声明可被并发会话覆盖导致守卫 fail-open → session-guard 拒绝覆盖另一活跃会话（session.json pid 存活）的声明；② 安装脚本从子目录运行 `--git-common-dir` 返回相对路径会装错位置 → 改用 `--path-format=absolute` + HEAD 合法性校验；③ 补 fail-closed 边界测试（空声明/detached 无 rebase/wrapper 缺失/非代码扩展名/真实 rebase 重放）。
+- **自动化迭代（用户反馈手动声明太麻烦）**：隔离 worktree（per-worktree git-dir != 公共 git-dir）由 pre-commit 提交时自动声明当前分支、切分支自动跟随，零手动步骤；共享主工作区保留严格 fail-closed（需 session-guard 锁定一次，不传 -Branch 自动取当前分支）。测试 13 场景 21 断言。
