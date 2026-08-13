@@ -21,7 +21,7 @@
 - **远程同步**：任务标记 completed 前必须核对关联 PR 已合并或记录 remoteStatus，禁止基于滞后状态做重复工作。
 - **子代理降级**：派发探子前探测子代理可用性；出现 403/超时等后端不可用错误时立即降级为主代理直接执行，不盲等。
 - **OpenSpec 引导**：OpenSpec 已启用——M+/中高风险任务须经 `/opsx:propose` 建 change，机制契约见 `openspec/specs/openspec-integration/spec.md`。
-- **locale 成对修改（i18n-content-sync）**：修改 `apps/desktop/src/locales/zh.js` 或 `en.js` 必须成对提交（CI Gate 7 `.github/scripts/check-locale-sync.js` 拦截）；新增用户可见文案一律写入 locales（zh/en 成对），渲染端 `src/` 非 locales 文件新增中文字符串字面量由 CI 基线扫描拦截；产品名词翻译集中维护于 `01-docs/i18n-glossary.md`。
+- **locale 成对修改（i18n-content-sync）**：修改 `apps/desktop/src/locales/zh.js` 或 `en.js` 必须成对提交（CI Gate 7 `.github/scripts/check-locale-sync.js` 拦截）；新增用户可见文案一律写入 locales（zh/en 成对），渲染端 `src/` 非 locales 文件（`.js`、`.vue <script>` 与 `<template>`）新增中文字符串字面量由 CI 基线扫描拦截；产品名词翻译集中维护于 `01-docs/i18n-glossary.md`。
 - **提交分支守卫**：pre-commit 强制校验当前分支 == `.agent_context/expected-branch`（会话声明），无声明或分支不符一律拦截，docs-only 提交同样校验；会话启动必须运行 `scripts/session-guard.ps1 -Branch <期望分支>`。钩子安装在共享 `.git/hooks/`，对**所有在途 worktree 立即生效**——每个会话下次提交前必须先运行 session-guard 声明，否则提交被拦截并提示声明命令；`--no-verify` 可绕过钩子，属流程纪律威慑，禁止使用。
 
 ## 强制流程规则（MUST）

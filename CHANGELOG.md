@@ -1,3 +1,10 @@
+## [2026-08-13] feat(i18n): 同步机制硬化（i18n-sync-hardening）
+
+- **模板硬编码扫描**：`.vue <template>` 纳入 Gate 7 CJK 扫描（标签间文本 + 属性值，注释剥离）；存量债务入基线（783→1650 条），新增模板硬编码中文被 CI 拦截（冒烟已验证）。
+- **错误目录收口**：`utils/user-facing-error.js` 的 30 个 errorCode 文案并入 locales `userErrors` 命名空间（zh/en 各 30 键），模块只保留 code 常量/数值映射/pattern 归一化；扫描豁免移除（模块现仅注释与正则含中文，不误报）。
+- **术语词典扩充**：`01-docs/i18n-glossary.md` 扩至 10 条产品核心名词（视频克隆/运营后台/模型设置/历史记录/发布历史/提示词/草稿箱/流水线 + 原有 2 条）；`glossary.test.js` en 侧改为大小写不敏感匹配。
+- 测试：user-facing-error 17 + i18n 9 + glossary 2 全绿；CJK 扫描 1650 基线 PASS；模板新增中文拦截冒烟通过。
+
 ## [2026-08-13] feat(i18n): 多语言内容同步机制实施（i18n-content-sync）
 
 - L0 门禁：`i18n.test.js` 新增 zh/en 叶子键完全对称断言 + 同 key `{param}` 占位符一致性断言；`story2video.text_too_long` 统一为 `{maxFormatted}`（zh 展示带千分位，与 en 一致）。

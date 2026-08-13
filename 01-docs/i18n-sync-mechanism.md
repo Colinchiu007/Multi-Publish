@@ -75,7 +75,7 @@
 
 ## 6. 验收清单
 
-> 状态：2026-08-13 全部实施完成（分支 `codex/i18n-content-sync`，OpenSpec change `i18n-content-sync`）。
+> 状态：2026-08-13 全部实施完成（分支 `codex/i18n-content-sync`，OpenSpec change `i18n-content-sync`，PR #693 合并 2695b15f）；同日硬化轮（i18n-sync-hardening）再收口三项挂账：`.vue <template>` 纳入 CJK 扫描（基线 1650）、`user-facing-error.js` 文案并入 locales `userErrors`（豁免移除）、术语词典扩充至 10 条。
 
 - [x] `i18n.test.js` 含键对称与占位符断言，zh/en 各 738+ 键通过
 - [x] 重复源校验测试落地，并在 L2 语料源收敛后按设计移除（`story2video-notifications.js` 不再持有文案）
