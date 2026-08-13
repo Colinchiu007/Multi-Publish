@@ -452,12 +452,18 @@ function buildWatermarkFilter (options) {
   const opacity = clampNumber(config.opacity, 0, 1, 0.6).toFixed(2)
   const rawColor = String(config.color || 'white')
   const color = /^#[0-9a-f]{3,8}$/i.test(rawColor) || /^[a-z]+$/i.test(rawColor) ? rawColor : 'white'
+  // 位置坐标契约（2026-08-14 修复）：drawtext 的 x/y 是文本包围盒左上角坐标。
+  // 回归：旧公式 bottom-* 用 y=h-20、center 用 y=(h+text_h)/2，把文字主体画出画布/整体下移，
+  // 导致默认 bottom-right 下成片完全看不到水印（commit e1b46eba0 引入）。
   const positions = {
     'top-left': 'x=20:y=40',
     'top-right': 'x=w-text_w-20:y=40',
-    'bottom-left': 'x=20:y=h-20',
-    'bottom-right': 'x=w-text_w-20:y=h-20',
-    center: 'x=(w-text_w)/2:y=(h+text_h)/2',
+    'bottom-left': 'x=20:y=h-text_h-20',
+    'bottom-right': 'x=w-text_w-20:y=h-text_h-20',
+    center: 'x=(w-text_w)/2:y=(h-text_h)/2',
+    // moving：确定性 Lissajous 平滑漂移（x 周期 10s / y 周期 14s，90% 中心幅度，起点正中）。
+    // 不用逐帧随机：ffmpeg random() 每帧取新值 → 文字闪烁且不可复现；表达式内禁止逗号（会切分滤镜链）。
+    moving: "x='(w-text_w)/2*(1+0.9*sin(2*PI*t/10))':y='(h-text_h)/2*(1+0.9*cos(2*PI*t/14))'",
   }
   const position = positions[config.position] || positions['bottom-right']
   const fontFile = escapeFontFilePath(resolveCjkFont())

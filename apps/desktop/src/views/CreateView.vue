@@ -365,8 +365,47 @@
                 <input type="range" v-model.number="s2vConfig.bgmVolume" min="0" max="10" step="1" class="form-range" />
               </div>
               <div class="config-item">
-                <label>水印文字</label>
-                <input v-model.trim="s2vConfig.watermarkText" class="form-input" placeholder="可选" />
+                <label>{{ translateWithLocaleFallback('create.story2video.watermark.label', 'Watermark text', 'Watermark text') }}</label>
+                <input v-model.trim="s2vConfig.watermarkText" class="form-input" :placeholder="translateWithLocaleFallback('create.story2video.watermark.placeholder', 'Optional', 'Optional')" />
+              </div>
+              <div class="config-item" data-testid="s2v-watermark-position">
+                <label>{{ translateWithLocaleFallback('create.story2video.watermark.positionLabel', 'Watermark position', 'Watermark position') }}</label>
+                <select v-model="s2vConfig.watermarkConfig.position" class="form-select">
+                  <option value="center">{{ translateWithLocaleFallback('create.story2video.watermark.positionCenter', 'Center', 'Center') }}</option>
+                  <option value="top-left">{{ translateWithLocaleFallback('create.story2video.watermark.positionTopLeft', 'Top left', 'Top left') }}</option>
+                  <option value="top-right">{{ translateWithLocaleFallback('create.story2video.watermark.positionTopRight', 'Top right', 'Top right') }}</option>
+                  <option value="bottom-left">{{ translateWithLocaleFallback('create.story2video.watermark.positionBottomLeft', 'Bottom left', 'Bottom left') }}</option>
+                  <option value="bottom-right">{{ translateWithLocaleFallback('create.story2video.watermark.positionBottomRight', 'Bottom right', 'Bottom right') }}</option>
+                  <option value="moving">{{ translateWithLocaleFallback('create.story2video.watermark.positionMoving', 'Moving (smooth drift)', 'Moving (smooth drift)') }}</option>
+                </select>
+                <p v-if="s2vConfig.watermarkConfig.position === 'moving'" class="config-hint">{{ translateWithLocaleFallback('create.story2video.watermark.movingHint', 'Moving is a smooth looping drift along a sine path, avoiding the flicker of per-frame random motion.', 'Moving is a smooth looping drift along a sine path, avoiding the flicker of per-frame random motion.') }}</p>
+              </div>
+              <div class="config-item" data-testid="s2v-watermark-fontsize">
+                <label>{{ translateWithLocaleFallback('create.story2video.watermark.fontSizeLabel', 'Watermark size', 'Watermark size') }}</label>
+                <select v-model="s2vConfig.watermarkConfig.fontSize" class="form-select">
+                  <option :value="16">16</option>
+                  <option :value="24">24</option>
+                  <option :value="32">32</option>
+                  <option :value="40">40</option>
+                  <option :value="48">48</option>
+                </select>
+                <span class="config-hint">{{ translateWithLocaleFallback('create.story2video.watermark.fontSizeHint', 'Larger sizes are more prominent; 24-40 recommended.', 'Larger sizes are more prominent; 24-40 recommended.') }}</span>
+              </div>
+              <div class="config-item" data-testid="s2v-watermark-opacity">
+                <label>{{ translateWithLocaleFallback('create.story2video.watermark.opacityLabel', 'Watermark opacity', 'Watermark opacity') }}</label>
+                <select v-model="s2vConfig.watermarkConfig.opacity" class="form-select">
+                  <option :value="0.1">10%</option>
+                  <option :value="0.2">20%</option>
+                  <option :value="0.3">30%</option>
+                  <option :value="0.4">40%</option>
+                  <option :value="0.5">50%</option>
+                  <option :value="0.6">60%</option>
+                  <option :value="0.7">70%</option>
+                  <option :value="0.8">80%</option>
+                  <option :value="0.9">90%</option>
+                  <option :value="1.0">100%</option>
+                </select>
+                <span class="config-hint">{{ translateWithLocaleFallback('create.story2video.watermark.opacityHint', 'Lower opacity is subtler; 40% or higher recommended.', 'Lower opacity is subtler; 40% or higher recommended.') }}</span>
               </div>
               <div class="config-item">
                 <label>比例与分辨率</label>
@@ -2042,6 +2081,29 @@ export default {
         if (!valid) {
           this.s2vOutputConfig[field] = options.includes(defaultOutput[field]) ? defaultOutput[field] : options[0]
         }
+      }
+      this.normalizeS2VWatermarkOptions()
+    },
+    // 2026-08-14：水印选项恢复吸附（watermark-options）。陈旧快照的水印位置/字号/透明度
+    // 若不在当前下拉档位，吸附到合法档位，避免下拉框空白选中项；非法数值回退默认值。
+    normalizeS2VWatermarkOptions() {
+      const wm = this.s2vConfig.watermarkConfig
+      if (!wm || typeof wm !== 'object') return
+      const validPositions = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center', 'moving']
+      if (!validPositions.includes(wm.position)) wm.position = 'bottom-right'
+      const fontTiers = [16, 24, 32, 40, 48]
+      const font = wm.fontSize == null || wm.fontSize === '' ? NaN : Number(wm.fontSize)
+      if (!fontTiers.includes(font)) {
+        wm.fontSize = Number.isFinite(font)
+          ? fontTiers.reduce((best, value) => Math.abs(value - font) <= Math.abs(best - font) ? value : best, fontTiers[0])
+          : 24
+      }
+      const opacityTiers = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
+      const opacity = wm.opacity == null || wm.opacity === '' ? NaN : Number(wm.opacity)
+      if (!opacityTiers.includes(opacity)) {
+        wm.opacity = Number.isFinite(opacity)
+          ? opacityTiers.reduce((best, value) => Math.abs(value - opacity) <= Math.abs(best - opacity) ? value : best, opacityTiers[0])
+          : 0.6
       }
     },
         async loadMaxOutputResolution() {

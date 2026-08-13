@@ -722,3 +722,42 @@ describe('videoContentFidelity 配置归一化（video-content-fidelity）', () 
     expect(cfg.enabled).toBe(true)
   })
 })
+
+describe('Story2Video watermark 位置枚举契约（2026-08-14）', () => {
+  const VALID_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center', 'moving']
+  const run = (patch) => normalizeStory2VideoTextParams({ text: '测试文案。', ...patch })
+
+  it('合法位置原样透传到 compose 阶段', () => {
+    for (const position of VALID_POSITIONS) {
+      const result = run({ watermarkConfig: { position } })
+      expect(result.stageOptions.compose.watermarkConfig.position).toBe(position)
+    }
+  })
+
+  it('非法位置 fail-closed 拒绝（不静默回退默认）', () => {
+    for (const bad of ['middle', 'random', 'center-right', 'bottomright', 'TOP-LEFT']) {
+      expect(() => run({ watermarkConfig: { position: bad } })).toThrow(/watermark\.position/)
+    }
+  })
+
+  it('nested watermark 对象（UI 提交路径）同样受白名单约束', () => {
+    expect(() => normalizeStory2VideoTextParams({
+      text: '测试文案。',
+      story2videoTextConfig: { watermark: { enabled: true, text: '品牌', position: 'middle' } },
+    })).toThrow(/watermark\.position/)
+  })
+
+  it('opacity/fontSize 越界拒绝（与 compose clamp 双层防线）', () => {
+    expect(() => run({ watermarkConfig: { opacity: 1.5 } })).toThrow(/watermark\.opacity/)
+    expect(() => run({ watermarkConfig: { opacity: -0.1 } })).toThrow(/watermark\.opacity/)
+    expect(() => run({ watermarkConfig: { fontSize: 5 } })).toThrow(/watermark\.fontSize/)
+    expect(() => run({ watermarkConfig: { fontSize: 100 } })).toThrow(/watermark\.fontSize/)
+  })
+
+  it('默认值契约：bottom-right / 24 / 0.6', () => {
+    const wm = run({}).stageOptions.compose.watermarkConfig
+    expect(wm.position).toBe('bottom-right')
+    expect(wm.fontSize).toBe(24)
+    expect(wm.opacity).toBe(0.6)
+  })
+})

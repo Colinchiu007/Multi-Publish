@@ -222,6 +222,62 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(buildScaleFilter(1920, 1080)).toContain('pad=1920:1080')
   })
 
+  describe('buildWatermarkFilter — 水印位置/透明度/字号契约（2026-08-14）', () => {
+    const base = { watermark: { enabled: true, text: '品牌' } }
+
+    it('默认 bottom-right 修复：y=h-text_h-20，文字不越界', () => {
+      const filter = buildWatermarkFilter(base)
+      expect(filter).toContain(':x=w-text_w-20:y=h-text_h-20')
+      // 回归：旧公式 y=h-20 把文字主体画到画布外（成片无水印的直接根因）
+      expect(filter).not.toContain(':y=h-20')
+      expect(filter).not.toContain('y=h-20:')
+    })
+
+    it('四角与正中坐标符合画布内契约', () => {
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'top-left' } })).toContain(':x=20:y=40')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'top-right' } })).toContain(':x=w-text_w-20:y=40')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'bottom-left' } })).toContain(':x=20:y=h-text_h-20')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'bottom-right' } })).toContain(':x=w-text_w-20:y=h-text_h-20')
+      const center = buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'center' } })
+      expect(center).toContain(':x=(w-text_w)/2:y=(h-text_h)/2')
+      // 回归：旧公式 y=(h+text_h)/2 使文字整体下移 text_h
+      expect(center).not.toContain('(h+text_h)/2')
+    })
+
+    it('moving 为确定性 Lissajous 漂移：sin/cos、无 random、无逗号、起点居中', () => {
+      const filter = buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'moving' } })
+      expect(filter).toContain(":x='(w-text_w)/2*(1+0.9*sin(2*PI*t/10))'")
+      expect(filter).toContain(":y='(h-text_h)/2*(1+0.9*cos(2*PI*t/14))'")
+      expect(filter).not.toContain('random(')
+      const expr = filter.slice(filter.indexOf(':x='))
+      expect(expr).not.toContain(',')
+    })
+
+    it('未知位置 fail-closed 到默认 bottom-right（修复后表达式）', () => {
+      const filter = buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'middle' } })
+      expect(filter).toContain(':x=w-text_w-20:y=h-text_h-20')
+    })
+
+    it('透明度 0-1 契约：透传、clamp 边界、非法回退 0.6', () => {
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, opacity: 0.4 } })).toContain('fontcolor=white@0.40')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, opacity: 1.5 } })).toContain('fontcolor=white@1.00')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, opacity: -0.1 } })).toContain('fontcolor=white@0.00')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, opacity: 'x' } })).toContain('fontcolor=white@0.60')
+    })
+
+    it('字号 10-96 契约：透传、clamp 边界、非法回退 24', () => {
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, fontSize: 40 } })).toContain(':fontsize=40:')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, fontSize: 5 } })).toContain(':fontsize=10:')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, fontSize: 100 } })).toContain(':fontsize=96:')
+      expect(buildWatermarkFilter({ ...base, watermark: { ...base.watermark, fontSize: 'x' } })).toContain(':fontsize=24:')
+    })
+
+    it('未启用或空文字不生成滤镜', () => {
+      expect(buildWatermarkFilter({ watermark: { enabled: false, text: '品牌' } })).toBe('')
+      expect(buildWatermarkFilter({ watermark: { enabled: true, text: '' } })).toBe('')
+    })
+  })
+
   it('有效时长已知时把动效进度归一化到场景时长', () => {
     // 6s @30fps → T=180：动效在场景结束帧恰好完成，不再受固定帧增量速度限制
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 30, 6)).toContain('1+0.25*min(1,on/180)')
