@@ -1,0 +1,13 @@
+{
+  "id": "pipeline-progress-real-time-push",
+  "title": "流水线阶段进行中信息实时推送 + 快照裁剪（Phase 3）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "planning",
+  "nextAction": "OpenSpec change 规划完成（pipeline-progress-real-time-push）。等待用户确认后启动 openspec apply：事件桥接 + 轻量快照 + preload onPipelineUpdate + renderer 订阅兜底。",
+  "openspecChange": "pipeline-progress-real-time-push",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "codex/pipeline-progress-push-propose"
+}
