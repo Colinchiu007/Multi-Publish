@@ -25,4 +25,5 @@
 
 - [x] 4.1 pytest（test_logging_setup + test_request_logging + 相关 server 测试）通过
 - [x] 4.2 `openspec validate python-logging-hardening` 通过
-- [ ] 4.3 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+- [x] 4.3 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+

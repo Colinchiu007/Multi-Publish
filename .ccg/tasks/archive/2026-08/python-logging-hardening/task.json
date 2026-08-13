@@ -1,13 +1,14 @@
 {
   "id": "python-logging-hardening",
   "title": "P1 日志加固：Python 服务日志桥接（uvicorn access → loguru + 结构化请求日志 + requestId 透传）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "observability",
-  "currentPhase": "planning",
-  "nextAction": "写 proposal/design/specs/tasks 后实施",
+  "currentPhase": "completed",
+  "nextAction": "PR #678 已合并，三同步归档完成",
   "createdAt": "2026-08-13T00:00:00+08:00",
   "branch": "codex/python-logging-hardening",
-  "openspecChange": "python-logging-hardening"
+  "openspecChange": "python-logging-hardening",
+  "remoteStatus": "MERGED_PRS_678"
 }
