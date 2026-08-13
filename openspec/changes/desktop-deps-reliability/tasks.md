@@ -24,8 +24,9 @@
 - 验证：`.quality-gates.md` 记录表 + CHANGELOG + 01-docs/learnings.md 复盘
 
 ## Task 6: 交付
-- [ ] 提交（分支）→ push → PR → remoteStatus 记录
+- [x] 提交（分支）→ push → PR #714 → remoteStatus 记录（CI pending）
 - [ ] PR 合并后三同步归档：openspec archive + .ccg archive + learnings 复盘（同一 commit）
 - 验证：`scripts/openspec-sync-check.js` 无未归档警告（合并后）
+
 
 
