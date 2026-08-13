@@ -3,7 +3,7 @@
 > 版本：v1（2026-08-13）
 > 性质：市场/宣传文档（面向官网、销售、客户沟通），技术实现见 `01-docs/prompt-engine-evolution-design.md`（v2）
 > 一句话定位：**"不是又一个生成器，而是会越用越懂你的创作伙伴。"**
-> 配套：`01-docs/MARKETING-HANDBOOK.md`（整体营销基准）、`01-docs/MARKET-RESEARCH.md`（市场研究）
+> 配套：`01-docs/MARKETING-HANDBOOK.md`（整体营销基准）、`01-docs/MARKET-RESEARCH.md`（市场研究）、`01-docs/MARKETING-PROMPT-ENGINE-EVOLUTION-COPY.md`（对外三版文案 + 卖点打磨稿）
 
 ---
 
