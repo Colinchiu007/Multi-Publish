@@ -1,0 +1,14 @@
+{
+  "branch": "codex/model-providers-i18n",
+  "openspecChange": "",
+  "complexity": "L",
+  "id": "model-providers-i18n",
+  "pr": "#675 merged 9baefcc4",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "risk": "medium",
+  "title": "模型服务商设置（ModelProviders + CRUD/OpsSync）文案全量多语言化",
+  "completedAt": "2026-08-13T02:00:13Z",
+  "status": "completed",
+  "remoteStatus": "merged"
+}
