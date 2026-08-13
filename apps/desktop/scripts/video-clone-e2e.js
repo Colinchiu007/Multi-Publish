@@ -81,8 +81,10 @@ async function main() {
   await win.evaluate(() => { window.location.hash = '#/video-clone' })
   await sleep(2500)
 
-  // 填文件路径（el-input → 内部 input）
-  await win.locator('.video-clone-view .vc-input input').first().fill(sample)
+  // 默认来源为「链接」（v1.14）→ 先切到「本地文件」再填路径（el-input → 内部 input）
+  await win.locator('.vc-source-type .el-radio-button', { hasText: '本地文件' }).click()
+  await sleep(500)
+  await win.locator('.video-clone-view .vc-input input[placeholder*="选择本地视频文件"]').first().fill(sample)
   await sleep(500)
   console.log('INPUT_VALUE=' + (await win.locator('.video-clone-view .vc-input input').first().inputValue()))
   // 点击「开始分析」

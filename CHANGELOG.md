@@ -8,6 +8,8 @@
 - 测试：引擎全量 124 pass（+replication-level 5 例 + plan/similarity/generate/compose 分层用例）；桌面 composable 7 绿；vite build/eslint 0。
 - 真实运行：testsrc 3s 样例 → 自动 L0 → 封面生成 → L0 合成 → 成片产出、F4 level=L0。
 - PRD v1.16 §13.2/§29/§30。
+- 修复（打包 E2E 回捕）：L0 封面 spec 负索引导致占位图生成器 `colors[-1]` 取色失败（index 改 0 + 桌面生成器 `Math.abs` 防御）；`scripts/video-clone-e2e.js` 适配默认链接（先切「本地文件」再按 placeholder 填路径）。
+- 复盘：01-docs/learnings.md 视频克隆自动复刻层级复盘（装饰字段陷阱 / verdict 证据门禁语义 / schema 默认值流入分支 / 负索引取模）。
 
 ## [2026-08-13] refactor(video-clone): 移除无效的「复刻层级」下拉
 

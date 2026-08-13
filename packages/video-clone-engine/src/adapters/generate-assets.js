@@ -17,7 +17,8 @@ function createAssetPlan(report, opts = {}) {
     const total = (typeof meta.durationSec === 'number' && meta.durationSec > 0) ? meta.durationSec : 10;
     if (!script.trim() && !plot.trim() && !(typeof meta.durationSec === 'number' && meta.durationSec > 0)) return [];
     return [{
-      index: -1, t0: 0, t1: total, durationSec: Math.max(1, total), kind: 'cover',
+      // index 从 0 开始：消费方（如占位图生成器 colors[index % len]）依赖非负索引
+      index: 0, t0: 0, t1: total, durationSec: Math.max(1, total), kind: 'cover',
       promptSeed: 'text-first | cover | ' + (plot ? 'plot:' + plot : '') + (script.trim() ? ' | text:' + script.trim().slice(0, 60) : ''),
     }];
   }
