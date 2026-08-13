@@ -39,36 +39,29 @@ defineEmits(["update:modelValue", "focus", "blur"]);
 </script>
 
 <style scoped>
-.ui-input-wrap { margin-bottom: 16px; }
-.ui-input-label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 6px;
-}
 .ui-input {
   width: 100%;
-  padding: 10px 14px;
-  border-radius: var(--r-sm, 8px);
-  border: 1px solid var(--border);
-  font-size: 14px;
-  font-family: inherit;
+  padding: var(--apple-space-2) var(--apple-space-3);
+  border: 1px solid var(--apple-border);
+  border-radius: var(--apple-radius-sm);
+  font-family: var(--apple-font-text);
+  font-size: var(--apple-size-sm);
+  color: var(--apple-ink-primary);
+  background: var(--apple-surface-primary);
+  transition: border-color var(--apple-duration-fast) var(--apple-ease-default),
+              box-shadow var(--apple-duration-fast) var(--apple-ease-default);
   outline: none;
-  background: var(--surface);
-  color: var(--text);
-  transition: border-color 150ms, box-shadow 150ms;
-  box-sizing: border-box;
+}
+.ui-input::placeholder {
+  color: var(--apple-ink-tertiary);
 }
 .ui-input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(124, 92, 191, 0.1);
+  border-color: var(--apple-accent);
+  box-shadow: 0 0 0 2px var(--apple-info-bg);
 }
-.ui-input::placeholder { color: var(--text-light); }
-.ui-textarea { resize: vertical; line-height: 1.6; min-height: 80px; }
-.ui-input-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 4px;
+.ui-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--apple-surface-secondary);
 }
 </style>

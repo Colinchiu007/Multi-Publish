@@ -16,20 +16,28 @@ const props = defineProps({
 .ui-badge {
   display: inline-flex;
   align-items: center;
-  font-weight: 600;
-  line-height: 1;
+  padding: 2px var(--apple-space-2);
+  border-radius: var(--apple-radius-pill);
+  font-family: var(--apple-font-text);
+  font-size: var(--apple-size-xs);
+  font-weight: var(--apple-weight-medium);
+  line-height: 1.4;
   white-space: nowrap;
 }
-
-/* Sizes */
-.ui-badge-sm { padding: 2px 8px; font-size: 11px; border-radius: 20px; }
-.ui-badge-md { padding: 3px 10px; font-size: 12px; border-radius: 20px; }
-.ui-badge-lg { padding: 4px 14px; font-size: 13px; border-radius: 24px; }
-
-/* Variants */
-.ui-badge-default { background: var(--border-light); color: var(--text-muted); }
-.ui-badge-primary { background: var(--primary-light); color: var(--primary); }
-.ui-badge-success { background: #d1fae5; color: #065f46; }
-.ui-badge-warning { background: #fef3c7; color: #92400e; }
-.ui-badge-error { background: #fee2e2; color: #991b1b; }
+.ui-badge-info {
+  background: var(--apple-info-bg);
+  color: var(--apple-accent);
+}
+.ui-badge-success {
+  background: var(--apple-success-bg);
+  color: var(--apple-success);
+}
+.ui-badge-warning {
+  background: var(--apple-warning-bg);
+  color: var(--apple-warning);
+}
+.ui-badge-danger {
+  background: var(--apple-error-bg);
+  color: var(--apple-error);
+}
 </style>

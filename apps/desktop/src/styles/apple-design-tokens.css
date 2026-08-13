@@ -1,0 +1,89 @@
+/* ============================================
+   Apple-Inspired Design Tokens
+   For Multi-Publish desktop app
+   Imported BEFORE cohere-design-system.css
+   ============================================ */
+
+:root {
+  /* === Color: Surfaces === */
+  --apple-surface-primary: #FFFFFF;
+  --apple-surface-secondary: #F5F5F7;
+  --apple-surface-tertiary: #E8E8ED;
+
+  /* === Color: Ink (Text) === */
+  --apple-ink-primary: #1D1D1F;
+  --apple-ink-secondary: #6E6E73;
+  --apple-ink-tertiary: #AEAEB2;
+
+  /* === Color: Accent === */
+  --apple-accent: #007AFF;
+  --apple-accent-hover: #0056CC;
+
+  /* === Color: Semantic States === */
+  --apple-success: #34C759;
+  --apple-success-bg: rgba(52, 199, 89, 0.10);
+  --apple-warning: #FF9500;
+  --apple-warning-bg: rgba(255, 149, 0, 0.10);
+  --apple-error: #FF3B30;
+  --apple-error-bg: rgba(255, 59, 48, 0.10);
+  --apple-info: #007AFF;
+  --apple-info-bg: rgba(0, 122, 255, 0.10);
+
+  /* === Color: Borders === */
+  --apple-border: #D2D2D7;
+  --apple-border-subtle: #E5E5EA;
+
+  /* === Typography === */
+  --apple-font-display: 'SF Pro Display', 'Inter', 'PingFang SC', system-ui, sans-serif;
+  --apple-font-text: 'SF Pro Text', 'Inter', 'PingFang SC', system-ui, sans-serif;
+  --apple-font-mono: 'SF Mono', 'JetBrains Mono', 'Consolas', monospace;
+
+  --apple-size-xs: 11px;
+  --apple-size-sm: 13px;
+  --apple-size-base: 15px;
+  --apple-size-md: 17px;
+  --apple-size-lg: 20px;
+  --apple-size-xl: 24px;
+  --apple-size-xxl: 28px;
+
+  --apple-weight-regular: 400;
+  --apple-weight-medium: 500;
+  --apple-weight-semibold: 600;
+  --apple-weight-bold: 700;
+
+  --apple-leading-tight: 1.2;
+  --apple-leading-normal: 1.5;
+  --apple-leading-relaxed: 1.625;
+
+  /* === Spacing (4px base) === */
+  --apple-space-1: 4px;
+  --apple-space-2: 8px;
+  --apple-space-3: 12px;
+  --apple-space-4: 16px;
+  --apple-space-5: 20px;
+  --apple-space-6: 24px;
+  --apple-space-8: 32px;
+  --apple-space-10: 40px;
+  --apple-space-12: 48px;
+  --apple-space-16: 64px;
+
+  /* === Border Radius === */
+  --apple-radius-sm: 6px;
+  --apple-radius-md: 10px;
+  --apple-radius-lg: 14px;
+  --apple-radius-xl: 18px;
+  --apple-radius-pill: 9999px;
+
+  /* === Shadows === */
+  --apple-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --apple-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --apple-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* === Motion === */
+  --apple-duration-fast: 120ms;
+  --apple-duration-normal: 200ms;
+  --apple-duration-slow: 320ms;
+  --apple-ease-default: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --apple-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --apple-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
