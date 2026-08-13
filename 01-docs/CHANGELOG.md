@@ -1,3 +1,14 @@
+## [Unreleased] - 2026-08-13 (模型服务异常横幅按运行归属 + 可关闭)
+
+### 修复
+- **模型服务异常提示跨运行残留**：`ProviderAnomalyBus.snapshotSince` 按运行创建时间为边界过滤异常快照（先过滤后截断；支持 ISO/epoch ms；非法边界回退全量不隐藏警告）；`pipeline:getRunContext` 以运行 `createdAt` 为界下发 `providerWarnings`，不退出应用重新进入「全能创作」启动新流水线不再显示旧运行（如 agnes-video 160s）的警告。
+- **横幅 X 关闭按钮**：复用 BGM notice 模式新增 `dismissedProviderWarnings` 状态与关闭按钮；启动/取消/切换流水线时重置警告与关闭状态；hover 用 `color-mix` 主题色。
+
+### 测试
+- `provider-anomaly.test.js` +4（snapshotSince 含边界/未来空/数值 epoch/非法回退）；`pipeline.test.js` 异常快照下发改为按 createdAt 边界 + 旧异常不附加 + 无 createdAt 回退；`CreateView.test.js` +5（X 关闭、新运行重置、切换流水线重置、取消重置、轮询清空旧警告）。受影响 218 用例全绿，vite build exit 0。
+
+### 文档
+- OpenSpec change `story2video-provider-warning-ux`（proposal/design/specs/tasks）固化行为契约。
 # CHANGELOG
 
 ## [Unreleased] - 2026-08-12 (视频提示词输出语言按目标平台路由)
@@ -1795,3 +1806,4 @@
 
 ### 文档
 - PRD 7.1.18「历史记录可见性与运行状态合同」+ learnings 复盘。
+

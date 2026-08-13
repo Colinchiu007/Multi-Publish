@@ -66,6 +66,22 @@ class ProviderAnomalyBus {
       .sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1))
       .slice(0, MAX_SNAPSHOT)
   }
+  /**
+   * 仅返回 sinceIso（含）之后记录的异常（用于按流水线运行归属过滤，避免跨运行残留）。
+   * - sinceIso 支持 ISO 字符串或 epoch 毫秒数；非法/缺失时回退全量快照（不隐藏警告）。
+   * - 先过滤后截断：仅统计运行窗口内的条目再取最近 MAX_SNAPSHOT 条，避免截断误丢运行内条目。
+   * - 新运行恒有 createdAt（引擎创建运行即写入），无 createdAt 回退全量仅覆盖历史/异常数据场景。
+   * - 已知边界：条目只记录 lastAt 不记录 runId，跨运行/并发运行的异常按时间近似归属，
+   *   未来如需精确归属可在 report() 增加 runId 维度。
+   */
+  snapshotSince (sinceIso) {
+    const since = typeof sinceIso === 'number' ? sinceIso : Date.parse(String(sinceIso || ''))
+    if (!Number.isFinite(since)) return this.snapshot()
+    return Array.from(this._anomalies.values())
+      .filter((entry) => Date.parse(entry.lastAt) >= since)
+      .sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1))
+      .slice(0, MAX_SNAPSHOT)
+  }
 
   clear () {
     this._anomalies.clear()
