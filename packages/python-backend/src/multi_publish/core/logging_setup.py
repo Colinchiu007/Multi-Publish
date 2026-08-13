@@ -16,13 +16,22 @@ Per-Module 结构化日志 + 轮转（P1-3）
     logger.info("消息")  # 自动路由到对应模块的日志文件
 """
 
+import logging
 import sys
 from pathlib import Path
 
 from loguru import logger
 
+_STDLIB_LOG_FILE = logging.__file__
 
-def setup_logging(log_dir: str | Path = "./logs", level: str = "INFO"):
+
+def setup_logging(
+    log_dir: str | Path = "./logs",
+    level: str = "INFO",
+    *,
+    stdout_sink=None,
+    stderr_sink=None,
+):
     """
     配置 loguru 日志系统
 
@@ -43,17 +52,28 @@ def setup_logging(log_dir: str | Path = "./logs", level: str = "INFO"):
     logger.remove()
 
     # ── 终端输出（彩色、结构化） ──────────────────────────
+    # stderr 仅承载 WARNING+（Electron sidecar stderr→warn 语义）；INFO 请求/业务日志走 stdout
     logger.add(
-        sys.stderr,
+        stderr_sink or sys.stderr,
         format=(
             "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> "
             "| <level>{level: <8}</level> "
             "| <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> "
             "| <level>{message}</level>"
         ),
-        level=level,
-        colorize=True,
+        level="WARNING",
+        colorize=stderr_sink is None,
         enqueue=True,
+    )
+
+    # ── stdout INFO sink（访问/请求日志；避免 stderr→warn 误标） ──────────
+    logger.add(
+        stdout_sink or sys.stdout,
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
+        level=level,
+        colorize=False,
+        enqueue=True,
+        filter=lambda r: r["level"].no < 30,  # INFO 及以下走 stdout，WARNING+ 仅 stderr
     )
 
     # ── 全局日志（所有消息） ─────────────────────────────
@@ -73,7 +93,7 @@ def setup_logging(log_dir: str | Path = "./logs", level: str = "INFO"):
         "publish_douyin": ["douyin", "DouyinPublisher"],
         "publish_wechat": ["wechat_mp", "WeChatPublisher"],
         "publish_bilibili": ["bilibili"],
-        "server": ["server", "uvicorn", "fastapi"],
+        "server": ["server", "__main__", "uvicorn", "fastapi"],
         "rpa_engine": ["base", "Playwright", "playwright"],
         "publisher_manager": ["publisher_manager", "PlatformRegistry"],
     }
@@ -81,7 +101,47 @@ def setup_logging(log_dir: str | Path = "./logs", level: str = "INFO"):
     for log_name, module_keywords in module_loggers.items():
         _add_module_logger(log_path, log_name, module_keywords, level)
 
+    install_stdlib_intercept()
+
     logger.info(f"日志系统初始化完成，日志目录: {log_path.resolve()}")
+
+
+class InterceptHandler(logging.Handler):
+    """将标准库 logging 记录转发到 loguru（uvicorn/fastapi 等）。"""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        # 从 emit 自身帧向上跳过本模块与 logging 模块帧，depth 指向调用方模块（server.py 等）
+        frame = sys._getframe(0)
+        depth = 0
+        while frame is not None and frame.f_code.co_filename in (_STDLIB_LOG_FILE, __file__):
+            frame = frame.f_back
+            depth += 1
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+def install_stdlib_intercept() -> None:
+    """把标准库 logging（uvicorn/fastapi/server 业务日志）桥接到 loguru。"""
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    if not any(isinstance(h, InterceptHandler) for h in root.handlers):
+        root.addHandler(InterceptHandler())
+    for name in (
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.asgi",
+        "uvicorn.access",
+        "uvicorn.lifespan",
+        "fastapi",
+    ):
+        lg = logging.getLogger(name)
+        lg.handlers = [InterceptHandler()]
+        lg.propagate = False
+    # 结构化请求日志由 server 中间件提供，抑制 uvicorn 默认 access log
+    logging.getLogger("uvicorn.access").disabled = True
 
 
 def _add_module_logger(
@@ -109,7 +169,7 @@ def _add_module_logger(
         compression="gz",
         level=level,
         enqueue=True,
-        filter=lambda record, kw=module_keywords: any(kw in record["name"] for kw in kw),
+        filter=lambda record, kw=module_keywords: any(k in record["name"] for k in kw),
     )
 
 

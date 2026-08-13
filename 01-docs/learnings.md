@@ -1,3 +1,12 @@
+## Python 服务日志桥接复盘（python-logging-hardening，2026-08-13）
+
+- **交付**：packages/python-backend 标准库日志（uvicorn/fastapi/server 业务日志）经 InterceptHandler 桥接 loguru 按日文件；新增结构化请求日志中间件（method/path/status/duration_ms/request_id + x-request-id 回显，500 异常路径也覆盖）；uvicorn 默认 access log 关闭避免双写；INFO 走 stdout / WARNING+ 走 stderr，匹配 Electron sidecar（stdout→info / stderr→warn）语义。
+- **教训 1（editable 安装陷阱）**：`pip install -e .` 的 editable 指向**主仓库** `src/`；worktree 里跑普通 `python xxx.py` 会加载主仓库旧代码。pytest 因 conftest `sys.path.insert(0, src)` 解析到 worktree——验证/探针必须走 pytest 路径，或显式插入 src。
+- **教训 2（InterceptHandler 深度解析）**：loguru 官方 recipe 的 `logging.currentframe()` 深度在本环境解析到 `logging:callHandlers`（stdlib 模块），per-module 文件路由与日志归属全部失真。正确做法：从 `sys._getframe(0)`（emit 自身帧）向上跳过「本模块 + logging 模块」帧，depth 才指向调用方（server.py）。且生产 `python server.py` 时调用方模块名是 `__main__`，per-module 关键词需补 `__main__`。
+- **教训 3（日志中间件的 500 盲区）**：`except: logger.exception; raise` 后响应由 ServerErrorMiddleware 在中间件之外生成——x-request-id 回显与结构化行丢失。修复：中间件 except 分支输出 status=500 结构化行 + `@app.exception_handler(Exception)` 统一 500 JSON 并回显（TestClient 需 `raise_server_exceptions=False` 才能观察该路径）。
+- **教训 4（loguru sink level 是下限）**：stdout sink `level=INFO` 也会收 WARNING/ERROR（双写 + sidecar 误标 info）；需要互斥分流必须加 `filter=lambda r: r["level"].no < 30`。
+
+---
 ## requestId 贯穿 + 结构化 access log 复盘（http-request-tracing，2026-08-12）
 
 - **交付**：api-publish-engine 每请求 requestId（合法透传 / crypto.randomUUID 自生成）→ 响应头 x-request-id 回显 → 错误日志 _ctx 上下文携带 → access log 升级单行 JSON（ts/method/path/status/durationMs/requestId/ip/userAgent/errorCode）。OpenSpec change http-request-tracing（R1-R3），修复审计缺口 B4。
