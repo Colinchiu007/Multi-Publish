@@ -123,6 +123,9 @@ export async function renderInstallDeps() { return invokeWithFallback("renderIns
 
 export function onRenderProgress(callback) { return bridgeOn("RenderProgress", callback) }
 
+// 流水线阶段进度实时推送（openspec pipeline-progress-real-time-push）
+export function onPipelineUpdate(callback) { return bridgeOn("PipelineUpdate", callback) }
+
 export function onRenderComplete(callback) { return bridgeOn("RenderComplete", callback) }
 
 export function onRenderError(callback) { return bridgeOn("RenderError", callback) }

@@ -188,6 +188,88 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: pipelineEngine.registerStageExecutor(stageType, fn) }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
+
+  // ---- 阶段进度实时推送（openspec pipeline-progress-real-time-push）----
+  // PipelineEngine 事件 → 轻量快照（progressOnly，不含 context）→ 受信主窗口 webContents.send('pipeline:update')。
+  // 节流：每 run 500ms 窗口合并（窗口内最后一次快照）；run 终态（pipeline:complete/fail）立即发送。
+  const PUSH_CHANNEL = 'pipeline:update'
+  const PUSH_WINDOW_MS = 500
+  const pushTimers = new Map()   // runId -> timer
+  const pushTerminal = new Set() // runId 已进入终态，不再排队
+  let pushBridgeInstalled = false
+  const pushOffFns = []
+
+  const getMainWindow = () => {
+    const wins = BrowserWindow.getAllWindows()
+    return wins.find(w => !w.isDestroyed() && !w.webContents.isDestroyed() && w.isVisible()) ||
+      wins.find(w => !w.isDestroyed() && !w.webContents.isDestroyed()) || null
+  }
+
+  const sendPush = (runId) => {
+    try {
+      const snapshot = typeof pipelineEngine.getRunSnapshot === 'function'
+        ? pipelineEngine.getRunSnapshot(runId, { progressOnly: true })
+        : null
+      if (!snapshot) return
+      const win = getMainWindow()
+      if (win) win.webContents.send(PUSH_CHANNEL, snapshot)
+    } catch (e) {
+      log.warn('[pipeline:push] send failed:', e && e.message ? e.message : String(e))
+    }
+  }
+
+  const flushPush = (runId) => {
+    pushTimers.delete(runId)
+    pushTerminal.delete(runId)
+    sendPush(runId)
+  }
+
+  const queuePush = (runId, terminal) => {
+    if (!runId) return
+    if (terminal) {
+      if (pushTimers.has(runId)) { clearTimeout(pushTimers.get(runId)); pushTimers.delete(runId) }
+      pushTerminal.delete(runId)
+      sendPush(runId)
+      return
+    }
+    if (pushTimers.has(runId) || pushTerminal.has(runId)) return
+    pushTimers.set(runId, setTimeout(() => flushPush(runId), PUSH_WINDOW_MS))
+  }
+
+  const installPushBridge = () => {
+    if (pushBridgeInstalled || !pipelineEngine || typeof pipelineEngine.on !== 'function') return
+    pushBridgeInstalled = true
+    const onEvent = (terminal) => (data) => {
+      const runId = data && (data.runId || data.run)
+      if (!runId) return
+      if (terminal) pushTerminal.add(runId)
+      queuePush(runId, terminal)
+    }
+    const subscriptions = [
+      ['stage:start', false],
+      ['stage:complete', false],
+      ['stage:fail', false],
+      ['stage:progress', false],
+      ['checkpoint:pause', false],
+      ['pipeline:complete', true],
+      ['pipeline:fail', true],
+    ]
+    for (const [eventName, terminal] of subscriptions) {
+      const off = pipelineEngine.on(eventName, onEvent(terminal))
+      if (typeof off === 'function') pushOffFns.push(off)
+    }
+  }
+
+  const cleanupPushBridge = () => {
+    pushBridgeInstalled = false
+    pushOffFns.splice(0).forEach(off => { try { off() } catch (_e) { /* ignore */ } })
+    for (const timer of pushTimers.values()) clearTimeout(timer)
+    pushTimers.clear()
+    pushTerminal.clear()
+  }
+
+  installPushBridge()
+  return { cleanup: cleanupPushBridge }
 }
 
 module.exports = registerHandlers

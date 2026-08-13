@@ -31,6 +31,12 @@ var require_publish = __commonJS({
           ipcRenderer2.on("render:progress", h);
           return () => ipcRenderer2.removeListener("render:progress", h);
         },
+        // 流水线阶段进度实时推送（openspec pipeline-progress-real-time-push）：轻量快照（progressOnly），取消函数移除监听
+        onPipelineUpdate: (callback) => {
+          const h = (_e, payload) => callback(payload);
+          ipcRenderer2.on("pipeline:update", h);
+          return () => ipcRenderer2.removeListener("pipeline:update", h);
+        },
         onRenderComplete: (callback) => {
           const h = (_e, p) => callback(p);
           ipcRenderer2.on("render:complete", h);

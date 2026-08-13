@@ -997,7 +997,7 @@ import {
 
 import {
   renderStart, renderCancel, renderGetStatus, renderInstallDeps,
-  onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress,
+  onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress, onPipelineUpdate,
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
   pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineConfirmSceneAssets, pipelineGetRunContext,
@@ -3154,6 +3154,31 @@ export default {
         this.pollTimer = null
       }
     },
+    // 实时推送事件处理（openspec pipeline-progress-real-time-push）：
+    // 事件 payload 为轻量快照（progressOnly，不含 context）——只更新阶段进度/状态与 run 级 progress，
+    // 不覆盖完整 context（轮询 getRunContext 全量快照为准，避免事件与轮询竞态回退）。
+    handlePipelinePush(snapshot) {
+      if (!snapshot || !snapshot.runId) return
+      if (this.orchestrationRunId && snapshot.runId !== this.orchestrationRunId) return
+      if (Array.isArray(snapshot.stages) && snapshot.stages.length > 0) {
+        this.orchestrationStages = snapshot.stages
+      }
+      if (snapshot.status && typeof snapshot.status === 'object') {
+        const prevStatus = (this.pipelineRunStatus && typeof this.pipelineRunStatus === 'object') ? this.pipelineRunStatus : {}
+        this.pipelineRunStatus = {
+          ...prevStatus,
+          ...snapshot.status,
+          stages: Array.isArray(snapshot.stages) && snapshot.stages.length > 0 ? snapshot.stages : prevStatus.stages,
+        }
+      }
+      // 事件到达说明 run 活跃：重置 3s 轮询计时，压缩事件+轮询双写竞态窗口
+      this.restartOrchestrationPolling()
+    },
+    restartOrchestrationPolling() {
+      if (!this.orchestrationRunId || this._s2vAlive === false) return
+      this.stopPipelinePolling()
+      this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+    },
     async updatePipelineStatus() {
       if (!this.selectedPipeline) return
       const s = await pipelineStatus(this.selectedPipeline.name)
@@ -3782,6 +3807,8 @@ export default {
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
+    // 流水线阶段进度实时推送（openspec pipeline-progress-real-time-push）：事件驱动更新，3s 轮询兜底
+    this.cleanups.push(onPipelineUpdate((snapshot) => this.handlePipelinePush(snapshot)))
     this.cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = formatUserError(err, { fallback: '渲染错误' }).message }))
     this.cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n' }))
   },
