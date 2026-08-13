@@ -27,11 +27,6 @@
       </el-input>
 
       <div class="vc-options">
-        <el-select v-model="replicationLevel" placeholder="复刻层级" class="vc-option">
-          <el-option label="L0 信息一致" value="L0" />
-          <el-option label="L1 结构近似" value="L1" />
-          <el-option label="L2 风格迁移" value="L2" />
-        </el-select>
         <el-select v-model="mode" placeholder="复刻模式" class="vc-option">
           <el-option label="结构" value="structure" />
           <el-option label="风格" value="style" />
@@ -97,7 +92,7 @@
 import { useVideoClone } from '@/composables/useVideoClone'
 
 const {
-  sourceType, linkUrl, filePath, replicationLevel, mode, rewriteScript,
+  sourceType, linkUrl, filePath, mode, rewriteScript,
   running, stageStatus, report, similarity, STAGE_LABELS,
   start, cancel, editReport, pickFile, regenerate, runId,
 } = useVideoClone()

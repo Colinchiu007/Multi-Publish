@@ -1,3 +1,10 @@
+## [2026-08-13] refactor(video-clone): 移除无效的「复刻层级」下拉
+
+- 复刻层级（L0/L1/L2）当前仅写入报告作为目标声明，analyze/generate/compose/F4 均未按层级分支，属无效选项 → 从 UI 移除。
+- `VideoCloneView.vue` 删除「复刻层级」el-select；`useVideoClone.js` 删除 `replicationLevel` state 与请求 options 字段（引擎对缺失值默认 L1，报告仍记录 level=L1）。
+- 测试：useVideoClone.test.js 7 全绿（请求 options 断言同步更新）。
+- PRD v1.15 §13.2/§18.2/§29。
+
 ## [2026-08-13] fix(video-clone): 输入来源标签默认改为「链接」（url）
 
 - `useVideoClone.js`：`sourceType` 默认值由 `local`（本地文件）改为 `url`（链接）——进入视频克隆页默认显示链接输入框。
