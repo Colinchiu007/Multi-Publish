@@ -233,7 +233,7 @@ function registerExplainerStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     EXPLAINER_STAGE_TYPES.RESEARCH,
-    async ({ stage, params }) => {
+    async ({ stage, params, onProgress }) => {
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) {
         return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
@@ -244,7 +244,9 @@ function registerExplainerStages (pipelineEngine) {
       }
       const { system, user } = buildResearchPrompt(topic, stage.options || {})
       try {
+        if (typeof onProgress === 'function') onProgress({ percent: 10, message: '正在生成解说大纲…' })
         const outline = await callDefaultLlm(aiGenerator, system, user)
+        if (typeof onProgress === 'function') onProgress({ percent: 100, message: '解说大纲生成完成' })
         return { success: true, output: outline }
       } catch (error) {
         return { success: false, error: 'research 失败：' + (error && error.message ? error.message : String(error)) }
@@ -258,7 +260,7 @@ function registerExplainerStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     EXPLAINER_STAGE_TYPES.PROPOSAL,
-    async ({ stage, context }) => {
+    async ({ stage, context, onProgress }) => {
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) {
         return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
@@ -269,7 +271,9 @@ function registerExplainerStages (pipelineEngine) {
       }
       const { system, user } = buildProposalPrompt(outline, stage.options || {})
       try {
+        if (typeof onProgress === 'function') onProgress({ percent: 10, message: '正在生成分镜方案…' })
         const plan = await callDefaultLlm(aiGenerator, system, user)
+        if (typeof onProgress === 'function') onProgress({ percent: 100, message: '分镜方案生成完成' })
         return { success: true, output: plan }
       } catch (error) {
         return { success: false, error: 'proposal 失败：' + (error && error.message ? error.message : String(error)) }
@@ -283,7 +287,7 @@ function registerExplainerStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     EXPLAINER_STAGE_TYPES.SCRIPT,
-    async ({ stage, context }) => {
+    async ({ stage, context, onProgress }) => {
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) {
         return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
@@ -294,7 +298,9 @@ function registerExplainerStages (pipelineEngine) {
       }
       const { system, user } = buildScriptPrompt(plan, stage.options || {})
       try {
+        if (typeof onProgress === 'function') onProgress({ percent: 10, message: '正在生成旁白文案…' })
         const script = await callDefaultLlm(aiGenerator, system, user)
+        if (typeof onProgress === 'function') onProgress({ percent: 100, message: '旁白文案生成完成' })
         return { success: true, output: script }
       } catch (error) {
         return { success: false, error: 'script 失败：' + (error && error.message ? error.message : String(error)) }
@@ -308,7 +314,7 @@ function registerExplainerStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     EXPLAINER_STAGE_TYPES.SCENES,
-    async ({ stage, context }) => {
+    async ({ stage, context, onProgress }) => {
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) {
         return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
@@ -319,6 +325,7 @@ function registerExplainerStages (pipelineEngine) {
       }
       const { system, user } = buildScenesPrompt(script, stage.options || {})
       try {
+        if (typeof onProgress === 'function') onProgress({ percent: 10, message: '正在拆分视频场景…' })
         const raw = await callDefaultLlm(aiGenerator, system, user)
         let scenes = normalizeScenes(parseScenesJson(raw), script)
         if (!scenes) {

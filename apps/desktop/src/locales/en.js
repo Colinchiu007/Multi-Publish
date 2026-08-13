@@ -214,6 +214,14 @@ export default {
     assetsProgressVideo: 'Images {imagesDone}/{imagesTotal} · Videos {videosDone}/{videosTotal} · Narration {ttsDone}/{ttsTotal}',
     assetsProgress: 'Images {imagesDone}/{imagesTotal} · Narration {ttsDone}/{ttsTotal}',
     composeSegments: 'Composing segment {done}/{total} · {percent}%',
+    // Stage in-progress feedback unification contract (openspec pipeline-progress-feedback-unification)
+    stageProgressPublishing: 'Publishing to {platform} ({done}/{total})',
+    stageProgressFinalizeTts: 'Generating narration {done}/{total}…',
+    stageProgressSplit: 'Analyzing copy…',
+    stageProgressSceneContext: 'Extracting global story context and merging into {count} scenes…',
+    stageProgressVideoSelect: 'Judging which scenes suit video…',
+    stageProgressDomainEnrich: 'Detecting era/dynasty and visual context…',
+    stageProgressLlmWorking: 'Working on {action}…',
     // i18n-content-sync (2026-08-13): single source for story2video-notifications.js copy
     dialog: {
       title: 'Notice',

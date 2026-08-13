@@ -47,11 +47,15 @@ describe('Story2Video fast-mode UI contract', () => {
     expect(source).toContain("!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress")
   })
 
-  it('compose 阶段渲染子进度条（story2video-stage-compose-progress）', () => {
+  it('阶段迷你进度条通用渲染（任意阶段带合法 percent；compose 保留既有 testid）', () => {
     expect(source).toContain('story2video-stage-compose-progress')
-    expect(source).toContain("stage.name === 'compose' && stage.status === 'running' && composeSubProgressPercent(stage) !== null")
+    expect(source).toContain('stageProgressPercent(stage) !== null')
     expect(source).toContain('stage-sub-fill')
-    expect(source).toContain("composeSubProgressPercent(stage)")
-    expect(source).toContain("ctx.compose_progress")
+    expect(source).toContain("stageProgressPercent(stage)")
+    // compose 旧快照降级路径保留（无 stage.progress 时读 context.compose_progress）
+    expect(source).toContain('ctx.compose_progress')
+    // 统一契约：stage.progress.message / stage.summary 优先渲染
+    expect(source).toContain('stage.progress.message')
+    expect(source).toContain('stage.summary')
   })
 })

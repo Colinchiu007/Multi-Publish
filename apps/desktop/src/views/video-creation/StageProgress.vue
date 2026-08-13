@@ -28,17 +28,18 @@
           <span v-if="stageTimeDetailText(stage, index)" class="stage-meta">
             {{ stageTimeDetailText(stage, index) }}
           </span>
-          <!-- compose 子进度条 -->
+          <!-- 阶段迷你进度条（统一契约：任意阶段带合法 percent 即显示；compose 保留既有 testid） -->
           <span
-            v-if="stage.name === 'compose' && stage.status === 'running' && composeSubProgressPercent(stage) !== null"
-            class="stage-sub-progress" data-testid="story2video-stage-compose-progress"
+            v-if="stageProgressPercent(stage) !== null"
+            class="stage-sub-progress"
+            :data-testid="stage.name === 'compose' ? 'story2video-stage-compose-progress' : `story2video-stage-progress-${stage.name || index}`"
             role="progressbar"
-            :aria-valuenow="composeSubProgressPercent(stage)"
+            :aria-valuenow="stageProgressPercent(stage)"
             aria-valuemin="0"
             aria-valuemax="100"
           >
             <span class="stage-sub-bar">
-              <span class="stage-sub-fill" data-testid="story2video-stage-sub-fill" :style="{ width: composeSubProgressPercent(stage) + '%' }"></span>
+              <span class="stage-sub-fill" :data-testid="stage.name === 'compose' ? 'story2video-stage-sub-fill' : undefined" :style="{ width: stageProgressPercent(stage) + '%' }"></span>
             </span>
           </span>
         </span>
@@ -106,13 +107,19 @@ export default {
     },
     
     stageDetailText(stage, index) {
+      if (!stage) return ''
+      // 统一契约（优先）：完成态摘要 → 进行中信息 message → 旧快照降级
+      const hasSummary = typeof stage.summary === 'string' && stage.summary
+      const hasMessage = Boolean(stage.progress && typeof stage.progress.message === 'string' && stage.progress.message)
+      if (stage.status === 'completed' && hasSummary) return stage.summary
+      if (hasMessage) return stage.progress.message
       if (!this.orchestrationContext) return this.stageTimeDetailText(stage, index)
       const ctx = this.orchestrationContext
       if (stage.name === 'split' && stage.status === 'completed') {
         const scenes = ctx.split?.scenes || []
         if (scenes.length > 0) return '拆分为了 ' + scenes.length + ' 个场景'
       }
-      if (stage.name === 'optimize' && stage.status === 'completed') {
+      if (stage.name === 'optimize' && (stage.status === 'completed' || stage.status === 'running')) {
         const p = ctx.optimize_progress
         if (p && p.done != null && p.total != null) return '共 ' + p.total + ' 个场景，已完成 ' + p.done + ' 个'
       }
@@ -166,8 +173,12 @@ export default {
       if (!Number.isFinite(end)) return ''
       return this.formatDuration(Math.max(0, end - start))
     },
-    composeSubProgressPercent(stage) {
-      const p = (stage && stage.progress) || (this.orchestrationContext && this.orchestrationContext.compose_progress)
+    stageProgressPercent(stage) {
+      if (!stage) return null
+      // 统一契约优先：stage.progress.percent；旧快照降级：context.compose_progress（compose 子进度）
+      const p = (stage && stage.progress && Number.isFinite(stage.progress.percent))
+        ? stage.progress
+        : (stage.name === 'compose' && this.orchestrationContext && this.orchestrationContext.compose_progress)
       if (!p || !Number.isFinite(p.percent) || p.percent < 0 || p.percent > 100) return null
       return Math.round(p.percent)
     },

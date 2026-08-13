@@ -850,6 +850,9 @@ class PipelineEngine {
         status: i === 0 ? 'running' : 'pending',
         startedAt: i === 0 ? new Date().toISOString() : null,
         completedAt: null,
+        // 阶段级进行中信息（统一契约，见 openspec change pipeline-progress-feedback-unification）
+        progress: null,
+        summary: null,
       })),
       params: params || {},
       progress: 0,
@@ -1322,6 +1325,9 @@ class PipelineEngine {
       stages: stages.map((s, i) => {
         const base = { ...s };
         delete base.error;
+        // 恢复路径统一补齐阶段进度字段（老快照无 progress/summary 时置 null）
+        base.progress = base.progress || null;
+        base.summary = base.summary || null;
         if (i < failedStageIndex) {
           return { ...base, status: 'completed', startedAt: base.startedAt || now, completedAt: base.completedAt || now };
         }
@@ -1389,6 +1395,9 @@ class PipelineEngine {
       stages: stages.map((s, i) => {
         const base = { ...s };
         delete base.error;
+        // 恢复路径统一补齐阶段进度字段（老快照无 progress/summary 时置 null）
+        base.progress = base.progress || null;
+        base.summary = base.summary || null;
         if (i < stageIndex) {
           return { ...base, status: 'completed', startedAt: base.startedAt || now, completedAt: base.completedAt || now };
         }
@@ -1820,8 +1829,18 @@ class PipelineEngine {
   }
 
   _calcProgress(run) {
+    const total = run.stages.length;
+    if (!total) return 0;
     const completed = run.stages.filter((s) => s.status === 'completed').length;
-    return Math.round((completed / run.stages.length) * 100);
+    // 阶段内进行中进度加权：running 阶段带合法 stage.progress.percent 时按比例计入，
+    // 避免长时间停在阶段边界（阶段数占比 + 当前阶段 percent 加权）。
+    let runningShare = 0;
+    const running = run.stages[run.currentStage];
+    if (running && running.status === 'running' && running.progress &&
+      Number.isFinite(running.progress.percent) && running.progress.percent >= 0 && running.progress.percent <= 100) {
+      runningShare = running.progress.percent / 100;
+    }
+    return Math.round(((completed + runningShare) / total) * 100);
   }
 
   _getPythonBridge() {
@@ -1868,12 +1887,33 @@ class PipelineEngine {
     const execStartedAt = Date.now();
     run._activeSegmentStartedAt = execStartedAt;
     let execResult;
+    // 阶段进行中信息统一上报通道（additive）：执行器 onProgress → 字段级校验（fail-closed）→
+    // 单调性检查 → 双写 stage.progress + context.stage_progress（兼容 3s 轮询读取路径）。
+    // 惰性 require 避免模块加载期循环依赖。
+    const { normalizeStageProgress } = require('./stage-executor');
+    const onProgress = (update) => {
+      try {
+        const normalized = normalizeStageProgress(update);
+        if (!normalized) return;
+        const prev = stage.progress;
+        // percent 单调不降：低于上次合法值则丢弃该次更新（与 compose 子进度语义对齐）
+        if (prev && Number.isFinite(prev.percent) && normalized.percent < prev.percent) return;
+        const stamped = { ...normalized, updatedAt: new Date().toISOString() };
+        stage.progress = stamped;
+        if (normalized.summary) stage.summary = normalized.summary;
+        if (run.context && typeof run.context === 'object') run.context.stage_progress = stamped;
+      } catch (error) {
+        // 进度为展示增强：上报/写入异常不得阻断流水线（fail-closed 语义）
+        this.log.warn('PipelineEngine', '[progress] onProgress 更新被忽略: ' + (error && error.message ? error.message : String(error)));
+      }
+    };
     try {
       execResult = await this.stageExecutor.execute({
         runId,
         stage: fullStage,
         params: run.params,
         context: run.context || {},
+        onProgress,
       });
     } finally {
       run.activeMs = (Number.isFinite(run.activeMs) ? run.activeMs : 0) + Math.max(0, Date.now() - execStartedAt);
