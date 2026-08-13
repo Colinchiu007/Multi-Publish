@@ -26,6 +26,27 @@ function createSafeStorage () {
   }
 }
 
+// 模拟「DPAPI 状态变化」：历史密文无法解密，但新写入的密文可正常解密
+function createLegacyCiphertextFailingSafeStorage () {
+  const secrets = new Map()
+  return {
+    isEncryptionAvailable: () => true,
+    encryptString: value => {
+      const ciphertext = `protected:${value}:${secrets.size}`
+      secrets.set(ciphertext, String(value))
+      return Buffer.from(ciphertext, 'utf8')
+    },
+    decryptString: value => {
+      const ciphertext = Buffer.from(value).toString('utf8')
+      const plaintext = secrets.get(ciphertext)
+      if (plaintext === undefined) {
+        throw new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.')
+      }
+      return plaintext
+    },
+  }
+}
+
 function holdExclusiveWindowsFileLock (filePath, holdMs) {
   const script = [
     '& {',
@@ -222,6 +243,87 @@ describe('credential-store', () => {
     } finally {
       await fileLock.exitPromise.catch(() => {})
     }
+  })
+
+  it('safeStorage 无法解密既有主密钥且库中无凭证时自动重建主密钥', () => {
+    const userDataDir = createTempDir()
+    const credDir = path.join(userDataDir, 'credentials')
+    fs.mkdirSync(credDir, { recursive: true })
+    fs.writeFileSync(path.join(credDir, '.masterkey'), 'safeStorage:v1:stale-ciphertext', 'utf8')
+
+    const safeStorage = createLegacyCiphertextFailingSafeStorage()
+
+    const key = credentialStore.getMasterKey(credDir, { safeStorage })
+    expect(key).toMatch(/^[0-9a-f]{64}$/)
+    expect(fs.readFileSync(path.join(credDir, '.masterkey'), 'utf8')).toMatch(/^safeStorage:v1:/)
+    expect(credentialStore.saveCredential('acct-recovered', { cookies: [] }, userDataDir, { safeStorage })).toBe(true)
+    expect(credentialStore.loadCredential('acct-recovered', userDataDir, { safeStorage })).toEqual({ cookies: [] })
+  })
+
+  it('owners 命名空间为空目录时主密钥可自愈重建（目录迁移后空库场景）', () => {
+    const userDataDir = createTempDir()
+    const credDir = path.join(userDataDir, 'credentials')
+    const ownerDir = path.join(credDir, 'owners', 'f'.repeat(64))
+    fs.mkdirSync(ownerDir, { recursive: true })
+    fs.writeFileSync(path.join(credDir, '.masterkey'), 'safeStorage:v1:stale-ciphertext', 'utf8')
+
+    const safeStorage = createLegacyCiphertextFailingSafeStorage()
+
+    expect(credentialStore.getMasterKey(credDir, { safeStorage })).toMatch(/^[0-9a-f]{64}$/)
+    expect(credentialStore.saveCredential('acct-recovered-owner', { cookies: [] }, userDataDir, {
+      ownerSubject: 'user-a',
+      safeStorage,
+    })).toBe(true)
+    expect(credentialStore.loadCredential('acct-recovered-owner', userDataDir, {
+      ownerSubject: 'user-a',
+      safeStorage,
+    })).toEqual({ cookies: [] })
+  })
+
+  it('safeStorage 无法解密主密钥且库中根目录存在凭证时保持 fail-closed', () => {
+    const userDataDir = createTempDir()
+    const credDir = path.join(userDataDir, 'credentials')
+    fs.mkdirSync(credDir, { recursive: true })
+    fs.writeFileSync(path.join(credDir, '.masterkey'), 'safeStorage:v1:stale-ciphertext', 'utf8')
+    fs.writeFileSync(path.join(credDir, 'existing-account.json.enc'), 'opaque', 'utf8')
+
+    const safeStorage = createSafeStorage()
+    safeStorage.decryptString = () => {
+      throw new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.')
+    }
+
+    expect(() => credentialStore.getMasterKey(credDir, { safeStorage })).toThrow('Error while decrypting')
+    expect(fs.readFileSync(path.join(credDir, '.masterkey'), 'utf8')).toBe('safeStorage:v1:stale-ciphertext')
+    expect(credentialStore.saveCredential('acct-x', { cookies: [] }, userDataDir, { safeStorage })).toBe(false)
+  })
+
+  it('owners 命名空间下存在凭证时主密钥无法解密保持 fail-closed', () => {
+    const userDataDir = createTempDir()
+    const credDir = path.join(userDataDir, 'credentials')
+    const ownerDir = path.join(credDir, 'owners', 'f'.repeat(64))
+    fs.mkdirSync(ownerDir, { recursive: true })
+    fs.writeFileSync(path.join(credDir, '.masterkey'), 'safeStorage:v1:stale-ciphertext', 'utf8')
+    fs.writeFileSync(path.join(ownerDir, 'owner-acct.json.enc'), 'opaque', 'utf8')
+
+    const safeStorage = createSafeStorage()
+    safeStorage.decryptString = () => {
+      throw new Error('Error while decrypting the ciphertext provided to safeStorage.decryptString.')
+    }
+
+    expect(() => credentialStore.getMasterKey(credDir, { safeStorage })).toThrow('Error while decrypting')
+    expect(credentialStore.saveCredential('acct-y', { cookies: [] }, userDataDir, { safeStorage })).toBe(false)
+    expect(fs.readFileSync(path.join(credDir, '.masterkey'), 'utf8')).toBe('safeStorage:v1:stale-ciphertext')
+  })
+
+  it('safeStorage 不可用且主密钥无法解密时保持 fail-closed（拒绝明文主密钥）', () => {
+    const userDataDir = createTempDir()
+    const credDir = path.join(userDataDir, 'credentials')
+    fs.mkdirSync(credDir, { recursive: true })
+    fs.writeFileSync(path.join(credDir, '.masterkey'), 'safeStorage:v1:stale-ciphertext', 'utf8')
+
+    expect(() => credentialStore.getMasterKey(credDir, { safeStorage: null })).toThrow('系统凭据保护不可用')
+    expect(fs.readFileSync(path.join(credDir, '.masterkey'), 'utf8')).toBe('safeStorage:v1:stale-ciphertext')
+    expect(credentialStore.saveCredential('acct-z', { cookies: [] }, userDataDir, { safeStorage: null })).toBe(false)
   })
 
   it.skipIf(process.platform !== 'win32')('Windows 凭据文件短暂锁释放后原子保存成功', { timeout: 60000 }, async () => {

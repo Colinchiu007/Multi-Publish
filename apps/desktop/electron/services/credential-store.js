@@ -156,12 +156,49 @@ function getMasterKey (credDir, options = {}) {
     return loadedMasterKey
   }
   if (lastError) {
-    throw lastError
+    if (hasAnyCredentialFiles(credDir) || !canUseSafeStorage(safeStorage)) {
+      // 库中存在既有凭证：主密钥不可恢复时 fail-closed，防止静默破坏已加密数据。
+      // 系统凭据保护不可用：延续拒绝明文主密钥的安全姿态，同样 fail-closed。
+      throw lastError
+    }
+    // 主密钥无法解密（如系统凭据状态变化、用户目录迁移）且库中无任何凭证：
+    // 旧主密钥未加密任何数据，重建不会造成丢失，自动恢复账号添加能力。
+    log.error('CredentialStore', `主密钥无法解密且凭证库为空，自动重建主密钥: ${lastError.message}`)
+    const masterKey = crypto.randomBytes(32).toString('hex')
+    writeMasterKeyFiles(keyFile, masterKey, safeStorage)
+    return masterKey
   }
 
   const masterKey = crypto.randomBytes(32).toString('hex')
   writeMasterKeyFiles(keyFile, masterKey, safeStorage)
   return masterKey
+}
+
+/**
+ * 递归检查凭证库中是否存在任何已加密的账号凭证文件（含 owners/ 命名空间）。
+ * @param {string} credDir
+ * @returns {boolean}
+ */
+function hasAnyCredentialFiles (credDir) {
+  if (!fs.existsSync(credDir)) return false
+  const pending = [credDir]
+  while (pending.length > 0) {
+    const dir = pending.pop()
+    let entries
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch (_) {
+      continue
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        pending.push(path.join(dir, entry.name))
+      } else if (entry.isFile() && entry.name.endsWith('.json.enc')) {
+        return true
+      }
+    }
+  }
+  return false
 }
 
 /**
