@@ -1605,6 +1605,10 @@ POST /cases/{id}/runs → status=queued
 - 后端：`ops-center/backend/tests/test_scheduler_simulator.py`（确定性/并发上限/RPM 排队/冷却自适应/5h 预检/断言库/参数 400）+ `test_scheduler_api.py`（admin 403、落库、历史/详情、契约校验、simulated=0 上报落库）；
 - 桌面端：`rate-limit-self-check.test.js`（时间线/断言/无网络泄漏——假 adapter 不触发 fetch/不污染生产 governor）、`api-usage-governor.test.js`（observability 计时断言）、`usage-reporter.test.js`（聚合字段）、`ipc-handlers/rate-limit.test.js`、ops-center `test_usage_api.py`（可选字段兼容/累加/看板聚合）。
 
+**对拍已知差异（2026-08-13 实证，记录在案）**：官方四组固定输入（20ms 短请求）下模拟器与真实 governor 关键指标一致（PARITY OK）；改用真实预设慢调用参数对拍发现两个**已知观测口径差异**，已在 `scripts/compare-scheduler-models.js` 中作为 `KNOWN_DIFF_CASES` 记录（退出码不受影响），并在 `ops-center/docs/OPERATIONS.md` §3.5 说明：
+1. **并发峰值口径**：单请求耗时 ≥ RPM 节流间隔时，真实 governor（Promise 并发）`max_concurrent_observed` 可达 `maxConcurrent`，模拟器（串行事件循环）恒为 1——模拟器低估并发峰值，但不超预算；
+2. **5h 拒绝耗时口径**：被 5h 额度拒绝的请求，真实 governor 仍经历排队/时间槽后才报 QUOTA_EXCEEDED（total 偏大），模拟器在等待前立即预检拒绝——拒绝数一致，仅 `total_duration_ms` 口径不同。
+parity 测试（`apps/desktop/electron/tests/test_scheduler_parity.test.js`）对上述差异做防漂移断言（差异值变化即提示更新）。
 ### 12A.23.11 验收标准
 
 1. 契约校验：对全部可见预设输出 4 条规则 PASS/FAIL；rpm=0 或 limit_per_5h 负数或 default_model 不在 models → 对应规则 FAIL；rpm=6 → max_concurrent=1、rpm=20 → 2；
@@ -1615,4 +1619,5 @@ POST /cases/{id}/runs → status=queued
 6. 用量健康度：按服务商显示 429 率/排队/冷却/平均排队/预算利用率，>10% 或 >90% warning，rpm 未配置显示「未配置」；旧客户端上报无新字段按 0，不报错；
 7. 桌面端自检：独立 governor + 假 adapter，断言 `no_network`（fetch 未调用）；结果与 Python 模拟器对拍一致（四组固定输入）；
 8. 文档：本 PRD 12A.23 与 `ops-center/docs/OPERATIONS.md` 运营手册同步维护；桌面端机制文档见 Multi-Publish PRD §7.1.8.1 / §7.4.4.3-5。
+
 
