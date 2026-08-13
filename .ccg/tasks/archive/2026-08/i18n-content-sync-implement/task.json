@@ -1,0 +1,14 @@
+{
+  "id": "i18n-content-sync-implement",
+  "title": "实施 i18n-content-sync：L0 门禁测试 + CI 配对 + 语料源收敛 + 术语词典",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-i18n",
+  "currentPhase": "completed",
+  "nextAction": "已交付并归档",
+  "openspecChange": "i18n-content-sync",
+  "remoteStatus": "PR #693 merged 2695b15f (2026-08-13); 全 CI 绿（build windows 瞬时网络 EOF 与 Browser E2E ERR_NO_BUFFER_SPACE 各重跑一次通过）",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "codex/i18n-content-sync"
+}

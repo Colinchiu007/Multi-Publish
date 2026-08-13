@@ -203,6 +203,31 @@ export default {
     assetsProgressVideo: 'Images {imagesDone}/{imagesTotal} · Videos {videosDone}/{videosTotal} · Narration {ttsDone}/{ttsTotal}',
     assetsProgress: 'Images {imagesDone}/{imagesTotal} · Narration {ttsDone}/{ttsTotal}',
     composeSegments: 'Composing segment {done}/{total} · {percent}%',
+    // i18n-content-sync (2026-08-13): single source for story2video-notifications.js copy
+    dialog: {
+      title: 'Notice',
+      acknowledge: 'Got it',
+      cancel: 'Cancel',
+      confirmDelete: 'Delete',
+      resume: 'Resume from breakpoint',
+      resuming: 'Resuming…',
+      resumeHint: 'The pipeline can continue from the failed stage. Temporary service or network issues will be retried automatically after a short wait.',
+    },
+    bgmSkipReasons: {
+      size_exceeded: 'file exceeds the size limit',
+      format_unsupported: 'format not supported',
+      not_allowed: 'file is outside the allowed locations',
+      unreadable: 'file is missing or unreadable',
+    },
+    degradedAssetLabels: {
+      placeholder_image: 'placeholder images',
+      silent_narration: 'silent narration',
+    },
+    historyDetail: {
+      login: 'You are not signed in or your session expired. Sign in to retry; local records remain available offline.',
+      storage: 'Local storage is having issues. Restart the app to retry; if it persists, check local disk space and permissions.',
+      timeout: 'Loading timed out. Close and reopen the history list to retry; if it persists, restart the app.',
+    },
 
 
 

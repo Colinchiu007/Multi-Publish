@@ -78,6 +78,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           echo "IPC_CHECK=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      # --- Gate 7: locale 内容同步（i18n-content-sync：zh/en 成对提交 + 渲染端硬编码扫描） ---
+      - name: "Gate 7 - locale content sync (zh/en paired + renderer CJK)"
+        run: |
+          git fetch origin main --depth=1 --no-tags
+          node .github/scripts/check-locale-sync.js --pair-base origin/main
+          node .github/scripts/check-locale-sync.js --cjk
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest

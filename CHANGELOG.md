@@ -1,3 +1,11 @@
+## [2026-08-13] feat(i18n): 多语言内容同步机制实施（i18n-content-sync）
+
+- L0 门禁：`i18n.test.js` 新增 zh/en 叶子键完全对称断言 + 同 key `{param}` 占位符一致性断言；`story2video.text_too_long` 统一为 `{maxFormatted}`（zh 展示带千分位，与 en 一致）。
+- L1 CI：新增 `.github/scripts/check-locale-sync.js`（locale diff 配对 + 渲染端 CJK 基线扫描），挂载 quality-gate.yml Gate 7；存量基线 `.github/scripts/locale-cjk-baseline.json`（836 条）。
+- L2 语料源收敛：`story2video-notifications.js` 不再持有 zh/en 文案（38 通知键 + 弹窗按钮 + BGM reason + 降级素材标签 + 历史详情），统一从 `locales/story2video` 命名空间读取；`notifications.test.js` 改为逐键校验 locales zh/en 非空。
+- L3 术语词典：新增 `01-docs/i18n-glossary.md` + `apps/desktop/src/i18n/glossary.test.js`（术语在 zh/en locale 出现状态一致性校验）。
+- 文档：AGENTS.md / `.quality-gates.md` 增加「locale 成对修改」条款；PRD §3.2 与 `01-docs/i18n-sync-mechanism.md` 标记实施状态。
+
 ## [2026-08-13] Story2Video 全能创作：音色克隆选择文件后无反馈体验优化
 
 - 根因：选择本地音频文件后自动克隆，克隆期间（上传音频 + 服务商复刻，通常 10~60 秒）界面仅「选择本地音频文件」按钮变灰，无任何进行中反馈，观感「卡死」，之后新音色才突然出现。
@@ -18,6 +26,16 @@
 - useOpsCenterSync.js：formatLastSync 随语言；同步配置/结果消息接入 t()
 - 测试：composable 测试 mount 宿主组件（useI18n 需 setup 上下文）+ i18n 插件，本地 60/60；gui-test 定位改 data-testid（CI en 环境中文失效教训再次验证）
 - P2 附注的 ModelProviders 遗留已闭环；待办 CreateView 视频创作（P3）
+
+
+## [2026-08-13] docs(i18n): 多语言内容同步机制（i18n-content-sync）
+
+- PRD §3.2 新增「多语言内容同步机制」小节：单一事实源 / 键驱动 / 术语词典三原则 + L0-L1 门禁（zh/en 键对称、插值占位符一致、重复语料源校验、locale 成对提交 diff 检查、渲染端硬编码 CJK 扫描）；更新历史 v2.3.57。
+- 新增独立设计文档 `01-docs/i18n-sync-mechanism.md`（L0-L3 分层方案 + 检测手段 + 落地路线 + 验收清单）。
+- OpenSpec change `i18n-content-sync`：proposal / specs（i18n-content-sync 新能力 + user-facing-messages 增量）/ design / tasks，validate 通过。
+- 影响：`apps/desktop/src/locales/{zh,en}.js` 与 `story2video-notifications.js` 的同步将由门禁强制；后续按 tasks.md 落地测试与 CI（/openspec-apply-change 实施）。
+
+
 ## [2026-08-12] feat(ops-center): 模型密钥「修改」功能（编辑回填 + 启用开关）
 
 - 前端「模型密钥」列表项新增「编辑」：回填表单（provider/model 编辑锁定，唯一键），可修改 Base URL / 启用状态 / API Key（留空保留原密文，后端 validate_provider_key_body 已有 existing_key 保留语义）；表单新增「启用」switch；保存按钮区分「保存/保存修改」+「取消编辑」。
@@ -180,6 +198,12 @@
 - 门禁：QM-2 sandbox 双模式 PASS（TRUE_OK/FALSE_OK/BOTH_MODES_OK）；QM-1 打包 exit 0 + 可见主窗口（MainWindowHandle=15729924）；engine 96 + desktop 新增 7 用例全绿。
 - PRD v1.6 §20；待 4d：真实 provider 图/账号发布外部验收、报告持久化 regenerate。
 
+## [未发布] fix(ops-center): 调度模拟器 waiter deadline 精确化（429 长冷却排队超时，2026-08-13）
+
+- 并发信号量超时判定改为「本请求到达时刻 + 30s」（真实 governor waiter deadline），不再按处理时刻乐观放行；429 长冷却 + 同批突发场景现可精确复现（rate_limited_count=4 = 注入记账 1 + 排队超时 3，反映 governor 内部真实行为）；被拒请求 end_time 记 deadline 墙钟。
+- 说明：桌面端 runSelfCheck 对排队超时请求存在观测盲区（timeline 只记录已开始执行的请求），展示 rate_limited=1 只是「可见限流」；模拟器数值更接近 governor 内部语义。对拍 must-pass 用例不受影响（无排队超时场景）。
+- 测试：test_scheduler_simulator.py +1（waiter deadline 长冷却用例）12/12；pytest 23/23；对拍六组 PARITY OK。
+- 文档：OPERATIONS.md §3.5（已知简化→已修复 + runSelfCheck 观测盲区说明）、PRD §12A.23.5（信号量 deadline/5h 后移/释放/墙钟全段修正）。
 ## [未发布] feat(ops-center): 调度模拟器并发推进升级（scheduler_simulator 串行事件循环 → 离散事件仿真，2026-08-13）
 
 - 模拟器支持**并发推进**：信号量 transfer（占满时接管最早完成槽，不推进全局时钟，同批到达可并发竞争）；RPM 槽推进后释放完成事件（interval < duration 时请求重叠执行）；5h 额度预检移到 pace/cooldown 之后（被拒请求仍占 RPM 槽）；`total_duration_ms` 改墙钟口径（含被拒/限流判定时刻，对齐真实 governor）。
@@ -4007,6 +4031,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

@@ -177,7 +177,8 @@
 
 **剩余已知差异（仅测量噪声）**：`slow-call-concurrency`（elevenlabs 3s×8、rpm=20，interval==duration 临界）——模拟器确定性 maxc=1；真实 governor 因定时器时钟误差产生 1ms 级短暂重叠显示 maxc=2。这是**测量噪声而非并发能力**（真实时间线 8 个请求严格 3s 间隔串行），已在 `KNOWN_DIFF_CASES` 记录，parity 测试做防漂移断言。
 
-**已知简化（文档记录）**：429 长冷却（如 30s）+ 同批突发时，模拟器按虚拟时间乐观推进排队，真实中排队请求会因 30s 等待上限被拒绝（runSelfCheck 的 timeline 不记录该部分）；两端 `rate_limited_count` 观测一致（均只计注入 429 与可见限流），但 `total_duration_ms` 在该边界场景可能低估真实值。运营解读以真实自检/实测为准。
+**waiter deadline 精确模拟（2026-08-13 跟进修复）**：信号量排队超时判定已与真实 governor 一致——本请求**到达时刻 + 30s** 为 deadline，超时即 `rate_limited`（此前按处理时刻乐观放行）。429 长冷却 + 同批突发场景现可精确复现：注入 429 触发 30s 冷却，后续 3 个排队请求在 deadline 处被拒（模拟器 `rate_limited_count`=4 = 注入记账 1 + 排队超时 3，反映 governor 内部真实行为）。
+> 注：桌面端 `runSelfCheck` 对排队超时请求存在**观测盲区**（timeline 只记录 task 内开始执行的请求，排队被拒的不计数），其展示的 `rate_limited_count`=1 只是「可见限流」；模拟器数值更接近 governor 内部真实语义。对拍脚本的 must-pass 用例不受此影响（官方/并发/5h 用例无排队超时）。
 ## 4. 配置调优建议（基于验证结果）
 
 | 观察 | 建议 |
@@ -224,6 +225,7 @@
 | POST | /api/v1/usage/ingest | X-Catalog-Key | 桌面端用量上报（含排队/冷却聚合字段） |
 | GET | /api/v1/usage/summary | admin | 用量汇总（含 429率/排队/冷却/预算利用率） |
 | GET | /api/v1/model-presets | admin | 预设列表（模拟验证页预设下拉数据源） |
+
 
 
 
