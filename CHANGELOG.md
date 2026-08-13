@@ -1,3 +1,9 @@
+## [2026-08-13] P3 第二批：StageProgress 阶段进度组件文案多语言化（PR #757 merged ed116a84）
+
+- locales zh/en 新增 `stageProgress` 命名空间（17 键对等：阶段时间/状态标签/插值提示消息/时长格式化）。
+- StageProgress.vue 全量接入 i18n：阶段状态（含 paused 等待态）与累计/阶段耗时不再直渲原始字符串，统一经 i18n 插值渲染（`stageProgress.*`），并新增时长格式化工具（秒 → 分:秒/时:分:秒）。
+- 测试：StageProgress + SceneAssetSelection 15/15、CreateView.test.js 169/169 本地全绿；CI 全绿（electron-tests 11m12s / gui-test / QG Coverage 12m11s / QG Unit Tests 14m8s / Gate Result）。
+- P3 待办：CreateView 主体（7867 处中文存量，需再拆批并配合视觉回归）。
 ## [2026-08-13] feat(ui): 视频创作首页卡片 UI 优化——多列动态布局 + MiniMax 生成卡片背景 + 交互动效（pipeline-card-backgrounds-ui）
 
 - 布局：流水线选择视图容器从 1080px 封顶放宽至 1600px（`.create-page--pipeline-list`），`pipeline-selector.css` 增加显式断点（≤768px 1 列 / 769-1199px auto-fill / 1200-1439px 3 列 / 1440-1919px 4 列 / ≥1920px 5 列），宽屏/高分屏自动多列排布。
