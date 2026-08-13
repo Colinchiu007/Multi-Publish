@@ -16,7 +16,7 @@
     <div v-else-if="error" class="error-state">
       <span class="error-icon">⚠️</span>
       <p>{{ error }}</p>
-      <button class="retry-btn" @click="$emit('retry')">重试</button>
+      <button class="retry-btn" @click="$emit('retry')">{{ $t('pipelineSelector.retry') }}</button>
     </div>
 
     <!-- 流水线网格 -->
@@ -39,7 +39,7 @@
         <h3 class="card-title">{{ pipelineName(pipeline.name) }}</h3>
         <p class="card-desc">{{ pipelineDescription(pipeline.name) }}</p>
         <div class="card-meta">
-          <span class="stage-count">{{ pipeline.stageCount ?? pipeline.stages?.length ?? 0 }} 阶段</span>
+          <span class="stage-count">{{ $t('pipelineSelector.stages', { count: pipeline.stageCount ?? pipeline.stages?.length ?? 0 }) }}</span>
           <span class="cost-label" :class="pipeline.estimatedCost">{{ costLabel(pipeline.estimatedCost) }}</span>
           <span class="availability-badge" :class="pipeline.available === false ? 'dev' : 'ready'" :title="availabilityHint(pipeline.available !== false)">
             {{ availabilityLabel(pipeline.available !== false) }}
@@ -59,10 +59,10 @@ import {
 } from '@/i18n/pipeline-labels'
 
 const CATEGORY_LABELS = {
-  generated: 'AI 生成', talking_head: '说话头像', cinematic: '电影感',
-  animation: '动画', screen_recording: '屏幕录制', hybrid: '混合', custom: '自定义'
+  generated: 'catGenerated', talking_head: 'catTalkingHead', cinematic: 'catCinematic',
+  animation: 'catAnimation', screen_recording: 'catScreenRecording', hybrid: 'catHybrid', custom: 'catCustom'
 }
-const COST_LABELS = { low: '低消耗', medium: '中等', high: '高消耗' }
+const COST_LABELS = { low: 'costLow', medium: 'costMedium', high: 'costHigh' }
 const STABILITY_MAP = {
   'cinematic': 'production', 'animated-explainer': 'production', 'talking-head': 'beta',
   'documentary-montage': 'beta', 'clip-factory': 'beta', 'screen-demo': 'beta',
@@ -83,11 +83,17 @@ export default {
     pipelineName(id) { return getPipelineName((key) => this.$t?.(key), id) },
     pipelineDescription(id) { return getPipelineDescription((key) => this.$t?.(key), id) },
     pipelineCategory(id) { return getPipelineCategory((key) => this.$t?.(key), id) },
-    categoryLabel(cat) { return CATEGORY_LABELS[cat] || cat },
-    costLabel(cost) { return COST_LABELS[cost] || cost },
+    categoryLabel(cat) {
+      const key = CATEGORY_LABELS[cat]
+      return key ? this.$t('pipelineSelector.' + key) : cat
+    },
+    costLabel(cost) {
+      const key = COST_LABELS[cost]
+      return key ? this.$t('pipelineSelector.' + key) : cost
+    },
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
-    availabilityHint(available) { return available ? '流水线可用' : '开发中，暂不可用' },
-    availabilityLabel(available) { return available ? '可用' : '开发中' },
+    availabilityHint(available) { return this.$t(available ? 'pipelineSelector.availableHint' : 'pipelineSelector.inDevelopmentHint') },
+    availabilityLabel(available) { return this.$t(available ? 'pipelineSelector.available' : 'pipelineSelector.inDevelopment') },
   },
 }
 </script>
