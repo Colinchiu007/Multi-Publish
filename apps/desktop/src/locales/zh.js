@@ -118,6 +118,9 @@ export default {
         cancelFailed: '取消失败，请重试。',
       },
       resetOptions: '恢复默认选项',
+      // 2026-08-13 流水线后台运行：运行中可脱离详情页，run 在主进程继续执行，历史记录可重挂
+      backgroundRun: '后台运行',
+      backgroundRunToast: '流水线已转入后台运行（仍占用并发名额），可在「流水线记录」中查看进度并继续操作。',
       mediaRequirementsImage: '支持 jpg / jpeg / png / webp 格式，单个文件最大 10MB。',
       mediaRequirementsAudio: '支持 wav / m4a / mp3 格式，单个文件最大 50MB。',
       mediaRequirementsBgm: '支持 wav / m4a / mp3 格式，单个文件最大 15MB。',
