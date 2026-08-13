@@ -1,0 +1,16 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/claude/reviewer.md
+
+<TASK>
+审查 OpenSpec change container-log-rotation 的变更。请核对仓库（HEAD=6543e3a6）：
+- packages/api-publish-engine/docker-compose.yml、deploy/logto/docker-compose.yml、deploy/logto/docker-compose.monitoring.yml：
+  为 publish-api / postgres / logto / blackbox / prometheus / alertmanager 统一添加
+  logging: driver=json-file, options={max-size: "50m", max-file: "5"}
+- packages/api-publish-engine/test/logto-deploy-contract.test.js：新增 assertLogRotation 断言
+
+重点评估：
+1) json-file 轮转参数合理性（50m/5）与 Docker 语义（max-size 是单文件大小、达到即轮转，max-file 上限丢弃最旧）；
+2) 是否遗漏需要轮转的 compose 服务（webhook-retry overlay 依赖 base 合并是否受影响）；
+3) 契约测试断言是否充分（driver/options 字段名、数值类型）；
+4) 有无破坏既有契约断言/部署文档（RUNBOOK/README 提到的命令不受影响？）；
+5) 是否需要补充 monitor/其他部署形态（systemd 走 journald 已豁免）的说明。
+输出：每条 Critical/Warning/Info + 依据（file:line），不要泛泛而谈。
