@@ -1,0 +1,441 @@
+独立审查以下「日志合同文档」变更（Multi-Publish 仓库，纯文档 + 1 个契约测试，零运行时行为变更）。
+
+审查重点：
+1. 事实准确性：合同文档中的证据（file:line）、常量（500MB/30天/4096/5MB/3MB/15天/gz/50m×5）、脱敏 5 组模式描述是否与代码实现一致（你可抽查工作区 D:/Data/projects/mp-worktrees/mp-logging-contract 下的对应源码）。
+2. 契约测试有效性：断言是否真能防漂移（3 处 JS 脱敏同源、文档↔代码常量一致），是否有脆弱或误报风险。
+3. OpenSpec spec 的 Requirements/Scenarios 是否可验证、无矛盾。
+4. 是否遗漏关键契约点（level 枚举、脱敏、字段、保留、强制日志点、禁止项、静默边界）。
+
+变更文件全文如下：
+===== 01-docs/LOGGING-CONTRACT.md =====
+# Multi-Publish 日志合同（LOGGING CONTRACT）
+
+- 版本：v1
+- 日期：2026-08-13
+- 基线：`origin/main`（日志体系 7 项加固 #658/#659/#664/#678/#684/#689/#696 全部合并后）
+- 状态：**契约化生效中**——本文件为单一权威文档；`openspec/specs/logging-contract/spec.md` 为契约化表述；`packages/shared-utils/src/__tests__/logging-contract.test.js` 为防漂移门禁。
+- 配套代理读版：`.ccg/spec/observability/index.md`
+
+> 本文档记载的是**已落地实现**的合同（非愿景）。修改任一设施行为时，必须同步更新本文档与对应 OpenSpec spec，且通过契约测试。
+
+---
+
+## 1. 适用范围与设施清单
+
+| 设施 | 位置 | 出口 | 用途 |
+|------|------|------|------|
+| L1 桌面主进程 logger | `apps/desktop/electron/services/logger.js` | console + 文件双写（同源脱敏） | 桌面主进程 ~90 文件引用；sidecar stdout/stderr 汇入；renderer 错误经 IPC 汇入 |
+| L2 shared-utils logger | `packages/shared-utils/src/logger.js` | 文件（同步）+ console | 无法依赖桌面环境的引用方（format-adapter/rules、cover-processor/presets） |
+| L3 api-publish-engine logger | `packages/api-publish-engine/src/logger.js` | console（`DEBUG` env 控制 debug） | api-router 等模块；**生产语义 = 容器 stdout** |
+| L4 access/audit log | `src/access-log.js`、`src/audit-log.js` | access：console JSON 行；audit：JSON 文件 | publish 请求访问与业务审计 |
+| L5 Python 后端 | `packages/python-backend/src/multi_publish/core/logging_setup.py` | loguru stderr + 全局按日文件 + per-module 文件 | server.py 导入即初始化；发布/鉴权/TTS/视频等 29 文件 |
+| 容器 | `packages/api-publish-engine/docker-compose.yml`、`deploy/logto/docker-compose*.yml` | Docker json-file | 业务 API / Logto / PostgreSQL / 监控容器 |
+| CI | `.github/workflows/*.yml` | GitHub Actions 日志 + upload-artifact | 构建/测试诊断产物（retention 7-30 天） |
+
+---
+
+## 2. 日志级别（Level 枚举）
+
+统一顺序：**DEBUG < INFO < WARN < ERROR**（数值越小越详细）。
+
+| 设施 | 枚举 | 默认级别 | 依据 |
+|------|------|---------|------|
+| L1 桌面 | `LOG_LEVELS = { DEBUG:0, INFO:1, WARN:2, ERROR:3 }` | `INFO`（`LOG_LEVEL` env 可覆盖） | `logger.js:19-21` |
+| L2 shared-utils | `debug/info/warn/error` | `debug` | `logger.js:16-17` |
+| L3 api | ISO + JSON meta；`DEBUG` env 开 debug；**本身不做脱敏**——由调用点/统一错误出口经 `log-redact` 处理 | 默认 info 级 | `src/logger.js:6-20`、`src/log-redact.js` |
+| L5 Python | `DEBUG/INFO/WARNING/ERROR` | `INFO`（构造参数可覆盖） | `logging_setup.py:30,73` |
+
+规则：
+- 调用方 SHALL 使用语义级别：`debug` 调试细节 / `info` 关键流程 / `warn` 可恢复异常与重试 / `error` 失败与崩溃。
+- 桌面主进程 `console.log(prefix, body)` 与文件写入 SHALL 使用**同一个已脱敏 body**（禁止控制台走原样、文件走脱敏的分叉）。
+
+---
+
+## 3. 脱敏清单（Sensitive Data Redaction）
+
+### 3.1 五组模式（3 处 JS 内联实现必须同源）
+
+| # | 模式 | 替换 | 覆盖 |
+|---|------|------|------|
+| ① | `Bearer\s+[A-Za-z0-9._~+/=-]+` | `Bearer ***` | Authorization Bearer token |
+| ② | 带引号键值：`api[_-]?key / access_token / refresh_token / password / secret / authorization / cookie` 后接 `:` 或 `=` | 保留键名、值替换 `***` | JSON 风格 `"apiKey":"x"`、`password: "p"` |
+| ③ | 无引号键值：同键名后接 `=` | `key=***` | URL/表单风格 `access_token=xxx&...` |
+| ④ | `sk-[A-Za-z0-9_-]{4}` 开头长串 | 保留 `sk-` + 前 4 位，其余替换 `***` | sk- 前缀密钥 |
+| ⑤ | `eyJ` 开头三段 base64url JWT | `eyJ***` | 通用 JWT |
+
+同源实现位置（**禁止单边修改**，契约测试断言三处一致）：
+- `apps/desktop/electron/services/logger.js:96-102`
+- `packages/shared-utils/src/logger.js:22-28`
+- `packages/api-publish-engine/src/log-redact.js:12-19`（供 `publish-api-server.js:12,49,270-274` 等使用）
+
+### 3.2 Python 侧
+
+- **源头不打印优先**：loguru 无正则脱敏，敏感字段 SHALL NOT 进入日志文本。正面样板：`douyin.py:124-128` `_upload_auth_log_message` 仅输出 `code / has_data / has_upload_url` 元信息，禁止 token/签名 URL 明文。
+- 兜底：sidecar stdout/stderr 汇入 L1 时会再经 L1 redact。
+
+### 3.3 原则
+
+1. **源头不打印敏感字段** 是首要纪律；redact 只是最后防线。
+2. 脱敏对象包括 tag/module、message、meta（JSON 化后）、Error stack。
+
+---
+
+## 4. 字段与格式
+
+| 设施 | 格式 |
+|------|------|
+| L1/L2 | `[ISO8601] [LEVEL] [module] message` + 可选 meta（JSON ≤8000 字符截断）；单条 message ≤4096 字符，超长截断加 `…`（`logger.js:26,117,168`） |
+| L3 access | 单行 JSON：`ts / method / path / status / durationMs / requestId / ip / userAgent / errorCode`（`access-log.js:25-35`）；请求入口生成 requestId → 响应头 `x-request-id` |
+| L4 audit | JSON 文件：publish 成败、ownerSubject、platform、title、error code |
+| L5 loguru | `time | level | name:function:line | message`；stderr 全量、stdout 仅 <WARNING；全局按日 + per-module 文件（`logging_setup.py:60-85`） |
+
+---
+
+## 5. 保留策略（Retention）
+
+| 设施 | 策略 | 依据 |
+|------|------|------|
+| L1 桌面 | 按日 `userData/logs/app-YYYY-MM-DD.log`；单文件 500MB 超限滚动 `.1`；按日保留 30 天过期清理；单条 4096 截断；meta 8000 截断 | `logger.js:24-26,49-65` |
+| L2 shared-utils | `app.log` 5MB → `.1`（保留最近一份） | `logger.js:19,64-66` |
+| L5 Python | loguru 3MB 轮转 / 15 天保留 / gz 压缩 | `logging_setup.py:83-85` |
+| 容器 | json-file `max-size: 50m` × `max-file: 5`（每容器 ≤250MB） | `packages/api-publish-engine/docker-compose.yml`、`deploy/logto/docker-compose.yml`、`docker-compose.monitoring.yml` |
+| CI | upload-artifact retention 7-30 天 | `.github/workflows/*.yml` |
+| ops-center | systemd journald（宿主保留策略，非本仓库管理） | `ops-center/deploy/ops-center.service` |
+
+规则：
+- 日志文件写失败 SHALL NOT 完全静默：L1 降级 console + `getLogsInfo` 暴露计数；其余设施保持现状并记入静默边界。
+- 需要更久留痕时，上集中采集（Loki/ELK），不靠无限放大本地保留。
+
+---
+
+## 6. 强制日志点（Must-Log，不得静默）
+
+| 路径 | 记录内容 | 证据 |
+|------|---------|------|
+| IPC 调用错误 | `[IPC] <label>` + 脱敏消息（统一 try-catch） | `apps/desktop/electron/ipc-handlers/helpers.js:67-101,135` |
+| 主进程兜底 | unhandledRejection / uncaughtException | `electron/main.js:56-62`；退出前 `log.flush()` `shutdown.js:118` |
+| renderer 错误 | Vue errorHandler / window error / unhandledrejection → IPC `logs:error`（无 electronAPI 回退 console） | `src/utils/report-error.js:6-21`、`src/main.js:19-36` |
+| API 5xx | error code + message + stack（经脱敏，各 500 截断） | `publish-api-server.js:270-274` |
+| auth 失败（introspection/JWKS/entitlement/生产配置） | 以异常上抛 → API 统一错误路径记录原因码（如 `LOGTO_RUNTIME_CONFIG_INVALID`、introspection 失败原因） | `src/auth/logto-runtime.js`、`src/auth/production-readiness.js`（模块内不自记日志，走集中错误出口） |
+| webhook 签名校验失败 | hook code + url + error 摘要（`_log.warn`） | `webhook-manager.js:62,68` |
+| retry 与熔断 | 重试第 N 次/原因/delay；熔断开启、拒绝、恢复（circuitKey） | `retry-middleware.js:55,70,97` |
+| Python 发布授权 | 仅元信息（code/has_data/has_upload_url），禁止 token 明文 | `douyin.py:124-128` |
+
+---
+
+## 7. 禁止项（SHALL NOT）
+
+1. **敏感字段明文落盘/控制台**：token、apiKey、password、secret、authorization、cookie、JWT、refresh_token（3.1 五组模式全覆盖）。
+2. **生产代码裸 `console.log` 绕过 logger**（桌面主进程）；调试完的临时日志必须移除。
+3. **文件写失败完全静默**（L1 已降级 console + 计数暴露）。
+4. **单条日志无上限**：message 超 4096 / meta 超 8000 必须截断标记（L1）；access userAgent ≤256（`access-log.js:33`）。
+5. **auth 失败吞异常**：必须带原因码进入统一错误出口（§6），不得空 catch。
+
+---
+
+## 8. 静默边界（Documented Silent Zones）
+
+以下区域为**文档化边界**（设计使然或已知限制），排障时先确认是否命中：
+
+| 边界 | 说明 | 处理建议 |
+|------|------|---------|
+| remotion-composer / story2video-engine 引擎库 | 库内无 logger 注入（静默）；编排层有日志（`story2video-compose-engine.js:525`） | 需要时按需注入 logger；已列 P2（C6） |
+| pre-Vue 入口脚本失败 | renderer 加载前无法经 IPC 上报 | 主进程 stdout/文件兜底 |
+| runSelfCheck 排队被拒 | timeline 只记录开始执行的请求，排队被拒不进 timeline/不计数 | 以模拟器语义 + governor 源码为准（learnings 复盘更新 2） |
+| L2 引用方 | 同步写、无 meta、写失败静默 | 已文档化；如需增强走注入式 logger |
+| ops-center journald | 宿主日志策略，非仓库管理 | 如需留痕配置 journald 保留 |
+
+---
+
+## 9. 契约验证
+
+- **防漂移测试**：`packages/shared-utils/src/__tests__/logging-contract.test.js`——断言 3 处 JS 脱敏同源、各设施保留/截断常量与本文档一致。
+- **OpenSpec**：`openspec/specs/logging-contract/spec.md`（R1-R7）。
+- **文档门禁**：CI `check-docs-sync`（代码变更必须带 01-docs/ 变更）。
+- **修改流程**：改任何设施行为 → 同步本文档 + 对应设施 spec（desktop-logging / shared-utils-logging / logging-hardening / python-service-logging / http-request-tracing / container-log-rotation）→ 契约测试保持绿。
+
+---
+
+## 10. 证据索引（抽查用）
+
+- L1：`apps/desktop/electron/services/logger.js:19-27,49-65,96-108,162-173,189-200`；测试 `logger.test.js`
+- L2：`packages/shared-utils/src/logger.js:16-28,64-66`；测试 `src/__tests__/logger.test.js`
+- L3：`packages/api-publish-engine/src/logger.js`、`src/log-redact.js:12-19`、`src/access-log.js:25-35`、`src/audit-log.js`
+- L5：`packages/python-backend/src/multi_publish/core/logging_setup.py:30,60-85`、`publishers/douyin.py:124-128`
+- 容器：`packages/api-publish-engine/docker-compose.yml`、`deploy/logto/docker-compose.yml`、`deploy/logto/docker-compose.monitoring.yml`
+- 强制日志点：`helpers.js:67-101`、`main.js:56-62`、`report-error.js:6-21`、`publish-api-server.js:270-274`、`webhook-manager.js:68`、`retry-middleware.js:55,70,97`
+- 审计基线：`01-docs/LOGGING-AUDIT-2026-08-12.md`
+
+ ===== .ccg/spec/observability/index.md =====
+# Observability 编码规范（日志合同 · 代理精简版）
+
+> 权威细节见 `01-docs/LOGGING-CONTRACT.md`；契约化表述见 `openspec/specs/logging-contract/spec.md`；防漂移门禁 `packages/shared-utils/src/__tests__/logging-contract.test.js`。
+> 本文件是写日志相关代码的**最小强制约束**。
+
+## 铁律（MUST）
+
+1. **脱敏 5 组同源**：JS 日志出口必须包含 5 类模式（Bearer / 带引号键值 / 无引号键值 / sk- / eyJ JWT），且与三处内联实现（desktop `services/logger.js`、shared-utils `src/logger.js`、api-publish-engine `src/log-redact.js`）保持同源——**禁止单边修改**。
+2. **源头不打印敏感字段**：token/apiKey/password/secret/authorization/cookie/JWT 一律不进日志文本；redact 只是最后防线。Python 侧（loguru 无正则脱敏）尤其依赖此纪律（样板 `douyin.py:124-128`）。
+3. **走 logger，不裸 console**：桌面主进程生产代码禁止 `console.log` 绕过 logger；控制台与文件必须用同一已脱敏 body。
+4. **级别语义**：`debug` 细节 / `info` 关键流程 / `warn` 可恢复异常与重试 / `error` 失败崩溃。默认级别：桌面 INFO、shared-utils debug、Python INFO。
+5. **保留与截断**：桌面 500MB 超限滚动 `.1` + 30 天保留 + 单条 4096 / meta 8000 截断；shared-utils 5MB→`.1`；Python loguru 3MB/15 天/gz；容器 json-file 50m×5。改默认值必须同步合同文档与契约测试。
+
+## 强制日志点（不得静默）
+
+- IPC 错误（统一 try-catch `[IPC]` 前缀）；主进程 unhandledRejection/uncaughtException；renderer 错误经 IPC `logs:error` 汇入。
+- API 5xx：error code + message + stack（经脱敏、500 截断）进统一错误出口。
+- auth 失败：不吞异常，带原因码（如 `LOGTO_RUNTIME_CONFIG_INVALID`）进入统一错误路径。
+- webhook 签名校验失败：hook code + url + error 摘要。
+- retry/熔断：重试第 N 次/原因/delay；熔断开启/拒绝/恢复（circuitKey）。
+
+## 禁止项（SHALL NOT）
+
+- 敏感字段明文落盘/控制台；裸 console.log 绕过 logger；日志文件写失败完全静默；单条日志无上限；auth 失败空 catch。
+
+## 静默边界（文档化，非缺陷）
+
+- remotion-composer / story2video-engine 引擎库无 logger 注入（编排层有日志）。
+- pre-Vue 入口脚本失败无法 IPC 上报（主进程 stdout/文件兜底）。
+- runSelfCheck 排队被拒不在 timeline/计数（以模拟器语义 + governor 源码为准）。
+
+## 修改流程
+
+改任何设施行为 → 同步 `01-docs/LOGGING-CONTRACT.md` + 对应设施 spec（desktop-logging / shared-utils-logging / logging-hardening / python-service-logging / http-request-tracing / container-log-rotation）→ 契约测试保持绿。
+
+ ===== packages/shared-utils/src/__tests__/logging-contract.test.js =====
+import { describe, it, expect } from 'vitest'
+import path from 'path'
+import fs from 'fs'
+import { fileURLToPath } from 'url'
+
+/**
+ * logging-contract 防漂移门禁（审计 P2 #14 日志合同）
+ *
+ * 只断言「同源性与常量一致性」，行为细节由各设施既有测试覆盖：
+ * - 3 处 JS 脱敏实现（desktop / shared-utils / api-publish-engine）必须保持 5 组模式同源
+ * - 各设施保留/截断常量必须与 01-docs/LOGGING-CONTRACT.md 记载一致
+ * - 强制日志点证据（retry/circuit/webhook/API 5xx/douyin 元信息）存在
+ *
+ * 文档与代码任一单边修改都会让本测试失败，防止合同漂移。
+ */
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
+
+function read (rel) {
+  const abs = path.join(repoRoot, rel)
+  if (!fs.existsSync(abs)) throw new Error('logging-contract 测试依赖文件缺失: ' + abs)
+  return fs.readFileSync(abs, 'utf8')
+}
+
+const desktopLogger = read('apps/desktop/electron/services/logger.js')
+const sharedLogger = read('packages/shared-utils/src/logger.js')
+const apiRedact = read('packages/api-publish-engine/src/log-redact.js')
+const pythonSetup = read('packages/python-backend/src/multi_publish/core/logging_setup.py')
+const douyin = read('packages/python-backend/src/multi_publish/publishers/douyin.py')
+const contractDoc = read('01-docs/LOGGING-CONTRACT.md')
+const retryMiddleware = read('packages/api-publish-engine/src/retry-middleware.js')
+const webhookManager = read('packages/api-publish-engine/src/webhook-manager.js')
+const publishApiServer = read('packages/api-publish-engine/src/publish-api-server.js')
+const composeApi = read('packages/api-publish-engine/docker-compose.yml')
+const composeLogto = read('deploy/logto/docker-compose.yml')
+const composeMonitor = read('deploy/logto/docker-compose.monitoring.yml')
+
+// 5 组脱敏模式的稳定字面量标记（与 3 处实现中的正则字面量一致）。
+// 用 String.fromCharCode(92) 构造反斜杠，规避字符串字面量转义被工具链吞掉的歧义。
+const BS = String.fromCharCode(92)
+const PATTERN_MARKERS = [
+  'Bearer' + BS + 's+',
+  'api[_-]?key|access_token|refresh_token|password|secret|authorization|cookie',
+  BS + 'b(api[_-]?key|access_token|refresh_token|password|secret|cookie)' + BS + 's*=' + BS + 's*',
+  'sk-[A-Za-z0-9_-]{4}',
+  'eyJ[A-Za-z0-9_-]{8,}'
+]
+describe('logging-contract 防漂移门禁', () => {
+  it('3 处 JS 脱敏实现保持 5 组模式同源', () => {
+    const implementations = [
+      ['desktop logger', desktopLogger],
+      ['shared-utils logger', sharedLogger],
+      ['api-publish-engine log-redact', apiRedact]
+    ]
+    for (const [name, src] of implementations) {
+      for (const marker of PATTERN_MARKERS) {
+        expect(src, `${name} 缺失脱敏模式 ${marker}`).toContain(marker)
+      }
+    }
+  })
+
+  it('desktop logger 保留/截断常量与合同一致', () => {
+    expect(desktopLogger).toMatch(/500 \* 1024 \* 1024/)
+    expect(desktopLogger).toMatch(/retentionDays = 30/)
+    expect(desktopLogger).toMatch(/MAX_MESSAGE_LENGTH = 4096/)
+    expect(contractDoc).toContain('500MB')
+    expect(contractDoc).toContain('30 天')
+    expect(contractDoc).toContain('4096')
+  })
+
+  it('shared-utils logger 5MB 轮转与合同一致', () => {
+    expect(sharedLogger).toMatch(/5 \* 1024 \* 1024/)
+    expect(contractDoc).toContain('5MB')
+  })
+
+  it('python loguru 3MB/15天/gz 与合同一致', () => {
+    expect(pythonSetup).toMatch(/rotation="3 MB"/)
+    expect(pythonSetup).toMatch(/retention="15 days"/)
+    expect(pythonSetup).toMatch(/compression="gz"/)
+    expect(contractDoc).toContain('3MB')
+    expect(contractDoc).toContain('15 天')
+  })
+
+  it('容器 json-file 50m×5 与合同一致（api/logto/monitoring 三个 compose）', () => {
+    const composes = [
+      ['api-publish-engine', composeApi],
+      ['logto', composeLogto],
+      ['monitoring', composeMonitor]
+    ]
+    for (const [name, src] of composes) {
+      expect(src, name + ' compose 缺 max-size').toContain('max-size: "50m"')
+      expect(src, name + ' compose 缺 max-file').toContain('max-file: "5"')
+    }
+    expect(contractDoc).toContain('50m')
+  })
+
+  it('强制日志点证据存在（retry/circuit/webhook/API 5xx/douyin 元信息）', () => {
+    expect(retryMiddleware).toMatch(/circuit opened key=/)
+    expect(retryMiddleware).toMatch(/retry attempt=/)
+    expect(webhookManager).toMatch(/_log\.warn/)
+    expect(publishApiServer).toMatch(/redactText/)
+    expect(douyin).toMatch(/has_data|has_upload_url/)
+    // A1 回归：禁止 token 明文进日志
+    expect(douyin).not.toMatch(/json\.dumps\(upload_token/)
+  })
+})
+
+ ===== openspec/changes/logging-contract/proposal.md =====
+## Why
+
+审计（LOGGING-AUDIT-2026-08-12）与 7 项加固已落地，但日志体系仍缺**单一权威合同**：level 枚举、脱敏清单、字段格式、保留策略分散在 5 套设施（L1-L5）与 6 个 OpenSpec spec 中，新代码与 AI 代理容易漂移（例如 3 处 JS 内联脱敏正则若单边修改即静默失配）。本 change 把已固化的行为收敛为可执行、可验证的日志合同。
+
+## What Changes
+
+- 新增 `01-docs/LOGGING-CONTRACT.md`：人读合同——level 枚举、5 组脱敏清单、字段格式、保留策略、强制日志点、禁止项、静默边界、证据索引（file:line）。
+- 新增 `.ccg/spec/observability/index.md`：代理读合同（精简版，作为 .ccg/spec 首个 observability 条目）。
+- 新增契约防漂移测试：`packages/shared-utils/src/__tests__/logging-contract.test.js`——断言 3 处 JS 脱敏实现同源、各设施保留/截断常量与合同文档一致。
+- OpenSpec change `logging-contract`：把合同契约化（R1-R7）。
+
+## Capabilities
+
+### New Capabilities
+- `logging-contract`: 统一日志合同——跨设施 level/脱敏/字段/保留/强制日志点/静默边界的单一权威文档与防漂移测试。
+
+### Modified Capabilities
+<!-- 无：纯文档 + 契约测试，不改运行时行为 -->
+
+## Impact
+
+- 文档：`01-docs/LOGGING-CONTRACT.md`（新增）、`.ccg/spec/observability/index.md`（新增）
+- 测试：`packages/shared-utils/src/__tests__/logging-contract.test.js`（新增，vitest）
+- 零运行时行为变更；文档门禁（check-docs-sync）随 01-docs 变更自动满足
+
+ ===== openspec/changes/logging-contract/design.md =====
+## Context
+
+日志体系 7 项加固（#658/#659/#664/#678/#684/#689/#696）已合并：脱敏同源、requestId、loguru 桥接、保留策略、容器轮转均落地。当前缺口是**契约文档化**（审计 P2 #14）：缺少统一 level/脱敏/字段/保留的权威出处，3 处 JS 内联脱敏存在漂移风险。
+
+## Goals / Non-Goals
+
+**Goals:**
+- 单一权威合同 `01-docs/LOGGING-CONTRACT.md`（人读）+ `.ccg/spec/observability/index.md`（代理读）（R1-R6）
+- 契约防漂移测试：3 处 JS 脱敏同源断言 + 保留/截断常量断言 + 文档↔代码一致性（R7）
+- OpenSpec 契约化并归档
+
+**Non-Goals:**
+- 不改任何运行时日志行为（已有 spec 各自约束）
+- 不引入第三方日志库（保持零依赖）
+- 不实施 C5 跨进程 traceId（另一 P2 项，单独 change）
+
+## Decisions
+
+**D1: 合同分三层落地**
+人读（01-docs）→ 代理读（.ccg/spec/observability）→ 契约化（openspec spec）。01-docs 为权威细节，.ccg/spec 为精简约束，spec 提供 Requirements/Scenarios 供 CI 与归档。
+
+**D2: 防漂移测试放 shared-utils vitest**
+无 electron 依赖、可跨包 fs 读 3 处 JS 脱敏源 + python logging_setup + 合同文档断言。先例：`logto-deploy-contract.test.js`（api-publish-engine 读 deploy/ 跨目录）。
+
+**D3: 断言锚定常量而非行为**
+已有各设施测试覆盖行为（脱敏/轮转/保留单测齐全）；契约测试只锚定"同源性与常量一致性"，避免重复覆盖。
+
+**D4: 静默边界显式文档化**
+remotion/story2video 引擎库、pre-Vue 入口失败、runSelfCheck 排队被拒观测盲区等已知静默区，在合同中标注为"文档化边界"而非"待修缺陷"。
+
+## Risks / Trade-offs
+
+- [文档漂移] → 契约测试断言文档常量与代码一致，CI 门禁兜底。
+- [测试脆弱（fs 读源码）] → 断言锚定稳定模式标记（正则字面量/常量名），非行号。
+- [重复覆盖] → 明确只做同源/常量断言，行为测试归各设施既有测试。
+
+## Migration Plan
+
+- 单 PR 合并即生效；无运行时迁移；回滚 = revert。
+
+ ===== openspec/changes/logging-contract/specs/logging-contract/spec.md =====
+# logging-contract Specification
+
+定义 Multi-Publish 日志体系统一合同：跨设施（桌面主进程 / shared-utils / api-publish-engine / Python / 容器）的 level 枚举、脱敏清单、字段格式、保留策略、强制日志点与静默边界，作为 `01-docs/LOGGING-CONTRACT.md` 与 `.ccg/spec/observability/index.md` 的契约化表述。
+
+## ADDED Requirements
+
+### Requirement: 脱敏模式同源
+所有 JS 日志出口 SHALL 使用同一组 5 类脱敏模式（Bearer / 带引号键值 / 无引号键值 / sk- 前缀 / eyJ 通用 JWT），且三处内联实现（desktop logger、shared-utils logger、api-publish-engine log-redact）SHALL 保持同源一致；任何单边修改 SHALL 被契约测试拦截。
+
+#### Scenario: 三处内联脱敏同源
+- **WHEN** 契约测试读取 desktop / shared-utils / api-publish-engine 三处脱敏源码
+- **THEN** 断言 5 类模式标记在每一处均存在且正则字面量一致
+
+### Requirement: Level 枚举与默认级别
+JS 设施 SHALL 使用 `DEBUG < INFO < WARN < ERROR` 四级；Python 设施 SHALL 使用 `DEBUG/INFO/WARNING/ERROR`。默认级别：桌面主进程 INFO、shared-utils debug、Python INFO。
+
+#### Scenario: 默认级别一致
+- **WHEN** 契约测试读取各设施默认级别定义
+- **THEN** 与合同文档记载的默认级别一致
+
+### Requirement: 保留策略
+各设施 SHALL 遵循合同文档记载的保留策略：桌面按日文件 500MB 超限滚动 `.1` + 30 天保留 + 4096 单条截断；shared-utils 5MB 滚动 `.1`；Python loguru 3MB 轮转 / 15 天 / gz；Compose 容器 json-file 50m × 5。
+
+#### Scenario: 保留常量与文档一致
+- **WHEN** 契约测试读取各设施保留/截断常量与 `LOGGING-CONTRACT.md`
+- **THEN** 常量数值与文档记载一致
+
+### Requirement: 强制日志点
+关键错误路径 SHALL 记录日志（经脱敏），不得静默：IPC 统一错误、主进程 unhandledRejection/uncaughtException、renderer 错误上报、API 5xx（error code+message+stack）、auth introspection/JWKS 失败、webhook 签名校验失败（hook id + 原因码）、retry 第 N 次/原因与熔断状态切换、entitlement 判定结果。
+
+#### Scenario: 错误路径有日志出口
+- **WHEN** 审查关键错误路径实现
+- **THEN** 每条路径均有日志调用且经脱敏，合同文档列出证据索引
+
+### Requirement: 禁止明文敏感与静默边界
+日志 SHALL NOT 以明文记录 token/apiKey/password/cookie/JWT（源头不打印优先，redact 为最后防线）；已知静默区（remotion/story2video 引擎库、pre-Vue 入口失败、runSelfCheck 排队被拒观测盲区）SHALL 在合同文档中显式标注为文档化边界。
+
+#### Scenario: 静默边界文档化
+- **WHEN** 读取合同文档静默边界章节
+- **THEN** 每个已知静默区均有边界说明与处理建议
+
+ ===== openspec/changes/logging-contract/tasks.md =====
+## 1. 合同文档
+
+- [ ] 1.1 `01-docs/LOGGING-CONTRACT.md`：level 枚举/5 组脱敏清单/字段格式/保留策略/强制日志点/禁止项/静默边界/证据索引
+- [ ] 1.2 `.ccg/spec/observability/index.md`：代理读精简合同（首个 observability spec 条目）
+
+## 2. 契约防漂移测试
+
+- [ ] 2.1 shared-utils vitest：3 处 JS 脱敏实现同源断言（5 组模式标记）
+- [ ] 2.2 常量断言：desktop 500MB/30d/4096、shared-utils 5MB、python 3MB/15d/gz、容器 50m/5，且与 LOGGING-CONTRACT.md 一致
+
+## 3. 验证与交付
+
+- [ ] 3.1 shared-utils vitest + 引用方回归通过
+- [ ] 3.2 `openspec validate logging-contract` 通过
+- [ ] 3.3 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+
+
+
+输出：Critical / Warning / Info 分级审查报告，每条给出文件与具体问题与修改建议。
