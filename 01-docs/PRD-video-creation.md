@@ -130,6 +130,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 | 日期 | 范围 | 核心内容 | 主文档 |
 |------|------|----------|--------|
+| 2026-08-13 | 视频克隆：入口卡 + 默认链接 + 自动复刻层级 | CreateView「流水线创作」新增「视频克隆」标准流水线卡（`[data-pipeline-id="video-clone"]`，紧随全能创作，点击直达 /video-clone）；视频克隆页输入来源默认「链接」（v1.14）；复刻层级下拉移除（v1.15），改为程序按拆解报告证据自动定级 L0/L1/L2（v1.16，驱动 generate/compose 分支 + F4 按层级验收，UI 展示「自动目标层级 → 达成 grade」）；打包 E2E 回捕修复（L0 封面负索引 + E2E 脚本适配默认链接）。详见 PRD-VIDEO-CLONE v1.14–v1.16 | PRD-VIDEO-CLONE-2026-08-12 |
 | 2026-08-07 | 模型服务异常检测 | ProviderAnomalyBus（慢响应 llm/tts/audio 30s、image 60s、video 120s；超时/网络错误）→ `pipeline:getRunContext` 下发 `providerWarnings` → 前端非阻塞横幅；`callAdapter` 有界超时（视频 10min/其余 2min）；pipeline-engine 阶段/运行执行日志；提示词优化进度前置 `optimize_progress`。PR #397 | PRD 7.1.12 |
 | 2026-08-08 | 提示与反馈规范 | 弹窗标题统一「提示」/「Notice」（去掉「{流水线名} 提示」）；选项保存 toast 改操作栏上方绝对定位（不挤占启动按钮）；媒体校验细分（格式/大小/不可读）+ 文件要求常驻提示（i18n）。PR #398 | PRD 7.1.13 |
 | 2026-08-08 | 失败任务历史 | `RunStateStore.listFailed()` + `getHistory()` 合并持久化失败快照（重启后仍显示）；失败状态文案「生成失败」。PR #399 | PRD 历史章节 |

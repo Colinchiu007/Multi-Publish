@@ -3,10 +3,35 @@
 /**
  * F4 相似度自检（PRD §3 F4）。
  * 权重：结构 0.35 / 文案 0.25 / 风格 0.25 / 时长 0.15。
- * P1/P2 阈值：结构 ≥0.8/0.85，文案 ≥0.7，风格 ≥0.6/0.7，时长 ≤±10%/±5%。
- * 证据门控：缺数据（空时间轴/空文案/空风格标签/无时长）的指标不计 PASS，
- * 置信度 = 有证据指标数/4；置信度 < 0.5 → verdict=insufficient_evidence（防止空报告假通过）。
+ * 按复刻层级验收（v1.16）：L0 文案级仅文案必须；L1 结构≥0.8/文案≥0.7/风格≥0.6/时长≤10%；
+ * L2 结构≥0.85/文案≥0.7/风格≥0.7/时长≤5%。兼容 target：P1→L1、P2→L2。
+ * 证据门控：缺数据（空时间轴/空文案/空风格标签/无时长）的指标不计 PASS；
+ * 全局置信度 < 0.5 → insufficient_evidence（防空报告假通过）；否则按该层级必须维度是否全部达标判 pass/needs_review。
  */
+
+const { REPLICATION_LEVELS } = require('./constants');
+
+/** 按层级验收阈值（v1.16；duration 为偏差上限，Infinity=不要求） */
+const LEVEL_THRESHOLDS = Object.freeze({
+  L0: { structure: 0, script: 0.7, style: 0, duration: Infinity },
+  L1: { structure: 0.8, script: 0.7, style: 0.6, duration: 0.1 },
+  L2: { structure: 0.85, script: 0.7, style: 0.7, duration: 0.05 },
+});
+
+/** 各层级必须达标的维度 */
+const LEVEL_REQUIRED = Object.freeze({
+  L0: ['script'],
+  L1: ['structure', 'script', 'style', 'duration'],
+  L2: ['structure', 'script', 'style', 'duration'],
+});
+
+/** 有效层级：显式 level > target 映射（P1→L1/P2→L2）> L1 */
+function resolveLevel(level, target) {
+  if (level && REPLICATION_LEVELS.includes(level)) return level;
+  if (target === 'P2') return 'L2';
+  if (target === 'P1') return 'L1';
+  return 'L1';
+}
 
 /** 时长偏差率：|clone-source|/source，0 为完全一致 */
 function durationDeviation(sourceSec, cloneSec) {
@@ -104,7 +129,7 @@ function styleTagsFromReport(report) {
  * - confidence = 有证据指标数/4；<0.5 → verdict=insufficient_evidence（不判定 pass）
  * - warnings.verbatimScript：文案相似度 >0.9 且双方非空 → 照抄警告（合规提示，不影响 pass）
  */
-function computeSimilarityReport({ source, clone, target = 'P1' }) {
+function computeSimilarityReport({ source, clone, target = 'P1', level = null }) {
   const srcNarr = (source && source.narrative && source.narrative.timeline) || [];
   const clnNarr = (clone && clone.narrative && clone.narrative.timeline) || [];
   const srcScript = (source && source.script && source.script.fullText) || '';
@@ -129,14 +154,16 @@ function computeSimilarityReport({ source, clone, target = 'P1' }) {
   const confidence = Object.values(evidence).filter(Boolean).length / 4;
 
   const score = 0.35 * structure + 0.25 * script + 0.25 * style + 0.15 * duration;
-  const isP2 = target === 'P2';
+  const effLevel = resolveLevel(level, target);
+  const th = LEVEL_THRESHOLDS[effLevel] || LEVEL_THRESHOLDS.L1;
+  const required = LEVEL_REQUIRED[effLevel] || LEVEL_REQUIRED.L1;
   const passes = {
-    structure: evidence.structure && structure >= (isP2 ? 0.85 : 0.8),
-    script: evidence.script && script >= 0.7,
-    style: evidence.style && style >= (isP2 ? 0.7 : 0.6),
-    duration: evidence.duration && dev <= (isP2 ? 0.05 : 0.1),
+    structure: evidence.structure && structure >= th.structure,
+    script: evidence.script && script >= th.script,
+    style: evidence.style && style >= th.style,
+    duration: evidence.duration && (th.duration === Infinity ? true : dev <= th.duration),
   };
-  const passedCount = Object.values(passes).filter(Boolean).length;
+  const requiredPassed = required.every((k) => passes[k] === true);
   const warnings = { verbatimScript: script > 0.9 && srcScript.length > 0 && clnScript.length > 0 };
   const grade = score >= 0.85 ? 'L2' : score >= 0.7 ? 'L1' : 'L0';
 
@@ -147,7 +174,9 @@ function computeSimilarityReport({ source, clone, target = 'P1' }) {
     passes,
     warnings,
     grade,
-    verdict: confidence < 0.5 ? 'insufficient_evidence' : (passedCount >= 3 ? 'pass' : 'needs_review'),
+    level: effLevel,
+    // 证据门禁沿用全局置信度（防空报告假通过）；层级只决定 pass/needs_review 的达标维度
+    verdict: confidence < 0.5 ? 'insufficient_evidence' : requiredPassed ? 'pass' : 'needs_review',
     target,
   };
 }
@@ -155,4 +184,5 @@ function computeSimilarityReport({ source, clone, target = 'P1' }) {
 module.exports = {
   durationDeviation, intervalIoU, structureSimilarity, scriptSimilarity,
   styleOverlap, styleTagsFromReport, computeSimilarityReport,
+  resolveLevel, LEVEL_THRESHOLDS, LEVEL_REQUIRED,
 };

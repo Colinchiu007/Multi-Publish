@@ -37,6 +37,30 @@ test('buildComposeCommand：输入/滤镜/时长/输出结构', () => {
   assert.ok(args.includes('-t'));
 });
 
+test('L0 单封面合成：单输入 + 字幕/音频 + 全时长（无 concat）', () => {
+  const assets = {
+    level: 'L0',
+    scenes: [{ path: 'C:/tmp/cover.png', durationSec: 6 }],
+    audio: { path: 'C:/tmp/voice.m4a' },
+    subtitles: { path: 'C:/tmp/sub.ass' },
+  };
+  const { args, totalDurationSec } = buildComposeCommand({ report: reportWith({ shots: [] }), assets, outputPath: 'C:/tmp/out.mp4' });
+  assert.equal(totalDurationSec, 6);
+  const inputCount = args.filter((a, i) => args[i - 1] === '-i').length;
+  assert.equal(inputCount, 2); // 封面 + 音频
+  const fc = args[args.indexOf('-filter_complex') + 1];
+  assert.ok(!fc.includes('concat='), 'L0 不做逐镜头 concat');
+  assert.ok(fc.includes('subtitles='), 'L0 保留字幕');
+  assert.ok(args.includes('-map'));
+});
+
+test('L0 素材非单张 → 抛 VIDEOCLONE_COMPOSE_FAILED', () => {
+  assert.throws(
+    () => buildComposeCommand({ report: reportWith({ shots: [] }), assets: { level: 'L0', scenes: [{ path: 'a.png' }, { path: 'b.png' }] }, outputPath: 'x.mp4' }),
+    (e) => e instanceof VideoCloneError && e.code === 'VIDEOCLONE_COMPOSE_FAILED',
+  );
+});
+
 test('无镜头 → 抛 VIDEOCLONE_COMPOSE_FAILED', () => {
   assert.throws(
     () => buildComposeCommand({ report: reportWith({ shots: [] }), assets: { scenes: [] }, outputPath: 'x.mp4' }),

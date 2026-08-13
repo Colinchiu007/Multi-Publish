@@ -3,8 +3,22 @@
 - 根因：manual 候选生成（buildManualSceneCandidates）视频候选是 for...await 串行循环，且图片候选必须等视频全部完成——2 个视频场景实测纯视频阶段 11+ 分钟无图片产出，与全自动（PR #717 三路并行 + 视频并发 2）体验割裂。
 - 修复：executor manual 分支计算视频并发（请求默认 2，经 provider 预算 rate_per_minute > 静态表 > 类别默认、maxConcurrent 封顶）并输出与 auto 同格式日志；buildManualSceneCandidates 视频候选改用 _mapWithConcurrency 有界并行，图片候选与视频候选 Promise.all 并行启动。
 - 契约不变：每场景 2 图（同场景 seq 0→1 顺序防覆盖）、视频场景 2 图 + 1 视频、视频失败回退仅 2 图、候选清单结构、scene_asset_selection 检查点、finalize_assets 流程均不变；auto 路径零改动。额度契约保持 manual「每视频场景 2 图 + 1 视频」（与 auto 视频成功跳图不同，属自选 UX 设计，非并行机制变更）。
-- 测试：story2video-manual-assets.test.js +3（视频 in-flight=2 并行且图片并行启动、provider 预算 maxConcurrent=1 收敛为串行、视频失败回退），manual 专项 19 全绿；story2video-stages 83、story2video-text-config 68 全绿。
+- 测试：story2video-manual-assets.test.js +4（in-flight=2 并行且图片并行启动、provider 预算 maxConcurrent=1 收敛为串行、视频失败回退、一路成功一路失败混合），manual 专项 20 全绿；story2video-stages 83、story2video-text-config 68 全绿。
 - 文档：PRD.md 7.1.3a 候选生成（video-image bullet 补充并行机制，三副本同步）；OpenSpec change s2v-manual-video-parallel（proposal/design/specs/tasks）。
+
+## [2026-08-13] feat(video-clone): 复刻层级程序自动决定并驱动行为（L0/L1/L2）
+
+- 引擎新增 `replication-level.js`：`assessReplicationLevel(report)` 按证据完备度自动定级（结构≥2 段 / 文案非空 / 风格标签≥2 / 时长）→ L0/L1/L2，plan 阶段写入 `replication.level` + `replication.auto`（inspiration 只借结构自然落 L0；显式 replicationLevel 仍优先）。
+- generate 按层级：L0 单封面图（text-first，无内容 fail-closed）；L1/L2 逐镜头（L2 promptSeed 加 `level:L2` 锚点）。
+- compose 按层级：L0 单图循环全时长（无 concat）；L1/L2 逐镜头拼接。
+- F4 按层级验收（similarity.js `LEVEL_THRESHOLDS`/`LEVEL_REQUIRED`）：L0 仅文案必须；L1/L2 结构/文案/风格/时长分级阈值；兼容 target P1→L1、P2→L2；`level` 入结果；verdict 保持置信度门禁。
+- UI：报告元信息行 + 相似度卡展示「自动目标层级 → 达成 grade（F4 按 Lx 验收）」。
+- 测试：引擎全量 124 pass（+replication-level 5 例 + plan/similarity/generate/compose 分层用例）；桌面 composable 7 绿；vite build/eslint 0。
+- 真实运行：testsrc 3s 样例 → 自动 L0 → 封面生成 → L0 合成 → 成片产出、F4 level=L0。
+- PRD v1.16 §13.2/§29/§30。
+- 修复（打包 E2E 回捕）：L0 封面 spec 负索引导致占位图生成器 `colors[-1]` 取色失败（index 改 0 + 桌面生成器 `Math.abs` 防御）；`scripts/video-clone-e2e.js` 适配默认链接（先切「本地文件」再按 placeholder 填路径）。
+- 复盘：01-docs/learnings.md 视频克隆自动复刻层级复盘（装饰字段陷阱 / verdict 证据门禁语义 / schema 默认值流入分支 / 负索引取模）。
+- 关联文档：PRD-video-creation.md §1.6 修订表补录视频克隆条目（入口卡/默认链接/自动复刻层级）。
 ## [2026-08-13] refactor(video-clone): 移除无效的「复刻层级」下拉
 
 - 复刻层级（L0/L1/L2）当前仅写入报告作为目标声明，analyze/generate/compose/F4 均未按层级分支，属无效选项 → 从 UI 移除。
@@ -36,6 +50,17 @@
 - 文档：PRD §7.1.3a-1 等待态 UX 反馈（功能逻辑/数据校验/交互逻辑/显示项/提示文字）；learnings.md 复盘（状态映射测试护栏/等待可感知性/MessageFunction 插值/scroll spy 污染）。
 
 
+## [2026-08-13] 提示词引擎自进化 P0：生成/反馈双日志反馈管道（prompt-engine-evolution-p0）
+
+- 新增桌面端反馈管道（设计：01-docs/prompt-engine-evolution-design.md v2，经 Claude + Codex 双模型架构审查）：
+  - `GenerationEvent`/`FeedbackEvent` 双日志（append-only JSONL，`userData/generation-logs/`，月轮转 30 天清理，按 eventId join；sessionId 可解析到最新生成事件，无法 join 标记 orphan 不丢弃）。
+  - `services/prompt-evolution/`（schema.js fail-closed 校验 + signal-collector.js 采集/统计/孤儿检测/轮转），`ipc-handlers/generation-feedback.js`（`generation:feedback`：eventId 或 sessionId 至少其一 + EC 错误码；`prompt-library:list` P0 骨架）。
+  - feature flag `MP_EVOLUTION_ENABLED=1` 开启（默认关闭）；preload 新增 `generationFeedback`/`promptLibraryList`。
+  - Story2Video 素材自选采纳埋点（`reportEvolutionFeedback`，API 缺失静默跳过，不阻断用户操作）。
+  - `generateImagePromptsSmart` 增加可选 `onEvent` 回调（不传行为不变，回调抛错不阻断生成）。
+- 测试：prompt-evolution 18 + generation-feedback 7 + preload 333 + bootstrap 32 + CreateView 162 + story2video-engine 129 全绿。
+- 双模型审查修复：cleanup 30 天清理按真实文件布局（YYYY-MM.jsonl）生效并有启动调用点；明文 userId 不落盘（仅加盐 HMAC）；跨月 join（当月+上月）；IPC 校验错误码统一 VALIDATION_ERROR、muted 返回成功语义；onEvent 支持异步回调；测试月份本地化。recordGeneration 生产接线明确列为 P1 交付项（本 change 仅交付采集器能力 + 反馈回填流 + onEvent 钩子）。
+- 范围：P0 仅反馈管道；评估/记忆/优化/治理（P1-P3）后续 change 承载。
 ## [2026-08-13] Story2Video 全能创作：分句链路统一使用分句引擎算法（story2video-split-engine-unify）
 
 - 问题：全能创作合成视频中分句「没生效」——分句引擎 smart-sentence-splitter（:8002）返回的 `scenes[].subtitles` 被丢弃，场景内字幕块由桌面本地旧贪心算法（硬编码 8/15 字）重新切分；引擎离线时整条链路降级为同一旧算法。

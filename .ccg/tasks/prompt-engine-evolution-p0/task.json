@@ -1,0 +1,13 @@
+{
+  "id": "prompt-engine-evolution-p0",
+  "title": "图片/视频提示词引擎自进化 P0 反馈管道落地",
+  "status": "review",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "review",
+  "nextAction": "PR #722 CI 通过后合并，三同步归档",
+  "createdAt": "2026-08-13T14:20:00+08:00",
+  "branch": "codex/prompt-engine-evolution-p0",
+  "openspecChange": "prompt-engine-evolution-p0"
+}

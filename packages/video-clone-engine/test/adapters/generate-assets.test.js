@@ -14,6 +14,7 @@ function reportWithShots() {
   r.scriptStyle.person = 'second';
   r.narrative.plot = '一个故事';
   r.replication.mode = 'style';
+  r.replication.level = 'L1'; // 生产路径由 plan 定级；夹具显式 L1 走逐镜头分支
   return r;
 }
 
@@ -35,6 +36,45 @@ test('full 模式 + video 镜头 → kind=video', () => {
   const plan = createAssetPlan(r);
   assert.equal(plan[0].kind, 'video');
   assert.equal(plan[1].kind, 'image');
+});
+
+test('L0 文案级：单封面图规划（kind=cover, text-first）', () => {
+  const r = emptyReport();
+  r.replication.level = 'L0';
+  r.meta.durationSec = 8;
+  r.script.fullText = '这是文案';
+  const plan = createAssetPlan(r);
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].index, 0); // 非负索引：占位图生成器 colors[index % len] 依赖
+  assert.equal(plan[0].kind, 'cover');
+  assert.ok(plan[0].promptSeed.includes('text-first'));
+  assert.ok(plan[0].promptSeed.includes('text:这是文案'));
+  assert.equal(plan[0].durationSec, 8);
+});
+
+test('L0 无有效内容（空报告）→ 空规划（generate fail-closed）', () => {
+  const plan = createAssetPlan(emptyReport()); // level=L0 但无文案/时长
+  assert.equal(plan.length, 0);
+});
+
+test('L0 generate 产出单封面并标记 assets.level', async () => {
+  const g = createGenerateAssets({ assetGenerator: async (spec) => ({ path: 'C:/tmp/cover.png', kind: spec.kind }) });
+  const r = emptyReport();
+  r.replication.level = 'L0';
+  r.meta.durationSec = 8;
+  r.script.fullText = '文案';
+  const ctx = { report: r, artifacts: {} };
+  await g.run(ctx);
+  assert.equal(ctx.artifacts.assets.scenes.length, 1);
+  assert.equal(ctx.artifacts.assets.scenes[0].kind, 'cover');
+  assert.equal(ctx.artifacts.assets.level, 'L0');
+});
+
+test('L2 逐镜头 promptSeed 追加 level:L2 锚点', () => {
+  const r = reportWithShots();
+  r.replication.level = 'L2';
+  const plan = createAssetPlan(r);
+  assert.ok(plan[0].promptSeed.includes('level:L2'));
 });
 
 test('未注入 assetGenerator → VIDEOCLONE_PROVIDER_UNAVAILABLE（fail-closed retryable）', async () => {
