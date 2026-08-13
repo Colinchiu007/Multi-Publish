@@ -1,0 +1,12 @@
+{
+  "id": "watermark-margin",
+  "title": "水印四角边距调远（20px→40px、顶部 40px→60px）",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "implementation",
+  "nextAction": "修改 buildWatermarkFilter 四角坐标 + 同步测试/文档",
+  "createdAt": "2026-08-14T00:00:00Z",
+  "branch": "codex/watermark-margin"
+}

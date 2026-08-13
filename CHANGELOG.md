@@ -6,6 +6,13 @@
 - 双模型评审：Claude 0 Critical / 1 Warning（纯空白 max_length 已修复）/ 7 Info（记录对齐：trailer 超预算语义、标记跨仓库对齐、R6 测试耦合引擎能力等）；评审补 3 组边界测试（非法切不占位/duration 非法/beats 非对象）+ W1 用例。
 - 测试：kernel 12 + 图片/视频契约 103 + prompt-bridge/story2video-stages/text-config 158 + stage-executor 64 + story2video 全量 244 全绿；QM-1 electron-builder exit 0 + asar 含 kernel + 8s 启动存活 stderr 干净。
 - 文档：01-docs/HELL-GRIND-OPENSOURCE-ANALYSIS-DEEP-2026-08-14.md（语料实证报告）；OpenSpec 双 change（kernel-refactor + higgsfield-mechanics）；跨仓库联调（prompt-engine 侧输出新字段/evaluator 层级长度）挂起 tasks 4.4。
+## [2026-08-14] fix(story2video): 水印四角边距调远（watermark-margin）
+
+- 用户反馈左上/左下/右上/右下四角水印距边过近；`buildWatermarkFilter` 四角坐标边距调整：水平/底部 20px→40px、顶部 40px→60px（`apps/desktop/electron/services/story2video-compose-engine.js`）。
+- center/moving 不受影响（moving 为确定性 Lissajous 漂移，幅度 0.9 倍中心区间，天然留边）。
+- 测试：`story2video-compose-engine.test.js` buildWatermarkFilter 契约断言同步（四角 40/60/40、默认 bottom-right、未知位置 fail-closed），`y=h-20` 负向回归断言保持有效；受影响套件全绿 + 真实 ffmpeg 渲染回归确认四角水印不越界。
+- 文档：PRD-video-creation §3.1.24 坐标语义表与 §1.6 修订记录同步更新。
+
 ## [2026-08-14] fix(test): views-deep2 补全 @/api/publisher mock 的 onPipelineUpdate（解除 CI 必红，PR #788）
 
 - 根因：PR #770（240fe9b3）新增 `publisher.onPipelineUpdate` 并在 `CreateView.vue` async mounted 调用，未同步 `views-deep2.test.js` 的 `vi.mock` factory；`--no-file-parallelism` 下表现为运行尾部 3 个 unhandled rejection，electron-tests 与 QG 4 个 job 必红（main@240fe9b3 自身同样失败）。

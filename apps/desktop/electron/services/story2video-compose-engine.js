@@ -456,10 +456,11 @@ function buildWatermarkFilter (options) {
   // 回归：旧公式 bottom-* 用 y=h-20、center 用 y=(h+text_h)/2，把文字主体画出画布/整体下移，
   // 导致默认 bottom-right 下成片完全看不到水印（commit e1b46eba0 引入）。
   const positions = {
-    'top-left': 'x=20:y=40',
-    'top-right': 'x=w-text_w-20:y=40',
-    'bottom-left': 'x=20:y=h-text_h-20',
-    'bottom-right': 'x=w-text_w-20:y=h-text_h-20',
+    // 边距契约（2026-08-14 调整）：用户反馈四角距边过近，水平/底部 20px→40px、顶部 40px→60px。
+    'top-left': 'x=40:y=60',
+    'top-right': 'x=w-text_w-40:y=60',
+    'bottom-left': 'x=40:y=h-text_h-40',
+    'bottom-right': 'x=w-text_w-40:y=h-text_h-40',
     center: 'x=(w-text_w)/2:y=(h-text_h)/2',
     // moving：确定性 Lissajous 平滑漂移（x 周期 10s / y 周期 14s，90% 中心幅度，起点正中）。
     // 不用逐帧随机：ffmpeg random() 每帧取新值 → 文字闪烁且不可复现；表达式内禁止逗号（会切分滤镜链）。
