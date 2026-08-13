@@ -104,6 +104,68 @@ test('computeSimilarityReport：P1/P2 阈值差异', () => {
   assert.equal(p2.passes.duration, false); // >5%
 });
 
+// —— v1.16：按复刻层级验收 ——
+
+test('L0 文案级：仅文案必须；结构/风格不达标不阻塞 pass', () => {
+  const src = emptyReport();
+  src.meta.durationSec = 60;
+  src.script.fullText = '同一段文案';
+  src.narrative.timeline = [{ t0: 0, t1: 10 }];
+  src.visual.palette = 'warm';
+  const clone = emptyReport();
+  clone.meta.durationSec = 60;
+  clone.script.fullText = '同一段文案';
+  const out = computeSimilarityReport({ source: src, clone, level: 'L0' });
+  assert.equal(out.level, 'L0');
+  assert.equal(out.passes.script, true);
+  assert.equal(out.verdict, 'pass');
+});
+
+test('L0 文案级：文案偏离 → needs_review（不看结构/风格）', () => {
+  const src = emptyReport();
+  src.script.fullText = 'aaa';
+  src.meta.durationSec = 60; // 带足证据避免 insufficient_evidence
+  const clone = emptyReport();
+  clone.script.fullText = 'xyz';
+  clone.meta.durationSec = 60;
+  const out = computeSimilarityReport({ source: src, clone, level: 'L0' });
+  assert.equal(out.passes.script, false);
+  assert.equal(out.verdict, 'needs_review');
+});
+
+test('L0 无文案证据 → insufficient_evidence（防空报告假通过）', () => {
+  const out = computeSimilarityReport({ source: emptyReport(), clone: emptyReport(), level: 'L0' });
+  assert.equal(out.verdict, 'insufficient_evidence');
+});
+
+test('L1 vs L2 时长阈值差异：8% 偏差 L1 过 / L2 不过', () => {
+  const src = emptyReport();
+  src.meta.durationSec = 100;
+  src.narrative.timeline = [{ t0: 0, t1: 10 }];
+  src.script.fullText = 'abcd';
+  src.visual.palette = 'warm';
+  src.scriptStyle.person = 'second';
+  const clone = emptyReport();
+  clone.meta.durationSec = 108;
+  clone.narrative.timeline = [{ t0: 0, t1: 10 }];
+  clone.script.fullText = 'abcd';
+  clone.visual.palette = 'warm';
+  clone.scriptStyle.person = 'second';
+  const l1 = computeSimilarityReport({ source: src, clone, level: 'L1' });
+  const l2 = computeSimilarityReport({ source: src, clone, level: 'L2' });
+  assert.equal(l1.passes.duration, true);
+  assert.equal(l2.passes.duration, false);
+});
+
+test('resolveLevel：显式 level > target 映射 > L1', () => {
+  const { resolveLevel } = require('../src/similarity');
+  assert.equal(resolveLevel('L0', 'P2'), 'L0');
+  assert.equal(resolveLevel(null, 'P2'), 'L2');
+  assert.equal(resolveLevel(null, 'P1'), 'L1');
+  assert.equal(resolveLevel('L9', 'P1'), 'L1'); // 非法显式 → 回退
+  assert.equal(resolveLevel(null, null), 'L1');
+});
+
 // —— 审查回归（W2/I2：空数据假通过；W4：顺序敏感）——
 
 test('W2: 空报告 → insufficient_evidence，不判定 PASS，无 verbatim 假警告', () => {

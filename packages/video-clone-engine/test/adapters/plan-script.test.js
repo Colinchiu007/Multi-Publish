@@ -57,6 +57,48 @@ test('inspiration 模式：仅借结构，清空风格与文案', async () => {
   assert.equal(ctx.artifacts.analysis.rewrite.inspiration, true);
 });
 
+test('无显式层级 → 按证据自动定级 L2 并写入 replication.auto', async () => {
+  const p = createScriptPlan({ llmRunner: null });
+  const ctx = baseCtx({ mode: 'style' }); // baseCtx: fullText + palette=warm + person=second
+  ctx.report.narrative.timeline = [{ t0: 0, t1: 10 }, { t0: 10, t1: 20 }];
+  ctx.report.scriptStyle.tone = 'cheerful';
+  await p.run(ctx);
+  assert.equal(ctx.report.replication.level, 'L2');
+  assert.equal(ctx.report.replication.auto.determined, true);
+  assert.equal(ctx.report.replication.auto.level, 'L2');
+  assert.ok(ctx.report.replication.auto.confidence >= 0.75);
+});
+
+test('风格证据不足（仅文案+结构）→ 自动定级 L1', async () => {
+  const p = createScriptPlan({ llmRunner: null });
+  const ctx = baseCtx({}); // fullText + palette=warm + person=second（风格标签 2 个，改弱）
+  ctx.report.narrative.timeline = [{ t0: 0, t1: 10 }, { t0: 10, t1: 20 }];
+  ctx.report.visual.palette = 'unknown';
+  ctx.report.scriptStyle.person = 'unknown';
+  await p.run(ctx);
+  assert.equal(ctx.report.replication.level, 'L1');
+  assert.equal(ctx.report.replication.auto.determined, true);
+});
+
+test('显式 replicationLevel 优先（auto.determined=false）', async () => {
+  const p = createScriptPlan({ llmRunner: null });
+  const ctx = baseCtx({ replicationLevel: 'L0', mode: 'structure' });
+  await p.run(ctx);
+  assert.equal(ctx.report.replication.level, 'L0');
+  assert.equal(ctx.report.replication.auto.determined, false);
+  assert.equal(ctx.report.replication.auto.source, 'explicit');
+});
+
+test('inspiration 只借结构 → 自动定级 L0（风格/文案已清空）', async () => {
+  const p = createScriptPlan({ llmRunner: null });
+  const ctx = baseCtx({ mode: 'inspiration' });
+  ctx.report.narrative.timeline = [{ t0: 0, t1: 10 }, { t0: 10, t1: 20 }];
+  await p.run(ctx);
+  assert.equal(ctx.report.replication.mode, 'inspiration');
+  assert.equal(ctx.report.replication.level, 'L0');
+  assert.equal(ctx.report.replication.auto.determined, true);
+});
+
 test('防御性归一化：缺失层补默认', async () => {
   const p = createScriptPlan({ llmRunner: null });
   const ctx = { request: { source: { path: 'x' }, options: {} }, report: { script: { fullText: 'x' } }, artifacts: { analysis: {} } };

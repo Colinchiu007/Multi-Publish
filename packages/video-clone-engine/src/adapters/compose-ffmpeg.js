@@ -54,8 +54,36 @@ function escapeAssPath(p) {
 
 /** ffmpeg 合成命令构建（纯函数）：图片序列 + 可选音频/水印/字幕 → 输出（PRD F3.2/§17） */
 function buildComposeCommand({ report, assets, outputPath, fps = 30 }) {
+  const isL0 = assets && assets.level === 'L0';
   const shots = (report && report.visual && report.visual.shots) || [];
   const scenes = (assets && assets.scenes) || [];
+  // L0 文案级（v1.16）：单封面图循环全时长 + 字幕 + 音频，不做逐镜头拼接
+  if (isL0) {
+    if (scenes.length !== 1) {
+      throw new VideoCloneError('VIDEOCLONE_COMPOSE_FAILED', { phase: 'compose', params: { reason: 'L0 需要单封面素材' } });
+    }
+    const target = resolveTargetSize(report);
+    const dur = Math.max(0.5, scenes[0].durationSec || (report.meta && report.meta.durationSec) || 10);
+    const args = ['-y', '-loop', '1', '-t', String(dur), '-i', scenes[0].path];
+    let audioIdx = null;
+    if (assets.audio && assets.audio.path) { audioIdx = 1; args.push('-i', assets.audio.path); }
+    let wmIdx = null;
+    if (assets.watermark && assets.watermark.path) { wmIdx = (audioIdx === null ? 1 : 2); args.push('-i', assets.watermark.path); }
+    const fc = ['[0:v]scale=' + target.w + ':' + target.h + ':force_original_aspect_ratio=decrease,pad=' + target.w + ':' + target.h + ':(ow-iw)/2:(oh-ih)/2,setsar=1,fps=' + fps + '[outv]'];
+    let outLabel = '[outv]';
+    if (assets.subtitles && assets.subtitles.path) {
+      fc.push(outLabel + 'subtitles=' + "'" + escapeAssPath(assets.subtitles.path) + "'" + '[outv2]');
+      outLabel = '[outv2]';
+    }
+    if (wmIdx !== null) {
+      fc.push(outLabel + '[' + wmIdx + ':v]overlay=W-w-16:16[outv3]');
+      outLabel = '[outv3]';
+    }
+    args.push('-filter_complex', fc.join(';'), '-map', outLabel);
+    if (audioIdx !== null) args.push('-map', audioIdx + ':a');
+    args.push('-t', String(dur), '-pix_fmt', 'yuv420p', '-movflags', '+faststart', outputPath);
+    return { args, totalDurationSec: dur };
+  }
   if (shots.length === 0) {
     throw new VideoCloneError('VIDEOCLONE_COMPOSE_FAILED', { phase: 'compose', params: { reason: '报告无镜头' } });
   }

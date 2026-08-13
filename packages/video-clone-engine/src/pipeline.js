@@ -115,7 +115,13 @@ function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
               const v = validateCloneReport(ctx.report);
               if (!v.ok) throw new VideoCloneError('VIDEOCLONE_INVALID_REPORT', { phase: 'compose', params: { errors: v.errors } });
               const target = (ctx.request.options && ctx.request.options.target) || 'P1';
-              const sim = computeSimilarityReport({ source: ctx.sourceReport || ctx.report, clone: ctx.report, target });
+              // 有效层级：请求显式层级 > 报告（plan 自动定级）> L1（v1.16）
+              const reqLevel = ctx.request.options && ctx.request.options.replicationLevel;
+              const repLevel = ctx.report.replication && ctx.report.replication.level;
+              const sim = computeSimilarityReport({
+                source: ctx.sourceReport || ctx.report, clone: ctx.report,
+                target, level: reqLevel || repLevel || 'L1',
+              });
               ctx.similarity = sim;
               const failOnLow = ctx.request.options && ctx.request.options.failOnLowSimilarity === true;
               if (failOnLow && (sim.verdict === 'needs_review' || sim.verdict === 'insufficient_evidence')) {
