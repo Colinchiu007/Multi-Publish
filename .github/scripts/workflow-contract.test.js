@@ -17,6 +17,7 @@ test('视觉工作流使用与基线一致的 Windows 渲染环境', () => {
   assert.match(workflow, /runs-on:\s*windows-latest/);
   assert.match(workflow, /shell:\s*pwsh/);
   assert.match(workflow, /Start-Process -FilePath "pnpm\.cmd"/);
+  assert.match(workflow, /ArgumentList @\("exec", "vite", "--host", "127\.0\.0\.1", "--port", "5174"\)/);
   assert.match(workflow, /taskkill \/PID/);
   assert.match(workflow, /pnpm\.cmd run test:visual:pixel/);
   assert.doesNotMatch(workflow, /sudo apt-get|setsid bash|trap cleanup EXIT/);
@@ -89,7 +90,7 @@ test('质量门禁的全量 Vitest 有可终止的 Windows watchdog', () => {
   assert.match(unitTestStep, /function Get-TestProcessTree/);
   assert.match(unitTestStep, /Get-TestProcessTree -RootProcessId \$testProcess\.Id/);
   assert.match(unitTestStep, /\$remainingTestProcesses = @\(Get-TestProcessTree -RootProcessId \$testProcess\.Id\)/);
-  assert.match(unitTestStep, /Gate 4 left child processes alive after npm exited/);
+  assert.match(unitTestStep, /Gate 4 left child processes alive after pnpm exited/);
   assert.doesNotMatch(unitTestStep, /CommandLine/);
 });
 

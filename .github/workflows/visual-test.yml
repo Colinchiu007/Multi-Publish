@@ -57,7 +57,7 @@ jobs:
         run: |
           $desktopDir = Join-Path $PWD "apps/desktop"
           $viteProcess = Start-Process -FilePath "pnpm.cmd" `
-            -ArgumentList @("vite", "--host", "127.0.0.1", "--port", "5174") `
+            -ArgumentList @("exec", "vite", "--host", "127.0.0.1", "--port", "5174") `
             -WorkingDirectory $desktopDir `
             -RedirectStandardOutput (Join-Path $desktopDir "vite-visual.stdout.log") `
             -RedirectStandardError (Join-Path $desktopDir "vite-visual.stderr.log") `

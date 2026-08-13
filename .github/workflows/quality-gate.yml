@@ -171,7 +171,7 @@ jobs:
             Write-Host "Gate 4 exceeded its 30-minute execution budget."
             Get-TestProcessTree -RootProcessId $testProcess.Id | Format-Table -AutoSize
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
-            throw "Gate 4 timed out; terminated the npm process tree."
+            throw "Gate 4 timed out; terminated the pnpm process tree."
           }
 
           if ($testProcess.ExitCode -ne 0) {
@@ -186,7 +186,7 @@ jobs:
             foreach ($process in $remainingTestProcesses) {
               taskkill /PID $process.ProcessId /T /F 2>$null | Out-Null
             }
-            throw "Gate 4 left child processes alive after npm exited."
+            throw "Gate 4 left child processes alive after pnpm exited."
           }
 
       # --- Gate 4b: Startup and require smoke tests ---
@@ -265,7 +265,7 @@ jobs:
             Write-Host "Desktop shard exceeded its 30-minute execution budget."
             Get-TestProcessTree -RootProcessId $testProcess.Id | Format-Table -AutoSize
             taskkill /PID $testProcess.Id /T /F 2>$null | Out-Null
-            throw "Desktop shard timed out; terminated the npm process tree."
+            throw "Desktop shard timed out; terminated the pnpm process tree."
           }
 
           if ($testProcess.ExitCode -ne 0) {
@@ -280,7 +280,7 @@ jobs:
             foreach ($process in $remainingTestProcesses) {
               taskkill /PID $process.ProcessId /T /F 2>$null | Out-Null
             }
-            throw "Desktop shard left child processes alive after npm exited."
+            throw "Desktop shard left child processes alive after pnpm exited."
           }
 
 

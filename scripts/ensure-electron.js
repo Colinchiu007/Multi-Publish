@@ -37,7 +37,7 @@ function main () {
     process.exit(0)
   }
   if (!fs.existsSync(path.join(electronDir, 'package.json'))) {
-    console.error('[ensure-electron] electron 包不存在：' + electronDir + '（请先 npm install）')
+    console.error('[ensure-electron] electron 包不存在：' + electronDir + '（请先 pnpm install）')
     process.exit(1)
   }
   if (isDistComplete()) {

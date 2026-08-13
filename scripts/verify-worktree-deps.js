@@ -20,14 +20,29 @@ const fs = require('fs')
 const path = require('path')
 
 const root = path.resolve(__dirname, '..')
-const mainRepo = 'D:/Data/projects/Multi-Publish'
+const { execFileSync } = require('child_process')
 
-function canonical(p) {
+/** 从 git worktree list 派生主仓库路径（首个条目，供错误提示判定"疑似指向主仓库"）。 */
+function mainRepoPath() {
+  try {
+    const out = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: root, encoding: 'utf8' })
+    const first = out.split('\n').find((l) => l.startsWith('worktree '))
+    if (first) return first.slice('worktree '.length).trim()
+  } catch {}
+  return null
+}
+const mainRepo = mainRepoPath()
+
+/** canonical 解析：失败时返回 null（用于必须真实解析的场景）。 */
+function canonicalStrict(p) {
   try {
     return fs.realpathSync.native(p)
   } catch {
-    return path.resolve(p)
+    return null
   }
+}
+function canonical(p) {
+  return canonicalStrict(p) || path.resolve(p)
 }
 
 function workspaceDirs() {
@@ -89,14 +104,18 @@ function main() {
     }
   }
 
-  // 2. 现有链接扫描（防 junction 指向外部）
+  // 2. 现有链接扫描（防 junction 指向外部 / 悬挂链接）
   for (const base of checkers) {
     const scopeDir = path.join(base, 'node_modules', '@multi-publish')
     if (!fs.existsSync(scopeDir)) continue
     for (const entry of fs.readdirSync(scopeDir)) {
       const link = path.join(scopeDir, entry)
-      const targetCanon = canonical(link)
-      if (!targetCanon.startsWith(rootCanon)) {
+      const targetCanon = canonicalStrict(link)
+      if (targetCanon === null) {
+        failures.push(`${entry}（${link}）: 悬挂链接（目标不存在或无法解析 realpath）`)
+        continue
+      }
+      if (!targetCanon.startsWith(rootCanon + path.sep)) {
         failures.push(`${entry}（${link}）-> ${targetCanon}（不在当前 worktree 内）`)
       }
     }

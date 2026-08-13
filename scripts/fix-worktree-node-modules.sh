@@ -54,9 +54,9 @@ echo "[fix] 移除 junction..."
 if [ -L "$WT/node_modules" ]; then rm -rf "$WT/node_modules"; fi
 # pnpm 安装后 @multi-publish/* 会重建为指向本 worktree packages/ 的链接
 
-echo "[fix] 在 worktree 内执行 pnpm install（全局 store 硬链接复用）..."
+echo "[fix] 在 worktree 内执行 pnpm install --frozen-lockfile（全局 store 硬链接复用）..."
 cd "$WT"
-pnpm install
+pnpm install --frozen-lockfile
 
 echo "[fix] 校验 electron 二进制..."
 node scripts/ensure-electron.js || true

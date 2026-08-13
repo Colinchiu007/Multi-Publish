@@ -68,6 +68,10 @@ function resolvePackageDirs(name) {
   return dirs
 }
 
+// 已知风险（评审接受）：node-linker=hoisted 下包目录是 store 硬链接，postinstall 若改写自身文件
+// 会写穿共享 store。vue-demi postinstall 幂等且 pnpm allowBuilds 会在每次 install 时重跑并重新链接
+// 覆盖，因此此处显式执行（CI --ignore-scripts 场景）是可接受的；esbuild install.js 在有平台二进制时
+// 为 no-op。不要在共享 store 上运行会破坏内容的非幂等脚本。
 function runInstall(pkgDir, scriptName) {
   const scriptPath = path.join(pkgDir, scriptName)
   const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'))
