@@ -1,0 +1,117 @@
+[codeagent-wrapper]
+  Backend: claude
+  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+  PID: 30932
+  Log: C:\Users\邱领\AppData\Local\Temp\codeagent-wrapper-30932.log
+  Web UI: http://localhost:54635
+  Session-ID: b88f2807-4673-47f8-877c-14d812aee555
+# Review: python-logging-hardening（packages/python-backend）
+
+审查基准 HEAD=`72c6077e`。以下结论均经仓库内实测验证（Python 3.12.10 / loguru 0.7.3 / uvicorn 0.41.0 / FastAPI TestClient），非纯静态推断。
+
+---
+
+## 1) InterceptHandler 深度解析与 per-module 文件路由
+
+### Critical 🔴 — `logging_setup.py:114-118`：`{name}` 解析不可靠，stdlib 记录被错误归属，per-module 文件路由失效
+
+实测 `InterceptHandler.emit` 的 name 解析在**同一份代码、不同运行上下文**下出现 4 种结果：
+
+| 上下文 | 解析结果 |
+|---|---|
+| emit 定义在 `_probe_depth2.py`（副本） | `logging:callHandlers` ❌ |
+| emit 定义在 `multi_publish/core/logging_setup.py`，emit 前加 capture sink | `multi_publish.core.logging_setup:emit` ❌ |
+| 真实 `install_stdlib_intercept()` + 正常 emit | `__main__:<module>` ✅ |
+| 真实模块 + **异常上下文**（`logger.exception`） | `None:<unknown>` ❌（`get_frame` 越界） |
+
+- Why：`logging.currentframe()` 在 Python 3.12 是 `lambda: sys._getframe(1)`，返回的是 `emit` 自身帧（在 `logging_setup.py` 内），而非 logging 包内帧。于是 `logging_setup.py:115` 的 `while frame.f_code.co_filename == logging.__file__` 恒为 False（0 次迭代，`depth=2`），loguru `get_frame(depth+2)` 落到 `logging:callHandlers`（stdlib 模块）而非调用方。且异常在途时（中间件 `logger.exception`，`server.py:137`）甚至会越界成 `None:<unknown>`。
+- 影响：所有 uvicorn/fastapi/server 的 stdlib 日志在控制台/日志文件里显示为 `logging:callHandlers` 或 `logging_setup:emit` 或 `None`；`_add_module_logger` 的 filter（`logging_setup.py:167`，`any(kw in record["name"] ...)`）对 `["server","uvicorn","fastapi"]` 关键词全部失配。
+- 实测：`setup_logging` 到 tmp 目录后，`logging.getLogger("uvicorn.error").error(...)` 与 `logging.getLogger("server").info(...)` 均**未**写入 `server_*.log`（该文件被创建但为空），仅落全局按日文件。
+- Fix：a) 补一条断言解析名（如 `assert record["name"] in {"uvicorn", "uvicorn.error", "server", ...}`）的测试，先暴露问题；b) 修复 depth 计算——从 `emit` 的调用方开始回跳（`frame = frame.f_back` 后再 while），或直接按 `record.name`（stdlib logger 名）注入归属，例如 `logger.patch(lambda r: r.update(name=record.name))`，绕过帧探测。
+
+---
+
+## 2) uvicorn.access.disabled + 中间件组合
+
+### Warning 🟡 — 无双写、无丢失（正常路径），但 500 异常路径漏记（见 #3）
+
+- `logging_setup.py:139` `uvicorn.access.disabled=True` + `server.py:691` `access_log=False` + `log_config=None` 三者叠加：uvicorn 0.41 在 `access_log=False` 时还会清空 `uvicorn.access.handlers` 并 `propagate=False`（`configure_logging`），配合 `disabled=True` 双重抑制，正常请求**无双写**。✅
+- `log_config=None` 是**正确且必要**的：若用 uvicorn 默认 dictConfig，`disable_existing_loggers` 会重建 `uvicorn.*` 的 handler，把 `install_stdlib_intercept` 挂上的 InterceptHandler 冲掉，uvicorn 日志会退回 stderr 直出。✅
+- 边界：`except Exception`（`server.py:136`）捕不住 `asyncio.CancelledError`（BaseException，客户端断开/超时取消）。取消时中间件既不记日志也不回显 request_id，访问日志在该场景丢失。可接受，但应在 design.md 的风险栏补记。
+
+---
+
+## 3) 中间件异常路径 & x-request-id 一致性
+
+### Critical 🔴 — `server.py:136-151`：未处理异常（500）请求无 `x-request-id` 回显、无结构化 INFO 日志行
+
+实测（TestClient 加 `/api/_boom_unhandled` 抛 `RuntimeError`）：
+
+```
+HTTPException:  status=418 x-request-id=r1          # 4xx 正常：回显 ✅
+unhandled:      status=500 x-request-id=None        # 500：无回显 ❌
+# 仅有一条：
+request failed method=GET path=/api/_boom_unhandled request_id=r2   # 无 status、无 duration_ms
+```
+
+- Why：`logger.exception` + `re-raise` 本身安全（状态码语义保留、traceback 完整入日志）。但 `re-raise` 后响应由 **ServerErrorMiddleware 在中间件之外**生成，`server.py:150` 的 `response.headers["x-request-id"]=...` 永不执行 → 500 响应无回显；且该请求只有一条缺 status/duration 的 ERROR 行，不满足 spec R2「每个请求输出一条含 method/path/status/duration_ms/request_id 的 INFO 请求日志」、R3 回显契约。
+- Fix：在 `except` 分支用 `request_id` + `status=500` + `duration_ms` 输出结构化行；回显需与 500 响应协作——中间件将 `request_id` 写入 `request.state`，再注册 `FastAPI(exception_handlers={500: ...})` 从 `request.state` 取 ID 加到响应头（或在 except 内捕获后返回自建 `JSONResponse(500, headers={"x-request-id": ...})`，但这会跳过 ServerErrorMiddleware 的语义，需权衡）。
+
+---
+
+## 4) stdout/stderr 分流与 Electron sidecar 语义
+
+### Warning 🟡 — `logging_setup.py:68-74`：stdout sink 级别为 INFO，WARNING/ERROR 也进 stdout，sidecar 双写且警告被误标 info
+
+实测（注入 StringIO sink）：`logger.warning` / `logger.error` **同时**出现在 stdout 与 stderr：
+
+```
+stdout: info-msg / warn-msg / error-msg
+stderr: warn-msg / error-msg
+```
+
+- Why：loguru sink 的 `level` 是下限。stdout sink `level=level`（默认 INFO，`logging_setup.py:71`），故 WARNING(30)/ERROR(40) ≥ INFO(20) 也命中 stdout。设计 D2（`design.md`）意图是「INFO→stdout、WARNING/ERROR 仍在 stderr」的互斥分流，但实现非互斥。Electron `base-python-bridge.js:120-121` 会把 stdout 映射 info、stderr 映射 warn → 每条 warning/error 在桌面日志出现两次，且一次被标成 info。核心目标（请求日志不被误标 warn）仍达成，故不阻塞，但违背 D2。
+- 现有测试盲区：`test_logging_setup.py:140-158` 只断言 `"probe-info" not in err_text`，**没有断言 `"probe-warn" not in out_text`**，因此测不出泄漏。
+- Fix：stdout sink 加上限 filter：`filter=lambda r: r["level"].no < 30`（或 `<= logging.INFO`）；并在测试补 `assert "probe-warn" not in out_text`。
+
+---
+
+## 5) setup_logging 可注入 sink 是否破坏既有调用
+
+### Info 🟢 — 向后兼容，无破坏
+
+- 新参数 `stdout_sink/stderr_sink` 均为 keyword-only（`logging_setup.py:30-31`，`*` 之后）且默认 `None`，`stderr_sink or sys.stderr` / `stdout_sink or sys.stdout`（`55`/`69`）对生产调用透明。
+- 全仓唯一生产调用点 `server.py:161 setup_logging(log_dir=str(LOG_DIR))` 不受影响；测试 `test_logging_setup.py` 的 `setup_logging(log_dir=..., level=..., stdout_sink=..., stderr_sink=...)` 亦正常。✅
+- 小瑕疵：`colorize=stderr_sink is None`（`logging_setup.py:63`）——若调用方传入**空值但非 None** 的 falsy sink 会退回 sys.stderr；建议 `if stderr_sink is not None`。极边缘。
+
+---
+
+## 6) 遗漏点与测试盲区
+
+### Warning 🟡 — `test_request_logging.py:10`：`import server` 产生全局副作用，污染整个 pytest 会话与源码树
+
+`import server` 即执行 `server.py:161 setup_logging(...)`：`logger.remove()` 清空**全进程** loguru handler、`install_stdlib_intercept` 改写 stdlib 全局状态（root handler、uvicorn.* handlers、`uvicorn.access.disabled=True`），并在**源码树内**创建 `packages/python-backend/src/logs/`（实测 7 个按日文件，含非空 `server_*.log` 19KB）。收集阶段执行，可能影响同会话其他测试的日志状态；并污染 `git status`（新增未跟踪 `src/logs/`，本分支已如此）。Fix：把 `setup_logging` 移到 `main()`（`if __name__ == "__main__"`）内，或测试里 `monkeypatch.setenv("MULTI_PUBLISH_LOG_DIR", tmp)` 并在 fixture 中 `logger.remove()` 恢复。
+
+### Warning 🟡 — 生产模式下 `server_*.log` 拿不到结构化请求日志
+
+生产由 `python-bridge.js:54` 以 `python server.py` 启动 → server.py 即 `__main__` 模块 → 中间件调用帧的 `f_globals["__name__"] = "__main__"`。即使 #1 的 depth 解析修好，`{name}` 也是 `__main__`，仍不匹配 `logging_setup.py:93` 的 `["server","uvicorn","fastapi"]`。请求日志只会落全局按日文件 + stdout。若 per-module server 文件是目标（P1 语义），需在关键词中补 `"__main__"`，或改用 stdlib logger 名（`record.name`）路由。
+
+### Info 🟢 — 其他小项
+
+- `logging_setup.py:167` filter lambda：`any(kw in record["name"] for kw in kw)` 循环变量 `kw` 遮蔽默认参数同名 `kw`，能用但易读性差，建议改名。
+- `server.py:137` `logger.exception`：traceback 含 Starlette/BaseHTTPMiddleware 全部内部帧（实测单条 19KB），且因 #4 同时写 stdout+stderr+文件。建议 `logger.error(...)` + 精简 traceback（如 `type(e).__name__: {e}`）。
+- 测试盲区汇总：
+  - 无任何测试断言 InterceptHandler 解析出的 `{name}`（现有断言全基于 `format="{message}"` 或消息前缀，`test_logging_setup.py:114-130`、`test_request_logging.py:24-25`），因此 #1 的回归完全不可见。
+  - 无中间件异常路径测试（500 回显/结构化行），#3 无覆盖。
+  - `test_request_logging.py:13-21` `_request_capture` 用 `filter=lambda r: True` + `level=INFO` 捕获全部 INFO+，靠前缀过滤，噪声大且对 setup_logging 自身 sink 依赖隐式。
+
+---
+
+## Summary
+
+方向正确（InterceptHandler 桥接、结构化请求日志、requestId 透传/回显、INFO→stdout 均落地且 happy-path 实测通过，14 个测试全绿）。但存在**两处必须修**的契约级缺陷：**(a) InterceptHandler 的 name 深度解析不可靠**，导致 stdlib 日志归属错误、per-module server 文件收不到任何记录（且测试完全无覆盖）；**(b) 未处理异常(500)请求缺失 x-request-id 回显与结构化日志行**，R2/R3 契约在错误路径上不成立。另建议修正 stdout 级别互斥（WARNING 双写误标 info）与测试全局副作用。
+
+**结论：Request changes**（#1、#3 修复后可合并；#4、#6 的测试污染建议同 PR 处理）。
+
+---
+SESSION_ID: b88f2807-4673-47f8-877c-14d812aee555

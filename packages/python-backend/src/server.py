@@ -13,7 +13,9 @@ import json
 import logging
 import os
 import platform as platform_module
+import re
 import shutil
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime
@@ -23,6 +25,7 @@ from typing import Any
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from multi_publish.auth import AuthError, LogtoJwtVerifier, create_fastapi_dependency
@@ -112,6 +115,57 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# ─── 结构化请求日志（R2/R3：requestId 透传/回显 + method/path/status/duration） ──
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+
+
+def _resolve_request_id(value: str | None) -> str:
+    """采纳合法 x-request-id 头，否则自生成（与 api-publish-engine 白名单一致）。"""
+    if value and isinstance(value, str) and _REQUEST_ID_RE.fullmatch(value):
+        return value
+    return uuid.uuid4().hex
+
+
+@app.middleware("http")
+async def _request_log_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    request_id = _resolve_request_id(request.headers.get("x-request-id"))
+    request.state.request_id = request_id
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - start) * 1000.0
+        logger.error(
+            "request failed method=%s path=%s status=500 duration_ms=%.1f request_id=%s error=%s: %s",
+            request.method,
+            request.url.path,
+            duration_ms,
+            request_id,
+            type(exc).__name__,
+            exc,
+        )
+        raise
+    duration_ms = (time.perf_counter() - start) * 1000.0
+    logger.info(
+        "request method=%s path=%s status=%s duration_ms=%.1f request_id=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        request_id,
+    )
+    response.headers["x-request-id"] = request_id
+    return response
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    """未处理异常统一返回 500 JSON 并回显 x-request-id（R3 契约覆盖 500 路径）。"""
+    rid = getattr(request.state, "request_id", None)
+    headers = {"x-request-id": rid} if rid else None
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"}, headers=headers)
 
 
 # ─── 全局状态 ───────────────────────────────────────────────
@@ -651,7 +705,7 @@ async def video_status():
 def main():
     port = int(os.environ.get("BACKEND_PORT", "8299"))
     print(f"[Multi-Publish] Backend starting on port {port}", flush=True)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info", access_log=False, log_config=None)
 
 
 if __name__ == "__main__":

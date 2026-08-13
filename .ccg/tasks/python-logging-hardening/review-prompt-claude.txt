@@ -1,0 +1,16 @@
+ROLE_FILE: C:/Users/邱领/.claude/.ccg/prompts/claude/reviewer.md
+
+<TASK>
+审查 OpenSpec change python-logging-hardening（packages/python-backend）的代码变更。请核对仓库（HEAD=72c6077e）：
+- src/multi_publish/core/logging_setup.py（InterceptHandler stdlib→loguru、stderr WARNING+ / stdout INFO 分流、可注入 stdout_sink/stderr_sink）
+- src/server.py（结构化请求日志中间件 method/path/status/duration_ms/request_id + x-request-id 回显、uvicorn access_log=False + log_config=None）
+- tests/test_logging_setup.py、tests/test_request_logging.py
+
+重点评估：
+1) InterceptHandler 深度解析（record name 落到 "logging" 而非调用方模块）是否影响 per-module 文件路由？是否需要修？
+2) uvicorn.access.disabled=True + 中间件的组合是否会造成访问日志丢失/双写/异常路径漏记？
+3) 中间件异常路径 logger.exception 后 re-raise 是否安全；响应头 x-request-id 是否对所有路径一致？
+4) stdout/stderr 分流（INFO→stdout / WARNING+→stderr）在 Electron sidecar（stdout→info/stderr→warn）语义下是否正确；有无副作用？
+5) setup_logging 可注入 sink 的改动是否破坏既有调用（server.py/其他模块调用 setup_logging(log_dir=...)）？
+6) 遗漏点与测试盲区。
+输出：每条 Critical/Warning/Info + 依据（file:line），不要泛泛而谈。
