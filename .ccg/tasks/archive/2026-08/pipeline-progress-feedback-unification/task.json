@@ -1,0 +1,16 @@
+{
+  "id": "pipeline-progress-feedback-unification",
+  "title": "视频创作流水线阶段进行中信息反馈颗粒度统一（Phase 1+2）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档。PR #756 merged (01baec4c, 2026-08-13T13:27:38Z)；openspec archive 2026-08-13-pipeline-progress-feedback-unification + spec 同步；Phase 3（实时推送/快照裁剪）留待后续 change。",
+  "openspecChange": "pipeline-progress-feedback-unification",
+  "createdAt": "2026-08-13T00:00:00Z",
+  "branch": "codex/pipeline-progress-propose",
+  "remoteStatus": "merged",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/756",
+  "mergeCommit": "01baec4c"
+}
