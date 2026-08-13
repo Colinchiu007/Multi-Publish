@@ -33,7 +33,7 @@ describe('useVideoClone', () => {
     await c.start()
     expect(api.run).toHaveBeenCalledWith({
       source: { type: 'url', url: 'https://example.com/v.mp4' },
-      options: { replicationLevel: 'L1', mode: 'structure', rewriteScript: false },
+      options: { mode: 'structure', rewriteScript: false },
     })
   })
 
