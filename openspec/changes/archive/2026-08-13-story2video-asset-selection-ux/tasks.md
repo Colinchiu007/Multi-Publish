@@ -28,5 +28,5 @@
 - [x] 4.1 desktop vitest 全量通过（7316 passed / 1 failed 为 ai-writer junction 双实例既有环境差异，见 fix-worktree-node-modules.sh；before-pack-media-tools/check-asar 需打包产物属环境条件）+ locale 成对校验 → `npm test`（apps/desktop）
 - [x] 4.2 双模型审查（antigravity 降级记录 + Claude 全量审查 C1/W1/W2/W3 已修复、I5 补测试） → `.ccg/tasks/story2video-asset-selection-ux/review.md`
 - [x] 4.3 PRD/learnings/CHANGELOG/质量门禁清单更新 → 01-docs/PRD.md、01-docs/learnings.md、CHANGELOG.md、.quality-gates.md
-- [ ] 4.4 push → PR → CI 通过 → merge main → `gh pr view` 核对
-- [ ] 4.5 openspec archive + CCG task 归档 + 记忆更新（三同步，同一 commit 族）
+- [x] 4.4 push → PR → CI 通过 → merge main → `gh pr view` 核对（PR #716 merged 0d508e12）
+- [x] 4.5 openspec archive + CCG task 归档 + 记忆更新（三同步，同一 commit 族）
