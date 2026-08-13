@@ -87,7 +87,6 @@ function shouldScanFile (file) {
   if (rel.startsWith('apps/desktop/src/locales/')) return false
   if (rel.endsWith('.test.js') || rel.endsWith('.spec.js')) return false
   if (rel.includes('/__tests__/')) return false
-  if (rel === 'apps/desktop/src/utils/user-facing-error.js') return false // errorCode 文案目录（既有 SSOT）
   return true
 }
 
@@ -104,6 +103,35 @@ function listFiles (dir) {
 function scriptBlockOf (source) {
   const m = source.match(/<script[^>]*>([\s\S]*?)<\/script>/)
   return m ? m[1] : ''
+}
+
+function templateBlockOf (source) {
+  const m = source.match(/<template[^>]*>([\s\S]*?)<\/template>/)
+  return m ? m[1] : ''
+}
+
+/** .vue <template> 块扫描：注释剥离后检测「属性值」与「标签间文本」中的中文字面量（i18n-sync-hardening R1）。 */
+function scanTemplateCjk (file) {
+  const raw = fs.readFileSync(file, 'utf8')
+  const template = templateBlockOf(raw)
+  if (!template) return []
+  const stripped = template.replace(/<!--[\s\S]*?-->/g, '\n')
+  const hits = []
+  const rel = toPosixRel(file)
+  stripped.split('\n').forEach((line, idx) => {
+    const attrMatcher = /(["'])((?:\x5c.|(?!\1)[^\x5c])*)\1/g
+    let m
+    while ((m = attrMatcher.exec(line)) !== null) {
+      if (CJK.test(m[2])) {
+        hits.push({ id: `${rel}:${idx + 1}`, snippet: m[2].slice(0, 60).replace(/\s+/g, ' ') })
+      }
+    }
+    const textOnly = line.replace(/<[^>]*>/g, '')
+    if (CJK.test(textOnly)) {
+      hits.push({ id: `${rel}:${idx + 1}`, snippet: textOnly.trim().slice(0, 60) })
+    }
+  })
+  return hits
 }
 
 function scanCjkHits (file) {
@@ -123,6 +151,7 @@ function scanCjkHits (file) {
       }
     }
   })
+  if (file.endsWith('.vue')) hits.push(...scanTemplateCjk(file))
   return hits
 }
 

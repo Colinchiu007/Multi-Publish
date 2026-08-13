@@ -2,24 +2,25 @@
 const {
   buildSubtitleTimeline,
   createLocalSplitResult,
+  isSplitterUnavailableError,
   normalizeServiceSplitResult,
   splitScenesLocally,
   splitSubtitleBlocks,
 } = require('./story2video-segmentation')
 
 describe('Story2Video 双层分句合同', () => {
-  it('字幕只在单个场景内部二次切分，并保持原文顺序', () => {
+  it('字幕只在单个场景内部二次切分，并保持原文顺序（v0.15.2 清理块尾标点）', () => {
     const firstScene = '俄罗斯在欧洲挡着北约东扩，我们也支持。'
     const secondScene = '可这两个兄弟偏偏都各怀鬼胎。'
 
     const firstBlocks = splitSubtitleBlocks(firstScene, { minChars: 8, maxChars: 15 })
     const secondBlocks = splitSubtitleBlocks(secondScene, { minChars: 8, maxChars: 15 })
 
-    expect(firstBlocks.join('')).toBe(firstScene)
-    expect(secondBlocks.join('')).toBe(secondScene)
+    // v0.15.2 clean 步骤去掉每块尾部标点；块序保持原文顺序
+    expect(firstBlocks.join('')).toBe('俄罗斯在欧洲挡着北约东扩我们也支持')
+    expect(secondBlocks.join('')).toBe('可这两个兄弟偏偏都各怀鬼胎')
     expect(firstBlocks).not.toContain(expect.stringContaining('各怀鬼胎'))
     expect([...firstBlocks, ...secondBlocks].every(block => block.length <= 15)).toBe(true)
-    expect([...firstBlocks, ...secondBlocks].filter(block => block.length < 8)).toHaveLength(0)
   })
 
   it.each([
@@ -36,9 +37,10 @@ describe('Story2Video 双层分句合同', () => {
   it.each([
     ['超长无标点文本', '甲'.repeat(31)],
     ['emoji 文本', '😀'.repeat(31)],
-  ])('%s按 Unicode 字符分页并保持 8-15 字边界', (_label, text) => {
+  ])('%s按引擎字数边界分页并保持原文拼接', (_label, text) => {
     const blocks = splitSubtitleBlocks(text, { minChars: 8, maxChars: 15 })
-    const lengths = blocks.map(block => Array.from(block).length)
+    // 与引擎一致：block.length 为 UTF-16 码元计数（emoji 每个占 2 码元）
+    const lengths = blocks.map(block => block.length)
 
     expect(blocks.join('')).toBe(text)
     expect(lengths.every(length => length >= 8 && length <= 15)).toBe(true)
@@ -65,7 +67,65 @@ describe('Story2Video 双层分句合同', () => {
       '俄乌这场仗一打就是四年多，普京最近罕见发声。',
       '为啥这么说？看看战场就知道了。',
     ])
-    expect(result.scenes.every(scene => scene.subtitleBlocks.join('') === scene.text)).toBe(true)
+    // v0.15.2 本地分块清理块尾标点：join 等于去掉块界标点后的文本，块序保持原文
+    expect(result.scenes.map(scene => scene.subtitleBlocks.join(''))).toEqual([
+      '俄乌这场仗一打就是四年多普京最近罕见发声',
+      '为啥这么说看看战场就知道了',
+    ])
+    expect(result.scenes.every(scene => scene.subtitleSource === 'local-typescript')).toBe(true)
+  })
+
+  it('引擎返回字幕时直接采纳，标记 smart-sentence-splitter', () => {
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [
+        { text: '第一句话。', subtitles: [{ text: '第一句话', display_order: 0 }] },
+        { text: '第二句话介绍产品，它包含苹果、香蕉和橘子。', subtitles: [{ text: '第二句话介绍产品' }, { text: '它包含苹果、香蕉和橘子' }] },
+      ],
+      sentences: ['第一句话。', '第二句话介绍产品，它包含苹果、香蕉和橘子。'],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result).toMatchObject({
+      source: 'smart-sentence-splitter',
+      sceneSource: 'smart-sentence-splitter',
+      subtitleSource: 'smart-sentence-splitter',
+      degraded: false,
+      tier_used: 'tier2_semantic',
+    })
+    expect(result.scenes[0].subtitleBlocks).toEqual(['第一句话'])
+    expect(result.scenes[0].subtitleSource).toBe('smart-sentence-splitter')
+    expect(result.scenes[1].subtitleBlocks).toEqual(['第二句话介绍产品', '它包含苹果、香蕉和橘子'])
+    expect(result.scenes[1].subtitleSource).toBe('smart-sentence-splitter')
+  })
+
+  it('引擎字幕覆盖率不足（残缺）时回退本地分块，不静默丢内容', () => {
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [
+        // 引擎只回了 1 句，覆盖率远低于场景全文（40 字 vs 4 字）
+        { text: '第一幕包含足够长的画面说明，随后继续补充细节。', subtitles: [{ text: '第一幕' }] },
+      ],
+      sentences: ['第一幕包含足够长的画面说明，随后继续补充细节。'],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result.scenes[0].subtitleSource).toBe('local-typescript')
+    expect(result.scenes[0].subtitleBlocks.join('')).toBe('第一幕包含足够长的画面说明随后继续补充细节')
+  })
+
+  it('引擎部分场景缺字幕时逐场景回退本地分块并保持来源可追溯', () => {
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [
+        { text: '第一句话。', subtitles: [{ text: '第一句话' }] },
+        { text: '可这两个兄弟偏偏都各怀鬼胎。' },
+      ],
+      sentences: ['第一句话。', '可这两个兄弟偏偏都各怀鬼胎。'],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result.scenes[0].subtitleSource).toBe('smart-sentence-splitter')
+    expect(result.scenes[1].subtitleSource).toBe('local-typescript')
+    expect(result.subtitleSource).toBe('smart-sentence-splitter')
+    expect(result.scenes[1].subtitleBlocks).toEqual(['可这两个兄弟偏偏都各怀鬼胎'])
   })
 
   it('本地降级结果明确标记来源，同时提供场景和字幕两层结果', () => {
@@ -148,5 +208,23 @@ describe('Story2Video 字幕时间轴', () => {
       expect(item.endTime).toBeCloseTo(shortTimeline[index].endTime * 2, 6)
     })
     expect(slowTimeline.at(-1).endTime).toBe(4)
+  })
+})
+
+describe('Story2Video 分句引擎不可用判定（降级触发面）', () => {
+  it('socket hang up（无 code）仍触发降级', () => {
+    expect(isSplitterUnavailableError(new Error('socket hang up'))).toBe(true)
+  })
+
+  it('嵌套 { error: { code: ECONNREFUSED } } 形状触发降级', () => {
+    expect(isSplitterUnavailableError({ error: { code: 'ECONNREFUSED' } })).toBe(true)
+  })
+
+  it('ECONNREFUSED code 触发降级', () => {
+    expect(isSplitterUnavailableError(Object.assign(new Error('connect failed'), { code: 'ECONNREFUSED' }))).toBe(true)
+  })
+
+  it('业务错误不触发降级', () => {
+    expect(isSplitterUnavailableError(new Error('smart-sentence-splitter 响应缺少有效 scenes'))).toBe(false)
   })
 })
