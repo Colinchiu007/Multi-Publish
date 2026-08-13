@@ -180,6 +180,12 @@
 - 门禁：QM-2 sandbox 双模式 PASS（TRUE_OK/FALSE_OK/BOTH_MODES_OK）；QM-1 打包 exit 0 + 可见主窗口（MainWindowHandle=15729924）；engine 96 + desktop 新增 7 用例全绿。
 - PRD v1.6 §20；待 4d：真实 provider 图/账号发布外部验收、报告持久化 regenerate。
 
+## [未发布] feat(ops-center): 调度模拟器并发推进升级（scheduler_simulator 串行事件循环 → 离散事件仿真，2026-08-13）
+
+- 模拟器支持**并发推进**：信号量 transfer（占满时接管最早完成槽，不推进全局时钟，同批到达可并发竞争）；RPM 槽推进后释放完成事件（interval < duration 时请求重叠执行）；5h 额度预检移到 pace/cooldown 之后（被拒请求仍占 RPM 槽）；`total_duration_ms` 改墙钟口径（含被拒/限流判定时刻，对齐真实 governor）。
+- 效果（对拍）：`scripts/compare-scheduler-models.js` 六组全 PASS——新增 `quota-5h-real`（5h 拒绝耗时 total 差 <10ms，此前差 ~9s）与 `concurrency-real`（rpm=60/并发2/2.5s×8 两端 maxc=2，此前模拟器恒 1）；KNOWN_DIFF 仅剩 `slow-call-concurrency`（interval==duration 临界测量噪声）。
+- 测试：`test_scheduler_simulator.py` +2（并发推进 interval<duration、串行 interval>duration）11/11；parity 测试更新（6 must-pass + 噪声防漂移）2/2；pytest 22/22。
+- 文档：OPERATIONS.md §3.5（对齐说明 + 剩余噪声 + 已知简化）、PRD §12A.23.5/12A.23.10。
 ## [未发布] fix(ops-center): 限流自检上报打通 X-Catalog-Key 双通道 + 上报数据保真（2026-08-13）
 
 - `POST /api/v1/scheduler/verify` 双通道鉴权：simulated=true 仅 admin JWT；simulated=false 接受 `X-Catalog-Key`（= `OPS_CATALOG_API_KEY`，与用量上报同模式；未配置 → 404 fail-closed、Key 错误 → 401）或 admin JWT；目录同步 Key 携带 simulated=true → 403。GET 列表/详情/契约保持 admin-only。
@@ -4001,6 +4007,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

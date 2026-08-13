@@ -163,18 +163,21 @@
 
 ---
 
-### 3.5 已知局限：模拟器与真实 governor 的口径差异（2026-08-13 对拍实证）
+### 3.5 模拟器与真实 governor 对齐（2026-08-13 并发推进升级）
 
 对拍（`scripts/compare-scheduler-models.js`，Python 模拟器 vs 桌面端真实 governor）在官方四组固定输入下 **PARITY OK**，但用真实预设参数（慢调用 / 5h 额度）对拍发现两个**已知观测口径差异**，解读模拟结果时须注意：
 
-| 用例 | 模拟器（python-simulator） | 桌面端真实自检（real-governor） | 差异 | 影响 |
-|------|---------------------------|-------------------------------|------|------|
-| 慢调用并发（如 ElevenLabs TTS 3s×8，rpm=20→并发2） | 串行事件循环：同批到达逐条推进时钟 → `max_concurrent_observed=1` | Promise 并发：前 2 个请求同时执行 → `max_concurrent_observed=2` | 并发峰值低估 | 模拟器的「最大并发」在「单请求耗时 ≥ RPM 节流间隔」场景会低于真实行为；真实并发受 `maxConcurrent` 约束，不超预算 |
-| 5h 额度拒绝耗时（如豆包 TTS limit=5、8 请求） | 排队/时间槽**之前**立即预检拒绝 → total≈12.1s | 被拒请求仍经历排队/时间槽后才报 QUOTA_EXCEEDED → total≈21s | 总耗时偏差约 9s（超官方对拍 1.5s 容差） | 模拟器的 `total_duration_ms` 只反映成功请求路径；解读「5h 拒绝场景总耗时」以真实自检/实测为准 |
+模拟器 `scheduler_simulator.py` 已从串行事件循环升级为**并发推进**（2026-08-13，离散事件仿真，与真实 governor 语义对齐），`scripts/compare-scheduler-models.js` 六组固定输入**全 PASS（PARITY OK）**：
 
-- 两者的**拒绝数/限流数/额度数口径一致**（对拍断言 `quota_exceeded_count`、`rate_limited_count` 均相等）；差异仅在并发峰值观测与总耗时口径。
-- 官方对拍四组用 20ms 短请求，因此两端一致（PARITY OK）；用真实慢调用参数才会暴露上述差异，已作为 KNOWN_DIFF_CASES 记录在脚本中（退出码不受影响，防止差异悄悄漂移）。
-- 运营建议：需要精确的「真实调度行为」证据时，优先看桌面端「真实自检」记录（simulated=false）或实际用量看板；模拟验证用于配置合理性快速判断。
+| 用例 | 验证点 | 两端结果 |
+|------|--------|---------|
+| 官方四组（rpm120/30 短请求、注入 429、5h=2） | 常规串行/RPM 节流/冷却/预检 | 一致 ✅ |
+| quota-5h-real（豆包 TTS limit=5、8 请求） | 5h 拒绝耗时口径（被拒请求仍占 RPM 槽） | total 21.0s vs 21.0s（差 <10ms）✅ |
+| concurrency-real（rpm=60、并发2、2.5s×8） | **并发推进：interval < duration 时请求重叠执行** | 两端 maxc=2 ✅ |
+
+**剩余已知差异（仅测量噪声）**：`slow-call-concurrency`（elevenlabs 3s×8、rpm=20，interval==duration 临界）——模拟器确定性 maxc=1；真实 governor 因定时器时钟误差产生 1ms 级短暂重叠显示 maxc=2。这是**测量噪声而非并发能力**（真实时间线 8 个请求严格 3s 间隔串行），已在 `KNOWN_DIFF_CASES` 记录，parity 测试做防漂移断言。
+
+**已知简化（文档记录）**：429 长冷却（如 30s）+ 同批突发时，模拟器按虚拟时间乐观推进排队，真实中排队请求会因 30s 等待上限被拒绝（runSelfCheck 的 timeline 不记录该部分）；两端 `rate_limited_count` 观测一致（均只计注入 429 与可见限流），但 `total_duration_ms` 在该边界场景可能低估真实值。运营解读以真实自检/实测为准。
 ## 4. 配置调优建议（基于验证结果）
 
 | 观察 | 建议 |
@@ -221,5 +224,6 @@
 | POST | /api/v1/usage/ingest | X-Catalog-Key | 桌面端用量上报（含排队/冷却聚合字段） |
 | GET | /api/v1/usage/summary | admin | 用量汇总（含 429率/排队/冷却/预算利用率） |
 | GET | /api/v1/model-presets | admin | 预设列表（模拟验证页预设下拉数据源） |
+
 
 

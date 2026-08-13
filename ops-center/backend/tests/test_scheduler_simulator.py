@@ -106,3 +106,29 @@ def test_metrics_shape():
         assert key in m
     assert len(r["timeline"]) == 5
     assert len(r["assertions"]) >= 4
+
+
+def test_concurrent_progression_interval_lt_duration():
+    """并发推进：interval(1000ms) < duration(2500ms) 时请求可重叠执行，maxc 打到预算 2。"""
+    r = simulate(dict(rpm=60, max_concurrent=2, request_count=8, request_duration_ms=2500, arrival_interval_ms=0))
+    m = r["metrics"]
+    assert m["max_concurrent_observed"] == 2
+    assert m["rate_limited_count"] == 0
+    assert m["quota_exceeded_count"] == 0
+    assert m["throughput_per_min"] <= max(60, 2)
+    # 同时到达 8 请求，interval<duration 下总时长 < 串行(8*1000)，约 11s（8 槽 0..7000 + 2500）
+    assert 9000 <= m["total_duration_ms"] <= 12000
+    assert all(t["state"] == "completed" for t in r["timeline"])
+    # 完成顺序按 started 序 == 到达序（并发=2 时仍按槽位先后开始）
+    completed = [t["req"] for t in sorted(r["timeline"], key=lambda x: x["started_at"])]
+    assert completed == list(range(1, 9))
+
+
+def test_serial_when_interval_gt_duration():
+    """interval(3000ms) > duration(100ms) 时请求严格串行，maxc=1（与真实 governor 一致）。"""
+    r = simulate(dict(rpm=20, max_concurrent=2, request_count=8, request_duration_ms=100, arrival_interval_ms=0))
+    m = r["metrics"]
+    assert m["max_concurrent_observed"] == 1
+    assert m["rate_limited_count"] == 0
+    assert m["total_duration_ms"] == 7 * 3000 + 100
+

@@ -22,19 +22,19 @@ const CASES = [
   { name: 'rpm30-concurrency1', params: { rpm: 30, maxConcurrent: 1, requestCount: 4, requestDurationMs: 20 } },
   { name: 'inject-429', params: { rpm: 120, maxConcurrent: 2, requestCount: 6, requestDurationMs: 20, inject429At: 3, cooldownMs: 300 } },
   { name: 'quota-5h', params: { rpm: 120, maxConcurrent: 2, limitPer5h: 2, requestCount: 4, requestDurationMs: 20 } },
+  // 2026-08-13 模拟器并发推进升级后纳入（此前为 KNOWN_DIFF）
+  { name: 'quota-5h-real', preset: 'doubao-tts', params: { rpm: 20, maxConcurrent: 2, limitPer5h: 5, requestCount: 8, requestDurationMs: 100 } },
+  { name: 'concurrency-real', preset: 'custom(interval<duration)', params: { rpm: 60, maxConcurrent: 2, requestCount: 8, requestDurationMs: 2500 } },
 ]
 
 /**
- * 已知差异用例（2026-08-13 对拍实证，记录在案而非断言一致）：
- * - slow-call-concurrency：真实 governor 慢调用（单请求耗时 >= RPM 节流间隔）并发可到 maxConcurrent，
- *   模拟器为串行事件循环（同批到达逐条推进时钟）→ max_concurrent_observed 恒 1，属已知观测口径差异；
- * - quota-5h-real：5h 拒绝路径真实 governor 被拒请求仍经历排队/时间槽后才报 QUOTA_EXCEEDED，
- *   total_duration 与模拟器（等待前立即预检拒绝）偏差超出 1.5s 容差，属已知耗时口径差异。
- * 退出码不因这些差异变为非零；若未来修复模拟器使两端一致，parity 测试的防漂移断言会提示更新。
+ * 已知差异用例（2026-08-13 模拟器并发推进升级后仅剩测量噪声）：
+ * - slow-call-concurrency：elevenlabs 慢调用（3s×8，rpm=20，interval==duration 临界）——
+ *   模拟器确定性 maxc=1；真实 governor 因定时器时钟误差产生 1ms 级短暂重叠 → maxc=2（测量噪声，非并发能力）。
+ *   退出码不因这些差异变为非零；parity 测试断言差异值存在（防漂移）。
  */
 const KNOWN_DIFF_CASES = [
   { name: 'slow-call-concurrency', preset: 'elevenlabs', params: { rpm: 20, maxConcurrent: 2, requestCount: 8, requestDurationMs: 3000 } },
-  { name: 'quota-5h-real', preset: 'doubao-tts', params: { rpm: 20, maxConcurrent: 2, limitPer5h: 5, requestCount: 8, requestDurationMs: 100 } },
 ]
 
 function pythonMetrics (params) {
@@ -103,9 +103,7 @@ async function runKnownDiffs () {
         max_concurrent_observed: real.metrics.max_concurrent_observed - py.max_concurrent_observed,
         total_duration_ms: real.metrics.total_duration_ms - py.total_duration_ms,
       },
-      note: c.name === 'slow-call-concurrency'
-        ? '已知：慢调用（耗时 >= 节流间隔）真实并发可到 maxConcurrent，模拟器串行事件循环 maxc=1'
-        : '已知：5h 拒绝路径真实 governor 被拒请求仍经历排队/时间槽，total_duration 偏差超过容差',
+      note: '已知（测量噪声）：interval==duration 临界下真实 governor 定时器误差导致 1ms 级重叠，maxc 比确定性模拟器高 1',
     })
   }
   return results
@@ -139,3 +137,4 @@ module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES }
 if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1) })
 }
+
