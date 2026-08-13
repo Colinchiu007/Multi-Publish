@@ -2,6 +2,7 @@
 const {
   buildSubtitleTimeline,
   createLocalSplitResult,
+  isSplitterUnavailableError,
   normalizeServiceSplitResult,
   splitScenesLocally,
   splitSubtitleBlocks,
@@ -95,6 +96,20 @@ describe('Story2Video 双层分句合同', () => {
     expect(result.scenes[0].subtitleSource).toBe('smart-sentence-splitter')
     expect(result.scenes[1].subtitleBlocks).toEqual(['第二句话介绍产品', '它包含苹果、香蕉和橘子'])
     expect(result.scenes[1].subtitleSource).toBe('smart-sentence-splitter')
+  })
+
+  it('引擎字幕覆盖率不足（残缺）时回退本地分块，不静默丢内容', () => {
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [
+        // 引擎只回了 1 句，覆盖率远低于场景全文（40 字 vs 4 字）
+        { text: '第一幕包含足够长的画面说明，随后继续补充细节。', subtitles: [{ text: '第一幕' }] },
+      ],
+      sentences: ['第一幕包含足够长的画面说明，随后继续补充细节。'],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result.scenes[0].subtitleSource).toBe('local-typescript')
+    expect(result.scenes[0].subtitleBlocks.join('')).toBe('第一幕包含足够长的画面说明随后继续补充细节')
   })
 
   it('引擎部分场景缺字幕时逐场景回退本地分块并保持来源可追溯', () => {
@@ -193,5 +208,23 @@ describe('Story2Video 字幕时间轴', () => {
       expect(item.endTime).toBeCloseTo(shortTimeline[index].endTime * 2, 6)
     })
     expect(slowTimeline.at(-1).endTime).toBe(4)
+  })
+})
+
+describe('Story2Video 分句引擎不可用判定（降级触发面）', () => {
+  it('socket hang up（无 code）仍触发降级', () => {
+    expect(isSplitterUnavailableError(new Error('socket hang up'))).toBe(true)
+  })
+
+  it('嵌套 { error: { code: ECONNREFUSED } } 形状触发降级', () => {
+    expect(isSplitterUnavailableError({ error: { code: 'ECONNREFUSED' } })).toBe(true)
+  })
+
+  it('ECONNREFUSED code 触发降级', () => {
+    expect(isSplitterUnavailableError(Object.assign(new Error('connect failed'), { code: 'ECONNREFUSED' }))).toBe(true)
+  })
+
+  it('业务错误不触发降级', () => {
+    expect(isSplitterUnavailableError(new Error('smart-sentence-splitter 响应缺少有效 scenes'))).toBe(false)
   })
 })

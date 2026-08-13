@@ -40,8 +40,7 @@ function errorMessage (error) {
   if (detail instanceof Error) return detail.message
   if (typeof detail === 'string') return detail
   if (detail && typeof detail === 'object') {
-    const nested = detail.message || detail.error
-    if (typeof nested === 'string') return nested
+    try { return JSON.stringify(detail) } catch (_) { /* fall through */ }
   }
   return String(detail || error || '服务不可用')
 }
@@ -60,7 +59,8 @@ function isSplitterUnavailableError (error) {
     const message = errorMessage(current)
     if (/splitterbridge is not running/i.test(message) ||
         /splitterbridge request timeout/i.test(message) ||
-        /\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EPIPE)\b/i.test(message)) {
+        /\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EPIPE)\b/i.test(message) ||
+        /socket hang up/i.test(message)) {
       return true
     }
     current = current.cause || current.innerError
@@ -74,21 +74,36 @@ function sceneTextOf (scene) {
   return normalizeText(scene.text || scene.content || scene.sentence)
 }
 
+/** 引擎字幕最小覆盖率：低于该值视为残缺，回退本地分块（防静默丢内容）。 */
+const ENGINE_SUBTITLE_MIN_COVERAGE = 0.6
+
+/** 覆盖率：去空白与标点后，引擎字幕拼接长度 / 场景文本长度（0..1）。 */
+function engineSubtitleCoverage (text, subtitles) {
+  const clean = (value) => String(value || '').replace(/[\s。！？；，、.!?;…“”‘’（）《》【】「」『』"']+/gu, '')
+  const total = clean(text).length
+  if (!total) return 1
+  return clean(subtitles.join('')).length / total
+}
+
 /**
  * 为场景附加字幕块与来源标记。
- * 引擎字幕优先（scenes[].subtitles[].text）；缺省回退本地 v0.15.2 分块。
+ * 引擎字幕优先（scenes[].subtitles[].text）；缺字幕或覆盖率不足（残缺）时回退本地 v0.15.2 分块。
  */
 function withSubtitleBlocks (scene, index, source, degraded, reason, options) {
   const text = sceneTextOf(scene)
   if (!text) throw new Error('分句结果包含空场景文本，无法生成字幕')
-  const rawSubtitles = scene && Array.isArray(scene.subtitles) ? scene.subtitles : []
-  const engineSubtitles = rawSubtitles
-    .map((item) => (item && typeof item === 'object' ? item.text : item))
-    .map((value) => String(value || '').trim())
-    .filter(Boolean)
-  const useEngineSubtitles = engineSubtitles.length > 0
+  const sceneObj = scene && typeof scene === 'object' && !Array.isArray(scene) ? scene : {}
+  const { subtitles: rawSubtitles, ...rest } = sceneObj
+  const engineSubtitles = Array.isArray(rawSubtitles)
+    ? rawSubtitles
+      .map((item) => (item && typeof item === 'object' ? item.text : item))
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+    : []
+  const useEngineSubtitles = engineSubtitles.length > 0 &&
+    engineSubtitleCoverage(text, engineSubtitles) >= ENGINE_SUBTITLE_MIN_COVERAGE
   return {
-    ...(scene && typeof scene === 'object' ? scene : {}),
+    ...rest,
     index,
     text,
     subtitleBlocks: useEngineSubtitles ? engineSubtitles : splitSubtitleBlocks(text, options),
