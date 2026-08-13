@@ -1,0 +1,24 @@
+{
+  "id": "higgsfield-engine-p0",
+  "title": "Higgsfield P0 引擎侧落地：8020 新字段 + evaluator 层级/违规扣分 + 边界上浮 5000",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "prompt-engine-cross-repo",
+  "currentPhase": "review",
+  "nextAction": "双模型复审（修复轮）→ PR/CI → 合并 → 归档",
+  "createdAt": "2026-08-14T12:00:00Z",
+  "branch": "codex/higgsfield-p0",
+  "openspecChanges": ["higgsfield-engine-p0 (prompt-engine repo)", "higgsfield-contract-boundary (Multi-Publish repo)"],
+  "repos": {
+    "engine": "D:/Data/projects/mp-worktrees/mp-pe-hg-p0 (codex/higgsfield-p0)",
+    "contract": "D:/Data/projects/mp-worktrees/mp-hg-contract-boundary (codex/higgsfield-contract-boundary)"
+  },
+  "tasks": [
+    "4.4(a) 8020 输出 excluded_characters/no_swap_pairs/color_ratio/shots[]",
+    "4.4(b) evaluator 长度判据层级感知（精修层长模板不误杀）",
+    "4.4(c) evaluator 违规扣分（缺席角色/收尾参数行缺失）",
+    "4.4(d) 8020 max_length 边界 4000→5000 + 契约层自动上浮",
+    "报告 P0.3 收尾参数行（Photoreal. NON-IP. ...）引擎侧输出"
+  ]
+}

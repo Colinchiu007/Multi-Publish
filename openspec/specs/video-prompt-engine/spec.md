@@ -194,7 +194,7 @@ prompt-engine 视频领域（domain=video）优化 SHALL 在指令中约束不�
 
 ### Requirement: 精修层 max_length 层级语义（按后端能力门控）
 
-请求构造 SHALL 按 creative_level 分层处理 `max_length`，并 SHALL 按目标后端能力范围收敛（防止 422）：8013 兼容后端（`buildVideoOptimizeRequest`）能力范围为 [50, 2000]（对齐 `prompt_engine/models.py` ge=50/le=2000）；8020 独立引擎（`buildStandaloneVideoOptimizeRequest`）能力范围为 [200, 4000]（对齐 `video_prompt_engine/models.py` ge=200/le=4000）。`creative_level ≥ 7` 且调用方未显式传 `max_length` 时 SHALL 使用精修层默认 5000，并 SHALL 收敛到后端能力上限（8013 → 2000；8020 → 4000）；`creative_level < 7` 且未显式传时 SHALL 保持现有默认 500。显式传入的值 SHALL 始终优先，且 SHALL 在目标后端能力范围内收敛；`null`/空串 SHALL 视为未显式传（与 PromptBridge 归一一致）。精修层目标上限（默认 5000 / 上限 20000）在引擎侧模型边界抬高后自动生效（跨仓库联调项，见 tasks 4.4）。
+请求构造 SHALL 按 creative_level 分层处理 `max_length`，并 SHALL 按目标后端能力范围收敛（防止 422）：8013 兼容后端（`buildVideoOptimizeRequest`）能力范围为 [50, 2000]（对齐 `prompt_engine/models.py` ge=50/le=2000）；8020 独立引擎（`buildStandaloneVideoOptimizeRequest`）能力范围为 [200, 5000]（对齐 `video_prompt_engine/models.py` ge=200/le=5000，tasks 4.4 边界上浮）。`creative_level ≥ 7` 且调用方未显式传 `max_length` 时 SHALL 使用精修层默认 5000，并 SHALL 收敛到后端能力上限（8013 → 2000；8020 → 5000）；`creative_level < 7` 且未显式传时 SHALL 使用常规层默认：8013 保持 500（零回归）、8020 对齐引擎默认 1800（`video_prompt_engine/models.py` max_length 默认，保证 batch 层 100 词下界可达）。显式传入的值 SHALL 始终优先，且 SHALL 在目标后端能力范围内收敛；`null`/空串 SHALL 视为未显式传（与 PromptBridge 归一一致）。精修层目标上限（默认 5000 / 上限 20000）在引擎侧模型边界抬高后自动生效（跨仓库联调项，见 tasks 4.4）。
 
 #### Scenario: 精修层默认上浮（8013）
 - **WHEN** `creative_level = 8` 且调用方未传 `max_length`，构造 8013 请求
@@ -202,11 +202,11 @@ prompt-engine 视频领域（domain=video）优化 SHALL 在指令中约束不�
 
 #### Scenario: 精修层默认上浮（8020）
 - **WHEN** `creative_level = 8` 且调用方未传 `max_length`，构造 8020 请求
-- **THEN** 请求携带 `max_length = 4000`（收敛到 8020 能力上限）
+- **THEN** 请求携带 `max_length = 5000`（收敛到 8020 能力上限）
 
-#### Scenario: 常规层零回归
+#### Scenario: 常规层默认
 - **WHEN** `creative_level = 5` 且调用方未传 `max_length`
-- **THEN** 8013 与 8020 请求均携带 `max_length = 500`（与改动前一致）
+- **THEN** 8013 请求携带 `max_length = 500`（零回归）；8020 请求携带 `max_length = 1800`（对齐 8020 引擎默认，batch 层 100 词下界可达）
 
 #### Scenario: 显式值优先（8013 能力范围内）
 - **WHEN** `creative_level = 9` 且调用方显式传 `max_length = 1500`
@@ -218,5 +218,5 @@ prompt-engine 视频领域（domain=video）优化 SHALL 在指令中约束不�
 
 #### Scenario: 8020 能力范围（含 min 边界修复）
 - **WHEN** 调用方显式传 `max_length = 99999` 或 `max_length = 10`，构造 8020 请求
-- **THEN** 分别携带 `max_length = 4000` 与 `max_length = 200`（收敛到 8020 [200, 4000]；修复既有 min 50 低于引擎 ge=200 的 422 隐患）
+- **THEN** 分别携带 `max_length = 5000` 与 `max_length = 200`（收敛到 8020 [200, 5000]；修复既有 min 50 低于引擎 ge=200 的 422 隐患）
 

@@ -592,6 +592,17 @@ describe('appendVideoTrailer 与平台画像', () => {
     expect(appendVideoTrailer(src, {})).toBe(src)
   })
 
+  it('幂等判据词边界：xenon-ip 等子串不误判已含标记（对齐引擎 append_trailer）', () => {
+    const out = appendVideoTrailer('xenon-ip contamination in the air', {})
+    expect(out).toContain('NON-IP')
+  })
+
+  it('duration 整数化对齐引擎 build_tail：5.5 → 5s', () => {
+    const out = appendVideoTrailer('x', { duration: 5.5 })
+    expect(out).toContain('5s.')
+    expect(out).not.toContain('5.5s.')
+  })
+
   it('超长截断保 NON-IP 无残缺段', () => {
     const out = appendVideoTrailer('x'.repeat(95), { maxLength: 100 })
     expect(out.endsWith('NON-IP')).toBe(true)
@@ -619,6 +630,17 @@ describe('结构完整性校验（截断前）', () => {
     expect(r.video.excluded_characters).toEqual(['JAX'])
   })
 
+  it('no_swap_pairs 声明且正文含 [ABSENT] 标记（引擎合规输出）→ 通过', () => {
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: 'hero walks. [ABSENT] ROKO replaced by JAX', video: { no_swap_pairs: [{ from: 'ROKO', to: 'JAX' }] } })
+    expect(r.ok).toBe(true)
+    expect(r.video.no_swap_pairs).toEqual([['ROKO', 'JAX']])
+  })
+
+  it('no_swap_pairs 引擎对象形态 {from,to} → 收敛为规范二元组', () => {
+    const out = normalizeVideoMeta({ no_swap_pairs: [{ from: 'ROKO', to: 'JAX' }, { from: 'A', to: '' }, { from: 1, to: 'B' }, ['C', 'D']] })
+    expect(out.no_swap_pairs).toEqual([['ROKO', 'JAX'], ['C', 'D']])
+  })
+
   it('超长截断不误杀：标记在截断区外，校验基于截断前文本', () => {
     const prompt = 'a'.repeat(79) + ' [ABSENT] JAX'
     const r = extractOptimizedVideoPrompt({ optimized_prompt: prompt, video: { excluded_characters: ['JAX'] } }, { maxLength: 80 })
@@ -640,14 +662,17 @@ describe('精修层 max_length 层级语义（R6，按后端能力门控）', ()
     expect(req.max_length).toBe(2000)
   })
 
-  it('8020：creative_level ≥ 7 未显式传 → 收敛到能力上限 4000', () => {
+  it('8020：creative_level ≥ 7 未显式传 → 收敛到能力上限 5000', () => {
     const req = buildStandaloneVideoOptimizeRequest('director shot', { creative_level: 8 })
-    expect(req.max_length).toBe(4000)
+    expect(req.max_length).toBe(5000)
   })
 
-  it('creative_level < 7 未显式传 → 保持 500（双后端零回归）', () => {
+  it('creative_level < 7 未显式传 → 8013 保持 500（零回归）', () => {
     expect(buildVideoOptimizeRequest('a cat', { creative_level: 5 }).max_length).toBe(500)
-    expect(buildStandaloneVideoOptimizeRequest('a cat', { creative_level: 5 }).max_length).toBe(500)
+  })
+
+  it('creative_level < 7 未显式传 → 8020 对齐引擎默认 1800（batch 层 100 词下界可达）', () => {
+    expect(buildStandaloneVideoOptimizeRequest('a cat', { creative_level: 5 }).max_length).toBe(1800)
   })
 
   it('显式值优先于层级默认（8013 能力范围内）', () => {
@@ -655,20 +680,28 @@ describe('精修层 max_length 层级语义（R6，按后端能力门控）', ()
     expect(req.max_length).toBe(1500)
   })
 
-  it('显式值超上限收敛（8013 → 2000 / 8020 → 4000）', () => {
+  it('显式值超上限收敛（8013 → 2000 / 8020 → 5000）', () => {
     expect(buildVideoOptimizeRequest('x', { max_length: 99999 }).max_length).toBe(2000)
     expect(buildVideoOptimizeRequest('x', { max_length: 3000 }).max_length).toBe(2000)
-    expect(buildStandaloneVideoOptimizeRequest('x', { max_length: 99999 }).max_length).toBe(4000)
+    expect(buildStandaloneVideoOptimizeRequest('x', { max_length: 99999 }).max_length).toBe(5000)
   })
 
   it('8020 min 边界修复：显式 10 → 200（8020 ge=200）', () => {
     expect(buildStandaloneVideoOptimizeRequest('x', { max_length: 10 }).max_length).toBe(200)
   })
 
+  it('8020：850 字符长 prompt 精修层真实构建 → max_length=5000 且正文不截断', () => {
+    const longPrompt = 'A cinematic establishing shot of a ruined city at dusk, embers drifting across broken towers, a lone warrior walking toward the camera, dust and smoke swirling, golden rim light on the horizon, camera slowly dolly-in, dramatic orchestral atmosphere, ' + 'detail texture and volumetric fog, '.repeat(30)
+    expect(longPrompt.length).toBeGreaterThan(800)
+    const req = buildStandaloneVideoOptimizeRequest(longPrompt, { creative_level: 8 })
+    expect(req.max_length).toBe(5000)
+    expect(req.prompt).toBe(longPrompt.trim())  // 契约层按 String().trim() 归一
+  })
+
   it('null/空串/纯空白视为未显式传（精修层默认生效）', () => {
     expect(buildVideoOptimizeRequest('x', { creative_level: 8, max_length: null }).max_length).toBe(2000)
     expect(buildVideoOptimizeRequest('x', { creative_level: 8, max_length: '' }).max_length).toBe(2000)
     expect(buildVideoOptimizeRequest('x', { creative_level: 8, max_length: '  ' }).max_length).toBe(2000)
-    expect(buildStandaloneVideoOptimizeRequest('x', { creative_level: 8, max_length: '  ' }).max_length).toBe(4000)
+    expect(buildStandaloneVideoOptimizeRequest('x', { creative_level: 8, max_length: '  ' }).max_length).toBe(5000)
   })
 })
