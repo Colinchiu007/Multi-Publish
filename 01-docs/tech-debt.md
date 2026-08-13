@@ -98,3 +98,5 @@
 2026-08-06 | W1 run-state 快照未按 owner 隔离 | 🟠 高 | ✅ 已修复 | RunStateStore 快照改为 `userData/run-state/owners/{sha256(subject)}/<runId>.json`，owner provider 注入（phase3-services 接线），legacy 平铺快照读取自动迁移；跨账号 runId 不再可互读。PR #374
 2026-08-06 | W2 governor 排队超时回收依赖下次释放 | 🟡 中 | ✅ 已修复 | 新增 `_sweepExpired`（每次 run() 入口回收）+ `sweepAll()`（PipelineEngine._finalizeRun 统一调用），过期 waiter 不再悬挂到任务链结束。PR #374
 2026-08-06 | W3 governor 默认 RPM 为保守估计 | 🟡 中 | ✅ 已修复 | 新增 governor-provider-limits.js（52 provider 预算），governor 支持 setProviderLimits/构造注入，container 启动注入；优先级 key > provider > 类别默认。PR #374
+
+2026-08-13 | JS stageDefs 与 Python YAML manifest 阶段命名漂移 | 🟡 中 | 基线见 [PIPELINE-MATRIX.md](./PIPELINE-MATRIX.md) §6：多数 YAML 为通用模板（idea/script/scene_plan/assets/edit/compose/publish），与 JS 实际执行阶段（upload/transcribe/…）不一致；仅 story2video-compose 高度对应。后续建「manifest 合同一致性」门禁时以此为基线。待处理

@@ -153,6 +153,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-11 | 视频创作模块 UI/UX 深度优化 | 视图切换胶囊化、流水线卡片悬停增强、返回按钮/详情头部卡片化、输入框聚焦效果、配置区展开动画、操作栏阴影、模式切换胶囊化、历史记录 fadeIn 动画/工具栏卡片化/状态徽章大写/时间图标、响应式断点。详见 3.1.18 | PRD 7.1.30 |
 | 2026-08-11 | failed 状态保留原始值 + 暂停环节显示修正 | failed 不再统一转为 paused，保留原始状态；前端区分执行失败和已暂停；新增 historyStatusClass()；筛选器新增执行失败；失败提示显示 pausedStage；卡片 hover 增强。详见 3.1.19 | PRD 7.1.31 |
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
+| 2026-08-13 | 流水线矩阵文档 | 新增 [PIPELINE-MATRIX.md](./PIPELINE-MATRIX.md)：14 条流水线 × 阶段 × 执行引擎 × 可用性 × 供应商要求总览，含 JS stageDefs 与 Python YAML manifest 阶段命名漂移基线（§6）。commit f51bb852 | PIPELINE-MATRIX.md |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
