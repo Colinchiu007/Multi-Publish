@@ -1,3 +1,15 @@
+## [2026-08-13] Story2Video 全能创作：音色克隆选择文件后无反馈体验优化
+
+- 根因：选择本地音频文件后自动克隆，克隆期间（上传音频 + 服务商复刻，通常 10~60 秒）界面仅「选择本地音频文件」按钮变灰，无任何进行中反馈，观感「卡死」，之后新音色才突然出现。
+- 修复（纯渲染层，IPC 契约与主进程未动）：
+  - 克隆进行中在克隆列表末尾插入占位行（自动默认名「音色XXX」+「创建中…」+ spinner，data-testid `s2v-voice-clone-pending-row`），选完文件立即可见「新音色正在创建」；
+  - 入口按钮文案切「正在克隆…」并禁用；新增 `role="status"` 状态行「已选择 N 个样本，正在上传并克隆音色…（通常需要 10~60 秒，请勿重复操作）」（data-testid `s2v-voice-clone-status`）；
+  - 成功后占位行替换为真实行并自动设为默认，轻提示「已添加克隆音色「名称」」（复用 s2v-options-toast 1.6s 淡出）；失败清除占位行（不留「创建中」残留）+ 友好错误，可「重新选择音频文件」重试；
+  - 占位行不参与命名序号计算、不可重命名/设默认/删除；provider/设置重载（resetS2VVoiceData）与 stale request 时一并清除；
+  - 新增 zh/en i18n key：`create.story2video.voice.cloneSelectButton / cloneReselectButton / cloneInProgressButton / cloneStatusPending / clonePendingLabel / cloneSuccessToast`。
+- 测试：CreateView.test.js 155 全绿（新增：克隆期间占位行+进行中反馈+成功替换/自动选中/轻提示；失败占位先现后清+错误；克隆中 provider/设置重载后旧请求不复活占位、不卡 loading）；eslint 0 error；vite build exit 0。
+- 文档：PRD.md 7.1.4 音色克隆区域交互合同补充「克隆进行中反馈」。
+
 ## [2026-08-13] 模型服务商设置 ModelProviders 全量 i18n（PR #675 merged 9baefcc4）
 
 - locales zh/en 新增 `modelProviders` 命名空间（167 键对等，含插值函数）

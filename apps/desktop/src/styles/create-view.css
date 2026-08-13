@@ -217,6 +217,11 @@
 [data-theme="dark"] .voice-clone-invalid-badge { margin-left: 6px; font-size: 11px; color: var(--clone-invalid-text); background: var(--clone-invalid-bg); border: 1px solid var(--clone-invalid-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
 .voice-clone-default-badge { margin-left: 6px; font-size: 11px; color: var(--clone-default-text); background: var(--clone-default-bg); border: 1px solid var(--clone-default-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
 [data-theme="dark"] .voice-clone-default-badge { margin-left: 6px; font-size: 11px; color: var(--clone-default-text); background: var(--clone-default-bg); border: 1px solid var(--clone-default-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
+.voice-clone-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted, #888); margin: 0; min-width: 0; }
+.voice-clone-row-pending { opacity: 0.85; }
+.voice-clone-row-pending > span { display: flex; align-items: center; gap: 8px; }
+.voice-clone-pending-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--clone-pending-text, var(--text-muted, #888)); background: var(--clone-pending-bg, rgba(0, 0, 0, 0.04)); border: 1px solid var(--clone-pending-border, var(--border, #ddd)); border-radius: var(--r-xs, 4px); padding: 1px 6px; white-space: nowrap; }
+[data-theme="dark"] .voice-clone-pending-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--clone-pending-text, var(--text-muted, #888)); background: var(--clone-pending-bg, rgba(255, 255, 255, 0.06)); border: 1px solid var(--clone-pending-border, var(--border, #444)); border-radius: var(--r-xs, 4px); padding: 1px 6px; white-space: nowrap; }
 
 /* 操作栏 */
 .action-bar { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; border-radius: 0 0 10px 10px; box-shadow: 0 -2px 8px rgba(0,0,0,0.04); }

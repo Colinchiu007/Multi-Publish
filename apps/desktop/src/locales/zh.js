@@ -139,6 +139,13 @@ export default {
         VOICE_CLONE_STORE_UNAVAILABLE: '克隆音色本地存储不可用，请检查磁盘空间后重试。',
         VOICE_CLONE_STORAGE_UNAVAILABLE: '克隆音色本地存储不可用，请检查磁盘空间后重试。',
         VOICE_CLONE_INVALID_ARGUMENTS: '克隆音色参数不合法，请重新选择音频文件。',
+        // 2026-08-13 音色克隆进行中反馈（选择文件后自动克隆期间）
+        cloneSelectButton: '选择本地音频文件',
+        cloneReselectButton: '重新选择音频文件',
+        cloneInProgressButton: '正在克隆…',
+        cloneStatusPending: '已选择 {count} 个样本，正在上传并克隆音色…（通常需要 10~60 秒，请勿重复操作）',
+        clonePendingLabel: '创建中…',
+        cloneSuccessToast: '已添加克隆音色「{name}」',
       },
     },
   },

@@ -91,6 +91,9 @@
   --clone-default-bg: #dbeafe;
   --clone-default-text: #1d4ed8;
   --clone-default-border: #bfdbfe;
+  --clone-pending-bg: #f3f4f6;
+  --clone-pending-text: #6b7280;
+  --clone-pending-border: #e5e7eb;
 
   
   /* --- Upload Zone 拖拽反馈 --- */
@@ -180,6 +183,9 @@
     --clone-default-bg: #172554;
     --clone-default-text: #93c5fd;
     --clone-default-border: #1e3a8a;
+    --clone-pending-bg: #1f2937;
+    --clone-pending-text: #9ca3af;
+    --clone-pending-border: #374151;
     --banner-attention-text: #fb923c;
 
     --ep-primary: #66b1ff;

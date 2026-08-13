@@ -522,13 +522,21 @@
                 <p v-if="s2vVoiceCloneRequirements" class="config-hint">以上为当前模型能力数据驱动的本地校验提示，具体以供应商官方 API 合同为准。</p>
                 <div class="voice-clone-actions">
                   <button type="button" class="btn-secondary" :disabled="s2vVoiceCloneLoading" @click="chooseS2VVoiceCloneSamples">
-                    {{ s2vVoiceCloneSelection ? '重新选择音频文件' : '选择本地音频文件' }}
+                    {{ s2vVoiceCloneLoading
+                      ? translateWithLocaleFallback('create.story2video.voice.cloneInProgressButton', '正在克隆…', 'Cloning...')
+                      : (s2vVoiceCloneSelection
+                        ? translateWithLocaleFallback('create.story2video.voice.cloneReselectButton', '重新选择音频文件', 'Choose audio file again')
+                        : translateWithLocaleFallback('create.story2video.voice.cloneSelectButton', '选择本地音频文件', 'Choose local audio file')) }}
                   </button>
-                  <span v-if="s2vVoiceCloneSelection" class="config-hint">已选择 {{ s2vVoiceCloneSelection.sampleCount }} 个样本</span>
+                  <span v-if="s2vVoiceCloneSelection && !s2vVoiceClonePending" class="config-hint">已选择 {{ s2vVoiceCloneSelection.sampleCount }} 个样本</span>
                 </div>
+                <p v-if="s2vVoiceClonePending" class="voice-clone-status" role="status" data-testid="s2v-voice-clone-status">
+                  <span class="spinner" aria-hidden="true"></span>
+                  {{ s2vVoiceCloneStatusText() }}
+                </p>
                 <p class="config-hint">选择本地音频文件后将自动保存为克隆音色（默认名「音色001」，可点击「重命名」修改）。已授权样本只由可信主进程写入当前用户的本机私有目录，用于管理此克隆音色；页面不会接收原始文件路径或音频内容。</p>
                 <p v-if="s2vVoiceCloneError" class="inline-error">{{ s2vVoiceCloneError }}</p>
-                <div v-if="s2vVoiceClones.length > 0" class="voice-clone-list">
+                <div v-if="s2vVoiceClones.length > 0 || s2vVoiceClonePending" class="voice-clone-list">
                   <div v-for="voice in s2vVoiceClones" :key="voice.id" class="voice-clone-row" :class="{ 'voice-clone-row-default': isS2VDefaultVoice(voice.id) }">
                     <template v-if="s2vVoiceCloneRenamingId === voice.id">
                       <input
@@ -557,6 +565,15 @@
                         <button type="button" class="btn-secondary danger" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
                       </div>
                     </template>
+                  </div>
+                  <div v-if="s2vVoiceClonePending" class="voice-clone-row voice-clone-row-pending" data-testid="s2v-voice-clone-pending-row">
+                    <span>
+                      {{ s2vVoiceClonePending.name }}
+                      <span class="voice-clone-pending-badge">
+                        <span class="spinner" aria-hidden="true"></span>
+                        {{ translateWithLocaleFallback('create.story2video.voice.clonePendingLabel', '创建中…', 'Creating...') }}
+                      </span>
+                    </span>
                   </div>
                 </div>
                 </template>
@@ -764,7 +781,7 @@
 
         <!-- 执行控制 -->
         <div class="action-bar">
-          <span v-if="s2vOptionsToast" class="s2v-options-toast" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</span>
+          <span v-if="s2vOptionsToast" class="s2v-options-toast" role="status" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</span>
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
             <UiButton class="btn-start" data-testid="start-story2video" @click="handleStartPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
@@ -1201,6 +1218,8 @@ export default {
       s2vVoiceProviderRequestId: 0, s2vVoiceRequestId: 0, s2vVoiceSelectionRequestId: 0, s2vVoiceCloneRequestId: 0, s2vPersistedVoiceId: '',
       s2vVoiceCloneRequirements: null, s2vVoiceClones: [],
       s2vVoiceCloneSelection: null, s2vVoiceCloneLoading: false, s2vVoiceCloneError: '',
+      // 克隆进行中占位行（选择本地音频后自动克隆期间的即时反馈，2026-08-13）
+      s2vVoiceClonePending: null,
       s2vVoiceCloneRenamingId: '', s2vVoiceCloneRenameDraft: '',
       // 用户显式选择了「自动 Edge TTS」（voiceProvider=''）时为 true；用于区分「未选择」与「显式 Edge」，
       // 避免 loadS2VProviders 重入时被多模态默认覆盖。
@@ -2290,6 +2309,7 @@ export default {
       this.s2vVoiceCloneRequirements = null
       this.s2vVoiceClones = []
       this.s2vVoiceCloneSelection = null
+      this.s2vVoiceClonePending = null
       this.s2vVoiceCloneLoading = false
       this.s2vVoiceCloneError = ''
       this.s2vVoiceCloneRenamingId = ''
@@ -2552,6 +2572,12 @@ export default {
         }
         this.s2vVoiceCloneSelection = null
         if (result?.code !== 0) this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法选择本地音频样本。'
+      } catch (error) {
+        // 异常路径硬化（2026-08-13 审查 W1）：IPC 封装层已将 reject 统一转为错误码，此处兜底
+        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) {
+          this.s2vVoiceCloneSelection = null
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(error?.message) || '无法选择本地音频样本。'
+        }
       } finally {
         if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
       }
@@ -2585,6 +2611,12 @@ export default {
       const requestId = ++this.s2vVoiceCloneRequestId
       this.s2vVoiceCloneLoading = true
       this.s2vVoiceCloneError = ''
+      // 克隆进行中占位行：选完文件立即反馈「创建中」，避免长时间无响应观感（2026-08-13）
+      this.s2vVoiceClonePending = {
+        id: 'pending-' + requestId,
+        name: normalizedName,
+        sampleCount: this.s2vVoiceCloneSelection?.sampleCount || 1,
+      }
       try {
         const result = await addTtsVoiceClone(this.cloneForIpc({
           ...context,
@@ -2597,6 +2629,7 @@ export default {
         if (!voice) {
           // 自动保存失败：一次性选择令牌已被主进程销毁，清除本地快照避免「已选择 N 个样本」误导
           this.s2vVoiceCloneSelection = null
+          this.s2vVoiceClonePending = null
           this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(result?.message) || '无法添加克隆音色。'
           return
         }
@@ -2605,11 +2638,40 @@ export default {
           voice,
         ]
         this.s2vVoiceCloneSelection = null
+        this.s2vVoiceClonePending = null
         this.s2vConfig.voiceId = voice.id
         await this.selectS2VVoice(voice.id)
+        this.showS2VOptionsToast(this.translateWithLocaleFallback(
+          'create.story2video.voice.cloneSuccessToast',
+          '已添加克隆音色「' + voice.name + '」',
+          'Cloned voice "' + voice.name + '" added',
+          { name: voice.name },
+        ))
+      } catch (error) {
+        // 异常路径硬化（2026-08-13 审查 W1）：IPC 封装层已将 reject 统一转为错误码，
+        // 此处兜底保证未知 reject 也不「占位行凭空消失且无提示」。
+        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) {
+          this.s2vVoiceCloneSelection = null
+          this.s2vVoiceClonePending = null
+          this.s2vVoiceCloneError = this.friendlyVoiceCatalogError(error?.message) || '无法添加克隆音色。'
+        }
       } finally {
-        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) this.s2vVoiceCloneLoading = false
+        if (this.isCurrentS2VVoiceCloneRequest(requestId, context)) {
+          this.s2vVoiceCloneLoading = false
+          this.s2vVoiceClonePending = null
+        }
       }
+    },
+    s2vVoiceCloneStatusText() {
+      const pending = this.s2vVoiceClonePending
+      if (!pending) return ''
+      const count = Number.isFinite(pending.sampleCount) ? pending.sampleCount : 1
+      return this.translateWithLocaleFallback(
+        'create.story2video.voice.cloneStatusPending',
+        '已选择 ' + count + ' 个样本，正在上传并克隆音色…（通常需要 10~60 秒，请勿重复操作）',
+        'Selected ' + count + ' sample(s). Uploading and cloning the voice... (usually 10-60 s, please wait)',
+        { count },
+      )
     },
     async deleteS2VVoiceClone(voiceId) {
       const context = this.getS2VVoiceContext()
