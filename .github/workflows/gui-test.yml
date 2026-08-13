@@ -30,7 +30,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.12.0
+          version: 11.13.1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -61,11 +61,6 @@ jobs:
 
       - name: Build Vue frontend
         run: pnpm --filter @multi-publish/desktop build:vue
-
-      - name: Rebuild native modules
-        run: |
-          cd apps/desktop
-          pnpm exec @electron/rebuild -f -w better-sqlite3
 
       - name: Start Vite server
         shell: bash

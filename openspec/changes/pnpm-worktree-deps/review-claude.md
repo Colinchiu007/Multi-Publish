@@ -70,7 +70,7 @@ Review complete. I verified key facts against the live repo: `allowBuilds` is th
 - 根 `package.json` 保留 `workspaces: ["apps/*","packages/*"]`，pnpm 11 会在 install 时打印「ignored」告警；无功能影响，可留可删（design 决策 #2）。
 - `@electron/rebuild -f -w better-sqlite3`（electron-ci/gui-test）实为 no-op：better-sqlite3 不在依赖图。保留无害。
 - `run-package-install.js` 的 `resolveViaVirtualStore` 只匹配非 scoped 名（`.pnpm/esbuild@*`），scoped 包在 `.pnpm` 里是 `@scope+name@` 形式；当前仅用于 esbuild/vue-demi，无影响，将来复用时需注意。
-- 7 个 workflow 里 `pnpm/action-setup` 的 `version: 11.12.0` 硬编码重复 7 份；与根 `packageManager` 声明一致，但升级需改 7 处，可考虑省略让 action 读 packageManager。
+- 7 个 workflow 里 `pnpm/action-setup` 的 `pnpm@11.13.1` 硬编码重复 7 份；与根 `packageManager` 声明一致，但升级需改 7 处，可考虑省略让 action 读 packageManager。
 
 ### 已核实无问题（非缺陷）
 - `allowBuilds` 是 pnpm 11 正确键名（`onlyBuiltDependencies` 已在 v11 移除），map 值布尔格式正确；`nodeLinker: hoisted` 放 `pnpm-workspace.yaml` 正确。electron 未放行是刻意的（@43 无 postinstall）。

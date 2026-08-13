@@ -5,7 +5,7 @@
 ## Phase 1: 配置与锁文件
 
 - [x] T1 新增 `pnpm-workspace.yaml`（packages: apps/*, packages/*；nodeLinker: hoisted；onlyBuiltDependencies: esbuild/vue-demi/better-sqlite3/electron）
-- [x] T2 根 package.json：加 `packageManager: pnpm@11.12.0`；根 scripts npm→pnpm 等价语法（dev/build/build:win/test/test:rpa-selectors 等）；评估并处理 `workspaces` 字段（与 pnpm-workspace.yaml 冲突则移除，冒烟验证 nx）
+- [x] T2 根 package.json：加 `packageManager: pnpm@11.13.1`；根 scripts npm→pnpm 等价语法（dev/build/build:win/test/test:rpa-selectors 等）；评估并处理 `workspaces` 字段（与 pnpm-workspace.yaml 冲突则移除，冒烟验证 nx）
 - [x] T3 执行 `pnpm import` 生成 pnpm-lock.yaml；检查 `importers` 段 @multi-publish/* 为本地 link（否则改 workspace:*）
 - [x] T4 删除 package-lock.json（迁移完成）
 

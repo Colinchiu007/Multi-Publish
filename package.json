@@ -3,7 +3,7 @@
   "version": "2.3.53",
   "private": true,
   "description": "多平台内容一键发布 — Monorepo",
-  "packageManager": "pnpm@11.12.0",
+  "packageManager": "pnpm@11.13.1",
   "scripts": {
     "dev": "pnpm --filter @multi-publish/desktop dev",
     "build": "pnpm --filter @multi-publish/desktop build",

@@ -5,7 +5,7 @@
 # 2. 本 job = Linux 平台桌面 vitest（单 worker、确定性）+ Electron xvfb 冒烟 + deps/circular 检查，
 #    与 Quality Gate（windows-latest 全 workspace 单测）形成跨平台互补，而非重复跑全量；
 #    Electron GUI 深度门禁由 gui-test.yml（同 ubuntu-latest + xvfb）承担。
-# 3. xvfb 提供虚拟显示器；Electron ABI 原生模块（better-sqlite3）由 @electron/rebuild 重建。
+# 3. xvfb 提供虚拟显示器；better-sqlite3 不在依赖图（sqlite-wrapper.js 为 sql.js 兼容层），无需 @electron/rebuild。
 # 4. ECS 自托管 runner 保留配置但不再必需；如需移除，见仓库 Settings → Actions → Runners。
 name: Electron CI
 
@@ -54,7 +54,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.12.0
+          version: 11.13.1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -87,11 +87,6 @@ jobs:
         run: |
           unset electron_use_remote_checksums npm_config_electron_use_remote_checksums
           node node_modules/electron/install.js
-
-      - name: Rebuild native modules for Electron ABI
-        run: |
-          cd apps/desktop
-          pnpm exec @electron/rebuild -f -w better-sqlite3
 
       - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
         run: |

@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 根依赖管理从 npm 切换为 pnpm workspaces（机器已装 pnpm 11.12.0），生成 pnpm-lock.yaml 作为唯一锁文件；`package.json` 增加 `packageManager: pnpm@<version>`。
+- 根依赖管理从 npm 切换为 pnpm workspaces（机器已装 pnpm@11.13.1），生成 pnpm-lock.yaml 作为唯一锁文件；`package.json` 增加 `packageManager: pnpm@<version>`。
 - 采用 pnpm 全局 content-addressable store + `node-linker=hoisted`（保持与现有 npm hoisted 布局一致，降低 electron-builder/esbuild/手动 install.js 步骤的迁移风险）：新 worktree `pnpm install` 秒级完成、几乎不新增磁盘，workspace 链接自动指向当前 worktree。
 - 全量 CI 工作流（7 个 .github/workflows/*.yml）从 `cache: npm` + `npm ci` 迁移到 pnpm action + `pnpm install --frozen-lockfile`；需要构建脚本的依赖（esbuild、vue-demi、electron runtime、better-sqlite3 rebuild）显式声明放行。
 - 根 package.json 与各 workspace 的 `npm run`/`npx` 脚本迁移为 pnpm 等价语法。

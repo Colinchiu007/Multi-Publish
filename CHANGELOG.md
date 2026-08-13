@@ -3,7 +3,7 @@
 
 ## [2026-08-13] build(monorepo): npm → pnpm 迁移（worktree 依赖复用同一 store）
 
-- 依赖管理切换为 pnpm 11.12.0（`packageManager` 声明），`pnpm-lock.yaml` 为唯一锁文件，`package-lock.json` 退役；`pnpm-workspace.yaml` 承载 workspaces、`node-linker=hoisted`（扁平布局与 npm 一致）与构建脚本放行（esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js）。
+- 依赖管理切换为 pnpm@11.13.1（`packageManager` 声明），`pnpm-lock.yaml` 为唯一锁文件，`package-lock.json` 退役；`pnpm-workspace.yaml` 承载 workspaces、`node-linker=hoisted`（扁平布局与 npm 一致）与构建脚本放行（esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js）。
 - workspace 协议：`@multi-publish/*` 依赖统一改为 `workspace:*`，保证解析到本地包而非 registry。
 - 新 worktree 依赖就绪秒级化：`pnpm install --frozen-lockfile` + `node scripts/ensure-electron.js` + 新增 `node scripts/verify-worktree-deps.js`（解析门禁：每个被消费 workspace 包必须落在当前 worktree）。
 - 新增 `scripts/run-package-install.js`（require.resolve 穿透 pnpm symlink + .pnpm 虚拟存储兜底执行 esbuild/vue-demi install 脚本，替代 electron-ci 硬编码嵌套路径）；重写 `scripts/fix-worktree-node-modules.sh`（junction 检测 → 移除 → pnpm install → 门禁；整目录 Junction 复用废弃）。

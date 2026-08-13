@@ -2,7 +2,7 @@
 
 - 现状：npm workspaces（apps/*, packages/*，10 个 workspace），依赖安装与运行时代码假设都建立在 **hoisted 扁平布局**上：`apps/desktop/scripts/dev.js` 直接引用 `repoRoot/node_modules/vite/bin/vite.js`、`node_modules/electron/cli.js`；`scripts/launch-worktree.js` 引用 `node_modules/electron/dist/electron.exe`；electron-builder `files: node_modules/**/*`；depcheck 依赖扁平布局。
 - 问题：多 Git worktree 并发开发时 npm 无法跨目录复用依赖——新 worktree 要么全量重装（~1.5GB/数分钟），要么借整目录 Junction 导致 `@multi-publish/*` 指向主仓库源码（双模块实例，已记录在 fix-worktree-node-modules.sh 与 learnings）。
-- 机器已装 pnpm 11.12.0。双模型分析：antigravity 不可用（地区限制，见 analysis-antigravity-unavailable.md），分析由 Claude（analysis-claude.md）+ 主代理完成。
+- 机器已装 pnpm@11.13.1。双模型分析：antigravity 不可用（地区限制，见 analysis-antigravity-unavailable.md），分析由 Claude（analysis-claude.md）+ 主代理完成。
 - pnpm 11 关键事实（官方文档/源码核对）：`nodeLinker`、`onlyBuiltDependencies` 等工程设置放 `pnpm-workspace.yaml`，`.npmrc` 仅接受 auth/registry/network 设置；pnpm 10+ 默认拒绝未放行的构建脚本。
 
 ## Goals / Non-Goals
@@ -32,7 +32,7 @@
 4. **脚本语法迁移**：根 `npm run -w X` → `pnpm --filter X run/...`（或 `pnpm -F`）；`npm run test --workspaces --if-present` → `pnpm -r --if-present test`；workspace 内部嵌套 `npm run` → `pnpm run`；需要时 `npx` → `pnpm exec`。
 5. **electron 二进制**：electron@43 无 postinstall，保留 `scripts/ensure-electron.js`（dev）与 CI 显式 install.js；esbuild/vue-demi 通过 onlyBuiltDependencies + `scripts/run-package-install.js` 放行（`--ignore-scripts` 场景）。
 6. **electron-builder**：`files` 增加 `!node_modules/.pnpm/**`（hoisted 模式下 `.pnpm` 仍存在，避免体积膨胀与 symlink 解引用问题）；`npmRebuild: false` 不变；win+linux 真实 `--dir` 冒烟。
-7. **CI**：`pnpm/action-setup@v4`（version 11.12.0）+ `setup-node@v4 cache: pnpm`；`npm ci` → `pnpm install --frozen-lockfile`；`npx` → `pnpm exec`；`Start-Process npm.cmd` → `pnpm.cmd`；nx cache key 换 pnpm-lock。
+7. **CI**：`pnpm/action-setup@v4`（version 11.13.1，11.12.0 官方标记 broken）+ `setup-node@v4 cache: pnpm`；`npm ci` → `pnpm install --frozen-lockfile`；`npx` → `pnpm exec`；`Start-Process npm.cmd` → `pnpm.cmd`；nx cache key 换 pnpm-lock。
 8. **store-dir 机器级配置**（不提交）：`pnpm config set store-dir D:\Data\projects\.pnpm-store`，写入 build.md 说明；CI 用默认 store。
 9. **新 worktree 标准流程**：`git worktree add ... && pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`。
 10. **整目录 Junction 废弃**：它是双模块实例根因；fix-worktree-node-modules.sh 改为"检测-修复-校验"。

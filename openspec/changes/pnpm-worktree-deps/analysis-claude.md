@@ -76,7 +76,7 @@ git worktree add ... && pnpm install && node scripts/ensure-electron.js
 | 文件 | 改动 |
 |---|---|
 | `pnpm-workspace.yaml`（新增） | `packages: [apps/*, packages/*]`；消除 pnpm 11 对 package.json `workspaces` 的告警 |
-| 根 `package.json` | `packageManager: pnpm@11.12.0`；`workspaces` 字段移除（BREAKING）；`"pnpm": {onlyBuiltDependencies:[...]}`；根 scripts 里 `npm run -w X`→`pnpm --filter X run`、`npx`→`pnpm exec`、`test`→`pnpm -r --if-present test`；`.npmrc` 加 `node-linker=hoisted` |
+| 根 `package.json` | `packageManager: pnpm@11.13.1`；`workspaces` 字段移除（BREAKING）；`"pnpm": {onlyBuiltDependencies:[...]}`；根 scripts 里 `npm run -w X`→`pnpm --filter X run`、`npx`→`pnpm exec`、`test`→`pnpm -r --if-present test`；`.npmrc` 加 `node-linker=hoisted` |
 | `apps/desktop/package.json` | 内部脚本 `npm run`→`pnpm run`、`npx`→`pnpm exec`；`@multi-publish/*` 改 `workspace:*`；electron-builder `files` 加 `!node_modules/.pnpm/**` |
 | `nx.json` | `inputs` 的 `package-lock.json`→`pnpm-lock.yaml` |
 | 7 个 workflow | ① 加 `pnpm/action-setup`（version 11.12.0）或 setup-node `cache: 'pnpm'`；② `npm ci[ ...]`→`pnpm install --frozen-lockfile [--ignore-scripts]`；③ `npx`→`pnpm exec`；④ `npm run X -w @multi-publish/desktop`→`pnpm --filter @multi-publish/desktop X`；⑤ quality-gate Gate 4 / desktop-shards 的 `Start-Process npm.cmd`→`pnpm.cmd`；⑥ quality-gate `Restore Nx cache` key→pnpm-lock；⑦ electron-ci 手动 install 步骤改 `scripts/run-package-install.js`；⑧ gui-test `paths` 里的 `package-lock.json`→加 `pnpm-lock.yaml` |

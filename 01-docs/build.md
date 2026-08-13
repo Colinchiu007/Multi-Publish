@@ -24,7 +24,7 @@ sleep 8 && kill $!
 
 ## 依赖安装与 Worktree 复用（pnpm，2026-08-13 起）
 
-- 唯一包管理器：pnpm 11.12.0（`packageManager` 声明），锁文件 `pnpm-lock.yaml`，`node-linker=hoisted`（扁平布局与 npm workspaces 一致）。
+- 唯一包管理器：pnpm@11.13.1（`packageManager` 声明），锁文件 `pnpm-lock.yaml`，`node-linker=hoisted`（扁平布局与 npm workspaces 一致）。
 - 机器级 store（不提交）：`pnpm config set store-dir D:/Data/projects/.pnpm-store`；所有 worktree 依赖从该 store 硬链接复用，不重复下载。
 - 新 worktree 依赖就绪（秒级）：
   ```bash

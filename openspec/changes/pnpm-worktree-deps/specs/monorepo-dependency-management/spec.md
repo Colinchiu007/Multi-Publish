@@ -4,7 +4,7 @@
 ## ADDED Requirements
 
 ### Requirement: pnpm 为唯一依赖管理器
-monorepo SHALL 使用 pnpm 作为唯一依赖管理器：根 package.json 声明 `packageManager`（pnpm@11.12.0），`pnpm-workspace.yaml` 定义 workspaces（apps/*、packages/*）、`nodeLinker: hoisted` 与构建脚本放行（onlyBuiltDependencies）；`pnpm-lock.yaml` 为唯一锁文件，`package-lock.json` 不再作为依赖来源。
+monorepo SHALL 使用 pnpm 作为唯一依赖管理器：根 package.json 声明 `packageManager`（pnpm@11.13.1），`pnpm-workspace.yaml` 定义 workspaces（apps/*、packages/*）、`nodeLinker: hoisted` 与构建脚本放行（onlyBuiltDependencies）；`pnpm-lock.yaml` 为唯一锁文件，`package-lock.json` 不再作为依赖来源。
 
 #### Scenario: 全新 checkout/worktree 安装依赖
 - **WHEN** 执行 `pnpm install --frozen-lockfile`
