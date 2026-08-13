@@ -45,11 +45,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: 'pnpm'
 
       # 让安装包文件名与 tag 版本号保持一致
       # electron-builder 的 artifactName 模板用 package.json 的 version 字段
@@ -71,7 +76,7 @@ jobs:
           sudo apt-get install -y -qq libvips libvips-dev build-essential python3
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # electron@43 无 postinstall，先确保二进制就绪，避免启动冒烟的 require 链在 10s hook 内触发下载超时
       - name: Ensure Electron binary
@@ -80,18 +85,18 @@ jobs:
       # 1. 启动冒烟测试 — 验证 require 路径、路由表、配置一致性
       #    不依赖 Electron 运行时，在非 Electron 环境自动 mock
       - name: Startup smoke test
-        run: npm run test:startup -w @multi-publish/desktop
+        run: pnpm --filter @multi-publish/desktop test:startup
 
       # 2. 依赖声明一致性检查 — 检测未声明/未使用的 dependencies
       - name: Dependency check
-        run: npm run check:deps
+        run: pnpm run check:deps
 
       # 3. 循环依赖检查 — 防止模块间循环引用
       - name: Circular dependency check
-        run: npm run check:circular
+        run: pnpm run check:circular
 
       - name: Build Vue frontend
-        run: npm run build:vue -w @multi-publish/desktop
+        run: pnpm --filter @multi-publish/desktop build:vue
 
       # 安装 Playwright Chromium 并捆绑到安装包（避免离线用户无法下载）
       - name: Install Playwright chromium (bundled)
@@ -99,11 +104,11 @@ jobs:
         run: |
           cd apps/desktop
           mkdir -p .playwright-browsers
-          PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers npx playwright install chromium
+          PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers pnpm exec playwright install chromium
 
       - name: Build Electron app (Windows)
         if: runner.os == 'Windows'
-        run: cd apps/desktop && npx electron-builder --win --x64 -p never
+        run: cd apps/desktop && pnpm exec electron-builder --win --x64 -p never
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
 
@@ -117,7 +122,7 @@ jobs:
 
       - name: Build Electron app (Linux)
         if: runner.os == 'Linux'
-        run: cd apps/desktop && npx electron-builder --linux --x64 --dir
+        run: cd apps/desktop && pnpm exec electron-builder --linux --x64 --dir
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
 

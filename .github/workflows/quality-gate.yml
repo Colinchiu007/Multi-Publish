@@ -37,18 +37,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # --- Gate 1: TypeScript 编译检查（严格卡点） ---
       - name: "Gate 1 - TypeScript 编译检查"
-        run: cd apps/desktop && npx tsc --noEmit
+        run: cd apps/desktop && pnpm exec tsc --noEmit
 
       # --- Gate 2: 核心 JS 文件语法检查（FUSE 断点保护）---
       - name: "Gate 2 - JS syntax integrity (detect FUSE truncation)"
@@ -92,14 +97,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # --- Gate 4: 全工作区单元测试（含 Vitest 和 Node 测试）---
 
@@ -119,7 +129,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .nx/cache
-          key: nx-${{ runner.os }}-test-${{ hashFiles('package-lock.json') }}
+          key: nx-${{ runner.os }}-test-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             nx-${{ runner.os }}-test-
 
@@ -153,7 +163,7 @@ jobs:
           } else {
             $testArgs = @("run", "test:all", "--", "--exclude=@multi-publish/desktop")
           }
-          $testProcess = Start-Process -FilePath "npm.cmd" `
+          $testProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList $testArgs `
             -NoNewWindow -PassThru
 
@@ -181,7 +191,7 @@ jobs:
 
       # --- Gate 4b: Startup and require smoke tests ---
       - name: "Gate 4b - Startup and require smoke tests"
-        run: npm run test:startup -w @multi-publish/desktop
+        run: pnpm --filter @multi-publish/desktop test:startup
 
   desktop-shards:
     name: QG Desktop Shards
@@ -194,14 +204,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
 
       # --- 桌面 vitest 分片（跨 runner 并行；进程内保持串行确定性契约）---
@@ -230,12 +245,11 @@ jobs:
               Select-Object ProcessId, ParentProcessId, Name
           }
 
-          $testProcess = Start-Process -FilePath "npm.cmd" `
+          $testProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList @(
-              "run",
-              "test",
-              "-w",
+              "--filter",
               "@multi-publish/desktop",
+              "test",
               "--",
               "--shard=${{ matrix.shard }}",
               "--maxWorkers=1",
@@ -277,18 +291,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # --- Gate 5: Coverage 检查（单 worker 串行，独立 job 避免与 Gate 4 争资源）---
       - name: "Gate 5 - Test coverage check"
-        run: npm run test:coverage -w @multi-publish/desktop -- --coverage.reporter=text-summary
+        run: pnpm --filter @multi-publish/desktop test:coverage -- --coverage.reporter=text-summary
 
   visual:
     name: QG Visual
@@ -297,14 +316,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # --- Gate 7: 视觉回归测试 ---
       - name: "Gate 7 - Visual regression"
@@ -323,12 +347,12 @@ jobs:
           Push-Location $desktopDir
           try {
             Write-Host "Installing Playwright chromium..."
-            npx.cmd playwright install chromium
+            pnpm.cmd exec playwright install chromium
             $playwrightExit = $LASTEXITCODE
             if ($playwrightExit -ne 0) { exit $playwrightExit }
 
             Write-Host "Building Vue frontend..."
-            npm.cmd run build:vue
+            pnpm.cmd run build:vue
             $buildExit = $LASTEXITCODE
             if ($buildExit -ne 0) { exit $buildExit }
           } finally {
@@ -340,8 +364,8 @@ jobs:
           $judgeExit = 1
           try {
             Write-Host "Starting Vite dev server..."
-            $viteProcess = Start-Process -FilePath "npx.cmd" `
-              -ArgumentList @("vite", "--host", "127.0.0.1", "--port", "5174") `
+            $viteProcess = Start-Process -FilePath "pnpm.cmd" `
+              -ArgumentList @("exec", "vite", "--host", "127.0.0.1", "--port", "5174") `
               -WorkingDirectory $desktopDir `
               -RedirectStandardOutput (Join-Path $desktopDir "vite-visual.stdout.log") `
               -RedirectStandardError (Join-Path $desktopDir "vite-visual.stderr.log") `
@@ -368,7 +392,7 @@ jobs:
             Push-Location $desktopDir
             try {
               Write-Host "Running pixel diff tests..."
-              npm.cmd run test:visual:pixel
+              pnpm.cmd run test:visual:pixel
               $pixelExit = $LASTEXITCODE
 
               Write-Host "Generating Agent judge report..."
@@ -412,17 +436,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Install Playwright (for Browser E2E)
-        run: npx.cmd playwright install chromium
+        run: pnpm.cmd exec playwright install chromium
 
       # --- Gate 8: 真实浏览器端到端测试 ---
       - name: "Gate 8 - Browser E2E"
@@ -435,8 +464,8 @@ jobs:
           $viteProcess = $null
           $e2eExit = 1
           try {
-            $viteProcess = Start-Process -FilePath "npx.cmd" `
-              -ArgumentList @("vite", "--host", "127.0.0.1", "--port", "5174") `
+            $viteProcess = Start-Process -FilePath "pnpm.cmd" `
+              -ArgumentList @("exec", "vite", "--host", "127.0.0.1", "--port", "5174") `
               -WorkingDirectory $desktopDir `
               -RedirectStandardOutput (Join-Path $desktopDir "vite-e2e.stdout.log") `
               -RedirectStandardError (Join-Path $desktopDir "vite-e2e.stderr.log") `
@@ -464,7 +493,7 @@ jobs:
             $contractExit = $LASTEXITCODE
             if ($contractExit -ne 0) { exit $contractExit }
 
-            npm.cmd run test:e2e -w @multi-publish/desktop
+            pnpm.cmd --filter @multi-publish/desktop run test:e2e
             $e2eExit = $LASTEXITCODE
           } finally {
             if ($viteProcess -and -not $viteProcess.HasExited) {
@@ -497,14 +526,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       # --- Gate 9: PRD/源码自主覆盖审计 ---
       - name: "Gate 9 - Autonomous coverage audit"

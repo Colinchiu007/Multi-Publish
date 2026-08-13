@@ -32,26 +32,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: 'pnpm'
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Install Playwright + Chromium
-        run: npx playwright install chromium
+        run: pnpm exec playwright install chromium
 
       - name: Build Vue frontend
-        run: npm run build:vue -w @multi-publish/desktop
+        run: pnpm --filter @multi-publish/desktop build:vue
 
       - name: Pixel-comparison tests (default, no API Key needed)
         shell: pwsh
         run: |
           $desktopDir = Join-Path $PWD "apps/desktop"
-          $viteProcess = Start-Process -FilePath "npx.cmd" `
+          $viteProcess = Start-Process -FilePath "pnpm.cmd" `
             -ArgumentList @("vite", "--host", "127.0.0.1", "--port", "5174") `
             -WorkingDirectory $desktopDir `
             -RedirectStandardOutput (Join-Path $desktopDir "vite-visual.stdout.log") `
@@ -74,7 +79,7 @@ jobs:
             if (-not $viteReady) { throw "Vite never became ready" }
             Push-Location $desktopDir
             try {
-              npm.cmd run test:visual:pixel
+              pnpm.cmd run test:visual:pixel
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             } finally {
               Pop-Location

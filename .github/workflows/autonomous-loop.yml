@@ -72,20 +72,25 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: "pnpm"
 
       - name: Install deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Install Playwright
-        run: cd apps/desktop && npx playwright install chromium
+        run: cd apps/desktop && pnpm exec playwright install chromium
 
       - name: Build Vue frontend
-        run: cd apps/desktop && npm run build:vue 2>&1 | Out-Null
+        run: cd apps/desktop && pnpm run build:vue 2>&1 | Out-Null
 
       - name: Run autonomous loop
         id: loop

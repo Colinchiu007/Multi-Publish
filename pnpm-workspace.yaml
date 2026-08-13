@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+nodeLinker: hoisted
+# pnpm 10+ 默认拒绝构建脚本；npm 基线会执行这些包的 install/postinstall，
+# 迁移须保持行为一致（electron@43 无 postinstall，无需放行）
+allowBuilds:
+  esbuild: true
+  vue-demi: true
+  ffmpeg-ffprobe-static: true
+  nx: true
+  tesseract.js: true
+  better-sqlite3: true

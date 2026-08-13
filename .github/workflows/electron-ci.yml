@@ -51,11 +51,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.12.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: 'pnpm'
 
       - name: Install system deps (Xvfb + build tools + python for node-gyp)
         run: |
@@ -64,13 +69,12 @@ jobs:
 
       - name: Install dependencies
         timeout-minutes: 10
-        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Restore required JavaScript runtimes
         run: |
-          node node_modules/esbuild/install.js
-          node node_modules/@remotion/bundler/node_modules/esbuild/install.js
-          node node_modules/vue-demi/scripts/postinstall.js
+          node scripts/run-package-install.js esbuild
+          node scripts/run-package-install.js --script scripts/postinstall.js vue-demi
 
       - name: Verify Electron checksum pin
         run: |
@@ -87,12 +91,12 @@ jobs:
       - name: Rebuild native modules for Electron ABI
         run: |
           cd apps/desktop
-          npx @electron/rebuild -f -w better-sqlite3
+          pnpm exec @electron/rebuild -f -w better-sqlite3
 
       - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
         run: |
           timeout --signal=TERM --kill-after=30s 20m \
-            npm run test -w @multi-publish/desktop -- \
+            pnpm --filter @multi-publish/desktop test -- \
             --maxWorkers=1 --no-file-parallelism --reporter=verbose \
             --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=10000
 
@@ -106,7 +110,7 @@ jobs:
         run: |
           cd apps/desktop
           set +e
-          timeout 30 xvfb-run --auto-servernum npx electron . --no-sandbox --disable-gpu 2>&1
+          timeout 30 xvfb-run --auto-servernum pnpm exec electron . --no-sandbox --disable-gpu 2>&1
           status=$?
           set -e
           if [ "$status" -eq 124 ]; then
@@ -120,10 +124,10 @@ jobs:
 
       - name: Build Vue frontend
         run: |
-          npm run build:vue -w @multi-publish/desktop
+          pnpm --filter @multi-publish/desktop build:vue
 
       - name: Dependency check
-        run: npm run check:deps
+        run: pnpm run check:deps
 
       - name: Circular dependency check
-        run: npm run check:circular
+        run: pnpm run check:circular

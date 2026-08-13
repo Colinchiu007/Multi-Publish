@@ -4,7 +4,7 @@
   "targetDefaults": {
     "test": {
       "cache": true,
-      "inputs": ["default", "^default", "{workspaceRoot}/package-lock.json"]
+      "inputs": ["default", "^default", "{workspaceRoot}/pnpm-lock.yaml"]
     }
   }
 }

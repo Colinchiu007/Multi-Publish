@@ -17,7 +17,7 @@ on:
       - 'openspec/**'
       - '.editorconfig'
       - 'package.json'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
       - 'nx.json'
       - 'packages/*/vitest.config.js'
 

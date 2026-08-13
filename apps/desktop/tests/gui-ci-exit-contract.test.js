@@ -149,7 +149,7 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(source).toContain('- name: Browser E2E gates');
     expect(source).toContain('- name: Electron GUI gate');
     expect(source).toContain('- name: Stop Vite server');
-    expect(source).toContain('npm run test:e2e');
+    expect(source).toContain('pnpm --filter @multi-publish/desktop test:e2e');
     expect(source).toContain('node apps/desktop/tests/electron-gui-v9.js');
     expect(source).not.toMatch(/electron-gui-v9\.js\s*\|\|/);
     expect(source).not.toMatch(/e2e-smoke\.js;\s*echo/);
@@ -162,7 +162,7 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(pullRequestPaths).toEqual(expect.arrayContaining([
       '.github/workflows/gui-test.yml',
       'package.json',
-      'package-lock.json',
+      'pnpm-lock.yaml',
       'packages/**',
     ]));
   });
@@ -173,13 +173,13 @@ describe('GUI/CI 工作流门禁契约', () => {
 
     expect(gate8).toBeDefined();
     expect(gate8.run).toMatch(/node apps\/desktop\/tests\/e2e\/helpers\/route-functional-suite\.test\.js/);
-    expect(gate8.run).toMatch(/npm(?:\.cmd)? run test:e2e -w @multi-publish\/desktop/);
-    expect(gate8.run.indexOf('route-functional-suite.test.js')).toBeLessThan(gate8.run.indexOf('npm.cmd run test:e2e'));
+    expect(gate8.run).toMatch(/pnpm(?:\.cmd)? --filter @multi-publish\/desktop run test:e2e/);
+    expect(gate8.run.indexOf('route-functional-suite.test.js')).toBeLessThan(gate8.run.indexOf('pnpm.cmd --filter @multi-publish/desktop run test:e2e'));
     expect(gate8.run).toMatch(/\$contractExit\s*=\s*\$LASTEXITCODE/);
     expect(gate8.run).toMatch(/if \(\$contractExit -ne 0\) \{ exit \$contractExit \}/);
     expect(gate8.run).toMatch(/\$e2eExit\s*=\s*\$LASTEXITCODE/);
     expect(gate8.run).toMatch(/finally\s*\{[\s\S]*?taskkill \/PID \$viteProcess\.Id \/T \/F/);
-    expect(source).toMatch(/npm(?:\.cmd)? run test:visual:pixel/);
+    expect(source).toMatch(/pnpm(?:\.cmd)? run test:visual:pixel/);
     expect(gate8.run).not.toContain('taskkill /F /IM node.exe');
   });
 
@@ -187,7 +187,7 @@ describe('GUI/CI 工作流门禁契约', () => {
     const { source } = readWorkflow('quality-gate.yml');
 
     expect(source).toMatch(/playwright install chromium[\s\S]{0,180}\$LASTEXITCODE/);
-    expect(source).toMatch(/npm(?:\.cmd)? run build:vue[\s\S]{0,180}\$LASTEXITCODE/);
+    expect(source).toMatch(/pnpm(?:\.cmd)? run build:vue[\s\S]{0,180}\$LASTEXITCODE/);
   });
 
   it('Windows 原生命令统一手动捕获退出码，不受 PowerShell 版本默认值影响', () => {
@@ -239,17 +239,16 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(electronSteps).toHaveLength(1);
     expect(testSteps).toHaveLength(1);
     expect(dependencySteps[0].run.trim()).toBe(
-      'npm ci --include=dev --ignore-scripts --no-audit --no-fund',
+      'pnpm install --frozen-lockfile --ignore-scripts',
     );
-    // GitHub 官方 runner 冷启动缓存下 npm ci 需要更充裕预算（ECS 自托管热缓存仅需 5min）
+    // GitHub 官方 runner 冷启动缓存下 pnpm install 需要更充裕预算（ECS 自托管热缓存仅需 5min）
     expect(dependencySteps[0]['timeout-minutes']).toBe(10);
 
     const runtimeInstall = runtimeSteps[0].run;
-    expect(runtimeInstall).toContain('node node_modules/esbuild/install.js');
+    expect(runtimeInstall).toContain('node scripts/run-package-install.js esbuild');
     expect(runtimeInstall).toContain(
-      'node node_modules/@remotion/bundler/node_modules/esbuild/install.js',
+      'node scripts/run-package-install.js --script scripts/postinstall.js vue-demi',
     );
-    expect(runtimeInstall).toContain('node node_modules/vue-demi/scripts/postinstall.js');
     expect(runtimeInstall).not.toContain('ffmpeg-ffprobe-static');
 
     const checksumPolicy = checksumSteps[0].run;
