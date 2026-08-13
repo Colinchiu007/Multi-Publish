@@ -1576,6 +1576,10 @@ export default {
       return true
     },
     orchestrationProgressPercent() {
+      // 主进程权威值优先（_calcProgress = 阶段数占比 + 当前阶段 percent 加权，统一契约下发）
+      const authoritative = this.pipelineRunStatus?.progress
+      if (Number.isFinite(authoritative) && authoritative >= 0 && authoritative <= 100) return Math.round(authoritative)
+      // 回退：本地按阶段状态计算（历史 run / 旧快照无 progress 字段）
       const stages = this.pipelineRunStatus?.stages || this.orchestrationStages
       if (!Array.isArray(stages) || stages.length === 0) return 0
       const done = stages.filter(s => s.status === 'completed' || s.status === 'skipped').length

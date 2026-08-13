@@ -597,4 +597,107 @@ describe('story2video 编排契约', () => {
   })
 })
 
+// ============================================================
+// 阶段级进行中信息契约（stage.progress 统一通道，openspec pipeline-progress-feedback-unification）
+// ============================================================
+describe('阶段级进行中信息契约（stage.progress）', () => {
+  it('执行器 onProgress → getRunSnapshot().stages[i].progress 可见且 context.stage_progress 双写', async () => {
+    const { engine } = createEngine()
+    engine.registerStageExecutor('contract_progress_emit', async ({ onProgress }) => {
+      onProgress({ percent: 25, message: '正在生成第 1/4 张图片', detail: { done: 1, total: 4, kind: 'image' } })
+      onProgress({ percent: 75, message: '正在生成第 3/4 张图片', detail: { done: 3, total: 4, kind: 'image' } })
+      onProgress({ percent: 100, message: '资源生成完成', detail: { done: 4, total: 4, kind: 'image' }, summary: '共 4 张图片' })
+      return { success: true, output: { ok: true } }
+    })
+    engine.registerPipeline({
+      name: 'contract-stage-progress',
+      description: 'contract',
+      stages: ['custom'],
+      stageDefs: [{ name: 'custom', type: 'contract_progress_emit' }],
+    })
+    const started = await engine.startOrchestrated('contract-stage-progress', { autoAdvance: false })
+    expect(started.success).toBe(true)
+    await engine.executeStage(started.runId)
+    const snapshot = engine.getRunSnapshot(started.runId)
+    expect(snapshot.stages[0].progress).toMatchObject({
+      percent: 100,
+      message: '资源生成完成',
+      detail: { done: 4, total: 4, kind: 'image' },
+    })
+    expect(snapshot.stages[0].summary).toBe('共 4 张图片')
+    expect(snapshot.context.stage_progress).toEqual(snapshot.stages[0].progress)
+  })
+
+  it('非法/降序进度被拒绝（fail-closed + percent 单调不降）', async () => {
+    const { engine } = createEngine()
+    engine.registerStageExecutor('contract_progress_bad', async ({ onProgress }) => {
+      onProgress({ percent: 50, message: '合法进度' })
+      onProgress({ percent: 30, message: '降序应被丢弃' })
+      onProgress({ percent: NaN, message: 'NaN 应被丢弃' })
+      onProgress({ percent: 101, message: '越界应被丢弃' })
+      onProgress({ percent: 80, message: '' })
+      onProgress({ percent: 90, message: '最终合法值' })
+      return { success: true, output: {} }
+    })
+    engine.registerPipeline({
+      name: 'contract-progress-bad',
+      description: 'c',
+      stages: ['custom'],
+      stageDefs: [{ name: 'custom', type: 'contract_progress_bad' }],
+    })
+    const started = await engine.startOrchestrated('contract-progress-bad', { autoAdvance: false })
+    expect(started.success).toBe(true)
+    await engine.executeStage(started.runId)
+    const snapshot = engine.getRunSnapshot(started.runId)
+    expect(snapshot.stages[0].progress.percent).toBe(90)
+    expect(snapshot.stages[0].progress.message).toBe('最终合法值')
+  })
+
+  it('_calcProgress 阶段数占比 + 当前阶段 percent 加权', () => {
+    const { engine } = createEngine()
+    const run = {
+      currentStage: 1,
+      stages: [
+        { status: 'completed' },
+        { status: 'running', progress: { percent: 50 } },
+        { status: 'pending' },
+      ],
+    }
+    // (1 + 0.5) / 3 = 50%
+    expect(engine._calcProgress(run)).toBe(50)
+    run.stages[1].progress = { percent: 100 }
+    // (1 + 1) / 3 ≈ 67%
+    expect(engine._calcProgress(run)).toBe(67)
+    run.stages[1].progress = null
+    // 1 / 3 ≈ 33%（无进行中进度回退阶段数占比）
+    expect(engine._calcProgress(run)).toBe(33)
+    run.stages[1].status = 'completed'
+    // 2 / 3 ≈ 67%
+    expect(engine._calcProgress(run)).toBe(67)
+  })
+
+  it('无 onProgress 的执行器不产生 stage.progress（additive 不回归）', async () => {
+    const { engine, serviceBus } = createEngine()
+    engine.registerPipeline({
+      name: 'contract-no-progress',
+      description: 'c',
+      stages: ['split', 'compose'],
+      stageDefs: [
+        { name: 'split', type: 'split' },
+        { name: 'compose', type: 'compose' },
+      ],
+    })
+    const started = await engine.startOrchestrated('contract-no-progress', {
+      autoAdvance: false,
+      initialContext: { text: '第一句。第二句。' },
+    })
+    expect(started.success).toBe(true)
+    await engine.executeStage(started.runId)
+    const snapshot = engine.getRunSnapshot(started.runId)
+    expect(snapshot.stages[0].progress).toBeNull()
+    expect(snapshot.stages[0].summary).toBeNull()
+    expect(snapshot.context.stage_progress).toBeUndefined()
+  })
+})
+
 

@@ -75,6 +75,45 @@ function _normalizeComposeProgressForContext(update) {
   return normalized;
 }
 
+/**
+ * 阶段进度统一校验（fail-closed，IPC/快照边界最后防线）。
+ * 语义与 _normalizeComposeProgressForContext 对齐但更通用：
+ * - percent 为 number 且有限且 [0,100]，取整为整数；
+ * - message 为非空字符串且 ≤80 字符（用户可见进行中文案，内部生成、纯文本插值）；
+ * - summary（可选）为非空字符串且 ≤80 字符（完成态摘要）；
+ * - detail（可选）为纯对象 { done, total, kind? }：done/total 为非负整数、total ≥ 1、done ≤ total。
+ * 任一约束失败返回 null，调用方应丢弃该次更新（fail-closed），不得向 renderer 下发非法值。
+ * @param {object} update
+ * @returns {{percent: number, message: string, detail?: {done: number, total: number, kind?: string}, summary?: string}|null}
+ */
+function normalizeStageProgress(update) {
+  if (!update || typeof update !== 'object' || Array.isArray(update)) return null;
+  const { percent, message } = update;
+  // 严格数值校验：拒绝 Number() 强转穿透（null→0 / []→0 / true→1 / '39'→39）
+  if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+  if (typeof message !== 'string' || !message.trim()) return null;
+  const normalizedMessage = message.trim();
+  if (normalizedMessage.length > 80) return null;
+  const normalized = { percent: Math.round(percent), message: normalizedMessage };
+  if (update.summary !== undefined && update.summary !== null) {
+    if (typeof update.summary !== 'string' || !update.summary.trim()) return null;
+    const summary = update.summary.trim();
+    if (summary.length > 80) return null;
+    normalized.summary = summary;
+  }
+  if (update.detail !== undefined && update.detail !== null) {
+    if (!_isPlainObject(update.detail)) return null;
+    const { done, total } = update.detail;
+    if (typeof done !== 'number' || !Number.isInteger(done) || done < 0) return null;
+    if (typeof total !== 'number' || !Number.isInteger(total) || total < 1) return null;
+    if (done > total) return null;
+    const detail = { done, total };
+    if (typeof update.detail.kind === 'string' && update.detail.kind) detail.kind = update.detail.kind;
+    normalized.detail = detail;
+  }
+  return normalized;
+}
+
 /** 将 Story2Video 的界面别名转换为 8002 SplitRequest.config 的真实结构。 */
 function _buildStorySplitterOptions(options) {
   const source = _isPlainObject(options) ? options : {};
@@ -187,15 +226,16 @@ class StageExecutor {
    * @param {object} opts.stage - 阶段定义（包含 name/type/options/inputFrom 等）
    * @param {object} opts.params - 流水线启动参数
    * @param {object} opts.context - 阶段间上下文（前序阶段的 output 集合）
+   * @param {Function} [opts.onProgress] - 阶段进行中信息上报回调 `({ percent, message, detail?, summary? }) => void`（可选，additive 扩展）
    * @returns {Promise<{success: boolean, output?: any, error?: string, checkpoint?: boolean}>}
    */
-  async execute({ runId, stage, params, context }) {
+  async execute({ runId, stage, params, context, onProgress }) {
     const stageType = stage.type || STAGE_TYPES.MANUAL_CHECKPOINT;
 
     // 自定义执行器优先
     const customFn = this._customExecutors.get(stageType);
     if (customFn) {
-      return this._safeRun(customFn, { runId, stage, params, context });
+      return this._safeRun(customFn, { runId, stage, params, context, onProgress });
     }
 
     // 内置执行器
@@ -206,7 +246,7 @@ class StageExecutor {
       return { success: true, output: null, checkpoint: true };
     }
 
-    return this._safeRun(builtinFn, { runId, stage, params, context });
+    return this._safeRun(builtinFn, { runId, stage, params, context, onProgress });
   }
 
   /**
@@ -221,6 +261,7 @@ class StageExecutor {
         context: opts.context,
         serviceBus: this.serviceBus,
         container: this.container,
+        onProgress: opts.onProgress,
       });
       return result || { success: true, output: null };
     } catch (e) {
@@ -238,8 +279,22 @@ class StageExecutor {
     const self = this;
 
     // SPLIT - 文本分句
-    map.set(STAGE_TYPES.SPLIT, async ({ stage, params, context, runId }) => {
+    map.set(STAGE_TYPES.SPLIT, async ({ stage, params, context, runId, onProgress }) => {
       const text = _resolveInput(stage, params, context);
+      // split 阶段进行中/完成反馈（统一契约）：调用前发进行中文案，成功后发场景数摘要
+      const emitSplitStarted = () => {
+        if (typeof onProgress === 'function') onProgress({ percent: 5, message: '正在分析文案…' });
+      };
+      const emitSplitDone = (scenesCount) => {
+        if (typeof onProgress !== 'function') return;
+        const update = { percent: 100, message: '文案分句完成' };
+        if (Number.isInteger(scenesCount) && scenesCount > 0) update.summary = '拆分为了 ' + scenesCount + ' 个场景';
+        onProgress(update);
+      };
+      const sceneCountOf = (output) => {
+        const arr = output && (Array.isArray(output.scenes) ? output.scenes : output.sentences);
+        return Array.isArray(arr) ? arr.length : 0;
+      };
       // 图片轮播模式可以没有文案：为每张用户素材建立一个可优化、可配音的场景。
       // 这样 renderer 传入的图片不会在 split 阶段被误判为缺少输入。
       if (!text && params?.inputMode === 'images' && Array.isArray(params.images) && params.images.length > 0) {
@@ -247,6 +302,7 @@ class StageExecutor {
           const name = typeof image === 'object' ? image.name : ''
           return { index, text: name || ('图片 ' + (index + 1)), sourceImage: image }
         })
+        emitSplitDone(scenes.length)
         return { success: true, output: { scenes, sentences: scenes } }
       }
       // 音频模式没有文案时，以每个用户音频建立一个场景；后续阶段会跳过 TTS。
@@ -262,6 +318,7 @@ class StageExecutor {
             sourceAudio: audio,
           }
         })
+        emitSplitDone(scenes.length)
         return { success: true, output: { scenes, sentences: scenes } }
       }
       if (!text) {
@@ -285,6 +342,7 @@ class StageExecutor {
         return { success: true, output };
       };
 
+      emitSplitStarted();
       let result;
       try {
         result = await self.serviceBus.splitText(text, { ...serviceOptions, traceId: runId });
@@ -298,9 +356,11 @@ class StageExecutor {
         const output = result.code === 0 ? (result.data || result) : result;
         if (fallbackToLocal || requireSceneOutput) {
           try {
+            const normalized = normalizeServiceSplitResult(output, stage.options || {});
+            emitSplitDone(sceneCountOf(normalized));
             return {
               success: true,
-              output: normalizeServiceSplitResult(output, stage.options || {}),
+              output: normalized,
             };
           } catch (error) {
             return {
@@ -309,6 +369,7 @@ class StageExecutor {
             };
           }
         }
+        emitSplitDone(sceneCountOf(output));
         return { success: true, output };
       }
       if (fallbackToLocal && isSplitterUnavailableError(result)) {
@@ -453,7 +514,7 @@ class StageExecutor {
 
     // PUBLISH - 多平台发布
     // P2-10: 重写为 createPublisher 模式，匹配 PublisherRouter 真实 API
-    map.set(STAGE_TYPES.PUBLISH, async ({ stage, params, context }) => {
+    map.set(STAGE_TYPES.PUBLISH, async ({ stage, params, context, onProgress }) => {
       const composeOut = _resolveInput(stage, params, context);
       const configuredPlatforms = stage.platforms || stage.options?.platforms || params.platforms;
       const explicitPublishEnabled = stage.options?.publishEnabled ?? params.publishEnabled;
@@ -537,8 +598,11 @@ class StageExecutor {
       const publishDeps = { rpaViewManager, store, pythonBridge };
 
       // 4. 逐平台发布（createPublisher + publisher.publish 模式）
+      // 进行中反馈：每完成一个平台上报一次（阶段进度统一契约，openspec pipeline-progress-feedback-unification）
       const results = [];
-      for (const platform of platforms) {
+      const platformTotal = platforms.length;
+      for (let platformIndex = 0; platformIndex < platforms.length; platformIndex += 1) {
+        const platform = platforms[platformIndex];
         try {
           const publisher = router.createPublisher(platform, publishDeps);
           const task = {
@@ -571,6 +635,14 @@ class StageExecutor {
           });
           self.log.warn('StageExecutor',
             'PUBLISH: ' + platform + ' exception: ' + (e instanceof Error ? e.message : String(e)));
+        }
+        // 每平台完成后上报（成功/失败均推进计数；发布阶段不因单个平台失败而停滞反馈）
+        if (typeof onProgress === 'function') {
+          onProgress({
+            percent: Math.round(((platformIndex + 1) / platformTotal) * 100),
+            message: '正在发布到 ' + platform + ' (' + (platformIndex + 1) + '/' + platformTotal + ')',
+            detail: { done: platformIndex + 1, total: platformTotal, kind: 'platform' },
+          });
         }
       }
 
@@ -698,4 +770,4 @@ function hasValidBatchOptimizePrompt(item) {
   return typeof prompt === 'string' && prompt.trim().length > 0;
 }
 
-module.exports = { StageExecutor, STAGE_TYPES, normalizeBatchOptimizeResult };
+module.exports = { StageExecutor, STAGE_TYPES, normalizeBatchOptimizeResult, normalizeStageProgress };

@@ -11,7 +11,7 @@ function ok(value, message) {
   expect(value, message).toBeTruthy()
 }
 
-const { StageExecutor, STAGE_TYPES } = require('../services/stage-executor');
+const { StageExecutor, STAGE_TYPES, normalizeStageProgress } = require('../services/stage-executor');
 const { PipelineEngine } = require('../services/pipeline-engine');
 const PromptBridge = require('../services/prompt-bridge');
 const ServiceBus = require('../services/service-bus');
@@ -1136,6 +1136,64 @@ it('现有 14 条流水线可完整 advance 到完成', function () {
     const status = pe.getStatus(pl.name);
     eq(status.status, 'idle', pl.name + ' 完成后应回到 idle');
   }
+});
+
+// ============================================================
+// normalizeStageProgress 统一校验（阶段级进行中信息契约）
+// ============================================================
+describe('normalizeStageProgress 统一校验', () => {
+  it('合法更新归一化（percent 取整 + detail/summary 透传）', () => {
+    expect(normalizeStageProgress({
+      percent: 39.4,
+      message: '正在生成第 3/10 张图片',
+      detail: { done: 3, total: 10, kind: 'image' },
+      summary: '共 10 张图片',
+    })).toEqual({
+      percent: 39,
+      message: '正在生成第 3/10 张图片',
+      detail: { done: 3, total: 10, kind: 'image' },
+      summary: '共 10 张图片',
+    });
+  });
+
+  it('percent 越界/非有限/强转穿透拒绝', () => {
+    for (const bad of [
+      { percent: -1, message: 'x' },
+      { percent: 101, message: 'x' },
+      { percent: NaN, message: 'x' },
+      { percent: Infinity, message: 'x' },
+      { percent: null, message: 'x' },
+      { percent: '39', message: 'x' },
+      { percent: true, message: 'x' },
+    ]) {
+      expect(normalizeStageProgress(bad), JSON.stringify(bad)).toBeNull();
+    }
+  });
+
+  it('message 空/非字符串/超长拒绝', () => {
+    expect(normalizeStageProgress({ percent: 50, message: '' })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: '   ' })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 42 })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 'x'.repeat(81) })).toBeNull();
+  });
+
+  it('detail 越界/结构非法拒绝', () => {
+    expect(normalizeStageProgress({ percent: 50, message: 'x', detail: { done: 5, total: 3 } })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 'x', detail: { done: -1, total: 3 } })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 'x', detail: { done: 0, total: 0 } })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 'x', detail: { done: 0, total: -2 } })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 'x', detail: [1, 2] })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 'x', detail: 'nope' })).toBeNull();
+  });
+
+  it('summary 非法 / 非对象 / 数组拒绝', () => {
+    expect(normalizeStageProgress(null)).toBeNull();
+    expect(normalizeStageProgress(undefined)).toBeNull();
+    expect(normalizeStageProgress([1])).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 'x', summary: '' })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 'x', summary: '  ' })).toBeNull();
+    expect(normalizeStageProgress({ percent: 50, message: 'x', summary: 'y'.repeat(81) })).toBeNull();
+  });
 });
 
 })

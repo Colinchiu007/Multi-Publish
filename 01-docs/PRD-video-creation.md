@@ -157,9 +157,9 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-13 | 流水线矩阵文档 | 新增 [PIPELINE-MATRIX.md](./PIPELINE-MATRIX.md)：14 条流水线 × 阶段 × 执行引擎 × 可用性 × 供应商要求总览，含 JS stageDefs 与 Python YAML manifest 阶段命名漂移基线（§6）。commit f51bb852 | PIPELINE-MATRIX.md |
 | 2026-08-13 | 流水线【后台运行】按钮 | 运行中流水线可一键转后台：前端脱离（停止轮询 + 恢复初始化），run 在主进程继续执行、仍占并发槽位；历史记录「运行中」可点击重挂；轮询竞态守卫（runId 快照）；检查点等待态禁止转后台。详见总 PRD「视频创作后台运行与并发合同 §3a」 | PRD 后台运行合同 §3a |
 | 2026-08-13 | 生成阶段三路并行 + 阶段改名 | **图片/视频/旁白并行生成**：非视频场景图片与 TTS 旁白在阶段启动时立即并行；AI 视频有界并发（请求值默认 2，受 provider 每分钟预算收敛）同步生成；视频失败场景在视频结束后补生成图片（`assets_progress.imagesTotal` 动态纳入，先更新计数再启动补图）；进度展示「图片 a/b · 视频 c/d · 旁白 e/f」（纯图模式回退「图片 a/b · 旁白 c/d」）。阶段名「生成图片与旁白」→「图片/视频/旁白生成」（zh）/「Generate Images/Videos/Voiceover」（en）。PR #717 | PRD 7.1.9.x |
-| 2026-08-13 | 阶段进行中信息反馈颗粒度统一方案 |
+| 2026-08-13 | 阶段进行中信息反馈颗粒度统一方案 | 整体梳理 14 条流水线各阶段「进行中」反馈现状：仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节；提出统一 stage.progress 契约 + StageExecutor onProgress 通道 + UI 去特判 + 分期实施。详见本节 3.1.23 与总 PRD 7.1.9.3 | PRD 7.1.9.3 / 3.1.23 |
+| 2026-08-13 | 阶段进行中信息反馈颗粒度统一实施 | stage.progress + stage.summary 统一契约（getRunSnapshot 下发，与 context.stage_progress 双写）；StageExecutor onProgress 通道 + normalizeStageProgress 校验；publish/finalize_assets/split/optimize 运行中/LLM 阶段逐项接入；StageProgress 去特判通用渲染 + 总进度加权。测试 8 文件 411/411 + Vite build + 打包冒烟通过。PR #756 | PRD 7.1.9.3 / 3.1.23 |
 | 2026-08-13 | 视频创作首页卡片 UI：多列动态布局 + MiniMax 生成背景 + 交互动效 | `/create` 流水线选择视图容器放宽至 1600px + 显式 1-5 列断点；新增主进程 `pipeline-card-backgrounds` 服务（MiniMax image-01 生成、HTTPS 安全下载、磁盘缓存 + manifest、loopback 静态服务）；卡片渲染生成背景 + 暗色遮罩 + 浅色前景、加载 shimmer、渐变回退、入场/悬停动效与 reduced-motion 降级；提示文字 `pipelines.selector.*` zh/en 成对；IPC `pipeline-card:backgrounds` + preload + 前端封装。详见本节 3.1.24 | PRD 3.1.24 |
- 整体梳理 14 条流水线各阶段「进行中」反馈现状：仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节；提出统一 stage.progress 契约 + StageExecutor onProgress 通道 + UI 去特判 + 分期实施。详见本节 3.1.23 与总 PRD 7.1.9.3 | PRD 7.1.9.3 / 3.1.23 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 

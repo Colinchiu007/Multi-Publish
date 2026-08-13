@@ -1211,8 +1211,9 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH,
-    async ({ stage, params, context }) => {
+    async ({ stage, params, context, onProgress }) => {
       params = params || {};
+      if (typeof onProgress === 'function') onProgress({ percent: 5, message: '正在识别时代/朝代与视觉上下文…' });
       const source = context.split || context.sentences || [];
       const scenes = Array.isArray(source)
         ? source
@@ -1221,7 +1222,9 @@ function registerStory2VideoStages(pipelineEngine) {
       if (contentType !== 'history') {
         return { success: true, output: passthroughScenes(scenes) };
       }
-      return { success: true, output: enrichHistoryScenes(scenes) };
+      const output = enrichHistoryScenes(scenes);
+      if (typeof onProgress === 'function') onProgress({ percent: 100, message: '领域增强完成' });
+      return { success: true, output };
     },
   );
   registered.push(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH);
@@ -1234,7 +1237,7 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.SCENE_CONTEXT,
-    async ({ stage, params, context }) => {
+    async ({ stage, params, context, onProgress }) => {
       params = params || {};
       const source = context.scene_context || context.domain_enrich || context.split || context.sentences || [];
       const scenes = Array.isArray(source)
@@ -1250,8 +1253,15 @@ function registerStory2VideoStages(pipelineEngine) {
       const fullText = hasFullText
         ? params.text.trim()
         : scenes.map(s => (s && (s.text || s.content)) || '').filter(Boolean).join('。');
+      // 进行中反馈：读全文 + 逐场景融合阶段（LLM/规则可能耗时）
+      if (typeof onProgress === 'function') {
+        onProgress({ percent: 10, message: '正在提取全局故事背景并融合进 ' + scenes.length + ' 个场景…' });
+      }
       try {
         const result = buildSceneContextResult(scenes, fullText, options);
+        if (typeof onProgress === 'function') {
+          onProgress({ percent: 100, message: '场景上下文增强完成', summary: '已增强 ' + scenes.length + ' 个场景的上下文' });
+        }
         // 无完整文案（图片/音频模式）：场景文本拼接推导的全局上下文较弱，显式标记 degraded 供下游/展示识别
         if (!hasFullText && result.metadata && result.metadata.enriched) {
           result.metadata.degraded = true;
@@ -1285,7 +1295,7 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.SELECT_VIDEO_SCENES,
-    async ({ stage, params, context }) => {
+    async ({ stage, params, context, onProgress }) => {
       const log = pipelineEngine.log
       params = params || {}
       const videoConfig = (stage && stage.options && stage.options.video) || params.videoConfig || {}
@@ -1345,6 +1355,10 @@ function registerStory2VideoStages(pipelineEngine) {
         if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
           return { success: false, error: '默认 LLM 不可用，AI 智能选择需要先完成模型设置' }
         }
+        // 进行中反馈：LLM 智能判断（可能多次重试）期间持续提示
+        if (typeof onProgress === 'function') {
+          onProgress({ percent: 10, message: '正在智能判断哪些场景适合生成视频…' });
+        }
         const { system, user } = buildVideoSelectionPrompt(scenes, {
           mode,
           minRatio: videoConfig.minRatio,
@@ -1392,6 +1406,13 @@ function registerStory2VideoStages(pipelineEngine) {
         })
         selected = plan.selected
         ratio = plan.ratio
+        if (typeof onProgress === 'function') {
+          onProgress({
+            percent: 90,
+            message: '视频场景选择完成',
+            summary: '已选 ' + selected.length + ' 个视频场景（占 ' + ratio + '%）',
+          });
+        }
       }
       const plan = {
         mode,
@@ -2366,7 +2387,7 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.FINALIZE_ASSETS,
-    async ({ stage, params, context, serviceBus, runId }) => {
+    async ({ stage, params, context, serviceBus, runId, onProgress }) => {
       const log = pipelineEngine.log
       const creationMode = (params && params.creationMode) || (stage && stage.options && stage.options.creationMode) || 'auto'
       if (creationMode !== 'manual') {
@@ -2416,7 +2437,7 @@ function registerStory2VideoStages(pipelineEngine) {
         } catch (_) { return '' }
       })() : '')
 
-      const ttsItemTask = async (scene) => {
+      const rawTtsItemTask = async (scene) => {
         const resumed = partialByIndex.get(scene.index)
         if (resumed && typeof resumed.audioPath === 'string' && fs.existsSync(resumed.audioPath)) {
           return { index: scene.index, success: true, path: resumed.audioPath, duration: resumed.duration || null, meta: { resumed: true } }
@@ -2457,6 +2478,25 @@ function registerStory2VideoStages(pipelineEngine) {
           return { index: scene.index, success: false, error: error && error.message ? error.message : String(error) }
         }
       }
+      // 逐段 TTS 进行中反馈（统一契约，openspec pipeline-progress-feedback-unification）：
+      // 包装任务在每段返回（成功/失败）后计数上报，不改变并发语义。
+      let ttsDoneCount = 0
+      const ttsTotalCount = candidates.length
+      const emitTtsProgress = () => {
+        if (typeof onProgress !== 'function') return
+        ttsDoneCount += 1
+        onProgress({
+          percent: Math.round((ttsDoneCount / ttsTotalCount) * 100),
+          message: '正在生成第 ' + ttsDoneCount + '/' + ttsTotalCount + ' 段旁白…',
+          detail: { done: ttsDoneCount, total: ttsTotalCount, kind: 'tts' },
+        })
+      }
+      const ttsItemTask = async (scene) => {
+        const r = await rawTtsItemTask(scene)
+        emitTtsProgress()
+        return r
+      }
+      if (typeof onProgress === 'function') onProgress({ percent: 5, message: '正在准备生成旁白…' })
       const ttsResults = await _mapWithConcurrency(candidates, ttsConcurrency, ttsItemTask)
       const failedTts = ttsResults.filter((r) => !r.success)
       if (failedTts.length > 0) {

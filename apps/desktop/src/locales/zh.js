@@ -217,6 +217,15 @@ export default {
     assetsProgressVideo: '图片 {imagesDone}/{imagesTotal} · 视频 {videosDone}/{videosTotal} · 旁白 {ttsDone}/{ttsTotal}',
     assetsProgress: '图片 {imagesDone}/{imagesTotal} · 旁白 {ttsDone}/{ttsTotal}',
     composeSegments: '正在合成片段 {done}/{total} · {percent}%',
+    // 阶段进行中信息统一契约（openspec pipeline-progress-feedback-unification）：主进程生成 message 直接渲染，
+    // 以下为 zh/en 成对文案基线（供测试断言同步与后续前端 i18n 化；渲染端 src 不新增中文字面量）
+    stageProgressPublishing: '正在发布到 {platform} ({done}/{total})',
+    stageProgressFinalizeTts: '正在生成第 {done}/{total} 段旁白…',
+    stageProgressSplit: '正在分析文案…',
+    stageProgressSceneContext: '正在提取全局故事背景并融合进 {count} 个场景…',
+    stageProgressVideoSelect: '正在智能判断哪些场景适合生成视频…',
+    stageProgressDomainEnrich: '正在识别时代/朝代与视觉上下文…',
+    stageProgressLlmWorking: '正在{action}…',
     // i18n-content-sync（2026-08-13）：story2video-notifications.js 文案单源收敛，模块不再持有 zh/en 文案
     dialog: {
       title: '提示',
