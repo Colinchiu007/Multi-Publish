@@ -1,3 +1,14 @@
+## [2026-08-13] 视频创作首页卡片 UI：宽屏多列 + MiniMax 背景缓存服务的落地要点（pipeline-card-backgrounds-ui）
+
+- 根因/机会：`create-page` 被 `max-width:1080px` 封顶（`src/styles/create-view.css`），即便网格用 `auto-fill minmax(300px,1fr)`，宽屏列数也被容器压死——「不是多列动态」的真相是容器宽度而非网格定义。
+- 落地：选择视图加 `.create-page--pipeline-list`（1600px）+ 显式断点（1200/1440/1920 → 3/4/5 列）；卡片背景走主进程服务：provider 解析用 `modelProviderManager.getDefault('image')`（自动含多模态偏好）→ 回退 `listProviders('image')`；`callAdapter(id,'generateImage',{prompt,size:'1280x720'})`；下载必须 HTTPS-only + DNS 黑名单（10/8、172.16/12、192.168/16、127/8、169.254/16、::1、fc00::/7、fe80::/10、224+）+ `redirect:'error'` 防重定向 SSRF + image/* + 12MB。
+- 本地媒体 URL 铁律：dev（http://localhost:5173）下渲染端不能加载 `file://` 图片（Chromium 拦截），必须走 loopback HTTP token URL（仿 Story2VideoMediaServer 的最小静态服务，仅缓存目录 + realpath + nosniff）。
+- 缓存：`userData/pipeline-card-bg/` + manifest（version/items）；文件丢失/manifest 损坏 → 安全重建；`force` 刷新；TTL 仅作用于内存 token 注册表（磁盘长期保留）。
+- 提示词风格：统一风格块 + 每卡主题意象（英文，克制、低饱和、留白、无文字无人物），有背景时前景强制浅色 + 双层暗色遮罩保证对比度。
+- 门禁坑：`check-locale-sync.js --cjk` 基线是 `path:line` 集合，**行号敏感**；重写 .vue 会因行位移产生大量「新增」命中——新增用户可见文案必须只走 locales（不在 .vue script/template 留中文字面量 fallback），存量位移用 `--update-baseline` 重新锚定（并核对 HEAD 基线已过期 127 处的先决事实）。
+- 外部双模型本次全部不可用（子代理 403 / antigravity 区域限制 / claude CLI 挂起）→ 按机制硬化降级主代理直接执行，审查以本地自审 + 测试门禁补充；下次先探测再承诺双模型审查。
+
+
 ## npm → pnpm 迁移复盘（pnpm-worktree-deps，2026-08-13）
 
 - **交付**：依赖管理迁移 pnpm 11.13.1（`pnpm-workspace.yaml`：nodeLinker=hoisted + allowBuilds 放行 esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js），`pnpm-lock.yaml` 唯一锁文件；7 个 CI workflow + nx.json + workflow-contract 同步；新增 `scripts/verify-worktree-deps.js`（解析门禁）与 `scripts/run-package-install.js`；重写 `scripts/fix-worktree-node-modules.sh`；electron-builder 排除 `!node_modules/.pnpm/**`。新 worktree `pnpm install --frozen-lockfile` 实测 17.1s（1104 包 store 复用、0 下载）；桌面全量 vitest + 其余 workspace 全绿；win 打包 QM-1 通过；CI 全绿后合并（PR #705）。

@@ -1,0 +1,14 @@
+{
+  "completedAt": "2026-08-13T12:59:24Z",
+  "domain": "desktop",
+  "openspecChange": "",
+  "branch": "codex/p3-video-progress-i18n",
+  "remoteStatus": "merged",
+  "currentPhase": "completed",
+  "title": "P3 第二批：StageProgress 阶段进度组件文案多语言化",
+  "complexity": "L",
+  "status": "completed",
+  "id": "p3-video-progress-i18n",
+  "pr": "#757 merged ed116a84",
+  "risk": "medium"
+}

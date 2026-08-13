@@ -57,6 +57,16 @@ describe('preload 许可证权限', () => {
     expect(list).toHaveBeenCalledTimes(1)
   })
 
+  it('流水线卡片背景读取方法未登录可用（public 只读）', () => {
+    const read = vi.fn(() => Promise.resolve({ code: 0, data: { available: false, backgrounds: {} } }))
+    const publicApi = createDynamicAccessApi(
+      { pipelineCardBackgrounds: read },
+      () => 'public',
+    )
+    expect(publicApi.pipelineCardBackgrounds({ names: ['cinematic'] })).resolves.toEqual({ code: 0, data: { available: false, backgrounds: {} } })
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
   it('模型服务商写方法登录后可用', () => {
     const create = vi.fn(() => Promise.resolve({ code: 0, data: { id: 'openai' } }))
     const api = createDynamicAccessApi({ modelProviderCreate: create }, () => 'authenticated')
