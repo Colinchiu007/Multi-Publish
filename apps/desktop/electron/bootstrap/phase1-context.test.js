@@ -180,3 +180,27 @@ describe('phase1-context.extractContext', () => {
     ]))
   })
 })
+
+describe('phase1-context: P1b 记忆库+治理接线（m5）', () => {
+  it('MP_EVOLUTION_ENABLED=1 时构造 promptMemory/governance 并 load', () => {
+    process.env.MP_EVOLUTION_ENABLED = '1'
+    try {
+      const container = makeMockContainer()
+      const ctx = extractContext(container)
+      expect(ctx.promptMemory).not.toBeNull()
+      expect(ctx.governance).not.toBeNull()
+      expect(typeof ctx.promptMemory.listActive).toBe('function')
+      expect(typeof ctx.governance.runGates).toBe('function')
+    } finally {
+      delete process.env.MP_EVOLUTION_ENABLED
+    }
+  })
+
+  it('默认（未开 env）promptMemory/governance 为 null', () => {
+    delete process.env.MP_EVOLUTION_ENABLED
+    const container = makeMockContainer()
+    const ctx = extractContext(container)
+    expect(ctx.promptMemory).toBeNull()
+    expect(ctx.governance).toBeNull()
+  })
+})

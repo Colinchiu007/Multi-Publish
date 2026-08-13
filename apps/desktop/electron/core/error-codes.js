@@ -25,6 +25,11 @@ const ERROR = {
   TIMEOUT_ERROR: -11,
   NETWORK_ERROR: -12,
   IO_ERROR: -13,
+  // 提示词记忆库（P1b）：避开 -10..-13 既有段，占用 -20..-23
+  TEMPLATE_INVALID: -20,
+  TEMPLATE_GATE_FAILED: -21,
+  TEMPLATE_NOT_FOUND: -22,
+  TEMPLATE_BAD_STATE: -23,
   TASK_CANCELLED: -999,
   UNKNOWN_ERROR: -99,
 };
@@ -38,6 +43,10 @@ const MESSAGES = {
   [ERROR.TIMEOUT_ERROR]: 'Request timed out',
   [ERROR.NETWORK_ERROR]: 'Network error',
   [ERROR.IO_ERROR]: 'IO error',
+  [ERROR.TEMPLATE_INVALID]: 'Template validation failed',
+  [ERROR.TEMPLATE_GATE_FAILED]: 'Template gate failed',
+  [ERROR.TEMPLATE_NOT_FOUND]: 'Template not found',
+  [ERROR.TEMPLATE_BAD_STATE]: 'Template state transition rejected',
   [ERROR.TASK_CANCELLED]: 'Task cancelled',
   [ERROR.UNKNOWN_ERROR]: 'Unknown error',
 };

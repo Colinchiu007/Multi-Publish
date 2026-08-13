@@ -341,6 +341,33 @@ function extractContext(container) {
     }
   }
 
+  // ─── P1b 记忆库 + 治理（同 feature flag，默认关闭；m5：接线位置在 phase1，不用 container.setup.js）───
+  // statsProvider 生产数据源依赖 P1 recordGeneration 生产接线 + P1a score-log；V0 注入空实现，
+  // 回滚判定以测试注入数据验证（M3/M7）。默认关与 P0 采集器一致，避免「记忆库开但无数据源」。
+  let promptMemory = null
+  let governance = null
+  if (evolutionEnabled) {
+    const { createPromptMemory } = require('../services/prompt-evolution/prompt-memory')
+    const { createGovernance } = require('../services/prompt-evolution/governance')
+    const evolutionLibraryRoot = electronAppForPromptEval && typeof electronAppForPromptEval.getPath === 'function'
+      ? require('path').join(electronAppForPromptEval.getPath('userData'), 'prompt-library')
+      : require('path').join(require('os').tmpdir(), 'multi-publish-evolution', 'prompt-library')
+    const noopStatsProvider = () => null
+    governance = createGovernance({ config: {}, statsProvider: noopStatsProvider, log })
+    promptMemory = createPromptMemory({
+      libraryRoot: evolutionLibraryRoot,
+      governance,
+      statsProvider: noopStatsProvider,
+      config: {},
+      log,
+    })
+    try {
+      promptMemory.load()
+    } catch (e) {
+      log.warn('PromptMemory', '记忆库加载失败: ' + (e && e.message))
+    }
+  }
+
   // ─── 平台配置 + 敏感词 + 横切服务 ───
   const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
   const BACKEND_PLATFORMS = new Set(['youtube', 'tiktok', 'twitter'])
@@ -388,6 +415,8 @@ function extractContext(container) {
       story2videoProjectService,
       promptEvalService,
       signalCollector,
+      promptMemory,
+      governance,
     },
     windows: {
       authViewManager, rpaViewManager, webviewManager, qrCodeLogin,

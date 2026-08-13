@@ -402,9 +402,12 @@ var require_system = __commonJS({
         analyticsOverview: () => ipcRenderer2.invoke("analytics:overview"),
         analyticsPlatform: (platform) => ipcRenderer2.invoke("analytics:platform", { platform }),
         analyticsPlatforms: () => ipcRenderer2.invoke("analytics:platforms"),
-        // Prompt engine evolution API (P0 反馈管道)
+        // Prompt engine evolution API (P0 反馈管道 + P1b 记忆库)
         generationFeedback: (payload) => ipcRenderer2.invoke("generation:feedback", payload),
         promptLibraryList: () => ipcRenderer2.invoke("prompt-library:list"),
+        promptLibraryGet: (id, version) => ipcRenderer2.invoke("prompt-library:get", { id, version }),
+        promptLibrarySave: (payload) => ipcRenderer2.invoke("prompt-library:save", payload),
+        promptLibraryActivate: (id, confirmedBy) => ipcRenderer2.invoke("prompt-library:activate", { id, confirmedBy }),
         // Hotkeys API
         hotkeysList: () => ipcRenderer2.invoke("hotkeys:list"),
         // Keyword API

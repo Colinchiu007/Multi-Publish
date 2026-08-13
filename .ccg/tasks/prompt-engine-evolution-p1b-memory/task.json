@@ -1,0 +1,14 @@
+{
+  "id": "prompt-engine-evolution-p1b-memory",
+  "title": "P1b 记忆库+治理（PromptMemory + Governance）实现",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "desktop-evolution",
+  "currentPhase": "review",
+  "nextAction": "双模型审查已完成（Critical 0，Warning 5 全部修复）→ commit + PR + 合并",
+  "createdAt": "2026-08-13T18:30:00+08:00",
+  "openspecChange": "prompt-engine-evolution-p1b-memory",
+  "pr": null,
+  "branch": "codex/prompt-engine-evolution-p1b-memory"
+}

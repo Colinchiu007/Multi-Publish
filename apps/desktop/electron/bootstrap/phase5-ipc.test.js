@@ -103,6 +103,16 @@ describe('usageTracker context 注入', () => {
     expect(dependencies.credentialStore).toBe(require('../services/credential-store'))
     expect(dependencies.accountStateRestorer).toBe(require('../services/account-state-restorer'))
   })
+
+  it('生产注册入口向 prompt-library IPC 注入 promptMemory 与 governance', () => {
+    const promptMemory = { getTemplates: vi.fn(), saveTemplate: vi.fn(), activateTemplate: vi.fn() }
+    const governance = { evaluateTemplate: vi.fn(), reportFeedback: vi.fn() }
+    registerAllIpcHandlers({ app, BrowserWindow, context: { promptMemory, governance } })
+
+    const dependencies = mockRegisterAllHandlers.mock.calls[0][1]
+    expect(dependencies.promptMemory).toBe(promptMemory)
+    expect(dependencies.governance).toBe(governance)
+  })
 })
 
 describe('IPC 注册生命周期', () => {

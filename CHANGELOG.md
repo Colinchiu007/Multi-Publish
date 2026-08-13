@@ -1,3 +1,16 @@
+
+## [2026-08-13] 提示词引擎自进化 P1b：记忆库 + 治理（PromptMemory + Governance，prompt-engine-evolution-p1b-memory）
+
+- 新增 `apps/desktop/electron/services/prompt-evolution/prompt-memory.js`：`library.json` 索引 + `templates/<id>@<version>.json` 版本化存储；`load/list/listActive/get/saveLearnt/activate/deprecate/disable/refreshFingerprints/checkRollbacks`。模板含 mode/sourceText(≤2000)/fingerprint/source/provenance/stats/guard 全字段；learnt fragment 仅 compositionType/action/object/creativeLevel 四类可控参数；dictVersion 不匹配以 sourceText 惰性重算、无 sourceText 标 stale 不参与检索；fingerprint 缺失 fail-close；损坏库重建空库（保留 .corrupt 备份）；原子写（临时文件+rename，EPERM/EACCES/EBUSY 有界退避）。
+- 新增 `apps/desktop/electron/services/prompt-evolution/governance.js`：门禁 6 规则（structure 含 compositionType 8 组值域与 customAction/customObject 映射归一 / compliance 合规词表 / length 按 engine 分档 storyboard 中文 50..2000 字符、其余英文 50..200 词 / noSecrets 预编译 token 表不拼输入进正则 / dedup checksum 精确去重 / evaluatorVersion rule-v0）；状态机合法边 draft→active→deprecated→disabled（V0 仅人工确认激活，数据确认阈值归 P2）；滑窗回滚（N 期 acceptRate<0.3 或 avgScore 峰值下滑>20%，冷却 24h 防抖，statsProvider/时钟可注入）；成本配额（视频默认 daily=0 恒跳过自动评分，图片 dailyBudget 超限降级不阻断生成）。
+- 版本化优先级（m9）：checksum 与 active 模板完全碰撞→拒绝；同 learnedFrom + 指纹相似→升版（新版本回 draft 需重新确认）；否则新 id。
+- IPC：`prompt-library:list` 升级为真实只读列表并保持 P0 envelope `data:{templates, evolution}`；新增 `prompt-library:get/save/activate`（save 入参 {engine, mode, type, content, concept, eventId}，eventId 必填校验 evt_ 前缀，mode 枚举校验）；`core/error-codes.js` 新增 `TEMPLATE_INVALID:-20 / TEMPLATE_GATE_FAILED:-21 / TEMPLATE_NOT_FOUND:-22 / TEMPLATE_BAD_STATE:-23`。
+- preload：`promptLibraryGet/Save/Activate` + `npm run build:preload` 同步 bundle（preload.test.js 键数 145/279 同步更新）。
+- 接线：`bootstrap/phase1-context.js` 在 `MP_EVOLUTION_ENABLED === '1'`（默认关）下构造 promptMemory/governance 单例并注入空 statsProvider（生产数据源依赖 P1 recordGeneration + P1a score-log，M3/M7）。
+- 规格：OpenSpec change prompt-engine-evolution-p1b-memory（proposal/design/specs/tasks 四件套双模型审查定稿，PR #775 merged 79082e51）。
+- 测试：prompt-memory 25 + governance 30 + 集成 4 + generation-feedback IPC 14 + phase1 接线 2 + preload 键数 3 + phase5 接线 1 = 79 新增/更新全绿；ipc-handlers + bootstrap + preload 全量 992 回归全绿。
+- 双模型审查修复：phase5-ipc 补 promptMemory/governance 接线（Critical）+ 回归测试；fragment 空对象拒绝（W1）；activate 强制 confirmedBy 64 位 userHash（W2，V0 仅人工确认激活）；升版继承父 cooldownUntil（W3）；evaluateRollback 非法 now 防抛错（W4）；升版取 score 最高候选（W5）；get/activate 缺 id 与非法 version 统一 -20（I3）。
+- 边界：生成主路径消费（optimizedBy=learnt-template / librarySource 写入）归 P2 Optimizer 接线；前端「存为模板」按钮 UI 属 P2；fingerprint.js 零改动。
 ## [2026-08-13] 提示词引擎自进化 P1b：主题指纹与同类模板检索（prompt-engine-evolution-p1b）
 
 - 新增 `apps/desktop/electron/services/prompt-evolution/fingerprint.js`：DOMAIN_DICTIONARY（6 领域强/弱词）+ INTENT_ALIASES（8 意图强/弱档）+ extractTopics（≤2000 截断、≤8 topics、2-6 字、词典词子串剔除）+ buildFingerprint + score（4/2/2/1 + 分量上限）+ findSimilarTemplates（NONE/MID/HIGH + 探索 ε + rand 注入 + tie-break）。
