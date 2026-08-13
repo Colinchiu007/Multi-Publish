@@ -4,6 +4,14 @@
 - `VideoCloneView.vue` 删除「复刻层级」el-select；`useVideoClone.js` 删除 `replicationLevel` state 与请求 options 字段（引擎对缺失值默认 L1，报告仍记录 level=L1）。
 - 测试：useVideoClone.test.js 7 全绿（请求 options 断言同步更新）。
 - PRD v1.15 §13.2/§18.2/§29。
+## [2026-08-13] feat(s2v): 生成阶段三路并行 + 视频并发 2 + rpm 默认值 + 阶段改名（PR #717）
+
+- 根因：generate_assets 阶段视频生成是 `for...of await` 串行循环（并发 1）且必须全部完成后才启动图片/TTS——视频单段可达分钟级（如 agnes-video 慢响应 160s），用户看到「图片 0/16 · 视频 1/3 · 旁白 0/8」长期停滞。
+- 修复：非视频场景图片与 TTS 旁白在阶段启动时立即并行；AI 视频有界并发（请求值默认 2，受 provider 每分钟预算收敛，静态默认 maxConcurrent=1）同步生成；视频失败场景在视频结束后补生成图片（`assets_progress.imagesTotal` 动态纳入，先更新计数再启动补图，避免 done > total）；视频管理器不可用时仍在启动图片/TTS 前阶段级快失败（额度保护）。
+- 阶段改名：「生成图片与旁白」→「图片/视频/旁白生成」（zh）/「Generate Images/Videos/Voiceover」（en），i18n key `pipelines.stages.generate_assets` 成对更新（CI Gate 7 locale 同步）。
+- 配套：视频 provider rpm 默认值（governor-provider-limits / model-provider-seeds）、ops-center 模型预设 rpm 同步。
+- 测试：story2video-stages 视频分支 + 三路并行/补图断言、model-call-scheduler、model-provider-governor、model-provider-seeds、test_model_presets_api 全绿。
+- 文档：PRD.md 7.1.9.x 并行编排合同 + 六阶段/重试边界/进度表格同步；PRD-video-creation.md、product-manual.md、learnings.md 同步。
 
 ## [2026-08-13] fix(video-clone): 输入来源标签默认改为「链接」（url）
 

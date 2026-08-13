@@ -1,3 +1,15 @@
+## 图片/视频/旁白串行阻塞复盘（s2v-asset-parallel，2026-08-13）
+
+- **表象**：混合模式（视频+图片轮播）流水线「图片/视频/旁白生成」阶段长期显示「图片 0/16 · 视频 1/3 · 旁白 0/8」——视频在推进但图片/旁白停滞，用户预期三类工作同时并行。
+- **根因**：generate_assets 中 AI 视频生成是 `for...of await` 串行循环（并发 1，提交+轮询+下载单段可达分钟级，如 agnes-video 160s），且位于图片/TTS 之前；`Promise.all([imagePromise, ttsPromise])` 只并行图片+TTS，视频全部完成前图片/旁白不启动。
+- **逃逸链**：单元测试只覆盖「视频成功不生成图/视频失败回退图」的结果正确性，没有断言**执行时序**（视频未完成时图片/TTS 是否已开始）→ 并行性假设从未被测试锁定；审查关注结果正确性多于执行顺序（审查盲区）。
+- **系统性漏洞**：测试场景缺失（无并行性/时序断言）+ 审查盲区（编排代码未核对执行顺序合同）。
+- **修复（PR #717）**：图片（非视频场景）与 TTS 与视频三路 `Promise.all` 并行；视频有界并发（请求值默认 2、受 provider 每分钟预算收敛）；视频失败场景结束后补图（先更新 `imagesTotal` 再启动，避免 done > total）；视频管理器不可用仍阶段级快失败（不启动图片/TTS 烧额度）；阶段名同步为「图片/视频/旁白生成」。
+- **已知边界**：视频任务由 `_mapWithConcurrency` 包装且仅逐场景 try/catch，循环级未捕获异常（如进度计数抛错）仍可能 reject 阶段——后续可加最外层容错，确保 resume 快照与内容政策检查不被跳过。
+- **回归保护**：story2video-stages.test.js 新增「视频 gate 卡住时图片/TTS 已开始（并行性断言）」「视频失败补图 + imagesTotal 动态」「视频管理器不可用快失败」「视频生成器未配置全部出图」等用例；model-call-scheduler 并发预算断言。
+- **预防措施**：流水线编排的并行性假设必须有时序级测试（gate/可控延迟断言调用顺序）；编排重构保持「预检前移 + 有界并发 + 计数先更新」三原则。
+
+---
 ## 分镜素材自选等待态无反馈复盘（story2video-asset-selection-ux，2026-08-13）
 
 - **交付**：`scene_asset_selection` 检查点等待态 UX 反馈（P0 状态语义 + P1 引导横幅/自动滚动 + P2 面板位置/取消兜底）。StageProgress 增加 `paused` 映射（图标 ⏸、样式类 `waiting paused`、标签按检查点区分「等待选择素材/已暂停」，zh/en i18n）；检查点激活时进度区下方渲染引导横幅（场景数经 vue-i18n MessageFunction `ctx.named('count')` 插值）+「去选择素材」按钮；首次激活自动 `scrollIntoView` + 2s 高亮（一次性 `selectionGuided` 标记，轮询不重复）；素材选择面板从底部 action-bar 上移到进度区下方；运行控制区等待文案 + 取消二次确认。zh/en 新增 `create.story2video.selectionWait.*` 8 键。测试：StageProgress.test.js 新建 4 例、CreateView.test.js 新增 4 例（159 全绿）、SceneAssetSelection.test.js 基线 4 例。
