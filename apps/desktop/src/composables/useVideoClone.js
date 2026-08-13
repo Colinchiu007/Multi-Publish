@@ -20,7 +20,7 @@ const api = () => (typeof window !== 'undefined' && window.electronAPI && window
 const STAGE_LABELS = ['ingest', 'analyze', 'plan', 'generate', 'compose', 'publish']
 
 export function useVideoClone() {
-  const sourceType = ref('local')
+  const sourceType = ref('url')
   const linkUrl = ref('')
   const filePath = ref('')
   const replicationLevel = ref('L1')

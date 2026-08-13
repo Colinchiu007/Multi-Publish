@@ -1,3 +1,9 @@
+## [2026-08-13] fix(video-clone): 输入来源标签默认改为「链接」（url）
+
+- `useVideoClone.js`：`sourceType` 默认值由 `local`（本地文件）改为 `url`（链接）——进入视频克隆页默认显示链接输入框。
+- 测试：新增「默认来源为链接，run 请求映射为 url source」与「切换到本地文件后映射为 local source」两条真实数据路径用例（useVideoClone.test.js 7 全绿）。
+- PRD-VIDEO-CLONE v1.13 §13.2 同步说明。
+
 ## [2026-08-13] feat(story2video): 分镜素材自选检查点等待态 UX 反馈优化（story2video-asset-selection-ux）
 
 - StageProgress 增加 `paused` 状态映射：`scene_asset_selection` 检查点 →「等待选择素材」，手动暂停 →「已暂停」；⏸ 图标 + `waiting paused` 呼吸样式，zh/en i18n（不再直渲原始 "paused" 字符串）。
