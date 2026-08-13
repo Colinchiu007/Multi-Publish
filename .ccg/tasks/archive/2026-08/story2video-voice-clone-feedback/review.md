@@ -19,3 +19,8 @@
 ## 证据边界
 - 本地：155 tests、eslint 0 error、vite build exit 0
 - 外部：真实 provider 克隆耗时/观感属外部验收（PENDING_EXTERNAL），未冒充
+
+## 合并核验（2026-08-13）
+- PR #686 MERGED，mergeCommit d43be9bf（Merge pull request #686 from codex/story2video-voice-clone-feedback）
+- 全 CI 绿：QG Coverage/Desktop Shards 1+2/electron-tests 10m40s/build(win+ubuntu)/gui-test/visual-test/agent-judge 等全部 pass
+- origin/main 已含合并（git merge-base --is-ancestor d43be9bf origin/main = YES）

@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "frontend",
   "currentPhase": "completed",
-  "nextAction": "PR #686 待合并验证",
+  "nextAction": "PR #686 已合并 d43be9bf（2026-08-13 02:52Z，全 CI 绿含 QG Coverage/Desktop Shards/electron-tests）",
   "createdAt": "2026-08-13T00:00:00+08:00",
   "branch": "codex/story2video-voice-clone-feedback"
 }
