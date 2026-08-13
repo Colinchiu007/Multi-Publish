@@ -5,6 +5,17 @@
 - **术语词典扩充**：`01-docs/i18n-glossary.md` 扩至 10 条产品核心名词（视频克隆/运营后台/模型设置/历史记录/发布历史/提示词/草稿箱/流水线 + 原有 2 条）；`glossary.test.js` en 侧改为大小写不敏感匹配。
 - 测试：user-facing-error 17 + i18n 9 + glossary 2 全绿；CJK 扫描 1650 基线 PASS；模板新增中文拦截冒烟通过。
 
+## [2026-08-13] Story2Video 全能创作：模型服务异常横幅跨运行残留修复 + X 关闭按钮
+
+- 根因：`ProviderAnomalyBus` 全局内存快照从不清理，`pipeline:getRunContext` 把全部历史异常附加到任意运行上下文；不退出应用重新进入「全能创作」启动新流水线后，旧运行（如 agnes-video 160s）的警告仍显示。
+- 修复（主进程 IPC 契约语义 + 渲染层）：
+  - `ProviderAnomalyBus.snapshotSince(sinceIso)` 按运行创建时间为边界过滤异常快照（先过滤后截断；支持 ISO/epoch ms；非法边界回退全量不隐藏警告）；
+  - `pipeline:getRunContext` 以运行 `createdAt` 为界下发 `providerWarnings`，新运行不再携带旧运行异常；
+  - 异常横幅增加 X 关闭按钮（复用 BGM notice 模式 `dismissedProviderWarnings`），启动/取消/切换流水线时重置警告与关闭状态；
+  - `.provider-warning-banner-close` 样式（color-mix 主题色 hover）。
+- 测试：provider-anomaly 14、pipeline 44、CreateView 160 全绿（新增 snapshotSince 边界/未来/数值/非法回退；按 createdAt 过滤、旧异常不附加、无 createdAt 回退；X 关闭、新运行/切换/取消重置、轮询清空旧警告）；vite build exit 0。
+- 文档：01-docs/CHANGELOG.md；行为契约由 OpenSpec change `story2video-provider-warning-ux` 固化。
+- CI：QG Static locale-sync CJK 基线刷新 1650→1651（CreateView.vue 行号位移致 195 处误报 + 关闭按钮 aria-label 回退文案镜像既有 BGM `common.close` 模式，净增 1 处已基线化）。
 ## [2026-08-13] feat(i18n): 多语言内容同步机制实施（i18n-content-sync）
 
 - L0 门禁：`i18n.test.js` 新增 zh/en 叶子键完全对称断言 + 同 key `{param}` 占位符一致性断言；`story2video.text_too_long` 统一为 `{maxFormatted}`（zh 展示带千分位，与 en 一致）。
@@ -4038,6 +4049,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

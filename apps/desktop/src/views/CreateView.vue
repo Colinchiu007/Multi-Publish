@@ -54,9 +54,10 @@
           :orchestration-context="orchestrationContext"
         />
 
-        <!-- 模型服务异常提示（非阻塞） -->
-        <div v-if="providerWarningText" class="provider-warning-banner" role="alert">
+        <!-- 模型服务异常提示（非阻塞，可关闭） -->
+        <div v-if="providerWarningText" class="provider-warning-banner" role="alert" data-testid="story2video-provider-warning-banner">
           ⚠️ {{ providerWarningText }}
+          <button class="provider-warning-banner-close" data-testid="dismiss-provider-warning" @click="dismissProviderWarnings" :aria-label="translateWithLocaleFallback('common.close', '关闭', 'Close')">✕</button>
         </div>
 
         <!-- BGM 被跳过提示（非阻塞，可关闭） -->
@@ -1202,6 +1203,7 @@ export default {
       // 分镜素材自选（2026-08-12）：scene_asset_selection 检查点激活与候选
       sceneAssetSelectionActive: false, sceneAssetCandidates: [], sceneAssetSelectionError: '', sceneAssetConfirming: false,
       dismissedBgmSkippedNotice: false,
+      dismissedProviderWarnings: false,
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '' },
       story2videoResuming: false,
       story2videoRunMeta: null,
@@ -1328,6 +1330,7 @@ export default {
       )
     },
     providerWarningText() {
+      if (this.dismissedProviderWarnings) return ''
       const warnings = Array.isArray(this.providerWarnings) ? this.providerWarnings : []
       if (warnings.length === 0) return ''
       const names = warnings.map((w) => {
@@ -1669,6 +1672,9 @@ export default {
       this.orchestrationContext = null
       this.orchestrationResultPath = null
       this.orchestrationError = ''
+      // 切换流水线时一并重置模型服务异常提示（跨流水线/跨运行不残留）
+      this.providerWarnings = []
+      this.dismissedProviderWarnings = false
       this.closeStory2VideoErrorDialog()
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
       // Bug 反哺（2026-08-09）：mounted 时 selectedPipeline 为 null，restore 守卫直接 return，
@@ -1729,6 +1735,9 @@ export default {
     async startPipeline() {
       // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
       this.dismissedBgmSkippedNotice = false
+      // 新运行重置模型服务异常提示：清空旧警告并取消关闭状态（跨运行不残留）
+      this.providerWarnings = []
+      this.dismissedProviderWarnings = false
       if (!this.pipelineAvailable(this.selectedPipeline?.name)) {
         this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED })
         return
@@ -3031,12 +3040,16 @@ export default {
     dismissBgmSkippedNotice() {
       this.dismissedBgmSkippedNotice = true
     },
+    dismissProviderWarnings() {
+      this.dismissedProviderWarnings = true
+    },
     async cancelPipeline() {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
       this.sceneAssetSelectionActive = false; this.sceneAssetCandidates = []; this.sceneAssetSelectionError = ''; this.sceneAssetConfirming = false
       this.dismissedBgmSkippedNotice = false
+      this.dismissedProviderWarnings = false
       this.orchestrationStages = (this.isAutoPipeline(this.selectedPipeline?.name) || this.isMediaAutoPipeline(this.selectedPipeline?.name)) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
       this.closeStory2VideoErrorDialog()
       this.stopPipelinePolling()

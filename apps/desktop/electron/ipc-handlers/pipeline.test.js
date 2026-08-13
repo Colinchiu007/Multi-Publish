@@ -180,8 +180,8 @@ describe('pipeline IPC 查询 sender 校验', () => {
   })
 })
 
-describe('pipeline:getRunContext 模型服务异常快照下发', () => {
-  // handler 在调用时 require('../services/provider-anomaly')（CJS），vi.mock 不拦截 CJS require，
+describe('pipeline:getRunContext 模型服务异常快照下发（按运行归属）', () => {
+  // handler 在调用时 require("../services/provider-anomaly")（CJS），vi.mock 不拦截 CJS require，
   // 必须用 __registerMock 拦截 Module._load，让 handler 与测试共享同一 mock 实例。
   let anomalyMock
   beforeEach(() => {
@@ -189,6 +189,7 @@ describe('pipeline:getRunContext 模型服务异常快照下发', () => {
       ProviderAnomalyBus: class {},
       providerAnomalyBus: {
         snapshot: vi.fn(() => []),
+        snapshotSince: vi.fn(() => []),
         report: vi.fn(),
         clear: vi.fn(),
         isSlow: vi.fn(() => false),
@@ -198,8 +199,49 @@ describe('pipeline:getRunContext 模型服务异常快照下发', () => {
     }
     __registerMock('./services/provider-anomaly', anomalyMock)
   })
-  it('存在异常时附带 providerWarnings 且不破坏原有快照', async () => {
-    anomalyMock.providerAnomalyBus.snapshot.mockReturnValue([
+  const RUN_SNAPSHOT = {
+    id: 'run-1', stages: [], context: {}, createdAt: '2026-08-13T01:00:00.000Z',
+  }
+
+  it('存在异常时附带 providerWarnings 且以运行 createdAt 为边界过滤', async () => {
+    anomalyMock.providerAnomalyBus.snapshotSince.mockReturnValue([
+      { providerId: 'agnes-llm', category: 'llm', latencyMs: 90000, kind: 'slow' },
+    ])
+
+    const deps = createMockDeps({
+      pipelineEngine: { getRunSnapshot: vi.fn().mockReturnValue(RUN_SNAPSHOT) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:getRunContext')(TRUSTED_EVENT, 'run-1')
+    expect(result.code).toBe(0)
+    expect(result.data.id).toBe('run-1')
+    expect(anomalyMock.providerAnomalyBus.snapshotSince).toHaveBeenCalledWith('2026-08-13T01:00:00.000Z')
+    expect(result.data.providerWarnings).toEqual([
+      expect.objectContaining({ providerId: 'agnes-llm', kind: 'slow' }),
+    ])
+  })
+
+  it('运行创建之前的旧异常不附加到新运行（跨运行残留回归）', async () => {
+    // snapshotSince 按 createdAt 边界过滤后无该运行内的异常
+    anomalyMock.providerAnomalyBus.snapshotSince.mockReturnValue([])
+
+    const deps = createMockDeps({
+      pipelineEngine: { getRunSnapshot: vi.fn().mockReturnValue(RUN_SNAPSHOT) },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:getRunContext')(TRUSTED_EVENT, 'run-1')
+    expect(result.code).toBe(0)
+    expect(anomalyMock.providerAnomalyBus.snapshotSince).toHaveBeenCalledWith('2026-08-13T01:00:00.000Z')
+    expect(result.data).toEqual(RUN_SNAPSHOT)
+    expect(result.data.providerWarnings).toBeUndefined()
+  })
+
+  it('运行快照无 createdAt 时仍返回上下文（snapshotSince 回退全量，不隐藏警告）', async () => {
+    anomalyMock.providerAnomalyBus.snapshotSince.mockReturnValue([
       { providerId: 'agnes-llm', category: 'llm', latencyMs: 90000, kind: 'slow' },
     ])
 
@@ -211,14 +253,14 @@ describe('pipeline:getRunContext 模型服务异常快照下发', () => {
 
     const result = await ipcMain._get('pipeline:getRunContext')(TRUSTED_EVENT, 'run-1')
     expect(result.code).toBe(0)
-    expect(result.data.id).toBe('run-1')
+    expect(anomalyMock.providerAnomalyBus.snapshotSince).toHaveBeenCalledWith(undefined)
     expect(result.data.providerWarnings).toEqual([
       expect.objectContaining({ providerId: 'agnes-llm', kind: 'slow' }),
     ])
   })
 
   it('无异常时不附加 providerWarnings 字段（保持返回结构稳定）', async () => {
-    anomalyMock.providerAnomalyBus.snapshot.mockReturnValue([])
+    anomalyMock.providerAnomalyBus.snapshotSince.mockReturnValue([])
 
     const deps = createMockDeps({
       pipelineEngine: { getRunSnapshot: vi.fn().mockReturnValue({ id: 'run-1', stages: [], context: {} }) },
@@ -232,7 +274,6 @@ describe('pipeline:getRunContext 模型服务异常快照下发', () => {
     expect(result.data.providerWarnings).toBeUndefined()
   })
 })
-
 describe('pipeline IPC 可信来源写操作正常工作', () => {
   it('pipeline:start 可信来源正常调用 pipelineEngine.start', async () => {
     const mockResult = { runId: 'run-1' }
