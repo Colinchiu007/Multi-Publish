@@ -1,12 +1,12 @@
 {
   "id": "story2video-asset-selection-ux",
   "title": "分镜素材自选模式检查点 UX 反馈优化（暂停状态语义/引导横幅/滚动定位/取消兜底）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "planning",
-  "nextAction": "OpenSpec proposal/design/specs/tasks 生成",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #716 merged 0d508e12）",
   "createdAt": "2026-08-13T00:00:00+08:00",
   "branch": "codex/story2video-asset-selection-ux",
   "openspecChange": "story2video-asset-selection-ux"
