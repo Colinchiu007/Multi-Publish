@@ -130,11 +130,10 @@ function createPublishApi(ipcRenderer, options = {}) {
     pipelineAdvanceToNextCheckpoint: (runId) => ipcRenderer.invoke('pipeline:advanceToNextCheckpoint', runId),
     pipelineConfirmSceneAssets: (runId, selections) => ipcRenderer.invoke('pipeline:confirmSceneAssets', runId, selections),
     pipelineGetRunContext: (runId) => ipcRenderer.invoke('pipeline:getRunContext', runId),
-    pipelineCardBackgrounds: (payload) => ipcRenderer.invoke('pipeline-card:backgrounds', payload),
 
     // Story2Video 本地交付
     story2videoImportMedia: (file, kind) => {
-      let filePath = ''
+      let filePath
       try {
         filePath = String(resolveFilePath(file) || '')
       } catch {

@@ -160,7 +160,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-13 | 阶段进行中信息反馈颗粒度统一方案 | 整体梳理 14 条流水线各阶段「进行中」反馈现状：仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节；提出统一 stage.progress 契约 + StageExecutor onProgress 通道 + UI 去特判 + 分期实施。详见本节 3.1.23 与总 PRD 7.1.9.3 | PRD 7.1.9.3 / 3.1.23 |
 | 2026-08-13 | 阶段进行中信息反馈颗粒度统一实施 | stage.progress + stage.summary 统一契约（getRunSnapshot 下发，与 context.stage_progress 双写）；StageExecutor onProgress 通道 + normalizeStageProgress 校验；publish/finalize_assets/split/optimize 运行中/LLM 阶段逐项接入；StageProgress 去特判通用渲染 + 总进度加权。测试 8 文件 411/411 + Vite build + 打包冒烟通过。PR #756 | PRD 7.1.9.3 / 3.1.23 |
 | 2026-08-13 | 阶段进度实时推送 + 快照裁剪（Phase 3） | `pipeline:update` 实时事件推送（500ms 节流合并、终态立即发送）+ `getRunSnapshot(runId, { progressOnly })` 轻量快照（不含 context）+ preload `onPipelineUpdate`（可取消）+ CreateView 事件驱动更新 + 3s 轮询兜底重置。测试 6 文件 659/659 + Vite build + 打包冒烟通过。PR #770 | PRD 7.1.9.3 Phase 3 |
-| 2026-08-13 | 视频创作首页卡片 UI：多列动态布局 + MiniMax 生成背景 + 交互动效 | `/create` 流水线选择视图容器放宽至 1600px + 显式 1-5 列断点；新增主进程 `pipeline-card-backgrounds` 服务（MiniMax image-01 生成、HTTPS 安全下载、磁盘缓存 + manifest、loopback 静态服务）；卡片渲染生成背景 + 暗色遮罩 + 浅色前景、加载 shimmer、渐变回退、入场/悬停动效与 reduced-motion 降级；提示文字 `pipelines.selector.*` zh/en 成对；IPC `pipeline-card:backgrounds` + preload + 前端封装。详见本节 3.1.24 | PRD 3.1.24 |
+| 2026-08-13 | 视频创作首页卡片 UI：多列动态布局 + 内置静态背景 + 交互动效（方案 B） | `/create` 流水线选择视图容器放宽至 1600px + 显式 1-5 列断点；背景图由免费生图模型 Pollinations(flux) 一次性预生成 15 张（1024x576 JPEG，统一风格 + 主题意象）并提交仓库静态资源 `apps/desktop/src/assets/pipeline-card-bg/`；前端 `PipelineSelector` 直接引用静态映射，双层暗色遮罩 + 浅色前景保证可读性，渐变兜底 + 入场/悬停动效 + reduced-motion + ARIA；**彻底移除运行时生成链路**（主进程服务/IPC/preload/api/缓存/loopback 全部删除，不调用任何生成 API、不访问网络）。详见本节 3.1.24 | PRD 3.1.24 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
@@ -1631,81 +1631,65 @@ SettingsDialog 关闭（App.vue @close）
 | `linkedin` | 1920×1080 | LinkedIn |
 | `instagram-feed` | 1080×1080 | Instagram 信息流 |
 
-### 3.1.24 视频创作首页流水线卡片 UI：多列动态布局 + MiniMax 生成背景 + 交互动效（2026-08-13 落地）
+### 3.1.24 视频创作首页流水线卡片 UI：多列动态布局 + 内置静态背景 + 交互动效（2026-08-13 落地，方案 B）
 
-> 范围：`/create` → 「流水线创作」视图（`PipelineSelector.vue` + `pipeline-selector.css`）。纯前端展示与
-> 主进程背景缓存服务，不改变流水线数据模型、执行引擎与发布流程。
+> 范围：`/create` → 「流水线创作」视图（`PipelineSelector.vue` + `pipeline-selector.css` + 静态资源）。
+> **背景图为随应用打包发布的固定静态资源**（git 版本控制，所有用户一致）；**彻底移除运行时图片生成**
+> （不调用任何生成 API、不访问网络、不写本地缓存、无 loopback 服务）。背景图由免费生图模型
+> Pollinations(flux) 一次性预生成后提交仓库（存量 MiniMax/LLM Key 经诊断在当前 Electron 下不可解密，故不依赖运行时 Key）。
 
 #### 1) 流程（数据流）
 
 ```
 进入 /create（流水线创作视图，未选流水线）
   ├─ 1. CreateView 加载流水线列表（pipeline:list → PipelineEngine.listPipelines + video-clone 入口）
-  ├─ 2. PipelineSelector 挂载/流水线变化 → 计算合法名称集合（/^[A-Za-z0-9_-]{1,80}$/）
-  ├─ 3. 调用 IPC pipeline-card:backgrounds { names, force:false }
-  │     └─ 主进程 pipeline-card-backgrounds 服务：
-  │          ├─ 解析图片生成 provider：getDefault('image') → 回退 listProviders('image') 首个已配置
-  │          ├─ 无 provider → { available:false }（前端渐变回退，不报错）
-  │          ├─ 有缓存（manifest + 文件 realpath 校验通过）→ 直接复用，不调用生成 API
-  │          ├─ 无缓存/force → callAdapter(providerId,'generateImage',{prompt,size:'1280x720'})
-  │          │     → 安全下载（HTTPS-only + 地址黑名单 + image/* + 12MB 上限）
-  │          │     → 原子写入 userData/pipeline-card-bg/<name>.png + manifest.json
-  │          └─ 注册 loopback token（127.0.0.1:<port>/pipeline-card-bg/<token>）返回 URL
-  ├─ 4. 前端逐卡渲染：成功 → 背景层 + 暗色遮罩 + 浅色前景；加载中 → shimmer；失败/无 provider → 分类渐变
-  └─ 5. 提示条：生成中（spinner 轻提示）→ 结果提示（未配置/部分失败，可关闭）
+  ├─ 2. PipelineSelector 挂载 → 对每张卡片按 pipeline.name 查询内置静态映射（PIPELINE_BG_IMAGES）
+  ├─ 3. 命中映射 → 渲染 .card-bg（<img> 静态资源 + 双层暗色遮罩）+ 浅色前景
+  └─ 4. 未命中（新增流水线暂无背景资源）→ 分类色系渐变兜底，正常可选
+全程无 IPC、无生成请求、无磁盘写入。
 ```
 
 #### 2) 数据校验
 
-| 项 | 规则 | 违规行为 |
-|----|------|----------|
-| 流水线名称 | 非空字符串，`/^[A-Za-z0-9_-]{1,80}$/`（IPC 与主进程服务双重校验） | 返回 `VALIDATION_ERROR`（code -2），不触发任何生成 |
-| 批量上限 | 单次 ≤ 50 个名称（去重后处理） | 返回 `VALIDATION_ERROR` |
-| force | 仅接受布尔 true/false，缺省 false | 非布尔按 false 处理 |
-| 生成尺寸 | 固定 `1280x720`（16:9，卡片 object-fit: cover 裁剪） | — |
-| 下载 URL | 必须 `https:`、不得带凭据、不得跟随重定向（redirect:'error'） | 该卡记 failed，回退渐变 |
-| 下载目标地址 | DNS 解析后拒绝 私有/环回/链路本地（10/8、172.16/12、192.168/16、127/8、169.254/16、::1、fc00::/7、fe80::/10、224+） | 该卡记 failed |
-| 下载响应 | Content-Type 必须 `image/*`，大小 ≤ 12MB，内容非空 | 该卡记 failed |
-| 本地服务 | 仅 127.0.0.1、随机端口、随机 token（16B hex）、GET/HEAD only、nosniff、仅缓存目录内 realpath 文件、条目上限 200、TTL 7 天 | 越界一律 404，不泄露路径 |
+| 项 | 规则 |
+|----|------|
+| 静态资源 | `apps/desktop/src/assets/pipeline-card-bg/<pipeline-name>.jpg`，1024x576（16:9）JPEG，由 `src/story2video/pipeline-card-bg-assets.js` 静态导入聚合为 name→URL 映射 |
+| 名称匹配 | 资源文件名与流水线 `name` 完全一致（kebab-case）；不匹配/缺失 → 渐变兜底 |
+| 资源内容 | 统一风格（低饱和深色渐变、抽象几何、留白、无文字/人物/logo）；每卡主题意象与流水线功能相关（如口播=声波线、电影感=胶片光晕、视频克隆=镜像光分） |
+| 无运行时校验 | 不校验 Key/额度/网络；不存在运行时生成/下载/缓存路径 |
 
 #### 3) 功能逻辑
 
-- **背景生成**：每流水线一条提示词，共享统一风格块（极简低饱和深色渐变、抽象几何、留白、无文字/无人物/无 logo、柔和光效、16:9），仅主题意象不同（如全能创作=极光光轨、口播=声波线、电影感=胶片光晕、视频克隆=镜像光分等）。未收录流水线使用通用主题。
-- **磁盘缓存**：`userData/pipeline-card-bg/<safe-name>.png` + `manifest.json`（version/items{path,provider,generatedAt}）；命中且文件真实存在且在缓存目录内 → cached 复用；manifest 损坏/文件丢失 → 视为未缓存重新生成（安全重建）。
-- **并发与失败隔离**：并发生成上限 2；单卡失败只记入 `failed`，不影响其他卡；整批不因部分失败报错（code 0）。
-- **安全下载**：HTTPS-only + 地址黑名单 + Content-Type/大小校验 + 有界超时（30s）+ AbortController；失败信息脱敏（不含完整 URL）。
-- **前端降级**：无 provider / IPC 不可用 / 全部失败 → 卡片保持分类色系渐变背景，可正常选择流水线；`available:false` 时显示一次性提示（可关闭）。
+- 前端渲染层：命中映射的卡片渲染 `card-bg`（`<img loading="lazy" decoding="async">` + `card-bg-scrim` 双层暗色遮罩，`aria-hidden`），前景文字在有背景时强制浅色（标题 #f5f6fa、描述/元信息 rgba 浅色、badge/标签半透明白底），保证对比度。
+- 渐变兜底：未收录背景资源的流水线沿用分类色系低饱和渐变（generated/talking_head/cinematic/animation/screen_recording/hybrid/custom）。
+- 交互动效：卡片入场 fadeInUp（stagger 30ms/卡，最多 12 档）；悬停抬升 -4px + 阴影 + 背景图 scale(1.06) + 边框高亮；`:focus-visible` 外环；`prefers-reduced-motion: reduce` 关闭入场/缩放/shadow 过渡。
+- 可访问性：卡片 role=button + tabindex=0 + aria-label（流水线名）；背景层 aria-hidden；键盘 Enter 触发选择。
 
 #### 4) 交互逻辑与显示项
 
 | 显示项/交互 | 说明 |
 |-------------|------|
 | 多列网格 | ≤768px 1 列；769-1199px auto-fill（280px 基数）；1200-1439px 3 列；1440-1919px 4 列；≥1920px 5 列；gap 16px（窄屏 12px） |
-| 页面容器 | 流水线选择视图放宽至 max-width 1600px（`.create-page--pipeline-list`），宽屏不再被 1080px 封顶压缩 |
-| 背景层 | `card-bg`（img + 双层暗色渐变遮罩，`aria-hidden`）；hover 背景图 scale(1.06) |
-| 前景文字 | 有背景时强制浅色（标题 #f5f6fa、描述/元信息 rgba 浅色、badge 半透明白底），保证对比度 |
-| 加载态 | 背景生成中卡片显示 shimmer 骨架 + 顶部「正在生成卡片背景…」spinner 轻提示 |
-| 结果提示 | 未配置模型：「未配置图片生成模型，已使用默认样式（可在「模型服务商」中配置）」；部分失败：「部分卡片背景生成失败，已回退默认样式」；均可关闭（一次性） |
-| 交互动效 | 卡片入场 fadeInUp（stagger 30ms/卡，最多 12 档）；悬停抬升 -4px + 阴影 + 背景缩放 + 边框高亮；`:focus-visible` 外环 |
-| 可访问性 | 卡片 role=button + tabindex=0 + aria-label（流水线名）；背景层 aria-hidden；生成中 aria-busy；`prefers-reduced-motion: reduce` 关闭动画 |
-| 骨架屏/错误态 | 沿用现有 skeleton-grid 与 error-state + 重试按钮 |
+| 页面容器 | 流水线选择视图放宽至 max-width 1600px（`.create-page--pipeline-list`） |
+| 背景层 | 静态 img（object-fit: cover）+ 双层暗色遮罩（顶部 0.42→0.12→底部 0.62→0.85 渐变） |
+| 前景文字 | 有背景时强制浅色，保证对比度；无背景时保持主题色 |
+| 骨架屏/错误态 | 沿用 skeleton-grid 与 error-state + 重试按钮（`pipelineSelector.retry`） |
+| 提示条 | 无（运行时生成相关提示已随运行时链路一并移除） |
 
-#### 5) 提示文字（zh / en，locales `pipelines.selector.*`）
+#### 5) 提示文字（zh / en）
 
 | key | zh | en |
 |-----|----|----|
-| `bgGenerating` | 正在生成卡片背景… | Generating card backgrounds… |
-| `bgUnavailable` | 未配置图片生成模型，已使用默认样式（可在「模型服务商」中配置） | No image-generation model configured — using default styles (configure one in Model Providers) |
-| `bgPartialFailure` | 部分卡片背景生成失败，已回退默认样式 | Some card backgrounds failed — fell back to default styles |
-| `bgClose` | 关闭 | Close |
+| `pipelineSelector.retry`（沿用） | 重试 | Retry |
+| `pipelineSelector.stages`（沿用） | {count} 阶段 | {count} stages |
+| 其余分类/成本/可用性文案沿用 `pipelineSelector.*`（P3 i18n 已迁移） | — | — |
 
 #### 6) 安全边界与已知边界
 
-- 主进程 loopback 静态服务仅服务缓存目录内文件；token 随机不可猜测；端口随机绑定 127.0.0.1；无目录列举。
-- 下载使用 `redirect:'error'`，杜绝重定向式 SSRF 绕过；地址解析结果参与黑名单判定。
-- 生成图片不回流 Story2Video 素材流程（纯展示缓存），删除 `userData/pipeline-card-bg/` 即可完全重置（下次进入自动重新生成）。
-- 真实 MiniMax 生成依赖用户配置的图片生成服务商 API Key/配额，属外部验收；无 Key 时系统始终可用（渐变回退）。
-- 缓存 7 天 TTL 仅作用于内存 token 注册表；磁盘缓存长期保留，由 `force` 或手动删除目录刷新。
+- 无运行时网络请求/API 调用/本地缓存/静态服务 → 相关安全面（SSRF/下载/loopback）随运行时链路整体移除。
+- 静态资源随应用打包发布；换图走 git + 发版，不存在运行时更新。
+- 未收录背景资源的新流水线以渐变兜底呈现，不阻塞使用；补充资源后随下一次发版生效。
+- 免费模型生成仅发生在开发期预生成阶段（一次性），产物已校验（JPEG magic/尺寸/数量），不依赖任何运行时服务可用性。
 
 ---
 

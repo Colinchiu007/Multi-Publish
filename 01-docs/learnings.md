@@ -9,6 +9,13 @@
 - **预防措施**：① 中英文混合词典维护走 parity 测试；② 探索/随机逻辑一律 rand 注入 + 边界 ε 策略；③ CJK 词边界用例进 fingerprint 测试模板；④ 长周期分支定期 rebase + 合并窗口纪律。
 
 ---
+
+## [2026-08-13] 卡片背景方案 B：免费模型预生成静态资源 + 彻底移除运行时生成（pipeline-card-bg-static-bundle）
+
+- 关键诊断：真实 profile（`%APPDATA%@multi-publish/desktop` 与 C:	mp 下多个 profile）里 minimax-image / minimax-multimodal / sensenova-llm 等 Key 的 `api_key_enc`（v10 DPAPI blob）在当前 Electron 43 `safeStorage.decryptString` 下**全部解密失败**；同进程往返 encrypt→decrypt 正常 → 结论是存量 blob 由不匹配的 DPAPI 上下文加密（profile 跨机器/账户复制或旧版本写入）。含义：**「库里存了 Key」≠「当前版本可用」**，应用实际会判未配置 → 图片/TTS/LLM 生成全回退/失败。排查法：sql.js 只读读 model_providers（结构列，不读 key 值）+ Electron 主进程 harness 解密往返对照。
+- 免费生图选型实测（本机）：Pollinations（免 Key，flux/turbo，~1-2s/张但免费档限流 429 严重，需串行+退避重试，1024 边上限）；Stable Horde 匿名仅 ≤576x576（403），需注册；HuggingFace 需 token。结论：Pollinations 串行+全失败重试可行。
+- 方案 B 落地要点：静态资源放 `src/assets/pipeline-card-bg/`（Vite 静态 import，dev/打包均可）；删除运行时服务/IPC/preload/api 时**同步回退计数类测试**（preload.test.js 85/275/77、access-control.test.js 新增用例、CreateView.test.js mock）与 license-access-control public 通道；locales 删除运行时提示 key 后 `check-locale-sync --cjk` 因行位移需重锚基线。
+
 ## [2026-08-13] 视频创作首页卡片 UI：宽屏多列 + MiniMax 背景缓存服务的落地要点（pipeline-card-backgrounds-ui）
 
 - 根因/机会：`create-page` 被 `max-width:1080px` 封顶（`src/styles/create-view.css`），即便网格用 `auto-fill minmax(300px,1fr)`，宽屏列数也被容器压死——「不是多列动态」的真相是容器宽度而非网格定义。

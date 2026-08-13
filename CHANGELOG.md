@@ -4,6 +4,16 @@
 - 规格：01-docs/ARCH-PROMPT-ENGINE-EVOLUTION-FINGERPRINT-2026-08-13.md（v3，双模型评审定稿）；OpenSpec change prompt-engine-evolution-p1b。
 - 双模型审查修复：英文泛化词（user/experience）抑制、词典词子串剔除（"AI 改变教育" topics=[]）、中文片段 6 字上限、探索分支返回契约（不泄漏 template + learnedFrom）、score null 防御、lastUsedAt 时间戳比较。
 - 测试：fingerprint 19 例（14 规格 + 2 parity + 3 审查补充）+ P0 collector 18 全绿；parity 锁死 applyWhen/SentimentAnalyzer 与 TS 权威版一致。
+
+## [2026-08-13] refactor(ui): 流水线卡片背景改为内置静态资源（方案 B）——彻底移除运行时生成（pipeline-card-bg-static-bundle）
+
+- 背景方案变更：运行时 MiniMax 生成 → **免费生图模型 Pollinations(flux) 一次性预生成 15 张静态背景图**（1024x576 JPEG，统一风格提示词 + 每流水线主题意象 + 固定 seed），提交仓库 `apps/desktop/src/assets/pipeline-card-bg/` 随应用打包，所有用户一致。
+- 变更原因：存量 profile 的 MiniMax/LLM Key 经诊断均无法被当前 Electron 43 解密（DPAPI 上下文不匹配；safeStorage 往返加密正常、存量 blob 解密失败），运行时真实出图不可依赖；静态方案同时消除每机 Key 依赖与额度消耗。
+- 前端：`PipelineSelector.vue` 直接引用 `src/story2video/pipeline-card-bg-assets.js` 静态映射；删除 fetchCardBackgrounds/bgLoading/bgHint/一次性提示/加载 shimmer；保留背景层 + 双层暗色遮罩 + 浅色前景、渐变兜底、入场/悬停动效、prefers-reduced-motion、ARIA。
+- 移除运行时链路（彻底）：删除主进程服务 pipeline-card-backgrounds、IPC handler、preload pipelineCardBackgrounds、PUBLIC_METHODS/license-access-control 通道、src/api 封装及其测试；preload.test.js 计数还原；locales 删除 `pipelines.selector.*`（zh/en）与术语表行。
+- 测试：PipelineSelector 重写 5 例全绿；preload/license/CreateView/i18n/video-creation 598 全绿；vite build 通过。
+- 文档：PRD-video-creation §3.1.24 改写（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字/安全边界）；OpenSpec change pipeline-card-bg-static-bundle（pipeline-card-backgrounds-ui MODIFIED）。
+
 ## [2026-08-13] P3 第二批：StageProgress 阶段进度组件文案多语言化（PR #757 merged ed116a84）
 
 - locales zh/en 新增 `stageProgress` 命名空间（17 键对等：阶段时间/状态标签/插值提示消息/时长格式化）。

@@ -117,21 +117,6 @@
 .pipeline-card.has-bg .cost-label.medium { background: rgba(255, 200, 60, 0.20); color: #ffe9b3; }
 .pipeline-card.has-bg .cost-label.high { background: rgba(245, 108, 108, 0.22); color: #ffd9d9; }
 
-/* 背景生成中：骨架 shimmer */
-.card-bg-loading {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: linear-gradient(110deg, var(--surface) 30%, rgba(255, 255, 255, 0.12) 50%, var(--surface) 70%);
-  background-size: 200% 100%;
-  animation: pipeline-bg-shimmer 1.2s linear infinite;
-}
-
-@keyframes pipeline-bg-shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
-}
-
 .card-content {
   position: relative;
   z-index: 0;
@@ -201,55 +186,6 @@
 .availability-badge.ready { background: var(--status-completed-bg); color: var(--status-completed-text); }
 .availability-badge.dev { background: var(--status-waiting-bg); color: var(--status-waiting-text); }
 
-/* ── 背景生成提示条 ────────────────────────── */
-.bg-generating {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  padding: 6px 12px;
-  border-radius: 20px;
-  background: rgba(80, 72, 229, 0.08);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.bg-generating-spinner {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 2px solid rgba(80, 72, 229, 0.25);
-  border-top-color: var(--primary);
-  animation: pipeline-bg-spin 0.8s linear infinite;
-}
-
-@keyframes pipeline-bg-spin { to { transform: rotate(360deg); } }
-
-.bg-hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 12px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--status-waiting-bg);
-  color: var(--status-waiting-text);
-  font-size: 12px;
-}
-
-.bg-hint-close {
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.bg-hint-close:hover { background: rgba(0, 0, 0, 0.08); }
-
 /* 加载骨架屏 */
 .loading-state { padding: 20px 0; }
 
@@ -291,6 +227,4 @@
   .pipeline-card { animation: none; transition: none; }
   .pipeline-card:hover { transform: none; }
   .pipeline-card:hover .card-bg img { transform: none; }
-  .card-bg-loading { animation: none; }
-  .bg-generating-spinner { animation: none; }
 }

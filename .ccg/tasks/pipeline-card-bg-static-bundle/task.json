@@ -1,0 +1,14 @@
+{
+  "id": "pipeline-card-bg-static-bundle",
+  "title": "方案B：流水线卡片背景改为内置静态资源（免费模型预生成 + 彻底移除运行时生成）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-ui + assets",
+  "currentPhase": "implementation",
+  "nextAction": "预生成 15 张背景图并接入静态资源",
+  "createdAt": "2026-08-13T00:00:00+08:00",
+  "branch": "codex/pipeline-card-bg-static-bundle",
+  "openspecChange": "pipeline-card-bg-static-bundle",
+  "notes": "存量 profile 的 MiniMax/LLM Key 经诊断均无法被当前 Electron 43 解密（DPAPI 上下文不匹配，往返测试正常、存量 blob 失败）→ 改用免费 Pollinations(flux) 预生成；运行时生成彻底移除"
+}
