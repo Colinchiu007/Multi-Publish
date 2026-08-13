@@ -1,0 +1,14 @@
+{
+  "id": "pipeline-card-backgrounds-ui",
+  "title": "视频创作首页卡片 UI 优化：多列动态布局 + MiniMax 生成卡片背景 + 交互动效 + 文档/PR/合并",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "frontend-ui + electron-service",
+  "currentPhase": "implementation",
+  "nextAction": "TDD 实现主进程背景服务",
+  "createdAt": "2026-08-13T00:00:00+08:00",
+  "branch": "codex/pipeline-card-backgrounds-ui",
+  "openspecChange": "pipeline-card-backgrounds-ui",
+  "notes": "双模型外部分析降级：子代理 403 / antigravity 区域限制 / claude CLI 挂起，主代理直接执行（机制硬化规则）"
+}
