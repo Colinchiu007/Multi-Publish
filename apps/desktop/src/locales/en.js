@@ -118,6 +118,9 @@ export default {
         cancelFailed: 'Failed to cancel. Please retry.',
       },
       resetOptions: 'Reset to default options',
+      // 2026-08-13 Pipeline background run: detach the detail view while the run continues in the main process
+      backgroundRun: 'Run in background',
+      backgroundRunToast: 'Pipeline moved to background (still occupies a run slot). Track progress under Pipeline history and resume there.',
       mediaRequirementsImage: 'Supports jpg / jpeg / png / webp. Max 10MB per file.',
       mediaRequirementsAudio: 'Supports wav / m4a / mp3. Max 50MB per file.',
       mediaRequirementsBgm: 'Supports wav / m4a / mp3. Max 15MB per file.',

@@ -14,6 +14,16 @@
 - 测试：主进程服务 16 + IPC handler 6 + PipelineSelector 组件 6 + access-control 6；CreateView 回归 169 全绿；vite build 通过。
 - 文档：PRD-video-creation §3.1.24（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）；OpenSpec change pipeline-card-backgrounds-ui（proposal/design/specs/tasks）；learnings；i18n 术语表。
 - 交付：隔离 worktree + codex/pipeline-card-backgrounds-ui 分支 + PR + CI + 合并回 main。
+## [2026-08-13] feat(s2v): 流水线新增【后台运行】按钮（前端脱离 + 恢复初始化 + 可再次启动，s2v-pipeline-background-run）
+
+- 需求：运行流水线状态下，在【取消】按钮旁新增【后台运行】按钮；点击后流水线在后台继续运行，前端流水线详情恢复初始化状态，用户可在运行中流水线 < 并发上限时再次启动。
+- 实现（纯前端脱离，引擎不改）：CreateView.vue running-controls 新增「后台运行」按钮（仅编排流水线运行中显示：`orchestrationRunId` 存在且 `status==='running'`）；点击后停止轮询 + 重置前端运行态（抽取 `resetPipelineUiState()` 与取消共用），**不调 `pipelineCancel()`**；toast 提示仍占用并发名额；刷新历史列表（运行中置顶、可点击重挂）。
+- 竞态修复（审查 Critical 1）：`updateOrchestrationStatus` 增加 runId 快照守卫——detach/取消/切换 run 后在飞的 `pipelineGetRunContext` 过期响应不写回状态、不触发结果页跳转，防僵尸重挂/污染新 run。
+- 守卫（审查 Warning 2）：检查点等待态（`sceneAssetSelectionActive` / `needsCheckpoint`）不允许转后台。
+- 文案：locales zh/en 成对新增 `create.story2video.backgroundRun` / `backgroundRunToast`；i18n-glossary 登记「后台运行 / Run in background」；CJK 基线随 CreateView 行号重排更新（无新增硬编码）。
+- 测试：CreateView.test.js +6（按钮可见性 ×2、点击脱离不取消+toast+启动按钮恢复、轮询竞态守卫、检查点禁止转后台、取消回归）；175 全绿；vite build exit 0；eslint 0 error。
+- 文档：PRD.md「视频创作后台运行与并发合同」新增 §3a 前台/后台切换合同（数据校验/流程/交互/显示项/提示文字/验收标准）；PRD-video-creation.md 版本表；learnings 复盘。
+>>>>>>> a4f14cce (feat(s2v): 流水线新增后台运行按钮（前端脱离+恢复初始化+可再次启动）+ PRD §3a 合同)
 
 ## [2026-08-13] P3 第一批：video-creation 子组件多语言化（PR #749 merged 53d08302）
 

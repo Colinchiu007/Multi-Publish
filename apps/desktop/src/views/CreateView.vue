@@ -836,6 +836,16 @@
               <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ 暂停</UiButton>
               <UiButton v-if="needsCheckpoint" @click="advancePipeline">✅ 确认并继续</UiButton>
             </template>
+            <!-- 后台运行（2026-08-13）：仅编排流水线运行中显示；点击后前端恢复初始化，run 在主进程继续后台执行 -->
+            <UiButton
+              v-if="orchestrationRunId && pipelineRunStatus?.status === 'running'"
+              variant="secondary"
+              class="bg-run-btn"
+              data-testid="s2v-background-trigger"
+              @click="detachPipelineToBackground"
+            >
+              {{ translateWithLocaleFallback('create.story2video.backgroundRun', 'backgroundRun', 'Run in background') }}
+            </UiButton>
             <UiButton variant="danger" data-testid="s2v-cancel-trigger" @click="requestCancelPipeline">✕ 取消</UiButton>
           </div>
           <div v-if="!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress !== undefined" class="progress-inline">
@@ -1923,10 +1933,10 @@ export default {
         savedAt: new Date().toISOString(),
       }
     },
-    showS2VOptionsToast(text) {
+    showS2VOptionsToast(text, durationMs = 1600) {
       this.s2vOptionsToast = text
       if (this.s2vOptionsToastTimer) clearTimeout(this.s2vOptionsToastTimer)
-      this.s2vOptionsToastTimer = setTimeout(() => { this.s2vOptionsToast = '' }, 1600)
+      this.s2vOptionsToastTimer = setTimeout(() => { this.s2vOptionsToast = '' }, durationMs)
     },
     async saveS2VLastOptions() {
       if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.s2vRestoring) return
@@ -2960,8 +2970,12 @@ export default {
     },
     async updateOrchestrationStatus() {
       if (!this.orchestrationRunId) return
+      // runId 快照守卫（2026-08-13，后台运行审查 Critical 1）：detach/取消/切换 run 后，
+      // 在飞的 pipelineGetRunContext 过期响应不得写回状态或触发跳转，防止僵尸重挂/污染新 run。
+      const runId = this.orchestrationRunId
       try {
-        const statusResult = await pipelineGetRunContext(this.orchestrationRunId)
+        const statusResult = await pipelineGetRunContext(runId)
+        if (this.orchestrationRunId !== runId) return
         if (statusResult?.code !== 0) {
           this.setOrchestrationError({ code: statusResult?.code, error: statusResult?.message })
           return
@@ -3011,6 +3025,7 @@ export default {
           })
         }
       } catch (_error) {
+        if (this.orchestrationRunId !== runId) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE })
       }
     },
@@ -3151,17 +3166,36 @@ export default {
     dismissProviderWarnings() {
       this.dismissedProviderWarnings = true
     },
-    async cancelPipeline() {
-      await pipelineCancel()
+    // 运行态 UI 重置（取消/后台运行共用，2026-08-13）：仅清理前端轮询与展示状态，不执行引擎操作。
+    resetPipelineUiState() {
+      this.stopPipelinePolling()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
+      this.dismissedProviderWarnings = false
+      this.orchestrationResultPath = null
+      this.story2videoRunMeta = null
       this.sceneAssetSelectionActive = false; this.sceneAssetCandidates = []; this.sceneAssetSelectionError = ''; this.sceneAssetConfirming = false
       this.selectionGuided = false; this.sceneAssetAttention = false; this.cancelConfirmDialog.visible = false
       this.dismissedBgmSkippedNotice = false
-      this.dismissedProviderWarnings = false
       this.orchestrationStages = (this.isAutoPipeline(this.selectedPipeline?.name) || this.isMediaAutoPipeline(this.selectedPipeline?.name)) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
       this.closeStory2VideoErrorDialog()
-      this.stopPipelinePolling()
+    },
+    async cancelPipeline() {
+      await pipelineCancel()
+      this.resetPipelineUiState()
+    },
+    async detachPipelineToBackground() {
+      // 后台运行（2026-08-13）：仅前端脱离——停止轮询并恢复初始化状态，不调 pipelineCancel。
+      // 主进程 run 继续后台执行，仍占用并发槽位；历史记录「运行中」置顶，可点击经
+      // resumeHistoryItem → pipelineResumeOrchestration（幂等 alreadyRunning）重新挂回并恢复轮询。
+      // 守卫（审查 Warning 2）：方法内重校验 runId 与检查点等待态，防止双击/检查点以 running 呈现时误转后台。
+      if (!this.orchestrationRunId || this.sceneAssetSelectionActive || this.needsCheckpoint) return
+      this.resetPipelineUiState()
+      this.showS2VOptionsToast(
+        this.translateWithLocaleFallback('create.story2video.backgroundRunToast', 'backgroundRunToast', 'Pipeline moved to background. Track progress under Pipeline history and resume there.'),
+        3000
+      )
+      await this.loadHistory()
     },
     async advancePipeline() { await pipelineAdvance(); await this.updatePipelineStatus() },
     async loadHistory() {

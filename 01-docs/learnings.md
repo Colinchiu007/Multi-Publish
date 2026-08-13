@@ -8,7 +8,16 @@
 - 门禁坑：`check-locale-sync.js --cjk` 基线是 `path:line` 集合，**行号敏感**；重写 .vue 会因行位移产生大量「新增」命中——新增用户可见文案必须只走 locales（不在 .vue script/template 留中文字面量 fallback），存量位移用 `--update-baseline` 重新锚定（并核对 HEAD 基线已过期 127 处的先决事实）。
 - 外部双模型本次全部不可用（子代理 403 / antigravity 区域限制 / claude CLI 挂起）→ 按机制硬化降级主代理直接执行，审查以本地自审 + 测试门禁补充；下次先探测再承诺双模型审查。
 
+---
+## 流水线「后台运行」按钮与轮询竞态修复复盘（s2v-pipeline-background-run，2026-08-13）
 
+- **需求**：运行流水线状态下在【取消】旁新增【后台运行】——点击后前端恢复初始化、run 在主进程继续后台执行，用户可在并发上限内再次启动。
+- **现状盘点先行（沿用 2026-08-07 教训）**：确认引擎已支持 `autoAdvance+background`（run 与 renderer 解耦、`_runs` 持有运行态）、历史含运行中可重挂、并发门禁统一在引擎——因此实现收敛为**纯前端脱离**（stop polling + `resetPipelineUiState()`，不调 `pipelineCancel()`），引擎零改动，避免重复造轮子。
+- **教训 1（异步轮询必须有 runId 快照守卫）**：codex 独立审查 C1 指出——detach 清空 `orchestrationRunId` 后，在飞的 `pipelineGetRunContext` 响应仍会无条件写回 context/stages，甚至走 `applyOrchestrationOutcome` 跳结果页（僵尸重挂/污染新 run）。修复：`updateOrchestrationStatus` 发起时捕获 runId 快照，await 返回后校验 `this.orchestrationRunId === runId` 才写回，catch 同样守卫。凡是「异步请求 + 可变当前目标」的模式（轮询/竞态恢复）都应带目标快照守卫。
+- **教训 2（前端「可逆脱离」类操作，方法内仍需重校验状态）**：仅靠模板 v-if 不足——检查点等待态若以 running 呈现，会误把需人工输入的 run 转后台卡死。方法内重校验 `sceneAssetSelectionActive/needsCheckpoint` 兜底。
+- **教训 3（CJK 基线行号脆弱性第三次实证）**：CreateView.vue 增加按钮/方法 → 行号整体漂移 → 基线 1562 条全部错位（当前仍 1562，无真新增）；`--update-baseline` 权威重排修复。行号 id 基线是反复踩坑点（learnings 2026-08-13 提示词引擎教训 4 已提出改内容摘要，待落地）。
+- **教训 4（审查降级路径：antigravity → claude → codex）**：antigravity 地区不可用（Eligibility）、claude wrapper stdin 挂起 exit 1（SDK PATH 已加仍失败）→ 用 `--backend codex` 完成独立审查并产出高质量 C1 竞态发现；质量节拍记录降级，不冒充双模型通过。
+- **交付**：CreateView.test.js +6（175 全绿）、vite build/eslint 0、PRD §3a 合同、CHANGELOG、i18n-glossary、CJK 基线重排。
 ## npm → pnpm 迁移复盘（pnpm-worktree-deps，2026-08-13）
 
 - **交付**：依赖管理迁移 pnpm 11.13.1（`pnpm-workspace.yaml`：nodeLinker=hoisted + allowBuilds 放行 esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js），`pnpm-lock.yaml` 唯一锁文件；7 个 CI workflow + nx.json + workflow-contract 同步；新增 `scripts/verify-worktree-deps.js`（解析门禁）与 `scripts/run-package-install.js`；重写 `scripts/fix-worktree-node-modules.sh`；electron-builder 排除 `!node_modules/.pnpm/**`。新 worktree `pnpm install --frozen-lockfile` 实测 17.1s（1104 包 store 复用、0 下载）；桌面全量 vitest + 其余 workspace 全绿；win 打包 QM-1 通过；CI 全绿后合并（PR #705）。
@@ -21,8 +30,6 @@
 - **教训 7（`--if-present` 位置）**：必须写 `pnpm -r --if-present run test`（选项在 `run` 之前）；放在 `run test` 之后会被当成脚本参数传给 vitest → `vitest run "--if-present"` 过滤 0 测试 → exit 1。
 - **教训 8（整目录 Junction 复用废弃）**：并发 worktree 整目录 Junction 使 `@multi-publish/*` 共享物理链接，无法各自解析分支源码（双模块实例根因）；pnpm store 硬链接 + 消费方链接是正解，历史 junction 用 fix-worktree-node-modules.sh 检测修复。
 - **教训 9（scripts/*.js 被 .gitignore 忽略）**：`.gitignore` 有 `scripts/*.js` 规则；新增的必提交工具脚本（verify-worktree-deps/run-package-install）会静默不入库，必须加 `!` 例外并 `git status` 复核。
-
----
 ## 共享 worktree 批量清理级联误删主工作区文件复盘（shared-worktree-cascade-delete，2026-08-13）
 
 - **表象**：主工作区 `git status --porcelain` 突发 **255 个 ` D`**（工作区文件从磁盘消失，但 HEAD 中仍存在、上游未提交删除、目录外壳还在）；同一时段大量 worktree 从 `git worktree list` 消失（含本会话 mp-video-clone-default-url），主工作区 HEAD 也被并发会话推进（c0510955 → 1a248ed7）。

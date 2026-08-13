@@ -8,6 +8,7 @@
 |----|----|--------------------------|
 | 全能创作 | Omni Creation | `story2video-compose` |
 | 启动流水线 | Start pipeline | — |
+| 后台运行 | Run in background | — |
 | 口播视频 | Talking Head | `talking-head` |
 | 数字人口播 | Avatar Spokesperson | `avatar-spokesperson` |
 | 旁白 | Narration | — |
