@@ -53,6 +53,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 2. **候选生成（generate_assets manual 分支）**：
    - `all-images`：每场景 **2 张图片**（同一优化提示词两次独立调用，经 `persistCandidateCopy` 落盘到 `candidates/scene_<index>_<seq>` 独立路径，避免同 index 覆盖）。
    - `video-image`：AI 视频场景（沿用 `select_video_scenes` 的 `videoMode=off/fixed/ai-judged` 判定）额外生成 **1 个视频**（同一提示词，2 图 + 1 视频）；其余场景 2 图。`videoMode=off` 或 `manual+all-images` 时无视频候选。
+   - **视频候选有界并行（2026-08-13 与全自动对齐）**：视频场景的视频候选与全自动同一机制——请求并发默认 2，经视频 provider 预算收敛（`rate_per_minute` > 静态表 > 类别默认，`maxConcurrent` 封顶）；视频场景之间并行生成，图片候选与视频候选**并行启动**（不再等待视频全部完成）。此前视频串行且图片必须等视频全部完成后才开始，2 个视频场景实测纯视频阶段 11+ 分钟无图片产出。失败回退（视频失败场景仅 2 图）、同场景 2 图 seq 0→1 顺序生成、候选清单结构、`scene_asset_selection` 检查点与 finalize 流程均不变。
    - **跳过 TTS**；任一场景候选数为 0 → 阶段失败（可读错误列出缺素材场景）；内容政策 `needs_user_input` 整体失败（与全自动一致）。
    - 输出候选清单 `context.generate_assets.candidates`（每场景 `{ index, text, prompt, promptTranslation, subtitleBlocks, sceneSource, subtitleSource, candidates: [{ id, kind, path, seq, meta }] }`），以 `checkpoint: 'scene_asset_selection'` 暂停并持久化 paused 快照（含 checkpoint，应用重启可恢复到选择面板）。
 3. **选择交互**：
@@ -173,6 +174,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 2. **候选生成（generate_assets manual 分支）**：
    - `all-images`：每场景 **2 张图片**（同一优化提示词两次独立调用，经 `persistCandidateCopy` 落盘到 `candidates/scene_<index>_<seq>` 独立路径，避免同 index 覆盖）。
    - `video-image`：AI 视频场景（沿用 `select_video_scenes` 的 `videoMode=off/fixed/ai-judged` 判定）额外生成 **1 个视频**（同一提示词，2 图 + 1 视频）；其余场景 2 图。`videoMode=off` 或 `manual+all-images` 时无视频候选。
+   - **视频候选有界并行（2026-08-13 与全自动对齐）**：视频场景的视频候选与全自动同一机制——请求并发默认 2，经视频 provider 预算收敛（`rate_per_minute` > 静态表 > 类别默认，`maxConcurrent` 封顶）；视频场景之间并行生成，图片候选与视频候选**并行启动**（不再等待视频全部完成）。此前视频串行且图片必须等视频全部完成后才开始，2 个视频场景实测纯视频阶段 11+ 分钟无图片产出。失败回退（视频失败场景仅 2 图）、同场景 2 图 seq 0→1 顺序生成、候选清单结构、`scene_asset_selection` 检查点与 finalize 流程均不变。
    - **跳过 TTS**；任一场景候选数为 0 → 阶段失败（可读错误列出缺素材场景）；内容政策 `needs_user_input` 整体失败（与全自动一致）。
    - 输出候选清单 `context.generate_assets.candidates`（每场景 `{ index, text, prompt, promptTranslation, subtitleBlocks, sceneSource, subtitleSource, candidates: [{ id, kind, path, seq, meta }] }`），以 `checkpoint: 'scene_asset_selection'` 暂停并持久化 paused 快照（含 checkpoint，应用重启可恢复到选择面板）。
 3. **选择交互**：
@@ -1178,6 +1180,7 @@ key，未知内部 ID 只能回退为原始 ID。
 2. **候选生成（generate_assets manual 分支）**：
    - `all-images`：每场景 **2 张图片**（同一优化提示词两次独立调用，经 `persistCandidateCopy` 落盘到 `candidates/scene_<index>_<seq>` 独立路径，避免同 index 覆盖）。
    - `video-image`：AI 视频场景（沿用 `select_video_scenes` 的 `videoMode=off/fixed/ai-judged` 判定）额外生成 **1 个视频**（同一提示词，2 图 + 1 视频）；其余场景 2 图。`videoMode=off` 或 `manual+all-images` 时无视频候选。
+   - **视频候选有界并行（2026-08-13 与全自动对齐）**：视频场景的视频候选与全自动同一机制——请求并发默认 2，经视频 provider 预算收敛（`rate_per_minute` > 静态表 > 类别默认，`maxConcurrent` 封顶）；视频场景之间并行生成，图片候选与视频候选**并行启动**（不再等待视频全部完成）。此前视频串行且图片必须等视频全部完成后才开始，2 个视频场景实测纯视频阶段 11+ 分钟无图片产出。失败回退（视频失败场景仅 2 图）、同场景 2 图 seq 0→1 顺序生成、候选清单结构、`scene_asset_selection` 检查点与 finalize 流程均不变。
    - **跳过 TTS**；任一场景候选数为 0 → 阶段失败（可读错误列出缺素材场景）；内容政策 `needs_user_input` 整体失败（与全自动一致）。
    - 输出候选清单 `context.generate_assets.candidates`（每场景 `{ index, text, prompt, promptTranslation, subtitleBlocks, sceneSource, subtitleSource, candidates: [{ id, kind, path, seq, meta }] }`），以 `checkpoint: 'scene_asset_selection'` 暂停并持久化 paused 快照（含 checkpoint，应用重启可恢复到选择面板）。
 3. **选择交互**：

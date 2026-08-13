@@ -1,0 +1,13 @@
+{
+  "id": "s2v-manual-video-parallel",
+  "title": "manual 模式视频候选生成与 auto 对齐（有界并行 + 图片并行启动）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "review",
+  "nextAction": "质量节拍审查 + 双模型审查后提交分支与归档",
+  "createdAt": "2026-08-13T17:00:00+08:00",
+  "branch": "codex/s2v-manual-video-parallel",
+  "openspecChange": "s2v-manual-video-parallel"
+}

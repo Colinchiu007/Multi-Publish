@@ -1,3 +1,10 @@
+## [2026-08-13] feat(s2v): 分镜素材自选（manual）视频候选生成与全自动对齐——有界并行 + 图片并行启动（s2v-manual-video-parallel）
+
+- 根因：manual 候选生成（buildManualSceneCandidates）视频候选是 for...await 串行循环，且图片候选必须等视频全部完成——2 个视频场景实测纯视频阶段 11+ 分钟无图片产出，与全自动（PR #717 三路并行 + 视频并发 2）体验割裂。
+- 修复：executor manual 分支计算视频并发（请求默认 2，经 provider 预算 rate_per_minute > 静态表 > 类别默认、maxConcurrent 封顶）并输出与 auto 同格式日志；buildManualSceneCandidates 视频候选改用 _mapWithConcurrency 有界并行，图片候选与视频候选 Promise.all 并行启动。
+- 契约不变：每场景 2 图（同场景 seq 0→1 顺序防覆盖）、视频场景 2 图 + 1 视频、视频失败回退仅 2 图、候选清单结构、scene_asset_selection 检查点、finalize_assets 流程均不变；auto 路径零改动。额度契约保持 manual「每视频场景 2 图 + 1 视频」（与 auto 视频成功跳图不同，属自选 UX 设计，非并行机制变更）。
+- 测试：story2video-manual-assets.test.js +3（视频 in-flight=2 并行且图片并行启动、provider 预算 maxConcurrent=1 收敛为串行、视频失败回退），manual 专项 19 全绿；story2video-stages 83、story2video-text-config 68 全绿。
+- 文档：PRD.md 7.1.3a 候选生成（video-image bullet 补充并行机制，三副本同步）；OpenSpec change s2v-manual-video-parallel（proposal/design/specs/tasks）。
 ## [2026-08-13] refactor(video-clone): 移除无效的「复刻层级」下拉
 
 - 复刻层级（L0/L1/L2）当前仅写入报告作为目标声明，analyze/generate/compose/F4 均未按层级分支，属无效选项 → 从 UI 移除。
@@ -4090,6 +4097,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 

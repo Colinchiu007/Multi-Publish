@@ -201,6 +201,232 @@ describe('generate_assets manual 候选生成', () => {
     }
   })
 
+  describe('manual 视频候选有界并行（与 auto 对齐，2026-08-13）', () => {
+    /** 本地 HTTP 提供可下载 mp4；无 ffmpeg/ffprobe 时返回 null（跳过，与既有 blend 测试同模式）。 */
+    function makeVideoFixture() {
+      fs.mkdirSync(TMP, { recursive: true })
+      const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
+      const ffmpeg = findFfmpeg()
+      const ffprobe = findFfprobe()
+      const tiny = path.join(TMP, 'tiny-par.mp4')
+      try {
+        if (!ffmpeg || !ffprobe) return null
+        const { execFileSync } = require('child_process')
+        execFileSync(ffmpeg, ['-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x240:d=0.3', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', tiny], { timeout: 30000, stdio: 'pipe' })
+      } catch (_) {
+        return null
+      }
+      let server
+      try {
+        const http = require('http')
+        server = http.createServer((req, res) => {
+          res.writeHead(200, { 'Content-Type': 'video/mp4' })
+          fs.createReadStream(tiny).pipe(res)
+        })
+      } catch (_) {
+        return null
+      }
+      const listen = () => new Promise((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(0, '127.0.0.1', () => resolve('http://127.0.0.1:' + server.address().port + '/video.mp4'))
+      })
+      return { server, listen }
+    }
+
+    function makeThreeSceneContext() {
+      return {
+        split: [{ text: '场景A' }, { text: '场景B' }, { text: '场景C' }],
+        optimize: [{ optimized_prompt: 'prompt-A' }, { optimized_prompt: 'prompt-B' }, { optimized_prompt: 'prompt-C' }],
+        prompt_translations: { uiLocale: 'zh', items: [] },
+      }
+    }
+
+    async function waitUntil(fn, timeoutMs = 5000) {
+      const start = Date.now()
+      while (Date.now() - start < timeoutMs) {
+        if (fn()) return
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      throw new Error('waitUntil timeout')
+    }
+
+    function wireVideoPipeline(generator, adapter) {
+      const manager = {
+        callAdapter: vi.fn(async (provider, method, args) => adapter[method](args)),
+        getDefault: vi.fn(),
+        getProvider: vi.fn(),
+      }
+      const pipeline = makePipeline(generator, null)
+      pipeline.pipeline._modelProviderManager = manager
+      pipeline.pipeline.container = { get: vi.fn(() => manager) }
+      pipeline.pipeline.governor = { run: vi.fn(async (key, fn) => fn()) }
+      return { ...pipeline, manager }
+    }
+
+    it('video-image：2 个视频场景有界并行（in-flight=2），图片与视频并行启动', async () => {
+      const fixture = makeVideoFixture()
+      if (!fixture) return
+      const baseUrl = await fixture.listen()
+      let release
+      const gate = new Promise((r) => { release = r })
+      try {
+        const generator = makeImageGenerator()
+        const { generateAssets, manager } = wireVideoPipeline(generator, null)
+        const context = {
+          ...makeThreeSceneContext(),
+          video_plan: { mode: 'ai-judged', scenes: [{ index: 0, useVideo: true, seconds: 6 }, { index: 2, useVideo: true, seconds: 6 }], provider: 'mock', model: 'v1' },
+        }
+        let inFlight = 0
+        let maxInFlight = 0
+        const adapter = {
+          generateVideo: vi.fn(async () => {
+            inFlight += 1
+            maxInFlight = Math.max(maxInFlight, inFlight)
+            await gate
+            inFlight -= 1
+            return { code: 0, data: { taskId: 't' + maxInFlight } }
+          }),
+          getVideoStatus: vi.fn(async () => ({ code: 0, videoUrl: baseUrl })),
+        }
+        manager.callAdapter.mockImplementation(async (provider, method, args) => adapter[method](args))
+        const serviceBus = { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt })) }
+        const pending = generateAssets({
+          stage: { ...BASE_STAGE, options: { ...BASE_STAGE.options, manualMaterialMode: 'video-image' } },
+          params: { creationMode: 'manual', manualMaterialMode: 'video-image', runId: 'run-par', videoMode: 'ai-judged', videoConfig: { pollIntervalMs: 5 } },
+          context,
+          serviceBus,
+        })
+        // 两个视频提交都应同时 in-flight（有界并行 2）
+        await waitUntil(() => adapter.generateVideo.mock.calls.length === 2)
+        expect(maxInFlight).toBe(2)
+        // 视频仍被 gate 阻塞时，图片候选已经并行启动（串行实现此值为 0）
+        expect(generator.generateImage.mock.calls.length).toBeGreaterThan(0)
+        release()
+        const result = await pending
+        expect(result.success).toBe(true)
+        expect(result.checkpoint).toBe('scene_asset_selection')
+        expect(adapter.generateVideo).toHaveBeenCalledTimes(2)
+        expect(result.output.candidates[0].candidates.map(c => c.kind).sort()).toEqual(['image', 'image', 'video'])
+        expect(result.output.candidates[2].candidates.map(c => c.kind).sort()).toEqual(['image', 'image', 'video'])
+        expect(context.assets_progress.videosDone).toBe(2)
+        expect(context.assets_progress.imagesDone).toBe(6)
+      } finally {
+        // 断言失败/超时也要释放 gate，避免 pending 悬挂到超时并掩盖真实回归
+        if (typeof release === 'function') release()
+        fixture.server.close()
+      }
+    })
+
+    it('video-image：provider 预算 maxConcurrent=1 → 视频候选串行（in-flight=1）', async () => {
+      const fixture = makeVideoFixture()
+      if (!fixture) return
+      const baseUrl = await fixture.listen()
+      try {
+        const generator = makeImageGenerator()
+        const { generateAssets, manager } = wireVideoPipeline(generator, null)
+        const context = {
+          ...makeThreeSceneContext(),
+          video_plan: { mode: 'ai-judged', scenes: [{ index: 0, useVideo: true, seconds: 6 }, { index: 2, useVideo: true, seconds: 6 }], provider: 'mock', model: 'v1' },
+        }
+        let inFlight = 0
+        let maxInFlight = 0
+        const adapter = {
+          generateVideo: vi.fn(async () => {
+            inFlight += 1
+            maxInFlight = Math.max(maxInFlight, inFlight)
+            await new Promise((r) => setTimeout(r, 30))
+            inFlight -= 1
+            return { code: 0, data: { taskId: 't' + maxInFlight } }
+          }),
+          getVideoStatus: vi.fn(async () => ({ code: 0, videoUrl: baseUrl })),
+        }
+        manager.callAdapter.mockImplementation(async (provider, method, args) => adapter[method](args))
+        manager.getProvider.mockReturnValue({ config: { rate_per_minute: 1 } })
+        const serviceBus = { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt })) }
+        const result = await generateAssets({
+          stage: { ...BASE_STAGE, options: { ...BASE_STAGE.options, manualMaterialMode: 'video-image' } },
+          params: { creationMode: 'manual', manualMaterialMode: 'video-image', runId: 'run-budget', videoMode: 'ai-judged', videoConfig: { pollIntervalMs: 5 } },
+          context,
+          serviceBus,
+        })
+        expect(result.success).toBe(true)
+        expect(adapter.generateVideo).toHaveBeenCalledTimes(2)
+        expect(maxInFlight).toBe(1)
+        expect(result.output.candidates[0].candidates.map(c => c.kind).sort()).toEqual(['image', 'image', 'video'])
+        expect(result.output.candidates[2].candidates.map(c => c.kind).sort()).toEqual(['image', 'image', 'video'])
+      } finally {
+        fixture.server.close()
+      }
+    })
+
+    it('video-image：视频生成失败回退仅 2 图，不中断流水线', async () => {
+      const generator = makeImageGenerator()
+      const adapter = {
+        generateVideo: vi.fn(async () => ({ code: -1, message: 'video queue is full, please retry later' })),
+        getVideoStatus: vi.fn(),
+      }
+      const { generateAssets, manager } = wireVideoPipeline(generator, null)
+      manager.callAdapter.mockImplementation(async (provider, method, args) => adapter[method](args))
+      const context = {
+        ...JSON.parse(JSON.stringify(BASE_CONTEXT)),
+        video_plan: { mode: 'ai-judged', scenes: [{ index: 0, useVideo: true, seconds: 6 }], provider: 'mock', model: 'v1' },
+      }
+      const serviceBus = { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt })) }
+      const result = await generateAssets({
+        stage: { ...BASE_STAGE, options: { ...BASE_STAGE.options, manualMaterialMode: 'video-image' } },
+        params: { creationMode: 'manual', manualMaterialMode: 'video-image', runId: 'run-fail', videoMode: 'ai-judged', videoConfig: { pollIntervalMs: 5 } },
+        context,
+        serviceBus,
+      })
+      expect(result.success).toBe(true)
+      expect(result.checkpoint).toBe('scene_asset_selection')
+      expect(adapter.generateVideo).toHaveBeenCalledTimes(1)
+      expect(result.output.candidates[0].candidates.map(c => c.kind).sort()).toEqual(['image', 'image'])
+      expect(result.output.candidates[1].candidates.map(c => c.kind).sort()).toEqual(['image', 'image'])
+      expect(result.output.failures.videos.map(v => v.index)).toEqual([0])
+    })
+
+    it('video-image：两路并行中一个视频成功一个失败 → 成功场景 2图+1视频、失败场景回退 2 图', async () => {
+      const fixture = makeVideoFixture()
+      if (!fixture) return
+      const baseUrl = await fixture.listen()
+      try {
+        const generator = makeImageGenerator()
+        const { generateAssets, manager } = wireVideoPipeline(generator, null)
+        const context = {
+          ...makeThreeSceneContext(),
+          video_plan: { mode: 'ai-judged', scenes: [{ index: 0, useVideo: true, seconds: 6 }, { index: 2, useVideo: true, seconds: 6 }], provider: 'mock', model: 'v1' },
+        }
+        const adapter = {
+          // 按提示词确定成败：场景 0 成功、场景 2（prompt-C）失败——与 worker 调度顺序无关，确定性断言
+          generateVideo: vi.fn(async (args) => {
+            if (String(args && args.prompt).includes('prompt-C')) return { code: -1, message: 'video queue is full, please retry later' }
+            return { code: 0, data: { taskId: 't-ok' } }
+          }),
+          getVideoStatus: vi.fn(async () => ({ code: 0, videoUrl: baseUrl })),
+        }
+        manager.callAdapter.mockImplementation(async (provider, method, args) => adapter[method](args))
+        const serviceBus = { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt })) }
+        const result = await generateAssets({
+          stage: { ...BASE_STAGE, options: { ...BASE_STAGE.options, manualMaterialMode: 'video-image' } },
+          params: { creationMode: 'manual', manualMaterialMode: 'video-image', runId: 'run-mixed', videoMode: 'ai-judged', videoConfig: { pollIntervalMs: 5 } },
+          context,
+          serviceBus,
+        })
+        expect(result.success).toBe(true)
+        expect(result.checkpoint).toBe('scene_asset_selection')
+        expect(adapter.generateVideo).toHaveBeenCalledTimes(2)
+        expect(result.output.candidates[0].candidates.map(c => c.kind).sort()).toEqual(['image', 'image', 'video'])
+        expect(result.output.candidates[2].candidates.map(c => c.kind).sort()).toEqual(['image', 'image'])
+        expect(result.output.failures.videos.map(v => v.index)).toEqual([2])
+        expect(context.assets_progress.videosDone).toBe(2)
+        expect(context.assets_progress.imagesDone).toBe(6)
+      } finally {
+        fixture.server.close()
+      }
+    })
+  })
+
   it('任一场景 0 候选 → fail closed', async () => {
     const generator = {
       generateImage: vi.fn(async () => ({ code: -1, message: 'all failed' })),
