@@ -14,6 +14,14 @@
 | 旁白式 | Voice-over | — |
 | 口播式 | Talking-head mode | — |
 | 图片轮播 | Image Carousel | — |
+| 视频克隆 | Video Clone | `video-clone` |
+| 运营后台 | Ops Center | — |
+| 模型设置 | Model Settings | — |
+| 历史记录 | History | — |
+| 发布历史 | Publish History | — |
+| 提示词 | Prompt | — |
+| 草稿箱 | Drafts | — |
+| 流水线 | Pipeline | — |
 
 ## 维护规则
 

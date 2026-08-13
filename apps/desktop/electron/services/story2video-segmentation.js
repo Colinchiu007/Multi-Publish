@@ -1,16 +1,21 @@
 // @ts-check
 'use strict'
 
-const DEFAULT_OPTIONS = Object.freeze({
-  maxSentenceLength: 200,
-  targetDuration: 6,
-  baseWordsPerSecond: 3.3,
-  speechRate: 1,
-  minWords: 10,
-  maxWords: 50,
-  subtitleMinChars: 8,
-  subtitleMaxChars: 15,
-})
+/**
+ * Story2Video 双层分句合同（服务场景 + 本地字幕块）与离线降级。
+ *
+ * v0.15.2 起：本地分句/字幕算法统一委托 story2video-segmentation-engine（JS 镜像，
+ * 逐行对齐 packages/story2video-engine/src/text-segmentation.ts，规则读 subtitle-rules.json 单源）。
+ * 分句引擎（smart-sentence-splitter :8002）在线时，场景内字幕直接采用引擎返回的
+ * scenes[].subtitles（subtitleSource='smart-sentence-splitter'），不再本地重切。
+ */
+
+const {
+  normalizeSegmentationOptions,
+  splitScenesLocally: splitScenesLocallyEngine,
+  splitTextToScenes,
+  splitTextToSubtitles,
+} = require('./story2video-segmentation-engine')
 
 const UNAVAILABLE_CODES = new Set([
   'ECONNREFUSED',
@@ -20,231 +25,14 @@ const UNAVAILABLE_CODES = new Set([
   'ENETUNREACH',
   'EPIPE',
 ])
-const STRONG_SUBTITLE_BREAKS = new Set(Array.from('。！？!?；;'))
-const WEAK_SUBTITLE_BREAKS = new Set(Array.from('，,、：: '))
-const SENTENCE_ENDINGS = new Set(Array.from('。！？!?；;'))
-
-function firstDefined (...values) {
-  return values.find(value => value !== undefined && value !== null)
-}
 
 function finiteNumber (value, fallback) {
   const number = Number(value)
   return Number.isFinite(number) ? number : fallback
 }
 
-function integerInRange (value, min, max, fallback) {
-  const number = Math.floor(finiteNumber(value, fallback))
-  return Math.min(max, Math.max(min, number))
-}
-
 function normalizeText (value) {
   return String(value || '').replace(/\s+/gu, ' ').trim()
-}
-
-function textLength (value) {
-  return Array.from(String(value || '')).length
-}
-
-function normalizeOptions (options = {}) {
-  const minChars = integerInRange(
-    firstDefined(options.minChars, options.subtitleMinChars, options.subtitle_min_chars),
-    1,
-    80,
-    DEFAULT_OPTIONS.subtitleMinChars,
-  )
-  const maxChars = integerInRange(
-    firstDefined(options.maxChars, options.subtitleMaxChars, options.subtitle_max_chars),
-    minChars,
-    120,
-    DEFAULT_OPTIONS.subtitleMaxChars,
-  )
-  return {
-    maxSentenceLength: integerInRange(
-      firstDefined(options.maxSentenceLength, options.max_sentence_length),
-      20,
-      1000,
-      DEFAULT_OPTIONS.maxSentenceLength,
-    ),
-    targetDuration: finiteNumber(
-      firstDefined(options.targetDuration, options.target_duration),
-      DEFAULT_OPTIONS.targetDuration,
-    ),
-    // 分镜字数主控（三层模型①，Batch 2）：提供时直接使用（校验 1..1000），
-    // 缺省（0）回退 targetDuration 换算；不能用 integerInRange 的 0 fallback（会被钳到 1）。
-    targetCharsPerScene: firstDefined(options.targetCharsPerScene, options.target_chars_per_scene) !== undefined
-      ? integerInRange(firstDefined(options.targetCharsPerScene, options.target_chars_per_scene), 1, 200, 0)
-      : 0,
-    baseWordsPerSecond: finiteNumber(
-      firstDefined(options.baseWordsPerSecond, options.base_words_per_second),
-      DEFAULT_OPTIONS.baseWordsPerSecond,
-    ),
-    speechRate: finiteNumber(
-      firstDefined(options.speechRate, options.speech_rate),
-      DEFAULT_OPTIONS.speechRate,
-    ),
-    minWords: integerInRange(
-      firstDefined(options.minWords, options.min_words),
-      1,
-      500,
-      DEFAULT_OPTIONS.minWords,
-    ),
-    maxWords: integerInRange(
-      firstDefined(options.maxWords, options.max_words),
-      1,
-      1000,
-      DEFAULT_OPTIONS.maxWords,
-    ),
-    subtitleMinChars: minChars,
-    subtitleMaxChars: maxChars,
-  }
-}
-
-function findBreakPosition (chars, minPosition, maxPosition) {
-  const lower = Math.max(1, minPosition)
-  const upper = Math.min(chars.length, maxPosition)
-  for (const breakSet of [STRONG_SUBTITLE_BREAKS, WEAK_SUBTITLE_BREAKS]) {
-    for (let index = upper - 1; index >= lower - 1; index--) {
-      if (breakSet.has(chars[index])) return index + 1
-    }
-  }
-  return upper
-}
-
-function rebalanceSubtitleTail (blocks, minChars, maxChars) {
-  if (blocks.length < 2 || textLength(blocks.at(-1)) >= minChars) return blocks
-  const tail = blocks.pop()
-  const previous = blocks.pop()
-  const combined = Array.from(previous + tail)
-  if (combined.length <= maxChars) {
-    blocks.push(combined.join(''))
-    return blocks
-  }
-
-  const lower = Math.max(minChars, combined.length - maxChars)
-  const upper = Math.min(maxChars, combined.length - minChars)
-  const ideal = Math.min(upper, Math.max(lower, Math.ceil(combined.length / 2)))
-  let splitPosition = ideal
-  for (let distance = 0; distance <= upper - lower; distance++) {
-    const candidates = [ideal + distance, ideal - distance]
-    const matched = candidates.find(position => (
-      position >= lower && position <= upper &&
-      (STRONG_SUBTITLE_BREAKS.has(combined[position - 1]) ||
-       WEAK_SUBTITLE_BREAKS.has(combined[position - 1]))
-    ))
-    if (matched !== undefined) {
-      splitPosition = matched
-      break
-    }
-  }
-  blocks.push(combined.slice(0, splitPosition).join(''))
-  blocks.push(combined.slice(splitPosition).join(''))
-  return blocks
-}
-
-/**
- * 在单个场景内部生成字幕页。返回值拼接后始终等于规范化后的场景原文。
- */
-function splitSubtitleBlocks (text, options = {}) {
-  const normalized = normalizeText(text)
-  if (!normalized) return []
-  const config = normalizeOptions(options)
-  const remaining = Array.from(normalized)
-  const blocks = []
-
-  while (remaining.length > config.subtitleMaxChars) {
-    const splitPosition = findBreakPosition(
-      remaining,
-      config.subtitleMinChars,
-      config.subtitleMaxChars,
-    )
-    blocks.push(remaining.splice(0, splitPosition).join(''))
-  }
-  if (remaining.length > 0) blocks.push(remaining.join(''))
-  return rebalanceSubtitleTail(
-    blocks,
-    config.subtitleMinChars,
-    config.subtitleMaxChars,
-  )
-}
-
-function splitLongSentence (sentence, maxLength) {
-  const chars = Array.from(sentence)
-  if (chars.length <= maxLength) return [sentence]
-  const chunks = []
-  while (chars.length > maxLength) {
-    const splitPosition = findBreakPosition(chars, Math.floor(maxLength * 0.55), maxLength)
-    chunks.push(chars.splice(0, splitPosition).join(''))
-  }
-  if (chars.length > 0) chunks.push(chars.join(''))
-  return chunks
-}
-
-function splitIntoSentences (text, maxSentenceLength) {
-  const normalized = normalizeText(text)
-  if (!normalized) return []
-  const chars = Array.from(normalized)
-  const sentences = []
-  let current = ''
-
-  for (let index = 0; index < chars.length; index++) {
-    const char = chars[index]
-    current += char
-    const next = chars[index + 1]
-    const decimalPoint = char === '.' && /\d/u.test(chars[index - 1] || '') && /\d/u.test(next || '')
-    const englishPeriod = char === '.' && !decimalPoint && (!next || /\s/u.test(next))
-    if (SENTENCE_ENDINGS.has(char) || englishPeriod) {
-      if (current.trim()) sentences.push(current.trim())
-      current = ''
-    }
-  }
-  if (current.trim()) sentences.push(current.trim())
-  return sentences.flatMap(sentence => splitLongSentence(sentence, maxSentenceLength))
-}
-
-function needsSpaceBetween (left, right) {
-  return /[a-z0-9]$/iu.test(left) && /^[a-z0-9]/iu.test(right)
-}
-
-function joinTextParts (parts) {
-  return parts.reduce((joined, part) => {
-    if (!joined) return part
-    return joined + (needsSpaceBetween(joined, part) ? ' ' : '') + part
-  }, '')
-}
-
-function splitScenesLocally (text, options = {}) {
-  const config = normalizeOptions(options)
-  const sentences = splitIntoSentences(text, config.maxSentenceLength)
-  if (sentences.length === 0) return { scenes: [], sentences: [] }
-
-  const calculatedTarget = Math.round(
-    Math.max(0.1, config.targetDuration) *
-    Math.max(0.1, config.baseWordsPerSecond) *
-    Math.max(0.1, config.speechRate),
-  )
-  const upper = Math.max(config.minWords, config.maxWords)
-  // 分镜字数主控优先：提供 targetCharsPerScene 时直接使用（仍夹 [minWords, maxWords] 防御），
-  // 缺省回退 targetDuration × bps × speechRate 旧公式。
-  const targetChars = config.targetCharsPerScene > 0
-    ? Math.min(upper, Math.max(config.minWords, config.targetCharsPerScene))
-    : Math.min(upper, Math.max(config.minWords, calculatedTarget))
-  const sceneTexts = []
-  let currentParts = []
-  let currentLength = 0
-
-  for (const sentence of sentences) {
-    const sentenceLength = textLength(sentence)
-    if (currentParts.length > 0 && currentLength + sentenceLength > targetChars) {
-      sceneTexts.push(joinTextParts(currentParts))
-      currentParts = []
-      currentLength = 0
-    }
-    currentParts.push(sentence)
-    currentLength += sentenceLength
-  }
-  if (currentParts.length > 0) sceneTexts.push(joinTextParts(currentParts))
-  return { scenes: sceneTexts, sentences }
 }
 
 function errorMessage (error) {
@@ -275,7 +63,7 @@ function isSplitterUnavailableError (error) {
         /socket hang up/i.test(message)) {
       return true
     }
-    current = current.cause
+    current = current.cause || current.innerError
   }
   return false
 }
@@ -286,21 +74,47 @@ function sceneTextOf (scene) {
   return normalizeText(scene.text || scene.content || scene.sentence)
 }
 
+/** 引擎字幕最小覆盖率：低于该值视为残缺，回退本地分块（防静默丢内容）。 */
+const ENGINE_SUBTITLE_MIN_COVERAGE = 0.6
+
+/** 覆盖率：去空白与标点后，引擎字幕拼接长度 / 场景文本长度（0..1）。 */
+function engineSubtitleCoverage (text, subtitles) {
+  const clean = (value) => String(value || '').replace(/[\s。！？；，、.!?;…“”‘’（）《》【】「」『』"']+/gu, '')
+  const total = clean(text).length
+  if (!total) return 1
+  return clean(subtitles.join('')).length / total
+}
+
+/**
+ * 为场景附加字幕块与来源标记。
+ * 引擎字幕优先（scenes[].subtitles[].text）；缺字幕或覆盖率不足（残缺）时回退本地 v0.15.2 分块。
+ */
 function withSubtitleBlocks (scene, index, source, degraded, reason, options) {
   const text = sceneTextOf(scene)
   if (!text) throw new Error('分句结果包含空场景文本，无法生成字幕')
+  const sceneObj = scene && typeof scene === 'object' && !Array.isArray(scene) ? scene : {}
+  const { subtitles: rawSubtitles, ...rest } = sceneObj
+  const engineSubtitles = Array.isArray(rawSubtitles)
+    ? rawSubtitles
+      .map((item) => (item && typeof item === 'object' ? item.text : item))
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+    : []
+  const useEngineSubtitles = engineSubtitles.length > 0 &&
+    engineSubtitleCoverage(text, engineSubtitles) >= ENGINE_SUBTITLE_MIN_COVERAGE
   return {
-    ...(scene && typeof scene === 'object' ? scene : {}),
+    ...rest,
     index,
     text,
-    subtitleBlocks: splitSubtitleBlocks(text, options),
+    subtitleBlocks: useEngineSubtitles ? engineSubtitles : splitSubtitleBlocks(text, options),
     sceneSource: source,
-    subtitleSource: 'local-typescript',
+    subtitleSource: useEngineSubtitles ? 'smart-sentence-splitter' : 'local-typescript',
     degraded,
     ...(reason ? { fallbackReason: reason } : {}),
   }
 }
 
+/** 归一化分句引擎响应：场景来自引擎，字幕优先引擎返回、缺省本地 v0.15.2。 */
 function normalizeServiceSplitResult (output, options = {}) {
   if (!output || typeof output !== 'object' || !Array.isArray(output.scenes) || output.scenes.length === 0) {
     throw new Error('smart-sentence-splitter 响应缺少有效 scenes 场景数组')
@@ -308,17 +122,21 @@ function normalizeServiceSplitResult (output, options = {}) {
   const scenes = output.scenes.map((scene, index) => (
     withSubtitleBlocks(scene, index, 'smart-sentence-splitter', false, '', options)
   ))
+  const subtitleSource = scenes.some((scene) => scene.subtitleSource === 'smart-sentence-splitter')
+    ? 'smart-sentence-splitter'
+    : 'local-typescript'
   return {
     ...output,
     source: 'smart-sentence-splitter',
     sceneSource: 'smart-sentence-splitter',
-    subtitleSource: 'local-typescript',
+    subtitleSource,
     degraded: false,
     scenes,
-    sentences: Array.isArray(output.sentences) ? output.sentences : scenes.map(scene => scene.text),
+    sentences: Array.isArray(output.sentences) ? output.sentences : scenes.map((scene) => scene.text),
   }
 }
 
+/** 分句引擎离线降级：本地 v0.15.2 算法（与引擎 TS 镜像语义一致）。 */
 function createLocalSplitResult (text, options = {}, error) {
   const split = splitScenesLocally(text, options)
   if (split.scenes.length === 0) throw new Error('本地场景分句未生成有效结果')
@@ -374,11 +192,24 @@ function buildSubtitleTimeline (blocksOrText, totalDuration, options = {}) {
   })
 }
 
+/** 本地 v0.15.2 字幕分块（委托引擎镜像）。 */
+function splitSubtitleBlocks (text, options = {}) {
+  return splitTextToSubtitles(text, options)
+}
+
+/** 本地 v0.15.2 场景分句（委托引擎镜像）。 */
+function splitScenesLocally (text, options = {}) {
+  return splitScenesLocallyEngine(text, options)
+}
+
 module.exports = {
   buildSubtitleTimeline,
   createLocalSplitResult,
   isSplitterUnavailableError,
+  normalizeSegmentationOptions,
   normalizeServiceSplitResult,
   splitScenesLocally,
   splitSubtitleBlocks,
+  splitTextToScenes,
+  splitTextToSubtitles,
 }

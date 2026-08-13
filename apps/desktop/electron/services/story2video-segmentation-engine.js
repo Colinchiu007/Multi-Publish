@@ -1,0 +1,583 @@
+// @ts-check
+'use strict'
+
+/**
+ * story2video-segmentation-engine — v0.15.2 分句算法 JS 镜像
+ *
+ * Electron 主进程为纯 JS 运行时，无法直接 require TS 引擎包；本文件为 self-contained JS 端口，
+ * 逐行对齐 packages/story2video-engine/src/text-segmentation.ts（TS 权威版），
+ * 规则从 subtitle-rules.json（单源，与 smart-sentence-splitter Python 共享）读取。
+ * 行为由 parity 测试（story2video-segmentation-parity）与 TS 版逐字锁死。
+ *
+ * 覆盖：句子边界消歧（SentenceTokenizer）→ 场景级分组（SceneSegmenter）→ 字幕 7 步管道
+ * （SubtitleSegmenter：split_sentences → split_quote_boundaries → length_split →
+ *  merge_short → clean → enforce_max → assign_timestamps，含顿号枚举保护/引号配对/尾块平衡）。
+ */
+
+const subtitleRules = require('@multi-publish/story2video-engine/subtitle-rules')
+
+// ==================== 规范常量（subtitle-rules.json 单源） ====================
+
+const SENTENCE_BOUNDARY = new Set(subtitleRules.sentence_boundary)
+const PRIORITY_PUNCT = new Set(subtitleRules.priority_punct)
+const ENUM_HIGHER_PUNCT = new Set(subtitleRules.enum.higher_punct)
+const ENUM_PREDICATE_STARTERS = new Set(subtitleRules.enum.predicate_starters)
+const LEFT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[0]))
+const RIGHT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[1]))
+const QUOTE_MAP = new Map(subtitleRules.quote_pairs)
+
+// ==================== 默认配置（与 text-segmentation.ts DEFAULT_CONFIG 一致） ====================
+
+const DEFAULT_CONFIG = {
+  sentenceTokenizer: {
+    language: 'zh',
+    handleAbbreviations: true,
+    customAbbreviations: ['Dr.', 'Mr.', 'Ms.', '等', 'etc.', 'i.e.', 'e.g.'],
+    maxSentenceLength: 200,
+  },
+  scene: {
+    targetSeconds: 6,
+    baseWordsPerSecond: 3.3,
+    speechRate: 1,
+    minWordsPerSegment: 10,
+    maxWordsPerSegment: 50,
+    enforceSentenceBoundary: true,
+    allowSingleSentenceOverflow: true,
+  },
+  subtitle: {
+    minCharsPerBlock: subtitleRules.defaults.min_chars_per_block,
+    maxCharsPerBlock: subtitleRules.defaults.max_chars_per_block,
+    punctuationPriority: subtitleRules.priority_punct,
+    timeCalculationMethod: 'proportional',
+  },
+}
+
+// ==================== 工具 ====================
+
+function firstDefined (...values) {
+  return values.find((value) => value !== undefined && value !== null)
+}
+
+function finiteNumber (value, fallback) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function integerInRange (value, min, max, fallback) {
+  const number = Math.floor(finiteNumber(value, fallback))
+  return Math.min(max, Math.max(min, number))
+}
+
+function boolValue (value, fallback) {
+  if (value === undefined || value === null) return fallback
+  return Boolean(value)
+}
+
+/**
+ * 归一化调用方选项 → 引擎配置。
+ * 兼容三套键：引擎 partial config（options.config）、stage.options snake_case、既有测试 camelCase。
+ * @param {Record<string, any>} [options]
+ */
+function normalizeSegmentationOptions (options = {}) {
+  const src = options && typeof options === 'object' ? options : {}
+  const partial = src.config && typeof src.config === 'object' ? src.config : {}
+  const st = { ...DEFAULT_CONFIG.sentenceTokenizer, ...(partial.sentenceTokenizer || {}) }
+  const sc = { ...DEFAULT_CONFIG.scene, ...(partial.scene || {}) }
+  const sub = { ...DEFAULT_CONFIG.subtitle, ...(partial.subtitle || {}) }
+
+  const maxSentenceLength = integerInRange(
+    firstDefined(src.maxSentenceLength, src.max_sentence_length, st.maxSentenceLength),
+    20, 1000, DEFAULT_CONFIG.sentenceTokenizer.maxSentenceLength,
+  )
+  st.maxSentenceLength = maxSentenceLength
+
+  sc.targetSeconds = finiteNumber(firstDefined(src.targetSeconds, src.targetDuration, src.target_duration, sc.targetSeconds), DEFAULT_CONFIG.scene.targetSeconds)
+  sc.baseWordsPerSecond = finiteNumber(firstDefined(src.baseWordsPerSecond, src.base_words_per_second, sc.baseWordsPerSecond), DEFAULT_CONFIG.scene.baseWordsPerSecond)
+  sc.speechRate = finiteNumber(firstDefined(src.speechRate, src.speech_rate, sc.speechRate), DEFAULT_CONFIG.scene.speechRate)
+  sc.minWordsPerSegment = integerInRange(
+    firstDefined(src.minWords, src.minWordsPerSegment, src.min_words, sc.minWordsPerSegment),
+    1, 200, DEFAULT_CONFIG.scene.minWordsPerSegment,
+  )
+  sc.maxWordsPerSegment = integerInRange(
+    firstDefined(src.maxWords, src.maxWordsPerSegment, src.max_words, sc.maxWordsPerSegment),
+    sc.minWordsPerSegment, 500, DEFAULT_CONFIG.scene.maxWordsPerSegment,
+  )
+  sc.enforceSentenceBoundary = boolValue(
+    firstDefined(src.enforceSentenceBoundary, src.enforce_sentence_boundary, sc.enforceSentenceBoundary),
+    DEFAULT_CONFIG.scene.enforceSentenceBoundary,
+  )
+  sc.allowSingleSentenceOverflow = boolValue(
+    firstDefined(src.allowSingleSentenceOverflow, src.overflow_to_next, sc.allowSingleSentenceOverflow),
+    DEFAULT_CONFIG.scene.allowSingleSentenceOverflow,
+  )
+  const targetCharsPerScene = firstDefined(src.targetCharsPerScene, src.target_chars_per_scene, sc.targetCharsPerScene)
+  if (targetCharsPerScene !== undefined && targetCharsPerScene !== null) {
+    sc.targetCharsPerScene = finiteNumber(targetCharsPerScene, sc.targetCharsPerScene)
+  }
+
+  const minChars = integerInRange(
+    firstDefined(src.minChars, src.subtitleMinChars, src.subtitle_min_chars, sub.minCharsPerBlock),
+    1, 80, DEFAULT_CONFIG.subtitle.minCharsPerBlock,
+  )
+  sub.minCharsPerBlock = minChars
+  sub.maxCharsPerBlock = integerInRange(
+    firstDefined(src.maxChars, src.subtitleMaxChars, src.subtitle_max_chars, sub.maxCharsPerBlock),
+    minChars, 120, DEFAULT_CONFIG.subtitle.maxCharsPerBlock,
+  )
+  sub.timeCalculationMethod = firstDefined(
+    src.timeCalculationMethod, src.subtitleTiming, src.subtitle_timing, sub.timeCalculationMethod,
+  ) === 'equal' ? 'equal' : 'proportional'
+
+  return { sentenceTokenizer: st, scene: sc, subtitle: sub }
+}
+
+// ==================== 句子边界消歧器（SentenceTokenizer 镜像） ====================
+
+function splitLongSentence (sentence, config) {
+  const parts = sentence.split(/[，,;；]/)
+  const result = []
+  let currentPart = ''
+  for (const part of parts) {
+    if (!part) continue
+    if (!currentPart) {
+      currentPart = part
+    } else if (currentPart.length + part.length + 1 <= config.maxSentenceLength) {
+      currentPart += '，' + part
+    } else {
+      result.push(currentPart)
+      currentPart = part
+    }
+  }
+  if (currentPart) result.push(currentPart)
+  return result
+}
+
+/** 将文本分割为句子列表（对齐 text-segmentation.ts SentenceTokenizer.split）。 */
+function tokenizeSentences (text, config) {
+  if (!text || !text.trim()) return []
+
+  let processed = String(text).replace(/\s+/gu, ' ').trim()
+
+  const placeholder = '##ABBR##'
+  const abbreviationsFound = {}
+  if (config.handleAbbreviations) {
+    for (let i = 0; i < config.customAbbreviations.length; i++) {
+      const abbr = config.customAbbreviations[i]
+      if (processed.includes(abbr)) {
+        const placeholderKey = placeholder + i
+        abbreviationsFound[placeholderKey] = abbr
+        processed = processed.split(abbr).join(placeholderKey)
+      }
+    }
+  }
+
+  const parts = processed.split(/([。！？])/)
+  const sentences = []
+  let currentSentence = ''
+
+  for (let i = 0; i < parts.length - 1; i += 2) {
+    currentSentence += parts[i]
+    if (i + 1 < parts.length) {
+      const delimiter = parts[i + 1]
+      currentSentence += delimiter
+      for (const [key, abbr] of Object.entries(abbreviationsFound)) {
+        currentSentence = currentSentence.split(key).join(abbr)
+      }
+      sentences.push(currentSentence.trim())
+      currentSentence = ''
+    }
+  }
+
+  if (currentSentence || (parts.length % 2 === 1 && parts[parts.length - 1])) {
+    let lastPart = currentSentence + (parts.length % 2 === 1 ? parts[parts.length - 1] : '')
+    if (lastPart.trim()) {
+      for (const [key, abbr] of Object.entries(abbreviationsFound)) {
+        lastPart = lastPart.split(key).join(abbr)
+      }
+      sentences.push(lastPart.trim())
+    }
+  }
+
+  const filtered = sentences.filter((s) => s.length > 0)
+
+  if (filtered.length === 1 && filtered[0].length > config.maxSentenceLength) {
+    const chunks = []
+    const chars = filtered[0].split('')
+    let chunk = ''
+    for (const ch of chars) {
+      chunk += ch
+      if (chunk.length >= config.maxSentenceLength) {
+        chunks.push(chunk.trim())
+        chunk = ''
+      }
+    }
+    if (chunk.trim()) {
+      if (chunks.length && chunk.length < config.maxSentenceLength * 0.3) {
+        chunks[chunks.length - 1] += chunk.trim()
+      } else {
+        chunks.push(chunk.trim())
+      }
+    }
+    return chunks.length > 0 ? chunks : filtered
+  }
+
+  const result = []
+  for (const sentence of filtered) {
+    if (sentence.length <= config.maxSentenceLength) {
+      result.push(sentence)
+    } else {
+      result.push(...splitLongSentence(sentence, config))
+    }
+  }
+  return result
+}
+
+// ==================== 场景级分割器（SceneSegmenter 镜像） ====================
+
+function calculateTargetWords (config) {
+  const derived = Math.round(config.targetSeconds * config.baseWordsPerSecond * config.speechRate)
+  const targetWords = config.targetCharsPerScene && config.targetCharsPerScene > 0
+    ? Math.floor(config.targetCharsPerScene)
+    : derived
+  return Math.max(config.minWordsPerSegment, Math.min(targetWords, config.maxWordsPerSegment))
+}
+
+/**
+ * 场景级分组（对齐 text-segmentation.ts SceneSegmenter.segment）。
+ * @param {string} text
+ * @param {Record<string, any>} [options]
+ * @returns {{ scenes: string[], sentences: string[] }}
+ */
+function splitScenesLocally (text, options = {}) {
+  const config = normalizeSegmentationOptions(options)
+  const tokenizer = config.sentenceTokenizer
+  const sceneConfig = config.scene
+
+  const sentences = tokenizeSentences(text, tokenizer)
+  if (sentences.length === 0) return { scenes: [], sentences: [] }
+
+  const targetWords = calculateTargetWords(sceneConfig)
+  const sceneTexts = []
+  let currentSegment = []
+  let currentWordCount = 0
+
+  for (const sentence of sentences) {
+    const sentenceWordCount = sentence.length
+    const canAppend = !currentSegment.length ||
+      currentWordCount + sentenceWordCount <= targetWords ||
+      (sceneConfig.allowSingleSentenceOverflow && currentSegment.length === 0)
+    if (canAppend) {
+      currentSegment.push(sentence)
+      currentWordCount += sentenceWordCount
+    } else {
+      if (currentSegment.length) {
+        sceneTexts.push(currentSegment.join(''))
+      }
+      currentSegment = [sentence]
+      currentWordCount = sentenceWordCount
+    }
+  }
+  if (currentSegment.length) {
+    sceneTexts.push(currentSegment.join(''))
+  }
+
+  return { scenes: sceneTexts, sentences }
+}
+
+/** 对齐 text-segmentation.ts splitTextToScenes：返回场景文本数组。
+ * @param {string} text
+ * @param {Record<string, any>} [options]
+ */
+function splitTextToScenes (text, options = {}) {
+  const trimmed = String(text || '').trim()
+  if (!trimmed) return []
+  return splitScenesLocally(trimmed, options).scenes
+}
+
+// ==================== 字幕级分割器（SubtitleSegmenter 镜像，7 步管道） ====================
+
+function isTrailingPunctOrQuote (char) {
+  return TRAILING_PUNCT_SET.has(char) || LEFT_QUOTES.has(char) || RIGHT_QUOTES.has(char)
+}
+
+const TRAILING_PUNCT_SET = new Set(subtitleRules.trailing_punct)
+const LEADING_PUNCT_SET = new Set(subtitleRules.leading_punct)
+
+/** Step 1：分句（句界归属前块；未闭合引号内的句界不生效） */
+function subtitleSplitSentences (text, _config) {
+  const out = []
+  let cur = ''
+  const stack = []
+  for (const ch of text) {
+    cur += ch
+    if (LEFT_QUOTES.has(ch)) {
+      stack.push(ch)
+    } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
+      stack.pop()
+    }
+    if (SENTENCE_BOUNDARY.has(ch) && stack.length === 0) {
+      out.push(cur)
+      cur = ''
+    }
+  }
+  if (cur.trim()) out.push(cur)
+  return out.filter((s) => s.trim().length > 0)
+}
+
+/** Step 2：闭引号后切分（引号内容 >= minChars 才切）；短引号并入上下文 */
+function subtitleSplitQuoteBoundaries (text, config) {
+  const fragments = []
+  let cur = ''
+  const stack = []
+  for (const ch of text) {
+    if (LEFT_QUOTES.has(ch)) {
+      stack.push({ q: ch, start: cur.length })
+      cur += ch
+    } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1].q) === ch) {
+      const top = stack.pop()
+      const contentLen = cur.length - top.start - 1
+      cur += ch
+      if (stack.length === 0 && contentLen >= config.minCharsPerBlock) {
+        fragments.push(cur)
+        cur = ''
+      }
+    } else {
+      cur += ch
+    }
+  }
+  if (cur.trim()) fragments.push(cur)
+  return fragments.filter((f) => f.trim().length > 0)
+}
+
+/** 顿号枚举单元结束位置（v1.1）：结束于更高优先级标点/谓词引导词/片段尾 */
+function enumerationEnd (text, pos) {
+  for (let i = pos; i < text.length; i++) {
+    const ch = text[i]
+    if (ENUM_HIGHER_PUNCT.has(ch) || ENUM_PREDICATE_STARTERS.has(ch)) return i
+  }
+  return text.length
+}
+
+/** 若切分锚点落在顿号上，把切分点前移到枚举单元结束之后（头块 ≤ max 才生效；requireTailMin 用于完整块） */
+function applyEnumerationShift (text, pos, requireTailMin, config) {
+  if (pos <= 0 || pos >= text.length || text[pos - 1] !== '、') return pos
+  const eend = enumerationEnd(text, pos)
+  if (eend > pos && eend <= config.maxCharsPerBlock) {
+    if (!requireTailMin || text.length - eend >= config.minCharsPerBlock) return eend
+  }
+  return pos
+}
+
+/** 从后往前找切分锚点（切后索引；无则 -1）。v1.1 顿号优先级最低：更高优先级标点 → 空格 → 顿号兜底 */
+function findSplitPos (text) {
+  for (let i = text.length - 1; i >= 0; i--) {
+    if (PRIORITY_PUNCT.has(text[i]) && text[i] !== '、') return i + 1
+  }
+  for (let i = text.length - 1; i >= 0; i--) {
+    if (text[i] === ' ' || text[i] === '\n' || text[i] === '\u3000') return i + 1
+  }
+  for (let i = text.length - 1; i >= 0; i--) {
+    if (text[i] === '、') return i + 1
+  }
+  return -1
+}
+
+/** 在 [lo, hi] 范围内从后往前找最近优先级标点/空格（返回切后索引；无则 -1） */
+function findSplitPosInRange (text, lo, hi) {
+  for (let i = hi; i >= lo; i--) {
+    if (PRIORITY_PUNCT.has(text[i])) return i + 1
+  }
+  for (let i = hi; i >= lo; i--) {
+    if (text[i] === ' ' || text[i] === '\n' || text[i] === '\u3000') return i + 1
+  }
+  return -1
+}
+
+/** Step 3：长度切分（标点优先 + 配对引号保护，min/max） */
+function subtitleLengthSplit (text, config) {
+  const blocks = []
+  let cur = ''
+  const stack = []
+  let lastHardCut = false
+  for (const ch of text) {
+    cur += ch
+    if (LEFT_QUOTES.has(ch)) {
+      stack.push(ch)
+    } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
+      stack.pop()
+    }
+    const isPunct = PRIORITY_PUNCT.has(ch) || ch === ' ' || ch === '\n' || ch === '\u3000'
+    if (isPunct && cur.length >= config.minCharsPerBlock) {
+      blocks.push(cur)
+      cur = ''
+      lastHardCut = false
+    } else if (cur.length >= config.maxCharsPerBlock && stack.length === 0) {
+      const pos = applyEnumerationShift(cur, findSplitPos(cur), false, config)
+      if (pos > 0) {
+        blocks.push(cur.slice(0, pos))
+        cur = cur.slice(pos)
+        lastHardCut = false
+      } else {
+        blocks.push(cur)
+        cur = ''
+        lastHardCut = true
+      }
+    } else if (cur.length >= config.maxCharsPerBlock * 2 && stack.length > 0) {
+      blocks.push(cur)
+      cur = ''
+      stack.length = 0
+      lastHardCut = true
+    }
+  }
+  if (cur) {
+    const tailClean = cur.trim().replace(/[。！？；，、.!?;…]+$/, '')
+    if (lastHardCut && blocks.length > 0 && tailClean.length > 3
+      && tailClean.length < config.minCharsPerBlock
+      && blocks[blocks.length - 1].length >= config.minCharsPerBlock) {
+      const prev = blocks[blocks.length - 1]
+      const need = config.minCharsPerBlock - tailClean.length
+      const lo = Math.max(1, prev.length - need)
+      const hi = prev.length - 1
+      const balanced = findSplitPosInRange(prev, lo, hi)
+      const pos = balanced > 0 ? balanced : lo
+      blocks[blocks.length - 1] = prev.slice(0, pos)
+      cur = prev.slice(pos) + cur
+    }
+    blocks.push(cur)
+  }
+  return blocks.filter((b) => b.trim().length > 0)
+}
+
+/** Step 4：短块合并（前块 <min 合并；纯标点短块并入；短尾并入） */
+function subtitleMergeShort (blocks, config) {
+  if (!blocks.length) return blocks
+  const merged = [blocks[0]]
+  for (let i = 1; i < blocks.length; i++) {
+    const b = blocks[i]
+    const stripped = b.trim()
+    const isPunctTail = stripped.length <= 2 && Array.from(stripped).every((c) => isTrailingPunctOrQuote(c))
+    const isShortTail = stripped.length <= 3 && merged[merged.length - 1].length >= config.minCharsPerBlock
+    if (merged[merged.length - 1].length < config.minCharsPerBlock || isPunctTail || isShortTail) {
+      merged[merged.length - 1] = merged[merged.length - 1] + b
+    } else {
+      merged.push(b)
+    }
+  }
+  return merged.filter((b) => b.trim().length > 0)
+}
+
+/** 删除文本中未配对的引号（块内成对保留） */
+function dropUnpairedQuotes (text) {
+  const drop = new Array(text.length).fill(false)
+  const stack = []
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (LEFT_QUOTES.has(ch)) {
+      stack.push(i)
+    } else if (RIGHT_QUOTES.has(ch)) {
+      if (stack.length && QUOTE_MAP.get(text[stack[stack.length - 1]]) === ch) {
+        stack.pop()
+      } else {
+        drop[i] = true
+      }
+    }
+  }
+  for (const idx of stack) drop[idx] = true
+  return Array.from(text).filter((_, i) => !drop[i]).join('')
+}
+
+/** Step 5：标点规范化（trim → 开头修正 → 跨块引号清理 → 末尾去除 → 再去除） */
+function subtitleClean (blocks) {
+  let bs = blocks.map((b) => b.trim()).filter(Boolean)
+  if (!bs.length) return []
+  const fixed = [bs[0]]
+  if (fixed[0] && LEADING_PUNCT_SET.has(fixed[0][0])) {
+    fixed[0] = fixed[0].slice(1)
+  }
+  for (let i = 1; i < bs.length; i++) {
+    let b = bs[i]
+    if (b && LEADING_PUNCT_SET.has(b[0]) && fixed.length) {
+      fixed[fixed.length - 1] += b[0]
+      b = b.slice(1)
+    }
+    if (b) fixed.push(b)
+  }
+  bs = fixed.filter(Boolean)
+  bs = bs.map((b) => dropUnpairedQuotes(b)).filter(Boolean)
+  bs = bs.map((b) => b.replace(/[。！？；，、.!?;…]+$/, '')).filter(Boolean)
+  const out = []
+  for (const b of bs) {
+    let nb = b
+    if (nb && LEADING_PUNCT_SET.has(nb[0]) && out.length) {
+      out[out.length - 1] += nb[0]
+      nb = nb.slice(1)
+    }
+    nb = nb.replace(/[。！？；，、.!?;…]+$/, '').trim()
+    if (nb) out.push(nb)
+  }
+  return out
+}
+
+/** Step 6：超长强制分割（平衡切分：尾块 < minChars 时前块让字，避免孤悬尾块） */
+function subtitleEnforceMax (blocks, config) {
+  const out = []
+  for (let b of blocks) {
+    while (b.length > config.maxCharsPerBlock) {
+      let pos = applyEnumerationShift(b, findSplitPos(b), true, config)
+      if (pos <= 0 || pos >= b.length) pos = config.maxCharsPerBlock
+      if (b.length - pos < config.minCharsPerBlock) {
+        const minPos = Math.max(1, b.length - config.minCharsPerBlock)
+        const balanced = findSplitPosInRange(b, minPos, b.length - 1)
+        pos = balanced > 0 ? balanced : minPos
+      }
+      out.push(b.slice(0, pos))
+      b = b.slice(pos)
+    }
+    if (b) out.push(b)
+  }
+  return out
+}
+
+/** Step 1-6 主流程：分句 → 引号 → 长度 → 合并 → 标点 → 强制（强制后再清理一次） */
+function subtitleSplitToBlocks (text, config) {
+  const all = []
+  for (const sentence of subtitleSplitSentences(text, config)) {
+    for (const fragment of subtitleSplitQuoteBoundaries(sentence, config)) {
+      let blocks = subtitleLengthSplit(fragment, config)
+      blocks = subtitleMergeShort(blocks, config)
+      blocks = subtitleClean(blocks)
+      blocks = subtitleEnforceMax(blocks, config)
+      blocks = subtitleClean(blocks)
+      all.push(...blocks)
+    }
+  }
+  return all.filter((b) => {
+    const s = b.trim()
+    if (!s) return false
+    return !Array.from(s).every((c) => isTrailingPunctOrQuote(c))
+  })
+}
+
+/**
+ * 将文本分割为字幕块文本数组（对齐 text-segmentation.ts splitTextToSubtitles）。
+ * 不含时间戳（时间轴由调用方 buildSubtitleTimeline 分配）。
+ * @param {string} text
+ * @param {Record<string, any>} [options]
+ */
+function splitTextToSubtitles (text, options = {}) {
+  const config = normalizeSegmentationOptions(options)
+  const trimmed = String(text || '').trim()
+  if (!trimmed) return []
+  const blocks = subtitleSplitToBlocks(trimmed, config.subtitle)
+  return blocks
+}
+
+module.exports = {
+  DEFAULT_CONFIG,
+  calculateTargetWords,
+  normalizeSegmentationOptions,
+  splitScenesLocally,
+  splitTextToScenes,
+  splitTextToSubtitles,
+  tokenizeSentences,
+}

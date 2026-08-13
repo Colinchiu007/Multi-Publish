@@ -1,3 +1,41 @@
+## 分镜素材自选等待态无反馈复盘（story2video-asset-selection-ux，2026-08-13）
+
+- **交付**：`scene_asset_selection` 检查点等待态 UX 反馈（P0 状态语义 + P1 引导横幅/自动滚动 + P2 面板位置/取消兜底）。StageProgress 增加 `paused` 映射（图标 ⏸、样式类 `waiting paused`、标签按检查点区分「等待选择素材/已暂停」，zh/en i18n）；检查点激活时进度区下方渲染引导横幅（场景数经 vue-i18n MessageFunction `ctx.named('count')` 插值）+「去选择素材」按钮；首次激活自动 `scrollIntoView` + 2s 高亮（一次性 `selectionGuided` 标记，轮询不重复）；素材选择面板从底部 action-bar 上移到进度区下方；运行控制区等待文案 + 取消二次确认。zh/en 新增 `create.story2video.selectionWait.*` 8 键。测试：StageProgress.test.js 新建 4 例、CreateView.test.js 新增 4 例（159 全绿）、SceneAssetSelection.test.js 基线 4 例。
+- **教训 1（状态映射枚举必须有渲染测试护栏）**：StageProgress 状态标签映射表漏了 `paused`，`labels[status] || status` 直接渲染引擎原始枚举字符串（英文 "paused"）且样式回落灰色待定——用户看到「暂停+灰色」误判出错。状态展示组件必须对全部状态枚举（含引擎侧 paused/waiting_approval 等）有映射 + 渲染测试，禁止直渲原始枚举。
+- **教训 2（等待用户输入必须可感知）**：检查点暂停是「等待用户操作」而非「失败/停滞」，但 UI 既无提示文案、无滚动定位，面板还在首屏之外，且 `orchestrationRunId` 存在时继续/暂停按钮被隐藏——用户唯一可见操作是「取消」。等待用户输入的状态必须有：状态语义文案、注意力引导（横幅/高亮/定位）、主操作入口、防误触（取消二次确认）。
+- **教训 3（vue-i18n 静态语料不做 {param} 运行时插值）**：本仓库 i18n 用 `toMessageFunctions` 把所有字符串转 MessageFunction 以避开 Electron CSP unsafe-eval，`{count}` 不会被运行时插值，会原样渲染。带参文案必须写成 `(ctx) => ... + ctx.named('count') + ...`（i18n/index.js 注释明确该模式）。
+- **教训 4（Element.prototype.scrollIntoView 测试污染）**：jsdom 无 scrollIntoView，测试里给 Element.prototype 补 no-op + spy；若断言失败提前退出未 mockRestore，后续用例 spy 叠加导致调用计数翻倍——scroll 用例需保证 finally/afterEach 恢复。
+- **预防措施**：① 状态展示组件枚举映射进组件测试；② 交互审查清单增加「等待用户输入可感知性」检查项；③ 新增带参 i18n 文案必须用 MessageFunction；④ 等待态相关新增文案 zh/en 成对（CI Gate 7 强制）。
+
+---
+
+## 模型服务异常横幅跨运行残留复盘（story2video-provider-warning-ux，2026-08-13）
+
+- **交付**：ProviderAnomalyBus 全局内存快照（最近 5 条、从不 clear）导致 `pipeline:getRunContext` 把旧运行异常附加到新运行 → 新增 `snapshotSince(runCreatedAt)` 按运行归属过滤（先过滤后截断，支持 ISO/epoch ms，非法边界回退全量）；CreateView 异常横幅加 X 关闭按钮 + start/cancel/selectPipeline 重置。PR #702 merged 49ea4dd7。
+- **教训 1（内存快照必须定义生命周期）**：CHANGELOG 声称「运行结束清空」但生产代码从未调用 clear()——「声称的行为」不等于「已实现的行为」，审查/验收要按代码事实核对。
+- **教训 2（跨运行残留 = 缺少归属维度）**：全局单例快照如果按时间近似归属（lastAt >= run.createdAt）只能防「旧→新」单向泄漏；精确归属需 report() 携带 runId。时间边界方案已注释为已知边界。
+- **教训 3（CI 基线用 file:line 作 id 极脆）**：locale-sync CJK 基线以「文件:行号」为唯一 id，任何前置行号位移都会把整个文件误判为「新增 195 处硬编码中文」。本 PR 用官方 `--update-baseline` 刷新（净增 1 处为镜像既有 BGM `common.close` aria-label 回退模式）；后续应把基线 id 改为内容摘要（文本+文件）而非行号。
+- **教训 4（共享仓库的 stash 是全局的）**：多 worktree 共享 .git，`git stash pop/drop` 会命中其他会话的 stash；本会话误 pop/drop 过 `WIP on codex/s2v-asset-preview`（内容仅 .agent_context 一行，已用 update-ref 恢复）。共享仓库内禁用 stash 操作。
+
+---
+## 全能创作分句未生效复盘（story2video-split-engine-unify，2026-08-13）
+
+- **问题**：用户优化了 smart-sentence-splitter 与本仓库 TS 镜像（text-segmentation.ts v0.15.2），但全能创作视频里的分句仍是旧方法。调查结论：桌面主进程 split 阶段虽然调用 :8002 引擎生成场景，但 `normalizeServiceSplitResult` 丢弃引擎返回的 `scenes[].subtitles`，用 `story2video-segmentation.js` 旧贪心算法本地重切；引擎离线时整条链路降级为同一旧算法。`text-segmentation.ts` 在桌面主进程完全未被引用（仅 CreateView 用 template-library），是「对齐了但没接入」的死代码。
+- **修复**：在线路径直接采纳引擎字幕；离线路径以 JS 镜像（story2video-segmentation-engine.js）逐行对齐 text-segmentation.ts，subtitle-rules.json 单源；parity 测试锁死双实现一致。
+- **教训 1（对齐 ≠ 接入）**：双实现「规则对齐」若没有运行时消费方，优化不会到达用户可见产物。落地时必须全链路核对：配置入口 → 阶段执行器 → 消费方（合成引擎）实际 require/import 的模块路径。
+- **教训 2（引擎返回的结构先验证再丢弃）**：smart-sentence-splitter 的 SplitResponse 已含 scenes[].subtitles（text/display_order/start_time/duration）；归一化层应优先消费，而不是无理由本地重切。
+- **教训 3（JS 镜像 + parity 是 Electron 主进程复用 TS 算法的既定范式）**：主进程纯 JS 无法 require TS，仓库已有 subtitle-aligner 同款范式；手抄算法必须用同一语料差分测试锁死（本 change 10 组语料 21 用例）。
+- **教训 4（UTF-16 码元 vs Unicode 字符）**：引擎/TS 的字数边界按 string.length（UTF-16 码元）计数，emoji 占 2 码元；旧本地测试按 Array.from（码点）断言会与新引擎行为冲突，更新断言时应以引擎实测为准。
+---
+## 日志合同文档复盘（logging-contract，2026-08-13）
+
+- **交付**：新增 01-docs/LOGGING-CONTRACT.md（人读单一权威合同：level 枚举/5 组脱敏清单/字段格式/保留策略/强制日志点/禁止项/静默边界/证据索引）+ .ccg/spec/observability/index.md（代理读，首个 observability spec 条目）+ 契约防漂移测试（shared-utils vitest：3 处 JS 脱敏同源含替换串、level 默认断言、保留/截断常量与文档一致、强制日志点证据）；PR #713。
+- **教训 1（文档事实必须先核实再落笔）**：合同初稿把 Python stderr/stdout 级别路由写反（代码实况：stderr 仅 WARNING+、stdout 仅 DEBUG/INFO）；Claude 审查抓出 1 Critical + 7 Warning。「单一权威文档」每一条都必须对照实现 file:line，不能凭印象。
+- **教训 2（合同测试锚定要到位）**：仅断言 5 组模式标记不够（同源到 marker 粒度、替换串零断言、level 默认零断言会让 spec Scenario 落空）；同源断言应含替换串 + level 枚举/默认级别断言。
+- **教训 3（webhook 路径要区分入站/出站）**：webhook-manager 记录的是出站投递失败（含 url）；入站签名校验失败（WEBHOOK_SIGNATURE_INVALID）走 logto-webhook 异常上抛 → API 统一错误路径——两条路径证据不同，文档不可混写。
+- **教训 4（已知边界显式文档化）**：桌面 .1 滚动备份不匹配按日清理正则（不受 30 天清理）、audit sink 不经 5 组脱敏——「文档化限制」优于「假装不存在」。
+
+---
 ## 容器日志轮转复盘（container-log-rotation，2026-08-13）
 
 - **交付**：为 publish-api / logto / postgres / blackbox / prometheus / alertmanager 六个 Compose 服务统一添加 `logging: driver=json-file, options={max-size: 50m, max-file: 5}`（每容器 ≤250MB）；契约测试 logto-deploy-contract.test.js 新增 assertLogRotation 断言；spec 明确作用域（仅 Compose 容器，systemd/journald 豁免）。
@@ -6564,3 +6602,4 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **预防落地**：`scripts/hooks/pre-commit` 分支守卫（所有提交强制校验当前分支 == `.agent_context/expected-branch`，无声明/不符一律拦截，rebase 重放跳过）；`scripts/session-guard.ps1` 会话声明；`scripts/install-git-hooks.ps1` 安装；`scripts/hooks/pre-commit.test.sh` 11 场景 17 断言。
 - **教训**：文档化的「铁律」若无机器执行点等于不存在；提交级保护必须 fail closed，不能依赖人工确认；`.agent_context/` 这类检测信号必须由代码创建，否则检测永远空转。
 - **修复迭代（Claude 审查发现）**：① 单槽位声明可被并发会话覆盖导致守卫 fail-open → session-guard 拒绝覆盖另一活跃会话（session.json pid 存活）的声明；② 安装脚本从子目录运行 `--git-common-dir` 返回相对路径会装错位置 → 改用 `--path-format=absolute` + HEAD 合法性校验；③ 补 fail-closed 边界测试（空声明/detached 无 rebase/wrapper 缺失/非代码扩展名/真实 rebase 重放）。
+- **自动化迭代（用户反馈手动声明太麻烦）**：隔离 worktree（per-worktree git-dir != 公共 git-dir）由 pre-commit 提交时自动声明当前分支、切分支自动跟随，零手动步骤；共享主工作区保留严格 fail-closed（需 session-guard 锁定一次，不传 -Branch 自动取当前分支）。测试 13 场景 21 断言。

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
@@ -36,6 +36,8 @@ vi.mock("@/api/publisher", () => ({
   pipelineResumeOrchestration: vi.fn(),
   pipelineAdvanceToNextCheckpoint: vi.fn(),
   pipelineGetRunContext: vi.fn(),
+  pipelineConfirmSceneAssets: vi.fn(),
+  story2videoCreateShareUrl: vi.fn(async () => ({ code: 0, data: { url: "media://x" } })),
   storeGetSetting: vi.fn(),
   storeSetSetting: vi.fn(),
   story2videoImportMedia: vi.fn(),
@@ -2955,6 +2957,89 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
 
   });
+  it("providerWarningText 支持 X 关闭，关闭后本次运行内不再显示", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.providerWarnings = [
+      { providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" },
+    ];
+    await nextTick();
+    expect(w.find(".provider-warning-banner").exists()).toBe(true);
+    expect(w.find('[data-testid="dismiss-provider-warning"]').exists()).toBe(true);
+
+    await w.find('[data-testid="dismiss-provider-warning"]').trigger("click");
+    await nextTick();
+    expect(w.vm.providerWarningText).toBe("");
+    expect(w.find(".provider-warning-banner").exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("updateOrchestrationStatus 返回无 providerWarnings 时清空旧警告（跨运行不残留）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {}, createdAt: "2026-08-13T01:00:00.000Z" } });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-new";
+    w.vm.providerWarnings = [{ providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" }];
+
+    await w.vm.updateOrchestrationStatus();
+    await nextTick();
+
+    expect(w.vm.providerWarnings).toEqual([]);
+    expect(w.vm.providerWarningText).toBe("");
+    w.unmount();
+  });
+
+  it("切换流水线后旧运行警告不残留（selectPipeline 重置）", async () => {
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    // 上一运行残留的警告与关闭状态
+    w.vm.providerWarnings = [{ providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" }];
+    w.vm.dismissedProviderWarnings = true;
+
+    w.vm.selectPipeline({ name: "cinematic", description: "test", stages: [], category: "generated" });
+    await nextTick();
+
+    expect(w.vm.providerWarnings).toEqual([]);
+    expect(w.vm.dismissedProviderWarnings).toBe(false);
+    w.unmount();
+  });
+
+  it("cancelPipeline 重置警告列表与关闭状态", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineCancel.mockResolvedValue({ code: 0, data: true });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.providerWarnings = [{ providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" }];
+    w.vm.dismissedProviderWarnings = true;
+
+    await w.vm.cancelPipeline();
+    await nextTick();
+
+    expect(w.vm.providerWarnings).toEqual([]);
+    expect(w.vm.dismissedProviderWarnings).toBe(false);
+    w.unmount();
+  });
+
+  it("启动新流水线时重置警告列表与关闭状态（跨运行不残留）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: -1, message: "Story2Video 默认 LLM 不可用，请先完成模型设置" });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
+    w.vm.pipelineText = "测试文案";
+    // 模拟上一运行残留的警告与关闭状态（复现跨运行残留）
+    w.vm.providerWarnings = [{ providerId: "agnes-video", category: "video", latencyMs: 160000, kind: "slow" }];
+    w.vm.dismissedProviderWarnings = true;
+
+    await w.vm.startPipeline();
+
+    expect(w.vm.providerWarnings).toEqual([]);
+    expect(w.vm.dismissedProviderWarnings).toBe(false);
+    w.unmount();
+  });
+
 
   it("BGM 被跳过时显示提示条，可关闭；未跳过不显示", async () => {
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
@@ -3451,6 +3536,154 @@ describe("分镜模式 storyboardMode（video-content-fidelity UI）", () => {
     expect(select.exists()).toBe(true);
     const options = select.findAll("option").map(o => o.attributes("value"));
     expect(options).toEqual(["auto", "creative", "fidelity", "hybrid"]);
+    w.unmount();
+  });
+});
+
+describe("分镜素材自选等待态 UX（2026-08-13）", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  const mountCreate = async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } },
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", stages: [] };
+    w.vm.orchestrationRunId = "run-sel-ux";
+    await nextTick();
+    return w;
+  };
+
+  const selectionPayload = () => ({
+    code: 0,
+    data: {
+      status: { status: "paused", currentStage: 4 },
+      currentStage: 4,
+      stages: [
+        { name: "split", status: "completed" },
+        { name: "domain_enrich", status: "completed" },
+        { name: "optimize", status: "completed" },
+        { name: "select_video_scenes", status: "completed" },
+        { name: "generate_assets", status: "paused", startedAt: new Date().toISOString() },
+        { name: "compose", status: "pending" },
+        { name: "publish", status: "pending" },
+      ],
+      context: {
+        generate_assets: {
+          candidates: [
+            { index: 0, candidates: [{ id: "a1", kind: "image", path: "C:/tmp/a1.png" }] },
+            { index: 1, candidates: [{ id: "b1", kind: "image", path: "C:/tmp/b1.png" }] },
+          ],
+        },
+      },
+      checkpoint: { type: "scene_asset_selection" },
+    },
+  });
+
+  it("检查点激活：横幅（含场景数）+ 就近面板 + 等待文案出现，且首次激活自动滚动一次", async () => {
+    Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || function () {};
+    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineGetRunContext.mockResolvedValue(selectionPayload());
+    const w = await mountCreate();
+    await w.vm.updateOrchestrationStatus();
+    await nextTick();
+
+    const banner = w.find('[data-testid="s2v-selection-banner"]');
+    expect(banner.exists()).toBe(true);
+    expect(banner.text()).toContain("2 个场景");
+    expect(w.find('[data-testid="s2v-selection-go"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-scene-asset-panel"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-selection-waiting-text"]').exists()).toBe(true);
+    expect(w.vm.sceneAssetSelectionActive).toBe(true);
+    expect(w.vm.selectionGuided).toBe(true);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    scrollSpy.mockRestore();
+    w.unmount();
+  });
+
+  it("后续轮询不重复滚动（selectionGuided 一次性）", async () => {
+    Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || function () {};
+    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineGetRunContext.mockResolvedValue(selectionPayload());
+    const w = await mountCreate();
+    await w.vm.updateOrchestrationStatus();
+    await nextTick();
+    await w.vm.updateOrchestrationStatus();
+    await nextTick();
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    scrollSpy.mockRestore();
+    w.unmount();
+  });
+
+  it("无 scene_asset_selection 检查点时无横幅/面板/等待文案", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineGetRunContext.mockResolvedValue({
+      code: 0,
+      data: { status: { status: "running" }, stages: [{ name: "generate_assets", status: "running" }], context: {}, checkpoint: null },
+    });
+    const w = await mountCreate();
+    await w.vm.updateOrchestrationStatus();
+    await nextTick();
+    expect(w.find('[data-testid="s2v-selection-banner"]').exists()).toBe(false);
+    expect(w.find('[data-testid="s2v-scene-asset-panel"]').exists()).toBe(false);
+    expect(w.find('[data-testid="s2v-selection-waiting-text"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("取消二次确认：先弹确认框，确认后执行 pipelineCancel 并重置状态", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = await mountCreate();
+    w.vm.pipelineRunStatus = { status: "paused", stages: [{ name: "generate_assets", status: "paused" }] };
+    w.vm.sceneAssetSelectionActive = true;
+    await nextTick();
+
+    await w.find('[data-testid="s2v-cancel-trigger"]').trigger("click");
+    expect(w.vm.cancelConfirmDialog.visible).toBe(true);
+
+    const confirmOk = document.body.querySelector('[data-testid="s2v-cancel-confirm-ok"]');
+    expect(confirmOk).toBeTruthy();
+    confirmOk.click();
+    await nextTick();
+    expect(mocks.pipelineCancel).toHaveBeenCalled();
+    expect(w.vm.orchestrationRunId).toBeNull();
+    expect(w.vm.sceneAssetSelectionActive).toBe(false);
+    expect(w.vm.cancelConfirmDialog.visible).toBe(false);
+    w.unmount();
+  });
+
+  it("非素材选择状态取消不弹确认框（一步直达 cancelPipeline，审查 C1）", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = await mountCreate();
+    w.vm.pipelineRunStatus = { status: "running", stages: [{ name: "generate_assets", status: "running" }] };
+    w.vm.sceneAssetSelectionActive = false;
+    await nextTick();
+
+    await w.find('[data-testid="s2v-cancel-trigger"]').trigger("click");
+    await nextTick();
+    expect(mocks.pipelineCancel).toHaveBeenCalled();
+    expect(w.vm.cancelConfirmDialog.visible).toBe(false);
+    w.unmount();
+  });
+
+  it("点击「去选择素材」按钮触发滚动 + 高亮（审查 I5）", async () => {
+    Element.prototype.scrollIntoView = Element.prototype.scrollIntoView || function () {};
+    const scrollSpy = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineGetRunContext.mockResolvedValue(selectionPayload());
+    const w = await mountCreate();
+    w.vm.selectionGuided = true; // 关闭自动滚动，仅验证按钮路径
+    await w.vm.updateOrchestrationStatus();
+    await nextTick();
+
+    await w.find('[data-testid="s2v-selection-go"]').trigger("click");
+    await nextTick();
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(w.vm.sceneAssetAttention).toBe(true);
+    scrollSpy.mockRestore();
     w.unmount();
   });
 });

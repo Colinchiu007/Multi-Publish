@@ -1,0 +1,130 @@
+[codeagent-wrapper]
+  Backend: claude
+  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+  PID: 3936
+  Log: D:\Temp\codeagent-wrapper-3936.log
+  Web UI: http://localhost:63783
+  Session-ID: ba76f88f-b140-4532-b0e3-9abfd76179f3
+验证完成。我抽查了工作区中合同文档引用的全部关键源码（L1 桌面 logger、L2 shared-utils、L3 api logger/log-redact/access-log/audit-log、L5 python logging_setup/douyin、retry-middleware、webhook-manager、publish-api-server、logto-auth 各模块、IPC helpers、main.js、report-error、shutdown、3 份 compose、check-docs-sync 脚本、CI retention）。以下为分级审查报告。
+
+---
+
+# 日志合同变更 · 独立审查报告
+
+## 验证结论摘要
+
+- 大部分证据（file:line）与常量（500MB/30天/4096/5MB/3MB/15天/gz/50m×5）**准确**；5 组脱敏正则三处确实逐字节一致；`x-request-id` 响应头、sidecar stderr→warn 汇入 L1 redact、`server.py:178` 导入即初始化、`check-docs-sync` 门禁、CI retention 7–30 天等**全部属实**。
+- 发现 **1 个 Critical**（L5 stderr/stdout 路由描述与代码完全相反）、**7 个 Warning**（含测试"同源"断言名不副实、spec Scenario 声称了测试未实现的覆盖、webhook 证据错配、getLogsInfo 计数不存在、`.1` 文件逃逸 30 天清理等）、**若干 Info**。
+
+---
+
+## Critical
+
+### C1. §4 L5 行：stderr/stdout 级别路由写反了
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §4 L5 行（"stderr 全量、stdout 仅 <WARNING"）
+- **问题**：与 `packages/python-backend/src/multi_publish/core/logging_setup.py:56-77` **完全相反**。代码实况：
+  - stderr sink `level="WARNING"`（line 64）→ **仅承载 WARNING+**，并非"全量"；
+  - stdout sink `filter=lambda r: r["level"].no < 30`（line 76）→ **仅 DEBUG/INFO**（`<WARNING`），并非相反。
+  - 代码注释（line 55）与桌面 sidecar（`python-bridge.js:65-71` stderr→`log.warn`、stdout→`log.info`）均证实此路由。
+- **影响**：合同是"单一权威文档"，此条让读者/代理在排障时去错误的流找日志；且与 §4 自身下文（"全局按日 + per-module 文件"）之外的所有 python 描述不一致。
+- **修改建议**：改为"stderr 仅 WARNING+、stdout 仅 DEBUG/INFO（<WARNING）"。
+
+---
+
+## Warning
+
+### W1. §5 规则 + §7.3："getLogsInfo 暴露计数"不存在，"降级 console"描述失真
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §5 规则、"§7 禁止项 3"；代码 `apps/desktop/electron/services/logger.js`
+- **问题**：全文件 grep 无任何写失败计数器。`enqueueFileWrite`（`logger.js:142-145`）写失败仅 `settle()` 静默；`getLogsInfo`（`logger.js:219-241`）只返回 `dir/totalBytes/fileCount/maxFileBytes/retentionDays/files`，**没有失败计数**。而 `console.log`（line 172）在文件写之前**无条件**执行，并非"失败才降级 console"。故"降级 console + getLogsInfo 暴露计数"两半都不成立。
+- **修改建议**：改写为实际行为——"console 先行、文件写失败静默回退；`getLogsInfo` 不暴露写失败计数（如需计数需新增实现）"；或将"暴露计数"列为待增强项而非现状。
+
+### W2. §4 "L1/L2" 合并行把 L1 能力安到 L2 头上，与 §8 自相矛盾
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §4 首行 vs §8 L2 行
+- **问题**：§4 写 "L1/L2 … + 可选 meta（JSON ≤8000 字符截断）；单条 message ≤4096"；但 L2（`packages/shared-utils/src/logger.js:70-82`）的 `writeLog(level, tag, msg)` **无 meta 参数、无 4096/8000 截断**。§8 自己承认 L2 "同步写、**无 meta**"。两份条款互相矛盾。
+- **修改建议**：把 §4 拆成 L1 与 L2 两行（L2 标注"无 meta、无截断"），或明确"meta/截断仅 L1"。
+
+### W3. §6 webhook 行：证据指错对象（出站投递被标成"签名校验"）
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §6；代码 `packages/api-publish-engine/src/webhook-manager.js:62,68`、`src/auth/logto-webhook.js:125-129`、`src/publish-api-server.js:602`
+- **问题**：`webhook-manager.js:68` 的 `_logWarn(code, url, error)` 记录的是**出站投递失败**（`webhook-fire-rejected`/`webhook-delivery-failed`/`webhook-request-error`/`webhook-send-error`，含 url）。**入站 Logto webhook 签名校验失败**（`WEBHOOK_SIGNATURE_INVALID`）在 `logto-webhook.js:126-129` 抛异常、由 API 统一错误路径 `publish-api-server.js:602` `_logError(webhookCode, error, {hook:"logto-webhook"})` 记录——**无 url**。合同行把"签名校验失败"这个主语安在了出站投递的证据上，两者不是同一条路径。
+- **修改建议**：二选一——要么把该行主语改为"webhook 投递/发送失败（hook code + url + error 摘要）"，要么为"签名校验失败"单列一行，证据改为 `logto-webhook.js:125-129` + `publish-api-server.js:602`（去 url）。
+
+### W4. 契约测试的"同源"断言名不副实（marker 子串 ≠ 正则一致，替换串零断言）
+- **文件**：`packages/shared-utils/src/__tests__/logging-contract.test.js`；与文档 §3.1 "断言三处一致"、spec Scenario "正则字面量一致"
+- **问题**：
+  1. 只断言 5 个 **marker 子串**存在于三处，未断言三处**完整正则字面量相同**。例如只改某处的 `{4,}`→`{6,}`、删 `\b`、或改第二个 JWT 段 `{8,}`→`{12,}` 时 marker 仍命中断言却通过；
+  2. **替换字符串完全不测**：三处若把 `'Bearer ***'`/`'$1***'`/`'$1=***'`/`'eyJ***'` 改成不一致（如一处改 `'Bearer [REDACTED]'`），测试全绿，脱敏输出却已分叉；
+  3. marker 子串可能命中未来注释/文档字符串造成**假通过**。
+- **修改建议**：三处实现今天字节级一致，直接做强同源——从三个文件提取完整 `SECRET_PATTERNS` 数组文本（或正则字面量 + 替换串）互相 deep-equal，并把 spec Scenario 的"正则字面量一致"降级为与测试实现一致的表述。
+
+### W5. spec Requirement "Level 枚举与默认级别" 的 Scenario 声称了测试未实现的覆盖
+- **文件**：`openspec/changes/logging-contract/specs/logging-contract/spec.md`（Requirement 2 的 Scenario）
+- **问题**：Scenario 写 "**WHEN 契约测试读取各设施默认级别定义** THEN 与合同文档一致"，但 `logging-contract.test.js` **没有任何 level 枚举/默认级别断言**（L1 `{DEBUG:0,INFO:1,WARN:2,ERROR:3}`、L2 `{debug:0,...}`、默认 INFO/debug/INFO、python `level="INFO"` 均未测）。同理，meta-8000、access userAgent≤256、audit 字段也未测。
+- **修改建议**：补断言（把 `LOG_LEVELS` 常量与默认级别读进测试），或将 Scenario 改为"文档审查"（非契约测试覆盖），避免 spec 宣称的验证力不存在。
+
+### W6. §5 L1 保留策略：`.1` 溢出文件逃逸 30 天清理，合同未记载
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §5 L1；代码 `apps/desktop/electron/services/logger.js:53-65`（`pruneOldLogs`）、`:203-216`（`clearLogs`）
+- **问题**：清理匹配条件为 `name.endsWith('.log')` 且正则 `/^app-\d{4}-\d{2}-\d{2}\.log$/`——**`.log.1` 不匹配**。因此每次某日日志超 500MB 滚动出的 `.1`（≈500MB）**既不被 30 天过期清理、也不被 `clearLogs` 清除**，跨日无限累积；Windows 上同日二次滚动 `renameSync` 覆盖已存在目标还会抛错被静默吞掉（`rollCurrentLogFile` catch）。合同"按日保留 30 天过期清理"对 `.1` 不成立且未标注。
+- **修改建议**：要么修代码（prune/clear 匹配 `app-*.log*`），要么在合同中把"`.1` 溢出文件不受 30 天清理"列为已知边界/待修项。
+
+### W7. 证据索引路径歧义："`src/...`" 一前缀两指代
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §2 L3 / §3.1（`src/logger.js`、`src/log-redact.js` = `packages/api-publish-engine/src/...`）与 §6（`src/utils/report-error.js`、`src/main.js` = `apps/desktop/src/...`）；`shutdown.js:118`、"测试 logger.test.js" 无全路径
+- **问题**：合同自称"证据索引（抽查用）"，但同一 `src/` 前缀在表内指向两个不同包，`shutdown.js`、`logger.test.js` 未限定目录，抽查者无法从文档定位。
+- **修改建议**：统一写全仓库相对路径（`apps/desktop/src/utils/report-error.js`、`apps/desktop/src/main.js:19-36`、`apps/desktop/electron/shutdown.js:118`、`apps/desktop/electron/services/logger.test.js`）。
+
+---
+
+## Info
+
+### I1. §3.1 模式 ③"同键名"与代码不符（缺 authorization）
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §3.1 ③；代码 `logger.js:99` / `shared logger.js:25` / `log-redact.js:17`
+- **问题**：③的键集合是 `api[_-]?key|access_token|refresh_token|password|secret|cookie`，**无 `authorization`**；②才含 `authorization`。"同键名"暗示两处键集相同，易误导。
+- **修改建议**：将③改写为"同键名（无 `authorization`）"，或说明差异原因。
+
+### I2. "R1-R7"编号无出处
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §9、`openspec/changes/logging-contract/spec.md`
+- **问题**：spec 实际只有 **5 个** ADDED Requirement（脱敏同源/Level 与默认/保留/强制日志点/禁止与静默边界）；`design.md` 又写"R1-R6 + R7"。三者对不上，"R1-R7"无法溯源。
+- **修改建议**：删掉"(R1-R7)"或按 spec 实际编号对齐。
+
+### I3. §8 证据行号偏移
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §8（"编排层有日志（story2video-compose-engine.js:525）"）
+- **问题**：`story2video-compose-engine.js:525` 是 `opts = opts || {}`；logger 注入在 `:527`（`this.log = opts.log || require('./logger')`）。
+- **修改建议**：改为 `:527`。
+
+### I4. §9 引用的 `openspec/specs/logging-contract/spec.md` 当前分支不存在
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §9
+- **问题**：本分支只有 `openspec/changes/logging-contract/specs/...`；`openspec/specs/...` 是归档后路径。文档"状态：契约化生效中"与文件尚不存在的现状错位（过程性问题，非错误）。
+- **修改建议**：合并归档后路径即成立；可在合并前注明"归档后生效"。
+
+### I5. 未文档化的截断点：access path 512 / renderer IPC 2000
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §4 L3；代码 `access-log.js:12`（`pathOnly` `.slice(0,512)`）、`apps/desktop/src/utils/report-error.js:13`（`slice(0,2000)`）
+- **问题**：合同只记了 userAgent≤256，未记 path 512 与 renderer→IPC 2000 两处上限。
+- **修改建议**：在 §4/§7.4 补一行，保持"单条无上限禁令"的完整性。
+
+### I6. L4 audit 文件 sink 不在 5 组 redact 覆盖内（纯靠源头纪律）
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §4 L4/§7.1；代码 `audit-log.js:34-50`
+- **问题**：audit JSON 文件把 `error`/`details` 原样落盘，无 redact 门禁。调用点目前用 `safeErrorCode` 处理 error（`publish-api-server.js:791`）风险较低，但 batch/plan 的 `details` 携带结果对象，属于"依赖源头不打印"的裸写路径。
+- **修改建议**：在合同中注明"audit sink 不经 5 组脱敏，仅依赖源头纪律"，或列为待增强。
+
+### I7. §1 软性计数 "~90 文件引用"/"29 文件" 易失真
+- **文件**：`01-docs/LOGGING-CONTRACT.md` §1
+- **问题**：实测 `services/logger` 引用 56 文件（含测试）、python 侧引用 loguru/logging 35 文件（多 publish 包内，另加 `server.py`）——"29"已偏旧，"~90"偏高。计数无门禁，必然漂移。
+- **修改建议**：保留"~"前缀并注明"近似、非门禁"，或改措辞为"数十文件"。
+
+### I8. 测试锚定字面量名（`retentionDays = 30`、`MAX_MESSAGE_LENGTH = 4096`）的命名脆弱性
+- **文件**：`packages/shared-utils/src/__tests__/logging-contract.test.js`
+- **问题**：`toMatch(/retentionDays = 30/)` 这类断言把变量名也锚死；无行为变化的改名（`const RETENTION_DAYS = 30`）即红。属 design.md D3 声明的取舍，但可考虑放宽为数值正则 `/30\s*[;]?/` 或注释说明。
+- **修改建议**：可接受；如要降低误报，改为"常量数值"正则而非"名字=数值"字面量。
+
+---
+
+## 对四个审查点的总结
+
+1. **事实准确性**：常量与绝大部分 file:line 属实；但 **§4 L5 路由写反（C1）**、**§4 L1/L2 合并行（W2）**、**webhook 证据错配（W3）**、**getLogsInfo 计数不存在（W1）** 四处需要修正。
+2. **契约测试有效性**：能防"单边删模式/改常量"的常见漂移，但"同源"仅到 marker 粒度、**替换串零断言（W4）**，且 **level 枚举/默认级别零断言**使 spec Scenario 落空（W5）。
+3. **OpenSpec spec**：5 个 Requirement 本身可验证、无自相矛盾；但 Requirement 2 的 Scenario 宣称了测试未实现的行为（W5），"R1-R7"编号无出处（I2）。
+4. **遗漏契约点**：level 枚举、脱敏、保留、强制日志点、禁止项、静默边界主体齐全；遗漏点集中在——`.1` 溢出文件逃逸 30 天清理（W6）、access path 512 / renderer 2000 截断（I5）、audit sink 无 redact 门禁（I6）、`src/` 路径歧义（W7）。
+
+**建议**：合并前至少修复 C1 与 W1–W3 三处事实性描述；W4/W5 属测试有效性问题，建议一并收紧（三处 SECRET_PATTERNS 全文 deep-equal + 补 level 断言），否则"防漂移门禁"的宣传力度高于实际拦截力。
+
+---
+SESSION_ID: ba76f88f-b140-4532-b0e3-9abfd76179f3

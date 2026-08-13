@@ -53,11 +53,39 @@
           :elapsed-ms="orchestrationElapsedMs"
           :summary="orchestrationSummary"
           :orchestration-context="orchestrationContext"
+          :checkpoint="pipelineRunStatus?.checkpoint || null"
         />
 
-        <!-- 模型服务异常提示（非阻塞） -->
-        <div v-if="providerWarningText" class="provider-warning-banner" role="alert">
+        <!-- 分镜素材自选：检查点激活 → 引导横幅 + 就近素材选择面板（等待态 UX 2026-08-13） -->
+        <template v-if="sceneAssetSelectionActive">
+          <div class="s2v-selection-banner" role="status" data-testid="s2v-selection-banner">
+            <span class="s2v-selection-banner-text">
+              {{ translateWithLocaleFallback('create.story2video.selectionWait.banner', '分镜素材已生成，请为每个分镜选择最终素材。', 'Storyboard assets are ready — pick the final material for each scene.', { count: sceneAssetCandidates.length }) }}
+            </span>
+            <UiButton class="s2v-selection-banner-cta" data-testid="s2v-selection-go" @click="scrollToSceneAssetPanel">
+              {{ translateWithLocaleFallback('create.story2video.selectionWait.goSelect', '去选择素材', 'Select assets') }}
+            </UiButton>
+          </div>
+          <div
+            ref="sceneAssetPanel"
+            class="s2v-scene-asset-panel"
+            :class="{ 's2v-scene-asset-panel-attention': sceneAssetAttention }"
+            data-testid="s2v-scene-asset-panel"
+          >
+            <SceneAssetSelection
+              :run-id="orchestrationRunId"
+              :candidates="sceneAssetCandidates"
+              :confirming="sceneAssetConfirming"
+              :error="sceneAssetSelectionError"
+              @confirm="confirmSceneAssetSelections"
+            />
+          </div>
+        </template>
+
+        <!-- 模型服务异常提示（非阻塞，可关闭） -->
+        <div v-if="providerWarningText" class="provider-warning-banner" role="alert" data-testid="story2video-provider-warning-banner">
           ⚠️ {{ providerWarningText }}
+          <button class="provider-warning-banner-close" data-testid="dismiss-provider-warning" @click="dismissProviderWarnings" :aria-label="translateWithLocaleFallback('common.close', '关闭', 'Close')">✕</button>
         </div>
 
         <!-- BGM 被跳过提示（非阻塞，可关闭） -->
@@ -795,19 +823,12 @@
             </p>
           </div>
           <div v-else class="running-controls">
-            <!-- 分镜素材自选：scene_asset_selection 检查点 → 素材选择面板 -->
-            <SceneAssetSelection
-              v-if="sceneAssetSelectionActive"
-              :run-id="orchestrationRunId"
-              :candidates="sceneAssetCandidates"
-              :confirming="sceneAssetConfirming"
-              :error="sceneAssetSelectionError"
-              class="running-controls-panel"
-              @confirm="confirmSceneAssetSelections"
-            />
             <template v-if="orchestrationRunId">
               <p v-if="pipelineRunStatus?.checkpoint?.reason === 'content_policy'" class="orchestration-attention">
                 {{ pipelineRunStatus.checkpoint.recommendation || '图片内容需要处理；取消后修改文案并重新启动流水线。' }}
+              </p>
+              <p v-else-if="sceneAssetSelectionActive" class="orchestration-waiting" data-testid="s2v-selection-waiting-text">
+                {{ translateWithLocaleFallback('create.story2video.selectionWait.controlText', '⏳ 等待您选择分镜素材，确认后将生成旁白并合成视频。', 'Awaiting your asset selection — narration and compositing will start after you confirm.') }}
               </p>
             </template>
             <template v-else>
@@ -815,7 +836,7 @@
               <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ 暂停</UiButton>
               <UiButton v-if="needsCheckpoint" @click="advancePipeline">✅ 确认并继续</UiButton>
             </template>
-            <UiButton variant="danger" @click="cancelPipeline">✕ 取消</UiButton>
+            <UiButton variant="danger" data-testid="s2v-cancel-trigger" @click="requestCancelPipeline">✕ 取消</UiButton>
           </div>
           <div v-if="!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress !== undefined" class="progress-inline">
             <div class="progress-bar"><div class="progress-fill" :style="{ width: pipelineRunStatus.progress + '%' }"></div></div>
@@ -925,6 +946,25 @@
       <template #footer>
         <UiButton variant="secondary" @click="closeTemplateDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
         <UiButton variant="danger" @click="confirmTemplateDeletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
+      </template>
+    </UiModal>
+
+    <!-- 分镜素材自选：取消二次确认（等待选择期间防误触，2026-08-13） -->
+    <UiModal
+      :visible="cancelConfirmDialog.visible"
+      :title="translateWithLocaleFallback('create.story2video.selectionWait.cancelTitle', '取消流水线', 'Cancel pipeline')"
+      size="sm"
+      @close="closeCancelConfirmDialog"
+    >
+      <p class="story2video-error-dialog-message" data-testid="s2v-cancel-confirm-body">
+        {{ translateWithLocaleFallback('create.story2video.selectionWait.cancelBody', '素材选择尚未完成，取消将终止本次创作，已生成的候选素材不会保留。确定取消吗？', 'Asset selection is not finished. Cancelling will stop this creation and discard the generated candidates. Cancel anyway?') }}
+      </p>
+      <p v-if="cancelConfirmDialog.error" class="story2video-error-dialog-detail" data-testid="s2v-cancel-confirm-error">
+        {{ translateWithLocaleFallback('create.story2video.selectionWait.cancelFailed', '取消失败，请重试。', 'Failed to cancel. Please retry.') }}
+      </p>
+      <template #footer>
+        <UiButton variant="secondary" @click="closeCancelConfirmDialog">{{ translateWithLocaleFallback('create.story2video.selectionWait.cancelKeep', '继续选择', 'Keep selecting') }}</UiButton>
+        <UiButton variant="danger" data-testid="s2v-cancel-confirm-ok" @click="confirmCancelPipeline">{{ translateWithLocaleFallback('create.story2video.selectionWait.cancelConfirm', '确认取消', 'Confirm cancel') }}</UiButton>
       </template>
     </UiModal>
   </div>
@@ -1203,8 +1243,12 @@ export default {
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
       // 分镜素材自选（2026-08-12）：scene_asset_selection 检查点激活与候选
       sceneAssetSelectionActive: false, sceneAssetCandidates: [], sceneAssetSelectionError: '', sceneAssetConfirming: false,
+      // 等待态 UX（2026-08-13）：首次激活自动定位/高亮一次性标记 + 面板注意力高亮
+      selectionGuided: false, sceneAssetAttention: false, sceneAssetAttentionTimer: null,
       dismissedBgmSkippedNotice: false,
+      dismissedProviderWarnings: false,
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '' },
+      cancelConfirmDialog: { visible: false, error: '' },
       story2videoResuming: false,
       story2videoRunMeta: null,
       stageClockTick: 0,
@@ -1330,6 +1374,7 @@ export default {
       )
     },
     providerWarningText() {
+      if (this.dismissedProviderWarnings) return ''
       const warnings = Array.isArray(this.providerWarnings) ? this.providerWarnings : []
       if (warnings.length === 0) return ''
       const names = warnings.map((w) => {
@@ -1595,6 +1640,19 @@ export default {
     // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
     s2vConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
     s2vOutputConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
+    // 分镜素材自选等待态（2026-08-13）：首次激活自动滚动到面板并短时高亮；关闭后重置，下次激活再引导
+    sceneAssetSelectionActive(active) {
+      if (!active) {
+        this.selectionGuided = false
+        this.sceneAssetAttention = false
+        if (this.sceneAssetAttentionTimer) { clearTimeout(this.sceneAssetAttentionTimer); this.sceneAssetAttentionTimer = null }
+        return
+      }
+      if (!this.selectionGuided) {
+        this.selectionGuided = true
+        this.$nextTick(() => this.scrollToSceneAssetPanel())
+      }
+    },
   },
   methods: {
     translateWithLocaleFallback(key, zhFallback, enFallback, params) {
@@ -1608,6 +1666,36 @@ export default {
     pipelineMode(id) { return getPipelineMode((key) => this.$t?.(key), id) },
     pipelineStage(id) { return getPipelineStage((key) => this.$t?.(key), id) },
     pipelineStatus(id) { return getPipelineStatus((key) => this.$t?.(key), id) },
+    // 分镜素材自选等待态（2026-08-13）：滚动到面板 + 短时注意力高亮
+    scrollToSceneAssetPanel() {
+      const el = this.$refs.sceneAssetPanel
+      if (!el) return
+      if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      this.sceneAssetAttention = true
+      if (this.sceneAssetAttentionTimer) clearTimeout(this.sceneAssetAttentionTimer)
+      this.sceneAssetAttentionTimer = setTimeout(() => { this.sceneAssetAttention = false }, 2000)
+    },
+    requestCancelPipeline() {
+      // 等待态 UX（2026-08-13，审查 C1）：仅素材选择检查点等待时二次确认，其他取消路径保持一步直达
+      if (!this.sceneAssetSelectionActive) {
+        void this.cancelPipeline()
+        return
+      }
+      this.cancelConfirmDialog.error = ''
+      this.cancelConfirmDialog.visible = true
+    },
+    closeCancelConfirmDialog() {
+      this.cancelConfirmDialog.error = ''
+      this.cancelConfirmDialog.visible = false
+    },
+    async confirmCancelPipeline() {
+      try {
+        await this.cancelPipeline()
+      } catch (_error) {
+        // 审查 W3：取消失败时保留确认框并给出反馈，避免「对话框已关但流水线未取消」的静默失败
+        this.cancelConfirmDialog.error = 'cancel_failed'
+      }
+    },
     humanName(name) { if (!name) return ''; return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) },
     s2vSectionLabel(section) {
       const key = `create.story2video.sections.${section}`
@@ -1672,6 +1760,9 @@ export default {
       this.orchestrationContext = null
       this.orchestrationResultPath = null
       this.orchestrationError = ''
+      // 切换流水线时一并重置模型服务异常提示（跨流水线/跨运行不残留）
+      this.providerWarnings = []
+      this.dismissedProviderWarnings = false
       this.closeStory2VideoErrorDialog()
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
       // Bug 反哺（2026-08-09）：mounted 时 selectedPipeline 为 null，restore 守卫直接 return，
@@ -1732,6 +1823,9 @@ export default {
     async startPipeline() {
       // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
       this.dismissedBgmSkippedNotice = false
+      // 新运行重置模型服务异常提示：清空旧警告并取消关闭状态（跨运行不残留）
+      this.providerWarnings = []
+      this.dismissedProviderWarnings = false
       if (!this.pipelineAvailable(this.selectedPipeline?.name)) {
         this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED })
         return
@@ -3034,12 +3128,17 @@ export default {
     dismissBgmSkippedNotice() {
       this.dismissedBgmSkippedNotice = true
     },
+    dismissProviderWarnings() {
+      this.dismissedProviderWarnings = true
+    },
     async cancelPipeline() {
       await pipelineCancel()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
       this.sceneAssetSelectionActive = false; this.sceneAssetCandidates = []; this.sceneAssetSelectionError = ''; this.sceneAssetConfirming = false
+      this.selectionGuided = false; this.sceneAssetAttention = false; this.cancelConfirmDialog.visible = false
       this.dismissedBgmSkippedNotice = false
+      this.dismissedProviderWarnings = false
       this.orchestrationStages = (this.isAutoPipeline(this.selectedPipeline?.name) || this.isMediaAutoPipeline(this.selectedPipeline?.name)) ? this.getDefaultPipelineStages(this.selectedPipeline?.name) : []
       this.closeStory2VideoErrorDialog()
       this.stopPipelinePolling()
@@ -3635,6 +3734,7 @@ export default {
     if (this.pollTimer) clearInterval(this.pollTimer)
     if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
     if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }
+    if (this.sceneAssetAttentionTimer) { clearTimeout(this.sceneAssetAttentionTimer); this.sceneAssetAttentionTimer = null }
     this.flushS2VLastOptionsSave()
   },
 }

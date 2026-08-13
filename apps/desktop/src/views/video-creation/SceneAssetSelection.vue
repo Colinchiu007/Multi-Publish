@@ -4,6 +4,7 @@
       <h3 class="sas-title">{{ titleText }}</h3>
       <p class="sas-subtitle">{{ subtitleText }}</p>
       <p class="sas-hint">{{ selectHintText }}</p>
+      <p class="sas-preview-hint">{{ clickToPreviewText }}</p>
     </div>
 
     <div v-if="error" class="sas-error" role="alert" data-testid="sas-error">{{ error }}</div>
@@ -38,20 +39,40 @@
               @change="select(scene, candidate.id)"
             />
             <span class="sas-candidate-badge">{{ candidateLabel(candidate) }}</span>
-            <img
+            <span
               v-if="candidate.kind === 'image' && urls[candidate.path]"
-              class="sas-thumb"
-              :src="urls[candidate.path]"
-              :alt="candidateLabel(candidate)"
-            />
+              class="sas-media-wrap"
+              role="button"
+              tabindex="0"
+              :aria-label="previewAriaLabel(candidate)"
+              :data-testid="'sas-preview-' + scene.index + '-' + candidate.id"
+              @click="openPreview(scene, candidate)"
+              @keydown.enter.prevent="openPreview(scene, candidate)"
+            >
+              <img
+                class="sas-thumb"
+                :src="urls[candidate.path]"
+                :alt="candidateLabel(candidate)"
+              />
+              <span class="sas-zoom-overlay" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <circle cx="11" cy="11" r="7"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  <line x1="11" y1="8" x2="11" y2="14"></line>
+                  <line x1="8" y1="11" x2="14" y2="11"></line>
+                </svg>
+              </span>
+            </span>
             <video
               v-else-if="candidate.kind === 'video' && urls[candidate.path]"
-              class="sas-thumb"
+              class="sas-thumb sas-thumb-video"
               :src="urls[candidate.path]"
               muted
               playsinline
               preload="metadata"
               controls
+              :data-testid="'sas-preview-' + scene.index + '-' + candidate.id"
+              @click="openPreview(scene, candidate)"
             ></video>
             <span v-else class="sas-thumb sas-thumb-loading">…</span>
           </label>
@@ -70,14 +91,44 @@
         {{ confirming ? confirmingText : confirmText }}
       </button>
     </div>
+
+    <UiModal
+      :visible="!!preview"
+      :title="previewTitle"
+      size="lg"
+      @close="closePreview"
+    >
+      <div class="sas-preview" data-testid="sas-preview-modal">
+        <p v-if="previewMetaText" class="sas-preview-meta">{{ previewMetaText }}</p>
+        <img
+          v-if="preview && preview.candidate.kind === 'image'"
+          class="sas-preview-media"
+          :src="previewUrl"
+          :alt="previewLabel"
+          data-testid="sas-preview-image"
+        />
+        <video
+          v-else-if="preview && preview.candidate.kind === 'video'"
+          class="sas-preview-media"
+          :src="previewUrl"
+          controls
+          playsinline
+          autoplay
+          data-testid="sas-preview-video"
+        ></video>
+        <p v-if="previewHintText" class="sas-preview-close-hint">{{ previewHintText }}</p>
+      </div>
+    </UiModal>
   </div>
 </template>
 
 <script>
 import { story2videoCreateShareUrl } from '@/api/publisher'
+import UiModal from '@/components/UiModal.vue'
 
 export default {
   name: 'SceneAssetSelection',
+  components: { UiModal },
   props: {
     runId: { type: String, default: '' },
     candidates: { type: Array, default: () => [] },
@@ -89,6 +140,7 @@ export default {
     return {
       selected: {},
       urls: {},
+      preview: null,
     }
   },
   computed: {
@@ -109,6 +161,33 @@ export default {
     },
     notReadyText() {
       return this.$t?.('story2video.sceneAssetSelection.notReadyHint') || '素材生成中，请稍候…'
+    },
+    clickToPreviewText() {
+      return this.$t?.('story2video.sceneAssetSelection.clickToPreviewHint') || '点击缩略图可放大预览'
+    },
+    previewTitle() {
+      if (!this.preview) return ''
+      const key = this.preview.candidate.kind === 'video'
+        ? 'story2video.sceneAssetSelection.previewVideoTitle'
+        : 'story2video.sceneAssetSelection.previewImageTitle'
+      return this.$t?.(key) || (this.preview.candidate.kind === 'video' ? '视频预览' : '图片预览')
+    },
+    previewUrl() {
+      if (!this.preview) return ''
+      return this.urls[this.preview.candidate.path] || ''
+    },
+    previewLabel() {
+      if (!this.preview) return ''
+      return this.candidateLabel(this.preview.candidate)
+    },
+    previewMetaText() {
+      if (!this.preview) return ''
+      const sceneText = this.sceneLabelText(this.preview.scene.index)
+      const mediaText = this.candidateLabel(this.preview.candidate)
+      return sceneText + ' · ' + mediaText
+    },
+    previewHintText() {
+      return this.$t?.('story2video.sceneAssetSelection.previewCloseHint') || '点击关闭或按 × 退出预览'
     },
     allSelected() {
       return Array.isArray(this.candidates) && this.candidates.length > 0
@@ -166,6 +245,18 @@ export default {
     select(scene, candidateId) {
       this.selected = { ...this.selected, [scene.index]: candidateId }
     },
+    openPreview(scene, candidate) {
+      if (!candidate || !candidate.path || !this.urls[candidate.path]) return
+      this.preview = { scene, candidate }
+    },
+    closePreview() {
+      this.preview = null
+    },
+    previewAriaLabel(candidate) {
+      const template = this.$t?.('story2video.sceneAssetSelection.previewAriaLabel') || '放大预览 {label}'
+      const label = this.candidateLabel(candidate)
+      return typeof template === 'string' ? template.replace('{label}', label) : ('放大预览 ' + label)
+    },
     async resolveUrls(scenes) {
       const pending = []
       for (const scene of scenes) {
@@ -221,6 +312,16 @@ export default {
 .sas-candidate-badge { font-size: 11px; color: #c9d1d9; }
 .sas-thumb { width: 96px; height: 128px; object-fit: cover; border-radius: 4px; background: #0d1117; display: flex; align-items: center; justify-content: center; }
 .sas-thumb-loading { color: #8a8f98; font-size: 16px; }
+.sas-thumb-video { cursor: zoom-in; }
+.sas-media-wrap { position: relative; display: block; cursor: zoom-in; border-radius: 4px; line-height: 0; }
+.sas-media-wrap:focus-visible { outline: 2px solid #58a6ff; outline-offset: 1px; }
+.sas-zoom-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.35); color: #fff; opacity: 0; transition: opacity 0.15s ease; border-radius: 4px; pointer-events: none; }
+.sas-media-wrap:hover .sas-zoom-overlay { opacity: 1; }
+.sas-preview-hint { margin: 2px 0 0; font-size: 11px; color: #8b5cf6; }
+.sas-preview { text-align: center; }
+.sas-preview-meta { margin: 0 0 8px; font-size: 13px; color: #c9d1d9; }
+.sas-preview-media { max-width: 100%; max-height: 70vh; border-radius: 6px; background: #0d1117; }
+.sas-preview-close-hint { margin: 8px 0 0; font-size: 11px; color: #8a8f98; }
 .sas-actions { margin-top: 12px; text-align: right; }
 .s2v-btn-primary { background: #2f81f7; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; }
 .s2v-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
