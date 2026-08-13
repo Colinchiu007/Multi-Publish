@@ -1,3 +1,12 @@
+## 全能创作分句未生效复盘（story2video-split-engine-unify，2026-08-13）
+
+- **问题**：用户优化了 smart-sentence-splitter 与本仓库 TS 镜像（text-segmentation.ts v0.15.2），但全能创作视频里的分句仍是旧方法。调查结论：桌面主进程 split 阶段虽然调用 :8002 引擎生成场景，但 `normalizeServiceSplitResult` 丢弃引擎返回的 `scenes[].subtitles`，用 `story2video-segmentation.js` 旧贪心算法本地重切；引擎离线时整条链路降级为同一旧算法。`text-segmentation.ts` 在桌面主进程完全未被引用（仅 CreateView 用 template-library），是「对齐了但没接入」的死代码。
+- **修复**：在线路径直接采纳引擎字幕；离线路径以 JS 镜像（story2video-segmentation-engine.js）逐行对齐 text-segmentation.ts，subtitle-rules.json 单源；parity 测试锁死双实现一致。
+- **教训 1（对齐 ≠ 接入）**：双实现「规则对齐」若没有运行时消费方，优化不会到达用户可见产物。落地时必须全链路核对：配置入口 → 阶段执行器 → 消费方（合成引擎）实际 require/import 的模块路径。
+- **教训 2（引擎返回的结构先验证再丢弃）**：smart-sentence-splitter 的 SplitResponse 已含 scenes[].subtitles（text/display_order/start_time/duration）；归一化层应优先消费，而不是无理由本地重切。
+- **教训 3（JS 镜像 + parity 是 Electron 主进程复用 TS 算法的既定范式）**：主进程纯 JS 无法 require TS，仓库已有 subtitle-aligner 同款范式；手抄算法必须用同一语料差分测试锁死（本 change 10 组语料 21 用例）。
+- **教训 4（UTF-16 码元 vs Unicode 字符）**：引擎/TS 的字数边界按 string.length（UTF-16 码元）计数，emoji 占 2 码元；旧本地测试按 Array.from（码点）断言会与新引擎行为冲突，更新断言时应以引擎实测为准。
+---
 ## shared-utils logger 收敛复盘（shared-utils-logging，2026-08-13）
 
 - **交付**：packages/shared-utils/src/logger.js——修正误导注释（原指向不存在的 apps/desktop/electron/logger.js）；内联 SECRET_PATTERNS 5 组（与 api-publish-engine log-redact 逐字节一致）；文件与控制台同源脱敏；rotateIfNeeded 改读模块 MAX_LOG_SIZE；新增 setLogOptions({file,maxSize,level})。新增 4 个测试。
@@ -6549,3 +6558,4 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **变更**：并发信号量超时判定从「处理时刻 + 30s」改为「**本请求到达时刻 + 30s**」（真实 governor waiter deadline）。429 长冷却（30s）+ 同批突发时，排队请求在 deadline 处被拒（rate_limited_count=4 = 注入记账 1 + 排队超时 3），不再乐观放行；被拒请求 end_time 记 deadline 墙钟。
 - **新教训（观测盲区）**：桌面端 runSelfCheck 对「排队超时被拒的请求」存在**观测盲区**——timeline 只记录 task 内开始执行的请求，排队被拒的不进 timeline 也不计数，故其 rate_limited_count=1 只是「可见限流」；模拟器 rate_limited=4 反映 governor 内部真实行为。对拍脚本 must-pass 用例无排队超时场景，不受影响；若要验证该边界，以模拟器语义 + governor 源码为准。
 - **测试**：waiter deadline 长冷却用例锁定（timeline rate_limited=3 + 注入记账 1 → count=4、completed=5）。
+

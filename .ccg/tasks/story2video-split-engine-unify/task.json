@@ -5,8 +5,8 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "story2video",
-  "currentPhase": "planning",
-  "nextAction": "OpenSpec change 已建，进入实现（worktree mp-s2v-split-engine-unify）",
+  "currentPhase": "implementation",
+  "nextAction": "QM-1 打包验证 + 双模型审查 + PR",
   "createdAt": "2026-08-13T10:30:00+08:00",
   "branch": "codex/story2video-split-engine-unify",
   "openspecChange": "story2video-split-engine-unify"
