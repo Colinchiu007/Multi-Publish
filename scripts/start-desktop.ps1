@@ -43,6 +43,7 @@ param(
   [switch]$NoDepsCheck,
   [switch]$InvalidateViteCache,
   [switch]$CheckIdentity,
+  [switch]$ForceShared,
   [switch]$Json
 )
 
@@ -62,6 +63,14 @@ if (-not $head) { Fail "非 git 工作区: $repoRoot" }
 $evidence.branch = $branch
 $evidence.head = $head
 Write-Line "worktree : $repoRoot"
+
+# ---- 1b. 共享主工作区守卫（fail-closed）----
+$gitDir = git -C $repoRoot rev-parse --git-dir 2>$null
+$commonDir = git -C $repoRoot rev-parse --git-common-dir 2>$null
+$isSharedMain = ($gitDir -and $commonDir -and $gitDir -eq $commonDir)
+if ($isSharedMain -and -not $ForceShared) {
+  Fail "目标 $repoRoot 是共享主工作区（git-dir == common-dir）——本脚本会 fetch/merge 并强制停止进程，禁止对共享主工作区执行；请改用专用 worktree（如 D:\Data\projects\mp-worktrees\mp-desktop-dev），或 -ForceShared 显式确认（高风险，不推荐）"
+}
 Write-Line "branch   : $branch"
 Write-Line "head     : $head"
 
@@ -193,3 +202,4 @@ if ($CheckIdentity) {
 Write-Line 'START_CONTRACT_OK'
 if ($Json) { $evidence | ConvertTo-Json -Depth 6 }
 exit 0
+
