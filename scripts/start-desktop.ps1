@@ -1,0 +1,205 @@
+#requires -Version 7
+<#
+.SYNOPSIS
+  Multi-Publish 桌面启动契约：保证每次启动 = 最新代码 + 正确工作区。
+
+.DESCRIPTION
+  1) 定工作区：显式 -Worktree（默认脚本所在仓库根），校验 git 根 + apps/desktop；
+  2) 同步最新：git fetch + 落后则 merge --ff-only origin/main（脏文件冲突 fail-closed）；
+  3) 端口归属：5174 被非目标 worktree 的 Vite 占用 → 报错退出，绝不静默连别人的 Vite；
+  4) 清旧实例：同 profile 单实例锁会让重启失效，先停旧 Electron/launcher/Vite；
+  5) 依赖健康：scripts/ensure-desktop-deps.js（缺失时内建最小脆弱依赖检查）；
+  6) 证据输出：worktree/branch/HEAD + 窗口 handle/标题 + Vite 归属 + (可选) identity。
+
+.PARAMETER Worktree
+  目标 worktree 绝对路径；默认 = 本脚本所在仓库根。
+
+.PARAMETER Profile
+  ELECTRON_USER_DATA_DIR（默认 C:\tmp\Multi-Publish-debug-profile）。
+
+.PARAMETER NoSync
+  跳过 git fetch + ff-only 同步。
+
+.PARAMETER NoDepsCheck
+  跳过依赖健康检查/自愈。
+
+.PARAMETER InvalidateViteCache
+  启动前失效陈旧 Vite optimize 缓存（改名保留）。
+
+.PARAMETER CheckIdentity
+  窗口出现后经 CDP 校验登录态（scripts/start-desktop-identity.js）。
+
+.PARAMETER Json
+  输出 JSON 证据块。
+
+.EXAMPLE
+  pwsh -File scripts/start-desktop.ps1 -Worktree D:\Data\projects\mp-worktrees\mp-desktop-dev -CheckIdentity
+#>
+[CmdletBinding()]
+param(
+  [string]$Worktree = '',
+  [string]$Profile = 'C:\tmp\Multi-Publish-debug-profile',
+  [switch]$NoSync,
+  [switch]$NoDepsCheck,
+  [switch]$InvalidateViteCache,
+  [switch]$CheckIdentity,
+  [switch]$ForceShared,
+  [switch]$Json
+)
+
+$ErrorActionPreference = 'Stop'
+$repoRoot = if ($Worktree) { $Worktree } else { (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
+$evidence = [ordered]@{ worktree = $repoRoot; startedAt = (Get-Date).ToString('o') }
+
+function Write-Line($msg) { if (-not $Json) { Write-Host $msg } }
+function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
+
+# ---- 1. 工作区校验 ----
+if (-not (Test-Path -LiteralPath $repoRoot)) { Fail "worktree 不存在: $repoRoot" }
+if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'apps\desktop'))) { Fail "不是 Multi-Publish 仓库根（缺 apps/desktop）: $repoRoot" }
+$branch = git -C $repoRoot branch --show-current 2>$null
+$head = git -C $repoRoot log -1 --format='%h %s' 2>$null
+if (-not $head) { Fail "非 git 工作区: $repoRoot" }
+$evidence.branch = $branch
+$evidence.head = $head
+Write-Line "worktree : $repoRoot"
+
+# ---- 1b. 共享主工作区守卫（fail-closed）----
+$gitDir = git -C $repoRoot rev-parse --git-dir 2>$null
+$commonDir = git -C $repoRoot rev-parse --git-common-dir 2>$null
+$isSharedMain = ($gitDir -and $commonDir -and $gitDir -eq $commonDir)
+if ($isSharedMain -and -not $ForceShared) {
+  Fail "目标 $repoRoot 是共享主工作区（git-dir == common-dir）——本脚本会 fetch/merge 并强制停止进程，禁止对共享主工作区执行；请改用专用 worktree（如 D:\Data\projects\mp-worktrees\mp-desktop-dev），或 -ForceShared 显式确认（高风险，不推荐）"
+}
+Write-Line "branch   : $branch"
+Write-Line "head     : $head"
+
+# ---- 2. 同步最新（可选）----
+if (-not $NoSync) {
+  git -C $repoRoot fetch origin 2>$null | Out-Null
+  $counts = git -C $repoRoot rev-list --left-right --count HEAD...origin/main 2>$null
+  Write-Line "sync     : ahead/behind origin/main = $counts"
+  if ($counts) {
+    $parts = ($counts.Trim() -split '\s+')
+    if ($parts.Count -eq 2 -and [int]$parts[1] -gt 0) {
+      Write-Line 'sync     : 落后 origin/main，执行 merge --ff-only ...'
+      git -C $repoRoot merge --ff-only origin/main 2>&1 | ForEach-Object { Write-Line "  $_" }
+      if ($LASTEXITCODE -ne 0) { Fail 'merge --ff-only 失败（可能脏文件冲突），请先处理未提交修改' }
+    }
+  }
+  $evidence.head = git -C $repoRoot log -1 --format='%h %s'
+}
+
+# ---- 3. 端口归属检查（fail-closed）----
+$conn = Get-NetTCPConnection -LocalPort 5174 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($conn) {
+  $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)"
+  $ownerCmd = $owner.CommandLine
+  if ($ownerCmd -and ($ownerCmd -like "*$repoRoot*")) {
+    Write-Line "port5174 : 本 worktree 的残留 Vite（PID $($conn.OwningProcess)），先停止"
+    Stop-Process -Id $conn.OwningProcess -Force
+  } else {
+    Fail "5174 被其他 worktree/进程占用（PID $($conn.OwningProcess): $ownerCmd）——拒绝启动，避免加载错误代码"
+  }
+}
+
+# ---- 4. 清理旧实例（单实例锁）----
+$oldElectron = Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$repoRoot*" }
+foreach ($p in $oldElectron) { Stop-Process -Id $p.Id -Force; Write-Line "stop     : electron PID $($p.Id)" }
+$oldLaunchers = Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -like "*$repoRoot*" -and ($_.CommandLine -like '*dev.js*' -or $_.CommandLine -like '*vite*5174*') }
+foreach ($p in $oldLaunchers) { Stop-Process -Id $p.ProcessId -Force; Write-Line "stop     : node PID $($p.ProcessId)" }
+Start-Sleep -Seconds 2
+
+# ---- 5. 依赖健康 ----
+if (-not $NoDepsCheck) {
+  $ensure = Join-Path $repoRoot 'scripts\ensure-desktop-deps.js'
+  if (Test-Path -LiteralPath $ensure) {
+    Write-Line 'deps     : 运行 ensure-desktop-deps.js（自检+自愈）...'
+    Push-Location $repoRoot
+    try {
+      node scripts/ensure-desktop-deps.js 2>&1 | ForEach-Object { Write-Line "  $_" }
+      if ($LASTEXITCODE -ne 0) { Fail '依赖自愈未通过（ensure-desktop-deps 非零）' }
+    } finally { Pop-Location }
+  } else {
+    Write-Line 'deps     : ensure-desktop-deps.js 未合入 main，内建最小脆弱依赖检查（PR #714 合并后自动升级）'
+    $fragile = @(
+      @{ Name = '@img\sharp-win32-x64'; Files = @('index.cjs', 'lib\sharp-win32-x64-0.35.1.node') },
+      @{ Name = '@img\colour'; Files = @('index.cjs') },
+      @{ Name = '@element-plus\icons-vue'; Files = @('dist\index.js') },
+      @{ Name = '@ctrl\tinycolor'; Files = @('dist\public_api.js') }
+    )
+    foreach ($f in $fragile) {
+      $dir = Join-Path $repoRoot ("node_modules\" + $f.Name)
+      $missing = @($f.Files | Where-Object { -not (Test-Path -LiteralPath (Join-Path $dir $_)) })
+      if (-not (Test-Path -LiteralPath $dir) -or $missing.Count -gt 0) {
+        Fail "脆弱依赖不完整: $($f.Name)（缺失 $($missing -join ', ')）——请先在含 PR #714 的 worktree 运行 node scripts/ensure-desktop-deps.js"
+      }
+    }
+    Write-Line 'deps     : 最小检查通过'
+  }
+}
+
+# ---- 5b. Vite 缓存失效（可选）----
+if ($InvalidateViteCache) {
+  $viteDeps = Join-Path $repoRoot 'apps\desktop\node_modules\.vite\deps'
+  if (Test-Path -LiteralPath $viteDeps) {
+    $newName = $viteDeps + '.stale-' + (Get-Date -Format 'yyyyMMddHHmmss')
+    Rename-Item -LiteralPath $viteDeps -NewName $newName
+    Write-Line "vite     : 缓存失效 -> $newName"
+    $evidence.viteCacheInvalidated = $newName
+  } else {
+    Write-Line 'vite     : 无陈旧缓存'
+  }
+}
+
+# ---- 6. 启动 ----
+$launcherLog = Join-Path $env:TEMP 'mp-start-dev.out.log'
+$launcherErr = Join-Path $env:TEMP 'mp-start-dev.err.log'
+$env:ELECTRON_USER_DATA_DIR = $Profile
+$launcher = Start-Process node -WorkingDirectory (Join-Path $repoRoot 'apps\desktop') -ArgumentList 'scripts/dev.js' -WindowStyle Hidden -RedirectStandardOutput $launcherLog -RedirectStandardError $launcherErr -PassThru
+$evidence.launcherPid = $launcher.Id
+Write-Line "launcher : PID $($launcher.Id)（log: $launcherLog）"
+
+# ---- 7. 轮询可见窗口 ----
+$deadline = (Get-Date).AddSeconds(150)
+$win = $null
+while ((Get-Date) -lt $deadline) {
+  $win = Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$repoRoot*" -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+  if ($win) { break }
+  Start-Sleep -Seconds 3
+}
+if (-not $win) {
+  Write-Host 'ERROR: 150s 内未出现可见主窗口' -ForegroundColor Red
+  Get-Content $launcherErr -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+  exit 1
+}
+$evidence.electronPid = $win.Id
+$evidence.windowHandle = $win.MainWindowHandle
+$evidence.windowTitle = $win.MainWindowTitle
+Write-Line "window   : PID $($win.Id) handle=$($win.MainWindowHandle) title=$($win.MainWindowTitle)"
+
+# ---- 8. 证据：Vite 归属 + 页面 URL + (可选) identity ----
+$conn2 = Get-NetTCPConnection -LocalPort 5174 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($conn2) {
+  $viteOwner = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn2.OwningProcess)"
+  $evidence.vitePid = $conn2.OwningProcess
+  $evidence.viteCmdline = $viteOwner.CommandLine
+  Write-Line ("vite     : PID " + $conn2.OwningProcess)
+}
+try {
+  $page = (Invoke-RestMethod -Uri 'http://127.0.0.1:9222/json/list' -TimeoutSec 5) | Where-Object { $_.type -eq 'page' -and $_.url -like 'http://127.0.0.1:5174*' } | Select-Object -First 1
+  if ($page) { $evidence.pageUrl = $page.url; Write-Line "page     : $($page.url)" }
+} catch { Write-Line 'page     : CDP 未就绪（跳过）' }
+
+if ($CheckIdentity) {
+  $idJs = Join-Path $PSScriptRoot 'start-desktop-identity.js'
+  $idOut = node $idJs 2>$null
+  $evidence.identity = $idOut
+  Write-Line "identity : $idOut"
+}
+
+Write-Line 'START_CONTRACT_OK'
+if ($Json) { $evidence | ConvertTo-Json -Depth 6 }
+exit 0
+

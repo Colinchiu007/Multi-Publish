@@ -1,3 +1,10 @@
+## [2026-08-13] 桌面启动依赖可靠性：remotion 精确 pin + 依赖自愈脚本（desktop-deps-reliability）
+
+- 根因：`@remotion/renderer@4.0.509` 未发布（registry ETARGET），`^4.0.484` 范围重解析必挂 → `npm install` 必然失败；中断的失败安装会删除/损坏 node_modules（@img/*、@element-plus/icons-vue、@ctrl/tinycolor 整包丢失）→ Vite 预构建失败 → `504 (Outdated Optimize Dep)` → 启动空白。
+- 修复：root `package.json` `remotion` 与 `packages/remotion-composer` 全部 `@remotion/*` 从 `^4.0.484` 精确 pin 为 `4.0.484`（与 lockfile 一致、全部已发布）；`npm install --package-lock-only --ignore-scripts` 验证成功（无 ETARGET）。
+- 自愈：新增 `scripts/ensure-desktop-deps.js`（零依赖 Node）——启动前校验脆弱依赖（sharp 平台包 / @img/colour / @element-plus/icons-vue / @ctrl/tinycolor + apps/desktop 全部直接依赖），缺失时以 node 直跑 npm-cli 旁路补装（npm pack + 解包，不改 package.json/lockfile）；`--invalidate-vite-cache` 失效陈旧 Vite optimize 缓存（改名保留可回退）。平台感知：sharp 平台包仅在 win32-x64 校验。
+- 测试：`scripts/ensure-desktop-deps.test.js` 9 例全绿（node --test）；真实冒烟：精确版（tinycolor 4.2.0）与 range（picocolors@^1.1.0 → 1.1.1）均经真实 npm pack 恢复成功，恢复后重检 0 缺失。
+- 文档：OpenSpec change `desktop-deps-reliability`（proposal/design/specs/tasks，validate 通过）；`01-docs/learnings.md` 复盘；`.quality-gates.md` 门禁记录。- 启动契约封装：新增 `scripts/start-desktop.ps1`（定工作区/同步最新/5174 端口归属 fail-closed/清旧实例/依赖健康/证据输出）+ `scripts/start-desktop-identity.js`（CDP 登录态校验）；端到端验证：从专用 worktree `mp-desktop-dev`（origin/main `22a96962`）启动，窗口 handle 非零、Vite 归属同 worktree、identity authenticated。
 ## [2026-08-13] feat(video-clone): 复刻层级程序自动决定并驱动行为（L0/L1/L2）
 
 - 引擎新增 `replication-level.js`：`assessReplicationLevel(report)` 按证据完备度自动定级（结构≥2 段 / 文案非空 / 风格标签≥2 / 时长）→ L0/L1/L2，plan 阶段写入 `replication.level` + `replication.auto`（inspiration 只借结构自然落 L0；显式 replicationLevel 仍优先）。
@@ -4115,6 +4122,7 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
+
 
 
 
