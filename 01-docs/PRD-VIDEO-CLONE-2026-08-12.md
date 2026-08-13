@@ -1,6 +1,6 @@
 # PRD — 视频对标拆解与再创作（视频克隆）
 
-> 版本：v1.15（移除复刻层级下拉）· 日期：2026-08-13 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
+> 版本：v1.16（复刻层级程序自动决定并驱动行为）· 日期：2026-08-13 · 状态：**需求已确认；下一步 OpenSpec 提案（/opsx:propose）+ 实施计划（/create-plan）**
 > 关联：PRD-STORY2VIDEO-SCENE-CONTEXT-2026-08-11.md、PRD-video-creation.md v1.8
 > 产出方式：按 `/pm` 技能流程（Phase 1 澄清 → Phase 2 方案对比 → Phase 3 PRD → Phase 4 审查）产出，融合 Claude 双模型分析交叉验证；antigravity 因账号所在地区限制不可用，按降级规则由主代理补足。
 
@@ -361,7 +361,7 @@ VideoClonePipeline：
 
 - 两种输入：**链接输入**（8 平台识别：抖音/小红书/快手/B站/视频号/YouTube/TikTok/Ins，粘贴后自动识别平台并显示徽标）与**本地文件**（拖拽或选择，显示文件名/大小/时长/分辨率）。**默认选中「链接」（v1.14 起，此前默认本地文件）**。
 - 校验即时反馈：链接非法/平台不支持、文件超 500MB/超 30 分钟/格式不支持，就地标红并给出原因（§14 错误码）。
-- 选项：复刻模式（结构/风格/灵感）、是否改写文案（默认开）。**复刻层级（L0/L1/L2）下拉已移除（v1.15 起：当前引擎未按层级分支，避免无效选项；引擎侧保持默认 L1 写入报告）**。
+- 选项：复刻模式（结构/风格/灵感）、是否改写文案（默认开）。**复刻层级不再由用户选择（v1.15 移除下拉），改为程序按拆解报告证据自动定级（v1.16：结构+文案+风格证据完备度 → L0/L1/L2），驱动 generate/compose 分支与 F4 验收**。
 
 ### 13.3 分析进度页
 
@@ -758,4 +758,34 @@ VideoClonePipeline：
 - 保留项：复刻模式（结构/风格/灵感）下拉、改写文案复选框不动。
 - 测试：useVideoClone.test.js 7 全绿（请求 options 断言同步去掉 replicationLevel）。
 - 后续：若 generate/compose 按层级验收落地（§0 L0-L2 目标），再恢复层级 UI 并接引擎。
+
+## 30. 详细规格：复刻层级程序自动决定并驱动行为（v1.16 追加）
+
+### 30.1 自动定级（引擎 src/replication-level.js）
+
+- `assessReplicationLevel(report)` 纯函数按证据打分：
+  - structure：narrative.timeline ≥2 段；script：fullText 非空；style：风格标签 ≥2（palette≠unknown / transitions 非空 / person / tone）；meta：durationSec>0
+  - 定级：结构+文案+风格全足 → L2；结构+文案足（风格弱）→ L1；否则 L0
+  - 返回 { level, evidence, confidence }（confidence=证据维度数/4）
+- plan 阶段无显式 `replicationLevel` 时自动写入 `replication.level` + `replication.auto={determined,method,level,evidence,confidence}`；inspiration（只借结构）在清空风格/文案后重算 → 自然落到 L0。显式 replicationLevel（遗留/测试）仍优先（auto.determined=false）。
+
+### 30.2 按层级驱动（generate/compose）
+
+- generate `createAssetPlan`：L0 → 单张封面图（kind=cover，text-first 提示词，无有效内容时空规划 fail-closed）；L1/L2 → 逐镜头图（L2 promptSeed 追加 `level:L2` 锚点）；`artifacts.assets.level` 携带层级。
+- compose `buildComposeCommand`：L0 → 单图循环全时长 + 字幕/音频/水印（无 concat）；L1/L2 → 逐镜头拼接（现状）。
+
+### 30.3 F4 按层级验收（src/similarity.js）
+
+- `LEVEL_THRESHOLDS`：L0 文案级仅 script≥0.7 必须；L1 结构≥0.8/文案≥0.7/风格≥0.6/时长≤10%；L2 结构≥0.85/文案≥0.7/风格≥0.7/时长≤5%。
+- 有效层级 = 请求显式 > 报告（plan 自动）> L1；兼容 target：P1→L1、P2→L2；`grade`（达成度）仍按综合分输出；verdict：置信度<0.5 → insufficient_evidence，否则按层级必须维度达标 → pass / needs_review。
+
+### 30.4 UI
+
+- 报告元信息行：`目标层级 Lx（自动/固定）`。
+- 相似度卡新增：`自动目标层级 Lx → 达成 grade Ly（F4 按 Lx 验收）`。
+
+### 30.5 证据
+
+- 引擎全量 124 pass（+replication-level 5 例 + plan/similarity/generate/compose 分层用例）；桌面 composable 7 绿；vite build + eslint 0。
+- 真实运行：testsrc 3s 样例 → 自动 L0 → 封面生成 → L0 合成 → 成片产出、F4 level=L0（无 ASR 脚本证据缺失 → needs_review，符合证据门控）。
 

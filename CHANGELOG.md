@@ -1,3 +1,14 @@
+## [2026-08-13] feat(video-clone): 复刻层级程序自动决定并驱动行为（L0/L1/L2）
+
+- 引擎新增 `replication-level.js`：`assessReplicationLevel(report)` 按证据完备度自动定级（结构≥2 段 / 文案非空 / 风格标签≥2 / 时长）→ L0/L1/L2，plan 阶段写入 `replication.level` + `replication.auto`（inspiration 只借结构自然落 L0；显式 replicationLevel 仍优先）。
+- generate 按层级：L0 单封面图（text-first，无内容 fail-closed）；L1/L2 逐镜头（L2 promptSeed 加 `level:L2` 锚点）。
+- compose 按层级：L0 单图循环全时长（无 concat）；L1/L2 逐镜头拼接。
+- F4 按层级验收（similarity.js `LEVEL_THRESHOLDS`/`LEVEL_REQUIRED`）：L0 仅文案必须；L1/L2 结构/文案/风格/时长分级阈值；兼容 target P1→L1、P2→L2；`level` 入结果；verdict 保持置信度门禁。
+- UI：报告元信息行 + 相似度卡展示「自动目标层级 → 达成 grade（F4 按 Lx 验收）」。
+- 测试：引擎全量 124 pass（+replication-level 5 例 + plan/similarity/generate/compose 分层用例）；桌面 composable 7 绿；vite build/eslint 0。
+- 真实运行：testsrc 3s 样例 → 自动 L0 → 封面生成 → L0 合成 → 成片产出、F4 level=L0。
+- PRD v1.16 §13.2/§29/§30。
+
 ## [2026-08-13] refactor(video-clone): 移除无效的「复刻层级」下拉
 
 - 复刻层级（L0/L1/L2）当前仅写入报告作为目标声明，analyze/generate/compose/F4 均未按层级分支，属无效选项 → 从 UI 移除。

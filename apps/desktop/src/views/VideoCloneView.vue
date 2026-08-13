@@ -66,7 +66,8 @@
         @change="(v) => editReport('script.fullText', v)"
       />
       <div class="vc-meta">
-        时长 {{ report.meta.durationSec }}s · 分辨率 {{ report.meta.resolution || '未知' }} · 画幅 {{ report.platformParams.aspect }}
+        时长 {{ report.meta.durationSec }}s · 分辨率 {{ report.meta.resolution || '未知' }} · 画幅 {{ report.platformParams.aspect }} ·
+        目标层级 {{ report.replication?.level || '-' }}（{{ report.replication?.auto?.determined ? '自动' : '固定' }}）
       </div>
     </el-card>
 
@@ -74,6 +75,10 @@
     <el-card v-if="similarity" class="vc-card" shadow="never">
       <template #header>相似度自检（F4）</template>
       <div class="vc-sim">综合分 <b>{{ similarity.score }}</b> · 判定 <b>{{ similarity.verdict }}</b></div>
+      <div class="vc-level">
+        自动目标层级 <b>{{ report.replication?.level || '-' }}</b> → 达成 <b>{{ similarity.grade || '-' }}</b>
+        <span class="vc-level-note">（F4 按 {{ similarity.level || 'L1' }} 验收）</span>
+      </div>
       <div class="vc-sim-metrics">
         结构 {{ similarity.metrics.structure.toFixed(2) }} · 文案 {{ similarity.metrics.script.toFixed(2) }} ·
         风格 {{ similarity.metrics.style.toFixed(2) }} · 时长偏差 {{ (similarity.metrics.durationDeviation * 100).toFixed(1) }}%
@@ -121,6 +126,8 @@ function stageStatusText(s) {
 .vc-stage-status { color: #909399; font-size: 12px; }
 .vc-meta { margin-top: 8px; color: #909399; font-size: 12px; }
 .vc-sim { font-size: 16px; }
+.vc-level { margin-top: 6px; color: #303133; font-size: 14px; }
+.vc-level-note { color: #909399; font-size: 12px; margin-left: 6px; }
 .vc-sim-metrics { margin: 8px 0; color: #606266; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 </style>
