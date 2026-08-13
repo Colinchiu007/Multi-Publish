@@ -37,5 +37,5 @@
 
 ## 收尾
 
-- [ ] 双模型审查（Codex + Claude；Antigravity 地区不可用按降级路径）实现 diff，CRITICAL 修复后重审
-- [ ] 提交/推送/PR/合并（codex/ 分支 → main）；OpenSpec archive + CCG task 归档三同步
+- [x] 双模型审查（Codex 完成；Claude 两次 exit 1 降级主代理复核）实现 diff：Critical 1（phase5 接线）已修复+回归；Warning 5（W1-W5）+ Info I3 全部修复；PR #780 已创建
+- [ ] 合并（PR #780 → main）；OpenSpec archive + CCG task 归档三同步
