@@ -203,7 +203,7 @@ describe('PromptBridge 视频方法', () => {
   it('optimizeVideosBatch 发送批量请求且逐项 domain=video', async () => {
     const bridge = makeBridge()
     const res = await bridge.optimizeVideosBatch(['scene one', 'scene two'], { platform: 'sora-v2' })
-    expect(bridge._post).toHaveBeenCalledWith('/v1/optimize/batch', expect.any(String))
+    expect(bridge._post).toHaveBeenCalledWith('/v1/optimize/batch', expect.any(String), undefined, undefined)
     expect(res.requests).toHaveLength(2)
     expect(res.requests[0].domain).toBe('video')
     expect(res.requests[0].platform).toBe('sora')

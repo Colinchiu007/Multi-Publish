@@ -77,6 +77,7 @@
 | L1 桌面 | `[ISO8601] [LEVEL] [module] message` + 可选 meta（JSON ≤8000 字符截断）；单条 message ≤4096 字符，超长截断加 `…`（`logger.js:26,117,168`） |
 | L2 shared-utils | `[时间] [LEVEL] [tag] message`；**无 meta、无长度截断**（`logger.js:70-82`） |
 | L3 access | 单行 JSON：`ts / method / path / status / durationMs / requestId / ip / userAgent / errorCode`（`access-log.js:25-35`）；请求入口生成 requestId → 响应头 `x-request-id` |
+| Bridge→Python | BasePythonBridge 携带 `X-Request-Id` 头（traceId=runId，header 安全 ASCII ≤64 校验）；Bridge 日志 `POST <path> traceId=<id>`（不含 body） | `base-python-bridge.js` `_post` |
 | L4 audit | JSON 文件：publish 成败、ownerSubject、platform、title、error code |
 | L5 loguru | `time | level | name:function:line | message`；**stderr 仅 WARNING+**（sidecar stderr→warn 语义）、**stdout 仅 DEBUG/INFO（<WARNING）**；全局按日 + per-module 文件（`logging_setup.py:55-88`） |
 
@@ -123,6 +124,7 @@
 4. **单条日志无上限**：message 超 4096 / meta 超 8000 必须截断标记（L1）；access userAgent ≤256（`access-log.js:33`）、path ≤512（`access-log.js:12`）；renderer→IPC 错误上报 ≤2000（`report-error.js:13`）。
 5. **auth 失败吞异常**：必须带原因码进入统一错误出口（§6），不得空 catch。
 6. **audit sink 不经 5 组脱敏**：`audit-log.js` 把 error/details 原样落盘，仅依赖源头不打印纪律（如需 redact 门禁列为待增强）。
+7. **Bridge traceId 非 header 安全字符不得发送**：`X-Request-Id` 仅接受 `[A-Za-z0-9._:-_]` ≤64 的 ASCII 值（Node http 对非法头字符同步抛错）；CJK 等异常值降级为不发送并 warn。
 
 ---
 

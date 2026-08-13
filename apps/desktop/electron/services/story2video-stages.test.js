@@ -905,6 +905,19 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(3)
   })
 
+  it('story2video_optimize 把 runId 作为 traceId 传给 serviceBus（R2/C1）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({ optimized_prompt: '优化后提示词' }))
+    await fn({
+      runId: 'run_77',
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '第一幕' }] },
+      serviceBus,
+    })
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledWith('第一幕', expect.objectContaining({ traceId: 'run_77' }))
+  })
+
   it('限流持续存在时按限流次数上限失败并保留场景与原因', async () => {
     vi.useFakeTimers()
     const fn = makePipeline(null).optimizeExecutor
@@ -1764,6 +1777,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     }
     const optimizeVideoPrompt = vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt }))
     const result = await fn({
+      runId: 'run_blend',
       stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: 'kling-v1', pollIntervalMs: 5 } } },
       params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
       context,
@@ -1775,7 +1789,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     })
     expect(result.output.scenes[0]).toMatchObject({ index: 0, videoPath: expect.stringContaining('scene_video_000.mp4') })
     expect(result.success).toBe(true)
-    expect(optimizeVideoPrompt).toHaveBeenCalledWith('image-optimized-prompt-0', expect.objectContaining({ platform: 'kling' }))
+    expect(optimizeVideoPrompt).toHaveBeenCalledWith('image-optimized-prompt-0', expect.objectContaining({ platform: 'kling', traceId: 'run_blend' }))
     expect(callAdapter).toHaveBeenCalledWith('kling', 'generateVideo', expect.objectContaining({ prompt: '[video-opt] image-optimized-prompt-0' }))
   })
 

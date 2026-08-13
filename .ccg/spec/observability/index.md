@@ -9,6 +9,7 @@
 2. **源头不打印敏感字段**：token/apiKey/password/secret/authorization/cookie/JWT 一律不进日志文本；redact 只是最后防线。Python 侧（loguru 无正则脱敏）尤其依赖此纪律（样板 `douyin.py:124-128`）。
 3. **走 logger，不裸 console**：桌面主进程生产代码禁止 `console.log` 绕过 logger；控制台与文件必须用同一已脱敏 body。
 4. **级别语义**：`debug` 细节 / `info` 关键流程 / `warn` 可恢复异常与重试 / `error` 失败崩溃。默认级别：桌面 INFO、shared-utils debug、Python INFO。
+4b. **跨进程 traceId**：pipeline 场景把 runId 作为 traceId 经 serviceBus → Bridge 以 `X-Request-Id` 头透传到 Python（StageExecutor/story2video 执行器已接线）；traceId 只进头/控制字段，绝不进业务 payload；头值必须 header 安全 ASCII（`[A-Za-z0-9._:-_]` ≤64），非法值降级不发送并 warn。
 5. **保留与截断**：桌面 500MB 超限滚动 `.1` + 30 天按日保留（`.1` 备份不受按日清理）+ 单条 4096 / meta 8000 截断；shared-utils 5MB→`.1`；Python loguru 3MB/15 天/gz（stderr 仅 WARNING+、stdout 仅 DEBUG/INFO）；容器 json-file 50m×5。改默认值必须同步合同文档与契约测试。
 
 ## 强制日志点（不得静默）

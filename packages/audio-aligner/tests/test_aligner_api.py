@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """audio-aligner API 契约测试（mock transcribe，不依赖真实音频/模型）。"""
+import logging
 import pytest
 from fastapi.testclient import TestClient
 
@@ -44,6 +45,32 @@ def test_align_missing_audio(client, monkeypatch):
     monkeypatch.setattr(api_mod, "transcribe", fake_transcribe)
     r = client.post("/align", json={"audio_path": "C:/tmp/not-exist.mp3"})
     assert r.status_code == 404
+
+
+def test_align_logs_request_id_success(client, monkeypatch, caplog):
+    """R4：成功路径日志含 request_id（跨进程 traceId）。"""
+
+    def fake_transcribe(audio_path, **kwargs):
+        return {"words": [{"text": "a", "start": 0.0, "end": 0.5}], "segments": [], "language": "zh", "duration": 0.5, "elapsed_ms": 10, "model": "base"}
+
+    monkeypatch.setattr(api_mod, "transcribe", fake_transcribe)
+    with caplog.at_level(logging.INFO):
+        r = client.post("/align", json={"audio_path": "C:/tmp/vo.mp3"}, headers={"X-Request-Id": "run_123"})
+    assert r.status_code == 200
+    assert any("request_id=run_123" in rec.getMessage() for rec in caplog.records)
+
+
+def test_align_logs_request_id_error(client, monkeypatch, caplog):
+    """R4：异常路径日志同样含 request_id。"""
+
+    def fake_transcribe(audio_path, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(api_mod, "transcribe", fake_transcribe)
+    with caplog.at_level(logging.ERROR):
+        r = client.post("/align", json={"audio_path": "C:/tmp/vo.mp3"}, headers={"X-Request-Id": "run_456"})
+    assert r.status_code == 500
+    assert any("request_id=run_456" in rec.getMessage() for rec in caplog.records)
 
 
 def test_align_transcribe_error(client, monkeypatch):

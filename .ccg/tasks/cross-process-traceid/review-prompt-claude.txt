@@ -1,0 +1,166 @@
+独立审查以下「跨进程 traceId」设计（Multi-Publish 桌面 Electron + Python sidecar 架构，L 复杂度变更，尚未写代码）。
+
+背景事实（可抽查工作区 D:/Data/projects/mp-worktrees/mp-cross-process-traceid 对应源码验证）：
+- StageExecutor.execute({ runId, stage, params, context }) 已有 runId（stage-executor.js:192），内置 SPLIT/OPTIMIZE/OPTIMIZE_BATCH 执行器当前丢弃 runId（仅 CUSTOM 保留 :638）。
+- BasePythonBridge._post(path, body, timeout) 只发 Content-Type/Length（base-python-bridge.js:228-248）。
+- service-bus.js optimizePrompt 把 options 展开进 payload；splitText/optimizePromptsBatch 等委托各 Bridge。
+- splitter/prompt sidecar 是外部仓库（D:/Data/projects/smart-sentence-splitter、prompt-engine）；audio-aligner 在本仓 packages/audio-aligner（stdlib logging，无 request 日志）。
+- python-backend server.py 有 x-request-id 中间件（server.py:124-159），白名单 ^[A-Za-z0-9._:-]{1,64}$，runId 的 _ 不被采纳。
+
+审查重点：
+1. 设计是否自洽、链路是否完整（runId → StageExecutor → serviceBus → Bridge → X-Request-Id → Python 日志）；是否有遗漏的调用点或断链。
+2. 范围边界（不改 server.py 白名单、不 thread pythonBridge/server.py 路径、外部 sidecar 只发头）是否合理，有无「做了一半」的隐患。
+3. 测试计划是否覆盖关键契约（头有/无两态、traceId 不进 payload、runId 传递、audio-aligner request_id）。
+4. 与既有契约（X-Request-Id 头名、request_id 日志字段、脱敏）是否冲突。
+5. 实现顺序与风险（story2video-stages 执行器是否都拿得到 runId；alignScenes 调用点 :2184/:2435 上下文）。
+
+变更文件全文如下：
+===== openspec/changes/cross-process-traceid/proposal.md =====
+## Why
+
+排障跨进程关联缺失：桌面 PipelineEngine 已用 `runId` 贯穿阶段日志（正面样板），但 Bridge→Python sidecar 的 HTTP 请求**不带任何关联 id**——audio-aligner 等 Python 侧日志无法与桌面 runId 关联，一次 pipeline 失败要跨桌面日志/Python 日志手工拼时间线。审计 P2 C5 要求「跨进程 traceId（renderer→IPC→Bridge→Python）按 runId/sessionId 贯穿」。
+
+## What Changes
+
+- `BasePythonBridge._post` 支持可选 `traceId`：存在时写 `X-Request-Id` 请求头并在 Bridge 日志输出 `traceId=`，实现桌面↔Python 请求级关联。
+- splitter/prompt/aligner 三个 Bridge 业务方法接受 `traceId`（从 options 提取，不进入业务 payload）。
+- `service-bus.js` 的 splitText/optimizePrompt/optimizePromptsBatch/optimizeVideoPrompt/optimizeVideoPromptsBatch 透传 `options.traceId`（提取后不进 payload）。
+- `stage-executor.js` 内置 SPLIT/OPTIMIZE/OPTIMIZE_BATCH 执行器把 `runId` 作为 traceId 传给 serviceBus。
+- `story2video-stages.js` GENERATE_ASSETS 执行器把 `runId` 传给 `alignScenes`；`subtitle-align-service.js` 透传到 AlignerBridge。
+- Python 消费（本仓）：`packages/audio-aligner/aligner/api.py` 读取 `X-Request-Id` 头并写入 stdlib 日志（含异常路径）。
+
+## Capabilities
+
+### New Capabilities
+- `cross-process-traceid`: 跨进程 traceId 契约——桌面 runId 经 Bridge 以 `X-Request-Id` 头透传到 Python sidecar 日志，实现 pipeline 全链路关联。
+
+### Modified Capabilities
+<!-- 无 -->
+
+## Impact
+
+- 桌面：base-python-bridge / splitter-bridge / prompt-bridge / aligner-bridge / service-bus / stage-executor / story2video-stages / subtitle-align-service + 对应测试
+- Python：audio-aligner/aligner/api.py + tests
+- 边界（不改）：python-backend server.py 与 api-publish-engine 的 request-id 白名单（`[A-Za-z0-9._:-]`，runId 含 `_` 不被采纳）；外部 sidecar（splitter/prompt 外部仓库）仅收到头，消费为外部契约
+
+ ===== openspec/changes/cross-process-traceid/design.md =====
+## Context
+
+- 桌面侧：`StageExecutor.execute({ runId, ... })` 已有 runId（`stage-executor.js:192`），但内置 SPLIT/OPTIMIZE/OPTIMIZE_BATCH 执行器解构时丢弃（仅 CUSTOM 保留，`:638`）。
+- 桥接侧：`BasePythonBridge._post(path, body, timeout)` 只发 Content-Type/Length（`base-python-bridge.js:228-248`），无关联头。
+- Python 侧：本仓 `audio-aligner/aligner/api.py` 用 stdlib logging，无 request 日志；`python-backend/server.py` 已有 `x-request-id` 中间件（`server.py:124-159`，白名单 `^[A-Za-z0-9._:-]{1,64}$`，runId 的 `_` 不被采纳）。
+
+## Goals / Non-Goals
+
+**Goals:**
+- pipeline runId 贯穿 StageExecutor → serviceBus → Bridge → `X-Request-Id` → Python sidecar 日志（R1-R4）
+- 非 pipeline 直调保留透传能力（options.traceId），不强制造 id（R5）
+
+**Non-Goals:**
+- 不改 python-backend server.py / api-publish-engine 的 request-id 白名单（runId 与 server.py 路径的对接列为边界/后续）
+- 不改外部 sidecar 仓库（smart-sentence-splitter / prompt-engine）
+- 不改造 renderer 侧 IPC payload 携带 traceId（pipeline runId 主进程侧自持；renderer 参与为后续项）
+
+## Decisions
+
+**D1: traceId = runId（pipeline 场景），按需透传（非 pipeline 场景）**
+PipelineEngine runId 已是跨阶段关联键（正面样板），直接复用，不另造 id；非 pipeline 的 serviceBus 直调（如 IPC「优化提示词」）保留 options.traceId 透传能力，由调用方决定是否传。
+
+**D2: traceId 不进业务 payload**
+serviceBus/各 Bridge 从 options 提取 traceId 后传给 `_post`，绝不让 `run_xxx` 混入发送给 Python 的 JSON body（避免污染业务数据与外部 API 契约）。
+
+**D3: 头名统一 `X-Request-Id`**
+与 python server.py 中间件、api-publish-engine access log 的既有头名一致（非新造 `X-Trace-Id`），最大化互操作。
+
+**D4: 本仓 Python 消费 = audio-aligner**
+splitter/prompt sidecar 是外部仓库，本 change 只保证「发出头」（可测），消费行为记为外部契约边界；audio-aligner 在 `/align` 读取头并写入日志（成功/失败均含 request_id）。
+
+**D5: `_post` 签名向后兼容**
+`_post(path, body, timeout, traceId)` 第 4 参可选；既有调用（不传 traceId）行为不变（不发头、不多日志）。
+
+## Risks / Trade-offs
+
+- [外部 sidecar 不消费头] → 记为文档化边界；本仓可验证的只有「头已发出」。
+- [runId 含 `_` 与 server.py 白名单不兼容] → 明确边界：本 change 不 thread 到 server.py 路径；后续如需，单独扩展白名单（含契约测试）。
+- [日志噪音] → 仅 traceId 存在时才加 Bridge 请求日志行，避免非 pipeline 调用刷屏。
+
+## Migration Plan
+
+- 单 PR；无运行时迁移；回滚 = revert。
+
+ ===== openspec/changes/cross-process-traceid/specs/cross-process-traceid/spec.md =====
+# cross-process-traceid Specification
+
+定义跨进程 traceId 契约：桌面 PipelineEngine 的 runId 经 StageExecutor → serviceBus → Python Bridge，以 `X-Request-Id` 请求头透传到 Python sidecar，使桌面日志与 Python 日志可按同一 id 关联。
+
+## ADDED Requirements
+
+### Requirement: Bridge 请求携带 X-Request-Id 并记录 traceId
+当调用方提供 traceId 时，Python Bridge SHALL 在 HTTP 请求头携带 `X-Request-Id`，并在 Bridge 日志输出 `traceId=`；未提供 traceId 时 SHALL 保持现状（不发头、不增加日志行）。
+
+#### Scenario: 带 traceId 的请求头与日志
+- **WHEN** Bridge 业务方法收到 traceId 并发起 `_post`
+- **THEN** 请求头含 `X-Request-Id: <traceId>`，Bridge 日志含 `traceId=<traceId>`
+
+#### Scenario: 不带 traceId 的请求无新增行为
+- **WHEN** 调用方不传 traceId
+- **THEN** 请求头不含 `X-Request-Id`，无新增日志行
+
+### Requirement: 阶段执行器传递 runId 为 traceId
+StageExecutor 内置 SPLIT/OPTIMIZE/OPTIMIZE_BATCH 执行器 SHALL 把 `runId` 作为 traceId 传给 serviceBus 调用（经 options.traceId），且 traceId SHALL NOT 进入发送给 Python 的业务 payload。
+
+#### Scenario: 阶段调用携带 traceId
+- **WHEN** 执行 SPLIT/OPTIMIZE/OPTIMIZE_BATCH 阶段
+- **THEN** serviceBus 收到 `options.traceId === runId`，且业务请求体不含 traceId 字段
+
+### Requirement: serviceBus 与 Bridge 透传 traceId
+serviceBus 的 splitText/optimizePrompt/optimizePromptsBatch/optimizeVideoPrompt/optimizeVideoPromptsBatch SHALL 从 options 提取 traceId 透传给对应 Bridge，且不得把 traceId 混入 payload。
+
+#### Scenario: 透传且不污染 payload
+- **WHEN** serviceBus 收到含 traceId 的 options
+- **THEN** Bridge 收到同一 traceId，业务 payload（optimize 请求对象等）不含 traceId
+
+### Requirement: audio-aligner 消费 X-Request-Id
+本仓 Python sidecar `audio-aligner` SHALL 读取 `/align` 请求的 `X-Request-Id` 头，并将其写入 stdlib 日志（成功与异常路径均含 `request_id`）。
+
+#### Scenario: 对齐请求带 request_id
+- **WHEN** 客户端以 `X-Request-Id: run_xxx` 调用 `/align`
+- **THEN** 对齐日志含 `request_id=run_xxx`；异常路径同样包含
+
+### Requirement: 外部边界
+splitter/prompt 等外部 Python sidecar 的 `X-Request-Id` 消费、以及 python-backend server.py / api-publish-engine 的 request-id 白名单对接，SHALL 在合同文档中标注为外部边界（本 change 仅保证桌面侧发出头）。
+
+#### Scenario: 边界文档化
+- **WHEN** 审查设计文档与 LOGGING-CONTRACT.md
+- **THEN** 外部 sidecar 消费与 server.py 白名单对接被明确标注为边界
+
+ ===== openspec/changes/cross-process-traceid/tasks.md =====
+## 1. 桥接层（R1）
+
+- [ ] 1.1 `base-python-bridge.js`：`_post(path, body, timeout, traceId)` 增加可选 traceId → `X-Request-Id` 头 + `traceId=` 日志；测试（HTTP mock 断言头/无头两态）
+- [ ] 1.2 `splitter-bridge.js` / `aligner-bridge.js`：业务方法接受 traceId（options 提取）→ `_post`
+- [ ] 1.3 `prompt-bridge.js`：optimize/optimizeBatch/optimizeVideo/optimizeVideosBatch + `_postStandalone` 接受 traceId（options 提取，不进 payload）
+
+## 2. 编排层（R2/R3）
+
+- [ ] 2.1 `stage-executor.js`：SPLIT/OPTIMIZE/OPTIMIZE_BATCH 内置执行器把 runId 作为 options.traceId 传给 serviceBus；测试断言 traceId=runId 且 payload 无 traceId
+- [ ] 2.2 `service-bus.js`：splitText/optimizePrompt/optimizePromptsBatch/optimizeVideoPrompt/optimizeVideoPromptsBatch 提取 options.traceId 透传（不进 payload）；测试
+- [ ] 2.3 `story2video-stages.js` GENERATE_ASSETS 执行器：runId → `alignScenes(..., { traceId: runId })`；`subtitle-align-service.js` alignScenes 透传 traceId → AlignerBridge
+
+## 3. Python 消费（R4）
+
+- [ ] 3.1 `audio-aligner/aligner/api.py`：`/align` 读取 `X-Request-Id` 头 → 日志含 request_id（成功/异常）；pytest 覆盖
+
+## 4. 契约与边界（R5）
+
+- [ ] 4.1 设计/合同文档标注外部边界（外部 sidecar 消费、server.py 白名单对接）
+- [ ] 4.2 回归：desktop 相关测试全绿（base-python-bridge / stage-executor / service-bus / story2video / subtitle-align）
+
+## 5. 验证与交付
+
+- [ ] 5.1 本地测试全绿 + `openspec validate cross-process-traceid` 通过
+- [ ] 5.2 提交、推送、PR、合并、三同步归档（含 learnings + 文档门禁同步）
+
+
+
+输出：Critical / Warning / Info 分级审查报告，每条给出文件与具体问题与修改建议；最后给出「是否可进入实施」结论。

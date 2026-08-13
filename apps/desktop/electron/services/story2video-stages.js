@@ -620,6 +620,7 @@ async function buildManualSceneCandidates (ctx) {
           const optResult = await bus.optimizeVideoPrompt(promptText, {
             platform: videoGenerator.providerId || undefined,
             ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
+            traceId: runId,
           })
           const validated = extractOptimizedVideoPrompt(optResult, { index })
           if (!validated.ok) throw new Error(validated.error)
@@ -1413,7 +1414,7 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.OPTIMIZE,
-    async ({ stage, context, serviceBus, params }) => {
+    async ({ stage, context, serviceBus, params, runId }) => {
       if (!serviceBus || typeof serviceBus.optimizePrompt !== 'function') {
         return { success: false, error: 'Story2Video optimize 需要 prompt-engine 服务（PromptBridge 未注入）' };
       }
@@ -1511,7 +1512,7 @@ function registerStory2VideoStages(pipelineEngine) {
           let result
           try {
             result = await withTransientRetry(
-              () => serviceBus.optimizePrompt(enginePrompt, requestOptions),
+              () => serviceBus.optimizePrompt(enginePrompt, { ...requestOptions, traceId: runId }),
               { maxAttempts, rateLimitMaxAttempts: Math.max(maxAttempts + 1, 4) },
             )
           } catch (lastError) {
@@ -1863,6 +1864,7 @@ function registerStory2VideoStages(pipelineEngine) {
               const optResult = await bus.optimizeVideoPrompt(promptText, {
                 platform: videoGenerator.providerId || undefined,
                 ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
+                traceId: runId,
               });
               const validated = extractOptimizedVideoPrompt(optResult, { index });
               if (!validated.ok) throw new Error(validated.error);
@@ -2219,7 +2221,7 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 字幕时间戳真实对齐（Tier2 ASR）：TTS 音频就绪后，用真实词级时间替换比例估算（fail-open）
       if (pairedScenes.length > 0) {
-        await alignScenes(pairedScenes, { log })
+        await alignScenes(pairedScenes, { log, traceId: runId })
       }
 
       // 构建资源清单
@@ -2470,7 +2472,7 @@ function registerStory2VideoStages(pipelineEngine) {
         })
       }
       if (pairedScenes.length > 0) {
-        await alignScenes(pairedScenes, { log })
+        await alignScenes(pairedScenes, { log, traceId: runId })
       }
 
       const finalManifest = {

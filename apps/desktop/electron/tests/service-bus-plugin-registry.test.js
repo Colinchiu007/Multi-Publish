@@ -90,7 +90,7 @@ it('ServiceBus.optimizePrompt 委托 promptBridge.optimize', async function () {
   const result = await bus.optimizePrompt('一只猫', { style: 'cinematic' });
   eq(result.code, 0);
   eq(result.data.optimized, '一只猫 [opt]');
-  expect(promptBridge.optimize).toHaveBeenCalledWith({ prompt: '一只猫', style: 'cinematic' });
+  expect(promptBridge.optimize).toHaveBeenCalledWith({ prompt: '一只猫', style: 'cinematic' }, undefined);
 });
 
 it('ServiceBus.optimizePromptsBatch 委托 promptBridge.optimizeBatch', async function () {
@@ -108,7 +108,27 @@ it('ServiceBus.optimizePromptsBatch 委托 promptBridge.optimizeBatch', async fu
   expect(promptBridge.optimizeBatch).toHaveBeenCalledWith([
     { prompt: 'prompt1', style: 'cinematic' },
     { prompt: 'prompt2', style: 'cinematic' },
-  ]);
+  ], undefined);
+});
+
+it('ServiceBus 透传 traceId 且不进 payload（R3）', async function () {
+  const promptBridge = makeMockPromptBridge();
+  const bus = new ServiceBus({
+    pythonBridge: makeMockPythonBridge(),
+    splitterBridge: makeMockSplitterBridge(),
+    promptBridge,
+    log: mockLog,
+  });
+  const result = await bus.optimizePrompt('一只猫', { style: 'cinematic', traceId: 'run_9' });
+  eq(result.code, 0);
+  expect(promptBridge.optimize).toHaveBeenCalledWith({ prompt: '一只猫', style: 'cinematic' }, 'run_9');
+
+  const resultBatch = await bus.optimizePromptsBatch(['a', 'b'], { style: 'cinematic', traceId: 'run_9' });
+  eq(resultBatch.code, 0);
+  expect(promptBridge.optimizeBatch).toHaveBeenCalledWith([
+    { prompt: 'a', style: 'cinematic' },
+    { prompt: 'b', style: 'cinematic' },
+  ], 'run_9');
 });
 
 it('ServiceBus.composeVideo 在 story2videoEngine 缺失时明确返回失败', async function () {
