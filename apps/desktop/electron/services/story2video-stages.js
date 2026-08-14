@@ -39,6 +39,7 @@ const modelCallScheduler = require('./model-call-scheduler');
 const {
   buildPromptEngineOptimizeRequest,
   extractOptimizedPrompt,
+  selectBestCandidate,
 } = require('./prompt-engine-contract');
 const {
   extractOptimizedVideoPrompt,
@@ -1584,9 +1585,23 @@ function registerStory2VideoStages(pipelineEngine) {
             }
             throw new Error('Story2Video ' + validated.error)
           }
+          // 多候选规则评估择优（num_candidates>1 时外部引擎返回 candidates；默认启用，
+          // stage.options.select_best=false 显式关闭回到现状行为）
+          let sceneBestPrompt = validated.prompt
+          let sceneTruncated = validated.truncated === true
+          if (Array.isArray(validated.meta.candidates) && validated.meta.candidates.length > 1 &&
+              stage.options?.select_best !== false) {
+            const sceneBest = selectBestCandidate(validated.meta.candidates, promptSeed)
+            if (sceneBest) sceneBestPrompt = sceneBest.prompt
+          }
+          // 择优候选未经 extractOptimizedBase 截断：重新施加 max_length 截断（评审 W1）
+          if (request.max_length && sceneBestPrompt.length > request.max_length) {
+            sceneBestPrompt = Array.from(sceneBestPrompt).slice(0, request.max_length).join('')
+            sceneTruncated = true
+          }
           // 剥离思考块后才是最终提示词：带推理能力的模型可能把 <think> 思考过程放进内容，
           // prompt-engine 返回后仍做防御性净化，不能把思考内容当作图片提示词。
-          const optimizedPrompt = sanitizeOptimizedPrompt(validated.prompt)
+          const optimizedPrompt = sanitizeOptimizedPrompt(sceneBestPrompt)
           if (!optimizedPrompt) {
             throw new Error('Story2Video optimize scene ' + index + ' returned an empty prompt')
           }
@@ -1620,7 +1635,7 @@ function registerStory2VideoStages(pipelineEngine) {
               ? validated.meta.model_used.trim()
               : null,
             ...validated.meta,
-            truncated: validated.truncated || undefined,
+            truncated: sceneTruncated || undefined,
           }
           // 逐场景写入部分结果，失败时可断点续传（context 与 run.context 同引用）
           partialResume[index] = entry

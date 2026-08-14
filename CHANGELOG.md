@@ -1,3 +1,12 @@
+## [2026-08-14] 图片提示词引擎吸收 Higgsfield 机制：技术底座基线 / 精修层长度 / 白名单 / 择优（image-prompt-higgsfield-mechanics）
+
+- 共享内核（prompt-engine-kernel.js）4 项领域中立函数正式落位：resolveTieredMaxLength（泛化视频层级长度）、filterPlausibleNegativePrompt（plausible-only 负面词过滤：失败类别保留 + 模糊否定词清理 + 场景排除物不误删）、normalizePositiveConstraints（正向约束收敛）、scorePrompt（四维规则评分：长度/六要素/保真/构图）。
+- 图片契约（prompt-engine-contract.js）：IMAGE_QUALITY_BASELINE 技术底座默认注入（140 字符，Higgsfield 语料实证，可 quality_baseline=false 关闭）；精修层 max_length（creative_level≥7 未显式 → 8013 能力上限 2000）；context 白名单 7 键对齐外部引擎（未知键忽略+warning，敏感凭据前置拦截）；负面词 plausible-only 过滤；positive_constraints meta 透传（缺省零拒绝）；selectBestCandidate 规则择优（tie-break 保留最长）。
+- 调用方接入：stage-executor OPTIMIZE（主路径 + 兼容包装路径）与 story2video 场景优化默认启用择优（select_best=false 关闭），胜出候选重新施加 max_length 截断（评审 W1）。
+- 视频契约改引用 kernel resolveTieredMaxLength（删除本地死代码 _resolveVideoMaxLength），逐参数比对零回归（legacy 8013 / standalone 8020）。
+- 双模型评审：antigravity 不可用（降级记录）+ Claude 独立评审发现 C1（评分除零 NaN）+ W1-W3，全部修复并补回归；受影响 8 套件 409 例全绿。
+- 规格：openspec change image-prompt-higgsfield-mechanics（5 条 ADDED Requirements）。
+
 ## [2026-08-14] 视频提示词镜头纪律契约移植：positive_constraints / final_frame 收敛（video-prompt-lens-discipline）
 
 - 契约层 `normalizeVideoMeta` 新增收敛：`positive_constraints`（数组透传 / 字符串按换行分号拆分 / 上限 10 条）与 `final_frame`（trim / 上限 500），对齐 8020 引擎镜头纪律输出（prompt-engine PR #34 已合并，`VideoPromptMeta.positive_constraints/final_frame`）；双后端（8020/8013）共用 `extractOptimizedVideoPrompt` 路径透传，旧字段零回归。

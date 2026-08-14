@@ -30,6 +30,7 @@ const { collectStory2VideoTtsSamples } = require('./story2video-tts-samples');
 const {
   buildPromptEngineOptimizeRequest,
   extractOptimizedPrompt,
+  selectBestCandidate,
 } = require('./prompt-engine-contract');
 
 function _firstDefined(...values) {
@@ -394,9 +395,22 @@ class StageExecutor {
       // 截断上限用契约收敛后的 max_length（I-4：不因原始 stage 越界值误截断/漏截断）
       const validated = extractOptimizedPrompt(result, { maxLength: request.max_length, warn });
       if (validated.ok) {
+        // 多候选规则评估择优（num_candidates>1 时外部引擎返回 candidates；
+        // 默认启用，options.select_best=false 显式关闭回到现状行为）
+        let bestPrompt = validated.prompt
+        let bestTruncated = validated.truncated === true
+        if (Array.isArray(validated.meta.candidates) && validated.meta.candidates.length > 1 && options.select_best !== false) {
+          const best = selectBestCandidate(validated.meta.candidates, prompt)
+          if (best) bestPrompt = best.prompt
+        }
+        // 择优候选未经 extractOptimizedBase 截断：重新施加 max_length 截断（评审 W1）
+        if (request.max_length && bestPrompt.length > request.max_length) {
+          bestPrompt = Array.from(bestPrompt).slice(0, request.max_length).join('')
+          bestTruncated = true
+        }
         // 保留原响应字段，但用校验后的 prompt（超长截断时以截断值为准）
-        const output = { ...result, optimized_prompt: validated.prompt, ...validated.meta };
-        if (validated.truncated) output.truncated = true;
+        const output = { ...result, optimized_prompt: bestPrompt, ...validated.meta };
+        if (bestTruncated) output.truncated = true;
         return { success: true, output };
       }
       // 兼容旧 Bridge 包装 { code: 0, data: { ... } } 成功形态
@@ -404,8 +418,19 @@ class StageExecutor {
       if (result && result.code === 0 && result.data && typeof result.data === 'object') {
         wrapped = extractOptimizedPrompt(result.data, { maxLength: request.max_length, warn });
         if (wrapped.ok) {
-          const output = { ...result.data, optimized_prompt: wrapped.prompt, ...wrapped.meta };
-          if (wrapped.truncated) output.truncated = true;
+          let wrappedBest = wrapped.prompt
+          let wrappedTruncated = wrapped.truncated === true
+          if (Array.isArray(wrapped.meta.candidates) && wrapped.meta.candidates.length > 1 && options.select_best !== false) {
+            const best = selectBestCandidate(wrapped.meta.candidates, prompt)
+            if (best) wrappedBest = best.prompt
+          }
+          // 择优候选未经 extractOptimizedBase 截断：重新施加 max_length 截断（评审 W1）
+          if (request.max_length && wrappedBest.length > request.max_length) {
+            wrappedBest = Array.from(wrappedBest).slice(0, request.max_length).join('')
+            wrappedTruncated = true
+          }
+          const output = { ...result.data, optimized_prompt: wrappedBest, ...wrapped.meta };
+          if (wrappedTruncated) output.truncated = true;
           return { success: true, output };
         }
       }

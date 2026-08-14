@@ -338,7 +338,7 @@ it('OPTIMIZE 阶段调用 serviceBus.optimizePrompt', async function () {
   const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
   const result = await exec.execute({
     runId: 'r1',
-    stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt' },
+    stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt', options: { quality_baseline: false } },
     params: {},
     context: { prompt: '一只猫坐在窗台上' },
   });
@@ -359,6 +359,51 @@ it('OPTIMIZE 阶段调用 serviceBus.optimizePrompt', async function () {
   );
 });
 
+it('OPTIMIZE 多候选择优：选择评分最高候选并对胜出候选施加 max_length 截断（评审 W1）', async function () {
+  const bus = makeMockServiceBus({
+    optimizePrompt: vi.fn(async () => ({
+      optimized_prompt: 'a cat sitting, soft light',
+      candidates: [
+        'a warrior riding through a ruined city at golden hour, cinematic composition, dramatic lighting, epic style, low angle, rule of thirds, depth of field, dust and embers, volumetric light rays, detailed armor, ruined temple, banner',
+        'a cat sitting, soft light',
+      ],
+      platform: 'generic', model_used: 'mock',
+    })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'r-w1',
+    stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt', options: { num_candidates: 2, max_length: 120, quality_baseline: false } },
+    params: {},
+    context: { prompt: 'a warrior in ruined city' },
+  });
+  eq(result.success, true);
+  // 择优选中高分候选（而非 candidates[0]）
+  expect(result.output.optimized_prompt).toContain('ruined city at golden hour');
+  // W1：胜出候选超过 max_length=120 → Unicode 安全截断 + truncated 标记
+  expect(Array.from(result.output.optimized_prompt)).toHaveLength(120);
+  expect(result.output.truncated).toBe(true);
+});
+
+it('OPTIMIZE 多候选择优关闭：select_best=false 保持 candidates[0] 现状行为', async function () {
+  const bus = makeMockServiceBus({
+    optimizePrompt: vi.fn(async () => ({
+      optimized_prompt: 'first candidate text',
+      candidates: ['first candidate text', 'second candidate much longer with more detail'],
+      platform: 'generic', model_used: 'mock',
+    })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'r-w1b',
+    stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt', options: { num_candidates: 2, select_best: false, quality_baseline: false } },
+    params: {},
+    context: { prompt: 'a cat' },
+  });
+  eq(result.success, true);
+  expect(result.output.optimized_prompt).toBe('first candidate text');
+});
+
 it('SPLIT/OPTIMIZE 把 runId 作为 traceId 传给 serviceBus（R2）', async function () {
   const bus = makeMockServiceBus();
   const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
@@ -373,7 +418,7 @@ it('SPLIT/OPTIMIZE 把 runId 作为 traceId 传给 serviceBus（R2）', async fu
 
   await exec.execute({
     runId: 'run_43',
-    stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt' },
+    stage: { name: 'opt', type: STAGE_TYPES.OPTIMIZE, inputFrom: 'prompt', options: { quality_baseline: false } },
     params: {},
     context: { prompt: '一只猫' },
   });

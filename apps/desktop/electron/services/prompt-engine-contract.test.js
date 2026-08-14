@@ -6,6 +6,9 @@ const {
   normalizePromptEnginePlatform,
   buildPromptEngineOptimizeRequest,
   extractOptimizedPrompt,
+  selectBestCandidate,
+  IMAGE_QUALITY_BASELINE,
+  PROMPT_ENGINE_CONTEXT_KEYS,
   PROMPT_ENGINE_LIMITS,
 } = require('./prompt-engine-contract')
 
@@ -45,14 +48,14 @@ describe('prompt-engine-contract 图片提示词统一契约', () => {
   })
 
   it('请求构造：显式 style 归一发送；未指定且自动检测时省略 style；关闭检测时用默认风格', () => {
-    const explicit = buildPromptEngineOptimizeRequest('cat', { style: 'cinematic', platform: 'dall-e' })
+    const explicit = buildPromptEngineOptimizeRequest('cat', { style: 'cinematic', platform: 'dall-e', quality_baseline: false })
     expect(explicit).toMatchObject({ prompt: 'cat', platform: 'dalle', style: 'photography', auto_detect_style: true })
 
-    const auto = buildPromptEngineOptimizeRequest('cat', { autoDetectStyle: true })
+    const auto = buildPromptEngineOptimizeRequest('cat', { autoDetectStyle: true, quality_baseline: false })
     expect(auto).not.toHaveProperty('style')
     expect(auto).toMatchObject({ platform: 'generic', auto_detect_style: true })
 
-    const manual = buildPromptEngineOptimizeRequest('cat', { autoDetectStyle: false })
+    const manual = buildPromptEngineOptimizeRequest('cat', { autoDetectStyle: false, quality_baseline: false })
     expect(manual).toMatchObject({ style: 'realistic', auto_detect_style: false })
   })
 
@@ -61,14 +64,23 @@ describe('prompt-engine-contract 图片提示词统一契约', () => {
       creative_level: 99,
       max_length: 10,
       num_candidates: 0,
-      negative_prompt: 'bad '.repeat(200),
+      negative_prompt: ('bad text, watermark, extra fingers, ').repeat(30),
       context: '角色一致性',
+      quality_baseline: false,
     })
     expect(request.creative_level).toBe(10)
     expect(request.max_length).toBe(PROMPT_ENGINE_LIMITS.maxLength.min)
     expect(request.num_candidates).toBe(1)
     expect(request.negative_prompt.length).toBe(500)
     expect(request.context).toEqual({ synopsis: '角色一致性' })
+  })
+
+  it('请求构造：无类别后缀的裸绝对否定词被 plausible-only 清理，请求不带 negative_prompt', () => {
+    const request = buildPromptEngineOptimizeRequest('x', {
+      negative_prompt: '不要坏, never bad, don\'t ugly',
+      quality_baseline: false,
+    })
+    expect(request).not.toHaveProperty('negative_prompt')
   })
 
   it('输出校验：error 优先，失败兜底响应（原文+error）不被当成成功', () => {
@@ -133,5 +145,147 @@ describe('prompt-engine-contract 图片提示词统一契约', () => {
     expect(out).toMatchObject({ ok: true, truncated: true })
     expect(Array.from(out.prompt)).toHaveLength(300)
     expect(out.prompt).toBe('😀'.repeat(300))
+  })
+})
+
+describe('技术底座基线注入（Higgsfield 实证）', () => {
+  it('IMAGE_QUALITY_BASELINE 常量 ≤200 字符且覆盖写实/摄影/灯光/色彩/皮肤/物理/禁文字段', () => {
+    expect(IMAGE_QUALITY_BASELINE.length).toBeLessThanOrEqual(200)
+    for (const kw of ['Photoreal', 'lighting', 'color ratio', 'skin', 'physical', 'no text', 'watermark']) {
+      expect(IMAGE_QUALITY_BASELINE.toLowerCase()).toContain(kw.toLowerCase())
+    }
+  })
+
+  it('默认注入：prompt 后置拼接基线片段，整体受 promptMax 截断保护', () => {
+    const request = buildPromptEngineOptimizeRequest('cat', { style: 'anime' })
+    expect(request.prompt).toContain(IMAGE_QUALITY_BASELINE)
+    expect(request.prompt.startsWith('cat ')).toBe(true)
+
+    const longPrompt = buildPromptEngineOptimizeRequest('c'.repeat(PROMPT_ENGINE_LIMITS.promptMax), {})
+    expect(longPrompt.prompt.length).toBeLessThanOrEqual(PROMPT_ENGINE_LIMITS.promptMax)
+
+    const emptyPrompt = buildPromptEngineOptimizeRequest('', {})
+    expect(emptyPrompt.prompt).toBe(IMAGE_QUALITY_BASELINE)
+  })
+
+  it('显式关闭：options.quality_baseline=false 不注入，与现状行为一致', () => {
+    const request = buildPromptEngineOptimizeRequest('cat', { quality_baseline: false })
+    expect(request.prompt).toBe('cat')
+  })
+})
+
+describe('精修层长度层级（creative_level ≥ 7）', () => {
+  it('未显式传 max_length 且 creative_level ≥ 7 → 精修层默认（8013 能力上限 2000）', () => {
+    expect(buildPromptEngineOptimizeRequest('x', { creative_level: 8, quality_baseline: false }).max_length).toBe(2000)
+    expect(buildPromptEngineOptimizeRequest('x', { creative_level: 7, quality_baseline: false }).max_length).toBe(2000)
+  })
+
+  it('未显式 + 常规创意度 → 默认 500（现状不变）', () => {
+    expect(buildPromptEngineOptimizeRequest('x', { creative_level: 5, quality_baseline: false }).max_length).toBe(500)
+  })
+
+  it('显式传值越界收敛到 [50, 2000]，不拒绝请求', () => {
+    expect(buildPromptEngineOptimizeRequest('x', { creative_level: 8, max_length: 3000, quality_baseline: false }).max_length).toBe(2000)
+    expect(buildPromptEngineOptimizeRequest('x', { creative_level: 8, max_length: 10, quality_baseline: false }).max_length).toBe(50)
+  })
+})
+
+describe('context 白名单（synopsis/character/setting/character_list）', () => {
+  it('白名单键随请求透传，未知键忽略并记录 warning', () => {
+    const warns = []
+    const request = buildPromptEngineOptimizeRequest('cat', {
+      context: {
+        synopsis: '梗概', character: { name: 'a' }, setting: '废墟', character_list: [{ name: 'b' }],
+        style: '写实', evil_key: 1,
+      },
+      warn: (msg) => warns.push(msg),
+      quality_baseline: false,
+    })
+    expect(request.context).toEqual({
+      synopsis: '梗概', character: { name: 'a' }, setting: '废墟', character_list: [{ name: 'b' }],
+    })
+    expect(warns).toEqual(['optimize.context 忽略未知键: style', 'optimize.context 忽略未知键: evil_key'])
+  })
+
+  it('全未知键 → 不发送 context 字段', () => {
+    const request = buildPromptEngineOptimizeRequest('cat', { context: { foo: 1 }, quality_baseline: false })
+    expect(request).not.toHaveProperty('context')
+  })
+
+  it('无 warn 回调时未知键静默忽略（不抛错）', () => {
+    expect(() => buildPromptEngineOptimizeRequest('cat', { context: { synopsis: 's', unknown: 2 }, quality_baseline: false }))
+      .not.toThrow()
+  })
+
+  it('PROMPT_ENGINE_CONTEXT_KEYS 导出对齐外部引擎已知 7 键（含 full_text 角色一致性键）', () => {
+    expect([...PROMPT_ENGINE_CONTEXT_KEYS].sort()).toEqual([
+      'character', 'character_list', 'full_text', 'narrative_intent', 'scene_type', 'setting', 'synopsis',
+    ])
+  })
+
+  it('full_text/narrative_intent/scene_type 随请求透传（story2video scene_context 依赖）', () => {
+    const request = buildPromptEngineOptimizeRequest('cat', {
+      context: { synopsis: 's', full_text: 'ft', narrative_intent: 'ni', scene_type: 'st' },
+      quality_baseline: false,
+    })
+    expect(request.context).toEqual({ synopsis: 's', full_text: 'ft', narrative_intent: 'ni', scene_type: 'st' })
+  })
+})
+
+describe('正向约束 meta 透传（positive_constraints）', () => {
+  it('数组透传：非字符串元素丢弃，上限 10 条', () => {
+    const out = extractOptimizedPrompt({
+      optimized_prompt: 'x',
+      positive_constraints: ['必须红衣', 1, null, { bad: true }, '必须持剑', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'],
+    })
+    expect(out.ok).toBe(true)
+    expect(out.meta.positive_constraints).toHaveLength(10)
+    expect(out.meta.positive_constraints[0]).toBe('必须红衣')
+    expect(out.meta.positive_constraints).not.toContain(1)
+    expect(out.meta.positive_constraints).not.toContain(null)
+  })
+
+  it('字符串按换行/分号拆分后收敛', () => {
+    const out = extractOptimizedPrompt({ optimized_prompt: 'x', positive_constraints: '甲\n乙;丙' })
+    expect(out.meta.positive_constraints).toEqual(['甲', '乙', '丙'])
+  })
+
+  it('缺省零拒绝：8013 旧响应无该字段时 meta 不含键，结果正常', () => {
+    const out = extractOptimizedPrompt({ optimized_prompt: 'x', platform: 'generic' })
+    expect(out.ok).toBe(true)
+    expect(out.meta).not.toHaveProperty('positive_constraints')
+  })
+})
+
+describe('selectBestCandidate 多候选规则评估择优', () => {
+  const source = 'warrior rides through ruined city at golden hour'
+
+  it('选择四维规则评分最高候选（长度/六要素/保真/构图）', () => {
+    const rich = 'A warrior riding a horse through a ruined city at golden hour, warm amber color palette, cinematic composition, dramatic golden lighting, epic fantasy style, dust and embers, low angle perspective, rule of thirds, depth of field, detailed armor, banner, ruined temple, volumetric light rays'
+    const thin = 'a warrior'
+    const best = selectBestCandidate([thin, rich], source)
+    expect(best).not.toBeNull()
+    expect(best.prompt).toBe(rich)
+    expect(best.score).toBeGreaterThan(0)
+  })
+
+  it('tie-break：同分时保留最长候选（对齐既有「最长即最优」兜底）', () => {
+    const a = 'a warrior, golden light, epic style, ruined city, dust'
+    const b = a + ', additional detail, volumetric rays, low angle, rule of thirds'
+    const best = selectBestCandidate([a, b], source)
+    expect(best.prompt).toBe(b)
+  })
+
+  it('非数组 / 空数组 / 全空白 / 全非字符串 → null（未接入路径零回归）', () => {
+    expect(selectBestCandidate(null, source)).toBeNull()
+    expect(selectBestCandidate(undefined, source)).toBeNull()
+    expect(selectBestCandidate([], source)).toBeNull()
+    expect(selectBestCandidate(['  ', '\n'], source)).toBeNull()
+    expect(selectBestCandidate([1, { x: 1 }], source)).toBeNull()
+  })
+
+  it('单候选直接返回（无评分开销语义：candidates 长度 ≤1 时调用方不择优）', () => {
+    const best = selectBestCandidate(['only one'], source)
+    expect(best.prompt).toBe('only one')
   })
 })

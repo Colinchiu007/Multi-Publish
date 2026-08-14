@@ -24,6 +24,10 @@ const {
   normalizePromptEngineStyle,
   clampNumber,
   extractOptimizedBase,
+  resolveTieredMaxLength,
+  filterPlausibleNegativePrompt,
+  normalizePositiveConstraints,
+  scorePrompt,
 } = require('./prompt-engine-kernel')
 
 const PROMPT_ENGINE_PLATFORMS = Object.freeze(new Set([
@@ -44,6 +48,22 @@ const PROMPT_ENGINE_PLATFORM_ALIASES = Object.freeze({
 })
 
 const DEFAULT_PROMPT_ENGINE_PLATFORM = 'generic'
+
+/**
+ * context 白名单键（对齐外部 prompt_engine/optimizer.py _warn_unknown_context_keys 已知 7 键；
+ * 未知键忽略并记录 warning，不改变优化行为；敏感凭据键由 assertNoSensitiveContext 前置拦截。
+ */
+const PROMPT_ENGINE_CONTEXT_KEYS = Object.freeze(new Set([
+  'synopsis', 'character', 'setting', 'character_list',
+  'narrative_intent', 'scene_type', 'full_text',
+]))
+
+/**
+ * 技术底座基线片段（Higgsfield《Hell Grind》语料实证：12 行技术底座标记出现率 90%+，
+ * 写实/摄影/灯光/色彩比例/皮肤细节/物理/禁文字段）。
+ * ≤200 字符；默认拼入 prompt 后置（受 promptMax 截断保护），可显式关闭（options.quality_baseline=false）。
+ */
+const IMAGE_QUALITY_BASELINE = 'Photoreal, cinematic lighting, natural light, color ratio 60:30:10, detailed skin texture, physical accuracy, no text, no watermark, no logo'
 
 /**
  * 归一化 prompt-engine 平台值；未知值回退默认（generic）。图片领域专属。
@@ -94,11 +114,26 @@ function buildPromptEngineOptimizeRequest(prompt, options = {}) {
     ? Boolean(options.auto_detect_style)
     : (options.autoDetectStyle !== undefined ? Boolean(options.autoDetectStyle) : true)
 
+  const creativeLevel = normalizeCreativeLevel(options.creative_level ?? options.creativeLevel)
+
+  // 技术底座基线：默认拼入 prompt 后置（Higgsfield 实证），可显式关闭实现零回归
+  let promptText = String(prompt || '')
+  if (options.quality_baseline !== false) {
+    promptText = promptText.trim() ? promptText.trim() + ' ' + IMAGE_QUALITY_BASELINE : IMAGE_QUALITY_BASELINE
+  }
+
   const request = {
-    prompt: String(prompt || '').slice(0, PROMPT_ENGINE_LIMITS.promptMax),
+    prompt: promptText.slice(0, PROMPT_ENGINE_LIMITS.promptMax),
     platform: normalizePromptEnginePlatform(options.platform),
-    creative_level: normalizeCreativeLevel(options.creative_level ?? options.creativeLevel),
-    max_length: normalizeMaxLength(options.max_length ?? options.maxLength),
+    creative_level: creativeLevel,
+    // 精修层长度层级：显式传值收敛 [50,2000]；未显式且 creativeLevel≥7 → 精修层默认（对齐 8013 能力上限）
+    max_length: resolveTieredMaxLength(
+      options.max_length !== undefined ? options.max_length : options.maxLength,
+      creativeLevel,
+      PROMPT_ENGINE_LIMITS.maxLength,
+      PROMPT_ENGINE_LIMITS.maxLength.default,
+      PROMPT_ENGINE_LIMITS.maxLength.max,
+    ),
     num_candidates: normalizeNumCandidates(options.num_candidates ?? options.numCandidates),
     auto_detect_style: autoDetectStyle,
   }
@@ -109,16 +144,30 @@ function buildPromptEngineOptimizeRequest(prompt, options = {}) {
     request.style = DEFAULT_PROMPT_ENGINE_STYLE
   }
 
-  const negativePrompt = typeof options.negative_prompt === 'string' && options.negative_prompt.trim()
-    ? options.negative_prompt.trim().slice(0, PROMPT_ENGINE_LIMITS.negativePromptMax)
-    : ''
-  if (negativePrompt) request.negative_prompt = negativePrompt
+  // plausible-only 负面词过滤：只保留真实失败类别，清理裸绝对否定词
+  // （图片侧保持现状：无内置 no-text 合并；外部 8013 图片策略自带 no-text 指令）
+  const negativePrompt = filterPlausibleNegativePrompt(
+    typeof options.negative_prompt === 'string' ? options.negative_prompt : '',
+  )
+  if (negativePrompt) request.negative_prompt = negativePrompt.slice(0, PROMPT_ENGINE_LIMITS.negativePromptMax)
 
   const context = options.context
   if (context !== undefined && context !== null && context !== '') {
     // context 会发给外部服务：对象型上下文必须先过敏感凭据键拦截（防 api_key/token 外发）
-    if (typeof context === 'object') assertNoSensitiveContext(context, 'optimize.context')
-    request.context = typeof context === 'string' ? { synopsis: context } : context
+    if (typeof context === 'object') {
+      assertNoSensitiveContext(context, 'optimize.context')
+      // 白名单过滤：只透传 7 个已知键（synopsis/character/setting/character_list/
+      // narrative_intent/scene_type/full_text，对齐外部 _warn_unknown_context_keys），未知键忽略 + warning
+      const warn = typeof options.warn === 'function' ? options.warn : () => {}
+      const allowedContext = {}
+      for (const key of Object.keys(context)) {
+        if (PROMPT_ENGINE_CONTEXT_KEYS.has(key)) allowedContext[key] = context[key]
+        else warn('optimize.context 忽略未知键: ' + key)
+      }
+      if (Object.keys(allowedContext).length > 0) request.context = allowedContext
+    } else {
+      request.context = { synopsis: String(context) }
+    }
   }
 
   return request
@@ -141,7 +190,37 @@ function extractOptimizedPrompt(result, opts = {}) {
     meta.detected_categories = result.detected_categories
   }
   if (Array.isArray(result.candidates)) meta.candidates = result.candidates
+  // 正向约束 meta 透传（本图"必须如此"硬约束）：数组透传/字符串拆分/上限 10/非字符串丢弃；缺省零拒绝
+  if (result.positive_constraints !== undefined && result.positive_constraints !== null) {
+    const constraints = normalizePositiveConstraints(result.positive_constraints)
+    if (constraints.length > 0) meta.positive_constraints = constraints
+  }
   return { ok: true, prompt: base.prompt, meta, truncated: base.truncated }
+}
+
+/**
+ * 多候选规则评估择优：scorePrompt 四维评分（长度/六要素/保真/构图），
+ * tie-break 保留最长候选（对齐既有「最长即最优」兜底，评分含长度分量）。
+ * 未启用择优的既有路径（candidates 长度 ≤1 或非数组）返回 null，行为零回归。
+ *
+ * @param {unknown} candidates - 外部引擎多候选数组（num_candidates>1 时返回）
+ * @param {string} [sourcePrompt] - 原始输入，用于保真维度评分
+ * @returns {{ prompt: string, score: number } | null}
+ */
+function selectBestCandidate(candidates, sourcePrompt) {
+  if (!Array.isArray(candidates)) return null
+  const valid = candidates.filter(candidate => typeof candidate === 'string' && candidate.trim())
+  if (valid.length === 0) return null
+  let best = valid[0]
+  let bestScore = scorePrompt(best, { sourcePrompt })
+  for (const candidate of valid.slice(1)) {
+    const score = scorePrompt(candidate, { sourcePrompt })
+    if (score > bestScore || (score === bestScore && candidate.length > best.length)) {
+      best = candidate
+      bestScore = score
+    }
+  }
+  return { prompt: best, score: bestScore }
 }
 
 module.exports = {
@@ -154,4 +233,7 @@ module.exports = {
   normalizePromptEnginePlatform,
   buildPromptEngineOptimizeRequest,
   extractOptimizedPrompt,
+  PROMPT_ENGINE_CONTEXT_KEYS,
+  IMAGE_QUALITY_BASELINE,
+  selectBestCandidate,
 }
