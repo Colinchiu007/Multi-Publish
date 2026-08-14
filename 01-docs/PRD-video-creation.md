@@ -1584,7 +1584,7 @@ SettingsDialog 关闭（App.vue @close）
 ### 3.1.24 水印功能修复与选项扩展（2026-08-14）
 
 > 需求来源：用户反馈「全能创作水印功能没生效，输入框填写了文字，但最终视频没有水印」，并要求新增透明度、字号、位置（含移动）选项。
-> 机制合同：`openspec/changes/watermark-options/specs/story2video-watermark/spec.md`；实现 PR #？；测试：`story2video-compose-engine.test.js`（buildWatermarkFilter 契约 10 项）、`story2video-text-config.test.js`（位置枚举 fail-closed 4 项）、`CreateView.test.js`（恢复吸附 + 提交透传 3 项）、`pipeline-story2video-contract.test.js`（18 项）、真实 ffmpeg 渲染帧级验证。
+> 机制合同：`openspec/changes/watermark-options/specs/story2video-watermark/spec.md`；实现 PR #792（边距调远见 PR #794）；测试：`story2video-compose-engine.test.js`（buildWatermarkFilter 契约 10 项）、`story2video-text-config.test.js`（位置枚举 fail-closed 4 项）、`CreateView.test.js`（恢复吸附 + 提交透传 3 项）、`pipeline-story2video-contract.test.js`（18 项）、真实 ffmpeg 渲染帧级验证。
 
 **缺陷根因（QM-5 复盘）**：`buildWatermarkFilter`（`apps/desktop/electron/services/story2video-compose-engine.js`）坐标表达式错误。drawtext 的 `x/y` 是文字**左上角**坐标，而旧实现 bottom-* 用 `y=h-20`（基线贴底，文字主体在画面外）、center 用 `y=(h+text_h)/2`（把文字底部压到中线以下，`text_h` 语义错配），导致所有 bottom-* 与 center 位置的水印文字整体画出画布，成片无可见水印。该逻辑自 commit `e1b46eba0`（2026-07-23）引入；保存链路（UI 提交 → 快照持久化 → normalizer → compose 参数）经验证无断点，属渲染层坐标缺陷。逃逸链：既有单测只断言 top-left 位置 filter 存在，未断言 bottom-right/center 的坐标数值，坐标 bug 未被拦截。
 
