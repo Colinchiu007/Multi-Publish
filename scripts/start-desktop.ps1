@@ -15,7 +15,7 @@
   目标 worktree 绝对路径；默认 = 本脚本所在仓库根。
 
 .PARAMETER Profile
-  ELECTRON_USER_DATA_DIR（默认 C:\tmp\Multi-Publish-debug-profile）。
+  ELECTRON_USER_DATA_DIR（默认 D:\tmp\Multi-Publish-debug-profile）。
 
 .PARAMETER NoSync
   跳过 git fetch + ff-only 同步。
@@ -41,7 +41,7 @@
 [CmdletBinding()]
 param(
   [string]$Worktree = '',
-  [string]$Profile = 'C:\tmp\Multi-Publish-debug-profile',
+  [string]$Profile = 'D:\tmp\Multi-Publish-debug-profile',
   [switch]$NoSync,
   [switch]$NoDepsCheck,
   [switch]$InvalidateViteCache,

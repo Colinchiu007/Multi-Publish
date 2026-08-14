@@ -1,15 +1,14 @@
 const { spawn } = require('child_process');
-const fs = require('fs');
 const http = require('http');
-const os = require('os');
 const path = require('path');
-const { buildElectronArgs } = require('./dev-launcher');
+const { buildElectronArgs, resolveUserDataDir } = require('./dev-launcher');
 
 const desktopDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopDir, '..', '..');
 const vitePort = 5174;
 const viteUrl = `http://127.0.0.1:${vitePort}`;
-const electronUserDataDir = process.env.ELECTRON_USER_DATA_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'multi-publish-electron-dev-'));
+// 默认固定 D 盘 profile（登录态/模型 key 持久化在同一 userData）；并发会话隔离请显式设 ELECTRON_USER_DATA_DIR
+const electronUserDataDir = resolveUserDataDir();
 const electronCacheDir = path.join(electronUserDataDir, 'cache');
 
 function spawnCommand(command, args, options = {}) {

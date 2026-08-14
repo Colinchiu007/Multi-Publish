@@ -27,4 +27,22 @@ function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, 
   ]
 }
 
-module.exports = { buildElectronArgs }
+/**
+ * 开发模式默认 userData 目录（固定 D 盘，避免 C 盘空间占用）。
+ * 登录态（identity-session.json）与模型 key（multi-publish.db）都按 userData 隔离，
+ * 固定默认目录可杜绝「随机临时目录 → 数据像丢失」的启动问题。
+ */
+const DEFAULT_USER_DATA_DIR = 'D:\\tmp\\Multi-Publish-debug-profile'
+
+/**
+ * 解析开发模式 userData 目录。
+ * 显式设置 ELECTRON_USER_DATA_DIR 时优先（start-desktop.ps1 指定 profile / 并发会话隔离），
+ * 否则使用固定默认 profile。
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string}
+ */
+function resolveUserDataDir(env = process.env) {
+  return env.ELECTRON_USER_DATA_DIR || DEFAULT_USER_DATA_DIR
+}
+
+module.exports = { buildElectronArgs, resolveUserDataDir, DEFAULT_USER_DATA_DIR }
