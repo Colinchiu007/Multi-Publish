@@ -9,7 +9,7 @@
  *     各自契约文件：prompt-engine-contract.js（图片）/ video-prompt-engine-contract.js（视频）。
  *   - ⚠️ max_length 归属：PROMPT_ENGINE_LIMITS.maxLength 是图片/8013 兼容语义
  *     （min 50 / max 2000 / default 500），视频契约禁止借用，必须使用
- *     VIDEO_ENGINE_LIMITS.videoMaxLengthRanges（legacy [50,2000] / standalone [200,5000]）。
+ *     VIDEO_ENGINE_LIMITS.videoMaxLengthRanges（legacy [50,2000] / standalone [200,20000]，2026-08-14 边界上浮）。
  */
 'use strict'
 
@@ -30,7 +30,7 @@ const DEFAULT_PROMPT_ENGINE_STYLE = 'realistic'
 /**
  * 领域中立请求边界（图片/视频共用）。
  * ⚠️ maxLength 为图片/8013 兼容语义（[50, 2000]），视频契约禁止借用：
- * 视频使用 VIDEO_ENGINE_LIMITS.videoMaxLengthRanges（8020 standalone [200, 5000]）。
+ * 视频使用 VIDEO_ENGINE_LIMITS.videoMaxLengthRanges（8020 standalone [200, 20000]，2026-08-14 边界上浮）。
  */
 const PROMPT_ENGINE_LIMITS = Object.freeze({
   promptMax: 2000,
