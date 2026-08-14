@@ -1,12 +1,12 @@
 {
   "id": "video-prompt-higgsfield-mechanics",
   "title": "视频提示词导演工作流契约（Higgsfield 机制落地 P0）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "backend",
-  "currentPhase": "review",
-  "nextAction": "双模型评审完成：1C+6W+9I 全部处理，strict validate 通过；待 apply 或用户确认",
+  "currentPhase": "completed",
+  "nextAction": "契约层 17 项已合入 main（PR #805 squash 9894fec2）；引擎侧 P0 已合入（PR #35 + #37）；边界修订闭环；4.4 联调验收全 PASS",
   "createdAt": "2026-08-14T01:30:00Z",
   "branch": "codex/video-prompt-higgsfield-mechanics",
   "openspecChange": "video-prompt-higgsfield-mechanics"
