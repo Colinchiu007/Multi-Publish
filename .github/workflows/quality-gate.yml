@@ -36,6 +36,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -96,6 +98,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -203,6 +207,8 @@ jobs:
         shard: ["1/2", "2/2"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -290,6 +296,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -315,6 +323,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -435,6 +445,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -525,6 +537,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
