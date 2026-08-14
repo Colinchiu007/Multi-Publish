@@ -38,6 +38,10 @@ export function getPromptEvalSummary() {
   return api.get('/prompt-eval/summary').then(r => r.data)
 }
 
+export function getPromptEvalEngineStatus() {
+  return api.get('/prompt-eval/engine/status').then(r => r.data)
+}
+
 export function listPromptEvalProviders() {
   return api.get('/prompt-eval/providers').then(r => r.data)
 }

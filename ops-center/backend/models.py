@@ -489,6 +489,8 @@ class PromptEvalCase(Base):
     model = Column(String(128), nullable=False)
     image_count = Column(Integer, default=1)
     aspect_ratio = Column(String(16), default="1:1")
+    compare_mode = Column(String(16), default="single")  # single / dual（双路对比：人工 vs 引擎优化）
+    engine_params = Column(Text, nullable=True)  # JSON：{creative_level, num_candidates, excluded_characters, no_swap_pairs}（dual 用，v1 默认空）
     created_by = Column(String(100), default="")
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
@@ -515,6 +517,11 @@ class PromptEvalRun(Base):
     problems = Column(Text, nullable=True)  # JSON
     optimization_points = Column(Text, nullable=True)  # JSON
     error = Column(Text, nullable=True)  # 阶段 + 原因
+    prompt_variant = Column(String(16), default="manual")  # manual / engine（双路对比变体）
+    prompt_source_zh = Column(Text, nullable=True)  # A 路（manual 原版 prompt_zh）快照，对比用
+    engine_meta = Column(Text, nullable=True)  # JSON：pair_id/creative_level/num_candidates/max_length/模型/耗时
+    prompt_zh = Column(Text, nullable=True)  # 变体 prompt_zh 快照（engine 变体填充；manual 为空则回退 case）
+    prompt_en = Column(Text, nullable=True)  # 变体 prompt_en 快照（engine 变体填充）
     created_by = Column(String(100), default="")
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     completed_at = Column(String, nullable=True)

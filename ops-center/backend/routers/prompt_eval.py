@@ -13,6 +13,7 @@ from fastapi import Query
 from database import async_session, get_db
 from middleware.auth import get_current_user, require_admin
 from services import prompt_eval_service as service
+from services import prompt_eval_engine_client as engine_client
 
 router = APIRouter(prefix="/api/v1/prompt-eval", tags=["prompt-eval"])
 
@@ -86,10 +87,23 @@ async def create_run(case_id: int, db: AsyncSession = Depends(get_db), user: dic
     vision_cfg = await _vision_cfg(db)
     if vision_cfg is None:
         raise HTTPException(502, "未配置视觉评估模型密钥：请在「模型密钥」添加 minimax-vision 或设置 OPS_PROMPT_EVAL_VISION_API_KEY")
-    run = await service.create_run(db, row, user.get("username") or user.get("sub") or "unknown")
+    username = user.get("username") or user.get("sub") or "unknown"
+    dual = row.compare_mode == "dual"
+    engine_ctx = {"base_url": engine_client.engine_base_url()} if dual else None
+    translate_cfg = await _llm_cfg(db) if dual else None
+    created = await service.create_run(db, row, username, engine_ctx=engine_ctx, translate_cfg=translate_cfg)
     eval_cfg = vision_cfg
-    service.start_run_pipeline(async_session, run["id"], row, gen_cfg, eval_cfg)
-    return run
+    if dual:
+        # dual：manual 与 engine 变体各自独立起流水线（快照按变体取），任一变体失败不影响另一变体
+        run_ids = [created["manual"]["id"]]
+        if created.get("engine"):
+            run_ids.append(created["engine"]["id"])
+        for run_id in run_ids:
+            run_row = await service.get_run(db, run_id)
+            service.start_run_pipeline(async_session, run_id, service.variant_snapshot(run_row, row), gen_cfg, eval_cfg)
+        return created
+    service.start_run_pipeline(async_session, created["id"], row, gen_cfg, eval_cfg)
+    return created
 
 
 @router.get("/cases/{case_id}/runs")
@@ -190,6 +204,20 @@ async def delete_case(case_id: int, db: AsyncSession = Depends(get_db), user: di
 @router.get("/summary")
 async def summary(db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     return await service.summary(db)
+
+
+@router.get("/engine/status")
+async def engine_status(db: AsyncSession = Depends(get_db), user: dict = Depends(require_admin)):
+    """引擎连通性探测（admin）：仅 /health，不消耗引擎 LLM 配额。"""
+    base_url = engine_client.engine_base_url()
+    try:
+        info = await engine_client.health(base_url)
+    except engine_client.EngineUnavailableError as e:
+        raise HTTPException(
+            503,
+            f"OPS_PROMPT_EVAL_ENGINE_UNAVAILABLE: {e}（base_url={base_url}，请检查 OPS_PROMPT_ENGINE_BASE_URL 与引擎服务）",
+        )
+    return {"ok": True, "base_url": base_url, "latency_ms": info["latency_ms"]}
 
 
 @router.get("/media/{name}")
