@@ -473,9 +473,56 @@ describe('Story2VideoProjectService', () => {
     expect(fs.existsSync(updated.segments[0].imagePath)).toBe(true)
     expect(fs.existsSync(updated.segments[0].videoPath)).toBe(true)
     expect(fs.existsSync(oldOutput)).toBe(false)
-    expect(fs.existsSync(oldImage)).toBe(false)
+    // 图1 槽位回填项目原值（compose 回显副本仅用于渲染映射），旧图不再删除而是继续作为候选素材（审查 C1 语义）
+    expect(updated.segments[0].imagePath).toBe(oldImage)
+    expect(fs.existsSync(oldImage)).toBe(true)
     expect(fs.existsSync(removedImage)).toBe(false)
     expect(fs.existsSync(removedVideo)).toBe(false)
+    // compose 回显的图片副本（segment_0000_image.png）回填后被清理，不残留孤儿文件
+    expect(fs.existsSync(path.join(projectDir, 'segment_0000_image.png'))).toBe(false)
+  })
+
+  it('image2 选中态再次合成：图1/图2 槽保持原状，不被 compose 回显污染删除（审查 C1 回归）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-recompose-image2')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const image2 = writeFile(path.join(projectDir, 'image2.png'), 'img2')
+    const audio = writeFile(path.join(projectDir, 'voice.mp3'), 'voice')
+    const newOutput = writeFile(path.join(root, 'new-output.mp4'), 'new-output')
+    const newSegmentVideo = writeFile(path.join(root, 'new-segment.mp4'), 'new-segment')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      composeEngine: {
+        // 模拟引擎行为：compose 输出回显 _scenesForCompose 传入的 imagePath（image2 选中 → 图2 路径）
+        compose: vi.fn(async () => ({
+          code: 0,
+          data: {
+            videoPath: newOutput,
+            segments: [{ id: 'segment-0', index: 0, imagePath: image2, audioPath: audio, videoPath: newSegmentVideo }],
+          },
+        })),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-recompose-image2', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: 'A', prompt: 'PA',
+        imagePath: image1, alternateImages: [{ path: image2 }], audioPath: audio,
+        selectedMaterial: 'image2', status: 'completed',
+      }],
+    }])
+
+    const updated = await service.recomposeProject('project-recompose-image2')
+
+    expect(updated.segments[0].imagePath).toBe(image1)
+    expect(updated.segments[0].alternateImages[0].path).toBe(image2)
+    expect(updated.segments[0].selectedMaterial).toBe('image2')
+    expect(updated.segments[0].videoPath).not.toBe(newSegmentVideo)
+    expect(fs.existsSync(updated.segments[0].videoPath)).toBe(true)
+    expect(fs.existsSync(image1)).toBe(true)
+    expect(fs.existsSync(image2)).toBe(true)
   })
 
   it('清理项目媒体时不会跟随目录连接删除目录外文件', () => {
@@ -734,6 +781,437 @@ describe('Story2VideoProjectService', () => {
     expect(fs.existsSync(project.videoPath)).toBe(true)
     expect(fs.existsSync(project.audioPath)).toBe(true)
     expect(project.segments).toHaveLength(1)
+    expect(fs.existsSync(project.segments[0].videoPath)).toBe(true)
+  })
+
+  it('生成场景新图：只有图1 时补图2 槽且不改变选中态', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-image-slot-1')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const audio = writeFile(path.join(projectDir, 'voice.mp3'), 'voice')
+    const generated = writeFile(path.join(root, 'generated.png'), 'generated')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateImage: vi.fn(async () => ({ code: 0, data: { path: generated } })),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-image-slot-1', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: 'A', prompt: 'PA', imagePath: image1, audioPath: audio }],
+    }])
+
+    const updated = await service.generateSceneImage('project-image-slot-1', 'segment-0')
+
+    expect(updated.segments[0].imagePath).toBe(image1)
+    expect(updated.segments[0].alternateImages).toHaveLength(1)
+    expect(fs.existsSync(updated.segments[0].alternateImages[0].path)).toBe(true)
+    expect(updated.segments[0].alternateImages[0].path).not.toBe(image1)
+    expect(updated.segments[0].selectedMaterial).toBeUndefined()
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({ index: 0 }))
+  })
+
+  it('生成场景新图：图1 被选中时替换图2 槽', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-image-slot-2')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const image2 = writeFile(path.join(projectDir, 'image2.png'), 'img2')
+    const generated = writeFile(path.join(root, 'generated.png'), 'generated')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateImage: vi.fn(async () => ({ code: 0, data: { path: generated } })),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-image-slot-2', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: 'A', prompt: 'PA',
+        imagePath: image1, alternateImages: [{ path: image2 }], selectedMaterial: 'image1',
+      }],
+    }])
+
+    const updated = await service.generateSceneImage('project-image-slot-2', 'segment-0')
+
+    expect(updated.segments[0].imagePath).toBe(image1)
+    expect(fs.existsSync(updated.segments[0].alternateImages[0].path)).toBe(true)
+    expect(updated.segments[0].alternateImages[0].path).not.toBe(image2)
+    expect(updated.segments[0].selectedMaterial).toBe('image1')
+    expect(fs.existsSync(image2)).toBe(false)
+  })
+
+  it('生成场景新图：图2 被选中时替换图1', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-image-slot-3')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const image2 = writeFile(path.join(projectDir, 'image2.png'), 'img2')
+    const generated = writeFile(path.join(root, 'generated.png'), 'generated')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateImage: vi.fn(async () => ({ code: 0, data: { path: generated } })),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-image-slot-3', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: 'A', prompt: 'PA',
+        imagePath: image1, alternateImages: [{ path: image2 }], selectedMaterial: 'image2',
+      }],
+    }])
+
+    const updated = await service.generateSceneImage('project-image-slot-3', 'segment-0')
+
+    expect(fs.existsSync(updated.segments[0].imagePath)).toBe(true)
+    expect(updated.segments[0].imagePath).not.toBe(image1)
+    expect(updated.segments[0].alternateImages[0].path).toBe(image2)
+    expect(fs.existsSync(image1)).toBe(false)
+  })
+
+  it('生成场景新图失败时回滚旧素材并清理本次产物', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-image-slot-fail')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'old-image')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateImage: vi.fn(async () => { throw new Error('图片生成失败') }),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-image-slot-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: 'A', prompt: 'PA', imagePath: image1 }],
+    }])
+
+    await expect(service.generateSceneImage('project-image-slot-fail', 'segment-0')).rejects.toThrow('图片生成失败')
+
+    const failed = service.getProject('project-image-slot-fail')
+    expect(failed.segments[0]).toMatchObject({ imagePath: image1, status: 'failed', error: '图片生成失败' })
+    expect(failed.segments[0].alternateImages).toBeUndefined()
+    expect(fs.existsSync(image1)).toBe(true)
+    expect(fs.readdirSync(projectDir).some(name => name.includes('_image_gen_'))).toBe(false)
+  })
+
+  it('生成场景视频：用当前选中图片渲染并替换视频槽', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-video-render')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const image2 = writeFile(path.join(projectDir, 'image2.png'), 'img2')
+    const audio = writeFile(path.join(projectDir, 'voice.mp3'), 'voice')
+    let renderedScene
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      composeEngine: {
+        renderSegment: vi.fn(async (scene, _options, destination) => {
+          renderedScene = scene
+          writeFile(destination, 'video')
+          return { code: 0, data: { videoPath: destination, duration: 3 } }
+        }),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-video-render', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: 'A', prompt: 'PA',
+        imagePath: image1, alternateImages: [{ path: image2 }], audioPath: audio, selectedMaterial: 'image2',
+      }],
+    }])
+
+    const updated = await service.generateSceneVideo('project-video-render', 'segment-0')
+
+    expect(updated.segments[0].videoPath).toBeTruthy()
+    expect(fs.existsSync(updated.segments[0].videoPath)).toBe(true)
+    expect(updated.segments[0].duration).toBe(3)
+    expect(renderedScene.imagePath).toBe(image2)
+    expect(renderedScene.videoPath).toBeNull()
+    expect(service.composeEngine.renderSegment).toHaveBeenCalledTimes(1)
+  })
+
+  it('生成场景视频缺少旁白音频时报错且不写失败状态', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    service._writeProjects([{
+      projectId: 'project-video-no-audio', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: 'A', imagePath: path.join(root, 'image1.png'), status: 'completed' }],
+    }])
+
+    await expect(service.generateSceneVideo('project-video-no-audio', 'segment-0')).rejects.toThrow('该场景没有旁白音频')
+
+    const unchanged = service.getProject('project-video-no-audio')
+    expect(unchanged.segments[0].status).toBe('completed')
+  })
+
+  it('生成场景视频失败时保留旧视频并回写失败状态', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-video-fail')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const audio = writeFile(path.join(projectDir, 'voice.mp3'), 'voice')
+    const oldVideo = writeFile(path.join(projectDir, 'old.mp4'), 'old-video')
+    let failedDestination
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      composeEngine: {
+        renderSegment: vi.fn(async (_scene, _options, destination) => {
+          failedDestination = destination
+          writeFile(destination, 'partial')
+          return { code: 1, message: '渲染失败' }
+        }),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-video-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: 'A', imagePath: image1, audioPath: audio, videoPath: oldVideo }],
+    }])
+
+    await expect(service.generateSceneVideo('project-video-fail', 'segment-0')).rejects.toThrow('渲染失败')
+
+    const failed = service.getProject('project-video-fail')
+    expect(failed.segments[0]).toMatchObject({ videoPath: oldVideo, status: 'failed', error: '渲染失败' })
+    expect(fs.existsSync(oldVideo)).toBe(true)
+    expect(fs.existsSync(failedDestination)).toBe(false)
+    expect(fs.readdirSync(projectDir).some(name => name.includes('_video_render_'))).toBe(false)
+  })
+
+  it('选择场景素材校验非法类型与空槽，成功后持久化选中态', () => {
+    const projectRoot = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    service._writeProjects([{
+      projectId: 'project-select', status: 'completed', options: {},
+      segments: [
+        { id: 'segment-0', index: 0, imagePath: path.join(projectRoot, 'image1.png') },
+        { id: 'segment-1', index: 1, imagePath: path.join(projectRoot, 'image1.png'), videoPath: path.join(projectRoot, 'v.mp4') },
+      ],
+    }])
+
+    expect(() => service.selectSceneMaterial('project-select', 'segment-0', 'unsupported')).toThrow('素材类型无效')
+    expect(() => service.selectSceneMaterial('project-select', 'segment-0', 'image2')).toThrow('该素材槽位暂无素材')
+    expect(() => service.selectSceneMaterial('project-select', 'segment-0', 'video')).toThrow('该素材槽位暂无素材')
+    expect(() => service.selectSceneMaterial('project-select', 'missing', 'image1')).toThrow('分段不存在')
+
+    const saved = service.selectSceneMaterial('project-select', 'segment-1', 'video')
+    expect(saved.segments[1].selectedMaterial).toBe('video')
+    expect(saved.dirty).toBe(true)
+    expect(service.getProject('project-select').segments[1].selectedMaterial).toBe('video')
+  })
+
+  it('按选中态映射 compose 输入（video/image1/image2/缺失 四态）', () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    const segments = [
+      { id: 's0', imagePath: 'img1.png', alternateImages: [{ path: 'img2.png' }], videoPath: 'v0.mp4', selectedMaterial: 'video' },
+      { id: 's1', imagePath: 'img1.png', alternateImages: [{ path: 'img2.png' }], videoPath: 'v1.mp4', selectedMaterial: 'image1' },
+      { id: 's2', imagePath: 'img1.png', alternateImages: [{ path: 'img2.png' }], videoPath: 'v2.mp4', selectedMaterial: 'image2' },
+      { id: 's3', imagePath: 'img1.png', alternateImages: [{ path: 'img2.png' }], videoPath: 'v3.mp4' },
+    ]
+
+    const scenes = service._scenesForCompose(segments)
+
+    expect(scenes[0]).toMatchObject({ imagePath: 'img1.png', videoPath: 'v0.mp4' })
+    expect(scenes[1]).toMatchObject({ imagePath: 'img1.png', videoPath: null })
+    expect(scenes[2]).toMatchObject({ imagePath: 'img2.png', videoPath: null })
+    expect(scenes[3]).toMatchObject({ imagePath: 'img1.png', videoPath: 'v3.mp4' })
+  })
+
+  it('manual 完成运行持久化未选素材（图2 备选、未选视频、选中态）', () => {
+    const source = path.join(root, 'manual-source')
+    const imageA = writeFile(path.join(source, 'image-a.png'))
+    const imageB = writeFile(path.join(source, 'image-b.png'))
+    const video = writeFile(path.join(source, 'candidate.mp4'))
+    const audio = writeFile(path.join(source, 'audio.mp3'))
+    const output = writeFile(path.join(source, 'output.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_manual_1',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      createdAt: '2026-08-14T00:00:00.000Z',
+      params: { text: '第一段', creationMode: 'manual' },
+      context: {
+        generate_assets: {
+          materialMode: 'all-images',
+          creationMode: 'manual',
+          candidates: [{
+            index: 0,
+            text: '第一段',
+            prompt: '画面',
+            candidates: [
+              { id: 'image-1', kind: 'image', path: imageA, meta: { source: 'model-provider' } },
+              { id: 'image-2', kind: 'image', path: imageB, meta: { source: 'model-provider' } },
+              { id: 'video-2', kind: 'video', path: video, meta: { source: 'video-provider' } },
+            ],
+          }],
+          selection: { selections: [{ index: 0, candidateId: 'image-1' }] },
+          scenes: [{
+            index: 0, text: '第一段', prompt: '画面', imagePath: imageA, audioPath: audio,
+          }],
+        },
+        compose: {
+          videoPath: output,
+          audioPath: audio,
+          segments: [{
+            index: 0, text: '第一段', prompt: '画面', imagePath: imageA, audioPath: audio,
+            duration: 2,
+          }],
+        },
+      },
+    })
+
+    expect(project.segments).toHaveLength(1)
+    expect(project.segments[0].selectedMaterial).toBe('image1')
+    expect(fs.existsSync(project.segments[0].alternateImages[0].path)).toBe(true)
+    expect(project.segments[0].alternateImages[0].path).not.toBe(imageB)
+    expect(fs.existsSync(project.segments[0].videoPath)).toBe(true)
+  })
+
+  it('备选图片纳入项目文件引用清理（不被误删）', () => {
+    const projectRoot = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = service._projectDir('project-alt-cleanup')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const alt1 = writeFile(path.join(projectDir, 'alt1.png'), 'alt1')
+    const alt2 = writeFile(path.join(projectDir, 'alt2.png'), 'alt2')
+
+    const cleaned = service._cleanupUnreferencedProjectFiles(
+      'project-alt-cleanup',
+      { projectId: 'project-alt-cleanup', segments: [{ imagePath: image1, alternateImages: [{ path: alt1 }] }] },
+      { projectId: 'project-alt-cleanup', segments: [{ imagePath: image1, alternateImages: [{ path: alt2 }] }] },
+    )
+
+    expect(cleaned).toBe(1)
+    expect(fs.existsSync(image1)).toBe(true)
+    expect(fs.existsSync(alt2)).toBe(true)
+    expect(fs.existsSync(alt1)).toBe(false)
+  })
+
+  it('生成场景视频：图1 选中与未选（legacy）时都用图1 渲染', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      composeEngine: {
+        renderSegment: vi.fn(async (_scene, _options, destination) => {
+          writeFile(destination, 'video')
+          return { code: 0, data: { videoPath: destination, duration: 2 } }
+        }),
+      },
+    })
+    const projectDir = service._projectDir('project-video-legacy')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const audio = writeFile(path.join(projectDir, 'voice.mp3'), 'voice')
+    service._writeProjects([{
+      projectId: 'project-video-legacy', status: 'completed', options: {},
+      segments: [
+        { id: 's0', index: 0, imagePath: image1, audioPath: audio, selectedMaterial: 'image1' },
+        { id: 's1', index: 1, imagePath: image1, audioPath: audio },
+      ],
+    }])
+
+    await service.generateSceneVideo('project-video-legacy', 's0')
+    await service.generateSceneVideo('project-video-legacy', 's1')
+
+    const scenes = service.composeEngine.renderSegment.mock.calls.map(call => call[0])
+    expect(scenes[0].imagePath).toBe(image1)
+    expect(scenes[1].imagePath).toBe(image1)
+    expect(service.getProject('project-video-legacy').segments[0].videoPath).toBeTruthy()
+    expect(service.getProject('project-video-legacy').segments[1].videoPath).toBeTruthy()
+  })
+
+  it('生成场景新图失败时保留已有备选图并清理本次产物', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-image-fail-alt')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const image2 = writeFile(path.join(projectDir, 'image2.png'), 'img2')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateImage: vi.fn(async () => { throw new Error('生成服务超时') }),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-image-fail-alt', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: 'A', prompt: 'PA',
+        imagePath: image1, alternateImages: [{ path: image2 }], selectedMaterial: 'image1',
+      }],
+    }])
+
+    await expect(service.generateSceneImage('project-image-fail-alt', 'segment-0')).rejects.toThrow('生成服务超时')
+
+    const failed = service.getProject('project-image-fail-alt')
+    expect(failed.segments[0]).toMatchObject({ imagePath: image1, status: 'failed' })
+    expect(failed.segments[0].alternateImages[0].path).toBe(image2)
+    expect(fs.existsSync(image1)).toBe(true)
+    expect(fs.existsSync(image2)).toBe(true)
+    expect(fs.readdirSync(projectDir).some(name => name.includes('_image_gen_'))).toBe(false)
+  })
+
+  it('manual 完成运行选视频时补图1/图2 槽并置 selectedMaterial=video', () => {
+    const source = path.join(root, 'manual-video-source')
+    const imageA = writeFile(path.join(source, 'image-a.png'))
+    const imageB = writeFile(path.join(source, 'image-b.png'))
+    const video = writeFile(path.join(source, 'candidate.mp4'))
+    const audio = writeFile(path.join(source, 'audio.mp3'))
+    const output = writeFile(path.join(source, 'output.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_manual_video_1',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      createdAt: '2026-08-14T00:00:00.000Z',
+      params: { text: '第一段', creationMode: 'manual' },
+      context: {
+        generate_assets: {
+          materialMode: 'all-images',
+          creationMode: 'manual',
+          candidates: [{
+            index: 0,
+            text: '第一段',
+            prompt: '画面',
+            candidates: [
+              { id: 'image-1', kind: 'image', path: imageA, meta: { source: 'model-provider' } },
+              { id: 'image-2', kind: 'image', path: imageB, meta: { source: 'model-provider' } },
+              { id: 'video-2', kind: 'video', path: video, meta: { source: 'video-provider' } },
+            ],
+          }],
+          selection: { selections: [{ index: 0, candidateId: 'video-2' }] },
+          scenes: [{
+            index: 0, text: '第一段', prompt: '画面', videoPath: video, audioPath: audio,
+          }],
+        },
+        compose: {
+          videoPath: output,
+          audioPath: audio,
+          segments: [{
+            index: 0, text: '第一段', prompt: '画面', videoPath: video, audioPath: audio,
+            duration: 2,
+          }],
+        },
+      },
+    })
+
+    expect(project.segments).toHaveLength(1)
+    expect(project.segments[0].selectedMaterial).toBe('video')
+    expect(project.segments[0].imagePath).toBeTruthy()
+    expect(fs.existsSync(project.segments[0].imagePath)).toBe(true)
+    expect(project.segments[0].imagePath).not.toBe(imageA)
+    expect(project.segments[0].alternateImages).toHaveLength(1)
+    expect(fs.existsSync(project.segments[0].alternateImages[0].path)).toBe(true)
+    expect(project.segments[0].videoPath).toBeTruthy()
     expect(fs.existsSync(project.segments[0].videoPath)).toBe(true)
   })
 })

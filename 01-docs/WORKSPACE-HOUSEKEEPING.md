@@ -19,7 +19,7 @@
 |------|------|---------|
 | `D:\Data\projects\mp-worktrees\mp-<task>` | 隔离 worktree（D 盘，2026-08-12 起） | 合并后立即回收（四同步第 3 步） |
 | `C:\tmp\multi-publish-tmp\<task>/` | 一次性调试产物/日志/临时 profile | 任务归档时连同删除 |
-| `C:\tmp\Multi-Publish-debug-profile` | **已登录调试 profile**（含登录态） | 永久保留，绝不删除 |
+| `D:\tmp\Multi-Publish-debug-profile` | **已登录调试 profile**（含登录态；2026-08-14 从 C 盘迁移至 D 盘） | 永久保留，绝不删除 |
 | `E:\Multi-Publish-builds\` | 打包/构建产物 | 旧版本构建（非当前 source）随版本归档清理 |
 | `E:\Multi-Publish-builds\main-<sha>-source` | 注册 worktree（构建源） | 保留 |
 

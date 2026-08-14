@@ -165,6 +165,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-13 | 视频创作首页卡片 UI：多列动态布局 + 内置静态背景 + 交互动效（方案 B） | `/create` 流水线选择视图容器放宽至 1600px + 显式 1-5 列断点；背景图由免费生图模型 Pollinations(flux) 一次性预生成 15 张（1024x576 JPEG，统一风格 + 主题意象）并提交仓库静态资源 `apps/desktop/src/assets/pipeline-card-bg/`；前端 `PipelineSelector` 直接引用静态映射，双层暗色遮罩 + 浅色前景保证可读性，渐变兜底 + 入场/悬停动效 + reduced-motion + ARIA；**彻底移除运行时生成链路**（主进程服务/IPC/preload/api/缓存/loopback 全部删除，不调用任何生成 API、不访问网络）。详见本节 3.1.24 | PRD 3.1.24 |
 
 | 2026-08-14 | 全能创作 BGM 素材库管理 | 背景音乐升级为设备级素材库：添加（自动入库 + 选中）/ 重命名 / 删除，下拉选择，历史路径兼容；主进程 `story2video-bgm-library` 服务 + 4 个 IPC 通道 + PUBLIC_CHANNELS；详见本节 3.1.25 | PRD 3.1.25 |
+| 2026-08-14 | 历史详情页场景多素材与再次合成 | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
 ---
@@ -1698,6 +1699,94 @@ SettingsDialog 关闭（App.vue @close）
 5. kit 任一文件损坏 → FILM_KIT_UNAVAILABLE + 前端错误空态；
 6. i18n zh/en 对称 + locale CI Gate 7 成对提交通过；
 7. 打包验证（QM-1）通过：film-kit 文件 glob 覆盖进 asar，加载不报错。
+### 3.1.26 历史详情页场景多素材选择与再次合成（2026-08-14）
+
+**需求**：「视频创作-全能创作-历史记录 → 任务详情页」每个场景最多展示并支持 3 个可选素材槽：**图1 / 图2（备选图）/ 视频（备选素材）**；新增按钮【生成新图】【生成视频】（生成更多素材供选择）与【再次合成视频】（用当前选定素材 + 已有 TTS 旁白/字幕/背景音乐重新合成成片）；流水线完成后即可从历史详情页继续生成、选择素材并重新合成。其余既有功能（分段编辑、替换旁白、重试、重新合成、导出等）保持不变。
+
+#### 1) 数据模型与槽位身份
+
+| 槽位 | 字段 | 说明 |
+|------|------|------|
+| 图1 | `segment.imagePath` | 既有主图，至少 1 张图 |
+| 图2 | `segment.alternateImages[0].path` | 备选图；服务端强制 `length ≤ 1`（只存一张备选）；`meta` 与 `imageMeta` 同结构 |
+| 视频 | `segment.videoPath` | 备选/当前分段视频 |
+| 选中态 | `segment.selectedMaterial: 'image1' \| 'image2' \| 'video'` | 可选；缺失时按遗留语义：有 `videoPath` 视为 video，否则 image1（UI 展示与合成映射一致） |
+
+- 槽位身份固定，**不支持交换/删除**；「生成新图」按规则替换具体槽位（见功能逻辑）。
+- 兼容旧项目：无 `selectedMaterial` 的旧分段自动沿用遗留语义，`_scenesForCompose` 不剥离旧 `videoPath`（2026-08-14 测试回捕：实现曾误置空导致旧项目再次合成丢视频，已修复）。
+
+#### 2) 数据校验（服务端 fail-closed）
+
+- `alternateImages`：仅接受数组、截断取 1 项；每项 `{ path, meta }`，`path` 必须为可解析媒体（图片白名单/受控目录），`meta` 走 `safeAssetMeta` 白名单字段；非法项整体丢弃。
+- `selectedMaterial`：白名单 `['image1','image2','video']`，非法值返回 null（沿用遗留语义）。
+- `selectSceneMaterial(projectId, segmentId, kind)`：`kind` 不在白名单 → 抛「素材类型无效」；分段不存在 → 「分段不存在」；目标槽为空 → 「该素材槽位暂无素材，请先生成素材」，不落库。
+- `generateSceneImage`：`assetGenerator.generateImage` 不可用 → 「图片生成服务不可用」；生成产物 `_copyRequired` 失败或结果无有效路径 → 失败回滚（回写 failed 状态、清理本次 attemptFiles，保留旧素材）。
+- `generateSceneVideo`：无 `audioPath` → 「该场景没有旁白音频，无法生成视频」（**不写失败状态**）；`composeEngine.renderSegment` 不可用 → 「视频合成服务不可用」；渲染失败 → 回写 failed、**保留旧视频**、清理本次产物；无选中图 → 「该场景没有可用的图片素材，请先生成图片」。
+- IPC 层：三个新通道 `story2video:generate-scene-image / generate-scene-video / select-scene-material` 均 `withSenderCheck` + `isSafeId`（projectId/segmentId）+ 参数类型校验，失败统一 `VALIDATION_ERROR`；license-access-control 均映射 `story2video_write`。
+
+#### 3) 流程
+
+```
+历史记录 → 点击任务 → 任务详情页（ResultView）
+  ├─ 场景素材区：3 槽位卡片（图1/图2/视频），当前使用槽高亮 + 徽标
+  ├─ 【生成新图】→ 主进程 generateSceneImage → 按槽位规则替换 → 返回最新项目 → 刷新缩略图 → 成功通知
+  ├─ 【生成视频】→ 主进程 generateSceneVideo → 以当前选中图片渲染新分段视频 → 替换 videoPath → 成功通知
+  ├─ 点击有素材槽位 → selectSceneMaterial → 持久化选中态 → 刷新 → 成功通知
+  ├─ 点击缩略图 → 预览弹窗（图片大图 / 视频播放器）
+  └─ 【再次合成视频】→ 复用 story2video:recompose-project（recomposeProject）→ 按选中态映射场景 → 整片重合成
+```
+
+#### 4) 功能逻辑（生成/选择/合成规则）
+
+- **生成新图槽位规则**（用户确认规则）：
+  1. 无备选图（只有图1）→ 补图2 槽，**不改变当前选中态**；
+  2. 已有备选图且当前选中图1 → 替换图2（图1 选中时换图2）；
+  3. 已有备选图且选中图2/视频/未选 → 替换图1（图1 未选中时换图1）。
+- **生成视频规则**：始终以「当前选中的图片」为画面（图2 选中用备选图，否则图1），显式剥离旧 `videoPath` 避免引擎复用旧视频；成功后替换 `videoPath`，**不自动改变选中态**；失败保留旧视频。
+- **合成映射 `_scenesForCompose`**（compose/renderSegment 引擎零改动）：`video` 选中 → 保留 videoPath；`image1`/`image2` 选中 → 传选中图片并置空 videoPath；无选中 → 遗留语义（videoPath 优先）。「再次合成视频」与既有「重新合成」共用此映射。
+- **manual 模式富化（saveRun）**：流水线 manual 分镜自选完成后，从 `context.generate_assets`（finalManifest candidates/selection）恢复未选素材：选图 → 未选中的另一张候选图复制为图2 槽 + `selectedMaterial='image1'`；选视频 → 两张候选图补图1/图2 + `selectedMaterial='video'`；未选视频但存在视频候选 → 补 videoPath；auto 模式无候选不富化（字段缺省即旧行为）。
+
+#### 5) 交互逻辑
+
+- 槽位卡片为 `<button>`：有素材可点击选中（点击缩略图区域进入预览，`@click.stop` 隔离）；空槽可点但无操作；`aria-pressed` 标记选中态；`aria-label` 区分「选择{label}」/「{label}暂无素材」。
+- busy 防抖：任一生成/选择操作进行中，该分段所有素材操作禁用（`segmentBusy[segmentId]` 单例），按钮文案切换「生成中...」；`isSegmentBusy` 返回布尔（disabled），`segmentBusyKind` 返回类型标识（文案分支，2026-08-14 修复：原 Boolean 实现导致「生成中/重试中」文案永不显示）。
+- 【生成新图】【生成视频】失败：错误经 `resolveStory2VideoNotification` 归一化（SCENE_AUDIO_MISSING / SCENE_IMAGE_MISSING / SCENE_SLOT_EMPTY / OPERATION_FAILED）后弹窗提示，并刷新素材 URL。
+- 【再次合成视频】与【重新合成】并列：busy 共用 `recomposing`；`recomposeProject` 成功后刷新项目与素材 URL。
+- 预览弹窗：UiModal lg 尺寸；图片显示大图，视频显示 `<video controls autoplay>`；空素材显示占位文本。
+
+#### 6) 显示项
+
+- 场景素材区标题「场景素材」+ 提示「点击素材预览，点击缩略图查看大图」；
+- 槽位标签：备选图 1 / 备选图 2 / 备选视频（zh）/ Alternate Image 1 / Alternate Image 2 / Alternate Video（en）；
+- 空槽占位「暂无素材」；选中徽标「当前使用」；
+- 按钮：「生成新图」「生成视频」「生成中...」「再次合成视频」「合成中...」；
+- 成功通知：新图片已生成 / 场景视频已生成 / 已切换使用素材；失败通知：见提示文字。
+
+#### 7) 提示文字（zh / en）
+
+| key | zh | en |
+|-----|----|----|
+| story2video.scene_image_generated | 新图片已生成。 | A new image has been generated. |
+| story2video.scene_video_generated | 场景视频已生成。 | The scene video has been generated. |
+| story2video.material_selected | 已切换使用素材。 | Material switched. |
+| story2video.scene_audio_missing | 该场景没有旁白音频，无法生成视频。 | This scene has no narration audio and cannot generate a video. |
+| story2video.scene_image_missing | 该场景没有可用的图片素材，请先生成图片。 | No usable image material for this scene; generate an image first. |
+| story2video.scene_slot_empty | 该素材槽位暂无素材，请先生成素材。 | This material slot is empty; generate material first. |
+| story2video.sceneMaterial.* | 见 locales zh/en 成对（title/image1Label/image2Label/videoLabel/emptySlot/selectedBadge/generateImage/generateVideo/generating/selectAriaLabel/emptyAriaLabel/previewHint/previewImageTitle/previewVideoTitle/recomposeFinal/recomposingFinal/recomposeFinalHint） | 同左成对 |
+
+#### 8) 安全边界
+
+- 新 IPC 通道全量走 `withSenderCheck` + 白名单 id 校验 + `story2video_write` 权限映射；
+- 所有素材路径经 `_copyRequired`/`resolveReadableMediaFile` 受控复制到项目目录，UI 只接触项目内副本；
+- `_cleanupUnreferencedProjectFiles` 将 `alternateImages[].path` 纳入引用集，替换素材时旧文件安全清理，不误删在用备选图；
+- `generateSceneVideo` 渲染输出与失败产物落在项目目录 attemptFiles 集，失败清理不越界（`isPathWithin` 受控）。
+
+#### 9) 测试要求
+
+- 服务层（story2video-project-service.test.js）：槽位规则 4 分支、生成失败回滚、select 校验（非法 kind/空槽）、`_scenesForCompose` 四态、saveRun manual 富化、备选图纳入引用清理、旧项目兼容；
+- preload.test.js：新方法通道转发 + 数量断言（92 / 282 / 80）；
+- ResultView.test.js：3 槽位渲染与选中态、点击选中调用 IPC、busy 态、再次合成调用 recompose、成功/失败通知归一化；
+- locale：zh/en 成对 + CI Gate 7（check-locale-sync）通过；渲染端无新增中文字面量。
 
 ### 3.3 叠加层（Remotion 快速路径，P1）
 

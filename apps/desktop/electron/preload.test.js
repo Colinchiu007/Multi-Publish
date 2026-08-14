@@ -70,6 +70,7 @@ const PUBLISH_METHODS = [
   'story2videoGetProject', 'story2videoDeleteProject', 'story2videoUpdateSegments',
   'story2videoReplaceSegmentAudio',
   'story2videoRetrySegment', 'story2videoRecomposeProject', 'story2videoTranscribe',
+  'story2videoSelectSceneMaterial', 'story2videoGenerateSceneImage', 'story2videoGenerateSceneVideo',
   'story2videoCapabilities',
   'cloudPublishSubmit', 'cloudPublishListTasks', 'cloudPublishGetTask', 'cloudPublishPlatforms',
   'urlCollectFetch',
@@ -189,10 +190,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 89 个键（88 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 92 个键（91 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(89)
+    expect(Object.keys(r).length).toBe(92)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -209,12 +210,12 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(142)
   })
 
-  it('合并后 api 总键数应为 280（含 videoClone 与 filmEngineering 命名空间）', () => {
-    expect(Object.keys(api).length).toBe(280)
+  it('合并后 api 总键数应为 283（含 videoClone 与 filmEngineering 命名空间）', () => {
+    expect(Object.keys(api).length).toBe(283)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(77)
+    expect(PUBLISH_METHODS.length).toBe(80)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',
@@ -341,6 +342,9 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
     ['story2videoSaveAs', 'story2video:save-as', ['C:/video.mp4', 'out.mp4']],
     ['story2videoDeleteProject', 'story2video:delete-project', ['project-1']],
     ['story2videoReplaceSegmentAudio', 'story2video:replace-segment-audio', ['project-1', 'segment-0', 'C:/voice.mp3']],
+    ['story2videoSelectSceneMaterial', 'story2video:select-scene-material', ['project-1', 'segment-0', 'image2']],
+    ['story2videoGenerateSceneImage', 'story2video:generate-scene-image', ['project-1', 'segment-0']],
+    ['story2videoGenerateSceneVideo', 'story2video:generate-scene-video', ['project-1', 'segment-0']],
   ]
 
   beforeEach(() => {

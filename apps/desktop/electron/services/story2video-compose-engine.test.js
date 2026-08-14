@@ -247,8 +247,9 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
 
     it('moving 为确定性 Lissajous 漂移：sin/cos、无 random、无逗号、起点居中', () => {
       const filter = buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'moving' } })
-      expect(filter).toContain(":x='(w-text_w)/2*(1+0.9*sin(2*PI*t/10))'")
-      expect(filter).toContain(":y='(h-text_h)/2*(1+0.9*cos(2*PI*t/14))'")
+      // 回归：用户反馈漂移过快，周期放大 10 倍（x 100s / y 140s，速度约为原 1/10）
+      expect(filter).toContain(":x='(w-text_w)/2*(1+0.9*sin(2*PI*t/100))'")
+      expect(filter).toContain(":y='(h-text_h)/2*(1+0.9*cos(2*PI*t/140))'")
       expect(filter).not.toContain('random(')
       const expr = filter.slice(filter.indexOf(':x='))
       expect(expr).not.toContain(',')

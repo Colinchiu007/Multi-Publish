@@ -7,6 +7,35 @@
 - 测试：kit-loader fail-closed / shot-library / script-adapt / adapt-contract（adaptedShots 与 kit shot 同构、可被 generate-selected 消费）/ stages 四阶段链 / IPC 校验与 sender / composable 真实数据路径 / visual all-views 27 视图全过；desktop 全量 453 文件 7772 通过（2 条计数断言随新流水线同步 14→15、96→97 后通过）；QM-1 打包 exit 0，asar 含 film-kit 19 文件（10 webp），解包后 loadFilmKit OK（153 shots / 162 scenes）。
 - 文档：PRD-video-creation.md §3.1.26 影视工程流水线（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字全量）；ARCH-FILM-ENGINEERING-2026-08-14.md；learnings 复盘；openspec change 已归档。
 - 审查：双模型降级记录（antigravity 地区不可用 / Claude 未登录 / 子代理 403）→ 主代理自审 0C/0W/1Info，见 `.ccg/tasks/archive/2026-08/film-engineering-hell-grind/review.md`。
+## [2026-08-15] feat(prompt-engine): Higgsfield round3a Batch A——缓存 key 全组件化/视频确定性校验/音频分层（PR #47）
+
+- 图片缓存 key 修复：`make_key` 纳入 excluded/no_swap/context/style/language + 版本盐 `IMAGE_FMT_V1`，修复同参数异 excluded 串号缺陷；legacy fuzzy 零回归。
+- 视频 evaluator 确定性 FAIL CHECK：新增 `timeline_missing`（shots≥2 缺 `[SHOT`/`[HARD CUT` 标记，-5）/ `timing_break`（beats 端点超 duration+2s，-5）纯结构/数学校验；refined 模板教 `[SHOT N]` 标记；缓存盐 `HIGGSFIELD_FMT_V1 → V2`。
+- 音频分层输出：`audio_layers`（environment/sfx/dialogue/music_off）全链路（OUTPUT_KEYS → `_clean_audio_layers` 清洗 → Audio 四段尾行 → missing_audio 判定表限定 refined），向后兼容保留 audio。
+- 评审修复：尾行剥离正则兼容 Audio 段（C1）、batch 判定表限定 refined（W1）、make_key 非序列化对象防炸 + 排序/空容器归一（W2）、timeline 用剥离后正文、timing_diff 键恒存在、music_off 归一 int 等 6 项 Info。
+- 基线修复（独立 commit e1f1788）：`rest.py` 资源端点显式 utf-8 读取——修复 Windows GBK locale 下 prompts.json 读取抛 UnicodeDecodeError 被吞导致 `rag_cases` 恒 0 的既有缺陷（全量测试三轮失败 1 项的真根因）。
+- 测试：新增 `tests/test_audio_layers.py` / `test_cache_key_components.py` / `test_video_evaluator_deterministic.py` + 评审回归；全量 pytest 736 passed / 0 failed / 3 skipped（5 个 web_e2e 环境性 error 与本变更无关）。
+- 评审：Claude 双模型 1 Critical（已修）+ 2 Warning（已修）+ 13 Info（6 已修，其余 Batch B/C）；antigravity 地区不可用降级。
+
+## [2026-08-14] fix(story2video): 水印「移动」位置漂移速度降为原 1/10（watermark-slow-drift）
+
+- 现象：故事讲述流水线水印位置选择「移动（平滑漂移）」时，Lissajous 正弦轨迹周期过短（x 10s / y 14s），画面内游走过快影响观看。
+- 修复：`buildWatermarkFilter` moving 表达式周期放大 10 倍（x 100s / y 140s），速度约为原 1/10，90% 中心幅度、t=0 居中、确定性（sin/cos、无 random、无逗号）契约不变。
+- 测试：契约断言同步（100/140）；compose-engine 101 + text-config 73 = 174 用例全绿；真实 ffmpeg 12s 冒烟渲染通过。
+- 评审：Claude 后端不可用（status 1）降级为主代理自审 0C/0W/0I，详见 `.ccg/tasks/story2video-watermark-slow-drift/review.md`。
+
+## [2026-08-14] 运营后台提示词评测：双路对比（人工 vs 引擎优化）（prompt-eval-engine-dual-path）
+
+- 需求：在运营后台「提示词评测」接入提示词优化引擎，双路并行评估人工提示词与引擎优化提示词，量化引擎提升率（方案 B，OpenSpec change `prompt-eval-engine-dual-path`）。
+- 后端：
+  - 新增 `services/prompt_eval_engine_client.py`：`POST {base}/v1/optimize` 客户端（20s 超时 + 5xx 有界重试 1 次），fail closed——超时/传输错误/非法 JSON/空或非字符串 `optimized_prompt`/引擎内部 `error` 字段一律抛 `EngineUnavailableError`（不静默降级到人工提示词）；`GET {base}/health` 连通性探测；context 透传白名单键（JSON dict / `full_text` ≤500 字）。
+  - `PromptEvalCase` + `compare_mode`（single/dual）+ `engine_params`（creative_level 1-10、num_candidates 1-5）；`PromptEvalRun` + `prompt_variant`（manual/engine）+ `prompt_source_zh` 快照 + `engine_meta`（pair_id/参数/模型/耗时）+ 变体 `prompt_zh/prompt_en` 快照。
+  - `create_run` 双路派生：同 `pair_id` 配对，engine 变体同步调引擎并落中英快照（`translation.translate_prompt_zh` 标注机器翻译）；引擎失败 → `engineError`（`OPS_PROMPT_EVAL_ENGINE_UNAVAILABLE` / `engine_translate` 阶段标记）+ 持久化到 manual run `engine_meta.engine_error`，manual 变体独立创建、独立起流水线（`variant_snapshot` 支持 dict 快照，manual 优先 `prompt_source_zh`）。
+  - `GET /prompt-eval/engine/status`（admin）：/health 探测，失败 503 + 错误码；`summary` 新增 `dual` 聚合区块（pairCount/manualAverage/engineAverage/averageDiff/improvementRate 分母 0→null/dimensionDiffs/gradeDistributionDiff，仅统计双路均成功的成对 run）。
+  - 迁移 `ensure_prompt_eval_dual_columns`：存量库幂等 ALTER 补 7 列。
+- 前端：新建表单「对比模式」单选（单路/双路）+ 引擎参数折叠（创意等级/候选数）；详情 runs 带变体标签（人工/引擎）+ 双路并排对比卡片（提示词/翻译/图片/维度/问题）；聚合 tab 双路对比卡片（平均分差/提升率/维度均值差/等级分布差异）+ 引擎连通性探测按钮。
+- 测试：新增 `test_prompt_eval_engine_dual.py` 25 例（真网络栈假引擎覆盖 200/5xx 重试/超时/非法 JSON/fail closed、双路派生/不可达/翻译失败/状态机独立/聚合配对/迁移幂等/engine-status）；既有 prompt-eval 回归 31 例全绿；全量 pytest 242 通过（3 例 scheduler 顺序敏感失败单跑全绿，与本次无关）；前端 `npm run build` 通过。
+- 评审：Claude 双模型评审 1 Critical（C1 前端未传 compare_mode，已修）+ 4 Warning（W3/W4 已修，W1 顶层聚合按 run 统计为 v1 语义、W2 引擎同步调用为 v1 设计）+ Info（I12 已修，其余记录）；antigravity 地区不可用降级记录见 `.ccg/tasks/prompt-eval-engine-dual-path/review.md`。
 
 ## [2026-08-14] fix(ops-center): 场景模式批量生成中英对照 0 成功 3 失败——LLM 密钥未配置时 fail-fast 明确提示（scene-translate-llm-key）
 
