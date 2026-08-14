@@ -6,6 +6,7 @@
   - `routers/prompt_eval.py`：`_llm_cfg()` fail-fast——表内密钥为空或环境变量缺失时抛 `ValueError` → 400 明确提示「请在「模型密钥」添加 minimax-llm / 设置 OPS_PROMPT_EVAL_LLM_API_KEY」；`translate_case`/`translate_scene` 异常路径 `logger.exception` 保留真实错误（不泄漏 api_key），`translate_case` 不再把上游响应体透传给浏览器。
   - `PromptEvalWorkbench.vue`：批量失败时聚合展示首个真实失败原因（去重），替代误导性的「请单独重试」。
 - 测试：新增 `test_scene_translate_requires_llm_key`（表空 + env 缺失 → 400 明确文案；反向验证旧代码 FAIL 新代码 PASS）；后端 18 例全绿；前端 `npm run build` 通过。
+- 顺带修复：`vite.config.js` 显式 `host: '127.0.0.1'` + `strictPort`——Windows 上默认 localhost 只解析到 `::1` 导致 `http://127.0.0.1:5173` 连接被拒白屏；端口被占时不再静默漂移到 5174。验证：`127.0.0.1:5173` 与 `localhost:5173` 均 200，真实浏览器渲染登录页无 JS 错误。
 - 审查：Claude 独立评审（W1 上游响应体透传 / W3 空白 key 绕过均修复，XSS 与日志泄漏不成立）；antigravity 地区不可用降级记录见 `.ccg/tasks/scene-translate-llm-key/review.md`。
 
 ## [2026-08-14] fix(ops-center): 过期 token 半登录态——启动校验 exp + 统一 401 跳转登录页（fix-stale-token-401-redirect）
