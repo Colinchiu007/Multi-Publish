@@ -1,12 +1,12 @@
 {
   "id": "s2v-scene-multi-materials",
   "title": "Story2Video 历史记录任务详情页：每场景最多 3 个可选素材（2 图 + 1 视频）+ 生成新图/生成视频 + 再次合成视频",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "medium",
   "domain": "frontend+backend",
-  "currentPhase": "review",
-  "nextAction": "全量测试收敛 → 提交 → PR 合并 → 三同步归档",
+  "currentPhase": "completed",
+  "nextAction": "PR #823 已合并 8b90e85e，三同步归档完成",
   "createdAt": "2026-08-14T18:50:00+08:00",
   "branch": "codex/s2v-scene-multi-materials",
   "openspecChange": "s2v-history-multi-materials"
