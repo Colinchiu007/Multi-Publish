@@ -1,27 +1,7 @@
-import axios from 'axios'
+import { createApiClient } from './http'
 
-const api = axios.create({ baseURL: '/api/v1' })
+const api = createApiClient()
 
-api.interceptors.request.use(config => {
-  const saved = localStorage.getItem('ops_token')
-  if (saved) {
-    try {
-      const data = JSON.parse(saved)
-      if (data.token) config.headers.Authorization = `Bearer ${data.token}`
-    } catch {}
-  }
-  return config
-})
-
-api.interceptors.response.use(
-  res => res,
-  err => {
-    if (err.response?.status === 401) localStorage.removeItem('ops_token')
-    return Promise.reject(err)
-  }
-)
-
-// ─── 公告 ─────────────────────────────
 export function listAnnouncements() {
   return api.get('/announcements').then(r => r.data)
 }
