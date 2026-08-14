@@ -7,6 +7,7 @@
   - 配置：抖音登录 URL `www.douyin.com` → `creator.douyin.com`（对齐蚁小二创作者中心入口，与 dashboard URL/认证域名表一致）。
 - 测试：`webview-manager.test.js` 新增 11 例（钩子绑定/虚拟标签注入广播/回退/双向切换/closeTab 委托/resize/未挂载降级）；`auth-view-manager.test.js` 23 例、`NavBar.test.js` 5 例、`Accounts.test.js` 75 例全绿；desktop 全量 7666 例通过；QM-1 本地打包成功 + 启动 10 秒存活且 stderr 干净。
 - 文档：PRD §2.3.2（流程/显示项/提示文字/数据校验/功能逻辑/测试覆盖）、UI-INVENTORY §1.1 虚拟登录标签 + §5.2 状态表同步。
+- i18n：登录标签全部用户可见文案入 locale（zh/en 成对，CI Gate 7 locale-sync）：`nav.saveAccount` / `nav.savingAccount` / `accounts.saved` / `accounts.saveFailed`；路由重试失败文案 `common.pageLoadFailed(Message)` 同步 i18n 化；NavBar 日志文案英文化（CJK 基线扫描不命中非用户可见日志）；测试挂载 i18n 插件断言 zh 文案。
 
 ## [2026-08-14] 视频提示词精修层长度判据修正 + max_length 边界上浮至 20000（higgsfield-p0 边界修订）
 

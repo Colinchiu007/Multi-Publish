@@ -470,14 +470,16 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 | NavBar 中部 | 地址栏 | 登录页 URL 实时同步显示，可复制 |
 | 账号页 | login-state 横幅 / 浮动关闭按钮 | **仅扫码登录模式保留**；网页登录模式不再渲染 |
 
-**提示文字**：
+**提示文字**（i18n 键 zh/en 成对，CI Gate 7 locale-sync；禁止渲染端硬编码中文）：
 
-| 场景 | 文字 | 类型 |
-|------|------|------|
-| 保存按钮默认态 | 保存账号 | 按钮文案 |
-| 保存中 | 保存中... | 按钮文案（禁用态） |
-| 保存成功 | 账号已保存 | ElMessage.success |
-| 保存失败（未完成登录/提取失败） | 保存账号失败，请确认已完成登录后重试（业务错误优先显示后端原始 message） | ElMessage.error |
+| 场景 | i18n Key | zh | en | 类型 |
+|------|----------|----|----|------|
+| 保存按钮默认态 | `nav.saveAccount` | 保存账号 | Save Account | 按钮文案 |
+| 保存中 | `nav.savingAccount` | 保存中... | Saving... | 按钮文案（禁用态） |
+| 保存成功 | `accounts.saved` | 账号已保存 | Account saved | ElMessage.success |
+| 保存失败（未完成登录/提取失败） | `accounts.saveFailed` | 保存账号失败，请确认已完成登录后重试 | Failed to save account. Please confirm you have completed login and try again. | ElMessage.error（业务错误优先显示后端原始 message，此文案仅作 fallback） |
+| 路由重试仍失败标题 | `common.pageLoadFailed` | 页面加载失败 | Failed to load page | RouteLoadError 标题 |
+| 路由重试仍失败正文 | `common.pageLoadFailedMessage` | 页面资源仍未加载成功，请重试或刷新应用。 | Page resources failed to load. Please retry or refresh the app. | RouteLoadError 正文 |
 
 **数据校验与错误处理**：
 
