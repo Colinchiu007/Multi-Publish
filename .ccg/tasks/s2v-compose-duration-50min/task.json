@@ -1,0 +1,13 @@
+{
+  "id": "s2v-compose-duration-50min",
+  "title": "Story2Video 合成时长上限调整到 50 分钟并补 PRD 合同",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "review",
+  "nextAction": "打包 QM-1 验证后提交",
+  "openspecChange": "s2v-compose-duration-50min",
+  "createdAt": "2026-08-15T01:30:00Z",
+  "branch": "codex/s2v-duration-50min"
+}

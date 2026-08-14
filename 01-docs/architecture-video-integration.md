@@ -246,7 +246,7 @@ renderer File
 text 标准模式只允许用户选择 BGM；结果编辑、STT 工具和普通流水线仍可从任意盘符选择旁白或图片，
 但路径本身不会成为永久授权。图片转为受限 data URL
 并落到 run 临时目录。旁白仅 WAV/M4A/MP3 且 <=50MB，BGM <=15MB，图片仅
-JPEG/PNG/WebP 且 <=10MB；成片 <=10 分钟，多段旁白单段 <=3 分钟、总输入 <=15 分钟。
+JPEG/PNG/WebP 且 <=10MB；成片 <=50 分钟（默认上限，见 PRD §7.1.25a），多段旁白单段 <=3 分钟、总输入 <=50 分钟。
 
 默认可读根只包含 `os.tmpdir()/story2video`、`userData/story2video-projects` 和当前项目服务
 显式传入的项目根；用户主目录、下载、文档、桌面、图片、音乐和视频目录不是 renderer 路径的
