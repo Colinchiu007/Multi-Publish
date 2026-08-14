@@ -359,7 +359,7 @@ async function exerciseCreate(r) {
   record(r, '渲染引擎状态就绪', await bodyHas(r, '渲染引擎就绪').catch(() => false) || !(await bodyHas(r, '依赖未安装')));
   const pipelineCard = r.page.locator(`.pipeline-card[data-pipeline-id="${CAROUSEL_PIPELINE}"]`).first();
   const firstPipelineId = await r.page.locator('.pipeline-card').first().getAttribute('data-pipeline-id').catch(() => null);
-  record(r, '全能创作流水线优先显示', firstPipelineId === CAROUSEL_PIPELINE && await pipelineCard.first().innerText().then(text => /全能创作|omni creation/i.test(text)));
+  record(r, '故事讲述流水线优先显示', firstPipelineId === CAROUSEL_PIPELINE && await pipelineCard.first().innerText().then(text => /故事讲述|story telling/i.test(text)));
   const cardCount = await r.page.locator('.pipeline-card').count();
   // 15 个内置流水线卡片（视频克隆入口卡于 PR #626 加入后同步；改动 CreateView 流水线卡片需同步此计数）
   record(r, '全部内置流水线卡片渲染', cardCount === 15, { count: cardCount });
@@ -369,7 +369,7 @@ async function exerciseCreate(r) {
     await pipelineCard.click();
     await fillByPlaceholder(r, '输入视频文案', 'E2E 视频创作文案');
     const started = await clickText(r, '启动流水线');
-    record(r, '启动全能创作流水线可执行', started);
+    record(r, '启动故事讲述流水线可执行', started);
     if (started) await expectIpc(r, 'pipelineStartOrchestrated', '启动流水线调用 IPC');
   }
 

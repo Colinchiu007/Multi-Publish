@@ -2,7 +2,7 @@
  * story2video-manual-selection.js — 分镜素材自选（creation.mode=manual）真实 E2E
  *
  * 用已登录的调试 Profile（ELECTRON_USER_DATA_DIR，含保存的模型 provider key）驱动真实桌面应用：
- * 1) 启动全能创作流水线（manual + 全部图片轮播）
+ * 1) 启动故事讲述流水线（manual + 全部图片轮播）
  * 2) 轮询到 scene_asset_selection 检查点，断言每场景候选 = 2 张图片
  * 3) 提交默认选择（第 1 张），断言 finalize_assets → compose 完成且成片可解码
  * 4) 记录 promptTranslation（uiLocale=zh 时非空）与阶段清单（含 finalize_assets）

@@ -1418,8 +1418,8 @@ export default {
     story2videoConfigurationTitle() {
       return this.translateWithLocaleFallback(
         'create.story2video.configurationTitle',
-        '全能创作配置',
-        'Omni Creation Configuration'
+        '故事讲述配置',
+        'Story Telling Configuration'
       )
     },
     providerWarningText() {

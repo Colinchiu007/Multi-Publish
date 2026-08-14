@@ -728,7 +728,7 @@ function registerVideoGenStages (pipelineEngine) {
       const runDir = getRunDir(runId)
       fs.mkdirSync(runDir, { recursive: true })
 
-      // 视频生成并行（2026-08-13）：异步任务制（提交 + 轮询 + 下载），2 路并行安全（与全能创作一致）。
+      // 视频生成并行（2026-08-13）：异步任务制（提交 + 轮询 + 下载），2 路并行安全（与故事讲述一致）。
       // - 复用 model-call-scheduler 预算调度：provider rpm 约束提交速率（governor RPM 排队/429 冷却）；
       // - 保序 map（mapWithModelBudget 结果与输入同序）：MERGE 按场景顺序拼接 concat-list，不得乱序；
       // - 显式 stage.options.videoConcurrency 仅作请求值，仍受 provider 预算上限收敛。

@@ -37,7 +37,7 @@ describe('多语言术语词典（i18n-content-sync L3）', () => {
   it('术语词典至少登记了核心产品名词', () => {
     expect(entries.length).toBeGreaterThan(0)
     const zhTerms = entries.map(e => e.zh)
-    expect(zhTerms).toContain('全能创作')
+    expect(zhTerms).toContain('故事讲述')
     expect(zhTerms).toContain('启动流水线')
   })
 

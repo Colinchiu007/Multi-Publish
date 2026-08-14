@@ -49,7 +49,7 @@
 
 | zh | en | 机器 ID |
 |----|----|---------|
-| 全能创作 | Omni Creation | `story2video-compose` |
+| 故事讲述 | Story Telling | `story2video-compose` |
 | 启动流水线 | Start pipeline | — |
 | 提示 | Notice | — |
 

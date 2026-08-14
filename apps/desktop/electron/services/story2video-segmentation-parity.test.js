@@ -16,7 +16,7 @@ import {
   splitTextToSubtitles,
 } from './story2video-segmentation'
 
-// 与全能创作流水线 split 阶段一致的配置（stage.options → 引擎 config 同源）
+// 与故事讲述流水线 split 阶段一致的配置（stage.options → 引擎 config 同源）
 const PIPELINE_OPTIONS = {
   config: {
     sentenceTokenizer: {

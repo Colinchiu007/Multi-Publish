@@ -88,16 +88,16 @@ describe("i18n CSP-safe messages", () => {
     const restore = blockEvalLikeCsp();
     try {
       i18n.global.locale.value = "zh";
-      expect(i18n.global.t("pipelines.names.story2video-compose")).toBe("全能创作");
+      expect(i18n.global.t("pipelines.names.story2video-compose")).toBe("故事讲述");
       expect(i18n.global.t("pipelines.categories.generated")).toBe("AI 生成");
       expect(i18n.global.t("create.story2video.startPipeline")).toBe("启动流水线");
 
       const t = (key) => i18n.global.t(key);
-      expect(getPipelineName(t, "story2video-compose")).toBe("全能创作");
+      expect(getPipelineName(t, "story2video-compose")).toBe("故事讲述");
       expect(getPipelineCategory(t, "generated")).toBe("AI 生成");
 
       i18n.global.locale.value = "en";
-      expect(getPipelineName(t, "story2video-compose")).toBe("Omni Creation");
+      expect(getPipelineName(t, "story2video-compose")).toBe("Story Telling");
       expect(getPipelineCategory(t, "generated")).toBe("AI Generated");
     } finally {
       restore();
