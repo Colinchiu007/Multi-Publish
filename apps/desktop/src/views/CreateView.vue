@@ -1195,10 +1195,15 @@ const VIDEO_CLONE_PIPELINE_ENTRY = {
   name: 'video-clone', category: 'generated', stageCount: 6, available: true, estimatedCost: 'medium',
 }
 
+const FILM_ENGINEERING_PIPELINE_ENTRY = {
+  name: 'film-engineering', category: 'generated', stageCount: 4, available: true, estimatedCost: 'low',
+}
+
 function withVideoCloneEntry(pipelines) {
-  const base = prioritizeStory2VideoPipeline(pipelines).filter((p) => p && p.name !== 'video-clone')
+  const base = prioritizeStory2VideoPipeline(pipelines).filter((p) => p && p.name !== 'video-clone' && p.name !== 'film-engineering')
   const idx = base.findIndex((p) => p.name === 'story2video-compose')
   base.splice(idx >= 0 ? idx + 1 : 0, 0, VIDEO_CLONE_PIPELINE_ENTRY)
+  base.splice(idx >= 0 ? idx + 2 : 1, 0, FILM_ENGINEERING_PIPELINE_ENTRY)
   return base
 }
 
@@ -1900,6 +1905,10 @@ export default {
       // 视频克隆是独立流水线（拆解/再创作页），点击入口卡直接路由，不走通用配置详情
       if (p?.name === 'video-clone') {
         this.$router.push('/video-clone')
+        return
+      }
+      if (p?.name === 'film-engineering') {
+        this.$router.push('/film-engineering')
         return
       }
       this.stopPipelinePolling()

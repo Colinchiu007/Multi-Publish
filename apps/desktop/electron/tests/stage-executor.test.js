@@ -1132,13 +1132,13 @@ it('registerStageExecutor 在无 stageExecutor 时返回错误', function () {
 });
 
 // ============================================================
-// 5. 现有 14 条流水线回归（state_machine 模式）
+// 5. 现有 15 条流水线回归（state_machine 模式）
 // ============================================================
 
-it('现有 14 条流水线在 state_machine 模式下全部可启动', function () {
+it('现有 15 条流水线在 state_machine 模式下全部可启动', function () {
   const pe = new PipelineEngine(); // 无 serviceBus，纯状态机
   const list = pe.listPipelines();
-  eq(list.length, 14, '应有 14 条流水线（含 story2video-compose）');
+  eq(list.length, 15, '应有 15 条流水线（含 film-engineering 与 story2video-compose）');
   for (const pl of list) {
     const r = pe.start(pl.name, { test: true });
     eq(r.success, true, pl.name + ' 应可启动');
@@ -1146,7 +1146,7 @@ it('现有 14 条流水线在 state_machine 模式下全部可启动', function 
   }
 });
 
-it('story2video-compose 流水线已注册为第 14 条', function () {
+it('story2video-compose 流水线已注册为第 15 条（2026-08-15：新增 film-engineering 后顺延）', function () {
   const pe = new PipelineEngine();
   const list = pe.listPipelines();
   const s2v = list.find(p => p.name === 'story2video-compose');

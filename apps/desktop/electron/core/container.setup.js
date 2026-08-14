@@ -92,6 +92,7 @@ const { registerDocumentaryStages } = require('../services/documentary-stages');
 const { registerLocalizationStages } = require('../services/localization-stages');
 const { registerVideoGenStages } = require('../services/videogen-stages');
 const { registerPodcastRepurposeStages } = require('../services/podcast-repurpose-stages');
+const { registerFilmEngineeringStages } = require('../services/film-engineering/film-engineering-stages');
 
 function createContainer(options) {
   const container = new Container();
@@ -157,6 +158,7 @@ function createContainer(options) {
         registerLocalizationStages(engine);
         registerVideoGenStages(engine);
         registerPodcastRepurposeStages(engine);
+        registerFilmEngineeringStages(engine);
       } catch (e) {
         c.get("logger").warn("container",
           "registerStory2VideoStages failed: " + (e instanceof Error ? e.message : String(e)));
@@ -282,6 +284,15 @@ function createContainer(options) {
     // 注入 assetGenerator 供 story2video-stages.js 使用
     bus._assetGenerator = c.get("assetGenerator");
     return bus;
+  });
+  // FilmEngineering 影视工程服务（film-kit 懒加载 + fail-closed）
+  container.register('filmEngineeringService', function(c) {
+    const { FilmEngineeringService } = require('../services/film-engineering/film-engineering-service');
+    return new FilmEngineeringService({
+      log: c.get('logger'),
+      assetGenerator: c.get('assetGenerator'),
+      llm: null,
+    });
   });
   // PluginRegistry 插件注册中心
   container.register("pluginRegistry", function(c) {

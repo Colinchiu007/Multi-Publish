@@ -1634,6 +1634,71 @@ SettingsDialog 关闭（App.vue @close）
 5. **i18n**：所有用户可见文案 zh/en 成对新增 `create.story2video.bgmLibrary.*` 与 `story2video.bgm_library_*`。
 6. **验收**：添加 → 列表 +1 且自动选中；重命名 → 列表刷新且退出编辑态；删除 → 列表 -1，删除选中项时 `bgmPath` 回退空；历史 BGM 路径不在库时保留为独立选项、入库后不再显示；服务层单测（16 例）+ 渲染端用例 + preload/IPC 测试全部通过。
 
+### 3.1.26 影视工程流水线（2026-08-14，Hell Grind 复刻）
+
+**需求**：新增「影视工程」视频创作流水线，把开源 AI 电影《Hell Grind》的真实影视工程资产（分镜结构、真实提示词、角色/场景/道具参考素材、提示词架构方法论）完整还原到应用内。用户可：浏览真实分镜库并**一键复制**任意分镜提示词（全文/分块/角色行/GEO 布局四种模式）；勾选分镜批量复制、导出 JSON/Markdown、复用已配置图片生成 Provider 生成参考图；输入自己的剧本（剧情不同、方法复刻）——流水线按 Hell Grind 的工程方法把剧本分场并套用到真实模板分镜上，输出同构 adaptedShots。
+
+**范围边界**：不下载/不入库全片 115,451 个素材的媒体文件（数十 GB），不做 95 分钟整片自动生成；精选版 film-kit 随包 ≤5MB；AI 视频生成留 V2（V1 图片生成复用 assetGenerator）。
+
+**数据资产（film-kit，随主进程打包）**：
+
+| 文件 | 内容 | 数据校验（kit-loader fail-closed） |
+|------|------|----------------------------------|
+| `film-manifest.json` | 电影元数据（片名/时长/logline/角色）+ 162 场景树（sceneId/name/count/parentId/level） | schemaVersion=1；filmMeta.title/logline 非空、durationSec>0、characters 非空且每项含 name；scenes 非空、id 唯一非空、count>=0、level>=0、parentId 必须存在且无自引用环 |
+| `shot-library.json` | 153 个代表性分镜：每场景最终稿提示词 + model + refTokens + resultUrl + 分辨率 | 数组；shotId 非空唯一；sceneId 非空；prompt 非空且 ≤50000 字符；model 非空；refTokens 每项必须为 UUID 格式（8-4-4-4-12 十六进制）；resultUrl/width/height 为字符串/正数或 null |
+| `reference-registry.json` | 332 条 token → 素材索引（kind: character/scene/prop/unknown + name + https imageUrls） | 对象非空；键必须为 UUID；kind 枚举合法；name 非空字符串；imageUrls 仅允许 https URL |
+| `prompt-doctrine.json` | 提示词架构方法论：7 大块模板（GEO SPATIAL LAYOUT / ACTION TIMING / AUDIO / CHARACTER ACTING / POSITIVE CONSTRAINTS 等）+ 10 条铁律 + 术语表（中英双语） | blocks/rules 非空数组且每项含非空 key；glossary 必须为数组 |
+| `images/` | 10 张精选参考图（4 主角 + 场景/道具 min 版 webp，合计 2.76MB） | 缺失不 fail-closed（仅 registry 内 URL 展示，本地图用于文档/预览） |
+
+任一 JSON 文件缺失 / 解析失败 / schema 非法 → **整体 fail-closed**：kit 不可用，IPC 返回 `FILM_KIT_UNAVAILABLE`，前端显示错误空态 + 重试按钮，绝不静默降级为部分数据。kit 重建脚本 `scripts/film-engineering/fetch-hell-grind-kit.py`（全量语料 → 精选版，可复现）。
+
+**主进程服务（`services/film-engineering/`）**：
+
+- `kit-loader.js`：加载 + schema 校验 + fail-closed 契约（导出 `loadFilmKit` / `validateManifest` / `validateShotLibrary` / `validateReferences` / `validateDoctrine`）。
+- `shot-library.js`：`listScenes()` 场景树（含每场景 shotCount）；`listShots(sceneId)` 分镜列表（非法/不存在 sceneId 抛错）；`getShot(shotId)` 详情 + ref 解析（`resolvedRefs`：token → registry 条目，未知返回 `{kind:'unknown'}` 不丢信息）；`buildCopyText(shotId, mode)` 四种复制模式：`full`（原文）/ `blocks`（`[ 块标题 ]` + 内容，无块时回退原文）/ `characters`（全部 `[CHARACTER:...]` 行）/ `geo`（GEO SPATIAL LAYOUT 块内容）；`buildCopyTexts(shotIds, mode)` 批量合并（`===== [i/n] sceneId · model =====` 分隔，一次 ≤50）。复制文本由主进程组装（跨平台一致），前端只写剪贴板。
+- `script-adapt.js`：剧本套用引擎。分场规则：按空行分段；单行标题（`第X场` / `SCENE n` / `INT.` / `EXT.` / `INT./EXT`）并入下一段；每段 = 1 个分镜。模板映射：kit 全部分镜按场景顺序循环（`templates[i % templates.length]`）；`buildTemplatePrompt` 复刻 Hell Grind 结构——首行（INT./EXT. 场景头或剧情首句）+ 剧情句 + 全部 `[CHARACTER:...]` 行（按映射追加 `（用户角色名）`）+ 5 大提示词块原样保留。输出 adaptedShots 与 kit 分镜**同构**（shotId=`adapt-001`…/sceneId=标题归一化或 `adapted-scene-N`/prompt/model/refTokens 截取前 8 个/sourceTemplateId/roleBindings/beatIndex），可直接被勾选生成与导出消费。校验：剧本非空、≤10000 字；角色映射为对象、≤10 个键、值非空字符串。可选 LLM 润色：`llmEnabled && llm.enhance` 可用时逐条润色（上限 20 条），失败逐条降级本地结果并记 warnings；全部失败标记 `llmEnhanced:false`。
+- `film-engineering-stages.js`：4 阶段链 `film_load_template`（kit 加载，context 缓存复用）→ `film_adapt_script`（剧本套用）→ `film_select_shots`（按 selectedShotIds 过滤，≤50，id 必须存在于 kit 或 adapted）→ `film_export_prompts`（JSON/Markdown 导出，格式非法报错）。
+- `film-engineering-service.js`：聚合服务。`getStatus()` 不抛错（available=false + error）；`exportPrompts(selectedShots, format)`（≤50，JSON 含 shotId/sceneId/prompt/model/refTokens，Markdown 为 `## [n] sceneId · model` 头）；`generateSelected(selectedShots, opts)`（≤20，复用 assetGenerator.generateImage，`style:'cinematic'` + `aspect_ratio` 默认 16:9，逐条容错，全部失败返回失败 + 首个错误，部分失败返回 `partialFailure:true`）。
+
+**IPC 契约（全部 `withSenderCheck` + 运行时入参校验，返回统一信封 `{code, data?, message?}`，code===0 成功）**：
+
+| 通道 | 参数 | 校验规则 |
+|------|------|---------|
+| `film-engineering:status` | — | — |
+| `film-engineering:list-scenes` | — | — |
+| `film-engineering:list-shots` | sceneId | 非空字符串 |
+| `film-engineering:get-shot` | shotId | 非空字符串 |
+| `film-engineering:doctrine` | — | — |
+| `film-engineering:copy-text` | shotId, mode | shotId 非空；mode ∈ full/blocks/characters/geo（缺省 full） |
+| `film-engineering:copy-texts` | shotIds, mode | 1-50 项数组，每项非空字符串 |
+| `film-engineering:adapt-script` | {script, characterMap, llmEnabled?} | script 非空 ≤10000 字；characterMap 对象 ≤10 键值非空；失败返回 VALIDATION_ERROR/REQUEST_ERROR 信封 |
+| `film-engineering:export` | selectedShots, format | 1-50 项；每项含非空 prompt ≤50000 字符；format ∈ json/markdown |
+| `film-engineering:generate-selected` | selectedShots, opts | 1-20 项；每项 prompt 非空 ≤50000；返回逐条 results（code 0/非 0 + message） |
+
+通道权限：全部加入 PUBLIC_CHANNELS（未登录可用，与媒体导入一致，见 `license-access-control.js`）。preload 暴露 `window.electronAPI.filmEngineering.{status, listScenes, listShots, getShot, doctrine, copyText, copyTexts, adaptScript, exportPrompts, generateSelected}`。
+
+**流水线注册**：`PIPELINES` 新增 `film-engineering` 条目（id/name/description/modes 走 i18n `pipelines.*`，卡片标签注册于 `pipeline-labels.js`）；`container.setup.js` 注册 stages + IPC handlers；`ipc-handlers/index.js` 接入。
+
+**前端交互（`/film-engineering` 路由，FilmEngineeringView 三标签页）**：
+
+1. **分镜库**：进入自动 `refreshAll()`（status → scenes + doctrine 并行）。kit 不可用 → 错误卡片（标题「影视工程资源不可用」+ 描述 + 具体 error + 「重试」按钮）。可用 → 元信息卡片：片名 / logline / 时长（`XmYs` 格式）/ 场景数 / 分镜数 / 资产索引数 / 来源链接 / 角色 tag（tooltip 显示描述）。三栏布局：
+   - 左栏场景树（`el-tree`，default-expand-all，节点显示名称 + 分镜数徽标，点击加载分镜）；
+   - 中栏分镜列表：未选场景显示「请选择左侧场景查看分镜」；工具栏（全选本场 checkbox 含半选态 / 复制模式下拉 full|blocks|characters|geo / 复制选中（显示已选数）/ 导出 JSON / 导出 Markdown / 生成图片（>20 禁用））；分镜卡片（勾选 + model tag + 分辨率 + shotId 前 8 位 + 提示词预览 260 字截断 + 「复制全文」）；空场景显示「该场景暂无分镜」；
+   - 右栏操作面板（生成结果入口）。分镜详情抽屉：model/分辨率/shotId + 4 个复制按钮 + 引用素材列表（缩略图/名称/kind tag/完整 token/复制 token，unknown 显示红色「未知引用」）+ 提示词全文（4000 字预览 + 展开/收起）。
+2. **剧本套用**：剧本 textarea（`maxlength=10000` + 字数统计 + placeholder 说明空行分场与套用逻辑）；角色映射区（预置 ROKO/JAXX/LULU/REIN 四行 + 可追加至 10 行/移除，键=Hell Grind 角色名、值=用户角色名，提示文案说明映射替换逻辑）；「启用 LLM 润色（可选）」checkbox + 「套用生成」按钮（loading 态）。结果区：警告 alert（LLM 降级提示）+ 结果卡片（序号 / model tag / 源模板 shotId 前 8 位 / 复制按钮 / 提示词预览）。空态「输入剧本并点击「套用生成」」。
+3. **方法论**：七大提示词块（label + 中文说明 + 英文原文）/ 十条铁律（序号 + 标题 + 中文）/ 术语表（term tag + 中文释义）+ 完整方法论来源提示（`prompt-doctrine.zh.md`）。
+
+**提示文字**：全部经 `filmEngineering.*` i18n 命名空间（zh/en 成对），含：空态/重试/加载失败（场景/分镜/详情）、复制成功/失败、批量复制计数、生成提交/部分失败/失败、导出文件名提示、套用成功计数/失败、LLM 降级警告、剪贴板不可用回退提示（`navigator.clipboard` 失败回退 textarea + `execCommand('copy')`）。浏览器直开 Vite（无 `window.electronAPI.filmEngineering`）时 composable 静默降级：状态显示「当前环境未提供桌面端能力」，操作全部提示不可用。
+
+**验收标准**：
+1. film-kit 真实加载：153 shots / 162 scenes / 332 refs，`refTokens unresolved to known: 0`，最大 prompt 39470 ≤ 上限 50000；
+2. 服务层 76 例 + 契约测试（adaptedShots 与 kit 分镜同构且可被 generate-selected 消费）+ preload 349 例 + composable 9 例 + CreateView 186 例全绿；
+3. 一键复制四模式输出与主进程组装一致（跨平台）；
+4. 剧本 ≤10000 字、角色映射 ≤10 键、批量 ≤50、生成 ≤20 超限均返回明确校验错误；
+5. kit 任一文件损坏 → FILM_KIT_UNAVAILABLE + 前端错误空态；
+6. i18n zh/en 对称 + locale CI Gate 7 成对提交通过；
+7. 打包验证（QM-1）通过：film-kit 文件 glob 覆盖进 asar，加载不报错。
+
 ### 3.3 叠加层（Remotion 快速路径，P1）
 
 | 类型 | 说明 | 参数 |

@@ -1,3 +1,13 @@
+## [2026-08-15] feat(video-pipeline): 新流水线「影视工程」——复刻《Hell Grind》开源 AI 电影工程（film-engineering-hell-grind）
+
+- 需求：把开源 AI 电影《Hell Grind》（Higgsfield 公开项目，155,123 条真实 job 语料 / 162 个分镜文件夹）的影视工程复刻进 Multi-Publish：用户可浏览真实分镜、一键复制真实提示词与参考素材、勾选分镜生成视频，或输入自己的剧本按《Hell Grind》的工程方法套用（剧情不同、方法复刻）。
+- 数据资产：新增 `apps/desktop/electron/film-kit/`（≤5MB 精选入库）：`film-manifest.json`（162 场景树 + 电影元数据）、`shot-library.json`（153 条代表性真实分镜提示词 + 模型 + 参考 token + 结果 URL）、`reference-registry.json`（332 条 token→角色/场景/道具参考素材索引）、`prompt-doctrine.json/zh.md`（提示词块模板 + 铁律 + 词汇表）、10 张精选参考图；`SCHEMA.md` + 可复现重建脚本 `scripts/film-engineering/fetch-hell-grind-kit.py`。
+- 主进程：`services/film-engineering/` kit-loader（fail-closed 加载校验）→ shot-library（查询/复制文本 4 模式）→ script-adapt（剧本分场 → Hell Grind 模板映射 → 同构 adaptedShots，可选 LLM 润色降级）；PIPELINES 注册 `film-engineering`（film_load_template / film_adapt_script / film_select_shots / film_export_prompts 四阶段）；10 个 `film-engineering:*` IPC 通道全部 withSenderCheck + 运行时入参校验（script≤10000 / characterMap≤10 / shots≤50）。
+- 前端：路由 `/film-engineering` 三栏视图（场景树 + 分镜列表勾选 + 详情/参考图/复制按钮组 + 剧本套用 + 导出 JSON/Markdown + 生成图片），一键复制由主进程组装复制文本；文案进 locales zh/en 成对（79 键核对 0 缺失），i18n-glossary 新增 13 条产品名词。
+- 测试：kit-loader fail-closed / shot-library / script-adapt / adapt-contract（adaptedShots 与 kit shot 同构、可被 generate-selected 消费）/ stages 四阶段链 / IPC 校验与 sender / composable 真实数据路径 / visual all-views 27 视图全过；desktop 全量 453 文件 7772 通过（2 条计数断言随新流水线同步 14→15、96→97 后通过）；QM-1 打包 exit 0，asar 含 film-kit 19 文件（10 webp），解包后 loadFilmKit OK（153 shots / 162 scenes）。
+- 文档：PRD-video-creation.md §3.1.26 影视工程流水线（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字全量）；ARCH-FILM-ENGINEERING-2026-08-14.md；learnings 复盘；openspec change 已归档。
+- 审查：双模型降级记录（antigravity 地区不可用 / Claude 未登录 / 子代理 403）→ 主代理自审 0C/0W/1Info，见 `.ccg/tasks/archive/2026-08/film-engineering-hell-grind/review.md`。
+
 ## [2026-08-14] fix(ops-center): 场景模式批量生成中英对照 0 成功 3 失败——LLM 密钥未配置时 fail-fast 明确提示（scene-translate-llm-key）
 
 - 现象：提示词评测工作台场景模式分句后点「批量生成中英对照」，提示「0 个成功，3 个失败（场景 1、2、3，请单独重试）」；后端日志 `POST /api/v1/prompt-eval/cases/{id}/scenes/{id}/translate` 全部 502。

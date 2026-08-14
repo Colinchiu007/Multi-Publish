@@ -23,6 +23,19 @@
 | 提示词 | Prompt | — |
 | 草稿箱 | Drafts | — |
 | 流水线 | Pipeline | — |
+| 影视工程 | Film Engineering | `film-engineering` |
+| 分镜库 | Shot Library | — |
+| 剧本套用 | Script Adapt | — |
+| 提示词方法论 | Prompt Doctrine | — |
+| 一键复制 | One-click Copy | — |
+| 角色映射 | Character Mapping | — |
+| 提示词块 | Prompt Blocks | — |
+| 铁律 | Iron Rules | — |
+| 术语表 | Glossary | — |
+| 引用资产 | Referenced assets | — |
+| 参考图 | Reference Images | — |
+| 资产索引 | Asset Index | — |
+| 参考 token | Reference Token | — |
 
 ## 维护规则
 

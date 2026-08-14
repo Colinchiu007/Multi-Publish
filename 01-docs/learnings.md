@@ -1,3 +1,14 @@
+## 影视工程流水线（Hell Grind 复刻）交付复盘（film-engineering-hell-grind，2026-08-14）
+
+- **交付**：新增 `film-engineering` 影视工程流水线。数据层：随包 film-kit（162 场景树 / 153 代表性分镜 / 332 token 资产索引 / 提示词方法论 / 10 张精选图，2.76MB），重建脚本 `scripts/film-engineering/fetch-hell-grind-kit.py`；引擎层：`services/film-engineering/`（kit-loader fail-closed / shot-library 四模式复制 / script-adapt 剧本套用 / 4 阶段链 / 聚合服务）；集成层：PIPELINES 注册 + 10 个 IPC 通道（withSenderCheck）+ `/film-engineering` 三标签页视图 + preload 桥接；质量：服务 76 例 + 契约 + preload 349 例 + composable 9 例 + CreateView 186 例 + i18n 对称全绿。语料全量本地归档（155,123 jobs / 161 jsonl，`D:\Data\projects\mp-research\hell-grind-full`）。
+- **教训 1（真实语料的 token 解析目标不是 job id，而是 reference_elements.id）**：prompt 中 `<<<uuid>>>` 引用的 token 指向 job `params.reference_elements[].id`，不是素材 job 本身的 id；最初按 job id 建注册表导致解析率低。修正后 332 条注册表 100% 解析（`refTokens unresolved to known: 0`）。教训：写解析器前先对真实语料做字段普查（哪些字段被 prompt 实际引用），不要凭字段名猜测语义。
+- **教训 2（mp4 素材不能直接当 webp 缩略图，需真实转码）**：语料中的角色参考图 URL 是 .mp4（视频帧），直接改扩展名/复制为 webp 会得到损坏图片；必须用 ffmpeg 抽帧转码为 webp 缩略图（`char_1-4.webp` 按角色名优先）。教训：远程素材的「图片」字段可能是视频，落地前必须验证 mime/可解码性。
+- **教训 3（真实分镜 prompt 远超预设上限）**：最大真实 prompt 39,470 字符，若沿用通用 20,000 上限会拒绝/截断真实语料；kit schema 上限定为 50,000（>39470 留余量），IPC 导出/生成校验同步对齐。教训：数据上限要以真实语料实证为锚点，不是拍脑袋。
+- **教训 4（i18n 对称测试抓不住「缺包装键」缺陷）**：`filmEngineering.*` 键曾被扁平插入 locales 顶层（缺 `filmEngineering: {}` 包装），zh/en 两侧以相同错误方式插入，对称测试全绿但 UI 会渲染键名。最终靠「收集渲染端全部 t() 引用键 ↔ locales 实际结构」核对才暴露。教训：i18n 门禁除对称性外，应加「渲染端引用键在 locales 中真实存在」的静态核对（或真实挂载测试断言不出现键名原文）。
+- **教训 5（复制文本放主进程组装）**：一键复制四模式（full/blocks/characters/geo）的文本组装放主进程（shot-library.js），前端只写剪贴板——跨平台一致、可单测、不依赖渲染端解析逻辑；剪贴板写入 navigator.clipboard 失败回退 textarea+execCommand。
+- **教训 6（剧本套用默认确定性模板，LLM 可选）**：套用引擎无 LLM 也能工作（真实语料本身是模板库），LLM 润色仅在显式开启且可用时逐条增强、失败降级并标记——离线可测、不引入网络依赖。
+
+---
 ## 合并 domain_enrich 到 scene_context 复盘（merge-domain-enrich-into-scene-context，2026-08-14）
 
 - **交付**：删除独立 `domain_enrich` 阶段与 `story2video-domain.js`，`imagePromptSeed` 种子生成移植进 `scene_context` 执行器（`contentType==='history'`，独立于 `enabled` 开关）；新增 `detectSentiment`/`buildDomainSeed` 到 story-context-engine.js；Python YAML 契约镜像同步删 domain_enrich 段；OpenSpec change 归档（PR 待合）。

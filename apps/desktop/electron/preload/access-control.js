@@ -56,6 +56,13 @@ const PUBLIC_METHODS = [
   'videoClone',
   'videoClone.run', 'videoClone.cancel', 'videoClone.editReport', 'videoClone.regenerate',
   'videoClone.pickFile', 'videoClone.history', 'videoClone.onProgress',
+  // 影视工程：随包 film-kit 资产浏览/复制/剧本套用（设备本地操作，未登录可用）；
+  // 勾选生成（generateSelected）复用 assetGenerator，是否可用由主进程服务自校验。
+  'filmEngineering',
+  'filmEngineering.status', 'filmEngineering.listScenes', 'filmEngineering.listShots',
+  'filmEngineering.getShot', 'filmEngineering.doctrine',
+  'filmEngineering.copyText', 'filmEngineering.copyTexts',
+  'filmEngineering.adaptScript', 'filmEngineering.exportPrompts', 'filmEngineering.generateSelected',
 ]
 
 function hasAccess(currentLevel, requiredLevel) {

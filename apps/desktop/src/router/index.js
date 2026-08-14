@@ -46,6 +46,7 @@ const routes = [
   { path: '/replay/:projectId', name: 'ReplayTimeline', component: () => import('@/views/ReplayTimeline.vue') },
   { path: '/prompt-eval', name: 'PromptEval', component: () => import('@/views/PromptEvalView.vue') },
   { path: '/video-clone', name: 'VideoClone', component: () => import('@/views/VideoCloneView.vue') },
+  { path: '/film-engineering', name: 'FilmEngineering', component: () => import('@/views/FilmEngineeringView.vue') },
 ]
 
 const router = createRouter({
