@@ -15,6 +15,7 @@ const {
   clampVideoSelection,
   estimateSceneSeconds,
   resolveVideoGeneratorConfig,
+  translatePromptsForLocale,
 } = require('./story2video-stages')
 const {
   cleanupRunInputDir,
@@ -2147,4 +2148,70 @@ describe('story2video 场景上下文增强中间层（scene_context，2026-08-1
     expect(result.success).toBe(true)
     expect(serviceBus.calls[0].options.context).toMatchObject({ synopsis: '角色一致性', full_text: '一个老妇人在做饭' })
   })
+
+// ==================== translatePromptsForLocale 回归测试 ====================
+describe('translatePromptsForLocale', () => {
+  function makeAiGenerator(responseContent) {
+    return {
+      generateWithDefault: vi.fn().mockResolvedValue({ content: responseContent }),
+    }
+  }
+
+  it('正常 JSON 解析 — 提取翻译文本', async () => {
+    const ai = makeAiGenerator('{"0":"一个红苹果","1":"一片蓝天"}')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('一个红苹果')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('markdown 代码块包裹的 JSON 也能正确解析', async () => {
+    const ai = makeAiGenerator('```json\n{"0":"一个红苹果","1":"一片蓝天"}\n```')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('一个红苹果')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('不带语言标签的代码块也能正确解析', async () => {
+    const ai = makeAiGenerator('```\n{"0":"翻译一"}\n```')
+    const items = await translatePromptsForLocale(ai, ['prompt one'], 'zh', console)
+    expect(items[0].translation).toBe('翻译一')
+  })
+
+  it('逐行回退：json 标记不应作为译文', async () => {
+    // LLM 返回了代码块但 JSON.parse 失败的场景（模拟回退路径）
+    // 实际场景：```json\n{...}\n``` 剥离后 parse 成功，这里测试回退路径本身的防御
+    const ai = {
+      generateWithDefault: vi.fn().mockResolvedValue({ content: 'json\n{"0":"一个红苹果"}' }),
+    }
+    const items = await translatePromptsForLocale(ai, ['A red apple'], 'zh', console)
+    // 'json' 应被过滤，不应成为译文
+    expect(items[0].translation).not.toBe('json')
+  })
+
+  it('逐行回退：JSON 对象文本不应作为译文', async () => {
+    const ai = {
+      generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"一个红苹果","1":"一片蓝天"}' }),
+    }
+    // 当 LLM 返回的不是合法 JSON（如缺少引号），回退到逐行解析
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    // JSON 对象文本不应直接成为译文
+    for (const item of items) {
+      if (typeof item.translation === 'string') {
+        expect(item.translation).not.toMatch(/^\{["']\d/)
+      }
+    }
+  })
+
+  it('aiGenerator 不可用时跳过翻译', async () => {
+    const items = await translatePromptsForLocale(null, ['A red apple'], 'zh', console)
+    expect(items[0].translation).toBeNull()
+  })
+
+  it('空提示词列表不报错', async () => {
+    const ai = makeAiGenerator('{}')
+    const items = await translatePromptsForLocale(ai, [], 'zh', console)
+    expect(items).toEqual([])
+  })
+})
+
 })
