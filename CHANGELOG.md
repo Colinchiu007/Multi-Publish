@@ -1,3 +1,10 @@
+## [2026-08-14] fix(story2video): 水印「移动」位置漂移速度降为原 1/10（watermark-slow-drift）
+
+- 现象：故事讲述流水线水印位置选择「移动（平滑漂移）」时，Lissajous 正弦轨迹周期过短（x 10s / y 14s），画面内游走过快影响观看。
+- 修复：`buildWatermarkFilter` moving 表达式周期放大 10 倍（x 100s / y 140s），速度约为原 1/10，90% 中心幅度、t=0 居中、确定性（sin/cos、无 random、无逗号）契约不变。
+- 测试：契约断言同步（100/140）；compose-engine 101 + text-config 73 = 174 用例全绿；真实 ffmpeg 12s 冒烟渲染通过。
+- 评审：Claude 后端不可用（status 1）降级为主代理自审 0C/0W/0I，详见 `.ccg/tasks/story2video-watermark-slow-drift/review.md`。
+
 ## [2026-08-14] 运营后台提示词评测：双路对比（人工 vs 引擎优化）（prompt-eval-engine-dual-path）
 
 - 需求：在运营后台「提示词评测」接入提示词优化引擎，双路并行评估人工提示词与引擎优化提示词，量化引擎提升率（方案 B，OpenSpec change `prompt-eval-engine-dual-path`）。
