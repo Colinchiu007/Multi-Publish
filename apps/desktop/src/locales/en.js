@@ -79,7 +79,7 @@ export default {
   },
   create: {
     story2video: {
-      configurationTitle: 'Omni Creation Configuration',
+      configurationTitle: 'Story Telling Configuration',
       imageStyleHint: 'Controls the visual appearance of generated images.',
       promptStyleHint: 'Controls how image prompts are written and organized; it does not replace image style.',
       creationMode: {
@@ -88,8 +88,8 @@ export default {
         manual: 'Manual scene asset selection',
         hint: 'In "Manual scene asset selection" mode, each storyboard segment generates multiple images and 1 video for you to choose from. Token or credit consumption will increase significantly. Test with a short script first, then use it for real projects.',
         materialModeLabel: 'Material Mode',
-        materialAllImages: 'Omni creation only',
-        materialVideoImage: 'Video + omni creation',
+        materialAllImages: 'Story telling only',
+        materialVideoImage: 'Video + story telling',
         materialAllImagesHint: 'Each scene generates 2 images for you to choose from.',
         materialVideoImageHint: 'AI-video scenes generate 2 images + 1 video (same prompt) for you to choose from; other scenes generate 2 images.',
       },
@@ -205,7 +205,7 @@ export default {
     model_configuration_required: 'The required models are not available. Add them in Settings.',
     model_api_key_required: 'The model is configured, but its API key is missing or cannot be read. Re-enter the API key for the provider in Model Settings.',
     bgm_skipped: 'Background music was skipped ({reason}). The video has no background music.',
-    access_denied: 'Sign in with an account that can access Omni Creation, then try again.',
+    access_denied: 'Sign in with an account that can access Story Telling, then try again.',
     orchestration_failed: 'Could not finish generation right now. Please try again shortly.',
     text_input_only: 'Only text input is supported.',
     text_too_long: 'Your script can contain up to {maxFormatted} characters. Please shorten it and try again.',
@@ -249,7 +249,7 @@ export default {
     splitSceneCount: 'Split into {count} scenes',
     optimizeProgress: '{done}/{total} scenes optimized',
     selectVideoScenes: '{count} AI video scenes selected (~{ratio}%)',
-    selectVideoScenesOff: 'Omni creation mode',
+    selectVideoScenesOff: 'Story telling mode',
     assetsProgressVideo: 'Images {imagesDone}/{imagesTotal} · Videos {videosDone}/{videosTotal} · Narration {ttsDone}/{ttsTotal}',
     assetsProgress: 'Images {imagesDone}/{imagesTotal} · Narration {ttsDone}/{ttsTotal}',
     composeSegments: 'Composing segment {done}/{total} · {percent}%',
@@ -345,7 +345,7 @@ export default {
       'podcast-repurpose': 'Podcast Repurpose',
       'screen-demo': 'Screen Demo',
       'framework-smoke': 'Framework Smoke Test',
-      'story2video-compose': 'Omni Creation',
+      'story2video-compose': 'Story Telling',
     },
     descriptions: {
       'animated-explainer': 'Turn a topic or idea into a complete explainer video',
@@ -362,7 +362,7 @@ export default {
       'podcast-repurpose': 'Turn an audio podcast into a visual video',
       'screen-demo': 'Record a screen demo with automatic annotations',
       'framework-smoke': 'Quickly verify a pipeline configuration',
-      'story2video-compose': 'Turn your script into an Omni Creation video (omni creation with optional AI video blend)',
+      'story2video-compose': 'Turn your script into a Story Telling video (story telling with optional AI video blend)',
       unavailable: 'No description available',
     },
     categories: {

@@ -1,11 +1,11 @@
 # story2video-split-contract Specification
 
 ## Purpose
-全能创作（story2video-compose）分句链路必须统一使用分句引擎（smart-sentence-splitter）的算法：在线时直接采用引擎返回的场景字幕，离线降级时本地算法与引擎 TS 镜像（text-segmentation.ts v0.15.2）语义一致，禁止再使用旧本地贪心切分算法。
+故事讲述（story2video-compose）分句链路必须统一使用分句引擎（smart-sentence-splitter）的算法：在线时直接采用引擎返回的场景字幕，离线降级时本地算法与引擎 TS 镜像（text-segmentation.ts v0.15.2）语义一致，禁止再使用旧本地贪心切分算法。
 ## Requirements
 ### Requirement: 在线路径采用引擎字幕
 
-当分句引擎（smart-sentence-splitter :8002）在线且 split 阶段返回有效场景时，全能创作链路的每个场景 SHALL 优先采用引擎返回的 `scenes[].subtitles[].text` 作为该场景的 subtitleBlocks，并标记 `subtitleSource='smart-sentence-splitter'`；不得用本地算法重新切分引擎已返回的字幕。
+当分句引擎（smart-sentence-splitter :8002）在线且 split 阶段返回有效场景时，故事讲述链路的每个场景 SHALL 优先采用引擎返回的 `scenes[].subtitles[].text` 作为该场景的 subtitleBlocks，并标记 `subtitleSource='smart-sentence-splitter'`；不得用本地算法重新切分引擎已返回的字幕。
 
 #### Scenario: 引擎返回字幕时直接采纳
 - **WHEN** `normalizeServiceSplitResult` 收到含 `scenes[].subtitles`（每项 text 非空）的引擎响应
@@ -37,7 +37,7 @@ JS 本地镜像（story2video-segmentation.js）与 TS 权威版（text-segmenta
 
 ### Requirement: 来源可追溯
 
-全能创作链路的每个场景 SHALL 携带 `sceneSource` / `subtitleSource` 标记（smart-sentence-splitter / local-typescript / local-typescript-fallback），供前端与诊断区分算法来源。
+故事讲述链路的每个场景 SHALL 携带 `sceneSource` / `subtitleSource` 标记（smart-sentence-splitter / local-typescript / local-typescript-fallback），供前端与诊断区分算法来源。
 
 #### Scenario: 来源标记
 - **WHEN** 分句阶段完成且 generate_assets 组装素材清单

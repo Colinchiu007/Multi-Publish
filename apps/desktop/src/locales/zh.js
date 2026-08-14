@@ -79,7 +79,7 @@ export default {
   },
   create: {
     story2video: {
-      configurationTitle: '全能创作配置',
+      configurationTitle: '故事讲述配置',
       imageStyleHint: '控制每张生成图片的视觉外观。',
       promptStyleHint: '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
       creationMode: {
@@ -88,8 +88,8 @@ export default {
         manual: '分镜素材自选',
         hint: '选择「分镜素材自选」模式后，每个分镜段落将生成多张图片和 1 个视频供您选择。Token 或积分消耗将大量增加，建议先用短文案测试后，再用于真实创作。',
         materialModeLabel: '素材模式',
-        materialAllImages: '全部全能创作',
-        materialVideoImage: '视频+全能创作',
+        materialAllImages: '全部故事讲述',
+        materialVideoImage: '视频+故事讲述',
         materialAllImagesHint: '每个场景生成 2 张图片供您选择。',
         materialVideoImageHint: 'AI 视频场景生成 2 张图片 + 1 个视频供您选择（同一提示词），其余场景生成 2 张图片。',
       },
@@ -205,7 +205,7 @@ export default {
     model_configuration_required: '未找到需要的相关模型，请在设置中添加模型',
     model_api_key_required: '模型已添加，但 API Key 未配置或无法读取，请在「模型设置」中重新填写对应服务商的 API Key。',
     bgm_skipped: '背景音乐已跳过（{reason}），成片不含背景音乐。',
-    access_denied: '当前登录状态无法启动全能创作，请先登录并确认当前账号有对应权益。',
+    access_denied: '当前登录状态无法启动故事讲述，请先登录并确认当前账号有对应权益。',
     orchestration_failed: '暂时无法完成生成，请稍后再试。',
     text_input_only: '目前只支持输入文案。',
     text_too_long: '文案最多可输入 {maxFormatted} 个字符，请缩短后再试。',
@@ -249,7 +249,7 @@ export default {
     splitSceneCount: '拆分为了 {count} 个场景',
     optimizeProgress: '共 {total} 个场景，已完成 {done} 个',
     selectVideoScenes: '已选 {count} 个 AI 视频场景（约 {ratio}%）',
-    selectVideoScenesOff: '纯全能创作模式',
+    selectVideoScenesOff: '纯故事讲述模式',
     assetsProgressVideo: '图片 {imagesDone}/{imagesTotal} · 视频 {videosDone}/{videosTotal} · 旁白 {ttsDone}/{ttsTotal}',
     assetsProgress: '图片 {imagesDone}/{imagesTotal} · 旁白 {ttsDone}/{ttsTotal}',
     composeSegments: '正在合成片段 {done}/{total} · {percent}%',
@@ -346,7 +346,7 @@ export default {
       'screen-demo': '屏幕演示',
       'framework-smoke': '框架冒烟测试',
       'video-clone': '视频克隆',
-      'story2video-compose': '全能创作',
+      'story2video-compose': '故事讲述',
     },
     descriptions: {
       'animated-explainer': '从主题或创意自动生成完整讲解视频',
@@ -363,7 +363,7 @@ export default {
       'screen-demo': '录制屏幕操作并自动添加标注',
       'framework-smoke': '快速验证流水线配置',
       'video-clone': '对标拆解与再创作：链接/本地视频 → 拆解报告 → 同款成片',
-      'story2video-compose': '将文案自动生成全能创作视频（全能创作 + 可选 AI 视频混合）',
+      'story2video-compose': '将文案自动生成故事讲述视频（故事讲述 + 可选 AI 视频混合）',
       unavailable: '暂无描述',
     },
     categories: {

@@ -7,7 +7,7 @@
 Story2Video 流水线运行上下文（`pipeline:getRunContext`）携带的 `providerWarnings` SHALL 仅包含该运行创建时间（含）之后记录的异常快照；运行创建时间缺失时 MAY 回退为全量快照。
 
 #### Scenario: 新运行不携带旧运行异常
-- **WHEN** 用户不退出应用，重新进入「全能创作」并启动新流水线
+- **WHEN** 用户不退出应用，重新进入「故事讲述」并启动新流水线
 - **THEN** 新运行上下文的 `providerWarnings` 不包含旧运行记录的异常
 
 #### Scenario: 当前运行内新增异常实时出现

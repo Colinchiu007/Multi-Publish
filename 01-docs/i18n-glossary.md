@@ -6,7 +6,7 @@
 
 | zh | en | 机器 ID（稳定，不改名） |
 |----|----|--------------------------|
-| 全能创作 | Omni Creation | `story2video-compose` |
+| 故事讲述 | Story Telling | `story2video-compose` |
 | 启动流水线 | Start pipeline | — |
 | 后台运行 | Run in background | — |
 | 口播视频 | Talking Head | `talking-head` |
@@ -37,7 +37,7 @@
 > 登记纪律：分析性术语只有在 zh/en locales 成对出现文案后才能登记（登记即触发 glossary.test.js 状态校验）；
 > 「旁白式 / 口播式 / 图片轮播」已于 2026-08-13 随 `locales.pipelines.modes` 成对落地并登记。
 
-- **旁白式**（对应流水线 `story2video-compose`，外显「全能创作」）：画面无说话人，TTS 人声为画外解说（Narration），文案角色 = 解说词。
+- **旁白式**（对应流水线 `story2video-compose`，外显「故事讲述」）：画面无说话人，TTS 人声为画外解说（Narration），文案角色 = 解说词。
 - **口播式**（`talking_head` 类别，外显「口播视频」/「数字人口播」）：画面有说话人（真人视频或数字人），文案角色 = 口播台词。
 - 两者共享 TTS 人声能力，但成片语义不同：旁白 = voice-over；口播 = 人物出镜说话。
 - 若需新增「旁白式」「口播式」「图片轮播」等 UI 文案：先在本表登记，并同步 `zh.js` / `en.js` 成对加入。

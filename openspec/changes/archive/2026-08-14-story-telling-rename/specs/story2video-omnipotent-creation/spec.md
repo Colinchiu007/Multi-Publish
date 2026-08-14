@@ -1,8 +1,5 @@
-# story2video-omnipotent-creation Specification
+## MODIFIED Requirements
 
-## Purpose
-将 Story2Video「图片轮播」流水线（story2video-compose）的展示名确定为「故事讲述」（en: Story Telling），多语言版本同步更新，所有用户可见文案由 i18n 资源驱动，禁止硬编码。更名链：2026-08-12「图片轮播」→「全能创作」→ 2026-08-14「故事讲述」。
-## Requirements
 ### Requirement: 流水线展示名更名
 story2video-compose 流水线 SHALL 以「故事讲述」为本地化名称展示（zh）/「Story Telling」（en）；流水线描述同步更新（zh：将文案自动生成故事讲述视频（故事讲述 + 可选 AI 视频混合）；en：Turn your script into a Story Telling video (story telling with optional AI video blend)）。用户可见文案 MUST 由 i18n 资源文件驱动（zh.js / en.js），禁止硬编码。更名链：2026-08-12「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」，2026-08-14 →「故事讲述 / Story Telling」。
 
@@ -24,11 +21,3 @@ story2video-compose 流水线 SHALL 以「故事讲述」为本地化名称展�
 #### Scenario: 测试断言同步
 - **WHEN** 运行流水线相关 E2E/单元测试断言卡片文案
 - **THEN** 断言匹配「故事讲述 / Story Telling」，且仍能识别素材模式选项「全部故事讲述 / 视频+故事讲述」
-
-### Requirement: 不改变流水线语义
-更名 SHALL 仅影响展示文案与配置标题，不得改变 story2video-compose 的 pipeline id、阶段清单、执行语义与持久化契约。
-
-#### Scenario: 旧记录兼容
-- **WHEN** 历史记录中 pipeline 仍为 story2video-compose
-- **THEN** 展示使用新名称，记录数据结构不变
-

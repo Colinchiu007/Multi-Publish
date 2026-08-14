@@ -8,6 +8,12 @@
   - 渲染端：BGM 配置区改为 `<select data-testid="s2v-bgm-select">`（空选项「不使用背景音乐」+ 库条目 + 历史路径兼容「已选音频（未入库）」）；「管理背景音乐」弹窗（UiModal）：添加（自动选中 + input 清空支持连续选择）、行内重命名（Enter/Esc）、删除（二次确认，删除选中项回退为不使用）；文案 zh/en 成对新增。
 - 测试：服务层 16/16、路径白名单 34/34（含 electron DI 2 例）、IPC handlers 8 例、preload 333/333、CreateView 174/174 全绿；e2e ipc-mock 增补 4 方法。
 - 文档：OpenSpec change `bgm-library`；`01-docs/PRD-video-creation.md` 新增 3.1.25 合同 + 修订记录 + 3.5 表格更新。
+## [2026-08-14] 流水线更名：全能创作 → 故事讲述（story-telling-rename）
+
+- 更名：流水线展示名「全能创作 / Omni Creation」→「故事讲述 / Story Telling」（zh/en i18n：pipelines.names/descriptions、配置标题、权限提示、模式摘要、素材模式选项同步；机器 ID `story2video-compose` 不变，更名链：2026-08-12「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」→ 2026-08-14「故事讲述 / Story Telling」）。
+- 测试：i18n/glossary/PipelineBrowser/story2video-notifications/E2E route 断言与注释同步更新；受影响套件全绿。
+- 文档：PRD §7.1/§7.1.3 契约段与提示文字表、i18n-glossary、i18n-sync-mechanism、product-manual、live OpenSpec specs（5 个）同步；OpenSpec change story-telling-rename。
+
 ## [2026-08-14] feat(s2v): TTS 词级时间戳采集——edge-tts WordBoundary + MiniMax subtitle_type=word，消除素材就绪后的事后 whisper ASR 停顿（tts-word-timestamps）
 
 - 根因：generate_assets 显示「图片 37/37 · 旁白 37/37」后长时间无反应——素材全部就绪后 `alignScenes()` 对每段音频逐一跑 faster-whisper ASR 词级对齐（2 并发、无进度上报），用户视角即卡死。

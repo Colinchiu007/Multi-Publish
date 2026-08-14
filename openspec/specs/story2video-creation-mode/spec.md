@@ -1,7 +1,7 @@
 # story2video-creation-mode Specification
 
 ## Purpose
-在「全能创作」的「视频增强」配置区新增「创作模式」（全自动 / 分镜素材自选），提供逐场景素材自选的创作流程：先批量生成候选素材（图片 / 图片+视频）并暂停等待用户选择，全部选定后再生成 TTS 与最终视频合成。
+在「故事讲述」的「视频增强」配置区新增「创作模式」（全自动 / 分镜素材自选），提供逐场景素材自选的创作流程：先批量生成候选素材（图片 / 图片+视频）并暂停等待用户选择，全部选定后再生成 TTS 与最终视频合成。
 ## Requirements
 ### Requirement: 创作模式配置契约
 story2videoTextConfig SHALL 支持 `creation` 段：`mode`（枚举 `auto` | `manual`，默认 `auto`）、`materialMode`（枚举 `all-images` | `video-image`，默认 `all-images`，仅 manual 生效）。normalizer MUST 校验枚举，非法值拒绝并返回可读错误；缺失/空段按默认值处理。前端 s2vConfig 增加同名字段并纳入上次选项持久化与恢复白名单。
@@ -19,10 +19,10 @@ story2videoTextConfig SHALL 支持 `creation` 段：`mode`（枚举 `auto` | `ma
 - **THEN** 恢复后 UI 正确选中对应项；非法值回退 data() 默认值
 
 ### Requirement: 视频增强区创作模式 UI
-CreateView「视频增强」区 SHALL 展示「创作模式」单选（`全自动（推荐）` 默认 / `分镜素材自选`）；选择「分镜素材自选」时 MUST 展示成本提示文案（每个分镜段落将生成多张图片和 1 个视频供选择；Token 或积分消耗将大量增加，建议先用短文案测试后，再用于真实创作），并展示「素材模式」单选（`全部图片轮播` / `视频+图片轮播`）及其说明。提交 SHALL 组装 `creation` 段。
+CreateView「视频增强」区 SHALL 展示「创作模式」单选（`全自动（推荐）` 默认 / `分镜素材自选`）；选择「分镜素材自选」时 MUST 展示成本提示文案（每个分镜段落将生成多张图片和 1 个视频供选择；Token 或积分消耗将大量增加，建议先用短文案测试后，再用于真实创作），并展示「素材模式」单选（`全部故事讲述` / `视频+故事讲述`）及其说明。提交 SHALL 组装 `creation` 段。
 
 #### Scenario: 全自动默认选中
-- **WHEN** 打开全能创作配置
+- **WHEN** 打开故事讲述配置
 - **THEN** 创作模式默认选中「全自动（推荐）」，素材模式区域隐藏
 
 #### Scenario: 自选模式联动

@@ -1,3 +1,13 @@
+## [Unreleased] - 2026-08-14 (流水线更名：全能创作 → 故事讲述)
+
+### 变更
+- **流水线展示名更名**：「全能创作 / Omni Creation」→「故事讲述 / Story Telling」；机器 ID `story2video-compose` 不变；配置标题、权限提示、模式摘要、素材模式选项等用户可见文案 zh/en 成对同步。
+
+### 测试
+- i18n 术语词典、locale 成对、流水线相关组件/E2E 断言同步更新，受影响套件全绿。
+
+### 文档
+- PRD、i18n-glossary、i18n-sync-mechanism、product-manual、OpenSpec change `story-telling-rename`（proposal/design/specs/tasks）。
 ## [Unreleased] - 2026-08-13 (模型服务异常横幅按运行归属 + 可关闭)
 
 ### 修复

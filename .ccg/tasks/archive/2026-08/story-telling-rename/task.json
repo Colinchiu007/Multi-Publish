@@ -1,0 +1,20 @@
+{
+  "id": "story-telling-rename",
+  "title": "流水线「全能创作 / Omni Creation」更名「故事讲述 / Story Telling」（显示名，机器 ID story2video-compose 不变）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "i18n",
+  "currentPhase": "completed",
+  "nextAction": "已归档：PR #801 合并 + openspec archive + CCG 三同步完成",
+  "createdAt": "2026-08-14T00:00:00Z",
+  "branch": "codex/story-telling-rename",
+  "openspecChange": "story-telling-rename",
+  "remoteStatus": {
+    "pr": 801,
+    "url": "https://github.com/Colinchiu007/Multi-Publish/pull/801",
+    "status": "merged",
+    "mergeCommit": "6c47e96eeec677b2e5b9645068df5214631ca317",
+    "mergedAt": "2026-08-14T01:48:29Z"
+  }
+}
