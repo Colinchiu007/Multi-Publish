@@ -118,27 +118,29 @@ test('PipelineEngine orchestrator - stage 1 (split) 执行成功并写入 contex
   console.log('  stage 1 (split) 完成，场景数:', ctx.split.scenes?.length);
 });
 
-test('PipelineEngine orchestrator - domain_enrich 后由 prompt-engine 执行 optimize', { timeout: 60000 }, async () => {
+test('PipelineEngine orchestrator - scene_context 后由 prompt-engine 执行 optimize', { timeout: 60000 }, async () => {
   const { pipelineEngine, promptBridge } = await buildContainer();
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。',
     autoAdvance: false,
+    // domain_enrich 合并入 scene_context 后阶段数 8→7；手动逐步执行跳过 checkpoint 暂停，
+    // 否则 optimize 完成后下一次 executeStage 会重跑 optimize。
+    checkpointPolicy: 'none',
   });
-  for (const stageName of ['split', 'domain_enrich', 'scene_context', 'optimize']) {
+  for (const stageName of ['split', 'scene_context', 'optimize']) {
     const execRes = await pipelineEngine.executeStage(res.runId);
     if (!execRes.success) console.log('  ' + stageName + ' error:', execRes.error, execRes.details);
     assert.ok(execRes.success, stageName + ' 应执行成功');
   }
   const ctx = pipelineEngine.getRunContext(res.runId);
   assert.ok(ctx.split, 'context 应包含 split 结果');
-  assert.ok(ctx.domain_enrich, 'context 应包含 domain_enrich 结果');
   assert.ok(ctx.scene_context, 'context 应包含 scene_context 结果');
   assert.ok(ctx.optimize, 'context 应包含 optimize 结果');
   assert.equal(ctx.optimize[0].providerId, 'prompt-engine');
-  const enrichedScenes = ctx.domain_enrich.scenes || ctx.domain_enrich.sentences || ctx.domain_enrich;
-  assert.ok(Array.isArray(enrichedScenes), 'domain_enrich 应提供场景数组');
+  const enrichedScenes = ctx.scene_context.scenes || ctx.scene_context.sentences || ctx.scene_context;
+  assert.ok(Array.isArray(enrichedScenes), 'scene_context 应提供场景数组');
   assert.equal(promptBridge.calls.length, enrichedScenes.length,
-    'prompt-engine 应逐场景接收 domain_enrich 输出');
+    'prompt-engine 应逐场景接收 scene_context 输出');
   assert.ok(promptBridge.calls.every(call => typeof call.prompt === 'string' && call.prompt.length > 0),
     '优化请求必须携带场景 prompt seed');
   assert.ok(promptBridge.calls.every(call => call.auto_detect_style === true || call.style),
@@ -147,7 +149,7 @@ test('PipelineEngine orchestrator - domain_enrich 后由 prompt-engine 执行 op
     '优化输出必须来自 mock prompt-engine');
   assert.ok(ctx.optimize.every(item => item.providerId === 'prompt-engine' && item.model === 'e2e-model'),
     '优化输出必须保留 prompt-engine 身份');
-  console.log('  domain_enrich + optimize 完成');
+  console.log('  scene_context + optimize 完成');
 });
 
 test('PipelineEngine orchestrator - prompt-engine 不可用时 optimize 明确 fail-closed', { timeout: 60000 }, async () => {
@@ -164,7 +166,7 @@ test('PipelineEngine orchestrator - prompt-engine 不可用时 optimize 明确 f
     autoAdvance: false,
   });
   assert.ok(res.success, '应成功创建 orchestrator run');
-  for (const stageName of ['split', 'domain_enrich', 'scene_context']) {
+  for (const stageName of ['split', 'scene_context']) {
     const execRes = await pipelineEngine.executeStage(res.runId);
     assert.ok(execRes.success, stageName + ' 应执行成功');
   }

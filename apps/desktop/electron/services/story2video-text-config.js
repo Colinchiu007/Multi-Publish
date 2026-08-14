@@ -550,13 +550,14 @@ function normalizeStory2VideoTextParams(params = {}) {
       subtitle_max_chars: split.subtitleMaxChars,
       subtitle_timing: split.subtitleTiming,
     },
-    domain_enrich: { contentType },
     scene_context: {
       enabled: sceneContext.enabled,
       max_summary_length: sceneContext.maxSummaryLength,
       max_anchors: sceneContext.maxAnchors,
       include_negative_anchors: sceneContext.includeNegativeAnchors,
       context_block_max_chars: sceneContext.contextBlockMaxChars,
+      // contentType 开关（原 domain_enrich stageOptions，design D4）：history → scene_context 生成视觉种子
+      contentType,
     },
     optimize: {
       platform: optimize.platform,

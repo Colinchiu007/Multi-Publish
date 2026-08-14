@@ -254,7 +254,7 @@ describe("CreateView", () => {
     });
     mocks.pipelineList.mockResolvedValue({
       code: 0,
-      data: [{ name: "story2video-compose", available: true, stages: ["split", "domain_enrich", "optimize", "generate_assets", "compose", "publish"] }],
+      data: [{ name: "story2video-compose", available: true, stages: ["split", "scene_context", "optimize", "generate_assets", "compose", "publish"] }],
     });
     try {
       const w = mount(CreateView, {

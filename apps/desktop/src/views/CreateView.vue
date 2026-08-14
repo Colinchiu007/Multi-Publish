@@ -1222,7 +1222,6 @@ const STYLES = [
 
 const STORY2VIDEO_STAGE_NAMES = Object.freeze([
   'split',
-  'domain_enrich',
   'scene_context',
   'optimize',
   'select_video_scenes',

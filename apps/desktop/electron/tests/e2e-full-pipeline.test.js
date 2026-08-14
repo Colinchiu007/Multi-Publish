@@ -4,7 +4,7 @@
  *
  * 测试范围：
  *   1. split (Python 8002) → 真实分句
- *   2. domain_enrich → 真实领域增强执行器
+ *   2. scene_context → 真实场景上下文增强执行器（含历史内容增强合并）
  *   3. optimize (当前默认 LLM 受控夹具) → 默认模型调用合同
  *   4. generate_assets (Node.js AssetGenerator) → 真实媒体文件（默认允许显式降级资产）
  *   5. compose (ffmpeg) → 真实可解码视频文件
@@ -159,14 +159,15 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
   assert.ok(completedRun, 'completed pipeline should move to history');
   assert.strictEqual(completedRun.status, 'completed');
   // 2026-08-11：新增 select_video_scenes 阶段（视频+图片轮播混合模式，off 模式快速通过）
+  // 2026-08-14：domain_enrich 合并入 scene_context（merge-domain-enrich-into-scene-context），运行清单 8→7 阶段
   assert.deepStrictEqual(
     completedRun.stages.map(stage => stage.name),
-    ['split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
+    ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
   );
   assert.ok(completedRun.stages.every(stage => stage.status === 'completed'));
 
   const context = result.context || completedRun.context;
-  for (const stageName of ['split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish']) {
+  for (const stageName of ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish']) {
     assert.ok(context[stageName], 'context should contain ' + stageName);
   }
 
@@ -217,7 +218,7 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
   assert.strictEqual(context.publish.skipped, true);
   assert.strictEqual(context.publish.videoPath, compose.videoPath);
 
-  console.log('  [stages] split → domain_enrich → scene_context → optimize → select_video_scenes → generate_assets → compose → publish');
+  console.log('  [stages] split → scene_context → optimize → select_video_scenes → generate_assets → compose → publish');
   console.log('  [assets] image=' + assets.images[0].meta.source +
     ', audio=' + assets.audio[0].meta.source);
   console.log('  [compose] video created: ' + compose.fileSize + ' bytes, ' +

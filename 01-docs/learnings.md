@@ -1,3 +1,11 @@
+## 合并 domain_enrich 到 scene_context 复盘（merge-domain-enrich-into-scene-context，2026-08-14）
+
+- **交付**：删除独立 `domain_enrich` 阶段与 `story2video-domain.js`，`imagePromptSeed` 种子生成移植进 `scene_context` 执行器（`contentType==='history'`，独立于 `enabled` 开关）；新增 `detectSentiment`/`buildDomainSeed` 到 story-context-engine.js；Python YAML 契约镜像同步删 domain_enrich 段；OpenSpec change 归档（PR 待合）。
+- **教训 1（阶段数变更的断言散布面要全量回归兜底）**：8→7 阶段改动后，定向测试全绿但 `pipeline-engine.test.js` 的 `stageCount` 硬编码 8 漏改——它不在任何定向清单里，只有全量 vitest 能抓到（7650 测试中唯一红）。教训：改阶段清单时，除 E2E/契约/UI 外，全局检索 `stageCount`、`8 阶段`、阶段数组字面量。
+- **教训 2（跨语言契约镜像必须同 change 同步）**：`story2video-compose.yaml`（Python 侧流水线定义）声明了已删除的 `domain_enrich` executor，Claude 审查抓住。教训：删 JS executor 时同步检索 `packages/python-backend` 下的 YAML/定义文件；契约镜像文件应列入 change 的 tasks 清单而非事后补。
+- **教训 3（纯规则合并也要用 golden 锁行为差异）**：seed visualStyle 从「逐场景关键词」变「全文全局判定」是用户可见的 prompt 输出变化，被「行为可观测等价」的目标表述掩盖；Claude 审查要求登记 Risk + golden 测试后才暴露。教训：宣称「等价」的重构必须列出所有可感知差异维度，每条配测试或显式 Risk。
+
+---
 ## 提示词引擎共享内核重构 + Higgsfield 机制复盘（prompt-engine-kernel-refactor + video-prompt-higgsfield-mechanics，2026-08-14）
 
 - **交付**：新增 `prompt-engine-kernel.js`（领域中立共享内核：风格归一/敏感守卫/中立 limits/clampNumber/extractOptimizedBase），图片契约 re-export 公共 API 零变化，视频契约改从 kernel 引入并用 `extractOptimizedBase` 替换本地 `_extractVideoBase`（engineLabel='视频' 保留既有失败文案）；视频契约新增导演工作流（excluded_characters/no_swap_pairs/color_ratio/shots[]/beats[]/appendVideoTrailer/平台画像/结构完整性校验）与精修层 max_length 按后端能力门控（8013 [50,2000] / 8020 [200,4000]）。双模型评审 0C/1W/7I，W 已修复；测试 566 全绿；QM-1 打包 + 启动验证通过。

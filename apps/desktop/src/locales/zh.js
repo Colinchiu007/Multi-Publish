@@ -421,7 +421,7 @@ export default {
       report: '报告',
       split: '文案拆分',
       domain_enrich: '内容增强',
-      scene_context: '场景上下文',
+      scene_context: '内容增强 · 场景上下文',
       optimize: '提示词优化',
       select_video_scenes: 'AI 视频场景选择',
       generate_assets: '图片/视频/旁白生成',
