@@ -1,3 +1,10 @@
+## [2026-08-15] fix(ops-center): 提示词评测 Network Error 文案可操作化——传输层失败映射自助排查提示（ops-center-prompt-eval-network-error）
+
+- 现象：运营后台 → 提示词评测 → 进入页面报「加载评测列表失败：Network Error」。
+- 根因：`PromptEvalWorkbench.vue loadCases()` 的 catch 直接展示 axios 裸 message（`e?.response?.data?.detail || e.message`）；传输层失败（无 HTTP 响应，`net::ERR_CONNECTION_REFUSED`）时 `e.message === "Network Error"`。真实浏览器复现：双服务在线零报错；仅 vite dev server 离线且旧 tab 未刷新时出现该文案——非业务代码 Bug，是开发栈未同时在线 + 错误文案不可操作。
+- 修复：`apiErrorMessage(e, fallback)`（`src/api/http.js`）——仅 ERR_NETWORK/Network Error 映射为「无法连接后端服务（Network Error）：请确认 ops-center 后端已启动（uvicorn main:app --port 8010），然后刷新页面重试」；HTTP 错误仍优先展示后端 `detail`，超时/取消保留原 message，空错误回退 fallback。`PromptEvalWorkbench.vue` 全部 10 处 catch 接入。
+- 测试：`tests/api-error-message.test.js` 新增 5 例；vitest 3 文件 16 用例全绿；`npm run build` exit 0。
+
 ## [2026-08-15] 故事讲述：批量创作视频（story2video-batch-create）
 
 - 需求：在「视频创作 → 故事讲述」新增【批量创作】：入口按钮 + 弹窗（创作模式隐藏固定全自动、视频增强模式下拉、启动按钮、队列规则提示、输入文案 1-10 条带「+」、本地文件 .txt/.md 最多 20 个），任务按队列依次运行（批量最大并行 2；手动任务运行中批量并行 1），弹窗内实时展示任务与排队信息，批量任务完成后进入历史记录。
@@ -17,7 +24,6 @@
 - 基线修复（独立 commit e1f1788）：`rest.py` 资源端点显式 utf-8 读取——修复 Windows GBK locale 下 prompts.json 读取抛 UnicodeDecodeError 被吞导致 `rag_cases` 恒 0 的既有缺陷（全量测试三轮失败 1 项的真根因）。
 - 测试：新增 `tests/test_audio_layers.py` / `test_cache_key_components.py` / `test_video_evaluator_deterministic.py` + 评审回归；全量 pytest 736 passed / 0 failed / 3 skipped（5 个 web_e2e 环境性 error 与本变更无关）。
 - 评审：Claude 双模型 1 Critical（已修）+ 2 Warning（已修）+ 13 Info（6 已修，其余 Batch B/C）；antigravity 地区不可用降级。
-
 ## [2026-08-14] fix(story2video): 水印「移动」位置漂移速度降为原 1/10（watermark-slow-drift）
 
 - 现象：故事讲述流水线水印位置选择「移动（平滑漂移）」时，Lissajous 正弦轨迹周期过短（x 10s / y 14s），画面内游走过快影响观看。
