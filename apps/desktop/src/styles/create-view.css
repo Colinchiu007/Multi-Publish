@@ -235,14 +235,26 @@
 [data-theme="dark"] .voice-clone-invalid-badge { margin-left: 6px; font-size: 11px; color: var(--clone-invalid-text); background: var(--clone-invalid-bg); border: 1px solid var(--clone-invalid-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
 .voice-clone-default-badge { margin-left: 6px; font-size: 11px; color: var(--clone-default-text); background: var(--clone-default-bg); border: 1px solid var(--clone-default-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
 [data-theme="dark"] .voice-clone-default-badge { margin-left: 6px; font-size: 11px; color: var(--clone-default-text); background: var(--clone-default-bg); border: 1px solid var(--clone-default-border); border-radius: var(--r-xs); padding: 1px 6px; white-space: nowrap; }
-.bgm-library-dialog { display: grid; gap: 10px; min-width: 0; }
-.bgm-library-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-.bgm-library-list { display: grid; gap: 8px; min-width: 0; list-style: none; margin: 0; padding: 0; }
-.bgm-library-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; min-width: 0; }
-.bgm-library-name { min-width: 0; overflow-wrap: anywhere; }
-.bgm-library-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-.bgm-library-actions .form-input { flex: 1 1 180px; min-width: 0; }
-.bgm-library-actions .btn-secondary { margin-top: 0; }
+.bgm-library-dialog { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.bgm-library-toolbar { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.bgm-library-toolbar-row { display: flex; align-items: center; justify-content: space-between; min-width: 0; }
+.bgm-library-toolbar-hint { font-size: 13px; color: var(--text-secondary, #86868b); line-height: 1.4; }
+.bgm-library-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; list-style: none; margin: 0; padding: 0; }
+.bgm-library-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border, #D2D2D7); border-radius: 8px; min-width: 0; transition: background-color 0.15s ease; }
+.bgm-library-item:hover { background-color: var(--surface-bright, #f9f9fb); }
+.bgm-library-item-content { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.bgm-library-item-icon { color: var(--text-secondary, #86868b); flex-shrink: 0; font-size: 18px; }
+.bgm-library-name { min-width: 0; overflow-wrap: anywhere; font-size: 14px; color: var(--text-primary, #1D1D1F); }
+.bgm-library-actions { display: flex; align-items: center; gap: 4px; min-width: 0; opacity: 0; transition: opacity 0.15s ease; }
+.bgm-library-item:hover .bgm-library-actions { opacity: 1; }
+.bgm-library-actions .btn-icon { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: none; border-radius: 50%; background: transparent; cursor: pointer; transition: background-color 0.15s ease, color 0.15s ease; color: var(--text-secondary, #86868b); padding: 0; }
+.bgm-library-actions .btn-icon:hover { background-color: var(--surface-container, #eeeef0); color: var(--text-primary, #1D1D1F); }
+.bgm-library-actions .btn-icon.danger { color: var(--color-error, #D70015); }
+.bgm-library-actions .btn-icon.danger:hover { background-color: var(--error-bg, #ffdad6); color: var(--color-error, #D70015); }
+.bgm-library-actions .btn-icon svg,
+.bgm-library-actions .btn-icon .material-symbols-outlined { font-size: 18px; }
+.bgm-library-rename-row { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.bgm-library-rename-row .form-input { flex: 1 1 180px; min-width: 0; }
 .voice-clone-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted, #888); margin: 0; min-width: 0; }
 .voice-clone-row-pending { opacity: 0.85; }
 .voice-clone-row-pending > span { display: flex; align-items: center; gap: 8px; }
