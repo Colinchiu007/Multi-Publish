@@ -16,6 +16,7 @@ const {
   estimateSceneSeconds,
   resolveVideoGeneratorConfig,
   translatePromptsForLocale,
+  ensureTranslationConcurrencyBudget,
 } = require('./story2video-stages')
 const {
   cleanupRunInputDir,
@@ -2211,6 +2212,144 @@ describe('translatePromptsForLocale', () => {
     const ai = makeAiGenerator('{}')
     const items = await translatePromptsForLocale(ai, [], 'zh', console)
     expect(items).toEqual([])
+  })
+
+  describe('并发与限时重试（2026-08-15）', () => {
+    it('13 个提示词按 4 路滑窗并发，峰值并发不超过 4 且全部成功', async () => {
+      const active = { current: 0, peak: 0 }
+      const ai = {
+        generateWithDefault: vi.fn(async (_type, params) => {
+          active.current += 1
+          active.peak = Math.max(active.peak, active.current)
+          await new Promise((resolve) => setTimeout(resolve, 20))
+          active.current -= 1
+          const map = {}
+          for (const key of Object.keys(JSON.parse(params.messages[1].content))) map[key] = '译-' + key
+          return { content: JSON.stringify(map) }
+        }),
+      }
+      const prompts = Array.from({ length: 13 }, (_, i) => 'prompt ' + i)
+      const items = await translatePromptsForLocale(ai, prompts, 'zh', console)
+      // 13 条 / 每批 3 条 = 5 批
+      expect(ai.generateWithDefault.mock.calls.length).toBe(5)
+      expect(active.peak).toBeLessThanOrEqual(4)
+      expect(active.peak).toBe(4)
+      expect(items.every((item) => typeof item.translation === 'string')).toBe(true)
+    })
+
+    it('空内容失败后重试一次成功（单批调用 2 次）', async () => {
+      let callCount = 0
+      const ai = {
+        generateWithDefault: vi.fn(async () => {
+          callCount += 1
+          if (callCount === 1) throw new Error('Default provider returned empty content')
+          return { content: '{"0":"重试成功"}' }
+        }),
+      }
+      const items = await translatePromptsForLocale(ai, ['A red apple'], 'zh', console)
+      expect(callCount).toBe(2)
+      expect(items[0].translation).toBe('重试成功')
+    })
+
+    it('连续失败重试后 fail-open，不抛错且翻译为空', async () => {
+      const ai = {
+        generateWithDefault: vi.fn().mockRejectedValue(new Error('Default provider returned empty content')),
+      }
+      const items = await translatePromptsForLocale(ai, ['p0', 'p1', 'p2', 'p3'], 'zh', console)
+      // 2 批 ×（1 次 + 1 次重试）
+      expect(ai.generateWithDefault.mock.calls.length).toBe(4)
+      expect(items.every((item) => item.translation === null)).toBe(true)
+    })
+
+    it('system prompt 显式禁止思考过程与 <think> 标签', async () => {
+      const ai = makeAiGenerator('{"0":"译"}')
+      await translatePromptsForLocale(ai, ['p'], 'zh', console)
+      const system = ai.generateWithDefault.mock.calls[0][1].messages[0].content
+      expect(system).toContain('思考过程')
+      expect(system).toMatch(/<think>/)
+      expect(system).toContain('JSON')
+    })
+
+    it('每批调用带 25s 有界超时', async () => {
+      const ai = makeAiGenerator('{"0":"译"}')
+      await translatePromptsForLocale(ai, ['p'], 'zh', console)
+      expect(ai.generateWithDefault.mock.calls[0][1].timeoutMs).toBe(25000)
+    })
+
+    it('ensureTranslationConcurrencyBudget 注册 llm key 级并发预算（保留 rpm，并发 4）', () => {
+      const setLimits = vi.fn()
+      const ai = {
+        _governor: { setLimits },
+        _modelProviderManager: {
+          getDefault: vi.fn(() => ({
+            id: 'minimax-multimodal',
+            models: ['MiniMax-M2.7'],
+            capability_models: { llm: 'MiniMax-M2.7' },
+            config: { rate_per_minute: 20 },
+          })),
+        },
+      }
+      ensureTranslationConcurrencyBudget(ai)
+      expect(setLimits).toHaveBeenCalledWith('minimax-multimodal:llm:MiniMax-M2.7', {
+        rpm: 20,
+        maxConcurrent: 4,
+        cooldownMs: 30000,
+        retry429: 3,
+      })
+    })
+
+    it('capability_models.llm 为数组时回退 models[0]，key 与 generateWithDefault 一致', () => {
+      const setLimits = vi.fn()
+      const ai = {
+        _governor: { setLimits },
+        _modelProviderManager: {
+          getDefault: vi.fn(() => ({
+            id: 'minimax-multimodal',
+            models: ['MiniMax-M2.7', 'MiniMax-M2.5'],
+            capability_models: { llm: ['MiniMax-M2.5'] },
+            config: { rate_per_minute: 20 },
+          })),
+        },
+      }
+      ensureTranslationConcurrencyBudget(ai)
+      expect(setLimits).toHaveBeenCalledWith('minimax-multimodal:llm:MiniMax-M2.7', {
+        rpm: 20,
+        maxConcurrent: 4,
+        cooldownMs: 30000,
+        retry429: 3,
+      })
+    })
+
+    it('真实 governor 回归：4 路滑窗 + key 级预算下 10 批全部完成，无排队超时残留', async () => {
+      const { ApiUsageGovernor } = require('./api-usage-governor')
+      const governor = new ApiUsageGovernor({
+        log: { warn: () => {}, info: () => {} },
+        providerLimits: { 'minimax-multimodal': { rpm: 1000, maxConcurrent: 2, cooldownMs: 1000, retry429: 3 } },
+      })
+      const ai = {
+        _governor: governor,
+        _modelProviderManager: {
+          getDefault: vi.fn(() => ({
+            id: 'minimax-multimodal',
+            models: ['MiniMax-M2.7'],
+            capability_models: { llm: 'MiniMax-M2.7' },
+            config: { rate_per_minute: 1000 },
+          })),
+        },
+        generateWithDefault: vi.fn(async (_type, params) => {
+          return governor.run({ type: 'llm', providerId: 'minimax-multimodal', model: 'MiniMax-M2.7' }, async () => {
+            await new Promise((resolve) => setTimeout(resolve, 15))
+            const map = {}
+            for (const key of Object.keys(JSON.parse(params.messages[1].content))) map[key] = '译-' + key
+            return { content: JSON.stringify(map) }
+          })
+        }),
+      }
+      const prompts = Array.from({ length: 10 }, (_, i) => 'prompt ' + i)
+      const items = await translatePromptsForLocale(ai, prompts, 'zh', console)
+      expect(items.every((item) => typeof item.translation === 'string')).toBe(true)
+      expect(governor.getStatus('minimax-multimodal:llm:MiniMax-M2.7').active).toBe(0)
+    })
   })
 })
 

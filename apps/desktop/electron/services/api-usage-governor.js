@@ -152,6 +152,17 @@ class ApiUsageGovernor {
     return st
   }
 
+  /**
+   * 读取某 key 当前生效的限流预算（精确 key 覆盖 > provider 级 > 类别默认）。
+   * 供调用方在需要「保留现有预算、只做局部覆盖」（如翻译阶段提升并发槽）时读取，
+   * 避免整组覆盖导致 rpm/冷却/429 重试与既有配置漂移。
+   */
+  getLimits(key, type, providerId) {
+    if (typeof key !== 'string' || !key) return null
+    const limits = this._limitsFor(key, String(type || 'default'), String(providerId || ''))
+    return limits ? { ...limits } : null
+  }
+
   /** 诊断：当前 key 的并发/排队/冷却/预算状态（不含密钥） */
   getStatus(key) {
     const st = this._state.get(key)

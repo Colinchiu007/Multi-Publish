@@ -35,6 +35,8 @@ const {
 } = require('./story2video-image-retry');
 const { ERROR_CODES } = require('./adapters/_base/provider-error');
 const modelCallScheduler = require('./model-call-scheduler');
+const { PROVIDER_LIMITS } = require('./governor-provider-limits');
+const { DEFAULT_LIMITS } = require('./api-usage-governor');
 const {
   buildPromptEngineOptimizeRequest,
   extractOptimizedPrompt,
@@ -65,6 +67,12 @@ const STORY2VIDEO_STAGE_TYPES = {
 };
 
 const MAX_ASSET_CONCURRENCY = 8;
+// 提示词翻译（2026-08-15 优化）：每批 3 条、4 路滑窗并发、单批 25s 有界超时、失败重试 1 次。
+const TRANSLATION_BATCH_SIZE = 3;
+const TRANSLATION_BATCH_CONCURRENCY = 4;
+const TRANSLATION_BATCH_TIMEOUT_MS = 25000;
+const TRANSLATION_BATCH_RETRIES = 1;
+const TRANSLATION_MAX_CONCURRENT = 4;
 // 视频下载大小上限（与 story2video-paths MEDIA_RULES.video 一致：512MB）
 const MAX_VIDEO_FILE_BYTES = 512 * 1024 * 1024;
 
@@ -93,6 +101,12 @@ function getAiGenerator (pipelineEngine) {
 /**
  * 提示词本地语言翻译（2026-08-12）：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
  * fail-open：LLM 不可用/单场景失败 → 对应项 translation=null，不阻塞流水线。
+ *
+ * 2026-08-15 优化（翻译失败重试耗时复盘）：
+ *   - 4 路滑窗并发：governor 仍是排队/限流/重试的唯一权威，业务侧只限制在途批数——
+ *     一次性全发 13 批会让尾部批次超过 governor 30s 排队上限被拒；
+ *   - 每次尝试 25s 有界超时 + 失败重试 1 次，仍失败 fail-open；
+ *   - system prompt 显式禁止思考块（推理模型 <think> 占满 token 致空返回的根因）。
  */
 async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
   const items = (Array.isArray(prompts) ? prompts : []).map((prompt, index) => ({
@@ -109,16 +123,33 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
   const targetLanguage = String(uiLocale || '').trim() || 'zh'
   const system = '你是专业译者。把用户给出的英文图片提示词翻译成' +
     (targetLanguage === 'zh' ? '简体中文' : targetLanguage) +
-    '。只输出严格 JSON 对象，键为序号字符串，值为译文，例如 {"0":"译文一","1":"译文二"}，不要输出其他任何文字。'
-  const batchSize = 3
-  for (let offset = 0; offset < items.length; offset += batchSize) {
-    const slice = items.slice(offset, offset + batchSize)
-    const joined = slice.map((item) => '"' + item.index + '": ' + JSON.stringify(item.prompt)).join(',\n')
-    if (!joined.trim()) continue
+    '。只输出严格 JSON 对象，键为序号字符串，值为译文，例如 {"0":"译文一","1":"译文二"}。' +
+    '不要输出任何思考过程、推理说明或 <think> 标签，直接输出 JSON，不要输出其他任何文字。'
+  const batches = []
+  for (let offset = 0; offset < items.length; offset += TRANSLATION_BATCH_SIZE) {
+    batches.push(items.slice(offset, offset + TRANSLATION_BATCH_SIZE))
+  }
+  if (batches.length === 0) return items
+  ensureTranslationConcurrencyBudget(aiGenerator, log)
+  await _mapWithConcurrency(batches, TRANSLATION_BATCH_CONCURRENCY,
+    (slice) => translatePromptBatch(aiGenerator, slice, system, log))
+  return items
+}
+
+/**
+ * 翻译单批（≤3 条）：每次尝试 25s 有界超时 + 失败重试 1 次，仍失败 fail-open（translation=null）。
+ * 解析逻辑保持与历史版本一致（JSON 对齐解析 → 逐行编号回退 → 防御过滤）。
+ */
+async function translatePromptBatch (aiGenerator, slice, system, log) {
+  const joined = slice.map((item) => '"' + item.index + '": ' + JSON.stringify(item.prompt)).join(',\n')
+  if (!joined.trim()) return
+  const maxAttempts = TRANSLATION_BATCH_RETRIES + 1
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const result = await aiGenerator.generateWithDefault('llm', {
         temperature: 0.1,
         max_tokens: Math.min(4000, 400 + joined.length),
+        timeoutMs: TRANSLATION_BATCH_TIMEOUT_MS,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: '{\n' + joined + '\n}' },
@@ -160,13 +191,77 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
           }
         }
       }
+      return
     } catch (error) {
       if (log && typeof log.warn === 'function') {
-        log.warn('Story2VideoStages', 'prompt translation batch failed: ' + (error && error.message ? error.message : String(error)))
+        log.warn('Story2VideoStages', 'prompt translation batch failed (attempt ' + attempt + '/' + maxAttempts + '): ' +
+          (error && error.message ? error.message : String(error)))
       }
     }
   }
-  return items
+}
+
+/**
+ * 翻译阶段 llm key 级并发预算（2026-08-15）：
+ * governor 按 provider rpm/10 启发式为同步类推导 maxConcurrent（rpm 20 → 2），
+ * 会把翻译 4 路并发压回 2 路串行。这里用 governor 的 key 级覆盖（优先级最高）把该
+ * llm key 的并发槽提到 4，并通过 getLimits 保留 governor 现有效限流预算（rpm/冷却/429），
+ * 只改并发槽、不漂移限流语义。翻译是 optimize 尾部的独占小请求突发，rpm 时间槽
+ * （20/min → 每 3s 一个）仍由 governor 强制，不会突破供应商限流。
+ * 惰性注册、幂等（key 已有覆盖时浅合并保留 maxConcurrent）；key 与 generateWithDefault
+ * 使用同一解析来源（getDefault('llm') + capability_models.llm），注册成功/跳过均有日志。
+ */
+function ensureTranslationConcurrencyBudget (aiGenerator, log) {
+  const manager = aiGenerator && aiGenerator._modelProviderManager
+  const governor = aiGenerator && aiGenerator._governor
+  if (!manager || !governor || typeof governor.setLimits !== 'function') {
+    if (log && typeof log.debug === 'function') {
+      log.debug('Story2VideoStages', 'prompt translation concurrency budget skipped: governor/manager unavailable')
+    }
+    return
+  }
+  try {
+    const provider = typeof manager.getDefault === 'function' ? manager.getDefault('llm') : null
+    if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) {
+      if (log && typeof log.debug === 'function') {
+        log.debug('Story2VideoStages', 'prompt translation concurrency budget skipped: no default llm provider')
+      }
+      return
+    }
+    const capabilityModel = provider.capability_models && typeof provider.capability_models === 'object'
+      ? provider.capability_models.llm
+      : null
+    const fallbackModel = Array.isArray(provider.models)
+      ? provider.models.find((model) => typeof model === 'string' && model.trim())
+      : null
+    const model = (typeof capabilityModel === 'string' && capabilityModel.trim()) || (fallbackModel && fallbackModel.trim()) || ''
+    const providerId = provider.id.trim()
+    const key = providerId + ':llm' + (model ? ':' + model : '')
+    // 保留 governor 现有预算（精确 key > provider 级 > 类别默认），只提升并发槽，
+    // 避免整组覆盖导致 rpm/冷却/429 重试与运维配置漂移（2026-08-15 审查 C2）。
+    const existing = typeof governor.getLimits === 'function' ? governor.getLimits(key, 'llm', providerId) : null
+    const configRpm = provider.config && typeof provider.config === 'object' ? Number(provider.config.rate_per_minute) : NaN
+    const staticLimits = PROVIDER_LIMITS[providerId] || {}
+    const defaults = DEFAULT_LIMITS.llm || {}
+    const rpm = (existing && existing.rpm) ||
+      (Number.isFinite(configRpm) && configRpm >= 1 ? Math.floor(configRpm) : null) ||
+      staticLimits.rpm || defaults.rpm
+    governor.setLimits(key, {
+      rpm,
+      maxConcurrent: TRANSLATION_MAX_CONCURRENT,
+      cooldownMs: (existing && existing.cooldownMs) ?? staticLimits.cooldownMs ?? defaults.cooldownMs,
+      retry429: (existing && existing.retry429) ?? staticLimits.retry429 ?? defaults.retry429,
+    })
+    if (log && typeof log.info === 'function') {
+      log.info('Story2VideoStages', 'prompt translation concurrency budget registered: ' + key +
+        ' maxConcurrent=' + TRANSLATION_MAX_CONCURRENT + ' rpm=' + rpm)
+    }
+  } catch (error) {
+    if (log && typeof log.warn === 'function') {
+      log.warn('Story2VideoStages', 'prompt translation concurrency budget registration failed: ' +
+        (error && error.message ? error.message : String(error)))
+    }
+  }
 }
 
 /**
@@ -2702,6 +2797,7 @@ module.exports = {
   unwrapScenesArray,
   generateSceneVideo,
   translatePromptsForLocale,
+  ensureTranslationConcurrencyBudget,
 };
 
 
