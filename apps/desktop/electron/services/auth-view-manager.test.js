@@ -404,15 +404,64 @@ describe('AuthViewManager 凭证边界', () => {
     await expect(manager.completeLogin()).rejects.toThrow('没有正在进行的网页登录')
   })
 
-  it('登录视图为主内容授权栏保留空间，并响应侧栏断点', () => {
+  it('登录视图全屏布局（TabBar+NavBar 下方），不保留侧栏空间', () => {
     const manager = new AuthViewManager()
     const setBounds = vi.fn()
     manager.currentView = { setBounds }
 
     manager._positionView({ width: 1440, height: 900 })
-    expect(setBounds).toHaveBeenLastCalledWith({ x: 280, y: 100, width: 1160, height: 800 })
+    expect(setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1440, height: 824 })
 
     manager._positionView({ width: 1200, height: 800 })
-    expect(setBounds).toHaveBeenLastCalledWith({ x: 0, y: 100, width: 1200, height: 700 })
+    expect(setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1200, height: 724 })
+
+    // 窄窗口同样全屏（无侧栏偏移）
+    manager._positionView({ width: 1000, height: 700 })
+    expect(setBounds).toHaveBeenLastCalledWith({ x: 0, y: 76, width: 1000, height: 624 })
+  })
+
+  it('show()/hide() 切换视图可见性', () => {
+    const manager = new AuthViewManager()
+    const setVisible = vi.fn()
+    manager.currentView = { setVisible, setBounds: vi.fn() }
+
+    manager.hide()
+    expect(setVisible).toHaveBeenCalledWith(false)
+
+    manager.show()
+    expect(setVisible).toHaveBeenCalledWith(true)
+  })
+
+  it('无视图时 show()/hide() 不抛异常', () => {
+    const manager = new AuthViewManager()
+    expect(() => manager.show()).not.toThrow()
+    expect(() => manager.hide()).not.toThrow()
+  })
+
+  it('onOpened 回调在设置后通过钩子触发', () => {
+    const manager = new AuthViewManager()
+    const spy = vi.fn()
+    manager.onOpened = spy
+
+    manager._fireOpened({ platform: 'douyin', accountId: 'auth-douyin-1', url: 'https://creator.douyin.com/' })
+    expect(spy).toHaveBeenCalledWith({ platform: 'douyin', accountId: 'auth-douyin-1', url: 'https://creator.douyin.com/' })
+  })
+
+  it('onClosed 回调在 close() 时触发', () => {
+    const manager = new AuthViewManager()
+    const spy = vi.fn()
+    manager.onClosed = spy
+    manager.mainWindow = createMainWindow()
+    manager.currentView = createView()
+    manager.currentPlatform = 'douyin'
+
+    manager.close()
+    expect(spy).toHaveBeenCalled()
+  })
+
+  it('未设置回调时 _fireOpened/_fireClosed 不抛异常', () => {
+    const manager = new AuthViewManager()
+    expect(() => manager._fireOpened({ platform: 'douyin' })).not.toThrow()
+    expect(() => manager._fireClosed()).not.toThrow()
   })
 })

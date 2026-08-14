@@ -21,7 +21,7 @@ const PLATFORM_LOGIN_URLS = {
   wechat_mp: 'https://mp.weixin.qq.com/',
   zhihu: 'https://www.zhihu.com/signin',
   weibo: 'https://weibo.com/login',
-  douyin: 'https://www.douyin.com/',
+  douyin: 'https://creator.douyin.com/',
   xiaohongshu: 'https://creator.xiaohongshu.com/',
   tencent_video: 'https://channels.weixin.qq.com/',
   kuaishou: 'https://cp.kuaishou.com/',

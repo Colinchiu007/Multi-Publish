@@ -439,6 +439,73 @@ Electron 主进程直接管理 RPA 引擎和任务队列，Python 后端仅供 A
 - `CreateView.startPipeline` 方法本体**不**内置登录门（保持同步时序语义，供测试/程序化调用）；登录门在 UI 点击层 `handleStartPipeline`。
 - 被动 IPC 仍由主进程通道级鉴权兜底（`AUTH_REQUIRED`），登录门只是 UX 前置，不替代主进程安全边界。
 
+#### 2.3.2 平台账号登录全屏标签化（对标蚁小二，2026-08-14）
+
+**背景与目标**：对标蚁小二「账号管理 → 添加账号 → 选择抖音 → 打开抖音登录页」的交互——蚁小二在标签栏新开一个全屏标签加载平台登录页，导航栏右侧提供蓝色「保存账号」按钮。本项目此前为**页面内弹窗/横幅**式登录视图，与蚁小二差异大。本次将网页登录视图改造为 **TabBar 虚拟登录标签**，实现与蚁小二一致的全屏标签体验（抖音登录页面内容本身不受控，不在对齐范围）。
+
+**交互前后对比**：
+
+| 环节 | 改造前 | 改造后（对齐蚁小二） |
+|------|--------|----------------------|
+| 打开登录 | 页面内浮层/横幅提示 + 侧边区域视图 | TabBar 新增「{平台中文名}登录」标签，全屏加载登录页 |
+| 完成登录入口 | 账号页 login-state 横幅「我已完成登录」按钮 | 导航栏右侧蓝色「保存账号」按钮 |
+| 关闭登录 | 账号页浮动「关闭登录」按钮 | TabBar 标签关闭按钮（×） |
+| 登录中其他页面 | 横幅持续占位 | 账号页无横幅干扰，可自由切换标签 |
+
+**流程**：
+
+1. 用户在账号管理页点「添加账号」→ 选择平台 + 登录方式（网页/扫码）→ 确认后调用 `authOpenLogin(platform)`。
+2. 主进程 `AuthViewManager.openLogin(platform)` 创建/复用 WebContentsView 加载平台登录 URL，并按全屏定位 `{x:0, y:76, width:窗口宽, height:窗口高-76}` 显示（76 = TabBar 36px + NavBar 40px）。
+3. `AuthViewManager` 触发 `onOpened` 钩子 → `WebviewManager` 注入虚拟登录标签（`AUTH_TAB_ID = 'auth-login'`）：隐藏所有浏览器标签、将登录标签设为活动标签、广播 `tab-created` + `tab-switched`（payload 含 `isLogin: true`）。
+4. 渲染进程 `tabStore` 收到事件刷新标签列表 → TabBar 显示「{平台中文名}登录」标签（平台图标按登录 URL 域名匹配，如 douyin → creator.douyin.com）；`App.vue` 检测到 `activeTab.isLogin === true` → NavBar 右侧显示蓝色「保存账号」按钮。
+5. 用户在登录页完成登录后点「保存账号」→ `accountActions.completeLogin('browser')` → 主进程提取凭证（`_extractAuthData`）→ 保存账号 → 关闭登录视图。
+6. `AuthViewManager` 触发 `onClosed` 钩子 → `WebviewManager` 移除登录标签、广播 `tab-closed`，并回退到打开登录前的活动标签；若无则回退首页。
+
+**显示项**：
+
+| 位置 | 元素 | 说明 |
+|------|------|------|
+| TabBar | 「{平台中文名}登录」标签 | 标题由 `getPlatformName(platform) + '登录'` 生成（如「抖音创作者中心登录」→ 实际按平台名表，抖音为「抖音登录」）；带平台图标与关闭按钮（×） |
+| NavBar 右侧 | 「保存账号」按钮 | 仅登录标签活动态显示；高 28px、圆角 14px、背景 #409eff、hover #337ecc、白字 13px |
+| NavBar 中部 | 地址栏 | 登录页 URL 实时同步显示，可复制 |
+| 账号页 | login-state 横幅 / 浮动关闭按钮 | **仅扫码登录模式保留**；网页登录模式不再渲染 |
+
+**提示文字**：
+
+| 场景 | 文字 | 类型 |
+|------|------|------|
+| 保存按钮默认态 | 保存账号 | 按钮文案 |
+| 保存中 | 保存中... | 按钮文案（禁用态） |
+| 保存成功 | 账号已保存 | ElMessage.success |
+| 保存失败（未完成登录/提取失败） | 保存账号失败，请确认已完成登录后重试（业务错误优先显示后端原始 message） | ElMessage.error |
+
+**数据校验与错误处理**：
+
+- `openLogin(mode, platform)`：platform 为空抛「平台不能为空」；mode 仅接受 `browser` / `qrcode`，其他抛「不支持的登录方式」。
+- `completeLogin(mode)`：`qrcode` 模式拒绝（「扫码登录会自动完成，无需手动确认」）；非 `browser` 拒绝（「没有正在进行的网页登录」）。
+- 保存按钮防重入：`saving` 为 true 时按钮禁用且点击直接返回，避免并发重复提取凭证。
+- 凭证提取边界（主进程既有合同不变）：仅在 `did-finish-load` 后放行自动完成；旧会话的异步提取不得完成新会话；URL 模式匹配成功才判定登录成功。
+- `closeTab('auth-login')` 委托 `authViewManager.close()`，确保登录会话与视图同步清理；未挂载 AuthViewManager 时所有登录标签逻辑安全降级（不抛错）。
+
+**功能逻辑（关键实现）**：
+
+- `packages/shared-utils/src/platform-definitions.js`：抖音登录 URL 由 `https://www.douyin.com/` 改为 `https://creator.douyin.com/`（对齐蚁小二的抖音创作者中心入口，与 dashboard URL / 认证域名表一致）。
+- `electron/services/auth-view-manager.js`：登录视图定位常量改为 `AUTH_VIEW_TOP = 76`（全屏，不再避让侧边栏）；新增 `onOpened` / `onClosed` 生命周期钩子。
+- `electron/services/webview-manager.js`：新增 `attachAuthViewManager()` 装配钩子；虚拟登录标签参与 `getAllTabs` / `getActiveTab` / `switchToTab` / `closeTab` / 窗口 resize；切离登录标签时隐藏登录视图，切回时恢复。
+- `electron/core/container.setup.js`：`webviewManager` 工厂注入 `authViewManager` 完成装配（容器单例，钩子只绑定一次）。
+- `src/App.vue`：NavBar 绑定 `:is-login-tab` / `:saving` / `@save-account`；保存处理器调用 `completeLogin('browser')` 并给出成功/失败提示。
+- `src/views/Accounts.vue`：login-state 横幅与浮动关闭按钮限定 `loginMode === 'qrcode'` 才渲染；扫码预览不受影响。
+
+**测试覆盖**：
+
+| 测试文件 | 覆盖点 |
+|----------|--------|
+| `electron/services/webview-manager.test.js`（11 用例） | 钩子绑定、虚拟标签注入与广播、getAllTabs/getActiveTab 含 isLogin、关闭回退浏览器标签/首页、双向切换、closeTab 委托、resize 委托、未挂载降级 |
+| `electron/services/auth-view-manager.test.js`（23 用例） | 全屏定位、show/hide、onOpened/onClosed 钩子、凭证提取边界 |
+| `src/components/NavBar.test.js`（5 用例） | 保存按钮显隐、文案、点击事件、saving 禁用态、导航控件保留 |
+| `src/views/Accounts.test.js` | 网页登录模式账号页不再渲染横幅/浮动按钮；扫码模式行为保留 |
+| QM-1 本地打包 | electron-builder --win --x64 打包成功 + 启动 10 秒存活且 stderr 干净 |
+
 ---
 
 ## 三、功能需求

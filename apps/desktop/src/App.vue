@@ -20,11 +20,14 @@
             :can-go-forward="navigation.canGoForward"
             :is-home="isHomeTab"
             :loading="navigation.loading"
+            :is-login-tab="isLoginTab"
+            :saving="savingAccount"
             @go-back="tabStore.goBack()"
             @go-forward="tabStore.goForward()"
             @reload="tabStore.reload()"
             @go-home="goHome"
             @navigate="onNavigate"
+            @save-account="onSaveAccount"
           />
           <!-- 模块导航（仅首页标签显示） -->
           <YixiaoerModuleNav v-if="isHomeTab" />
@@ -65,6 +68,9 @@ import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useAccountActions } from '@/composables/useAccountActions'
+import { formatUserError } from '@/utils/user-facing-error'
 import { useRoute, useRouter } from 'vue-router'
 import { clearRouteLoadError, routeLoadError } from '@/router'
 import { useLicenseStore } from '@/stores/license'
@@ -79,6 +85,28 @@ const licenseStore = useLicenseStore()
 const identityStore = useIdentityStore()
 const tabStore = useTabStore()
 const { navigation, isHomeTab, activeTabId } = storeToRefs(tabStore)
+const accountActions = useAccountActions()
+
+// ── 登录标签（蚁小二式全屏登录视图）──
+const isLoginTab = computed(() => tabStore.activeTab?.isLogin === true)
+const savingAccount = ref(false)
+
+async function onSaveAccount () {
+  if (savingAccount.value) return
+  savingAccount.value = true
+  try {
+    const result = await accountActions.completeLogin('browser')
+    if (result?.code !== 0) {
+      ElMessage.error(formatUserError(result, { fallback: '保存账号失败，请确认已完成登录后重试' }).message)
+    } else {
+      ElMessage.success('账号已保存')
+    }
+  } catch (error) {
+    ElMessage.error(formatUserError(error, { fallback: '保存账号失败，请确认已完成登录后重试' }).message)
+  } finally {
+    savingAccount.value = false
+  }
+}
 
 const showSettingsDialog = ref(false)
 let unsubscribeNavigate = null

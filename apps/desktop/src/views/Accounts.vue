@@ -86,7 +86,7 @@
       </template>
     </div>
 
-    <div v-if="authViewVisible" class="login-state" role="status">
+    <div v-if="authViewVisible && loginMode === 'qrcode'" class="login-state" role="status">
       <component :is="loginMode === 'qrcode' ? Cellphone : Monitor" />
       <div>
         <strong>{{ authPlatformName }}</strong>
@@ -254,7 +254,7 @@
       @acknowledge="acknowledgeAuthorizationGuide"
     />
 
-    <button v-if="authViewVisible" class="floating-close-button" type="button" @click="closeAuthView"><Close />{{ t('accountsPage.closeLogin') }}</button>
+    <button v-if="authViewVisible && loginMode === 'qrcode'" class="floating-close-button" type="button" @click="closeAuthView"><Close />{{ t('accountsPage.closeLogin') }}</button>
   </div>
 </template>
 
