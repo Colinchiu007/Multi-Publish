@@ -659,10 +659,11 @@ async function buildManualSceneCandidates (ctx) {
                 if (!sceneObj.video || typeof sceneObj.video !== 'object') sceneObj.video = {}
                 sceneObj.video.final_frame = finalFrame
               }
-            } else if (lastFinalFrame && !chainBrokenWarned) {
-              // 评审 W5：链上已有承接但引擎未返回 final_frame（8013 兼容后端无该字段）→ 明示链中断
+            } else if (!chainBrokenWarned) {
+              // 评审 W5/W5-1：优化成功但引擎未返回 final_frame（8013 兼容后端无该字段）→
+              // 明示跨镜承接未生效（链从未建立时同样告警，避免静默降级）
               chainBrokenWarned = true
-              log.warn('Story2VideoStages', 'scene ' + index + ' 跨镜承接链中断：引擎未返回 final_frame（需 8020 独立视频引擎）')
+              log.warn('Story2VideoStages', 'scene ' + index + ' 视频引擎未返回 final_frame，跨镜承接（prev_final_frame 链）未生效（需 8020 独立视频引擎）')
             }
           } catch (error) {
             log.warn('Story2VideoStages', 'scene ' + index + ' manual video prompt optimize failed: ' +
@@ -1951,18 +1952,24 @@ function registerStory2VideoStages(pipelineEngine) {
         const optimizedVideoPrompts = new Map();
         if (videosTotal > 0) {
           const scenesRef = getOptimizationScenes(context || {});
-          // 评审 W1：resume 续跑场景被预优化循环跳过时，链初值从 scenesRef 反向扫描
-          // 最后已回写 final_frame 的场景恢复（首轮已回写），避免断点后链从空重启
+          // 评审 W1/W1-1：仅采纳「本轮将跳过（resume 命中且视频产物存在）」场景的 final_frame
+          // 作链初值——旧回写残留（优化成功但视频生成失败）不得作为链种子；正向扫描止于
+          // 第一个待优化场景，前导缺口场景拿空链（不从后续「未来帧」承接）
           let lastFinalFrame = '';
           if (Array.isArray(scenesRef)) {
-            for (let i = videoSceneIndexes.length - 1; i >= 0; i--) {
-              const prevScene = scenesRef[videoSceneIndexes[i]];
-              if (prevScene && typeof prevScene === 'object' &&
-                  prevScene.video && typeof prevScene.video.final_frame === 'string' &&
-                  prevScene.video.final_frame) {
-                lastFinalFrame = prevScene.video.final_frame;
-                break;
+            for (const index of videoSceneIndexes) {
+              const resumed = resumeCompleted.get(index);
+              const resumedOk = resumed && typeof resumed.videoPath === 'string' && fs.existsSync(resumed.videoPath);
+              if (resumedOk) {
+                const prevScene = scenesRef[index];
+                const rf = prevScene && typeof prevScene === 'object' &&
+                  prevScene.video && typeof prevScene.video.final_frame === 'string'
+                  ? prevScene.video.final_frame
+                  : '';
+                if (rf) lastFinalFrame = rf;
+                continue;
               }
+              break; // 第一个待优化场景：停止扫描（其后的旧回写是残留，不采纳）
             }
           }
           let chainBrokenWarned = false;
@@ -1997,10 +2004,11 @@ function registerStory2VideoStages(pipelineEngine) {
                     if (!sceneObj.video || typeof sceneObj.video !== 'object') sceneObj.video = {};
                     sceneObj.video.final_frame = finalFrame;
                   }
-                } else if (lastFinalFrame && !chainBrokenWarned) {
-                  // 评审 W5：链上已有承接但引擎未返回 final_frame（8013 兼容后端无该字段）→ 明示链中断
+                } else if (!chainBrokenWarned) {
+                  // 评审 W5/W5-1：优化成功但引擎未返回 final_frame（8013 兼容后端无该字段）→
+                  // 明示跨镜承接未生效（链从未建立时同样告警，避免静默降级）
                   chainBrokenWarned = true;
-                  log.warn('Story2VideoStages', 'scene ' + index + ' 跨镜承接链中断：引擎未返回 final_frame（需 8020 独立视频引擎）');
+                  log.warn('Story2VideoStages', 'scene ' + index + ' 视频引擎未返回 final_frame，跨镜承接（prev_final_frame 链）未生效（需 8020 独立视频引擎）');
                 }
               } catch (error) {
                 log.warn('Story2VideoStages', 'scene ' + index + ' video prompt optimize failed: ' +
