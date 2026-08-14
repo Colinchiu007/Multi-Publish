@@ -279,3 +279,40 @@ for <<<6b8e81c5-...>>>. Do NOT have <<<6b8e81c5-...>>> approach... The hero appr
 ---
 
 *报告完。本报告所有【实证】条目均可在 `D:\Temp\hg-corpus\` 复核；【推断】已标注。建议：实施 P0 前走 OpenSpec propose（M+ 任务规则），evaluator 改动需回归测试覆盖"精修层长提示词不被误杀"。*
+
+---
+
+## 九、落地状态附录（2026-08-14 追记，任务 4.3 闭环）
+
+> 报告 §七 P0/P1/P2 全部落地。跨两个仓库：prompt-engine（8020 引擎侧）+ Multi-Publish（契约层）。
+
+### P0（全部完成）
+| # | 借鉴点 | 落地点 | 证据 |
+|---|---|---|---|
+| 1 | evaluator 规则扣分 + 层级长度 | prompt-engine `evaluator.py` violations[] 扣分（缺席角色/swap/缺尾行/缺 Audio）+ 批量 100-400 词 / 精修 500-5,000 词 | PR #35/#37/#38 + `tests/test_higgsfield_p0.py` |
+| 2 | positive_constraints 扩展 | 契约层 `video-prompt-engine-contract.js` excluded_characters[]/no_swap_pairs[]/color_ratio + 引擎输出 | Multi-Publish PR #805、prompt-engine PR #35 |
+| 3 | 收尾参数行模板 | `appendVideoTrailer` 纯函数（NON-IP/画幅/时长/音频，幂等 + 超长保 NON-IP） | Multi-Publish PR #805、prompt-engine PR #35 |
+| 4 | 时间块输出 | shots[]/beats[] 契约收敛（≤3 切、每切 ≤6 beats、beatTimeMax 40）+ 引擎输出 | Multi-Publish PR #805、prompt-engine PR #35 |
+
+### P1（全部完成）
+| # | 借鉴点 | 落地点 | 证据 |
+|---|---|---|---|
+| 5 | 模板形态切换 | creative_level 形态语义 + 精修层 max_length 层级上浮（默认 5000 / 上限 20000） | Multi-Publish PR #805、prompt-engine PR #37 |
+| 6 | 导演风格词典 | `director_styles.json` 17 位导演 + system prompt `## Director Style Reference` 注入 | prompt-engine PR #38 |
+| 7 | 失败模式闭环 | `failure_patterns.json` 12 条规则 + feedback failure_stats 采集 + evaluator FAIL CHECK 扣分 | prompt-engine PR #38、PR #35 |
+| 8 | 角色描述符资产库 | `character_descriptors.json` 8 张 Assets 卡 + `## Character Reference Library` 注入 | prompt-engine PR #38 |
+
+### P2（全部完成）
+| # | 借鉴点 | 落地点 | 证据 |
+|---|---|---|---|
+| 9 | 全量语料资产化 | `seed_higgsfield_prompts.json` 258 条（590 去重）+ 幂等重建脚本 + loader 合并 + 预算硬化注入 | prompt-engine PR #42（已合并 82a339aa） |
+| 10 | 抽卡成本模型 | `docs/HELLGRIND-NUM-CANDIDATES-COST-MODEL.md`（batch 3-5 / refined 1-2 候选） | prompt-engine PR #42（已合并 82a339aa） |
+| 11 | CUT 几何 shots[] 进契约层 | 契约层 shots[]（≤3 切）+ `videoMaxLengthRanges` 20000 | Multi-Publish PR #805 |
+
+### 平台参数画像（§四）
+- seedance 默认矩阵 15s/1080p/21:9/audio on → `PLATFORM_VIDEO_PROFILES` 常量（契约层） + 引擎 seedance 策略默认对齐
+
+### 评审与测试基线
+- 镜头纪律：Multi-Publish `video-prompt-engine-contract.test.js` 93/93，关联套件 240/240（review 0 Critical）
+- Higgsfield P0/P1：prompt-engine 全量 598→616→628 passed（随阶段递增）
+- P2 语料资产化：+26 项，全量 654 passed / 3 skipped（Claude 评审 0 Critical / 5 Warning 全修复）

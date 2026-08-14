@@ -1,12 +1,12 @@
 {
   "id": "video-prompt-lens-discipline",
   "title": "视频提示词镜头纪律规则落地（Phase 1：角色数锁定/正向约束/最终画面/运镜纪律/负面plausible）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M+",
   "risk": "medium",
   "domain": "backend",
-  "currentPhase": "implementation",
-  "nextAction": "双仓库分支实施（prompt-engine 8020 策略 + Multi-Publish 契约）",
+  "currentPhase": "completed",
+  "nextAction": "已完成：双仓库落地（prompt-engine PR #37/#38 策略 + Multi-Publish PR #803 契约）review 0 Critical 全修复，归档",
   "createdAt": "2026-08-13T23:40:00Z",
   "branch": "main",
   "openspecChange": "video-prompt-lens-discipline"
