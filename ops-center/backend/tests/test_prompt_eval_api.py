@@ -409,6 +409,23 @@ async def test_translate_uses_llm_key_from_provider_table(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_scene_translate_requires_llm_key(monkeypatch):
+    """回归：未配置 minimax-llm 且无 OPS_PROMPT_EVAL_LLM_API_KEY 时，中英对照应 fail-fast 给出明确 400，
+    而不是带空 api_key 请求上游后返回误导性 502（用户报「批量生成 0 成功 3 失败」）。"""
+    monkeypatch.delenv("OPS_PROMPT_EVAL_LLM_API_KEY", raising=False)
+    async with _client() as client:
+        h = _headers()
+        body = {"source_mode": "scene", "title": "t", "source_text": "她点燃了柴火。",
+                "provider": "minimax-image", "model": "image-01", "image_count": 1, "aspect_ratio": "1:1"}
+        data = (await client.post("/api/v1/prompt-eval/cases", json=body, headers=h)).json()
+        cid = data["case"]["id"]
+        sid = data["scenes"][0]["id"]
+        r = await client.post(f"/api/v1/prompt-eval/cases/{cid}/scenes/{sid}/translate", headers=h)
+        assert r.status_code == 400, r.text
+        assert "LLM 密钥" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_provider_test_endpoint_admin_only(monkeypatch):
     import services.prompt_eval_service as svc
 

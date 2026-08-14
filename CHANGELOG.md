@@ -1,3 +1,13 @@
+## [2026-08-14] fix(ops-center): 场景模式批量生成中英对照 0 成功 3 失败——LLM 密钥未配置时 fail-fast 明确提示（scene-translate-llm-key）
+
+- 现象：提示词评测工作台场景模式分句后点「批量生成中英对照」，提示「0 个成功，3 个失败（场景 1、2、3，请单独重试）」；后端日志 `POST /api/v1/prompt-eval/cases/{id}/scenes/{id}/translate` 全部 502。
+- 根因：`prompt_eval_provider_keys` 表无 `minimax-llm` 行且 `.env` 无 `OPS_PROMPT_EVAL_LLM_API_KEY` 时，`_llm_cfg()` 返回空 api_key 静默继续 → 带空 Bearer 请求 MiniMax 上游 401 → `TranslationError` 被路由 `except Exception` 吞掉 → 泛化 502 文案；前端批量失败不展示真实原因，仅提示「请单独重试」（单独重试同样失败）。
+- 修复：
+  - `routers/prompt_eval.py`：`_llm_cfg()` fail-fast——表内密钥为空或环境变量缺失时抛 `ValueError` → 400 明确提示「请在「模型密钥」添加 minimax-llm / 设置 OPS_PROMPT_EVAL_LLM_API_KEY」；`translate_case`/`translate_scene` 异常路径 `logger.exception` 保留真实错误（不泄漏 api_key），`translate_case` 不再把上游响应体透传给浏览器。
+  - `PromptEvalWorkbench.vue`：批量失败时聚合展示首个真实失败原因（去重），替代误导性的「请单独重试」。
+- 测试：新增 `test_scene_translate_requires_llm_key`（表空 + env 缺失 → 400 明确文案；反向验证旧代码 FAIL 新代码 PASS）；后端 18 例全绿；前端 `npm run build` 通过。
+- 审查：Claude 独立评审（W1 上游响应体透传 / W3 空白 key 绕过均修复，XSS 与日志泄漏不成立）；antigravity 地区不可用降级记录见 `.ccg/tasks/scene-translate-llm-key/review.md`。
+
 ## [2026-08-14] fix(ops-center): 过期 token 半登录态——启动校验 exp + 统一 401 跳转登录页（fix-stale-token-401-redirect）
 
 - 现象：运营后台打开页面不弹登录框直接进入主页，所有 `/api/v1` 接口返回 401「令牌无效」（提示词评测等页面报「加载评测列表失败」），前端既不清理内存态也不跳登录页。
