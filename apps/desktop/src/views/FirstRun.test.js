@@ -93,6 +93,18 @@ describe("FirstRunView", () => {
     spy.mockRestore();
   });
 
+  it("addAccount silently returns when login cancelled", async () => {
+    window.electronAPI.authOpenLogin = vi.fn();
+    vi.mocked(authOpenLogin).mockResolvedValue({ code: 0, cancelled: true });
+    const spy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const w = createView();
+    await nextTick();
+    await w.vm.addAccount("douyin");
+    expect(spy).not.toHaveBeenCalled();
+    expect(w.vm.addingPlatform).toBe("");
+    spy.mockRestore();
+  });
+
   it("addAccount falls back to accountAdd when authOpenLogin missing", async () => {
     // window.electronAPI.authOpenLogin 不存在 → 走 else 分支调 import 的 accountAdd
     window.electronAPI.accountAdd = vi.fn();

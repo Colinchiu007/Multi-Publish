@@ -13377,3 +13377,25 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **对齐编排**：Tier1 直接用 TTS 词级时间戳聚合（coverage<0.5 或估算值弃用，避免劣质时间戳），Tier2 ASR 仅处理无时间戳/不合格场景；Tier1 循环与抓取路径全部 fail-open——任何失败只 warn 并回退，不中断流水线。时间戳抓取要有界（10s 超时）+ 读取前按 content-length 拦截超限（8MB），不能先读完再丢弃。
 - **时长顺带修正**：edge-tts duration 从 `mp3字节/16000` 粗估（误差可达数倍）改为真实词尾 +0.3s。
 - **流程教训**：多会话共享工作区时，改动提交必须走隔离 worktree（基于含依赖接线的 commit 建分支，`git apply --3way` 搬改动），不能混入他人分支；node_modules 可用 junction 指向主工作区跑单元测试（仅依赖解析，不涉及打包产物证据）。
+
+## 登录控制信号被误当凭证数据复盘（fix-login-credential-capture-error，2026-08-14）
+
+### 现象
+账号管理添加账号，打开平台登录页后未做任何操作直接关闭页签，误弹「未捕获到有效登录凭证」。
+
+### 根因
+`auth:open-login` IPC 处理器无条件把 `AuthViewManager.openLogin()` 的 resolve 值传给 `saveCapturedAccount()`。而 `AuthViewManager` 的关闭/Esc/超时路径 resolve 的是控制信号（`{ cancelled: true }` / `{ timeout: true }`），不是凭证数据；`saveCapturedAccount` 的「无 cookies/localStorage/indexedDB → 抛『未捕获到有效登录凭证』」是真实失败时的 fail-closed 校验，被控制信号误触发。
+
+### 逃逸链
+1. IPC handler 无「openLogin 返回控制信号」的契约测试（单测层缺失）；
+2. `Accounts.vue` 渲染层测试虽 mock 了 `cancelled`，但主进程侧从未实现返回该字段的契约（契约断层）；
+3. 集成/E2E 未覆盖「关闭页签 → 不保存、不报错」（场景缺失）。
+
+### 修复
+- `auth:open-login` handler 拦截控制信号：取消 → `{ code: 0, cancelled: true }`（静默）；超时 → `TIMEOUT_ERROR` + 明确超时文案；两者均不调 `saveCapturedAccount`。
+- `FirstRun.vue` 同步识别 `cancelled`（同 IPC 的另一消费方，避免取消误报「添加成功」）。
+- 回归测试：IPC 层断言返回契约 + 不调保存；渲染层断言取消不弹 alert。
+
+### 经验沉淀（审查清单更新点）
+- **新增「控制信号 vs 业务数据」审查项**：任何 `Promise.resolve` 值被透传给下一层时，先确认 resolve 值集合里是否存在非业务数据的控制信号（cancel/timeout/close），若有必须在消费边界拦截并规格化（OpenSpec 场景）。
+- **IPC 返回契约测试**：主进程 IPC handler 的返回形状（含取消/超时分支）必须有契约测试钉死，渲染层的 mock 不能替代主进程侧断言。
