@@ -1,0 +1,21 @@
+{
+  "stitchProjectId": "2196477286399479382",
+  "stitchDesignSystemAsset": "assets/f62e28c2b67241029e537ee9fc7d4dab",
+  "stitchWorkbenchScreen": "ddf2c200116b4a2890bd4eb485160faa",
+  "stitchConceptScreen": "0d068f76821a4e8496f1795fbecf0359",
+  "designSystemVersion": "1.0.0",
+  "lastUpdated": "2026-08-13T23:12:46+08:00",
+  "designDirection": "Apple-inspired precision minimalism",
+  "targetPlatforms": [
+    "Windows",
+    "Electron"
+  ],
+  "componentFramework": "Vue 3",
+  "migrationStatus": {
+    "tokenLayer": "done",
+    "uiComponents": "done",
+    "publishPage": "pending",
+    "historyPage": "not-started",
+    "accountsPage": "not-started"
+  }
+}

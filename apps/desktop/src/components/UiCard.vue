@@ -24,30 +24,22 @@ const paddingSize = paddingMap[props.padding] || "20";
 
 <style scoped>
 .ui-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg, 16px);
-  box-shadow: var(--shadow);
+  background: var(--apple-surface-primary);
+  border: 1px solid var(--apple-border-subtle);
+  border-radius: var(--apple-radius-md);
+  transition: box-shadow var(--apple-duration-normal) var(--apple-ease-default);
+}
+.ui-card:hover {
+  box-shadow: var(--apple-shadow-sm);
 }
 .ui-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.ui-card-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
+  padding: var(--apple-space-4) var(--apple-space-5);
+  border-bottom: 1px solid var(--apple-border-subtle);
+  font-weight: var(--apple-weight-semibold);
+  font-size: var(--apple-size-base);
 }
 .ui-card-footer {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-light);
+  padding: var(--apple-space-3) var(--apple-space-5);
+  border-top: 1px solid var(--apple-border-subtle);
 }
-
-/* Variants */
-.ui-card-elevated { box-shadow: var(--shadow-lg); }
-.ui-card-bordered { border-width: 2px; border-color: var(--primary-light); }
-.ui-card-flat { background: var(--bg); border-color: transparent; box-shadow: none; }
 </style>
