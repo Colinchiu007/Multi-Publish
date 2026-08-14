@@ -421,18 +421,23 @@ async function batchTranslateAll() {
   batchTranslating.value = true
   batchDone.value = 0
   const failed = []
+  const failReasons = new Set()
   for (const s of scenes.value) {
     try {
       const updated = await translatePromptEvalScene(sceneCaseId.value, s.id)
       patchScene(s.id, updated)
     } catch (e) {
       failed.push(s.index + 1)
+      const detail = e?.response?.data?.detail
+      if (detail) failReasons.add(String(detail))
     }
     batchDone.value += 1
   }
   batchTranslating.value = false
   if (failed.length) {
-    errorMsg.value = '批量生成完成：' + (batchDone.value - failed.length) + ' 个成功，' + failed.length + ' 个失败（场景 ' + failed.join('、') + '，请单独重试）'
+    let msg = '批量生成完成：' + (batchDone.value - failed.length) + ' 个成功，' + failed.length + ' 个失败（场景 ' + failed.join('、') + '）'
+    if (failReasons.size) msg += '。原因：' + [...failReasons].join('；')
+    errorMsg.value = msg
   }
 }
 

@@ -1,6 +1,7 @@
 """PromptEval Workbench API — 提示词评测工作台（读=登录，写=登录/创建者，密钥=admin）。"""
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 
@@ -16,21 +17,32 @@ from services import prompt_eval_service as service
 
 router = APIRouter(prefix="/api/v1/prompt-eval", tags=["prompt-eval"])
 
+logger = logging.getLogger("ops-center.prompt-eval")
+
 
 def _secret() -> str:
     return os.environ.get("OPS_SECRET_KEY") or "change-me"
 
 
 async def _llm_cfg(db) -> dict:
-    """中英对照 LLM 配置：优先「模型密钥」表 minimax-llm（运营后台 UI 配置），fallback 环境变量。"""
+    """中英对照 LLM 配置：优先「模型密钥」表 minimax-llm（运营后台 UI 配置），fallback 环境变量。
+
+    均未配置时 fail-fast（ValueError → 400 明确提示），避免带空 api_key 请求上游返回误导性 502。
+    """
     row = await service.get_llm_key(db, _secret())
     if row:
-        return {"base_url": row["base_url"], "model": row["model"], "api_key": row["api_key"]}
-    return {
+        api_key = (row.get("api_key") or "").strip()
+        if not api_key:
+            raise ValueError("已配置的 minimax-llm 密钥为空，请在「模型密钥」重新保存")
+        return {"base_url": row["base_url"], "model": row["model"], "api_key": api_key}
+    cfg = {
         "base_url": os.environ.get("OPS_PROMPT_EVAL_LLM_BASE_URL") or "https://api.minimaxi.com/v1",
         "model": os.environ.get("OPS_PROMPT_EVAL_LLM_MODEL") or "MiniMax-M2.7",
         "api_key": os.environ.get("OPS_PROMPT_EVAL_LLM_API_KEY") or "",
     }
+    if not cfg["api_key"].strip():
+        raise ValueError("未配置中英对照 LLM 密钥：请在「模型密钥」添加 minimax-llm，或设置 OPS_PROMPT_EVAL_LLM_API_KEY")
+    return cfg
 
 
 async def _vision_cfg(db) -> dict | None:
@@ -67,8 +79,11 @@ async def translate_case(case_id: int, db: AsyncSession = Depends(get_db), user:
         _not_found()
     try:
         return await service.translate_case(db, row, await _llm_cfg(db))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
-        raise HTTPException(502, f"翻译失败: {e}")
+        logger.exception("translate_case 失败 case_id=%s", case_id)
+        raise HTTPException(502, "翻译失败，请稍后重试（若持续失败请检查 LLM 密钥配置）")
 
 
 @router.post("/cases/{case_id}/runs")
@@ -142,6 +157,7 @@ async def translate_scene(case_id: int, scene_id: int, db: AsyncSession = Depend
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception:
+        logger.exception("translate_scene 失败 case_id=%s scene_id=%s", case_id, scene_id)
         raise HTTPException(502, "中英对照生成失败，请稍后重试（若持续失败请检查 LLM 密钥配置）")
 
 

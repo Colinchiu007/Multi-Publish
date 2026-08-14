@@ -1,3 +1,24 @@
+## [2026-08-14] fix(ops-center): 场景模式批量生成中英对照 0 成功 3 失败——LLM 密钥未配置时 fail-fast 明确提示（scene-translate-llm-key）
+
+- 现象：提示词评测工作台场景模式分句后点「批量生成中英对照」，提示「0 个成功，3 个失败（场景 1、2、3，请单独重试）」；后端日志 `POST /api/v1/prompt-eval/cases/{id}/scenes/{id}/translate` 全部 502。
+- 根因：`prompt_eval_provider_keys` 表无 `minimax-llm` 行且 `.env` 无 `OPS_PROMPT_EVAL_LLM_API_KEY` 时，`_llm_cfg()` 返回空 api_key 静默继续 → 带空 Bearer 请求 MiniMax 上游 401 → `TranslationError` 被路由 `except Exception` 吞掉 → 泛化 502 文案；前端批量失败不展示真实原因，仅提示「请单独重试」（单独重试同样失败）。
+- 修复：
+  - `routers/prompt_eval.py`：`_llm_cfg()` fail-fast——表内密钥为空或环境变量缺失时抛 `ValueError` → 400 明确提示「请在「模型密钥」添加 minimax-llm / 设置 OPS_PROMPT_EVAL_LLM_API_KEY」；`translate_case`/`translate_scene` 异常路径 `logger.exception` 保留真实错误（不泄漏 api_key），`translate_case` 不再把上游响应体透传给浏览器。
+  - `PromptEvalWorkbench.vue`：批量失败时聚合展示首个真实失败原因（去重），替代误导性的「请单独重试」。
+- 测试：新增 `test_scene_translate_requires_llm_key`（表空 + env 缺失 → 400 明确文案；反向验证旧代码 FAIL 新代码 PASS）；后端 18 例全绿；前端 `npm run build` 通过。
+- 顺带修复：`vite.config.js` 显式 `host: '127.0.0.1'` + `strictPort`——Windows 上默认 localhost 只解析到 `::1` 导致 `http://127.0.0.1:5173` 连接被拒白屏；端口被占时不再静默漂移到 5174。验证：`127.0.0.1:5173` 与 `localhost:5173` 均 200，真实浏览器渲染登录页无 JS 错误。
+- 审查：Claude 独立评审（W1 上游响应体透传 / W3 空白 key 绕过均修复，XSS 与日志泄漏不成立）；antigravity 地区不可用降级记录见 `.ccg/tasks/scene-translate-llm-key/review.md`。
+
+## [2026-08-14] fix(ops-center): 过期 token 半登录态——启动校验 exp + 统一 401 跳转登录页（fix-stale-token-401-redirect）
+
+- 现象：运营后台打开页面不弹登录框直接进入主页，所有 `/api/v1` 接口返回 401「令牌无效」（提示词评测等页面报「加载评测列表失败」），前端既不清理内存态也不跳登录页。
+- 根因：`stores/auth.js` 的 `init()` 与路由守卫只检查 localStorage 是否存在 `ops_token`，不校验有效性；各 API 模块 401 拦截器仅静默删除持久化 token。
+- 修复：
+  - `stores/auth.js` 新增 `isTokenExpired()`，`init()` 客户端预检 JWT `exp`（补齐 base64url padding 后解码），过期/损坏即清理并视为未登录（后端 HS256 验签仍是权威；缺失 exp 的旧 token 交由后端判定）。
+  - 新增 `src/api/http.js` 统一客户端：请求自动注入 Bearer；收到 401 → `authStore.logout()` + 跳转 `#/login`（Pinia 未初始化时兜底清理 + reload）；14 个 API 模块去重复用。
+  - 引入 vitest + jsdom 回归测试 11 例（过期/有效/损坏/无 exp、401 跳转、非 401 不动、Bearer 注入）；`frontend/.npmrc` 固定 `legacy-peer-deps=true`（npm 10.9.x 解析 vitest 4 peer 依赖 arborist 崩溃）。
+- 验证：`npm test` 11/11 通过；`npm run build` 通过；审查降级记录见 `.ccg/tasks/fix-stale-token-401-redirect/review.md`（antigravity 地区不可用、claude CLI 不可用）。
+
 ## [2026-08-14] feat(accounts): 平台账号登录全屏标签化——对标蚁小二「添加账号 → 全屏标签加载登录页 + 导航栏保存账号按钮」（account-login-fullscreen-tab）
 
 - 需求：蚁小二「账号管理 → 添加账号 → 选择抖音」是在标签栏新开全屏标签加载登录页、导航栏右侧蓝色「保存账号」按钮；本项目原为页面内弹窗/横幅式登录视图，改造为一致的全屏标签体验（登录页内容本身不在对齐范围）。

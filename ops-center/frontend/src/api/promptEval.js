@@ -1,25 +1,6 @@
-import axios from 'axios'
+import { createApiClient } from './http'
 
-const api = axios.create({ baseURL: '/api/v1' })
-
-api.interceptors.request.use(config => {
-  const saved = localStorage.getItem('ops_token')
-  if (saved) {
-    try {
-      const data = JSON.parse(saved)
-      if (data.token) config.headers.Authorization = `Bearer ${data.token}`
-    } catch {}
-  }
-  return config
-})
-
-api.interceptors.response.use(
-  res => res,
-  err => {
-    if (err.response?.status === 401) localStorage.removeItem('ops_token')
-    return Promise.reject(err)
-  }
-)
+const api = createApiClient()
 
 export function createPromptEvalCase(data) {
   return api.post('/prompt-eval/cases', data).then(r => r.data)
