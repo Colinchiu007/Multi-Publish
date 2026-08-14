@@ -2140,6 +2140,9 @@ function registerStory2VideoStages(pipelineEngine) {
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
+                  // 请求词级时间戳（edge-tts WordBoundary / MiniMax subtitle_type=word），
+                  // 让 alignScenes 跳过逐段 whisper ASR（素材就绪后不再长时间停顿）
+                  with_timestamps: true,
                   index,
                   runId,
                 })
@@ -2163,6 +2166,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 path: normalized.path,
                 duration: normalized.duration,
                 meta: normalized.meta,
+                timings: normalized.meta?.timings || null,
               };
             }
             return {
@@ -2253,6 +2257,9 @@ function registerStory2VideoStages(pipelineEngine) {
           imageMeta: (image && image.meta) || null,
           videoMeta: (video && video.meta) || null,
           audioMeta: audio.meta || null,
+          // TTS 词级时间戳（edge-tts WordBoundary / MiniMax subtitle_type=word），
+          // alignScenes 优先消费，避免逐段 whisper ASR 造成阶段长时间停顿
+          timings: Array.isArray(audio.timings) && audio.timings.length > 0 ? audio.timings : null,
           subtitleBlocks: Array.isArray(sentence?.subtitleBlocks) ? [...sentence.subtitleBlocks] : [],
           sceneSource: sentence?.sceneSource || null,
           subtitleSource: sentence?.subtitleSource || null,

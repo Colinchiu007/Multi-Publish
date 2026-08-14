@@ -421,6 +421,70 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
     })
   })
 
+  describe('synthesize 字幕时间戳（subtitle_enable + subtitle_type=word）', () => {
+    it('同步 /t2a_v2：subtitleType=word 时开启字幕并透传 subtitle_file 下载链接 + extra_info 时长', async () => {
+      const subtitleUrl = 'https://cdn.minimax.chat/subtitles/task-9/subtitle.json'
+      const fetchMock = createFetchMock([
+        createFetchResponse({
+          data: {
+            audio: HEX_AUDIO,
+            subtitle_file: subtitleUrl,
+            extra_info: { audio_length: 1234 },
+          },
+        }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.6-hd', subtitleType: 'word' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.subtitle_enable).toBe(true)
+      expect(body.subtitle_type).toBe('word')
+      expect(result.subtitleFile).toBe(subtitleUrl)
+      expect(result.duration).toBe(1.234)
+      expect(result.audio.toString('utf8')).toBe('Hello')
+    })
+
+    it('withTimestamps=true 默认启用词级字幕（word）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: { audio: HEX_AUDIO, subtitle_file: 'https://cdn.minimax.chat/sub.json' } }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      await adapter.synthesize({ text: '你好', model: 'speech-2.6-hd', withTimestamps: true })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.subtitle_enable).toBe(true)
+      expect(body.subtitle_type).toBe('word')
+    })
+
+    it('未请求字幕时请求体不携带 subtitle_enable（行为兼容）', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ data: { audio: HEX_AUDIO } })])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      await adapter.synthesize({ text: '你好', model: 'speech-2.6-hd' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.subtitle_enable).toBeUndefined()
+      expect(body.subtitle_type).toBeUndefined()
+    })
+
+    it('字幕白名单之外的模型不发送 subtitle_enable（避免参数错误）', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ data: { audio: HEX_AUDIO } })])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      await adapter.synthesize({ text: '你好', model: 'custom-tts-model', subtitleType: 'word' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.subtitle_enable).toBeUndefined()
+      expect(body.subtitle_type).toBeUndefined()
+    })
+  })
+
   describe('异步 T2A（speech-2.8-* 默认模型）', () => {
     const ASYNC_AUDIO_HEX = '68656c6c6f2d6173796e63' // "hello-async"
 
@@ -457,6 +521,87 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(body.language_boost).toBe('auto')
       expect(body.audio_setting.audio_sample_rate).toBe(32000)
       expect(body.voice_setting.vol).toBe(10)
+    })
+
+    it('异步创建任务携带字幕参数，查询响应透传 subtitle_file + extra_info 时长', async () => {
+      const subtitleUrl = 'https://cdn.minimax.chat/subtitles/async-1/subtitle.json'
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: { task_id: 'task-sub' } }),
+        createFetchResponse({
+          data: { file_id: 'file-sub', status: 'success', subtitle_file: subtitleUrl, extra_info: { audio_length: 2000 } },
+        }),
+        createBinaryResponse(Buffer.from(ASYNC_AUDIO_HEX, 'hex')),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo', subtitleType: 'word' })
+
+      const createBody = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(createBody.subtitle_enable).toBe(true)
+      expect(createBody.subtitle_type).toBe('word')
+      expect(result.subtitleFile).toBe(subtitleUrl)
+      expect(result.duration).toBe(2)
+      expect(result.audio.toString('utf8')).toBe('hello-async')
+    })
+
+    it('异步端点拒绝未文档化字幕参数时降级重试（不带字幕），TTS 不回归', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 2013, status_msg: 'invalid params' } }, 400),
+        createFetchResponse({ data: { task_id: 'task-fallback' } }),
+        createFetchResponse({ data: { file_id: 'file-fallback' } }),
+        createBinaryResponse(Buffer.from(ASYNC_AUDIO_HEX, 'hex')),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo', subtitleType: 'word' })
+
+      const firstBody = JSON.parse(fetchMock.calls[0].opts.body)
+      const secondBody = JSON.parse(fetchMock.calls[1].opts.body)
+      expect(firstBody.subtitle_enable).toBe(true)
+      expect(secondBody.subtitle_enable).toBeUndefined()
+      expect(secondBody.subtitle_type).toBeUndefined()
+      expect(result.audio.toString('utf8')).toBe('hello-async')
+      expect(result.subtitleFile).toBeUndefined()
+    })
+
+    it('异步创建接口以 200 + base_resp(2013) 业务错误拒绝字幕参数时同样降级重试', async () => {
+      // MiniMax 常见业务错误形态：HTTP 200 + base_resp.status_code != 0（而非非 2xx）
+      const fetchMock = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 2013, status_msg: 'invalid params' } }),
+        createFetchResponse({ data: { task_id: 'task-body-fallback' } }),
+        createFetchResponse({ data: { file_id: 'file-body-fallback' } }),
+        createBinaryResponse(Buffer.from(ASYNC_AUDIO_HEX, 'hex')),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const result = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo', subtitleType: 'word' })
+
+      const firstBody = JSON.parse(fetchMock.calls[0].opts.body)
+      const secondBody = JSON.parse(fetchMock.calls[1].opts.body)
+      expect(firstBody.subtitle_enable).toBe(true)
+      expect(secondBody.subtitle_enable).toBeUndefined()
+      expect(secondBody.subtitle_type).toBeUndefined()
+      expect(fetchMock.calls.length).toBe(4)
+      expect(result.audio.toString('utf8')).toBe('hello-async')
+      expect(result.subtitleFile).toBeUndefined()
+    })
+
+    it('异步创建接口非参数类错误（503 通用消息）不触发字幕降级重试，原样抛出', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({}, 503),
+        createFetchResponse({ data: { task_id: 'never' } }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const error = await adapter.synthesize({ text: '你好', model: 'speech-2.8-turbo', subtitleType: 'word' }).catch((e) => e)
+      expect(error).toBeInstanceOf(ProviderError)
+      expect(error.code).toBe('PROVIDER_ERROR')
+      expect(error.context.statusCode).toBe(503)
+      expect(fetchMock.calls.length).toBe(1)
     })
 
     it('官方查询响应（status/file_id 在顶层）时正常完成并下载', async () => {

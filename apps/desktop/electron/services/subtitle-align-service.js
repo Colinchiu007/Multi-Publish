@@ -31,7 +31,7 @@ function buildTimelineItem (block, totalDuration) {
 }
 
 /**
- * @param {object[]} scenes - TTS 后的场景（含 audioPath/duration/subtitleBlocks）
+ * @param {object[]} scenes - TTS 后的场景（含 audioPath/duration/subtitleBlocks/timings）
  * @param {{ log?: any, alignerBridge?: any, concurrency?: number, traceId?: string }} [opts] - traceId 经 AlignerBridge 以 X-Request-Id 头透传到 audio-aligner
  * @returns {Promise<object[]>} 附加 subtitleTimeline/subtitleAlign 的场景（原数组原地增强）
  */
@@ -41,9 +41,40 @@ async function alignScenes (scenes, opts = {}) {
   const bridge = opts.alignerBridge || new AlignerBridge({ log })
   const concurrency = Math.max(1, opts.concurrency || 2)
 
+  // Tier1（零成本）：TTS 自带词级时间戳（edge-tts WordBoundary / MiniMax subtitle_type=word）时
+  // 直接聚合到分句块，跳过逐段 whisper ASR——避免素材全部就绪后长时间无进度停顿。
+  // 匹配质量不足（词与字幕块文本不一致）时不用劣质时间戳，继续走 ASR 兜底。
+  for (const scene of scenes) {
+    if (!Array.isArray(scene.timings) || scene.timings.length === 0) continue
+    if (!Array.isArray(scene.subtitleBlocks) || scene.subtitleBlocks.length === 0) continue
+    try {
+      const blocks = scene.subtitleBlocks.map((b, i) => ({
+        displayOrder: typeof b.displayOrder === 'number' ? b.displayOrder : i,
+        text: typeof b === 'string' ? b : b.text || '',
+      }))
+      const alignedResult = alignSubtitleBlocks(blocks, scene.timings, scene.duration || 10)
+      if (alignedResult.method === 'estimate' || alignedResult.coverage < 0.5) continue
+      scene.subtitleTimeline = alignedResult.aligned.map((block) => buildTimelineItem(
+        { ...block, source: block.source === 'estimate' ? 'estimate' : 'tts' },
+        alignedResult.totalDuration,
+      ))
+      scene.subtitleAlign = {
+        aligned: true,
+        method: 'tts-timestamps',
+        coverage: Math.round(alignedResult.coverage * 1000) / 1000,
+        reason: alignedResult.warnings.length > 0 ? `partial:${alignedResult.warnings.length}` : 'ok',
+      }
+    } catch (error) {
+      // 契约防御（fail-open）：Tier1 聚合异常不击穿流水线，场景落入 Tier2 ASR 兜底
+      log.warn('SubtitleAlignService', `场景 ${scene.index} TTS 词级时间戳聚合失败（回退 ASR）：${error?.message || String(error)}`)
+    }
+  }
+
+  // Tier2（ASR）：无词级时间戳或 TTS 时间戳不可用的场景逐段转写对齐
   const candidates = scenes.map((scene, idx) => ({ scene, idx })).filter(
     ({ scene }) => typeof scene.audioPath === 'string' && scene.audioPath &&
-      Array.isArray(scene.subtitleBlocks) && scene.subtitleBlocks.length > 0,
+      Array.isArray(scene.subtitleBlocks) && scene.subtitleBlocks.length > 0 &&
+      !Array.isArray(scene.subtitleTimeline),
   )
   if (candidates.length === 0) return scenes
   if (!isAlignerAvailable()) {
