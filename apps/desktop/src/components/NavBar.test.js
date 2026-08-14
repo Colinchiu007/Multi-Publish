@@ -1,10 +1,15 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import NavBar from './NavBar.vue'
+import i18n from '@/i18n'
 
 function mountNavBar (props = {}) {
-  return mount(NavBar, { props })
+  return mount(NavBar, { props, global: { plugins: [i18n] } })
 }
+
+beforeEach(() => {
+  i18n.global.locale.value = 'zh'
+})
 
 describe('NavBar 登录标签态（蚁小二对标）', () => {
   it('默认不显示保存账号按钮', () => {

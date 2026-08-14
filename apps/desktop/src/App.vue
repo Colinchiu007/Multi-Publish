@@ -68,6 +68,7 @@ import UpdateNotification from '@/components/UpdateNotification.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
 import RouteLoadError from '@/components/RouteLoadError.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useAccountActions } from '@/composables/useAccountActions'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -86,6 +87,7 @@ const identityStore = useIdentityStore()
 const tabStore = useTabStore()
 const { navigation, isHomeTab, activeTabId } = storeToRefs(tabStore)
 const accountActions = useAccountActions()
+const { t } = useI18n()
 
 // ── 登录标签（蚁小二式全屏登录视图）──
 const isLoginTab = computed(() => tabStore.activeTab?.isLogin === true)
@@ -97,12 +99,12 @@ async function onSaveAccount () {
   try {
     const result = await accountActions.completeLogin('browser')
     if (result?.code !== 0) {
-      ElMessage.error(formatUserError(result, { fallback: '保存账号失败，请确认已完成登录后重试' }).message)
+      ElMessage.error(formatUserError(result, { fallback: t('accounts.saveFailed') }).message)
     } else {
-      ElMessage.success('账号已保存')
+      ElMessage.success(t('accounts.saved'))
     }
   } catch (error) {
-    ElMessage.error(formatUserError(error, { fallback: '保存账号失败，请确认已完成登录后重试' }).message)
+    ElMessage.error(formatUserError(error, { fallback: t('accounts.saveFailed') }).message)
   } finally {
     savingAccount.value = false
   }
@@ -155,8 +157,8 @@ async function retryRouteLoad() {
     await router.replace(failedPath)
   } catch (error) {
     routeLoadError.value = {
-      title: '页面加载失败',
-      message: '页面资源仍未加载成功，请重试或刷新应用。',
+      title: t('common.pageLoadFailed'),
+      message: t('common.pageLoadFailedMessage'),
       details: error?.stack || error?.message || '',
       path: failedPath,
     }

@@ -83,7 +83,7 @@
         data-testid="nav-save-account"
         @click="$emit('save-account')"
       >
-        {{ saving ? '保存中...' : '保存账号' }}
+        {{ saving ? t('nav.savingAccount') : t('nav.saveAccount') }}
       </button>
     </div>
   </div>
@@ -91,6 +91,9 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   currentUrl: { type: String, default: '' },
@@ -155,7 +158,7 @@ async function copyUrl() {
     copied.value = true
     setTimeout(() => { copied.value = false }, 2000)
   } catch (e) {
-    console.error('复制失败:', e)
+    console.error('Copy URL failed:', e)
   }
 }
 </script>

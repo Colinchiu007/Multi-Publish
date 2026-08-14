@@ -11,6 +11,8 @@ export default {
     success: 'Success',
     error: 'Error',
     close: 'Close',
+    pageLoadFailed: 'Failed to load page',
+    pageLoadFailedMessage: 'Page resources failed to load. Please retry or refresh the app.',
   },
   nav: {
     home: 'Home',
@@ -18,6 +20,8 @@ export default {
     publish: 'Publish',
     history: 'History',
     settings: 'Settings',
+    saveAccount: 'Save Account',
+    savingAccount: 'Saving...',
   },
   publish: {
     title: 'Title',
@@ -38,6 +42,8 @@ export default {
     status: 'Status',
     actions: 'Actions',
     deleteConfirm: 'Are you sure you want to delete this account?',
+    saved: 'Account saved',
+    saveFailed: 'Failed to save account. Please confirm you have completed login and try again.',
   },
   onboarding: {
     welcome: 'Welcome to Multi-Publish',
