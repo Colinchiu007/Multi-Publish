@@ -1,0 +1,12 @@
+{
+  "id": "story2video-watermark-slow-drift",
+  "title": "故事讲述流水线：水印移动位置速度改为 1/10（Lissajous 周期 10s/14s → 100s/140s）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "video-compose",
+  "currentPhase": "completed",
+  "nextAction": "PR 合并后回填远程同步状态",
+  "createdAt": "2026-08-14T22:10:00+08:00",
+  "branch": "codex/watermark-slow-drift"
+}
