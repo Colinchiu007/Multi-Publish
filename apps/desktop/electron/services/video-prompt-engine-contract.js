@@ -19,7 +19,7 @@
  *   - 双向约束字段收敛（excluded_characters / no_swap_pairs / color_ratio）+ 多切时间块（shots[]/beats[]）
  *   - 收尾参数行 appendVideoTrailer + 平台参数画像（PLATFORM_VIDEO_PROFILES）
  *   - 结构完整性 fail-closed 校验（声明排除/防替换但正文无引用协议标记 → 拒绝）
- *   - 精修层 max_length 层级语义（按后端能力门控：8013 [50,2000] / 8020 [200,4000]）
+ *   - 精修层 max_length 层级语义（按后端能力门控：8013 [50,2000] / 8020 [200,5000]）
  *
  * ⚠️ 与图片提示词契约刻意分文件、分命名，避免混淆（共享逻辑经 kernel）。
  */
@@ -84,12 +84,15 @@ const VIDEO_ENGINE_LIMITS = Object.freeze({
   // videoMaxLengthMax 为引擎侧边界抬高后的目标上限，当前未被直接引用（显式值一律被
   // videoMaxLengthRanges 能力范围收敛），保留作跨仓库联调锚点。
   videoMaxLengthRefinedDefault: 5000,
+  // 常规层默认对齐 8020 引擎默认（video_prompt_engine/models.py max_length 默认 1800）；
+  // 旧契约发 500（PROMPT_ENGINE_LIMITS.maxLength.default）与引擎默认失配，500 字符装不下 batch 层 100 词下界
+  videoMaxLengthBatchDefault: 1800,
   videoMaxLengthMax: 20000,
   // 目标后端能力范围（防 422，评审 C1 证据）：8013 prompt_engine/models.py ge=50/le=2000；
-  // 8020 video_prompt_engine/models.py ge=200/le=4000
+  // 8020 video_prompt_engine/models.py ge=200/le=5000（Higgsfield P0 边界上浮，tasks 4.4）
   videoMaxLengthRanges: Object.freeze({
     legacy: Object.freeze({ min: 50, max: 2000 }),
-    standalone: Object.freeze({ min: 200, max: 4000 }),
+    standalone: Object.freeze({ min: 200, max: 5000 }),
   }),
 })
 
@@ -152,14 +155,15 @@ function _normalizeVideoCreativeLevel (value) {
  * 视频 max_length 层级语义（按后端能力门控，video-prompt-higgsfield-mechanics R6）：
  *   - 显式传入（非 null/非空串/非纯空白/有限数值）→ 在后端能力范围 [range.min, range.max] 内收敛，始终优先；
  *   - 未显式传（含 null/空串/纯空白串/非有限）→ creative_level ≥ 7 使用精修层默认 5000 并收敛到后端上限；
- *     < 7 保持现有默认 500（零回归）。
+ *     < 7 使用 batchDefault（8020 对齐引擎默认 1800；8013 保持 500 零回归）。
  * 禁止借用 PROMPT_ENGINE_LIMITS.maxLength（图片/8013 语义）。
  * @param {unknown} explicit
  * @param {number} creativeLevel - 已归一化（1-10）
  * @param {{ min: number, max: number }} range - 目标后端能力范围
+ * @param {number} batchDefault - 常规层默认（未显式传且 creativeLevel < 7）
  * @returns {number}
  */
-function _resolveVideoMaxLength (explicit, creativeLevel, range) {
+function _resolveVideoMaxLength (explicit, creativeLevel, range, batchDefault) {
   const isExplicit = explicit !== undefined && explicit !== null && explicit !== '' &&
     !(typeof explicit === 'string' && !explicit.trim())
   if (isExplicit) {
@@ -169,7 +173,7 @@ function _resolveVideoMaxLength (explicit, creativeLevel, range) {
   if (creativeLevel >= 7) {
     return Math.min(VIDEO_ENGINE_LIMITS.videoMaxLengthRefinedDefault, range.max)
   }
-  return PROMPT_ENGINE_LIMITS.maxLength.default
+  return batchDefault
 }
 
 function _normalizeVideoNumCandidates (value) {
@@ -228,6 +232,7 @@ function buildVideoOptimizeRequest (prompt, options = {}) {
       options.max_length !== undefined ? options.max_length : options.maxLength,
       creativeLevel,
       VIDEO_ENGINE_LIMITS.videoMaxLengthRanges.legacy,
+      PROMPT_ENGINE_LIMITS.maxLength.default,
     ),
     num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }
@@ -359,7 +364,7 @@ function _detectOutputLanguage (texts) {
 
 /**
  * 构造独立视频引擎（8020）请求体 — VideoOptimizeRequest（无 domain 字段）。
- * 平台/风格/边界收敛与 8013 共用同一归一化；max_length 按 8020 能力范围 [200,4000] 门控；
+ * 平台/风格/边界收敛与 8013 共用同一归一化；max_length 按 8020 能力范围 [200,5000] 门控；
  * output_language 解析：显式参数 → 目标平台集合（国产模型 zh / 国外模型 en）→ model 关键词兜底 → 文本 CJK 自动检测。
  * @param {string} prompt
  * @param {object} [options]
@@ -380,6 +385,7 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
       options.max_length !== undefined ? options.max_length : options.maxLength,
       creativeLevel,
       VIDEO_ENGINE_LIMITS.videoMaxLengthRanges.standalone,
+      VIDEO_ENGINE_LIMITS.videoMaxLengthBatchDefault,
     ),
     num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }
@@ -488,8 +494,9 @@ function _normalizeExcludedCharacters (value) {
 }
 
 /**
- * no_swap_pairs 收敛：每对为恰含两个非空字符串的二元组，任一元素非法整对丢弃；
- * 上限 5，超限截断；非法输入返回 undefined。
+ * no_swap_pairs 收敛：每对为恰含两个非空字符串的二元组 [from, to]（规范形态，见 spec 双向约束字段契约）；
+ * 兼容引擎（8020 video_prompt_engine）对象形态 {"from","to"} 自动转二元组。
+ * 任一元素非法整对丢弃；上限 5，超限截断；非法输入返回 undefined。
  * @param {unknown} value
  * @returns {string[][] | undefined}
  */
@@ -497,9 +504,18 @@ function _normalizeNoSwapPairs (value) {
   if (!Array.isArray(value)) return undefined
   const pairs = []
   for (const pair of value) {
-    if (!Array.isArray(pair) || pair.length !== 2) continue
-    const first = typeof pair[0] === 'string' ? pair[0].trim() : ''
-    const second = typeof pair[1] === 'string' ? pair[1].trim() : ''
+    let first = ''
+    let second = ''
+    if (Array.isArray(pair)) {
+      if (pair.length !== 2) continue
+      first = typeof pair[0] === 'string' ? pair[0].trim() : ''
+      second = typeof pair[1] === 'string' ? pair[1].trim() : ''
+    } else if (pair && typeof pair === 'object') {
+      first = typeof pair.from === 'string' ? pair.from.trim() : ''
+      second = typeof pair.to === 'string' ? pair.to.trim() : ''
+    } else {
+      continue
+    }
     if (!first || !second) continue
     pairs.push([first, second])
     if (pairs.length >= VIDEO_ENGINE_LIMITS.noSwapPairsMax) break
@@ -583,11 +599,13 @@ function _normalizeBeats (value) {
  */
 function appendVideoTrailer (src, options = {}) {
   const source = String(src || '')
-  if (source.includes('NON-IP')) return source
+  // 大小写不敏感 + 词边界幂等（对齐引擎 append_trailer 判据；xenon-ip 这类子串不误判已含标记）
+  if (/(?<![A-Za-z0-9])non-ip/i.test(source)) return source
 
   const aspect = typeof options.aspect === 'string' && options.aspect.trim() ? options.aspect.trim() : '16:9'
   const durationRaw = Number(options.duration)
-  const duration = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : 15
+  // 整数化对齐引擎 build_tail（int(float(d))，5.5 → 5s），防跨仓尾行漂移
+  const duration = Number.isFinite(durationRaw) && durationRaw > 0 ? Math.floor(durationRaw) : 15
   const audio = typeof options.audio === 'string' && options.audio.trim() ? options.audio.trim() : 'SFX'
   const nonIp = options.nonIp !== undefined ? Boolean(options.nonIp) : true
 

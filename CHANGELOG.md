@@ -9,6 +9,14 @@
 - 测试：services 全量 3412/3412 通过（minimax-tts 52 / asset-generator 13 / subtitle-align 8 / stages 84 / aggregator 4 / provider 25 / manual-assets 21 等）；真实 edge-tts 7.2.7 实测 WordBoundary 事件与 100ns 换算；AssetGenerator 真实端到端返回 7 词 timings。
 - 文档：OpenSpec change `subtitle-audio-alignment` Tier1 由「预留」更新为「已实施」；`.quality-gates.md` 门禁记录；审查报告 `.ccg/tasks/archive/2026-08/tts-word-timestamps/review.md`。
 
+## [2026-08-14] Higgsfield P0 契约边界上浮与双形态收敛（higgsfield-engine-p0，PR #795）
+
+- 视频契约 standalone 长度上浮至 [200,5000]（对齐引擎侧 8020 精修层 5000 上限）；`_resolveVideoMaxLength` 增 batchDefault 参数：8013 batch 保持 500 零回归、8020 batch 默认 1800 对齐引擎默认值。
+- `_normalizeNoSwapPairs` 双形态兼容（对象 {from,to} + 二元组 [from,to]）→ 规范二元组；`appendVideoTrailer` 词边界幂等（`(?<![A-Za-z0-9])non-ip`）+ `Math.floor` 取整对齐引擎（5.5→5s）。
+- 规格同步：`openspec/specs/video-prompt-engine/spec.md` max_length 4000→5000（3 处残留）。
+- 测试：`video-prompt-engine-contract.test.js` + `prompt-engine-kernel.test.js` 98 passed（contract 85 + kernel 13）。
+- 双模型评审：两轮（Claude + codex）0 Critical / 0 Warning 遗留，评审记录见 `.ccg/tasks/higgsfield-engine-p0/review.md`；引擎侧配套 PR prompt-engine#35。
+
 ## [2026-08-14] 提示词引擎共享内核重构 + Higgsfield 导演工作流机制落地（prompt-engine-kernel-refactor + video-prompt-higgsfield-mechanics，PR #793）
 
 - 新增共享内核 `apps/desktop/electron/services/prompt-engine-kernel.js`：风格归一、敏感凭据守卫、中立 limits、clampNumber、fail-closed 核心 extractOptimizedBase（可选 engineLabel 保留领域失败文案）；图片契约 re-export 公共 API 零变化；视频契约改从 kernel 引入，不再借用图片 maxLength 语义（videoMaxLengthRanges 承接）。
