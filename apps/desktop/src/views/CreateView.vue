@@ -1010,33 +1010,43 @@
     >
       <div class="bgm-library-dialog" data-testid="s2v-bgm-library-dialog">
         <div class="bgm-library-toolbar">
-          <input ref="s2vBgmLibraryInput" type="file" accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg" style="display:none" @change="handleBgmLibraryAddFile" />
-          <UiButton variant="primary" :disabled="s2vBgmLibraryLoading" data-testid="s2v-bgm-add-button" @click="$refs.s2vBgmLibraryInput?.click()">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.add', '添加音乐', 'Add music') }}</UiButton>
-          <span v-if="s2vBgmLibraryLoading" class="config-hint">{{ translateWithLocaleFallback('common.loading', '加载中...', 'Loading...') }}</span>
+          <div class="bgm-library-toolbar-row">
+            <input ref="s2vBgmLibraryInput" type="file" accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg" style="display:none" @change="handleBgmLibraryAddFile" />
+            <UiButton variant="primary" :disabled="s2vBgmLibraryLoading" data-testid="s2v-bgm-add-button" @click="$refs.s2vBgmLibraryInput?.click()">
+              <span class="material-symbols-outlined" style="font-size:16px">add</span>
+              {{ translateWithLocaleFallback('create.story2video.bgmLibrary.add', '添加音乐', 'Add music') }}
+            </UiButton>
+            <span v-if="s2vBgmLibraryLoading" class="bgm-library-toolbar-hint">{{ translateWithLocaleFallback('common.loading', '加载中...', 'Loading...') }}</span>
+          </div>
+          <p class="bgm-library-toolbar-hint">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.addHint', '添加后将自动选中该音乐。', 'The added track is selected automatically.') }}</p>
         </div>
-        <p class="config-hint">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.addHint', '添加后将自动选中该音乐。', 'The added track is selected automatically.') }}</p>
         <ul v-if="s2vBgmLibrary.length" class="bgm-library-list">
           <li v-for="item in s2vBgmLibrary" :key="item.id" class="bgm-library-item">
             <template v-if="s2vBgmLibraryRenamingId === item.id">
-              <input
-                v-model.trim="s2vBgmLibraryRenameDraft"
-                class="form-input"
-                maxlength="60"
-                :placeholder="translateWithLocaleFallback('create.story2video.bgmLibrary.renamePlaceholder', '输入音乐名称', 'Enter a name for the track')"
-                data-testid="s2v-bgm-rename-input"
-                @keyup.enter="saveBgmRename"
-                @keyup.esc="cancelBgmRename"
-              />
-              <div class="bgm-library-actions">
-                <button type="button" class="btn-secondary" :disabled="s2vBgmLibraryLoading || !String(s2vBgmLibraryRenameDraft || '').trim()" @click="saveBgmRename">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.save', '保存', 'Save') }}</button>
-                <button type="button" class="btn-secondary" :disabled="s2vBgmLibraryLoading" @click="cancelBgmRename">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.cancel', '取消', 'Cancel') }}</button>
+              <div class="bgm-library-rename-row">
+                <input
+                  v-model.trim="s2vBgmLibraryRenameDraft"
+                  class="form-input"
+                  maxlength="60"
+                  :placeholder="translateWithLocaleFallback('create.story2video.bgmLibrary.renamePlaceholder', '输入音乐名称', 'Enter a name for the track')"
+                  data-testid="s2v-bgm-rename-input"
+                  @keyup.enter="saveBgmRename"
+                  @keyup.esc="cancelBgmRename"
+                />
+                <div class="bgm-library-actions" style="opacity:1">
+                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading || !String(s2vBgmLibraryRenameDraft || '').trim()" @click="saveBgmRename" title="保存"><span class="material-symbols-outlined">check</span></button>
+                  <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="cancelBgmRename" title="取消"><span class="material-symbols-outlined">close</span></button>
+                </div>
               </div>
             </template>
             <template v-else>
-              <span class="bgm-library-name" :title="item.path">{{ item.name }}</span>
+              <div class="bgm-library-item-content">
+                <span class="material-symbols-outlined bgm-library-item-icon">music_note</span>
+                <span class="bgm-library-name" :title="item.path">{{ item.name }}</span>
+              </div>
               <div class="bgm-library-actions">
-                <button type="button" class="btn-secondary" :disabled="s2vBgmLibraryLoading" @click="startBgmRename(item)">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.rename', '重命名', 'Rename') }}</button>
-                <button type="button" class="btn-secondary danger" :disabled="s2vBgmLibraryLoading" @click="requestBgmDelete(item)">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.delete', '删除', 'Delete') }}</button>
+                <button type="button" class="btn-icon" :disabled="s2vBgmLibraryLoading" @click="startBgmRename(item)" title="重命名"><span class="material-symbols-outlined">edit</span></button>
+                <button type="button" class="btn-icon danger" :disabled="s2vBgmLibraryLoading" @click="requestBgmDelete(item)" title="删除"><span class="material-symbols-outlined">delete</span></button>
               </div>
             </template>
           </li>
