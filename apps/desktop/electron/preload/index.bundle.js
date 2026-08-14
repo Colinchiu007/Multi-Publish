@@ -160,6 +160,12 @@ var require_publish = __commonJS({
         story2videoRecomposeProject: (projectId) => ipcRenderer2.invoke("story2video:recompose-project", projectId),
         story2videoTranscribe: (filePath) => ipcRenderer2.invoke("story2video:transcribe", { filePath }),
         story2videoCapabilities: () => ipcRenderer2.invoke("story2video:capabilities"),
+        // Story2Video 批量创作（openspec story2video-batch-create）
+        story2videoBatchCreate: (payload) => ipcRenderer2.invoke("story2video:batch:create", payload),
+        story2videoBatchStatus: () => ipcRenderer2.invoke("story2video:batch:status"),
+        story2videoBatchCancel: (batchId, itemIds) => ipcRenderer2.invoke("story2video:batch:cancel", { batchId, itemIds }),
+        // 本地文件选择（.txt/.md 多选）：返回 [{ path, name }]，路径由主进程对话框直接提供
+        story2videoPickBatchFiles: () => ipcRenderer2.invoke("story2video:pick-batch-files"),
         // Cloud Publisher API
         cloudPublishSubmit: (params) => ipcRenderer2.invoke("cloud-publisher:submit", params),
         cloudPublishListTasks: () => ipcRenderer2.invoke("cloud-publisher:list-tasks"),
@@ -968,7 +974,9 @@ var require_access_control = __commonJS({
       "videoClone.regenerate",
       "videoClone.pickFile",
       "videoClone.history",
-      "videoClone.onProgress"
+      "videoClone.onProgress",
+      // 批量创作本地文件选择（与主进程 PUBLIC_CHANNELS 的 story2video:pick-batch-files 对齐）：纯设备本地对话框
+      "story2videoPickBatchFiles"
     ];
     function hasAccess(currentLevel, requiredLevel) {
       if (requiredLevel === "public") return true;

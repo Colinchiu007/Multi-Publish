@@ -56,6 +56,8 @@ const PUBLIC_METHODS = [
   'videoClone',
   'videoClone.run', 'videoClone.cancel', 'videoClone.editReport', 'videoClone.regenerate',
   'videoClone.pickFile', 'videoClone.history', 'videoClone.onProgress',
+  // 批量创作本地文件选择（与主进程 PUBLIC_CHANNELS 的 story2video:pick-batch-files 对齐）：纯设备本地对话框
+  'story2videoPickBatchFiles',
 ]
 
 function hasAccess(currentLevel, requiredLevel) {

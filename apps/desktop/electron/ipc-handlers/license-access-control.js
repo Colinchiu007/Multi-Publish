@@ -43,6 +43,9 @@ const PUBLIC_CHANNELS = new Set([
   // 添加/改名/删除/列表均为纯本地文件操作，未登录可用（与 import-media 同属本地素材管理）。
   'story2video:bgm-library-list', 'story2video:bgm-library-add',
   'story2video:bgm-library-rename', 'story2video:bgm-library-delete',
+  // 批量创作文件选择（story2video:pick-batch-files）：纯本地系统对话框（.txt/.md 多选），
+  // 与 video-clone:pick-file 同属设备本地操作，未登录可用；批量创建/状态/取消需登录（story2video_write）。
+  'story2video:pick-batch-files',
   // 视频克隆（本地分析流水线）：run/cancel/edit/regenerate/history/pick-file 未登录可用；发布经 PublisherRouter（外部验收边界）
   'video-clone:run', 'video-clone:cancel', 'video-clone:report:edit', 'video-clone:report:regenerate',
   'video-clone:pick-file', 'video-clone:history',
@@ -116,6 +119,9 @@ const LOGIN_ONLY_FEATURE_MAP = Object.freeze({
   'story2video:copy-path': 'story2video_write',
   'story2video:show-in-folder': 'story2video_write',
   'story2video:save-as': 'story2video_write',
+  'story2video:batch:create': 'story2video_write',
+  'story2video:batch:status': 'story2video_write',
+  'story2video:batch:cancel': 'story2video_write',
   // 模型服务商配置写操作（2026-08-11：未登录被拒）
   'model-provider:create': 'model_provider_write',
   'model-provider:update': 'model_provider_write',

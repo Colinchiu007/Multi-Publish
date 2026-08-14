@@ -161,6 +161,7 @@ function extractContext(container) {
   const aiGenerator = container.get('aiGenerator')
   const videoEngine = container.get('videoEngine')
   const pipelineEngine = container.get('pipelineEngine')
+  const story2videoBatchQueue = container.get('story2videoBatchQueue')
   const projectService = container.get('projectService')
   const boardService = container.get('boardService')
   const contactSheetService = container.get('contactSheetService')
@@ -380,6 +381,7 @@ function extractContext(container) {
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,
       renderEngine, compositionManager, aiGenerator, videoEngine, pipelineEngine,
+      story2videoBatchQueue,
       modelProviderManager, providerRouter, providerManager, opsCenterSync, usageReporter,
       _aggregatorBridge, publisherRouter, _PublishAlert,
       splitterBridge, promptBridge, serviceBus, pluginRegistry,
