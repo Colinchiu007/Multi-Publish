@@ -1,3 +1,12 @@
+## 精修层长度判据「字符预算 vs 词数刻度」矛盾复盘（higgsfield-p0 边界修订，2026-08-14）
+
+- **Bug**：evaluator 精修层上界 `max(500, max_length//5)`，max_length=5000 字符预算 → 上界仅 1000 词；语料实证精修层中位 22,871 字符 ≈ 4,500 词，2760 词长模板被硬扣（直接评估 length_ok=False）。
+- **根因（两层）**：① max_length 是**字符裁剪预算**（optimizer 先裁后评），evaluator 却把它当**词数判据**——两者刻度不同导致「直接评估 FAIL / 先裁后评 PASS」行为不一致；② 引擎 `models.py le=5000` 与契约层 `standalone [200,5000]` 双重封顶，精修层真实形态（≈22,871 字符）物理装不下，连请求都被 clamp/422。
+- **修法（刻度解耦 + 边界上浮）**：evaluator refined 判据改为词数刻度 **500–5,000 词**（DEEP 报告 P0-1 字面），max_length 只负责输出裁剪；`models.py le=5000→20000`、契约层 `standalone.max=5000→20000`（对齐已预留的 `videoMaxLengthMax=20000` 锚点），精修层真实长模板请求可透传。批量层保持 W4 联动（`max(400, budget//6)`）不变。
+- **教训 1（长度判据必须先定刻度）**：写「长度」检查前先回答「词数刻度还是字符刻度」——判据层用词数（语义密度），预算层用字符（模型上下文），两者用换算系数（英文 ≈5-6 字符/词）联动时必须有语料实证，否则按字符预算反推词数上界会物理性误杀。
+- **教训 2（预留在契约里的锚点要跟踪闭环）**：`videoMaxLengthMax=20000` 在契约层注释里标注「引擎侧边界抬高后自动生效（tasks 4.4）」——引擎侧 le 上浮后契约层 `videoMaxLengthRanges` 若不跟着放开，显式大值仍被 clamp，锚点永远停留在注释里。任务 4.4 闭环必须同时核对契约 ranges。
+- **回归**：2760 词/4,500+ 词 True、>5,000 词 False、20000 accepted/20001 rejected、契约 18000 透传/22000 收敛；W4 时代「1100 词 False」断言迁移到新刻度。
+
 ## 提示词引擎共享内核重构 + Higgsfield 机制复盘（prompt-engine-kernel-refactor + video-prompt-higgsfield-mechanics，2026-08-14）
 
 - **交付**：新增 `prompt-engine-kernel.js`（领域中立共享内核：风格归一/敏感守卫/中立 limits/clampNumber/extractOptimizedBase），图片契约 re-export 公共 API 零变化，视频契约改从 kernel 引入并用 `extractOptimizedBase` 替换本地 `_extractVideoBase`（engineLabel='视频' 保留既有失败文案）；视频契约新增导演工作流（excluded_characters/no_swap_pairs/color_ratio/shots[]/beats[]/appendVideoTrailer/平台画像/结构完整性校验）与精修层 max_length 按后端能力门控（8013 [50,2000] / 8020 [200,4000]）。双模型评审 0C/1W/7I，W 已修复；测试 566 全绿；QM-1 打包 + 启动验证通过。

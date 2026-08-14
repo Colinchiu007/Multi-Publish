@@ -1,3 +1,10 @@
+## [2026-08-14] 视频提示词精修层长度判据修正 + max_length 边界上浮至 20000（higgsfield-p0 边界修订）
+
+- 契约层 `videoMaxLengthRanges.standalone` 上限 5000 → **20000 字符**（对齐 `videoMaxLengthMax=20000` 锚点）：精修层导演分镜单真实形态 500–5,000 词（语料中位 22,871 字符）不再被 clamp 到 5000；`videoMaxLengthRefinedDefault=5000` / batch 1800 / legacy [50,2000] 不变（零回归）。
+- 引擎侧（video-prompt-engine）联动：`VideoOptimizeRequest.max_length` 上限 5000 → 20000；evaluator 精修层判据改为词数刻度 **500–5,000 词**（DEEP 报告 P0-1），max_length 字符预算不参与 refined 判据，修复 1000+ 词长模板误杀与直接评估/先裁后评不一致。
+- 测试：契约层 125 项全绿（新增 18000 透传 / 22000 收敛断言）；引擎侧 41 项全绿（2760 词/4,500+ 词 True、>5,000 词 False、20000 accepted/20001 rejected）。
+- 规格：`specs/video-prompt-engine/spec.md` max_length 语义更新（standalone 上限 20000 + 精修层词数刻度判据）。
+
 ## [2026-08-14] 图片提示词引擎吸收 Higgsfield 机制：技术底座基线 / 精修层长度 / 白名单 / 择优（image-prompt-higgsfield-mechanics）
 
 - 共享内核（prompt-engine-kernel.js）4 项领域中立函数正式落位：resolveTieredMaxLength（泛化视频层级长度）、filterPlausibleNegativePrompt（plausible-only 负面词过滤：失败类别保留 + 模糊否定词清理 + 场景排除物不误删）、normalizePositiveConstraints（正向约束收敛）、scorePrompt（四维规则评分：长度/六要素/保真/构图）。
