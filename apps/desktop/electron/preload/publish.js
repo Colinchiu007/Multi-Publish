@@ -151,6 +151,8 @@ function createPublishApi(ipcRenderer, options = {}) {
     },
     // BGM 素材库（与主进程 PUBLIC_CHANNELS 的 story2video:bgm-library-* 对齐）：
     // 添加沿用 import-media 的 File 路径解析，其余操作直通。
+    // 内容类型自动预选（s2v-content-type-auto-suggest）：本地规则判定，public 级
+    story2videoSuggestContentType: (text) => ipcRenderer.invoke('story2video:suggest-content-type', { text }),
     story2videoBgmLibraryList: () => ipcRenderer.invoke('story2video:bgm-library-list'),
     story2videoBgmLibraryAdd: (file) => {
       let filePath = ''

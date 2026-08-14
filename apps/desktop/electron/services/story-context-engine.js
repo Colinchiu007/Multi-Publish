@@ -473,6 +473,28 @@ function detectEra (text, dynasty, genre) {
   return { era: 'mixed', strong: false }
 }
 
+function suggestContentType (text) {
+  const normalized = normalizeText(text)
+  if (!normalized) return { contentType: 'general', strong: false, reason: 'invalid_input' }
+  const dynasty = detectDynasty(normalized)
+  if (dynasty) {
+    return {
+      contentType: 'history', strong: true, reason: 'dynasty',
+      evidence: { dynasty: dynasty.evidence.slice(0, 5), era: dynasty.era },
+    }
+  }
+  const genre = detectGenre(normalized)
+  const eraDetected = detectEra(normalized, null, genre.genre)
+  if (eraDetected.strong && eraDetected.era === 'ancient') {
+    return {
+      contentType: 'history', strong: true, reason: 'ancient_strong',
+      evidence: { era: eraDetected.era, genre: genre.genre, genreEvidence: genre.evidence.slice(0, 5) },
+    }
+  }
+  return { contentType: 'general', strong: false, reason: 'no_signal', evidence: { era: eraDetected.era, genre: genre.genre } }
+}
+
+
 function buildSummary (text, story, maxLength) {
   const prefix = joinNonEmpty([
     story.genre && story.genre !== 'general' ? story.genre : '',
@@ -789,6 +811,7 @@ module.exports = {
   getContextRulesInfo,
   loadContextRules,
   setContextRulesOverride,
+  suggestContentType,
   validateContextRules,
   resetContextRules,
   COOKING_NEGATIVE_ANCHORS,

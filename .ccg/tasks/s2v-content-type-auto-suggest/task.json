@@ -1,0 +1,12 @@
+{
+  "id": "s2v-content-type-auto-suggest",
+  "title": "内容类型自动预选：strong 历史信号驱动 contentType 默认值（方案 1）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "review",
+  "nextAction": "门禁通过（vitest 284+6 / locale sync / openspec validate）；双模型审查 + QM-1 打包 → PR",
+  "createdAt": "2026-08-14T15:40:00+08:00",
+  "branch": "codex/s2v-content-type-auto-suggest"
+}

@@ -244,7 +244,7 @@
             <div class="config-grid">
               <div class="config-item">
                 <label>内容类型</label>
-                <select v-model="s2vConfig.contentType" class="form-select">
+                <select v-model="s2vConfig.contentType" class="form-select" @change="handleS2VContentTypeChange">
                   <option value="general">通用内容</option>
                   <option value="history">历史文章（自动识别时代与朝代）</option>
                 </select>
@@ -1108,7 +1108,8 @@ import {
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject,
   story2videoBgmLibraryList, story2videoBgmLibraryAdd,
-  story2videoBgmLibraryRename, story2videoBgmLibraryDelete
+  story2videoBgmLibraryRename, story2videoBgmLibraryDelete,
+  story2videoSuggestContentType
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
@@ -1368,6 +1369,9 @@ export default {
       story2videoRunMeta: null,
       stageClockTick: 0,
       s2vRestoring: false,
+      // 内容类型自动预选（s2v-content-type-auto-suggest）：用户手动改过（@change）或恢复过
+      // 上次选项后置 true，系统不再自动覆盖；初始 false 允许按 strong 历史信号预选 history。
+      s2vContentTypeTouched: false,
       s2vOptionsToast: '',
       s2vCloneOpen: false,
       s2vOptionsToastTimer: null,
@@ -1781,6 +1785,10 @@ export default {
     // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
     s2vConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
     s2vOutputConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
+    // 内容类型自动预选（s2v-content-type-auto-suggest）：文案变化 500ms 防抖后本地判定 strong 历史信号
+    pipelineText() {
+      this.scheduleS2VContentTypeSuggest()
+    },
     // 分镜素材自选等待态（2026-08-13）：首次激活自动滚动到面板并短时高亮；关闭后重置，下次激活再引导
     sceneAssetSelectionActive(active) {
       if (!active) {
@@ -2084,6 +2092,47 @@ export default {
       if (this._lastOptionsSaveTimer) { clearTimeout(this._lastOptionsSaveTimer); this._lastOptionsSaveTimer = null }
       this.saveS2VLastOptions()
     },
+    // ---- 内容类型自动预选（s2v-content-type-auto-suggest）----
+    // 系统只做「可见可改的默认值预选」：strong 历史信号 → 预选 history，未检测到保持 general；
+    // 用户手动改过（@change 置 touched）或恢复上次选项后，系统不再覆盖（touched 语义）。
+    handleS2VContentTypeChange() {
+      this.s2vContentTypeTouched = true
+      if (this._s2vContentTypeSuggestTimer) { clearTimeout(this._s2vContentTypeSuggestTimer); this._s2vContentTypeSuggestTimer = null }
+    },
+    scheduleS2VContentTypeSuggest() {
+      if (this._s2vContentTypeSuggestTimer) clearTimeout(this._s2vContentTypeSuggestTimer)
+      this._s2vContentTypeSuggestTimer = setTimeout(() => {
+        this._s2vContentTypeSuggestTimer = null
+        this.suggestS2VContentType()
+      }, 500)
+    },
+    async suggestS2VContentType() {
+      // seq 令牌无条件递增（先于一切守卫）：任何一次触发（含清空文本等提前返回路径）
+      // 都作废在途请求，防止陈旧响应回写（claude review Critical #1 修复）
+      const seq = (this._s2vContentTypeSuggestSeq = (this._s2vContentTypeSuggestSeq || 0) + 1)
+      // 范围守卫：仅编排流水线 + 文案输入模式参与预选
+      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.inputMode !== 'text') return
+      // touched（用户手动改过/恢复过）与恢复/重置流程中不覆盖
+      if (this.s2vContentTypeTouched || this.s2vRestoring) return
+      const text = String(this.pipelineText || '').trim()
+      if (!text) return
+      let res
+      try {
+        res = await story2videoSuggestContentType(text)
+      } catch (_) {
+        return // fail-open：IPC 异常静默保持当前值，不阻断页面
+      }
+      if (!this._s2vAlive || this._s2vContentTypeSuggestSeq !== seq) return
+      // 请求期间文案已变化（含清空）：陈旧响应丢弃
+      if (String(this.pipelineText || '').trim() !== text) return
+      // 请求期间范围已变化（切换流水线/输入模式）：陈旧响应丢弃
+      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.inputMode !== 'text') return
+      if (this.s2vContentTypeTouched || this.s2vRestoring) return
+      if (res?.code !== 0 || !res?.data) return
+      if (res.data.strong !== true || res.data.contentType !== 'history') return
+      if (this.s2vConfig.contentType === res.data.contentType) return
+      this.s2vConfig.contentType = res.data.contentType
+    },
     _applyS2VSnapshot(source, target) {
       if (!source || typeof source !== 'object' || Array.isArray(source)) return
       for (const key of Object.keys(target)) {
@@ -2125,6 +2174,11 @@ export default {
         // 2026-08-10 Bug 反哺：陈旧快照枚举值（如 imageStyle=anime-mslpadvn）不在当前选项
         // 列表时先归一化，避免下拉框空白选中项，也避免分镜自愈使用陈旧语言值估算。
         this.normalizeS2VRestoredEnums()
+        // 内容类型自动预选（s2v-content-type-auto-suggest）：快照含内容类型时恢复值视为
+        // 用户偏好，自动检测不再覆盖；旧快照无该字段（或非法被归一化）时保持默认并允许预选。
+        if (config.contentType === 'general' || config.contentType === 'history') {
+          this.s2vContentTypeTouched = true
+        }
         // 旧快照缺新字段/带回陈旧 splitTargetSeconds → 按主控字数自愈（claude review M2/M6），
         // 避免「恢复→保存」循环污染与显示/提交口径不一致
         if (Number.isFinite(Number(this.s2vConfig.splitTargetCharsPerScene))) {
@@ -2233,6 +2287,8 @@ export default {
         this.s2vOutputConfig = JSON.parse(JSON.stringify(defaults.s2vOutputConfig || {}))
         // 重置后回到「未选择」状态，多模态默认重新生效
         this.s2vVoiceProviderExplicitEdge = false
+        // 内容类型自动预选：重置回默认后允许系统重新预选
+        this.s2vContentTypeTouched = false
         await this.loadS2VVoiceData()
         try { await storeSetSetting('story2video.lastOptions.v1', null) } catch { /* 清理失败可忽略 */ }
       } finally { this.s2vRestoring = false }
@@ -4079,6 +4135,7 @@ export default {
     if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
     if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }
     if (this.sceneAssetAttentionTimer) { clearTimeout(this.sceneAssetAttentionTimer); this.sceneAssetAttentionTimer = null }
+    if (this._s2vContentTypeSuggestTimer) { clearTimeout(this._s2vContentTypeSuggestTimer); this._s2vContentTypeSuggestTimer = null }
     this.flushS2VLastOptionsSave()
   },
 }

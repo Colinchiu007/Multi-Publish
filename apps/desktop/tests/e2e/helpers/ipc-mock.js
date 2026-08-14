@@ -530,6 +530,8 @@
     story2videoBgmLibraryAdd: makeHandler('story2videoBgmLibraryAdd', async ({ filePath }) => ok({ id: 'e2e-bgm-new', name: 'e2e-bgm-new', path: filePath || 'C:/mock/e2e-bgm-new.mp3' })),
     story2videoBgmLibraryRename: makeHandler('story2videoBgmLibraryRename', async ({ id, name }) => ok({ id, name })),
     story2videoBgmLibraryDelete: makeHandler('story2videoBgmLibraryDelete', async ({ id }) => ok({ deleted: true, id })),
+    // 内容类型自动预选（s2v-content-type-auto-suggest）：本地规则判定桩，默认无强信号
+    story2videoSuggestContentType: makeHandler('story2videoSuggestContentType', async () => ok({ contentType: 'general', strong: false, reason: 'no_signal' })),
 
     // 内容情报
     intelligenceSuggestTags: makeHandler('intelligenceSuggestTags', async () => ok(['AI', '内容', '运营'])),

@@ -86,6 +86,17 @@ function registerHandlers (ipcMain, deps = {}) {
     }
   }
 
+  // 内容类型自动预选（s2v-content-type-auto-suggest）：本地无状态规则判定，fail-open（渲染端对 code!==0 一律 no-op）
+  ipcMain.handle('story2video:suggest-content-type', withSenderCheck(async (_event, args) => {
+    try {
+      const text = args && typeof args === 'object' && typeof args.text === 'string' ? args.text : ''
+      const { suggestContentType } = require('../services/story-context-engine')
+      return { code: 0, data: suggestContentType(text) }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: error && error.message ? error.message : String(error) }
+    }
+  }))
+
   ipcMain.handle('story2video:list-projects', withSenderCheck(async () => {
     try {
       const service = requireProjectService()

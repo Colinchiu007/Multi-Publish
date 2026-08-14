@@ -346,3 +346,67 @@ describe('规则数据化与打磨修复（2026-08-12）', () => {
     expect(modern.contextBlock).toContain('现代')
   })
 })
+
+describe('suggestContentType（内容类型自动预选判定，s2v-content-type-auto-suggest）', () => {
+  const { suggestContentType } = require('./story-context-engine')
+
+  it('朝代命中 → history + strong + reason=dynasty', () => {
+    expect(suggestContentType('唐朝贞观年间，长安城的百姓安居乐业。')).toMatchObject({
+      contentType: 'history', strong: true, reason: 'dynasty',
+    })
+  })
+
+  it('宋朝帝号命中 → history', () => {
+    expect(suggestContentType('宋徽宗时期，东京汴梁城繁华似锦。').contentType).toBe('history')
+  })
+
+  it('钉住当前行为：三国杀游戏攻略（含「三国」朝代词）→ history（可见可改兜底）', () => {
+    const result = suggestContentType('三国杀游戏攻略，新手卡组推荐，武将搭配技巧。')
+    expect(result.contentType).toBe('history')
+    expect(result.reason).toBe('dynasty')
+  })
+
+  it('武侠题材多信号（genre 加权 + 江湖/武林）→ history（ancient_strong）', () => {
+    const result = suggestContentType('少年手持长剑踏入江湖，武林各派齐聚论剑。')
+    expect(result.contentType).toBe('history')
+    expect(result.reason).toBe('ancient_strong')
+  })
+
+  it('无题材多独立古代信号（朝廷+皇帝+宫殿）→ history', () => {
+    expect(suggestContentType('朝廷颁布新政，皇帝召见群臣于宫殿之中。').contentType).toBe('history')
+  })
+
+  it('parity：寺庙单信号不强 → general', () => {
+    expect(suggestContentType('山中的寺庙香火鼎盛。').contentType).toBe('general')
+  })
+
+  it('现代强信号（手机+地铁+写字楼）→ general', () => {
+    expect(suggestContentType('他在地铁上用手机刷新闻，回到写字楼继续加班。').contentType).toBe('general')
+  })
+
+  it('genre 单独不强：历史题材但 0 古代词 → general（ancientCount=1 < 2）', () => {
+    expect(suggestContentType('这是一个关于历史的故事，讲述了主人公的一生。').contentType).toBe('general')
+  })
+
+  it('混信号（古代+现代并存）→ general（detectEra mixed 不强）', () => {
+    expect(suggestContentType('皇帝在宫殿中用手机处理政务。').contentType).toBe('general')
+  })
+
+  it('空/空白文本 → general + reason=invalid_input，不抛错', () => {
+    expect(suggestContentType('')).toEqual({ contentType: 'general', strong: false, reason: 'invalid_input' })
+    expect(suggestContentType('   ').reason).toBe('invalid_input')
+  })
+
+  it('非法入参（undefined/null/数字）→ general，不抛错', () => {
+    expect(suggestContentType(undefined).reason).toBe('invalid_input')
+    expect(suggestContentType(null).reason).toBe('invalid_input')
+    expect(suggestContentType(123).contentType).toBe('general')
+  })
+
+  it('超长文本（6000 字）结论与短文本一致且快速完成', () => {
+    const longText = ('唐朝长安城的市集热闹非凡，商贩们高声叫卖。').repeat(300)
+    const result = suggestContentType(longText)
+    expect(result.contentType).toBe('history')
+    expect(result.strong).toBe(true)
+  })
+})

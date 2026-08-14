@@ -8,7 +8,17 @@
 - 测试：`webview-manager.test.js` 新增 11 例（钩子绑定/虚拟标签注入广播/回退/双向切换/closeTab 委托/resize/未挂载降级）；`auth-view-manager.test.js` 23 例、`NavBar.test.js` 5 例、`Accounts.test.js` 75 例全绿；desktop 全量 7666 例通过；QM-1 本地打包成功 + 启动 10 秒存活且 stderr 干净。
 - 文档：PRD §2.3.2（流程/显示项/提示文字/数据校验/功能逻辑/测试覆盖）、UI-INVENTORY §1.1 虚拟登录标签 + §5.2 状态表同步。
 - i18n：登录标签全部用户可见文案入 locale（zh/en 成对，CI Gate 7 locale-sync）：`nav.saveAccount` / `nav.savingAccount` / `accounts.saved` / `accounts.saveFailed`；路由重试失败文案 `common.pageLoadFailed(Message)` 同步 i18n 化；NavBar 日志文案英文化（CJK 基线扫描不命中非用户可见日志）；测试挂载 i18n 插件断言 zh 文案。
+## [2026-08-14] 内容类型自动预选：strong 历史信号驱动 CreateView contentType 默认值（s2v-content-type-auto-suggest）
 
+- 需求：CreateView 内容类型（general/history）纯手动 → 系统检测 strong 历史信号（朝代命中，或 ≥2 独立古代信号且无对立信号）后自动预选 history 默认值，未检测到保持 general；用户手动改过或恢复上次选项后系统不再覆盖（touched 语义）。
+- 实现：
+  - `story-context-engine.js` 新增纯函数 `suggestContentType(text)`（复用 detectDynasty/detectGenre/detectEra，不复制规则表）：朝代命中 → history(strong, dynasty)；无朝代但 ancient strong → history(ancient_strong)；其余 general(no_signal)。
+  - IPC `story2video:suggest-content-type`（public 级 fail-open，权限双登记 PUBLIC_CHANNELS + PUBLIC_METHODS；preload `story2videoSuggestContentType` + renderer `@/api/publisher` 封装）。
+  - CreateView.vue：下拉 `@change` 置 touched；`watch pipelineText` 500ms 防抖 + seq 令牌 + 文本/范围复核（清空文本、切换流水线/输入模式时在途响应丢弃，Claude 审查 Critical 修复）；恢复上次选项含 contentType 时视为用户偏好；reset 重置后允许重新预选；unmount 清理定时器。
+  - `tests/e2e/helpers/ipc-mock.js` 增桩（默认 no_signal 防 E2E 翻转）。
+- 测试：story-context-engine 44/44（含三国杀误报钉住）；CreateView 194/194（8 条新 fake-timers：预选生效/手动不覆盖/IPC 失败保持/空文本不调用/乱序守卫/恢复视为偏好/清空文本竞态/在途切模式）；权限断言新增 public 用例；QM-1 electron-builder 打包通过。
+- 规格：openspec change s2v-content-type-auto-suggest（3 Requirements + 6 Scenarios），validate PASS。
+- 评审：antigravity 地区不可用（降级记录）；Claude 审查 1 Critical（seq 空文本分支不递增 → 清空后在途响应回写）已修复 + 2 回归测试；2 Warning 按 design.md D3 语义接受并记录。
 ## [2026-08-14] 视频提示词精修层长度判据修正 + max_length 边界上浮至 20000（higgsfield-p0 边界修订）
 
 - 契约层 `videoMaxLengthRanges.standalone` 上限 5000 → **20000 字符**（对齐 `videoMaxLengthMax=20000` 锚点）：精修层导演分镜单真实形态 500–5,000 词（语料中位 22,871 字符）不再被 clamp 到 5000；`videoMaxLengthRefinedDefault=5000` / batch 1800 / legacy [50,2000] 不变（零回归）。

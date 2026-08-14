@@ -49,6 +49,7 @@ vi.mock("@/api/publisher", () => ({
   story2videoBgmLibraryAdd: vi.fn(),
   story2videoBgmLibraryRename: vi.fn(),
   story2videoBgmLibraryDelete: vi.fn(),
+  story2videoSuggestContentType: vi.fn().mockResolvedValue({ code: 0, data: { contentType: "general", strong: false, reason: "no_signal" } }),
 }));
 
 vi.mock("@/api/tts-voice-catalog", () => ({
@@ -4110,5 +4111,188 @@ describe("pipeline:update 实时推送（openspec pipeline-progress-real-time-pu
     expect(mocks.onPipelineUpdate).toHaveBeenCalled();
     expect(w.vm.cleanups.length).toBeGreaterThan(0);
     w.unmount();
+  });
+
+  describe("内容类型自动预选（s2v-content-type-auto-suggest）", () => {
+    const mountOrchestrated = async () => {
+      const w = mount(CreateView, {
+        global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+      });
+      await nextTick();
+      w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+      w.vm.inputMode = "text";
+      return w;
+    };
+
+    it("strong 历史信号（朝代命中）→ 500ms 防抖后预选 history", async () => {
+      const mocks = await import("@/api/publisher");
+      mocks.story2videoSuggestContentType.mockResolvedValue({ code: 0, data: { contentType: "history", strong: true, reason: "dynasty" } });
+      vi.useFakeTimers();
+      try {
+        const w = await mountOrchestrated();
+        w.vm.pipelineText = "唐太宗李世民开创贞观之治";
+        await nextTick();
+        expect(w.vm.s2vConfig.contentType).toBe("general");
+        await vi.advanceTimersByTimeAsync(500);
+        await nextTick();
+        expect(mocks.story2videoSuggestContentType).toHaveBeenCalledWith("唐太宗李世民开创贞观之治");
+        expect(w.vm.s2vConfig.contentType).toBe("history");
+        w.unmount();
+      } finally {
+        vi.useRealTimers();
+        mocks.story2videoSuggestContentType.mockRestore();
+      }
+    });
+
+    it("用户手动改过内容类型后系统不再覆盖（touched 语义）", async () => {
+      const mocks = await import("@/api/publisher");
+      mocks.story2videoSuggestContentType.mockResolvedValue({ code: 0, data: { contentType: "history", strong: true, reason: "dynasty" } });
+      vi.useFakeTimers();
+      try {
+        const w = await mountOrchestrated();
+        w.vm.handleS2VContentTypeChange(); // 等价于下拉 @change
+        w.vm.pipelineText = "唐太宗李世民开创贞观之治";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(500);
+        await nextTick();
+        expect(w.vm.s2vConfig.contentType).toBe("general");
+        expect(mocks.story2videoSuggestContentType).not.toHaveBeenCalled();
+        w.unmount();
+      } finally {
+        vi.useRealTimers();
+        mocks.story2videoSuggestContentType.mockRestore();
+      }
+    });
+
+    it("检测 IPC 失败（code!==0）时静默保持当前值", async () => {
+      const mocks = await import("@/api/publisher");
+      mocks.story2videoSuggestContentType.mockResolvedValue({ code: -1, message: "mock 失败" });
+      vi.useFakeTimers();
+      try {
+        const w = await mountOrchestrated();
+        w.vm.pipelineText = "唐太宗李世民";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(500);
+        await nextTick();
+        expect(w.vm.s2vConfig.contentType).toBe("general");
+        w.unmount();
+      } finally {
+        vi.useRealTimers();
+        mocks.story2videoSuggestContentType.mockRestore();
+      }
+    });
+
+    it("恢复上次选项含 contentType 时视为用户偏好，自动检测不覆盖", async () => {
+      const mocks = await import("@/api/publisher");
+      mocks.story2videoSuggestContentType.mockResolvedValue({ code: 0, data: { contentType: "history", strong: true, reason: "dynasty" } });
+      mocks.storeGetSetting.mockResolvedValue({ data: { version: 1, s2vConfig: { contentType: "history", imageStyle: "cinematic" }, s2vOutputConfig: {}, ui: {} } });
+      vi.useFakeTimers();
+      try {
+        const w = await mountOrchestrated();
+        await w.vm.restoreS2VLastOptions();
+        await nextTick();
+        expect(w.vm.s2vConfig.contentType).toBe("history");
+        expect(w.vm.s2vContentTypeTouched).toBe(true);
+        w.vm.pipelineText = "现代科技与AI应用";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(500);
+        await nextTick();
+        expect(w.vm.s2vConfig.contentType).toBe("history"); // 恢复值不被自动检测覆盖
+        w.unmount();
+      } finally {
+        vi.useRealTimers();
+        mocks.story2videoSuggestContentType.mockRestore();
+        mocks.storeGetSetting.mockRestore();
+      }
+    });
+
+    it("空文本不发起检测", async () => {
+      const mocks = await import("@/api/publisher");
+      vi.useFakeTimers();
+      try {
+        const w = await mountOrchestrated();
+        w.vm.pipelineText = "   ";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(500);
+        await nextTick();
+        expect(mocks.story2videoSuggestContentType).not.toHaveBeenCalled();
+        expect(w.vm.s2vConfig.contentType).toBe("general");
+        w.unmount();
+      } finally {
+        vi.useRealTimers();
+        mocks.story2videoSuggestContentType.mockRestore();
+      }
+    });
+
+    it("快速输入乱序：只回写最新响应，陈旧响应不覆盖（seq 令牌）", async () => {
+      const mocks = await import("@/api/publisher");
+      let resolveStale;
+      mocks.story2videoSuggestContentType
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve; }))
+        .mockImplementationOnce(() => Promise.resolve({ code: 0, data: { contentType: "general", strong: false, reason: "no_signal" } }));
+      vi.useFakeTimers();
+      try {
+        const w = await mountOrchestrated();
+        w.vm.pipelineText = "唐太宗李世民";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(500); // 第一次检测发出（挂起，seq=1）
+        w.vm.pipelineText = "现代科技与AI应用";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(500); // 第二次检测完成（general，seq=2）
+        await nextTick();
+        expect(w.vm.s2vConfig.contentType).toBe("general");
+        resolveStale({ code: 0, data: { contentType: "history", strong: true, reason: "dynasty" } });
+        await nextTick();
+        expect(w.vm.s2vConfig.contentType).toBe("general"); // 陈旧 history 响应被 seq 丢弃
+        w.unmount();
+      } finally {
+        vi.useRealTimers();
+        mocks.story2videoSuggestContentType.mockRestore();
+      }
+    });
+
+    it("清空文本时在途 history 响应被丢弃（claude review Critical #1 回归）", async () => {
+      const mocks = await import("@/api/publisher");
+      let resolveStale;
+      mocks.story2videoSuggestContentType.mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve; }));
+      vi.useFakeTimers();
+      try {
+        const w = await mountOrchestrated();
+        w.vm.pipelineText = "唐太宗李世民";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(500); // 第一次检测发出（挂起，seq=1）
+        w.vm.pipelineText = "";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(500); // 空文本触发（seq 无条件递增，作废在途）
+        resolveStale({ code: 0, data: { contentType: "history", strong: true, reason: "dynasty" } });
+        await nextTick();
+        expect(w.vm.s2vConfig.contentType).toBe("general"); // 空文本态不得被回写为 history
+        w.unmount();
+      } finally {
+        vi.useRealTimers();
+        mocks.story2videoSuggestContentType.mockRestore();
+      }
+    });
+
+    it("在途响应到达时已切出 text 输入模式 → 不写回（claude review Warning #2 回归）", async () => {
+      const mocks = await import("@/api/publisher");
+      let resolveStale;
+      mocks.story2videoSuggestContentType.mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve; }));
+      vi.useFakeTimers();
+      try {
+        const w = await mountOrchestrated();
+        w.vm.pipelineText = "唐太宗李世民";
+        await nextTick();
+        await vi.advanceTimersByTimeAsync(500); // 检测在途
+        w.vm.inputMode = "images"; // 请求期间切出文案输入
+        resolveStale({ code: 0, data: { contentType: "history", strong: true, reason: "dynasty" } });
+        await nextTick();
+        expect(w.vm.s2vConfig.contentType).toBe("general");
+        w.unmount();
+      } finally {
+        vi.useRealTimers();
+        mocks.story2videoSuggestContentType.mockRestore();
+      }
+    });
   });
 });

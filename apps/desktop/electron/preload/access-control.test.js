@@ -41,7 +41,7 @@ describe('preload 许可证权限', () => {
     expect(restrictedMethod).not.toHaveBeenCalled()
   })
 
-  it('模型服务商写方法未登录不可调用，读方法未登录可用', () => {
+  it('模型服务商写方法未登录不可调用，读方法未登录可用', async () => {
     const create = vi.fn()
     const list = vi.fn(() => Promise.resolve({ code: 0, data: [] }))
     const publicApi = createDynamicAccessApi(
@@ -53,17 +53,25 @@ describe('preload 许可证权限', () => {
     expect(() => publicApi.modelProviderCreate({ id: 'openai' })).toThrow(/许可证权限不足/)
     expect(create).not.toHaveBeenCalled()
     // 未登录：读方法可用
-    expect(publicApi.modelProviderList()).resolves.toEqual({ code: 0, data: [] })
+    await expect(publicApi.modelProviderList()).resolves.toEqual({ code: 0, data: [] })
     expect(list).toHaveBeenCalledTimes(1)
   })
 
-  it('模型服务商写方法登录后可用', () => {
+  it('模型服务商写方法登录后可用', async () => {
     const create = vi.fn(() => Promise.resolve({ code: 0, data: { id: 'openai' } }))
     const api = createDynamicAccessApi({ modelProviderCreate: create }, () => 'authenticated')
 
-    expect(api.modelProviderCreate({ id: 'openai', name: 'OpenAI' }))
+    await expect(api.modelProviderCreate({ id: 'openai', name: 'OpenAI' }))
       .resolves.toEqual({ code: 0, data: { id: 'openai' } })
     expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('内容类型预选方法 story2videoSuggestContentType 未登录可用（本地规则判定）', async () => {
+    const suggest = vi.fn(() => Promise.resolve({ code: 0, data: { contentType: 'general', strong: false } }))
+    const api = createDynamicAccessApi({ story2videoSuggestContentType: suggest }, () => 'public')
+
+    await expect(api.story2videoSuggestContentType('唐朝')).resolves.toEqual({ code: 0, data: { contentType: 'general', strong: false } })
+    expect(suggest).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -492,6 +492,27 @@ describe('主进程许可证动态鉴权', () => {
     expect(deleteProject).not.toHaveBeenCalled()
   })
 
+  it('内容类型预选通道 story2video:suggest-content-type 对未登录开放（本地规则判定，无副作用）', async () => {
+    expect(requiredLevelForChannel('story2video:suggest-content-type')).toBe('public')
+
+    const identityService = { getState: () => ({ status: 'signed_out' }) }
+    const { ipcMain, handlers } = createIpcMainHarness()
+    const controlledIpcMain = createAccessControlledIpcMain(
+      ipcMain,
+      null,
+      { NODE_ENV: 'production' },
+      { isPackaged: true },
+      identityService,
+    )
+    const suggest = vi.fn(async () => ({ code: 0, data: { contentType: 'history', strong: true, reason: 'dynasty' } }))
+    controlledIpcMain.handle('story2video:suggest-content-type', suggest)
+
+    // 未登录：预选通道放行（纯本地规则判定，不涉及发布/落盘）
+    await expect(handlers['story2video:suggest-content-type'](trustedEvent, { text: '唐朝' }))
+      .resolves.toEqual({ code: 0, data: { contentType: 'history', strong: true, reason: 'dynasty' } })
+    expect(suggest).toHaveBeenCalledTimes(1)
+  })
+
   it('模型服务商配置写操作需登录，只读操作未登录可用', async () => {
     // 通道级分类：写操作 authenticated，读操作 public
     for (const writeChannel of [

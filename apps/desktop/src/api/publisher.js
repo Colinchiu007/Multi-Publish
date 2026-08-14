@@ -373,6 +373,10 @@ export async function story2videoTranscribe(filePath) {
 export async function story2videoCapabilities() {
   return invokeWithFallback("story2videoCapabilities", { code: -1, message: 'electronAPI not available' })
 }
+// 内容类型自动预选（s2v-content-type-auto-suggest）：本地规则判定，fail-open
+export async function story2videoSuggestContentType(text) {
+  return invokeWithFallback("story2videoSuggestContentType", { code: -1, message: 'electronAPI not available', data: { contentType: 'general', strong: false, reason: 'invalid_input' } }, text)
+}
 export async function story2videoBgmLibraryList() {
   return invokeWithFallback("story2videoBgmLibraryList", { code: -1, message: 'electronAPI not available', data: [] })
 }
