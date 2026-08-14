@@ -1,3 +1,15 @@
+## [2026-08-15] fix(story2video): 提示词翻译并发优化——4 路滑窗 + 禁思考块 + 25s 限时重试（s2v-translation-optimize）
+
+- 现象：37 场景流水线 optimize 阶段耗时 4.4 分钟，提示词翻译 13 批串行 + 2 批失败重试占大头；MiniMax-M2.7（推理模型）输出 `<think>` 思考块被剥离后内容为空，触发「检测到模型服务响应异常：minimax-multimodal（60 秒）」重试横幅。
+- 根因：`translatePromptsForLocale` 按 3 条/批 for 循环串行调用默认 LLM（13 批 ×（3s rpm 时间槽 + ~17s 延迟）≈ 4.4min）；调用默认 120s 超时，失败批等待放大；governor 按 rpm/10 启发式推导该 provider maxConcurrent=2，13 批一次性全发会因 30s 排队上限被尾部拒绝。
+- 修复：
+  - 4 路滑窗并发（`_mapWithConcurrency`）：governor 仍是排队/限流/重试的唯一权威，业务侧仅限制在途批数，避免尾部批次排队超 30s 被拒。
+  - governor key 级并发预算：惰性幂等注册 `providerId:llm:model` 的 maxConcurrent=4（rpm/冷却/429 重试沿用 config → 静态表 → 类别默认解析链），rpm=20 时间槽仍由 governor 强制（每 3s 一个），不突破供应商限流。
+  - 单批 25s 有界超时（`timeoutMs` 透传 callAdapter `withCallTimeout`）+ 失败重试 1 次，仍失败 fail-open（translation=null，不阻塞流水线）。
+  - system prompt 显式禁止思考过程/推理说明/`<think>` 标签，直接输出 JSON（治本：推理模型思考块占满 token 致空返回）。
+- 测试：新增 8 例（并发峰值 ≤4、空内容重试 1 次成功、连续失败 fail-open 调用数、system prompt 禁思考、25s 超时透传、key 级预算注册、capability_models 数组兜底、真实 governor 回归）；story2video-stages 100/100、governor/ai-generator 相关 72/72 通过；QM-1 打包验证。
+- 审查：见 `.ccg/tasks/s2v-translation-optimize/review.md`。
+
 ## [2026-08-14] fix(story2video): LLM markdown 代码块包装导致提示词中文翻译解析失败
 
 - 现象：Story2Video 流水线「中文翻译」字段显示异常——分段1显示字面 `json`，分段2显示 `{"0":"...","1":"..."}` JSON 对象文本。

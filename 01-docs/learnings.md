@@ -1,3 +1,15 @@
+## Story2Video 提示词翻译「空返回 + 串行耗时」复盘（s2v-translation-optimize，2026-08-15）
+
+- 现象：37 场景流水线 optimize 阶段提示词翻译 13 批串行耗时约 4.4 分钟，2 批失败重试触发「检测到模型服务响应异常：minimax-multimodal（60 秒）」横幅；个别批次翻译结果为空。
+- 根因链：
+  1. **推理模型思考块致空返回**：MiniMax-M2.7 是推理模型，OpenAI 兼容接口把思考过程以 `<think>...</think>` 放进 content，`stripThinkingBlocks` 剥离后内容为空 → `generateWithDefault` 抛 `Default provider returned empty content`（ai-generator.js）。60s 横幅的 3 次 `This operation was aborted` 均为客户端 `withCallTimeout` 有界超时（非视频默认 120s；provider-anomaly image 阈值 60s），不是 MiniMax 官方错误码——**客户端超时 ≠ 服务商限制**，排查时先看日志里是 AbortError 还是上游 status 码。
+  2. **串行 + rpm 时间槽**：for 循环 13 批串行，每批被 governor 3s 时间槽 + ~17s 延迟摊薄。
+  3. **governor 排队上限约束**：`MAX_QUEUE_WAIT_MS=30s`——并行化不能裸做，13 批一次性全发在 maxConcurrent=2 下尾部批次排队必超 30s 被拒（RATE_LIMITED）。
+- 落地机制：
+  - 业务侧 4 路滑窗（`_mapWithConcurrency`）+ governor key 级 `setLimits` 并发预算（maxConcurrent=4）。**key 级覆盖必须带完整 `{rpm, maxConcurrent, cooldownMs, retry429}`**：`setLimits` 只做浅合并，只传 maxConcurrent 会让 rpm 变 undefined → 时间槽失效（NaN）且 429 重试条件 `attempt >= undefined` 永不成立（无限重试风险）。
+  - 25s 有界超时 + 批级重试 1 次：重试只覆盖抛错路径（含空内容），解析软失败保持原回退语义；仍失败 fail-open，翻译仅历史记录只读展示，不阻塞流水线。
+- 验证边界：并发峰值 ≤4 由滑窗保证；真实 governor 回归确认无排队超时残留。
+
 ## 分支保护 path-filtered 检查卡死 ops-center-only PR 复盘（branch-protection-path-filter，2026-08-14）
 
 - **现象**：PR #822（ops-center 提示词评测双路对比）CI 15 项全绿、无 review 要求，`mergeStateStatus` 仍 BLOCKED；`gh pr checks` 无任何非 pass 项，reviews 为空。
