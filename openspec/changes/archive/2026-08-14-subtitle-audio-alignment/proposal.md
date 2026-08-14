@@ -15,7 +15,7 @@ created: 2026-08-12
 
 ## 问题
 
-1. MiniMax TTS（t2a_v2）只返回音频字节（`data.audio` hex），无词级时间戳（Tier 1 不可用）；
+1. MiniMax TTS 词级时间戳曾不可用（2026-08-14 起支持：`subtitle_enable + subtitle_type=word`，返回 `subtitle_file` 词级 JSON、毫秒；仅 8 个模型白名单）；
 2. 本地 `buildSubtitleTimelineV2` / `slideshow.ts` 已有真实音频总时长与 `charTimings` 挂点，
    但 charTimings 是 `duration / charCount` 均分估算，非真实词边界；
 3. 行业主流（MoneyPrinterTurbo 102k★ / edge-tts SubMaker / aeneas / WhisperX）均以真实词级时间为准。
@@ -29,7 +29,7 @@ created: 2026-08-12
 
 | Tier | 来源 | 精度 | 现状 |
 |------|------|------|------|
-| 1 | TTS 词边界事件（Azure WordBoundary / edge-tts SubMaker） | 精确 | 预留（MiniMax 不支持） |
+| 1 | TTS 词边界事件（edge-tts WordBoundary / MiniMax subtitle_type=word） | 精确 | **已实施（2026-08-14）**——ASR 降为 Tier2 回退 |
 | 2 | ASR 强制对齐（faster-whisper word_timestamps / aeneas） | 词级 | **本次实施目标** |
 | 3 | 字数比例估算 | 近似 | 现状（预览兜底） |
 
