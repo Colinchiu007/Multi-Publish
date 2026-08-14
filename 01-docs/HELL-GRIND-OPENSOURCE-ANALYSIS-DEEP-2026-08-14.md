@@ -305,8 +305,8 @@ for <<<6b8e81c5-...>>>. Do NOT have <<<6b8e81c5-...>>> approach... The hero appr
 ### P2（全部完成）
 | # | 借鉴点 | 落地点 | 证据 |
 |---|---|---|---|
-| 9 | 全量语料资产化 | `seed_higgsfield_prompts.json` 258 条（590 去重）+ 幂等重建脚本 + loader 合并 + 预算硬化注入 | prompt-engine PR #42（待合并） |
-| 10 | 抽卡成本模型 | `docs/HELLGRIND-NUM-CANDIDATES-COST-MODEL.md`（batch 3-5 / refined 1-2 候选） | prompt-engine PR #42 |
+| 9 | 全量语料资产化 | `seed_higgsfield_prompts.json` 258 条（590 去重）+ 幂等重建脚本 + loader 合并 + 预算硬化注入 | prompt-engine PR #42（已合并 82a339aa） |
+| 10 | 抽卡成本模型 | `docs/HELLGRIND-NUM-CANDIDATES-COST-MODEL.md`（batch 3-5 / refined 1-2 候选） | prompt-engine PR #42（已合并 82a339aa） |
 | 11 | CUT 几何 shots[] 进契约层 | 契约层 shots[]（≤3 切）+ `videoMaxLengthRanges` 20000 | Multi-Publish PR #805 |
 
 ### 平台参数画像（§四）
