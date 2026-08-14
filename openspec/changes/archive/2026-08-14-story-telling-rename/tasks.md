@@ -14,10 +14,10 @@
 - [x] `01-docs/product-manual.md`（使用步骤流水线名）
 - [x] `01-docs/PRD.md` 23 处（§7.1 标题/§7.1.3 契约段×3/提示文字表×3 副本/2026-08-12 更名笔记×3/术语词典示例/7.1.35 交叉引用）
 - [x] `CHANGELOG.md` 与 `01-docs/CHANGELOG.md` 顶部新增 2026-08-14 条目；`.quality-gates.md` 顶部追加本任务记录
-- [ ] `openspec archive` 后直接编辑 live specs 的 Purpose 段更新当前态
+- [x] `openspec archive` 后直接编辑 live specs 的 Purpose 段更新当前态
 
 ## T3 双模型审查 + 三同步归档
 
-- [ ] 双模型审查 git diff（antigravity 区域不可用 → Claude + 主代理补位，降级记录写入 .quality-gates）
-- [ ] `openspec validate story-telling-rename` + `openspec archive story-telling-rename`（PR 合并后）
-- [ ] CCG task 归档 `.ccg/tasks/archive/2026-08/`；`scripts/openspec-sync-check.js` 通过（PR 合并后）
+- [x] 双模型审查 git diff（antigravity 区域不可用 → Claude + 主代理补位，降级记录写入 .quality-gates）
+- [x] `openspec validate story-telling-rename` + `openspec archive story-telling-rename`（PR 合并后）
+- [x] CCG task 归档 `.ccg/tasks/archive/2026-08/`；`scripts/openspec-sync-check.js` 通过（PR 合并后）

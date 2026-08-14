@@ -3,9 +3,7 @@
 ## Purpose
 
 Define automated guards that keep zh/en user-facing copy permanently in sync — key parity, interpolation placeholder parity, duplicate-source parity, paired locale commits, and a hardcoded-copy ban — so a one-off change to one language cannot silently drift the other.
-
 ## Requirements
-
 ### Requirement: 语言资源键对称
 应用的全部 locale 资源 SHALL 保持 zh/en 叶子键完全对称：任何语言文件中的任意叶子键（含嵌套路径）都必须在另一语言文件中存在，缺键即视为一致性违约并导致门禁失败。
 
@@ -62,10 +60,10 @@ Define automated guards that keep zh/en user-facing copy permanently in sync —
 - **THEN** 硬编码扫描通过
 
 ### Requirement: 术语词典
-产品名词（如「全能创作 / Omni Creation」）SHALL 有集中维护的术语词典；当词典中的 zh 名词在任一 locale 文案中发生变更时，门禁 SHALL 校验对应 en 名词映射在 en 文案中已同步（或输出未同步候选词）。
+产品名词（如「故事讲述 / Story Telling」）SHALL 有集中维护的术语词典；当词典中的 zh 名词在任一 locale 文案中发生变更时，门禁 SHALL 校验对应 en 名词映射在 en 文案中已同步（或输出未同步候选词）。
 
 #### Scenario: 词典名词只改了中文
-- **WHEN** zh 文案将「全能创作」改为新名词而 en 文案仍为旧映射
+- **WHEN** zh 文案将「故事讲述」改为新名词而 en 文案仍为旧映射
 - **THEN** 术语校验失败或输出 en 侧未同步候选词清单
 
 #### Scenario: 词典名词成对更新
@@ -108,3 +106,4 @@ Define automated guards that keep zh/en user-facing copy permanently in sync —
 #### Scenario: 术语登记但未成对使用
 - **WHEN** 词典中某术语仅在 zh 侧使用而 en 侧缺失
 - **THEN** 词典校验失败并指出未同步方向
+
