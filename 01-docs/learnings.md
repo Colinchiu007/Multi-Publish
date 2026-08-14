@@ -13349,6 +13349,15 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 2（moving 语义选择）**：用户期望「随机移动」，实现为确定性 Lissajous 平滑漂移（x 周期 10s / y 周期 14s、幅度 0.9、t=0 居中、无 random()）——可复现、可回归、可测试；「随机」需求以文档明确为「确定性循环漂移」而非逐帧随机（避免不可复现与观感闪烁）。若未来真需要随机，应走 seeded RNG。
 - **预防**：① 渲染坐标契约测试模板加入「坐标数值断言 + 真实渲染帧验证」；② PRD/spec 文档化 drawtext 左上角定位语义（已写入 PRD 3.1.24 与 openspec story2video-watermark）；③ 新增滤镜/坐标逻辑时审查清单增加「定位语义（左上角 vs 中心）核对」。
 
+## 复盘：全能创作 BGM 素材库（story2video-bgm-library，2026-08-14）
+
+- **交付**：背景音乐升级为设备级素材库——添加（自动入库+选中）/重命名/删除/下拉选择。主进程服务 `story2video-bgm-library.js`（库目录 `userData/story2video-bgm/`、`library.json` 临时文件+rename 原子写、`importUserSelectedMedia` 复用）、4 个 IPC 通道（PUBLIC_CHANNELS/preload 同步）、CreateView 下拉 + UiModal 管理弹窗、zh/en 成对文案、PRD 3.1.25。测试：服务 16 + paths 34 + preload 333 + CreateView 174 全绿；QM-1 打包 + asar require 链 + 启动 8s 通过。OpenSpec change 已归档（主 spec 合入 `openspec/specs/story2video-bgm-library/`）。
+- **教训 1（OpenSpec 归档顺序）**：归档前**手工预同步主 spec** 会导致 `openspec archive` 程序化合入报 `ADDED failed ... already exists` 中止。正确顺序：让 archive CLI 自己创建/合入主 spec（新能力 = Purpose + ADDED 机械合入，内容一致），归档成功后再润色格式（补空行）并 `openspec validate --specs`。
+- **教训 2（UiModal Teleport 断言）**：`UiModal` 用 `<Teleport to="body">`，`wrapper.find('[data-testid=...]')` 永远找不到弹窗内容——必须 `document.body.querySelector(...)`（既有 s2v-cancel-confirm 用例已有先例，新用例仍踩一次）。
+- **教训 3（素材库模式可复用）**：展示名与磁盘文件名解耦（重命名只改索引、磁盘文件 `bgm-<token><ext>` 不变）让 compose 引用路径稳定，历史配置兼容只需在 UI 层做「未入库路径保留为独立选项」。后续同类素材库（音色/封面/片头）可复用该模式。
+- **教训 4（mounted 异步链使 mock 调用序不确定）**：组件 `async mounted` 内 `await loadPipelines()` 链上的 `loadS2VBgmLibrary()` 触发时机晚于测试体的显式调用——`mockResolvedValueOnce` 顺序断言脆弱；改用「可变数据源 `mockImplementation`」后与调用序无关（删除用例从 Once 链改 impl 后稳定）。
+
+
 ## TTS 词级时间戳采集消除 generate_assets 事后 ASR 停顿复盘（tts-word-timestamps，2026-08-14）
 
 - **表象**：generate_assets 显示「图片 37/37 · 旁白 37/37」后长时间无反应，用户以为卡死。根因不是 TTS/图片生成慢，而是素材全部就绪后 `alignScenes()` 对每段音频逐一跑 faster-whisper ASR 词级对齐（2 并发、无进度上报）——37 段旁白在最需要"已完成"反馈的时刻进入静默长任务。

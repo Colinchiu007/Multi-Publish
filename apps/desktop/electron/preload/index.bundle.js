@@ -131,6 +131,21 @@ var require_publish = __commonJS({
           if (!normalized) return Promise.resolve({ code: -1, message: "无法读取媒体文件路径" });
           return ipcRenderer2.invoke("story2video:import-media", { filePath: normalized, kind });
         },
+        // BGM 素材库（与主进程 PUBLIC_CHANNELS 的 story2video:bgm-library-* 对齐）：
+        // 添加沿用 import-media 的 File 路径解析，其余操作直通。
+        story2videoBgmLibraryList: () => ipcRenderer2.invoke("story2video:bgm-library-list"),
+        story2videoBgmLibraryAdd: (file) => {
+          let filePath = "";
+          try {
+            filePath = String(resolveFilePath(file) || "");
+          } catch {
+            return Promise.resolve({ code: -1, message: "无法读取背景音乐文件路径" });
+          }
+          if (!filePath) return Promise.resolve({ code: -1, message: "无法读取背景音乐文件路径" });
+          return ipcRenderer2.invoke("story2video:bgm-library-add", { filePath });
+        },
+        story2videoBgmLibraryRename: (id, name) => ipcRenderer2.invoke("story2video:bgm-library-rename", { id, name }),
+        story2videoBgmLibraryDelete: (id) => ipcRenderer2.invoke("story2video:bgm-library-delete", { id }),
         story2videoExportZip: (files, destinationPath) => ipcRenderer2.invoke("story2video:export-zip", { files, destinationPath }),
         story2videoCreateShareUrl: (filePath) => ipcRenderer2.invoke("story2video:create-share-url", filePath),
         story2videoCopyPath: (filePath) => ipcRenderer2.invoke("story2video:copy-path", filePath),
@@ -934,6 +949,12 @@ var require_access_control = __commonJS({
       // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：
       // File 路径经 webUtils 解析后仅发送路径给主进程做受控复制，纯设备本地操作。
       "story2videoImportMedia",
+      // BGM 素材库（与主进程 PUBLIC_CHANNELS 的 story2video:bgm-library-* 对齐）：
+      // 设备级本地素材库管理（列表/添加/改名/删除），未登录可用。
+      "story2videoBgmLibraryList",
+      "story2videoBgmLibraryAdd",
+      "story2videoBgmLibraryRename",
+      "story2videoBgmLibraryDelete",
       "identityGetState",
       "identitySignIn",
       "identitySwitchAccount",
