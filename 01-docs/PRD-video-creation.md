@@ -158,6 +158,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-13 | 生成阶段三路并行 + 阶段改名 | **图片/视频/旁白并行生成**：非视频场景图片与 TTS 旁白在阶段启动时立即并行；AI 视频有界并发（请求值默认 2，受 provider 每分钟预算收敛）同步生成；视频失败场景在视频结束后补生成图片（`assets_progress.imagesTotal` 动态纳入，先更新计数再启动补图）；进度展示「图片 a/b · 视频 c/d · 旁白 e/f」（纯图模式回退「图片 a/b · 旁白 c/d」）。阶段名「生成图片与旁白」→「图片/视频/旁白生成」（zh）/「Generate Images/Videos/Voiceover」（en）。PR #717 | PRD 7.1.9.x |
 | 2026-08-14 | 流水线阶段进度条一致性修复（Phase 1 UI） | StageProgress 子进度条从 compose-only 泛化为全阶段通用：completed→100%，running→读 stage.progress 或 orchestrationContext[name+'_progress']，其他→隐藏。UE contract 测试同步更新。Phase 1 契约（stage.progress 模型）+ Phase 2/3 待实施 | PRD 7.1.9.3 / 3.1.23 |
 | 2026-08-13 | 阶段进行中信息反馈颗粒度统一方案 | 整体梳理 14 条流水线各阶段「进行中」反馈现状：仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节；提出统一 stage.progress 契约 + StageExecutor onProgress 通道 + UI 去特判 + 分期实施。详见本节 3.1.23 与总 PRD 7.1.9.3 | PRD 7.1.9.3 / 3.1.23 |
+| 2026-08-14 | 全能创作 BGM 素材库管理 | 背景音乐升级为设备级素材库：添加（自动入库 + 选中）/ 重命名 / 删除，下拉选择，历史路径兼容；主进程 `story2video-bgm-library` 服务 + 4 个 IPC 通道 + PUBLIC_CHANNELS；详见本节 3.1.24 | PRD 3.1.24 |
 
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
@@ -1576,6 +1577,19 @@ SettingsDialog 关闭（App.vue @close）
 
 **分期**：Phase 1 契约 + UI 通用化 → Phase 2 onProgress 通道 + 逐阶段接入 → Phase 3 实时推送/快照裁剪（可选）。实施前须经 OpenSpec propose。
 
+### 3.1.24 背景音乐素材库管理（2026-08-14）
+
+**需求**：全能创作（Story2Video）的背景音乐从「每次选文件」升级为**设备级素材库**：可添加（自动入库并选中）、修改名称、删除；支持多个条目，通过下拉选择。库中条目的路径在媒体白名单内，继续受既有格式/大小/受控路径约束（WAV / M4A / MP3，单文件 ≤15MB）。
+
+**合同**：
+
+1. **库存储**：主进程 `services/story2video-bgm-library.js`，库目录 `userData/story2video-bgm/`，索引 `library.json` 临时文件 + rename 原子写；条目字段 `{ id, name, path, createdAt }`；该目录加入 `getAllowedMediaRoots()` 白名单（`story2video-paths.js`），compose 的 `resolveReadableMediaFile(path, { kind: 'bgm' })` 校验可过。
+2. **IPC**：`story2video:bgm-library-list / add / rename / delete` 四个通道，均走 `withSenderCheck` + 参数校验（id/name 空串拒绝）；`add` 复用媒体导入的路径解析与受控目录复制语义（Windows 占用 ≤3 次有界重试），失败透传细分提示（格式 / 大小 / 不可读 / 路径未解析）。
+3. **权限**：四通道加入 PUBLIC_CHANNELS（未登录可用，与媒体导入一致）；preload 暴露 `story2videoBgmLibraryList/Add/Rename/Delete`，`Add` 复用 `resolveFilePath`。
+4. **UI（CreateView.vue）**：BGM 配置区改为 `<select data-testid="s2v-bgm-select">`——空选项「不使用背景音乐」+ 素材库条目 + 历史路径兼容选项（未入库时显示「已选音频（未入库）」）；「管理背景音乐」按钮打开素材库弹窗（UiModal，Teleport to body）：添加（隐藏 file input，成功后自动选中并清空 input 支持连续选择）、行内重命名（Enter 保存 / Esc 取消）、删除（二次确认弹窗，删除当前选中项时回退为「不使用背景音乐」）。
+5. **i18n**：所有用户可见文案 zh/en 成对新增 `create.story2video.bgmLibrary.*` 与 `story2video.bgm_library_*`。
+6. **验收**：添加 → 列表 +1 且自动选中；重命名 → 列表刷新且退出编辑态；删除 → 列表 -1，删除选中项时 `bgmPath` 回退空；历史 BGM 路径不在库时保留为独立选项、入库后不再显示；服务层单测（16 例）+ 渲染端用例 + preload/IPC 测试全部通过。
+
 ### 3.3 叠加层（Remotion 快速路径，P1）
 
 | 类型 | 说明 | 参数 |
@@ -1599,7 +1613,7 @@ SettingsDialog 关闭（App.vue @close）
 | 轨道 | 说明 | 参数 |
 |------|------|------|
 | 旁白（Narration） | 已实现：TTS 或逐段本地音频 | 文件路径 + 独立旁白音量（0-2，合成时写入 ffmpeg） |
-| 背景音乐（Music） | 已实现：本地 BGM 循环混音 | 源路径 + 音量 |
+| 背景音乐（Music） | 已实现：本地 BGM 循环混音 + 设备级素材库（添加/重命名/删除，下拉选择，见 3.1.24） | 库条目路径 + 音量 |
 | 音效（SFX） | 未接入 S2V 主链 | 源路径 + 时间点 + 音量 |
 
 ### 3.6 主题系统（P0）

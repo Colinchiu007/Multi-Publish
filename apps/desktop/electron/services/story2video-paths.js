@@ -26,14 +26,22 @@ function safeRunId (value) {
   return String(value || 'run').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'run'
 }
 
-function getElectronMediaRoots () {
+function getElectronMediaRoots (appImpl) {
   const roots = []
   try {
-    const electron = require('electron')
-    const app = electron && electron.app
+    // 允许测试注入 app 实现（仓库惯例：纯 Node 测试通过依赖注入避开 require('electron') 不可 mock 的限制）
+    let app = appImpl
+    if (!app) {
+      const electron = require('electron')
+      app = electron && electron.app
+    }
     if (app && typeof app.getPath === 'function') {
       const userData = app.getPath('userData')
-      if (userData) roots.push(path.join(userData, 'story2video-projects'))
+      if (userData) {
+        roots.push(path.join(userData, 'story2video-projects'))
+        // BGM 素材库（持久化，设备级）：库内文件经 compose 的 resolveReadableMediaFile 校验放行
+        roots.push(path.join(userData, 'story2video-bgm'))
+      }
     }
   } catch (_) { /* 纯 Node 测试或非 Electron 调用 */ }
   return roots
@@ -339,6 +347,7 @@ module.exports = {
   STORY2VIDEO_TEMP_DIR,
   IMPORTED_MEDIA_DIR,
   safeRunId,
+  getElectronMediaRoots,
   getAllowedMediaRoots,
   isPathWithin,
   resolveReadableFile,

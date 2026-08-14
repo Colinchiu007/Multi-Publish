@@ -353,10 +353,13 @@
               <div class="config-item">
                 <label>背景音乐</label>
                 <div class="inline-file-control">
-                  <button type="button" class="btn-secondary" @click="$refs.s2vBgmInput?.click()">选择音频</button>
-                  <span class="config-hint">{{ s2vConfig.bgmPath || '未选择（可选）' }}</span>
+                  <select v-model="s2vConfig.bgmPath" class="form-select" data-testid="s2v-bgm-select">
+                    <option value="">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.noBgm', '不使用背景音乐', 'No background music') }}</option>
+                    <option v-for="item in s2vBgmLibrary" :key="item.id" :value="item.path">{{ item.name }}</option>
+                    <option v-if="s2vLegacyBgmPath" :value="s2vLegacyBgmPath">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.legacyBgm', '已选音频（未入库）', 'Selected audio (not in library)') }}</option>
+                  </select>
+                  <button type="button" class="btn-secondary" data-testid="s2v-bgm-manage-button" @click="openBgmLibraryDialog">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.manage', '管理背景音乐', 'Manage music') }}</button>
                 </div>
-                <input ref="s2vBgmInput" type="file" accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg" style="display:none" @change="handleS2VBgmFile" />
                 <p class="config-hint">{{ mediaRequirementsBgmText }}</p>
               </div>
               <div class="config-item">
@@ -948,6 +951,67 @@
       </template>
     </UiModal>
 
+    <!-- 背景音乐素材库管理（2026-08-14）：添加/重命名/删除，设备级持久化 -->
+    <UiModal
+      :visible="s2vBgmLibraryDialogOpen"
+      :title="translateWithLocaleFallback('create.story2video.bgmLibrary.dialogTitle', '背景音乐素材库', 'Music library')"
+      size="md"
+      @close="closeBgmLibraryDialog"
+    >
+      <div class="bgm-library-dialog" data-testid="s2v-bgm-library-dialog">
+        <div class="bgm-library-toolbar">
+          <input ref="s2vBgmLibraryInput" type="file" accept=".wav,.m4a,.mp3,audio/wav,audio/x-m4a,audio/mpeg" style="display:none" @change="handleBgmLibraryAddFile" />
+          <UiButton variant="primary" :disabled="s2vBgmLibraryLoading" data-testid="s2v-bgm-add-button" @click="$refs.s2vBgmLibraryInput?.click()">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.add', '添加音乐', 'Add music') }}</UiButton>
+          <span v-if="s2vBgmLibraryLoading" class="config-hint">{{ translateWithLocaleFallback('common.loading', '加载中...', 'Loading...') }}</span>
+        </div>
+        <p class="config-hint">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.addHint', '添加后将自动选中该音乐。', 'The added track is selected automatically.') }}</p>
+        <ul v-if="s2vBgmLibrary.length" class="bgm-library-list">
+          <li v-for="item in s2vBgmLibrary" :key="item.id" class="bgm-library-item">
+            <template v-if="s2vBgmLibraryRenamingId === item.id">
+              <input
+                v-model.trim="s2vBgmLibraryRenameDraft"
+                class="form-input"
+                maxlength="60"
+                :placeholder="translateWithLocaleFallback('create.story2video.bgmLibrary.renamePlaceholder', '输入音乐名称', 'Enter a name for the track')"
+                data-testid="s2v-bgm-rename-input"
+                @keyup.enter="saveBgmRename"
+                @keyup.esc="cancelBgmRename"
+              />
+              <div class="bgm-library-actions">
+                <button type="button" class="btn-secondary" :disabled="s2vBgmLibraryLoading || !String(s2vBgmLibraryRenameDraft || '').trim()" @click="saveBgmRename">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.save', '保存', 'Save') }}</button>
+                <button type="button" class="btn-secondary" :disabled="s2vBgmLibraryLoading" @click="cancelBgmRename">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.cancel', '取消', 'Cancel') }}</button>
+              </div>
+            </template>
+            <template v-else>
+              <span class="bgm-library-name" :title="item.path">{{ item.name }}</span>
+              <div class="bgm-library-actions">
+                <button type="button" class="btn-secondary" :disabled="s2vBgmLibraryLoading" @click="startBgmRename(item)">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.rename', '重命名', 'Rename') }}</button>
+                <button type="button" class="btn-secondary danger" :disabled="s2vBgmLibraryLoading" @click="requestBgmDelete(item)">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.delete', '删除', 'Delete') }}</button>
+              </div>
+            </template>
+          </li>
+        </ul>
+        <p v-else class="config-hint">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.empty', '素材库为空。点击「添加音乐」导入本地音频文件，将自动加入素材库。', 'The library is empty. Click "Add music" to import a local audio file.') }}</p>
+      </div>
+      <template #footer>
+        <UiButton variant="secondary" @click="closeBgmLibraryDialog">{{ translateWithLocaleFallback('create.story2video.bgmLibrary.close', '关闭', 'Close') }}</UiButton>
+      </template>
+    </UiModal>
+
+    <!-- 背景音乐删除确认 -->
+    <UiModal
+      :visible="s2vBgmLibraryDeleteDialogOpen"
+      :title="story2videoErrorDialogUiText.dialogTitle"
+      size="sm"
+      @close="closeBgmDeleteDialog"
+    >
+      <p class="story2video-error-dialog-message">{{ story2videoBgmLibraryDeleteConfirmMessage }}</p>
+      <template #footer>
+        <UiButton variant="secondary" @click="closeBgmDeleteDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
+        <UiButton variant="danger" data-testid="s2v-bgm-delete-confirm" @click="confirmBgmDelete">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
+      </template>
+    </UiModal>
+
     <!-- 分镜素材自选：取消二次确认（等待选择期间防误触，2026-08-13） -->
     <UiModal
       :visible="cancelConfirmDialog.visible"
@@ -992,7 +1056,9 @@ import {
   pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineConfirmSceneAssets, pipelineGetRunContext,
   storeGetSetting, storeSetSetting,
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
-  story2videoDeleteProject
+  story2videoDeleteProject,
+  story2videoBgmLibraryList, story2videoBgmLibraryAdd,
+  story2videoBgmLibraryRename, story2videoBgmLibraryDelete
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
@@ -1256,6 +1322,14 @@ export default {
       s2vOptionsToastTimer: null,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
+      // 背景音乐素材库（2026-08-14）：设备级持久化，添加/重命名/删除后自动刷新
+      s2vBgmLibrary: [],
+      s2vBgmLibraryLoading: false,
+      s2vBgmLibraryDialogOpen: false,
+      s2vBgmLibraryRenamingId: '',
+      s2vBgmLibraryRenameDraft: '',
+      s2vBgmLibraryDeleteDialogOpen: false,
+      s2vBgmLibraryDeleteTargetId: null,
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
       s2vImageProviders: [], s2vVoiceProviders: [], s2vVideoProviders: [],
       s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCatalogErrorCode: '', s2vVoiceCapability: null,
@@ -1552,6 +1626,20 @@ export default {
     },
     historyLocalModeText() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOCAL_MODE }).message
+    },
+    // 历史/模板导入的 BGM 路径不在素材库时保留为独立选项，避免静默丢失已有配置
+    s2vLegacyBgmPath() {
+      const current = String(this.s2vConfig.bgmPath || '').trim()
+      if (!current) return ''
+      if (this.s2vBgmLibrary.some(item => String(item.path) === current)) return ''
+      return current
+    },
+    story2videoBgmLibraryDeleteConfirmMessage() {
+      const target = this.s2vBgmLibrary.find(item => item.id === this.s2vBgmLibraryDeleteTargetId)
+      return formatStory2VideoNotification({
+        messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_DELETE_CONFIRM,
+        messageParams: { name: target ? target.name : '' },
+      }).message
     },
     story2videoErrorDialogMessage() {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
@@ -3535,13 +3623,120 @@ export default {
     async handleS2VBgmFile(e) {
       const file = e.target.files?.[0]
       if (!file) return
-      const imported = await this.importStory2VideoMedia(file, 'bgm')
-      if (!imported?.path) {
-        // 失败原因（格式/大小/不可读）已在 importStory2VideoMedia 内细分提示，这里仅清空选择
+      await this.addFileToBgmLibrary(file)
+    },
+    // 背景音乐素材库（2026-08-14）：添加成功后入库并自动选中；失败沿用媒体细分提示。
+    async addFileToBgmLibrary(file) {
+      if (!file || !this.validateStory2VideoFile(file, 'bgm')) {
         this.s2vConfig.bgmPath = ''
-        return
+        return null
       }
-      this.s2vConfig.bgmPath = imported.path
+      try {
+        const result = await story2videoBgmLibraryAdd(file)
+        if (result?.code === 0 && result.data?.path) {
+          await this.loadS2VBgmLibrary({ silent: true })
+          this.s2vConfig.bgmPath = result.data.path
+          return result.data
+        }
+        this.s2vConfig.bgmPath = ''
+        this.showStory2VideoErrorDialog(this.resolveMediaImportFailure(result, '背景音乐'))
+        return null
+      } catch (_) {
+        this.s2vConfig.bgmPath = ''
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_UNREADABLE, messageParams: { kindLabel: '背景音乐' } })
+        return null
+      }
+    },
+    async loadS2VBgmLibrary(options = {}) {
+      this.s2vBgmLibraryLoading = true
+      try {
+        const result = await story2videoBgmLibraryList()
+        if (result?.code === 0 && Array.isArray(result.data)) {
+          this.s2vBgmLibrary = result.data
+        } else if (!options.silent) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_LOAD_FAILED })
+        }
+      } catch (_) {
+        if (!options.silent) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_LOAD_FAILED })
+        }
+      } finally {
+        this.s2vBgmLibraryLoading = false
+      }
+    },
+    async openBgmLibraryDialog() {
+      this.s2vBgmLibraryDialogOpen = true
+      await this.loadS2VBgmLibrary()
+    },
+    closeBgmLibraryDialog() {
+      this.s2vBgmLibraryDialogOpen = false
+      this.cancelBgmRename()
+      this.closeBgmDeleteDialog()
+    },
+    async handleBgmLibraryAddFile(e) {
+      const file = e.target.files?.[0]
+      if (!file) return
+      const added = await this.addFileToBgmLibrary(file)
+      if (added && this.$refs.s2vBgmLibraryInput) {
+        // 清空 input 允许连续选择同一文件
+        this.$refs.s2vBgmLibraryInput.value = ''
+      }
+    },
+    startBgmRename(item) {
+      this.s2vBgmLibraryRenamingId = item.id
+      this.s2vBgmLibraryRenameDraft = item.name
+    },
+    async saveBgmRename() {
+      const id = this.s2vBgmLibraryRenamingId
+      const name = String(this.s2vBgmLibraryRenameDraft || '').trim()
+      if (!id || !name || this.s2vBgmLibraryLoading) return
+      this.s2vBgmLibraryLoading = true
+      try {
+        const result = await story2videoBgmLibraryRename(id, name)
+        if (result?.code === 0) {
+          await this.loadS2VBgmLibrary({ silent: true })
+          this.cancelBgmRename()
+          return
+        }
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_RENAME_FAILED })
+      } catch (_) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_RENAME_FAILED })
+      } finally {
+        this.s2vBgmLibraryLoading = false
+      }
+    },
+    cancelBgmRename() {
+      this.s2vBgmLibraryRenamingId = ''
+      this.s2vBgmLibraryRenameDraft = ''
+    },
+    requestBgmDelete(item) {
+      this.s2vBgmLibraryDeleteTargetId = item.id
+      this.s2vBgmLibraryDeleteDialogOpen = true
+    },
+    closeBgmDeleteDialog() {
+      this.s2vBgmLibraryDeleteDialogOpen = false
+      this.s2vBgmLibraryDeleteTargetId = null
+    },
+    async confirmBgmDelete() {
+      const id = this.s2vBgmLibraryDeleteTargetId
+      if (!id || this.s2vBgmLibraryLoading) return
+      this.s2vBgmLibraryLoading = true
+      try {
+        const result = await story2videoBgmLibraryDelete(id)
+        if (result?.code === 0) {
+          // 删除当前选中项时回退为「不使用背景音乐」
+          const target = this.s2vBgmLibrary.find(item => item.id === id)
+          if (target && String(this.s2vConfig.bgmPath) === String(target.path)) this.s2vConfig.bgmPath = ''
+          await this.loadS2VBgmLibrary({ silent: true })
+          this.closeBgmDeleteDialog()
+          return
+        }
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_DELETE_FAILED })
+      } catch (_) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BGM_LIBRARY_DELETE_FAILED })
+      } finally {
+        this.s2vBgmLibraryLoading = false
+      }
     },
     handleQuickFiles(e) {
       Array.from(e.target.files || []).forEach(file => {
@@ -3738,6 +3933,8 @@ export default {
     this.resumeRunningOrchestration()
     this.restoreS2VLastOptions()
     this.loadS2VTtsSamples()
+    // 背景音乐素材库（2026-08-14）：静默加载，失败不打扰创作主流程（弹窗打开时再提示）
+    this.loadS2VBgmLibrary({ silent: true })
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
     this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
     this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))

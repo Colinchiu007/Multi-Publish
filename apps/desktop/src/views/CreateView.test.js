@@ -44,6 +44,10 @@ vi.mock("@/api/publisher", () => ({
   story2videoTranscribe: vi.fn(),
   story2videoListProjects: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   story2videoDeleteProject: vi.fn(),
+  story2videoBgmLibraryList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  story2videoBgmLibraryAdd: vi.fn(),
+  story2videoBgmLibraryRename: vi.fn(),
+  story2videoBgmLibraryDelete: vi.fn(),
 }));
 
 vi.mock("@/api/tts-voice-catalog", () => ({
@@ -1893,10 +1897,11 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
-  it("BGM 文件通过 preload 路径桥接解析，不回退到文件名", async () => {
+  it("BGM 文件经 preload 解析后入库并自动选中", async () => {
     const mocks = await import("@/api/publisher");
-    const importer = vi.fn().mockResolvedValue({ code: 0, data: { path: "C:/controlled/bgm.mp3" } });
-    mocks.story2videoImportMedia.mockImplementation(importer);
+    const importer = vi.fn().mockResolvedValue({ code: 0, data: { path: "C:/controlled/bgm.mp3", name: "bgm" } });
+    mocks.story2videoBgmLibraryAdd.mockImplementation(importer);
+    mocks.story2videoBgmLibraryList.mockResolvedValue({ code: 0, data: [{ id: "bgm-1", name: "bgm", path: "C:/controlled/bgm.mp3" }] });
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
@@ -1906,12 +1911,13 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(importer).toHaveBeenCalledTimes(1);
     expect(w.vm.s2vConfig.bgmPath).toBe("C:/controlled/bgm.mp3");
+    expect(w.vm.s2vBgmLibrary).toHaveLength(1);
     w.unmount();
   });
 
-  it("BGM 路径无法解析时清空配置并提示，不发送不可用文件名", async () => {
+  it("BGM 入库被拒绝时清空配置并提示，不发送不可用文件名", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.story2videoImportMedia.mockResolvedValue({ code: -1 });
+    mocks.story2videoBgmLibraryAdd.mockResolvedValue({ code: -1 });
     const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
@@ -1959,9 +1965,9 @@ describe("CreateView - S2V orchestration", () => {
     w.unmount();
   });
 
-  it("主进程拒绝导入时把具体原因透传为细分提示", async () => {
+  it("主进程拒绝入库时把具体原因透传为细分提示", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.story2videoImportMedia.mockResolvedValue({ code: -1, message: "不支持的媒体格式" });
+    mocks.story2videoBgmLibraryAdd.mockResolvedValue({ code: -1, message: "不支持的媒体格式" });
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
@@ -1976,7 +1982,7 @@ describe("CreateView - S2V orchestration", () => {
 
   it("主进程报告文件不可读时细分提示", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.story2videoImportMedia.mockResolvedValue({ code: -1, message: "媒体文件不存在或不可读" });
+    mocks.story2videoBgmLibraryAdd.mockResolvedValue({ code: -1, message: "媒体文件不存在或不可读" });
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
@@ -1986,6 +1992,152 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(w.vm.s2vConfig.bgmPath).toBe("");
     expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.media_unreadable");
+    w.unmount();
+  });
+
+  // === 背景音乐素材库（2026-08-14）===
+  it("BGM 下拉渲染素材库条目，选中项映射到 bgmPath", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBgmLibraryList.mockResolvedValue({
+      code: 0,
+      data: [
+        { id: "bgm-1", name: "清晨旋律", path: "C:/lib/dawn.mp3" },
+        { id: "bgm-2", name: "夜航", path: "C:/lib/night.mp3" },
+      ],
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectPipeline({ name: "story2video-compose", available: true, stages: [] });
+    await nextTick();
+    await w.vm.loadS2VBgmLibrary({ silent: true });
+
+    const select = w.find('[data-testid="s2v-bgm-select"]');
+    expect(select.exists()).toBe(true);
+    const options = select.findAll("option");
+    // 空选项 + 2 个库条目
+    expect(options.length).toBe(3);
+    expect(options[1].text()).toBe("清晨旋律");
+
+    await select.setValue("C:/lib/night.mp3");
+    expect(w.vm.s2vConfig.bgmPath).toBe("C:/lib/night.mp3");
+    w.unmount();
+  });
+
+  it("打开管理弹窗时加载素材库，空库显示空态", async () => {
+    const mocks = await import("@/api/publisher");
+    const loader = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    mocks.story2videoBgmLibraryList.mockImplementation(loader);
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectPipeline({ name: "story2video-compose", available: true, stages: [] });
+    await nextTick();
+
+    await w.vm.openBgmLibraryDialog();
+
+    expect(w.vm.s2vBgmLibraryDialogOpen).toBe(true);
+    expect(loader).toHaveBeenCalled();
+    // UiModal 使用 Teleport to body，断言需查 document.body
+    expect(document.body.querySelector('[data-testid="s2v-bgm-library-dialog"]')).toBeTruthy();
+    w.unmount();
+  });
+
+  it("管理弹窗内添加文件入库并自动选中，input 清空以支持连续选择", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBgmLibraryList.mockResolvedValue({
+      code: 0,
+      data: [{ id: "bgm-9", name: "新音乐", path: "C:/lib/new.mp3" }],
+    });
+    mocks.story2videoBgmLibraryAdd.mockResolvedValue({
+      code: 0,
+      data: { id: "bgm-9", name: "新音乐", path: "C:/lib/new.mp3" },
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+
+    await w.vm.openBgmLibraryDialog();
+    await w.vm.handleBgmLibraryAddFile({ target: { files: [{ name: "new.mp3", size: 5 }] } });
+
+    expect(mocks.story2videoBgmLibraryAdd).toHaveBeenCalledTimes(1);
+    expect(w.vm.s2vConfig.bgmPath).toBe("C:/lib/new.mp3");
+    expect(w.vm.s2vBgmLibrary).toHaveLength(1);
+    w.unmount();
+  });
+
+  it("重命名素材库条目成功后刷新列表并退出编辑态", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBgmLibraryList.mockResolvedValue({
+      code: 0,
+      data: [{ id: "bgm-1", name: "新名字", path: "C:/lib/dawn.mp3" }],
+    });
+    mocks.story2videoBgmLibraryRename.mockResolvedValue({ code: 0, data: { id: "bgm-1" } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    await w.vm.loadS2VBgmLibrary({ silent: true });
+
+    w.vm.startBgmRename({ id: "bgm-1", name: "旧名字" });
+    expect(w.vm.s2vBgmLibraryRenamingId).toBe("bgm-1");
+    w.vm.s2vBgmLibraryRenameDraft = "新名字";
+    await w.vm.saveBgmRename();
+
+    expect(mocks.story2videoBgmLibraryRename).toHaveBeenCalledWith("bgm-1", "新名字");
+    expect(w.vm.s2vBgmLibraryRenamingId).toBe("");
+    expect(w.vm.s2vBgmLibrary[0].name).toBe("新名字");
+    w.unmount();
+  });
+
+  it("删除当前选中的素材库条目后回退为不使用背景音乐", async () => {
+    const mocks = await import("@/api/publisher");
+    const bgmItem = { id: "bgm-1", name: "清晨旋律", path: "C:/lib/dawn.mp3" };
+    // mounted 的异步加载链与显式调用顺序不定，用可变数据源保证删除后刷新返回空库
+    let bgmLibraryData = [bgmItem];
+    mocks.story2videoBgmLibraryList.mockImplementation(() => Promise.resolve({ code: 0, data: bgmLibraryData }));
+    mocks.story2videoBgmLibraryDelete.mockImplementation(async (id) => {
+      bgmLibraryData = [];
+      return { code: 0, data: { deleted: true, id } };
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    await w.vm.loadS2VBgmLibrary({ silent: true });
+    w.vm.s2vConfig.bgmPath = "C:/lib/dawn.mp3";
+
+    w.vm.requestBgmDelete({ id: "bgm-1", name: "清晨旋律" });
+    expect(w.vm.s2vBgmLibraryDeleteDialogOpen).toBe(true);
+    await w.vm.confirmBgmDelete();
+
+    expect(mocks.story2videoBgmLibraryDelete).toHaveBeenCalledWith("bgm-1");
+    expect(w.vm.s2vConfig.bgmPath).toBe("");
+    expect(w.vm.s2vBgmLibraryDeleteDialogOpen).toBe(false);
+    expect(w.vm.s2vBgmLibrary).toHaveLength(0);
+    w.unmount();
+  });
+
+  it("历史 BGM 路径不在素材库时保留为独立选项，入库后不再显示", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBgmLibraryList.mockResolvedValue({
+      code: 0,
+      data: [{ id: "bgm-1", name: "清晨旋律", path: "C:/lib/dawn.mp3" }],
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    await w.vm.loadS2VBgmLibrary({ silent: true });
+    w.vm.s2vConfig.bgmPath = "C:/old-import/legacy.mp3";
+
+    expect(w.vm.s2vLegacyBgmPath).toBe("C:/old-import/legacy.mp3");
+
+    w.vm.s2vConfig.bgmPath = "C:/lib/dawn.mp3";
+    expect(w.vm.s2vLegacyBgmPath).toBe("");
     w.unmount();
   });
 
@@ -3236,7 +3388,7 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
 
     it("BGM 主进程拒绝不可读时弹带「背景音乐」宾语的细分提示", async () => {
       const mocks = await import("@/api/publisher");
-      mocks.story2videoImportMedia.mockResolvedValue({ code: -1, message: "媒体文件不存在或不可读" });
+      mocks.story2videoBgmLibraryAdd.mockResolvedValue({ code: -1, message: "媒体文件不存在或不可读" });
       const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
       await nextTick();
 

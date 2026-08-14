@@ -147,6 +147,21 @@ function createPublishApi(ipcRenderer, options = {}) {
       if (!normalized) return Promise.resolve({ code: -1, message: '无法读取媒体文件路径' })
       return ipcRenderer.invoke('story2video:import-media', { filePath: normalized, kind })
     },
+    // BGM 素材库（与主进程 PUBLIC_CHANNELS 的 story2video:bgm-library-* 对齐）：
+    // 添加沿用 import-media 的 File 路径解析，其余操作直通。
+    story2videoBgmLibraryList: () => ipcRenderer.invoke('story2video:bgm-library-list'),
+    story2videoBgmLibraryAdd: (file) => {
+      let filePath = ''
+      try {
+        filePath = String(resolveFilePath(file) || '')
+      } catch {
+        return Promise.resolve({ code: -1, message: '无法读取背景音乐文件路径' })
+      }
+      if (!filePath) return Promise.resolve({ code: -1, message: '无法读取背景音乐文件路径' })
+      return ipcRenderer.invoke('story2video:bgm-library-add', { filePath })
+    },
+    story2videoBgmLibraryRename: (id, name) => ipcRenderer.invoke('story2video:bgm-library-rename', { id, name }),
+    story2videoBgmLibraryDelete: (id) => ipcRenderer.invoke('story2video:bgm-library-delete', { id }),
     story2videoExportZip: (files, destinationPath) => ipcRenderer.invoke('story2video:export-zip', { files, destinationPath }),
     story2videoCreateShareUrl: (filePath) => ipcRenderer.invoke('story2video:create-share-url', filePath),
     story2videoCopyPath: (filePath) => ipcRenderer.invoke('story2video:copy-path', filePath),

@@ -39,6 +39,10 @@ const PUBLIC_CHANNELS = new Set([
   // 临时目录（kind/扩展名/大小校验 + withSenderCheck 可信来源），纯设备本地操作、不暴露私有数据，
   // 未登录/未激活许可证时也必须可用，否则图片轮播的背景音乐/旁白/视频素材选择完全不可用（2026-08-09）。
   'story2video:import-media',
+  // BGM 素材库（story2video:bgm-library-*）：设备级持久化素材库（userData/story2video-bgm），
+  // 添加/改名/删除/列表均为纯本地文件操作，未登录可用（与 import-media 同属本地素材管理）。
+  'story2video:bgm-library-list', 'story2video:bgm-library-add',
+  'story2video:bgm-library-rename', 'story2video:bgm-library-delete',
   // 视频克隆（本地分析流水线）：run/cancel/edit/regenerate/history/pick-file 未登录可用；发布经 PublisherRouter（外部验收边界）
   'video-clone:run', 'video-clone:cancel', 'video-clone:report:edit', 'video-clone:report:regenerate',
   'video-clone:pick-file', 'video-clone:history',

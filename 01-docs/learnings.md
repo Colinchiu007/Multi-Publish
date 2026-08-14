@@ -13257,3 +13257,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 1（子类覆盖签名漂移 = 跨层改动第一雷）**：optimizer 无条件透传新参数 character_count，generic/seedance 签名已加，但 veo/kling/hailuo/doubao 四个子类**自己覆盖** build_system_prompt 且签名未同步 → 真实链路（平台非 generic/seedance 且 context 含角色）必 TypeError，而全平台测试恰好不带新参数 → 全绿掩盖崩溃。主代理补位审查用真实调用实证抓到并修复。此后基类签名加参 + 调用方透传的改动，回归测试必须「带新参数调用全子类/全平台」。
 - **教训 2（平台级测试要复制生产调用形态）**：test_lens_discipline_in_all_platforms 直接调 strategy 且省略 character_count，与生产调用形态（VideoPromptBuilder 总是全参数透传）不符。策略层测试应模拟调用链（builder → strategy 全参数），而不是简化签名——简化签名必然漏掉透传链断裂。
 - **教训 3（双模型审查降级链再验证）**：antigravity 地区不可用（Eligibility check failed）、claude wrapper 两次 exit 1 无日志 → 降级主代理补位：逐行通读双仓库 diff + 对可疑链路做真实运行实证（`build_system_prompt(character_count=2)` 六平台遍历）抓到 Critical。降级 ≠ 无审查，主代理必须完整读 diff 并对可疑链路实证。
+
+## 复盘：全能创作 BGM 素材库（story2video-bgm-library，2026-08-14）
+
+- **交付**：背景音乐升级为设备级素材库——添加（自动入库+选中）/重命名/删除/下拉选择。主进程服务 `story2video-bgm-library.js`（库目录 `userData/story2video-bgm/`、`library.json` 临时文件+rename 原子写、`importUserSelectedMedia` 复用）、4 个 IPC 通道（PUBLIC_CHANNELS/preload 同步）、CreateView 下拉 + UiModal 管理弹窗、zh/en 成对文案、PRD 3.1.24。测试：服务 16 + paths 34 + preload 333 + CreateView 174 全绿；QM-1 打包 + asar require 链 + 启动 8s 通过。OpenSpec change 已归档（主 spec 合入 `openspec/specs/story2video-bgm-library/`）。
+- **教训 1（OpenSpec 归档顺序）**：归档前**手工预同步主 spec** 会导致 `openspec archive` 程序化合入报 `ADDED failed ... already exists` 中止。正确顺序：让 archive CLI 自己创建/合入主 spec（新能力 = Purpose + ADDED 机械合入，内容一致），归档成功后再润色格式（补空行）并 `openspec validate --specs`。
+- **教训 2（UiModal Teleport 断言）**：`UiModal` 用 `<Teleport to="body">`，`wrapper.find('[data-testid=...]')` 永远找不到弹窗内容——必须 `document.body.querySelector(...)`（既有 s2v-cancel-confirm 用例已有先例，新用例仍踩一次）。
+- **教训 3（素材库模式可复用）**：展示名与磁盘文件名解耦（重命名只改索引、磁盘文件 `bgm-<token><ext>` 不变）让 compose 引用路径稳定，历史配置兼容只需在 UI 层做「未入库路径保留为独立选项」。后续同类素材库（音色/封面/片头）可复用该模式。
+- **教训 4（mounted 异步链使 mock 调用序不确定）**：组件 `async mounted` 内 `await loadPipelines()` 链上的 `loadS2VBgmLibrary()` 触发时机晚于测试体的显式调用——`mockResolvedValueOnce` 顺序断言脆弱；改用「可变数据源 `mockImplementation`」后与调用序无关（删除用例从 Once 链改 impl 后稳定）。
