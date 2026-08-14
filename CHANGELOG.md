@@ -1,5 +1,10 @@
-## [2026-08-14] feat(s2v): 全能创作背景音乐素材库管理——添加/重命名/删除，下拉选择（story2video-bgm-library）
+## [2026-08-14] 视频提示词镜头纪律契约移植：positive_constraints / final_frame 收敛（video-prompt-lens-discipline）
 
+- 契约层 `normalizeVideoMeta` 新增收敛：`positive_constraints`（数组透传 / 字符串按换行分号拆分 / 上限 10 条）与 `final_frame`（trim / 上限 500），对齐 8020 引擎镜头纪律输出（prompt-engine PR #34 已合并，`VideoPromptMeta.positive_constraints/final_frame`）；双后端（8020/8013）共用 `extractOptimizedVideoPrompt` 路径透传，旧字段零回归。
+- 规格：change `specs/video-prompt-engine/spec.md` 新增 3 需求（镜头纪律规则注入 / 正向约束与最终画面结构化字段 / 负面提示词 plausible-only），合并后按 openspec archive 三同步。
+- 测试：`video-prompt-engine-contract.test.js` 91 项全绿（新增 6 例：数组/字符串双形态、上限 10 收敛、final_frame 500 裁剪、缺失零回归、8020 双后端透传）。
+
+## [2026-08-14] feat(s2v): 全能创作背景音乐素材库管理——添加/重命名/删除，下拉选择（story2video-bgm-library）
 - 需求：背景音乐从「每次选文件」升级为设备级素材库：可添加（自动入库并选中）、修改名称、删除；支持多个条目，通过下拉选择。
 - 实现：
   - 主进程新增 `services/story2video-bgm-library.js`：库目录 `userData/story2video-bgm/`，索引 `library.json` 原子写（临时文件 + rename）；`list/add/rename/delete` 四操作，add 复用媒体导入的路径解析与受控目录复制语义（Windows 占用 ≤3 次有界重试）。
