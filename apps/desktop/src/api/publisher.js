@@ -385,6 +385,19 @@ export async function story2videoBgmLibraryRename(id, name) {
 export async function story2videoBgmLibraryDelete(id) {
   return invokeWithFallback("story2videoBgmLibraryDelete", { code: -1, message: 'electronAPI not available' }, id)
 }
+// ─── Story2Video 批量创作 API（openspec story2video-batch-create） ───
+export async function story2videoBatchCreate(payload) {
+  return invokeWithFallback("story2videoBatchCreate", { code: -1, message: 'electronAPI not available' }, payload)
+}
+export async function story2videoBatchStatus() {
+  return invokeWithFallback("story2videoBatchStatus", { code: -1, message: 'electronAPI not available', data: [] })
+}
+export async function story2videoBatchCancel(batchId, itemIds) {
+  return invokeWithFallback("story2videoBatchCancel", { code: -1, message: 'electronAPI not available' }, batchId, itemIds)
+}
+export async function story2videoPickBatchFiles() {
+  return invokeWithFallback("story2videoPickBatchFiles", { code: -1, message: 'electronAPI not available', data: { files: [] } })
+}
 export async function logsGetInfo() {
   return invokeWithFallback("logsGetInfo", { code: -1, data: { dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] } })
 }
