@@ -1,3 +1,13 @@
+## [2026-08-15] feat(prompt-engine): Higgsfield round3a Batch A——缓存 key 全组件化/视频确定性校验/音频分层（PR #47）
+
+- 图片缓存 key 修复：`make_key` 纳入 excluded/no_swap/context/style/language + 版本盐 `IMAGE_FMT_V1`，修复同参数异 excluded 串号缺陷；legacy fuzzy 零回归。
+- 视频 evaluator 确定性 FAIL CHECK：新增 `timeline_missing`（shots≥2 缺 `[SHOT`/`[HARD CUT` 标记，-5）/ `timing_break`（beats 端点超 duration+2s，-5）纯结构/数学校验；refined 模板教 `[SHOT N]` 标记；缓存盐 `HIGGSFIELD_FMT_V1 → V2`。
+- 音频分层输出：`audio_layers`（environment/sfx/dialogue/music_off）全链路（OUTPUT_KEYS → `_clean_audio_layers` 清洗 → Audio 四段尾行 → missing_audio 判定表限定 refined），向后兼容保留 audio。
+- 评审修复：尾行剥离正则兼容 Audio 段（C1）、batch 判定表限定 refined（W1）、make_key 非序列化对象防炸 + 排序/空容器归一（W2）、timeline 用剥离后正文、timing_diff 键恒存在、music_off 归一 int 等 6 项 Info。
+- 基线修复（独立 commit e1f1788）：`rest.py` 资源端点显式 utf-8 读取——修复 Windows GBK locale 下 prompts.json 读取抛 UnicodeDecodeError 被吞导致 `rag_cases` 恒 0 的既有缺陷（全量测试三轮失败 1 项的真根因）。
+- 测试：新增 `tests/test_audio_layers.py` / `test_cache_key_components.py` / `test_video_evaluator_deterministic.py` + 评审回归；全量 pytest 736 passed / 0 failed / 3 skipped（5 个 web_e2e 环境性 error 与本变更无关）。
+- 评审：Claude 双模型 1 Critical（已修）+ 2 Warning（已修）+ 13 Info（6 已修，其余 Batch B/C）；antigravity 地区不可用降级。
+
 ## [2026-08-14] fix(story2video): 水印「移动」位置漂移速度降为原 1/10（watermark-slow-drift）
 
 - 现象：故事讲述流水线水印位置选择「移动（平滑漂移）」时，Lissajous 正弦轨迹周期过短（x 10s / y 14s），画面内游走过快影响观看。
