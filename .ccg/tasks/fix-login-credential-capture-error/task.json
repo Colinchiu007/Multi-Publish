@@ -1,0 +1,12 @@
+{
+  "id": "fix-login-credential-capture-error",
+  "title": "修复：账号管理登录页直接关闭页签报错「未捕获到有效登录凭证」",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop/rpa",
+  "currentPhase": "analysis",
+  "nextAction": "定位错误来源与登录捕获流程",
+  "createdAt": "2026-08-14T10:00:00Z",
+  "branch": "main"
+}

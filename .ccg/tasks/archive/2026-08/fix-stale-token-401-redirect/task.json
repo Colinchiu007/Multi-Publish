@@ -5,10 +5,10 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "ops-center/frontend",
-  "currentPhase": "review",
-  "nextAction": "PR 合并后归档",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
   "createdAt": "2026-08-14T18:20:00+08:00",
   "completedAt": "2026-08-14T18:35:00+08:00",
   "branch": "codex/fix-stale-token-redirect",
-  "remoteStatus": "pending-pr"
+  "remoteStatus": "merged (PR #818, squash 941e74e3)"
 }
