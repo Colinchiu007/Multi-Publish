@@ -4352,3 +4352,13 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 
 
+
+## [2026-08-14] fix(accounts): 添加账号登录页直接关闭页签误报「未捕获到有效登录凭证」（fix-login-credential-capture-error）
+
+- 需求：账号管理添加账号时，打开平台登录页后未做任何操作直接关闭页签，不应弹出「未捕获到有效登录凭证」报错。
+- 根因：`auth:open-login` IPC 处理器把 `AuthViewManager.openLogin()` 的取消/超时控制信号（`{ cancelled: true }` / `{ timeout: true }`）误当凭证数据传给 `saveCapturedAccount()`，触发其空凭证 fail-closed 校验。
+- 实现：
+  - 主进程：`ipc-handlers/account.js` `auth:open-login` 拦截控制信号——用户取消（关闭页签/Esc）返回 `{ code: 0, cancelled: true }`（渲染层静默关闭，不弹错误），登录超时返回 `TIMEOUT_ERROR` + 「登录超时，请重试」；两者均不进入凭证保存、不创建账号。
+  - 渲染进程：`FirstRun.vue` 消费方同步识别 `cancelled`，取消时静默返回，不误报「账号添加成功」。
+- 测试：`ipc-handlers/account.test.js` 新增 2 例（取消返回契约 + 不调保存；超时 -11 + 不调保存）；`FirstRun.test.js` 新增 1 例（取消不弹 alert + 状态重置）；受影响 4 套件 135 例全绿。
+- 规格：openspec change fix-login-credential-capture-error（3 条 ADDED Requirements，能力 `desktop/account-login-capture`）。

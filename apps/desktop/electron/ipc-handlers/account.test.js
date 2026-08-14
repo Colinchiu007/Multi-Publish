@@ -551,6 +551,31 @@ describe('account IPC 可信来源正常工作', () => {
     expect(send).toHaveBeenCalledWith('auth:completed', { platform: 'wechat_mp', accountId: 'account-1' })
   })
 
+  it('auth:open-login 用户关闭登录页签返回取消且不保存凭证', async () => {
+    const deps = createMockDeps()
+    deps.authViewManager.openLogin.mockResolvedValue({ cancelled: true })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('auth:open-login')(TRUSTED_EVENT, 'wechat_mp')
+
+    expect(result).toEqual({ code: 0, cancelled: true, data: { cancelled: true }, message: '登录已取消' })
+    expect(deps.AccountManager.saveCapturedAccount).not.toHaveBeenCalled()
+  })
+
+  it('auth:open-login 登录等待超时返回超时错误且不保存凭证', async () => {
+    const deps = createMockDeps()
+    deps.authViewManager.openLogin.mockResolvedValue({ timeout: true })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('auth:open-login')(TRUSTED_EVENT, 'wechat_mp')
+
+    expect(result.code).toBe(-11)
+    expect(result.message).toMatch(/超时/)
+    expect(deps.AccountManager.saveCapturedAccount).not.toHaveBeenCalled()
+  })
+
   it('auth:complete-login 只触发主进程提取，不接收渲染层凭证', async () => {
     const deps = createMockDeps()
     deps.authViewManager.completeLogin.mockResolvedValue(true)

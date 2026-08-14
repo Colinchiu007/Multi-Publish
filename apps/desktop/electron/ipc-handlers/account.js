@@ -170,6 +170,14 @@ function registerHandlers(ipcMain, deps) {
       // R51 P1：platform 用于 URL 拼接，必须校验
       if (!_isSafePathSegment(platform)) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 platform 参数' }
       const result = await authViewManager.openLogin(platform)
+      // 用户关闭登录页签/Esc 取消：控制信号而非凭证数据，不得进入保存流程，也不得弹错误
+      if (result && typeof result === 'object' && result.cancelled === true) {
+        return { code: 0, cancelled: true, data: { cancelled: true }, message: '登录已取消' }
+      }
+      // 登录等待超时：返回明确超时错误，不保存凭证
+      if (result && typeof result === 'object' && result.timeout === true) {
+        return { code: EC.TIMEOUT_ERROR, message: '登录超时，请重试' }
+      }
       const savedAccount = await AccountManager.saveCapturedAccount(platform, result)
       const savedAccountId = savedAccount?.id || savedAccount?.accountId
       const win = BrowserWindow.getAllWindows()[0]
