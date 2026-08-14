@@ -6,10 +6,10 @@
   "risk": "medium",
   "domain": "backend",
   "currentPhase": "completed",
-  "nextAction": "PR 合并后核对 remoteStatus",
+  "nextAction": "PR #809 合并后核对 remoteStatus",
   "createdAt": "2026-08-14T00:00:00Z",
   "branch": "codex/merge-domain-enrich-into-scene-context",
   "openspecChange": "merge-domain-enrich-into-scene-context",
   "completedAt": "2026-08-14T15:20:00+08:00",
-  "remoteStatus": "PR pending (created after push)"
+  "remoteStatus": "PR #809 open (https://github.com/Colinchiu007/Multi-Publish/pull/809), 合并后核对"
 }
