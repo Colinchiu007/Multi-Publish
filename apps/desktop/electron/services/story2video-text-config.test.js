@@ -642,6 +642,7 @@ describe('Story2Video scene_context 配置契约（2026-08-11）', () => {
       max_anchors: 8,
       include_negative_anchors: true,
       context_block_max_chars: 400,
+      contentType: 'general',
     })
   })
 
@@ -658,6 +659,7 @@ describe('Story2Video scene_context 配置契约（2026-08-11）', () => {
       max_anchors: 5,
       include_negative_anchors: false,
       context_block_max_chars: 200,
+      contentType: 'general',
     })
   })
 

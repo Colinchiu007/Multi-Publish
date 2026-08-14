@@ -66,13 +66,14 @@ describe('story2video 编排契约', () => {
     expect(stages.optimize.type).toBe('story2video_optimize')
     expect(stages.scene_context).toMatchObject({
       type: 'story2video_scene_context',
-      inputFrom: 'domain_enrich',
+      inputFrom: 'split',
       options: {
         enabled: true,
         max_summary_length: 300,
         max_anchors: 8,
         include_negative_anchors: true,
         context_block_max_chars: 400,
+        contentType: 'general',
       },
     })
     expect(stages.optimize.inputFrom).toBe('scene_context')
@@ -137,7 +138,7 @@ describe('story2video 编排契约', () => {
     expect(started).toMatchObject({ success: true, completed: true })
     expect(started.paused).toBeUndefined()
     expect(stageExecutor.execute.mock.calls.map(([request]) => request.stage.name)).toEqual([
-      'split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
+      'split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
     ])
     expect(engine.getRunSnapshot(started.runId)).toMatchObject({
       status: { status: 'completed' },
@@ -159,16 +160,18 @@ describe('story2video 编排契约', () => {
       text: '唐朝长安城的灯火照亮宫殿。',
       contentType: 'history',
       autoAdvance: false,
+      // 阶段序列不含 domain_enrich 后 optimize 为第 3 阶段；手动逐步执行
+      // 需要跳过 checkpoint 暂停（否则第 4 次 executeStage 会重跑 optimize）。
+      checkpointPolicy: 'none',
     })
 
-    await engine.executeStage(started.runId)
+    // 阶段序列：split → scene_context → optimize（checkpointPolicy:none 下每次 executeStage 推进一个阶段）
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
     const optimized = await engine.executeStage(started.runId)
 
     expect(optimized.success).toBe(true)
-    expect(engine.getRunContext(started.runId).domain_enrich).toMatchObject({
-      domainEnriched: true,
+    expect(engine.getRunContext(started.runId).scene_context).toMatchObject({
       scenes: [expect.objectContaining({
         text: '唐朝长安城的灯火照亮宫殿。',
         imagePromptSeed: expect.stringContaining('唐代'),
@@ -196,9 +199,10 @@ describe('story2video 编排契约', () => {
     const started = await engine.startOrchestrated('story2video-compose', {
       text: '城市夜景。未来交通。',
       autoAdvance: false,
+      checkpointPolicy: 'none',
     })
 
-    await engine.executeStage(started.runId)
+    // 阶段序列：split → scene_context → optimize（checkpointPolicy:none 下每次 executeStage 推进一个阶段）
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
     const optimized = await engine.executeStage(started.runId)
@@ -509,10 +513,11 @@ describe('story2video 编排契约', () => {
         optimize: { style: 'anime', creativeLevel: 8, numCandidates: 2 },
       },
       autoAdvance: false,
+      checkpointPolicy: 'none',
     })
 
     expect(started.success).toBe(true)
-    await engine.executeStage(started.runId)
+    // 阶段序列：split → scene_context → optimize（checkpointPolicy:none 下每次 executeStage 推进一个阶段）
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)

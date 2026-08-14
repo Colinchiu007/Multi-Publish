@@ -1154,17 +1154,17 @@ it('story2video-compose 流水线已注册为第 14 条', function () {
   eq(s2v.category, 'generated');
   const detail = pe.getPipeline('story2video-compose');
   // 2026-08-11：新增 select_video_scenes 阶段（视频+图片轮播混合模式）与 scene_context 阶段（场景上下文增强中间层）
-  eq(detail.stages.length, 8);
+  // 2026-08-14：domain_enrich 合并入 scene_context（merge-domain-enrich-into-scene-context），运行清单 8→7 阶段
+  eq(detail.stages.length, 7);
   eq(detail.stageDefs[0].name, 'split');
-  eq(detail.stageDefs[1].name, 'domain_enrich');
-  eq(detail.stageDefs[2].name, 'scene_context');
-  eq(detail.stageDefs[3].name, 'optimize');
-  eq(detail.stageDefs[4].name, 'select_video_scenes');
-  eq(detail.stageDefs[5].name, 'generate_assets');
+  eq(detail.stageDefs[1].name, 'scene_context');
+  eq(detail.stageDefs[2].name, 'optimize');
+  eq(detail.stageDefs[3].name, 'select_video_scenes');
+  eq(detail.stageDefs[4].name, 'generate_assets');
   // 2026-08-12：分镜素材自选（manual）新增 finalize_assets 阶段定义（auto 模式不进入运行清单）
-  eq(detail.stageDefs[6].name, 'finalize_assets');
-  eq(detail.stageDefs[7].name, 'compose');
-  eq(detail.stageDefs[8].name, 'publish');
+  eq(detail.stageDefs[5].name, 'finalize_assets');
+  eq(detail.stageDefs[6].name, 'compose');
+  eq(detail.stageDefs[7].name, 'publish');
 });
 
 it('现有 14 条流水线可完整 advance 到完成', function () {

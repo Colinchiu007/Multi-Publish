@@ -426,7 +426,7 @@ export default {
       report: 'Report',
       split: 'Split Text',
       domain_enrich: 'Enrich Content',
-      scene_context: 'Scene Context',
+      scene_context: 'Enrich · Scene Context',
       optimize: 'Optimize Prompts',
       select_video_scenes: 'Select AI Video Scenes',
       generate_assets: 'Generate Images/Videos/Voiceover',

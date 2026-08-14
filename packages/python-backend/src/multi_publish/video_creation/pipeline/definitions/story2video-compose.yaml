@@ -182,18 +182,24 @@ stages:
       - 每句不超过 200 字
       - 总时长估算 1-10 分钟
 
-  - name: domain_enrich
-    description: 可选领域增强 - history 类型识别时代/朝代并生成视觉上下文
+  - name: scene_context
+    description: 场景上下文增强（含历史内容增强，2026-08-14 合并原 domain_enrich） - 提取全局故事背景融合进每个场景；contentType=history 时为每个场景生成 imagePromptSeed 视觉种子（独立于 enabled 开关）
     produces:
       - enriched_scenes
-    runtime_executor: story2video_domain_enrich
+    runtime_executor: story2video_scene_context
     options:
+      enabled: true
+      max_summary_length: 300
+      max_anchors: 8
+      include_negative_anchors: true
+      context_block_max_chars: 400
       contentType: general
     checkpoint_required: false
     human_approval_default: false
     success_criteria:
       - 通用内容原样透传
-      - 历史内容每个场景保留原文并附带 imagePromptSeed
+      - 历史内容每个场景保留原文并附带 imagePromptSeed（模板：场景文本；视觉风格；光线；无文字、主体明确）
+      - enabled=false 时跳过上下文融合但仍为 history 生成种子
 
   - name: optimize
     description: 批量提示词优化 - 将每句转换为图片生成提示词并优化

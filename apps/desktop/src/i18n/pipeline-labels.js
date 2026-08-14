@@ -81,7 +81,7 @@ const PIPELINES = {
     name: 'pipelines.names.story2video-compose',
     description: 'pipelines.descriptions.story2video-compose',
     category: 'generated',
-    stages: ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
+    stages: ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
   },
   'video-clone': {
     name: 'pipelines.names.video-clone',

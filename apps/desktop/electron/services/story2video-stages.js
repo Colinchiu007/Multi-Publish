@@ -23,7 +23,6 @@ const http = require('http');
 const https = require('https');
 const os = require('os');
 const path = require('path');
-const { enrichHistoryScenes, passthroughScenes } = require('./story2video-domain');
 const { alignScenes } = require('./subtitle-align-service')
 const {
   getAllowedMediaRoots,
@@ -45,7 +44,10 @@ const {
   extractOptimizedVideoPrompt,
 } = require('./video-prompt-engine-contract');
 const {
+  buildDomainSeed,
   buildSceneContextResult,
+  extractStoryContext,
+  sceneTextOf,
   CONTEXT_KEY_WHITELIST,
   buildPromptEngineSceneContext,
   mergeNegativePrompt,
@@ -55,7 +57,6 @@ const {
  * Story2Video-compose 专用的阶段类型
  */
 const STORY2VIDEO_STAGE_TYPES = {
-  DOMAIN_ENRICH: 'story2video_domain_enrich',
   SCENE_CONTEXT: 'story2video_scene_context',
   OPTIMIZE: 'story2video_optimize',
   SELECT_VIDEO_SCENES: 'story2video_select_video_scenes',
@@ -1071,8 +1072,8 @@ function buildContentPolicyCheckpointMeta(failedImages) {
 }
 
 function getOptimizationScenes(context) {
-  // scene_context 中间层（全局故事背景 + 逐场景上下文块）优先，回退 domain_enrich → split → sentences
-  const source = context.scene_context || context.domain_enrich || context.split || context.sentences;
+  // scene_context 中间层（全局故事背景 + 逐场景上下文块 + 历史种子）优先，回退 split → sentences
+  const source = context.scene_context || context.split || context.sentences;
   if (Array.isArray(source)) return source;
   if (source && Array.isArray(source.scenes)) return source.scenes;
   if (source && Array.isArray(source.sentences)) return source.sentences;
@@ -1208,39 +1209,18 @@ function registerStory2VideoStages(pipelineEngine) {
   const registered = [];
 
   // ----------------------------------------------------------
-  // DOMAIN_ENRICH - 历史内容领域增强（可选）
-  // ----------------------------------------------------------
-  pipelineEngine.registerStageExecutor(
-    STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH,
-    async ({ stage, params, context, onProgress }) => {
-      params = params || {};
-      if (typeof onProgress === 'function') onProgress({ percent: 5, message: '正在识别时代/朝代与视觉上下文…' });
-      const source = context.split || context.sentences || [];
-      const scenes = Array.isArray(source)
-        ? source
-        : (source.scenes || source.sentences || []);
-      const contentType = params.contentType || stage.options?.contentType || 'general';
-      if (contentType !== 'history') {
-        return { success: true, output: passthroughScenes(scenes) };
-      }
-      const output = enrichHistoryScenes(scenes);
-      if (typeof onProgress === 'function') onProgress({ percent: 100, message: '领域增强完成' });
-      return { success: true, output };
-    },
-  );
-  registered.push(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH);
-
-  // ----------------------------------------------------------
   // SCENE_CONTEXT - 场景上下文增强中间层（分句 → 提示词优化之间的故事背景上下文）
   // 读完整文案提取全局故事上下文（时代/朝代/文化地域/题材/设定/角色/道具/视觉风格/语气），
   // 再把全局锚点融合进每个场景，形成逐场景上下文块与负面锚点，注入提示词优化，
   // 保证图片/视频生成的故事背景准确性、一致性与连贯性（如唐代全文 + 「一个老妇人在做饭」）。
+  // 2026-08-14：吸收原 domain_enrich 职责——contentType=history 时为每个场景生成
+  // imagePromptSeed/prompt（视觉种子模板），且独立于 enabled 开关（enabled=false 只跳过融合）。
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.SCENE_CONTEXT,
     async ({ stage, params, context, onProgress }) => {
       params = params || {};
-      const source = context.scene_context || context.domain_enrich || context.split || context.sentences || [];
+      const source = context.scene_context || context.split || context.sentences || [];
       const scenes = Array.isArray(source)
         ? source
         : (source.scenes || source.sentences || []);
@@ -1249,6 +1229,8 @@ function registerStory2VideoStages(pipelineEngine) {
         return { success: false, error: '场景上下文增强需要非空场景数组' };
       }
       const options = stage.options || {};
+      // contentType 开关（原 domain_enrich stageOptions，design D4）：history → 生成视觉种子；general → 不生成（透传语义）
+      const contentType = params.contentType || options.contentType || 'general';
       // 全文优先 params.text；图片/音频模式无文案时降级为逐场景文本拼接，仍可提取局部上下文
       const hasFullText = typeof params.text === 'string' && params.text.trim().length > 0;
       const fullText = hasFullText
@@ -1260,7 +1242,24 @@ function registerStory2VideoStages(pipelineEngine) {
       }
       try {
         const result = buildSceneContextResult(scenes, fullText, options);
-        if (typeof onProgress === 'function') {
+        // 历史内容增强（imagePromptSeed 种子，design D1/D3）：独立于 scene_context enabled——
+        // enabled=false 只跳过上下文融合，不跳过种子生成（保持合并前 domain_enrich 独立语义）。
+        // enabled=false 时 result.story 为 null：为种子单独提取一次规则表结果，不把上下文融合进场景。
+        if (contentType === 'history') {
+          const seedStory = result.story
+            || (() => { try { return extractStoryContext(fullText, options) } catch (_) { return null } })();
+          result.scenes = result.scenes.map(scene => {
+            const base = scene && typeof scene === 'object' ? scene : {};
+            // sceneTextOf 兼容字符串场景（直接取场景文本；split 输出为对象时等价 base.text/content）
+            const sceneText = sceneTextOf(scene);
+            const seed = buildDomainSeed(sceneText, seedStory);
+            return { ...base, imagePromptSeed: seed, prompt: seed };
+          });
+          if (result.metadata) result.metadata.seedGenerated = true;
+          if (typeof onProgress === 'function') {
+            onProgress({ percent: 100, message: '场景上下文增强 + 历史内容增强完成', summary: '已增强 ' + scenes.length + ' 个场景并生成视觉种子' });
+          }
+        } else if (typeof onProgress === 'function') {
           onProgress({ percent: 100, message: '场景上下文增强完成', summary: '已增强 ' + scenes.length + ' 个场景的上下文' });
         }
         // 无完整文案（图片/音频模式）：场景文本拼接推导的全局上下文较弱，显式标记 degraded 供下游/展示识别
@@ -1271,16 +1270,30 @@ function registerStory2VideoStages(pipelineEngine) {
         if (context && typeof context === 'object') context.scene_context = result;
         return { success: true, output: result };
       } catch (error) {
-        // 规则引擎异常：降级透传（增强失败不阻断流水线），记录 degraded 与原因
+        // 规则引擎异常：降级透传（增强失败不阻断流水线），记录 degraded 与原因。
+        // 审查 C1：contentType=history 时降级分支也要生成 imagePromptSeed 种子——
+        // 合并前 domain_enrich 独立阶段纯规则永不抛错、始终产出种子；合并后不能因
+        // scene_context 引擎失败让种子消失（design D1「seed 独立于 scene_context」）。
+        let degradedScenes = scenes;
+        if (contentType === 'history') {
+          let seedStory = null;
+          try { seedStory = extractStoryContext(fullText, options) } catch (_) { seedStory = null }
+          degradedScenes = scenes.map(scene => {
+            const base = scene && typeof scene === 'object' ? scene : {};
+            const seed = buildDomainSeed(sceneTextOf(scene), seedStory);
+            return { ...base, imagePromptSeed: seed, prompt: seed };
+          });
+        }
         const degraded = {
           story: null,
-          scenes,
+          scenes: degradedScenes,
           metadata: {
             enriched: false,
             degraded: true,
             extractor: 'rule-based',
             fallbackReason: error && error.message ? String(error.message).slice(0, 300) : 'scene_context_engine_error',
             sceneCount: scenes.length,
+            seedGenerated: contentType === 'history',
           },
         };
         if (context && typeof context === 'object') context.scene_context = degraded;
@@ -1303,7 +1316,7 @@ function registerStory2VideoStages(pipelineEngine) {
       const mode = VIDEO_MODES.has(videoConfig.mode) ? videoConfig.mode : 'off'
       const rawOptimize = context.optimize || context.optimized_prompts
       const optimizePrompts = unwrapScenesArray(rawOptimize)
-      const rawSentences = context.domain_enrich || context.split || context.sentences
+      const rawSentences = context.split || context.sentences
       const sentences = unwrapScenesArray(rawSentences)
       const sceneCount = Math.max(optimizePrompts.length, sentences.length)
       if (mode === 'off' || sceneCount === 0) {
@@ -1688,7 +1701,7 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 从 context 获取前序阶段的输出
       let optimizedPrompts = context.optimize || context.optimized_prompts;
-      let sentences = context.domain_enrich || context.split || context.sentences;
+      let sentences = context.split || context.sentences;
 
       // 兼容 prompt-engine 的包装响应 { results } / { data: { results } }
       if (!Array.isArray(optimizedPrompts)) {

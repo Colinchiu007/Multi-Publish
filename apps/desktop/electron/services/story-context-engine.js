@@ -2,7 +2,7 @@
 /**
  * story-context-engine — Story2Video 场景上下文增强中间层（规则驱动，无 IO，可测）。
  *
- * 定位：位于「分句引擎输出场景（split / domain_enrich）」与「图片提示词优化引擎（prompt-engine）」
+ * 定位：位于「分句引擎输出场景（split / scene_context）」与「图片提示词优化引擎（prompt-engine）」
  * 之间，读取完整文案提取全局故事上下文（时代/朝代/文化地域/题材/设定/角色/道具/视觉风格/语气），
  * 再把全局锚点融合进每个场景，形成逐场景上下文块与负面锚点，保证提示词生成图片/视频时
  * 故事背景的准确性、一致性与连贯性（如唐代全文 + 「一个老妇人在做饭」→ 不生成西方老太太现代厨房）。
@@ -451,6 +451,54 @@ function detectTime (text) {
   return { timeOfDay, season }
 }
 
+// ---------------------------------------------------------------------------
+// 历史内容增强（imagePromptSeed 种子生成，domain_enrich 合并进 scene_context，2026-08-14）
+// 情感→光线三元判定独立于 detectTone（四元语气），词表自 story2video-domain.js 原样迁移。
+// ---------------------------------------------------------------------------
+const SENTIMENT_POSITIVE_WORDS = Object.freeze(['喜悦', '欢乐', '胜利', '成功', '和平', '美好'])
+const SENTIMENT_NEGATIVE_WORDS = Object.freeze(['悲伤', '失败', '死亡', '战争', '痛苦', '灾难'])
+const MODERN_SEED_VISUAL_STYLE = '现代真实场景、自然肤色、清晰构图、柔和日光'
+const ANCIENT_SEED_VISUAL_STYLE = '古朴建筑、传统服饰、电影感体积光、低饱和暖色'
+const NEUTRAL_SEED_VISUAL_STYLE = '具有叙事感的电影画面、自然光线、层次清晰'
+
+/**
+ * 情感倾向三元判定（positive/negative/peaceful）。
+ * 独立于 detectTone（四元语气），消费路径不同（seed 光线分支），不复用以避免行为回归（design D2）。
+ * @param {string} sceneText
+ * @returns {'positive'|'negative'|'peaceful'}
+ */
+function detectSentiment (sceneText) {
+  const text = String(sceneText || '')
+  if (SENTIMENT_POSITIVE_WORDS.some(word => text.includes(word))) return 'positive'
+  if (SENTIMENT_NEGATIVE_WORDS.some(word => text.includes(word))) return 'negative'
+  return 'peaceful'
+}
+
+/**
+ * 历史内容增强种子（imagePromptSeed）模板：`文本；视觉风格；光线；无文字、主体明确`。
+ * visualStyle 优先 `story.dynasty.visualStyle`（规则表 16 朝代超集），回退 era 风格（modern/ancient），
+ * 再回退叙事风格；不用合并版 story.visualStyle（会多出文本显式风格词，改变 optimize 输入分布，design D3）。
+ * @param {string} sceneText
+ * @param {object|null} story 全局故事上下文（enabled=false 时调用方传 null 走中性风格兜底）
+ * @returns {string}
+ */
+function buildDomainSeed (sceneText, story) {
+  const text = typeof sceneText === 'string' ? sceneText.trim() : String(sceneText || '').trim()
+  const storyObj = story && typeof story === 'object' ? story : {}
+  const dynasty = storyObj.dynasty && typeof storyObj.dynasty === 'object' ? storyObj.dynasty : null
+  const era = storyObj.era === 'modern' || storyObj.era === 'ancient' ? storyObj.era : 'mixed'
+  const visualStyle = (dynasty && dynasty.visualStyle)
+    || (era === 'modern' ? MODERN_SEED_VISUAL_STYLE
+      : (era === 'ancient' ? ANCIENT_SEED_VISUAL_STYLE : NEUTRAL_SEED_VISUAL_STYLE))
+  const sentiment = detectSentiment(text)
+  return [
+    text,
+    visualStyle,
+    sentiment === 'negative' ? '阴影与冷色氛围' : '自然层次与叙事光线',
+    '无文字、主体明确',
+  ].filter(Boolean).join('；')
+}
+
 /**
  * 时代判定（审查 W2）：避免单关键词误判。
  * 返回 { era, strong }：strong=true 才允许注入时代负面锚点（防止「寺庙」等单信号
@@ -806,6 +854,7 @@ module.exports = {
   TIME_RULES,
   TONE_RULES,
   VISUAL_STYLE_RULES,
+  buildDomainSeed,
   buildPromptEngineSceneContext,
   buildSceneContextBlock,
   buildSceneContextResult,
@@ -815,6 +864,7 @@ module.exports = {
   detectEra,
   detectGenre,
   detectProps,
+  detectSentiment,
   detectSetting,
   detectTime,
   detectVisualStyle,

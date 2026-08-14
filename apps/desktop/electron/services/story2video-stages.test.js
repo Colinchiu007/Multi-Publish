@@ -48,7 +48,6 @@ function makePipeline(assetGenerator, aiGenerator) {
   }
   registerStory2VideoStages(pipeline)
   const assetsExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
-  assetsExecutor.domainExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
   assetsExecutor.optimizeExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
   assetsExecutor.sceneContextExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.SCENE_CONTEXT)
   return assetsExecutor
@@ -86,32 +85,49 @@ describe('story2video 资源索引契约', () => {
     expect(normalizeAssetConcurrency(999)).toBe(8)
   })
 
-  it('历史内容先经过 domain_enrich，输出保留原文并生成可优化的视觉提示词', async () => {
-    const fn = makePipeline(null)
-    const result = await fn.domainExecutor({
-      stage: { options: { contentType: 'general' } },
-      params: { contentType: 'history' },
+  it('历史内容（contentType=history）经 scene_context 生成 imagePromptSeed 视觉种子', async () => {
+    const fn = makePipeline(null).sceneContextExecutor
+    const result = await fn({
+      stage: { options: { contentType: 'history' } },
+      params: {},
       context: { split: [{ text: '唐朝长安城的灯火照亮宫殿。' }] },
       serviceBus: {},
     })
     expect(result.success).toBe(true)
-    expect(result.output.domainEnriched).toBe(true)
     expect(result.output.scenes[0].text).toContain('唐朝')
     expect(result.output.scenes[0].imagePromptSeed).toContain('唐代')
     expect(result.output.scenes[0].prompt).toContain('无文字')
   })
 
-  it('通用内容在 domain_enrich 中透传，不改变原始句子', async () => {
-    const fn = makePipeline(null)
-    const result = await fn.domainExecutor({
+  it('通用内容（contentType=general）经 scene_context 不生成种子，场景原字段透传', async () => {
+    const fn = makePipeline(null).sceneContextExecutor
+    const result = await fn({
       stage: { options: { contentType: 'general' } },
       params: {},
       context: { split: [{ text: '普通内容。' }] },
       serviceBus: {},
     })
     expect(result.success).toBe(true)
-    expect(result.output.domainEnriched).toBe(false)
-    expect(result.output.scenes).toEqual([{ text: '普通内容。' }])
+    expect(result.output.scenes[0].imagePromptSeed).toBeUndefined()
+    expect(result.output.scenes[0].prompt).toBeUndefined()
+    expect(result.output.scenes[0].text).toBe('普通内容。')
+  })
+
+  it('scene_context 禁用（enabled=false）+ contentType=history 仍生成种子（保持 domain_enrich 独立语义）', async () => {
+    const fn = makePipeline(null).sceneContextExecutor
+    const result = await fn({
+      stage: { options: { contentType: 'history', enabled: false } },
+      params: {},
+      context: { split: [{ text: '唐朝长安城的灯火照亮宫殿。' }] },
+      serviceBus: {},
+    })
+    expect(result.success).toBe(true)
+    expect(result.output.metadata.fallbackReason).toBe('scene_context_disabled')
+    expect(result.output.scenes[0].imagePromptSeed).toContain('唐代')
+    expect(result.output.scenes[0].prompt).toContain('无文字')
+    // 禁用时跳过上下文融合：场景不带 storyContext/context
+    expect(result.output.scenes[0].storyContext).toBeUndefined()
+    expect(result.output.scenes[0].context).toBeUndefined()
   })
 
   it('提示词优化统一走 prompt-engine：逐场景调用、携带契约参数且不回退默认 LLM', async () => {
@@ -122,7 +138,7 @@ describe('story2video 资源索引契约', () => {
       stage: { options: { quality_baseline: false, style: 'cinematic', creative_level: 8, platform: 'dall-e', negative_prompt: '水印' } },
       params: {},
       context: {
-        domain_enrich: {
+        split: {
           scenes: [
             { text: '唐朝长安城的灯火。', imagePromptSeed: '唐代长安城夜景，无文字' },
             { text: '未来城市的车流。' },
@@ -342,7 +358,7 @@ describe('story2video 资源索引契约', () => {
     const result = await fn({
       stage: { options: {} },
       params: {},
-      context: { domain_enrich: { scenes } },
+      context: { split: { scenes } },
       serviceBus,
     })
     expect(result.success).toBe(true)
@@ -355,7 +371,7 @@ describe('story2video 资源索引契约', () => {
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
     const context = {
-      domain_enrich: {
+      split: {
         scenes: [
           { text: '场景0', imagePromptSeed: '画面0' },
           { text: '场景1', imagePromptSeed: '画面1' },
@@ -379,7 +395,7 @@ describe('story2video 资源索引契约', () => {
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
     const context = {
-      domain_enrich: {
+      split: {
         scenes: [
           { text: '场景0', imagePromptSeed: '画面0' },
           { text: '场景1', imagePromptSeed: '画面1' },
@@ -1242,7 +1258,6 @@ describe('story2video 生成并发按 provider 每分钟连接次数收敛', () 
     }
     registerStory2VideoStages(pipeline)
     const assetsExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
-    assetsExecutor.domainExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
     assetsExecutor.optimizeExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
 
     const pending = assetsExecutor({
@@ -1312,7 +1327,6 @@ describe('story2video 生成并发按 provider 每分钟连接次数收敛', () 
     }
     registerStory2VideoStages(pipeline)
     const assetsExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
-    assetsExecutor.domainExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
     assetsExecutor.optimizeExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
 
     const pending = assetsExecutor({
@@ -1353,7 +1367,6 @@ describe('story2video 调度边界（2026-08-10 双包死锁复盘）', () => {
     }
     registerStory2VideoStages(pipeline)
     const assetsExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
-    assetsExecutor.domainExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
     assetsExecutor.optimizeExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
     const serviceBus = {
       _assetGenerator: null,
@@ -1427,7 +1440,6 @@ describe('story2video 调度边界（2026-08-10 双包死锁复盘）', () => {
     }
     registerStory2VideoStages(pipeline)
     const assetsExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
-    assetsExecutor.domainExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH)
     assetsExecutor.optimizeExecutor = executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
 
     const result = await Promise.race([
@@ -2051,7 +2063,7 @@ describe('story2video 场景上下文增强中间层（scene_context，2026-08-1
       stage: { options: {} },
       params: { text: TANG_FULL_TEXT },
       context: {
-        domain_enrich: { scenes: [{ index: 0, text: TANG_COOKING_SCENE }] },
+        split: { scenes: [{ index: 0, text: TANG_COOKING_SCENE }] },
       },
     })
     expect(result.success).toBe(true)

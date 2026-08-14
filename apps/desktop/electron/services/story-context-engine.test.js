@@ -1,8 +1,10 @@
 // @vitest-environment node
 const {
+  buildDomainSeed,
   buildPromptEngineSceneContext,
   buildSceneContextBlock,
   buildSceneContextResult,
+  detectSentiment,
   enrichSceneWithContext,
   extractStoryContext,
   mergeNegativePrompt,
@@ -344,5 +346,56 @@ describe('规则数据化与打磨修复（2026-08-12）', () => {
     const modern = m.buildSceneContextBlock({ text: '一个年轻人在办公室加班' }, m.extractStoryContext('小明在写字楼里用手机点外卖。'))
     expect(modern.contextBlock).not.toContain('现代中')
     expect(modern.contextBlock).toContain('现代')
+  })
+})
+
+describe('历史内容增强：detectSentiment / buildDomainSeed（2026-08-14 domain_enrich 合并）', () => {
+  it('detectSentiment 三元判定：positive / negative / peaceful', () => {
+    expect(detectSentiment('百姓欢呼胜利，一片欢乐')).toBe('positive')
+    expect(detectSentiment('战场上尸横遍野，士兵痛苦哀嚎')).toBe('negative')
+    expect(detectSentiment('唐朝长安城的灯火照亮宫殿')).toBe('peaceful')
+  })
+
+  it('buildDomainSeed golden：朝代命中（唐朝）→ 视觉风格 + 自然光线 + 无文字提示卫生', () => {
+    const story = extractStoryContext('这是一个关于唐代的故事。唐玄宗时期，长安城一片繁华。')
+    const seed = buildDomainSeed('唐朝长安城的灯火照亮宫殿', story)
+    expect(seed).toBe('唐朝长安城的灯火照亮宫殿；唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；自然层次与叙事光线；无文字、主体明确')
+  })
+
+  it('buildDomainSeed 负面情感 → 阴影与冷色氛围光线分支', () => {
+    const story = extractStoryContext('安史之乱时期，唐朝百姓饱受战争之苦。')
+    const seed = buildDomainSeed('长安城中百姓在战争中痛苦流离', story)
+    expect(seed).toContain('阴影与冷色氛围')
+    expect(seed).toContain('唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线')
+  })
+
+  it('buildDomainSeed era 回退：无朝代命中 → 古代通用视觉风格', () => {
+    const story = extractStoryContext('古代战场上将士们奋勇杀敌。')
+    expect(story.dynasty).toBeNull()
+    const seed = buildDomainSeed('将士们在战场上冲锋', story)
+    expect(seed).toContain('古朴建筑、传统服饰、电影感体积光、低饱和暖色')
+    expect(seed).toContain('无文字、主体明确')
+  })
+
+  it('buildDomainSeed 民国 era=modern → 现代视觉风格（修复 8 朝代子集漏判）', () => {
+    const story = extractStoryContext('民国时期的上海滩，旗袍与中山装交相辉映。')
+    expect(story.dynasty).toMatchObject({ name: '民国' })
+    expect(story.era).toBe('modern')
+    const seed = buildDomainSeed('上海滩的街巷里人来人往', story)
+    expect(seed).toContain('民国洋楼、街巷、旗袍与胶片棕黄色调')
+  })
+
+  it('buildDomainSeed 场景文本无朝代关键词 + 全文含朝代 → seed 用全局朝代视觉风格（全文锚点一致性）', () => {
+    // 审查 W2：合并后 era/dynasty 数据源从「逐场景关键词」变为「全文全局上下文」——
+    // 唐故事里场景「一个老妇人在做饭」不含朝代词，seed 必须用全局唐朝视觉风格而非中性兜底。
+    const story = extractStoryContext('唐玄宗时期的长安城，盛唐气象。')
+    expect(story.dynasty).toMatchObject({ name: '唐朝' })
+    const seed = buildDomainSeed('一个老妇人在灶台边做饭', story)
+    expect(seed).toBe('一个老妇人在灶台边做饭；唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；自然层次与叙事光线；无文字、主体明确')
+  })
+
+  it('buildDomainSeed story 为空（enabled=false 场景）→ 中性视觉风格兜底', () => {
+    const seed = buildDomainSeed('一个普通的画面', null)
+    expect(seed).toBe('一个普通的画面；具有叙事感的电影画面、自然光线、层次清晰；自然层次与叙事光线；无文字、主体明确')
   })
 })

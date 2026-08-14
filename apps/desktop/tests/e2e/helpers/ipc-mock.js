@@ -483,7 +483,7 @@
     // 与 electron/services/pipeline-engine.js 的 PIPELINES/listPipelines 对齐：
     // 14 条内置流水线（CreateView 额外插入 video-clone → 卡片共 15），story2video-compose（故事讲述）优先，screen-demo 无真实引擎标记 available=false。
     pipelineList: makeHandler('pipelineList', async () => ok([
-      { name: 'story2video-compose', description: '将文案自动生成图片轮播视频（可选 AI 视频混合）', category: 'generated', stageCount: 7, estimatedCost: 'medium', available: true, stages: ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'] },
+      { name: 'story2video-compose', description: '将文案自动生成图片轮播视频（可选 AI 视频混合）', category: 'generated', stageCount: 7, estimatedCost: 'medium', available: true, stages: ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'] },
       { name: 'animated-explainer', description: '从主题或创意自动生成完整讲解视频', category: 'generated', stageCount: 8, estimatedCost: 'medium', available: true, stages: ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish'] },
       { name: 'talking-head', description: '上传视频和文案，生成带字幕的口播视频', category: 'talking_head', stageCount: 4, estimatedCost: 'low', available: true, stages: ['upload', 'transcribe', 'captions', 'render'] },
       { name: 'cinematic', description: '将素材视频渲染成电影感短片', category: 'cinematic', stageCount: 4, estimatedCost: 'low', available: true, stages: ['ingest', 'grade', 'compose', 'render'] },

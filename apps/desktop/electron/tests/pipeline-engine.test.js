@@ -35,7 +35,8 @@ describe('PipelineEngine 状态机模式', () => {
   it('列表同时提供 stageCount，供桌面卡片显示阶段数', () => {
     const pipeline = engine.listPipelines().find(item => item.name === 'story2video-compose')
     // 2026-08-11：新增 select_video_scenes 阶段（视频+图片轮播混合模式）+ scene_context 中间层（#526）
-    expect(pipeline.stageCount).toBe(8)
+    // 2026-08-14：domain_enrich 合并进 scene_context（merge-domain-enrich-into-scene-context），运行阶段 8→7
+    expect(pipeline.stageCount).toBe(7)
   })
 
   it('已实现真实引擎的流水线标记 available=true', () => {
