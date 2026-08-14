@@ -53,6 +53,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = if ($Worktree) { $Worktree } else { (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
+try { $repoRoot = (Resolve-Path -LiteralPath $repoRoot).Path } catch { }  # 归一化为原生反斜杠，Path -like 匹配与斜杠方向无关
 $evidence = [ordered]@{ worktree = $repoRoot; startedAt = (Get-Date).ToString('o') }
 
 function Write-Line($msg) { if (-not $Json) { Write-Host $msg } }
@@ -72,6 +73,26 @@ if ($SelfTest) {
   Write-Line 'SELFTEST_OK'
   exit 0
 }
+
+
+# ---- 0b. Node 自定位（不依赖调用方 PATH；fnm/普通终端常缺 node）----
+$nodeExe = $null
+$cmdNode = Get-Command node -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($cmdNode) { $nodeExe = $cmdNode.Source }
+if (-not $nodeExe) {
+  foreach ($cand in @(
+    (Join-Path $env:LOCALAPPDATA 'hermes\node\node.exe'),
+    (Join-Path $env:ProgramFiles 'nodejs\node.exe'),
+    (Join-Path $env:LOCALAPPDATA 'fnm\node-versions\*\*\node.exe')
+  )) {
+    $hit = Get-Item -Path $cand -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($hit) { $nodeExe = $hit.FullName; break }
+  }
+}
+if (-not $nodeExe) { Fail '找不到 node：请先安装/激活 Node（如 fnm install --latest && fnm use）' }
+$env:Path = (Split-Path $nodeExe -Parent) + ';' + $env:Path
+$evidence.node = $nodeExe
+Write-Line "node     : $nodeExe"
 
 # ---- 1. 工作区校验 ----
 if (-not (Test-Path -LiteralPath $repoRoot)) { Fail "worktree 不存在: $repoRoot" }
@@ -137,7 +158,7 @@ if (-not $NoDepsCheck) {
     Write-Line 'deps     : 运行 ensure-desktop-deps.js（自检+自愈）...'
     Push-Location $repoRoot
     try {
-      node scripts/ensure-desktop-deps.js 2>&1 | ForEach-Object { Write-Line "  $_" }
+      & $nodeExe scripts/ensure-desktop-deps.js 2>&1 | ForEach-Object { Write-Line "  $_" }
       if ($LASTEXITCODE -ne 0) { Fail '依赖自愈未通过（ensure-desktop-deps 非零）' }
     } finally { Pop-Location }
   } else {
@@ -176,7 +197,7 @@ if ($InvalidateViteCache) {
 $launcherLog = Join-Path $env:TEMP 'mp-start-dev.out.log'
 $launcherErr = Join-Path $env:TEMP 'mp-start-dev.err.log'
 $env:ELECTRON_USER_DATA_DIR = $Profile
-$launcher = Start-Process node -WorkingDirectory (Join-Path $repoRoot 'apps\desktop') -ArgumentList 'scripts/dev.js' -WindowStyle Hidden -RedirectStandardOutput $launcherLog -RedirectStandardError $launcherErr -PassThru
+$launcher = Start-Process $nodeExe -WorkingDirectory (Join-Path $repoRoot 'apps\desktop') -ArgumentList 'scripts/dev.js' -WindowStyle Hidden -RedirectStandardOutput $launcherLog -RedirectStandardError $launcherErr -PassThru
 $evidence.launcherPid = $launcher.Id
 Write-Line "launcher : PID $($launcher.Id)（log: $launcherLog）"
 
@@ -213,7 +234,7 @@ try {
 
 if ($CheckIdentity) {
   $idJs = Join-Path $PSScriptRoot 'start-desktop-identity.js'
-  $idOut = node $idJs 2>$null
+  $idOut = & $nodeExe $idJs 2>$null
   $evidence.identity = $idOut
   Write-Line "identity : $idOut"
 }
@@ -221,5 +242,7 @@ if ($CheckIdentity) {
 Write-Line 'START_CONTRACT_OK'
 if ($Json) { $evidence | ConvertTo-Json -Depth 6 }
 exit 0
+
+
 
 

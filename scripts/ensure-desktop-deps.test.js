@@ -124,6 +124,22 @@ test('collectMissing 平台感知', (t) => {
 })
 
 
+test('collectMissing 识别 pnpm hoisted 布局（workspace 包在 apps/desktop/node_modules）', (t) => {
+  const root = makeRoot(t)
+  writeJson(path.join(root, 'apps', 'desktop', 'package.json'), {
+    name: '@multi-publish/desktop',
+    dependencies: { '@multi-publish/ai-writer': '^1.0.0', vue: '^3.5.0' },
+  })
+  // pnpm hoisted：普通包在根 node_modules，@multi-publish/* 只在 apps/desktop/node_modules
+  fs.mkdirSync(path.join(root, 'node_modules', 'vue'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'node_modules', 'vue', 'package.json'), JSON.stringify({ name: 'vue', version: '3.5.0' }))
+  fs.mkdirSync(path.join(root, 'apps', 'desktop', 'node_modules', '@multi-publish', 'ai-writer'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'apps', 'desktop', 'node_modules', '@multi-publish', 'ai-writer', 'package.json'), JSON.stringify({ name: '@multi-publish/ai-writer', version: '1.0.0' }))
+  const missing = lib.collectMissing(root).map((m) => m.name)
+  assert.ok(!missing.includes('@multi-publish/ai-writer'), 'pnpm 布局下 workspace 包不应缺失')
+  assert.ok(!missing.includes('vue'), 'vue 不应缺失')
+})
+
 test('findTgz 发现 npm 实际产物名（range 解析后为具体版本）', (t) => {
   const root = makeRoot(t)
   const work = path.join(root, 'work')
