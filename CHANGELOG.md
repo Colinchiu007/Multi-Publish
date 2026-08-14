@@ -1,3 +1,13 @@
+## [2026-08-15] 故事讲述：批量创作视频（story2video-batch-create）
+
+- 需求：在「视频创作 → 故事讲述」新增【批量创作】：入口按钮 + 弹窗（创作模式隐藏固定全自动、视频增强模式下拉、启动按钮、队列规则提示、输入文案 1-10 条带「+」、本地文件 .txt/.md 最多 20 个），任务按队列依次运行（批量最大并行 2；手动任务运行中批量并行 1），弹窗内实时展示任务与排队信息，批量任务完成后进入历史记录。
+- 引擎（pipeline-engine.js）：`start()` run 打标 `source==='batch'` 时写入 `batchId/batchItemId`；批量 run 不写 `_<name>` 索引与 `_currentPipeline`（防手动详情页串扰）；`startOrchestrated()` 透传 `batchMeta`（normalizer 丢未知字段，前置提取后重新附加）；新增 `_countActiveManualRuns()`。
+- 队列服务（story2video-batch-queue.js 新增）：`createBatch`（text/files 双模式，fail-closed 任一输入项失败整体拒绝不部分入队）、`cancelBatchItems`（仅 pending）、`getBatches`（批次摘要 + 运行中 run 进度/阶段快照）；调度规则：批量并行 ≤2、手动运行中批量 ≤1、批量+手动 < 引擎全局 `maxConcurrentRuns`，引擎预算拒绝（`PIPELINE_CONCURRENCY_LIMIT`）1s 退避重试不标记失败；`_drain` 死循环补位一轮可启动多个。校验：文案 1-10 条/条 ≤6000 字符；文件 .txt/.md/≤2MB/UTF-8/非空/≤6000 字符/1-20 个。
+- IPC：`story2video:batch:create/status/cancel`（LOGIN_ONLY → story2video_write）+ `story2video:pick-batch-files`（PUBLIC，原生对话框 .txt/.md 多选）；全部 `withSenderCheck`，队列服务缺失 fail-closed 返回错误 envelope。
+- 前端：CreateView.vue 操作栏「批量创作」按钮（仅 story2video-compose 显示）；UiModal 弹窗——视频增强模式下拉（off/fixed/ai-judged）、队列规则提示、输入文案/本地文件标签页、启动按钮、任务与排队卡片区（3s 轮询，关闭弹窗后台继续）；`buildStory2VideoTextConfig()` 抽取手动/批量共用配置构造；排队项可取消；locales zh/en 成对新增 `create.story2video.batch.*`。
+- 测试：队列服务 15 例、IPC 11 例、CreateView 7 例（按钮显隐/弹窗/10 条上限/文件去重 20 上限/启动 payload 全自动模板/空输入拦截/失败透传/排队取消）；全量 vitest 通过。
+- 文档：PRD §7.1.34 批量创作（数据校验/调度规则/状态机/流程/交互/显示项/提示文字/IPC 契约/回归测试）；learnings.md 批量队列设计复盘；OpenSpec change story2video-batch-create（openspec/specs/story2video-batch-create）。
+
 ## [2026-08-14] 运营后台提示词评测：双路对比（人工 vs 引擎优化）（prompt-eval-engine-dual-path）
 
 - 需求：在运营后台「提示词评测」接入提示词优化引擎，双路并行评估人工提示词与引擎优化提示词，量化引擎提升率（方案 B，OpenSpec change `prompt-eval-engine-dual-path`）。

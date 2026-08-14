@@ -1348,6 +1348,128 @@ key，未知内部 ID 只能回退为原始 ID。
 - **关键耗时**：`finalize_assets`（14 场景 TTS）约 191 秒；`compose`（14 段视频合并）约 80 秒。
 - **成片路径**：`C:\Users\邱领\AppData\Local\Temp\story2video\s2v_1786585286396_1_output.mp4`；备份 `D:\tmp\s2v-long-e2e\e2e-output-long-text.mp4`。
 - **E2E 断言**：`scene_asset_selection` 检查点命中、每场景候选数 = 2、`promptTranslation` 全非空、`pipelineConfirmSceneAssets` 返回 `success`、最终视频 ffprobe 可解码、阶段清单含 `finalize_assets`。
+#### 7.1.34 批量创作（2026-08-15 新增，story2video-batch-create）
+
+##### 一、需求概述
+
+1. **入口**：「视频创作 → 故事讲述」详情页操作栏（action-bar）新增「批量创作」按钮（data-testid `s2v-batch-trigger`），仅在 `selectedPipeline.name === 'story2video-compose'` 时显示；与「启动流水线」「恢复默认选项」并排，样式为次级按钮。
+2. **弹窗**：点击后打开 UiModal（size `lg`，data-testid `s2v-batch-dialog`），内容包括：
+   - 创作模式：**隐藏不显示**，程序写死为「全自动」（提交参数 `creation.mode='auto'`、`materialMode='all-images'`）；
+   - 「视频增强模式」下拉框：`off / fixed / ai-judged` 三个选项，与「故事讲述」界面同一语义，默认 `off`；弹窗内不展示视频生成器/占比等子项（复用主表单的 provider/ratio 配置）；
+   - 「启动」按钮（footer 主按钮，data-testid `s2v-batch-start`）；
+   - 队列规则文字提示（data-testid `s2v-batch-rule-hint`）；
+   - 可切换标签页：「输入文案」/「本地文件」（data-testid `s2v-batch-tab-text` / `s2v-batch-tab-files`），固定区域内切换内容；
+   - 任务与排队信息区（data-testid `s2v-batch-status`）：启动后显示批次与任务状态。
+3. **批量任务与手动任务同引擎**：批量任务经 `PipelineEngine.startOrchestrated('story2video-compose', ...)` 启动，完成后自动进入既有「流水线记录/历史记录」，与手动启动任务同一条历史链路；批量 run 打标 `source='batch'` + `batchId/batchItemId`，不写 `_currentPipeline` 与 `_<name>` 索引（避免手动详情页串扰）。
+
+##### 二、数据校验（输入契约）
+
+| 输入 | 规则 | 错误码 |
+|------|------|--------|
+| 输入文案条数 | 1-10 条（`BATCH_MAX_TEXTS=10`）；0 条拒绝，>10 条拒绝 | `BATCH_NO_ITEMS` / `BATCH_ITEMS_LIMIT`（errorParams `{max:10}`） |
+| 单条文案 | 非空（trim 后）；按 Unicode code point 计数 ≤ 6,000（与手动流水线同一上限 `MAX_STORY2VIDEO_TEXT_UNICODE_CHARS`） | `BATCH_TEXT_EMPTY` / `BATCH_TEXT_TOO_LONG`（errorParams `{max:6000}`） |
+| 本地文件数量 | 1-20 个（`BATCH_MAX_FILES=20`） | `BATCH_NO_ITEMS` / `BATCH_ITEMS_LIMIT`（errorParams `{max:20}`） |
+| 文件扩展名 | 仅 `.txt` / `.md`（大小写不敏感） | `BATCH_FILE_EXT_UNSUPPORTED` |
+| 单文件大小 | ≤ 2MB（`BATCH_FILE_MAX_BYTES=2*1024*1024`） | `BATCH_FILE_TOO_LARGE`（errorParams `{maxMB:2}`） |
+| 文件可读性 | 文件必须存在、是普通文件、可读（UTF-8 解码） | `BATCH_FILE_UNREADABLE` |
+| 文件内容 | 读入后 trim 非空；字符数 ≤ 6,000 | `BATCH_FILE_CONTENT_EMPTY` / `BATCH_FILE_CONTENT_TOO_LONG` |
+| 参数结构 | `payload` 必须是对象；`mode` 必须是 `text` 或 `files` | `BATCH_INVALID_PAYLOAD` / `BATCH_INVALID_MODE` |
+| 批次存在性 | 取消/查询不存在的 batchId | `BATCH_NOT_FOUND` |
+
+- **fail-closed 整体拒绝**：任一输入项校验失败 → 整个批次不创建、不部分入队；返回 `failedItems` 数组（每项 `{label, index, errorCode, errorParams}`），前端展示首项标签与错误信息。
+- 前端提交前本地过滤空文案（trim），但条数/长度/文件校验以主进程为准（renderer 可提前提示，主进程是权威）。
+
+##### 三、队列调度规则（D2/D6）
+
+| 规则 | 说明 |
+|------|------|
+| 批量并行上限 | 同一时间最多 **2** 个批量任务运行（`BATCH_MAX_CONCURRENT=2`） |
+| 手动互斥 | 有手动任务运行中 → 批量任务同一时间最多运行 **1** 个 |
+| 全局预算 | 批量 + 手动运行总数 < 引擎全局 `maxConcurrentRuns`（`PIPELINE_CONCURRENCY_LIMIT`）；被引擎预算拒绝（`PIPELINE_CONCURRENCY_LIMIT` / 并发错误）→ 1s 退避后重试，**不标记失败** |
+| 队列顺序 | 按批次创建顺序 + 批内 item 顺序先进先出（`_collectPending`） |
+| 调度触发 | 创建批次 / run 终态事件（`pipeline:complete` / `pipeline:fail`）/ 取消 pending 后触发 `_drain`；`_drain` 为死循环补位，一轮可启动多个直到并行上限 |
+| 取消 | 仅 `pending`（排队中）项可取消（引擎无按 runId 取消接口，running/终态不可取消）；取消后触发补位调度 |
+
+##### 四、状态机（BATCH_ITEM_STATUS）
+
+```
+pending → running → completed   （pipeline:complete 事件）
+pending → running → failed      （pipeline:fail 事件；error 记录引擎错误）
+pending → cancelled             （仅排队中可取消）
+pending → failed                （启动失败：引擎拒绝非并发类错误，如执行器未配置）
+```
+
+- 批次摘要：`summary = { total, pending, running, completed, failed, cancelled }`，按批内 item 统计。
+- 运行中 item 附进度快照：`progress`（0-100 数字）与 `currentStage`（当前阶段名），经 `pipelineEngine.getRunSnapshot(runId)` 读取，读取失败不阻断列表。
+
+##### 五、流程与功能逻辑
+
+1. **启动流程**：弹窗内点击「启动」→ 前端构造 `story2videoTextConfigTemplate`（复用 `buildStory2VideoTextConfig()`，与手动流水线同一构造逻辑；删除 `prompt`，强制 `creation={mode:'auto',materialMode:'all-images'}`，`video.mode` 用弹窗下拉值）→ 调 `story2videoBatchCreate({ mode, texts|files, story2videoTextConfigTemplate, uiLocale })`。
+2. **主进程校验与入队**：队列服务逐项校验（见第二节）→ 全部通过后生成 `batchId`（`batch_<ts>_<rand>`）与 `itemId`（`batchId_i<index>`），全部 `pending` 入队 → 立即 `_drain` 调度 → 返回 `{success, batchId, items}`。
+3. **任务启动**：`_startItem` 将模板克隆、注入 `config.prompt = item.text`、`config.mode='text'`，以 `params = { text, inputMode:'text', checkpointPolicy:'none', autoAdvance:true, background:true, uiLocale, source:'batch', batchId, batchItemId, story2videoTextConfig }` 调 `startOrchestrated`；成功后 item 转 `running` 并记录 `runId/startedAt`。
+4. **历史记录集成**：批量 run 与手动 run 共用历史存储；run 打标后历史详情页/流水线记录不因批量 run 覆盖手动 `_currentPipeline`；已完成批量任务在「流水线记录」中可见（标题/文案为对应 item 的文本）。
+5. **弹窗轮询**：弹窗打开期间 3s 轮询 `story2videoBatchStatus()` 刷新批次列表；关闭弹窗后停止轮询，**队列在主进程继续后台运行**；再次打开弹窗恢复轮询与展示。
+
+##### 六、交互逻辑
+
+- 输入文案 tab：默认 1 个文本框；「+ 新增文案」每次追加 1 个，最多 10 个（满 10 禁用并提示「最多可输入 10 条文案」）；多于 1 条时每条右侧显示删除按钮；空文案在启动前被本地过滤（全空则本地拦截提示）。
+- 本地文件 tab：「选择文件」经原生对话框（`story2video:pick-batch-files`，`openFile + multiSelections`，过滤器 .txt/.md）；选择后展示文件名列表（可单个删除），重复路径去重；超出 20 个忽略超出部分并提示。
+- 启动成功后：清空输入（文案重置为 1 个空框 / 文件清空），刷新队列区显示新批次；失败（本地校验或 IPC 错误）在弹窗内展示错误（data-testid `s2v-batch-error`），不关闭弹窗。
+- 排队项操作：仅 `pending` 项显示「取消排队」按钮（data-testid `s2v-batch-item-cancel`），点击调 `story2videoBatchCancel(batchId, [itemId])` 后刷新。
+- 弹窗关闭：仅关闭展示，不取消任何任务；后台任务继续执行，历史记录照常写入。
+
+##### 七、显示项
+
+- 批次卡片（data-testid `s2v-batch-card-<batchId>`）：创建时间（本地时区 `YYYY-MM-DD HH:mm:ss`）、来源标签（「输入文案」/「本地文件」）、摘要（`N 运行中 · M 排队中 · K 已完成 · J 失败 · H 已取消`，无状态项不显示；全终态且无状态时显示「共 T 个任务」）。
+- 任务行（data-testid `s2v-batch-item-<itemId>`）：标签（文案 n / 文件名）、状态徽标（排队中/运行中/已完成/失败/已取消，class `status-<status>`）、运行中显示 `progress% · currentStage`、pending 显示取消按钮。
+- 空态：「暂无批量任务。启动后，任务与排队状态将显示在这里。」
+- 队列服务不可用（IPC 层 `code=-1`）：轮询静默保留旧列表，不打扰用户。
+
+##### 八、提示文字清单（zh / en，i18n 键 `create.story2video.batch.*`）
+
+| 场景 | zh | en |
+|------|----|----|
+| 入口按钮 `trigger` | 批量创作 | Batch create |
+| 弹窗标题 `dialogTitle` | 批量创作 | Batch create |
+| 视频增强模式 `videoModeLabel` | 视频增强模式 | Video enhancement mode |
+| 规则提示 `ruleHint` | 批量创作按队列依次运行，软件最大并行任务数量为 2。如果当前有正在执行中的手动任务，批量创作在同一时间只运行 1 个任务。 | Batch tasks run in a queue (max 2 in parallel). While a manual task is running, only 1 batch task runs at a time. |
+| 标签 `tabText` / `tabFiles` | 输入文案 / 本地文件 | Text input / Local files |
+| 文案占位 `textPlaceholder`（插值 index/max） | 输入第 {index} 条文案（每条最多 {max} 字） | Enter text {index} (max {max} chars each) |
+| 新增文案 `addText` / 上限 `textLimitHint` | 新增文案 / 最多可输入 10 条文案 | Add text / Up to 10 texts |
+| 选择文件 `pickFiles` / 提示 `fileHint` | 选择文件 / 仅支持 .txt / .md 文件，最多 20 个，单个文件最大 2MB。 | Choose files / Only .txt / .md files, up to 20 files, 2MB each. |
+| 文件空态 `fileEmpty` | 尚未选择文件。 | No files selected yet. |
+| 超限提示 `fileLimitError` | 最多选择 20 个文件，超出部分已忽略。 | Up to 20 files; extra selections were ignored. |
+| 选择失败 `pickFailed` | 打开文件选择窗口失败，请重试。 | Failed to open the file picker. Please retry. |
+| 队列标题 `queueTitle` / 空态 `queueEmpty` | 任务与排队 / 暂无批量任务。启动后，任务与排队状态将显示在这里。 | Tasks & queue / No batch tasks yet. Start a batch to see its queue status here. |
+| 状态徽标 `status{Pending,Running,Completed,Failed,Cancelled}` | 排队中 / 运行中 / 已完成 / 失败 / 已取消 | Queued / Running / Completed / Failed / Cancelled |
+| 摘要 `summary{Total,Running,Pending,Completed,Failed,Cancelled}`（插值 count/total） | 共 {total} 个任务 / {count} 运行中 / {count} 排队中 / {count} 已完成 / {count} 失败 / {count} 已取消 | {total} tasks / {count} running / {count} queued / {count} completed / {count} failed / {count} cancelled |
+| 取消排队 `cancelItem` | 取消排队 | Cancel queued task |
+| 启动 `start` / 关闭 `close` | 启动 / 关闭 | Start / Close |
+| 空输入拦截 `noTextError` / `noFileError` | 请至少输入 1 条文案。 / 请至少选择 1 个文件。 | Enter at least 1 text. / Choose at least 1 file. |
+| 启动失败 `createFailed`（插值 message） | 启动失败：{message} | Start failed: {message} |
+
+- 视频增强选项文案复用 `videoConfig.videoModeOff/Fixed/AiJudged`（zh/en 已有）。
+- 新建/修改 locale 必须 zh/en 成对提交（CI Gate 7 `check-locale-sync`）；CJK 基线按需 `--update-baseline`（无新增非 fallback 硬编码）。
+
+##### 九、IPC 契约
+
+| 通道 | 入参 | 返回（成功） | 返回（失败） |
+|------|------|--------------|--------------|
+| `story2video:batch:create` | `{ mode, texts?, files?, story2videoTextConfigTemplate?, uiLocale? }` | `{ code:0, data:{ batchId, items } }` | `{ code:-2, message, errorCode?, errorParams?, failedItems? }` |
+| `story2video:batch:status` | 无 | `{ code:0, data:[{ id, mode, createdAt, uiLocale, summary, items }] }` | `{ code:-1, message, data:[] }` |
+| `story2video:batch:cancel` | `{ batchId, itemIds? }` | `{ code:0, data:{ success, cancelled } }` | `{ code:-2, message, errorCode? }` |
+| `story2video:pick-batch-files` | 无 | `{ code:0, data:{ files:[{path,name}] } }`（取消返回空数组） | `{ code:-1, message }` |
+
+- 全部通道经 `withSenderCheck`（受信窗口校验）；create/status/cancel 属 `LOGIN_ONLY_FEATURE_MAP → story2video_write`（未登录拒绝）；pick-batch-files 为 `PUBLIC_CHANNELS`（本地对话框）。
+- 队列服务缺失（容器装配失败）时统一返回 `{ code:-1, message:'批量创作队列服务不可用' }`，不抛错。
+
+##### 十、回归保护测试
+
+- `electron/services/story2video-batch-queue.test.js`（15 用例）：校验/上限/扩展名/大小/内容、fail-closed 整体拒绝、并行≤2、手动互斥≤1、全局预算退避、取消仅 pending、终态事件、索引隔离、文件读取。
+- `electron/ipc-handlers/pipeline.test.js`（11 用例）：通道注册、参数校验、错误透传、受信窗口、dialog 过滤、服务缺失 fail-closed。
+- `src/views/CreateView.test.js`（7 用例）：按钮显隐、弹窗内容、+10 上限/删除、文件去重/20 上限、启动 payload（全自动模板 + 弹窗视频模式 + 无 prompt）、空输入拦截、失败透传 failedItems、排队取消。
+- `src/api/publisher.js` 四个封装走 `invokeWithFallback`，与现有 story2video API 同模式。
+
 #### 7.1.35 生成阶段三路并行与视频并发评估（2026-08-13）
 
 ##### 一、背景与问题
