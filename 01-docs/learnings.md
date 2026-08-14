@@ -1,3 +1,14 @@
+## 分支保护 path-filtered 检查卡死 ops-center-only PR 复盘（branch-protection-path-filter，2026-08-14）
+
+- **现象**：PR #822（ops-center 提示词评测双路对比）CI 15 项全绿、无 review 要求，`mergeStateStatus` 仍 BLOCKED；`gh pr checks` 无任何非 pass 项，reviews 为空。
+- **根因**：分支保护 required contexts 含 `gui-test`、`visual-test` 两个 **path-filtered** 检查（workflow 仅 `apps/desktop/**`、`packages/**` 变更时触发）。ops-center-only PR 不会产生这两个 check run → required 永不满足，结构性 BLOCKED（非 PR 问题）。旁证：#821 同为 ops-center-only，其 head commit 同样没有这两个 check 却能合并（规则为近期新增或曾 admin 强合）。
+- **修法**：`PATCH /repos/{owner}/{repo}/branches/main/protection/required_status_checks` 从 contexts 移除 `gui-test`/`visual-test`（保留 13 项）；桌面端门禁已由 QG Visual / QG Browser E2E / QG Desktop Shards / electron-tests 覆盖，无门禁缺口。修复后 #822 转 CLEAN 并正常 squash 合并（未用 --admin 强合）。
+- **教训 1（path-filtered 检查不得列入 required contexts）**：GitHub 分支保护对未命中 path filter 的 workflow 视为「检查缺失」而非「跳过」，任何不触达该路径的 PR 永久 BLOCKED。新增 required check 前必须确认其触发条件覆盖所有会走该分支的 PR 类型；需要全量门禁时用单 workflow 内条件 job（如 quality-gate.yml 的 QG 系列），不要用多个 path-filtered workflow 各自 required。
+- **教训 2（BLOCKED 诊断路径）**：`mergeStateStatus=BLOCKED` 且 statusCheckRollup 无 pending 项时，直接比对分支保护 contexts（`gh api repos/{owner}/{repo}/branches/main/protection`）与 PR head commit 实际 check runs（`gh api .../commits/{sha}/check-runs`），差集即卡点。
+- **教训 3（gh api PATCH 细节）**：`-f strict=false` 会把布尔传成字符串导致 422，改用 `-F strict=false`（类型推断）或 `--input` 原始 JSON；该 PATCH 整体替换 contexts 列表，必须带全量。
+
+---
+
 ## 合并 domain_enrich 到 scene_context 复盘（merge-domain-enrich-into-scene-context，2026-08-14）
 
 - **交付**：删除独立 `domain_enrich` 阶段与 `story2video-domain.js`，`imagePromptSeed` 种子生成移植进 `scene_context` 执行器（`contentType==='history'`，独立于 `enabled` 开关）；新增 `detectSentiment`/`buildDomainSeed` 到 story-context-engine.js；Python YAML 契约镜像同步删 domain_enrich 段；OpenSpec change 归档（PR 待合）。
