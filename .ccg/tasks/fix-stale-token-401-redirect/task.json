@@ -1,0 +1,14 @@
+{
+  "id": "fix-stale-token-401-redirect",
+  "title": "运营后台：过期/失效 token 导致半登录态，接口 401 令牌无效且无跳转登录页",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ops-center/frontend",
+  "currentPhase": "review",
+  "nextAction": "PR 合并后归档",
+  "createdAt": "2026-08-14T18:20:00+08:00",
+  "completedAt": "2026-08-14T18:35:00+08:00",
+  "branch": "codex/fix-stale-token-redirect",
+  "remoteStatus": "pending-pr"
+}
