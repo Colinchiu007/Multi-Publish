@@ -608,44 +608,62 @@ async function buildManualSceneCandidates (ctx) {
     const videoFps = Number(params.fps || (params.output && params.output.fps) || (stage && stage.options && stage.options.fps)) || 30
     const videoRunDir = path.join(os.tmpdir(), 'story2video', 'videoscenes', String(runId || 'run'))
     const planScenes = Array.isArray(videoPlan && videoPlan.scenes) ? videoPlan.scenes : []
-    videoPromise = _mapWithConcurrency(videoSceneIndexes, effectiveVideoConcurrency, async (index) => {
-      const promptItem = optimizedPrompts[index]
-      const promptText = typeof promptItem === 'string'
-        ? promptItem
-        : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
-      if (!promptText) {
-        videoResults.set(index, { success: false, error: '视频场景缺少提示词' })
-        videosDone += 1
-        writeAssetsProgress()
-        return { index, success: false }
-      }
-      let videoPromptText = promptText
-      const bus = serviceBus || pipelineEngine.serviceBus
-      if (bus && typeof bus.optimizeVideoPrompt === 'function') {
-        try {
-          const optResult = await bus.optimizeVideoPrompt(promptText, {
-            platform: videoGenerator.providerId || undefined,
-            ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
-            traceId: runId,
-          })
-          const validated = extractOptimizedVideoPrompt(optResult, { index })
-          if (!validated.ok) throw new Error(validated.error)
-          videoPromptText = validated.prompt
-        } catch (error) {
-          log.warn('Story2VideoStages', 'scene ' + index + ' manual video prompt optimize failed: ' +
-            (error && error.message ? error.message : String(error)) + ' → fallback to images only')
-          videoResults.set(index, { success: false, error: '视频提示词优化失败：' + (error && error.message ? error.message : String(error)) })
-          videosDone += 1
-          writeAssetsProgress()
-          return { index, success: false }
+    // Round3 B 跨镜承接：视频提示词按场景顺序串行优化（prev_final_frame 链），生成仍按预算并发；
+    // 优化失败场景按混合模式回退（images only）。终态回写 scenes[index].video.final_frame 供后续镜承接。
+    const optimizedVideoPrompts = new Map()
+    if (videosTotal > 0) {
+      const scenesRef = getOptimizationScenes(context || {})
+      let lastFinalFrame = ''
+      for (const index of videoSceneIndexes) {
+        const promptItem = optimizedPrompts[index]
+        const promptText = typeof promptItem === 'string'
+          ? promptItem
+          : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
+        if (!promptText) {
+          optimizedVideoPrompts.set(index, { error: '视频场景缺少提示词' })
+          continue
         }
-      } else {
-        log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → manual video fallback to images only')
-        videoResults.set(index, { success: false, error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' })
+        const bus = serviceBus || pipelineEngine.serviceBus
+        if (bus && typeof bus.optimizeVideoPrompt === 'function') {
+          try {
+            const optResult = await bus.optimizeVideoPrompt(promptText, {
+              platform: videoGenerator.providerId || undefined,
+              ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
+              ...(lastFinalFrame ? { prev_final_frame: lastFinalFrame } : {}),
+              traceId: runId,
+            })
+            const validated = extractOptimizedVideoPrompt(optResult, { index })
+            if (!validated.ok) throw new Error(validated.error)
+            optimizedVideoPrompts.set(index, { prompt: validated.prompt })
+            const finalFrame = (validated.video && typeof validated.video.final_frame === 'string') ? validated.video.final_frame : ''
+            if (finalFrame) {
+              lastFinalFrame = finalFrame
+              const sceneObj = Array.isArray(scenesRef) ? scenesRef[index] : null
+              if (sceneObj && typeof sceneObj === 'object' && !Array.isArray(sceneObj)) {
+                if (!sceneObj.video || typeof sceneObj.video !== 'object') sceneObj.video = {}
+                sceneObj.video.final_frame = finalFrame
+              }
+            }
+          } catch (error) {
+            log.warn('Story2VideoStages', 'scene ' + index + ' manual video prompt optimize failed: ' +
+              (error && error.message ? error.message : String(error)) + ' → fallback to images only')
+            optimizedVideoPrompts.set(index, { error: '视频提示词优化失败：' + (error && error.message ? error.message : String(error)) })
+          }
+        } else {
+          log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → manual video fallback to images only')
+          optimizedVideoPrompts.set(index, { error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' })
+        }
+      }
+    }
+    videoPromise = _mapWithConcurrency(videoSceneIndexes, effectiveVideoConcurrency, async (index) => {
+      const prep = optimizedVideoPrompts.get(index)
+      if (!prep || prep.error || !prep.prompt) {
+        videoResults.set(index, { success: false, error: (prep && prep.error) || '视频场景缺少提示词' })
         videosDone += 1
         writeAssetsProgress()
         return { index, success: false }
       }
+      const videoPromptText = prep.prompt
       const planScene = planScenes.find(scene => scene.index === index)
       let outcome
       try {
@@ -1908,6 +1926,56 @@ function registerStory2VideoStages(pipelineEngine) {
         const videoConcurrency = resolveBudgetConcurrency('video', videoGenerator.providerId, requestedVideoConcurrency);
         log.info('Story2VideoStages', 'video generation concurrency=' + videoConcurrency +
           ' (requested=' + requestedVideoConcurrency + ', scenes=' + videosTotal + ')');
+        // Round3 B 跨镜承接：视频提示词按场景顺序串行优化（prev_final_frame 链），生成仍按预算并发；
+        // 优化失败场景按混合模式回退图片轮播。终态回写 scenes[index].video.final_frame 供后续镜承接。
+        const optimizedVideoPrompts = new Map();
+        if (videosTotal > 0) {
+          const scenesRef = getOptimizationScenes(context || {});
+          let lastFinalFrame = '';
+          for (const index of videoSceneIndexes) {
+            const resumed = resumeCompleted.get(index);
+            if (resumed && typeof resumed.videoPath === 'string' && fs.existsSync(resumed.videoPath)) continue;
+            const promptItem = optimizedPrompts[index];
+            const promptText = typeof promptItem === 'string'
+              ? promptItem
+              : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '');
+            if (!promptText) {
+              optimizedVideoPrompts.set(index, { error: '视频场景缺少提示词' });
+              continue;
+            }
+            const bus = serviceBus || pipelineEngine.serviceBus;
+            if (bus && typeof bus.optimizeVideoPrompt === 'function') {
+              try {
+                const optResult = await bus.optimizeVideoPrompt(promptText, {
+                  platform: videoGenerator.providerId || undefined,
+                  ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
+                  ...(lastFinalFrame ? { prev_final_frame: lastFinalFrame } : {}),
+                  traceId: runId,
+                });
+                const validated = extractOptimizedVideoPrompt(optResult, { index });
+                if (!validated.ok) throw new Error(validated.error);
+                optimizedVideoPrompts.set(index, { prompt: validated.prompt });
+                const finalFrame = (validated.video && typeof validated.video.final_frame === 'string') ? validated.video.final_frame : '';
+                if (finalFrame) {
+                  lastFinalFrame = finalFrame;
+                  const sceneObj = Array.isArray(scenesRef) ? scenesRef[index] : null;
+                  if (sceneObj && typeof sceneObj === 'object' && !Array.isArray(sceneObj)) {
+                    if (!sceneObj.video || typeof sceneObj.video !== 'object') sceneObj.video = {};
+                    sceneObj.video.final_frame = finalFrame;
+                  }
+                }
+              } catch (error) {
+                log.warn('Story2VideoStages', 'scene ' + index + ' video prompt optimize failed: ' +
+                  (error && error.message ? error.message : String(error)) + ' → fallback to image carousel');
+                optimizedVideoPrompts.set(index, { error: '视频提示词优化失败：' +
+                  (error && error.message ? error.message : String(error)) });
+              }
+            } else {
+              log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → fallback to image carousel');
+              optimizedVideoPrompts.set(index, { error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' });
+            }
+          }
+        }
         videoPromise = _mapWithConcurrency(videoSceneIndexes, videoConcurrency, async (index) => {
           const resumed = resumeCompleted.get(index);
           if (resumed && typeof resumed.videoPath === 'string' && fs.existsSync(resumed.videoPath)) {
@@ -1915,44 +1983,13 @@ function registerStory2VideoStages(pipelineEngine) {
             markVideoDone();
             return { index, success: true };
           }
-          const promptItem = optimizedPrompts[index];
-          const promptText = typeof promptItem === 'string'
-            ? promptItem
-            : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '');
-          if (!promptText) {
-            videoResults.set(index, { success: false, error: '视频场景缺少提示词' });
+          const prep = optimizedVideoPrompts.get(index);
+          if (!prep || prep.error || !prep.prompt) {
+            videoResults.set(index, { success: false, error: (prep && prep.error) || '视频场景缺少提示词' });
             markVideoDone();
             return { index, success: false };
           }
-
-          // 视频提示词统一走 prompt-engine（domain=video）：不得把图片优化提示词直接当视频提示词用。
-          // 混合模式语义：视频优化失败 → 该场景回退图片轮播，不中断整条流水线（PRD 7.1.x）。
-          let videoPromptText = promptText;
-          const bus = serviceBus || pipelineEngine.serviceBus;
-          if (bus && typeof bus.optimizeVideoPrompt === 'function') {
-            try {
-              const optResult = await bus.optimizeVideoPrompt(promptText, {
-                platform: videoGenerator.providerId || undefined,
-                ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
-                traceId: runId,
-              });
-              const validated = extractOptimizedVideoPrompt(optResult, { index });
-              if (!validated.ok) throw new Error(validated.error);
-              videoPromptText = validated.prompt;
-            } catch (error) {
-              log.warn('Story2VideoStages', 'scene ' + index + ' video prompt optimize failed: ' +
-                (error && error.message ? error.message : String(error)) + ' → fallback to image carousel');
-              videoResults.set(index, { success: false, error: '视频提示词优化失败：' +
-                (error && error.message ? error.message : String(error)) });
-              markVideoDone();
-              return { index, success: false };
-            }
-          } else {
-            log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → fallback to image carousel');
-            videoResults.set(index, { success: false, error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' });
-            markVideoDone();
-            return { index, success: false };
-          }
+          const videoPromptText = prep.prompt;
 
           const planScene = planScenes.find(scene => scene.index === index);
           const runItem = () => withAssetTransientRetry(() => generateSceneVideo({

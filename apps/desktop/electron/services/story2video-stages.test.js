@@ -1848,6 +1848,74 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     expect(callAdapter).toHaveBeenCalledWith('kling', 'generateVideo', expect.objectContaining({ prompt: '[video-opt] image-optimized-prompt-0' }))
   })
 
+  it('跨镜承接：视频场景按场景顺序串行优化，prev_final_frame 链式透传并回写 final_frame（Round3 B）', async () => {
+    if (skipIfNoMedia()) return
+    const callAdapter = vi.fn(async (_provider, method) => {
+      if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-chain' } }
+      if (method === 'getVideoStatus') return { videoUrl: baseUrl }
+      return { code: 0 }
+    })
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn((type) => type === 'video'
+          ? { id: 'kling', models: ['kling-v1'] }
+          : { id: 'openai', models: ['gpt-4.1-mini'] }),
+        callAdapter,
+      },
+    }
+    const fn = makeBlendPipeline(aiGenerator)
+    const context = {
+      split: [{ text: '一' }, { text: '二' }],
+      optimize: ['video-prompt-0', 'video-prompt-1'],
+      video_plan: {
+        mode: 'fixed',
+        scenes: [
+          { index: 0, useVideo: true, seconds: 6 },
+          { index: 1, useVideo: true, seconds: 6 },
+        ],
+        selectedCount: 2,
+      },
+    }
+    let releaseFirst
+    const firstGate = new Promise((resolve) => { releaseFirst = resolve })
+    let firstStarted = false
+    const optimizeVideoPrompt = vi.fn(async (prompt) => {
+      if (!firstStarted) {
+        firstStarted = true
+        await firstGate
+      }
+      const index = prompt.endsWith('1') ? 1 : 0
+      return { optimized_prompt: '[video-opt] ' + prompt, video: { final_frame: 'end-' + index } }
+    })
+    const runPromise = fn({
+      runId: 'run_chain',
+      stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: 'kling-v1', pollIntervalMs: 5 } } },
+      params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+      context,
+      serviceBus: {
+        optimizeVideoPrompt,
+        generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'aud-' + index + '.mp3', duration: 2 } })),
+        callPythonSkill: vi.fn(async (_skill, payload) => ({ code: 0, data: { path: 'img-' + payload.index + '.png' } })),
+      },
+    })
+    // 第一次优化被 gate 卡住：第二个场景的优化不得开始（串行链）
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(optimizeVideoPrompt).toHaveBeenCalledTimes(1)
+    releaseFirst()
+    const result = await runPromise
+    expect(result.success).toBe(true)
+    expect(optimizeVideoPrompt).toHaveBeenCalledTimes(2)
+    // 首场景无 prev_final_frame；次场景携带上一镜 final_frame
+    expect(optimizeVideoPrompt.mock.calls[0][1]).not.toHaveProperty('prev_final_frame')
+    expect(optimizeVideoPrompt).toHaveBeenNthCalledWith(2, 'video-prompt-1', expect.objectContaining({ prev_final_frame: 'end-0' }))
+    // 终态回写 scenes[index].video.final_frame 供后续镜承接
+    expect(context.split[0].video.final_frame).toBe('end-0')
+    expect(context.split[1].video.final_frame).toBe('end-1')
+    // 生成提交使用预优化提示词
+    expect(callAdapter).toHaveBeenCalledWith('kling', 'generateVideo', expect.objectContaining({ prompt: '[video-opt] video-prompt-0' }))
+    expect(callAdapter).toHaveBeenCalledWith('kling', 'generateVideo', expect.objectContaining({ prompt: '[video-opt] video-prompt-1' }))
+    expect(result.output.scenes).toHaveLength(2)
+  })
   it('视频提示词优化失败时该场景回退图片轮播，不中断整条流水线', async () => {
     if (skipIfNoMedia()) return
     const callAdapter = vi.fn(async () => ({ code: 0 }))
