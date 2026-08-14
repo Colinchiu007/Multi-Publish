@@ -8,6 +8,13 @@
   - 渲染端：BGM 配置区改为 `<select data-testid="s2v-bgm-select">`（空选项「不使用背景音乐」+ 库条目 + 历史路径兼容「已选音频（未入库）」）；「管理背景音乐」弹窗（UiModal）：添加（自动选中 + input 清空支持连续选择）、行内重命名（Enter/Esc）、删除（二次确认，删除选中项回退为不使用）；文案 zh/en 成对新增。
 - 测试：服务层 16/16、路径白名单 34/34（含 electron DI 2 例）、IPC handlers 8 例、preload 333/333、CreateView 174/174 全绿；e2e ipc-mock 增补 4 方法。
 - 文档：OpenSpec change `bgm-library`；`01-docs/PRD-video-creation.md` 新增 3.1.25 合同 + 修订记录 + 3.5 表格更新。
+## [2026-08-14] Higgsfield P0 契约边界上浮与双形态收敛（higgsfield-engine-p0，PR #795）
+
+- 视频契约 standalone 长度上浮至 [200,5000]（对齐引擎侧 8020 精修层 5000 上限）；`_resolveVideoMaxLength` 增 batchDefault 参数：8013 batch 保持 500 零回归、8020 batch 默认 1800 对齐引擎默认值。
+- `_normalizeNoSwapPairs` 双形态兼容（对象 {from,to} + 二元组 [from,to]）→ 规范二元组；`appendVideoTrailer` 词边界幂等（`(?<![A-Za-z0-9])non-ip`）+ `Math.floor` 取整对齐引擎（5.5→5s）。
+- 规格同步：`openspec/specs/video-prompt-engine/spec.md` max_length 4000→5000（3 处残留）。
+- 测试：`video-prompt-engine-contract.test.js` + `prompt-engine-kernel.test.js` 98 passed（contract 85 + kernel 13）。
+- 双模型评审：两轮（Claude + codex）0 Critical / 0 Warning 遗留，评审记录见 `.ccg/tasks/higgsfield-engine-p0/review.md`；引擎侧配套 PR prompt-engine#35。
 
 ## [2026-08-14] 提示词引擎共享内核重构 + Higgsfield 导演工作流机制落地（prompt-engine-kernel-refactor + video-prompt-higgsfield-mechanics，PR #793）
 
