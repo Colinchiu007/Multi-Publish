@@ -1,3 +1,16 @@
+## [2026-08-14] 运营后台提示词评测：双路对比（人工 vs 引擎优化）（prompt-eval-engine-dual-path）
+
+- 需求：在运营后台「提示词评测」接入提示词优化引擎，双路并行评估人工提示词与引擎优化提示词，量化引擎提升率（方案 B，OpenSpec change `prompt-eval-engine-dual-path`）。
+- 后端：
+  - 新增 `services/prompt_eval_engine_client.py`：`POST {base}/v1/optimize` 客户端（20s 超时 + 5xx 有界重试 1 次），fail closed——超时/传输错误/非法 JSON/空或非字符串 `optimized_prompt`/引擎内部 `error` 字段一律抛 `EngineUnavailableError`（不静默降级到人工提示词）；`GET {base}/health` 连通性探测；context 透传白名单键（JSON dict / `full_text` ≤500 字）。
+  - `PromptEvalCase` + `compare_mode`（single/dual）+ `engine_params`（creative_level 1-10、num_candidates 1-5）；`PromptEvalRun` + `prompt_variant`（manual/engine）+ `prompt_source_zh` 快照 + `engine_meta`（pair_id/参数/模型/耗时）+ 变体 `prompt_zh/prompt_en` 快照。
+  - `create_run` 双路派生：同 `pair_id` 配对，engine 变体同步调引擎并落中英快照（`translation.translate_prompt_zh` 标注机器翻译）；引擎失败 → `engineError`（`OPS_PROMPT_EVAL_ENGINE_UNAVAILABLE` / `engine_translate` 阶段标记）+ 持久化到 manual run `engine_meta.engine_error`，manual 变体独立创建、独立起流水线（`variant_snapshot` 支持 dict 快照，manual 优先 `prompt_source_zh`）。
+  - `GET /prompt-eval/engine/status`（admin）：/health 探测，失败 503 + 错误码；`summary` 新增 `dual` 聚合区块（pairCount/manualAverage/engineAverage/averageDiff/improvementRate 分母 0→null/dimensionDiffs/gradeDistributionDiff，仅统计双路均成功的成对 run）。
+  - 迁移 `ensure_prompt_eval_dual_columns`：存量库幂等 ALTER 补 7 列。
+- 前端：新建表单「对比模式」单选（单路/双路）+ 引擎参数折叠（创意等级/候选数）；详情 runs 带变体标签（人工/引擎）+ 双路并排对比卡片（提示词/翻译/图片/维度/问题）；聚合 tab 双路对比卡片（平均分差/提升率/维度均值差/等级分布差异）+ 引擎连通性探测按钮。
+- 测试：新增 `test_prompt_eval_engine_dual.py` 25 例（真网络栈假引擎覆盖 200/5xx 重试/超时/非法 JSON/fail closed、双路派生/不可达/翻译失败/状态机独立/聚合配对/迁移幂等/engine-status）；既有 prompt-eval 回归 31 例全绿；全量 pytest 242 通过（3 例 scheduler 顺序敏感失败单跑全绿，与本次无关）；前端 `npm run build` 通过。
+- 评审：Claude 双模型评审 1 Critical（C1 前端未传 compare_mode，已修）+ 4 Warning（W3/W4 已修，W1 顶层聚合按 run 统计为 v1 语义、W2 引擎同步调用为 v1 设计）+ Info（I12 已修，其余记录）；antigravity 地区不可用降级记录见 `.ccg/tasks/prompt-eval-engine-dual-path/review.md`。
+
 ## [2026-08-14] fix(ops-center): 场景模式批量生成中英对照 0 成功 3 失败——LLM 密钥未配置时 fail-fast 明确提示（scene-translate-llm-key）
 
 - 现象：提示词评测工作台场景模式分句后点「批量生成中英对照」，提示「0 个成功，3 个失败（场景 1、2、3，请单独重试）」；后端日志 `POST /api/v1/prompt-eval/cases/{id}/scenes/{id}/translate` 全部 502。

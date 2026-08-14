@@ -25,6 +25,25 @@
           </el-form-item>
           <el-form-item label="图片数"><el-input-number v-model="form.image_count" :min="1" :max="20" /></el-form-item>
           <el-form-item label="画幅"><el-select v-model="form.aspect_ratio" style="width: 160px"><el-option v-for="r in ['1:1','16:9','9:16','3:4','4:3']" :key="r" :label="r" :value="r" /></el-select></el-form-item>
+          <el-form-item label="对比模式">
+            <el-radio-group v-model="form.compare_mode">
+              <el-radio-button value="single">单路（人工提示词）</el-radio-button>
+              <el-radio-button value="dual">双路对比（人工 vs 引擎优化）</el-radio-button>
+            </el-radio-group>
+            <span class="muted" style="margin-left: 8px">双路：同 case 并行评估人工与提示词引擎优化两版，自动算提升率</span>
+          </el-form-item>
+          <el-form-item v-if="form.compare_mode === 'dual'" label="引擎参数">
+            <el-collapse style="width: 100%">
+              <el-collapse-item title="提示词优化引擎参数">
+                <div class="engine-params">
+                  <span class="muted">创意等级</span>
+                  <el-input-number v-model="form.engine_creative_level" :min="1" :max="10" />
+                  <span class="muted" style="margin-left: 12px">候选数</span>
+                  <el-input-number v-model="form.engine_num_candidates" :min="1" :max="5" />
+                </div>
+              </el-collapse-item>
+            </el-collapse>
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="translating" @click="doTranslate">生成英文对照</el-button>
             <el-button type="success" :loading="running" @click="doCreateRun">生成并评估</el-button>
@@ -142,7 +161,7 @@
           <div v-if="detail" class="case-detail">
             <div class="four-col">
               <div class="col"><h4>原文</h4><pre>{{ detail.case.source_text }}</pre></div>
-              <div class="col"><h4>中英提示词</h4><pre>{{ detail.case.prompt_zh }}</pre><pre v-if="detail.case.prompt_en">{{ detail.case.prompt_en }}</pre></div>
+              <div class="col"><h4>中英提示词{{ currentRun ? '（' + variantLabel(currentRun.prompt_variant) + '）' : '' }}</h4><pre>{{ currentRun?.prompt_zh || currentRun?.prompt_source_zh || detail.case.prompt_zh }}</pre><pre v-if="currentRun?.prompt_en || detail.case.prompt_en">{{ currentRun?.prompt_en || detail.case.prompt_en }}</pre></div>
               <div class="col">
                 <h4>生成物</h4>
                 <div v-for="(img, i) in currentRun?.image_paths || []" :key="i" class="thumb"><img :src="mediaUrl(img)" :alt="'图片'+i" /></div>
@@ -151,7 +170,22 @@
             </div>
             <div class="runs-bar">
               <h4>多次生成对比</h4>
-              <el-button v-for="r in detail.runs" :key="r.id" size="small" :type="currentRunId === r.id ? 'primary' : 'default'" @click="selectRun(r.id)">run #{{ r.id }}（{{ r.overall_score ?? '-' }}）</el-button>
+              <el-button v-for="r in detail.runs" :key="r.id" size="small" :type="currentRunId === r.id ? 'primary' : 'default'" @click="selectRun(r.id)">run #{{ r.id }}（{{ variantLabel(r.prompt_variant) }} {{ r.overall_score ?? '-' }}）</el-button>
+            </div>
+            <div v-if="dualPairs.length" class="dual-compare">
+              <h4>双路并排对比（{{ dualPairs.length }} 对）</h4>
+              <div v-for="pair in dualPairs" :key="pair.pair_id" class="pair-card">
+                <div class="pair-head">配对 #{{ pair.pair_id.slice(0, 8) }}</div>
+                <div class="pair-grid">
+                  <div v-for="v in pair.runs" :key="v.id" class="pair-col" :class="v.prompt_variant">
+                    <div class="pair-title">{{ variantLabel(v.prompt_variant) }}（{{ v.overall_score ?? '-' }} / {{ gradeLabel(v.grade) }}）</div>
+                    <pre>{{ v.prompt_zh || detail.case.prompt_zh }}</pre>
+                    <div v-if="v.prompt_en" class="en-prompt"><el-tag size="small" type="info">机器翻译</el-tag><pre>{{ v.prompt_en }}</pre></div>
+                    <div v-for="d in v.dimensions || []" :key="d.id" class="dim-row"><span class="dim-label">{{ d.id }}</span><el-progress :percentage="d.score" :stroke-width="8" style="width: 100px" /></div>
+                    <div v-for="(prob, i) in (v.problems || []).slice(0, 3)" :key="'p'+i" class="problem">[{{ prob.severity }}] {{ prob.category }}</div>
+                  </div>
+                </div>
+              </div>
             </div>
             <div v-if="detail.scenes" class="scenes-detail">
               <h4>场景层</h4>
@@ -163,7 +197,11 @@
 
       <!-- ============ 聚合分析 ============ -->
       <el-tab-pane label="聚合分析" name="summary">
-        <el-button size="small" @click="loadSummary">刷新</el-button>
+        <div style="margin-bottom: 8px">
+          <el-button size="small" @click="loadSummary">刷新</el-button>
+          <el-button size="small" :loading="engineChecking" @click="checkEngineStatus">引擎连通性</el-button>
+          <span v-if="engineStatus" class="muted" style="margin-left: 8px">{{ engineStatus }}</span>
+        </div>
         <template v-if="stats">
           <div class="stat-cards">
             <el-card shadow="never" class="stat-card"><div class="stat-num">{{ stats.recordCount }}</div><div class="muted">评估记录</div></el-card>
@@ -174,6 +212,19 @@
           <h4>问题类别分布</h4><div v-for="c in stats.problemCategories" :key="c.category" class="cat-line">{{ c.category }}：{{ c.count }} 次</div>
           <h4>优化点汇总</h4><div v-for="pt in stats.optimizationPoints" :key="pt.type" class="cat-line">{{ pt.type }}：{{ pt.count }} 次</div>
           <h4>按 Provider/模型 对比</h4><div v-for="p in stats.providerComparison" :key="p.provider" class="cat-line">{{ p.provider }}：平均 {{ p.average }}（{{ p.count }} 条）</div>
+          <template v-if="stats.dual && stats.dual.pairCount > 0">
+            <h4>双路对比（人工 vs 引擎优化）</h4>
+            <div class="stat-cards">
+              <el-card shadow="never" class="stat-card"><div class="stat-num">{{ stats.dual.pairCount }}</div><div class="muted">成对评测</div></el-card>
+              <el-card shadow="never" class="stat-card"><div class="stat-num">{{ stats.dual.manualAverage }}</div><div class="muted">人工平均分</div></el-card>
+              <el-card shadow="never" class="stat-card"><div class="stat-num" :class="{ 'up': stats.dual.averageDiff > 0 }">{{ stats.dual.engineAverage }}</div><div class="muted">引擎平均分</div></el-card>
+              <el-card shadow="never" class="stat-card"><div class="stat-num" :class="{ 'up': stats.dual.averageDiff > 0 }">{{ stats.dual.averageDiff > 0 ? '+' : '' }}{{ stats.dual.averageDiff }}</div><div class="muted">平均分差</div></el-card>
+            </div>
+            <div class="cat-line">提升率：{{ stats.dual.improvementRate === null ? '—' : stats.dual.improvementRate + '%' }}</div>
+            <h4>维度均值差</h4>
+            <div v-for="d in stats.dual.dimensionDiffs" :key="d.id" class="cat-line">{{ d.id }}：人工 {{ d.manualAverage }} → 引擎 {{ d.engineAverage }}（{{ d.diff > 0 ? '+' : '' }}{{ d.diff }}）</div>
+            <h4>等级分布差异</h4><pre>{{ JSON.stringify(stats.dual.gradeDistributionDiff, null, 2) }}</pre>
+          </template>
         </template>
       </el-tab-pane>
     </el-tabs>
@@ -187,12 +238,12 @@ import {
   listPromptEvalCases, getPromptEvalCase, deletePromptEvalCase, getPromptEvalSummary,
   listPromptEvalProviders, getPromptEvalRun, mediaUrl,
   createPromptEvalSceneCase, translatePromptEvalScene, createPromptEvalSceneRun,
-  listPromptEvalCaseRuns,
+  listPromptEvalCaseRuns, getPromptEvalEngineStatus,
 } from '../api/promptEval'
 
 const tab = ref('create')
 const mode = ref('manual')
-const form = ref({ title: '', source_text: '', context: '', prompt_zh: '', prompt_en: '', provider: 'minimax-image', model: 'image-01', image_count: 1, aspect_ratio: '1:1' })
+const form = ref({ title: '', source_text: '', context: '', prompt_zh: '', prompt_en: '', provider: 'minimax-image', model: 'image-01', image_count: 1, aspect_ratio: '1:1', compare_mode: 'single', engine_creative_level: 8, engine_num_candidates: 3 })
 const sceneForm = ref({ title: '', source_text: '', target_chars_per_scene: 20, subtitle_min_chars: 8, subtitle_max_chars: 15, subtitle_timing: 'proportional', provider: 'minimax-image', model: 'image-01', image_count: 1, aspect_ratio: '1:1' })
 const providerOptions = ref([])
 const providerConfigured = computed(() => providerOptions.value.length > 0)
@@ -205,6 +256,8 @@ const drawerVisible = ref(false)
 const currentRunId = ref(null)
 const currentRun = computed(() => detail.value?.runs?.find(r => r.id === currentRunId.value) || detail.value?.runs?.[0])
 const stats = ref(null)
+const engineChecking = ref(false)
+const engineStatus = ref('')
 
 // 场景模式状态
 const scenes = ref([])
@@ -220,6 +273,21 @@ let scenePollTimer = null
 
 const GRADE_LABELS = { excellent: '优秀', good: '良好', fair: '一般', poor: '差' }
 const gradeLabel = g => GRADE_LABELS[g] || g
+const VARIANT_LABELS = { manual: '人工', engine: '引擎' }
+const variantLabel = v => VARIANT_LABELS[v] || v
+const dualPairs = computed(() => {
+  const runs = detail.value?.runs || []
+  const byPair = {}
+  for (const r of runs) {
+    const pid = r.engine_meta?.pair_id
+    if (!pid) continue
+    ;(byPair[pid] = byPair[pid] || []).push(r)
+  }
+  return Object.entries(byPair)
+    .filter(([, rs]) => rs.some(x => x.prompt_variant === 'manual') && rs.some(x => x.prompt_variant === 'engine'))
+    .map(([pair_id, rs]) => ({ pair_id, runs: rs }))
+    .sort((a, b) => b.pair_id.localeCompare(a.pair_id))
+})
 const statusText = r => (r.eval_status === 'succeeded' ? '评估完成' : r.status === 'processing' ? '生成中' : r.eval_status === 'evaluating' ? '评估中' : r.status)
 const runStatusText = r => {
   if (!r) return '-'
@@ -281,13 +349,29 @@ async function doCreateRun() {
   running.value = true
   try {
     const cid = await ensureCase()
-    await createPromptEvalRun(cid)
+    const created = await createPromptEvalRun(cid)
+    if (created && created.engineError) {
+      errorMsg.value = '引擎优化变体失败（人工变体已启动）：' + created.engineError
+    }
     tab.value = 'list'
     await loadCases()
   } catch (e) {
     errorMsg.value = '启动失败：' + (e?.response?.data?.detail || e.message)
   } finally {
     running.value = false
+  }
+}
+
+async function checkEngineStatus() {
+  engineChecking.value = true
+  engineStatus.value = ''
+  try {
+    const s = await getPromptEvalEngineStatus()
+    engineStatus.value = `引擎正常（${s.latency_ms}ms，${s.base_url}）`
+  } catch (e) {
+    engineStatus.value = e?.response?.data?.detail || '引擎不可达'
+  } finally {
+    engineChecking.value = false
   }
 }
 
@@ -519,4 +603,14 @@ onBeforeUnmount(() => {
 .scene-actions { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-meta { font-size: 12px; color: #909399; }
 .score { font-weight: 600; color: #409eff; }
+.engine-params { display: flex; align-items: center; gap: 8px; }
+.dual-compare { margin-top: 16px; }
+.pair-card { border: 1px solid #e4e7ed; border-radius: 8px; padding: 12px; margin-bottom: 12px; background: #fff; }
+.pair-head { font-size: 12px; color: #909399; margin-bottom: 8px; }
+.pair-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pair-col { border: 1px solid #ebeef5; border-radius: 6px; padding: 10px; }
+.pair-col.engine { background: #f0f9eb; }
+.pair-col pre { background: #f5f7fa; padding: 8px; border-radius: 6px; white-space: pre-wrap; font-size: 12px; max-height: 160px; overflow: auto; margin: 0 0 8px; }
+.pair-title { font-weight: 600; margin-bottom: 8px; }
+.stat-num.up { color: #67c23a; }
 </style>

@@ -4,10 +4,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import datetime
+import logging
 import hashlib
 import json
 import os
 import pathlib
+import uuid
 
 from cryptography.fernet import Fernet
 from sqlalchemy import select, desc, func
@@ -18,6 +20,9 @@ from services import prompt_eval_contract as contract
 from services import prompt_eval_generation_service as generation
 from services import prompt_eval_translation_service as translation
 from services import prompt_eval_evaluation_service as evaluation
+from services import prompt_eval_engine_client as engine_client
+
+logger = logging.getLogger("ops-center.prompt-eval")
 
 
 def _now() -> str:
@@ -81,6 +86,27 @@ def validate_case_body(body: dict, require_prompt_zh: bool = True) -> dict:
     aspect_ratio = str(body.get("aspect_ratio") or "1:1").strip()
     if aspect_ratio not in contract.ASPECT_RATIOS:
         raise ValueError(f"aspect_ratio 必须是 {contract.ASPECT_RATIOS}")
+    compare_mode = str(body.get("compare_mode") or "single").strip()
+    if compare_mode not in ("single", "dual"):
+        raise ValueError("compare_mode 必须是 single 或 dual")
+    engine_params = None
+    if compare_mode == "dual":
+        creative_level = body.get("engine_creative_level")
+        if creative_level is None:
+            creative_level = body.get("creative_level", 8)
+        if not isinstance(creative_level, int) or isinstance(creative_level, bool) or not (1 <= creative_level <= 10):
+            raise ValueError("engine creative_level 必须是 1-10 的整数")
+        num_candidates = body.get("engine_num_candidates")
+        if num_candidates is None:
+            num_candidates = body.get("num_candidates", 3)
+        if not isinstance(num_candidates, int) or isinstance(num_candidates, bool) or not (1 <= num_candidates <= 5):
+            raise ValueError("engine num_candidates 必须是 1-5 的整数")
+        engine_params = {
+            "creative_level": creative_level,
+            "num_candidates": num_candidates,
+            "excluded_characters": body.get("engine_excluded_characters") or [],
+            "no_swap_pairs": body.get("engine_no_swap_pairs") or [],
+        }
     return {
         "title": str(body.get("title") or "").strip()[:200],
         "source_text": source_text,
@@ -90,6 +116,8 @@ def validate_case_body(body: dict, require_prompt_zh: bool = True) -> dict:
         "model": model,
         "image_count": image_count,
         "aspect_ratio": aspect_ratio,
+        "compare_mode": compare_mode,
+        "engine_params": json.dumps(engine_params, ensure_ascii=False) if engine_params else None,
     }
 
 
@@ -130,6 +158,8 @@ def case_to_dict(row: PromptEvalCase) -> dict:
         "prompt_en_source": row.prompt_en_source, "prompt_en_translated_at": row.prompt_en_translated_at,
         "provider": row.provider, "model": row.model,
         "image_count": row.image_count, "aspect_ratio": row.aspect_ratio,
+        "compare_mode": row.compare_mode or "single",
+        "engine_params": json.loads(row.engine_params) if row.engine_params else None,
         "created_by": row.created_by, "created_at": row.created_at, "updated_at": row.updated_at,
     }
 
@@ -165,6 +195,11 @@ def run_to_dict(row: PromptEvalRun) -> dict:
         "problems": json.loads(row.problems) if row.problems else None,
         "optimization_points": json.loads(row.optimization_points) if row.optimization_points else None,
         "error": row.error, "created_by": row.created_by,
+        "prompt_variant": row.prompt_variant or "manual",
+        "prompt_source_zh": row.prompt_source_zh,
+        "prompt_zh": row.prompt_zh,
+        "prompt_en": row.prompt_en,
+        "engine_meta": json.loads(row.engine_meta) if row.engine_meta else None,
         "created_at": row.created_at, "completed_at": row.completed_at,
     }
 
@@ -370,6 +405,8 @@ async def update_case(db: AsyncSession, row: PromptEvalCase, body: dict) -> dict
     row.model = data["model"]
     row.image_count = data["image_count"]
     row.aspect_ratio = data["aspect_ratio"]
+    row.compare_mode = data["compare_mode"]
+    row.engine_params = data["engine_params"]
     row.updated_at = _now()
     await db.commit()
     await db.refresh(row)
@@ -386,12 +423,131 @@ async def run_owns_media(db: AsyncSession, name: str, username: str, admin: bool
     return any(admin or c.created_by == username for c in cases)
 
 
-async def create_run(db: AsyncSession, row: PromptEvalCase, username: str) -> dict:
-    run = PromptEvalRun(case_id=row.id, provider=row.provider, model=row.model, status="queued", created_by=username)
-    db.add(run)
+async def _persist_engine_error(db: AsyncSession, run_id: int, message: str) -> None:
+    """把引擎变体失败标记持久化到 manual run 的 engine_meta（engine_error），刷新/详情仍可见。"""
+    run = await db.get(PromptEvalRun, run_id)
+    if run is None:
+        return
+    try:
+        meta = json.loads(run.engine_meta) if run.engine_meta else {}
+    except (ValueError, TypeError):
+        meta = {}
+    meta["engine_error"] = message
+    run.engine_meta = json.dumps(meta, ensure_ascii=False)
     await db.commit()
-    await db.refresh(run)
-    return run_to_dict(run)
+
+
+def _case_engine_params(row: PromptEvalCase) -> dict:
+    """case 引擎参数（dual）：creative_level/num_candidates/excluded/no_swap，非法/缺失回退默认。"""
+    defaults = {"creative_level": 8, "num_candidates": 3, "excluded_characters": [], "no_swap_pairs": []}
+    if not row.engine_params:
+        return defaults
+    try:
+        params = json.loads(row.engine_params)
+    except (ValueError, TypeError):
+        return defaults
+    return {
+        "creative_level": int(params.get("creative_level") or 8),
+        "num_candidates": int(params.get("num_candidates") or 3),
+        "excluded_characters": list(params.get("excluded_characters") or []),
+        "no_swap_pairs": list(params.get("no_swap_pairs") or []),
+    }
+
+
+async def create_run(db: AsyncSession, row: PromptEvalCase, username: str,
+                     engine_ctx: dict | None = None, translate_cfg: dict | None = None,
+                     http=None) -> dict:
+    """创建 run。
+
+    - single（默认）：仅 manual 变体，返回 run dict（既有契约，零行为变化）。
+    - dual：派生 manual+engine 两变体（pair_id 同批次配对）。engine 变体同步调用引擎
+      （20s 超时 + 1 重试）并落 prompt_zh/prompt_en/engine_meta 快照；引擎失败不创建
+      engine 变体、manual 正常创建，返回 engineError（OPS_PROMPT_EVAL_ENGINE_UNAVAILABLE
+      或 engine_translate 阶段标记），不静默降级。
+    """
+    if row.compare_mode != "dual":
+        run = PromptEvalRun(case_id=row.id, provider=row.provider, model=row.model, status="queued",
+                            prompt_variant="manual", prompt_source_zh=row.prompt_zh, created_by=username)
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
+        return run_to_dict(run)
+
+    pair_id = str(uuid.uuid4())
+    manual = PromptEvalRun(case_id=row.id, provider=row.provider, model=row.model, status="queued",
+                           prompt_variant="manual", prompt_source_zh=row.prompt_zh,
+                           engine_meta=json.dumps({"pair_id": pair_id}), created_by=username)
+    db.add(manual)
+    await db.commit()
+    await db.refresh(manual)
+    result: dict = {"pair_id": pair_id, "manual": run_to_dict(manual), "engine": None}
+    try:
+        params = _case_engine_params(row)
+        base_url = (engine_ctx or {}).get("base_url") or engine_client.engine_base_url()
+        meta = await engine_client.optimize(
+            base_url, row.source_text, row.context,
+            creative_level=params["creative_level"], num_candidates=params["num_candidates"],
+            max_length=500,
+            excluded_characters=params["excluded_characters"],
+            no_swap_pairs=params["no_swap_pairs"],
+            http=http,
+        )
+        engine_zh = meta["optimized_prompt"]
+        prompt_en = ""
+        if translate_cfg:
+            prompt_en = await translation.translate_prompt_zh(translate_cfg, engine_zh, http=http)
+        engine_meta = {
+            "pair_id": pair_id,
+            "creative_level": params["creative_level"],
+            "num_candidates": params["num_candidates"],
+            "max_length": 500,
+            "excluded_characters": params["excluded_characters"],
+            "no_swap_pairs": params["no_swap_pairs"],
+            "model_used": meta.get("model_used") or "",
+            "tokens_used": meta.get("tokens_used") or 0,
+        }
+        engine_run = PromptEvalRun(case_id=row.id, provider=row.provider, model=row.model, status="queued",
+                                   prompt_variant="engine", prompt_source_zh=row.prompt_zh,
+                                   prompt_zh=engine_zh, prompt_en=prompt_en,
+                                   engine_meta=json.dumps(engine_meta, ensure_ascii=False),
+                                   created_by=username)
+        db.add(engine_run)
+        await db.commit()
+        await db.refresh(engine_run)
+        result["engine"] = run_to_dict(engine_run)
+        return result
+    except engine_client.EngineUnavailableError as e:
+        logger.warning("engine variant creation failed for case %s: %s", row.id, e)
+        result["engineError"] = f"{engine_client.ENGINE_UNAVAILABLE}: {e}"
+        await _persist_engine_error(db, manual.id, result["engineError"])
+        return result
+    except Exception as e:
+        logger.warning("engine variant creation failed (translate) for case %s: %s", row.id, e)
+        result["engineError"] = f"engine_translate: {e}"
+        await _persist_engine_error(db, manual.id, result["engineError"])
+        return result
+
+
+def variant_snapshot(run: PromptEvalRun, case: PromptEvalCase) -> dict:
+    """run 级流水线快照：engine 变体用 run 自身 prompt_zh/prompt_en 快照；manual 优先 run 落库快照
+    （prompt_source_zh，case 后续被编辑也不影响历史对比），缺失再回退 case 字段。"""
+    if run.prompt_variant == "engine" and run.prompt_zh:
+        return {
+            "source_text": case.source_text,
+            "context": case.context,
+            "prompt_zh": run.prompt_zh,
+            "prompt_en": run.prompt_en,
+            "image_count": case.image_count,
+            "aspect_ratio": case.aspect_ratio,
+        }
+    return {
+        "source_text": case.source_text,
+        "context": case.context,
+        "prompt_zh": run.prompt_source_zh or case.prompt_zh,
+        "prompt_en": run.prompt_en or case.prompt_en,
+        "image_count": case.image_count,
+        "aspect_ratio": case.aspect_ratio,
+    }
 
 
 def media_dir() -> pathlib.Path:
@@ -446,13 +602,18 @@ async def run_pipeline(db: AsyncSession, run_id: int, case: PromptEvalCase, gen_
     return run_to_dict(run)
 
 
-def start_run_pipeline(db_factory, run_id: int, case: PromptEvalCase, gen_cfg: dict, eval_cfg: dict) -> asyncio.Task:
-    """后台任务：只传 case_id + 必要字段快照，worker 内重新查库，避免 ORM detached。"""
-    snapshot = {
-        "source_text": case.source_text, "context": case.context,
-        "prompt_zh": case.prompt_zh, "prompt_en": case.prompt_en,
-        "image_count": case.image_count, "aspect_ratio": case.aspect_ratio,
-    }
+def start_run_pipeline(db_factory, run_id: int, case: PromptEvalCase | dict, gen_cfg: dict, eval_cfg: dict) -> asyncio.Task:
+    """后台任务：只传 case_id + 必要字段快照，worker 内重新查库，避免 ORM detached。
+
+    case 接受 ORM 行或 dict 快照（dual 变体由 variant_snapshot 生成 dict）。"""
+    if isinstance(case, dict):
+        snapshot = {k: case[k] for k in ("source_text", "context", "prompt_zh", "prompt_en", "image_count", "aspect_ratio")}
+    else:
+        snapshot = {
+            "source_text": case.source_text, "context": case.context,
+            "prompt_zh": case.prompt_zh, "prompt_en": case.prompt_en,
+            "image_count": case.image_count, "aspect_ratio": case.aspect_ratio,
+        }
     import logging
     logger = logging.getLogger("ops-center.prompt-eval")
 
@@ -480,13 +641,67 @@ def start_run_pipeline(db_factory, run_id: int, case: PromptEvalCase, gen_cfg: d
 
 # ─── 聚合 ───
 
+
+def _dual_comparison(rows) -> dict:
+    """双路聚合对比：按 engine_meta.pair_id 配对，仅统计 manual+engine 均成功的成对 run。
+
+    输出：pairCount/两路平均分/平均分差/提升率（分母 0 → null）/四维均值差/等级分布差。
+    无成对数据 → 空对象（不影响既有聚合输出）。
+    """
+    pairs: dict[str, dict[str, PromptEvalRun]] = {}
+    for r in rows:
+        meta = json.loads(r.engine_meta) if r.engine_meta else {}
+        pair_id = meta.get("pair_id")
+        if not pair_id:
+            continue
+        pairs.setdefault(pair_id, {})[r.prompt_variant or "manual"] = r
+    completed = [p for p in pairs.values() if p.get("manual") and p.get("engine")]
+    if not completed:
+        return {}
+    manual_scores = [p["manual"].overall_score for p in completed]
+    engine_scores = [p["engine"].overall_score for p in completed]
+    avg_m = sum(manual_scores) / len(manual_scores)
+    avg_e = sum(engine_scores) / len(engine_scores)
+    improvement = round((avg_e - avg_m) / avg_m * 100, 1) if avg_m else None
+    dim_m: dict[str, list[float]] = {}
+    dim_e: dict[str, list[float]] = {}
+    for p in completed:
+        for d in (json.loads(p["manual"].dimensions) if p["manual"].dimensions else []):
+            dim_m.setdefault(d["id"], []).append(float(d["score"]))
+        for d in (json.loads(p["engine"].dimensions) if p["engine"].dimensions else []):
+            dim_e.setdefault(d["id"], []).append(float(d["score"]))
+    dimension_diffs = []
+    for k in sorted(set(dim_m) | set(dim_e)):
+        a = (sum(dim_m[k]) / len(dim_m[k])) if dim_m.get(k) else 0.0
+        b = (sum(dim_e[k]) / len(dim_e[k])) if dim_e.get(k) else 0.0
+        dimension_diffs.append({"id": k, "manualAverage": round(a, 1), "engineAverage": round(b, 1), "diff": round(b - a, 1)})
+    grade_m: dict[str, int] = {}
+    grade_e: dict[str, int] = {}
+    for p in completed:
+        grade_m[p["manual"].grade or "unknown"] = grade_m.get(p["manual"].grade or "unknown", 0) + 1
+        grade_e[p["engine"].grade or "unknown"] = grade_e.get(p["engine"].grade or "unknown", 0) + 1
+    grade_diff = {
+        g: {"manual": grade_m.get(g, 0), "engine": grade_e.get(g, 0), "diff": grade_e.get(g, 0) - grade_m.get(g, 0)}
+        for g in sorted(set(grade_m) | set(grade_e))
+    }
+    return {
+        "pairCount": len(completed),
+        "manualAverage": round(avg_m, 1),
+        "engineAverage": round(avg_e, 1),
+        "averageDiff": round(avg_e - avg_m, 1),
+        "improvementRate": improvement,
+        "dimensionDiffs": dimension_diffs,
+        "gradeDistributionDiff": grade_diff,
+    }
+
+
 async def summary(db: AsyncSession) -> dict:
     rows = (await db.execute(
         select(PromptEvalRun).where(PromptEvalRun.eval_status == "succeeded", PromptEvalRun.overall_score.is_not(None))
     )).scalars().all()
     if not rows:
         return {"recordCount": 0, "averageOverall": 0, "gradeDistribution": {}, "dimensionAverages": [],
-                "problemCategories": [], "optimizationPoints": [], "providerComparison": []}
+                "problemCategories": [], "optimizationPoints": [], "providerComparison": [], "dual": {}}
     n = len(rows)
     overall_sum = 0
     grade_dist: dict[str, int] = {}
@@ -525,6 +740,7 @@ async def summary(db: AsyncSession) -> dict:
         "problemCategories": problem_categories,
         "optimizationPoints": optimization_points,
         "providerComparison": provider_comparison,
+        "dual": _dual_comparison(rows),
     }
 
 
@@ -549,6 +765,8 @@ def scene_to_dict(row: PromptEvalScene) -> dict:
 async def create_case_scene(db: AsyncSession, body: dict, username: str) -> dict:
     """scene 模式：整篇文案 + 分句配置 → 分句并创建 case + scenes。"""
     data = validate_case_body(body, require_prompt_zh=False)
+    if data["compare_mode"] == "dual":
+        raise ValueError("场景模式暂不支持双路对比（compare_mode=dual），请使用单条模式（整 case 手动）")
     scene_cfg = segmentation.normalize_scene_config(body)
     text = data["source_text"]
     scenes = segmentation.split_to_scenes(text, scene_cfg["target_chars_per_scene"])
