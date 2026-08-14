@@ -1,0 +1,13 @@
+{
+  "id": "story2video-batch-create",
+  "title": "Story2Video 故事讲述-批量创作视频（队列、并行限制、弹窗、历史记录）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "frontend+backend",
+  "currentPhase": "analysis",
+  "nextAction": "双模型分析 + OpenSpec change",
+  "createdAt": "2026-08-14T00:00:00Z",
+  "branch": "codex/story2video-batch-create",
+  "openspecChange": "story2video-batch-create"
+}
