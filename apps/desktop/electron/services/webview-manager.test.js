@@ -232,3 +232,47 @@ describe('WebviewManager 虚拟登录标签（蚁小二对标）', () => {
     expect(wm.getAllTabs().find(t => t.tabId === AUTH_TAB_ID)).toBeUndefined()
   })
 })
+
+describe('WebviewManager createNewTabPage 账号会话分区（创作者中心全屏标签）', () => {
+  function createManager () {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+    wm._homeTabId = 'home'
+    return wm
+  }
+
+  it('合法 accountId 复用登录分区 persist:auth-{accountId} 且初始标题取传入值', () => {
+    const electron = require('electron')
+    const spy = vi.spyOn(electron.session, 'fromPartition')
+    const wm = createManager()
+
+    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com/', accountId: 'acc-001', title: '抖音创作者中心' })
+
+    expect(tabId).toBeTruthy()
+    expect(spy).toHaveBeenCalledWith('persist:auth-acc-001', { cache: true })
+    expect(wm._tabStates.get(tabId).title).toBe('抖音创作者中心')
+  })
+
+  it('非法 accountId 回退独立浏览分区，防止会话串用', () => {
+    const electron = require('electron')
+    const spy = vi.spyOn(electron.session, 'fromPartition')
+    const wm = createManager()
+
+    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com/', accountId: '../evil' })
+
+    expect(tabId).toBeTruthy()
+    expect(spy).toHaveBeenCalledWith('persist:browse-' + tabId, { cache: true })
+  })
+
+  it('未提供 accountId 时使用独立分区且标题回退 New Tab', () => {
+    const electron = require('electron')
+    const spy = vi.spyOn(electron.session, 'fromPartition')
+    const wm = createManager()
+
+    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com/' })
+
+    expect(spy).toHaveBeenCalledWith('persist:browse-' + tabId, { cache: true })
+    expect(wm._tabStates.get(tabId).title).toBe('New Tab')
+  })
+})

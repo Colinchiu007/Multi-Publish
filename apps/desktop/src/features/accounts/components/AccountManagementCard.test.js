@@ -172,5 +172,44 @@ describe('AccountManagementCard', () => {
     await wrapper.get('.account-name-input').setValue('   ')
     await wrapper.get('.account-name-input').trigger('blur')
     expect(wrapper.emitted('rename')).toHaveLength(1)
+  })
+
+  it('非批量模式点击卡片整体打开创作者中心（对齐蚁小二全屏标签交互）', async () => {
+    const wrapper = mountCard({ batchMode: false })
+    await wrapper.get('[data-testid="account-card-account-1"]').trigger('click')
+
+    expect(wrapper.emitted('open-creator')).toEqual([[account]])
+    expect(wrapper.emitted('toggle-select')).toBeUndefined()
+  })
+
+  it('批量模式点击卡片改为切换选中，不误打开创作者中心', async () => {
+    const wrapper = mountCard()
+    await wrapper.get('[data-testid="account-card-account-1"]').trigger('click')
+
+    expect(wrapper.emitted('toggle-select')).toEqual([['account-1']])
+    expect(wrapper.emitted('open-creator')).toBeUndefined()
+  })
+
+  it('卡片内操作按钮点击不冒泡触发打开创作者中心', async () => {
+    const wrapper = mountCard({ batchMode: false })
+    await wrapper.get('[data-testid="delete-account-1"]').trigger('click')
+
+    expect(wrapper.emitted('remove')).toEqual([[account]])
+    expect(wrapper.emitted('open-creator')).toBeUndefined()
+
+    await wrapper.get('[data-testid="creator-account-1"]').trigger('click')
+    expect(wrapper.emitted('open-creator')).toEqual([[account]])
+  })
+
+  it('键盘 Enter/Space 激活卡片打开创作者中心（无障碍）', async () => {
+    const wrapper = mountCard({ batchMode: false })
+    const card = wrapper.get('[data-testid="account-card-account-1"]')
+
+    expect(card.attributes('role')).toBe('button')
+    expect(card.attributes('tabindex')).toBe('0')
+    await card.trigger('keydown.enter')
+    await card.trigger('keydown.space')
+
+    expect(wrapper.emitted('open-creator')).toHaveLength(2)
   })
 })

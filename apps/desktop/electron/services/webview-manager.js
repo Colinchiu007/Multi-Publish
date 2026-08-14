@@ -277,6 +277,9 @@ class WebviewManager extends EventEmitter {
    * @param {Object} [opts]
    * @param {string} [opts.url] - 初始 URL（默认 about:blank）
    * @param {Array} [opts.cookies] - 需要恢复的 Cookie 数组
+   * @param {string} [opts.title] - 初始标签标题（默认 New Tab，页面标题加载后覆盖）
+   * @param {string} [opts.accountId] - 账号 ID；合法时复用该账号登录会话分区
+   *   persist:auth-{accountId}（credential-store 第一层），创作者中心打开即已登录
    * @returns {string|null} tabId
    */
   createNewTabPage (opts) {
@@ -284,7 +287,12 @@ class WebviewManager extends EventEmitter {
 
     var self = this
     var tabId = 'btab-' + (++this._tabIdCounter)
-    var partition = 'persist:browse-' + tabId
+    // 账号会话复用：合法 accountId 使用登录分区（与 auth-view-session.createSession 一致）；
+    // 含非法字符时一律回退独立浏览分区，避免污染或串用其他账号会话
+    var accountId = opts && typeof opts.accountId === 'string' ? opts.accountId.trim() : ''
+    var partition = /^[A-Za-z0-9_-]+$/.test(accountId)
+      ? 'persist:auth-' + accountId
+      : 'persist:browse-' + tabId
     var viewSession = session.fromPartition(partition, { cache: true })
 
     // 恢复 Cookie
@@ -313,10 +321,11 @@ class WebviewManager extends EventEmitter {
 
     // 设置初始状态
     var initialUrl = (opts && opts.url) || 'about:blank'
+    var initialTitle = opts && typeof opts.title === 'string' && opts.title.trim() ? opts.title.trim() : 'New Tab'
     self._tabViews.set(tabId, view)
     self._tabStates.set(tabId, {
       url: initialUrl,
-      title: 'New Tab',
+      title: initialTitle,
       loading: false,
       canGoBack: false,
       canGoForward: false

@@ -123,6 +123,7 @@ const electronMock = {
       isDestroyed: function () { return false },
     }
     this.setBounds = function () {}
+    this.setVisible = function () {}
   },
   Menu: {
     buildFromTemplate: function (t) { return t },

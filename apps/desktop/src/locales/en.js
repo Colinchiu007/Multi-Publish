@@ -712,6 +712,8 @@ export default {
     verifyFailed: 'Verification failed',
     accountIncomplete: 'Account info is incomplete',
     creatorUnsupported: 'Creator center is not supported for this platform yet',
+    creatorCardHint: 'Click the card to open this account\'s creator center (full-screen tab)',
+    creatorTabTitle: '{platform} Creator Center',
     confirmDeleteAccount: (ctx) => 'Delete the ' + ctx.named('platform') + ' account "' + ctx.named('name') + '"?',
     confirmDeleteTitle: 'Confirm Delete',
     deleteFailed: 'Delete failed',
