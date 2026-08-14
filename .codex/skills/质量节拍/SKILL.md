@@ -30,7 +30,7 @@
 
 ```
 触发方式 A：日常循环（自动串行执行）
-  source-driven-dev → TDD → incremental-impl → /review
+  工作区检查 → source-driven-dev → TDD → incremental-impl → /review
   条件：任何编码 session 开始后自动激活
   你做的事：告诉 AI "当前焦点"
 
@@ -53,6 +53,16 @@
 
 ```
 你开始一个新子任务
+    │
+    ▼
+⓪ 工作区检查（自动，编码前必过）
+    ├── 检查：当前目录是否在 Multi-Publish 主目录？
+    │   └── 是 → 检查分支是否为 main
+    │       ├── 是 → ✅ 通过，继续
+    │       └── 否 → 🛑 阻断！执行 bash scripts/session-init.sh 自动修复
+    ├── 检查：是否有未提交的脏文件跨任务混杂？
+    │   └── 是 → 提示归类到正确 worktree
+    └── 通过条件：主目录在 main + 无跨任务污染
     │
     ▼
 ① source-driven-dev（自动展开）
@@ -124,6 +134,12 @@ Session 开始
     ├── 你说："使用质量节拍，当前焦点 Phase 1 —— 增强 render-engine.js"
     │
     ▼
+Step 0: 工作区健康检查（自动，0 秒完成）
+    ├── 读取 .git/HEAD 确认当前分支
+    ├── 主目录非 main → 自动执行 session-init.sh
+    ├── 有 expected-branch 残留 → 清除
+    └── 输出：✅ 工作区就绪 或 🛑 需要修复
+
 Step 1: 上下文加载（AI 自动）
     ├── 读取 01-docs/PRD-video-creation.md → 了解 Phase 1 的验收标准
     ├── 读取 01-docs/migration-plan-opermontage.md → 了解任务描述
@@ -245,6 +261,7 @@ AI 通过**关键词匹配**自动激活对应技能。以下是完整的映射�
 
 | 你说的话（关键词加粗） | AI 匹配的技能 | AI 的行为 |
 |---------------------|--------------|----------|
+| "**工作区**检查" / "**切分支**" / "**worktree**" | worktree-guard, gwm-task | 检查主目录状态，必要时创建 worktree |
 | "出 **bug** 了" / "这 **错误** 怎么回事" / "**根因**是什么" | /investigate, systematic-debugging | 进入 5 阶段调试流程（复现→分析→假设→修复→报告） |
 | "**并行**做" / "**同时**搞" / "互不**依赖**" | subagent-driven-dev, dispatching-parallel-agents | 分析任务依赖图，启动多个 worker |
 | "**首次联调**" / "**第一**次跑" / "小心**测试**" | /careful, defense-in-depth | 每步确认结果，加入超时/验证/回滚三层保护 |
@@ -390,6 +407,7 @@ Step 6 — 健康检查
 
 | # | 技能 | 触发方式 | 在循环中的角色 |
 |---|------|---------|--------------|
+| 0 | worktree-guard | 自动（编码前） | 检查主目录分支状态，阻止非 main 提交 |
 | 1 | source-driven-dev | 自动（循环起点） | 读取 OpenMontage 源码，列出接口 |
 | 2 | spec-driven-dev | 自动（伴随 1） | 提取接口签名和参数 |
 | 3 | TDD | 自动（伴随 2） | 先写测试再写实现 |

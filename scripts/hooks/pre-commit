@@ -21,6 +21,25 @@ if [ -n "$GIT_DIR" ] && [ -n "$GIT_COMMON_DIR" ] && [ "$GIT_DIR" != "$GIT_COMMON
     ISOLATED_WORKTREE=1
 fi
 
+
+# ---------- 0. 主目录保护（铁律：主目录永远 main） ----------
+if [ "$ISOLATED_WORKTREE" = "0" ] && [ "$CURRENT_BRANCH" != "main" ] && [ -n "$CURRENT_BRANCH" ]; then
+    echo ""
+    echo "🚫 主目录保护拦截 —— 当前分支: $CURRENT_BRANCH"
+    echo ""
+    echo "主目录必须保持在 main 分支。所有任务必须在独立 worktree 中进行。"
+    echo ""
+    echo "修复步骤："
+    echo "  1) 暂存当前变更:   git stash push --include-untracked -m 'auto-stash'"
+    echo "  2) 切回 main:       git checkout main"
+    echo "  3) 创建 worktree:   bash scripts/gwm-task.sh start <task-name>"
+    echo "  4) 进入 worktree:   cd D:/Data/projects/mp-worktrees/mp-<task-name>"
+    echo ""
+    echo "或一键自动修复:  bash scripts/session-init.sh"
+    echo ""
+    exit 1
+fi
+
 # ---------- 1. 分支守卫 ----------
 if [ "$ISOLATED_WORKTREE" = "1" ]; then
     # 隔离 worktree：单会话独占，无共享竞态 → 声明自动跟随当前分支（零手动步骤）
