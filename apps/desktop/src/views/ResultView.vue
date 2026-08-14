@@ -154,6 +154,9 @@
           <UiButton size="sm" :disabled="recomposing" @click="recomposeProject">
             {{ recomposing ? '合成中...' : '重新合成' }}
           </UiButton>
+          <UiButton size="sm" variant="secondary" :disabled="recomposing" data-testid="recompose-final-button" :title="$t('story2video.sceneMaterial.recomposeFinalHint')" @click="recomposeProject">
+            {{ recomposing ? $t('story2video.sceneMaterial.recomposingFinal') : $t('story2video.sceneMaterial.recomposeFinal') }}
+          </UiButton>
         </div>
       </div>
 
@@ -161,6 +164,43 @@
         <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item">
           <div v-if="segment.imageUrl" class="segment-thumb">
             <img :src="segment.imageUrl" :alt="'分段 ' + (index + 1) + ' 图片'" />
+          </div>
+          <div class="scene-material-section" data-testid="scene-material-section">
+            <div class="scene-material-heading">
+              <strong>{{ $t('story2video.sceneMaterial.title') }}</strong>
+              <span class="scene-material-hint">{{ $t('story2video.sceneMaterial.previewHint') }}</span>
+            </div>
+            <div class="scene-material-slots">
+              <button
+                v-for="slot in sceneMaterialSlots(segment)"
+                :key="slot.kind"
+                type="button"
+                class="scene-material-slot"
+                :class="{ selected: slot.selected, empty: !slot.path }"
+                :disabled="isSegmentBusy(segment.id)"
+                :aria-pressed="slot.selected ? 'true' : 'false'"
+                :aria-label="slot.path
+                  ? $t('story2video.sceneMaterial.selectAriaLabel', { label: slot.label })
+                  : $t('story2video.sceneMaterial.emptyAriaLabel', { label: slot.label })"
+                @click="slot.path ? selectSceneMaterial(segment.id, slot.kind) : undefined"
+              >
+                <span class="scene-material-thumb" @click.stop="slot.path ? previewSceneMaterial(slot) : undefined">
+                  <img v-if="slot.kind !== 'video' && slot.url" :src="slot.url" :alt="slot.label" />
+                  <video v-else-if="slot.kind === 'video' && slot.url" :src="slot.url" preload="metadata" muted></video>
+                  <span v-if="!slot.url" class="scene-material-empty-text">{{ $t('story2video.sceneMaterial.emptySlot') }}</span>
+                </span>
+                <span class="scene-material-label">{{ slot.label }}</span>
+                <span v-if="slot.selected" class="scene-material-badge">{{ $t('story2video.sceneMaterial.selectedBadge') }}</span>
+              </button>
+            </div>
+            <div class="scene-material-actions">
+              <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="generateSceneImage(segment.id)">
+                {{ segmentBusyKind(segment.id) === 'genImage' ? $t('story2video.sceneMaterial.generating') : $t('story2video.sceneMaterial.generateImage') }}
+              </UiButton>
+              <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="generateSceneVideo(segment.id)">
+                {{ segmentBusyKind(segment.id) === 'genVideo' ? $t('story2video.sceneMaterial.generating') : $t('story2video.sceneMaterial.generateVideo') }}
+              </UiButton>
+            </div>
           </div>
           <div class="segment-header">
             <strong>分段 {{ index + 1 }}</strong>
@@ -195,8 +235,8 @@
                 @change="replaceSegmentAudio(segment.id, $event)"
               />
             </label>
-            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'image')">{{ isSegmentBusy(segment.id) === 'image' ? '重试中...' : '重试图片' }}</UiButton>
-            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'video')">{{ isSegmentBusy(segment.id) === 'video' ? '重试中...' : '重试视频' }}</UiButton>
+            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'image')">{{ segmentBusyKind(segment.id) === 'image' ? '重试中...' : '重试图片' }}</UiButton>
+            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'video')">{{ segmentBusyKind(segment.id) === 'video' ? '重试中...' : '重试视频' }}</UiButton>
             <UiButton v-if="segment.imagePath" size="sm" variant="ghost" @click="downloadArtifact(segment.imagePath, segmentName(index, 'image', segment.imagePath))">下载图片</UiButton>
             <UiButton v-if="segment.audioPath" size="sm" variant="ghost" @click="downloadArtifact(segment.audioPath, segmentName(index, 'audio', segment.audioPath))">下载音频</UiButton>
             <UiButton v-if="segment.videoPath" size="sm" variant="ghost" @click="downloadArtifact(segment.videoPath, segmentName(index, 'video', segment.videoPath))">下载视频</UiButton>
@@ -212,6 +252,14 @@
     <template #footer>
       <UiButton @click="closeStory2VideoNotificationDialog">{{ story2videoNotificationDialogUiText.acknowledge }}</UiButton>
     </template>
+  </UiModal>
+
+  <UiModal :visible="sceneMaterialPreview.visible" :title="sceneMaterialPreview.title" size="lg" @close="closeSceneMaterialPreview">
+    <div class="scene-material-preview-body">
+      <img v-if="sceneMaterialPreview.kind !== 'video' && sceneMaterialPreview.url" :src="sceneMaterialPreview.url" :alt="sceneMaterialPreview.label" />
+      <video v-else-if="sceneMaterialPreview.kind === 'video' && sceneMaterialPreview.url" :src="sceneMaterialPreview.url" controls autoplay></video>
+      <p v-if="!sceneMaterialPreview.url" class="scene-material-preview-empty">{{ sceneMaterialPreview.label }}</p>
+    </div>
   </UiModal>
 </template>
 
@@ -232,6 +280,9 @@ import {
   story2videoReplaceSegmentAudio,
   story2videoRetrySegment,
   story2videoRecomposeProject,
+  story2videoSelectSceneMaterial,
+  story2videoGenerateSceneImage,
+  story2videoGenerateSceneVideo,
   videoProcess,
 } from '@/api/publisher'
 
@@ -261,6 +312,7 @@ export default {
       trimmedSrc: null,
       story2videoNotificationDialog: { visible: false, messageKey: '', messageParams: {} },
       degradedAssetsWarningProjectId: null,
+      sceneMaterialPreview: { visible: false, kind: '', url: '', label: '', title: '' },
     }
   },
   async mounted() {
@@ -373,6 +425,144 @@ export default {
           segment.imageUrl = null
         }
       }))
+      await this.refreshSceneMaterialUrls()
+    },
+    async refreshSceneMaterialUrls() {
+      await Promise.all((this.segments || []).map(async (segment) => {
+        if (!segment) return
+        const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
+        if (alternate && alternate.path) {
+          try {
+            segment.alternateImageUrls = [await this.resolveLocalUrl(alternate.path)]
+          } catch (_) {
+            segment.alternateImageUrls = []
+          }
+        } else {
+          segment.alternateImageUrls = []
+        }
+        if (segment.videoPath) {
+          try {
+            segment.videoUrl = await this.resolveLocalUrl(segment.videoPath)
+          } catch (_) {
+            segment.videoUrl = null
+          }
+        } else {
+          segment.videoUrl = null
+        }
+      }))
+    },
+    effectiveSelectedMaterial(segment) {
+      if (segment && typeof segment.selectedMaterial === 'string' && segment.selectedMaterial) {
+        return segment.selectedMaterial
+      }
+      return segment && segment.videoPath ? 'video' : 'image1'
+    },
+    sceneMaterialSlots(segment) {
+      const t = (key, params) => this.$t('story2video.sceneMaterial.' + key, params)
+      const selected = this.effectiveSelectedMaterial(segment)
+      const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
+      return [
+        {
+          kind: 'image1',
+          label: t('image1Label'),
+          path: segment.imagePath || null,
+          url: segment.imageUrl || null,
+          selected: selected === 'image1',
+        },
+        {
+          kind: 'image2',
+          label: t('image2Label'),
+          path: alternate && alternate.path ? alternate.path : null,
+          url: Array.isArray(segment.alternateImageUrls) && segment.alternateImageUrls[0] ? segment.alternateImageUrls[0] : null,
+          selected: selected === 'image2',
+        },
+        {
+          kind: 'video',
+          label: t('videoLabel'),
+          path: segment.videoPath || null,
+          url: segment.videoUrl || null,
+          selected: selected === 'video',
+        },
+      ]
+    },
+    previewSceneMaterial(slot) {
+      this.sceneMaterialPreview = {
+        visible: true,
+        kind: slot.kind,
+        url: slot.url,
+        label: slot.label,
+        title: slot.kind === 'video'
+          ? this.$t('story2video.sceneMaterial.previewVideoTitle')
+          : this.$t('story2video.sceneMaterial.previewImageTitle'),
+      }
+    },
+    closeSceneMaterialPreview() {
+      this.sceneMaterialPreview.visible = false
+    },
+    async selectSceneMaterial(segmentId, kind) {
+      if (!this.projectId || this.isSegmentBusy(segmentId)) return
+      this.segmentBusy = { ...this.segmentBusy, [segmentId]: 'select' }
+      try {
+        const result = await story2videoSelectSceneMaterial(this.projectId, segmentId, kind)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || 'material selection failed')
+        this.project = result.data
+        if (Array.isArray(result.data.segments) && result.data.segments.length) {
+          this.segments = result.data.segments.map(item => ({ ...item }))
+        }
+        this.segmentsDirty = true
+        await this.refreshSegmentImageUrls()
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MATERIAL_SELECTED })
+      } catch (error) {
+        this.showStory2VideoNotification({ error: error && error.message ? error.message : 'material select failed' })
+      } finally {
+        const next = { ...this.segmentBusy }
+        delete next[segmentId]
+        this.segmentBusy = next
+      }
+    },
+    async generateSceneImage(segmentId) {
+      if (!this.projectId || this.isSegmentBusy(segmentId)) return
+      this.segmentBusy = { ...this.segmentBusy, [segmentId]: 'genImage' }
+      try {
+        const result = await story2videoGenerateSceneImage(this.projectId, segmentId)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || 'image generation failed')
+        this.project = result.data
+        if (Array.isArray(result.data.segments) && result.data.segments.length) {
+          this.segments = result.data.segments.map(item => ({ ...item }))
+        }
+        this.segmentsDirty = true
+        await this.refreshSegmentImageUrls()
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_IMAGE_GENERATED })
+      } catch (error) {
+        await this.refreshSegmentImageUrls().catch(() => {})
+        this.showStory2VideoNotification({ error: error && error.message ? error.message : 'image generation failed' })
+      } finally {
+        const next = { ...this.segmentBusy }
+        delete next[segmentId]
+        this.segmentBusy = next
+      }
+    },
+    async generateSceneVideo(segmentId) {
+      if (!this.projectId || this.isSegmentBusy(segmentId)) return
+      this.segmentBusy = { ...this.segmentBusy, [segmentId]: 'genVideo' }
+      try {
+        const result = await story2videoGenerateSceneVideo(this.projectId, segmentId)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || 'video generation failed')
+        this.project = result.data
+        if (Array.isArray(result.data.segments) && result.data.segments.length) {
+          this.segments = result.data.segments.map(item => ({ ...item }))
+        }
+        this.segmentsDirty = true
+        await this.refreshSegmentImageUrls()
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_VIDEO_GENERATED })
+      } catch (error) {
+        await this.refreshSegmentImageUrls().catch(() => {})
+        this.showStory2VideoNotification({ error: error && error.message ? error.message : 'video generation failed' })
+      } finally {
+        const next = { ...this.segmentBusy }
+        delete next[segmentId]
+        this.segmentBusy = next
+      }
     },
     async loadVideoPath(filePath) {
       this.loading = true
@@ -659,6 +849,10 @@ export default {
     isSegmentBusy(segmentId) {
       return Boolean(this.segmentBusy[segmentId])
     },
+    segmentBusyKind(segmentId) {
+      // 返回 busy 类型标识（'' = 空闲），模板用 === 'image'/'video'/'genImage'/'genVideo' 区分文案
+      return this.segmentBusy[segmentId] || ''
+    },
     async replaceSegmentAudio(segmentId, event) {
       const input = event?.target
       const file = input?.files?.[0]
@@ -724,6 +918,8 @@ export default {
         if (Array.isArray(result.data.segments) && result.data.segments.length) {
           this.segments = result.data.segments.map(segment => ({ ...segment }))
         }
+        // 重新合成返回的分段对象不含素材 URL，必须重新解析本地媒体 URL，否则素材区/分段图空白。
+        await this.refreshSegmentImageUrls()
         this.audioPath = result.data.audioPath || this.audioPath
         this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
         if (!result.data.videoPath) {
@@ -782,6 +978,25 @@ export default {
 .segment-item { border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--surface); }
 .segment-thumb { margin-bottom: 12px; border-radius: 6px; overflow: hidden; background: var(--bg); max-width: 320px; }
 .segment-thumb img { display: block; width: 100%; height: auto; object-fit: cover; }
+.scene-material-section { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.scene-material-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.scene-material-heading strong { font-size: 13px; }
+.scene-material-hint { color: var(--text-muted); font-size: 11px; }
+.scene-material-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.scene-material-slot { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.scene-material-slot:hover:not(:disabled) { border-color: var(--primary); }
+.scene-material-slot.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.scene-material-slot.empty { cursor: not-allowed; opacity: 0.75; }
+.scene-material-slot:disabled { opacity: 0.55; cursor: not-allowed; }
+.scene-material-thumb { display: flex; align-items: center; justify-content: center; width: 96px; height: 128px; border-radius: 4px; overflow: hidden; background: var(--bg); }
+.scene-material-thumb img, .scene-material-thumb video { width: 100%; height: 100%; object-fit: cover; }
+.scene-material-empty-text { color: var(--text-muted); font-size: 12px; }
+.scene-material-label { font-size: 12px; color: var(--text); }
+.scene-material-badge { position: absolute; top: 6px; right: 6px; padding: 2px 6px; border-radius: 4px; background: var(--primary); color: #fff; font-size: 10px; }
+.scene-material-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.scene-material-preview-body { display: flex; align-items: center; justify-content: center; min-height: 220px; }
+.scene-material-preview-body img, .scene-material-preview-body video { max-width: 100%; max-height: 60vh; border-radius: 6px; }
+.scene-material-preview-empty { color: var(--text-muted); }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: 11px; }
 .segment-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
@@ -803,5 +1018,6 @@ export default {
   .trim-controls { grid-template-columns: 1fr; }
   .segment-order { margin-left: 0; }
   .actions > *, .section-actions > * { flex: 1 1 auto; }
+  .scene-material-slots { grid-template-columns: 1fr; }
 }
 </style>
