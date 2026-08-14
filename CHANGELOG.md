@@ -1,3 +1,14 @@
+## [2026-08-14] fix(story2video): LLM markdown 代码块包装导致提示词中文翻译解析失败
+
+- 现象：Story2Video 流水线「中文翻译」字段显示异常——分段1显示字面 `json`，分段2显示 `{"0":"...","1":"..."}` JSON 对象文本。
+- 根因：`translatePromptsForLocale` 调用 LLM 翻译英文提示词，部分 LLM 模型返回被 markdown 代码块（```json...```）包裹的 JSON。`JSON.parse(raw)` 失败后进入逐行回退，将代码块标记和 JSON 对象文本误当译文。
+- 修复：
+  - JSON.parse 剥离 markdown 代码块包装（```json...``` → inner JSON）。
+  - JSON 解析成功路径：验证译文不为 JSON 对象文本或 `json` 标记。
+  - 逐行回退路径：后置清理排除无效翻译。
+- 测试：新增 7 个回归测试覆盖正常解析、fence 解析、回退路径防御、null input、空列表；全量 92/92 通过。
+- 审查：子代理 403 降级为主代理自审，0 Critical / 0 Major。
+
 ## [2026-08-14] 运营后台提示词评测：双路对比（人工 vs 引擎优化）（prompt-eval-engine-dual-path）
 
 - 需求：在运营后台「提示词评测」接入提示词优化引擎，双路并行评估人工提示词与引擎优化提示词，量化引擎提升率（方案 B，OpenSpec change `prompt-eval-engine-dual-path`）。
