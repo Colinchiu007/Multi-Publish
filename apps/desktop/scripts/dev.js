@@ -2,6 +2,7 @@ const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
 const { buildElectronArgs, resolveUserDataDir } = require('./dev-launcher');
+const { appendDevExitLog } = require('./dev-exit-log');
 
 const desktopDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopDir, '..', '..');
@@ -36,26 +37,58 @@ const vite = spawnNodeScript(viteScript, ['--host', '127.0.0.1', '--port', Strin
 
 let electron = null;
 let stopping = false;
+let viteExit = null;
+let electronExit = null;
 
-function stop(code) {
+/** 记录子进程退出（供 stop 时留痕） */
+function noteExit(kind, code, signal) {
+  const state = { code, signal }
+  if (kind === 'vite') viteExit = state
+  else electronExit = state
+  appendDevExitLog({
+    event: kind + '-exit',
+    pid: kind === 'vite' ? (vite && vite.pid) : (electron && electron.pid),
+    exitCode: code,
+    signal,
+  })
+}
+
+/**
+ * 统一停止：kill 双方并记录退出原因到固定日志（并发互杀/外部终止可立即定位）。
+ * @param {number} code
+ * @param {string} [reason] 触发源，如 vite-exit / electron-exit / SIGTERM / wait-vite-timeout
+ */
+function stop(code, reason = 'stop-called') {
   if (stopping) return;
   stopping = true;
-  if (electron && !electron.killed) electron.kill();
-  if (vite && !vite.killed) vite.kill();
+  appendDevExitLog({
+    event: 'stop',
+    pid: process.pid,
+    exitCode: code,
+    extra: JSON.stringify({ reason, userData: electronUserDataDir, viteExit, electronExit }),
+  })
+  if (electron && !electron.killed) {
+    appendDevExitLog({ event: 'kill', pid: electron.pid, extra: 'electron' })
+    electron.kill();
+  }
+  if (vite && !vite.killed) {
+    appendDevExitLog({ event: 'kill', pid: vite.pid, extra: 'vite' })
+    vite.kill();
+  }
   process.exitCode = code;
 }
 
-vite.on('exit', (code) => stop(code ?? 1));
+vite.on('exit', (code, signal) => { noteExit('vite', code, signal); stop(code ?? 1, 'vite-exit'); });
 vite.on('error', (error) => {
   console.error('[dev] vite failed to start:', error);
-  stop(1);
+  stop(1, 'vite-error');
 });
 
 function waitForVite(remainingMs) {
   if (stopping) return;
   if (remainingMs <= 0) {
     console.error('[dev] timed out waiting for vite:', viteUrl);
-    stop(1);
+    stop(1, 'wait-vite-timeout');
     return;
   }
   const req = http.get(viteUrl, (res) => {
@@ -77,10 +110,10 @@ function waitForVite(remainingMs) {
       electron.on('spawn', () => {
         console.log(`[dev] electron userData: ${electronUserDataDir}`);
       });
-      electron.on('exit', (code) => stop(code ?? 0));
+      electron.on('exit', (code, signal) => { noteExit('electron', code, signal); stop(code ?? 0, 'electron-exit'); });
       electron.on('error', (error) => {
         console.error('[dev] electron failed to start:', error);
-        stop(1);
+        stop(1, 'electron-error');
       });
       return;
     }
@@ -97,5 +130,5 @@ function waitForVite(remainingMs) {
 
 setTimeout(() => waitForVite(120000), 250);
 
-process.on('SIGINT', () => stop(0));
-process.on('SIGTERM', () => stop(0));
+process.on('SIGINT', () => stop(0, 'SIGINT'));
+process.on('SIGTERM', () => stop(0, 'SIGTERM'));

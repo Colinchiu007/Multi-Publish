@@ -55,14 +55,25 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = if ($Worktree) { $Worktree } else { (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
 try { $repoRoot = (Resolve-Path -LiteralPath $repoRoot).Path } catch { }  # 归一化为原生反斜杠，Path -like 匹配与斜杠方向无关
 $evidence = [ordered]@{ worktree = $repoRoot; startedAt = (Get-Date).ToString('o') }
+# 审计日志：所有清理/停止/启动动作留痕，并发互杀立即可查（D:\Temp\mp-start-desktop-audit.log）
+$auditLog = Join-Path $env:TEMP 'mp-start-desktop-audit.log'
+function Add-Audit([string]$action, [string]$detail = '') {
+  try {
+    $line = "[{0:o}] {1} {2}" -f (Get-Date), $action, $detail
+    Add-Content -LiteralPath $auditLog -Value $line -Encoding utf8 -ErrorAction SilentlyContinue
+  } catch { }
+}
+Add-Audit 'RUN' "worktree=$repoRoot profile=$Profile"
 
 function Write-Line($msg) { if (-not $Json) { Write-Host $msg } }
-function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
+function Fail($msg) { Add-Audit 'FAIL' $msg; Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 function Stop-ProcessIfAlive([int]$ProcessId, [string]$Label) {
   if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
+    Add-Audit "STOP $Label" "pid=$ProcessId"
     Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
     Write-Line "stop     : $Label PID $ProcessId"
   } else {
+    Add-Audit "SKIP $Label" "pid=$ProcessId 已退出"
     Write-Line "skip     : $Label PID $ProcessId 已退出（忽略）"
   }
 }
@@ -70,6 +81,7 @@ function Stop-ProcessIfAlive([int]$ProcessId, [string]$Label) {
 # ---- 0. 自检（回归保护：枚举后 PID 已退出的竞态必须被容忍）----
 if ($SelfTest) {
   Stop-ProcessIfAlive -ProcessId 99999999 -Label 'selftest'
+  Write-Line "audit    : $auditLog"
   Write-Line 'SELFTEST_OK'
   exit 0
 }
@@ -136,6 +148,7 @@ if ($conn) {
   $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)"
   $ownerCmd = $owner.CommandLine
   if ($ownerCmd -and ($ownerCmd -like "*$repoRoot*")) {
+    Add-Audit "STOP vite" "pid=$($conn.OwningProcess) cmd=$ownerCmd"
     Write-Line "port5174 : 本 worktree 的残留 Vite（PID $($conn.OwningProcess)），先停止"
     Stop-Process -Id $conn.OwningProcess -Force
   } else {
@@ -149,6 +162,7 @@ foreach ($p in $oldElectron) { Stop-ProcessIfAlive -ProcessId $p.Id -Label 'elec
 $oldLaunchers = Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
   Where-Object { $_.CommandLine -like "*$repoRoot*" -and ($_.CommandLine -like '*dev.js*' -or $_.CommandLine -like '*vite*5174*') }
 foreach ($p in $oldLaunchers) { Stop-ProcessIfAlive -ProcessId $p.ProcessId -Label 'node' }
+Add-Audit 'CLEAN' "oldElectron=$($oldElectron.Count) oldLaunchers=$($oldLaunchers.Count)"
 Start-Sleep -Seconds 2
 
 # ---- 5. 依赖健康 ----
@@ -199,6 +213,7 @@ $launcherErr = Join-Path $env:TEMP 'mp-start-dev.err.log'
 $env:ELECTRON_USER_DATA_DIR = $Profile
 $launcher = Start-Process $nodeExe -WorkingDirectory (Join-Path $repoRoot 'apps\desktop') -ArgumentList 'scripts/dev.js' -WindowStyle Hidden -RedirectStandardOutput $launcherLog -RedirectStandardError $launcherErr -PassThru
 $evidence.launcherPid = $launcher.Id
+Add-Audit 'LAUNCHER' "pid=$($launcher.Id) log=$launcherLog"
 Write-Line "launcher : PID $($launcher.Id)（log: $launcherLog）"
 
 # ---- 7. 轮询可见窗口 ----
@@ -217,6 +232,7 @@ if (-not $win) {
 $evidence.electronPid = $win.Id
 $evidence.windowHandle = $win.MainWindowHandle
 $evidence.windowTitle = $win.MainWindowTitle
+Add-Audit 'WINDOW' "pid=$($win.Id) handle=$($win.MainWindowHandle) title=$($win.MainWindowTitle)"
 Write-Line "window   : PID $($win.Id) handle=$($win.MainWindowHandle) title=$($win.MainWindowTitle)"
 
 # ---- 8. 证据：Vite 归属 + 页面 URL + (可选) identity ----
@@ -239,6 +255,7 @@ if ($CheckIdentity) {
   Write-Line "identity : $idOut"
 }
 
+Add-Audit 'OK' "head=$head branch=$branch"
 Write-Line 'START_CONTRACT_OK'
 if ($Json) { $evidence | ConvertTo-Json -Depth 6 }
 exit 0
