@@ -19,9 +19,7 @@ const {
 const { attachCdpDetection } = require('./auth-view-cdp')
 const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 
-const SIDEBAR_WIDTH = 280
-const SIDEBAR_BREAKPOINT = 1360
-const AUTH_STATUS_HEIGHT = 44
+const AUTH_VIEW_TOP = 76 // TabBar(36px) + NavBar(40px)
 const MAX_INDEXED_DB_SNAPSHOT_BYTES = 524288
 
 function normalizeIndexedDBSnapshot(value) {
@@ -90,21 +88,39 @@ class AuthViewManager {
   }
 
   /**
+   * 登录视图全屏布局（TabBar+NavBar 下方），对齐蚁小二全屏标签体验。
    * @param {{ width: number, height: number }} bounds
    */
   _positionView(bounds) {
     if (!this.currentView) return
-    const sidebarWidth = bounds.width <= SIDEBAR_BREAKPOINT ? 0 : SIDEBAR_WIDTH
-    const top = this._getNavHeight() + AUTH_STATUS_HEIGHT
     this.currentView.setBounds({
-      x: sidebarWidth,
-      y: top,
-      width: bounds.width - sidebarWidth,
-      height: Math.max(0, bounds.height - top),
+      x: 0,
+      y: AUTH_VIEW_TOP,
+      width: bounds.width,
+      height: Math.max(0, bounds.height - AUTH_VIEW_TOP),
     })
   }
 
-  _getNavHeight() { return 56 }
+  /** 显示登录视图（虚拟标签切换回来时调用） */
+  show() {
+    if (this.currentView) this.currentView.setVisible(true)
+  }
+
+  /** 隐藏登录视图（切换到其他标签时调用） */
+  hide() {
+    if (this.currentView) this.currentView.setVisible(false)
+  }
+
+  /**
+   * @param {{ platform: string, accountId: string, url?: string }} info
+   */
+  _fireOpened(info) {
+    if (typeof this.onOpened === 'function') this.onOpened(info)
+  }
+
+  _fireClosed() {
+    if (typeof this.onClosed === 'function') this.onClosed()
+  }
 
   /**
    * 主窗口大小变化时重新定位当前登录视图。
@@ -215,8 +231,10 @@ class AuthViewManager {
       // R49 修复：loadURL 返回 Promise，必须 .catch()
       view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
 
-      // 通知渲染进程：登录视图已打开（触发关闭按钮显示）
+      // 通知渲染进程：登录视图已打开（触发虚拟登录标签显示）
+      const loginUrl_forHook = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
       this.mainWindow.webContents.send('auth:view-opened', { platform, accountId })
+      this._fireOpened({ platform, accountId, url: loginUrl_forHook })
 
       // Escape 键关闭
       /**
@@ -359,6 +377,7 @@ class AuthViewManager {
     this.currentPlatform = null
     this.currentAccountId = null
     this._rejectLogin = null
+    if (hadActiveView) this._fireClosed()
     if (
       hadActiveView &&
       this.mainWindow &&
@@ -426,6 +445,7 @@ class AuthViewManager {
     }
 
     this.mainWindow.webContents.send('auth:view-opened', { platform, accountId })
+    this._fireOpened({ platform, accountId, url: loginUrl })
     log.info('AuthView', `Opened saved account ${accountId}`)
   }
 

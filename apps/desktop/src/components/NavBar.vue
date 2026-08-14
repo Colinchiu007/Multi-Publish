@@ -75,12 +75,25 @@
 
     <div class="nav-bar-right">
       <span v-if="loading" class="nav-loading" aria-label="加载中">⟳</span>
+      <button
+        v-if="isLoginTab"
+        type="button"
+        class="save-account-btn"
+        :disabled="saving"
+        data-testid="nav-save-account"
+        @click="$emit('save-account')"
+      >
+        {{ saving ? t('nav.savingAccount') : t('nav.saveAccount') }}
+      </button>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   currentUrl: { type: String, default: '' },
@@ -88,10 +101,13 @@ const props = defineProps({
   canGoBack: { type: Boolean, default: false },
   canGoForward: { type: Boolean, default: false },
   isHome: { type: Boolean, default: true },
-  loading: { type: Boolean, default: false }
+  loading: { type: Boolean, default: false },
+  // 登录标签态（对齐蚁小二）：导航栏右侧显示「保存账号」蓝色按钮
+  isLoginTab: { type: Boolean, default: false },
+  saving: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['go-back', 'go-forward', 'reload', 'go-home', 'navigate'])
+const emit = defineEmits(['go-back', 'go-forward', 'reload', 'go-home', 'navigate', 'save-account'])
 
 const urlInput = ref(null)
 const urlFocused = ref(false)
@@ -142,7 +158,7 @@ async function copyUrl() {
     copied.value = true
     setTimeout(() => { copied.value = false }, 2000)
   } catch (e) {
-    console.error('复制失败:', e)
+    console.error('Copy URL failed:', e)
   }
 }
 </script>
@@ -262,6 +278,28 @@ async function copyUrl() {
   animation: spin 1s linear infinite;
   font-size: 14px;
   color: #6b7280;
+}
+
+.save-account-btn {
+  height: 28px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 14px;
+  background: #409eff;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.save-account-btn:hover:not(:disabled) {
+  background: #337ecc;
+}
+
+.save-account-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 @keyframes spin {

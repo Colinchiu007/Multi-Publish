@@ -11,6 +11,8 @@ export default {
     success: '成功',
     error: '错误',
     close: '关闭',
+    pageLoadFailed: '页面加载失败',
+    pageLoadFailedMessage: '页面资源仍未加载成功，请重试或刷新应用。',
   },
   nav: {
     home: '首页',
@@ -18,6 +20,8 @@ export default {
     publish: '发布内容',
     history: '发布历史',
     settings: '设置',
+    saveAccount: '保存账号',
+    savingAccount: '保存中...',
   },
   publish: {
     title: '标题',
@@ -38,6 +42,8 @@ export default {
     status: '状态',
     actions: '操作',
     deleteConfirm: '确定要删除这个账号吗？',
+    saved: '账号已保存',
+    saveFailed: '保存账号失败，请确认已完成登录后重试',
   },
   onboarding: {
     welcome: '欢迎使用 Multi-Publish',

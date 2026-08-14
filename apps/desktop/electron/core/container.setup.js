@@ -100,7 +100,12 @@ function createContainer(options) {
   // ---- 无依赖服务 ----
   container.register("authViewManager", function() { return new AuthViewManager(); });
   container.register("rpaViewManager", function() { return new RpaViewManager(); });
-  container.register("webviewManager", function() { return new WebviewManager(); });
+  container.register("webviewManager", function(c) {
+    const wm = new WebviewManager();
+    // 登录视图标签化：AuthViewManager 的开关钩子驱动 TabBar 虚拟登录标签
+    wm.attachAuthViewManager(c.get("authViewManager"));
+    return wm;
+  });
   container.register("callbackServer", function() { return new CallbackServer(); });
   container.register("qrCodeLogin", function() { return new QrCodeLogin(); });
   container.register("renderEngine", function() { return new RenderEngine(); });

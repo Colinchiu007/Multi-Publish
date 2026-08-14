@@ -22,9 +22,12 @@ const { EventEmitter } = require('events')
 const { WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
 const log = require('./logger')
-const { PLATFORM_DASHBOARD_URLS } = require('@multi-publish/shared-utils/src/platform-definitions')
+const { PLATFORM_DASHBOARD_URLS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
+
+// 虚拟登录标签 ID（对齐蚁小二：登录页以全屏标签形式呈现在 TabBar 中）
+const AUTH_TAB_ID = 'auth-login'
 
 // 各平台创作者中心/后台 URL → @multi-publish/shared-utils/src/platform-definitions
 
@@ -47,6 +50,105 @@ class WebviewManager extends EventEmitter {
     this._tabIdCounter = 0
     /** @type {Set<string>} */
     this._subscribers = new Set()
+
+    // ─── 虚拟登录标签（对齐蚁小二全屏登录体验）──────────
+    /** @type {import('./auth-view-manager')|null} */
+    this._authViewManager = null
+    /** @type {{tabId: string, url: string, title: string, platform: string, isLogin: boolean}|null} */
+    this._authTabInfo = null
+    /** @type {string|null} 打开登录标签前的活动标签，用于关闭后回退 */
+    this._authPrevTabId = null
+  }
+
+  // ─── 虚拟登录标签集成 ──────────────────────────
+
+  /**
+   * 挂载 AuthViewManager，接管登录视图的标签化呈现
+   * @param {Object} authViewManager
+   */
+  attachAuthViewManager (authViewManager) {
+    var self = this
+    this._authViewManager = authViewManager
+    authViewManager.onOpened = function (info) { self._onAuthViewOpened(info) }
+    authViewManager.onClosed = function () { self._onAuthViewClosed() }
+  }
+
+  /**
+   * 登录视图打开 → 注入虚拟登录标签并切换为活动标签
+   * @param {{platform: string, accountId: string|null, url: string}} info
+   */
+  _onAuthViewOpened (info) {
+    var self = this
+    if (!info || self._authTabInfo) return
+
+    var platform = info.platform || ''
+    var title = getPlatformName(platform) + '登录'
+    self._authTabInfo = {
+      tabId: AUTH_TAB_ID,
+      url: info.url || '',
+      title: title,
+      platform: platform,
+      isLogin: true,
+      loading: false,
+      canGoBack: false,
+      canGoForward: false
+    }
+    // 记录回退目标并隐藏所有浏览器标签
+    self._authPrevTabId = self._activeTabId
+    self._hideAllTabs()
+    self._activeTabId = AUTH_TAB_ID
+
+    self._broadcast('tab-created', { tabId: AUTH_TAB_ID, url: self._authTabInfo.url, isLogin: true })
+    self._broadcast('tab-switched', {
+      tabId: AUTH_TAB_ID,
+      url: self._authTabInfo.url,
+      title: title,
+      isLogin: true
+    })
+    log.info('WebviewManager', 'Auth login tab opened: ' + platform)
+  }
+
+  /**
+   * 登录视图关闭 → 移除虚拟登录标签并回退到之前的标签
+   */
+  _onAuthViewClosed () {
+    var self = this
+    if (!self._authTabInfo) return
+
+    self._authTabInfo = null
+    var prevTabId = self._authPrevTabId
+    self._authPrevTabId = null
+    self._broadcast('tab-closed', { tabId: AUTH_TAB_ID })
+
+    // 回退：优先恢复之前的浏览器标签，否则回到首页
+    if (prevTabId && self._tabViews.has(prevTabId)) {
+      self.switchToTab(prevTabId)
+    } else {
+      self._hideAllTabs()
+      self._activeTabId = self._homeTabId
+      self._broadcast('tab-switched', { tabId: self._homeTabId, url: '', title: '首页' })
+    }
+  }
+
+  /**
+   * 获取虚拟登录标签信息（含活动状态）
+   * @returns {Object|null}
+   */
+  _getAuthTab () {
+    if (!this._authTabInfo) return null
+    var info = this._authTabInfo
+    return {
+      tabId: info.tabId,
+      url: info.url,
+      title: info.title,
+      platform: info.platform,
+      isLogin: true,
+      loading: info.loading,
+      canGoBack: false,
+      canGoForward: false,
+      isActive: this._activeTabId === AUTH_TAB_ID,
+      isHome: false
+    }
   }
 
   setMainWindow (win) {
@@ -253,6 +355,15 @@ class WebviewManager extends EventEmitter {
     // Home tab 不可关闭
     if (tabId === self._homeTabId) return false
 
+    // 虚拟登录标签：关闭即结束登录会话（触发 onClosed 钩子完成标签清理）
+    if (tabId === AUTH_TAB_ID) {
+      if (self._authViewManager) {
+        self._authViewManager.close()
+        return true
+      }
+      return false
+    }
+
     // 处理新浏览器标签
     if (self._tabViews.has(tabId)) {
       var view = self._tabViews.get(tabId)
@@ -313,6 +424,9 @@ class WebviewManager extends EventEmitter {
 
     // Home tab：隐藏所有 WebContentsView，显示 router-view
     if (tabId === self._homeTabId) {
+      if (self._activeTabId === AUTH_TAB_ID && self._authViewManager) {
+        self._authViewManager.hide()
+      }
       self._hideAllTabs()
       self._activeTabId = tabId
       self._broadcast('tab-switched', {
@@ -323,7 +437,27 @@ class WebviewManager extends EventEmitter {
       return true
     }
 
+    // 虚拟登录标签：显示登录视图，隐藏浏览器标签
+    if (tabId === AUTH_TAB_ID) {
+      if (!self._authTabInfo || !self._authViewManager) return false
+      self._hideAllTabs()
+      self._authViewManager.show()
+      self._activeTabId = tabId
+      self._broadcast('tab-switched', {
+        tabId: tabId,
+        url: self._authTabInfo.url,
+        title: self._authTabInfo.title,
+        isLogin: true
+      })
+      return true
+    }
+
     if (!self._tabViews.has(tabId)) return false
+
+    // 离开登录标签时隐藏登录视图
+    if (self._activeTabId === AUTH_TAB_ID && self._authViewManager) {
+      self._authViewManager.hide()
+    }
 
     // 隐藏当前活动标签
     if (self._activeTabId && self._tabViews.has(self._activeTabId)) {
@@ -384,6 +518,19 @@ class WebviewManager extends EventEmitter {
   getAllTabs () {
     var self = this
     var result = []
+    // home 标签可能尚未物化（_tabStates 无记录），保证列表始终包含 home
+    if (self._homeTabId && !self._tabStates.has(self._homeTabId)) {
+      result.push({
+        tabId: self._homeTabId,
+        url: '',
+        title: '首页',
+        loading: false,
+        canGoBack: false,
+        canGoForward: false,
+        isActive: self._activeTabId === self._homeTabId,
+        isHome: true
+      })
+    }
     self._tabStates.forEach(function (state, tabId) {
       result.push({
         tabId: tabId,
@@ -396,6 +543,9 @@ class WebviewManager extends EventEmitter {
         isHome: tabId === self._homeTabId
       })
     })
+    // 虚拟登录标签（对齐蚁小二全屏登录）
+    var authTab = self._getAuthTab()
+    if (authTab) result.push(authTab)
     return result
   }
 
@@ -404,6 +554,8 @@ class WebviewManager extends EventEmitter {
    * @returns {Object|null}
    */
   getActiveTab () {
+    // 虚拟登录标签活动态
+    if (this._activeTabId === AUTH_TAB_ID) return this._getAuthTab()
     if (!this._activeTabId || !this._tabStates.has(this._activeTabId)) return null
     var state = this._tabStates.get(this._activeTabId)
     return {
@@ -680,8 +832,14 @@ class WebviewManager extends EventEmitter {
     if (!this.mainWindow) return
     var bounds = this.mainWindow.getBounds()
 
-    // 处理浏览器标签页（新系统）
-    if (this._tabViews.size > 0) {
+    // 登录标签活动态：登录视图由 AuthViewManager 自行定位（全屏 y=76），
+    // 浏览器标签保持隐藏，不做布局
+    if (this._activeTabId === AUTH_TAB_ID && this._authTabInfo) {
+      if (this._authViewManager && typeof this._authViewManager._onWindowResize === 'function') {
+        this._authViewManager._onWindowResize()
+      }
+    } else if (this._tabViews.size > 0) {
+      // 处理浏览器标签页（新系统）
       var activeView = this._tabViews.get(this._activeTabId)
       if (activeView) {
         activeView.setBounds({ x: 0, y: 76, width: bounds.width, height: bounds.height - 76 })
@@ -980,3 +1138,4 @@ class WebviewManager extends EventEmitter {
 }
 
 module.exports = WebviewManager
+module.exports.AUTH_TAB_ID = AUTH_TAB_ID

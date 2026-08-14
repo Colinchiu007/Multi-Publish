@@ -686,19 +686,17 @@ describe("AccountsView", () => {
     expect(w.vm.authViewVisible).toBe(false);
   });
 
-  it("网页登录状态显示明确完成按钮，并通过主进程保存当前账号", async () => {
+  it("网页登录改为全屏标签呈现，账号页不再显示完成登录横幅", async () => {
     const { authCompleteLogin } = await import("@/api/publisher");
     const w = await mountView();
     _eventCallbacks.authOpened({ platform: "wechat_mp" });
     await nextTick();
 
-    const button = w.get(".login-state .complete-login");
-    expect(button.text()).toContain("我已完成登录");
-    await button.trigger("click");
-
-    expect(authCompleteLogin).toHaveBeenCalledTimes(1);
-    const { ElMessage } = await import("element-plus");
-    expect(ElMessage.info).toHaveBeenCalledWith("正在保存账号...");
+    // 完成登录入口已迁移到导航栏「保存账号」按钮（App.vue/NavBar.vue），
+    // 账号页不再渲染 login-state 横幅与浮动关闭按钮
+    expect(w.find(".login-state").exists()).toBe(false);
+    expect(w.find(".floating-close-button").exists()).toBe(false);
+    expect(authCompleteLogin).not.toHaveBeenCalled();
   });
 
   it("首次网页登录前展示授权说明，确认后记录一次性状态", async () => {

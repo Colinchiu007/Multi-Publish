@@ -12,8 +12,17 @@
 
 | 布局 | 触发条件 | 组成 |
 |------|---------|------|
-| **Yixiaoer 工作区** | 路由 **不在** `NON_WORKSPACE_ROUTES`（`/first-run`, `/model-providers`, `/keywords`, `/viral-analysis`）| `YixiaoerSidebar` + `YixiaoerModuleNav` + `<router-view>` |
+| **Yixiaoer 工作区** | 路由 **不在** `NON_WORKSPACE_ROUTES`（`/first-run`, `/model-providers`, `/keywords`, `/viral-analysis`）| `YixiaoerSidebar` + `TabBar` + `NavBar` + `YixiaoerModuleNav`（仅首页标签） + `<router-view>` |
 | **经典布局** | 路由在 `NON_WORKSPACE_ROUTES` 中 | `AppNavbar` + `AppSidebar` + `<router-view>` |
+
+**浏览器式标签栏（Yixiaoer 工作区，对标蚁小二）**：
+
+| 组件 | 内容 |
+|------|------|
+| `TabBar`（`components/TabBar.vue`） | 首页标签 + 浏览器标签；非 home 标签显示平台图标（按 URL 域名匹配）、标题与关闭按钮（×） |
+| `NavBar`（`components/NavBar.vue`） | 后退/前进/刷新/返回首页 + 地址栏（搜索或输入网址，可复制）+ 右侧操作区 |
+| 虚拟登录标签（2026-08-14 新增） | 网页登录视图注册为标签 `auth-login`：标题「{平台中文名}登录」、带平台图标与关闭按钮；登录页全屏显示（TabBar+NavBar 以下全部区域），不再避让侧边栏 |
+| NavBar「保存账号」按钮 | 仅登录标签活动态显示：蓝色（#409eff）圆角按钮，文案「保存账号」/「保存中...」（禁用态）；点击调用 `authCompleteLogin` 提取并保存登录凭证 |
 
 **全局挂载组件**（两种布局共享）：
 - `OfflineIndicator` — 断网时顶部黄色提示条
@@ -220,7 +229,7 @@
 | empty-分组内无 | 分组筛选无结果 | "该分组内暂无账号" |
 | empty-无匹配 | 搜索无结果 | "没有匹配的账号" |
 | batch-mode | 勾选批量操作 | 底部工具栏：全选/批量启用/禁用/删除/取消 |
-| login-state-bar | 登录过程中 | 底部登录状态条 + QR 码预览 |
+| login-state-bar | **扫码登录**过程中（2026-08-14 起仅 qrcode 模式） | 底部登录状态条 + QR 码预览；**网页登录已改为全屏登录标签**（见 1.1 虚拟登录标签），账号页不再显示横幅/浮动关闭按钮 |
 
 ### 5.3 Publish.vue（874 行）— 发布
 
