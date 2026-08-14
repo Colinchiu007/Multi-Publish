@@ -17,6 +17,9 @@ const {
   importUserSelectedMedia,
   resolveReadableFile,
 } = require('../services/story2video-paths')
+const {
+  getStory2VideoBgmLibrary,
+} = require('../services/story2video-bgm-library')
 
 function safeZipName (value) {
   const base = path.basename(typeof value === 'string' && value.trim() ? value.trim() : 'story2video-export.zip')
@@ -50,6 +53,22 @@ function registerHandlers (ipcMain, deps = {}) {
     ? [projectService.projectsDir]
     : []
   const allowedMediaRoots = (extraRoots = []) => getAllowedMediaRoots([...projectRoots, ...extraRoots])
+
+  // BGM 素材库：生产环境懒创建（userData/story2video-bgm）；测试可注入 mock 实例。
+  let bgmLibrary = deps.story2videoBgmLibrary || null
+  let bgmLibraryError = null
+  const requireBgmLibrary = () => {
+    if (bgmLibrary) return bgmLibrary
+    if (!bgmLibraryError) {
+      try {
+        bgmLibrary = getStory2VideoBgmLibrary()
+      } catch (error) {
+        bgmLibraryError = error
+      }
+    }
+    if (!bgmLibrary) throw bgmLibraryError || new Error('BGM 素材库不可用')
+    return bgmLibrary
+  }
 
   const requireProjectService = () => {
     if (!projectService) throw new Error('Story2Video 项目服务不可用')
@@ -150,6 +169,56 @@ function registerHandlers (ipcMain, deps = {}) {
     try {
       // 生产导入路径开启惰性 GC（selected-media 老化回收，默认 1h 间隔）。
       const data = importUserSelectedMedia(request.filePath, request.kind, { gcEnabled: true })
+      return { code: 0, data }
+    } catch (error) {
+      return { code: EC.VALIDATION_ERROR, message: error.message }
+    }
+  }))
+
+  // BGM 素材库：设备级持久化（userData/story2video-bgm），纯本地操作，未登录可用。
+  ipcMain.handle('story2video:bgm-library-list', withSenderCheck(async () => {
+    try {
+      return { code: 0, data: requireBgmLibrary().list() }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: error.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:bgm-library-add', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+      typeof request.filePath !== 'string' || !request.filePath.trim()) {
+      return { code: EC.VALIDATION_ERROR, message: '背景音乐文件路径无效' }
+    }
+    try {
+      const data = requireBgmLibrary().add(request.filePath)
+      return { code: 0, data }
+    } catch (error) {
+      // message 沿用 importUserSelectedMedia 语义（不支持的媒体格式/超过大小上限/被占用），
+      // renderer 经 resolveMediaImportFailure 映射为用户可读提示。
+      return { code: EC.VALIDATION_ERROR, message: error.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:bgm-library-rename', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+      typeof request.id !== 'string' || !request.id.trim() || typeof request.name !== 'string') {
+      return { code: EC.VALIDATION_ERROR, message: '背景音乐重命名参数无效' }
+    }
+    try {
+      const data = requireBgmLibrary().rename(request.id, request.name)
+      return { code: 0, data }
+    } catch (error) {
+      return { code: EC.VALIDATION_ERROR, message: error.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:bgm-library-delete', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+      typeof request.id !== 'string' || !request.id.trim()) {
+      return { code: EC.VALIDATION_ERROR, message: '背景音乐删除参数无效' }
+    }
+    try {
+      const data = requireBgmLibrary().delete(request.id)
       return { code: 0, data }
     } catch (error) {
       return { code: EC.VALIDATION_ERROR, message: error.message }

@@ -302,3 +302,141 @@ describe('Story2Video 交付 IPC', () => {
     expect(fs.existsSync(imported.path)).toBe(false)
   })
 })
+
+describe('Story2Video BGM 素材库 IPC', () => {
+  function createBgmLibraryMock () {
+    const items = new Map()
+    let seq = 0
+    return {
+      list: vi.fn(() => Array.from(items.values())),
+      add: vi.fn((filePath) => {
+        seq += 1
+        const item = {
+          id: 'bgm-' + seq,
+          name: path.basename(String(filePath)),
+          path: String(filePath),
+          size: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        }
+        items.set(item.id, item)
+        return item
+      }),
+      rename: vi.fn((id, name) => {
+        const item = items.get(id)
+        if (!item) throw new Error('背景音乐不存在或已被删除')
+        item.name = name
+        return item
+      }),
+      delete: vi.fn((id) => {
+        if (!items.has(id)) throw new Error('背景音乐不存在或已被删除')
+        items.delete(id)
+        return { deleted: true, id }
+      }),
+    }
+  }
+
+  it('列出 BGM 素材库条目', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    bgmLibrary.add('/tmp/music.mp3')
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    const result = await ipcMain.get('story2video:bgm-library-list')(TRUSTED_EVENT)
+
+    expect(result.code).toBe(0)
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0].name).toBe('music.mp3')
+  })
+
+  it('添加 BGM 成功并返回条目', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    const result = await ipcMain.get('story2video:bgm-library-add')(TRUSTED_EVENT, {
+      filePath: '/tmp/audio/music.mp3',
+    })
+
+    expect(result.code).toBe(0)
+    expect(result.data).toMatchObject({ id: 'bgm-1', name: 'music.mp3', path: '/tmp/audio/music.mp3' })
+    expect(bgmLibrary.add).toHaveBeenCalledWith('/tmp/audio/music.mp3')
+  })
+
+  it('添加 BGM 参数非法时返回校验错误', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    const result = await ipcMain.get('story2video:bgm-library-add')(TRUSTED_EVENT, { filePath: '' })
+
+    expect(result.code).toBeLessThan(0)
+    expect(bgmLibrary.add).not.toHaveBeenCalled()
+  })
+
+  it('添加 BGM 失败时透传用户可读原因（格式/大小/占用）', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    bgmLibrary.add.mockImplementation(() => { throw new Error('不支持的媒体格式') })
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    const result = await ipcMain.get('story2video:bgm-library-add')(TRUSTED_EVENT, {
+      filePath: '/tmp/audio/evil.aac',
+    })
+
+    expect(result.code).toBeLessThan(0)
+    expect(result.message).toMatch(/不支持的媒体格式/)
+  })
+
+  it('重命名 BGM 成功', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    bgmLibrary.add('/tmp/audio/music.mp3')
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    const result = await ipcMain.get('story2video:bgm-library-rename')(TRUSTED_EVENT, {
+      id: 'bgm-1', name: '清晨旋律',
+    })
+
+    expect(result.code).toBe(0)
+    expect(result.data.name).toBe('清晨旋律')
+    expect(bgmLibrary.rename).toHaveBeenCalledWith('bgm-1', '清晨旋律')
+  })
+
+  it('重命名不存在的条目时返回错误', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    const result = await ipcMain.get('story2video:bgm-library-rename')(TRUSTED_EVENT, {
+      id: 'bgm-missing', name: '不存在',
+    })
+
+    expect(result.code).toBeLessThan(0)
+    expect(result.message).toMatch(/不存在/)
+  })
+
+  it('删除 BGM 成功', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    bgmLibrary.add('/tmp/audio/music.mp3')
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    const result = await ipcMain.get('story2video:bgm-library-delete')(TRUSTED_EVENT, { id: 'bgm-1' })
+
+    expect(result.code).toBe(0)
+    expect(result.data).toEqual({ deleted: true, id: 'bgm-1' })
+    expect(bgmLibrary.delete).toHaveBeenCalledWith('bgm-1')
+  })
+
+  it('删除参数非法时返回校验错误', async () => {
+    const bgmLibrary = createBgmLibraryMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoBgmLibrary: bgmLibrary })
+
+    const result = await ipcMain.get('story2video:bgm-library-delete')(TRUSTED_EVENT, { id: '' })
+
+    expect(result.code).toBeLessThan(0)
+    expect(bgmLibrary.delete).not.toHaveBeenCalled()
+  })
+})

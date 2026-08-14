@@ -11,6 +11,7 @@
  *    与 .github/scripts/locale-cjk-baseline.json 基线对比，超出基线的「新增」命中即失败（exit 1）。
  *    --update-baseline 重新生成基线（存量债务吸收用，禁用于掩盖新增硬编码）。
  *
+ * 已知边界（2026-08-14）：CJK 基线按 file:line 存储，行号偏移（如 BGM 素材库新增 215 行）会触发全量 fresh 假阳性——修复方式为显式 --update-baseline（无新增用户可见硬编码时）。
  * 已知边界（2026-08-13）：
  * - 仅覆盖 .js 与 .vue <script>；.vue <template> 文案由 ui-i18n 存量批次收敛，不在本扫描范围。
  * - 注释剥离为启发式（块注释 + 行注释），正则字面量中的中文不匹配字符串提取，不会误报。
