@@ -68,6 +68,7 @@ const PUBLISH_METHODS = [
   'story2videoGetProject', 'story2videoDeleteProject', 'story2videoUpdateSegments',
   'story2videoReplaceSegmentAudio',
   'story2videoRetrySegment', 'story2videoRecomposeProject', 'story2videoTranscribe',
+  'story2videoSelectSceneMaterial', 'story2videoGenerateSceneImage', 'story2videoGenerateSceneVideo',
   'story2videoCapabilities',
   'story2videoBatchCreate', 'story2videoBatchStatus', 'story2videoBatchCancel', 'story2videoPickBatchFiles',
   'cloudPublishSubmit', 'cloudPublishListTasks', 'cloudPublishGetTask', 'cloudPublishPlatforms',
@@ -188,11 +189,11 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 93 个键（92 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 96 个键（95 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    // 89 + story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
-    expect(Object.keys(r).length).toBe(93)
+    // 92（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
+    expect(Object.keys(r).length).toBe(96)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -209,14 +210,14 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(142)
   })
 
-  it('合并后 api 总键数应为 283（含 videoClone 命名空间与批量创作）', () => {
-    // 279 + story2videoBatchCreate/Status/Cancel/PickBatchFiles
-    expect(Object.keys(api).length).toBe(283)
+  it('合并后 api 总键数应为 286（含 videoClone 命名空间与批量创作）', () => {
+    // 282（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles
+    expect(Object.keys(api).length).toBe(286)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    // 77 + story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
-    expect(PUBLISH_METHODS.length).toBe(81)
+    // 80（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
+    expect(PUBLISH_METHODS.length).toBe(84)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',
@@ -343,6 +344,9 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
     ['story2videoSaveAs', 'story2video:save-as', ['C:/video.mp4', 'out.mp4']],
     ['story2videoDeleteProject', 'story2video:delete-project', ['project-1']],
     ['story2videoReplaceSegmentAudio', 'story2video:replace-segment-audio', ['project-1', 'segment-0', 'C:/voice.mp3']],
+    ['story2videoSelectSceneMaterial', 'story2video:select-scene-material', ['project-1', 'segment-0', 'image2']],
+    ['story2videoGenerateSceneImage', 'story2video:generate-scene-image', ['project-1', 'segment-0']],
+    ['story2videoGenerateSceneVideo', 'story2video:generate-scene-video', ['project-1', 'segment-0']],
   ]
 
   beforeEach(() => {

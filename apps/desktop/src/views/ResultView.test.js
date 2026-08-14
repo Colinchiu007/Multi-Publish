@@ -15,6 +15,9 @@ vi.mock("@/api/publisher", () => ({
   story2videoReplaceSegmentAudio: vi.fn(),
   story2videoRetrySegment: vi.fn(),
   story2videoRecomposeProject: vi.fn(),
+  story2videoSelectSceneMaterial: vi.fn(),
+  story2videoGenerateSceneImage: vi.fn(),
+  story2videoGenerateSceneVideo: vi.fn(),
   videoProcess: vi.fn(),
 }));
 
@@ -34,7 +37,11 @@ describe("ResultView", () => {
   async function createView() {
     await router.push("/");
     const w = mount(ResultView, {
-      global: { plugins: [router], components: { UiButton } }
+      global: {
+        plugins: [router],
+        components: { UiButton },
+        mocks: { $t: (key, params) => (params && params.label ? params.label : key) }
+      }
     });
     await nextTick();
     return w;
@@ -481,6 +488,144 @@ describe("ResultView", () => {
       messageKey: "story2video.degraded_assets_warning",
       messageParams: { kinds: "占位图片" },
     });
+    w.unmount();
+  });
+
+  it("历史详情渲染每场景 3 个素材槽位（图1/图2/视频）并展示选中态", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{
+      id: "s1",
+      imagePath: "C:/img1.png",
+      alternateImages: [{ path: "C:/img2.png" }],
+      videoPath: "C:/v.mp4",
+      selectedMaterial: "image2",
+      status: "completed",
+    }];
+    await nextTick();
+    const section = w.find('[data-testid="scene-material-section"]');
+    expect(section.exists()).toBe(true);
+    const slots = section.findAll(".scene-material-slot");
+    expect(slots).toHaveLength(3);
+    expect(slots[0].attributes("aria-pressed")).toBe("false");
+    expect(slots[1].attributes("aria-pressed")).toBe("true");
+    expect(slots[2].attributes("aria-pressed")).toBe("false");
+    expect(section.find(".scene-material-badge").exists()).toBe(true);
+    w.unmount();
+  });
+
+  it("点击已填充素材槽调用 select IPC 并提示已选择", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoSelectSceneMaterial.mockResolvedValue({
+      code: 0,
+      data: {
+        projectId: "p1",
+        segments: [{ id: "s1", imagePath: "C:/img1.png", videoPath: "C:/v.mp4", selectedMaterial: "video", status: "completed" }],
+      },
+    });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{
+      id: "s1", imagePath: "C:/img1.png", videoPath: "C:/v.mp4", selectedMaterial: "image1", status: "completed",
+    }];
+    await nextTick();
+    const section = w.find('[data-testid="scene-material-section"]');
+    await section.findAll(".scene-material-slot")[2].trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.story2videoSelectSceneMaterial).toHaveBeenCalledWith("p1", "s1", "video");
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.material_selected");
+    w.unmount();
+  });
+
+  it("生成新图/生成视频按钮在 busy 时禁用并显示生成中文案", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    await nextTick();
+    const section = w.find('[data-testid="scene-material-section"]');
+    const buttons = section.findAll(".scene-material-actions button");
+    expect(buttons).toHaveLength(2);
+    w.vm.segmentBusy = { s1: "genImage" };
+    await nextTick();
+    expect(buttons[0].attributes("disabled")).toBeDefined();
+    expect(buttons[1].attributes("disabled")).toBeDefined();
+    expect(buttons[0].text()).toContain("story2video.sceneMaterial.generating");
+    w.unmount();
+  });
+
+  it("再次合成按钮复用重新合成流程（recomposeProject）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRecomposeProject.mockResolvedValue({ code: 0, data: { videoPath: "C:/new.mp4", segments: [] } });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    await nextTick();
+    await w.find('[data-testid="recompose-final-button"]').trigger("click");
+    await nextTick();
+    expect(mocks.story2videoRecomposeProject).toHaveBeenCalledWith("p1");
+    w.unmount();
+  });
+
+  it("再次合成成功后重新解析素材 URL（回归：旧实现素材区/分段图空白）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRecomposeProject.mockResolvedValue({
+      code: 0,
+      data: {
+        projectId: "p1",
+        videoPath: "C:/new.mp4",
+        segments: [{
+          id: "s1", imagePath: "C:/new-image.png", videoPath: "C:/new-seg.mp4", status: "completed",
+        }],
+      },
+    });
+    mocks.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    await nextTick();
+    await w.vm.recomposeProject();
+    await nextTick();
+    expect(w.vm.segments[0].imagePath).toBe("C:/new-image.png");
+    expect(w.vm.segments[0].imageUrl).toContain("new-image.png");
+    expect(w.vm.segments[0].videoPath).toBe("C:/new-seg.mp4");
+    expect(w.vm.segments[0].videoUrl).toContain("new-seg.mp4");
+    w.unmount();
+  });
+
+  it("生成视频缺少旁白音频时错误归一化为 scene_audio_missing 提示", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoGenerateSceneVideo.mockRejectedValue(new Error("该场景没有旁白音频，无法生成视频"));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    await nextTick();
+    await w.vm.generateSceneVideo("s1");
+    await nextTick();
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_audio_missing");
+    w.unmount();
+  });
+
+  it("生成新图成功提示 scene_image_generated 并刷新分段数据", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoGenerateSceneImage.mockResolvedValue({
+      code: 0,
+      data: {
+        projectId: "p1",
+        segments: [{
+          id: "s1", imagePath: "C:/img1.png",
+          alternateImages: [{ path: "C:/img2.png" }], status: "completed",
+        }],
+      },
+    });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    await nextTick();
+    await w.vm.generateSceneImage("s1");
+    await nextTick();
+    expect(mocks.story2videoGenerateSceneImage).toHaveBeenCalledWith("p1", "s1");
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_image_generated");
+    expect(w.vm.segments[0].alternateImages).toHaveLength(1);
     w.unmount();
   });
 });

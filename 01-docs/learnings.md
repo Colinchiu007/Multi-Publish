@@ -9,6 +9,24 @@
 - **教训 6（事件订阅窗口）**：队列构造时即订阅 `pipeline:complete/fail`（先于任何 run 启动），无事件丢失窗口；`setRunFinalizedHook` 已被 diagnostics-reporter 占用，不可复用。
 - **回归保护**：`story2video-batch-queue.test.js` 15 例（并行 ≤2 入队即双跑、手动互斥、预算退避、取消仅 pending、索引隔离）；IPC 11 例；CreateView 7 例；全量 vitest 通过。
 
+## Windows GBK locale 下 read_text() 静默吞错 + 格式演进三件套复盘（prompt-engine-higgsfield-round3a，2026-08-15）
+
+- **交付**：round3a（PR #47，commit `ea35c78` + `e1f1788`）——图片缓存 key 全组件化（IMAGE_FMT_V1）、视频确定性校验（timeline_missing/timing_break，盐 V2）、音频分层（audio_layers 四段尾行）；全量 pytest 736 passed / 0 failed。
+- **教训 1（文件读取必须显式 encoding）**：`rest.py` 用 `read_text()` 无 encoding 读含 UTF-8 中文的 prompts.json，Windows GBK locale 下抛 `UnicodeDecodeError` 被 `except Exception: pass` 吞掉 → `rag_cases` 恒 0，全量测试「随机失败 1 项」实为确定性编码问题。教训：JSON/YAML 等文本文件读取一律显式 `encoding="utf-8"`；空 `except Exception: pass` 是 bug 温床，至少保留 `logger.exception`。
+- **教训 2（LLM 输出格式演进必须成套审查正则/判定表/渲染）**：新 Audio 四段尾行被尾行剥离正则（只匹配 `only.`）拦腰截断产出双尾行（评审 C1）。教训：格式契约变更时，剥离正则、判定表、渲染模板三处必须同 change 成套审查，并补「新格式尾行」回归测试。
+- **教训 3（判定表只在生效层启用）**：missing_audio 判定表若在 batch 层启用，会因中间产物无尾行产生假阴性——判定表仅限 refined 尾行实际渲染的场景（评审 W1）。教训：跨层复用的校验规则必须绑定「该输出形态真实出现的层」。
+- **评审**：Claude 1C/2W 全修复 + 13 Info（6 修，其余归 Batch B/C）；antigravity 后端不可用降级记录。
+
+## 场景多素材详情页（3 素材槽 + 生成/重合成）复盘（s2v-scene-multi-materials，2026-08-14）
+
+- **需求/交付**：视频创作-全能创作-历史记录详情页每场景最多 3 个可选素材槽——图1=`imagePath`、图2=`alternateImages[0].path`、视频=`videoPath`，`selectedMaterial` 记录选中态；新增【生成新图】【生成视频】【再次合成视频】（重合成复用已选素材 + TTS 语音/字幕/背景音乐）。流水线完成后可从详情页继续生成/选择/重合成。PR #823（squash `8b90e85e`）已合并。
+- **槽位身份稳定**：选中只写 `selectedMaterial` 标记、不搬动文件；`alternateImages` 强制 `length<=1` 保证「图2=alternateImages[0]」槽位身份可推断，并与旧数据（无备选图）兼容。
+- **替换语义**：已有 2 图时点【生成新图】——图1 非选中替换图1、图1 选中则替换图2；已有视频时点【生成视频】替换原视频；生成接口按槽位覆盖写，返回后刷新素材区。
+- **教训 1（C1：compose 回显全字段会污染图1 槽）**：compose-engine 回显 scene 的 `...scene` 展开会把 `_scenesForCompose` 的渲染映射路径（含备选图）持久化回 `imagePath` 槽 → 槽位回填必须保留项目原值；`restoredImageCopies` 孤儿副本清理必须「仅当原值与副本路径不同才登记」，防止误删仍被引用的同名文件。
+- **教训 2（W1：任何「服务端返回新 segments」路径必须刷新素材 URL）**：详情页 retry / 再次合成等路径都必须调 `refreshSegmentImageUrls()`（内部串接 `refreshSceneMaterialUrls`），否则素材区空白。
+- **产物清理语义**：`referencedProjectFiles` 必须包含 `alternateImages[].path`；`_cleanupUnreferencedProjectFiles` 只删不再被引用文件，多素材槽位产物不误删。
+- **门禁证据**：定向 3 套件 415/415；全量 Vitest 7705 passed；locale zh/en 成对 + `check-locale-sync --cjk` 1512 PASS；QM-1 打包 exit 0 + asar 提取验证 4 新 IPC；PR CI 17 项全绿（QG Desktop Shards 首跑 3 例并行 flake，`gh run rerun --failed` 复跑全绿）。
+
 ---
 
 ## 分支保护 path-filtered 检查卡死 ops-center-only PR 复盘（branch-protection-path-filter，2026-08-14）

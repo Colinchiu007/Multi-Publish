@@ -462,9 +462,10 @@ function buildWatermarkFilter (options) {
     'bottom-left': 'x=40:y=h-text_h-40',
     'bottom-right': 'x=w-text_w-40:y=h-text_h-40',
     center: 'x=(w-text_w)/2:y=(h-text_h)/2',
-    // moving：确定性 Lissajous 平滑漂移（x 周期 10s / y 周期 14s，90% 中心幅度，起点正中）。
+    // moving：确定性 Lissajous 平滑漂移（x 周期 100s / y 周期 140s，90% 中心幅度，起点正中）。
+    // 2026-08-14：用户反馈 10s/14s 漂移过快影响观看，周期放大 10 倍（速度约为原 1/10）。
     // 不用逐帧随机：ffmpeg random() 每帧取新值 → 文字闪烁且不可复现；表达式内禁止逗号（会切分滤镜链）。
-    moving: "x='(w-text_w)/2*(1+0.9*sin(2*PI*t/10))':y='(h-text_h)/2*(1+0.9*cos(2*PI*t/14))'",
+    moving: "x='(w-text_w)/2*(1+0.9*sin(2*PI*t/100))':y='(h-text_h)/2*(1+0.9*cos(2*PI*t/140))'",
   }
   const position = positions[config.position] || positions['bottom-right']
   const fontFile = escapeFontFilePath(resolveCjkFont())

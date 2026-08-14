@@ -35,3 +35,49 @@
 - **WHEN** 运行 `video-prompt-engine-contract.test.js` 中既有用例（Higgsfield 新用例除外）
 - **THEN** 全部通过（零修改）
 
+## Higgsfield Round3 Batch A（2026-08-15 归档，change prompt-engine-higgsfield-round3a）
+
+### Requirement: 图片主缓存 key 全组件化
+
+图片主缓存 `SqlitePromptCache.make_key` SHALL 纳入 `prompt`/`platform`/`creative_level`/`max_length`/`num_candidates`/`negative_prompt`/`excluded_characters`/`no_swap_pairs`/`context`（JSON sort_keys 规范化）/`style`/`language` 全组件，并带版本盐 `IMAGE_FMT_V1`；`optimizer` 的 `_cache_key/_cache_get/_cache_set` 调用点 SHALL 全链路透传新组件；legacy `_PromptCache`（tuple 键）与 `fuzzy_match_prompt` SHALL 保持零改动。`make_key` SHALL 对非 JSON 序列化 context 不抛错（`json.dumps(default=str)`）、set 输入排序归一、空容器与 None 归一。
+
+#### Scenario: 异组件缓存不串号
+- **WHEN** 同 prompt 下改变 `excluded_characters`/`no_swap_pairs`/`context`/`style`/`language` 任一组件调用 `make_key`
+- **THEN** 两次 key 不同；全组件相同时 key 相同；第二次 `optimize()` 为 cache miss
+
+#### Scenario: legacy fuzzy 零回归
+- **WHEN** 运行既有 `fuzzy_match_prompt` 与 `_PromptCache` 兼容测试
+- **THEN** 全部通过且行为不变
+
+### Requirement: 视频 evaluator 确定性 FAIL CHECK
+
+视频 evaluator SHALL 提供两个确定性 FAIL CHECK（纯结构/数学判定，无 LLM）：`timeline_missing`（-5）——`shots` 非空且长度 ≥2 时，正文（引用协议标记区剥离后）不含 `[SHOT` 且不含 `[HARD CUT` 触发；`timing_break`（-5）——`shots` 长度 ≥2 时，解析 `beats[].time`（`m:ss-m:ss`/`s.s-s.s` 区间）端点最大值超过 `shot.duration + 2s` 触发。`checks` SHALL 暴露 `timeline_hits` 与 `timing_diff`（无解析值时 None 恒存在）。refined Output Format SHALL 要求多切（shots≥2）输出嵌入 `[SHOT N]`/`[HARD CUT]` 教标记，视频缓存版本盐 SHALL bump 为 `HIGGSFIELD_FMT_V2` 使旧形态缓存失效。
+
+#### Scenario: 多切缺标记自罚
+- **WHEN** `shots` 长度 ≥2 且正文缺 `[SHOT`/`[HARD CUT`（引用块内标记不计数）
+- **THEN** `violations.timeline_missing == -5` 且 `checks.timeline_hits == false`
+
+#### Scenario: beats 越界扣分
+- **WHEN** `beats[].time` 端点（秒）超过 `shot.duration + 2` 
+- **THEN** `violations.timing_break == -5` 且 `checks.timing_diff` 为正数；不可解析区间不触发且 `timing_diff == null`
+
+### Requirement: 音频分层输出
+
+`VIDEO_OUTPUT_KEYS` 与 `VideoPromptMeta` SHALL 增加 `audio_layers`（键 environment/sfx/dialogue 各 ≤200 字符 + music_off 布尔，默认 None）；`extract_video_meta` SHALL 经 `_clean_audio_layers` 键白名单/类型/长度清洗（非法 → None）；`build_tail` SHALL 在 `audio_layers` 非空时以 `Audio: Environmental {env}. SFX: {sfx}. Dialogue: {dialogue}. No music.` 段替换 `{audio} only.`（空层省略、music_off=false 省略）。`missing_audio` 判定表 SHALL 仅 refined 层生效：`sfx` 或 `dialogue` 至少一层非空即满足（仅 environment 不算）；batch 层 SHALL 保持正文音频词/否定词检查。C6 尾行剥离 SHALL 兼容 Audio 段形态（防双尾行）。
+
+#### Scenario: 音频分层端到端
+- **WHEN** LLM 输出含 `audio_layers` 且 refined 层
+- **THEN** 渲染尾行为 Audio 段、`missing_audio` 不触发；无 `audio_layers` 时旧尾行与旧判分逐字节不变
+
+#### Scenario: batch 判定表不越权
+- **WHEN** batch 层 `audio_layers` 提供 `sfx` 但正文无音频词（含否定词）
+- **THEN** `missing_audio == -5` 仍触发（正文检查不被 audio_layers 接管）
+
+### Requirement: 资源端点 UTF-8 读取
+
+`/v1/resources` 的 JSON/YAML 资源读取 SHALL 显式 `encoding="utf-8"`；GBK locale（Windows 默认 cp936）下不得因 `read_text()` 默认编码抛 UnicodeDecodeError 被吞导致 `rag_cases` 恒 0。
+
+#### Scenario: GBK locale 计数正确
+- **WHEN** Windows GBK locale 下请求 `/v1/resources`
+- **THEN** `rag_cases >= 500`（prompts_db 918 + seed 18）
+

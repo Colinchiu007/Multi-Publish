@@ -39,6 +39,12 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   SEGMENT_IMAGE_RETRIED: 'story2video.segment_image_retried',
   SEGMENT_VIDEO_RETRIED: 'story2video.segment_video_retried',
   PROJECT_RECOMPOSED: 'story2video.project_recomposed',
+  SCENE_IMAGE_GENERATED: 'story2video.scene_image_generated',
+  SCENE_VIDEO_GENERATED: 'story2video.scene_video_generated',
+  MATERIAL_SELECTED: 'story2video.material_selected',
+  SCENE_AUDIO_MISSING: 'story2video.scene_audio_missing',
+  SCENE_IMAGE_MISSING: 'story2video.scene_image_missing',
+  SCENE_SLOT_EMPTY: 'story2video.scene_slot_empty',
   DEGRADED_ASSETS_WARNING: 'story2video.degraded_assets_warning',
   RATE_LIMITED: 'story2video.rate_limited',
   QUOTA_EXCEEDED: 'story2video.quota_exceeded',
@@ -86,6 +92,10 @@ const TEXT_TOO_LONG_PATTERN = /(超过\s*6000|最多\s*6000|6000.*(?:字符|char
 const PREVIEW_MISSING_PATTERN = /(未返回.*可预览.*视频|preview.*(?:missing|video)|no previewable video)/i
 const VOICE_INVALID_PATTERN = /(voice id wrong|invalid params.*voice|voice_id.*(?:invalid|wrong|not found|not exist|unsupported)|voice.*(?:not found|does not exist|invalid|unavailable)|音色.*(?:无效|不存在|失效|错误))/i
 const PIPELINE_CONCURRENCY_PATTERN = /(流水线正在(?:后台)?运行|最多同时运行|同时运行.*条|concurrency limit)/i
+// 历史详情页场景素材操作失败归一化（2026-08-14）
+const SCENE_AUDIO_MISSING_PATTERN = /(没有旁白音频|no narration audio|missing.*(?:narration|voice).*audio)/i
+const SCENE_IMAGE_MISSING_PATTERN = /(没有可用的图片素材|no available image|missing.*image.*(?:scene|segment))/i
+const SCENE_SLOT_EMPTY_PATTERN = /(素材槽位暂无素材|slot.*(?:empty|missing)|material slot)/i
 export function countUnicodeCodePoints (value) {
   return Array.from(String(value ?? '')).length
 }
@@ -207,6 +217,9 @@ function resolveMessageKey (notification, fallbackKey) {
   if (TEXT_TOO_LONG_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG
   if (PREVIEW_MISSING_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING
   if (VOICE_INVALID_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID
+  if (SCENE_AUDIO_MISSING_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_MISSING
+  if (SCENE_IMAGE_MISSING_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_IMAGE_MISSING
+  if (SCENE_SLOT_EMPTY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_SLOT_EMPTY
   return fallbackKey
 }
 

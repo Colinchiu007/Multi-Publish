@@ -26,6 +26,8 @@ const MAX_PROJECTS = 100
 const AUTO_PIPELINES = ['story2video-compose', 'animated-explainer', 'clip-factory', 'cinematic', 'framework-smoke', 'talking-head', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,100}$/
+// 场景素材槽位身份：image1 = imagePath、image2 = alternateImages[0].path、video = videoPath
+const MATERIAL_KINDS = ['image1', 'image2', 'video']
 
 function getUserDataDir () {
   if (!process.versions.electron) return os.tmpdir()
@@ -78,6 +80,20 @@ function safeSubtitleTimeline (value) {
       duration: endTime - startTime,
     }
   }).filter(Boolean)
+}
+
+function safeAlternateImages (value) {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 1).map((item) => {
+    if (!item || typeof item !== 'object') return null
+    const pathValue = safeText(item.path, 1000)
+    if (!pathValue) return null
+    return { path: pathValue, meta: safeAssetMeta(item.meta) }
+  }).filter(Boolean)
+}
+
+function safeMaterialKind (value) {
+  return MATERIAL_KINDS.includes(value) ? value : null
 }
 
 function sourceExtension (filePath, fallback) {
@@ -135,6 +151,9 @@ function referencedProjectFiles (project) {
     add(segment?.imagePath)
     add(segment?.audioPath)
     add(segment?.videoPath)
+    for (const alternate of Array.isArray(segment?.alternateImages) ? segment.alternateImages : []) {
+      add(alternate?.path)
+    }
   }
   return files
 }
@@ -350,6 +369,7 @@ class Story2VideoProjectService {
       ? compose.segments
       : fallbackSegments
     const segments = sourceSegments.map((segment, position) => {
+      const fallbackSegment = fallbackSegments[position] || {}
       const index = Number.isInteger(segment.index) && segment.index >= 0 ? segment.index : position
       const id = SAFE_ID.test(String(segment.id || '')) ? String(segment.id) : 'segment-' + index
       const prefix = 'segment_' + String(position).padStart(4, '0')
@@ -379,6 +399,13 @@ class Story2VideoProjectService {
         degraded: segment.degraded === true,
         fallbackReason: safeText(segment.fallbackReason, 300) || null,
         status: segment.status || 'completed',
+        // compose 输出不含素材槽位字段，按 index 从 fallback 回填（compose 保序，2026-08-14）
+        alternateImages: safeAlternateImages(
+          Array.isArray(segment.alternateImages) && segment.alternateImages.length > 0
+            ? segment.alternateImages
+            : fallbackSegment.alternateImages,
+        ),
+        selectedMaterial: safeMaterialKind(segment.selectedMaterial || fallbackSegment.selectedMaterial),
       }
     })
     return { videoPath, audioPath, segments }
@@ -391,6 +418,9 @@ class Story2VideoProjectService {
     const projectId = this._assertId(String(run.id || ''))
     const scenes = run.context?.generate_assets?.scenes || run.context?.assets?.scenes || []
     const artifacts = this._persistComposeArtifacts(projectId, compose, scenes)
+    // manual 模式：把流水线已生成的未选素材一并持久化到项目目录（图2 备选 / 未选视频 / 选中态），
+    // 详情页无需重跑即可展示全部候选（2026-08-14 多素材需求）。
+    artifacts.segments = this._enrichManualCandidates(artifacts.segments, run, projectId)
     const options = this._safeOptions(run.params, projectId)
     const story2videoTextConfig = run.pipeline === 'story2video-compose'
       ? this._persistTextConfig(run.params, projectId, options)
@@ -622,9 +652,26 @@ class Story2VideoProjectService {
     const project = this.getProject(projectId)
     const previousProject = { ...project, segments: project.segments.map(segment => ({ ...segment })) }
     if (!this.composeEngine || typeof this.composeEngine.compose !== 'function') throw new Error('视频合成服务不可用')
-    const result = await this.composeEngine.compose({ scenes: project.segments }, project.options || {})
+    const result = await this.composeEngine.compose({ scenes: this._scenesForCompose(project.segments) }, project.options || {})
     if (!result || result.code !== 0 || !result.data?.videoPath) throw new Error(result?.message || '重新合成失败')
     const artifacts = this._persistComposeArtifacts(projectId, result.data, project.segments)
+    // 素材槽位以项目原值回填：_scenesForCompose 的 imagePath 替换仅为渲染映射，
+    // compose 输出会把映射后的 imagePath 回显，直接持久化会污染图1 槽并导致原图1 被清理删除（2026-08-14 审查 C1）
+    const restoredImageCopies = []
+    artifacts.segments = artifacts.segments.map((segment, position) => {
+      const original = project.segments[position] || {}
+      // 仅当回填原值确实覆盖了 compose 回显副本时登记副本，避免误删仍被槽位引用的同名文件
+      if (original.imagePath && path.resolve(segment.imagePath) !== path.resolve(original.imagePath)) {
+        restoredImageCopies.push(segment.imagePath)
+      }
+      return {
+        ...segment,
+        imagePath: original.imagePath || segment.imagePath,
+        imageMeta: original.imageMeta || segment.imageMeta,
+        alternateImages: Array.isArray(original.alternateImages) ? original.alternateImages : segment.alternateImages,
+        selectedMaterial: original.selectedMaterial || segment.selectedMaterial,
+      }
+    })
     const updated = {
       ...project,
       ...artifacts,
@@ -636,7 +683,266 @@ class Story2VideoProjectService {
     }
     const saved = this._upsertProject(updated)
     this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+    // compose 回显的图片副本仅用于渲染映射，槽位回填项目原值后即为孤儿文件，一并清理（2026-08-14 审查 C1）
+    this._cleanupProjectFiles(this._projectDir(projectId), restoredImageCopies)
     return saved
+  }
+
+  /**
+   * 按选中态把 segments 映射为 compose 输入（compose/renderSegment 引擎零改动）：
+   * - video 选中 → 保留 videoPath（compose 自身 videoPath 优先）；
+   * - image1/image2 选中 → 传选中图片并置空 videoPath；
+   * - 缺失 → 遗留语义（videoPath 优先，与现状一致）。
+   */
+  _scenesForCompose (segments) {
+    return (Array.isArray(segments) ? segments : []).map((segment) => {
+      const scene = { ...segment }
+      const selected = safeMaterialKind(segment.selectedMaterial)
+      if (selected === 'video') return scene
+      if (selected === 'image2') {
+        const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
+        if (alternate && typeof alternate.path === 'string' && alternate.path) {
+          scene.imagePath = alternate.path
+        }
+      }
+      // 仅显式选中图片时剥离旧视频；缺失选中态保持遗留语义（videoPath 优先）
+      if (selected === 'image1' || selected === 'image2') {
+        scene.videoPath = null
+      }
+      return scene
+    })
+  }
+
+  /**
+   * manual 模式候选富化：从 run.context.generate_assets.candidates 恢复未选素材。
+   * - 流水线选图 → 未选中的另一张图复制为 alternateImages[0]（图2 槽），selectedMaterial='image1'；
+   * - 流水线选视频 → 两张候选图分别填图1/图2 槽，selectedMaterial='video'；
+   * - 无候选（auto 模式）→ 不富化，字段缺省即旧行为。
+   */
+  _enrichManualCandidates (segments, run, projectId) {
+    if (!run || !run.context || typeof run.context !== 'object') return segments
+    const manifest = run.context.generate_assets
+    if (!manifest || manifest.creationMode !== 'manual' || !Array.isArray(manifest.candidates)) return segments
+    const selections = Array.isArray(manifest.selection && manifest.selection.selections)
+      ? manifest.selection.selections
+      : []
+    if (manifest.candidates.length === 0) return segments
+    const projectDir = this._projectDir(projectId)
+    const byIndex = new Map(selections.map((item) => [item && item.index, item]))
+    const copyCandidate = (candidate, destination) => {
+      if (!candidate || typeof candidate.path !== 'string' || !candidate.path) return null
+      try {
+        return this._copyRequired(candidate.path, destination, 'image')
+      } catch (error) {
+        if (this.log && typeof this.log.warn === 'function') {
+          this.log.warn('[Story2Video] 候选素材复制失败: ' + (error && error.message ? error.message : String(error)))
+        }
+        return null
+      }
+    }
+    return segments.map((segment, position) => {
+      const scene = manifest.candidates.find((candidate) => candidate && candidate.index === (segment.sourceIndex ?? position))
+      if (!scene || !Array.isArray(scene.candidates) || scene.candidates.length === 0) return segment
+      const picked = byIndex.get(scene.index)
+      const pickedCandidate = (typeof picked?.candidateId === 'string' && picked.candidateId)
+        ? scene.candidates.find((candidate) => candidate && candidate.id === picked.candidateId)
+        : null
+      const images = scene.candidates.filter((candidate) => candidate && candidate.kind === 'image' &&
+        typeof candidate.path === 'string' && candidate.path)
+      const video = scene.candidates.find((candidate) => candidate && candidate.kind === 'video' &&
+        typeof candidate.path === 'string' && candidate.path)
+      const enriched = { ...segment }
+      if (pickedCandidate && pickedCandidate.kind === 'image') {
+        if (!Array.isArray(enriched.alternateImages) || enriched.alternateImages.length === 0) {
+          const other = images.find((candidate) => candidate.id !== pickedCandidate.id)
+          if (other) {
+            const copied = copyCandidate(other, path.join(projectDir, (SAFE_ID.test(String(enriched.id)) ? String(enriched.id) : 'segment_' + String(position).padStart(4, '0')) + '_image2' + sourceExtension(other.path, '.png')))
+            if (copied) enriched.alternateImages = [{ path: copied, meta: safeAssetMeta(other.meta) }]
+          }
+        }
+        enriched.selectedMaterial = 'image1'
+      } else if (pickedCandidate && pickedCandidate.kind === 'video') {
+        if (!enriched.imagePath && images.length > 0) {
+          const first = copyCandidate(images[0], path.join(projectDir, (SAFE_ID.test(String(enriched.id)) ? String(enriched.id) : 'segment_' + String(position).padStart(4, '0')) + '_image' + sourceExtension(images[0].path, '.png')))
+          if (first) {
+            enriched.imagePath = first
+            enriched.imageMeta = safeAssetMeta(images[0].meta)
+          }
+        }
+        if (!Array.isArray(enriched.alternateImages) || enriched.alternateImages.length === 0) {
+          const second = images.length > 1 ? images[1] : null
+          if (second && second.path !== enriched.imagePath) {
+            const copied = copyCandidate(second, path.join(projectDir, (SAFE_ID.test(String(enriched.id)) ? String(enriched.id) : 'segment_' + String(position).padStart(4, '0')) + '_image2' + sourceExtension(second.path, '.png')))
+            if (copied) enriched.alternateImages = [{ path: copied, meta: safeAssetMeta(second.meta) }]
+          }
+        }
+        enriched.selectedMaterial = 'video'
+      }
+      // 流水线未选视频但存在视频候选 → 补视频槽（备选素材）
+      if (!enriched.videoPath && video) {
+        try {
+          enriched.videoPath = this._copyRequired(video.path, path.join(projectDir, 'segment_video_' + String(position).padStart(4, '0') + sourceExtension(video.path, '.mp4')), 'video')
+          enriched.videoMeta = safeAssetMeta(video.meta)
+        } catch (error) {
+          if (this.log && typeof this.log.warn === 'function') {
+            this.log.warn('[Story2Video] 候选视频复制失败: ' + (error && error.message ? error.message : String(error)))
+          }
+        }
+      }
+      return enriched
+    })
+  }
+
+  selectSceneMaterial (projectId, segmentId, kind) {
+    const project = this.getProject(projectId)
+    this._assertId(segmentId, 'segmentId')
+    if (!MATERIAL_KINDS.includes(kind)) throw new Error('素材类型无效')
+    const index = project.segments.findIndex(segment => segment.id === segmentId)
+    if (index < 0) throw new Error('分段不存在')
+    const segment = project.segments[index]
+    const hasSlot = kind === 'image1'
+      ? Boolean(segment.imagePath)
+      : kind === 'image2'
+        ? Boolean(Array.isArray(segment.alternateImages) && segment.alternateImages[0] && segment.alternateImages[0].path)
+        : Boolean(segment.videoPath)
+    if (!hasSlot) throw new Error('该素材槽位暂无素材，请先生成素材')
+    const previousProject = { ...project, segments: project.segments.map(item => ({ ...item })) }
+    project.segments[index] = { ...segment, selectedMaterial: kind }
+    project.dirty = true
+    project.updatedAt = new Date().toISOString()
+    const saved = this._upsertProject(project)
+    this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+    return saved
+  }
+
+  async generateSceneImage (projectId, segmentId) {
+    const project = this.getProject(projectId)
+    const previousProject = { ...project, segments: project.segments.map(item => ({ ...item })) }
+    this._assertId(segmentId, 'segmentId')
+    const index = project.segments.findIndex(segment => segment.id === segmentId)
+    if (index < 0) throw new Error('分段不存在')
+    const segment = { ...project.segments[index], status: 'processing' }
+    if (!this.assetGenerator || typeof this.assetGenerator.generateImage !== 'function') {
+      throw new Error('图片生成服务不可用')
+    }
+    const projectDir = this._projectDir(projectId)
+    const attemptFiles = new Set()
+    try {
+      const generated = await this.assetGenerator.generateImage(segment.prompt || segment.text, {
+        index: segment.sourceIndex ?? index,
+        style: project.options?.imageStyle,
+        image_provider: project.options?.imageProvider,
+        image_model: project.options?.imageModel,
+        aspect_ratio: project.options?.aspectRatio,
+        runId: 'scene_image_' + projectId,
+      })
+      const generatedPath = generated?.data?.path || generated?.data?.image_path || generated?.path
+      const copiedImage = this._copyRequired(
+        generatedPath,
+        path.join(projectDir, segment.id + '_image_gen_' + Date.now() + sourceExtension(generatedPath, '.png')),
+        'image',
+      )
+      attemptFiles.add(copiedImage)
+      const generatedMeta = safeAssetMeta(generated?.data || generated)
+      const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages.slice(0, 1) : []
+      if (alternate.length === 0) {
+        // 只有图1 → 补图2 槽，不改变选中态
+        segment.alternateImages = [{ path: copiedImage, meta: generatedMeta }]
+      } else if (safeMaterialKind(segment.selectedMaterial) === 'image1') {
+        // 图1 被选中 → 替换图2（用户规则：图1 选中时换图2）
+        segment.alternateImages = [{ path: copiedImage, meta: generatedMeta }]
+      } else {
+        // 图1 未被选中（图2/视频/缺失）→ 替换图1（用户规则：图1 未选中时换图1）
+        segment.imagePath = copiedImage
+        segment.imageMeta = generatedMeta
+      }
+      segment.status = 'completed'
+      project.segments[index] = segment
+      project.dirty = true
+      project.updatedAt = new Date().toISOString()
+      const saved = this._upsertProject(project)
+      this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+      return saved
+    } catch (error) {
+      project.segments[index] = {
+        ...previousProject.segments[index],
+        status: 'failed',
+        error: error.message,
+      }
+      project.updatedAt = new Date().toISOString()
+      try {
+        this._upsertProject(project)
+      } catch (storageError) {
+        if (this.log && typeof this.log.warn === 'function') {
+          this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
+        }
+      }
+      this._cleanupProjectFiles(projectDir, attemptFiles)
+      throw error
+    }
+  }
+
+  async generateSceneVideo (projectId, segmentId) {
+    const project = this.getProject(projectId)
+    const previousProject = { ...project, segments: project.segments.map(item => ({ ...item })) }
+    this._assertId(segmentId, 'segmentId')
+    const index = project.segments.findIndex(segment => segment.id === segmentId)
+    if (index < 0) throw new Error('分段不存在')
+    const segment = { ...project.segments[index], status: 'processing' }
+    if (!segment.audioPath) throw new Error('该场景没有旁白音频，无法生成视频')
+    if (!this.composeEngine || typeof this.composeEngine.renderSegment !== 'function') {
+      throw new Error('视频合成服务不可用')
+    }
+    const projectDir = this._projectDir(projectId)
+    const destination = path.join(projectDir, segment.id + '_video_render_' + Date.now() + '.mp4')
+    const attemptFiles = new Set([destination])
+    try {
+      // 生成视频始终以「当前选中的图片」为画面：图2 选中用备选图，否则用图1；
+      // 显式剥离 videoPath，避免 renderSegment 复用旧视频（引擎 videoPath 优先）。
+      const selected = safeMaterialKind(segment.selectedMaterial)
+      const sourceImage = selected === 'image2'
+        ? (Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null)
+        : null
+      const scene = {
+        ...segment,
+        imagePath: sourceImage && typeof sourceImage.path === 'string' && sourceImage.path
+          ? sourceImage.path
+          : segment.imagePath,
+        videoPath: null,
+      }
+      if (!scene.imagePath) throw new Error('该场景没有可用的图片素材，请先生成图片')
+      const rendered = await this.composeEngine.renderSegment(scene, project.options || {}, destination)
+      if (!rendered || rendered.code !== 0 || !rendered.data?.videoPath) {
+        throw new Error(rendered?.message || '视频生成失败')
+      }
+      const copiedVideo = this._copyRequired(rendered.data.videoPath, destination, 'video')
+      segment.videoPath = copiedVideo
+      segment.duration = Number.isFinite(Number(rendered.data.duration)) ? Number(rendered.data.duration) : segment.duration
+      segment.status = 'completed'
+      project.segments[index] = segment
+      project.dirty = true
+      project.updatedAt = new Date().toISOString()
+      const saved = this._upsertProject(project)
+      this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+      return saved
+    } catch (error) {
+      // 失败保留旧视频：状态回写 failed，字段保持生成前值（previousProject）
+      project.segments[index] = {
+        ...previousProject.segments[index],
+        status: 'failed',
+        error: error.message,
+      }
+      project.updatedAt = new Date().toISOString()
+      try {
+        this._upsertProject(project)
+      } catch (storageError) {
+        if (this.log && typeof this.log.warn === 'function') {
+          this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
+        }
+      }
+      this._cleanupProjectFiles(projectDir, attemptFiles)
+      throw error
+    }
   }
 
   _transcriptionProvider () {

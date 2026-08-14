@@ -176,6 +176,9 @@ function createPublishApi(ipcRenderer, options = {}) {
     story2videoReplaceSegmentAudio: (projectId, segmentId, filePath) => ipcRenderer.invoke('story2video:replace-segment-audio', { projectId, segmentId, filePath }),
     story2videoRetrySegment: (projectId, segmentId, mode) => ipcRenderer.invoke('story2video:retry-segment', { projectId, segmentId, mode }),
     story2videoRecomposeProject: (projectId) => ipcRenderer.invoke('story2video:recompose-project', projectId),
+    story2videoSelectSceneMaterial: (projectId, segmentId, kind) => ipcRenderer.invoke('story2video:select-scene-material', { projectId, segmentId, kind }),
+    story2videoGenerateSceneImage: (projectId, segmentId) => ipcRenderer.invoke('story2video:generate-scene-image', { projectId, segmentId }),
+    story2videoGenerateSceneVideo: (projectId, segmentId) => ipcRenderer.invoke('story2video:generate-scene-video', { projectId, segmentId }),
     story2videoTranscribe: (filePath) => ipcRenderer.invoke('story2video:transcribe', { filePath }),
     story2videoCapabilities: () => ipcRenderer.invoke('story2video:capabilities'),
 

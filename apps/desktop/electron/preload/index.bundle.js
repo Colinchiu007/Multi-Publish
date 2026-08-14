@@ -158,6 +158,9 @@ var require_publish = __commonJS({
         story2videoReplaceSegmentAudio: (projectId, segmentId, filePath) => ipcRenderer2.invoke("story2video:replace-segment-audio", { projectId, segmentId, filePath }),
         story2videoRetrySegment: (projectId, segmentId, mode) => ipcRenderer2.invoke("story2video:retry-segment", { projectId, segmentId, mode }),
         story2videoRecomposeProject: (projectId) => ipcRenderer2.invoke("story2video:recompose-project", projectId),
+        story2videoSelectSceneMaterial: (projectId, segmentId, kind) => ipcRenderer2.invoke("story2video:select-scene-material", { projectId, segmentId, kind }),
+        story2videoGenerateSceneImage: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-image", { projectId, segmentId }),
+        story2videoGenerateSceneVideo: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-video", { projectId, segmentId }),
         story2videoTranscribe: (filePath) => ipcRenderer2.invoke("story2video:transcribe", { filePath }),
         story2videoCapabilities: () => ipcRenderer2.invoke("story2video:capabilities"),
         // Story2Video 批量创作（openspec story2video-batch-create）
