@@ -1,3 +1,9 @@
+## [2026-08-14] 流水线更名：全能创作 → 故事讲述（story-telling-rename）
+
+- 更名：流水线展示名「全能创作 / Omni Creation」→「故事讲述 / Story Telling」（zh/en i18n：pipelines.names/descriptions、配置标题、权限提示、模式摘要、素材模式选项同步；机器 ID `story2video-compose` 不变，更名链：2026-08-12「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」→ 2026-08-14「故事讲述 / Story Telling」）。
+- 测试：i18n/glossary/PipelineBrowser/story2video-notifications/E2E route 断言与注释同步更新；受影响套件全绿。
+- 文档：PRD §7.1/§7.1.3 契约段与提示文字表、i18n-glossary、i18n-sync-mechanism、product-manual、live OpenSpec specs（5 个）同步；OpenSpec change story-telling-rename。
+
 ## [2026-08-14] feat(s2v): TTS 词级时间戳采集——edge-tts WordBoundary + MiniMax subtitle_type=word，消除素材就绪后的事后 whisper ASR 停顿（tts-word-timestamps）
 
 - 根因：generate_assets 显示「图片 37/37 · 旁白 37/37」后长时间无反应——素材全部就绪后 `alignScenes()` 对每段音频逐一跑 faster-whisper ASR 词级对齐（2 并发、无进度上报），用户视角即卡死。
