@@ -175,6 +175,69 @@ describe('extractOptimizedVideoPrompt', () => {
     const r = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { shot: 'close_up' } })
     expect(r.video.motion_intensity).toBe(5)
   })
+
+  it('positive_constraints 数组透传（lens-discipline）', () => {
+    const r = extractOptimizedVideoPrompt({
+      optimized_prompt: 'x',
+      video: { positive_constraints: ['camera stays at ground level', 'all bodies distinct'] },
+    })
+    expect(r.ok).toBe(true)
+    expect(r.video.positive_constraints).toEqual(['camera stays at ground level', 'all bodies distinct'])
+  })
+
+  it('positive_constraints 字符串按换行/分号拆分（双形态）', () => {
+    const r = extractOptimizedVideoPrompt({
+      optimized_prompt: 'x',
+      video: { positive_constraints: 'a; b\nc' },
+    })
+    expect(r.video.positive_constraints).toEqual(['a', 'b', 'c'])
+  })
+
+  it('positive_constraints 越界收敛上限 10 条', () => {
+    const many = Array.from({ length: 15 }, (_, i) => 'c' + i)
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { positive_constraints: many } })
+    expect(r.video.positive_constraints).toHaveLength(10)
+  })
+
+  it('final_frame 透传与超长裁剪', () => {
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: 'hero stands still, camera rests, no text' } })
+    expect(r.video.final_frame).toBe('hero stands still, camera rests, no text')
+    const long = 'a'.repeat(600)
+    const r2 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: long } })
+    expect(r2.video.final_frame).toHaveLength(500)
+  })
+
+  it('新字段缺失时旧响应零回归（无 positive_constraints/final_frame 不拒绝）', () => {
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { shot: 'wide', duration_hint: 5 } })
+    expect(r.ok).toBe(true)
+    expect(r.video.positive_constraints).toBeUndefined()
+    expect(r.video.final_frame).toBeUndefined()
+    expect(r.video.shot).toBe('wide')
+  })
+
+  it('8020 独立引擎响应新字段经 extractOptimizedVideoPrompt 透传（双后端共用路径）', () => {
+    const r = extractOptimizedVideoPrompt({
+      optimized_prompt: 'x',
+      video: { positive_constraints: ['strict block'], final_frame: 'end' },
+    })
+    expect(r.video.positive_constraints).toEqual(['strict block'])
+    expect(r.video.final_frame).toBe('end')
+  })
+
+  it('positive_constraints 数组含非字符串元素被丢弃（评审 W1）', () => {
+    const r = extractOptimizedVideoPrompt({
+      optimized_prompt: 'x',
+      video: { positive_constraints: ['good', null, undefined, 42, { x: 1 }, ''] },
+    })
+    expect(r.video.positive_constraints).toEqual(['good'])
+  })
+
+  it('final_frame 非字符串/纯空白丢弃（评审 I1）', () => {
+    const r = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: 123 } })
+    expect(r.video.final_frame).toBeUndefined()
+    const r2 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: '   ' } })
+    expect(r2.video.final_frame).toBeUndefined()
+  })
 })
 
 describe('PromptBridge 视频方法', () => {

@@ -69,6 +69,8 @@ const VIDEO_ENGINE_LIMITS = Object.freeze({
   cameraMax: 50,
   transitionMax: 50,
   continuityTokenMax: 100,
+  positiveConstraintsMax: 10,
+  finalFrameMax: 500,
   // video-content-fidelity S4：context 白名单键与长度上限（对齐 prompt-engine OptimizeRequest.context 已知键）
   contextKeys: Object.freeze(['synopsis', 'character', 'setting', 'character_list', 'full_text']),
   contextKeyMax: Object.freeze({ synopsis: 500, character: 500, setting: 500, full_text: 2000, character_list: 10 }),
@@ -451,6 +453,19 @@ function normalizeVideoMeta (raw) {
     : VIDEO_ENGINE_LIMITS.motionIntensity.default
   const dh = Number(raw.duration_hint)
   if (Number.isFinite(dh) && dh > 0) video.duration_hint = dh
+
+  const constraints = typeof raw.positive_constraints === 'string'
+    ? raw.positive_constraints.split(/[\n;]+/).map(c => c.trim()).filter(Boolean)
+    : Array.isArray(raw.positive_constraints)
+      // 与 _normalizeExcludedCharacters 同防御模式：非字符串元素直接丢弃（防 null/对象 → "null"/"[object Object]" 垃圾约束）
+      ? raw.positive_constraints.filter(c => typeof c === 'string').map(c => c.trim()).filter(Boolean)
+      : []
+  if (constraints.length > 0) {
+    video.positive_constraints = constraints.slice(0, VIDEO_ENGINE_LIMITS.positiveConstraintsMax)
+  }
+  if (typeof raw.final_frame === 'string' && raw.final_frame.trim()) {
+    video.final_frame = raw.final_frame.trim().slice(0, VIDEO_ENGINE_LIMITS.finalFrameMax)
+  }
 
   const excluded = _normalizeExcludedCharacters(raw.excluded_characters)
   if (excluded) video.excluded_characters = excluded

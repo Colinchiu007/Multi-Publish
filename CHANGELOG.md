@@ -1,3 +1,9 @@
+## [2026-08-14] 视频提示词镜头纪律契约移植：positive_constraints / final_frame 收敛（video-prompt-lens-discipline）
+
+- 契约层 `normalizeVideoMeta` 新增收敛：`positive_constraints`（数组透传 / 字符串按换行分号拆分 / 上限 10 条）与 `final_frame`（trim / 上限 500），对齐 8020 引擎镜头纪律输出（prompt-engine PR #34 已合并，`VideoPromptMeta.positive_constraints/final_frame`）；双后端（8020/8013）共用 `extractOptimizedVideoPrompt` 路径透传，旧字段零回归。
+- 规格：change `specs/video-prompt-engine/spec.md` 新增 3 需求（镜头纪律规则注入 / 正向约束与最终画面结构化字段 / 负面提示词 plausible-only），合并后按 openspec archive 三同步。
+- 测试：`video-prompt-engine-contract.test.js` 91 项全绿（新增 6 例：数组/字符串双形态、上限 10 收敛、final_frame 500 裁剪、缺失零回归、8020 双后端透传）。
+
 ## [2026-08-14] 流水线更名：全能创作 → 故事讲述（story-telling-rename）
 
 - 更名：流水线展示名「全能创作 / Omni Creation」→「故事讲述 / Story Telling」（zh/en i18n：pipelines.names/descriptions、配置标题、权限提示、模式摘要、素材模式选项同步；机器 ID `story2video-compose` 不变，更名链：2026-08-12「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」→ 2026-08-14「故事讲述 / Story Telling」）。
