@@ -6,8 +6,10 @@
   "risk": "low",
   "domain": "research",
   "currentPhase": "completed",
-  "nextAction": "报告已交付，待实施 P0 时走 OpenSpec propose",
+  "nextAction": "4.4 跨仓库联调验收已闭环：契约层 17 项 + 引擎侧 P0（PR #35/#37）+ 边界修订（PR #805/#37）全部合入；真实 8020→契约层联调全 PASS；evaluator 长模板不误杀回归覆盖",
   "createdAt": "2026-08-14T01:00:00Z",
   "branch": "main",
-  "deliverables": ["01-docs/HELL-GRIND-OPENSOURCE-ANALYSIS-DEEP-2026-08-14.md"]
+  "deliverables": [
+    "01-docs/HELL-GRIND-OPENSOURCE-ANALYSIS-DEEP-2026-08-14.md"
+  ]
 }
