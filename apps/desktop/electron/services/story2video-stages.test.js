@@ -2063,6 +2063,68 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: 'img-0.png', videoPath: null })
   })
 
+  it('resume 续跑时跨镜链初值从已回写 final_frame 的场景恢复（评审 W1）', async () => {
+    if (skipIfNoMedia()) return
+    // 上轮已完成的场景 0/1（视频产物存在，final_frame 已回写）→ 本轮仅优化场景 2，且承接 end-1
+    const resumeDir = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-resume-'))
+    const resumeVideos = ['v0.mp4', 'v1.mp4'].map(name => {
+      const p = path.join(resumeDir, name)
+      fs.writeFileSync(p, 'resumed')
+      return p
+    })
+    const resumeAudios = ['a0.mp3', 'a1.mp3'].map(name => path.join(resumeDir, name))
+    const callAdapter = vi.fn(async (_provider, method) => {
+      if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-resume' } }
+      if (method === 'getVideoStatus') return { videoUrl: baseUrl }
+      return { code: 0 }
+    })
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : { id: 'openai', models: ['gpt-4.1-mini'] }),
+        callAdapter,
+      },
+    }
+    const fn = makeBlendPipeline(aiGenerator)
+    const context = {
+      split: [
+        { text: '一', video: { final_frame: 'end-0' } },
+        { text: '二', video: { final_frame: 'end-1' } },
+        { text: '三' },
+      ],
+      optimize: ['p0', 'p1', 'video-prompt-2'],
+      video_plan: { mode: 'fixed', scenes: [
+        { index: 0, useVideo: true, seconds: 6 },
+        { index: 1, useVideo: true, seconds: 6 },
+        { index: 2, useVideo: true, seconds: 6 },
+      ], selectedCount: 3 },
+      generate_assets: { resume: { completed: [
+        { index: 0, videoPath: resumeVideos[0], audioPath: resumeAudios[0], duration: 2 },
+        { index: 1, videoPath: resumeVideos[1], audioPath: resumeAudios[1], duration: 2 },
+      ] } },
+    }
+    const optimizeVideoPrompt = vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt, video: { final_frame: 'end-2' } }))
+    const result = await fn({
+      runId: 'run_resume_chain',
+      stage: { options: { videoMode: 'fixed', video: { provider: 'kling', model: 'kling-v1', pollIntervalMs: 5 } } },
+      params: { videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+      context,
+      serviceBus: {
+        optimizeVideoPrompt,
+        generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'aud-' + index + '.mp3', duration: 2 } })),
+        callPythonSkill: vi.fn(async (_skill, payload) => ({ code: 0, data: { path: 'img-' + payload.index + '.png' } })),
+      },
+    })
+    try { fs.rmSync(resumeDir, { recursive: true, force: true }) } catch (_) { /* 清理失败可忽略 */ }
+    expect(result.success).toBe(true)
+    // 仅场景 2 触发优化，且链初值恢复自场景 1 的 final_frame（反向扫描 scenesRef）
+    expect(optimizeVideoPrompt).toHaveBeenCalledTimes(1)
+    expect(optimizeVideoPrompt).toHaveBeenCalledWith('video-prompt-2', expect.objectContaining({ prev_final_frame: 'end-1' }))
+    // 场景 0/1 复用续跑产物；场景 2 生成新视频
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, videoPath: resumeVideos[0] })
+    expect(result.output.scenes[1]).toMatchObject({ index: 1, videoPath: resumeVideos[1] })
+    expect(result.output.scenes[2]).toMatchObject({ index: 2, videoPath: expect.stringContaining('scene_video_002.mp4') })
+  })
+
   it('图片/旁白与视频并行启动：视频轮询未完成时，非视频场景图片与全部 TTS 已开始生成（2026-08-13 优化）', async () => {
     if (skipIfNoMedia()) return
     let releaseVideo

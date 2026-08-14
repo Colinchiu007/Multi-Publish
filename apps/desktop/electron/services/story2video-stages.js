@@ -614,6 +614,7 @@ async function buildManualSceneCandidates (ctx) {
     if (videosTotal > 0) {
       const scenesRef = getOptimizationScenes(context || {})
       let lastFinalFrame = ''
+      let chainBrokenWarned = false
       for (const index of videoSceneIndexes) {
         const promptItem = optimizedPrompts[index]
         const promptText = typeof promptItem === 'string'
@@ -643,6 +644,10 @@ async function buildManualSceneCandidates (ctx) {
                 if (!sceneObj.video || typeof sceneObj.video !== 'object') sceneObj.video = {}
                 sceneObj.video.final_frame = finalFrame
               }
+            } else if (lastFinalFrame && !chainBrokenWarned) {
+              // 评审 W5：链上已有承接但引擎未返回 final_frame（8013 兼容后端无该字段）→ 明示链中断
+              chainBrokenWarned = true
+              log.warn('Story2VideoStages', 'scene ' + index + ' 跨镜承接链中断：引擎未返回 final_frame（需 8020 独立视频引擎）')
             }
           } catch (error) {
             log.warn('Story2VideoStages', 'scene ' + index + ' manual video prompt optimize failed: ' +
@@ -1931,7 +1936,21 @@ function registerStory2VideoStages(pipelineEngine) {
         const optimizedVideoPrompts = new Map();
         if (videosTotal > 0) {
           const scenesRef = getOptimizationScenes(context || {});
+          // 评审 W1：resume 续跑场景被预优化循环跳过时，链初值从 scenesRef 反向扫描
+          // 最后已回写 final_frame 的场景恢复（首轮已回写），避免断点后链从空重启
           let lastFinalFrame = '';
+          if (Array.isArray(scenesRef)) {
+            for (let i = videoSceneIndexes.length - 1; i >= 0; i--) {
+              const prevScene = scenesRef[videoSceneIndexes[i]];
+              if (prevScene && typeof prevScene === 'object' &&
+                  prevScene.video && typeof prevScene.video.final_frame === 'string' &&
+                  prevScene.video.final_frame) {
+                lastFinalFrame = prevScene.video.final_frame;
+                break;
+              }
+            }
+          }
+          let chainBrokenWarned = false;
           for (const index of videoSceneIndexes) {
             const resumed = resumeCompleted.get(index);
             if (resumed && typeof resumed.videoPath === 'string' && fs.existsSync(resumed.videoPath)) continue;
@@ -1963,6 +1982,10 @@ function registerStory2VideoStages(pipelineEngine) {
                     if (!sceneObj.video || typeof sceneObj.video !== 'object') sceneObj.video = {};
                     sceneObj.video.final_frame = finalFrame;
                   }
+                } else if (lastFinalFrame && !chainBrokenWarned) {
+                  // 评审 W5：链上已有承接但引擎未返回 final_frame（8013 兼容后端无该字段）→ 明示链中断
+                  chainBrokenWarned = true;
+                  log.warn('Story2VideoStages', 'scene ' + index + ' 跨镜承接链中断：引擎未返回 final_frame（需 8020 独立视频引擎）');
                 }
               } catch (error) {
                 log.warn('Story2VideoStages', 'scene ' + index + ' video prompt optimize failed: ' +
