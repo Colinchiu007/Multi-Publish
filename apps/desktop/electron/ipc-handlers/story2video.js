@@ -149,6 +149,34 @@ function registerHandlers (ipcMain, deps = {}) {
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
+  ipcMain.handle('story2video:select-scene-material', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) ||
+        !isSafeId(request.segmentId) || !['image1', 'image2', 'video'].includes(request.kind)) {
+      return { code: EC.VALIDATION_ERROR, message: '素材选择参数无效' }
+    }
+    try {
+      return { code: 0, data: requireProjectService().selectSceneMaterial(request.projectId, request.segmentId, request.kind) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:generate-scene-image', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景图片生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService().generateSceneImage(request.projectId, request.segmentId) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:generate-scene-video', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景视频生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService().generateSceneVideo(request.projectId, request.segmentId) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
   ipcMain.handle('story2video:transcribe', withSenderCheck(async (_event, request) => {
     if (!request || typeof request !== 'object' || typeof request.filePath !== 'string') {
       return { code: EC.VALIDATION_ERROR, message: '语音识别参数无效' }
