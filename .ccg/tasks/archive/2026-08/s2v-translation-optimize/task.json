@@ -1,0 +1,12 @@
+{
+  "id": "s2v-translation-optimize",
+  "title": "Story2Video 提示词翻译并发优化（4 路滑窗 + 禁思考块 + 25s 限时重试 + fail-open）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "completed",
+  "nextAction": "已归档（审查 + QM-1 + 测试完成）",
+  "createdAt": "2026-08-15T00:30:00+08:00",
+  "branch": "codex/s2v-translation-optimize"
+}
