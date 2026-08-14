@@ -6,8 +6,13 @@
   "risk": "medium",
   "domain": "i18n",
   "currentPhase": "review",
-  "nextAction": "创建 PR（codex/story-telling-rename），合并后三同步归档",
+  "nextAction": "PR #801 合并后执行 openspec archive + CCG task 三同步归档",
   "createdAt": "2026-08-14T00:00:00Z",
   "branch": "codex/story-telling-rename",
-  "openspecChange": "story-telling-rename"
+  "openspecChange": "story-telling-rename",
+  "remoteStatus": {
+    "pr": 801,
+    "url": "https://github.com/Colinchiu007/Multi-Publish/pull/801",
+    "status": "pending_merge"
+  }
 }
