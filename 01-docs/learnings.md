@@ -13356,3 +13356,15 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 2（UiModal Teleport 断言）**：`UiModal` 用 `<Teleport to="body">`，`wrapper.find('[data-testid=...]')` 永远找不到弹窗内容——必须 `document.body.querySelector(...)`（既有 s2v-cancel-confirm 用例已有先例，新用例仍踩一次）。
 - **教训 3（素材库模式可复用）**：展示名与磁盘文件名解耦（重命名只改索引、磁盘文件 `bgm-<token><ext>` 不变）让 compose 引用路径稳定，历史配置兼容只需在 UI 层做「未入库路径保留为独立选项」。后续同类素材库（音色/封面/片头）可复用该模式。
 - **教训 4（mounted 异步链使 mock 调用序不确定）**：组件 `async mounted` 内 `await loadPipelines()` 链上的 `loadS2VBgmLibrary()` 触发时机晚于测试体的显式调用——`mockResolvedValueOnce` 顺序断言脆弱；改用「可变数据源 `mockImplementation`」后与调用序无关（删除用例从 Once 链改 impl 后稳定）。
+
+
+## TTS 词级时间戳采集消除 generate_assets 事后 ASR 停顿复盘（tts-word-timestamps，2026-08-14）
+
+- **表象**：generate_assets 显示「图片 37/37 · 旁白 37/37」后长时间无反应，用户以为卡死。根因不是 TTS/图片生成慢，而是素材全部就绪后 `alignScenes()` 对每段音频逐一跑 faster-whisper ASR 词级对齐（2 并发、无进度上报）——37 段旁白在最需要"已完成"反馈的时刻进入静默长任务。
+- **第一性修复**：不再事后猜时间戳——TTS 服务商自报词级时间（Tier1），ASR 降为仅回退（Tier2）：
+  - edge-tts：`boundary="WordBoundary"` 是 **Communicate 构造函数参数**（7.x），不是 `.stream()` 参数；事件 `offset/duration` 单位为 **100ns，÷1e7 转秒**（实测 offset=1000000→0.1s）。旧版（<6.0 无此参数）会失败退出——退出码≠0 时自动重试一次旧 `.save()` 脚本，无时间戳则回退 ASR。
+  - MiniMax：`subtitle_enable + subtitle_type=word` 仅 8 个模型白名单（speech-2.8/2.6/02/01-hd/turbo）；克隆音色走 speech-02-hd 在白名单内，同样支持词级时间戳。同步响应在 `data.subtitle_file`，时长在 `extra_info.audio_length`（ms）。
+  - **异步 T2A 字幕字段未在官方 schema 文档化**：服务端拒绝有两种错误形态——非 2xx HTTP 抛错、或 **HTTP 200 + `base_resp.status_code:2013`**（MiniMax 业务错误常见形态）。降级重试必须同时覆盖两者，且只对参数类错误去字幕重试，网络/超时/鉴权错误原样抛出保持错误分类。
+- **对齐编排**：Tier1 直接用 TTS 词级时间戳聚合（coverage<0.5 或估算值弃用，避免劣质时间戳），Tier2 ASR 仅处理无时间戳/不合格场景；Tier1 循环与抓取路径全部 fail-open——任何失败只 warn 并回退，不中断流水线。时间戳抓取要有界（10s 超时）+ 读取前按 content-length 拦截超限（8MB），不能先读完再丢弃。
+- **时长顺带修正**：edge-tts duration 从 `mp3字节/16000` 粗估（误差可达数倍）改为真实词尾 +0.3s。
+- **流程教训**：多会话共享工作区时，改动提交必须走隔离 worktree（基于含依赖接线的 commit 建分支，`git apply --3way` 搬改动），不能混入他人分支；node_modules 可用 junction 指向主工作区跑单元测试（仅依赖解析，不涉及打包产物证据）。

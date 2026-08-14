@@ -1,0 +1,15 @@
+{
+  "id": "tts-word-timestamps",
+  "title": "TTS 词级时间戳采集：edge-tts WordBoundary + MiniMax subtitle_type=word",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "已归档；线上有真实 MiniMax key 时验证异步 T2A subtitle_file 消费",
+  "createdAt": "2026-08-14T01:00:00Z",
+  "branch": "main",
+  "completedAt": "2026-08-14T02:00:00Z",
+  "remoteStatus": "merged: PR #798 d57a2e3d (2026-08-14)",
+  "summary": "generate_assets 卡顿根因=素材就绪后逐段 whisper ASR 对齐无进度。实现 edge-tts WordBoundary(100ns/1e7) + MiniMax subtitle_type=word 词级时间戳，alignScenes Tier1 直接用 TTS timings，Tier2 才回退 ASR(fail-open)。受影响测试全量 services 3412/3412 通过。"
+}
