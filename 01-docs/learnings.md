@@ -1,3 +1,15 @@
+## 场景多素材详情页（3 素材槽 + 生成/重合成）复盘（s2v-scene-multi-materials，2026-08-14）
+
+- **需求/交付**：视频创作-全能创作-历史记录详情页每场景最多 3 个可选素材槽——图1=`imagePath`、图2=`alternateImages[0].path`、视频=`videoPath`，`selectedMaterial` 记录选中态；新增【生成新图】【生成视频】【再次合成视频】（重合成复用已选素材 + TTS 语音/字幕/背景音乐）。流水线完成后可从详情页继续生成/选择/重合成。PR #823（squash `8b90e85e`）已合并。
+- **槽位身份稳定**：选中只写 `selectedMaterial` 标记、不搬动文件；`alternateImages` 强制 `length<=1` 保证「图2=alternateImages[0]」槽位身份可推断，并与旧数据（无备选图）兼容。
+- **替换语义**：已有 2 图时点【生成新图】——图1 非选中替换图1、图1 选中则替换图2；已有视频时点【生成视频】替换原视频；生成接口按槽位覆盖写，返回后刷新素材区。
+- **教训 1（C1：compose 回显全字段会污染图1 槽）**：compose-engine 回显 scene 的 `...scene` 展开会把 `_scenesForCompose` 的渲染映射路径（含备选图）持久化回 `imagePath` 槽 → 槽位回填必须保留项目原值；`restoredImageCopies` 孤儿副本清理必须「仅当原值与副本路径不同才登记」，防止误删仍被引用的同名文件。
+- **教训 2（W1：任何「服务端返回新 segments」路径必须刷新素材 URL）**：详情页 retry / 再次合成等路径都必须调 `refreshSegmentImageUrls()`（内部串接 `refreshSceneMaterialUrls`），否则素材区空白。
+- **产物清理语义**：`referencedProjectFiles` 必须包含 `alternateImages[].path`；`_cleanupUnreferencedProjectFiles` 只删不再被引用文件，多素材槽位产物不误删。
+- **门禁证据**：定向 3 套件 415/415；全量 Vitest 7705 passed；locale zh/en 成对 + `check-locale-sync --cjk` 1512 PASS；QM-1 打包 exit 0 + asar 提取验证 4 新 IPC；PR CI 17 项全绿（QG Desktop Shards 首跑 3 例并行 flake，`gh run rerun --failed` 复跑全绿）。
+
+---
+
 ## 分支保护 path-filtered 检查卡死 ops-center-only PR 复盘（branch-protection-path-filter，2026-08-14）
 
 - **现象**：PR #822（ops-center 提示词评测双路对比）CI 15 项全绿、无 review 要求，`mergeStateStatus` 仍 BLOCKED；`gh pr checks` 无任何非 pass 项，reviews 为空。
