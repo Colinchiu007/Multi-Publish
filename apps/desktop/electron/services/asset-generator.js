@@ -28,6 +28,7 @@ const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error'
 const execFileAsync = promisify(execFile)
 const MAX_PROVIDER_IMAGE_BYTES = 25 * 1024 * 1024
 const MAX_PROVIDER_AUDIO_BYTES = 100 * 1024 * 1024
+const MAX_SUBTITLE_BYTES = 8 * 1024 * 1024
 const PROVIDER_IMAGE_TIMEOUT_MS = 30 * 1000
 const AUDIO_FORMAT_EXTENSIONS = Object.freeze({
   aac: 'aac',
@@ -62,6 +63,34 @@ function resolveImageSize (ratio) {
 
 function buildEdgeTtsScript () {
   // 用 asyncio.run 直接执行协程，避免 Python 禁止在分号后声明 async def。
+  // 与 .save() 不同：boundary='WordBoundary'（7.x 起为构造函数参数，默认 SentenceBoundary）
+  // 会让 stream() 产出词边界事件（offset/duration 单位为 100ns，÷1e7 转秒），
+  // 用于词级字幕对齐；同时把音频字节写入 argv[3]、词级时间戳 JSON 写入 argv[6]。
+  return [
+    'import sys, asyncio, json, edge_tts',
+    '',
+    'async def _stream_words():',
+    '    words = []',
+    '    with open(sys.argv[3], "wb") as out:',
+    '        async for chunk in edge_tts.Communicate(sys.argv[1], sys.argv[2], rate=sys.argv[4], pitch=sys.argv[5], boundary="WordBoundary").stream():',
+    '            chunk_type = chunk.get("type")',
+    '            if chunk_type == "audio":',
+    '                out.write(chunk.get("data") or b"")',
+    '            elif chunk_type == "WordBoundary":',
+    '                text = (chunk.get("text") or "").strip()',
+    '                if text:',
+    '                    offset = chunk.get("offset", 0) / 1e7',
+    '                    duration = chunk.get("duration", 0) / 1e7',
+    '                    words.append({"text": text, "start": round(offset, 4), "end": round(offset + duration, 4)})',
+    '    with open(sys.argv[6], "w", encoding="utf-8") as meta:',
+    '        json.dump(words, meta, ensure_ascii=False)',
+    '',
+    'asyncio.run(_stream_words())',
+  ].join('\n')
+}
+
+// 旧版 edge-tts（<6.0 不支持 boundary 参数）回退脚本：直接 .save()，无词级时间戳
+function buildEdgeTtsLegacyScript () {
   return 'import sys, asyncio, edge_tts; asyncio.run(edge_tts.Communicate(sys.argv[1], sys.argv[2], rate=sys.argv[4], pitch=sys.argv[5]).save(sys.argv[3]))'
 }
 
@@ -345,6 +374,62 @@ function extractProviderAudio (result) {
     sampleRate: Number(result?.sampleRate || result?.sample_rate || result?.data?.sampleRate || result?.data?.sample_rate || parsedPcmRate?.[1]) || null,
     channels: Number(result?.channels || result?.channel_count || result?.data?.channels || result?.data?.channel_count) || null,
     model: result?.model || result?.data?.model || null,
+    subtitleFile: firstNonEmptyString(
+      result?.subtitleFile,
+      result?.data?.subtitleFile,
+      result?.subtitle_file,
+      result?.data?.subtitle_file,
+    ) || null,
+  }
+}
+
+/**
+ * 解析 TTS 服务商字幕 JSON（MiniMax subtitle_file 下载内容）为词级时间戳：
+ * 支持 { subtitle: [...] } 包装、裸数组或 { data: [...] }；时间字段
+ * start_time/end_time（毫秒）或 start/end。返回 [{ text, start, end }]（秒）。
+ * 无法解析时返回 null（调用方 fail-open 回退 ASR）。
+ */
+function parseSubtitleTimings (payload) {
+  if (typeof payload === 'string') {
+    try { payload = JSON.parse(payload) } catch { return null }
+  }
+  const items = Array.isArray(payload)
+    ? payload
+    : (Array.isArray(payload?.subtitle) ? payload.subtitle
+        : (Array.isArray(payload?.data) ? payload.data : null))
+  if (!items || items.length === 0) return null
+  const timings = []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    const text = typeof item.text === 'string' ? item.text.trim() : ''
+    if (!text) continue
+    const startMs = Number(item.start_time ?? item.start)
+    const endMs = Number(item.end_time ?? item.end)
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) continue
+    timings.push({
+      text,
+      start: Math.round((startMs / 1000) * 1000) / 1000,
+      end: Math.round((endMs / 1000) * 1000) / 1000,
+    })
+  }
+  return timings.length > 0 ? timings : null
+}
+
+/**
+ * 读取 edge-tts WordBoundary sidecar（argv[6] 写出的 JSON 数组）。
+ * 文件缺失/损坏/空数组 → null（调用方回退旧时长估算与 ASR）。
+ */
+function readEdgeTtsTimings (timingsPath) {
+  try {
+    if (!timingsPath || !fs.existsSync(timingsPath)) return null
+    const parsed = JSON.parse(String(fs.readFileSync(timingsPath, 'utf8')))
+    if (!Array.isArray(parsed) || parsed.length === 0) return null
+    const valid = parsed.filter((word) => word && typeof word === 'object' &&
+      typeof word.text === 'string' && word.text.trim() &&
+      Number.isFinite(Number(word.start)) && Number.isFinite(Number(word.end)))
+    return valid.length > 0 ? valid : null
+  } catch {
+    return null
   }
 }
 
@@ -791,6 +876,9 @@ class AssetGenerator {
       const providerOutputFormat = provider.toLowerCase() === 'elevenlabs' && requestedFormat === 'mp3'
         ? undefined
         : requestedFormat
+      // 词级时间戳请求：适配器（如 MiniMax subtitle_enable/subtitle_type=word）在支持时
+      // 返回 subtitleFile 下载链接，由本方法抓取解析为 timings；不支持/失败时 fail-open。
+      const wantTimestamps = opts?.with_timestamps === true || opts?.withTimestamps === true
       const result = await this.aiGenerator.generate('tts', provider, {
         text: cleanText,
         input: cleanText,
@@ -809,10 +897,12 @@ class AssetGenerator {
         speedRatio: opts?.rate,
         pitch: opts?.pitch,
         emotion: opts?.emotion,
+        ...(wantTimestamps ? { withTimestamps: true, subtitleType: 'word', subtitle_type: 'word' } : {}),
       })
       const audio = extractProviderAudio(result)
       if (!audio) throw new Error('provider did not return supported binary audio')
 
+      const timings = audio.subtitleFile ? await this._fetchSubtitleTimings(audio.subtitleFile) : null
       const persisted = await this._persistProviderAudio(outputBasePath, audio)
       this.log.info('AssetGenerator', 'TTS ' + opts?.index + ' via provider ' + provider)
       return {
@@ -826,6 +916,7 @@ class AssetGenerator {
           model: audio.model,
           source: 'model-provider',
           degraded: false,
+          ...(timings ? { timings } : {}),
         },
       }
     } catch (error) {
@@ -869,6 +960,31 @@ class AssetGenerator {
   }
 
   /**
+   * 抓取并解析 TTS 服务商字幕 JSON（MiniMax subtitle_file 下载链接）为词级时间戳。
+   * 超时/网络/格式异常一律返回 null（fail-open：调用方回退 ASR），不阻断音频返回。
+   * @private
+   */
+  async _fetchSubtitleTimings (subtitleFile) {
+    if (typeof subtitleFile !== 'string' || !subtitleFile.trim()) return null
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 10000)
+    try {
+      const response = await this.fetchImpl(subtitleFile, { signal: controller.signal })
+      if (!response || response.ok !== true) return null
+      const contentLength = Number(response.headers?.get?.('content-length') || NaN)
+      if (Number.isFinite(contentLength) && contentLength > MAX_SUBTITLE_BYTES) return null
+      const text = await response.text()
+      if (!text || text.length > MAX_SUBTITLE_BYTES) return null
+      return parseSubtitleTimings(text)
+    } catch (error) {
+      this.log.warn?.('AssetGenerator', 'TTS subtitle timings fetch failed: ' + (error?.message || String(error)))
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
    * 尝试用 edge-tts 生成语音
    * @private
    */
@@ -888,51 +1004,71 @@ class AssetGenerator {
   }
 
   _runEdgeTTSCommand (spec, cleanText, voice, audioPath, opts) {
+    const timingsPath = audioPath + '.timings.json'
     return new Promise((resolve) => {
       const command = spec && typeof spec.command === 'string' ? spec.command : 'python'
       const commandArgs = Array.isArray(spec?.args) ? spec.args : []
       let settled = false
+      let retried = false
       const finish = (result) => {
         if (settled) return
         settled = true
         resolve(result)
       }
-      let proc
-      try {
-        // 参数通过数组传递，shell 元字符不会被解释。
-        const speed = Math.max(0.5, Math.min(2, Number(opts?.rate) || 1))
-        const pitch = Math.max(-12, Math.min(12, Number(opts?.pitch) || 0))
-        const rate = (Math.round((speed - 1) * 100) >= 0 ? '+' : '') + Math.round((speed - 1) * 100) + '%'
-        const pitchValue = (Math.round(pitch) >= 0 ? '+' : '') + Math.round(pitch) + 'Hz'
-        proc = spawn(command, [...commandArgs, '-c', buildEdgeTtsScript(), cleanText, voice, audioPath, rate, pitchValue], {
-          stdio: 'ignore', shell: false, timeout: 15000,
-        })
-      } catch (error) {
-        finish({ commandMissing: error?.code === 'ENOENT' })
-        return
-      }
-      proc.on('error', (error) => finish({ commandMissing: error?.code === 'ENOENT' }))
-      proc.on('exit', (code) => {
-        if (code !== 0 || !fs.existsSync(audioPath)) return finish({ commandMissing: false })
-        const stat = fs.statSync(audioPath)
-        if (!stat || stat.size <= 0) return finish({ commandMissing: false })
-        const duration = Math.max(1.0, stat.size / 16000)
-        this.log.info('AssetGenerator', 'TTS ' + opts?.index + ' via edge-tts: ' + Math.round(duration * 10) / 10 + 's')
-        finish({
-          asset: {
-            code: 0,
-            data: {
-              path: audioPath,
-              audio_path: audioPath,
-              duration,
-              format: 'mp3',
-              provider: 'edge-tts',
-              source: 'edge-tts',
-              degraded: false,
+      const spawnTts = (script) => {
+        let proc
+        try {
+          // 参数通过数组传递，shell 元字符不会被解释。
+          const speed = Math.max(0.5, Math.min(2, Number(opts?.rate) || 1))
+          const pitch = Math.max(-12, Math.min(12, Number(opts?.pitch) || 0))
+          const rate = (Math.round((speed - 1) * 100) >= 0 ? '+' : '') + Math.round((speed - 1) * 100) + '%'
+          const pitchValue = (Math.round(pitch) >= 0 ? '+' : '') + Math.round(pitch) + 'Hz'
+          proc = spawn(command, [...commandArgs, '-c', script, cleanText, voice, audioPath, rate, pitchValue, timingsPath], {
+            stdio: 'ignore', shell: false, timeout: 15000,
+          })
+        } catch (error) {
+          finish({ commandMissing: error?.code === 'ENOENT' })
+          return
+        }
+        proc.on('error', (error) => finish({ commandMissing: error?.code === 'ENOENT' }))
+        proc.on('exit', (code) => {
+          // 新脚本依赖 stream(boundary=...)（edge-tts >= 6.0）：旧版本会失败退出，
+          // 重试一次旧 .save() 脚本保持兼容（此时无词级时间戳，回退 ASR）。
+          if (code !== 0 || !fs.existsSync(audioPath)) {
+            if (code !== 0 && !retried) {
+              retried = true
+              try { fs.rmSync(timingsPath, { force: true }) } catch { /* 清理失败不影响重试 */ }
+              spawnTts(buildEdgeTtsLegacyScript())
+              return
+            }
+            return finish({ commandMissing: false })
+          }
+          const stat = fs.statSync(audioPath)
+          if (!stat || stat.size <= 0) return finish({ commandMissing: false })
+          const timings = readEdgeTtsTimings(timingsPath)
+          // 有词级时间戳时用真实词尾（+0.3s 尾音）替代文件大小估算（mp3 位率未知时误差可达数倍）
+          const duration = timings
+            ? Math.max(1.0, Math.round((timings[timings.length - 1].end + 0.3) * 10) / 10)
+            : Math.max(1.0, stat.size / 16000)
+          this.log.info('AssetGenerator', 'TTS ' + opts?.index + ' via edge-tts: ' + Math.round(duration * 10) / 10 + 's')
+          finish({
+            asset: {
+              code: 0,
+              data: {
+                path: audioPath,
+                audio_path: audioPath,
+                duration,
+                format: 'mp3',
+                provider: 'edge-tts',
+                source: 'edge-tts',
+                degraded: false,
+                ...(timings ? { timings } : {}),
+              },
             },
-          },
+          })
         })
-      })
+      }
+      spawnTts(buildEdgeTtsScript())
     })
   }
 
@@ -979,6 +1115,8 @@ module.exports = {
   AssetGenerator,
   findFfmpeg,
   buildEdgeTtsScript,
+  buildEdgeTtsLegacyScript,
+  parseSubtitleTimings,
   resolveImageSize,
   escapeDrawtextText,
   safeSessionId,

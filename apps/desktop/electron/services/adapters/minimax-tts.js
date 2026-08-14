@@ -46,6 +46,27 @@ const DEFAULT_SAMPLE_RATE = 32000
 const DEFAULT_ASYNC_POLL_TIMEOUT_MS = 90 * 1000
 const DEFAULT_ASYNC_POLL_INTERVAL_MS = 1000
 
+// 字幕服务（subtitle_enable/subtitle_type）仅对以下模型生效：
+// speech-2.8-hd/turbo、speech-2.6-hd/turbo、speech-02-hd/turbo、speech-01-hd/turbo。
+// 官方文档：subtitle_type 支持 sentence（句）/ word（词）/ word_streaming（仅流式）。
+const SUBTITLE_TYPES = new Set(['sentence', 'word', 'word_streaming'])
+const SUBTITLE_MODEL_RE = /^speech-(2\.8|2\.6|02|01)-(hd|turbo)$/i
+
+/**
+ * 解析调用方是否请求字幕时间戳：
+ * - 显式 subtitleType/subtitle_type（sentence|word|word_streaming）→ 原样启用
+ * - withTimestamps/with_timestamps=true → 默认启用词级（word）
+ * - 否则 → null（不开启，保持历史行为）
+ * @param {object} [params]
+ * @returns {string|null}
+ */
+function resolveSubtitleType (params) {
+  const requested = params?.subtitleType ?? params?.subtitle_type ?? null
+  if (typeof requested === 'string' && SUBTITLE_TYPES.has(requested)) return requested
+  if (params?.withTimestamps === true || params?.with_timestamps === true) return 'word'
+  return null
+}
+
 // 音色复刻（克隆）使用模型（MiniMax 官方文档 speech-voice-clone）：
 // 快速复刻接口示例 model=speech-2.8-hd；官方「异步语音合成」模型表中
 // speech-02-hd 是唯一标注「复刻相似度」的模型——克隆音色的正式语音合成
@@ -229,11 +250,14 @@ class MinimaxTtsAdapter extends BaseAdapter {
     //   唯一标注「复刻相似度」的模型），否则服务商报「invalid params, voice id wrong」。
     // 系统音色列表之外的 voice_id 视为克隆音色。
     const effectiveModel = isSystemVoiceId(voice) ? model : CLONED_VOICE_SYNTHESIS_MODEL
+    // 字幕服务仅对官方列出的 8 个模型生效：模型不在白名单时静默不请求（避免参数错误）。
+    // 克隆音色走 speech-02-hd（在白名单内）→ 音色复刻同样支持词级时间戳。
+    const subtitleType = SUBTITLE_MODEL_RE.test(effectiveModel) ? resolveSubtitleType(params) : null
 
     // 异步 T2A 模型（speech-2.8-*/speech-02-*）必须走 t2a_async_v2 创建任务 → 查询 → 下载，
     // 同步端点 /t2a_v2 对异步模型返回 200 但不含 data.audio。
     if (isAsyncT2aModel(effectiveModel)) {
-      return this._synthesizeAsync({ text: params.text, model: effectiveModel, voice, speed, pitch, outputFormat })
+      return this._synthesizeAsync({ text: params.text, model: effectiveModel, voice, speed, pitch, outputFormat, subtitleType })
     }
 
     const body = {
@@ -248,6 +272,12 @@ class MinimaxTtsAdapter extends BaseAdapter {
         format: outputFormat,
         sample_rate: DEFAULT_SAMPLE_RATE,
       },
+    }
+    // 字幕时间戳（官方 speech-t2a-http）：subtitle_enable + subtitle_type=word 时
+    // 响应携带 data.subtitle_file 下载链接（JSON，词级/句级，毫秒）
+    if (subtitleType) {
+      body.subtitle_enable = true
+      body.subtitle_type = subtitleType
     }
 
     const resp = await this._request('/t2a_v2', {
@@ -269,10 +299,16 @@ class MinimaxTtsAdapter extends BaseAdapter {
     // hex 字符串 → Buffer
     const audio = Buffer.from(hexAudio, 'hex')
 
-    return {
-      audio,
-      format: outputFormat,
+    const result = { audio, format: outputFormat }
+    const rawSubtitleFile = data?.data?.subtitle_file || data?.subtitle_file
+    if (typeof rawSubtitleFile === 'string' && rawSubtitleFile.trim()) {
+      result.subtitleFile = rawSubtitleFile.trim()
     }
+    const audioLengthMs = Number(data?.data?.extra_info?.audio_length || data?.extra_info?.audio_length)
+    if (Number.isFinite(audioLengthMs) && audioLengthMs > 0) {
+      result.duration = audioLengthMs / 1000
+    }
+    return result
   }
 
   /**
@@ -282,30 +318,68 @@ class MinimaxTtsAdapter extends BaseAdapter {
    * 3. GET /files/retrieve_content?file_id=... 下载音频二进制
    * 官方文档：https://platform.minimaxi.com/docs/guides/speech-t2a-async
    */
-  async _synthesizeAsync ({ text, model, voice, speed, pitch, outputFormat }) {
-    const createBody = {
-      model,
-      text,
-      language_boost: 'auto',
-      voice_setting: {
-        voice_id: voice,
-        speed,
-        vol: DEFAULT_VOL,
-        pitch,
-      },
-      audio_setting: {
-        format: outputFormat,
-        audio_sample_rate: DEFAULT_SAMPLE_RATE,
-        bitrate: DEFAULT_BITRATE,
-        channel: DEFAULT_CHANNEL,
-      },
+  async _synthesizeAsync ({ text, model, voice, speed, pitch, outputFormat, subtitleType }) {
+    const buildCreateBody = (withSubtitle) => {
+      const body = {
+        model,
+        text,
+        language_boost: 'auto',
+        voice_setting: {
+          voice_id: voice,
+          speed,
+          vol: DEFAULT_VOL,
+          pitch,
+        },
+        audio_setting: {
+          format: outputFormat,
+          audio_sample_rate: DEFAULT_SAMPLE_RATE,
+          bitrate: DEFAULT_BITRATE,
+          channel: DEFAULT_CHANNEL,
+        },
+      }
+      // 异步 T2A 同样支持字幕输出（官方「返回文件信息」：音频 + 字幕 + 额外信息 JSON 三类文件）。
+      // 注意：异步创建接口请求 schema 未文档化字幕字段——若服务端拒绝参数，走下方降级重试。
+      if (withSubtitle) {
+        body.subtitle_enable = true
+        body.subtitle_type = subtitleType
+      }
+      return body
     }
-    const createResp = await this._request('/t2a_async_v2', {
-      method: 'POST',
-      body: JSON.stringify(createBody),
-    })
-    const createData = await createResp.json()
-    const taskId = createData?.data?.task_id || createData?.task_id
+
+    let usedSubtitle = Boolean(subtitleType)
+    let createData = null
+    let createError = null
+    try {
+      const createResp = await this._request('/t2a_async_v2', {
+        method: 'POST',
+        body: JSON.stringify(buildCreateBody(usedSubtitle)),
+      })
+      createData = await createResp.json()
+    } catch (error) {
+      createError = error
+    }
+
+    // 字幕参数在异步创建接口属未文档化字段：服务端可能以非 2xx 抛错，也可能以
+    // 200 + base_resp 业务错误码（2013/invalid params）拒绝——两种情况都去掉字幕
+    // 参数重试一次，保证默认异步模型（speech-2.8-turbo）不因字幕请求而整体失败；
+    // 非参数类错误（网络/超时/鉴权）原样抛出，保持错误分类。
+    const isParamError = (e) => e instanceof ProviderError &&
+      /invalid|param|argument|2013|unknown field|unexpected/i.test(String(e?.message || ''))
+    let taskId = createData?.data?.task_id || createData?.task_id
+    const respStatus = Number(createData?.base_resp?.status_code ?? NaN)
+    const respMessage = String(createData?.base_resp?.status_msg || '')
+    const paramErrorInBody = respStatus === 2013 || /invalid|param|argument|unknown field|unexpected/i.test(respMessage)
+    if (usedSubtitle && !taskId && (isParamError(createError) || paramErrorInBody)) {
+      usedSubtitle = false
+      const retryResp = await this._request('/t2a_async_v2', {
+        method: 'POST',
+        body: JSON.stringify(buildCreateBody(false)),
+      })
+      createData = await retryResp.json()
+      taskId = createData?.data?.task_id || createData?.task_id
+    } else if (createError) {
+      throw createError
+    }
     if (!taskId) {
       const message = createData?.base_resp?.status_msg
         || createData?.message
@@ -330,12 +404,24 @@ class MinimaxTtsAdapter extends BaseAdapter {
       const statusCode = baseResp.status_code
       const taskStatus = String(data?.status || nested?.status || '').toLowerCase()
 
+      // 字幕下载链接 + 音频时长（毫秒）：官方查询响应 schema 未列出，防御性透传，
+      // 上游返回即用、未返回则缺省（调用方回退 ASR）
+      const rawSubtitleFile = data?.subtitle_file ?? nested?.subtitle_file ?? null
+      const subtitleFile = (typeof rawSubtitleFile === 'string' && rawSubtitleFile.trim()) ? rawSubtitleFile.trim() : null
+      const audioLengthMs = Number(data?.extra_info?.audio_length ?? nested?.extra_info?.audio_length ?? NaN)
+
       // 完成：查询响应直接带音频（hex），或返回 file_id 后下载
       const inlineAudio = (typeof data.audio === 'string' && data.audio.length > 0) ? data.audio
         : ((typeof nested.audio === 'string' && nested.audio.length > 0) ? nested.audio : null)
+      const buildResult = (audio) => {
+        const result = { audio, format: outputFormat }
+        if (subtitleFile) result.subtitleFile = subtitleFile
+        if (Number.isFinite(audioLengthMs) && audioLengthMs > 0) result.duration = audioLengthMs / 1000
+        return result
+      }
       if (inlineAudio) {
         const audio = Buffer.from(inlineAudio, 'hex')
-        if (audio.length > 0) return { audio, format: outputFormat }
+        if (audio.length > 0) return buildResult(audio)
       }
       const rawFileId = data?.file_id ?? nested?.file_id ?? null
       const fileId = rawFileId !== null && rawFileId !== undefined ? String(rawFileId).trim() : ''
@@ -345,7 +431,7 @@ class MinimaxTtsAdapter extends BaseAdapter {
         if (!audioBuffer || audioBuffer.length === 0) {
           throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, 'MiniMax 异步语音合成返回空音频', { providerId: this.id })
         }
-        return { audio: audioBuffer, format: outputFormat }
+        return buildResult(audioBuffer)
       }
 
       // 明确失败
