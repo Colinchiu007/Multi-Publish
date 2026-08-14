@@ -6,10 +6,10 @@
   "risk": "medium",
   "domain": "desktop/ipc-auth",
   "currentPhase": "completed",
-  "nextAction": "PR 合并",
+  "nextAction": "无",
   "createdAt": "2026-08-14T10:00:00Z",
   "completedAt": "2026-08-14T18:10:00Z",
   "branch": "codex/fix-login-credential-capture-error",
   "openspecChange": "fix-login-credential-capture-error",
-  "remoteStatus": "branch-pushed-pending-pr"
+  "remoteStatus": "PR #816 merged (bd065376)"
 }
