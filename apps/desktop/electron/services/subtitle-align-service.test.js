@@ -94,3 +94,77 @@ describe('subtitle-align-service 编排', () => {
     expect(item.charTimings).toEqual([1.5, 2.0])
   })
 })
+
+describe('TTS 词级时间戳优先（跳过 whisper ASR）', () => {
+  it('场景带 timings 时直接用词级时间戳对齐，不调用 aligner bridge', async () => {
+    const scenes = [{
+      index: 0,
+      audioPath: 'C:/tmp/vo.mp3',
+      duration: 3,
+      subtitleBlocks: [{ displayOrder: 0, text: '今天天气真好' }],
+      timings: [
+        { text: '今天', start: 0.0, end: 0.5 },
+        { text: '天气', start: 0.5, end: 0.9 },
+        { text: '真好', start: 0.9, end: 1.3 },
+      ],
+    }]
+    const bridge = { transcribeAudio: vi.fn(async () => ({ words: [] })) }
+    await alignScenes(scenes, { alignerBridge: bridge, log: { warn: () => {} } })
+    expect(bridge.transcribeAudio).not.toHaveBeenCalled()
+    expect(scenes[0].subtitleTimeline[0].text).toBe('今天天气真好')
+    expect(scenes[0].subtitleTimeline[0].startTime).toBe(0)
+    expect(scenes[0].subtitleTimeline[0].endTime).toBe(1.3)
+    expect(scenes[0].subtitleTimeline[0].charTimings).toHaveLength(6)
+    expect(scenes[0].subtitleAlign.aligned).toBe(true)
+    expect(scenes[0].subtitleAlign.method).toBe('tts-timestamps')
+    expect(scenes[0].subtitleAlign.reason).toBe('ok')
+  })
+
+  it('timings 与字幕块文本不匹配（coverage < 0.5）时回退 ASR', async () => {
+    const scenes = [{
+      index: 0,
+      audioPath: 'C:/tmp/vo.mp3',
+      duration: 6,
+      subtitleBlocks: [{ displayOrder: 0, text: '完全不同的字幕' }],
+      timings: [{ text: '今天', start: 0.0, end: 0.5 }],
+    }]
+    const bridge = {
+      transcribeAudio: vi.fn(async () => ({
+        words: [
+          { text: '完全', start: 0, end: 0.5 },
+          { text: '不同', start: 0.5, end: 0.9 },
+        ],
+      })),
+    }
+    await alignScenes(scenes, { alignerBridge: bridge, log: { warn: () => {} } })
+    expect(bridge.transcribeAudio).toHaveBeenCalledTimes(1)
+    expect(scenes[0].subtitleAlign.method).toBe('asr')
+  })
+
+  it('混合场景：带 timings 的跳过 ASR，无 timings 的正常走 ASR', async () => {
+    const scenes = [
+      {
+        index: 0,
+        audioPath: 'C:/tmp/a.mp3',
+        duration: 3,
+        subtitleBlocks: [{ displayOrder: 0, text: '今天天气真好' }],
+        timings: [
+          { text: '今天', start: 0.0, end: 0.5 },
+          { text: '天气', start: 0.5, end: 0.9 },
+          { text: '真好', start: 0.9, end: 1.3 },
+        ],
+      },
+      {
+        index: 1,
+        audioPath: 'C:/tmp/b.mp3',
+        duration: 3,
+        subtitleBlocks: [{ displayOrder: 0, text: '第二句' }],
+      },
+    ]
+    const bridge = { transcribeAudio: vi.fn(async () => ({ words: [{ text: '第二句', start: 0, end: 1.0 }] })) }
+    await alignScenes(scenes, { alignerBridge: bridge, log: { warn: () => {} } })
+    expect(bridge.transcribeAudio).toHaveBeenCalledTimes(1)
+    expect(scenes[0].subtitleAlign.method).toBe('tts-timestamps')
+    expect(scenes[1].subtitleAlign.method).toBe('asr')
+  })
+})

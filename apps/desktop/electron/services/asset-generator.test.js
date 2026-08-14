@@ -32,6 +32,9 @@ __registerMock('fs', {
   existsSync: vi.fn(() => false),
   mkdirSync: vi.fn(),
   statSync: vi.fn(() => ({ size: 1024 })),
+  writeFileSync: vi.fn(),
+  readFileSync: vi.fn(() => ''),
+  rmSync: vi.fn(),
 })
 
 const {
@@ -126,5 +129,128 @@ describe('AssetGenerator P0-1: command injection prevention', () => {
   it('drawtext 文本会折叠换行并转义滤镜分隔符', () => {
     const escaped = escapeDrawtextText("a:b,c%{x}\nnext")
     expect(escaped).toBe("a\\:b\\,c\\%\\{x\\} next")
+  })
+})
+
+describe('TTS 词级时间戳（消除事后 whisper ASR）', () => {
+  const fsMock = require('fs')
+
+  it('edge-tts 脚本启用 WordBoundary（构造函数参数）并写时间戳 sidecar（argv[6]）', () => {
+    const script = buildEdgeTtsScript()
+    expect(script).toContain('asyncio.run')
+    // 7.x 起 boundary 是 Communicate 构造函数参数（默认 SentenceBoundary），必须显式 WordBoundary
+    expect(script).toContain('boundary="WordBoundary"')
+    expect(script).toContain('sys.argv[6]')
+    expect(script).not.toMatch(/;\s*async\s+def/)
+  })
+
+  it('python 退出 0 + sidecar 存在 → 返回 timings 且 duration 来自词尾', async () => {
+    const gen = new AssetGenerator({ outputDir: '/tmp/test' })
+    const originalSpawnImpl = mockSpawn.getMockImplementation()
+    const originalExists = fsMock.existsSync.getMockImplementation()
+    const originalStat = fsMock.statSync.getMockImplementation()
+    const originalRead = fsMock.readFileSync.getMockImplementation()
+    mockSpawn.mockImplementation((cmd, args, opts) => {
+      const proc = new EventEmitter()
+      setTimeout(() => proc.emit('exit', 0), 0)
+      return proc
+    })
+    fsMock.existsSync.mockImplementation((p) => String(p).endsWith('.mp3') || String(p).endsWith('.timings.json'))
+    fsMock.statSync.mockReturnValue({ size: 48000 })
+    fsMock.readFileSync.mockImplementation((p) => {
+      if (String(p).endsWith('.timings.json')) {
+        return JSON.stringify([
+          { text: '你好', start: 0, end: 0.6 },
+          { text: '世界', start: 0.6, end: 1.2 },
+        ])
+      }
+      return ''
+    })
+    try {
+      const result = await gen.generateTTS('你好世界', { index: 0 })
+      expect(result.code).toBe(0)
+      expect(result.data.timings).toEqual([
+        { text: '你好', start: 0, end: 0.6 },
+        { text: '世界', start: 0.6, end: 1.2 },
+      ])
+      expect(result.data.duration).toBe(1.5) // 1.2s 词尾 + 0.3s 尾音
+      const ttsSpawn = findPythonSpawn()
+      expect(ttsSpawn.args[ttsSpawn.args.length - 1]).toMatch(/\.timings\.json$/)
+    } finally {
+      mockSpawn.mockImplementation(originalSpawnImpl)
+      fsMock.existsSync.mockImplementation(originalExists)
+      fsMock.statSync.mockImplementation(originalStat)
+      fsMock.readFileSync.mockImplementation(originalRead)
+    }
+  })
+
+  it('provider TTS 返回 subtitle_file → 抓取并解析词级时间戳（毫秒 → 秒）', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      async text() {
+        return JSON.stringify({
+          subtitle: [
+            { text: '你好', start_time: 0, end_time: 600 },
+            { text: '世界', start_time: 600, end_time: 1200 },
+          ],
+        })
+      },
+    }))
+    const aiGenerator = {
+      generate: vi.fn(async () => ({
+        audio: Buffer.from([1, 2, 3]),
+        format: 'mp3',
+        duration: 1.5,
+        subtitleFile: 'https://cdn.minimax.chat/sub.json',
+      })),
+    }
+    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator, fetchImpl })
+    const result = await gen.generateTTS('你好世界', { index: 0, voice_provider: 'minimax-tts', voice_id: 'male-qn-qingse' })
+    expect(result.code).toBe(0)
+    expect(result.data.provider).toBe('minimax-tts')
+    expect(result.data.timings).toEqual([
+      { text: '你好', start: 0, end: 0.6 },
+      { text: '世界', start: 0.6, end: 1.2 },
+    ])
+    expect(fetchImpl).toHaveBeenCalledWith('https://cdn.minimax.chat/sub.json', expect.objectContaining({ signal: expect.anything() }))
+  })
+
+  it('subtitle 抓取失败 → 静默降级（无 timings，不影响音频返回）', async () => {
+    const fetchImpl = vi.fn(async () => { throw new Error('ECONNREFUSED') })
+    const aiGenerator = {
+      generate: vi.fn(async () => ({
+        audio: Buffer.from([1, 2, 3]),
+        format: 'mp3',
+        duration: 1.5,
+        subtitleFile: 'https://cdn.minimax.chat/sub.json',
+      })),
+    }
+    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator, fetchImpl })
+    const result = await gen.generateTTS('你好世界', { index: 0, voice_provider: 'minimax-tts' })
+    expect(result.code).toBe(0)
+    expect(result.data.timings).toBeUndefined()
+    expect(result.data.duration).toBe(1.5)
+  })
+
+  it('subtitle 文件 content-length 超限 → 不读取正文，直接降级（无 timings）', async () => {
+    const textSpy = vi.fn(async () => '{"subtitle":[]}')
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      headers: { get: () => String(8 * 1024 * 1024 + 1) },
+      text: textSpy,
+    }))
+    const aiGenerator = {
+      generate: vi.fn(async () => ({
+        audio: Buffer.from([1, 2, 3]),
+        format: 'mp3',
+        duration: 1.5,
+        subtitleFile: 'https://cdn.minimax.chat/huge.json',
+      })),
+    }
+    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator, fetchImpl })
+    const result = await gen.generateTTS('你好世界', { index: 0, voice_provider: 'minimax-tts' })
+    expect(result.code).toBe(0)
+    expect(result.data.timings).toBeUndefined()
+    expect(textSpy).not.toHaveBeenCalled()
   })
 })

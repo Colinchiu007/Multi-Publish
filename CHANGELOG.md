@@ -1,3 +1,14 @@
+## [2026-08-14] feat(s2v): TTS 词级时间戳采集——edge-tts WordBoundary + MiniMax subtitle_type=word，消除素材就绪后的事后 whisper ASR 停顿（tts-word-timestamps）
+
+- 根因：generate_assets 显示「图片 37/37 · 旁白 37/37」后长时间无反应——素材全部就绪后 `alignScenes()` 对每段音频逐一跑 faster-whisper ASR 词级对齐（2 并发、无进度上报），用户视角即卡死。
+- 修复：
+  - edge-tts（asset-generator.js）：合成脚本改 `boundary="WordBoundary"`（7.x 构造函数参数）流式收集词级边界事件（offset/duration 为 100ns 单位，÷1e7 转秒），写 `<audio>.timings.json` sidecar；旧版 edge-tts（无 WordBoundary）退出码≠0 自动重试一次旧 `.save()` 脚本；duration 改为真实词尾 +0.3s（替代 mp3 字节/16000 的粗估，误差可达数倍）。
+  - MiniMax（minimax-tts.js）：同步 `/t2a_v2` 与异步创建/查询均透传 `subtitle_enable + subtitle_type=word`，白名单仅 8 个支持字幕的模型（speech-2.8/2.6/02/01-hd/turbo），克隆音色（speech-02-hd）同接口支持；响应透传 `subtitle_file` 与 `extra_info.audio_length`（ms→s）。
+  - 对齐（subtitle-align-service.js）：Tier1 直接聚合 TTS 词级时间戳（coverage<0.5 或估算值弃用），Tier2 才走 ASR；时间戳获取/抓取失败一律 fail-open 回退 ASR，不产出劣质字幕、不中断流水线。
+  - 异步字幕参数保护：异步创建接口 schema 未文档化字幕字段，服务端以非 2xx 或 200+base_resp(2013) 拒绝时均去掉字幕参数降级重试一次；非参数类错误原样抛出。
+- 测试：services 全量 3412/3412 通过（minimax-tts 52 / asset-generator 13 / subtitle-align 8 / stages 84 / aggregator 4 / provider 25 / manual-assets 21 等）；真实 edge-tts 7.2.7 实测 WordBoundary 事件与 100ns 换算；AssetGenerator 真实端到端返回 7 词 timings。
+- 文档：OpenSpec change `subtitle-audio-alignment` Tier1 由「预留」更新为「已实施」；`.quality-gates.md` 门禁记录；审查报告 `.ccg/tasks/archive/2026-08/tts-word-timestamps/review.md`。
+
 ## [2026-08-14] Higgsfield P0 契约边界上浮与双形态收敛（higgsfield-engine-p0，PR #795）
 
 - 视频契约 standalone 长度上浮至 [200,5000]（对齐引擎侧 8020 精修层 5000 上限）；`_resolveVideoMaxLength` 增 batchDefault 参数：8013 batch 保持 500 零回归、8020 batch 默认 1800 对齐引擎默认值。

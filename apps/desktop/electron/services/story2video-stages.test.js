@@ -516,6 +516,48 @@ describe('story2video 资源索引契约', () => {
     }))
   })
 
+  it('TTS 返回词级时间戳时透传到场景，alignScenes 直接用 TTS 时间戳（不依赖 aligner）', async () => {
+    const generateTTS = vi.fn(async () => ({
+      code: 0,
+      data: {
+        path: 'audio-0.mp3',
+        duration: 1.3,
+        timings: [
+          { text: '今天', start: 0.0, end: 0.5 },
+          { text: '天气', start: 0.5, end: 0.9 },
+          { text: '真好', start: 0.9, end: 1.3 },
+        ],
+      },
+    }))
+    const fn = makePipeline({
+      generateImage: vi.fn(async () => ({ code: 0, data: { path: 'image-0.png' } })),
+      generateTTS,
+    })
+    const scene = {
+      index: 0,
+      text: '今天天气真好',
+      subtitleBlocks: ['今天天气真好'],
+      sceneSource: 'smart-sentence-splitter',
+    }
+
+    const result = await fn({
+      stage: { options: {} },
+      params: { voiceProvider: 'minimax-tts' },
+      context: { split: { scenes: [scene] }, optimize: ['画面提示词'] },
+      serviceBus: {},
+    })
+
+    expect(result.success).toBe(true)
+    expect(generateTTS).toHaveBeenCalledWith('今天天气真好', expect.objectContaining({ with_timestamps: true }))
+    const outputScene = result.output.scenes[0]
+    expect(outputScene.timings).toHaveLength(3)
+    // TTS 时间戳路径无需 aligner 可用（CI 无 ALIGNER_DIR）即可完成对齐，方法名标识来源
+    expect(outputScene.subtitleAlign.method).toBe('tts-timestamps')
+    expect(outputScene.subtitleAlign.aligned).toBe(true)
+    expect(outputScene.subtitleTimeline[0].startTime).toBe(0)
+    expect(outputScene.subtitleTimeline[0].endTime).toBe(1.3)
+  })
+
   it('显式允许部分资源时只保留同 index 的成对 scene', async () => {
     const fn = makePipeline({
       generateImage: vi.fn(async (_prompt, { index }) => index === 1
