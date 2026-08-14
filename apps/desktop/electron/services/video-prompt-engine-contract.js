@@ -19,7 +19,7 @@
  *   - 双向约束字段收敛（excluded_characters / no_swap_pairs / color_ratio）+ 多切时间块（shots[]/beats[]）
  *   - 收尾参数行 appendVideoTrailer + 平台参数画像（PLATFORM_VIDEO_PROFILES）
  *   - 结构完整性 fail-closed 校验（声明排除/防替换但正文无引用协议标记 → 拒绝）
- *   - 精修层 max_length 层级语义（按后端能力门控：8013 [50,2000] / 8020 [200,5000]）
+ *   - 精修层 max_length 层级语义（按后端能力门控：8013 [50,2000] / 8020 [200,20000]）
  *
  * ⚠️ 与图片提示词契约刻意分文件、分命名，避免混淆（共享逻辑经 kernel）。
  */
@@ -83,19 +83,19 @@ const VIDEO_ENGINE_LIMITS = Object.freeze({
   beatTimeMax: 40,
   beatActionMax: 500,
   shotDurationMax: 15,
-  // 精修层预算目标值：引擎侧模型边界抬高（8013 le≥2000 或视频域专用、8020 le≥5000）后自动生效（tasks 4.4）。
-  // videoMaxLengthMax 为引擎侧边界抬高后的目标上限，当前未被直接引用（显式值一律被
-  // videoMaxLengthRanges 能力范围收敛），保留作跨仓库联调锚点。
+  // 精修层预算默认值：creative_level ≥ 7 未显式传时使用（对齐 8020 引擎默认语义）；
+  // 精修层导演分镜单真实形态 500-5000 词（≈22871 字符），显式传值由 standalone 范围放行（tasks 4.4 边界上浮）。
   videoMaxLengthRefinedDefault: 5000,
   // 常规层默认对齐 8020 引擎默认（video_prompt_engine/models.py max_length 默认 1800）；
   // 旧契约发 500（PROMPT_ENGINE_LIMITS.maxLength.default）与引擎默认失配，500 字符装不下 batch 层 100 词下界
   videoMaxLengthBatchDefault: 1800,
+  // 精修层目标上限（引擎侧 video_prompt_engine/models.py le=20000 已对齐）：容纳 500-5000 词导演分镜单
   videoMaxLengthMax: 20000,
   // 目标后端能力范围（防 422，评审 C1 证据）：8013 prompt_engine/models.py ge=50/le=2000；
-  // 8020 video_prompt_engine/models.py ge=200/le=5000（Higgsfield P0 边界上浮，tasks 4.4）
+  // 8020 video_prompt_engine/models.py ge=200/le=20000（Higgsfield P0 边界上浮，tasks 4.4）
   videoMaxLengthRanges: Object.freeze({
     legacy: Object.freeze({ min: 50, max: 2000 }),
-    standalone: Object.freeze({ min: 200, max: 5000 }),
+    standalone: Object.freeze({ min: 200, max: 20000 }),
   }),
 })
 
@@ -343,7 +343,7 @@ function _detectOutputLanguage (texts) {
 
 /**
  * 构造独立视频引擎（8020）请求体 — VideoOptimizeRequest（无 domain 字段）。
- * 平台/风格/边界收敛与 8013 共用同一归一化；max_length 按 8020 能力范围 [200,5000] 门控；
+ * 平台/风格/边界收敛与 8013 共用同一归一化；max_length 按 8020 能力范围 [200,20000] 门控；
  * output_language 解析：显式参数 → 目标平台集合（国产模型 zh / 国外模型 en）→ model 关键词兜底 → 文本 CJK 自动检测。
  * @param {string} prompt
  * @param {object} [options]

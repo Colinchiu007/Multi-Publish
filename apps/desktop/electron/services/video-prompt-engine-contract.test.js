@@ -22,6 +22,7 @@ const {
   languageFromVideoModel,
   normalizeVideoMeta,
   extractOptimizedVideoPrompt,
+  VIDEO_ENGINE_LIMITS,
 } = require('./video-prompt-engine-contract')
 const PromptBridge = require('./prompt-bridge')
 
@@ -725,7 +726,7 @@ describe('精修层 max_length 层级语义（R6，按后端能力门控）', ()
     expect(req.max_length).toBe(2000)
   })
 
-  it('8020：creative_level ≥ 7 未显式传 → 收敛到能力上限 5000', () => {
+  it('8020：creative_level ≥ 7 未显式传 → 精修层默认 5000（能力上限 20000 内，不随边界上浮）', () => {
     const req = buildStandaloneVideoOptimizeRequest('director shot', { creative_level: 8 })
     expect(req.max_length).toBe(5000)
   })
@@ -743,10 +744,22 @@ describe('精修层 max_length 层级语义（R6，按后端能力门控）', ()
     expect(req.max_length).toBe(1500)
   })
 
-  it('显式值超上限收敛（8013 → 2000 / 8020 → 5000）', () => {
+  it('显式值超上限收敛（8013 → 2000 / 8020 → 20000，精修层 5000 词模板预算放行）', () => {
     expect(buildVideoOptimizeRequest('x', { max_length: 99999 }).max_length).toBe(2000)
     expect(buildVideoOptimizeRequest('x', { max_length: 3000 }).max_length).toBe(2000)
-    expect(buildStandaloneVideoOptimizeRequest('x', { max_length: 99999 }).max_length).toBe(5000)
+    expect(buildStandaloneVideoOptimizeRequest('x', { max_length: 99999 }).max_length).toBe(20000)
+    // 精修层真实长模板预算（≈22871 字符导演分镜单）：范围内透传 / 超 videoMaxLengthMax=20000 收敛
+    expect(buildStandaloneVideoOptimizeRequest('x', { creative_level: 8, max_length: 18000 }).max_length).toBe(18000)
+    expect(buildStandaloneVideoOptimizeRequest('x', { creative_level: 8, max_length: 22000 }).max_length).toBe(20000)
+    // I3 精确边界：恰好等于上限透传；数字字符串形态走 isExplicit 路径
+    expect(buildStandaloneVideoOptimizeRequest('x', { max_length: 20000 }).max_length).toBe(20000)
+    expect(buildStandaloneVideoOptimizeRequest('x', { max_length: '18000' }).max_length).toBe(18000)
+  })
+
+  it('W2 锚点加锁：videoMaxLengthMax 与 standalone.max 同步（防死锚点漂移）', () => {
+    expect(VIDEO_ENGINE_LIMITS.videoMaxLengthRanges.standalone.max).toBe(VIDEO_ENGINE_LIMITS.videoMaxLengthMax)
+    expect(VIDEO_ENGINE_LIMITS.videoMaxLengthRanges.standalone.min).toBe(200)
+    expect(VIDEO_ENGINE_LIMITS.videoMaxLengthRanges.legacy.max).toBe(2000)
   })
 
   it('8020 min 边界修复：显式 10 → 200（8020 ge=200）', () => {
