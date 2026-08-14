@@ -1,3 +1,13 @@
+## [2026-08-14] fix(ops-center): 过期 token 半登录态——启动校验 exp + 统一 401 跳转登录页（fix-stale-token-401-redirect）
+
+- 现象：运营后台打开页面不弹登录框直接进入主页，所有 `/api/v1` 接口返回 401「令牌无效」（提示词评测等页面报「加载评测列表失败」），前端既不清理内存态也不跳登录页。
+- 根因：`stores/auth.js` 的 `init()` 与路由守卫只检查 localStorage 是否存在 `ops_token`，不校验有效性；各 API 模块 401 拦截器仅静默删除持久化 token。
+- 修复：
+  - `stores/auth.js` 新增 `isTokenExpired()`，`init()` 客户端预检 JWT `exp`（补齐 base64url padding 后解码），过期/损坏即清理并视为未登录（后端 HS256 验签仍是权威；缺失 exp 的旧 token 交由后端判定）。
+  - 新增 `src/api/http.js` 统一客户端：请求自动注入 Bearer；收到 401 → `authStore.logout()` + 跳转 `#/login`（Pinia 未初始化时兜底清理 + reload）；14 个 API 模块去重复用。
+  - 引入 vitest + jsdom 回归测试 11 例（过期/有效/损坏/无 exp、401 跳转、非 401 不动、Bearer 注入）；`frontend/.npmrc` 固定 `legacy-peer-deps=true`（npm 10.9.x 解析 vitest 4 peer 依赖 arborist 崩溃）。
+- 验证：`npm test` 11/11 通过；`npm run build` 通过；审查降级记录见 `.ccg/tasks/fix-stale-token-401-redirect/review.md`（antigravity 地区不可用、claude CLI 不可用）。
+
 ## [2026-08-14] feat(accounts): 平台账号登录全屏标签化——对标蚁小二「添加账号 → 全屏标签加载登录页 + 导航栏保存账号按钮」（account-login-fullscreen-tab）
 
 - 需求：蚁小二「账号管理 → 添加账号 → 选择抖音」是在标签栏新开全屏标签加载登录页、导航栏右侧蓝色「保存账号」按钮；本项目原为页面内弹窗/横幅式登录视图，改造为一致的全屏标签体验（登录页内容本身不在对齐范围）。
