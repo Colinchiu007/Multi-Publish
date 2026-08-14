@@ -119,7 +119,7 @@ describe('story2video 资源索引契约', () => {
     const serviceBus = makeOptimizeBus()
 
     const result = await fn({
-      stage: { options: { style: 'cinematic', creative_level: 8, platform: 'dall-e', negative_prompt: '水印' } },
+      stage: { options: { quality_baseline: false, style: 'cinematic', creative_level: 8, platform: 'dall-e', negative_prompt: '水印' } },
       params: {},
       context: {
         domain_enrich: {
@@ -147,7 +147,8 @@ describe('story2video 资源索引契约', () => {
         platform: 'dalle',
         style: 'photography',
         creative_level: 8,
-        max_length: 500,
+        // 精修层长度语义（image-prompt-higgsfield-mechanics）：creative_level≥7 未显式 → 8013 能力上限
+        max_length: 2000,
         num_candidates: 1,
         auto_detect_style: true,
         negative_prompt: '水印',
@@ -212,7 +213,7 @@ describe('story2video 资源索引契约', () => {
     const serviceBus = makeOptimizeBus()
     const context = { split: [{ text: '5' }, { text: '一个有内容的场景描述。' }] }
     const result = await fn({
-      stage: { options: {} },
+      stage: { options: { quality_baseline: false } },
       params: {},
       context,
       serviceBus,
@@ -230,7 +231,7 @@ describe('story2video 资源索引契约', () => {
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
     const result = await fn({
-      stage: { options: {} },
+      stage: { options: { quality_baseline: false } },
       params: {},
       context: { split: [{ text: '81' }] },
       serviceBus,
@@ -244,7 +245,7 @@ describe('story2video 资源索引契约', () => {
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
     const result = await fn({
-      stage: { options: {} },
+      stage: { options: { quality_baseline: false } },
       params: {},
       context: { split: [{ text: '1949' }] },
       serviceBus,
@@ -309,7 +310,7 @@ describe('story2video 资源索引契约', () => {
     const serviceBus = makeOptimizeBus()
     const context = { split: [{ text: '一' }, { text: '。。。' }, { text: '5' }, { text: '81' }] }
     const result = await fn({
-      stage: { options: {} },
+      stage: { options: { quality_baseline: false } },
       params: {},
       context,
       serviceBus,
@@ -952,7 +953,7 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     const serviceBus = makeOptimizeBus(() => ({ optimized_prompt: '优化后提示词' }))
     await fn({
       runId: 'run_77',
-      stage: { options: {} },
+      stage: { options: { quality_baseline: false } },
       params: {},
       context: { split: [{ text: '第一幕' }] },
       serviceBus,
@@ -1027,7 +1028,7 @@ describe('story2video 限流/瞬时错误有界重试', () => {
       optimize_resume: [{ optimized_prompt: '旧结果0', providerId: 'prompt-engine', model: 'mock-model' }],
     }
     const result = await fn({
-      stage: { options: {} },
+      stage: { options: { quality_baseline: false } },
       params: {},
       context,
       serviceBus,
@@ -2098,7 +2099,7 @@ describe('story2video 场景上下文增强中间层（scene_context，2026-08-1
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
     const sceneContextResult = await makePipeline(null).sceneContextExecutor({
-      stage: { options: {} },
+      stage: { options: { quality_baseline: false } },
       params: { text: TANG_FULL_TEXT },
       context: { split: { scenes: [{ index: 0, text: TANG_COOKING_SCENE }] } },
     })
@@ -2126,7 +2127,7 @@ describe('story2video 场景上下文增强中间层（scene_context，2026-08-1
     const fn = makePipeline(null).optimizeExecutor
     const serviceBus = makeOptimizeBus()
     const result = await fn({
-      stage: { options: { context: '角色一致性' } },
+      stage: { options: { quality_baseline: false, context: '角色一致性' } },
       params: {},
       context: { split: [{ text: '一个老妇人在做饭' }] },
       serviceBus,

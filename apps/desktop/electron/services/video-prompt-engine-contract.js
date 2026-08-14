@@ -31,6 +31,7 @@ const {
   assertNoSensitiveContext,
   clampNumber,
   extractOptimizedBase,
+  resolveTieredMaxLength,
 } = require('./prompt-engine-kernel')
 
 const VIDEO_PLATFORMS = Object.freeze(new Set([
@@ -153,31 +154,6 @@ function _normalizeVideoCreativeLevel (value) {
   return clampNumber(raw, PROMPT_ENGINE_LIMITS.creativeLevel.min, PROMPT_ENGINE_LIMITS.creativeLevel.max)
 }
 
-/**
- * 视频 max_length 层级语义（按后端能力门控，video-prompt-higgsfield-mechanics R6）：
- *   - 显式传入（非 null/非空串/非纯空白/有限数值）→ 在后端能力范围 [range.min, range.max] 内收敛，始终优先；
- *   - 未显式传（含 null/空串/纯空白串/非有限）→ creative_level ≥ 7 使用精修层默认 5000 并收敛到后端上限；
- *     < 7 使用 batchDefault（8020 对齐引擎默认 1800；8013 保持 500 零回归）。
- * 禁止借用 PROMPT_ENGINE_LIMITS.maxLength（图片/8013 语义）。
- * @param {unknown} explicit
- * @param {number} creativeLevel - 已归一化（1-10）
- * @param {{ min: number, max: number }} range - 目标后端能力范围
- * @param {number} batchDefault - 常规层默认（未显式传且 creativeLevel < 7）
- * @returns {number}
- */
-function _resolveVideoMaxLength (explicit, creativeLevel, range, batchDefault) {
-  const isExplicit = explicit !== undefined && explicit !== null && explicit !== '' &&
-    !(typeof explicit === 'string' && !explicit.trim())
-  if (isExplicit) {
-    const raw = Number(explicit)
-    if (Number.isFinite(raw)) return clampNumber(raw, range.min, range.max)
-  }
-  if (creativeLevel >= 7) {
-    return Math.min(VIDEO_ENGINE_LIMITS.videoMaxLengthRefinedDefault, range.max)
-  }
-  return batchDefault
-}
-
 function _normalizeVideoNumCandidates (value) {
   const raw = Number(value)
   if (!Number.isFinite(raw)) return PROMPT_ENGINE_LIMITS.numCandidates.default
@@ -230,11 +206,12 @@ function buildVideoOptimizeRequest (prompt, options = {}) {
     domain: options.domain === undefined ? 'video' : normalizeVideoDomain(options.domain),
     platform: normalizeVideoPlatform(options.platform),
     creative_level: creativeLevel,
-    max_length: _resolveVideoMaxLength(
+    max_length: resolveTieredMaxLength(
       options.max_length !== undefined ? options.max_length : options.maxLength,
       creativeLevel,
       VIDEO_ENGINE_LIMITS.videoMaxLengthRanges.legacy,
       PROMPT_ENGINE_LIMITS.maxLength.default,
+      VIDEO_ENGINE_LIMITS.videoMaxLengthRefinedDefault,
     ),
     num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }
@@ -383,11 +360,12 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
     prompt: String(prompt).trim(),
     platform: normalizeVideoPlatform(options.platform),
     creative_level: creativeLevel,
-    max_length: _resolveVideoMaxLength(
+    max_length: resolveTieredMaxLength(
       options.max_length !== undefined ? options.max_length : options.maxLength,
       creativeLevel,
       VIDEO_ENGINE_LIMITS.videoMaxLengthRanges.standalone,
       VIDEO_ENGINE_LIMITS.videoMaxLengthBatchDefault,
+      VIDEO_ENGINE_LIMITS.videoMaxLengthRefinedDefault,
     ),
     num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }

@@ -16,6 +16,10 @@ const {
   normalizePromptEngineStyle,
   clampNumber,
   extractOptimizedBase,
+  resolveTieredMaxLength,
+  filterPlausibleNegativePrompt,
+  normalizePositiveConstraints,
+  scorePrompt,
 } = require('./prompt-engine-kernel')
 
 describe('prompt-engine-kernel 导出完整性', () => {
@@ -30,6 +34,10 @@ describe('prompt-engine-kernel 导出完整性', () => {
     expect(typeof normalizePromptEngineStyle).toBe('function')
     expect(typeof clampNumber).toBe('function')
     expect(typeof extractOptimizedBase).toBe('function')
+    expect(typeof resolveTieredMaxLength).toBe('function')
+    expect(typeof filterPlausibleNegativePrompt).toBe('function')
+    expect(typeof normalizePositiveConstraints).toBe('function')
+    expect(typeof scorePrompt).toBe('function')
   })
 
   it('maxLength 归属标注：视频契约不得借用（由 videoMaxLengthRanges 承担）', () => {
@@ -107,5 +115,142 @@ describe('守卫与归一', () => {
     expect(clampNumber(5, 1, 10)).toBe(5)
     expect(clampNumber(0, 1, 10)).toBe(1)
     expect(clampNumber(99, 1, 10)).toBe(10)
+  })
+})
+describe('resolveTieredMaxLength 层级长度', () => {
+  it('显式传值收敛到能力范围', () => {
+    expect(resolveTieredMaxLength(10, 5, { min: 50, max: 2000 }, 500)).toBe(50)
+    expect(resolveTieredMaxLength(3000, 5, { min: 50, max: 2000 }, 500)).toBe(2000)
+    expect(resolveTieredMaxLength('800', 5, { min: 50, max: 2000 }, 500)).toBe(800)
+  })
+
+  it('未显式 + 高创意（≥7）→ 精修层默认（收敛到 range.max）', () => {
+    expect(resolveTieredMaxLength(undefined, 8, { min: 50, max: 2000 }, 500, 2000)).toBe(2000)
+    expect(resolveTieredMaxLength(null, 7, { min: 50, max: 2000 }, 500, 1500)).toBe(1500)
+    expect(resolveTieredMaxLength('', 9, { min: 50, max: 2000 }, 500)).toBe(2000)
+  })
+
+  it('未显式 + 常规创意 → batchDefault；精修默认越界仍收敛', () => {
+    expect(resolveTieredMaxLength(undefined, 5, { min: 50, max: 2000 }, 500)).toBe(500)
+    expect(resolveTieredMaxLength(undefined, 8, { min: 50, max: 2000 }, 500, 99999)).toBe(2000)
+  })
+})
+
+describe('filterPlausibleNegativePrompt plausible-only', () => {
+  it('保留真实失败类别（中英文）', () => {
+    expect(filterPlausibleNegativePrompt('identity drift, extra fingers')).toContain('identity drift')
+    expect(filterPlausibleNegativePrompt('身份漂移, 多余手指')).toContain('身份漂移')
+    expect(filterPlausibleNegativePrompt('no text, watermarks')).toContain('watermarks')
+    expect(filterPlausibleNegativePrompt('character duplication, morphing')).toContain('character duplication')
+  })
+
+  it('清理无类别后缀的裸绝对否定词', () => {
+    expect(filterPlausibleNegativePrompt('不要坏')).toBe('')
+    expect(filterPlausibleNegativePrompt('never bad')).toBe('')
+    expect(filterPlausibleNegativePrompt('don\'t ugly')).toBe('')
+  })
+
+  it('空串/非字符串 → 空串', () => {
+    expect(filterPlausibleNegativePrompt('')).toBe('')
+    expect(filterPlausibleNegativePrompt('   ')).toBe('')
+    expect(filterPlausibleNegativePrompt(null)).toBe('')
+    expect(filterPlausibleNegativePrompt(123)).toBe('')
+  })
+
+  it('混合：有效类别保留，无效部分清理', () => {
+    const out = filterPlausibleNegativePrompt('不要坏, 多余手指, never bad')
+    expect(out).toContain('多余手指')
+    expect(out).not.toContain('不要坏')
+    expect(out).not.toContain('never bad')
+  })
+
+  it('场景排除物/负面锚点保留（非否定词开头的独立约束不被误删）', () => {
+    expect(filterPlausibleNegativePrompt('水印, 电烤箱')).toBe('水印, 电烤箱')
+    expect(filterPlausibleNegativePrompt('电烤箱')).toBe('电烤箱')
+    expect(filterPlausibleNegativePrompt('no text, electric oven')).toBe('no text, electric oven')
+  })
+
+  it('否定词前缀 + 实质内容的排除式约束保留（no people/without hats/避免人物）', () => {
+    expect(filterPlausibleNegativePrompt('no people')).toBe('no people')
+    expect(filterPlausibleNegativePrompt('without hats')).toBe('without hats')
+    expect(filterPlausibleNegativePrompt('避免人物')).toBe('避免人物')
+    expect(filterPlausibleNegativePrompt('not enough detail')).toBe('not enough detail')
+    expect(filterPlausibleNegativePrompt('没有现代建筑, 电烤箱')).toBe('没有现代建筑, 电烤箱')
+  })
+
+  it('否定词前缀 + 模糊质量词后缀仍清理（don\'t ugly/never bad/避免丑）', () => {
+    expect(filterPlausibleNegativePrompt('不要坏')).toBe('')
+    expect(filterPlausibleNegativePrompt('never bad')).toBe('')
+    expect(filterPlausibleNegativePrompt('避免丑')).toBe('')
+    expect(filterPlausibleNegativePrompt('don\'t ugly')).toBe('')
+  })
+})
+
+describe('normalizePositiveConstraints 正向约束收敛', () => {
+  it('数组透传，非字符串元素丢弃', () => {
+    expect(normalizePositiveConstraints(['a', 1, null, { x: 1 }, '  b  '])).toEqual(['a', 'b'])
+  })
+
+  it('字符串按换行/分号拆分', () => {
+    expect(normalizePositiveConstraints('甲\n乙;丙')).toEqual(['甲', '乙', '丙'])
+    expect(normalizePositiveConstraints('only')).toEqual(['only'])
+  })
+
+  it('上限 10 条截断，空/非数组 → 空数组', () => {
+    const items = Array.from({ length: 15 }, (_, i) => 'item' + i)
+    expect(normalizePositiveConstraints(items)).toHaveLength(10)
+    expect(normalizePositiveConstraints(undefined)).toEqual([])
+    expect(normalizePositiveConstraints(42)).toEqual([])
+    expect(normalizePositiveConstraints('')).toEqual([])
+  })
+})
+
+describe('scorePrompt 四维规则评分', () => {
+  it('空 prompt 得 0 分；四维综合评分', () => {
+    expect(scorePrompt('')).toBe(0)
+    expect(scorePrompt('   ')).toBe(0)
+    const rich = 'A warrior running across a ruined city at golden hour, warm amber color palette, cinematic composition, dramatic lighting, epic style, dust and smoke, low angle perspective, rule of thirds, shallow depth of field, detailed armor and weathered skin texture, horse, banner, ruined temple, birds, embers, volumetric light rays, motion blur'
+    const score = scorePrompt(rich, { sourcePrompt: '战士 骑马 废墟 黄昏' })
+    expect(score).toBeGreaterThan(60)
+  })
+
+  it('source 实体保真：命中源实体的候选优于未命中候选（同源择优语义）', () => {
+    const hit = scorePrompt('a woman standing in a garden with soft natural light', { sourcePrompt: 'woman garden light' })
+    const miss = scorePrompt('a lone castle on a cliff under stormy sky', { sourcePrompt: 'woman garden light' })
+    expect(hit).toBeGreaterThan(miss)
+  })
+
+  it('构图关键词加分', () => {
+    const base = 'a cat sitting, soft light, blue color, realistic style'
+    const composed = base + ', close-up, rule of thirds, depth of field, low angle'
+    expect(scorePrompt(composed)).toBeGreaterThan(scorePrompt(base))
+  })
+
+  it('中文语言模式按字符数评估长度', () => {
+    const zhLong = '一名战士在废墟中奔跑'.repeat(30) + '，黄昏的金色光线，暖色调，电影构图，低角度拍摄，景深，灰尘与烟雾，细节丰富的盔甲'
+    const score = scorePrompt(zhLong, { language: 'zh' })
+    expect(score).toBeGreaterThan(0)
+  })
+
+  it('短 source（无中文连续字/无 ≥3 字母英文 token）不产生 NaN（评审 C1）', () => {
+    expect(Number.isNaN(scorePrompt('a cat on the windowsill', { sourcePrompt: '猫' }))).toBe(false)
+    expect(Number.isNaN(scorePrompt('a cat', { sourcePrompt: 'cat' }))).toBe(false)
+    expect(Number.isNaN(scorePrompt('x', { sourcePrompt: '81' }))).toBe(false)
+    expect(scorePrompt('a cat', { sourcePrompt: 'cat' })).toBeGreaterThanOrEqual(0)
+  })
+
+  it('超长英文按比例轻微惩罚，短英文按比例部分得分（评审 W3）', () => {
+    const normal = Array.from({ length: 200 }, (_, i) => 'word' + i).join(' ') + ' composition lighting color style hero'
+    const overlong = Array.from({ length: 800 }, (_, i) => 'word' + i).join(' ')
+    const short = 'a cat, light, color, style'
+    const normalScore = scorePrompt(normal)
+    const overlongScore = scorePrompt(overlong)
+    const shortScore = scorePrompt(short)
+    expect(normalScore).toBeGreaterThan(overlongScore)
+    // 超长长度维 10 分 + 保真维无 source 满分 20 → 总分 < 35（若长度维失效则 ≥35）
+    expect(overlongScore).toBeLessThan(35)
+    // 短英文部分长度分（round 后近 0），总分以保真/要素为主，仍低于正常长度候选
+    expect(normalScore).toBeGreaterThan(shortScore)
+    expect(shortScore).toBeGreaterThanOrEqual(0)
   })
 })
