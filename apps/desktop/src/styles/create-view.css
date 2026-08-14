@@ -261,6 +261,47 @@
 .voice-clone-pending-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--clone-pending-text, var(--text-muted, #888)); background: var(--clone-pending-bg, rgba(0, 0, 0, 0.04)); border: 1px solid var(--clone-pending-border, var(--border, #ddd)); border-radius: var(--r-xs, 4px); padding: 1px 6px; white-space: nowrap; }
 [data-theme="dark"] .voice-clone-pending-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--clone-pending-text, var(--text-muted, #888)); background: var(--clone-pending-bg, rgba(255, 255, 255, 0.06)); border: 1px solid var(--clone-pending-border, var(--border, #444)); border-radius: var(--r-xs, 4px); padding: 1px 6px; white-space: nowrap; }
 
+/* 批量创作（2026-08-15 story2video-batch-create） */
+.s2v-batch-trigger { box-shadow: none; border: 1px solid var(--border, #D2D2D7); }
+.s2v-batch-dialog { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-height: 70vh; overflow-y: auto; padding-right: 2px; }
+.s2v-batch-rule-hint { margin: 0; padding: 10px 12px; border: 1px solid var(--border, #D2D2D7); border-radius: 8px; background: var(--surface-bright, #f9f9fb); }
+.s2v-batch-tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface, #f8f9fa); border-radius: 10px; border: 1px solid var(--hairline, rgba(0,0,0,0.06)); }
+.s2v-batch-tab { flex: 1; padding: 8px 16px; border: none; border-radius: 8px; background: transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--text-muted, #86868b); transition: all 0.2s ease; }
+.s2v-batch-tab:hover:not(.active) { color: var(--text-primary, #1D1D1F); background: var(--bg, rgba(0,0,0,0.03)); }
+.s2v-batch-tab.active { background: var(--surface, #fff); color: var(--primary, #2563eb); box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-weight: 600; }
+.s2v-batch-tab-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 120px; }
+.s2v-batch-text-row { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.s2v-batch-text-area { flex: 1; min-width: 0; }
+.s2v-batch-text-remove { margin-top: 6px; flex-shrink: 0; }
+.s2v-batch-text-actions { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.s2v-batch-text-actions .config-hint { margin: 0; }
+.s2v-batch-file-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.s2v-batch-file-actions .config-hint { margin: 0; }
+.s2v-batch-file-list { display: flex; flex-direction: column; gap: 6px; min-width: 0; list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.s2v-batch-file-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border, #D2D2D7); border-radius: 8px; min-width: 0; }
+.s2v-batch-file-name { min-width: 0; overflow-wrap: anywhere; font-size: 13px; color: var(--text-primary, #1D1D1F); }
+.s2v-batch-status { display: flex; flex-direction: column; gap: 10px; min-width: 0; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); padding-top: 12px; }
+.s2v-batch-status-head { display: flex; align-items: center; justify-content: space-between; min-width: 0; }
+.s2v-batch-status-title { font-size: 14px; font-weight: 600; color: var(--text-primary, #1D1D1F); }
+.s2v-batch-status-head .config-hint { margin: 0; }
+.s2v-batch-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--border, #D2D2D7); border-radius: 10px; background: var(--surface-bright, #f9f9fb); min-width: 0; }
+.s2v-batch-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.s2v-batch-card-time { font-size: 12px; color: var(--text-muted, #86868b); }
+.s2v-batch-card-mode { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--surface-container, #eeeef0); color: var(--text-secondary, #6e6e73); white-space: nowrap; }
+.s2v-batch-card-summary { font-size: 12px; color: var(--text-secondary, #6e6e73); }
+.s2v-batch-item-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+.s2v-batch-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; background: var(--surface, #fff); min-width: 0; }
+.s2v-batch-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; font-size: 13px; color: var(--text-primary, #1D1D1F); }
+.s2v-batch-item-badge { flex-shrink: 0; font-size: 11px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.s2v-batch-item-badge.status-pending { color: var(--text-secondary, #6e6e73); background: var(--surface-container, #eeeef0); }
+.s2v-batch-item-badge.status-running { color: var(--primary, #2563eb); background: color-mix(in srgb, var(--primary, #2563eb) 10%, transparent); }
+.s2v-batch-item-badge.status-completed { color: var(--status-completed-text, #1a7f37); background: var(--status-completed-bg, #dafbe1); }
+.s2v-batch-item-badge.status-failed { color: var(--status-failed-text, #d1242f); background: var(--status-failed-bg, #ffebe9); }
+.s2v-batch-item-badge.status-cancelled { color: var(--text-muted, #86868b); background: var(--surface-container, #eeeef0); }
+.s2v-batch-item-progress { flex-shrink: 0; font-size: 12px; color: var(--text-secondary, #6e6e73); }
+.s2v-batch-item-cancel { flex-shrink: 0; }
+.s2v-batch-error { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--status-failed-bg, #ffebe9); color: var(--status-failed-text, #d1242f); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+
 /* 操作栏 */
 .action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); position: sticky; bottom: 0; background: var(--surface, #fff); z-index: 5; border-radius: 0 0 10px 10px; box-shadow: 0 -2px 8px rgba(0,0,0,0.04); }
 .s2v-options-toast { position: absolute; right: 16px; bottom: calc(100% + 10px); font-size: 12px; color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 4px 10px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out; }

@@ -854,13 +854,21 @@ class PipelineEngine {
       _activeSegmentStartedAt: null,
       // 编排模式扩展字段（默认 state_machine 模式不使用）
       orchestrationMode: 'state_machine',
+      // 批量创作标记（2026-08-14）：仅批量队列透传；历史记录/统计据此区分来源。
+      source: params.source === 'batch' ? 'batch' : undefined,
+      batchId: params.source === 'batch' && typeof params.batchId === 'string' ? params.batchId : undefined,
+      batchItemId: params.source === 'batch' && typeof params.batchItemId === 'string' ? params.batchItemId : undefined,
       context: {},
       stageResults: [],
     };
 
     this._runs.set(runId, run);
-    this._runs.set('_' + pipelineName, run); // Also index by pipeline name
-    this._currentPipeline = pipelineName;
+    // 批量 run 不写 _<name> 索引/currentPipeline：手动流水线详情页按索引查询状态，
+    // 若被批量 run 覆盖，手动页面会读到批量任务进度（状态串扰）。
+    if (run.source !== 'batch') {
+      this._runs.set('_' + pipelineName, run); // Also index by pipeline name
+      this._currentPipeline = pipelineName;
+    }
 
     // Backlot 事件：流水线启动
     this._emit('pipeline:start', { runId, pipelineType: pipelineName, stages: run.stages.map(s => s.name) });
@@ -1001,6 +1009,18 @@ class PipelineEngine {
       if (seen.has(run)) continue;
       seen.add(run);
       if (run.orchestrationMode === 'orchestrator' && run.status === 'running') count += 1;
+    }
+    return count;
+  }
+
+  /** 当前正在运行的「手动」编排流水线数量（去重 _<name> 索引；批量 run 不计入）。 */
+  _countActiveManualRuns() {
+    const seen = new Set();
+    let count = 0;
+    for (const run of this._runs.values()) {
+      if (seen.has(run)) continue;
+      seen.add(run);
+      if (run.orchestrationMode === 'orchestrator' && run.status === 'running' && run.source !== 'batch') count += 1;
     }
     return count;
   }
@@ -1158,6 +1178,17 @@ class PipelineEngine {
     if (typeof params !== 'object' || Array.isArray(params)) {
       return { success: false, error: 'Pipeline params must be an object' };
     }
+    // 批量创作标记（2026-08-14）：normalizer 重建 params 会丢弃未知字段，先白名单提取、
+    // normalize 后重新附加，保证 run 打标（source/batchId/batchItemId）不丢失。
+    const batchMeta = {
+      source: params.source === 'batch' ? 'batch' : undefined,
+      batchId: params.source === 'batch' && typeof params.batchId === 'string' && params.batchId.trim()
+        ? params.batchId.trim()
+        : undefined,
+      batchItemId: params.source === 'batch' && typeof params.batchItemId === 'string' && params.batchItemId.trim()
+        ? params.batchItemId.trim()
+        : undefined,
+    }
     if (pipelineName === STORY2VIDEO_PIPELINE) {
       try {
         params = normalizeStory2VideoTextParams(params);
@@ -1171,6 +1202,12 @@ class PipelineEngine {
           errorParams: error?.params || null,
         };
       }
+    }
+    // 批量创作标记重新附加（normalizer 重建 params 后）
+    if (batchMeta.source === 'batch') {
+      params.source = 'batch'
+      params.batchId = batchMeta.batchId
+      params.batchItemId = batchMeta.batchItemId
     }
     const initialContext = params.initialContext !== undefined
       ? params.initialContext

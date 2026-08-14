@@ -164,6 +164,14 @@ function createContainer(options) {
     }
     return engine;
   });
+  // Story2Video 批量创作队列服务（依赖 pipelineEngine：事件驱动调度；批量并行≤2 / 手动互斥 / 全局预算）
+  container.register("story2videoBatchQueue", function(c) {
+    const { Story2VideoBatchQueue } = require('../services/story2video-batch-queue');
+    return new Story2VideoBatchQueue({
+      pipelineEngine: c.get("pipelineEngine"),
+      log: c.get("logger"),
+    });
+  });
   container.register("urlCollector", function() { return new UrlCollector(); });
   container.register("viralEngine", function() { return new ViralEngine(); });
   container.register("commentManager", function() { return new CommentManager(); });
@@ -296,7 +304,8 @@ function createContainer(options) {
     "store", "authViewManager", "rpaViewManager", "webviewManager",
     "callbackServer", "qrCodeLogin", "renderEngine",
     "contentIntelligence", "publishImpactTracker", "keywordMonitor",
-    "oauthManager", "batchManager", "taskQueue", "publisherRouter"
+    "oauthManager", "batchManager", "taskQueue", "publisherRouter",
+    "story2videoBatchQueue"
   ]);
 
   return container;

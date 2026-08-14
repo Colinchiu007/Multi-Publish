@@ -857,6 +857,15 @@
             <UiButton class="btn-start" data-testid="start-story2video" @click="handleStartPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
             </UiButton>
+            <UiButton
+              v-if="isOrchestratedPipeline(selectedPipeline?.name)"
+              variant="secondary"
+              class="btn-start s2v-batch-trigger"
+              data-testid="s2v-batch-trigger"
+              @click="openS2VBatchDialog"
+            >
+              {{ translateWithLocaleFallback('create.story2video.batch.trigger', '批量创作', 'Batch create') }}
+            </UiButton>
             <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="reset-options-link" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
               {{ translateWithLocaleFallback('create.story2video.resetOptions', '恢复默认选项', 'Reset to default options') }}
             </button>
@@ -1090,6 +1099,148 @@
         <UiButton variant="danger" data-testid="s2v-cancel-confirm-ok" @click="confirmCancelPipeline">{{ translateWithLocaleFallback('create.story2video.selectionWait.cancelConfirm', '确认取消', 'Confirm cancel') }}</UiButton>
       </template>
     </UiModal>
+
+    <!-- 批量创作（2026-08-15 story2video-batch-create）：按队列依次运行；最大并行 2；手动任务运行中批量并行 1 -->
+    <UiModal
+      :visible="s2vBatchDialogOpen"
+      :title="translateWithLocaleFallback('create.story2video.batch.dialogTitle', '批量创作', 'Batch create')"
+      size="lg"
+      @close="closeS2VBatchDialog"
+    >
+      <div class="s2v-batch-dialog" data-testid="s2v-batch-dialog">
+        <!-- 创作模式：固定「全自动」且隐藏不显示（提交时写死 mode=text + creationMode=auto） -->
+        <div class="config-item">
+          <label>{{ translateWithLocaleFallback('create.story2video.batch.videoModeLabel', '视频增强模式', 'Video enhancement mode') }}</label>
+          <select v-model="s2vBatchVideoMode" class="form-select" data-testid="s2v-batch-video-mode">
+            <option value="off">{{ translateWithLocaleFallback('videoConfig.videoModeOff', '关闭', 'Off') }}</option>
+            <option value="fixed">{{ translateWithLocaleFallback('videoConfig.videoModeFixed', '固定比例', 'Fixed ratio') }}</option>
+            <option value="ai-judged">{{ translateWithLocaleFallback('videoConfig.videoModeAiJudged', 'AI 智能选择', 'AI selected') }}</option>
+          </select>
+        </div>
+        <p class="config-hint s2v-batch-rule-hint" data-testid="s2v-batch-rule-hint">
+          {{ translateWithLocaleFallback('create.story2video.batch.ruleHint', '批量创作按队列依次运行，软件最大并行任务数量为 2。如果当前有正在执行中的手动任务，批量创作在同一时间只运行 1 个任务。', 'Batch tasks run in a queue (max 2 in parallel). While a manual task is running, only 1 batch task runs at a time.') }}
+        </p>
+
+        <div class="s2v-batch-tabs" role="tablist" data-testid="s2v-batch-tabs">
+          <button
+            type="button"
+            :class="['s2v-batch-tab', { active: s2vBatchTab === 'text' }]"
+            data-testid="s2v-batch-tab-text"
+            @click="s2vBatchTab = 'text'"
+          >{{ translateWithLocaleFallback('create.story2video.batch.tabText', '输入文案', 'Text input') }}</button>
+          <button
+            type="button"
+            :class="['s2v-batch-tab', { active: s2vBatchTab === 'files' }]"
+            data-testid="s2v-batch-tab-files"
+            @click="s2vBatchTab = 'files'"
+          >{{ translateWithLocaleFallback('create.story2video.batch.tabFiles', '本地文件', 'Local files') }}</button>
+        </div>
+
+        <!-- 输入文案（1-10 条） -->
+        <div v-if="s2vBatchTab === 'text'" class="s2v-batch-tab-body" data-testid="s2v-batch-text-pane">
+          <div v-for="(text, index) in s2vBatchTexts" :key="index" class="s2v-batch-text-row">
+            <textarea
+              v-model="s2vBatchTexts[index]"
+              class="form-input textarea s2v-batch-text-area"
+              rows="3"
+              :placeholder="translateWithLocaleFallback('create.story2video.batch.textPlaceholder', '输入第 ' + (index + 1) + ' 条文案（每条最多 ' + MAX_STORY2VIDEO_TEXT_CHARACTERS + ' 字）', 'Enter text ' + (index + 1) + ' (max ' + MAX_STORY2VIDEO_TEXT_CHARACTERS + ' chars each)', { index: index + 1, max: MAX_STORY2VIDEO_TEXT_CHARACTERS })"
+              :data-testid="'s2v-batch-text-' + index"
+            ></textarea>
+            <button
+              v-if="s2vBatchTexts.length > 1"
+              type="button"
+              class="btn-icon s2v-batch-text-remove"
+              :data-testid="'s2v-batch-text-remove-' + index"
+              :title="translateWithLocaleFallback('common.delete', '删除', 'Delete')"
+              @click="removeS2VBatchText(index)"
+            ><span class="material-symbols-outlined">close</span></button>
+          </div>
+          <div class="s2v-batch-text-actions">
+            <UiButton variant="secondary" :disabled="s2vBatchTexts.length >= S2V_BATCH_MAX_TEXTS" data-testid="s2v-batch-add-text" @click="addS2VBatchText">
+              + {{ translateWithLocaleFallback('create.story2video.batch.addText', '新增文案', 'Add text') }}
+            </UiButton>
+            <span v-if="s2vBatchTexts.length >= S2V_BATCH_MAX_TEXTS" class="config-hint">
+              {{ translateWithLocaleFallback('create.story2video.batch.textLimitHint', '最多可输入 10 条文案', 'Up to 10 texts') }}
+            </span>
+          </div>
+        </div>
+
+        <!-- 本地文件（.txt/.md，最多 20 个） -->
+        <div v-else class="s2v-batch-tab-body" data-testid="s2v-batch-files-pane">
+          <input
+            ref="s2vBatchFileInput"
+            type="file"
+            accept=".txt,.md,text/plain,text/markdown"
+            multiple
+            style="display:none"
+            @change="handleS2VBatchFileInput"
+          />
+          <div class="s2v-batch-file-actions">
+            <UiButton variant="secondary" data-testid="s2v-batch-pick-files" @click="pickS2VBatchFiles">
+              {{ translateWithLocaleFallback('create.story2video.batch.pickFiles', '选择文件', 'Choose files') }}
+            </UiButton>
+            <span class="config-hint">
+              {{ translateWithLocaleFallback('create.story2video.batch.fileHint', '仅支持 .txt / .md 文件，最多 20 个，单个文件最大 2MB。', 'Only .txt / .md files, up to 20 files, 2MB each.') }}
+            </span>
+          </div>
+          <ul v-if="s2vBatchFiles.length" class="s2v-batch-file-list">
+            <li v-for="(file, index) in s2vBatchFiles" :key="file.path" class="s2v-batch-file-item" :data-testid="'s2v-batch-file-' + index">
+              <span class="s2v-batch-file-name" :title="file.path">{{ file.name }}</span>
+              <button
+                type="button"
+                class="btn-icon"
+                :title="translateWithLocaleFallback('common.delete', '删除', 'Delete')"
+                @click="removeS2VBatchFile(index)"
+              ><span class="material-symbols-outlined">close</span></button>
+            </li>
+          </ul>
+          <p v-else class="config-hint">{{ translateWithLocaleFallback('create.story2video.batch.fileEmpty', '尚未选择文件。', 'No files selected yet.') }}</p>
+        </div>
+
+        <!-- 任务与排队信息 -->
+        <div class="s2v-batch-status" data-testid="s2v-batch-status">
+          <div class="s2v-batch-status-head">
+            <span class="s2v-batch-status-title">{{ translateWithLocaleFallback('create.story2video.batch.queueTitle', '任务与排队', 'Tasks & queue') }}</span>
+            <span v-if="s2vBatchLoading" class="config-hint">{{ translateWithLocaleFallback('common.loading', '加载中...', 'Loading...') }}</span>
+          </div>
+          <p v-if="!s2vBatches.length && !s2vBatchLoading" class="config-hint" data-testid="s2v-batch-status-empty">
+            {{ translateWithLocaleFallback('create.story2video.batch.queueEmpty', '暂无批量任务。启动后，任务与排队状态将显示在这里。', 'No batch tasks yet. Start a batch to see its queue status here.') }}
+          </p>
+          <div v-for="batch in s2vBatches" :key="batch.id" class="s2v-batch-card" :data-testid="'s2v-batch-card-' + batch.id">
+            <div class="s2v-batch-card-head">
+              <span class="s2v-batch-card-time">{{ formatS2VBatchCreatedAt(batch.createdAt) }}</span>
+              <span class="s2v-batch-card-mode">{{ batch.mode === 'files' ? translateWithLocaleFallback('create.story2video.batch.modeFiles', '本地文件', 'Local files') : translateWithLocaleFallback('create.story2video.batch.modeText', '输入文案', 'Text input') }}</span>
+              <span class="s2v-batch-card-summary">{{ batchSummaryText(batch) }}</span>
+            </div>
+            <ul class="s2v-batch-item-list">
+              <li v-for="item in batch.items" :key="item.itemId" class="s2v-batch-item" :data-testid="'s2v-batch-item-' + item.itemId">
+                <span class="s2v-batch-item-label" :title="item.label">{{ item.label }}</span>
+                <span :class="['s2v-batch-item-badge', 'status-' + item.status]" data-testid="s2v-batch-item-status">{{ s2vBatchItemStatusText(item) }}</span>
+                <span v-if="item.status === 'running'" class="s2v-batch-item-progress">
+                  {{ item.progress != null ? item.progress + '%' : '' }}<template v-if="item.currentStage"> · {{ item.currentStage }}</template>
+                </span>
+                <button
+                  v-if="item.status === 'pending'"
+                  type="button"
+                  class="btn-icon s2v-batch-item-cancel"
+                  :title="translateWithLocaleFallback('create.story2video.batch.cancelItem', '取消排队', 'Cancel queued task')"
+                  data-testid="s2v-batch-item-cancel"
+                  @click="cancelS2VBatchItem(batch.id, item.itemId)"
+                ><span class="material-symbols-outlined">close</span></button>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <p v-if="s2vBatchError" class="s2v-batch-error" role="alert" data-testid="s2v-batch-error">{{ s2vBatchError }}</p>
+      </div>
+      <template #footer>
+        <UiButton variant="primary" :disabled="s2vBatchStarting || !s2vBatchCanStart" data-testid="s2v-batch-start" @click="startS2VBatch">
+          {{ s2vBatchStarting ? translateWithLocaleFallback('common.loading', '启动中...', 'Starting...') : translateWithLocaleFallback('create.story2video.batch.start', '启动', 'Start') }}
+        </UiButton>
+        <UiButton variant="secondary" @click="closeS2VBatchDialog">{{ translateWithLocaleFallback('create.story2video.batch.close', '关闭', 'Close') }}</UiButton>
+      </template>
+    </UiModal>
   </div>
 </template>
 
@@ -1118,7 +1269,8 @@ import {
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject,
   story2videoBgmLibraryList, story2videoBgmLibraryAdd,
-  story2videoBgmLibraryRename, story2videoBgmLibraryDelete
+  story2videoBgmLibraryRename, story2videoBgmLibraryDelete,
+  story2videoBatchCreate, story2videoBatchStatus, story2videoBatchCancel, story2videoPickBatchFiles
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
@@ -1390,6 +1542,19 @@ export default {
       s2vBgmLibraryRenameDraft: '',
       s2vBgmLibraryDeleteDialogOpen: false,
       s2vBgmLibraryDeleteTargetId: null,
+      // 批量创作（2026-08-15 story2video-batch-create）：弹窗状态 / 输入源 / 队列展示
+      s2vBatchDialogOpen: false,
+      s2vBatchTab: 'text',
+      s2vBatchVideoMode: 'off',
+      s2vBatchTexts: [''],
+      s2vBatchFiles: [],
+      s2vBatchStarting: false,
+      s2vBatchLoading: false,
+      s2vBatchError: '',
+      s2vBatches: [],
+      s2vBatchPollTimer: null,
+      S2V_BATCH_MAX_TEXTS: 10,
+      S2V_BATCH_MAX_FILES: 20,
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
       s2vImageProviders: [], s2vVoiceProviders: [], s2vVideoProviders: [],
       s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCatalogErrorCode: '', s2vVoiceCapability: null,
@@ -2268,97 +2433,7 @@ export default {
           return
         }
         this.orchestrationError = ''
-        const output = this.cloneForIpc(this.s2vOutputConfig)
-        const config = this.cloneForIpc(this.s2vConfig)
-        const tags = String(config.tagsText || '')
-          .split(',')
-          .map(tag => tag.trim())
-          .filter(Boolean)
-        const story2videoTextConfig = {
-          version: 1,
-          mode: 'text',
-          prompt: text,
-          size: output.resolution,
-          contentType: config.contentType,
-          split: {
-            language: config.splitLanguage,
-            mode: config.splitMode,
-            maxSentenceLength: config.splitMaxSentenceLength,
-            targetSeconds: config.splitTargetSeconds,
-            targetCharsPerScene: config.splitTargetCharsPerScene,
-            // 语言感知基准语速（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3，与 UI 估算同源
-            baseWordsPerSecond: getLanguageBaseWordsPerSecond(config.splitLanguage),
-            // 参数治理 R2：speechRate 由 normalizer 以 voice.speed 派生（单一来源），不提交。
-            minWords: config.splitMinWords,
-            maxWords: config.splitMaxWords,
-            enforceSentenceBoundary: config.splitEnforceSentenceBoundary,
-            overflowToNext: config.splitOverflowToNext,
-            subtitleMinChars: config.splitSubtitleMinChars,
-            subtitleMaxChars: config.splitSubtitleMaxChars,
-            subtitleTiming: config.splitSubtitleTiming,
-          },
-          optimize: {
-            style: config.promptStyle,
-            // 参数治理（7.1.19）：creativeLevel 为系统管理参数，不提交，normalizer 默认 5 兜底。
-            negativePrompt: config.negativePrompt,
-          },
-          image: {
-            provider: config.imageProvider || '',
-            model: config.imageModel || '',
-            style: config.imageStyle,
-            effect: config.imageEffect,
-            aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
-          },
-          // 视频+图片轮播混合模式（2026-08-11）：off=纯图片轮播；fixed=前段固定比例 AI 视频；ai-judged=AI 智能选择
-          video: {
-            mode: config.videoMode || 'off',
-            provider: config.videoProvider || '',
-            model: config.videoModel || '',
-            fixedRatio: config.videoFixedRatio,
-            minRatio: config.videoMinRatio,
-            maxRatio: config.videoMaxRatio,
-            maxScenes: config.videoMaxScenes,
-          },
-          // 创作模式（2026-08-12）：auto=全自动；manual=分镜素材自选（materialMode 仅 manual 生效）
-          creation: {
-            mode: config.creationMode || 'auto',
-            materialMode: config.manualMaterialMode || 'all-images',
-          },
-          voice: {
-            provider: config.voiceProvider || '',
-            model: config.voiceModel || '',
-            id: config.voiceId,
-            speed: config.voiceSpeed,
-            volume: config.voiceVolume,
-            // 参数治理（7.1.19）：pitch 为系统管理参数，不提交，normalizer 默认 0 兜底。
-          },
-          subtitle: {
-            enabled: config.subtitleEnabled,
-            size: config.subtitleSize,
-            style: config.subtitleStyleName,
-            color: config.subtitleStyle?.color || 'white',
-          },
-          bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
-          transition: config.transition,
-          sceneDurationMode: config.sceneDurationMode,
-          minSceneDuration: config.minSceneDuration,
-          templateId: config.templateId || '',
-          // 参数治理 R2：concurrency 为系统管理参数，不提交，normalizer 默认 3 兜底。
-          watermark: {
-            ...config.watermarkConfig,
-            enabled: Boolean(config.watermarkText),
-            text: config.watermarkText || '',
-          },
-          output: { fps: output.fps, format: output.format },
-          publish: {
-            enabled: config.publishEnabled === true || (Array.isArray(config.platforms) && config.platforms.length > 0),
-            platforms: Array.isArray(config.platforms) ? config.platforms : [],
-            title: config.title || '',
-            content: config.publishContent || text,
-            tags,
-            coverUrl: config.coverUrl || '',
-          },
-        }
+        const story2videoTextConfig = this.buildStory2VideoTextConfig(text)
         const params = {
           text,
           inputMode: 'text',
@@ -2384,8 +2459,273 @@ export default {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
+    // 批量创作/手动流水线共用配置构造（2026-08-15 story2video-batch-create）：
+    // 从 s2vConfig 构建 Story2VideoTextConfig；批量模式取模板后删除 prompt 并按条注入。
+    buildStory2VideoTextConfig(text) {
+      const output = this.cloneForIpc(this.s2vOutputConfig)
+      const config = this.cloneForIpc(this.s2vConfig)
+      const tags = String(config.tagsText || '')
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(Boolean)
+      return {
+        version: 1,
+        mode: 'text',
+        prompt: text,
+        size: output.resolution,
+        contentType: config.contentType,
+        split: {
+          language: config.splitLanguage,
+          mode: config.splitMode,
+          maxSentenceLength: config.splitMaxSentenceLength,
+          targetSeconds: config.splitTargetSeconds,
+          targetCharsPerScene: config.splitTargetCharsPerScene,
+          // 语言感知基准语速（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3，与 UI 估算同源
+          baseWordsPerSecond: getLanguageBaseWordsPerSecond(config.splitLanguage),
+          // 参数治理 R2：speechRate 由 normalizer 以 voice.speed 派生（单一来源），不提交。
+          minWords: config.splitMinWords,
+          maxWords: config.splitMaxWords,
+          enforceSentenceBoundary: config.splitEnforceSentenceBoundary,
+          overflowToNext: config.splitOverflowToNext,
+          subtitleMinChars: config.splitSubtitleMinChars,
+          subtitleMaxChars: config.splitSubtitleMaxChars,
+          subtitleTiming: config.splitSubtitleTiming,
+        },
+        optimize: {
+          style: config.promptStyle,
+          // 参数治理（7.1.19）：creativeLevel 为系统管理参数，不提交，normalizer 默认 5 兜底。
+          negativePrompt: config.negativePrompt,
+        },
+        image: {
+          provider: config.imageProvider || '',
+          model: config.imageModel || '',
+          style: config.imageStyle,
+          effect: config.imageEffect,
+          aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
+        },
+        // 视频+图片轮播混合模式（2026-08-11）：off=纯图片轮播；fixed=前段固定比例 AI 视频；ai-judged=AI 智能选择
+        video: {
+          mode: config.videoMode || 'off',
+          provider: config.videoProvider || '',
+          model: config.videoModel || '',
+          fixedRatio: config.videoFixedRatio,
+          minRatio: config.videoMinRatio,
+          maxRatio: config.videoMaxRatio,
+          maxScenes: config.videoMaxScenes,
+        },
+        // 创作模式（2026-08-12）：auto=全自动；manual=分镜素材自选（materialMode 仅 manual 生效）
+        creation: {
+          mode: config.creationMode || 'auto',
+          materialMode: config.manualMaterialMode || 'all-images',
+        },
+        voice: {
+          provider: config.voiceProvider || '',
+          model: config.voiceModel || '',
+          id: config.voiceId,
+          speed: config.voiceSpeed,
+          volume: config.voiceVolume,
+          // 参数治理（7.1.19）：pitch 为系统管理参数，不提交，normalizer 默认 0 兜底。
+        },
+        subtitle: {
+          enabled: config.subtitleEnabled,
+          size: config.subtitleSize,
+          style: config.subtitleStyleName,
+          color: config.subtitleStyle?.color || 'white',
+        },
+        bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
+        transition: config.transition,
+        sceneDurationMode: config.sceneDurationMode,
+        minSceneDuration: config.minSceneDuration,
+        templateId: config.templateId || '',
+        // 参数治理 R2：concurrency 为系统管理参数，不提交，normalizer 默认 3 兜底。
+        watermark: {
+          ...config.watermarkConfig,
+          enabled: Boolean(config.watermarkText),
+          text: config.watermarkText || '',
+        },
+        output: { fps: output.fps, format: output.format },
+        publish: {
+          enabled: config.publishEnabled === true || (Array.isArray(config.platforms) && config.platforms.length > 0),
+          platforms: Array.isArray(config.platforms) ? config.platforms : [],
+          title: config.title || '',
+          content: config.publishContent || text,
+          tags,
+          coverUrl: config.coverUrl || '',
+        },
+      }
+    },
     cloneForIpc(value) {
       try { return JSON.parse(JSON.stringify(value)) } catch { return {} }
+    },
+    // ---- 批量创作（2026-08-15 story2video-batch-create）----
+    openS2VBatchDialog() {
+      this.s2vBatchDialogOpen = true
+      this.s2vBatchError = ''
+      this.refreshS2VBatches()
+      // 弹窗打开期间 3s 轮询队列状态；关闭后停止（批量任务在主进程队列继续后台执行）
+      if (!this.s2vBatchPollTimer) {
+        this.s2vBatchPollTimer = setInterval(() => {
+          if (this.s2vBatchDialogOpen) this.refreshS2VBatches()
+        }, 3000)
+      }
+    },
+    closeS2VBatchDialog() {
+      this.s2vBatchDialogOpen = false
+      if (this.s2vBatchPollTimer) {
+        clearInterval(this.s2vBatchPollTimer)
+        this.s2vBatchPollTimer = null
+      }
+    },
+    addS2VBatchText() {
+      if (this.s2vBatchTexts.length >= this.S2V_BATCH_MAX_TEXTS) return
+      this.s2vBatchTexts.push('')
+    },
+    removeS2VBatchText(index) {
+      if (this.s2vBatchTexts.length <= 1) return
+      this.s2vBatchTexts.splice(index, 1)
+    },
+    async pickS2VBatchFiles() {
+      try {
+        const res = await story2videoPickBatchFiles()
+        const files = res?.code === 0 && Array.isArray(res.data?.files) ? res.data.files : []
+        if (!files.length) return
+        const merged = [...this.s2vBatchFiles]
+        for (const file of files) {
+          if (!file || typeof file.path !== 'string' || !file.path) continue
+          if (merged.some(existing => existing.path === file.path)) continue
+          if (merged.length >= this.S2V_BATCH_MAX_FILES) {
+            this.s2vBatchError = this.translateWithLocaleFallback('create.story2video.batch.fileLimitError', '最多选择 20 个文件，超出部分已忽略。', 'Up to 20 files; extra selections were ignored.')
+            break
+          }
+          merged.push({ name: file.name || String(file.path).split(/[\\/]/).pop(), path: file.path })
+        }
+        this.s2vBatchFiles = merged
+      } catch (error) {
+        this.s2vBatchError = this.translateWithLocaleFallback('create.story2video.batch.pickFailed', '打开文件选择窗口失败，请重试。', 'Failed to open the file picker. Please retry.')
+      }
+    },
+    // 浏览器降级路径（非 Electron 环境）：隐藏 input 兜底选择
+    handleS2VBatchFileInput(event) {
+      const selected = Array.from(event?.target?.files || [])
+      const merged = [...this.s2vBatchFiles]
+      for (const file of selected) {
+        const path = typeof file.path === 'string' && file.path ? file.path : file.name
+        if (merged.some(existing => existing.path === path)) continue
+        if (merged.length >= this.S2V_BATCH_MAX_FILES) break
+        merged.push({ name: file.name, path })
+      }
+      this.s2vBatchFiles = merged
+      if (event?.target) event.target.value = ''
+    },
+    removeS2VBatchFile(index) {
+      this.s2vBatchFiles.splice(index, 1)
+    },
+    formatS2VBatchCreatedAt(iso) {
+      if (!iso) return ''
+      const date = new Date(iso)
+      if (Number.isNaN(date.getTime())) return ''
+      const pad = (n) => String(n).padStart(2, '0')
+      return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+        + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds())
+    },
+    batchSummaryText(batch) {
+      const summary = batch && batch.summary ? batch.summary : null
+      if (!summary) return ''
+      const parts = []
+      if (summary.running > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryRunning', summary.running + ' 运行中', summary.running + ' running', { count: summary.running }))
+      if (summary.pending > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryPending', summary.pending + ' 排队中', summary.pending + ' queued', { count: summary.pending }))
+      if (summary.completed > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryCompleted', summary.completed + ' 已完成', summary.completed + ' completed', { count: summary.completed }))
+      if (summary.failed > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryFailed', summary.failed + ' 失败', summary.failed + ' failed', { count: summary.failed }))
+      if (summary.cancelled > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryCancelled', summary.cancelled + ' 已取消', summary.cancelled + ' cancelled', { count: summary.cancelled }))
+      return parts.join(' · ') || this.translateWithLocaleFallback('create.story2video.batch.summaryTotal', '共 ' + summary.total + ' 个任务', summary.total + ' tasks', { total: summary.total })
+    },
+    s2vBatchItemStatusText(item) {
+      const statusMap = {
+        pending: ['create.story2video.batch.statusPending', '排队中', 'Queued'],
+        running: ['create.story2video.batch.statusRunning', '运行中', 'Running'],
+        completed: ['create.story2video.batch.statusCompleted', '已完成', 'Completed'],
+        failed: ['create.story2video.batch.statusFailed', '失败', 'Failed'],
+        cancelled: ['create.story2video.batch.statusCancelled', '已取消', 'Cancelled'],
+      }
+      const entry = statusMap[item && item.status] || ['', String(item && item.status || ''), String(item && item.status || '')]
+      return this.translateWithLocaleFallback(entry[0], entry[1], entry[2])
+    },
+    s2vBatchCanStart() {
+      if (this.s2vBatchStarting) return false
+      if (this.s2vBatchTab === 'text') return this.s2vBatchTexts.some(text => String(text || '').trim().length > 0)
+      return this.s2vBatchFiles.length > 0
+    },
+    async startS2VBatch() {
+      if (this.s2vBatchStarting) return
+      this.s2vBatchError = ''
+      const template = this.buildStory2VideoTextConfig('')
+      delete template.prompt
+      // 批量创作固定「全自动」创作模式 + 弹窗独立视频增强模式（不随主表单配置变化）
+      template.creation = { mode: 'auto', materialMode: 'all-images' }
+      template.video = { ...template.video, mode: this.s2vBatchVideoMode || 'off' }
+      let payload
+      if (this.s2vBatchTab === 'text') {
+        const texts = this.s2vBatchTexts.map(text => String(text || '').trim()).filter(Boolean)
+        if (!texts.length) {
+          this.s2vBatchError = this.translateWithLocaleFallback('create.story2video.batch.noTextError', '请至少输入 1 条文案。', 'Enter at least 1 text.')
+          return
+        }
+        payload = { mode: 'text', texts, story2videoTextConfigTemplate: template, uiLocale: getAppLocale() }
+      } else {
+        const files = this.s2vBatchFiles.map(file => ({ path: file.path, name: file.name }))
+        if (!files.length) {
+          this.s2vBatchError = this.translateWithLocaleFallback('create.story2video.batch.noFileError', '请至少选择 1 个文件。', 'Choose at least 1 file.')
+          return
+        }
+        payload = { mode: 'files', files, story2videoTextConfigTemplate: template, uiLocale: getAppLocale() }
+      }
+      this.s2vBatchStarting = true
+      try {
+        const res = await story2videoBatchCreate(this.cloneForIpc(payload))
+        if (res?.code === 0 && res?.data?.batchId) {
+          await this.refreshS2VBatches()
+          this.s2vBatchTexts = ['']
+          this.s2vBatchFiles = []
+        } else {
+          const failedItems = Array.isArray(res?.failedItems) ? res.failedItems : []
+          const failedLabel = failedItems.length > 0
+            ? '（' + failedItems.map(item => item.label).join('、') + '）'
+            : ''
+          const message = (res?.message || '未知错误') + failedLabel
+          this.s2vBatchError = this.translateWithLocaleFallback(
+            'create.story2video.batch.createFailed',
+            '启动失败：' + message,
+            'Start failed: ' + message,
+            { message }
+          )
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.s2vBatchError = this.translateWithLocaleFallback(
+          'create.story2video.batch.createFailed',
+          '启动失败：' + message,
+          'Start failed: ' + message,
+          { message }
+        )
+      } finally {
+        this.s2vBatchStarting = false
+      }
+    },
+    async refreshS2VBatches() {
+      if (this.s2vBatchLoading) return
+      this.s2vBatchLoading = true
+      try {
+        const res = await story2videoBatchStatus()
+        if (res?.code === 0 && Array.isArray(res.data)) this.s2vBatches = res.data
+      } catch (_) { /* 轮询失败静默，下个周期重试 */ } finally {
+        this.s2vBatchLoading = false
+      }
+    },
+    async cancelS2VBatchItem(batchId, itemId) {
+      try {
+        const res = await story2videoBatchCancel(batchId, [itemId])
+        if (res?.code === 0) await this.refreshS2VBatches()
+      } catch (_) { /* 取消失败静默 */ }
     },
     // 分镜字数主控：clamp 到 [minWords, maxWords] ∩ [1,200]，并同步旧 targetSeconds（估算，与 normalizer 幂等反推一致）
     applyS2VTargetChars(rawChars) {
@@ -4087,6 +4427,7 @@ export default {
     if (this.pollTimer) clearInterval(this.pollTimer)
     if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
     if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }
+    if (this.s2vBatchPollTimer) { clearInterval(this.s2vBatchPollTimer); this.s2vBatchPollTimer = null }
     if (this.sceneAssetAttentionTimer) { clearTimeout(this.sceneAssetAttentionTimer); this.sceneAssetAttentionTimer = null }
     this.flushS2VLastOptionsSave()
   },
