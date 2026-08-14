@@ -118,6 +118,22 @@ describe('buildVideoOptimizeRequest', () => {
     expect(() => buildVideoOptimizeRequest('x', { context: { api_key: 'sk-xxx' } })).toThrow(/敏感凭据/)
     expect(() => buildVideoOptimizeRequest('x', { context: { nested: { token: 't' } } })).toThrow(/敏感凭据/)
   })
+  it('prev_final_frame 透传（Round3 B 跨镜承接前置字段）', () => {
+    const req = buildVideoOptimizeRequest('x', { prev_final_frame: 'hero falls to the ground, sword drops beside him' })
+    expect(req.prev_final_frame).toBe('hero falls to the ground, sword drops beside him')
+  })
+
+  it('prev_final_frame 非字符串/纯空白丢弃；超长按句截断', () => {
+    expect(buildVideoOptimizeRequest('x', { prev_final_frame: 123 }).prev_final_frame).toBeUndefined()
+    expect(buildVideoOptimizeRequest('x', { prev_final_frame: '   ' }).prev_final_frame).toBeUndefined()
+    expect(buildVideoOptimizeRequest('x', { prev_final_frame: '' }).prev_final_frame).toBeUndefined()
+    // 超 1000 上限：按最后一个句号截断（'abc. ' 段规整，1000 边界恰好句号+空格）
+    const head = 'abc. '.repeat(300)
+    const long = head + 'camera rests.'
+    const req = buildVideoOptimizeRequest('x', { prev_final_frame: long })
+    expect(req.prev_final_frame.length).toBeLessThanOrEqual(1000)
+    expect(req.prev_final_frame.endsWith('.')).toBe(true)
+  })
 })
 
 describe('extractOptimizedVideoPrompt', () => {
@@ -203,9 +219,9 @@ describe('extractOptimizedVideoPrompt', () => {
   it('final_frame 透传与超长裁剪', () => {
     const r = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: 'hero stands still, camera rests, no text' } })
     expect(r.video.final_frame).toBe('hero stands still, camera rests, no text')
-    const long = 'a'.repeat(600)
+    const long = 'a'.repeat(1100)
     const r2 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: long } })
-    expect(r2.video.final_frame).toHaveLength(500)
+    expect(r2.video.final_frame).toHaveLength(1000)
   })
 
   it('新字段缺失时旧响应零回归（无 positive_constraints/final_frame 不拒绝）', () => {
@@ -238,6 +254,34 @@ describe('extractOptimizedVideoPrompt', () => {
     expect(r.video.final_frame).toBeUndefined()
     const r2 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: '   ' } })
     expect(r2.video.final_frame).toBeUndefined()
+
+  })
+  it('blocks 骨架回显：12 键白名单 + 值≤4000；非法键/非字符串丢弃（Round3 C）', () => {
+    const r = extractOptimizedVideoPrompt({
+      optimized_prompt: 'x',
+      video: {
+        blocks: {
+          'SCENE NOTE': 'pickup from previous shot',
+          CAMERA: 'low angle, slow push-in',
+          'FINAL FRAME': 'hero kneels, rain soaks his coat',
+          EVIL_KEY: 'dropped',
+          SKIN: 42,
+          '': 'blank key dropped',
+        },
+      },
+    })
+    expect(r.video.blocks).toEqual({
+      'SCENE NOTE': 'pickup from previous shot',
+      CAMERA: 'low angle, slow push-in',
+      'FINAL FRAME': 'hero kneels, rain soaks his coat',
+    })
+    // 值超 4000 截断
+    const huge = 'x'.repeat(4500)
+    const r2 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { blocks: { CAMERA: huge } } })
+    expect(r2.video.blocks.CAMERA).toHaveLength(4000)
+    // 空/缺失 → 不回显
+    const r3 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { blocks: {} } })
+    expect(r3.video.blocks).toBeUndefined()
   })
 })
 
