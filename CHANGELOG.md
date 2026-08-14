@@ -1,3 +1,14 @@
+## [2026-08-14] feat(s2v): 全能创作背景音乐素材库管理——添加/重命名/删除，下拉选择（story2video-bgm-library）
+
+- 需求：背景音乐从「每次选文件」升级为设备级素材库：可添加（自动入库并选中）、修改名称、删除；支持多个条目，通过下拉选择。
+- 实现：
+  - 主进程新增 `services/story2video-bgm-library.js`：库目录 `userData/story2video-bgm/`，索引 `library.json` 原子写（临时文件 + rename）；`list/add/rename/delete` 四操作，add 复用媒体导入的路径解析与受控目录复制语义（Windows 占用 ≤3 次有界重试）。
+  - `story2video-paths.js`：`getAllowedMediaRoots()` 白名单加入 `userData/story2video-bgm`，`getElectronMediaRoots(appImpl)` 支持注入 app（纯 Node 测试惯例）。
+  - IPC：`story2video:bgm-library-list/add/rename/delete` 四通道（`withSenderCheck` + 参数校验），加入 PUBLIC_CHANNELS（未登录可用，与媒体导入一致）；preload 暴露 `story2videoBgmLibraryList/Add/Rename/Delete`，PUBLIC_METHODS 同步。
+  - 渲染端：BGM 配置区改为 `<select data-testid="s2v-bgm-select">`（空选项「不使用背景音乐」+ 库条目 + 历史路径兼容「已选音频（未入库）」）；「管理背景音乐」弹窗（UiModal）：添加（自动选中 + input 清空支持连续选择）、行内重命名（Enter/Esc）、删除（二次确认，删除选中项回退为不使用）；文案 zh/en 成对新增。
+- 测试：服务层 16/16、路径白名单 34/34（含 electron DI 2 例）、IPC handlers 8 例、preload 333/333、CreateView 174/174 全绿；e2e ipc-mock 增补 4 方法。
+- 文档：OpenSpec change `bgm-library`；`01-docs/PRD-video-creation.md` 新增 3.1.25 合同 + 修订记录 + 3.5 表格更新。
+
 ## [2026-08-14] 提示词引擎共享内核重构 + Higgsfield 导演工作流机制落地（prompt-engine-kernel-refactor + video-prompt-higgsfield-mechanics，PR #793）
 
 - 新增共享内核 `apps/desktop/electron/services/prompt-engine-kernel.js`：风格归一、敏感凭据守卫、中立 limits、clampNumber、fail-closed 核心 extractOptimizedBase（可选 engineLabel 保留领域失败文案）；图片契约 re-export 公共 API 零变化；视频契约改从 kernel 引入，不再借用图片 maxLength 语义（videoMaxLengthRanges 承接）。

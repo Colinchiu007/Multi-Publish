@@ -523,6 +523,14 @@
     story2videoImportMedia: makeHandler('story2videoImportMedia', async (file, kind) => ok({ path: 'C:/mock/e2e-imported.' + (kind === 'video' ? 'mp4' : 'wav'), originalName: (file && file.name) || 'e2e-file' })),
     story2videoImportMediaPath: makeHandler('story2videoImportMediaPath', async (filePath, kind) => ok({ path: 'C:/mock/e2e-imported.' + (kind === 'video' ? 'mp4' : 'wav'), originalName: 'e2e.mp4' })),
 
+    // BGM 素材库（2026-08-14）：列表/添加/重命名/删除，路径须落在媒体白名单内
+    story2videoBgmLibraryList: makeHandler('story2videoBgmLibraryList', async () => ok([
+      { id: 'e2e-bgm-1', name: 'E2E 背景音乐', path: 'C:/mock/e2e-bgm-1.mp3' },
+    ])),
+    story2videoBgmLibraryAdd: makeHandler('story2videoBgmLibraryAdd', async ({ filePath }) => ok({ id: 'e2e-bgm-new', name: 'e2e-bgm-new', path: filePath || 'C:/mock/e2e-bgm-new.mp3' })),
+    story2videoBgmLibraryRename: makeHandler('story2videoBgmLibraryRename', async ({ id, name }) => ok({ id, name })),
+    story2videoBgmLibraryDelete: makeHandler('story2videoBgmLibraryDelete', async ({ id }) => ok({ deleted: true, id })),
+
     // 内容情报
     intelligenceSuggestTags: makeHandler('intelligenceSuggestTags', async () => ok(['AI', '内容', '运营'])),
     intelligenceGetOptimalTime: makeHandler('intelligenceGetOptimalTime', async () => ok({ hour: 10, weekday: 3 })),

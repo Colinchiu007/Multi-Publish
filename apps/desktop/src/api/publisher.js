@@ -373,6 +373,18 @@ export async function story2videoTranscribe(filePath) {
 export async function story2videoCapabilities() {
   return invokeWithFallback("story2videoCapabilities", { code: -1, message: 'electronAPI not available' })
 }
+export async function story2videoBgmLibraryList() {
+  return invokeWithFallback("story2videoBgmLibraryList", { code: -1, message: 'electronAPI not available', data: [] })
+}
+export async function story2videoBgmLibraryAdd(file) {
+  return invokeWithFallback("story2videoBgmLibraryAdd", { code: -1, message: 'electronAPI not available' }, file)
+}
+export async function story2videoBgmLibraryRename(id, name) {
+  return invokeWithFallback("story2videoBgmLibraryRename", { code: -1, message: 'electronAPI not available' }, id, name)
+}
+export async function story2videoBgmLibraryDelete(id) {
+  return invokeWithFallback("story2videoBgmLibraryDelete", { code: -1, message: 'electronAPI not available' }, id)
+}
 export async function logsGetInfo() {
   return invokeWithFallback("logsGetInfo", { code: -1, data: { dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] } })
 }

@@ -1,0 +1,16 @@
+{
+  "createdAt": "2026-08-14T09:30:00+08:00",
+  "nextAction": "已归档；PR 合并后需在真实打包应用验证 UI 流程",
+  "branch": "codex/video-prompt-lens-discipline",
+  "remoteStatus": "not-applicable: 用户未要求提交/推送，无 PR；实现与测试在本地分支完成",
+  "complexity": "M",
+  "currentPhase": "completed",
+  "risk": "medium",
+  "title": "全能创作：背景音乐素材库管理（多文件添加/重命名/删除/下拉选择）",
+  "status": "completed",
+  "id": "story2video-bgm-library",
+  "domain": "desktop",
+  "openspecChange": "bgm-library",
+  "summary": "BGM 素材库：主进程服务（原子写索引、导入语义复用）+ 4 IPC 通道 + PUBLIC_CHANNELS/preload + CreateView 下拉与管理弹窗 + zh/en 成对文案 + e2e mock + PRD 3.1.24/CHANGELOG。测试：服务 16 + paths 34 + IPC 8 + preload 333 + access-control 47 + CreateView 174 全绿；QM-1 打包通过（asar require 链 + 启动 8s）。OpenSpec 已归档 2026-08-14-bgm-library。",
+  "completedAt": "2026-08-14T03:20:00+08:00"
+}

@@ -47,6 +47,10 @@ const PUBLIC_METHODS = [
   // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：
   // File 路径经 webUtils 解析后仅发送路径给主进程做受控复制，纯设备本地操作。
   'story2videoImportMedia',
+  // BGM 素材库（与主进程 PUBLIC_CHANNELS 的 story2video:bgm-library-* 对齐）：
+  // 设备级本地素材库管理（列表/添加/改名/删除），未登录可用。
+  'story2videoBgmLibraryList', 'story2videoBgmLibraryAdd',
+  'story2videoBgmLibraryRename', 'story2videoBgmLibraryDelete',
   'identityGetState', 'identitySignIn', 'identitySwitchAccount', 'identitySignOut', 'onIdentityStateChanged',
   // 视频克隆：本地分析流水线（未登录可用）；发布经 PublisherRouter 外部验收边界
   'videoClone',
