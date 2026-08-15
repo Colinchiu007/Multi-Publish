@@ -3,10 +3,45 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 
 import httpx
 
 from services import prompt_eval_contract as contract
+
+_THINK_RE = re.compile("<think>.*?</think>", re.S)
+
+
+def _strip_think(text: str) -> str:
+    """剥离推理模型（如 MiniMax-M3）的 <think>...</think> 思维链，含未闭合尾部。"""
+    stripped = _THINK_RE.sub("", text or "")
+    tail = stripped.rfind("<think>")
+    if tail != -1 and "</think>" not in stripped[tail:]:
+        stripped = stripped[:tail]
+    return stripped.strip()
+
+
+def _extract_json_text(text: str) -> str:
+    """从 LLM 输出中提取 JSON 文本：优先 ```json 围栏，否则取首个 { 到最后一个 }。"""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.startswith("json"):
+            text = text[4:].strip()
+        return text
+    fence = text.find("```")
+    if fence != -1:
+        after = text[fence + 3:].strip()
+        if after.startswith("json"):
+            after = after[4:].strip()
+        end = after.find("```")
+        if end != -1:
+            return after[:end].strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        return text[start:end + 1]
+    return text
 
 EVAL_SYSTEM = (
     "你是专业的 AI 生成图像评估专家。你负责评估「提示词优化引擎」的输出效果："
@@ -89,11 +124,7 @@ def build_vision_messages(prompt: str, images: list[bytes]) -> list[dict]:
 
 def parse_and_validate(raw: str, image_count: int, media_type: str = "image") -> dict:
     """解析评估 LLM 输出并 fail closed 校验，返回归一化结果。"""
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:].strip()
+    text = _extract_json_text(_strip_think(raw))
     try:
         parsed = json.loads(text)
     except Exception as e:

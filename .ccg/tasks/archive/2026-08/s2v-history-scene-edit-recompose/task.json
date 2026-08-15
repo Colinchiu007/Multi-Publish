@@ -1,12 +1,12 @@
 {
   "id": "s2v-history-scene-edit-recompose",
   "title": "Story2Video 历史记录场景内容编辑/重新生成/整片重合成",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "high",
   "domain": "frontend+electron+engine",
-  "currentPhase": "review",
-  "nextAction": "完整桌面套件确认 + 提交/PR/合并/归档",
+  "currentPhase": "completed",
+  "nextAction": "已合并至 main（PR #869, 3bc4d887），归档完成",
   "createdAt": "2026-08-15T00:00:00Z",
   "branch": "codex/s2v-history-scene-edit-recompose"
 }
