@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
 import { mount } from "@vue/test-utils";
 import StageProgress from "./StageProgress.vue";
+import { getAppLocale, setAppLocale } from "@/i18n";
 
 const tStub = (key, params = {}) => {
   const map = {
@@ -19,6 +20,9 @@ const tStub = (key, params = {}) => {
     "stageProgress.optimizeDone": "共 {total} 个场景，已完成 {done} 个",
     "stageProgress.composeSegments": "正在合成片段 {done}/{total} · {percent}%",
     "stageProgress.composeVideo": "视频合成 {percent}%",
+    "stageProgress.composeConcat": getAppLocale() === "en"
+      ? "Concatenating video segments · {percent}%"
+      : "正在拼接视频片段 · {percent}%",
     "stageProgress.assetsDetail": "图片 {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal}",
     "stageProgress.assetsDetailNoVideo": "图片 {images}/{imagesTotal} · 旁白 {tts}/{ttsTotal}",
   };
@@ -36,6 +40,8 @@ const makeStage = (overrides = {}) => ({
 
 const mountWith = (props) =>
   mount(StageProgress, { props, global: { mocks: { $t: tStub } } });
+
+beforeEach(() => setAppLocale("zh"));
 
 describe("StageProgress 等待态渲染（2026-08-13）", () => {
   it("scene_asset_selection 检查点暂停：显示「等待选择素材」+ waiting paused 样式 + ⏸ 图标", () => {
@@ -147,6 +153,54 @@ describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline
     expect(bar.exists()).toBe(true);
     expect(bar.attributes("aria-valuenow")).toBe("39");
     expect(w.find(".stage-detail").text()).toContain("正在合成片段 3/5 · 39%");
+    w.unmount();
+  });
+
+  it("compose 旧快照带 message 时优先显示按块消息，同时保留 percent 子进度条", () => {
+    const message = "正在拼接视频片段（分块 3/5）";
+    const w = mountWith({
+      stages: [makeStage({ name: "compose", status: "running", startedAt: new Date().toISOString() })],
+      orchestrationContext: {
+        compose_progress: { phase: "concat", percent: 88.2, segmentsDone: 12, segmentsTotal: 12, message },
+      },
+    });
+    const item = w.find('[data-testid="story2video-stage-compose"]');
+    expect(item.find(".stage-detail").text()).toBe(message);
+    expect(item.find(".stage-detail").text()).not.toContain("视频合成 88%");
+    expect(item.find('[data-testid="story2video-stage-compose-progress"]').attributes("aria-valuenow")).toBe("88");
+    w.unmount();
+  });
+
+  it("compose message 为空白时继续使用 phase/percent 本地化回退", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "compose", status: "running", startedAt: new Date().toISOString() })],
+      orchestrationContext: { compose_progress: { phase: "concat", percent: 88.2, message: "   " } },
+    });
+    expect(w.find(".stage-detail").text()).toContain("正在拼接视频片段 · 88%");
+    w.unmount();
+  });
+
+  it("英文界面不直显中文 compose message，改用本地化 concat 文案", () => {
+    setAppLocale("en");
+    const w = mountWith({
+      stages: [makeStage({ name: "compose", status: "running", startedAt: new Date().toISOString() })],
+      orchestrationContext: {
+        compose_progress: { phase: "concat", percent: 88.2, message: "正在拼接视频片段（分块 3/5）" },
+      },
+    });
+    expect(w.find(".stage-detail").text()).toBe("Concatenating video segments · 88%");
+    w.unmount();
+  });
+
+  it("compose percent 越界时不显示 message 与子进度条", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "compose", status: "running" })],
+      orchestrationContext: {
+        compose_progress: { phase: "concat", percent: 101, message: "正在拼接视频片段（分块 5/5）" },
+      },
+    });
+    expect(w.find('[data-testid="story2video-stage-detail-compose"]').exists()).toBe(false);
+    expect(w.find('[data-testid="story2video-stage-compose-progress"]').exists()).toBe(false);
     w.unmount();
   });
 

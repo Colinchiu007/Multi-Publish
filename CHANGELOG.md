@@ -6,6 +6,13 @@
 - 测试：pipeline-engine +1 例（failed/cancelled stage 终态同步）、CreateView +1 例（失败/暂停排在已完成项目之前）；CreateHistory 22/22 保持通过；关联套件定向通过。
 - 文档：PRD.md §7.1.37 历史记录可见性与终态一致合同；PRD-video-creation.md §3.1.4.1 排序更新 + §3.1.27 终态一致/历史排序；learnings.md 复盘。
 
+## [2026-08-15] fix(story2video): 合成分块进度 message 在 renderer 按块展示
+
+- 现象：引擎已在 concat 每完成一块上报「正在拼接视频片段（分块 k/N）」，但 CreateView/StageProgress 兼容分支只显示 87%～89% 百分比，长时间合成时产生假卡死观感。
+- 修复：中文界面优先显示合法 concat message；英文界面使用 `Concatenating video segments · p%` 本地化文案；历史快照、空白或非法 message 安全回退；保留 `stage.summary` 与 `stage.progress.message` 优先级。
+- 边界：本次只改善渲染反馈，不改变 FFmpeg 编码、转场、分块算法或实际合成耗时。
+- 测试：StageProgress/CreateView/i18n 219/219 通过（含越界 percent fail-closed、兼容 resolver 优先级与英文 locale）。
+
 ## [2026-08-15] fix(story2video): 合成时长上限调整到 50 分钟——68 分镜 11.8 分钟 TTS 不再被预检拒绝（s2v-compose-duration-50min）
 
 - 现象：视频流水线合成阶段弹「当前操作未能完成，请稍后再试」；日志 `error=成片总时长不能超过 10 分钟`。根因：compose 预检按 ffprobe 实测旁白音频总时长校验，默认成片上限 600s（10 分钟）、旁白上限 900s（15 分钟）（引入自 e1b46eba）；68 分镜 TTS 实测 709.64s > 600s，属确定性失败，断点重试因素材不变必然再失败。

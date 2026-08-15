@@ -4323,6 +4323,10 @@ export default {
     // 阶段详情：拆分场景数 / 优化 x/y / 图片·旁白 x/y
     stageDetailText(stage, i) {
       if (!stage || (stage.status !== 'completed' && stage.status !== 'running')) return ''
+      const hasSummary = typeof stage.summary === 'string' && stage.summary
+      const hasMessage = Boolean(stage.progress && typeof stage.progress.message === 'string' && stage.progress.message)
+      if (stage.status === 'completed' && hasSummary) return stage.summary
+      if (hasMessage) return stage.progress.message
       const ctx = this.orchestrationContext || {}
       if (stage.name === 'split') {
         const scenes = Array.isArray(ctx.split) ? ctx.split : (ctx.split?.scenes || null)
@@ -4356,7 +4360,11 @@ export default {
       }
       if (stage.name === 'compose') {
         const p = ctx.compose_progress
-        if (p && Number.isFinite(p.percent)) {
+        if (p && Number.isFinite(p.percent) && p.percent >= 0 && p.percent <= 100) {
+          if (p.phase === 'concat') {
+            if (getAppLocale() !== 'en' && typeof p.message === 'string' && p.message.trim()) return p.message
+            return this.$t('stageProgress.composeConcat', { percent: Math.round(p.percent) })
+          }
           if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
             return this.translateWithLocaleFallback('story2video.composeSegments', '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', 'Composing segment ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
           }

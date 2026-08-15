@@ -1749,7 +1749,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | `percent` | number | 整数，单调不降，0-100 | 合成总进度百分比 |
 | `segmentsDone` | number | 0–segmentsTotal 整数 | 已完成视频片段数（仅 segments 阶段展示） |
 | `segmentsTotal` | number | ≥1 整数，恒等于场景数 | 总片段数 |
-| `message` | string | 可选 | 非 UI 提示（日志/测试 hint），前端不得直接渲染 |
+| `message` | string | 可选；系统内部生成的纯文本 | concat 阶段按块进度提示；中文界面优先显示，英文界面使用本地化回退，不执行 HTML |
 
 **阶段权重（percent 映射）**：
 
@@ -1769,7 +1769,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 - 引擎侧 `normalizeComposeProgressUpdate` 归一化（percent 取整并钳制 [0,100]；`segmentsTotal` ≥1 整数；`segmentsDone` ∈ [0, total]）；发射端保证 percent 单调不降（低于上次发射值忽略）。
 - **失败语义**：全部失败路径（片段生成/拼接/旁白合并/BGM/webm/校验/持久化失败）不发射新值，percent 冻结在最后有效值（<100）；`percent === 100` 与 `code === 0` 一一对应，杜绝假成功信号。
 - 执行器侧 fail-closed：回调内字段级校验（phase 为已知枚举；percent 有限且 [0,100]；segmentsTotal/done 整数且范围正确），任一非法丢弃该次更新，绝不向 renderer 下发非法值；结构为纯原始值对象（IPC structuredClone 安全）。
-- 可选步骤（无 BGM / 非 webm）按实际路径跳变，单调性保持；`message` 仅测试/日志使用。
+- 可选步骤（无 BGM / 非 webm）按实际路径跳变，单调性保持；`message` 仅由引擎内部生成，concat 中文界面用于按块展示，英文界面使用本地化回退。
 
 **交互逻辑**：
 - compose 阶段 running 且 `compose_progress.percent` 合法（有限且 0-100）时，阶段条目内渲染子进度条（mini bar，宽 100%，高 4px，`data-testid="story2video-stage-compose-progress"`）+ 阶段详情文案。
@@ -1781,13 +1781,15 @@ Electron 打包、工作树、PR 或发布状态证据。
 - 子进度条：仅 compose running 时显示，宽度 = percent，颜色沿用 `--primary`。
 - 阶段详情文案（`stageDetailText`）：
   - `phase === 'segments'` 且 `segmentsTotal > 0`：「正在合成片段 k/N · p%」（en：`Composing segment k/N · p%`）
+  - `phase === 'concat'` 且 message 合法：中文显示「正在拼接视频片段（分块 k/N）」；英文显示本地化「Concatenating video segments · p%」；message 缺失/空白/非法时两种语言都回退到本地化 concat 文案。
   - 其余 phase：「视频合成 p%」（en：`Composing p%`）
   - compose completed 且保留 `compose_progress` 时显示「视频合成 100%」；无数据则空。
 
 **提示文字**（内联 fallback，zh/en）：
 - `story2video.composeSegments`：`正在合成片段 {k}/{N} · {p}%` / `Composing segment {k}/{N} · {p}%`
 - `story2video.composeProgress`：`视频合成 {p}%` / `Composing {p}%`
-- 引擎侧 message（非 UI）：`正在准备视频合成素材` / `素材校验完成` / `开始合成视频片段` / `正在合成视频片段 k/N` / `正在拼接视频片段` / `正在合并旁白音频` / `正在混入背景音乐` / `正在转码 WebM 输出` / `正在校验输出视频` / `视频合成完成`。
+- `stageProgress.composeConcat`：`正在拼接视频片段 · {p}%` / `Concatenating video segments · {p}%`（历史 concat 快照或英文界面回退）
+- 引擎侧 message（中文 concat UI 可见，其余用于诊断）：`正在准备视频合成素材` / `素材校验完成` / `开始合成视频片段` / `正在合成视频片段 k/N` / `正在拼接视频片段（分块 k/N）` / `正在合并旁白音频` / `正在混入背景音乐` / `正在转码 WebM 输出` / `正在校验输出视频` / `视频合成完成`。
 
 **边界场景**：
 1. 片段 i 失败提前 return：percent 冻结在 `3 + 72·(i-1)/N`（≤75），无 done，阶段 failed 后前端隐藏。
@@ -1798,7 +1800,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 6. 并发多 run：context 按 run 隔离，无串扰。
 7. 结果页单段重试 `renderSegment`：独立引擎调用、无 context，不写 `compose_progress`。
 8. 段内 30s 超时（既有约束）：段进度以段为单位，非帧级实时（记入后续演进）。
-9. IPC 载荷：`compose_progress` ≤ 5 字段，3s 轮询无压力；字段级校验为最后防线。
+9. IPC 载荷：`compose_progress` ≤ 5 字段，3s 轮询无压力；字段级校验为最后防线。按块 message 只改善进度可见性，不改变编码、转场、拼接算法或实际耗时。
 
 **后续演进（v1 不做）**：ffmpeg `-progress pipe:1` 段内实时百分比（需将 `_createSegment` 从 execFileAsync 改为 spawn + 进度解析，涉及 Windows timeout/maxBuffer/错误语义重构，独立 PR 评估）；chunked 拼接（>8 段）在 75→87 区间的段级 onStep 插值。
 
