@@ -8,7 +8,7 @@
 
 ## 本地验证
 
-- session-isolation-automation.test.ps1: 9/9 PASS。
+- session-isolation-automation.test.ps1: 初版 9/9 PASS；归档补强后 13/13 PASS，覆盖计划任务注册、稳定 main/scripts 动作路径、注销幂等性和重新注册。
 - PowerShell parser: start-mp-task.ps1、mp-worktree-health.ps1、install-session-isolation-task.ps1、session-isolation-automation.test.ps1 均可解析。
 - openspec validate session-automation-enforcement --strict: valid。
 - 当前用户计划任务 \Multi-Publish\Session Isolation Health 已注册为每 5 分钟；实际触发后 LastTaskResult=0，报告 %LOCALAPPDATA%\Multi-Publish\session-isolation\health.json 为 ok=true。
