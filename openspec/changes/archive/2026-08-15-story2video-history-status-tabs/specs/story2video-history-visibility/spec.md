@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: 全部历史任务统一按有效更新时间展示
+### Requirement: 未完成任务优先展示
 历史列表 SHALL 保留 running、paused、failed、completed 与 cancelled 等全部可见任务，并在“全部”及任一状态筛选结果中统一按有效更新时间倒序展示，不再按状态分组或提升未完成任务优先级。
 
 有效更新时间 SHALL 按 `updatedAt`、`updated_at`、`completedAt`、`completed_at`、`endedAt`、`ended_at`、`createdAt`、`created_at` 的顺序取第一个合法值。合法值包括可解析的 ISO 日期字符串与有限 epoch 数值；`null`、`undefined`、空白字符串、非有限数值和无法解析的日期均视为缺失。所有字段均缺失时，有效时间为 `0` 并排在有合法时间的任务之后。
@@ -10,6 +10,10 @@
 #### Scenario: 不同状态任务按更新时间混排
 - **WHEN** 历史数据同时包含较新的 completed 项目、较旧的 running 任务与更旧的 failed 任务
 - **THEN** 系统按有效更新时间从新到旧展示 completed、running、failed，不以状态优先级重排
+
+#### Scenario: 失败任务与已完成项目同时存在
+- **WHEN** 历史数据包含 failed run、paused run 和 completed projects
+- **THEN** 所有任务按有效更新时间倒序混排；failed/paused 不因状态自动置顶，且同一筛选结果内保持相同排序规则
 
 #### Scenario: 状态筛选沿用相同排序
 - **WHEN** 用户切换到任一状态标签且该状态包含多个任务
