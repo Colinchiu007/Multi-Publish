@@ -20,7 +20,16 @@ try {
     Assert ($json.branch -eq 'main') 'health report records main'
     Assert ($json.primary -eq $true) 'health report identifies primary worktree'
     Assert ($json.ok -eq $true) 'health report records ok=true'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
+    Assert ($LASTEXITCODE -eq 0) 'scheduled task registers successfully'
+    $task = Get-ScheduledTask -TaskPath '\Multi-Publish\' -TaskName 'Session Isolation Health'
+    $arguments = $task.Actions[0].Arguments.Replace('\','/')
+    $primaryKey = $primary.Replace('\','/').TrimEnd('/')
+    Assert ($arguments -like "*$primaryKey/scripts/mp-worktree-health.ps1*") 'scheduled task points to stable primary-root health script'
+    Assert ($arguments -like "*-Root $([char]34)$primaryKey$([char]34)*") 'scheduled task checks the stable primary root'
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Unregister
     Assert ($LASTEXITCODE -eq 0) 'scheduled-task removal is idempotent'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
+    Assert ($LASTEXITCODE -eq 0) 'scheduled task is restored after self-check'
     Write-Host "PASS: $passed session isolation automation checks" -ForegroundColor Green
 } finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
