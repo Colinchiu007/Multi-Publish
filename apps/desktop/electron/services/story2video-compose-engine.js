@@ -63,8 +63,8 @@ function diagnoseBgmSkipReason (candidate, allowedRoots) {
   return 'unreadable'
 }
 
-const DEFAULT_MAX_DURATION_SECONDS = 10 * 60
-const DEFAULT_MAX_AUDIO_DURATION_SECONDS = 15 * 60
+const DEFAULT_MAX_DURATION_SECONDS = 50 * 60
+const DEFAULT_MAX_AUDIO_DURATION_SECONDS = 50 * 60
 const DEFAULT_MAX_SEGMENT_DURATION_SECONDS = 3 * 60
 const DEFAULT_MAX_OUTPUT_PIXELS = 7680 * 4320
 // 单条 ffmpeg 命令最多输入的片段数。超过时按块合成再递归合并，
@@ -296,6 +296,16 @@ function computeSegmentEncodeTimeoutMs (effectDuration, fps) {
 function computeMergeEncodeTimeoutMs (outputSeconds) {
   const seconds = Math.max(0.1, Number(outputSeconds) || 30)
   return Math.max(120000, Math.ceil(seconds * 1000 * 3) + 120000)
+}
+
+/**
+ * 时长上限文案格式化：整分钟输出「X 分钟」，非整分钟输出「X 分 Y 秒」。
+ * 避免 Math.round 在非整分钟配置下误导（如 90s 报「2 分钟」、3050s 报「51 分钟」）。
+ */
+function formatDurationLimit (seconds) {
+  const totalSeconds = Math.max(0, Number(seconds) || 0)
+  if (totalSeconds % 60 === 0) return Math.round(totalSeconds / 60) + ' 分钟'
+  return Math.floor(totalSeconds / 60) + ' 分 ' + Math.round(totalSeconds % 60) + ' 秒'
 }
 
 function normalizeComposeScenes (assetManifest) {
@@ -717,15 +727,17 @@ class Story2VideoComposeEngine {
       probedAudioDurations.push(audioDuration)
       if (!audioDuration) continue
       if (scenes.length > 1 && audioDuration > this.maxSegmentDurationSeconds) {
-        return { code: -1, message: '单段旁白时长不能超过 3 分钟' }
+        return { code: -1, message: '单段旁白时长不能超过 ' + formatDurationLimit(this.maxSegmentDurationSeconds) }
       }
       totalAudioDuration += audioDuration
     }
-    if (totalAudioDuration > this.maxAudioDurationSeconds) {
-      return { code: -1, message: '旁白音频总时长不能超过 15 分钟' }
-    }
+    // 成片检查在前：默认成片与旁白上限一致，任何超限输入先返回「成片总时长」文案（PRD §7.1.25a 合同）；
+    // 旁白检查仅在旁白上限低于成片上限（更严旁白约束）时可达。
     if (totalAudioDuration > this.maxDurationSeconds) {
-      return { code: -1, message: '成片总时长不能超过 10 分钟' }
+      return { code: -1, message: '成片总时长不能超过 ' + formatDurationLimit(this.maxDurationSeconds) }
+    }
+    if (totalAudioDuration > this.maxAudioDurationSeconds) {
+      return { code: -1, message: '旁白音频总时长不能超过 ' + formatDurationLimit(this.maxAudioDurationSeconds) }
     }
     const effectiveRequestedDuration = scenes.reduce((total, scene, index) => {
       // min-duration 模式预检与场景循环共用同一 base 公式（probed || duration || defaultSceneDuration），
@@ -736,7 +748,7 @@ class Story2VideoComposeEngine {
       return total + (sceneDurationMode === 'min-duration' ? Math.max(base, minSceneDuration) : base)
     }, 0)
     if (effectiveRequestedDuration > this.maxDurationSeconds) {
-      return { code: -1, message: 'Requested video duration exceeds the allowed limit' }
+      return { code: -1, message: 'Requested video duration exceeds the allowed limit of ' + Math.round(this.maxDurationSeconds / 60) + ' minutes' }
     }
 
     // 子进度：预检全部通过，进入逐片段合成
@@ -852,7 +864,7 @@ class Story2VideoComposeEngine {
         accumulatedDuration += segmentDuration
         if (accumulatedDuration > this.maxDurationSeconds) {
           this._cleanupSession(sessionDir)
-          return { code: -1, message: 'Composed video duration exceeds the allowed limit' }
+          return { code: -1, message: 'Composed video duration exceeds the allowed limit of ' + Math.round(this.maxDurationSeconds / 60) + ' minutes' }
         }
         segmentDurations.push(segmentDuration)
         segmentRecords.push({
