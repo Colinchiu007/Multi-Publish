@@ -9,5 +9,8 @@
   "nextAction": "已归档：PR #571 合并（d93e9528），三同步完成；真实 provider/视觉模型为外部验收边界",
   "createdAt": "2026-08-12T09:00:00+08:00",
   "branch": "codex/prompt-eval-workbench",
-  "openspecChange": "prompt-eval-ops-workbench"
+  "openspecChange": "prompt-eval-ops-workbench",
+  "pr": "#571 merged d93e9528",
+  "completedAt": "2026-08-12T13:05:34+08:00",
+  "remoteStatus": "merged"
 }

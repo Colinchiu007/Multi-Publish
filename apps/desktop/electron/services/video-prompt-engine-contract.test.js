@@ -118,6 +118,32 @@ describe('buildVideoOptimizeRequest', () => {
     expect(() => buildVideoOptimizeRequest('x', { context: { api_key: 'sk-xxx' } })).toThrow(/敏感凭据/)
     expect(() => buildVideoOptimizeRequest('x', { context: { nested: { token: 't' } } })).toThrow(/敏感凭据/)
   })
+  it('prev_final_frame 剥离：8013 兼容后端不携带（仅独立引擎 8020 消费，与 output_language/model 同先例）', () => {
+    const req = buildVideoOptimizeRequest('x', { prev_final_frame: 'hero falls to the ground, sword drops beside him' })
+    expect(req.prev_final_frame).toBeUndefined()
+    const standalone = buildStandaloneVideoOptimizeRequest('x', { prev_final_frame: 'hero falls to the ground, sword drops beside him' })
+    expect(standalone.prev_final_frame).toBe('hero falls to the ground, sword drops beside him')
+  })
+
+  it('prev_final_frame 非字符串/纯空白丢弃；超长按句截断（8020 归一）', () => {
+    expect(buildStandaloneVideoOptimizeRequest('x', { prev_final_frame: 123 }).prev_final_frame).toBeUndefined()
+    expect(buildStandaloneVideoOptimizeRequest('x', { prev_final_frame: '   ' }).prev_final_frame).toBeUndefined()
+    expect(buildStandaloneVideoOptimizeRequest('x', { prev_final_frame: '' }).prev_final_frame).toBeUndefined()
+    // 超 1000 上限：按最后一个句号截断（'abc. ' 段规整，1000 边界恰好句号+空格）
+    const head = 'abc. '.repeat(300)
+    const long = head + 'camera rests.'
+    const req = buildStandaloneVideoOptimizeRequest('x', { prev_final_frame: long })
+    expect(req.prev_final_frame.length).toBeLessThanOrEqual(1000)
+    expect(req.prev_final_frame.endsWith('.')).toBe(true)
+    // 1000 边界落在第二句中间时，必须回溯到第一句句末，而不是硬切断实体
+    const firstSentence = 'hero lies beside the red door.'
+    const midSentence = 'next sentence keeps describing the hero and a broken sword '.repeat(30)
+    const req2 = buildStandaloneVideoOptimizeRequest('x', { prev_final_frame: firstSentence + ' ' + midSentence })
+    expect(req2.prev_final_frame).toBe(firstSentence)
+    // 单字符退化防护：head 以孤立句号开头且无其他句末标点时，不截到只剩标点
+    const req3 = buildStandaloneVideoOptimizeRequest('x', { prev_final_frame: '。' + 'a'.repeat(2000) })
+    expect(req3.prev_final_frame).toBe('。' + 'a'.repeat(999))
+  })
 })
 
 describe('extractOptimizedVideoPrompt', () => {
@@ -165,6 +191,26 @@ describe('extractOptimizedVideoPrompt', () => {
     expect(r.video).toBeNull()
   })
 
+  it('将 PromptBridge 后端来源同步到顶层与 meta，未知来源显式降级', () => {
+    const standalone = extractOptimizedVideoPrompt({
+      optimized_prompt: 'plain',
+      _prompt_engine_backend: 'standalone-8020',
+    })
+    expect(standalone.engine_source).toBe('standalone-8020')
+    expect(standalone.meta.engine_source).toBe('standalone-8020')
+
+    const legacy = extractOptimizedVideoPrompt({
+      optimized_prompt: 'plain',
+      _prompt_engine_backend: 'legacy-8013',
+    })
+    expect(legacy.engine_source).toBe('legacy-8013')
+    expect(legacy.meta.engine_source).toBe('legacy-8013')
+
+    const unknown = extractOptimizedVideoPrompt({ optimized_prompt: 'plain' })
+    expect(unknown.engine_source).toBe('unknown')
+    expect(unknown.meta.engine_source).toBe('unknown')
+  })
+
   it('maxLength 截断并标记 truncated', () => {
     const r = extractOptimizedVideoPrompt({ optimized_prompt: 'abcdefghij' }, { maxLength: 5 })
     expect(r.ok).toBe(true)
@@ -203,9 +249,9 @@ describe('extractOptimizedVideoPrompt', () => {
   it('final_frame 透传与超长裁剪', () => {
     const r = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: 'hero stands still, camera rests, no text' } })
     expect(r.video.final_frame).toBe('hero stands still, camera rests, no text')
-    const long = 'a'.repeat(600)
+    const long = 'a'.repeat(1100)
     const r2 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: long } })
-    expect(r2.video.final_frame).toHaveLength(500)
+    expect(r2.video.final_frame).toHaveLength(1000)
   })
 
   it('新字段缺失时旧响应零回归（无 positive_constraints/final_frame 不拒绝）', () => {
@@ -238,6 +284,34 @@ describe('extractOptimizedVideoPrompt', () => {
     expect(r.video.final_frame).toBeUndefined()
     const r2 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { final_frame: '   ' } })
     expect(r2.video.final_frame).toBeUndefined()
+
+  })
+  it('blocks 骨架回显：12 键白名单 + 值≤4000；非法键/非字符串丢弃（Round3 C）', () => {
+    const r = extractOptimizedVideoPrompt({
+      optimized_prompt: 'x',
+      video: {
+        blocks: {
+          'SCENE NOTE': 'pickup from previous shot',
+          CAMERA: 'low angle, slow push-in',
+          'FINAL FRAME': 'hero kneels, rain soaks his coat',
+          EVIL_KEY: 'dropped',
+          SKIN: 42,
+          '': 'blank key dropped',
+        },
+      },
+    })
+    expect(r.video.blocks).toEqual({
+      'SCENE NOTE': 'pickup from previous shot',
+      CAMERA: 'low angle, slow push-in',
+      'FINAL FRAME': 'hero kneels, rain soaks his coat',
+    })
+    // 值超 4000 截断
+    const huge = 'x'.repeat(4500)
+    const r2 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { blocks: { CAMERA: huge } } })
+    expect(r2.video.blocks.CAMERA).toHaveLength(4000)
+    // 空/缺失 → 不回显
+    const r3 = extractOptimizedVideoPrompt({ optimized_prompt: 'x', video: { blocks: {} } })
+    expect(r3.video.blocks).toBeUndefined()
   })
 })
 
@@ -380,6 +454,7 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
       // 语言路由：veo（国外模型）→ en，即使输入为中文（避免中文提示词发给 Veo）
       expect(parsed.output_language).toBe('en')
       expect(res.optimized_prompt).toBe('ok')
+      expect(res._prompt_engine_backend).toBe('standalone-8020')
     })
 
     it('独立引擎不可用 → warning + 回退 8013 /v1/optimize（domain=video）', async () => {
@@ -392,6 +467,8 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
       expect(bridge._post.mock.calls[0][0]).toBe('/v1/optimize')
       expect(res.domain).toBe('video')
       expect(res.platform).toBe('kling')
+      expect(res._prompt_engine_backend).toBe('legacy-8013')
+      expect(res._prompt_engine_fallback).toBe(true)
       expect(mockLog.warn).toHaveBeenCalled()
     })
 
@@ -411,6 +488,8 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
       expect(standaloneBody.requests[0].output_language).toBe('zh')
       expect(standaloneBody.requests[1].output_language).toBe('en')
       expect(resOk).toHaveLength(2)
+      expect(resOk[0]).toMatchObject({ _prompt_engine_backend: 'standalone-8020' })
+      expect(resOk[1]).toMatchObject({ _prompt_engine_backend: 'standalone-8020' })
       // 回退路径：8013 请求 domain=video、无 output_language
       bridge._postStandalone.mockRejectedValue(new Error('timeout'))
       const res = await bridge.optimizeVideosBatch(['关羽白马之战', 'a cat'])
@@ -421,6 +500,26 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
       expect(res.requests[1].output_language).toBeUndefined()
       // 8013 零回归：回退请求不携带独立引擎新增字段（model/output_language）
       expect(res.requests[0].model).toBeUndefined()
+    })
+
+    it('批量响应数组逐项保留 standalone / fallback 后端来源', async () => {
+      process.env.VIDEO_PROMPT_PORT = '8020'
+      const bridge = makeBridge()
+      bridge._postStandalone.mockResolvedValue([{ optimized_prompt: 'standalone-1' }])
+      const standalone = await bridge.optimizeVideosBatch(['scene one'])
+      expect(standalone).toEqual([expect.objectContaining({
+        optimized_prompt: 'standalone-1',
+        _prompt_engine_backend: 'standalone-8020',
+      })])
+
+      bridge._postStandalone.mockRejectedValue(new Error('timeout'))
+      bridge._post.mockResolvedValue([{ optimized_prompt: 'legacy-1' }])
+      const fallback = await bridge.optimizeVideosBatch(['scene one'])
+      expect(fallback).toEqual([expect.objectContaining({
+        optimized_prompt: 'legacy-1',
+        _prompt_engine_backend: 'legacy-8013',
+        _prompt_engine_fallback: true,
+      })])
     })
 
     it('未启用 8020 时直接走 8013（零回归）', async () => {

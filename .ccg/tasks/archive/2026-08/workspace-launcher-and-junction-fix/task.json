@@ -9,7 +9,7 @@
   "branch": "codex/workspace-launcher-and-junction-fix",
   "createdAt": "2026-08-09T21:00:00Z",
   "items": [
-    "scripts/launch-worktree.js：从 C:\tmp\launch-worktree-4k.js 泛化（worktree/profile/CDP/端口/--env-file 参数化；macOS electron 路径前瞻）；真实启动验证窗口 handle!=0 + CDP 9333 + 后端 8301 + 登录态 authenticated",
+    "scripts/launch-worktree.js：从 C:/tmp/launch-worktree-4k.js 泛化（worktree/profile/CDP/端口/--env-file 参数化；macOS electron 路径前瞻）；真实启动验证窗口 handle!=0 + CDP 9333 + 后端 8301 + 登录态 authenticated",
     "junction 测试债：新增 scripts/fix-worktree-node-modules.sh（停应用→删 junction→独立 npm install→验证解析），默认保留 junction 并记录为已知环境差异（WORKSPACE-HOUSEKEEPING 第五节）",
     "文档：WORKSPACE-HOUSEKEEPING.md 补启动脚本用法 + 已知环境差异；learnings 同步"
   ]

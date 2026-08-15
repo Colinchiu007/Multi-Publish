@@ -9,7 +9,9 @@
   "nextAction": "已归档：被并发会话 PR #717 完成并合并，本会话重复实现已清理，仅补齐配套文档",
   "title": "Story2Video 图片/视频/旁白并行生成优化 + 阶段名称改为「图片/视频/旁白生成」",
   "createdAt": "2026-08-13T10:00:00+08:00",
-  "openspecChange": "s2v-assets-parallel-generation (废弃删除：被 #717 取代)",
+  "openspecChange": "s2v-assets-parallel-generation",
+  "openspecState": "superseded",
+  "supersededBy": "PR #717",
   "completedAt": "2026-08-13T15:00:00+08:00",
   "risk": "medium"
 }

@@ -4,7 +4,7 @@
   "branch": "codex/p2-publish-i18n",
   "id": "p2-publish-i18n",
   "risk": "medium",
-  "openspecChange": "desktop-ui-i18n-p2(已归档,第一批)",
+  "openspecChange": "desktop-ui-i18n-p2",
   "complexity": "M",
   "completedAt": "2026-08-12T12:06:31Z",
   "status": "completed",

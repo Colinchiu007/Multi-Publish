@@ -1,7 +1,7 @@
 {
   "id": "baijiahao-login-window-close",
   "title": "新增百家号账号：登录弹窗未登录即消失且账号提前出现在列表",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",

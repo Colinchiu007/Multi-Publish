@@ -71,7 +71,15 @@ const VIDEO_ENGINE_LIMITS = Object.freeze({
   transitionMax: 50,
   continuityTokenMax: 100,
   positiveConstraintsMax: 10,
-  finalFrameMax: 500,
+  finalFrameMax: 1000,
+  prevFinalFrameMax: 1000,
+  blockValueMax: 4000,
+  // Round3 C：导演分镜块骨架白名单（12 键，与引擎 refined_blocks 渲染骨架同源）
+  blockKeys: Object.freeze([
+    'SCENE NOTE', 'SPATIAL LAYOUT', 'LIGHTING', 'COLOR', 'CAMERA',
+    'ENVIRONMENT', 'CONTINUITY', 'CHARACTERS', 'SKIN', 'ACTING',
+    'STILLNESS LOCK', 'FINAL FRAME',
+  ]),
   // video-content-fidelity S4：context 白名单键与长度上限（对齐 prompt-engine OptimizeRequest.context 已知键）
   contextKeys: Object.freeze(['synopsis', 'character', 'setting', 'character_list', 'full_text']),
   contextKeyMax: Object.freeze({ synopsis: 500, character: 500, setting: 500, full_text: 2000, character_list: 10 }),
@@ -166,6 +174,40 @@ function _normalizeVideoNumCandidates (value) {
  */
 const BUILT_IN_VIDEO_NO_TEXT_NEGATIVE = 'clean frame, no text, no subtitles, no watermarks, no logos, no text overlays, no burned-in text, no characters or letters rendered in the frame, no watermark artifacts';
 
+/**
+ * 跨镜承接上镜终态归一：非字符串丢弃；trim 后空丢弃；>1000 按句截断（句子边界优先，兜底硬截断）。
+ * @param {unknown} value
+ * @returns {string | undefined}
+ */
+function normalizePrevFinalFrame (value) {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  if (trimmed.length <= VIDEO_ENGINE_LIMITS.prevFinalFrameMax) return trimmed
+  // 按句截断：在 1000 字符窗口内回溯最近句末，避免恰好落在下一句中间时切断实体；无句末才硬截断
+  const head = trimmed.slice(0, VIDEO_ENGINE_LIMITS.prevFinalFrameMax)
+  let sentenceEnd = -1
+  const re = /[。！？.!?；;][\s）)」』”]*/gu
+  for (const match of head.matchAll(re)) sentenceEnd = match.index + match[0].trimEnd().length
+  // 仅剩 1 个字符（如 head 以单个句号开头）时视为退化，回退硬截断保底完整 1000 字符
+  return sentenceEnd > 1 ? head.slice(0, sentenceEnd) : head
+}
+
+/**
+ * 导演分镜块骨架归一（Round3 C）：12 键白名单 + 字符串值 trim/截断 4000；非法键/非字符串丢弃；空 → undefined。
+ * @param {unknown} value
+ * @returns {object | undefined}
+ */
+function normalizeVideoBlocks (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const out = {}
+  for (const key of VIDEO_ENGINE_LIMITS.blockKeys) {
+    const raw = value[key]
+    if (typeof raw === 'string' && raw.trim()) out[key] = raw.trim().slice(0, VIDEO_ENGINE_LIMITS.blockValueMax)
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 function normalizeVideoContext (context) {
   if (!context || typeof context !== 'object' || Array.isArray(context)) return undefined
   const out = {}
@@ -215,6 +257,9 @@ function buildVideoOptimizeRequest (prompt, options = {}) {
     ),
     num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }
+
+  // Round3 B 跨镜承接：prev_final_frame 仅由独立视频引擎（8020）消费；
+  // 8013 兼容后端不支持该字段，构造时剥离（与 output_language/model 同先例），8020 路径见 buildStandaloneVideoOptimizeRequest
 
   if (styleRaw) {
     request.style = normalizePromptEngineStyle(styleRaw)
@@ -370,6 +415,10 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
     num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }
 
+  // Round3 B：跨镜承接上镜终态（非字符串丢弃、trim 空丢弃、>1000 按句截断）
+  const prevFinalFrame = normalizePrevFinalFrame(options.prev_final_frame)
+  if (prevFinalFrame) request.prev_final_frame = prevFinalFrame
+
   if (styleRaw) {
     request.style = normalizePromptEngineStyle(styleRaw)
   } else if (!autoDetectStyle) {
@@ -409,6 +458,8 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
 
 /**
  * 归一化响应中的 video 结构化字段；越界收敛、缺失给默认值。
+ * final_frame 为「计划终态」提示词元数据（供跨镜承接 prev_final_frame 链复用），
+ * 非解码输出视频的证据（是否真正落到画面需以实际生成产物为准）。
  * 导演工作流字段（video-prompt-higgsfield-mechanics）：excluded_characters / no_swap_pairs /
  * color_ratio / shots[]（含 beats[]）——非法输入丢弃而非抛出，超限截断。
  * @param {unknown} raw
@@ -444,6 +495,9 @@ function normalizeVideoMeta (raw) {
   if (typeof raw.final_frame === 'string' && raw.final_frame.trim()) {
     video.final_frame = raw.final_frame.trim().slice(0, VIDEO_ENGINE_LIMITS.finalFrameMax)
   }
+  // Round3 C：导演分镜块骨架回显（12 键白名单 + 值 ≤4000；缺失/非法丢弃，零回归）
+  const blocks = normalizeVideoBlocks(raw.blocks)
+  if (blocks) video.blocks = blocks
 
   const excluded = _normalizeExcludedCharacters(raw.excluded_characters)
   if (excluded) video.excluded_characters = excluded
@@ -658,7 +712,7 @@ function _assertReferenceProtocol (result, video, opts = {}) {
  *
  * @param {unknown} result - PromptBridge._post 的解析结果
  * @param {{ index?: number, maxLength?: number, warn?: (msg: string) => void }} [opts]
- * @returns {{ ok: true, prompt: string, meta: object, video: object | null, truncated: boolean } | { ok: false, error: string }}
+ * @returns {{ ok: true, prompt: string, meta: object, video: object | null, engine_source: 'standalone-8020' | 'legacy-8013' | 'unknown', truncated: boolean } | { ok: false, error: string }}
  */
 function extractOptimizedVideoPrompt (result, opts = {}) {
   const base = extractOptimizedBase(result, { ...opts, engineLabel: '视频' })
@@ -666,9 +720,15 @@ function extractOptimizedVideoPrompt (result, opts = {}) {
   const video = normalizeVideoMeta(result && typeof result === 'object' ? result.video : undefined)
   const integrityError = _assertReferenceProtocol(result, video, opts)
   if (integrityError) return { ok: false, error: integrityError }
-  const meta = { ...base.meta }
+  // PromptBridge 在响应外层附加的后端来源标记（不进入发送给引擎的 payload）
+  const engineSource = result && typeof result === 'object' && !Array.isArray(result)
+    ? (result._prompt_engine_backend === 'standalone-8020' || result._prompt_engine_backend === 'legacy-8013'
+        ? result._prompt_engine_backend
+        : 'unknown')
+    : 'unknown'
+  const meta = { ...base.meta, engine_source: engineSource }
   if (video) meta.video = video
-  return { ok: true, prompt: base.prompt, meta, video, truncated: base.truncated }
+  return { ok: true, prompt: base.prompt, meta, video, engine_source: engineSource, truncated: base.truncated }
 }
 
 module.exports = {
@@ -684,6 +744,7 @@ module.exports = {
   normalizeVideoDomain,
   normalizeVideoPlatform,
   normalizeVideoContext,
+  normalizePrevFinalFrame,
   normalizeVideoMeta,
   getVideoProfile,
   appendVideoTrailer,

@@ -1,0 +1,4 @@
+{"file":"scripts/openspec-sync-check.js","role":"repository workflow checker"}
+{"file":"scripts/openspec-sync-check.test.js","role":"checker regression coverage"}
+{"file":".quality-rhythm/integrations/openspec/openspec-sync-check.js","role":"installer template mirror"}
+{"file":"openspec/changes/openspec-sync-check-hardening/specs/openspec-integration/spec.md","role":"modified workflow contract"}

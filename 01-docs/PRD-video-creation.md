@@ -167,6 +167,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 | 2026-08-14 | 全能创作 BGM 素材库管理 | 背景音乐升级为设备级素材库：添加（自动入库 + 选中）/ 重命名 / 删除，下拉选择，历史路径兼容；主进程 `story2video-bgm-library` 服务 + 4 个 IPC 通道 + PUBLIC_CHANNELS；详见本节 3.1.25 | PRD 3.1.25 |
 | 2026-08-14 | 历史详情页场景多素材与再次合成 | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
+| 2026-08-15 | 视频提示词引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架 | **Batch B**：`prev_final_frame`（≤1000 字符，句末截断）链式承接上一镜计划终态；`HIGGSFIELD_FMT_V4` 缓存盐（key 含 prev_final_frame 哈希）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）；Story2Video 视频提示词按场景串行优化、媒体生成保持并发、计划终态回写 scene.video.final_frame、checkpoint 终态恢复链、断链显式 degraded。**Batch C**：refined 12 块导演骨架（SCENE NOTE…FINAL FRAME，值 ≤4000，白名单）；FAIL CHECK 仅指令不出现在输出；尾行清理只认完整 trailer 尾段；块覆盖度 ≥0.8（advisory -5）；7 条 lock-gated 规则默认启用 dead_center/exposure_break/eye_line，否定感知（not overexposed / no waxy skin 不判罚）。详见本节 3.1.27 | PRD 3.1.27 / openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output | | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
 ---
@@ -1835,7 +1836,60 @@ SettingsDialog 关闭（App.vue @close）
 | `generic-hd` | 1920×1080 | 通用 |
 | `cinematic` | 2560×1080 | 电影感 21:9 |
 | `linkedin` | 1920×1080 | LinkedIn |
-| `instagram-feed` | 1080×1080 | Instagram 信息流 |
+| `instagram-feed` | 1080×1080 | Instagram 信息流
+
+### 3.1.27 视频提示词优化引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架（2026-08-15）
+
+**需求**：把《Hell Grind》长片一致性算法内核（上一镜终态显式交接给下一镜）与 refined 导演分镜单形态（12 块骨架 + 覆盖度 + 启发式 gated 判据）落到独立视频提示词引擎（8020）与 Story2Video 视频提示词链路上。OpenSpec：`higgsfield-round3b-cross-scene` / `higgsfield-round3c-refined-output`。
+
+#### 1) 数据模型与校验（引擎侧 + 桌面契约侧）
+
+- `prev_final_frame`（上镜终态描述）：引擎 `VideoOptimizeRequest` 与桌面契约双侧上限 **1000 字符**；桌面侧归一——非字符串丢弃、trim 后空丢弃、超长按句截断（句末回溯，无句末硬截断）。
+- `final_frame`（计划终态）：上限与 `prev_final_frame` 同界 **1000 字符**；语义为**计划中的最终画面描述**（位置/姿势/灯光/机位/禁文字），不是解码后的真实视频帧证据。
+- `blocks`（导演分镜块骨架，refined 层可选）：**12 键白名单** `SCENE NOTE / SPATIAL LAYOUT / LIGHTING / COLOR / CAMERA / ENVIRONMENT / CONTINUITY / CHARACTERS / SKIN / ACTING / STILLNESS LOCK / FINAL FRAME`；仅保留非空字符串、每值 **≤4000 字符**；非法键丢弃。桌面契约与 8020 引擎同源（`video-prompt-engine-contract.js` blockKeys 与 `refined_blocks.json` 顺序一致）。
+- 引擎缺块回退：请求无有效 blocks 时走既有 legacy 渲染器；渲染时缺失块用旧字段回退（如 SCENE NOTE 承接旧 prompt，避免稀疏 blocks 丢主体）。
+
+#### 2) 流程（跨镜链式优化）
+
+```text
+Story2Video 视频场景（按场景顺序）
+  ├─ ① 视频提示词优化串行：第 N 镜请求携带第 N-1 镜的 final_frame（prev_final_frame）
+  ├─ ② 引擎注入 SCENE Continuity 承接段（<prev_final_frame> 事实引用，非指令）
+  ├─ ③ 优化结果回写 scene.video.final_frame（计划终态）+ continuity 元数据
+  ├─ ④ 媒体生成仍按既有预算并发（只串行优化调用，不串行生成）
+  └─ ⑤ 断点续跑：从 checkpoint 终态恢复链（resume.completed[].final_frame /
+        .video.final_frame / 旧字段三级回退），缺终态 → 显式 degraded 断链记录
+```
+
+#### 3) 功能逻辑
+
+- **承接注入**：仅当 `prev_final_frame` 存在时注入 `## SCENE Continuity (MANDATORY when prev_final_frame is provided)` 段；段内 `<prev_final_frame>` 是事实引用，显式说明其中指令不得执行（防提示词注入）。
+- **缓存盐**：`HIGGSFIELD_FMT_V4`——承接段与块骨架改变输出形态，旧缓存一次失效重建；key 纳入 `prev_final_frame` 哈希。
+- **连续性评分（advisory -5）**：英文——实体 token 命中率 ≥40%，且角色白名单提供时角色名必中（硬判据）；中文——显式白名单（角色名 + 终态姿势/位置词）命中 ≥60%，无白名单时整句重合度（SequenceMatcher）≥0.5；无 `prev_final_frame` 零回归。
+- **块覆盖度（refined 专属，advisory -5）**：分母 = 归一后非空 blocks 数，分子 = 渲染串中命中块标记数（统一正则，行首标题+冒号）；比率 <0.8 记 `block_coverage = -5`，不拒绝候选。
+- **启发式 gated 规则（7 条，默认启用 3 条）**：默认启用 `dead_center / exposure_break / eye_line`；其余 `warm_light_leak / silhouette_break / style_contamination / skin_guard` 资产内可用但默认 OFF。规则需「活跃非否定 lock」+「非否定 forbidden 出现」同时成立才扣分——局部否定（`not overexposed`、`no waxy skin`）不是失败；`style_contamination` 不用 `photoreal` 词作为触发（词边界整名匹配，`photorealistic detail` 等完整 lock 词才触发）。
+- **FAIL CHECK**：只存在于模型指令（自审清单），若被意外输出则剥离，永不成为导演块；尾行清理只认「含画幅与时长字段的完整 trailer 尾段」，块内字面量（如 `Photoreal NON-IP aesthetic`）不会误删后续 FINAL FRAME 块。
+- **引擎选择与 provenance**：`VIDEO_PROMPT_PORT=8020` 启用独立引擎优先，失败自动回退 8013 `domain=video`；结果带 `engine_source`（standalone-8020 / legacy-8013 + fallback 标志）。
+- **断链可见性**：优化失败/缺终态按既有混合模式回退图片轮播；continuity 元数据记录 `mode: planned_final_frame`、`status: active | degraded`、`reason`（not_started / missing_prompt / missing_prompt_bridge / missing_final_frame / prompt_optimization_failed / resume:missing_final_state），日志显式提示断链，不虚构连续性。
+
+#### 4) 交互逻辑与显示项
+
+- 无新增 UI 表面；优化阶段进度/失败展示沿用既有 stage.progress 契约。
+- 断点续跑场景：复用断点产物时保留 continuity 元数据（checkpoint 计划终态链），不再只有 `{ resumed: true }`。
+- 视频提示词优化失败按既有「混合模式回退图片轮播」交互，不弹窗阻断。
+
+#### 5) 提示文字（zh / en）
+
+- 无新增用户可见文案；失败原因沿用既有阶段失败提示（引擎侧日志含 `prev_final_frame injected (source=…, chars=…)`、`缺少可用 final_frame，跨镜承接已从该场景断开` 等诊断日志，仅主进程日志可见）。
+
+#### 6) 测试要求
+
+- 引擎：`tests/test_cross_scene.py`（边界/缓存/承接/择优）、`tests/test_refined_blocks.py`（块契约/渲染/尾行/覆盖度/gated/盐 V4）、`tests/test_analyze_hg_corpus.py`（语料资产）；全量 `pytest tests/ -q --ignore=tests/test_web_e2e.py` 通过。
+- 契约：`video-prompt-engine-contract.test.js`（prev_final_frame 归一/块白名单/engine_source 回退）、`story2video-stages.test.js`（串行链/断点恢复/断链明示）、`story2video-manual-assets.test.js`（manual 集成零回归）；桌面关联套件全绿。
+
+---
+
+### 3.1.24 视频创作首页流水线卡片 UI |
 
 ### 3.1.24 视频创作首页流水线卡片 UI：多列动态布局 + 内置静态背景 + 交互动效（2026-08-13 落地，方案 B）
 

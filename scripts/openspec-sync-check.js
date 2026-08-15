@@ -1,87 +1,299 @@
 #!/usr/bin/env node
-/**
- * OpenSpec 归档三同步检查（机制硬化 Requirement: 归档三同步自动检查）
- *
- * 扫描 .ccg/tasks 下所有 task.json（含 archive）：
- *   - task.status === 'completed' 且存在 openspecChange 关联
- *   - 但对应 change 仍 active（openspec/changes/<change> 存在，未 archive）
- * 则输出警告并返回非零；无关联任务跳过，不误报。
- *
- * 用法: node scripts/openspec-sync-check.js [--json]
- */
-'use strict';
+"use strict"
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("node:fs")
+const path = require("node:path")
 
-const ROOT = path.resolve(__dirname, '..');
-const TASKS_DIR = path.join(ROOT, '.ccg', 'tasks');
-const CHANGES_DIR = path.join(ROOT, 'openspec', 'changes');
-const ARCHIVE_DIR = path.join(CHANGES_DIR, 'archive');
+const CHANGE_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const DATED_ARCHIVE_RE = /^(\d{4}-\d{2}-\d{2})-(.+)$/
+const TERMINAL_PHASES = new Set(["completed", "archived"])
 
-function isJson(name) {
-  return name === 'task.json';
+function normalizeRelative(root, file) {
+  return path.relative(root, file).split(path.sep).join("/")
 }
 
-function collectTaskFiles(dir, out) {
-  if (!fs.existsSync(dir)) return out;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) collectTaskFiles(full, out);
-    else if (entry.isFile() && isJson(entry.name)) out.push(full);
+function collectTaskFiles(directory, output = []) {
+  if (!fs.existsSync(directory)) return output
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const fullPath = path.join(directory, entry.name)
+    if (entry.isDirectory()) collectTaskFiles(fullPath, output)
+    else if (entry.isFile() && entry.name === "task.json") output.push(fullPath)
   }
-  return out;
+  return output
 }
 
-function changeIsActive(changeName) {
-  const active = path.join(CHANGES_DIR, changeName);
-  if (!changeName || typeof changeName !== 'string') return false;
-  if (!fs.existsSync(active)) return false;
-  const archive = path.join(ARCHIVE_DIR, changeName);
-  return !fs.existsSync(archive);
+function collectChangeDirectories(directory, exclude = new Set()) {
+  if (!fs.existsSync(directory)) return []
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && !exclude.has(entry.name))
+    .map(entry => entry.name)
+    .sort()
 }
 
-function main() {
-  const wantJson = process.argv.includes('--json');
-  const taskFiles = collectTaskFiles(TASKS_DIR, []);
-  const warnings = [];
+function normalizeAssociations(value, file, errors) {
+  if (value === undefined || value === null) return []
+  const values = Array.isArray(value) ? value : [value]
+  if (values.length === 0) {
+    errors.push({ code: "INVALID_CHANGE_ID", file, message: "openspecChange must not be an empty array" })
+    return []
+  }
+  const associations = []
+  for (const item of values) {
+    const change = typeof item === "string" ? item.trim() : ""
+    if (!change || !CHANGE_ID_RE.test(change)) {
+      errors.push({
+        code: "INVALID_CHANGE_ID",
+        file,
+        value: item,
+        message: "openspecChange must be a kebab-case string or a non-empty array of kebab-case strings",
+      })
+      continue
+    }
+    if (!associations.includes(change)) associations.push(change)
+  }
+  return associations
+}
 
-  for (const file of taskFiles) {
-    let task;
+function indexChanges(root, errors) {
+  const changesDirectory = path.join(root, "openspec", "changes")
+  const archiveDirectory = path.join(changesDirectory, "archive")
+  const active = new Set(collectChangeDirectories(changesDirectory, new Set(["archive"])))
+  const archives = new Map()
+
+  for (const directoryName of collectChangeDirectories(archiveDirectory)) {
+    const match = directoryName.match(DATED_ARCHIVE_RE)
+    const change = match ? match[2] : directoryName
+    if (!CHANGE_ID_RE.test(change)) {
+      errors.push({
+        code: "INVALID_ARCHIVE_NAME",
+        file: normalizeRelative(root, path.join(archiveDirectory, directoryName)),
+        message: "archive directory must be <change-id> or YYYY-MM-DD-<change-id>",
+      })
+      continue
+    }
+    const entries = archives.get(change) || []
+    entries.push(directoryName)
+    archives.set(change, entries)
+  }
+
+  for (const [change, entries] of archives) {
+    if (entries.length > 1) {
+      errors.push({ code: "DUPLICATE_ARCHIVE", change, archives: entries, message: "multiple archive directories map to the same change" })
+    }
+    if (active.has(change)) {
+      errors.push({ code: "ACTIVE_ARCHIVE_CONFLICT", change, archives: entries, message: "change exists in both active and archive directories" })
+    }
+  }
+
+  return { active, archives }
+}
+
+function hasSupersessionEvidence(task) {
+  return task.openspecState === "superseded"
+    && typeof task.supersededBy === "string"
+    && task.supersededBy.trim().length > 0
+}
+
+function inspectActiveChangeTasks(root, change) {
+  const tasksFile = path.join(root, "openspec", "changes", change, "tasks.md")
+  const file = normalizeRelative(root, tasksFile)
+  if (!fs.existsSync(tasksFile)) {
+    return [{
+      code: "ACTIVE_CHANGE_TASKS_MISSING",
+      change,
+      file,
+      message: "active OpenSpec change has no tasks.md for completed CCG task",
+    }]
+  }
+
+  let content
+  try {
+    content = fs.readFileSync(tasksFile, "utf8")
+  } catch (error) {
+    return [{
+      code: "ACTIVE_CHANGE_TASKS_UNREADABLE",
+      change,
+      file,
+      message: "active OpenSpec change tasks.md could not be read: " + error.message,
+    }]
+  }
+
+  const checkboxes = [...content.matchAll(/^\s*-\s*\[([ xX])\]\s+/gm)]
+  if (checkboxes.length === 0) {
+    return [{
+      code: "ACTIVE_CHANGE_TASKS_UNTRACKED",
+      change,
+      file,
+      message: "active OpenSpec change tasks.md has no trackable task checkboxes",
+    }]
+  }
+
+  const incomplete = checkboxes.filter(match => match[1] === " ").length
+  if (incomplete === 0) return []
+  return [{
+    code: "ACTIVE_CHANGE_TASKS_INCOMPLETE",
+    change,
+    file,
+    incomplete,
+    total: checkboxes.length,
+    message: "active OpenSpec change has " + incomplete + " incomplete tracked task(s)",
+  }]
+}
+
+function scanRepository(rootPath) {
+  const root = path.resolve(rootPath)
+  const tasksDirectory = path.join(root, ".ccg", "tasks")
+  const errors = []
+  const violations = []
+  const changeIndex = indexChanges(root, errors)
+  const taskFiles = collectTaskFiles(tasksDirectory).sort()
+  let parsedTasks = 0
+
+  for (const filePath of taskFiles) {
+    const file = normalizeRelative(root, filePath)
+    let task
     try {
-      task = JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch (err) {
-      if (wantJson) {
-        warnings.push({ file: path.relative(ROOT, file), error: 'unparseable task.json: ' + err.message });
-      } else {
-        console.warn(`[openspec-sync] 跳过无法解析的 task.json: ${path.relative(ROOT, file)} (${err.message})`);
+      task = JSON.parse(fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""))
+    } catch (error) {
+      errors.push({ code: "TASK_JSON_INVALID", file, message: error.message })
+      continue
+    }
+    if (!task || typeof task !== "object" || Array.isArray(task)) {
+      errors.push({ code: "TASK_JSON_INVALID", file, message: "task.json top level must be an object" })
+      continue
+    }
+    parsedTasks += 1
+    const associations = normalizeAssociations(task.openspecChange, file, errors)
+    const completed = task.status === "completed"
+    const terminalPhase = TERMINAL_PHASES.has(task.currentPhase)
+    const validSupersession = hasSupersessionEvidence(task)
+
+    if (completed !== terminalPhase) {
+      errors.push({
+        code: "TASK_STATE_INCONSISTENT",
+        file,
+        task: task.id || path.basename(path.dirname(filePath)),
+        status: task.status,
+        currentPhase: task.currentPhase,
+        message: "status completed and terminal currentPhase must agree",
+      })
+    }
+    if (task.openspecState === "superseded" && !validSupersession) {
+      errors.push({
+        code: "SUPERSESSION_EVIDENCE_MISSING",
+        file,
+        task: task.id || path.basename(path.dirname(filePath)),
+        message: "superseded task must provide a non-empty supersededBy value",
+      })
+    }
+    if (!completed) continue
+
+    for (const change of associations) {
+      const isActive = changeIndex.active.has(change)
+      const archiveEntries = changeIndex.archives.get(change) || []
+      if (isActive) {
+        violations.push({
+          code: "COMPLETED_TASK_ACTIVE_CHANGE",
+          file,
+          task: task.id || path.basename(path.dirname(filePath)),
+          change,
+          message: "completed CCG task still points to an active OpenSpec change",
+        })
+        violations.push(...inspectActiveChangeTasks(root, change))
+      } else if (archiveEntries.length === 0 && !validSupersession) {
+        violations.push({
+          code: "CHANGE_NOT_FOUND",
+          file,
+          task: task.id || path.basename(path.dirname(filePath)),
+          change,
+          message: "completed CCG task points to a change that is neither active nor archived",
+        })
       }
-      continue;
-    }
-    const changeName = task.openspecChange;
-    if (!changeName) continue; // 无关联任务跳过
-    const completed = task.status === 'completed' || task.currentPhase === 'completed';
-    if (completed && changeIsActive(changeName)) {
-      warnings.push({
-        file: path.relative(ROOT, file),
-        task: task.id || path.basename(path.dirname(file)),
-        change: changeName,
-        message: 'CCG task 已 completed 但关联 OpenSpec change 仍 active，未归档（三同步断裂）。请执行: openspec archive ' + changeName,
-      });
     }
   }
 
-  if (wantJson) {
-    console.log(JSON.stringify({ ok: warnings.length === 0, warnings }, null, 2));
-  } else if (warnings.length > 0) {
-    for (const w of warnings) {
-      console.warn(`[openspec-sync] 警告: ${w.message} (task: ${w.file})`);
-    }
-  } else {
-    console.log('[openspec-sync] OK: 无「completed 但未归档」的关联任务。');
+  const exitCode = errors.length > 0 ? 2 : (violations.length > 0 ? 1 : 0)
+  return {
+    ok: exitCode === 0,
+    exitCode,
+    errors,
+    violations,
+    summary: {
+      taskFiles: taskFiles.length,
+      parsedTasks,
+      activeChanges: changeIndex.active.size,
+      archivedChanges: [...changeIndex.archives.values()].reduce((sum, entries) => sum + entries.length, 0),
+    },
   }
-
-  process.exitCode = warnings.length > 0 ? 1 : 0;
 }
 
-main();
+function parseArguments(argv) {
+  const options = { json: false, root: path.resolve(__dirname, "..") }
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]
+    if (argument === "--json") options.json = true
+    else if (argument === "--root") {
+      const value = argv[index + 1]
+      if (!value) throw new Error("--root requires a path")
+      options.root = path.resolve(value)
+      index += 1
+    } else {
+      throw new Error("unknown argument: " + argument)
+    }
+  }
+  return options
+}
+
+function formatHuman(result) {
+  const lines = []
+  for (const error of result.errors) {
+    lines.push("[openspec-sync] ERROR "+error.code+": "+error.message+(error.file ? " ("+error.file+")" : ""))
+  }
+  for (const violation of result.violations) {
+    lines.push("[openspec-sync] VIOLATION "+violation.code+": "+violation.message+(violation.file ? " ("+violation.file+")" : ""))
+  }
+  if (result.ok) {
+    lines.push("[openspec-sync] OK: "+result.summary.parsedTasks+" tasks, "+result.summary.activeChanges+" active changes, "+result.summary.archivedChanges+" archives.")
+  }
+  return lines.join("\n")
+}
+
+function main(argv = process.argv.slice(2)) {
+  let options
+  try {
+    options = parseArguments(argv)
+  } catch (error) {
+    const result = { ok: false, exitCode: 2, errors: [{ code: "CLI_ARGUMENT_INVALID", message: error.message }], violations: [], summary: {} }
+    console.error(JSON.stringify(result, null, 2))
+    return result.exitCode
+  }
+
+  let result
+  try {
+    result = scanRepository(options.root)
+  } catch (error) {
+    result = { ok: false, exitCode: 3, errors: [{ code: "CHECKER_IO_ERROR", message: error.message }], violations: [], summary: {} }
+  }
+  if (options.json) console.log(JSON.stringify(result, null, 2))
+  else {
+    const output = formatHuman(result)
+    if (result.ok) console.log(output)
+    else console.error(output)
+  }
+  return result.exitCode
+}
+
+module.exports = {
+  collectTaskFiles,
+  formatHuman,
+  main,
+  normalizeAssociations,
+  parseArguments,
+  inspectActiveChangeTasks,
+  hasSupersessionEvidence,
+  scanRepository,
+}
+
+if (require.main === module) {
+  process.exitCode = main()
+}

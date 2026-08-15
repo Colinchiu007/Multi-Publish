@@ -1,32 +1,45 @@
-# Tasks — Higgsfield round3c refined 输出形态升级
+# Tasks - Higgsfield Round3 C refined director output
 
-## T1 语料统计脚本 + 资产（分族 + 统一正则）
-- [ ] scripts/analyze_hg_corpus.py（只读 D:\Temp\hg-corpus；🔥 导演族 / 内联冒号族分族统计；块频率/tier/Audio/lock 词表含否定出现率）
-- [ ] knowledge/refined_blocks.json（版本化：blocks/block_pattern/coverage min_ratio 0.8/enabled_rules 3 条/lock_triggers 否定感知词表）
+## 1. Corpus asset and schema
 
-## T2 引擎：models.py blocks 字段
-- [ ] VideoPromptMeta + blocks: Optional[dict]（键白名单 12 + 值 ≤4000）
-- [ ] 单测：非法键丢弃/非字符串丢弃/截断/空 dict → None
+- [x] 1.1 Add a read-only corpus analyzer with director/inline family
+  statistics, canonical block detection, and positive-versus-negated rule
+  evidence.
+  Evidence: scripts/analyze_hg_corpus.py; tests/test_analyze_hg_corpus.py.
+- [x] 1.2 Version the 12-block taxonomy, title grammar, 0.8 coverage ratio,
+  rule definitions, and three-rule default enablement.
+  Evidence: video_prompt_engine/knowledge/refined_blocks.json;
+  tests/test_refined_blocks.py asset-contract cases.
 
-## T3 引擎：refined 模板（骨架 + FAIL CHECK + 注入强化）
-- [ ] base.py refined Output Format 增加 blocks 字段说明与骨架顺序指令
-- [ ] FAIL CHECK 收尾自审段（5 条，仅模板侧；timeline 判据含 CUT N）
-- [ ] Skin/Acting 高频项注入强化（pore-level/eye-line）
-- [ ] 单测：模板含新段/旧模板兼容/FAIL CHECK 不出现在渲染输出串尾
+## 2. Standalone refined engine
 
-## T4 引擎：_clean_blocks + render 骨架化 + 尾行剥离
-- [ ] extract_video_meta 清洗 blocks；render 按骨架顺序拼单串（缺失块回退旧字段；逐块去内嵌尾行）
-- [ ] 单测：骨架渲染/回退/零回归（无 blocks）/内嵌尾行剥离/C6 截断交互不丢块
+- [x] 2.1 Validate and normalize optional director blocks (12 approved keys,
+  non-empty strings only, 4000 characters per value).
+  Evidence: video_prompt_engine/models.py;
+  video_prompt_engine/refined_blocks.py; tests/test_refined_blocks.py.
+- [x] 2.2 Add refined-template block instructions, instruction-only FAIL CHECK,
+  and preventive skin/eye-line guidance.
+  Evidence: video_prompt_engine/strategies/base.py;
+  tests/test_refined_blocks.py template and rendering cases.
+- [x] 2.3 Render canonical block order with legacy-field fallback and preserve
+  only a real final trailer paragraph during normalization.
+  Evidence: video_prompt_engine/strategies/base.py;
+  video_prompt_engine/optimizer.py; tests/test_refined_blocks.py trailer and
+  fallback cases.
+- [x] 2.4 Add refined-only block coverage and negation-aware gated diagnostics.
+  Evidence: video_prompt_engine/evaluator.py; tests/test_refined_blocks.py
+  coverage, enablement, and negation cases.
+- [x] 2.5 Partition the combined Round3 B/C format under the V4 cache salt.
+  Evidence: video_prompt_engine/optimizer.py;
+  tests/test_refined_blocks.py TestSaltV4.
 
-## T5 引擎：evaluator 块覆盖度 + gated 规则
-- [ ] block_coverage（refined 分母=meta.blocks 非空块数，ratio<0.8 → -5 advisory；batch 不启用）
-- [ ] 7 条 lock-gated 规则（否定感知；enabled_rules 默认 3 条；style_contamination 无 photoreal 锁词）
-- [ ] 单测：覆盖正反例/gated 启用与关闭/否定词不计命中（"No 3D render"/"not overexposed"/"no waxy"）/refined 专属/尾行 photoreal 不触发 style_contamination
+## 3. Desktop contract and verification
 
-## T6 引擎：缓存盐 V4
-- [ ] HIGGSFIELD_FMT_V3 → V4（与 round3b 同批，一次重建）
-- [ ] 单测：旧缓存失效
-
-## T7 契约：normalizeVideoMeta blocks 回显
-- [ ] 白名单 + 截断 + 向后兼容
-- [ ] 单测：合法/非法/缺省；与 extractOptimizedVideoPrompt meta.video 组合回归
+- [x] 3.1 Normalize and return blocks at the Multi-Publish video contract
+  boundary without changing responses that omit blocks.
+  Evidence: apps/desktop/electron/services/video-prompt-engine-contract.js;
+  apps/desktop/electron/services/video-prompt-engine-contract.test.js.
+- [x] 3.2 Run focused and full standalone/desktop regression suites and strict
+  OpenSpec validation before archive.
+  Evidence: delivery CCG review records and .quality-gates.md (fresh execution
+  is recorded before PR merge).

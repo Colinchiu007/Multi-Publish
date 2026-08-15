@@ -1,12 +1,14 @@
 {
-  \"id\": \"video-clone-auto-replication-level\",
-  \"title\": \"视频克隆：复刻层级程序自动决定并驱动行为（B 方案）\",
-  \"status\": \"completed\",
-  \"complexity\": \"L\",
-  \"risk\": \"medium\",
-  \"domain\": \"backend+frontend\",
-  \"currentPhase\": \"review\",
-  \"nextAction\": \"归档（PR 合并后）\",
-  \"createdAt\": \"2026-08-13T15:42:52+08:00\",
-  \"branch\": \"codex/video-clone-auto-level\"
+  "id": "video-clone-auto-replication-level",
+  "title": "视频克隆：复刻层级程序自动决定并驱动行为（B 方案）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "backend+frontend",
+  "currentPhase": "completed",
+  "nextAction": "已归档；远程 PR 状态未在历史任务中记录",
+  "createdAt": "2026-08-13T15:42:52+08:00",
+  "completedAt": "2026-08-13T15:57:57+08:00",
+  "branch": "codex/video-clone-auto-level",
+  "remoteStatus": "not-recorded"
 }
