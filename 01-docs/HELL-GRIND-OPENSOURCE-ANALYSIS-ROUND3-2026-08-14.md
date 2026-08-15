@@ -213,3 +213,18 @@ P2-1~P2-4（管线/评测/协议，各自独立）
 ---
 
 *报告完。本报告所有【实证】条目均可在 origin/main 或 D:\Temp\hg-corpus\ 复核；【评审】为 Claude 结论。建议：P0-缺陷（图片缓存 key）可作为独立 S/M change 立即实施，其余按 §五 批次推进。*
+
+---
+
+## 七、落地状态（Batch A / round3a 已实施，2026-08-15）
+
+本报告 §五 的 **Batch A**（P0-缺陷 图片缓存 key + P0-3 确定性校验 + P0-4 音频分层）已作为 OpenSpec change `prompt-engine-higgsfield-round3a` 实施完毕并合并（PR #47，commit `ea35c78` feat + `e1f1788` fix，CI 全绿）：
+
+- **P0-缺陷（图片缓存 key 串号）**：`prompt_engine/cache.py make_key` 纳入 excluded/no_swap/context/style/language 组件 + 版本盐 `IMAGE_FMT_V1`；`cache_manager.py`/`optimizer.py` 调用点全量透传；legacy fuzzy 零回归。
+- **P0-3（确定性校验自动化）**：`video_prompt_engine/evaluator.py` 新增 `timeline_missing`（shots≥2 缺 `[SHOT`/`[HARD CUT` 标记，-5）与 `timing_break`（beats 端点超 duration+2s，-5）纯结构/数学校验；refined 模板教 `[SHOT N]` 标记；视频缓存盐 `HIGGSFIELD_FMT_V1 → V2`。
+- **P0-4（音频分层）**：`models.py` 新增 `audio_layers {environment, sfx, dialogue, music_off}`；`_clean_audio_layers` 键白名单/截断 200/`music_off` 归一；尾行以 `Audio: ... SFX: ... Dialogue: ... No music.` 四段替换 `{audio} only.`；missing_audio 判定表按层细化（仅 refined 尾行生效）。
+- **顺带基线修复**：`rest.py` 资源端点显式 utf-8 读取（Windows GBK locale 下 prompts.json 读取抛 UnicodeDecodeError 被吞导致 `rag_cases` 恒 0 的既有缺陷）。
+- **测试**：新增 3 个测试文件 + 评审回归；全量 pytest 736 passed / 0 failed / 3 skipped（5 个 `test_web_e2e.py` Playwright 无服务端的环境性 error 与本变更无关）。
+- **评审**：Claude 双模型 1 Critical（尾行剥离正则兼容 Audio 段）+ 2 Warning（batch 判定表限定 refined / make_key 非序列化防炸+归一）全修复；13 Info 中 6 项已修，其余（I3/I4/I5/I8/I11/I13）归 Batch B/C。
+
+Batch B（P0-1 跨镜状态包 `prev_final_frame`，最大价值）与 Batch C（P0-2/P0-5/P0-6 输出形态升级）按 §五 依赖图继续推进。

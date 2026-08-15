@@ -49,6 +49,11 @@ vi.mock("@/api/publisher", () => ({
   story2videoBgmLibraryAdd: vi.fn(),
   story2videoBgmLibraryRename: vi.fn(),
   story2videoBgmLibraryDelete: vi.fn(),
+  // 批量创作（2026-08-15 story2video-batch-create）
+  story2videoBatchCreate: vi.fn().mockResolvedValue({ code: 0, data: { batchId: "batch_test_1", items: [] } }),
+  story2videoBatchStatus: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  story2videoBatchCancel: vi.fn().mockResolvedValue({ code: 0, data: { success: true, cancelled: 1 } }),
+  story2videoPickBatchFiles: vi.fn().mockResolvedValue({ code: 0, data: { files: [] } }),
 }));
 
 vi.mock("@/api/tts-voice-catalog", () => ({
@@ -4109,6 +4114,183 @@ describe("pipeline:update 实时推送（openspec pipeline-progress-real-time-pu
     await nextTick();
     expect(mocks.onPipelineUpdate).toHaveBeenCalled();
     expect(w.vm.cleanups.length).toBeGreaterThan(0);
+    w.unmount();
+  });
+});
+
+describe("批量创作（story2video-batch-create）", () => {
+  const mountS2V = async () => {
+    // UiModal 内容经 Teleport 到 body：stub teleport 使弹窗内容留在组件树内可查询
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress }, stubs: { teleport: true } }
+    });
+    await new Promise(r => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    await nextTick();
+    return w;
+  };
+
+  it("批量创作按钮仅在 story2video-compose 流水线显示", async () => {
+    const w = await mountS2V();
+    expect(w.find('[data-testid="s2v-batch-trigger"]').exists()).toBe(true);
+    w.vm.selectedPipeline = { name: "animated-explainer", available: true, stages: [] };
+    await nextTick();
+    expect(w.find('[data-testid="s2v-batch-trigger"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("打开批量弹窗：显示规则提示、视频增强下拉与两个标签页", async () => {
+    const w = await mountS2V();
+    await w.find('[data-testid="s2v-batch-trigger"]').trigger("click");
+    await nextTick();
+    expect(w.vm.s2vBatchDialogOpen).toBe(true);
+    expect(w.find('[data-testid="s2v-batch-dialog"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-batch-rule-hint"]').text()).toContain("最大并行");
+    expect(w.find('[data-testid="s2v-batch-video-mode"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-batch-tab-text"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-batch-tab-files"]').exists()).toBe(true);
+    // 默认输入文案 tab；无批量任务时显示空态
+    expect(w.find('[data-testid="s2v-batch-text-pane"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-batch-status-empty"]').exists()).toBe(true);
+    w.unmount();
+  });
+
+  it("输入文案：+ 新增最多 10 条，可删除单条", async () => {
+    const w = await mountS2V();
+    await w.find('[data-testid="s2v-batch-trigger"]').trigger("click");
+    await nextTick();
+    expect(w.vm.s2vBatchTexts.length).toBe(1);
+    for (let i = 0; i < 9; i++) {
+      await w.find('[data-testid="s2v-batch-add-text"]').trigger("click");
+    }
+    await nextTick();
+    expect(w.vm.s2vBatchTexts.length).toBe(10);
+    expect(w.find('[data-testid="s2v-batch-add-text"]').attributes("disabled")).toBeDefined();
+    await w.find('[data-testid="s2v-batch-text-remove-0"]').trigger("click");
+    await nextTick();
+    expect(w.vm.s2vBatchTexts.length).toBe(9);
+    w.unmount();
+  });
+
+  it("本地文件：选择文件合并去重，最多 20 个提示", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoPickBatchFiles.mockResolvedValueOnce({
+      code: 0,
+      data: { files: [{ path: "C:/a.txt", name: "a.txt" }, { path: "C:/b.md", name: "b.md" }] },
+    });
+    const w = await mountS2V();
+    await w.find('[data-testid="s2v-batch-trigger"]').trigger("click");
+    await nextTick();
+    await w.find('[data-testid="s2v-batch-tab-files"]').trigger("click");
+    await nextTick();
+    await w.find('[data-testid="s2v-batch-pick-files"]').trigger("click");
+    await nextTick();
+    expect(w.vm.s2vBatchFiles.map(f => f.name)).toEqual(["a.txt", "b.md"]);
+    // 重复选择去重
+    await w.find('[data-testid="s2v-batch-pick-files"]').trigger("click");
+    await nextTick();
+    expect(w.vm.s2vBatchFiles.length).toBe(2);
+    // 超 20 个：只保留前 20，并提示
+    mocks.story2videoPickBatchFiles.mockResolvedValueOnce({
+      code: 0,
+      data: { files: Array.from({ length: 25 }, (_, i) => ({ path: "C:/f" + i + ".txt", name: "f" + i + ".txt" })) },
+    });
+    await w.find('[data-testid="s2v-batch-pick-files"]').trigger("click");
+    await nextTick();
+    expect(w.vm.s2vBatchFiles.length).toBe(20);
+    expect(w.vm.s2vBatchError).toContain("最多选择 20 个文件");
+    w.unmount();
+  });
+
+  it("启动（文案模式）：调用 story2videoBatchCreate 并传全自动模板与弹窗视频模式", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBatchCreate.mockClear();
+    mocks.story2videoBatchCreate.mockResolvedValueOnce({ code: 0, data: { batchId: "batch_x", items: [] } });
+    // 打开弹窗的首次轮询也会消费 status mock：持久化返回（含运行中批次）
+    mocks.story2videoBatchStatus.mockResolvedValue({
+      code: 0,
+      data: [{ id: "batch_x", mode: "text", createdAt: "2026-08-15T00:00:00.000Z", summary: { total: 1, pending: 0, running: 1, completed: 0, failed: 0, cancelled: 0 }, items: [{ itemId: "batch_x_i0", source: "text", label: "文案 1", status: "running", runId: "run_1", error: null, progress: 42, currentStage: "generate_assets" }] }],
+    });
+    const w = await mountS2V();
+    await w.find('[data-testid="s2v-batch-trigger"]').trigger("click");
+    await nextTick();
+    await w.find('[data-testid="s2v-batch-text-0"]').setValue("第一条文案");
+    await w.find('[data-testid="s2v-batch-add-text"]').trigger("click");
+    await nextTick();
+    await w.find('[data-testid="s2v-batch-text-1"]').setValue("第二条文案");
+    await w.find('[data-testid="s2v-batch-video-mode"]').setValue("fixed");
+    await nextTick();
+    await w.find('[data-testid="s2v-batch-start"]').trigger("click");
+    await nextTick();
+    expect(mocks.story2videoBatchCreate).toHaveBeenCalledTimes(1);
+    const payload = mocks.story2videoBatchCreate.mock.calls[0][0];
+    expect(payload.mode).toBe("text");
+    expect(payload.texts).toEqual(["第一条文案", "第二条文案"]);
+    expect(payload.story2videoTextConfigTemplate).toBeDefined();
+    expect(payload.story2videoTextConfigTemplate.creation).toEqual({ mode: "auto", materialMode: "all-images" });
+    expect(payload.story2videoTextConfigTemplate.video.mode).toBe("fixed");
+    expect(payload.story2videoTextConfigTemplate.prompt).toBeUndefined();
+    // 成功后清空输入并展示队列（运行中状态徽标 + 进度）
+    expect(w.vm.s2vBatchTexts).toEqual([""]);
+    await nextTick();
+    const runningRow = w.find('[data-testid="s2v-batch-item-batch_x_i0"]');
+    expect(runningRow.text()).toContain("运行中");
+    expect(runningRow.text()).toContain("42%");
+    w.unmount();
+  });
+
+  it("启动（空文案）：本地校验拦截，不调用 API", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBatchCreate.mockClear();
+    const w = await mountS2V();
+    await w.find('[data-testid="s2v-batch-trigger"]').trigger("click");
+    await nextTick();
+    await w.find('[data-testid="s2v-batch-start"]').trigger("click");
+    await nextTick();
+    expect(mocks.story2videoBatchCreate).not.toHaveBeenCalled();
+    expect(w.find('[data-testid="s2v-batch-error"]').text()).toContain("至少输入 1 条文案");
+    w.unmount();
+  });
+
+  it("启动失败：透传 IPC message 与 failedItems 标签", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBatchCreate.mockClear();
+    mocks.story2videoBatchCreate.mockResolvedValueOnce({
+      code: -2,
+      message: "批量创作输入校验失败：文案 1",
+      failedItems: [{ label: "文案 1", index: 0, errorCode: "BATCH_TEXT_TOO_LONG" }],
+    });
+    const w = await mountS2V();
+    await w.find('[data-testid="s2v-batch-trigger"]').trigger("click");
+    await nextTick();
+    await w.find('[data-testid="s2v-batch-text-0"]').setValue("超长文案");
+    await w.find('[data-testid="s2v-batch-start"]').trigger("click");
+    await nextTick();
+    expect(w.find('[data-testid="s2v-batch-error"]').text()).toContain("文案 1");
+    w.unmount();
+  });
+
+  it("取消排队项：调用 story2videoBatchCancel 并刷新队列", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoBatchCancel.mockClear();
+    mocks.story2videoBatchStatus.mockResolvedValue({
+      code: 0,
+      data: [{ id: "batch_y", mode: "text", createdAt: "2026-08-15T00:00:00.000Z", summary: { total: 2, pending: 1, running: 1, completed: 0, failed: 0, cancelled: 0 }, items: [
+        { itemId: "batch_y_i0", source: "text", label: "文案 1", status: "running", runId: "run_1", error: null, progress: 10, currentStage: null },
+        { itemId: "batch_y_i1", source: "text", label: "文案 2", status: "pending", runId: null, error: null, progress: null, currentStage: null },
+      ] }],
+    });
+    const w = await mountS2V();
+    await w.find('[data-testid="s2v-batch-trigger"]').trigger("click");
+    await nextTick();
+    // 仅 pending 项显示取消按钮；running 项不显示
+    const cancelButtons = w.findAll('[data-testid="s2v-batch-item-cancel"]');
+    expect(cancelButtons.length).toBe(1);
+    expect(w.find('[data-testid="s2v-batch-item-batch_y_i0"]').find('[data-testid="s2v-batch-item-cancel"]').exists()).toBe(false);
+    await cancelButtons[0].trigger("click");
+    await nextTick();
+    expect(mocks.story2videoBatchCancel).toHaveBeenCalledWith("batch_y", ["batch_y_i1"]);
     w.unmount();
   });
 });

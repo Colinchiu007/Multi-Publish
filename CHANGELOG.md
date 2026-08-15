@@ -1,9 +1,47 @@
+## [2026-08-15] fix(ops-center): 提示词评测 Network Error 文案可操作化——传输层失败映射自助排查提示（ops-center-prompt-eval-network-error）
+
+- 现象：运营后台 → 提示词评测 → 进入页面报「加载评测列表失败：Network Error」。
+- 根因：`PromptEvalWorkbench.vue loadCases()` 的 catch 直接展示 axios 裸 message（`e?.response?.data?.detail || e.message`）；传输层失败（无 HTTP 响应，`net::ERR_CONNECTION_REFUSED`）时 `e.message === "Network Error"`。真实浏览器复现：双服务在线零报错；仅 vite dev server 离线且旧 tab 未刷新时出现该文案——非业务代码 Bug，是开发栈未同时在线 + 错误文案不可操作。
+- 修复：`apiErrorMessage(e, fallback)`（`src/api/http.js`）——仅 ERR_NETWORK/Network Error 映射为「无法连接后端服务（Network Error）：请确认 ops-center 后端已启动（uvicorn main:app --port 8010），然后刷新页面重试」；HTTP 错误仍优先展示后端 `detail`，超时/取消保留原 message，空错误回退 fallback。`PromptEvalWorkbench.vue` 全部 10 处 catch 接入。
+- 测试：`tests/api-error-message.test.js` 新增 5 例；vitest 3 文件 16 用例全绿；`npm run build` exit 0。
+
+## [2026-08-15] 故事讲述：批量创作视频（story2video-batch-create）
+
+- 需求：在「视频创作 → 故事讲述」新增【批量创作】：入口按钮 + 弹窗（创作模式隐藏固定全自动、视频增强模式下拉、启动按钮、队列规则提示、输入文案 1-10 条带「+」、本地文件 .txt/.md 最多 20 个），任务按队列依次运行（批量最大并行 2；手动任务运行中批量并行 1），弹窗内实时展示任务与排队信息，批量任务完成后进入历史记录。
+- 引擎（pipeline-engine.js）：`start()` run 打标 `source==='batch'` 时写入 `batchId/batchItemId`；批量 run 不写 `_<name>` 索引与 `_currentPipeline`（防手动详情页串扰）；`startOrchestrated()` 透传 `batchMeta`（normalizer 丢未知字段，前置提取后重新附加）；新增 `_countActiveManualRuns()`。
+- 队列服务（story2video-batch-queue.js 新增）：`createBatch`（text/files 双模式，fail-closed 任一输入项失败整体拒绝不部分入队）、`cancelBatchItems`（仅 pending）、`getBatches`（批次摘要 + 运行中 run 进度/阶段快照）；调度规则：批量并行 ≤2、手动运行中批量 ≤1、批量+手动 < 引擎全局 `maxConcurrentRuns`，引擎预算拒绝（`PIPELINE_CONCURRENCY_LIMIT`）1s 退避重试不标记失败；`_drain` 死循环补位一轮可启动多个。校验：文案 1-10 条/条 ≤6000 字符；文件 .txt/.md/≤2MB/UTF-8/非空/≤6000 字符/1-20 个。
+- IPC：`story2video:batch:create/status/cancel`（LOGIN_ONLY → story2video_write）+ `story2video:pick-batch-files`（PUBLIC，原生对话框 .txt/.md 多选）；全部 `withSenderCheck`，队列服务缺失 fail-closed 返回错误 envelope。
+- 前端：CreateView.vue 操作栏「批量创作」按钮（仅 story2video-compose 显示）；UiModal 弹窗——视频增强模式下拉（off/fixed/ai-judged）、队列规则提示、输入文案/本地文件标签页、启动按钮、任务与排队卡片区（3s 轮询，关闭弹窗后台继续）；`buildStory2VideoTextConfig()` 抽取手动/批量共用配置构造；排队项可取消；locales zh/en 成对新增 `create.story2video.batch.*`。
+- 测试：队列服务 15 例、IPC 11 例、CreateView 7 例（按钮显隐/弹窗/10 条上限/文件去重 20 上限/启动 payload 全自动模板/空输入拦截/失败透传/排队取消）；全量 vitest 通过。
+- 文档：PRD §7.1.34 批量创作（数据校验/调度规则/状态机/流程/交互/显示项/提示文字/IPC 契约/回归测试）；learnings.md 批量队列设计复盘；OpenSpec change story2video-batch-create（openspec/specs/story2video-batch-create）。
+
+## [2026-08-15] feat(prompt-engine): Higgsfield round3a Batch A——缓存 key 全组件化/视频确定性校验/音频分层（PR #47）
+
+- 图片缓存 key 修复：`make_key` 纳入 excluded/no_swap/context/style/language + 版本盐 `IMAGE_FMT_V1`，修复同参数异 excluded 串号缺陷；legacy fuzzy 零回归。
+- 视频 evaluator 确定性 FAIL CHECK：新增 `timeline_missing`（shots≥2 缺 `[SHOT`/`[HARD CUT` 标记，-5）/ `timing_break`（beats 端点超 duration+2s，-5）纯结构/数学校验；refined 模板教 `[SHOT N]` 标记；缓存盐 `HIGGSFIELD_FMT_V1 → V2`。
+- 音频分层输出：`audio_layers`（environment/sfx/dialogue/music_off）全链路（OUTPUT_KEYS → `_clean_audio_layers` 清洗 → Audio 四段尾行 → missing_audio 判定表限定 refined），向后兼容保留 audio。
+- 评审修复：尾行剥离正则兼容 Audio 段（C1）、batch 判定表限定 refined（W1）、make_key 非序列化对象防炸 + 排序/空容器归一（W2）、timeline 用剥离后正文、timing_diff 键恒存在、music_off 归一 int 等 6 项 Info。
+- 基线修复（独立 commit e1f1788）：`rest.py` 资源端点显式 utf-8 读取——修复 Windows GBK locale 下 prompts.json 读取抛 UnicodeDecodeError 被吞导致 `rag_cases` 恒 0 的既有缺陷（全量测试三轮失败 1 项的真根因）。
+- 测试：新增 `tests/test_audio_layers.py` / `test_cache_key_components.py` / `test_video_evaluator_deterministic.py` + 评审回归；全量 pytest 736 passed / 0 failed / 3 skipped（5 个 web_e2e 环境性 error 与本变更无关）。
+- 评审：Claude 双模型 1 Critical（已修）+ 2 Warning（已修）+ 13 Info（6 已修，其余 Batch B/C）；antigravity 地区不可用降级。
 ## [2026-08-14] fix(story2video): 水印「移动」位置漂移速度降为原 1/10（watermark-slow-drift）
 
 - 现象：故事讲述流水线水印位置选择「移动（平滑漂移）」时，Lissajous 正弦轨迹周期过短（x 10s / y 14s），画面内游走过快影响观看。
 - 修复：`buildWatermarkFilter` moving 表达式周期放大 10 倍（x 100s / y 140s），速度约为原 1/10，90% 中心幅度、t=0 居中、确定性（sin/cos、无 random、无逗号）契约不变。
 - 测试：契约断言同步（100/140）；compose-engine 101 + text-config 73 = 174 用例全绿；真实 ffmpeg 12s 冒烟渲染通过。
 - 评审：Claude 后端不可用（status 1）降级为主代理自审 0C/0W/0I，详见 `.ccg/tasks/story2video-watermark-slow-drift/review.md`。
+## [2026-08-14] 运营后台提示词评测：视频提示词评估（prompt-eval-video）
+
+- 需求：运营后台「提示词评测」在图片评估基础上新增视频提示词评估（生成视频 → 抽帧 → 多维度评估），OpenSpec change `prompt-eval-video`（proposal/design/specs/tasks，已提交 main）。
+- 后端：
+  - `services/prompt_eval_video_service.py`（新）：Agnes Video V2.0 异步生成契约（`POST /videos` 提交 → 域名根 `agnesapi?video_id=` 轮询 → 下载 MP4 校验 ftyp 魔数 + ≤50MB）；`find_ffmpeg()` 优先 `FFMPEG_BIN`，回落 imageio-ffmpeg；ffmpeg 抽首/中/尾 3 帧 PNG；轮询默认超时 20 分钟（`OPS_PROMPT_EVAL_VIDEO_POLL_TIMEOUT` 可覆盖），密钥缺失/生成失败/下载失败/抽帧失败全部 fail closed。
+  - `prompt_eval_contract.py`：`MEDIA_TYPES`/`VIDEO_FRAME_COUNT`/`MAX_VIDEO_BYTES`、`resolve_video_dimension_weights()`（时序/运动/审美/共享 0.30/0.30/0.20/0.20）、`validate_eval_result` 视频维度白名单；`prompt_eval_evaluation_service.py` 新增 `_build_video_eval_prompt`（media_type 透传）。
+  - `models.py` + `ensure_prompt_eval_video_columns`：`PromptEvalCase.media_type`（default image）、`PromptEvalRun.video_frames`（video_path 已有）；创建时 scene+video / video+dual 拒绝。
+  - `prompt_eval_service.py`：ORM 行→dict 归一化（修复既有 `case["..."]` 对 ORM 行 TypeError 隐患）；video 分支走生成→抽帧→评估；`run_owns_media` 覆盖 video_path/video_frames；快照带 media_type。
+  - `routers/prompt_eval.py`：密钥缺失提示按 media_type 区分「视频生成模型」；`requirements.txt` + `imageio-ffmpeg>=0.5.0`。
+- 前端（`PromptEvalWorkbench.vue`）：media_type 单选（image/video，切换时 dual→single 强制、隐藏图片数/画幅、禁用对比模式）、按钮「生成视频并评估」、详情 `<video>` 播放器 + 3 帧缩略图。
+- 测试：新增 contract +4、video_service 18、migration 1、video_api 4（含真实 ORM run_pipeline 视频分支、media 授权 404、生成失败 fail closed）；全量相关 94 passed；前端 `npm run build` 通过。真实 Agnes 视频生成 / 视觉评估为外部验收项（自动化测试全 mock）。
+- 评审：antigravity 地区不可用（降级记录）；Claude 首轮 2 Critical（C1 媒体越权 run_owns_media、C2 场景模式 media_type 回归）+ 7 Warning 全部修复并补回归测试；复审 8/8 无 Critical；复审 W-2（CDN 3xx 跳转跟随）、W-3（dual 缺 LLM key 500）与 design.md 轮询端点描述同步修复；https 面 IP 段限制按信任边界接受（provider 为运营配置 + follow_redirects=False），详见 `.ccg/tasks/prompt-eval-video/review.md`。
 
 ## [2026-08-14] 运营后台提示词评测：双路对比（人工 vs 引擎优化）（prompt-eval-engine-dual-path）
 

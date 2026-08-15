@@ -485,6 +485,7 @@ class PromptEvalCase(Base):
     prompt_en_source = Column(String(32), nullable=True)  # machine_translation / manual
     prompt_en_translated_at = Column(String, nullable=True)
     prompt_en_cache_zh = Column(Text, nullable=True)  # 幂等缓存键（prompt_zh 快照）
+    media_type = Column(String(16), default="image", nullable=False)  # image / video（v2）
     provider = Column(String(64), nullable=False)
     model = Column(String(128), nullable=False)
     image_count = Column(Integer, default=1)
@@ -509,7 +510,8 @@ class PromptEvalRun(Base):
     model = Column(String(128), nullable=False)
     status = Column(String(16), default="queued")  # queued/processing/succeeded/failed
     image_paths = Column(Text, nullable=True)  # JSON 数组（落盘/COS URL）
-    video_path = Column(String(512), nullable=True)  # v2 预留
+    video_path = Column(String(512), nullable=True)  # 视频文件相对路径（video case）
+    video_frames = Column(Text, nullable=True)  # JSON 数组（首/中/尾 3 帧文件名）
     eval_status = Column(String(16), default="pending")  # pending/succeeded/failed
     overall_score = Column(Float, nullable=True)
     grade = Column(String(16), nullable=True)

@@ -1,0 +1,13 @@
+{
+  "id": "prompt-engine-higgsfield-round3a",
+  "title": "Higgsfield 第三轮 Batch A：图片缓存 key 串号修复 + 确定性校验 + 音频分层",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "prompt-engine",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #47 已合并）",
+  "createdAt": "2026-08-14T22:00:00Z",
+  "branch": "codex/prompt-engine-higgsfield-round3a",
+  "openspecChange": "prompt-engine-higgsfield-round3a"
+}

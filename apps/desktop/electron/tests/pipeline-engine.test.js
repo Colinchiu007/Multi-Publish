@@ -668,3 +668,148 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     expect(run2.status).toBe('completed')
   })
 })
+
+describe('PipelineEngine 批量创作打标与索引隔离', () => {
+  let engine
+
+  beforeEach(() => {
+    engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      stageExecutor: {
+        execute: vi.fn(async () => ({ success: true, output: {} })),
+      },
+    })
+  })
+
+  it('startOrchestrated 透传 source=batch 打标到 run（normalizer 重建后不丢失）', async () => {
+    const started = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      source: 'batch',
+      batchId: 'batch-1',
+      batchItemId: 'item-1',
+      text: '批量测试文案',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '批量测试文案',
+        split: { language: 'zh' },
+      },
+    })
+    expect(started.success).toBe(true)
+    const run = engine._runs.get(started.runId)
+    expect(run.source).toBe('batch')
+    expect(run.batchId).toBe('batch-1')
+    expect(run.batchItemId).toBe('item-1')
+  })
+
+  it('非批量 run 不打标，且仍写 _<name> 索引与 _currentPipeline', async () => {
+    const started = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      text: '手动测试文案',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '手动测试文案',
+        split: { language: 'zh' },
+      },
+    })
+    expect(started.success).toBe(true)
+    const run = engine._runs.get(started.runId)
+    expect(run.source).toBeUndefined()
+    expect(run.batchId).toBeUndefined()
+    expect(engine._runs.get('_story2video-compose')).toBe(run)
+    expect(engine._currentPipeline).toBe('story2video-compose')
+  })
+
+  it('批量 run 不覆盖 _<name> 索引：手动 getStatus 保持 idle', async () => {
+    const started = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      source: 'batch',
+      batchId: 'batch-2',
+      batchItemId: 'item-2',
+      text: '批量测试文案2',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '批量测试文案2',
+        split: { language: 'zh' },
+      },
+    })
+    expect(started.success).toBe(true)
+    // 批量 run 启动后，手动状态查询不受影响
+    const manualStatus = engine.getStatus('story2video-compose')
+    expect(manualStatus.status).toBe('idle')
+    expect(engine._runs.get('_story2video-compose')).toBeUndefined()
+    expect(engine._currentPipeline).toBeNull()
+  })
+
+  it('_countActiveManualRuns 只统计非批量运行中 run', async () => {
+    const startedBatch = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      source: 'batch',
+      batchId: 'batch-3',
+      batchItemId: 'item-3',
+      text: '批量测试文案3',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '批量测试文案3',
+        split: { language: 'zh' },
+      },
+    })
+    expect(startedBatch.success).toBe(true)
+    expect(engine._countActiveManualRuns()).toBe(0)
+    expect(engine._countActiveRuns()).toBe(1)
+
+    const startedManual = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      text: '手动测试文案2',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '手动测试文案2',
+        split: { language: 'zh' },
+      },
+    })
+    expect(startedManual.success).toBe(true)
+    expect(engine._countActiveManualRuns()).toBe(1)
+    expect(engine._countActiveRuns()).toBe(2)
+  })
+
+  it('批量 run 完成进入 _history 并保留 batch 标记', async () => {
+    const started = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      source: 'batch',
+      batchId: 'batch-4',
+      batchItemId: 'item-4',
+      text: '批量测试文案4',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '批量测试文案4',
+        split: { language: 'zh' },
+      },
+    })
+    const run = engine._runs.get(started.runId)
+    run.stages.forEach(s => { s.status = 'completed' })
+    run.currentStage = run.stages.length
+    engine._finalizeRun(run, 'completed', null)
+    const historyEntry = engine._history.find(item => item.id === started.runId)
+    expect(historyEntry).toBeTruthy()
+    expect(historyEntry.source).toBe('batch')
+    expect(historyEntry.batchId).toBe('batch-4')
+    expect(historyEntry.batchItemId).toBe('item-4')
+  })
+})
