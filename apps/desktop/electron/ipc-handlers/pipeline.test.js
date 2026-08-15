@@ -417,3 +417,120 @@ describe('阶段进度实时推送桥（pipeline:update）', () => {
     expect(send).not.toHaveBeenCalled()
   })
 })
+
+// ============================================================
+// Story2Video 批量创作（openspec story2video-batch-create）
+// ============================================================
+describe('Story2Video 批量创作 IPC', () => {
+  function createBatchDeps(overrides = {}) {
+    return createMockDeps({
+      story2videoBatchQueue: {
+        createBatch: vi.fn(async () => ({ success: true, batchId: 'batch_1', items: [{ itemId: 'i1', status: 'running' }] })),
+        getBatches: vi.fn(() => []),
+        cancelBatchItems: vi.fn(() => ({ success: true, cancelled: 1 })),
+      },
+      ...overrides,
+    })
+  }
+
+  it('story2video:batch:create 拒绝外部网页调用', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createBatchDeps())
+    const handler = ipcMain._get('story2video:batch:create')
+
+    const result = await handler(UNTRUSTED_EVENT, { mode: 'text', texts: ['a'] })
+
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
+
+  it('story2video:batch:create 成功返回 batchId + items', async () => {
+    const queue = { createBatch: vi.fn(async () => ({ success: true, batchId: 'batch_1', items: [{ itemId: 'i1' }] })) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ story2videoBatchQueue: queue }))
+
+    const result = await ipcMain._get('story2video:batch:create')(TRUSTED_EVENT, { mode: 'text', texts: ['文案A'] })
+
+    expect(result).toEqual({ code: 0, data: { batchId: 'batch_1', items: [{ itemId: 'i1' }] } })
+    expect(queue.createBatch).toHaveBeenCalledWith({ mode: 'text', texts: ['文案A'] })
+  })
+
+  it('story2video:batch:create 校验失败透传 errorCode + failedItems', async () => {
+    const queue = {
+      createBatch: vi.fn(async () => ({ success: false, error: '至少输入 1 条文案', errorCode: 'BATCH_NO_ITEMS', failedItems: [] })),
+    }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ story2videoBatchQueue: queue }))
+
+    const result = await ipcMain._get('story2video:batch:create')(TRUSTED_EVENT, { mode: 'text', texts: [] })
+
+    expect(result).toMatchObject({ code: -2, message: '至少输入 1 条文案', errorCode: 'BATCH_NO_ITEMS', failedItems: [] })
+  })
+
+  it('story2video:batch:status 返回批次列表', async () => {
+    const queue = { getBatches: vi.fn(() => [{ id: 'batch_1', summary: { running: 1 } }]) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ story2videoBatchQueue: queue }))
+
+    const result = await ipcMain._get('story2video:batch:status')(TRUSTED_EVENT)
+
+    expect(result).toEqual({ code: 0, data: [{ id: 'batch_1', summary: { running: 1 } }] })
+  })
+
+  it('story2video:batch:cancel 缺少 batchId 返回校验错误', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createBatchDeps())
+
+    const result = await ipcMain._get('story2video:batch:cancel')(TRUSTED_EVENT, {})
+
+    expect(result).toEqual({ code: -2, message: '缺少或非法 batchId' })
+  })
+
+  it('story2video:batch:cancel 成功返回取消数量', async () => {
+    const queue = { cancelBatchItems: vi.fn(() => ({ success: true, cancelled: 2 })) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ story2videoBatchQueue: queue }))
+
+    const result = await ipcMain._get('story2video:batch:cancel')(TRUSTED_EVENT, { batchId: 'batch_1', itemIds: ['i1', 'i2'] })
+
+    expect(result).toEqual({ code: 0, data: { success: true, cancelled: 2 } })
+    expect(queue.cancelBatchItems).toHaveBeenCalledWith('batch_1', ['i1', 'i2'])
+  })
+
+  it('story2video:pick-batch-files 通过 dialog 过滤 .txt/.md 并返回路径+名称', async () => {
+    const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: ['C:/a.txt', 'C:/b.md'] })) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ dialog }))
+
+    const result = await ipcMain._get('story2video:pick-batch-files')(TRUSTED_EVENT)
+
+    expect(result).toEqual({
+      code: 0,
+      data: { files: [{ path: 'C:/a.txt', name: 'a.txt' }, { path: 'C:/b.md', name: 'b.md' }] },
+    })
+    expect(dialog.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '文本文件', extensions: ['txt', 'md'] }],
+    }))
+  })
+
+  it('story2video:pick-batch-files 取消返回空列表', async () => {
+    const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ dialog }))
+
+    const result = await ipcMain._get('story2video:pick-batch-files')(TRUSTED_EVENT)
+
+    expect(result).toEqual({ code: 0, data: { files: [] } })
+  })
+
+  it('批量队列服务缺失时返回错误 envelope 不抛错', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+
+    const createResult = await ipcMain._get('story2video:batch:create')(TRUSTED_EVENT, { mode: 'text', texts: ['a'] })
+    expect(createResult.code).toBe(-1)
+
+    const statusResult = await ipcMain._get('story2video:batch:status')(TRUSTED_EVENT)
+    expect(statusResult).toEqual({ code: -1, message: '批量创作队列服务不可用', data: [] })
+  })
+})

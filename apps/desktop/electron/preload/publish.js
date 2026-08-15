@@ -182,6 +182,13 @@ function createPublishApi(ipcRenderer, options = {}) {
     story2videoTranscribe: (filePath) => ipcRenderer.invoke('story2video:transcribe', { filePath }),
     story2videoCapabilities: () => ipcRenderer.invoke('story2video:capabilities'),
 
+    // Story2Video 批量创作（openspec story2video-batch-create）
+    story2videoBatchCreate: (payload) => ipcRenderer.invoke('story2video:batch:create', payload),
+    story2videoBatchStatus: () => ipcRenderer.invoke('story2video:batch:status'),
+    story2videoBatchCancel: (batchId, itemIds) => ipcRenderer.invoke('story2video:batch:cancel', { batchId, itemIds }),
+    // 本地文件选择（.txt/.md 多选）：返回 [{ path, name }]，路径由主进程对话框直接提供
+    story2videoPickBatchFiles: () => ipcRenderer.invoke('story2video:pick-batch-files'),
+
     // Cloud Publisher API
     cloudPublishSubmit: (params) => ipcRenderer.invoke('cloud-publisher:submit', params),
     cloudPublishListTasks: () => ipcRenderer.invoke('cloud-publisher:list-tasks'),

@@ -1,3 +1,14 @@
+## 批量创作队列调度设计复盘（story2video-batch-create，2026-08-15）
+
+- **背景**：故事讲述新增批量创作：一次入队 1-10 条文案 / 1-20 个 .txt/.md 文件，按队列依次运行（批量并行 ≤2、手动运行中批量并行 ≤1、批量+手动 < 引擎全局预算），完成后进历史记录。落地为独立队列服务 `Story2VideoBatchQueue`（不嵌 PipelineEngine），run 打标 `source='batch'` 复用既有编排链路。
+- **教训 1（调度循环必须支持一轮启动多个）**：初版 `_drain` 每轮只启动 1 个任务即 return，导致并行 ≤2 永远达不到（并行上限形同虚设）。重构为死循环 `_collectPending + _canStartNow` 持续补位直到并行上限或无可启动项；终态事件/创建/取消均触发 `_drain`，`_draining` 防重入 + 尾部补偿（事件在 drain 期间到达可能错过启动窗口）。
+- **教训 2（引擎预算拒绝≠任务失败）**：`startOrchestrated` 返回 `PIPELINE_CONCURRENCY_LIMIT` 时若直接标记 failed，会导致真实高负载下批量任务批量误失败。修法：并发/预算类拒绝走 1s 退避重试（`_scheduleRetry`），其余错误才标记 failed。
+- **教训 3（normalizer 丢未知字段）**：`startOrchestrated` 的 config normalizer 会剥离未知字段（batchId/batchItemId），直接塞 params 会丢失打标。修法：normalize 前提取 `batchMeta`、normalize 后重新附加——「先取后补」模式适用于任何主进程透传标记。
+- **教训 4（索引隔离防串扰）**：批量 run 若写 `_currentPipeline` / `_<name>` 索引，会顶掉用户手动任务的详情页状态（后台批量跑完 → 手动详情被重挂为批量 run）。批量 run 只写 `_runs`，不写索引——「后台任务不得扰动前台状态」的通用边界。
+- **教训 5（fail-closed 整体拒绝）**：批量入队任何一项校验失败（超长/空/超限）都不得部分入队：整体拒绝 + `failedItems` 明细透传，前端展示首项标签，避免「看似成功实则缺项」的静默丢失。
+- **教训 6（事件订阅窗口）**：队列构造时即订阅 `pipeline:complete/fail`（先于任何 run 启动），无事件丢失窗口；`setRunFinalizedHook` 已被 diagnostics-reporter 占用，不可复用。
+- **回归保护**：`story2video-batch-queue.test.js` 15 例（并行 ≤2 入队即双跑、手动互斥、预算退避、取消仅 pending、索引隔离）；IPC 11 例；CreateView 7 例；全量 vitest 通过。
+
 ## Windows GBK locale 下 read_text() 静默吞错 + 格式演进三件套复盘（prompt-engine-higgsfield-round3a，2026-08-15）
 
 - **交付**：round3a（PR #47，commit `ea35c78` + `e1f1788`）——图片缓存 key 全组件化（IMAGE_FMT_V1）、视频确定性校验（timeline_missing/timing_break，盐 V2）、音频分层（audio_layers 四段尾行）；全量 pytest 736 passed / 0 failed。

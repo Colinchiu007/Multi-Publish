@@ -5,6 +5,22 @@
 - 测试：compose-engine 105/105（新增恰 3000s 通过/3000.1s 拒绝严格大于用例、旁白上限更严分支、3020s 拒绝/2980s 通过、min-duration 3300s 拒绝同步）；关联 cleanup/text-config/stages 171/171。
 - 文档：PRD §7.1.25a 新增成片与旁白时长上限合同 + 已知限制（下游固定 ffmpeg 超时按短成片设计未缩放、前端时长类错误映射缺失、512MB 输入总量约束）；PRD-video-creation 4 处与 architecture-video-integration 1 处旧 10/15 分钟值同步 50 分钟；OpenSpec change s2v-compose-duration-50min（validate PASS）。
 - 评审：Claude 0C/3W/5I——W1（成片文案默认不可达）修复（检查顺序）、W2（下游固定超时）记录已知限制、W3（同树文档旧值）修复；antigravity 地区不可用降级记录；详见 `.ccg/tasks/s2v-compose-duration-50min/review.md`。
+## [2026-08-15] fix(ops-center): 提示词评测 Network Error 文案可操作化——传输层失败映射自助排查提示（ops-center-prompt-eval-network-error）
+
+- 现象：运营后台 → 提示词评测 → 进入页面报「加载评测列表失败：Network Error」。
+- 根因：`PromptEvalWorkbench.vue loadCases()` 的 catch 直接展示 axios 裸 message（`e?.response?.data?.detail || e.message`）；传输层失败（无 HTTP 响应，`net::ERR_CONNECTION_REFUSED`）时 `e.message === "Network Error"`。真实浏览器复现：双服务在线零报错；仅 vite dev server 离线且旧 tab 未刷新时出现该文案——非业务代码 Bug，是开发栈未同时在线 + 错误文案不可操作。
+- 修复：`apiErrorMessage(e, fallback)`（`src/api/http.js`）——仅 ERR_NETWORK/Network Error 映射为「无法连接后端服务（Network Error）：请确认 ops-center 后端已启动（uvicorn main:app --port 8010），然后刷新页面重试」；HTTP 错误仍优先展示后端 `detail`，超时/取消保留原 message，空错误回退 fallback。`PromptEvalWorkbench.vue` 全部 10 处 catch 接入。
+- 测试：`tests/api-error-message.test.js` 新增 5 例；vitest 3 文件 16 用例全绿；`npm run build` exit 0。
+
+## [2026-08-15] 故事讲述：批量创作视频（story2video-batch-create）
+
+- 需求：在「视频创作 → 故事讲述」新增【批量创作】：入口按钮 + 弹窗（创作模式隐藏固定全自动、视频增强模式下拉、启动按钮、队列规则提示、输入文案 1-10 条带「+」、本地文件 .txt/.md 最多 20 个），任务按队列依次运行（批量最大并行 2；手动任务运行中批量并行 1），弹窗内实时展示任务与排队信息，批量任务完成后进入历史记录。
+- 引擎（pipeline-engine.js）：`start()` run 打标 `source==='batch'` 时写入 `batchId/batchItemId`；批量 run 不写 `_<name>` 索引与 `_currentPipeline`（防手动详情页串扰）；`startOrchestrated()` 透传 `batchMeta`（normalizer 丢未知字段，前置提取后重新附加）；新增 `_countActiveManualRuns()`。
+- 队列服务（story2video-batch-queue.js 新增）：`createBatch`（text/files 双模式，fail-closed 任一输入项失败整体拒绝不部分入队）、`cancelBatchItems`（仅 pending）、`getBatches`（批次摘要 + 运行中 run 进度/阶段快照）；调度规则：批量并行 ≤2、手动运行中批量 ≤1、批量+手动 < 引擎全局 `maxConcurrentRuns`，引擎预算拒绝（`PIPELINE_CONCURRENCY_LIMIT`）1s 退避重试不标记失败；`_drain` 死循环补位一轮可启动多个。校验：文案 1-10 条/条 ≤6000 字符；文件 .txt/.md/≤2MB/UTF-8/非空/≤6000 字符/1-20 个。
+- IPC：`story2video:batch:create/status/cancel`（LOGIN_ONLY → story2video_write）+ `story2video:pick-batch-files`（PUBLIC，原生对话框 .txt/.md 多选）；全部 `withSenderCheck`，队列服务缺失 fail-closed 返回错误 envelope。
+- 前端：CreateView.vue 操作栏「批量创作」按钮（仅 story2video-compose 显示）；UiModal 弹窗——视频增强模式下拉（off/fixed/ai-judged）、队列规则提示、输入文案/本地文件标签页、启动按钮、任务与排队卡片区（3s 轮询，关闭弹窗后台继续）；`buildStory2VideoTextConfig()` 抽取手动/批量共用配置构造；排队项可取消；locales zh/en 成对新增 `create.story2video.batch.*`。
+- 测试：队列服务 15 例、IPC 11 例、CreateView 7 例（按钮显隐/弹窗/10 条上限/文件去重 20 上限/启动 payload 全自动模板/空输入拦截/失败透传/排队取消）；全量 vitest 通过。
+- 文档：PRD §7.1.34 批量创作（数据校验/调度规则/状态机/流程/交互/显示项/提示文字/IPC 契约/回归测试）；learnings.md 批量队列设计复盘；OpenSpec change story2video-batch-create（openspec/specs/story2video-batch-create）。
 
 ## [2026-08-15] feat(prompt-engine): Higgsfield round3a Batch A——缓存 key 全组件化/视频确定性校验/音频分层（PR #47）
 
@@ -15,7 +31,6 @@
 - 基线修复（独立 commit e1f1788）：`rest.py` 资源端点显式 utf-8 读取——修复 Windows GBK locale 下 prompts.json 读取抛 UnicodeDecodeError 被吞导致 `rag_cases` 恒 0 的既有缺陷（全量测试三轮失败 1 项的真根因）。
 - 测试：新增 `tests/test_audio_layers.py` / `test_cache_key_components.py` / `test_video_evaluator_deterministic.py` + 评审回归；全量 pytest 736 passed / 0 failed / 3 skipped（5 个 web_e2e 环境性 error 与本变更无关）。
 - 评审：Claude 双模型 1 Critical（已修）+ 2 Warning（已修）+ 13 Info（6 已修，其余 Batch B/C）；antigravity 地区不可用降级。
-
 ## [2026-08-14] fix(story2video): 水印「移动」位置漂移速度降为原 1/10（watermark-slow-drift）
 
 - 现象：故事讲述流水线水印位置选择「移动（平滑漂移）」时，Lissajous 正弦轨迹周期过短（x 10s / y 14s），画面内游走过快影响观看。
