@@ -31,3 +31,11 @@
 - Git Bash syntax checks: passed.
 - PowerShell syntax checks: passed.
 - `openspec validate session-isolation-hardening --strict`: passed.
+
+## Delivery
+
+- PR #844 merged as `f2af0370`; every remote CI gate passed.
+- Versioned hooks were installed to the shared Git common directory and both `pre-commit` and `post-checkout` were verified present.
+- Live specs were synchronized before archiving; the new and modified specs validate.
+- `openspec validate --specs` retains two unrelated pre-existing failures (`prompt-engine`, `story2video-batch-create`).
+- `scripts/openspec-sync-check.js` passed for completed/active alignment while reporting two unrelated malformed archived task files that it safely skipped.
