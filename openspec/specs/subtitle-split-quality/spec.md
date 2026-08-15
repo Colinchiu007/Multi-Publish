@@ -68,14 +68,28 @@ Step 6 平衡切分的标点锚点 `balanced` SHALL 满足 `0 < balanced < len(b
 - **WHEN** options 携带 `subtitle_timing: 'equal'`
 - **THEN** 8002 请求 `config.subtitle.time_calculation_method === 'equal'`
 
+### Requirement: 顿号枚举吞并谓语守卫（v1.2.1）
+顿号枚举保护 SHALL 在枚举单元扫到片段尾仍无终止、且枚举单元内不含更多顿号项时判定为
+「枚举项 + 谓语」被 max_chars 截断的过度吞并，回退顿号锚点（不依赖谓词引导词表）；
+`predicate_starters` SHALL 包含高频动词首字 `混`。禁止产出 15+3 式劈词孤尾。
+
+#### Scenario: 声音枚举吞谓语不劈词
+- **WHEN** 对 `枪声、爆炸声、呐喊声混成一锅滚烫的粥。` 分句
+- **THEN** 输出为 `枪声、爆炸声、呐喊声` + `混成一锅滚烫的粥`（10+8），
+  禁止出现 `枪声、爆炸声、呐喊声混成一锅滚` + `烫的粥`（劈词孤尾）
+
+#### Scenario: 未知谓语动词回退锚点
+- **WHEN** 谓词引导词表之外的动词开头（如 `此起彼伏`）触发枚举扫描
+- **THEN** 枚举保护回退顿号锚点，禁止吞并谓语整段到块尾；短头块并入超限时保持独立
+
 ### Requirement: 三端逐字一致与共享向量回归
 sidecar Python、MP TS 镜像、MP JS 镜像 SHALL 对同一文本同一配置输出逐字一致的字幕块序列；
-共享向量 `subtitle_segmentation_vectors.json`（含 5 条用户坏例）三副本同步，`expected_blocks`
+共享向量 `subtitle_segmentation_vectors.json`（含 6 条用户坏例）三副本同步，`expected_blocks`
 为手工真值（禁止把实现输出直接写入向量）。
 
 #### Scenario: Python 向量回归
 - **WHEN** 在 smart-sentence-splitter 执行 `pytest tests/unit/test_subtitle_vectors.py`
-- **THEN** 全部通过（含 25 条向量的块一致/min_chars 不变量/时间戳连续断言）
+- **THEN** 全部通过（含 26 条向量的块一致/min_chars 不变量/时间戳连续断言）
 
 #### Scenario: TS 与 JS 镜像回归
 - **WHEN** 执行 `pnpm --filter @multi-publish/story2video-engine test` 与
@@ -83,9 +97,9 @@ sidecar Python、MP TS 镜像、MP JS 镜像 SHALL 对同一文本同一配置�
 - **THEN** 全部通过，JS 与 TS 输出一致且命中共享向量
 
 ### Requirement: 真实 8002 链路 E2E
-`tests/e2e-pipeline-orchestrator.test.js` SHALL 包含通过真实 8002 `/v1/split` 执行的用户 5 段坏例用例，
+`tests/e2e-pipeline-orchestrator.test.js` SHALL 包含通过真实 8002 `/v1/split` 执行的用户 6 段坏例用例，
 断言 pipeline split 阶段输出字幕块序列命中 v1.2 目标；E2E 用例 SHALL 在每轮验证后释放并发槽。
 
-#### Scenario: 用户 5 段坏例命中目标
-- **WHEN** 8002 服务运行（sidecar 代码 ≥ v0.16.0/词边界修复）且执行该 E2E 用例
-- **THEN** 5 段文本的字幕块序列分别命中共享向量 `expected_blocks`，逐字相等
+#### Scenario: 用户 6 段坏例命中目标
+- **WHEN** 8002 服务运行（sidecar 代码 ≥ v0.16.0/词边界修复 + v1.2.1 枚举守卫）且执行该 E2E 用例
+- **THEN** 6 段文本的字幕块序列分别命中共享向量 `expected_blocks`，逐字相等

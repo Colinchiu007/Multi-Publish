@@ -508,6 +508,21 @@
       ],
       "note": "用户坏例#5：不劈「复杂」，顿号枚举「简单化、直线化」整体保留（机制二修复）",
       "short_block_exceptions": []
+    },
+    {
+      "id": "user_sounds_mixed",
+      "input": "枪声、爆炸声、呐喊声混成一锅滚烫的粥。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "枪声、爆炸声、呐喊声",
+        "混成一锅滚烫的粥"
+      ],
+      "note": "用户坏例#6：顿号枚举保护吞并谓语 → 15+3 劈词「滚/烫」孤尾（v1.2.1：predicate_starters 加「混」+ 无顿号吞并守卫回退锚点）",
+      "short_block_exceptions": []
     }
   ]
 }

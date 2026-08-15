@@ -5,7 +5,7 @@
  * 断言 story2video-segmentation-engine（JS 镜像）对共享 subtitle_segmentation_vectors.json
  * 的输出与 Python/TS 双实现逐字一致，防止 JS 镜像手抄漂移。
  * 与 packages/story2video-engine/tests/subtitle-vectors.test.ts、smart-sentence-splitter
- * tests/unit/test_subtitle_vectors.py 断言同一份向量（25 条，含 5 条用户坏例）。
+ * tests/unit/test_subtitle_vectors.py 断言同一份向量（26 条，含 6 条用户坏例）。
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'

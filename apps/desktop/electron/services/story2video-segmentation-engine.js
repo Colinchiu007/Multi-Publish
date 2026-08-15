@@ -366,6 +366,9 @@ function enumerationEnd (text, pos) {
 function applyEnumerationShift (text, pos, requireTailMin, config) {
   if (pos <= 0 || pos >= text.length || text[pos - 1] !== '、') return pos
   const eend = enumerationEnd(text, pos)
+  // v1.2.1 守卫：枚举单元扫到块尾仍无终止、且内部无更多顿号项时，疑似把谓语吞进
+  // 枚举末项（如 "呐喊声混成一锅滚" 被整段吞并 → 15+3 劈词孤尾），不吞并回退锚点。
+  if (eend === text.length && !text.slice(pos, eend).includes('、')) return pos
   if (eend > pos && eend <= config.maxCharsPerBlock) {
     if (!requireTailMin || text.length - eend >= config.minCharsPerBlock) return eend
   }
