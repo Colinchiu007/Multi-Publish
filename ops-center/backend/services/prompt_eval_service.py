@@ -291,12 +291,25 @@ async def upsert_provider_key(db: AsyncSession, body: dict, username: str, secre
         row.updated_at = _now()
         row.updated_by = username
         await db.commit()
-    return {"provider": row.provider, "model": row.model, "base_url": row.base_url, "enabled": row.enabled}
+    return {"id": row.id, "provider": row.provider, "model": row.model, "base_url": row.base_url, "enabled": row.enabled}
 
 
 async def list_provider_keys(db: AsyncSession) -> list[dict]:
     rows = (await db.execute(select(PromptEvalProviderKey).order_by(PromptEvalProviderKey.provider, PromptEvalProviderKey.model))).scalars().all()
-    return [{"provider": r.provider, "model": r.model, "base_url": r.base_url, "enabled": r.enabled, "updated_at": r.updated_at} for r in rows]
+    return [{"id": r.id, "provider": r.provider, "model": r.model, "base_url": r.base_url, "enabled": r.enabled, "updated_at": r.updated_at} for r in rows]
+
+
+async def delete_provider_key(db: AsyncSession, key_id: int) -> dict:
+    """删除已保存的 provider 密钥（物理删除，admin）。删除后 LLM/视觉回退查找立即失效。"""
+    row = (await db.execute(select(PromptEvalProviderKey).where(
+        PromptEvalProviderKey.id == key_id,
+    ))).scalar_one_or_none()
+    if not row:
+        raise ValueError("密钥不存在")
+    result = {"provider": row.provider, "model": row.model}
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True, **result}
 
 
 async def get_llm_key(db: AsyncSession, secret: str) -> dict | None:

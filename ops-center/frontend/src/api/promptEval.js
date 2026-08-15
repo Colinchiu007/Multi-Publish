@@ -50,6 +50,10 @@ export function upsertPromptEvalProvider(data) {
   return api.put('/prompt-eval/providers', data).then(r => r.data)
 }
 
+export function deletePromptEvalProvider(keyId) {
+  return api.delete(`/prompt-eval/providers/${keyId}`).then(r => r.data)
+}
+
 export function testPromptEvalProvider(data) {
   return api.post('/prompt-eval/providers/test', data).then(r => r.data)
 }

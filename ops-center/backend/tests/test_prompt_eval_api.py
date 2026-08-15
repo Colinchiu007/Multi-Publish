@@ -476,6 +476,79 @@ async def test_provider_test_endpoint_admin_only(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_provider_key_delete_flow():
+    """模型密钥删除：admin 删除成功、列表不含、LLM 回退立即失效、删除后同键可重建。"""
+    async with _client() as client:
+        admin = _headers(role="admin")
+        h = _headers()
+        # 保存 minimax-llm
+        r = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-llm", "model": "MiniMax-M2.7",
+            "api_key": "sk-del-001", "base_url": "https://llm.example/v1",
+        }, headers=admin)
+        assert r.status_code == 200, r.text
+        items = (await client.get("/api/v1/prompt-eval/providers", headers=h)).json()["items"]
+        row = next(x for x in items if x["provider"] == "minimax-llm" and x["model"] == "MiniMax-M2.7")
+        assert isinstance(row["id"], int) and row["id"] > 0
+
+        # 删除成功 → 列表不含该项
+        d = await client.delete(f"/api/v1/prompt-eval/providers/{row['id']}", headers=admin)
+        assert d.status_code == 200, d.text
+        assert d.json()["ok"] is True
+        items2 = (await client.get("/api/v1/prompt-eval/providers", headers=h)).json()["items"]
+        assert not any(x["provider"] == "minimax-llm" and x["model"] == "MiniMax-M2.7" for x in items2)
+
+        # 删除后 LLM 回退立即失效（get_llm_key 不再返回该密钥）
+        from services import prompt_eval_service as svc
+        from database import async_session
+        async with async_session() as db:
+            k = await svc.get_llm_key(db, settings.secret_key)
+        assert k is None
+
+        # 视觉密钥删除后回退同样失效
+        rv = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-vision", "model": "MiniMax-M2.7",
+            "api_key": "sk-vision-del", "base_url": "https://llm.example/v1",
+        }, headers=admin)
+        assert rv.status_code == 200, rv.text
+        vid = rv.json()["id"]
+        async with async_session() as db:
+            assert await svc.get_vision_key(db, settings.secret_key) is not None
+        assert (await client.delete(f"/api/v1/prompt-eval/providers/{vid}", headers=admin)).status_code == 200
+        async with async_session() as db:
+            assert await svc.get_vision_key(db, settings.secret_key) is None
+
+        # 删除后同 provider+model 可重建
+        r3 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-llm", "model": "MiniMax-M2.7",
+            "api_key": "sk-del-002", "base_url": "https://llm.example/v1",
+        }, headers=admin)
+        assert r3.status_code == 200, r3.text
+
+
+@pytest.mark.asyncio
+async def test_provider_key_delete_permissions_and_missing():
+    """删除权限与存在性：非 admin → 403；不存在 id → 404；未登录 → 401。"""
+    async with _client() as client:
+        admin = _headers(role="admin")
+        # 保存后拿 id
+        r = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "flux", "model": "flux-dev", "api_key": "sk-x", "base_url": "",
+        }, headers=admin)
+        assert r.status_code == 200, r.text
+        key_id = r.json()["id"]
+        # 非 admin → 403
+        assert (await client.delete(f"/api/v1/prompt-eval/providers/{key_id}", headers=_headers(role="user"))).status_code == 403
+        # 未登录 → 401
+        assert (await client.delete(f"/api/v1/prompt-eval/providers/{key_id}")).status_code == 401
+        # 不存在 id → 404
+        assert (await client.delete("/api/v1/prompt-eval/providers/999999", headers=admin)).status_code == 404
+        # 数据未被非 admin 删除（仍存在）
+        items = (await client.get("/api/v1/prompt-eval/providers", headers=_headers())).json()["items"]
+        assert any(x["id"] == key_id for x in items)
+
+
+@pytest.mark.asyncio
 async def test_vision_key_supports_opencode_go(monkeypatch):
     """视觉评估支持 opencode-go-vision（Opencode-Go 视觉模型，OpenAI 兼容 base_url）。"""
     import services.prompt_eval_service as svc

@@ -37,10 +37,11 @@
         <template #default="{ row }">{{ row.enabled ? '是' : '否' }}</template>
       </el-table-column>
       <el-table-column prop="updated_at" label="更新时间" width="200" />
-      <el-table-column label="操作" width="220">
+      <el-table-column label="操作" width="300">
         <template #default="{ row }">
           <el-button size="small" @click="startEdit(row)">编辑</el-button>
           <el-button size="small" :loading="testingRow === row.provider + '/' + row.model" @click="testRow(row)">测试连通</el-button>
+          <el-button v-if="row.id" size="small" type="danger" :loading="removingRow === row.id" @click="removeRow(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -49,13 +50,15 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { listPromptEvalProviders, upsertPromptEvalProvider, testPromptEvalProvider } from '../api/promptEval'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { listPromptEvalProviders, upsertPromptEvalProvider, testPromptEvalProvider, deletePromptEvalProvider } from '../api/promptEval'
 
 const form = ref({ provider: 'minimax-image', model: 'image-01', api_key: '', base_url: '', enabled: true })
 const items = ref([])
 const saving = ref(false)
 const testing = ref(false)
 const testingRow = ref('')
+const removingRow = ref(null)
 const isEdit = ref(false)
 const msg = ref('')
 const msgType = ref('success')
@@ -110,6 +113,31 @@ async function testRow(row) {
   testingRow.value = row.provider + '/' + row.model
   await testConnection({ provider: row.provider, model: row.model })
   testingRow.value = ''
+}
+
+async function removeRow(row) {
+  try {
+    await ElMessageBox.confirm(`确定删除密钥「${row.provider} / ${row.model}」吗？删除后该密钥不可恢复。`, '确认删除', { type: 'warning' })
+  } catch {
+    return
+  }
+  removingRow.value = row.id
+  try {
+    await deletePromptEvalProvider(row.id)
+    ElMessage.success('已删除')
+    msg.value = ''
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || e.message || '删除失败')
+    removingRow.value = null
+    return
+  }
+  try {
+    await load()
+  } catch (e) {
+    ElMessage.warning('已删除，但列表刷新失败：' + (e?.response?.data?.detail || e.message))
+  } finally {
+    removingRow.value = null
+  }
 }
 
 async function save() {
