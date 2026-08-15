@@ -386,7 +386,7 @@ videogen：storyboard 场景提示词 → PromptBridge.optimizeVideosBatch（dom
   → CreateView.loadHistory() 并行两个只读请求（Promise.allSettled + 5s 竞速超时）：
        ├─ story2video:list-projects   → Story2VideoProjectService.listProjects()（本地 SQLite 项目索引，owner 隔离）
        └─ pipeline:history            → PipelineEngine.getHistory()（本会话内存 run + 持久化失败快照，设备级）
-  → 合并：运行中流水线置顶 → 已完成项目 → 终态流水线（按 projectId 去重，项目优先）
+  → 合并：运行中置顶 → 未完成（暂停/失败）→ 已完成项目 → 其他终态（各组按 updatedAt||createdAt 倒序；按 projectId 去重，项目优先）
   → 未登录（localMode=true）时顶部显示「本地模式」提示条
   → 任一请求失败（code!=0 / 非数组 / 超时 / reject）：
        ├─ 收集失败 message → historyLoadFailureDetail() 按原因映射可操作建议
@@ -416,7 +416,7 @@ videogen：storyboard 场景提示词 → PromptBridge.optimizeVideosBatch（dom
 | 显示项 | 位置 | 行为 |
 |--------|------|------|
 | 本地模式提示条 | 历史视图顶部（`data-testid="history-local-mode-banner"`） | 未登录（localMode=true）时显示；已登录/登录态变化后随下次 loadHistory 刷新 |
-| 历史列表 | 历史视图 | 运行中置顶 + 项目 + 终态流水线；空时显示「暂无创作记录」 |
+| 历史列表 | 历史视图 | 运行中置顶 + 未完成（暂停/失败）+ 已完成项目 + 其他终态；最新失败/暂停任务必须出现在已完成项目之前；空时显示「暂无创作记录」 |
 | 错误弹窗 | 应用内弹窗 | 标题「提示」+ 通用文案 + detail 建议行（仅当可映射原因时）+ 「知道了」按钮 |
 | 空态 | 历史视图 | 「暂无创作记录」（无数据时） |
 
@@ -1723,6 +1723,22 @@ SettingsDialog 关闭（App.vue @close）
 - preload.test.js：新方法通道转发 + 数量断言（92 / 282 / 80）；
 - ResultView.test.js：3 槽位渲染与选中态、点击选中调用 IPC、busy 态、再次合成调用 recompose、成功/失败通知归一化；
 - locale：zh/en 成对 + CI Gate 7（check-locale-sync）通过；渲染端无新增中文字面量。
+
+### 3.1.27 历史记录可见性与终态一致（2026-08-15）
+
+**背景**：① 流水线失败/取消时，主进程仅置 run 顶层终态，当前 stage（如 compose）仍保持 `running`，历史详情页与持久化快照出现「视频合成 运行中」假象；② 历史列表把「暂停/失败」任务排在全部已完成项目之后（实测 30+ 条历史中最新失败任务排第 27 位），用户误以为任务丢失。
+
+#### 1) 终态一致（主进程）
+
+- `_finalizeRun(run, status, error)` 在 `status=failed|cancelled` 时，把 `run.stages[run.currentStage]` 同步为同一终态并补 `completedAt`（与 `_advanceRun` 完成语义一致）；`cancel()` 先置 stage 时幂等兜底。
+- 覆盖路径：`executeStage` 失败、`_autoAdvanceRun` 失败、`cancel()`；`getRunSnapshot`/`runStateStore.saveFailed` 快照随之携带正确 stage 终态。
+- 回归保护：`pipeline-engine.test.js`「_finalizeRun failed/cancelled 同步当前 stage 终态」断言 stage 终态 + completedAt + 已完成 stage 不受影响。
+
+#### 2) 历史排序（前端 CreateView.loadHistory）
+
+- 排序规则：运行中置顶 → 未完成（`paused`/`failed`，按 `updatedAt||createdAt` 倒序）→ 已完成项目（倒序）→ 其他终态（`cancelled`/已完成 runs，倒序）。
+- 失败任务 `pausedStage` 优先取 `stage.status==='failed'` 的阶段，无 failed stage 时才回退「非 completed / 末位」。
+- 回归保护：`CreateView.test.js`「失败/暂停的未完成任务排在已完成项目之前」断言 `[failed, paused, project×2]` 顺序。
 
 ### 3.3 叠加层（Remotion 快速路径，P1）
 

@@ -3780,14 +3780,17 @@ export default {
           }
         }
 
-        // 运行中流水线置顶（需求：历史记录可查看运行中未完成任务及其实时流程状态），
-        // 其次是已完成项目，最后是终态流水线。
+        const historyTime = item => {
+          const t = new Date(item.updatedAt || item.createdAt || 0).getTime()
+          return Number.isFinite(t) ? t : 0
+        }
+        const byNewest = (a, b) => historyTime(b) - historyTime(a)
+        const restRuns = runs.filter(run => run.status !== 'running' && run.status !== 'paused' && run.status !== 'failed')
         this.history = [
-          ...runs.filter(run => run.status === 'running'),
-          ...projects,
-          ...runs.filter(run => run.status === 'paused'),
-          ...runs.filter(run => run.status === 'failed'),
-          ...runs.filter(run => run.status !== 'running' && run.status !== 'paused' && run.status !== 'failed'),
+          ...runs.filter(run => run.status === 'running').sort(byNewest),
+          ...runs.filter(run => run.status === 'paused' || run.status === 'failed').sort(byNewest),
+          ...projects.sort(byNewest),
+          ...restRuns.sort(byNewest),
         ]
         this.scheduleHistoryRefresh()
         if (!hasProjects || !hasRuns) {

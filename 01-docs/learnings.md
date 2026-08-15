@@ -1,3 +1,10 @@
+## 失败任务历史「看不到」与 stage 终态不一致复盘（s2v-history-visibility，2026-08-15）
+
+- **现象**：compose 阶段失败后任务在历史记录中「看不到」。实测：主进程 `pipelineHistory()` 返回 14 条（失败任务第 2 位），但前端历史列表 33 条中该任务排第 27 位（`status=failed`，`pausedStage=compose`），被 20+ 条已完成项目压底。
+- **教训 1（顶层终态 ≠ 阶段终态）**：`_finalizeRun` 只置 `run.status`，失败路径漏更新 `run.stages[run.currentStage]`——快照/详情页出现「顶层 failed + 当前 stage running」矛盾组合。对比 pause/cancel/resume/advance 均更新 stage，唯独失败路径缺失。教训：run 终态流转必须与当前 stage 终态成对维护，加终态一致性断言（failed/cancelled 时必须无 running stage）。
+- **教训 2（排序语义要按「用户关注度」而非「状态类别」）**：原排序「运行中 → 已完成项目 → 暂停 → 失败」把未完成任务排在已完成项目之后，违背用户直觉（未完成 = 待处理 = 最需要看到）。教训：历史类列表默认排序应以「未完成/待处理优先 + 时间倒序」为准；排序变更要有「最新失败任务不被埋没」的显式回归用例。
+- **教训 3（逃逸链）**：单测覆盖了 getHistory 合并/去重/快照恢复，但未覆盖「finalize 后 stage 终态」与「前端排序分组」；E2E 使用固定少量历史，无法暴露 20+ 条项目时的沉底。教训：状态机服务层补「终态一致」断言；列表类 UI 补「大数据量下关注项位置」用例。
+- **回归保护**：`pipeline-engine.test.js`（_finalizeRun failed/cancelled stage 同步 + completedAt）、`CreateView.test.js`（失败/暂停排在已完成项目之前）。
 ## 运营后台提示词评测视频模式复盘（prompt-eval-video，2026-08-15）
 
 - **交付**：PR #833（squash `e2893256`）已合并，15 项 CI 全绿。运营后台「提示词评测」新增视频模式：`mediaType=video` case 真实调用视频生成 provider（Agnes Video V2.0 异步契约：POST /videos → 域名根 agnesapi 轮询 → MP4 下载校验 → ffmpeg 抽帧首/中/尾 3 帧）→ 复用视觉评估通道但维度固定为视频 4 维（temporal_consistency/motion_accuracy/audio_visual_sync/video_aesthetic_quality，权重 0.30/0.30/0.20/0.20）。

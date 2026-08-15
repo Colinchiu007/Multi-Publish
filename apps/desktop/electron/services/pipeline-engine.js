@@ -1795,6 +1795,11 @@ class PipelineEngine {
     run.status = status;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
+    if ((status === 'failed' || status === 'cancelled') && Array.isArray(run.stages) && run.stages[run.currentStage]) {
+      const terminalStage = run.stages[run.currentStage];
+      terminalStage.status = status;
+      terminalStage.completedAt = new Date().toISOString();
+    }
     // 诊断附加字段（additive）：失败分类 + 根因候选 + 环境快照。构建失败仅记 warn，不改变 run 终态。
     try {
       run.diagnostics = buildRunDiagnostics(run, captureEnvSnapshot({

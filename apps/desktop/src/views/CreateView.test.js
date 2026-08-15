@@ -2894,6 +2894,30 @@ describe("CreateView - UI interactions", () => {
     expect(w.findAll(".history-name").map(item => item.text())).toEqual(["失败任务"]);
   });
 
+  it("失败/暂停的未完成任务排在已完成项目之前（历史可见性，不沉底）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [
+      { projectId: "project-old", pipeline: "story2video-compose", status: "completed", title: "较早完成", updatedAt: "2026-08-15T09:00:00.000Z" },
+      { projectId: "project-new", pipeline: "story2video-compose", status: "completed", title: "较新完成", updatedAt: "2026-08-15T10:00:00.000Z" },
+    ] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-failed-latest", pipeline: "story2video-compose", status: "failed", title: "最新失败任务", updatedAt: "2026-08-15T12:00:00.000Z" },
+      { id: "run-paused-1", pipeline: "story2video-compose", status: "paused", title: "暂停任务", updatedAt: "2026-08-15T11:00:00.000Z" },
+    ] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.vm.history.map(item => item.id || item.projectId)).toEqual([
+      "run-failed-latest", "run-paused-1", "project-new", "project-old",
+    ]);
+    w.unmount();
+  });
+
   it("失败历史任务显示「从断点继续」并可一键恢复", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });

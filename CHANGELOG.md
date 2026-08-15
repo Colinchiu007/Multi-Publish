@@ -1,3 +1,11 @@
+## [2026-08-15] fix(story2video): 历史记录可见性与终态一致（s2v-history-visibility）
+
+- 现象：流水线在 compose 阶段失败后，「从断点继续」反复报错（根因：成片总时长上限 10 分钟，TTS 实测 11.8 分钟确定性超限，见 s2v-compose-duration-50min 分支）；同时该失败任务在历史记录中「看不到」——实际被埋在 30+ 条已完成项目之后（第 27 位）。
+- 主进程（pipeline-engine.js）：`_finalizeRun` 在 failed/cancelled 终态时同步 `run.stages[run.currentStage]` 为同一终态并补 `completedAt`，消除历史详情「视频合成 运行中」假象；`cancel()`/快照路径幂等兜底。
+- 前端（CreateView.vue 历史记录 tab）：历史排序改为「运行中置顶 → 未完成（暂停/失败）→ 已完成项目 → 其他终态」，各组按 `updatedAt||createdAt` 倒序——最新失败/暂停任务不再沉底；`pausedStage` 优先按 `stage.status==='failed'` 定位失败环节。
+- 测试：pipeline-engine +1 例（failed/cancelled stage 终态同步）、CreateView +1 例（失败/暂停排在已完成项目之前）；CreateHistory 22/22 保持通过；关联套件定向通过。
+- 文档：PRD.md §7.1.37 历史记录可见性与终态一致合同；PRD-video-creation.md §3.1.4.1 排序更新 + §3.1.27 终态一致/历史排序；learnings.md 复盘。
+
 ## [2026-08-15] fix(story2video): 合成时长上限调整到 50 分钟——68 分镜 11.8 分钟 TTS 不再被预检拒绝（s2v-compose-duration-50min）
 
 - 现象：视频流水线合成阶段弹「当前操作未能完成，请稍后再试」；日志 `error=成片总时长不能超过 10 分钟`。根因：compose 预检按 ffprobe 实测旁白音频总时长校验，默认成片上限 600s（10 分钟）、旁白上限 900s（15 分钟）（引入自 e1b46eba）；68 分镜 TTS 实测 709.64s > 600s，属确定性失败，断点重试因素材不变必然再失败。
