@@ -1,13 +1,13 @@
 {
   "title": "修复模型密钥测试连通误报（MiniMax image-01 400 回退 /models）",
-  "currentPhase": "delivery",
+  "currentPhase": "completed",
   "branch": "codex/fix-ops-center-provider-test-minimax",
   "domain": "backend",
   "createdAt": "2026-08-15T19:22:01Z",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "id": "fix-ops-center-provider-test-minimax",
-  "nextAction": "推送 PR 合并回 main 后三同步归档",
+  "nextAction": "PR #861 已合并 00c77d5a，三同步归档完成",
   "openspecChange": "fix-ops-center-provider-probe-400"
 }
