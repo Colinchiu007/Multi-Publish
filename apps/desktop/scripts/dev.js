@@ -2,11 +2,15 @@ const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
 const { buildElectronArgs, resolveUserDataDir } = require('./dev-launcher');
+const { resolveDevPorts } = require('./dev-ports');
 const { appendDevExitLog } = require('./dev-exit-log');
 
 const desktopDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopDir, '..', '..');
-const vitePort = 5174;
+// worktree 独立端口：mp-worktrees 下按路径稳定派生，杜绝并发 worktree 互抢同一端口
+const devPorts = resolveDevPorts(repoRoot);
+const vitePort = devPorts.vite;
+const cdpPort = devPorts.cdp;
 const viteUrl = `http://127.0.0.1:${vitePort}`;
 // 默认固定 D 盘 profile（登录态/模型 key 持久化在同一 userData）；并发会话隔离请显式设 ELECTRON_USER_DATA_DIR
 const electronUserDataDir = resolveUserDataDir();
@@ -33,6 +37,7 @@ const viteScript = path.resolve(repoRoot, 'node_modules', 'vite', 'bin', 'vite.j
 const electronScript = path.resolve(repoRoot, 'node_modules', 'electron', 'cli.js');
 const electronBinary = path.resolve(repoRoot, 'node_modules', 'electron', 'dist', 'electron.exe');
 
+console.log(`[dev] ports: vite=${vitePort} cdp=${cdpPort} derived=${devPorts.derived}`);
 const vite = spawnNodeScript(viteScript, ['--host', '127.0.0.1', '--port', String(vitePort), '--strictPort']);
 
 let electron = null;
@@ -78,7 +83,11 @@ function stop(code, reason = 'stop-called') {
   process.exitCode = code;
 }
 
-vite.on('exit', (code, signal) => { noteExit('vite', code, signal); stop(code ?? 1, 'vite-exit'); });
+vite.on('exit', (code, signal) => {
+  noteExit('vite', code, signal);
+  if (code !== 0) console.error(`[dev] vite exited code=${code} signal=${signal}（端口 ${vitePort} 可能被占用/冲突；可用 MP_VITE_PORT 显式换端口）`);
+  stop(code ?? 1, 'vite-exit');
+});
 vite.on('error', (error) => {
   console.error('[dev] vite failed to start:', error);
   stop(1, 'vite-error');
@@ -96,7 +105,7 @@ function waitForVite(remainingMs) {
     if (res.statusCode && res.statusCode < 500) {
       if (stopping) return;
       const electronCommand = process.platform === 'win32' ? electronBinary : process.execPath;
-      const electronArgs = buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir });
+      const electronArgs = buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort });
       const electronSpawnArgs = process.platform === 'win32' ? electronArgs : [electronScript, ...electronArgs];
       electron = spawn(electronCommand, electronSpawnArgs, {
         cwd: desktopDir,
@@ -105,6 +114,8 @@ function waitForVite(remainingMs) {
         env: {
           ...process.env,
           ELECTRON_USER_DATA_DIR: electronUserDataDir,
+          // 主进程按该端口加载 renderer + IPC 来源校验，避免回退到 5174 连到别的 worktree
+          DEV_SERVER_PORT: String(vitePort),
         },
       });
       electron.on('spawn', () => {

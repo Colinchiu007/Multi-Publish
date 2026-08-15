@@ -124,7 +124,12 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
           { role: 'user', content: '{\n' + joined + '\n}' },
         ],
       })
-      const raw = result && typeof result.content === 'string' ? result.content.trim() : ''
+      let raw = result && typeof result.content === 'string' ? result.content.trim() : ''
+      // 剥离 LLM 可能返回的 markdown 代码块包装（```json ... ```），防止 JSON.parse 失败回退时将标记语法当译文
+      if (raw) {
+        const fenceMatch = raw.match(/^```(?:json)?\s*\r?\n([\s\S]*?)\r?\n\s*```\s*$/)
+        if (fenceMatch) raw = fenceMatch[1].trim()
+      }
       // 优先按 index 对齐的 JSON 解析；失败时回退逐行（编号前缀）映射
       let map = null
       try {
@@ -135,7 +140,11 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
         for (const item of slice) {
           const translated = map[String(item.index)]
           if (typeof translated === 'string' && translated.trim() && translated.trim() !== item.prompt) {
-            item.translation = translated.trim().slice(0, 2000)
+            const text = translated.trim()
+            // 防御：值本身是 JSON 对象文本（如 LLM 未正确拆解键值对）或代码块标记，不作为译文
+            if (!/^\{["']\d/.test(text) && text !== 'json') {
+              item.translation = text.slice(0, 2000)
+            }
           }
         }
       } else {
@@ -143,6 +152,12 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
         for (let i = 0; i < slice.length && i < lines.length; i++) {
           const line = lines[i].replace(/^\d+\s*[.)、]\s*/, '').trim()
           if (line && line !== slice[i].prompt) slice[i].translation = line.slice(0, 2000)
+        }
+        // 逐行回退也排除 JSON 对象文本和代码块标记
+        for (const item of slice) {
+          if (typeof item.translation === 'string' && (/^\{["']\d/.test(item.translation) || item.translation === 'json')) {
+            item.translation = null
+          }
         }
       }
     } catch (error) {
@@ -2686,6 +2701,7 @@ module.exports = {
   clampVideoSelection,
   unwrapScenesArray,
   generateSceneVideo,
+  translatePromptsForLocale,
 };
 
 

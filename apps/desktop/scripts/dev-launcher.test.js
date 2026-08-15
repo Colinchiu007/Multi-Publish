@@ -19,7 +19,7 @@ test('resolveUserDataDir 尊重显式 ELECTRON_USER_DATA_DIR（并发隔离/star
   assert.equal(resolveUserDataDir({ ELECTRON_USER_DATA_DIR: 'X:\\custom\\profile' }), 'X:\\custom\\profile')
 })
 
-test('buildElectronArgs 透传 userData/cache 并固定调试端口', () => {
+test('buildElectronArgs 透传 userData/cache 并默认 CDP 端口 9222', () => {
   const args = buildElectronArgs({
     electronUserDataDir: 'D:\\tmp\\Multi-Publish-debug-profile',
     electronCacheDir: 'D:\\tmp\\Multi-Publish-debug-profile\\cache',
@@ -30,4 +30,15 @@ test('buildElectronArgs 透传 userData/cache 并固定调试端口', () => {
   assert.ok(args.includes('--disk-cache-dir=D:\\tmp\\Multi-Publish-debug-profile\\cache'))
   assert.ok(args.includes('--remote-debugging-port=9222'))
   assert.equal(args[args.length - 1], 'D:\\app')
+})
+
+test('buildElectronArgs 支持自定义 CDP 端口（worktree 独立端口）', () => {
+  const args = buildElectronArgs({
+    electronUserDataDir: 'D:/tmp/profile',
+    electronCacheDir: 'D:/tmp/profile/cache',
+    desktopDir: 'D:/app',
+    cdpPort: 9333,
+    platform: 'win32',
+  })
+  assert.ok(args.includes('--remote-debugging-port=9333'))
 })

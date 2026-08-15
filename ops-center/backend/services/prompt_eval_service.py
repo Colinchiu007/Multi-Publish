@@ -21,6 +21,7 @@ from services import prompt_eval_generation_service as generation
 from services import prompt_eval_translation_service as translation
 from services import prompt_eval_evaluation_service as evaluation
 from services import prompt_eval_engine_client as engine_client
+from services import prompt_eval_video_service as video_service
 
 logger = logging.getLogger("ops-center.prompt-eval")
 
@@ -74,6 +75,13 @@ def validate_case_body(body: dict, require_prompt_zh: bool = True) -> dict:
             context = json.dumps(context, ensure_ascii=False)
         if context and len(context) > contract.MAX_CONTEXT:
             raise ValueError(f"context 不能超过 {contract.MAX_CONTEXT} 字符")
+    media_type = str(body.get("media_type") or "image").strip()
+    if media_type not in contract.MEDIA_TYPES:
+        raise ValueError(f"media_type 必须是 {contract.MEDIA_TYPES}")
+    if media_type == "video" and str(body.get("source_mode") or "manual").strip() == "scene":
+        raise ValueError("场景模式暂不支持视频评测，请使用整 case 手动模式")
+    if media_type == "video" and str(body.get("compare_mode") or "single").strip() == "dual":
+        raise ValueError("视频评测暂不支持双路对比，请使用单路模式")
     provider = str(body.get("provider") or "").strip()
     if not provider:
         raise ValueError("provider 不能为空")
@@ -112,6 +120,7 @@ def validate_case_body(body: dict, require_prompt_zh: bool = True) -> dict:
         "source_text": source_text,
         "context": context or None,
         "prompt_zh": prompt_zh,
+        "media_type": media_type,
         "provider": provider,
         "model": model,
         "image_count": image_count,
@@ -156,6 +165,7 @@ def case_to_dict(row: PromptEvalCase) -> dict:
         "id": row.id, "title": row.title, "source_mode": row.source_mode, "source_text": row.source_text,
         "context": row.context, "prompt_zh": row.prompt_zh, "prompt_en": row.prompt_en,
         "prompt_en_source": row.prompt_en_source, "prompt_en_translated_at": row.prompt_en_translated_at,
+        "media_type": row.media_type or "image",
         "provider": row.provider, "model": row.model,
         "image_count": row.image_count, "aspect_ratio": row.aspect_ratio,
         "compare_mode": row.compare_mode or "single",
@@ -190,6 +200,7 @@ def run_to_dict(row: PromptEvalRun) -> dict:
         "status": row.status, "eval_status": row.eval_status,
         "image_paths": json.loads(row.image_paths) if row.image_paths else [],
         "video_path": row.video_path,
+        "video_frames": json.loads(row.video_frames) if row.video_frames else [],
         "overall_score": row.overall_score, "grade": row.grade,
         "dimensions": json.loads(row.dimensions) if row.dimensions else None,
         "problems": json.loads(row.problems) if row.problems else None,
@@ -397,10 +408,16 @@ async def translate_case(db: AsyncSession, row: PromptEvalCase, translate_cfg: d
 async def update_case(db: AsyncSession, row: PromptEvalCase, body: dict) -> dict:
     """更新 case 的可编辑字段（服务端生成字段 prompt_en 系列不受影响）。"""
     data = validate_case_body(body)
+    if "media_type" not in body:
+        # 省略 media_type 时保留原值，避免把既有 video case 静默翻回 image
+        data["media_type"] = row.media_type or "image"
+    if data["media_type"] == "video" and row.source_mode == "scene":
+        raise ValueError("场景模式暂不支持视频评测，请使用整 case 手动模式")
     row.title = data["title"]
     row.source_text = data["source_text"]
     row.context = data["context"]
     row.prompt_zh = data["prompt_zh"]
+    row.media_type = data["media_type"]
     row.provider = data["provider"]
     row.model = data["model"]
     row.image_count = data["image_count"]
@@ -415,11 +432,23 @@ async def update_case(db: AsyncSession, row: PromptEvalCase, body: dict) -> dict
 
 async def run_owns_media(db: AsyncSession, name: str, username: str, admin: bool) -> bool:
     """媒体授权：文件必须被「当前用户创建或有权限访问的 case」的 run 引用。"""
-    runs = (await db.execute(select(PromptEvalRun).where(PromptEvalRun.image_paths.is_not(None)))).scalars().all()
-    case_ids = {r.case_id for r in runs if r.image_paths and name in json.loads(r.image_paths)}
-    if not case_ids:
+    runs = (await db.execute(select(PromptEvalRun).where(
+        PromptEvalRun.image_paths.is_not(None) | PromptEvalRun.video_path.is_not(None) | PromptEvalRun.video_frames.is_not(None)
+    ))).scalars().all()
+    owned_case_ids: set[int] = set()
+    for r in runs:
+        refs: list[str] = []
+        if r.image_paths:
+            refs.extend(json.loads(r.image_paths))
+        if r.video_path:
+            refs.append(r.video_path)
+        if r.video_frames:
+            refs.extend(json.loads(r.video_frames))
+        if name in refs:
+            owned_case_ids.add(r.case_id)
+    if not owned_case_ids:
         return False
-    cases = (await db.execute(select(PromptEvalCase).where(PromptEvalCase.id.in_(case_ids)))).scalars().all()
+    cases = (await db.execute(select(PromptEvalCase).where(PromptEvalCase.id.in_(owned_case_ids)))).scalars().all()
     return any(admin or c.created_by == username for c in cases)
 
 
@@ -465,6 +494,8 @@ async def create_run(db: AsyncSession, row: PromptEvalCase, username: str,
       engine 变体、manual 正常创建，返回 engineError（OPS_PROMPT_EVAL_ENGINE_UNAVAILABLE
       或 engine_translate 阶段标记），不静默降级。
     """
+    if row.media_type == "video" and row.compare_mode == "dual":
+        raise ValueError("视频评测暂不支持双路对比，请使用单路模式")
     if row.compare_mode != "dual":
         run = PromptEvalRun(case_id=row.id, provider=row.provider, model=row.model, status="queued",
                             prompt_variant="manual", prompt_source_zh=row.prompt_zh, created_by=username)
@@ -537,6 +568,7 @@ def variant_snapshot(run: PromptEvalRun, case: PromptEvalCase) -> dict:
             "context": case.context,
             "prompt_zh": run.prompt_zh,
             "prompt_en": run.prompt_en,
+            "media_type": case.media_type or "image",
             "image_count": case.image_count,
             "aspect_ratio": case.aspect_ratio,
         }
@@ -545,6 +577,7 @@ def variant_snapshot(run: PromptEvalRun, case: PromptEvalCase) -> dict:
         "context": case.context,
         "prompt_zh": run.prompt_source_zh or case.prompt_zh,
         "prompt_en": run.prompt_en or case.prompt_en,
+        "media_type": case.media_type or "image",
         "image_count": case.image_count,
         "aspect_ratio": case.aspect_ratio,
     }
@@ -561,13 +594,27 @@ async def run_pipeline(db: AsyncSession, run_id: int, case: PromptEvalCase, gen_
         return {}
     run.status = "processing"
     await db.commit()
+    # 统一快照访问（ORM 行 → dict）：生成/评估阶段只使用 case[...] 契约
+    if not isinstance(case, dict):
+        case = {
+            "source_text": case.source_text, "context": case.context,
+            "prompt_zh": case.prompt_zh, "prompt_en": case.prompt_en,
+            "media_type": case.media_type or "image",
+            "image_count": case.image_count, "aspect_ratio": case.aspect_ratio,
+        }
+    media_type = case.get("media_type", "image")
     try:
         out_dir = media_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
-        images = await generation.generate_images(
-            gen_cfg, case["prompt_zh"], case["image_count"], case["aspect_ratio"], str(out_dir), run.id, http=http,
-        )
-        run.image_paths = json.dumps(images, ensure_ascii=False)
+        if media_type == "video":
+            result = await video_service.generate_video(gen_cfg, case["prompt_zh"], str(out_dir), run.id, http=http)
+            run.video_path = result["video"]
+            run.video_frames = json.dumps(result["frames"], ensure_ascii=False)
+        else:
+            images = await generation.generate_images(
+                gen_cfg, case["prompt_zh"], case["image_count"], case["aspect_ratio"], str(out_dir), run.id, http=http,
+            )
+            run.image_paths = json.dumps(images, ensure_ascii=False)
         run.status = "succeeded"
         run.eval_status = "evaluating"
         await db.commit()
@@ -578,16 +625,19 @@ async def run_pipeline(db: AsyncSession, run_id: int, case: PromptEvalCase, gen_
         await db.commit()
         return run_to_dict(run)
 
-    # 评估阶段
+    # 评估阶段（视频用首/中/尾 3 帧作为图片输入）
     try:
-        prompt = evaluation.build_eval_prompt(case["source_text"], case["context"], case["prompt_zh"], case["prompt_en"], case["image_count"])
+        prompt = evaluation.build_eval_prompt(case["source_text"], case["context"], case["prompt_zh"], case["prompt_en"], case["image_count"], media_type=media_type)
+        eval_items: list[str] = images if media_type != "video" else list(json.loads(run.video_frames or "[]"))
+        if media_type == "video" and len(eval_items) != contract.VIDEO_FRAME_COUNT:
+            raise evaluation.EvaluationError(f"视频帧数异常: {len(eval_items)}")
         image_data: list[bytes] = []
-        for item in images:
+        for item in eval_items:
             image_data.append((out_dir / item).read_bytes())
             if len(image_data[-1]) > 8 * 1024 * 1024:
                 raise evaluation.EvaluationError("评估图片超过 8MB 上限")
         raw = await evaluation.evaluate_images(eval_cfg, prompt, image_data, http=http)
-        parsed = evaluation.parse_and_validate(raw, case.image_count)
+        parsed = evaluation.parse_and_validate(raw, case["image_count"], media_type=media_type)
         run.overall_score = float(parsed["overall"])
         run.grade = contract.grade_for_score(run.overall_score)
         run.dimensions = json.dumps(parsed["dimensions"], ensure_ascii=False)
@@ -607,11 +657,12 @@ def start_run_pipeline(db_factory, run_id: int, case: PromptEvalCase | dict, gen
 
     case 接受 ORM 行或 dict 快照（dual 变体由 variant_snapshot 生成 dict）。"""
     if isinstance(case, dict):
-        snapshot = {k: case[k] for k in ("source_text", "context", "prompt_zh", "prompt_en", "image_count", "aspect_ratio")}
+        snapshot = {k: case.get(k) for k in ("source_text", "context", "prompt_zh", "prompt_en", "media_type", "image_count", "aspect_ratio")}
     else:
         snapshot = {
             "source_text": case.source_text, "context": case.context,
             "prompt_zh": case.prompt_zh, "prompt_en": case.prompt_en,
+            "media_type": case.media_type or "image",
             "image_count": case.image_count, "aspect_ratio": case.aspect_ratio,
         }
     import logging
@@ -850,6 +901,7 @@ def scene_snapshot(scene: PromptEvalScene, case: PromptEvalCase) -> dict:
         "prompt_en": scene.prompt_en,
         "image_count": case.image_count,
         "aspect_ratio": case.aspect_ratio,
+        "media_type": case.media_type or "image",
     }
 
 

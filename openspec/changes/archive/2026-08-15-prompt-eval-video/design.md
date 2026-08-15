@@ -11,7 +11,7 @@ POST /cases/{id}/runs
 run_pipeline（media_type=video）：
   processing → video_service.generate_video（异步状态机）→
     提交 POST {base}/videos {model,prompt,width,height,num_frames,frame_rate}
-    → taskId → 轮询 GET {base}/videos/{taskId}（15s 间隔，总超时 20min，429/5xx 有界退避）
+    → taskId → 轮询 GET {域名根}/agnesapi?video_id={taskId}&model_name={model}（15s 间隔，总超时 20min，429/5xx 有界退避；与桌面端 agnes-video.js 对齐）
     → 成功取 video URL → 下载（≤50MB + MP4 ftyp 魔数）→ 落盘 run_{id}_video.mp4
     → ffmpeg 抽帧 首/中/尾（-ss 0 / duration/2 / duration-0.5）→ run_{id}_frame_0..2.png
     → run.video_path / run.video_frames 落库，status=succeeded, eval_status=evaluating
@@ -43,7 +43,7 @@ run_pipeline（media_type=video）：
 
 - 契约镜像桌面端 `agnes-video.js`（Agnes Video V2.0，OpenAI 兼容）：
   - 提交 `POST {base}/videos`：`{model, prompt, width:1152, height:768, num_frames:121, frame_rate:24}` → `{taskId}`。
-  - 轮询 `GET {base}/videos/{taskId}`：status ∈ pending/running/succeeded/failed；成功返回 video URL（video_url 或 data.url 兼容取）。
+  - 轮询 `GET {域名根}/agnesapi?video_id={taskId}&model_name={model}`：status ∈ queued/in_progress/completed/failed/error/canceled/expired；成功返回 video URL（video_url 或 data.url 兼容取）。
   - 429/5xx 有界退避（[1,2,4,8]s 上限 4 次）；网络错误重试 2 次；总轮询超时 20min（OPS_PROMPT_EVAL_VIDEO_POLL_TIMEOUT 可覆盖，测试用短值）。
 - 下载：httpx GET（timeout 120s），`validate_video_bytes`：≤50MB + MP4 魔数（ftyp box 偏移 4-8 为 'ftyp'）。
 - 抽帧：`extract_frames(video_path, out_dir, run_id)`：

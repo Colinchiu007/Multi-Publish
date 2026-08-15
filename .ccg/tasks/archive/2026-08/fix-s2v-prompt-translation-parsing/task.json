@@ -1,0 +1,17 @@
+{
+  "id": "fix-s2v-prompt-translation-parsing",
+  "title": "修复 Story2Video 提示词中文翻译解析：LLM markdown 代码块包装导致翻译显示异常",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-14T23:16:00+08:00",
+  "completedAt": "2026-08-14T23:30:00+08:00",
+  "branch": "main",
+  "files": [
+    "apps/desktop/electron/services/story2video-stages.js",
+    "apps/desktop/electron/services/story2video-stages.test.js"
+  ]
+}
