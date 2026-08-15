@@ -214,6 +214,26 @@ describe('Story2Video notification messages', () => {
     expect(en.message).toContain('invalid or no longer available')
   })
 
+  it('场景重新生成失败错误映射为对应 failed 通知', () => {
+    expect(formatStory2VideoNotification({ error: '无法重新生成字幕：服务暂时不可用' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_SUBTITLE_REGENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: '无法生成语音：TTS 服务不可用' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: '无法重新生成优化词：提示词优化服务不可用' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: '优化词类型无效：video' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED)
+  })
+
+  it('场景重新生成失败英文错误同样归一化', () => {
+    expect(formatStory2VideoNotification({ error: 'subtitle regeneration failed: provider unavailable' }, 'en').messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_SUBTITLE_REGENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: 'tts unavailable for voice synthesis' }, 'en').messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: 'prompt regeneration returned invalid result' }, 'en').messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED)
+  })
+
   it('counts Unicode code points rather than UTF-16 code units or grapheme clusters', () => {
     expect('A😀中'.length).toBe(4)
     expect(countUnicodeCodePoints('A😀中')).toBe(3)

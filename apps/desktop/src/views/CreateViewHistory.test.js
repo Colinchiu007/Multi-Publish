@@ -147,4 +147,54 @@ describe('CreateViewHistory', () => {
     expect(modal.find('[data-testid="history-detail-error"]').text()).toContain('provider timeout with a very long message')
     expect(modal.find('[data-testid="history-detail-error"]').text()).not.toContain('…')
   })
+
+  it('completed+projectId 卡片显示编辑与重新合成按钮并发出 open-result', async () => {
+    const wrapper = mountHistory([
+      { id: 'done-1', projectId: 'proj-1', status: 'completed', updatedAt: '2026-08-15T12:00:00Z' },
+      { id: 'no-proj', status: 'completed', updatedAt: '2026-08-15T11:00:00Z' },
+    ])
+    const buttons = wrapper.findAll('[data-testid="history-edit-recompose-button"]')
+    expect(buttons).toHaveLength(1)
+    await buttons[0].trigger('click')
+    expect(wrapper.emitted('open-result')).toHaveLength(1)
+    expect(wrapper.emitted('open-result')[0][0].id).toBe('done-1')
+  })
+
+  it('详情弹窗展示场景列表与提示文案，footer 可编辑并重新合成', async () => {
+    const wrapper = mount(CreateViewHistory, {
+      props: {
+        history: [{
+          id: 'done-1', projectId: 'proj-1', pipeline: 'story2video-compose', status: 'completed',
+          segments: [
+            { id: 's1', text: '场景一文案', prompt: '图词一' },
+            { id: 's2', text: '', prompt: '图词二' },
+            { id: 's3', text: '', prompt: '' },
+          ],
+        }],
+      },
+      global: {
+        mocks: { $t: key => key },
+        stubs: {
+          UiModal: {
+            props: ['visible'],
+            template: '<div v-if="visible" class="ui-modal-stub"><slot /><slot name="footer" /></div>',
+          },
+        },
+      },
+    })
+    await wrapper.find('.history-item-body').trigger('click')
+    const modal = wrapper.find('.ui-modal-stub')
+    expect(modal.exists()).toBe(true)
+    const scenes = modal.find('[data-testid="history-detail-scenes"]')
+    expect(scenes.exists()).toBe(true)
+    expect(scenes.findAll('.history-detail-scene-item')).toHaveLength(2)
+    expect(scenes.text()).toContain('create.history.sceneListLabel')
+    expect(scenes.text()).toContain('create.history.sceneListHint')
+    expect(scenes.text()).toContain('场景一文案')
+    const footerBtn = modal.find('[data-testid="history-detail-edit-recompose-button"]')
+    expect(footerBtn.exists()).toBe(true)
+    await footerBtn.trigger('click')
+    expect(wrapper.emitted('open-result')).toHaveLength(1)
+    expect(wrapper.emitted('open-result')[0][0].projectId).toBe('proj-1')
+  })
 })

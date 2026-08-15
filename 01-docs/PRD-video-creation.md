@@ -168,6 +168,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-14 | 全能创作 BGM 素材库管理 | 背景音乐升级为设备级素材库：添加（自动入库 + 选中）/ 重命名 / 删除，下拉选择，历史路径兼容；主进程 `story2video-bgm-library` 服务 + 4 个 IPC 通道 + PUBLIC_CHANNELS；详见本节 3.1.25 | PRD 3.1.25 |
 | 2026-08-14 | 历史详情页场景多素材与再次合成 | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 | 2026-08-15 | 视频提示词引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架 | **Batch B**：`prev_final_frame`（≤1000 字符，句末截断）链式承接上一镜计划终态；`HIGGSFIELD_FMT_V4` 缓存盐（key 含 prev_final_frame 哈希）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）；Story2Video 视频提示词按场景串行优化、媒体生成保持并发、计划终态回写 scene.video.final_frame、checkpoint 终态恢复链、断链显式 degraded。**Batch C**：refined 12 块导演骨架（SCENE NOTE…FINAL FRAME，值 ≤4000，白名单）；FAIL CHECK 仅指令不出现在输出；尾行清理只认完整 trailer 尾段；块覆盖度 ≥0.8（advisory -5）；7 条 lock-gated 规则默认启用 dead_center/exposure_break/eye_line，否定感知（not overexposed / no waxy skin 不判罚）。详见本节 3.1.27 | PRD 3.1.27 / openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output | | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
+| 2026-08-15 | 历史记录场景内容编辑/重新生成与整片重合成 | 已完成任务每个场景可修改文案/字幕块/视频优化词/语音设置（updateSegments 白名单透传 + 限长收敛，voiceSpeed/Pitch 收敛 [0.1,10]），重新生成字幕（本地重切清空时间轴、重置失败态与来源标记）/旁白（TTS 失败回滚保留旧音频 + 回写 failed）/图片与视频优化词（image 重写 prompt 清翻译、video 写 videoPrompt），配合既有【生成新图】【生成视频】与【重新合成】完成整片重合成；voiceSpeed 收敛 [0.5,2]、voicePitch 收敛 [-12,12]（与流水线契约对齐）；同项目写串行队列防并发覆盖；compose 回显缺省时 videoPrompt 按原值回填；历史卡片与详情弹窗新增【编辑并重新合成】入口 + 只读场景列表；详见本节 3.1.29 | PRD 3.1.29 / openspec s2v-history-scene-edit-recompose |
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
 ---
@@ -1772,6 +1773,115 @@ SettingsDialog 关闭（App.vue @close）
 恢复、继续生成、打开结果、删除均为独立显式操作，点击这些按钮不会打开详情，也不会隐式恢复任务。轮询更新会重新应用有效时间排序，同时通过原数组 `splice` 保持响应式列表身份。未改动 IPC、持久化结构、过期任务清理或恢复引擎；仅调整 renderer 展示、交互和纯排序工具。
 
 验收必须覆盖 ISO/秒/毫秒/0/非法时间、同时间 tie-break、全部与状态筛选一致排序、六标签 ARIA/键盘行为、暂停/失败本地化字段、取消态不可打开、详情完整字段、显式动作不冒泡、轮询重排和中英文 locale 成对校验。
+
+### 3.1.29 历史记录场景内容编辑、重新生成与整片重合成（2026-08-15）
+
+**需求**：「视频创作-历史记录」中已完成的任务，其每个场景的内容组成元素（本场景文案、字幕、语音、图片/视频优化词、图片、视频）此前只能查看、无法修改，也没有整片重新合成入口。本迭代为已完成任务补齐完整闭环：**文本类元素可修改**（场景文案、字幕块、视频优化词、语音设置），**生成类元素可重新生成**（字幕、旁白语音、图片/视频优化词；图片/视频素材沿用既有【生成新图】【生成视频】），修改/重新生成后通过【保存分段】+【重新合成】生成新成片。
+
+#### 1) 数据模型（分段新增/扩展字段）
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `segment.subtitleBlocks` | string[] | 数组取前 200 块、每块 ≤500 字符、过滤空值 | 字幕块（每块一句）；与 `subtitleTimeline` 区分：timeline 是带时间轴的字幕（compose 输出），blocks 是纯文本字幕（可编辑、可重切） |
+| `segment.videoPrompt` | string \| null | ≤20000 字符 | 视频优化词（video-prompt-engine 输出，compose 消费） |
+| `segment.voiceId` | string | ≤160 字符 | 场景级音色 ID，留空回退项目默认音色 |
+| `segment.voiceProvider` / `segment.voiceModel` | string | 各 ≤160 字符 | 场景级语音 provider/model（透传保留） |
+| `segment.voiceSpeed` / `segment.voicePitch` | number | speed 收敛 [0.5, 2]、pitch 收敛 [-12, 12] | 语速倍率 / 音调（支持负值=低沉、0=中性，与 CreateView 滑杆及 story2video-text-config 契约一致）；非有限数字回退原值 |
+| `segment.voiceEmotion` | string | ≤80 字符 | 情绪参数（如 calm/cheerful），可选 |
+
+- `subtitleTimeline` 为**派生数据**：字幕重新生成时清空，合成时按新字幕块重建时间轴，避免陈旧时间轴与新字幕错位。
+- 兼容旧项目：未保存过新字段的旧分段字段缺省，UI 展示空值、保存时按白名单透传即可。
+
+#### 2) 数据校验（服务端 fail-closed）
+
+- `updateSegments` 白名单扩展：仅接受 `text / prompt / videoPrompt / subtitleBlocks / subtitleTimeline / voiceId / voiceProvider / voiceModel / voiceSpeed / voicePitch / voiceEmotion`；白名单外字段（imagePath/videoPath/audioPath 等）一律忽略（不覆盖、不落库）。
+- 所有文本字段经 `safeText` 限长收敛（videoPrompt 20000、voiceId/Provider/Model 160、voiceEmotion 80、text 10000、prompt 20000）；`subtitleBlocks` 经 `safeSubtitleBlocks`（≤200 块 × ≤500 字符、过滤空值）；`voiceSpeed` 经 `safeVoiceSpeed` 收敛 [0.5, 2]、`voicePitch` 经 `safeVoicePitch` 收敛 [-12, 12]（拆分为两个收敛函数，避免共用收敛把 pitch 0/负值篡改为 0.1，审查 W1），非有限数字回退原值。
+- **videoPrompt 持久化回填（C1）**：compose 输出分段不含 `videoPrompt`（`normalizeComposeScenes` 白名单丢弃），`_persistComposeArtifacts` 按 index 从 fallback 分段回填（流水线 saveRun 主路径与 recomposeProject 均覆盖），重新合成后视频优化词不会丢失；recomposeProject 恢复映射 `videoPrompt: original.videoPrompt || segment.videoPrompt || null` 兜底。
+- IPC 层三个新通道 `story2video:regenerate-scene-subtitle / regenerate-scene-audio / regenerate-scene-prompt`：均 `withSenderCheck` + `isSafeId`（projectId/segmentId）+ 参数类型校验；`regenerate-scene-prompt` 的 `kind` 白名单 `['image','video']`，非法值抛「优化词类型无效」；失败统一 `VALIDATION_ERROR`。license-access-control 均映射 `story2video_write`。
+- 重新生成前置校验（fail-closed）：
+  - 字幕：场景无 `text` → 「该场景没有旁白文字，无法重新生成字幕」；`splitSubtitleBlocks` 拆不出块 → 「该场景无法拆分字幕」。
+  - 旁白：场景无 `text` → 「该场景没有旁白文字，无法生成语音」；`assetGenerator.generateTTS` 不可用 → 「语音生成服务不可用」。
+  - 优化词：场景无 `text` → 「该场景没有旁白文字，无法重新生成优化词」；`serviceBus.optimizePrompt/optimizeVideoPrompt` 不可用 → 「提示词优化服务不可用」；优化结果提取为空/含 error → 「提示词优化结果无效」（fail-closed，不写库）。
+
+#### 3) 流程
+
+```
+历史记录 → 已完成任务 → 卡片【编辑并重新合成】/ 详情弹窗【编辑并重新合成】 → 结果页（ResultView）
+  ├─ 场景区：文案 textarea + 字幕 textarea（每行一句）+ 视频优化词 textarea + 语音设置网格 + 素材槽/生成按钮
+  ├─ 修改文本类元素（文案/字幕/视频优化词/音色/语速/音调/情绪）→ 标脏 →【保存分段】
+  ├─ 【重新生成字幕】→ 本地按文案重切字幕块 → 清空时间轴 → 成功/失败通知
+  ├─ 【重新生成旁白】→ 按场景/项目语音设置调 TTS → 替换 audioPath → 成功/失败通知
+  ├─ 【重新生成图片优化词/视频优化词】→ prompt-engine → 重写 prompt/videoPrompt → 成功/失败通知
+  ├─ 【生成新图】【生成视频】→ 沿用 3.1.26 素材生成逻辑
+  └─ 【重新合成】→ 以最新分段内容 + 素材 + 语音设置整片重合成 → 新成片预览
+```
+
+#### 4) 功能逻辑
+
+- **保存分段**：透传编辑后的新字段到 `updateSegments`；服务端白名单收敛后整体落库；返回的 segments 回写 UI；保存失败保持编辑态并提示。
+- **重新生成字幕**：不消耗外部额度；按 `splitSubtitleBlocks(segment.text)` 本地分句重切，替换 `subtitleBlocks` 并清空 `subtitleTimeline`；成功置 `status='completed'`、`error=null`、`subtitleSource='local-typescript'`（重置旧失败状态与来源标记，审查 I2）。
+- **重新生成旁白**：用 `segment.voiceId || project.options.voiceId`（provider/model/speed/pitch/emotion 同理，段级优先）调用 `generateTTS`（带时间戳）；成功复制音频到项目目录（`segment.id_audio_tts_<ts>.<ext>`）替换 `audioPath` + `audioMeta`；**失败保留旧音频**、清理本次 attemptFiles、回写 `status='failed'` + error，不吞错。
+- **重新生成优化词**：`kind=image` → `serviceBus.optimizePrompt(segment.text)` → 重写 `prompt` 并**清空 `promptTranslation`**（提示词变化后旧翻译失效）；`kind=video` → `serviceBus.optimizeVideoPrompt(segment.text)` → 重写 `videoPrompt`；成功置 completed，失败不改动分段。
+- **整片重新合成**：沿用既有 `story2video:recompose-project`；合成消费最新分段内容（text/prompt/videoPrompt/subtitleBlocks/voice 设置/素材选中态）。
+- **同项目写串行（W2）**：主进程对同一 `projectId` 的保存分段/整片重合成/三种重新生成统一经 `_serializeProject` per-project promise 队列串行执行（read-modify-write 全程持锁），杜绝跨段并发或「保存」与「重新生成」竞态互相覆盖；队列执行后自动清理，不泄漏。
+- **重新生成前自动保存（W3）**：渲染端检测到未落盘编辑（`segmentsDirty`）时，先调用保存分段再执行重新生成，确保重切/TTS/优化基于最新文案，且服务端响应不会覆盖本地编辑；响应按整项目回写并重新解析素材 URL。
+
+#### 5) 交互逻辑
+
+- 场景卡片新增可编辑区块：字幕 textarea（`subtitleBlocksText` 合并展示、`updateSegmentSubtitleBlocks` 按行拆分，行内 trim + 过滤空行；**手动编辑后同步清空 `subtitleTimeline`，清空输入框后不再回退旧时间轴**，审查 I1）；视频优化词 textarea；语音设置网格（音色 ID / 语速 / 音调 / 情绪）。
+- 语音输入框边界与流水线契约一致（W1）：语速 `min=0.5 max=2 step=0.1`、音调 `min=-12 max=12 step=0.1`（支持负值低沉音色）。
+- 每个生成按钮在对应场景 busy 时禁用：`segmentBusy` 键 `subtitle`（字幕）/ `tts`（旁白）/ `promptImage` / `promptVideo`；按钮文案切换「重新生成字幕 ↔ 字幕生成中...」「重新生成旁白 ↔ 旁白生成中...」「重新生成图片/视频优化词 ↔ 优化词生成中...」。**任一分段 busy 时（`anySegmentBusy`）同时禁用全局【保存分段】与【重新合成】，避免与主进程写队列交叉（W2）。**
+- 重新生成成功后自动刷新 project + segments，并提示「请保存分段后重新合成」；失败按错误归一化提示（见下表），不中断其他场景操作。
+- 语音设置仅在【重新生成旁白】时生效（作为 TTS 参数）；修改后同样需【保存分段】持久化。
+- 历史记录入口：completed 且存在 `projectId` 的任务卡片与详情弹窗 footer 均显示【编辑并重新合成】（`editAndRecompose`），点击跳转结果页并携带项目上下文；无 `projectId` 的 completed 任务不显示该入口。
+- 详情弹窗新增只读场景列表（过滤含 `text` 或 `prompt` 的分段，展示序号 + 截断文案 + 「点击「编辑并重新合成」打开结果页」提示），帮助用户确认任务内容再进入编辑。
+
+#### 6) 提示文字（locales zh/en 成对）
+
+| key | 中文 | English |
+|------|------|---------|
+| story2video.sceneMaterial.editRecomposeHint | 修改文案、字幕、语音或优化词后，点击「保存分段」，再点击「重新合成」生成新视频 | Edit text, subtitles, voice or prompts, click "Save segments", then "Recompose" to generate a new video. |
+| story2video.sceneMaterial.subtitleLabel | 字幕（每行一句） | Subtitles (one line per block) |
+| story2video.sceneMaterial.regenerateSubtitle | 重新生成字幕 | Regenerate subtitles |
+| story2video.sceneMaterial.regeneratingSubtitle | 字幕生成中... | Regenerating subtitles... |
+| story2video.sceneMaterial.videoPromptLabel | 视频优化词 | Video prompt |
+| story2video.sceneMaterial.regenerateImagePrompt | 重新生成图片优化词 | Regenerate image prompt |
+| story2video.sceneMaterial.regenerateVideoPrompt | 重新生成视频优化词 | Regenerate video prompt |
+| story2video.sceneMaterial.regeneratingPrompt | 优化词生成中... | Regenerating prompt... |
+| story2video.sceneMaterial.voiceSettingsLabel | 语音设置（重新生成旁白时使用） | Voice settings (used when regenerating narration) |
+| story2video.sceneMaterial.voiceIdLabel | 音色 ID | Voice ID |
+| story2video.sceneMaterial.voiceIdPlaceholder | 留空使用项目默认音色 | Leave empty to use project default |
+| story2video.sceneMaterial.voiceSpeedLabel | 语速 | Speed |
+| story2video.sceneMaterial.voicePitchLabel | 音调 | Pitch |
+| story2video.sceneMaterial.voiceEmotionLabel | 情绪 | Emotion |
+| story2video.sceneMaterial.voiceEmotionPlaceholder | 如 calm、cheerful（可选） | e.g. calm, cheerful (optional) |
+| story2video.scene_subtitle_regenerated | 字幕已重新生成，请保存分段后重新合成。 | Subtitles regenerated. Save segments and recompose. |
+| story2video.scene_subtitle_regenerate_failed | 字幕重新生成失败，请稍后再试。 | Failed to regenerate subtitles. Please try again. |
+| story2video.scene_audio_regenerated | 旁白已重新生成，请保存分段后重新合成。 | Narration regenerated. Save segments and recompose. |
+| story2video.scene_audio_regenerate_failed | 旁白重新生成失败，请检查音色/语音设置后重试。 | Failed to regenerate narration. Check voice settings and retry. |
+| story2video.scene_prompt_regenerated | 优化词已重新生成，请保存分段后重新合成。 | Prompt regenerated. Save segments and recompose. |
+| story2video.scene_prompt_regenerate_failed | 优化词重新生成失败，请稍后再试。 | Failed to regenerate prompt. Please try again. |
+| create.history.editAndRecompose | 编辑并重新合成 | Edit & recompose |
+| create.history.sceneListLabel | 场景列表 | Scenes |
+| create.history.sceneListHint | 点击「编辑并重新合成」打开结果页：可修改每个场景的文案、字幕、语音设置与图片/视频优化词，重新生成字幕/旁白/图片/视频，最后重新合成整片。 | Click "Edit & recompose" to open the result page: modify each scene's text, subtitles, voice settings and image/video prompts, regenerate subtitles/narration/images/videos, then recompose the whole video. |
+
+- 失败错误归一化（story2video-notifications.js `resolveMessageKey`）：含「无法重新生成字幕/无法拆分字幕」或 `subtitle.*(regenerat|split).*(fail|unavailable|invalid)` → `scene_subtitle_regenerate_failed`；含「无法生成语音/语音生成服务不可用/无法重新生成旁白」或 `tts.*(fail|unavailable|invalid)` → `scene_audio_regenerate_failed`；含「无法重新生成优化词/提示词优化服务不可用/优化词类型无效/优化结果无效」或 `prompt.*(regenerat|optimiz).*(fail|unavailable|invalid)` → `scene_prompt_regenerate_failed`（中英文均覆盖）。
+
+#### 7) 安全边界
+
+- 三个新 IPC 通道全量 `withSenderCheck` + `isSafeId` + `story2video_write` 权限映射；无新增文件越界（旁白产物走 `_copyRequired` + `_cleanupUnreferencedProjectFiles` 引用集）。
+- `updateSegments` 白名单外字段不落库，杜绝通过分段更新注入不可信路径/素材。
+- 渲染端无新增中文字面量（全部走 locales 成对）；CI Gate 7 check-locale-sync 拦截。
+
+#### 8) 测试要求
+
+- 服务层（story2video-project-service.test.js）：`safeVoiceSpeed`/`safeVoicePitch` 收敛（speed 0/负数/超大/非法、pitch 负值原样保留）、`extractOptimizedPrompt` 多结构、updateSegments 新字段透传 + 白名单外忽略 + 限长收敛、regenerateSceneSubtitle（清 timeline/无文案 fail/重置 error+subtitleSource）、regenerateSceneAudio（成功替换/失败回滚保留旧音频 + 回写 failed）、regenerateScenePrompt（image 清 translation / video 写 videoPrompt / 非法 kind / 空结果 fail）、recompose 保留 videoPrompt（compose 回显缺省时从项目原值回填，C1 回归）、`_serializeProject` 同项目写串行且队列不泄漏（W2 回归）；
+- IPC（story2video.test.js）：三通道可信来源/非法 id/非法 kind 拒绝 + 参数校验；保存/重合成/三种重新生成均经 `_serializeProject` 队列（W2 回归断言 5 次包裹 + projectId 透传）；
+- preload.test.js：新方法通道转发 + 数量断言（99 / 289 / 87）；
+- ResultView.test.js：保存透传新字段、字幕 textarea 编辑拆分（含清空不回退旧时间轴/手动编辑清时间轴，I1 回归）、三按钮成功/失败通知、重新生成前自动保存（W3 回归）、任一分段 busy 禁用保存与重新合成（W2 回归）；
+- CreateViewHistory.test.js：editAndRecompose 按钮渲染/跳转、详情弹窗场景列表 + 提示文案；
+- locale：zh/en 成对 + check-locale-sync 通过；渲染端无新增中文字面量。
+
 
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 

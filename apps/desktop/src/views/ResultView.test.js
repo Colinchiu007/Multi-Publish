@@ -18,6 +18,9 @@ vi.mock("@/api/publisher", () => ({
   story2videoSelectSceneMaterial: vi.fn(),
   story2videoGenerateSceneImage: vi.fn(),
   story2videoGenerateSceneVideo: vi.fn(),
+  story2videoRegenerateSceneSubtitle: vi.fn(),
+  story2videoRegenerateSceneAudio: vi.fn(),
+  story2videoRegenerateScenePrompt: vi.fn(),
   videoProcess: vi.fn(),
 }));
 
@@ -682,6 +685,171 @@ describe("ResultView", () => {
     expect(mocks.story2videoGenerateSceneImage).toHaveBeenCalledWith("p1", "s1");
     expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_image_generated");
     expect(w.vm.segments[0].alternateImages).toHaveLength(1);
+    w.unmount();
+  });
+
+  it("保存分段透传 videoPrompt/subtitleBlocks/voice 设置字段", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoUpdateSegments.mockResolvedValue({ code: 0, data: { projectId: "project-1", dirty: true, segments: [] } });
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{
+      id: "segment-0",
+      text: "A",
+      prompt: "PA",
+      videoPrompt: "VP",
+      subtitleBlocks: ["L1", "L2"],
+      voiceId: "v1",
+      voiceSpeed: 1.2,
+      voicePitch: 0.9,
+      voiceEmotion: "happy",
+    }];
+    await w.vm.saveSegments();
+    expect(api.story2videoUpdateSegments).toHaveBeenCalledWith("project-1", [
+      expect.objectContaining({
+        id: "segment-0", text: "A", prompt: "PA", videoPrompt: "VP",
+        subtitleBlocks: ["L1", "L2"], voiceId: "v1", voiceSpeed: 1.2, voicePitch: 0.9, voiceEmotion: "happy",
+      }),
+    ]);
+    w.unmount();
+  });
+
+  it("字幕 textarea 编辑后拆分 subtitleBlocks 并透传保存", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoUpdateSegments.mockResolvedValue({ code: 0, data: { projectId: "project-1", dirty: true, segments: [] } });
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "segment-0", subtitleBlocks: ["第一句", "第二句"] }];
+    await nextTick();
+    const ta = w.find('[data-testid="segment-subtitle-textarea"]');
+    expect(ta.exists()).toBe(true);
+    expect(ta.element.value).toContain("第一句");
+    await ta.setValue("新字幕1\n新字幕2");
+    await nextTick();
+    expect(w.vm.segments[0].subtitleBlocks).toEqual(["新字幕1", "新字幕2"]);
+    await w.vm.saveSegments();
+    expect(api.story2videoUpdateSegments).toHaveBeenCalledWith("project-1", [
+      expect.objectContaining({ id: "segment-0", subtitleBlocks: ["新字幕1", "新字幕2"] }),
+    ]);
+    w.unmount();
+  });
+
+  it("重新生成字幕成功提示 scene_subtitle_regenerated 并刷新分段", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateSceneSubtitle.mockResolvedValue({
+      code: 0,
+      data: { projectId: "p1", segments: [{ id: "s1", text: "新字幕", subtitleBlocks: ["新字幕"], status: "completed" }] },
+    });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", text: "旧字幕", status: "completed" }];
+    await nextTick();
+    await w.vm.regenerateSceneSubtitle("s1");
+    await nextTick();
+    expect(mocks.story2videoRegenerateSceneSubtitle).toHaveBeenCalledWith("p1", "s1");
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_subtitle_regenerated");
+    expect(w.vm.segments[0].subtitleBlocks).toEqual(["新字幕"]);
+    w.unmount();
+  });
+
+  it("重新生成字幕前自动保存未落盘编辑（审查 W3 回归）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoUpdateSegments.mockResolvedValue({
+      code: 0,
+      data: { projectId: "p1", dirty: true, segments: [{ id: "s1", text: "本地新文案", status: "completed" }] },
+    });
+    api.story2videoRegenerateSceneSubtitle.mockResolvedValue({
+      code: 0,
+      data: { projectId: "p1", segments: [{ id: "s1", text: "本地新文案", subtitleBlocks: ["新块"], status: "completed" }] },
+    });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", text: "本地新文案", status: "completed" }];
+    w.vm.segmentsDirty = true;
+    await nextTick();
+    await w.vm.regenerateSceneSubtitle("s1");
+    await nextTick();
+    expect(api.story2videoUpdateSegments).toHaveBeenCalledTimes(1);
+    expect(api.story2videoRegenerateSceneSubtitle).toHaveBeenCalledWith("p1", "s1");
+    expect(w.vm.segments[0].subtitleBlocks).toEqual(["新块"]);
+    w.unmount();
+  });
+
+  it("任一分段生成中禁用保存分段与重新合成按钮（审查 W2 回归）", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", status: "completed" }];
+    await nextTick();
+    const saveBtn = w.findAll("button").find(b => b.text().includes("保存分段"));
+    const recomposeBtn = w.find('[data-testid="recompose-final-button"]');
+    expect(saveBtn.attributes("disabled")).toBeUndefined();
+    expect(recomposeBtn.attributes("disabled")).toBeUndefined();
+    w.vm.segmentBusy = { s1: "tts" };
+    await nextTick();
+    expect(saveBtn.attributes("disabled")).toBeDefined();
+    expect(recomposeBtn.attributes("disabled")).toBeDefined();
+    w.unmount();
+  });
+
+  it("清空字幕输入后不回退旧时间轴，手动编辑同步清空时间轴（审查 I1 回归）", async () => {
+    const w = await createView();
+    w.vm.segments = [{
+      id: "s1", subtitleBlocks: [], subtitleTimeline: [{ text: "旧时间轴", startTime: 0, endTime: 1 }], status: "completed",
+    }];
+    await nextTick();
+    expect(w.vm.subtitleBlocksText(w.vm.segments[0])).toBe("");
+    w.vm.updateSegmentSubtitleBlocks(w.vm.segments[0], "新字幕1\n新字幕2");
+    expect(w.vm.segments[0].subtitleBlocks).toEqual(["新字幕1", "新字幕2"]);
+    expect(w.vm.segments[0].subtitleTimeline).toEqual([]);
+    w.unmount();
+  });
+
+  it("重新生成旁白成功提示 scene_audio_regenerated 并刷新分段", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateSceneAudio.mockResolvedValue({
+      code: 0,
+      data: { projectId: "p1", segments: [{ id: "s1", text: "旁白", audioPath: "C:/a.mp3", status: "completed" }] },
+    });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", text: "旁白", status: "completed" }];
+    await nextTick();
+    await w.vm.regenerateSceneAudio("s1");
+    await nextTick();
+    expect(mocks.story2videoRegenerateSceneAudio).toHaveBeenCalledWith("p1", "s1");
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_audio_regenerated");
+    expect(w.vm.segments[0].audioPath).toBe("C:/a.mp3");
+    w.unmount();
+  });
+
+  it("重新生成视频优化词成功提示 scene_prompt_regenerated 并刷新分段", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateScenePrompt.mockResolvedValue({
+      code: 0,
+      data: { projectId: "p1", segments: [{ id: "s1", prompt: "新图词", videoPrompt: "新视频词", status: "completed" }] },
+    });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", prompt: "旧图词", videoPrompt: "旧视频词", status: "completed" }];
+    await nextTick();
+    await w.vm.regenerateScenePrompt("s1", "video");
+    await nextTick();
+    expect(mocks.story2videoRegenerateScenePrompt).toHaveBeenCalledWith("p1", "s1", "video");
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_prompt_regenerated");
+    expect(w.vm.segments[0].videoPrompt).toBe("新视频词");
+    w.unmount();
+  });
+
+  it("重新生成字幕失败提示 scene_subtitle_regenerate_failed", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateSceneSubtitle.mockRejectedValue(new Error("无法重新生成字幕"));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", text: "旧字幕", status: "completed" }];
+    await nextTick();
+    await w.vm.regenerateSceneSubtitle("s1");
+    await nextTick();
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_subtitle_regenerate_failed");
     w.unmount();
   });
 });

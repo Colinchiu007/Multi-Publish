@@ -1,3 +1,27 @@
+## [2026-08-16] fix(story2video): 字幕分句 v1.2.3 成词保护与小数点豁免（三端同步 + 回归）
+
+- 现象：能/够、就/是、做/成、在/上、动/态、规/划、专/属 等成词被切；
+  713.3毫米 被劈成 713.+3毫米；个 入 good_tail 后出现 个/性 劈词风险。
+- 根因：Step 3/6 切点判定只看切点两侧单字（good_lead/good_tail/bad_followers），
+  无「前瞻检查」——不检查切点是否落在双字词内；半角点同时是句界/标点集成员，
+  数字中的小数点被误当切分锚点；标点分割后 clean 去掉末尾标点，短尾块无法被
+  merge_short 捕获，最终把 扶余国、电视剧 等词语切断（v1.2 已修，v1.2.3 继续加固）。
+- 修复：word_split.no_cut_bigrams（29 词）成词保护——切点两侧构成成词即非好切点
+  （_is_good_cut 与第二趟 _word_safe_split 双检查）；小数点豁免三处（句界/切分锚点/
+  区间锚点，Python/TS/JS 一致）；good_tail_blockers(性) 独立排除集（不误伤
+  的|电视、是|这位 等好切点）；孤悬 4 字尾回退 + tail_min 软约束；
+  ad_followers 增 性例同位类群众平方公里恢复度态济划属（堵 动/态、规/划、专/属）。
+- 回归：sidecar pytest 502 passed（新增 7 例）；MP TS 引擎 148 / JS 分句套件 122 passed；
+  文帝进京 3 块（10/10/9）、挥刀自宫 4 块与用户期望逐字一致；713.3 不劈；
+  parity 语料 +10 句（三端逐字一致）；8002 同源临时实例 HTTP 验证通过。
+
+## [2026-08-15] fix(ops-center): 提示词评测「生成图片并评估」MiniMax 404 修复（/image_generation 契约）
+
+- 现象：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`。
+- 根因：`prompt_eval_generation_service.generate_images()` 对所有 provider 统一请求 OpenAI 兼容 `{base}/images/generations`；MiniMax 图片生成专有端点为 `POST {base}/image_generation`，请求/响应结构也不同。
+- 修复：`minimax-image`（或模型名 `image-01` 前缀）→ 端点 `/image_generation`；payload 移除 `size`，改用 `model/prompt/n/aspect_ratio/response_format=base64`；`n` 限制 1-9（越界 fail closed）；响应解析 `data.image_base64`（base64 串兼容 `data:image/...;base64,` 前缀）与 `data.image_urls`（URL 走下载分支）；`base_resp.status_code != 0` 判定业务失败 fail closed（不重试）；返回图片数不等于请求数 fail closed。flux 等 OpenAI 兼容 provider 行为不变。
+- 回归：`test_prompt_eval_services.py` 新增 8 场景（MiniMax 端点/payload、base64 落盘含 data URL 前缀、URL 下载、业务失败 fail closed、字符串 status_code、数量不符 fail closed、n 越界 0/-1/10/20、flux 含 base_resp 不被误拦截）并将既有用例改为 MiniMax 真实响应形状；目标套件 16 passed；prompt-eval 全量套件 100+ passed；全量 pytest 286 passed / 4 failed（3 个 scheduler 存量顺序污染 + engine_dual 存量 flaky，单独跑均通过，与本改动零交集）。
+
 ## [2026-08-15] fix(story2video): 字幕分句坏切修复（词边界感知 v1.2，三端同步 + 配置透传）
 
 - 现象：用户 5 段文案字幕坏切——`扶余国`→`扶余/国`、`电视剧`→`电/视剧`、`复杂`→`复/杂`、
@@ -30,6 +54,7 @@
   （不依赖词表，兜底未知谓语动词）。
 - 回归：sidecar pytest 420（向量 26 条）；TS 148 / JS 160 passed；E2E real 8002 用户 6 段坏例
   （新增 `枪声、爆炸声、呐喊声 | 混成一锅滚烫的粥` 10+8）全绿。
+
 
 ## [2026-08-15] feat(ops-center): 模型密钥新增删除功能
 

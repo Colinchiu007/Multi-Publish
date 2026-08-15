@@ -18,6 +18,7 @@ const {
   STORY2VIDEO_TEXT_CONFIG_VERSION,
   normalizeStory2VideoTextParams,
 } = require('./story2video-text-config')
+const { splitSubtitleBlocks } = require('./story2video-segmentation')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 
 const SETTING_KEY = 'story2video_projects_v1'
@@ -80,6 +81,48 @@ function safeSubtitleTimeline (value) {
       duration: endTime - startTime,
     }
   }).filter(Boolean)
+}
+
+function safeVoiceSpeed (value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return undefined
+  // 与 story2video-text-config 权威契约一致：speechRate 0.5..2
+  return Math.min(2, Math.max(0.5, number))
+}
+
+function safeVoicePitch (value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return undefined
+  // 与 story2video-text-config 权威契约一致：pitch -12..12（0=中性、负值=低沉）
+  return Math.min(12, Math.max(-12, number))
+}
+
+/**
+ * 从 prompt-engine 单条优化响应中提取优化后的提示词文本。
+ * 与流水线消费端一致：结果结构为对象（prompt/optimized_prompt/optimized）、
+ * 字符串、或 results[0] 数组包装；存在 error 且无有效文本时抛错（fail-closed）。
+ */
+function extractOptimizedPrompt (result) {
+  if (typeof result === 'string') return result
+  const source = result && typeof result === 'object' && !Array.isArray(result) && result.data && typeof result.data === 'object'
+    ? result.data
+    : result
+  if (source && typeof source === 'object') {
+    if (Array.isArray(source.results)) {
+      const item = source.results[0]
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object') {
+        const text = item.optimized_prompt || item.prompt || item.optimized
+        if (typeof text === 'string' && text.trim()) return text
+        if (item.error || item.message) throw new Error(String(item.error || item.message) || '提示词优化失败')
+      }
+      return ''
+    }
+    const text = source.optimized_prompt || source.prompt || source.optimized
+    if (typeof text === 'string' && text.trim()) return text
+    if (source.error || source.message) throw new Error(String(source.error || source.message) || '提示词优化失败')
+  }
+  return ''
 }
 
 function safeAlternateImages (value) {
@@ -164,12 +207,26 @@ class Story2VideoProjectService {
     this.composeEngine = options.composeEngine || null
     this.assetGenerator = options.assetGenerator || null
     this.aiGenerator = options.aiGenerator || null
+    this.serviceBus = options.serviceBus || null
     this.modelProviderManager = options.modelProviderManager || null
     this.log = options.log || require('./logger')
     this.projectsDir = path.resolve(options.projectsDir || path.join(getUserDataDir(), 'story2video-projects'))
     this.maxProjects = Number.isInteger(options.maxProjects) && options.maxProjects > 0
       ? options.maxProjects
       : MAX_PROJECTS
+    // 同项目写操作串行队列：regenerate/update 等 read-modify-write 全程持锁，
+    // 防止跨段并发或「保存」与「重新生成」竞态互相覆盖（2026-08-15 审查 W2）。
+    this._projectQueues = new Map()
+  }
+
+  _serializeProject (projectId, task) {
+    const key = String(projectId || '')
+    const previous = this._projectQueues.get(key) || Promise.resolve()
+    const next = previous.then(() => task()).finally(() => {
+      if (this._projectQueues.get(key) === next) this._projectQueues.delete(key)
+    })
+    this._projectQueues.set(key, next)
+    return next
   }
 
   /**
@@ -380,6 +437,10 @@ class Story2VideoProjectService {
         text: safeText(segment.text || segment.content, 10000),
         prompt: safeText(segment.prompt, 20000),
         promptTranslation: safeText(segment.promptTranslation, 20000) || null,
+        // compose 输出不含 videoPrompt（normalizeComposeScenes 白名单），按 index 从 fallback 回填
+        // （2026-08-15 审查 C1：否则流水线主路径与 recompose 都会把视频优化词清成 null）
+        videoPrompt: safeText(segment.videoPrompt, 20000) ||
+          (fallbackSegment.videoPrompt ? safeText(fallbackSegment.videoPrompt, 20000) : null),
         imagePath: segment.imagePath
           ? this._copyRequired(segment.imagePath, path.join(projectDir, prefix + '_image' + sourceExtension(segment.imagePath, '.png')), 'image')
           : null,
@@ -524,11 +585,25 @@ class Story2VideoProjectService {
       const original = existing.get(update.id)
       if (!original) throw new Error('分段不存在')
       seen.add(update.id)
+      const voiceRate = (value, current, clamp) => {
+        const cleaned = clamp(value)
+        return cleaned === undefined ? current : cleaned
+      }
       return {
         ...original,
         index,
         text: update.text === undefined ? original.text : safeText(update.text, 10000),
         prompt: update.prompt === undefined ? original.prompt : safeText(update.prompt, 20000),
+        // 历史记录场景内容编辑（2026-08-15）：字幕/视频优化词/语音设置白名单透传
+        videoPrompt: update.videoPrompt === undefined ? original.videoPrompt : safeText(update.videoPrompt, 20000),
+        subtitleBlocks: update.subtitleBlocks === undefined ? original.subtitleBlocks : safeSubtitleBlocks(update.subtitleBlocks),
+        subtitleTimeline: update.subtitleTimeline === undefined ? original.subtitleTimeline : safeSubtitleTimeline(update.subtitleTimeline),
+        voiceId: update.voiceId === undefined ? original.voiceId : safeText(update.voiceId, 160),
+        voiceProvider: update.voiceProvider === undefined ? original.voiceProvider : safeText(update.voiceProvider, 160),
+        voiceModel: update.voiceModel === undefined ? original.voiceModel : safeText(update.voiceModel, 160),
+        voiceSpeed: voiceRate(update.voiceSpeed, original.voiceSpeed, safeVoiceSpeed),
+        voicePitch: voiceRate(update.voicePitch, original.voicePitch, safeVoicePitch),
+        voiceEmotion: update.voiceEmotion === undefined ? original.voiceEmotion : safeText(update.voiceEmotion, 80),
       }
     })
     const updated = { ...project, segments, dirty: true, updatedAt: new Date().toISOString() }
@@ -668,6 +743,7 @@ class Story2VideoProjectService {
         ...segment,
         imagePath: original.imagePath || segment.imagePath,
         imageMeta: original.imageMeta || segment.imageMeta,
+        videoPrompt: original.videoPrompt || segment.videoPrompt || null,
         alternateImages: Array.isArray(original.alternateImages) ? original.alternateImages : segment.alternateImages,
         selectedMaterial: original.selectedMaterial || segment.selectedMaterial,
       }
@@ -813,6 +889,156 @@ class Story2VideoProjectService {
     const saved = this._upsertProject(project)
     this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
     return saved
+  }
+
+  /**
+   * 重新生成字幕：按场景文案用本地分句重新切分字幕块并清空陈旧时间轴。
+   * 不消耗外部额度；无文案时 fail-closed。
+   */
+  async regenerateSceneSubtitle (projectId, segmentId) {
+    const project = this.getProject(projectId)
+    const previousProject = { ...project, segments: project.segments.map(item => ({ ...item })) }
+    this._assertId(segmentId, 'segmentId')
+    const index = project.segments.findIndex(segment => segment.id === segmentId)
+    if (index < 0) throw new Error('分段不存在')
+    const segment = project.segments[index]
+    if (!segment.text || !segment.text.trim()) throw new Error('该场景没有旁白文字，无法重新生成字幕')
+    const subtitleBlocks = splitSubtitleBlocks(segment.text)
+    if (!Array.isArray(subtitleBlocks) || subtitleBlocks.length === 0) {
+      throw new Error('该场景无法拆分字幕')
+    }
+    project.segments[index] = {
+      ...segment,
+      subtitleBlocks: safeSubtitleBlocks(subtitleBlocks),
+      // 字幕为派生数据：重新分句后清空陈旧时间轴，合成时按新字幕重建
+      subtitleTimeline: [],
+      // 重置失败状态与来源标记：本地重新分句后不再沿用旧的失败原因/远端切分来源（审查 I2）
+      error: null,
+      subtitleSource: 'local-typescript',
+      status: 'completed',
+    }
+    project.dirty = true
+    project.updatedAt = new Date().toISOString()
+    const saved = this._upsertProject(project)
+    this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+    return saved
+  }
+
+  /**
+   * 重新生成旁白：按分段/项目 voice 设置用 assetGenerator.generateTTS 重新生成 TTS 音频。
+   * 成功替换 audioPath；失败保留旧音频、清理本次产物、回写 failed。
+   */
+  async regenerateSceneAudio (projectId, segmentId) {
+    const project = this.getProject(projectId)
+    const previousProject = { ...project, segments: project.segments.map(item => ({ ...item })) }
+    this._assertId(segmentId, 'segmentId')
+    const index = project.segments.findIndex(segment => segment.id === segmentId)
+    if (index < 0) throw new Error('分段不存在')
+    const segment = { ...project.segments[index], status: 'processing' }
+    if (!segment.text || !segment.text.trim()) throw new Error('该场景没有旁白文字，无法生成语音')
+    if (!this.assetGenerator || typeof this.assetGenerator.generateTTS !== 'function') {
+      throw new Error('语音生成服务不可用')
+    }
+    const options = project.options || {}
+    const voice = {
+      voice_id: segment.voiceId || options.voiceId || '',
+      voice_provider: segment.voiceProvider || options.voiceProvider || '',
+      voice_model: segment.voiceModel || options.voiceModel || '',
+      rate: segment.voiceSpeed || options.voiceSpeed,
+      pitch: segment.voicePitch || options.voicePitch,
+      emotion: segment.voiceEmotion || options.voiceEmotion || '',
+    }
+    const projectDir = this._projectDir(projectId)
+    const attemptFiles = new Set()
+    try {
+      const generated = await this.assetGenerator.generateTTS(segment.text, {
+        ...voice,
+        with_timestamps: true,
+        index: segment.sourceIndex ?? index,
+        runId: 'scene_audio_' + projectId,
+      })
+      const generatedPath = generated?.data?.path || generated?.data?.audio_path || generated?.path
+      if (!generatedPath) throw new Error(generated?.message || '语音生成失败')
+      const destination = path.join(projectDir, segment.id + '_audio_tts_' + Date.now() + sourceExtension(generatedPath, '.mp3'))
+      const copied = this._copyRequired(generatedPath, destination, 'audio')
+      attemptFiles.add(copied)
+      segment.audioPath = copied
+      segment.audioMeta = safeAssetMeta(generated?.data || generated)
+      segment.status = 'completed'
+      project.segments[index] = segment
+      project.dirty = true
+      project.updatedAt = new Date().toISOString()
+      const saved = this._upsertProject(project)
+      this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+      return saved
+    } catch (error) {
+      project.segments[index] = {
+        ...previousProject.segments[index],
+        status: 'failed',
+        error: error.message,
+      }
+      project.updatedAt = new Date().toISOString()
+      try { this._upsertProject(project) } catch (storageError) {
+        if (this.log && typeof this.log.warn === 'function') this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
+      }
+      this._cleanupProjectFiles(projectDir, attemptFiles)
+      throw error
+    }
+  }
+
+  /**
+   * 重新生成优化词：kind=image 更新 prompt（并清空陈旧翻译）；kind=video 更新 videoPrompt。
+   * 失败不改动分段、不消耗图片/视频生成额度。
+   */
+  async regenerateScenePrompt (projectId, segmentId, kind) {
+    const project = this.getProject(projectId)
+    const previousProject = { ...project, segments: project.segments.map(item => ({ ...item })) }
+    this._assertId(segmentId, 'segmentId')
+    if (!['image', 'video'].includes(kind)) throw new Error('优化词类型无效')
+    const index = project.segments.findIndex(segment => segment.id === segmentId)
+    if (index < 0) throw new Error('分段不存在')
+    const segment = { ...project.segments[index], status: 'processing' }
+    if (!segment.text || !segment.text.trim()) throw new Error('该场景没有旁白文字，无法重新生成优化词')
+    if (!this.serviceBus ||
+        typeof (kind === 'video' ? this.serviceBus.optimizeVideoPrompt : this.serviceBus.optimizePrompt) !== 'function') {
+      throw new Error('提示词优化服务不可用')
+    }
+    const projectDir = this._projectDir(projectId)
+    const attemptFiles = new Set()
+    try {
+      const seed = segment.text
+      const optimized = kind === 'video'
+        ? await this.serviceBus.optimizeVideoPrompt(seed, { index: segment.sourceIndex ?? index })
+        : await this.serviceBus.optimizePrompt(seed, { index: segment.sourceIndex ?? index })
+      const optimizedText = extractOptimizedPrompt(optimized)
+      if (!optimizedText || !optimizedText.trim()) throw new Error('提示词优化结果无效')
+      if (kind === 'image') {
+        segment.prompt = safeText(optimizedText, 20000)
+        // 提示词重写后旧翻译失效：清空，避免结果页展示陈旧翻译
+        segment.promptTranslation = null
+      } else {
+        segment.videoPrompt = safeText(optimizedText, 20000)
+      }
+      segment.status = 'completed'
+      project.segments[index] = segment
+      project.dirty = true
+      project.updatedAt = new Date().toISOString()
+      const saved = this._upsertProject(project)
+      this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+      return saved
+    } catch (error) {
+      project.segments[index] = {
+        ...previousProject.segments[index],
+        status: 'failed',
+        error: error.message,
+      }
+      project.updatedAt = new Date().toISOString()
+      try { this._upsertProject(project) } catch (storageError) {
+        if (this.log && typeof this.log.warn === 'function') this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
+      }
+      this._cleanupProjectFiles(projectDir, attemptFiles)
+      throw error
+    }
   }
 
   async generateSceneImage (projectId, segmentId) {

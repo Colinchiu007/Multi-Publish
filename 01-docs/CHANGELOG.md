@@ -1,3 +1,25 @@
+## [Unreleased] - 2026-08-15 (历史记录场景内容编辑、重新生成与整片重合成)
+
+### 新增
+- 已完成任务每个场景补齐内容闭环：**文本类元素可修改**（场景文案、字幕块、视频优化词、语音设置：音色 ID/语速/音调/情绪），**生成类元素可重新生成**（字幕、旁白语音、图片/视频优化词）。
+- 历史记录入口：completed 且有 `projectId` 的任务卡片与详情弹窗新增【编辑并重新合成】按钮，详情弹窗展示只读场景列表与提示文案。
+- 重新生成字幕：按场景文案本地分句重切 `subtitleBlocks` 并清空 `subtitleTimeline`（派生数据，合成时重建时间轴），不消耗外部额度。
+- 重新生成旁白：按场景/项目语音设置调 TTS 替换 `audioPath`；失败保留旧音频、清理本次产物并回写 failed。
+- 重新生成图片/视频优化词：`image` 重写 `prompt` 并清空 `promptTranslation`（旧翻译失效）；`video` 重写 `videoPrompt`；失败不改动分段。
+- `updateSegments` 白名单扩展：videoPrompt/subtitleBlocks/subtitleTimeline/voiceId/voiceProvider/voiceModel/voiceSpeed/voicePitch/voiceEmotion 限长收敛（videoPrompt 20000、voiceId 160、voiceEmotion 80、voiceSpeed [0.5,2]、voicePitch [-12,12]（与流水线契约对齐，负值低沉音色可用）、subtitleBlocks ≤200 块×500 字符）；白名单外字段忽略不落库。
+- 主进程同项目写串行队列（`_serializeProject`）：保存分段/整片重合成/三种重新生成按 projectId 串行执行，防止跨段并发或保存与重新生成竞态互相覆盖；渲染端任一分段生成中禁用全局保存/重新合成按钮。
+- 重新生成前自动保存未落盘编辑（防本地修改被服务端响应覆盖）；重新生成字幕重置失败状态与字幕来源标记；compose 回显缺省 videoPrompt 时按项目原值回填（防重新合成后优化词丢失）。
+
+### 修复
+- 历史记录场景内容此前只能查看、无法修改，也没有整片重新合成入口；本迭代补齐「修改 → 保存分段 → 重新合成」完整流程。
+- 完整桌面套件回归：`generate_assets` 视频分支的 `optimizedVideoPrompts` 仅在视频场景存在时定义，无视频场景（或视频生成器不可用）时持久化 `videoPrompt` 会引用未定义变量；已提升为分支外声明并补全量回归（story2video-stages.test.js 101/101 通过）。
+
+### 测试
+- 服务层 `safeVoiceSpeed`/`safeVoicePitch` 分界收敛/`extractOptimizedPrompt`/新字段透传与白名单外忽略/三个 regenerate 方法成功与失败回滚/recompose 保留 videoPrompt（C1 回归）/`_serializeProject` 串行队列（W2 回归）；IPC 三通道可信来源与非法 id/kind 拒绝 + 队列包裹断言；preload 方法数断言 99/289/87；ResultView 保存透传、字幕编辑拆分与清空语义、三按钮成功/失败通知、重新生成前自动保存、任一分段 busy 禁用全局按钮；CreateViewHistory 编辑入口与场景列表；notifications 失败归一化。定向 72+ 项通过，完整门禁见交付记录。
+
+### 文档
+- PRD-video-creation §3.1.29（数据模型/校验/流程/功能逻辑/交互/提示文字/安全边界/测试要求）+ 迭代记录表；OpenSpec change `s2v-history-scene-edit-recompose`。
+
 ## [Unreleased] - 2026-08-15 (视频创作历史记录状态浏览)
 
 ### 变更

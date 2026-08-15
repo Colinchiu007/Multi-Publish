@@ -1,3 +1,47 @@
+## 字幕分句成词保护缺失复盘（subtitle-split-quality，2026-08-16）
+
+- **现象**：能/够、就/是、做/成、在/上、动/态、规/划、专/属 等成词被切；
+  降雨量狂飙到一天713.3毫米 被劈成 713.+3毫米；v1.2 修复后 扶余国、电视剧 不再被
+  算术平衡切劈开，但标点分割+clean 导致的短尾块仍会触发二次切分把词切断。
+- **根因**：切点判定是「单字启发式」（good_lead/good_tail/bad_followers），本质无前瞻——
+  只问切点两侧单字是否像边界，不回答「切掉之后是否劈词」；标点分割后 clean 去掉末尾逗号，
+  前块缩短、短尾块无法被 merge_short 捕获（用户实测的 扶余国、电视剧 即由此切断）。
+- **教训 1（标点分割要有延迟决策）**：Step 3 标点分割「当前块 >= min 就切」不检查切完后
+  尾块是否会太短或切断词语；v1.2.3 用\no_cut_bigrams 成词保护 + 孤悬尾回退实现
+  「切点前瞻」：切点两侧构成成词（如 能|够）一律拒绝，尾块仅 4 字且块首非连词时
+  前移找达标切点。
+- **教训 2（半角点是双身份字符）**：. 同时是句界、优先级标点、尾随标点；数字中的小数点
+  必须三处豁免（句界切分、切分锚点、区间锚点）且三端（Python/TS/JS）一致，否则
+  713.+3毫米 复发。
+- **教训 3（good_tail 扩容要带排除集）**：个 入 good_tail 后 个|性 变成「好切点」；
+  独立 good_tail_blockers（性）只拦截纯黏着后缀，避免用 bad_followers 误伤
+  的|电视、是|这位 等真边界。
+- **逃逸链**：既有单测覆盖「无标点硬切」「平衡切分」场景，但缺「标点分割后 clean 变短 +
+  成词位于切点两侧」组合用例；向量语料无小数/成词双字用例（测试场景缺失）。
+- **回归保护**：sidecar 	est_scene_subtitle.py 新增 7 例（文帝 3 块、挥刀自宫 4 块、
+  713.3、扶余国/电视剧/高高在上/脖子/城邦/做成 完整块断言、个性不劈）；MP JS 合同测试
+  +8 例、parity 语料 +10 句；后续改词表/切点逻辑必须三端同步并跑 502+122 回归。
+
+## 提示词评测图片生成 MiniMax 404 复盘（fix-ops-center-image-gen-minimax，2026-08-15）
+
+- **现象**：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`；MiniMax 密钥（minimax-image/image-01）保存与「测试连通」均正常（PR #861 已修探测）。
+- **根因**：`prompt_eval_generation_service.generate_images()` 对所有 provider 统一请求 OpenAI 兼容 `{base}/images/generations`；MiniMax 图片生成是**专有端点** `POST {base}/image_generation`，请求体无 `size`、响应是 `data.image_base64`（base64 模式）/ `data.image_urls`（url 模式）+ `base_resp.status_code`。
+- **教训 1（生成类 provider 不能假设 OpenAI 兼容）**：MiniMax image-01 与 OpenAI 兼容「差一个端点」——`/images/generations`（404）vs `/image_generation`。凡是直连第三方生成 provider，端点、请求体字段、响应结构、业务错误载体四项必须按官方契约逐一核对；mock 响应必须用真实契约形状，否则测试反向固化错误行为（既有用例用 OpenAI 形状 mock minimax，正好掩盖了这个 bug）。
+- **教训 2（业务失败载体各不同）**：OpenAI 兼容用 HTTP 状态码，MiniMax 用 `base_resp.status_code`（HTTP 200 也可能业务失败）；且 base64 模式返回 `data.image_base64`、url 模式才返回 `data.image_urls`，字段名差异会导致「404 修成空结果」的二次事故。fail-closed 判定要同时覆盖「HTTP 状态」与「业务状态码」（类型归一），且业务失败不进入重试。
+- **教训 3（数量上限与返回数量差异要显式校验）**：前端允许 image_count 1-20，MiniMax `n` 仅 1-9；不做显式校验会把非法请求透传给 provider（400 文案难懂）。返回图片数 != 请求数也要 fail closed（覆盖 failed_count>0），避免评估阶段图片数与维度权重错位。
+- **逃逸链**：单测 mock minimax 用 OpenAI 兼容响应形状（测试质量不足）；生成服务初版未按 provider 差异建模（审查盲区）。
+- **回归保护**：`test_prompt_eval_services.py` 新增 8 场景（MiniMax 端点/payload 断言、base64 落盘含 data URL 前缀、URL 下载、业务失败 fail closed 不重试、字符串 status_code 不误判、数量不符 fail closed、n 越界拒绝、flux 含 base_resp 不被误拦截）。
+
+## 提示词评测图片生成 MiniMax 404 复盘（fix-ops-center-image-gen-minimax，2026-08-15）
+
+- **现象**：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`；MiniMax 密钥（minimax-image/image-01）保存与「测试连通」均正常（PR #861 已修探测）。
+- **根因**：`prompt_eval_generation_service.generate_images()` 对所有 provider 统一请求 OpenAI 兼容 `{base}/images/generations`；MiniMax 图片生成是**专有端点** `POST {base}/image_generation`，请求体无 `size`、响应是 `data.image_urls` + `base_resp.status_code`。
+- **教训 1（生成类 provider 不能假设 OpenAI 兼容）**：MiniMax image-01 与 OpenAI 兼容「差一个端点」——`/images/generations`（404）vs `/image_generation`。凡是直连第三方生成 provider，端点、请求体字段、响应结构、业务错误载体四项必须按官方契约逐一核对；mock 响应必须用真实契约形状，否则测试反向固化错误行为（既有用例用 OpenAI 形状 mock minimax，正好掩盖了这个 bug）。
+- **教训 2（业务失败载体各不同）**：OpenAI 兼容用 HTTP 状态码，MiniMax 用 `base_resp.status_code`（HTTP 200 也可能业务失败）。fail-closed 判定要同时覆盖「HTTP 状态」与「业务状态码」，且业务失败不进入重试。
+- **教训 3（数量上限差异要显式校验）**：前端允许 image_count 1-20，MiniMax `n` 仅 1-9；不做显式校验会把非法请求透传给 provider（400 文案难懂）。fail closed 抛可操作中文错误。
+- **逃逸链**：单测 mock minimax 用 OpenAI 兼容响应形状（测试质量不足）；生成服务初版未按 provider 差异建模（审查盲区）。
+- **回归保护**：`test_prompt_eval_services.py` 新增 8 场景（MiniMax 端点/payload 断言、base64 落盘含 data URL 前缀、URL 下载、业务失败 fail closed 不重试、字符串 status_code 不误判、数量不符 fail closed、n 越界拒绝、flux 含 base_resp 不被误拦截）。
+
 ## 字幕分句坏切复盘（subtitle-split-quality，2026-08-15）
 
 - **现象**：Story2Video 字幕出现 `扶余国`→`扶余/国`、`电视剧`→`电/视剧`、`复杂`→`复/杂`、`空白一片`→`空/白一片`、`卵生、日影受孕` 7 字孤悬；用户质疑是否本地源码落后于远程。

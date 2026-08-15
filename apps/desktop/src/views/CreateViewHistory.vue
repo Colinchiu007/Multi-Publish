@@ -163,8 +163,9 @@
                 v-if="item.status === 'completed' && item.projectId"
                 type="button"
                 class="s2v-btn-secondary s2v-btn-sm"
+                data-testid="history-edit-recompose-button"
                 @click.stop="$emit('open-result', item)"
-              >{{ tr('openResult') }}</button>
+              >{{ tr('editAndRecompose') }}</button>
               <button
                 v-if="item.projectId"
                 type="button"
@@ -207,6 +208,16 @@
             </span>
           </div>
         </div>
+        <div v-if="detailScenes(selectedHistoryItem).length" class="history-detail-scenes" data-testid="history-detail-scenes">
+          <span class="history-field-label">{{ tr('sceneListLabel') }}</span>
+          <ol class="history-detail-scene-list">
+            <li v-for="(scene, index) in detailScenes(selectedHistoryItem)" :key="scene.id || index" class="history-detail-scene-item">
+              <span class="history-detail-scene-index">{{ index + 1 }}</span>
+              <span class="history-detail-scene-text">{{ truncate(scene.text || scene.prompt || '', 60) }}</span>
+            </li>
+          </ol>
+          <p class="history-detail-hint">{{ tr('sceneListHint') }}</p>
+        </div>
       </div>
       <template #footer>
         <button
@@ -220,8 +231,9 @@
           v-if="selectedHistoryItem && selectedHistoryItem.status === 'completed' && selectedHistoryItem.projectId"
           type="button"
           class="s2v-btn-secondary s2v-btn-sm"
+          data-testid="history-detail-edit-recompose-button"
           @click="openResultFromDetail"
-        >{{ tr('openResult') }}</button>
+        >{{ tr('editAndRecompose') }}</button>
         <button type="button" class="s2v-btn-secondary s2v-btn-sm" @click="closeDetail">{{ tr('close') }}</button>
       </template>
     </UiModal>
@@ -315,6 +327,11 @@ export default {
     firstSegmentTranslation (item) {
       return (Array.isArray(item?.segments) ? item.segments : []).find(segment => segment?.promptTranslation)?.promptTranslation || ''
     },
+    detailScenes (item) {
+      if (!item) return []
+      return (Array.isArray(item?.segments) ? item.segments : [])
+        .filter(segment => segment && (segment.text || segment.prompt))
+    },
     truncate (value, max) {
       const text = String(value || '')
       return text.length > max ? text.slice(0, max - 1) + '…' : text
@@ -393,3 +410,12 @@ export default {
   },
 }
 </script>
+
+<style scoped>
+.history-detail-scenes { margin-top: 14px; }
+.history-detail-scene-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
+.history-detail-scene-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.history-detail-scene-index { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--border-light); color: var(--text-muted); font-size: 12px; }
+.history-detail-scene-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 13px; }
+.history-detail-hint { margin: 10px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+</style>

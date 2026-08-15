@@ -145,16 +145,16 @@
       <div class="section-heading">
         <div>
           <h2>分段编辑</h2>
-          <p>{{ segments.length }} 个分段</p>
+          <p>{{ segments.length }} 个分段 · {{ $t('story2video.sceneMaterial.editRecomposeHint') }}</p>
         </div>
         <div class="section-actions">
-          <UiButton size="sm" variant="secondary" :disabled="saving" @click="saveSegments">
+          <UiButton size="sm" variant="secondary" :disabled="saving || anySegmentBusy" @click="saveSegments">
             {{ saving ? '保存中...' : '保存分段' }}
           </UiButton>
-          <UiButton size="sm" :disabled="recomposing" @click="recomposeProject">
+          <UiButton size="sm" :disabled="recomposing || anySegmentBusy" @click="recomposeProject">
             {{ recomposing ? '合成中...' : '重新合成' }}
           </UiButton>
-          <UiButton size="sm" variant="secondary" :disabled="recomposing" data-testid="recompose-final-button" :title="$t('story2video.sceneMaterial.recomposeFinalHint')" @click="recomposeProject">
+          <UiButton size="sm" variant="secondary" :disabled="recomposing || anySegmentBusy" data-testid="recompose-final-button" :title="$t('story2video.sceneMaterial.recomposeFinalHint')" @click="recomposeProject">
             {{ recomposing ? $t('story2video.sceneMaterial.recomposingFinal') : $t('story2video.sceneMaterial.recomposeFinal') }}
           </UiButton>
         </div>
@@ -217,12 +217,65 @@
             <textarea v-model="segment.text" rows="3" @input="segmentsDirty = true"></textarea>
           </label>
           <label class="field-label">
+            <span>{{ $t('story2video.sceneMaterial.subtitleLabel') }}</span>
+            <textarea
+              :value="subtitleBlocksText(segment)"
+              rows="3"
+              data-testid="segment-subtitle-textarea"
+              @input="updateSegmentSubtitleBlocks(segment, $event.target.value)"
+            ></textarea>
+          </label>
+          <div class="segment-inline-actions">
+            <UiButton size="sm" variant="secondary" data-testid="regenerate-subtitle-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateSceneSubtitle(segment.id)">
+              {{ segmentBusyKind(segment.id) === 'subtitle' ? $t('story2video.sceneMaterial.regeneratingSubtitle') : $t('story2video.sceneMaterial.regenerateSubtitle') }}
+            </UiButton>
+          </div>
+          <label class="field-label">
             画面提示词
             <textarea v-model="segment.prompt" rows="3" @input="segmentsDirty = true"></textarea>
           </label>
+          <label class="field-label">
+            <span>{{ $t('story2video.sceneMaterial.videoPromptLabel') }}</span>
+            <textarea v-model="segment.videoPrompt" rows="3" data-testid="segment-video-prompt-textarea" @input="segmentsDirty = true"></textarea>
+          </label>
+          <div class="segment-inline-actions">
+            <UiButton size="sm" variant="secondary" data-testid="regenerate-image-prompt-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateScenePrompt(segment.id, 'image')">
+              {{ segmentBusyKind(segment.id) === 'promptImage' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateImagePrompt') }}
+            </UiButton>
+            <UiButton size="sm" variant="secondary" data-testid="regenerate-video-prompt-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateScenePrompt(segment.id, 'video')">
+              {{ segmentBusyKind(segment.id) === 'promptVideo' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateVideoPrompt') }}
+            </UiButton>
+          </div>
           <div v-if="showPromptTranslation(segment)" class="segment-prompt-translation" data-testid="segment-prompt-translation">
             <span class="segment-prompt-translation-label">{{ promptTranslationLabel }}</span>
             <p class="segment-prompt-translation-text">{{ segment.promptTranslation }}</p>
+          </div>
+
+          <div class="segment-voice-settings">
+            <span class="segment-voice-title">{{ $t('story2video.sceneMaterial.voiceSettingsLabel') }}</span>
+            <div class="segment-voice-grid">
+              <label class="field-label">
+                <span>{{ $t('story2video.sceneMaterial.voiceIdLabel') }}</span>
+                <input v-model="segment.voiceId" data-testid="segment-voice-id-input" :placeholder="$t('story2video.sceneMaterial.voiceIdPlaceholder')" @input="segmentsDirty = true" />
+              </label>
+              <label class="field-label">
+                <span>{{ $t('story2video.sceneMaterial.voiceSpeedLabel') }}</span>
+                <input v-model.number="segment.voiceSpeed" data-testid="segment-voice-speed-input" type="number" step="0.1" min="0.5" max="2" @input="segmentsDirty = true" />
+              </label>
+              <label class="field-label">
+                <span>{{ $t('story2video.sceneMaterial.voicePitchLabel') }}</span>
+                <input v-model.number="segment.voicePitch" data-testid="segment-voice-pitch-input" type="number" step="0.1" min="-12" max="12" @input="segmentsDirty = true" />
+              </label>
+              <label class="field-label">
+                <span>{{ $t('story2video.sceneMaterial.voiceEmotionLabel') }}</span>
+                <input v-model="segment.voiceEmotion" data-testid="segment-voice-emotion-input" :placeholder="$t('story2video.sceneMaterial.voiceEmotionPlaceholder')" @input="segmentsDirty = true" />
+              </label>
+            </div>
+            <div class="segment-inline-actions">
+              <UiButton size="sm" variant="secondary" data-testid="regenerate-audio-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateSceneAudio(segment.id)">
+                {{ segmentBusyKind(segment.id) === 'tts' ? $t('story2video.sceneMaterial.generatingVoice') : $t('story2video.sceneMaterial.regenerateVoice') }}
+              </UiButton>
+            </div>
           </div>
 
           <div class="segment-actions">
@@ -283,6 +336,9 @@ import {
   story2videoSelectSceneMaterial,
   story2videoGenerateSceneImage,
   story2videoGenerateSceneVideo,
+  story2videoRegenerateSceneSubtitle,
+  story2videoRegenerateSceneAudio,
+  story2videoRegenerateScenePrompt,
   videoProcess,
 } from '@/api/publisher'
 
@@ -332,6 +388,10 @@ export default {
       const query = this.$route?.query || {}
       if (query.bgmSkipped !== '1') return ''
       return formatBgmSkippedNotification(query.bgmReason).message
+    },
+    // 任一分段正在生成/重试时禁用全局保存与重新合成，避免与主进程写队列交叉（审查 W2）
+    anySegmentBusy() {
+      return Object.keys(this.segmentBusy || {}).some(key => Boolean(this.segmentBusy[key]))
     },
     completionSummary() {
       const query = this.$route?.query || {}
@@ -558,6 +618,108 @@ export default {
       } catch (error) {
         await this.refreshSegmentImageUrls().catch(() => {})
         this.showStory2VideoNotification({ error: error && error.message ? error.message : 'video generation failed' })
+      } finally {
+        const next = { ...this.segmentBusy }
+        delete next[segmentId]
+        this.segmentBusy = next
+      }
+    },
+    subtitleBlocksText(segment) {
+      if (!segment) return ''
+      // blocks 显式存在（含空数组=用户清空）时直接展示，避免清空后回退旧 timeline（审查 I1）
+      if (Array.isArray(segment.subtitleBlocks)) {
+        return segment.subtitleBlocks.join('\n')
+      }
+      if (Array.isArray(segment.subtitleTimeline) && segment.subtitleTimeline.length) {
+        return segment.subtitleTimeline
+          .map(item => (item && typeof item === 'object' ? item.text : item))
+          .filter(Boolean)
+          .join('\n')
+      }
+      return ''
+    },
+    updateSegmentSubtitleBlocks(segment, value) {
+      if (!segment) return
+      const blocks = String(value || '').split('\n').map(line => line.trim()).filter(Boolean)
+      segment.subtitleBlocks = blocks
+      // 手动编辑后时间轴为派生数据：置空避免合成沿用陈旧时间轴（与 regenerateSceneSubtitle 语义一致，审查 I1）
+      segment.subtitleTimeline = []
+      this.segmentsDirty = true
+    },
+    async regenerateSceneSubtitle(segmentId) {
+      if (!this.projectId || this.isSegmentBusy(segmentId)) return
+      // 重新生成前先落盘本地编辑：避免基于旧文案重切，也防止服务端响应覆盖未保存修改（审查 W3）
+      if (this.segmentsDirty && !(await this.saveSegments())) return
+      this.segmentBusy = { ...this.segmentBusy, [segmentId]: 'subtitle' }
+      try {
+        const result = await story2videoRegenerateSceneSubtitle(this.projectId, segmentId)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || 'subtitle regeneration failed')
+        this.project = result.data
+        this.segments = Array.isArray(result.data.segments)
+          ? result.data.segments.map(item => ({ ...item }))
+          : this.segments
+        this.segmentsDirty = true
+        // 服务端返回的分段不含素材 URL，重新解析本地媒体 URL 避免素材区空白
+        await this.refreshSegmentImageUrls()
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_SUBTITLE_REGENERATED })
+      } catch (error) {
+        this.showStory2VideoNotification({
+          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_SUBTITLE_REGENERATE_FAILED,
+          error: error && error.message ? error.message : '',
+        })
+      } finally {
+        const next = { ...this.segmentBusy }
+        delete next[segmentId]
+        this.segmentBusy = next
+      }
+    },
+    async regenerateSceneAudio(segmentId) {
+      if (!this.projectId || this.isSegmentBusy(segmentId)) return
+      // 重新生成前先落盘本地编辑（审查 W3）
+      if (this.segmentsDirty && !(await this.saveSegments())) return
+      this.segmentBusy = { ...this.segmentBusy, [segmentId]: 'tts' }
+      try {
+        const result = await story2videoRegenerateSceneAudio(this.projectId, segmentId)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || 'audio regeneration failed')
+        this.project = result.data
+        this.segments = Array.isArray(result.data.segments)
+          ? result.data.segments.map(item => ({ ...item }))
+          : this.segments
+        this.segmentsDirty = true
+        await this.refreshSegmentImageUrls()
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATED })
+      } catch (error) {
+        this.showStory2VideoNotification({
+          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED,
+          error: error && error.message ? error.message : '',
+        })
+      } finally {
+        const next = { ...this.segmentBusy }
+        delete next[segmentId]
+        this.segmentBusy = next
+      }
+    },
+    async regenerateScenePrompt(segmentId, kind) {
+      if (!this.projectId || this.isSegmentBusy(segmentId)) return
+      // 重新生成前先落盘本地编辑（审查 W3）
+      if (this.segmentsDirty && !(await this.saveSegments())) return
+      this.segmentBusy = { ...this.segmentBusy, [segmentId]: kind === 'video' ? 'promptVideo' : 'promptImage' }
+      try {
+        const result = await story2videoRegenerateScenePrompt(this.projectId, segmentId, kind)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || 'prompt regeneration failed')
+        this.project = result.data
+        this.segments = Array.isArray(result.data.segments)
+          ? result.data.segments.map(item => ({ ...item }))
+          : this.segments
+        this.segmentsDirty = true
+        // 服务端返回的分段不含素材 URL，重新解析本地媒体 URL 避免素材区空白
+        await this.refreshSegmentImageUrls()
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATED })
+      } catch (error) {
+        this.showStory2VideoNotification({
+          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED,
+          error: error && error.message ? error.message : '',
+        })
       } finally {
         const next = { ...this.segmentBusy }
         delete next[segmentId]
@@ -838,6 +1000,12 @@ export default {
           id: segment.id,
           text: segment.text || '',
           prompt: segment.prompt || '',
+          videoPrompt: segment.videoPrompt || '',
+          subtitleBlocks: Array.isArray(segment.subtitleBlocks) ? segment.subtitleBlocks : [],
+          voiceId: segment.voiceId || '',
+          voiceSpeed: segment.voiceSpeed === undefined || segment.voiceSpeed === null || segment.voiceSpeed === '' ? undefined : Number(segment.voiceSpeed),
+          voicePitch: segment.voicePitch === undefined || segment.voicePitch === null || segment.voicePitch === '' ? undefined : Number(segment.voicePitch),
+          voiceEmotion: segment.voiceEmotion || '',
         }))
         const result = await story2videoUpdateSegments(this.projectId, updates)
         if (result?.code !== 0) throw new Error(result?.message || '分段保存失败')
@@ -1015,6 +1183,12 @@ export default {
 .segment-order button:disabled { opacity: 0.4; cursor: not-allowed; }
 .field-label { display: grid; gap: 6px; margin-top: 10px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
 .field-label textarea { width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; line-height: 1.5; }
+.segment-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.segment-voice-settings { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.segment-voice-title { display: block; color: var(--text-muted); font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.segment-voice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.segment-voice-grid .field-label { margin-top: 6px; }
+.segment-voice-grid input { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
 .segment-actions { margin-top: 12px; }
 .segment-file-action { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 12px; font-weight: 600; }
 .segment-file-action:hover { border-color: var(--primary); color: var(--primary); }
@@ -1028,5 +1202,6 @@ export default {
   .segment-order { margin-left: 0; }
   .actions > *, .section-actions > * { flex: 1 1 auto; }
   .scene-material-slots { grid-template-columns: 1fr; }
+  .segment-voice-grid { grid-template-columns: 1fr; }
 }
 </style>
