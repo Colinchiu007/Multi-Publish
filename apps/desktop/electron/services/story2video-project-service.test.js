@@ -984,6 +984,211 @@ describe('Story2VideoProjectService', () => {
     expect(fs.readdirSync(projectDir).some(name => name.includes('_video_render_'))).toBe(false)
   })
 
+  describe('AI 视频重新生成（W4：videoPrompt 消费路径）', () => {
+    const mockGenerateSceneVideo = vi.fn()
+    const mockEstimateSceneSeconds = vi.fn(() => 6)
+    beforeEach(() => {
+      mockGenerateSceneVideo.mockReset()
+      mockEstimateSceneSeconds.mockReset()
+      mockEstimateSceneSeconds.mockReturnValue(6)
+    })
+
+    it('成功后替换 videoPath/videoMeta 并清理旧素材', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+      const projectDir = bootstrap._projectDir('project-ai-video-ok')
+      const oldVideo = writeFile(path.join(projectDir, 'old.mp4'), 'old-video')
+      const generated = writeFile(path.join(root, 'generated-ai.mp4'), 'ai-video')
+      mockGenerateSceneVideo.mockResolvedValue({ success: true, path: generated })
+      const callAdapter = vi.fn()
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: mockGenerateSceneVideo,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : null),
+          callAdapter,
+        },
+      })
+      service._writeProjects([{
+        projectId: 'project-ai-video-ok', status: 'completed',
+        options: { aspectRatio: '9:16', fps: 30, video: { pollIntervalMs: 5 } },
+        segments: [{ id: 'segment-0', index: 0, text: 'A', prompt: 'PA', videoPrompt: 'VP', videoPath: oldVideo }],
+      }])
+
+      const updated = await service.generateSceneAiVideo('project-ai-video-ok', 'segment-0')
+
+      expect(updated.segments[0].videoPath).toMatch(/_video_ai_.*\.mp4$/)
+      expect(fs.existsSync(updated.segments[0].videoPath)).toBe(true)
+      expect(updated.segments[0].videoMeta).toEqual({ provider: 'kling', model: 'kling-v1', source: 'ai-video' })
+      expect(updated.segments[0].status).toBe('completed')
+      expect(fs.existsSync(oldVideo)).toBe(false)
+      expect(mockGenerateSceneVideo).toHaveBeenCalledWith(expect.objectContaining({
+        providerId: 'kling',
+        model: 'kling-v1',
+        prompt: 'VP',
+        size: { width: 720, height: 1280 },
+        fps: 30,
+      }))
+      expect(mockGenerateSceneVideo.mock.calls[0][0].manager.callAdapter).toBe(callAdapter)
+      expect(fs.readdirSync(projectDir).some(name => name.includes('_video_ai_'))).toBe(true)
+    })
+
+    it('videoPrompt 缺省回退 prompt，无任何文案 fail-closed 不调生成器', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: mockGenerateSceneVideo,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : null),
+          callAdapter: vi.fn(),
+        },
+      })
+      mockGenerateSceneVideo.mockResolvedValue({ success: true, path: writeFile(path.join(root, 'generated-fallback.mp4'), 'ai-video') })
+      service._writeProjects([{
+        projectId: 'project-ai-video-fallback', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: 'T', prompt: 'PA', status: 'completed' }],
+      }])
+
+      const updated = await service.generateSceneAiVideo('project-ai-video-fallback', 'segment-0')
+      expect(mockGenerateSceneVideo).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'PA' }))
+      expect(updated.segments[0].status).toBe('completed')
+
+      service._writeProjects([{
+        projectId: 'project-ai-video-empty', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: '', status: 'completed' }],
+      }])
+      mockGenerateSceneVideo.mockClear()
+      await expect(service.generateSceneAiVideo('project-ai-video-empty', 'segment-0')).rejects.toThrow('该场景没有视频优化词')
+      expect(mockGenerateSceneVideo).not.toHaveBeenCalled()
+      expect(service.getProject('project-ai-video-empty').segments[0].status).toBe('completed')
+    })
+
+    it('未配置视频供应商或服务不可用均 fail-closed', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: mockGenerateSceneVideo,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        modelProviderManager: {
+          getDefault: vi.fn(() => null),
+          callAdapter: vi.fn(),
+        },
+      })
+      service._writeProjects([{
+        projectId: 'project-ai-video-noprovider', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: 'A', videoPrompt: 'VP' }],
+      }])
+
+      await expect(service.generateSceneAiVideo('project-ai-video-noprovider', 'segment-0')).rejects.toThrow('未配置可用的视频供应商')
+      expect(mockGenerateSceneVideo).not.toHaveBeenCalled()
+
+      const bare = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+      bare._writeProjects([{
+        projectId: 'project-ai-video-nomanager', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: 'A', videoPrompt: 'VP' }],
+      }])
+      await expect(bare.generateSceneAiVideo('project-ai-video-nomanager', 'segment-0')).rejects.toThrow('AI 视频生成服务不可用')
+    })
+
+    it('失败保留旧视频、回写 failed 并清理本次产物', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+      const projectDir = bootstrap._projectDir('project-ai-video-fail')
+      const oldVideo = writeFile(path.join(projectDir, 'old.mp4'), 'old-video')
+      const generated = writeFile(path.join(root, 'generated-ai.mp4'), 'ai-video')
+      mockGenerateSceneVideo.mockResolvedValue({ success: false, error: '视频生成调用失败' })
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: mockGenerateSceneVideo,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : null),
+          callAdapter: vi.fn(),
+        },
+      })
+      service._writeProjects([{
+        projectId: 'project-ai-video-fail', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: 'A', videoPrompt: 'VP', videoPath: oldVideo }],
+      }])
+
+      await expect(service.generateSceneAiVideo('project-ai-video-fail', 'segment-0')).rejects.toThrow('视频生成调用失败')
+
+      const failed = service.getProject('project-ai-video-fail')
+      expect(failed.segments[0]).toMatchObject({ videoPath: oldVideo, status: 'failed', error: '视频生成调用失败' })
+      expect(fs.existsSync(oldVideo)).toBe(true)
+      expect(fs.readdirSync(projectDir).some(name => name.includes('_video_ai_'))).toBe(false)
+    })
+
+    it('multimodal 供应商按 capability_models.video 选模型，尺寸按输出分辨率解析', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const generated = writeFile(path.join(root, 'generated-ai2.mp4'), 'ai-video')
+      mockGenerateSceneVideo.mockResolvedValue({ success: true, path: generated })
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: mockGenerateSceneVideo,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? {
+            id: 'hunyuan', category: 'multimodal', models: ['hunyuan-video'],
+            capability_models: { video: 'hunyuan-video' },
+          } : null),
+          callAdapter: vi.fn(),
+        },
+      })
+      service._writeProjects([{
+        projectId: 'project-ai-video-multimodal', status: 'completed',
+        options: { resolution: '1080x1920', fps: 24 },
+        segments: [{ id: 'segment-0', index: 0, text: 'A', videoPrompt: 'VP' }],
+      }])
+
+      const updated = await service.generateSceneAiVideo('project-ai-video-multimodal', 'segment-0')
+      expect(mockGenerateSceneVideo).toHaveBeenCalledWith(expect.objectContaining({
+        providerId: 'hunyuan',
+        model: 'hunyuan-video',
+        size: { width: 1080, height: 1920 },
+        fps: 24,
+      }))
+      expect(updated.segments[0].videoMeta).toEqual({ provider: 'hunyuan', model: 'hunyuan-video', source: 'ai-video' })
+    })
+
+    it('存储写入失败时清理本次 AI 视频产物且保留旧视频（审查 W3 回归）', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: mockGenerateSceneVideo,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        log: { warn: vi.fn() },
+        modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : null),
+          callAdapter: vi.fn(),
+        },
+      })
+      const projectDir = service._projectDir('project-ai-video-storefail')
+      const oldVideo = writeFile(path.join(projectDir, 'old.mp4'), 'old-video')
+      const generated = writeFile(path.join(root, 'generated-ai-storefail.mp4'), 'ai-video')
+      mockGenerateSceneVideo.mockResolvedValue({ success: true, path: generated })
+      service._writeProjects([{
+        projectId: 'project-ai-video-storefail', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: 'A', videoPrompt: 'VP', videoPath: oldVideo }],
+      }])
+      const upsertSpy = vi.spyOn(service, '_upsertProject').mockImplementation(() => { throw new Error('存储写入失败') })
+
+      await expect(service.generateSceneAiVideo('project-ai-video-storefail', 'segment-0')).rejects.toThrow('存储写入失败')
+
+      upsertSpy.mockRestore()
+      expect(fs.existsSync(oldVideo)).toBe(true)
+      expect(fs.readdirSync(projectDir).some(name => name.includes('_video_ai_'))).toBe(false)
+    })
+  })
+
   it('选择场景素材校验非法类型与空槽，成功后持久化选中态', () => {
     const projectRoot = path.join(root, 'projects')
     const service = new Story2VideoProjectService({ store, projectsDir: projectRoot })
@@ -1296,6 +1501,25 @@ describe('Story2VideoProjectService', () => {
     const results = await Promise.all([first, second])
     expect(results).toEqual([1, 2])
     expect(order).toEqual(['first-start', 'first-end', 'second-start', 'second-end'])
+    expect(service._projectQueues.size).toBe(0)
+  })
+
+  it('_serializeProject 前置任务失败不阻断已排队的后续任务（审查 W1 回归）', async () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    const order = []
+    const first = service._serializeProject('project-q2', async () => {
+      order.push('first-start')
+      await new Promise(resolve => setTimeout(resolve, 10))
+      throw new Error('前置失败')
+    })
+    const second = service._serializeProject('project-q2', async () => {
+      order.push('second-start')
+      order.push('second-end')
+      return 2
+    })
+    await expect(first).rejects.toThrow('前置失败')
+    await expect(second).resolves.toBe(2)
+    expect(order).toEqual(['first-start', 'second-start', 'second-end'])
     expect(service._projectQueues.size).toBe(0)
   })
 

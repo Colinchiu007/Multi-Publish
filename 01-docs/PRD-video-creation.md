@@ -168,6 +168,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-14 | 全能创作 BGM 素材库管理 | 背景音乐升级为设备级素材库：添加（自动入库 + 选中）/ 重命名 / 删除，下拉选择，历史路径兼容；主进程 `story2video-bgm-library` 服务 + 4 个 IPC 通道 + PUBLIC_CHANNELS；详见本节 3.1.25 | PRD 3.1.25 |
 | 2026-08-14 | 历史详情页场景多素材与再次合成 | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 | 2026-08-15 | 视频提示词引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架 | **Batch B**：`prev_final_frame`（≤1000 字符，句末截断）链式承接上一镜计划终态；`HIGGSFIELD_FMT_V4` 缓存盐（key 含 prev_final_frame 哈希）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）；Story2Video 视频提示词按场景串行优化、媒体生成保持并发、计划终态回写 scene.video.final_frame、checkpoint 终态恢复链、断链显式 degraded。**Batch C**：refined 12 块导演骨架（SCENE NOTE…FINAL FRAME，值 ≤4000，白名单）；FAIL CHECK 仅指令不出现在输出；尾行清理只认完整 trailer 尾段；块覆盖度 ≥0.8（advisory -5）；7 条 lock-gated 规则默认启用 dead_center/exposure_break/eye_line，否定感知（not overexposed / no waxy skin 不判罚）。详见本节 3.1.27 | PRD 3.1.27 / openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output | | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
+| 2026-08-16 | 历史记录场景 AI 视频重新生成（W4 闭环） | 完成 3.1.29 的 W4 真缺口：结果页新增【生成 AI 视频】，以分段 videoPrompt（缺省回退 prompt/text）为提示词复用流水线 stages 契约（generateVideo→轮询→下载校验），成功替换分段 videoPath/videoMeta、失败保留旧视频回写 failed；IPC/权益/preload/api/locales/通知归一化全链路补齐；详见本节 3.1.29.1 | PRD 3.1.29.1 / openspec s2v-history-ai-video-regen |
 | 2026-08-15 | 历史记录场景内容编辑/重新生成与整片重合成 | 已完成任务每个场景可修改文案/字幕块/视频优化词/语音设置（updateSegments 白名单透传 + 限长收敛，voiceSpeed/Pitch 收敛 [0.1,10]），重新生成字幕（本地重切清空时间轴、重置失败态与来源标记）/旁白（TTS 失败回滚保留旧音频 + 回写 failed）/图片与视频优化词（image 重写 prompt 清翻译、video 写 videoPrompt），配合既有【生成新图】【生成视频】与【重新合成】完成整片重合成；voiceSpeed 收敛 [0.5,2]、voicePitch 收敛 [-12,12]（与流水线契约对齐）；同项目写串行队列防并发覆盖；compose 回显缺省时 videoPrompt 按原值回填；历史卡片与详情弹窗新增【编辑并重新合成】入口 + 只读场景列表；详见本节 3.1.29 | PRD 3.1.29 / openspec s2v-history-scene-edit-recompose |
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
@@ -1879,6 +1880,80 @@ SettingsDialog 关闭（App.vue @close）
 - CreateViewHistory.test.js：editAndRecompose 按钮渲染/跳转、详情弹窗场景列表 + 提示文案；
 - locale：zh/en 成对 + check-locale-sync 通过；渲染端无新增中文字面量。
 
+
+#### 3.1.29.1 AI 视频重新生成（W4 闭环：videoPrompt 消费路径，2026-08-16）
+
+**背景（W4 真缺口）**：3.1.29 交付后，历史场景的「视频优化词」可编辑、可重新生成，但结果页既有【生成视频】按钮走 `generateSceneVideo`（图片动效渲染，不消费 `videoPrompt`、不调用 AI 视频生成），导致「修改视频优化词后重新生成视频」没有落地路径——AI 视频生成此前只存在于流水线 generate_assets 阶段。本小节补齐：**分段级 AI 视频重新生成**，以 `videoPrompt`（缺省回退 `prompt`/`text`）为提示词，复用流水线同一 stages 契约（generateVideo 提交 → getVideoStatus 轮询 → 下载校验），成功后替换分段 `videoPath`，失败保留旧视频并回写失败态。
+
+##### 1) 数据校验（服务端 fail-closed）
+
+- 输入：`projectId` / `segmentId` 必须通过 `isSafeId`（`[a-zA-Z0-9_-]{1,100}`）；分段不存在 → 「分段不存在」。
+- 提示词前置校验：`segment.videoPrompt || segment.prompt || segment.text` 经 `safeText(..., 20000)` 收敛；全部为空 → 拒绝并提示「该场景没有视频优化词，请先编辑或重新生成视频优化词」（**不调用生成器、不改动分段状态**）。
+- 服务可用性前置校验（fail-closed，不调用生成器）：
+  - `modelProviderManager` 缺失或 `callAdapter`/`getDefault` 不可用 → 「AI 视频生成服务不可用，请在模型设置中启用视频供应商」；
+  - 默认 video 供应商解析失败（`getDefault('video')` 无 id）→ 「未配置可用的视频供应商，请在模型设置中启用视频生成能力」。
+- 生成尺寸 `_videoSize`：优先解析 `project.options.resolution`（支持 `WxH`/`W×H`，160..4096 边界，`parseOutputSize` 非法回退比例映射）；否则按 `options.aspectRatio` 映射（16:9→1280x720、9:16→720x1280、1:1→1024x1024、4:3→1280x960、3:4→960x1280，未知比例回退 9:16），长边封顶 1280（与流水线 `resolveVideoSize` 同源语义）。
+- 帧率 `fps`：`project.options.fps` 为正数则透传，否则默认 30；stages 内部再做 `pickFrameCountForSceneDuration` 帧数换算。
+- 轮询间隔：`project.options.video.pollIntervalMs` 为正数则透传，否则默认 10000ms（与流水线 `stage.options.video.pollIntervalMs` 同参名契约）。
+- 时长估算：复用 stages `estimateSceneSeconds`（`segment.duration` + `options.defaultSceneDuration` 兜底）。
+- 模型选择 `_defaultVideoGenerator`：`manager.getDefault('video')` 的 provider；`category === 'multimodal'` 且 `capability_models.video` 为字符串时优先取能力模型（须在 `models` 列表内，否则用能力模型原值；models 为空时回退能力模型），否则取 `models[0]`；provider id 必填（trim 后非空），model 可为空串（stages 层按 undefined 处理）。
+
+##### 2) 流程与功能逻辑
+
+```
+结果页（历史记录场景）→【生成 AI 视频】
+  ├─ 前置：segmentsDirty 时先【保存分段】（W3 语义：基于最新 videoPrompt，防响应覆盖本地编辑）
+  ├─ 服务端 generateSceneAiVideo(projectId, segmentId)（_serializeProject 同项目写串行队列内执行）
+  │    ├─ 解析提示词/供应商/尺寸/fps/时长（见上）
+  │    ├─ 复用 stages.generateSceneVideo：generateVideo 提交（prompt/model/width/height/numFrames/frameRate）→
+  │    │     getVideoStatus 轮询（≤10 分钟；provider code<0/success=false/status failed|error|cancelled 立即终止）→
+  │    │     http(s) 下载（≤5 重定向、流式字节上限）→ ffprobe 解码校验
+  │    ├─ 成功：_copyRequired 复制到项目目录（segment.id_video_ai_<ts>.mp4），替换 segment.videoPath，
+  │    │        videoMeta={provider, model, source:'ai-video'}，status='completed'，持久化后按引用集清理旧素材
+  │    └─ 失败：保留旧 videoPath、清理本次 attemptFiles、回写 status='failed'+error，异常上抛（不吞错）
+  └─ 渲染端：成功 → 整项目回写 + segmentsDirty=true + 重新解析素材 URL（refreshSegmentImageUrls）+
+      提示「AI 视频已生成，请保存分段后重新合成。」；失败 → 归一化失败提示
+```
+
+- 与流水线一致性：同一 `generateSceneVideo` stages 契约与下载/校验守卫（2026-08-11 W3/W5：错误终止态不空转、仅 http/https 下载、probe 校验），避免历史记录重新生成的视频质量与新建流水线不一致。
+- 清理语义：成功路径旧 `videoPath` 随 `_cleanupUnreferencedProjectFiles` 引用集删除；失败路径 attemptFiles（本次复制目标）经 `_cleanupProjectFiles` 清理，旧视频保留。
+- 注入点：`generateSceneVideoStage` / `estimateSceneSecondsStage` 通过构造器可注入（缺省为 stages 导出），便于单测隔离且不改变生产装配（phase1-context 注入 `modelProviderManager` 后即用）。
+
+##### 3) 交互逻辑
+
+- 位置：场景「视频优化词」输入区操作行，紧随【重新生成视频优化词】按钮之后。
+- 按钮：【生成 AI 视频】（`data-testid="generate-ai-video-button"`）；场景 busy 或 `segment.videoPrompt` 为空时禁用，空提示词时按钮 title 显示「请先编辑或重新生成视频优化词，再生成 AI 视频」（不弹错，直接禁用引导）。
+- busy 状态：`segmentBusy[segmentId] = 'aiVideo'`；busy 期间按钮文案切换「AI 视频生成中...」，且该场景其他生成按钮同步禁用（`isSegmentBusy`）；`anySegmentBusy` 联动禁用全局【保存分段】【重新合成】。
+- 成功：整项目回写 + 素材 URL 重新解析（video 槽预览更新为 AI 视频）+ 成功通知；`segmentsDirty=true` 提示用户保存后重合成。
+- 失败：按错误归一化弹窗提示（见提示文字），不中断其他场景操作；旧视频保留在素材槽可继续使用。
+- 与【生成视频】（图片动效渲染）关系：两者并存——【生成视频】为无供应商兜底渲染路径；【生成 AI 视频】为 AI 视频生成路径（消费 videoPrompt）。用户可任选其一，最新一次生成的素材替换 video 槽。
+
+##### 4) 提示文字（locales zh/en 成对）
+
+| key | 中文 | English |
+|------|------|---------|
+| story2video.sceneMaterial.generateAiVideo | 生成 AI 视频 | Generate AI video |
+| story2video.sceneMaterial.generatingAiVideo | AI 视频生成中... | Generating AI video... |
+| story2video.sceneMaterial.aiVideoNeedsPromptHint | 请先编辑或重新生成视频优化词，再生成 AI 视频 | Edit or regenerate the video prompt first, then generate the AI video |
+| story2video.scene_ai_video_generated | AI 视频已生成，请保存分段后重新合成。 | AI video generated. Save segments and recompose. |
+| story2video.scene_ai_video_generate_failed | AI 视频生成失败，请检查视频供应商配置后重试。 | AI video generation failed. Check the video provider configuration and retry. |
+
+- 失败错误归一化（story2video-notifications.js `resolveMessageKey`，顺序在 SCENE_PROMPT_REGENERATE_FAILED 之后锚定，避免误归）：含「无法生成 AI 视频 / 未配置可用的视频供应商 / AI 视频生成服务不可用 / 视频生成（调用失败|任务失败|未返回任务|超时或失败|下载超过|文件无法解码|任务状态为）」或 `ai video.*(fail|unavailable|invalid)` → `scene_ai_video_generate_failed`；该场景没有视频优化词（前置校验）同样归一化到该失败提示（文案已内含操作指引）。
+
+##### 5) 安全边界
+
+- IPC 通道 `story2video:generate-scene-ai-video`：`withSenderCheck`（不可信 sender 拒绝）+ `isSafeId` 双参数 + 参数类型校验；失败 `VALIDATION_ERROR`；license-access-control 映射 `story2video_write`（登录即可用，与同级生成通道一致）。
+- 素材路径：AI 视频产物经 `_copyRequired`（受控根 `projectsDir`/`STORY2VIDEO_TEMP_DIR` 内校验 + 字节上限）复制；下载仅允许 http/https（stages W5 守卫），轮询超时上限 10 分钟。
+- 渲染端无新增中文字面量（全部走 locales 成对）；CI Gate 7 check-locale-sync 拦截。
+
+##### 6) 测试要求
+
+- 服务层（story2video-project-service.test.js「AI 视频重新生成（W4）」describe）：成功替换 videoPath/videoMeta（provider/model/source='ai-video'）+ 旧素材按引用集清理 + stages 调用参数（providerId/model/prompt/size/fps + manager 透传）；videoPrompt 缺省回退 prompt；无任何文案 fail-closed 不调生成器且状态不变；未配置视频供应商 / 服务不可用 fail-closed；失败保留旧视频 + 回写 failed + 清理本次产物；multimodal `capability_models.video` 选模型 + `resolution` 解析尺寸。
+- IPC（story2video.test.js）：新通道不可信来源 / 非法 id 拒绝且不调服务；成功路径经 `_serializeProject` 队列（断言次数 6 与参数透传）。
+- ResultView.test.js：按钮渲染 + 无 videoPrompt 禁用 + title 提示；成功通知 + 预保存 + 分段回写；失败归一化通知。
+- preload.test.js：`story2videoGenerateSceneAiVideo` 通道转发 + 数量断言（100 / 290 / 88）。
+- notifications：中英文 AI 视频失败归一化（含「未配置可用的视频供应商」「视频生成调用失败」「ai video generation failed」）。
+- locale：zh/en 成对 + check-locale-sync 通过；preload bundle 重新构建并含新通道行。
 
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 

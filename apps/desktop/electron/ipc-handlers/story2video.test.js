@@ -227,6 +227,7 @@ describe('Story2Video 交付 IPC', () => {
       regenerateSceneSubtitle: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
       regenerateSceneAudio: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
       regenerateScenePrompt: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      generateSceneAiVideo: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
       transcribeFile: vi.fn(async () => ({ text: '识别文本' })),
       getCapabilities: vi.fn(() => ({ transcription: { available: true }, remix: { available: false } })),
     }
@@ -245,12 +246,13 @@ describe('Story2Video 交付 IPC', () => {
     await ipcMain.get('story2video:regenerate-scene-subtitle')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
     await ipcMain.get('story2video:regenerate-scene-audio')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
     await ipcMain.get('story2video:regenerate-scene-prompt')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0', kind: 'video' })
+    await ipcMain.get('story2video:generate-scene-ai-video')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
     await ipcMain.get('story2video:transcribe')(TRUSTED_EVENT, { filePath: 'C:/controlled/audio.mp3' })
     const capabilities = await ipcMain.get('story2video:capabilities')(TRUSTED_EVENT)
 
     expect(service.updateSegments).toHaveBeenCalledWith('project-1', [{ id: 'segment-0', text: '新文案' }])
     // 保存/重合成/三种重新生成均经同项目串行队列，防止跨段并发覆盖（审查 W2 回归）
-    expect(service._serializeProject).toHaveBeenCalledTimes(5)
+    expect(service._serializeProject).toHaveBeenCalledTimes(6)
     expect(service._serializeProject).toHaveBeenCalledWith('project-1', expect.any(Function))
     expect(service.replaceSegmentAudio).toHaveBeenCalledWith('project-1', 'segment-0', 'C:/controlled/replacement.mp3')
     expect(service.deleteProject).toHaveBeenCalledWith('project-1')
@@ -259,6 +261,7 @@ describe('Story2Video 交付 IPC', () => {
     expect(service.regenerateSceneSubtitle).toHaveBeenCalledWith('project-1', 'segment-0')
     expect(service.regenerateSceneAudio).toHaveBeenCalledWith('project-1', 'segment-0')
     expect(service.regenerateScenePrompt).toHaveBeenCalledWith('project-1', 'segment-0', 'video')
+    expect(service.generateSceneAiVideo).toHaveBeenCalledWith('project-1', 'segment-0')
     expect(service.transcribeFile).toHaveBeenCalledWith('C:/controlled/audio.mp3')
     expect(capabilities.data.transcription.available).toBe(true)
   })
@@ -281,6 +284,7 @@ describe('Story2Video 交付 IPC', () => {
       regenerateSceneSubtitle: vi.fn(),
       regenerateSceneAudio: vi.fn(),
       regenerateScenePrompt: vi.fn(),
+      generateSceneAiVideo: vi.fn(),
     }
     const ipcMain = createIpcMain()
     registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
@@ -294,6 +298,17 @@ describe('Story2Video 交付 IPC', () => {
       projectId: '../escape', segmentId: 'segment-0',
     })
     expect(badId.code).toBeLessThan(0)
+
+    const untrustedAiVideo = await ipcMain.get('story2video:generate-scene-ai-video')(UNTRUSTED_EVENT, {
+      projectId: 'project-1', segmentId: 'segment-0',
+    })
+    expect(untrustedAiVideo).toEqual({ code: -3, message: '未授权的调用来源' })
+
+    const badAiVideoId = await ipcMain.get('story2video:generate-scene-ai-video')(TRUSTED_EVENT, {
+      projectId: 'project-1', segmentId: '../escape',
+    })
+    expect(badAiVideoId.code).toBeLessThan(0)
+    expect(service.generateSceneAiVideo).not.toHaveBeenCalled()
 
     const badKind = await ipcMain.get('story2video:regenerate-scene-prompt')(TRUSTED_EVENT, {
       projectId: 'project-1', segmentId: 'segment-0', kind: 'unsupported',

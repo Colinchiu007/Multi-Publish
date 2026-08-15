@@ -223,6 +223,18 @@ describe('Story2Video notification messages', () => {
       .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED)
     expect(formatStory2VideoNotification({ error: '优化词类型无效：video' }).messageKey)
       .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: '未配置可用的视频供应商，请在模型设置中启用视频生成能力' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: '视频生成调用失败（provider: kling）' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: '视频下载超过大小上限' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: '视频文件无法解码（ffprobe: invalid data）' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: '视频下载结果为空或不可用' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: 'AI 视频生成失败' }).messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED)
   })
 
   it('场景重新生成失败英文错误同样归一化', () => {
@@ -232,6 +244,8 @@ describe('Story2Video notification messages', () => {
       .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED)
     expect(formatStory2VideoNotification({ error: 'prompt regeneration returned invalid result' }, 'en').messageKey)
       .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED)
+    expect(formatStory2VideoNotification({ error: 'ai video generation failed: provider unavailable' }, 'en').messageKey)
+      .toBe(STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED)
   })
 
   it('counts Unicode code points rather than UTF-16 code units or grapheme clusters', () => {

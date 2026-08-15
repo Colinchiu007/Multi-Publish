@@ -245,6 +245,16 @@
             <UiButton size="sm" variant="secondary" data-testid="regenerate-video-prompt-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateScenePrompt(segment.id, 'video')">
               {{ segmentBusyKind(segment.id) === 'promptVideo' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateVideoPrompt') }}
             </UiButton>
+            <UiButton
+              size="sm"
+              variant="secondary"
+              data-testid="generate-ai-video-button"
+              :disabled="isSegmentBusy(segment.id) || !segment.videoPrompt"
+              :title="segment.videoPrompt ? '' : $t('story2video.sceneMaterial.aiVideoNeedsPromptHint')"
+              @click="generateSceneAiVideo(segment.id)"
+            >
+              {{ segmentBusyKind(segment.id) === 'aiVideo' ? $t('story2video.sceneMaterial.generatingAiVideo') : $t('story2video.sceneMaterial.generateAiVideo') }}
+            </UiButton>
           </div>
           <div v-if="showPromptTranslation(segment)" class="segment-prompt-translation" data-testid="segment-prompt-translation">
             <span class="segment-prompt-translation-label">{{ promptTranslationLabel }}</span>
@@ -336,6 +346,7 @@ import {
   story2videoSelectSceneMaterial,
   story2videoGenerateSceneImage,
   story2videoGenerateSceneVideo,
+  story2videoGenerateSceneAiVideo,
   story2videoRegenerateSceneSubtitle,
   story2videoRegenerateSceneAudio,
   story2videoRegenerateScenePrompt,
@@ -574,6 +585,33 @@ export default {
         this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.MATERIAL_SELECTED })
       } catch (error) {
         this.showStory2VideoNotification({ error: error && error.message ? error.message : 'material select failed' })
+      } finally {
+        const next = { ...this.segmentBusy }
+        delete next[segmentId]
+        this.segmentBusy = next
+      }
+    },
+    async generateSceneAiVideo(segmentId) {
+      if (!this.projectId || this.isSegmentBusy(segmentId)) return
+      // 重新生成前先落盘本地编辑：避免基于旧优化词生成，也防止服务端响应覆盖未保存修改（与 W3 语义一致）
+      if (this.segmentsDirty && !(await this.saveSegments())) return
+      this.segmentBusy = { ...this.segmentBusy, [segmentId]: 'aiVideo' }
+      try {
+        const result = await story2videoGenerateSceneAiVideo(this.projectId, segmentId)
+        if (result?.code !== 0 || !result.data) throw new Error(result?.message || 'AI video generation failed')
+        this.project = result.data
+        this.segments = Array.isArray(result.data.segments)
+          ? result.data.segments.map(item => ({ ...item }))
+          : this.segments
+        this.segmentsDirty = true
+        // 服务端返回的分段不含素材 URL，重新解析本地媒体 URL 避免素材区空白
+        await this.refreshSegmentImageUrls()
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATED })
+      } catch (error) {
+        this.showStory2VideoNotification({
+          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED,
+          error: error && error.message ? error.message : '',
+        })
       } finally {
         const next = { ...this.segmentBusy }
         delete next[segmentId]

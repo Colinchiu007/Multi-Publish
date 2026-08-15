@@ -168,6 +168,15 @@ function registerHandlers (ipcMain, deps = {}) {
     } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
+  ipcMain.handle('story2video:generate-scene-ai-video', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景 AI 视频重新生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().generateSceneAiVideo(request.projectId, request.segmentId)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
   ipcMain.handle('story2video:generate-scene-video', withSenderCheck(async (_event, request) => {
     if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
       return { code: EC.VALIDATION_ERROR, message: '场景视频生成参数无效' }

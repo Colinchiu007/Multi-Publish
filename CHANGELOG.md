@@ -1,3 +1,10 @@
+## [2026-08-16] feat(story2video): 历史记录场景 AI 视频重新生成（W4 闭环：videoPrompt 消费路径）
+
+- 背景：3.1.29 后历史场景的「视频优化词」可编辑/重新生成，但结果页【生成视频】走图片动效渲染、不消费 videoPrompt，AI 视频生成仅在流水线 generate_assets 阶段存在，「修改视频优化词后重新生成视频」无落地路径。
+- 服务端：`Story2VideoProjectService.generateSceneAiVideo(projectId, segmentId)` 复用 stages `generateSceneVideo`（generateVideo 提交 → getVideoStatus 轮询 ≤10 分钟 → http(s) 下载校验），提示词取 `videoPrompt || prompt || text`（空则 fail-closed），供应商取默认 video provider（multimodal 优先 `capability_models.video`），尺寸按 resolution/aspectRatio 映射长边封顶 1280；成功复制到项目目录（`<segmentId>_video_ai_<ts>.mp4`）替换 videoPath/videoMeta（source='ai-video'），失败保留旧视频并回写 failed + 清理本次产物；stage 函数经构造器可注入（`generateSceneVideoStage`/`estimateSceneSecondsStage`）。
+- IPC/权益/preload：新通道 `story2video:generate-scene-ai-video`（withSenderCheck + isSafeId + `_serializeProject` 串行队列），映射 `story2video_write`；preload `story2videoGenerateSceneAiVideo` 透传 + bundle 重建。
+- 渲染端：结果页视频优化词区新增【生成 AI 视频】按钮（无 videoPrompt 禁用 + title 引导；busy 文案「AI 视频生成中...」）；重新生成前自动保存本地编辑（W3 语义）；成功回写分段并重新解析素材 URL + 通知，失败归一化通知；locales zh/en 成对新增 5 条。
+- 回归：service 5 用例（成功替换/回退/fail-closed×2/失败保留旧视频/multimodal+分辨率）、IPC 校验与队列断言（5→6）、ResultView 2 用例、preload 计数（99→100 / 289→290 / 87→88）与通道转发、notifications 中英文失败归一化；定向套件全绿，完整桌面 vitest 通过，QM-1 打包通过，CI 全绿。
 ## [2026-08-15] fix(ops-center): 提示词评测评估解析兼容推理模型 `<think>` 思维链输出
 
 - 现象：404 修复后真实生成成功，但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。

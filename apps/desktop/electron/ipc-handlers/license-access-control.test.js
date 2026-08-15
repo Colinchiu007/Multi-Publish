@@ -468,6 +468,7 @@ describe('主进程许可证动态鉴权', () => {
     // 写/删除等敏感通道不扩大
     expect(requiredLevelForChannel('story2video:delete-project')).toBe('authenticated')
     expect(requiredLevelForChannel('story2video:export-zip')).toBe('authenticated')
+    expect(requiredLevelForChannel('story2video:generate-scene-ai-video')).toBe('authenticated')
 
     const identityService = { getState: () => ({ status: 'signed_out' }) }
     const { ipcMain, handlers } = createIpcMainHarness()

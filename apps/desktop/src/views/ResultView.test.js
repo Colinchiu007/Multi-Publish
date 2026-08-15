@@ -18,6 +18,7 @@ vi.mock("@/api/publisher", () => ({
   story2videoSelectSceneMaterial: vi.fn(),
   story2videoGenerateSceneImage: vi.fn(),
   story2videoGenerateSceneVideo: vi.fn(),
+  story2videoGenerateSceneAiVideo: vi.fn(),
   story2videoRegenerateSceneSubtitle: vi.fn(),
   story2videoRegenerateSceneAudio: vi.fn(),
   story2videoRegenerateScenePrompt: vi.fn(),
@@ -661,6 +662,53 @@ describe("ResultView", () => {
     await w.vm.generateSceneVideo("s1");
     await nextTick();
     expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_audio_missing");
+    w.unmount();
+  });
+
+  it("AI 视频按钮：无 videoPrompt 禁用且带提示，点击调用 IPC 并提示成功", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoGenerateSceneAiVideo.mockResolvedValue({
+      code: 0,
+      data: {
+        projectId: "p1",
+        segments: [{ id: "s1", imagePath: "C:/img1.png", videoPath: "C:/new-ai.mp4", status: "completed" }],
+      },
+    });
+    mocks.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    w.vm.saveSegments = vi.fn(async () => true);
+    w.vm.segmentsDirty = true;
+    await nextTick();
+    const section = w.find('[data-testid="scene-material-section"]');
+    const button = w.find('[data-testid="generate-ai-video-button"]');
+    expect(button.exists()).toBe(true);
+    expect(button.attributes("disabled")).toBeDefined();
+    expect(button.attributes("title")).toContain("aiVideoNeedsPromptHint");
+
+    w.vm.segments[0].videoPrompt = "VP";
+    await nextTick();
+    expect(w.find('[data-testid="generate-ai-video-button"]').attributes("disabled")).toBeUndefined();
+    await w.vm.generateSceneAiVideo("s1");
+    await nextTick();
+    expect(mocks.story2videoGenerateSceneAiVideo).toHaveBeenCalledWith("p1", "s1");
+    expect(w.vm.saveSegments).toHaveBeenCalled();
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_ai_video_generated");
+    expect(w.vm.segments[0].videoPath).toBe("C:/new-ai.mp4");
+    w.unmount();
+  });
+
+  it("AI 视频生成失败提示 scene_ai_video_generate_failed", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoGenerateSceneAiVideo.mockRejectedValue(new Error("未配置可用的视频供应商"));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", videoPrompt: "VP", status: "completed" }];
+    await nextTick();
+    await w.vm.generateSceneAiVideo("s1");
+    await nextTick();
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_ai_video_generate_failed");
     w.unmount();
   });
 
