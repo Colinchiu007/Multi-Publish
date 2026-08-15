@@ -1,3 +1,10 @@
+## 模型密钥删除功能复盘（fix-ops-center-provider-key-delete，2026-08-15）
+
+- **需求**：运营后台「模型密钥」无删除入口，配错的密钥（provider/model 填错、密钥失效）无法移除，只能改 model 绕过或留脏数据。
+- **实现**：后端 DELETE /providers/{key_id}（admin 权限、404、物理删除）+ list/upsert 返回 id；前端删除按钮 + ElMessageBox 二次确认。
+- **教训 1（回退查找与 CRUD 联动）**：删除后 get_llm_key/get_vision_key 按 enabled=1 查询自动失效，无需额外联动逻辑——前提是查询走 DB 无缓存；若未来引入内存缓存必须在删除路径同步失效。
+- **教训 2（删除接口的存在性错误码）**：删除不存在资源返回 404 而非 400/静默成功，幂等删除语义；前端 confirm 取消用 catch 静默返回，避免误报。
+- **回归保护**：test_prompt_eval_api.py +2（删除成功+回退失效+重建、403/401/404+数据不变）。
 ## 模型密钥探测 400 误报复盘（fix-ops-center-provider-test-minimax，2026-08-15）
 
 - **现象**：MiniMax 图片模型（image-01）密钥测试连通报 HTTP 400 unknown model，密钥实际有效。

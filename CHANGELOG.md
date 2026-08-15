@@ -1,3 +1,9 @@
+## [2026-08-15] feat(ops-center): 模型密钥新增删除功能
+
+- 后端：`DELETE /api/v1/prompt-eval/providers/{key_id}`（admin 权限，物理删除；不存在 404；非 admin 403）；`list_provider_keys`/`upsert_provider_key` 返回增加 `id`。
+- 前端：`ModelKeys.vue` 操作列新增「删除」按钮 + `ElMessageBox` 二次确认，删除后刷新列表；`api/promptEval.js` 新增 `deletePromptEvalProvider`。
+- 删除语义：物理删除；删除后 `get_llm_key` / `get_vision_key` 回退查找立即失效；同一 provider+model 可重新保存。
+- 回归：新增 2 个 API 测试（删除成功/回退失效/重建、403/401/404/数据不变），目标套件 22 passed；全量 pytest 281 passed / 4 failed（3 个 scheduler 存量顺序污染 + engine_dual 存量 flaky，均基线同复现，与本改动零交集）；前端 build + vitest 16 passed。
 ## [2026-08-15] fix(ops-center): 模型密钥「测试连通」支持 MiniMax 图片模型（400 回退 /models）
 
 - 现象：运营后台「模型密钥」新增 MiniMax 图片模型（image-01）后点「测试」，报 `HTTP 400: invalid params, unknown model 'image-01'`，密钥实际有效。

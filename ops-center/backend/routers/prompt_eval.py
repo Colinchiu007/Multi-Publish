@@ -279,6 +279,15 @@ async def upsert_provider(body: dict, db: AsyncSession = Depends(get_db), user: 
         raise HTTPException(400, str(e))
 
 
+@router.delete("/providers/{key_id}")
+async def delete_provider(key_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(require_admin)):
+    """删除已保存的 provider 密钥（admin，物理删除）。"""
+    try:
+        return await service.delete_provider_key(db, key_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 def _is_admin(user: dict) -> bool:
     return bool(user and user.get("role") == "admin")
 
