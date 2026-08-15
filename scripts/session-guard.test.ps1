@@ -31,6 +31,8 @@ try {
 
     if ((Invoke-Guard $repo 'codex/feature') -ne 0) { Pass 'primary root rejects feature declaration' } else { Fail 'primary root accepted feature declaration' }
     if ((Invoke-Guard $repo 'main') -eq 0 -and (Get-Content (Join-Path $repo '.agent_context/expected-branch') -Raw) -eq 'main') { Pass 'primary root accepts main declaration' } else { Fail 'primary root main declaration failed' }
+    @{ pid = $PID; startedAt = (Get-Date).ToString('o'); branch = 'main'; worktree = $repo } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $repo '.agent_context/session.json') -Encoding UTF8
+    if ((Invoke-Guard $repo 'main') -ne 0) { Pass 'active session declaration cannot be overwritten' } else { Fail 'active session declaration was overwritten' }
     $commonDir = (& git -C $repo rev-parse --path-format=absolute --git-common-dir).Trim()
     $lockPath = Join-Path $commonDir 'session-guard.lock'
     $heldLock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
