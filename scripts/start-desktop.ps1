@@ -6,7 +6,8 @@
 .DESCRIPTION
   1) 定工作区：显式 -Worktree（默认脚本所在仓库根），校验 git 根 + apps/desktop；
   2) 同步最新：git fetch + 落后则 merge --ff-only origin/main（脏文件冲突 fail-closed）；
-  3) 端口归属：5174 被非目标 worktree 的 Vite 占用 → 报错退出，绝不静默连别人的 Vite；
+  3) 端口归属：mp-worktrees 下按路径稳定派生独立端口（默认 5174/9222），
+     被非目标 worktree 的 Vite 占用 → 报错退出，绝不静默连别人的 Vite；
   4) 清旧实例：同 profile 单实例锁会让重启失效，先停旧 Electron/launcher/Vite；
   5) 依赖健康：scripts/ensure-desktop-deps.js（缺失时内建最小脆弱依赖检查）；
   6) 证据输出：worktree/branch/HEAD + 窗口 handle/标题 + Vite 归属 + (可选) identity。
@@ -142,17 +143,32 @@ if (-not $NoSync) {
   $evidence.head = git -C $repoRoot log -1 --format='%h %s'
 }
 
-# ---- 3. 端口归属检查（fail-closed）----
-$conn = Get-NetTCPConnection -LocalPort 5174 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+# ---- 3. 端口解析（worktree 独立端口：mp-worktrees 下按路径稳定派生，杜绝并发互抢）----
+$portScript = Join-Path $repoRoot 'apps/desktop/scripts/dev-ports.js'
+$portErr = $null
+$portsJson = & $nodeExe -e 'const { resolveDevPorts } = require(process.argv[1]); process.stdout.write(JSON.stringify(resolveDevPorts(process.argv[2])))' $portScript $repoRoot 2>$portErr
+if ($LASTEXITCODE -ne 0 -or -not $portsJson) { Fail "端口解析失败（dev-ports.js）exit=${LASTEXITCODE}: $portErr" }
+try { $ports = $portsJson | ConvertFrom-Json } catch { Fail "端口 JSON 解析失败: $($_.Exception.Message) - 原文: $portsJson" }
+if (-not $ports -or -not $ports.vite -or -not $ports.cdp) { Fail "端口解析结果不完整（dev-ports.js）: $portsJson" }
+$vitePort = [int]$ports.vite
+$cdpPort = [int]$ports.cdp
+$evidence.vitePort = $vitePort
+$evidence.cdpPort = $cdpPort
+$portTag = if ($ports.derived) { '（worktree 派生）' } else { '（默认）' }
+Add-Audit 'PORTS' "vite=$vitePort cdp=$cdpPort derived=$($ports.derived)"
+Write-Line "ports    : vite=$vitePort cdp=$cdpPort $portTag"
+
+# ---- 3b. 端口归属检查（fail-closed）----
+$conn = Get-NetTCPConnection -LocalPort $vitePort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($conn) {
   $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)"
   $ownerCmd = $owner.CommandLine
-  if ($ownerCmd -and ($ownerCmd -like "*$repoRoot*")) {
+  if ($ownerCmd -and ($ownerCmd -match [regex]::Escape($repoRoot + [char]92))) {
     Add-Audit "STOP vite" "pid=$($conn.OwningProcess) cmd=$ownerCmd"
-    Write-Line "port5174 : 本 worktree 的残留 Vite（PID $($conn.OwningProcess)），先停止"
+    Write-Line "port$vitePort : 本 worktree 的残留 Vite（PID $($conn.OwningProcess)），先停止"
     Stop-Process -Id $conn.OwningProcess -Force
   } else {
-    Fail "5174 被其他 worktree/进程占用（PID $($conn.OwningProcess): $ownerCmd）——拒绝启动，避免加载错误代码"
+    Fail "$vitePort 被其他 worktree/进程占用（PID $($conn.OwningProcess): $ownerCmd）——拒绝启动，避免加载错误代码"
   }
 }
 
@@ -160,10 +176,24 @@ if ($conn) {
 $oldElectron = Get-Process electron -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$repoRoot*" }
 foreach ($p in $oldElectron) { Stop-ProcessIfAlive -ProcessId $p.Id -Label 'electron' }
 $oldLaunchers = Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
-  Where-Object { $_.CommandLine -like "*$repoRoot*" -and ($_.CommandLine -like '*dev.js*' -or $_.CommandLine -like '*vite*5174*') }
+  Where-Object { $_.CommandLine -match [regex]::Escape($repoRoot + [char]92) -and ($_.CommandLine -like '*dev.js*' -or $_.CommandLine -like "*vite*${vitePort}*" -or $_.CommandLine -like '*vite*5174*') }
 foreach ($p in $oldLaunchers) { Stop-ProcessIfAlive -ProcessId $p.ProcessId -Label 'node' }
 Add-Audit 'CLEAN' "oldElectron=$($oldElectron.Count) oldLaunchers=$($oldLaunchers.Count)"
 Start-Sleep -Seconds 2
+
+# ---- 3c. CDP 端口归属检查（fail-closed）----
+$cdpConn = Get-NetTCPConnection -LocalPort $cdpPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($cdpConn) {
+  $cdpOwner = Get-CimInstance Win32_Process -Filter "ProcessId=$($cdpConn.OwningProcess)"
+  $cdpCmd = $cdpOwner.CommandLine
+  if ($cdpCmd -and ($cdpCmd -match [regex]::Escape($repoRoot + [char]92))) {
+    Add-Audit "STOP cdp-electron" "pid=$($cdpConn.OwningProcess) cmd=$cdpCmd"
+    Write-Line "port$cdpPort : 本 worktree 的残留 Electron（PID $($cdpConn.OwningProcess)），先停止"
+    Stop-Process -Id $cdpConn.OwningProcess -Force
+  } else {
+    Fail "$cdpPort 被其他 worktree/进程占用（PID $($cdpConn.OwningProcess): $cdpCmd）——拒绝启动，避免身份/CDP 读错对象"
+  }
+}
 
 # ---- 5. 依赖健康 ----
 if (-not $NoDepsCheck) {
@@ -210,6 +240,8 @@ if ($InvalidateViteCache) {
 # ---- 6. 启动 ----
 $launcherLog = Join-Path $env:TEMP 'mp-start-dev.out.log'
 $launcherErr = Join-Path $env:TEMP 'mp-start-dev.err.log'
+$env:MP_VITE_PORT = "$vitePort"
+$env:MP_CDP_PORT = "$cdpPort"
 $env:ELECTRON_USER_DATA_DIR = $Profile
 $launcher = Start-Process $nodeExe -WorkingDirectory (Join-Path $repoRoot 'apps\desktop') -ArgumentList 'scripts/dev.js' -WindowStyle Hidden -RedirectStandardOutput $launcherLog -RedirectStandardError $launcherErr -PassThru
 $evidence.launcherPid = $launcher.Id
@@ -236,7 +268,7 @@ Add-Audit 'WINDOW' "pid=$($win.Id) handle=$($win.MainWindowHandle) title=$($win.
 Write-Line "window   : PID $($win.Id) handle=$($win.MainWindowHandle) title=$($win.MainWindowTitle)"
 
 # ---- 8. 证据：Vite 归属 + 页面 URL + (可选) identity ----
-$conn2 = Get-NetTCPConnection -LocalPort 5174 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+$conn2 = Get-NetTCPConnection -LocalPort $vitePort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($conn2) {
   $viteOwner = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn2.OwningProcess)"
   $evidence.vitePid = $conn2.OwningProcess
@@ -244,7 +276,7 @@ if ($conn2) {
   Write-Line ("vite     : PID " + $conn2.OwningProcess)
 }
 try {
-  $page = (Invoke-RestMethod -Uri 'http://127.0.0.1:9222/json/list' -TimeoutSec 5) | Where-Object { $_.type -eq 'page' -and $_.url -like 'http://127.0.0.1:5174*' } | Select-Object -First 1
+  $page = (Invoke-RestMethod -Uri "http://127.0.0.1:$cdpPort/json/list" -TimeoutSec 5) | Where-Object { $_.type -eq 'page' -and $_.url -like "http://127.0.0.1:${vitePort}*" } | Select-Object -First 1
   if ($page) { $evidence.pageUrl = $page.url; Write-Line "page     : $($page.url)" }
 } catch { Write-Line 'page     : CDP 未就绪（跳过）' }
 

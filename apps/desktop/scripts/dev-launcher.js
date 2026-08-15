@@ -7,17 +7,17 @@
 
 /**
  * 构造 Electron 开发启动参数（不含 node/electron 可执行文件本身）。
- * @param {{ electronUserDataDir: string, electronCacheDir: string, desktopDir: string, platform?: NodeJS.Platform }} options
+ * @param {{ electronUserDataDir: string, electronCacheDir: string, desktopDir: string, cdpPort?: number, platform?: NodeJS.Platform }} options
  * @returns {string[]}
  */
-function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, platform = process.platform }) {
+function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort = 9222, platform = process.platform }) {
   // Windows 无可用 GPU 时，进程内 GPU + SwiftShader 会让窗口只合成背景层。
   // 显式禁用 GPU 与 GPU 合成，走软件合成，否则 Electron 窗口显示空白。
   return [
     `--user-data-dir=${electronUserDataDir}`,
     `--disk-cache-dir=${electronCacheDir}`,
     '--no-sandbox',
-    '--remote-debugging-port=9222',
+    `--remote-debugging-port=${cdpPort}`,
     '--disable-gpu',
     '--disable-gpu-compositing',
     '--use-gl=angle',

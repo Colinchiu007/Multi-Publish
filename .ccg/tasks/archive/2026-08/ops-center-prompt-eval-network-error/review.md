@@ -36,7 +36,7 @@ ops-center 前端把 axios 原始 message 直接拼进用户可见文案，传�
 ## 用户侧立即解法
 同时启动后端与前端：`cd ops-center/backend && python -m uvicorn main:app --port 8010` + `cd ops-center/frontend && npm run dev`，然后刷新页面。
 
-## 交付状态（更新）
-- 隔离 worktree `D:/Data/projects/mp-worktrees/mp-ops-center-prompt-eval-network-error`，分支 `codex/fix-ops-center-prompt-eval-network-error`，基线 `origin/main` = `702b4250`。
-- worktree 内重跑验证：`npm test` 16/16 全绿、`npm run build` exit 0（2026-08-15 00:40）。
-- 待 push + PR，CI 全绿后报告用户，用户确认合并后再归档（CCG 归档 + 门禁远程同步回填）。
+## 交付状态（终）
+- **PR #827 已合并**（squash `acd90961`，2026-08-15 02:02 UTC），16+ 项 CI 全绿（QG 全项 / 双平台 build / electron-tests / 单元测试+Lint / 文档同步）。
+- 期间 origin/main 两次推进（PR #822/#831 等并发合入），仅 CHANGELOG/quality-gates 顶部条目冲突，均已 rebase 解决并保留双方记录。
+- 已归档至 `.ccg/tasks/archive/2026-08/ops-center-prompt-eval-network-error`；远端分支与本地 worktree 清理完成。

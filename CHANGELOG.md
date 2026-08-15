@@ -5,6 +5,13 @@
 - 测试：compose-engine 105/105（新增恰 3000s 通过/3000.1s 拒绝严格大于用例、旁白上限更严分支、3020s 拒绝/2980s 通过、min-duration 3300s 拒绝同步）；关联 cleanup/text-config/stages 171/171。
 - 文档：PRD §7.1.25a 新增成片与旁白时长上限合同 + 已知限制（下游固定 ffmpeg 超时按短成片设计未缩放、前端时长类错误映射缺失、512MB 输入总量约束）；PRD-video-creation 4 处与 architecture-video-integration 1 处旧 10/15 分钟值同步 50 分钟；OpenSpec change s2v-compose-duration-50min（validate PASS）。
 - 评审：Claude 0C/3W/5I——W1（成片文案默认不可达）修复（检查顺序）、W2（下游固定超时）记录已知限制、W3（同树文档旧值）修复；antigravity 地区不可用降级记录；详见 `.ccg/tasks/s2v-compose-duration-50min/review.md`。
+
+## [2026-08-14] fix(story2video): LLM markdown 代码块包装导致提示词中文翻译解析失败
+
+- 现象：Story2Video 流水线「中文翻译」字段显示异常。
+- 根因：translatePromptsForLocale 调用 LLM 翻译英文提示词，部分 LLM 返回 markdown 代码块包裹的 JSON，JSON.parse 失败后逐行回退将代码块标记误当译文。
+- 修复：剥离 markdown 代码块 + 解析成功/回退路径过滤 JSON 对象文本。
+- 测试：新增 7 个回归测试，92/92 通过。
 ## [2026-08-15] fix(ops-center): 提示词评测 Network Error 文案可操作化——传输层失败映射自助排查提示（ops-center-prompt-eval-network-error）
 
 - 现象：运营后台 → 提示词评测 → 进入页面报「加载评测列表失败：Network Error」。
@@ -37,6 +44,18 @@
 - 修复：`buildWatermarkFilter` moving 表达式周期放大 10 倍（x 100s / y 140s），速度约为原 1/10，90% 中心幅度、t=0 居中、确定性（sin/cos、无 random、无逗号）契约不变。
 - 测试：契约断言同步（100/140）；compose-engine 101 + text-config 73 = 174 用例全绿；真实 ffmpeg 12s 冒烟渲染通过。
 - 评审：Claude 后端不可用（status 1）降级为主代理自审 0C/0W/0I，详见 `.ccg/tasks/story2video-watermark-slow-drift/review.md`。
+## [2026-08-14] 运营后台提示词评测：视频提示词评估（prompt-eval-video）
+
+- 需求：运营后台「提示词评测」在图片评估基础上新增视频提示词评估（生成视频 → 抽帧 → 多维度评估），OpenSpec change `prompt-eval-video`（proposal/design/specs/tasks，已提交 main）。
+- 后端：
+  - `services/prompt_eval_video_service.py`（新）：Agnes Video V2.0 异步生成契约（`POST /videos` 提交 → 域名根 `agnesapi?video_id=` 轮询 → 下载 MP4 校验 ftyp 魔数 + ≤50MB）；`find_ffmpeg()` 优先 `FFMPEG_BIN`，回落 imageio-ffmpeg；ffmpeg 抽首/中/尾 3 帧 PNG；轮询默认超时 20 分钟（`OPS_PROMPT_EVAL_VIDEO_POLL_TIMEOUT` 可覆盖），密钥缺失/生成失败/下载失败/抽帧失败全部 fail closed。
+  - `prompt_eval_contract.py`：`MEDIA_TYPES`/`VIDEO_FRAME_COUNT`/`MAX_VIDEO_BYTES`、`resolve_video_dimension_weights()`（时序/运动/审美/共享 0.30/0.30/0.20/0.20）、`validate_eval_result` 视频维度白名单；`prompt_eval_evaluation_service.py` 新增 `_build_video_eval_prompt`（media_type 透传）。
+  - `models.py` + `ensure_prompt_eval_video_columns`：`PromptEvalCase.media_type`（default image）、`PromptEvalRun.video_frames`（video_path 已有）；创建时 scene+video / video+dual 拒绝。
+  - `prompt_eval_service.py`：ORM 行→dict 归一化（修复既有 `case["..."]` 对 ORM 行 TypeError 隐患）；video 分支走生成→抽帧→评估；`run_owns_media` 覆盖 video_path/video_frames；快照带 media_type。
+  - `routers/prompt_eval.py`：密钥缺失提示按 media_type 区分「视频生成模型」；`requirements.txt` + `imageio-ffmpeg>=0.5.0`。
+- 前端（`PromptEvalWorkbench.vue`）：media_type 单选（image/video，切换时 dual→single 强制、隐藏图片数/画幅、禁用对比模式）、按钮「生成视频并评估」、详情 `<video>` 播放器 + 3 帧缩略图。
+- 测试：新增 contract +4、video_service 18、migration 1、video_api 4（含真实 ORM run_pipeline 视频分支、media 授权 404、生成失败 fail closed）；全量相关 94 passed；前端 `npm run build` 通过。真实 Agnes 视频生成 / 视觉评估为外部验收项（自动化测试全 mock）。
+- 评审：antigravity 地区不可用（降级记录）；Claude 首轮 2 Critical（C1 媒体越权 run_owns_media、C2 场景模式 media_type 回归）+ 7 Warning 全部修复并补回归测试；复审 8/8 无 Critical；复审 W-2（CDN 3xx 跳转跟随）、W-3（dual 缺 LLM key 500）与 design.md 轮询端点描述同步修复；https 面 IP 段限制按信任边界接受（provider 为运营配置 + follow_redirects=False），详见 `.ccg/tasks/prompt-eval-video/review.md`。
 
 ## [2026-08-14] 运营后台提示词评测：双路对比（人工 vs 引擎优化）（prompt-eval-engine-dual-path）
 

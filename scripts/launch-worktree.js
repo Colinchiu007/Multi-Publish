@@ -125,9 +125,9 @@ function main() {
     electronUserDataDir: profile,
     electronCacheDir: path.join(profile, 'cache'),
     desktopDir,
+    // CDP 端口走 buildElectronArgs（默认 9222），避免 splice 产生双 --remote-debugging-port
+    cdpPort: args.cdp,
   })
-  // CDP 调试端口插在 desktopDir 之前
-  electronArgs.splice(electronArgs.length - 1, 0, `--remote-debugging-port=${args.cdp}`)
 
   const child = spawn(electronBinary, electronArgs, {
     cwd: desktopDir,
