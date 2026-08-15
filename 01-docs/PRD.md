@@ -1966,6 +1966,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 文件要求提示 | 各文件选择控件附近常驻显示要求说明：图片「支持 jpg / jpeg / png / webp，单个文件最大 10MB」；旁白音频「wav / m4a / mp3，最大 50MB」；背景音乐「wav / m4a / mp3，最大 15MB」；视频素材「mp4 / mov / webm / mkv / avi，最大 512MB」。文案走 i18n（`create.story2video.mediaRequirements*`）。 |
 | 数据校验 | `validateStory2VideoFile` 与主进程 `importUserSelectedMedia` 规则保持一致（扩展名白名单、按类别大小上限）；`actualMb`/`maxMb` 非数值时按 0 处理，非法参数不展示具体数值但保留友好文案。 |
 | 本地化 | 全部新增/调整文案提供中英文，默认中文；未知技术错误仍回退友好通用说明（PRD 7.1 反馈呈现合同）。 |
+| Story2Video 合成失败提示 | 时长超限映射到 story2video.compose_duration_exceeded 或 story2video.compose_segment_duration_exceeded；concat/旁白/BGM/WebM/校验等阶段的超时映射到 story2video.compose_timeout。提示必须给出缩短或拆分内容、检查磁盘/设备负载、从断点重试等下一步；未知技术错误继续回退通用文案。 |
 | 提示信息梳理 | 本轮整体梳理提示/错误信息：媒体校验类已细化（见上）；限流/额度/内容政策/权限/模型配置类已有专属文案与分类（`resolveMessageKey`）；其余瞬时失败保留「请稍后再试」类通用文案作为兜底，不暴露技术细节。 |
 
 #### 7.1.14 视频预览：分段图片与文件下载合同（2026-08-08）
@@ -2470,12 +2471,11 @@ split → domain_enrich → optimize → select_video_scenes（新增） → gen
 | 检查顺序 | 成片总时长检查先于旁白总时长检查执行，保证默认配置下超限输入返回「成片总时长」文案 |
 | 单段旁白上限 | 保持 3 分钟/段，超限返回「单段旁白时长不能超过 3 分钟」 |
 | 错误文案 | 时长类错误文案的分钟数由对应上限配置动态计算，禁止硬编码（覆盖成片/旁白/单段三条中文文案及声明时长/运行时累计两条英文文案） |
+| 下游合成超时 | concat、xfade、旁白合并、BGM 混音、WebM 转码和输出校验按对应媒体时长计算有界 ffmpeg 预算；保留短片最小预算并设置阶段硬上限，不得使用固定 60s/120s/180s 作为全片预算。底层 execFile 的超时终止统一归一为 ETIMEDOUT 阶段错误 |
+| 合成错误通知 | story2video.compose_duration_exceeded、story2video.compose_segment_duration_exceeded、story2video.compose_timeout 为稳定消息键；中英文必须成对，通知只展示缩短/拆分、检查磁盘与负载、从断点重试等安全建议，不展示 ffmpeg 命令、路径、stderr、token 或堆栈 |
 | 重试语义 | 时长超限属确定性失败，非瞬时/限流错误，断点续跑不会自愈；用户需缩短文案后重新启动 |
 
-**已知限制（2026-08-15 评审确认）**：
-- 下游固定 ffmpeg 超时（旁白 concat 120s / BGM 混音 120s / WebM 转码 180s / 输出校验 60s）按短成片设计，未随 50 分钟上限放大；接近上限的长成片在 WebM/输出校验路径存在超时风险，列为后续优化项。
-- 前端 `story2video-notifications` 暂无时长类错误映射，超限错误仍回退通用文案；时长类 pattern 映射列入后续优化。
-- 输入总量上限（512MB）与单文件上限（图片 10MB / 音频 50MB）不变；超长成片受输入总量约束，可达性以真实样例验收。
+**仍有效的输入约束**：输入总量上限（512MB）与单文件上限（图片 10MB / 音频 50MB）不变；超长成片受输入总量约束，可达性以真实样例验收。
 
 #### 7.1.26 视频创作子组件 CSS 代码-设计分离扩展（2026-08-11）
 

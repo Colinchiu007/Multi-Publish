@@ -4470,3 +4470,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
   - 渲染进程：`FirstRun.vue` 消费方同步识别 `cancelled`，取消时静默返回，不误报「账号添加成功」。
 - 测试：`ipc-handlers/account.test.js` 新增 2 例（取消返回契约 + 不调保存；超时 -11 + 不调保存）；`FirstRun.test.js` 新增 1 例（取消不弹 alert + 状态重置）；受影响 4 套件 135 例全绿。
 - 规格：openspec change fix-login-credential-capture-error（3 条 ADDED Requirements，能力 `desktop/account-login-capture`）。
+## [2026-08-15] fix(story2video): 长成片 ffmpeg 超时按时长缩放并补齐合成错误提示（s2v-timeout-notifications）
+
+- 根因：50 分钟上限上线后，旁白合并/BGM/WebM/输出校验等下游仍使用 120s/120s/180s/60s 固定预算；execFile 超时错误又可能只有 killed + SIGTERM，前端无法稳定识别，最终回退为通用失败文案。
+- 修复：concat、xfade、旁白、BGM、WebM、输出校验统一使用按媒体时长缩放且有最小值/硬上限的 ffmpeg 预算；超时终止归一为带阶段语义的 ETIMEDOUT；前端新增成片总时长、单段时长、合成 timeout 三个稳定消息键及中英文安全建议。
+- 测试：Story2Video compose/通知相关 3 个套件 161/161 通过，覆盖短片、50 分钟、非法时长、阶段上限、killed + SIGTERM 超时归一、三个稳定 key 中英文渲染和技术细节脱敏。
+- 文档：PRD §7.1.13 / §7.1.25a、PRD-video-creation §1.6 / §3.1.4.2、OpenSpec change s2v-timeout-notifications。
