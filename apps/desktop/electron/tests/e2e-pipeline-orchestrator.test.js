@@ -190,3 +190,54 @@ test('PipelineEngine orchestrator - advanceToNextCheckpoint 推进到完成', { 
   console.log('  autoAdvance 完成，paused:', res.paused);
 });
 
+
+// ── 字幕分句 v1.2 真实 8002 链路回归（5 段用户坏例）──────────────────────────
+// 断言 Python sidecar（smart-sentence-splitter /v1/split）实际返回的字幕块序列
+// 不再劈词（扶余国/电视剧/复杂 等），与共享向量 expected_blocks 逐字一致。
+const USER_SUBTITLE_CASES = [
+  {
+    label: '扶余神话（顿号短块+连词）',
+    text: '故事里充满了神话色彩。卵生、日影受孕、鱼鳖搭桥，但剥去这些奇幻的外壳，内核却无比清晰。',
+    expected: ['故事里充满了神话色彩', '卵生、日影受孕、鱼鳖搭桥', '但剥去这些奇幻的外壳', '内核却无比清晰'],
+  },
+  {
+    label: '扶余国 不劈词',
+    text: '因此，在韩国的历史教科书里，能看到大量关于扶余国和扶余人的记载。',
+    expected: ['因此，在韩国的历史教科书里', '能看到大量关于扶余国', '和扶余人的记载'],
+  },
+  {
+    label: '电视剧《朱蒙》不劈词',
+    text: '2005年，韩国收视率最高的电视剧《朱蒙》播出，里面讲述的正是这位扶余王子的故事。',
+    expected: ['2005年，韩国收视率最高的', '电视剧《朱蒙》播出', '里面讲述的正是', '这位扶余王子的故事'],
+  },
+  {
+    label: '燕国/空白一片 不劈词',
+    text: '西周人对东北的了解本就模糊，连分封在河北的燕国早期历史都空白一片，更不要说辽西以东的虚实。',
+    expected: ['西周人对东北的了解本就模糊', '连分封在河北的', '燕国早期历史都空白一片', '更不要说辽西以东的虚实'],
+  },
+  {
+    label: '复杂/顿号枚举整体保留',
+    text: '历史上的族群迁徙与政权更迭本就复杂，而民族叙事则倾向于把一切复杂简单化、直线化。',
+    expected: ['历史上的族群迁徙', '与政权更迭本就复杂', '而民族叙事则倾向于', '把一切复杂简单化、直线化'],
+  },
+]
+
+test('E2E real 8002 - 5 段用户坏例字幕分块符合 v1.2 目标', { timeout: 180000 }, async () => {
+  const { pipelineEngine } = await buildContainer()
+  for (const c of USER_SUBTITLE_CASES) {
+    const res = await pipelineEngine.startOrchestrated('story2video-compose', {
+      text: c.text,
+      autoAdvance: false,
+    })
+    assert.ok(res.success, '应创建 run: ' + res.error)
+    const execRes = await pipelineEngine.executeStage(res.runId)
+    assert.ok(execRes.success, c.label + ' split 应成功: ' + execRes.error)
+    const scenes = execRes.output && execRes.output.scenes
+    assert.ok(Array.isArray(scenes) && scenes.length > 0, c.label + ' 应返回 scenes')
+    const blocks = scenes.flatMap((s) => s.subtitleBlocks || [])
+    assert.deepEqual(blocks, c.expected, c.label + ' 字幕块应命中 v1.2 目标')
+    console.log('  [8002] ' + c.label + ' → ' + blocks.join(' | '))
+    // 释放并发槽：本轮只验证 split 阶段，run 不推进到终态时手动取消
+    pipelineEngine.cancel()
+  }
+})

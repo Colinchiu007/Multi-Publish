@@ -121,12 +121,14 @@
         "time_calculation_method": "proportional"
       },
       "expected_blocks": [
-        "这里有一串很长的句子没有任何标",
-        "点一直延续下去直到超出最大长度",
-        "限制才需要被强制切分成",
-        "多个字幕块来展示"
+        "这里有一串很长的",
+        "句子没有任何标点",
+        "一直延续下去直到",
+        "超出最大长度限制才需要",
+        "被强制切分成多个字幕块来展示"
       ],
-      "note": "硬切尾块平衡（15+4 → 11+8）：expected_blocks 为手工真值；平衡后无 <min_chars 块"
+      "note": "v1.2 词边界感知：不劈「标点/句子/直到/才需要」等词（旧真值劈「标/点」）",
+      "short_block_exceptions": []
     },
     {
       "id": "leading_punct",
@@ -257,23 +259,11 @@
       },
       "expected_blocks": [
         "Hello world",
-        "How are",
-        "you",
+        "How are you",
         "I am fine"
       ],
-      "note": "",
-      "short_block_exceptions": [
-        {
-          "index": 1,
-          "len": 7,
-          "reason": "空格切分英文短片段"
-        },
-        {
-          "index": 2,
-          "len": 3,
-          "reason": "空格切分英文单词（合法 ≤3 短尾）"
-        }
-      ]
+      "note": "v1.2 短块合并用 clean 后长度：How are(7) + you(3) 合并为 How are you(9)",
+      "short_block_exceptions": []
     },
     {
       "id": "mixed_long_scene",
@@ -285,18 +275,13 @@
       },
       "expected_blocks": [
         "清晨的阳光洒在旧书桌上",
-        "一只银灰色小猫蜷在摊开的笔记本",
-        "上打盹",
+        "一只银灰色小猫蜷在",
+        "摊开的笔记本上打盹",
         "窗外传来鸟鸣",
         "几片梧桐叶随风飘进窗台"
       ],
-      "note": "",
+      "note": "v1.2 词边界感知：不劈「蜷在/笔记本/打盹」（旧真值劈「本/上打盹」）",
       "short_block_exceptions": [
-        {
-          "index": 2,
-          "len": 3,
-          "reason": "句内逗号边界短尾（合法 ≤3）"
-        },
         {
           "index": 3,
           "len": 6,
@@ -415,6 +400,114 @@
         }
       ],
       "note": "时间戳 half-up 舍入锁定（v0.15.1）：1/16*10=0.625 → 0.63、15/16*10=9.375 → 9.38，与 TS Math.round(x*100)/100 一致；禁止 Python 银行家舍入 0.62"
+    },
+    {
+      "id": "user_myth_overtones",
+      "input": "故事里充满了神话色彩。卵生、日影受孕、鱼鳖搭桥，但剥去这些奇幻的外壳，内核却无比清晰。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "故事里充满了神话色彩",
+        "卵生、日影受孕、鱼鳖搭桥",
+        "但剥去这些奇幻的外壳",
+        "内核却无比清晰"
+      ],
+      "note": "用户坏例#1：顿号短块（卵生、日影受孕、 8字含顿号）clean 后 7 字不再孤悬，并入下一块（机制三修复）",
+      "short_block_exceptions": [
+        {
+          "index": 3,
+          "len": 7,
+          "reason": "句末残块（clean 后 7 字）：平衡切分优先不劈词，短块显式声明"
+        }
+      ]
+    },
+    {
+      "id": "user_buyeo_kingdom",
+      "input": "因此，在韩国的历史教科书里，能看到大量关于扶余国和扶余人的记载。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "因此，在韩国的历史教科书里",
+        "能看到大量关于扶余国",
+        "和扶余人的记载"
+      ],
+      "note": "用户坏例#2：17 字无标点块平衡切分不劈「扶余国」（机制一修复：词边界感知，和 后切）",
+      "short_block_exceptions": [
+        {
+          "index": 2,
+          "len": 7,
+          "reason": "连词引导短尾（和…）：词边界保护优先于 min 不变量"
+        }
+      ]
+    },
+    {
+      "id": "user_jumong_drama",
+      "input": "2005年，韩国收视率最高的电视剧《朱蒙》播出，里面讲述的正是这位扶余王子的故事。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "2005年，韩国收视率最高的",
+        "电视剧《朱蒙》播出",
+        "里面讲述的正是",
+        "这位扶余王子的故事"
+      ],
+      "note": "用户坏例#3：硬切不劈「电视剧」「朱蒙」「这位」（机制二修复：词边界感知）",
+      "short_block_exceptions": [
+        {
+          "index": 2,
+          "len": 7,
+          "reason": "「里面讲述的正是」语义完整短块：优先不劈「这位」"
+        }
+      ]
+    },
+    {
+      "id": "user_blank_plain",
+      "input": "西周人对东北的了解本就模糊，连分封在河北的燕国早期历史都空白一片，更不要说辽西以东的虚实。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "西周人对东北的了解本就模糊",
+        "连分封在河北的",
+        "燕国早期历史都空白一片",
+        "更不要说辽西以东的虚实"
+      ],
+      "note": "用户坏例#4：硬切不劈「空白一片」「燕国」「辽西以东」；「连分封在河北的」完整介词短语（机制二修复）",
+      "short_block_exceptions": [
+        {
+          "index": 1,
+          "len": 7,
+          "reason": "介词短语短块（连分封在河北的）：语义完整，优先不劈词"
+        }
+      ]
+    },
+    {
+      "id": "user_complex_simplify",
+      "input": "历史上的族群迁徙与政权更迭本就复杂，而民族叙事则倾向于把一切复杂简单化、直线化。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "历史上的族群迁徙",
+        "与政权更迭本就复杂",
+        "而民族叙事则倾向于",
+        "把一切复杂简单化、直线化"
+      ],
+      "note": "用户坏例#5：不劈「复杂」，顿号枚举「简单化、直线化」整体保留（机制二修复）",
+      "short_block_exceptions": []
     }
   ]
 }

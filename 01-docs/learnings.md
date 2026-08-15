@@ -1,3 +1,20 @@
+## 字幕分句坏切复盘（subtitle-split-quality，2026-08-15）
+
+- **现象**：Story2Video 字幕出现 `扶余国`→`扶余/国`、`电视剧`→`电/视剧`、`复杂`→`复/杂`、`空白一片`→`空/白一片`、`卵生、日影受孕` 7 字孤悬；用户质疑是否本地源码落后于远程。
+- **版本核验**：本地 HEAD == origin/main == `6cefc0c`（fetch 后零差异），sidecar `subtitle_segmenter.py` blob hash 与远程一致，全 ref 最新提交（v0.15.2）已在 main，残留分支均 ahead:0——**坏切是算法缺陷，不是版本漂移**。接到「是不是源码不新」的疑问时，先做 blob/HEAD/远程三方核验再下结论。
+- **根因（三机制独立成立）**：
+  1. Step 6 平衡兜底按算术位置切（`min_pos = len-min`），无词边界感知 → `扶余/国`、`电/视剧`；
+  2. Step 3 无标点硬切整块，不检查劈词 → `复/杂`、`空/白一片`；
+  3. Step 4 用含标点长度判定短块，clean 去尾标点后块变短逃过 mergeShort → 顿号短块孤悬；
+  4. 配置透传：`stage-executor.js` 白名单缺 `subtitle_min_chars/subtitle_max_chars/subtitle_timing`，UI 参数到不了 8002 `config.subtitle`，且测试用 `not.toHaveProperty('subtitle_min_chars')` **反向固化丢弃**。
+- **教训 1（字级切分必须有词边界感知）**：CJK 无空格，按 max_chars 算术硬切必然劈词；硬切/平衡切分锚点优先级应为「标点 → 好切点（块首连词/介词、块尾助词/句内标点）→ 非黏着切点（排除 `bad_followers` 强黏着后缀）→ 算术回退」，字符集入规则表单源共享。
+- **教训 2（短块判定必须用 clean 后长度）**：Step 4 判定与 Step 5 清理必须同口径；用含标点长度判短块会在清理后漏救。
+- **教训 3（QM 禁例：测试不得固化「参数被丢弃」）**：`not.toHaveProperty(...)` 只能证明「不泄漏顶层」，必须同时正向断言映射落点（`config.subtitle.min_chars_per_block`），否则丢弃行为反而被测试保护。
+- **逃逸链**：单测只有泛化语料、无用户坏例（测试场景缺失）；向量真值由实现输出反写导致同漂（向量管理缺陷——本次改为手工真值 + `short_block_exceptions` 显式声明）；三端镜像手抄无 JS 向量断言（审查盲区——本次新增 JS 向量回归）。
+- **回归保护**：共享向量 25 条（含 5 条用户坏例）三副本（sidecar / TS fixture / JS 断言）；TS `subtitle-vectors.test.ts`、JS `story2video-segmentation-vectors.test.js`、parity 21、stage-executor 正向断言、E2E real 8002 用户 5 段坏例。
+- **预防措施**：改规则 = 改 `subtitle-rules.json` 表 + 三端同步 + 双端共享向量重跑；新增用户坏例时以手工真值写入并声明 `short_block_exceptions` reason；镜像手抄类代码必须有共享向量断言。
+
+
 ## 模型密钥删除功能复盘（fix-ops-center-provider-key-delete，2026-08-15）
 
 - **需求**：运营后台「模型密钥」无删除入口，配错的密钥（provider/model 填错、密钥失效）无法移除，只能改 model 绕过或留脏数据。

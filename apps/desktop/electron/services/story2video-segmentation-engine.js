@@ -25,6 +25,10 @@ const ENUM_PREDICATE_STARTERS = new Set(subtitleRules.enum.predicate_starters)
 const LEFT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[0]))
 const RIGHT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[1]))
 const QUOTE_MAP = new Map(subtitleRules.quote_pairs)
+// Step 3/6 词边界感知切分（v1.2）：无标点硬切/平衡切分时优先在不劈词的位置切分。
+const WORD_GOOD_LEAD = new Set(subtitleRules.word_split.good_lead)
+const WORD_GOOD_TAIL = new Set(subtitleRules.word_split.good_tail)
+const WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers)
 
 // ==================== 默认配置（与 text-segmentation.ts DEFAULT_CONFIG 一致） ====================
 
@@ -393,6 +397,37 @@ function findSplitPosInRange (text, lo, hi) {
   return -1
 }
 
+/** 剥离尾部标点后的长度（Step 4 短块判定用，v1.2）。 */
+function cleanLen (text) {
+  let s = text.trim()
+  while (s.length > 0 && TRAILING_PUNCT_SET.has(s[s.length - 1])) {
+    s = s.slice(0, -1)
+  }
+  return s.length
+}
+
+/** 词边界好切点：切点后为连词/介词（块首引导），或切点前为助词/副词/句内标点（块尾收束）。 */
+function isGoodCut (text, i) {
+  if (i >= text.length) return false
+  return WORD_GOOD_LEAD.has(text[i]) || (i > 0 && WORD_GOOD_TAIL.has(text[i - 1]))
+}
+
+/**
+ * 在 [lo, hi] 内找不劈词的切点索引；-1 表示无（v1.2）。
+ * 策略（优先级）：好切点从后往前找（头块尽量长），排除孤悬 ≤3 字短尾；
+ * 非黏着后缀切点从前往后找，要求头块 >= minHead（防过度前移劈出过短头块）；无则 -1，回退算术/标点切分。
+ */
+function wordSafeSplit (text, lo, hi, minHead) {
+  if (minHead === undefined || minHead === null) minHead = 1
+  for (let i = hi; i >= lo; i--) {
+    if (isGoodCut(text, i) && text.length - i > 3) return i
+  }
+  for (let i = Math.max(lo, minHead); i <= hi; i++) {
+    if (i < text.length && !WORD_BAD_FOLLOWERS.has(text[i])) return i
+  }
+  return -1
+}
+
 /** Step 3：长度切分（标点优先 + 配对引号保护，min/max） */
 function subtitleLengthSplit (text, config) {
   const blocks = []
@@ -418,8 +453,16 @@ function subtitleLengthSplit (text, config) {
         cur = cur.slice(pos)
         lastHardCut = false
       } else {
-        blocks.push(cur)
-        cur = ''
+        // v1.2 词边界感知：无标点硬切时优先不劈词（区间内找好切点/非黏着切点）
+        const ws = wordSafeSplit(
+          cur,
+          Math.max(1, cur.length - config.maxCharsPerBlock - 1),
+          cur.length - 1,
+          config.minCharsPerBlock,
+        )
+        const hardPos = ws > 0 ? ws : cur.length
+        blocks.push(cur.slice(0, hardPos))
+        cur = cur.slice(hardPos)
         lastHardCut = true
       }
     } else if (cur.length >= config.maxCharsPerBlock * 2 && stack.length > 0) {
@@ -448,16 +491,25 @@ function subtitleLengthSplit (text, config) {
   return blocks.filter((b) => b.trim().length > 0)
 }
 
-/** Step 4：短块合并（前块 <min 合并；纯标点短块并入；短尾并入） */
+/** Step 4：短块合并（v1.2 修复机制三 + 防过度并入：clean 后长度判定、并入后 <=max、完整句不并入） */
 function subtitleMergeShort (blocks, config) {
   if (!blocks.length) return blocks
   const merged = [blocks[0]]
   for (let i = 1; i < blocks.length; i++) {
     const b = blocks[i]
     const stripped = b.trim()
+    const bCleanLen = cleanLen(b)
+    const prevCleanLen = cleanLen(merged[merged.length - 1])
     const isPunctTail = stripped.length <= 2 && Array.from(stripped).every((c) => isTrailingPunctOrQuote(c))
-    const isShortTail = stripped.length <= 3 && merged[merged.length - 1].length >= config.minCharsPerBlock
-    if (merged[merged.length - 1].length < config.minCharsPerBlock || isPunctTail || isShortTail) {
+    const isShortTail = bCleanLen <= 3 && prevCleanLen >= config.minCharsPerBlock
+    const isSentenceEnd = stripped.length > 0
+      && SENTENCE_BOUNDARY.has(stripped[stripped.length - 1])
+      && bCleanLen > 3
+    const mergedLen = prevCleanLen + bCleanLen
+    if (isSentenceEnd) {
+      merged.push(b)
+    } else if ((prevCleanLen < config.minCharsPerBlock || isPunctTail || isShortTail
+      || bCleanLen < config.minCharsPerBlock) && mergedLen <= config.maxCharsPerBlock) {
       merged[merged.length - 1] = merged[merged.length - 1] + b
     } else {
       merged.push(b)
@@ -518,7 +570,7 @@ function subtitleClean (blocks) {
   return out
 }
 
-/** Step 6：超长强制分割（平衡切分：尾块 < minChars 时前块让字，避免孤悬尾块） */
+/** Step 6：超长强制分割（平衡切分：尾块 < minChars 时前块让字，避免孤悬尾块；v1.2 词边界感知 + 越界修复） */
 function subtitleEnforceMax (blocks, config) {
   const out = []
   for (let b of blocks) {
@@ -527,8 +579,15 @@ function subtitleEnforceMax (blocks, config) {
       if (pos <= 0 || pos >= b.length) pos = config.maxCharsPerBlock
       if (b.length - pos < config.minCharsPerBlock) {
         const minPos = Math.max(1, b.length - config.minCharsPerBlock)
-        const balanced = findSplitPosInRange(b, minPos, b.length - 1)
-        pos = balanced > 0 ? balanced : minPos
+        const hi = b.length - 1
+        const ws = wordSafeSplit(b, minPos, hi, minPos)
+        if (ws > 0 && ws < b.length) {
+          pos = ws
+        } else {
+          // 越界修复：balanced == len(b)（尾字符恰为标点时 i+1 越界）视为无效
+          const balanced = findSplitPosInRange(b, minPos, hi)
+          pos = balanced > 0 && balanced < b.length ? balanced : minPos
+        }
       }
       out.push(b.slice(0, pos))
       b = b.slice(pos)

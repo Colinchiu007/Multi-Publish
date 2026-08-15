@@ -1,3 +1,25 @@
+## [2026-08-15] fix(story2video): 字幕分句坏切修复（词边界感知 v1.2，三端同步 + 配置透传）
+
+- 现象：用户 5 段文案字幕坏切——`扶余国`→`扶余/国`、`电视剧`→`电/视剧`、`复杂`→`复/杂`、
+  `空白一片`→`空/白一片`、`卵生、日影受孕` 7 字孤悬。
+- 版本核验：本地源码 == GitHub 远程最新（HEAD == origin/main == `6cefc0c`，sidecar `subtitle_segmenter.py`
+  blob 一致），坏切为算法缺陷而非版本漂移。
+- 根因（三机制）：
+  1. Step 6 `_enforce_max` 平衡兜底按算术位置切，无词边界感知 → `扶余/国`、`电/视剧`；
+  2. Step 3 `_length_split` 无标点硬切整块，不检查劈词 → `复/杂`、`空/白一片`；
+  3. Step 4 `_merge_short` 用含标点长度判定短块，clean 后变短无法补救 → 顿号短块孤悬；
+  4. 配置透传 bug：`stage-executor.js` 白名单不含 `subtitle_min_chars/subtitle_max_chars/subtitle_timing`，
+     UI 配置无法到达 8002 `config.subtitle`；测试反向断言固化丢弃。
+- 修复：`subtitle-rules.json` 新增 `word_split` 节（`good_lead/good_tail/bad_followers` 规则表单源）；
+  硬切/平衡切分优先不劈词（好切点 → 非黏着切点 → 算术回退）；短块判定改 clean 后长度 + 并入后 ≤max +
+  完整句不并入；Step 6 平衡切分越界修复；允许语义完整短块以 `short_block_exceptions` 显式声明；
+  `_buildStorySplitterOptions` 补字幕参数透传并改写反向断言测试。
+- 三端同步：sidecar Python（`subtitle_segmenter.py`）、MP TS 镜像（`text-segmentation.ts`）、JS 镜像
+  （`story2video-segmentation-engine.js`）逐字一致；共享向量 25 条（含 5 条用户坏例）三副本同步。
+- 回归：sidecar pytest 100 passed；TS 145 / JS parity 21 / JS 向量 51 / stage-executor 66 passed；
+  E2E real 8002 用户 5 段坏例 + 完整流水线 E2E 通过；`story2video-segmentation-vectors.test.js` 新增。
+
+
 ## [2026-08-15] feat(ops-center): 模型密钥新增删除功能
 
 - 后端：`DELETE /api/v1/prompt-eval/providers/{key_id}`（admin 权限，物理删除；不存在 404；非 admin 403）；`list_provider_keys`/`upsert_provider_key` 返回增加 `id`。
