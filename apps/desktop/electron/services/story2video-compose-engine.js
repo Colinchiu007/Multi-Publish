@@ -63,8 +63,8 @@ function diagnoseBgmSkipReason (candidate, allowedRoots) {
   return 'unreadable'
 }
 
-const DEFAULT_MAX_DURATION_SECONDS = 10 * 60
-const DEFAULT_MAX_AUDIO_DURATION_SECONDS = 15 * 60
+const DEFAULT_MAX_DURATION_SECONDS = 50 * 60
+const DEFAULT_MAX_AUDIO_DURATION_SECONDS = 50 * 60
 const DEFAULT_MAX_SEGMENT_DURATION_SECONDS = 3 * 60
 const DEFAULT_MAX_OUTPUT_PIXELS = 7680 * 4320
 // 单条 ffmpeg 命令最多输入的片段数。超过时按块合成再递归合并，
@@ -298,6 +298,16 @@ function computeMergeEncodeTimeoutMs (outputSeconds) {
   return Math.max(120000, Math.ceil(seconds * 1000 * 3) + 120000)
 }
 
+/**
+ * 时长上限文案格式化：整分钟输出「X 分钟」，非整分钟输出「X 分 Y 秒」。
+ * 避免 Math.round 在非整分钟配置下误导（如 90s 报「2 分钟」、3050s 报「51 分钟」）。
+ */
+function formatDurationLimit (seconds) {
+  const totalSeconds = Math.max(0, Number(seconds) || 0)
+  if (totalSeconds % 60 === 0) return Math.round(totalSeconds / 60) + ' 分钟'
+  return Math.floor(totalSeconds / 60) + ' 分 ' + Math.round(totalSeconds % 60) + ' 秒'
+}
+
 function normalizeComposeScenes (assetManifest) {
   if (!assetManifest || typeof assetManifest !== 'object') return []
   const sentences = Array.isArray(assetManifest.sentences) ? assetManifest.sentences : []
@@ -521,6 +531,28 @@ function buildTransitionPlan (segmentDurations, requestedDuration, transitionNam
   return { enabled: true, durations, transitions, totalDuration: elapsed, transitionName: resolvedTransitionName }
 }
 
+/**
+ * 分块合成全流程的总块数 = 各级块数之和（最后一级仅复制，不新增块）。
+ * 用于 87→89 拼接子进度共享同一分母，避免递归层数影响进度推进速度。
+ * ⚠️ 必须与 _concatSegmentsChunked 的分块循环（ceil(剩余/块大小) 直到 ≤1）保持同步：
+ * 若递归策略变化（块大小、最小块规则、最大层数），此处分母必须同步更新，
+ * 否则 done 可能越界 total（percent 被钳到 89）或末块 <89（narration 跳 89 造成结尾停顿）。
+ * @param {number} segmentCount - 输入片段数
+ * @param {number} [chunkSize] - 每块上限，默认 MAX_XFADE_INPUTS
+ * @returns {number}
+ */
+function countChunkedMergeChunks (segmentCount, chunkSize) {
+  const size = Number.isInteger(chunkSize) && chunkSize > 0 ? chunkSize : MAX_XFADE_INPUTS
+  let total = 0
+  let remaining = Math.max(0, Math.floor(segmentCount) || 0)
+  do {
+    const chunks = Math.ceil(remaining / size)
+    total += chunks
+    remaining = chunks
+  } while (remaining > 1)
+  return total
+}
+
 class Story2VideoComposeEngine {
   /**
    * @param {object} [opts]
@@ -695,15 +727,17 @@ class Story2VideoComposeEngine {
       probedAudioDurations.push(audioDuration)
       if (!audioDuration) continue
       if (scenes.length > 1 && audioDuration > this.maxSegmentDurationSeconds) {
-        return { code: -1, message: '单段旁白时长不能超过 3 分钟' }
+        return { code: -1, message: '单段旁白时长不能超过 ' + formatDurationLimit(this.maxSegmentDurationSeconds) }
       }
       totalAudioDuration += audioDuration
     }
-    if (totalAudioDuration > this.maxAudioDurationSeconds) {
-      return { code: -1, message: '旁白音频总时长不能超过 15 分钟' }
-    }
+    // 成片检查在前：默认成片与旁白上限一致，任何超限输入先返回「成片总时长」文案（PRD §7.1.25a 合同）；
+    // 旁白检查仅在旁白上限低于成片上限（更严旁白约束）时可达。
     if (totalAudioDuration > this.maxDurationSeconds) {
-      return { code: -1, message: '成片总时长不能超过 10 分钟' }
+      return { code: -1, message: '成片总时长不能超过 ' + formatDurationLimit(this.maxDurationSeconds) }
+    }
+    if (totalAudioDuration > this.maxAudioDurationSeconds) {
+      return { code: -1, message: '旁白音频总时长不能超过 ' + formatDurationLimit(this.maxAudioDurationSeconds) }
     }
     const effectiveRequestedDuration = scenes.reduce((total, scene, index) => {
       // min-duration 模式预检与场景循环共用同一 base 公式（probed || duration || defaultSceneDuration），
@@ -714,7 +748,7 @@ class Story2VideoComposeEngine {
       return total + (sceneDurationMode === 'min-duration' ? Math.max(base, minSceneDuration) : base)
     }, 0)
     if (effectiveRequestedDuration > this.maxDurationSeconds) {
-      return { code: -1, message: 'Requested video duration exceeds the allowed limit' }
+      return { code: -1, message: 'Requested video duration exceeds the allowed limit of ' + Math.round(this.maxDurationSeconds / 60) + ' minutes' }
     }
 
     // 子进度：预检全部通过，进入逐片段合成
@@ -830,7 +864,7 @@ class Story2VideoComposeEngine {
         accumulatedDuration += segmentDuration
         if (accumulatedDuration > this.maxDurationSeconds) {
           this._cleanupSession(sessionDir)
-          return { code: -1, message: 'Composed video duration exceeds the allowed limit' }
+          return { code: -1, message: 'Composed video duration exceeds the allowed limit of ' + Math.round(this.maxDurationSeconds / 60) + ' minutes' }
         }
         segmentDurations.push(segmentDuration)
         segmentRecords.push({
@@ -886,6 +920,16 @@ class Story2VideoComposeEngine {
           transition,
           transitionDuration: options?.transitionDuration,
           segmentDurations,
+          // 分块拼接子进度：每完成一块在 87→89 之间推进一次，消除超长列表拼接期"假卡死"
+          onChunkCreated: (chunk) => {
+            emitComposeProgress({
+              phase: 'concat',
+              percent: 87 + (2 * chunk.done) / chunk.total,
+              segmentsDone: segments.length,
+              segmentsTotal: scenes.length,
+              message: '正在拼接视频片段（分块 ' + chunk.done + '/' + chunk.total + '）',
+            })
+          },
         })
       }
     } catch (e) {
@@ -1494,6 +1538,7 @@ class Story2VideoComposeEngine {
           await this._concatSegmentsChunked(segments, durations, outputPath, sessionDir, {
             transitionName,
             transitionDuration: options?.transitionDuration,
+            onChunkCreated: options?.onChunkCreated,
           }, 0)
         } else {
           await this._xfadeMerge(segments, plan, outputPath)
@@ -1568,17 +1613,21 @@ class Story2VideoComposeEngine {
    * 再递归合并中间文件（块间同样带转场）。避免单条 ffmpeg 命令输入路数过多。
    * @private
    */
-  async _concatSegmentsChunked (segments, durations, outputPath, sessionDir, options, level) {
+  async _concatSegmentsChunked (segments, durations, outputPath, sessionDir, options, level, progressState) {
     const chunkSize = MAX_XFADE_INPUTS
     const currentLevel = Number.isInteger(level) ? level : 0
+    const onChunkCreated = typeof options?.onChunkCreated === 'function' ? options.onChunkCreated : null
+    // 递归全程共享同一进度分母（总块数 = 各级块数之和，见 countChunkedMergeChunks 的同步约束），done 跨层级单调累加
+    const state = progressState || { total: countChunkedMergeChunks(segments.length, chunkSize), done: 0 }
     const intermediatePaths = []
     const chunkDurations = []
     for (let offset = 0; offset < segments.length; offset += chunkSize) {
       const part = segments.slice(offset, offset + chunkSize)
       const partDurations = Array.isArray(durations) ? durations.slice(offset, offset + chunkSize) : []
       const plan = buildTransitionPlan(partDurations, options?.transitionDuration)
+      const chunkIndex = intermediatePaths.length
       // 中间文件名带递归层级，避免与输入（上一层的中间文件）同名冲突
-      const intermediate = path.join(sessionDir, 'merge_l' + currentLevel + '_chunk_' + String(intermediatePaths.length).padStart(3, '0') + '.mp4')
+      const intermediate = path.join(sessionDir, 'merge_l' + currentLevel + '_chunk_' + String(chunkIndex).padStart(3, '0') + '.mp4')
       if (part.length > 1 && plan.enabled) {
         await this._xfadeMerge(part, { ...plan, transitionName: options.transitionName }, intermediate)
         chunkDurations.push(plan.totalDuration)
@@ -1588,13 +1637,25 @@ class Story2VideoComposeEngine {
         chunkDurations.push(null)
       }
       intermediatePaths.push(intermediate)
+      // 每完成一块立即上报（87→89 之间按块推进），消除长列表拼接期"假卡死"
+      state.done += 1
+      this.log.info('Story2VideoCompose', 'merge_l' + currentLevel + '_chunk_' + String(chunkIndex).padStart(3, '0') + ' created: ' + path.basename(intermediate))
+      if (onChunkCreated) {
+        onChunkCreated({
+          level: currentLevel,
+          chunkIndex,
+          done: state.done,
+          total: state.total,
+          path: intermediate,
+        })
+      }
     }
 
     if (intermediatePaths.length === 1) {
       fs.copyFileSync(intermediatePaths[0], outputPath)
       return
     }
-    await this._concatSegmentsChunked(intermediatePaths, chunkDurations, outputPath, sessionDir, options, currentLevel + 1)
+    await this._concatSegmentsChunked(intermediatePaths, chunkDurations, outputPath, sessionDir, options, currentLevel + 1, state)
   }
 
   /** 将所有旁白解码后顺序拼接，避免旧实现只保留第一段音频。 */
@@ -1667,6 +1728,7 @@ module.exports = {
   findFfprobe,
   KNOWN_COMPOSE_PHASES,
   normalizeComposeProgressUpdate,
+  countChunkedMergeChunks,
   escapeSubtitleText,
   normalizeComposeScenes,
   buildTransitionPlan,

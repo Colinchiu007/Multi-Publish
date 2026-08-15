@@ -6,6 +6,14 @@
 - 测试：pipeline-engine +1 例（failed/cancelled stage 终态同步）、CreateView +1 例（失败/暂停排在已完成项目之前）；CreateHistory 22/22 保持通过；关联套件定向通过。
 - 文档：PRD.md §7.1.37 历史记录可见性与终态一致合同；PRD-video-creation.md §3.1.4.1 排序更新 + §3.1.27 终态一致/历史排序；learnings.md 复盘。
 
+## [2026-08-15] fix(story2video): 合成时长上限调整到 50 分钟——68 分镜 11.8 分钟 TTS 不再被预检拒绝（s2v-compose-duration-50min）
+
+- 现象：视频流水线合成阶段弹「当前操作未能完成，请稍后再试」；日志 `error=成片总时长不能超过 10 分钟`。根因：compose 预检按 ffprobe 实测旁白音频总时长校验，默认成片上限 600s（10 分钟）、旁白上限 900s（15 分钟）（引入自 e1b46eba）；68 分镜 TTS 实测 709.64s > 600s，属确定性失败，断点重试因素材不变必然再失败。
+- 修复：`story2video-compose-engine.js` 默认成片上限 600s→3000s（50 分钟）、旁白上限 900s→3000s（与成片一致）；成片检查先于旁白检查，默认配置下超限返回「成片总时长不能超过 50 分钟」；时长错误文案动态化——新增 `formatDurationLimit`（整分钟「X 分钟」/非整分钟「X 分 Y 秒」），三条中文文案 + 两条英文文案（`of N minutes`）均由配置计算；单段 3 分钟上限不变。
+- 测试：compose-engine 105/105（新增恰 3000s 通过/3000.1s 拒绝严格大于用例、旁白上限更严分支、3020s 拒绝/2980s 通过、min-duration 3300s 拒绝同步）；关联 cleanup/text-config/stages 171/171。
+- 文档：PRD §7.1.25a 新增成片与旁白时长上限合同 + 已知限制（下游固定 ffmpeg 超时按短成片设计未缩放、前端时长类错误映射缺失、512MB 输入总量约束）；PRD-video-creation 4 处与 architecture-video-integration 1 处旧 10/15 分钟值同步 50 分钟；OpenSpec change s2v-compose-duration-50min（validate PASS）。
+- 评审：Claude 0C/3W/5I——W1（成片文案默认不可达）修复（检查顺序）、W2（下游固定超时）记录已知限制、W3（同树文档旧值）修复；antigravity 地区不可用降级记录；详见 `.ccg/tasks/s2v-compose-duration-50min/review.md`。
+
 ## [2026-08-14] fix(story2video): LLM markdown 代码块包装导致提示词中文翻译解析失败
 
 - 现象：Story2Video 流水线「中文翻译」字段显示异常。
