@@ -6,9 +6,10 @@
   "risk": "medium",
   "domain": "observability",
   "currentPhase": "completed",
-  "nextAction": "归档任务并提交隔离分支",
+  "nextAction": "等待 PR #857 合并后归档 OpenSpec change",
   "createdAt": "2026-08-15T00:00:00Z",
   "branch": "codex/story2video-compose-observability",
-  "remoteStatus": "local_worktree",
+  "remoteStatus": "pr_open",
+  "pullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/857",
   "openspecChange": "story2video-compose-observability"
 }
