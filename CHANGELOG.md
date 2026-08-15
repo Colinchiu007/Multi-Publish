@@ -4489,3 +4489,8 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 修复：concat、xfade、旁白、BGM、WebM、输出校验统一使用按媒体时长缩放且有最小值/硬上限的 ffmpeg 预算；超时终止归一为带阶段语义的 ETIMEDOUT；前端新增成片总时长、单段时长、合成 timeout 三个稳定消息键及中英文安全建议。
 - 测试：Story2Video compose/通知相关 3 个套件 161/161 通过，覆盖短片、50 分钟、非法时长、阶段上限、killed + SIGTERM 超时归一、三个稳定 key 中英文渲染和技术细节脱敏。
 - 文档：PRD §7.1.13 / §7.1.25a、PRD-video-creation §1.6 / §3.1.4.2、OpenSpec change s2v-timeout-notifications。
+# [2026-08-15] fix(ops-center): 模型密钥保存使用加载后的配置密钥
+
+- 修复提示词评测模型密钥保存错误地只从进程环境读取 OPS_SECRET_KEY，导致 .env 已正确加载但未导出环境变量时回退到不安全默认值并返回 HTTP 500。
+- 路由现在使用 config.settings.secret_key；缺失或不安全的密钥保持 fail-closed，并以 HTTP 400 返回可操作的 OPS_SECRET_KEY 配置提示。
+- 补齐 provider key 并发恢复分支的 IntegrityError 导入，并新增 dotenv-only 与缺失密钥 API 回归。

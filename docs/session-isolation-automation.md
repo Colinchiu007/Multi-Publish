@@ -40,7 +40,7 @@ D:/Data/projects/Multi-Publish 是只读协调根，长期保持 main 且干净�
 
     powershell -ExecutionPolicy Bypass -File scripts/session-isolation-automation.test.ps1
 
-自检覆盖脚本存在性、当前主目录健康状态、报告写出、main/primary 识别，以及计划任务移除幂等性。
+自检覆盖脚本存在性、当前主目录健康状态、报告写出、main/primary 识别，以及计划任务注册后稳定指向共享主目录 scripts 的合同。自检最后会重新注册任务，避免验证本身关闭持续守护。
 
 ## 边界
 
