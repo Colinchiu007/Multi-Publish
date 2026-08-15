@@ -369,24 +369,16 @@ async def get_llm_key(db: AsyncSession, secret: str) -> dict | None:
 
 VISION_PROVIDERS = ("minimax-vision", "opencode-go-vision")
 
-# 「设为默认」用途分组：同类（同一分组）只能有一个默认，用户已确认按 LLM/视觉/生图分组唯一。
-USAGE_GROUP_PROVIDERS: dict[str, tuple[str, ...]] = {
-    "llm": ("minimax-llm",),
-    "vision": ("minimax-vision", "opencode-go-vision"),
-    "image": ("minimax-image", "flux", "hunyuan"),
-}
+# 「设为默认」用途分组（LLM/视觉/生图分组唯一）定义在 prompt_eval_contract，
+# 迁移模块（prompt_eval_migration）共用同一常量，保持迁移导入轻量。
+USAGE_GROUP_PROVIDERS = contract.USAGE_GROUP_PROVIDERS
 
 
 class ProviderKeyNotFoundError(ValueError):
     """设为默认目标密钥不存在（路由映射 404）。"""
 
 
-def provider_usage_group(provider: str) -> str | None:
-    """返回 provider 所属用途分组（llm/vision/image）；未归类返回 None。"""
-    for group, providers in USAGE_GROUP_PROVIDERS.items():
-        if provider in providers:
-            return group
-    return None
+provider_usage_group = contract.provider_usage_group
 
 
 async def _group_has_default(db: AsyncSession, group: str) -> bool:

@@ -649,7 +649,7 @@ async def test_run_provider_key_message_role_aware():
 
 @pytest.mark.asyncio
 async def test_provider_key_set_default_group_unique():
-    """设为默认：首个键自动默认；同用途分组唯一；跨分组互不影响；403/401/404/禁用 400。"""
+    """设为默认：首个键自动默认；同用途分组唯一；跨分组互不影响；403/401/404/禁用/未分组 400。"""
     async with _client() as client:
         admin = _headers(role="admin")
         h = _headers()
@@ -702,6 +702,14 @@ async def test_provider_key_set_default_group_unique():
         rr = await client.put(f"/api/v1/prompt-eval/providers/{id4}/default", headers=admin)
         assert rr.status_code == 400
         assert "启用" in rr.json()["detail"]
+        # 未分组 provider 设为默认 → 400（后端防绕过前端置灰）
+        r6 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "custom-unknown", "model": "m1", "api_key": "sk-u", "base_url": "https://u/v1",
+        }, headers=admin)
+        id6 = r6.json()["id"]
+        ru = await client.put(f"/api/v1/prompt-eval/providers/{id6}/default", headers=admin)
+        assert ru.status_code == 400
+        assert "不属于" in ru.json()["detail"]
 
 
 @pytest.mark.asyncio
