@@ -37,6 +37,12 @@ async updateOrchestrationStatus() {
 - 新增用户可见文案一律写入 `apps/desktop/src/locales/zh.js` 与 `en.js` **成对**（CI Gate 7 拦截）；渲染端（.vue script/template）禁止新增中文字符串字面量（CJK 基线扫描按 `file:line` 匹配，新增行会触发误报 → 用 `node .github/scripts/check-locale-sync.js --cjk --update-baseline` 权威重排，但必须先确认「无真新增」）。
 - 产品名词翻译集中维护于 `01-docs/i18n-glossary.md`，新增术语先登记再使用。
 
+## 5. 结果页层级错误隔离（2026-08-15，s2v-result-success-error-boundary）
+
+**模式**：Story2Video 结果页对项目读取、成片 URL、旁白 URL 和场景素材 URL 分别处理；附加资源失败不能否定已完成的成片。
+
+**强制点**：完成事件必须在项目持久化成功后发送；持久化失败发送失败终态；成片缺失使用预览缺失提示，播放器加载失败使用预览级提示。
+
 ## 4. Story2Video 合成错误映射
 
 Story2Video compose 的用户可见错误必须优先使用稳定消息键，而不是把后端技术错误文本直接交给 renderer：

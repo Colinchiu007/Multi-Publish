@@ -4370,3 +4370,9 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 | 样式 | `style2` 加黑底 `box`（0.55 透明度 + 10px 边框）；`style3` 描边加粗（borderw=4）。 |
 | **位置（2026-08-07 修订）** | 字幕底边默认位于画面 **80% 高度**（即**距底部 20%**，`bottomMarginRatio=0.2`，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式 `y=h*(1-bottomMarginRatio)-th`。原固定 `h-th-40`（约 3%）废弃。 |
 | 水平 | 恒居中 `x=(w-text_w)/2`。 |
+
+#### Story2Video 完成状态与结果页错误隔离（2026-08-15）
+
+- 完成事件必须在最终阶段完成且项目持久化成功后发送；持久化失败时 run 进入 `failed`，发送 `pipeline:fail`，不得发送 `pipeline:complete`。
+- 结果页对项目读取、成片、旁白和场景素材预览分别处理错误。附加资源预览失败不得清空已读取项目或改写已完成任务的终态。
+- 成片 URL 缺失使用“预览缺失”提示；视频播放器加载失败使用预览级提示，不复用任务级“当前操作未能完成”。

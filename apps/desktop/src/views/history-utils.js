@@ -103,4 +103,3 @@ export function historyStatusCounts (items) {
 export function historyDisplayTime (item) {
   return historyEffectiveTime(item)
 }
-

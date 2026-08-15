@@ -577,7 +577,7 @@ export default {
         return true
       } catch (_error) {
         this.videoSrc = null
-        this.showStory2VideoOperationFailure()
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
         return false
       } finally {
         this.loading = false
@@ -602,9 +602,18 @@ export default {
         this.segmentsDirty = false
         await this.refreshSegmentImageUrls()
         this.audioPath = project.audioPath || null
-        this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
+        try {
+          this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
+        } catch (_error) {
+          this.audioSrc = null
+        }
         this.videoPath = project.videoPath || null
-        this.videoSrc = this.videoPath ? await this.resolveLocalUrl(this.videoPath) : null
+        try {
+          this.videoSrc = this.videoPath ? await this.resolveLocalUrl(this.videoPath) : null
+        } catch (_error) {
+          this.videoSrc = null
+          this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
+        }
         this.maybeShowDegradedAssetsWarning()
       } catch (_error) {
         this.project = null
@@ -615,7 +624,7 @@ export default {
       }
     },
     handleError() {
-      this.showStory2VideoOperationFailure()
+      this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.VIDEO_PREVIEW_FAILED })
     },
     handleVideoMetadata(event) {
       const duration = Number(event?.target?.duration)

@@ -322,6 +322,7 @@ export default {
     text_required: '请先输入视频文案。',
     run_status_unavailable: '暂时无法获取生成进度，请在历史记录中查看。',
     preview_missing: '生成已完成，但未找到可预览的视频，请在历史记录中查看。',
+    videoPreviewFailed: '视频预览加载失败，成片文件仍已保存。',
     media_invalid: '所选文件不符合要求，请重新选择。',
     media_format_invalid: '不支持 {extension} 格式。{kindLabel}仅支持：{extensions}。',
     media_size_exceeded: '{kindLabel}文件大小超出限制：最大 {maxMb}MB，当前文件约 {actualMb}MB，请压缩后重试。',

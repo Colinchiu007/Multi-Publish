@@ -1117,9 +1117,15 @@ class PipelineEngine {
     // Advance to next stage
     run.currentStage++;
     if (run.currentStage >= run.stages.length) {
+      this._finalizeRun(run, 'completed');
+      if (run.status !== 'completed') {
+        // 项目持久化失败时只发失败终态，禁止 renderer/批量队列误判为完成。
+        const error = run.error || 'Story2Video 项目保存失败';
+        this._emit('pipeline:fail', { runId: run.id, pipelineType: run.pipeline, error });
+        return { success: false, error, errorCode: 'STORY2VIDEO_PROJECT_SAVE_FAILED' };
+      }
       // Backlot 事件：流水线完成（totalDuration 用步骤执行耗时累计口径，不用墙钟 createdAt→now）
       this._emit('pipeline:complete', { runId: run.id, pipelineType: run.pipeline, totalDuration: this._computeElapsedMs(run) });
-      this._finalizeRun(run, 'completed');
       return { success: true, message: 'Pipeline completed' };
     }
 
@@ -1494,8 +1500,14 @@ class PipelineEngine {
     if (advResult.message === 'Pipeline completed') {
       return { ...result, completed: true, context: run.context, activeMs: this._computeElapsedMs(run) };
     }
-    if (!advResult.success && advResult.message !== 'Pipeline completed') {
+    if (!advResult.success) {
       this.log.warn('PipelineEngine', 'advance after executeStage: ' + (advResult.message || advResult.error));
+      return {
+        ...result,
+        success: false,
+        error: advResult.error,
+        errorCode: advResult.errorCode,
+      };
     }
     return result;
   }
@@ -1858,6 +1870,22 @@ class PipelineEngine {
       } catch (persistError) {
         run.status = 'failed';
         run.error = 'Story2Video 项目保存失败: ' + persistError.message;
+        const failedStageIndex = Math.min(
+          Array.isArray(run.stages) ? run.stages.length - 1 : -1,
+          Math.max(0, Number(run.currentStage) - 1),
+        );
+        const failedStage = failedStageIndex >= 0 ? run.stages[failedStageIndex] : null;
+        if (failedStage) {
+          failedStage.status = 'failed';
+          failedStage.completedAt = new Date().toISOString();
+        }
+        if (run.orchestrationMode === 'orchestrator' && this.runStateStore && typeof this.runStateStore.saveFailed === 'function') {
+          try {
+            this.runStateStore.saveFailed(run);
+          } catch (snapshotError) {
+            this.log.warn('PipelineEngine', 'project persistence failure snapshot save failed: ' + (snapshotError && snapshotError.message ? snapshotError.message : String(snapshotError)));
+          }
+        }
         this.log.error('PipelineEngine', run.error);
       }
     }
@@ -2110,7 +2138,7 @@ class PipelineEngine {
       // 推进到下一阶段（同步 advance）
       const advResult = this._advanceRun(run);
       if (!advResult.success) {
-        // 流水线完成或出错
+        // 持久化失败等推进错误已经由 _advanceRun 发出 pipeline:fail。
         if (advResult.message === 'Pipeline completed') {
           return {
             success: true,
@@ -2120,7 +2148,14 @@ class PipelineEngine {
             completed: true,
           };
         }
-        break;
+        return {
+          success: false,
+          runId,
+          results,
+          context: run.context,
+          error: advResult.error,
+          errorCode: advResult.errorCode,
+        };
       }
     }
 

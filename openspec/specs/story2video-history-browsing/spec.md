@@ -81,4 +81,3 @@ cancelled 任务卡片 SHALL 保留必要的取消状态和时间信息，但 SH
 #### Scenario: 键盘浏览取消任务
 - **WHEN** 用户使用 Tab 键浏览历史列表
 - **THEN** cancelled 卡片主体不进入焦点顺序，但卡片内独立允许的操作仍遵循各自动作语义
-

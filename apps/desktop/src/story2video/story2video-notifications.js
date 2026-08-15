@@ -14,6 +14,7 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   TEXT_REQUIRED: 'story2video.text_required',
   RUN_STATUS_UNAVAILABLE: 'story2video.run_status_unavailable',
   PREVIEW_MISSING: 'story2video.preview_missing',
+  VIDEO_PREVIEW_FAILED: 'story2video.videoPreviewFailed',
   MEDIA_INVALID: 'story2video.media_invalid',
   MEDIA_FORMAT_INVALID: 'story2video.media_format_invalid',
   MEDIA_SIZE_EXCEEDED: 'story2video.media_size_exceeded',

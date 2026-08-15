@@ -705,6 +705,66 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     expect(() => engine2._finalizeRun(run2, 'completed', null)).not.toThrow()
     expect(run2.status).toBe('completed')
   })
+
+  it('_advanceRun 在 Story2Video 项目持久化完成后才发出 pipeline:complete', () => {
+    const order = []
+    const saveRun = vi.fn(() => {
+      order.push('saveRun')
+      return { projectId: 'project-complete' }
+    })
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      story2videoProjectService: { saveRun },
+    })
+    vi.spyOn(engine, '_emit').mockImplementation((eventName) => { order.push(eventName) })
+    const run = {
+      id: 'run-persist-before-complete',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 0,
+      stages: [{ name: 'publish', status: 'running' }],
+      context: {},
+      params: {},
+      orchestrationMode: 'orchestrator',
+      startedAt: new Date().toISOString(),
+    }
+    engine._runs.set(run.id, run)
+
+    const result = engine._advanceRun(run)
+
+    expect(result).toMatchObject({ success: true, message: 'Pipeline completed' })
+    expect(order).toEqual(['stage:complete', 'saveRun', 'pipeline:complete'])
+    expect(run.status).toBe('completed')
+  })
+
+  it('_advanceRun 项目持久化失败时进入 failed 且不发出 pipeline:complete', () => {
+    const events = []
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      story2videoProjectService: { saveRun: vi.fn(() => { throw new Error('disk full') }) },
+    })
+    vi.spyOn(engine, '_emit').mockImplementation((eventName) => { events.push(eventName) })
+    const run = {
+      id: 'run-persist-failure',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 0,
+      stages: [{ name: 'publish', status: 'running' }],
+      context: {},
+      params: {},
+      orchestrationMode: 'orchestrator',
+      startedAt: new Date().toISOString(),
+    }
+    engine._runs.set(run.id, run)
+
+    const result = engine._advanceRun(run)
+
+    expect(result).toMatchObject({ success: false, error: expect.stringContaining('Story2Video 项目保存失败') })
+    expect(run.status).toBe('failed')
+    expect(run.stages[0].status).toBe('failed')
+    expect(events).toContain('pipeline:fail')
+    expect(events).not.toContain('pipeline:complete')
+  })
 })
 
 describe('PipelineEngine 批量创作打标与索引隔离', () => {
