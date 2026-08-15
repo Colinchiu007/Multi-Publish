@@ -13474,3 +13474,18 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **恢复证据**：暂停其他任务 Git 写入，安全移除占用 `main` 的陈旧 worktree，将四个 `.tmp-*.js` 保存到 `stash@{0}`（message：`shared-main-recovery-temp-files-20260815`），再把共享主目录恢复为干净且跟踪 `origin/main`。恢复时不得 pop/drop 共享 stash；需要取回临时文件时先按 stash message 重新定位，再用路径级 `git restore --source=<stash> -- <path>`。
 - **永久修复**：共享主目录定义为 main-only 协调目录；新增 `post-checkout` 在干净状态递归安全恢复 `main`，脏状态或恢复失败时保留现场并写 `.agent_context/shared-root-violation`；`pre-commit` 在 marker 存在时 fail closed；`session-init.sh <task-name>` 只创建/复用 `D:/Data/projects/mp-worktrees/mp-<task-name>` + `codex/<task-name>`，错误分支或其他仓库占位均拒绝。
 - **迁移与工具边界**：多个任务已经共享一个 cwd 时必须暂停 Git 写入并逐个串行迁移，禁止并行 handoff/stash/checkout。Windows 上此流程固定使用 `D:/Program Files/Git/usr/bin/bash.exe` 或 Git Bash；裸 `bash` 在本机可能落到不可用 WSL。回滚仅重新安装上一版本 hooks，不删除恢复 stash；worktree 删除继续逐个运行 `scripts/safe-worktree-remove.ps1`。
+## Story2Video 合成成功后的结果页误报复盘（2026-08-15，s2v-result-success-error-boundary）
+
+### 现象
+最新任务 `run_1786767595041_3qs7` 的 compose/publish/finalize 日志、`project.json`、`video.mp4` 和实机播放均证明合成成功，但用户看到“当前操作未能完成，请稍后再试”。
+
+### 第一性原因
+1. `pipeline-engine.js` 先发 `pipeline:complete`，再执行项目持久化，约 1.15 秒窗口内结果页可能读不到项目。
+2. `ResultView.vue` 用一个大 `try/catch` 包住项目、成片、旁白和场景素材 URL，任一附加资源失败都会误报任务级失败。
+3. 主视频 `error` 事件复用任务级失败文案，混淆“任务失败”和“预览失败”。
+
+### 逃逸分析
+单元测试原先没有锁定完成事件与项目保存的先后关系；结果页测试也没有覆盖“项目成功、附加资源失败仍保留成片”的组合场景；因此问题逃过单测和界面回归，实机只有在特定磁盘/IPC时序下暴露。
+
+### 修复与预防
+完成事件后移到持久化成功之后，持久化失败同步最后阶段为 `failed` 并发送 `pipeline:fail`；结果页拆分资源错误边界；新增 86 个定向回归用例全绿，并将规则写入前端规范。

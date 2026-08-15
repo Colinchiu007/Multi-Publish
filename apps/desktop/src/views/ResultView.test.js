@@ -128,9 +128,19 @@ describe("ResultView", () => {
     w.vm.handleError();
     expect(w.vm.story2videoNotificationDialog).toEqual({
       visible: true,
-      messageKey: "story2video.operation_failed",
+      messageKey: "story2video.videoPreviewFailed",
       messageParams: {},
     });
+  });
+
+  it("主视频 URL 解析失败时显示预览缺失，而不是任务级失败", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 1, message: "video unavailable" });
+    const w = await createView();
+
+    await w.vm.loadVideoPath("C:/videos/missing.mp4");
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.preview_missing");
   });
 
   it("download 通过主进程保存对话框保存文件，不再用 <a download> 触发", async () => {
@@ -266,6 +276,52 @@ describe("ResultView", () => {
     expect(w.text()).toContain("完整旁白");
     expect(w.findAll(".segment-item")).toHaveLength(2);
     expect(w.vm.audioSrc).toContain("narration.m4a");
+  });
+
+  it("旁白 URL 解析失败不清空已加载项目和成片", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoGetProject.mockResolvedValue({ code: 0, data: {
+      projectId: "project-audio-degraded",
+      videoPath: "C:/projects/project-audio-degraded/video.mp4",
+      audioPath: "C:/projects/project-audio-degraded/narration.m4a",
+      segments: [],
+    } });
+    api.story2videoCreateShareUrl.mockImplementation(async filePath => (
+      filePath.endsWith("narration.m4a")
+        ? { code: 1, message: "narration unavailable" }
+        : { code: 0, data: { url: "file:///" + filePath } }
+    ));
+    const w = await createView();
+
+    await w.vm.loadProject("project-audio-degraded");
+
+    expect(w.vm.projectId).toBe("project-audio-degraded");
+    expect(w.vm.project).toBeTruthy();
+    expect(w.vm.videoSrc).toContain("video.mp4");
+    expect(w.vm.audioSrc).toBeNull();
+    expect(w.vm.story2videoNotificationDialog.visible).toBe(false);
+  });
+
+  it("场景素材 URL 解析失败不影响成片与项目", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoGetProject.mockResolvedValue({ code: 0, data: {
+      projectId: "project-scene-degraded",
+      videoPath: "C:/projects/project-scene-degraded/video.mp4",
+      segments: [{ id: "segment-0", imagePath: "C:/projects/project-scene-degraded/image.png" }],
+    } });
+    api.story2videoCreateShareUrl.mockImplementation(async filePath => (
+      filePath.endsWith("image.png")
+        ? { code: 1, message: "scene unavailable" }
+        : { code: 0, data: { url: "file:///" + filePath } }
+    ));
+    const w = await createView();
+
+    await w.vm.loadProject("project-scene-degraded");
+
+    expect(w.vm.projectId).toBe("project-scene-degraded");
+    expect(w.vm.videoSrc).toContain("video.mp4");
+    expect(w.vm.segments[0].imageUrl).toBeNull();
+    expect(w.vm.story2videoNotificationDialog.visible).toBe(false);
   });
 
   it("分段可重排、保存、单图重试和重新合成", async () => {
@@ -419,7 +475,7 @@ describe("ResultView", () => {
     expect(w.vm.projectId).toBe("project-route");
   });
 
-  it("重新合成后无法加载预览时不显示成功提示", async () => {
+  it("重新合成后无法解析成片 URL 时显示预览缺失提示", async () => {
     const api = await import("@/api/publisher");
     api.story2videoRecomposeProject.mockResolvedValue({ code: 0, data: {
       projectId: "project-1", videoPath: "C:/project/recomposed.mp4", segments: [],
@@ -432,7 +488,7 @@ describe("ResultView", () => {
 
     expect(w.vm.story2videoNotificationDialog).toEqual({
       visible: true,
-      messageKey: "story2video.operation_failed",
+      messageKey: "story2video.preview_missing",
       messageParams: {},
     });
     expect(w.vm.story2videoNotificationDialog.messageKey).not.toBe("story2video.project_recomposed");

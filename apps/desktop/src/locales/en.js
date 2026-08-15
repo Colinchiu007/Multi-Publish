@@ -256,6 +256,7 @@ export default {
     text_required: 'Enter a video script before continuing.',
     run_status_unavailable: 'The generation progress is unavailable. Check History for details.',
     preview_missing: 'Generation finished, but no previewable video was found. Check History for details.',
+    videoPreviewFailed: 'The video preview could not load, but the finished file is still saved.',
     media_invalid: 'The selected file does not meet the requirements. Please choose another file.',
     media_format_invalid: 'The {extension} format is not supported. {kindLabel} supports only: {extensions}.',
     media_size_exceeded: '{kindLabel} exceeds the size limit: up to {maxMb} MB, this file is about {actualMb} MB. Compress it and try again.',
