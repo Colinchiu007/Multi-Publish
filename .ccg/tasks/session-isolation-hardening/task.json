@@ -1,0 +1,14 @@
+{
+  "id": "session-isolation-hardening",
+  "title": "强化并发 Codex 会话的 Git worktree 隔离与共享主目录保护",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "tooling",
+  "currentPhase": "review",
+  "nextAction": "完成文档、独立审查与交付验证后创建 PR",
+  "createdAt": "2026-08-15T12:30:00+08:00",
+  "branch": "codex/session-isolation-hardening",
+  "openspecChange": "session-isolation-hardening",
+  "remoteStatus": "尚未创建 PR；共享主目录已恢复到 origin/main，永久机制已实现并通过本地回归"
+}

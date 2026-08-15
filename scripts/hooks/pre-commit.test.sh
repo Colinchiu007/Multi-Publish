@@ -15,6 +15,7 @@
 #   11) 真实 git rebase 重放 → 跳过断言，重放成功
 #   12) 隔离 worktree：提交时自动声明当前分支（零手动步骤）→ 通过且声明=当前分支
 #   13) 隔离 worktree：切分支后提交自动更新声明 → 通过且声明=新分支
+#   14) 共享主目录事故 marker 存在 → 拦截
 set -u
 
 HOOK_SRC="$(cd "$(dirname "$0")" && pwd)/pre-commit"
@@ -97,7 +98,7 @@ scenario2() {
     git -C "$TMP/repo" switch -q -c codex/video-no-text-prompt-enhancement
     echo "hello" > "$TMP/repo/docs.md"
     git -C "$TMP/repo" add docs.md
-    commit_expect_block "scenario2 wrong-branch-blocked" "分支守卫拦截"
+    commit_expect_block "scenario2 wrong-branch-blocked" "主目录保护拦截"
 }
 
 # 场景 3：无声明（主工作区严格模式）→ 拦截
@@ -181,17 +182,18 @@ scenario10() {
 scenario11() {
     new_repo
     declare_branch main
+    git -C "$TMP/repo" worktree add -q "$TMP/wt2" -b feature
+    mkdir -p "$TMP/wt2/scripts"
+    cp "$TMP/repo/scripts/quality-rhythm-wrapper.js" "$TMP/wt2/scripts/quality-rhythm-wrapper.js"
     echo "a" > "$TMP/repo/m.txt"
     git -C "$TMP/repo" add m.txt
     git -C "$TMP/repo" commit -q -m "m1"
-    git -C "$TMP/repo" switch -q -c feature
-    declare_branch feature
-    echo "b" > "$TMP/repo/f.txt"
-    git -C "$TMP/repo" add f.txt
-    git -C "$TMP/repo" commit -q -m "f1"
-    if git -C "$TMP/repo" rebase -q main 2>"$TMP/err.log"; then
+    echo "b" > "$TMP/wt2/f.txt"
+    git -C "$TMP/wt2" add f.txt
+    git -C "$TMP/wt2" commit -q -m "f1"
+    if git -C "$TMP/wt2" rebase -q main 2>"$TMP/err.log"; then
         local cnt
-        cnt="$(git -C "$TMP/repo" log --oneline | wc -l | tr -d ' ')"
+        cnt="$(git -C "$TMP/wt2" log --oneline | wc -l | tr -d ' ')"
         if [ "$cnt" = "3" ]; then
             ok "scenario11 real-rebase-replay-passed"
         else
@@ -250,6 +252,17 @@ scenario13() {
     fi
 }
 
+# 场景 14：post-checkout 恢复失败留下 marker → pre-commit 必须持续拦截
+scenario14() {
+    new_repo
+    declare_branch main
+    mkdir -p "$TMP/repo/.agent_context"
+    echo "shared root remains on feature" > "$TMP/repo/.agent_context/shared-root-violation"
+    echo "hello" > "$TMP/repo/docs.md"
+    git -C "$TMP/repo" add docs.md
+    commit_expect_block "scenario14 shared-root-marker-blocked" "分支切换事故状态"
+}
+
 scenario1
 scenario2
 scenario3
@@ -263,6 +276,7 @@ scenario10
 scenario11
 scenario12
 scenario13
+scenario14
 
 echo "----"
 echo "结果: PASS=$PASS FAIL=$FAIL"
