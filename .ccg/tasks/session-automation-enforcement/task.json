@@ -1,0 +1,13 @@
+{
+  "id": "session-automation-enforcement",
+  "title": "会话隔离自动启动器、健康守护与自检",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "tooling",
+  "currentPhase": "implementation",
+  "nextAction": "运行自检并注册当前用户计划任务",
+  "branch": "codex/session-automation-enforcement",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-session-automation-enforcement",
+  "openspecChange": "session-automation-enforcement"
+}

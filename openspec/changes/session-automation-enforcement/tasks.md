@@ -1,0 +1,6 @@
+- [x] Add isolated task launcher
+- [x] Add read-only health report
+- [x] Add scheduled task installer and uninstaller
+- [x] Add PowerShell self-check
+- [x] Document operating procedure
+- [ ] Run final quality gates and archive task
