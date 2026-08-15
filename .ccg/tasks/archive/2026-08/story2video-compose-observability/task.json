@@ -6,17 +6,10 @@
   "risk": "medium",
   "domain": "observability",
   "currentPhase": "completed",
-<<<<<<< HEAD
   "nextAction": "PR #857 已合并（squash a8a1a668）；OpenSpec change 已归档为 2026-08-15-story2video-compose-observability",
   "createdAt": "2026-08-15T00:00:00Z",
   "branch": "codex/story2video-compose-observability",
   "remoteStatus": "merged",
-=======
-  "nextAction": "等待 PR #857 合并后归档 OpenSpec change",
-  "createdAt": "2026-08-15T00:00:00Z",
-  "branch": "codex/story2video-compose-observability",
-  "remoteStatus": "pr_open",
->>>>>>> 02f4e11e (chore: record compose observability PR status)
   "pullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/857",
   "openspecChange": "story2video-compose-observability"
 }
