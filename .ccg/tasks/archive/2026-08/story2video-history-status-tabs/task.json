@@ -1,14 +1,14 @@
 {
   "id": "story2video-history-status-tabs",
   "title": "视频创作历史记录按更新时间排序并改造状态标签与详情交互",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "review",
-  "nextAction": "提交并推送分支，创建 PR，等待 CI 后合并并归档变更",
+  "currentPhase": "completed",
+  "nextAction": "已归档：PR #848 于 2026-08-15 合并到 origin/main（1d4dedbe）",
   "createdAt": "2026-08-15T03:56:05Z",
   "branch": "codex/story2video-history-status-tabs",
   "openspecChange": "story2video-history-status-tabs",
-  "remoteStatus": "not_pushed"
+  "remoteStatus": "merged: PR #848, merge commit 1d4dedbec58b33c0e4460c32d44c4a1f78ce36d5, all required CI checks passed"
 }
