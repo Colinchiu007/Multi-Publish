@@ -1,0 +1,7 @@
+{"file":"openspec/changes/higgsfield-round3b-cross-scene/specs/higgsfield-cross-scene/spec.md","role":"Round3 B contract"}
+{"file":"openspec/changes/higgsfield-round3c-refined-output/specs/higgsfield-refined-output/spec.md","role":"Round3 C contract"}
+{"file":"apps/desktop/electron/services/video-prompt-engine-contract.js","role":"8020/8013 normalization boundary"}
+{"file":"apps/desktop/electron/services/prompt-bridge.js","role":"engine provenance and fallback"}
+{"file":"apps/desktop/electron/services/story2video-stages.js","role":"sequential optimization and checkpoint chain"}
+{"file":"D:/Data/projects/mp-worktrees/pe-round3bc-delivery/video_prompt_engine/optimizer.py","role":"V4 cache and output lifecycle"}
+{"file":"D:/Data/projects/mp-worktrees/pe-round3bc-delivery/video_prompt_engine/evaluator.py","role":"continuity, coverage, and gated diagnostics"}

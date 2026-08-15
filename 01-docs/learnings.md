@@ -13528,3 +13528,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **逃逸链**：原测试验证了 87→89 单调进度和块完成文本日志，但没有断言 FFmpeg 启动、超时、失败、空输出、输出大小或块开始事件；短时真实 FFmpeg 用例不会自然暴露长时间无日志窗口。
 - **修复**：以 composeId 串联 compose_started/stage/终态事件；统一 FFmpeg 包装记录 started/succeeded/failed/timeout/output_missing；chunk 记录 started/succeeded/failed，超过 10 秒记录输出字节心跳，30 秒无增长 WARN。stderr 经过路径替换和长度截断，日志不写完整路径/命令/素材/prompt/凭据。
 - **预防**：所有新增长耗时本地子进程路径必须覆盖“启动 + 成功 + 失败/超时 + 产物校验”四态；需要帧级 ETA 时单独设计 spawn + progress pipe 合同，不得把高频解析混入普通诊断日志；测试至少包含一个可控超时和一个输出增长心跳。
+## 视频提示词引擎 Higgsfield Round3 B/C 复盘（prompt-engine-round3bc-delivery，2026-08-15）
+
+- **教训 1（跨镜承接语义红线）**：`final_frame` / `prev_final_frame` 是"计划中的最终画面描述"（计划态文本），不是解码帧/实际渲染帧。契约层、OpenSpec spec、PRD、learnings 四处措辞必须一致用"终态描述/承接事实"，避免下游（compose/渲染）误把它当真实帧结果消费。`story2video-stages.js` 回写 `scene.video.final_frame` 只是把上一场景的优化输出作为下一场景的承接输入，不改变素材链语义。
+- **教训 2（V4 缓存一次失效）**：任何"上下文敏感"的请求字段都必须进缓存 key。Round3 B 把 `prev_final_frame` 的 SHA-1 前缀哈希加入 `_cache_key`——否则"换了上一镜终态仍命中旧结果"，是比缓存穿透更隐蔽的脏命中。设计缓存盐时逐字段过一遍：哪些字段变化会让旧输出失效？
+- **教训 3（否定感知 gated）**：启发式违规规则必须做否定感知（"no cold palette" 不触发 warm_light_leak，"don't look at camera" 不触发 eye_line），否则误报率不可接受；同时 lock 触发词不能包含尾行模板里的字面量——`style_contamination` 用 hyper-realistic/photorealistic detail/写实，**不用裸词 photoreal**，否则 "Photoreal. NON-IP." 尾行会自触发。
+- **教训 4（尾行安全归一）**：`strip_embedded_trailer` 与 `append_trailer` 必须同口径，且只处理"最后一段/行尾"形态的尾行；中段出现 "Photoreal NON-IP aesthetic" 这类字面量不误删 FINAL FRAME 块。生命周期固定为 render body → append 尾行 → optimizer 按预算截断（tail 永不截断），三次评审迭代都围绕"尾行判据收紧"（幂等判据、残缺裸尾行剥离、最后一段限定）。
+- **教训 5（断链明示不虚构连续性）**：resume/checkpoint 恢复时若上一场景无 `prev_final_frame` 链，必须显式 degraded 告警（引擎断链明示），不得虚构连续性或静默跳过——fail-open 但明示，让用户知道本次输出没有承接约束。
+- **教训 6（资产驱动规则要可降级）**：`refined_blocks.json` 缺失/损坏时 `_gated_rules()` 回退空表 → 规则不启用零误报。语料驱动的启发式规则（lock-trigger/coverage）本质是统计资产，不是代码常量——资产可缺失、可更新，代码必须 fail-safe。

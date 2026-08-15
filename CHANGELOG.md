@@ -34,6 +34,16 @@
 - 文档：PRD §7.1.25a 新增成片与旁白时长上限合同 + 已知限制（下游固定 ffmpeg 超时按短成片设计未缩放、前端时长类错误映射缺失、512MB 输入总量约束）；PRD-video-creation 4 处与 architecture-video-integration 1 处旧 10/15 分钟值同步 50 分钟；OpenSpec change s2v-compose-duration-50min（validate PASS）。
 - 评审：Claude 0C/3W/5I——W1（成片文案默认不可达）修复（检查顺序）、W2（下游固定超时）记录已知限制、W3（同树文档旧值）修复；antigravity 地区不可用降级记录；详见 `.ccg/tasks/s2v-compose-duration-50min/review.md`。
 
+## [2026-08-15] feat(video-prompt-engine): Higgsfield Round3 B/C——跨镜承接状态包 + 导演分镜块骨架（openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output）
+
+- **Batch B 跨镜承接状态包**：`prev_final_frame` 与计划 `final_frame` 统一 1000 字符边界（桌面契约按句截断）；`HIGGSFIELD_FMT_V4` 缓存盐（key 含承接哈希，旧缓存一次失效）；SCENE Continuity 事实引用承接段（防指令注入）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）。
+- **Story2Video 链式串联**：视频提示词按场景顺序串行优化、媒体生成保持并发；计划终态回写 `scene.video.final_frame`；断点续跑从 checkpoint 终态三级回退恢复链；缺终态显式 `degraded` 断链记录（`mode: planned_final_frame` + status/reason），不虚构连续性；8020 独立引擎优先、8013 回退保留 `engine_source` provenance。
+- **Batch C refined 导演分镜块骨架**：12 键白名单 blocks（SCENE NOTE…FINAL FRAME，值 ≤4000、非空）；缺失块 legacy 字段回退、无有效块走旧渲染器；FAIL CHECK 仅模型指令（意外输出剥离）；trailer 只认完整尾段归一（块内字面量不误删）；块覆盖度 ≥0.8（advisory -5）；7 条 lock-gated 规则默认启用 dead_center/exposure_break/eye_line，否定感知（not overexposed / no waxy skin 不判罚），style_contamination 不用 photoreal 触发词。
+- **语料资产**：`scripts/analyze_hg_corpus.py`（599 条分族统计）→ `knowledge/refined_blocks.json` v2（12 块频率 + coverage 0.8 + 规则默认启用表）。
+- **验证**：引擎全量 pytest 824 passed / 3 skipped（web E2E 环境性 5 errors 与基线一致，`--ignore` 全绿）；桌面契约 + Story2Video 关联套件 221 passed；openspec 三 change strict valid。
+- **评审修复（Claude 双模型，antigravity 地区不可用降级）**：8013 回退请求剥离 `prev_final_frame`（仅 8020 独立引擎携带，与 model/output_language 同先例，测试翻转锚定）；`normalizePrevFinalFrame` 单字符退化防护（孤立句号不再截到只剩标点）；`normalizeVideoMeta` JSDoc 明确 final_frame 为计划终态提示词元数据（非解码输出视频证据）；`preload/index.bundle.js` 行尾噪音还原；串行优化阻塞 image/TTS 的延迟在 stages 注释中显式文档化（跨镜承接有意代价）。
+- **文档**：PRD §3.1.27（数据校验/流程/功能逻辑/交互/显示/提示文字/测试）；设计文档 v1.2 附注；HELL-GRIND-ROUND3 §八 落地状态；learnings 复盘；.quality-gates 执行记录。
+
 ## [2026-08-14] fix(story2video): LLM markdown 代码块包装导致提示词中文翻译解析失败
 
 - 现象：Story2Video 流水线「中文翻译」字段显示异常。

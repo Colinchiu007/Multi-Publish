@@ -78,6 +78,45 @@ function _standaloneTarget () {
   return { host, port: n }
 }
 
+/**
+ * 在优化结果外层附加后端来源元数据（浅拷贝，绝不改写引擎返回的原始对象/数组）。
+ * 元数据仅供内部链路（story2video-stages 组装 continuity）消费，不进入发送给引擎的 payload。
+ * @param {unknown} result
+ * @param {{ backend: 'standalone-8020' | 'legacy-8013', fallback?: boolean }} meta
+ * @returns {unknown}
+ */
+function tagVideoEngineResult (result, meta) {
+  const tagObject = (value) => Object.assign({}, value, {
+    _prompt_engine_backend: meta.backend,
+    ...(meta.fallback ? { _prompt_engine_fallback: true } : {}),
+  })
+
+  const tagBatchItems = (value) => {
+    if (!Array.isArray(value)) return value
+    return value.map(item => (
+      item !== null && typeof item === 'object' && !Array.isArray(item)
+        ? tagObject(item)
+        : item
+    ))
+  }
+
+  if (Array.isArray(result)) return tagBatchItems(result)
+  if (result !== null && typeof result === 'object' && !Array.isArray(result)) {
+    const tagged = tagObject(result)
+    for (const key of ['results', 'optimized_prompts']) {
+      if (Array.isArray(tagged[key])) tagged[key] = tagBatchItems(tagged[key])
+    }
+    if (tagged.data !== null && typeof tagged.data === 'object' && !Array.isArray(tagged.data)) {
+      tagged.data = { ...tagged.data }
+      for (const key of ['results', 'optimized_prompts']) {
+        if (Array.isArray(tagged.data[key])) tagged.data[key] = tagBatchItems(tagged.data[key])
+      }
+    }
+    return tagged
+  }
+  return result
+}
+
 class PromptBridge extends BasePythonBridge {
   /**
    * @param {{ log?: any }} opts
@@ -173,7 +212,8 @@ class PromptBridge extends BasePythonBridge {
     if (_standaloneTarget()) {
       try {
         const standaloneReq = buildStandaloneVideoOptimizeRequest(prompt, rest)
-        return await this._postStandalone('/v1/video/optimize', JSON.stringify(standaloneReq), undefined, traceId)
+        const result = await this._postStandalone('/v1/video/optimize', JSON.stringify(standaloneReq), undefined, traceId)
+        return tagVideoEngineResult(result, { backend: 'standalone-8020' })
       } catch (e) {
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video：${e instanceof Error ? e.message : String(e)}`)
@@ -181,7 +221,8 @@ class PromptBridge extends BasePythonBridge {
     }
     await this.ensureRunning()
     const legacyReq = buildVideoOptimizeRequest(prompt, rest)
-    return this._post('/v1/optimize', JSON.stringify(legacyReq), undefined, traceId)
+    const result = await this._post('/v1/optimize', JSON.stringify(legacyReq), undefined, traceId)
+    return tagVideoEngineResult(result, { backend: 'legacy-8013', fallback: Boolean(_standaloneTarget()) })
   }
 
   /**
@@ -205,7 +246,8 @@ class PromptBridge extends BasePythonBridge {
           const { prompt, opts } = build(item)
           return buildStandaloneVideoOptimizeRequest(prompt, opts)
         })
-        return await this._postStandalone('/v1/video/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
+        const result = await this._postStandalone('/v1/video/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
+        return tagVideoEngineResult(result, { backend: 'standalone-8020' })
       } catch (e) {
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video 批量：${e instanceof Error ? e.message : String(e)}`)
@@ -216,7 +258,8 @@ class PromptBridge extends BasePythonBridge {
       const { prompt, opts } = build(item)
       return buildVideoOptimizeRequest(prompt, opts)
     })
-    return this._post('/v1/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
+    const result = await this._post('/v1/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
+    return tagVideoEngineResult(result, { backend: 'legacy-8013', fallback: Boolean(_standaloneTarget()) })
   }
 }
 

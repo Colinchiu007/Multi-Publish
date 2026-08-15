@@ -228,3 +228,35 @@ P2-1~P2-4（管线/评测/协议，各自独立）
 - **评审**：Claude 双模型 1 Critical（尾行剥离正则兼容 Audio 段）+ 2 Warning（batch 判定表限定 refined / make_key 非序列化防炸+归一）全修复；13 Info 中 6 项已修，其余（I3/I4/I5/I8/I11/I13）归 Batch B/C。
 
 Batch B（P0-1 跨镜状态包 `prev_final_frame`，最大价值）与 Batch C（P0-2/P0-5/P0-6 输出形态升级）按 §五 依赖图继续推进。
+
+---
+
+## 八、落地状态（Batch B/C / round3b + round3c 已实施，2026-08-15）
+
+§五 的 **Batch B（P0-1 跨镜状态包）** 与 **Batch C（P0-2/P0-5/P0-6 refined 块骨架/覆盖度/gated 扣分）** 已作为两个 OpenSpec change 实施完毕：`higgsfield-round3b-cross-scene`、`higgsfield-round3c-refined-output`（prompt-engine 独立视频引擎 + Multi-Publish 契约/Story2Video 双侧交付）。
+
+### Batch B — 跨镜承接状态包（长片一致性算法内核）
+
+- **边界**：`prev_final_frame` 与计划 `final_frame` 统一 **1000 字符** 上限；桌面契约侧超长按句截断（句末回溯，无句末硬截断），非字符串/空丢弃。
+- **缓存**：`HIGGSFIELD_FMT_V4` 版本盐（承接段 + 块骨架改变输出形态，旧缓存一次失效）；key 纳入 `prev_final_frame` 哈希，同参数异承接不再串号。
+- **承接注入**：仅当存在 `prev_final_frame` 时注入 `## SCENE Continuity` 段；`<prev_final_frame>` 为事实引用并显式声明非指令（防注入）。
+- **连续性评分（advisory -5）**：英文实体命中率 ≥40% + 角色白名单硬判据；中文白名单 ≥60% 或整句重合 ≥0.5；无承接零回归。
+- **Story2Video 串联**：视频提示词优化按场景顺序串行（媒体生成保持并发）；计划终态回写 `scene.video.final_frame`；断点续跑从 checkpoint 终态三级回退恢复链；缺终态显式 `degraded` 断链记录（`mode: planned_final_frame` + `status/reason`），不虚构连续性。
+- **引擎选择**：8020 独立引擎优先，失败回退 8013 `domain=video`，结果保留 `engine_source` provenance。
+
+### Batch C — refined 导演分镜块骨架 + 覆盖度 + 启发式 gated
+
+- **语料资产**：`scripts/analyze_hg_corpus.py`（只读分析：599 条语料分族统计 director 135 / inline 464 + 12 块频率 + lock 词否定率）→ `video_prompt_engine/knowledge/refined_blocks.json`（version 2：12 块顺序、块标题正则、`coverage.min_ratio=0.8`、7 条规则定义与默认启用 3 条）。
+- **块契约**：`VideoPromptMeta.blocks` 12 键白名单（SCENE NOTE/SPATIAL LAYOUT/LIGHTING/COLOR/CAMERA/ENVIRONMENT/CONTINUITY/CHARACTERS/SKIN/ACTING/STILLNESS LOCK/FINAL FRAME），值仅非空字符串、≤4000；缺失块用 legacy 字段回退，无有效块走旧渲染器。
+- **渲染与尾行**：块按规范顺序渲染（行首 `块名:` + 文本）；FAIL CHECK 仅模型指令，意外输出剥离；尾行归一只认含画幅/时长的完整 trailer 尾段（块内 `Photoreal NON-IP aesthetic` 字面量不误删）。
+- **覆盖度评分**：分母 = 非空 blocks 数，分子 = 渲染串命中块标记数；<0.8 记 `block_coverage = -5`（advisory，不拒绝候选）。
+- **gated 规则**：7 条（warm_light_leak/dead_center/exposure_break/silhouette_break/style_contamination/skin_guard/eye_line），默认启用 `dead_center/exposure_break/eye_line`；lock 与 forbidden 均需「活跃且非否定」才触发——`not overexposed`/`no waxy skin` 不判罚；`style_contamination` 不用 `photoreal` 触发词。
+- **缓存**：B/C 合并输出形态统一在 V4 盐下分区，与 Batch A 的 V2 语义隔离。
+
+### 验证记录
+
+- prompt-engine：全量 `pytest tests/ -q --ignore=tests/test_web_e2e.py` 通过（810 passed / 3 skipped；5 个 web E2E 需本地 server，与基线一致）；新增 `test_cross_scene.py` / `test_refined_blocks.py` / `test_analyze_hg_corpus.py`。
+- Multi-Publish 契约：`video-prompt-engine-contract.test.js`（99）+ `story2video-stages.test.js`（101）+ `story2video-manual-assets.test.js`（21）= **221 passed**；`openspec validate` B/C/hardening 三 change strict 均 valid。
+- 硬化：`openspec-sync-check` 修复 2 个历史三同步断裂（p2-home-i18n 关联 `desktop-ui-i18n-p2`、prompt-eval-ops-workbench 关联同名 change——终态 status/currentPhase 归一 + `supersededBy`/`remoteStatus` 证据补齐），脚本 +16 回归测试、JSON 检查 `ok: true`。
+
+*本轮全部实现可在对应 PR 合并后的 origin/main 复核。*

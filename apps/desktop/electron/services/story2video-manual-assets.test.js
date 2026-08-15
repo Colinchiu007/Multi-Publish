@@ -289,7 +289,12 @@ describe('generate_assets manual 候选生成', () => {
           getVideoStatus: vi.fn(async () => ({ code: 0, videoUrl: baseUrl })),
         }
         manager.callAdapter.mockImplementation(async (provider, method, args) => adapter[method](args))
-        const serviceBus = { optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: '[video-opt] ' + prompt })) }
+        const serviceBus = {
+          optimizeVideoPrompt: vi.fn(async (prompt) => ({
+            optimized_prompt: '[video-opt] ' + prompt,
+            video: { final_frame: 'end-' + prompt },
+          })),
+        }
         const pending = generateAssets({
           stage: { ...BASE_STAGE, options: { ...BASE_STAGE.options, manualMaterialMode: 'video-image' } },
           params: { creationMode: 'manual', manualMaterialMode: 'video-image', runId: 'run-par', videoMode: 'ai-judged', videoConfig: { pollIntervalMs: 5 } },
@@ -306,8 +311,17 @@ describe('generate_assets manual 候选生成', () => {
         expect(result.success).toBe(true)
         expect(result.checkpoint).toBe('scene_asset_selection')
         expect(adapter.generateVideo).toHaveBeenCalledTimes(2)
+        expect(serviceBus.optimizeVideoPrompt).toHaveBeenCalledTimes(2)
+        expect(serviceBus.optimizeVideoPrompt.mock.calls[0][1]).not.toHaveProperty('prev_final_frame')
+        expect(serviceBus.optimizeVideoPrompt.mock.calls[1][1]).toMatchObject({ prev_final_frame: 'end-prompt-A' })
         expect(result.output.candidates[0].candidates.map(c => c.kind).sort()).toEqual(['image', 'image', 'video'])
         expect(result.output.candidates[2].candidates.map(c => c.kind).sort()).toEqual(['image', 'image', 'video'])
+        const firstVideo = result.output.candidates[0].candidates.find(candidate => candidate.kind === 'video')
+        expect(firstVideo.meta.continuity).toMatchObject({
+          mode: 'planned_final_frame',
+          status: 'active',
+          finalFrame: 'end-prompt-A',
+        })
         expect(context.assets_progress.videosDone).toBe(2)
         expect(context.assets_progress.imagesDone).toBe(6)
       } finally {

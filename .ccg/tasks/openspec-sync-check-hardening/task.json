@@ -1,0 +1,14 @@
+{
+  "id": "openspec-sync-check-hardening",
+  "title": "OpenSpec 与 CCG 归档同步检查加固",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "workflow-tooling",
+  "currentPhase": "review",
+  "nextAction": "运行 fresh Node/OpenSpec 验证并与 Round3 交付一起提交、合并、归档",
+  "openspecChange": "openspec-sync-check-hardening",
+  "createdAt": "2026-08-15T00:00:00Z",
+  "branch": "codex/prompt-engine-round3bc-delivery",
+  "remoteStatus": "pending"
+}

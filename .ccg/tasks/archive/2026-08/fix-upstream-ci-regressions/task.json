@@ -1,6 +1,5 @@
 {
   "branch": "codex/fix-upstream-ci-regressions",
-  "openspecChange": "",
   "complexity": "M",
   "id": "fix-upstream-ci-regressions",
   "pr": "#616 merged 6e20c037",
