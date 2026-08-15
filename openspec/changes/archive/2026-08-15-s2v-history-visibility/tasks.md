@@ -11,4 +11,4 @@
 - [x] CreateView/CreateHistory tests: 217 passed.
 - [x] Vite production build: exit 0.
 - [x] Electron builder directory package: exit 0; ASAR verification completed.
-- [ ] Full Vitest: stopped at an external evaluator CLI test without a final Vitest summary.
+- [x] Remote CI: PR #840 Gate Result、QG Unit/desktop shards/coverage、Electron/GUI/build 全部通过。
