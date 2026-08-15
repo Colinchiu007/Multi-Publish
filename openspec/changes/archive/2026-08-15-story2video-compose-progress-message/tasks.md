@@ -12,4 +12,4 @@
 
 - [x] 3.1 Update PRD, concat analysis, and pipeline progress plan with the completed renderer contract.
 - [x] 3.2 Run targeted tests, locale/CJK gates, visual verification, OpenSpec validation, and double-model review.
-- [ ] 3.3 Commit, push, open PR, verify CI, and archive OpenSpec/CCG task artifacts after merge.
+- [x] 3.3 Commit, push, open PR, verify CI, and archive OpenSpec/CCG task artifacts after merge.
