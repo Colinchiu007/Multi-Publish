@@ -288,6 +288,17 @@ async def delete_provider(key_id: int, db: AsyncSession = Depends(get_db), user:
         raise HTTPException(404, str(e))
 
 
+@router.put("/providers/{key_id}/default")
+async def set_provider_default(key_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(require_admin)):
+    """设为用途分组默认（admin）：LLM/视觉/生图分组内唯一，同组其他密钥清 0。"""
+    try:
+        return await service.set_default_provider_key(db, key_id, user.get("username") or "admin")
+    except service.ProviderKeyNotFoundError:
+        raise HTTPException(404, "密钥不存在")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 def _is_admin(user: dict) -> bool:
     return bool(user and user.get("role") == "admin")
 

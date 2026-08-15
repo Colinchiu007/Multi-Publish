@@ -7,6 +7,8 @@ prompt_eval_cases / prompt_eval_runs，本次新增 source_mode / scene_id 列�
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from services.prompt_eval_contract import USAGE_GROUP_PROVIDERS
+
 
 async def ensure_prompt_eval_scene_columns(db: AsyncSession) -> None:
     tables = {r[0] for r in (await db.execute(sa.text("SELECT name FROM sqlite_master WHERE type='table'"))).fetchall()}
@@ -36,6 +38,34 @@ async def ensure_prompt_eval_video_columns(db: AsyncSession) -> None:
             await db.execute(sa.text("ALTER TABLE prompt_eval_runs ADD COLUMN video_path VARCHAR(512)"))
         if "video_frames" not in cols:
             await db.execute(sa.text("ALTER TABLE prompt_eval_runs ADD COLUMN video_frames TEXT"))
+    await db.commit()
+
+
+async def ensure_provider_default_column(db: AsyncSession) -> None:
+    """prompt_eval_provider_keys.is_default 列迁移：存量库幂等补列（LLM/视觉/生图分组唯一默认标记）。
+
+    仅当列缺失（本次补列）时按用途分组回填默认：与运行时「无默认回退选择」语义一致
+    （分组内 provider 优先级 + 每 provider 最新启用键），避免升级后首次新增密钥或
+    默认标记静默改变既有选择优先级；列已存在时不动用户已设置的默认（含「禁用默认
+    键后清空不转移」的已清空状态，属已知权衡，不回填）。
+    """
+    tables = {r[0] for r in (await db.execute(sa.text("SELECT name FROM sqlite_master WHERE type='table'"))).fetchall()}
+    if "prompt_eval_provider_keys" in tables:
+        cols = {r[1] for r in (await db.execute(sa.text("PRAGMA table_info(prompt_eval_provider_keys)"))).fetchall()}
+        if "is_default" not in cols:
+            await db.execute(sa.text(
+                "ALTER TABLE prompt_eval_provider_keys ADD COLUMN is_default INTEGER DEFAULT 0"))
+            for providers in USAGE_GROUP_PROVIDERS.values():  # 分组内 provider 顺序即优先级
+                for provider in providers:
+                    row = (await db.execute(sa.text(
+                        "SELECT id FROM prompt_eval_provider_keys WHERE provider = :provider"
+                        " AND enabled = 1 ORDER BY updated_at DESC, id DESC LIMIT 1"
+                    ).bindparams(provider=provider))).first()
+                    if row is not None:
+                        await db.execute(sa.text(
+                            "UPDATE prompt_eval_provider_keys SET is_default = 1 WHERE id = :id"
+                        ).bindparams(id=row[0]))
+                        break  # 与运行时无默认回退一致：取分组内第一个有启用键的 provider 的最新键
     await db.commit()
 
 

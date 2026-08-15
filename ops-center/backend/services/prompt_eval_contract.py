@@ -166,3 +166,19 @@ def validate_eval_result(payload: dict, image_count: int, media_type: str = "ima
         raise ValueError("promptOptimizationPoints 必须为数组")
     for p in payload["promptOptimizationPoints"]:
         validate_optimization_point(p)
+
+
+# 「设为默认」用途分组：同类（同一分组）只能有一个默认；服务层与迁移回填共用，保持单一事实来源。
+USAGE_GROUP_PROVIDERS: dict[str, tuple[str, ...]] = {
+    "llm": ("minimax-llm",),
+    "vision": ("minimax-vision", "opencode-go-vision"),
+    "image": ("minimax-image", "flux", "hunyuan"),
+}
+
+
+def provider_usage_group(provider: str) -> str | None:
+    """返回 provider 所属用途分组（llm/vision/image）；未归类返回 None。"""
+    for group, providers in USAGE_GROUP_PROVIDERS.items():
+        if provider in providers:
+            return group
+    return None
