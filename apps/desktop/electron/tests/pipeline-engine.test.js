@@ -649,6 +649,44 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     expect(() => JSON.stringify(run.diagnostics)).not.toThrow()
   })
 
+  it('_finalizeRun failed/cancelled 同步当前 stage 终态（历史详情不再显示「运行中」假象）', () => {
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const failedRun = {
+      id: 'run-stage-failed',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      stages: [
+        { name: 'split', status: 'completed' },
+        { name: 'compose', status: 'running' },
+      ],
+      currentStage: 1,
+      context: {},
+    }
+    engine._runs.set(failedRun.id, failedRun)
+    engine._finalizeRun(failedRun, 'failed', '成片总时长不能超过 10 分钟')
+    expect(failedRun.stages[1].status).toBe('failed')
+    expect(failedRun.stages[1].completedAt).toBeTruthy()
+    expect(failedRun.stages[0].status).toBe('completed')
+
+    const cancelledRun = {
+      id: 'run-stage-cancelled',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      stages: [
+        { name: 'split', status: 'completed' },
+        { name: 'compose', status: 'cancelled' },
+      ],
+      currentStage: 1,
+      context: {},
+    }
+    engine._runs.set(cancelledRun.id, cancelledRun)
+    engine._finalizeRun(cancelledRun, 'cancelled', 'cancelled')
+    expect(cancelledRun.stages[1].status).toBe('cancelled')
+    expect(cancelledRun.stages[1].completedAt).toBeTruthy()
+  })
+
   it('setRunFinalizedHook 在 _finalizeRun 终态后调用（additive，失败仅 warn）', () => {
     const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
     const calls = []

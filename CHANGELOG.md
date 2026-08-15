@@ -1,3 +1,11 @@
+## [2026-08-15] fix(story2video): 历史记录可见性与终态一致（s2v-history-visibility）
+
+- 现象：流水线在 compose 阶段失败后，「从断点继续」反复报错（根因：成片总时长上限 10 分钟，TTS 实测 11.8 分钟确定性超限，见 s2v-compose-duration-50min 分支）；同时该失败任务在历史记录中「看不到」——实际被埋在 30+ 条已完成项目之后（第 27 位）。
+- 主进程（pipeline-engine.js）：`_finalizeRun` 在 failed/cancelled 终态时同步 `run.stages[run.currentStage]` 为同一终态并补 `completedAt`，消除历史详情「视频合成 运行中」假象；`cancel()`/快照路径幂等兜底。
+- 前端（CreateView.vue 历史记录 tab）：历史排序改为「运行中置顶 → 未完成（暂停/失败）→ 已完成项目 → 其他终态」，各组按 `updatedAt||createdAt` 倒序——最新失败/暂停任务不再沉底；`pausedStage` 优先按 `stage.status==='failed'` 定位失败环节。
+- 测试：pipeline-engine +1 例（failed/cancelled stage 终态同步）、CreateView +1 例（失败/暂停排在已完成项目之前）；CreateHistory 22/22 保持通过；关联套件定向通过。
+- 文档：PRD.md §7.1.37 历史记录可见性与终态一致合同；PRD-video-creation.md §3.1.4.1 排序更新 + §3.1.27 终态一致/历史排序；learnings.md 复盘。
+
 ## [2026-08-15] 故事讲述：批量创作视频（story2video-batch-create）
 
 - 需求：在「视频创作 → 故事讲述」新增【批量创作】：入口按钮 + 弹窗（创作模式隐藏固定全自动、视频增强模式下拉、启动按钮、队列规则提示、输入文案 1-10 条带「+」、本地文件 .txt/.md 最多 20 个），任务按队列依次运行（批量最大并行 2；手动任务运行中批量并行 1），弹窗内实时展示任务与排队信息，批量任务完成后进入历史记录。

@@ -1572,6 +1572,20 @@ videogen 系列（animation AI 讲解动画 / avatar-spokesperson 数字人口�
 3. CI 全绿：QG 桌面 shards / coverage / electron-tests / build 通过。
 4. 真实 E2E：多场景动画/口播流水线运行中视频逐场景完成间隔显著缩短（并发 2 减半），成片可 ffprobe 解码且场景顺序正确。
 
+#### 7.1.37 历史记录可见性与终态一致合同（2026-08-15）
+
+**背景**：故事讲述流水线在 compose 阶段失败后，主进程仅把 run 顶层置为 `failed`，当前 stage（如 compose）仍保持 `running`，历史详情页出现「视频合成 运行中」假象；同时前端历史列表把「暂停/失败」任务排在全部已完成项目之后，最新失败任务被埋在列表底部（实测 30+ 条历史中排第 27 位），用户误以为任务从历史记录消失。
+
+| 合同 | 要求 |
+|------|------|
+| 终态一致 | run 进入 `failed`/`cancelled` 终态时，主进程必须把当前 stage 同步为同一终态并记录结束时间（`completedAt`）；`getRunSnapshot`/持久化快照不得再出现「顶层失败 + 当前 stage 运行中」的组合 |
+| 历史可见性 | 历史记录排序：运行中置顶 → 未完成（暂停/失败）→ 已完成项目 → 其他终态；各组内按 `updatedAt||createdAt` 倒序，最新失败/暂停任务必须出现在已完成项目之前（`CreateView.loadHistory`） |
+| 失败环节标识 | `failed` 任务优先按 `stage.status==='failed'` 定位失败环节（`pausedStage`），仅当无 failed stage 时才回退「非 completed 的 stage / 末位 stage」 |
+| 断点续跑 | 失败任务保留「从断点继续」入口（内容政策/需用户输入类除外），从失败 stage 继续生成；时长超限等确定性失败不因重试自愈 |
+| 回归保护 | `pipeline-engine` 单测覆盖 failed/cancelled 终态 stage 同步；`CreateView` 单测覆盖「失败/暂停排在已完成项目之前」 |
+
+**已知限制（2026-08-15）**：历史列表 5s 轮询仅在有 running 任务时启动，失败/暂停任务在应用空闲时不自动刷新；同会话内由 `refreshRunningHistory` 的终态转换触发完整重载，跨会话以进入历史页时的 `loadHistory` 为准。
+
 #### 7.1.4 TTS 音色、个人克隆与隐私边界
 
 创作端按“已启用 provider → model → 音色目录”选择，不接受任意手填音色 ID。优先调用具备能力且已认证的
@@ -4323,4 +4337,3 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 | 样式 | `style2` 加黑底 `box`（0.55 透明度 + 10px 边框）；`style3` 描边加粗（borderw=4）。 |
 | **位置（2026-08-07 修订）** | 字幕底边默认位于画面 **80% 高度**（即**距底部 20%**，`bottomMarginRatio=0.2`，范围 0.05-0.5，可经 `subtitleStyle.bottomMarginRatio` 覆盖）；y 表达式 `y=h*(1-bottomMarginRatio)-th`。原固定 `h-th-40`（约 3%）废弃。 |
 | 水平 | 恒居中 `x=(w-text_w)/2`。 |
-
