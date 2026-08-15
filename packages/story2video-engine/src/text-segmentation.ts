@@ -17,6 +17,12 @@
 
 // 字幕分割规则单源（subtitle-rules.json，与 smart-sentence-splitter Python 共享同一份规则）
 import subtitleRules from './subtitle-rules.json';
+// ==================== 通用工具 ====================
+
+/** 数字字符判定（v1.2.3 小数点豁免）：对齐 Python str.isdigit 的常用子集（Unicode 十进制数字）。 */
+function isDigitChar (c: string): boolean {
+  return c.length === 1 && /[\p{Nd}]/u.test(c);
+}
 
 // ==================== 配置类型定义 ====================
 
@@ -372,6 +378,10 @@ export class SubtitleSegmenter {
   private static WORD_GOOD_LEAD = new Set(subtitleRules.word_split.good_lead);
   private static WORD_GOOD_TAIL = new Set(subtitleRules.word_split.good_tail);
   private static WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers);
+  // v1.2.2：good_tail 路径的块首排除集（仅纯黏着后缀，如 "个|性" 的 性）。
+  private static WORD_GOOD_TAIL_BLOCKERS = new Set(subtitleRules.word_split.good_tail_blockers ?? '');
+  // v1.2.3：成词保护（no_cut_bigrams）——切点两侧构成这些双字词时禁止切开（如 "能|够"、"就|是"）。
+  private static WORD_NO_CUT_BIGRAMS = new Set(subtitleRules.word_split.no_cut_bigrams ?? []);
 
   constructor(
     config?: Partial<SubtitleSegmentationConfig>,
@@ -416,6 +426,11 @@ export class SubtitleSegmenter {
       || SubtitleSegmenter.RIGHT_QUOTES.has(c);
   }
 
+  /** v1.2.3：当前累积文本以 数字+半角点 结尾（如 "713."）→ 该 "." 是小数点/数字一部分，不是句界。 */
+  private static isNumberDot (text: string): boolean {
+    return text.length >= 2 && text[text.length - 1] === '.' && isDigitChar(text[text.length - 2]);
+  }
+
   /** Step 1：分句（句界归属前块；未闭合引号内的句界不生效） */
   private splitSentences(text: string): string[] {
     const out: string[] = [];
@@ -429,7 +444,7 @@ export class SubtitleSegmenter {
         && SubtitleSegmenter.QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
         stack.pop();
       }
-      if (SubtitleSegmenter.SENTENCE_BOUNDARY.has(ch) && stack.length === 0) {
+      if (SubtitleSegmenter.SENTENCE_BOUNDARY.has(ch) && stack.length === 0 && !SubtitleSegmenter.isNumberDot(cur)) {
         out.push(cur);
         cur = '';
       }
@@ -479,7 +494,9 @@ export class SubtitleSegmenter {
         stack.pop();
       }
       const isPunct = SubtitleSegmenter.PRIORITY_PUNCT.has(ch) || ch === ' ' || ch === '\n' || ch === '\u3000';
-      if (isPunct && cur.length >= this.config.minCharsPerBlock) {
+      // v1.2.3：数字中的小数点（如 713.3）不是切分标点
+      if (isPunct && cur.length >= this.config.minCharsPerBlock
+        && !(ch === '.' && cur.length >= 2 && isDigitChar(cur[cur.length - 2]))) {
         blocks.push(cur);
         cur = '';
         lastHardCut = false;
@@ -495,6 +512,7 @@ export class SubtitleSegmenter {
             cur,
             Math.max(1, cur.length - this.config.maxCharsPerBlock - 1),
             cur.length - 1,
+            this.config.minCharsPerBlock,
             this.config.minCharsPerBlock,
           );
           const hardPos = ws > 0 ? ws : cur.length;
@@ -520,8 +538,13 @@ export class SubtitleSegmenter {
         const need = this.config.minCharsPerBlock - tailClean.length;
         const lo = Math.max(1, prev.length - need);
         const hi = prev.length - 1;
-        const balanced = this.findSplitPosInRange(prev, lo, hi);
-        const pos = balanced > 0 ? balanced : lo;
+        let pos = this.findSplitPosInRange(prev, lo, hi);
+        if (pos <= 0) {
+          // v1.2.2 词边界感知让字：区间内无标点时，向 lo 左侧找不劈词的好切点
+          // （避免把 "…从文化认|同滑向…" 的 "同" 硬让出劈开 "文化认同"）。
+          const ws = this.wordSafeSplit(prev, 1, lo, 1);
+          pos = ws > 0 ? ws : lo;
+        }
         blocks[blocks.length - 1] = prev.slice(0, pos);
         cur = prev.slice(pos) + cur;
       }
@@ -533,7 +556,12 @@ export class SubtitleSegmenter {
   /** 从后往前找切分锚点（切后索引；无则 -1）。v1.1 顿号优先级最低：更高优先级标点 → 空格 → 顿号兜底 */
   private findSplitPos(text: string): number {
     for (let i = text.length - 1; i >= 0; i--) {
-      if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i]) && text[i] !== '、') return i + 1;
+      if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i]) && text[i] !== '、') {
+        if (text[i] === '.' && ((i > 0 && isDigitChar(text[i - 1])) || (i + 1 < text.length && isDigitChar(text[i + 1])))) {
+          continue; // v1.2.3：数字中的小数点不是切分锚点
+        }
+        return i + 1;
+      }
     }
     for (let i = text.length - 1; i >= 0; i--) {
       if (text[i] === ' ' || text[i] === '\n' || text[i] === '\u3000') return i + 1;
@@ -664,7 +692,7 @@ export class SubtitleSegmenter {
         if (b.length - pos < this.config.minCharsPerBlock) {
           const minPos = Math.max(1, b.length - this.config.minCharsPerBlock);
           const hi = b.length - 1;
-          const ws = this.wordSafeSplit(b, minPos, hi, minPos);
+          const ws = this.wordSafeSplit(b, minPos, hi, minPos, this.config.minCharsPerBlock);
           if (ws > 0 && ws < b.length) {
             pos = ws;
           } else {
@@ -684,7 +712,12 @@ export class SubtitleSegmenter {
   /** 在 [lo, hi] 范围内从后往前找最近优先级标点/空格（返回切后索引；无则 -1） */
   private findSplitPosInRange(text: string, lo: number, hi: number): number {
     for (let i = hi; i >= lo; i--) {
-      if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i])) return i + 1;
+      if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i])) {
+        if (text[i] === '.' && ((i > 0 && isDigitChar(text[i - 1])) || (i + 1 < text.length && isDigitChar(text[i + 1])))) {
+          continue; // v1.2.3：数字中的小数点不是切分锚点
+        }
+        return i + 1;
+      }
     }
     for (let i = hi; i >= lo; i--) {
       if (text[i] === ' ' || text[i] === '\n' || text[i] === '\u3000') return i + 1;
@@ -704,21 +737,45 @@ export class SubtitleSegmenter {
   /** 词边界好切点：切点后为连词/介词（块首引导），或切点前为助词/副词/句内标点（块尾收束）。 */
   private isGoodCut(text: string, i: number): boolean {
     if (i >= text.length) return false;
-    return SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])
-      || (i > 0 && SubtitleSegmenter.WORD_GOOD_TAIL.has(text[i - 1]));
+    // v1.2.3：切点落在成词内（如 "能|够"、"就|是"、"因|为"）一律不是好切点。
+    if (i > 0 && SubtitleSegmenter.WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1))) return false;
+    if (SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])) return true;
+    // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
+    // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
+    return i > 0
+      && SubtitleSegmenter.WORD_GOOD_TAIL.has(text[i - 1])
+      && !SubtitleSegmenter.WORD_GOOD_TAIL_BLOCKERS.has(text[i]);
   }
 
   /**
    * 在 [lo, hi] 内找不劈词的切点索引；-1 表示无（v1.2）。
-   * 策略（优先级）：好切点从后往前找（头块尽量长），排除孤悬 ≤3 字短尾；
-   * 非黏着后缀切点从前往后找，要求头块 >= minHead（防过度前移劈出过短头块）；无则 -1，回退算术/标点切分。
+   * 策略（优先级）：好切点从后往前找（头块尽量长），要求头块 >= minHead 且排除孤悬 ≤3 字短尾；
+   * v1.2.2 软约束：头块欠长但 >= minHead-2 且尾块 >= tailMin 时仍接受；
+   * 非黏着后缀切点从前往后找，要求头块 >= minHead；无则 -1，回退算术/标点切分。
    */
-  private wordSafeSplit(text: string, lo: number, hi: number, minHead: number = 1): number {
+  private wordSafeSplit(text: string, lo: number, hi: number, minHead = 1, tailMin = 0): number {
+    let fallback = -1;
     for (let i = hi; i >= lo; i--) {
-      if (this.isGoodCut(text, i) && text.length - i > 3) return i;
+      const tail = text.length - i;
+      if (!(i >= minHead || (tailMin > 0 && i >= minHead - 2 && tail >= tailMin))) continue;
+      if (!this.isGoodCut(text, i)) continue;
+      if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i]))) {
+        return i;
+      }
+      // v1.2.3 孤悬尾防护（仅 tail==4 且块首非连词/介词）："着|脖" 劈 "脖子" → 前移找 tail 达标点
+      if (fallback < 0 && tail === 4 && !SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])
+        && (i === 0 || !isDigitChar(text[i - 1]))) {
+        fallback = i;
+      }
     }
+    if (fallback >= 0) return fallback;
     for (let i = Math.max(lo, minHead); i <= hi; i++) {
-      if (i < text.length && !SubtitleSegmenter.WORD_BAD_FOLLOWERS.has(text[i])) return i;
+      if (i < text.length
+        && !SubtitleSegmenter.WORD_BAD_FOLLOWERS.has(text[i])
+        && (i === 0 || !isDigitChar(text[i - 1]))
+        && (i === 0 || !SubtitleSegmenter.WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1)))) {
+        return i;
+      }
     }
     return -1;
   }

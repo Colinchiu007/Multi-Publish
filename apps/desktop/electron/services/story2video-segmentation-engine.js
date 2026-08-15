@@ -29,6 +29,10 @@ const QUOTE_MAP = new Map(subtitleRules.quote_pairs)
 const WORD_GOOD_LEAD = new Set(subtitleRules.word_split.good_lead)
 const WORD_GOOD_TAIL = new Set(subtitleRules.word_split.good_tail)
 const WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers)
+// v1.2.2：good_tail 路径的块首排除集（仅纯黏着后缀，如 "个|性" 的 性）。
+const WORD_GOOD_TAIL_BLOCKERS = new Set(subtitleRules.word_split.good_tail_blockers || '')
+// v1.2.3：成词保护（no_cut_bigrams）——切点两侧构成这些双字词时禁止切开（如 "能|够"、"就|是"）。
+const WORD_NO_CUT_BIGRAMS = new Set(subtitleRules.word_split.no_cut_bigrams || [])
 
 // ==================== 默认配置（与 text-segmentation.ts DEFAULT_CONFIG 一致） ====================
 
@@ -57,6 +61,16 @@ const DEFAULT_CONFIG = {
 }
 
 // ==================== 工具 ====================
+
+/** 数字字符判定（v1.2.3 小数点豁免）：对齐 Python str.isdigit 的常用子集（Unicode 十进制数字）。 */
+function isDigitChar (c) {
+  return c.length === 1 && /[\p{Nd}]/u.test(c)
+}
+
+/** v1.2.3：当前累积文本以 数字+半角点 结尾（如 "713."）→ 该 "." 是小数点/数字一部分，不是句界。 */
+function isNumberDot (text) {
+  return text.length >= 2 && text[text.length - 1] === '.' && isDigitChar(text[text.length - 2])
+}
 
 function firstDefined (...values) {
   return values.find((value) => value !== undefined && value !== null)
@@ -319,7 +333,7 @@ function subtitleSplitSentences (text, _config) {
     } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
       stack.pop()
     }
-    if (SENTENCE_BOUNDARY.has(ch) && stack.length === 0) {
+    if (SENTENCE_BOUNDARY.has(ch) && stack.length === 0 && !isNumberDot(cur)) {
       out.push(cur)
       cur = ''
     }
@@ -378,7 +392,12 @@ function applyEnumerationShift (text, pos, requireTailMin, config) {
 /** 从后往前找切分锚点（切后索引；无则 -1）。v1.1 顿号优先级最低：更高优先级标点 → 空格 → 顿号兜底 */
 function findSplitPos (text) {
   for (let i = text.length - 1; i >= 0; i--) {
-    if (PRIORITY_PUNCT.has(text[i]) && text[i] !== '、') return i + 1
+    if (PRIORITY_PUNCT.has(text[i]) && text[i] !== '、') {
+      if (text[i] === '.' && ((i > 0 && isDigitChar(text[i - 1])) || (i + 1 < text.length && isDigitChar(text[i + 1])))) {
+        continue // v1.2.3：数字中的小数点不是切分锚点
+      }
+      return i + 1
+    }
   }
   for (let i = text.length - 1; i >= 0; i--) {
     if (text[i] === ' ' || text[i] === '\n' || text[i] === '\u3000') return i + 1
@@ -392,7 +411,12 @@ function findSplitPos (text) {
 /** 在 [lo, hi] 范围内从后往前找最近优先级标点/空格（返回切后索引；无则 -1） */
 function findSplitPosInRange (text, lo, hi) {
   for (let i = hi; i >= lo; i--) {
-    if (PRIORITY_PUNCT.has(text[i])) return i + 1
+    if (PRIORITY_PUNCT.has(text[i])) {
+      if (text[i] === '.' && ((i > 0 && isDigitChar(text[i - 1])) || (i + 1 < text.length && isDigitChar(text[i + 1])))) {
+        continue // v1.2.3：数字中的小数点不是切分锚点
+      }
+      return i + 1
+    }
   }
   for (let i = hi; i >= lo; i--) {
     if (text[i] === ' ' || text[i] === '\n' || text[i] === '\u3000') return i + 1
@@ -412,21 +436,45 @@ function cleanLen (text) {
 /** 词边界好切点：切点后为连词/介词（块首引导），或切点前为助词/副词/句内标点（块尾收束）。 */
 function isGoodCut (text, i) {
   if (i >= text.length) return false
-  return WORD_GOOD_LEAD.has(text[i]) || (i > 0 && WORD_GOOD_TAIL.has(text[i - 1]))
+  // v1.2.3：切点落在成词内（如 "能|够"、"就|是"、"因|为"）一律不是好切点。
+  if (i > 0 && WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1))) return false
+  if (WORD_GOOD_LEAD.has(text[i])) return true
+  // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
+  // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
+  return i > 0 && WORD_GOOD_TAIL.has(text[i - 1]) && !WORD_GOOD_TAIL_BLOCKERS.has(text[i])
 }
 
 /**
  * 在 [lo, hi] 内找不劈词的切点索引；-1 表示无（v1.2）。
- * 策略（优先级）：好切点从后往前找（头块尽量长），排除孤悬 ≤3 字短尾；
- * 非黏着后缀切点从前往后找，要求头块 >= minHead（防过度前移劈出过短头块）；无则 -1，回退算术/标点切分。
+ * 策略（优先级）：好切点从后往前找（头块尽量长），要求头块 >= minHead 且排除孤悬 ≤3 字短尾；
+ * v1.2.2 软约束：头块欠长但 >= minHead-2 且尾块 >= tailMin 时仍接受；
+ * 非黏着后缀切点从前往后找，要求头块 >= minHead；无则 -1，回退算术/标点切分。
  */
-function wordSafeSplit (text, lo, hi, minHead) {
+function wordSafeSplit (text, lo, hi, minHead, tailMin) {
   if (minHead === undefined || minHead === null) minHead = 1
+  if (tailMin === undefined || tailMin === null) tailMin = 0
+  let fallback = -1
   for (let i = hi; i >= lo; i--) {
-    if (isGoodCut(text, i) && text.length - i > 3) return i
+    const tail = text.length - i
+    if (!(i >= minHead || (tailMin > 0 && i >= minHead - 2 && tail >= tailMin))) continue
+    if (!isGoodCut(text, i)) continue
+    if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || WORD_GOOD_LEAD.has(text[i]))) {
+      return i
+    }
+    // v1.2.3 孤悬尾防护（仅 tail==4 且块首非连词/介词）："着|脖" 劈 "脖子" → 前移找 tail 达标点
+    if (fallback < 0 && tail === 4 && !WORD_GOOD_LEAD.has(text[i])
+      && (i === 0 || !isDigitChar(text[i - 1]))) {
+      fallback = i
+    }
   }
+  if (fallback >= 0) return fallback
   for (let i = Math.max(lo, minHead); i <= hi; i++) {
-    if (i < text.length && !WORD_BAD_FOLLOWERS.has(text[i])) return i
+    if (i < text.length
+      && !WORD_BAD_FOLLOWERS.has(text[i])
+      && (i === 0 || !isDigitChar(text[i - 1]))
+      && (i === 0 || !WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1)))) {
+      return i
+    }
   }
   return -1
 }
@@ -445,7 +493,9 @@ function subtitleLengthSplit (text, config) {
       stack.pop()
     }
     const isPunct = PRIORITY_PUNCT.has(ch) || ch === ' ' || ch === '\n' || ch === '\u3000'
-    if (isPunct && cur.length >= config.minCharsPerBlock) {
+    // v1.2.3：数字中的小数点（如 713.3）不是切分标点
+    if (isPunct && cur.length >= config.minCharsPerBlock
+      && !(ch === '.' && cur.length >= 2 && isDigitChar(cur[cur.length - 2]))) {
       blocks.push(cur)
       cur = ''
       lastHardCut = false
@@ -461,6 +511,7 @@ function subtitleLengthSplit (text, config) {
           cur,
           Math.max(1, cur.length - config.maxCharsPerBlock - 1),
           cur.length - 1,
+          config.minCharsPerBlock,
           config.minCharsPerBlock,
         )
         const hardPos = ws > 0 ? ws : cur.length
@@ -484,8 +535,13 @@ function subtitleLengthSplit (text, config) {
       const need = config.minCharsPerBlock - tailClean.length
       const lo = Math.max(1, prev.length - need)
       const hi = prev.length - 1
-      const balanced = findSplitPosInRange(prev, lo, hi)
-      const pos = balanced > 0 ? balanced : lo
+      let pos = findSplitPosInRange(prev, lo, hi)
+      if (pos <= 0) {
+        // v1.2.2 词边界感知让字：区间内无标点时，向 lo 左侧找不劈词的好切点
+        // （避免把 "…从文化认|同滑向…" 的 "同" 硬让出劈开 "文化认同"）。
+        const ws = wordSafeSplit(prev, 1, lo, 1)
+        pos = ws > 0 ? ws : lo
+      }
       blocks[blocks.length - 1] = prev.slice(0, pos)
       cur = prev.slice(pos) + cur
     }
@@ -583,7 +639,7 @@ function subtitleEnforceMax (blocks, config) {
       if (b.length - pos < config.minCharsPerBlock) {
         const minPos = Math.max(1, b.length - config.minCharsPerBlock)
         const hi = b.length - 1
-        const ws = wordSafeSplit(b, minPos, hi, minPos)
+        const ws = wordSafeSplit(b, minPos, hi, minPos, config.minCharsPerBlock)
         if (ws > 0 && ws < b.length) {
           pos = ws
         } else {
