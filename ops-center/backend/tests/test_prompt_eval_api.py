@@ -645,3 +645,119 @@ async def test_run_provider_key_message_role_aware():
         r_user = await client.post(f"/api/v1/prompt-eval/cases/{cid}/runs", headers=_headers())
         assert r_user.status_code == 400
         assert "联系管理员" in r_user.text and "模型密钥" in r_user.text
+
+
+@pytest.mark.asyncio
+async def test_provider_key_set_default_group_unique():
+    """设为默认：首个键自动默认；同用途分组唯一；跨分组互不影响；403/401/404/禁用 400。"""
+    async with _client() as client:
+        admin = _headers(role="admin")
+        h = _headers()
+        # 视觉分组两个密钥
+        r1 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-vision", "model": "MiniMax-M3", "api_key": "sk-v1", "base_url": "https://x/v1",
+        }, headers=admin)
+        r2 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "opencode-go-vision", "model": "ocv", "api_key": "sk-v2", "base_url": "https://y/v1",
+        }, headers=admin)
+        assert r1.status_code == 200 and r2.status_code == 200
+        id1, id2 = r1.json()["id"], r2.json()["id"]
+        lst = (await client.get("/api/v1/prompt-eval/providers", headers=h)).json()["items"]
+        assert next(x for x in lst if x["id"] == id1)["is_default"] == 1  # 分组首个键自动默认
+        assert next(x for x in lst if x["id"] == id2)["is_default"] == 0
+        # 设 id2 默认 → 同组 id1 清 0（分组唯一）
+        resp = await client.put(f"/api/v1/prompt-eval/providers/{id2}/default", headers=admin)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["is_default"] == 1
+        lst = (await client.get("/api/v1/prompt-eval/providers", headers=h)).json()["items"]
+        assert next(x for x in lst if x["id"] == id1)["is_default"] == 0
+        assert next(x for x in lst if x["id"] == id2)["is_default"] == 1
+        # 跨分组互不影响：LLM 设默认后视觉默认保持
+        r3 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-llm", "model": "MiniMax-M2.7", "api_key": "sk-l", "base_url": "https://x/v1",
+        }, headers=admin)
+        id3 = r3.json()["id"]
+        assert (await client.put(f"/api/v1/prompt-eval/providers/{id3}/default", headers=admin)).status_code == 200
+        lst = (await client.get("/api/v1/prompt-eval/providers", headers=h)).json()["items"]
+        assert next(x for x in lst if x["id"] == id2)["is_default"] == 1
+        assert next(x for x in lst if x["id"] == id3)["is_default"] == 1
+        # 权限与存在性：非 admin 403 / 未登录 401 / 不存在 404
+        assert (await client.put(f"/api/v1/prompt-eval/providers/{id2}/default", headers=_headers(role="user"))).status_code == 403
+        assert (await client.put(f"/api/v1/prompt-eval/providers/{id2}/default")).status_code == 401
+        assert (await client.put("/api/v1/prompt-eval/providers/999999/default", headers=admin)).status_code == 404
+        # 禁用密钥设为默认 → 400 明确提示
+        r4 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "flux", "model": "flux-dev", "api_key": "sk-f", "base_url": "https://f/v1", "enabled": False,
+        }, headers=admin)
+        id4 = r4.json()["id"]
+        # 禁用键不占默认位（W1 回归：禁用首键不得 is_default=1，后续启用键自动成为默认）
+        lst = (await client.get("/api/v1/prompt-eval/providers", headers=h)).json()["items"]
+        assert next(x for x in lst if x["id"] == id4)["is_default"] == 0
+        r5 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "flux", "model": "flux-pro", "api_key": "sk-f2", "base_url": "https://f/v1",
+        }, headers=admin)
+        id5 = r5.json()["id"]
+        lst = (await client.get("/api/v1/prompt-eval/providers", headers=h)).json()["items"]
+        assert next(x for x in lst if x["id"] == id5)["is_default"] == 1  # 生图分组首个启用键默认
+        rr = await client.put(f"/api/v1/prompt-eval/providers/{id4}/default", headers=admin)
+        assert rr.status_code == 400
+        assert "启用" in rr.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_provider_default_selection_precedence_and_clear():
+    """选择链路优先默认；禁用默认键清空标记并回退最新启用；删除默认键不残留。"""
+    import services.prompt_eval_service as svc
+    from database import async_session
+    async with _client() as client:
+        admin = _headers(role="admin")
+        h = _headers()
+        # minimax-llm 两个密钥：先保存的自动默认
+        r1 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-llm", "model": "MiniMax-M2.7", "api_key": "sk-l1", "base_url": "https://x/v1",
+        }, headers=admin)
+        r2 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-llm", "model": "MiniMax-M3", "api_key": "sk-l2", "base_url": "https://x/v1",
+        }, headers=admin)
+        id1, id2 = r1.json()["id"], r2.json()["id"]
+        async with async_session() as db:
+            k = await svc.get_llm_key(db, settings.secret_key)
+        assert k["model"] == "MiniMax-M2.7"  # 自动默认优先（而非最新）
+        # 设 MiniMax-M3 为默认 → get_llm_key 切换到默认键
+        assert (await client.put(f"/api/v1/prompt-eval/providers/{id2}/default", headers=admin)).status_code == 200
+        async with async_session() as db:
+            k2 = await svc.get_llm_key(db, settings.secret_key)
+        assert k2["model"] == "MiniMax-M3"
+        # 禁用默认键 → 默认标记清空（不自动转移），回退最新启用
+        await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-llm", "model": "MiniMax-M3", "api_key": "sk-l2",
+            "base_url": "https://x/v1", "enabled": False,
+        }, headers=admin)
+        lst = (await client.get("/api/v1/prompt-eval/providers", headers=h)).json()["items"]
+        assert next(x for x in lst if x["id"] == id2)["is_default"] == 0
+        assert next(x for x in lst if x["id"] == id1)["is_default"] == 0  # 禁用默认键不自动转移
+        async with async_session() as db:
+            k3 = await svc.get_llm_key(db, settings.secret_key)
+        assert k3 is not None and k3["model"] == "MiniMax-M2.7"  # 无默认回退最新启用
+        # 视觉分组默认优先（默认在 opencode-go-vision 时也生效）
+        rv1 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-vision", "model": "MiniMax-M3", "api_key": "sk-v1", "base_url": "https://x/v1",
+        }, headers=admin)
+        rv2 = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "opencode-go-vision", "model": "ocv", "api_key": "sk-v2", "base_url": "https://y/v1",
+        }, headers=admin)
+        vid1, vid2 = rv1.json()["id"], rv2.json()["id"]
+        async with async_session() as db:
+            kv = await svc.get_vision_key(db, settings.secret_key)
+        assert kv["provider"] == "minimax-vision"  # 自动默认
+        await client.put(f"/api/v1/prompt-eval/providers/{vid2}/default", headers=admin)
+        async with async_session() as db:
+            kv2 = await svc.get_vision_key(db, settings.secret_key)
+        assert kv2["provider"] == "opencode-go-vision" and kv2["model"] == "ocv"
+        # 删除默认键 → 列表无残留；视觉分组无默认时回退旧 provider 优先级（minimax-vision）
+        await client.delete(f"/api/v1/prompt-eval/providers/{vid2}", headers=admin)
+        lst2 = (await client.get("/api/v1/prompt-eval/providers", headers=h)).json()["items"]
+        assert not any(x["id"] == vid2 for x in lst2)
+        async with async_session() as db:
+            kv3 = await svc.get_vision_key(db, settings.secret_key)
+        assert kv3 is not None and kv3["provider"] == "minimax-vision"

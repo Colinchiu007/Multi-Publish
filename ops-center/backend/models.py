@@ -544,6 +544,7 @@ class PromptEvalProviderKey(Base):
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+    is_default = Column(Integer, default=0)  # LLM/视觉/生图用途分组唯一默认标记
 
 class PromptEvalScene(Base):
     """提示词评测场景层（scene 模式）：场景文字 + 字幕二次分句 + 场景上下文 + 中英优化提示词。"""

@@ -56,3 +56,33 @@ async def test_migration_adds_columns_and_is_idempotent():
     await engine.dispose()
     if os.path.exists(_DB):
         os.remove(_DB)
+
+
+@pytest.mark.asyncio
+async def test_migration_adds_provider_default_column():
+    """存量库（无 is_default 列）幂等补列且数据保留；表不存在分支无副作用。"""
+    from services.prompt_eval_migration import ensure_provider_default_column
+    engine = create_async_engine(f"sqlite+aiosqlite:///{_DB}")
+    # 表不存在 → 直接返回不报错
+    from sqlalchemy.ext.asyncio import AsyncSession as AS0
+    async with AS0(engine) as db:
+        await ensure_provider_default_column(db)
+    async with engine.begin() as conn:
+        await conn.execute(sa.text(
+            "CREATE TABLE prompt_eval_provider_keys (id INTEGER PRIMARY KEY, provider VARCHAR(64),"
+            " model VARCHAR(128), key_enc TEXT NOT NULL, base_url VARCHAR(255) DEFAULT '',"
+            " enabled INTEGER DEFAULT 1, created_at VARCHAR, updated_at VARCHAR, updated_by VARCHAR(100))"))
+        await conn.execute(sa.text(
+            "INSERT INTO prompt_eval_provider_keys (id, provider, model, key_enc)"
+            " VALUES (1, 'minimax-llm', 'MiniMax-M2.7', 'enc-keep')"))
+    from sqlalchemy.ext.asyncio import AsyncSession as AS3
+    async with AS3(engine) as db:
+        await ensure_provider_default_column(db)
+        await ensure_provider_default_column(db)  # 幂等：重复执行不报错
+    async with engine.connect() as conn:
+        cols = {r[1] for r in (await conn.execute(sa.text("PRAGMA table_info(prompt_eval_provider_keys)"))).fetchall()}
+        assert "is_default" in cols
+        row = (await conn.execute(sa.text(
+            "SELECT provider, is_default, key_enc FROM prompt_eval_provider_keys WHERE id=1"))).first()
+        assert row[0] == "minimax-llm" and row[1] == 0 and row[2] == "enc-keep"
+    await engine.dispose()

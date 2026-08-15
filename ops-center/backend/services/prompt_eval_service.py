@@ -265,12 +265,22 @@ async def upsert_provider_key(db: AsyncSession, body: dict, username: str, secre
             existing.key_enc = encrypt_key(secret, data["api_key"])
             existing.base_url = data["base_url"]
             existing.enabled = data["enabled"]
+            if existing.is_default and not data["enabled"]:
+                existing.is_default = 0  # 禁用当前默认键 → 清空默认标记（不自动转移）
             existing.updated_at = _now()
             existing.updated_by = username
         else:
+            is_default = 0
+            group = provider_usage_group(data["provider"])
+            # 分组首个「启用」密钥自动成为默认（禁用键不占默认位，保证「默认 ⇒ 启用」不变量）。
+            # 已知限制：check-then-insert 非原子，并发同组首插可能双默认；SQLite 单写者 + admin 低频可接受，
+            # 且 set_default 每次事务全量重写同组 peers，最终仍收敛为单默认。
+            if group and data["enabled"] and not await _group_has_default(db, group):
+                is_default = 1
             row = PromptEvalProviderKey(provider=data["provider"], model=data["model"],
                                         key_enc=encrypt_key(secret, data["api_key"]),
-                                        base_url=data["base_url"], enabled=data["enabled"], updated_by=username)
+                                        base_url=data["base_url"], enabled=data["enabled"],
+                                        is_default=is_default, updated_by=username)
             db.add(row)
         await db.commit()
         if existing:
@@ -288,6 +298,8 @@ async def upsert_provider_key(db: AsyncSession, body: dict, username: str, secre
         row.key_enc = encrypt_key(secret, data["api_key"])
         row.base_url = data["base_url"]
         row.enabled = data["enabled"]
+        if row.is_default and not data["enabled"]:
+            row.is_default = 0
         row.updated_at = _now()
         row.updated_by = username
         await db.commit()
@@ -296,7 +308,8 @@ async def upsert_provider_key(db: AsyncSession, body: dict, username: str, secre
 
 async def list_provider_keys(db: AsyncSession) -> list[dict]:
     rows = (await db.execute(select(PromptEvalProviderKey).order_by(PromptEvalProviderKey.provider, PromptEvalProviderKey.model))).scalars().all()
-    return [{"id": r.id, "provider": r.provider, "model": r.model, "base_url": r.base_url, "enabled": r.enabled, "updated_at": r.updated_at} for r in rows]
+    return [{"id": r.id, "provider": r.provider, "model": r.model, "base_url": r.base_url, "enabled": r.enabled,
+             "is_default": r.is_default, "updated_at": r.updated_at} for r in rows]
 
 
 async def delete_provider_key(db: AsyncSession, key_id: int) -> dict:
@@ -312,13 +325,41 @@ async def delete_provider_key(db: AsyncSession, key_id: int) -> dict:
     return {"ok": True, **result}
 
 
+async def set_default_provider_key(db: AsyncSession, key_id: int, username: str) -> dict:
+    """把密钥设为用途分组默认（LLM/视觉/生图分组内唯一，事务内同组清 0）。
+
+    - 密钥不存在 → ProviderKeyNotFoundError（路由 404）
+    - 未启用 → ValueError（路由 400，fail closed）
+    - provider 未归类 → ValueError（路由 400）
+    """
+    row = (await db.execute(select(PromptEvalProviderKey).where(
+        PromptEvalProviderKey.id == key_id,
+    ))).scalar_one_or_none()
+    if row is None:
+        raise ProviderKeyNotFoundError("密钥不存在")
+    if row.enabled != 1:
+        raise ValueError("该密钥未启用，请先启用再设为默认")
+    group = provider_usage_group(row.provider)
+    if group is None:
+        raise ValueError(f"provider {row.provider} 不属于 LLM/视觉/生图分组，无法设为默认")
+    peers = (await db.execute(select(PromptEvalProviderKey).where(
+        PromptEvalProviderKey.provider.in_(USAGE_GROUP_PROVIDERS[group]),
+    ))).scalars().all()
+    for peer in peers:
+        peer.is_default = 1 if peer.id == key_id else 0
+    row.updated_at = _now()
+    row.updated_by = username
+    await db.commit()
+    return {"id": row.id, "provider": row.provider, "model": row.model, "is_default": 1}
+
+
 async def get_llm_key(db: AsyncSession, secret: str) -> dict | None:
     """LLM（中英对照优化/翻译）密钥：优先「模型密钥」表 minimax-llm（运营后台 UI 配置），
     fallback 由 router 读环境变量 OPS_PROMPT_EVAL_LLM_*。"""
     row = (await db.execute(select(PromptEvalProviderKey).where(
         PromptEvalProviderKey.provider == "minimax-llm",
         PromptEvalProviderKey.enabled == 1,
-    ).order_by(desc(PromptEvalProviderKey.updated_at)))).scalars().first()
+    ).order_by(desc(PromptEvalProviderKey.is_default), desc(PromptEvalProviderKey.updated_at)))).scalars().first()
     if not row:
         return None
     return {"provider": row.provider, "model": row.model,
@@ -327,6 +368,35 @@ async def get_llm_key(db: AsyncSession, secret: str) -> dict | None:
 
 
 VISION_PROVIDERS = ("minimax-vision", "opencode-go-vision")
+
+# 「设为默认」用途分组：同类（同一分组）只能有一个默认，用户已确认按 LLM/视觉/生图分组唯一。
+USAGE_GROUP_PROVIDERS: dict[str, tuple[str, ...]] = {
+    "llm": ("minimax-llm",),
+    "vision": ("minimax-vision", "opencode-go-vision"),
+    "image": ("minimax-image", "flux", "hunyuan"),
+}
+
+
+class ProviderKeyNotFoundError(ValueError):
+    """设为默认目标密钥不存在（路由映射 404）。"""
+
+
+def provider_usage_group(provider: str) -> str | None:
+    """返回 provider 所属用途分组（llm/vision/image）；未归类返回 None。"""
+    for group, providers in USAGE_GROUP_PROVIDERS.items():
+        if provider in providers:
+            return group
+    return None
+
+
+async def _group_has_default(db: AsyncSession, group: str) -> bool:
+    """分组内是否存在启用中的默认密钥（新键自动默认判定）。"""
+    row = (await db.execute(select(PromptEvalProviderKey.id).where(
+        PromptEvalProviderKey.provider.in_(USAGE_GROUP_PROVIDERS[group]),
+        PromptEvalProviderKey.enabled == 1,
+        PromptEvalProviderKey.is_default == 1,
+    ))).first()
+    return row is not None
 
 
 async def test_provider_connection(db: AsyncSession, body: dict, secret: str,
@@ -395,9 +465,19 @@ async def test_provider_connection(db: AsyncSession, body: dict, secret: str,
 
 
 async def get_vision_key(db: AsyncSession, secret: str) -> dict | None:
-    """视觉评估密钥：依次尝试「模型密钥」表 minimax-vision / opencode-go-vision，
+    """视觉评估密钥：优先视觉分组（minimax-vision / opencode-go-vision）的默认键；
+    分组无默认时保持旧 provider 优先级（minimax-vision 优先、每 provider 最新）以不改变存量行为。
     fallback 环境变量 OPS_PROMPT_EVAL_VISION_API_KEY。评估服务按 OpenAI 兼容
     base_url/model/api_key 调用，provider 仅作密钥槽位。"""
+    row = (await db.execute(select(PromptEvalProviderKey).where(
+        PromptEvalProviderKey.provider.in_(VISION_PROVIDERS),
+        PromptEvalProviderKey.enabled == 1,
+        PromptEvalProviderKey.is_default == 1,
+    ).order_by(desc(PromptEvalProviderKey.updated_at)))).scalars().first()
+    if row:
+        return {"provider": row.provider, "model": row.model,
+                "api_key": decrypt_key(secret, row.key_enc),
+                "base_url": row.base_url or "https://api.minimaxi.com/v1"}
     for provider in VISION_PROVIDERS:
         row = (await db.execute(select(PromptEvalProviderKey).where(
             PromptEvalProviderKey.provider == provider,

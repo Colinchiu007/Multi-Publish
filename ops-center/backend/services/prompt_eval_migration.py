@@ -39,6 +39,17 @@ async def ensure_prompt_eval_video_columns(db: AsyncSession) -> None:
     await db.commit()
 
 
+async def ensure_provider_default_column(db: AsyncSession) -> None:
+    """prompt_eval_provider_keys.is_default 列迁移：存量库幂等补列（LLM/视觉/生图分组唯一默认标记）。"""
+    tables = {r[0] for r in (await db.execute(sa.text("SELECT name FROM sqlite_master WHERE type='table'"))).fetchall()}
+    if "prompt_eval_provider_keys" in tables:
+        cols = {r[1] for r in (await db.execute(sa.text("PRAGMA table_info(prompt_eval_provider_keys)"))).fetchall()}
+        if "is_default" not in cols:
+            await db.execute(sa.text(
+                "ALTER TABLE prompt_eval_provider_keys ADD COLUMN is_default INTEGER DEFAULT 0"))
+    await db.commit()
+
+
 async def ensure_prompt_eval_dual_columns(db: AsyncSession) -> None:
     """prompt_eval 双路对比列迁移：cases.compare_mode/engine_params；runs.prompt_variant/
     prompt_source_zh/engine_meta/prompt_zh/prompt_en（幂等 ALTER，存量库零迁移成本）。"""

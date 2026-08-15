@@ -78,3 +78,7 @@ export function translatePromptEvalScene(caseId, sceneId) {
 export function createPromptEvalSceneRun(caseId, sceneId) {
   return api.post(`/prompt-eval/cases/${caseId}/scenes/${sceneId}/runs`).then(r => r.data)
 }
+
+export function setDefaultPromptEvalProvider(keyId) {
+  return api.put('/prompt-eval/providers/' + keyId + '/default').then(r => r.data)
+}
