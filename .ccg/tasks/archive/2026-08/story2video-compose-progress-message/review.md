@@ -25,3 +25,9 @@
 - Visual：Vite 在线后 `home-default` 与 `create-editor` 单视图测试均通过。
 - OpenSpec：`openspec validate story2video-compose-progress-message --strict` 通过。
 - 安全：message 通过 Vue 文本插值渲染，无 `v-html`，HTML/脚本字符会被转义。
+
+## 远程交付
+
+- PR：#842 `fix(story2video): 展示合成分块进度消息`。
+- 合并：2026-08-15 04:45 UTC，squash commit `24b5f7bb392d843e55001c749110e18250d0e782`。
+- CI：Gate Result、QG Static/Unit/Coverage/Desktop Shards/Visual/Browser E2E/Autonomous、Electron、GUI、双平台 build、文档同步与 agent-judge 全部通过。
