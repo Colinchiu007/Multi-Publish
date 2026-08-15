@@ -1,3 +1,14 @@
+## 运营后台提示词评测视频模式复盘（prompt-eval-video，2026-08-15）
+
+- **交付**：PR #833（squash `e2893256`）已合并，15 项 CI 全绿。运营后台「提示词评测」新增视频模式：`mediaType=video` case 真实调用视频生成 provider（Agnes Video V2.0 异步契约：POST /videos → 域名根 agnesapi 轮询 → MP4 下载校验 → ffmpeg 抽帧首/中/尾 3 帧）→ 复用视觉评估通道但维度固定为视频 4 维（temporal_consistency/motion_accuracy/audio_visual_sync/video_aesthetic_quality，权重 0.30/0.30/0.20/0.20）。
+- **教训 1（C1 媒体越权：媒体授权必须按 run 归属收窄）**：初版媒体访问按 case 维度放行，同 case 其他 run 的生成物可被越权读取。评审 C1 收窄为「引用该文件的 run 所属 case」的 owner/admin 才可访问视频与帧文件，并补跨用户媒体越权回归测试。
+- **教训 2（C2 场景模式 media_type 回归）**：场景模式（source_mode=scene）原只支持图片，视频 case 引入 mediaType 后若不设边界会放行 scene+video 组合。新增「媒体类型边界」契约：scene 仅图片（400「场景模式暂不支持视频评测」）、video 仅 single（400「视频评测暂不支持双路对比」），拒绝组合不创建 case/run。
+- **教训 3（视频生成 fail closed 全链路）**：密钥缺失/提交失败/轮询超时/下载失败/MP4 魔数不合法/抽帧失败任一环节失败 → run.status=failed 且 error 记录生成阶段原因，绝不静默降级为图片评估；MP4 校验用 ftyp 魔数 + 50MB 上限，ffmpeg 抽帧走 imageio-ffmpeg（FFMPEG_BIN 可覆盖，asyncio.to_thread 不阻塞事件循环）。
+- **教训 4（生成失败与评估失败双态分离）**：生成成功但评估输出非法（维度白名单外/分数越界/problems·points 缺失）→ run.eval_status=failed 且视频与帧保留可查看（不删产物）；与生成失败（run.status=failed）互不混淆。
+- **评审**：antigravity 地区不可用降级记录；Claude 首轮 2 Critical + 7 Warning 全修复并补回归；复审 8/8 无 Critical；W-2（CDN 3xx 跳转跟随）、W-3（dual 缺 LLM key 500）与 design.md 轮询端点描述同步修复。
+- **外部验收边界**：真实 Agnes 视频生成 / 视觉评估为外部验收项（自动化测试全 mock），需运营后台真机验证后另行确认。
+- **回归保护**：新增 contract +4、video_service 24、migration 1、video_api 6（含跨用户媒体越权/场景快照/生成失败 fail closed）；全量相关 10 套件 115 passed；前端 `npm run build` 通过。
+
 ## 批量创作队列调度设计复盘（story2video-batch-create，2026-08-15）
 
 - **背景**：故事讲述新增批量创作：一次入队 1-10 条文案 / 1-20 个 .txt/.md 文件，按队列依次运行（批量并行 ≤2、手动运行中批量并行 ≤1、批量+手动 < 引擎全局预算），完成后进历史记录。落地为独立队列服务 `Story2VideoBatchQueue`（不嵌 PipelineEngine），run 打标 `source='batch'` 复用既有编排链路。
