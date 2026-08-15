@@ -1,0 +1,13 @@
+{
+  "id": "s2v-history-resume-btn",
+  "title": "视频创作历史记录：最新失败任务缺少“从断点继续”按钮",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已定位：内容政策失败禁用恢复属设计行为；已记录正则不一致待评估",
+  "createdAt": "2026-08-16T00:00:00+08:00",
+  "branch": "main",
+  "conclusion": "run_1786807690498_ee06 含 content-policy 关键词被 historyItemResumable/主进程守卫拦截，属设计行为；老失败任务无关键词故显示按钮"
+}
