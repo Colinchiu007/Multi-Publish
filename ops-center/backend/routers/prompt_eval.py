@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Query
 
 from database import async_session, get_db
+from config import settings
 from middleware.auth import get_current_user, require_admin
 from services import prompt_eval_service as service
 from services import prompt_eval_engine_client as engine_client
@@ -22,7 +23,7 @@ logger = logging.getLogger("ops-center.prompt-eval")
 
 
 def _secret() -> str:
-    return os.environ.get("OPS_SECRET_KEY") or "change-me"
+    return settings.secret_key
 
 
 async def _llm_cfg(db) -> dict:
@@ -274,7 +275,7 @@ async def test_provider(body: dict, db: AsyncSession = Depends(get_db), user: di
 async def upsert_provider(body: dict, db: AsyncSession = Depends(get_db), user: dict = Depends(require_admin)):
     try:
         return await service.upsert_provider_key(db, body, user.get("username") or "admin", _secret())
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         raise HTTPException(400, str(e))
 
 

@@ -115,6 +115,34 @@ async def test_provider_key_admin_only(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_provider_key_uses_loaded_settings_secret_when_environment_is_missing(monkeypatch):
+    import routers.prompt_eval as prompt_eval_router
+
+    monkeypatch.delenv("OPS_SECRET_KEY", raising=False)
+    monkeypatch.setattr(prompt_eval_router.settings, "secret_key", "loaded-from-dotenv-secret")
+    async with _client() as client:
+        response = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "dotenv-provider", "model": "dotenv-model", "api_key": "sk-test",
+        }, headers=_headers(role="admin"))
+
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.asyncio
+async def test_provider_key_reports_missing_encryption_secret_as_bad_request(monkeypatch):
+    import routers.prompt_eval as prompt_eval_router
+
+    monkeypatch.setattr(prompt_eval_router.settings, "secret_key", "")
+    async with _client() as client:
+        response = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "missing-secret-provider", "model": "missing-secret-model", "api_key": "sk-test",
+        }, headers=_headers(role="admin"))
+
+    assert response.status_code == 400
+    assert "OPS_SECRET_KEY" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_translate_machine_source(monkeypatch):
     import services.prompt_eval_service as svc
 
