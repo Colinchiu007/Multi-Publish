@@ -13477,3 +13477,12 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **预防措施**：以后历史列表复用单一有效时间工具；组件模板必须分离详情 body 与写操作 footer；UI 变更门禁增加键盘/ARIA、窄屏和状态专属字段检查。
 
 本次范围只涉及 renderer 展示、交互、样式、locale 和文档，不改变 IPC、持久化结构、provider 或恢复引擎。
+
+## 并发会话共享 HEAD 导致全局分支漂移复盘（session-isolation-hardening，2026-08-15）
+
+- **表象与第一性原因**：多个 Codex 任务以 `D:/Data/projects/Multi-Publish` 为同一 cwd；任务 `01a000cf-d579-7722-8abf-2d98de957e6b` 于 2026-08-15 10:04:54 +08:00 执行 `git checkout -B codex/fix-s2v-v3 origin/main` 后，所有共享该目录的任务立即看到同一 feature 分支。Git 的 `HEAD` 属于 worktree，不属于 Codex 会话；会话级声明和 pre-commit 只能阻止错误提交，不能隔离或撤销 checkout。
+- **逃逸链与系统性漏洞**：规范要求独立 worktree，但桌面任务仍可绑定共享项目目录；Git 无 `pre-checkout` hook，既有保护仅在提交时触发；并行 `handoff_thread` 又同时竞争共享源目录的 index、HEAD 与 stash，三次迁移均失败并留下 detached Codex worktree。流程具备书面约束，却缺少 checkout 后自动恢复与持久事故标记。
+- **恢复证据**：暂停其他任务 Git 写入，安全移除占用 `main` 的陈旧 worktree，将四个 `.tmp-*.js` 保存到 `stash@{0}`（message：`shared-main-recovery-temp-files-20260815`），再把共享主目录恢复为干净且跟踪 `origin/main`。恢复时不得 pop/drop 共享 stash；需要取回临时文件时先按 stash message 重新定位，再用路径级 `git restore --source=<stash> -- <path>`。
+- **永久修复**：共享主目录定义为 main-only 协调目录；新增 `post-checkout` 在干净状态递归安全恢复 `main`，脏状态或恢复失败时保留现场并写 `.agent_context/shared-root-violation`；`pre-commit` 在 marker 存在时 fail closed；`session-init.sh <task-name>` 只创建/复用 `D:/Data/projects/mp-worktrees/mp-<task-name>` + `codex/<task-name>`，错误分支或其他仓库占位均拒绝。
+- **迁移与工具边界**：多个任务已经共享一个 cwd 时必须暂停 Git 写入并逐个串行迁移，禁止并行 handoff/stash/checkout。Windows 上此流程固定使用 `D:/Program Files/Git/usr/bin/bash.exe` 或 Git Bash；裸 `bash` 在本机可能落到不可用 WSL。回滚仅重新安装上一版本 hooks，不删除恢复 stash；worktree 删除继续逐个运行 `scripts/safe-worktree-remove.ps1`。
+- **归档回补**：`session-guard.ps1` 的“另一活跃会话声明不可覆盖”（`session.json` pid 存活时拒绝，除非 `-Force`）在修复落地时缺少对应回归测试；归档任务补上该场景（`session-guard.test.ps1` 新增断言），避免后续把 fail-open 退化当通过。共享主目录必须保持 `main` 且干净，stash 列表里的恢复项与另一会话的未跟踪目录均不得触碰。
