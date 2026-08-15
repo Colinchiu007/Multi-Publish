@@ -22,6 +22,23 @@ async def ensure_prompt_eval_scene_columns(db: AsyncSession) -> None:
     await db.commit()
 
 
+async def ensure_prompt_eval_video_columns(db: AsyncSession) -> None:
+    """prompt_eval 视频列迁移：cases.media_type；runs.video_path/video_frames（幂等 ALTER）。"""
+    tables = {r[0] for r in (await db.execute(sa.text("SELECT name FROM sqlite_master WHERE type='table'"))).fetchall()}
+    if "prompt_eval_cases" in tables:
+        cols = {r[1] for r in (await db.execute(sa.text("PRAGMA table_info(prompt_eval_cases)"))).fetchall()}
+        if "media_type" not in cols:
+            await db.execute(sa.text(
+                "ALTER TABLE prompt_eval_cases ADD COLUMN media_type VARCHAR(16) DEFAULT 'image' NOT NULL"))
+    if "prompt_eval_runs" in tables:
+        cols = {r[1] for r in (await db.execute(sa.text("PRAGMA table_info(prompt_eval_runs)"))).fetchall()}
+        if "video_path" not in cols:
+            await db.execute(sa.text("ALTER TABLE prompt_eval_runs ADD COLUMN video_path VARCHAR(512)"))
+        if "video_frames" not in cols:
+            await db.execute(sa.text("ALTER TABLE prompt_eval_runs ADD COLUMN video_frames TEXT"))
+    await db.commit()
+
+
 async def ensure_prompt_eval_dual_columns(db: AsyncSession) -> None:
     """prompt_eval 双路对比列迁移：cases.compare_mode/engine_params；runs.prompt_variant/
     prompt_source_zh/engine_meta/prompt_zh/prompt_en（幂等 ALTER，存量库零迁移成本）。"""
