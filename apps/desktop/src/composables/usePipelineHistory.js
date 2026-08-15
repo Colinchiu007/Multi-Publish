@@ -11,6 +11,7 @@
 import { ref, computed } from 'vue'
 import { pipelineHistory, story2videoListProjects } from '@/api/publisher'
 import { historyLoadFailureDetail } from '@/story2video/story2video-notifications'
+import { filterHistoryByStatus, sortHistoryByEffectiveTime } from '@/views/history-utils'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
@@ -45,9 +46,7 @@ export function usePipelineHistory(options = {}) {
   let _historyRefreshing = false
 
   const filteredHistory = computed(() => {
-    if (historyFilter.value === 'all') return history.value
-    if (historyFilter.value === 'paused') return history.value.filter(item => item.status === 'paused' || item.status === 'failed')
-    return history.value.filter(item => item.status === historyFilter.value)
+    return filterHistoryByStatus(history.value, historyFilter.value)
   })
 
   const historyLocalModeText = computed(() => {
@@ -123,14 +122,7 @@ export function usePipelineHistory(options = {}) {
         run.stages = _enrichStages(run.stages, run.context)
       }
 
-      // 运行中流水线置顶，其次已完成项目，最后终态流水线
-      history.value = [
-        ...runs.filter(run => run.status === 'running'),
-        ...projects,
-        ...runs.filter(run => run.status === 'paused'),
-        ...runs.filter(run => run.status === 'failed'),
-        ...runs.filter(run => run.status !== 'running' && run.status !== 'paused' && run.status !== 'failed'),
-      ]
+      history.value = sortHistoryByEffectiveTime([...runs, ...projects])
 
       scheduleHistoryRefresh()
 
@@ -192,8 +184,10 @@ export function usePipelineHistory(options = {}) {
         return
       }
       if (runningById.size > 0) {
-        list.unshift(...runningById.values())
+        list.push(...runningById.values())
       }
+      const sorted = sortHistoryByEffectiveTime(list)
+      list.splice(0, list.length, ...sorted)
     } catch (_) {
       // 刷新失败保留现有状态
     } finally {

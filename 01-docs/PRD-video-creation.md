@@ -386,7 +386,7 @@ videogen：storyboard 场景提示词 → PromptBridge.optimizeVideosBatch（dom
   → CreateView.loadHistory() 并行两个只读请求（Promise.allSettled + 5s 竞速超时）：
        ├─ story2video:list-projects   → Story2VideoProjectService.listProjects()（本地 SQLite 项目索引，owner 隔离）
        └─ pipeline:history            → PipelineEngine.getHistory()（本会话内存 run + 持久化失败快照，设备级）
-  → 合并：运行中置顶 → 未完成（暂停/失败）→ 已完成项目 → 其他终态（各组按 updatedAt||createdAt 倒序；按 projectId 去重，项目优先）
+  → 合并：所有任务按有效更新时间倒序（字段优先级与无效值处理见 §3.1.28；按 projectId 去重，项目优先）
   → 未登录（localMode=true）时顶部显示「本地模式」提示条
   → 任一请求失败（code!=0 / 非数组 / 超时 / reject）：
        ├─ 收集失败 message → historyLoadFailureDetail() 按原因映射可操作建议
@@ -416,7 +416,7 @@ videogen：storyboard 场景提示词 → PromptBridge.optimizeVideosBatch（dom
 | 显示项 | 位置 | 行为 |
 |--------|------|------|
 | 本地模式提示条 | 历史视图顶部（`data-testid="history-local-mode-banner"`） | 未登录（localMode=true）时显示；已登录/登录态变化后随下次 loadHistory 刷新 |
-| 历史列表 | 历史视图 | 运行中置顶 + 未完成（暂停/失败）+ 已完成项目 + 其他终态；最新失败/暂停任务必须出现在已完成项目之前；空时显示「暂无创作记录」 |
+| 历史列表 | 历史视图 | 全部与状态筛选均按有效更新时间倒序；空时显示「暂无创作记录」 |
 | 错误弹窗 | 应用内弹窗 | 标题「提示」+ 通用文案 + detail 建议行（仅当可映射原因时）+ 「知道了」按钮 |
 | 空态 | 历史视图 | 「暂无创作记录」（无数据时） |
 
@@ -1173,7 +1173,7 @@ export function usePipelineHistory(options = {}) {
       3. 若无 pausedStage -> 从 stages 推导
   -> 对每个 run.status === 'failed' 且无 pausedStage 的任务：
       1. 从 stages 推导 pausedStage（不改变 status）
-  -> 排序：running -> projects -> paused -> failed -> 其余
+  -> 排序：所有任务按有效更新时间倒序，状态严格筛选
   -> 渲染 CreateViewHistory 组件
 ```
 
@@ -1724,6 +1724,18 @@ SettingsDialog 关闭（App.vue @close）
 - ResultView.test.js：3 槽位渲染与选中态、点击选中调用 IPC、busy 态、再次合成调用 recompose、成功/失败通知归一化；
 - locale：zh/en 成对 + CI Gate 7（check-locale-sync）通过；渲染端无新增中文字面量。
 
+### 3.1.28 历史记录状态标签、统一排序与只读详情（2026-08-15）
+
+历史记录页面打开后默认选择“全部”。所有任务（包括筛选后的单一状态）按有效更新时间倒序排列，不再按状态分组。有效更新时间按以下优先级读取：`updatedAt` → `updated_at` → `completedAt` → `completed_at` → `endedAt` → `ended_at` → `createdAt` → `created_at`；字段接受 ISO 日期字符串及有限数字时间戳，绝对值小于 `1e11` 的数字按秒转换，其余按毫秒转换。空值、空白字符串、非有限数字和无效日期视为缺失；缺失更新时间时回退有效创建时间，再缺失则按 0 排在有时间记录之后。相同有效更新时间按创建时间倒序，再按首个非空 `id`/`projectId`/`runId` 字典序，最后保持原始输入顺序。时间戳 0 是有效时间，不能误判为空。全部任务和每个状态筛选复用同一排序函数，状态筛选为严格相等，`failed` 不并入 `paused`。
+
+状态选择使用六个可访问标签：全部、进行中、已暂停、执行失败、已完成、已取消。标签容器为 `tablist`，标签为 `tab`，当前项使用 `aria-selected=true` 和 roving tabindex；支持鼠标点击、Enter/Space、左右方向键、Home/End，切换只改变筛选条件，不触发恢复或写入。
+
+每张卡片统一展示标题、流水线、状态、提示词预览（非中文界面显示翻译）、有效更新时间、创建时间、耗时、模式、任务/项目标识和阶段摘要。暂停任务额外显示已本地化的暂停环节及暂停环境/检查点；失败任务额外显示失败环节和截断的错误摘要。除已取消外，卡片 body 是唯一的详情入口，点击或 Enter/Space 打开当前页只读详情弹窗；详情包含完整提示词、翻译、完整错误、阶段明细、耗时及状态专属字段。已取消卡片 body 不可聚焦且不打开详情。
+
+恢复、继续生成、打开结果、删除均为独立显式操作，点击这些按钮不会打开详情，也不会隐式恢复任务。轮询更新会重新应用有效时间排序，同时通过原数组 `splice` 保持响应式列表身份。未改动 IPC、持久化结构、过期任务清理或恢复引擎；仅调整 renderer 展示、交互和纯排序工具。
+
+验收必须覆盖 ISO/秒/毫秒/0/非法时间、同时间 tie-break、全部与状态筛选一致排序、六标签 ARIA/键盘行为、暂停/失败本地化字段、取消态不可打开、详情完整字段、显式动作不冒泡、轮询重排和中英文 locale 成对校验。
+
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 
 **背景**：① 流水线失败/取消时，主进程仅置 run 顶层终态，当前 stage（如 compose）仍保持 `running`，历史详情页与持久化快照出现「视频合成 运行中」假象；② 历史列表把「暂停/失败」任务排在全部已完成项目之后（实测 30+ 条历史中最新失败任务排第 27 位），用户误以为任务丢失。
@@ -1736,7 +1748,7 @@ SettingsDialog 关闭（App.vue @close）
 
 #### 2) 历史排序（前端 CreateView.loadHistory）
 
-- 排序规则：运行中置顶 → 未完成（`paused`/`failed`，按 `updatedAt||createdAt` 倒序）→ 已完成项目（倒序）→ 其他终态（`cancelled`/已完成 runs，倒序）。
+- 排序规则：全部及各状态筛选均按 §3.1.28 有效更新时间倒序；不再按状态优先级分组。
 - 失败任务 `pausedStage` 优先取 `stage.status==='failed'` 的阶段，无 failed stage 时才回退「非 completed / 末位」。
 - 回归保护：`CreateView.test.js`「失败/暂停的未完成任务排在已完成项目之前」断言 `[failed, paused, project×2]` 顺序。
 

@@ -1,0 +1,14 @@
+{
+  "id": "story2video-history-status-tabs",
+  "title": "视频创作历史记录按更新时间排序并改造状态标签与详情交互",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "implementation",
+  "nextAction": "完成构建、locale、OpenSpec 与视觉验证后进入 review",
+  "createdAt": "2026-08-15T03:56:05Z",
+  "branch": "codex/story2video-history-status-tabs",
+  "openspecChange": "story2video-history-status-tabs",
+  "remoteStatus": "not_pushed"
+}

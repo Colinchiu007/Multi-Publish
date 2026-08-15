@@ -962,8 +962,8 @@
         :history-filter="historyFilter"
         :story2video-resuming="story2videoResuming"
         @update:historyFilter="historyFilter = $event"
-        @open-history="openHistory"
         @resume-history="resumeHistoryItem"
+        @open-result="openHistoryResult"
         @delete-history="requestProjectDeletion"
       />
     </div>
@@ -1299,6 +1299,7 @@ import {
   getPipelineStatus,
 } from '@/i18n/pipeline-labels'
 import { getAppLocale } from '@/i18n'
+import { filterHistoryByStatus, sortHistoryByEffectiveTime } from './history-utils'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
@@ -1594,9 +1595,7 @@ export default {
       return this.s2vTemplateLibrary.find(template => template.id === this.s2vConfig.templateId) || null
     },
     filteredHistory() {
-      if (this.historyFilter === 'all') return this.history
-      if (this.historyFilter === 'paused') return this.history.filter(item => item.status === 'paused' || item.status === 'failed')
-      return this.history.filter(item => item.status === this.historyFilter)
+      return filterHistoryByStatus(this.history, this.historyFilter)
     },
     activeOutputConfig() {
       return this.isOrchestratedPipeline(this.selectedPipeline?.name) ? this.s2vOutputConfig : this.outputConfig
@@ -3780,18 +3779,7 @@ export default {
           }
         }
 
-        const historyTime = item => {
-          const t = new Date(item.updatedAt || item.createdAt || 0).getTime()
-          return Number.isFinite(t) ? t : 0
-        }
-        const byNewest = (a, b) => historyTime(b) - historyTime(a)
-        const restRuns = runs.filter(run => run.status !== 'running' && run.status !== 'paused' && run.status !== 'failed')
-        this.history = [
-          ...runs.filter(run => run.status === 'running').sort(byNewest),
-          ...runs.filter(run => run.status === 'paused' || run.status === 'failed').sort(byNewest),
-          ...projects.sort(byNewest),
-          ...restRuns.sort(byNewest),
-        ]
+        this.history = sortHistoryByEffectiveTime([...runs, ...projects])
         this.scheduleHistoryRefresh()
         if (!hasProjects || !hasRuns) {
           // 具体原因透传：IPC 已返回 message（存储不可用/无法识别当前用户/…），
@@ -3814,29 +3802,17 @@ export default {
         if (requestId === this.historyRequestId) this.historyLoading = false
       }
     },
-    openHistory(item) {
-      if (!item) return
-      // 运行中：切回流水线创作视图并接上该 run。同会话内 resumeOrchestration 幂等返回
-      // （alreadyRunning，附加实时进度）；跨重启的运行中快照则从断点重建并继续。
-      if (item.status === 'running') {
-        this.resumeHistoryItem(item)
-        return
-      }
-      // 失败且可断点恢复：从历史直接续跑，避免失败任务在历史中不可操作
-      if (item.status === 'failed' && this.historyItemResumable(item)) {
-        this.resumeHistoryItem(item)
-        return
-      }
-      // 分镜素材自选暂停点：恢复为选择面板（不自动推进）
-      if (item.status === 'paused' && item.checkpoint?.type === 'scene_asset_selection') {
-        this.resumeHistoryItem(item)
-        return
-      }
-      if (!item?.projectId) return
+    openHistoryResult(item) {
+      if (!item?.projectId || item.status === 'cancelled') return
       this.$router.push({ path: '/create/result', query: { project: item.projectId } })
     },
+    // Kept as a compatibility alias for callers outside the history component.
+    // It is deliberately read-only for non-completed records.
+    openHistory(item) {
+      if (item?.status === 'completed') this.openHistoryResult(item)
+    },
     historyItemResumable(item) {
-      if (!item || item.status !== 'failed' || !(item.id || item.runId)) return false
+      if (!item || !['failed', 'paused'].includes(item.status) || !(item.id || item.runId)) return false
       // 内容政策/需要用户输入类失败必须修改文案后重新启动，不允许原样恢复
       if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
       return true
@@ -3934,8 +3910,10 @@ export default {
           return
         }
         if (runningById.size > 0) {
-          list.unshift(...runningById.values())
+          list.push(...runningById.values())
         }
+        const sorted = sortHistoryByEffectiveTime(list)
+        list.splice(0, list.length, ...sorted)
       } catch (_) {
         // 刷新失败保留现有状态，下一轮重试
       } finally {

@@ -1,166 +1,245 @@
 <template>
   <div class="create-view-history">
-    <!-- 本地模式提示 -->
     <div v-if="historyLocalMode" class="history-local-mode-banner" data-testid="history-local-mode-banner">
-      {{ historyLocalModeText }}
+      {{ historyLocalModeText || tr('localMode') }}
     </div>
 
-    <!-- 加载状态 -->
-    <div v-if="historyLoading" class="loading-state">
-      <span class="spinner"></span>
-      <span>加载中...</span>
-    </div>
-
-    <!-- 空状态 -->
-    <div v-else-if="history.length === 0" class="empty-state">
-      <div class="empty-icon">📋</div>
-      <p>暂无创作记录</p>
-      <p class="empty-hint">开始创作后，记录将在此显示</p>
-    </div>
-
-    <!-- 有数据 -->
-    <template v-else>
-      <!-- 工具栏 -->
-      <div class="history-toolbar">
-        <div class="history-toolbar-left">
-          <label for="history-status-filter">状态</label>
-          <select id="history-status-filter" :value="historyFilter" @change="$emit('update:historyFilter', $event.target.value)" class="form-select history-filter">
-            <option value="all">全部</option>
-            <option value="running">进行中</option>
-            <option value="paused">已暂停</option>
-            <option value="failed">执行失败</option>
-            <option value="completed">已完成</option>
-            <option value="cancelled">已取消</option>
-          </select>
-        </div>
-        <span class="history-count">{{ filteredHistory.length }} 条记录</span>
-      </div>
-
-      <!-- 空筛选结果 -->
-      <div v-if="filteredHistory.length === 0" class="empty-state compact">
-        <p>没有符合条件的记录</p>
-      </div>
-
-      <!-- 历史列表 -->
-      <div v-else class="history-list">
-        <div
-          v-for="(h, i) in filteredHistory"
-          :key="h.projectId || h.id || i"
-          class="history-item"
-          :class="[
-            'status-' + (h.status || 'unknown'),
-            { 'is-running': h.status === 'running' }
-          ]"
-          @click="$emit('open-history', h)"
+    <div class="history-toolbar">
+      <div
+        class="history-status-tabs"
+        role="tablist"
+        :aria-label="tr('statusFilter')"
+        @keydown="onTablistKeydown"
+      >
+        <button
+          v-for="status in statusTabs"
+          :key="status"
+          ref="historyTabs"
+          type="button"
+          role="tab"
+          class="history-status-tab"
+          :class="{ active: activeFilter === status }"
+          :data-status="status"
+          :aria-selected="activeFilter === status ? 'true' : 'false'"
+          :tabindex="activeFilter === status ? 0 : -1"
+          @click="selectFilter(status)"
         >
-          <!-- 状态色条 -->
-          <div class="history-item-bar"></div>
+          <span>{{ tr('tabs.' + status) }}</span>
+          <span class="history-status-tab-count" aria-hidden="true">{{ statusCounts[status] }}</span>
+        </button>
+      </div>
+      <span class="history-count">{{ statusCounts.all }} {{ tr('records') }}</span>
+    </div>
 
-          <!-- 主内容区 -->
-          <div class="history-item-body">
-            <!-- 第一行：标题 + 状态 -->
-            <div class="history-item-row">
-              <span class="history-name" :title="h.title || pipelineName(h.pipeline || h.name)">
-                {{ h.title || pipelineName(h.pipeline || h.name) }}
-              </span>
-              <span v-if="h.pipeline || h.name" class="history-pipeline-tag">{{ pipelineName(h.pipeline || h.name) }}</span>
-              <span class="history-status" :class="historyStatusClass(h.status)">
-                {{ historyStatusIcon(h.status) }} {{ historyStatusLabel(h.status) }}
-              </span>
-            </div>
+    <div v-if="historyLoading" class="loading-state">
+      <span class="spinner" aria-hidden="true"></span>
+      <span>{{ tr('loading') }}</span>
+    </div>
+    <div v-else-if="history.length === 0" class="empty-state">
+      <div class="empty-icon" aria-hidden="true"></div>
+      <p>{{ tr('emptyTitle') }}</p>
+      <p class="empty-hint">{{ tr('emptyHint') }}</p>
+    </div>
+    <div v-else-if="filteredHistory.length === 0" class="empty-state compact">
+      <p>{{ tr('emptyFilter') }}</p>
+    </div>
 
-            <!-- 提示词预览 + 翻译（只读） -->
-            <div v-if="firstSegmentPreview(h)" class="history-item-row history-prompt-preview">
-              <span class="prompt-preview-text">{{ truncatePreview(firstSegmentPreview(h), 100) }}</span>
-              <div v-if="currentLocale() !== 'en' && firstSegmentTranslation(h)" class="prompt-translation-readonly">
-                <span class="translation-label">🌐</span>
-                <span class="translation-text">{{ truncatePreview(firstSegmentTranslation(h), 120) }}</span>
-              </div>
-            </div>
-            <!-- 第二行：提示信息 -->
-            <div v-if="h.status === 'running'" class="history-item-row history-running-hint">
-              <span class="hint-icon">🔄</span> 返回流水线创作查看进度
-            </div>
-            <div v-if="h.status === 'paused' && h.pausedStage" class="history-item-row history-paused-hint">
-              <span class="hint-icon">⏸</span> 暂停环节：{{ h.pausedStage }}
-            </div>
-            <div v-if="h.status === 'failed'" class="history-item-row history-failed-hint">
-              <span class="hint-icon">⚠</span>
-              <span v-if="h.pausedStage">失败环节：{{ h.pausedStage }}</span>
-              <span v-else-if="h.error">{{ truncateError(h.error) }}</span>
-              <span v-else>执行过程中出现错误</span>
-            </div>
-
-
-            <div v-if="h.createdAt || h.completedAt || h.duration || h.mode" class="history-meta">
-              <span v-if="h.createdAt" class="history-meta-item"><span class="history-meta-icon">🕐</span> {{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
-              <span v-if="h.duration" class="history-meta-item"><span class="history-meta-icon">⏱</span> {{ formatDuration(h.duration) }}</span>
-              <span v-if="h.mode" class="history-meta-item"><span class="history-meta-icon">⚙</span> {{ h.mode }}</span>
-              <span v-if="h.projectId" class="history-meta-item"><span class="history-meta-icon">📁</span> {{ h.projectId.slice(0, 8) }}</span>
-            </div>
-            <!-- 阶段进度（运行中/已暂停） -->
-            <div v-if="(h.status === 'running' || h.status === 'paused') && Array.isArray(h.stages) && h.stages.length > 0" class="history-progress">
-              <span
-                v-for="(s, si) in h.stages"
-                :key="si"
-                class="history-progress-seg"
-                :class="historyStageState(s)"
-                :title="historyStageTitle(s)"
-              >
-                {{ historyStageLabel(s) }}
+    <div v-else class="history-list" role="list">
+      <div
+        v-for="(item, index) in filteredHistory"
+        :key="historyIdentity(item, index)"
+        class="history-item"
+        :class="[
+          'status-' + (item.status || 'unknown'),
+          { 'is-running': item.status === 'running', 'is-interactive': item.status !== 'cancelled', 'is-cancelled': item.status === 'cancelled' },
+        ]"
+        :data-history-id="historyIdentity(item, index)"
+      >
+        <div
+          class="history-item-body"
+          :class="{ 'is-interactive': item.status !== 'cancelled' }"
+          :role="item.status !== 'cancelled' ? 'button' : undefined"
+          :tabindex="item.status !== 'cancelled' ? 0 : undefined"
+          :aria-label="item.status !== 'cancelled' ? tr('viewDetail') + ': ' + historyTitle(item) : undefined"
+          @click="openDetail(item)"
+          @keydown.enter.prevent="openDetail(item)"
+          @keydown.space.prevent="openDetail(item)"
+        >
+          <div class="history-item-row history-item-heading">
+            <div class="history-heading-copy">
+              <span class="history-name" :title="historyTitle(item)">{{ historyTitle(item) }}</span>
+              <span v-if="item.pipeline || item.name" class="history-pipeline-tag">
+                {{ pipelineName(item.pipeline || item.name) }}
               </span>
             </div>
+            <span class="history-status" :class="item.status || 'unknown'">
+              <span aria-hidden="true">{{ historyStatusIcon(item.status) }}</span>
+              {{ historyStatusLabel(item.status) }}
+            </span>
+          </div>
 
-            <!-- 底部：时间 + 操作 -->
-            <div class="history-item-footer">
-              <span class="history-time">{{ formatTime(h.updatedAt || h.completedAt || h.createdAt) }}</span>
-              <div class="history-actions">
-                <button
-                  v-if="(h.status === 'failed' || h.status === 'paused') && historyItemResumable(h)"
-                  class="s2v-btn-resume s2v-btn-sm"
-                  :disabled="story2videoResuming"
-                  @click.stop="$emit('resume-history', h)"
-                >
-                  {{ story2videoResuming ? '恢复中...' : '从断点继续' }}
-                </button>
-                <button
-                  v-else-if="h.status === 'running'"
-                  class="s2v-btn-resume s2v-btn-sm"
-                  :disabled="story2videoResuming"
-                  @click.stop="$emit('resume-history', h)"
-                >
-                  {{ story2videoResuming ? '恢复中...' : '继续生成' }}
-                </button>
-                <button
-                  v-if="h.projectId && h.recoverable !== false"
-                  class="s2v-btn-secondary s2v-btn-sm"
-                  @click.stop="$emit('open-history', h)"
-                >
-                  打开
-                </button>
-                <button
-                  v-if="h.projectId"
-                  class="s2v-btn-danger s2v-btn-sm"
-                  @click.stop="$emit('delete-history', h)"
-                >
-                  删除
-                </button>
-              </div>
+          <div v-if="firstSegmentPreview(item)" class="history-item-row history-prompt-preview">
+            <span class="history-field-label">{{ tr('promptPreview') }}</span>
+            <span class="prompt-preview-text">{{ truncate(firstSegmentPreview(item), 120) }}</span>
+            <div v-if="currentLocale() !== 'en' && firstSegmentTranslation(item)" class="prompt-translation-readonly">
+              <span class="translation-label">{{ tr('translation') }}</span>
+              <span class="translation-text">{{ truncate(firstSegmentTranslation(item), 140) }}</span>
             </div>
+          </div>
+
+          <div v-if="item.status === 'running'" class="history-state-detail history-running-hint">
+            {{ tr('runningHint') }}
+          </div>
+          <div v-if="item.status === 'paused'" class="history-state-detail history-paused-hint">
+            <div class="history-state-detail-row">
+              <span class="history-field-label">{{ tr('pausedStage') }}</span>
+              <span>{{ localizedStage(item.pausedStage || activeStage(item)) || tr('notAvailable') }}</span>
+            </div>
+            <div v-if="pauseEnvironment(item)" class="history-state-detail-row">
+              <span class="history-field-label">{{ tr('pauseEnvironment') }}</span>
+              <span>{{ localizedEnvironment(pauseEnvironment(item)) }}</span>
+            </div>
+          </div>
+          <div v-if="item.status === 'failed'" class="history-state-detail history-failed-hint">
+            <div class="history-state-detail-row">
+              <span class="history-field-label">{{ tr('failedStage') }}</span>
+              <span>{{ localizedStage(item.pausedStage || failedStage(item)) || tr('notAvailable') }}</span>
+            </div>
+            <div class="history-state-detail-row">
+              <span class="history-field-label">{{ tr('errorSummary') }}</span>
+              <span>{{ item.error ? truncate(item.error, 160) : tr('genericFailure') }}</span>
+            </div>
+          </div>
+
+          <dl class="history-meta-grid">
+            <div v-if="displayTime(item)" class="history-meta-item">
+              <dt>{{ tr('updatedAt') }}</dt><dd>{{ formatTime(displayTime(item)) }}</dd>
+            </div>
+            <div v-if="createdTime(item)" class="history-meta-item">
+              <dt>{{ tr('createdAt') }}</dt><dd>{{ formatTime(createdTime(item)) }}</dd>
+            </div>
+            <div v-if="item.duration || item.duration === 0" class="history-meta-item">
+              <dt>{{ tr('duration') }}</dt><dd>{{ formatDuration(item.duration) }}</dd>
+            </div>
+            <div v-if="item.mode" class="history-meta-item">
+              <dt>{{ tr('mode') }}</dt><dd>{{ localizedMode(item) }}</dd>
+            </div>
+            <div v-if="historyTaskId(item)" class="history-meta-item">
+              <dt>{{ item.projectId ? tr('projectId') : tr('taskId') }}</dt>
+              <dd :title="historyTaskId(item)">{{ shortenId(historyTaskId(item)) }}</dd>
+            </div>
+          </dl>
+
+          <div v-if="Array.isArray(item.stages) && item.stages.length" class="history-progress">
+            <span
+              v-for="(stage, stageIndex) in item.stages"
+              :key="stageIndex"
+              class="history-progress-seg"
+              :class="historyStageState(stage)"
+              :title="historyStageTitle(stage)"
+            >{{ historyStageLabel(stage) }}</span>
+          </div>
+
+          <span class="history-detail-hint">{{ item.status === 'cancelled' ? tr('cancelledHint') : tr('viewDetailHint') }}</span>
+        </div>
+
+        <div class="history-item-footer">
+          <div class="history-actions">
+              <button
+                v-if="['failed', 'paused'].includes(item.status) && historyItemResumable(item)"
+                type="button"
+                class="s2v-btn-resume s2v-btn-sm"
+                :disabled="story2videoResuming"
+                @click.stop="$emit('resume-history', item)"
+              >{{ story2videoResuming ? tr('resuming') : tr('resume') }}</button>
+              <button
+                v-else-if="item.status === 'running'"
+                type="button"
+                class="s2v-btn-resume s2v-btn-sm"
+                :disabled="story2videoResuming"
+                @click.stop="$emit('resume-history', item)"
+              >{{ story2videoResuming ? tr('resuming') : tr('continue') }}</button>
+              <button
+                v-if="item.status === 'completed' && item.projectId"
+                type="button"
+                class="s2v-btn-secondary s2v-btn-sm"
+                @click.stop="$emit('open-result', item)"
+              >{{ tr('openResult') }}</button>
+              <button
+                v-if="item.projectId"
+                type="button"
+                class="s2v-btn-danger s2v-btn-sm"
+                @click.stop="$emit('delete-history', item)"
+              >{{ tr('delete') }}</button>
           </div>
         </div>
       </div>
-    </template>
+    </div>
+
+    <UiModal :visible="Boolean(selectedHistoryItem)" :title="tr('detailTitle')" size="lg" @close="closeDetail">
+      <div v-if="selectedHistoryItem" class="history-detail-content" data-testid="history-detail-modal">
+        <div class="history-detail-header">
+          <strong>{{ historyTitle(selectedHistoryItem) }}</strong>
+          <span class="history-status" :class="selectedHistoryItem.status || 'unknown'">
+            {{ historyStatusLabel(selectedHistoryItem.status) }}
+          </span>
+        </div>
+        <dl class="history-detail-list">
+          <div><dt>{{ tr('pipeline') }}</dt><dd>{{ pipelineName(selectedHistoryItem.pipeline || selectedHistoryItem.name) }}</dd></div>
+          <div><dt>{{ tr('status') }}</dt><dd>{{ historyStatusLabel(selectedHistoryItem.status) }}</dd></div>
+          <div v-if="displayTime(selectedHistoryItem)"><dt>{{ tr('updatedAt') }}</dt><dd>{{ formatTime(displayTime(selectedHistoryItem)) }}</dd></div>
+          <div v-if="createdTime(selectedHistoryItem)"><dt>{{ tr('createdAt') }}</dt><dd>{{ formatTime(createdTime(selectedHistoryItem)) }}</dd></div>
+          <div v-if="selectedHistoryItem.duration !== undefined && selectedHistoryItem.duration !== null" data-testid="history-detail-duration"><dt>{{ tr('duration') }}</dt><dd>{{ formatDuration(selectedHistoryItem.duration) }}</dd></div>
+          <div v-if="historyTaskId(selectedHistoryItem)"><dt>{{ selectedHistoryItem.projectId ? tr('projectId') : tr('taskId') }}</dt><dd>{{ historyTaskId(selectedHistoryItem) }}</dd></div>
+          <div v-if="selectedHistoryItem.mode"><dt>{{ tr('mode') }}</dt><dd>{{ localizedMode(selectedHistoryItem) }}</dd></div>
+          <div v-if="firstSegmentPreview(selectedHistoryItem)" data-testid="history-detail-prompt"><dt>{{ tr('promptPreview') }}</dt><dd>{{ firstSegmentPreview(selectedHistoryItem) }}</dd></div>
+          <div v-if="currentLocale() !== 'en' && firstSegmentTranslation(selectedHistoryItem)" data-testid="history-detail-translation"><dt>{{ tr('translation') }}</dt><dd>{{ firstSegmentTranslation(selectedHistoryItem) }}</dd></div>
+          <div v-if="selectedHistoryItem.status === 'paused'"><dt>{{ tr('pausedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || activeStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
+          <div v-if="selectedHistoryItem.status === 'paused' && pauseEnvironment(selectedHistoryItem)"><dt>{{ tr('pauseEnvironment') }}</dt><dd>{{ localizedEnvironment(pauseEnvironment(selectedHistoryItem)) }}</dd></div>
+          <div v-if="selectedHistoryItem.status === 'failed'"><dt>{{ tr('failedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || failedStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
+          <div v-if="selectedHistoryItem.status === 'failed'" data-testid="history-detail-error"><dt>{{ tr('errorSummary') }}</dt><dd>{{ selectedHistoryItem.error || tr('genericFailure') }}</dd></div>
+        </dl>
+        <div v-if="Array.isArray(selectedHistoryItem.stages) && selectedHistoryItem.stages.length" class="history-detail-stages">
+          <span class="history-field-label">{{ tr('stages') }}</span>
+          <div class="history-progress">
+            <span v-for="(stage, index) in selectedHistoryItem.stages" :key="index" class="history-progress-seg" :class="historyStageState(stage)">
+              {{ historyStageLabel(stage) }}
+            </span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <button
+          v-if="selectedHistoryItem && historyItemResumable(selectedHistoryItem)"
+          type="button"
+          class="s2v-btn-resume s2v-btn-sm"
+          :disabled="story2videoResuming"
+          @click="resumeFromDetail"
+        >{{ story2videoResuming ? tr('resuming') : tr('resume') }}</button>
+        <button
+          v-if="selectedHistoryItem && selectedHistoryItem.status === 'completed' && selectedHistoryItem.projectId"
+          type="button"
+          class="s2v-btn-secondary s2v-btn-sm"
+          @click="openResultFromDetail"
+        >{{ tr('openResult') }}</button>
+        <button type="button" class="s2v-btn-secondary s2v-btn-sm" @click="closeDetail">{{ tr('close') }}</button>
+      </template>
+    </UiModal>
   </div>
 </template>
 
 <script>
 import '@/styles/history-panel.css'
+import UiModal from '@/components/UiModal.vue'
 import { getAppLocale } from '@/i18n'
-import { getPipelineName } from '@/i18n/pipeline-labels'
+import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
+import { filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
+
+const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'failed', 'completed', 'cancelled'])
 
 export default {
   name: 'CreateViewHistory',
+  components: { UiModal },
   props: {
     history: { type: Array, default: () => [] },
     historyLoading: { type: Boolean, default: false },
@@ -169,96 +248,148 @@ export default {
     historyFilter: { type: String, default: 'all' },
     story2videoResuming: { type: Boolean, default: false },
   },
-  emits: ['update:historyFilter', 'open-history', 'resume-history', 'delete-history'],
+  emits: ['update:historyFilter', 'open-history-detail', 'resume-history', 'open-result', 'delete-history'],
+  data () {
+    return {
+      activeFilter: HISTORY_STATUSES.includes(this.historyFilter) ? this.historyFilter : 'all',
+      selectedHistoryItem: null,
+      statusTabs: HISTORY_STATUSES,
+    }
+  },
   computed: {
-    filteredHistory() {
-      if (this.historyFilter === 'all') return this.history
-      if (this.historyFilter === 'paused') return this.history.filter(item => item.status === 'paused' || item.status === 'failed')
-      return this.history.filter(item => item.status === this.historyFilter)
-    },
+    filteredHistory () { return filterHistoryByStatus(this.history, this.activeFilter) },
+    statusCounts () { return historyStatusCounts(this.history) },
+  },
+  watch: {
+    historyFilter (value) { this.activeFilter = HISTORY_STATUSES.includes(value) ? value : 'all' },
   },
   methods: {
-    currentLocale () {
-      try { return getAppLocale() } catch (_) { return 'zh' }
+    tr (path) {
+      const key = 'create.history.' + path
+      try {
+        const value = this.$t?.(key)
+        return typeof value === 'string' && value !== key ? value : key
+      } catch (_) { return key }
     },
-    firstSegmentPreview (h) {
-      const segments = Array.isArray(h?.segments) ? h.segments : []
-      const first = segments.find(s => s && s.text)
-      return first?.text || ''
+    currentLocale () { try { return getAppLocale() } catch (_) { return 'zh' } },
+    selectFilter (status) {
+      if (!HISTORY_STATUSES.includes(status)) return
+      this.activeFilter = status
+      this.$emit('update:historyFilter', status)
     },
-    firstSegmentTranslation (h) {
-      const segments = Array.isArray(h?.segments) ? h.segments : []
-      const first = segments.find(s => s && (s.promptTranslation || s.prompt))
-      return first?.promptTranslation || null
+    onTablistKeydown (event) {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+      event.preventDefault()
+      const current = Math.max(0, HISTORY_STATUSES.indexOf(this.activeFilter))
+      const next = event.key === 'Home' ? 0
+        : event.key === 'End' ? HISTORY_STATUSES.length - 1
+          : event.key === 'ArrowLeft' ? (current - 1 + HISTORY_STATUSES.length) % HISTORY_STATUSES.length
+            : (current + 1) % HISTORY_STATUSES.length
+      this.selectFilter(HISTORY_STATUSES[next])
+      this.$nextTick(() => this.$refs.historyTabs?.[next]?.focus())
     },
-    truncatePreview (text, max) {
-      if (!text) return ''
-      const s = String(text)
-      return s.length > max ? s.slice(0, max) + '…' : s
+    historyIdentity (item, index) { return String(item?.id || item?.projectId || item?.runId || index) },
+    historyTaskId (item) { return item?.projectId || item?.id || item?.runId || '' },
+    historyTitle (item) { return item?.title || this.pipelineName(item?.pipeline || item?.name) || this.tr('untitled') },
+    openDetail (item) {
+      if (!item || item.status === 'cancelled') return
+      this.selectedHistoryItem = item
+      this.$emit('open-history-detail', item)
     },
-    pipelineName(id) {
-      return getPipelineName((key) => this.$t?.(key), id)
+    closeDetail () { this.selectedHistoryItem = null },
+    resumeFromDetail () {
+      const item = this.selectedHistoryItem
+      if (!item) return
+      this.closeDetail()
+      this.$emit('resume-history', item)
     },
-    historyStatusLabel(status) {
-      const labels = {
-        completed: '已完成',
-        failed: '执行失败',
-        cancelled: '已取消',
-        running: '进行中',
-        paused: '已暂停',
-        pending: '等待中',
+    openResultFromDetail () {
+      const item = this.selectedHistoryItem
+      if (!item?.projectId) return
+      this.closeDetail()
+      this.$emit('open-result', item)
+    },
+    firstSegmentPreview (item) {
+      return (Array.isArray(item?.segments) ? item.segments : []).find(segment => segment?.text)?.text || ''
+    },
+    firstSegmentTranslation (item) {
+      return (Array.isArray(item?.segments) ? item.segments : []).find(segment => segment?.promptTranslation)?.promptTranslation || ''
+    },
+    truncate (value, max) {
+      const text = String(value || '')
+      return text.length > max ? text.slice(0, max - 1) + '…' : text
+    },
+    pipelineName (id) { return getPipelineName(key => this.$t?.(key), id) },
+    localizedMode (item) {
+      return getPipelineMode(key => this.$t?.(key), item?.pipeline || item?.name) || String(item?.mode || '')
+    },
+    localizedStage (stage) { return stage ? getPipelineStage(key => this.$t?.(key), String(stage)) : '' },
+    historyStatusLabel (status) { return this.tr('statuses.' + (status || 'unknown')) },
+    historyStatusIcon (status) { return ({ completed: '✓', failed: '×', cancelled: '–', running: '↻', paused: 'Ⅱ', pending: '○' })[status] || '•' },
+    displayTime (item) { return historyDisplayTime(item) },
+    createdTime (item) { return historyDisplayTime({ createdAt: item?.createdAt, created_at: item?.created_at }) },
+    formatTime (value) {
+      const date = new Date(value)
+      if (!Number.isFinite(date.getTime())) return this.tr('notAvailable')
+      return new Intl.DateTimeFormat(this.currentLocale() === 'en' ? 'en-US' : 'zh-CN', {
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+      }).format(date)
+    },
+    historyItemResumable (item) {
+      if (!item || !['failed', 'paused'].includes(item.status) || !(item.id || item.runId)) return false
+      return !/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))
+    },
+    activeStage (item) {
+      const stage = (Array.isArray(item?.stages) ? item.stages : []).find(value => ['running', 'paused', 'waiting_approval'].includes(value?.status))
+      return stage ? (stage.name || stage.stage || '') : ''
+    },
+    failedStage (item) {
+      const stage = (Array.isArray(item?.stages) ? item.stages : []).find(value => value?.status === 'failed')
+      return stage ? (stage.name || stage.stage || '') : ''
+    },
+    pauseEnvironment (item) {
+      return item?.pausedEnvironment || item?.pauseEnvironment || item?.environment || item?.checkpoint?.environment || item?.checkpoint?.type || ''
+    },
+    localizedEnvironment (value) {
+      const normalized = String(value || '').replace(/-/g, '_')
+      const known = {
+        scene_asset_selection: 'environments.sceneAssetSelection',
+        waiting_approval: 'environments.waitingApproval',
+        needs_user_input: 'environments.needsUserInput',
+        local: 'environments.local',
       }
-      return labels[status] || status || '未知'
+      return known[normalized] ? this.tr(known[normalized]) : String(value)
     },
-    historyStatusClass(status) {
-      if (status === 'failed') return 'failed'
-      return status || 'unknown'
-    },
-    historyStatusIcon(status) {
-      const icons = { completed: '✓', failed: '✕', cancelled: '—', running: '⟳', paused: '⏸', pending: '○' }
-      return icons[status] || ''
-    },
-    formatTime(iso) {
-      if (!iso) return ''
-      return new Date(iso).toLocaleString('zh-CN')
-    },
-    historyItemResumable(item) {
-      if (!item || (item.status !== 'failed' && item.status !== 'paused') || !(item.id || item.runId)) return false
-      if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
-      return true
-    },
-    historyStageState(stage) {
-      if (!stage || typeof stage !== 'object') return ''
-      const status = stage.status || ''
+    historyStageState (stage) {
+      const status = stage && typeof stage === 'object' ? stage.status : ''
       if (status === 'completed') return 'done'
       if (status === 'running') return 'active'
-      if (status === 'failed' || status === 'needs_user_input' || status === 'cancelled') return 'failed'
+      if (['failed', 'needs_user_input', 'cancelled'].includes(status)) return 'failed'
       return 'pending'
     },
-    historyStageLabel(stage) {
-      if (!stage) return ''
-      return typeof stage === 'object' ? (stage.name || stage.stage || '') : String(stage)
+    historyStageRawLabel (stage) { return typeof stage === 'object' ? (stage?.name || stage?.stage || '') : String(stage || '') },
+    historyStageLabel (stage) {
+      const label = this.localizedStage(this.historyStageRawLabel(stage))
+      const progress = stage && typeof stage === 'object' ? stage.sceneProgress : null
+      return progress && Number.isFinite(progress.completed) && Number.isFinite(progress.total) && progress.total > 0
+        ? label + ' (' + progress.completed + '/' + progress.total + ')'
+        : label
     },
-    historyStageTitle(stage) {
-      const name = this.historyStageLabel(stage)
-      const status = stage && typeof stage === 'object' ? (stage.status || '') : ''
-      return name + (status ? ' · ' + status : '')
+    historyStageTitle (stage) {
+      const status = stage && typeof stage === 'object' ? stage.status : ''
+      return this.historyStageLabel(stage) + (status ? ' · ' + this.historyStatusLabel(status) : '')
     },
-    formatDuration(ms) {
-      if (!ms && ms !== 0) return ''
-      const mins = Math.floor(ms / 60000)
-      const secs = Math.floor((ms % 60000) / 1000)
-      if (mins > 0) return mins + ' 分钟 ' + secs + ' 秒'
-      return secs + ' 秒'
+    formatDuration (milliseconds) {
+      const value = Number(milliseconds)
+      if (!Number.isFinite(value) || value < 0) return this.tr('notAvailable')
+      const minutes = Math.floor(value / 60000)
+      const seconds = Math.floor((value % 60000) / 1000)
+      return minutes > 0 ? minutes + ' ' + this.tr('minutes') + ' ' + seconds + ' ' + this.tr('seconds') : seconds + ' ' + this.tr('seconds')
     },
-    truncateError(error) {
-      if (!error) return ''
-      const msg = String(error)
-      return msg.length > 60 ? msg.slice(0, 57) + '...' : msg
+    shortenId (value) {
+      const id = String(value || '')
+      return id.length > 14 ? id.slice(0, 8) + '…' + id.slice(-4) : id
     },
   },
 }
 </script>
-
-
-
