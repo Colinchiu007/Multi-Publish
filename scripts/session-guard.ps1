@@ -3,6 +3,8 @@
     声明当前会话的期望提交分支，供 pre-commit 分支守卫校验。
 .DESCRIPTION
     在共享主工作区开始时运行，把期望分支写入 .agent_context/expected-branch（+ session.json 元数据）。
+    共享主工作区只允许声明 main；运行时代码任务必须用 scripts/session-init.sh <task-name>
+    创建 D 盘独立 worktree。多个既有共享会话迁移时必须逐个串行处理。
     pre-commit 钩子（scripts/hooks/pre-commit）会强制校验当前分支与声明一致，
     docs-only 提交同样校验，防止共享工作区被并发会话切换后提交落到错误分支。
     隔离 worktree 由钩子自动声明，无需运行本脚本。
@@ -24,6 +26,16 @@ if (-not $root) {
     exit 1
 }
 
+$gitDir = git rev-parse --path-format=absolute --git-dir 2>$null
+$commonDir = git rev-parse --path-format=absolute --git-common-dir 2>$null
+if (-not $gitDir -or -not $commonDir) {
+    Write-Error "无法解析 Git worktree 元数据。"
+    exit 1
+}
+$gitDirPath = [System.IO.Path]::GetFullPath($gitDir).TrimEnd('\', '/')
+$commonDirPath = [System.IO.Path]::GetFullPath($commonDir).TrimEnd('\', '/')
+$isPrimaryRoot = [System.StringComparer]::OrdinalIgnoreCase.Equals($gitDirPath, $commonDirPath)
+
 # 未指定分支时自动使用当前分支（共享主工作区场景：运行瞬间的意图即当前分支）
 if (-not $Branch) {
     $Branch = git branch --show-current
@@ -33,6 +45,21 @@ if (-not $Branch) {
     }
     Write-Host "[session-guard] 未指定 -Branch，自动使用当前分支: $Branch"
 }
+
+if ($isPrimaryRoot -and $Branch -ne 'main') {
+    Write-Error "共享主工作区只允许声明 main，不能声明 '$Branch'。请运行 Git Bash：scripts/session-init.sh <task-name>，然后在输出的 D 盘独立 worktree 中继续。已有多个共享会话时必须逐个串行迁移。"
+    exit 1
+}
+
+$lockPath = Join-Path $commonDir 'session-guard.lock'
+try {
+    $lockStream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+} catch {
+    Write-Error "另一个 session-guard 正在更新会话声明，请稍后重试。锁: $lockPath"
+    exit 1
+}
+
+try {
 
 # 校验分支存在（本地或远端，精确匹配，避免后缀通配误判）
 $local = git for-each-ref --format='%(refname:short)' "refs/heads/$Branch"
@@ -48,24 +75,22 @@ $sessionFile = Join-Path $ctx 'session.json'
 
 # 防覆盖：共享工作区只允许一个活跃会话持有声明（否则并发会话覆盖声明会让守卫 fail-open）
 if (-not $Force -and (Test-Path $sessionFile)) {
+    $existing = $null
     try {
         $existing = Get-Content $sessionFile -Raw | ConvertFrom-Json
-        if ($existing.pid -and ([int]$existing.pid -ne $PID)) {
-            $alive = Get-Process -Id ([int]$existing.pid) -ErrorAction SilentlyContinue
-            if ($alive) {
-                Write-Error "检测到另一活跃会话已声明分支 '$($existing.branch)'（pid $($existing.pid)，startedAt $($existing.startedAt)）。共享工作区只允许一个会话持有声明，请改在独立 worktree 中工作；确要覆盖请加 -Force。"
-                exit 1
-            }
-            Write-Warning "既有声明（pid $($existing.pid)）进程已不存在，视为过期，将覆盖为 '$Branch'。"
-        }
     } catch {
         Write-Warning "无法解析既有 session.json（$($_.Exception.Message)），将覆盖声明。"
+    }
+    if ($existing -and $existing.pid -and ([int]$existing.pid -ne $PID)) {
+        $alive = Get-Process -Id ([int]$existing.pid) -ErrorAction SilentlyContinue
+        if ($alive) {
+            Write-Error "检测到另一活跃会话已声明分支 '$($existing.branch)'（pid $($existing.pid)，startedAt $($existing.startedAt)）。共享工作区只允许一个会话持有声明，请改在独立 worktree 中工作；确要覆盖请加 -Force。"
+        }
+        Write-Warning "既有声明（pid $($existing.pid)）进程已不存在，视为过期，将覆盖为 '$Branch'。"
     }
 }
 
 New-Item -ItemType Directory -Force -Path $ctx | Out-Null
-
-[System.IO.File]::WriteAllText($expectedFile, $Branch, (New-Object System.Text.UTF8Encoding($false)))
 
 $session = @{
     pid       = $PID
@@ -74,6 +99,11 @@ $session = @{
     worktree  = (Get-Location).Path
 } | ConvertTo-Json
 [System.IO.File]::WriteAllText($sessionFile, $session, (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText($expectedFile, $Branch, (New-Object System.Text.UTF8Encoding($false)))
 
-Write-Host "[session-guard] 会话分支声明已写入: $expectedFile"
-Write-Host "[session-guard] 声明分支: $Branch（pre-commit 将强制校验当前分支一致）"
+    Write-Host "[session-guard] 会话分支声明已写入: $expectedFile"
+    Write-Host "[session-guard] 声明分支: $Branch（pre-commit 将强制校验当前分支一致）"
+} finally {
+    $lockStream.Dispose()
+    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+}

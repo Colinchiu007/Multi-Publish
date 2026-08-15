@@ -9,8 +9,10 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MP_WORKTREES="D:/Data/projects/mp-worktrees"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CURRENT_ROOT="$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel)"
+REPO_ROOT="$(git -C "$CURRENT_ROOT" worktree list --porcelain | awk '/^worktree / {print substr($0,10); exit}')"
+MP_WORKTREES="${MP_WORKTREES:-D:/Data/projects/mp-worktrees}"
 
 cd "$REPO_ROOT"
 
@@ -26,33 +28,83 @@ shift || true
 case "$cmd" in
     start)
         TASK_NAME="${1:?用法: gwm-task.sh start <task-name>}"
+        if ! [[ "$TASK_NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+            echo -e "${RED}任务名必须是小写 kebab-case: $TASK_NAME${NC}"
+            exit 4
+        fi
         BRANCH="codex/$TASK_NAME"
         WT_PATH="$MP_WORKTREES/mp-$TASK_NAME"
+        COMMON_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)"
+        BOOTSTRAP_LOCK="$COMMON_DIR/ccg-worktree-bootstrap.lock"
+        LOCK_ACQUIRED=0
+        if mkdir "$BOOTSTRAP_LOCK" 2>/dev/null; then
+            LOCK_ACQUIRED=1
+        else
+            LOCK_PID="$(cat "$BOOTSTRAP_LOCK/pid" 2>/dev/null || true)"
+            if [ -n "$LOCK_PID" ] && ! kill -0 "$LOCK_PID" 2>/dev/null; then
+                rm -f "$BOOTSTRAP_LOCK/pid"
+                rmdir "$BOOTSTRAP_LOCK" 2>/dev/null || true
+                if mkdir "$BOOTSTRAP_LOCK" 2>/dev/null; then
+                    LOCK_ACQUIRED=1
+                fi
+            fi
+        fi
+        if [ "$LOCK_ACQUIRED" != "1" ]; then
+            echo -e "${RED}另一个 worktree bootstrap 正在运行；请等待后串行重试。锁: $BOOTSTRAP_LOCK${NC}"
+            exit 5
+        fi
+        printf '%s\n' "$$" > "$BOOTSTRAP_LOCK/pid"
+        release_bootstrap_lock() {
+            rm -f "$BOOTSTRAP_LOCK/pid"
+            rmdir "$BOOTSTRAP_LOCK" 2>/dev/null || true
+        }
+        trap release_bootstrap_lock EXIT
         
         # 1. 确保主目录在 main
-        MAIN_BRANCH=$(git branch --show-current)
+        MAIN_BRANCH=$(git -C "$REPO_ROOT" branch --show-current)
         if [ "$MAIN_BRANCH" != "main" ]; then
             echo -e "${YELLOW}主目录不在 main ($MAIN_BRANCH)，自动修复...${NC}"
-            bash "$(dirname "$0")/session-init.sh"
+            "$BASH" "$SCRIPT_DIR/session-init.sh"
         fi
+
+        if [ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
+            echo -e "${RED}主目录 main 存在未提交文件，拒绝创建任务 worktree。${NC}"
+            echo "先保护这些文件并恢复干净状态。"
+            exit 2
+        fi
+
+        git -C "$REPO_ROOT" fetch --prune origin
         
         # 2. 创建 worktree
         if [ -d "$WT_PATH" ]; then
+            EXPECTED_COMMON="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)"
+            EXISTING_COMMON="$(git -C "$WT_PATH" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+            if [ "$EXISTING_COMMON" != "$EXPECTED_COMMON" ]; then
+                echo -e "${RED}worktree 路径已存在但不属于当前仓库: $WT_PATH${NC}"
+                exit 3
+            fi
+            EXISTING_BRANCH="$(git -C "$WT_PATH" branch --show-current 2>/dev/null || true)"
+            if [ "$EXISTING_BRANCH" != "$BRANCH" ]; then
+                echo -e "${RED}worktree 路径已存在但分支不匹配: $EXISTING_BRANCH（期望 $BRANCH）${NC}"
+                exit 3
+            fi
             echo -e "${YELLOW}worktree 已存在: $WT_PATH${NC}"
-            echo -e "分支: $(cd "$WT_PATH" && git branch --show-current)"
+            echo -e "分支: $EXISTING_BRANCH"
         else
             echo -e "${CYAN}创建 worktree: $TASK_NAME${NC}"
             
-            if git branch --list "$BRANCH" | grep -q "$BRANCH"; then
-                git worktree add "$WT_PATH" "$BRANCH"
+            if git -C "$REPO_ROOT" branch --list "$BRANCH" | grep -q "$BRANCH"; then
+                git -C "$REPO_ROOT" worktree add "$WT_PATH" "$BRANCH"
             else
-                git worktree add -b "$BRANCH" "$WT_PATH"
+                git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WT_PATH" origin/main
             fi
             echo -e "${GREEN}✓ worktree 创建完成${NC}"
         fi
+        release_bootstrap_lock
+        trap - EXIT
         
         # 3. 安装依赖
-        if [ -f "$WT_PATH/package.json" ]; then
+        if [ "${GWM_SKIP_DEPS:-0}" != "1" ] && [ -f "$WT_PATH/package.json" ]; then
             echo -e "${CYAN}安装依赖...${NC}"
             cd "$WT_PATH"
             pnpm install --frozen-lockfile 2>/dev/null && \
@@ -107,11 +159,11 @@ case "$cmd" in
         ;;
     
     cleanup)
-        bash "$(dirname "$0")/session-cleanup.sh" "${1:-}"
+        "$BASH" "$SCRIPT_DIR/session-cleanup.sh" "${1:-}"
         ;;
     
     cleanup-all)
-        bash "$(dirname "$0")/session-cleanup.sh" --all-safe
+        "$BASH" "$SCRIPT_DIR/session-cleanup.sh" --all-safe
         ;;
     
     help|*)

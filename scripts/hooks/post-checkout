@@ -1,0 +1,61 @@
+#!/bin/bash
+# Shared-root branch guard. Git has no pre-checkout hook, so this hook detects
+# the completed checkout and either restores main or records a fail-closed incident.
+set -u
+
+BRANCH_CHECKOUT="${3:-0}"
+[ "$BRANCH_CHECKOUT" = "1" ] || exit 0
+
+GIT_DIR="$(git rev-parse --git-dir 2>/dev/null || true)"
+case "$GIT_DIR" in
+    /*) ;;
+    *) GIT_DIR="$(git rev-parse --path-format=absolute --git-dir 2>/dev/null || true)" ;;
+esac
+if [ -d "$GIT_DIR/rebase-merge" ] || [ -d "$GIT_DIR/rebase-apply" ]; then
+    exit 0
+fi
+
+CURRENT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+[ -n "$CURRENT_ROOT" ] && [ -n "$COMMON_DIR" ] || exit 0
+
+# Linked worktrees have a per-worktree git-dir below <common>/.git/worktrees.
+if [ "$GIT_DIR" != "$COMMON_DIR" ] && [ "$GIT_DIR" != "$COMMON_DIR/.git" ]; then
+    exit 0
+fi
+
+PRIMARY_ROOT="$(git worktree list --porcelain 2>/dev/null | awk '/^worktree / {print substr($0,10); exit}')"
+[ -n "$PRIMARY_ROOT" ] && [ "$CURRENT_ROOT" = "$PRIMARY_ROOT" ] || exit 0
+
+CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
+MARKER="$CURRENT_ROOT/.agent_context/shared-root-violation"
+
+if [ "$CURRENT_BRANCH" = "main" ]; then
+    rm -f "$MARKER"
+    exit 0
+fi
+VIOLATION_LABEL="${CURRENT_BRANCH:-detached HEAD}"
+
+mkdir -p "$(dirname "$MARKER")"
+
+if [ "${CCG_SHARED_ROOT_RECOVERY:-0}" = "1" ]; then
+    exit 1
+fi
+
+# Recovery is only safe when no user state would be overwritten. Never stash or clean from a hook.
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    printf 'shared root switched to %s with local changes; restore manually with git switch main\n' "$VIOLATION_LABEL" > "$MARKER"
+    echo "[shared-root-guard] Refusing automatic recovery: local changes or untracked files exist." >&2
+    echo "[shared-root-guard] Preserve them, then run: git switch main" >&2
+    exit 1
+fi
+
+if ! CCG_SHARED_ROOT_RECOVERY=1 git switch main >/dev/null 2>&1; then
+    printf 'shared root switched to %s; automatic switch to main failed; run git switch main manually\n' "$VIOLATION_LABEL" > "$MARKER"
+    echo "[shared-root-guard] Could not restore main; commit protection is enabled until recovery." >&2
+    exit 1
+fi
+
+rm -f "$MARKER"
+echo "[shared-root-guard] Restored shared repository root to main. Use a dedicated worktree for task work." >&2
+exit 1
