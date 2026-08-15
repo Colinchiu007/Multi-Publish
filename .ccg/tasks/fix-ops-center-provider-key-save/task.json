@@ -1,0 +1,13 @@
+{
+  "id": "fix-ops-center-provider-key-save",
+  "title": "运营后台模型密钥保存 500 修复",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "review",
+  "nextAction": "提交修复分支并创建 PR，等待 CI 与合并",
+  "createdAt": "2026-08-15T15:30:00+08:00",
+  "branch": "codex/fix-ops-center-provider-key-save",
+  "openspecChange": "ops-center-provider-key-save-error"
+}

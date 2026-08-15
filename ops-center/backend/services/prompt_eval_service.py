@@ -14,6 +14,7 @@ import uuid
 from cryptography.fernet import Fernet
 from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from models import PromptEvalCase, PromptEvalRun, PromptEvalProviderKey
 from services import prompt_eval_contract as contract
@@ -238,6 +239,7 @@ async def get_provider_key(db: AsyncSession, provider: str, model: str, secret: 
 
 
 async def upsert_provider_key(db: AsyncSession, body: dict, username: str, secret: str) -> dict:
+    _require_secret(secret)
     existing = (await db.execute(select(PromptEvalProviderKey).where(
         PromptEvalProviderKey.provider == str(body.get("provider") or "").strip(),
         PromptEvalProviderKey.model == str(body.get("model") or "").strip(),
