@@ -1,0 +1,16 @@
+{
+  "id": "fix-ops-center-provider-key-save",
+  "title": "运营后台模型密钥保存 500 修复",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "PR #855 已合并，CI 全绿；执行 OpenSpec 与 CCG 三同步归档",
+  "createdAt": "2026-08-15T15:30:00+08:00",
+  "branch": "codex/fix-ops-center-provider-key-save",
+  "openspecChange": "ops-center-provider-key-save-error",
+  "remoteStatus": "merged",
+  "pullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/855",
+  "mergeCommit": "71a994148480a0dddaf586ae1d45e0b46b5b393f"
+}
