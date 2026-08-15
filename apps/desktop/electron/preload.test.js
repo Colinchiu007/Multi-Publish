@@ -69,6 +69,7 @@ const PUBLISH_METHODS = [
   'story2videoReplaceSegmentAudio',
   'story2videoRetrySegment', 'story2videoRecomposeProject', 'story2videoTranscribe',
   'story2videoSelectSceneMaterial', 'story2videoGenerateSceneImage', 'story2videoGenerateSceneVideo',
+  'story2videoGenerateSceneAiVideo',
   'story2videoRegenerateSceneSubtitle', 'story2videoRegenerateSceneAudio', 'story2videoRegenerateScenePrompt',
   'story2videoCapabilities',
   'story2videoBatchCreate', 'story2videoBatchStatus', 'story2videoBatchCancel', 'story2videoPickBatchFiles',
@@ -194,7 +195,7 @@ describe('preload 子模块方法数', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
     // 92（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
-    expect(Object.keys(r).length).toBe(99)
+    expect(Object.keys(r).length).toBe(100)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -213,12 +214,12 @@ describe('preload 子模块方法数', () => {
 
   it('合并后 api 总键数应为 289（含 videoClone 命名空间与批量创作）', () => {
     // 282（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles
-    expect(Object.keys(api).length).toBe(289)
+    expect(Object.keys(api).length).toBe(290)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
     // 80（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
-    expect(PUBLISH_METHODS.length).toBe(87)
+    expect(PUBLISH_METHODS.length).toBe(88)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',
@@ -348,6 +349,7 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
     ['story2videoSelectSceneMaterial', 'story2video:select-scene-material', ['project-1', 'segment-0', 'image2']],
     ['story2videoGenerateSceneImage', 'story2video:generate-scene-image', ['project-1', 'segment-0']],
     ['story2videoGenerateSceneVideo', 'story2video:generate-scene-video', ['project-1', 'segment-0']],
+    ['story2videoGenerateSceneAiVideo', 'story2video:generate-scene-ai-video', ['project-1', 'segment-0']],
   ]
 
   beforeEach(() => {

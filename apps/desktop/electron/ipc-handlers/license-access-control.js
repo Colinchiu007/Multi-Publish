@@ -115,6 +115,7 @@ const LOGIN_ONLY_FEATURE_MAP = Object.freeze({
   'story2video:select-scene-material': 'story2video_write',
   'story2video:generate-scene-image': 'story2video_write',
   'story2video:generate-scene-video': 'story2video_write',
+  'story2video:generate-scene-ai-video': 'story2video_write',
   'story2video:regenerate-scene-subtitle': 'story2video_write',
   'story2video:regenerate-scene-audio': 'story2video_write',
   'story2video:regenerate-scene-prompt': 'story2video_write',

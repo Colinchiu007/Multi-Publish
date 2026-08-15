@@ -161,6 +161,7 @@ var require_publish = __commonJS({
         story2videoSelectSceneMaterial: (projectId, segmentId, kind) => ipcRenderer2.invoke("story2video:select-scene-material", { projectId, segmentId, kind }),
         story2videoGenerateSceneImage: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-image", { projectId, segmentId }),
         story2videoGenerateSceneVideo: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-video", { projectId, segmentId }),
+        story2videoGenerateSceneAiVideo: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-ai-video", { projectId, segmentId }),
         story2videoRegenerateSceneSubtitle: (projectId, segmentId) => ipcRenderer2.invoke("story2video:regenerate-scene-subtitle", { projectId, segmentId }),
         story2videoRegenerateSceneAudio: (projectId, segmentId) => ipcRenderer2.invoke("story2video:regenerate-scene-audio", { projectId, segmentId }),
         story2videoRegenerateScenePrompt: (projectId, segmentId, kind) => ipcRenderer2.invoke("story2video:regenerate-scene-prompt", { projectId, segmentId, kind }),

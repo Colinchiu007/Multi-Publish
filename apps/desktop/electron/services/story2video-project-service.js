@@ -19,6 +19,10 @@ const {
   normalizeStory2VideoTextParams,
 } = require('./story2video-text-config')
 const { splitSubtitleBlocks } = require('./story2video-segmentation')
+const {
+  generateSceneVideo: generateAiSceneVideo,
+  estimateSceneSeconds,
+} = require('./story2video-stages')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 
 const SETTING_KEY = 'story2video_projects_v1'
@@ -29,6 +33,19 @@ const MAX_VIDEO_BYTES = 512 * 1024 * 1024
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,100}$/
 // 场景素材槽位身份：image1 = imagePath、image2 = alternateImages[0].path、video = videoPath
 const MATERIAL_KINDS = ['image1', 'image2', 'video']
+
+/**
+ * 解析输出分辨率字符串（如 720x1280 / 1080×1920），非法返回 null（与流水线 parseOutputSize 语义对齐）。
+ */
+function parseOutputSize (value) {
+  if (typeof value !== 'string') return null
+  const match = value.match(/^\s*(\d{2,5})\s*[xX\u00d7]\s*(\d{2,5})\s*$/)
+  if (!match) return null
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 160 || height < 160 || width > 4096 || height > 4096) return null
+  return { width, height }
+}
 
 function getUserDataDir () {
   if (!process.versions.electron) return os.tmpdir()
@@ -209,6 +226,8 @@ class Story2VideoProjectService {
     this.aiGenerator = options.aiGenerator || null
     this.serviceBus = options.serviceBus || null
     this.modelProviderManager = options.modelProviderManager || null
+    this.generateSceneVideoStage = options.generateSceneVideoStage || generateAiSceneVideo
+    this.estimateSceneSecondsStage = options.estimateSceneSecondsStage || estimateSceneSeconds
     this.log = options.log || require('./logger')
     this.projectsDir = path.resolve(options.projectsDir || path.join(getUserDataDir(), 'story2video-projects'))
     this.maxProjects = Number.isInteger(options.maxProjects) && options.maxProjects > 0
@@ -222,7 +241,7 @@ class Story2VideoProjectService {
   _serializeProject (projectId, task) {
     const key = String(projectId || '')
     const previous = this._projectQueues.get(key) || Promise.resolve()
-    const next = previous.then(() => task()).finally(() => {
+    const next = previous.catch(() => {}).then(() => task()).finally(() => {
       if (this._projectQueues.get(key) === next) this._projectQueues.delete(key)
     })
     this._projectQueues.set(key, next)
@@ -1039,6 +1058,119 @@ class Story2VideoProjectService {
       this._cleanupProjectFiles(projectDir, attemptFiles)
       throw error
     }
+  }
+
+  /**
+   * 重新生成 AI 视频素材（历史记录场景内容闭环 W4）：
+   * 以分段 videoPrompt（缺省回退 prompt/text）为提示词，走模型管理器默认 video 能力
+   * 提交 generateVideo → 轮询 getVideoStatus → 下载校验后替换 videoPath。
+   * 与流水线 generate_assets 阶段同一契约（复用 stages 导出的 generateSceneVideo）。
+   * 失败保留旧视频、清理本次产物并回写 failed。
+   */
+  async generateSceneAiVideo (projectId, segmentId) {
+    const project = this.getProject(projectId)
+    const previousProject = { ...project, segments: project.segments.map(item => ({ ...item })) }
+    this._assertId(segmentId, 'segmentId')
+    const index = project.segments.findIndex(segment => segment.id === segmentId)
+    if (index < 0) throw new Error('分段不存在')
+    const segment = { ...project.segments[index], status: 'processing' }
+    const promptText = safeText(segment.videoPrompt || segment.prompt || segment.text, 20000)
+    if (!promptText || !promptText.trim()) {
+      throw new Error('该场景没有视频优化词，请先编辑或重新生成视频优化词')
+    }
+    const manager = this.modelProviderManager
+    if (!manager || typeof manager.callAdapter !== 'function' || typeof manager.getDefault !== 'function') {
+      throw new Error('AI 视频生成服务不可用，请在模型设置中启用视频供应商')
+    }
+    const generator = this._defaultVideoGenerator(manager)
+    if (!generator) throw new Error('未配置可用的视频供应商，请在模型设置中启用视频生成能力')
+    const projectDir = this._projectDir(projectId)
+    const destination = path.join(projectDir, segment.id + '_video_ai_' + Date.now() + '.mp4')
+    const attemptFiles = new Set([destination])
+    try {
+      const seconds = this.estimateSceneSecondsStage({ duration: segment.duration }, project.options && project.options.defaultSceneDuration)
+      const size = this._videoSize(project.options || {})
+      const fps = Number(project.options && project.options.fps) > 0 ? Number(project.options.fps) : 30
+      const runDir = path.join(os.tmpdir(), 'story2video', 'videoscenes', 'history_' + projectId)
+      const outcome = await this.generateSceneVideoStage({
+        manager,
+        providerId: generator.providerId,
+        model: generator.model,
+        prompt: promptText,
+        index: segment.sourceIndex ?? index,
+        seconds,
+        size,
+        fps,
+        runDir,
+        pollIntervalMs: Number(project.options && project.options.video && project.options.video.pollIntervalMs) > 0 ? Number(project.options.video.pollIntervalMs) : 10000,
+      })
+      if (!outcome || !outcome.success || !outcome.path) {
+        throw new Error((outcome && outcome.error) || 'AI 视频生成失败')
+      }
+      const copiedVideo = this._copyRequired(outcome.path, destination, 'video')
+      segment.videoPath = copiedVideo
+      segment.videoMeta = { provider: generator.providerId, model: generator.model || null, source: 'ai-video' }
+      segment.status = 'completed'
+      project.segments[index] = segment
+      project.dirty = true
+      project.updatedAt = new Date().toISOString()
+      const saved = this._upsertProject(project)
+      this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+      return saved
+    } catch (error) {
+      project.segments[index] = {
+        ...previousProject.segments[index],
+        status: 'failed',
+        error: error.message,
+      }
+      project.updatedAt = new Date().toISOString()
+      try { this._upsertProject(project) } catch (storageError) {
+        if (this.log && typeof this.log.warn === 'function') this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
+      }
+      this._cleanupProjectFiles(projectDir, attemptFiles)
+      throw error
+    }
+  }
+
+  /** 默认视频生成器：模型管理器默认 video provider（与流水线 resolveVideoGeneratorConfig fallback 同源）。 */
+  _defaultVideoGenerator (manager) {
+    const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault('video') : null
+    if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
+    const models = Array.isArray(provider.models)
+      ? provider.models.filter(item => typeof item === 'string' && item.trim())
+      : []
+    let model
+    if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
+      const videoModel = provider.capability_models.video
+      model = models.includes(videoModel) ? videoModel : (videoModel || models[0] || '')
+    } else {
+      model = models[0] || ''
+    }
+    return { providerId: provider.id.trim(), model: model ? model.trim() : '' }
+  }
+
+  /** 视频生成尺寸：优先输出分辨率，否则按宽高比映射，长边封顶 1280（与流水线 resolveVideoSize 同源）。 */
+  _videoSize (options) {
+    const fromSize = parseOutputSize(options.resolution || options.size)
+    if (fromSize) return fromSize
+    const ratio = options.aspectRatio || '9:16'
+    const map = {
+      '16:9': [1280, 720],
+      '9:16': [720, 1280],
+      '1:1': [1024, 1024],
+      '4:3': [1280, 960],
+      '3:4': [960, 1280],
+    }
+    const pair = map[ratio] || map['9:16']
+    let width = pair[0]
+    let height = pair[1]
+    const longEdge = Math.max(width, height)
+    if (longEdge > 1280) {
+      const scale = 1280 / longEdge
+      width = Math.max(160, Math.round(width * scale))
+      height = Math.max(160, Math.round(height * scale))
+    }
+    return { width, height }
   }
 
   async generateSceneImage (projectId, segmentId) {
