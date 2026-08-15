@@ -1,3 +1,23 @@
+## 提示词评测图片生成 MiniMax 404 复盘（fix-ops-center-image-gen-minimax，2026-08-15）
+
+- **现象**：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`；MiniMax 密钥（minimax-image/image-01）保存与「测试连通」均正常（PR #861 已修探测）。
+- **根因**：`prompt_eval_generation_service.generate_images()` 对所有 provider 统一请求 OpenAI 兼容 `{base}/images/generations`；MiniMax 图片生成是**专有端点** `POST {base}/image_generation`，请求体无 `size`、响应是 `data.image_base64`（base64 模式）/ `data.image_urls`（url 模式）+ `base_resp.status_code`。
+- **教训 1（生成类 provider 不能假设 OpenAI 兼容）**：MiniMax image-01 与 OpenAI 兼容「差一个端点」——`/images/generations`（404）vs `/image_generation`。凡是直连第三方生成 provider，端点、请求体字段、响应结构、业务错误载体四项必须按官方契约逐一核对；mock 响应必须用真实契约形状，否则测试反向固化错误行为（既有用例用 OpenAI 形状 mock minimax，正好掩盖了这个 bug）。
+- **教训 2（业务失败载体各不同）**：OpenAI 兼容用 HTTP 状态码，MiniMax 用 `base_resp.status_code`（HTTP 200 也可能业务失败）；且 base64 模式返回 `data.image_base64`、url 模式才返回 `data.image_urls`，字段名差异会导致「404 修成空结果」的二次事故。fail-closed 判定要同时覆盖「HTTP 状态」与「业务状态码」（类型归一），且业务失败不进入重试。
+- **教训 3（数量上限与返回数量差异要显式校验）**：前端允许 image_count 1-20，MiniMax `n` 仅 1-9；不做显式校验会把非法请求透传给 provider（400 文案难懂）。返回图片数 != 请求数也要 fail closed（覆盖 failed_count>0），避免评估阶段图片数与维度权重错位。
+- **逃逸链**：单测 mock minimax 用 OpenAI 兼容响应形状（测试质量不足）；生成服务初版未按 provider 差异建模（审查盲区）。
+- **回归保护**：`test_prompt_eval_services.py` 新增 8 场景（MiniMax 端点/payload 断言、base64 落盘含 data URL 前缀、URL 下载、业务失败 fail closed 不重试、字符串 status_code 不误判、数量不符 fail closed、n 越界拒绝、flux 含 base_resp 不被误拦截）。
+
+## 提示词评测图片生成 MiniMax 404 复盘（fix-ops-center-image-gen-minimax，2026-08-15）
+
+- **现象**：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`；MiniMax 密钥（minimax-image/image-01）保存与「测试连通」均正常（PR #861 已修探测）。
+- **根因**：`prompt_eval_generation_service.generate_images()` 对所有 provider 统一请求 OpenAI 兼容 `{base}/images/generations`；MiniMax 图片生成是**专有端点** `POST {base}/image_generation`，请求体无 `size`、响应是 `data.image_urls` + `base_resp.status_code`。
+- **教训 1（生成类 provider 不能假设 OpenAI 兼容）**：MiniMax image-01 与 OpenAI 兼容「差一个端点」——`/images/generations`（404）vs `/image_generation`。凡是直连第三方生成 provider，端点、请求体字段、响应结构、业务错误载体四项必须按官方契约逐一核对；mock 响应必须用真实契约形状，否则测试反向固化错误行为（既有用例用 OpenAI 形状 mock minimax，正好掩盖了这个 bug）。
+- **教训 2（业务失败载体各不同）**：OpenAI 兼容用 HTTP 状态码，MiniMax 用 `base_resp.status_code`（HTTP 200 也可能业务失败）。fail-closed 判定要同时覆盖「HTTP 状态」与「业务状态码」，且业务失败不进入重试。
+- **教训 3（数量上限差异要显式校验）**：前端允许 image_count 1-20，MiniMax `n` 仅 1-9；不做显式校验会把非法请求透传给 provider（400 文案难懂）。fail closed 抛可操作中文错误。
+- **逃逸链**：单测 mock minimax 用 OpenAI 兼容响应形状（测试质量不足）；生成服务初版未按 provider 差异建模（审查盲区）。
+- **回归保护**：`test_prompt_eval_services.py` 新增 8 场景（MiniMax 端点/payload 断言、base64 落盘含 data URL 前缀、URL 下载、业务失败 fail closed 不重试、字符串 status_code 不误判、数量不符 fail closed、n 越界拒绝、flux 含 base_resp 不被误拦截）。
+
 ## 模型密钥删除功能复盘（fix-ops-center-provider-key-delete，2026-08-15）
 
 - **需求**：运营后台「模型密钥」无删除入口，配错的密钥（provider/model 填错、密钥失效）无法移除，只能改 model 绕过或留脏数据。
