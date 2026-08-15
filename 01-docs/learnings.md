@@ -13475,3 +13475,27 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **永久修复**：共享主目录定义为 main-only 协调目录；新增 `post-checkout` 在干净状态递归安全恢复 `main`，脏状态或恢复失败时保留现场并写 `.agent_context/shared-root-violation`；`pre-commit` 在 marker 存在时 fail closed；`session-init.sh <task-name>` 只创建/复用 `D:/Data/projects/mp-worktrees/mp-<task-name>` + `codex/<task-name>`，错误分支或其他仓库占位均拒绝。
 - **迁移与工具边界**：多个任务已经共享一个 cwd 时必须暂停 Git 写入并逐个串行迁移，禁止并行 handoff/stash/checkout。Windows 上此流程固定使用 `D:/Program Files/Git/usr/bin/bash.exe` 或 Git Bash；裸 `bash` 在本机可能落到不可用 WSL。回滚仅重新安装上一版本 hooks，不删除恢复 stash；worktree 删除继续逐个运行 `scripts/safe-worktree-remove.ps1`。
 - **归档回补**：`session-guard.ps1` 的“另一活跃会话声明不可覆盖”（`session.json` pid 存活时拒绝，除非 `-Force`）在修复落地时缺少对应回归测试；归档任务补上该场景（`session-guard.test.ps1` 新增断言），避免后续把 fail-open 退化当通过。共享主目录必须保持 `main` 且干净，stash 列表里的恢复项与另一会话的未跟踪目录均不得触碰。
+
+## Story2Video 50 分钟上限后的固定 ffmpeg 超时与通用错误提示复盘（2026-08-15）
+
+### 第一性原因
+- 产品时长上限调整到 50 分钟只改了 compose 预检；e39e22cfa 引入的 concat 60s，以及 e1b46eba 引入的旁白/BGM/WebM/输出校验 120s/120s/180s/60s，仍按短成片设计。此前 feffc5da 只把单段编码改为动态预算，没有覆盖全片下游阶段。
+- fed08eed 引入 Story2Video 通知归一化时，未知错误统一安全回退，但没有定义“成片总时长 / 单段旁白 / 合成阶段 timeout”的稳定消息键。更隐蔽的是 Node execFile 的 timeout 错误可能只有 killed=true、signal=SIGTERM，message 不含 timeout，单靠 renderer 正则无法可靠分类。
+
+### 逃逸链与系统性漏洞
+1. 单元测试：耗时方法大量 mock；只覆盖短媒体与固定 timeout 数值，没有 3000s 预算矩阵，也没有 killed + SIGTERM 的子进程错误形态。
+2. 集成测试：真实 ffmpeg fixture 约 0.25-4s，无法触发长成片预算；阶段调用链未断言旁白使用真实音频总时长、BGM/WebM/校验使用预计成片时长。
+3. E2E：没有接近 50 分钟的长成片，因成本高而未覆盖；通知 E2E 只验证通用 fallback，反而固化了“具体原因不可见”。
+4. 代码审查：上限变更只审了预检常量，没有沿调用链搜索所有 timeout；错误映射审查只看文本 pattern，没有核对 execFile 的真实 error 结构。
+5. 分类：测试场景缺失 + 审查盲区 + 产品上限与执行预算联动流程缺失。
+
+### 修复与回归保护
+- 新增统一有界预算 helper：按 duration × factor + overhead 计算，再钳制阶段最小值和硬上限；concat/xfade/旁白/BGM/WebM/校验分别使用当前阶段对应媒体时长。
+- execFile timeout 在主进程统一归一为带阶段语义的 ETIMEDOUT；renderer 只映射稳定错误合同，不猜某一种 stderr。
+- 新增三类通知键与 zh/en 文案；只显示缩短/拆分、磁盘/负载检查和断点重试建议，不回显路径、命令、stderr、token 或堆栈。
+- 回归覆盖短片下限、3000s、非法时长、阶段上限、阶段时长传参、killed + SIGTERM、通知优先级与技术细节脱敏。
+
+### 预防措施
+- “提高产品媒体时长上限”审查必须沿链检查：输入校验 → 中间产物 → 所有子进程 timeout → 输出校验 → 用户错误映射；只改入口常量不算完成。
+- 子进程 timeout 分类必须在执行边界归一化；renderer 不得把操作系统 signal/message 当稳定 API。该规则已写入 .ccg/spec/frontend/index.md。
+- 长媒体测试不必真的生成 50 分钟文件，但必须同时具备预算数学测试、调用链传参测试和至少一组短媒体真实 ffmpeg 冒烟；三者互补，不能只 mock 或只跑短片。

@@ -33,6 +33,27 @@ const {
 } = require('./story2video-segmentation')
 
 const execFileAsync = promisify(execFile)
+
+function isFfmpegStageTimeoutError (error) {
+  return error?.code === 'ETIMEDOUT' || (error?.killed === true && error?.signal === 'SIGTERM')
+}
+
+function normalizeFfmpegStageError (error, stage) {
+  if (!isFfmpegStageTimeoutError(error)) return error
+  const timeoutError = new Error(stage + ' ffmpeg stage timed out')
+  timeoutError.code = 'ETIMEDOUT'
+  timeoutError.cause = error
+  return timeoutError
+}
+
+async function execFfmpegStage (args, options, stage) {
+  try {
+    return await execFileAsync(FFMPEG, args, options)
+  } catch (error) {
+    throw normalizeFfmpegStageError(error, stage)
+  }
+}
+
 // BGM 降级原因机器码（单一 i18n 来源约定）：warnings 只含机器码，不含用户可见文案；
 // 文案统一由前端依据 data.bgmSkippedReason 本地化（story2video-notifications 的
 // bgmSkippedReasonText/formatBgmSkippedNotification），服务层不硬编码中文（2026-08-10）。
@@ -288,14 +309,31 @@ function computeSegmentEncodeTimeoutMs (effectDuration, fps) {
   return Math.max(30000, Math.min(300000, estimatedMs + 20000))
 }
 
+const FFMPEG_STAGE_TIMEOUT_PROFILES = Object.freeze({
+  concat: Object.freeze({ minMs: 60000, factor: 0.25, overheadMs: 30000, maxMs: 30 * 60 * 1000 }),
+  narration: Object.freeze({ minMs: 120000, factor: 2, overheadMs: 30000, maxMs: 2 * 60 * 60 * 1000 }),
+  bgm: Object.freeze({ minMs: 120000, factor: 2, overheadMs: 30000, maxMs: 2 * 60 * 60 * 1000 }),
+  webm: Object.freeze({ minMs: 180000, factor: 6, overheadMs: 120000, maxMs: 6 * 60 * 60 * 1000 }),
+  validate: Object.freeze({ minMs: 60000, factor: 2, overheadMs: 30000, maxMs: 2 * 60 * 60 * 1000 }),
+  xfade: Object.freeze({ minMs: 120000, factor: 3, overheadMs: 120000, maxMs: 6 * 60 * 60 * 1000 }),
+})
+
+function computeFfmpegStageTimeoutMs (stage, durationSeconds) {
+  const profile = FFMPEG_STAGE_TIMEOUT_PROFILES[stage]
+  if (!profile) throw new Error('Unknown ffmpeg timeout stage: ' + stage)
+  const seconds = Number(durationSeconds)
+  if (!Number.isFinite(seconds) || seconds <= 0) return profile.minMs
+  const estimatedMs = Math.ceil(seconds * profile.factor * 1000) + profile.overheadMs
+  return Math.min(profile.maxMs, Math.max(profile.minMs, estimatedMs))
+}
+
 /**
  * xfade/acrossfade 合并的编码超时：整段输出全量重编码，固定 120s 会杀掉长视频合并
  * （真实复现：27 场景 ~337s 成片，chunk 合并需 5+ 分钟，120s 超时导致 compose 失败，2026-08-11）。
  * 公式：max(2 分钟, 输出时长 × 3 + 2 分钟)——假设最低 1.5x 实时编码速度 + 大幅余量。
  */
 function computeMergeEncodeTimeoutMs (outputSeconds) {
-  const seconds = Math.max(0.1, Number(outputSeconds) || 30)
-  return Math.max(120000, Math.ceil(seconds * 1000 * 3) + 120000)
+  return computeFfmpegStageTimeoutMs('xfade', outputSeconds)
 }
 
 /**
@@ -901,6 +939,24 @@ class Story2VideoComposeEngine {
       return { code: -1, message: 'All segments failed to create' }
     }
 
+    const estimatedNarrationDuration = scenes.reduce((sum, scene, index) => {
+      const reportedDuration = Number(scene.duration)
+      const fallbackDuration = Number.isFinite(reportedDuration) && reportedDuration > 0 ? reportedDuration : 0
+      const probedDuration = Number(probedAudioDurations[index])
+      const audioDuration = Number.isFinite(probedDuration) && probedDuration > 0
+        ? probedDuration
+        : fallbackDuration
+      return sum + audioDuration
+    }, 0)
+    const segmentDurationTotal = segmentDurations.reduce((sum, duration) => sum + duration, 0)
+    const transitionName = TRANSITION_NAMES[transition]
+    const finalTransitionPlan = transitionName
+      ? buildTransitionPlan(segmentDurations, options?.transitionDuration, transitionName)
+      : null
+    const estimatedOutputDuration = finalTransitionPlan?.enabled
+      ? finalTransitionPlan.totalDuration
+      : segmentDurationTotal
+
     // 子进度：进入拼接（含 chunked 递归合成，权重拓宽到 87 避免长视频停滞）
     emitComposeProgress({
       phase: 'concat',
@@ -950,7 +1006,13 @@ class Story2VideoComposeEngine {
     // 3. 将所有分段旁白合并为独立音频，结果页可播放和下载完整旁白。
     const narrationPath = path.join(sessionDir, 'narration.m4a')
     try {
-      await this._concatNarrationAudio(scenes.map(scene => scene.audioPath), narrationPath, sessionDir, voiceVolume)
+      await this._concatNarrationAudio(
+        scenes.map(scene => scene.audioPath),
+        narrationPath,
+        sessionDir,
+        voiceVolume,
+        estimatedNarrationDuration,
+      )
     } catch (e) {
       this._cleanupSession(sessionDir)
       return { code: -1, message: 'Narration concat failed: ' + e.message }
@@ -983,7 +1045,7 @@ class Story2VideoComposeEngine {
         })
         const mixedPath = path.join(sessionDir, 'mixed.mp4')
         try {
-          await this._mixBgm(composedPath, bgmPath, mixedPath, options?.bgmVolume)
+          await this._mixBgm(composedPath, bgmPath, mixedPath, options?.bgmVolume, estimatedOutputDuration)
           composedPath = mixedPath
         } catch (e) {
           this._cleanupSession(sessionDir)
@@ -1003,7 +1065,7 @@ class Story2VideoComposeEngine {
       })
       const webmPath = path.join(sessionDir, 'output.webm')
       try {
-        await this._transcodeWebm(composedPath, webmPath)
+        await this._transcodeWebm(composedPath, webmPath, estimatedOutputDuration)
         composedPath = webmPath
       } catch (e) {
         this._cleanupSession(sessionDir)
@@ -1027,7 +1089,7 @@ class Story2VideoComposeEngine {
     }
     if (options?.validateOutput !== false) {
       try {
-        await this._validateOutput(composedPath)
+        await this._validateOutput(composedPath, estimatedOutputDuration)
       } catch (e) {
         this._cleanupSession(sessionDir)
         return { code: -1, message: 'Output validation failed: ' + e.message }
@@ -1035,11 +1097,7 @@ class Story2VideoComposeEngine {
     }
 
     const measuredOutputDuration = await this._probeMediaDuration(composedPath)
-    const calculatedOutputDuration = segmentDurations.reduce((sum, duration) => sum + duration, 0)
-      - (transition !== 'none'
-        ? buildTransitionPlan(segmentDurations, options?.transitionDuration).transitions
-          .reduce((sum, item) => sum + item.duration, 0)
-        : 0)
+    const calculatedOutputDuration = estimatedOutputDuration
     const outputDuration = measuredOutputDuration || Math.max(0, calculatedOutputDuration)
 
     // 6. 成功后，将成片、完整旁白和分段视频移到 outputDir 根目录。
@@ -1547,7 +1605,8 @@ class Story2VideoComposeEngine {
       }
       this.log.warn('Story2VideoCompose', 'Segment durations are too short or unknown; falling back to concat without transition')
     }
-    await this._plainConcat(segments, outputPath, sessionDir)
+    const durations = Array.isArray(options?.segmentDurations) ? options.segmentDurations : []
+    await this._plainConcat(segments, outputPath, sessionDir, durations)
   }
 
   /**
@@ -1583,14 +1642,14 @@ class Story2VideoComposeEngine {
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]
     // 超时随输出时长动态计算（长视频全量重编码，2026-08-11 真实 bug 修复）
     const mergeTimeout = computeMergeEncodeTimeoutMs(plan.totalDuration)
-    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: mergeTimeout, maxBuffer: 2 * 1024 * 1024 })
+    const { stderr } = await execFfmpegStage(args, { timeout: mergeTimeout, maxBuffer: 2 * 1024 * 1024 }, 'xfade merge')
     if (!hasUsableFile(outputPath)) {
       throw new Error('ffmpeg xfade did not produce output: ' + (stderr || '').slice(-200))
     }
   }
 
   /** 使用 concat demuxer 无损拼接（无转场）。@private */
-  async _plainConcat (segments, outputPath, sessionDir) {
+  async _plainConcat (segments, outputPath, sessionDir, segmentDurations) {
     const listFile = path.join(sessionDir, 'concat_list.txt')
     const listContent = segments.map(s => "file '" + s.replace(/\\/g, '/').replace(/'/g, "'\\''") + "'").join('\n')
     fs.writeFileSync(listFile, listContent, 'utf-8')
@@ -1602,7 +1661,12 @@ class Story2VideoComposeEngine {
       outputPath,
     ]
 
-    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: 60000, maxBuffer: 1024 * 1024 })
+    const durations = Array.isArray(segmentDurations) ? segmentDurations : []
+    const totalDuration = durations.length === segments.length && durations.every(value => Number.isFinite(Number(value)) && Number(value) > 0)
+      ? durations.reduce((sum, value) => sum + Number(value), 0)
+      : null
+    const concatTimeout = computeFfmpegStageTimeoutMs('concat', totalDuration)
+    const { stderr } = await execFfmpegStage(args, { timeout: concatTimeout, maxBuffer: 1024 * 1024 }, 'concat')
     if (!hasUsableFile(outputPath)) {
       throw new Error('ffmpeg concat did not produce output: ' + (stderr || '').slice(-200))
     }
@@ -1633,8 +1697,11 @@ class Story2VideoComposeEngine {
         chunkDurations.push(plan.totalDuration)
       } else {
         // 块内无法使用转场（时长未知/过短）→ 无损拼接该块
-        await this._plainConcat(part, intermediate, sessionDir)
-        chunkDurations.push(null)
+        await this._plainConcat(part, intermediate, sessionDir, partDurations)
+        const partDuration = partDurations.length === part.length && partDurations.every(value => Number.isFinite(Number(value)) && Number(value) > 0)
+          ? partDurations.reduce((sum, value) => sum + Number(value), 0)
+          : null
+        chunkDurations.push(partDuration)
       }
       intermediatePaths.push(intermediate)
       // 每完成一块立即上报（87→89 之间按块推进），消除长列表拼接期"假卡死"
@@ -1659,7 +1726,7 @@ class Story2VideoComposeEngine {
   }
 
   /** 将所有旁白解码后顺序拼接，避免旧实现只保留第一段音频。 */
-  async _concatNarrationAudio (audioPaths, outputPath, _sessionDir, voiceVolume) {
+  async _concatNarrationAudio (audioPaths, outputPath, _sessionDir, voiceVolume, estimatedDuration) {
     if (!Array.isArray(audioPaths) || audioPaths.length === 0) throw new Error('No narration audio')
     const inputs = []
     const labels = []
@@ -1670,54 +1737,54 @@ class Story2VideoComposeEngine {
     const normalizedVolume = clampNumber(voiceVolume, 0, 2, 1)
     const filter = labels.join('') + 'concat=n=' + audioPaths.length + ':v=0:a=1[concat]' +
       (normalizedVolume === 1 ? ';[concat]anull[aout]' : ';[concat]volume=' + normalizedVolume.toFixed(3) + '[aout]')
-    const { stderr } = await execFileAsync(FFMPEG, [
+    const { stderr } = await execFfmpegStage([
       '-y', ...inputs,
       '-filter_complex', filter,
       '-map', '[aout]', '-c:a', 'aac', '-b:a', '128k',
       outputPath,
-    ], { timeout: 120000, maxBuffer: 2 * 1024 * 1024 })
+    ], { timeout: computeFfmpegStageTimeoutMs('narration', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, 'narration concat')
     if (!hasUsableFile(outputPath)) {
       throw new Error((stderr || 'ffmpeg did not produce narration audio').slice(-300))
     }
   }
 
   /** 将 BGM 按指定音量混入成片，BGM 不足时循环到视频结束。 */
-  async _mixBgm (videoPath, bgmPath, outputPath, volume) {
+  async _mixBgm (videoPath, bgmPath, outputPath, volume, estimatedDuration) {
     let level = Number(volume)
     if (level > 1) level /= 10
     level = clampNumber(level, 0, 1, 0.3)
     const filter = '[1:a]volume=' + level.toFixed(3) + '[bgm];' +
       '[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]'
-    const { stderr } = await execFileAsync(FFMPEG, [
+    const { stderr } = await execFfmpegStage([
       '-y', '-i', videoPath, '-stream_loop', '-1', '-i', bgmPath,
       '-filter_complex', filter,
       '-map', '0:v:0', '-map', '[aout]',
       '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath,
-    ], { timeout: 120000, maxBuffer: 2 * 1024 * 1024 })
+    ], { timeout: computeFfmpegStageTimeoutMs('bgm', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, 'bgm mix')
     if (!hasUsableFile(outputPath)) {
       throw new Error((stderr || 'ffmpeg did not produce mixed output').slice(-300))
     }
   }
 
   /** 将最终 MP4 中间产物转码为 WebM，保持 UI format 选项与输出一致。 */
-  async _transcodeWebm (inputPath, outputPath) {
-    const { stderr } = await execFileAsync(FFMPEG, [
+  async _transcodeWebm (inputPath, outputPath, estimatedDuration) {
+    const { stderr } = await execFfmpegStage([
       '-y', '-i', inputPath,
       '-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0',
       '-c:a', 'libopus', '-b:a', '128k',
       outputPath,
-    ], { timeout: 180000, maxBuffer: 2 * 1024 * 1024 })
+    ], { timeout: computeFfmpegStageTimeoutMs('webm', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, 'webm transcode')
     if (!hasUsableFile(outputPath)) {
       throw new Error((stderr || 'ffmpeg did not produce WebM output').slice(-300))
     }
   }
 
   /** 用 ffmpeg 解码检查输出是否为可播放视频。 */
-  async _validateOutput (filePath) {
+  async _validateOutput (filePath, estimatedDuration) {
     if (!hasUsableFile(filePath)) throw new Error('file is missing or empty')
-    const { stderr } = await execFileAsync(FFMPEG, [
+    const { stderr } = await execFfmpegStage([
       '-v', 'error', '-i', filePath, '-map', '0:v:0', '-f', 'null', '-',
-    ], { timeout: 60000, maxBuffer: 512 * 1024 })
+    ], { timeout: computeFfmpegStageTimeoutMs('validate', estimatedDuration), maxBuffer: 512 * 1024 }, 'output validation')
     if (stderr && stderr.trim()) throw new Error(stderr.trim().slice(-400))
   }
 }
@@ -1736,6 +1803,9 @@ module.exports = {
   buildSubtitleFilter,
   buildWatermarkFilter,
   buildScaleFilter,
+  computeFfmpegStageTimeoutMs,
+  isFfmpegStageTimeoutError,
+  normalizeFfmpegStageError,
   computeSegmentEncodeTimeoutMs,
   computeMergeEncodeTimeoutMs,
   resolveMaxOutputDimensions,

@@ -43,6 +43,19 @@ describe('Story2Video 通知模型', () => {
     })
   })
 
+  it('resolve 路径将时长超限和合成超时映射到专用 key', () => {
+    expect(resolveStory2VideoNotification({ error: '成片总时长不能超过 50 分钟' })).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_DURATION_EXCEEDED,
+      params: { limitMinutes: 50 },
+    })
+    expect(resolveStory2VideoNotification({ error: '单段旁白时长不能超过 3 分钟' })).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_SEGMENT_DURATION_EXCEEDED,
+    })
+    expect(resolveStory2VideoNotification({ error: 'WebM transcode failed: ffmpeg timed out' }, { locale: 'en-US' })).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_TIMEOUT,
+    })
+  })
+
   it('识别生成限流错误，展示带场景号的友好文案，且技术细节不泄漏', () => {
     const resolved = resolveStory2VideoNotification({
       error: 'Story2Video optimize failed: Story2Video optimize scene 22 failed: You\'ve reached the API rate limit for free users. (request id: 202608060521497814857554AuUFtW2)',
