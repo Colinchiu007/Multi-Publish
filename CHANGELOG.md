@@ -23,24 +23,6 @@
 - 修复：`parse_and_validate` 先 `_strip_think` 剥离思维链（含未闭合截断尾巴），`_extract_json_text` 支持 ```json 围栏（含不在开头）并兜底提取首个 `{` 到最后一个 `}`；解析失败保持 fail closed。
 - 回归：`test_prompt_eval_services.py` 新增 4 场景（`<think>`+围栏 / 无围栏前导文本 / 仅思维链 fail closed / 未闭合截断 fail closed）；目标套件 17 passed；全量 pytest 290 passed / 4 failed（scheduler 存量顺序污染 + engine_dual 存量 flaky，单跑均通过，与本改动零交集）。
 
-## [2026-08-16] fix(story2video): 字幕分句 v1.2.3 成词保护与小数点豁免（三端同步 + 回归）
-
-- 现象：能/够、就/是、做/成、在/上、动/态、规/划、专/属 等成词被切；
-  713.3毫米 被劈成 713.+3毫米；个 入 good_tail 后出现 个/性 劈词风险。
-- 根因：Step 3/6 切点判定只看切点两侧单字（good_lead/good_tail/bad_followers），
-  无「前瞻检查」——不检查切点是否落在双字词内；半角点同时是句界/标点集成员，
-  数字中的小数点被误当切分锚点；标点分割后 clean 去掉末尾标点，短尾块无法被
-  merge_short 捕获，最终把 扶余国、电视剧 等词语切断（v1.2 已修，v1.2.3 继续加固）。
-- 修复：word_split.no_cut_bigrams（29 词）成词保护——切点两侧构成成词即非好切点
-  （_is_good_cut 与第二趟 _word_safe_split 双检查）；小数点豁免三处（句界/切分锚点/
-  区间锚点，Python/TS/JS 一致）；good_tail_blockers(性) 独立排除集（不误伤
-  的|电视、是|这位 等好切点）；孤悬 4 字尾回退 + tail_min 软约束；
-  ad_followers 增 性例同位类群众平方公里恢复度态济划属（堵 动/态、规/划、专/属）。
-- 回归：sidecar pytest 502 passed（新增 7 例）；MP TS 引擎 148 / JS 分句套件 122 passed；
-  文帝进京 3 块（10/10/9）、挥刀自宫 4 块与用户期望逐字一致；713.3 不劈；
-  parity 语料 +10 句（三端逐字一致）；8002 同源临时实例 HTTP 验证通过。
-
-
 ## [2026-08-15] fix(ops-center): 提示词评测「生成图片并评估」MiniMax 404 修复（/image_generation 契约）
 
 - 现象：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`。
