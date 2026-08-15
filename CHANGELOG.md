@@ -1,3 +1,11 @@
+## [2026-08-16] feat(ops-center): 模型密钥「设为默认」——LLM/视觉/生图用途分组唯一
+
+- 需求：运营后台「模型密钥」增加「设为默认」；同类（同一用途分组）只能有一个默认，跨分组互不影响。用途分组：LLM=`minimax-llm`；视觉=`minimax-vision`/`opencode-go-vision`；生图=`minimax-image`/`flux`/`hunyuan`。
+- 后端：`prompt_eval_provider_keys` 新增 `is_default` 列（幂等迁移 `ensure_provider_default_column`，仅补列时按分组回填默认——provider 优先级 + 每 provider 最新启用键，列已存在不动用户设置）；新路由 `PUT /api/v1/prompt-eval/providers/{id}/default`（admin，同组事务清 0）；upsert 分组首个启用键自动默认 + 禁用默认键清空不转移；`get_llm_key`/`get_vision_key` 默认优先、无默认回退旧逻辑；分组映射收敛到 `prompt_eval_contract` 单一事实来源（迁移导入轻量，无 database 副作用）。
+- 前端：默认徽标列 + 「设为默认」按钮（已默认/禁用/未分组置灰）；编辑弹窗 provider/model 锁定（编辑走更新分支不产生重复键）。
+- 回归：目标套件 44 passed（含分组唯一/403/401/404/禁用 400/未分组 400/选择优先默认/禁用清空/删除回退/迁移回填幂等）；全量 pytest 295 passed / 3 failed（scheduler 既有顺序污染，与本改动零交集）；前端 build ✓。
+- 审查：Claude 双轮复审 APPROVE（W1 迁移回填 provider 优先级防跨 provider 翻转、W2 迁移导入轻量化、W4 编辑锁确认均落实并补测试）；antigravity 地区不可用降级记录。
+- 交付：PR #871 已合并（squash `87ae8a61`）；CI 全绿；后端已重启，真实 DB 回填三密钥各分组默认=1，API 真实链路复验通过（登录/列表/PUT default）；OpenSpec change 已归档。
 ## [2026-08-16] fix(story2video): 字幕分句 v1.2.3 成词保护与小数点豁免（三端同步 + 回归）
 
 - 现象：`能/够`、`就/是`、`做/成`、`在/上`、`动/态`、`规/划`、`专/属` 等成词被切；
@@ -4594,3 +4602,4 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - Story2Video compose 生成关联 composeId，结构化记录合成/阶段生命周期、FFmpeg PID 与结果、超时、空输出、产物字节数和安全 stderr 摘要。
 - 分块合成新增开始/成功/失败及每 10 秒输出字节心跳（30 秒无增长 WARN），保留既有 merge_l{level}_chunk_{n} created 诊断文本和 87%→89% 前端进度。
 - 日志只保留 basename 和非敏感诊断元数据；不记录绝对路径、完整 FFmpeg 参数、素材内容或凭据。此变更改善定位能力，不改变转场、编码参数、并发或实际耗时。
+
