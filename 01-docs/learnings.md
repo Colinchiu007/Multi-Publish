@@ -1,3 +1,13 @@
+## 内容政策失败恢复按钮差异与插值契约复盘（s2v-resume-btn-policy-hint，2026-08-16）
+
+- **现象**：视频创作历史记录里最新失败任务（内容政策拦截）没有「从断点继续」按钮，旧任务有。用户以为是回归，实为主进程恢复守卫判定该失败不可原样恢复（`PIPELINE_USER_INPUT_REQUIRED`），前端历史卡片判定未覆盖相同关键字，行为不一致。
+- **根因**：主进程 `pipeline-engine.js` `resumeOrchestration` 用 `/needs_user_input|content[_\s-]?policy|CONTENT_POLICY/i` 拦截，前端历史区恢复判定各自维护关键字，且不覆盖中文「内容政策」（主进程拒绝文案）——同一业务规则两份关键字清单，必然漂移。
+- **教训 1（关键字规则必须单一来源）**：跨进程/跨组件的业务判定关键字应集中导出（`RESUME_BLOCKING_ERROR_PATTERN`），派生正则（场景提取）用 `.source` 复用，禁止另维护清单。
+- **教训 2（vue-i18n 函数消息不做 {named} 插值）**：`i18n/index.js` 的 `toMessageFunctions` 把全部字符串语料转成 `() => source`，vue-i18n v11 对函数消息直接返回、不插值。带参数的新文案必须写成 `(ctx) => … ctx.named('name') …`（文件头注释已声明此约定）。组件测试的 `$t` mock 若手动拼接参数，会掩盖真实插值失效——mock 应复刻 `toMessageFunctions` + 函数消息调用语义，让插值契约进入断言。
+- **逃逸链**：历史卡片判定与主进程守卫无共享契约测试（审查盲区）；新文案测试用「聪明 mock」拼接场景号，真实插值 bug 全绿通过（测试质量不足）。
+- **回归保护**：`RESUME_BLOCKING_ERROR_PATTERN` 变体矩阵 + 中文变体场景提取（history-utils.test.js）；`CreateViewHistory.test.js` 的 `$t` mock 复刻真实函数消息调用并断言渲染文案；后续新增恢复类关键字/提示文案必须走共享常量与函数消息，并跑三个相关 vitest 文件。
+
+
 ## 字幕分句成词保护缺失复盘（subtitle-split-quality，2026-08-16）
 
 - **现象**：`能/够`、`就/是`、`做/成`、`在/上`、`动/态`、`规/划`、`专/属` 等成词被切；

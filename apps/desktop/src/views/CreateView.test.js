@@ -1673,6 +1673,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.orchestrationError).toBe("");
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.preview_missing",
       messageParams: {},
+      rawError: '',
     });
     expect(alertSpy).not.toHaveBeenCalled();
 
@@ -1698,6 +1699,7 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.model_configuration_required",
       messageParams: {},
+      rawError: "Story2Video 默认 LLM 不可用，请先完成模型设置",
     });
     expect(alertSpy).not.toHaveBeenCalled();
 
@@ -1724,6 +1726,7 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.access_denied",
       messageParams: {},
+      rawError: "当前许可证无权访问 pipeline:startOrchestrated",
     });
     w.unmount();
   });
@@ -2376,6 +2379,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.text_input_only",
       messageParams: {},
+      rawError: '',
     });
     expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
@@ -3071,6 +3075,22 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
+  it("实时失败对话框对 content-policy（连字符）错误隐藏「从断点继续」", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-policy-live";
+    w.vm.showStory2VideoErrorDialog({ error: "Image #49: Image generation requires user input after content-policy review" });
+    await nextTick();
+    expect(w.vm.canResumeStory2Video).toBe(false);
+    // 非政策失败不受影响，仍显示「从断点继续」
+    w.vm.showStory2VideoErrorDialog({ error: "provider timeout, please retry" });
+    await nextTick();
+    expect(w.vm.canResumeStory2Video).toBe(true);
+    w.unmount();
+  });
+
   it("可把当前参数保存为自定义模板、重新应用并删除", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
@@ -3120,6 +3140,7 @@ describe("CreateView - UI interactions", () => {
     expect(w.find(".history-error").exists()).toBe(false);
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.history_load_failed",
       messageParams: {},
+      rawError: '',
     });
   });
 
