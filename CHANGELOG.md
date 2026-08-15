@@ -1,3 +1,9 @@
+## [2026-08-15] fix(ops-center): 模型密钥「测试连通」支持 MiniMax 图片模型（400 回退 /models）
+
+- 现象：运营后台「模型密钥」新增 MiniMax 图片模型（image-01）后点「测试」，报 `HTTP 400: invalid params, unknown model 'image-01'`，密钥实际有效。
+- 根因：`test_provider_connection` 先 POST `chat/completions` 探测，仅 404/405 才回退 `GET /models`；MiniMax 对「模型不适用 chat 端点」返回 400（unknown model），被误判失败。
+- 修复：回退条件扩展为「404/405 无条件；400 需错误体命中模型关键字（unknown model / invalid model 等）」；`/models` 可达即判定连通成功并注明「/models 可达」；非模型类 400/401/403/5xx 保持直接失败。
+- 回归：`test_provider_connection_probe` +3 场景（400 模型错误回退成功、400 非模型错误不回退、401 无回退调用），目标套件 28 passed；全量 280 passed（3 个 scheduler 存量顺序污染失败，基线同复现，与本变更无关）。
 ## [2026-08-15] fix(story2video): 合成成功后的结果页误报隔离
 
 - 根因：最终阶段先发送 `pipeline:complete`，再同步保存 Story2Video 项目，结果页存在约 1.15 秒的持久化竞态；结果页的大范围 `try/catch` 又把旁白或场景素材预览失败误报为任务失败。

@@ -109,10 +109,11 @@ async def test_provider_connection_probe():
     assert client.calls[0]["url"] == "https://x/v1/chat/completions"
     assert client.calls[0]["json"]["max_tokens"] == 1
 
-    # 2) chat 401 → ValueError 带状态码
+    # 2) chat 401 → ValueError 带状态码，且不触发 /models 回退
     client2 = FakeClient([FakeResponse(401, {}, "unauthorized")])
     with pytest.raises(svc.ValueError if hasattr(svc, "ValueError") else ValueError, match="401"):
         await svc.test_provider_connection(db, {"provider": "x", "model": "m", "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client2)
+    assert len(client2.calls) == 1
 
     # 3) chat 404 → fallback /models 200 → ok
     client3 = FakeClient([FakeResponse(404, {}, "nf"), FakeResponse(200, {})])
@@ -127,6 +128,27 @@ async def test_provider_connection_probe():
     # 5) 无 api_key 且未保存 → ValueError
     with pytest.raises(ValueError, match="API Key"):
         await svc.test_provider_connection(db, {"provider": "flux", "model": "f", "base_url": "https://x/v1"}, "s", http=FakeClient([]))
+
+    # 6) chat 400（MiniMax 图片模型 unknown model）→ fallback /models 200 → ok
+    client6 = FakeClient([FakeResponse(400, {}, "invalid params, unknown model 'image-01'"), FakeResponse(200, {})])
+    r6 = await svc.test_provider_connection(db, {"provider": "minimax-image", "model": "image-01",
+                                                 "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client6)
+    assert r6["ok"] is True and "/models" in r6["detail"]
+    assert client6.calls[1]["url"] == "https://x/v1/models"
+    assert len(client6.calls) == 2
+
+    # 7) chat 400 + models 404 → ValueError 提示真实生成验证（不误判成功）
+    client7 = FakeClient([FakeResponse(400, {}, "unknown model"), FakeResponse(404, {}, "nf")])
+    with pytest.raises(ValueError, match="真实生成"):
+        await svc.test_provider_connection(db, {"provider": "minimax-image", "model": "image-01",
+                                                 "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client7)
+
+    # 8) chat 400 非模型类错误（参数非法等）→ 不回退，直接失败
+    client8 = FakeClient([FakeResponse(400, {}, "invalid request body")])
+    with pytest.raises(ValueError, match="400"):
+        await svc.test_provider_connection(db, {"provider": "minimax-image", "model": "image-01",
+                                                 "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client8)
+    assert len(client8.calls) == 1
 
 
 def test_strip_think_block():
