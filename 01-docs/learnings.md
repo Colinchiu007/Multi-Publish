@@ -13467,6 +13467,17 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 经验沉淀（审查清单更新点）
 - **新增「控制信号 vs 业务数据」审查项**：任何 `Promise.resolve` 值被透传给下一层时，先确认 resolve 值集合里是否存在非业务数据的控制信号（cancel/timeout/close），若有必须在消费边界拦截并规格化（OpenSpec 场景）。
 - **IPC 返回契约测试**：主进程 IPC handler 的返回形状（含取消/超时分支）必须有契约测试钉死，渲染层的 mock 不能替代主进程侧断言。
+# 历史记录状态标签与统一排序复盘（2026-08-15）
+
+## QM-5
+- **第一性原因**：旧实现把状态优先级和时间排序耦合，并让卡片整体承担恢复/导航语义；`41930e6b` 的组件拆分保留了该交互耦合，`99cbddd2` 又暴露失败状态合并问题，最终造成最新失败/暂停任务被已完成任务掩盖。
+- **逃逸分析**：单测只有同状态/简单历史 fixture，缺少混合状态更新时间、epoch 0、键盘标签与按钮冒泡场景；集成/E2E 没有历史详情字段和取消态不可点击断言；视觉审查没有覆盖窄屏标签与详情信息密度。
+- **系统性漏洞**：测试场景缺失 + UI 交互设计审查盲区。
+- **修复与回归保护**：新增 `history-utils` 纯排序/筛选测试、`CreateViewHistory` 标签/详情/动作测试、CreateView 混合时间排序测试；暂停/失败字段通过 zh/en locale 合同校验。
+- **预防措施**：以后历史列表复用单一有效时间工具；组件模板必须分离详情 body 与写操作 footer；UI 变更门禁增加键盘/ARIA、窄屏和状态专属字段检查。
+
+本次范围只涉及 renderer 展示、交互、样式、locale 和文档，不改变 IPC、持久化结构、provider 或恢复引擎。
+
 ## 并发会话共享 HEAD 导致全局分支漂移复盘（session-isolation-hardening，2026-08-15）
 
 - **表象与第一性原因**：多个 Codex 任务以 `D:/Data/projects/Multi-Publish` 为同一 cwd；任务 `01a000cf-d579-7722-8abf-2d98de957e6b` 于 2026-08-15 10:04:54 +08:00 执行 `git checkout -B codex/fix-s2v-v3 origin/main` 后，所有共享该目录的任务立即看到同一 feature 分支。Git 的 `HEAD` 属于 worktree，不属于 Codex 会话；会话级声明和 pre-commit 只能阻止错误提交，不能隔离或撤销 checkout。

@@ -6,6 +6,24 @@
 
 | zh | en | 机器 ID（稳定，不改名） |
 |----|----|--------------------------|
+| 历史状态筛选 | History status filter | history.statusFilter |
+| 全部 | All | history.status.all |
+| 进行中 | Running | history.status.running |
+| 已暂停 | Paused | history.status.paused |
+| 执行失败 | Failed | history.status.failed |
+| 已完成 | Completed | history.status.completed |
+| 已取消 | Cancelled | history.status.cancelled |
+| 更新时间 | Updated | history.updated |
+| 创建时间 | Created | history.created |
+| 耗时 | Duration | history.duration |
+| 暂停环节 | Paused stage | history.pausedStage |
+| 暂停环境/检查点 | Pause environment/checkpoint | history.pauseEnvironment |
+| 失败环节 | Failed stage | history.failedStage |
+| 错误摘要 | Error summary | history.errorSummary |
+| 查看任务详情 | View task details | history.viewDetails |
+| 从断点继续 | Resume from breakpoint | history.resume |
+| 继续生成 | Continue generation | history.continue |
+| 打开结果 | Open result | history.openResult |
 | 故事讲述 | Story Telling | `story2video-compose` |
 | 启动流水线 | Start pipeline | — |
 | 后台运行 | Run in background | — |

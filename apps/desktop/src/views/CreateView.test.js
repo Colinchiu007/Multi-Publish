@@ -2924,7 +2924,7 @@ describe("CreateView - UI interactions", () => {
     pushSpy.mockRestore();
   });
 
-  it("历史记录可按完成和失败状态筛选", async () => {
+  it("历史记录可按完成、暂停和失败状态精确筛选", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [
       { projectId: "project-ok", pipeline: "story2video-compose", status: "completed", title: "已完成" },
@@ -2939,14 +2939,14 @@ describe("CreateView - UI interactions", () => {
 
     w.vm.view = "history";
     await w.vm.loadHistory();
-    w.vm.historyFilter = "paused";
+    w.vm.historyFilter = "failed";
     await nextTick();
 
     expect(w.vm.filteredHistory.map(item => item.id)).toEqual(["run-failed"]);
     expect(w.findAll(".history-name").map(item => item.text())).toEqual(["失败任务"]);
   });
 
-  it("失败/暂停的未完成任务排在已完成项目之前（历史可见性，不沉底）", async () => {
+  it("全部历史任务按有效更新时间倒序混排，不提升未完成状态", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [
       { projectId: "project-old", pipeline: "story2video-compose", status: "completed", title: "较早完成", updatedAt: "2026-08-15T09:00:00.000Z" },
@@ -2970,6 +2970,28 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
+  it("较新的已完成项目压过较早的 running/failed 任务按更新时间倒序", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [
+      { projectId: "project-latest-completed", pipeline: "story2video-compose", status: "completed", title: "最新完成", updatedAt: "2026-08-15T13:00:00.000Z" },
+    ] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
+      { id: "run-old-running", pipeline: "story2video-compose", status: "running", title: "较早运行", updatedAt: "2026-08-15T08:00:00.000Z" },
+      { id: "run-old-failed", pipeline: "story2video-compose", status: "failed", title: "较早失败", updatedAt: "2026-08-15T09:00:00.000Z" },
+    ] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.vm.history.map(item => item.id || item.projectId)).toEqual([
+      "project-latest-completed", "run-old-failed", "run-old-running",
+    ]);
+    w.unmount();
+  });
+
   it("失败历史任务显示「从断点继续」并可一键恢复", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
@@ -2985,7 +3007,7 @@ describe("CreateView - UI interactions", () => {
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
-    w.vm.historyFilter = "paused";
+    w.vm.historyFilter = "failed";
     await nextTick();
 
     const resumeBtn = w.find(".s2v-btn-resume");
@@ -3042,7 +3064,7 @@ describe("CreateView - UI interactions", () => {
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
-    w.vm.historyFilter = "paused";
+    w.vm.historyFilter = "failed";
     await nextTick();
 
     expect(w.find(".s2v-btn-resume").exists()).toBe(false);
@@ -3124,7 +3146,7 @@ describe("CreateView - UI interactions", () => {
   });
 
 });
-  it("历史记录含运行中流水线时置顶并显示阶段进度色块", async () => {
+  it("历史记录按有效时间倒序，运行中流水线显示阶段进度色块", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{ projectId: "p1", title: "已完成项目", status: "completed" }] });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
@@ -3136,13 +3158,13 @@ describe("CreateView - UI interactions", () => {
     await w.vm.loadHistory();
     await nextTick();
 
-    // 运行中流水线排在已完成项目之前
+    // 运行中流水线有有效创建时间，已完成项目无时间字段排在最后
     expect(w.vm.history[0].id).toBe("run-live");
     expect(w.vm.history[0].status).toBe("running");
     const runningItem = w.find(".history-item.is-running");
     expect(runningItem.exists()).toBe(true);
     expect(runningItem.text()).toContain("进行中");
-    expect(runningItem.text()).toContain("返回流水线创作查看进度");
+    expect(runningItem.text()).toContain("任务正在运行，可查看实时阶段进度");
     // 阶段进度条（done/active/pending）
     const stageSegs = runningItem.findAll(".history-progress-seg");
     expect(stageSegs.length).toBe(3);
@@ -3154,7 +3176,7 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
-  it("点击运行中历史项切回流水线创作并尝试恢复查看", async () => {
+  it("点击运行中历史项只打开详情，不触发恢复", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
@@ -3165,10 +3187,12 @@ describe("CreateView - UI interactions", () => {
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
-    await w.find(".history-item.is-running").trigger("click");
+    mocks.pipelineResumeOrchestration.mockClear();
+    await w.find(".history-item.is-running .history-item-body").trigger("click");
     await nextTick();
-    expect(w.vm.view).toBe("pipelines");
-    expect(mocks.pipelineStatus).toHaveBeenCalled();
+    expect(w.vm.view).toBe("history");
+    expect(mocks.pipelineResumeOrchestration).not.toHaveBeenCalled();
+    expect(w.findComponent(CreateViewHistory).vm.selectedHistoryItem.id).toBe("run-live-2");
     w.unmount();
   });
 
