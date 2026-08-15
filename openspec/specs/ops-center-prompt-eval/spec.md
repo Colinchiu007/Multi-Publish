@@ -32,3 +32,18 @@ provider 密钥连通性探测 SHALL 先 `POST {base}/chat/completions`（max_to
 - **WHEN** `chat/completions` 400 且 `GET /models` 也失败（如 404）
 - **THEN** 测试连通失败，错误含两个状态码并提示使用真实生成/评估验证
 
+### Requirement: 模型密钥可被管理员删除
+管理员 SHALL 能删除已保存的 provider 密钥条目；`DELETE /api/v1/prompt-eval/providers/{key_id}` 按 id 物理删除。非 admin 返回 403；id 不存在返回 404；删除后列表与 LLM/视觉密钥回退查找均不再返回该条目；同一 provider+model 可重新保存。
+
+#### Scenario: 管理员删除密钥
+- **WHEN** admin 调用 `DELETE /providers/{key_id}` 删除已保存的 minimax-llm 密钥
+- **THEN** 返回成功，列表不再包含该项，`get_llm_key` 不再返回该密钥
+
+#### Scenario: 权限与存在性校验
+- **WHEN** 非 admin 调用删除，或删除不存在的 key_id
+- **THEN** 分别返回 403 / 404，数据不变
+
+#### Scenario: 删除后可重建
+- **WHEN** 删除某 provider+model 后再次保存相同 provider+model
+- **THEN** 新条目正常创建（唯一约束不冲突）
+

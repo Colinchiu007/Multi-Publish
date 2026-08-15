@@ -1,12 +1,12 @@
 {
-  "nextAction": "PR 合并后三同步归档",
+  "nextAction": "已归档",
   "createdAt": "2026-08-15T20:48:36Z",
   "domain": "backend+frontend",
   "id": "fix-ops-center-provider-key-delete",
   "title": "模型密钥新增删除功能（后端 DELETE + 前端删除按钮）",
-  "status": "in_progress",
+  "status": "completed",
   "risk": "medium",
-  "currentPhase": "implementation",
+  "currentPhase": "completed",
   "openspecChange": "ops-center-provider-key-delete",
   "branch": "codex/fix-ops-center-provider-key-delete",
   "complexity": "M"
