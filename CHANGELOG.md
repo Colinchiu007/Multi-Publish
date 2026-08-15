@@ -1,3 +1,10 @@
+## [2026-08-15] fix(ops-center): 提示词评测评估解析兼容推理模型 `<think>` 思维链输出
+
+- 现象：404 修复后真实生成成功，但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。
+- 根因：MiniMax-M3 为推理模型，`chat/completions` 的 `content` 以 `<think>...</think>` 思维链开头、后接 ```json 围栏 JSON；`parse_and_validate` 只处理「以 ``` 开头」的围栏，`json.loads` 遇到 `<think>` 前缀直接失败（真实密钥复现：HTTP 200、finish=stop、剥离 `<think>` 后 JSON 完整）。
+- 修复：`parse_and_validate` 先 `_strip_think` 剥离思维链（含未闭合截断尾巴），`_extract_json_text` 支持 ```json 围栏（含不在开头）并兜底提取首个 `{` 到最后一个 `}`；解析失败保持 fail closed。
+- 回归：`test_prompt_eval_services.py` 新增 4 场景（`<think>`+围栏 / 无围栏前导文本 / 仅思维链 fail closed / 未闭合截断 fail closed）；目标套件 17 passed；全量 pytest 290 passed / 4 failed（scheduler 存量顺序污染 + engine_dual 存量 flaky，单跑均通过，与本改动零交集）。
+
 ## [2026-08-15] fix(ops-center): 提示词评测「生成图片并评估」MiniMax 404 修复（/image_generation 契约）
 
 - 现象：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`。
