@@ -35,7 +35,7 @@
 - **WHEN** 运行 `video-prompt-engine-contract.test.js` 中既有用例（Higgsfield 新用例除外）
 - **THEN** 全部通过（零修改）
 
-## Higgsfield Round3 Batch A（2026-08-15 归档，change prompt-engine-higgsfield-round3a）
+<!-- 以下需求来自已归档 change prompt-engine-higgsfield-round3a（2026-08-15，PR #47） -->
 
 ### Requirement: 图片主缓存 key 全组件化
 

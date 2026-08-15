@@ -40,6 +40,12 @@
 - 文档：PRD §7.1.25a 新增成片与旁白时长上限合同 + 已知限制（下游固定 ffmpeg 超时按短成片设计未缩放、前端时长类错误映射缺失、512MB 输入总量约束）；PRD-video-creation 4 处与 architecture-video-integration 1 处旧 10/15 分钟值同步 50 分钟；OpenSpec change s2v-compose-duration-50min（validate PASS）。
 - 评审：Claude 0C/3W/5I——W1（成片文案默认不可达）修复（检查顺序）、W2（下游固定超时）记录已知限制、W3（同树文档旧值）修复；antigravity 地区不可用降级记录；详见 `.ccg/tasks/s2v-compose-duration-50min/review.md`。
 
+## [2026-08-15] fix(openspec): 修复 2 个历史归档 spec 结构问题（openspec-spec-structure）
+
+- `openspec/specs/prompt-engine/spec.md`：Round3 Batch A 归档时 4 个 Requirement（图片主缓存 key 全组件化 / 视频 evaluator 确定性 FAIL CHECK / 音频分层输出 / 资源端点 UTF-8 读取）落在主 `## Requirements` 区外（被 `## Higgsfield Round3 Batch A` 次级标题截断），validate 视为不可见——标题降为 HTML 注释（保留归档来源），需求并入主区。
+- `openspec/specs/story2video-batch-create/spec.md`：归档生成 `## ADDED Requirements` 非标准标题，validate 报缺失 `## Requirements`——改为标准标题。
+- 验证：`openspec validate --specs` **79 passed / 0 failed**（此前 77/2）；`scripts/openspec-sync-check.js` OK（246 tasks / 12 active / 105 archives）。
+
 ## [2026-08-15] feat(video-prompt-engine): Higgsfield Round3 B/C——跨镜承接状态包 + 导演分镜块骨架（openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output）
 
 - **Batch B 跨镜承接状态包**：`prev_final_frame` 与计划 `final_frame` 统一 1000 字符边界（桌面契约按句截断）；`HIGGSFIELD_FMT_V4` 缓存盐（key 含承接哈希，旧缓存一次失效）；SCENE Continuity 事实引用承接段（防指令注入）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）。
