@@ -1,0 +1,13 @@
+{
+  "title": "修复字幕分句坏切：词边界感知 + 短块判定 + 配置透传 + E2E + 文档",
+  "complexity": "M",
+  "id": "subtitle-split-quality",
+  "domain": "desktop-video",
+  "status": "completed",
+  "openspecChange": "subtitle-split-quality",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #865 MP + PR #18 sidecar 合并，CI 全绿）",
+  "risk": "medium",
+  "createdAt": "2026-08-15T15:30:00Z",
+  "branch": "main"
+}
