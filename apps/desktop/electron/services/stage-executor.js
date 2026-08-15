@@ -160,6 +160,19 @@ function _buildStorySplitterOptions(options) {
     if (value !== undefined) scene[key] = value;
   }
   if (Object.keys(scene).length > 0) config.scene = scene;
+
+  // 字幕分块参数透传（v1.2）：subtitle_min_chars / subtitle_max_chars / subtitle_timing
+  // → config.subtitle.min_chars_per_block / max_chars_per_block / time_calculation_method
+  const subtitle = _isPlainObject(config.subtitle) ? { ...config.subtitle } : {};
+  const subtitleAliases = [
+    ['min_chars_per_block', _firstDefined(source.subtitle_min_chars, source.subtitleMinChars, source.min_chars_per_block)],
+    ['max_chars_per_block', _firstDefined(source.subtitle_max_chars, source.subtitleMaxChars, source.max_chars_per_block)],
+    ['time_calculation_method', _firstDefined(source.subtitle_timing, source.subtitleTiming)],
+  ];
+  for (const [key, value] of subtitleAliases) {
+    if (value !== undefined) subtitle[key] = value;
+  }
+  if (Object.keys(subtitle).length > 0) config.subtitle = subtitle;
   if (source.enable_paragraph_aware !== undefined) {
     config.enable_paragraph_aware = source.enable_paragraph_aware;
   }

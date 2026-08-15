@@ -1,3 +1,28 @@
+## 字幕分句成词保护缺失复盘（subtitle-split-quality，2026-08-16）
+
+- **现象**：`能/够`、`就/是`、`做/成`、`在/上`、`动/态`、`规/划`、`专/属` 等成词被切；
+  `降雨量狂飙到一天713.3毫米` 被劈成 `713.`+`3毫米`；v1.2 修复后 `扶余国`、`电视剧` 不再被
+  算术平衡切劈开，但标点分割+clean 导致的短尾块仍会触发二次切分把词切断。
+- **根因**：切点判定是「单字启发式」（good_lead/good_tail/bad_followers），本质无前瞻——
+  只问切点两侧单字是否像边界，不回答「切掉之后是否劈词」；标点分割后 clean 去掉末尾逗号，
+  前块缩短、短尾块无法被 merge_short 捕获（用户实测的 `扶余国`、`电视剧` 即由此切断）。
+- **教训 1（标点分割要有延迟决策）**：Step 3 标点分割「当前块 >= min 就切」不检查切完后
+  尾块是否会太短或切断词语；v1.2.3 用 `no_cut_bigrams` 成词保护 + 孤悬尾回退实现
+  「切点前瞻」：切点两侧构成成词（如 `能|够`）一律拒绝，尾块仅 4 字且块首非连词时
+  前移找达标切点。
+- **教训 2（半角点是双身份字符）**：`.` 同时是句界、优先级标点、尾随标点；数字中的小数点
+  必须三处豁免（句界切分、切分锚点、区间锚点）且三端（Python/TS/JS）一致，否则
+  `713.`+`3毫米` 复发。
+- **教训 3（good_tail 扩容要带排除集）**：`个` 入 good_tail 后 `个|性` 变成「好切点」；
+  独立 `good_tail_blockers`（性）只拦截纯黏着后缀，避免用 bad_followers 误伤
+  `的|电视`、`是|这位` 等真边界。
+- **逃逸链**：既有单测覆盖「无标点硬切」「平衡切分」场景，但缺「标点分割后 clean 变短 +
+  成词位于切点两侧」组合用例；向量语料无小数/成词双字用例（测试场景缺失）。
+- **回归保护**：sidecar `test_scene_subtitle.py` 新增 7 例（文帝 3 块、挥刀自宫 4 块、
+  713.3、扶余国/电视剧/高高在上/脖子/城邦/做成 完整块断言、个性不劈）；MP JS 合同测试
+  +8 例、parity 语料 +10 句；后续改词表/切点逻辑必须三端同步并跑 502+122 回归。
+
+
 ## 提示词评测评估解析推理模型思维链复盘（fix-ops-center-eval-think，2026-08-15）
 
 - **现象**：404 修复后真实生成成功（2 张图落盘），但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。
@@ -6,6 +31,31 @@
 - **教训 2（推理模型响应有未闭合截断形态）**：`finish_reason=length` 截断时 `<think>` 无闭合标签，剥离逻辑必须同时处理「闭合块」与「未闭合尾部」，未提取到合法 JSON 保持 fail closed，不得静默降级。
 - **逃逸链**：单测 mock 纯 JSON（测试场景缺失）→ 集成/E2E 用 fake evaluate（未覆盖真实 provider）→ 审查未核对真实响应形状。
 - **回归保护**：`test_prompt_eval_services.py::test_parse_eval_think_and_fence` 覆盖 `<think>`+```json 围栏 / 无围栏前导文本 / 仅思维链 fail closed / 未闭合截断 fail closed；parse 前统一 `_strip_think` + `_extract_json_text`。
+
+## 字幕分句成词保护缺失复盘（subtitle-split-quality，2026-08-16）
+
+- **现象**：能/够、就/是、做/成、在/上、动/态、规/划、专/属 等成词被切；
+  降雨量狂飙到一天713.3毫米 被劈成 713.+3毫米；v1.2 修复后 扶余国、电视剧 不再被
+  算术平衡切劈开，但标点分割+clean 导致的短尾块仍会触发二次切分把词切断。
+- **根因**：切点判定是「单字启发式」（good_lead/good_tail/bad_followers），本质无前瞻——
+  只问切点两侧单字是否像边界，不回答「切掉之后是否劈词」；标点分割后 clean 去掉末尾逗号，
+  前块缩短、短尾块无法被 merge_short 捕获（用户实测的 扶余国、电视剧 即由此切断）。
+- **教训 1（标点分割要有延迟决策）**：Step 3 标点分割「当前块 >= min 就切」不检查切完后
+  尾块是否会太短或切断词语；v1.2.3 用\no_cut_bigrams 成词保护 + 孤悬尾回退实现
+  「切点前瞻」：切点两侧构成成词（如 能|够）一律拒绝，尾块仅 4 字且块首非连词时
+  前移找达标切点。
+- **教训 2（半角点是双身份字符）**：. 同时是句界、优先级标点、尾随标点；数字中的小数点
+  必须三处豁免（句界切分、切分锚点、区间锚点）且三端（Python/TS/JS）一致，否则
+  713.+3毫米 复发。
+- **教训 3（good_tail 扩容要带排除集）**：个 入 good_tail 后 个|性 变成「好切点」；
+  独立 good_tail_blockers（性）只拦截纯黏着后缀，避免用 bad_followers 误伤
+  的|电视、是|这位 等真边界。
+- **逃逸链**：既有单测覆盖「无标点硬切」「平衡切分」场景，但缺「标点分割后 clean 变短 +
+  成词位于切点两侧」组合用例；向量语料无小数/成词双字用例（测试场景缺失）。
+- **回归保护**：sidecar 	est_scene_subtitle.py 新增 7 例（文帝 3 块、挥刀自宫 4 块、
+  713.3、扶余国/电视剧/高高在上/脖子/城邦/做成 完整块断言、个性不劈）；MP JS 合同测试
+  +8 例、parity 语料 +10 句；后续改词表/切点逻辑必须三端同步并跑 502+122 回归。
+
 
 ## 提示词评测图片生成 MiniMax 404 复盘（fix-ops-center-image-gen-minimax，2026-08-15）
 
@@ -26,6 +76,23 @@
 - **教训 3（数量上限差异要显式校验）**：前端允许 image_count 1-20，MiniMax `n` 仅 1-9；不做显式校验会把非法请求透传给 provider（400 文案难懂）。fail closed 抛可操作中文错误。
 - **逃逸链**：单测 mock minimax 用 OpenAI 兼容响应形状（测试质量不足）；生成服务初版未按 provider 差异建模（审查盲区）。
 - **回归保护**：`test_prompt_eval_services.py` 新增 8 场景（MiniMax 端点/payload 断言、base64 落盘含 data URL 前缀、URL 下载、业务失败 fail closed 不重试、字符串 status_code 不误判、数量不符 fail closed、n 越界拒绝、flux 含 base_resp 不被误拦截）。
+
+## 字幕分句坏切复盘（subtitle-split-quality，2026-08-15）
+
+- **现象**：Story2Video 字幕出现 `扶余国`→`扶余/国`、`电视剧`→`电/视剧`、`复杂`→`复/杂`、`空白一片`→`空/白一片`、`卵生、日影受孕` 7 字孤悬；用户质疑是否本地源码落后于远程。
+- **版本核验**：本地 HEAD == origin/main == `6cefc0c`（fetch 后零差异），sidecar `subtitle_segmenter.py` blob hash 与远程一致，全 ref 最新提交（v0.15.2）已在 main，残留分支均 ahead:0——**坏切是算法缺陷，不是版本漂移**。接到「是不是源码不新」的疑问时，先做 blob/HEAD/远程三方核验再下结论。
+- **根因（三机制独立成立）**：
+  1. Step 6 平衡兜底按算术位置切（`min_pos = len-min`），无词边界感知 → `扶余/国`、`电/视剧`；
+  2. Step 3 无标点硬切整块，不检查劈词 → `复/杂`、`空/白一片`；
+  3. Step 4 用含标点长度判定短块，clean 去尾标点后块变短逃过 mergeShort → 顿号短块孤悬；
+  4. 配置透传：`stage-executor.js` 白名单缺 `subtitle_min_chars/subtitle_max_chars/subtitle_timing`，UI 参数到不了 8002 `config.subtitle`，且测试用 `not.toHaveProperty('subtitle_min_chars')` **反向固化丢弃**。
+- **教训 1（字级切分必须有词边界感知）**：CJK 无空格，按 max_chars 算术硬切必然劈词；硬切/平衡切分锚点优先级应为「标点 → 好切点（块首连词/介词、块尾助词/句内标点）→ 非黏着切点（排除 `bad_followers` 强黏着后缀）→ 算术回退」，字符集入规则表单源共享。
+- **教训 2（短块判定必须用 clean 后长度）**：Step 4 判定与 Step 5 清理必须同口径；用含标点长度判短块会在清理后漏救。
+- **教训 3（QM 禁例：测试不得固化「参数被丢弃」）**：`not.toHaveProperty(...)` 只能证明「不泄漏顶层」，必须同时正向断言映射落点（`config.subtitle.min_chars_per_block`），否则丢弃行为反而被测试保护。
+- **逃逸链**：单测只有泛化语料、无用户坏例（测试场景缺失）；向量真值由实现输出反写导致同漂（向量管理缺陷——本次改为手工真值 + `short_block_exceptions` 显式声明）；三端镜像手抄无 JS 向量断言（审查盲区——本次新增 JS 向量回归）。
+- **回归保护**：共享向量 25 条（含 5 条用户坏例）三副本（sidecar / TS fixture / JS 断言）；TS `subtitle-vectors.test.ts`、JS `story2video-segmentation-vectors.test.js`、parity 21、stage-executor 正向断言、E2E real 8002 用户 5 段坏例。
+- **预防措施**：改规则 = 改 `subtitle-rules.json` 表 + 三端同步 + 双端共享向量重跑；新增用户坏例时以手工真值写入并声明 `short_block_exceptions` reason；镜像手抄类代码必须有共享向量断言。
+
 
 ## 模型密钥删除功能复盘（fix-ops-center-provider-key-delete，2026-08-15）
 
