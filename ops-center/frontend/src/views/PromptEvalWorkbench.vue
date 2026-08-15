@@ -240,6 +240,7 @@ import {
   createPromptEvalSceneCase, translatePromptEvalScene, createPromptEvalSceneRun,
   listPromptEvalCaseRuns, getPromptEvalEngineStatus,
 } from '../api/promptEval'
+import { apiErrorMessage } from '../api/http'
 
 const tab = ref('create')
 const mode = ref('manual')
@@ -338,7 +339,7 @@ async function doTranslate() {
     const updated = await translatePromptEvalCase(cid)
     form.value.prompt_en = updated.prompt_en
   } catch (e) {
-    errorMsg.value = '翻译失败：' + (e?.response?.data?.detail || e.message)
+    errorMsg.value = '翻译失败：' + apiErrorMessage(e)
   } finally {
     translating.value = false
   }
@@ -356,7 +357,7 @@ async function doCreateRun() {
     tab.value = 'list'
     await loadCases()
   } catch (e) {
-    errorMsg.value = '启动失败：' + (e?.response?.data?.detail || e.message)
+    errorMsg.value = '启动失败：' + apiErrorMessage(e)
   } finally {
     running.value = false
   }
@@ -369,7 +370,7 @@ async function checkEngineStatus() {
     const s = await getPromptEvalEngineStatus()
     engineStatus.value = `引擎正常（${s.latency_ms}ms，${s.base_url}）`
   } catch (e) {
-    engineStatus.value = e?.response?.data?.detail || '引擎不可达'
+    engineStatus.value = apiErrorMessage(e, '引擎不可达')
   } finally {
     engineChecking.value = false
   }
@@ -380,7 +381,7 @@ async function loadCases() {
     const data = await listPromptEvalCases()
     cases.value = data.items || []
   } catch (e) {
-    errorMsg.value = '加载评测列表失败：' + (e?.response?.data?.detail || e.message)
+    errorMsg.value = '加载评测列表失败：' + apiErrorMessage(e)
   }
 }
 
@@ -401,7 +402,7 @@ async function openCase(id) {
     }
     drawerVisible.value = true
   } catch (e) {
-    errorMsg.value = '加载评测详情失败：' + (e?.response?.data?.detail || e.message)
+    errorMsg.value = '加载评测详情失败：' + apiErrorMessage(e)
   }
 }
 
@@ -426,7 +427,7 @@ async function loadSummary() {
   try {
     stats.value = await getPromptEvalSummary()
   } catch (e) {
-    errorMsg.value = '加载聚合分析失败：' + (e?.response?.data?.detail || e.message)
+    errorMsg.value = '加载聚合分析失败：' + apiErrorMessage(e)
   }
 }
 
@@ -481,7 +482,7 @@ async function doSplitScenes() {
     sceneRunMap.value = {}
     await loadCases()
   } catch (e) {
-    errorMsg.value = '分句失败：' + (e?.response?.data?.detail || e.message)
+    errorMsg.value = '分句失败：' + apiErrorMessage(e)
   } finally {
     sceneSplitting.value = false
   }
@@ -494,7 +495,7 @@ async function doSceneTranslate(s) {
     const updated = await translatePromptEvalScene(sceneCaseId.value, s.id)
     patchScene(s.id, updated)
   } catch (e) {
-    errorMsg.value = '中英对照生成失败：' + (e?.response?.data?.detail || e.message)
+    errorMsg.value = '中英对照生成失败：' + apiErrorMessage(e)
   } finally {
     translatingSceneId.value = null
   }
@@ -533,7 +534,7 @@ async function doSceneRun(s) {
     sceneRunMap.value = { ...sceneRunMap.value, [s.id]: run }
     startScenePolling()
   } catch (e) {
-    errorMsg.value = '启动生成失败：' + (e?.response?.data?.detail || e.message)
+    errorMsg.value = '启动生成失败：' + apiErrorMessage(e)
   } finally {
     runningSceneId.value = null
   }
@@ -548,7 +549,7 @@ async function loadSceneRuns() {
     sceneRunMap.value = indexSceneRuns(d.items || [])
     if (allSceneRunsTerminal()) stopScenePolling()
   } catch (e) {
-    errorMsg.value = '刷新场景状态失败：' + (e?.response?.data?.detail || e.message)
+    errorMsg.value = '刷新场景状态失败：' + apiErrorMessage(e)
   } finally {
     sceneRunsInFlight = false
   }

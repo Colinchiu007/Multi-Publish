@@ -1,0 +1,12 @@
+{
+  "id": "ops-center-prompt-eval-network-error",
+  "title": "运营后台提示词评测页加载列表报 Network Error——传输层失败文案可操作化",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "review",
+  "nextAction": "PR 交付中：push + gh pr create，CI 全绿后报告，用户确认合并后再归档",
+  "createdAt": "2026-08-15T01:00:00Z",
+  "branch": "codex/fix-ops-center-prompt-eval-network-error"
+}
