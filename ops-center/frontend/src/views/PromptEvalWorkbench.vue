@@ -12,6 +12,13 @@
         </el-radio-group>
 
         <el-form v-if="mode === 'manual'" label-width="160px" style="max-width: 860px">
+          <el-form-item label="媒体类型">
+            <el-radio-group v-model="form.media_type" @change="onMediaTypeChange">
+              <el-radio-button value="image">图片评测</el-radio-button>
+              <el-radio-button value="video">视频评测</el-radio-button>
+            </el-radio-group>
+            <span class="muted" style="margin-left: 8px">视频：约 5 秒，抽首/中/尾 3 帧评估</span>
+          </el-form-item>
           <el-form-item label="标题"><el-input v-model="form.title" placeholder="如：唐代老妇做饭评测" /></el-form-item>
           <el-form-item label="原文文本" required><el-input v-model="form.source_text" type="textarea" :rows="3" /></el-form-item>
           <el-form-item label="文案上下文（可选）"><el-input v-model="form.context" type="textarea" :rows="2" /></el-form-item>
@@ -23,14 +30,15 @@
             <el-select v-model="form.provider" style="width: 220px"><el-option v-for="p in providerOptions" :key="p.provider+'/'+p.model" :label="`${p.provider} / ${p.model}`" :value="p.provider" /></el-select>
             <el-input v-model="form.model" style="width: 200px; margin-left: 8px" />
           </el-form-item>
-          <el-form-item label="图片数"><el-input-number v-model="form.image_count" :min="1" :max="20" /></el-form-item>
-          <el-form-item label="画幅"><el-select v-model="form.aspect_ratio" style="width: 160px"><el-option v-for="r in ['1:1','16:9','9:16','3:4','4:3']" :key="r" :label="r" :value="r" /></el-select></el-form-item>
+          <el-form-item v-if="form.media_type !== 'video'" label="图片数"><el-input-number v-model="form.image_count" :min="1" :max="20" /></el-form-item>
+          <el-form-item v-if="form.media_type !== 'video'" label="画幅"><el-select v-model="form.aspect_ratio" style="width: 160px"><el-option v-for="r in ['1:1','16:9','9:16','3:4','4:3']" :key="r" :label="r" :value="r" /></el-select></el-form-item>
           <el-form-item label="对比模式">
             <el-radio-group v-model="form.compare_mode">
               <el-radio-button value="single">单路（人工提示词）</el-radio-button>
-              <el-radio-button value="dual">双路对比（人工 vs 引擎优化）</el-radio-button>
+              <el-radio-button value="dual" :disabled="form.media_type === 'video'">双路对比（人工 vs 引擎优化）</el-radio-button>
             </el-radio-group>
             <span class="muted" style="margin-left: 8px">双路：同 case 并行评估人工与提示词引擎优化两版，自动算提升率</span>
+            <span v-if="form.media_type === 'video'" class="warn-text">视频评测暂不支持双路对比</span>
           </el-form-item>
           <el-form-item v-if="form.compare_mode === 'dual'" label="引擎参数">
             <el-collapse style="width: 100%">
@@ -46,8 +54,8 @@
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="translating" @click="doTranslate">生成英文对照</el-button>
-            <el-button type="success" :loading="running" @click="doCreateRun">生成并评估</el-button>
-            <span v-if="!providerConfigured" class="warn-text">未配置可用的图片生成模型，请先在「模型密钥」中配置</span>
+            <el-button type="success" :loading="running" @click="doCreateRun">{{ form.media_type === 'video' ? '生成视频并评估' : '生成并评估' }}</el-button>
+            <span v-if="!providerConfigured" class="warn-text">{{ form.media_type === 'video' ? '未配置可用的视频生成模型，请先在「模型密钥」中配置' : '未配置可用的图片生成模型，请先在「模型密钥」中配置' }}</span>
           </el-form-item>
         </el-form>
 
@@ -164,6 +172,10 @@
               <div class="col"><h4>中英提示词{{ currentRun ? '（' + variantLabel(currentRun.prompt_variant) + '）' : '' }}</h4><pre>{{ currentRun?.prompt_zh || currentRun?.prompt_source_zh || detail.case.prompt_zh }}</pre><pre v-if="currentRun?.prompt_en || detail.case.prompt_en">{{ currentRun?.prompt_en || detail.case.prompt_en }}</pre></div>
               <div class="col">
                 <h4>生成物</h4>
+                <video v-if="currentRun?.video_path" controls :src="mediaUrl(currentRun.video_path)" class="video-preview" />
+                <div v-if="currentRun?.video_frames?.length" class="frame-row">
+                  <span v-for="(f, i) in currentRun.video_frames" :key="i" class="thumb frame-thumb"><img :src="mediaUrl(f)" :alt="'帧'+i" /></span>
+                </div>
                 <div v-for="(img, i) in currentRun?.image_paths || []" :key="i" class="thumb"><img :src="mediaUrl(img)" :alt="'图片'+i" /></div>
               </div>
               <div class="col"><h4>评估结果</h4><div v-if="currentRun && currentRun.eval_status === 'succeeded'"><div class="score-big">{{ currentRun.overall_score }}</div><div class="grade">{{ gradeLabel(currentRun.grade) }}</div></div><div v-else>{{ currentRun ? statusText(currentRun) : '（无 run）' }}</div></div>
@@ -243,7 +255,7 @@ import {
 
 const tab = ref('create')
 const mode = ref('manual')
-const form = ref({ title: '', source_text: '', context: '', prompt_zh: '', prompt_en: '', provider: 'minimax-image', model: 'image-01', image_count: 1, aspect_ratio: '1:1', compare_mode: 'single', engine_creative_level: 8, engine_num_candidates: 3 })
+const form = ref({ title: '', source_text: '', context: '', prompt_zh: '', prompt_en: '', media_type: 'image', provider: 'minimax-image', model: 'image-01', image_count: 1, aspect_ratio: '1:1', compare_mode: 'single', engine_creative_level: 8, engine_num_candidates: 3 })
 const sceneForm = ref({ title: '', source_text: '', target_chars_per_scene: 20, subtitle_min_chars: 8, subtitle_max_chars: 15, subtitle_timing: 'proportional', provider: 'minimax-image', model: 'image-01', image_count: 1, aspect_ratio: '1:1' })
 const providerOptions = ref([])
 const providerConfigured = computed(() => providerOptions.value.length > 0)
@@ -313,10 +325,17 @@ async function loadProviders() {
   }
 }
 
+function onMediaTypeChange() {
+  if (form.value.media_type === 'video' && form.value.compare_mode === 'dual') {
+    form.value.compare_mode = 'single'
+  }
+}
+
 async function ensureCase() {
   const payload = {
     title: form.value.title, source_text: form.value.source_text,
     context: form.value.context || undefined, prompt_zh: form.value.prompt_zh,
+    media_type: form.value.media_type,
     provider: form.value.provider, model: form.value.model,
     image_count: form.value.image_count, aspect_ratio: form.value.aspect_ratio,
   }
@@ -572,6 +591,9 @@ onBeforeUnmount(() => {
 .four-col { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
 .col pre { background: #f5f7fa; padding: 8px; border-radius: 6px; white-space: pre-wrap; font-size: 12px; max-height: 220px; overflow: auto; }
 .thumb img { width: 100%; border-radius: 6px; border: 1px solid #e4e7ed; margin-bottom: 8px; }
+.video-preview { width: 100%; border-radius: 6px; border: 1px solid #e4e7ed; margin-bottom: 8px; background: #000; }
+.frame-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.frame-thumb { flex: 1; min-width: 0; }
 .score-big { font-size: 40px; font-weight: 700; color: #409eff; }
 .grade { font-weight: 600; margin-bottom: 8px; }
 .dim-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }

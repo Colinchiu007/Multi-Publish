@@ -96,17 +96,21 @@ async def create_run(case_id: int, db: AsyncSession = Depends(get_db), user: dic
     if gen_cfg is None:
         # 角色感知提示：「模型密钥」菜单仅 admin 可见（App.vue v-if role==='admin'），
         # 非 admin 用户不应被引导到一个不可见的页面——提示区分「自行配置」与「联系管理员」。
+        media_label = "视频生成模型（视频评测）" if (row.media_type or "image") == "video" else "图片生成模型"
         if _is_admin(user):
-            raise HTTPException(400, "未配置可用的图片生成模型，请先在侧边栏「模型密钥」（/model-keys）中配置")
-        raise HTTPException(400, "未配置可用的图片生成模型，请联系管理员在「模型密钥」中配置")
+            raise HTTPException(400, f"未配置可用的{media_label}，请先在侧边栏「模型密钥」（/model-keys）中配置")
+        raise HTTPException(400, f"未配置可用的{media_label}，请联系管理员在「模型密钥」中配置")
     vision_cfg = await _vision_cfg(db)
     if vision_cfg is None:
         raise HTTPException(502, "未配置视觉评估模型密钥：请在「模型密钥」添加 minimax-vision 或设置 OPS_PROMPT_EVAL_VISION_API_KEY")
     username = user.get("username") or user.get("sub") or "unknown"
     dual = row.compare_mode == "dual"
     engine_ctx = {"base_url": engine_client.engine_base_url()} if dual else None
-    translate_cfg = await _llm_cfg(db) if dual else None
-    created = await service.create_run(db, row, username, engine_ctx=engine_ctx, translate_cfg=translate_cfg)
+    try:
+        translate_cfg = await _llm_cfg(db) if dual else None
+        created = await service.create_run(db, row, username, engine_ctx=engine_ctx, translate_cfg=translate_cfg)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     eval_cfg = vision_cfg
     if dual:
         # dual：manual 与 engine 变体各自独立起流水线（快照按变体取），任一变体失败不影响另一变体

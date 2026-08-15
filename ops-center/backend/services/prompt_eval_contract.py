@@ -38,6 +38,9 @@ MAX_PROMPT_ZH = 5000
 MAX_CONTEXT = 20000
 MAX_IMAGE_COUNT = 20
 MIN_IMAGE_COUNT = 1
+MEDIA_TYPES = ["image", "video"]
+VIDEO_FRAME_COUNT = 3
+MAX_VIDEO_BYTES = 50 * 1024 * 1024
 TRANSLATION_CACHE_SECONDS = 7 * 24 * 3600
 
 SENSITIVE_KEYS = [
@@ -62,6 +65,11 @@ def resolve_dimension_weights(image_count: int):
     dims = IMAGE_DIMENSIONS if image_count >= 2 else [d for d in IMAGE_DIMENSIONS if d["id"] != "cross_image_consistency"]
     total = sum(d["weight"] for d in dims)
     return [{**d, "weight": round(d["weight"] / total, 5)} for d in dims]
+
+
+def resolve_video_dimension_weights() -> list[dict]:
+    """视频评估固定 4 维（不随帧数变化），权重即注册表原值（和=1）。"""
+    return [dict(d) for d in VIDEO_DIMENSIONS]
 
 
 def _contains_sensitive(value, prefix="", seen=None) -> list[str]:
@@ -114,15 +122,23 @@ def validate_optimization_point(p: dict) -> None:
         raise ValueError("optimization point suggestion 必须是非空字符串")
 
 
-def validate_eval_result(payload: dict, image_count: int) -> None:
-    """评估输出契约 fail closed：维度/分数/evidence/problems·points 数组校验。"""
+def validate_eval_result(payload: dict, image_count: int, media_type: str = "image") -> None:
+    """评估输出契约 fail closed：维度/分数/evidence/problems·points 数组校验。
+
+    media_type=video 时维度白名单固定为视频 4 维（不随帧数变化）。
+    """
+    if media_type not in MEDIA_TYPES:
+        raise ValueError(f"media_type 必须是 {MEDIA_TYPES}")
     overall = payload.get("overall")
     if not isinstance(overall, (int, float)) or isinstance(overall, bool) or not (0 <= round(overall) <= 100):
         raise ValueError("overall 必须是 0-100 数字")
     dims = payload.get("dimensions")
     if not isinstance(dims, list):
         raise ValueError("dimensions 必须是数组")
-    allowed = {d["id"] for d in resolve_dimension_weights(image_count)}
+    if media_type == "video":
+        allowed = {d["id"] for d in resolve_video_dimension_weights()}
+    else:
+        allowed = {d["id"] for d in resolve_dimension_weights(image_count)}
     seen: set[str] = set()
     for dim in dims:
         if not isinstance(dim, dict):

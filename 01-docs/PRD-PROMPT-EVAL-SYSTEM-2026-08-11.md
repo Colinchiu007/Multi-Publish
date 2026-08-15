@@ -1,6 +1,6 @@
 # PRD — 提示词优化效果评估系统（PromptEval，v1：图片）
 
-> 版本：v1（2026-08-11）｜状态：评审中｜范围：图片评估（视频扩展预留）
+> 版本：v2（2026-08-14）｜状态：已实现｜范围：图片 + 视频评估（视频生成：Agnes Video V2.0 异步抽帧）
 > 分支：`codex/prompt-image-eval-system`
 
 ---
@@ -22,7 +22,7 @@
 2. **归因分析**：分析有问题的方面，并区分问题来源于输入文案 / 上下文 / 优化后提示词 / 负向提示 / 生成模型。
 3. **优化提示的点**：产出可直接回馈给【提示词优化引擎】的提示词优化建议（增加细节、消除歧义、强化风格、对齐上下文、补充负向提示、结构化、一致性锚点）。
 4. **持续提升闭环**：评估记录持久化 → 聚合分析 → 形成优化点清单 → 指导 prompt-engine 的改写策略与模板迭代。
-5. **扩展性**：v1 只支持图片；媒体类型抽象（mediaType）预留视频评估扩展点（时序一致性、运动准确性、音画同步等维度 v1 不实现）。
+5. **扩展性**：v2 同时支持图片与视频评估；媒体类型抽象（mediaType）统一契约，视频经生成→抽帧（首/中/尾 3 帧）→同一评估 LLM 完成多维度评估（时序一致性、运动准确性等视频维度）。
 
 ## 3. 范围
 
@@ -37,11 +37,11 @@
 | 持久化 | 评估记录（JSON）、人读报告（Markdown）、索引（index.json） |
 | 聚合分析 | 跨记录统计：维度均值、问题类别分布、优化点汇总 |
 | 使用入口 | CLI 批处理 + 桌面应用 IPC + Vue 评估视图 |
-| 视频扩展 | mediaType=video 时引擎明确拒绝并提示「视频评估暂未实现」（fail closed，不假装支持） |
+| 视频评估 | mediaType=video：生成视频（Agnes Video V2.0 异步任务）→ 抽首/中/尾 3 帧 → 复用图片评估契约做视频维度评估（fail closed：密钥缺失/生成失败/抽帧失败均明确报错） |
 
 ### 3.2 不在本期范围
 
-- 视频评估的实际实现（时序一致性/运动准确性/音画同步）；
+- 独立音轨评估（真实音频消费）实际实现（抽帧评估不消费音轨，音画同步以画面帧代理评估）；
 - 自动把评估结果写回 prompt-engine 并自动改模板（本期只产出建议清单，人工/后续迭代消费）；
 - 生成流程内的自动评估挂钩（本期为独立评估入口，输入为「生成图片 + 该图对应的输入文案/上下文/优化后提示词」）。
 
@@ -157,7 +157,7 @@
 
 | 规则 | 校验 | 错误码 |
 |------|------|--------|
-| mediaType | 必须等于 `image`；`video` → 明确「视频评估暂未实现」 | `EVAL_MEDIA_TYPE_NOT_SUPPORTED` |
+| mediaType | `image` 或 `video`；图片模式 1-20 张，视频模式 1 个视频（≤50MB，抽 3 帧评估） | — |
 | items 非空 | 数组且长度 ≥1 | `EVAL_EMPTY_ITEMS` |
 | imagePath | 必须为字符串、非空、文件存在、是文件（非目录） | `EVAL_IMAGE_NOT_FOUND` |
 | imagePath 边界 | 路径必须能被主进程读取（IPC 场景再做 canonical 校验，拒绝越界/不存在） | `EVAL_IMAGE_UNREADABLE` |
@@ -315,7 +315,7 @@ flowchart TD
 - 等级：优秀 / 良好 / 一般 / 差
 - 空输入提示：`请先选择至少 1 张图片，并填写优化后的提示词`
 - 未配置评估模型：`未配置支持视觉评估的模型服务商，请先在「模型服务商」中配置并启用视觉模型`
-- 视频暂不支持：`视频评估暂未实现，请使用图片进行评估`
+- 视频密钥缺失：`未配置视频生成模型密钥（agnes-video），请在「模型密钥」中配置后重试`
 - 评估中：`评估中（已完成 {done}/{total} 张）...`
 - 失败：`评估失败：{message}`
 
@@ -337,7 +337,7 @@ flowchart TD
 
 | 错误码 | 触发场景 | 用户提示 |
 |--------|----------|----------|
-| `EVAL_MEDIA_TYPE_NOT_SUPPORTED` | mediaType=video | 视频评估暂未实现 |
+| `OPS_PROMPT_EVAL_VIDEO_KEY_MISSING` | 视频生成模型密钥未配置 | 未配置视频生成模型密钥，请在「模型密钥」中添加 |
 | `EVAL_EMPTY_ITEMS` | items 为空 | 请至少提供 1 张图片 |
 | `EVAL_IMAGE_NOT_FOUND` | 图片不存在/不可读 | 图片文件不存在或无法读取 |
 | `EVAL_IMAGE_TOO_LARGE` | 单图 >8MB | 图片过大（>8MB），请压缩后重试 |
@@ -422,19 +422,17 @@ flowchart TD
 6. IPC 通道 `prompt-eval:run/list/get/delete/analyze/dimensions` 全部可用且有测试。
 7. Vue 视图三 Tab 可用；无评估模型时给出可操作提示而非崩溃。
 8. 聚合分析输出维度均值、问题类别分布、优化点汇总。
-9. 视频 mediaType 被明确拒绝并提示「视频评估暂未实现」。
+9. 视频模式：生成视频（密钥缺失/生成失败/下载失败/抽帧失败均 fail closed 明确报错），评估产出 3 帧缩略图 + 视频播放器 + 与图片一致的维度契约（含时序一致性/运动准确性）。
 10. 聚焦回归通过（prompt-eval 服务 50 / IPC 4 / preload 2 / composable 3 / bootstrap 32 / 中心 IPC 15，共 102+），Vue build 通过；CHANGELOG/PRD/架构文档已同步。
 
-## 14. 视频扩展预留（v2，不在本期实现）
+## 14. 视频评估（v2，已实现）
 
-- `mediaType: "video"`：评估引擎拒绝（fail closed），但维度注册表已预留：
-  - `temporal_consistency` 时序一致性（帧间主体/场景连贯）
-  - `motion_accuracy` 运动准确性（动作是否符合提示）
-  - `audio_visual_sync` 音画同步（若含旁白/BGM）
-  - `video_aesthetic_quality` 视频审美质量
-- 视频评估输入：视频路径 + 抽帧（首/中/尾 3 帧 + 可选音频）→ 复用同一评估 LLM 契约；
-- 视频评估输出契约与图片一致（overall/dimensions/problems/promptOptimizationPoints）。
-
+- `mediaType: "video"`：运营后台「提示词评测」支持视频提示词评估，流程：
+  1. **视频生成**：调 Agnes Video V2.0 异步契约（`POST /videos` 提交 → 域名根 `agnesapi?video_id=` 轮询 → 下载 MP4，校验 ftyp 魔数 + ≤50MB）；
+  2. **抽帧**：ffmpeg 抽取首/中/尾 3 帧 PNG（`FFMPEG_BIN` 环境变量可指定 ffmpeg 路径，缺省回落 imageio-ffmpeg 捆绑二进制）；
+  3. **评估**：3 帧 + 视频维度白名单（`temporal_consistency` 时序一致性、`motion_accuracy` 运动准确性、`video_aesthetic_quality` 视频审美质量；`audio_visual_sync` 音画同步——基于画面帧代理评估（可见节奏/口型线索，独立音轨评估保留为后续版本）），复用图片评估 LLM 契约。
+- 视频评估输出契约与图片一致（overall/dimensions/problems/promptOptimizationPoints）；视频维度权重 0.30/0.30/0.20/0.20（时序一致性/运动准确性/音画同步/视频审美）。
+- 边界：轮询默认超时 20 分钟（`OPS_PROMPT_EVAL_VIDEO_POLL_TIMEOUT` 可覆盖）；视频密钥缺失、生成失败、下载失败、抽帧失败全部 fail closed 明确报错；真实视频生成/视觉评估为外部验收项。
 ## 15. 相关文档
 
 - 架构文档：`01-docs/ARCH-PROMPT-EVAL-SYSTEM-2026-08-11.md`
