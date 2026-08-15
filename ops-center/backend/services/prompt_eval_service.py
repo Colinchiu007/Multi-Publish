@@ -54,6 +54,21 @@ def decrypt_key(secret: str, value: str) -> str:
     return _fernet(secret).decrypt(value.encode("ascii")).decode("utf-8")
 
 
+_MODEL_ERROR_HINTS = (
+    "unknown model",
+    "invalid model",
+    "model not found",
+    "model not exist",
+    "model_not_found",
+)
+
+
+def _is_model_error_body(text: str) -> bool:
+    """400 是否因模型不适用 chat 端点（unknown model 等），用于 image 类 provider 回退判定。"""
+    low = (text or "").lower()
+    return any(hint in low for hint in _MODEL_ERROR_HINTS)
+
+
 # ─── 校验 ───
 
 def validate_case_body(body: dict, require_prompt_zh: bool = True) -> dict:
@@ -307,7 +322,8 @@ async def test_provider_connection(db: AsyncSession, body: dict, secret: str,
 
     探测策略（OpenAI 兼容最小请求）：
     1) POST {base}/chat/completions（max_tokens=1）——覆盖 llm/vision/opencode 等 chat 类；
-    2) 若返回 404/405 → fallback GET {base}/models —— 覆盖 image 类 provider；
+    2) 若返回 404/405，或 400 且错误体命中模型关键字（unknown model 等，
+       如 MiniMax 图片模型 image-01）→ fallback GET {base}/models —— 覆盖 image 类 provider；
     3) 均不可达 → 报错并提示「请用真实生成验证」。
     api_key/base_url 未提供时回退到已保存密钥（按 provider+model）。
     """
@@ -347,7 +363,9 @@ async def test_provider_connection(db: AsyncSession, body: dict, secret: str,
         }, headers=headers)
         if resp.status_code < 400:
             return {"ok": True, "detail": "连接成功（chat/completions 可达）"}
-        if resp.status_code in (404, 405):
+        if resp.status_code in (404, 405) or (
+            resp.status_code == 400 and _is_model_error_body(resp.text)
+        ):
             url2 = f"{base_url}/models"
             resp2 = await client.get(url2, headers=headers)
             if resp2.status_code < 400:

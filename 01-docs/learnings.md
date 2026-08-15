@@ -1,3 +1,11 @@
+## 模型密钥探测 400 误报复盘（fix-ops-center-provider-test-minimax，2026-08-15）
+
+- **现象**：MiniMax 图片模型（image-01）密钥测试连通报 HTTP 400 unknown model，密钥实际有效。
+- **根因**：连通性探测先 POST chat/completions，回退 /models 仅认 404/405；MiniMax 对「模型不适用 chat 端点」返回 400 而非 404。
+- **教训 1（供应商契约：探测响应码按真实行为建矩阵）**：不同 provider 对「模型不支持该端点」的响应码不同（OpenAI 兼容常为 404，MiniMax 为 400）。连通性探测至少覆盖「404/405 无条件回退 + 400 按错误体关键字门控回退」，并以回归用例锁定。
+- **教训 2（400 回退必须门控，避免掩盖真实错误）**：400 语义宽泛（参数非法/鉴权/限流），无条件回退会被 /models 200 掩盖；用错误体关键字（unknown model/invalid model/model not found 等）门控，非模型类 400 保持 fail-closed。
+- **逃逸链**：单测只覆盖 404/405 与 401，缺 400 场景（测试场景缺失）；审查未对照 provider 真实错误语义（审查盲区）。
+- **回归保护**：`test_prompt_eval_services.py::test_provider_connection_probe` case 6-8（400 模型错误回退、400 非模型错误不回退、400+/models 失败提示真实生成）+ case 2 401 调用数断言。
 ## 失败任务历史「看不到」与 stage 终态不一致复盘（s2v-history-visibility，2026-08-15）
 
 - **现象**：compose 阶段失败后任务在历史记录中「看不到」。实测：主进程 `pipelineHistory()` 返回 14 条（失败任务第 2 位），但前端历史列表 33 条中该任务排第 27 位（`status=failed`，`pausedStage=compose`），被 20+ 条已完成项目压底。
