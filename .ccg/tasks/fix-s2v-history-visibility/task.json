@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "desktop",
   "currentPhase": "review",
-  "nextAction": "提交并创建 PR，等待远程 CI",
+  "nextAction": "修复 CJK 行号基线漂移，推送并等待 PR #840 远程 CI",
   "openspecChange": "s2v-history-visibility",
   "createdAt": "2026-08-15T03:00:00Z",
   "branch": "codex/s2v-history-fix"

@@ -14,6 +14,7 @@
 | apps/desktop/electron/tests/pipeline-engine.test.js | +1 例（failed/cancelled stage 终态同步） |
 | apps/desktop/src/views/CreateView.test.js | +1 例（失败/暂停排在已完成项目之前） |
 | 01-docs/PRD.md / PRD-video-creation.md / CHANGELOG.md / learnings.md | 合同 + 复盘 |
+| .github/scripts/locale-cjk-baseline.json | CreateView 排序代码净增 3 行后，按官方 `--update-baseline` 重锚 38 条存量 CJK 行号；总数保持 1530 |
 | .ccg/tasks/fix-s2v-history-visibility/ | task.json 推进 |
 
 ## 自审结论（0 Critical / 0 Warning / 0 Info）
@@ -27,7 +28,7 @@
 ### 风险核对
 - 未改 IPC 契约、未改 stage 状态机其它流转点（pause/resume/advance 原样）。
 - 前端失败任务 pausedStage 补位逻辑本就优先 `stage.status==='failed'`（CreateView L3776-3777），主进程修复后该分支命中更准，不回退到末位兜底。
-- 无新增中文字面量（CI Gate 7 基线不受影响）；无 locale 变更。
+- 无新增中文字面量；CI Gate 7 首轮因 `file:line` 基线脆弱性误报 38 条存量中文，官方 `--update-baseline` 重锚后条目总数仍为 1530，确认未吸收新增硬编码；无 locale 变更。
 
 ### 测试/打包证据
 - pipeline-engine + pipeline-story2video-contract + batch queue 84/84；CreateView + CreateHistory 217/217；定向受影响测试合计 301/301。
@@ -37,3 +38,4 @@
 ## 过程事故与教训（已闭环）
 
 - **asar extract-file 覆盖源文件事故**：`asar extract-file app.asar electron/services/pipeline-engine.js` 会把文件输出到 CWD 相对路径，覆盖仓库源文件；随后清理误删源文件导致 phase1-context 套件 11 例瞬时失败。已从 HEAD 恢复并重新应用修改，重跑 56/56 通过；全量 vitest 已重跑。教训：asar 校验只允许用 `asar extract <tmp 目录>` 或 `list`，禁止在仓库内用 extract-file 输出；删除任何「提取产物」前先确认路径。
+- **CJK 基线首轮 CI 误报**：`CreateView.vue` 的排序逻辑净增 3 行，扫描器却以 `file:line` 作为命中 ID，导致该位置之后 38 条既有中文全部被识别为新增。按脚本明示流程运行 `node .github/scripts/check-locale-sync.js --cjk --update-baseline`，基线仍为 1530 条，再运行 `--cjk` 通过。系统性漏洞是行号型基线对无关代码位移敏感；本次只重锚，不迁移无关既有文案。
