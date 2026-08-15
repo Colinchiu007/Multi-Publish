@@ -1088,7 +1088,11 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       await expect(engine._probeMediaDuration(invalidMedia)).resolves.toBeNull()
       expect(log.warn).toHaveBeenCalledWith(
         'Story2VideoCompose',
-        expect.stringContaining('Failed to probe media duration'),
+        'ffprobe_failed',
+        expect.objectContaining({
+          event: 'ffprobe_failed',
+          operation: 'duration_probe',
+        }),
       )
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
@@ -1688,6 +1692,241 @@ describe('Story2VideoComposeEngine 子进度发射（compose_progress 契约）'
       expect(logLines.filter(l => /merge_l\d_chunk_\d+ created/.test(l))).toHaveLength(3)
       expect(logLines).toContain('merge_l0_chunk_000 created: merge_l0_chunk_000.mp4')
       expect(logLines).toContain('merge_l1_chunk_000 created: merge_l1_chunk_000.mp4')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('Story2VideoComposeEngine 合成可观测性日志', () => {
+  function makeObservabilityEngine (root, overrides = {}) {
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log })
+    engine._probeMediaDuration = vi.fn(async () => 2)
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._validateOutput = vi.fn(async () => {})
+    for (const [key, value] of Object.entries(overrides)) engine[key] = value
+    return { engine, log }
+  }
+
+  function makeObservabilityScenes (root, count = 2) {
+    return Array.from({ length: count }, (_value, index) => ({
+      imagePath: writeFixture(root, 'image-' + index + '.png'),
+      audioPath: writeFixture(root, 'audio-' + index + '.mp3'),
+      duration: 1,
+    }))
+  }
+
+  function eventsFrom (log) {
+    return [...log.debug.mock.calls, ...log.info.mock.calls, ...log.warn.mock.calls, ...log.error.mock.calls]
+      .map((args) => args[2])
+      .filter((meta) => meta && typeof meta === 'object' && typeof meta.event === 'string')
+  }
+
+  it('成功合成使用一个 composeId 串联生命周期和阶段事件', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-success-'))
+    const { engine, log } = makeObservabilityEngine(root)
+    try {
+      const result = await engine.compose({ scenes: makeObservabilityScenes(root) }, { transition: 'none' })
+      expect(result.code).toBe(0)
+      const events = eventsFrom(log)
+      const started = events.find((meta) => meta.event === 'compose_started')
+      const succeeded = events.find((meta) => meta.event === 'compose_succeeded')
+      expect(started).toMatchObject({ stage: 'compose', sceneCount: 2 })
+      expect(succeeded).toMatchObject({ composeId: started.composeId, segmentCount: 2 })
+      expect(events.filter((meta) => meta.event === 'compose_stage_started').every((meta) => meta.composeId === started.composeId)).toBe(true)
+      expect(events.filter((meta) => meta.event === 'compose_stage_succeeded').length).toBeGreaterThanOrEqual(3)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('失败合成记录 compose_failed，并且不写入含空格的素材绝对路径', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-fail-'))
+    const privatePath = 'C:\\private folder\\secret clip.mp4'
+    const { engine, log } = makeObservabilityEngine(root, {
+      _concatSegments: vi.fn(async () => { throw new Error('concat failed at ' + privatePath) }),
+    })
+    try {
+      await expect(engine.compose({ scenes: makeObservabilityScenes(root) }, { transition: 'fade' }))
+        .rejects.toThrow('concat failed')
+      const events = eventsFrom(log)
+      const failure = events.find((meta) => meta.event === 'compose_failed')
+      expect(failure).toMatchObject({ stage: 'concat' })
+      expect(failure.error).toContain('<path>')
+      expect(failure.error).not.toContain(privatePath)
+      expect(failure.error).not.toContain('private folder')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('旁白合并失败返回给上层的错误也不会泄露 Windows 绝对路径', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-return-redaction-'))
+    const privatePath = 'C:\\private folder\\secret narration.m4a'
+    const { engine } = makeObservabilityEngine(root, {
+      _concatNarrationAudio: vi.fn(async () => { throw new Error('failed to open ' + privatePath) }),
+    })
+    try {
+      const result = await engine.compose({ scenes: makeObservabilityScenes(root) }, { transition: 'none' })
+      expect(result).toMatchObject({ code: -1 })
+      expect(result.message).toContain('Narration concat failed: failed to open <path>')
+      expect(result.message).not.toContain(privatePath)
+      expect(result.message).not.toContain('private folder')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['Windows', 'C:\\private folder\\secret segment.mp4'],
+    ['Unix', '/private folder/secret segment.mp4'],
+  ])('片段创建失败返回给上层的错误不会泄露 %s 绝对路径', async (_platform, privatePath) => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-segment-redaction-'))
+    const { engine } = makeObservabilityEngine(root, {
+      _createSegment: vi.fn(async () => { throw new Error('failed to open ' + privatePath) }),
+    })
+    try {
+      const result = await engine.compose({ scenes: makeObservabilityScenes(root, 1) }, { transition: 'none' })
+      expect(result).toMatchObject({ code: -1 })
+      expect(result.message).toContain('Segment 0 failed to create: failed to open <path>')
+      expect(result.message).not.toContain(privatePath)
+      expect(result.message).not.toContain('private folder')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('分块合成记录块的开始、完成和关联字段', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-chunk-'))
+    const { engine, log } = makeObservabilityEngine(root)
+    const inputs = Array.from({ length: 10 }, (_value, index) => writeFixture(root, 'segment-' + index + '.mp4', 'video'))
+    const output = path.join(root, 'output.mp4')
+    engine._xfadeMerge = vi.fn(async (_segments, _plan, target) => fs.writeFileSync(target, 'merged'))
+    engine._plainConcat = vi.fn(async (_segments, target) => fs.writeFileSync(target, 'merged'))
+    try {
+      await engine._concatSegmentsChunked(inputs, Array(10).fill(2), output, root, {
+        composeId: 'compose_test_01',
+        transitionName: 'fade',
+        transitionDuration: 0.5,
+      }, 0)
+      const events = eventsFrom(log)
+      const started = events.find((meta) => meta.event === 'merge_chunk_started')
+      const succeeded = events.find((meta) => meta.event === 'merge_chunk_succeeded')
+      expect(started).toMatchObject({ composeId: 'compose_test_01', level: 0, chunkIndex: 0, totalChunks: 3 })
+      expect(succeeded).toMatchObject({ composeId: 'compose_test_01', level: 0, chunkIndex: 0, outputBytes: 6 })
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('缺少 FFmpeg 输出时记录安全的 ffmpeg_output_missing 事件', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-missing-'))
+    const { engine, log } = makeObservabilityEngine(root)
+    const missing = path.join(root, 'missing.mp4')
+    try {
+      expect(() => engine._requireFfmpegOutput(missing, {
+        composeId: 'compose_test_02',
+        stage: 'concat',
+        operation: 'plain_concat',
+      }, 'failed to open ' + missing)).toThrow('ffmpeg did not produce output')
+      const event = eventsFrom(log).find((meta) => meta.event === 'ffmpeg_output_missing')
+      expect(event).toMatchObject({ composeId: 'compose_test_02', stage: 'concat', output: 'missing.mp4', outputBytes: 0 })
+      expect(event.stderr).not.toContain(root)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('FFmpeg 超时记录 ffmpeg_timeout 及阶段关联字段', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-timeout-'))
+    const timeoutError = new Error('process timed out')
+    timeoutError.code = 'ETIMEDOUT'
+    timeoutError.killed = true
+    timeoutError.signal = 'SIGTERM'
+    timeoutError.stderr = 'error while opening ' + root + '/secret.mp4'
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log,
+      execFfmpegStage: vi.fn(async () => { throw timeoutError }),
+    })
+    try {
+      await expect(engine._runFfmpegStage(['-version'], { timeout: 25000 }, {
+        composeId: 'compose_test_timeout',
+        stage: 'concat',
+        operation: 'xfade_merge',
+        inputCount: 8,
+        outputPath: path.join(root, 'merged.mp4'),
+      })).rejects.toThrow('process timed out')
+      const event = eventsFrom(log).find((meta) => meta.event === 'ffmpeg_timeout')
+      expect(event).toMatchObject({
+        composeId: 'compose_test_timeout',
+        stage: 'concat',
+        operation: 'xfade_merge',
+        timeoutMs: 25000,
+        errorCode: 'ETIMEDOUT',
+        signal: 'SIGTERM',
+        killed: true,
+      })
+      expect(event.stderr).not.toContain(root)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('FFmpeg 心跳记录输出增长，并向块回调提供相同诊断数据', async () => {
+    vi.useFakeTimers()
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-heartbeat-'))
+    const output = path.join(root, 'merged.mp4')
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    let resolveStage
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log,
+      execFfmpegStage: vi.fn(() => new Promise((resolve) => { resolveStage = resolve })),
+    })
+    const heartbeats = []
+    try {
+      const running = engine._runFfmpegStage(['-version'], { timeout: 25000 }, {
+        composeId: 'compose_test_heartbeat',
+        stage: 'concat',
+        operation: 'xfade_merge',
+        outputPath: output,
+        heartbeat: true,
+        onHeartbeat: (heartbeat) => heartbeats.push(heartbeat),
+      })
+      fs.writeFileSync(output, 'grown-output')
+      await vi.advanceTimersByTimeAsync(10000)
+      resolveStage({ stdout: '', stderr: '' })
+      await running
+      const event = eventsFrom(log).find((meta) => meta.event === 'ffmpeg_heartbeat')
+      expect(event).toMatchObject({ composeId: 'compose_test_heartbeat', output: 'merged.mp4', outputGrowing: true, outputBytes: 12 })
+      expect(log.info.mock.calls.some((args) => args[2]?.event === 'ffmpeg_heartbeat')).toBe(true)
+      expect(heartbeats).toEqual([expect.objectContaining({ outputGrowing: true, outputBytes: 12 })])
+    } finally {
+      vi.useRealTimers()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('预检失败仍以同一个 composeId 记录开始与失败事件', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-preflight-'))
+    const { engine, log } = makeObservabilityEngine(root)
+    try {
+      const result = await engine.compose({ scenes: [] })
+      expect(result.code).toBe(-1)
+      const events = eventsFrom(log)
+      const started = events.find((meta) => meta.event === 'compose_started')
+      const failure = events.find((meta) => meta.event === 'compose_failed')
+      expect(started).toMatchObject({ stage: 'compose', sceneCount: 0 })
+      expect(failure).toMatchObject({ composeId: started.composeId, stage: 'preflight' })
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }

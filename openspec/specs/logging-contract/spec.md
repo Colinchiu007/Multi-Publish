@@ -25,11 +25,18 @@ JS 设施 SHALL 使用 `DEBUG < INFO < WARN < ERROR` 四级；Python 设施 SHAL
 - **THEN** 常量数值与文档记载一致
 
 ### Requirement: 强制日志点
-关键错误路径 SHALL 记录日志（经脱敏），不得静默：IPC 统一错误、主进程 unhandledRejection/uncaughtException、renderer 错误上报、API 5xx（error code+message+stack）、auth introspection/JWKS 失败、webhook 签名校验失败（hook id + 原因码）、retry 第 N 次/原因与熔断状态切换、entitlement 判定结果。
+关键错误路径 SHALL 记录日志（经脱敏），不得静默：IPC 统一错误、主进程 unhandledRejection/uncaughtException、renderer 错误上报、API 5xx（error code+message+stack）、auth introspection/JWKS 失败、webhook 签名校验失败（hook id + 原因码）、retry 第 N 次/原因与熔断状态切换、entitlement 判定结果、Story2Video compose 的生命周期与 FFmpeg 阶段结果。
 
 #### Scenario: 错误路径有日志出口
 - **WHEN** 审查关键错误路径实现
 - **THEN** 每条路径均有日志调用且经脱敏，合同文档列出证据索引
+
+### Requirement: Story2Video 合成可诊断事件
+Story2Video compose SHALL 以结构化 logger meta 记录 composeId 关联的 compose 生命周期、FFmpeg 启动/成功/失败/超时、输出缺失及分块拼接生命周期。长时间分块合并 SHALL 每 10 秒以 INFO 提供输出大小心跳，连续 30 秒无增长 SHALL 以 WARN 标记。事件 SHALL NOT 记录绝对路径、完整 FFmpeg 命令、prompt、凭据或未截断 stderr。
+
+#### Scenario: 87% 长拼接可定位
+- **WHEN** 用户报告 compose 停留在 concat 87%-89%
+- **THEN** 日志可按 composeId 查询到当前 chunk 的 level/index、FFmpeg 启动状态、最近输出大小、心跳、最终成功/失败/超时结果
 
 ### Requirement: 禁止明文敏感与静默边界
 日志 SHALL NOT 以明文记录 token/apiKey/password/cookie/JWT（源头不打印优先，redact 为最后防线）；已知静默区（remotion/story2video 引擎库、pre-Vue 入口失败、runSelfCheck 排队被拒观测盲区）SHALL 在合同文档中显式标注为文档化边界。

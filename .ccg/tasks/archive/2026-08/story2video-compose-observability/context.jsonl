@@ -1,0 +1,8 @@
+{"path":"apps/desktop/electron/services/story2video-compose-engine.js","reason":"compose 生命周期与 FFmpeg/分块实现"}
+{"path":"apps/desktop/electron/services/story2video-compose-engine.test.js","reason":"现有合成与进度回归测试"}
+{"path":"apps/desktop/electron/services/logger.js","reason":"meta 日志、脱敏与截断合同"}
+{"path":"openspec/specs/story2video-compose-progress/spec.md","reason":"87→89 分块进度契约"}
+{"path":"openspec/specs/logging-contract/spec.md","reason":"日志级别、脱敏与保留合同"}
+{"path":"01-docs/PRD.md","reason":"产品需求与迭代记录"}
+{"path":"01-docs/PRD-video-creation.md","reason":"视频创作模块产品文档"}
+{"path":"01-docs/learnings.md","reason":"质量复盘与经验沉淀"}

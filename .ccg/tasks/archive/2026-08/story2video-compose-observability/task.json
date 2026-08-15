@@ -1,0 +1,14 @@
+{
+  "id": "story2video-compose-observability",
+  "title": "Story2Video 合成链路细粒度结构化日志",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "observability",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并提交隔离分支",
+  "createdAt": "2026-08-15T00:00:00Z",
+  "branch": "codex/story2video-compose-observability",
+  "remoteStatus": "local_worktree",
+  "openspecChange": "story2video-compose-observability"
+}

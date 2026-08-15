@@ -113,6 +113,7 @@
 | webhook 出站投递失败 | hook code + url + error 摘要（`webhook-fire-rejected` / `webhook-delivery-failed` / `webhook-send-error`） | `webhook-manager.js:68,127,129,185` |
 | retry 与熔断 | 重试第 N 次/原因/delay；熔断开启、拒绝、恢复（circuitKey） | `retry-middleware.js:55,70,97` |
 | Python 发布授权 | 仅元信息（code/has_data/has_upload_url），禁止 token 明文 | `douyin.py:124-128` |
+| Story2Video 合成 | composeId 生命周期、阶段 start/success/fail、FFmpeg start/success/fail/timeout、输出缺失、chunk 生命周期与心跳；健康心跳每 10 秒为 INFO，30 秒无增长为 WARN；仅 basename/计数/耗时/字节数/安全 stderr 摘要 | story2video-compose-engine.js 的 _runComposeStage / _runFfmpegStage / _concatSegmentsChunked |
 
 ---
 
@@ -125,6 +126,7 @@
 5. **auth 失败吞异常**：必须带原因码进入统一错误出口（§6），不得空 catch。
 6. **audit sink 不经 5 组脱敏**：`audit-log.js` 把 error/details 原样落盘，仅依赖源头不打印纪律（如需 redact 门禁列为待增强）。
 7. **Bridge traceId 非 header 安全字符不得发送**：`X-Request-Id` 仅接受 `[A-Za-z0-9._:-_]` ≤64 的 ASCII 值（Node http 对非法头字符同步抛错）；CJK 等异常值降级为不发送并 warn。
+8. **Story2Video 合成日志不得泄露素材**：不得记录绝对路径、完整 FFmpeg 参数、素材文本、prompt、token、密钥或未截断 stderr；只允许输出 basename、输入数量、时长、字节数、PID、退出码/signal 和路径替换后的 stderr 摘要。
 
 ---
 
@@ -139,6 +141,7 @@
 | runSelfCheck 排队被拒 | timeline 只记录开始执行的请求，排队被拒不进 timeline/不计数 | 以模拟器语义 + governor 源码为准（learnings 复盘更新 2） |
 | L2 引用方 | 同步写、无 meta、写失败静默 | 已文档化；如需增强走注入式 logger |
 | ops-center journald | 宿主日志策略，非仓库管理 | 如需留痕配置 journald 保留 |
+| Story2Video FFmpeg 段内帧级速度 | 本 change 只采样输出字节数；不解析 -progress pipe 的 frame/out_time/speed | 用 composeId + heartbeat 判断运行/无增长；若仍需帧级 ETA，另立 change 引入 spawn + progress pipe |
 
 ---
 
@@ -159,4 +162,5 @@
 - L5：`packages/python-backend/src/multi_publish/core/logging_setup.py:30,60-85`、`publishers/douyin.py:124-128`
 - 容器：`packages/api-publish-engine/docker-compose.yml`、`deploy/logto/docker-compose.yml`、`deploy/logto/docker-compose.monitoring.yml`
 - 强制日志点：`helpers.js:67-101`、`main.js:56-62`、`report-error.js:6-21`、`publish-api-server.js:270-274`、`webhook-manager.js:68`、`retry-middleware.js:55,70,97`
+- Story2Video 合成：apps/desktop/electron/services/story2video-compose-engine.js 的 _logComposeEvent / _runComposeStage / _runFfmpegStage / _concatSegmentsChunked；测试 story2video-compose-engine.test.js 的「合成可观测性日志」组。
 - 审计基线：`01-docs/LOGGING-AUDIT-2026-08-12.md`

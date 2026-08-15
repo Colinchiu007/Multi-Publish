@@ -19,6 +19,7 @@
 - auth 失败：不吞异常，带原因码（如 `LOGTO_RUNTIME_CONFIG_INVALID`）进入统一错误路径。
 - webhook 入站签名校验失败：`WEBHOOK_SIGNATURE_INVALID` 等异常上抛 → API 统一错误路径；出站投递失败：hook code + url + error 摘要。
 - retry/熔断：重试第 N 次/原因/delay；熔断开启/拒绝/恢复（circuitKey）。
+- 长耗时本地子进程：必须记录关联 ID、启动、成功、失败/超时和产物校验；诊断心跳必须使用部署默认可见的日志级别，停滞才升级 WARN。仅记录 basename、计数、耗时、字节数和已脱敏的摘要，禁止完整路径、命令或业务内容。
 
 ## 禁止项（SHALL NOT）
 
