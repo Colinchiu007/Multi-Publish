@@ -48,4 +48,3 @@ Story2Video compose observability 日志 SHALL NOT 记录完整绝对路径、�
 
 - **WHEN** 任何 FFmpeg 或 compose 阶段错误包含本地绝对路径
 - **THEN** 结构化日志中的 error/stderr 不包含该完整路径
-
