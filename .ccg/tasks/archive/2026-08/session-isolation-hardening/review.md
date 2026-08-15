@@ -27,7 +27,7 @@
 - `post-checkout.test.sh`: 10/10 passed.
 - `pre-commit.test.sh`: 23/23 passed.
 - `session-init.test.sh`: 12/12 passed.
-- `session-guard.test.ps1`: 4/4 passed.
+- `session-guard.test.ps1`: 5/5 passed, including active-session overwrite rejection.
 - Git Bash syntax checks: passed.
 - PowerShell syntax checks: passed.
 - `openspec validate session-isolation-hardening --strict`: passed.
