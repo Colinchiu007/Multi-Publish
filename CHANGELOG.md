@@ -1,3 +1,10 @@
+
+## [2026-08-14] fix(story2video): LLM markdown 代码块包装导致提示词中文翻译解析失败
+
+- 现象：Story2Video 流水线「中文翻译」字段显示异常。
+- 根因：translatePromptsForLocale 调用 LLM 翻译英文提示词，部分 LLM 返回 markdown 代码块包裹的 JSON，JSON.parse 失败后逐行回退将代码块标记误当译文。
+- 修复：剥离 markdown 代码块 + 解析成功/回退路径过滤 JSON 对象文本。
+- 测试：新增 7 个回归测试，92/92 通过。
 ## [2026-08-15] fix(ops-center): 提示词评测 Network Error 文案可操作化——传输层失败映射自助排查提示（ops-center-prompt-eval-network-error）
 
 - 现象：运营后台 → 提示词评测 → 进入页面报「加载评测列表失败：Network Error」。
