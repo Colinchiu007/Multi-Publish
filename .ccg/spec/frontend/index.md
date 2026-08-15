@@ -37,10 +37,17 @@ async updateOrchestrationStatus() {
 - 新增用户可见文案一律写入 `apps/desktop/src/locales/zh.js` 与 `en.js` **成对**（CI Gate 7 拦截）；渲染端（.vue script/template）禁止新增中文字符串字面量（CJK 基线扫描按 `file:line` 匹配，新增行会触发误报 → 用 `node .github/scripts/check-locale-sync.js --cjk --update-baseline` 权威重排，但必须先确认「无真新增」）。
 - 产品名词翻译集中维护于 `01-docs/i18n-glossary.md`，新增术语先登记再使用。
 
-## 4. 结果页层级错误隔离（2026-08-15，s2v-result-success-error-boundary）
+## 5. 结果页层级错误隔离（2026-08-15，s2v-result-success-error-boundary）
 
 **模式**：Story2Video 结果页对项目读取、成片 URL、旁白 URL 和场景素材 URL 分别处理；附加资源失败不能否定已完成的成片。
 
-**异常**：大范围 `try/catch` 会把任一附加预览资源失败误报为任务失败；主视频播放器 `error` 事件也不应复用任务级错误文案。
-
 **强制点**：完成事件必须在项目持久化成功后发送；持久化失败发送失败终态；成片缺失使用预览缺失提示，播放器加载失败使用预览级提示。
+
+## 4. Story2Video 合成错误映射
+
+Story2Video compose 的用户可见错误必须优先使用稳定消息键，而不是把后端技术错误文本直接交给 renderer：
+
+- 总时长超限使用 story2video.compose_duration_exceeded；单段旁白超限使用 story2video.compose_segment_duration_exceeded；concat、xfade、旁白、BGM、WebM 或输出校验超时使用 story2video.compose_timeout。
+- 主进程负责把 execFile 的 timeout 终止归一成带阶段语义的 ETIMEDOUT；前端只做兼容识别，不依赖某一种 stderr 或 signal 文案。
+- zh.js 与 en.js 必须成对更新；参数只接受安全的数值上限，未知技术字段、路径、命令、stderr、token 和堆栈不得进入用户文案。
+- 每个稳定消息键至少覆盖：中英文渲染、优先级、未知错误回退、技术细节脱敏，以及真实执行器可能返回的 timeout 形态。

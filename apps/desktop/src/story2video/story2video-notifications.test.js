@@ -15,6 +15,9 @@ describe('Story2Video notification messages', () => {
       ACCESS_DENIED: 'story2video.access_denied',
       ORCHESTRATION_FAILED: 'story2video.orchestration_failed',
       TEXT_INPUT_ONLY: 'story2video.text_input_only',
+      COMPOSE_TIMEOUT: 'story2video.compose_timeout',
+      COMPOSE_DURATION_EXCEEDED: 'story2video.compose_duration_exceeded',
+      COMPOSE_SEGMENT_DURATION_EXCEEDED: 'story2video.compose_segment_duration_exceeded',
       UNKNOWN_ERROR: 'story2video.unknown_error',
     })
 
@@ -73,6 +76,66 @@ describe('Story2Video notification messages', () => {
     expect(notification.message).not.toContain(rawError)
     expect(notification.message).not.toContain('127.0.0.1')
     expect(notification.message).not.toContain('secret')
+  })
+
+  it.each([
+    ['成片总时长不能超过 50 分钟', 'zh', '50 分钟', '缩短文案'],
+    ['旁白音频总时长不能超过 40 分钟', 'zh', '40 分钟', '减少场景'],
+    ['Requested video duration exceeds the allowed limit of 50 minutes', 'en-US', '50-minute', 'shorten'],
+    ['Composed video duration exceeds the allowed limit of 50 minutes', 'en', '50-minute', 'fewer scenes'],
+  ])('将总时长错误映射为专用通知：%s', (error, locale, limitText, actionText) => {
+    const notification = formatStory2VideoNotification({ error }, locale)
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_DURATION_EXCEEDED)
+    expect(notification.message).toContain(limitText)
+    expect(notification.message.toLowerCase()).toContain(actionText.toLowerCase())
+    expect(notification.message).not.toContain(error)
+  })
+
+  it('将单段旁白时长超限映射为拆分文案', () => {
+    const notification = formatStory2VideoNotification({ error: '单段旁白时长不能超过 3 分钟' })
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_SEGMENT_DURATION_EXCEEDED)
+    expect(notification.message).toContain('拆分')
+  })
+
+  it('renders the segment-duration action in English', () => {
+    const notification = formatStory2VideoNotification({
+      error: 'Single narration segment duration exceeds the limit',
+    }, 'en-US')
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_SEGMENT_DURATION_EXCEEDED)
+    expect(notification.message).toContain('Split')
+  })
+
+  it.each([
+    'WebM transcode failed: Command timed out after 180000ms',
+    'Narration concat failed: ffmpeg timeout',
+    'BGM mix failed: spawn ffmpeg ETIMEDOUT',
+    'Output validation failed: output validation ffmpeg stage timed out',
+    'Output validation failed: 视频校验超时 C:/private/video.mp4 token=secret',
+  ])('将合成阶段超时映射为可重试通知且不泄漏技术细节：%s', error => {
+    const notification = formatStory2VideoNotification({ error })
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_TIMEOUT)
+    expect(notification.message).toContain('断点')
+    expect(notification.message).toContain('磁盘')
+    expect(notification.message).not.toContain(error)
+    expect(notification.message).not.toContain('private')
+    expect(notification.message).not.toContain('secret')
+  })
+
+  it('renders a safe English compose-timeout action', () => {
+    const rawError = 'WebM transcode failed: webm transcode ffmpeg stage timed out at C:/private token=secret'
+    const notification = formatStory2VideoNotification({ error: rawError }, 'en-US')
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_TIMEOUT)
+    expect(notification.message).toContain('resume from the breakpoint')
+    expect(notification.message).toContain('disk space')
+    expect(notification.message).not.toContain('private')
+    expect(notification.message).not.toContain('secret')
+  })
+
+  it('prioritizes duration-limit guidance over a timeout token in the same error', () => {
+    const notification = formatStory2VideoNotification({
+      error: 'Composed video duration exceeds the allowed limit of 50 minutes after timeout'
+    }, 'en-US')
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_DURATION_EXCEEDED)
   })
 
   it('maps an authenticated IPC denial to a clear sign-in/access message', () => {

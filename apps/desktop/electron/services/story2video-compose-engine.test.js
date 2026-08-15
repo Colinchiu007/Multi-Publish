@@ -22,7 +22,11 @@ const {
   buildSubtitleFilter,
   buildWatermarkFilter,
   buildScaleFilter,
+  computeFfmpegStageTimeoutMs,
+  isFfmpegStageTimeoutError,
+  normalizeFfmpegStageError,
   computeSegmentEncodeTimeoutMs,
+  computeMergeEncodeTimeoutMs,
   resolveMaxOutputDimensions,
   validateResolutionCapability,
   computeWorkResolution,
@@ -1441,6 +1445,38 @@ describe('Story2VideoComposeEngine 子进度发射（compose_progress 契约）'
     }))
   }
 
+  it('min-duration 合成把旁白实际总时长与预计成片时长分别传给下游阶段', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-timeout-duration-'))
+    const engine = makeProgressEngine(root)
+    engine._probeMediaDuration = vi.fn()
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(6)
+      .mockResolvedValueOnce(6)
+      .mockResolvedValueOnce(12)
+    engine._mixBgm = vi.fn(async (_video, _bgm, output) => fs.writeFileSync(output, 'mixed'))
+    engine._transcodeWebm = vi.fn(async (_input, output) => fs.writeFileSync(output, 'webm'))
+    try {
+      const result = await engine.compose({ scenes: makeScenes(root, 2) }, {
+        transition: 'none',
+        sceneDurationMode: 'min-duration',
+        minSceneDuration: 6,
+        bgmPath: writeFixture(root, 'bgm.mp3'),
+        format: 'webm',
+      })
+
+      expect(result.code).toBe(0)
+      expect(engine._concatSegments.mock.calls[0][3].segmentDurations).toEqual([6, 6])
+      expect(engine._concatNarrationAudio.mock.calls[0][4]).toBe(5)
+      expect(engine._mixBgm.mock.calls[0][4]).toBe(12)
+      expect(engine._transcodeWebm.mock.calls[0][2]).toBe(12)
+      expect(engine._validateOutput.mock.calls[0][1]).toBe(12)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('normalizeComposeProgressUpdate 字段级校验（取整/钳制/非法丢弃）', () => {
     expect(normalizeComposeProgressUpdate({ phase: 'segments', percent: 39.4, segmentsDone: 3, segmentsTotal: 5 }))
       .toEqual({ phase: 'segments', percent: 39, segmentsDone: 3, segmentsTotal: 5 })
@@ -1761,6 +1797,18 @@ describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）',
     expect(xfadeMerge).not.toHaveBeenCalled()
   })
 
+  it('无损 concat 接收当前输入片段时长，供动态预算计算', async () => {
+    const segments = makeSegments(3)
+    const durations = [600, 700, 800]
+    const output = path.join(tmp, 'out.mp4')
+    const plainConcat = vi.fn(async (_segs, outputPath) => fs.writeFileSync(outputPath, 'video'))
+    engine._plainConcat = plainConcat
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'none', segmentDurations: durations })
+
+    expect(plainConcat).toHaveBeenCalledWith(segments, output, tmp, durations)
+  })
+
   it('分块合成：每完成一块触发 onChunkCreated（level/chunkIndex/done/total/path）', async () => {
     const segments = makeSegments(27)
     const durations = segments.map((_, i) => 6 + (i % 3))
@@ -1833,6 +1881,57 @@ describe('computeSegmentEncodeTimeoutMs — 片段编码超时按时长估算', 
   it('缺省时长/帧率使用安全默认值且不低于下限', () => {
     expect(computeSegmentEncodeTimeoutMs(null, undefined)).toBe(30000)
     expect(computeSegmentEncodeTimeoutMs(undefined, null)).toBe(30000)
+  })
+})
+
+describe('computeFfmpegStageTimeoutMs — 全片 ffmpeg 超时按媒体时长估算', () => {
+  it('将 execFile 的超时终止状态识别为阶段超时，而普通 SIGTERM 不误判', () => {
+    expect(isFfmpegStageTimeoutError({ code: 'ETIMEDOUT' })).toBe(true)
+    expect(isFfmpegStageTimeoutError({ killed: true, signal: 'SIGTERM' })).toBe(true)
+    expect(isFfmpegStageTimeoutError({ killed: true, signal: 'SIGKILL' })).toBe(false)
+    expect(isFfmpegStageTimeoutError({ code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' })).toBe(false)
+  })
+
+  it('将 execFile 超时错误归一为带阶段语义的 ETIMEDOUT，普通错误保持原对象', () => {
+    const sourceError = Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' })
+    const normalized = normalizeFfmpegStageError(sourceError, 'webm transcode')
+    expect(normalized).not.toBe(sourceError)
+    expect(normalized.code).toBe('ETIMEDOUT')
+    expect(normalized.message).toBe('webm transcode ffmpeg stage timed out')
+    expect(normalized.cause).toBe(sourceError)
+
+    const ordinaryError = new Error('invalid input')
+    expect(normalizeFfmpegStageError(ordinaryError, 'webm transcode')).toBe(ordinaryError)
+  })
+
+  it('短片保持各阶段既有最小预算', () => {
+    expect(computeFfmpegStageTimeoutMs('concat', 1)).toBe(60000)
+    expect(computeFfmpegStageTimeoutMs('narration', 1)).toBe(120000)
+    expect(computeFfmpegStageTimeoutMs('bgm', 1)).toBe(120000)
+    expect(computeFfmpegStageTimeoutMs('webm', 1)).toBe(180000)
+    expect(computeFfmpegStageTimeoutMs('validate', 1)).toBe(60000)
+  })
+
+  it('50 分钟输出按阶段放大，不再落入固定 60s/120s/180s', () => {
+    expect(computeFfmpegStageTimeoutMs('concat', 3000)).toBe(780000)
+    expect(computeFfmpegStageTimeoutMs('narration', 3000)).toBe(6030000)
+    expect(computeFfmpegStageTimeoutMs('bgm', 3000)).toBe(6030000)
+    expect(computeFfmpegStageTimeoutMs('webm', 3000)).toBe(18120000)
+    expect(computeFfmpegStageTimeoutMs('validate', 3000)).toBe(6030000)
+  })
+
+  it.each([undefined, null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, 'oops'])(
+    '无效时长 %s 回退阶段最小预算',
+    duration => {
+      expect(computeFfmpegStageTimeoutMs('webm', duration)).toBe(180000)
+    },
+  )
+
+  it('极端估算受阶段硬上限约束，xfade 同样封顶 6 小时', () => {
+    expect(computeFfmpegStageTimeoutMs('concat', 100000)).toBe(30 * 60 * 1000)
+    expect(computeFfmpegStageTimeoutMs('narration', 100000)).toBe(2 * 60 * 60 * 1000)
+    expect(computeFfmpegStageTimeoutMs('webm', 100000)).toBe(6 * 60 * 60 * 1000)
+    expect(computeMergeEncodeTimeoutMs(100000)).toBe(6 * 60 * 60 * 1000)
   })
 })
 

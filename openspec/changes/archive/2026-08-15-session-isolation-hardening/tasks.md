@@ -20,5 +20,5 @@
 
 ## 4. Delivery And Archive
 
-- [ ] 4.1 Commit and push `codex/session-isolation-hardening`, create a PR, and record CI/merge status.
-- [ ] 4.2 After merge, archive the OpenSpec change and CCG task, run `scripts/openspec-sync-check.js`, and commit the three-way archive sync.
+- [x] 4.1 Commit and push `codex/session-isolation-hardening`, create a PR, and record CI/merge status.
+- [x] 4.2 After merge, archive the OpenSpec change and CCG task, run `scripts/openspec-sync-check.js`, and commit the three-way archive sync.
