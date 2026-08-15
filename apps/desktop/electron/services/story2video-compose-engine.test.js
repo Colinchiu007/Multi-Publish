@@ -14,6 +14,7 @@ const {
   findFfmpeg,
   findFfprobe,
   normalizeComposeProgressUpdate,
+  countChunkedMergeChunks,
   buildTransitionPlan,
   escapeSubtitleText,
   normalizeComposeScenes,
@@ -1495,6 +1496,36 @@ describe('Story2VideoComposeEngine 子进度发射（compose_progress 契约）'
       fs.rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('超长片段（>8 段）走真实分块拼接：concat 进度在 87→89 间按块单调推进并记录块日志', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-chunked-'))
+    const engine = makeProgressEngine(root)
+    // 保留真实 _concatSegments/_concatSegmentsChunked（含递归），仅 mock 底层 ffmpeg 合并
+    engine._concatSegments = Story2VideoComposeEngine.prototype._concatSegments
+    engine._xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => fs.writeFileSync(outputPath, 'video'))
+    engine._plainConcat = vi.fn(async (_segs, outputPath) => fs.writeFileSync(outputPath, 'video'))
+    const progress = []
+    try {
+      const result = await engine.compose({ scenes: makeScenes(root, 10) }, { transition: 'fade' }, (u) => progress.push(u))
+      expect(result.code).toBe(0)
+      const concat = progress.filter(p => p.phase === 'concat')
+      // 10 段 → l0 2 块 + l1 1 块 = 3 块；初始 87 + 每块 87+2·k/3：87 / 88 / 88 / 89
+      expect(concat.length).toBe(4)
+      const percents = concat.map(p => p.percent)
+      expect(percents[0]).toBe(87)
+      expect(percents.at(-1)).toBe(89)
+      for (let i = 1; i < percents.length; i++) expect(percents[i]).toBeGreaterThanOrEqual(percents[i - 1])
+      expect(percents.every(p => p >= 87 && p <= 89)).toBe(true)
+      // 每完成一块记录 merge_l{level}_chunk_{n} created 日志
+      const logLines = engine.log.info.mock.calls.map(args => args[1])
+      expect(logLines.filter(l => /merge_l\d_chunk_\d+ created/.test(l))).toHaveLength(3)
+      expect(logLines).toContain('merge_l0_chunk_000 created: merge_l0_chunk_000.mp4')
+      expect(logLines).toContain('merge_l1_chunk_000 created: merge_l1_chunk_000.mp4')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('Story2Video 六档字幕字号', () => {
@@ -1598,6 +1629,60 @@ describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）',
 
     expect(plainConcat).toHaveBeenCalledTimes(1)
     expect(xfadeMerge).not.toHaveBeenCalled()
+  })
+
+  it('分块合成：每完成一块触发 onChunkCreated（level/chunkIndex/done/total/path）', async () => {
+    const segments = makeSegments(27)
+    const durations = segments.map((_, i) => 6 + (i % 3))
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+
+    const created = []
+    await engine._concatSegments(segments, output, tmp, {
+      transition: 'fade',
+      transitionDuration: 0.4,
+      segmentDurations: durations,
+      onChunkCreated: (chunk) => created.push(chunk),
+    })
+
+    // 27 段 → l0 4 块（8/8/8/3）+ l1 1 块，共 5 块；done/total 跨递归层级单调累加
+    expect(created).toHaveLength(5)
+    expect(created.map(c => c.level)).toEqual([0, 0, 0, 0, 1])
+    expect(created.map(c => c.chunkIndex)).toEqual([0, 1, 2, 3, 0])
+    expect(created.map(c => c.done)).toEqual([1, 2, 3, 4, 5])
+    expect(created.map(c => c.total)).toEqual([5, 5, 5, 5, 5])
+    for (const chunk of created) {
+      expect(path.basename(chunk.path)).toBe('merge_l' + chunk.level + '_chunk_' + String(chunk.chunkIndex).padStart(3, '0') + '.mp4')
+    }
+  })
+
+  it('分块合成：每完成一块记录 merge_l{level}_chunk_{n} created 日志', async () => {
+    const segments = makeSegments(27)
+    const durations = segments.map((_, i) => 6 + (i % 3))
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+    const info = vi.fn()
+    engine.log = { info, warn() {}, error() {} }
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade', transitionDuration: 0.4, segmentDurations: durations })
+
+    const logLines = info.mock.calls.map(args => args[1])
+    expect(logLines.filter(l => /merge_l\d_chunk_\d+ created/.test(l))).toHaveLength(5)
+    expect(logLines).toContain('merge_l0_chunk_000 created: merge_l0_chunk_000.mp4')
+    expect(logLines).toContain('merge_l1_chunk_000 created: merge_l1_chunk_000.mp4')
+  })
+
+  it('countChunkedMergeChunks 全流程总块数（各级块数之和，末级仅复制不新增块）', () => {
+    expect(countChunkedMergeChunks(27, 8)).toBe(5) // l0: 4 + l1: 1
+    expect(countChunkedMergeChunks(9, 8)).toBe(3) // l0: 2 + l1: 1
+    expect(countChunkedMergeChunks(8, 8)).toBe(1)
+    expect(countChunkedMergeChunks(6, 8)).toBe(1)
+    expect(countChunkedMergeChunks(100, 8)).toBe(16) // 13 + 2 + 1
+    expect(countChunkedMergeChunks(2, 8)).toBe(1)
+    expect(countChunkedMergeChunks(1, 8)).toBe(1)
+    expect(countChunkedMergeChunks(0, 8)).toBe(0)
   })
 })
 
