@@ -13520,3 +13520,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 修复与预防
 - 完成事件后移到项目持久化成功之后；持久化失败同步最后阶段为 `failed` 并发送 `pipeline:fail`。
 - 结果页按项目、成片、旁白和场景素材独立降级；主视频播放器错误使用预览级文案。定向回归 86/86 全绿，规则已写入 frontend spec。
+
+## Story2Video 长合成“假卡死”可观测性复盘（story2video-compose-observability，2026-08-15）
+
+- **现象**：长视频分块转场合成在 UI 87%-89% 可持续数分钟。既有引擎每完成一块才输出 merge_l{level}_chunk_{n} created，因此无法从日志区分 FFmpeg 尚未启动、持续 CPU 重编码、子进程退出、输出停止增长或阶段超时。
+- **第一性原因**：compose 没有跨阶段关联 ID，FFmpeg 通过不带 PID/输出状态的 execFileAsync 执行；分块只有完成事件，运行期间没有心跳。根因不是单纯的 UI 百分比，而是引擎缺少能够证明“仍在工作”的运行时证据。
+- **逃逸链**：原测试验证了 87→89 单调进度和块完成文本日志，但没有断言 FFmpeg 启动、超时、失败、空输出、输出大小或块开始事件；短时真实 FFmpeg 用例不会自然暴露长时间无日志窗口。
+- **修复**：以 composeId 串联 compose_started/stage/终态事件；统一 FFmpeg 包装记录 started/succeeded/failed/timeout/output_missing；chunk 记录 started/succeeded/failed，超过 10 秒记录输出字节心跳，30 秒无增长 WARN。stderr 经过路径替换和长度截断，日志不写完整路径/命令/素材/prompt/凭据。
+- **预防**：所有新增长耗时本地子进程路径必须覆盖“启动 + 成功 + 失败/超时 + 产物校验”四态；需要帧级 ETA 时单独设计 spawn + progress pipe 合同，不得把高频解析混入普通诊断日志；测试至少包含一个可控超时和一个输出增长心跳。

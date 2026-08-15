@@ -1771,7 +1771,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | preflight | 0 | 素材路径/大小校验通过后、开始 probe 音频时长 |
 | validated | 3 | 预检全部通过（媒体可读、尺寸/时长限额、分辨率合法） |
 | segments（k 个片段已完成，共 N 个） | 3 + 72·k/N（k=N 精确 75） | 每个片段 ffmpeg 合成完成即更新一次；片段粒度，非帧级实时 |
-| concat | 87 | 拼接（含 >8 段 chunked 递归合成；权重拓宽避免长视频停滞） |
+| concat | 87 起，分块时单调推进至 89 | 拼接（含 >8 段 chunked 递归合成；每完成一个块就在 87-89 区间更新，避免长视频停滞） |
 | narration | 89 | 旁白合并为独立音频 |
 | bgm | 92 | 可选：BGM 混音 |
 | webm | 95 | 可选：WebM 转码 |
@@ -1783,6 +1783,8 @@ Electron 打包、工作树、PR 或发布状态证据。
 - **失败语义**：全部失败路径（片段生成/拼接/旁白合并/BGM/webm/校验/持久化失败）不发射新值，percent 冻结在最后有效值（<100）；`percent === 100` 与 `code === 0` 一一对应，杜绝假成功信号。
 - 执行器侧 fail-closed：回调内字段级校验（phase 为已知枚举；percent 有限且 [0,100]；segmentsTotal/done 整数且范围正确），任一非法丢弃该次更新，绝不向 renderer 下发非法值；结构为纯原始值对象（IPC structuredClone 安全）。
 - 可选步骤（无 BGM / 非 webm）按实际路径跳变，单调性保持；`message` 仅由引擎内部生成，concat 中文界面用于按块展示，英文界面使用本地化回退。
+
+- **运行时诊断合同**：每次 compose 仅在主进程日志中生成内部 composeId，以结构化事件关联 compose 生命周期、阶段 start/success/fail、FFmpeg start/success/fail/timeout、空输出和 chunk 生命周期；不改变 compose_progress、IPC 载荷或前端状态。健康心跳每 10 秒以默认可见的 INFO 级别记录输出字节数；连续 30 秒无增长升级为 WARN。事件只记录 basename、计数、预算、耗时、字节数、PID/退出状态及已清理的 stderr 摘要，禁止绝对路径、完整命令、素材文本、prompt 和凭据。
 
 **交互逻辑**：
 - compose 阶段 running 且 `compose_progress.percent` 合法（有限且 0-100）时，阶段条目内渲染子进度条（mini bar，宽 100%，高 4px，`data-testid="story2video-stage-compose-progress"`）+ 阶段详情文案。
@@ -1814,6 +1816,8 @@ Electron 打包、工作树、PR 或发布状态证据。
 7. 结果页单段重试 `renderSegment`：独立引擎调用、无 context，不写 `compose_progress`。
 8. 段内 30s 超时（既有约束）：段进度以段为单位，非帧级实时（记入后续演进）。
 9. IPC 载荷：`compose_progress` ≤ 5 字段，3s 轮询无压力；字段级校验为最后防线。按块 message 只改善进度可见性，不改变编码、转场、拼接算法或实际耗时。
+
+10. 87%-89% 排障：按同一 composeId 查看最近 merge_chunk_*、ffmpeg_* 与心跳事件即可判断当前块、FFmpeg 是否启动、输出是否增长、是否 stalled 以及终态；日志增强不提供帧级 ETA，也不减少转场渲染时间。
 
 **后续演进（v1 不做）**：ffmpeg `-progress pipe:1` 段内实时百分比（需将 `_createSegment` 从 execFileAsync 改为 spawn + 进度解析，涉及 Windows timeout/maxBuffer/错误语义重构，独立 PR 评估）；chunked 拼接（>8 段）在 75→87 区间的段级 onStep 插值。
 

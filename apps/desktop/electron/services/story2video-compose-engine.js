@@ -33,6 +33,50 @@ const {
 } = require('./story2video-segmentation')
 
 const execFileAsync = promisify(execFile)
+const COMPOSE_LOG_MODULE = 'Story2VideoCompose'
+const FFMPEG_HEARTBEAT_INTERVAL_MS = 10 * 1000
+const FFMPEG_STALLED_OUTPUT_WARN_MS = 30 * 1000
+
+function outputFileBytes (filePath) {
+  if (!filePath) return 0
+  try {
+    const stat = fs.statSync(filePath)
+    return stat.isFile() ? stat.size : 0
+  } catch (_) {
+    return 0
+  }
+}
+
+function safeFfmpegDiagnostic (value) {
+  const redactAbsolutePath = (line) => {
+    const windowsIndex = line.search(/[A-Za-z]:[\\/]/)
+    const unixMatch = /(?:^|[\s'"\[({=:,])\//.exec(line)
+    const unixIndex = unixMatch ? unixMatch.index + unixMatch[0].length - 1 : -1
+    const pathIndex = windowsIndex === -1
+      ? unixIndex
+      : (unixIndex === -1 ? windowsIndex : Math.min(windowsIndex, unixIndex))
+    return pathIndex === -1 ? line : line.slice(0, pathIndex) + '<path>'
+  }
+
+  return String(value || '')
+    .split(/\r?\n/)
+    .map(redactAbsolutePath)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(-300)
+}
+
+function ffmpegErrorMeta (error) {
+  const source = error?.cause || error || {}
+  return {
+    errorCode: typeof error?.code === 'string' ? error.code : (typeof source.code === 'string' ? source.code : null),
+    exitCode: typeof source.code === 'number' ? source.code : null,
+    signal: typeof source.signal === 'string' ? source.signal : null,
+    killed: source.killed === true,
+    stderr: safeFfmpegDiagnostic(source.stderr),
+  }
+}
 
 function isFfmpegStageTimeoutError (error) {
   return error?.code === 'ETIMEDOUT' || (error?.killed === true && error?.signal === 'SIGTERM')
@@ -47,8 +91,19 @@ function normalizeFfmpegStageError (error, stage) {
 }
 
 async function execFfmpegStage (args, options, stage) {
+  const { onStarted, ...execOptions } = options || {}
   try {
-    return await execFileAsync(FFMPEG, args, options)
+    return await new Promise((resolve, reject) => {
+      const child = execFile(FFMPEG, args, execOptions, (error, stdout, stderr) => {
+        if (error) {
+          if (stderr && !error.stderr) error.stderr = stderr
+          reject(error)
+          return
+        }
+        resolve({ stdout, stderr })
+      })
+      if (typeof onStarted === 'function') onStarted(child?.pid || null)
+    })
   } catch (error) {
     throw normalizeFfmpegStageError(error, stage)
   }
@@ -619,6 +674,9 @@ class Story2VideoComposeEngine {
     this._maxOutputResolutionGetter = typeof opts.getMaxOutputResolution === 'function'
       ? opts.getMaxOutputResolution
       : null
+    this._execFfmpegStage = typeof opts.execFfmpegStage === 'function'
+      ? opts.execFfmpegStage
+      : execFfmpegStage
     this._segmentSeq = 0
   }
 
@@ -631,6 +689,119 @@ class Story2VideoComposeEngine {
       } catch (_) { /* 回退静态值 */ }
     }
     return this.maxOutputResolution
+  }
+
+  _logComposeEvent (level, event, meta) {
+    const write = typeof this.log?.[level] === 'function'
+      ? this.log[level]
+      : this.log?.info
+    if (typeof write !== 'function') return
+    write.call(this.log, COMPOSE_LOG_MODULE, event, { event, ...meta })
+  }
+
+  async _runComposeStage (details, run) {
+    const startedAt = Date.now()
+    this._logComposeEvent('info', 'compose_stage_started', details)
+    try {
+      const result = await run()
+      this._logComposeEvent('info', 'compose_stage_succeeded', {
+        ...details,
+        elapsedMs: Date.now() - startedAt,
+      })
+      return result
+    } catch (error) {
+      this._logComposeEvent('error', 'compose_stage_failed', {
+        ...details,
+        elapsedMs: Date.now() - startedAt,
+        errorCode: typeof error?.code === 'string' ? error.code : null,
+        error: safeFfmpegDiagnostic(error?.message),
+      })
+      throw error
+    }
+  }
+
+  async _runFfmpegStage (args, options, details) {
+    const startedAt = Date.now()
+    const outputPath = details?.outputPath || null
+    const heartbeatEnabled = details?.heartbeat === true
+    let lastOutputBytes = outputFileBytes(outputPath)
+    let lastGrowthAt = startedAt
+    const metadata = {
+      composeId: details?.composeId || null,
+      stage: details?.stage || null,
+      operation: details?.operation || null,
+      output: outputPath ? path.basename(outputPath) : null,
+      inputCount: Number.isInteger(details?.inputCount) ? details.inputCount : null,
+      estimatedDurationSeconds: Number.isFinite(details?.estimatedDuration) ? details.estimatedDuration : null,
+      timeoutMs: Number.isFinite(options?.timeout) ? options.timeout : null,
+      ...details?.meta,
+    }
+    const emitHeartbeat = () => {
+      const now = Date.now()
+      const outputBytes = outputFileBytes(outputPath)
+      if (outputBytes > lastOutputBytes) lastGrowthAt = now
+      const stalled = now - lastGrowthAt >= FFMPEG_STALLED_OUTPUT_WARN_MS
+      this._logComposeEvent(stalled ? 'warn' : 'info', 'ffmpeg_heartbeat', {
+        ...metadata,
+        elapsedMs: now - startedAt,
+        outputBytes,
+        outputGrowing: outputBytes > lastOutputBytes,
+        stalled,
+      })
+      if (typeof details?.onHeartbeat === 'function') {
+        details.onHeartbeat({
+          elapsedMs: now - startedAt,
+          outputBytes,
+          outputGrowing: outputBytes > lastOutputBytes,
+          stalled,
+        })
+      }
+      lastOutputBytes = outputBytes
+    }
+    let heartbeatTimer = null
+    if (heartbeatEnabled) {
+      heartbeatTimer = setInterval(emitHeartbeat, FFMPEG_HEARTBEAT_INTERVAL_MS)
+      if (typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref()
+    }
+    try {
+      const result = await this._execFfmpegStage(args, {
+        ...options,
+        onStarted: (pid) => {
+          this._logComposeEvent('info', 'ffmpeg_started', { ...metadata, pid })
+        },
+      }, details?.operation || 'ffmpeg')
+      if (heartbeatTimer) clearInterval(heartbeatTimer)
+      this._logComposeEvent('info', 'ffmpeg_succeeded', {
+        ...metadata,
+        elapsedMs: Date.now() - startedAt,
+        outputBytes: outputFileBytes(outputPath),
+      })
+      return result
+    } catch (error) {
+      if (heartbeatTimer) clearInterval(heartbeatTimer)
+      const event = isFfmpegStageTimeoutError(error) ? 'ffmpeg_timeout' : 'ffmpeg_failed'
+      this._logComposeEvent(event === 'ffmpeg_timeout' ? 'warn' : 'error', event, {
+        ...metadata,
+        elapsedMs: Date.now() - startedAt,
+        outputBytes: outputFileBytes(outputPath),
+        ...ffmpegErrorMeta(error),
+      })
+      throw error
+    }
+  }
+
+  _requireFfmpegOutput (outputPath, details, stderr) {
+    if (hasUsableFile(outputPath)) return
+    this._logComposeEvent('error', 'ffmpeg_output_missing', {
+      composeId: details?.composeId || null,
+      stage: details?.stage || null,
+      operation: details?.operation || null,
+      output: outputPath ? path.basename(outputPath) : null,
+      outputBytes: outputFileBytes(outputPath),
+      stderr: safeFfmpegDiagnostic(stderr),
+      ...details?.meta,
+    })
+    throw new Error(details?.message || 'ffmpeg did not produce output')
   }
 
   /**
@@ -659,20 +830,47 @@ class Story2VideoComposeEngine {
       progressCb(normalized)
     }
 
+    const composeSequence = ++this._segmentSeq
+    const composeId = 'compose_' + Date.now() + '_' + composeSequence
+    this._logComposeEvent('info', 'compose_started', {
+      composeId,
+      stage: 'compose',
+      sceneCount: Array.isArray(assetManifest?.scenes) ? assetManifest.scenes.length : null,
+      requestedFormat: options?.format === 'webm' ? 'webm' : 'mp4',
+      transition: options?.transition || 'fade',
+    })
+    const logComposeFailure = (stage, error, meta) => {
+      this._logComposeEvent('error', 'compose_failed', {
+        composeId,
+        stage,
+        errorCode: typeof error?.code === 'string' ? error.code : null,
+        error: safeFfmpegDiagnostic(error?.message || error),
+        ...meta,
+      })
+    }
+
     if (!FFMPEG) {
+      logComposeFailure('preflight', 'ffmpeg not found', { reason: 'ffmpeg_not_found' })
       return { code: -1, message: 'ffmpeg not found' }
     }
 
     let scenes = normalizeComposeScenes(assetManifest)
     if (scenes.length === 0) {
+      logComposeFailure('preflight', 'Invalid assetManifest', { reason: 'invalid_asset_manifest' })
       return { code: -1, message: 'Invalid assetManifest: missing scenes or image/audio pairs' }
     }
 
     const resolutionError = validateResolution(options?.resolution, this.maxOutputPixels)
-    if (resolutionError) return { code: -1, message: resolutionError }
+    if (resolutionError) {
+      logComposeFailure('preflight', resolutionError, { reason: 'invalid_resolution' })
+      return { code: -1, message: resolutionError }
+    }
     // 运营开关 fail-closed：未开启 4K 时拒绝 4K 及以上输出分辨率
     const capabilityError = validateResolutionCapability(options?.resolution, this._currentMaxOutputResolution())
-    if (capabilityError) return { code: -1, message: capabilityError }
+    if (capabilityError) {
+      logComposeFailure('preflight', capabilityError, { reason: 'resolution_capability_rejected' })
+      return { code: -1, message: capabilityError }
+    }
 
     const requestedBgmPath = options?.bgmPath || assetManifest.bgmPath || assetManifest.bgm?.path
     // BGM 为可选配置：文件缺失/不可读/越界时降级为无 BGM 继续合成（不整条流水线失败）。
@@ -710,14 +908,17 @@ class Story2VideoComposeEngine {
         maxBytes: this.maxInputFileBytes,
       })
       if (!videoPath && !imagePath) {
+        logComposeFailure('preflight', 'Scene media path rejected', { reason: 'scene_media_unreadable', sceneIndex: index })
         return { code: -1, message: 'Scene media path is not allowed or unreadable at index ' + index }
       }
       if (!audioPath) {
+        logComposeFailure('preflight', 'Scene audio path rejected', { reason: 'scene_audio_unreadable', sceneIndex: index })
         return { code: -1, message: 'Scene audio path is not allowed or unreadable at index ' + index }
       }
       const mediaInputs = videoPath ? [videoPath, audioPath] : [imagePath, audioPath]
       for (const mediaPath of mediaInputs) {
         if (!accountInput(mediaPath)) {
+          logComposeFailure('preflight', 'Input media exceeds total size limit', { reason: 'input_size_limit' })
           return { code: -1, message: 'Input media exceeds the total size limit' }
         }
       }
@@ -740,6 +941,7 @@ class Story2VideoComposeEngine {
         bgmSkippedReason = reason
         composeWarnings.push(BGM_SKIP_WARNING_CODES[reason] || BGM_SKIP_WARNING_CODES.unreadable)
       } else if (!accountInput(bgmPath)) {
+        logComposeFailure('preflight', 'Input media exceeds total size limit', { reason: 'input_size_limit' })
         return { code: -1, message: 'Input media exceeds the total size limit' }
       }
     }
@@ -765,6 +967,7 @@ class Story2VideoComposeEngine {
       probedAudioDurations.push(audioDuration)
       if (!audioDuration) continue
       if (scenes.length > 1 && audioDuration > this.maxSegmentDurationSeconds) {
+        logComposeFailure('preflight', 'Segment narration duration limit exceeded', { reason: 'segment_duration_limit', sceneIndex: index })
         return { code: -1, message: '单段旁白时长不能超过 ' + formatDurationLimit(this.maxSegmentDurationSeconds) }
       }
       totalAudioDuration += audioDuration
@@ -772,9 +975,11 @@ class Story2VideoComposeEngine {
     // 成片检查在前：默认成片与旁白上限一致，任何超限输入先返回「成片总时长」文案（PRD §7.1.25a 合同）；
     // 旁白检查仅在旁白上限低于成片上限（更严旁白约束）时可达。
     if (totalAudioDuration > this.maxDurationSeconds) {
+      logComposeFailure('preflight', 'Output duration limit exceeded', { reason: 'output_duration_limit' })
       return { code: -1, message: '成片总时长不能超过 ' + formatDurationLimit(this.maxDurationSeconds) }
     }
     if (totalAudioDuration > this.maxAudioDurationSeconds) {
+      logComposeFailure('preflight', 'Narration duration limit exceeded', { reason: 'narration_duration_limit' })
       return { code: -1, message: '旁白音频总时长不能超过 ' + formatDurationLimit(this.maxAudioDurationSeconds) }
     }
     const effectiveRequestedDuration = scenes.reduce((total, scene, index) => {
@@ -786,6 +991,7 @@ class Story2VideoComposeEngine {
       return total + (sceneDurationMode === 'min-duration' ? Math.max(base, minSceneDuration) : base)
     }, 0)
     if (effectiveRequestedDuration > this.maxDurationSeconds) {
+      logComposeFailure('preflight', 'Requested duration limit exceeded', { reason: 'requested_duration_limit' })
       return { code: -1, message: 'Requested video duration exceeds the allowed limit of ' + Math.round(this.maxDurationSeconds / 60) + ' minutes' }
     }
 
@@ -810,7 +1016,7 @@ class Story2VideoComposeEngine {
     // P2-7: 启动时清理历史残留 sessionDir（超过 maxSessionAgeMs）
     this._cleanupOldSessions()
 
-    const sessionId = 's2v_' + Date.now() + '_' + (++this._segmentSeq)
+    const sessionId = 's2v_' + Date.now() + '_' + composeSequence
     const sessionDir = path.join(this.outputDir, sessionId)
     fs.mkdirSync(sessionDir, { recursive: true })
 
@@ -821,8 +1027,12 @@ class Story2VideoComposeEngine {
     const voiceVolume = clampNumber(options?.voiceVolume, 0, 2, 1)
     const outputFormat = options?.format === 'webm' ? 'webm' : 'mp4'
 
-    this.log.info('Story2VideoCompose', 'Composing video: ' +
-      scenes.length + ' scenes')
+    this._logComposeEvent('info', 'compose_session_created', {
+      composeId,
+      stage: 'preflight',
+      sceneCount: scenes.length,
+      session: path.basename(sessionDir),
+    })
 
     // 1. 为每个图片+音频对创建视频片段
     const segments = []
@@ -856,9 +1066,15 @@ class Story2VideoComposeEngine {
         : null
 
       try {
-        // 混合模式（2026-08-11）：AI 视频场景走视频片段编码，图片轮播场景走 zoompan 编码
-        if (scene.videoPath) {
-          await this._createVideoSegment(scene.videoPath, scene.audioPath, segPath, {
+        await this._runComposeStage({
+          composeId,
+          stage: 'segments',
+          operation: scene.videoPath ? 'video_segment_encode' : 'image_segment_encode',
+          sceneIndex: i,
+          estimatedDurationSeconds: effectDuration,
+          output: path.basename(segPath),
+        }, async () => {
+          const segmentOptions = {
             duration,
             effectDuration,
             sceneDurationMode,
@@ -875,27 +1091,13 @@ class Story2VideoComposeEngine {
             width: resolution.width,
             height: resolution.height,
             fps,
-          })
-        } else {
-          await this._createSegment(scene.imagePath, scene.audioPath, segPath, {
-            duration,
-            effectDuration,
-            sceneDurationMode,
-            padTo,
-            subtitleText: subtitleEnabled ? scene.text : '',
-            subtitleTimeline: subtitleEnabled ? subtitleTimeline : [],
-            transition,
-            imageEffect: options?.imageEffect || 'none',
-            subtitleStyle: options?.subtitleStyle,
-            watermark: options?.watermark,
-            watermarkText: options?.watermarkText,
-            watermarkConfig: options?.watermarkConfig,
-            voiceVolume,
-            width: resolution.width,
-            height: resolution.height,
-            fps,
-          })
-        }
+            composeId,
+            sceneIndex: i,
+          }
+          // 混合模式（2026-08-11）：AI 视频场景走视频片段编码，图片轮播场景走 zoompan 编码
+          if (scene.videoPath) await this._createVideoSegment(scene.videoPath, scene.audioPath, segPath, segmentOptions)
+          else await this._createSegment(scene.imagePath, scene.audioPath, segPath, segmentOptions)
+        })
         segments.push(segPath)
         const actualDuration = await this._probeMediaDuration(segPath)
         const segmentDuration = actualDuration || duration || audioDuration || defaultSceneDuration
@@ -925,11 +1127,19 @@ class Story2VideoComposeEngine {
           segmentsTotal: scenes.length,
           message: '正在合成视频片段 ' + (i + 1) + '/' + scenes.length,
         })
-        this.log.info('Story2VideoCompose', 'Segment ' + i + ' created: ' + path.basename(segPath))
+        this._logComposeEvent('info', 'segment_created', {
+          composeId,
+          stage: 'segments',
+          operation: scene.videoPath ? 'video_segment_encode' : 'image_segment_encode',
+          sceneIndex: i,
+          output: path.basename(segPath),
+          outputBytes: outputFileBytes(segPath),
+          durationSeconds: segmentDuration,
+        })
       } catch (e) {
-        this.log.warn('Story2VideoCompose', 'Segment ' + i + ' failed: ' + e.message)
+        logComposeFailure('segments', e, { sceneIndex: i })
         this._cleanupSession(sessionDir)
-        return { code: -1, message: 'Segment ' + i + ' failed to create: ' + e.message }
+        return { code: -1, message: 'Segment ' + i + ' failed to create: ' + safeFfmpegDiagnostic(e.message) }
       }
     }
 
@@ -969,13 +1179,23 @@ class Story2VideoComposeEngine {
     // 2. 拼接所有片段
     const outputPath = path.join(sessionDir, 'output.mp4')
     try {
-      if (segments.length === 1) {
-        fs.copyFileSync(segments[0], outputPath)
-      } else {
+      await this._runComposeStage({
+        composeId,
+        stage: 'concat',
+        operation: 'segment_concat',
+        inputCount: segments.length,
+        estimatedDurationSeconds: estimatedOutputDuration,
+        output: path.basename(outputPath),
+      }, async () => {
+        if (segments.length === 1) {
+          fs.copyFileSync(segments[0], outputPath)
+          return
+        }
         await this._concatSegments(segments, outputPath, sessionDir, {
           transition,
           transitionDuration: options?.transitionDuration,
           segmentDurations,
+          composeId,
           // 分块拼接子进度：每完成一块在 87→89 之间推进一次，消除超长列表拼接期"假卡死"
           onChunkCreated: (chunk) => {
             emitComposeProgress({
@@ -987,9 +1207,10 @@ class Story2VideoComposeEngine {
             })
           },
         })
-      }
+      })
     } catch (e) {
       // P2-7: 拼接失败时清理 sessionDir
+      logComposeFailure('concat', e, { inputCount: segments.length })
       this._cleanupSession(sessionDir)
       throw e
     }
@@ -1006,16 +1227,25 @@ class Story2VideoComposeEngine {
     // 3. 将所有分段旁白合并为独立音频，结果页可播放和下载完整旁白。
     const narrationPath = path.join(sessionDir, 'narration.m4a')
     try {
-      await this._concatNarrationAudio(
+      await this._runComposeStage({
+        composeId,
+        stage: 'narration',
+        operation: 'narration_concat',
+        inputCount: scenes.length,
+        estimatedDurationSeconds: estimatedNarrationDuration,
+        output: path.basename(narrationPath),
+      }, () => this._concatNarrationAudio(
         scenes.map(scene => scene.audioPath),
         narrationPath,
         sessionDir,
         voiceVolume,
         estimatedNarrationDuration,
-      )
+        { composeId, stage: 'narration' },
+      ))
     } catch (e) {
+      logComposeFailure('narration', e, { inputCount: scenes.length })
       this._cleanupSession(sessionDir)
-      return { code: -1, message: 'Narration concat failed: ' + e.message }
+      return { code: -1, message: 'Narration concat failed: ' + safeFfmpegDiagnostic(e.message) }
     }
 
     // 4. 可选 BGM 混音（仅接受已下载的本地文件，避免在主进程隐式发起网络请求）
@@ -1045,11 +1275,26 @@ class Story2VideoComposeEngine {
         })
         const mixedPath = path.join(sessionDir, 'mixed.mp4')
         try {
-          await this._mixBgm(composedPath, bgmPath, mixedPath, options?.bgmVolume, estimatedOutputDuration)
+          await this._runComposeStage({
+            composeId,
+            stage: 'bgm',
+            operation: 'bgm_mix',
+            inputCount: 2,
+            estimatedDurationSeconds: estimatedOutputDuration,
+            output: path.basename(mixedPath),
+          }, () => this._mixBgm(
+            composedPath,
+            bgmPath,
+            mixedPath,
+            options?.bgmVolume,
+            estimatedOutputDuration,
+            { composeId, stage: 'bgm' },
+          ))
           composedPath = mixedPath
         } catch (e) {
+          logComposeFailure('bgm', e)
           this._cleanupSession(sessionDir)
-          return { code: -1, message: 'BGM mix failed: ' + e.message }
+          return { code: -1, message: 'BGM mix failed: ' + safeFfmpegDiagnostic(e.message) }
         }
       }
     }
@@ -1065,11 +1310,19 @@ class Story2VideoComposeEngine {
       })
       const webmPath = path.join(sessionDir, 'output.webm')
       try {
-        await this._transcodeWebm(composedPath, webmPath, estimatedOutputDuration)
+        await this._runComposeStage({
+          composeId,
+          stage: 'webm',
+          operation: 'webm_transcode',
+          inputCount: 1,
+          estimatedDurationSeconds: estimatedOutputDuration,
+          output: path.basename(webmPath),
+        }, () => this._transcodeWebm(composedPath, webmPath, estimatedOutputDuration, { composeId, stage: 'webm' }))
         composedPath = webmPath
       } catch (e) {
+        logComposeFailure('webm', e)
         this._cleanupSession(sessionDir)
-        return { code: -1, message: 'WebM transcode failed: ' + e.message }
+        return { code: -1, message: 'WebM transcode failed: ' + safeFfmpegDiagnostic(e.message) }
       }
     }
 
@@ -1084,15 +1337,31 @@ class Story2VideoComposeEngine {
 
     // 5. 验证输出：非空 + ffmpeg 可解码
     if (!hasUsableFile(composedPath)) {
+      this._logComposeEvent('error', 'ffmpeg_output_missing', {
+        composeId,
+        stage: 'verify',
+        operation: 'output_validation',
+        output: path.basename(composedPath),
+        outputBytes: outputFileBytes(composedPath),
+      })
+      logComposeFailure('verify', 'Output file not created', { reason: 'output_missing' })
       this._cleanupSession(sessionDir)
       return { code: -1, message: 'Output file not created' }
     }
     if (options?.validateOutput !== false) {
       try {
-        await this._validateOutput(composedPath, estimatedOutputDuration)
+        await this._runComposeStage({
+          composeId,
+          stage: 'verify',
+          operation: 'output_validation',
+          inputCount: 1,
+          estimatedDurationSeconds: estimatedOutputDuration,
+          output: path.basename(composedPath),
+        }, () => this._validateOutput(composedPath, estimatedOutputDuration, { composeId, stage: 'verify' }))
       } catch (e) {
+        logComposeFailure('verify', e)
         this._cleanupSession(sessionDir)
-        return { code: -1, message: 'Output validation failed: ' + e.message }
+        return { code: -1, message: 'Output validation failed: ' + safeFfmpegDiagnostic(e.message) }
       }
     }
 
@@ -1106,7 +1375,12 @@ class Story2VideoComposeEngine {
       fs.copyFileSync(composedPath, finalPath)
     } catch (e) {
       // 移动失败则保留原路径（output.mp4 仍在 sessionDir 内）
-      this.log.warn('Story2VideoCompose', 'Failed to move output to final path, keeping in sessionDir: ' + e.message)
+      this._logComposeEvent('warn', 'final_output_copy_fallback', {
+        composeId,
+        stage: 'persist',
+        error: safeFfmpegDiagnostic(e.message),
+        output: path.basename(composedPath),
+      })
        const stat = fs.statSync(composedPath)
       // 子进度：成功完成（done 仅出现在成功 return 前）
       emitComposeProgress({
@@ -1115,6 +1389,15 @@ class Story2VideoComposeEngine {
         segmentsDone: segments.length,
         segmentsTotal: scenes.length,
         message: '视频合成完成',
+      })
+      this._logComposeEvent('info', 'compose_succeeded', {
+        composeId,
+        stage: 'done',
+        segmentCount: segments.length,
+        output: path.basename(composedPath),
+        outputBytes: stat.size,
+        durationSeconds: outputDuration,
+        persisted: false,
       })
       return {
         code: 0,
@@ -1148,17 +1431,18 @@ class Story2VideoComposeEngine {
       try { fs.rmSync(finalSegmentDir, { recursive: true, force: true }) } catch (_) { /* ignore */ }
       try { fs.unlinkSync(finalNarrationPath) } catch (_) { /* ignore */ }
       try { fs.unlinkSync(finalPath) } catch (_) { /* ignore */ }
+      logComposeFailure('persist', e, { output: path.basename(finalPath) })
       this._cleanupSession(sessionDir)
-      return { code: -1, message: 'Failed to persist compose artifacts: ' + e.message }
+      return { code: -1, message: 'Failed to persist compose artifacts: ' + safeFfmpegDiagnostic(e.message) }
     }
     // 成功移到 finalPath 后清理 sessionDir
     this._cleanupSession(sessionDir)
 
     const stat = fs.statSync(finalPath)
     if (!stat || stat.size <= 0) {
+      logComposeFailure('persist', 'Final output file is empty', { reason: 'final_output_empty', output: path.basename(finalPath) })
       return { code: -1, message: 'Final output file is empty' }
     }
-    this.log.info('Story2VideoCompose', 'Video composed: ' + finalPath + ' (' + Math.round(stat.size / 1024) + 'KB)')
 
     // 子进度：成功完成（done 仅出现在成功 return 前）
     emitComposeProgress({
@@ -1167,6 +1451,15 @@ class Story2VideoComposeEngine {
       segmentsDone: segments.length,
       segmentsTotal: scenes.length,
       message: '视频合成完成',
+    })
+    this._logComposeEvent('info', 'compose_succeeded', {
+      composeId,
+      stage: 'done',
+      segmentCount: segments.length,
+      output: path.basename(finalPath),
+      outputBytes: stat.size,
+      durationSeconds: outputDuration,
+      persisted: true,
     })
 
     return {
@@ -1269,7 +1562,7 @@ class Story2VideoComposeEngine {
       }
     } catch (error) {
       try { fs.unlinkSync(destinationPath) } catch (_) { /* ignore */ }
-      return { code: -1, message: error.message }
+      return { code: -1, message: safeFfmpegDiagnostic(error.message) }
     }
   }
 
@@ -1290,13 +1583,20 @@ class Story2VideoComposeEngine {
       const canonicalTarget = fs.realpathSync.native(target)
       if (target === outputRoot || !isPathWithin(target, [outputRoot]) ||
           !isPathWithin(canonicalTarget, [outputRoot])) {
-        this.log.warn('Story2VideoCompose', 'Refused to cleanup path outside outputDir: ' + target)
+        this._logComposeEvent('warn', 'session_cleanup_refused', {
+          stage: 'cleanup',
+          reason: 'outside_output_dir',
+        })
         return
       }
       this._rmSyncRecursive(sessionDir)
       this.log.info('Story2VideoCompose', 'Cleaned sessionDir: ' + path.basename(sessionDir))
     } catch (e) {
-      this.log.warn('Story2VideoCompose', 'Failed to cleanup sessionDir: ' + e.message)
+      this._logComposeEvent('warn', 'session_cleanup_failed', {
+        stage: 'cleanup',
+        errorCode: typeof e?.code === 'string' ? e.code : null,
+        error: safeFfmpegDiagnostic(e?.message),
+      })
     }
   }
 
@@ -1346,14 +1646,26 @@ class Story2VideoComposeEngine {
           }
         } catch (e) {
           // 单个目录清理失败不中断其他清理
-          this.log.warn('Story2VideoCompose', 'Failed to stat/cleanup old session ' + entry.name + ': ' + e.message)
+          this._logComposeEvent('warn', 'stale_session_cleanup_failed', {
+            stage: 'cleanup',
+            session: entry.name,
+            errorCode: typeof e?.code === 'string' ? e.code : null,
+            error: safeFfmpegDiagnostic(e?.message),
+          })
         }
       }
       if (cleaned > 0) {
-        this.log.info('Story2VideoCompose', 'Cleaned ' + cleaned + ' old sessionDir(s)')
+        this._logComposeEvent('info', 'stale_sessions_cleaned', {
+          stage: 'cleanup',
+          sessionCount: cleaned,
+        })
       }
     } catch (e) {
-      this.log.warn('Story2VideoCompose', 'Failed to scan outputDir for old sessions: ' + e.message)
+      this._logComposeEvent('warn', 'stale_session_scan_failed', {
+        stage: 'cleanup',
+        errorCode: typeof e?.code === 'string' ? e.code : null,
+        error: safeFfmpegDiagnostic(e?.message),
+      })
     }
     return cleaned
   }
@@ -1374,7 +1686,12 @@ class Story2VideoComposeEngine {
       const duration = Number.parseFloat(String(stdout || '').trim())
       return Number.isFinite(duration) && duration > 0 ? duration : null
     } catch (e) {
-      this.log.warn('Story2VideoCompose', 'Failed to probe media duration: ' + e.message)
+      this._logComposeEvent('warn', 'ffprobe_failed', {
+        stage: 'preflight',
+        operation: 'duration_probe',
+        errorCode: typeof e?.code === 'string' ? e.code : null,
+        error: safeFfmpegDiagnostic(e?.message),
+      })
       return null
     }
   }
@@ -1394,10 +1711,15 @@ class Story2VideoComposeEngine {
         return
       } catch (e) {
         lastError = e
-        this.log.warn(
-          'Story2VideoCompose',
-          'Segment encode failed at workScale=' + workScale + ': ' + e.message + '；降档重试',
-        )
+        this._logComposeEvent('warn', 'segment_encode_retry', {
+          composeId: opts?.composeId || null,
+          stage: 'segments',
+          operation: 'image_segment_encode',
+          sceneIndex: Number.isInteger(opts?.sceneIndex) ? opts.sceneIndex : null,
+          workScale,
+          errorCode: typeof e?.code === 'string' ? e.code : null,
+          error: safeFfmpegDiagnostic(e?.message),
+        })
       }
     }
     throw lastError
@@ -1490,10 +1812,23 @@ class Story2VideoComposeEngine {
 
     // 编码超时按时长×帧率估算（最低 30s），避免 4K zoompan 慢速编码被固定 30s 误杀
     const encodeTimeout = computeSegmentEncodeTimeoutMs(opts.effectDuration, opts.fps)
-    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: encodeTimeout, maxBuffer: 1024 * 1024 })
-    if (!hasUsableFile(outputPath)) {
-      throw new Error('ffmpeg did not produce output: ' + (stderr || '').slice(-200))
-    }
+    const { stderr } = await this._runFfmpegStage(args, { timeout: encodeTimeout, maxBuffer: 1024 * 1024 }, {
+      composeId: opts.composeId,
+      stage: 'segments',
+      operation: 'image_segment_encode',
+      inputCount: 2,
+      estimatedDuration: opts.effectDuration,
+      outputPath,
+      heartbeat: true,
+      meta: { sceneIndex: opts.sceneIndex, workScale: opts.workScale },
+    })
+    this._requireFfmpegOutput(outputPath, {
+      composeId: opts.composeId,
+      stage: 'segments',
+      operation: 'image_segment_encode',
+      meta: { sceneIndex: opts.sceneIndex, workScale: opts.workScale },
+      message: 'ffmpeg did not produce output: ' + safeFfmpegDiagnostic(stderr),
+    }, stderr)
   }
 
   /**
@@ -1575,10 +1910,23 @@ class Story2VideoComposeEngine {
     args.push(outputPath)
 
     const encodeTimeout = computeSegmentEncodeTimeoutMs(opts.effectDuration, opts.fps)
-    const { stderr } = await execFileAsync(FFMPEG, args, { timeout: encodeTimeout, maxBuffer: 1024 * 1024 })
-    if (!hasUsableFile(outputPath)) {
-      throw new Error('ffmpeg did not produce output: ' + (stderr || '').slice(-200))
-    }
+    const { stderr } = await this._runFfmpegStage(args, { timeout: encodeTimeout, maxBuffer: 1024 * 1024 }, {
+      composeId: opts.composeId,
+      stage: 'segments',
+      operation: 'video_segment_encode',
+      inputCount: 2,
+      estimatedDuration: opts.effectDuration,
+      outputPath,
+      heartbeat: true,
+      meta: { sceneIndex: opts.sceneIndex },
+    })
+    this._requireFfmpegOutput(outputPath, {
+      composeId: opts.composeId,
+      stage: 'segments',
+      operation: 'video_segment_encode',
+      meta: { sceneIndex: opts.sceneIndex },
+      message: 'ffmpeg did not produce output: ' + safeFfmpegDiagnostic(stderr),
+    }, stderr)
   }
 
   /**
@@ -1597,23 +1945,31 @@ class Story2VideoComposeEngine {
             transitionName,
             transitionDuration: options?.transitionDuration,
             onChunkCreated: options?.onChunkCreated,
+            composeId: options?.composeId,
           }, 0)
         } else {
-          await this._xfadeMerge(segments, plan, outputPath)
+          await this._xfadeMerge(segments, plan, outputPath, {
+            composeId: options?.composeId,
+            stage: 'concat',
+          })
         }
         return
       }
       this.log.warn('Story2VideoCompose', 'Segment durations are too short or unknown; falling back to concat without transition')
     }
     const durations = Array.isArray(options?.segmentDurations) ? options.segmentDurations : []
-    await this._plainConcat(segments, outputPath, sessionDir, durations)
+    const plainConcatObservability = options?.composeId
+      ? { composeId: options.composeId, stage: 'concat' }
+      : undefined
+    if (plainConcatObservability) await this._plainConcat(segments, outputPath, sessionDir, durations, plainConcatObservability)
+    else await this._plainConcat(segments, outputPath, sessionDir, durations)
   }
 
   /**
    * 单条 ffmpeg 命令：对一组片段构建 xfade/acrossfade 图并输出。
    * @private
    */
-  async _xfadeMerge (segments, plan, outputPath) {
+  async _xfadeMerge (segments, plan, outputPath, observability = {}) {
     const transitionName = plan.transitionName
     const inputArgs = []
     for (const segment of segments) inputArgs.push('-i', segment)
@@ -1642,14 +1998,28 @@ class Story2VideoComposeEngine {
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', outputPath]
     // 超时随输出时长动态计算（长视频全量重编码，2026-08-11 真实 bug 修复）
     const mergeTimeout = computeMergeEncodeTimeoutMs(plan.totalDuration)
-    const { stderr } = await execFfmpegStage(args, { timeout: mergeTimeout, maxBuffer: 2 * 1024 * 1024 }, 'xfade merge')
-    if (!hasUsableFile(outputPath)) {
-      throw new Error('ffmpeg xfade did not produce output: ' + (stderr || '').slice(-200))
-    }
+    const { stderr } = await this._runFfmpegStage(args, { timeout: mergeTimeout, maxBuffer: 2 * 1024 * 1024 }, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'concat',
+      operation: 'xfade_merge',
+      inputCount: segments.length,
+      estimatedDuration: plan.totalDuration,
+      outputPath,
+      heartbeat: true,
+      meta: observability.meta,
+      onHeartbeat: observability.onHeartbeat,
+    })
+    this._requireFfmpegOutput(outputPath, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'concat',
+      operation: 'xfade_merge',
+      meta: observability.meta,
+      message: 'ffmpeg xfade did not produce output: ' + safeFfmpegDiagnostic(stderr),
+    }, stderr)
   }
 
   /** 使用 concat demuxer 无损拼接（无转场）。@private */
-  async _plainConcat (segments, outputPath, sessionDir, segmentDurations) {
+  async _plainConcat (segments, outputPath, sessionDir, segmentDurations, observability = {}) {
     const listFile = path.join(sessionDir, 'concat_list.txt')
     const listContent = segments.map(s => "file '" + s.replace(/\\/g, '/').replace(/'/g, "'\\''") + "'").join('\n')
     fs.writeFileSync(listFile, listContent, 'utf-8')
@@ -1666,10 +2036,24 @@ class Story2VideoComposeEngine {
       ? durations.reduce((sum, value) => sum + Number(value), 0)
       : null
     const concatTimeout = computeFfmpegStageTimeoutMs('concat', totalDuration)
-    const { stderr } = await execFfmpegStage(args, { timeout: concatTimeout, maxBuffer: 1024 * 1024 }, 'concat')
-    if (!hasUsableFile(outputPath)) {
-      throw new Error('ffmpeg concat did not produce output: ' + (stderr || '').slice(-200))
-    }
+    const { stderr } = await this._runFfmpegStage(args, { timeout: concatTimeout, maxBuffer: 1024 * 1024 }, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'concat',
+      operation: 'plain_concat',
+      inputCount: segments.length,
+      estimatedDuration: totalDuration,
+      outputPath,
+      heartbeat: true,
+      meta: observability.meta,
+      onHeartbeat: observability.onHeartbeat,
+    })
+    this._requireFfmpegOutput(outputPath, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'concat',
+      operation: 'plain_concat',
+      meta: observability.meta,
+      message: 'ffmpeg concat did not produce output: ' + safeFfmpegDiagnostic(stderr),
+    }, stderr)
   }
 
   /**
@@ -1692,21 +2076,69 @@ class Story2VideoComposeEngine {
       const chunkIndex = intermediatePaths.length
       // 中间文件名带递归层级，避免与输入（上一层的中间文件）同名冲突
       const intermediate = path.join(sessionDir, 'merge_l' + currentLevel + '_chunk_' + String(chunkIndex).padStart(3, '0') + '.mp4')
-      if (part.length > 1 && plan.enabled) {
-        await this._xfadeMerge(part, { ...plan, transitionName: options.transitionName }, intermediate)
-        chunkDurations.push(plan.totalDuration)
-      } else {
-        // 块内无法使用转场（时长未知/过短）→ 无损拼接该块
-        await this._plainConcat(part, intermediate, sessionDir, partDurations)
-        const partDuration = partDurations.length === part.length && partDurations.every(value => Number.isFinite(Number(value)) && Number(value) > 0)
-          ? partDurations.reduce((sum, value) => sum + Number(value), 0)
-          : null
-        chunkDurations.push(partDuration)
+      const chunkMeta = {
+        composeId: options?.composeId || null,
+        stage: 'concat',
+        level: currentLevel,
+        chunkIndex,
+        totalChunks: state.total,
+        inputCount: part.length,
+        output: path.basename(intermediate),
+      }
+      const chunkStartedAt = Date.now()
+      this._logComposeEvent('info', 'merge_chunk_started', chunkMeta)
+      try {
+        if (part.length > 1 && plan.enabled) {
+          await this._xfadeMerge(part, { ...plan, transitionName: options.transitionName }, intermediate, {
+            composeId: options?.composeId,
+            stage: 'concat',
+            meta: { level: currentLevel, chunkIndex, totalChunks: state.total },
+            onHeartbeat: (heartbeat) => this._logComposeEvent(heartbeat.stalled ? 'warn' : 'info', 'merge_chunk_heartbeat', {
+              ...chunkMeta,
+              ...heartbeat,
+            }),
+          })
+          chunkDurations.push(plan.totalDuration)
+        } else {
+          // 块内无法使用转场（时长未知/过短）→ 无损拼接该块
+          await this._plainConcat(part, intermediate, sessionDir, partDurations, {
+            composeId: options?.composeId,
+            stage: 'concat',
+            meta: { level: currentLevel, chunkIndex, totalChunks: state.total },
+            onHeartbeat: (heartbeat) => this._logComposeEvent(heartbeat.stalled ? 'warn' : 'info', 'merge_chunk_heartbeat', {
+              ...chunkMeta,
+              ...heartbeat,
+            }),
+          })
+          const partDuration = partDurations.length === part.length && partDurations.every(value => Number.isFinite(Number(value)) && Number(value) > 0)
+            ? partDurations.reduce((sum, value) => sum + Number(value), 0)
+            : null
+          chunkDurations.push(partDuration)
+        }
+      } catch (error) {
+        this._logComposeEvent('error', 'merge_chunk_failed', {
+          ...chunkMeta,
+          elapsedMs: Date.now() - chunkStartedAt,
+          outputBytes: outputFileBytes(intermediate),
+          errorCode: typeof error?.code === 'string' ? error.code : null,
+          error: safeFfmpegDiagnostic(error?.message),
+        })
+        throw error
       }
       intermediatePaths.push(intermediate)
       // 每完成一块立即上报（87→89 之间按块推进），消除长列表拼接期"假卡死"
       state.done += 1
-      this.log.info('Story2VideoCompose', 'merge_l' + currentLevel + '_chunk_' + String(chunkIndex).padStart(3, '0') + ' created: ' + path.basename(intermediate))
+      this._logComposeEvent('info', 'merge_chunk_succeeded', {
+        ...chunkMeta,
+        elapsedMs: Date.now() - chunkStartedAt,
+        outputBytes: outputFileBytes(intermediate),
+      })
+      this.log.info(COMPOSE_LOG_MODULE, 'merge_l' + currentLevel + '_chunk_' + String(chunkIndex).padStart(3, '0') + ' created: ' + path.basename(intermediate), {
+        event: 'merge_chunk_created',
+        composeId: options?.composeId || null,
+        level: currentLevel,
+        chunkIndex,
+      })
       if (onChunkCreated) {
         onChunkCreated({
           level: currentLevel,
@@ -1726,7 +2158,7 @@ class Story2VideoComposeEngine {
   }
 
   /** 将所有旁白解码后顺序拼接，避免旧实现只保留第一段音频。 */
-  async _concatNarrationAudio (audioPaths, outputPath, _sessionDir, voiceVolume, estimatedDuration) {
+  async _concatNarrationAudio (audioPaths, outputPath, _sessionDir, voiceVolume, estimatedDuration, observability = {}) {
     if (!Array.isArray(audioPaths) || audioPaths.length === 0) throw new Error('No narration audio')
     const inputs = []
     const labels = []
@@ -1737,54 +2169,94 @@ class Story2VideoComposeEngine {
     const normalizedVolume = clampNumber(voiceVolume, 0, 2, 1)
     const filter = labels.join('') + 'concat=n=' + audioPaths.length + ':v=0:a=1[concat]' +
       (normalizedVolume === 1 ? ';[concat]anull[aout]' : ';[concat]volume=' + normalizedVolume.toFixed(3) + '[aout]')
-    const { stderr } = await execFfmpegStage([
+    const { stderr } = await this._runFfmpegStage([
       '-y', ...inputs,
       '-filter_complex', filter,
       '-map', '[aout]', '-c:a', 'aac', '-b:a', '128k',
       outputPath,
-    ], { timeout: computeFfmpegStageTimeoutMs('narration', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, 'narration concat')
-    if (!hasUsableFile(outputPath)) {
-      throw new Error((stderr || 'ffmpeg did not produce narration audio').slice(-300))
-    }
+    ], { timeout: computeFfmpegStageTimeoutMs('narration', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'narration',
+      operation: 'narration_concat',
+      inputCount: audioPaths.length,
+      estimatedDuration,
+      outputPath,
+      heartbeat: true,
+    })
+    this._requireFfmpegOutput(outputPath, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'narration',
+      operation: 'narration_concat',
+      message: safeFfmpegDiagnostic(stderr) || 'ffmpeg did not produce narration audio',
+    }, stderr)
   }
 
   /** 将 BGM 按指定音量混入成片，BGM 不足时循环到视频结束。 */
-  async _mixBgm (videoPath, bgmPath, outputPath, volume, estimatedDuration) {
+  async _mixBgm (videoPath, bgmPath, outputPath, volume, estimatedDuration, observability = {}) {
     let level = Number(volume)
     if (level > 1) level /= 10
     level = clampNumber(level, 0, 1, 0.3)
     const filter = '[1:a]volume=' + level.toFixed(3) + '[bgm];' +
       '[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]'
-    const { stderr } = await execFfmpegStage([
+    const { stderr } = await this._runFfmpegStage([
       '-y', '-i', videoPath, '-stream_loop', '-1', '-i', bgmPath,
       '-filter_complex', filter,
       '-map', '0:v:0', '-map', '[aout]',
       '-c:v', 'copy', '-c:a', 'aac', '-shortest', outputPath,
-    ], { timeout: computeFfmpegStageTimeoutMs('bgm', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, 'bgm mix')
-    if (!hasUsableFile(outputPath)) {
-      throw new Error((stderr || 'ffmpeg did not produce mixed output').slice(-300))
-    }
+    ], { timeout: computeFfmpegStageTimeoutMs('bgm', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'bgm',
+      operation: 'bgm_mix',
+      inputCount: 2,
+      estimatedDuration,
+      outputPath,
+      heartbeat: true,
+    })
+    this._requireFfmpegOutput(outputPath, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'bgm',
+      operation: 'bgm_mix',
+      message: safeFfmpegDiagnostic(stderr) || 'ffmpeg did not produce mixed output',
+    }, stderr)
   }
 
   /** 将最终 MP4 中间产物转码为 WebM，保持 UI format 选项与输出一致。 */
-  async _transcodeWebm (inputPath, outputPath, estimatedDuration) {
-    const { stderr } = await execFfmpegStage([
+  async _transcodeWebm (inputPath, outputPath, estimatedDuration, observability = {}) {
+    const { stderr } = await this._runFfmpegStage([
       '-y', '-i', inputPath,
       '-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0',
       '-c:a', 'libopus', '-b:a', '128k',
       outputPath,
-    ], { timeout: computeFfmpegStageTimeoutMs('webm', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, 'webm transcode')
-    if (!hasUsableFile(outputPath)) {
-      throw new Error((stderr || 'ffmpeg did not produce WebM output').slice(-300))
-    }
+    ], { timeout: computeFfmpegStageTimeoutMs('webm', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'webm',
+      operation: 'webm_transcode',
+      inputCount: 1,
+      estimatedDuration,
+      outputPath,
+      heartbeat: true,
+    })
+    this._requireFfmpegOutput(outputPath, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'webm',
+      operation: 'webm_transcode',
+      message: safeFfmpegDiagnostic(stderr) || 'ffmpeg did not produce WebM output',
+    }, stderr)
   }
 
   /** 用 ffmpeg 解码检查输出是否为可播放视频。 */
-  async _validateOutput (filePath, estimatedDuration) {
+  async _validateOutput (filePath, estimatedDuration, observability = {}) {
     if (!hasUsableFile(filePath)) throw new Error('file is missing or empty')
-    const { stderr } = await execFfmpegStage([
+    const { stderr } = await this._runFfmpegStage([
       '-v', 'error', '-i', filePath, '-map', '0:v:0', '-f', 'null', '-',
-    ], { timeout: computeFfmpegStageTimeoutMs('validate', estimatedDuration), maxBuffer: 512 * 1024 }, 'output validation')
+    ], { timeout: computeFfmpegStageTimeoutMs('validate', estimatedDuration), maxBuffer: 512 * 1024 }, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'verify',
+      operation: 'output_validation',
+      inputCount: 1,
+      estimatedDuration,
+      outputPath: null,
+    })
     if (stderr && stderr.trim()) throw new Error(stderr.trim().slice(-400))
   }
 }

@@ -4494,3 +4494,9 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 修复提示词评测模型密钥保存错误地只从进程环境读取 OPS_SECRET_KEY，导致 .env 已正确加载但未导出环境变量时回退到不安全默认值并返回 HTTP 500。
 - 路由现在使用 config.settings.secret_key；缺失或不安全的密钥保持 fail-closed，并以 HTTP 400 返回可操作的 OPS_SECRET_KEY 配置提示。
 - 补齐 provider key 并发恢复分支的 IntegrityError 导入，并新增 dotenv-only 与缺失密钥 API 回归。
+
+## [2026-08-15] feat(story2video): 合成链路细粒度可观测性（story2video-compose-observability）
+
+- Story2Video compose 生成关联 composeId，结构化记录合成/阶段生命周期、FFmpeg PID 与结果、超时、空输出、产物字节数和安全 stderr 摘要。
+- 分块合成新增开始/成功/失败及每 10 秒输出字节心跳（30 秒无增长 WARN），保留既有 merge_l{level}_chunk_{n} created 诊断文本和 87%→89% 前端进度。
+- 日志只保留 basename 和非敏感诊断元数据；不记录绝对路径、完整 FFmpeg 参数、素材内容或凭据。此变更改善定位能力，不改变转场、编码参数、并发或实际耗时。
