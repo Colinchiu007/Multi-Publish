@@ -1,12 +1,17 @@
 {
   "id": "fix-prefer-multimodal-save",
   "title": "修复「优先使用多模态模型进行所有的AI操作」取消勾选后不保存的问题",
-  "status": "reviewed",
+  "status": "in_progress",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
   "currentPhase": "review",
-  "nextAction": "推送分支并创建 PR，待 CI 与合并",
+  "nextAction": "等待 PR #873 CI 全绿后合并，合并后归档 task",
   "createdAt": "2026-08-16T00:00:00+08:00",
-  "branch": "codex/fix-prefer-multimodal-save"
+  "branch": "codex/fix-prefer-multimodal-save",
+  "remoteStatus": {
+    "pr": 873,
+    "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/873",
+    "status": "pending_ci"
+  }
 }
