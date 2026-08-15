@@ -1,12 +1,12 @@
 {
   "id": "prompt-eval-video",
   "title": "运营后台提示词评测：支持视频提示词评测",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "high",
   "domain": "ops-center",
-  "currentPhase": "delivery",
-  "nextAction": "PR 合并后归档",
+  "currentPhase": "completed",
+  "nextAction": "已归档（PR #833 e2893256）",
   "createdAt": "2026-08-14T16:00:00Z",
   "branch": "main"
 }
