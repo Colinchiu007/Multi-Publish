@@ -13,7 +13,7 @@
 
 ## 3. 验证与文档
 
-- [ ] 3.1 运行相关单测与 Vite build
-- [ ] 3.2 更新 `01-docs/PRD.md`、`CHANGELOG.md`、`.ccg/spec/frontend/index.md`/learnings（如有可沉淀经验）
-- [ ] 3.3 `openspec validate --strict` + 三同步归档（OpenSpec change、CCG task、质量节拍复盘）
-- [ ] 3.4 提交隔离 worktree 分支并开 PR；远程合并后回填 remoteStatus
+- [x] 3.1 运行相关单测与 Vite build
+- [x] 3.2 更新 `01-docs/PRD.md`、`CHANGELOG.md`、`.ccg/spec/frontend/index.md`/learnings（如有可沉淀经验）
+- [x] 3.3 `openspec validate --strict` + 三同步归档（OpenSpec change、CCG task、质量节拍复盘）
+- [x] 3.4 提交隔离 worktree 分支并开 PR；远程合并后回填 remoteStatus
