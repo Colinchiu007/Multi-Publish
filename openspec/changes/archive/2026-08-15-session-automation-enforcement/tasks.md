@@ -3,4 +3,4 @@
 - [x] Add scheduled task installer and uninstaller
 - [x] Add PowerShell self-check
 - [x] Document operating procedure
-- [ ] Run final quality gates and archive task
+- [x] Run final quality gates and archive task
