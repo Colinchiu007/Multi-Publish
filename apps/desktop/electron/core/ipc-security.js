@@ -63,13 +63,17 @@ function isTrustedSender(event, app) {
     process.env.NODE_ENV === 'development' || isExplicitlyUnpackaged
   )
   if (isDevelopment && senderUrl.protocol === 'http:') {
-    // Bug fix (QM-5): Vite 端口漂移容错。
-    // 当 5174 被占用时 Vite 会自动切到 5175/5176 等，严格端口匹配会导致开发环境 IPC 来源校验失败。
-    // 防御性策略：优先匹配 DEV_SERVER_PORT，其次允许 5174-5180 范围内的 localhost。
-    const expectedPort = String(parseInt(process.env.DEV_SERVER_PORT || '5174', 10))
+    // worktree 独立端口（dev.js/start-desktop.ps1 通过 DEV_SERVER_PORT 精确注入）：
+    // - 显式设置了 DEV_SERVER_PORT → 只精确匹配该端口，避免跨 worktree IPC 信任泄漏
+    //   （派生端口可能落在 5174-5180，若保留容错带会让兄弟 worktree 的页面穿透信任）；
+    // - 未设置（裸 `electron .` / CI 直启）→ 保留 QM-5 遗留的 5174-5180 漂移容错。
+    const devServerPortEnv = process.env.DEV_SERVER_PORT
+    const expectedPort = String(parseInt(devServerPortEnv || '5174', 10))
     const portNum = parseInt(senderUrl.port, 10)
-    const isExpectedPort = senderUrl.port === expectedPort ||
-      (Number.isNaN(portNum) ? false : portNum >= 5174 && portNum <= 5180)
+    let isExpectedPort = senderUrl.port === expectedPort
+    if (!devServerPortEnv && !Number.isNaN(portNum)) {
+      isExpectedPort = isExpectedPort || (portNum >= 5174 && portNum <= 5180)
+    }
     return (senderUrl.hostname === 'localhost' || senderUrl.hostname === '127.0.0.1') &&
       isExpectedPort
   }
