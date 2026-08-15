@@ -20,4 +20,4 @@
 - [x] 4.1 运行定向 Vitest、locale pair/CJK、Vite build 与 `openspec validate --strict`
 - [x] 4.2 运行依赖解析门禁与 Windows Electron 完整打包，验证产物启动/关键 stderr
 - [x] 4.3 完成双模型代码审查；修复 Critical/Warning 并写入 CCG `review.md`
-- [ ] 4.4 完成 OpenSpec/CCG/质量节拍归档，提交、推送 `codex/s2v-timeout-notifications` 并创建 PR，记录 `remoteStatus`
+- [x] 4.4 完成 OpenSpec/CCG/质量节拍归档，提交、推送 `codex/s2v-timeout-notifications` 并创建 PR，记录 `remoteStatus=pr_open`（PR #847；OpenSpec change 待合并后归档）

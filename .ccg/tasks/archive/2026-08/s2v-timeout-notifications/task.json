@@ -1,0 +1,16 @@
+{
+  "id": "s2v-timeout-notifications",
+  "title": "按输出时长缩放 Story2Video ffmpeg 超时并补时长错误通知映射",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "completed",
+  "nextAction": "等待 PR #847 合并后归档 OpenSpec change",
+  "createdAt": "2026-08-15T00:00:00Z",
+  "branch": "codex/s2v-timeout-notifications",
+  "openspecChange": "s2v-timeout-notifications",
+  "remoteStatus": "pr_open",
+  "pullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/847",
+  "completedAt": "2026-08-15T14:00:00+08:00"
+}
