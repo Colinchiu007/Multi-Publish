@@ -134,7 +134,11 @@ export default {
       }
       if (stage.name === 'compose' && stage.status === 'running') {
         const p = ctx.compose_progress
-        if (p && Number.isFinite(p.percent)) {
+        if (p && Number.isFinite(p.percent) && p.percent >= 0 && p.percent <= 100) {
+          if (p.phase === 'concat') {
+            if (getAppLocale() !== 'en' && typeof p.message === 'string' && p.message.trim()) return p.message
+            return this.$t('stageProgress.composeConcat', { percent: Math.round(p.percent) })
+          }
           if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
             return this.$t('stageProgress.composeSegments', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
           }

@@ -1261,6 +1261,7 @@ export default {
     assetsDetailNoVideo: (ctx) => 'Images ' + ctx.named('images') + '/' + ctx.named('imagesTotal') + ' · Voice ' + ctx.named('tts') + '/' + ctx.named('ttsTotal'),
     composeSegments: (ctx) => 'Composing segments ' + ctx.named('done') + '/' + ctx.named('total') + ' · ' + ctx.named('percent') + '%',
     composeVideo: (ctx) => 'Composing video ' + ctx.named('percent') + '%',
+    composeConcat: (ctx) => 'Concatenating video segments · ' + ctx.named('percent') + '%',
     statusCompleted: 'Completed',
     statusRunning: 'Running',
     statusFailed: 'Failed',

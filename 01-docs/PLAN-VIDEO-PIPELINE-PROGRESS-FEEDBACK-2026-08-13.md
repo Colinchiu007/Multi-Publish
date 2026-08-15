@@ -78,6 +78,8 @@
 2. **StageProgress.vue 去特判**：统一渲染 `stage.progress.message` + 迷你进度条（有合法 percent 就显示），compose 子进度条泛化为任意阶段；`optimize` 运行中立即能显示「正在优化 3/10」（数据已有）。
 3. 现有 compose/generate_assets 数据先映射进新模型，UI 立即变一致。
 
+**已落地补充（2026-08-15）**：compose legacy context 的 renderer 映射已优先消费合法 concat `message`；中文显示引擎按块消息，英文与历史快照走本地化回退。此改动只消除 87%「假卡死」观感，不改变 concat 实际编码耗时。
+
 ### Phase 2 — 执行器上报通道 + 补齐各阶段（M）
 
 4. `StageExecutor.execute` 增加统一 `onProgress` 参数；`_executeStage`（pipeline-engine.js:1836）注入并双写 `stage.progress` + `context.stage_progress`；归一化/校验收口成通用函数（仿 compose：percent 0-100 单调、message 限长、非法值 fail-closed 或拒绝展示）。

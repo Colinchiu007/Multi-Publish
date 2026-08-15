@@ -1262,6 +1262,7 @@ export default {
     assetsDetailNoVideo: (ctx) => '图片 ' + ctx.named('images') + '/' + ctx.named('imagesTotal') + ' · 旁白 ' + ctx.named('tts') + '/' + ctx.named('ttsTotal'),
     composeSegments: (ctx) => '正在合成片段 ' + ctx.named('done') + '/' + ctx.named('total') + ' · ' + ctx.named('percent') + '%',
     composeVideo: (ctx) => '视频合成 ' + ctx.named('percent') + '%',
+    composeConcat: (ctx) => '正在拼接视频片段 · ' + ctx.named('percent') + '%',
     statusCompleted: '已完成',
     statusRunning: '运行中',
     statusFailed: '失败',

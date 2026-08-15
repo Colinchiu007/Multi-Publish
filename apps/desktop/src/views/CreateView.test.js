@@ -370,6 +370,58 @@ describe("CreateView", () => {
     w.unmount();
   });
 
+  it("compose 分块 message 经过 CreateView 透传到阶段详情", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    const now = new Date().toISOString();
+    const message = "正在拼接视频片段（分块 3/5）";
+    w.vm.pipelineRunStatus = {
+      status: "running",
+      currentStage: 0,
+      progress: 88,
+      stages: [{ name: "compose", status: "running", startedAt: now }],
+    };
+    w.vm.orchestrationStages = w.vm.pipelineRunStatus.stages;
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: ["compose"] };
+    w.vm.orchestrationContext = {
+      compose_progress: { phase: "concat", percent: 88.2, segmentsDone: 12, segmentsTotal: 12, message },
+    };
+    await nextTick();
+    const detail = w.find('[data-testid="story2video-stage-detail-compose"]');
+    expect(detail.exists()).toBe(true);
+    expect(detail.text()).toBe(message);
+    expect(w.find('[data-testid="story2video-stage-compose-progress"]').attributes("aria-valuenow")).toBe("88");
+    w.unmount();
+  });
+
+  it("CreateView 兼容详情解析遵守 summary/progress/message 优先级并拒绝越界 percent", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.orchestrationContext = {
+      compose_progress: { phase: "concat", percent: 88, message: "旧快照分块消息" },
+    };
+    expect(w.vm.stageDetailText({
+      name: "compose",
+      status: "running",
+      progress: { percent: 50, message: "统一阶段消息" },
+    }, 0)).toBe("统一阶段消息");
+    expect(w.vm.stageDetailText({
+      name: "compose",
+      status: "completed",
+      progress: { percent: 100, message: "统一阶段消息" },
+      summary: "视频合成完成",
+    }, 0)).toBe("视频合成完成");
+    w.vm.orchestrationContext = {
+      compose_progress: { phase: "concat", percent: 101, message: "越界消息" },
+    };
+    expect(w.vm.stageDetailText({ name: "compose", status: "running" }, 0)).toBe("");
+    w.unmount();
+  });
+
   it("compose 阶段无子进度数据时安全降级（不渲染子进度条）", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
