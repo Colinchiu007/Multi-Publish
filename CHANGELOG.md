@@ -1,3 +1,10 @@
+## [2026-08-15] fix(ops-center): 提示词评测「生成图片并评估」MiniMax 404 修复（/image_generation 契约）
+
+- 现象：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`。
+- 根因：`prompt_eval_generation_service.generate_images()` 对所有 provider 统一请求 OpenAI 兼容 `{base}/images/generations`；MiniMax 图片生成专有端点为 `POST {base}/image_generation`，请求/响应结构也不同。
+- 修复：`minimax-image`（或模型名 `image-01` 前缀）→ 端点 `/image_generation`；payload 移除 `size`，改用 `model/prompt/n/aspect_ratio/response_format=base64`；`n` 限制 1-9（越界 fail closed）；响应解析 `data.image_base64`（base64 串兼容 `data:image/...;base64,` 前缀）与 `data.image_urls`（URL 走下载分支）；`base_resp.status_code != 0` 判定业务失败 fail closed（不重试）；返回图片数不等于请求数 fail closed。flux 等 OpenAI 兼容 provider 行为不变。
+- 回归：`test_prompt_eval_services.py` 新增 8 场景（MiniMax 端点/payload、base64 落盘含 data URL 前缀、URL 下载、业务失败 fail closed、字符串 status_code、数量不符 fail closed、n 越界 0/-1/10/20、flux 含 base_resp 不被误拦截）并将既有用例改为 MiniMax 真实响应形状；目标套件 16 passed；prompt-eval 全量套件 100+ passed；全量 pytest 286 passed / 4 failed（3 个 scheduler 存量顺序污染 + engine_dual 存量 flaky，单独跑均通过，与本改动零交集）。
+
 ## [2026-08-15] feat(ops-center): 模型密钥新增删除功能
 
 - 后端：`DELETE /api/v1/prompt-eval/providers/{key_id}`（admin 权限，物理删除；不存在 404；非 admin 403）；`list_provider_keys`/`upsert_provider_key` 返回增加 `id`。
