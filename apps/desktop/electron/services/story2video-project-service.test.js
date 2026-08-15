@@ -1214,4 +1214,325 @@ describe('Story2VideoProjectService', () => {
     expect(project.segments[0].videoPath).toBeTruthy()
     expect(fs.existsSync(project.segments[0].videoPath)).toBe(true)
   })
+
+  it('updateSegments 白名单透传字幕/视频优化词/语音设置，越界语速收敛到 speed 0.5-2 / pitch -12..12', () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    service._writeProjects([{
+      projectId: 'project-voice', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: 'A', prompt: 'PA' }],
+    }])
+
+    const updated = service.updateSegments('project-voice', [{
+      id: 'segment-0',
+      videoPrompt: 'VP',
+      subtitleBlocks: ['第一句', '第二句'],
+      voiceId: 'voice-x',
+      voiceSpeed: 99,
+      voicePitch: -5,
+      voiceEmotion: 'calm',
+    }])
+
+    expect(updated.segments[0]).toMatchObject({
+      videoPrompt: 'VP',
+      subtitleBlocks: ['第一句', '第二句'],
+      voiceId: 'voice-x',
+      voiceSpeed: 2,
+      // pitch 支持负值（低沉音色）与 0（中性），收敛窗口 [-12,12] 内原样保留（审查 W1）
+      voicePitch: -5,
+      voiceEmotion: 'calm',
+    })
+  })
+
+  it('recompose 保留 videoPrompt：compose 回显缺省时从项目原值回填（审查 C1 回归）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-recompose-vp')
+    const image = writeFile(path.join(projectDir, 'image.png'), 'img')
+    const audio = writeFile(path.join(projectDir, 'voice.mp3'), 'voice')
+    const newOutput = writeFile(path.join(root, 'new-output.mp4'), 'new-output')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      composeEngine: {
+        // 模拟真实引擎：normalizeComposeScenes 白名单丢弃 videoPrompt，回显分段不含该字段
+        compose: vi.fn(async () => ({
+          code: 0,
+          data: {
+            videoPath: newOutput,
+            segments: [{ id: 'segment-0', index: 0, imagePath: image, audioPath: audio, videoPath: null }],
+          },
+        })),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-recompose-vp', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: 'A', prompt: 'PA', videoPrompt: '视频优化词',
+        imagePath: image, audioPath: audio,
+      }],
+    }])
+
+    const updated = await service.recomposeProject('project-recompose-vp')
+
+    expect(updated.segments[0].videoPrompt).toBe('视频优化词')
+    expect(updated.segments[0].imagePath).toBe(image)
+    expect(fs.existsSync(updated.videoPath)).toBe(true)
+  })
+
+  it('_serializeProject 同项目写操作按顺序串行执行且不泄漏队列（审查 W2 回归）', async () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    const order = []
+    const first = service._serializeProject('project-q', async () => {
+      order.push('first-start')
+      await new Promise(resolve => setTimeout(resolve, 30))
+      order.push('first-end')
+      return 1
+    })
+    const second = service._serializeProject('project-q', async () => {
+      order.push('second-start')
+      order.push('second-end')
+      return 2
+    })
+    const results = await Promise.all([first, second])
+    expect(results).toEqual([1, 2])
+    expect(order).toEqual(['first-start', 'first-end', 'second-start', 'second-end'])
+    expect(service._projectQueues.size).toBe(0)
+  })
+
+  it('updateSegments 不接受白名单外的媒体路径字段', () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    service._writeProjects([{
+      projectId: 'project-trust', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: 'A', prompt: 'PA', imagePath: 'C:/safe.png' }],
+    }])
+
+    const updated = service.updateSegments('project-trust', [{
+      id: 'segment-0',
+      imagePath: 'C:/evil.png',
+      videoPath: 'C:/evil.mp4',
+      audioPath: 'C:/evil.mp3',
+    }])
+
+    expect(updated.segments[0].imagePath).toBe('C:/safe.png')
+    expect(updated.segments[0].videoPath).toBeUndefined()
+    expect(updated.segments[0].audioPath).toBeUndefined()
+  })
+
+  it('regenerateSceneSubtitle 按文案重切字幕块并清空陈旧时间轴', async () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    service._writeProjects([{
+      projectId: 'project-sub', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: '第一句。第二句！',
+        subtitleBlocks: ['旧块'], subtitleTimeline: [{ text: '旧时间轴', startTime: 0, endTime: 1 }],
+        error: 'previous failure', subtitleSource: 'smart-sentence-splitter',
+      }],
+    }])
+
+    const updated = await service.regenerateSceneSubtitle('project-sub', 'segment-0')
+
+    expect(Array.isArray(updated.segments[0].subtitleBlocks)).toBe(true)
+    expect(updated.segments[0].subtitleBlocks.length).toBeGreaterThan(0)
+    expect(updated.segments[0].subtitleBlocks.join('')).toContain('第一句')
+    expect(updated.segments[0].subtitleTimeline).toEqual([])
+    expect(updated.segments[0].status).toBe('completed')
+    // 本地重切后重置失败状态与来源标记（审查 I2）
+    expect(updated.segments[0].error).toBe(null)
+    expect(updated.segments[0].subtitleSource).toBe('local-typescript')
+  })
+
+  it('regenerateSceneSubtitle 无文案时 fail-closed 且不改动分段', async () => {
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    service._writeProjects([{
+      projectId: 'project-sub-empty', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '   ', subtitleBlocks: ['旧块'] }],
+    }])
+
+    await expect(service.regenerateSceneSubtitle('project-sub-empty', 'segment-0')).rejects.toThrow('没有旁白文字')
+    expect(service.getProject('project-sub-empty').segments[0].subtitleBlocks).toEqual(['旧块'])
+  })
+
+  it('regenerateSceneAudio 按分段/项目 voice 覆盖重新生成 TTS 并替换音频', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const projectDir = path.join(projectRoot, 'project-tts')
+    const oldAudio = writeFile(path.join(projectDir, 'old.mp3'))
+    const newAudio = writeFile(path.join(root, 'new-tts.mp3'))
+    const generateTTS = vi.fn(async (text, options) => ({
+      code: 0, data: { path: newAudio, provider: 'elevenlabs', format: 'mp3' },
+    }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: { generateTTS },
+    })
+    service._writeProjects([{
+      projectId: 'project-tts', status: 'completed',
+      options: { voiceId: 'project-voice', voiceSpeed: 1, voicePitch: 1.1, voiceEmotion: 'neutral' },
+      segments: [{
+        id: 'segment-0', index: 0, text: '你好世界', audioPath: oldAudio,
+        voiceId: 'segment-voice', voiceSpeed: 0.8, voicePitch: 1.2, voiceEmotion: 'cheerful',
+      }],
+    }])
+
+    const updated = await service.regenerateSceneAudio('project-tts', 'segment-0')
+
+    expect(generateTTS).toHaveBeenCalledTimes(1)
+    const [text, options] = generateTTS.mock.calls[0]
+    expect(text).toBe('你好世界')
+    expect(options).toMatchObject({
+      voice_id: 'segment-voice',
+      voice_provider: '',
+      voice_model: '',
+      rate: 0.8,
+      pitch: 1.2,
+      emotion: 'cheerful',
+      with_timestamps: true,
+    })
+    expect(updated.segments[0].audioPath).not.toBe(oldAudio)
+    expect(fs.existsSync(updated.segments[0].audioPath)).toBe(true)
+    expect(updated.segments[0].status).toBe('completed')
+  })
+
+  it('regenerateSceneAudio 未配分段音色时回退项目 voice 设置（旧项目零迁移）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const newAudio = writeFile(path.join(root, 'fallback-tts.mp3'))
+    const generateTTS = vi.fn(async () => ({ code: 0, data: { path: newAudio } }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: { generateTTS },
+    })
+    service._writeProjects([{
+      projectId: 'project-tts-fallback', status: 'completed',
+      options: { voiceId: 'project-voice', voiceSpeed: 1.5, voicePitch: 0.9 },
+      segments: [{ id: 'segment-0', index: 0, text: '旧项目', audioPath: null }],
+    }])
+
+    const updated = await service.regenerateSceneAudio('project-tts-fallback', 'segment-0')
+
+    const options = generateTTS.mock.calls[0][1]
+    expect(options).toMatchObject({ voice_id: 'project-voice', rate: 1.5, pitch: 0.9, emotion: '' })
+    expect(fs.existsSync(updated.segments[0].audioPath)).toBe(true)
+  })
+
+  it('regenerateSceneAudio 失败保留旧音频、清理本次产物并回写 failed', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-tts-fail')
+    const oldAudio = writeFile(path.join(projectDir, 'old.mp3'), 'old-audio')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateTTS: vi.fn(async () => { throw new Error('TTS 服务繁忙') }),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-tts-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', audioPath: oldAudio }],
+    }])
+
+    await expect(service.regenerateSceneAudio('project-tts-fail', 'segment-0')).rejects.toThrow('TTS 服务繁忙')
+
+    const failed = service.getProject('project-tts-fail')
+    expect(failed.segments[0]).toMatchObject({ audioPath: oldAudio, status: 'failed', error: 'TTS 服务繁忙' })
+    expect(fs.existsSync(oldAudio)).toBe(true)
+    expect(fs.readdirSync(projectDir).some(name => name.includes('_audio_tts_'))).toBe(false)
+  })
+
+  it('regenerateScenePrompt image 更新 prompt 并清空陈旧翻译', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '新画面提示词' }] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-img', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词',
+        promptTranslation: 'old translation', videoPrompt: '旧视频词',
+      }],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-prompt-img', 'segment-0', 'image')
+
+    expect(optimizePrompt).toHaveBeenCalledWith('你好', expect.anything())
+    expect(updated.segments[0].prompt).toBe('新画面提示词')
+    expect(updated.segments[0].promptTranslation).toBeNull()
+    expect(updated.segments[0].videoPrompt).toBe('旧视频词')
+    expect(updated.segments[0].status).toBe('completed')
+  })
+
+  it('regenerateScenePrompt video 更新 videoPrompt 且不动 prompt', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizeVideoPrompt = vi.fn(async () => ({ results: [{ prompt: '新视频优化词' }] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizeVideoPrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-video', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧画面词', videoPrompt: null }],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-prompt-video', 'segment-0', 'video')
+
+    expect(updated.segments[0].videoPrompt).toBe('新视频优化词')
+    expect(updated.segments[0].prompt).toBe('旧画面词')
+    expect(updated.segments[0].status).toBe('completed')
+  })
+
+  it('regenerateScenePrompt 优化失败不改动分段并回写 failed', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt: vi.fn(async () => { throw new Error('优化服务不可用') }) },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词' }],
+    }])
+
+    await expect(service.regenerateScenePrompt('project-prompt-fail', 'segment-0', 'image')).rejects.toThrow('优化服务不可用')
+
+    const failed = service.getProject('project-prompt-fail')
+    expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: '优化服务不可用' })
+  })
+
+  it('saveRun 持久化视频优化词（videoPrompt）到分段', () => {
+    const source = path.join(root, 'video-prompt-source')
+    const image = writeFile(path.join(source, 'image.png'))
+    const audio = writeFile(path.join(source, 'audio.mp3'))
+    const output = writeFile(path.join(source, 'output.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_video_prompt',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      createdAt: '2026-08-15T00:00:00.000Z',
+      params: { text: '第一段', contentType: 'history' },
+      context: {
+        generate_assets: {
+          scenes: [{
+            index: 0, text: '第一段', prompt: '画面', videoPrompt: '视频优化词',
+            imagePath: image, audioPath: audio,
+          }],
+        },
+        compose: {
+          videoPath: output,
+          segments: [{
+            index: 0, text: '第一段', prompt: '画面', videoPrompt: '视频优化词',
+            imagePath: image, audioPath: audio, duration: 2,
+          }],
+        },
+      },
+    })
+
+    expect(project.segments[0].videoPrompt).toBe('视频优化词')
+  })
 })

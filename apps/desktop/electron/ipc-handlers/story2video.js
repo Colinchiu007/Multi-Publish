@@ -111,7 +111,7 @@ function registerHandlers (ipcMain, deps = {}) {
         !Array.isArray(request.segments) || request.segments.length === 0) {
       return { code: EC.VALIDATION_ERROR, message: '分段更新参数无效' }
     }
-    try { return { code: 0, data: requireProjectService().updateSegments(request.projectId, request.segments) } }
+    try { return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().updateSegments(request.projectId, request.segments)) } }
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
@@ -145,7 +145,7 @@ function registerHandlers (ipcMain, deps = {}) {
 
   ipcMain.handle('story2video:recompose-project', withSenderCheck(async (_event, projectId) => {
     if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
-    try { return { code: 0, data: await requireProjectService().recomposeProject(projectId) } }
+    try { return { code: 0, data: await requireProjectService()._serializeProject(projectId, () => requireProjectService().recomposeProject(projectId)) } }
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
@@ -174,6 +174,34 @@ function registerHandlers (ipcMain, deps = {}) {
     }
     try {
       return { code: 0, data: await requireProjectService().generateSceneVideo(request.projectId, request.segmentId) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:regenerate-scene-subtitle', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景字幕重新生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().regenerateSceneSubtitle(request.projectId, request.segmentId)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:regenerate-scene-audio', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景旁白重新生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().regenerateSceneAudio(request.projectId, request.segmentId)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:regenerate-scene-prompt', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) ||
+        !isSafeId(request.segmentId) || !['image', 'video'].includes(request.kind)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景优化词重新生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().regenerateScenePrompt(request.projectId, request.segmentId, request.kind)) }
     } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 

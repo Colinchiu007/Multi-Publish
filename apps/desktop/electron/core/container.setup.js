@@ -270,6 +270,7 @@ function createContainer(options) {
       composeEngine: c.get("story2videoEngine"),
       assetGenerator: c.get("assetGenerator"),
       aiGenerator: c.get("aiGenerator"),
+      serviceBus: c.get("serviceBus"),
       log: c.get("logger"),
     });
   });
