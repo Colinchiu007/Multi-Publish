@@ -69,6 +69,7 @@ const PUBLISH_METHODS = [
   'story2videoReplaceSegmentAudio',
   'story2videoRetrySegment', 'story2videoRecomposeProject', 'story2videoTranscribe',
   'story2videoSelectSceneMaterial', 'story2videoGenerateSceneImage', 'story2videoGenerateSceneVideo',
+  'story2videoRegenerateSceneSubtitle', 'story2videoRegenerateSceneAudio', 'story2videoRegenerateScenePrompt',
   'story2videoCapabilities',
   'story2videoBatchCreate', 'story2videoBatchStatus', 'story2videoBatchCancel', 'story2videoPickBatchFiles',
   'cloudPublishSubmit', 'cloudPublishListTasks', 'cloudPublishGetTask', 'cloudPublishPlatforms',
@@ -189,11 +190,11 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 96 个键（95 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 99 个键（98 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
     // 92（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
-    expect(Object.keys(r).length).toBe(96)
+    expect(Object.keys(r).length).toBe(99)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -210,14 +211,14 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(142)
   })
 
-  it('合并后 api 总键数应为 286（含 videoClone 命名空间与批量创作）', () => {
+  it('合并后 api 总键数应为 289（含 videoClone 命名空间与批量创作）', () => {
     // 282（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles
-    expect(Object.keys(api).length).toBe(286)
+    expect(Object.keys(api).length).toBe(289)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
     // 80（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
-    expect(PUBLISH_METHODS.length).toBe(84)
+    expect(PUBLISH_METHODS.length).toBe(87)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',

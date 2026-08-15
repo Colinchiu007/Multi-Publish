@@ -46,6 +46,12 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   SCENE_AUDIO_MISSING: 'story2video.scene_audio_missing',
   SCENE_IMAGE_MISSING: 'story2video.scene_image_missing',
   SCENE_SLOT_EMPTY: 'story2video.scene_slot_empty',
+  SCENE_SUBTITLE_REGENERATED: 'story2video.scene_subtitle_regenerated',
+  SCENE_SUBTITLE_REGENERATE_FAILED: 'story2video.scene_subtitle_regenerate_failed',
+  SCENE_AUDIO_REGENERATED: 'story2video.scene_audio_regenerated',
+  SCENE_AUDIO_REGENERATE_FAILED: 'story2video.scene_audio_regenerate_failed',
+  SCENE_PROMPT_REGENERATED: 'story2video.scene_prompt_regenerated',
+  SCENE_PROMPT_REGENERATE_FAILED: 'story2video.scene_prompt_regenerate_failed',
   DEGRADED_ASSETS_WARNING: 'story2video.degraded_assets_warning',
   RATE_LIMITED: 'story2video.rate_limited',
   QUOTA_EXCEEDED: 'story2video.quota_exceeded',
@@ -104,6 +110,10 @@ const TIMEOUT_PATTERN = /(timeout|timed out|etimedout|超时)/i
 const SCENE_AUDIO_MISSING_PATTERN = /(没有旁白音频|no narration audio|missing.*(?:narration|voice).*audio)/i
 const SCENE_IMAGE_MISSING_PATTERN = /(没有可用的图片素材|no available image|missing.*image.*(?:scene|segment))/i
 const SCENE_SLOT_EMPTY_PATTERN = /(素材槽位暂无素材|slot.*(?:empty|missing)|material slot)/i
+// 场景内容重新生成失败归一化（2026-08-15 历史记录场景编辑/重合成）
+const SCENE_SUBTITLE_REGENERATE_FAILED_PATTERN = /(无法重新生成字幕|无法拆分字幕|subtitle.*(?:regenerat|split).*(?:fail|unavailable|invalid))/i
+const SCENE_AUDIO_REGENERATE_FAILED_PATTERN = /(无法生成语音|语音生成服务不可用|无法重新生成(?:旁白|语音)|tts.*(?:fail|unavailable|invalid))/i
+const SCENE_PROMPT_REGENERATE_FAILED_PATTERN = /(无法重新生成优化词|提示词优化服务不可用|优化词类型无效|优化结果无效|prompt.*(?:regenerat|optimiz).*(?:fail|unavailable|invalid))/i
 export function countUnicodeCodePoints (value) {
   return Array.from(String(value ?? '')).length
 }
@@ -240,6 +250,9 @@ function resolveMessageKey (notification, fallbackKey) {
   if (SCENE_AUDIO_MISSING_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_MISSING
   if (SCENE_IMAGE_MISSING_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_IMAGE_MISSING
   if (SCENE_SLOT_EMPTY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_SLOT_EMPTY
+  if (SCENE_SUBTITLE_REGENERATE_FAILED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_SUBTITLE_REGENERATE_FAILED
+  if (SCENE_AUDIO_REGENERATE_FAILED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED
+  if (SCENE_PROMPT_REGENERATE_FAILED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED
   return fallbackKey
 }
 

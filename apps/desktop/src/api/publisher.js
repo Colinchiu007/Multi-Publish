@@ -376,6 +376,18 @@ export async function story2videoGenerateSceneImage(projectId, segmentId) {
 export async function story2videoGenerateSceneVideo(projectId, segmentId) {
   return invokeWithFallback("story2videoGenerateSceneVideo", { code: -1, message: 'electronAPI not available' }, projectId, segmentId)
 }
+
+export async function story2videoRegenerateSceneSubtitle(projectId, segmentId) {
+  return invokeWithFallback("story2videoRegenerateSceneSubtitle", { code: -1, message: 'electronAPI not available' }, projectId, segmentId)
+}
+
+export async function story2videoRegenerateSceneAudio(projectId, segmentId) {
+  return invokeWithFallback("story2videoRegenerateSceneAudio", { code: -1, message: 'electronAPI not available' }, projectId, segmentId)
+}
+
+export async function story2videoRegenerateScenePrompt(projectId, segmentId, kind) {
+  return invokeWithFallback("story2videoRegenerateScenePrompt", { code: -1, message: 'electronAPI not available' }, projectId, segmentId, kind)
+}
 export async function story2videoTranscribe(filePath) {
   return invokeWithFallback("story2videoTranscribe", { code: -1, message: 'electronAPI not available' }, filePath)
 }

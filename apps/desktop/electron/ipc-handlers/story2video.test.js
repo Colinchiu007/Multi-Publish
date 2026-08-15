@@ -218,10 +218,15 @@ describe('Story2Video 交付 IPC', () => {
       isLocalOwner: vi.fn(() => true),
       getProject: vi.fn(() => ({ projectId: 'project-1' })),
       deleteProject: vi.fn(() => ({ projectId: 'project-1', deleted: true })),
+      // 主进程同项目写队列：mock 直接透传任务（审查 W2 修复后 handler 通过 _serializeProject 调用服务）
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
       updateSegments: vi.fn(() => ({ projectId: 'project-1', dirty: true })),
       replaceSegmentAudio: vi.fn(() => ({ projectId: 'project-1', dirty: true })),
       retrySegment: vi.fn(async () => ({ projectId: 'project-1' })),
       recomposeProject: vi.fn(async () => ({ projectId: 'project-1', dirty: false })),
+      regenerateSceneSubtitle: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      regenerateSceneAudio: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      regenerateScenePrompt: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
       transcribeFile: vi.fn(async () => ({ text: '识别文本' })),
       getCapabilities: vi.fn(() => ({ transcription: { available: true }, remix: { available: false } })),
     }
@@ -237,14 +242,23 @@ describe('Story2Video 交付 IPC', () => {
     })
     await ipcMain.get('story2video:retry-segment')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0', mode: 'image' })
     await ipcMain.get('story2video:recompose-project')(TRUSTED_EVENT, 'project-1')
+    await ipcMain.get('story2video:regenerate-scene-subtitle')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
+    await ipcMain.get('story2video:regenerate-scene-audio')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
+    await ipcMain.get('story2video:regenerate-scene-prompt')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0', kind: 'video' })
     await ipcMain.get('story2video:transcribe')(TRUSTED_EVENT, { filePath: 'C:/controlled/audio.mp3' })
     const capabilities = await ipcMain.get('story2video:capabilities')(TRUSTED_EVENT)
 
     expect(service.updateSegments).toHaveBeenCalledWith('project-1', [{ id: 'segment-0', text: '新文案' }])
+    // 保存/重合成/三种重新生成均经同项目串行队列，防止跨段并发覆盖（审查 W2 回归）
+    expect(service._serializeProject).toHaveBeenCalledTimes(5)
+    expect(service._serializeProject).toHaveBeenCalledWith('project-1', expect.any(Function))
     expect(service.replaceSegmentAudio).toHaveBeenCalledWith('project-1', 'segment-0', 'C:/controlled/replacement.mp3')
     expect(service.deleteProject).toHaveBeenCalledWith('project-1')
     expect(service.retrySegment).toHaveBeenCalledWith('project-1', 'segment-0', 'image')
     expect(service.recomposeProject).toHaveBeenCalledWith('project-1')
+    expect(service.regenerateSceneSubtitle).toHaveBeenCalledWith('project-1', 'segment-0')
+    expect(service.regenerateSceneAudio).toHaveBeenCalledWith('project-1', 'segment-0')
+    expect(service.regenerateScenePrompt).toHaveBeenCalledWith('project-1', 'segment-0', 'video')
     expect(service.transcribeFile).toHaveBeenCalledWith('C:/controlled/audio.mp3')
     expect(capabilities.data.transcription.available).toBe(true)
   })
@@ -260,6 +274,34 @@ describe('Story2Video 交付 IPC', () => {
 
     expect(result.code).toBeLessThan(0)
     expect(service.updateSegments).not.toHaveBeenCalled()
+  })
+
+  it('场景字幕/旁白/优化词重新生成：拒绝不可信页面、非法 ID 与非白名单优化词类型', async () => {
+    const service = {
+      regenerateSceneSubtitle: vi.fn(),
+      regenerateSceneAudio: vi.fn(),
+      regenerateScenePrompt: vi.fn(),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    const untrustedSubtitle = await ipcMain.get('story2video:regenerate-scene-subtitle')(UNTRUSTED_EVENT, {
+      projectId: 'project-1', segmentId: 'segment-0',
+    })
+    expect(untrustedSubtitle).toEqual({ code: -3, message: '未授权的调用来源' })
+
+    const badId = await ipcMain.get('story2video:regenerate-scene-subtitle')(TRUSTED_EVENT, {
+      projectId: '../escape', segmentId: 'segment-0',
+    })
+    expect(badId.code).toBeLessThan(0)
+
+    const badKind = await ipcMain.get('story2video:regenerate-scene-prompt')(TRUSTED_EVENT, {
+      projectId: 'project-1', segmentId: 'segment-0', kind: 'unsupported',
+    })
+    expect(badKind.code).toBeLessThan(0)
+    expect(service.regenerateScenePrompt).not.toHaveBeenCalled()
+    expect(service.regenerateSceneSubtitle).not.toHaveBeenCalled()
+    expect(service.regenerateSceneAudio).not.toHaveBeenCalled()
   })
 
   it('替换旁白成功后清理受控媒体临时副本', async () => {
