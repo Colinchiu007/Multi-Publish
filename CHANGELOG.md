@@ -1,3 +1,21 @@
+## [2026-08-16] fix(story2video): 字幕分句 v1.2.3 成词保护与小数点豁免（三端同步 + 回归）
+
+- 现象：`能/够`、`就/是`、`做/成`、`在/上`、`动/态`、`规/划`、`专/属` 等成词被切；
+  `713.3毫米` 被劈成 `713.`+`3毫米`；`个` 入 good_tail 后出现 `个/性` 劈词风险。
+- 根因：Step 3/6 切点判定只看切点两侧单字（good_lead/good_tail/bad_followers），
+  无「前瞻检查」——不检查切点是否落在双字词内；半角点同时是句界/标点集成员，
+  数字中的小数点被误当切分锚点；标点分割后 clean 去掉末尾标点，短尾块无法被
+  merge_short 捕获，最终把 `扶余国`、`电视剧` 等词语切断（v1.2 已修，v1.2.3 继续加固）。
+- 修复：`word_split.no_cut_bigrams`（29 词）成词保护——切点两侧构成成词即非好切点
+  （`_is_good_cut` 与第二趟 `_word_safe_split` 双检查）；小数点豁免三处（句界/切分锚点/
+  区间锚点，Python/TS/JS 一致）；`good_tail_blockers(性)` 独立排除集（不误伤
+  `的|电视`、`是|这位` 等好切点）；孤悬 4 字尾回退 + tail_min 软约束；
+  `bad_followers` 增 `性例同位类群众平方公里恢复度态济划属`（堵 `动/态`、`规/划`、`专/属`）。
+- 回归：sidecar pytest 502 passed（新增 7 例）；MP TS 引擎 148 / JS 分句套件 122 passed；
+  `文帝进京` 3 块（10/10/9）、`挥刀自宫` 4 块与用户期望逐字一致；`713.3` 不劈；
+  parity 语料 +10 句（三端逐字一致）；8002 同源临时实例 HTTP 验证通过。
+
+
 ## [2026-08-15] fix(ops-center): 提示词评测评估解析兼容推理模型 `<think>` 思维链输出
 
 - 现象：404 修复后真实生成成功，但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。
@@ -5,12 +23,64 @@
 - 修复：`parse_and_validate` 先 `_strip_think` 剥离思维链（含未闭合截断尾巴），`_extract_json_text` 支持 ```json 围栏（含不在开头）并兜底提取首个 `{` 到最后一个 `}`；解析失败保持 fail closed。
 - 回归：`test_prompt_eval_services.py` 新增 4 场景（`<think>`+围栏 / 无围栏前导文本 / 仅思维链 fail closed / 未闭合截断 fail closed）；目标套件 17 passed；全量 pytest 290 passed / 4 failed（scheduler 存量顺序污染 + engine_dual 存量 flaky，单跑均通过，与本改动零交集）。
 
+## [2026-08-16] fix(story2video): 字幕分句 v1.2.3 成词保护与小数点豁免（三端同步 + 回归）
+
+- 现象：能/够、就/是、做/成、在/上、动/态、规/划、专/属 等成词被切；
+  713.3毫米 被劈成 713.+3毫米；个 入 good_tail 后出现 个/性 劈词风险。
+- 根因：Step 3/6 切点判定只看切点两侧单字（good_lead/good_tail/bad_followers），
+  无「前瞻检查」——不检查切点是否落在双字词内；半角点同时是句界/标点集成员，
+  数字中的小数点被误当切分锚点；标点分割后 clean 去掉末尾标点，短尾块无法被
+  merge_short 捕获，最终把 扶余国、电视剧 等词语切断（v1.2 已修，v1.2.3 继续加固）。
+- 修复：word_split.no_cut_bigrams（29 词）成词保护——切点两侧构成成词即非好切点
+  （_is_good_cut 与第二趟 _word_safe_split 双检查）；小数点豁免三处（句界/切分锚点/
+  区间锚点，Python/TS/JS 一致）；good_tail_blockers(性) 独立排除集（不误伤
+  的|电视、是|这位 等好切点）；孤悬 4 字尾回退 + tail_min 软约束；
+  ad_followers 增 性例同位类群众平方公里恢复度态济划属（堵 动/态、规/划、专/属）。
+- 回归：sidecar pytest 502 passed（新增 7 例）；MP TS 引擎 148 / JS 分句套件 122 passed；
+  文帝进京 3 块（10/10/9）、挥刀自宫 4 块与用户期望逐字一致；713.3 不劈；
+  parity 语料 +10 句（三端逐字一致）；8002 同源临时实例 HTTP 验证通过。
+
+
 ## [2026-08-15] fix(ops-center): 提示词评测「生成图片并评估」MiniMax 404 修复（/image_generation 契约）
 
 - 现象：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`。
 - 根因：`prompt_eval_generation_service.generate_images()` 对所有 provider 统一请求 OpenAI 兼容 `{base}/images/generations`；MiniMax 图片生成专有端点为 `POST {base}/image_generation`，请求/响应结构也不同。
 - 修复：`minimax-image`（或模型名 `image-01` 前缀）→ 端点 `/image_generation`；payload 移除 `size`，改用 `model/prompt/n/aspect_ratio/response_format=base64`；`n` 限制 1-9（越界 fail closed）；响应解析 `data.image_base64`（base64 串兼容 `data:image/...;base64,` 前缀）与 `data.image_urls`（URL 走下载分支）；`base_resp.status_code != 0` 判定业务失败 fail closed（不重试）；返回图片数不等于请求数 fail closed。flux 等 OpenAI 兼容 provider 行为不变。
 - 回归：`test_prompt_eval_services.py` 新增 8 场景（MiniMax 端点/payload、base64 落盘含 data URL 前缀、URL 下载、业务失败 fail closed、字符串 status_code、数量不符 fail closed、n 越界 0/-1/10/20、flux 含 base_resp 不被误拦截）并将既有用例改为 MiniMax 真实响应形状；目标套件 16 passed；prompt-eval 全量套件 100+ passed；全量 pytest 286 passed / 4 failed（3 个 scheduler 存量顺序污染 + engine_dual 存量 flaky，单独跑均通过，与本改动零交集）。
+
+## [2026-08-15] fix(story2video): 字幕分句坏切修复（词边界感知 v1.2，三端同步 + 配置透传）
+
+- 现象：用户 5 段文案字幕坏切——`扶余国`→`扶余/国`、`电视剧`→`电/视剧`、`复杂`→`复/杂`、
+  `空白一片`→`空/白一片`、`卵生、日影受孕` 7 字孤悬。
+- 版本核验：本地源码 == GitHub 远程最新（HEAD == origin/main == `6cefc0c`，sidecar `subtitle_segmenter.py`
+  blob 一致），坏切为算法缺陷而非版本漂移。
+- 根因（三机制）：
+  1. Step 6 `_enforce_max` 平衡兜底按算术位置切，无词边界感知 → `扶余/国`、`电/视剧`；
+  2. Step 3 `_length_split` 无标点硬切整块，不检查劈词 → `复/杂`、`空/白一片`；
+  3. Step 4 `_merge_short` 用含标点长度判定短块，clean 后变短无法补救 → 顿号短块孤悬；
+  4. 配置透传 bug：`stage-executor.js` 白名单不含 `subtitle_min_chars/subtitle_max_chars/subtitle_timing`，
+     UI 配置无法到达 8002 `config.subtitle`；测试反向断言固化丢弃。
+- 修复：`subtitle-rules.json` 新增 `word_split` 节（`good_lead/good_tail/bad_followers` 规则表单源）；
+  硬切/平衡切分优先不劈词（好切点 → 非黏着切点 → 算术回退）；短块判定改 clean 后长度 + 并入后 ≤max +
+  完整句不并入；Step 6 平衡切分越界修复；允许语义完整短块以 `short_block_exceptions` 显式声明；
+  `_buildStorySplitterOptions` 补字幕参数透传并改写反向断言测试。
+- 三端同步：sidecar Python（`subtitle_segmenter.py`）、MP TS 镜像（`text-segmentation.ts`）、JS 镜像
+  （`story2video-segmentation-engine.js`）逐字一致；共享向量 25 条（含 5 条用户坏例）三副本同步。
+- 回归：sidecar pytest 100 passed；TS 145 / JS parity 21 / JS 向量 51 / stage-executor 66 passed；
+  E2E real 8002 用户 5 段坏例 + 完整流水线 E2E 通过；`story2video-segmentation-vectors.test.js` 新增。
+
+## [2026-08-15] fix(story2video): 顿号枚举吞并谓语守卫（v1.2.1，修复 滚/烫 劈词孤尾）
+
+- 现象：`枪声、爆炸声、呐喊声混成一锅滚烫的粥。`（19 字，max=15）切成
+  `枪声、爆炸声、呐喊声混成一锅滚`(15) + `烫的粥`(3)——`滚烫` 被劈开、3 字孤尾。
+- 根因：Step 3 强制切锚点落在顿号上时，`_enumeration_end` 把「枚举末项 + 谓语」
+  （`呐喊声混成一锅滚`）整段当作枚举单元吞并（`混` 不在谓词引导词集合，无终止标点）。
+- 修复：`predicate_starters` 增加 `混`；新增**吞并守卫**（Python/TS/JS 三端同步）——
+  枚举单元扫到片段尾仍无终止、且内部无更多顿号项时，判定过度吞并，枚举保护回退顿号锚点
+  （不依赖词表，兜底未知谓语动词）。
+- 回归：sidecar pytest 420（向量 26 条）；TS 148 / JS 160 passed；E2E real 8002 用户 6 段坏例
+  （新增 `枪声、爆炸声、呐喊声 | 混成一锅滚烫的粥` 10+8）全绿。
+
 
 ## [2026-08-15] feat(ops-center): 模型密钥新增删除功能
 

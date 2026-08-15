@@ -520,13 +520,16 @@ locale key；未知内部 ID 只能安全回退为原始 ID，不能以 slug 标
 | 层级 | 权威实现 | 输出与降级合同 |
 |------|----------|----------------|
 | 场景层 | `smart-sentence-splitter` 8002 | 正常响应的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界；Multi-Publish 不得再次改写。仅 `ECONNREFUSED`、`ETIMEDOUT`、`ECONNRESET`、服务未运行等不可用错误可使用本地场景降级；业务错误或缺失 `scenes` 的非法响应必须失败 |
-| 字幕层 | Multi-Publish 本地逻辑 | 对每个场景的 `text` 独立二次切分，目标为每页 8-15 个字符，优先在标点后断开；字幕不得跨越场景，按顺序拼接后必须等于该场景规范化文本 |
+| 字幕层 | `smart-sentence-splitter` 8002（`config.subtitle`）+ 本地 v1.2 镜像 | 每个场景的 `text` 独立切分，目标每页 8-15 字；**词边界感知（v1.2）**：无标点切分/平衡切分优先不劈词（`扶余国`/`电视剧`/`复杂`/`空白一片` 等），短块判定用 clean 后长度，`subtitle_min_chars/subtitle_max_chars/subtitle_timing` 经 stage-executor 透传为 8002 `config.subtitle.min_chars_per_block/max_chars_per_block/time_calculation_method`；8002 不可用或字幕残缺时回退本地逻辑，三端（Python/TS/JS）逐字一致；字幕不得跨越场景，按顺序拼接后必须等于该场景规范化文本 |
 | 可观测性 | 运行结果与项目清单 | 每个场景持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks` 和 `subtitleTimeline`；`tier_used=tier3_rule` 仍表示经过 8002，只是 sidecar 内部选择规则层，不等于本地降级 |
 
 Story2Video 的 `target_duration/base_words_per_second/speech_rate/min_words/max_words` 必须转换为
 8002 实际消费的 `config.scene.target_seconds/base_words_per_second/speech_rate/min_words_per_segment/max_words_per_segment/enforce_sentence_boundary/allow_single_sentence_overflow`；
-`max_sentence_length` 同步写入 `config.sentence_tokenizer`。字幕页长度和时间轴选项只由本地逻辑消费，
-不得混入 8002 请求。为兼容 sidecar 现有中文算法，`min_words/max_words` 名称保留但计量单位是字数/字符数。
+`max_sentence_length` 同步写入 `config.sentence_tokenizer`。`subtitle_min_chars/subtitle_max_chars/subtitle_timing`
+（v1.2）必须转换为 8002 实际消费的 `config.subtitle.min_chars_per_block/max_chars_per_block/time_calculation_method`，
+不得作为会被忽略的顶层扩展字段；8002 不可用时本地 v1.2 镜像消费同样的 min/max 参数。字幕页时间轴选项
+（字号/样式等渲染配置）只由本地 compose 逻辑消费，不得混入 8002 请求。为兼容 sidecar 现有中文算法，
+`min_words/max_words` 名称保留但计量单位是字数/字符数。
 
 字幕时间轴必须在 compose 阶段基于 ffprobe 读取的逐场景真实音频时长生成，不能把
 edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `0` 开始，字幕区间连续且
@@ -2162,7 +2165,7 @@ Story2Video 视频场景（按场景顺序）
 - [x] 图片动效按场景有效时长归一化：zoompan `d=总帧数` + 进度 `min(1, on/T)`，短场景动效不被切走、长场景不提前定格；回归覆盖字符串断言与（可选）真实 ffmpeg 帧级验证；`renderSegment` 上报时长与 compose 一致收敛到 0.1..3600。
 - [x] `perImageDuration`（单画面时长/无旁白场景时长）已从 renderer/normalizer/模板库/YAML 移除；旧项目历史配置兼容忽略，`defaultSceneDuration` 保留为内部默认 6 秒回退。
 - [x] 场景层正常路径由 8002 的 `scenes` 决定；仅服务不可用时本地降级，非法响应不降级，并在运行结果和项目清单保留来源字段。
-- [x] Story2Video 分句别名映射到 8002 的 `config.sentence_tokenizer/scene`；自定义时长、语速和场景字数不会被 FastAPI 静默忽略，字幕选项不发送给服务。
+- [x] Story2Video 分句别名映射到 8002 的 `config.sentence_tokenizer/scene`；自定义时长、语速和场景字数不会被 FastAPI 静默忽略；字幕参数（`subtitle_min_chars/subtitle_max_chars/subtitle_timing`，v1.2）透传为 `config.subtitle.*`，不再静默丢弃。
 - [x] 每个场景独立生成 8-15 字目标的字幕块；字幕不跨场景，旧项目缺少字幕块时可在 compose 阶段兼容生成。
 - [x] 分页字幕时间轴以 ffprobe 真实 TTS 时长生成，区间连续不重叠，语速变化时等比例缩放，最后一页精确结束。
 - [x] 缺失音频时长不会被固定截断；短片段转场会自动收敛或降级。

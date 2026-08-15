@@ -148,7 +148,13 @@ it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块'
   expect(sentOptions).not.toHaveProperty('fallback_to_local');
   expect(sentOptions).not.toHaveProperty('require_scene_output');
   expect(sentOptions).not.toHaveProperty('target_duration');
+  // 字幕分块参数必须透传到 config.subtitle（v1.2），且不得泄漏为顶层键
+  expect(sentOptions.config.subtitle).toMatchObject({
+    min_chars_per_block: 8,
+    max_chars_per_block: 15,
+  });
   expect(sentOptions).not.toHaveProperty('subtitle_min_chars');
+  expect(sentOptions).not.toHaveProperty('subtitle_max_chars');
   // 分镜字数主控只走本地 fallback（snake_case 键），8002 请求不得包含（双模型审查 W2）
   expect(sentOptions).not.toHaveProperty('target_chars_per_scene');
   expect(sentOptions.config.scene).not.toHaveProperty('target_chars_per_scene');
