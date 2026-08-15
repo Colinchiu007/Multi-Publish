@@ -1,3 +1,12 @@
+## 提示词评测评估解析推理模型思维链复盘（fix-ops-center-eval-think，2026-08-15）
+
+- **现象**：404 修复后真实生成成功（2 张图落盘），但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。
+- **根因**：MiniMax-M3 为推理模型，`chat/completions` 的 `content` 以 `<think>...</think>` 思维链开头、后接 ```json 围栏 JSON；`parse_and_validate` 只处理「以 ``` 开头」的围栏，`json.loads` 遇到 `<think>` 前缀直接失败。已用真实密钥复现：HTTP 200、`finish=stop`、content=`<think>…```json{…}``` `，剥离 `<think>` 后 JSON 完整可解析。
+- **教训 1（LLM 输出解析契约必须按真实响应形状固化）**：翻译服务 `_strip_think` 已处理同一问题（MiniMax 系推理模型），评估服务漏了——两个服务消费同一 provider，修复一处必须全局检索同类解析点；mock 必须使用真实 provider 响应形状（含思维链+围栏），否则测试反向固化错误行为。
+- **教训 2（推理模型响应有未闭合截断形态）**：`finish_reason=length` 截断时 `<think>` 无闭合标签，剥离逻辑必须同时处理「闭合块」与「未闭合尾部」，未提取到合法 JSON 保持 fail closed，不得静默降级。
+- **逃逸链**：单测 mock 纯 JSON（测试场景缺失）→ 集成/E2E 用 fake evaluate（未覆盖真实 provider）→ 审查未核对真实响应形状。
+- **回归保护**：`test_prompt_eval_services.py::test_parse_eval_think_and_fence` 覆盖 `<think>`+```json 围栏 / 无围栏前导文本 / 仅思维链 fail closed / 未闭合截断 fail closed；parse 前统一 `_strip_think` + `_extract_json_text`。
+
 ## 提示词评测图片生成 MiniMax 404 复盘（fix-ops-center-image-gen-minimax，2026-08-15）
 
 - **现象**：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`；MiniMax 密钥（minimax-image/image-01）保存与「测试连通」均正常（PR #861 已修探测）。

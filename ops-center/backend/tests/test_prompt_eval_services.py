@@ -303,6 +303,21 @@ def test_eval_prompt_and_fail_closed():
         ev.parse_and_validate(json.dumps(_valid_eval(1)), 2)  # 单图 3 维度提交给多图
 
 
+def test_parse_eval_think_and_fence():
+    """推理模型真实响应形状回归：<think> 思维链 + ```json 围栏（MiniMax-M3）。"""
+    valid = json.dumps(_valid_eval(2))
+    raw_think = f"<think>让我先分析两张图</think>\n```json\n{valid}\n```\n"
+    assert ev.parse_and_validate(raw_think, 2)["overall"] == 80
+    # 未闭合 <think>（模型输出被截断）→ 无有效 JSON → fail closed
+    with pytest.raises(ev.EvaluationError):
+        ev.parse_and_validate("<think>分析中……（输出被截断", 2)
+    # 无围栏、带前导/尾随文本 → 提取首个 { 到最后一个 }
+    raw_bare = f"评估结果：\n{valid}\n（以上）"
+    assert ev.parse_and_validate(raw_bare, 2)["overall"] == 80
+    with pytest.raises(ev.EvaluationError):
+        ev.parse_and_validate("<think>only reasoning</think>", 1)
+
+
 @pytest.mark.asyncio
 async def test_evaluate_images_success():
     raw = json.dumps(_valid_eval(1))
