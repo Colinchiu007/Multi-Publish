@@ -107,7 +107,7 @@
             </div>
             <div class="history-state-detail-row">
               <span class="history-field-label">{{ tr('errorSummary') }}</span>
-              <span>{{ item.error ? truncate(item.error, 160) : tr('genericFailure') }}</span>
+              <span>{{ formatError(item) }}</span>
             </div>
           </div>
 
@@ -198,7 +198,7 @@
           <div v-if="selectedHistoryItem.status === 'paused'"><dt>{{ tr('pausedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || activeStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
           <div v-if="selectedHistoryItem.status === 'paused' && pauseEnvironment(selectedHistoryItem)"><dt>{{ tr('pauseEnvironment') }}</dt><dd>{{ localizedEnvironment(pauseEnvironment(selectedHistoryItem)) }}</dd></div>
           <div v-if="selectedHistoryItem.status === 'failed'"><dt>{{ tr('failedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || failedStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
-          <div v-if="selectedHistoryItem.status === 'failed'" data-testid="history-detail-error"><dt>{{ tr('errorSummary') }}</dt><dd>{{ selectedHistoryItem.error || tr('genericFailure') }}</dd></div>
+          <div v-if="selectedHistoryItem.status === 'failed'" data-testid="history-detail-error"><dt>{{ tr('errorSummary') }}</dt><dd>{{ formatError(selectedHistoryItem) }}</dd></div>
         </dl>
         <div v-if="Array.isArray(selectedHistoryItem.stages) && selectedHistoryItem.stages.length" class="history-detail-stages">
           <span class="history-field-label">{{ tr('stages') }}</span>
@@ -245,6 +245,7 @@ import '@/styles/history-panel.css'
 import UiModal from '@/components/UiModal.vue'
 import { getAppLocale } from '@/i18n'
 import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
+import { formatPipelineError } from '@/utils/pipeline-error-formatter'
 import { filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
 
 const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'failed', 'completed', 'cancelled'])
@@ -335,6 +336,29 @@ export default {
     truncate (value, max) {
       const text = String(value || '')
       return text.length > max ? text.slice(0, max - 1) + '…' : text
+    },
+    /**
+     * Format pipeline raw error into user-facing natural language with suggestions.
+     * @param {object} item - history record item
+     * @returns {string} user-visible error message
+     */
+    formatError (item) {
+      if (!item || !item.error) return this.tr('genericFailure')
+      const result = formatPipelineError(item.error, { locale: this.currentLocale() })
+      if (result.message) return result.message
+      if (result.key) {
+        try {
+          let msg = this.$t?.(result.key) || ''
+          if (result.params && typeof msg === 'string') {
+            for (const [k, v] of Object.entries(result.params)) {
+              msg = msg.replace(new RegExp('\{' + k + '\}', 'g'), String(v ?? ''))
+            }
+          }
+          // $t returns the key itself when locale tree is missing or test mock — treat as unresolved
+          if (typeof msg === 'string' && msg && msg !== result.key) return msg
+        } catch (_) { /* fall through */ }
+      }
+      return this.truncate(item.error, 160)
     },
     pipelineName (id) { return getPipelineName(key => this.$t?.(key), id) },
     localizedMode (item) {
