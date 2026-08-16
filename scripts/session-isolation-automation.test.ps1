@@ -20,6 +20,13 @@ try {
     Assert ($json.branch -eq 'main') 'health report records main'
     Assert ($json.primary -eq $true) 'health report identifies primary worktree'
     Assert ($json.ok -eq $true) 'health report records ok=true'
+    $worktreeRoot = Join-Path (Split-Path -Parent $primary) 'mp-worktrees'
+    $report2 = Join-Path $tmp 'health-worktree-root.json'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $health -Root $primary -ReportPath $report2 -WorktreeRoot $worktreeRoot -RequireClean -RequireHooks -RequirePrimary -Quiet
+    Assert ($LASTEXITCODE -eq 0) 'health check accepts explicit -WorktreeRoot'
+    Assert (Test-Path $report2) 'explicit worktree-root report is emitted'
+    $json2 = Get-Content $report2 -Raw | ConvertFrom-Json
+    Assert ($json2.worktreeRoot -eq $worktreeRoot) 'health report records resolved worktree root'
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
     Assert ($LASTEXITCODE -eq 0) 'scheduled task registers successfully'
     $task = Get-ScheduledTask -TaskPath '\Multi-Publish\' -TaskName 'Session Isolation Health'

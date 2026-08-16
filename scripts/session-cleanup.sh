@@ -6,7 +6,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MP_WORKTREES="D:/Data/projects/mp-worktrees"
+MP_WORKTREES="${MP_WORKTREES:-$(dirname "$REPO_ROOT")/mp-worktrees}"
 
 cd "$REPO_ROOT"
 

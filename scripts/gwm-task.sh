@@ -12,7 +12,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CURRENT_ROOT="$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel)"
 REPO_ROOT="$(git -C "$CURRENT_ROOT" worktree list --porcelain | awk '/^worktree / {print substr($0,10); exit}')"
-MP_WORKTREES="${MP_WORKTREES:-D:/Data/projects/mp-worktrees}"
+REPO_PARENT="$(dirname "$REPO_ROOT")"
+MP_WORKTREES="${MP_WORKTREES:-$REPO_PARENT/mp-worktrees}"
 
 cd "$REPO_ROOT"
 
@@ -34,6 +35,7 @@ case "$cmd" in
         fi
         BRANCH="codex/$TASK_NAME"
         WT_PATH="$MP_WORKTREES/mp-$TASK_NAME"
+        mkdir -p "$MP_WORKTREES"
         COMMON_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)"
         BOOTSTRAP_LOCK="$COMMON_DIR/ccg-worktree-bootstrap.lock"
         LOCK_ACQUIRED=0

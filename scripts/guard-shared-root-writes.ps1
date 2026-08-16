@@ -8,20 +8,34 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+    [string]$Root = '',
     [string]$QuarantineRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Multi-Publish\session-isolation\quarantine'),
+    [string]$GitPath = '',
     [string[]]$ProcessPaths,
     [switch]$Watch,
     [switch]$Quiet
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($Root)) { $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
 $root = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\','/')
 $quarantine = [IO.Path]::GetFullPath($QuarantineRoot).TrimEnd('\','/')
 New-Item -ItemType Directory -Force -Path $quarantine | Out-Null
 
-$git = 'D:\Program Files\Git\cmd\git.exe'
-if (-not (Test-Path -LiteralPath $git)) { $git = 'git' }
+$git = $GitPath
+if (-not $git -and $env:MP_GIT) { $git = $env:MP_GIT }
+if (-not $git) {
+    $gitCmd = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($gitCmd -and $gitCmd.Source) { $git = $gitCmd.Source }
+}
+if (-not $git -or -not (Test-Path -LiteralPath $git)) {
+    foreach ($candidate in @('C:\Program Files\Git\cmd\git.exe','C:\Program Files (x86)\Git\cmd\git.exe','D:\Program Files\Git\cmd\git.exe')) {
+        if (Test-Path -LiteralPath $candidate) { $git = $candidate; break }
+    }
+}
+if (-not $git -or -not (Test-Path -LiteralPath $git)) {
+    throw '找不到 git.exe；请安装 Git for Windows，或通过 -GitPath / MP_GIT 指定'
+}
 function Git([string[]]$gitArgs) { & $git -C $root @gitArgs }
 
 $allowedTop = @('docs','01-docs','scripts','openspec','.ccg','.agent_context','.hermes')
