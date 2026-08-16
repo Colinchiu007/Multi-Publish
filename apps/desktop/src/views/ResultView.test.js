@@ -972,6 +972,65 @@ describe("ResultView", () => {
     w.unmount();
   });
 
+  it("保存分段返回含 imagePath 分段后重建图片 URL（回归：保存后图片消失）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///C:/img1.png" } });
+    api.story2videoUpdateSegments.mockResolvedValue({
+      code: 0,
+      data: { projectId: "project-1", dirty: true, segments: [{
+        id: "s1", imagePath: "C:/img1.png",
+        alternateImages: [{ path: "C:/img2.png" }],
+        videoPath: "C:/v1.mp4", status: "completed",
+      }] },
+    });
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "s1", text: "A", status: "completed" }];
+    await nextTick();
+    await w.vm.saveSegments();
+    await nextTick();
+    expect(w.vm.segments[0].imageUrl).toBe("file:///C:/img1.png");
+    expect(w.vm.segments[0].alternateImageUrls).toEqual(["file:///C:/img1.png"]);
+    expect(w.vm.segments[0].videoUrl).toBe("file:///C:/img1.png");
+    w.unmount();
+  });
+
+  it("保存返回空 segments 时保留当前分段图片 URL（回归）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///C:/img1.png" } });
+    api.story2videoUpdateSegments.mockResolvedValue({ code: 0, data: { projectId: "project-1", dirty: true, segments: [] } });
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", imageUrl: "file:///C:/img1.png", status: "completed" }];
+    await nextTick();
+    await w.vm.saveSegments();
+    await nextTick();
+    // 空返回分支保留当前分段，刷新必须以旧 URL 作为 previousUrl 复用/回收令牌（审查 Major 2）
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/img1.png", "file:///C:/img1.png");
+    expect(w.vm.segments[0].imageUrl).toBe("file:///C:/img1.png");
+    w.unmount();
+  });
+
+  it("旁白替换后重建媒体 URL，图片不消失（同类回归）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoImportMedia.mockResolvedValue({ code: 0, data: { path: "C:/imported.mp3" } });
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///C:/img1b.png" } });
+    api.story2videoReplaceSegmentAudio.mockResolvedValue({
+      code: 0,
+      data: { projectId: "p1", segments: [{ id: "s1", imagePath: "C:/img1b.png", audioPath: "C:/a.mp3", status: "completed" }] },
+    });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    await nextTick();
+    await w.vm.replaceSegmentAudio("s1", { target: { files: [{ name: "a.mp3" }] } });
+    await nextTick();
+    expect(api.story2videoReplaceSegmentAudio).toHaveBeenCalledWith("p1", "s1", "C:/imported.mp3");
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/img1b.png", undefined);
+    expect(w.vm.segments[0].imageUrl).toBe("file:///C:/img1b.png");
+    w.unmount();
+  });
+
   it("字幕 textarea 编辑后拆分 subtitleBlocks 并透传保存", async () => {
     const api = await import("@/api/publisher");
     api.story2videoUpdateSegments.mockResolvedValue({ code: 0, data: { projectId: "project-1", dirty: true, segments: [] } });
