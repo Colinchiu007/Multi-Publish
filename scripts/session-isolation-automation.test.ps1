@@ -27,9 +27,15 @@ try {
     $primaryKey = $primary.Replace('\','/').TrimEnd('/')
     Assert ($arguments -like "*$primaryKey/scripts/mp-worktree-health.ps1*") 'scheduled task points to stable primary-root health script'
     Assert ($arguments -like "*-Root $([char]34)$primaryKey$([char]34)*") 'scheduled task checks the stable primary root'
+    $guardTask = Get-ScheduledTask -TaskPath '\Multi-Publish\' -TaskName 'Session Isolation Write Guard'
+    Assert ($null -ne $guardTask) 'write guard task registers successfully'
+    $guardArguments = $guardTask.Actions[0].Arguments.Replace('\','/')
+    Assert ($guardArguments -like "*$primaryKey/scripts/guard-shared-root-writes.ps1*") 'write guard task points to stable primary-root guard script'
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Unregister
     Assert ($LASTEXITCODE -eq 0) 'scheduled-task removal is idempotent'
+    Assert ($null -eq (Get-ScheduledTask -TaskPath '\Multi-Publish\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue)) 'write guard task is removed with installer'
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer
     Assert ($LASTEXITCODE -eq 0) 'scheduled task is restored after self-check'
+    Assert ($null -ne (Get-ScheduledTask -TaskPath '\Multi-Publish\' -TaskName 'Session Isolation Write Guard' -ErrorAction SilentlyContinue)) 'write guard task is restored after self-check'
     Write-Host "PASS: $passed session isolation automation checks" -ForegroundColor Green
 } finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }

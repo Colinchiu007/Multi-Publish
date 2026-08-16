@@ -306,6 +306,99 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
       }
     })
 
+    it('HTTP 200 + base_resp.status_code 非 0（Key 无效/过期）→ ProviderError(AUTH_FAILED)，而非误标空结果/内容审查', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 1004, status_msg: 'Invalid api key' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.AUTH_FAILED)
+        expect(e.message).toContain('Invalid api key')
+        expect(e.emptyResult).toBeUndefined()
+        expect(e.context.statusCode).toBe(1004)
+      }
+    })
+
+    it('HTTP 200 + base_resp.status_code 非 0（额度用尽）→ ProviderError(QUOTA_EXCEEDED)', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 2056, status_msg: '已达到 Token Plan 用量上限' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.QUOTA_EXCEEDED)
+        expect(e.message).toContain('用量上限')
+        expect(e.emptyResult).toBeUndefined()
+      }
+    })
+
+    it('HTTP 200 + base_resp 业务错误：套餐到期升级提示（无 key 上下文）→ QUOTA_EXCEEDED 而非 AUTH（2026-08-16 正则收紧回归）', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 2056, status_msg: 'Your plan has expired, please upgrade to continue' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.QUOTA_EXCEEDED)
+        expect(e.code).not.toBe(ERROR_CODES.AUTH_FAILED)
+      }
+    })
+
+    it('HTTP 200 + base_resp 业务错误：含「API Key」的额度文案 → QUOTA_EXCEEDED 而非 AUTH（2026-08-16 复审收紧回归）', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 2056, status_msg: '您的 API Key 额度已用完，请升级套餐' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.QUOTA_EXCEEDED)
+        expect(e.code).not.toBe(ERROR_CODES.AUTH_FAILED)
+      }
+    })
+
+    it('HTTP 200 + base_resp 业务错误：Authentication failed → AUTH_FAILED（2026-08-16 复审补强）', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 1004, status_msg: 'Authentication failed' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.AUTH_FAILED)
+      }
+    })
+
+    it('HTTP 200 + base_resp 业务错误：Invalid authentication credentials / token invalid → AUTH_FAILED（2026-08-16 复审补强）', async () => {
+      for (const statusMsg of ['Invalid authentication credentials', 'token invalid', 'Invalid api key: quota exceeded']) {
+        global.fetch = createFetchMock([
+          createFetchResponse({ base_resp: { status_code: 1004, status_msg: statusMsg }, data: {} }),
+        ])
+        const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+        try {
+          await adapter.generateImage({ prompt: 'test' })
+          expect.fail('Should throw')
+        } catch (e) {
+          expect(e).toBeInstanceOf(ProviderError)
+          expect(e.code).toBe(ERROR_CODES.AUTH_FAILED)
+        }
+      }
+    })
+
     it('空 image_urls（无内容政策信号）标记 emptyResult=true，供上层走空结果重试合同（2026-08-09 Bug 反哺）', async () => {
       // 真实链路：status_msg="success" 但无图（26/27 场景整线失败根因）——必须能触发
       // runContentPolicyImageRetry 的 empty_result 分支（同提示词重试→改写→needs_user_input）

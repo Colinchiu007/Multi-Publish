@@ -18,6 +18,7 @@
 ## 会话隔离自动入口与持续守护
 
 运行时代码任务必须从 scripts/start-mp-task.ps1 -TaskName <kebab-case> 启动；该入口会校验共享主目录、安装 hooks，并创建 D 盘独立 worktree。共享根目录健康检查由 scripts/mp-worktree-health.ps1 执行，Windows 当前用户计划任务由 scripts/install-session-isolation-task.ps1 注册。完整说明见 docs/session-isolation-automation.md。不得把运行时代码任务直接绑定到 D:/Data/projects/Multi-Publish。
+- **⛔ 共享主目录实时写保护**：`D:/Data/projects/Multi-Publish` 下 `apps/`、`packages/`、`ops-center/`、`config/`、`.github/` 等运行时路径禁止直接落盘；`scripts/guard-shared-root-writes.ps1` 由 Windows 计划任务 `Session Isolation Write Guard`（AtLogOn）常驻监听，非 gitignored 文件移入 `%LOCALAPPDATA%\Multi-Publish\session-isolation\quarantine\`，tracked 文件从 HEAD 精确恢复并写 `violations.jsonl`；放行 `docs/`、`01-docs/`、`scripts/`、`openspec/`、`.ccg/`、`.agent_context/`、`.hermes/` 及根级流程文档。任务开始与提交前必须确认 Write Guard 任务已注册且 watcher 运行、共享根保持 main clean。
 - **质量节拍强制卡点**：提交前必须完成 `.quality-gates.md` 自检清单，违反不允许提交
 
 ### 机制硬化补充（2026-08-08，与 openspec/specs/openspec-integration/spec.md 同步）

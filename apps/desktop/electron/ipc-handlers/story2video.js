@@ -41,6 +41,20 @@ function isSafeId (value) {
   return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value)
 }
 
+// Only reclaim a token that belongs to this local media server: same origin as the
+// freshly issued URL and a media path with a valid token shape. Anything else (file://,
+// foreign origin, non-media path) is ignored so a stale renderer value cannot evict a
+// token still in active use by another segment.
+function isLocalMediaTokenUrl (value, sampleUrl) {
+  try {
+    const previous = new URL(value)
+    const sample = new URL(sampleUrl)
+    return previous.origin === sample.origin && /^\/media\/[A-Za-z0-9_-]{16,128}$/.test(previous.pathname)
+  } catch (_) {
+    return false
+  }
+}
+
 function registerHandlers (ipcMain, deps = {}) {
   const electron = require('electron')
   const BrowserWindow = deps.BrowserWindow || electron.BrowserWindow
@@ -331,12 +345,20 @@ function registerHandlers (ipcMain, deps = {}) {
     }
   }))
 
-  ipcMain.handle('story2video:create-share-url', withSenderCheck(async (_event, filePath) => {
+  ipcMain.handle('story2video:create-share-url', withSenderCheck(async (_event, filePath, previousUrl) => {
     try {
       const allowedRoots = allowedMediaRoots()
       const resolved = validateFilePath(filePath, projectRoots)
       if (!resolved) return { code: EC.VALIDATION_ERROR, message: '视频文件路径无效或不允许访问' }
-      return { code: 0, data: { url: createShareFileUrl(resolved, { allowedRoots, mediaServer }), path: resolved } }
+      const url = createShareFileUrl(resolved, { allowedRoots, mediaServer })
+      // Best-effort reclaim of the previous short-lived media token: after re-issuing a
+      // fresh URL for the same file, the old token is revoked so it cannot linger. Only
+      // same-server media URLs are accepted; anything else is ignored.
+      if (typeof previousUrl === 'string' && previousUrl && isLocalMediaTokenUrl(previousUrl, url) &&
+          mediaServer && typeof mediaServer.revoke === 'function') {
+        try { mediaServer.revoke(previousUrl) } catch (_) { /* revoke is best-effort */ }
+      }
+      return { code: 0, data: { url, path: resolved } }
     } catch (error) {
       return { code: EC.REQUEST_ERROR, message: error.message }
     }

@@ -1,3 +1,22 @@
+## 结果页视频预览令牌失效误报自愈 + 旧令牌回收复盘（s2v-video-preview-token-refresh，2026-08-16）
+
+- **现象**：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存（用户报障）。结果页主视频正常，历史编辑回放旧任务才复现。
+- **根因**：本地媒体服务签发短生命令牌 URL（TTL 15 分钟、128 条 FIFO 注册表逐出、生产零 revoke）；历史任务编辑是长期会话，旧任务回放时原令牌已过期或被新签发逐出 → `<video>` 元素触发 error → 渲染层固定弹「视频预览加载失败」文案（属误报，run 终态与成片均完好）。
+- **教训 1（本地媒体令牌必须带生命周期语义）**：短 TTL + 容量逐出的令牌不能只签不发；同槽位替换时必须回收旧令牌（`create-share-url` 可选 `previousUrl`，签发成功后 best-effort revoke），否则长期编辑会话必然踩过期/逐出。
+- **教训 2（令牌 URL 回收域必须收紧）**：revoke 前必须校验同源 + `/media/<token>` 形状（`isLocalMediaTokenUrl`），否则会误逐出共享 128 条注册表的分段图/音频/视频活跃令牌（审查 W1 修复：先域检查再 revoke，非本地 URL 静默忽略）。
+- **教训 3（IPC 契约扩展向后兼容）**：为既有 IPC 增加可选参数时，preload 与 renderer API 层只在参数 defined 时转发，1 参旧调用方字节级兼容；renderer 所有替换点（主视频/旁白/分段素材/裁剪预览）同步透传旧地址，逐槽位回收。
+- **教训 4（渲染 error 先自愈再报错）**：`handleError` 首次 error 以同一 videoPath 重签 URL 并 `await $nextTick()` 后 `player.load()` 一次，二次失败才弹既有本地化文案；不 rewrite run 终态、不无限循环（`videoReloadAttempted` 状态机）。
+- **逃逸链**：IPC 测试只覆盖「签发成功/失败」，无令牌生命周期（TTL/逐出/revoke 契约）用例（测试场景缺失）；渲染测试只断言「error 弹窗文案」，无「error 后恢复播放」路径（测试场景缺失）；双模型审查 antigravity 地区不可用降级，Claude 第一轮 W1 捕获 revoke 域过宽（审查盲区）。
+- **回归保护**：IPC +4 用例（回收/不回收/非本地 URL 拒绝/同源非媒体路径拒绝，`story2video.test.js`）；ResultView +5 用例（自愈不弹窗、二次失败弹窗、重签失败不标记、loadVideoPath 重置并透传、refreshSegmentImageUrls 透传，`ResultView.test.js`）；后续改令牌生命周期/预览 URL 替换必须同时跑这两个文件。
+
+## GitHub Actions PR 事件投递偶发故障 + CJK 基线本地/CI 偏差复盘（2026-08-16）
+
+- **现象**：`codex/s2v-video-preview-token-refresh` 分支所有 PR 事件（opened/synchronize/reopened）一度零投递（`gh run list --branch` 无新 run），同一时间窗其他 PR（#887/#888）正常触发；close+reopen、空提交 push、复制新分支重开 PR 均无效，约 1 小时后随其他 PR 合并 main 自动恢复。
+- **教训 1（事件投递故障识别）**：分支 push 后 15-30 分钟仍无任何 run、而其他分支正常 = 平台侧事件投递故障；`gh pr checks` 报 "no checks reported" 是同一信号的 PR 面表现。
+- **教训 2（无 `workflow_dispatch` 的 workflow 只能等事件恢复）**：electron-ci / doc-gate / build 无手动触发器；兜底 = 有 dispatch 的 workflow 手动 `gh workflow run <name> --ref <branch>` 派发 + 无 dispatch 者跑本地等价（doc-gate 用 `check-docs-sync.sh --base/--head`，electron 用全量 vitest）。事件恢复后必须以 PR head 最新 SHA 的自动 run 为准，手动 run 只作兜底证据（旧 SHA 结果不代表最终）。
+- **教训 3（CJK 基线按 file:line 存储 → 本地/CI 偏差）**：本地基于旧 `origin/main` 跑 `check-locale-sync.js --cjk` PASS 不代表 CI PASS——CI 基线是合并流上的最新版；行号偏移（本次 ResultView.vue +5 偏移 11 处）触发 fresh 假阳性（1502=1502 无新增文案）时，先逐条对账确认无真实新增，再显式 `--update-baseline` 并作为独立 commit 提交（重锚后 QG Static PASS）。
+- **教训 4（PR head 分支名核对）**：事件投递故障时用「复制新分支重开 PR」兜底会产生 head 分支与 worktree 分支名不一致（`-2` 后缀）；push 前必须 `gh pr view --json headRefName` 核对目标，避免推错分支导致 PR 一直显示旧 SHA。
+- **回归保护**：CI 首轮失败先查基线/缓存类假阳性（`--update-baseline` 前必须对账）；事件投递恢复判定 = 该分支出现新 event 的自动 run 且 headSha 为最新；`.quality-gates.md` 已记录本次完整处置链路（含 QG Static 重锚）。
 ## 古代东亚故事出图西方面孔全链盲区复盘（s2v-east-asian-face-anchor，2026-08-16）
 
 - **现象**：朱蒙·高句丽题材（卒本川/五女山城）场景图出现西方面孔；提示词里没有任何人物外貌约束。
@@ -9,6 +28,21 @@
 - **教训 5（人物形象正锚不受 includeNegativeAnchors 开关控制）**：`include_negative_anchors:false` 只关闭负面锚，正锚仍注入——此为设计取舍，非缺陷。
 - **逃逸链**：规则/引擎测试只断言 optimize 请求上下文，不追到出图载荷（测试场景缺失）；负面锚门控用例只有 ancient+strong 与「文化命中」方向，缺「无文化命中的非东亚古史反向」用例（测试场景缺失，审查 C1 实证漏网）；双模型审查第一轮未覆盖面孔维度（审查盲区），第二轮 claude 以真实模块调用实证复现。
 - **回归保护**：`story-context-engine.test.js` 用户剧本黄金用例（culture/era/seed/负面锚断言）+ C1/W4 门控矩阵 + 古希腊/维京/玛雅反向 + 武林正向对照；`story2video-stages.test.js` 四分支透传断言 + 无锚 base 透传；`asset-generator.test.js` provider 载荷断言（含无锚不带键）；后续新增人物形象/文化规则必须同时跑这三个文件。
+
+## MiniMax「重试图片」误报内容安全审查复盘（s2v-retry-content-policy-message，2026-08-16）
+- **融合说明（rebase PR #882/#888）**：内容政策类别最终采用远端 NEEDS_USER_INPUT 整合结构（`story2video.needs_user_input` + sceneLabel 引用），「独立类别」教训落实为独立于 content-policy 的 empty_result / api_key_invalid 类别；门控/语义解耦、业务错误码先读等核心教训不受影响。
+
+- **现象**：已成功生成过的提示词再次【重试图片】失败，只显示「当前操作未能完成，请稍后再试。」；应用日志多条 `Image provider minimax-multimodal requires user input after content-policy retries`，实际是用户保存的 MiniMax API Key 已过期。
+- **根因**：`minimax-image.js` 缺失 HTTP 200 + `base_resp.status_code != 0` 业务错误解析（视频适配器 `minimax.js`、语音 `minimax-tts.js` 已有先例）。过期 Key 的业务错误体（`Invalid api key` 类，返回码非 0）被当成「HTTP 200 无图空结果」→ `emptyResult=true` → 进入空结果重试圈（同提示词重试 → 第 3 次起改写 → 5 次后 checkpoint `empty_result`）→ `asset-generator.js` 硬编码 `requires user input after content-policy review` → 渲染层归一化未映射 content-policy / 无效 Key 类别 → `operation_failed` 通用文案。
+- **教训 1（业务错误码必须先于产物读取）**：HTTP 200 不代表成功；读取产出字段前必须解析供应商业务错误码（`base_resp.status_code`），且与同族适配器（视频/语音/TTS）保持同一解析顺序与分类语义。新增适配器必须带「200 + 业务错误码」测试用例。
+- **教训 2（空结果 ≠ 内容策略）**：重试圈结束后 `empty_result` 不得映射为 content-policy；消息分类唯一来源是 `checkpoint.reason`，禁止硬编码。
+- **教训 3（渲染归一化缺失类别 = 新的错误掩盖层）**：API Key「无效/过期」是与「缺失」不同的类别（`MODEL_API_KEY_REQUIRED` 只覆盖未配置/未找到），需独立模式与文案；内容安全审查需独立类别并支持场景号插值。缺失类模式必须先于无效类匹配，避免误抢。
+- **逃逸链**：适配器无 200+业务错误码用例（测试场景缺失）；重试/资产层无「业务错误不得进入内容策略圈」断言（测试场景缺失）；渲染层归一化缺 content-policy / 无效 Key 映射（审查盲区）。
+- **回归保护**：`minimax-image.test.js` +2（AUTH_FAILED / QUOTA_EXCEEDED）；`story2video-image-retry.test.js` +1（AUTH_FAILED 立即失败不进圈，category=auth）；`asset-generator-provider.test.js` empty_result 消息断言不再称 content-policy；`notifications.test.js` / `story2video-notifications.test.js` / `ResultView.test.js` 新增两类映射断言（zh/en）。
+- **教训 4（用户可见消息本身不能喂给错误分类正则）**：首轮实现把 empty_result 消息写成 "...(content-policy, service fluctuation or account issue)..."，结果被渲染层 `CONTENT_POLICY_PATTERN` 再次映射成内容安全审查——消息文案必须用 `checkpoint.reason` 分支生成（单一来源 helper），并加「消息不再命中误分类正则」的断言。
+- **教训 5（同一正则不能既做门控又做语义标注）**：复审发现把 empty-result 短语加进门控正则后，历史页「内容政策拦截」提示条与场景提取复用同一模式，空结果失败被标成内容政策。门控（是否可恢复）与语义标注（是什么原因）必须解耦：`CONTENT_POLICY_ERROR_PATTERN` 子集仅用于场景提取/提示条，门控正则保留全部短语，并补「空结果不提取场景但门控仍拦截」双断言。
+- **教训 6（分类正则的裸关键词过宽）**：适配器 isAuth 的裸 `api[ _-]?key` 把「您的 API Key 额度已用完，请升级套餐」误判为 AUTH_FAILED（应为 QUOTA_EXCEEDED）。认证判定必须邻近失效信号（invalid/expired/失效/过期等），额度判定优先于宽泛关键词；同时补认证表述（Authentication failed / Invalid authentication credentials / token invalid）双向覆盖，并新增「含 API Key 的额度文案 → QUOTA」回归。
+- **预防措施**：图像/视频/语音适配器统一「业务错误码先于产物读取」顺序并补齐三类（图片已修，视频/语音/TTS 复核列为 follow-up）；provider 错误分类契约（AUTH_FAILED/QUOTA_EXCEEDED/CONTENT_POLICY/PROVIDER_ERROR）与渲染归一化类别做双向映射测试；重试圈 `checkpoint.reason` 为消息分类唯一来源；新增用户可见错误文案必须同时验证其在归一化正则下的分类结果。
 
 ## 内容政策失败恢复按钮差异与插值契约复盘（s2v-resume-btn-policy-hint，2026-08-16）
 

@@ -1,0 +1,14 @@
+{
+  "id": "s2v-retry-content-policy-message",
+  "title": "MiniMax 200 业务错误（过期 Key/额度）不再被误报为内容安全审查",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "PR #894 已合并（squash ca69919b，CI 17/17 全绿）；openspec change + CCG task 已归档；remoteStatus=merged",
+  "createdAt": "2026-08-16T11:20:00+08:00",
+  "branch": "codex/s2v-retry-content-policy-message",
+  "completedAt": "2026-08-16T13:38:06+08:00",
+  "remoteStatus": "merged"
+}

@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-16
+goal: Prevent new sessions from editing runtime files in the shared
+  Multi-Publish main worktree

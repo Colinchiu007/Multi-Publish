@@ -82,6 +82,8 @@ describe('AssetGenerator provider integration', () => {
       expect(result.needsUserInput).toBe(true)
       expect(result.checkpoint).toMatchObject({ reason: 'empty_result', sceneIndex: 0, sceneNumber: 1, attempts: 5 })
       expect(result.checkpoint.recommendation).toMatch(/未返回结果|内容安全策略|服务波动/)
+      // 消息不再笼统报 content-policy review，而是如实说明多次未返回结果（2026-08-16 复盘）
+      expect(result.message).toMatch(/repeatedly returned no result|no result/i)
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true })
     }

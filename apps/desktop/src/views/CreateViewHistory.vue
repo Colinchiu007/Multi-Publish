@@ -274,7 +274,7 @@ import { getAppLocale } from '@/i18n'
 import zhLocale from '@/locales/zh'
 import enLocale from '@/locales/en'
 import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
-import { RESUME_BLOCKING_ERROR_PATTERN, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
+import { CONTENT_POLICY_ERROR_PATTERN, RESUME_BLOCKING_ERROR_PATTERN, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
 import { formatPipelineError } from '@/utils/pipeline-error-formatter'
 
 const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'failed', 'completed', 'cancelled'])
@@ -439,7 +439,9 @@ export default {
     },
     policyResumeBlockedText (item) {
       if (!item || item.status !== 'failed' || !(item.id || item.runId)) return ''
-      if (!RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))) return ''
+      // 提示条只针对内容政策/需用户输入的具体原因；空结果失败（服务波动/账号问题）
+      // 由门控正则拦截恢复但不显示「内容政策拦截」提示（2026-08-16 复审解耦）。
+      if (!CONTENT_POLICY_ERROR_PATTERN.test(String(item.error || ''))) return ''
       const scenes = contentPolicyScenes(item.error, this.currentLocale())
       if (!scenes) return this.tr('policyResumeBlockedGeneric')
       try {

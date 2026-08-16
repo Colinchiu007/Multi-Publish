@@ -57,6 +57,8 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   DEGRADED_ASSETS_WARNING: 'story2video.degraded_assets_warning',
   RATE_LIMITED: 'story2video.rate_limited',
   QUOTA_EXCEEDED: 'story2video.quota_exceeded',
+  EMPTY_RESULT: 'story2video.empty_result',
+  API_KEY_INVALID: 'story2video.api_key_invalid',
   COMPOSE_TIMEOUT: 'story2video.compose_timeout',
   COMPOSE_DURATION_EXCEEDED: 'story2video.compose_duration_exceeded',
   COMPOSE_SEGMENT_DURATION_EXCEEDED: 'story2video.compose_segment_duration_exceeded',
@@ -105,7 +107,11 @@ const MODEL_API_KEY_PATTERN = new RegExp('(?:' + [
 const MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用)/i
 const ACCESS_DENIED_PATTERN = /(当前许可证无权访问|当前账号没有所需权益|未授权|未登录|需要登录|access denied|not authorized|permission denied|sign[ -]?in required)/i
 const RATE_LIMITED_PATTERN = /(rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|too\s*many\s*requests)/i
-const QUOTA_EXCEEDED_PATTERN = /((?:insufficient|exhausted|exceeded|out\s+of).{0,40}(?:quota|balance|token|credit)|(?:quota|balance|token|credit)s?.{0,40}(?:exceeded|insufficient|exhausted)|(?:余额|额度|配额).{0,20}(?:不足|不够|超|耗尽)|insufficient[_\s]*balance|billing|payment\s*required)/i
+const QUOTA_EXCEEDED_PATTERN = /((?:insufficient|exhausted|exceeded|out\s+of).{0,40}(?:quota|balance|token|credit)|(?:quota|balance|token|credit)s?.{0,40}(?:exceeded|insufficient|exhausted)|(?:余额|额度|配额).{0,20}(?:不足|不够|超|耗尽)|insufficient[_\s]*balance|billing|payment\s*required|(?:用量|Token\s*Plan|额度).{0,24}(?:上限|超|耗尽|用尽|用完)|(?:plan|套餐).{0,20}(?:expired|upgrade|到期)|usage\s*limit)/i
+// 多次空结果（empty_result）：服务波动或账号问题，与内容安全审查是两类原因（2026-08-16 复审补强）
+const EMPTY_RESULT_PATTERN = /(repeatedly returned no result|多次未返回结果)/i
+// 供应商 API Key 无效/已过期（区别于缺失：model_api_key_required 只覆盖未配置/未找到）
+const API_KEY_INVALID_PATTERN = /(api[ _-]?key.{0,24}(?:invalid|expired|失效|过期|无效|错误|不正确)|(?:invalid|expired)\s+api[ _-]?key|invalid\s+api\s*key|api\s*key\s*已?(?:过期|失效|无效)|鉴权失败|认证失败|密钥(?:无效|错误|过期)|authenticat|credential|(?:token|凭证).{0,16}(?:invalid|expired|无效|失效))/i
 const TEXT_ONLY_PATTERN = /(只支持\s*(?:text|文案)|text\s*mode|text input only)/i
 const TEXT_TOO_LONG_PATTERN = /(超过\s*6000|最多\s*6000|6000.*(?:字符|character)|text.*(?:too long|exceeds))/i
 const PREVIEW_MISSING_PATTERN = /(未返回.*可预览.*视频|preview.*(?:missing|video)|no previewable video)/i
@@ -234,7 +240,7 @@ function normalizeParams (value, locale, messageKey, rawError) {
       : 50
   }
 
-  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED) {
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT) {
     const scene = extractSceneNumber(rawError)
     params.sceneText = scene !== null ? '@story2video.labels.sceneLabel' : (typeof supplied.sceneText === 'string' ? supplied.sceneText : '')
     params.scene = scene !== null ? String(scene) : (typeof supplied.scene === 'string' ? supplied.scene : '')
@@ -278,14 +284,16 @@ function resolveMessageKey (notification, fallbackKey) {
   if (ACCESS_DENIED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
   if (notification?.errorCode === 'RATE_LIMITED' || Number(notification?.code) === 429 || RATE_LIMITED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED
   if (notification?.errorCode === 'QUOTA_EXCEEDED' || Number(notification?.code) === 402 || QUOTA_EXCEEDED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED
+  if (notification?.errorCode === 'EMPTY_RESULT' || EMPTY_RESULT_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT
   if (CONTENT_POLICY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT
   if (OPTIMIZE_SERVICE_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.OPTIMIZE_SERVICE_UNAVAILABLE
   if (UNSUPPORTED_PARAMS_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.PROVIDER_PARAMS_UNSUPPORTED
-    if (notification?.errorCode === 'PIPELINE_CONCURRENCY_LIMIT' || PIPELINE_CONCURRENCY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT
+  if (notification?.errorCode === 'PIPELINE_CONCURRENCY_LIMIT' || PIPELINE_CONCURRENCY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT
   if (COMPOSE_SEGMENT_DURATION_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_SEGMENT_DURATION_EXCEEDED
   if (COMPOSE_DURATION_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_DURATION_EXCEEDED
   if (COMPOSE_STAGE_PATTERN.test(raw) && TIMEOUT_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_TIMEOUT
   if (MODEL_API_KEY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED
+  if (API_KEY_INVALID_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.API_KEY_INVALID
   if (MODEL_CONFIGURATION_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.MODEL_CONFIGURATION_REQUIRED
   if (TEXT_ONLY_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_INPUT_ONLY
   if (TEXT_TOO_LONG_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.TEXT_TOO_LONG

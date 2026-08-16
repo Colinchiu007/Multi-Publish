@@ -110,10 +110,17 @@ export function historyDisplayTime (item) {
  * content 与 policy 之间允许空格/下划线/连字符或不带分隔符（content policy / content_policy /
  * content-policy / contentpolicy 均命中）。
  */
-export const RESUME_BLOCKING_ERROR_PATTERN = /内容政策|needs_user_input|content[_\-\s]?policy|可能需要修改文案/i
+export const RESUME_BLOCKING_ERROR_PATTERN = /内容政策|needs_user_input|content[_\-\s]?policy|可能需要修改文案|repeatedly returned no result|多次未返回结果/i
 
-// 从门控正则派生，保证关键字清单单一来源（含中文「内容政策」变体），不会漂移。
-const POLICY_SCENE_PATTERN = new RegExp(`Image\\s+#(\\d+)[^;]*?(?:${RESUME_BLOCKING_ERROR_PATTERN.source})`, 'gi')
+/**
+ * 内容政策/需用户输入的具体原因子集（不含 empty_result 短语）。
+ * 历史页「场景提取」与「内容政策拦截」提示条用它判定，避免把多次空结果失败
+ * （服务波动/账号问题）误标为内容安全审查（2026-08-16 复审解耦）。
+ */
+export const CONTENT_POLICY_ERROR_PATTERN = /内容政策|needs_user_input|content[_\-\s]?policy|可能需要修改文案/i
+
+// 从内容政策子集派生，保证场景提取关键字清单单一来源（含中文「内容政策」变体），不会漂移。
+const POLICY_SCENE_PATTERN = new RegExp(`Image\\s+#(\\d+)[^;]*?(?:${CONTENT_POLICY_ERROR_PATTERN.source})`, 'gi')
 
 function compressSceneRanges (sceneNumbers) {
   const sorted = [...sceneNumbers].sort((a, b) => a - b)

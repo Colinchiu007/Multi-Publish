@@ -376,6 +376,8 @@ export default {
     degraded_assets_warning: 'This video contains offline fallback assets ({kinds}). Preview it before publishing.',
     rate_limited: 'Generation is rate limited{sceneText}. Wait a moment and try again, or check your provider plan quota.',
     quota_exceeded: 'The model API quota or balance is exhausted{sceneText}. Check your provider plan, or switch models and resume from the breakpoint.',
+    empty_result: 'Image generation repeatedly returned no result{sceneText}. This may be a service fluctuation or account issue; adjust the scene prompt and retry, or check the provider account.',
+    api_key_invalid: 'The provider API key is invalid or expired. Update the API key in Model Settings and try again.',
     compose_timeout: 'Video composition timed out. Check disk space and device load, then resume from the breakpoint. If it still fails, try again later.',
     compose_duration_exceeded: 'The video exceeds the {limitMinutes}-minute limit. Shorten the script or use fewer scenes, then start generation again.',
     compose_segment_duration_exceeded: 'A narration segment exceeds the duration limit. Split that part of the script, then start generation again.',
