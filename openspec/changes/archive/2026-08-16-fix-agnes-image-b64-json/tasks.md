@@ -9,5 +9,5 @@
 - [x] 2.2 真实 App E2E（debug profile + 真实 agnes-image）：DB 2938 success（34s）、segment-0_image_retry_*.png 落盘、UI「图片已重新生成。」——该验证同时驱动本修复（2026-08-16，会话 01a00929）
 - [x] 2.3 QM-1 `electron-builder --win --dir` exit 0；asar 含 `electron\services\adapters\agnes-image.js`；verify-worktree-deps 9 项 OK
 - [x] 2.4 双模型审查（antigravity 区域资格不可用 → 降级记录；Claude reviewer 0C/2M/4m 全部闭环 → review.md）
-- [ ] 2.5 推送 codex/fix-agnes-image-params → PR → CI 全绿 → squash 合并
-- [ ] 2.6 三同步归档：openspec archive + CCG task 归档 + spec delta 同步
+- [x] 2.5 推送 codex/fix-agnes-image-params → PR #901 → CI 16 项全绿（+Gate Result，release skipping）→ squash 合并 6a097527
+- [x] 2.6 三同步归档：openspec archive（2026-08-16-fix-agnes-image-b64-json）+ CCG task 归档 + spec delta 同步入 openspec/specs/agnes-image-b64-json
