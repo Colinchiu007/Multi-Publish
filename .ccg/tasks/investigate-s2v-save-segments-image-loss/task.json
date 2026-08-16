@@ -1,12 +1,13 @@
 {
   "id": "investigate-s2v-save-segments-image-loss",
-  "title": "历史记录点击保存分段后所有图片消失 — 原因排查",
+  "title": "历史记录点击保存分段后所有图片消失 — 排查并修复",
   "status": "in_progress",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "analysis",
-  "nextAction": "已定位根因，待确认是否实施修复（worktree + PR）",
+  "currentPhase": "implementation",
+  "nextAction": "worktree 实施 R1/R2/R3 修复 + 回归测试",
   "createdAt": "2026-08-16T00:00:00Z",
-  "branch": "main"
+  "branch": "codex/fix-s2v-save-segments-image-loss",
+  "openspecChange": "fix-s2v-save-segments-image-loss"
 }
