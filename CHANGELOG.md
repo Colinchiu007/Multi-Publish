@@ -1,3 +1,10 @@
+## [2026-08-16] fix(story2video): 结果页/历史编辑中「视频预览加载失败」误报自愈 + 旧令牌回收
+
+- 现象：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存。
+- 根因：本地媒体服务签发短生命令牌 URL（TTL 15 分钟、128 条 FIFO 注册表逐出、生产零 revoke），编辑会话回放旧任务时旧令牌已过期/被逐出，`<video>` 元素 error 被渲染层固定弹为「视频预览加载失败」，属误报。
+- 修复：① `ResultView.handleError` 首次 error 自愈——同一 videoPath 重签本地预览 URL（透传旧地址为 `previousUrl`），`await $nextTick()` 后 `player.load()`，仅二次失败才弹既有本地化文案（文案与 run 终态均未改）；② `story2video:create-share-url` IPC 支持可选 `previousUrl`，签发成功后 best-effort 回收旧令牌，且仅同源 + `/media/` 令牌形状 URL 才 revoke（防误逐出共享 128 条注册表的分段图/音频/视频活跃令牌）；③ preload `publish.js` 与 `api/publisher.js` 透传第二参数（仅 defined 时转发，1 参调用方字节级兼容）；④ 分段图/音频/视频 URL 替换处同步透传旧地址，长期编辑会话逐槽位回收。
+- 回归：IPC +4 用例（回收/不回收/非本地 URL 拒绝/同源非媒体路径拒绝），渲染端 +5 用例（自愈不弹窗、二次失败弹窗、重签失败不标记、loadVideoPath 重置并透传、refreshSegmentImageUrls 透传）；定向 435 绿，完整桌面 vitest 448 files / 7993 passed；CJK 基线 1502 无新增；QM-1 打包 + 8s 冒烟（窗口可见、stderr 干净）；openspec change `s2v-video-preview-token-refresh` 校验通过。
+
 ## [2026-08-16] fix(story2video): 历史记录内容政策失败恢复门控统一 + 不可恢复原因提示（含场景号）
 
 - 现象：视频创作历史记录中最新失败任务（内容政策拦截，`Image #49: …requires user input after content-policy review`）没有「从断点继续」按钮，而旧的普通失败任务有。主进程恢复守卫判定该失败不可原样恢复（`PIPELINE_USER_INPUT_REQUIRED`），前端历史卡片恢复判定未覆盖相同关键字，造成行为差异。
