@@ -1,3 +1,10 @@
+## [2026-08-16] fix(story2video): 分段状态本地化 + 失败原因内联 + 成功写回清除残留 error
+
+- 现象：视频创作-历史记录，分段卡片状态直接输出英文原值（failed/completed），用户看不清发生了什么；曾失败分段（如 agnes-image `UnsupportedParamsError: Setting response_format is not supported`）点击【重试图片】成功后状态已 completed，但旧 error 残留，继续误导。
+- 根因：`ResultView.vue` 徽标直接渲染 `segment.status` 原值；服务层把分段置 `completed` 的写回路径（replaceSegmentAudio / retrySegment / regenerateSceneAudio / regenerateScenePrompt / generateSceneAiVideo / generateSceneImage / generateSceneVideo）不清理既有 `error`，产生「completed + error 并存」的误导状态；既有先例 `regenerateSceneSubtitle` 已写 `error: null`，其余路径漂移。
+- 修复：① 渲染层徽标走 `story2video.segmentStatus.*` 本地化标签（completed/failed/processing/pending，未知默认 completed）；`status=failed` 且存在 error 时内联一行可读原因（复用 `resolveStory2VideoNotification` 归一化分类文案，未命中回退通用失败文案并 120 码点截断，不暴露内部错误文本/堆栈；completed 残留 error 不展示）；② 服务层 7 个成功写回点统一显式 `error: null`，失败 catch 路径保持写 `error`；recomposeProject（项目级状态）与 selectSceneMaterial（不写状态）不受影响。
+- 回归：`story2video-project-service.test.js` +2（retry 成功清 error、generateSceneImage 成功清 error）；`ResultView.test.js` +3（本地化标签+原因内联、completed 残留 error 不渲染、未命中回退通用文案）；定向 159 例 + notifications 27 例通过；eslint 变更文件通过；CJK 基线仅行号位移（18+18，无新增硬编码）；双模型审查 antigravity 地区不可用 + claude API ConnectionRefused → 降级主代理自审 0 Critical/0 Warning（记录 `.ccg/tasks/fix-s2v-segment-status-reason/review.md`）。
+
 ## [2026-08-16] fix(agnes-image): 适配器尊重 response_format=b64_json 契约，Base64 直出绕开 SSRF URL 下载拦截
 
 - 现象：PR #897 后历史任务【重试图片】改走 agnes-image，但真实调用仍失败——日志为 SSRF 守卫拦截图片 URL 下载（`asset-generator.js:322/723`）。

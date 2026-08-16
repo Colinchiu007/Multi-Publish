@@ -127,6 +127,53 @@ describe("ResultView", () => {
     expect(blocks[0].text()).toContain("一个红苹果");
   });
 
+  it("分段状态徽标使用本地化标签而非英文原值，failed 分段内联展示可读原因（2026-08-16）", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [
+      {
+        id: "s1", text: "旁白一", imagePath: null, audioPath: null, status: "failed",
+        error: "UnsupportedParamsError: Setting response_format is not supported by provider agnes-t2i-general-model",
+      },
+      { id: "s2", text: "旁白二", imagePath: null, audioPath: null, status: "completed" },
+    ];
+    await nextTick();
+    const badges = w.findAll(".segment-status");
+    expect(badges).toHaveLength(2);
+    expect(badges[0].text()).toBe("story2video.segmentStatus.failed");
+    expect(badges[1].text()).toBe("story2video.segmentStatus.completed");
+    const reasons = w.findAll('[data-testid="segment-status-reason"]');
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0].text()).toContain("不支持参数");
+    w.unmount();
+  });
+
+  it("completed 分段残留 error 时只显示完成标签，不渲染失败原因（2026-08-16）", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [
+      { id: "s1", text: "旁白一", imagePath: null, audioPath: null, status: "completed", error: "余额不足" },
+    ];
+    await nextTick();
+    expect(w.find(".segment-status").text()).toBe("story2video.segmentStatus.completed");
+    expect(w.find('[data-testid="segment-status-reason"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("failed 分段 error 未命中任何类别时回退通用失败文案且不暴露原始错误（2026-08-16）", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [
+      { id: "s1", text: "旁白一", imagePath: null, audioPath: null, status: "failed", error: "weird internal error 0xDEAD at Object.xyz" },
+    ];
+    await nextTick();
+    const reason = w.find('[data-testid="segment-status-reason"]');
+    expect(reason.exists()).toBe(true);
+    expect(reason.text()).toContain("未能完成");
+    expect(reason.text()).not.toContain("Object.xyz");
+    w.unmount();
+  });
+
   it("handleError shows a localized modal", async () => {
     const w = await createView();
     w.vm.handleError();
