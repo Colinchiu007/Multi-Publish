@@ -9,6 +9,6 @@
 - [x] 2.1 定向测试 story2video-project-service.test.js 72 passed；asset-generator / model-provider-multimodal / ResultView 105 passed
 - [x] 2.2 更广回归（story2video-stages / CreateView）+ node --check + git diff --check
 - [x] 2.3 审查（antigravity 区域不可用降级，Claude reviewer 结论入 review.md）
-- [ ] 2.4 推送 codex/ 分支 → PR → CI 全绿 → 合并回 main
-- [ ] 2.5 三同步归档（openspec archive + CCG task 归档 + learnings/CHANGELOG/quality-gates）
-- [ ] 2.6 真实生图验证（消耗用户额度，先确认意图）
+- [x] 2.4 推送 codex/ 分支 → PR #897 → CI 17 项全绿 → squash 合并 a1ff8c7b
+- [x] 2.5 三同步归档（openspec archive + CCG task 归档 + learnings/CHANGELOG/quality-gates）
+- [ ] 2.6 真实生图验证（消耗用户额度，合并后需用户确认意图再执行）

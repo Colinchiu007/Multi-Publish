@@ -1,0 +1,12 @@
+{
+  "id": "fix-s2v-image-model-selection",
+  "title": "设置关闭“优先使用多模态模型”后，历史任务重试/重生图片仍调用多模态模型",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "PR #897 已 squash 合并 a1ff8c7b；真实生图验证待用户确认后另行执行",
+  "createdAt": "2026-08-16T06:05:58Z",
+  "branch": "codex/fix-s2v-image-model-selection"
+}
