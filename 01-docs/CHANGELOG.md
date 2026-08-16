@@ -1,3 +1,14 @@
+## [Unreleased] - 2026-08-16 (历史重生成视频优化词长度放宽)
+
+### 变更
+- 历史记录「重新生成视频优化词」显式携带视频域 `max_length`（`VIDEO_ENGINE_LIMITS.videoMaxLengthMax`=20000）：8020 独立引擎 [200,20000] / 8013 legacy [50,2000] 由契约 builder 各自收敛，不再落回后端默认（legacy 500 / standalone 1800）截断；共享 kernel 默认 500 与 legacy 执行器契约收敛不放松。
+
+### 测试
+- 服务层 regenerateScenePrompt video 用例断言 `max_length=20000` 显式透传 + 超长（5000 字符）返回完整落库（safeText 20000）；video-prompt-engine-contract 既有双后端 clamp 断言保持（定向 Vitest 184/184）。
+
+### 文档
+- OpenSpec change `s2v-history-video-maxlength`（proposal/design/specs/tasks）；PRD 3.1.29.5 状态更新（待实现 → 已实现）。
+
 ## [Unreleased] - 2026-08-16 (历史记录图片提示词完整展示 + 未保存修改离开守卫)
 
 ### 修复
