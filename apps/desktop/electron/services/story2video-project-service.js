@@ -698,6 +698,9 @@ class Story2VideoProjectService {
           runId: 'retry_' + projectId,
         })
         const generatedPath = generated?.data?.path || generated?.data?.image_path || generated?.path
+        if (!generated || generated.code !== 0 || !generatedPath) {
+          throw new Error(generated?.message || '图片生成失败')
+        }
         const copiedImage = this._copyRequired(
           generatedPath,
           path.join(projectDir, segment.id + '_image_retry_' + Date.now() + sourceExtension(generatedPath, '.png')),
@@ -724,6 +727,9 @@ class Story2VideoProjectService {
       this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
       return saved
     } catch (error) {
+      if (this.log && typeof this.log.warn === 'function') {
+        this.log.warn('[Story2Video] 分段重试失败: ' + (error && error.message ? error.message : String(error)))
+      }
       project.segments[index] = {
         ...previousProject.segments[index],
         status: 'failed',
@@ -1195,6 +1201,9 @@ class Story2VideoProjectService {
         runId: 'scene_image_' + projectId,
       })
       const generatedPath = generated?.data?.path || generated?.data?.image_path || generated?.path
+      if (!generated || generated.code !== 0 || !generatedPath) {
+        throw new Error(generated?.message || '图片生成失败')
+      }
       const copiedImage = this._copyRequired(
         generatedPath,
         path.join(projectDir, segment.id + '_image_gen_' + Date.now() + sourceExtension(generatedPath, '.png')),
@@ -1222,6 +1231,9 @@ class Story2VideoProjectService {
       this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
       return saved
     } catch (error) {
+      if (this.log && typeof this.log.warn === 'function') {
+        this.log.warn('[Story2Video] 场景图片生成失败: ' + (error && error.message ? error.message : String(error)))
+      }
       project.segments[index] = {
         ...previousProject.segments[index],
         status: 'failed',

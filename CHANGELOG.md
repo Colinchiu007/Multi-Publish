@@ -1,3 +1,10 @@
+## [2026-08-16] fix(story2video): 结果页「重试图片/重试视频」失败不再被通用文案掩盖真实原因
+
+- 现象：结果页点击【重试图片】失败时只显示「当前操作未能完成，请稍后再试。」，无法得知余额不足/限流/API Key 等真实原因，故障也无法诊断。
+- 根因：两层掩盖——服务层 `retrySegment()`/`generateSceneImage()` 未校验 `generateImage` 返回码（契约 `{code, message, data.path}`），`code !== 0` 时 `generatedPath` 为 undefined，落入 `_copyRequired` 抛误导性「产物不存在」错误，provider 真实原因被替换；渲染层 `ResultView.retrySegment` catch 固定显示 `operation_failed`，丢弃 `error.message` 并绕过 `story2video-notifications.js` 既有归一化（quota/rate-limit/API Key/权限模式已存在）；主进程失败路径无日志。
+- 修复：服务层在 `_copyRequired` 前校验生成结果，失败上抛原始 provider message（缺失回退「图片生成失败」），失败路径保留旧媒体、清理本次产物并持久化 failed + error；渲染层 catch 透传错误文本进通知归一化（已知类别显示具体文案，未映射维持通用兜底）；服务层 catch 增加 warn 日志（含错误 message）。
+- 回归：服务层 +2 用例（retry 失败保留原因/旧媒体/清理/不触发 renderSegment；generateSceneImage 同）；ResultView +1 用例（quota 归一化 messageKey）；story2video-project-service 61 / ResultView 51 / notifications 26 passed；eslint 干净；CJK 基线仅 1 行漂移吸收（无新增硬编码）；openspec change 通过。
+
 ## [2026-08-16] feat(story2video): 历史记录场景 AI 视频重新生成（W4 闭环：videoPrompt 消费路径）
 
 - 背景：3.1.29 后历史场景的「视频优化词」可编辑/重新生成，但结果页【生成视频】走图片动效渲染、不消费 videoPrompt，AI 视频生成仅在流水线 generate_assets 阶段存在，「修改视频优化词后重新生成视频」无落地路径。
