@@ -1,3 +1,18 @@
+## [Unreleased] - 2026-08-16 (图片提示词 max_length 上限放开 500→2000 + 可配置)
+
+### 变更
+- 图片提示词优化 `optimize.max_length` 默认上限从 500 放开到 8013 契约上限 2000（pipeline stageDef 默认与文本配置契约默认同步），长提示词不再在 500 字符处按字符硬截断（历史案例：截断在 "Wunü Mo" 单词中间）。
+- 创作页「外观」区新增「提示词最大长度」设置（200–2000，默认 2000），按需控制提示词长度与成本；执行器契约收敛 [50, 2000] 保持不变，不因放开默认放宽校验。
+- 陈旧快照兼容：历史 last-options 缺 `maxPromptLength` 字段或越界时回落默认 2000，不破坏既有存储；已保存 run 快照 retain 原 `optimize.maxLength`（恢复/续跑沿用旧值），重新生成图片优化词时按新默认 2000 透传。
+
+### 测试
+- 主进程：pipeline 契约 `max_length` 断言 500→2000；新增 `resolveRuntimeStageOptions` 透传用例（`Story2VideoTextConfig.optimize.maxLength` → 请求 `max_length`）；text-config 默认 2000 断言。
+- 渲染层：CreateView 默认 2000、下拉 8 档渲染、`buildStory2VideoTextConfig` 透传、恢复钳制（越界/缺失回退、合法保留）用例。
+- locale：zh/en 成对新增 `create.story2video.maxPromptLength`；CJK 基线经显式 `--update-baseline` 吸收行号偏移（当前=基线 1500，无新增硬编码）。
+
+### 文档
+- OpenSpec change `s2v-optimize-maxlength`（proposal/design/specs/tasks 完成）；`locale-cjk-baseline.json` 行号重映射。
+
 ## [Unreleased] - 2026-08-15 (历史记录场景内容编辑、重新生成与整片重合成)
 
 ### 新增

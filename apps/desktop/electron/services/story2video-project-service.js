@@ -24,6 +24,10 @@ const {
   estimateSceneSeconds,
   withAssetTransientRetry,
 } = require('./story2video-stages')
+const {
+  PROMPT_ENGINE_LIMITS,
+  buildPromptEngineOptimizeRequest,
+} = require('./prompt-engine-contract')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 
 const SETTING_KEY = 'story2video_projects_v1'
@@ -1038,13 +1042,26 @@ class Story2VideoProjectService {
     const attemptFiles = new Set()
     try {
       const seed = segment.text
+      // 图片优化词与流水线契约同源（2026-08-16 上限放开）：经 buildPromptEngineOptimizeRequest
+      // 携带 max_length=2000（8013 契约上限 PROMPT_ENGINE_LIMITS.maxLength.max，与流水线 stageDef 默认一致），
+      // 防止历史重生成仍走 8013 后端默认 500 截断；
+      // 视频优化词属 8020 域，保持原样不借用图片契约。
+      const imageOptimizeRequest = kind === 'image'
+        ? buildPromptEngineOptimizeRequest(seed, { max_length: PROMPT_ENGINE_LIMITS.maxLength.max })
+        : null
       const optimized = kind === 'video'
         ? await this.serviceBus.optimizeVideoPrompt(seed, { index: segment.sourceIndex ?? index })
-        : await this.serviceBus.optimizePrompt(seed, { index: segment.sourceIndex ?? index })
+        : await (async () => {
+            // 与 stage 层一致：prompt 作为首参，请求参数剥离 prompt 键后透传
+            const { prompt: enginePrompt, ...requestOptions } = imageOptimizeRequest
+            return this.serviceBus.optimizePrompt(enginePrompt, { ...requestOptions, index: segment.sourceIndex ?? index })
+          })()
       const optimizedText = extractOptimizedPrompt(optimized)
       if (!optimizedText || !optimizedText.trim()) throw new Error('提示词优化结果无效')
       if (kind === 'image') {
-        segment.prompt = safeText(optimizedText, 20000)
+        // 防御性本地截断：与流水线 extractOptimizedPrompt(max_length) 语义一致，Unicode 安全
+        const capped = Array.from(optimizedText).slice(0, PROMPT_ENGINE_LIMITS.maxLength.max).join('')
+        segment.prompt = safeText(capped, 20000)
         // 提示词重写后旧翻译失效：清空，避免结果页展示陈旧翻译
         segment.promptTranslation = null
       } else {

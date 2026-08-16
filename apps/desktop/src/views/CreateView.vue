@@ -300,6 +300,13 @@
                 <span class="config-hint">{{ story2videoPromptStyleHint }}</span>
               </div>
               <div class="config-item">
+                <label>{{ s2vMaxPromptLengthLabel }}</label>
+                <select v-model="s2vConfig.maxPromptLength" class="form-select" data-testid="s2v-max-prompt-length-select">
+                  <option v-for="n in s2vMaxPromptLengthOptions" :key="n" :value="n">{{ n }}</option>
+                </select>
+                <span class="config-hint">{{ s2vMaxPromptLengthHint }}</span>
+              </div>
+              <div class="config-item">
                 <label>图片动效</label>
                 <select v-model="s2vConfig.imageEffect" class="form-select">
                   <option value="none">无效果</option>
@@ -1509,6 +1516,8 @@ export default {
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
         // 参数治理（7.1.19）：creativeLevel 为系统管理参数（默认 5），前端不暴露不提交，由契约默认兜底。
         promptStyle: 'realistic', negativePrompt: '',
+        // 图片提示词最大长度（2026-08-16）：上限放开到 8013 契约 2000，默认 2000，可调低控制成本
+        maxPromptLength: 2000,
         transition: 'fade', subtitleEnabled: true,
         subtitleSize: 'size3', subtitleStyleName: 'style1',
         subtitleStyle: { size: 'md', style: 'style1', color: 'white' },
@@ -1704,6 +1713,13 @@ export default {
         '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
         'Controls how image prompts are written and organized; it does not replace image style.'
       )
+    },
+    s2vMaxPromptLengthOptions: () => [200, 300, 400, 500, 700, 1000, 1500, 2000],
+    s2vMaxPromptLengthLabel() {
+      return typeof this.$t === 'function' ? this.$t('create.story2video.maxPromptLength') : 'create.story2video.maxPromptLength'
+    },
+    s2vMaxPromptLengthHint() {
+      return typeof this.$t === 'function' ? this.$t('create.story2video.maxPromptLengthHint') : 'create.story2video.maxPromptLengthHint'
     },
     // ---- 分镜粒度双视图（三层模型①）：底层统一 targetCharsPerScene 主控 ----
     // 语言感知估算（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3 × voice.speed（speechRate 单一来源）
@@ -2337,6 +2353,16 @@ export default {
           this.s2vConfig[field] = options.includes(defaultConfig[field]) ? defaultConfig[field] : options[0]
         }
       }
+      // 图片提示词最大长度（2026-08-16）：陈旧快照缺字段/越界时回落默认 2000；
+      // 区间内非档位值吸附到最近档位（下拉 8 档，避免 select 无匹配项），引擎契约 [50,2000] 恒接受
+      const maxPromptLength = Number(this.s2vConfig.maxPromptLength)
+      if (Number.isFinite(maxPromptLength) && maxPromptLength >= 200 && maxPromptLength <= 2000) {
+        this.s2vConfig.maxPromptLength = this.s2vMaxPromptLengthOptions.reduce(
+          (a, b) => (Math.abs(b - maxPromptLength) < Math.abs(a - maxPromptLength) ? b : a)
+        )
+      } else {
+        this.s2vConfig.maxPromptLength = 2000
+      }
       const defaultOutput = defaults.s2vOutputConfig || {}
       for (const [field, options] of Object.entries(S2V_RESTORE_OUTPUT_ENUM_OPTIONS)) {
         const value = this.s2vOutputConfig[field]
@@ -2494,6 +2520,8 @@ export default {
         },
         optimize: {
           style: config.promptStyle,
+          // 图片提示词最大长度（2026-08-16）：渲染层可配置，主进程契约收敛 [50,2000]
+          maxLength: config.maxPromptLength,
           // 参数治理（7.1.19）：creativeLevel 为系统管理参数，不提交，normalizer 默认 5 兜底。
           negativePrompt: config.negativePrompt,
         },
