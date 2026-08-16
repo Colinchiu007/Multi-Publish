@@ -22,9 +22,9 @@ D:/Data/projects/Multi-Publish 是只读协调根，长期保持 main 且干净�
 
 ## Windows 计划任务
 
-当前用户注册每 5 分钟运行一次的计划任务：
+当前用户注册每 15 分钟运行一次的计划任务（可用 `-Minutes` 调整为 1-60 分钟）：
 
-    powershell -ExecutionPolicy Bypass -File scripts/install-session-isolation-task.ps1
+    powershell -ExecutionPolicy Bypass -File scripts/install-session-isolation-task.ps1 -Minutes 15
 
 查看任务：
 

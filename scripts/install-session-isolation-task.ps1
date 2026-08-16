@@ -1,6 +1,6 @@
 <# Registers or removes the per-user Windows health task. #>
 [CmdletBinding()]
-param([switch]$Unregister, [ValidateRange(1,60)][int]$Minutes = 5)
+param([switch]$Unregister, [ValidateRange(1,60)][int]$Minutes = 15)
 $ErrorActionPreference = 'Stop'
 $taskName = 'Multi-Publish\Session Isolation Health'
 $scriptRepo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
