@@ -435,6 +435,44 @@ describe('Story2VideoProjectService', () => {
     expect(fs.readdirSync(projectDir).some(name => name.includes('_image_retry_'))).toBe(false)
   })
 
+  it('单段图片重试时图片生成器返回失败结果保留真实原因并回滚旧媒体', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-retry-gen-fail')
+    const oldImage = writeFile(path.join(projectDir, 'old.png'), 'old-image')
+    const oldVideo = writeFile(path.join(projectDir, 'old.mp4'), 'old-video')
+    const renderSegment = vi.fn()
+    const warn = vi.fn()
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateImage: vi.fn(async () => ({ code: -1, message: '余额不足' })),
+      },
+      composeEngine: { renderSegment },
+      log: { warn },
+    })
+    service._writeProjects([{
+      projectId: 'project-retry-gen-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: 'A', prompt: 'PA', imagePath: oldImage, videoPath: oldVideo }],
+    }])
+
+    await expect(service.retrySegment('project-retry-gen-fail', 'segment-0', 'image')).rejects.toThrow('余额不足')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('余额不足'))
+
+    const failed = service.getProject('project-retry-gen-fail')
+    expect(failed.segments[0]).toMatchObject({
+      imagePath: oldImage,
+      videoPath: oldVideo,
+      status: 'failed',
+      error: '余额不足',
+    })
+    expect(fs.existsSync(oldImage)).toBe(true)
+    expect(fs.existsSync(oldVideo)).toBe(true)
+    expect(fs.readdirSync(projectDir).some(name => name.includes('_image_retry_'))).toBe(false)
+    expect(renderSegment).not.toHaveBeenCalled()
+  })
+
   it('重新合成成功后清理不再引用的旧项目媒体', async () => {
     const projectRoot = path.join(root, 'projects')
     const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
@@ -897,6 +935,34 @@ describe('Story2VideoProjectService', () => {
     const failed = service.getProject('project-image-slot-fail')
     expect(failed.segments[0]).toMatchObject({ imagePath: image1, status: 'failed', error: '图片生成失败' })
     expect(failed.segments[0].alternateImages).toBeUndefined()
+    expect(fs.existsSync(image1)).toBe(true)
+    expect(fs.readdirSync(projectDir).some(name => name.includes('_image_gen_'))).toBe(false)
+  })
+
+  it('生成场景新图时图片生成器返回失败结果保留真实原因', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-image-gen-fail-result')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'old-image')
+    const warn = vi.fn()
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateImage: vi.fn(async () => ({ code: -1, message: '余额不足' })),
+      },
+      log: { warn },
+    })
+    service._writeProjects([{
+      projectId: 'project-image-gen-fail-result', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: 'A', prompt: 'PA', imagePath: image1 }],
+    }])
+
+    await expect(service.generateSceneImage('project-image-gen-fail-result', 'segment-0')).rejects.toThrow('余额不足')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('余额不足'))
+
+    const failed = service.getProject('project-image-gen-fail-result')
+    expect(failed.segments[0]).toMatchObject({ imagePath: image1, status: 'failed', error: '余额不足' })
     expect(fs.existsSync(image1)).toBe(true)
     expect(fs.readdirSync(projectDir).some(name => name.includes('_image_gen_'))).toBe(false)
   })

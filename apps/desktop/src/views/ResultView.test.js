@@ -373,6 +373,36 @@ describe("ResultView", () => {
     expect(w.vm.segments[0].imageUrl).toContain("segment-1-new.png");
   });
 
+  it("重试图片失败时透传真实原因并归一化为具体提示（余额不足 → quota 文案）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoRetrySegment.mockResolvedValue({ code: -1, message: "余额不足" });
+    api.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "segment-1", imagePath: "C:/project/segment-1-old.png" }];
+
+    await w.vm.retrySegment("segment-1", "image");
+
+    expect(api.story2videoRetrySegment).toHaveBeenCalledWith("project-1", "segment-1", "image");
+    // 错误文本必须进入通知归一化，而不是被吞成固定 operation_failed
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.quota_exceeded");
+  });
+
+  it("重试图片失败但错误文本未命中任何已知类别时回退通用文案（不展示 raw 文本）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoRetrySegment.mockResolvedValue({ code: -1, message: "未知异常" });
+    api.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "segment-1", imagePath: "C:/project/segment-1-old.png" }];
+
+    await w.vm.retrySegment("segment-1", "image");
+
+    // 未映射类别：messageKey 落到 operation_failed 兜底（spec：回退通用文案），raw 文本不进入弹窗
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.operation_failed");
+    expect(w.vm.story2videoNotificationDialog.messageParams).not.toEqual(expect.objectContaining({ rawError: expect.anything() }));
+  });
+
   it("可导入新旁白并原子替换指定分段音频", async () => {
     const api = await import("@/api/publisher");
     api.story2videoImportMedia.mockResolvedValue({ code: 0, data: { path: "C:/controlled/replacement.mp3" } });

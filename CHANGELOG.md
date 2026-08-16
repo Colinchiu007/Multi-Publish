@@ -1,3 +1,11 @@
+## [2026-08-16] fix(story2video): 结果页「重试图片/重试视频」失败不再被通用文案掩盖真实原因
+
+- 现象：结果页点击【重试图片】失败时只显示「当前操作未能完成，请稍后再试。」，无法得知余额不足/限流/API Key 等真实原因，故障也无法诊断。
+- 根因：两层掩盖——服务层 `retrySegment()`/`generateSceneImage()` 未校验 `generateImage` 返回码（契约 `{code, message, data.path}`），`code !== 0` 时 `generatedPath` 为 undefined，落入 `_copyRequired` 抛误导性「产物不存在」错误，provider 真实原因被替换；渲染层 `ResultView.retrySegment` catch 固定显示 `operation_failed`，丢弃 `error.message` 并绕过 `story2video-notifications.js` 既有归一化（quota/rate-limit/API Key/权限模式已存在）；主进程失败路径无日志。
+- 修复：服务层在 `_copyRequired` 前校验生成结果，失败上抛原始 provider message（缺失回退「图片生成失败」），失败路径保留旧媒体、清理本次产物并持久化 failed + error；渲染层 catch 透传错误文本进通知归一化（已知类别显示具体文案，未映射维持通用兜底）；服务层 catch 增加 warn 日志（含错误 message）。
+- 回归：服务层 +2 用例（retry 失败保留原因/旧媒体/清理/不触发 renderSegment；generateSceneImage 同）；ResultView +1 用例（quota 归一化 messageKey）；story2video-project-service 61 / ResultView 51 / notifications 26 passed；eslint 干净；CJK 基线仅 1 行漂移吸收（无新增硬编码）；openspec change 通过。
+
+---
 ## [2026-08-16] feat(story2video): 历史记录重生成增强——写通道同项目串行队列全覆盖 + AI 视频瞬时重试（W4/W5 审查收尾）
 
 - 背景：PR #870（历史 AI 视频重新生成）合并后，双模型审查剩余两项增强落地：① replace-segment-audio/retry-segment/select-scene-material/generate-scene-image/generate-scene-video/delete-project 六个写通道绕过 `_serializeProject` 队列，并发写同项目存在交错覆盖竞态（delete 未入队还存在删除后复活竞态，审查 M3）；② 历史「生成 AI 视频」无瞬时重试，provider 瞬时限流/超时即失败，与流水线 generate_assets 行为不一致。
@@ -30,7 +38,7 @@
   `文帝进京` 3 块（10/10/9）、`挥刀自宫` 4 块与用户期望逐字一致；`713.3` 不劈；
   parity 语料 +10 句（三端逐字一致）；8002 同源临时实例 HTTP 验证通过。
 
-
+
 ## [2026-08-15] fix(ops-center): 提示词评测评估解析兼容推理模型 `<think>` 思维链输出
 
 - 现象：404 修复后真实生成成功，但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。
