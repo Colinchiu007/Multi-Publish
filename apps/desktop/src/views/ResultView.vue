@@ -207,7 +207,8 @@
           </div>
           <div class="segment-header">
             <strong>分段 {{ index + 1 }}</strong>
-            <span class="segment-status" :class="segment.status">{{ segment.status || 'completed' }}</span>
+            <span class="segment-status" :class="segment.status">{{ segmentStatusLabel(segment.status) }}</span>
+            <span v-if="segment.status === 'failed' && segment.error" class="segment-status-reason" data-testid="segment-status-reason">{{ segmentStatusReason(segment) }}</span>
             <span v-if="isPolicyFlagScene(index)" class="segment-policy-flag" data-testid="segment-policy-flag">{{ $t('story2video.sceneMaterial.scenePolicyFlag') }}</span>
             <div class="segment-order">
               <button type="button" :disabled="index === 0" title="上移" @click="moveSegment(index, -1)">上移</button>
@@ -503,6 +504,22 @@ export default {
     // 防御式翻译：无 i18n 上下文（如部分单测 mount）时回落 key，生产环境正常返回本地化文案
     tOrKey(key) {
       return typeof this.$t === 'function' ? this.$t(key) : key
+    },
+    segmentStatusLabel(status) {
+      const key = ['completed', 'failed', 'processing', 'pending'].includes(status) ? status : 'completed'
+      return this.tOrKey(`story2video.segmentStatus.${key}`)
+    },
+    segmentStatusReason(segment) {
+      if (!segment || segment.status !== 'failed') return ''
+      const raw = String(segment.error || '').trim()
+      if (!raw) return ''
+      // 复用通知归一化：命中失败类别返回可读原因，未命中回退通用失败文案（不暴露内部错误文本）
+      const resolved = resolveStory2VideoNotification({ error: raw })
+      return this.truncateStory2VideoText(resolved.message, 120)
+    },
+    truncateStory2VideoText(value, max) {
+      const points = Array.from(String(value || ''))
+      return points.length > max ? points.slice(0, max - 1).join('') + '…' : points.join('')
     },
     showStory2VideoNotification(notification = {}) {
       const resolved = resolveStory2VideoNotification(notification)
@@ -1312,6 +1329,7 @@ export default {
 .scene-material-preview-empty { color: var(--text-muted); }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: 11px; }
+.segment-status-reason { flex: 1 1 auto; min-width: 0; color: var(--status-failed-text, var(--danger, #d93025)); font-size: 12px; line-height: 1.45; word-break: break-word; }
 .segment-policy-flag { padding: 3px 6px; border-radius: 4px; background: var(--danger-bg, #fdecea); color: var(--danger, #d93025); font-size: 11px; font-weight: 600; }
 .segment-policy-flagged { border-color: var(--danger, #d93025); box-shadow: 0 0 0 1px var(--danger, #d93025) inset; }
 .segment-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }

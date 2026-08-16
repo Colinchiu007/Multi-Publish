@@ -429,6 +429,12 @@ export default {
       placeholder_image: 'placeholder images',
       silent_narration: 'silent narration',
     },
+    segmentStatus: {
+      completed: 'Completed',
+      failed: 'Failed',
+      processing: 'Generating',
+      pending: 'Pending',
+    },
     historyDetail: {
       login: 'You are not signed in or your session expired. Sign in to retry; local records remain available offline.',
       storage: 'Local storage is having issues. Restart the app to retry; if it persists, check local disk space and permissions.',

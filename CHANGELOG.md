@@ -5,6 +5,21 @@
 - `phase1-context.js` 注入 `promptBridge.modelProviderManager`（与 story2videoProjectService 同模式）。
 - 配套：prompt-engine v0.20.0（BYOK llm 契约 + 移除 key_router/ops_client 兜底 + 缓存 provider 隔离）；图片 creative_level<=3 模板直出仍免 LLM。
 - 回归：桌面 electron/services+bootstrap 2074 passed / 1 skipped（修复 9 个未注入默认 LLM 的旧契约用例）；prompt-engine 全量 975 passed / 3 skipped。
+
+## [2026-08-16] fix(story2video): 分段状态本地化 + 失败原因内联 + 成功写回清除残留 error
+
+- 现象：视频创作-历史记录，分段卡片状态直接输出英文原值（failed/completed），用户看不清发生了什么；曾失败分段（如 agnes-image `UnsupportedParamsError: Setting response_format is not supported`）点击【重试图片】成功后状态已 completed，但旧 error 残留，继续误导。
+- 根因：`ResultView.vue` 徽标直接渲染 `segment.status` 原值；服务层把分段置 `completed` 的写回路径（replaceSegmentAudio / retrySegment / regenerateSceneAudio / regenerateScenePrompt / generateSceneAiVideo / generateSceneImage / generateSceneVideo）不清理既有 `error`，产生「completed + error 并存」的误导状态；既有先例 `regenerateSceneSubtitle` 已写 `error: null`，其余路径漂移。
+- 修复：① 渲染层徽标走 `story2video.segmentStatus.*` 本地化标签（completed/failed/processing/pending，未知默认 completed）；`status=failed` 且存在 error 时内联一行可读原因（复用 `resolveStory2VideoNotification` 归一化分类文案，未命中回退通用失败文案并 120 码点截断，不暴露内部错误文本/堆栈；completed 残留 error 不展示）；② 服务层 7 个成功写回点统一显式 `error: null`，失败 catch 路径保持写 `error`；recomposeProject（项目级状态）与 selectSceneMaterial（不写状态）不受影响。
+- 回归：`story2video-project-service.test.js` +2（retry 成功清 error、generateSceneImage 成功清 error）；`ResultView.test.js` +3（本地化标签+原因内联、completed 残留 error 不渲染、未命中回退通用文案）；定向 159 例 + notifications 27 例通过；eslint 变更文件通过；CJK 基线仅行号位移（18+18，无新增硬编码）；双模型审查 antigravity 地区不可用 + claude API ConnectionRefused → 降级主代理自审 0 Critical/0 Warning（记录 `.ccg/tasks/fix-s2v-segment-status-reason/review.md`）。
+
+## [2026-08-16] fix(agnes-image): 适配器尊重 response_format=b64_json 契约，Base64 直出绕开 SSRF URL 下载拦截
+
+- 现象：PR #897 后历史任务【重试图片】改走 agnes-image，但真实调用仍失败——日志为 SSRF 守卫拦截图片 URL 下载（`asset-generator.js:322/723`）。
+- 根因：① agnes-image 适配器把 `response_format` 放请求体顶层，被 litellm 网关以 UnsupportedParamsError 拒绝（官方文档要求放 `extra_body`，历史 103 次样本全失败）；② 适配器固定请求 url 输出、忽略调用方 `b64_json` 请求，URL 二次下载在本机 Clash fake-ip DNS（`storage.googleapis.com`→198.18.1.194）下被 SSRF 守卫拦截。
+- 修复：适配器尊重 `params.response_format`——`b64_json` 时 `extra_body.response_format='b64_json'` 并 Base64 直出（缺失 fail closed），默认 url 时 `extra_body.response_format='url'`；请求体顶层不再携带该字段。
+- 回归：`agnes-image.test.js` 28 用例通过（+4：extra_body 契约 / b64_json 请求与返回形状 / 缺失 fail closed / url 默认）；真实 E2E DB 调用 2938 success（34s，新 PNG+MP4 落盘）；QM-1 打包 asar 含 adapter。
+
 ## [2026-08-16] fix(story2video): 历史记录重新生成优化词 fail-closed（402 回显不再误写）+ 请求 context 与流水线同源
 
 - 现象：视频创作-历史记录编辑场景内容，点击「重新生成图片优化词」生成了新优化词，但输出不像最新代码提示词引擎（仅原文 + Photoreal 后缀）；实际是 prompt-engine(8013) 额度不足返回 `error: 402 insufficient_balance_error` + `optimized_prompt` 原样回显，桌面侧本地提取器先取文本后查 error，把回显原文当成功写入分段。

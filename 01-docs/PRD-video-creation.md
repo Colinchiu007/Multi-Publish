@@ -170,6 +170,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-15 | 视频提示词引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架 | **Batch B**：`prev_final_frame`（≤1000 字符，句末截断）链式承接上一镜计划终态；`HIGGSFIELD_FMT_V4` 缓存盐（key 含 prev_final_frame 哈希）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）；Story2Video 视频提示词按场景串行优化、媒体生成保持并发、计划终态回写 scene.video.final_frame、checkpoint 终态恢复链、断链显式 degraded。**Batch C**：refined 12 块导演骨架（SCENE NOTE…FINAL FRAME，值 ≤4000，白名单）；FAIL CHECK 仅指令不出现在输出；尾行清理只认完整 trailer 尾段；块覆盖度 ≥0.8（advisory -5）；7 条 lock-gated 规则默认启用 dead_center/exposure_break/eye_line，否定感知（not overexposed / no waxy skin 不判罚）。详见本节 3.1.27 | PRD 3.1.27 / openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output | | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 | 2026-08-16 | 历史记录场景 AI 视频重新生成（W4 闭环） | 完成 3.1.29 的 W4 真缺口：结果页新增【生成 AI 视频】，以分段 videoPrompt（缺省回退 prompt/text）为提示词复用流水线 stages 契约（generateVideo→轮询→下载校验），成功替换分段 videoPath/videoMeta、失败保留旧视频回写 failed；IPC/权益/preload/api/locales/通知归一化全链路补齐；详见本节 3.1.29.1 | PRD 3.1.29.1 / openspec s2v-history-ai-video-regen |
 | 2026-08-15 | 历史记录场景内容编辑/重新生成与整片重合成 | 已完成任务每个场景可修改文案/字幕块/视频优化词/语音设置（updateSegments 白名单透传 + 限长收敛，voiceSpeed/Pitch 收敛 [0.1,10]），重新生成字幕（本地重切清空时间轴、重置失败态与来源标记）/旁白（TTS 失败回滚保留旧音频 + 回写 failed）/图片与视频优化词（image 重写 prompt 清翻译、video 写 videoPrompt），配合既有【生成新图】【生成视频】与【重新合成】完成整片重合成；voiceSpeed 收敛 [0.5,2]、voicePitch 收敛 [-12,12]（与流水线契约对齐）；同项目写串行队列防并发覆盖；compose 回显缺省时 videoPrompt 按原值回填；历史卡片与详情弹窗新增【编辑并重新合成】入口 + 只读场景列表；详见本节 3.1.29 | PRD 3.1.29 / openspec s2v-history-scene-edit-recompose |
+| 2026-08-16 | 视频提示词优化长度放宽（已实现） | 用户诉求：图片提示词上限放开后（PR #887），视频提示词优化也希望长度尽量放宽，避免长提示词被截断；方案沿用域级模式——Story2Video 域显式 max_length（流水线 stageDef/文本配置默认 + 各入口显式携带），共享 kernel 默认 500 与视频 legacy 8020 契约不变，执行器契约 [50,2000] 收敛不放松；PM 已确认放宽诉求；历史重生成视频优化词显式顶格（max_length=20000，8020 standalone [200,20000] / 8013 legacy [50,2000] 由契约 builder 各自收敛）。详见本节 3.1.29.5 | PRD 3.1.29.5 / openspec s2v-history-video-maxlength |
 | 2026-08-16 | 历史记录图片提示词完整展示 + 未保存修改离开守卫 | 历史详情弹窗场景列表由 60 字符硬截断改为「旁白 / 画面提示词」分行完整展示（只渲染存在字段，长文本换行 + 列表滚动），卡片预览 120 截断保持；结果页分段编辑新增「有未保存修改」标识与离开确认（保存并离开 / 不保存离开 / 取消），保存成功才放行、失败留页；明确保存语义为【保存分段】手动持久化 + 生成/重合成前自动保存；详见本节 3.1.29.3 | PRD 3.1.29.3 / openspec story2video-history-scene-prompt-persistence |
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
@@ -2056,6 +2057,20 @@ SettingsDialog 关闭（App.vue @close）
 - IPC（`story2video.test.js`）：+4 用例——传 previousUrl 时 revoke 被调用；不传时不调用；`file://` 非本地 URL 拒绝 revoke；同源非媒体路径拒绝 revoke。
 - 渲染端（`ResultView.test.js`）：+5 用例——首次 error 自愈不弹窗且透传旧 videoSrc；二次 error 弹 `videoPreviewFailed`；重签失败直接弹且不标记已自愈；`loadVideoPath` 成功后重置标记并透传旧地址；`refreshSegmentImageUrls` 透传旧 imageUrl。
 - 全量桌面 vitest、QM-1 打包（`electron-builder --win --dir` + 8s 冒烟）、CI 全绿。
+
+#### 3.1.29.5 视频提示词优化长度放宽（已实现，2026-08-16）
+
+**背景**：图片提示词 `optimize.max_length` 上限放开（PR #887，500→2000 可配置）后，用户希望视频提示词的优化字数也尽量放宽，避免长视频提示词在生成/优化时被截断。
+
+**需求**：Story2Video 视频提示词优化（`scene.videoPrompt` / 视频优化词路径）在合理成本内放宽长度上限，长提示词不因长度被静默截断。
+
+**边界与实现约束**：
+- 沿用 PR #887 域级模式：Story2Video 域显式携带 `max_length`（流水线 stageDef 默认与文本配置默认同步，各入口显式透传），**不改共享 kernel 默认 500**（`buildPromptEngineOptimizeRequest` 未显式时保持现状），**不改视频 legacy 8020 契约**——避免静默放大所有通用 `optimize` 调用方与视频 legacy 路径的成本。
+- 执行器契约收敛 `[50, 2000]` 不放松（8013 上限 2000）；若需超过 2000，须先与供应商/网关确认真实上限、配额与成本再评估，禁止仅凭本地放宽。
+- 渲染层可仿照图片提示词提供「提示词最大长度」可配置档位（200–2000，默认 2000），越界/缺失回退默认。
+- 历史快照兼容沿用 #887 规则：存量 run 保留原 `optimize.maxLength`（恢复/续跑沿用旧值），重新生成时按新默认透传。
+
+**状态**：已实现——历史重生成视频优化词（`regenerateScenePrompt` kind=video）显式携带 `max_length=20000`（视频域上限）：8020 standalone builder 收敛 [200,20000]、8013 legacy builder 收敛 [50,2000]，共享 kernel 默认 500 与 legacy 执行器契约 [50,2000] 不放松；openspec change `s2v-history-video-maxlength` 已建，PR 合并后回填编号。渲染层「提示词最大长度」档位列为可选后续。
 
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 

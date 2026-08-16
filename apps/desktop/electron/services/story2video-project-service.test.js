@@ -473,6 +473,42 @@ describe('Story2VideoProjectService', () => {
     expect(renderSegment).not.toHaveBeenCalled()
   })
 
+  it('曾失败分段重试成功后清除残留 error（失败痕迹清理，2026-08-16）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-retry-clear-error')
+    const oldImage = writeFile(path.join(projectDir, 'old.png'), 'old-image')
+    const oldVideo = writeFile(path.join(projectDir, 'old.mp4'), 'old-video')
+    const generated = writeFile(path.join(root, 'generated.png'), 'generated-image')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateImage: vi.fn(async () => ({ code: 0, data: { path: generated } })),
+      },
+      composeEngine: {
+        renderSegment: vi.fn(async (_scene, _options, destination) => {
+          writeFile(destination, 'video')
+          return { code: 0, data: { videoPath: destination, duration: 2 } }
+        }),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-retry-clear-error', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: 'A', prompt: 'PA',
+        imagePath: oldImage, videoPath: oldVideo, status: 'failed', error: '余额不足',
+      }],
+    }])
+
+    const updated = await service.retrySegment('project-retry-clear-error', 'segment-0', 'image')
+
+    expect(updated.segments[0]).toMatchObject({ status: 'completed' })
+    expect(updated.segments[0].error).toBeNull()
+    const persisted = service.getProject('project-retry-clear-error')
+    expect(persisted.segments[0]).toMatchObject({ status: 'completed', error: null })
+  })
+
   it('重新合成成功后清理不再引用的旧项目媒体', async () => {
     const projectRoot = path.join(root, 'projects')
     const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
@@ -965,6 +1001,35 @@ describe('Story2VideoProjectService', () => {
     expect(failed.segments[0]).toMatchObject({ imagePath: image1, status: 'failed', error: '余额不足' })
     expect(fs.existsSync(image1)).toBe(true)
     expect(fs.readdirSync(projectDir).some(name => name.includes('_image_gen_'))).toBe(false)
+  })
+
+  it('生成场景新图成功时清除曾失败分段的残留 error（失败痕迹清理，2026-08-16）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const bootstrap = new Story2VideoProjectService({ store, projectsDir: projectRoot })
+    const projectDir = bootstrap._projectDir('project-image-gen-clear-error')
+    const image1 = writeFile(path.join(projectDir, 'image1.png'), 'img1')
+    const generated = writeFile(path.join(root, 'generated.png'), 'generated')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateImage: vi.fn(async () => ({ code: 0, data: { path: generated } })),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-image-gen-clear-error', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: 'A', prompt: 'PA',
+        imagePath: image1, status: 'failed', error: 'UnsupportedParamsError: Setting response_format is not supported',
+      }],
+    }])
+
+    const updated = await service.generateSceneImage('project-image-gen-clear-error', 'segment-0')
+
+    expect(updated.segments[0]).toMatchObject({ status: 'completed' })
+    expect(updated.segments[0].error).toBeNull()
+    const persisted = service.getProject('project-image-gen-clear-error')
+    expect(persisted.segments[0]).toMatchObject({ status: 'completed', error: null })
   })
 
   it('生成场景视频：用当前选中图片渲染并替换视频槽', async () => {
@@ -1911,8 +1976,32 @@ describe('Story2VideoProjectService', () => {
 
     const updated = await service.regenerateScenePrompt('project-prompt-video', 'segment-0', 'video')
 
+    // 2026-08-16 视频域显式顶格（PRD 3.1.29.5）：显式携带 max_length=20000，双后端由契约 builder 各自 clamp
+    expect(optimizeVideoPrompt).toHaveBeenCalledWith('你好', expect.objectContaining({ index: 0, max_length: 20000 }))
     expect(updated.segments[0].videoPrompt).toBe('新视频优化词')
     expect(updated.segments[0].prompt).toBe('旧画面词')
+    expect(updated.segments[0].status).toBe('completed')
+  })
+
+  it('regenerateScenePrompt video 超长返回完整保存（不落回后端默认截断）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const long = '镜'.repeat(5000)
+    const optimizeVideoPrompt = vi.fn(async () => ({ results: [{ prompt: long }] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizeVideoPrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-video-long', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧画面词', videoPrompt: null }],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-prompt-video-long', 'segment-0', 'video')
+
+    expect(optimizeVideoPrompt).toHaveBeenCalledWith('你好', expect.objectContaining({ max_length: 20000 }))
+    // >1800 的返回不被本地按 2000 截断，完整落库（safeText 20000）
+    expect(Array.from(updated.segments[0].videoPrompt).length).toBe(5000)
     expect(updated.segments[0].status).toBe('completed')
   })
 

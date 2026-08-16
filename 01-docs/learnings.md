@@ -1,3 +1,31 @@
+## 分段状态 failed/completed 误导展示与残留 error 复盘（fix-s2v-segment-status-reason，2026-08-16）
+
+- **现象**：视频创作-历史记录分段卡片直接显示英文原值状态（failed/completed）；用户点击【重试图片】成功后，分段状态变 completed 但旧 error（`UnsupportedParamsError: Setting response_format is not supported...`）仍残留，UI 语义矛盾、无法理解失败原因。
+- **根因**：① `ResultView.vue` 徽标 `${segment.status || 'completed'}` 直出后端枚举原值，未走 locale 映射；② 服务层多个「成功→completed」写回点（图片/视频生成、重试、音频替换/重生成、提示词重生成、AI 视频生成）不清理分段旧 `error`，造成 `completed` + `error` 并存；既有先例 `regenerateSceneSubtitle` 已写 `error: null`，其余路径未同步（双路径漂移）。
+- **教训 1（状态与错误字段是同一份真相）**：`status` 与 `error` 必须同写同清——「成功置 completed」与「失败置 failed+error」是一枚硬币的两面；任何成功写回点都要显式 `error: null`，不能依赖「新数据覆盖」隐式清理（覆盖不保证发生，重试路径尤其会继承旧 error）。
+- **教训 2（用户可见枚举必须本地化）**：直接暴露给用户的枚举值（status/errorCode/阶段等）不得原样输出英文；至少建立 `story2video.segmentStatus.*` 这类映射（未知值默认安全标签，如 completed），禁止透传原值。
+- **教训 3（失败原因复用归一化而非裸错误）**：内联原因复用 `resolveStory2VideoNotification({ error })` 分类映射（额度/API Key/参数不受支持/内容策略等 → 可读且可操作的本地化文案），未命中回退 operation_failed 通用文案并 120 码点截断——不暴露内部错误文本/堆栈，同时让已知类别覆盖大多数排查场景而非纯通用文案。
+- **逃逸链**：渲染测试只断言「状态存在」，无「状态文案本地化」与「completed 残留 error 不展示」用例（测试场景缺失）；服务层测试只覆盖「成功更新素材路径/失败保留 error」，无「曾失败分段成功重试后 error 清理」用例（不对称覆盖：失败侧有回归、成功侧无）；CJK 基线按 file:line 存储，行号位移会触发假阳性（既有已知边界，需 --update-baseline 且人工核对无新增）。
+- **回归保护**：`story2video-project-service.test.js` +2（retrySegment 成功清 error、generateSceneImage 成功清 error）；`ResultView.test.js` +3（本地化标签与原因内联、completed 残留 error 不渲染、未命中回退通用文案）；后续改任何分段状态写回必须同时跑这两个文件。
+
+## 历史记录保存分段后图片全部消失复盘（fix-s2v-save-segments-image-loss，2026-08-16）
+
+- **现象**：视频创作-历史记录结果页点击【保存分段】后所有分段图片/素材槽/视频槽消失；主进程数据与图片文件未丢，纯渲染端显示为空。
+- **根因**：`saveSegments()`（`e1b46eba0` 引入）用主进程 IPC 返回的落库分段整体替换 `this.segments`——持久化分段只含 `imagePath/videoPath/alternateImages[].path`，不含渲染端派生字段 `imageUrl/alternateImageUrls/videoUrl`；替换后未像 retry/regenerate/select 等媒体变更路径那样调用 `refreshSegmentImageUrls()`，模板 `v-if="segment.imageUrl"` 全部落空；`replaceSegmentAudio()` 同类缺陷一并修复。
+- **教训 1（替换 this.segments 的路径必须重建渲染端派生 URL）**：`imageUrl` 等短令牌 URL 是渲染端运行时字段、不落库；凡「用 IPC 返回整体替换 this.segments」的落库操作必须紧跟 `refreshSegmentImageUrls()`，这是结构性不变式而非可选约定（本次就是唯一漏掉该不变式调用点，其余 10+ 处都有）。
+- **教训 2（保存类测试禁止只 mock 空数组）**：既有保存分段用例 mock `segments: []` 被长度守卫跳过替换分支，缺陷无法暴露；保存/更新类用例至少要有一条「返回含 imagePath 非空分段 → 派生 URL 重建」的真实数据路径，并断言旧 URL 作为 `previousUrl` 的令牌复用/回收。
+- **逃逸链**：单测只 mock 空 segments（测试场景缺失）；无「保存后媒体 URL 重建」集成/E2E/视觉回归；多轮审查聚焦保存语义/队列串行/竞态，审查清单缺「替换 this.segments 后重建 URL」检查项（审查盲区）。
+- **回归保护**：`ResultView.test.js` +3 用例（非空返回重建 imageUrl/alternateImageUrls/videoUrl、空返回保留并断言 previousUrl、旁白替换不消失——其中两条修复前必失败）；后续改任何 `this.segments` 替换路径必须同时跑该文件。
+
+## agnes-image 适配器忽略 b64_json 契约复盘（fix-agnes-image-b64-json，2026-08-16）
+
+- **现象**：PR #897 路由修复生效后，历史任务【重试图片】走 agnes-image 仍失败：URL 下载被 AssetGenerator SSRF 守卫拦截（`asset-generator.js:322/723`）。
+- **根因（第一性）**：`asset-generator.js:584` 调用生图适配器时始终传 `response_format:'b64_json'`，但 agnes-image 适配器实现于更早、固定发送顶层 `response_format:'url'` 并返回 URL——调用方契约从未被执行；顶层 response_format 又违反 agnes-image-2.1-flash 官方文档（须放 `extra_body`，顶层被网关 UnsupportedParamsError 拒绝，历史 103 次样本全失败）。
+- **逃逸链**：适配器单测只断言顶层 `response_format:'url'`，从未覆盖调用方 b64_json 参数（测试场景缺失）；PR #897 回归只到 service 层 provider 解析，真实生图被标为“用户确认后执行”，实际执行后才发现适配器契约问题（审查盲区/流程缺失）。
+- **系统性漏洞**：跨适配器「调用方请求参数 → 适配器行为」契约没有统一回归（imagen/grok 遵守 b64_json，agnes 忽略）；供应商文档契约（extra_body）没有测试固化。
+- **回归保护**：`agnes-image.test.js` +4 用例固化 extra_body 位置与 b64_json 直出/fail closed；后续新增/修改生图适配器必须断言「调用方 `response_format` 被尊重」+「顶层无 response_format」。
+- **预防**：生图适配器验收清单加入「尊重调用方 response_format」与「extra_body 契约」两项（已写入 openspec change spec 与本复盘）。
+
 ## 历史记录重新生成优化词 fail-open 吞错 + 请求 context 与流水线失源复盘（fix-s2v-history-prompt-fail-open，2026-08-16）
 
 - **现象**：视频创作-历史记录点「重新生成图片优化词」产出的新优化词只有原文 + Photoreal 后缀，不像最新引擎结果；实为 prompt-engine(8013) 额度不足返回 `{ optimized_prompt: <原文>, error: 402 insufficient_balance_error }` 失败兜底，桌面侧提取器先取文本后查 error，把回显原文当成功写入（UI 呈现「已重新生成」）。
@@ -13699,12 +13727,6 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 5（断链明示不虚构连续性）**：resume/checkpoint 恢复时若上一场景无 `prev_final_frame` 链，必须显式 degraded 告警（引擎断链明示），不得虚构连续性或静默跳过——fail-open 但明示，让用户知道本次输出没有承接约束。
 - **教训 6（资产驱动规则要可降级）**：`refined_blocks.json` 缺失/损坏时 `_gated_rules()` 回退空表 → 规则不启用零误报。语料驱动的启发式规则（lock-trigger/coverage）本质是统计资产，不是代码常量——资产可缺失、可更新，代码必须 fail-safe。
 
-## 提示词引擎 BYOK 与缓存 provider 隔离复盘（prompt-engine-byok-llm，2026-08-16）
-
-- **教训 1（哪个产品调用就用哪个产品的 LLM）**：提示词引擎的服务端 config.yaml 兜底会让桌面版实测落到 MiniMax 而非用户配置的 SenseNova——产品自配置 LLM 必须由产品侧注入（llm + caller），引擎侧兜底 key 必须移除，否则「设置里换模型」对用户是假承诺。
-- **教训 2（fail-closed 优于回显兜底）**：历史记录「重新生成优化词」曾因引擎 402 回显原文被当成功写入（fail-open）；BYOK 缺绑定一律 422 / 可操作错误，杜绝「看起来成功、实际没调用最新引擎」的假阳性。
-- **教训 3（缓存键必须含 provider 身份）**：`SqlitePromptCache.make_key` 原实现把 provider 追加写在了 `return` 之后（死代码），`CacheManager` L2 又漏传 provider——换 LLM 后仍命中旧缓存。凡是「上下文敏感」字段（含模型绑定）都必须进缓存键，并统一 L1/L2 同一身份。
-- **教训 4（新增 BYOK 边界要同步邻近测试）**：既有桌面契约测试未注入默认 LLM，fail-closed 后 9 个用例立即暴露——凡新增绑定/兜底类边界，邻近测试必须显式 mock 默认 LLM 或声明模板直出（creative_level<=3）。
 ## 提示词引擎 BYOK 与缓存 provider 隔离复盘（prompt-engine-byok-llm，2026-08-16）
 
 - **教训 1（哪个产品调用就用哪个产品的 LLM）**：提示词引擎的服务端 config.yaml 兜底会让桌面版实测落到 MiniMax 而非用户配置的 SenseNova——产品自配置 LLM 必须由产品侧注入（llm + caller），引擎侧兜底 key 必须移除，否则「设置里换模型」对用户是假承诺。
