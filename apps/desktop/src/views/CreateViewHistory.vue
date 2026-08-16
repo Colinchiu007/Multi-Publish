@@ -107,7 +107,11 @@
             </div>
             <div class="history-state-detail-row">
               <span class="history-field-label">{{ tr('errorSummary') }}</span>
-              <span>{{ formatError(item) }}</span>
+              <span>{{ item.error ? truncate(item.error, 160) : tr('genericFailure') }}</span>
+            </div>
+            <div v-if="policyResumeHintFor(item)" class="history-state-detail-row history-policy-resume-hint" data-testid="history-policy-resume-hint">
+              <span class="history-field-label">{{ tr('policyResumeBlockedLabel') }}</span>
+              <span>{{ policyResumeHintFor(item) }}</span>
             </div>
           </div>
 
@@ -199,6 +203,10 @@
           <div v-if="selectedHistoryItem.status === 'paused' && pauseEnvironment(selectedHistoryItem)"><dt>{{ tr('pauseEnvironment') }}</dt><dd>{{ localizedEnvironment(pauseEnvironment(selectedHistoryItem)) }}</dd></div>
           <div v-if="selectedHistoryItem.status === 'failed'"><dt>{{ tr('failedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || failedStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
           <div v-if="selectedHistoryItem.status === 'failed'" data-testid="history-detail-error"><dt>{{ tr('errorSummary') }}</dt><dd>{{ formatError(selectedHistoryItem) }}</dd></div>
+          <div v-if="policyResumeHintFor(selectedHistoryItem)" data-testid="history-detail-policy-resume-hint">
+            <dt>{{ tr('policyResumeBlockedLabel') }}</dt>
+            <dd class="history-detail-policy-hint">{{ policyResumeHintFor(selectedHistoryItem) }}</dd>
+          </div>
         </dl>
         <div v-if="Array.isArray(selectedHistoryItem.stages) && selectedHistoryItem.stages.length" class="history-detail-stages">
           <span class="history-field-label">{{ tr('stages') }}</span>
@@ -247,8 +255,8 @@ import { getAppLocale } from '@/i18n'
 import zhLocale from '@/locales/zh'
 import enLocale from '@/locales/en'
 import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
+import { RESUME_BLOCKING_ERROR_PATTERN, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
 import { formatPipelineError } from '@/utils/pipeline-error-formatter'
-import { filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
 
 const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'failed', 'completed', 'cancelled'])
 
@@ -274,11 +282,53 @@ export default {
   computed: {
     filteredHistory () { return filterHistoryByStatus(this.history, this.activeFilter) },
     statusCounts () { return historyStatusCounts(this.history) },
+    // 每张失败卡片只计算一次不可恢复提示文本，避免模板 v-if + 文本处重复跑正则。
+    policyResumeHints () {
+      const hints = new Map()
+      this.filteredHistory.forEach((item, index) => {
+        if (!item || item.status !== 'failed') return
+        const text = this.policyResumeBlockedText(item)
+        if (text) hints.set(this.historyIdentity(item, index), text)
+      })
+      return hints
+    },
   },
   watch: {
     historyFilter (value) { this.activeFilter = HISTORY_STATUSES.includes(value) ? value : 'all' },
   },
   methods: {
+    resolveLocaleRef (ref, locale, params) {
+      if (typeof ref !== 'string' || !ref.startsWith('@')) return ref
+      const keyPath = ref.slice(1).split('.')
+      const trees = { zh: zhLocale, en: enLocale }
+      let node = trees[locale] || trees.zh
+      for (const seg of keyPath) {
+        node = node?.[seg]
+        if (node == null) return ref
+      }
+      const resolved = typeof node === 'string' ? node : ref
+      if (params && resolved.includes('{')) {
+        return resolved.replace(/\{([^{}]+)\}/g, (_, k) => String(params[k] ?? ''))
+      }
+      return resolved
+    },
+    formatError (item) {
+      if (!item || !item.error) return this.tr('genericFailure')
+      const result = formatPipelineError(item.error, { locale: this.currentLocale() })
+      if (result.message) return result.message
+      if (result.key) {
+        try {
+          let msg = this.$t?.(result.key) || ''
+          if (result.params && typeof msg === 'string') {
+            for (const [k, v] of Object.entries(result.params)) {
+              msg = msg.replace(new RegExp('\\{' + k + '\\}', 'g'), String(this.resolveLocaleRef(v, this.currentLocale(), result.params) ?? ''))
+            }
+          }
+          return msg || this.tr('genericFailure')
+        } catch (_) { /* fallback */ }
+      }
+      return this.tr('genericFailure')
+    },
     tr (path) {
       const key = 'create.history.' + path
       try {
@@ -339,44 +389,6 @@ export default {
       const text = String(value || '')
       return text.length > max ? text.slice(0, max - 1) + '…' : text
     },
-    /**
-     * Format pipeline raw error into user-facing natural language with suggestions.
-     * @param {object} item - history record item
-     * @returns {string} user-visible error message
-     */
-    resolveLocaleRef (ref, locale, params) {
-      if (typeof ref !== 'string' || !ref.startsWith('@')) return ref
-      const keyPath = ref.slice(1).split('.')
-      const trees = { zh: zhLocale, en: enLocale }
-      let node = trees[locale] || trees.zh
-      for (const seg of keyPath) {
-        node = node?.[seg]
-        if (node == null) return ref
-      }
-      const resolved = typeof node === 'string' ? node : ref
-      if (params && resolved.includes('{')) {
-        return resolved.replace(/{([^{}]+)}/g, (_, k) => String(params[k] ?? ''))
-      }
-      return resolved
-    },
-    formatError (item) {
-      if (!item || !item.error) return this.tr('genericFailure')
-      const result = formatPipelineError(item.error, { locale: this.currentLocale() })
-      if (result.message) return result.message
-      if (result.key) {
-        try {
-          let msg = this.$t?.(result.key) || ''
-          if (result.params && typeof msg === 'string') {
-            for (const [k, v] of Object.entries(result.params)) {
-              msg = msg.replace(new RegExp('\{' + k + '\}', 'g'), String(this.resolveLocaleRef(v, this.currentLocale(), result.params) ?? ''))
-            }
-          }
-          // $t returns the key itself when locale tree is missing or test mock — treat as unresolved
-          if (typeof msg === 'string' && msg && msg !== result.key) return msg
-        } catch (_) { /* fall through */ }
-      }
-      return this.truncate(item.error, 160)
-    },
     pipelineName (id) { return getPipelineName(key => this.$t?.(key), id) },
     localizedMode (item) {
       return getPipelineMode(key => this.$t?.(key), item?.pipeline || item?.name) || String(item?.mode || '')
@@ -395,7 +407,24 @@ export default {
     },
     historyItemResumable (item) {
       if (!item || !['failed', 'paused'].includes(item.status) || !(item.id || item.runId)) return false
-      return !/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))
+      return !RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))
+    },
+    policyResumeHintFor (item) {
+      if (!item) return ''
+      const cached = this.policyResumeHints.get(this.historyIdentity(item, -1))
+      return cached !== undefined ? cached : this.policyResumeBlockedText(item)
+    },
+    policyResumeBlockedText (item) {
+      if (!item || item.status !== 'failed' || !(item.id || item.runId)) return ''
+      if (!RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))) return ''
+      const scenes = contentPolicyScenes(item.error, this.currentLocale())
+      if (!scenes) return this.tr('policyResumeBlockedGeneric')
+      try {
+        const message = this.$t?.('create.history.policyResumeBlockedHint', { scenes })
+        return typeof message === 'string' && message !== 'create.history.policyResumeBlockedHint' ? message : this.tr('policyResumeBlockedGeneric')
+      } catch (_) {
+        return this.tr('policyResumeBlockedGeneric')
+      }
     },
     activeStage (item) {
       const stage = (Array.isArray(item?.stages) ? item.stages : []).find(value => ['running', 'paused', 'waiting_approval'].includes(value?.status))
