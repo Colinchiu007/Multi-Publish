@@ -1,12 +1,12 @@
 {
   "id": "autonomous-loop-pixel-port",
-  "title": "autonomous-loop 像素子进程端口错配（5174 vs 5173）导致系统性秒挂",
+  "title": "autonomous-loop 接线修复：像素端口错配（5173/5174）+ Gate 9 中转站 env 缺口",
   "status": "in_progress",
   "complexity": "M",
   "risk": "medium",
   "domain": "ci",
   "currentPhase": "implementation",
-  "nextAction": "双模型审查",
+  "nextAction": "PR #902 CI 中，待合并",
   "createdAt": "2026-08-16",
   "branch": "codex/autonomous-loop-pixel-port"
 }

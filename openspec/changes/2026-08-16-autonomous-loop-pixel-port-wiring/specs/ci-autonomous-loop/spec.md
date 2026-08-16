@@ -13,3 +13,12 @@
 
 - **WHEN** 契约测试以注入 `execute` 捕获视觉阶段子进程 env
 - **THEN** 断言 `TEST_URL` / `TEST_PORT` 与 `TARGET_PORT` 一致，且原环境变量（如 `LLM_PROVIDER`）被保留
+
+### Requirement: Gate 9 覆盖审计必须继承中转站 LLM 接线
+
+`quality-gate.yml` 的 Gate 9（Autonomous coverage audit）step env SHALL 注入 `secrets.LLM_BASE_URL` 与 `secrets.LLM_MODEL`（与 `OPENAI_API_KEY` 同级），使 OpenAI 兼容中转站端点可用；SHALL NOT 在中转站 key 下回落官方 `api.openai.com`。workflow 契约测试 SHALL 断言 Gate 9 env 三件套同现。
+
+#### Scenario: 中转站配置下 Gate 9 真实调用
+
+- **WHEN** secrets 已配置中转站 `LLM_BASE_URL`/`LLM_MODEL` 且 `OPENAI_API_KEY` 为中转站 key
+- **THEN** 覆盖审计调用中转站端点并产出真实 items，而非 1 秒内空报告 `NEED_HUMAN`

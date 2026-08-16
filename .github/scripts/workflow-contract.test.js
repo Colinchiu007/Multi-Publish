@@ -139,6 +139,8 @@ test('自主覆盖审计仅在确认是无模型 NEED_HUMAN 报告时降级为�
   assert.match(gate9, /--started-after=\$reportStart/);
   assert.match(gate9, /--has-openai-key=\$\(\[bool\]\$env:OPENAI_API_KEY\)/);
   assert.match(gate9, /if \(\$gateExit -eq 0\)/);
+  assert.match(gate9, /LLM_BASE_URL: \$\{\{ secrets\.LLM_BASE_URL \}\}/);
+  assert.match(gate9, /LLM_MODEL: \$\{\{ secrets\.LLM_MODEL \}\}/);
   assert.match(gate9, /AUTONOMOUS_GATE=FAIL/);
   assert.doesNotMatch(gate9, /Get-ChildItem|ConvertFrom-Json/);
   assert.match(workflow, /agent-review-gate\.test\.js/);

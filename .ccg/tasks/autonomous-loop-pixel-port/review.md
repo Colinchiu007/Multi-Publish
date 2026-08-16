@@ -19,3 +19,8 @@
 ## Info（不采纳）
 - I1：把默认端口常量提为单一配置源——本修复仅注入 env，5173/5174 双默认属两套独立工具默认值，后续如需统一可单开重构。
 - I2：`agent-visual-judge.js` 空报告时 exit 1——端口修复后报告必有合法结果；空报告路径保留 hard fail 更安全，不改。
+
+## CI 实证补充（同根因族）
+
+- PR #902 CI（run 31948506408）QG Autonomous 仍 fail：`[COVERAGE] verdict: NEED_HUMAN, items: 0`（1 秒空报告）——Gate 9 只注入 `OPENAI_API_KEY`，未接线 `LLM_BASE_URL`/`LLM_MODEL`，中转站 key 打到官方 `api.openai.com`（`makeLlmFn` 默认端点）。
+- 修复：quality-gate.yml Gate 9 step env 补齐两个 secret（与 OPENAI_API_KEY 同级）；workflow-contract.test.js 增加「三件套同现」断言；主代理自查 0C/0W，与像素修复同一 PR 提交。
