@@ -1,3 +1,13 @@
+## 分段状态 failed/completed 误导展示与残留 error 复盘（fix-s2v-segment-status-reason，2026-08-16）
+
+- **现象**：视频创作-历史记录分段卡片直接显示英文原值状态（failed/completed）；用户点击【重试图片】成功后，分段状态变 completed 但旧 error（`UnsupportedParamsError: Setting response_format is not supported...`）仍残留，UI 语义矛盾、无法理解失败原因。
+- **根因**：① `ResultView.vue` 徽标 `${segment.status || 'completed'}` 直出后端枚举原值，未走 locale 映射；② 服务层多个「成功→completed」写回点（图片/视频生成、重试、音频替换/重生成、提示词重生成、AI 视频生成）不清理分段旧 `error`，造成 `completed` + `error` 并存；既有先例 `regenerateSceneSubtitle` 已写 `error: null`，其余路径未同步（双路径漂移）。
+- **教训 1（状态与错误字段是同一份真相）**：`status` 与 `error` 必须同写同清——「成功置 completed」与「失败置 failed+error」是一枚硬币的两面；任何成功写回点都要显式 `error: null`，不能依赖「新数据覆盖」隐式清理（覆盖不保证发生，重试路径尤其会继承旧 error）。
+- **教训 2（用户可见枚举必须本地化）**：直接暴露给用户的枚举值（status/errorCode/阶段等）不得原样输出英文；至少建立 `story2video.segmentStatus.*` 这类映射（未知值默认安全标签，如 completed），禁止透传原值。
+- **教训 3（失败原因复用归一化而非裸错误）**：内联原因复用 `resolveStory2VideoNotification({ error })` 分类映射（额度/API Key/参数不受支持/内容策略等 → 可读且可操作的本地化文案），未命中回退 operation_failed 通用文案并 120 码点截断——不暴露内部错误文本/堆栈，同时让已知类别覆盖大多数排查场景而非纯通用文案。
+- **逃逸链**：渲染测试只断言「状态存在」，无「状态文案本地化」与「completed 残留 error 不展示」用例（测试场景缺失）；服务层测试只覆盖「成功更新素材路径/失败保留 error」，无「曾失败分段成功重试后 error 清理」用例（不对称覆盖：失败侧有回归、成功侧无）；CJK 基线按 file:line 存储，行号位移会触发假阳性（既有已知边界，需 --update-baseline 且人工核对无新增）。
+- **回归保护**：`story2video-project-service.test.js` +2（retrySegment 成功清 error、generateSceneImage 成功清 error）；`ResultView.test.js` +3（本地化标签与原因内联、completed 残留 error 不渲染、未命中回退通用文案）；后续改任何分段状态写回必须同时跑这两个文件。
+
 ## 历史记录保存分段后图片全部消失复盘（fix-s2v-save-segments-image-loss，2026-08-16）
 
 - **现象**：视频创作-历史记录结果页点击【保存分段】后所有分段图片/素材槽/视频槽消失；主进程数据与图片文件未丢，纯渲染端显示为空。

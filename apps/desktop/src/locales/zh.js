@@ -430,6 +430,12 @@ export default {
       placeholder_image: '占位图片',
       silent_narration: '静音旁白',
     },
+    segmentStatus: {
+      completed: '已完成',
+      failed: '失败',
+      processing: '生成中',
+      pending: '待处理',
+    },
     historyDetail: {
       login: '当前未登录或登录已过期。请登录后重试；未登录时仅显示本机记录。',
       storage: '本地存储异常。请重启应用后重试；若持续出现请检查本地磁盘空间与权限。',
