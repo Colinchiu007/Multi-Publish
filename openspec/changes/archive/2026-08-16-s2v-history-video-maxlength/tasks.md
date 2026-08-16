@@ -16,5 +16,5 @@
   - [x] `01-docs/CHANGELOG.md` 置顶条目
   - [x] `.quality-gates.md` 本次执行记录
   - [x] openspec validate 通过
-  - [ ] 双模型审查（antigravity 不可用时降级 Claude-only 并记录）
-  - [ ] PR 合并 → archive 三同步（openspec/CCG/quality-gates 远程同步回填）
+  - [x] 双模型审查（antigravity 地域不可用 + claude 本地代理 127.0.0.1:15721 未监听 → 降级主代理直审，结论 PASS，见 .ccg/tasks/s2v-history-video-maxlength/review.md）
+  - [x] PR #906 合并（squash b885ce53，2026-08-16T14:59Z）→ 本 change 归档 + CCG task 归档 + quality-gates 远程同步回填
