@@ -1,3 +1,22 @@
+## 结果页视频预览令牌失效误报自愈 + 旧令牌回收复盘（s2v-video-preview-token-refresh，2026-08-16）
+
+- **现象**：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存（用户报障）。结果页主视频正常，历史编辑回放旧任务才复现。
+- **根因**：本地媒体服务签发短生命令牌 URL（TTL 15 分钟、128 条 FIFO 注册表逐出、生产零 revoke）；历史任务编辑是长期会话，旧任务回放时原令牌已过期或被新签发逐出 → `<video>` 元素触发 error → 渲染层固定弹「视频预览加载失败」文案（属误报，run 终态与成片均完好）。
+- **教训 1（本地媒体令牌必须带生命周期语义）**：短 TTL + 容量逐出的令牌不能只签不发；同槽位替换时必须回收旧令牌（`create-share-url` 可选 `previousUrl`，签发成功后 best-effort revoke），否则长期编辑会话必然踩过期/逐出。
+- **教训 2（令牌 URL 回收域必须收紧）**：revoke 前必须校验同源 + `/media/<token>` 形状（`isLocalMediaTokenUrl`），否则会误逐出共享 128 条注册表的分段图/音频/视频活跃令牌（审查 W1 修复：先域检查再 revoke，非本地 URL 静默忽略）。
+- **教训 3（IPC 契约扩展向后兼容）**：为既有 IPC 增加可选参数时，preload 与 renderer API 层只在参数 defined 时转发，1 参旧调用方字节级兼容；renderer 所有替换点（主视频/旁白/分段素材/裁剪预览）同步透传旧地址，逐槽位回收。
+- **教训 4（渲染 error 先自愈再报错）**：`handleError` 首次 error 以同一 videoPath 重签 URL 并 `await $nextTick()` 后 `player.load()` 一次，二次失败才弹既有本地化文案；不 rewrite run 终态、不无限循环（`videoReloadAttempted` 状态机）。
+- **逃逸链**：IPC 测试只覆盖「签发成功/失败」，无令牌生命周期（TTL/逐出/revoke 契约）用例（测试场景缺失）；渲染测试只断言「error 弹窗文案」，无「error 后恢复播放」路径（测试场景缺失）；双模型审查 antigravity 地区不可用降级，Claude 第一轮 W1 捕获 revoke 域过宽（审查盲区）。
+- **回归保护**：IPC +4 用例（回收/不回收/非本地 URL 拒绝/同源非媒体路径拒绝，`story2video.test.js`）；ResultView +5 用例（自愈不弹窗、二次失败弹窗、重签失败不标记、loadVideoPath 重置并透传、refreshSegmentImageUrls 透传，`ResultView.test.js`）；后续改令牌生命周期/预览 URL 替换必须同时跑这两个文件。
+
+## GitHub Actions PR 事件投递偶发故障 + CJK 基线本地/CI 偏差复盘（2026-08-16）
+
+- **现象**：`codex/s2v-video-preview-token-refresh` 分支所有 PR 事件（opened/synchronize/reopened）一度零投递（`gh run list --branch` 无新 run），同一时间窗其他 PR（#887/#888）正常触发；close+reopen、空提交 push、复制新分支重开 PR 均无效，约 1 小时后随其他 PR 合并 main 自动恢复。
+- **教训 1（事件投递故障识别）**：分支 push 后 15-30 分钟仍无任何 run、而其他分支正常 = 平台侧事件投递故障；`gh pr checks` 报 "no checks reported" 是同一信号的 PR 面表现。
+- **教训 2（无 `workflow_dispatch` 的 workflow 只能等事件恢复）**：electron-ci / doc-gate / build 无手动触发器；兜底 = 有 dispatch 的 workflow 手动 `gh workflow run <name> --ref <branch>` 派发 + 无 dispatch 者跑本地等价（doc-gate 用 `check-docs-sync.sh --base/--head`，electron 用全量 vitest）。事件恢复后必须以 PR head 最新 SHA 的自动 run 为准，手动 run 只作兜底证据（旧 SHA 结果不代表最终）。
+- **教训 3（CJK 基线按 file:line 存储 → 本地/CI 偏差）**：本地基于旧 `origin/main` 跑 `check-locale-sync.js --cjk` PASS 不代表 CI PASS——CI 基线是合并流上的最新版；行号偏移（本次 ResultView.vue +5 偏移 11 处）触发 fresh 假阳性（1502=1502 无新增文案）时，先逐条对账确认无真实新增，再显式 `--update-baseline` 并作为独立 commit 提交（重锚后 QG Static PASS）。
+- **教训 4（PR head 分支名核对）**：事件投递故障时用「复制新分支重开 PR」兜底会产生 head 分支与 worktree 分支名不一致（`-2` 后缀）；push 前必须 `gh pr view --json headRefName` 核对目标，避免推错分支导致 PR 一直显示旧 SHA。
+- **回归保护**：CI 首轮失败先查基线/缓存类假阳性（`--update-baseline` 前必须对账）；事件投递恢复判定 = 该分支出现新 event 的自动 run 且 headSha 为最新；`.quality-gates.md` 已记录本次完整处置链路（含 QG Static 重锚）。
 ## 古代东亚故事出图西方面孔全链盲区复盘（s2v-east-asian-face-anchor，2026-08-16）
 
 - **现象**：朱蒙·高句丽题材（卒本川/五女山城）场景图出现西方面孔；提示词里没有任何人物外貌约束。
