@@ -228,6 +228,9 @@ describe('Story2Video 交付 IPC', () => {
       regenerateSceneAudio: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
       regenerateScenePrompt: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
       generateSceneAiVideo: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      selectSceneMaterial: vi.fn(() => ({ projectId: 'project-1', dirty: true })),
+      generateSceneImage: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      generateSceneVideo: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
       transcribeFile: vi.fn(async () => ({ text: '识别文本' })),
       getCapabilities: vi.fn(() => ({ transcription: { available: true }, remix: { available: false } })),
     }
@@ -247,12 +250,15 @@ describe('Story2Video 交付 IPC', () => {
     await ipcMain.get('story2video:regenerate-scene-audio')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
     await ipcMain.get('story2video:regenerate-scene-prompt')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0', kind: 'video' })
     await ipcMain.get('story2video:generate-scene-ai-video')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
+    await ipcMain.get('story2video:select-scene-material')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0', kind: 'video' })
+    await ipcMain.get('story2video:generate-scene-image')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
+    await ipcMain.get('story2video:generate-scene-video')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
     await ipcMain.get('story2video:transcribe')(TRUSTED_EVENT, { filePath: 'C:/controlled/audio.mp3' })
     const capabilities = await ipcMain.get('story2video:capabilities')(TRUSTED_EVENT)
 
     expect(service.updateSegments).toHaveBeenCalledWith('project-1', [{ id: 'segment-0', text: '新文案' }])
-    // 保存/重合成/三种重新生成均经同项目串行队列，防止跨段并发覆盖（审查 W2 回归）
-    expect(service._serializeProject).toHaveBeenCalledTimes(6)
+    // 保存/重合成/全部重新生成/素材替换/选择/删除均经同项目串行队列，防止跨段并发覆盖（审查 W2/W4 回归）
+    expect(service._serializeProject).toHaveBeenCalledTimes(12)
     expect(service._serializeProject).toHaveBeenCalledWith('project-1', expect.any(Function))
     expect(service.replaceSegmentAudio).toHaveBeenCalledWith('project-1', 'segment-0', 'C:/controlled/replacement.mp3')
     expect(service.deleteProject).toHaveBeenCalledWith('project-1')
@@ -262,6 +268,9 @@ describe('Story2Video 交付 IPC', () => {
     expect(service.regenerateSceneAudio).toHaveBeenCalledWith('project-1', 'segment-0')
     expect(service.regenerateScenePrompt).toHaveBeenCalledWith('project-1', 'segment-0', 'video')
     expect(service.generateSceneAiVideo).toHaveBeenCalledWith('project-1', 'segment-0')
+    expect(service.selectSceneMaterial).toHaveBeenCalledWith('project-1', 'segment-0', 'video')
+    expect(service.generateSceneImage).toHaveBeenCalledWith('project-1', 'segment-0')
+    expect(service.generateSceneVideo).toHaveBeenCalledWith('project-1', 'segment-0')
     expect(service.transcribeFile).toHaveBeenCalledWith('C:/controlled/audio.mp3')
     expect(capabilities.data.transcription.available).toBe(true)
   })
@@ -325,6 +334,7 @@ describe('Story2Video 交付 IPC', () => {
     fs.writeFileSync(source, 'voice')
     const imported = paths.importUserSelectedMedia(source, 'audio')
     const service = {
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
       replaceSegmentAudio: vi.fn(() => ({ projectId: 'project-1', segments: [] })),
     }
     const ipcMain = createIpcMain()
@@ -345,6 +355,7 @@ describe('Story2Video 交付 IPC', () => {
     fs.writeFileSync(source, 'voice')
     const imported = paths.importUserSelectedMedia(source, 'audio')
     const service = {
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
       replaceSegmentAudio: vi.fn(() => { throw new Error('写入项目失败') }),
     }
     const ipcMain = createIpcMain()
