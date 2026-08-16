@@ -585,6 +585,55 @@ describe("ResultView", () => {
     expect(w.vm.projectId).toBe("project-route");
   });
 
+  it("focusScenes 定位内容政策场景并渲染徽标，越界号码不渲染", async () => {
+    const api = await import("@/api/publisher");
+    const segments = Array.from({ length: 80 }, (_, i) => ({ id: "seg-" + i, text: "文案 " + (i + 1) }));
+    api.story2videoGetProject.mockResolvedValue({ code: 0, data: { projectId: "project-focus", videoPath: "C:/focus/video.mp4", segments } });
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///focus/video.mp4" } });
+    await router.push({ path: "/", query: { project: "project-focus", focusScenes: "49,73,74,999" } });
+
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // 场景号 = 分段下标 + 1：49→segments[48]、73→[72]、74→[73]；999 越界不渲染
+    expect(w.findAll('[data-testid="segment-policy-flag"]')).toHaveLength(3);
+    const flagged = w.findAll(".segment-item").filter(item => item.classes().includes("segment-policy-flagged"));
+    expect(flagged).toHaveLength(3);
+    expect(flagged[0].text()).toContain("分段 49");
+    expect(flagged[2].text()).toContain("分段 74");
+    w.unmount();
+  });
+
+  it("focusScenes 非十进制形式安全忽略，仅十进制正整数生效", async () => {
+    const api = await import("@/api/publisher");
+    const segments = Array.from({ length: 3 }, (_, i) => ({ id: "seg-" + i, text: "文案 " + (i + 1) }));
+    api.story2videoGetProject.mockResolvedValue({ code: 0, data: { projectId: "project-focus-strict", videoPath: "C:/focus/video.mp4", segments } });
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///focus/video.mp4" } });
+    await router.push({ path: "/", query: { project: "project-focus-strict", focusScenes: "0x10,2,1e2,007" } });
+
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // 仅十进制正整数生效：2→segments[1]；0x10/1e2/007 忽略
+    expect(w.findAll('[data-testid="segment-policy-flag"]')).toHaveLength(1);
+    expect(w.findAll(".segment-policy-flagged")).toHaveLength(1);
+    expect(w.findAll(".segment-item")[1].text()).toContain("分段 2");
+    w.unmount();
+  });
+
+  it("无 focusScenes 时不渲染政策徽标", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoGetProject.mockResolvedValue({ code: 0, data: { projectId: "project-x", videoPath: "C:/x/video.mp4", segments: [{ id: "s1", text: "a" }] } });
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///x/video.mp4" } });
+    await router.push({ path: "/", query: { project: "project-x" } });
+
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(w.findAll('[data-testid="segment-policy-flag"]')).toHaveLength(0);
+    w.unmount();
+  });
+
   it("重新合成后无法解析成片 URL 时显示预览缺失提示", async () => {
     const api = await import("@/api/publisher");
     api.story2videoRecomposeProject.mockResolvedValue({ code: 0, data: {

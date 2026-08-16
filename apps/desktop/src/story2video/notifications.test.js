@@ -62,9 +62,9 @@ describe('Story2Video 通知模型', () => {
     })
     expect(resolved).toMatchObject({
       key: STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED,
-      params: { sceneText: '（第 22 个场景）' },
+      params: { sceneText: '@story2video.labels.sceneLabel' },
     })
-    expect(resolved.message).toContain('（第 22 个场景）')
+    expect(resolved.message).toContain('（场景 22）')
     expect(resolved.message).toContain('请稍等片刻后重试')
     expect(resolved.message).not.toContain('request id')
 
@@ -77,7 +77,7 @@ describe('Story2Video 通知模型', () => {
 
     // 对话框二次格式化路径：messageParams 中的 sceneText 需透传
     const dialogMessage = formatStory2VideoNotification({ messageKey: resolved.key, messageParams: resolved.params })
-    expect(dialogMessage.message).toContain('（第 22 个场景）')
+    expect(dialogMessage.message).toContain('（场景 22）')
   })
 
   it('识别额度耗尽错误并给出明确的本地化提示（不重试类）', () => {
@@ -86,10 +86,10 @@ describe('Story2Video 通知模型', () => {
     })
     expect(resolved).toMatchObject({
       key: STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED,
-      params: { sceneText: '（第 3 个场景）' },
+      params: { sceneText: '@story2video.labels.sceneLabel' },
     })
     expect(resolved.message).toContain('额度或余额已用完')
-    expect(resolved.message).toContain('第 3 个场景')
+    expect(resolved.message).toContain('（场景 3）')
 
     expect(resolveStory2VideoNotification({
       error: 'Your account balance is insufficient',

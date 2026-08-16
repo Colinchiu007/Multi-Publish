@@ -4414,4 +4414,32 @@ describe("批量创作（story2video-batch-create）", () => {
     expect(mocks.story2videoBatchCancel).toHaveBeenCalledWith("batch_y", ["batch_y_i1"]);
     w.unmount();
   });
+
+  it("openHistoryResult 政策失败携带 focusScenes，completed/可恢复失败不带", async () => {
+    const pushSpy = vi.spyOn(router, "push");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.openHistoryResult({
+      projectId: "proj-policy", status: "failed",
+      error: "Image #49: content-policy review; Image #73: content-policy review; Image #74: content-policy review",
+    });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-policy", focusScenes: "49,73,74" } });
+    pushSpy.mockClear();
+    w.vm.openHistoryResult({ projectId: "proj-done", status: "completed", error: "" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-done" } });
+    pushSpy.mockClear();
+    w.vm.openHistoryResult({ projectId: "proj-retry", status: "failed", error: "provider timeout, please retry" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-retry" } });
+    pushSpy.mockClear();
+    // completed 任务即使残留门控关键字文本也不携带 focusScenes（与 policyEditTarget 的 failed 前提对齐，审查 M4）
+    w.vm.openHistoryResult({ projectId: "proj-done2", status: "completed", error: "Image #3: content-policy review" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-done2" } });
+    pushSpy.mockClear();
+    // 门控命中但无法提取 Image #N（如 manual 模式无场景号前缀）时不携带 focusScenes，结果页按缺省安全降级（W1）
+    w.vm.openHistoryResult({ projectId: "proj-manual", status: "failed", error: "Image generation requires user input after content-policy review" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-manual" } });
+    w.unmount();
+  });
 });

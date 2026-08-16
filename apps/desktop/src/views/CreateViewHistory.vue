@@ -164,6 +164,14 @@
                 @click.stop="$emit('resume-history', item)"
               >{{ story2videoResuming ? tr('resuming') : tr('continue') }}</button>
               <button
+                v-if="policyEditTarget(item)"
+                type="button"
+                class="s2v-btn-secondary s2v-btn-sm"
+                data-testid="history-policy-edit-button"
+                :disabled="story2videoResuming"
+                @click.stop="$emit('open-result', item)"
+              >{{ tr('policyEditAndRegenerate') }}</button>
+              <button
                 v-if="item.status === 'completed' && item.projectId"
                 type="button"
                 class="s2v-btn-secondary s2v-btn-sm"
@@ -202,7 +210,7 @@
           <div v-if="selectedHistoryItem.status === 'paused'"><dt>{{ tr('pausedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || activeStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
           <div v-if="selectedHistoryItem.status === 'paused' && pauseEnvironment(selectedHistoryItem)"><dt>{{ tr('pauseEnvironment') }}</dt><dd>{{ localizedEnvironment(pauseEnvironment(selectedHistoryItem)) }}</dd></div>
           <div v-if="selectedHistoryItem.status === 'failed'"><dt>{{ tr('failedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || failedStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
-          <div v-if="selectedHistoryItem.status === 'failed'" data-testid="history-detail-error"><dt>{{ tr('errorSummary') }}</dt><dd>{{ selectedHistoryItem.error || tr('genericFailure') }}</dd></div>
+          <div v-if="selectedHistoryItem.status === 'failed'" data-testid="history-detail-error"><dt>{{ tr('errorSummary') }}</dt><dd>{{ formatError(selectedHistoryItem) }}</dd></div>
           <div v-if="policyResumeHintFor(selectedHistoryItem)" data-testid="history-detail-policy-resume-hint">
             <dt>{{ tr('policyResumeBlockedLabel') }}</dt>
             <dd class="history-detail-policy-hint">{{ policyResumeHintFor(selectedHistoryItem) }}</dd>
@@ -236,6 +244,14 @@
           @click="resumeFromDetail"
         >{{ story2videoResuming ? tr('resuming') : tr('resume') }}</button>
         <button
+          v-if="selectedHistoryItem && policyEditTarget(selectedHistoryItem)"
+          type="button"
+          class="s2v-btn-secondary s2v-btn-sm"
+          data-testid="history-detail-policy-edit-button"
+          :disabled="story2videoResuming"
+          @click="openResultFromDetail"
+        >{{ tr('policyEditAndRegenerate') }}</button>
+        <button
           v-if="selectedHistoryItem && selectedHistoryItem.status === 'completed' && selectedHistoryItem.projectId"
           type="button"
           class="s2v-btn-secondary s2v-btn-sm"
@@ -252,8 +268,11 @@
 import '@/styles/history-panel.css'
 import UiModal from '@/components/UiModal.vue'
 import { getAppLocale } from '@/i18n'
+import zhLocale from '@/locales/zh'
+import enLocale from '@/locales/en'
 import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
 import { RESUME_BLOCKING_ERROR_PATTERN, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
+import { formatPipelineError } from '@/utils/pipeline-error-formatter'
 
 const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'failed', 'completed', 'cancelled'])
 
@@ -294,6 +313,38 @@ export default {
     historyFilter (value) { this.activeFilter = HISTORY_STATUSES.includes(value) ? value : 'all' },
   },
   methods: {
+    resolveLocaleRef (ref, locale, params) {
+      if (typeof ref !== 'string' || !ref.startsWith('@')) return ref
+      const keyPath = ref.slice(1).split('.')
+      const trees = { zh: zhLocale, en: enLocale }
+      let node = trees[locale] || trees.zh
+      for (const seg of keyPath) {
+        node = node?.[seg]
+        if (node == null) return ref
+      }
+      const resolved = typeof node === 'string' ? node : ref
+      if (params && resolved.includes('{')) {
+        return resolved.replace(/\{([^{}]+)\}/g, (_, k) => String(params[k] ?? ''))
+      }
+      return resolved
+    },
+    formatError (item) {
+      if (!item || !item.error) return this.tr('genericFailure')
+      const result = formatPipelineError(item.error, { locale: this.currentLocale() })
+      if (result.message) return result.message
+      if (result.key) {
+        try {
+          let msg = this.$t?.(result.key) || ''
+          if (result.params && typeof msg === 'string') {
+            for (const [k, v] of Object.entries(result.params)) {
+              msg = msg.replace(new RegExp('\\{' + k + '\\}', 'g'), String(this.resolveLocaleRef(v, this.currentLocale(), result.params) ?? ''))
+            }
+          }
+          return msg || this.tr('genericFailure')
+        } catch (_) { /* fallback */ }
+      }
+      return this.tr('genericFailure')
+    },
     tr (path) {
       const key = 'create.history.' + path
       try {
@@ -378,6 +429,10 @@ export default {
       if (!item) return ''
       const cached = this.policyResumeHints.get(this.historyIdentity(item, -1))
       return cached !== undefined ? cached : this.policyResumeBlockedText(item)
+    },
+    policyEditTarget (item) {
+      if (!item || item.status !== 'failed' || !item.projectId) return false
+      return RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))
     },
     policyResumeBlockedText (item) {
       if (!item || item.status !== 'failed' || !(item.id || item.runId)) return ''

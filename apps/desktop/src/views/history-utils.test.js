@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   HISTORY_TIME_KEYS,
   RESUME_BLOCKING_ERROR_PATTERN,
+  collectContentPolicySceneNumbers,
   contentPolicyScenes,
   filterHistoryByStatus,
   historyEffectiveTime,
+  policySceneQuery,
   sortHistoryByEffectiveTime,
 } from './history-utils'
 
@@ -93,5 +95,22 @@ describe('history-utils', () => {
     expect(contentPolicyScenes('')).toBe('')
     expect(contentPolicyScenes(null)).toBe('')
     expect(contentPolicyScenes(undefined)).toBe('')
+  })
+
+  it('collectContentPolicySceneNumbers 升序去重返回场景号数组', () => {
+    const error = 'Image #49: content-policy review; Image #73: content-policy review; ' +
+      'Image #74: content-policy review; Image #49: content_policy review; Image #5: aborted'
+    expect(collectContentPolicySceneNumbers(error)).toEqual([49, 73, 74])
+    expect(collectContentPolicySceneNumbers('provider timeout')).toEqual([])
+    expect(collectContentPolicySceneNumbers('')).toEqual([])
+    expect(collectContentPolicySceneNumbers(null)).toEqual([])
+  })
+
+  it('policySceneQuery 输出逗号分隔展开串，无命中返回空串', () => {
+    const error = 'Image #49: content-policy review; Image #73: content-policy review; ' +
+      'Image #74: content-policy review; Image #76: 内容政策拦截'
+    expect(policySceneQuery(error)).toBe('49,73,74,76')
+    expect(policySceneQuery('Image #5: aborted')).toBe('')
+    expect(policySceneQuery(undefined)).toBe('')
   })
 })
