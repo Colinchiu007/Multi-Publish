@@ -1,0 +1,13 @@
+{
+  "id": "fix-s2v-history-prompt-fail-open",
+  "title": "历史记录重新生成优化词 fail-open 吞错修复 + context 同源",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "planning",
+  "nextAction": "worktree 创建与依赖就绪，进入 TDD 实现",
+  "openspecChange": "fix-s2v-history-prompt-fail-open",
+  "createdAt": "2026-08-16T16:00:00+08:00",
+  "branch": "codex/fix-s2v-history-prompt-fail-open"
+}
