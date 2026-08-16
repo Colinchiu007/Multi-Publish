@@ -269,4 +269,64 @@ describe('CreateViewHistory', () => {
     expect(hint.text()).toContain('create.history.policyResumeBlockedLabel')
     expect(hint.text()).toContain('#49、#73')
   })
+
+  it('政策失败且有项目时卡片显示修改并重新生成按钮，点击发出 open-result', async () => {
+    const wrapper = mountHistory([
+      {
+        id: 'policy-edit-1', projectId: 'proj-p1', status: 'failed',
+        error: 'Image #49: Image generation requires user input after content-policy review',
+      },
+    ])
+    const card = wrapper.find('[data-history-id="policy-edit-1"]')
+    const editButton = card.find('[data-testid="history-policy-edit-button"]')
+    expect(editButton.exists()).toBe(true)
+    expect(editButton.text()).toContain('create.history.policyEditAndRegenerate')
+    expect(card.find('.s2v-btn-resume').exists()).toBe(false)
+    await editButton.trigger('click')
+    expect(wrapper.emitted('open-result')).toHaveLength(1)
+    expect(wrapper.emitted('open-result')[0][0].id).toBe('policy-edit-1')
+    expect(wrapper.emitted('open-history-detail')).toBeUndefined()
+  })
+
+  it('政策失败但无项目时不显示修改按钮，可恢复失败只显示断点继续', () => {
+    const wrapper = mountHistory([
+      { id: 'policy-no-proj', status: 'failed', error: 'content-policy review failed' },
+      { id: 'retry-edit-1', status: 'failed', error: 'provider timeout, please retry' },
+    ])
+    const policyCard = wrapper.find('[data-history-id="policy-no-proj"]')
+    expect(policyCard.find('[data-testid="history-policy-edit-button"]').exists()).toBe(false)
+    expect(policyCard.find('[data-testid="history-policy-resume-hint"]').exists()).toBe(true)
+    expect(policyCard.find('.s2v-btn-resume').exists()).toBe(false)
+    const retryCard = wrapper.find('[data-history-id="retry-edit-1"]')
+    expect(retryCard.find('[data-testid="history-policy-edit-button"]').exists()).toBe(false)
+    expect(retryCard.find('.s2v-btn-resume').exists()).toBe(true)
+  })
+
+  it('政策失败详情弹窗 footer 显示修改并重新生成按钮并发出 open-result', async () => {
+    const wrapper = mount(CreateViewHistory, {
+      props: {
+        history: [{
+          id: 'policy-detail-edit', projectId: 'proj-p9', status: 'failed',
+          error: 'Image #73: Image generation requires user input after content-policy review',
+        }],
+      },
+      global: {
+        mocks: { $t: interpolatingT },
+        stubs: {
+          UiModal: {
+            props: ['visible'],
+            template: '<div v-if="visible" class="ui-modal-stub"><slot /><slot name="footer" /></div>',
+          },
+        },
+      },
+    })
+    await wrapper.find('.history-item-body').trigger('click')
+    const modal = wrapper.find('.ui-modal-stub')
+    const footerBtn = modal.find('[data-testid="history-detail-policy-edit-button"]')
+    expect(footerBtn.exists()).toBe(true)
+    expect(footerBtn.text()).toContain('create.history.policyEditAndRegenerate')
+    await footerBtn.trigger('click')
+    expect(wrapper.emitted('open-result')).toHaveLength(1)
+    expect(wrapper.emitted('open-result')[0][0].projectId).toBe('proj-p9')
+  })
 })
