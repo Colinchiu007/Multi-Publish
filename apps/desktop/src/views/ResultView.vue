@@ -145,7 +145,10 @@
       <div class="section-heading">
         <div>
           <h2>分段编辑</h2>
-          <p>{{ segments.length }} 个分段 · {{ $t('story2video.sceneMaterial.editRecomposeHint') }}</p>
+          <p>
+            {{ segments.length }} 个分段 · {{ $t('story2video.sceneMaterial.editRecomposeHint') }}
+            <span v-if="segmentsDirty" class="segments-unsaved-chip" data-testid="segments-unsaved-chip">{{ tOrKey('story2video.sceneMaterial.unsavedChanges') }}</span>
+          </p>
         </div>
         <div class="section-actions">
           <UiButton size="sm" variant="secondary" :disabled="saving || anySegmentBusy" @click="saveSegments">
@@ -311,6 +314,15 @@
 
   </div>
 
+  <UiModal :visible="unsavedLeaveDialog.visible" :title="tOrKey('story2video.sceneMaterial.unsavedLeaveTitle')" size="sm" @close="cancelUnsavedLeave">
+    <p class="story2video-error-dialog-message" data-testid="unsaved-leave-message">{{ tOrKey('story2video.sceneMaterial.unsavedLeaveMessage') }}</p>
+    <template #footer>
+      <UiButton data-testid="unsaved-leave-save" :disabled="saving" @click="saveAndLeave">{{ tOrKey('story2video.sceneMaterial.saveAndLeave') }}</UiButton>
+      <UiButton variant="ghost" data-testid="unsaved-leave-discard" :disabled="saving" @click="discardAndLeave">{{ tOrKey('story2video.sceneMaterial.discardAndLeave') }}</UiButton>
+      <UiButton variant="secondary" data-testid="unsaved-leave-cancel" :disabled="saving" @click="cancelUnsavedLeave">{{ tOrKey('story2video.sceneMaterial.cancel') }}</UiButton>
+    </template>
+  </UiModal>
+
   <UiModal :visible="story2videoNotificationDialog.visible" :title="story2videoNotificationDialogUiText.dialogTitle" size="sm" @close="closeStory2VideoNotificationDialog">
     <p class="story2video-error-dialog-message">{{ story2videoNotificationDialogMessage }}</p>
     <template #footer>
@@ -368,6 +380,9 @@ export default {
       audioSrc: null,
       segments: [],
       segmentsDirty: false,
+      // 未保存修改离开守卫（2026-08-16）：hold-next 模式，弹窗确认前导航保持挂起
+      pendingLeaveNext: null,
+      unsavedLeaveDialog: { visible: false },
       saving: false,
       recomposing: false,
       segmentBusy: {},
@@ -389,6 +404,20 @@ export default {
     if (projectId) await this.loadProject(String(projectId))
     else if (filePath) await this.loadVideoPath(String(filePath))
     else this.loading = false
+  },
+  // 未保存修改离开守卫：dirty 时挂起导航并弹确认（hold-next，next 只调用一次），
+  // 避免用户直接返回历史/流水线列表时静默丢失编辑（2026-08-16）。
+  beforeRouteLeave (to, from, next) {
+    if (!this.segmentsDirty) { next(); return }
+    this.pendingLeaveNext = next
+    this.unsavedLeaveDialog.visible = true
+  },
+  // 测试/异常兜底：组件被销毁且守卫仍挂起时，取消导航，防止 next 悬挂。
+  unmounted () {
+    if (typeof this.pendingLeaveNext === 'function') {
+      this.pendingLeaveNext(false)
+      this.pendingLeaveNext = null
+    }
   },
   computed: {
     // 历史记录提示词翻译（2026-08-12）：非 en 界面且分段存在翻译时展示只读文案
@@ -470,6 +499,10 @@ export default {
     },
   },
   methods: {
+    // 防御式翻译：无 i18n 上下文（如部分单测 mount）时回落 key，生产环境正常返回本地化文案
+    tOrKey(key) {
+      return typeof this.$t === 'function' ? this.$t(key) : key
+    },
     showStory2VideoNotification(notification = {}) {
       const resolved = resolveStory2VideoNotification(notification)
       this.story2videoNotificationDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params }
@@ -1074,6 +1107,30 @@ export default {
         this.saving = false
       }
     },
+    // 离开守卫三动作（2026-08-16）：保存并离开 / 不保存离开 / 取消
+    async saveAndLeave() {
+      const next = this.pendingLeaveNext
+      if (typeof next !== 'function') return
+      if (!(await this.saveSegments())) return
+      this.pendingLeaveNext = null
+      this.unsavedLeaveDialog.visible = false
+      next()
+    },
+    discardAndLeave() {
+      if (this.saving) return // 保存在途时禁止穿插触发（双 next 竞态，2026-08-16 审查 W1）
+      const next = this.pendingLeaveNext
+      if (typeof next !== 'function') return
+      this.pendingLeaveNext = null
+      this.unsavedLeaveDialog.visible = false
+      next()
+    },
+    cancelUnsavedLeave() {
+      if (this.saving) return // 保存在途时禁止取消（否则保存完成后的 next 悬挂/竞态，2026-08-16 审查 W1）
+      const next = this.pendingLeaveNext
+      this.pendingLeaveNext = null
+      this.unsavedLeaveDialog.visible = false
+      if (typeof next === 'function') next(false)
+    },
     isPolicyFlagScene(index) {
       return this.policyFlagSceneNumbers.size > 0 && this.policyFlagSceneNumbers.has(index + 1)
     },
@@ -1194,6 +1251,7 @@ export default {
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .section-heading h2 { margin: 0; font-size: 18px; }
 .section-heading p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
+.segments-unsaved-chip { display: inline-block; margin-left: 10px; padding: 2px 8px; border-radius: 10px; background: #fdf6ec; color: #e6a23c; font-size: 12px; font-weight: 500; }
 .audio-player { width: 100%; height: 42px; }
 .trim-range-panel { display: grid; gap: 8px; margin-bottom: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .trim-range-values { display: flex; justify-content: space-between; color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: 12px; }
@@ -1262,3 +1320,4 @@ export default {
   .segment-voice-grid { grid-template-columns: 1fr; }
 }
 </style>
+

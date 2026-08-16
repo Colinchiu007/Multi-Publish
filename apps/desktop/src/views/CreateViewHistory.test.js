@@ -210,6 +210,53 @@ describe('CreateViewHistory', () => {
     expect(wrapper.emitted('open-result')).toHaveLength(1)
     expect(wrapper.emitted('open-result')[0][0].projectId).toBe('proj-1')
   })
+  it('详情弹窗完整展示长图片提示词（不截断），旁白/画面提示词分行，空字段不渲染，卡片预览仍 120 截断', async () => {
+    const longPrompt = 'A young prince in weathered bronze-toned leather armor and layered hemp-and-fur robes of deep amber and charcoal, standing at the edge of a misty mountain ridge with a contemplative gaze toward an ancient walled fortress perched atop steep forested peaks, his travel-worn cloak draped over one shoulder. He gazes south across a sweeping vista of the Zuben River valley, mist curling through dense conifer forests and rocky cliffs that rise dramatically in the background. The fortress city of Wunü Mo'
+    const longText = '旁白'.repeat(80)
+    const wrapper = mount(CreateViewHistory, {
+      props: {
+        history: [{
+          id: 'done-long', projectId: 'proj-1', pipeline: 'story2video-compose', status: 'completed',
+          segments: [
+            { id: 's1', text: longText, prompt: longPrompt },
+            { id: 's2', text: '', prompt: 'only-prompt' },
+            { id: 's3', text: 'only-text', prompt: '' },
+          ],
+        }],
+      },
+      global: {
+        mocks: { $t: key => key },
+        stubs: {
+          UiModal: {
+            props: ['visible'],
+            template: '<div v-if="visible" class="ui-modal-stub"><slot /><slot name="footer" /></div>',
+          },
+        },
+      },
+    })
+    // 历史卡片预览仍按 120 截断（设计如此），详情弹窗不截断
+    expect(wrapper.find('.prompt-preview-text').text()).toContain('…')
+    await wrapper.find('.history-item-body').trigger('click')
+    const modal = wrapper.find('.ui-modal-stub')
+    const scenes = modal.find('[data-testid="history-detail-scenes"]')
+    const items = scenes.findAll('.history-detail-scene-item')
+    expect(items).toHaveLength(3)
+    const rows1 = items[0].findAll('.history-detail-scene-row')
+    expect(rows1).toHaveLength(2)
+    expect(rows1[0].text()).toContain('create.history.sceneNarration')
+    expect(rows1[0].text()).toContain(longText)
+    expect(rows1[1].text()).toContain('create.history.scenePrompt')
+    expect(rows1[1].text()).toContain(longPrompt)
+    expect(rows1[1].text()).not.toContain('…')
+    const rows2 = items[1].findAll('.history-detail-scene-row')
+    expect(rows2).toHaveLength(1)
+    expect(rows2[0].text()).toContain('create.history.scenePrompt')
+    expect(rows2[0].text()).toContain('only-prompt')
+    const rows3 = items[2].findAll('.history-detail-scene-row')
+    expect(rows3).toHaveLength(1)
+    expect(rows3[0].text()).toContain('create.history.sceneNarration')
+    expect(rows3[0].text()).toContain('only-text')
+  })
   it('政策失败卡片显示不可恢复提示（含场景号），可恢复失败不显示', () => {
     const wrapper = mountHistory([
       {

@@ -281,6 +281,8 @@ export default {
       policyEditAndRegenerate: 'Edit scenes & regenerate',
       sceneListLabel: 'Scenes',
       sceneListHint: 'Click "Edit & recompose" to open the result page: modify each scene\'s text, subtitles, voice settings and image/video prompts, regenerate subtitles/narration/images/videos, then recompose the whole video.',
+      sceneNarration: 'Narration',
+      scenePrompt: 'Image prompt',
       delete: 'Delete',
       close: 'Close',
       detailTitle: 'Task details',
@@ -512,6 +514,12 @@ export default {
       voiceEmotionPlaceholder: 'e.g. calm, cheerful (optional)',
       regenerateVoice: 'Regenerate narration',
       generatingVoice: 'Generating narration...',
+      unsavedChanges: 'Unsaved changes',
+      unsavedLeaveTitle: 'Unsaved changes',
+      unsavedLeaveMessage: 'You have unsaved segment edits. Save them before leaving?',
+      saveAndLeave: 'Save and leave',
+      discardAndLeave: 'Leave without saving',
+      cancel: 'Cancel',
     },
 
     // Pipeline error param labels (@ refs resolved in interpolateMessage)

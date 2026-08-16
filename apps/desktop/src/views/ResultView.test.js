@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
@@ -978,5 +978,147 @@ describe("ResultView", () => {
     await nextTick();
     expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_subtitle_regenerate_failed");
     w.unmount();
+  });
+
+  describe("未保存修改可见性与离开守卫（2026-08-16）", () => {
+    // 经 router-view 真实挂载，确保 vue-router 能调用组件实例的 beforeRouteLeave
+    async function createGuardHarness() {
+      const guardRouter = createRouter({ history: createWebHistory(), routes: [
+        { path: "/", component: { template: "<div>root</div>" } },
+        { path: "/create", component: { template: "<div>create-list</div>" } },
+        { path: "/create/result", component: ResultView },
+      ] });
+      const Harness = { template: "<router-view />" };
+      const w = mount(Harness, {
+        attachTo: document.body,
+        global: {
+          plugins: [guardRouter],
+          components: { UiButton },
+          // UiModal 内部 Teleport to body；stub 后就地渲染，才能对弹窗按钮做 DOM 触发
+          stubs: { teleport: true },
+          mocks: { $t: (key, params) => (params && params.label ? params.label : key) },
+        },
+      });
+      await guardRouter.push("/create/result");
+      await nextTick();
+      const rv = w.findComponent(ResultView);
+      return { guardRouter, rv, w };
+    }
+
+    // UiModal 内容经 Transition 插入，需要少量帧等待；轮询到弹窗按钮再触发
+    async function findModalButton(wrapper, testid) {
+      for (let i = 0; i < 25; i++) {
+        const el = wrapper.find(testid);
+        if (el.exists()) return el;
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+      throw new Error('modal button not found: ' + testid);
+    }
+
+    afterEach(() => { document.body.innerHTML = ''; });
+
+    it("无未保存修改时离开直接放行，不弹确认", async () => {
+      const { guardRouter, rv, w } = await createGuardHarness();
+      rv.vm.projectId = "p1";
+      rv.vm.segments = [{ id: "s1", text: "A", prompt: "PA" }];
+      await nextTick();
+      await guardRouter.push("/create");
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(guardRouter.currentRoute.value.path).toBe("/create");
+      expect(rv.vm.unsavedLeaveDialog.visible).toBe(false);
+      w.unmount();
+    });
+
+    it("dirty 修改后显示「有未保存修改」提示，保存成功后消失", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoUpdateSegments.mockResolvedValue({ code: 0, data: { projectId: "p1", segments: [] } });
+      const { rv, w } = await createGuardHarness();
+      rv.vm.projectId = "p1";
+      rv.vm.segments = [{ id: "s1", text: "A", prompt: "PA" }];
+      await nextTick();
+      expect(w.find('[data-testid="segments-unsaved-chip"]').exists()).toBe(false);
+      rv.vm.segmentsDirty = true;
+      await nextTick();
+      expect(w.find('[data-testid="segments-unsaved-chip"]').exists()).toBe(true);
+      await rv.vm.saveSegments();
+      await nextTick();
+      expect(rv.vm.segmentsDirty).toBe(false);
+      expect(w.find('[data-testid="segments-unsaved-chip"]').exists()).toBe(false);
+      w.unmount();
+    });
+
+    it("dirty 离开弹确认并挂起导航，取消后留在当前页", async () => {
+      const { guardRouter, rv, w } = await createGuardHarness();
+      rv.vm.projectId = "p1";
+      rv.vm.segments = [{ id: "s1", text: "A", prompt: "PA" }];
+      rv.vm.segmentsDirty = true;
+      await nextTick();
+      const navigation = guardRouter.push("/create");
+      await nextTick();
+      expect(guardRouter.currentRoute.value.path).toBe("/create/result");
+      expect(rv.vm.unsavedLeaveDialog.visible).toBe(true);
+      await (await findModalButton(w, '[data-testid="unsaved-leave-cancel"]')).trigger("click");
+      await nextTick();
+      expect(rv.vm.unsavedLeaveDialog.visible).toBe(false);
+      await navigation.catch(() => {});
+      expect(guardRouter.currentRoute.value.path).toBe("/create/result");
+      w.unmount();
+    });
+
+    it("保存并离开：先保存分段成功再导航", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoUpdateSegments.mockResolvedValue({ code: 0, data: { projectId: "p1", segments: [] } });
+      const { guardRouter, rv, w } = await createGuardHarness();
+      rv.vm.projectId = "p1";
+      rv.vm.segments = [{ id: "s1", text: "A", prompt: "PA" }];
+      rv.vm.segmentsDirty = true;
+      await nextTick();
+      const navigation = guardRouter.push("/create");
+      await nextTick();
+      expect(rv.vm.unsavedLeaveDialog.visible).toBe(true);
+      await (await findModalButton(w, '[data-testid="unsaved-leave-save"]')).trigger("click");
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(api.story2videoUpdateSegments).toHaveBeenCalledWith("p1", [expect.objectContaining({ id: "s1", prompt: "PA" })]);
+      await navigation;
+      expect(guardRouter.currentRoute.value.path).toBe("/create");
+      w.unmount();
+    });
+
+    it("保存并离开：保存失败留在当前页且不导航", async () => {
+      const api = await import("@/api/publisher");
+      api.story2videoUpdateSegments.mockResolvedValue({ code: -1, message: "保存失败" });
+      const { guardRouter, rv, w } = await createGuardHarness();
+      rv.vm.projectId = "p1";
+      rv.vm.segments = [{ id: "s1", text: "A", prompt: "PA" }];
+      rv.vm.segmentsDirty = true;
+      await nextTick();
+      const navigation = guardRouter.push("/create");
+      await nextTick();
+      await (await findModalButton(w, '[data-testid="unsaved-leave-save"]')).trigger("click");
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(guardRouter.currentRoute.value.path).toBe("/create/result");
+      expect(rv.vm.segmentsDirty).toBe(true);
+      expect(rv.vm.unsavedLeaveDialog.visible).toBe(true);
+      // 保存失败时导航仍被挂起；unmount 触发组件兜底取消导航，navigation 才会 settle
+      w.unmount();
+      await navigation.catch(() => {});
+    });
+
+    it("不保存离开：跳过保存直接导航，修改被放弃", async () => {
+      const api = await import("@/api/publisher");
+      const { guardRouter, rv, w } = await createGuardHarness();
+      rv.vm.projectId = "p1";
+      rv.vm.segments = [{ id: "s1", text: "A", prompt: "PA" }];
+      rv.vm.segmentsDirty = true;
+      await nextTick();
+      const navigation = guardRouter.push("/create");
+      await nextTick();
+      await (await findModalButton(w, '[data-testid="unsaved-leave-discard"]')).trigger("click");
+      await new Promise(resolve => setTimeout(resolve, 30));
+      expect(api.story2videoUpdateSegments).not.toHaveBeenCalled();
+      expect(guardRouter.currentRoute.value.path).toBe("/create");
+      await navigation.catch(() => {});
+      w.unmount();
+    });
   });
 });
