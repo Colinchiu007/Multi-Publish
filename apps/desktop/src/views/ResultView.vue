@@ -1112,10 +1112,11 @@ export default {
             ? STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_IMAGE_RETRIED
             : STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_VIDEO_RETRIED,
         })
-      } catch (_error) {
+      } catch (error) {
         // 重试失败也刷新一次：服务端可能部分更新了分段（新图片已落盘但结果未完全返回）
         await this.refreshSegmentImageUrls().catch(() => {})
-        this.showStory2VideoOperationFailure()
+        // 透传真实错误走通知归一化（余额/限流/API Key 等已映射类别显示具体原因），未映射回退 operation_failed
+        this.showStory2VideoNotification({ error: error && error.message ? error.message : '' })
       } finally {
         const next = { ...this.segmentBusy }
         delete next[segmentId]
