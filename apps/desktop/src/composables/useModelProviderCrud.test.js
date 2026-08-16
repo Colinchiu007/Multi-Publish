@@ -661,7 +661,8 @@ describe('useModelProviderCrud', function () {
 
     it('loadMultimodalPreference 读取已保存开关（false 生效）', async function () {
       const publisher = await import('@/api/publisher')
-      publisher.storeGetSetting.mockResolvedValueOnce({ code: 0, data: false })
+      // storeGetSetting 已解包 IPC 信封，成功时返回裸值 false（真实契约）
+      publisher.storeGetSetting.mockResolvedValueOnce(false)
       await crud.loadMultimodalPreference()
       expect(publisher.storeGetSetting).toHaveBeenCalledWith('prefer_multimodal')
       expect(crud.preferMultimodal.value).toBe(false)
@@ -669,7 +670,14 @@ describe('useModelProviderCrud', function () {
 
     it('loadMultimodalPreference 无保存值时默认开启', async function () {
       const publisher = await import('@/api/publisher')
-      publisher.storeGetSetting.mockResolvedValueOnce({ code: 0, data: null })
+      publisher.storeGetSetting.mockResolvedValueOnce(null)
+      await crud.loadMultimodalPreference()
+      expect(crud.preferMultimodal.value).toBe(true)
+    })
+
+    it('loadMultimodalPreference 读取抛异常时默认开启', async function () {
+      const publisher = await import('@/api/publisher')
+      publisher.storeGetSetting.mockRejectedValueOnce(new Error('ipc error'))
       await crud.loadMultimodalPreference()
       expect(crud.preferMultimodal.value).toBe(true)
     })
@@ -679,6 +687,37 @@ describe('useModelProviderCrud', function () {
       await crud.saveMultimodalPreference(false)
       expect(publisher.storeSetSetting).toHaveBeenCalledWith('prefer_multimodal', false)
       expect(crud.preferMultimodal.value).toBe(false)
+    })
+
+    it('saveMultimodalPreference 保存失败（非 0 code）时回滚 UI 并提示原因', async function () {
+      const publisher = await import('@/api/publisher')
+      const { ElMessage } = await import('element-plus')
+      // 未登录 AUTH_ERROR 等场景：store:set-setting 返回非 0 code，保存实际未生效
+      publisher.storeSetSetting.mockResolvedValueOnce({ code: -1, message: '无法识别当前用户' })
+      await crud.saveMultimodalPreference(false)
+      expect(publisher.storeSetSetting).toHaveBeenCalledWith('prefer_multimodal', false)
+      // 回滚到保存前的值（默认开启），不再假装保存成功
+      expect(crud.preferMultimodal.value).toBe(true)
+      expect(ElMessage.error).toHaveBeenCalledWith('无法识别当前用户')
+    })
+
+    it('saveMultimodalPreference IPC 不可用（返回 undefined）时回滚 UI 并提示错误', async function () {
+      const publisher = await import('@/api/publisher')
+      const { ElMessage } = await import('element-plus')
+      // invoke 在 window.electronAPI 缺失时返回 undefined（不 reject）
+      publisher.storeSetSetting.mockResolvedValueOnce(undefined)
+      await crud.saveMultimodalPreference(false)
+      expect(crud.preferMultimodal.value).toBe(true)
+      expect(ElMessage.error).toHaveBeenCalledWith('多模态优先设置保存失败')
+    })
+
+    it('saveMultimodalPreference 保存抛异常时回滚 UI 并提示错误', async function () {
+      const publisher = await import('@/api/publisher')
+      const { ElMessage } = await import('element-plus')
+      publisher.storeSetSetting.mockRejectedValueOnce(new Error('ipc error'))
+      await crud.saveMultimodalPreference(false)
+      expect(crud.preferMultimodal.value).toBe(true)
+      expect(ElMessage.error).toHaveBeenCalledWith('多模态优先设置保存失败')
     })
   })
   })
