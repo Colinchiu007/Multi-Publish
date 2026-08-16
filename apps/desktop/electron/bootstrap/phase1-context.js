@@ -363,6 +363,8 @@ function extractContext(container) {
   const _chunkedUploader = container.get('chunkedUploader')
   const splitterBridge = container.get('splitterBridge')
   const promptBridge = container.get('promptBridge')
+  // BYOK：提示词引擎的 LLM 由桌面「模型设置」默认 LLM 注入（引擎不再使用服务端 key 兜底）
+  promptBridge.modelProviderManager = modelProviderManager
   const serviceBus = container.get('serviceBus')
   const pluginRegistry = container.get('pluginRegistry')
 

@@ -318,6 +318,10 @@ describe('extractOptimizedVideoPrompt', () => {
 describe('PromptBridge 视频方法', () => {
   function makeBridge () {
     const bridge = new PromptBridge({ log: mockLog })
+    bridge.modelProviderManager = {
+      getDefault: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'] })),
+      getProviderWithKey: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'], api_key: 'sk-test' })),
+    }
     bridge.ensureRunning = vi.fn(async () => {})
     bridge._post = vi.fn(async (path, body) => JSON.parse(body))
     return bridge
@@ -433,6 +437,10 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
 
     function makeBridge () {
       const bridge = new PromptBridge({ log: mockLog })
+      bridge.modelProviderManager = {
+        getDefault: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'] })),
+        getProviderWithKey: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'], api_key: 'sk-test' })),
+      }
       bridge.ensureRunning = vi.fn(async () => {})
       bridge._post = vi.fn(async (path, body) => JSON.parse(body))
       bridge._postStandalone = vi.fn()

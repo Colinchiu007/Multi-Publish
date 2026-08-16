@@ -4380,3 +4380,15 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - 完成事件必须在最终阶段完成且项目持久化成功后发送；持久化失败时 run 进入 `failed`，发送 `pipeline:fail`，不得发送 `pipeline:complete`。
 - 结果页对项目读取、成片、旁白和场景素材预览分别处理错误。附加资源预览失败不得清空已读取项目或改写已完成任务的终态。
 - 成片 URL 缺失使用“预览缺失”提示；视频播放器加载失败使用预览级提示，不复用任务级“当前操作未能完成”。
+
+
+#### PromptEngine BYOK 桌面调用契约（2026-08-16）
+
+- 桌面调用 8013 提示词引擎时，由 `PromptBridge` 统一注入本机「模型设置」默认 LLM 的绑定（provider/model/base_url/api_key，主进程解密）与 `caller=multi-publish-desktop`；引擎不再使用服务端 config.yaml / OpsCenter key 兜底。
+- 需调 LLM 的请求（图片 creative_level>3、video 域）无可用绑定时：桌面 fail-closed 返回可操作错误（不发送请求），引擎侧 422。
+- 图片 creative_level<=3 模板直出免 LLM；api_key 不出渲染层、不落日志；缓存键并入 provider 身份（provider|model|base_url）。
+#### PromptEngine BYOK 桌面调用契约（2026-08-16）
+
+- 桌面调用 8013 提示词引擎时，由 `PromptBridge` 统一注入本机「模型设置」默认 LLM 的绑定（provider/model/base_url/api_key，主进程解密）与 `caller=multi-publish-desktop`；引擎不再使用服务端 config.yaml / OpsCenter key 兜底。
+- 需调 LLM 的请求（图片 creative_level>3、video 域）无可用绑定时：桌面 fail-closed 返回可操作错误（不发送请求），引擎侧 422。
+- 图片 creative_level<=3 模板直出免 LLM；api_key 不出渲染层、不落日志；缓存键并入 provider 身份（provider|model|base_url）。

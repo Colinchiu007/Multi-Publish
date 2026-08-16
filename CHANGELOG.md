@@ -1,3 +1,10 @@
+## [2026-08-16] feat(desktop): PromptBridge BYOK —— 提示词引擎使用桌面配置的 LLM（llm 对象 + caller + fail-closed）
+
+- 背景：视频创作-历史记录「重新生成图片优化词」实测 prompt-engine(8013) 走引擎自身 config.yaml 兜底的 MiniMax key，而非用户在「模型设置」配置的 SenseNova 文字推理模型。目标契约：哪个产品调用引擎，就用哪个产品自己配置的 LLM。
+- 改动：`PromptBridge` 新增 `resolveLlmBind()`，从 `ModelProviderManager` 解析默认 LLM（sensenova-llm→sensenova、deepseek→deepseek、其余→openai_compat），主进程边界解密 api_key 后组装 `{provider,model,base_url,api_key}` 注入 `optimize` / `optimizeBatch` / `optimizeVideo`（legacy-8013 回退）/ `optimizeVideosBatch`（legacy-8013 回退），并携带 `caller=multi-publish-desktop`；无默认 LLM/缺失 API Key/缺失模型一律 fail-closed 抛可操作中文错误，不再依赖引擎服务端 key。
+- `phase1-context.js` 注入 `promptBridge.modelProviderManager`（与 story2videoProjectService 同模式）。
+- 配套：prompt-engine v0.20.0（BYOK llm 契约 + 移除 key_router/ops_client 兜底 + 缓存 provider 隔离）；图片 creative_level<=3 模板直出仍免 LLM。
+- 回归：桌面 electron/services+bootstrap 2074 passed / 1 skipped（修复 9 个未注入默认 LLM 的旧契约用例）；prompt-engine 全量 975 passed / 3 skipped。
 ## [2026-08-16] fix(story2video): 历史记录重新生成优化词 fail-closed（402 回显不再误写）+ 请求 context 与流水线同源
 
 - 现象：视频创作-历史记录编辑场景内容，点击「重新生成图片优化词」生成了新优化词，但输出不像最新代码提示词引擎（仅原文 + Photoreal 后缀）；实际是 prompt-engine(8013) 额度不足返回 `error: 402 insufficient_balance_error` + `optimized_prompt` 原样回显，桌面侧本地提取器先取文本后查 error，把回显原文当成功写入分段。

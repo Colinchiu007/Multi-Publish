@@ -23,6 +23,8 @@ const {
 
 const PROMPT_PORT = config.promptBridge.port
 const PROMPT_HOST = config.promptBridge.host
+// BYOK：提示词引擎的 LLM 一律由调用方（桌面版「模型设置」）注入，引擎不再使用服务端 key 兜底
+const CALLER_ID = 'multi-publish-desktop'
 // P1-A: 移除硬编码开发者路径，必须通过环境变量配置
 // PROMPT_DIR 必须指向包含 prompt_engine 包的 Python 项目根目录
 const _defaultPromptDir = (() => {
@@ -64,6 +66,43 @@ function normalizeOptimizeRequest (request) {
     delete normalized.style
   }
   return normalized
+}
+
+/**
+ * 该请求是否需要调用 LLM（与引擎端 requires_llm 语义一致：video 域或图片 creative_level>3）。
+ * @param {object} request - 归一后的优化请求
+ * @returns {boolean}
+ */
+function requiresLlm (request) {
+  if (String(request.domain || '').toLowerCase() === 'video') return true
+  const level = Number(request.creative_level)
+  // 未显式传 creative_level 时按引擎默认值 5 处理（默认需要 LLM，fail-closed 优先）
+  return Number.isFinite(level) ? level > 3 : true
+}
+
+/**
+ * 桌面 provider id → 引擎 provider 注册名映射。
+ * sensenova（商汤，OpenAI 兼容）与 deepseek 直接映射；其余 OpenAI 兼容供应商一律走 openai_compat。
+ * @param {string} providerId
+ * @returns {string}
+ */
+function engineProviderFor (providerId) {
+  if (providerId === 'sensenova-llm') return 'sensenova'
+  if (providerId === 'deepseek') return 'deepseek'
+  return 'openai_compat'
+}
+
+/**
+ * 取默认 LLM 的首个有效模型（models 是数组，首个非空项为当前选中模型）。
+ * @param {unknown} models
+ * @returns {string}
+ */
+function firstConfiguredModel (models) {
+  if (!Array.isArray(models)) return ''
+  for (const m of models) {
+    if (typeof m === 'string' && m.trim()) return m.trim()
+  }
+  return ''
 }
 
 /**
@@ -134,6 +173,39 @@ class PromptBridge extends BasePythonBridge {
   }
 
   /**
+   * 由桌面「模型设置」的默认 LLM 构造引擎 BYOK llm 绑定（provider/model/base_url/api_key）。
+   * 无可用默认 LLM 时 fail-closed 抛错——引擎不再使用服务端 config.yaml / OpsCenter key 兜底。
+   * @returns {{ provider: string, model: string, base_url?: string, api_key: string }}
+   */
+  resolveLlmBind () {
+    const manager = this.modelProviderManager
+    if (!manager || typeof manager.getDefault !== 'function' || typeof manager.getProviderWithKey !== 'function') {
+      throw new Error('模型服务未就绪：无法解析默认 LLM（提示词引擎需要调用方自己的模型绑定）')
+    }
+    const def = manager.getDefault('llm')
+    const id = def && typeof def.id === 'string' ? def.id.trim() : ''
+    if (!id) {
+      throw new Error('未配置默认文字推理模型：请在「模型设置」中选择并配置 LLM 后重试')
+    }
+    if (typeof manager.getProviderWithKey !== 'function') {
+      throw new Error('模型服务未就绪：无法读取默认 LLM 的 API Key')
+    }
+    const withKey = manager.getProviderWithKey(id)
+    if (!withKey || typeof withKey.api_key !== 'string' || !withKey.api_key.trim()) {
+      throw new Error(`默认 LLM「${(def && def.name) || id}」未配置 API Key：请在「模型设置」中填写后重试`)
+    }
+    const model = firstConfiguredModel(withKey.models)
+    if (!model) {
+      throw new Error(`默认 LLM「${(def && def.name) || id}」未配置可用模型：请在「模型设置」中选择模型后重试`)
+    }
+    const bind = { provider: engineProviderFor(id), model, api_key: withKey.api_key }
+    if (typeof withKey.base_url === 'string' && withKey.base_url.trim()) {
+      bind.base_url = withKey.base_url.trim()
+    }
+    return bind
+  }
+
+  /**
    * 优化提示词 — POST /v1/optimize
    * @param {object} request - { prompt, ...options }
    * @returns {Promise<object>}
@@ -141,7 +213,12 @@ class PromptBridge extends BasePythonBridge {
   async optimize (request, traceId) {
     await this.ensureRunning()
     // async 保证同步校验异常（如敏感凭据拦截）以 rejected promise 呈现，统一走调用方错误处理
-    return this._post('/v1/optimize', JSON.stringify(normalizeOptimizeRequest(request)), undefined, traceId)
+    const normalized = normalizeOptimizeRequest(request)
+    if (requiresLlm(normalized)) {
+      normalized.llm = this.resolveLlmBind()
+      normalized.caller = CALLER_ID
+    }
+    return this._post('/v1/optimize', JSON.stringify(normalized), undefined, traceId)
   }
 
   /**
@@ -152,6 +229,14 @@ class PromptBridge extends BasePythonBridge {
   async optimizeBatch (requests, traceId) {
     await this.ensureRunning()
     const normalized = requests.map(normalizeOptimizeRequest)
+    // 任一请求需要 LLM 即整体注入同一条默认 LLM 绑定（同一产品统一配置的模型）
+    if (normalized.some(requiresLlm)) {
+      const bind = this.resolveLlmBind()
+      for (const n of normalized) {
+        n.llm = bind
+        n.caller = CALLER_ID
+      }
+    }
     return this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }), undefined, traceId)
   }
 
@@ -221,6 +306,9 @@ class PromptBridge extends BasePythonBridge {
     }
     await this.ensureRunning()
     const legacyReq = buildVideoOptimizeRequest(prompt, rest)
+    // 独立视频引擎失败回退 8013：video 域必须走 BYOK llm 绑定（调用方自己的 LLM）
+    legacyReq.llm = this.resolveLlmBind()
+    legacyReq.caller = CALLER_ID
     const result = await this._post('/v1/optimize', JSON.stringify(legacyReq), undefined, traceId)
     return tagVideoEngineResult(result, { backend: 'legacy-8013', fallback: Boolean(_standaloneTarget()) })
   }
@@ -258,6 +346,11 @@ class PromptBridge extends BasePythonBridge {
       const { prompt, opts } = build(item)
       return buildVideoOptimizeRequest(prompt, opts)
     })
+    const bind = this.resolveLlmBind()
+    for (const req of requests) {
+      req.llm = bind
+      req.caller = CALLER_ID
+    }
     const result = await this._post('/v1/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
     return tagVideoEngineResult(result, { backend: 'legacy-8013', fallback: Boolean(_standaloneTarget()) })
   }
