@@ -2,7 +2,7 @@
 
 ## 目标
 
-D:/Data/projects/Multi-Publish 是只读协调根，长期保持 main 且干净。运行时代码任务必须创建在 D:/Data/projects/mp-worktrees/mp-<task>，避免多个 Codex 会话共享同一个 Git HEAD、index 和 stash。
+共享仓库根（例如 `D:/Data/projects/Multi-Publish`）是只读协调根，长期保持 main 且干净。运行时代码任务必须创建在隔离 worktree（默认 `<仓库父目录>/mp-worktrees/mp-<task>`，可用 `-WorktreeRoot` 或 `MP_WORKTREES` 覆盖），避免多个 Codex 会话共享同一个 Git HEAD、index 和 stash。
 
 ## 自动入口
 
@@ -10,7 +10,17 @@ D:/Data/projects/Multi-Publish 是只读协调根，长期保持 main 且干净�
 
     powershell -ExecutionPolicy Bypass -File scripts/start-mp-task.ps1 -TaskName story2video-fix
 
-启动器会依次检查共享根目录、安装并校验 Git hooks、调用 session-init.sh 创建或复用独立 worktree，并打开定位到该 worktree 的 PowerShell。依赖安装较慢时可以使用 -NoDeps，但交付测试前仍必须完成 worktree 依赖门禁。
+启动器会依次检查共享根目录、安装并校验 Git hooks、调用 session-init.sh 创建或复用独立 worktree，并打开定位到该 worktree 的 PowerShell。依赖安装较慢时可以使用 -NoDeps，但交付测试前仍必须完成 worktree 依赖门禁。worktree 根默认取仓库父目录下的 `mp-worktrees`，可通过 `-WorktreeRoot` 或 `MP_WORKTREES` 覆盖；Git Bash 路径会自动探测，也可用 `-GitBash` 或 `MP_GIT_BASH` 指定。
+
+## 新机器一键启用
+
+新电脑克隆仓库后，先运行一次：
+
+    powershell -ExecutionPolicy Bypass -File scripts/bootstrap-write-guard.ps1
+
+该命令按顺序完成：安装 Git hooks → 跑两个自检测试 → 注册健康巡检与写保护计划任务 → 启动 Write Guard watcher → 健康门禁（要求 main clean、hooks 一致、write guard 运行）。任一步失败返回非零；可重复运行（幂等）。`-Minutes` 可调巡检间隔（1-60 分钟），`-WorktreeRoot` / `MP_WORKTREES` 可改隔离目录，`-SkipTests` 可跳过自检。
+
+安装质量节拍 skill 只会带来门禁文本，真正生效还需要仓库脚本与计划任务；bootstrap 就是让新机器补齐这部分的统一入口。
 
 ## 健康守护
 
@@ -18,7 +28,7 @@ D:/Data/projects/Multi-Publish 是只读协调根，长期保持 main 且干净�
 
     powershell -ExecutionPolicy Bypass -File scripts/mp-worktree-health.ps1 -RequireClean -RequireHooks
 
-检查内容包括：主 worktree 是 main、工作区干净、没有 shared-root-violation、hooks 与源码 SHA-256 一致，以及 linked worktree 都位于 D 盘隔离目录。报告默认写入 %LOCALAPPDATA%\Multi-Publish\session-isolation\health.json，不写入仓库。传入 -RequireWriteGuard 时，还会要求实时写保护任务已注册且 watcher 正在运行。
+检查内容包括：主 worktree 是 main、工作区干净、没有 shared-root-violation、hooks 与源码 SHA-256 一致，以及 linked worktree 都位于隔离目录（默认 `<仓库父目录>/mp-worktrees`，可用 `-WorktreeRoot` 覆盖）。报告默认写入 %LOCALAPPDATA%\Multi-Publish\session-isolation\health.json，不写入仓库。传入 -RequireWriteGuard 时，还会要求实时写保护任务已注册且 watcher 正在运行。
 
 ## 实时写保护
 
