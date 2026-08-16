@@ -30,6 +30,10 @@
 .PARAMETER CheckIdentity
   窗口出现后经 CDP 校验登录态（scripts/start-desktop-identity.js）。
 
+.PARAMETER StopForeignProfile
+  检测到其他 worktree 占用同一 profile 时：默认 fail-closed 报错退出；
+  加本开关则审计停止那些 Electron 实例后继续启动。
+
 .PARAMETER SelfTest
   自检模式：验证「枚举后 PID 已退出」竞态被容忍（不启动应用）。
 
@@ -47,6 +51,7 @@ param(
   [switch]$NoDepsCheck,
   [switch]$InvalidateViteCache,
   [switch]$CheckIdentity,
+  [switch]$StopForeignProfile,
   [switch]$ForceShared,
   [switch]$SelfTest,
   [switch]$Json
@@ -193,6 +198,28 @@ if ($cdpConn) {
   } else {
     Fail "$cdpPort 被其他 worktree/进程占用（PID $($cdpConn.OwningProcess): $cdpCmd）——拒绝启动，避免身份/CDP 读错对象"
   }
+}
+# ---- 3d. Profile 单实例锁跨 worktree 冲突检查（fail-closed）----
+$profileLockModule = Join-Path $PSScriptRoot 'desktop-profile-lock.ps1'
+if (Test-Path -LiteralPath $profileLockModule) {
+  . $profileLockModule
+  $lockReport = Get-ProfileLockReport -ProfilePath $Profile -RepoRoot $repoRoot
+  $evidence.profileLockOwners = @($lockReport.Owners).Count
+  $evidence.profileLockForeign = @($lockReport.Foreign).Count
+  Write-Line "profile  : 同 profile Electron 占用 same=$($lockReport.Same.Count) foreign=$($lockReport.Foreign.Count)"
+  if ($lockReport.HasForeign) {
+    $foreignDesc = (($lockReport.Foreign | ForEach-Object { "PID $($_.Pid) @ $($_.ExePath)" }) -join '; ')
+    if ($StopForeignProfile) {
+      Add-Audit 'STOP foreign-profile' $foreignDesc
+      foreach ($p in $lockReport.ForeignMain) { Stop-ProcessIfAlive -ProcessId $p.Pid -Label 'foreign-profile-electron' }
+      Start-Sleep -Seconds 2
+      Write-Line "profile  : 已审计停止其他 worktree 的 Electron（$($lockReport.ForeignMain.Count) 个主进程）"
+    } else {
+      Fail "profile '$Profile' 正被其他 worktree 的 Electron 占用（$foreignDesc）。单实例锁互杀会导致窗口空白；请先停止该实例，或加 -StopForeignProfile 让脚本审计停止后继续"
+    }
+  }
+} else {
+  Write-Line 'profile  : desktop-profile-lock.ps1 缺失，跳过跨 worktree profile 锁检查'
 }
 
 # ---- 5. 依赖健康 ----

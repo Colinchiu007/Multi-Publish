@@ -688,6 +688,7 @@ class Story2VideoProjectService {
       project.segments[index] = {
         ...project.segments[index],
         audioPath: copied,
+        error: null,
         status: 'completed',
       }
       project.dirty = true
@@ -764,6 +765,7 @@ class Story2VideoProjectService {
       }
       segment.videoPath = this._copyRequired(rendered.data.videoPath, destination, 'video')
       segment.duration = Number.isFinite(Number(rendered.data.duration)) ? Number(rendered.data.duration) : segment.duration
+      segment.error = null
       segment.status = 'completed'
       project.segments[index] = segment
       project.dirty = true
@@ -1034,6 +1036,7 @@ class Story2VideoProjectService {
       attemptFiles.add(copied)
       segment.audioPath = copied
       segment.audioMeta = safeAssetMeta(generated?.data || generated)
+      segment.error = null
       segment.status = 'completed'
       project.segments[index] = segment
       project.dirty = true
@@ -1125,6 +1128,7 @@ class Story2VideoProjectService {
       } else {
         segment.videoPrompt = safeText(optimizedText, 20000)
       }
+      segment.error = null
       segment.status = 'completed'
       project.segments[index] = segment
       project.dirty = true
@@ -1197,6 +1201,7 @@ class Story2VideoProjectService {
       const copiedVideo = this._copyRequired(outcome.path, destination, 'video')
       segment.videoPath = copiedVideo
       segment.videoMeta = { provider: generator.providerId, model: generator.model || null, source: 'ai-video' }
+      segment.error = null
       segment.status = 'completed'
       project.segments[index] = segment
       project.dirty = true
@@ -1380,6 +1385,7 @@ class Story2VideoProjectService {
         segment.imagePath = copiedImage
         segment.imageMeta = generatedMeta
       }
+      segment.error = null
       segment.status = 'completed'
       project.segments[index] = segment
       project.dirty = true
@@ -1445,6 +1451,7 @@ class Story2VideoProjectService {
       const copiedVideo = this._copyRequired(rendered.data.videoPath, destination, 'video')
       segment.videoPath = copiedVideo
       segment.duration = Number.isFinite(Number(rendered.data.duration)) ? Number(rendered.data.duration) : segment.duration
+      segment.error = null
       segment.status = 'completed'
       project.segments[index] = segment
       project.dirty = true
