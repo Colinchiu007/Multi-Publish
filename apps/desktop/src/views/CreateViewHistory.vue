@@ -244,6 +244,8 @@
 import '@/styles/history-panel.css'
 import UiModal from '@/components/UiModal.vue'
 import { getAppLocale } from '@/i18n'
+import zhLocale from '@/locales/zh'
+import enLocale from '@/locales/en'
 import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
 import { formatPipelineError } from '@/utils/pipeline-error-formatter'
 import { filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
@@ -342,6 +344,21 @@ export default {
      * @param {object} item - history record item
      * @returns {string} user-visible error message
      */
+    resolveLocaleRef (ref, locale, params) {
+      if (typeof ref !== 'string' || !ref.startsWith('@')) return ref
+      const keyPath = ref.slice(1).split('.')
+      const trees = { zh: zhLocale, en: enLocale }
+      let node = trees[locale] || trees.zh
+      for (const seg of keyPath) {
+        node = node?.[seg]
+        if (node == null) return ref
+      }
+      const resolved = typeof node === 'string' ? node : ref
+      if (params && resolved.includes('{')) {
+        return resolved.replace(/{([^{}]+)}/g, (_, k) => String(params[k] ?? ''))
+      }
+      return resolved
+    },
     formatError (item) {
       if (!item || !item.error) return this.tr('genericFailure')
       const result = formatPipelineError(item.error, { locale: this.currentLocale() })
@@ -351,7 +368,7 @@ export default {
           let msg = this.$t?.(result.key) || ''
           if (result.params && typeof msg === 'string') {
             for (const [k, v] of Object.entries(result.params)) {
-              msg = msg.replace(new RegExp('\{' + k + '\}', 'g'), String(v ?? ''))
+              msg = msg.replace(new RegExp('\{' + k + '\}', 'g'), String(this.resolveLocaleRef(v, this.currentLocale(), result.params) ?? ''))
             }
           }
           // $t returns the key itself when locale tree is missing or test mock — treat as unresolved

@@ -174,7 +174,7 @@ function normalizeParams (value, locale, messageKey, rawError) {
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MEDIA_FORMAT_INVALID) {
-    params.extension = String(supplied.extension || '').trim() || '该'
+    params.extension = String(supplied.extension || '').trim() || '@story2video.labels.thisFile'
     params.kindLabel = String(supplied.kindLabel || '').trim() || ''
     params.extensions = Array.isArray(supplied.extensions) ? supplied.extensions.join(' / ') : String(supplied.extensions || '')
   }
@@ -202,10 +202,8 @@ function normalizeParams (value, locale, messageKey, rawError) {
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.ASSET_GENERATION_FAILED) {
     const ratioMatch = rawError.match(/(\d+)\/(\d+)\s*scenes?\s+have\s+both/i)
     const scenes = ratioMatch ? ratioMatch[1] + '/' + ratioMatch[2] : ''
-    params.sceneText = scenes ? '（' + scenes + ' 个场景）' : ''
-    const hasImageFail = /Image #\d+:/.test(rawError)
-    const hasTtsFail = /TTS #\d+:/.test(rawError)
-    params.detail = hasImageFail && !hasTtsFail ? '图片生成' : hasTtsFail && !hasImageFail ? '旁白生成' : hasImageFail && hasTtsFail ? '图片和旁白生成' : ''
+    params.sceneText = scenes ? '@story2video.labels.sceneLabel' : ''
+    params.scene = scenes || ''
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID) {
@@ -238,19 +236,33 @@ function normalizeParams (value, locale, messageKey, rawError) {
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED) {
     const scene = extractSceneNumber(rawError)
-    if (scene !== null) {
-      params.sceneText = locale === 'en' ? ' (scene ' + scene + ')' : '（第 ' + scene + ' 个场景）'
-    } else if (typeof supplied.sceneText === 'string') {
-      params.sceneText = supplied.sceneText
-    } else {
-      params.sceneText = ''
-    }
+    params.sceneText = scene !== null ? '@story2video.labels.sceneLabel' : (typeof supplied.sceneText === 'string' ? supplied.sceneText : '')
+    params.scene = scene !== null ? String(scene) : (typeof supplied.scene === 'string' ? supplied.scene : '')
   }
 
   return params
 }
-function interpolateMessage (template, params) {
-  return template.replace(/\{([^{}]+)\}/g, (_placeholder, name) => String(params[name] ?? ''))
+function resolveLocaleRef (ref, locale, params) {
+  if (typeof ref !== 'string' || !ref.startsWith('@')) return ref
+  const keyPath = ref.slice(1).split('.')
+  let node = LOCALE_TREES[normalizeStory2VideoLocale(locale)] || LOCALE_TREES.zh
+  for (const seg of keyPath) {
+    node = node?.[seg]
+    if (node == null) return ref
+  }
+  const resolved = typeof node === 'string' ? node : ref
+  if (params && resolved.includes('{')) {
+    return resolved.replace(/\{([^{}]+)\}/g, (_, k) => String(params[k] ?? ''))
+  }
+  return resolved
+}
+
+function interpolateMessage (template, params, locale) {
+  return template.replace(/\{([^{}]+)\}/g, (_placeholder, name) => {
+    const raw = params[name]
+    const resolved = locale ? resolveLocaleRef(raw, locale, params) : raw
+    return String(resolved ?? '')
+  })
 }
 
 function isKnownMessageKey (key) {
@@ -292,7 +304,7 @@ function resolveMessageKey (notification, fallbackKey) {
 function messageFor (key, params, locale) {
   const template = localeMessageSource(locale, key) ||
     localeMessageSource(locale, STORY2VIDEO_NOTIFICATION_KEYS.UNKNOWN_ERROR)
-  return interpolateMessage(template, params)
+  return interpolateMessage(template, params, locale)
 }
 
 export function formatStory2VideoNotification (notification = {}, locale = getStory2VideoLocale()) {

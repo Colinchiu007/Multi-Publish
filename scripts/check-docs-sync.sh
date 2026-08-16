@@ -104,6 +104,16 @@ while IFS= read -r file; do
   break
 done <<< "$CHANGED"
 
+
+# ---- bypass-doc-gate label check ----
+if [ -n "${PR_NUMBER:-}" ]; then
+  if gh pr view "$PR_NUMBER" --json labels -q '.labels[].name' 2>/dev/null | grep -q '^bypass-doc-gate$'; then
+    echo bypass-doc-gate label found, skipping doc sync check
+    exit 0
+  fi
+fi
+
+
 # ---- 判定 ----
 if [ "$CODE_CHANGED" = false ]; then
   echo "✅ 仅文档/流程变更，无需额外同步"

@@ -17,6 +17,9 @@
 // 流水线错误文案的 locale 命名空间
 const PIPELINE_ERROR_NS = 'story2video'
 
+import zhLocale from '../locales/zh'
+import enLocale from '../locales/en'
+
 /**
  * 模式规则表：每条 { pattern, key, extract }
  *   pattern — 正则（匹配 raw error text）
@@ -32,7 +35,7 @@ const RULES = [
     key: 'quota_exceeded',
     extract (raw) {
       const sceneMatch = raw.match(/场景\s*(\d+)/) || raw.match(/scene\s*(\d+)/i)
-      return { sceneText: sceneMatch ? '（场景 ' + sceneMatch[1] + '）' : '' }
+      return { sceneText: sceneMatch ? '@story2video.labels.sceneLabel' : '', scene: sceneMatch ? sceneMatch[1] : '' }
     },
   },
   // 内容政策 / 需要用户输入
@@ -90,10 +93,10 @@ const RULES = [
       const hasImageFail = /Image #\d+:/.test(raw)
       const hasTtsFail = /TTS #\d+:/.test(raw)
       let detail = ''
-      if (hasImageFail && !hasTtsFail) detail = '图片生成'
-      else if (hasTtsFail && !hasImageFail) detail = '旁白生成'
-      else if (hasImageFail && hasTtsFail) detail = '图片和旁白生成'
-      return { sceneText: scenes ? '（' + scenes + ' 个场景）' : '', detail }
+      if (hasImageFail && !hasTtsFail) detail = '@story2video.labels.imageGeneration'
+      else if (hasTtsFail && !hasImageFail) detail = '@story2video.labels.ttsGeneration'
+      else if (hasImageFail && hasTtsFail) detail = '@story2video.labels.bothGeneration'
+      return { sceneText: scenes ? '@story2video.labels.sceneLabel' : '', scene: scenes || '', detail }
     },
   },
   // 提示词优化失败（笼统）
@@ -127,6 +130,23 @@ const RULES = [
  * @param {string} [options.locale='zh'] - 当前语言
  * @returns {{ message: string, key: string, params: object }}
  */
+
+function resolveLocaleRef (ref, locale, params) {
+  if (typeof ref !== 'string' || !ref.startsWith('@')) return ref
+  const keyPath = ref.slice(1).split('.')
+  const trees = { zh: zhLocale, en: enLocale }
+  let node = trees[locale] || trees.zh
+  for (const seg of keyPath) {
+    node = node?.[seg]
+    if (node == null) return ref
+  }
+  const resolved = typeof node === 'string' ? node : ref
+  if (params && resolved.includes('{')) {
+    return resolved.replace(/\{([^{}]+)\}/g, (_, k) => String(params[k] ?? ''))
+  }
+  return resolved
+}
+
 export function formatPipelineError (rawError, options = {}) {
   const raw = String(rawError || '').trim()
   if (!raw) {
@@ -138,7 +158,11 @@ export function formatPipelineError (rawError, options = {}) {
     if (match) {
       const params = typeof rule.extract === 'function' ? rule.extract(raw, match) : {}
       const key = PIPELINE_ERROR_NS + '.' + rule.key
-      return { message: '', key, params }
+            const resolved = {}
+      for (const [k, v] of Object.entries(params)) {
+        resolved[k] = resolveLocaleRef(v, options.locale || 'zh', params)
+      }
+      return { message: '', key, params: resolved }
     }
   }
 

@@ -507,6 +507,15 @@ export default {
       regenerateVoice: '重新生成旁白',
       generatingVoice: '语音生成中...',
     },
+
+    // Pipeline error param labels (@ refs resolved in interpolateMessage)
+    labels: {
+      thisFile: '\u8be5\u6587\u4ef6',
+      imageGeneration: '\u56fe\u7247\u751f\u6210',
+      ttsGeneration: '\u65c1\u767d\u751f\u6210',
+      bothGeneration: '\u56fe\u7247\u548c\u65c1\u767d\u751f\u6210',
+      sceneLabel: '\uff08\u573a\u666f {scene}\uff09',
+    },
   },
   pipelines: {
     names: {

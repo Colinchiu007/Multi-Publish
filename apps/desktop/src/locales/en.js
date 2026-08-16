@@ -506,6 +506,15 @@ export default {
       regenerateVoice: 'Regenerate narration',
       generatingVoice: 'Generating narration...',
     },
+
+    // Pipeline error param labels (@ refs resolved in interpolateMessage)
+    labels: {
+      thisFile: 'the file',
+      imageGeneration: 'image generation',
+      ttsGeneration: 'narration generation',
+      bothGeneration: 'image and narration generation',
+      sceneLabel: ' (scene {scene})',
+    },
   },
   pipelines: {
     names: {

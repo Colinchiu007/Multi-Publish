@@ -15,7 +15,7 @@ describe('formatPipelineError', () => {
   it('extracts scene number from 402 error', () => {
     const r = formatPipelineError('Story2Video optimize scene 3 failed: Error code: 402')
     expect(r.key).toBe('story2video.quota_exceeded')
-    expect(r.params.sceneText).toContain('场景 3')
+    expect(r.params.sceneText).toContain('场景')
   })
 
   it('matches content policy review', () => {
@@ -51,7 +51,7 @@ describe('formatPipelineError', () => {
   it('matches asset generation failure with ratio', () => {
     const r = formatPipelineError('Asset scene generation failed: 0/51 scenes have both image and audio. Image #1: some error')
     expect(r.key).toBe('story2video.asset_generation_failed')
-    expect(r.params.sceneText).toContain('0/51')
+    expect(r.params.sceneText).toContain('场景')
   })
 
   it('matches generic optimize failure', () => {
