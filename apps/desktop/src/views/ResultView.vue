@@ -161,7 +161,7 @@
       </div>
 
       <div class="segment-list">
-        <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item">
+        <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item" :class="{ 'segment-policy-flagged': isPolicyFlagScene(index) }">
           <div v-if="segment.imageUrl" class="segment-thumb">
             <img :src="segment.imageUrl" :alt="'分段 ' + (index + 1) + ' 图片'" />
           </div>
@@ -205,6 +205,7 @@
           <div class="segment-header">
             <strong>分段 {{ index + 1 }}</strong>
             <span class="segment-status" :class="segment.status">{{ segment.status || 'completed' }}</span>
+            <span v-if="isPolicyFlagScene(index)" class="segment-policy-flag" data-testid="segment-policy-flag">{{ $t('story2video.sceneMaterial.scenePolicyFlag') }}</span>
             <div class="segment-order">
               <button type="button" :disabled="index === 0" title="上移" @click="moveSegment(index, -1)">上移</button>
               <button type="button" :disabled="index === segments.length - 1" title="下移" @click="moveSegment(index, 1)">下移</button>
@@ -361,6 +362,7 @@ export default {
       videoPath: null,
       loading: true,
       videoSrc: null,
+      videoReloadAttempted: false,
       projectId: null,
       project: null,
       audioPath: null,
@@ -399,6 +401,18 @@ export default {
       const query = this.$route?.query || {}
       if (query.bgmSkipped !== '1') return ''
       return formatBgmSkippedNotification(query.bgmReason).message
+    },
+    // 内容政策失败任务从历史跳转时携带 focusScenes（1-based 场景号，逗号分隔）：
+    // 场景号 = 分段下标 + 1，用于定位需要修改文案的分段；非法/缺省一律为空集合（fail-safe）
+    policyFlagSceneNumbers() {
+      const raw = String(this.$route?.query?.focusScenes || '')
+      const numbers = new Set()
+      for (const part of raw.split(',')) {
+        const trimmed = String(part).trim()
+        const value = Number(trimmed)
+        if (Number.isInteger(value) && value > 0 && String(value) === trimmed) numbers.add(value)
+      }
+      return numbers
     },
     // 任一分段正在生成/重试时禁用全局保存与重新合成，避免与主进程写队列交叉（审查 W2）
     anySegmentBusy() {
@@ -480,9 +494,9 @@ export default {
       const translation = segment && segment.promptTranslation
       return typeof translation === 'string' && translation.trim() !== ''
     },
-    async resolveLocalUrl(filePath) {
+    async resolveLocalUrl(filePath, previousUrl) {
       if (!filePath) return null
-      const result = await story2videoCreateShareUrl(filePath)
+      const result = await story2videoCreateShareUrl(filePath, previousUrl)
       const url = result?.code === 0 ? (result.data?.url || result.data) : null
       if (!url) throw new Error(result?.message || '无法读取本地文件')
       return url
@@ -491,7 +505,7 @@ export default {
       await Promise.all((this.segments || []).map(async (segment) => {
         if (!segment || !segment.imagePath) return
         try {
-          segment.imageUrl = await this.resolveLocalUrl(segment.imagePath)
+          segment.imageUrl = await this.resolveLocalUrl(segment.imagePath, segment.imageUrl)
         } catch (_) {
           segment.imageUrl = null
         }
@@ -504,7 +518,7 @@ export default {
         const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
         if (alternate && alternate.path) {
           try {
-            segment.alternateImageUrls = [await this.resolveLocalUrl(alternate.path)]
+            segment.alternateImageUrls = [await this.resolveLocalUrl(alternate.path, Array.isArray(segment.alternateImageUrls) ? segment.alternateImageUrls[0] : null)]
           } catch (_) {
             segment.alternateImageUrls = []
           }
@@ -513,7 +527,7 @@ export default {
         }
         if (segment.videoPath) {
           try {
-            segment.videoUrl = await this.resolveLocalUrl(segment.videoPath)
+            segment.videoUrl = await this.resolveLocalUrl(segment.videoPath, segment.videoUrl)
           } catch (_) {
             segment.videoUrl = null
           }
@@ -769,11 +783,13 @@ export default {
       this.videoPath = filePath || null
       if (!this.videoPath) {
         this.videoSrc = null
+        this.videoReloadAttempted = false
         this.loading = false
         return false
       }
       try {
-        this.videoSrc = await this.resolveLocalUrl(this.videoPath)
+        this.videoSrc = await this.resolveLocalUrl(this.videoPath, this.videoSrc)
+        this.videoReloadAttempted = false
         return true
       } catch (_error) {
         this.videoSrc = null
@@ -803,13 +819,14 @@ export default {
         await this.refreshSegmentImageUrls()
         this.audioPath = project.audioPath || null
         try {
-          this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
+          this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath, this.audioSrc) : null
         } catch (_error) {
           this.audioSrc = null
         }
         this.videoPath = project.videoPath || null
         try {
-          this.videoSrc = this.videoPath ? await this.resolveLocalUrl(this.videoPath) : null
+          this.videoSrc = this.videoPath ? await this.resolveLocalUrl(this.videoPath, this.videoSrc) : null
+          this.videoReloadAttempted = false
         } catch (_error) {
           this.videoSrc = null
           this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
@@ -823,8 +840,23 @@ export default {
         this.loading = false
       }
     },
-    handleError() {
-      this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.VIDEO_PREVIEW_FAILED })
+    async handleError() {
+      // First error self-heals: re-issue a fresh local preview URL for the same final video and reload once, so expired/evicted media tokens do not cause a false failure; only a second failure surfaces the message.
+      if (!this.videoPath || this.videoReloadAttempted) {
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.VIDEO_PREVIEW_FAILED })
+        return
+      }
+      try {
+        this.videoSrc = await this.resolveLocalUrl(this.videoPath, this.videoSrc)
+        // Wait for Vue to apply the new src to the <video> element before load(),
+        // otherwise load() targets the stale (expired) URL.
+        await this.$nextTick()
+        const player = this.$refs && this.$refs.videoPlayer
+        if (player && typeof player.load === 'function') player.load()
+        this.videoReloadAttempted = true
+      } catch (_error) {
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.VIDEO_PREVIEW_FAILED })
+      }
     },
     handleVideoMetadata(event) {
       const duration = Number(event?.target?.duration)
@@ -993,7 +1025,7 @@ export default {
           throw new Error(result?.message || result?.data?.error || '视频裁剪失败')
         }
         this.trimmedPath = output
-        this.trimmedSrc = await this.resolveLocalUrl(output)
+        this.trimmedSrc = await this.resolveLocalUrl(output, this.trimmedSrc)
         this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TRIM_COMPLETED })
       } catch (_error) {
         this.trimmedPath = null
@@ -1060,6 +1092,9 @@ export default {
       } finally {
         this.saving = false
       }
+    },
+    isPolicyFlagScene(index) {
+      return this.policyFlagSceneNumbers.size > 0 && this.policyFlagSceneNumbers.has(index + 1)
     },
     isSegmentBusy(segmentId) {
       return Boolean(this.segmentBusy[segmentId])
@@ -1137,7 +1172,7 @@ export default {
         // 重新合成返回的分段对象不含素材 URL，必须重新解析本地媒体 URL，否则素材区/分段图空白。
         await this.refreshSegmentImageUrls()
         this.audioPath = result.data.audioPath || this.audioPath
-        this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
+        this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath, this.audioSrc) : null
         if (!result.data.videoPath) {
           this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
           return
@@ -1215,6 +1250,8 @@ export default {
 .scene-material-preview-empty { color: var(--text-muted); }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: 11px; }
+.segment-policy-flag { padding: 3px 6px; border-radius: 4px; background: var(--danger-bg, #fdecea); color: var(--danger, #d93025); font-size: 11px; font-weight: 600; }
+.segment-policy-flagged { border-color: var(--danger, #d93025); box-shadow: 0 0 0 1px var(--danger, #d93025) inset; }
 .segment-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
 .segment-status.processing { background: var(--warning-bg); color: var(--warning); }
 .segment-order { display: flex; gap: 4px; margin-left: auto; }

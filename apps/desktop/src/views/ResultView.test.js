@@ -137,6 +137,82 @@ describe("ResultView", () => {
     });
   });
 
+  it("主视频 error 首次触发时自愈：重签同一路径的新 URL 并透传旧地址以便回收令牌", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "media:///videos/refreshed.mp4" } });
+    const w = await createView();
+    w.vm.videoPath = "C:/videos/test.mp4";
+    w.vm.videoSrc = "media:///videos/old.mp4";
+
+    await w.vm.handleError();
+
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/videos/test.mp4", "media:///videos/old.mp4");
+    expect(w.vm.videoSrc).toBe("media:///videos/refreshed.mp4");
+    expect(w.vm.videoReloadAttempted).toBe(true);
+    expect(w.vm.story2videoNotificationDialog.visible).toBe(false);
+    w.unmount();
+  });
+
+  it("主视频 error 自愈后再次失败才弹出预览失败提示", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "media:///videos/refreshed.mp4" } });
+    const w = await createView();
+    w.vm.videoPath = "C:/videos/test.mp4";
+    w.vm.videoSrc = "media:///videos/old.mp4";
+
+    await w.vm.handleError();
+    await w.vm.handleError();
+
+    expect(w.vm.story2videoNotificationDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.videoPreviewFailed",
+      messageParams: {},
+    });
+    w.unmount();
+  });
+
+  it("主视频 error 重签 URL 失败时直接弹出预览失败且不标记已自愈", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 1, message: "video unavailable" });
+    const w = await createView();
+    w.vm.videoPath = "C:/videos/test.mp4";
+    w.vm.videoSrc = "media:///videos/old.mp4";
+
+    await w.vm.handleError();
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.videoPreviewFailed");
+    expect(w.vm.videoReloadAttempted).toBe(false);
+    w.unmount();
+  });
+
+  it("loadVideoPath 重新加载成功后重置自愈标记并透传旧地址", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///videos/reloaded.mp4" } });
+    const w = await createView();
+    w.vm.videoPath = "C:/videos/other.mp4";
+    w.vm.videoSrc = "media:///videos/old.mp4";
+    w.vm.videoReloadAttempted = true;
+
+    await w.vm.loadVideoPath("C:/videos/test.mp4");
+
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/videos/test.mp4", "media:///videos/old.mp4");
+    expect(w.vm.videoReloadAttempted).toBe(false);
+    w.unmount();
+  });
+
+  it("refreshSegmentImageUrls 重签分段图时透传旧 imageUrl 以便回收令牌", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "media:///segments/new.png" } });
+    const w = await createView();
+    w.vm.segments = [{ id: "s1", imagePath: "C:/segments/old.png", imageUrl: "media:///segments/old.png" }];
+
+    await w.vm.refreshSegmentImageUrls();
+
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/segments/old.png", "media:///segments/old.png");
+    expect(w.vm.segments[0].imageUrl).toBe("media:///segments/new.png");
+    w.unmount();
+  });
+
   it("主视频 URL 解析失败时显示预览缺失，而不是任务级失败", async () => {
     const api = await import("@/api/publisher");
     api.story2videoCreateShareUrl.mockResolvedValue({ code: 1, message: "video unavailable" });
@@ -207,7 +283,7 @@ describe("ResultView", () => {
 
     await w.vm.loadVideoPath("C:/videos/test.mp4");
 
-    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/videos/test.mp4");
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/videos/test.mp4", null);
     expect(w.vm.videoSrc).toBe("file:///videos/test.mp4");
   });
 
@@ -507,6 +583,55 @@ describe("ResultView", () => {
 
     expect(api.story2videoGetProject).toHaveBeenCalledWith("project-route");
     expect(w.vm.projectId).toBe("project-route");
+  });
+
+  it("focusScenes 定位内容政策场景并渲染徽标，越界号码不渲染", async () => {
+    const api = await import("@/api/publisher");
+    const segments = Array.from({ length: 80 }, (_, i) => ({ id: "seg-" + i, text: "文案 " + (i + 1) }));
+    api.story2videoGetProject.mockResolvedValue({ code: 0, data: { projectId: "project-focus", videoPath: "C:/focus/video.mp4", segments } });
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///focus/video.mp4" } });
+    await router.push({ path: "/", query: { project: "project-focus", focusScenes: "49,73,74,999" } });
+
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // 场景号 = 分段下标 + 1：49→segments[48]、73→[72]、74→[73]；999 越界不渲染
+    expect(w.findAll('[data-testid="segment-policy-flag"]')).toHaveLength(3);
+    const flagged = w.findAll(".segment-item").filter(item => item.classes().includes("segment-policy-flagged"));
+    expect(flagged).toHaveLength(3);
+    expect(flagged[0].text()).toContain("分段 49");
+    expect(flagged[2].text()).toContain("分段 74");
+    w.unmount();
+  });
+
+  it("focusScenes 非十进制形式安全忽略，仅十进制正整数生效", async () => {
+    const api = await import("@/api/publisher");
+    const segments = Array.from({ length: 3 }, (_, i) => ({ id: "seg-" + i, text: "文案 " + (i + 1) }));
+    api.story2videoGetProject.mockResolvedValue({ code: 0, data: { projectId: "project-focus-strict", videoPath: "C:/focus/video.mp4", segments } });
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///focus/video.mp4" } });
+    await router.push({ path: "/", query: { project: "project-focus-strict", focusScenes: "0x10,2,1e2,007" } });
+
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // 仅十进制正整数生效：2→segments[1]；0x10/1e2/007 忽略
+    expect(w.findAll('[data-testid="segment-policy-flag"]')).toHaveLength(1);
+    expect(w.findAll(".segment-policy-flagged")).toHaveLength(1);
+    expect(w.findAll(".segment-item")[1].text()).toContain("分段 2");
+    w.unmount();
+  });
+
+  it("无 focusScenes 时不渲染政策徽标", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoGetProject.mockResolvedValue({ code: 0, data: { projectId: "project-x", videoPath: "C:/x/video.mp4", segments: [{ id: "s1", text: "a" }] } });
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///x/video.mp4" } });
+    await router.push({ path: "/", query: { project: "project-x" } });
+
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } } });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(w.findAll('[data-testid="segment-policy-flag"]')).toHaveLength(0);
+    w.unmount();
   });
 
   it("重新合成后无法解析成片 URL 时显示预览缺失提示", async () => {

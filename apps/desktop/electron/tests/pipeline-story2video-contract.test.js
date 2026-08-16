@@ -64,6 +64,9 @@ describe('story2video 编排契约', () => {
       voiceId: 'default',
     })
     expect(stages.optimize.type).toBe('story2video_optimize')
+    // 恒含断言（review W1）：stageDef 兜底 max_length=2000，运行时 undefined 时不覆盖，
+    // 通用执行器 tiered 默认 500 永不命中 Story2Video 入口
+    expect(stages.optimize.options.max_length).toBe(2000)
     expect(stages.scene_context).toMatchObject({
       type: 'story2video_scene_context',
       inputFrom: 'split',
@@ -183,8 +186,8 @@ describe('story2video 编排契约', () => {
       expect.objectContaining({
         platform: 'generic',
         creative_level: 5,
-        // 与 prompt-engine-contract maxLength.default=500 一致（00a581d1 引入时测试期望 300 未同步）
-        max_length: 500,
+        // 图片提示词上限 2026-08-16 放开：pipeline stageDef 默认 2000（原 500）
+        max_length: 2000,
         num_candidates: 1,
         auto_detect_style: true,
       }),
@@ -214,14 +217,43 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'realistic',
         creative_level: 5,
-        // 与 prompt-engine-contract maxLength.default=500 一致
-        max_length: 500,
+        // 图片提示词上限 2026-08-16 放开：pipeline stageDef 默认 2000
+        max_length: 2000,
         num_candidates: 1,
         auto_detect_style: true,
       })
     }
     expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
+  })
+
+  it('optimize.maxLength 可配置：渲染层 Story2VideoTextConfig 透传到 prompt-engine 请求（2026-08-16 上限放开 500→2000）', async () => {
+    const { engine, serviceBus, aiGenerator } = createEngine()
+    registerStory2VideoStages(engine)
+    const started = await engine.startOrchestrated('story2video-compose', {
+      text: '可配置提示词长度。',
+      autoAdvance: false,
+      checkpointPolicy: 'none',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '可配置提示词长度。',
+        optimize: { maxLength: 700 },
+      },
+    })
+    expect(started.success).toBe(true)
+
+    // 阶段序列：split → scene_context → optimize（checkpointPolicy:none 下每次 executeStage 推进一个阶段）
+    await engine.executeStage(started.runId)
+    await engine.executeStage(started.runId)
+    const optimized = await engine.executeStage(started.runId)
+
+    expect(optimized.success).toBe(true)
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(2)
+    for (const [, options] of serviceBus.optimizePrompt.mock.calls) {
+      expect(options.max_length).toBe(700)
+    }
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
   })
 
   it('启动时保留 initialContext，并让运行快照同时提供 context 与 status', async () => {
@@ -537,8 +569,8 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'anime',
         creative_level: 8,
-        // 与 prompt-engine-contract maxLength.default=500 一致
-        max_length: 500,
+        // 图片提示词上限 2026-08-16 放开：pipeline stageDef 默认 2000
+        max_length: 2000,
         num_candidates: 2,
         auto_detect_style: true,
       })

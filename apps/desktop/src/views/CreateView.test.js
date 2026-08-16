@@ -606,6 +606,76 @@ describe("CreateView", () => {
     w.unmount();
   });
 
+  it("图片提示词最大长度：默认 2000，下拉渲染 8 档并绑定 maxPromptLength（2026-08-16 上限放开）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue(null);
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    await w.vm.restoreS2VLastOptions();
+    // 默认 2000（契约上限）
+    expect(w.vm.s2vConfig.maxPromptLength).toBe(2000);
+    // 下拉渲染 8 档（200..2000），当前值选中
+    const select = w.find('[data-testid="s2v-max-prompt-length-select"]');
+    expect(select.exists()).toBe(true);
+    const options = select.findAll("option");
+    expect(options.map((o) => Number(o.attributes("value")))).toEqual([200, 300, 400, 500, 700, 1000, 1500, 2000]);
+    expect(options.map((o) => Number(o.attributes("value")))).toContain(Number(select.element.value));
+    // 标签走 i18n 而非 raw key
+    expect(w.vm.s2vMaxPromptLengthLabel).toContain("提示词最大长度");
+    expect(w.vm.s2vMaxPromptLengthHint).toContain("2000");
+    // 用户改档后透传 buildStory2VideoTextConfig
+    w.vm.s2vConfig.maxPromptLength = 1000;
+    const config = w.vm.buildStory2VideoTextConfig();
+    expect(config.optimize.maxLength).toBe(1000);
+    w.unmount();
+  });
+
+  it("图片提示词最大长度恢复钳制：越界/缺失回退 2000，合法值保留（2026-08-16 上限放开）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
+    mocks.storeGetSetting.mockResolvedValue({
+      code: 0,
+      data: {
+        version: 1,
+        s2vConfig: {
+          maxPromptLength: 30000,
+          promptStyle: "realistic",
+        },
+        s2vOutputConfig: {},
+        ui: {},
+      },
+    });
+    const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
+    await new Promise((r) => setTimeout(r, 50));
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", available: true, stages: [] };
+    w.vm.s2vVoiceProviders = [{ id: "minimax-tts" }];
+    w.vm.s2vImageProviders = [{ id: "minimax-image" }];
+    await w.vm.restoreS2VLastOptions();
+    expect(w.vm.s2vConfig.maxPromptLength).toBe(2000);
+    // 越界低值同样回退默认（契约区间 200..2000）
+    w.vm.s2vConfig.maxPromptLength = 150;
+    w.vm.normalizeS2VRestoredEnums();
+    expect(w.vm.s2vConfig.maxPromptLength).toBe(2000);
+    // 缺失字段（陈旧快照）回退默认
+    w.vm.s2vConfig.maxPromptLength = undefined;
+    w.vm.normalizeS2VRestoredEnums();
+    expect(w.vm.s2vConfig.maxPromptLength).toBe(2000);
+    // 区间内非档位值吸附到最近档位（下拉 8 档避免 select 无匹配项）
+    w.vm.s2vConfig.maxPromptLength = 650;
+    w.vm.normalizeS2VRestoredEnums();
+    expect(w.vm.s2vConfig.maxPromptLength).toBe(700);
+    // 合法档位值保持不被重置（idempotent）
+    w.vm.s2vConfig.maxPromptLength = 700;
+    w.vm.normalizeS2VRestoredEnums();
+    expect(w.vm.s2vConfig.maxPromptLength).toBe(700);
+    mocks.storeGetSetting.mockReset();
+    w.unmount();
+  });
+
   it("水印选项恢复吸附：陈旧位置/字号/透明度归一化到合法档位（watermark-options）", async () => {
     const mocks = await import("@/api/publisher");
     mocks.pipelineList.mockResolvedValue({ code: 0, data: [] });
@@ -1841,6 +1911,7 @@ describe("CreateView - S2V orchestration", () => {
       splitMaxSentenceLength: 120,
       splitTargetSeconds: 4,
       promptStyle: "anime",
+      maxPromptLength: 700,
       watermarkText: "测试水印",
       watermarkConfig: { enabled: false, position: "center", fontSize: 32, opacity: 0.4, color: "white" },
       platforms: ["bilibili"],
@@ -1863,7 +1934,7 @@ describe("CreateView - S2V orchestration", () => {
         size: "1080x1920",
         contentType: "history",
         split: expect.objectContaining({ language: "auto", mode: "precise", maxSentenceLength: 120, targetSeconds: 4, baseWordsPerSecond: 3.3 }),
-        optimize: expect.objectContaining({ style: "anime" }),
+        optimize: expect.objectContaining({ style: "anime", maxLength: 700 }),
         image: expect.objectContaining({ provider: "local-diffusion", style: "watercolor", effect: "pan-left", aspectRatio: "9:16" }),
         voice: expect.objectContaining({ provider: "piper", id: "custom-voice-id", speed: 1.2, volume: 0.8 }),
         subtitle: expect.objectContaining({ enabled: false, size: "size4", style: "style2" }),
@@ -4412,6 +4483,34 @@ describe("批量创作（story2video-batch-create）", () => {
     await cancelButtons[0].trigger("click");
     await nextTick();
     expect(mocks.story2videoBatchCancel).toHaveBeenCalledWith("batch_y", ["batch_y_i1"]);
+    w.unmount();
+  });
+
+  it("openHistoryResult 政策失败携带 focusScenes，completed/可恢复失败不带", async () => {
+    const pushSpy = vi.spyOn(router, "push");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.openHistoryResult({
+      projectId: "proj-policy", status: "failed",
+      error: "Image #49: content-policy review; Image #73: content-policy review; Image #74: content-policy review",
+    });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-policy", focusScenes: "49,73,74" } });
+    pushSpy.mockClear();
+    w.vm.openHistoryResult({ projectId: "proj-done", status: "completed", error: "" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-done" } });
+    pushSpy.mockClear();
+    w.vm.openHistoryResult({ projectId: "proj-retry", status: "failed", error: "provider timeout, please retry" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-retry" } });
+    pushSpy.mockClear();
+    // completed 任务即使残留门控关键字文本也不携带 focusScenes（与 policyEditTarget 的 failed 前提对齐，审查 M4）
+    w.vm.openHistoryResult({ projectId: "proj-done2", status: "completed", error: "Image #3: content-policy review" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-done2" } });
+    pushSpy.mockClear();
+    // 门控命中但无法提取 Image #N（如 manual 模式无场景号前缀）时不携带 focusScenes，结果页按缺省安全降级（W1）
+    w.vm.openHistoryResult({ projectId: "proj-manual", status: "failed", error: "Image generation requires user input after content-policy review" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-manual" } });
     w.unmount();
   });
 });

@@ -67,6 +67,7 @@ describe('Story2Video text 参数合同', () => {
       minSceneDuration: 6,
     }))
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.mode).toBe('text')
+    expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.optimize.maxLength).toBe(2000)
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.language).toBe('auto')
     expect(result).not.toHaveProperty('seconds')
     expect(result).not.toHaveProperty('generateBase')
@@ -77,7 +78,7 @@ describe('Story2Video text 参数合同', () => {
     expect(result.story2videoTextConfig).not.toHaveProperty('perImageDuration')
     expect(result.stageOptions.optimize).toMatchObject({
       platform: 'generic',
-      max_length: 500,
+      max_length: 2000,
       num_candidates: 1,
       auto_detect_style: true,
     })
@@ -231,7 +232,7 @@ describe('Story2Video text 参数合同', () => {
     expect(result.stageOptions.split).toMatchObject({ mode: 'precise', max_sentence_length: 120, target_duration: 4 })
     expect(result.stageOptions.optimize).toEqual({
       platform: 'generic', style: 'anime', creative_level: 8,
-      max_length: 500, num_candidates: 1, auto_detect_style: true,
+      max_length: 2000, num_candidates: 1, auto_detect_style: true,
       negative_prompt: '水印、文字',
     })
     expect(result.stageOptions.compose).toMatchObject({
@@ -253,7 +254,7 @@ describe('Story2Video text 参数合同', () => {
     })
 
     expect(result.stageOptions.optimize).toMatchObject({
-      platform: 'generic', style: 'realistic', max_length: 500, num_candidates: 1, auto_detect_style: true,
+      platform: 'generic', style: 'realistic', max_length: 2000, num_candidates: 1, auto_detect_style: true,
     })
     expect(result).not.toHaveProperty('seconds')
     expect(result.story2videoTextConfig).not.toHaveProperty('versions')

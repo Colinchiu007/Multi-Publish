@@ -43,6 +43,7 @@ jobs:
       - name: 检查文档同步（硬门禁）
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           chmod +x scripts/check-docs-sync.sh
           bash scripts/check-docs-sync.sh \

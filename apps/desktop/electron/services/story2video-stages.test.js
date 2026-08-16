@@ -2591,3 +2591,123 @@ describe('translatePromptsForLocale', () => {
 })
 
 })
+
+describe('generate_assets 出图 negative_prompt 透传（2026-08-16 east-asian-face-anchor）', () => {
+  const sceneWithFaceAnchors = [{ index: 0, text: '一', negativeAnchors: ['西方面孔', '金发'] }]
+
+  it('auto + assetGenerator：negative_prompt 合并场景负面锚后透传 generateImage opts', async () => {
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, opts) => ({ code: 0, data: { path: 'image-' + opts.index + '.png' } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'audio-' + index + '.mp3', duration: 1 } })),
+    }
+    const fn = makePipeline(assetGenerator)
+    const result = await fn({
+      stage: { options: { concurrency: 1, negative_prompt: '水印' } },
+      params: {},
+      context: { scene_context: { scenes: sceneWithFaceAnchors }, split: [{ text: '一' }], optimize: ['p1'] },
+      serviceBus: {},
+    })
+    expect(result.success).toBe(true)
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
+    const callOpts = assetGenerator.generateImage.mock.calls[0][1]
+    expect(callOpts.negative_prompt).toContain('西方面孔')
+    expect(callOpts.negative_prompt).toContain('水印')
+  })
+
+  it('manual + assetGenerator：每场景 2 图均带合并后的 negative_prompt', async () => {
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, opts) => {
+        // manual 路径会对产物做真实候选复制，mock 必须返回真实存在的文件
+        const p = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 's2v-manual-neg-')), 'img-' + opts.index + '.png')
+        fs.writeFileSync(p, 'x')
+        return { code: 0, data: { path: p } }
+      }),
+      generateTTS: vi.fn(),
+    }
+    const fn = makePipeline(assetGenerator)
+    const result = await fn({
+      stage: { options: { concurrency: 1, creationMode: 'manual', negative_prompt: '水印' } },
+      params: { manualMaterialMode: 'all-images' },
+      context: { scene_context: { scenes: sceneWithFaceAnchors }, split: [{ text: '一' }], optimize: ['p1'] },
+      serviceBus: {},
+    })
+    expect(result.success).toBe(true)
+    expect(assetGenerator.generateImage).toHaveBeenCalledTimes(2)
+    for (const [, callOpts] of assetGenerator.generateImage.mock.calls) {
+      expect(callOpts.negative_prompt).toContain('西方面孔')
+      expect(callOpts.negative_prompt).toContain('水印')
+    }
+  })
+
+  it('auto + python generate_image：negative_prompt 进入 callPythonSkill 载荷', async () => {
+    const fn = makePipeline(null)
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill, payload) => {
+        if (skill === 'generate_image') {
+          // manual 路径会对产物做真实候选复制，mock 必须返回真实存在的文件
+          const p = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 's2v-manual-neg-')), 'img-' + payload.index + '.png')
+          fs.writeFileSync(p, 'x')
+          return { code: 0, data: { path: p } }
+        }
+        return { code: 0, data: { path: 'audio-' + payload.index + '.mp3', duration: 1 } }
+      }),
+    }
+    const result = await fn({
+      stage: { options: { concurrency: 1, negative_prompt: '水印' } },
+      params: {},
+      context: { scene_context: { scenes: sceneWithFaceAnchors }, split: [{ text: '一' }], optimize: ['p1'] },
+      serviceBus,
+    })
+    expect(result.success).toBe(true)
+    const imageCalls = serviceBus.callPythonSkill.mock.calls.filter(([skill]) => skill === 'generate_image')
+    expect(imageCalls.length).toBeGreaterThan(0)
+    const payload = imageCalls[0][1]
+    expect(payload.negative_prompt).toContain('西方面孔')
+    expect(payload.negative_prompt).toContain('水印')
+  })
+
+  it('manual + python generate_image：negative_prompt 进入 callPythonSkill 载荷（seq 0/1）', async () => {
+    const fn = makePipeline(null)
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill, payload) => {
+        if (skill === 'generate_image') {
+          // manual 路径会对产物做真实候选复制，mock 必须返回真实存在的文件
+          const p = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 's2v-manual-neg-')), 'img-' + payload.index + '.png')
+          fs.writeFileSync(p, 'x')
+          return { code: 0, data: { path: p } }
+        }
+        return { code: 0, data: { path: 'audio-' + payload.index + '.mp3', duration: 1 } }
+      }),
+    }
+    const result = await fn({
+      stage: { options: { concurrency: 1, creationMode: 'manual', negative_prompt: '水印' } },
+      params: { manualMaterialMode: 'all-images' },
+      context: { scene_context: { scenes: sceneWithFaceAnchors }, split: [{ text: '一' }], optimize: ['p1'] },
+      serviceBus,
+    })
+    expect(result.success).toBe(true)
+    const imageCalls = serviceBus.callPythonSkill.mock.calls.filter(([skill]) => skill === 'generate_image')
+    expect(imageCalls.length).toBe(2)
+    for (const [, payload] of imageCalls) {
+      expect(payload.negative_prompt).toContain('西方面孔')
+      expect(payload.negative_prompt).toContain('水印')
+    }
+  })
+
+  it('无场景锚 + 有 stage.options.negative_prompt → 仍透传 base（审查 W）', async () => {
+    const assetGenerator = {
+      generateImage: vi.fn(async (_prompt, opts) => ({ code: 0, data: { path: 'image-' + opts.index + '.png' } })),
+      generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: 'audio-' + index + '.mp3', duration: 1 } })),
+    }
+    const fn = makePipeline(assetGenerator)
+    const result = await fn({
+      stage: { options: { concurrency: 1, negative_prompt: '水印' } },
+      params: {},
+      context: { scene_context: { scenes: [{ index: 0, text: '一', negativeAnchors: [] }] }, split: [{ text: '一' }], optimize: ['p1'] },
+      serviceBus: {},
+    })
+    expect(result.success).toBe(true)
+    const callOpts = assetGenerator.generateImage.mock.calls[0][1]
+    expect(callOpts.negative_prompt).toBe('水印')
+  })
+})

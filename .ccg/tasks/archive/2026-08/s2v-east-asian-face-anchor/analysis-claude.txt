@@ -1,0 +1,66 @@
+[codeagent-wrapper]
+  Backend: claude
+  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+  PID: 21420
+  Log: D:\Temp\codeagent-wrapper-21420.log
+  Web UI: http://localhost:60185
+  Session-ID: 8e7314b1-b914-4b3c-a212-724ace35d731
+I've reviewed the brief against the actual rules engine, both generate-asset paths, the desktop adapters, and the python providers. Findings below are limited to what the fix needs; no scope creep added.
+
+## Validation summary
+
+The fix design is fundamentally sound: **injecting a `人物形象` anchor into `imagePromptSeed`/`contextBlock` is the right primary lever** because it flows into prompt-engine at optimize time (story2video-stages.js:1509) and therefore reaches every provider through the final English prompt — independent of negative_prompt support. The negative_prompt pass-through is a weak secondary lever (see I1). The remaining findings are gate precision and plumbing gaps, not architecture:
+
+## Critical
+
+**C1 — Face-negative-anchor era gate is ambiguous and reachable.**
+Spec R3 ("非欧美文化命中…必须包含面孔排除项") conflicts with the constraint "modern 场景不得加面孔负面锚", and design 决策2 ("文化命中优先于 era strong") reads as: non-Euro culture fires anchors even at `era=mixed`. The brief's own new keywords (`辽东`/`鸭绿江`) make this reachable: a 朝鲜战争 or 鸭绿江断桥 story → `culture=朝鲜·东北亚古国`, and if the implementer follows 决策2 literally, `西方面孔/金发/蓝眼` would be applied to scenes that legitimately contain US soldiers.
+
+- Fix in `story-context-engine.js:535` `buildGlobalNegativeAnchors(era, culture, strongEra)`: face negatives only when `era === 'ancient'` with `strongEra` (dynasty hit or ≥2 independent signals), never when `era === 'modern'`, and skip when `era === 'mixed' && !strongEra`. Make `era` (not `culture`) the first gate.
+- Pin the precedence in one place: brief B constraint line, `design.md` 决策2, and spec R3 must all state "face negative anchors require ancient+strong; culture hit never overrides that".
+- T0 test requirement: add a `现代 朝鲜战争/鸭绿江 场景` case asserting `negativeAnchors` has no face terms (and positive EA anchor is still OK).
+
+## Warning
+
+**W1 — Keyword list contradicts the "古国专属词" mitigation.**
+`design.md` claims "只收录古国专属词", but the R1 list includes `鸭绿江`, `辽东`, `百济`, `新罗`, `桓仁`, `五女山` — all with live modern contexts (鸭绿江断桥 tourism, 百济神州, 新罗免税店, 桓仁 county, 五女山 scenic area). If C1 is fixed the residual damage is a wrong culture label/region in summary (low), but the mitigation text is wrong.
+- `story-context-rules.json` new culture entry: trim `keywords` to the ancient-exclusive set `高句丽/扶余/夫余/卒本川/沃沮/朱蒙`; move `辽东`/`五女山城` to `regions` only if the region label is harmless, else drop. R1 and the design "风险与缓解" paragraph must match.
+
+**W2 — "strong ancient 无文化 → 东亚人面孔" over-applies to unclassified non-East-Asian ancient settings.**
+`CULTURE_RULES` covers only 8 cultures. A 古希腊/波斯/维京/玛雅/东南亚故事 with no culture hit and strong ancient would be force-fed East Asian faces **and** `西方面孔/金发/蓝眼` negatives — a double regression for those stories.
+- Narrow the fallback in `buildAppearanceAnchor`/`buildGlobalNegativeAnchors`: for the no-culture branch require at least one East-Asian cue (genre ∈ `历史/武侠/仙侠/宫廷`, or an `ancientTerms` hit like 皇帝/剑客/朝廷/城墙), not raw `strongEra`. The 寺庙 W2 test (story-context-engine.test.js:251, strong=false) already stays green; this keeps it green for *any* cue-less foreign-ancient text.
+
+**W3 — Desktop FLUX never forwards negative_prompt; the coverage claim is false on the primary path.**
+Desktop adapter `apps/desktop/electron/services/adapters/flux.js:151-174` builds body from known keys and drops `negative_prompt`. Only python `flux_image.py:91-92` forwards it — and that legacy path is likely dead (see I2). So "FLUX 支持" via `_tryProviderImage` is a no-op.
+- Either add `if (params.negative_prompt !== undefined) body.negative_prompt = params.negative_prompt` to `adapters/flux.js` in item D, or delete the FLUX claim and document desktop FLUX as ignore-only. Verify fal.ai accepts `negative_prompt` for the default `flux-pro/v1.1` before forwarding (this is the one spot a value could reach an external API).
+
+**W4 — Global anchor vs multi-culture scenes.**
+The anchor derives from the top-hit global culture but is injected per scene. 丝绸之路/中美/唐朝胡商 stories (唐+胡人/波斯/粟特, 中美贸易, 长安+罗马) would force East Asian faces onto non-EA scenes, and the face negatives would suppress 胡人's legitimate 高鼻深目 traits.
+- Add a per-scene guard in `buildDomainSeed` (story-context-engine.js:485) and `buildSceneContextBlock` (:643): if `sceneText` matches `WESTERN_CULTURES` keywords or `胡人/波斯/粟特/大食/色目/金发/蓝眼/西方使者`, skip the EA positive anchor and face negatives for that scene. This is a keyword guard, not NER — within the Scope-Out boundary.
+
+**W5 — Optimize skip/fallback entries drop per-scene negative anchors at generate time.**
+If the plan threads `negative_anchors` via the OPTIMIZE `entry` only (story2video-stages.js:1898-1906), the three bypass branches (`skipped_optimize` :1751-1767, `prompt_engine_too_short_use_original` :1835-1852, `llm_rejected_use_original` :1878-1897) lose the anchors — and those scenes go straight to image generation.
+- Attach `negative_anchors` in all four branches, or resolve by index from `context.scene_context.scenes[index].negativeAnchors` at generate time with an `Array.isArray(context?.scene_context?.scenes)` guard (resume/checkpoint safety). Both image call sites need it: auto `imageItemTask` (:2309-2316) and manual `generateOneImage` (:705-713).
+
+## Info
+
+**I1 — The positive anchor is the real fix; negative_prompt is cosmetic.** Desktop adapters openai-image/grok-image/imagen/flux all build explicit bodies and drop unknown keys; python openai_image/grok_image/google_imagen (docstring: "negative prompt control (not supported)") ignore it. Only local_diffusion (desktop + python) and python flux/comfyui consume it. No 422 risk anywhere — unknown keys never reach an upstream. R4 tests should assert "negative_prompt reaches generateImage opts / satisfy no-422" rather than effectiveness.
+
+**I2 — `callPythonSkill('generate_image')` has no route.** `server.py` has no `/api/skills/*` (grep confirms; corroborated by `.ccg/tasks/story2video-all-pipelines-e2e-ue/ENGINE-FEASIBILITY.md`). The legacy python branch in story2video-stages is likely dead; the assetGenerator (desktop adapter) path is the real one. Plan C should center verification on the assetGenerator leg and only assert the callPythonSkill payload shape in JS tests — do not add python provider tests.
+
+**I3 — `include_negative_anchors:false` will now only silence negative anchors; the positive EA anchor still fires** (it has no option key). Confirm intended, and note the 寺庙/城堡 option tests (story-context-engine.test.js:239-262) stay green.
+
+**I4 — Video prompts inherit the anchor transitively** via the optimized image prompt (`optimizeVideoScenePrompts` reads `optimizedPrompts[index]`), so no separate video-path change is needed; 8020 may still rewrite/drop it — acceptable.
+
+**I5 — Existing golden tests break; they must be updated with T0.** `story-context-engine.test.js:362` and `:394` (and `:399` for null-story, likely unaffected) assert exact `buildDomainSeed` strings; appending `人物形象` breaks them. `:33/:113/:2458` use `arrayContaining` — safe; `:257` 欧洲 W3 and `:251` 寺庙 remain green under the C1/W2 gates.
+
+## Scope check
+
+A–D / R1–R5 stay on the reported bug: no locales, no rules-schema change, no prompt-engine-template edits, NER excluded. Two items are deliberate expansions already in the docs, not creep — confirm they're intended and tested:
+- The 印度/阿拉伯/埃及 generalization (`当地民族面孔` positive + `西方面孔` negative) changes output for those accounts.
+- If W4's per-scene guard is adopted, keep it to a keyword gate only (no NER).
+
+Recommended order: pin the C1 gate (single source of truth) → trim W1 keywords → implement B (with W2/W4 guards) → thread anchors through all four OPTIMIZE branches (W5) → D + W3 decision → update I5 goldens → T0 red tests including the C1 `现代辽东/朝鲜战争` case.
+
+---
+SESSION_ID: 8e7314b1-b914-4b3c-a212-724ace35d731

@@ -130,6 +130,64 @@ describe('Story2Video 交付 IPC', () => {
     expect(shown.data.path).toBe(fs.realpathSync.native(video))
   })
 
+  it('create-share-url 传 previousUrl 时先签发新地址再回收旧令牌', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    deps.story2videoMediaServer.revoke = vi.fn(() => true)
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+
+    const oldUrl = 'http://127.0.0.1:34821/media/oldtokentoken12345'
+    const result = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video, oldUrl)
+
+    expect(result.code).toBe(0)
+    expect(result.data.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/media\/[A-Za-z0-9_-]{16,}/)
+    expect(deps.story2videoMediaServer.revoke).toHaveBeenCalledWith(oldUrl)
+  })
+
+  it('create-share-url 不传 previousUrl 时不回收任何令牌', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    deps.story2videoMediaServer.revoke = vi.fn(() => true)
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+
+    const result = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video)
+
+    expect(result.code).toBe(0)
+    expect(deps.story2videoMediaServer.revoke).not.toHaveBeenCalled()
+  })
+
+  it('create-share-url 的 previousUrl 非本地媒体 URL 时拒绝调用 revoke', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    deps.story2videoMediaServer.revoke = vi.fn(() => false)
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+
+    const result = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video, 'file:///C:/videos/old.mp4')
+
+    expect(result.code).toBe(0)
+    expect(deps.story2videoMediaServer.revoke).not.toHaveBeenCalled()
+  })
+
+  it('create-share-url 的 previousUrl 同源但非媒体路径时拒绝调用 revoke', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    deps.story2videoMediaServer.revoke = vi.fn(() => false)
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+
+    const result = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video, 'http://127.0.0.1:34821/other/path')
+
+    expect(result.code).toBe(0)
+    expect(deps.story2videoMediaServer.revoke).not.toHaveBeenCalled()
+  })
+
   it('save-as 通过系统保存对话框把受控文件复制到用户选择的位置', async () => {
     const ipcMain = createIpcMain()
     const deps = createDeps()

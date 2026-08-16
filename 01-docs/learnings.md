@@ -1,3 +1,15 @@
+## 古代东亚故事出图西方面孔全链盲区复盘（s2v-east-asian-face-anchor，2026-08-16）
+
+- **现象**：朱蒙·高句丽题材（卒本川/五女山城）场景图出现西方面孔；提示词里没有任何人物外貌约束。
+- **根因（四层盲区叠加）**：① 文化识别规则只有中原王朝/近代朝鲜，缺「朝鲜·东北亚古国」条目——古国专属词（高句丽/扶余/卒本川/朱蒙）全部落空，era=mixed 不触发既有负面锚门控；② domain seed 无人物形象维度，任何东方历史剧默认都不约束面孔；③ 面孔负面锚（西方面孔/金发/蓝眼）被 `ancient && strongEra` 门控排除，mixed/moderate era 的历史剧完全裸奔；④ negative_prompt 透传链路断裂——场景级负面锚在 optimize 请求里生成后从未进入 generate_image 载荷（auto/manual × assetGenerator/python 四分支全缺）。
+- **教训 1（历史剧人物形象必须显式正锚定，不能依赖负面锚兜底）**：正锚（东亚人面孔、黑发、黄皮肤、深色瞳）进 domain seed + 场景上下文，随最终英文提示词到达全部 provider；负面锚是第二道防线，且不能只由 era 强度决定——C1 门控为 ancient && strongEra && 非西方文化 &&（文化命中或东亚专属意象线索）。无文化命中的古希腊/维京/玛雅等古史不注入（审查实证：修复前「古代希腊+宫殿+马车」被强制东亚化）；「宫殿/马车/将军」等古语词非东亚专属（希腊宫殿、维京长船同样存在），不得作为东亚化线索。
+- **教训 2（文化规则要覆盖「古国」语义层）**：keywords 应取「无活跃现代语义」的古国专属词（高句丽/扶余/卒本川/朱蒙）；现代仍有活跃语义的地名/国名（百济/新罗/鸭绿江/桓仁/五女山）不收录，避免误触发。
+- **教训 3（场景级上下文字段要闭环到消费端）**：scene_context 生成 negative_anchors 后，generate_assets 必须按 index 解析并透传；「请求里有了、生成时没用」的字段就是隐式断链，需在 stages 层做端到端透传断言（auto/manual × assetGenerator/python 四分支）。无场景锚但有用户配置 `stage.options.negative_prompt` 时仍须透传 base，与 optimize 请求语义一致。
+- **教训 4（负向透传覆盖范围按 adapter 实述）**：`negative_prompt` 透传到 adapter 层后只有 local-diffusion 消费，云厂商 adapter 按已知键构造载荷并忽略未知键；文档不得宣称「全部 provider 生效」，正锚进最终英文提示词才是全 provider 主修复手段。
+- **教训 5（人物形象正锚不受 includeNegativeAnchors 开关控制）**：`include_negative_anchors:false` 只关闭负面锚，正锚仍注入——此为设计取舍，非缺陷。
+- **逃逸链**：规则/引擎测试只断言 optimize 请求上下文，不追到出图载荷（测试场景缺失）；负面锚门控用例只有 ancient+strong 与「文化命中」方向，缺「无文化命中的非东亚古史反向」用例（测试场景缺失，审查 C1 实证漏网）；双模型审查第一轮未覆盖面孔维度（审查盲区），第二轮 claude 以真实模块调用实证复现。
+- **回归保护**：`story-context-engine.test.js` 用户剧本黄金用例（culture/era/seed/负面锚断言）+ C1/W4 门控矩阵 + 古希腊/维京/玛雅反向 + 武林正向对照；`story2video-stages.test.js` 四分支透传断言 + 无锚 base 透传；`asset-generator.test.js` provider 载荷断言（含无锚不带键）；后续新增人物形象/文化规则必须同时跑这三个文件。
+
 ## 内容政策失败恢复按钮差异与插值契约复盘（s2v-resume-btn-policy-hint，2026-08-16）
 
 - **现象**：视频创作历史记录里最新失败任务（内容政策拦截）没有「从断点继续」按钮，旧任务有。用户以为是回归，实为主进程恢复守卫判定该失败不可原样恢复（`PIPELINE_USER_INPUT_REQUIRED`），前端历史卡片判定未覆盖相同关键字，行为不一致。

@@ -1867,10 +1867,32 @@ describe('Story2VideoProjectService', () => {
 
     const updated = await service.regenerateScenePrompt('project-prompt-img', 'segment-0', 'image')
 
-    expect(optimizePrompt).toHaveBeenCalledWith('你好', expect.anything())
+    // 与流水线契约同源：prompt 会附加 IMAGE_QUALITY_BASELINE（管线 stage 既有行为），max_length=2000 显式携带
+    expect(optimizePrompt).toHaveBeenCalledWith(expect.stringContaining('你好'), expect.objectContaining({ max_length: 2000, platform: 'generic' }))
     expect(updated.segments[0].prompt).toBe('新画面提示词')
     expect(updated.segments[0].promptTranslation).toBeNull()
     expect(updated.segments[0].videoPrompt).toBe('旧视频词')
+    expect(updated.segments[0].status).toBe('completed')
+  })
+
+  it('regenerateScenePrompt image 超长返回按契约默认 2000 本地截断（2026-08-16 上限放开）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '长'.repeat(5000) }] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-long', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词' }],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-prompt-long', 'segment-0', 'image')
+
+    expect(optimizePrompt).toHaveBeenCalledWith(expect.stringContaining('你好'), expect.objectContaining({ max_length: 2000 }))
+    // 后端返回 5000 字符 → 本地按契约上限 2000 截断（Unicode 安全）
+    expect(Array.from(updated.segments[0].prompt).length).toBe(2000)
     expect(updated.segments[0].status).toBe('completed')
   })
 

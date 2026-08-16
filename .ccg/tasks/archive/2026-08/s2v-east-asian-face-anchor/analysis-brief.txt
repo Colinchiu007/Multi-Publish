@@ -1,0 +1,12 @@
+Bug: Story2Video 图片轮播流水线，古代中国/朝鲜（高句丽·扶余·朱蒙）文案生成图片出现西方面孔。
+根因已定位（带文件行）：
+1. story-context-rules.json culture 规则缺东北亚古国关键词（高句丽/扶余/卒本川/五女山/桓仁），韩国条目只有 首尔/韩服/泡菜/汉江。
+2. story-context-engine.js buildDomainSeed 种子模板（文本；视觉风格；光线；无文字、主体明确）与整个 scene_context 层完全没有人种/人物外貌维度；负面锚只有背景类（西方现代建筑等），无面孔排除项。
+3. optimize 阶段(8013) 拿到无约束种子 + character_list=[王子] 自由发挥成英文提示词，无 East Asian 描述。
+4. 出图 generateImage/callPythonSkill('generate_image') 只传 prompt 文本，不透传 negative_prompt（python 侧 flux_image/image_gen/local_diffusion/comfyui 已支持 inputs.negative_prompt；桌面 local-diffusion adapter 也支持）。
+修复计划（M 级，改动 4+ 文件 + 测试）：
+A. story-context-rules.json：新增 culture 条目「朝鲜·东北亚古国」（keywords: 高句丽/扶余/夫余/卒本川/五女山/桓仁/百济/新罗/鸭绿江/沃沮/朱蒙; regions: 卒本川/五女山城/辽东）。
+B. story-context-engine.js：新增 buildAppearanceAnchor(culture,era,strongEra)：东亚系文化(中国/日本/韩国/朝鲜·东北亚古国)或 strong ancient 无文化→「东亚人面孔、黑发、黄皮肤、深色瞳」；非欧美文化→当地民族面孔。extractStoryContext 输出附加 eraStrong；buildGlobalNegativeAnchors 对非欧美 culture 或 strong ancient 无 culture 时追加面孔负面锚（西方面孔/高鼻深目/金发/蓝眼/欧式五官）；buildDomainSeed 与 buildSceneContextBlock 注入「人物形象：<anchor>」。
+C. story2video-stages.js：manual 与 auto 两条出图路径，把 stage.options.negative_prompt + 场景 negativeAnchors 经 mergeNegativePrompt 合并后透传 assetGenerator.generateImage opts 与 callPythonSkill payload。
+D. asset-generator.js _tryProviderImage：把 opts.negative_prompt 传进 aiGenerator.generate('image', provider, {...})。
+约束：欧洲/美国文化不得加东亚锚与面孔负面锚；modern 场景不得加面孔负面锚；规则 schema 不变（负面锚与外貌锚走代码常量而非 rules JSON），避免外部规则覆盖失效；无新增用户可见文案（不动 locales）；测试先行（story-context-engine.test.js / story2video-stages.test.js / asset-generator.test.js）。

@@ -1,0 +1,13 @@
+{
+  "id": "s2v-policy-edit-regen",
+  "title": "视频创作历史：内容政策失败任务「修改场景文案并重新生成」按钮 + 场景定位",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "PR #882 已合并（squash 76f88322）并归档",
+  "createdAt": "2026-08-16T10:30:00+08:00",
+  "branch": "codex/s2v-policy-edit-regen",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-s2v-policy-edit-regen"
+}
