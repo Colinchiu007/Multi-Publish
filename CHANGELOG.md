@@ -1,3 +1,10 @@
+## [2026-08-16] fix(agnes-image): 适配器尊重 response_format=b64_json 契约，Base64 直出绕开 SSRF URL 下载拦截
+
+- 现象：PR #897 后历史任务【重试图片】改走 agnes-image，但真实调用仍失败——日志为 SSRF 守卫拦截图片 URL 下载（`asset-generator.js:322/723`）。
+- 根因：① agnes-image 适配器把 `response_format` 放请求体顶层，被 litellm 网关以 UnsupportedParamsError 拒绝（官方文档要求放 `extra_body`，历史 103 次样本全失败）；② 适配器固定请求 url 输出、忽略调用方 `b64_json` 请求，URL 二次下载在本机 Clash fake-ip DNS（`storage.googleapis.com`→198.18.1.194）下被 SSRF 守卫拦截。
+- 修复：适配器尊重 `params.response_format`——`b64_json` 时 `extra_body.response_format='b64_json'` 并 Base64 直出（缺失 fail closed），默认 url 时 `extra_body.response_format='url'`；请求体顶层不再携带该字段。
+- 回归：`agnes-image.test.js` 28 用例通过（+4：extra_body 契约 / b64_json 请求与返回形状 / 缺失 fail closed / url 默认）；真实 E2E DB 调用 2938 success（34s，新 PNG+MP4 落盘）；QM-1 打包 asar 含 adapter。
+
 ## [2026-08-16] fix(story2video): 历史记录重新生成优化词 fail-closed（402 回显不再误写）+ 请求 context 与流水线同源
 
 - 现象：视频创作-历史记录编辑场景内容，点击「重新生成图片优化词」生成了新优化词，但输出不像最新代码提示词引擎（仅原文 + Photoreal 后缀）；实际是 prompt-engine(8013) 额度不足返回 `error: 402 insufficient_balance_error` + `optimized_prompt` 原样回显，桌面侧本地提取器先取文本后查 error，把回显原文当成功写入分段。
