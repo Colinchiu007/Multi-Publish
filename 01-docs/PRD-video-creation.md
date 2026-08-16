@@ -170,6 +170,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-15 | 视频提示词引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架 | **Batch B**：`prev_final_frame`（≤1000 字符，句末截断）链式承接上一镜计划终态；`HIGGSFIELD_FMT_V4` 缓存盐（key 含 prev_final_frame 哈希）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）；Story2Video 视频提示词按场景串行优化、媒体生成保持并发、计划终态回写 scene.video.final_frame、checkpoint 终态恢复链、断链显式 degraded。**Batch C**：refined 12 块导演骨架（SCENE NOTE…FINAL FRAME，值 ≤4000，白名单）；FAIL CHECK 仅指令不出现在输出；尾行清理只认完整 trailer 尾段；块覆盖度 ≥0.8（advisory -5）；7 条 lock-gated 规则默认启用 dead_center/exposure_break/eye_line，否定感知（not overexposed / no waxy skin 不判罚）。详见本节 3.1.27 | PRD 3.1.27 / openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output | | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 | 2026-08-16 | 历史记录场景 AI 视频重新生成（W4 闭环） | 完成 3.1.29 的 W4 真缺口：结果页新增【生成 AI 视频】，以分段 videoPrompt（缺省回退 prompt/text）为提示词复用流水线 stages 契约（generateVideo→轮询→下载校验），成功替换分段 videoPath/videoMeta、失败保留旧视频回写 failed；IPC/权益/preload/api/locales/通知归一化全链路补齐；详见本节 3.1.29.1 | PRD 3.1.29.1 / openspec s2v-history-ai-video-regen |
 | 2026-08-15 | 历史记录场景内容编辑/重新生成与整片重合成 | 已完成任务每个场景可修改文案/字幕块/视频优化词/语音设置（updateSegments 白名单透传 + 限长收敛，voiceSpeed/Pitch 收敛 [0.1,10]），重新生成字幕（本地重切清空时间轴、重置失败态与来源标记）/旁白（TTS 失败回滚保留旧音频 + 回写 failed）/图片与视频优化词（image 重写 prompt 清翻译、video 写 videoPrompt），配合既有【生成新图】【生成视频】与【重新合成】完成整片重合成；voiceSpeed 收敛 [0.5,2]、voicePitch 收敛 [-12,12]（与流水线契约对齐）；同项目写串行队列防并发覆盖；compose 回显缺省时 videoPrompt 按原值回填；历史卡片与详情弹窗新增【编辑并重新合成】入口 + 只读场景列表；详见本节 3.1.29 | PRD 3.1.29 / openspec s2v-history-scene-edit-recompose |
+| 2026-08-16 | 历史记录图片提示词完整展示 + 未保存修改离开守卫 | 历史详情弹窗场景列表由 60 字符硬截断改为「旁白 / 画面提示词」分行完整展示（只渲染存在字段，长文本换行 + 列表滚动），卡片预览 120 截断保持；结果页分段编辑新增「有未保存修改」标识与离开确认（保存并离开 / 不保存离开 / 取消），保存成功才放行、失败留页；明确保存语义为【保存分段】手动持久化 + 生成/重合成前自动保存；详见本节 3.1.29.3 | PRD 3.1.29.3 / openspec story2video-history-scene-prompt-persistence |
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
 ---
@@ -2009,8 +2010,31 @@ SettingsDialog 关闭（App.vue @close）
 - 服务层（`story2video-project-service.test.js`）：「AI 视频生成经注入 assetRetry 包装，瞬时失败重试后成功」（stage 抛错 1 次 → 第 2 次成功，断言调用 2 次、重试原因、产物替换、status=completed）；「默认 withAssetTransientRetry 对瞬时错误重试后成功」（stage 返回 `{success:false, error:'request timed out'}` → 成功，断言调用 2 次、产物替换）；「重试耗尽 fail-closed」（真实 `withAssetTransientRetry(maxAttempts:1)` 耗尽，断言抛出与回写错误均为真实 `request timed out`、旧视频保留、无新产物）；「非瞬时结果对象不重试」（内容政策类失败 stage 只调用 1 次、原样上抛）。
 - 全量桌面 vitest、QM-1 打包（`electron-builder --win --dir` + 8s 冒烟）、CI 全绿。
 
+#### 3.1.29.3 历史记录图片提示词完整展示 + 未保存修改离开守卫（2026-08-16）
 
-### 3.1.29.3 结果页/历史编辑视频预览令牌失效自愈与旧令牌回收（2026-08-16）
+**背景**：用户反馈两类问题：① 历史详情弹窗的场景列表把图片提示词按 60 字符硬截断（案例截断在 "Wunü Mo" 单词中间），长提示词信息丢失无法查看；② 结果页分段编辑修改后没有自动保存、也没有清晰的保存引导，直接返回/离开时会静默丢失未保存修改。
+
+##### 1) 详情弹窗完整展示
+
+- 历史详情弹窗场景列表由「单行混合预览 + 60 字符截断」改为**每个场景两行独立展示**：「旁白」行（`scene.text`）与「画面提示词」行（`scene.prompt`），只渲染存在的字段，空字段不占行；移除 60 字符硬截断，长文本 `white-space: normal; word-break: break-word` 自动换行，列表限高滚动。
+- 历史卡片预览仍按 120 字符截断（设计如此：卡片是摘要，详情弹窗是完整内容）。
+
+##### 2) 结果页未保存修改标识与离开守卫
+
+- 分段编辑区新增「有未保存修改」标识（`segmentsDirty=true` 时显示，保存成功后消失）。
+- 新增 `beforeRouteLeave` 离开守卫：存在未保存修改时挂起导航并弹出确认框，三个动作：
+  - 【保存并离开】：先调保存分段，保存成功才放行；保存失败留在当前页并保持弹窗（可再试或取消）。
+  - 【不保存离开】：放弃未保存修改直接导航。
+  - 【取消】：撤销导航，留在结果页继续编辑。
+- 组件被销毁且守卫仍挂起时（如测试/异常路径）兜底取消导航，保证 `next` 只调用一次、不悬挂。
+- **保存语义（回答「现在是怎么保存的」）**：分段编辑为**手动保存**——修改标脏后点【保存分段】持久化（IPC `story2video:update-segments`）；「重新生成字幕/旁白/优化词」「生成新图/视频」「重新合成」等后续动作前会自动保存未落盘编辑（3.1.29 W3 既有机制）；本次新增离开确认，防止直接返回时静默丢失。
+
+##### 3) 测试与门禁
+
+- ResultView.test.js：6 用例（无 dirty 放行 / chip 显示与保存后消失 / 取消留页 / 保存成功并离开 / 保存失败留页 / 不保存离开），经真实 `<router-view>` 挂载触发 `beforeRouteLeave`，弹窗按钮经 Teleport stub 就地渲染后 DOM 触发。
+- CreateViewHistory.test.js：长提示词（>120 字符）详情完整可见、无省略号；旁白/画面提示词分行；只有 text 或只有 prompt 时不渲染空行；卡片预览仍 120 截断。
+- locale zh/en 成对（新增 8 键：create.history.sceneNarration/scenePrompt + story2video.sceneMaterial 6 键）；CJK 基线 `--update-baseline` 吸收行号偏移（官方门禁 1499/1499 无新增硬编码）；`pnpm run build:vue` 通过。
+#### 3.1.29.4 结果页/历史编辑视频预览令牌失效自愈与旧令牌回收（2026-08-16）
 
 **背景**：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存。根因：本地媒体服务签发短生命令牌 URL（TTL 15 分钟、128 条 FIFO 注册表逐出、生产零 revoke），编辑会话回放旧任务时旧令牌已过期/被逐出，`<video>` 元素 error 被渲染层固定弹为「视频预览加载失败」，属误报。
 
@@ -2600,3 +2624,7 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 - PipelineSelector错误态：错误信息 + "重试"按钮
 - StageProgress阶段状态：等待中/运行中/已完成/失败/等待确认/已取消
 - StageProgress时间格式："X分Y秒" 或 "Y秒"
+
+
+
+

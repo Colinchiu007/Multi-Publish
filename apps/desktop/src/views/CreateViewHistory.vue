@@ -229,7 +229,10 @@
           <ol class="history-detail-scene-list">
             <li v-for="(scene, index) in detailScenes(selectedHistoryItem)" :key="scene.id || index" class="history-detail-scene-item">
               <span class="history-detail-scene-index">{{ index + 1 }}</span>
-              <span class="history-detail-scene-text">{{ truncate(scene.text || scene.prompt || '', 60) }}</span>
+              <span class="history-detail-scene-body">
+                <span v-if="scene.text" class="history-detail-scene-row"><span class="history-detail-scene-row-label">{{ tr('sceneNarration') }}</span>{{ scene.text }}</span>
+                <span v-if="scene.prompt" class="history-detail-scene-row"><span class="history-detail-scene-row-label">{{ tr('scenePrompt') }}</span>{{ scene.prompt }}</span>
+              </span>
             </li>
           </ol>
           <p class="history-detail-hint">{{ tr('sceneListHint') }}</p>
@@ -506,8 +509,12 @@ export default {
 <style scoped>
 .history-detail-scenes { margin-top: 14px; }
 .history-detail-scene-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
-.history-detail-scene-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.history-detail-scene-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
 .history-detail-scene-index { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--border-light); color: var(--text-muted); font-size: 12px; }
-.history-detail-scene-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 13px; }
+.history-detail-scene-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; color: var(--text); font-size: 13px; }
+.history-detail-scene-row { min-width: 0; white-space: normal; word-break: break-word; line-height: 1.6; }
+.history-detail-scene-row-label { display: inline-block; flex: none; margin-right: 8px; color: var(--text-muted); font-size: 12px; }
 .history-detail-hint { margin: 10px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 </style>
+
+

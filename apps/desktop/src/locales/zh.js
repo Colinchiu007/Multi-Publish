@@ -281,6 +281,8 @@ export default {
       policyEditAndRegenerate: '修改场景文案并重新生成',
       sceneListLabel: '场景列表',
       sceneListHint: '点击「编辑并重新合成」可进入结果页：修改各场景的文案、字幕、语音设置与图片/视频优化词，重新生成字幕/旁白/图片/视频素材，最后重新合成整个视频。',
+      sceneNarration: '旁白',
+      scenePrompt: '画面提示词',
       delete: '删除',
       close: '关闭',
       detailTitle: '任务详情',
@@ -515,6 +517,12 @@ export default {
       voiceEmotionPlaceholder: '如 calm、cheerful（可选）',
       regenerateVoice: '重新生成旁白',
       generatingVoice: '语音生成中...',
+      unsavedChanges: '有未保存修改',
+      unsavedLeaveTitle: '未保存的修改',
+      unsavedLeaveMessage: '当前分段编辑有未保存的修改，是否在离开前保存？',
+      saveAndLeave: '保存并离开',
+      discardAndLeave: '不保存离开',
+      cancel: '取消',
     },
 
     // Pipeline error param labels (@ refs resolved in interpolateMessage)
