@@ -1128,4 +1128,5 @@ module.exports = {
   extractProviderImageUrl,
   isPrivateAddress,
   getPythonCommands,
+  IMAGE_PROVIDER_ALIASES,
 }
