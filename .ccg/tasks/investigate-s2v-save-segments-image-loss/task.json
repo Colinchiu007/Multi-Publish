@@ -1,0 +1,12 @@
+{
+  "id": "investigate-s2v-save-segments-image-loss",
+  "title": "历史记录点击保存分段后所有图片消失 — 原因排查",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "analysis",
+  "nextAction": "已定位根因，待确认是否实施修复（worktree + PR）",
+  "createdAt": "2026-08-16T00:00:00Z",
+  "branch": "main"
+}
