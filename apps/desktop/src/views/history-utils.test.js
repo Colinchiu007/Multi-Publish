@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CONTENT_POLICY_ERROR_PATTERN,
   HISTORY_TIME_KEYS,
   RESUME_BLOCKING_ERROR_PATTERN,
   collectContentPolicySceneNumbers,
@@ -51,12 +52,21 @@ describe('history-utils', () => {
     expect(filterHistoryByStatus(items, 'paused').map(item => item.id)).toEqual(['paused'])
     expect(filterHistoryByStatus(items, 'all').map(item => item.id)).toEqual(['failed', 'paused', 'running'])
   })
-  it('RESUME_BLOCKING_ERROR_PATTERN 统一命中连字符/空格/下划线/无分隔符变体', () => {
-    for (const text of ['content-policy', 'content policy', 'content_policy', 'contentpolicy', 'needs_user_input', '可能需要修改文案', '内容政策', '该失败需要人工处理（内容政策），请修改文案后重新启动']) {
+  it('RESUME_BLOCKING_ERROR_PATTERN 门控统一命中内容政策与空结果变体', () => {
+    for (const text of ['content-policy', 'content policy', 'content_policy', 'contentpolicy', 'needs_user_input', '可能需要修改文案', '内容政策', '该失败需要人工处理（内容政策），请修改文案后重新启动', 'Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account', '图片生成多次未返回结果（可能是内容安全策略或服务波动）']) {
       expect(RESUME_BLOCKING_ERROR_PATTERN.test(text)).toBe(true)
     }
     expect(RESUME_BLOCKING_ERROR_PATTERN.test('provider timeout')).toBe(false)
     expect(RESUME_BLOCKING_ERROR_PATTERN.test('Image #5 aborted')).toBe(false)
+  })
+
+  it('CONTENT_POLICY_ERROR_PATTERN 仅命中内容政策子集，不含空结果短语（2026-08-16 复审解耦）', () => {
+    for (const text of ['content-policy', 'content policy', 'content_policy', 'contentpolicy', 'needs_user_input', '可能需要修改文案', '内容政策', 'Image generation requires user input after content-policy review']) {
+      expect(CONTENT_POLICY_ERROR_PATTERN.test(text)).toBe(true)
+    }
+    for (const text of ['Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account', '图片生成多次未返回结果（可能是内容安全策略或服务波动）', 'provider timeout']) {
+      expect(CONTENT_POLICY_ERROR_PATTERN.test(text)).toBe(false)
+    }
   })
 
   it('contentPolicyScenes 混合失败只提取政策场景并压缩连续区间', () => {
@@ -72,7 +82,7 @@ describe('history-utils', () => {
     expect(contentPolicyScenes(error)).toBe('#49、#73-77')
   })
 
-  it('contentPolicyScenes 覆盖中文「内容政策」变体（与门控正则同源）', () => {
+  it('contentPolicyScenes 覆盖中文「内容政策」变体（场景提取使用内容政策子集）', () => {
     expect(contentPolicyScenes('Image #5: 内容政策拦截; Image #6: 内容政策拦截')).toBe('#5-6')
     expect(contentPolicyScenes('Image #5: 该失败需要人工处理（内容政策），请修改文案后重新启动')).toBe('#5')
   })
@@ -112,5 +122,13 @@ describe('history-utils', () => {
     expect(policySceneQuery(error)).toBe('49,73,74,76')
     expect(policySceneQuery('Image #5: aborted')).toBe('')
     expect(policySceneQuery(undefined)).toBe('')
+  })
+
+  it('contentPolicyScenes 不把空结果失败提取为政策场景（2026-08-16 复审回归）', () => {
+    const emptyResultError = 'Image #7: Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account; ' +
+      'Image #8: 图片生成多次未返回结果（可能是内容安全策略或服务波动）'
+    expect(contentPolicyScenes(emptyResultError)).toBe('')
+    // 同一错误仍被门控正则判为不可原样恢复
+    expect(RESUME_BLOCKING_ERROR_PATTERN.test(emptyResultError)).toBe(true)
   })
 })

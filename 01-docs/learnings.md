@@ -10,6 +10,21 @@
 - **逃逸链**：规则/引擎测试只断言 optimize 请求上下文，不追到出图载荷（测试场景缺失）；负面锚门控用例只有 ancient+strong 与「文化命中」方向，缺「无文化命中的非东亚古史反向」用例（测试场景缺失，审查 C1 实证漏网）；双模型审查第一轮未覆盖面孔维度（审查盲区），第二轮 claude 以真实模块调用实证复现。
 - **回归保护**：`story-context-engine.test.js` 用户剧本黄金用例（culture/era/seed/负面锚断言）+ C1/W4 门控矩阵 + 古希腊/维京/玛雅反向 + 武林正向对照；`story2video-stages.test.js` 四分支透传断言 + 无锚 base 透传；`asset-generator.test.js` provider 载荷断言（含无锚不带键）；后续新增人物形象/文化规则必须同时跑这三个文件。
 
+## MiniMax「重试图片」误报内容安全审查复盘（s2v-retry-content-policy-message，2026-08-16）
+- **融合说明（rebase PR #882/#888）**：内容政策类别最终采用远端 NEEDS_USER_INPUT 整合结构（`story2video.needs_user_input` + sceneLabel 引用），「独立类别」教训落实为独立于 content-policy 的 empty_result / api_key_invalid 类别；门控/语义解耦、业务错误码先读等核心教训不受影响。
+
+- **现象**：已成功生成过的提示词再次【重试图片】失败，只显示「当前操作未能完成，请稍后再试。」；应用日志多条 `Image provider minimax-multimodal requires user input after content-policy retries`，实际是用户保存的 MiniMax API Key 已过期。
+- **根因**：`minimax-image.js` 缺失 HTTP 200 + `base_resp.status_code != 0` 业务错误解析（视频适配器 `minimax.js`、语音 `minimax-tts.js` 已有先例）。过期 Key 的业务错误体（`Invalid api key` 类，返回码非 0）被当成「HTTP 200 无图空结果」→ `emptyResult=true` → 进入空结果重试圈（同提示词重试 → 第 3 次起改写 → 5 次后 checkpoint `empty_result`）→ `asset-generator.js` 硬编码 `requires user input after content-policy review` → 渲染层归一化未映射 content-policy / 无效 Key 类别 → `operation_failed` 通用文案。
+- **教训 1（业务错误码必须先于产物读取）**：HTTP 200 不代表成功；读取产出字段前必须解析供应商业务错误码（`base_resp.status_code`），且与同族适配器（视频/语音/TTS）保持同一解析顺序与分类语义。新增适配器必须带「200 + 业务错误码」测试用例。
+- **教训 2（空结果 ≠ 内容策略）**：重试圈结束后 `empty_result` 不得映射为 content-policy；消息分类唯一来源是 `checkpoint.reason`，禁止硬编码。
+- **教训 3（渲染归一化缺失类别 = 新的错误掩盖层）**：API Key「无效/过期」是与「缺失」不同的类别（`MODEL_API_KEY_REQUIRED` 只覆盖未配置/未找到），需独立模式与文案；内容安全审查需独立类别并支持场景号插值。缺失类模式必须先于无效类匹配，避免误抢。
+- **逃逸链**：适配器无 200+业务错误码用例（测试场景缺失）；重试/资产层无「业务错误不得进入内容策略圈」断言（测试场景缺失）；渲染层归一化缺 content-policy / 无效 Key 映射（审查盲区）。
+- **回归保护**：`minimax-image.test.js` +2（AUTH_FAILED / QUOTA_EXCEEDED）；`story2video-image-retry.test.js` +1（AUTH_FAILED 立即失败不进圈，category=auth）；`asset-generator-provider.test.js` empty_result 消息断言不再称 content-policy；`notifications.test.js` / `story2video-notifications.test.js` / `ResultView.test.js` 新增两类映射断言（zh/en）。
+- **教训 4（用户可见消息本身不能喂给错误分类正则）**：首轮实现把 empty_result 消息写成 "...(content-policy, service fluctuation or account issue)..."，结果被渲染层 `CONTENT_POLICY_PATTERN` 再次映射成内容安全审查——消息文案必须用 `checkpoint.reason` 分支生成（单一来源 helper），并加「消息不再命中误分类正则」的断言。
+- **教训 5（同一正则不能既做门控又做语义标注）**：复审发现把 empty-result 短语加进门控正则后，历史页「内容政策拦截」提示条与场景提取复用同一模式，空结果失败被标成内容政策。门控（是否可恢复）与语义标注（是什么原因）必须解耦：`CONTENT_POLICY_ERROR_PATTERN` 子集仅用于场景提取/提示条，门控正则保留全部短语，并补「空结果不提取场景但门控仍拦截」双断言。
+- **教训 6（分类正则的裸关键词过宽）**：适配器 isAuth 的裸 `api[ _-]?key` 把「您的 API Key 额度已用完，请升级套餐」误判为 AUTH_FAILED（应为 QUOTA_EXCEEDED）。认证判定必须邻近失效信号（invalid/expired/失效/过期等），额度判定优先于宽泛关键词；同时补认证表述（Authentication failed / Invalid authentication credentials / token invalid）双向覆盖，并新增「含 API Key 的额度文案 → QUOTA」回归。
+- **预防措施**：图像/视频/语音适配器统一「业务错误码先于产物读取」顺序并补齐三类（图片已修，视频/语音/TTS 复核列为 follow-up）；provider 错误分类契约（AUTH_FAILED/QUOTA_EXCEEDED/CONTENT_POLICY/PROVIDER_ERROR）与渲染归一化类别做双向映射测试；重试圈 `checkpoint.reason` 为消息分类唯一来源；新增用户可见错误文案必须同时验证其在归一化正则下的分类结果。
+
 ## 内容政策失败恢复按钮差异与插值契约复盘（s2v-resume-btn-policy-hint，2026-08-16）
 
 - **现象**：视频创作历史记录里最新失败任务（内容政策拦截）没有「从断点继续」按钮，旧任务有。用户以为是回归，实为主进程恢复守卫判定该失败不可原样恢复（`PIPELINE_USER_INPUT_REQUIRED`），前端历史卡片判定未覆盖相同关键字，行为不一致。

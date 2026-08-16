@@ -10,6 +10,39 @@ const {
 } = require('./story2video-image-retry')
 
 describe('Story2Video image content-policy retry', () => {
+  it('auth 失败（如过期 Key）立即失败，不进入内容策略重试圈（2026-08-16 复盘回归）', async () => {
+    const generate = vi.fn(async () => {
+      throw new ProviderError(ERROR_CODES.AUTH_FAILED, 'Invalid api key', { statusCode: 1004 })
+    })
+
+    const result = await runContentPolicyImageRetry({
+      prompt: '任意场景',
+      sceneIndex: 0,
+      generate,
+    })
+
+    expect(generate).toHaveBeenCalledTimes(1)
+    expect(result.status).toBe('failed')
+    expect(result.error.message).toBe('Invalid api key')
+    expect(result.attempts).toEqual([
+      expect.objectContaining({ attempt: 1, outcome: 'failed', category: 'auth' }),
+    ])
+  })
+
+  it('needsUserInputMessage：content_policy 与 empty_result 消息区分，且空结果消息不内嵌 content-policy（2026-08-16 审查补强）', () => {
+    const { needsUserInputMessage } = require('./story2video-image-retry')
+    const contentPolicyMsg = needsUserInputMessage({ reason: 'content_policy' })
+    expect(contentPolicyMsg).toContain('content-policy review')
+
+    const emptyResultMsg = needsUserInputMessage({ reason: 'empty_result' })
+    expect(emptyResultMsg).toContain('repeatedly returned no result')
+    expect(emptyResultMsg).not.toContain('content-policy')
+
+    const fallbackMsg = needsUserInputMessage(null)
+    expect(fallbackMsg).toContain('repeatedly returned no result')
+    expect(fallbackMsg).not.toContain('content-policy')
+  })
+
   it('classifies only explicit content-policy errors as rewrite candidates', () => {
     expect(isContentPolicyRejection(new ProviderError(ERROR_CODES.CONTENT_POLICY, 'blocked'))).toBe(true)
     expect(isContentPolicyRejection({ code: 'content_policy_violation', statusCode: 400 })).toBe(true)

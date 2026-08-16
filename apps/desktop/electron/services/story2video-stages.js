@@ -31,6 +31,7 @@ const {
 } = require('./story2video-paths');
 const {
   MAX_IMAGE_GENERATION_ATTEMPTS,
+  needsUserInputMessage,
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
 const { ERROR_CODES } = require('./adapters/_base/provider-error');
@@ -747,7 +748,7 @@ async function buildManualSceneCandidates (ctx) {
       } else if (retryResult.status === 'needs_user_input') {
         result = {
           code: -1,
-          message: 'Image generation requires user input after content-policy review',
+          message: needsUserInputMessage(retryResult.checkpoint),
           needsUserInput: true,
           checkpoint: retryResult.checkpoint,
           data: { needsUserInput: true, checkpoint: retryResult.checkpoint, generationAttempts: retryResult.attempts },
@@ -798,7 +799,7 @@ async function buildManualSceneCandidates (ctx) {
   if (contentPolicyFailure) {
     return {
       success: false,
-      error: contentPolicyFailure.error || 'Image generation requires user input after content-policy review',
+      error: contentPolicyFailure.error || needsUserInputMessage(contentPolicyFailure.checkpoint),
       needsUserInput: true,
       checkpoint: contentPolicyFailure.checkpoint || null,
       generationAttempts: contentPolicyFailure.generationAttempts || [],
@@ -2381,7 +2382,7 @@ function registerStory2VideoStages(pipelineEngine) {
               } else if (retryResult.status === 'needs_user_input') {
                 result = {
                   code: -1,
-                  message: 'Image generation requires user input after content-policy review',
+                  message: needsUserInputMessage(retryResult.checkpoint),
                   needsUserInput: true,
                   checkpoint: retryResult.checkpoint,
                   data: {

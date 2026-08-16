@@ -187,6 +187,28 @@ class MinimaxImageAdapter extends BaseAdapter {
     })
     const data = await resp.json()
 
+    // MiniMax 业务错误：HTTP 200 + base_resp.status_code != 0（如 Key 无效/过期、额度用尽）。
+    // 必须在读取 image_urls 之前解析，否则业务错误会被当成「空结果」误入内容策略重试圈，
+    // 最后误报为 content-policy review（2026-08-16 复盘：过期 Key 的真实根因）。与
+    // minimax.js（视频）/minimax-tts.js（语音）保持同一解析顺序。
+    const baseResp = data?.base_resp
+    if (baseResp && Number.isFinite(Number(baseResp.status_code)) && Number(baseResp.status_code) !== 0) {
+      const statusMsg = baseResp.status_msg || ('MiniMax 图片生成失败（status_code=' + baseResp.status_code + '）')
+      const isContentPolicy = hasStrictContentPolicySignal(statusMsg)
+      // 认证判定收紧：裸 "api key" 不得直接判 AUTH（如「API Key 额度已用完，请升级套餐」是额度问题）；
+      // 必须邻近 invalid/expired 等失效信号，或命中 authenticat/credential/token 失效表述（2026-08-16 复审）。
+      const isAuth = /api[ _-]?key[^\n]{0,24}(?:invalid|expired|失效|过期|无效|错误|不正确)|(?:invalid|expired)\s+api[ _-]?key|invalid\s+api\s*key|(?:key|密钥).{0,16}(?:invalid|expired|失效|过期|无效|错误|不正确)|authenticat|credential|unauthorized|access\s+denied|(?:token|凭证).{0,16}(?:invalid|expired|无效|失效)/i.test(String(statusMsg))
+      const isQuota = /额度|用量|quota|balance|exhausted|insufficient|billing|payment\s*required|(?:token\s*plan|用量|额度).{0,24}(?:上限|超|耗尽|用尽|用完)|升级|upgrade/i.test(String(statusMsg))
+      throw new ProviderError(
+        isContentPolicy ? ERROR_CODES.CONTENT_POLICY
+          : isAuth ? ERROR_CODES.AUTH_FAILED
+            : isQuota ? ERROR_CODES.QUOTA_EXCEEDED
+              : ERROR_CODES.PROVIDER_ERROR,
+        statusMsg,
+        { providerId: this.id, statusCode: Number(baseResp.status_code) },
+      )
+    }
+
     // MiniMax 响应中 data.image_urls 为 URL 数组
     const imageUrls = data?.data?.image_urls || data?.image_urls || []
 
