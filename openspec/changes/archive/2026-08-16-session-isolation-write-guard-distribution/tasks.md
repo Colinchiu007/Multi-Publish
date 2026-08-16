@@ -18,7 +18,7 @@
 ## 3. 验证与交付
 
 - [x] 3.1 PowerShell AST 解析全部改动脚本
-- [ ] 3.2 两个会话隔离自检测试通过
-- [ ] 3.3 bootstrap 幂等运行通过且健康检查 ok=true
+- [x] 3.2 两个会话隔离自检测试通过（write-guard 14/14，automation 20/20）
+- [x] 3.3 bootstrap 幂等运行通过且健康检查 ok=true（连跑两次均成功）
 - [x] 3.4 `openspec validate --strict` 通过
-- [ ] 3.5 分两笔提交并记录 origin/main 差异
+- [x] 3.5 分两笔提交并记录 origin/main 差异（HEAD 2c93fc98；origin/main 0b413f7c；仅领先 2 个提交，无落后）
