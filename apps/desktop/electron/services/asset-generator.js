@@ -588,6 +588,8 @@ class AssetGenerator {
             aspectRatio: opts.aspect_ratio,
             style: opts.style,
             model: opts.image_model || opts.imageModel,
+            // 面孔/时代负面锚透传（2026-08-16 east-asian-face-anchor）；不消费该键的 adapter 忽略
+            ...(opts.negative_prompt ? { negative_prompt: opts.negative_prompt } : {}),
           })
           const providerError = result?.error || result?.data?.error
           if (providerError && typeof providerError === 'object') throw providerError

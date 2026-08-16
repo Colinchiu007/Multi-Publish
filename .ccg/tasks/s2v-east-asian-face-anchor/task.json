@@ -1,0 +1,12 @@
+{
+  "id": "s2v-east-asian-face-anchor",
+  "title": "Story2Video 古代东亚故事生成图片出现西方面孔：补人物外貌/人种锚 + 面孔负面锚 + 出图负向透传",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "completed",
+  "nextAction": "PR 合并后归档（远程同步门禁）",
+  "createdAt": "2026-08-16T00:00:00Z",
+  "branch": "codex/s2v-east-asian-face-anchor"
+}

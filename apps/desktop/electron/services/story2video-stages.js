@@ -701,6 +701,7 @@ async function buildManualSceneCandidates (ctx) {
       ? promptItem
       : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
     if (!promptText) return { success: false, index, error: '场景缺少提示词' }
+    const negativePrompt = resolveSceneNegativePrompt(context, stage, index)
     let result
     if (assetGenerator) {
       result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
@@ -710,6 +711,7 @@ async function buildManualSceneCandidates (ctx) {
         index,
         aspect_ratio: aspectRatio,
         runId,
+        ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
       }))
     } else {
       const retryResult = await runContentPolicyImageRetry({
@@ -725,6 +727,7 @@ async function buildManualSceneCandidates (ctx) {
             index,
             aspect_ratio: aspectRatio,
             runId,
+            ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
           }))
           const providerError = attemptResult?.error || attemptResult?.data?.error
           if (providerError && typeof providerError === 'object') throw providerError
@@ -1102,6 +1105,34 @@ function getOptimizationScenes(context) {
   if (source && Array.isArray(source.scenes)) return source.scenes;
   if (source && Array.isArray(source.sentences)) return source.sentences;
   return null;
+}
+
+/**
+ * 按场景索引取 negativeAnchors（2026-08-16 east-asian-face-anchor）。
+ * 出图阶段自行按 index 从 scene_context 取，不从 optimize 条目带（W5：覆盖
+ * skipped_optimize / too_short / llm_rejected 三种回退分支）。
+ * 前置条件：scene_context.scenes 数组顺序与 generate 循环 index 严格 1:1
+ * （split→scene_context→optimize→generate 正常流程成立；断点续传/降级回退已由 W5 覆盖）。
+ * @returns {string[]}
+ */
+function sceneNegativeAnchorsOf(context, index) {
+  const scenes = getOptimizationScenes(context || {});
+  const scene = Array.isArray(scenes) ? scenes[index] : null;
+  return scene && typeof scene === 'object' && !Array.isArray(scene) && Array.isArray(scene.negativeAnchors)
+    ? scene.negativeAnchors
+    : [];
+}
+
+/**
+ * 合并 stage.options.negative_prompt 与场景负面锚（<={max}）。
+ * 无场景锚但用户配置了 stage.options.negative_prompt 时仍透传 base（审查 W：与 optimize 请求
+ * 语义一致）；两者皆无才返回空串（调用方不带 negative_prompt 键）。
+ */
+function resolveSceneNegativePrompt(context, stage, index) {
+  const anchors = sceneNegativeAnchorsOf(context, index);
+  const base = stage && stage.options && typeof stage.options.negative_prompt === 'string' ? stage.options.negative_prompt : '';
+  if (anchors.length === 0 && !base) return '';
+  return mergeNegativePrompt(base, anchors, 500);
 }
 
 function resumeFinalFrameOf(resumeEntry) {
@@ -2295,6 +2326,7 @@ function registerStory2VideoStages(pipelineEngine) {
               }
             }
             const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
+            const negativePrompt = resolveSceneNegativePrompt(context, stage, index);
             if (inputMode === 'images' && inputImages[index] !== undefined) {
               const suppliedPath = resolveInputImage(inputImages[index], runId, index);
               if (!suppliedPath) {
@@ -2313,6 +2345,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 index,
                 aspect_ratio: aspectRatio,
                 runId,
+                ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
               }));
             } else {
               const retryResult = await runContentPolicyImageRetry({
@@ -2328,6 +2361,7 @@ function registerStory2VideoStages(pipelineEngine) {
                     index,
                     aspect_ratio: aspectRatio,
                     runId,
+                    ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
                   }));
                   const providerError = attemptResult?.error || attemptResult?.data?.error;
                   if (providerError && typeof providerError === 'object') throw providerError;
