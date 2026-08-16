@@ -29,6 +29,7 @@ const {
   PROMPT_ENGINE_LIMITS,
   buildPromptEngineOptimizeRequest,
 } = require('./prompt-engine-contract')
+const { VIDEO_ENGINE_LIMITS } = require('./video-prompt-engine-contract')
 const {
   IMAGE_PROVIDER_ALIASES,
 } = require('./asset-generator')
@@ -1101,7 +1102,13 @@ class Story2VideoProjectService {
         })
       }
       const optimized = kind === 'video'
-        ? await this.serviceBus.optimizeVideoPrompt(seed, { index: segment.sourceIndex ?? index })
+        ? await this.serviceBus.optimizeVideoPrompt(seed, {
+            index: segment.sourceIndex ?? index,
+            // 视频域显式顶格（PRD 3.1.29.5）：8020 standalone [200,20000] / 8013 legacy [50,2000]
+            // 由契约 builder 各自 clamp，与图片分支「显式传域上限」同模式；
+            // 防止历史重生成落回后端默认（legacy 500 / standalone 1800）截断。
+            max_length: VIDEO_ENGINE_LIMITS.videoMaxLengthMax,
+          })
         : await (async () => {
             // 与 stage 层一致：prompt 作为首参，请求参数剥离 prompt 键后透传
             const { prompt: enginePrompt, ...requestOptions } = imageOptimizeRequest

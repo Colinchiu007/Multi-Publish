@@ -1,0 +1,13 @@
+{
+  "id": "s2v-history-video-maxlength",
+  "title": "历史重生成视频优化词 max_length 显式顶格（视频提示词长度放宽）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "implementation",
+  "nextAction": "补 PRD/CHANGELOG/quality-gates，门禁后提交推送 PR",
+  "createdAt": "2026-08-16T00:00:00Z",
+  "openspecChange": "s2v-history-video-maxlength",
+  "branch": "codex/s2v-history-video-maxlength"
+}
