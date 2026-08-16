@@ -334,8 +334,10 @@ export async function story2videoExportZip(files, destinationPath) {
     ? invokeWithFallback("story2videoExportZip", { code: -1, message: 'electronAPI not available' }, files)
     : invokeWithFallback("story2videoExportZip", { code: -1, message: 'electronAPI not available' }, files, destinationPath)
 }
-export async function story2videoCreateShareUrl(filePath) {
-  return invokeWithFallback("story2videoCreateShareUrl", { code: -1, message: 'electronAPI not available' }, filePath)
+export async function story2videoCreateShareUrl(filePath, previousUrl) {
+  return previousUrl === undefined
+    ? invokeWithFallback("story2videoCreateShareUrl", { code: -1, message: 'electronAPI not available' }, filePath)
+    : invokeWithFallback("story2videoCreateShareUrl", { code: -1, message: 'electronAPI not available' }, filePath, previousUrl)
 }
 export async function story2videoCopyPath(filePath) {
   return invokeWithFallback("story2videoCopyPath", { code: -1, message: 'electronAPI not available' }, filePath)

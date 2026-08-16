@@ -362,6 +362,7 @@ export default {
       videoPath: null,
       loading: true,
       videoSrc: null,
+      videoReloadAttempted: false,
       projectId: null,
       project: null,
       audioPath: null,
@@ -493,9 +494,9 @@ export default {
       const translation = segment && segment.promptTranslation
       return typeof translation === 'string' && translation.trim() !== ''
     },
-    async resolveLocalUrl(filePath) {
+    async resolveLocalUrl(filePath, previousUrl) {
       if (!filePath) return null
-      const result = await story2videoCreateShareUrl(filePath)
+      const result = await story2videoCreateShareUrl(filePath, previousUrl)
       const url = result?.code === 0 ? (result.data?.url || result.data) : null
       if (!url) throw new Error(result?.message || '无法读取本地文件')
       return url
@@ -504,7 +505,7 @@ export default {
       await Promise.all((this.segments || []).map(async (segment) => {
         if (!segment || !segment.imagePath) return
         try {
-          segment.imageUrl = await this.resolveLocalUrl(segment.imagePath)
+          segment.imageUrl = await this.resolveLocalUrl(segment.imagePath, segment.imageUrl)
         } catch (_) {
           segment.imageUrl = null
         }
@@ -517,7 +518,7 @@ export default {
         const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
         if (alternate && alternate.path) {
           try {
-            segment.alternateImageUrls = [await this.resolveLocalUrl(alternate.path)]
+            segment.alternateImageUrls = [await this.resolveLocalUrl(alternate.path, Array.isArray(segment.alternateImageUrls) ? segment.alternateImageUrls[0] : null)]
           } catch (_) {
             segment.alternateImageUrls = []
           }
@@ -526,7 +527,7 @@ export default {
         }
         if (segment.videoPath) {
           try {
-            segment.videoUrl = await this.resolveLocalUrl(segment.videoPath)
+            segment.videoUrl = await this.resolveLocalUrl(segment.videoPath, segment.videoUrl)
           } catch (_) {
             segment.videoUrl = null
           }
@@ -782,11 +783,13 @@ export default {
       this.videoPath = filePath || null
       if (!this.videoPath) {
         this.videoSrc = null
+        this.videoReloadAttempted = false
         this.loading = false
         return false
       }
       try {
-        this.videoSrc = await this.resolveLocalUrl(this.videoPath)
+        this.videoSrc = await this.resolveLocalUrl(this.videoPath, this.videoSrc)
+        this.videoReloadAttempted = false
         return true
       } catch (_error) {
         this.videoSrc = null
@@ -816,13 +819,14 @@ export default {
         await this.refreshSegmentImageUrls()
         this.audioPath = project.audioPath || null
         try {
-          this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
+          this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath, this.audioSrc) : null
         } catch (_error) {
           this.audioSrc = null
         }
         this.videoPath = project.videoPath || null
         try {
-          this.videoSrc = this.videoPath ? await this.resolveLocalUrl(this.videoPath) : null
+          this.videoSrc = this.videoPath ? await this.resolveLocalUrl(this.videoPath, this.videoSrc) : null
+          this.videoReloadAttempted = false
         } catch (_error) {
           this.videoSrc = null
           this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
@@ -836,8 +840,23 @@ export default {
         this.loading = false
       }
     },
-    handleError() {
-      this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.VIDEO_PREVIEW_FAILED })
+    async handleError() {
+      // First error self-heals: re-issue a fresh local preview URL for the same final video and reload once, so expired/evicted media tokens do not cause a false failure; only a second failure surfaces the message.
+      if (!this.videoPath || this.videoReloadAttempted) {
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.VIDEO_PREVIEW_FAILED })
+        return
+      }
+      try {
+        this.videoSrc = await this.resolveLocalUrl(this.videoPath, this.videoSrc)
+        // Wait for Vue to apply the new src to the <video> element before load(),
+        // otherwise load() targets the stale (expired) URL.
+        await this.$nextTick()
+        const player = this.$refs && this.$refs.videoPlayer
+        if (player && typeof player.load === 'function') player.load()
+        this.videoReloadAttempted = true
+      } catch (_error) {
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.VIDEO_PREVIEW_FAILED })
+      }
     },
     handleVideoMetadata(event) {
       const duration = Number(event?.target?.duration)
@@ -1006,7 +1025,7 @@ export default {
           throw new Error(result?.message || result?.data?.error || '视频裁剪失败')
         }
         this.trimmedPath = output
-        this.trimmedSrc = await this.resolveLocalUrl(output)
+        this.trimmedSrc = await this.resolveLocalUrl(output, this.trimmedSrc)
         this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TRIM_COMPLETED })
       } catch (_error) {
         this.trimmedPath = null
@@ -1153,7 +1172,7 @@ export default {
         // 重新合成返回的分段对象不含素材 URL，必须重新解析本地媒体 URL，否则素材区/分段图空白。
         await this.refreshSegmentImageUrls()
         this.audioPath = result.data.audioPath || this.audioPath
-        this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath) : null
+        this.audioSrc = this.audioPath ? await this.resolveLocalUrl(this.audioPath, this.audioSrc) : null
         if (!result.data.videoPath) {
           this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
           return

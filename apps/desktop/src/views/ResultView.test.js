@@ -137,6 +137,82 @@ describe("ResultView", () => {
     });
   });
 
+  it("主视频 error 首次触发时自愈：重签同一路径的新 URL 并透传旧地址以便回收令牌", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "media:///videos/refreshed.mp4" } });
+    const w = await createView();
+    w.vm.videoPath = "C:/videos/test.mp4";
+    w.vm.videoSrc = "media:///videos/old.mp4";
+
+    await w.vm.handleError();
+
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/videos/test.mp4", "media:///videos/old.mp4");
+    expect(w.vm.videoSrc).toBe("media:///videos/refreshed.mp4");
+    expect(w.vm.videoReloadAttempted).toBe(true);
+    expect(w.vm.story2videoNotificationDialog.visible).toBe(false);
+    w.unmount();
+  });
+
+  it("主视频 error 自愈后再次失败才弹出预览失败提示", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "media:///videos/refreshed.mp4" } });
+    const w = await createView();
+    w.vm.videoPath = "C:/videos/test.mp4";
+    w.vm.videoSrc = "media:///videos/old.mp4";
+
+    await w.vm.handleError();
+    await w.vm.handleError();
+
+    expect(w.vm.story2videoNotificationDialog).toEqual({
+      visible: true,
+      messageKey: "story2video.videoPreviewFailed",
+      messageParams: {},
+    });
+    w.unmount();
+  });
+
+  it("主视频 error 重签 URL 失败时直接弹出预览失败且不标记已自愈", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 1, message: "video unavailable" });
+    const w = await createView();
+    w.vm.videoPath = "C:/videos/test.mp4";
+    w.vm.videoSrc = "media:///videos/old.mp4";
+
+    await w.vm.handleError();
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.videoPreviewFailed");
+    expect(w.vm.videoReloadAttempted).toBe(false);
+    w.unmount();
+  });
+
+  it("loadVideoPath 重新加载成功后重置自愈标记并透传旧地址", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///videos/reloaded.mp4" } });
+    const w = await createView();
+    w.vm.videoPath = "C:/videos/other.mp4";
+    w.vm.videoSrc = "media:///videos/old.mp4";
+    w.vm.videoReloadAttempted = true;
+
+    await w.vm.loadVideoPath("C:/videos/test.mp4");
+
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/videos/test.mp4", "media:///videos/old.mp4");
+    expect(w.vm.videoReloadAttempted).toBe(false);
+    w.unmount();
+  });
+
+  it("refreshSegmentImageUrls 重签分段图时透传旧 imageUrl 以便回收令牌", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "media:///segments/new.png" } });
+    const w = await createView();
+    w.vm.segments = [{ id: "s1", imagePath: "C:/segments/old.png", imageUrl: "media:///segments/old.png" }];
+
+    await w.vm.refreshSegmentImageUrls();
+
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/segments/old.png", "media:///segments/old.png");
+    expect(w.vm.segments[0].imageUrl).toBe("media:///segments/new.png");
+    w.unmount();
+  });
+
   it("主视频 URL 解析失败时显示预览缺失，而不是任务级失败", async () => {
     const api = await import("@/api/publisher");
     api.story2videoCreateShareUrl.mockResolvedValue({ code: 1, message: "video unavailable" });
@@ -207,7 +283,7 @@ describe("ResultView", () => {
 
     await w.vm.loadVideoPath("C:/videos/test.mp4");
 
-    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/videos/test.mp4");
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/videos/test.mp4", null);
     expect(w.vm.videoSrc).toBe("file:///videos/test.mp4");
   });
 

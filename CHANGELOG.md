@@ -1,3 +1,10 @@
+## [2026-08-16] fix(story2video): 结果页/历史编辑中「视频预览加载失败」误报自愈 + 旧令牌回收
+
+- 现象：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存。
+- 根因：本地媒体服务签发短生命令牌 URL（TTL 15 分钟、128 条 FIFO 注册表逐出、生产零 revoke），编辑会话回放旧任务时旧令牌已过期/被逐出，`<video>` 元素 error 被渲染层固定弹为「视频预览加载失败」，属误报。
+- 修复：① `ResultView.handleError` 首次 error 自愈——同一 videoPath 重签本地预览 URL（透传旧地址为 `previousUrl`），`await $nextTick()` 后 `player.load()`，仅二次失败才弹既有本地化文案（文案与 run 终态均未改）；② `story2video:create-share-url` IPC 支持可选 `previousUrl`，签发成功后 best-effort 回收旧令牌，且仅同源 + `/media/` 令牌形状 URL 才 revoke（防误逐出共享 128 条注册表的分段图/音频/视频活跃令牌）；③ preload `publish.js` 与 `api/publisher.js` 透传第二参数（仅 defined 时转发，1 参调用方字节级兼容）；④ 分段图/音频/视频 URL 替换处同步透传旧地址，长期编辑会话逐槽位回收。
+- 回归：IPC +4 用例（回收/不回收/非本地 URL 拒绝/同源非媒体路径拒绝），渲染端 +5 用例（自愈不弹窗、二次失败弹窗、重签失败不标记、loadVideoPath 重置并透传、refreshSegmentImageUrls 透传）；定向 435 绿，完整桌面 vitest 448 files / 7993 passed；CJK 基线 1502 无新增；QM-1 打包 + 8s 冒烟（窗口可见、stderr 干净）；openspec change `s2v-video-preview-token-refresh` 校验通过。
+
 ## [2026-08-16] feat(story2video): 内容政策失败历史任务「修改场景文案并重新生成」入口 + 场景定位
 
 - 背景：PR #876 后内容政策拦截的失败任务已明确不可断点续跑（需修改场景文案后重新生成），但历史卡片/详情只有提示与删除按钮，没有操作入口；单场景内容修改（结果页分段编辑 + 保存 + 重新合成）已具备完整闭环，缺一键进入该路径的按钮。
@@ -12,6 +19,7 @@
 - 根因（全链盲区）：① `story-context-rules.json` 文化识别只覆盖中原王朝与近代朝鲜，无「朝鲜·东北亚古国」条目，朱蒙剧本落入无匹配/现代文化分支；② `buildDomainSeed` 无人物形象维度，提示词种子不含任何外貌约束；③ 面孔类负面锚（西方面孔/金发/蓝眼）只在 `ancient && strongEra` 时注入，本剧 era=mixed 不触发；④ generate_assets 的 negative_prompt 只透传全局优化负面锚，场景级面孔负面锚不透传到出图 provider（manual/auto、assetGenerator/python 双路径均缺失）。
 - 修复：`story-context-rules.json` 新增「朝鲜·东北亚古国」条目（keywords 仅古国专属词：高句丽/扶余/夫余/卒本川/沃沮/朱蒙，regions 卒本川/五女山城/桓仁/辽东；百济/新罗/鸭绿江等活跃现代语义词不收录）；`story-context-engine.js` 新增 `EAST_ASIAN_APPEARANCE` 人物形象锚（东亚人面孔、黑发、黄皮肤、深色瞳）与东西方文化集、面孔负面锚门控（ancient && strongEra && 非西方文化，且无文化命中时须具备东亚专属意象线索——C1 审查收紧，防止古希腊/维京/玛雅等被强制东亚化，宫殿/马车等非东亚专属古语词不再作为线索），场景级 W4 守卫：场景文本含非东亚意象（胡人/波斯/古希腊/维京/玛雅等）时跳过正锚并过滤面孔负面锚；`story2video-stages.js` 新增 `resolveSceneNegativePrompt` 按 index 从 scene_context 解析场景负面锚并与 `stage.options.negative_prompt` 合并（≤500 字；无场景锚但有用户配置仍透传 base），manual/auto 双路径透传 generateImage opts / callPythonSkill 载荷；`asset-generator.js` 把 opts.negative_prompt 传入 aiGenerator.generate('image')（无锚时不带键）——负向透传至 adapter 层：local-diffusion 消费该键，云厂商 adapter 按已知键构造载荷并忽略未知键，人物正锚经最终英文提示词到达全部 provider（主修复手段）。
 - 回归：story-context-engine +10（用户剧本识别/欧洲不锚/modern/C1 门控/W4 守卫/eraStrong 输出 + 古希腊/维京/玛雅反向 + 武林正向对照）、story2video-stages +5（auto/manual × assetGenerator/python 透传 + 无场景锚透传 base）、asset-generator +2（带锚透传/无锚不带键）；三个定向文件 170 passed，TDD 红→绿（修复前 8 失败 + 审查 C1 实证复现）；openspec change `s2v-east-asian-face-anchor` 双模型审查通过（antigravity 区域不可用降级记录，claude 完成 C1 修正并复核）。
+
 
 ## [2026-08-16] fix(story2video): 历史记录内容政策失败恢复门控统一 + 不可恢复原因提示（含场景号）
 
