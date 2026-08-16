@@ -1,12 +1,12 @@
 {
   "id": "shared-root-write-guard",
   "title": "共享主目录实时写保护",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "devops",
-  "currentPhase": "analysis",
-  "nextAction": "完成 OpenSpec proposal/design/specs/tasks 后实现",
+  "currentPhase": "completed",
+  "nextAction": "已归档：写保护计划任务已注册并运行，OpenSpec change 已存档",
   "openspecChange": "shared-root-write-guard",
   "createdAt": "2026-08-16T13:00:00+08:00",
   "branch": "main"

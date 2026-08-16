@@ -4,7 +4,7 @@
 
 提供共享主目录的实时写保护，使新会话无法在共享 `main` 工作区直接落盘运行时代码；允许的流程/文档目录保持原有 main 小步提交能力。
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 运行时目录写保护
 
