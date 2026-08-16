@@ -2009,6 +2009,30 @@ SettingsDialog 关闭（App.vue @close）
 - 服务层（`story2video-project-service.test.js`）：「AI 视频生成经注入 assetRetry 包装，瞬时失败重试后成功」（stage 抛错 1 次 → 第 2 次成功，断言调用 2 次、重试原因、产物替换、status=completed）；「默认 withAssetTransientRetry 对瞬时错误重试后成功」（stage 返回 `{success:false, error:'request timed out'}` → 成功，断言调用 2 次、产物替换）；「重试耗尽 fail-closed」（真实 `withAssetTransientRetry(maxAttempts:1)` 耗尽，断言抛出与回写错误均为真实 `request timed out`、旧视频保留、无新产物）；「非瞬时结果对象不重试」（内容政策类失败 stage 只调用 1 次、原样上抛）。
 - 全量桌面 vitest、QM-1 打包（`electron-builder --win --dir` + 8s 冒烟）、CI 全绿。
 
+
+### 3.1.29.3 结果页/历史编辑视频预览令牌失效自愈与旧令牌回收（2026-08-16）
+
+**背景**：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存。根因：本地媒体服务签发短生命令牌 URL（TTL 15 分钟、128 条 FIFO 注册表逐出、生产零 revoke），编辑会话回放旧任务时旧令牌已过期/被逐出，`<video>` 元素 error 被渲染层固定弹为「视频预览加载失败」，属误报。
+
+#### 1) 主视频预览 error 自愈（渲染端）
+
+- 结果页 `handleError` 首次 error 时自愈：对同一 `videoPath` 重签本地预览 URL（透传旧地址为 `previousUrl`），`await $nextTick()` 后 `player.load()`；**仅二次失败**才弹既有本地化文案 `videoPreviewFailed`。
+- 自愈标记 `videoReloadAttempted` 在 `loadVideoPath`/`loadProject` 成功后重置；重签失败不置位（下次 error 仍可自愈一次）。
+- 文案与 run 终态均不修改（既有 `preview_missing`/`videoPreviewFailed` 契约不变）。
+
+#### 2) 令牌回收契约（IPC）
+
+- `story2video:create-share-url` 接受可选第三参 `previousUrl`：签发成功后 best-effort 回收旧令牌。
+- **仅同源（与新签发 URL 同 origin）+ `/media/` 令牌形状路径**的 `previousUrl` 才调用 `revoke`；`file://`、异源、非媒体路径一律忽略，防止误逐出共享 128 条注册表的分段图/音频/视频活跃令牌。
+- 分段图/音频/视频 URL 替换处同步透传旧地址，长期编辑会话逐槽位回收。
+- preload 与 `api/publisher.js` 透传第二参数；`previousUrl` 仅 defined 时转发，1 参调用方（SceneAssetSelection 等）行为字节级不变。
+
+#### 3) 测试要求
+
+- IPC（`story2video.test.js`）：+4 用例——传 previousUrl 时 revoke 被调用；不传时不调用；`file://` 非本地 URL 拒绝 revoke；同源非媒体路径拒绝 revoke。
+- 渲染端（`ResultView.test.js`）：+5 用例——首次 error 自愈不弹窗且透传旧 videoSrc；二次 error 弹 `videoPreviewFailed`；重签失败直接弹且不标记已自愈；`loadVideoPath` 成功后重置标记并透传旧地址；`refreshSegmentImageUrls` 透传旧 imageUrl。
+- 全量桌面 vitest、QM-1 打包（`electron-builder --win --dir` + 8s 冒烟）、CI 全绿。
+
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 
 **背景**：① 流水线失败/取消时，主进程仅置 run 顶层终态，当前 stage（如 compose）仍保持 `running`，历史详情页与持久化快照出现「视频合成 运行中」假象；② 历史列表把「暂停/失败」任务排在全部已完成项目之后（实测 30+ 条历史中最新失败任务排第 27 位），用户误以为任务丢失。
