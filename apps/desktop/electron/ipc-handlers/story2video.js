@@ -102,7 +102,7 @@ function registerHandlers (ipcMain, deps = {}) {
 
   ipcMain.handle('story2video:delete-project', withSenderCheck(async (_event, projectId) => {
     if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
-    try { return { code: 0, data: requireProjectService().deleteProject(projectId) } }
+    try { return { code: 0, data: await requireProjectService()._serializeProject(projectId, () => requireProjectService().deleteProject(projectId)) } }
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
@@ -123,7 +123,7 @@ function registerHandlers (ipcMain, deps = {}) {
     try {
       return {
         code: 0,
-        data: await requireProjectService().replaceSegmentAudio(request.projectId, request.segmentId, request.filePath),
+        data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().replaceSegmentAudio(request.projectId, request.segmentId, request.filePath)),
       }
     } catch (error) {
       return { code: EC.REQUEST_ERROR, message: error.message }
@@ -138,7 +138,7 @@ function registerHandlers (ipcMain, deps = {}) {
       return { code: EC.VALIDATION_ERROR, message: '分段重试参数无效' }
     }
     try {
-      const data = await requireProjectService().retrySegment(request.projectId, request.segmentId, request.mode)
+      const data = await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().retrySegment(request.projectId, request.segmentId, request.mode))
       return { code: 0, data }
     } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
@@ -155,7 +155,7 @@ function registerHandlers (ipcMain, deps = {}) {
       return { code: EC.VALIDATION_ERROR, message: '素材选择参数无效' }
     }
     try {
-      return { code: 0, data: requireProjectService().selectSceneMaterial(request.projectId, request.segmentId, request.kind) }
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().selectSceneMaterial(request.projectId, request.segmentId, request.kind)) }
     } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
@@ -164,7 +164,7 @@ function registerHandlers (ipcMain, deps = {}) {
       return { code: EC.VALIDATION_ERROR, message: '场景图片生成参数无效' }
     }
     try {
-      return { code: 0, data: await requireProjectService().generateSceneImage(request.projectId, request.segmentId) }
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().generateSceneImage(request.projectId, request.segmentId)) }
     } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
@@ -182,7 +182,7 @@ function registerHandlers (ipcMain, deps = {}) {
       return { code: EC.VALIDATION_ERROR, message: '场景视频生成参数无效' }
     }
     try {
-      return { code: 0, data: await requireProjectService().generateSceneVideo(request.projectId, request.segmentId) }
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().generateSceneVideo(request.projectId, request.segmentId)) }
     } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 

@@ -5,6 +5,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { Story2VideoProjectService } = require('./story2video-project-service')
+const { withAssetTransientRetry } = require('./story2video-stages')
 const { cleanupImportedMediaPaths, importUserSelectedMedia } = require('./story2video-paths')
 
 vi.mock('electron', () => {
@@ -1186,6 +1187,124 @@ describe('Story2VideoProjectService', () => {
       upsertSpy.mockRestore()
       expect(fs.existsSync(oldVideo)).toBe(true)
       expect(fs.readdirSync(projectDir).some(name => name.includes('_video_ai_'))).toBe(false)
+    })
+
+    it('AI 视频生成经注入 assetRetry 包装，瞬时失败重试后成功（审查 W5 回归）', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const generated = writeFile(path.join(root, 'generated-ai-retry.mp4'), 'ai-video')
+      const stage = vi.fn()
+        .mockRejectedValueOnce(new Error('request timed out'))
+        .mockResolvedValueOnce({ success: true, path: generated })
+      const retryCalls = []
+      const assetRetry = async (fn) => {
+        try { return await fn(1) } catch (error) {
+          retryCalls.push(String(error && error.message))
+          return fn(2)
+        }
+      }
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: stage,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        assetRetry,
+        modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : null),
+          callAdapter: vi.fn(),
+        },
+      })
+      service._writeProjects([{
+        projectId: 'project-ai-video-retry', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: 'A', videoPrompt: 'VP' }],
+      }])
+
+      const updated = await service.generateSceneAiVideo('project-ai-video-retry', 'segment-0')
+      expect(stage).toHaveBeenCalledTimes(2)
+      expect(retryCalls).toEqual(['request timed out'])
+      expect(updated.segments[0].videoPath).toMatch(/_video_ai_.*\.mp4$/)
+      expect(updated.segments[0].status).toBe('completed')
+    })
+
+    it('默认 withAssetTransientRetry 对瞬时错误重试后成功（审查 W5 回归）', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const generated = writeFile(path.join(root, 'generated-ai-retry2.mp4'), 'ai-video')
+      const stage = vi.fn()
+        .mockResolvedValueOnce({ success: false, error: 'request timed out' })
+        .mockResolvedValueOnce({ success: true, path: generated })
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: stage,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : null),
+          callAdapter: vi.fn(),
+        },
+      })
+      service._writeProjects([{
+        projectId: 'project-ai-video-retry2', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: 'A', videoPrompt: 'VP' }],
+      }])
+
+      const updated = await service.generateSceneAiVideo('project-ai-video-retry2', 'segment-0')
+      expect(stage).toHaveBeenCalledTimes(2)
+      expect(updated.segments[0].videoPath).toMatch(/_video_ai_.*\.mp4$/)
+    })
+    it('AI 视频重试耗尽 fail-closed：保留旧视频、回写真实瞬时错误文案（审查 M2/m5 回归）', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const projectDir = path.join(projectRoot, 'project-ai-video-retry-exhaust')
+      const oldVideo = writeFile(path.join(projectDir, 'old.mp4'), 'old-video')
+      const stage = vi.fn().mockRejectedValue(new Error('request timed out'))
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: stage,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : null),
+          callAdapter: vi.fn(),
+        },
+        // 单次尝试即耗尽，避免真实退避等待；仍走真实 withAssetTransientRetry 耗尽路径
+        assetRetry: (fn) => withAssetTransientRetry(fn, { maxAttempts: 1 }),
+      })
+      service._writeProjects([{
+        projectId: 'project-ai-video-retry-exhaust', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: 'A', videoPrompt: 'VP', videoPath: oldVideo }],
+      }])
+
+      await expect(service.generateSceneAiVideo('project-ai-video-retry-exhaust', 'segment-0')).rejects.toThrow('request timed out')
+
+      const failed = service.getProject('project-ai-video-retry-exhaust')
+      expect(failed.segments[0]).toMatchObject({ videoPath: oldVideo, status: 'failed', error: 'request timed out' })
+      expect(fs.existsSync(oldVideo)).toBe(true)
+      expect(fs.readdirSync(projectDir).some(name => name.includes('_video_ai_'))).toBe(false)
+    })
+
+    it('非瞬时结果对象不重试，内容政策类失败原样上抛且只调用一次（审查 m5 回归）', async () => {
+      const projectRoot = path.join(root, 'projects')
+      const projectDir = path.join(projectRoot, 'project-ai-video-nontransient')
+      const oldVideo = writeFile(path.join(projectDir, 'old.mp4'), 'old-video')
+      const stage = vi.fn().mockResolvedValue({ success: false, error: '内容政策检查失败' })
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: projectRoot,
+        generateSceneVideoStage: stage,
+        estimateSceneSecondsStage: mockEstimateSceneSeconds,
+        modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video' ? { id: 'kling', models: ['kling-v1'] } : null),
+          callAdapter: vi.fn(),
+        },
+      })
+      service._writeProjects([{
+        projectId: 'project-ai-video-nontransient', status: 'completed', options: {},
+        segments: [{ id: 'segment-0', index: 0, text: 'A', videoPrompt: 'VP', videoPath: oldVideo }],
+      }])
+
+      await expect(service.generateSceneAiVideo('project-ai-video-nontransient', 'segment-0')).rejects.toThrow('内容政策检查失败')
+      expect(stage).toHaveBeenCalledTimes(1)
+      const failed = service.getProject('project-ai-video-nontransient')
+      expect(failed.segments[0]).toMatchObject({ videoPath: oldVideo, status: 'failed', error: '内容政策检查失败' })
+      expect(fs.existsSync(oldVideo)).toBe(true)
     })
   })
 

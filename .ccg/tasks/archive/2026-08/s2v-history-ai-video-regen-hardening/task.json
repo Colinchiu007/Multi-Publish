@@ -1,0 +1,12 @@
+{
+  "id": "s2v-history-ai-video-regen-hardening",
+  "title": "历史记录 AI 视频重生成增强：写通道同项目串行队列全覆盖 + 瞬时错误重试（W4/W5）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "PR #879 已合并 498df735，CI 16 项全绿；QM-1 打包通过；openspec change 已归档",
+  "createdAt": "2026-08-16T08:00:00+08:00",
+  "branch": "codex/s2v-history-ai-video-regen-hardening"
+}
