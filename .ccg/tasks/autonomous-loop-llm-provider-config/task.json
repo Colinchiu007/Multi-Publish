@@ -1,0 +1,13 @@
+{
+  "id": "autonomous-loop-llm-provider-config",
+  "title": "autonomous-loop LLM 供应商可配置（中转站/三方模型：llm_provider/base_url/model inputs + secrets 双通道）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci",
+  "currentPhase": "implementation",
+  "nextAction": "双模型审查 + 交付",
+  "createdAt": "2026-08-16T13:40:00+08:00",
+  "branch": "codex/autonomous-loop-llm-config",
+  "openspecChange": "autonomous-loop-llm-provider-config"
+}
