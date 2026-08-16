@@ -1,0 +1,13 @@
+{
+  "id": "fix-agnes-image-b64-json",
+  "title": "历史任务重试图片走 agnes-image 后仍失败：适配器忽略 b64_json 契约 + response_format 位置错误",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "review",
+  "nextAction": "双模型审查后推送分支开 PR，CI 全绿合并后三同步归档",
+  "createdAt": "2026-08-16T08:40:00Z",
+  "openspecChange": "fix-agnes-image-b64-json",
+  "branch": "codex/fix-agnes-image-params"
+}

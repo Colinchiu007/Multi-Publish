@@ -1,3 +1,10 @@
+## [2026-08-16] fix(agnes-image): 适配器尊重 response_format=b64_json 契约，Base64 直出绕开 SSRF URL 下载拦截
+
+- 现象：PR #897 后历史任务【重试图片】改走 agnes-image，但真实调用仍失败——日志为 SSRF 守卫拦截图片 URL 下载（`asset-generator.js:322/723`）。
+- 根因：① agnes-image 适配器把 `response_format` 放请求体顶层，被 litellm 网关以 UnsupportedParamsError 拒绝（官方文档要求放 `extra_body`，历史 103 次样本全失败）；② 适配器固定请求 url 输出、忽略调用方 `b64_json` 请求，URL 二次下载在本机 Clash fake-ip DNS（`storage.googleapis.com`→198.18.1.194）下被 SSRF 守卫拦截。
+- 修复：适配器尊重 `params.response_format`——`b64_json` 时 `extra_body.response_format='b64_json'` 并 Base64 直出（缺失 fail closed），默认 url 时 `extra_body.response_format='url'`；请求体顶层不再携带该字段。
+- 回归：`agnes-image.test.js` 28 用例通过（+4：extra_body 契约 / b64_json 请求与返回形状 / 缺失 fail closed / url 默认）；真实 E2E DB 调用 2938 success（34s，新 PNG+MP4 落盘）；QM-1 打包 asar 含 adapter。
+
 ## [2026-08-16] fix(story2video): 历史任务图片重试/重生按当前「多模态优先」设置重新解析 provider
 
 - 现象：设置里取消勾选「优先使用多模态模型进行所有的AI操作」并配置专用生图模型（agnes image）后，历史记录任务点【重试图片】/【重生图片】仍调用任务创建时固化的多模态 provider（MiniMax，Key 套餐失效）→ 弹「模型 API 的额度或余额已用完」。

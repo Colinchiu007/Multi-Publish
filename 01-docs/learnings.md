@@ -1,3 +1,12 @@
+## agnes-image 适配器忽略 b64_json 契约复盘（fix-agnes-image-b64-json，2026-08-16）
+
+- **现象**：PR #897 路由修复生效后，历史任务【重试图片】走 agnes-image 仍失败：URL 下载被 AssetGenerator SSRF 守卫拦截（`asset-generator.js:322/723`）。
+- **根因（第一性）**：`asset-generator.js:584` 调用生图适配器时始终传 `response_format:'b64_json'`，但 agnes-image 适配器实现于更早、固定发送顶层 `response_format:'url'` 并返回 URL——调用方契约从未被执行；顶层 response_format 又违反 agnes-image-2.1-flash 官方文档（须放 `extra_body`，顶层被网关 UnsupportedParamsError 拒绝，历史 103 次样本全失败）。
+- **逃逸链**：适配器单测只断言顶层 `response_format:'url'`，从未覆盖调用方 b64_json 参数（测试场景缺失）；PR #897 回归只到 service 层 provider 解析，真实生图被标为“用户确认后执行”，实际执行后才发现适配器契约问题（审查盲区/流程缺失）。
+- **系统性漏洞**：跨适配器「调用方请求参数 → 适配器行为」契约没有统一回归（imagen/grok 遵守 b64_json，agnes 忽略）；供应商文档契约（extra_body）没有测试固化。
+- **回归保护**：`agnes-image.test.js` +4 用例固化 extra_body 位置与 b64_json 直出/fail closed；后续新增/修改生图适配器必须断言「调用方 `response_format` 被尊重」+「顶层无 response_format」。
+- **预防**：生图适配器验收清单加入「尊重调用方 response_format」与「extra_body 契约」两项（已写入 openspec change spec 与本复盘）。
+
 ## 历史任务图片重试忽略「多模态优先」设置复盘（fix-s2v-image-model-selection，2026-08-16）
 
 - **现象**：用户在「设置-模型设置」取消勾选「优先使用多模态模型进行所有的AI操作」（`prefer_multimodal`）并添加专用生图模型（agnes image），但历史记录任务点【重试图片】/【重生图片】仍调用任务创建时固化的多模态 provider（MiniMax，用户 Key 套餐失效）→ 弹「模型 API 的额度或余额已用完」。
