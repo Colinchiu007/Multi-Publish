@@ -143,8 +143,9 @@ function safeOptimizeStageOptions (value) {
 /**
  * 从 prompt-engine 单条优化响应中提取优化后的提示词文本。
  * 与流水线消费端一致：结果结构为对象（prompt/optimized_prompt/optimized）、
- * 字符串、或 results[0] 数组包装；error/message 存在即抛错（fail-closed，
- * 2026-08-16），防止引擎「错误兜底回显原文」（如 402）被当作成功写入分段。
+ * 字符串、或 results[0] 数组包装；error/detail 存在即抛错（fail-closed，
+ * 2026-08-16），防止引擎「错误兜底回显原文」（如 402）被当作成功写入分段；
+ * 错误优先顺序对齐 prompt-engine-kernel.extractOptimizedBase（error → detail）。
  */
 function extractOptimizedPrompt (result) {
   if (typeof result === 'string') return result
@@ -152,19 +153,24 @@ function extractOptimizedPrompt (result) {
     ? result.data
     : result
   if (source && typeof source === 'object') {
+    // 错误优先：引擎失败兜底可能同时回显原文（同层或跨层），必须先判错再取文本
+    const topError = source.error !== undefined && source.error !== null && source.error !== ''
+      ? String(source.error)
+      : (source.detail !== undefined && source.detail !== null && source.detail !== '' ? String(source.detail) : '')
+    if (topError) throw new Error(topError || '提示词优化失败')
     if (Array.isArray(source.results)) {
       const item = source.results[0]
       if (typeof item === 'string') return item
       if (item && typeof item === 'object') {
-        // 错误优先：引擎失败兜底可能同时回显原文，必须先判错再取文本
-        if (item.error || item.message) throw new Error(String(item.error || item.message) || '提示词优化失败')
+        const itemError = item.error !== undefined && item.error !== null && item.error !== ''
+          ? String(item.error)
+          : (item.detail !== undefined && item.detail !== null && item.detail !== '' ? String(item.detail) : '')
+        if (itemError) throw new Error(itemError || '提示词优化失败')
         const text = item.optimized_prompt || item.prompt || item.optimized
         if (typeof text === 'string' && text.trim()) return text
       }
       return ''
     }
-    // 顶层对象同样错误优先
-    if (source.error || source.message) throw new Error(String(source.error || source.message) || '提示词优化失败')
     const text = source.optimized_prompt || source.prompt || source.optimized
     if (typeof text === 'string' && text.trim()) return text
   }
@@ -1076,23 +1082,24 @@ class Story2VideoProjectService {
       // context 复用流水线「无 scene_context 回退路径」的 buildOptimizeContext（full_text 全场景文案 +
       // scene_type 推断 + 继承持久化 optimize.context 的 synopsis），场景来源 project.segments；
       // 仅透传契约键（safeOptimizeStageOptions），stage 元键不进入请求；
-      // 视频优化词属 8020 域，保持原样不借用图片契约。
-      const optimizeConfig = project.story2videoTextConfig?.config?.optimize
-      const optimizeStageOptions = safeOptimizeStageOptions(optimizeConfig)
-      const optimizeContext = buildOptimizeContext(
-        project.segments.map(segment => ({ text: segment.text })),
-        {
-          ...(project.options || {}),
-          ...(optimizeConfig && optimizeConfig.context ? { context: optimizeConfig.context } : {}),
-        },
-      )
-      const imageOptimizeRequest = kind === 'image'
-        ? buildPromptEngineOptimizeRequest(seed, {
-            ...optimizeStageOptions,
-            max_length: PROMPT_ENGINE_LIMITS.maxLength.max,
-            context: optimizeContext,
-          })
-        : null
+      // 视频优化词属 8020 域，保持原样不借用图片契约，不参与图片 context 构造。
+      let imageOptimizeRequest = null
+      if (kind === 'image') {
+        const optimizeConfig = project.story2videoTextConfig?.config?.optimize
+        const optimizeStageOptions = safeOptimizeStageOptions(optimizeConfig)
+        const optimizeContext = buildOptimizeContext(
+          (project.segments || []).map(segment => ({ text: segment.text })),
+          {
+            ...(project.options || {}),
+            ...(optimizeConfig && optimizeConfig.context ? { context: optimizeConfig.context } : {}),
+          },
+        )
+        imageOptimizeRequest = buildPromptEngineOptimizeRequest(seed, {
+          ...optimizeStageOptions,
+          max_length: PROMPT_ENGINE_LIMITS.maxLength.max,
+          context: optimizeContext,
+        })
+      }
       const optimized = kind === 'video'
         ? await this.serviceBus.optimizeVideoPrompt(seed, { index: segment.sourceIndex ?? index })
         : await (async () => {

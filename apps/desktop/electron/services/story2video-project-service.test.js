@@ -1996,6 +1996,47 @@ describe('Story2VideoProjectService', () => {
     expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: 'service unavailable' })
   })
 
+  it('regenerateScenePrompt 顶层 error 优先于内层回显文本 → fail-closed（跨层形态）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({
+      error: '402 insufficient_balance_error',
+      results: [{ optimized_prompt: '内层回显提示词' }],
+    }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-cross-echo', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词' }],
+    }])
+
+    await expect(service.regenerateScenePrompt('project-prompt-cross-echo', 'segment-0', 'image')).rejects.toThrow('402')
+
+    const failed = service.getProject('project-prompt-cross-echo')
+    expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: '402 insufficient_balance_error' })
+  })
+
+  it('regenerateScenePrompt 顶层 error + 空 results → 错误透出而非吞掉', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({ error: 'parse_error', results: [] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-empty-results', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词' }],
+    }])
+
+    await expect(service.regenerateScenePrompt('project-prompt-empty-results', 'segment-0', 'image')).rejects.toThrow('parse_error')
+
+    const failed = service.getProject('project-prompt-empty-results')
+    expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: 'parse_error' })
+  })
+
   it('regenerateScenePrompt image 请求携带与流水线同源的 context（full_text/synopsis）+ max_length=2000', async () => {
     const projectRoot = path.join(root, 'projects')
     const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '新画面提示词' }] }))
