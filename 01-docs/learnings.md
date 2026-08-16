@@ -1,3 +1,12 @@
+## 历史记录保存分段后图片全部消失复盘（fix-s2v-save-segments-image-loss，2026-08-16）
+
+- **现象**：视频创作-历史记录结果页点击【保存分段】后所有分段图片/素材槽/视频槽消失；主进程数据与图片文件未丢，纯渲染端显示为空。
+- **根因**：`saveSegments()`（`e1b46eba0` 引入）用主进程 IPC 返回的落库分段整体替换 `this.segments`——持久化分段只含 `imagePath/videoPath/alternateImages[].path`，不含渲染端派生字段 `imageUrl/alternateImageUrls/videoUrl`；替换后未像 retry/regenerate/select 等媒体变更路径那样调用 `refreshSegmentImageUrls()`，模板 `v-if="segment.imageUrl"` 全部落空；`replaceSegmentAudio()` 同类缺陷一并修复。
+- **教训 1（替换 this.segments 的路径必须重建渲染端派生 URL）**：`imageUrl` 等短令牌 URL 是渲染端运行时字段、不落库；凡「用 IPC 返回整体替换 this.segments」的落库操作必须紧跟 `refreshSegmentImageUrls()`，这是结构性不变式而非可选约定（本次就是唯一漏掉该不变式调用点，其余 10+ 处都有）。
+- **教训 2（保存类测试禁止只 mock 空数组）**：既有保存分段用例 mock `segments: []` 被长度守卫跳过替换分支，缺陷无法暴露；保存/更新类用例至少要有一条「返回含 imagePath 非空分段 → 派生 URL 重建」的真实数据路径，并断言旧 URL 作为 `previousUrl` 的令牌复用/回收。
+- **逃逸链**：单测只 mock 空 segments（测试场景缺失）；无「保存后媒体 URL 重建」集成/E2E/视觉回归；多轮审查聚焦保存语义/队列串行/竞态，审查清单缺「替换 this.segments 后重建 URL」检查项（审查盲区）。
+- **回归保护**：`ResultView.test.js` +3 用例（非空返回重建 imageUrl/alternateImageUrls/videoUrl、空返回保留并断言 previousUrl、旁白替换不消失——其中两条修复前必失败）；后续改任何 `this.segments` 替换路径必须同时跑该文件。
+
 ## agnes-image 适配器忽略 b64_json 契约复盘（fix-agnes-image-b64-json，2026-08-16）
 
 - **现象**：PR #897 路由修复生效后，历史任务【重试图片】走 agnes-image 仍失败：URL 下载被 AssetGenerator SSRF 守卫拦截（`asset-generator.js:322/723`）。

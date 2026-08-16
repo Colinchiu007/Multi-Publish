@@ -8,5 +8,5 @@
 
 - [x] 2.1 vitest：`ResultView.test.js` 全绿（含既有保存/编辑/离开守卫用例）
 - [x] 2.2 openspec validate + 双模型审查（antigravity/claude 并行；后端不可用则记录降级）
-- [ ] 2.3 推送 `codex/fix-s2v-save-segments-image-loss` → PR → CI 全绿 → 合并回 main
-- [ ] 2.4 三同步归档（openspec archive + CCG task 归档 + learnings 复盘条目）
+- [x] 2.3 推送 `codex/fix-s2v-save-segments-image-loss` → PR → CI 全绿 → 合并回 main
+- [x] 2.4 三同步归档（openspec archive + CCG task 归档 + learnings 复盘条目）
