@@ -3810,7 +3810,7 @@ export default {
       const query = { project: item.projectId }
       // 内容政策拦截任务不能断点续跑：携带场景号让结果页定位涉及场景，用户改文案后重新合成
       const focusScenes = policySceneQuery(item.error)
-      if (focusScenes && !this.historyItemResumable(item)) query.focusScenes = focusScenes
+      if (item.status === 'failed' && focusScenes && !this.historyItemResumable(item)) query.focusScenes = focusScenes
       this.$router.push({ path: '/create/result', query })
     },
     // Kept as a compatibility alias for callers outside the history component.

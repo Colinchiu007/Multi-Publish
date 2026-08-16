@@ -25,8 +25,9 @@
 
 ### 3. CreateView.vue：跳转携带 focusScenes + 门控单一来源
 
-- `openHistoryResult(item)`：`query = { project }`；当 `policySceneQuery(item.error)` 非空且 `historyItemResumable(item) === false`（政策失败）时追加 `focusScenes`。
-- `historyItemResumable` 内联正则替换为导入的 `RESUME_BLOCKING_ERROR_PATTERN`（其入参语义不变；消除「内容政策」变体漏判漂移，保持 #876 单一来源目标）。
+- `openHistoryResult(item)`：`query = { project }`；当 `item.status === 'failed'`、`policySceneQuery(item.error)` 非空且 `historyItemResumable(item) === false`（政策失败）时追加 `focusScenes`（审查 M4 收口）。
+- 沿用 #876 的 `RESUME_BLOCKING_ERROR_PATTERN` 单一来源（本 PR 未改 `historyItemResumable` 本身）；`policyEditTarget` 与 `openHistoryResult` 均以该门控为准。
+- 已知边界（审查 W1）：manual 模式（分镜素材自选）政策失败错误无 `Image #N` 前缀 → 无法提取场景号，按钮照常出现但不携带 focusScenes、结果页无徽标（安全降级，CreateView.test「proj-manual」用例已固化）。
 
 ### 4. ResultView.vue：focusScenes 徽标
 

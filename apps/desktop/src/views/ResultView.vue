@@ -407,8 +407,9 @@ export default {
       const raw = String(this.$route?.query?.focusScenes || '')
       const numbers = new Set()
       for (const part of raw.split(',')) {
-        const value = Number(part)
-        if (Number.isInteger(value) && value > 0) numbers.add(value)
+        const trimmed = String(part).trim()
+        const value = Number(trimmed)
+        if (Number.isInteger(value) && value > 0 && String(value) === trimmed) numbers.add(value)
       }
       return numbers
     },

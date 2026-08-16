@@ -16,7 +16,7 @@
 ## 3. CreateView.vue：focusScenes + 门控单一来源
 
 - [x] `openHistoryResult` 政策失败追加 `focusScenes` query
-- [x] `historyItemResumable` 改用统一 `RESUME_BLOCKING_ERROR_PATTERN`
+- [x] `openHistoryResult` 携带条件与 `policyEditTarget` 门控沿用 #876 统一 `RESUME_BLOCKING_ERROR_PATTERN`（不重复改动 `historyItemResumable`）
 - **测试目标**：`CreateView.test.js` 政策失败跳转带 focusScenes；completed/可恢复不带
 
 ## 4. ResultView.vue：focusScenes 徽标

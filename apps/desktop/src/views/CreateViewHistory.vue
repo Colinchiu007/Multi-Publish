@@ -168,6 +168,7 @@
                 type="button"
                 class="s2v-btn-secondary s2v-btn-sm"
                 data-testid="history-policy-edit-button"
+                :disabled="story2videoResuming"
                 @click.stop="$emit('open-result', item)"
               >{{ tr('policyEditAndRegenerate') }}</button>
               <button
@@ -247,6 +248,7 @@
           type="button"
           class="s2v-btn-secondary s2v-btn-sm"
           data-testid="history-detail-policy-edit-button"
+          :disabled="story2videoResuming"
           @click="openResultFromDetail"
         >{{ tr('policyEditAndRegenerate') }}</button>
         <button

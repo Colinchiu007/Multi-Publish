@@ -8,7 +8,7 @@
 
 - 历史卡片操作区与详情弹窗 footer：对 `status === 'failed'`、有 `projectId`、错误文本命中 `RESUME_BLOCKING_ERROR_PATTERN`（不可恢复门控）的任务，显示按钮「修改场景文案并重新生成」（zh）/ "Edit scenes & regenerate"（en），点击复用既有 `open-result` → `/create/result?project=<id>` 链路跳转结果页；无 `projectId` 或可恢复失败不显示，`completed` 任务保留既有「编辑并重新合成」按钮。
 - 场景定位契约：政策失败任务跳转时在 query 附加 `focusScenes=<场景号,逗号分隔,升序展开>`（如 `49,73,74`）；场景号与 `contentPolicyScenes` 同源提取（`Image #N` 段内命中门控关键字，N=segments 下标+1）。结果页依据 `focusScenes` 对目标分段渲染「内容政策需修改」徽标（`data-testid="segment-policy-flag"`）与高亮样式；无 `focusScenes` 或号码越界时安全降级不渲染。
-- 单一来源：`history-utils.js` 抽出 `collectContentPolicySceneNumbers(error)`（`contentPolicyScenes` 与 `policySceneQuery` 均复用）；`CreateView.historyItemResumable` 改用统一 `RESUME_BLOCKING_ERROR_PATTERN`（消除其内联正则缺失中文「内容政策」变体的漂移）。
+- 单一来源：`history-utils.js` 抽出 `collectContentPolicySceneNumbers(error)`（`contentPolicyScenes` 与 `policySceneQuery` 均复用）；`policyEditTarget` 与按钮门控沿用 #876 统一 `RESUME_BLOCKING_ERROR_PATTERN`（本 PR 不重复改 `historyItemResumable`）。
 - i18n：新增 `create.history.policyEditAndRegenerate`、`story2video.sceneMaterial.scenePolicyFlag`（zh/en 成对，Gate 7 校验）。
 
 ## Capabilities
