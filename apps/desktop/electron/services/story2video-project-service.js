@@ -23,6 +23,7 @@ const {
   generateSceneVideo: generateAiSceneVideo,
   estimateSceneSeconds,
   withAssetTransientRetry,
+  buildOptimizeContext,
 } = require('./story2video-stages')
 const {
   PROMPT_ENGINE_LIMITS,
@@ -122,10 +123,29 @@ function safeVoicePitch (value) {
   return Math.min(12, Math.max(-12, number))
 }
 
+// 图片优化请求仅透传 prompt-engine 契约键（与流水线 buildPromptEngineOptimizeRequest 消费键一致），
+// 避免把 story2videoTextConfig.config.optimize 中的 stage 元键（maxRetries/concurrency/uiLocale 等）透传。
+const OPTIMIZE_STAGE_REQUEST_KEYS = Object.freeze(new Set([
+  'platform', 'style', 'creative_level', 'creativeLevel',
+  'negative_prompt', 'negativePrompt', 'num_candidates', 'numCandidates',
+  'auto_detect_style', 'autoDetectStyle', 'quality_baseline',
+]))
+
+function safeOptimizeStageOptions (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const result = {}
+  for (const key of Object.keys(value)) {
+    if (OPTIMIZE_STAGE_REQUEST_KEYS.has(key)) result[key] = value[key]
+  }
+  return result
+}
+
 /**
  * 从 prompt-engine 单条优化响应中提取优化后的提示词文本。
  * 与流水线消费端一致：结果结构为对象（prompt/optimized_prompt/optimized）、
- * 字符串、或 results[0] 数组包装；存在 error 且无有效文本时抛错（fail-closed）。
+ * 字符串、或 results[0] 数组包装；error/detail 存在即抛错（fail-closed，
+ * 2026-08-16），防止引擎「错误兜底回显原文」（如 402）被当作成功写入分段；
+ * 错误优先顺序对齐 prompt-engine-kernel.extractOptimizedBase（error → detail）。
  */
 function extractOptimizedPrompt (result) {
   if (typeof result === 'string') return result
@@ -133,19 +153,26 @@ function extractOptimizedPrompt (result) {
     ? result.data
     : result
   if (source && typeof source === 'object') {
+    // 错误优先：引擎失败兜底可能同时回显原文（同层或跨层），必须先判错再取文本
+    const topError = source.error !== undefined && source.error !== null && source.error !== ''
+      ? String(source.error)
+      : (source.detail !== undefined && source.detail !== null && source.detail !== '' ? String(source.detail) : '')
+    if (topError) throw new Error(topError || '提示词优化失败')
     if (Array.isArray(source.results)) {
       const item = source.results[0]
       if (typeof item === 'string') return item
       if (item && typeof item === 'object') {
+        const itemError = item.error !== undefined && item.error !== null && item.error !== ''
+          ? String(item.error)
+          : (item.detail !== undefined && item.detail !== null && item.detail !== '' ? String(item.detail) : '')
+        if (itemError) throw new Error(itemError || '提示词优化失败')
         const text = item.optimized_prompt || item.prompt || item.optimized
         if (typeof text === 'string' && text.trim()) return text
-        if (item.error || item.message) throw new Error(String(item.error || item.message) || '提示词优化失败')
       }
       return ''
     }
     const text = source.optimized_prompt || source.prompt || source.optimized
     if (typeof text === 'string' && text.trim()) return text
-    if (source.error || source.message) throw new Error(String(source.error || source.message) || '提示词优化失败')
   }
   return ''
 }
@@ -1052,10 +1079,27 @@ class Story2VideoProjectService {
       // 图片优化词与流水线契约同源（2026-08-16 上限放开）：经 buildPromptEngineOptimizeRequest
       // 携带 max_length=2000（8013 契约上限 PROMPT_ENGINE_LIMITS.maxLength.max，与流水线 stageDef 默认一致），
       // 防止历史重生成仍走 8013 后端默认 500 截断；
-      // 视频优化词属 8020 域，保持原样不借用图片契约。
-      const imageOptimizeRequest = kind === 'image'
-        ? buildPromptEngineOptimizeRequest(seed, { max_length: PROMPT_ENGINE_LIMITS.maxLength.max })
-        : null
+      // context 复用流水线「无 scene_context 回退路径」的 buildOptimizeContext（full_text 全场景文案 +
+      // scene_type 推断 + 继承持久化 optimize.context 的 synopsis），场景来源 project.segments；
+      // 仅透传契约键（safeOptimizeStageOptions），stage 元键不进入请求；
+      // 视频优化词属 8020 域，保持原样不借用图片契约，不参与图片 context 构造。
+      let imageOptimizeRequest = null
+      if (kind === 'image') {
+        const optimizeConfig = project.story2videoTextConfig?.config?.optimize
+        const optimizeStageOptions = safeOptimizeStageOptions(optimizeConfig)
+        const optimizeContext = buildOptimizeContext(
+          (project.segments || []).map(segment => ({ text: segment.text })),
+          {
+            ...(project.options || {}),
+            ...(optimizeConfig && optimizeConfig.context ? { context: optimizeConfig.context } : {}),
+          },
+        )
+        imageOptimizeRequest = buildPromptEngineOptimizeRequest(seed, {
+          ...optimizeStageOptions,
+          max_length: PROMPT_ENGINE_LIMITS.maxLength.max,
+          context: optimizeContext,
+        })
+      }
       const optimized = kind === 'video'
         ? await this.serviceBus.optimizeVideoPrompt(seed, { index: segment.sourceIndex ?? index })
         : await (async () => {

@@ -1934,6 +1934,171 @@ describe('Story2VideoProjectService', () => {
     expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: '优化服务不可用' })
   })
 
+  it('regenerateScenePrompt image 引擎错误兜底回显原文 → fail-closed（402 形态）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({
+      results: [{ optimized_prompt: '引擎回显的提示词', error: '402 insufficient_balance_error' }],
+    }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-echo-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词' }],
+    }])
+
+    await expect(service.regenerateScenePrompt('project-prompt-echo-fail', 'segment-0', 'image')).rejects.toThrow('402')
+
+    const failed = service.getProject('project-prompt-echo-fail')
+    // 回显原文不得写入分段：prompt 保持旧值、status=failed、真实原因透出
+    expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: '402 insufficient_balance_error' })
+  })
+
+  it('regenerateScenePrompt video 引擎错误+回显原文 → videoPrompt 不被改写', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizeVideoPrompt = vi.fn(async () => ({
+      optimized_prompt: '引擎回显的视频词', error: '402 insufficient_balance_error',
+    }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizeVideoPrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-video-echo', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧画面词', videoPrompt: '旧视频词' }],
+    }])
+
+    await expect(service.regenerateScenePrompt('project-prompt-video-echo', 'segment-0', 'video')).rejects.toThrow('402')
+
+    const failed = service.getProject('project-prompt-video-echo')
+    expect(failed.segments[0]).toMatchObject({ videoPrompt: '旧视频词', status: 'failed', error: '402 insufficient_balance_error' })
+  })
+
+  it('regenerateScenePrompt error 无文本 → 同样 fail-closed 不改写分段', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({ error: 'service unavailable' }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-error-no-text', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词' }],
+    }])
+
+    await expect(service.regenerateScenePrompt('project-prompt-error-no-text', 'segment-0', 'image')).rejects.toThrow('service unavailable')
+
+    const failed = service.getProject('project-prompt-error-no-text')
+    expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: 'service unavailable' })
+  })
+
+  it('regenerateScenePrompt 顶层 error 优先于内层回显文本 → fail-closed（跨层形态）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({
+      error: '402 insufficient_balance_error',
+      results: [{ optimized_prompt: '内层回显提示词' }],
+    }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-cross-echo', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词' }],
+    }])
+
+    await expect(service.regenerateScenePrompt('project-prompt-cross-echo', 'segment-0', 'image')).rejects.toThrow('402')
+
+    const failed = service.getProject('project-prompt-cross-echo')
+    expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: '402 insufficient_balance_error' })
+  })
+
+  it('regenerateScenePrompt 顶层 error + 空 results → 错误透出而非吞掉', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({ error: 'parse_error', results: [] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-empty-results', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词' }],
+    }])
+
+    await expect(service.regenerateScenePrompt('project-prompt-empty-results', 'segment-0', 'image')).rejects.toThrow('parse_error')
+
+    const failed = service.getProject('project-prompt-empty-results')
+    expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: 'parse_error' })
+  })
+
+  it('regenerateScenePrompt image 请求携带与流水线同源的 context（full_text/synopsis）+ max_length=2000', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '新画面提示词' }] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-ctx', status: 'completed', options: {},
+      story2videoTextConfig: {
+        version: 2,
+        config: {
+          optimize: {
+            context: '故事梗概：扶余王子逃出王宫一路南下',
+            // stage 元键不得透传到请求（契约键白名单外）
+            maxRetries: 99, concurrency: 7,
+          },
+        },
+      },
+      segments: [
+        { id: 'segment-0', index: 0, text: '强盛时疆域覆盖今辽宁北部。' },
+        { id: 'segment-1', index: 1, text: '朱蒙一路南下在卒本川落脚。' },
+      ],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-prompt-ctx', 'segment-0', 'image')
+
+    const requestOptions = optimizePrompt.mock.calls[0][1]
+    expect(requestOptions.max_length).toBe(2000)
+    expect(requestOptions.context.full_text).toContain('强盛时疆域覆盖今辽宁北部')
+    expect(requestOptions.context.full_text).toContain('朱蒙一路南下在卒本川落脚')
+    expect(requestOptions.context.synopsis).toBe('故事梗概：扶余王子逃出王宫一路南下')
+    expect(requestOptions.maxRetries).toBeUndefined()
+    expect(requestOptions.concurrency).toBeUndefined()
+    expect(updated.segments[0].prompt).toBe('新画面提示词')
+  })
+
+  it('regenerateScenePrompt 存量项目无 story2videoTextConfig 仍携带基于 segments 的 context', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '新画面提示词' }] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-legacy', status: 'completed', options: {},
+      segments: [
+        { id: 'segment-0', index: 0, text: '旧项目场景一。' },
+        { id: 'segment-1', index: 1, text: '旧项目场景二。' },
+      ],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-prompt-legacy', 'segment-0', 'image')
+
+    const requestOptions = optimizePrompt.mock.calls[0][1]
+    expect(requestOptions.context.full_text).toContain('旧项目场景一')
+    expect(requestOptions.context.full_text).toContain('旧项目场景二')
+    expect(updated.segments[0].prompt).toBe('新画面提示词')
+  })
+
   it('saveRun 持久化视频优化词（videoPrompt）到分段', () => {
     const source = path.join(root, 'video-prompt-source')
     const image = writeFile(path.join(source, 'image.png'))
