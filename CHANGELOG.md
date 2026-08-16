@@ -1,3 +1,10 @@
+## [2026-08-16] fix(story2video): 历史任务图片重试/重生按当前「多模态优先」设置重新解析 provider
+
+- 现象：设置里取消勾选「优先使用多模态模型进行所有的AI操作」并配置专用生图模型（agnes image）后，历史记录任务点【重试图片】/【重生图片】仍调用任务创建时固化的多模态 provider（MiniMax，Key 套餐失效）→ 弹「模型 API 的额度或余额已用完」。
+- 根因：`retrySegment`（image 分支）与 `generateSceneImage` 直接透传 `project.options.imageProvider/imageModel`（`saveRun`→`_safeOptions` 固化），从不按当前 `prefer_multimodal`/image 默认重新解析。
+- 修复：service 层新增 `_resolveImageGenerator`（含 `_defaultImageGenerator`/`_imageModelFor`），两个 image 调用点统一接入——固化多模态 provider 在关闭多模态优先时改走 `manager.getDefault('image')`（模型取 `capability_models.image` 或首个模型）；固化 provider 已删除/禁用/未配置同样重解析；老项目空值保持离线占位图降级语义；重新解析无可用默认时抛可读错误（fail closed，不回退占位图）。
+- 回归：`story2video-project-service.test.js` 72 passed（+6 新用例：关多模态改默认 / 开多模态保留 / 显式 image provider 保留 / 无默认明确报错 / 老项目空透传 / generateSceneImage 同逻辑）；asset-generator / model-provider-multimodal / ResultView 105 passed；story2video-stages / CreateView 全绿；node --check / git diff --check PASS。
+
 ## [2026-08-16] fix(story2video): 结果页/历史编辑中「视频预览加载失败」误报自愈 + 旧令牌回收
 
 - 现象：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存。

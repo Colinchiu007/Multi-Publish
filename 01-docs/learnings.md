@@ -1,3 +1,12 @@
+## 历史任务图片重试忽略「多模态优先」设置复盘（fix-s2v-image-model-selection，2026-08-16）
+
+- **现象**：用户在「设置-模型设置」取消勾选「优先使用多模态模型进行所有的AI操作」（`prefer_multimodal`）并添加专用生图模型（agnes image），但历史记录任务点【重试图片】/【重生图片】仍调用任务创建时固化的多模态 provider（MiniMax，用户 Key 套餐失效）→ 弹「模型 API 的额度或余额已用完」。
+- **根因**：`Story2VideoProjectService.retrySegment`（image 分支）与 `generateSceneImage` 直接把 `project.options.imageProvider/imageModel`（由 `saveRun`→`_safeOptions(run.params)` 白名单固化）透传给 `assetGenerator.generateImage`，从不按当前 `prefer_multimodal`/image 默认重新解析；创建时 `listProviders('image')` 把声明 image 能力的多模态行并入下拉且默认选中第一个 → 固化成了 minimax-multimodal。真正按设置解析的只有新流水线 `story2video-stages.js` 的 `resolveCapabilityProvider('image')`（走 `getDefault('image')`）。
+- **教训 1（历史任务复用的固化配置 ≠ 永远有效）**：任务创建时固化的 provider/model 是「当时的默认」，不代表用户设置未变；涉及外部账户额度/套餐的调用，重试/重生时必须按当前设置重新解析，否则过期 Key 会被历史任务持续调用。
+- **教训 2（解析来源必须与流水线同源）**：历史重试与新建流水线必须共用同一套默认解析（`getDefault('image')` / `getMultimodalPreference()`），避免「创建时 UI 下拉固化的值」绕过设置路由长期生效。
+- **教训 3（无可用默认要 fail closed）**：关闭多模态优先又无 image 类 provider 时抛可读错误引导配置，不静默回退占位图（占位图会掩盖配置缺失）。
+- **逃逸链**：project-service 既有测试只覆盖「固化值透传」路径，无「当前设置变化后重试历史任务」用例（测试场景缺失）；双模型审查 antigravity 区域不可用降级为单模型 + 主代理自审（审查盲区记录）；Claude reviewer 结论 0 Critical / 0 Warning。
+- **回归保护**：`story2video-project-service.test.js` +6 用例（关多模态改默认 / 开多模态保留 / 显式 image provider 保留 / 无默认明确报错 / 老项目空透传 / generateSceneImage 同逻辑）；后续改模型选择/多模态优先语义必须同时跑该文件与 `model-provider-multimodal.test.js`。
 ## 结果页视频预览令牌失效误报自愈 + 旧令牌回收复盘（s2v-video-preview-token-refresh，2026-08-16）
 
 - **现象**：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存（用户报障）。结果页主视频正常，历史编辑回放旧任务才复现。

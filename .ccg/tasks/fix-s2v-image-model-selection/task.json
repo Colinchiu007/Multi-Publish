@@ -1,0 +1,12 @@
+{
+  "domain": "desktop-story2video",
+  "nextAction": "审查闭环（Claude 0C 2M 4m 全修复）；提交 → PR → CI → 合并 → 归档",
+  "currentPhase": "review",
+  "risk": "medium",
+  "complexity": "M",
+  "branch": "codex/fix-s2v-image-model-selection",
+  "status": "in_progress",
+  "title": "设置关闭“优先使用多模态模型”后，历史任务重试/重生图片仍调用多模态模型",
+  "id": "fix-s2v-image-model-selection",
+  "createdAt": "2026-08-16T06:05:58Z"
+}

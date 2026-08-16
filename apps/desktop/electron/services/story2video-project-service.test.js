@@ -1967,3 +1967,259 @@ describe('Story2VideoProjectService', () => {
     expect(project.segments[0].videoPrompt).toBe('视频优化词')
   })
 })
+
+describe('Story2VideoProjectService — 多模态优先设置与历史任务图片重试/重生成（2026-08-16 回归）', () => {
+  let root
+  let store
+
+  beforeEach(() => {
+    const controlledTempRoot = path.join(os.tmpdir(), 'story2video')
+    fs.mkdirSync(controlledTempRoot, { recursive: true })
+    root = fs.mkdtempSync(path.join(controlledTempRoot, 'project-service-prefer-'))
+    const buckets = new Map()
+    const normalizeOwner = (value) => {
+      if (typeof value !== 'string') return null
+      const subject = value.trim()
+      return subject ? subject : null
+    }
+    store = {
+      _resolveOwnerSubject: vi.fn(() => 'user-a'),
+      getUserSetting: vi.fn((key, fallback, ownerSubject) => {
+        const owner = ownerSubject !== undefined ? normalizeOwner(ownerSubject) : normalizeOwner(store._resolveOwnerSubject())
+        if (!owner) return fallback
+        return buckets.get(owner) === undefined ? fallback : buckets.get(owner)
+      }),
+      setUserSetting: vi.fn((key, value, ownerSubject) => {
+        const owner = ownerSubject !== undefined ? normalizeOwner(ownerSubject) : normalizeOwner(store._resolveOwnerSubject())
+        if (!owner) return
+        buckets.set(owner, value)
+      }),
+    }
+  })
+
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  const MULTIMODAL_PROVIDER = {
+    id: 'minimax-multimodal', name: 'MiniMax（多模态）', category: 'multimodal',
+    enabled: true, is_configured: true, models: ['image-01'], capability_models: { image: 'image-01' },
+  }
+  const IMAGE_PROVIDER = {
+    id: 'agnes-image', name: 'Agnes Image', category: 'image',
+    enabled: true, is_configured: true, models: ['agnes-img-1'],
+  }
+
+  function buildManager ({ preferMultimodal = true, providers = {}, defaultImage = null }) {
+    return {
+      getProvider: vi.fn((id) => providers[id] || null),
+      getDefault: vi.fn((category) => (category === 'image' ? defaultImage : null)),
+      getMultimodalPreference: vi.fn(() => preferMultimodal),
+    }
+  }
+
+  function buildService (extra = {}) {
+    return new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects'), ...extra })
+  }
+
+  function writeProjectFixture (service, projectId, options, segments) {
+    const projectDir = service._projectDir(projectId)
+    const oldImage = writeFile(path.join(projectDir, 'old.png'), 'old-image')
+    const oldVideo = writeFile(path.join(projectDir, 'old.mp4'), 'old-video')
+    const audio = writeFile(path.join(projectDir, 'voice.mp3'), 'voice')
+    service._writeProjects([{
+      projectId, status: 'completed', options,
+      segments: segments || [
+        { id: 'segment-0', index: 0, text: 'A', prompt: 'PA', imagePath: oldImage, audioPath: audio, videoPath: oldVideo },
+      ],
+    }])
+    return { oldImage, oldVideo, audio }
+  }
+
+  function buildRetryService (manager, generateImage) {
+    return buildService({
+      modelProviderManager: manager,
+      assetGenerator: {
+        generateImage: vi.fn(generateImage || (async () => ({ code: 0, data: { path: writeFile(path.join(root, 'generated.png'), 'generated') } }))),
+      },
+      composeEngine: {
+        renderSegment: vi.fn(async (_scene, _options, destination) => {
+          writeFile(destination, 'video')
+          return { code: 0, data: { videoPath: destination, duration: 2 } }
+        }),
+      },
+    })
+  }
+
+  it('retrySegment(image)：关闭多模态优先且项目固化多模态 provider 时，改用当前 image 默认 provider', async () => {
+    const service = buildRetryService(buildManager({
+      preferMultimodal: false,
+      providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
+      defaultImage: IMAGE_PROVIDER,
+    }))
+    writeProjectFixture(service, 'project-retry-prefer-off', { imageProvider: 'minimax-multimodal', imageModel: 'image-01' })
+
+    await service.retrySegment('project-retry-prefer-off', 'segment-0', 'image')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'agnes-image',
+      image_model: 'agnes-img-1',
+    }))
+  })
+
+  it('retrySegment(image)：开启多模态优先时保留任务固化的多模态 provider', async () => {
+    const service = buildRetryService(buildManager({
+      preferMultimodal: true,
+      providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
+      defaultImage: IMAGE_PROVIDER,
+    }))
+    writeProjectFixture(service, 'project-retry-prefer-on', { imageProvider: 'minimax-multimodal', imageModel: 'image-01' })
+
+    await service.retrySegment('project-retry-prefer-on', 'segment-0', 'image')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'minimax-multimodal',
+      image_model: 'image-01',
+    }))
+  })
+
+  it('retrySegment(image)：关闭多模态优先时保留用户显式选择的 image 类 provider', async () => {
+    const service = buildRetryService(buildManager({
+      preferMultimodal: false,
+      providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER, 'agnes-image': IMAGE_PROVIDER },
+      defaultImage: IMAGE_PROVIDER,
+    }))
+    writeProjectFixture(service, 'project-retry-image-choice', { imageProvider: 'agnes-image', imageModel: 'agnes-img-1' })
+
+    await service.retrySegment('project-retry-image-choice', 'segment-0', 'image')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'agnes-image',
+      image_model: 'agnes-img-1',
+    }))
+  })
+
+  it('retrySegment(image)：关闭多模态优先且无可用 image 默认时明确报错，不再回退占位图', async () => {
+    const service = buildRetryService(buildManager({
+      preferMultimodal: false,
+      providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
+      defaultImage: null,
+    }))
+    writeProjectFixture(service, 'project-retry-no-default', { imageProvider: 'minimax-multimodal', imageModel: 'image-01' })
+
+    await expect(service.retrySegment('project-retry-no-default', 'segment-0', 'image')).rejects.toThrow('未找到可用的图片生成器')
+    expect(service.assetGenerator.generateImage).not.toHaveBeenCalled()
+    expect(service.composeEngine.renderSegment).not.toHaveBeenCalled()
+  })
+
+  it('retrySegment(image)：项目未固化 provider 时保持原空透传（老项目占位图语义不变）', async () => {
+    const service = buildRetryService(buildManager({
+      preferMultimodal: false,
+      providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
+      defaultImage: IMAGE_PROVIDER,
+    }))
+    writeProjectFixture(service, 'project-retry-legacy-empty', {})
+
+    await service.retrySegment('project-retry-legacy-empty', 'segment-0', 'image')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: '',
+      image_model: '',
+    }))
+  })
+
+  it('generateSceneImage：关闭多模态优先时同样弃用固化多模态 provider，改用当前 image 默认', async () => {
+    const service = buildService({
+      modelProviderManager: buildManager({
+        preferMultimodal: false,
+        providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
+        defaultImage: IMAGE_PROVIDER,
+      }),
+      assetGenerator: {
+        generateImage: vi.fn(async () => ({ code: 0, data: { path: writeFile(path.join(root, 'generated.png'), 'generated') } })),
+      },
+    })
+    writeProjectFixture(service, 'project-image-prefer-off', { imageProvider: 'minimax-multimodal', imageModel: 'image-01' })
+
+    await service.generateSceneImage('project-image-prefer-off', 'segment-0')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'agnes-image',
+      image_model: 'agnes-img-1',
+    }))
+  })
+
+  it('retrySegment(image)：固化 provider 已删除时改用当前 image 默认（审查 M2 补强）', async () => {
+    const service = buildRetryService(buildManager({
+      preferMultimodal: false,
+      providers: {},
+      defaultImage: IMAGE_PROVIDER,
+    }))
+    writeProjectFixture(service, 'project-retry-provider-deleted', { imageProvider: 'minimax-multimodal', imageModel: 'image-01' })
+
+    await service.retrySegment('project-retry-provider-deleted', 'segment-0', 'image')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'agnes-image',
+      image_model: 'agnes-img-1',
+    }))
+  })
+
+  it('retrySegment(image)：固化 provider 已禁用/未配置时改用当前 image 默认（审查 M2 补强）', async () => {
+    const service = buildRetryService(buildManager({
+      preferMultimodal: false,
+      providers: { 'minimax-multimodal': { ...MULTIMODAL_PROVIDER, enabled: false } },
+      defaultImage: IMAGE_PROVIDER,
+    }))
+    writeProjectFixture(service, 'project-retry-provider-disabled', { imageProvider: 'minimax-multimodal', imageModel: 'image-01' })
+
+    await service.retrySegment('project-retry-provider-disabled', 'segment-0', 'image')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'agnes-image',
+      image_model: 'agnes-img-1',
+    }))
+  })
+
+  it('retrySegment(image)：manager 不可用时原样透传固化 provider（降级语义不变，审查 M2 补强）', async () => {
+    const service = buildRetryService(null, undefined)
+    writeProjectFixture(service, 'project-retry-manager-missing', { imageProvider: 'minimax-multimodal', imageModel: 'image-01' })
+
+    await service.retrySegment('project-retry-manager-missing', 'segment-0', 'image')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'minimax-multimodal',
+      image_model: 'image-01',
+    }))
+  })
+
+  it('retrySegment(image)：旧别名 provider（openai-image）DB 无行时原样透传（asset-generator canonical 路由，审查 M3 补强）', async () => {
+    const service = buildRetryService(buildManager({
+      preferMultimodal: false,
+      providers: {},
+      defaultImage: IMAGE_PROVIDER,
+    }))
+    writeProjectFixture(service, 'project-retry-alias', { imageProvider: 'openai-image', imageModel: 'dall-e-3' })
+
+    await service.retrySegment('project-retry-alias', 'segment-0', 'image')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'openai-image',
+      image_model: 'dall-e-3',
+    }))
+  })
+
+  it('retrySegment(image)：多模态缺 capability_models.image 时不留非图片首模型（交 adapter 默认，审查 m1 补强）', async () => {
+    const service = buildRetryService(buildManager({
+      preferMultimodal: true,
+      providers: { 'minimax-multimodal': { ...MULTIMODAL_PROVIDER, capability_models: null, models: ['speech-2.8-turbo'] } },
+      defaultImage: IMAGE_PROVIDER,
+    }))
+    writeProjectFixture(service, 'project-retry-no-capability-model', { imageProvider: 'minimax-multimodal' })
+
+    await service.retrySegment('project-retry-no-capability-model', 'segment-0', 'image')
+
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'minimax-multimodal',
+      image_model: '',
+    }))
+  })
+})

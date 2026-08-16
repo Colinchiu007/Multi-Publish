@@ -28,6 +28,9 @@ const {
   PROMPT_ENGINE_LIMITS,
   buildPromptEngineOptimizeRequest,
 } = require('./prompt-engine-contract')
+const {
+  IMAGE_PROVIDER_ALIASES,
+} = require('./asset-generator')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 
 const SETTING_KEY = 'story2video_projects_v1'
@@ -699,11 +702,15 @@ class Story2VideoProjectService {
     try {
       if (mode === 'image') {
         if (!this.assetGenerator || typeof this.assetGenerator.generateImage !== 'function') throw new Error('图片生成服务不可用')
+        // 重试图片的目标 provider 按当前设置解析：关闭「优先使用多模态模型」后不再沿用
+        // 任务创建时固化的多模态 provider（2026-08-16 Bug：过期 MiniMax Key 仍被重试调用）。
+        const imageGenerator = this._resolveImageGenerator(project.options?.imageProvider, project.options?.imageModel)
+        if (!imageGenerator) throw new Error('未找到可用的图片生成器，请先在「模型设置」中配置并启用支持图片生成的模型')
         const generated = await this.assetGenerator.generateImage(segment.prompt || segment.text, {
           index: segment.sourceIndex ?? index,
           style: project.options?.imageStyle,
-          image_provider: project.options?.imageProvider,
-          image_model: project.options?.imageModel,
+          image_provider: imageGenerator.providerId,
+          image_model: imageGenerator.model,
           aspect_ratio: project.options?.aspectRatio,
           runId: 'retry_' + projectId,
         })
@@ -1178,6 +1185,78 @@ class Story2VideoProjectService {
     return { providerId: provider.id.trim(), model: model ? model.trim() : '' }
   }
 
+  /**
+   * 历史任务图片重试/重生成的目标 provider+model 解析（2026-08-16 Bug 修复）：
+   * 任务创建时固化的 imageProvider/imageModel 只在仍符合当前设置时复用，否则按当前
+   * image 能力默认重新解析（与 AI 视频生成 _defaultVideoGenerator 同源语义）。
+   * - 保存值缺失（老项目）→ 保持空透传（占位图降级语义不变）；
+   * - 保存的是多模态 provider 且用户已关闭「优先使用多模态模型」→ 改走当前 image 默认，
+   *   避免继续调用已降级/过期的旧多模态 Key；
+   * - 保存的 provider 已删除/禁用/未配置 → 改走当前 image 默认；
+   * - 其余情况（用户显式选择的 image 类 provider、多模态优先仍开启）→ 原样复用。
+   * 重新解析后无可用 image 默认时返回 null，调用方报可读错误而非回退占位图。
+   * @param {string|undefined} savedProvider 任务 options.imageProvider
+   * @param {string|undefined} savedModel 任务 options.imageModel
+   * @returns {{providerId: string, model: string}|null}
+   */
+  _resolveImageGenerator (savedProvider, savedModel) {
+    const saved = typeof savedProvider === 'string' && savedProvider.trim() ? savedProvider.trim() : ''
+    if (!saved) return { providerId: '', model: '' }
+    // 老项目固化的图片 provider 别名（如 openai-image → dall-e）：DB 无对应行但
+    // asset-generator 仍可 canonical 路由，原样透传保持旧行为（单一来源 asset-generator.js IMAGE_PROVIDER_ALIASES）。
+    if (IMAGE_PROVIDER_ALIASES[saved]) {
+      return { providerId: saved, model: typeof savedModel === 'string' ? savedModel : '' }
+    }
+    const manager = this.modelProviderManager
+    const managerReady = manager && typeof manager.getProvider === 'function' &&
+      typeof manager.getDefault === 'function' && typeof manager.getMultimodalPreference === 'function'
+    if (!managerReady) return { providerId: saved, model: typeof savedModel === 'string' ? savedModel : '' }
+
+    const savedRow = manager.getProvider(saved)
+    const savedUsable = Boolean(savedRow && savedRow.enabled === true && savedRow.is_configured === true)
+    const savedIsMultimodal = Boolean(savedRow && savedRow.category === 'multimodal')
+    const preferMultimodal = manager.getMultimodalPreference() !== false
+    if (!savedUsable || (savedIsMultimodal && !preferMultimodal)) {
+      const resolved = this._defaultImageGenerator()
+      if (!resolved) return null
+      if (this.log && typeof this.log.warn === 'function') {
+        this.log.warn('[Story2Video] 历史任务图片生成 provider 由 ' + saved + ' 重解析为 ' + resolved.providerId + '（当前设置/状态不满足固化 provider）')
+      }
+      return resolved
+    }
+    const savedModelTrim = typeof savedModel === 'string' && savedModel.trim() ? savedModel.trim() : ''
+    const savedModels = Array.isArray(savedRow && savedRow.models) ? savedRow.models : []
+    const resolvedModel = savedModelTrim && savedModels.includes(savedModelTrim)
+      ? savedModelTrim
+      : this._imageModelFor(savedRow)
+    return { providerId: saved, model: resolvedModel || '' }
+  }
+
+  /** 当前 image 能力默认 provider+model（modelProviderManager.getDefault('image')）。 */
+  _defaultImageGenerator () {
+    const manager = this.modelProviderManager
+    if (!manager || typeof manager.getDefault !== 'function') return null
+    const provider = manager.getDefault('image')
+    if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
+    return { providerId: provider.id.trim(), model: this._imageModelFor(provider) }
+  }
+
+  /** provider 的默认图片模型：多模态按 capability_models.image（缺失时留空交 adapter 默认，
+   *  避免把非图片模型如 TTS 首模型当图片模型），普通 provider 取首个模型。 */
+  _imageModelFor (provider) {
+    if (!provider) return ''
+    const models = Array.isArray(provider.models)
+      ? provider.models.filter(item => typeof item === 'string' && item.trim())
+      : []
+    if (provider.category === 'multimodal') {
+      const capabilityModel = provider.capability_models && typeof provider.capability_models.image === 'string'
+        ? provider.capability_models.image.trim()
+        : ''
+      return capabilityModel || ''
+    }
+    return (models[0] || '').trim() || ''
+  }
+
   /** 视频生成尺寸：优先输出分辨率，否则按宽高比映射，长边封顶 1280（与流水线 resolveVideoSize 同源）。 */
   _videoSize (options) {
     const fromSize = parseOutputSize(options.resolution || options.size)
@@ -1215,11 +1294,15 @@ class Story2VideoProjectService {
     const projectDir = this._projectDir(projectId)
     const attemptFiles = new Set()
     try {
+      // 与重试图片同源：按当前设置解析目标 provider，关闭多模态优先后不再沿用固化多模态 provider。
+      // 解析失败同样进入 catch 持久化分段 failed（与 retrySegment 语义一致，审查 M1）。
+      const imageGenerator = this._resolveImageGenerator(project.options?.imageProvider, project.options?.imageModel)
+      if (!imageGenerator) throw new Error('未找到可用的图片生成器，请先在「模型设置」中配置并启用支持图片生成的模型')
       const generated = await this.assetGenerator.generateImage(segment.prompt || segment.text, {
         index: segment.sourceIndex ?? index,
         style: project.options?.imageStyle,
-        image_provider: project.options?.imageProvider,
-        image_model: project.options?.imageModel,
+        image_provider: imageGenerator.providerId,
+        image_model: imageGenerator.model,
         aspect_ratio: project.options?.aspectRatio,
         runId: 'scene_image_' + projectId,
       })
