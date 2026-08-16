@@ -1,12 +1,12 @@
 {
   "id": "s2v-video-preview-token-refresh",
   "title": "结果页/历史编辑中视频预览令牌失效误报「视频预览加载失败」自愈+令牌回收",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend+electron",
-  "currentPhase": "review",
-  "nextAction": "双模型审查 + QM-1 打包",
+  "currentPhase": "completed",
+  "nextAction": "归档完成：PR #890 已合并 ca28c374（CI 13/13+ 全绿），openspec/CCG/quality-gates 三同步归档",
   "createdAt": "2026-08-16T12:00:00+08:00",
   "branch": "codex/s2v-video-preview-token-refresh",
   "openspecChange": "s2v-video-preview-token-refresh"
