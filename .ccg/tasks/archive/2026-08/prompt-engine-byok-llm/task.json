@@ -1,0 +1,13 @@
+{
+  "id": "prompt-engine-byok-llm",
+  "title": "桌面端 8013 BYOK 接入：PromptBridge 注入 llm/caller（SenseNova 用户 key）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "PR 合并后归档",
+  "createdAt": "2026-08-16T12:00:00Z",
+  "branch": "codex/prompt-engine-byok-llm",
+  "openspecChange": "prompt-engine-byok-llm"
+}

@@ -342,9 +342,17 @@ describe('BasePythonBridge — 子类继承验证', () => {
     expect(JSON.parse(body).text).toBe('hello world')
   })
 
+  function mockLlmManager () {
+    return {
+      getDefault: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'] })),
+      getProviderWithKey: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'], api_key: 'sk-test' })),
+    }
+  }
+
   it('15. PromptBridge.optimize 调用 ensureRunning + _post 并传递正确路径', async () => {
     const PromptBridge = require('./prompt-bridge')
     const b = new PromptBridge({})
+    b.modelProviderManager = mockLlmManager()
     b.isRunning = true
     b.ensureRunning = vi.fn(async () => {})
     b._post = vi.fn(() => Promise.resolve({ ok: true }))
@@ -358,13 +366,19 @@ describe('BasePythonBridge — 子类继承验证', () => {
   it('16. PromptBridge.optimizeBatch 标准化字符串数组为对象数组', async () => {
     const PromptBridge = require('./prompt-bridge')
     const b = new PromptBridge({})
+    b.modelProviderManager = mockLlmManager()
     b.isRunning = true
     b.ensureRunning = vi.fn(async () => {})
     b._post = vi.fn(() => Promise.resolve({ ok: true }))
     await b.optimizeBatch(['prompt1', 'prompt2'])
     const body = b._post.mock.calls[0][1]
     const parsed = JSON.parse(body)
-    expect(parsed.requests).toEqual([{ prompt: 'prompt1' }, { prompt: 'prompt2' }])
+    expect(parsed.requests.map(r => r.prompt)).toEqual(['prompt1', 'prompt2'])
+    // BYOK：批量请求统一注入调用方默认 LLM 绑定 + caller 标识
+    expect(parsed.requests[0]).toMatchObject({
+      llm: { provider: 'sensenova', model: 'deepseek-v4-flash', api_key: 'sk-test' },
+      caller: 'multi-publish-desktop',
+    })
   })
 
   // ─── 回归测试：PromptBridge 启动命令正确性 ──────────────
