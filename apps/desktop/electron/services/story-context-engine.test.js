@@ -359,7 +359,7 @@ describe('历史内容增强：detectSentiment / buildDomainSeed（2026-08-14 do
   it('buildDomainSeed golden：朝代命中（唐朝）→ 视觉风格 + 自然光线 + 无文字提示卫生', () => {
     const story = extractStoryContext('这是一个关于唐代的故事。唐玄宗时期，长安城一片繁华。')
     const seed = buildDomainSeed('唐朝长安城的灯火照亮宫殿', story)
-    expect(seed).toBe('唐朝长安城的灯火照亮宫殿；唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；自然层次与叙事光线；无文字、主体明确')
+    expect(seed).toBe('唐朝长安城的灯火照亮宫殿；唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；自然层次与叙事光线；无文字、主体明确；人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
   })
 
   it('buildDomainSeed 负面情感 → 阴影与冷色氛围光线分支', () => {
@@ -391,11 +391,116 @@ describe('历史内容增强：detectSentiment / buildDomainSeed（2026-08-14 do
     const story = extractStoryContext('唐玄宗时期的长安城，盛唐气象。')
     expect(story.dynasty).toMatchObject({ name: '唐朝' })
     const seed = buildDomainSeed('一个老妇人在灶台边做饭', story)
-    expect(seed).toBe('一个老妇人在灶台边做饭；唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；自然层次与叙事光线；无文字、主体明确')
+    expect(seed).toBe('一个老妇人在灶台边做饭；唐代宫殿、长安城、圆领袍、襦裙、金红色盛唐光线；自然层次与叙事光线；无文字、主体明确；人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
   })
 
   it('buildDomainSeed story 为空（enabled=false 场景）→ 中性视觉风格兜底', () => {
     const seed = buildDomainSeed('一个普通的画面', null)
     expect(seed).toBe('一个普通的画面；具有叙事感的电影画面、自然光线、层次清晰；自然层次与叙事光线；无文字、主体明确')
+  })
+})
+
+describe('古代东亚面孔锚（2026-08-16 east-asian-face-anchor）', () => {
+  it('用户剧本：高句丽/朱蒙/扶余/卒本川 → 文化识别 + seed/contextBlock 注入东亚外观锚', () => {
+    const story = extractStoryContext('高句丽强盛时，疆域覆盖今辽宁北部。而朱蒙，这位逃出王宫的扶余王子，一路南下，在卒本川落脚，也就是今辽宁桓仁五女山城。')
+    expect(story.culture).toBe('朝鲜·东北亚古国')
+    expect(story.eraStrong).toBe(false)
+    const seed = buildDomainSeed('朱蒙站在山脊上眺望五女山城', story)
+    expect(seed).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
+    const block = buildSceneContextBlock({ text: '朱蒙站在山脊上眺望五女山城' }, story)
+    expect(block.contextBlock).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
+    // C1：culture 命中但 era 弱信号 → 不注入面孔负面锚
+    expect(story.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+    expect(block.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+  })
+
+  it('欧洲文化绝不注入东亚锚（buildDomainSeed 与 contextBlock 双路径）', () => {
+    const story = extractStoryContext('城堡里的公主和王子过着幸福的生活。')
+    expect(story.culture).toBe('欧洲')
+    const seed = buildDomainSeed('公主在城堡塔楼里眺望', story)
+    expect(seed).not.toContain('人物形象')
+    const block = buildSceneContextBlock({ text: '公主在城堡塔楼里眺望' }, story)
+    expect(block.contextBlock).not.toContain('人物形象')
+    expect(block.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+  })
+
+  it('modern 时代不注入面孔负面锚，且无文化 modern 无东亚锚', () => {
+    const story = extractStoryContext('小明在写字楼里用手机点外卖，晚上坐地铁回家。')
+    expect(story.era).toBe('modern')
+    expect(story.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+    expect(buildDomainSeed('小明在写字楼加班', story)).not.toContain('人物形象')
+  })
+
+  it('strong ancient 无文化 + 东亚意象线索 → 默认东亚锚与面孔负面锚', () => {
+    const story = extractStoryContext('古代战场上，将军身披铠甲，与士兵们一起守卫城墙。')
+    expect(story.era).toBe('ancient')
+    expect(story.eraStrong).toBe(true)
+    expect(story.eastAsianCue).toBe(true)
+    const seed = buildDomainSeed('将士们在战场上冲锋', story)
+    expect(seed).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
+    expect(story.negativeAnchors).toEqual(expect.arrayContaining(['西方面孔', '金发']))
+    const block = buildSceneContextBlock({ text: '将士们在战场上冲锋' }, story)
+    expect(block.negativeAnchors).toEqual(expect.arrayContaining(['西方面孔']))
+  })
+
+  it('C1：culture 命中但 era=mixed 弱信号 → 不出面孔负面锚（正锚仍生效）', () => {
+    const story = extractStoryContext('游客在高句丽雕像前用手机合影，旁边立着将军骑马像。')
+    expect(story.culture).toBe('朝鲜·东北亚古国')
+    expect(story.era).toBe('mixed')
+    expect(story.eraStrong).toBe(false)
+    expect(story.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+    expect(buildDomainSeed('游客在高句丽雕像前合影', story)).toContain('人物形象')
+  })
+
+  it('W4：场景含非东亚人物意象（波斯商队）→ 该场景跳过正锚并移除面孔负面锚', () => {
+    const story = extractStoryContext('高句丽时代，国王命令将军守卫城墙。')
+    expect(story.culture).toBe('朝鲜·东北亚古国')
+    expect(story.eraStrong).toBe(true)
+    const foreign = buildSceneContextBlock({ text: '波斯商队牵着骆驼缓缓走来' }, story)
+    expect(foreign.contextBlock).not.toContain('人物形象')
+    expect(foreign.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+    expect(buildDomainSeed('波斯商队牵着骆驼缓缓走来', story)).not.toContain('人物形象')
+    const troop = buildSceneContextBlock({ text: '士兵们在城墙下巡逻' }, story)
+    expect(troop.contextBlock).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
+    expect(troop.negativeAnchors).toEqual(expect.arrayContaining(['西方面孔']))
+  })
+
+  it('eraStrong 输出：朝代命中/多独立信号 true，弱信号 false', () => {
+    expect(extractStoryContext('唐玄宗时期，长安城一片繁华。').eraStrong).toBe(true)
+    expect(extractStoryContext('我在寺庙里虔诚地祈祷。').eraStrong).toBe(false)
+  })
+
+  // 审查 C1 反向回归：无文化命中的非东亚古史（古希腊/维京/玛雅）不得被强制东亚化
+  it('无文化 strong ancient + 古希腊文本 → 无东亚锚且无面孔负面锚', () => {
+    const story = extractStoryContext('古代希腊，国王在宫殿里与大臣议事，乘坐马车出行。')
+    expect(story.culture).toBe('')
+    expect(story.era).toBe('ancient')
+    expect(story.eraStrong).toBe(true)
+    expect(story.eastAsianCue).toBe(false)
+    expect(buildDomainSeed('国王在议事厅里议事', story)).not.toContain('人物形象')
+    expect(story.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+  })
+
+  it('无文化 strong ancient + 维京/玛雅文本 → 无东亚锚且无面孔负面锚', () => {
+    const viking = extractStoryContext('古代维京人，首领在长屋里设宴，勇士们划着长船出海。')
+    expect(viking.culture).toBe('')
+    expect(viking.eraStrong).toBe(true)
+    expect(viking.eastAsianCue).toBe(false)
+    expect(buildDomainSeed('维京勇士在长船船头眺望', viking)).not.toContain('人物形象')
+    expect(viking.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+    const maya = extractStoryContext('古代玛雅，祭司在祭坛前举行祭祀仪式。')
+    expect(maya.culture).toBe('')
+    expect(maya.eastAsianCue).toBe(false)
+    expect(buildDomainSeed('祭司在祭坛前祭祀', maya)).not.toContain('人物形象')
+    expect(maya.negativeAnchors.some(a => a.includes('西方面孔'))).toBe(false)
+  })
+
+  it('无文化 strong ancient + 东亚专属意象（武林/江湖）→ 仍默认东亚锚与面孔负面锚', () => {
+    const story = extractStoryContext('古代武林，掌门在客栈里召集江湖豪杰。')
+    expect(story.culture).toBe('')
+    expect(story.eraStrong).toBe(true)
+    expect(story.eastAsianCue).toBe(true)
+    expect(buildDomainSeed('掌门在客栈召集豪杰', story)).toContain('人物形象：东亚人面孔、黑发、黄皮肤、深色瞳')
+    expect(story.negativeAnchors).toEqual(expect.arrayContaining(['西方面孔']))
   })
 })
