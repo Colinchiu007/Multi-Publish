@@ -204,8 +204,9 @@ export function useModelProviderCrud () {
   async function loadMultimodalPreference () {
     try {
       const res = await storeGetSetting(PREFER_MULTIMODAL_SETTING_KEY)
-      // 未配置时默认开启（true）
-      preferMultimodal.value = res?.code === 0 ? res.data !== false : true
+      // storeGetSetting 已解包 IPC 信封：成功返回裸值（false/true/null），失败返回 null。
+      // 未配置或读取失败时按产品语义默认开启（true）。
+      preferMultimodal.value = res !== false
     } catch (_) {
       preferMultimodal.value = true
     }
@@ -213,10 +214,18 @@ export function useModelProviderCrud () {
 
   async function saveMultimodalPreference (value) {
     const next = value !== false
+    const previous = preferMultimodal.value
     preferMultimodal.value = next
     try {
-      await storeSetSetting(PREFER_MULTIMODAL_SETTING_KEY, next)
+      const res = await storeSetSetting(PREFER_MULTIMODAL_SETTING_KEY, next)
+      // 保存失败（未登录 AUTH_ERROR、IPC 不可用 undefined 等）时回滚 UI，
+      // 避免乐观更新造成「已保存」假象；再次进入页面又恢复默认值。
+      if (res?.code !== 0) {
+        preferMultimodal.value = previous
+        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.preferMultimodalSaveFailed') }).message)
+      }
     } catch (_) {
+      preferMultimodal.value = previous
       ElMessage.error(t('modelProviders.preferMultimodalSaveFailed'))
     }
   }
