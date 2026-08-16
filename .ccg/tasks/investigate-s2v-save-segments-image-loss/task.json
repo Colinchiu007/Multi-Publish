@@ -5,8 +5,8 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "implementation",
-  "nextAction": "worktree 实施 R1/R2/R3 修复 + 回归测试",
+  "currentPhase": "review",
+  "nextAction": "PR 推送/CI/合并后三同步归档",
   "createdAt": "2026-08-16T00:00:00Z",
   "branch": "codex/fix-s2v-save-segments-image-loss",
   "openspecChange": "fix-s2v-save-segments-image-loss"

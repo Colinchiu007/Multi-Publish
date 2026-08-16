@@ -1116,6 +1116,8 @@ export default {
           this.segments = result.data.segments.map(segment => ({ ...segment }))
         }
         this.project = result.data || this.project
+        // 主进程返回的分段不含渲染端派生 URL（imageUrl/alternateImageUrls/videoUrl），必须重新解析，否则保存后图片/素材/视频槽消失（2026-08-16 回归）
+        await this.refreshSegmentImageUrls()
         this.segmentsDirty = false
         this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SEGMENTS_SAVED })
         return true
@@ -1175,6 +1177,8 @@ export default {
         this.segments = Array.isArray(result.data.segments)
           ? result.data.segments.map(segment => ({ ...segment }))
           : this.segments
+        // 旁白替换同样以 IPC 返回整体替换分段，需重建媒体 URL，避免图片/素材槽消失（同类回归）
+        await this.refreshSegmentImageUrls()
         this.segmentsDirty = true
         this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SEGMENT_AUDIO_REPLACED })
       } catch (_error) {

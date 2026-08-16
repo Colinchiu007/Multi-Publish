@@ -26,6 +26,12 @@ await this.refreshSegmentImageUrls()
 - 用例 2（空返回）：mock 返回 `segments: []`；预置带 `imageUrl` 的 segments；断言保存后 `segments[0].imageUrl` 仍非空（保留路径）。
 - 用例 3（旁白替换）：mock `story2videoReplaceSegmentAudio` 返回含 imagePath 分段；断言替换后 `createShareUrl` 被调用、`segments[0].imageUrl` 非空。
 
+## 已知取舍（审查记录，2026-08-16）
+
+- 无条件刷新会增加 N 次 `create-share-url` IPC/令牌签发；`replace-then-refresh` 与 retry/regenerate 等既有路径同语义，旧令牌由 TTL 自然过期（非空返回分支替换发生在刷新前，无法携带 previousUrl 回收；空返回分支会以旧 URL 作为 `previousUrl` 复用/回收）。无感令牌建立在已有模式上，不在本次扩大重构。
+- 单段 URL 解析失败仅置空该段（fail-closed 粒度不变），保存仍提示成功——与既有 `refreshSegmentImageUrls` 行为一致，软提示（未解析段计数）列为后续优化。
+- `applyProjectSegments(data)` 帮助函数收敛 10+ 替换点属结构性重构，列为后续 follow-up。
+
 ## 不做的事
 
 - 不改主进程存储/清文件逻辑（图片文件未丢，仅渲染端 URL 字段缺失）。
