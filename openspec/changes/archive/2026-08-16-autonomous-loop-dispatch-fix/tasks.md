@@ -13,8 +13,8 @@
 
 ## 3. 验证与交付
 
-- [ ] 3.1 `node --test` 契约测试（autonomous-loop-workflow + agent-review-gate）全绿
-- [ ] 3.2 `openspec validate` + `scripts/openspec-sync-check.js` 通过
-- [ ] 3.3 双模型审查（antigravity/claude 降级则记录）
-- [ ] 3.4 推送 codex/autonomous-loop-dispatch-fix → PR → CI 全绿 → 合并回 main
-- [ ] 3.5 三同步归档（openspec archive + CCG task 归档 + .quality-gates.md 记录）
+- [x] 3.1 `node --test` 契约测试（autonomous-loop-workflow + agent-review-gate）全绿
+- [x] 3.2 `openspec validate` + `scripts/openspec-sync-check.js` 通过
+- [x] 3.3 双模型审查（antigravity/claude 降级则记录）
+- [x] 3.4 推送 codex/autonomous-loop-dispatch-fix → PR → CI 全绿 → 合并回 main
+- [x] 3.5 三同步归档（openspec archive + CCG task 归档 + .quality-gates.md 记录）
