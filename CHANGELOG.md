@@ -1,3 +1,10 @@
+## [2026-08-16] fix(story2video): 历史记录内容政策失败恢复门控统一 + 不可恢复原因提示（含场景号）
+
+- 现象：视频创作历史记录中最新失败任务（内容政策拦截，`Image #49: …requires user input after content-policy review`）没有「从断点继续」按钮，而旧的普通失败任务有。主进程恢复守卫判定该失败不可原样恢复（`PIPELINE_USER_INPUT_REQUIRED`），前端历史卡片恢复判定未覆盖相同关键字，造成行为差异。
+- 修复：`history-utils.js` 新增共享门控正则 `RESUME_BLOCKING_ERROR_PATTERN`（`内容政策`/`needs_user_input`/`content[_\-\s]?policy`/`可能需要修改文案`，与主进程 `resumeOrchestration` 对齐），CreateView 实时失败对话框、CreateViewHistory、usePipelineHistory 三处判定统一引用；实时对话框以本地化消息 + rawError 合并判定。历史失败卡片与详情弹窗在错误摘要后新增「恢复提示」（`create.history.policyResumeBlocked*` zh/en 成对），`contentPolicyScenes` 从错误文本提取 `Image #N` 政策失败场景号（升序去重 + 连续区间压缩，如 `#49、#73-77`），无场景号时显示兜底文案。
+- 插值契约：含场景号提示采用 vue-i18n 函数消息（`(ctx) => … ctx.named('scenes') …`），与既有插值约定一致（`toMessageFunctions` 下纯字符串不做 `{named}` 插值）；组件测试 mock 复刻该契约，断言真实渲染文案而非拼接假象。
+- 回归：history-utils 10 / CreateViewHistory 14 / CreateView 199 全绿；新增中文「内容政策」变体场景提取、插值契约、可恢复失败不显示提示、兜底提示、实时对话框隐藏按钮等用例。
+
 ## [2026-08-16] fix(story2video): 结果页「重试图片/重试视频」失败不再被通用文案掩盖真实原因
 
 - 现象：结果页点击【重试图片】失败时只显示「当前操作未能完成，请稍后再试。」，无法得知余额不足/限流/API Key 等真实原因，故障也无法诊断。

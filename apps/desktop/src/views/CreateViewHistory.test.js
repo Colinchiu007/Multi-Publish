@@ -1,13 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import CreateViewHistory from './CreateViewHistory.vue'
+import zh from '@/locales/zh'
+
+// 复刻 i18n/index.js toMessageFunctions + vue-i18n 函数消息调用语义：
+// 无参返回 key（沿用既有断言约定）；带参且目标为函数消息时用 params 构造 named()
+// 上下文执行，使真实插值契约进入断言（字符串消息不再隐式插值，与生产行为一致）。
+function resolveLocaleMessage (key) {
+  return key.split('.').reduce((node, part) => (node == null ? undefined : node[part]), zh)
+}
+
+const interpolatingT = (key, params) => {
+  if (!params) return key
+  const message = resolveLocaleMessage(key)
+  if (typeof message === 'function') return message({ named: name => (params[name] ?? '') })
+  return key + ' ' + (params.scenes || '')
+}
 
 const mountHistory = (history, props = {}) => mount(CreateViewHistory, {
   props: { history, ...props },
   global: {
-    mocks: {
-      $t: key => key,
-    },
+    mocks: { $t: interpolatingT },
   },
 })
 
@@ -196,5 +209,64 @@ describe('CreateViewHistory', () => {
     await footerBtn.trigger('click')
     expect(wrapper.emitted('open-result')).toHaveLength(1)
     expect(wrapper.emitted('open-result')[0][0].projectId).toBe('proj-1')
+  })
+  it('政策失败卡片显示不可恢复提示（含场景号），可恢复失败不显示', () => {
+    const wrapper = mountHistory([
+      {
+        id: 'policy-1',
+        status: 'failed',
+        error: 'Asset scene generation failed. Image #49: Image generation requires user input after content-policy review; Image #73: Image generation requires user input after content-policy review; Image #74: Image generation requires user input after content-policy review',
+      },
+      { id: 'retry-1', status: 'failed', error: 'provider timeout, please retry' },
+    ])
+    const policyCard = wrapper.find('[data-history-id="policy-1"]')
+    const hint = policyCard.find('[data-testid="history-policy-resume-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('create.history.policyResumeBlockedLabel')
+    expect(hint.text()).toContain('涉及场景：#49、#73-74')
+    expect(hint.text()).toContain('#49、#73-74')
+    expect(policyCard.find('.s2v-btn-resume').exists()).toBe(false)
+    expect(wrapper.find('[data-history-id="retry-1"]').find('[data-testid="history-policy-resume-hint"]').exists()).toBe(false)
+    expect(wrapper.find('[data-history-id="retry-1"]').find('.s2v-btn-resume').exists()).toBe(true)
+  })
+
+  it('政策失败无法解析场景号时显示兜底提示', () => {
+    const wrapper = mountHistory([
+      { id: 'policy-2', status: 'failed', error: 'content-policy review failed' },
+    ])
+    const hint = wrapper.find('[data-history-id="policy-2"]').find('[data-testid="history-policy-resume-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('create.history.policyResumeBlockedGeneric')
+    expect(hint.text()).not.toContain('#')
+  })
+
+  it('政策失败详情弹窗展示含场景号提示', async () => {
+    const wrapper = mount(CreateViewHistory, {
+      props: {
+        history: [{
+          id: 'policy-3',
+          status: 'failed',
+          error: 'Image #49: Image generation requires user input after content-policy review; Image #73: Image generation requires user input after content-policy review',
+        }],
+      },
+      global: {
+        mocks: {
+          $t: interpolatingT,
+        },
+        stubs: {
+          UiModal: {
+            props: ['visible'],
+            template: '<div v-if="visible" class="ui-modal-stub"><slot /></div>',
+          },
+        },
+      },
+    })
+    await wrapper.find('.history-item-body').trigger('click')
+    const modal = wrapper.find('.ui-modal-stub')
+    expect(modal.exists()).toBe(true)
+    const hint = modal.find('[data-testid="history-detail-policy-resume-hint"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('create.history.policyResumeBlockedLabel')
+    expect(hint.text()).toContain('#49、#73')
   })
 })

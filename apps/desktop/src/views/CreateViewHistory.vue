@@ -109,6 +109,10 @@
               <span class="history-field-label">{{ tr('errorSummary') }}</span>
               <span>{{ item.error ? truncate(item.error, 160) : tr('genericFailure') }}</span>
             </div>
+            <div v-if="policyResumeHintFor(item)" class="history-state-detail-row history-policy-resume-hint" data-testid="history-policy-resume-hint">
+              <span class="history-field-label">{{ tr('policyResumeBlockedLabel') }}</span>
+              <span>{{ policyResumeHintFor(item) }}</span>
+            </div>
           </div>
 
           <dl class="history-meta-grid">
@@ -199,6 +203,10 @@
           <div v-if="selectedHistoryItem.status === 'paused' && pauseEnvironment(selectedHistoryItem)"><dt>{{ tr('pauseEnvironment') }}</dt><dd>{{ localizedEnvironment(pauseEnvironment(selectedHistoryItem)) }}</dd></div>
           <div v-if="selectedHistoryItem.status === 'failed'"><dt>{{ tr('failedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || failedStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
           <div v-if="selectedHistoryItem.status === 'failed'" data-testid="history-detail-error"><dt>{{ tr('errorSummary') }}</dt><dd>{{ selectedHistoryItem.error || tr('genericFailure') }}</dd></div>
+          <div v-if="policyResumeHintFor(selectedHistoryItem)" data-testid="history-detail-policy-resume-hint">
+            <dt>{{ tr('policyResumeBlockedLabel') }}</dt>
+            <dd class="history-detail-policy-hint">{{ policyResumeHintFor(selectedHistoryItem) }}</dd>
+          </div>
         </dl>
         <div v-if="Array.isArray(selectedHistoryItem.stages) && selectedHistoryItem.stages.length" class="history-detail-stages">
           <span class="history-field-label">{{ tr('stages') }}</span>
@@ -245,7 +253,7 @@ import '@/styles/history-panel.css'
 import UiModal from '@/components/UiModal.vue'
 import { getAppLocale } from '@/i18n'
 import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
-import { filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
+import { RESUME_BLOCKING_ERROR_PATTERN, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
 
 const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'failed', 'completed', 'cancelled'])
 
@@ -271,6 +279,16 @@ export default {
   computed: {
     filteredHistory () { return filterHistoryByStatus(this.history, this.activeFilter) },
     statusCounts () { return historyStatusCounts(this.history) },
+    // 每张失败卡片只计算一次不可恢复提示文本，避免模板 v-if + 文本处重复跑正则。
+    policyResumeHints () {
+      const hints = new Map()
+      this.filteredHistory.forEach((item, index) => {
+        if (!item || item.status !== 'failed') return
+        const text = this.policyResumeBlockedText(item)
+        if (text) hints.set(this.historyIdentity(item, index), text)
+      })
+      return hints
+    },
   },
   watch: {
     historyFilter (value) { this.activeFilter = HISTORY_STATUSES.includes(value) ? value : 'all' },
@@ -354,7 +372,24 @@ export default {
     },
     historyItemResumable (item) {
       if (!item || !['failed', 'paused'].includes(item.status) || !(item.id || item.runId)) return false
-      return !/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))
+      return !RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))
+    },
+    policyResumeHintFor (item) {
+      if (!item) return ''
+      const cached = this.policyResumeHints.get(this.historyIdentity(item, -1))
+      return cached !== undefined ? cached : this.policyResumeBlockedText(item)
+    },
+    policyResumeBlockedText (item) {
+      if (!item || item.status !== 'failed' || !(item.id || item.runId)) return ''
+      if (!RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))) return ''
+      const scenes = contentPolicyScenes(item.error, this.currentLocale())
+      if (!scenes) return this.tr('policyResumeBlockedGeneric')
+      try {
+        const message = this.$t?.('create.history.policyResumeBlockedHint', { scenes })
+        return typeof message === 'string' && message !== 'create.history.policyResumeBlockedHint' ? message : this.tr('policyResumeBlockedGeneric')
+      } catch (_) {
+        return this.tr('policyResumeBlockedGeneric')
+      }
     },
     activeStage (item) {
       const stage = (Array.isArray(item?.stages) ? item.stages : []).find(value => ['running', 'paused', 'waiting_approval'].includes(value?.status))

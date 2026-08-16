@@ -95,6 +95,8 @@
 .history-state-detail-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .history-field-label { color: var(--text-muted, #666); font-size: 11px; font-weight: 600; flex-shrink: 0; }
 .history-state-detail-row > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.history-policy-resume-hint { color: var(--status-paused-text, #92400e); }
+.history-detail-list .history-detail-policy-hint { color: var(--status-paused-text, #92400e); }
 .history-meta-grid { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0; }
 .history-meta-item { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
 .history-meta-item dt { color: var(--text-light, #999); font-size: 11px; }
