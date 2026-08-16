@@ -1,0 +1,13 @@
+{
+  "id": "autonomous-loop-dispatch-fix",
+  "title": "PR 事件未自动派发 + autonomous-loop 确定性失败修复（label 缺失 + 无 LLM key 降级语义）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci",
+  "currentPhase": "planning",
+  "nextAction": "实现 workflow Report final status 降级分类 + 契约测试",
+  "createdAt": "2026-08-16T12:30:00+08:00",
+  "branch": "codex/autonomous-loop-dispatch-fix",
+  "openspecChange": "autonomous-loop-dispatch-fix"
+}
