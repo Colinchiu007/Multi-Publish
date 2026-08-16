@@ -1,0 +1,13 @@
+{
+  "id": "fix-minimax-quota-stale-key",
+  "title": "更换 MiniMax API Key 后视频流水线仍报额度用完",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "用户按 requirements.md 更新 prompt-engine/.env 后重试",
+  "createdAt": "2026-08-16T00:00:00Z",
+  "branch": "main",
+  "remoteStatus": "no-code-change"
+}
