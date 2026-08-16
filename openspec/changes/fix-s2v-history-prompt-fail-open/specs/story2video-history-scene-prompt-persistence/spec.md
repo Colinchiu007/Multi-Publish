@@ -1,10 +1,10 @@
 # story2video-history-scene-prompt-persistence Delta
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 重新生成优化词失败必须 fail-closed
 
-历史记录场景「重新生成图片/视频优化词」SHALL 在 prompt-engine 返回错误（含「error/message 字段 + 回显原文」的失败兜底形态）时判定为失败：不得把回显原文写入分段，分段 SHALL 保持原有 prompt/videoPrompt 并将 `status` 置为 `failed`，真实失败原因随响应透出。
+历史记录场景「重新生成图片/视频优化词」SHALL 在 prompt-engine 返回错误（含「error（或与流水线 kernel 一致的 detail）字段 + 回显原文」的失败兜底形态，含跨层：error 在顶层、回显在内层 results）时判定为失败：不得把回显原文写入分段，分段 SHALL 保持原有 prompt/videoPrompt 并将 `status` 置为 `failed`，真实失败原因随响应透出。
 
 #### Scenario: 引擎 402 回显原文
 - **WHEN** 用户点击「重新生成图片优化词」且 prompt-engine 返回 `{ optimized_prompt: <原文>, error: "402 insufficient_balance" }`
