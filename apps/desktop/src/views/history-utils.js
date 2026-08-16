@@ -136,16 +136,15 @@ function compressSceneRanges (sceneNumbers) {
 }
 
 /**
- * 从失败错误文本中提取「内容政策拦截」的具体场景号并压缩为可读字符串。
+ * 从失败错误文本中提取「内容政策拦截」的具体场景号。
  * 规则：仅统计 Image #N 段内命中门控关键字的失败项（瞬时失败如 aborted 不计入）；
- * 场景号升序去重；连续区间压缩为 a-b。
+ * 升序、去重。
  * @param {string|undefined|null} error - 历史任务的原始错误文本
- * @param {string} [locale] - 'zh'（默认，顿号分隔）或 'en'（逗号分隔）
- * @returns {string} 例如 '#49、#73-77'；无命中返回 ''
+ * @returns {number[]} 例如 [49, 73, 74]；无命中返回 []
  */
-export function contentPolicyScenes (error, locale = 'zh') {
+export function collectContentPolicySceneNumbers (error) {
   const raw = String(error || '')
-  if (!raw) return ''
+  if (!raw) return []
   const sceneNumbers = new Set()
   POLICY_SCENE_PATTERN.lastIndex = 0
   let match
@@ -153,7 +152,28 @@ export function contentPolicyScenes (error, locale = 'zh') {
     const scene = Number(match[1])
     if (Number.isInteger(scene) && scene > 0) sceneNumbers.add(scene)
   }
-  if (sceneNumbers.size === 0) return ''
+  return [...sceneNumbers].sort((a, b) => a - b)
+}
+
+/**
+ * 将政策场景号序列化为结果页 focusScenes 路由 query（逗号分隔、区间展开逐号）。
+ * @param {string|undefined|null} error - 历史任务的原始错误文本
+ * @returns {string} 例如 '49,73,74'；无命中返回 ''
+ */
+export function policySceneQuery (error) {
+  return collectContentPolicySceneNumbers(error).join(',')
+}
+
+/**
+ * 将政策场景号压缩为可读字符串。
+ * 连续区间压缩为 a-b。
+ * @param {string|undefined|null} error - 历史任务的原始错误文本
+ * @param {string} [locale] - 'zh'（默认，顿号分隔）或 'en'（逗号分隔）
+ * @returns {string} 例如 '#49、#73-77'；无命中返回 ''
+ */
+export function contentPolicyScenes (error, locale = 'zh') {
+  const sceneNumbers = collectContentPolicySceneNumbers(error)
+  if (sceneNumbers.length === 0) return ''
   const separator = String(locale || '').trim().toLowerCase().startsWith('en') ? ', ' : '、'
   return '#' + compressSceneRanges(sceneNumbers).join(separator + '#')
 }

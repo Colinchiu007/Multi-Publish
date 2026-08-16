@@ -1,3 +1,11 @@
+## [2026-08-16] feat(story2video): 内容政策失败历史任务「修改场景文案并重新生成」入口 + 场景定位
+
+- 背景：PR #876 后内容政策拦截的失败任务已明确不可断点续跑（需修改场景文案后重新生成），但历史卡片/详情只有提示与删除按钮，没有操作入口；单场景内容修改（结果页分段编辑 + 保存 + 重新合成）已具备完整闭环，缺一键进入该路径的按钮。
+- 实现：历史卡片操作区与详情弹窗 footer 为「failed + 有 projectId + 命中内容政策门控」的任务新增按钮「修改场景文案并重新生成」（`create.history.policyEditAndRegenerate` zh/en 成对），复用 `open-result` → `/create/result?project=<id>` 链路；跳转时携带 `focusScenes=<场景号,逗号分隔,升序展开>`（`history-utils.policySceneQuery`，与 `contentPolicyScenes` 同源提取 `Image #N` 政策失败场景号，N=分段下标+1）；结果页对目标分段渲染「内容政策需修改」徽标（`segment-policy-flag` testid + 高亮样式，`focusScenes` 缺失/越界安全降级）。`create.history` 提示与按钮共用 `RESUME_BLOCKING_ERROR_PATTERN` 单一来源。
+- 回归：history-utils 12 / CreateViewHistory 17 / CreateView 200（新增 openHistoryResult 携带 focusScenes 用例）/ ResultView 54（新增 focusScenes 命中与缺省用例）通过；eslint、CJK 基线、locale-sync 门禁通过。
+
+---
+
 ## [2026-08-16] fix(story2video): 历史记录内容政策失败恢复门控统一 + 不可恢复原因提示（含场景号）
 
 - 现象：视频创作历史记录中最新失败任务（内容政策拦截，`Image #49: …requires user input after content-policy review`）没有「从断点继续」按钮，而旧的普通失败任务有。主进程恢复守卫判定该失败不可原样恢复（`PIPELINE_USER_INPUT_REQUIRED`），前端历史卡片恢复判定未覆盖相同关键字，造成行为差异。

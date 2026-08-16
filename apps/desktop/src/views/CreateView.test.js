@@ -4414,4 +4414,24 @@ describe("批量创作（story2video-batch-create）", () => {
     expect(mocks.story2videoBatchCancel).toHaveBeenCalledWith("batch_y", ["batch_y_i1"]);
     w.unmount();
   });
+
+  it("openHistoryResult 政策失败携带 focusScenes，completed/可恢复失败不带", async () => {
+    const pushSpy = vi.spyOn(router, "push");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.openHistoryResult({
+      projectId: "proj-policy", status: "failed",
+      error: "Image #49: content-policy review; Image #73: content-policy review; Image #74: content-policy review",
+    });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-policy", focusScenes: "49,73,74" } });
+    pushSpy.mockClear();
+    w.vm.openHistoryResult({ projectId: "proj-done", status: "completed", error: "" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-done" } });
+    pushSpy.mockClear();
+    w.vm.openHistoryResult({ projectId: "proj-retry", status: "failed", error: "provider timeout, please retry" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-retry" } });
+    w.unmount();
+  });
 });

@@ -161,7 +161,7 @@
       </div>
 
       <div class="segment-list">
-        <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item">
+        <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item" :class="{ 'segment-policy-flagged': isPolicyFlagScene(index) }">
           <div v-if="segment.imageUrl" class="segment-thumb">
             <img :src="segment.imageUrl" :alt="'分段 ' + (index + 1) + ' 图片'" />
           </div>
@@ -205,6 +205,7 @@
           <div class="segment-header">
             <strong>分段 {{ index + 1 }}</strong>
             <span class="segment-status" :class="segment.status">{{ segment.status || 'completed' }}</span>
+            <span v-if="isPolicyFlagScene(index)" class="segment-policy-flag" data-testid="segment-policy-flag">{{ $t('story2video.sceneMaterial.scenePolicyFlag') }}</span>
             <div class="segment-order">
               <button type="button" :disabled="index === 0" title="上移" @click="moveSegment(index, -1)">上移</button>
               <button type="button" :disabled="index === segments.length - 1" title="下移" @click="moveSegment(index, 1)">下移</button>
@@ -399,6 +400,17 @@ export default {
       const query = this.$route?.query || {}
       if (query.bgmSkipped !== '1') return ''
       return formatBgmSkippedNotification(query.bgmReason).message
+    },
+    // 内容政策失败任务从历史跳转时携带 focusScenes（1-based 场景号，逗号分隔）：
+    // 场景号 = 分段下标 + 1，用于定位需要修改文案的分段；非法/缺省一律为空集合（fail-safe）
+    policyFlagSceneNumbers() {
+      const raw = String(this.$route?.query?.focusScenes || '')
+      const numbers = new Set()
+      for (const part of raw.split(',')) {
+        const value = Number(part)
+        if (Number.isInteger(value) && value > 0) numbers.add(value)
+      }
+      return numbers
     },
     // 任一分段正在生成/重试时禁用全局保存与重新合成，避免与主进程写队列交叉（审查 W2）
     anySegmentBusy() {
@@ -1061,6 +1073,9 @@ export default {
         this.saving = false
       }
     },
+    isPolicyFlagScene(index) {
+      return this.policyFlagSceneNumbers.size > 0 && this.policyFlagSceneNumbers.has(index + 1)
+    },
     isSegmentBusy(segmentId) {
       return Boolean(this.segmentBusy[segmentId])
     },
@@ -1215,6 +1230,8 @@ export default {
 .scene-material-preview-empty { color: var(--text-muted); }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: 11px; }
+.segment-policy-flag { padding: 3px 6px; border-radius: 4px; background: var(--danger-bg, #fdecea); color: var(--danger, #d93025); font-size: 11px; font-weight: 600; }
+.segment-policy-flagged { border-color: var(--danger, #d93025); box-shadow: 0 0 0 1px var(--danger, #d93025) inset; }
 .segment-status.failed { background: var(--status-failed-bg); color: var(--status-failed-text); }
 .segment-status.processing { background: var(--warning-bg); color: var(--warning); }
 .segment-order { display: flex; gap: 4px; margin-left: auto; }

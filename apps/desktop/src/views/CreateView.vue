@@ -1299,7 +1299,7 @@ import {
   getPipelineStatus,
 } from '@/i18n/pipeline-labels'
 import { getAppLocale } from '@/i18n'
-import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, sortHistoryByEffectiveTime } from './history-utils'
+import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
@@ -3807,7 +3807,11 @@ export default {
     },
     openHistoryResult(item) {
       if (!item?.projectId || item.status === 'cancelled') return
-      this.$router.push({ path: '/create/result', query: { project: item.projectId } })
+      const query = { project: item.projectId }
+      // 内容政策拦截任务不能断点续跑：携带场景号让结果页定位涉及场景，用户改文案后重新合成
+      const focusScenes = policySceneQuery(item.error)
+      if (focusScenes && !this.historyItemResumable(item)) query.focusScenes = focusScenes
+      this.$router.push({ path: '/create/result', query })
     },
     // Kept as a compatibility alias for callers outside the history component.
     // It is deliberately read-only for non-completed records.
