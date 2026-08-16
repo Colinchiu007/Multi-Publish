@@ -5,6 +5,15 @@
 - 修复：服务层在 `_copyRequired` 前校验生成结果，失败上抛原始 provider message（缺失回退「图片生成失败」），失败路径保留旧媒体、清理本次产物并持久化 failed + error；渲染层 catch 透传错误文本进通知归一化（已知类别显示具体文案，未映射维持通用兜底）；服务层 catch 增加 warn 日志（含错误 message）。
 - 回归：服务层 +2 用例（retry 失败保留原因/旧媒体/清理/不触发 renderSegment；generateSceneImage 同）；ResultView +1 用例（quota 归一化 messageKey）；story2video-project-service 61 / ResultView 51 / notifications 26 passed；eslint 干净；CJK 基线仅 1 行漂移吸收（无新增硬编码）；openspec change 通过。
 
+---
+## [2026-08-16] feat(story2video): 历史记录重生成增强——写通道同项目串行队列全覆盖 + AI 视频瞬时重试（W4/W5 审查收尾）
+
+- 背景：PR #870（历史 AI 视频重新生成）合并后，双模型审查剩余两项增强落地：① replace-segment-audio/retry-segment/select-scene-material/generate-scene-image/generate-scene-video/delete-project 六个写通道绕过 `_serializeProject` 队列，并发写同项目存在交错覆盖竞态（delete 未入队还存在删除后复活竞态，审查 M3）；② 历史「生成 AI 视频」无瞬时重试，provider 瞬时限流/超时即失败，与流水线 generate_assets 行为不一致。
+- W4 队列全覆盖：上述 6 个通道统一改为 `await _serializeProject(projectId, () => serviceMethod(...))`（`select-scene-material` 同步返回改为异步透传，返回语义不变）；连同既有 6 个入队通道，历史记录全部写路径（含删除）同项目串行、跨项目并行；参数校验仍在入队前完成，异常归一化 `REQUEST_ERROR`。
+- W5 瞬时重试：`story2video-stages.js` 导出 `withAssetTransientRetry`（流水线单一来源，新增可选 `excludeMessages` 排除集）；service 构造器新增可注入 `assetRetry`（缺省为同源函数包装——历史交互路径排除「视频生成超时或失败/任务失败/任务状态为」，任务已提交后的轮询超时/终态不整体重试，避免 3 次计费 + 30 分钟队列持锁，审查 M1；普通瞬时错误 3 次 / 限流 4 次、800ms/2500ms 乘数退避）；`generateSceneAiVideo` 对 stage 调用包上重试，重试耗尽 fail closed（守卫读 `outcome.error || outcome.message`，真实瞬时错误文案不回退为兜底提示，审查 M2），旧视频保留/失败回写语义不变。
+- 回归：IPC 队列计数断言 6→12 + 4 通道调用断言（含 delete-project）；service +4 用例（注入 assetRetry 抛错重试成功 / 默认 withAssetTransientRetry 结果对象重试成功 / 真实重试耗尽 fail-closed 保留 `request timed out` 文案（M2/m5）/ 非瞬时结果对象只调用 1 次（m5））；替换旁白用例 mock 补 `_serializeProject`；定向 85 passed，完整桌面 vitest 448 files/7966 passed，QM-1 打包 + 8s 冒烟通过（窗口句柄 + 无 QM-1 失败模式），CI 全绿。
+- 文档：PRD-video-creation 3.1.29.2 小节（通道清单含 delete、轮询超时不重试、M2 文案保留、测试要求 12 计数）+ CHANGELOG + openspec change 归档。
+
 ## [2026-08-16] feat(story2video): 历史记录场景 AI 视频重新生成（W4 闭环：videoPrompt 消费路径）
 
 - 背景：3.1.29 后历史场景的「视频优化词」可编辑/重新生成，但结果页【生成视频】走图片动效渲染、不消费 videoPrompt，AI 视频生成仅在流水线 generate_assets 阶段存在，「修改视频优化词后重新生成视频」无落地路径。
@@ -29,7 +38,7 @@
   `文帝进京` 3 块（10/10/9）、`挥刀自宫` 4 块与用户期望逐字一致；`713.3` 不劈；
   parity 语料 +10 句（三端逐字一致）；8002 同源临时实例 HTTP 验证通过。
 
-
+
 ## [2026-08-15] fix(ops-center): 提示词评测评估解析兼容推理模型 `<think>` 思维链输出
 
 - 现象：404 修复后真实生成成功，但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。

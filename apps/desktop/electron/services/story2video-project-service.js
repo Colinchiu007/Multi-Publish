@@ -22,6 +22,7 @@ const { splitSubtitleBlocks } = require('./story2video-segmentation')
 const {
   generateSceneVideo: generateAiSceneVideo,
   estimateSceneSeconds,
+  withAssetTransientRetry,
 } = require('./story2video-stages')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 
@@ -228,6 +229,11 @@ class Story2VideoProjectService {
     this.modelProviderManager = options.modelProviderManager || null
     this.generateSceneVideoStage = options.generateSceneVideoStage || generateAiSceneVideo
     this.estimateSceneSecondsStage = options.estimateSceneSecondsStage || estimateSceneSeconds
+    // 资源生成瞬时错误重试包装（与流水线 withAssetTransientRetry 同源，2026-08-16 审查 W5）
+    // 历史交互路径排除轮询超时/任务终态：避免整轮 提交→轮询→下载 被整体重试（最坏 3 次计费 + 30 分钟队列持锁，审查 M1）
+    this.assetRetry = options.assetRetry || ((fn) => withAssetTransientRetry(fn, {
+      excludeMessages: ['视频生成超时或失败', '视频生成任务失败', '视频生成任务状态为'],
+    }))
     this.log = options.log || require('./logger')
     this.projectsDir = path.resolve(options.projectsDir || path.join(getUserDataDir(), 'story2video-projects'))
     this.maxProjects = Number.isInteger(options.maxProjects) && options.maxProjects > 0
@@ -1098,7 +1104,7 @@ class Story2VideoProjectService {
       const size = this._videoSize(project.options || {})
       const fps = Number(project.options && project.options.fps) > 0 ? Number(project.options.fps) : 30
       const runDir = path.join(os.tmpdir(), 'story2video', 'videoscenes', 'history_' + projectId)
-      const outcome = await this.generateSceneVideoStage({
+      const outcome = await this.assetRetry(() => this.generateSceneVideoStage({
         manager,
         providerId: generator.providerId,
         model: generator.model,
@@ -1109,9 +1115,9 @@ class Story2VideoProjectService {
         fps,
         runDir,
         pollIntervalMs: Number(project.options && project.options.video && project.options.video.pollIntervalMs) > 0 ? Number(project.options.video.pollIntervalMs) : 10000,
-      })
+      }))
       if (!outcome || !outcome.success || !outcome.path) {
-        throw new Error((outcome && outcome.error) || 'AI 视频生成失败')
+        throw new Error((outcome && (outcome.error || outcome.message)) || 'AI 视频生成失败')
       }
       const copiedVideo = this._copyRequired(outcome.path, destination, 'video')
       segment.videoPath = copiedVideo

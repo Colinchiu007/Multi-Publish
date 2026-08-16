@@ -1958,6 +1958,57 @@ SettingsDialog 关闭（App.vue @close）
 - notifications：中英文 AI 视频失败归一化（含「未配置可用的视频供应商」「视频生成调用失败」「ai video generation failed」）。
 - locale：zh/en 成对 + check-locale-sync 通过；preload bundle 重新构建并含新通道行。
 
+#### 3.1.29.2 历史记录重生成增强：串行队列全覆盖与瞬时重试（2026-08-16）
+
+**背景**：3.1.29/3.1.29.1 交付后，双模型审查发现两类遗留问题：① `replace-segment-audio`、`retry-segment`、`select-scene-material`、`generate-scene-image`、`generate-scene-video` 五个写通道绕过 `_serializeProject` 同项目串行队列直接调用服务，用户并发（快速连点/多窗口）时多个写操作可能交错读写同一项目文件，产生互相覆盖或部分写入竞态；② 历史记录「生成 AI 视频」直接调用 stage 一次，provider 瞬时限流/网络超时（如 `request timed out`）即失败，与流水线 generate_assets 阶段的有界重试行为不一致。本小节补齐 W4（队列全覆盖）+ W5（瞬时重试）。
+
+##### 1) 数据校验与并发控制（W4）
+
+- **写通道清单**（以下通道全部经 `requireProjectService()._serializeProject(projectId, () => serviceMethod(...))` 执行，同项目串行、跨项目并行）：
+
+| 通道 | 方法 | 参数 | 说明 |
+|------|------|------|------|
+| `story2video:replace-segment-audio` | `replaceSegmentAudio` | projectId / segmentId / filePath | 替换旁白（受控媒体临时副本） |
+| `story2video:retry-segment` | `retrySegment` | projectId / segmentId / mode(image\|video) | 分段重试 |
+| `story2video:select-scene-material` | `selectSceneMaterial` | projectId / segmentId / kind(image1\|image2\|video) | 场景素材选择（由同步返回改为异步透传，返回语义不变） |
+| `story2video:generate-scene-image` | `generateSceneImage` | projectId / segmentId | 生成新图 |
+| `story2video:generate-scene-video` | `generateSceneVideo` | projectId / segmentId | 生成视频（图片动效渲染） |
+| `story2video:delete-project` | `deleteProject` | projectId | 删除项目（入队防「删除后队列任务复活项目」竞态，审查 M3） |
+
+- **入队语义**：参数校验在入队前完成（非法参数直接 `VALIDATION_ERROR`，不进入队列）；服务方法异常经 catch 归一化为 `REQUEST_ERROR` + 透传 message（含 `_serializeProject` 未暴露时的兜底，不静默降级）。
+- **覆盖完整性**：连同既有入队通道（`update-segments` / `recompose-project` / `regenerate-scene-subtitle` / `regenerate-scene-audio` / `regenerate-scene-prompt` / `generate-scene-ai-video`）与 `delete-project`，历史记录**全部写路径（含删除）**同项目串行化；「保存分段」「重新合成」「删除」与「任意重新生成/素材替换/选择」不再并发交错（删除入队同时消除「删除后队列内任务 `_upsertProject` 复活项目」竞态）。
+
+##### 2) 瞬时错误重试（W5）
+
+- **注入点**：`Story2VideoProjectService` 构造器新增可注入 `assetRetry`（`options.assetRetry`），缺省为 `story2video-stages.withAssetTransientRetry`（与流水线 generate_assets 同一函数，单一来源，参数漂移风险为零）。
+- **重试范围**：仅对瞬时错误重试——抛错或结果对象命中 `isTransientErrorLike`（timeout / network / 429 限流类，如 `request timed out`）；内容政策检查点、模型配置、参数校验等非瞬时失败原样返回/上抛，不重试。
+- **轮询超时/任务终态不重试（审查 M1）**：历史交互路径的默认重试包装排除「视频生成超时或失败」「视频生成任务失败」「视频生成任务状态为」三类文案——它们代表**任务已提交后的**轮询超时或 provider 终止态，整体重试等于重新提交计费任务（最坏 3 次计费 + 30 分钟队列持锁）。提交阶段（`generateVideo` 调用、任务 ID 缺失）与下载阶段的瞬时错误仍正常重试。流水线路径（stages 默认参数）行为不变。
+- **有界退避**：普通瞬时错误最多 3 次（`maxAttempts=3`）、限流最多 4 次（`rateLimitMaxAttempts=4`），退避 `800ms×attempt`（限流 `2500ms×attempt`），不无限重试。
+- **fail-closed 语义不变**：重试仅包在 `generateSceneVideoStage` 调用外；重试耗尽返回 `{code:-1, message}` 或最后一次 outcome，由 `generateSceneAiVideo` 既有守卫（`!outcome.success || !outcome.path` → throw）失败上抛，**旧视频保留、分段回写 failed、本次产物清理**——与 3.1.29.1 完全一致。守卫读取 `outcome.error || outcome.message`（审查 M2：抛错路径耗尽时真实瞬时错误文案经 `{code:-1,message}` 保留，不再退化为兜底「AI 视频生成失败」）。
+
+##### 3) 流程与功能逻辑
+
+```
+用户操作 → IPC 通道（withSenderCheck + isSafeId + 参数校验）
+  └─ _serializeProject(projectId, task)：同项目写串行队列
+       ├─ replace-segment-audio / retry-segment / select-scene-material /
+       │  generate-scene-image / generate-scene-video / 既有 6 通道
+       └─ generateSceneAiVideo：assetRetry(() => generateSceneVideoStage({...}))
+            ├─ 瞬时错误 → 退避重试（最多 3 次 / 限流 4 次）
+            ├─ 成功 → 产物落盘替换（见 3.1.29.1）
+            └─ 重试耗尽/非瞬时失败 → throw → REQUEST_ERROR 透传
+```
+
+##### 4) 提示文字
+
+- 本变更**无新增用户可见文案**（重试为服务端透明行为；队列串行为既有机制补全，不影响 UI 文案）。失败提示沿用 3.1.29.1 的 `scene_ai_video_generate_failed` 归一化文案；瞬时失败重试后成功不产生任何失败提示。
+
+##### 5) 测试要求
+
+- IPC（`story2video.test.js`）：主 mock 增加 `selectSceneMaterial/generateSceneImage/generateSceneVideo`；`_serializeProject` 队列断言 6→**12**（含 3 个新通道 + `delete-project` 入队与参数透传）；「替换旁白」成功/失败两个用例的 mock 补齐 `_serializeProject`（验证队列包装不改变清理语义）。
+- 服务层（`story2video-project-service.test.js`）：「AI 视频生成经注入 assetRetry 包装，瞬时失败重试后成功」（stage 抛错 1 次 → 第 2 次成功，断言调用 2 次、重试原因、产物替换、status=completed）；「默认 withAssetTransientRetry 对瞬时错误重试后成功」（stage 返回 `{success:false, error:'request timed out'}` → 成功，断言调用 2 次、产物替换）；「重试耗尽 fail-closed」（真实 `withAssetTransientRetry(maxAttempts:1)` 耗尽，断言抛出与回写错误均为真实 `request timed out`、旧视频保留、无新产物）；「非瞬时结果对象不重试」（内容政策类失败 stage 只调用 1 次、原样上抛）。
+- 全量桌面 vitest、QM-1 打包（`electron-builder --win --dir` + 8s 冒烟）、CI 全绿。
+
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 
 **背景**：① 流水线失败/取消时，主进程仅置 run 顶层终态，当前 stage（如 compose）仍保持 `running`，历史详情页与持久化快照出现「视频合成 运行中」假象；② 历史列表把「暂停/失败」任务排在全部已完成项目之后（实测 30+ 条历史中最新失败任务排第 27 位），用户误以为任务丢失。
