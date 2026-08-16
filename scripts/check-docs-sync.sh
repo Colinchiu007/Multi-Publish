@@ -27,6 +27,14 @@ fi
 
 echo "🔍 文档同步检查：base=$BASE  head=$HEAD"
 echo ""
+# ---- bypass-doc-gate label check (early exit) ----
+if [ -n "${PR_NUMBER:-}" ]; then
+  if gh pr view "$PR_NUMBER" --json labels -q '.labels[].name' 2>/dev/null | grep -q '^bypass-doc-gate$'; then
+    echo "bypass-doc-gate label found, skipping doc sync check"
+    exit 0
+  fi
+fi
+
 
 # ---- 在 CI 环境中确保 base 分支可用 ----
 # GitHub Actions checkout 只获取当前 ref，需显式获取 base 分支
@@ -103,6 +111,16 @@ while IFS= read -r file; do
   CODE_CHANGED=true
   break
 done <<< "$CHANGED"
+
+
+# ---- bypass-doc-gate label check ----
+if [ -n "${PR_NUMBER:-}" ]; then
+  if gh pr view "$PR_NUMBER" --json labels -q '.labels[].name' 2>/dev/null | grep -q '^bypass-doc-gate$'; then
+    echo bypass-doc-gate label found, skipping doc sync check
+    exit 0
+  fi
+fi
+
 
 # ---- 判定 ----
 if [ "$CODE_CHANGED" = false ]; then

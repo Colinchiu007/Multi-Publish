@@ -377,6 +377,13 @@ export default {
     compose_segment_duration_exceeded: '单段旁白超过时长上限。请拆分该段文案后重新启动生成。',
     operation_failed: '当前操作未能完成，请稍后再试。',
     unknown_error: '当前操作未能完成，请稍后再试。',
+    needs_user_input: '生成内容触发了内容安全审核，需要您修改文案后重新生成。请检查场景文案是否有敏感内容，修改后点击「从断点继续」。',
+    optimize_service_unavailable: '提示词优化服务未启动。请确认本地 prompt-engine 服务已运行（端口 8013），然后从断点继续。',
+    provider_params_unsupported: '图片模型 "{provider}" 不支持参数 "{param}"。请更换图片模型后从断点继续，或联系模型提供方确认参数兼容性。',
+    asset_generation_failed: '素材生成未完成{sceneText}{detail}。请检查对应模型的 API 配额和网络连接，然后从断点继续。',
+    optimize_failed: '提示词优化失败。请检查 AI 模型配置和网络连接，然后从断点继续。',
+    compose_failed: '视频合成失败。请检查磁盘空间和设备负载，然后从断点继续；若仍失败，可稍后重试。',
+    api_error: '模型 API 返回错误（状态码 {statusCode}）。请检查模型配置和账号状态，然后从断点继续。',
     pipeline_not_implemented: '该流水线尚未实现执行引擎，暂不能生成视频。',
     pipeline_concurrency_limit: '当前已有 {count} 条流水线正在后台运行，最多同时运行 {max} 条，请等待其中一条完成后再启动。',
     optionsSaved: '选项已保存 ✓',
@@ -504,6 +511,15 @@ export default {
       voiceEmotionPlaceholder: '如 calm、cheerful（可选）',
       regenerateVoice: '重新生成旁白',
       generatingVoice: '语音生成中...',
+    },
+
+    // Pipeline error param labels (@ refs resolved in interpolateMessage)
+    labels: {
+      thisFile: '\u8be5\u6587\u4ef6',
+      imageGeneration: '\u56fe\u7247\u751f\u6210',
+      ttsGeneration: '\u65c1\u767d\u751f\u6210',
+      bothGeneration: '\u56fe\u7247\u548c\u65c1\u767d\u751f\u6210',
+      sceneLabel: '\uff08\u573a\u666f {scene}\uff09',
     },
   },
   pipelines: {
