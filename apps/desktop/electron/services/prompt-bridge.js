@@ -106,6 +106,22 @@ function firstConfiguredModel (models) {
 }
 
 /**
+ * 解析默认 LLM 的实际模型：多模态 provider 按能力路由（capability_models.llm 优先），
+ * 与 ModelProviderManager 调用解析（capability_models[type] 或 models[0]）保持一致；
+ * 否则回退 models 首个有效项。多模态 provider 的 models[0] 可能是 TTS/图片模型
+ * （如 minimax-multimodal 的 speech-2.8-turbo），不能当 LLM 注入引擎。
+ * @param {{ models?: unknown, capability_models?: object|null }} provider
+ * @returns {string}
+ */
+function llmModelFor (provider) {
+  const byCapability = provider && provider.capability_models && typeof provider.capability_models.llm === 'string'
+    ? provider.capability_models.llm.trim()
+    : ''
+  if (byCapability) return byCapability
+  return firstConfiguredModel(provider && provider.models)
+}
+
+/**
  * 独立视频引擎（video_prompt_engine，8020）目标（每次调用读取环境变量，便于测试/运行期切换）。
  * @returns {{ host: string, port: number } | null}
  */
@@ -194,7 +210,7 @@ class PromptBridge extends BasePythonBridge {
     if (!withKey || typeof withKey.api_key !== 'string' || !withKey.api_key.trim()) {
       throw new Error(`默认 LLM「${(def && def.name) || id}」未配置 API Key：请在「模型设置」中填写后重试`)
     }
-    const model = firstConfiguredModel(withKey.models)
+    const model = llmModelFor(withKey)
     if (!model) {
       throw new Error(`默认 LLM「${(def && def.name) || id}」未配置可用模型：请在「模型设置」中选择模型后重试`)
     }

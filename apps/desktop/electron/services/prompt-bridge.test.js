@@ -190,6 +190,40 @@ describe('PromptBridge BYOK llm 注入', () => {
     })
   })
 
+  it('resolveLlmBind：多模态默认 LLM 按 capability_models.llm 路由（不取 models[0] TTS 模型）', () => {
+    const bridge = new PromptBridge({})
+    bridge.modelProviderManager = {
+      getDefault: vi.fn(() => ({ id: 'minimax-multimodal', name: 'MiniMax 多模态', models: ['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3', 'MiniMax-M2.7'] })),
+      getProviderWithKey: vi.fn(() => ({
+        id: 'minimax-multimodal',
+        base_url: 'https://api.minimax.chat/v1',
+        models: ['speech-2.8-turbo', 'image-01', 'MiniMax-Hailuo-2.3', 'MiniMax-M2.7'],
+        capability_models: { llm: 'MiniMax-M2.7', tts: 'speech-2.8-turbo', image: 'image-01', video: 'MiniMax-Hailuo-2.3' },
+        api_key: 'sk-minimax',
+      })),
+    }
+    expect(bridge.resolveLlmBind()).toEqual({
+      provider: 'openai_compat',
+      model: 'MiniMax-M2.7',
+      base_url: 'https://api.minimax.chat/v1',
+      api_key: 'sk-minimax',
+    })
+  })
+
+  it('resolveLlmBind：多模态 provider 无 capability_models.llm 时回退 models 首个有效模型', () => {
+    const bridge = new PromptBridge({})
+    bridge.modelProviderManager = {
+      getDefault: vi.fn(() => ({ id: 'minimax-multimodal', name: 'MiniMax 多模态', models: ['MiniMax-M2.7'] })),
+      getProviderWithKey: vi.fn(() => ({
+        id: 'minimax-multimodal',
+        models: ['MiniMax-M2.7'],
+        capability_models: { tts: 'speech-2.8-turbo' },
+        api_key: 'sk-minimax',
+      })),
+    }
+    expect(bridge.resolveLlmBind().model).toBe('MiniMax-M2.7')
+  })
+
   it('resolveLlmBind：无 modelProviderManager 时 fail-closed 抛错', () => {
     const bridge = new PromptBridge({})
     expect(() => bridge.resolveLlmBind()).toThrow(/模型服务未就绪/)
