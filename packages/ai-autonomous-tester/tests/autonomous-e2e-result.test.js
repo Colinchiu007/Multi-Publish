@@ -123,6 +123,28 @@ describe('自主 E2E 结果合同', () => {
     );
   });
 
+  it('像素套件子进程必须继承循环启动的 TEST_URL / TEST_PORT', async (t) => {
+    const appsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autonomous-visual-env-'));
+    let capturedEnv = null;
+
+    t.after(() => fs.rmSync(appsDir, { recursive: true, force: true }));
+
+    await runVisualTests({
+      appsDir,
+      reportDir: path.join(appsDir, 'reports'),
+      execute(_command, options) {
+        if (capturedEnv === null) capturedEnv = options && options.env;
+        return '';
+      },
+    });
+
+    const expectedPort = process.env.TEST_PORT || '5173';
+    assert.ok(capturedEnv, '像素子进程必须收到继承 env');
+    assert.equal(capturedEnv.TEST_URL, `http://127.0.0.1:${expectedPort}`);
+    assert.equal(capturedEnv.TEST_PORT, expectedPort);
+    assert.equal(capturedEnv.LLM_PROVIDER, process.env.LLM_PROVIDER, '继承 env 不得丢失原有变量');
+  });
+
   it('视觉或功能阶段的未知和畸形结果必须 fail closed', () => {
     const coverage = { _verdict: { decision: 'PASS' } };
 

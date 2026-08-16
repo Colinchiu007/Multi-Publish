@@ -102,12 +102,15 @@ async function runVisualTests(options = {}) {
   const appsDir = options.appsDir || APPS_DIR;
   const reportDir = options.reportDir || REPORT_DIR;
   const execute = options.execute || execSync;
+  // 像素套件子进程默认探测 TEST_URL / TEST_PORT，必须显式继承本循环启动的 Vite 端口，
+  // 否则子进程会回退到 127.0.0.1:5174 导致全部路由连接失败（历史 17/17 秒挂根因）。
+  const pixelExecEnv = { ...process.env, TEST_URL, TEST_PORT: TARGET_PORT };
   log("VISUAL", "启动像素对比测试...");
   fs.mkdirSync(reportDir, { recursive: true });
   try {
     const commandFailures = [];
     try {
-      execute(`cd "${appsDir}" && npm run test:visual:pixel`, { stdio: "pipe", timeout: 120000 });
+      execute(`cd "${appsDir}" && npm run test:visual:pixel`, { stdio: "pipe", timeout: 120000, env: pixelExecEnv });
     } catch (error) {
       commandFailures.push(formatCommandFailure("像素对比测试", error));
     }

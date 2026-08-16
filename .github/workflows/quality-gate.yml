@@ -565,6 +565,8 @@ jobs:
         shell: pwsh
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           Write-Host "=== Gate 9: Autonomous Coverage Audit ==="
