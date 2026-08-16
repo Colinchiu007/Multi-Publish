@@ -180,7 +180,7 @@ describe('精修层长度层级（creative_level ≥ 7）', () => {
     expect(buildPromptEngineOptimizeRequest('x', { creative_level: 7, quality_baseline: false }).max_length).toBe(2000)
   })
 
-  it('未显式 + 常规创意度 → 默认 500（现状不变）', () => {
+  it('未显式 + 常规创意度 → 默认 500（现状不变；Story2Video 各入口显式携带 2000）', () => {
     expect(buildPromptEngineOptimizeRequest('x', { creative_level: 5, quality_baseline: false }).max_length).toBe(500)
   })
 

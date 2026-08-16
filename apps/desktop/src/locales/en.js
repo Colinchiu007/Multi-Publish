@@ -88,6 +88,8 @@ export default {
       configurationTitle: 'Story Telling Configuration',
       imageStyleHint: 'Controls the visual appearance of generated images.',
       promptStyleHint: 'Controls how image prompts are written and organized; it does not replace image style.',
+      maxPromptLength: 'Max prompt length',
+      maxPromptLengthHint: 'Controls the maximum character length of image prompts (default 2000, range 200–2000).',
       creationMode: {
         label: 'Creation Mode',
         auto: 'Fully automatic (recommended)',
