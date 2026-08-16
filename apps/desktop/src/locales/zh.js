@@ -374,6 +374,8 @@ export default {
     degraded_assets_warning: '此成片包含离线降级素材（{kinds}），请在发布前预览确认。',
     rate_limited: '生成受频率或额度限制{sceneText}，请稍等片刻后重试；若持续出现，请检查对应模型账号的套餐额度。',
     quota_exceeded: '模型 API 的额度或余额已用完{sceneText}，请检查对应账号的套餐额度，或更换模型后从断点继续。',
+    empty_result: '图片生成多次未返回结果{sceneText}，可能是服务波动或账号问题。请调整该场景提示词后重试，或检查模型账号配置。',
+    api_key_invalid: '该服务商的 API Key 无效或已过期，请在「模型设置」中更新 API Key 后重试。',
     compose_timeout: '视频合成超时。请先检查磁盘空间和设备负载，然后从断点继续；若仍失败，可稍后重试。',
     compose_duration_exceeded: '视频内容超过 {limitMinutes} 分钟上限。请缩短文案或减少场景后重新启动生成。',
     compose_segment_duration_exceeded: '单段旁白超过时长上限。请拆分该段文案后重新启动生成。',

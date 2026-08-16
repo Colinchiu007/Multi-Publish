@@ -126,6 +126,61 @@ describe('Story2Video 通知模型', () => {
       .toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
   })
 
+  it('内容安全审查（content-policy）错误归一化为具体提示，而非通用文案', () => {
+    const zh = resolveStory2VideoNotification({
+      error: 'Image generation requires user input after content-policy review',
+    })
+    expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT)
+    expect(zh.message).toContain('内容安全审核')
+
+    const en = resolveStory2VideoNotification({
+      error: 'Image generation requires user input after content-policy review',
+    }, { locale: 'en-US' })
+    expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT)
+    expect(en.message).toContain('content safety review')
+  })
+
+  it('MiniMax 真实额度文案（已达到 Token Plan 用量上限）归一化为额度类别（2026-08-16 审查补强）', () => {
+    const zh = resolveStory2VideoNotification({
+      error: 'Image provider "minimax-multimodal" failed: 已达到 Token Plan 用量上限',
+    })
+    expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
+    expect(zh.message).toContain('额度')
+
+    const en = resolveStory2VideoNotification({
+      error: 'Image generation failed: Token Plan usage limit reached',
+    }, { locale: 'en-US' })
+    expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
+  })
+
+  it('多次空结果消息（empty_result）映射为独立类别，而非通用失败或内容安全审查（2026-08-16 审查补强）', () => {
+    const zh = resolveStory2VideoNotification({
+      error: 'Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account',
+    })
+    expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT)
+    expect(zh.message).toContain('多次未返回结果')
+    expect(zh.message).not.toContain('内容安全审查')
+    expect(zh.key).not.toBe(STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT)
+
+    const en = resolveStory2VideoNotification({
+      error: '图片生成多次未返回结果，请调整该场景提示词后重试',
+    }, { locale: 'en-US' })
+    expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT)
+    expect(en.message).toContain('repeatedly returned no result')
+  })
+
+  it('API Key 无效/已过期错误归一化为具体提示（api_key_invalid），而非通用文案', () => {
+    const zh = resolveStory2VideoNotification({ error: 'Invalid api key' })
+    expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.API_KEY_INVALID)
+    expect(zh.message).toContain('API Key')
+
+    const en = resolveStory2VideoNotification({
+      error: 'Image provider "minimax-multimodal" failed: 鉴权失败',
+    }, { locale: 'en-US' })
+    expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.API_KEY_INVALID)
+    expect(en.message).toContain('API key')
+  })
+
   it('无 api-key 上下文的解密失败不误归类为「API Key 未配置」', () => {
     const resolved = resolveStory2VideoNotification({
       error: 'Project file Decrypt failed: Error while decrypting the ciphertext provided to safeStorage.decryptString.',

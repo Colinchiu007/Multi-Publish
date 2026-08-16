@@ -1071,6 +1071,33 @@ describe('story2video 内容策略人工处理', () => {
       expect.objectContaining({ index: 1, needsUserInput: true, checkpoint }),
     ])
   })
+
+  it('Python 图片兜底：空结果 5 次后的失败消息如实说明，不再硬编码 content-policy（2026-08-16 审查补强）', async () => {
+    const fn = makePipeline(null)
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill) => {
+        if (skill === 'generate_image') {
+          return {
+            code: -1,
+            error: { code: 'PROVIDER_ERROR', message: 'provider returned no image result (empty response)', emptyResult: true },
+          }
+        }
+        return { code: 0, data: { path: 'audio-0.mp3', duration: 2 } }
+      }),
+    }
+
+    const result = await fn({
+      stage: { options: { concurrency: 1 } },
+      params: {},
+      context: { split: [{ text: '一' }], optimize: ['prompt'] },
+      serviceBus,
+    })
+
+    expect(serviceBus.callPythonSkill.mock.calls.filter(([skill]) => skill === 'generate_image')).toHaveLength(5)
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('repeatedly returned no result')
+    expect(result.error).not.toContain('content-policy')
+  })
 })
 
 describe('story2video 限流/瞬时错误有界重试', () => {

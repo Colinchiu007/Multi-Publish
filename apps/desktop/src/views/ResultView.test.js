@@ -479,6 +479,61 @@ describe("ResultView", () => {
     expect(w.vm.story2videoNotificationDialog.messageParams).not.toEqual(expect.objectContaining({ rawError: expect.anything() }));
   });
 
+  it("重试图片失败且命中内容安全审查类别时显示具体提示（needs_user_input）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoRetrySegment.mockResolvedValue({ code: -1, message: "Image generation requires user input after content-policy review" });
+    api.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "segment-1", imagePath: "C:/project/segment-1-old.png" }];
+
+    await w.vm.retrySegment("segment-1", "image");
+
+    // 真实 provider 错误文本必须进入归一化并映射到 content_policy 具体提示
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.needs_user_input");
+  });
+
+  it("重试图片失败且多次空结果时显示具体提示（empty_result），而非通用失败文案（2026-08-16 复审补强）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoRetrySegment.mockResolvedValue({ code: -1, message: "Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account" });
+    api.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "segment-1", imagePath: "C:/project/segment-1-old.png" }];
+
+    await w.vm.retrySegment("segment-1", "image");
+
+    // 空结果原因必须到达用户：映射为 empty_result 具体提示，而不是 operation_failed 通用文案
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.empty_result");
+    expect(w.vm.story2videoNotificationDialog.messageParams).toEqual({ sceneText: "", scene: "" });
+  });
+
+  it("重试图片失败且 API Key 无效/已过期时显示具体提示（api_key_invalid）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoRetrySegment.mockResolvedValue({ code: -1, message: "Image provider \"minimax-multimodal\" failed: Invalid api key" });
+    api.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "segment-1", imagePath: "C:/project/segment-1-old.png" }];
+
+    await w.vm.retrySegment("segment-1", "image");
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.api_key_invalid");
+  });
+
+  it("重试图片失败且 MiniMax 额度用尽时显示额度提示（quota）", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoRetrySegment.mockResolvedValue({ code: -1, message: "Image provider \"minimax-multimodal\" failed: 已达到 Token Plan 用量上限" });
+    api.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "project-1";
+    w.vm.segments = [{ id: "segment-1", imagePath: "C:/project/segment-1-old.png" }];
+
+    await w.vm.retrySegment("segment-1", "image");
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.quota_exceeded");
+  });
+
   it("可导入新旁白并原子替换指定分段音频", async () => {
     const api = await import("@/api/publisher");
     api.story2videoImportMedia.mockResolvedValue({ code: 0, data: { path: "C:/controlled/replacement.mp3" } });

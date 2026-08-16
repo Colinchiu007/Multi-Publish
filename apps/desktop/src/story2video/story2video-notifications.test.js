@@ -15,6 +15,8 @@ describe('Story2Video notification messages', () => {
       ACCESS_DENIED: 'story2video.access_denied',
       ORCHESTRATION_FAILED: 'story2video.orchestration_failed',
       TEXT_INPUT_ONLY: 'story2video.text_input_only',
+      NEEDS_USER_INPUT: 'story2video.needs_user_input',
+      EMPTY_RESULT: 'story2video.empty_result',
       COMPOSE_TIMEOUT: 'story2video.compose_timeout',
       COMPOSE_DURATION_EXCEEDED: 'story2video.compose_duration_exceeded',
       COMPOSE_SEGMENT_DURATION_EXCEEDED: 'story2video.compose_segment_duration_exceeded',
@@ -149,6 +151,23 @@ describe('Story2Video notification messages', () => {
       message: '当前登录状态无法启动故事讲述，请先登录并确认当前账号有对应权益。',
       codePointCount: countUnicodeCodePoints('当前登录状态无法启动故事讲述，请先登录并确认当前账号有对应权益。'),
     })
+  })
+
+  it('多次空结果（empty_result）映射为独立类别，带场景号且不误标内容安全审查（2026-08-16 复审补强）', () => {
+    const zh = formatStory2VideoNotification({
+      error: 'Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account (scene 3)',
+    })
+    expect(zh.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT)
+    expect(zh.message).toContain('多次未返回结果')
+    expect(zh.message).toContain('（场景 3）')
+    expect(zh.message).not.toContain('内容安全审查')
+
+    const en = formatStory2VideoNotification({
+      error: '图片生成多次未返回结果（scene 2），请调整该场景提示词后重试',
+    }, 'en-US')
+    expect(en.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT)
+    expect(en.message).toContain('repeatedly returned no result')
+    expect(en.message).toContain('(scene 2)')
   })
 
   it('弹窗标题统一为「提示」/「Notice」，不携带流水线名词前缀', () => {
