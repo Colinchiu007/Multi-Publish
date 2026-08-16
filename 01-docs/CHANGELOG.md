@@ -1,3 +1,11 @@
+## [Unreleased] - 2026-08-16 (历史记录图片提示词完整展示 + 未保存修改离开守卫)
+
+### 修复
+- 历史详情弹窗场景列表图片提示词 60 字符硬截断，长提示词（历史案例截断在 "Wunü Mo" 单词中间）无法完整查看；改为每个场景「旁白 / 画面提示词」两行独立完整展示（只渲染存在字段，长文本自动换行 + 列表滚动），卡片预览 120 截断保持。
+- 结果页分段编辑修改后没有保存引导、直接返回会静默丢失；新增「有未保存修改」标识与离开守卫（保存并离开 / 不保存离开 / 取消），保存成功才放行、失败留页。
+
+### 测试
+- ResultView 离开守卫 6 用例（真实 router-view 触发 beforeRouteLeave + Teleport stub DOM 点击）；CreateViewHistory 长提示词完整展示 / 分行 / 空字段不渲染 / 卡片预览截断用例；locale zh/en 成对（新增 8 键：create.history.sceneNarration/scenePrompt + story2video.sceneMaterial 6 键）；CJK 基线经 --update-baseline 吸收行号偏移（官方门禁 1499/1499 无新增硬编码）；vue build 通过。
 ## [Unreleased] - 2026-08-16 (图片提示词 max_length 上限放开 500→2000 + 可配置)
 
 ### 变更
@@ -1897,4 +1905,6 @@
 
 ### 文档
 - PRD 7.1.18「历史记录可见性与运行状态合同」+ learnings 复盘。
+
+
 
