@@ -7,6 +7,7 @@
   "domain": "story2video",
   "currentPhase": "completed",
   "nextAction": "PR 合并后归档（远程同步门禁）",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/888",
   "createdAt": "2026-08-16T00:00:00Z",
   "branch": "codex/s2v-east-asian-face-anchor"
 }

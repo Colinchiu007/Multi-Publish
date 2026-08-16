@@ -10,4 +10,4 @@
 - [x] T6 asset-generator.js _tryProviderImage 透传 opts.negative_prompt
 - [x] T7 全绿：三文件 170 passed + node --check + git diff --check
 - [x] T8 docs：CHANGELOG.md / 01-docs/learnings.md 复盘条目；双模型审查 → review.md（antigravity 区域不可用降级，claude 完成 C1 修正并复核）
-- [ ] T9 提交分支 codex/s2v-east-asian-face-anchor、推远端、PR（含 OpenSpec change）
+- [x] T9 提交分支 codex/s2v-east-asian-face-anchor（9b977f8b）、推远端、PR #888（含 OpenSpec change）；合并后归档
