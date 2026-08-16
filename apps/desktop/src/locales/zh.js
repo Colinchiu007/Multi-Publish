@@ -88,6 +88,8 @@ export default {
       configurationTitle: '故事讲述配置',
       imageStyleHint: '控制每张生成图片的视觉外观。',
       promptStyleHint: '仅控制分镜图片提示词的写法与组织方式，不替代图片风格。',
+      maxPromptLength: '提示词最大长度',
+      maxPromptLengthHint: '控制图片提示词的最大字符数（默认 2000，可调 200–2000）。',
       creationMode: {
         label: '创作模式',
         auto: '全自动（推荐）',

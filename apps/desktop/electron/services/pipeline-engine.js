@@ -534,7 +534,7 @@ const PIPELINES = [
           platform: 'generic',
           style: 'realistic',
           creative_level: 5,
-          max_length: 500,
+          max_length: 2000,
           num_candidates: 1,
           auto_detect_style: true,
           negative_prompt: '',
@@ -2188,6 +2188,10 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
     set('style', input.promptStyle || input.imageStyle || input.style);
     set('creative_level', input.creativeLevel);
     set('negative_prompt', input.negativePrompt);
+    // 图片提示词最大长度（2026-08-16）：渲染层经 Story2VideoTextConfig.optimize.maxLength 提交；
+    // undefined 时 set 不写键，回退 stageDef 默认 max_length=2000（隐式兜底，见 pipeline-story2video-contract 恒含断言）。
+    // 执行器 buildPromptEngineOptimizeRequest 契约仍收敛到 [50, 2000]（8013 le=2000），不因放开默认放宽校验。
+    set('max_length', input.story2videoTextConfig?.optimize?.maxLength);
   } else if (stageName === 'generate_assets') {
     set('concurrency', input.concurrency);
     set('imageStyle', input.imageStyle);
