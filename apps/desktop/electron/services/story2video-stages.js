@@ -958,14 +958,20 @@ async function withTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 
  * 对返回结果对象（如 { code: -1, message }）或抛错的资源生成调用做有界重试。
  * 仅在可判定为瞬时（限流/超时/网络）时重试；内容政策检查点、模型配置等失败原样返回。
  */
-async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4 } = {}) {
+async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4, excludeMessages = [] } = {}) {
+  // 可重试判定：瞬时错误且未被调用方排除（历史路径排除轮询超时/任务终态，避免重试重复提交计费任务，审查 M1）
+  const isTransient = (value) => {
+    if (!isTransientErrorLike(value)) return false;
+    const text = messageOf(value);
+    return !excludeMessages.some((marker) => text.includes(marker));
+  };
   let last = null;
   for (let attempt = 1; attempt <= Math.max(maxAttempts, rateLimitMaxAttempts); attempt++) {
     let outcome;
     try {
       outcome = await fn(attempt);
     } catch (error) {
-      if (!isTransientErrorLike(error)) throw error;
+      if (!isTransient(error)) throw error;
       last = error;
       const limit = isRateLimitErrorLike(error) ? rateLimitMaxAttempts : maxAttempts;
       if (attempt >= limit) return { code: -1, message: error.message || String(error) };
@@ -973,7 +979,7 @@ async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttemp
       continue;
     }
     const ok = outcome && (Number(outcome.code) === 0 || outcome.success === true);
-    const transient = !ok && outcome && isTransientErrorLike(outcome);
+    const transient = !ok && outcome && isTransient(outcome);
     if (ok) return outcome;
     if (!transient) return outcome;
     last = outcome;
@@ -2958,6 +2964,7 @@ module.exports = {
   clampVideoSelection,
   unwrapScenesArray,
   generateSceneVideo,
+  withAssetTransientRetry,
   resolveSceneFinalFrame,
   optimizeVideoScenePrompts,
   translatePromptsForLocale,
