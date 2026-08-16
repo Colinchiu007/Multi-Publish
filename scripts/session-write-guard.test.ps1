@@ -56,6 +56,17 @@ try {
     Assert (Test-Path -LiteralPath (Join-Path $repo 'apps/tracked.js')) 'deleted tracked file is restored'
     Assert ((git -C $repo status --porcelain=v1 | Measure-Object).Count -eq 0) 'status is clean after delete restore'
 
+    New-Item -ItemType Directory -Force -Path (Join-Path $repo 'apps/nested') | Out-Null
+    Set-Content -LiteralPath (Join-Path $repo 'apps/nested/inside.js') -Value 'export default 99' -Encoding UTF8
+    & git -C $repo add apps/nested/inside.js
+    & git -C $repo commit -q -m 'nested fixture'
+    $violationBaseline = @(Get-Content -LiteralPath (Join-Path $quarantine 'violations.jsonl') | Where-Object { $_.Trim() }).Count
+    GuardPath 'apps/nested'
+    Assert (Test-Path -LiteralPath (Join-Path $repo 'apps/nested/inside.js')) 'directory event does not quarantine tracked subtree'
+    Assert ((git -C $repo status --porcelain=v1 | Measure-Object).Count -eq 0) 'status stays clean after directory event'
+    $violationAfter = @(Get-Content -LiteralPath (Join-Path $quarantine 'violations.jsonl') | Where-Object { $_.Trim() }).Count
+    Assert ($violationAfter -eq $violationBaseline) 'directory event is not recorded as a violation'
+
     $violations = @(Get-Content -LiteralPath (Join-Path $quarantine 'violations.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
     Assert (($violations | Measure-Object).Count -ge 2) 'violation log records intercepted writes'
     Write-Host "PASS: $passed session write guard checks" -ForegroundColor Green

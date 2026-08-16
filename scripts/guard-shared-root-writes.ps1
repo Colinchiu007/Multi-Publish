@@ -47,9 +47,9 @@ function Test-AllowedPath([string]$relative) {
     return $false
 }
 
-function Test-Tracked([string]$relative) {
-    $out = @(Git @('ls-files','--',$relative) 2>$null)
-    return $out.Count -gt 0
+function Test-TrackedFile([string]$relative) {
+    $out = @(Git @('ls-files','--stage','--',$relative) 2>$null)
+    return ($out.Count -eq 1 -and $out[0] -match '^100(644|755|120000)\s')
 }
 
 function Test-GitIgnored([string]$relative) {
@@ -84,8 +84,9 @@ function Invoke-GuardPath([string]$Path) {
     if (Test-AllowedPath $relative) { return $result }
 
     $full = Join-Path $root ($relative.Replace('/','\'))
+    if (Test-Path -LiteralPath $full -PathType Container) { return $result }
     $exists = Test-Path -LiteralPath $full -PathType Leaf
-    $tracked = Test-Tracked $relative
+    $tracked = Test-TrackedFile $relative
     if (-not $exists -and -not $tracked) { return $result }
     if (-not $tracked -and (Test-GitIgnored $relative)) { return $result }
 
