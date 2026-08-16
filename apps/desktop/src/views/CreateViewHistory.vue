@@ -164,6 +164,14 @@
                 @click.stop="$emit('resume-history', item)"
               >{{ story2videoResuming ? tr('resuming') : tr('continue') }}</button>
               <button
+                v-if="policyEditTarget(item)"
+                type="button"
+                class="s2v-btn-secondary s2v-btn-sm"
+                data-testid="history-policy-edit-button"
+                :disabled="story2videoResuming"
+                @click.stop="$emit('open-result', item)"
+              >{{ tr('policyEditAndRegenerate') }}</button>
+              <button
                 v-if="item.status === 'completed' && item.projectId"
                 type="button"
                 class="s2v-btn-secondary s2v-btn-sm"
@@ -235,6 +243,14 @@
           :disabled="story2videoResuming"
           @click="resumeFromDetail"
         >{{ story2videoResuming ? tr('resuming') : tr('resume') }}</button>
+        <button
+          v-if="selectedHistoryItem && policyEditTarget(selectedHistoryItem)"
+          type="button"
+          class="s2v-btn-secondary s2v-btn-sm"
+          data-testid="history-detail-policy-edit-button"
+          :disabled="story2videoResuming"
+          @click="openResultFromDetail"
+        >{{ tr('policyEditAndRegenerate') }}</button>
         <button
           v-if="selectedHistoryItem && selectedHistoryItem.status === 'completed' && selectedHistoryItem.projectId"
           type="button"
@@ -413,6 +429,10 @@ export default {
       if (!item) return ''
       const cached = this.policyResumeHints.get(this.historyIdentity(item, -1))
       return cached !== undefined ? cached : this.policyResumeBlockedText(item)
+    },
+    policyEditTarget (item) {
+      if (!item || item.status !== 'failed' || !item.projectId) return false
+      return RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))
     },
     policyResumeBlockedText (item) {
       if (!item || item.status !== 'failed' || !(item.id || item.runId)) return ''
