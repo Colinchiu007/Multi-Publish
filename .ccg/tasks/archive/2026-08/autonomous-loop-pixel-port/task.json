@@ -1,12 +1,12 @@
 {
   "id": "autonomous-loop-pixel-port",
   "title": "autonomous-loop 接线修复：像素端口错配（5173/5174）+ Gate 9 中转站 env 缺口",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "ci",
-  "currentPhase": "implementation",
-  "nextAction": "PR #902 CI 中，待合并",
+  "currentPhase": "archived",
+  "nextAction": "已归档：PR #902 squash a4f77b04 已合并",
   "createdAt": "2026-08-16",
   "branch": "codex/autonomous-loop-pixel-port"
 }
