@@ -1,3 +1,23 @@
+## 内容政策失败恢复按钮差异与插值契约复盘（s2v-resume-btn-policy-hint，2026-08-16）
+
+- **现象**：视频创作历史记录里最新失败任务（内容政策拦截）没有「从断点继续」按钮，旧任务有。用户以为是回归，实为主进程恢复守卫判定该失败不可原样恢复（`PIPELINE_USER_INPUT_REQUIRED`），前端历史卡片判定未覆盖相同关键字，行为不一致。
+- **根因**：主进程 `pipeline-engine.js` `resumeOrchestration` 用 `/needs_user_input|content[_\s-]?policy|CONTENT_POLICY/i` 拦截，前端历史区恢复判定各自维护关键字，且不覆盖中文「内容政策」（主进程拒绝文案）——同一业务规则两份关键字清单，必然漂移。
+- **教训 1（关键字规则必须单一来源）**：跨进程/跨组件的业务判定关键字应集中导出（`RESUME_BLOCKING_ERROR_PATTERN`），派生正则（场景提取）用 `.source` 复用，禁止另维护清单。
+- **教训 2（vue-i18n 函数消息不做 {named} 插值）**：`i18n/index.js` 的 `toMessageFunctions` 把全部字符串语料转成 `() => source`，vue-i18n v11 对函数消息直接返回、不插值。带参数的新文案必须写成 `(ctx) => … ctx.named('name') …`（文件头注释已声明此约定）。组件测试的 `$t` mock 若手动拼接参数，会掩盖真实插值失效——mock 应复刻 `toMessageFunctions` + 函数消息调用语义，让插值契约进入断言。
+- **逃逸链**：历史卡片判定与主进程守卫无共享契约测试（审查盲区）；新文案测试用「聪明 mock」拼接场景号，真实插值 bug 全绿通过（测试质量不足）。
+- **回归保护**：`RESUME_BLOCKING_ERROR_PATTERN` 变体矩阵 + 中文变体场景提取（history-utils.test.js）；`CreateViewHistory.test.js` 的 `$t` mock 复刻真实函数消息调用并断言渲染文案；后续新增恢复类关键字/提示文案必须走共享常量与函数消息，并跑三个相关 vitest 文件。
+
+## 结果页「重试图片」错误被两层掩盖复盘（s2v-retry-image-error-masking，2026-08-16）
+
+- **现象**：结果页点击【重试图片】失败时只显示「当前操作未能完成，请稍后再试。」，余额不足/限流/API Key 等真实原因被吞掉，故障无法诊断。
+- **根因（两层掩盖）**：服务层 `retrySegment()`/`generateSceneImage()` 未校验 `generateImage` 返回契约 `{code, message, data.path}`——`code !== 0` 时 `generatedPath` 为 undefined，直接落入 `_copyRequired` 抛误导性「产物不存在」，provider 真实原因被替换；渲染层 catch 固定显示 `operation_failed` 丢弃 `error.message`，绕过 `story2video-notifications.js` 既有归一化；主进程失败路径无日志。
+- **教训 1（生成器失败有两条路径：返回失败结果 ≠ 抛异常）**：消费返回 `{code,message,data}` 契约的生成结果时，必须在 `_copyRequired` 前显式校验 `code === 0` 且产物存在；失败结果必须与异常同等对待——上抛原始 message（缺失回退「图片生成失败」）、保留旧媒体、清理本次产物、持久化 failed + error。同类参照 `regenerateSceneAudio` 已有的 code 守卫；TTS 同族校验留 follow-up。
+- **教训 2（渲染层失败展示必须走消息归一化，禁止固定键）**：错误文本应交给既有通知归一化（quota/rate-limit/API Key/权限模式），已知类别显示本地化文案，未映射回退 `operation_failed`；固定键显示等于丢弃诊断信息，且不得把内部路径/堆栈暴露给用户。
+- **教训 3（回归测试必须覆盖「返回失败结果」路径）**：mock 生成器返回 `{code:-1, message:'余额不足'}`，断言 IPC message 包含原因、分段 failed + error 持久化、warn 日志包含 message；断言固定文案等于反向固化错误行为。
+- **逃逸链**：服务层测试只覆盖成功/异常 throw，缺「返回失败结果」（测试场景缺失）；渲染层测试断言固定文案（测试质量不足 + 审查盲区）。
+- **回归保护**：`story2video-project-service.test.js` +2（retry / generateSceneImage 失败保留原因、旧媒体、清理、不触发 renderSegment，含 `log.warn` 断言）；`ResultView.test.js` +2（quota 归一化 messageKey、未映射兜底 `operation_failed`、raw 文本不进弹窗）；`story2video-notifications` 26 passed。
+- **预防措施**：生成器消费前 code/产物校验 + 失败路径状态持久化与日志；渲染层 catch 透传 `error?.message` 进归一化；主进程 warn 日志（含 message）；frontend spec 追加「生成类 IPC 失败必须校验 code 并走消息归一化」条目。
+
 ## 字幕分句成词保护缺失复盘（subtitle-split-quality，2026-08-16）
 
 - **现象**：`能/够`、`就/是`、`做/成`、`在/上`、`动/态`、`规/划`、`专/属` 等成词被切；

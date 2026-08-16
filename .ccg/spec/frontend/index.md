@@ -51,3 +51,19 @@ Story2Video compose 的用户可见错误必须优先使用稳定消息键，而
 - 主进程负责把 execFile 的 timeout 终止归一成带阶段语义的 ETIMEDOUT；前端只做兼容识别，不依赖某一种 stderr 或 signal 文案。
 - zh.js 与 en.js 必须成对更新；参数只接受安全的数值上限，未知技术字段、路径、命令、stderr、token 和堆栈不得进入用户文案。
 - 每个稳定消息键至少覆盖：中英文渲染、优先级、未知错误回退、技术细节脱敏，以及真实执行器可能返回的 timeout 形态。
+
+## 6. 生成类 IPC 失败必须校验 code 并走消息归一化（2026-08-16，s2v-retry-image-error-masking）
+
+**模式**：消费返回 `{code, message, data}` 契约的生成结果（生成图片/视频/音频）时，服务层必须在消费产物（复制/替换）前校验 `code === 0` 且产物路径存在；失败结果与抛异常是两条不同的失败路径，都要保留原始 message（缺失回退领域兜底文案）、保留旧媒体、清理本次产物并持久化失败状态。渲染层 catch 一律把错误文本交给既有通知归一化（quota/rate-limit/API Key/权限模式），不固定显示单一键。
+
+**反例（真实 Bug 根因）**：`retrySegment()`/`generateSceneImage()` 未校验 `generateImage` 返回码，`code !== 0` 时 `generatedPath` 为 undefined，落入 `_copyRequired` 抛「产物不存在」——provider 真实原因（余额不足/限流/API Key）被替换；渲染层 catch 固定 `operation_failed` 丢弃 `error.message` 并绕过归一化。`regenerateSceneAudio` 已有正确 code 守卫，同文件两处新通道遗漏。
+
+**强制点**：
+```js
+if (!generated || generated.code !== 0 || !generatedPath) {
+  throw new Error(generated?.message || '图片生成失败')
+}
+// 渲染层 catch：showStory2VideoNotification({ error: error?.message || '' })
+```
+- 主进程失败路径必须有 warn 级日志（含错误 message）。
+- 回归必须 mock 生成器返回「失败结果对象」（非抛异常）断言原因保留 + 状态持久化 + 日志；不得用断言固定文案反向固化错误行为。

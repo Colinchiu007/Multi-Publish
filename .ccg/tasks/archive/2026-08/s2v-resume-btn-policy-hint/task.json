@@ -1,0 +1,20 @@
+{
+  "id": "s2v-resume-btn-policy-hint",
+  "title": "统一内容政策恢复门控正则 + 历史卡片不可恢复原因提示",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "无",
+  "createdAt": "2026-08-16T00:00:00+08:00",
+  "branch": "codex/s2v-resume-btn-policy-hint",
+  "openspecChange": "s2v-resume-btn-policy-hint",
+  "remoteStatus": {
+    "pr": 876,
+    "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/876",
+    "status": "merged",
+    "mergeCommit": "20366e0d1bf1b82b9b09760b07245a711d93c86e",
+    "mergedAt": "2026-08-16T02:05:16Z"
+  }
+}

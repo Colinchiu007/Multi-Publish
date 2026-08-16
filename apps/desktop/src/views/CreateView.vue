@@ -1299,7 +1299,7 @@ import {
   getPipelineStatus,
 } from '@/i18n/pipeline-labels'
 import { getAppLocale } from '@/i18n'
-import { filterHistoryByStatus, sortHistoryByEffectiveTime } from './history-utils'
+import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
@@ -1524,7 +1524,7 @@ export default {
       selectionGuided: false, sceneAssetAttention: false, sceneAssetAttentionTimer: null,
       dismissedBgmSkippedNotice: false,
       dismissedProviderWarnings: false,
-      story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '' },
+      story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '', rawError: '' },
       cancelConfirmDialog: { visible: false, error: '' },
       story2videoResuming: false,
       story2videoRunMeta: null,
@@ -1870,9 +1870,11 @@ export default {
     },
     canResumeStory2Video() {
       if (!this.story2videoErrorDialog.visible || !this.orchestrationRunId || this.story2videoResuming) return false
-      const raw = this.story2videoErrorDialogMessage || ''
+      // 原始错误文本（showStory2VideoErrorDialog 时保留）与本地化消息一并参与门控，
+      // 与历史列表/主进程使用同一关键字规则（content policy / content_policy / content-policy 均拦截）
+      const raw = (this.story2videoErrorDialogMessage || '') + '\n' + (this.story2videoErrorDialog.rawError || '')
       // 内容政策失败需要人工修改文案，不允许原样恢复
-      if (/内容政策|content\s*policy|needs_user_input|可能需要修改文案/i.test(raw)) return false
+      if (RESUME_BLOCKING_ERROR_PATTERN.test(raw)) return false
       return true
     },
     orchestrationProgressPercent() {
@@ -3418,7 +3420,8 @@ export default {
     showStory2VideoErrorDialog(notification = {}) {
       const resolved = resolveStory2VideoNotification(notification)
       const detail = typeof notification.detail === 'string' ? notification.detail : ''
-      this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params, detail }
+      const rawError = String(notification?.error || notification?.message || '')
+      this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params, detail, rawError }
     },
     closeStory2VideoErrorDialog() {
       this.story2videoErrorDialog.visible = false
@@ -3804,7 +3807,11 @@ export default {
     },
     openHistoryResult(item) {
       if (!item?.projectId || item.status === 'cancelled') return
-      this.$router.push({ path: '/create/result', query: { project: item.projectId } })
+      const query = { project: item.projectId }
+      // 内容政策拦截任务不能断点续跑：携带场景号让结果页定位涉及场景，用户改文案后重新合成
+      const focusScenes = policySceneQuery(item.error)
+      if (item.status === 'failed' && focusScenes && !this.historyItemResumable(item)) query.focusScenes = focusScenes
+      this.$router.push({ path: '/create/result', query })
     },
     // Kept as a compatibility alias for callers outside the history component.
     // It is deliberately read-only for non-completed records.
@@ -3814,7 +3821,7 @@ export default {
     historyItemResumable(item) {
       if (!item || !['failed', 'paused'].includes(item.status) || !(item.id || item.runId)) return false
       // 内容政策/需要用户输入类失败必须修改文案后重新启动，不允许原样恢复
-      if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
+      if (RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))) return false
       return true
     },
     async resumeHistoryItem(item) {

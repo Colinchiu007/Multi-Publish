@@ -1673,6 +1673,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.orchestrationError).toBe("");
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.preview_missing",
       messageParams: {},
+      rawError: '',
     });
     expect(alertSpy).not.toHaveBeenCalled();
 
@@ -1698,6 +1699,7 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.model_configuration_required",
       messageParams: {},
+      rawError: "Story2Video 默认 LLM 不可用，请先完成模型设置",
     });
     expect(alertSpy).not.toHaveBeenCalled();
 
@@ -1724,6 +1726,7 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.access_denied",
       messageParams: {},
+      rawError: "当前许可证无权访问 pipeline:startOrchestrated",
     });
     w.unmount();
   });
@@ -2376,6 +2379,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.text_input_only",
       messageParams: {},
+      rawError: '',
     });
     expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
@@ -3071,6 +3075,22 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
+  it("实时失败对话框对 content-policy（连字符）错误隐藏「从断点继续」", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-policy-live";
+    w.vm.showStory2VideoErrorDialog({ error: "Image #49: Image generation requires user input after content-policy review" });
+    await nextTick();
+    expect(w.vm.canResumeStory2Video).toBe(false);
+    // 非政策失败不受影响，仍显示「从断点继续」
+    w.vm.showStory2VideoErrorDialog({ error: "provider timeout, please retry" });
+    await nextTick();
+    expect(w.vm.canResumeStory2Video).toBe(true);
+    w.unmount();
+  });
+
   it("可把当前参数保存为自定义模板、重新应用并删除", async () => {
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
@@ -3120,6 +3140,7 @@ describe("CreateView - UI interactions", () => {
     expect(w.find(".history-error").exists()).toBe(false);
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.history_load_failed",
       messageParams: {},
+      rawError: '',
     });
   });
 
@@ -4391,6 +4412,34 @@ describe("批量创作（story2video-batch-create）", () => {
     await cancelButtons[0].trigger("click");
     await nextTick();
     expect(mocks.story2videoBatchCancel).toHaveBeenCalledWith("batch_y", ["batch_y_i1"]);
+    w.unmount();
+  });
+
+  it("openHistoryResult 政策失败携带 focusScenes，completed/可恢复失败不带", async () => {
+    const pushSpy = vi.spyOn(router, "push");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.openHistoryResult({
+      projectId: "proj-policy", status: "failed",
+      error: "Image #49: content-policy review; Image #73: content-policy review; Image #74: content-policy review",
+    });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-policy", focusScenes: "49,73,74" } });
+    pushSpy.mockClear();
+    w.vm.openHistoryResult({ projectId: "proj-done", status: "completed", error: "" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-done" } });
+    pushSpy.mockClear();
+    w.vm.openHistoryResult({ projectId: "proj-retry", status: "failed", error: "provider timeout, please retry" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-retry" } });
+    pushSpy.mockClear();
+    // completed 任务即使残留门控关键字文本也不携带 focusScenes（与 policyEditTarget 的 failed 前提对齐，审查 M4）
+    w.vm.openHistoryResult({ projectId: "proj-done2", status: "completed", error: "Image #3: content-policy review" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-done2" } });
+    pushSpy.mockClear();
+    // 门控命中但无法提取 Image #N（如 manual 模式无场景号前缀）时不携带 focusScenes，结果页按缺省安全降级（W1）
+    w.vm.openHistoryResult({ projectId: "proj-manual", status: "failed", error: "Image generation requires user input after content-policy review" });
+    expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-manual" } });
     w.unmount();
   });
 });

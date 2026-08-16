@@ -1,0 +1,12 @@
+{
+  "id": "s2v-retry-image-error-masking",
+  "title": "结果页「重试图片/重试视频」失败透出真实原因，不再被两层掩盖成通用文案",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "PR #878 已合并 e271e43c，CI 18 项全绿；QM-1 打包通过；openspec change + delta 已同步归档",
+  "createdAt": "2026-08-16T08:30:00+08:00",
+  "branch": "codex/s2v-retry-image-error-masking"
+}

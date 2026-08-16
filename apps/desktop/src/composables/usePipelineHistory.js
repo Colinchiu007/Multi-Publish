@@ -11,7 +11,7 @@
 import { ref, computed } from 'vue'
 import { pipelineHistory, story2videoListProjects } from '@/api/publisher'
 import { historyLoadFailureDetail } from '@/story2video/story2video-notifications'
-import { filterHistoryByStatus, sortHistoryByEffectiveTime } from '@/views/history-utils'
+import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, sortHistoryByEffectiveTime } from '@/views/history-utils'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
@@ -206,7 +206,7 @@ export function usePipelineHistory(options = {}) {
    */
   function historyItemResumable(item) {
     if (!item || (item.status !== 'failed' && item.status !== 'paused') || !(item.id || item.runId)) return false
-    if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
+    if (RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))) return false
     return true
   }
 

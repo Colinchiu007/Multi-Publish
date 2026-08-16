@@ -103,3 +103,77 @@ export function historyStatusCounts (items) {
 export function historyDisplayTime (item) {
   return historyEffectiveTime(item)
 }
+
+/**
+ * 内容政策/需要用户输入类失败的统一门控关键字（与主进程 pipeline-engine.js
+ * resumeOrchestration 的判定对齐）：命中即判定为不可原样恢复，必须修改文案后重新生成。
+ * content 与 policy 之间允许空格/下划线/连字符或不带分隔符（content policy / content_policy /
+ * content-policy / contentpolicy 均命中）。
+ */
+export const RESUME_BLOCKING_ERROR_PATTERN = /内容政策|needs_user_input|content[_\-\s]?policy|可能需要修改文案/i
+
+// 从门控正则派生，保证关键字清单单一来源（含中文「内容政策」变体），不会漂移。
+const POLICY_SCENE_PATTERN = new RegExp(`Image\\s+#(\\d+)[^;]*?(?:${RESUME_BLOCKING_ERROR_PATTERN.source})`, 'gi')
+
+function compressSceneRanges (sceneNumbers) {
+  const sorted = [...sceneNumbers].sort((a, b) => a - b)
+  const parts = []
+  let rangeStart = sorted[0]
+  let prev = sorted[0]
+  for (let i = 1; i <= sorted.length; i += 1) {
+    const current = sorted[i]
+    if (current === prev + 1) {
+      prev = current
+      continue
+    }
+    parts.push(prev === rangeStart ? String(rangeStart) : rangeStart + '-' + prev)
+    if (current !== undefined) {
+      rangeStart = current
+      prev = current
+    }
+  }
+  return parts
+}
+
+/**
+ * 从失败错误文本中提取「内容政策拦截」的具体场景号。
+ * 规则：仅统计 Image #N 段内命中门控关键字的失败项（瞬时失败如 aborted 不计入）；
+ * 升序、去重。
+ * @param {string|undefined|null} error - 历史任务的原始错误文本
+ * @returns {number[]} 例如 [49, 73, 74]；无命中返回 []
+ */
+export function collectContentPolicySceneNumbers (error) {
+  const raw = String(error || '')
+  if (!raw) return []
+  const sceneNumbers = new Set()
+  POLICY_SCENE_PATTERN.lastIndex = 0
+  let match
+  while ((match = POLICY_SCENE_PATTERN.exec(raw)) !== null) {
+    const scene = Number(match[1])
+    if (Number.isInteger(scene) && scene > 0) sceneNumbers.add(scene)
+  }
+  return [...sceneNumbers].sort((a, b) => a - b)
+}
+
+/**
+ * 将政策场景号序列化为结果页 focusScenes 路由 query（逗号分隔、区间展开逐号）。
+ * @param {string|undefined|null} error - 历史任务的原始错误文本
+ * @returns {string} 例如 '49,73,74'；无命中返回 ''
+ */
+export function policySceneQuery (error) {
+  return collectContentPolicySceneNumbers(error).join(',')
+}
+
+/**
+ * 将政策场景号压缩为可读字符串。
+ * 连续区间压缩为 a-b。
+ * @param {string|undefined|null} error - 历史任务的原始错误文本
+ * @param {string} [locale] - 'zh'（默认，顿号分隔）或 'en'（逗号分隔）
+ * @returns {string} 例如 '#49、#73-77'；无命中返回 ''
+ */
+export function contentPolicyScenes (error, locale = 'zh') {
+  const sceneNumbers = collectContentPolicySceneNumbers(error)
+  if (sceneNumbers.length === 0) return ''
+  const separator = String(locale || '').trim().toLowerCase().startsWith('en') ? ', ' : '、'
+  return '#' + compressSceneRanges(sceneNumbers).join(separator + '#')
+}
