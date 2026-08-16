@@ -2995,6 +2995,7 @@ module.exports = {
   estimateSceneSeconds,
   pickFixedVideoScenes,
   buildVideoSelectionPrompt,
+  buildOptimizeContext,
   parseVideoSelection,
   clampVideoSelection,
   unwrapScenesArray,

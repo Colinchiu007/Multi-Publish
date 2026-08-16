@@ -5,6 +5,14 @@
 - 修复：适配器尊重 `params.response_format`——`b64_json` 时 `extra_body.response_format='b64_json'` 并 Base64 直出（缺失 fail closed），默认 url 时 `extra_body.response_format='url'`；请求体顶层不再携带该字段。
 - 回归：`agnes-image.test.js` 28 用例通过（+4：extra_body 契约 / b64_json 请求与返回形状 / 缺失 fail closed / url 默认）；真实 E2E DB 调用 2938 success（34s，新 PNG+MP4 落盘）；QM-1 打包 asar 含 adapter。
 
+## [2026-08-16] fix(story2video): 历史记录重新生成优化词 fail-closed（402 回显不再误写）+ 请求 context 与流水线同源
+
+- 现象：视频创作-历史记录编辑场景内容，点击「重新生成图片优化词」生成了新优化词，但输出不像最新代码提示词引擎（仅原文 + Photoreal 后缀）；实际是 prompt-engine(8013) 额度不足返回 `error: 402 insufficient_balance_error` + `optimized_prompt` 原样回显，桌面侧本地提取器先取文本后查 error，把回显原文当成功写入分段。
+- 根因：`story2video-project-service.js` 的 `extractOptimizedPrompt`（`a555fe7c` 引入历史记录场景编辑时）对「错误兜底回显原文」形态 fail-open；且重生成图片请求只传 `max_length`，不携带流水线同源 `context`（全场景文案/场景类型/synopsis），与流水线图片提示词契约不一致。
+- 修复：① 提取器错误优先（对齐 `prompt-engine-kernel.extractOptimizedBase` 的 error → detail 顺序），顶层 error 先于 `results` 分支判断，image/video 双域 fail-closed，回显原文不得写入分段；② 图片重生成复用流水线「无 scene_context 回退路径」的 `buildOptimizeContext` 构造 context（`full_text` 全场景文案 + `scene_type` 推断 + 继承持久化 `optimize.context` 的 synopsis），经契约七键白名单 + 敏感键拦截透传，`max_length` 保持 2000；仅透传契约键（`safeOptimizeStageOptions`），stage 元键不透传；context 构造仅限 image 分支，不波及 video 域。
+- 回归：`story2video-project-service.test.js` 73 passed（+6：402 回显 image/video、error 无文本、顶层 error+内层回显、顶层 error+空 results、context 同源、存量项目降级）；`story2video-stages.test.js` 107 / 邻近套件 306 通过；tsc --noEmit / git diff --check / openspec validate PASS；Claude 审查 0 Critical（W1-W4 处置见 review.md，antigravity 地区不可用降级记录）。
+- 运行侧（需人工，本 PR 不含）：`D:\Data\projects\prompt-engine` 切 main 并充值 Token Plan 后重启 8013，否则仍会 402。
+
 ## [2026-08-16] fix(story2video): 历史任务图片重试/重生按当前「多模态优先」设置重新解析 provider
 
 - 现象：设置里取消勾选「优先使用多模态模型进行所有的AI操作」并配置专用生图模型（agnes image）后，历史记录任务点【重试图片】/【重生图片】仍调用任务创建时固化的多模态 provider（MiniMax，Key 套餐失效）→ 弹「模型 API 的额度或余额已用完」。

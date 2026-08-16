@@ -7,6 +7,17 @@
 - **回归保护**：`agnes-image.test.js` +4 用例固化 extra_body 位置与 b64_json 直出/fail closed；后续新增/修改生图适配器必须断言「调用方 `response_format` 被尊重」+「顶层无 response_format」。
 - **预防**：生图适配器验收清单加入「尊重调用方 response_format」与「extra_body 契约」两项（已写入 openspec change spec 与本复盘）。
 
+## 历史记录重新生成优化词 fail-open 吞错 + 请求 context 与流水线失源复盘（fix-s2v-history-prompt-fail-open，2026-08-16）
+
+- **现象**：视频创作-历史记录点「重新生成图片优化词」产出的新优化词只有原文 + Photoreal 后缀，不像最新引擎结果；实为 prompt-engine(8013) 额度不足返回 `{ optimized_prompt: <原文>, error: 402 insufficient_balance_error }` 失败兜底，桌面侧提取器先取文本后查 error，把回显原文当成功写入（UI 呈现「已重新生成」）。
+- **根因**：`story2video-project-service.extractOptimizedPrompt`（`a555fe7c` 引入历史记录场景编辑时自建）对「错误兜底回显原文」形态 fail-open——文本非空即返回、同对象 error 不生效；且 image 重生成请求只带 `max_length`，缺流水线同源 `context`（full_text/scene_type/synopsis），契约不一致。
+- **教训 1（引擎失败兜底必须 error-first）**：`{ optimized_prompt: <回显>, error: <真实错误> }` 是外部引擎的失败兜底形态，本地提取器必须把 error/detail 判错放在文本提取之前（同层与跨层：error 在顶层、回显在内层 results），否则额度/服务类错误会被用户当成成功结果看到。
+- **教训 2（判错键与流水线 kernel 单一来源对齐）**：本地提取器的错误键对齐 `prompt-engine-kernel.extractOptimizedBase`（error → detail），不再单独判 `message`（kernel 不判 message；成功响应带信息性 message 时旧逻辑会过度 fail-closed）。
+- **教训 3（历史重生成请求参数必须与流水线同源）**：重生成/重试类接口复用流水线同一 `buildOptimizeContext` 与 `buildPromptEngineOptimizeRequest` 构造请求（白名单/敏感键/归一在同一契约层），避免「历史路径参数落后于流水线演进」——本次历史路径缺 context，正是 #887 放开 max_length 后只补长度没补上下文的结果。
+- **教训 4（stage 元键不得透传）**：从持久化 optimize 配置取请求参数只允许契约键白名单，stage 元键（maxRetries/concurrency/uiLocale）不得进请求；context 构造只在该域分支内执行，不波及另一域路径。
+- **逃逸链**：既有测试只覆盖「engine 抛异常 / 成功文本」，没有「error 字段 + 回显原文」形态（测试场景缺失）；流水线 kernel 早已 fail-closed，历史服务路径是后补的本地提取器，属双路径漂移（单点实现未对齐权威）。
+- **回归保护**：`story2video-project-service.test.js` +6 用例（402 回显 image/video、error 无文本、顶层 error+内层回显、顶层 error+空 results、context 同源、存量项目降级）；后续改重生成请求构造或提取器必须同时跑该文件与 `story2video-stages.test.js`（同源函数回归）。
+
 ## 历史任务图片重试忽略「多模态优先」设置复盘（fix-s2v-image-model-selection，2026-08-16）
 
 - **现象**：用户在「设置-模型设置」取消勾选「优先使用多模态模型进行所有的AI操作」（`prefer_multimodal`）并添加专用生图模型（agnes image），但历史记录任务点【重试图片】/【重生图片】仍调用任务创建时固化的多模态 provider（MiniMax，用户 Key 套餐失效）→ 弹「模型 API 的额度或余额已用完」。

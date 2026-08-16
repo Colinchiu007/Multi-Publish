@@ -2,9 +2,7 @@
 
 ## Purpose
 历史记录场景内容编辑的提示词显示完整性与保存可见性契约：详情只读列表完整展示旁白与图片提示词；结果页编辑未保存状态可见；离开页面时未保存修改必须经显式确认（保存/放弃/取消），不静默丢失。
-
 ## Requirements
-
 ### Requirement: 详情弹窗完整展示场景文案与图片提示词
 历史详情弹窗的只读场景列表 SHALL 完整展示每个场景的旁白（text）与画面提示词（prompt），不得以 60 字符硬截断；字段存在才渲染对应行，长文本在列表内滚动查看。
 
@@ -56,6 +54,34 @@
 #### Scenario: locale 成对
 - **WHEN** 新增「有未保存修改」与离开确认文案
 - **THEN** `locales/zh.js` 与 `locales/en.js` 对应键均存在且 `check-locale-sync` 通过
+
+### Requirement: 重新生成优化词失败必须 fail-closed
+
+历史记录场景「重新生成图片/视频优化词」SHALL 在 prompt-engine 返回错误（含「error（或与流水线 kernel 一致的 detail）字段 + 回显原文」的失败兜底形态，含跨层：error 在顶层、回显在内层 results）时判定为失败：不得把回显原文写入分段，分段 SHALL 保持原有 prompt/videoPrompt 并将 `status` 置为 `failed`，真实失败原因随响应透出。
+
+#### Scenario: 引擎 402 回显原文
+- **WHEN** 用户点击「重新生成图片优化词」且 prompt-engine 返回 `{ optimized_prompt: <原文>, error: "402 insufficient_balance" }`
+- **THEN** 分段 prompt 保持不变、`status=failed`，失败原因包含引擎错误信息，不得显示「优化词已重新生成」
+
+#### Scenario: 引擎 error 但无文本
+- **WHEN** 引擎返回 `{ error: "service unavailable" }` 且无有效文本
+- **THEN** 同样 fail-closed：分段不变、回写 failed
+
+#### Scenario: 视频域错误回显
+- **WHEN** 重新生成视频优化词且引擎返回 error + 回显
+- **THEN** `videoPrompt` 不被改写，分段回写 failed
+
+### Requirement: 重新生成请求上下文与流水线同源
+
+历史记录重新生成图片优化词的请求 SHALL 携带与流水线「无 scene_context 回退路径」同源的 `context`（`full_text` 全场景文案、自动 `scene_type`、继承持久化文本配置的 `context.synopsis`），并仅透传 prompt-engine 契约键（platform/style/creative_level/negative_prompt/num_candidates/auto_detect_style/quality_baseline），`max_length` 保持显式 2000。
+
+#### Scenario: 请求携带全场景上下文
+- **WHEN** 用户点击重新生成图片优化词且项目含多个场景文案
+- **THEN** 发送给 prompt-engine 的请求包含 `context.full_text`（拼接全部场景文案）且 `max_length` 为契约上限 2000
+
+#### Scenario: 存量项目无文本配置
+- **WHEN** 项目缺少 `story2videoTextConfig`
+- **THEN** 请求仍携带基于 segments 构造的 context，不因缺配置而失败
 
 ## Test Mapping
 - 场景「长图片提示词完整可见」→ `CreateViewHistory.test.js`（detailScenes 渲染完整 prompt、无 `…`、text/prompt 分行）
