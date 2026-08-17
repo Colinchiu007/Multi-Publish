@@ -320,6 +320,137 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 120, 6)).toContain('min(1,on/720)')
   })
 
+  describe('AI 视频短于分镜时长的处理', () => {
+    function makeVideoEngine (videoDuration) {
+      const engine = new Story2VideoComposeEngine({
+        outputDir: fs.mkdtempSync(path.join(os.tmpdir(), 's2v-short-video-contract-')),
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      })
+      engine._probeVideoDuration = vi.fn().mockResolvedValue(videoDuration)
+      engine._runFfmpegStage = vi.fn().mockResolvedValue({ stderr: '' })
+      engine._requireFfmpegOutput = vi.fn()
+      return engine
+    }
+
+    function videoOptions (overrides = {}) {
+      return {
+        width: 320,
+        height: 180,
+        fps: 24,
+        effectDuration: 4,
+        duration: null,
+        audioDuration: 4,
+        videoMode: 'fixed',
+        padTo: null,
+        shortVideoHandling: 'loop',
+        subtitleText: '',
+        subtitleTimeline: [],
+        subtitleStyle: undefined,
+        watermark: false,
+        watermarkText: '',
+        watermarkConfig: undefined,
+        transition: 'none',
+        voiceVolume: 1,
+        composeId: 'test-compose',
+        sceneIndex: 0,
+        ...overrides,
+      }
+    }
+
+    it('默认循环模式保留无限循环和 TTS 音频映射', async () => {
+      const engine = makeVideoEngine(1)
+      try {
+        await engine._encodeVideoSegmentOnce('video.mp4', 'voice.mp3', 'segment.mp4', videoOptions())
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        expect(args).toEqual(expect.arrayContaining(['-stream_loop', '-1', '-map', '0:v:0', '-map', '1:a:0']))
+        expect(args.join(' ')).not.toContain('tpad=stop_mode=clone')
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
+
+    it('播放完停止模式对短视频冻结末帧并按 zoom-in 进度放大', async () => {
+      const engine = makeVideoEngine(1)
+      try {
+        await engine._encodeVideoSegmentOnce(
+          'video.mp4',
+          'voice.mp3',
+          'segment.mp4',
+          videoOptions({ shortVideoHandling: 'stop-at-end' }),
+        )
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        const filter = args[args.indexOf('-filter_complex') + 1]
+        expect(args).not.toContain('-stream_loop')
+        expect(filter).toContain('concat=n=2:v=1:a=0')
+        expect(filter).toContain('select=eq(n\,0)')
+        expect(filter).toContain('zoompan')
+        expect(filter).toContain('1+0.25*min(1,on/72)')
+        expect(args).toEqual(expect.arrayContaining(['-t', '4', '-shortest', '-map', '[videoOut]', '-map', '1:a:0']))
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
+
+    it('播放完停止模式在视频足够长时只裁剪，不追加末帧尾段', async () => {
+      const engine = makeVideoEngine(5)
+      try {
+        await engine._encodeVideoSegmentOnce(
+          'video.mp4',
+          'voice.mp3',
+          'segment.mp4',
+          videoOptions({ shortVideoHandling: 'stop-at-end' }),
+        )
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        const filter = args[args.indexOf('-vf') + 1]
+        expect(args).not.toContain('-stream_loop')
+        expect(filter).not.toContain('tpad=stop_mode=clone')
+        expect(args).toEqual(expect.arrayContaining(['-shortest', '-map', '0:v:0', '-map', '1:a:0']))
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
+
+    it('播放完停止模式探测失败时回退到循环，避免短视频场景黑屏或提前结束', async () => {
+      const engine = makeVideoEngine(null)
+      try {
+        await engine._encodeVideoSegmentOnce(
+          'video.mp4',
+          'voice.mp3',
+          'segment.mp4',
+          videoOptions({ shortVideoHandling: 'stop-at-end' }),
+        )
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        expect(args).toEqual(expect.arrayContaining(['-stream_loop', '-1']))
+        expect(args.join(' ')).not.toContain('tpad=stop_mode=clone')
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
+
+    it('min-duration 停止模式使用 -t + apad 保留静音补齐尾部', async () => {
+      const engine = makeVideoEngine(1)
+      try {
+        await engine._encodeVideoSegmentOnce(
+          'video.mp4',
+          'voice.mp3',
+          'segment.mp4',
+          videoOptions({
+            effectDuration: 6,
+            audioDuration: 3,
+            padTo: 6,
+            shortVideoHandling: 'stop-at-end',
+          }),
+        )
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        expect(args).not.toContain('-stream_loop')
+        expect(args).toEqual(expect.arrayContaining(['-t', '6', '-af', 'apad', '-map', '1:a:0']))
+        expect(args).not.toContain('-shortest')
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
+  })
+
   it('为每个字幕页生成首尾不重叠的 FFmpeg 半开时间区间', () => {
     const filter = buildSubtitleFilter([
       { text: '第一屏字幕', startTime: 0, endTime: 1.25 },

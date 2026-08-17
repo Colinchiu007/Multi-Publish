@@ -2370,6 +2370,8 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
     set('templateId', input.templateId);
     set('creationMode', input.creationMode);
     set('manualMaterialMode', input.manualMaterialMode);
+    set('videoMode', input.videoMode);
+    set('video', input.videoConfig);
   } else if (stageName === 'finalize_assets') {
     set('creationMode', input.creationMode);
   } else if (stageName === 'scene_context') {
@@ -2396,6 +2398,8 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
     set('format', input.format || input.output?.format);
     set('sceneDurationMode', input.sceneDurationMode);
     set('minSceneDuration', input.minSceneDuration);
+    set('videoMode', input.videoMode);
+    set('shortVideoHandling', input.shortVideoHandling);
   } else if (pipelineName === 'clip-factory' && stageName === 'analyze') {
     // clip-factory 选项按 pipeline 名区分（analyze 阶段名与 podcast 共用）。
     set('sceneThreshold', input.sceneThreshold);

@@ -1,3 +1,13 @@
+## [2026-08-18] feat(story2video): 单段视频短于分镜时长的处理选项（循环播放/播放完停止）
+
+- 新增高级选项「单段视频短于分镜时长的处理」：AI 视频模型生成的视频时长常短于分镜场景时长，原有循环播放之外新增「播放完停止」模式。
+- 播放完停止模式：AI 视频播放到最后一帧后定格，然后慢慢放大（复用 zoom-in 动效），用于营造定格绘画效果。
+- 仅在视频增强模式「固定比例（成品前段 AI 视频）」和「AI 智能选择（最精彩场景）」下生效；关闭时不显示。
+- 配置通过 shortVideoHandling 字段传递（默认 loop），经 config normalizer 、 pipeline engine 、 stage executor 、 compose engine 全链路透传。
+- 语言区域选项标签「关闭（纯图片轮播）」改为「纯图片轮播」（zh/en 成对。
+- UI 新增下拉选择器（data-testid=s2v-short-video-handling），仅在 videoMode 为 fixed/ai-judged 时显示；摘要区域展示播完停止状态。
+- 测试覆盖：循环模式、播放完停止短视频末帧冻结 + zoom-in 、视频足大时只裁剪、探测失败回退循环、min-duration 停止模式、默认循环模式。
+
 ## [2026-08-17] feat(story2video): 手动选材模式提示词翻译与视频合成并行
 
 - 手动选材模式不再在 `optimize` 阶段等待只读提示词翻译；候选素材生成和 `scene_asset_selection` checkpoint 可先完成。

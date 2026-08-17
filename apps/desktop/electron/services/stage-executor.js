@@ -570,6 +570,7 @@ class StageExecutor {
         'transition', 'transitionDuration', 'imageEffect', 'subtitleEnabled', 'subtitleStyle',
         'watermark', 'watermarkText', 'watermarkConfig', 'resolution', 'fps', 'format',
         'bgmPath', 'bgmVolume', 'voiceVolume', 'defaultSceneDuration', 'sceneDurationMode', 'minSceneDuration',
+        'videoMode', 'shortVideoHandling',
       ];
       const composeOptions = { ...(stage.options || {}) };
       const parallelTaskType = typeof composeOptions.composeParallelTask === 'string'
