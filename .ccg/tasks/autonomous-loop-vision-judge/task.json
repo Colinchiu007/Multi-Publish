@@ -1,0 +1,13 @@
+{
+  "id": "autonomous-loop-vision-judge",
+  "title": "autonomous-loop 视觉判定接入 vision 模型（base64 内联 + 审查修复）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "qa/ci",
+  "currentPhase": "review",
+  "nextAction": "提交 PR，合并后 apply+archive 三同步",
+  "createdAt": "2026-08-17T00:00:00Z",
+  "branch": "codex/autonomous-loop-vision-judge",
+  "openspecChange": "autonomous-loop-vision-judge"
+}

@@ -77,6 +77,8 @@ class VisualTestRunner extends BaseTestRunner {
           status: r.passed ? "PASSED" : (r.status === "BASELINE_CREATED" ? "BASELINE_CREATED" : "FAILED"),
           misMatchPercentage: r.misMatchPercentage ?? 0,
           diffPath: r.diffImagePath || null,
+          baselinePath: r.baselinePath || null,
+          screenshotPath: r.currentPath || null,
         });
       } catch (err) {
         details.push({
@@ -128,7 +130,8 @@ class VisualTestRunner extends BaseTestRunner {
       updatedAt: new Date().toISOString(),
     });
 
-    return result;
+    // 附带图片路径，供 AgentVisualJudge 视觉判定（base64 内联）与报告引用
+    return { ...result, testName, baselinePath, currentPath };
   }
 
   _saveMetaFor(testName, data) {

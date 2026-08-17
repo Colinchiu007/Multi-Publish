@@ -153,9 +153,10 @@ describe("AIAnalyzer", () => {
       ],
     });
     assert.equal(v.noise.length, 1);   // 0.1 <= 0.5
-    assert.equal(v.regressions.length, 1); // button + regression pattern
-    // nav 3.5% 不确定，可能是 expectedChange
-    assert.equal(v.expectedChanges.length, 1);
+    assert.equal(v.regressions.length, 1); // landing-form 15% → form 交互组件回归
+    // dashboard 3.5% 启发式不确定 → 交人工（fail-closed），不再静默进 UPDATE_BASELINE
+    assert.equal(v.needReview.length, 1);
+    assert.equal(v.expectedChanges.length, 0);
   });
 
   it("analyzeFunctional: 区分 passed / failed / flaky", () => {
@@ -200,6 +201,67 @@ describe("AIAnalyzer", () => {
     };
     const analysis = await aa.analyze(testResults);
     assert.equal(analysis.visual.noise.length, 1);
+  });
+
+  it("analyzeVisual: need_review verdict 路由到 needReview（fail-closed）", async () => {
+    const { AgentVisualJudge } = require("../src/agent/agent-visual-judge");
+    const visualJudge = new AgentVisualJudge({
+      llmFn: async () => JSON.stringify({ verdict: "need_review", reasoning: "模糊", confidence: "low" }),
+    });
+    const aa = new AIAnalyzer({ visualJudge });
+    const result = await aa.analyzeVisual({
+      details: [{ testName: "ambiguous-view", misMatchPercentage: "6.0", status: "FAILED", diffPath: "d.png" }],
+    });
+    assert.equal(result.needReview.length, 1);
+    assert.equal(result.expectedChanges.length, 0);
+    assert.equal(result.regressions.length, 0);
+    assert.equal(result.needReview[0].uncertain, true);
+  });
+
+  it("analyzeVisual: LLM 判定抛错时失败结果进 needReview 而非静默 UPDATE_BASELINE", async () => {
+    const visualJudge = {
+      judge: async () => { throw new Error("LLM API 500"); },
+    };
+    const aa = new AIAnalyzer({ visualJudge });
+    const result = await aa.analyzeVisual({
+      details: [{ testName: "weird-view", misMatchPercentage: "3.0", status: "FAILED" }],
+    });
+    assert.equal(result.needReview.length, 1);
+    assert.equal(result.expectedChanges.length, 0);
+  });
+
+  it("analyzeVisual: 带 status 的 PASSED 高 diff 不触发视觉 judge（成本护栏）", async () => {
+    let judgeCalls = 0;
+    const visualJudge = {
+      judge: async () => { judgeCalls++; return { verdict: "expected", reasoning: "x", confidence: "high" }; },
+    };
+    const aa = new AIAnalyzer({ visualJudge });
+    const result = await aa.analyzeVisual({
+      details: [{ testName: "passed-view", misMatchPercentage: "2.0", status: "PASSED" }],
+    });
+    assert.equal(judgeCalls, 0);
+    assert.equal(result.needReview.length, 1); // 启发式兜底：不确定 → 人工
+  });
+
+  it("decide: 视觉 needReview > 0 → NEED_HUMAN（优先于 regression 的 FIX_AND_RETRY）", () => {
+    const analysis = {
+      visual: { regressions: [{ testName: "reg" }], expectedChanges: [], needReview: [{ testName: "amb" }] },
+      functional: { failed: [] },
+      requirements: { verdictMode: "none", covered: [], uncovered: [], coverageRate: 1 },
+    };
+    const d = a.decide(analysis);
+    assert.equal(d.action, "NEED_HUMAN");
+    assert.match(d.reason, /amb/);
+  });
+
+  it("decide: 无 needReview 字段的兼容分析对象不抛错（旧调用方）", () => {
+    const analysis = {
+      visual: { regressions: [], expectedChanges: [] },
+      functional: { failed: [] },
+      requirements: { verdictMode: "none", covered: [], uncovered: [], coverageRate: 1 },
+    };
+    const d = a.decide(analysis);
+    assert.equal(d.action, "STOP_SUCCESS");
   });
 
 });

@@ -46,7 +46,7 @@ class AIAnalyzer {
 
     // 计算整体风险等级
     let overallRisk = 'LOW';
-    if (analysis.visual.regressions.length > 0 || analysis.functional.failed.length > 0) {
+    if (analysis.visual.regressions.length > 0 || (analysis.visual.needReview || []).length > 0 || analysis.functional.failed.length > 0) {
       overallRisk = 'HIGH';
     } else if (analysis.visual.expectedChanges.length > 0) {
       overallRisk = 'MEDIUM';
@@ -63,11 +63,12 @@ class AIAnalyzer {
    */
   async analyzeVisual(visualResults) {
     if (!visualResults || !visualResults.details) {
-      return { regressions: [], expectedChanges: [], noise: [], summary: null };
+      return { regressions: [], expectedChanges: [], needReview: [], noise: [], summary: null };
     }
 
     const regressions = [];
     const expectedChanges = [];
+    const needReview = [];
     const noise = [];
 
     for (const result of visualResults.details) {
@@ -78,8 +79,12 @@ class AIAnalyzer {
         continue;
       }
 
-      // 方向3: AgentVisualJudge 真正做智能判断
-      if (this.visualJudge) {
+      // 方向3: AgentVisualJudge 真正做智能判断。
+      // 成本护栏：只有 FAILED（或未标注 status 的测试/Mock）才触发 judge；PASSED 的高 diff 不烧 LLM 视觉调用。
+      const status = String(result.status || "").toUpperCase();
+      const useJudge = this.visualJudge && (status === "FAILED" || status === "");
+
+      if (useJudge) {
         try {
           const v = await this.visualJudge.judge(result);
           if (v.verdict === "expected") {
@@ -89,27 +94,28 @@ class AIAnalyzer {
           } else if (v.verdict === "noise") {
             noise.push({ ...result, judgeReasoning: v.reasoning });
           } else {
-            expectedChanges.push({ ...result, uncertain: true, judgeReasoning: v.reasoning });
+            // need_review / 未知 verdict → 人工审核（fail-closed，不再静默进 UPDATE_BASELINE）
+            needReview.push({ ...result, uncertain: true, judgeReasoning: v.reasoning });
           }
         } catch (e) {
-          // Fallback to heuristic on error
+          // LLM 判定失败 → 按启发式兜底，仍不确定时交人工（fail-closed）
           if (this.isKnownChange(result)) expectedChanges.push(result);
           else if (this.isLikelyRegression(result)) regressions.push(result);
-          else expectedChanges.push({ ...result, uncertain: true });
+          else needReview.push({ ...result, uncertain: true, judgeReasoning: e.message });
         }
       } else {
-        // Legacy heuristic
+        // Legacy heuristic（无 judge 或 PASSED/已确定状态）
         if (this.isKnownChange(result)) {
           expectedChanges.push(result);
         } else if (this.isLikelyRegression(result)) {
           regressions.push(result);
         } else {
-          expectedChanges.push({ ...result, uncertain: true });
+          needReview.push({ ...result, uncertain: true });
         }
       }
     }
 
-    return { regressions, expectedChanges, noise, summary: visualResults.summary };
+    return { regressions, expectedChanges, needReview, noise, summary: visualResults.summary };
   }
 
   /**
@@ -206,6 +212,15 @@ class AIAnalyzer {
           instructions: analysis.requirements.verdict?.instructions,
           pendingCount: analysis.requirements.uncovered.length,
         },
+      };
+    }
+
+    // 0.5. 视觉判定悬而未决（need_review / LLM 失败 / 启发式不确定）→ 人工审核，禁止静默更新基线
+    if ((analysis.visual.needReview || []).length > 0) {
+      return {
+        action: 'NEED_HUMAN',
+        reason: `Visual diff 待人工确认: ${analysis.visual.needReview.map(n => n.testName).join(', ')}`,
+        context: analysis.visual.needReview,
       };
     }
 

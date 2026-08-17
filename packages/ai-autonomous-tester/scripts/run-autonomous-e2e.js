@@ -40,6 +40,18 @@ const LLM_PROVIDER = args.llm || process.env.LLM_PROVIDER || null;
 const COVERAGE_THRESHOLD = parseFloat(args.threshold ?? process.env.COVERAGE_THRESHOLD) || 0.5;
 const MAX_WAIT = parseInt(args.wait, 10) || 30;
 const MAX_ITERATIONS = parseInt(args.iterations, 10) || 1;
+// 视觉判定开关：把像素 diff 图片以 base64 内联发给支持视觉的 LLM 判定。
+// 默认开启（模型不支持图片时自动降级纯文本判定），可用 --no-vision / LLM_VISION=false 显式关闭。
+const LLM_VISION = (() => {
+  if (args["no-vision"]) return false;
+  if (args.vision !== undefined) {
+    const raw = String(args.vision).toLowerCase();
+    return raw !== "false" && raw !== "0";
+  }
+  const env = process.env.LLM_VISION;
+  if (env === undefined || env === "") return true;
+  return String(env).toLowerCase() !== "false" && String(env) !== "0";
+})();
 const SKIP_VISUAL = args["skip-visual"] === true || args["skip-visual"] === "true";
 const SKIP_COVERAGE = args["skip-coverage"] === true || args["skip-coverage"] === "true";
 const SKIP_SERVER = args["skip-server"] === true || args["skip-server"] === "true";
@@ -265,7 +277,7 @@ function buildFunctionalTargets(names) {
 // ===== Orchestrator Mode (Multi-Round Loop) =====
 async function runOrchestratorLoop() {
   logBox("全自主多轮循环", [`最大迭代: ${MAX_ITERATIONS}`, `功能测试: ${ENABLE_FUNCTIONAL ? FUNCTIONAL_TARGETS.join(", ") : "关闭"}`,
-    `多文档: ${DOC_PATHS.map(p => path.basename(p)).join(", ")}`, `LLM: ${LLM_PROVIDER || "(无)"}`]);
+    `多文档: ${DOC_PATHS.map(p => path.basename(p)).join(", ")}`, `LLM: ${LLM_PROVIDER || "(无)"}`, `视觉判定: ${LLM_VISION ? "开启(LLM 看图)" : "关闭(文本/规则)"}`]);
   const { TestOrchestrator, AutonomousTestRunner, RequirementsTestRunner, FunctionalTestRunner, VisualTestRunner, FixEngine } = require("../index");
   const llmFn = makeLlmFn(LLM_PROVIDER);
   const visualRunner = SKIP_VISUAL ? null : new VisualTestRunner({ url: TEST_URL, headless: true, threshold: COVERAGE_THRESHOLD });
@@ -276,7 +288,7 @@ async function runOrchestratorLoop() {
     requirementsRunner,
   });
       const fixEngine = new FixEngine({ logger: console, dryRun: false, llmFn });
-    const orchestrator = new TestOrchestrator({ maxIterations: MAX_ITERATIONS, testRunner, fixEngine, iterationDelay: 3000, stopOnSuccess: true });
+    const orchestrator = new TestOrchestrator({ maxIterations: MAX_ITERATIONS, testRunner, fixEngine, iterationDelay: 3000, stopOnSuccess: true, llmFn, vision: LLM_VISION });
   const context = {
     visual: { targets: [{ name: "home-baseline", route: "/" }, { name: "accounts-list", route: "/accounts" }, { name: "publish-form", route: "/publish" }] },
     functional: functionalRunner ? { targets: buildFunctionalTargets(FUNCTIONAL_TARGETS) } : {},
@@ -358,6 +370,53 @@ async function cleanup() {
 }
 
 // ===== LLM Factory =====
+// llmFn 兼容两种调用形态：
+//   1. 纯文本：llmFn("prompt text") —— requirements/functional/fix 等既有调用不变
+//   2. 结构化：llmFn({ text, images: [{ mimeType, base64, dataUrl }] }) —— 视觉判定传图
+function normalizeLlmInput(prompt) {
+  if (prompt && typeof prompt === "object" && !Array.isArray(prompt) && typeof prompt.text === "string") {
+    return { text: prompt.text, images: Array.isArray(prompt.images) ? prompt.images : [] };
+  }
+  return { text: String(prompt), images: [] };
+}
+
+function buildOpenAIContent(prompt) {
+  const { text, images } = normalizeLlmInput(prompt);
+  if (images.length === 0) return { text, content: text };
+  return {
+    text,
+    content: [
+      { type: "text", text },
+      ...images.map(img => ({
+        type: "image_url",
+        image_url: { url: img.dataUrl || `data:${img.mimeType || "image/png"};base64,${img.base64 || ""}` },
+      })),
+    ],
+  };
+}
+
+function buildAnthropicContent(prompt) {
+  const { text, images } = normalizeLlmInput(prompt);
+  if (images.length === 0) return { text, content: text };
+  return {
+    text,
+    content: [
+      { type: "text", text },
+      ...images.map(img => ({
+        type: "image",
+        source: { type: "base64", media_type: img.mimeType || "image/png", data: img.base64 || "" },
+      })),
+    ],
+  };
+}
+
+async function readApiError(res) {
+  const detail = (await res.text()).slice(0, 300);
+  const error = new Error(`LLM API ${res.status}: ${detail}`);
+  error.status = res.status;
+  return error;
+}
+
 function makeLlmFn(provider) {
   if (!provider) return null;
   const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
@@ -366,17 +425,21 @@ function makeLlmFn(provider) {
   if (provider === "openai") {
     const baseUrl = process.env.LLM_BASE_URL || "https://api.openai.com/v1";
     return async prompt => {
+      const { content } = buildOpenAIContent(prompt);
       const res = await fetch(`${baseUrl}/chat/completions`, { method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages: [{ role: "system", content: "You are a QA engineer. Respond with ONLY valid JSON." }, { role: "user", content: prompt }], temperature: 0 }) });
+        body: JSON.stringify({ model, messages: [{ role: "system", content: "You are a QA engineer. Respond with ONLY valid JSON." }, { role: "user", content }], temperature: 0 }) });
+      if (!res.ok) throw await readApiError(res);
       const data = await res.json(); return data.choices?.[0]?.message?.content || "";
     };
   }
   if (provider === "anthropic") {
     return async prompt => {
+      const { content } = buildAnthropicContent(prompt);
       const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content: prompt }] }) });
+        body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content }] }) });
+      if (!res.ok) throw await readApiError(res);
       const data = await res.json(); return data.content?.[0]?.text || "";
     };
   }
@@ -460,11 +523,15 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildAnthropicContent,
+  buildOpenAIContent,
   classifyCoverageResult,
   cleanup,
   evaluateRunResults,
   generateReport,
   main,
+  makeLlmFn,
+  normalizeLlmInput,
   startDevServer,
   runVisualTests,
 };

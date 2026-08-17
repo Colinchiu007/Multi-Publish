@@ -5,9 +5,13 @@ const path = require('node:path');
 const { describe, it } = require('node:test');
 
 const {
+  buildAnthropicContent,
+  buildOpenAIContent,
   classifyCoverageResult,
   evaluateRunResults,
   generateReport,
+  makeLlmFn,
+  normalizeLlmInput,
   runVisualTests,
 } = require('../scripts/run-autonomous-e2e');
 
@@ -239,5 +243,89 @@ describe('自主 E2E 结果合同', () => {
     assert.match(markdown, /## 视觉回归[\s\S]*\| 状态 \| 跳过 \|/);
     assert.match(markdown, /## 功能测试[\s\S]*\| 状态 \| 失败 \|/);
     assert.match(markdown, /\| 错误 \| 浏览器崩溃 \|/);
+  });
+
+  it('normalizeLlmInput: 纯文本与结构化输入归一化', () => {
+    assert.deepEqual(normalizeLlmInput('plain prompt'), { text: 'plain prompt', images: [] });
+    assert.deepEqual(normalizeLlmInput({ text: 'see', images: [{ base64: 'AA==' }] }), {
+      text: 'see',
+      images: [{ base64: 'AA==' }],
+    });
+    assert.deepEqual(normalizeLlmInput({ text: 'see', images: null }), { text: 'see', images: [] });
+  });
+
+  it('buildOpenAIContent: 纯文本保持字符串（向后兼容）', () => {
+    assert.deepEqual(buildOpenAIContent('hello'), { text: 'hello', content: 'hello' });
+  });
+
+  it('buildOpenAIContent: 带图时输出 image_url 内容数组', () => {
+    const { content } = buildOpenAIContent({
+      text: 'judge it',
+      images: [{ mimeType: 'image/png', base64: 'QUJD' }],
+    });
+    assert.equal(content.length, 2);
+    assert.deepEqual(content[0], { type: 'text', text: 'judge it' });
+    assert.deepEqual(content[1], {
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,QUJD' },
+    });
+  });
+
+  it('buildAnthropicContent: 带图时输出 image source 内容数组', () => {
+    const { content } = buildAnthropicContent({
+      text: 'judge it',
+      images: [{ mimeType: 'image/jpeg', base64: 'QUJD' }],
+    });
+    assert.equal(content.length, 2);
+    assert.deepEqual(content[1], {
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/jpeg', data: 'QUJD' },
+    });
+  });
+
+  it('makeLlmFn: OpenAI 兼容端点实际收到 image_url 内容数组', async (t) => {
+    const oldKey = process.env.OPENAI_API_KEY;
+    const oldBase = process.env.LLM_BASE_URL;
+    process.env.OPENAI_API_KEY = 'sk-test';
+    process.env.LLM_BASE_URL = 'http://llm.test/v1';
+    let captured = null;
+    global.fetch = async (_url, opts) => {
+      captured = JSON.parse(opts.body);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '{"verdict":"expected"}' } }] }) };
+    };
+    t.after(() => {
+      if (oldKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = oldKey;
+      if (oldBase === undefined) delete process.env.LLM_BASE_URL;
+      else process.env.LLM_BASE_URL = oldBase;
+      delete global.fetch;
+    });
+
+    const llmFn = makeLlmFn('openai');
+    const out = await llmFn({ text: 'judge', images: [{ mimeType: 'image/png', base64: 'QUJD' }] });
+    assert.equal(out, '{"verdict":"expected"}');
+    assert.equal(captured.messages[1].role, 'user');
+    assert.equal(captured.messages[1].content[0].type, 'text');
+    assert.equal(captured.messages[1].content[1].type, 'image_url');
+    assert.equal(captured.messages[1].content[1].image_url.url, 'data:image/png;base64,QUJD');
+  });
+
+  it('makeLlmFn: 纯文本调用保持旧协议（content 为字符串）', async (t) => {
+    const oldKey = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-test';
+    let captured = null;
+    global.fetch = async (_url, opts) => {
+      captured = JSON.parse(opts.body);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+    };
+    t.after(() => {
+      if (oldKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = oldKey;
+      delete global.fetch;
+    });
+
+    const llmFn = makeLlmFn('openai');
+    await llmFn('plain prompt');
+    assert.equal(captured.messages[1].content, 'plain prompt');
   });
 });

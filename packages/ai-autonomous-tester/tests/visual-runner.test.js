@@ -41,4 +41,23 @@ describe('VisualTestRunner', () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+  it('runTests: details include baseline/current/diff paths（供视觉判定看图）', async () => {
+    const v = new VisualTestRunner({ url: 'http://localhost:5173' });
+    v.browser = {};
+    v.context = {};
+    v.page = {};
+    v._runOne = async () => ({
+      passed: false,
+      misMatchPercentage: 3.2,
+      diffImagePath: '/tmp/diff.png',
+      baselinePath: '/tmp/baseline.png',
+      currentPath: '/tmp/current.png',
+    });
+    const out = await v.runTests({ targets: [{ name: 'home', route: '/' }] });
+    assert.equal(out.details.length, 1);
+    assert.equal(out.details[0].status, 'FAILED');
+    assert.equal(out.details[0].diffPath, '/tmp/diff.png');
+    assert.equal(out.details[0].baselinePath, '/tmp/baseline.png');
+    assert.equal(out.details[0].screenshotPath, '/tmp/current.png');
+  });
 });

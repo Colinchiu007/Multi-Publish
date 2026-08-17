@@ -44,7 +44,7 @@ class TestOrchestrator {
       }
     }
     const { AgentVisualJudge } = require("./agent/agent-visual-judge");
-    const visualJudge = options.visualJudge || (this.llmFn ? new AgentVisualJudge({ llmFn: this.llmFn }) : null);
+    const visualJudge = options.visualJudge || (this.llmFn ? new AgentVisualJudge({ llmFn: this.llmFn, vision: options.vision }) : null);
     this.analyzer = options.analyzer || new AIAnalyzer({ llmFn: this.llmFn, visualJudge });
     this.fixEngine = options.fixEngine || new FixEngine({ logger: this.logger });
 
@@ -124,6 +124,7 @@ class TestOrchestrator {
         visual: analysis.visual ? {
           regressions: analysis.visual.regressions.length,
           expectedChanges: analysis.visual.expectedChanges.length,
+          needReview: (analysis.visual.needReview || []).length,
           noise: analysis.visual.noise.length,
         } : null,
         functional: analysis.functional ? {

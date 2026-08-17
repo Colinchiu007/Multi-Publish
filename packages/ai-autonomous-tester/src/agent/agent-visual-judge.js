@@ -4,7 +4,7 @@
  * 核心能力：判断像素 diff 是"预期变更"还是"回归 bug"
  *
  * 三层判断策略：
- *   1. LLM 分析（有 llmFn 时）：给 LLM 看 diff 截图路径 + 上下文 → 判断
+ *   1. LLM 分析（有 llmFn 时）：给 LLM 看 diff/基线/当前截图（base64 内联）+ 上下文 → 判断
  *   2. 规则引擎（无 LLM 时）：diff 比例 + 元素类型 + 历史模式 → 分类
  *   3. 人工兜底：不确定的标记为 NEED_REVIEW
  *
@@ -17,6 +17,37 @@
 const fs = require("fs");
 const path = require("path");
 
+// 单图内联体积上限（3MB）：超出则跳过该图（Anthropic 图片上限 5MB，中转站 body 更小）
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+
+const IMAGE_MIME_BY_EXT = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".bmp": "image/bmp",
+};
+
+function mimeForPath(filePath) {
+  const ext = path.extname(filePath || "").toLowerCase();
+  return IMAGE_MIME_BY_EXT[ext] || "image/png";
+}
+
+function encodeImage(filePath) {
+  if (!filePath || typeof filePath !== "string" || !fs.existsSync(filePath)) return null;
+  let size = 0;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
+    return null;
+  }
+  if (size > MAX_IMAGE_BYTES) return null; // 超大图跳过内联，避免打爆请求体
+  const mimeType = mimeForPath(filePath);
+  const base64 = fs.readFileSync(filePath).toString("base64");
+  return { path: filePath, mimeType, base64, dataUrl: `data:${mimeType};base64,${base64}` };
+}
+
 class AgentVisualJudge {
   constructor(options = {}) {
     this.llmFn = options.llmFn || null;
@@ -24,6 +55,9 @@ class AgentVisualJudge {
     this.noiseThreshold = options.noiseThreshold || 0.5; // <0.5% diff 视为噪声
     this.regressionThreshold = options.regressionThreshold || 2.0; // >2% diff 可能是回归
     this.needReviewThreshold = options.needReviewThreshold || 5.0; // >5% diff 需人工
+    // 视觉判定：有 LLM 时默认开启，把 diff/基线/当前截图以 base64 内联发给支持视觉的模型；
+    // 模型不支持图片时自动降级纯文本判定，可用 vision:false 显式关闭。
+    this.vision = options.vision ?? (options.llmFn ? true : false);
   }
 
   /**
@@ -42,9 +76,16 @@ class AgentVisualJudge {
       return { verdict: "noise", reasoning: `Diff ${mismatch.toFixed(2)}% 低于噪声阈值 ${this.noiseThreshold}%`, confidence: "high" };
     }
 
-    // 2. 有 LLM：让 LLM 看图判断（描述性分析，框架不真的传图，Agent 用 view_image 看）
+    // 2. 有 LLM：让 LLM 真看图判断（diff/基线/当前截图 base64 内联；不支持视觉时降级纯文本）
     if (this.llmFn) {
-      return this._judgeWithLLM({ testName, mismatch, diffPath, route: ctx.route });
+      return this._judgeWithLLM({
+        testName,
+        mismatch,
+        diffPath,
+        baselinePath: diff.baselinePath || ctx.baselinePath || null,
+        currentPath: diff.currentPath || diff.screenshotPath || ctx.currentPath || ctx.screenshotPath || null,
+        route: ctx.route || diff.route,
+      });
     }
 
     // 3. 无 LLM：规则引擎
@@ -52,39 +93,84 @@ class AgentVisualJudge {
   }
 
   /**
-   * LLM 判断：构造 prompt，让 Agent 推理
+   * LLM 判断：构造 prompt，把 diff/基线/当前截图以 base64 内联传给支持视觉的 LLM 推理。
+   * 模型不支持图片输入（如 400）时自动降级纯文本判定，保持原有文本判定能力。
    */
-  async _judgeWithLLM({ testName, mismatch, diffPath, route }) {
+  async _judgeWithLLM({ testName, mismatch, diffPath, baselinePath, currentPath, route }) {
+    const imagePaths = [diffPath, baselinePath, currentPath].filter(Boolean);
+    const images = this.vision ? imagePaths.map(encodeImage).filter(Boolean) : [];
+    const labelByPath = {
+      [diffPath]: "diff (red highlights)",
+      [baselinePath]: "baseline",
+      [currentPath]: "current screenshot",
+    };
+    const attachedLabels = images.map(img => labelByPath[img.path]).filter(Boolean);
+    const attachedLine = attachedLabels.length ? `Attached images: ${attachedLabels.join(", ")}.` : "";
+
     const prompt = [
       "You are a frontend QA engineer analyzing a visual regression test failure.",
       "",
       `Test: ${testName}`,
       mismatch ? `Diff: ${mismatch.toFixed(2)}% pixels changed` : "",
       route ? `Route: ${route}` : "",
-      diffPath ? `Diff image: ${diffPath} (use view_image if available)` : "",
+      attachedLine,
       "",
-      "Analyze if this is an EXPECTED change (intentional UI update) or a REGRESSION (unintended bug).",
+      "Analyze if this is an EXPECTED change (intentional UI update), a REGRESSION (unintended bug), or NEEDS REVIEW (ambiguous).",
       "Output JSON ONLY:",
       JSON.stringify({
-        verdict: "expected | regression | need_review",
+        verdict: "expected | regression | noise | need_review",
         reasoning: "brief explanation",
         confidence: "high | medium | low",
       }),
     ].filter(Boolean).join("\n");
 
-    try {
-      const output = await this.llmFn(prompt);
-      const cleaned = output.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-      const first = cleaned.indexOf("{");
-      const last = cleaned.lastIndexOf("}");
-      if (first >= 0 && last > first) {
-        const parsed = JSON.parse(cleaned.slice(first, last + 1));
-        return { verdict: parsed.verdict || "need_review", reasoning: parsed.reasoning || "", confidence: parsed.confidence || "low" };
+    // 无图（视觉关闭、图片缺失或超限）→ 纯文本路径，与旧行为一致
+    // 调用失败时 fail-closed 返回 need_review，绝不让异常向上传播绕开人工审核
+    if (images.length === 0) {
+      try {
+        const verdict = await this._callAndParse(prompt);
+        return verdict
+          ? { ...verdict, visionUsed: false }
+          : { verdict: "need_review", reasoning: "LLM 输出解析失败，需人工确认", confidence: "low", visionUsed: false };
+      } catch (textError) {
+        this.logger.log(`[AgentVisualJudge] LLM 文本判定调用失败，需人工确认: ${textError.message}`);
+        return { verdict: "need_review", reasoning: `LLM 调用失败: ${textError.message}`, confidence: "low", visionUsed: false };
       }
-    } catch (e) {
-      this.logger.log("[AgentVisualJudge] LLM parse error:", e.message);
     }
-    return { verdict: "need_review", reasoning: "LLM 输出解析失败，需人工确认", confidence: "low" };
+
+    try {
+      const verdict = await this._callAndParse({ text: prompt, images });
+      return verdict
+        ? { ...verdict, visionUsed: true }
+        : { verdict: "need_review", reasoning: "LLM 输出解析失败，需人工确认", confidence: "low", visionUsed: true };
+    } catch (visionError) {
+      // 模型/中转站不支持图片输入（如 400）→ 降级纯文本重试，保留原有文本判定能力
+      this.logger.log(`[AgentVisualJudge] 视觉图片调用失败，降级纯文本判定: ${visionError.message}`);
+      try {
+        const verdict = await this._callAndParse(prompt);
+        return verdict
+          ? { ...verdict, visionUsed: false, visionFallback: true }
+          : { verdict: "need_review", reasoning: "LLM 输出解析失败，需人工确认", confidence: "low", visionUsed: false, visionFallback: true };
+      } catch (textError) {
+        this.logger.log(`[AgentVisualJudge] 降级纯文本判定也失败，需人工确认: ${textError.message}`);
+        return { verdict: "need_review", reasoning: `LLM 调用失败: ${textError.message}`, confidence: "low", visionUsed: false, visionFallback: true };
+      }
+    }
+  }
+
+  /**
+   * 调用 llmFn 并解析 JSON 输出；调用方负责 try/catch（fail-closed 转 need_review），输出不可解析时返回 null
+   */
+  async _callAndParse(input) {
+    const output = await this.llmFn(input);
+    const cleaned = output.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    const first = cleaned.indexOf("{");
+    const last = cleaned.lastIndexOf("}");
+    if (first >= 0 && last > first) {
+      const parsed = JSON.parse(cleaned.slice(first, last + 1));
+      return { verdict: parsed.verdict || "need_review", reasoning: parsed.reasoning || "", confidence: parsed.confidence || "low" };
+    }
+    return null;
   }
 
   /**
@@ -129,4 +215,4 @@ class AgentVisualJudge {
   }
 }
 
-module.exports = { AgentVisualJudge };
+module.exports = { AgentVisualJudge, MAX_IMAGE_BYTES };

@@ -8,6 +8,8 @@ name: autonomous-loop
 #     secrets.LLM_BASE_URL 填 OpenAI 兼容端点（如 https://api.deepseek.com/v1）、secrets.LLM_MODEL 填其在售模型名；
 #     workflow_dispatch 也可用 llm_base_url / llm_model 输入临时覆盖，无需预建 secret。
 #   - Anthropic：secrets.ANTHROPIC_API_KEY + inputs.llm_provider=anthropic。
+#   - 视觉判定（llm_vision，默认开启）：像素 diff 失败时把 diff/基线/当前截图 base64 内联发给 LLM，
+#     让支持视觉的模型直接看图判断预期/回归/噪声；模型不支持图片时自动降级纯文本判定。
 #   - PR 事件不注入任何 secrets（GitHub 安全限制），打 label 触发的 run 一律只读检查。
 
 on:
@@ -64,6 +66,11 @@ on:
         required: false
         default: ""
         type: string
+      llm_vision:
+        description: "视觉判定：把像素 diff/基线/当前截图以 base64 内联发给支持视觉的 LLM 判断预期/回归/噪声；模型不支持图片时自动降级纯文本"
+        required: false
+        default: true
+        type: boolean
   pull_request:
     branches: [main]
     types: [labeled]
@@ -90,6 +97,7 @@ jobs:
       LLM_PROVIDER: ${{ github.event_name != 'pull_request' && (inputs.llm_provider || secrets.LLM_PROVIDER) || 'openai' }}
       LLM_BASE_URL: ${{ github.event_name != 'pull_request' && (inputs.llm_base_url || secrets.LLM_BASE_URL) || '' }}
       LLM_MODEL: ${{ github.event_name != 'pull_request' && (inputs.llm_model || secrets.LLM_MODEL) || '' }}
+      LLM_VISION: ${{ github.event_name != 'pull_request' && (inputs.llm_vision ?? true) }}
       OPENAI_API_KEY: ${{ github.event_name != 'pull_request' && secrets.OPENAI_API_KEY || '' }}
       ANTHROPIC_API_KEY: ${{ github.event_name != 'pull_request' && secrets.ANTHROPIC_API_KEY || '' }}
       COVERAGE_THRESHOLD: 0.5
@@ -139,7 +147,8 @@ jobs:
               --iterations=$env:MAX_ITER `
               $funcFlag `
               --docs="01-docs/PRD.md,README.md" `
-              --threshold="${{ inputs.threshold || '0.1' }}" 2>&1
+              --threshold="${{ inputs.threshold || '0.1' }}" `
+              --vision=$env:LLM_VISION 2>&1
             $exitCode = $LASTEXITCODE
           } finally {
             Pop-Location

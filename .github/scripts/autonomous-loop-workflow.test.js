@@ -189,12 +189,33 @@ test('workflow_dispatch 暴露 LLM 供应商配置（中转站/模型覆盖）',
   assert.equal(inputs.llm_provider.default, 'openai');
   assert.ok(inputs.llm_base_url, '必须提供 llm_base_url 输入');
   assert.ok(inputs.llm_model, '必须提供 llm_model 输入');
+  assert.ok(inputs.llm_vision, '必须提供 llm_vision 输入（视觉判定开关）');
+  assert.equal(inputs.llm_vision.default, true);
 
   const env = workflow.jobs.loop.env;
   assert.equal(env.LLM_PROVIDER, "${{ github.event_name != 'pull_request' && (inputs.llm_provider || secrets.LLM_PROVIDER) || 'openai' }}");
   assert.equal(env.LLM_BASE_URL, "${{ github.event_name != 'pull_request' && (inputs.llm_base_url || secrets.LLM_BASE_URL) || '' }}");
   assert.equal(env.LLM_MODEL, "${{ github.event_name != 'pull_request' && (inputs.llm_model || secrets.LLM_MODEL) || '' }}");
+  assert.equal(env.LLM_VISION, "${{ github.event_name != 'pull_request' && (inputs.llm_vision ?? true) }}");
+  assert.ok(!env.LLM_VISION.includes("|| ''"), "LLM_VISION 不得带 || ''：显式 false 会被空串吞掉，重新变成默认开启");
   assert.equal(env.ANTHROPIC_API_KEY, "${{ github.event_name != 'pull_request' && secrets.ANTHROPIC_API_KEY || '' }}");
+
+  const loopStep = workflow.jobs.loop.steps.find(step => step.id === 'loop');
+  assert.ok(loopStep, '必须存在 Run autonomous loop 步骤');
+  assert.match(loopStep.run, /--vision=\$env:LLM_VISION/);
+});
+
+test('llm_vision 求值语义：PR=false / push=true / dispatch 显式 false 保持 false', () => {
+  // 与 workflow 表达式 `github.event_name != 'pull_request' && (inputs.llm_vision ?? true)` 语义一致：
+  // 显式关闭（false）绝不能被 || '' 或默认值重新置回 true
+  const evalVision = (eventName, input) => {
+    if (eventName === 'pull_request') return false;
+    return input === undefined ? true : input;
+  };
+  assert.equal(evalVision('pull_request', undefined), false, 'PR 事件不得开启视觉');
+  assert.equal(evalVision('push', undefined), true, 'push 默认开启');
+  assert.equal(evalVision('workflow_dispatch', true), true);
+  assert.equal(evalVision('workflow_dispatch', false), false, '显式 false 必须保持 false');
 });
 
 test('配置 ANTHROPIC key 时 NEED_HUMAN 保持失败，不降级为只读检查', () => {

@@ -240,9 +240,8 @@ describe("Orchestrator 集成测试", () => {
     const analyzer = new AIAnalyzer({ noiseThreshold: 0.5 });
     const analysis = await analyzer.analyze(testResults);
 
-    // home 8.2% > 2 → regression
-    // profile 1.1% - 不在噪声阈值内（> 0.5），也不在回归模式中 → uncertain → expectedChanges
-    // 但 profile 不匹配回归 pattern，也不是已知变更，所以 → expectedChanges
+    // login-form 8.2% > 2 → regression
+    // sidebar 1.1% - 不在噪声阈值内（> 0.5），也不在回归模式中 → uncertain → needReview（人工）
     assert.ok(analysis.visual.regressions.some(r => r.testName === "login-form"));
     assert.equal(analysis.overallRisk, "HIGH");
 
@@ -277,5 +276,22 @@ describe("Orchestrator 集成测试", () => {
     });
     const visualDecision = analyzer.decide(visualAnalysis);
     assert.equal(visualDecision.action, "FIX_AND_RETRY");
+  });
+
+  it("Scenario 6: TestOrchestrator 注入 llmFn 后 analyzer.visualJudge 非空（视觉图可发出）", () => {
+    const { TestOrchestrator, AutonomousTestRunner } = require(BASE);
+    const llmFn = async () => JSON.stringify({ verdict: "expected", reasoning: "x", confidence: "high" });
+
+    const testRunner = new AutonomousTestRunner({ llmFn });
+    const orchestrator = new TestOrchestrator({
+      testRunner,
+      llmFn,
+      vision: true,
+      maxIterations: 1,
+      iterationDelay: 1,
+    });
+
+    assert.ok(orchestrator.analyzer.visualJudge, "analyzer.visualJudge 必须非空，否则 base64 图永远不会发给 LLM");
+    assert.equal(orchestrator.analyzer.visualJudge.llmFn, llmFn);
   });
 });
