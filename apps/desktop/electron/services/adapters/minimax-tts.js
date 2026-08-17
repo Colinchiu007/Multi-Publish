@@ -279,7 +279,7 @@ class MinimaxTtsAdapter extends BaseAdapter {
 
     // 异步 T2A 模型（speech-2.8-*/speech-02-*）必须走 t2a_async_v2 创建任务 → 查询 → 下载，
     // 同步端点 /t2a_v2 对异步模型返回 200 但不含 data.audio。
-    if (isAsyncT2aModel(effectiveModel)) {
+        if (isAsyncT2aModel(effectiveModel)) {
       return this._synthesizeAsync({ text: params.text, model: effectiveModel, voice, speed, pitch, outputFormat, subtitleType })
     }
 

@@ -632,7 +632,26 @@ class TtsVoiceCloneService {
    * - 新名称走 safeDisplayName 同款校验（1..128、无控制字符）；
    * - 名称允许重复（供应商不要求唯一），前端以「音色XXX」自动命名避免默认冲突。
    */
-  async renameClone(input) {
+    /**
+   * 根据 voiceId 查找克隆音色的原始音频样本路径（用于跨账号重新克隆）。
+   * 返回 { sampleStorage, name } 或 null。
+   */
+  async findCloneSamples(voiceId, providerId, model) {
+    if (!this._store || !voiceId) return null
+    const owner = this._getOwnerSubject ? this._getOwnerSubject() : null
+    if (!owner) return null
+    const key = cloneRegistrySettingKey(providerId, model)
+    let registry
+    try {
+      registry = this._store.getUserSetting(key, null, owner.subject)
+    } catch (_) { return null }
+    if (!registry || !Array.isArray(registry.voices)) return null
+    const clone = registry.voices.find(v => v.id === voiceId && v.deletionState === DELETE_STATES.ACTIVE)
+    if (!clone || !clone.sampleStorage) return null
+    return { sampleStorage: clone.sampleStorage, name: clone.name }
+  }
+
+async renameClone(input) {
     const request = this._normalizeRenameRequest(input);
     if (!request) return failure("VOICE_CLONE_INVALID_ARGUMENTS");
     const owner = this._captureOwner();

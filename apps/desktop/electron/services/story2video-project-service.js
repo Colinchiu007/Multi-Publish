@@ -274,6 +274,7 @@ class Story2VideoProjectService {
     this.assetGenerator = options.assetGenerator || null
     this.aiGenerator = options.aiGenerator || null
     this.serviceBus = options.serviceBus || null
+    this.ttsVoiceCloneService = options.ttsVoiceCloneService || null
     this.modelProviderManager = options.modelProviderManager || null
     this.generateSceneVideoStage = options.generateSceneVideoStage || generateAiSceneVideo
     this.estimateSceneSecondsStage = options.estimateSceneSecondsStage || estimateSceneSeconds
@@ -1058,8 +1059,62 @@ class Story2VideoProjectService {
       this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
       return saved
     } catch (error) {
-      // 克隆音色跨账号失效时，直接保留之前已生成的本地音频，用户无感
+      // 克隆音色跨账号失效时，尝试重新克隆（用保存的原始样本在当前账号重建）
       const prevSegment = previousProject.segments[index]
+      if (isClonedVoiceFailure(error) && this.ttsVoiceCloneService) {
+        try {
+          const voiceId = voice.voice_id
+          const providerId = voice.voice_provider
+          const model = voice.voice_model || 'speech-02-hd'
+          const samples = await this.ttsVoiceCloneService.findCloneSamples(voiceId, providerId, model)
+          if (samples && samples.sampleStorage && this.assetGenerator && typeof this.assetGenerator.generateTTS === 'function') {
+            const _fs = require('fs')
+            const _path = require('path')
+            const userDataPath = this.store && typeof this.store.getUserDataDir === 'function'
+              ? this.store.getUserDataDir() : null
+            if (userDataPath && samples.sampleStorage.relativeDir) {
+              const sampleDir = _path.join(userDataPath, samples.sampleStorage.relativeDir)
+              const sampleFiles = _fs.readdirSync(sampleDir).filter(ff => /\.(mp3|wav|m4a)$/i.test(ff))
+              if (sampleFiles.length > 0) {
+                const samplePath = _path.join(sampleDir, sampleFiles[0])
+                const audioBuffer = _fs.readFileSync(samplePath)
+                const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
+                const ttsAdapter = this.modelProviderManager && typeof this.modelProviderManager.getAdapter === 'function'
+                  ? this.modelProviderManager.getAdapter(providerId) : null
+                if (ttsAdapter && typeof ttsAdapter.cloneVoice === 'function') {
+                  const newVoice = await ttsAdapter.cloneVoice({ name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] })
+                  if (newVoice && newVoice.id) {
+                    const retryResult = await this.assetGenerator.generateTTS(segment.text, {
+                      ...voice, voice_id: newVoice.id, with_timestamps: true,
+                      index: segment.sourceIndex ?? index, runId: 'scene_audio_' + projectId,
+                    })
+                    const retryPath = retryResult?.data?.path || retryResult?.data?.audio_path || retryResult?.path
+                    if (retryPath) {
+                      const dest = _path.join(projectDir, segment.id + '_audio_tts_' + Date.now() + sourceExtension(retryPath, '.mp3'))
+                      const copied = this._copyRequired(retryPath, dest, 'audio')
+                      attemptFiles.add(copied)
+                      segment.audioPath = copied
+                      segment.audioMeta = safeAssetMeta(retryResult.data || retryResult)
+                      segment.error = null
+                      segment.status = 'completed'
+                      project.segments[index] = segment
+                      project.dirty = true
+                      project.updatedAt = new Date().toISOString()
+                      const saved = this._upsertProject(project)
+                      this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+                      if (this.log && this.log.info) this.log.info('[Story2Video] 重新克隆音色成功: ' + voiceId + ' -> ' + newVoice.id)
+                      return saved
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (_reCloneError) {
+          if (this.log && this.log.warn) this.log.warn('[Story2Video] 重新克隆音色失败，尝试保留现有音频', _reCloneError)
+        }
+      }
+      // 保留已有音频兜底
       if (isClonedVoiceFailure(error) && prevSegment && prevSegment.audioPath) {
         try {
           if (require('fs').existsSync(prevSegment.audioPath)) {
