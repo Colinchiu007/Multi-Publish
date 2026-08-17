@@ -135,14 +135,18 @@
       </div>
     </el-aside>
     <el-main>
+      <PageGuide v-if="route.meta.requiresAuth" :guide="pageGuide" />
       <router-view />
     </el-main>
   </el-container>
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from './stores/auth'
+import PageGuide from './components/PageGuide.vue'
+import { getPageGuide } from './pageGuides'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -150,6 +154,8 @@ const authStore = useAuthStore()
 function logout() {
   authStore.logout()
 }
+
+const pageGuide = computed(() => getPageGuide(route.name))
 </script>
 
 <style>
