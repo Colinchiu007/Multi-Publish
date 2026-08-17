@@ -13733,3 +13733,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 2（fail-closed 优于回显兜底）**：历史记录「重新生成优化词」曾因引擎 402 回显原文被当成功写入（fail-open）；BYOK 缺绑定一律 422 / 可操作错误，杜绝「看起来成功、实际没调用最新引擎」的假阳性。
 - **教训 3（缓存键必须含 provider 身份）**：`SqlitePromptCache.make_key` 原实现把 provider 追加写在了 `return` 之后（死代码），`CacheManager` L2 又漏传 provider——换 LLM 后仍命中旧缓存。凡是「上下文敏感」字段（含模型绑定）都必须进缓存键，并统一 L1/L2 同一身份。
 - **教训 4（新增 BYOK 边界要同步邻近测试）**：既有桌面契约测试未注入默认 LLM，fail-closed 后 9 个用例立即暴露——凡新增绑定/兜底类边界，邻近测试必须显式 mock 默认 LLM 或声明模板直出（creative_level<=3）。
+## Story2Video 可选翻译应隐藏在长合成阶段（2026-08-17）
+
+- **决策**：只读提示词翻译不应成为自动模式素材生成的前置依赖；最合适的并行窗口是已有长耗时 composeVideo，而不是在 optimize 阶段串行等待。
+- **数据边界**：并行任务只能把 JSON-safe 的 {`uiLocale, items: [{ index, prompt, translation }]`} 写入 context；Promise、定时器、Error 和 provider 原始响应不能进入 checkpoint。
+- **失败语义**：翻译是增强项，按单批超时/总预算 fail-open；compose 结果权威。空响应、非法 JSON、等于原文、代码围栏文本和缺项都必须降级为 `null`，不能展示模型垃圾输出。
+- **恢复语义**：超时不能删除 pending。已完成翻译与未完成项必须按 stable scene index 合并保存；恢复/重试只重发未完成项，不能用空结果覆盖既有翻译。
+- **交互边界**：manual 模式的候选面板依赖翻译，所以仍在 checkpoint 前完成；自动模式不新增等待条、重试按钮或技术错误文案，结果页只显示合法非空只读翻译。
+- **回归保护**：至少覆盖自动模式不提前调用 LLM、compose/翻译同时启动、乱序 index、部分响应、批次超时、compose 失败优先、manual checkpoint、英文跳过与 JSON 快照可序列化。

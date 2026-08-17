@@ -81,6 +81,7 @@ describe('story2video 编排契约', () => {
     })
     expect(stages.optimize.inputFrom).toBe('scene_context')
     expect(stages.compose.options).toMatchObject({
+      composeParallelTask: 'story2video_prompt_translation_compose',
       resolution: '720x1280',
       subtitleEnabled: false,
       bgmVolume: 0.5,

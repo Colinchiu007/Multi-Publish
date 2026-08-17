@@ -217,6 +217,7 @@ class StageExecutor {
     this.container = container || null;
     this.log = log || require('./logger');
     this._customExecutors = new Map();
+    this._composeParallelTasks = new Map();
     this._builtinExecutors = this._buildBuiltinExecutors();
   }
 
@@ -231,6 +232,18 @@ class StageExecutor {
     }
     this._customExecutors.set(stageType, fn);
     this.log.info('StageExecutor', 'Registered custom executor: ' + stageType);
+  }
+
+  /**
+   * 注册合成阶段的可选并行任务。工厂必须立即返回 { promise, apply?, timeoutMs? }，
+   * 以保证任务与 composeVideo 同时启动；Promise 不得写入流水线 context。
+   */
+  registerComposeParallelTask(taskType, factory) {
+    if (typeof taskType !== 'string' || !taskType.trim() || typeof factory !== 'function') {
+      throw new Error('Compose parallel task requires a type and factory');
+    }
+    this._composeParallelTasks.set(taskType, factory);
+    this.log.info('StageExecutor', 'Registered compose parallel task: ' + taskType);
   }
 
   /**
@@ -508,7 +521,7 @@ class StageExecutor {
     });
 
     // COMPOSE - 视频合成（基于 ffmpeg 的真实合成引擎）
-    map.set(STAGE_TYPES.COMPOSE, async ({ stage, params, context }) => {
+    map.set(STAGE_TYPES.COMPOSE, async ({ stage, params, context, runId }) => {
       const assets = _resolveInput(stage, params, context);
       const composeOptionKeys = [
         'transition', 'transitionDuration', 'imageEffect', 'subtitleEnabled', 'subtitleStyle',
@@ -516,6 +529,13 @@ class StageExecutor {
         'bgmPath', 'bgmVolume', 'voiceVolume', 'defaultSceneDuration', 'sceneDurationMode', 'minSceneDuration',
       ];
       const composeOptions = { ...(stage.options || {}) };
+      const parallelTaskType = typeof composeOptions.composeParallelTask === 'string'
+        ? composeOptions.composeParallelTask.trim()
+        : '';
+      delete composeOptions.composeParallelTask;
+      if (parallelTaskType && context && typeof context === 'object') {
+        delete context.compose_parallel_diagnostic;
+      }
       for (const key of composeOptionKeys) {
         if (params[key] !== undefined) composeOptions[key] = params[key];
       }
@@ -531,9 +551,139 @@ class StageExecutor {
           context.compose_progress = normalized;
         }
       };
-      const result = await self.serviceBus.composeVideo(assets, composeOptions);
+      const parallelAbortController = typeof AbortController === 'function' ? new AbortController() : null;
+      let parallelTaskSpec = null;
+      const parallelFactory = parallelTaskType ? self._composeParallelTasks.get(parallelTaskType) : null;
+      if (parallelFactory) {
+        try {
+          const candidate = parallelFactory({
+            runId,
+            stage,
+            params,
+            context,
+            assets,
+            signal: parallelAbortController ? parallelAbortController.signal : undefined,
+          });
+          parallelTaskSpec = candidate && typeof candidate.then === 'function'
+            ? { promise: candidate }
+            : candidate;
+          if (!parallelTaskSpec || typeof parallelTaskSpec.promise?.then !== 'function') {
+            parallelTaskSpec = null;
+          }
+        } catch (error) {
+          parallelTaskSpec = {
+            promise: Promise.resolve({
+              degraded: true,
+              reason: error && error.message ? error.message : String(error),
+            }),
+          };
+        }
+      } else if (parallelTaskType && context && typeof context === 'object') {
+        context.compose_parallel_diagnostic = {
+          taskType: parallelTaskType,
+          degraded: true,
+          reason: 'parallel task not registered',
+        };
+      }
+      const parallelPromise = parallelTaskSpec
+        ? Promise.resolve(parallelTaskSpec.promise).catch((error) => ({
+            degraded: true,
+            reason: error && error.message ? error.message : String(error),
+          }))
+        : null;
+      const taskTimeout = parallelTaskSpec && Number.isFinite(Number(parallelTaskSpec.timeoutMs))
+        ? Number(parallelTaskSpec.timeoutMs)
+        : Number((stage.options || {}).composeParallelTimeoutMs);
+      const parallelTimeoutMs = Number.isFinite(taskTimeout) ? Math.max(0, taskTimeout) : 60000;
+      let parallelTimeoutId;
+      const parallelDeadline = parallelPromise
+        ? new Promise((resolve) => {
+            parallelTimeoutId = setTimeout(() => resolve({ __timeout: true }), parallelTimeoutMs);
+          })
+        : null;
+      const parallelFinalizationPromise = parallelPromise
+        ? Promise.race([parallelPromise, parallelDeadline])
+        : null;
+      const cancelParallelTask = async () => {
+        if (parallelAbortController) parallelAbortController.abort();
+        if (parallelTaskSpec && typeof parallelTaskSpec.cancel === 'function') {
+          try { await parallelTaskSpec.cancel({ runId, stage, params, context, assets }); } catch (_) { /* best effort */ }
+        }
+      };
+      // compose 失败时立即返回 compose 错误；parallelPromise 已绑定 catch，避免后台任务产生未处理 rejection。
+      let result;
+      try {
+        result = await self.serviceBus.composeVideo(assets, composeOptions);
+      } catch (error) {
+        await cancelParallelTask();
+        if (parallelTimeoutId) clearTimeout(parallelTimeoutId);
+        throw error;
+      }
       // code === 0 或 code === undefined（直接返回数据的桥接）都算成功
       if (result && (result.code === 0 || result.code === undefined)) {
+        const composeOutput = result.data || result;
+        if (parallelFinalizationPromise) {
+          const parallelResult = await parallelFinalizationPromise;
+          const timedOut = parallelResult && parallelResult.__timeout === true;
+          if (timedOut) {
+            await cancelParallelTask();
+            if (context && typeof context === 'object') {
+              context.compose_parallel_diagnostic = {
+                taskType: parallelTaskType,
+                degraded: true,
+                reason: 'parallel task finalization timeout',
+              };
+            }
+            const apply = parallelTaskSpec && typeof parallelTaskSpec.apply === 'function'
+              ? parallelTaskSpec.apply
+              : null;
+            if (apply) {
+              try {
+                await apply({
+                  runId,
+                  stage,
+                  params,
+                  context,
+                  assets,
+                  composeOutput,
+                  result: { degraded: true, reason: 'parallel task finalization timeout', results: [] },
+                });
+              } catch (_) { /* 超时后的 fail-open 收尾不得覆盖 compose 成功 */ }
+            }
+          } else if (parallelResult && (typeof parallelTaskSpec.apply === 'function' || typeof parallelResult.apply === 'function')) {
+            try {
+              const apply = typeof parallelTaskSpec.apply === 'function' ? parallelTaskSpec.apply : parallelResult.apply;
+              await apply({
+                runId,
+                stage,
+                params,
+                context,
+                assets,
+                composeOutput,
+                result: parallelResult,
+              });
+            } catch (error) {
+              if (context && typeof context === 'object') {
+                context.compose_parallel_diagnostic = {
+                  taskType: parallelTaskType,
+                  degraded: true,
+                  reason: error && error.message ? error.message : String(error),
+                };
+              }
+            }
+          }
+          if (parallelResult && parallelResult.degraded === true && context && typeof context === 'object' && !context.compose_parallel_diagnostic) {
+            context.compose_parallel_diagnostic = {
+              taskType: parallelTaskType,
+              degraded: true,
+              reason: parallelResult.reason || 'parallel task degraded',
+            };
+          }
+          if (parallelResult && !timedOut && parallelResult.degraded !== true && context && typeof context === 'object') {
+            delete context.compose_parallel_diagnostic;
+          }
+        }
+        if (parallelTimeoutId) clearTimeout(parallelTimeoutId);
         // 5a：TTS 时长样本采集（best-effort，采集失败不影响流水线；为 5b 自适应校准铺路）
         try {
           collectStory2VideoTtsSamples({
@@ -546,6 +696,8 @@ class StageExecutor {
         } catch (_) { /* 采集为纯增强，异常静默 */ }
         return { success: true, output: result.data || result };
       }
+      await cancelParallelTask();
+      if (parallelTimeoutId) clearTimeout(parallelTimeoutId);
       // 引擎不可用时返回失败（不再用占位成功）
       return { success: false, error: (result && result.message) || 'Compose failed' };
     });

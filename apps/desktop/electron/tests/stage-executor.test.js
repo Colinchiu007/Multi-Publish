@@ -579,6 +579,214 @@ it('COMPOSE 阶段处理 code === 0 成功', async function () {
   eq(result.output.videoPath, '/tmp/out.mp4');
 });
 
+it('COMPOSE 可并行启动注册任务，并按 index 回填结果', async function () {
+  let composeStarted = false;
+  let parallelStarted = false;
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async (_assets) => {
+      composeStarted = true;
+      await Promise.resolve();
+      return {
+        code: 0,
+        data: {
+          videoPath: '/tmp/out.mp4',
+          segments: [{ index: 1, prompt: 'p1' }, { index: 0, prompt: 'p0' }],
+        },
+      };
+    }),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('story2video-prompt-translation', async () => {
+    parallelStarted = true;
+    return {
+      results: [{ index: 0, translation: '译文0' }, { index: 1, translation: '译文1' }],
+      degraded: false,
+      apply: ({ composeOutput, result }) => {
+        const translations = new Map(result.results.map((item) => [item.index, item.translation]));
+        composeOutput.segments.forEach((segment) => {
+          segment.promptTranslation = translations.get(segment.index) || null;
+        });
+      },
+    };
+  });
+  const result = await exec.execute({
+    runId: 'compose-parallel',
+    stage: {
+      name: 'compose',
+      type: STAGE_TYPES.COMPOSE,
+      inputFrom: 'assets',
+      options: { composeParallelTask: 'story2video-prompt-translation' },
+    },
+    params: {},
+    context: {
+      assets: { scenes: [] },
+      prompt_translations_pending: { uiLocale: 'zh', items: [] },
+    },
+  });
+  eq(result.success, true);
+  eq(composeStarted, true);
+  eq(parallelStarted, true);
+  expect(result.output.segments).toEqual([
+    { index: 1, prompt: 'p1', promptTranslation: '译文1' },
+    { index: 0, prompt: 'p0', promptTranslation: '译文0' },
+  ]);
+});
+
+it('COMPOSE 在合成未完成时已启动并行任务，并优先使用任务自身超时预算', async function () {
+  let parallelStarted = false;
+  let resolveParallel;
+  const parallelPromise = new Promise((resolve) => { resolveParallel = resolve; });
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => {
+      expect(parallelStarted).toBe(true);
+      resolveParallel({ results: [], degraded: false });
+      return { code: 0, data: { videoPath: '/tmp/out.mp4', segments: [] } };
+    }),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation-overlap', () => {
+    parallelStarted = true;
+    return { promise: parallelPromise, timeoutMs: 1, apply: vi.fn() };
+  });
+  const result = await exec.execute({
+    runId: 'compose-parallel-overlap',
+    stage: {
+      name: 'compose',
+      type: STAGE_TYPES.COMPOSE,
+      options: { composeParallelTask: 'translation-overlap', composeParallelTimeoutMs: 60000 },
+    },
+    params: {},
+    context: {},
+  });
+  expect(result.success).toBe(true);
+  expect(parallelStarted).toBe(true);
+  expect(bus.composeVideo).toHaveBeenCalledOnce();
+});
+
+it('COMPOSE 并行任务失败时保持合成成功并记录降级', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4', segments: [{ index: 0 }] } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation', async () => ({
+    degraded: true,
+    reason: 'translation timeout',
+    apply: ({ composeOutput }) => composeOutput.segments.forEach((segment) => { segment.promptTranslation = null; }),
+  }));
+  const context = {
+    assets: { scenes: [] },
+    prompt_translations_pending: { uiLocale: 'zh', items: [] },
+  };
+  const result = await exec.execute({
+    runId: 'compose-parallel-fail-open',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets', options: { composeParallelTask: 'translation' } },
+    params: {},
+    context,
+  });
+  eq(result.success, true);
+  eq(result.output.segments[0].promptTranslation, null);
+  eq(context.compose_parallel_diagnostic.degraded, true);
+});
+
+it('COMPOSE 并行任务不掩盖合成失败', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: -1, message: 'ffmpeg failed' })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation', async () => ({ results: [], degraded: false }));
+  const result = await exec.execute({
+    runId: 'compose-parallel-compose-fail',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'translation' } },
+    params: {},
+    context: { prompt_translations_pending: { uiLocale: 'zh', items: [] } },
+  });
+  eq(result.success, false);
+  ok(/ffmpeg failed/.test(result.error));
+});
+
+it('COMPOSE 配置了未注册并行任务时记录降级诊断但不阻塞合成', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4' } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const context = {};
+  const result = await exec.execute({
+    runId: 'compose-parallel-unregistered',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'missing-task' } },
+    params: {},
+    context,
+  });
+  expect(result.success).toBe(true);
+  expect(context.compose_parallel_diagnostic).toEqual({
+    taskType: 'missing-task',
+    degraded: true,
+    reason: 'parallel task not registered',
+  });
+});
+
+it('COMPOSE 成功重试后清除上一次并行降级诊断', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4' } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation-retry', () => ({
+    promise: Promise.resolve({ results: [], degraded: false }),
+  }));
+  const context = {
+    compose_parallel_diagnostic: { taskType: 'translation-retry', degraded: true, reason: 'previous timeout' },
+  };
+  const result = await exec.execute({
+    runId: 'compose-parallel-retry',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'translation-retry' } },
+    params: {},
+    context,
+  });
+  expect(result.success).toBe(true);
+  expect(context.compose_parallel_diagnostic).toBeUndefined();
+});
+
+it('COMPOSE 合成失败时取消仍在运行的并行任务', async function () {
+  const cancel = vi.fn(async () => {});
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: -1, message: 'ffmpeg failed' })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation-cancel', () => ({
+    promise: new Promise(() => {}),
+    cancel,
+  }));
+  const result = await exec.execute({
+    runId: 'compose-parallel-cancel',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'translation-cancel' } },
+    params: {},
+    context: {},
+  });
+  expect(result.success).toBe(false);
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+it('COMPOSE 并行任务超时后仍执行 fail-open 收尾', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4', segments: [{ index: 0 }] } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation-timeout', () => ({
+    promise: new Promise(() => {}),
+    timeoutMs: 1,
+    apply: ({ composeOutput }) => composeOutput.segments.forEach((segment) => { segment.promptTranslation = null; }),
+  }));
+  const context = { assets: {} };
+  const result = await exec.execute({
+    runId: 'compose-parallel-timeout',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'translation-timeout' } },
+    params: {},
+    context,
+  });
+  eq(result.success, true);
+  eq(result.output.segments[0].promptTranslation, null);
+  eq(context.compose_parallel_diagnostic.degraded, true);
+});
+
 it('COMPOSE 成功后采集 TTS 时长样本（Batch 5a，best-effort）', async function () {
   const saved = new Map();
   const store = {

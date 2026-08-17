@@ -5,6 +5,7 @@
  * 注册与 story2video-compose 流水线配套的自定义 STAGE_TYPES：
  *   - story2video_optimize: 逐场景视觉提示词统一走 prompt-engine（风格检测/改写/输出校验）
  *   - story2video_generate_assets: 并行生成图片 + TTS 音频
+ *   - story2video_prompt_translation_compose: 自动模式在合成期间并行翻译提示词
  *
  * 设计意图：
  *   split / compose / publish 阶段使用 StageExecutor 内置类型。
@@ -66,6 +67,10 @@ const STORY2VIDEO_STAGE_TYPES = {
   FINALIZE_ASSETS: 'story2video_finalize_assets',
 };
 
+const STORY2VIDEO_COMPOSE_PARALLEL_TASK = 'story2video_prompt_translation_compose';
+const PROMPT_TRANSLATION_BATCH_TIMEOUT_MS = 25000;
+const PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS = 60000;
+
 const MAX_ASSET_CONCURRENCY = 8;
 // 视频下载大小上限（与 story2video-paths MEDIA_RULES.video 一致：512MB）
 const MAX_VIDEO_FILE_BYTES = 512 * 1024 * 1024;
@@ -97,9 +102,9 @@ function getAiGenerator (pipelineEngine) {
  * fail-open：LLM 不可用/单场景失败 → 对应项 translation=null，不阻塞流水线。
  */
 async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
-  const items = (Array.isArray(prompts) ? prompts : []).map((prompt, index) => ({
-    index,
-    prompt: typeof prompt === 'string' ? prompt : '',
+  const items = (Array.isArray(prompts) ? prompts : []).map((value, position) => ({
+    index: value && typeof value === 'object' && Number.isInteger(value.index) ? value.index : position,
+    prompt: typeof value === 'string' ? value : (typeof value?.prompt === 'string' ? value.prompt : ''),
     translation: null,
   }))
   if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
@@ -169,6 +174,173 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
     }
   }
   return items
+}
+
+function isManualCreationMode (params, stage) {
+  return (params && (params.creationMode || params.story2videoTextConfig?.creation?.mode)) === 'manual' ||
+    (stage && stage.options && stage.options.creationMode === 'manual')
+}
+
+function createPromptTranslationPending (output, uiLocale) {
+  const source = Array.isArray(output) ? output : []
+  return {
+    uiLocale: String(uiLocale || '').trim().slice(0, 16),
+    items: source.map((item, index) => ({
+      index,
+      prompt: typeof item === 'string'
+        ? item.trim()
+        : (typeof item?.optimized_prompt === 'string'
+          ? item.optimized_prompt.trim()
+          : (typeof item?.prompt === 'string' ? item.prompt.trim() : '')),
+    })).filter((item) => item.prompt),
+  }
+}
+
+function applyPromptTranslationsToScenes (scenes, translations) {
+  const byIndex = new Map((Array.isArray(translations) ? translations : [])
+    .filter((item) => item && Number.isInteger(item.index))
+    .map((item) => [item.index, typeof item.translation === 'string' && item.translation.trim() ? item.translation.trim() : null]))
+  if (!Array.isArray(scenes)) return
+  for (const scene of scenes) {
+    if (!scene || !Number.isInteger(scene.index)) continue
+    scene.promptTranslation = byIndex.has(scene.index) ? byIndex.get(scene.index) : null
+  }
+}
+
+function mergePromptTranslationItems (items, existingItems) {
+  const existingByIndex = new Map((Array.isArray(existingItems) ? existingItems : [])
+    .filter((item) => item && Number.isInteger(item.index) && item.index >= 0 && typeof item.prompt === 'string' && item.prompt.trim())
+    .map((item) => [item.index, item]))
+  const seenIndexes = new Set()
+  return (Array.isArray(items) ? items : []).map((item) => {
+    if (!item || !Number.isInteger(item.index) || item.index < 0 || typeof item.prompt !== 'string' || !item.prompt.trim()) return null
+    if (seenIndexes.has(item.index)) return null
+    seenIndexes.add(item.index)
+    const existing = existingByIndex.get(item && item.index)
+    const translation = typeof existing?.translation === 'string' && existing.translation.trim()
+      ? existing.translation.trim().slice(0, 2000)
+      : (typeof item?.translation === 'string' && item.translation.trim() ? item.translation.trim().slice(0, 2000) : null)
+    return { index: item.index, prompt: item.prompt.trim(), translation }
+  }).filter(Boolean)
+}
+
+async function runBoundedPromptTranslation (aiGenerator, pending, log) {
+  const items = mergePromptTranslationItems(pending?.items, pending?.existingItems)
+  const resultItems = items.map((item) => ({ ...item }))
+  if (items.length === 0) return { results: resultItems, degraded: false }
+  const batchSize = 3
+  const startedAt = Date.now()
+  const batches = []
+  const untranslatedItems = items.filter((item) => !item.translation)
+  for (let offset = 0; offset < untranslatedItems.length; offset += batchSize) {
+    batches.push(untranslatedItems.slice(offset, offset + batchSize))
+  }
+  let degraded = false
+  for (const batch of batches) {
+    if (Date.now() - startedAt >= PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS) {
+      degraded = true
+      break
+    }
+    const remaining = Math.max(1, PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS - (Date.now() - startedAt))
+    const timeoutMs = Math.min(PROMPT_TRANSLATION_BATCH_TIMEOUT_MS, remaining)
+    let timeoutId
+    try {
+      const translationPromise = translatePromptsForLocale(
+        aiGenerator,
+        batch.map((item) => ({ index: item.index, prompt: item.prompt })),
+        pending.uiLocale,
+        log,
+      )
+      const timeoutPromise = new Promise((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), timeoutMs)
+      })
+      const translated = await Promise.race([translationPromise, timeoutPromise])
+      if (!translated) {
+        degraded = true
+        continue
+      }
+      if (!Array.isArray(translated) || translated.length !== batch.length || translated.some((item, index) => (
+        !item || item.index !== batch[index].index || item.prompt !== batch[index].prompt
+      ))) {
+        degraded = true
+        continue
+      }
+      for (let index = 0; index < batch.length; index += 1) {
+        const source = translated[index]
+        const target = resultItems.find((item) => item.index === batch[index].index)
+        if (target && source && typeof source.translation === 'string' && source.translation.trim()) {
+          target.translation = source.translation.trim().slice(0, 2000)
+        }
+      }
+    } catch (error) {
+      degraded = true
+      if (log && typeof log.warn === 'function') {
+        log.warn('Story2VideoStages', 'bounded prompt translation failed: ' + (error?.message || String(error)))
+      }
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }
+  if (resultItems.some((item) => !item.translation)) degraded = true
+  return {
+    results: resultItems,
+    degraded,
+    reason: degraded ? 'prompt translation incomplete or timed out' : null,
+  }
+}
+
+function registerPromptTranslationComposeTask (pipelineEngine) {
+  const stageExecutor = pipelineEngine && pipelineEngine.stageExecutor
+  if (!stageExecutor || typeof stageExecutor.registerComposeParallelTask !== 'function') return
+  stageExecutor.registerComposeParallelTask(STORY2VIDEO_COMPOSE_PARALLEL_TASK, ({ context }) => {
+    const pending = context && context.prompt_translations_pending
+    const existing = context && context.prompt_translations
+    const existingItems = existing && Array.isArray(existing.items) ? existing.items : null
+    if ((!pending || !Array.isArray(pending.items) || pending.items.length === 0) && !existingItems) return null
+    const aiGenerator = getAiGenerator(pipelineEngine)
+    const baseItems = Array.isArray(pending?.items) && pending.items.length > 0
+      ? pending.items
+      : existingItems
+    const mergedItems = mergePromptTranslationItems(baseItems, existingItems)
+    const translationPending = {
+      uiLocale: pending?.uiLocale || existing?.uiLocale || '',
+      items: mergedItems,
+      existingItems: mergedItems,
+    }
+    const promise = mergedItems.every((item) => typeof item.translation === 'string' && item.translation.trim())
+      ? Promise.resolve({ results: mergedItems, degraded: false })
+      : runBoundedPromptTranslation(aiGenerator, translationPending, pipelineEngine.log)
+    return {
+      promise,
+      timeoutMs: PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS + 5000,
+      apply: ({ context: runContext, composeOutput, result }) => {
+        const resultItems = Array.isArray(result && result.results) ? result.results : []
+        const fallbackItems = mergedItems
+        const items = mergePromptTranslationItems(
+          fallbackItems.length > 0 ? fallbackItems : resultItems,
+          resultItems,
+        )
+        const uiLocale = pending?.uiLocale || existing?.uiLocale || ''
+        if (runContext && typeof runContext === 'object') {
+          runContext.prompt_translations = { uiLocale, items }
+          if (result && result.degraded === true) {
+            runContext.prompt_translations_pending = { uiLocale, items }
+            runContext.prompt_translation_diagnostic = {
+              uiLocale,
+              degraded: true,
+              reason: result.reason || 'prompt translation incomplete or timed out',
+              itemCount: items.length,
+            }
+          } else {
+            delete runContext.prompt_translations_pending
+            delete runContext.prompt_translation_diagnostic
+          }
+        }
+        applyPromptTranslationsToScenes(runContext && runContext.generate_assets && runContext.generate_assets.scenes, items)
+        applyPromptTranslationsToScenes(composeOutput && composeOutput.segments, items)
+      },
+    }
+  })
 }
 
 /**
@@ -1493,6 +1665,7 @@ function registerStory2VideoStages(pipelineEngine) {
   }
 
   const registered = [];
+  registerPromptTranslationComposeTask(pipelineEngine);
 
   // ----------------------------------------------------------
   // SCENE_CONTEXT - 场景上下文增强中间层（分句 → 提示词优化之间的故事背景上下文）
@@ -1959,15 +2132,20 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 提示词本地语言翻译（2026-08-12）：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
       // fail-open：LLM 不可用/单场景失败 → translation=null，不阻塞流水线；上下文独立键存储，防数组往返丢失。
-      const uiLocale = (params && params.uiLocale) || (stage && stage.options && stage.options.uiLocale) || ''
+      const uiLocale = String(
+        (params && params.uiLocale) || (stage && stage.options && stage.options.uiLocale) || '',
+      ).trim().slice(0, 16)
       if (uiLocale && uiLocale !== 'en' && Array.isArray(output) && output.length > 0) {
         const prompts = output.map((item) => {
           if (typeof item === 'string') return item
           return (item && (item.optimized_prompt || item.prompt)) || ''
         })
-        const translations = await translatePromptsForLocale(getAiGenerator(pipelineEngine), prompts, uiLocale, pipelineEngine.log)
-        if (context && typeof context === 'object') {
-          context.prompt_translations = { uiLocale, items: translations }
+        if (isManualCreationMode(params, stage)) {
+          const translations = await translatePromptsForLocale(getAiGenerator(pipelineEngine), prompts, uiLocale, pipelineEngine.log)
+          if (context && typeof context === 'object') context.prompt_translations = { uiLocale, items: translations }
+        } else if (context && typeof context === 'object') {
+          context.prompt_translations_pending = createPromptTranslationPending(output, uiLocale)
+          delete context.prompt_translations
         }
       }
 
@@ -3004,4 +3182,8 @@ module.exports = {
   resolveSceneFinalFrame,
   optimizeVideoScenePrompts,
   translatePromptsForLocale,
+  createPromptTranslationPending,
+  applyPromptTranslationsToScenes,
+  runBoundedPromptTranslation,
+  STORY2VIDEO_COMPOSE_PARALLEL_TASK,
 };
