@@ -36,7 +36,8 @@ const routes = [
   { path: '/create', name: 'Create', component: () => import('@/views/CreateView.vue') },
   { path: '/create/pipeline', redirect: '/create' },
   { path: '/create/result', name: 'CreateResult', component: () => import('@/views/ResultView.vue') },
-  { path: '/create/history', name: 'CreateHistory', component: () => import('@/views/CreateHistory.vue') },
+  // 历史记录统一收敛到「视频创作」页的历史记录标签（/create?view=history），旧独立页地址做重定向
+  { path: '/create/history', redirect: '/create?view=history' },
   { path: '/cloud-publish', name: 'CloudPublish', component: () => import('@/views/CloudPublish.vue') },
   { path: '/intelligence', name: 'Intelligence', component: () => import('@/views/Intelligence.vue') },
   { path: '/calendar', name: 'Calendar', component: () => import('@/views/Calendar.vue') },

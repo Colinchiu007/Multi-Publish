@@ -22,7 +22,13 @@ vi.mock("@/api/publisher", () => ({
   story2videoRegenerateSceneSubtitle: vi.fn(),
   story2videoRegenerateSceneAudio: vi.fn(),
   story2videoRegenerateScenePrompt: vi.fn(),
+  pipelineGetRunContext: vi.fn(),
+  pipelinePauseRun: vi.fn(),
   videoProcess: vi.fn(),
+}));
+
+vi.mock("@/api/tts-voice-catalog", () => ({
+  getTtsVoiceCatalog: vi.fn(),
 }));
 
 const router = createRouter({ history: createWebHistory(), routes: [
@@ -89,14 +95,100 @@ describe("ResultView", () => {
     w.unmount();
   });
 
-  it("provides a back-to-pipeline-list button that navigates to /create", async () => {
-    const w = await createView();
+  it("provides a back button that navigates to /create?view=history（返回历史记录）", async () => {
+    const w = mount(ResultView, { global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => (key === "create.story2video.backToHistory" ? "返回" : key) } } });
     const back = w.find('[data-testid="back-to-pipeline-list"]');
     expect(back.exists()).toBe(true);
-    expect(back.text()).toContain("返回流水线列表");
+    expect(back.text()).toContain("返回");
     await back.trigger("click");
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(router.currentRoute.value.path).toBe("/create");
+    expect(router.currentRoute.value.query.view).toBe("history");
+  });
+
+  it("running editor shows pause and sends the exact runId, then refreshes to paused", async () => {
+    const api = await import("@/api/publisher");
+    api.pipelineGetRunContext
+      .mockResolvedValueOnce({ code: 0, data: { status: { status: "running" } } })
+      .mockResolvedValueOnce({ code: 0, data: { status: { status: "paused" } } });
+    api.pipelinePauseRun.mockResolvedValue({ code: 0, data: { status: "paused" } });
+    await router.push({ path: "/create/result", query: { runId: "run-editor-42" } });
+    const w = mount(ResultView, {
+      global: {
+        plugins: [router],
+        components: { UiButton },
+        mocks: { $t: (key) => key },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    const pause = w.find('[data-testid="result-pause-pipeline"]');
+    expect(w.vm.loading).toBe(false);
+    expect(pause.exists()).toBe(true);
+    await pause.trigger("click");
+    await nextTick();
+
+    expect(api.pipelinePauseRun).toHaveBeenCalledWith("run-editor-42");
+    expect(w.vm.pipelineRunStatus).toBe("paused");
+    expect(w.find('[data-testid="result-pause-pipeline"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("does not show pause for paused, completed, missing, or invalid run IDs", async () => {
+    const api = await import("@/api/publisher");
+    const cases = [
+      { query: { runId: "run-paused" }, status: "paused" },
+      { query: { runId: "run-completed" }, status: "completed" },
+      { query: {}, status: null },
+      { query: { runId: "x".repeat(257) }, status: "running" },
+      { query: { runId: ["run-array"] }, status: "running" },
+    ];
+
+    for (const testCase of cases) {
+      api.pipelineGetRunContext.mockReset();
+      api.pipelineGetRunContext.mockResolvedValue({
+        code: 0,
+        data: testCase.status ? { status: { status: testCase.status } } : null,
+      });
+      await router.push({ path: "/create/result", query: testCase.query });
+      const w = mount(ResultView, {
+        global: { plugins: [router], components: { UiButton }, mocks: { $t: (key) => key } },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await nextTick();
+      expect(w.find('[data-testid="result-pause-pipeline"]').exists()).toBe(false);
+      if (testCase.query.runId && typeof testCase.query.runId === "string" && testCase.query.runId.length <= 256) {
+        expect(api.pipelineGetRunContext).toHaveBeenCalledWith(testCase.query.runId);
+      } else {
+        expect(api.pipelineGetRunContext).not.toHaveBeenCalled();
+      }
+      w.unmount();
+    }
+  });
+
+  it("failed pause keeps the running state and reports the operation failure", async () => {
+    const api = await import("@/api/publisher");
+    api.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" } } });
+    api.pipelinePauseRun.mockResolvedValue({ code: -1, message: "pause unavailable" });
+    await router.push({ path: "/create/result", query: { runId: "run-pause-failed" } });
+    const w = mount(ResultView, {
+      global: {
+        plugins: [router],
+        components: { UiButton },
+        mocks: { $t: (key) => key },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    await w.find('[data-testid="result-pause-pipeline"]').trigger("click");
+    await nextTick();
+
+    expect(api.pipelinePauseRun).toHaveBeenCalledWith("run-pause-failed");
+    expect(w.vm.pipelineRunStatus).toBe("running");
+    expect(w.vm.story2videoNotificationDialog.visible).toBe(true);
+    expect(w.find('[data-testid="result-pause-pipeline"]').exists()).toBe(true);
+    w.unmount();
   });
 
   it("shows empty state when no video path", async () => {
@@ -701,8 +793,8 @@ describe("ResultView", () => {
     expect(w.findAll('[data-testid="segment-policy-flag"]')).toHaveLength(3);
     const flagged = w.findAll(".segment-item").filter(item => item.classes().includes("segment-policy-flagged"));
     expect(flagged).toHaveLength(3);
-    expect(flagged[0].text()).toContain("分段 49");
-    expect(flagged[2].text()).toContain("分段 74");
+    expect(flagged[0].find(".segment-header strong").text()).toBe("story2video.sceneMaterial.segmentTitle");
+    expect(flagged[2].find(".segment-header strong").text()).toBe("story2video.sceneMaterial.segmentTitle");
     w.unmount();
   });
 
@@ -719,7 +811,7 @@ describe("ResultView", () => {
     // 仅十进制正整数生效：2→segments[1]；0x10/1e2/007 忽略
     expect(w.findAll('[data-testid="segment-policy-flag"]')).toHaveLength(1);
     expect(w.findAll(".segment-policy-flagged")).toHaveLength(1);
-    expect(w.findAll(".segment-item")[1].text()).toContain("分段 2");
+    expect(w.findAll(".segment-item")[1].find(".segment-header strong").text()).toBe("story2video.sceneMaterial.segmentTitle");
     w.unmount();
   });
 
@@ -808,7 +900,7 @@ describe("ResultView", () => {
     w.unmount();
   });
 
-  it("历史详情渲染每场景 3 个素材槽位（图1/图2/视频）并展示选中态", async () => {
+  it("视频任务编辑页渲染每场景 3 个素材槽位（图1/图2/视频）并展示选中态", async () => {
     const w = await createView();
     w.vm.projectId = "p1";
     w.vm.segments = [{
@@ -1144,7 +1236,7 @@ describe("ResultView", () => {
     w.vm.projectId = "p1";
     w.vm.segments = [{ id: "s1", status: "completed" }];
     await nextTick();
-    const saveBtn = w.findAll("button").find(b => b.text().includes("保存分段"));
+    const saveBtn = w.find('[data-testid="save-segments-button"]');
     const recomposeBtn = w.find('[data-testid="recompose-final-button"]');
     expect(saveBtn.attributes("disabled")).toBeUndefined();
     expect(recomposeBtn.attributes("disabled")).toBeUndefined();
@@ -1355,6 +1447,175 @@ describe("ResultView", () => {
       expect(api.story2videoUpdateSegments).not.toHaveBeenCalled();
       expect(guardRouter.currentRoute.value.path).toBe("/create");
       await navigation.catch(() => {});
+      w.unmount();
+    });
+  });
+
+  describe("流水线页面 UX 统一（2026-08-17）", () => {
+    it("无成片（无 videoPath 但 projectId + segments）任务仍渲染分段编辑区，不再被空态拦截", async () => {
+      const w = await createView();
+      expect(w.find('[data-testid="segment-edit-section"]').exists()).toBe(false);
+      w.vm.projectId = "p1";
+      w.vm.segments = [{ id: "s1", text: "旁白", prompt: "PA", status: "failed" }];
+      await nextTick();
+      expect(w.find('[data-testid="segment-edit-section"]').exists()).toBe(true);
+      expect(w.text()).not.toContain("没有可预览的视频");
+      expect(w.find('[data-testid="result-action-bar"]').exists()).toBe(true);
+      w.unmount();
+    });
+
+    it("顶部「视频预览」下方显示任务标题（发布标题优先，缺失时回退原文案前 60 字）", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.project = { projectId: "p1", title: "我的纪录片标题" };
+      w.vm.segments = [{ id: "s1", text: "旁白", status: "completed" }];
+      await nextTick();
+      expect(w.find('[data-testid="result-task-title"]').text()).toContain("我的纪录片标题");
+
+      w.vm.project = { projectId: "p1" };
+      w.vm.segments = [{ id: "s1", text: "这是一段非常长的原文案用于验证标题回退显示功能测试场景，内容需要填充超过六十个字符的长度界限以触发截断逻辑，以下是补充文本", status: "completed" }];
+      await nextTick();
+      const title = w.find('[data-testid="result-task-title"]').text();
+      expect(title.length).toBeLessThanOrEqual(61);
+      expect(title).toContain("…");
+      w.unmount();
+    });
+
+    it("分段快捷定位：数字跳转 + 上一条/下一条，越界禁用", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [
+        { id: "s1", text: "A", status: "completed" },
+        { id: "s2", text: "B", status: "completed" },
+        { id: "s3", text: "C", status: "completed" },
+      ];
+      await nextTick();
+      const bar = w.find('[data-testid="segment-jump-bar"]');
+      expect(bar.exists()).toBe(true);
+      const numbers = bar.findAll(".segment-jump-number");
+      expect(numbers).toHaveLength(3);
+      const prev = w.find('[data-testid="segment-jump-prev"]');
+      const next = w.find('[data-testid="segment-jump-next"]');
+      expect(prev.attributes("disabled")).toBeDefined();
+      expect(next.attributes("disabled")).toBeUndefined();
+
+      await numbers[2].trigger("click");
+      await nextTick();
+      expect(w.vm.activeSegmentIndex).toBe(2);
+      expect(next.attributes("disabled")).toBeDefined();
+
+      await w.find('[data-testid="segment-jump-prev"]').trigger("click");
+      await nextTick();
+      expect(w.vm.activeSegmentIndex).toBe(1);
+      w.unmount();
+    });
+
+    it("音色目录可用时渲染下拉（音色），不可用时回退文本框", async () => {
+      const voiceApi = await import("@/api/tts-voice-catalog");
+      voiceApi.getTtsVoiceCatalog.mockResolvedValue({
+        code: 0,
+        data: { voices: [{ id: "voice-a", name: "青年男声" }, { id: "voice-b", name: "温柔女声" }] },
+      });
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.project = { projectId: "p1", options: { voiceProvider: "minimax-tts", voiceModel: "speech-2.8-turbo" } };
+      w.vm.segments = [{ id: "s1", voiceId: "voice-a", status: "completed" }];
+      await w.vm.loadVoiceCatalog();
+      await nextTick();
+      const select = w.find('[data-testid="segment-voice-id-select"]');
+      expect(select.exists()).toBe(true);
+      expect(w.find('[data-testid="segment-voice-id-input"]').exists()).toBe(false);
+      expect(select.findAll("option").length).toBeGreaterThanOrEqual(3);
+
+      // 目录失败 → 回退文本框
+      voiceApi.getTtsVoiceCatalog.mockResolvedValue({ code: -1, message: "VOICE_CATALOG_UNAVAILABLE" });
+      await w.vm.loadVoiceCatalog();
+      await nextTick();
+      expect(w.find('[data-testid="segment-voice-id-select"]').exists()).toBe(false);
+      expect(w.find('[data-testid="segment-voice-id-input"]').exists()).toBe(true);
+      expect(w.find('[data-testid="voice-catalog-error"]').exists()).toBe(true);
+      w.unmount();
+    });
+
+    it("语速为拖动条（range 0.5-2），音色 dropdown 选中写回 voiceId 并标记 dirty", async () => {
+      const voiceApi = await import("@/api/tts-voice-catalog");
+      voiceApi.getTtsVoiceCatalog.mockResolvedValue({
+        code: 0,
+        data: { voices: [{ id: "voice-a", name: "青年男声" }] },
+      });
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.project = { projectId: "p1", options: { voiceProvider: "minimax-tts", voiceModel: "speech-2.8-turbo" } };
+      w.vm.segments = [{ id: "s1", voiceId: "voice-a", voiceSpeed: 1, status: "completed" }];
+      await w.vm.loadVoiceCatalog();
+      await nextTick();
+      const range = w.find('[data-testid="segment-voice-speed-range"]');
+      expect(range.exists()).toBe(true);
+      expect(range.attributes("type")).toBe("range");
+      expect(range.attributes("min")).toBe("0.5");
+      expect(range.attributes("max")).toBe("2");
+      expect(range.attributes("step")).toBe("0.1");
+      expect(w.vm.segmentVoiceSpeedText(w.vm.segments[0])).toBe("1.0");
+
+      const select = w.find('[data-testid="segment-voice-id-select"]');
+      await select.setValue("voice-a");
+      expect(w.vm.segments[0].voiceId).toBe("voice-a");
+      expect(w.vm.segmentsDirty).toBe(true);
+      w.unmount();
+    });
+
+    it("旁白操作区不再渲染「重试图片」「重试视频」按钮", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [{ id: "s1", imagePath: "C:/img.png", status: "completed" }];
+      await nextTick();
+      const text = w.text();
+      expect(text).not.toContain("重试图片");
+      expect(text).not.toContain("重试视频");
+      expect(w.text()).toContain("替换旁白");
+      expect(w.text()).toContain("下载图片");
+      w.unmount();
+    });
+
+    it("分段标题（分段 N）位于卡片顶部，即分段图片之上", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [{ id: "s1", imageUrl: "media://img.png", status: "completed" }];
+      await nextTick();
+      const header = w.find(".segment-item .segment-header");
+      const thumb = w.find(".segment-item .segment-thumb");
+      expect(header.exists()).toBe(true);
+      expect(thumb.exists()).toBe(true);
+      // segment-header 必须是卡片第一个子元素（第 1 段标题在图片上方）
+      const item = w.find(".segment-item");
+      expect(item.element.firstElementChild.className).toContain("segment-header");
+      w.unmount();
+    });
+
+    it("保存分段/重新合成/再次合成视频移入底部固定操作条", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [{ id: "s1", status: "completed" }];
+      await nextTick();
+      const bar = w.find('[data-testid="result-action-bar"]');
+      expect(bar.exists()).toBe(true);
+      expect(bar.find('[data-testid="save-segments-button"]').exists()).toBe(true);
+      expect(bar.find('[data-testid="recompose-button"]').exists()).toBe(true);
+      expect(bar.find('[data-testid="recompose-final-button"]').exists()).toBe(true);
+      // 分段编辑 section-heading 内不再有这三个按钮
+      expect(w.find(".project-section .section-heading [data-testid='save-segments-button']").exists()).toBe(false);
+      w.unmount();
+    });
+
+    it("视频提示词下方不再渲染独立的生成 AI 视频按钮（已并入场景素材区）", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.segments = [{ id: "s1", videoPrompt: "VP", status: "completed" }];
+      await nextTick();
+      const buttons = w.findAll('[data-testid="generate-ai-video-button"]');
+      expect(buttons).toHaveLength(1);
+      // 该按钮位于场景素材操作区
+      expect(w.find('[data-testid="scene-material-section"] [data-testid="generate-ai-video-button"]').exists()).toBe(true);
       w.unmount();
     });
   });

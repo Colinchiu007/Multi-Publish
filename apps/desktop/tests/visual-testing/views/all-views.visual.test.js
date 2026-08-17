@@ -54,7 +54,7 @@ const viewTests = [
   routeView('create-editor', '/create', '.cohere-main h1:has-text("视频创作")'),
   routeView('create-pipeline-redirect', '/create/pipeline', '.cohere-main h1:has-text("视频创作")', '页面主标题', '/create'),
   routeView('create-result', '/create/result', '.cohere-main h1:has-text("视频预览")'),
-  routeView('create-history', '/create/history', '.cohere-main h1:has-text("创作历史")'),
+  routeView('create-history', '/create/history', '.history-status-tabs', '历史记录标签', '/create?view=history'),
   routeView('cloud-publish', '/cloud-publish', '.cohere-main .page-title:has-text("云端发布")'),
   routeView('intelligence', '/intelligence', '.cohere-main .page-title:has-text("内容情报")'),
   routeView('calendar', '/calendar', '.cohere-main .page-title:has-text("发布日历")'),

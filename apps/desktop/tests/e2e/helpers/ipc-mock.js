@@ -49,6 +49,22 @@
     providerCategories: modelProviderFixtures.categories || [],
     comments: (window.__fixtures && window.__fixtures.comments && window.__fixtures.comments.comments) || [],
     schedulerTasks: (window.__fixtures && window.__fixtures.comments && window.__fixtures.comments.schedulerTasks) || [],
+    story2videoProjects: [{
+      projectId: 'e2e-story2video-project',
+      title: 'E2E 视频任务',
+      pipeline: 'story2video-compose',
+      sourceText: '用于验证历史任务直接进入视频任务编辑页的 E2E 文案。',
+      createdAt: '2026-07-10T10:00:00Z',
+      updatedAt: '2026-07-10T10:05:00Z',
+      segments: [{
+        id: 'e2e-scene-0',
+        index: 0,
+        text: '用于验证历史任务直接进入视频任务编辑页的 E2E 文案。',
+        status: 'completed',
+        duration: 5,
+      }],
+      options: {},
+    }],
     // 运行时状态
     offline: false,
     licensed: { isPro: false, trial: true, trialDaysLeft: 7 },
@@ -514,9 +530,28 @@
     pipelineStatus: makeHandler('pipelineStatus', async () => ok({ status: 'idle' })),
     pipelineAdvance: makeHandler('pipelineAdvance', async () => ok(true)),
     pipelineHistory: makeHandler('pipelineHistory', async () => ok([
-      { pipelineName: '热点流水线', status: 'completed', startedAt: '2026-07-10T10:00:00Z', completedAt: '2026-07-10T10:05:00Z', stages: [{ name: '采集', status: 'completed' }, { name: 'AI写作', status: 'completed' }] }
+      {
+        id: 'e2e-story2video-project',
+        projectId: 'e2e-story2video-project',
+        pipeline: 'story2video-compose',
+        status: 'completed',
+        createdAt: '2026-07-10T10:00:00Z',
+        updatedAt: '2026-07-10T10:05:00Z',
+        endedAt: '2026-07-10T10:05:00Z',
+        activeMs: 300000,
+        stages: [{ name: 'split', status: 'completed' }, { name: 'compose', status: 'completed' }],
+      }
     ])),
     pipelineFetch: makeHandler('pipelineFetch', async () => ok(null)),
+    story2videoListProjects: makeHandler('story2videoListProjects', async () => ok(state.story2videoProjects)),
+    story2videoGetProject: makeHandler('story2videoGetProject', async (projectId) => {
+      const project = state.story2videoProjects.find(item => item.projectId === projectId)
+      return project ? ok(project) : fail('项目不存在')
+    }),
+    story2videoDeleteProject: makeHandler('story2videoDeleteProject', async (projectId) => {
+      state.story2videoProjects = state.story2videoProjects.filter(item => item.projectId !== projectId)
+      return ok(true)
+    }),
 
     // Story2Video 媒体导入（preload 桥接：getPathForFile 返回字符串，导入通道返回 { code, data: { path } }）
     getPathForFile: () => 'C:/mock/e2e-video.mp4',

@@ -1,14 +1,26 @@
 <template>
   <div class="result-page">
     <div class="page-header">
-      <button class="back-to-list" data-testid="back-to-pipeline-list" @click="$router.push('/create')">
-        ← 返回流水线列表
+      <button class="back-to-list" data-testid="back-to-pipeline-list" @click="goBackToHistory">
+        ← {{ tOrKey('create.story2video.backToHistory') }}
       </button>
       <div>
         <h1>视频预览</h1>
-        <p v-if="projectId" class="page-subtitle">项目 {{ projectId }}</p>
+        <p v-if="taskTitle" class="page-subtitle" data-testid="result-task-title">{{ taskTitle }}</p>
+        <p v-if="projectId" class="page-meta">{{ tOrKey('create.history.projectId') }}: {{ projectId }}</p>
       </div>
-      <span v-if="project?.dirty" class="status-badge">有未合成修改</span>
+      <div class="result-header-status">
+        <span v-if="project?.dirty" class="status-badge">有未合成修改</span>
+        <span v-if="pipelineRunStatus" class="status-badge pipeline-run-status" data-testid="result-pipeline-status">{{ pipelineRunStatusLabel }}</span>
+        <UiButton
+          v-if="pipelineRunId && pipelineRunStatus === 'running'"
+          size="sm"
+          variant="secondary"
+          data-testid="result-pause-pipeline"
+          :disabled="pipelineRunActionBusy"
+          @click="pausePipelineRun"
+        >⏸ {{ tOrKey('create.story2video.pause') }}</UiButton>
+      </div>
     </div>
 
     <!-- BGM 被跳过提示（由 CreateView 完成态透传 query.bgmSkipped/bgmReason） -->
@@ -20,12 +32,12 @@
       <p>加载中...</p>
     </div>
 
-    <div v-else-if="!videoPath" class="empty-state">
+    <div v-else-if="!videoPath && !hasEditableContent" class="empty-state">
       <p>没有可预览的视频</p>
       <UiButton @click="$router.push('/create')">去创作</UiButton>
     </div>
 
-    <div v-else class="video-section">
+    <div v-if="videoPath" class="video-section">
       <video
         ref="videoPlayer"
         :src="videoSrc"
@@ -141,7 +153,7 @@
       <audio :src="audioSrc" controls class="audio-player"></audio>
     </section>
 
-    <section v-if="projectId && segments.length" class="project-section">
+    <section v-if="projectId && segments.length" class="project-section" data-testid="segment-edit-section">
       <div class="section-heading">
         <div>
           <h2>分段编辑</h2>
@@ -150,23 +162,50 @@
             <span v-if="segmentsDirty" class="segments-unsaved-chip" data-testid="segments-unsaved-chip">{{ tOrKey('story2video.sceneMaterial.unsavedChanges') }}</span>
           </p>
         </div>
-        <div class="section-actions">
-          <UiButton size="sm" variant="secondary" :disabled="saving || anySegmentBusy" @click="saveSegments">
-            {{ saving ? '保存中...' : '保存分段' }}
-          </UiButton>
-          <UiButton size="sm" :disabled="recomposing || anySegmentBusy" @click="recomposeProject">
-            {{ recomposing ? '合成中...' : '重新合成' }}
-          </UiButton>
-          <UiButton size="sm" variant="secondary" :disabled="recomposing || anySegmentBusy" data-testid="recompose-final-button" :title="$t('story2video.sceneMaterial.recomposeFinalHint')" @click="recomposeProject">
-            {{ recomposing ? $t('story2video.sceneMaterial.recomposingFinal') : $t('story2video.sceneMaterial.recomposeFinal') }}
-          </UiButton>
+      </div>
+
+      <!-- 分段快捷定位：数字跳转 + 上一条/下一条（2026-08-17 UX 统一） -->
+      <div v-if="segments.length > 1" class="segment-jump-bar" data-testid="segment-jump-bar">
+        <span class="segment-jump-label">{{ tOrKey('story2video.sceneMaterial.segmentJumpLabel') }}</span>
+        <div class="segment-jump-numbers">
+          <button
+            v-for="(segment, index) in segments"
+            :key="segment.id"
+            type="button"
+            class="segment-jump-number"
+            :class="{ active: index === activeSegmentIndex }"
+            :aria-label="$t('story2video.sceneMaterial.segmentJumpAriaLabel', { n: index + 1 })"
+            @click="scrollToSegment(index)"
+          >{{ index + 1 }}</button>
+        </div>
+        <div class="segment-jump-nav">
+          <UiButton size="sm" variant="ghost" :disabled="activeSegmentIndex <= 0" data-testid="segment-jump-prev" @click="jumpSegmentBy(-1)">{{ tOrKey('story2video.sceneMaterial.segmentJumpPrev') }}</UiButton>
+          <UiButton size="sm" variant="ghost" :disabled="activeSegmentIndex >= segments.length - 1" data-testid="segment-jump-next" @click="jumpSegmentBy(1)">{{ tOrKey('story2video.sceneMaterial.segmentJumpNext') }}</UiButton>
         </div>
       </div>
 
       <div class="segment-list">
-        <article v-for="(segment, index) in segments" :key="segment.id" class="segment-item" :class="{ 'segment-policy-flagged': isPolicyFlagScene(index) }">
+        <article
+          v-for="(segment, index) in segments"
+          :key="segment.id"
+          class="segment-item"
+          :class="{ 'segment-policy-flagged': isPolicyFlagScene(index) }"
+          :ref="el => setSegmentItemRef(el, index)"
+        >
+          <div class="segment-header">
+            <strong>{{ tOrKey('story2video.sceneMaterial.segmentTitle', { n: index + 1 }) }}</strong>
+            <span class="segment-status" :class="segment.status">{{ segmentStatusLabel(segment.status) }}</span>
+            <span v-if="segment.status === 'failed' && segment.error" class="segment-status-reason" data-testid="segment-status-reason">{{ segmentStatusReason(segment) }}</span>
+            <span v-if="isPolicyFlagScene(index)" class="segment-policy-flag" data-testid="segment-policy-flag">{{ $t('story2video.sceneMaterial.scenePolicyFlag') }}</span>
+            <div class="segment-order">
+              <button type="button" :disabled="index === 0" :title="tOrKey('story2video.sceneMaterial.segmentMoveUp')" @click="moveSegment(index, -1)">{{ tOrKey('story2video.sceneMaterial.segmentMoveUp') }}</button>
+              <button type="button" :disabled="index === segments.length - 1" :title="tOrKey('story2video.sceneMaterial.segmentMoveDown')" @click="moveSegment(index, 1)">{{ tOrKey('story2video.sceneMaterial.segmentMoveDown') }}</button>
+              <button type="button" :disabled="segments.length === 1" :title="tOrKey('story2video.sceneMaterial.segmentDelete')" @click="removeSegment(index)">{{ tOrKey('story2video.sceneMaterial.segmentDelete') }}</button>
+            </div>
+          </div>
+
           <div v-if="segment.imageUrl" class="segment-thumb">
-            <img :src="segment.imageUrl" :alt="'分段 ' + (index + 1) + ' 图片'" />
+            <img :src="segment.imageUrl" :alt="tOrKey('story2video.sceneMaterial.segmentImageAlt', { n: index + 1 })" />
           </div>
           <div class="scene-material-section" data-testid="scene-material-section">
             <div class="scene-material-heading">
@@ -200,20 +239,17 @@
               <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="generateSceneImage(segment.id)">
                 {{ segmentBusyKind(segment.id) === 'genImage' ? $t('story2video.sceneMaterial.generating') : $t('story2video.sceneMaterial.generateImage') }}
               </UiButton>
-              <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="generateSceneVideo(segment.id)">
-                {{ segmentBusyKind(segment.id) === 'genVideo' ? $t('story2video.sceneMaterial.generating') : $t('story2video.sceneMaterial.generateVideo') }}
+              <!-- 场景素材区【生成 AI 视频】：用视频优化词生成 AI 视频；无优化词时禁用并提示（2026-08-17 UX 统一） -->
+              <UiButton
+                size="sm"
+                variant="secondary"
+                data-testid="generate-ai-video-button"
+                :disabled="isSegmentBusy(segment.id) || !segment.videoPrompt"
+                :title="segment.videoPrompt ? '' : $t('story2video.sceneMaterial.aiVideoNeedsPromptHint')"
+                @click="generateSceneAiVideo(segment.id)"
+              >
+                {{ segmentBusyKind(segment.id) === 'aiVideo' ? $t('story2video.sceneMaterial.generatingAiVideo') : $t('story2video.sceneMaterial.generateAiVideo') }}
               </UiButton>
-            </div>
-          </div>
-          <div class="segment-header">
-            <strong>分段 {{ index + 1 }}</strong>
-            <span class="segment-status" :class="segment.status">{{ segmentStatusLabel(segment.status) }}</span>
-            <span v-if="segment.status === 'failed' && segment.error" class="segment-status-reason" data-testid="segment-status-reason">{{ segmentStatusReason(segment) }}</span>
-            <span v-if="isPolicyFlagScene(index)" class="segment-policy-flag" data-testid="segment-policy-flag">{{ $t('story2video.sceneMaterial.scenePolicyFlag') }}</span>
-            <div class="segment-order">
-              <button type="button" :disabled="index === 0" title="上移" @click="moveSegment(index, -1)">上移</button>
-              <button type="button" :disabled="index === segments.length - 1" title="下移" @click="moveSegment(index, 1)">下移</button>
-              <button type="button" :disabled="segments.length === 1" title="删除分段" @click="removeSegment(index)">删除</button>
             </div>
           </div>
 
@@ -250,16 +286,6 @@
             <UiButton size="sm" variant="secondary" data-testid="regenerate-video-prompt-button" :disabled="isSegmentBusy(segment.id)" @click="regenerateScenePrompt(segment.id, 'video')">
               {{ segmentBusyKind(segment.id) === 'promptVideo' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateVideoPrompt') }}
             </UiButton>
-            <UiButton
-              size="sm"
-              variant="secondary"
-              data-testid="generate-ai-video-button"
-              :disabled="isSegmentBusy(segment.id) || !segment.videoPrompt"
-              :title="segment.videoPrompt ? '' : $t('story2video.sceneMaterial.aiVideoNeedsPromptHint')"
-              @click="generateSceneAiVideo(segment.id)"
-            >
-              {{ segmentBusyKind(segment.id) === 'aiVideo' ? $t('story2video.sceneMaterial.generatingAiVideo') : $t('story2video.sceneMaterial.generateAiVideo') }}
-            </UiButton>
           </div>
           <div v-if="showPromptTranslation(segment)" class="segment-prompt-translation" data-testid="segment-prompt-translation">
             <span class="segment-prompt-translation-label">{{ promptTranslationLabel }}</span>
@@ -271,11 +297,25 @@
             <div class="segment-voice-grid">
               <label class="field-label">
                 <span>{{ $t('story2video.sceneMaterial.voiceIdLabel') }}</span>
-                <input v-model="segment.voiceId" data-testid="segment-voice-id-input" :placeholder="$t('story2video.sceneMaterial.voiceIdPlaceholder')" @input="segmentsDirty = true" />
+                <!-- 音色下拉：数据源为项目语音上下文（voiceProvider/voiceModel）的音色目录；目录不可用时回退文本框（2026-08-17 UX 统一） -->
+                <select
+                  v-if="segmentVoiceSelectable"
+                  v-model="segment.voiceId"
+                  data-testid="segment-voice-id-select"
+                  @change="segmentsDirty = true"
+                >
+                  <option value="">{{ $t('story2video.sceneMaterial.voiceIdPlaceholder') }}</option>
+                  <option v-for="voice in segmentVoiceOptions" :key="voice.id" :value="voice.id" :disabled="voice.invalid">
+                    {{ voice.invalid ? voice.name + $t('story2video.sceneMaterial.voiceInvalidSuffix') : voice.name }}
+                  </option>
+                  <option v-if="segment.voiceId && !voiceOptionIds.has(segment.voiceId)" :value="segment.voiceId">{{ segment.voiceId }}</option>
+                </select>
+                <input v-else v-model="segment.voiceId" data-testid="segment-voice-id-input" :placeholder="$t('story2video.sceneMaterial.voiceIdPlaceholder')" @input="segmentsDirty = true" />
+                <span v-if="voiceCatalogError" class="field-hint field-hint-warning" data-testid="voice-catalog-error">{{ tOrKey('story2video.sceneMaterial.voiceCatalogUnavailable') }}</span>
               </label>
               <label class="field-label">
-                <span>{{ $t('story2video.sceneMaterial.voiceSpeedLabel') }}</span>
-                <input v-model.number="segment.voiceSpeed" data-testid="segment-voice-speed-input" type="number" step="0.1" min="0.5" max="2" @input="segmentsDirty = true" />
+                <span>{{ $t('story2video.sceneMaterial.voiceSpeedLabel') }}: {{ segmentVoiceSpeedText(segment) }}x</span>
+                <input v-model.number="segment.voiceSpeed" data-testid="segment-voice-speed-range" type="range" min="0.5" max="2" step="0.1" @input="segmentsDirty = true" />
               </label>
               <label class="field-label">
                 <span>{{ $t('story2video.sceneMaterial.voicePitchLabel') }}</span>
@@ -303,8 +343,6 @@
                 @change="replaceSegmentAudio(segment.id, $event)"
               />
             </label>
-            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'image')">{{ segmentBusyKind(segment.id) === 'image' ? '重试中...' : '重试图片' }}</UiButton>
-            <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="retrySegment(segment.id, 'video')">{{ segmentBusyKind(segment.id) === 'video' ? '重试中...' : '重试视频' }}</UiButton>
             <UiButton v-if="segment.imagePath" size="sm" variant="ghost" @click="downloadArtifact(segment.imagePath, segmentName(index, 'image', segment.imagePath))">下载图片</UiButton>
             <UiButton v-if="segment.audioPath" size="sm" variant="ghost" @click="downloadArtifact(segment.audioPath, segmentName(index, 'audio', segment.audioPath))">下载音频</UiButton>
             <UiButton v-if="segment.videoPath" size="sm" variant="ghost" @click="downloadArtifact(segment.videoPath, segmentName(index, 'video', segment.videoPath))">下载视频</UiButton>
@@ -312,6 +350,25 @@
         </article>
       </div>
     </section>
+
+    <!-- 底部固定操作条（2026-08-17 UX 统一）：保存分段/重新合成/再次合成视频 不随页面滚动 -->
+    <div v-if="projectId && segments.length" class="result-action-bar" data-testid="result-action-bar">
+      <div class="result-action-bar-status">
+        <span v-if="segmentsDirty" class="segments-unsaved-chip">{{ tOrKey('story2video.sceneMaterial.unsavedChanges') }}</span>
+        <span v-if="saving || recomposing" class="action-bar-progress">{{ saving ? tOrKey('story2video.sceneMaterial.saving') : tOrKey('story2video.sceneMaterial.recomposing') }}</span>
+      </div>
+      <div class="result-action-bar-buttons">
+        <UiButton :disabled="saving || anySegmentBusy" data-testid="save-segments-button" @click="saveSegments">
+          {{ saving ? tOrKey('story2video.sceneMaterial.saving') : tOrKey('story2video.sceneMaterial.saveSegments') }}
+        </UiButton>
+        <UiButton variant="secondary" :disabled="recomposing || anySegmentBusy" data-testid="recompose-button" @click="recomposeProject">
+          {{ recomposing ? tOrKey('story2video.sceneMaterial.recomposing') : tOrKey('story2video.sceneMaterial.recompose') }}
+        </UiButton>
+        <UiButton variant="secondary" :disabled="recomposing || anySegmentBusy" data-testid="recompose-final-button" :title="$t('story2video.sceneMaterial.recomposeFinalHint')" @click="recomposeProject">
+          {{ recomposing ? $t('story2video.sceneMaterial.recomposingFinal') : $t('story2video.sceneMaterial.recomposeFinal') }}
+        </UiButton>
+      </div>
+    </div>
 
   </div>
 
@@ -345,6 +402,7 @@ import UiButton from '../components/UiButton.vue'
 import UiModal from '../components/UiModal.vue'
 import { getAppLocale } from '@/i18n'
 import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
+import { getTtsVoiceCatalog } from '@/api/tts-voice-catalog'
 import {
   story2videoExportZip,
   story2videoCreateShareUrl,
@@ -364,6 +422,8 @@ import {
   story2videoRegenerateSceneSubtitle,
   story2videoRegenerateSceneAudio,
   story2videoRegenerateScenePrompt,
+  pipelineGetRunContext,
+  pipelinePauseRun,
   videoProcess,
 } from '@/api/publisher'
 
@@ -398,17 +458,34 @@ export default {
       story2videoNotificationDialog: { visible: false, messageKey: '', messageParams: {} },
       degradedAssetsWarningProjectId: null,
       sceneMaterialPreview: { visible: false, kind: '', url: '', label: '', title: '' },
+      // 分段快捷定位（2026-08-17 UX 统一）
+      activeSegmentIndex: -1,
+      segmentItemRefs: [],
+      // 音色目录（2026-08-17 UX 统一：音色下拉）
+      voiceCatalogLoading: false,
+      voiceCatalogError: '',
+      voiceCatalogOptions: [],
+      pipelineRunId: null,
+      pipelineRunStatus: null,
+      pipelineRunActionBusy: false,
     }
   },
   async mounted() {
     const projectId = this.$route?.query?.project
     const filePath = this.$route?.query?.path
-    if (projectId) await this.loadProject(String(projectId))
-    else if (filePath) await this.loadVideoPath(String(filePath))
-    else this.loading = false
+    this.pipelineRunId = this.normalizeRunId(this.$route?.query?.runId)
+    const loadTasks = []
+    if (projectId) loadTasks.push(this.loadProject(String(projectId)))
+    else if (filePath) loadTasks.push(this.loadVideoPath(String(filePath)))
+    if (this.pipelineRunId) loadTasks.push(this.loadPipelineRunStatus(this.pipelineRunId))
+    try {
+      if (loadTasks.length > 0) await Promise.all(loadTasks)
+    } finally {
+      this.loading = false
+    }
   },
   // 未保存修改离开守卫：dirty 时挂起导航并弹确认（hold-next，next 只调用一次），
-  // 避免用户直接返回历史/流水线列表时静默丢失编辑（2026-08-16）。
+  // 避免用户直接返回历史记录/流水线启动页时静默丢失编辑（2026-08-16）。
   beforeRouteLeave (to, from, next) {
     if (!this.segmentsDirty) { next(); return }
     this.pendingLeaveNext = next
@@ -422,6 +499,40 @@ export default {
     }
   },
   computed: {
+    // 有可编辑内容：projectId + segments 存在即渲染分段编辑区，无成片（failed/paused/未合成）任务也可编辑（2026-08-17）
+    hasEditableContent() {
+      return Boolean(this.projectId && Array.isArray(this.segments) && this.segments.length)
+    },
+    // 任务标题回退链：发布标题 → 原文案前 60 字 → 项目 ID（2026-08-17）
+    taskTitle() {
+      const title = this.project && (this.project.title || this.project.publishTitle)
+      if (title) return title
+      const firstText = (Array.isArray(this.segments) ? this.segments : []).find(segment => segment && segment.text)?.text
+      if (firstText) {
+        const text = String(firstText)
+        return text.length > 60 ? text.slice(0, 59) + '…' : text
+      }
+      return this.projectId || ''
+    },
+    // 项目语音上下文：优先项目选项，其次首个带 voiceProvider/voiceModel 的分段（音色目录查询入参）
+    voiceContext() {
+      const fromOptions = this.project && this.project.options ? this.project.options : {}
+      const first = (Array.isArray(this.segments) ? this.segments : []).find(segment => segment && (segment.voiceProvider || segment.voiceModel))
+      return {
+        providerId: fromOptions.voiceProvider || (first && first.voiceProvider) || '',
+        model: fromOptions.voiceModel || (first && first.voiceModel) || '',
+      }
+    },
+    voiceOptionIds() {
+      return new Set((this.voiceCatalogOptions || []).map(voice => voice.id).filter(Boolean))
+    },
+    segmentVoiceOptions() {
+      return Array.isArray(this.voiceCatalogOptions) ? this.voiceCatalogOptions : []
+    },
+    // 目录可用（上下文完整 + 加载成功且非空）时用下拉；否则回退文本框输入
+    segmentVoiceSelectable() {
+      return Boolean(this.voiceContext.providerId && this.voiceContext.model && !this.voiceCatalogLoading && this.segmentVoiceOptions.length > 0)
+    },
     // 历史记录提示词翻译（2026-08-12）：非 en 界面且分段存在翻译时展示只读文案
     promptTranslationLabel() {
       const locale = getAppLocale()
@@ -499,11 +610,120 @@ export default {
     story2videoNotificationDialogUiText() {
       return getStory2VideoNotificationUiText()
     },
+    pipelineRunStatusLabel() {
+      if (!this.pipelineRunStatus) return ''
+      return this.tOrKey('create.history.statuses.' + this.pipelineRunStatus)
+    },
   },
   methods: {
+    normalizeRunId(value) {
+      if (typeof value !== 'string') return ''
+      const normalized = value.trim()
+      return normalized && normalized.length <= 256 ? normalized : ''
+    },
+    async loadPipelineRunStatus(runId = this.pipelineRunId) {
+      const normalizedRunId = this.normalizeRunId(runId)
+      if (!normalizedRunId) return false
+      try {
+        const result = await pipelineGetRunContext(normalizedRunId)
+        if (this.pipelineRunId !== normalizedRunId) return false
+        if (result?.code !== 0 || !result.data) {
+          this.pipelineRunStatus = null
+          return false
+        }
+        const status = result.data.status && typeof result.data.status === 'object'
+          ? result.data.status.status
+          : result.data.status
+        this.pipelineRunStatus = typeof status === 'string' && status.trim() ? status.trim() : null
+        return Boolean(this.pipelineRunStatus)
+      } catch (_) {
+        if (this.pipelineRunId === normalizedRunId) this.pipelineRunStatus = null
+        return false
+      }
+    },
+    async pausePipelineRun() {
+      if (!this.pipelineRunId || this.pipelineRunStatus !== 'running' || this.pipelineRunActionBusy) return false
+      this.pipelineRunActionBusy = true
+      try {
+        const result = await pipelinePauseRun(this.pipelineRunId)
+        if (result?.code !== 0) {
+          this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: result?.message })
+          return false
+        }
+        await this.loadPipelineRunStatus(this.pipelineRunId)
+        return this.pipelineRunStatus === 'paused'
+      } catch (error) {
+        this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: error?.message })
+        return false
+      } finally {
+        this.pipelineRunActionBusy = false
+      }
+    },
+    // 返回历史记录（2026-08-17 术语统一：视频任务编辑页返回 → 历史记录标签）
+    goBackToHistory() {
+      this.$router.push({ path: '/create', query: { view: 'history' } })
+    },
+    // 分段快捷定位（2026-08-17 UX 统一）：分段卡片 ref 收集 + 数字跳转 + 上一条/下一条
+    setSegmentItemRef(el, index) {
+      if (el) this.segmentItemRefs[index] = el
+    },
+    scrollToSegment(index) {
+      if (!Number.isInteger(index) || index < 0 || index >= this.segments.length) return
+      this.activeSegmentIndex = index
+      this.$nextTick(() => {
+        const el = Array.isArray(this.segmentItemRefs) ? this.segmentItemRefs[index] : null
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      })
+    },
+    jumpSegmentBy(offset) {
+      const base = this.activeSegmentIndex >= 0 ? this.activeSegmentIndex : 0
+      const target = base + Number(offset)
+      this.scrollToSegment(target)
+    },
+    segmentVoiceSpeedText(segment) {
+      const speed = Number(segment && segment.voiceSpeed)
+      return Number.isFinite(speed) && speed > 0 ? speed.toFixed(1) : '1.0'
+    },
+    // 音色目录加载：项目语音上下文缺失或目录不可用时保持空目录，UI 自动回退文本框（2026-08-17）
+    async loadVoiceCatalog() {
+      const { providerId, model } = this.voiceContext
+      if (!providerId || !model) {
+        this.voiceCatalogOptions = []
+        this.voiceCatalogError = ''
+        return
+      }
+      this.voiceCatalogLoading = true
+      try {
+        const result = await getTtsVoiceCatalog({ providerId, model })
+        const data = result && result.code === 0 && result.data && typeof result.data === 'object' ? result.data : null
+        if (!data) {
+          this.voiceCatalogOptions = []
+          this.voiceCatalogError = String((result && result.message) || 'voice catalog unavailable')
+          return
+        }
+        const normalize = voice => {
+          if (!voice || typeof voice !== 'object') return null
+          const id = String(voice.id || voice.voiceId || voice.voice_id || '').trim()
+          if (!id) return null
+          return { id, name: String(voice.name || voice.displayName || voice.display_name || id), invalid: voice.invalid === true }
+        }
+        this.voiceCatalogOptions = [
+          ...(Array.isArray(data.voices) ? data.voices.map(normalize).filter(Boolean) : []),
+          ...(Array.isArray(data.invalidVoices) ? data.invalidVoices.map(normalize).filter(Boolean) : []),
+        ]
+        this.voiceCatalogError = ''
+      } catch (_error) {
+        this.voiceCatalogOptions = []
+        this.voiceCatalogError = 'voice catalog load failed'
+      } finally {
+        this.voiceCatalogLoading = false
+      }
+    },
     // 防御式翻译：无 i18n 上下文（如部分单测 mount）时回落 key，生产环境正常返回本地化文案
-    tOrKey(key) {
-      return typeof this.$t === 'function' ? this.$t(key) : key
+    tOrKey(key, params) {
+      return typeof this.$t === 'function' ? this.$t(key, params) : key
     },
     segmentStatusLabel(status) {
       const key = ['completed', 'failed', 'processing', 'pending'].includes(status) ? status : 'completed'
@@ -866,6 +1086,9 @@ export default {
         this.projectId = project.projectId
         this.segments = Array.isArray(project.segments) ? project.segments.map(segment => ({ ...segment })) : []
         this.segmentsDirty = false
+        this.activeSegmentIndex = -1
+        this.segmentItemRefs = []
+        this.loadVoiceCatalog()
         await this.refreshSegmentImageUrls()
         this.audioPath = project.audioPath || null
         try {
@@ -1271,12 +1494,15 @@ export default {
 </script>
 
 <style scoped>
-.result-page { padding: 24px; max-width: 1040px; margin: 0 auto; }
+/* 视频任务编辑页：整页 flex 纵向布局；编辑内容为固定操作条预留底部安全空间。 */
+.result-page { padding: 24px 24px calc(var(--result-action-bar-space, 88px) + 24px); max-width: 1040px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .page-header h1 { font-size: 24px; font-weight: 700; margin: 0; }
 .back-to-list { align-self: flex-start; border: none; background: none; color: var(--primary); font-size: 14px; cursor: pointer; padding: 4px 8px; border-radius: 6px; margin-right: auto; }
 .back-to-list:hover { background: var(--border-light); }
-.page-subtitle { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
+.page-subtitle { margin: 4px 0 0; color: var(--text); font-size: 15px; font-weight: 600; }
+.page-meta { margin: 2px 0 0; color: var(--text-muted); font-size: 12px; }
+.result-header-status { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .status-badge { padding: 5px 8px; border-radius: 4px; background: var(--warning-bg); color: var(--warning); font-size: 12px; }
 .bgm-skipped-notice { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin-bottom: 16px; color: var(--banner-info-color); background: var(--banner-info-bg); border: 1px solid var(--banner-info-border); border-radius: 8px; font-size: 13px; line-height: 1.5; }
 .loading-state, .empty-state { text-align: center; padding: 60px 0; color: var(--text-muted); }
@@ -1292,6 +1518,20 @@ export default {
 .section-heading h2 { margin: 0; font-size: 18px; }
 .section-heading p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
 .segments-unsaved-chip { display: inline-block; margin-left: 10px; padding: 2px 8px; border-radius: 10px; background: #fdf6ec; color: #e6a23c; font-size: 12px; font-weight: 500; }
+/* 分段快捷定位条（2026-08-17 UX 统一） */
+.segment-jump-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.segment-jump-label { color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.segment-jump-numbers { display: flex; flex-wrap: wrap; gap: 6px; }
+.segment-jump-number { min-width: 28px; height: 28px; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 12px; cursor: pointer; }
+.segment-jump-number:hover { border-color: var(--primary); color: var(--primary); }
+.segment-jump-number.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+.segment-jump-nav { display: flex; gap: 8px; margin-left: auto; }
+/* 视频任务编辑页底部操作条：固定在主工作区底部，不跟随页面内容滚动。 */
+.result-action-bar { position: fixed; left: var(--yixiaoer-sidebar-width, 200px); right: 0; bottom: 0; z-index: 110; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; min-height: var(--result-action-bar-space, 88px); margin: 0; padding: 12px max(20px, calc((100vw - var(--yixiaoer-sidebar-width, 200px) - 1040px) / 2 + 24px)); border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
+.result-action-bar-status { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.result-action-bar-status .segments-unsaved-chip { margin-left: 0; }
+.result-action-bar-status .action-bar-progress { color: var(--text-muted); font-size: 12px; }
+.result-action-bar-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
 .audio-player { width: 100%; height: 42px; }
 .trim-range-panel { display: grid; gap: 8px; margin-bottom: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .trim-range-values { display: flex; justify-content: space-between; color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: 12px; }
@@ -1352,13 +1592,19 @@ export default {
 .segment-file-action input { display: none; }
 
 @media (max-width: 720px) {
-  .result-page { padding: 16px; }
+  .result-page { padding: 16px 16px calc(var(--result-action-bar-space-mobile, 196px) + 16px); }
   .section-heading, .segment-header { align-items: flex-start; flex-direction: column; }
   .trim-controls { grid-template-columns: 1fr; }
   .segment-order { margin-left: 0; }
   .actions > *, .section-actions > * { flex: 1 1 auto; }
   .scene-material-slots { grid-template-columns: 1fr; }
   .segment-voice-grid { grid-template-columns: 1fr; }
+  .result-header-status { width: 100%; justify-content: flex-start; }
+  .result-action-bar { left: 68px; min-height: var(--result-action-bar-space-mobile, 196px); padding: 10px 14px; align-items: flex-start; }
+  .result-action-bar-status, .result-action-bar-buttons { width: 100%; }
+  .result-action-bar-buttons > * { flex: 1 1 100%; }
+}
+@media (min-width: 721px) and (max-width: 900px) {
+  .result-action-bar { left: 68px; padding-inline: max(20px, calc((100vw - 68px - 1040px) / 2 + 24px)); }
 }
 </style>
-

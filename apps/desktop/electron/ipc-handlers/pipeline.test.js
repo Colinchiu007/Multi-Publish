@@ -63,6 +63,8 @@ function createMockDeps(overrides = {}) {
       getStatus: vi.fn(),
       advance: vi.fn(),
       getHistory: vi.fn(() => []),
+      deleteRun: vi.fn(),
+      pauseRun: vi.fn(),
       fetchPipelineFromBackend: vi.fn(),
       startOrchestrated: vi.fn(),
       executeStage: vi.fn(),
@@ -95,6 +97,10 @@ const NEW_PROTECTED_CHANNELS = [
   ['pipeline:registerPipeline', 'registerPipeline', [{ name: 'custom', stages: [] }]],
   ['pipeline:registerStageExecutor', 'registerStageExecutor', ['render', vi.fn()]],
 ]
+
+// delete-run / pause-run 返回合同不同于通用写操作（data 为 { deleted, runId } / { runId, checkpoint } 而非原样回传），单独维护
+const PAUSE_RUN_CHANNEL = ['pipeline:pause-run', 'pauseRun', ['run-9']]
+const DELETE_RUN_CHANNEL = ['pipeline:delete-run', 'deleteRun', ['run-9']]
 
 const READ_PROTECTED_CHANNELS = [
   ['pipeline:list', 'listPipelines', []],
@@ -136,7 +142,7 @@ describe('pipeline IPC 写操作 sender 校验', () => {
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
   })
 
-  it.each(NEW_PROTECTED_CHANNELS)(
+  it.each([...NEW_PROTECTED_CHANNELS, DELETE_RUN_CHANNEL])(
     '%s 拒绝外部网页调用且不执行 pipelineEngine.%s',
     async (channel, method, args) => {
       const deps = createMockDeps()
@@ -152,7 +158,7 @@ describe('pipeline IPC 写操作 sender 校验', () => {
 })
 
 describe('pipeline IPC 查询 sender 校验', () => {
-  it.each([...NEW_PROTECTED_CHANNELS, ...READ_PROTECTED_CHANNELS])(
+  it.each([...NEW_PROTECTED_CHANNELS, PAUSE_RUN_CHANNEL, DELETE_RUN_CHANNEL, ...READ_PROTECTED_CHANNELS])(
     '%s 拒绝外部网页调用且不执行 pipelineEngine.%s',
     async (channel, method, args) => {
       const deps = createMockDeps()
@@ -177,6 +183,66 @@ describe('pipeline IPC 查询 sender 校验', () => {
     await expect(ipcMain._get('pipeline:getRunContext')(TRUSTED_EVENT, 42)).resolves.toEqual({
       code: -2, message: '缺少或非法 runId',
     })
+    await expect(ipcMain._get('pipeline:delete-run')(TRUSTED_EVENT, '')).resolves.toEqual({
+      code: -2, message: '缺少或非法 runId',
+    })
+    expect(deps.pipelineEngine.deleteRun).not.toHaveBeenCalled()
+    await expect(ipcMain._get('pipeline:pause-run')(TRUSTED_EVENT, '')).resolves.toEqual({
+      code: -2, message: '缺少或非法 runId',
+    })
+    expect(deps.pipelineEngine.pauseRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('pipeline:pause-run 暂停指定运行', () => {
+  it('可信来源暂停成功返回 checkpoint 载荷', async () => {
+    const deps = createMockDeps()
+    deps.pipelineEngine.pauseRun.mockReturnValue({ success: true, runId: 'run-9', checkpoint: { type: 'manual_pause' } })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:pause-run')(TRUSTED_EVENT, 'run-9')
+
+    expect(deps.pipelineEngine.pauseRun).toHaveBeenCalledWith('run-9')
+    expect(result).toEqual({ code: 0, data: { success: true, runId: 'run-9', checkpoint: { type: 'manual_pause' } } })
+  })
+
+  it('引擎拒绝（非运行中/不存在）时返回错误码与原因', async () => {
+    const deps = createMockDeps()
+    deps.pipelineEngine.pauseRun.mockReturnValue({ success: false, error: '仅运行中的流水线可暂停' })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:pause-run')(TRUSTED_EVENT, 'run-9')
+
+    expect(deps.pipelineEngine.pauseRun).toHaveBeenCalledWith('run-9')
+    expect(result.code).toBe(-1)
+    expect(result.message).toContain('仅运行中的流水线可暂停')
+  })
+})
+
+describe('pipeline:delete-run 删除历史运行记录', () => {
+  it('可信来源删除成功返回 deleted 载荷', async () => {
+    const deps = createMockDeps()
+    deps.pipelineEngine.deleteRun.mockReturnValue({ success: true, runId: 'run-9' })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:delete-run')(TRUSTED_EVENT, 'run-9')
+
+    expect(deps.pipelineEngine.deleteRun).toHaveBeenCalledWith('run-9')
+    expect(result).toEqual({ code: 0, data: { deleted: true, runId: 'run-9' } })
+  })
+
+  it('引擎拒绝（运行中/不存在）时返回错误码与原因', async () => {
+    const deps = createMockDeps()
+    deps.pipelineEngine.deleteRun.mockReturnValue({ success: false, error: '运行中的流水线不能删除' })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:delete-run')(TRUSTED_EVENT, 'run-10')
+
+    expect(result).toEqual({ code: -1, message: '运行中的流水线不能删除' })
   })
 })
 
