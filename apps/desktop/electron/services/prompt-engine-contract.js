@@ -25,6 +25,7 @@ const {
   clampNumber,
   extractOptimizedBase,
   resolveTieredMaxLength,
+  normalizeOptimizationStrategy,
   filterPlausibleNegativePrompt,
   normalizePositiveConstraints,
   scorePrompt,
@@ -115,6 +116,12 @@ function buildPromptEngineOptimizeRequest(prompt, options = {}) {
     : (options.autoDetectStyle !== undefined ? Boolean(options.autoDetectStyle) : true)
 
   const creativeLevel = normalizeCreativeLevel(options.creative_level ?? options.creativeLevel)
+  const hasOptimizationStrategy = options.optimization_strategy !== undefined ||
+    options.optimizationStrategy !== undefined
+  const optimizationStrategy = hasOptimizationStrategy
+    ? normalizeOptimizationStrategy(options.optimization_strategy ?? options.optimizationStrategy)
+    : 'llm'
+  const hasBypassCache = options.bypass_cache !== undefined || options.bypassCache !== undefined
 
   // 技术底座基线：默认拼入 prompt 后置（Higgsfield 实证），可显式关闭实现零回归
   let promptText = String(prompt || '')
@@ -137,6 +144,9 @@ function buildPromptEngineOptimizeRequest(prompt, options = {}) {
     num_candidates: normalizeNumCandidates(options.num_candidates ?? options.numCandidates),
     auto_detect_style: autoDetectStyle,
   }
+
+  request.optimization_strategy = optimizationStrategy
+  if (hasBypassCache) request.bypass_cache = Boolean(options.bypass_cache ?? options.bypassCache)
 
   if (styleRaw) {
     request.style = normalizePromptEngineStyle(styleRaw)

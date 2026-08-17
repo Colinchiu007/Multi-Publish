@@ -7,6 +7,7 @@ const {
   PROMPT_ENGINE_STYLES,
   normalizePromptEnginePlatform,
   normalizePromptEngineStyle,
+  normalizeOptimizationStrategy,
   assertNoSensitiveContext,
 } = require('./prompt-engine-contract')
 
@@ -39,6 +40,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     platform: 'generic',
     style: 'realistic',
     creativeLevel: 5,
+    optimizationStrategy: 'llm',
     maxLength: 2000,
     numCandidates: 1,
     autoDetectStyle: true,
@@ -362,6 +364,15 @@ function normalizeStory2VideoTextParams(params = {}) {
     platform: normalizePromptEnginePlatform(firstDefined(own(optimizeInput, 'platform'), params.promptPlatform)),
     style: normalizePromptEngineStyle(firstDefined(own(optimizeInput, 'style'), params.promptStyle, params.style)),
     creativeLevel: numberValue(firstDefined(own(optimizeInput, 'creativeLevel'), params.creativeLevel), 5, 'optimize.creativeLevel', 1, 10),
+    optimizationStrategy: normalizeOptimizationStrategy((() => {
+      const value = firstDefined(
+        own(optimizeInput, 'optimizationStrategy'),
+        own(optimizeInput, 'optimization_strategy'),
+        params.optimizationStrategy,
+        params.optimization_strategy,
+      )
+      return value === undefined || value === null || value === '' ? 'llm' : value
+    })()),
     maxLength: numberValue(firstDefined(own(optimizeInput, 'maxLength'), params.maxPromptLength), 2000, 'optimize.maxLength', 50, 2000, true),
     numCandidates: numberValue(firstDefined(own(optimizeInput, 'numCandidates'), params.numCandidates), 1, 'optimize.numCandidates', 1, 5, true),
     autoDetectStyle: booleanValue(firstDefined(own(optimizeInput, 'autoDetectStyle'), params.autoDetectStyle), true),
@@ -571,6 +582,7 @@ function normalizeStory2VideoTextParams(params = {}) {
       platform: optimize.platform,
       style: optimize.style,
       creative_level: optimize.creativeLevel,
+      optimization_strategy: optimize.optimizationStrategy,
       max_length: optimize.maxLength,
       num_candidates: optimize.numCandidates,
       auto_detect_style: optimize.autoDetectStyle,

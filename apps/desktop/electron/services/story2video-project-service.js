@@ -82,6 +82,19 @@ function safeAssetMeta (value) {
   return Object.values(meta).some(Boolean) ? meta : null
 }
 
+function safePromptOptimizationMeta (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const meta = {}
+  if (value.strategy_used === 'llm' || value.strategy_used === 'template') meta.strategy_used = value.strategy_used
+  if (value.key_source === 'caller' || value.key_source === 'none') meta.key_source = value.key_source
+  if (typeof value.cache_hit === 'boolean') meta.cache_hit = value.cache_hit
+  if (typeof value.model_used === 'string' && value.model_used.trim()) meta.model_used = safeText(value.model_used, 160)
+  if (typeof value.caller === 'string' && value.caller.trim()) meta.caller = safeText(value.caller, 80)
+  if (typeof value.platform === 'string' && value.platform.trim()) meta.platform = safeText(value.platform, 80)
+  if (typeof value.style === 'string' && value.style.trim()) meta.style = safeText(value.style, 80)
+  return Object.keys(meta).length > 0 ? meta : null
+}
+
 function safeSubtitleBlocks (value) {
   if (!Array.isArray(value)) return []
   return value.slice(0, 200)
@@ -128,6 +141,8 @@ function safeVoicePitch (value) {
 // 避免把 story2videoTextConfig.config.optimize 中的 stage 元键（maxRetries/concurrency/uiLocale 等）透传。
 const OPTIMIZE_STAGE_REQUEST_KEYS = Object.freeze(new Set([
   'platform', 'style', 'creative_level', 'creativeLevel',
+  'optimization_strategy', 'optimizationStrategy',
+  'bypass_cache', 'bypassCache',
   'negative_prompt', 'negativePrompt', 'num_candidates', 'numCandidates',
   'auto_detect_style', 'autoDetectStyle', 'quality_baseline',
 ]))
@@ -148,8 +163,8 @@ function safeOptimizeStageOptions (value) {
  * 2026-08-16），防止引擎「错误兜底回显原文」（如 402）被当作成功写入分段；
  * 错误优先顺序对齐 prompt-engine-kernel.extractOptimizedBase（error → detail）。
  */
-function extractOptimizedPrompt (result) {
-  if (typeof result === 'string') return result
+function extractOptimizedPromptResult (result) {
+  if (typeof result === 'string') return { text: result, metaSource: null }
   const source = result && typeof result === 'object' && !Array.isArray(result) && result.data && typeof result.data === 'object'
     ? result.data
     : result
@@ -161,21 +176,48 @@ function extractOptimizedPrompt (result) {
     if (topError) throw new Error(topError || '提示词优化失败')
     if (Array.isArray(source.results)) {
       const item = source.results[0]
-      if (typeof item === 'string') return item
+      if (typeof item === 'string') return { text: item, metaSource: null }
       if (item && typeof item === 'object') {
         const itemError = item.error !== undefined && item.error !== null && item.error !== ''
           ? String(item.error)
           : (item.detail !== undefined && item.detail !== null && item.detail !== '' ? String(item.detail) : '')
         if (itemError) throw new Error(itemError || '提示词优化失败')
         const text = item.optimized_prompt || item.prompt || item.optimized
-        if (typeof text === 'string' && text.trim()) return text
+        if (typeof text === 'string' && text.trim()) return { text, metaSource: item }
       }
-      return ''
+      return { text: '', metaSource: item }
     }
     const text = source.optimized_prompt || source.prompt || source.optimized
-    if (typeof text === 'string' && text.trim()) return text
+    if (typeof text === 'string' && text.trim()) return { text, metaSource: source }
   }
-  return ''
+  return { text: '', metaSource: source }
+}
+
+function extractOptimizedPrompt (result) {
+  return extractOptimizedPromptResult(result).text
+}
+
+function extractImageOptimizedPrompt (result) {
+  const extracted = extractOptimizedPromptResult(result)
+  if (!extracted.text || !extracted.text.trim()) throw new Error('提示词优化结果无效')
+  const source = extracted.metaSource
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new Error('提示词优化结果缺少执行元数据')
+  }
+  if (source.strategy_used !== 'llm') {
+    throw new Error('提示词优化结果 strategy_used 必须是 llm')
+  }
+  if (source.key_source !== 'caller') {
+    throw new Error('提示词优化结果 key_source 必须是 caller')
+  }
+  if (source.cache_hit !== false) {
+    throw new Error('提示词优化结果 cache_hit 必须是 false')
+  }
+  const meta = safePromptOptimizationMeta(source)
+  if (!meta || meta.strategy_used !== 'llm' || meta.key_source !== 'caller' || meta.cache_hit !== false) {
+    throw new Error('提示词优化结果执行元数据无效')
+  }
+  return { text: extracted.text, meta }
 }
 
 function safeAlternateImages (value) {
@@ -511,6 +553,7 @@ class Story2VideoProjectService {
         text: safeText(segment.text || segment.content, 10000),
         prompt: safeText(segment.prompt, 20000),
         promptTranslation: safeText(segment.promptTranslation, 20000) || null,
+        promptOptimizationMeta: safePromptOptimizationMeta(segment.promptOptimizationMeta || fallbackSegment.promptOptimizationMeta),
         // compose 输出不含 videoPrompt（normalizeComposeScenes 白名单），按 index 从 fallback 回填
         // （2026-08-15 审查 C1：否则流水线主路径与 recompose 都会把视频优化词清成 null）
         videoPrompt: safeText(segment.videoPrompt, 40000) ||
@@ -824,11 +867,18 @@ class Story2VideoProjectService {
         const cleaned = clamp(value)
         return cleaned === undefined ? current : cleaned
       }
+      const nextPrompt = update.prompt === undefined ? original.prompt : safeText(update.prompt, 20000)
+      const promptChanged = update.prompt !== undefined && nextPrompt !== original.prompt
       return {
         ...original,
         index,
         text: update.text === undefined ? original.text : safeText(update.text, 10000),
-        prompt: update.prompt === undefined ? original.prompt : safeText(update.prompt, 20000),
+        prompt: nextPrompt,
+        promptOptimizationMeta: promptChanged
+          ? null
+          : (update.promptOptimizationMeta === undefined
+              ? safePromptOptimizationMeta(original.promptOptimizationMeta)
+              : safePromptOptimizationMeta(update.promptOptimizationMeta)),
         // 历史记录场景内容编辑（2026-08-15）：字幕/视频优化词/语音设置白名单透传
         videoPrompt: update.videoPrompt === undefined ? original.videoPrompt : safeText(update.videoPrompt, 40000),
         subtitleBlocks: update.subtitleBlocks === undefined ? original.subtitleBlocks : safeSubtitleBlocks(update.subtitleBlocks),
@@ -1346,6 +1396,8 @@ class Story2VideoProjectService {
         )
         imageOptimizeRequest = buildPromptEngineOptimizeRequest(seed, {
           ...optimizeStageOptions,
+          optimization_strategy: 'llm',
+          bypass_cache: true,
           max_length: PROMPT_ENGINE_LIMITS.maxLength.max,
           context: optimizeContext,
         })
@@ -1363,12 +1415,16 @@ class Story2VideoProjectService {
             const { prompt: enginePrompt, ...requestOptions } = imageOptimizeRequest
             return this.serviceBus.optimizePrompt(enginePrompt, { ...requestOptions, index: segment.sourceIndex ?? index })
           })()
-      const optimizedText = extractOptimizedPrompt(optimized)
+      const optimizedResult = kind === 'image'
+        ? extractImageOptimizedPrompt(optimized)
+        : { text: extractOptimizedPrompt(optimized), meta: null }
+      const optimizedText = optimizedResult.text
       if (!optimizedText || !optimizedText.trim()) throw new Error('提示词优化结果无效')
       if (kind === 'image') {
         // 防御性本地截断：与流水线 extractOptimizedPrompt(max_length) 语义一致，Unicode 安全
         const capped = Array.from(optimizedText).slice(0, PROMPT_ENGINE_LIMITS.maxLength.max).join('')
         segment.prompt = safeText(capped, 20000)
+        segment.promptOptimizationMeta = optimizedResult.meta
         // 提示词重写后旧翻译失效：清空，避免结果页展示陈旧翻译
         segment.promptTranslation = null
       } else {

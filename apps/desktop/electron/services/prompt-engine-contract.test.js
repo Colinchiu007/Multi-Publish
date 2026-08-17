@@ -49,14 +49,32 @@ describe('prompt-engine-contract 图片提示词统一契约', () => {
 
   it('请求构造：显式 style 归一发送；未指定且自动检测时省略 style；关闭检测时用默认风格', () => {
     const explicit = buildPromptEngineOptimizeRequest('cat', { style: 'cinematic', platform: 'dall-e', quality_baseline: false })
-    expect(explicit).toMatchObject({ prompt: 'cat', platform: 'dalle', style: 'photography', auto_detect_style: true })
+    expect(explicit).toMatchObject({
+      prompt: 'cat',
+      platform: 'dalle',
+      style: 'photography',
+      auto_detect_style: true,
+      optimization_strategy: 'llm',
+    })
 
     const auto = buildPromptEngineOptimizeRequest('cat', { autoDetectStyle: true, quality_baseline: false })
     expect(auto).not.toHaveProperty('style')
-    expect(auto).toMatchObject({ platform: 'generic', auto_detect_style: true })
+    expect(auto).toMatchObject({ platform: 'generic', auto_detect_style: true, optimization_strategy: 'llm' })
 
     const manual = buildPromptEngineOptimizeRequest('cat', { autoDetectStyle: false, quality_baseline: false })
-    expect(manual).toMatchObject({ style: 'realistic', auto_detect_style: false })
+    expect(manual).toMatchObject({ style: 'realistic', auto_detect_style: false, optimization_strategy: 'llm' })
+  })
+
+  it('请求构造：桌面默认使用 llm，调用方可显式要求 template，auto 被拒绝', () => {
+    expect(buildPromptEngineOptimizeRequest('cat', { quality_baseline: false }).optimization_strategy).toBe('llm')
+    expect(buildPromptEngineOptimizeRequest('cat', { optimizationStrategy: 'template', quality_baseline: false }).optimization_strategy).toBe('template')
+    expect(() => buildPromptEngineOptimizeRequest('cat', { optimization_strategy: 'auto', quality_baseline: false }))
+      .toThrow(/optimization_strategy/)
+  })
+
+  it('请求构造：bypass_cache 支持 snake/camel 两种调用方字段', () => {
+    expect(buildPromptEngineOptimizeRequest('cat', { bypass_cache: true, quality_baseline: false }).bypass_cache).toBe(true)
+    expect(buildPromptEngineOptimizeRequest('cat', { bypassCache: false, quality_baseline: false }).bypass_cache).toBe(false)
   })
 
   it('请求构造：创意度/长度/候选数收敛到契约边界，负向提示词截断，context 字符串转 synopsis', () => {

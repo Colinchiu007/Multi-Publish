@@ -15,6 +15,7 @@ describe('PromptBridge prompt-engine 请求兼容', () => {
   it('批量优化会省略空的可选字段，并把文本上下文转换为 synopsis 对象', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true
+    bridge.modelProviderManager = mockLlmManager()
     bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: [] }))
 
     const request = {
@@ -39,6 +40,14 @@ describe('PromptBridge prompt-engine 请求兼容', () => {
       style: 'realistic',
       creative_level: 1,
       context: { synopsis: '一个发生在未来城市的故事' },
+      optimization_strategy: 'llm',
+      llm: {
+        provider: 'sensenova',
+        model: 'deepseek-v4-flash',
+        base_url: 'https://token.sensenova.cn/v1',
+        api_key: 'sk-test',
+        caller: 'multi-publish-desktop',
+      },
     })
     expect(body.requests[0]).not.toHaveProperty('max_length')
   })
@@ -46,24 +55,43 @@ describe('PromptBridge prompt-engine 请求兼容', () => {
   it('单个优化同样不会发送 null max_length 或空 context', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true
+    bridge.modelProviderManager = mockLlmManager()
     bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
 
     await bridge.optimize({ prompt: '山间日出', creative_level: 1, max_length: null, context: '' })
 
     const body = JSON.parse(bridge._post.mock.calls[0][1])
-    expect(body).toEqual({ prompt: '山间日出', creative_level: 1 })
+    expect(body).toEqual({
+      prompt: '山间日出',
+      creative_level: 1,
+      optimization_strategy: 'llm',
+      llm: {
+        provider: 'sensenova',
+        model: 'deepseek-v4-flash',
+        base_url: 'https://token.sensenova.cn/v1',
+        api_key: 'sk-test',
+        caller: 'multi-publish-desktop',
+      },
+    })
   })
 
   it('optimize 透传 traceId 且 body 不含 traceId（R1/R3）', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true
+    bridge.modelProviderManager = mockLlmManager()
     bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
 
     await bridge.optimize({ prompt: '城市夜景', style: 'realistic', creative_level: 1 }, 'run_9')
 
     expect(bridge._post.mock.calls[0][3]).toBe('run_9')
     const body = JSON.parse(bridge._post.mock.calls[0][1])
-    expect(body).toEqual({ prompt: '城市夜景', style: 'realistic', creative_level: 1 })
+    expect(body).toMatchObject({
+      prompt: '城市夜景',
+      style: 'realistic',
+      creative_level: 1,
+      optimization_strategy: 'llm',
+      llm: { provider: 'sensenova', model: 'deepseek-v4-flash', api_key: 'sk-test', caller: 'multi-publish-desktop' },
+    })
     expect(body).not.toHaveProperty('traceId')
   })
 
@@ -82,15 +110,16 @@ describe('PromptBridge prompt-engine 请求兼容', () => {
       model: 'deepseek-v4-flash',
       base_url: 'https://token.sensenova.cn/v1',
       api_key: 'sk-test',
+      caller: 'multi-publish-desktop',
     })
-    expect(body.caller).toBe('multi-publish-desktop')
+    expect(body.llm.caller).toBe('multi-publish-desktop')
 
     await bridge.optimizeVideo({ prompt: 'b dog', platform: 'kling-pro', traceId: 'run_8' })
     expect(bridge._post.mock.calls[1][3]).toBe('run_8')
     const body2 = JSON.parse(bridge._post.mock.calls[1][1])
     expect(body2).not.toHaveProperty('traceId')
     expect(body2.llm.provider).toBe('sensenova')
-    expect(body2.caller).toBe('multi-publish-desktop')
+    expect(body2.llm.caller).toBe('multi-publish-desktop')
   })
 
   it('单个和批量优化对非对象输入使用相同的 prompt 兼容规则', async () => {
@@ -104,24 +133,27 @@ describe('PromptBridge prompt-engine 请求兼容', () => {
 
     const single = JSON.parse(bridge._post.mock.calls[0][1])
     expect(single.prompt).toBe('42')
+    expect(single.optimization_strategy).toBe('llm')
     expect(single.llm.provider).toBe('sensenova')
-    expect(single.caller).toBe('multi-publish-desktop')
+    expect(single.llm.caller).toBe('multi-publish-desktop')
     expect(JSON.parse(bridge._post.mock.calls[1][1])).toEqual({
       requests: [{
         prompt: '42',
+        optimization_strategy: 'llm',
         llm: {
           provider: 'sensenova',
           model: 'deepseek-v4-flash',
           base_url: 'https://token.sensenova.cn/v1',
           api_key: 'sk-test',
+          caller: 'multi-publish-desktop',
         },
-        caller: 'multi-publish-desktop',
       }],
     })
   })
   it('发送前归一平台/风格别名（cinematic/dall-e/stable-diffusion），空 style 不发送', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true
+    bridge.modelProviderManager = mockLlmManager()
     bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
 
     await bridge.optimize({ prompt: '城市夜景', platform: 'dall-e', style: 'cinematic', creative_level: 1 })
@@ -132,11 +164,15 @@ describe('PromptBridge prompt-engine 请求兼容', () => {
       platform: 'dalle',
       style: 'photography',
       creative_level: 1,
+      optimization_strategy: 'llm',
+      llm: expect.objectContaining({ provider: 'sensenova', caller: 'multi-publish-desktop' }),
     })
     expect(JSON.parse(bridge._post.mock.calls[1][1])).toEqual({
       prompt: '另一个',
       platform: 'stable_diffusion',
       creative_level: 1,
+      optimization_strategy: 'llm',
+      llm: expect.objectContaining({ provider: 'sensenova', caller: 'multi-publish-desktop' }),
     })
   })
 
@@ -160,6 +196,7 @@ describe('PromptBridge BYOK llm 注入', () => {
       model: 'deepseek-v4-flash',
       base_url: 'https://token.sensenova.cn/v1',
       api_key: 'sk-test',
+      caller: 'multi-publish-desktop',
     })
   })
 
@@ -173,6 +210,7 @@ describe('PromptBridge BYOK llm 注入', () => {
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
       api_key: 'sk-ds',
+      caller: 'multi-publish-desktop',
     })
   })
 
@@ -187,6 +225,7 @@ describe('PromptBridge BYOK llm 注入', () => {
       model: 'claude-sonnet',
       base_url: 'https://openrouter.ai/api/v1',
       api_key: 'sk-or',
+      caller: 'multi-publish-desktop',
     })
   })
 
@@ -207,21 +246,23 @@ describe('PromptBridge BYOK llm 注入', () => {
       model: 'MiniMax-M2.7',
       base_url: 'https://api.minimax.chat/v1',
       api_key: 'sk-minimax',
+      caller: 'multi-publish-desktop',
     })
   })
 
-  it('resolveLlmBind：多模态 provider 无 capability_models.llm 时回退 models 首个有效模型', () => {
+  it('resolveLlmBind：多模态 provider 无 capability_models.llm 时拒绝猜测模型', () => {
     const bridge = new PromptBridge({})
     bridge.modelProviderManager = {
       getDefault: vi.fn(() => ({ id: 'minimax-multimodal', name: 'MiniMax 多模态', models: ['MiniMax-M2.7'] })),
       getProviderWithKey: vi.fn(() => ({
         id: 'minimax-multimodal',
+        category: 'multimodal',
         models: ['MiniMax-M2.7'],
         capability_models: { tts: 'speech-2.8-turbo' },
         api_key: 'sk-minimax',
       })),
     }
-    expect(bridge.resolveLlmBind().model).toBe('MiniMax-M2.7')
+    expect(() => bridge.resolveLlmBind()).toThrow(/未配置可用模型/)
   })
 
   it('resolveLlmBind：无 modelProviderManager 时 fail-closed 抛错', () => {
@@ -253,52 +294,81 @@ describe('PromptBridge BYOK llm 注入', () => {
     expect(() => bridge.resolveLlmBind()).toThrow(/未配置可用模型/)
   })
 
-  it('optimize：creative_level>3 注入 llm/caller；无默认 LLM 时拒绝', async () => {
+  it('optimize：缺省策略在低 creative_level 同样注入 llm/caller；无默认 LLM 时拒绝', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true
     bridge.modelProviderManager = mockLlmManager()
     bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
 
-    await bridge.optimize({ prompt: 'a majestic cat', platform: 'generic', creative_level: 5 })
+    await bridge.optimize({ prompt: 'a majestic cat', platform: 'generic', creative_level: 1 })
     const body = JSON.parse(bridge._post.mock.calls[0][1])
+    expect(body.optimization_strategy).toBe('llm')
     expect(body.llm.provider).toBe('sensenova')
     expect(body.llm.api_key).toBe('sk-test')
-    expect(body.caller).toBe('multi-publish-desktop')
+    expect(body.llm.caller).toBe('multi-publish-desktop')
 
     const bare = new PromptBridge({})
     bare.isRunning = true
     bare._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
-    await expect(bare.optimize({ prompt: 'x', platform: 'generic', creative_level: 5 }))
+    await expect(bare.optimize({ prompt: 'x', platform: 'generic', creative_level: 1 }))
       .rejects.toThrow(/模型服务未就绪/)
     expect(bare._post).not.toHaveBeenCalled()
   })
 
-  it('optimize：creative_level<=3 模板直出免 LLM，不注入绑定', async () => {
+  it('optimize：显式 auto 被拒绝，不请求引擎', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true
-    bridge.modelProviderManager = mockLlmManager()
     bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
 
-    await bridge.optimize({ prompt: 'a cat', platform: 'generic', creative_level: 1 })
-    const body = JSON.parse(bridge._post.mock.calls[0][1])
-    expect(body).not.toHaveProperty('llm')
-    expect(body).not.toHaveProperty('caller')
+    await expect(bridge.optimize({ prompt: 'a cat', platform: 'generic', creative_level: 1, optimization_strategy: 'auto' }))
+      .rejects.toThrow(/optimization_strategy/)
+    expect(bridge._post).not.toHaveBeenCalled()
   })
 
-  it('optimizeBatch：任一条需要 LLM 时全部注入同一绑定', async () => {
+  it('optimizeBatch：混合策略按条目注入绑定，模板项不被批次中的 LLM 项污染', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true
     bridge.modelProviderManager = mockLlmManager()
     bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: [] }))
 
     await bridge.optimizeBatch([
-      { prompt: 'template', platform: 'generic', creative_level: 1 },
+      { prompt: 'template', platform: 'generic', creative_level: 1, optimization_strategy: 'template' },
       { prompt: 'scene', domain: 'video', platform: 'generic_video', creative_level: 5 },
     ])
     const body = JSON.parse(bridge._post.mock.calls[0][1])
-    expect(body.requests[0].llm.provider).toBe('sensenova')
-    expect(body.requests[0].caller).toBe('multi-publish-desktop')
+    expect(body.requests[0]).not.toHaveProperty('llm')
+    expect(body.requests[0]).not.toHaveProperty('caller')
     expect(body.requests[1].llm.provider).toBe('sensenova')
+    expect(body.requests[1].llm.caller).toBe('multi-publish-desktop')
+  })
+
+  it('optimize：显式 llm 覆盖低 creative_level，显式 template 覆盖高 creative_level', async () => {
+    const bridge = new PromptBridge({})
+    bridge.isRunning = true
+    bridge.modelProviderManager = mockLlmManager()
+    bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
+
+    await bridge.optimize({
+      prompt: '低等级但必须使用模型',
+      platform: 'generic',
+      creative_level: 1,
+      optimization_strategy: 'llm',
+    })
+    const llmBody = JSON.parse(bridge._post.mock.calls[0][1])
+    expect(llmBody.optimization_strategy).toBe('llm')
+    expect(llmBody.llm.provider).toBe('sensenova')
+    expect(llmBody.llm.caller).toBe('multi-publish-desktop')
+
+    await bridge.optimize({
+      prompt: '高等级但明确使用模板',
+      platform: 'generic',
+      creative_level: 10,
+      optimization_strategy: 'template',
+    })
+    const templateBody = JSON.parse(bridge._post.mock.calls[1][1])
+    expect(templateBody.optimization_strategy).toBe('template')
+    expect(templateBody).not.toHaveProperty('llm')
+    expect(templateBody).not.toHaveProperty('caller')
   })
 
   it('optimizeVideosBatch：legacy 8013 分支每条注入 llm/caller', async () => {
@@ -312,7 +382,7 @@ describe('PromptBridge BYOK llm 注入', () => {
     expect(body.requests).toHaveLength(2)
     for (const req of body.requests) {
       expect(req.llm.provider).toBe('sensenova')
-      expect(req.caller).toBe('multi-publish-desktop')
+      expect(req.llm.caller).toBe('multi-publish-desktop')
     }
   })
 })
