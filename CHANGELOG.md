@@ -1,4 +1,10 @@
-## [2026-08-16] fix(story2video): 分段状态本地化 + 失败原因内联 + 成功写回清除残留 error
+## [2026-08-17] feat(ai-autonomous-tester): autonomous-loop 视觉判定接入 vision 模型（base64 内联 + fail-closed + 布尔修复）
+
+- 现象：autonomous-loop 的 `AgentVisualJudge` 只把图片路径当文本发给远程 LLM（远程 API 无法 view_image），模型看不到像素，视觉回归 diff 判定退化为文本猜测，仍需人工看 reports/pixel-diff 图。
+- 根因/修复：① llmFn 支持结构化输图 `{ text, images:[{mimeType,base64,dataUrl}] }`，OpenAI 走 `image_url` 数组、Anthropic 走 `image source` base64，diff/基线/当前截图以 base64 内联真传给支持视觉的模型自动判 expected/regression/noise，纯文本调用保持旧协议；② `AgentVisualJudge` 视觉内联默认开启（有 llmFn 时），视觉失败降级纯文本、再失败/不可解析 → `need_review`（fail-closed），单图 3MB 体积护栏（`MAX_IMAGE_BYTES`）；③ 接线修复：`runOrchestratorLoop` 注入 llmFn 给 `TestOrchestrator`，保证 `analyzer.visualJudge` 非空（此前恒 null，图片从未发出）；④ `AIAnalyzer` 新增 `needReview` 分组，`need_review`/LLM 异常/启发式不确定全部路由 `NEED_HUMAN`（优先于回归修复与基线更新），不再静默 `UPDATE_BASELINE`；仅 `status=FAILED` 触发视觉 judge（PASSED 高 diff 不烧 vision 成本）；⑤ workflow 新增 `llm_vision` 输入（默认 true）并移除 `|| ''` 布尔陷阱，显式 false 保持 false、PR 事件恒 false。
+- 回归：包测试 `packages/ai-autonomous-tester` 189/189（+10：视觉输图/降级/超限护栏/need_review 路由/接线/成本护栏）；workflow 合同 `.github/scripts/autonomous-loop-workflow.test.js` 10/10（+1 求值语义 + `|| ''` 守卫）；`git diff --check` PASS；无 locale/CJK/apps-desktop-electron 变更。
+
+
 
 - 现象：视频创作-历史记录，分段卡片状态直接输出英文原值（failed/completed），用户看不清发生了什么；曾失败分段（如 agnes-image `UnsupportedParamsError: Setting response_format is not supported`）点击【重试图片】成功后状态已 completed，但旧 error 残留，继续误导。
 - 根因：`ResultView.vue` 徽标直接渲染 `segment.status` 原值；服务层把分段置 `completed` 的写回路径（replaceSegmentAudio / retrySegment / regenerateSceneAudio / regenerateScenePrompt / generateSceneAiVideo / generateSceneImage / generateSceneVideo）不清理既有 `error`，产生「completed + error 并存」的误导状态；既有先例 `regenerateSceneSubtitle` 已写 `error: null`，其余路径漂移。
