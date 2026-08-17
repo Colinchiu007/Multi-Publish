@@ -1093,6 +1093,8 @@ class Story2VideoComposeEngine {
             fps,
             composeId,
             sceneIndex: i,
+            videoMode: options?.videoMode || 'off',
+            shortVideoHandling: options?.shortVideoHandling || 'loop',
           }
           // 混合模式（2026-08-11）：AI 视频场景走视频片段编码，图片轮播场景走 zoompan 编码
           if (scene.videoPath) await this._createVideoSegment(scene.videoPath, scene.audioPath, segPath, segmentOptions)
@@ -1542,6 +1544,8 @@ class Story2VideoComposeEngine {
         voiceVolume: clampNumber(options.voiceVolume, 0, 2, 1),
         ...parseResolution(options.resolution),
         fps: clampNumber(options.fps, 1, 120, 30),
+        videoMode: options.videoMode || 'off',
+        shortVideoHandling: options.shortVideoHandling || 'loop',
       }
       if (videoPath) {
         await this._createVideoSegment(videoPath, audioPath, destinationPath, segmentOpts)
@@ -1694,6 +1698,33 @@ class Story2VideoComposeEngine {
       })
       return null
     }
+  }
+
+  /**
+   * 读取视频流时长。停止模式优先使用视频流字段，容器时长不可用时回退到通用探测。
+   * @private
+   */
+  async _probeVideoDuration (filePath) {
+    if (!FFPROBE || !hasUsableFile(filePath)) return null
+    try {
+      const { stdout } = await execFileAsync(FFPROBE, [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'stream=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        filePath,
+      ], { timeout: 30000, maxBuffer: 128 * 1024 })
+      const duration = Number.parseFloat(String(stdout || '').trim())
+      if (Number.isFinite(duration) && duration > 0) return duration
+    } catch (e) {
+      this._logComposeEvent('warn', 'ffprobe_video_stream_failed', {
+        stage: 'preflight',
+        operation: 'video_duration_probe',
+        errorCode: typeof e?.code === 'string' ? e.code : null,
+        error: safeFfmpegDiagnostic(e?.message),
+      })
+    }
+    return this._probeMediaDuration(filePath)
   }
 
   /**
@@ -1852,16 +1883,33 @@ class Story2VideoComposeEngine {
       ? clampNumber(opts.padTo, 0.1, 3600, null)
       : null
 
-    // 输入：AI 视频（循环以覆盖“视频短于旁白”场景，配合 -shortest 跟随旁白结束）+ TTS 旁白
-    // -fflags +genpts：部分 provider 产出的 mp4 时间戳不连续，-stream_loop 循环时补生成 PTS 避免卡顿/丢帧。
-    args.push('-fflags', '+genpts', '-stream_loop', '-1', '-i', videoPath, '-i', audioPath)
+    const fps = clampNumber(opts.fps, 1, 120, 30)
+    const targetDuration = [opts.effectDuration, opts.duration, opts.audioDuration]
+      .map(value => Number(value))
+      .find(value => Number.isFinite(value) && value > 0) || null
+    const aiVideoMode = opts.videoMode === 'fixed' || opts.videoMode === 'ai-judged'
+    const stopAtEndRequested = opts.shortVideoHandling === 'stop-at-end' && aiVideoMode
+    const sourceVideoDuration = stopAtEndRequested
+      ? await this._probeVideoDuration(videoPath)
+      : null
+    const singlePassVideo = stopAtEndRequested && Number.isFinite(sourceVideoDuration) && sourceVideoDuration > 0
+    const shortVideoTailDuration = sourceVideoDuration && targetDuration && sourceVideoDuration < targetDuration
+      ? targetDuration - sourceVideoDuration
+      : null
+    const stopAtEnd = Number.isFinite(shortVideoTailDuration) && shortVideoTailDuration > 0
+
+    // 默认循环保持历史行为；只有显式 stop-at-end、AI 视频模式且探测到短片段时才去掉循环。
+    // 探测失败按循环回退，避免旧 provider 的非标准媒体导致成片提前结束。
+    args.push('-fflags', '+genpts')
+    if (!singlePassVideo) args.push('-stream_loop', '-1')
+    args.push('-i', videoPath, '-i', audioPath)
 
     // 视频滤镜：归一化分辨率（等比缩放 + 黑边补齐，保留完整画面）、帧率，再叠加字幕/水印
     const work = computeWorkResolution(opts.width, opts.height, opts.workScale)
     const filters = []
     filters.push('scale=' + work.width + ':' + work.height + ':force_original_aspect_ratio=decrease')
     filters.push('pad=' + work.width + ':' + work.height + ':(ow-iw)/2:(oh-ih)/2:color=black')
-    filters.push('fps=' + clampNumber(opts.fps, 1, 120, 30))
+    filters.push('fps=' + fps)
     filters.push(buildScaleFilter(opts.width, opts.height))
     const subtitleFilter = buildSubtitleFilter(
       Array.isArray(opts.subtitleTimeline) && opts.subtitleTimeline.length > 0
@@ -1876,11 +1924,30 @@ class Story2VideoComposeEngine {
     if (opts.transition === 'fade') {
       filters.push('fade=t=in:st=0:d=0.5')
     }
-    args.push('-vf', filters.join(','))
+    if (stopAtEnd) {
+      const tailDuration = Number(shortVideoTailDuration.toFixed(6))
+      const tailStart = Math.max(0, sourceVideoDuration - (1 / fps))
+      const tailZoom = buildImageEffectFilter('zoom-in', opts.width, opts.height, fps, tailDuration, 'ceil')
+      const commonFilters = filters.slice(0, 4)
+      const overlayFilters = filters.slice(4)
+      const tailGraph = [
+        '[0:v]' + commonFilters.join(',') + ',split=2[videoBodySrc][videoTailSrc]',
+        '[videoBodySrc]trim=duration=' + sourceVideoDuration.toFixed(6) + ',setpts=PTS-STARTPTS[videoBody]',
+        '[videoTailSrc]trim=start=' + tailStart.toFixed(6) + ':duration=' + (1 / fps).toFixed(6) +
+          ',select=eq(n\,0),setpts=PTS-STARTPTS,' + tailZoom + '[videoTail]',
+        '[videoBody][videoTail]concat=n=2:v=1:a=0,setpts=PTS-STARTPTS' +
+          (overlayFilters.length > 0 ? ',' + overlayFilters.join(',') : '') + '[videoOut]',
+      ].join(';')
+      args.push('-filter_complex', tailGraph, '-map', '[videoOut]')
+    } else {
+      args.push('-vf', filters.join(','), '-map', '0:v:0')
+    }
 
     // 时长：与图片片段同一语义（follow-audio 跟随旁白 / min-duration 静音补齐）
     if (padTo) {
       args.push('-t', String(padTo))
+    } else if (stopAtEnd && targetDuration) {
+      args.push('-t', String(targetDuration))
     } else if (opts.duration && Number(opts.duration) > 0) {
       args.push('-t', String(clampNumber(opts.duration, 0.1, 3600, 3)))
     }
@@ -1897,15 +1964,15 @@ class Story2VideoComposeEngine {
     // （440Hz 视频音频 vs 880Hz TTS 合成测试中输出为 440Hz）。这里强制
     // video ← 输入0 的 AI 视频、audio ← 输入1 的 TTS 旁白；AI 视频自带音频不保留
     // （如需环境音混合另行开放，避免音量/时长契约漂移）。
-    args.push('-map', '0:v:0', '-map', '1:a:0')
+    args.push('-map', '1:a:0')
 
     // 编码：视频输入不适用 stillimage tune
     args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p')
     args.push('-c:a', 'aac', '-b:a', '128k')
     if (padTo) {
-      args.push('-r', String(clampNumber(opts.fps, 1, 120, 30)))
+      args.push('-r', String(fps))
     } else {
-      args.push('-shortest', '-r', String(clampNumber(opts.fps, 1, 120, 30)))
+      args.push('-shortest', '-r', String(fps))
     }
     args.push(outputPath)
 

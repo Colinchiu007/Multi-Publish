@@ -487,16 +487,25 @@
               <!-- 视频增强模式：manual + 全部图片轮播 时忽略（不生成 AI 视频） -->
               <template v-if="s2vConfig.creationMode === 'auto' || s2vConfig.manualMaterialMode === 'video-image'">
               <div class="config-item">
-                <label>视频增强模式</label>
+                <label>{{ translateWithLocaleFallback('create.story2video.batch.videoModeLabel', '视频增强模式', 'Video enhancement mode') }}</label>
                 <select v-model="s2vConfig.videoMode" class="form-select" data-testid="s2v-video-mode">
-                  <option value="off">关闭（纯图片轮播）</option>
-                  <option value="fixed">固定比例（成片前段 AI 视频）</option>
-                  <option value="ai-judged">AI 智能选择（最精彩场景）</option>
+                  <option value="off">{{ translateWithLocaleFallback('videoConfig.videoModeOff', '纯图片轮播', 'Image carousel only') }}</option>
+                  <option value="fixed">{{ translateWithLocaleFallback('videoConfig.videoModeFixed', '固定比例', 'Fixed ratio') }}</option>
+                  <option value="ai-judged">{{ translateWithLocaleFallback('videoConfig.videoModeAiJudged', 'AI 智能选择', 'AI selected') }}</option>
                 </select>
-                <p class="config-hint">AI 视频更贵也更慢，仅用于最值得动态化的场景；其余场景继续图片轮播，节省额度。</p>
+                <p class="config-hint">{{ translateWithLocaleFallback('create.story2video.videoModeHint', 'AI 视频更贵也更慢，仅用于最值得动态化的场景；其余场景继续图片轮播，节省额度。', 'AI video is more expensive and slower — used only for the most dynamic scenes; others use image carousel to save quota.') }}</p>
+              </div>
+              <!-- 单段视频短于分镜时长处理：仅 videoMode 为 fixed 或 ai-judged 时显示 -->
+              <div v-if="s2vConfig.videoMode === 'fixed' || s2vConfig.videoMode === 'ai-judged'" class="config-item">
+                <label>{{ translateWithLocaleFallback('create.story2video.batch.shortVideoHandlingLabel', '单段视频短于分镜时长的处理', 'Handle short AI video clips') }}</label>
+                <select v-model="s2vConfig.shortVideoHandling" class="form-select" data-testid="s2v-short-video-handling">
+                  <option value="loop">{{ translateWithLocaleFallback('create.story2video.batch.shortVideoHandlingLoop', '循环播放', 'Loop playback') }}</option>
+                  <option value="stop-at-end">{{ translateWithLocaleFallback('create.story2video.batch.shortVideoHandlingStopAtEnd', '播放完停止', 'Stop at end') }}</option>
+                </select>
+                <p class="config-hint">{{ translateWithLocaleFallback('create.story2video.batch.shortVideoHandlingHint', '仅在视频增强模式（固定比例/AI 智能选择）下生效。选择播放完停止时，AI 视频播放到最后一帧后将定格并慢慢放大。', 'Only applies in video enhancement mode (Fixed ratio / AI selected). When Stop at end is chosen, the AI video will freeze on the last frame and slowly zoom in.') }}</p>
               </div>
               <div v-if="s2vConfig.videoMode !== 'off'" class="config-item">
-                <label>视频生成器</label>
+                <label>{{ translateWithLocaleFallback('create.story2video.videoGenerator', '视频生成器', 'Video generator') }}</label>
                 <select v-model="s2vConfig.videoProvider" class="form-select" @change="handleS2VVideoProviderChange" data-testid="s2v-video-provider">
                   <!-- 无可用视频生成器时下拉显示「无」，避免空白选中项（2026-08-12 审查 M2 对齐图片） -->
                   <option v-if="s2vVideoProviders.length === 0" value="">无</option>
@@ -1452,6 +1461,7 @@ const S2V_PLATFORMS = [
 const S2V_RESTORE_ENUM_OPTIONS = Object.freeze({
   contentType: ['general', 'history'],
   videoMode: ['off', 'fixed', 'ai-judged'],
+  shortVideoHandling: ['loop', 'stop-at-end'],
   creationMode: ['auto', 'manual'],
   manualMaterialMode: ['all-images', 'video-image'],
   imageStyle: ['cinematic', 'realistic', 'anime', 'watercolor', 'minimalist'],
@@ -1526,7 +1536,7 @@ export default {
         // 参数治理 R2（7.1.19）：concurrency 为系统管理参数（契约默认 3，范围 1-8），前端不暴露不提交。
         templateId: '', imageEffect: 'zoom-in',
         // 视频+图片轮播混合模式（2026-08-11）：默认关闭保持纯图片轮播
-        videoMode: 'off', videoProvider: '', videoModel: '',
+        videoMode: 'off', shortVideoHandling: 'loop', videoProvider: '', videoModel: '',
         videoFixedRatio: 25, videoMinRatio: 20, videoMaxRatio: 40, videoMaxScenes: 3,
         // 创作模式（2026-08-12）：auto=全自动（默认）；manual=分镜素材自选（materialMode 仅 manual 生效）
         creationMode: 'auto', manualMaterialMode: 'all-images',
@@ -2083,10 +2093,10 @@ export default {
         basic: `${this.s2vConfig.contentType === 'history' ? '历史内容' : '通用内容'} · ${this.s2vConfig.imageProvider || '默认图片模型'}`,
         appearance: `${this.s2vConfig.imageStyle || '电影感'} · ${this.s2vConfig.imageEffect || '无效果'}`,
         videoEnhance: this.s2vConfig.videoMode === 'off' || !this.s2vConfig.videoMode
-          ? '关闭'
+          ? '纯图片轮播'
           : (this.s2vConfig.videoMode === 'fixed'
-            ? `固定 ${this.s2vConfig.videoFixedRatio}%`
-            : `AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.videoMaxRatio}%`),
+            ? `固定 ${this.s2vConfig.videoFixedRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')
+            : `AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.videoMaxRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')),
         voice: `${this.s2vConfig.voiceProvider || '自动 Edge TTS'}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`,
         advanced: `${this.s2vConfig.splitLanguage === 'auto' ? '自动识别' : this.s2vConfig.splitLanguage} · ${this.s2vConfig.splitMode || '均衡'}`,
         publish: this.s2vConfig.platforms?.length ? `已选 ${this.s2vConfig.platforms.length} 个平台` : '不发布',
@@ -2572,6 +2582,7 @@ export default {
         // 视频+图片轮播混合模式（2026-08-11）：off=纯图片轮播；fixed=前段固定比例 AI 视频；ai-judged=AI 智能选择
         video: {
           mode: config.videoMode || 'off',
+          shortVideoHandling: config.shortVideoHandling || 'loop',
           provider: config.videoProvider || '',
           model: config.videoModel || '',
           fixedRatio: config.videoFixedRatio,
