@@ -1410,5 +1410,12 @@ export default {
     statusPending: 'Waiting',
     durationMin: (ctx) => ctx.named('minutes') + 'm ' + ctx.named('seconds') + 's',
     durationSec: (ctx) => ctx.named('seconds') + 's',
+    // Reference ranges for composition time (2026-08-17): product guidance, not exact estimates
+    timeGuidanceTitle: 'About composition time',
+    timeGuidanceIntro: 'Overall completion time is related to video duration — the longer the video, the longer it takes to compose — and also to content complexity and LLM inference time.',
+    timeGuidanceRef1min: '1-minute video: 5–8 min',
+    timeGuidanceRef3min: '3-minute video: 15–20 min',
+    timeGuidanceRef6min: '6-minute video: 35–45 min',
+    timeGuidanceNote: 'The above composition times are all within the normal range.',
   },
 }

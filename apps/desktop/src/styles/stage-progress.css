@@ -183,6 +183,38 @@
   color: var(--text-light);
 }
 
+/* 合成时间说明（2026-08-17）：整体耗时与视频时长/复杂度/推理时间的关系提示 */
+.stage-time-guidance {
+  margin-top: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
+.time-guidance-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.time-guidance-intro {
+  margin-top: 2px;
+}
+
+.time-guidance-refs {
+  margin: 4px 0 4px 18px;
+  padding: 0;
+}
+
+.time-guidance-note {
+  margin-top: 2px;
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
   .stage-item {

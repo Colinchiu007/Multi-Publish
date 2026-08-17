@@ -52,6 +52,14 @@ Story2Video compose 的用户可见错误必须优先使用稳定消息键，而
 - zh.js 与 en.js 必须成对更新；参数只接受安全的数值上限，未知技术字段、路径、命令、stderr、token 和堆栈不得进入用户文案。
 - 每个稳定消息键至少覆盖：中英文渲染、优先级、未知错误回退、技术细节脱敏，以及真实执行器可能返回的 timeout 形态。
 
+## 7. 共享进度/通用组件的新增文案必须按流水线类型门控（2026-08-17，story2video-time-guidance）
+
+**模式**：给共享组件加默认关闭的展示开关 prop（如 `showTimeGuidance`），父组件只在目标流水线（`isOrchestratedPipeline(name)`）下传入 true；同时补「默认不渲染」反向断言 + 父组件接线断言，防止回退。
+
+**反例（真实审查发现）**：把 story2video 专属的「合成时间参考 1/3/6 分钟」说明块无条件放进共享 `StageProgress`——所有 auto/media-auto 流水线（animated-explainer、talking-head、cinematic、clip-factory、localization-dub 等）都走同一个暂存式阶段组件，专属口径直接泄漏成误导文案。
+
+**强制点**：流水线专属文案所在组件的挂载条件是共享的（`(pipelineRunStatus.stages || orchestrationStages).length`）时，必须由父组件按流水线类型门控；新增用例至少包含「非目标流水线不渲染」。
+
 ## 6. 生成类 IPC 失败必须校验 code 并走消息归一化（2026-08-16，s2v-retry-image-error-masking）
 
 **模式**：消费返回 `{code, message, data}` 契约的生成结果（生成图片/视频/音频）时，服务层必须在消费产物（复制/替换）前校验 `code === 0` 且产物路径存在；失败结果与抛异常是两条不同的失败路径，都要保留原始 message（缺失回退领域兜底文案）、保留旧媒体、清理本次产物并持久化失败状态。渲染层 catch 一律把错误文本交给既有通知归一化（quota/rate-limit/API Key/权限模式），不固定显示单一键。

@@ -58,4 +58,9 @@ describe('Story2Video fast-mode UI contract', () => {
     expect(source).toContain('stage.progress.message')
     expect(source).toContain('stage.summary')
   })
+
+  it('合成时间说明块由父组件按 story2video 门控（2026-08-17）', () => {
+    expect(source).toContain(':show-time-guidance="isOrchestratedPipeline(selectedPipeline?.name)"')
+    expect(source).toContain('v-if="showTimeGuidance"')
+  })
 })

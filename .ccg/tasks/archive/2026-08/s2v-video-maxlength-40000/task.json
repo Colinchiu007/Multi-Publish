@@ -1,0 +1,15 @@
+{
+  "id": "s2v-video-maxlength-40000",
+  "title": "视频提示词字数上限再放宽：20000 → 40000（双仓联动：桌面契约 + 8020 引擎）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "archived",
+  "nextAction": "PR #910 与 prompt-engine PR #60 已 squash 合并；OpenSpec/CCG/quality-gates 三同步归档完成",
+  "createdAt": "2026-08-16T15:20:00Z",
+  "openspecChange": "s2v-video-maxlength-40000",
+  "engineChange": "prompt-engine#video-maxlength-40000",
+  "branch": "codex/s2v-video-maxlength-40000",
+  "remoteStatus": "PR #910 merged as 57a9952f; prompt-engine PR #60 merged as 3845b00e; origin/main verified; feature branches deleted"
+}

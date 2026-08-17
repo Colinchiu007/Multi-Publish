@@ -1786,7 +1786,7 @@ SettingsDialog 关闭（App.vue @close）
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | `segment.subtitleBlocks` | string[] | 数组取前 200 块、每块 ≤500 字符、过滤空值 | 字幕块（每块一句）；与 `subtitleTimeline` 区分：timeline 是带时间轴的字幕（compose 输出），blocks 是纯文本字幕（可编辑、可重切） |
-| `segment.videoPrompt` | string \| null | ≤20000 字符 | 视频优化词（video-prompt-engine 输出，compose 消费） |
+| `segment.videoPrompt` | string \| null | ≤40000 字符 | 视频优化词（video-prompt-engine 输出，compose 消费；2026-08-16 由 20000 上浮） |
 | `segment.voiceId` | string | ≤160 字符 | 场景级音色 ID，留空回退项目默认音色 |
 | `segment.voiceProvider` / `segment.voiceModel` | string | 各 ≤160 字符 | 场景级语音 provider/model（透传保留） |
 | `segment.voiceSpeed` / `segment.voicePitch` | number | speed 收敛 [0.5, 2]、pitch 收敛 [-12, 12] | 语速倍率 / 音调（支持负值=低沉、0=中性，与 CreateView 滑杆及 story2video-text-config 契约一致）；非有限数字回退原值 |
@@ -1798,7 +1798,7 @@ SettingsDialog 关闭（App.vue @close）
 #### 2) 数据校验（服务端 fail-closed）
 
 - `updateSegments` 白名单扩展：仅接受 `text / prompt / videoPrompt / subtitleBlocks / subtitleTimeline / voiceId / voiceProvider / voiceModel / voiceSpeed / voicePitch / voiceEmotion`；白名单外字段（imagePath/videoPath/audioPath 等）一律忽略（不覆盖、不落库）。
-- 所有文本字段经 `safeText` 限长收敛（videoPrompt 20000、voiceId/Provider/Model 160、voiceEmotion 80、text 10000、prompt 20000）；`subtitleBlocks` 经 `safeSubtitleBlocks`（≤200 块 × ≤500 字符、过滤空值）；`voiceSpeed` 经 `safeVoiceSpeed` 收敛 [0.5, 2]、`voicePitch` 经 `safeVoicePitch` 收敛 [-12, 12]（拆分为两个收敛函数，避免共用收敛把 pitch 0/负值篡改为 0.1，审查 W1），非有限数字回退原值。
+- 所有文本字段经 `safeText` 限长收敛（videoPrompt 40000、voiceId/Provider/Model 160、voiceEmotion 80、text 10000、prompt 20000）；`subtitleBlocks` 经 `safeSubtitleBlocks`（≤200 块 × ≤500 字符、过滤空值）；`voiceSpeed` 经 `safeVoiceSpeed` 收敛 [0.5, 2]、`voicePitch` 经 `safeVoicePitch` 收敛 [-12, 12]（拆分为两个收敛函数，避免共用收敛把 pitch 0/负值篡改为 0.1，审查 W1），非有限数字回退原值。
 - **videoPrompt 持久化回填（C1）**：compose 输出分段不含 `videoPrompt`（`normalizeComposeScenes` 白名单丢弃），`_persistComposeArtifacts` 按 index 从 fallback 分段回填（流水线 saveRun 主路径与 recomposeProject 均覆盖），重新合成后视频优化词不会丢失；recomposeProject 恢复映射 `videoPrompt: original.videoPrompt || segment.videoPrompt || null` 兜底。
 - IPC 层三个新通道 `story2video:regenerate-scene-subtitle / regenerate-scene-audio / regenerate-scene-prompt`：均 `withSenderCheck` + `isSafeId`（projectId/segmentId）+ 参数类型校验；`regenerate-scene-prompt` 的 `kind` 白名单 `['image','video']`，非法值抛「优化词类型无效」；失败统一 `VALIDATION_ERROR`。license-access-control 均映射 `story2video_write`。
 - 重新生成前置校验（fail-closed）：
@@ -2070,7 +2070,7 @@ SettingsDialog 关闭（App.vue @close）
 - 渲染层可仿照图片提示词提供「提示词最大长度」可配置档位（200–2000，默认 2000），越界/缺失回退默认。
 - 历史快照兼容沿用 #887 规则：存量 run 保留原 `optimize.maxLength`（恢复/续跑沿用旧值），重新生成时按新默认透传。
 
-**状态**：已实现——历史重生成视频优化词（`regenerateScenePrompt` kind=video）显式携带 `max_length=20000`（视频域上限）：8020 standalone builder 收敛 [200,20000]、8013 legacy builder 收敛 [50,2000]，共享 kernel 默认 500 与 legacy 执行器契约 [50,2000] 不放松；openspec change `s2v-history-video-maxlength` 已建，PR 合并后回填编号。渲染层「提示词最大长度」档位列为可选后续。
+**状态**：已实现——历史重生成视频优化词（`regenerateScenePrompt` kind=video）显式携带视频域上限 `max_length`（`VIDEO_ENGINE_LIMITS.videoMaxLengthMax`）：8020 standalone builder 收敛 [200,40000]、8013 legacy builder 收敛 [50,2000]，共享 kernel 默认 500 与 legacy 执行器契约 [50,2000] 不放松；2026-08-16 上界由 20000 再放宽至 40000（openspec `s2v-video-maxlength-40000`，8020 引擎侧同步 le=40000）。渲染层「提示词最大长度」档位列为可选后续。
 
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 

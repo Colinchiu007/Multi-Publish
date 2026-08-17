@@ -3,6 +3,12 @@
 - 根因：prompt-engine BYOK 变更后，图片 creative_level>3 的 /v1/optimize 请求必须携带 llm；ops-center 双路评测默认 creative_level=8，原调用缺少该字段，部署版连新引擎返回 HTTP 422。
 - 修复：双路 run 复用「模型密钥」minimax-llm 或 OPS_PROMPT_EVAL_LLM_* 回退，映射为引擎 provider=minimax，向 /v1/optimize 透传 {provider, model, api_key, base_url} 与 caller=ops-center；缺少 LLM 密钥时入口 400 fail-fast，不向引擎发空 key 请求。
 - 安全/回归：api_key 不写入 engine_meta 或响应；新增真实 HTTP 请求体、已保存密钥优先、422 fail-closed、provider 映射和缺 key 不发请求用例；定向 PromptEval 28 passed，相关 API 30 passed。
+## [2026-08-17] feat(story2video): 流水线进度区域新增「合成时间说明」提示
+
+- 背景：用户反馈生成视频时不知道整体耗时预期，等待过程容易误判为卡死。
+- 改动：`StageProgress`（流水线进度区域）新增合成时间说明块——整体完成时间与视频时长（时长越长合成越久）、内容复杂度、大模型推理时间相关；参考区间：1 分钟视频 5–8 分钟、3 分钟视频 15–20 分钟、6 分钟视频 35–45 分钟，以上均属正常范围。
+- 门控：新增 `showTimeGuidance` prop（默认 false），`CreateView` 仅对 story2video-compose（`isOrchestratedPipeline`）传入，避免 story2video 专属口径泄漏到其他暂存式流水线（animated-explainer/talking-head/cinematic/clip-factory 等）；zh/en locale 成对新增 6 键。
+- 回归：`StageProgress.test.js` + story2video-ue-contract + `CreateView.test.js` 全绿；locale 成对 + CJK 基线无新增硬编码（仅行号位移重锚）。
 
 ## [2026-08-16] feat(desktop): PromptBridge BYOK —— 提示词引擎使用桌面配置的 LLM（llm 对象 + caller + fail-closed）
 

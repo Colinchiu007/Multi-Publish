@@ -499,8 +499,8 @@ class Story2VideoProjectService {
         promptTranslation: safeText(segment.promptTranslation, 20000) || null,
         // compose 输出不含 videoPrompt（normalizeComposeScenes 白名单），按 index 从 fallback 回填
         // （2026-08-15 审查 C1：否则流水线主路径与 recompose 都会把视频优化词清成 null）
-        videoPrompt: safeText(segment.videoPrompt, 20000) ||
-          (fallbackSegment.videoPrompt ? safeText(fallbackSegment.videoPrompt, 20000) : null),
+        videoPrompt: safeText(segment.videoPrompt, 40000) ||
+          (fallbackSegment.videoPrompt ? safeText(fallbackSegment.videoPrompt, 40000) : null),
         imagePath: segment.imagePath
           ? this._copyRequired(segment.imagePath, path.join(projectDir, prefix + '_image' + sourceExtension(segment.imagePath, '.png')), 'image')
           : null,
@@ -655,7 +655,7 @@ class Story2VideoProjectService {
         text: update.text === undefined ? original.text : safeText(update.text, 10000),
         prompt: update.prompt === undefined ? original.prompt : safeText(update.prompt, 20000),
         // 历史记录场景内容编辑（2026-08-15）：字幕/视频优化词/语音设置白名单透传
-        videoPrompt: update.videoPrompt === undefined ? original.videoPrompt : safeText(update.videoPrompt, 20000),
+        videoPrompt: update.videoPrompt === undefined ? original.videoPrompt : safeText(update.videoPrompt, 40000),
         subtitleBlocks: update.subtitleBlocks === undefined ? original.subtitleBlocks : safeSubtitleBlocks(update.subtitleBlocks),
         subtitleTimeline: update.subtitleTimeline === undefined ? original.subtitleTimeline : safeSubtitleTimeline(update.subtitleTimeline),
         voiceId: update.voiceId === undefined ? original.voiceId : safeText(update.voiceId, 160),
@@ -1126,7 +1126,7 @@ class Story2VideoProjectService {
         // 提示词重写后旧翻译失效：清空，避免结果页展示陈旧翻译
         segment.promptTranslation = null
       } else {
-        segment.videoPrompt = safeText(optimizedText, 20000)
+        segment.videoPrompt = safeText(optimizedText, 40000)
       }
       segment.error = null
       segment.status = 'completed'
