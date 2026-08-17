@@ -14,6 +14,17 @@
           </span>
         </div>
         <div v-if="summary" class="progress-summary">{{ summary }}</div>
+        <!-- 合成时间说明（2026-08-17）：story2video 专属参考口径，仅 showTimeGuidance 时渲染 -->
+        <div v-if="showTimeGuidance" class="stage-time-guidance" data-testid="story2video-time-guidance">
+          <p class="time-guidance-title">{{ $t('stageProgress.timeGuidanceTitle') }}</p>
+          <p class="time-guidance-intro">{{ $t('stageProgress.timeGuidanceIntro') }}</p>
+          <ul class="time-guidance-refs">
+            <li>{{ $t('stageProgress.timeGuidanceRef1min') }}</li>
+            <li>{{ $t('stageProgress.timeGuidanceRef3min') }}</li>
+            <li>{{ $t('stageProgress.timeGuidanceRef6min') }}</li>
+          </ul>
+          <p class="time-guidance-note">{{ $t('stageProgress.timeGuidanceNote') }}</p>
+        </div>
       </div>
       <div
         v-for="(stage, index) in stages"
@@ -64,6 +75,8 @@ export default {
     progressPercent: { type: Number, default: 0 },
     elapsedMs: { type: Number, default: null },
     summary: { type: String, default: '' },
+    // story2video 专属合成时间说明（2026-08-17）：由父组件按流水线类型门控，避免泄漏到其他暂存式流水线
+    showTimeGuidance: { type: Boolean, default: false },
     orchestrationContext: { type: Object, default: null },
     // 当前运行检查点（scene_asset_selection 等）：用于区分「等待用户选择素材」与「手动暂停」
     checkpoint: { type: Object, default: null },
