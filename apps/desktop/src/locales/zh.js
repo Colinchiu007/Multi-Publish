@@ -1531,7 +1531,6 @@ export default {
     assetsDetailNoVideo: (ctx) => '图片 ' + ctx.named('images') + '/' + ctx.named('imagesTotal') + ' · 旁白 ' + ctx.named('tts') + '/' + ctx.named('ttsTotal'),
     optimizeStarting: (ctx) => '正在准备优化场景提示词 · ' + ctx.named('done') + '/' + ctx.named('total'),
     optimizeScene: (ctx) => '正在优化第 ' + ctx.named('done') + '/' + ctx.named('total') + ' 个场景提示词',
-    optimizeTranslation: (ctx) => '正在整理 ' + ctx.named('total') + ' 个场景的提示词翻译…',
     optimizeComplete: (ctx) => '场景提示词优化完成 · ' + ctx.named('done') + '/' + ctx.named('total'),
     optimizeSummary: (ctx) => '已完成 ' + ctx.named('done') + '/' + ctx.named('total') + ' 个场景提示词优化',
     assetsStarting: (ctx) => '正在准备素材 · 图片 ' + ctx.named('images') + '/' + ctx.named('imagesTotal') + ' · 视频 ' + ctx.named('videos') + '/' + ctx.named('videosTotal') + ' · 旁白 ' + ctx.named('tts') + '/' + ctx.named('ttsTotal'),

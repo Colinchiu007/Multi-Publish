@@ -35,7 +35,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 3. **分镜素材自选流程**：与全自动前段一致（文案拆分 → 内容增强 → 场景上下文 → 提示词优化 → AI 视频场景选择 → 素材生成），素材生成阶段按模式产出候选（每场景多张图片 / 图片+视频），**不生成 TTS、不合成**，以 `scene_asset_selection` 检查点暂停；用户逐场景单选后提交 → 进入 `finalize_assets` 阶段生成旁白并组装最终素材 → 合成 → 发布。
 4. **历史提示词翻译**：界面语言非 en（当前 zh）时，流水线在提示词优化后按场景生成优化后提示词的本国语言翻译（`promptTranslation`），随分段持久化；项目详情（ResultView 分段编辑）的「画面提示词」文本框下方只读展示翻译，不可修改。
 
-**自动模式调度补充（2026-08-17）**：翻译为只读增强，不再阻塞自动模式的 optimize/generate_assets；optimize 写入 JSON-safe 的 `prompt_translations_pending`，compose 开始时与 `composeVideo` 并行执行。每批最多 3 项、单批预算 25 秒、总预算约 60 秒；翻译失败、超时、空/非法响应均 fail-open，合成成功优先。有效结果按场景 `index` 回填 `promptTranslation`，未完成项保留 `null` 和 pending 供重试/恢复；英文界面不创建任务；manual 模式在候选检查点前仍完成翻译。结果页/历史页继续只读显示合法非空翻译，不显示内部诊断或技术错误。
+**提示词翻译调度补充（2026-08-17）**：翻译为只读增强，不再阻塞自动模式或手动选材模式的 optimize/generate_assets；optimize 统一写入 JSON-safe 的 `prompt_translations_pending`，compose 开始时与 `composeVideo` 并行执行。每批最多 3 项、单批预算 25 秒、总预算约 60 秒；翻译失败、超时、空/非法响应均 fail-open，合成成功优先。有效结果按场景 `index` 回填 `promptTranslation`，未完成项保留 `null` 和 pending 供重试/恢复；英文界面不创建任务。手动模式候选 checkpoint 允许暂时没有翻译，候选确认仍只提交 `index + candidateId`，翻译 apply 不得覆盖候选、选择、媒体或 TTS 字段。结果页/历史页继续只读显示合法非空翻译，不显示内部诊断或技术错误。
 
 ##### 二、数据校验（配置契约）
 
@@ -65,7 +65,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
    - 提交经新 IPC `pipeline:confirmSceneAssets(runId, selections)`（selections 为 `[{index, candidateId}]` 纯 JSON）；校验：run 处于 scene_asset_selection 暂停点、覆盖全部场景、index 唯一、candidateId 属于该场景候选清单；非法返回 `INVALID_SCENE_ASSET_SELECTION` 且不写入。合法写入 `context.scene_asset_selection` 后推进 `finalize_assets → compose → publish`（double-click 由推进锁防重入）。
 4. **finalize_assets 阶段**：校验选择完整合法 → 为所选场景生成 TTS（逐场景 `partialTts` 断点续跑）→ 组装与全自动兼容的最终素材清单（scenes 含 `imagePath` 或 `videoPath` + `audioPath` + `promptTranslation`）→ `alignScenes` 字幕时间戳对齐 → 写回 `context.generate_assets` 供 compose 使用；TTS 失败 fail closed 可重试。
 5. **暂停恢复**：`resumeOrchestration` 对 `paused + checkpoint.type='scene_asset_selection'` 恢复为 paused（保留 checkpoint/候选，不重跑 generate_assets），前端回到选择面板；确认后继续。
-6. **提示词翻译**：optimize 阶段完成后，`uiLocale !== 'en'` 时调用默认 LLM 按批（并发 3、每批 3 条）翻译优化后提示词 → `context.prompt_translations.items`（按 index 对齐，单条失败置 null，fail-open 不阻塞）→ generate_assets/finalize_assets 写入每场景 `promptTranslation` → compose 分段 → project-service 持久化（≤20000 字符）；旧项目无该字段时不显示翻译块。
+6. **提示词翻译**：optimize 阶段完成后，`uiLocale !== 'en'` 时仅登记 `context.prompt_translations_pending`；自动模式直接进入素材生成，手动模式直接生成候选并进入 `scene_asset_selection` checkpoint。用户确认手动候选后，compose 阶段与视频合成并行调用默认 LLM，按 stable `index` 写入 `context.prompt_translations.items`、最终 scenes 和 compose segments（每批最多 3 条，单批 25 秒、总预算约 60 秒；单项失败置 null，fail-open 不阻塞）；不得重建 candidates/selection 或改动 candidateId、媒体路径、TTS。结果经 project-service 持久化（≤20000 字符）；旧项目无该字段时不显示翻译块。
 
 ##### 四、交互与显示项
 
@@ -187,7 +187,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
    - 提交经新 IPC `pipeline:confirmSceneAssets(runId, selections)`（selections 为 `[{index, candidateId}]` 纯 JSON）；校验：run 处于 scene_asset_selection 暂停点、覆盖全部场景、index 唯一、candidateId 属于该场景候选清单；非法返回 `INVALID_SCENE_ASSET_SELECTION` 且不写入。合法写入 `context.scene_asset_selection` 后推进 `finalize_assets → compose → publish`（double-click 由推进锁防重入）。
 4. **finalize_assets 阶段**：校验选择完整合法 → 为所选场景生成 TTS（逐场景 `partialTts` 断点续跑）→ 组装与全自动兼容的最终素材清单（scenes 含 `imagePath` 或 `videoPath` + `audioPath` + `promptTranslation`）→ `alignScenes` 字幕时间戳对齐 → 写回 `context.generate_assets` 供 compose 使用；TTS 失败 fail closed 可重试。
 5. **暂停恢复**：`resumeOrchestration` 对 `paused + checkpoint.type='scene_asset_selection'` 恢复为 paused（保留 checkpoint/候选，不重跑 generate_assets），前端回到选择面板；确认后继续。
-6. **提示词翻译**：optimize 阶段完成后，`uiLocale !== 'en'` 时调用默认 LLM 按批（并发 3、每批 3 条）翻译优化后提示词 → `context.prompt_translations.items`（按 index 对齐，单条失败置 null，fail-open 不阻塞）→ generate_assets/finalize_assets 写入每场景 `promptTranslation` → compose 分段 → project-service 持久化（≤20000 字符）；旧项目无该字段时不显示翻译块。
+6. **提示词翻译**：optimize 阶段完成后，`uiLocale !== 'en'` 时仅登记 JSON-safe 的 `context.prompt_translations_pending`；自动模式直接进入素材生成，手动模式先生成候选并进入 `scene_asset_selection` checkpoint，缺少翻译时每场景的 `promptTranslation` 可为 null。手动确认并完成 TTS 后，compose 阶段与视频合成并行调用默认 LLM，按稳定 `index` 回填 `context.prompt_translations.items`、最终 scenes 和 compose 分段（并发 3、每批 3 条，单批 25 秒、总预算约 60 秒，单条失败置 null，fail-open 不阻塞）→ project-service 持久化（≤20000 字符）；并行 apply 不得重建候选、选择、candidateId、媒体或音频字段；旧项目无该字段时不显示翻译块。
 
 ##### 四、交互与显示项
 

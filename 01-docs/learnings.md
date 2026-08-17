@@ -13766,5 +13766,5 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **数据边界**：并行任务只能把 JSON-safe 的 {`uiLocale, items: [{ index, prompt, translation }]`} 写入 context；Promise、定时器、Error 和 provider 原始响应不能进入 checkpoint。
 - **失败语义**：翻译是增强项，按单批超时/总预算 fail-open；compose 结果权威。空响应、非法 JSON、等于原文、代码围栏文本和缺项都必须降级为 `null`，不能展示模型垃圾输出。
 - **恢复语义**：超时不能删除 pending。已完成翻译与未完成项必须按 stable scene index 合并保存；恢复/重试只重发未完成项，不能用空结果覆盖既有翻译。
-- **交互边界**：manual 模式的候选面板依赖翻译，所以仍在 checkpoint 前完成；自动模式不新增等待条、重试按钮或技术错误文案，结果页只显示合法非空只读翻译。
+- **交互边界**：manual 候选面板实际只依赖 `index + candidateId + media path`，不依赖 `promptTranslation`；因此自动/manual 都可在 optimize 后立即继续，候选阶段允许翻译为 null，compose 完成后再按 index 回填。两种模式均不新增等待条、重试按钮或技术错误文案，结果页只显示合法非空只读翻译。
 - **回归保护**：至少覆盖自动模式不提前调用 LLM、compose/翻译同时启动、乱序 index、部分响应、批次超时、compose 失败优先、manual checkpoint、英文跳过与 JSON 快照可序列化。
