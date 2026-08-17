@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "frontend",
   "currentPhase": "archived",
-  "nextAction": "功能 PR #925 已合并；OpenSpec 已归档，归档 PR 待创建并合并",
+  "nextAction": "功能 PR #925 与归档 PR #926 均已合并；OpenSpec 与 CCG task 归档完成",
   "createdAt": "2026-08-16T23:00:00+08:00",
   "branch": "codex/s2v-pipeline-page-ux",
   "openspecChange": "s2v-pipeline-page-ux",
@@ -14,6 +14,11 @@
     "featurePullRequest": 925,
     "featurePullRequestUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/925",
     "featureMergedAt": "2026-08-17T06:52:13Z",
-    "featureMergeCommit": "6790d6a9d371845a000fc2161016ccf592e4f6ca"
+    "featureMergeCommit": "6790d6a9d371845a000fc2161016ccf592e4f6ca",
+    "archivePullRequest": 926,
+    "archivePullRequestUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/926",
+    "archiveMergedAt": "2026-08-17T07:10:35Z",
+    "archiveMergeCommit": "ffc162ab11d11e6b7500a39c1210f17da5f00dc8",
+    "originMainVerified": true
   }
 }
