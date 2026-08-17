@@ -16,3 +16,8 @@
 ## 外部审查
 
 antigravity 与 Claude wrapper 在本机执行时因 Windows Bash 路径/运行时环境不可用，未取得外部模型报告；按项目降级规则完成主代理审查并记录该边界。
+
+## CI
+
+- PR #915 的必需构建、单元、覆盖率、桌面分片、浏览器 E2E、视觉、Electron、文档同步检查均通过。
+- `QG Autonomous` 独立返回 `NEED_HUMAN`（PRD 覆盖条目为 0），不是本次 backend 变更引入；按既有仓库合并例外处理。
