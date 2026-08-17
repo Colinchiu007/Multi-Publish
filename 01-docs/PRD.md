@@ -116,6 +116,82 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 - 分镜素材自选模式下，图片调用数 = 场景数 × 2（全自动为场景数 × 1），视频场景额外 1 次视频生成；Token/积分消耗大幅增加，UI 强制提示「建议先用短文案测试后，再用于真实创作」。
 - 视频+图片轮播的 AI 视频场景判定沿用「视频增强模式」（关闭/固定比例/AI 智能选择）现有语义与比例约束；未配置视频生成器时按现有 fail-closed 语义引导设置。
 
+##### 7.1.3a-2 单段视频短于分镜时长的处理（2026-08-18 新增）
+
+> 背景：AI 视频模型生成的视频时长通常为 4-6 秒，而分镜场景时长可能为 8-15 秒甚至更长。原有行为是在场景时长内循环播放这段短视频（一遍可达 2-3 次循环），用户无法选择其他处理方式。本轮新增「播放完停止」选项，允许视频播放一次后定格最后一帧并慢慢放大，营造定格绘画效果。
+
+###### 一、需求概述
+
+1. **新增高级选项**：在「视频增强」配置区的【高级】区域，新增下拉选择「单段视频短于分镜时长的处理」，两个选项：`循环播放`（默认）/ `播放完停止`。
+2. **播放完停止模式**：AI 视频播放到最后一帧后停止，不再循环；然后对最后一帧应用 zoom-in 动效（慢慢放大），持续时间为场景剩余时长（即场景时长 - 视频实际时长），与图片动效中的「慢慢放大」效果一致。
+3. **生效范围**：仅在「视频增强模式」为 `固定比例（成品前段 AI 视频）` 或 `AI 智能选择（最精彩场景）` 时生效。视频增强模式为 `纯图片轮播` 时不显示该选项。
+4. **视频增强模式标签变更**：原 `关闭（纯图片轮播）` 改为 `纯图片轮播`，去除括号说明，多语言同步。
+
+###### 二、数据校验（配置契约）
+
+| 字段 | 类型/枚举 | 默认 | 校验 | 说明 |
+|------|----------|------|------|------|
+| `shortVideoHandling` | `'loop'` \| `'stop-at-end'` | `'loop'` | 枚举白名单校验；非法值回退 `'loop'` | 前端 `S2V_RESTORE_ENUM_OPTIONS` 白名单包含 |
+| `videoMode` | `'off'` \| `'fixed'` \| `'ai-judged'` | `'off'` | 枚举校验（已有） | 决定 `shortVideoHandling` 是否可见 |
+
+- **可见性条件**：`shortVideoHandling` 仅在 `videoMode === 'fixed'` 或 `videoMode === 'ai-judged'` 时显示。`videoMode === 'off'` 时整个选项隐藏（不生成 AI 视频，该选项无意义）。
+- **持久化**：`shortVideoHandling` 纳入 `lastOptions` 持久化白名单，用户选择后跨运行保持。
+- **旧配置兼容**：旧快照/旧配置无 `shortVideoHandling` 字段时，normalizer 默认填充 `'loop'`，行为与变更前一致。
+- **配置传递链**：`renderer (s2vConfig.shortVideoHandling)` -> `IPC` -> `pipeline-engine.js (stageOptions)` -> `stage-executor.js (composeOptionKeys)` -> `story2video-compose-engine.js (options.shortVideoHandling)`。
+
+###### 三、流程与功能逻辑
+
+1. **compose engine 判定逻辑**（`story2video-compose-engine.js` `_encodeVideoSegmentOnce`）：
+   - 检查 `opts.shortVideoHandling === 'stop-at-end'` 且 `videoMode` 为 `'fixed'` 或 `'ai-judged'`（`aiVideoMode` 为 true）。
+   - 满足条件时，用 `ffprobe` 探测源视频实际时长（`_probeVideoDuration`）。
+   - 探测成功且源视频时长 < 场景时长（`targetDuration`）-> 进入播放完停止模式。
+   - 探测失败 -> 回退到循环播放（`-stream_loop -1`），避免旧 provider 的非标准媒体导致成片提前结束。
+   - 源视频时长 >= 场景时长 -> 只裁剪不循环（`-shortest`），不追加末帧尾段。
+
+2. **ffmpeg 滤镜链（播放完停止 + 短视频）**：
+   - 去掉 `-stream_loop -1`（不再循环）。
+   - 用 `split` 将视频流分为两路：`videoBodySrc`（完整视频）和 `videoTailSrc`（末帧）。
+   - `videoBodySrc`：`trim=duration=<源视频时长>`，取完整视频段。
+   - `videoTailSrc`：`trim=start=<末帧时间>:duration=<1/fps>`，取最后一帧 -> `select=eq(n,0)` 固定帧 -> `zoompan` 动效（`1+0.25*min(1,on/72)`，即 72 帧内从 1.0 放大到 1.25）。
+   - 两路 `concat=n=2:v=1:a=0` 拼接，叠加字幕/水印等 overlay 滤镜。
+
+3. **时长控制**：
+   - 有 `padTo`（min-duration 场景）：使用 `-t <padTo>` + `-af apad` 静音补齐尾部，不使用 `-shortest`。
+   - 无 `padTo` 但有 `targetDuration`：使用 `-t <targetDuration>` + `-shortest`，确保合成时长与场景时长一致。
+
+4. **zoom-in 动效参数**：
+   - 复用图片动效的 `buildImageEffectFilter('zoom-in', ...)` 函数。
+   - 放大比例：1.0 -> 1.25（72 帧内线性增长，`1+0.25*min(1,on/72)`）。
+   - 尾段帧数：`tailDuration * fps`，其中 `tailDuration = targetDuration - sourceVideoDuration`。
+
+###### 四、交互与显示项
+
+| 位置 | 显示项 | 交互 | 条件 |
+|------|--------|------|------|
+| 视频增强配置区【高级】 | 下拉选择「单段视频短于分镜时长的处理」（data-testid `s2v-short-video-handling`） | 两项：`循环播放`（默认）/ `播放完停止`；选择即生效并保存 lastOptions | 仅 `videoMode === 'fixed'` 或 `'ai-judged'` 时显示 |
+| 视频增强配置区【高级】 | 提示文字（data-testid 同上区域） | 只读提示，说明生效范围和播放完停止效果 | 随选项一起显示 |
+| 摘要区（视频模式摘要） | 播完停止标记 | 当 `shortVideoHandling === 'stop-at-end'` 时，视频模式摘要追加 ` · 播完停止` | 仅 `videoMode !== 'off'` 时 |
+
+###### 五、提示文字清单（zh / en）
+
+| Key | zh | en |
+|-----|----|----|
+| shortVideoHandling.label | 单段视频短于分镜时长的处理 | Handle short AI video clips |
+| shortVideoHandling.loop | 循环播放 | Loop playback |
+| shortVideoHandling.stopAtEnd | 播放完停止 | Stop at end |
+| shortVideoHandling.hint | 仅在视频增强模式（固定比例/AI 智能选择）下生效。选择播放完停止时，AI 视频播放到最后一帧后将定格并慢慢放大。 | Only applies in video enhancement mode (Fixed ratio / AI selected). When Stop at end is chosen, the AI video will freeze on the last frame and slowly zoom in. |
+
+###### 六、测试覆盖
+
+| 测试场景 | 预期行为 | 测试文件 |
+|----------|----------|----------|
+| 默认循环模式 | `-stream_loop -1`，无 `tpad=stop_mode=clone` | `story2video-compose-engine.test.js` |
+| 播放完停止 + 短视频 | 无 `-stream_loop`；filter 含 `concat=n=2:v=1:a=0`、`select=eq(n,0)`、`zoompan`；`-t` + `-shortest` + `-map [videoOut]` | 同上 |
+| 播放完停止 + 视频足够长 | 无 `-stream_loop`；`-vf` 裁剪，无 `tpad`；`-shortest` | 同上 |
+| 播放完停止 + 探测失败 | 回退 `-stream_loop -1`，无 `tpad` | 同上 |
+| min-duration + 播放完停止 | 无 `-stream_loop`；`-t <padTo>` + `-af apad`，无 `-shortest` | 同上 |
+| 默认循环（无 shortVideoHandling） | 行为与变更前一致 | 同上 |
+
 ##### 7.1.3a-1 等待态 UX 反馈（2026-08-13 新增）
 
 > 背景：分镜素材自选模式在 `scene_asset_selection` 检查点暂停等待用户选择时，进度区阶段直接渲染引擎原始状态值 `paused`（未本地化、灰色待定样式），素材选择面板位于页面底部首屏之外且无任何提示，用户易误判为出错/卡死，且在「只有取消按钮可见」的情况下存在误取消整条流水线的风险。本轮补齐「等待态语义展示 + 注意力引导」。
@@ -233,6 +309,82 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 
 - 分镜素材自选模式下，图片调用数 = 场景数 × 2（全自动为场景数 × 1），视频场景额外 1 次视频生成；Token/积分消耗大幅增加，UI 强制提示「建议先用短文案测试后，再用于真实创作」。
 - 视频+图片轮播的 AI 视频场景判定沿用「视频增强模式」（关闭/固定比例/AI 智能选择）现有语义与比例约束；未配置视频生成器时按现有 fail-closed 语义引导设置。
+
+##### 7.1.3a-2 单段视频短于分镜时长的处理（2026-08-18 新增）
+
+> 背景：AI 视频模型生成的视频时长通常为 4-6 秒，而分镜场景时长可能为 8-15 秒甚至更长。原有行为是在场景时长内循环播放这段短视频（一遍可达 2-3 次循环），用户无法选择其他处理方式。本轮新增「播放完停止」选项，允许视频播放一次后定格最后一帧并慢慢放大，营造定格绘画效果。
+
+###### 一、需求概述
+
+1. **新增高级选项**：在「视频增强」配置区的【高级】区域，新增下拉选择「单段视频短于分镜时长的处理」，两个选项：`循环播放`（默认）/ `播放完停止`。
+2. **播放完停止模式**：AI 视频播放到最后一帧后停止，不再循环；然后对最后一帧应用 zoom-in 动效（慢慢放大），持续时间为场景剩余时长（即场景时长 - 视频实际时长），与图片动效中的「慢慢放大」效果一致。
+3. **生效范围**：仅在「视频增强模式」为 `固定比例（成品前段 AI 视频）` 或 `AI 智能选择（最精彩场景）` 时生效。视频增强模式为 `纯图片轮播` 时不显示该选项。
+4. **视频增强模式标签变更**：原 `关闭（纯图片轮播）` 改为 `纯图片轮播`，去除括号说明，多语言同步。
+
+###### 二、数据校验（配置契约）
+
+| 字段 | 类型/枚举 | 默认 | 校验 | 说明 |
+|------|----------|------|------|------|
+| `shortVideoHandling` | `'loop'` \| `'stop-at-end'` | `'loop'` | 枚举白名单校验；非法值回退 `'loop'` | 前端 `S2V_RESTORE_ENUM_OPTIONS` 白名单包含 |
+| `videoMode` | `'off'` \| `'fixed'` \| `'ai-judged'` | `'off'` | 枚举校验（已有） | 决定 `shortVideoHandling` 是否可见 |
+
+- **可见性条件**：`shortVideoHandling` 仅在 `videoMode === 'fixed'` 或 `videoMode === 'ai-judged'` 时显示。`videoMode === 'off'` 时整个选项隐藏（不生成 AI 视频，该选项无意义）。
+- **持久化**：`shortVideoHandling` 纳入 `lastOptions` 持久化白名单，用户选择后跨运行保持。
+- **旧配置兼容**：旧快照/旧配置无 `shortVideoHandling` 字段时，normalizer 默认填充 `'loop'`，行为与变更前一致。
+- **配置传递链**：`renderer (s2vConfig.shortVideoHandling)` -> `IPC` -> `pipeline-engine.js (stageOptions)` -> `stage-executor.js (composeOptionKeys)` -> `story2video-compose-engine.js (options.shortVideoHandling)`。
+
+###### 三、流程与功能逻辑
+
+1. **compose engine 判定逻辑**（`story2video-compose-engine.js` `_encodeVideoSegmentOnce`）：
+   - 检查 `opts.shortVideoHandling === 'stop-at-end'` 且 `videoMode` 为 `'fixed'` 或 `'ai-judged'`（`aiVideoMode` 为 true）。
+   - 满足条件时，用 `ffprobe` 探测源视频实际时长（`_probeVideoDuration`）。
+   - 探测成功且源视频时长 < 场景时长（`targetDuration`）-> 进入播放完停止模式。
+   - 探测失败 -> 回退到循环播放（`-stream_loop -1`），避免旧 provider 的非标准媒体导致成片提前结束。
+   - 源视频时长 >= 场景时长 -> 只裁剪不循环（`-shortest`），不追加末帧尾段。
+
+2. **ffmpeg 滤镜链（播放完停止 + 短视频）**：
+   - 去掉 `-stream_loop -1`（不再循环）。
+   - 用 `split` 将视频流分为两路：`videoBodySrc`（完整视频）和 `videoTailSrc`（末帧）。
+   - `videoBodySrc`：`trim=duration=<源视频时长>`，取完整视频段。
+   - `videoTailSrc`：`trim=start=<末帧时间>:duration=<1/fps>`，取最后一帧 -> `select=eq(n,0)` 固定帧 -> `zoompan` 动效（`1+0.25*min(1,on/72)`，即 72 帧内从 1.0 放大到 1.25）。
+   - 两路 `concat=n=2:v=1:a=0` 拼接，叠加字幕/水印等 overlay 滤镜。
+
+3. **时长控制**：
+   - 有 `padTo`（min-duration 场景）：使用 `-t <padTo>` + `-af apad` 静音补齐尾部，不使用 `-shortest`。
+   - 无 `padTo` 但有 `targetDuration`：使用 `-t <targetDuration>` + `-shortest`，确保合成时长与场景时长一致。
+
+4. **zoom-in 动效参数**：
+   - 复用图片动效的 `buildImageEffectFilter('zoom-in', ...)` 函数。
+   - 放大比例：1.0 -> 1.25（72 帧内线性增长，`1+0.25*min(1,on/72)`）。
+   - 尾段帧数：`tailDuration * fps`，其中 `tailDuration = targetDuration - sourceVideoDuration`。
+
+###### 四、交互与显示项
+
+| 位置 | 显示项 | 交互 | 条件 |
+|------|--------|------|------|
+| 视频增强配置区【高级】 | 下拉选择「单段视频短于分镜时长的处理」（data-testid `s2v-short-video-handling`） | 两项：`循环播放`（默认）/ `播放完停止`；选择即生效并保存 lastOptions | 仅 `videoMode === 'fixed'` 或 `'ai-judged'` 时显示 |
+| 视频增强配置区【高级】 | 提示文字（data-testid 同上区域） | 只读提示，说明生效范围和播放完停止效果 | 随选项一起显示 |
+| 摘要区（视频模式摘要） | 播完停止标记 | 当 `shortVideoHandling === 'stop-at-end'` 时，视频模式摘要追加 ` · 播完停止` | 仅 `videoMode !== 'off'` 时 |
+
+###### 五、提示文字清单（zh / en）
+
+| Key | zh | en |
+|-----|----|----|
+| shortVideoHandling.label | 单段视频短于分镜时长的处理 | Handle short AI video clips |
+| shortVideoHandling.loop | 循环播放 | Loop playback |
+| shortVideoHandling.stopAtEnd | 播放完停止 | Stop at end |
+| shortVideoHandling.hint | 仅在视频增强模式（固定比例/AI 智能选择）下生效。选择播放完停止时，AI 视频播放到最后一帧后将定格并慢慢放大。 | Only applies in video enhancement mode (Fixed ratio / AI selected). When Stop at end is chosen, the AI video will freeze on the last frame and slowly zoom in. |
+
+###### 六、测试覆盖
+
+| 测试场景 | 预期行为 | 测试文件 |
+|----------|----------|----------|
+| 默认循环模式 | `-stream_loop -1`，无 `tpad=stop_mode=clone` | `story2video-compose-engine.test.js` |
+| 播放完停止 + 短视频 | 无 `-stream_loop`；filter 含 `concat=n=2:v=1:a=0`、`select=eq(n,0)`、`zoompan`；`-t` + `-shortest` + `-map [videoOut]` | 同上 |
+| 播放完停止 + 视频足够长 | 无 `-stream_loop`；`-vf` 裁剪，无 `tpad`；`-shortest` | 同上 |
+| 播放完停止 + 探测失败 | 回退 `-stream_loop -1`，无 `tpad` | 同上 |
+| min-duration + 播放完停止 | 无 `-stream_loop`；`-t <padTo>` + `-af apad`，无 `-shortest` | 同上 |
+| 默认循环（无 shortVideoHandling） | 行为与变更前一致 | 同上 |
 
 ##### 7.1.3a-1 等待态 UX 反馈（2026-08-13 新增）
 
