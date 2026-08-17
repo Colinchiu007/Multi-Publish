@@ -1,0 +1,14 @@
+{
+  "id": "s2v-video-maxlength-40000",
+  "title": "视频提示词字数上限再放宽：20000 → 40000（双仓联动：桌面契约 + 8020 引擎）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "implementation",
+  "nextAction": "改桌面契约 videoMaxLengthMax/standalone range + 落库 safeText 视频专属 40000 + 同步测试",
+  "createdAt": "2026-08-16T15:20:00Z",
+  "openspecChange": "s2v-video-maxlength-40000",
+  "engineChange": "prompt-engine#video-maxlength-40000",
+  "branch": "codex/s2v-video-maxlength-40000"
+}

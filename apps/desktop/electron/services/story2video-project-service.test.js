@@ -1976,8 +1976,8 @@ describe('Story2VideoProjectService', () => {
 
     const updated = await service.regenerateScenePrompt('project-prompt-video', 'segment-0', 'video')
 
-    // 2026-08-16 视频域显式顶格（PRD 3.1.29.5）：显式携带 max_length=20000，双后端由契约 builder 各自 clamp
-    expect(optimizeVideoPrompt).toHaveBeenCalledWith('你好', expect.objectContaining({ index: 0, max_length: 20000 }))
+    // 2026-08-16 视频域显式顶格（PRD 3.1.29.5）：显式携带 max_length=40000，双后端由契约 builder 各自 clamp
+    expect(optimizeVideoPrompt).toHaveBeenCalledWith('你好', expect.objectContaining({ index: 0, max_length: 40000 }))
     expect(updated.segments[0].videoPrompt).toBe('新视频优化词')
     expect(updated.segments[0].prompt).toBe('旧画面词')
     expect(updated.segments[0].status).toBe('completed')
@@ -1985,7 +1985,7 @@ describe('Story2VideoProjectService', () => {
 
   it('regenerateScenePrompt video 超长返回完整保存（不落回后端默认截断）', async () => {
     const projectRoot = path.join(root, 'projects')
-    const long = '镜'.repeat(5000)
+    const long = '镜'.repeat(25000)
     const optimizeVideoPrompt = vi.fn(async () => ({ results: [{ prompt: long }] }))
     const service = new Story2VideoProjectService({
       store,
@@ -1999,9 +1999,9 @@ describe('Story2VideoProjectService', () => {
 
     const updated = await service.regenerateScenePrompt('project-prompt-video-long', 'segment-0', 'video')
 
-    expect(optimizeVideoPrompt).toHaveBeenCalledWith('你好', expect.objectContaining({ max_length: 20000 }))
-    // >1800 的返回不被本地按 2000 截断，完整落库（safeText 20000）
-    expect(Array.from(updated.segments[0].videoPrompt).length).toBe(5000)
+    expect(optimizeVideoPrompt).toHaveBeenCalledWith('你好', expect.objectContaining({ max_length: 40000 }))
+    // >1800 的返回不被本地按 2000 截断，完整落库（safeText 40000）
+    expect(Array.from(updated.segments[0].videoPrompt).length).toBe(25000)
     expect(updated.segments[0].status).toBe('completed')
   })
 
