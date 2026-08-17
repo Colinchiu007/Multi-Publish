@@ -51,16 +51,16 @@
         class="history-item"
         :class="[
           'status-' + (item.status || 'unknown'),
-          { 'is-running': item.status === 'running', 'is-interactive': item.status !== 'cancelled', 'is-cancelled': item.status === 'cancelled' },
+          { 'is-running': item.status === 'running', 'is-interactive': historyItemOpenable(item), 'is-cancelled': item.status === 'cancelled' },
         ]"
         :data-history-id="historyIdentity(item, index)"
       >
         <div
           class="history-item-body"
-          :class="{ 'is-interactive': item.status !== 'cancelled' }"
-          :role="item.status !== 'cancelled' ? 'button' : undefined"
-          :tabindex="item.status !== 'cancelled' ? 0 : undefined"
-          :aria-label="item.status !== 'cancelled' ? tr('viewDetail') + ': ' + historyTitle(item) : undefined"
+          :class="{ 'is-interactive': historyItemOpenable(item) }"
+          :role="historyItemOpenable(item) ? 'button' : undefined"
+          :tabindex="historyItemOpenable(item) ? 0 : undefined"
+          :aria-label="historyItemOpenable(item) ? tr('viewDetail') + ': ' + historyTitle(item) : undefined"
           @click="openDetail(item)"
           @keydown.enter.prevent="openDetail(item)"
           @keydown.space.prevent="openDetail(item)"
@@ -107,7 +107,7 @@
             </div>
             <div class="history-state-detail-row">
               <span class="history-field-label">{{ tr('errorSummary') }}</span>
-              <span>{{ item.error ? truncate(item.error, 160) : tr('genericFailure') }}</span>
+              <span data-testid="history-failure-reason">{{ formatError(item) }}</span>
             </div>
             <div v-if="policyResumeHintFor(item)" class="history-state-detail-row history-policy-resume-hint" data-testid="history-policy-resume-hint">
               <span class="history-field-label">{{ tr('policyResumeBlockedLabel') }}</span>
@@ -122,8 +122,8 @@
             <div v-if="createdTime(item)" class="history-meta-item">
               <dt>{{ tr('createdAt') }}</dt><dd>{{ formatTime(createdTime(item)) }}</dd>
             </div>
-            <div v-if="item.duration || item.duration === 0" class="history-meta-item">
-              <dt>{{ tr('duration') }}</dt><dd>{{ formatDuration(item.duration) }}</dd>
+            <div v-if="historyDuration(item) !== null" class="history-meta-item">
+              <dt>{{ tr('duration') }}</dt><dd>{{ formatDuration(historyDuration(item)) }}</dd>
             </div>
             <div v-if="item.mode" class="history-meta-item">
               <dt>{{ tr('mode') }}</dt><dd>{{ localizedMode(item) }}</dd>
@@ -144,7 +144,7 @@
             >{{ historyStageLabel(stage) }}</span>
           </div>
 
-          <span class="history-detail-hint">{{ item.status === 'cancelled' ? tr('cancelledHint') : tr('viewDetailHint') }}</span>
+          <span class="history-detail-hint">{{ item.status === 'cancelled' ? tr('cancelledHint') : (historyItemOpenable(item) ? tr('viewDetailHint') : '') }}</span>
         </div>
 
         <div class="history-item-footer">
@@ -179,97 +179,20 @@
                 @click.stop="$emit('open-result', item)"
               >{{ tr('editAndRecompose') }}</button>
               <button
-                v-if="item.projectId"
                 type="button"
                 class="s2v-btn-danger s2v-btn-sm"
+                data-testid="history-delete-button"
                 @click.stop="$emit('delete-history', item)"
               >{{ tr('delete') }}</button>
           </div>
         </div>
       </div>
     </div>
-
-    <UiModal :visible="Boolean(selectedHistoryItem)" :title="tr('detailTitle')" size="lg" @close="closeDetail">
-      <div v-if="selectedHistoryItem" class="history-detail-content" data-testid="history-detail-modal">
-        <div class="history-detail-header">
-          <strong>{{ historyTitle(selectedHistoryItem) }}</strong>
-          <span class="history-status" :class="selectedHistoryItem.status || 'unknown'">
-            {{ historyStatusLabel(selectedHistoryItem.status) }}
-          </span>
-        </div>
-        <dl class="history-detail-list">
-          <div><dt>{{ tr('pipeline') }}</dt><dd>{{ pipelineName(selectedHistoryItem.pipeline || selectedHistoryItem.name) }}</dd></div>
-          <div><dt>{{ tr('status') }}</dt><dd>{{ historyStatusLabel(selectedHistoryItem.status) }}</dd></div>
-          <div v-if="displayTime(selectedHistoryItem)"><dt>{{ tr('updatedAt') }}</dt><dd>{{ formatTime(displayTime(selectedHistoryItem)) }}</dd></div>
-          <div v-if="createdTime(selectedHistoryItem)"><dt>{{ tr('createdAt') }}</dt><dd>{{ formatTime(createdTime(selectedHistoryItem)) }}</dd></div>
-          <div v-if="selectedHistoryItem.duration !== undefined && selectedHistoryItem.duration !== null" data-testid="history-detail-duration"><dt>{{ tr('duration') }}</dt><dd>{{ formatDuration(selectedHistoryItem.duration) }}</dd></div>
-          <div v-if="historyTaskId(selectedHistoryItem)"><dt>{{ selectedHistoryItem.projectId ? tr('projectId') : tr('taskId') }}</dt><dd>{{ historyTaskId(selectedHistoryItem) }}</dd></div>
-          <div v-if="selectedHistoryItem.mode"><dt>{{ tr('mode') }}</dt><dd>{{ localizedMode(selectedHistoryItem) }}</dd></div>
-          <div v-if="firstSegmentPreview(selectedHistoryItem)" data-testid="history-detail-prompt"><dt>{{ tr('promptPreview') }}</dt><dd>{{ firstSegmentPreview(selectedHistoryItem) }}</dd></div>
-          <div v-if="currentLocale() !== 'en' && firstSegmentTranslation(selectedHistoryItem)" data-testid="history-detail-translation"><dt>{{ tr('translation') }}</dt><dd>{{ firstSegmentTranslation(selectedHistoryItem) }}</dd></div>
-          <div v-if="selectedHistoryItem.status === 'paused'"><dt>{{ tr('pausedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || activeStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
-          <div v-if="selectedHistoryItem.status === 'paused' && pauseEnvironment(selectedHistoryItem)"><dt>{{ tr('pauseEnvironment') }}</dt><dd>{{ localizedEnvironment(pauseEnvironment(selectedHistoryItem)) }}</dd></div>
-          <div v-if="selectedHistoryItem.status === 'failed'"><dt>{{ tr('failedStage') }}</dt><dd>{{ localizedStage(selectedHistoryItem.pausedStage || failedStage(selectedHistoryItem)) || tr('notAvailable') }}</dd></div>
-          <div v-if="selectedHistoryItem.status === 'failed'" data-testid="history-detail-error"><dt>{{ tr('errorSummary') }}</dt><dd>{{ formatError(selectedHistoryItem) }}</dd></div>
-          <div v-if="policyResumeHintFor(selectedHistoryItem)" data-testid="history-detail-policy-resume-hint">
-            <dt>{{ tr('policyResumeBlockedLabel') }}</dt>
-            <dd class="history-detail-policy-hint">{{ policyResumeHintFor(selectedHistoryItem) }}</dd>
-          </div>
-        </dl>
-        <div v-if="Array.isArray(selectedHistoryItem.stages) && selectedHistoryItem.stages.length" class="history-detail-stages">
-          <span class="history-field-label">{{ tr('stages') }}</span>
-          <div class="history-progress">
-            <span v-for="(stage, index) in selectedHistoryItem.stages" :key="index" class="history-progress-seg" :class="historyStageState(stage)">
-              {{ historyStageLabel(stage) }}
-            </span>
-          </div>
-        </div>
-        <div v-if="detailScenes(selectedHistoryItem).length" class="history-detail-scenes" data-testid="history-detail-scenes">
-          <span class="history-field-label">{{ tr('sceneListLabel') }}</span>
-          <ol class="history-detail-scene-list">
-            <li v-for="(scene, index) in detailScenes(selectedHistoryItem)" :key="scene.id || index" class="history-detail-scene-item">
-              <span class="history-detail-scene-index">{{ index + 1 }}</span>
-              <span class="history-detail-scene-body">
-                <span v-if="scene.text" class="history-detail-scene-row"><span class="history-detail-scene-row-label">{{ tr('sceneNarration') }}</span>{{ scene.text }}</span>
-                <span v-if="scene.prompt" class="history-detail-scene-row"><span class="history-detail-scene-row-label">{{ tr('scenePrompt') }}</span>{{ scene.prompt }}</span>
-              </span>
-            </li>
-          </ol>
-          <p class="history-detail-hint">{{ tr('sceneListHint') }}</p>
-        </div>
-      </div>
-      <template #footer>
-        <button
-          v-if="selectedHistoryItem && historyItemResumable(selectedHistoryItem)"
-          type="button"
-          class="s2v-btn-resume s2v-btn-sm"
-          :disabled="story2videoResuming"
-          @click="resumeFromDetail"
-        >{{ story2videoResuming ? tr('resuming') : tr('resume') }}</button>
-        <button
-          v-if="selectedHistoryItem && policyEditTarget(selectedHistoryItem)"
-          type="button"
-          class="s2v-btn-secondary s2v-btn-sm"
-          data-testid="history-detail-policy-edit-button"
-          :disabled="story2videoResuming"
-          @click="openResultFromDetail"
-        >{{ tr('policyEditAndRegenerate') }}</button>
-        <button
-          v-if="selectedHistoryItem && selectedHistoryItem.status === 'completed' && selectedHistoryItem.projectId"
-          type="button"
-          class="s2v-btn-secondary s2v-btn-sm"
-          data-testid="history-detail-edit-recompose-button"
-          @click="openResultFromDetail"
-        >{{ tr('editAndRecompose') }}</button>
-        <button type="button" class="s2v-btn-secondary s2v-btn-sm" @click="closeDetail">{{ tr('close') }}</button>
-      </template>
-    </UiModal>
   </div>
 </template>
 
 <script>
 import '@/styles/history-panel.css'
-import UiModal from '@/components/UiModal.vue'
 import { getAppLocale } from '@/i18n'
 import zhLocale from '@/locales/zh'
 import enLocale from '@/locales/en'
@@ -281,7 +204,6 @@ const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'failed', 'c
 
 export default {
   name: 'CreateViewHistory',
-  components: { UiModal },
   props: {
     history: { type: Array, default: () => [] },
     historyLoading: { type: Boolean, default: false },
@@ -290,11 +212,10 @@ export default {
     historyFilter: { type: String, default: 'all' },
     story2videoResuming: { type: Boolean, default: false },
   },
-  emits: ['update:historyFilter', 'open-history-detail', 'resume-history', 'open-result', 'delete-history'],
+  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history'],
   data () {
     return {
       activeFilter: HISTORY_STATUSES.includes(this.historyFilter) ? this.historyFilter : 'all',
-      selectedHistoryItem: null,
       statusTabs: HISTORY_STATUSES,
     }
   },
@@ -374,23 +295,22 @@ export default {
     },
     historyIdentity (item, index) { return String(item?.id || item?.projectId || item?.runId || index) },
     historyTaskId (item) { return item?.projectId || item?.id || item?.runId || '' },
-    historyTitle (item) { return item?.title || this.pipelineName(item?.pipeline || item?.name) || this.tr('untitled') },
+    // 任务标题回退链：发布标题（project.title / params.title）→ 原文案前 60 字 → 流水线名
+    historyTitle (item) {
+      if (!item) return this.tr('untitled')
+      if (item.title) return item.title
+      const paramsTitle = item.params && (item.params.title || item.params.publishTitle)
+      if (paramsTitle) return paramsTitle
+      const firstText = (Array.isArray(item.segments) ? item.segments : []).find(segment => segment && segment.text)?.text
+      if (firstText) return this.truncate(firstText, 60)
+      return this.pipelineName(item.pipeline || item.name) || this.tr('untitled')
+    },
+    // 详情统一进入视频任务编辑页：非 cancelled 且有 projectId 的卡片可点击。
+    historyItemOpenable (item) {
+      return Boolean(item && item.status !== 'cancelled' && item.projectId)
+    },
     openDetail (item) {
-      if (!item || item.status === 'cancelled') return
-      this.selectedHistoryItem = item
-      this.$emit('open-history-detail', item)
-    },
-    closeDetail () { this.selectedHistoryItem = null },
-    resumeFromDetail () {
-      const item = this.selectedHistoryItem
-      if (!item) return
-      this.closeDetail()
-      this.$emit('resume-history', item)
-    },
-    openResultFromDetail () {
-      const item = this.selectedHistoryItem
-      if (!item?.projectId) return
-      this.closeDetail()
+      if (!this.historyItemOpenable(item)) return
       this.$emit('open-result', item)
     },
     firstSegmentPreview (item) {
@@ -398,11 +318,6 @@ export default {
     },
     firstSegmentTranslation (item) {
       return (Array.isArray(item?.segments) ? item.segments : []).find(segment => segment?.promptTranslation)?.promptTranslation || ''
-    },
-    detailScenes (item) {
-      if (!item) return []
-      return (Array.isArray(item?.segments) ? item.segments : [])
-        .filter(segment => segment && (segment.text || segment.prompt))
     },
     truncate (value, max) {
       const text = String(value || '')
@@ -417,6 +332,10 @@ export default {
     historyStatusIcon (status) { return ({ completed: '✓', failed: '×', cancelled: '–', running: '↻', paused: 'Ⅱ', pending: '○' })[status] || '•' },
     displayTime (item) { return historyDisplayTime(item) },
     createdTime (item) { return historyDisplayTime({ createdAt: item?.createdAt, created_at: item?.created_at }) },
+    historyDuration (item) {
+      const value = item?.activeMs ?? item?.duration
+      return Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null
+    },
     formatTime (value) {
       const date = new Date(value)
       if (!Number.isFinite(date.getTime())) return this.tr('notAvailable')
@@ -507,14 +426,6 @@ export default {
 </script>
 
 <style scoped>
-.history-detail-scenes { margin-top: 14px; }
-.history-detail-scene-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
-.history-detail-scene-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
-.history-detail-scene-index { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--border-light); color: var(--text-muted); font-size: 12px; }
-.history-detail-scene-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; color: var(--text); font-size: 13px; }
-.history-detail-scene-row { min-width: 0; white-space: normal; word-break: break-word; line-height: 1.6; }
-.history-detail-scene-row-label { display: inline-block; flex: none; margin-right: 8px; color: var(--text-muted); font-size: 12px; }
-.history-detail-hint { margin: 10px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 </style>
 
 

@@ -92,10 +92,10 @@ const supplementaryViewTests = [
   {
     name: 'create-history',
     route: '/create/history',
-    waitFor: 'h1:has-text("创作历史")',
+    waitFor: '.history-status-tabs',
     checks: [
-      check('历史列表', '.history-page', '显示创作历史页面'),
-      check('记录状态', '.render-list, .empty-state, .loading-state', '显示历史记录或明确空状态'),
+      check('历史标签', '.create-view-history .history-status-tabs', '显示历史记录标签'),
+      check('记录状态', '.history-list, .empty-state, .loading-state', '显示历史记录或明确空状态'),
     ],
   },
   {

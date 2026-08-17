@@ -2915,7 +2915,7 @@ function registerStory2VideoStages(pipelineEngine) {
           prompt: typeof prompt === 'string' ? prompt : prompt?.prompt || prompt?.optimized_prompt || prompt?.optimized || '',
           // 历史提示词翻译（2026-08-12）：非 en 界面随分段持久化，结果页只读展示
           promptTranslation: promptTranslationOf(i),
-          // 视频优化词（2026-08-15）：视频场景持久化到分段 videoPrompt，供历史详情页编辑/重新生成
+          // 视频优化词（2026-08-15）：视频场景持久化到分段 videoPrompt，供视频任务编辑页编辑/重新生成
           videoPrompt: videoByIndex.has(i) ? ((optimizedVideoPrompts && optimizedVideoPrompts.get(i))?.prompt || null) : null,
           imagePath: (image && image.success && image.path) ? image.path : null,
           videoPath: (video && video.path) ? video.path : null,

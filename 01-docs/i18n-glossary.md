@@ -41,6 +41,11 @@
 | 提示词 | Prompt | — |
 | 草稿箱 | Drafts | — |
 | 流水线 | Pipeline | — |
+| 流水线启动页 | Pipeline launch page | create.story2video |
+| 视频任务编辑页 | Video task editor | story2video.sceneMaterial |
+| 失败原因 | Failure reason | create.history.errorSummary |
+| 音色 | Voice | story2video.sceneMaterial.voiceIdLabel |
+| 返回 | Back | story2video.sceneMaterial.backToHistory |
 
 ## 维护规则
 

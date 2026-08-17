@@ -31,7 +31,7 @@ export function humanName(name) {
  * 历史记录状态标签
  */
 export function historyStatusLabel(status) {
-  const map = { completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }
+  const map = { completed: '已完成', failed: '执行失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }
   return map[status] || status || '未知'
 }
 

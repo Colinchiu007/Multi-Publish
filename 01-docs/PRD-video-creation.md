@@ -167,12 +167,12 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-13 | 视频创作首页卡片 UI：多列动态布局 + 内置静态背景 + 交互动效（方案 B） | `/create` 流水线选择视图容器放宽至 1600px + 显式 1-5 列断点；背景图由免费生图模型 Pollinations(flux) 一次性预生成 15 张（1024x576 JPEG，统一风格 + 主题意象）并提交仓库静态资源 `apps/desktop/src/assets/pipeline-card-bg/`；前端 `PipelineSelector` 直接引用静态映射，双层暗色遮罩 + 浅色前景保证可读性，渐变兜底 + 入场/悬停动效 + reduced-motion + ARIA；**彻底移除运行时生成链路**（主进程服务/IPC/preload/api/缓存/loopback 全部删除，不调用任何生成 API、不访问网络）。详见本节 3.1.24 | PRD 3.1.24 |
 
 | 2026-08-14 | 全能创作 BGM 素材库管理 | 背景音乐升级为设备级素材库：添加（自动入库 + 选中）/ 重命名 / 删除，下拉选择，历史路径兼容；主进程 `story2video-bgm-library` 服务 + 4 个 IPC 通道 + PUBLIC_CHANNELS；详见本节 3.1.25 | PRD 3.1.25 |
-| 2026-08-14 | 历史详情页场景多素材与再次合成 | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
+| 2026-08-14 | 视频任务编辑页场景多素材与再次合成 | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从视频任务编辑页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 | 2026-08-15 | 视频提示词引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架 | **Batch B**：`prev_final_frame`（≤1000 字符，句末截断）链式承接上一镜计划终态；`HIGGSFIELD_FMT_V4` 缓存盐（key 含 prev_final_frame 哈希）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）；Story2Video 视频提示词按场景串行优化、媒体生成保持并发、计划终态回写 scene.video.final_frame、checkpoint 终态恢复链、断链显式 degraded。**Batch C**：refined 12 块导演骨架（SCENE NOTE…FINAL FRAME，值 ≤4000，白名单）；FAIL CHECK 仅指令不出现在输出；尾行清理只认完整 trailer 尾段；块覆盖度 ≥0.8（advisory -5）；7 条 lock-gated 规则默认启用 dead_center/exposure_break/eye_line，否定感知（not overexposed / no waxy skin 不判罚）。详见本节 3.1.27 | PRD 3.1.27 / openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output | | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 | 2026-08-16 | 历史记录场景 AI 视频重新生成（W4 闭环） | 完成 3.1.29 的 W4 真缺口：结果页新增【生成 AI 视频】，以分段 videoPrompt（缺省回退 prompt/text）为提示词复用流水线 stages 契约（generateVideo→轮询→下载校验），成功替换分段 videoPath/videoMeta、失败保留旧视频回写 failed；IPC/权益/preload/api/locales/通知归一化全链路补齐；详见本节 3.1.29.1 | PRD 3.1.29.1 / openspec s2v-history-ai-video-regen |
-| 2026-08-15 | 历史记录场景内容编辑/重新生成与整片重合成 | 已完成任务每个场景可修改文案/字幕块/视频优化词/语音设置（updateSegments 白名单透传 + 限长收敛，voiceSpeed/Pitch 收敛 [0.1,10]），重新生成字幕（本地重切清空时间轴、重置失败态与来源标记）/旁白（TTS 失败回滚保留旧音频 + 回写 failed）/图片与视频优化词（image 重写 prompt 清翻译、video 写 videoPrompt），配合既有【生成新图】【生成视频】与【重新合成】完成整片重合成；voiceSpeed 收敛 [0.5,2]、voicePitch 收敛 [-12,12]（与流水线契约对齐）；同项目写串行队列防并发覆盖；compose 回显缺省时 videoPrompt 按原值回填；历史卡片与详情弹窗新增【编辑并重新合成】入口 + 只读场景列表；详见本节 3.1.29 | PRD 3.1.29 / openspec s2v-history-scene-edit-recompose |
+| 2026-08-15 | 历史记录场景内容编辑/重新生成与整片重合成 | 已完成任务每个场景可修改文案/字幕块/视频优化词/语音设置（updateSegments 白名单透传 + 限长收敛，voiceSpeed/Pitch 收敛 [0.1,10]），重新生成字幕（本地重切清空时间轴、重置失败态与来源标记）/旁白（TTS 失败回滚保留旧音频 + 回写 failed）/图片与视频优化词（image 重写 prompt 清翻译、video 写 videoPrompt），配合既有【生成新图】【生成视频】与【重新合成】完成整片重合成；voiceSpeed 收敛 [0.5,2]、voicePitch 收敛 [-12,12]（与流水线契约对齐）；同项目写串行队列防并发覆盖；compose 回显缺省时 videoPrompt 按原值回填；历史卡片新增【编辑】入口并进入视频任务编辑页；详见本节 3.1.29 | PRD 3.1.29 / openspec s2v-history-scene-edit-recompose |
 | 2026-08-16 | 视频提示词优化长度放宽（已实现） | 用户诉求：图片提示词上限放开后（PR #887），视频提示词优化也希望长度尽量放宽，避免长提示词被截断；方案沿用域级模式——Story2Video 域显式 max_length（流水线 stageDef/文本配置默认 + 各入口显式携带），共享 kernel 默认 500 与视频 legacy 8020 契约不变，执行器契约 [50,2000] 收敛不放松；PM 已确认放宽诉求；历史重生成视频优化词显式顶格（max_length=20000，8020 standalone [200,20000] / 8013 legacy [50,2000] 由契约 builder 各自收敛）。详见本节 3.1.29.5 | PRD 3.1.29.5 / openspec s2v-history-video-maxlength |
-| 2026-08-16 | 历史记录图片提示词完整展示 + 未保存修改离开守卫 | 历史详情弹窗场景列表由 60 字符硬截断改为「旁白 / 画面提示词」分行完整展示（只渲染存在字段，长文本换行 + 列表滚动），卡片预览 120 截断保持；结果页分段编辑新增「有未保存修改」标识与离开确认（保存并离开 / 不保存离开 / 取消），保存成功才放行、失败留页；明确保存语义为【保存分段】手动持久化 + 生成/重合成前自动保存；详见本节 3.1.29.3 | PRD 3.1.29.3 / openspec story2video-history-scene-prompt-persistence |
+| 2026-08-16 | 视频任务编辑页图片提示词完整展示 + 未保存修改离开守卫 | 视频任务编辑页完整显示场景旁白与画面提示词（不再以 60 字符截断）；历史卡片预览仍为 120 字符摘要；编辑页新增「有未保存修改」标识与离开确认（保存并离开 / 不保存离开 / 取消），保存成功才放行、失败留页；明确保存语义为【保存分段】手动持久化 + 生成/重合成前自动保存；详见本节 3.1.29.3 | PRD 3.1.29.3 / openspec story2video-history-scene-prompt-persistence |
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
 ---
@@ -1718,9 +1718,9 @@ SettingsDialog 关闭（App.vue @close）
 5. **i18n**：所有用户可见文案 zh/en 成对新增 `create.story2video.bgmLibrary.*` 与 `story2video.bgm_library_*`。
 6. **验收**：添加 → 列表 +1 且自动选中；重命名 → 列表刷新且退出编辑态；删除 → 列表 -1，删除选中项时 `bgmPath` 回退空；历史 BGM 路径不在库时保留为独立选项、入库后不再显示；服务层单测（16 例）+ 渲染端用例 + preload/IPC 测试全部通过。
 
-### 3.1.26 历史详情页场景多素材选择与再次合成（2026-08-14）
+### 3.1.26 视频任务编辑页场景多素材选择与再次合成（2026-08-14）
 
-**需求**：「视频创作-全能创作-历史记录 → 任务详情页」每个场景最多展示并支持 3 个可选素材槽：**图1 / 图2（备选图）/ 视频（备选素材）**；新增按钮【生成新图】【生成视频】（生成更多素材供选择）与【再次合成视频】（用当前选定素材 + 已有 TTS 旁白/字幕/背景音乐重新合成成片）；流水线完成后即可从历史详情页继续生成、选择素材并重新合成。其余既有功能（分段编辑、替换旁白、重试、重新合成、导出等）保持不变。
+**需求**：「视频创作-历史记录 → 视频任务编辑页」每个场景最多展示并支持 3 个可选素材槽：**图1 / 图2（备选图）/ 视频（备选素材）**；新增按钮【生成新图】【生成视频】（生成更多素材供选择）与【再次合成视频】（用当前选定素材 + 已有 TTS 旁白/字幕/背景音乐重新合成成片）；流水线完成后即可从视频任务编辑页继续生成、选择素材并重新合成。其余既有功能（分段编辑、替换旁白、重试、重新合成、导出等）保持不变。
 
 #### 1) 数据模型与槽位身份
 
@@ -1746,7 +1746,7 @@ SettingsDialog 关闭（App.vue @close）
 #### 3) 流程
 
 ```
-历史记录 → 点击任务 → 任务详情页（ResultView）
+历史记录 → 点击任务 → 视频任务编辑页（ResultView）
   ├─ 场景素材区：3 槽位卡片（图1/图2/视频），当前使用槽高亮 + 徽标
   ├─ 【生成新图】→ 主进程 generateSceneImage → 按槽位规则替换 → 返回最新项目 → 刷新缩略图 → 成功通知
   ├─ 【生成视频】→ 主进程 generateSceneVideo → 以当前选中图片渲染新分段视频 → 替换 videoPath → 成功通知
@@ -1809,17 +1809,21 @@ SettingsDialog 关闭（App.vue @close）
 
 ### 3.1.28 历史记录状态标签、统一排序与只读详情（2026-08-15）
 
-历史记录页面打开后默认选择“全部”。所有任务（包括筛选后的单一状态）按有效更新时间倒序排列，不再按状态分组。有效更新时间按以下优先级读取：`updatedAt` → `updated_at` → `completedAt` → `completed_at` → `endedAt` → `ended_at` → `createdAt` → `created_at`；字段接受 ISO 日期字符串及有限数字时间戳，绝对值小于 `1e11` 的数字按秒转换，其余按毫秒转换。空值、空白字符串、非有限数字和无效日期视为缺失；缺失更新时间时回退有效创建时间，再缺失则按 0 排在有时间记录之后。相同有效更新时间按创建时间倒序，再按首个非空 `id`/`projectId`/`runId` 字典序，最后保持原始输入顺序。时间戳 0 是有效时间，不能误判为空。全部任务和每个状态筛选复用同一排序函数，状态筛选为严格相等，`failed` 不并入 `paused`。
+> **术语与流转更新（2026-08-17）**：本节中的“详情页/详情弹窗”已由「视频任务编辑页」替代。符合编辑条件的历史卡片直接进入编辑页；不会再打开独立只读详情弹窗。完整的固定操作栏、暂停、状态卡片和编辑交互合同见 `PRD-S2V-PIPELINE-PAGE-UX.md`。
+
+历史记录页面打开后默认选择“全部”。所有任务（包括筛选后的单一状态）按有效更新时间倒序排列，不再按状态分组。有效更新时间按以下优先级读取：`updatedAt` → `updated_at` → `completedAt` → `completed_at` → `endedAt` → `ended_at` → `createdAt` → `created_at`；字段接受 ISO 日期字符串及有限数字时间戳，绝对值小于 `1e11` 的数字按秒转换，其余按毫秒转换。空值、空白字符串、非有限数字和无效日期视为缺失；缺失更新时间时回退有效创建时间，再缺失则按 0 排在有时间记录之后。相同有效更新时间按创建时间倒序，再按首个非空 `id`/`projectId`/`runId` 字典序，最后保持原始输入顺序。时间戳 0 是有效时间，不能误判为空。全部任务和每个状态筛选复用同一排序函数，状态筛选为严格相等，`failed` 不并入 `paused`。当同一任务同时存在项目草稿和流水线运行记录时，历史卡片合并两者：项目提供标题、文案、分段和素材；运行记录提供状态、阶段、错误、检查点、耗时与运行时间，禁止重复显示两张卡片。
 
 状态选择使用六个可访问标签：全部、进行中、已暂停、执行失败、已完成、已取消。标签容器为 `tablist`，标签为 `tab`，当前项使用 `aria-selected=true` 和 roving tabindex；支持鼠标点击、Enter/Space、左右方向键、Home/End，切换只改变筛选条件，不触发恢复或写入。
 
-每张卡片统一展示标题、流水线、状态、提示词预览（非中文界面显示翻译）、有效更新时间、创建时间、耗时、模式、任务/项目标识和阶段摘要。暂停任务额外显示已本地化的暂停环节及暂停环境/检查点；失败任务额外显示失败环节和截断的错误摘要。除已取消外，卡片 body 是唯一的详情入口，点击或 Enter/Space 打开当前页只读详情弹窗；详情包含完整提示词、翻译、完整错误、阶段明细、耗时及状态专属字段。已取消卡片 body 不可聚焦且不打开详情。
+每张卡片统一展示标题、流水线、状态、提示词预览（非中文界面显示翻译）、有效更新时间、创建时间、耗时、模式、任务/项目标识和阶段摘要。暂停任务额外显示已本地化的暂停环节及暂停环境/检查点；失败任务额外显示失败环节和自然语言“失败原因”，不得直接展示 `Story2Video optimize failed`、HTTP 状态码或模型原始错误对象。除已取消外，卡片 body 是唯一的编辑入口，点击或 Enter/Space 直接进入视频任务编辑页；不再打开独立详情弹窗。已取消卡片 body 不可聚焦且不打开编辑页。
 
 恢复、继续生成、打开结果、删除均为独立显式操作，点击这些按钮不会打开详情，也不会隐式恢复任务。轮询更新会重新应用有效时间排序，同时通过原数组 `splice` 保持响应式列表身份。未改动 IPC、持久化结构、过期任务清理或恢复引擎；仅调整 renderer 展示、交互和纯排序工具。
 
 验收必须覆盖 ISO/秒/毫秒/0/非法时间、同时间 tie-break、全部与状态筛选一致排序、六标签 ARIA/键盘行为、暂停/失败本地化字段、取消态不可打开、详情完整字段、显式动作不冒泡、轮询重排和中英文 locale 成对校验。
 
 ### 3.1.29 历史记录场景内容编辑、重新生成与整片重合成（2026-08-15）
+
+> **术语与流转更新（2026-08-17）**：本节中的“结果页/详情弹窗/编辑并重新合成”分别统一为「视频任务编辑页 / 不再使用 / 编辑」。历史入口携带项目与运行标识直接进入编辑页；当前页面与数据校验合同见 `PRD-S2V-PIPELINE-PAGE-UX.md`。
 
 **需求**：「视频创作-历史记录」中已完成的任务，其每个场景的内容组成元素（本场景文案、字幕、语音、图片/视频优化词、图片、视频）此前只能查看、无法修改，也没有整片重新合成入口。本迭代为已完成任务补齐完整闭环：**文本类元素可修改**（场景文案、字幕块、视频优化词、语音设置），**生成类元素可重新生成**（字幕、旁白语音、图片/视频优化词；图片/视频素材沿用既有【生成新图】【生成视频】），修改/重新生成后通过【保存分段】+【重新合成】生成新成片。
 
@@ -1851,7 +1855,7 @@ SettingsDialog 关闭（App.vue @close）
 #### 3) 流程
 
 ```
-历史记录 → 已完成任务 → 卡片【编辑并重新合成】/ 详情弹窗【编辑并重新合成】 → 结果页（ResultView）
+历史记录 → 可编辑任务 → 卡片【编辑】 → 视频任务编辑页（ResultView）
   ├─ 场景区：文案 textarea + 字幕 textarea（每行一句）+ 视频优化词 textarea + 语音设置网格 + 素材槽/生成按钮
   ├─ 修改文本类元素（文案/字幕/视频优化词/音色/语速/音调/情绪）→ 标脏 →【保存分段】
   ├─ 【重新生成字幕】→ 本地按文案重切字幕块 → 清空时间轴 → 成功/失败通知
@@ -1878,8 +1882,8 @@ SettingsDialog 关闭（App.vue @close）
 - 每个生成按钮在对应场景 busy 时禁用：`segmentBusy` 键 `subtitle`（字幕）/ `tts`（旁白）/ `promptImage` / `promptVideo`；按钮文案切换「重新生成字幕 ↔ 字幕生成中...」「重新生成旁白 ↔ 旁白生成中...」「重新生成图片/视频优化词 ↔ 优化词生成中...」。**任一分段 busy 时（`anySegmentBusy`）同时禁用全局【保存分段】与【重新合成】，避免与主进程写队列交叉（W2）。**
 - 重新生成成功后自动刷新 project + segments，并提示「请保存分段后重新合成」；失败按错误归一化提示（见下表），不中断其他场景操作。
 - 语音设置仅在【重新生成旁白】时生效（作为 TTS 参数）；修改后同样需【保存分段】持久化。
-- 历史记录入口：completed 且存在 `projectId` 的任务卡片与详情弹窗 footer 均显示【编辑并重新合成】（`editAndRecompose`），点击跳转结果页并携带项目上下文；无 `projectId` 的 completed 任务不显示该入口。
-- 详情弹窗新增只读场景列表（过滤含 `text` 或 `prompt` 的分段，展示序号 + 截断文案 + 「点击「编辑并重新合成」打开结果页」提示），帮助用户确认任务内容再进入编辑。
+- 历史记录入口：completed 且存在 `projectId` 的任务卡片显示【编辑】（`editAndRecompose`），点击跳转视频任务编辑页并携带项目上下文；运行中、暂停和失败任务的卡片 body 同样直接进入编辑页；无 `projectId` 的记录不显示编辑入口。
+- 原“详情弹窗场景列表”仅作为历史版本记录保留；当前不创建只读弹窗，分段内容、提示词、素材和错误信息均在视频任务编辑页查看与修改。
 
 #### 6) 提示文字（locales zh/en 成对）
 
@@ -1906,9 +1910,9 @@ SettingsDialog 关闭（App.vue @close）
 | story2video.scene_audio_regenerate_failed | 旁白重新生成失败，请检查音色/语音设置后重试。 | Failed to regenerate narration. Check voice settings and retry. |
 | story2video.scene_prompt_regenerated | 优化词已重新生成，请保存分段后重新合成。 | Prompt regenerated. Save segments and recompose. |
 | story2video.scene_prompt_regenerate_failed | 优化词重新生成失败，请稍后再试。 | Failed to regenerate prompt. Please try again. |
-| create.history.editAndRecompose | 编辑并重新合成 | Edit & recompose |
+| create.history.editAndRecompose | 编辑 | Edit |
 | create.history.sceneListLabel | 场景列表 | Scenes |
-| create.history.sceneListHint | 点击「编辑并重新合成」打开结果页：可修改每个场景的文案、字幕、语音设置与图片/视频优化词，重新生成字幕/旁白/图片/视频，最后重新合成整片。 | Click "Edit & recompose" to open the result page: modify each scene's text, subtitles, voice settings and image/video prompts, regenerate subtitles/narration/images/videos, then recompose the whole video. |
+| create.history.sceneListHint | 点击「编辑」进入视频任务编辑页：可修改每个场景的文案、字幕、语音设置与图片/视频优化词，重新生成字幕/旁白/图片/视频，最后重新合成整片。 | Click "Edit" to open the video task editor: modify each scene's text, subtitles, voice settings and image/video prompts, regenerate subtitles/narration/images/videos, then recompose the whole video. |
 
 - 失败错误归一化（story2video-notifications.js `resolveMessageKey`）：含「无法重新生成字幕/无法拆分字幕」或 `subtitle.*(regenerat|split).*(fail|unavailable|invalid)` → `scene_subtitle_regenerate_failed`；含「无法生成语音/语音生成服务不可用/无法重新生成旁白」或 `tts.*(fail|unavailable|invalid)` → `scene_audio_regenerate_failed`；含「无法重新生成优化词/提示词优化服务不可用/优化词类型无效/优化结果无效」或 `prompt.*(regenerat|optimiz).*(fail|unavailable|invalid)` → `scene_prompt_regenerate_failed`（中英文均覆盖）。
 
@@ -1924,7 +1928,7 @@ SettingsDialog 关闭（App.vue @close）
 - IPC（story2video.test.js）：三通道可信来源/非法 id/非法 kind 拒绝 + 参数校验；保存/重合成/三种重新生成均经 `_serializeProject` 队列（W2 回归断言 5 次包裹 + projectId 透传）；
 - preload.test.js：新方法通道转发 + 数量断言（99 / 289 / 87）；
 - ResultView.test.js：保存透传新字段、字幕 textarea 编辑拆分（含清空不回退旧时间轴/手动编辑清时间轴，I1 回归）、三按钮成功/失败通知、重新生成前自动保存（W3 回归）、任一分段 busy 禁用保存与重新合成（W2 回归）；
-- CreateViewHistory.test.js：editAndRecompose 按钮渲染/跳转、详情弹窗场景列表 + 提示文案；
+- CreateViewHistory.test.js：编辑动作渲染/跳转、历史卡片内联场景提示与提示文案；
 - locale：zh/en 成对 + check-locale-sync 通过；渲染端无新增中文字面量。
 
 
@@ -2055,12 +2059,12 @@ SettingsDialog 关闭（App.vue @close）
 
 #### 3.1.29.3 历史记录图片提示词完整展示 + 未保存修改离开守卫（2026-08-16）
 
-**背景**：用户反馈两类问题：① 历史详情弹窗的场景列表把图片提示词按 60 字符硬截断（案例截断在 "Wunü Mo" 单词中间），长提示词信息丢失无法查看；② 结果页分段编辑修改后没有自动保存、也没有清晰的保存引导，直接返回/离开时会静默丢失未保存修改。
+**背景**：用户反馈两类问题：① 旧的历史查看界面把图片提示词按 60 字符硬截断（案例截断在 "Wunü Mo" 单词中间），长提示词信息丢失无法查看；② 视频任务编辑页分段编辑修改后没有自动保存、也没有清晰的保存引导，直接返回/离开时会静默丢失未保存修改。
 
-##### 1) 详情弹窗完整展示
+##### 1) 视频任务编辑页完整展示
 
-- 历史详情弹窗场景列表由「单行混合预览 + 60 字符截断」改为**每个场景两行独立展示**：「旁白」行（`scene.text`）与「画面提示词」行（`scene.prompt`），只渲染存在的字段，空字段不占行；移除 60 字符硬截断，长文本 `white-space: normal; word-break: break-word` 自动换行，列表限高滚动。
-- 历史卡片预览仍按 120 字符截断（设计如此：卡片是摘要，详情弹窗是完整内容）。
+- 视频任务编辑页的场景信息由「单行混合预览 + 60 字符截断」改为**每个场景两行独立展示**：「旁白」行（`scene.text`）与「画面提示词」行（`scene.prompt`），只渲染存在的字段，空字段不占行；移除 60 字符硬截断，长文本 `white-space: normal; word-break: break-word` 自动换行，列表限高滚动。
+- 历史卡片预览仍按 120 字符截断（设计如此：卡片是摘要，完整内容在视频任务编辑页查看）。
 
 ##### 2) 结果页未保存修改标识与离开守卫
 
@@ -2116,7 +2120,7 @@ SettingsDialog 关闭（App.vue @close）
 
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 
-**背景**：① 流水线失败/取消时，主进程仅置 run 顶层终态，当前 stage（如 compose）仍保持 `running`，历史详情页与持久化快照出现「视频合成 运行中」假象；② 历史列表把「暂停/失败」任务排在全部已完成项目之后（实测 30+ 条历史中最新失败任务排第 27 位），用户误以为任务丢失。
+**背景**：① 流水线失败/取消时，主进程仅置 run 顶层终态，当前 stage（如 compose）仍保持 `running`，历史卡片与持久化快照出现「视频合成 运行中」假象；② 历史列表把「暂停/失败」任务排在全部已完成项目之后（实测 30+ 条历史中最新失败任务排第 27 位），用户误以为任务丢失。
 
 #### 1) 终态一致（主进程）
 
@@ -2681,6 +2685,10 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 - PipelineSelector错误态：错误信息 + "重试"按钮
 - StageProgress阶段状态：等待中/运行中/已完成/失败/等待确认/已取消
 - StageProgress时间格式："X分Y秒" 或 "Y秒"
+
+## 10. Story2Video 页面 UX 统一（2026-08-17）
+
+本次流水线启动页、历史记录和视频任务编辑页的详细需求、数据校验、显示项、流程、交互和提示文案见 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)。本节保留视频创作 PRD 的入口索引，并明确以下产品结论：进入流水线后的页面叫“流水线启动页”；历史记录中的详情入口直接进入视频任务编辑页；编辑页底部操作固定；多状态历史卡片共用一套结构；失败原因使用自然语言；暂停在流水线启动页提供，编辑页携带运行中 runId 时也提供同一受校验的暂停动作。
 
 
 

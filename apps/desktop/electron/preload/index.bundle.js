@@ -105,6 +105,8 @@ var require_publish = __commonJS({
         pipelineStatus: (name) => ipcRenderer2.invoke("pipeline:status", name),
         pipelineAdvance: () => ipcRenderer2.invoke("pipeline:advance"),
         pipelineHistory: () => ipcRenderer2.invoke("pipeline:history"),
+        pipelineDeleteRun: (runId) => ipcRenderer2.invoke("pipeline:delete-run", runId),
+        pipelinePauseRun: (runId) => ipcRenderer2.invoke("pipeline:pause-run", runId),
         pipelineFetch: (name) => ipcRenderer2.invoke("pipeline:fetch", name),
         // 编排模式 API（story2video-compose）
         pipelineStartOrchestrated: (name, params) => ipcRenderer2.invoke("pipeline:startOrchestrated", name, params),
@@ -135,7 +137,7 @@ var require_publish = __commonJS({
         // 添加沿用 import-media 的 File 路径解析，其余操作直通。
         story2videoBgmLibraryList: () => ipcRenderer2.invoke("story2video:bgm-library-list"),
         story2videoBgmLibraryAdd: (file) => {
-          let filePath = "";
+          let filePath;
           try {
             filePath = String(resolveFilePath(file) || "");
           } catch {
