@@ -23,7 +23,7 @@ const pixelTests = [
   { name: 'viral-analysis', route: '/viral-analysis', waitFor: '.cohere-main .page-title:has-text("爆款分析")' },
   { name: 'create-result', route: '/create/result', waitFor: '.cohere-main h1:has-text("视频预览")' },
   { name: 'create-pipeline', route: '/create/pipeline', expectedRoute: '/create', waitFor: '.cohere-main h1:has-text("视频创作")' },
-  { name: 'create-history', route: '/create/history', waitFor: '.cohere-main h1:has-text("创作历史")' },
+  { name: 'create-history', route: '/create/history', expectedRoute: '/create?view=history', waitFor: '.history-status-tabs' },
   { name: 'intelligence', route: '/intelligence', waitFor: '.cohere-main .page-title:has-text("内容情报")' },
   { name: 'keyword-monitor', route: '/keywords', waitFor: '.cohere-main .page-title:has-text("关键词监测")' },
   { name: 'collection', route: '/collection', waitFor: '.cohere-main .page-title:has-text("内容采集")' },

@@ -60,7 +60,8 @@ const PUBLISH_METHODS = [
   'schedulerCreate', 'schedulerList', 'schedulerCancel',
   'onProgress',
   'pipelineList', 'pipelineGet', 'pipelineStart', 'pipelinePause', 'pipelineResume',
-  'pipelineCancel', 'pipelineStatus', 'pipelineAdvance', 'pipelineHistory', 'pipelineFetch',
+  'pipelineCancel', 'pipelineStatus', 'pipelineAdvance', 'pipelineHistory', 'pipelineDeleteRun',
+  'pipelinePauseRun', 'pipelineFetch',
   'pipelineStartOrchestrated', 'pipelineExecuteStage',
   'pipelineAdvanceToNextCheckpoint', 'pipelineGetRunContext',
   'story2videoImportMedia', 'story2videoExportZip', 'story2videoCreateShareUrl',
@@ -191,11 +192,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 99 个键（98 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 102 个键（101 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    // 92（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
-    expect(Object.keys(r).length).toBe(100)
+    expect(Object.keys(r).length).toBe(102)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -212,14 +212,12 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(143)
   })
 
-  it('合并后 api 总键数应为 289（含 videoClone 命名空间与批量创作）', () => {
-    // 282（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles
-    expect(Object.keys(api).length).toBe(291)
+  it('合并后 api 总键数应为 293（含 videoClone 命名空间与批量创作 + submitFeedback）', () => {
+    expect(Object.keys(api).length).toBe(293)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    // 80（main）+ story2videoBatchCreate/Status/Cancel/PickBatchFiles（批量创作）
-    expect(PUBLISH_METHODS.length).toBe(88)
+    expect(PUBLISH_METHODS.length).toBe(90)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',

@@ -1,5 +1,5 @@
 <template>
-  <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline }">
+  <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
       <h1>视频创作</h1>
       <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
@@ -22,8 +22,8 @@
       <button :class="['view-tab', { active: view === 'history' }]" @click="view = 'history'; loadHistory()">历史记录</button>
     </div>
 
-    <!-- ==================== 流水线创作视图 ==================== -->
-    <div v-if="view === 'pipelines'">
+    <!-- ==================== 流水线创作视图（流水线启动页） ==================== -->
+    <div v-if="view === 'pipelines'" class="view-pane">
       <!-- 流水线列表 -->
       <div v-if="!selectedPipeline">
         <PipelineSelector
@@ -35,7 +35,7 @@
         />
       </div>
 
-      <!-- 流水线详情 & 配置 -->
+      <!-- 流水线启动页配置 -->
       <div v-else class="pipeline-detail">
         <button class="back-btn" @click="selectedPipeline = null">← 返回流水线列表</button>
 
@@ -859,7 +859,7 @@
         </div>
 
         <!-- 执行控制 -->
-        <div class="action-bar">
+        <div class="action-bar" data-testid="pipeline-action-bar">
           <span v-if="s2vOptionsToast" class="s2v-options-toast" role="status" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</span>
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
             <UiButton class="btn-start" data-testid="start-story2video" @click="handleStartPipeline" :disabled="!canStartPipeline">
@@ -889,10 +889,19 @@
               <p v-else-if="sceneAssetSelectionActive" class="orchestration-waiting" data-testid="s2v-selection-waiting-text">
                 {{ translateWithLocaleFallback('create.story2video.selectionWait.controlText', '⏳ 等待您选择分镜素材，确认后将生成旁白并合成视频。', 'Awaiting your asset selection — narration and compositing will start after you confirm.') }}
               </p>
+              <!-- 编排流水线暂停（2026-08-16 UX 统一）：运行中可手动暂停，暂停点保存后可从历史记录断点续跑 -->
+              <UiButton
+                v-if="pipelineRunStatus?.status === 'running' && !sceneAssetSelectionActive && pipelineRunStatus?.checkpoint?.reason !== 'content_policy'"
+                variant="secondary"
+                class="s2v-pause-btn"
+                data-testid="s2v-pause-trigger"
+                :disabled="pauseActionBusy"
+                @click="pauseOrchestrationPipeline"
+              >⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</UiButton>
             </template>
             <template v-else>
-              <UiButton v-if="pipelineRunStatus.status === 'paused'" @click="resumePipeline">▶ 继续</UiButton>
-              <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ 暂停</UiButton>
+              <UiButton v-if="pipelineRunStatus.status === 'paused'" @click="resumePipeline">▶ {{ translateWithLocaleFallback('create.story2video.resume', 'Resume', 'Resume') }}</UiButton>
+              <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</UiButton>
               <UiButton v-if="needsCheckpoint" @click="advancePipeline">✅ 确认并继续</UiButton>
             </template>
             <!-- 后台运行（2026-08-13）：仅编排流水线运行中显示；点击后前端恢复初始化，run 在主进程继续后台执行 -->
@@ -972,7 +981,7 @@
         @update:historyFilter="historyFilter = $event"
         @resume-history="resumeHistoryItem"
         @open-result="openHistoryResult"
-        @delete-history="requestProjectDeletion"
+        @delete-history="requestHistoryDeletion"
       />
     </div>
 
@@ -1002,6 +1011,20 @@
       <template #footer>
         <UiButton variant="secondary" @click="closeProjectDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
         <UiButton variant="danger" @click="confirmProjectDeletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
+      </template>
+    </UiModal>
+
+    <!-- 流水线运行记录删除确认（2026-08-16）：历史记录中无 projectId 的 run 走 pipeline:delete-run -->
+    <UiModal
+      :visible="story2videoRunDeleteDialog.visible"
+      :title="story2videoErrorDialogUiText.dialogTitle"
+      size="sm"
+      @close="closeRunDeletionDialog"
+    >
+      <p class="story2video-error-dialog-message">{{ story2videoRunDeleteDialogMessage }}</p>
+      <template #footer>
+        <UiButton variant="secondary" @click="closeRunDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
+        <UiButton variant="danger" @click="confirmRunDeletion" data-testid="confirm-run-deletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
       </template>
     </UiModal>
 
@@ -1273,6 +1296,7 @@ import {
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
   pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineConfirmSceneAssets, pipelineGetRunContext,
+  pipelinePauseRun, pipelineDeleteRun,
   storeGetSetting, storeSetSetting,
   story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
   story2videoDeleteProject,
@@ -1537,6 +1561,7 @@ export default {
       story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '', rawError: '' },
       cancelConfirmDialog: { visible: false, error: '' },
       story2videoResuming: false,
+      pauseActionBusy: false,
       story2videoRunMeta: null,
       stageClockTick: 0,
       s2vRestoring: false,
@@ -1544,6 +1569,7 @@ export default {
       s2vCloneOpen: false,
       s2vOptionsToastTimer: null,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
+      story2videoRunDeleteDialog: { visible: false, runId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       // 背景音乐素材库（2026-08-14）：设备级持久化，添加/重命名/删除后自动刷新
       s2vBgmLibrary: [],
@@ -1959,6 +1985,9 @@ export default {
     story2videoProjectDeleteDialogMessage() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM }).message
     },
+    story2videoRunDeleteDialogMessage() {
+      return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_DELETE_CONFIRM }).message
+    },
     story2videoTemplateDeleteDialogMessage() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM }).message
     },
@@ -1970,6 +1999,13 @@ export default {
     },
   },
   watch: {
+    // 「返回」跳 /create?view=history 与直接输入地址时同步历史记录视图（2026-08-16 术语统一）
+    '$route.query.view'(value) {
+      if (value === 'history' && this.view !== 'history') {
+        this.view = 'history'
+        this.loadHistory()
+      }
+    },
     // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
     s2vConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
     s2vOutputConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
@@ -2066,7 +2102,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
     historyStatusLabel(status) {
-      return { completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
+      return { completed: '已完成', failed: '执行失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
     },
 
     // 流水线操作
@@ -2630,7 +2666,7 @@ export default {
           merged.push({ name: file.name || String(file.path).split(/[\\/]/).pop(), path: file.path })
         }
         this.s2vBatchFiles = merged
-      } catch (error) {
+      } catch (_) {
         this.s2vBatchError = this.translateWithLocaleFallback('create.story2video.batch.pickFailed', '打开文件选择窗口失败，请重试。', 'Failed to open the file picker. Please retry.')
       }
     },
@@ -3481,12 +3517,41 @@ export default {
         this.story2videoResuming = false
       }
     },
+    // 历史记录删除分流（2026-08-16）：有 projectId 的成片任务走项目删除；纯流水线运行记录走 delete-run
+    requestHistoryDeletion(item) {
+      if (!item) return
+      if (item.projectId) {
+        this.story2videoProjectDeleteDialog = { visible: true, projectId: item.projectId }
+        return
+      }
+      const runId = item.id || item.runId
+      if (!runId) return
+      this.story2videoRunDeleteDialog = { visible: true, runId }
+    },
     requestProjectDeletion(item) {
       if (!item?.projectId) return
       this.story2videoProjectDeleteDialog = { visible: true, projectId: item.projectId }
     },
     closeProjectDeletionDialog() {
       this.story2videoProjectDeleteDialog = { visible: false, projectId: null }
+    },
+    closeRunDeletionDialog() {
+      this.story2videoRunDeleteDialog = { visible: false, runId: null }
+    },
+    async confirmRunDeletion() {
+      const runId = this.story2videoRunDeleteDialog.runId
+      this.closeRunDeletionDialog()
+      if (!runId) return
+      try {
+        const result = await pipelineDeleteRun(runId)
+        if (result?.code === 0) {
+          this.history = this.history.filter(entry => (entry.id || entry.runId) !== runId)
+        } else {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_DELETE_FAILED, error: result?.message })
+        }
+      } catch (error) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_DELETE_FAILED, error: error?.message })
+      }
     },
     async confirmProjectDeletion() {
       const projectId = this.story2videoProjectDeleteDialog.projectId
@@ -3644,6 +3709,7 @@ export default {
       }
       if (!outcome?.completed) return false
       const context = outcome.context || this.orchestrationContext
+      const runId = this.orchestrationRunId
       const videoPath = this.extractOrchestrationVideoPath(context)
       const projectId = context?.story2videoProject?.projectId || null
       this.stopPipelinePolling()
@@ -3659,6 +3725,7 @@ export default {
       const meta = this.story2videoRunMeta || {}
       const query = { path: videoPath }
       if (projectId) query.project = projectId
+      if (runId) query.runId = runId
       // 新口径：结果页时长 = 步骤执行耗时累计，不含暂停/断点恢复空闲时间
       // 存在性守卫：显式排除 null/undefined（Number(null)===0 陷阱）
       if (meta.activeMs !== null && meta.activeMs !== undefined && Number.isFinite(Number(meta.activeMs)) && Number(meta.activeMs) >= 0) {
@@ -3718,6 +3785,23 @@ export default {
       }
     },
     async pausePipeline() { await pipelinePause(); await this.updatePipelineStatus() },
+    // 编排流水线手动暂停（2026-08-16 UX 统一）：保存暂停点，历史记录「已暂停」可断点续跑
+    async pauseOrchestrationPipeline() {
+      const runId = this.orchestrationRunId
+      if (!runId || this.pauseActionBusy) return
+      this.pauseActionBusy = true
+      try {
+        const result = await pipelinePauseRun(runId)
+        if (result?.code !== 0) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: result?.message })
+        }
+        await this.updateOrchestrationStatus()
+      } catch (error) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: error?.message })
+      } finally {
+        this.pauseActionBusy = false
+      }
+    },
     async resumePipeline() { await pipelineResume(); await this.updatePipelineStatus() },
     dismissBgmSkippedNotice() {
       this.dismissedBgmSkippedNotice = true
@@ -3778,10 +3862,27 @@ export default {
         const projects = hasProjects
           ? projectsResult.value.data.map(project => ({ ...project, historyType: 'story2video-project' }))
           : []
-        const projectIds = new Set(projects.map(project => project.projectId))
+        const projectById = new Map(projects.map(project => [project.projectId, project]))
+        const matchedProjectIds = new Set()
         const runs = hasRuns
-          ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
+          ? pipelineResult.value.data.map(run => {
+              const projectId = run?.projectId || run?.id
+              const project = projectById.get(projectId)
+              if (!project) return { ...run, historyType: 'pipeline-run' }
+              matchedProjectIds.add(projectId)
+              return {
+                ...project,
+                ...run,
+                projectId,
+                runId: run.runId || run.id || project.runId || projectId,
+                historyType: 'story2video-project',
+                title: project.title || run.title || project.sourceText || run.sourceText || '',
+                sourceText: project.sourceText || run.sourceText || '',
+                segments: Array.isArray(project.segments) ? project.segments : run.segments,
+              }
+            })
           : []
+        const projectsWithoutRuns = projects.filter(project => !matchedProjectIds.has(project.projectId))
         // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停
         const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
         const now = Date.now()
@@ -3811,7 +3912,7 @@ export default {
           }
         }
 
-        this.history = sortHistoryByEffectiveTime([...runs, ...projects])
+        this.history = sortHistoryByEffectiveTime([...runs, ...projectsWithoutRuns])
         this.scheduleHistoryRefresh()
         if (!hasProjects || !hasRuns) {
           // 具体原因透传：IPC 已返回 message（存储不可用/无法识别当前用户/…），
@@ -3837,10 +3938,16 @@ export default {
     openHistoryResult(item) {
       if (!item?.projectId || item.status === 'cancelled') return
       const query = { project: item.projectId }
+      const runId = this.historyRunId(item)
+      if (runId) query.runId = runId
       // 内容政策拦截任务不能断点续跑：携带场景号让结果页定位涉及场景，用户改文案后重新合成
       const focusScenes = policySceneQuery(item.error)
       if (item.status === 'failed' && focusScenes && !this.historyItemResumable(item)) query.focusScenes = focusScenes
       this.$router.push({ path: '/create/result', query })
+    },
+    historyRunId(item) {
+      const value = item?.runId || item?.id
+      return typeof value === 'string' && value.trim() ? value.trim() : ''
     },
     // Kept as a compatibility alias for callers outside the history component.
     // It is deliberately read-only for non-completed records.
@@ -3932,6 +4039,11 @@ export default {
           if (fresh) {
             item.stages = fresh.stages || item.stages
             item.currentStage = fresh.currentStage
+            item.checkpoint = fresh.checkpoint || item.checkpoint
+            item.progress = fresh.progress ?? item.progress
+            item.error = fresh.error || item.error || null
+            item.activeMs = fresh.activeMs ?? item.activeMs
+            item.activeSegmentStartedAt = fresh.activeSegmentStartedAt || item.activeSegmentStartedAt || null
             item.updatedAt = fresh.updatedAt || item.updatedAt
             runningById.delete(item.id)
           } else {
@@ -4335,7 +4447,7 @@ export default {
       return this.pipelineStatus(stage?.status || 'pending')
     },
     // 阶段详情：拆分场景数 / 优化 x/y / 图片·旁白 x/y
-    stageDetailText(stage, i) {
+    stageDetailText(stage, _index) {
       if (!stage || (stage.status !== 'completed' && stage.status !== 'running')) return ''
       const hasSummary = typeof stage.summary === 'string' && stage.summary
       const hasMessage = Boolean(stage.progress && typeof stage.progress.message === 'string' && stage.progress.message)
@@ -4432,6 +4544,11 @@ export default {
     )
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
     await this.loadMaxOutputResolution()
+    // 路由直接进入历史记录视图（/create?view=history）
+    if (this.$route?.query?.view === 'history') {
+      this.view = 'history'
+      this.loadHistory()
+    }
     this.resumeRunningOrchestration()
     this.restoreS2VLastOptions()
     this.loadS2VTtsSamples()

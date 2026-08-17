@@ -30,7 +30,7 @@ const ROUTE_READY_SELECTORS = {
   '/create': '.cohere-main h1:has-text("视频创作")',
   '/create/pipeline': '.cohere-main h1:has-text("视频创作")',
   '/create/result': '.cohere-main h1:has-text("视频预览")',
-  '/create/history': '.cohere-main h1:has-text("创作历史")',
+  '/create/history': '.history-status-tabs',
   '/calendar': '.cohere-main .page-title:has-text("发布日历")',
   '/first-run': '.cohere-main h2:has-text("欢迎使用社媒管家")',
   '/keywords': '.cohere-main .page-title:has-text("关键词监测")',

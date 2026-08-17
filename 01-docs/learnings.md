@@ -13727,6 +13727,33 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 5（断链明示不虚构连续性）**：resume/checkpoint 恢复时若上一场景无 `prev_final_frame` 链，必须显式 degraded 告警（引擎断链明示），不得虚构连续性或静默跳过——fail-open 但明示，让用户知道本次输出没有承接约束。
 - **教训 6（资产驱动规则要可降级）**：`refined_blocks.json` 缺失/损坏时 `_gated_rules()` 回退空表 → 规则不启用零误报。语料驱动的启发式规则（lock-trigger/coverage）本质是统计资产，不是代码常量——资产可缺失、可更新，代码必须 fail-safe。
 
+## Story2Video 页面固定操作区与历史编辑统一复盘（s2v-pipeline-page-ux，2026-08-17）
+
+### 第一性原因
+
+启动页和结果页把关键动作放在可滚动内容中；历史记录把不同状态拆成多套卡片结构，详情弹窗与编辑页重复承载任务信息；失败原因又直接暴露 prompt-engine/provider 技术文本。用户因此无法在长页面快速操作，也无法确认当前失败的是哪一个视频。
+
+### 逃逸链与系统性漏洞
+
+1. 组件单测覆盖了局部按钮和数据转换，但没有把“滚动后操作仍可见”“所有状态使用同一卡片骨架”作为结构合同。
+2. 集成/E2E 没有覆盖纯 run 记录删除、暂停快照写入失败和历史卡片点击冒泡，因此边界状态容易与项目记录混用。
+3. 视觉检查没有覆盖窄屏固定操作条的按钮换行和底部安全区。
+4. 代码审查容易把 provider 错误字符串当作可诊断信息，忽略用户需要的是自然语言失败原因和任务识别信息。
+
+### 修复与回归保护
+
+- 使用固定底部操作条、顶部 sticky 进度和内容安全区，编辑页窄屏按钮改为单列。
+- 历史卡片共用一个模板，所有状态显示标题/文案摘要/时间/耗时/ID/流水线/时长/状态，暂停和失败只追加状态字段。
+- 纯 run 删除走独立 IPC，并补充删除失败保留状态、暂停持久化失败回滚、非法阶段拒绝的引擎测试。
+- 结果页增加分段快捷跳转、无成片可编辑、AI 视频提示词入口、音色目录回退和语速范围合同。
+- 详细产品和数据合同落在 01-docs/PRD-S2V-PIPELINE-PAGE-UX.md 与 OpenSpec change；locale 术语登记在 glossary。
+
+### 预防措施
+
+- UI 评审清单新增“固定区域安全区、窄屏不覆盖、状态卡片骨架一致、任务可识别”四项。
+- 任何 run 生命周期 IPC 必须同时测试成功、非法输入、活跃 run 拒绝和持久化失败回滚。
+- 历史卡片禁止直接回显 provider JSON；必须经过稳定错误码/模式映射和 zh/en locale。
+
 ## 提示词引擎 BYOK 与缓存 provider 隔离复盘（prompt-engine-byok-llm，2026-08-16）
 
 - **教训 1（哪个产品调用就用哪个产品的 LLM）**：提示词引擎的服务端 config.yaml 兜底会让桌面版实测落到 MiniMax 而非用户配置的 SenseNova——产品自配置 LLM 必须由产品侧注入（llm + caller），引擎侧兜底 key 必须移除，否则「设置里换模型」对用户是假承诺。
@@ -13739,5 +13766,5 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **数据边界**：并行任务只能把 JSON-safe 的 {`uiLocale, items: [{ index, prompt, translation }]`} 写入 context；Promise、定时器、Error 和 provider 原始响应不能进入 checkpoint。
 - **失败语义**：翻译是增强项，按单批超时/总预算 fail-open；compose 结果权威。空响应、非法 JSON、等于原文、代码围栏文本和缺项都必须降级为 `null`，不能展示模型垃圾输出。
 - **恢复语义**：超时不能删除 pending。已完成翻译与未完成项必须按 stable scene index 合并保存；恢复/重试只重发未完成项，不能用空结果覆盖既有翻译。
-- **交互边界**：manual 模式的候选面板依赖翻译，所以仍在 checkpoint 前完成；自动模式不新增等待条、重试按钮或技术错误文案，结果页只显示合法非空只读翻译。
+- **交互边界**：manual 候选面板实际只依赖 `index + candidateId + media path`，不依赖 `promptTranslation`；因此自动/manual 都可在 optimize 后立即继续，候选阶段允许翻译为 null，compose 完成后再按 index 回填。两种模式均不新增等待条、重试按钮或技术错误文案，结果页只显示合法非空只读翻译。
 - **回归保护**：至少覆盖自动模式不提前调用 LLM、compose/翻译同时启动、乱序 index、部分响应、批次超时、compose 失败优先、manual checkpoint、英文跳过与 JSON 快照可序列化。

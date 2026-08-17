@@ -1,3 +1,9 @@
+## [2026-08-17] feat(story2video): 手动选材模式提示词翻译与视频合成并行
+
+- 手动选材模式不再在 `optimize` 阶段等待只读提示词翻译；候选素材生成和 `scene_asset_selection` checkpoint 可先完成。
+- 翻译 pending 状态与自动模式统一在 `compose` 阶段和视频合成并行执行，按稳定场景 `index` 回填最终 scenes/segments。
+- 翻译 apply 只更新 `promptTranslation`，不覆盖候选数组、`candidateId`、selection、媒体路径、TTS 或合成输入；翻译失败/超时继续 fail-open。
+
 ## [2026-08-17] fix(ops-center): prompt-eval dual 调 prompt-engine 携带 BYOK LLM
 
 - 根因：prompt-engine BYOK 变更后，图片 creative_level>3 的 /v1/optimize 请求必须携带 llm；ops-center 双路评测默认 creative_level=8，原调用缺少该字段，部署版连新引擎返回 HTTP 422。
