@@ -1530,7 +1530,6 @@ export default {
     assetsDetailNoVideo: (ctx) => 'Images ' + ctx.named('images') + '/' + ctx.named('imagesTotal') + ' · Voice ' + ctx.named('tts') + '/' + ctx.named('ttsTotal'),
     optimizeStarting: (ctx) => 'Preparing scene prompt optimization · ' + ctx.named('done') + '/' + ctx.named('total'),
     optimizeScene: (ctx) => 'Optimizing scene prompt ' + ctx.named('done') + '/' + ctx.named('total'),
-    optimizeTranslation: (ctx) => 'Organizing prompt translations for ' + ctx.named('total') + ' scenes…',
     optimizeComplete: (ctx) => 'Scene prompt optimization complete · ' + ctx.named('done') + '/' + ctx.named('total'),
     optimizeSummary: (ctx) => 'Optimized prompts for ' + ctx.named('done') + '/' + ctx.named('total') + ' scenes',
     assetsStarting: (ctx) => 'Preparing assets · Images ' + ctx.named('images') + '/' + ctx.named('imagesTotal') + ' · Videos ' + ctx.named('videos') + '/' + ctx.named('videosTotal') + ' · Voice ' + ctx.named('tts') + '/' + ctx.named('ttsTotal'),

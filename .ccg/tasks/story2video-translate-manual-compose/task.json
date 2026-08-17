@@ -1,0 +1,19 @@
+{
+  "id": "story2video-translate-manual-compose",
+  "title": "手动选材模式提示词翻译与视频合成并行",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop/story2video",
+  "currentPhase": "review",
+  "nextAction": "完成门禁、审查与远程交付",
+  "createdAt": "2026-08-17T03:10:00Z",
+  "branch": "codex/story2video-translate-manual-compose",
+  "openspecChange": "story2video-translate-manual-compose",
+  "analysisEvidence": {
+    "localSourceReview": "completed",
+    "subagents": "completed: candidate checkpoint dependency and compose hook state contract",
+    "antigravity": "unavailable: location eligibility check failed",
+    "claude": "unavailable: wrapper exited 1 / API connection failure"
+  }
+}

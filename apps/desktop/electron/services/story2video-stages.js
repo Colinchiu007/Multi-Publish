@@ -5,7 +5,7 @@
  * 注册与 story2video-compose 流水线配套的自定义 STAGE_TYPES：
  *   - story2video_optimize: 逐场景视觉提示词统一走 prompt-engine（风格检测/改写/输出校验）
  *   - story2video_generate_assets: 并行生成图片 + TTS 音频
- *   - story2video_prompt_translation_compose: 自动模式在合成期间并行翻译提示词
+ *   - story2video_prompt_translation_compose: 在合成期间并行翻译提示词
  *
  * 设计意图：
  *   split / compose / publish 阶段使用 StageExecutor 内置类型。
@@ -176,11 +176,6 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
   return items
 }
 
-function isManualCreationMode (params, stage) {
-  return (params && (params.creationMode || params.story2videoTextConfig?.creation?.mode)) === 'manual' ||
-    (stage && stage.options && stage.options.creationMode === 'manual')
-}
-
 function createPromptTranslationPending (output, uiLocale) {
   const source = Array.isArray(output) ? output : []
   return {
@@ -217,7 +212,8 @@ function mergePromptTranslationItems (items, existingItems) {
     if (seenIndexes.has(item.index)) return null
     seenIndexes.add(item.index)
     const existing = existingByIndex.get(item && item.index)
-    const translation = typeof existing?.translation === 'string' && existing.translation.trim()
+    const existingMatchesPrompt = existing && existing.prompt.trim() === item.prompt.trim()
+    const translation = existingMatchesPrompt && typeof existing.translation === 'string' && existing.translation.trim()
       ? existing.translation.trim().slice(0, 2000)
       : (typeof item?.translation === 'string' && item.translation.trim() ? item.translation.trim().slice(0, 2000) : null)
     return { index: item.index, prompt: item.prompt.trim(), translation }
@@ -2223,30 +2219,21 @@ function registerStory2VideoStages(pipelineEngine) {
         delete context.optimize_resume
       }
 
-      // 提示词本地语言翻译（2026-08-12）：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
-      // fail-open：LLM 不可用/单场景失败 → translation=null，不阻塞流水线；上下文独立键存储，防数组往返丢失。
+      // 提示词本地语言翻译：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
+      // 所有 Story2Video 创作模式均延后到 compose，与长耗时的视频合成并行；上下文独立键存储，防数组往返丢失。
       const uiLocale = String(
         (params && params.uiLocale) || (stage && stage.options && stage.options.uiLocale) || '',
       ).trim().slice(0, 16)
       if (uiLocale && uiLocale !== 'en' && Array.isArray(output) && output.length > 0) {
-        if (typeof onProgress === 'function') {
-          onProgress({
-            percent: 95,
-            message: 'Translating prompt history…',
-            messageKey: 'stageProgress.optimizeTranslation',
-            messageParams: { total: output.length },
-            detail: { done: output.length, total: output.length, kind: 'scene' },
-          })
-        }
-        const prompts = output.map((item) => {
-          if (typeof item === 'string') return item
-          return (item && (item.optimized_prompt || item.prompt)) || ''
-        })
-        if (isManualCreationMode(params, stage)) {
-          const translations = await translatePromptsForLocale(getAiGenerator(pipelineEngine), prompts, uiLocale, pipelineEngine.log)
-          if (context && typeof context === 'object') context.prompt_translations = { uiLocale, items: translations }
-        } else if (context && typeof context === 'object') {
-          context.prompt_translations_pending = createPromptTranslationPending(output, uiLocale)
+        if (context && typeof context === 'object') {
+          const pending = createPromptTranslationPending(output, uiLocale)
+          const existingItems = context.prompt_translations && Array.isArray(context.prompt_translations.items)
+            ? context.prompt_translations.items
+            : null
+          context.prompt_translations_pending = {
+            ...pending,
+            items: mergePromptTranslationItems(pending.items, existingItems),
+          }
           delete context.prompt_translations
         }
       }

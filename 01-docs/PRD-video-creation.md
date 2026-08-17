@@ -255,9 +255,9 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 所有运行参数必须是纯 JSON；归一化器只接受白名单字段并在创建 run 之前拒绝非法值。API Key、Access Token 和 Provider Secret 不得写入运行参数、项目历史或结果清单。
 
-### 3.1.2.4 自动模式提示词翻译与视频合成并行（2026-08-17）
+### 3.1.2.4 Story2Video 提示词翻译与视频合成并行（自动/手动模式，2026-08-17）
 
-**目标与范围**：提示词翻译是结果页/历史页的只读增强，不参与图片、视频、TTS、字幕或 ffmpeg 输入。自动模式不再让翻译 LLM 阻塞素材生成；翻译任务在视频合成阶段与 `composeVideo` 并行启动，以合成阶段的长耗时覆盖正常翻译耗时。分镜素材自选模式仍须在 `scene_asset_selection` 检查点前完成翻译，候选面板的翻译显示行为不变。
+**目标与范围**：提示词翻译是结果页/历史页的只读增强，不参与图片、视频、TTS、字幕或 ffmpeg 输入。自动模式与分镜素材自选模式均不再让翻译 LLM 阻塞素材生成或候选素材选择；翻译任务统一在视频合成阶段与 `composeVideo` 并行启动，以合成阶段的长耗时覆盖正常翻译耗时。手动模式的候选面板只依赖场景 `index`、候选 `candidateId` 和媒体路径，允许候选生成阶段暂时没有 `promptTranslation`；翻译完成后只回填翻译字段，不改变候选、选择或媒体数据。
 
 **数据合同与校验**：
 
@@ -276,14 +276,22 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 自动模式
   optimize ──→ 写入 prompt_translations_pending（不调用翻译 LLM）
       └──────→ generate_assets ──→ compose 开始
-                                  ├─ 同时启动 composeVideo
-                                  └─ 同时启动 prompt translation
-                                      └─ 合成成功后等待有限收尾窗口
-                                          ├─ valid → 按 index 回填 segments/scenes
-                                          └─ timeout/error → 保留原 prompt，translation=null，视频仍成功
+
+手动模式
+  optimize ──→ 写入 prompt_translations_pending（不调用翻译 LLM）
+      └──────→ generate_assets 候选 ──→ scene_asset_selection checkpoint
+                                      └─ 用户确认 index + candidateId
+                                          └─ finalize_assets ──→ compose 开始
+
+compose 开始后（两种模式相同）
+  ├─ 同时启动 composeVideo
+  └─ 同时启动 prompt translation
+      └─ 合成成功后等待有限收尾窗口
+          ├─ valid → 按 index 回填 segments/scenes
+          └─ timeout/error → 保留原 prompt，translation=null，视频仍成功
 ```
 
-1. `optimize` 只负责生成优化提示词和可序列化 pending payload；自动模式的 LLM 调用不会因翻译增加串行等待。
+1. `optimize` 只负责生成优化提示词和可序列化 pending payload；自动模式与手动模式的 LLM 调用都不会因翻译增加串行等待。
 2. `StageExecutor` 仅对显式配置 `composeParallelTask` 的流水线启用并行钩子，其他流水线不启动翻译；合成失败始终优先返回合成错误。
 3. 翻译任务按最多 3 个场景一批处理，单批失败/超时不影响其他已完成批次；已完成项与未完成项均以 stable `index` 保存。
 4. 合成成功后，在有界收尾时间内 apply 结果；翻译 apply 失败只写诊断，不覆盖视频结果。合成成功但翻译降级时，`context.prompt_translation_diagnostic` 记录 locale、原因和项目数量。
@@ -292,19 +300,20 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 **功能逻辑与故障边界**：
 
 - `en` 界面保持现状：不创建 pending，不发送翻译请求，不显示翻译栏。
-- 非 `en` 自动模式：翻译不可用、LLM 返回空响应、非法 JSON、响应缺项、网络错误、单批超时或总预算耗尽均 fail-open；原始英文提示词和成片保持可用。
+- 非 `en` 自动/手动模式：翻译不可用、LLM 返回空响应、非法 JSON、响应缺项、网络错误、单批超时或总预算耗尽均 fail-open；原始英文提示词、候选素材、选中素材和成片保持可用。
 - 部分成功：有效 index 持久化为翻译，缺失 index 为 `null`；不得用相邻场景或数组序号顶替。
 - Compose 失败：返回 ffmpeg/媒体合成真实失败，不因翻译 Promise 成功而伪造视频成功；后台 Promise 绑定 catch，禁止未处理 rejection。
 - 断点恢复：不恢复正在执行的 Promise；恢复后按 pending 重新发起有界任务，已完成结果不得被空响应覆盖。
 
 **交互、显示项与提示文字**：
 
-- 优化阶段：自动模式不新增等待文案，用户直接看到后续素材生成；阶段清单仍按既有 `pending/running/completed/failed` 展示。
+- 优化阶段：自动/手动模式均不新增翻译等待文案；用户直接看到后续素材生成。手动模式候选生成完成后直接进入既有素材选择面板，不显示“等待翻译”阻塞态。阶段清单仍按既有 `pending/running/completed/failed` 展示。
+- 手动候选面板：候选选择仍以 `scene.index + candidateId` 为唯一提交合同；`promptTranslation` 缺失不禁用候选卡片、确认按钮或恢复选择。候选面板当前不把翻译作为排序、过滤或选择依据。
 - 合成阶段：继续显示既有合成子进度、片段数和耗时；翻译为后台增强，不改变合成百分比，不额外创建第二条进度条。
 - 结果页/历史页：非英文且 `promptTranslation` 为非空合法字符串时，在「画面提示词」下方显示只读「中文翻译」/「翻译」；缺失或降级时只显示原始提示词，不显示“翻译超时”、JSON 原文或空占位符。
 - 本变更不新增用户操作按钮；不新增“重试翻译”按钮，不阻塞“查看结果”“重新合成”或历史记录加载。后续如需可见降级提示，须另行确认文案和 locale 合同。
 
-**验收标准**：自动模式优化不调用翻译 LLM；合成与翻译请求在同一 compose 调用内启动；按乱序 index 正确回填；翻译超时/错误不阻塞成功成片且 pending 可恢复；手动模式候选面板仍有翻译；英文界面跳过；合成失败不被翻译结果掩盖；上下文快照可 JSON 序列化。
+**验收标准**：自动/手动模式 optimize 均不调用翻译 LLM；手动模式候选 checkpoint 在无翻译时仍可选择；合成与翻译请求在同一 compose 调用内启动；按乱序 index 正确回填；翻译超时/错误不阻塞成功成片且 pending 可恢复；候选、选择、媒体和 TTS 字段不被翻译 apply 覆盖；英文界面跳过；合成失败不被翻译结果掩盖；上下文快照可 JSON 序列化。
 
 ### 3.1.2.1 图片提示词统一走 prompt-engine 合同（2026-08-09 落地）
 
