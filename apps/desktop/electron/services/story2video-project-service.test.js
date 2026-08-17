@@ -1914,6 +1914,29 @@ describe('Story2VideoProjectService', () => {
     expect(fs.readdirSync(projectDir).some(name => name.includes('_audio_tts_'))).toBe(false)
   })
 
+  it('regenerateSceneAudio 将 generateTTS 返回的供应商错误写入失败状态', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      assetGenerator: {
+        generateTTS: vi.fn(async () => ({ code: -1, message: 'TTS provider failed: insufficient balance' })),
+      },
+    })
+    service._writeProjects([{
+      projectId: 'project-tts-result-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', audioPath: null }],
+    }])
+
+    await expect(service.regenerateSceneAudio('project-tts-result-fail', 'segment-0'))
+      .rejects.toThrow('TTS provider failed: insufficient balance')
+
+    expect(service.getProject('project-tts-result-fail').segments[0]).toMatchObject({
+      status: 'failed',
+      error: 'TTS provider failed: insufficient balance',
+    })
+  })
+
   it('regenerateScenePrompt image 更新 prompt 并清空陈旧翻译', async () => {
     const projectRoot = path.join(root, 'projects')
     const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '新画面提示词' }] }))

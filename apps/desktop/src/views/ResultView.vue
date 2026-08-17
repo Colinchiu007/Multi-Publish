@@ -1012,8 +1012,8 @@ export default {
         this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATED })
       } catch (error) {
         this.showStory2VideoNotification({
-          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED,
           error: error && error.message ? error.message : '',
+          fallbackKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED,
         })
       } finally {
         const next = { ...this.segmentBusy }

@@ -119,6 +119,7 @@ function createContainer(options) {
   container.register("pipelineEngine", function(c) {
     const engine = new PipelineEngine({
       serviceBus: c.get("serviceBus"),
+      ttsVoiceCloneService: c.get("ttsVoiceCloneService"),
       container: c,
       log: c.get("logger"),
       aiGenerator: c.get("aiGenerator"),
@@ -261,6 +262,14 @@ function createContainer(options) {
       log: c.get("logger"),
       maxOutputResolution: resolveMaxOutputResolution(store, getFeatureFlagProvider),
       getMaxOutputResolution: () => resolveMaxOutputResolution(store, getFeatureFlagProvider),
+    });
+  });
+    container.register("ttsVoiceCloneService", function(c) {
+    const { TtsVoiceCloneService } = require('../services/tts-voice-clone-service');
+    return new TtsVoiceCloneService({
+      store: c.get("store"),
+      modelProviderManager: c.get("modelProviderManager"),
+      log: c.get("logger"),
     });
   });
   container.register("story2videoProjectService", function(c) {

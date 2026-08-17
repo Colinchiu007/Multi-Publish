@@ -254,6 +254,19 @@ function referencedProjectFiles (project) {
   return files
 }
 
+/**
+ * 检测是否为克隆音色不可用错误（换账号后克隆音色失效）。
+ * 用于 regenerateSceneAudio 兆底：有现有音频时静默保留，用户无感。
+ */
+function isClonedVoiceFailure (error) {
+  if (!error) return false
+  const msg = String(error.message || error || '').toLowerCase()
+  return /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/.test(msg)
+    || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong)/.test(msg)
+    || /cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)/.test(msg)
+    || /\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7/.test(msg)
+}
+
 class Story2VideoProjectService {
   constructor (options = {}) {
     this.store = options.store || null
@@ -261,6 +274,7 @@ class Story2VideoProjectService {
     this.assetGenerator = options.assetGenerator || null
     this.aiGenerator = options.aiGenerator || null
     this.serviceBus = options.serviceBus || null
+    this.ttsVoiceCloneService = options.ttsVoiceCloneService || null
     this.modelProviderManager = options.modelProviderManager || null
     this.generateSceneVideoStage = options.generateSceneVideoStage || generateAiSceneVideo
     this.estimateSceneSecondsStage = options.estimateSceneSecondsStage || estimateSceneSeconds
@@ -1206,6 +1220,77 @@ class Story2VideoProjectService {
       this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
       return saved
     } catch (error) {
+      // 克隆音色跨账号失效时，尝试重新克隆（用保存的原始样本在当前账号重建）
+      const prevSegment = previousProject.segments[index]
+      if (isClonedVoiceFailure(error) && this.ttsVoiceCloneService) {
+        try {
+          const voiceId = voice.voice_id
+          const providerId = voice.voice_provider
+          const model = voice.voice_model || 'speech-02-hd'
+          const samples = await this.ttsVoiceCloneService.findCloneSamples(voiceId, providerId, model)
+          if (samples && samples.sampleStorage && this.assetGenerator && typeof this.assetGenerator.generateTTS === 'function') {
+            const _fs = require('fs')
+            const _path = require('path')
+            const userDataPath = this.store && typeof this.store.getUserDataDir === 'function'
+              ? this.store.getUserDataDir() : null
+            if (userDataPath && samples.sampleStorage.relativeDir) {
+              const sampleDir = _path.join(userDataPath, samples.sampleStorage.relativeDir)
+              const sampleFiles = _fs.readdirSync(sampleDir).filter(ff => /\.(mp3|wav|m4a)$/i.test(ff))
+              if (sampleFiles.length > 0) {
+                const samplePath = _path.join(sampleDir, sampleFiles[0])
+                const audioBuffer = _fs.readFileSync(samplePath)
+                const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
+                const ttsAdapter = this.modelProviderManager && typeof this.modelProviderManager.getAdapter === 'function'
+                  ? this.modelProviderManager.getAdapter(providerId) : null
+                if (ttsAdapter && typeof ttsAdapter.cloneVoice === 'function') {
+                  const newVoice = await ttsAdapter.cloneVoice({ name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] })
+                  if (newVoice && newVoice.id) {
+                    const retryResult = await this.assetGenerator.generateTTS(segment.text, {
+                      ...voice, voice_id: newVoice.id, with_timestamps: true,
+                      index: segment.sourceIndex ?? index, runId: 'scene_audio_' + projectId,
+                    })
+                    const retryPath = retryResult?.data?.path || retryResult?.data?.audio_path || retryResult?.path
+                    if (retryPath) {
+                      const dest = _path.join(projectDir, segment.id + '_audio_tts_' + Date.now() + sourceExtension(retryPath, '.mp3'))
+                      const copied = this._copyRequired(retryPath, dest, 'audio')
+                      attemptFiles.add(copied)
+                      segment.audioPath = copied
+                      segment.audioMeta = safeAssetMeta(retryResult.data || retryResult)
+                      segment.error = null
+                      segment.status = 'completed'
+                      project.segments[index] = segment
+                      project.dirty = true
+                      project.updatedAt = new Date().toISOString()
+                      const saved = this._upsertProject(project)
+                      this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+                      if (this.log && this.log.info) this.log.info('[Story2Video] 重新克隆音色成功: ' + voiceId + ' -> ' + newVoice.id)
+                      return saved
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (_reCloneError) {
+          if (this.log && this.log.warn) this.log.warn('[Story2Video] 重新克隆音色失败，尝试保留现有音频', _reCloneError)
+        }
+      }
+      // 保留已有音频兜底
+      if (isClonedVoiceFailure(error) && prevSegment && prevSegment.audioPath) {
+        try {
+          if (require('fs').existsSync(prevSegment.audioPath)) {
+            project.segments[index] = {
+              ...prevSegment,
+              status: 'completed',
+              error: null,
+            }
+            project.updatedAt = new Date().toISOString()
+            this._upsertProject(project)
+            if (this.log && this.log.info) this.log.info('[Story2Video] 克隆音色不可用，保留现有音频: ' + segmentId)
+            return project
+          }
+        } catch (_e) { /* 文件不存在，走正常错误流程 */ }
+      }
       project.segments[index] = {
         ...previousProject.segments[index],
         status: 'failed',
@@ -1213,7 +1298,7 @@ class Story2VideoProjectService {
       }
       project.updatedAt = new Date().toISOString()
       try { this._upsertProject(project) } catch (storageError) {
-        if (this.log && typeof this.log.warn === 'function') this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
+        if (this.log && this.log.warn) this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
       }
       this._cleanupProjectFiles(projectDir, attemptFiles)
       throw error

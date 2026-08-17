@@ -2187,6 +2187,23 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 提示文字 | 无需新增错误码：失效克隆通过禁用项与徽标提示；用户需删除旧克隆后重新上传音频克隆（新 id 自动合规）。 |
 | 验收标准 | ① 旧注册表 `voice_id="01"` 的克隆在音色下拉中显示「已失效」且不可选，默认音色被自动选中；② 重新克隆（合法 id）后可正常选择并合成；③ 真实流水线「生成图片与旁白」旁白 `x/1` 不再因 voice id 报错（provider 日志无 `voice id wrong`）。 |
 
+
+
+#### 7.1.16.1 克隆音色跨账号失效三层降级合同（2026-08-18）
+
+**背景**：真实链路「旁白重新生成失败，请检查音色/语音设置后重试」（run_1786...7dg6）。用户在 MiniMax 新注册账号后更换了 API Key，旧账号的克隆音色在新账号中不存在，regenerateSceneAudio 调用 TTS 时供应商返回 voice id wrong / voice does not exist 类错误。此前错误被 QUOTA_EXCEEDED 误分类为「额度不足」，用户无法理解为何新账号有额度还会报额度用完。更深层问题：用户在应用中提交过本地音频克隆的音色，持久化保存在本地 userData/voice-clone-samples/ 和 SQLite registry 中，换账号后这些克隆音色的 voice_id 在新账号侧失效，但原始音频样本仍在本地。
+
+| 合同 | 要求 |
+|------|------|
+| 错误精准分类 | minimax-tts.js 的 classifyBaseRespError 必须将 TTS 错误按真实原因分类为 auth/quota/voice/content_policy，不再将 voice not found / voice does not exist 等误判为额度错误；story2video-notifications.js 的 QUOTA_EXCEEDED 判定收紧为无 errorCode 且无 API_KEY_INVALID 模式匹配，VOICE_INVALID_PATTERN 扩展覆盖 voice does not exist、当前账号无权访问该音色、属于其他账号 等跨账号失效场景。 |
+| 三层降级（regenerateSceneAudio） | regenerateSceneAudio 对克隆音色不可用错误（isClonedVoiceFailure 检测）执行三层降级：Layer 1 - findCloneSamples() 从 SQLite registry 查找该 voice_id 的原始音频存储信息，读取本地保存的样本文件，在当前账号调用 cloneVoice() 重新克隆，成功后用新 voice_id 重试 TTS 生成；Layer 2 - 若重新克隆失败（样本不存在/克隆调用失败），检查当前场景分段是否有已生成的本地音频文件（prevSegment.audioPath），若存在则保留该音频、状态置 completed、错误清空，用户无感继续；Layer 3 - 若无已有音频，按正常错误流程处理，报告失败原因。 |
+| 样本持久化 | 用户通过 tts-voice-clone:add 提交本地音频克隆时，原始样本文件持久化保存到 userData/voice-clone-samples/<owner-hash>/<storage-id>/，SQLite registry 记录 sampleStorage.relativeDir 和 sampleCount。该持久化是 Layer 1 重新克隆的基础 - 换账号后仍能从本地读取原始音频重建克隆。 |
+| 样本缺失回退 | 若本地样本文件已被用户删除（fs.existsSync 返回 false），Layer 1 的 findCloneSamples 返回有效 registry 记录但样本文件不存在，重新克隆调用会因文件读取失败而进入 catch，自动降级到 Layer 2（保留已有场景音频）或 Layer 3（正常报错）。不向用户暴露样本文件丢失的技术细节。 |
+| isClonedVoiceFailure 检测 | 克隆音色不可用检测覆盖中英文错误消息：voice (id )?wrong/not found/does not exist/unavailable/missing、voice_id.*(not found/not exist/invalid/wrong)、cloned? voice.*(not found/not available/unavailable)、中文 当前账号.*音色|账号.*音色|属于.*其他.*账号。匹配到任一模式即判定为克隆音色跨账号失效，触发三层降级。 |
+| 用户无感设计 | 三层降级的全部重试逻辑在主进程内完成，前端仅看到最终结果：重新生成成功（可能用了新克隆的音色）或保留了已有音频（用户无感知）或正常失败。不弹出「请检查音色设置」「重新克隆」等提示 - 除非三层全部失败才显示原始错误。 |
+| 依赖注入 | container.setup.js 注册 ttsVoiceCloneService 并注入到 Story2VideoProjectService，使其能调用 findCloneSamples 和 ttsVoiceCloneService。缺失注入时 Layer 1 跳过，仅执行 Layer 2/3。 |
+| 验收标准 | 1. 换 MiniMax 账号后重新生成旁白，若本地有克隆样本 -> 自动重新克隆成功 -> 旁白正常生成；2. 若本地样本已删除但场景有旧音频 -> 保留旧音频，用户看到成功；3. 若无旧音频 -> 正常报错；4. 错误分类不再将 voice not found 误报为额度不足；5. 非克隆音色错误（网络超时、内容安全等）不触发三层降级，按原有逻辑处理。 |
+
 #### 7.1.17 提示词优化输出净化与无实质内容守卫（2026-08-09）
 
 **背景**：真实链路「图片轮播」文案输入「12」，提示词优化阶段输出的图片提示词为 `<think>……</think>\n\nA man in his late thirties stands at a crossroads……`——带推理能力的 LLM（MiniMax-M3/M2.7 等）在 OpenAI 兼容接口下把思考过程以 `<think>` 块放进 `content`，系统原样当提示词；同时纯数字文案被模型凭空编造出与原文无关的场景。
