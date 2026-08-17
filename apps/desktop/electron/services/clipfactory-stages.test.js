@@ -12,16 +12,16 @@ const {
   registerClipFactoryStages,
   CLIPFACTORY_STAGE_TYPES,
   buildSegments,
+  createExtractStageExecutor,
   parseSceneTimes,
 } = require('./clipfactory-stages')
 const mediaToolPaths = require('./media-tool-paths')
 
-function makePipeline(options = {}) {
+function makePipeline() {
   const executors = new Map()
   const pipeline = {
     stageExecutor: { executors, register(type, fn) { executors.set(type, fn) } },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    runMediaTool: options.runMediaTool,
     registerStageExecutor(type, fn) { executors.set(type, fn); return { success: true } },
   }
   const reg = registerClipFactoryStages(pipeline)
@@ -108,8 +108,11 @@ describe('clip-factory 阶段执行器', () => {
       const inputPath = path.join(outputDir, 'input.mp4')
       fs.mkdirSync(outputDir, { recursive: true })
       try {
-        const { get } = makePipeline({ runMediaTool: vi.fn().mockResolvedValue('') })
-        const result = await get(CLIPFACTORY_STAGE_TYPES.EXTRACT)({
+        const execute = createExtractStageExecutor({
+          findFfmpegImpl: () => 'ffmpeg',
+          executeTool: vi.fn().mockResolvedValue(''),
+        })
+        const result = await execute({
           runId: 'progress-' + Date.now(),
           stage: {},
           params: {},

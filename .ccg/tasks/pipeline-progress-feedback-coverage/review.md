@@ -40,6 +40,8 @@
 - 修复后本地生命周期矩阵：5 files / 180 tests passed。
 - 首轮修复后的远端 CI 仍因 Vitest 在完整 runner 中未拦截 Node 内建 `child_process` spy 而失败；已将 `extractSegments` 与 `runMediaTool` 依赖显式注入，测试不再执行真实 FFmpeg。
 - 再次本地生命周期矩阵：5 files / 180 tests passed。
+- 第二轮远端 `electron-tests` 证明完整 Vitest 运行会共享其他文件对 `media-tool-paths` 的 mock；已把提取阶段的完整生命周期构造器 `createExtractStageExecutor` 公开为依赖可注入单元，注册器继续绑定生产默认依赖。
+- 第三次本地生命周期矩阵：5 files / 180 tests passed。
 
 ## Follow-up
 

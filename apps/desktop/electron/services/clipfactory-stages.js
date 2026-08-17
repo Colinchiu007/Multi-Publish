@@ -154,6 +154,28 @@ async function exportVideo (concatList, outputPath, ffmpeg) {
   return outputPath
 }
 
+function createExtractStageExecutor ({ findFfmpegImpl = findFfmpeg, executeTool = runTool } = {}) {
+  return async ({ runId, context, onProgress }) => {
+    const analysis = context.analyze
+    if (!analysis || !Array.isArray(analysis.segments) || analysis.segments.length === 0) {
+      return { success: false, error: 'clip-factory extract 需要 context.analyze' }
+    }
+    const ffmpeg = findFfmpegImpl()
+    if (!ffmpeg) return { success: false, error: 'FFmpeg 不可用，无法提取片段' }
+    try {
+      const output = await extractSegments(analysis.inputPath, analysis.segments, getRunDir(runId), ffmpeg, onProgress, executeTool)
+      emitStageComplete(onProgress, {
+        messageKey: 'stageProgress.clipfactoryExtractComplete',
+        summaryKey: 'stageProgress.clipfactoryExtractSummary',
+        summaryParams: { done: output.clips.length, total: analysis.segments.length },
+      })
+      return { success: true, output }
+    } catch (error) {
+      return { success: false, error: 'clip-factory extract 失败：' + (error && error.message ? error.message : String(error)) }
+    }
+  }
+}
+
 /**
  * 注册 clip-factory 流水线的自定义阶段执行器
  * @param {object} pipelineEngine - PipelineEngine 实例
@@ -166,9 +188,6 @@ function registerClipFactoryStages (pipelineEngine) {
 
   const registered = []
   const log = pipelineEngine.log
-  const executeTool = typeof pipelineEngine.runMediaTool === 'function'
-    ? pipelineEngine.runMediaTool
-    : runTool
 
   pipelineEngine.registerStageExecutor(
     CLIPFACTORY_STAGE_TYPES.ANALYZE,
@@ -193,25 +212,7 @@ function registerClipFactoryStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     CLIPFACTORY_STAGE_TYPES.EXTRACT,
-    async ({ runId, context, onProgress }) => {
-      const analysis = context.analyze
-      if (!analysis || !Array.isArray(analysis.segments) || analysis.segments.length === 0) {
-        return { success: false, error: 'clip-factory extract 需要 context.analyze' }
-      }
-      const ffmpeg = findFfmpeg()
-      if (!ffmpeg) return { success: false, error: 'FFmpeg 不可用，无法提取片段' }
-      try {
-        const output = await extractSegments(analysis.inputPath, analysis.segments, getRunDir(runId), ffmpeg, onProgress, executeTool)
-        emitStageComplete(onProgress, {
-          messageKey: 'stageProgress.clipfactoryExtractComplete',
-          summaryKey: 'stageProgress.clipfactoryExtractSummary',
-          summaryParams: { done: output.clips.length, total: analysis.segments.length },
-        })
-        return { success: true, output }
-      } catch (error) {
-        return { success: false, error: 'clip-factory extract 失败：' + (error && error.message ? error.message : String(error)) }
-      }
-    },
+    createExtractStageExecutor(),
   )
   registered.push(CLIPFACTORY_STAGE_TYPES.EXTRACT)
 
@@ -268,6 +269,7 @@ function registerClipFactoryStages (pipelineEngine) {
 module.exports = {
   CLIPFACTORY_STAGE_TYPES,
   buildSegments,
+  createExtractStageExecutor,
   extractSegments,
   parseSceneTimes,
   registerClipFactoryStages,
