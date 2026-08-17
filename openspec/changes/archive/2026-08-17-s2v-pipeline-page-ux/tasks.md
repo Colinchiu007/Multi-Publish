@@ -23,5 +23,5 @@
 
 - [x] 4.1 Update PRD, video-creation PRD, changelog, glossary and learnings with the detailed contracts.
 - [x] 4.2 Run locale, lint, dependency, packaging and Electron smoke gates; record exact results in CCG review.
-- [ ] 4.3 Complete dual-model review or record backend downgrade, then push branch, open/merge PR and verify remote state.
-- [ ] 4.4 Archive OpenSpec and CCG task after merged delivery.
+- [x] 4.3 Complete dual-model review or record backend downgrade, then push branch, open/merge PR and verify remote state.
+- [x] 4.4 Archive OpenSpec and CCG task after merged delivery.
