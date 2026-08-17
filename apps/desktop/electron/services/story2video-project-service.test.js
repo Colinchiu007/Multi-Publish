@@ -18,6 +18,20 @@ function writeFile (filePath, content = 'media') {
   return filePath
 }
 
+function imageOptimizationResponse (optimizedPrompt = '新画面提示词', overrides = {}) {
+  return {
+    results: [{
+      optimized_prompt: optimizedPrompt,
+      strategy_used: 'llm',
+      key_source: 'caller',
+      cache_hit: false,
+      model_used: 'SenseNova',
+      caller: 'multi-publish-desktop',
+      ...overrides,
+    }],
+  }
+}
+
 describe('Story2VideoProjectService', () => {
   let root
   let store
@@ -1939,7 +1953,7 @@ describe('Story2VideoProjectService', () => {
 
   it('regenerateScenePrompt image 更新 prompt 并清空陈旧翻译', async () => {
     const projectRoot = path.join(root, 'projects')
-    const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '新画面提示词' }] }))
+    const optimizePrompt = vi.fn(async () => imageOptimizationResponse())
     const service = new Story2VideoProjectService({
       store,
       projectsDir: projectRoot,
@@ -1956,8 +1970,19 @@ describe('Story2VideoProjectService', () => {
     const updated = await service.regenerateScenePrompt('project-prompt-img', 'segment-0', 'image')
 
     // 与流水线契约同源：prompt 会附加 IMAGE_QUALITY_BASELINE（管线 stage 既有行为），max_length=2000 显式携带
-    expect(optimizePrompt).toHaveBeenCalledWith(expect.stringContaining('你好'), expect.objectContaining({ max_length: 2000, platform: 'generic' }))
+    expect(optimizePrompt).toHaveBeenCalledWith(expect.stringContaining('你好'), expect.objectContaining({
+      max_length: 2000,
+      platform: 'generic',
+      optimization_strategy: 'llm',
+    }))
     expect(updated.segments[0].prompt).toBe('新画面提示词')
+    expect(updated.segments[0].promptOptimizationMeta).toEqual({
+      strategy_used: 'llm',
+      key_source: 'caller',
+      cache_hit: false,
+      model_used: 'SenseNova',
+      caller: 'multi-publish-desktop',
+    })
     expect(updated.segments[0].promptTranslation).toBeNull()
     expect(updated.segments[0].videoPrompt).toBe('旧视频词')
     expect(updated.segments[0].status).toBe('completed')
@@ -1965,7 +1990,7 @@ describe('Story2VideoProjectService', () => {
 
   it('regenerateScenePrompt image 超长返回按契约默认 2000 本地截断（2026-08-16 上限放开）', async () => {
     const projectRoot = path.join(root, 'projects')
-    const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '长'.repeat(5000) }] }))
+    const optimizePrompt = vi.fn(async () => imageOptimizationResponse('长'.repeat(5000)))
     const service = new Story2VideoProjectService({
       store,
       projectsDir: projectRoot,
@@ -2149,9 +2174,51 @@ describe('Story2VideoProjectService', () => {
     expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: 'parse_error' })
   })
 
+  it.each([
+    ['缺少 strategy_used', { strategy_used: undefined, key_source: 'caller', cache_hit: false }, 'strategy_used'],
+    ['strategy_used 不是 llm', { strategy_used: 'template' }, 'strategy_used'],
+    ['缺少 key_source', { strategy_used: 'llm', key_source: undefined, cache_hit: false }, 'key_source'],
+    ['key_source 不是 caller', { key_source: 'config' }, 'key_source'],
+    ['cache_hit 不是 false', { cache_hit: true }, 'cache_hit'],
+    ['执行元数据类型错误', { cache_hit: 'false' }, 'cache_hit'],
+  ])('regenerateScenePrompt image %s 时不接受无效执行元数据', async (_caseName, metadataOverrides, errorField) => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizePrompt = vi.fn(async () => imageOptimizationResponse('伪造的优化词', metadataOverrides))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      serviceBus: { optimizePrompt },
+    })
+    const originalMeta = {
+      strategy_used: 'llm',
+      key_source: 'caller',
+      cache_hit: false,
+      model_used: 'PreviousModel',
+      caller: 'previous-caller',
+    }
+    service._writeProjects([{
+      projectId: 'project-prompt-invalid-meta', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: '你好', prompt: '旧提示词',
+        promptOptimizationMeta: originalMeta,
+      }],
+    }])
+
+    await expect(service.regenerateScenePrompt('project-prompt-invalid-meta', 'segment-0', 'image'))
+      .rejects.toThrow(errorField)
+
+    const failed = service.getProject('project-prompt-invalid-meta')
+    expect(failed.segments[0]).toMatchObject({
+      prompt: '旧提示词',
+      promptOptimizationMeta: originalMeta,
+      status: 'failed',
+    })
+    expect(failed.segments[0].error).toContain(errorField)
+  })
+
   it('regenerateScenePrompt image 请求携带与流水线同源的 context（full_text/synopsis）+ max_length=2000', async () => {
     const projectRoot = path.join(root, 'projects')
-    const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '新画面提示词' }] }))
+    const optimizePrompt = vi.fn(async () => imageOptimizationResponse())
     const service = new Story2VideoProjectService({
       store,
       projectsDir: projectRoot,
@@ -2179,6 +2246,8 @@ describe('Story2VideoProjectService', () => {
 
     const requestOptions = optimizePrompt.mock.calls[0][1]
     expect(requestOptions.max_length).toBe(2000)
+    expect(requestOptions.optimization_strategy).toBe('llm')
+    expect(requestOptions.bypass_cache).toBe(true)
     expect(requestOptions.context.full_text).toContain('强盛时疆域覆盖今辽宁北部')
     expect(requestOptions.context.full_text).toContain('朱蒙一路南下在卒本川落脚')
     expect(requestOptions.context.synopsis).toBe('故事梗概：扶余王子逃出王宫一路南下')
@@ -2189,7 +2258,7 @@ describe('Story2VideoProjectService', () => {
 
   it('regenerateScenePrompt 存量项目无 story2videoTextConfig 仍携带基于 segments 的 context', async () => {
     const projectRoot = path.join(root, 'projects')
-    const optimizePrompt = vi.fn(async () => ({ results: [{ optimized_prompt: '新画面提示词' }] }))
+    const optimizePrompt = vi.fn(async () => imageOptimizationResponse())
     const service = new Story2VideoProjectService({
       store,
       projectsDir: projectRoot,

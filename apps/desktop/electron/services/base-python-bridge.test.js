@@ -376,8 +376,7 @@ describe('BasePythonBridge — 子类继承验证', () => {
     expect(parsed.requests.map(r => r.prompt)).toEqual(['prompt1', 'prompt2'])
     // BYOK：批量请求统一注入调用方默认 LLM 绑定 + caller 标识
     expect(parsed.requests[0]).toMatchObject({
-      llm: { provider: 'sensenova', model: 'deepseek-v4-flash', api_key: 'sk-test' },
-      caller: 'multi-publish-desktop',
+      llm: { provider: 'sensenova', model: 'deepseek-v4-flash', api_key: 'sk-test', caller: 'multi-publish-desktop' },
     })
   })
 

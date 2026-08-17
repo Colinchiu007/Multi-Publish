@@ -14,6 +14,7 @@ const {
   normalizePromptEnginePlatform,
   assertNoSensitiveContext,
 } = require('./prompt-engine-contract')
+const { resolveOptimizationStrategy } = require('./prompt-engine-kernel')
 const {
   buildVideoOptimizeRequest,
   buildStandaloneVideoOptimizeRequest,
@@ -65,6 +66,16 @@ function normalizeOptimizeRequest (request) {
   } else if (normalized.style === '') {
     delete normalized.style
   }
+  // optimization_strategy 归一化：缺省 llm；template/llm 由调用方显式选择
+  normalized.optimization_strategy = resolveOptimizationStrategy(normalized)
+  // bypass_cache 布尔归一化：Boolean('false') === true 是 JS 陷阱，需显式处理
+  const _bv = normalized.bypass_cache !== undefined ? normalized.bypass_cache : normalized.bypassCache
+  if (_bv !== undefined) {
+    normalized.bypass_cache = _bv === true || _bv === 'true' || _bv === 1
+  }
+  // 清理驼峰字段，避免透传到引擎
+  delete normalized.optimizationStrategy
+  delete normalized.bypassCache
   return normalized
 }
 
@@ -74,10 +85,8 @@ function normalizeOptimizeRequest (request) {
  * @returns {boolean}
  */
 function requiresLlm (request) {
-  if (String(request.domain || '').toLowerCase() === 'video') return true
-  const level = Number(request.creative_level)
-  // 未显式传 creative_level 时按引擎默认值 5 处理（默认需要 LLM，fail-closed 优先）
-  return Number.isFinite(level) ? level > 3 : true
+  // creative_level 只控制创意强度，不参与策略路由；由 optimization_strategy 决定
+  return resolveOptimizationStrategy(request) === 'llm'
 }
 
 /**
@@ -118,6 +127,10 @@ function llmModelFor (provider) {
     ? provider.capability_models.llm.trim()
     : ''
   if (byCapability) return byCapability
+  // 多模态 provider 必须显式声明 capability_models.llm，不猜测
+  if (provider && provider.category === 'multimodal') {
+    throw new Error('未配置可用模型：多模态 provider 必须在 capability_models.llm 中声明 LLM 模型')
+  }
   return firstConfiguredModel(provider && provider.models)
 }
 
@@ -214,7 +227,7 @@ class PromptBridge extends BasePythonBridge {
     if (!model) {
       throw new Error(`默认 LLM「${(def && def.name) || id}」未配置可用模型：请在「模型设置」中选择模型后重试`)
     }
-    const bind = { provider: engineProviderFor(id), model, api_key: withKey.api_key }
+    const bind = { provider: engineProviderFor(id), model, api_key: withKey.api_key, caller: CALLER_ID }
     if (typeof withKey.base_url === 'string' && withKey.base_url.trim()) {
       bind.base_url = withKey.base_url.trim()
     }
@@ -232,7 +245,6 @@ class PromptBridge extends BasePythonBridge {
     const normalized = normalizeOptimizeRequest(request)
     if (requiresLlm(normalized)) {
       normalized.llm = this.resolveLlmBind()
-      normalized.caller = CALLER_ID
     }
     return this._post('/v1/optimize', JSON.stringify(normalized), undefined, traceId)
   }
@@ -246,11 +258,10 @@ class PromptBridge extends BasePythonBridge {
     await this.ensureRunning()
     const normalized = requests.map(normalizeOptimizeRequest)
     // 任一请求需要 LLM 即整体注入同一条默认 LLM 绑定（同一产品统一配置的模型）
-    if (normalized.some(requiresLlm)) {
-      const bind = this.resolveLlmBind()
+    const bind = normalized.some(requiresLlm) ? this.resolveLlmBind() : null
+    if (bind) {
       for (const n of normalized) {
-        n.llm = bind
-        n.caller = CALLER_ID
+        if (requiresLlm(n)) n.llm = bind
       }
     }
     return this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }), undefined, traceId)
@@ -288,7 +299,15 @@ class PromptBridge extends BasePythonBridge {
       }, (res) => {
         let data = ''
         res.on('data', chunk => { data += chunk })
-        res.on('end', () => { try { resolve(JSON.parse(data)) } catch { reject(new Error('standalone video engine 返回非法 JSON')) } })
+        res.on('end', () => {
+        if (res.statusCode >= 400) {
+          let detail = data
+          try { const parsed = JSON.parse(data); detail = parsed.detail || parsed.message || data } catch (_) {}
+          reject(new Error('standalone video engine HTTP ' + res.statusCode + ': ' + detail))
+          return
+        }
+        try { resolve(JSON.parse(data)) } catch { reject(new Error('standalone video engine 返回非法 JSON')) }
+      })
       })
       req.on('error', reject)
       req.on('timeout', () => { req.destroy(); reject(new Error('standalone video engine request timeout')) })
@@ -313,9 +332,12 @@ class PromptBridge extends BasePythonBridge {
     if (_standaloneTarget()) {
       try {
         const standaloneReq = buildStandaloneVideoOptimizeRequest(prompt, rest)
+        standaloneReq.llm = this.resolveLlmBind()
         const result = await this._postStandalone('/v1/video/optimize', JSON.stringify(standaloneReq), undefined, traceId)
         return tagVideoEngineResult(result, { backend: 'standalone-8020' })
       } catch (e) {
+        const isClientError = e.message && e.message.startsWith('standalone video engine HTTP 4')
+        if (isClientError) throw e
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video：${e instanceof Error ? e.message : String(e)}`)
       }
@@ -324,7 +346,6 @@ class PromptBridge extends BasePythonBridge {
     const legacyReq = buildVideoOptimizeRequest(prompt, rest)
     // 独立视频引擎失败回退 8013：video 域必须走 BYOK llm 绑定（调用方自己的 LLM）
     legacyReq.llm = this.resolveLlmBind()
-    legacyReq.caller = CALLER_ID
     const result = await this._post('/v1/optimize', JSON.stringify(legacyReq), undefined, traceId)
     return tagVideoEngineResult(result, { backend: 'legacy-8013', fallback: Boolean(_standaloneTarget()) })
   }
@@ -350,9 +371,13 @@ class PromptBridge extends BasePythonBridge {
           const { prompt, opts } = build(item)
           return buildStandaloneVideoOptimizeRequest(prompt, opts)
         })
+        const _bind = this.resolveLlmBind()
+        for (const r of requests) { r.llm = _bind }
         const result = await this._postStandalone('/v1/video/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
         return tagVideoEngineResult(result, { backend: 'standalone-8020' })
       } catch (e) {
+        const isClientError = e.message && e.message.startsWith('standalone video engine HTTP 4')
+        if (isClientError) throw e
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video 批量：${e instanceof Error ? e.message : String(e)}`)
       }
@@ -365,8 +390,7 @@ class PromptBridge extends BasePythonBridge {
     const bind = this.resolveLlmBind()
     for (const req of requests) {
       req.llm = bind
-      req.caller = CALLER_ID
-    }
+          }
     const result = await this._post('/v1/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
     return tagVideoEngineResult(result, { backend: 'legacy-8013', fallback: Boolean(_standaloneTarget()) })
   }

@@ -1,24 +1,9 @@
-## [2026-08-18] feat(story2video): 单段视频短于分镜时长的处理选项（循环播放/播放完停止）
+## [2026-08-17] fix(desktop): 创意等级与提示词执行策略解耦
 
-- 新增高级选项「单段视频短于分镜时长的处理」：AI 视频模型生成的视频时长常短于分镜场景时长，原有循环播放之外新增「播放完停止」模式。
-- 播放完停止模式：AI 视频播放到最后一帧后定格，然后慢慢放大（复用 zoom-in 动效），用于营造定格绘画效果。
-- 仅在视频增强模式「固定比例（成品前段 AI 视频）」和「AI 智能选择（最精彩场景）」下生效；关闭时不显示。
-- 配置通过 shortVideoHandling 字段传递（默认 loop），经 config normalizer 、 pipeline engine 、 stage executor 、 compose engine 全链路透传。
-- 语言区域选项标签「关闭（纯图片轮播）」改为「纯图片轮播」（zh/en 成对。
-- UI 新增下拉选择器（data-testid=s2v-short-video-handling），仅在 videoMode 为 fixed/ai-judged 时显示；摘要区域展示播完停止状态。
-- 测试覆盖：循环模式、播放完停止短视频末帧冻结 + zoom-in 、视频足大时只裁剪、探测失败回退循环、min-duration 停止模式、默认循环模式。
+- `creative_level` 仅描述创意/细节强度，不再参与模型/模板路由；`optimization_strategy` 只允许 `template|llm`，缺省为 `llm`，传入已删除的 `auto` 返回 422。
+- 历史记录“重新生成图片优化词”显式发送 `llm + bypass_cache=true`，从当前模型设置取 BYOK 文字推理模型，阻止模板/缓存结果被误当作新生成。
+- PromptBridge 按每个 batch 项的解析策略注入 LLM；多模态默认模型取 `capability_models.llm`，避免把 TTS 的 `models[0]` 注入聊天接口。
 
-## [2026-08-17] feat(story2video): 手动选材模式提示词翻译与视频合成并行
-
-- 手动选材模式不再在 `optimize` 阶段等待只读提示词翻译；候选素材生成和 `scene_asset_selection` checkpoint 可先完成。
-- 翻译 pending 状态与自动模式统一在 `compose` 阶段和视频合成并行执行，按稳定场景 `index` 回填最终 scenes/segments。
-- 翻译 apply 只更新 `promptTranslation`，不覆盖候选数组、`candidateId`、selection、媒体路径、TTS 或合成输入；翻译失败/超时继续 fail-open。
-
-## [2026-08-17] fix(ops-center): prompt-eval dual 调 prompt-engine 携带 BYOK LLM
-
-- 根因：prompt-engine BYOK 变更后，图片 creative_level>3 的 /v1/optimize 请求必须携带 llm；ops-center 双路评测默认 creative_level=8，原调用缺少该字段，部署版连新引擎返回 HTTP 422。
-- 修复：双路 run 复用「模型密钥」minimax-llm 或 OPS_PROMPT_EVAL_LLM_* 回退，映射为引擎 provider=minimax，向 /v1/optimize 透传 {provider, model, api_key, base_url} 与 caller=ops-center；缺少 LLM 密钥时入口 400 fail-fast，不向引擎发空 key 请求。
-- 安全/回归：api_key 不写入 engine_meta 或响应；新增真实 HTTP 请求体、已保存密钥优先、422 fail-closed、provider 映射和缺 key 不发请求用例；定向 PromptEval 28 passed，相关 API 30 passed。
 ## [2026-08-17] feat(story2video): 流水线进度区域新增「合成时间说明」提示
 
 - 背景：用户反馈生成视频时不知道整体耗时预期，等待过程容易误判为卡死。
@@ -31,7 +16,7 @@
 - 背景：视频创作-历史记录「重新生成图片优化词」实测 prompt-engine(8013) 走引擎自身 config.yaml 兜底的 MiniMax key，而非用户在「模型设置」配置的 SenseNova 文字推理模型。目标契约：哪个产品调用引擎，就用哪个产品自己配置的 LLM。
 - 改动：`PromptBridge` 新增 `resolveLlmBind()`，从 `ModelProviderManager` 解析默认 LLM（sensenova-llm→sensenova、deepseek→deepseek、其余→openai_compat），主进程边界解密 api_key 后组装 `{provider,model,base_url,api_key}` 注入 `optimize` / `optimizeBatch` / `optimizeVideo`（legacy-8013 回退）/ `optimizeVideosBatch`（legacy-8013 回退），并携带 `caller=multi-publish-desktop`；无默认 LLM/缺失 API Key/缺失模型一律 fail-closed 抛可操作中文错误，不再依赖引擎服务端 key。
 - `phase1-context.js` 注入 `promptBridge.modelProviderManager`（与 story2videoProjectService 同模式）。
-- 配套：prompt-engine v0.20.0（BYOK llm 契约 + 移除 key_router/ops_client 兜底 + 缓存 provider 隔离）；图片 creative_level<=3 模板直出仍免 LLM。
+- 配套：prompt-engine v0.20.0（BYOK llm 契约 + 移除 key_router/ops_client 兜底 + 缓存 provider 隔离）；图片只有显式 `optimization_strategy=template` 才免 LLM。
 - 回归：桌面 electron/services+bootstrap 2074 passed / 1 skipped（修复 9 个未注入默认 LLM 的旧契约用例）；prompt-engine 全量 975 passed / 3 skipped。
 
 ## [2026-08-16] fix(story2video): 分段状态本地化 + 失败原因内联 + 成功写回清除残留 error
@@ -9326,7 +9311,3 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 分块合成新增开始/成功/失败及每 10 秒输出字节心跳（30 秒无增长 WARN），保留既有 merge_l{level}_chunk_{n} created 诊断文本和 87%→89% 前端进度。
 - 日志只保留 basename 和非敏感诊断元数据；不记录绝对路径、完整 FFmpeg 参数、素材内容或凭据。此变更改善定位能力，不改变转场、编码参数、并发或实际耗时。
 
-## [2026-08-17] feat(story2video): 提示词翻译与视频合成并行
-
-- 自动模式不再在 optimize 阶段等待可选翻译 LLM；翻译任务改在 compose 阶段与视频合成并行，采用单批 25 秒/全任务约 60 秒有界预算，失败和超时 fail-open，不影响成功成片。
-- 翻译结果按场景 index 回填，pending/部分结果支持 JSON 快照、重试与恢复；manual 素材选择仍在候选检查点前提供翻译。

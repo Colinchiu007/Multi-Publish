@@ -380,7 +380,7 @@ split（分句）→ domain_enrich（历史内容领域增强，可选）
 
 - prompt-engine（`D:\\Data\\projects\\prompt-engine`，FastAPI / 8013）为图片提示词优化的**前置依赖**；本地已可 import 且 `.env` 已配置 LLM/各 provider key。
 - 真实优化质量（LLM 改写效果、风格检测准确率、配额）属于**外部验收边界**：单元/集成测试用 mock PromptBridge / 本地 HTTP stub 覆盖契约与 fail-closed 行为，不冒充真实 8013 + provider 验收通过（见 learnings 与 quality-gates 记录）。
-- `creative_level ≤ 3` 走 prompt-engine 模板直出（免 LLM key），`> 3` 需要 LLM key（未配置时服务端返回 error → fail closed）。
+`creative_level` 表示创意/细节强度，引擎不会根据文案自动判断该等级。`optimization_strategy` 只允许 `template` 或 `llm`，缺省为 `llm`；`template` 强制图片确定性模板，`llm` 强制使用桌面当前 BYOK 文字推理模型，`auto` 已删除且返回 422；video + template 返回 422。历史记录“重新生成图片优化词”固定 `llm + bypass_cache=true`，因此不会把模板或缓存命中伪装为新生成；结果可用 strategy_used/key_source/model_used/caller/cache_hit 诊断。
 
 ### 3.1.2.3 独立视频提示词优化引擎（video-prompt-engine，2026-08-12 规划）
 

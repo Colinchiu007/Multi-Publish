@@ -301,6 +301,7 @@ describe('story2video 资源索引契约', () => {
         platform: 'dalle',
         style: 'photography',
         creative_level: 8,
+        optimization_strategy: 'llm',
         // 精修层长度语义（image-prompt-higgsfield-mechanics）：creative_level≥7 未显式 → 8013 能力上限
         max_length: 2000,
         num_candidates: 1,
