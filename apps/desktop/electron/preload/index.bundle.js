@@ -563,7 +563,8 @@ var require_system = __commonJS({
         // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
         logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
         logsClear: () => ipcRenderer2.invoke("logs:clear"),
-        logError: (message) => ipcRenderer2.invoke("logs:error", { message })
+        logError: (message) => ipcRenderer2.invoke("logs:error", { message }),
+        submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload)
       };
     }
     module2.exports = { createSystemApi: createSystemApi2 };
@@ -954,6 +955,7 @@ var require_access_control = __commonJS({
       "logsGetInfo",
       "logsClear",
       "logError",
+      "submitFeedback",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",

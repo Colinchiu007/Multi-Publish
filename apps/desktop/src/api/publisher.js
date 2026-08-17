@@ -428,6 +428,9 @@ export async function logsGetInfo() {
   return invokeWithFallback("logsGetInfo", { code: -1, data: { dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] } })
 }
 export async function logsClear() { return invokeWithFallback("logsClear", { code: -1 }) }
+export async function submitFeedback(payload) {
+  return invokeWithFallback("submitFeedback", { code: -1, message: 'electronAPI not available' }, payload)
+}
 
 export async function videoProcess(type, params) {
   return invokeWithFallback("videoProcess", { code: -1, message: 'electronAPI not available' }, type, params)

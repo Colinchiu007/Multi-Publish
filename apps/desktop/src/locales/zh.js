@@ -82,6 +82,20 @@ export default {
       autoClearHint: 'Log 文件达到 500M 时，系统会自动清理。',
       empty: '暂无日志文件',
     },
+    feedback: {
+      title: '用户反馈',
+      subtitle: '告诉我们遇到的问题，帮助我们更快定位和改进。',
+      label: '问题描述',
+      placeholder: '请描述发生了什么、如何复现，以及你期望的结果。',
+      attachLogs: '同时上传应用日志',
+      attachLogsHint: '日志会在本机脱敏后上传，仅包含应用日志文件。',
+      submit: '提交反馈',
+      submitting: '提交中...',
+      required: '请先填写问题描述。',
+      tooLong: '反馈内容不能超过 10000 个字符。',
+      submitted: '反馈已提交，感谢你的帮助。',
+      submitFailed: '反馈提交失败，请稍后重试。',
+    },
   },
   create: {
     story2video: {
