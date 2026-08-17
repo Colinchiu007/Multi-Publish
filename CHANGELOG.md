@@ -1,3 +1,10 @@
+## [2026-08-17] feat(story2video): 流水线进度区域新增「合成时间说明」提示
+
+- 背景：用户反馈生成视频时不知道整体耗时预期，等待过程容易误判为卡死。
+- 改动：`StageProgress`（流水线进度区域）新增合成时间说明块——整体完成时间与视频时长（时长越长合成越久）、内容复杂度、大模型推理时间相关；参考区间：1 分钟视频 5–8 分钟、3 分钟视频 15–20 分钟、6 分钟视频 35–45 分钟，以上均属正常范围。
+- 门控：新增 `showTimeGuidance` prop（默认 false），`CreateView` 仅对 story2video-compose（`isOrchestratedPipeline`）传入，避免 story2video 专属口径泄漏到其他暂存式流水线（animated-explainer/talking-head/cinematic/clip-factory 等）；zh/en locale 成对新增 6 键。
+- 回归：`StageProgress.test.js` + story2video-ue-contract + `CreateView.test.js` 全绿；locale 成对 + CJK 基线无新增硬编码（仅行号位移重锚）。
+
 ## [2026-08-16] feat(desktop): PromptBridge BYOK —— 提示词引擎使用桌面配置的 LLM（llm 对象 + caller + fail-closed）
 
 - 背景：视频创作-历史记录「重新生成图片优化词」实测 prompt-engine(8013) 走引擎自身 config.yaml 兜底的 MiniMax key，而非用户在「模型设置」配置的 SenseNova 文字推理模型。目标契约：哪个产品调用引擎，就用哪个产品自己配置的 LLM。

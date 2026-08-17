@@ -25,6 +25,14 @@ const tStub = (key, params = {}) => {
       : "正在拼接视频片段 · {percent}%",
     "stageProgress.assetsDetail": "图片 {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal}",
     "stageProgress.assetsDetailNoVideo": "图片 {images}/{imagesTotal} · 旁白 {tts}/{ttsTotal}",
+    "stageProgress.timeGuidanceTitle": getAppLocale() === "en" ? "About composition time" : "合成时间说明",
+    "stageProgress.timeGuidanceIntro": getAppLocale() === "en"
+      ? "Overall completion time is related to video duration — the longer the video, the longer it takes to compose — and also to content complexity and LLM inference time."
+      : "整体完成时间与视频时长有关：时长越长，合成越久；同时与内容的复杂程度、大模型的推理时间长短也有关系。",
+    "stageProgress.timeGuidanceRef1min": getAppLocale() === "en" ? "1-minute video: 5–8 min" : "1 分钟视频：合成时长 5–8 分钟",
+    "stageProgress.timeGuidanceRef3min": getAppLocale() === "en" ? "3-minute video: 15–20 min" : "3 分钟视频：合成时长 15–20 分钟",
+    "stageProgress.timeGuidanceRef6min": getAppLocale() === "en" ? "6-minute video: 35–45 min" : "6 分钟视频：合成时长 35–45 分钟",
+    "stageProgress.timeGuidanceNote": getAppLocale() === "en" ? "The above composition times are all within the normal range." : "以上合成时长均属正常范围。",
   };
   const template = map[key] || key;
   return Object.keys(params).reduce((s, k) => s.replace(`{${k}}`, String(params[k])), template);
@@ -211,6 +219,38 @@ describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline
     });
     const item = w.find('[data-testid="story2video-stage-optimize"]');
     expect(item.find(".stage-detail").text()).toBe("共 5 个场景，已完成 2 个");
+    w.unmount();
+  });
+});
+
+describe("StageProgress 合成时间说明块（2026-08-17）", () => {
+  it("showTimeGuidance=true 时渲染合成时间说明（标题/说明/三档参考/正常范围）", () => {
+    const w = mountWith({ stages: [makeStage()], showTimeGuidance: true });
+    const box = w.find('[data-testid="story2video-time-guidance"]');
+    expect(box.exists()).toBe(true);
+    expect(box.text()).toContain("合成时间说明");
+    expect(box.text()).toContain("整体完成时间与视频时长有关");
+    expect(box.text()).toContain("1 分钟视频：合成时长 5–8 分钟");
+    expect(box.text()).toContain("3 分钟视频：合成时长 15–20 分钟");
+    expect(box.text()).toContain("6 分钟视频：合成时长 35–45 分钟");
+    expect(box.text()).toContain("以上合成时长均属正常范围。");
+    w.unmount();
+  });
+
+  it("默认（非 story2video 场景）不渲染说明块", () => {
+    const w = mountWith({ stages: [makeStage()] });
+    expect(w.find('[data-testid="story2video-time-guidance"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("英文界面渲染英文合成时间说明", () => {
+    setAppLocale("en");
+    const w = mountWith({ stages: [makeStage()], showTimeGuidance: true });
+    const box = w.find('[data-testid="story2video-time-guidance"]');
+    expect(box.exists()).toBe(true);
+    expect(box.text()).toContain("About composition time");
+    expect(box.text()).toContain("1-minute video: 5–8 min");
+    expect(box.text()).toContain("The above composition times are all within the normal range.");
     w.unmount();
   });
 });

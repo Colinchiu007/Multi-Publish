@@ -1411,5 +1411,12 @@ export default {
     statusPending: '等待中',
     durationMin: (ctx) => ctx.named('minutes') + ' 分 ' + ctx.named('seconds') + ' 秒',
     durationSec: (ctx) => ctx.named('seconds') + ' 秒',
+    // 合成时间参考口径（2026-08-17）：产品约定参考区间，非精确估算
+    timeGuidanceTitle: '合成时间说明',
+    timeGuidanceIntro: '整体完成时间与视频时长有关：时长越长，合成越久；同时与内容的复杂程度、大模型的推理时间长短也有关系。',
+    timeGuidanceRef1min: '1 分钟视频：合成时长 5–8 分钟',
+    timeGuidanceRef3min: '3 分钟视频：合成时长 15–20 分钟',
+    timeGuidanceRef6min: '6 分钟视频：合成时长 35–45 分钟',
+    timeGuidanceNote: '以上合成时长均属正常范围。',
   },
 }

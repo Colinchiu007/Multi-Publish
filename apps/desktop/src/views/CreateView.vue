@@ -52,6 +52,7 @@
           :progress-percent="orchestrationProgressPercent"
           :elapsed-ms="orchestrationElapsedMs"
           :summary="orchestrationSummary"
+          :show-time-guidance="isOrchestratedPipeline(selectedPipeline?.name)"
           :orchestration-context="orchestrationContext"
           :checkpoint="pipelineRunStatus?.checkpoint || null"
         />
