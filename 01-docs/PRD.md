@@ -35,7 +35,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 3. **分镜素材自选流程**：与全自动前段一致（文案拆分 → 内容增强 → 场景上下文 → 提示词优化 → AI 视频场景选择 → 素材生成），素材生成阶段按模式产出候选（每场景多张图片 / 图片+视频），**不生成 TTS、不合成**，以 `scene_asset_selection` 检查点暂停；用户逐场景单选后提交 → 进入 `finalize_assets` 阶段生成旁白并组装最终素材 → 合成 → 发布。
 4. **历史提示词翻译**：界面语言非 en（当前 zh）时，流水线在提示词优化后按场景生成优化后提示词的本国语言翻译（`promptTranslation`），随分段持久化；项目详情（ResultView 分段编辑）的「画面提示词」文本框下方只读展示翻译，不可修改。
 
-**自动模式调度补充（2026-08-17）**：翻译为只读增强，不再阻塞自动模式的 optimize/generate_assets；optimize 写入 JSON-safe 的 `prompt_translations_pending`，compose 开始时与 `composeVideo` 并行执行。每批最多 3 项、单批预算 25 秒、总预算约 60 秒；翻译失败、超时、空/非法响应均 fail-open，合成成功优先。有效结果按场景 `index` 回填 `promptTranslation`，未完成项保留 `null` 和 pending 供重试/恢复；英文界面不创建任务；manual 模式在候选检查点前仍完成翻译。结果页/历史页继续只读显示合法非空翻译，不显示内部诊断或技术错误。
+**提示词翻译调度补充（2026-08-17）**：翻译为只读增强，不再阻塞自动模式或手动选材模式的 optimize/generate_assets；optimize 统一写入 JSON-safe 的 `prompt_translations_pending`，compose 开始时与 `composeVideo` 并行执行。每批最多 3 项、单批预算 25 秒、总预算约 60 秒；翻译失败、超时、空/非法响应均 fail-open，合成成功优先。有效结果按场景 `index` 回填 `promptTranslation`，未完成项保留 `null` 和 pending 供重试/恢复；英文界面不创建任务。手动模式候选 checkpoint 允许暂时没有翻译，候选确认仍只提交 `index + candidateId`，翻译 apply 不得覆盖候选、选择、媒体或 TTS 字段。结果页/历史页继续只读显示合法非空翻译，不显示内部诊断或技术错误。
 
 ##### 二、数据校验（配置契约）
 
@@ -65,7 +65,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
    - 提交经新 IPC `pipeline:confirmSceneAssets(runId, selections)`（selections 为 `[{index, candidateId}]` 纯 JSON）；校验：run 处于 scene_asset_selection 暂停点、覆盖全部场景、index 唯一、candidateId 属于该场景候选清单；非法返回 `INVALID_SCENE_ASSET_SELECTION` 且不写入。合法写入 `context.scene_asset_selection` 后推进 `finalize_assets → compose → publish`（double-click 由推进锁防重入）。
 4. **finalize_assets 阶段**：校验选择完整合法 → 为所选场景生成 TTS（逐场景 `partialTts` 断点续跑）→ 组装与全自动兼容的最终素材清单（scenes 含 `imagePath` 或 `videoPath` + `audioPath` + `promptTranslation`）→ `alignScenes` 字幕时间戳对齐 → 写回 `context.generate_assets` 供 compose 使用；TTS 失败 fail closed 可重试。
 5. **暂停恢复**：`resumeOrchestration` 对 `paused + checkpoint.type='scene_asset_selection'` 恢复为 paused（保留 checkpoint/候选，不重跑 generate_assets），前端回到选择面板；确认后继续。
-6. **提示词翻译**：optimize 阶段完成后，`uiLocale !== 'en'` 时调用默认 LLM 按批（并发 3、每批 3 条）翻译优化后提示词 → `context.prompt_translations.items`（按 index 对齐，单条失败置 null，fail-open 不阻塞）→ generate_assets/finalize_assets 写入每场景 `promptTranslation` → compose 分段 → project-service 持久化（≤20000 字符）；旧项目无该字段时不显示翻译块。
+6. **提示词翻译**：optimize 阶段完成后，`uiLocale !== 'en'` 时仅登记 `context.prompt_translations_pending`；自动模式直接进入素材生成，手动模式直接生成候选并进入 `scene_asset_selection` checkpoint。用户确认手动候选后，compose 阶段与视频合成并行调用默认 LLM，按 stable `index` 写入 `context.prompt_translations.items`、最终 scenes 和 compose segments（每批最多 3 条，单批 25 秒、总预算约 60 秒；单项失败置 null，fail-open 不阻塞）；不得重建 candidates/selection 或改动 candidateId、媒体路径、TTS。结果经 project-service 持久化（≤20000 字符）；旧项目无该字段时不显示翻译块。
 
 ##### 四、交互与显示项
 
@@ -74,7 +74,8 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 | 视频增强配置区 | 「创作模式」单选（全自动（推荐）/ 分镜素材自选） | 默认全自动；切换即生效并保存 lastOptions |
 | 视频增强配置区 | 成本提示（自选时）：「选择「分镜素材自选」模式后，每个分镜段落将生成多张图片和 1 个视频供您选择。Token 或积分消耗将大量增加，建议先用短文案测试后，再用于真实创作。」 | 只读提示（data-testid `s2v-creation-mode-hint`） |
 | 视频增强配置区 | 「素材模式」单选（全部图片轮播 / 视频+图片轮播）+ 说明（全部图片轮播：每个场景生成 2 张图片供您选择；视频+图片轮播：AI 视频场景生成 2 张图片 + 1 个视频供您选择（同一提示词），其余场景生成 2 张图片） | 仅自选模式显示 |
-| 视频增强配置区 | 「视频增强模式」（关闭/固定比例/AI 智能选择）+ 视频生成器 | manual+全部图片轮播 时隐藏（不生成 AI 视频） |
+| 视频增强配置区 | 「视频增强模式」（纯图片轮播/固定比例/AI 智能选择）+ 视频生成器 | manual+全部图片轮播 时隐藏（不生成 AI 视频） |
+| 视频增强配置区 | 「单段视频短于分镜时长的处理」（循环播放/播放完停止） | 仅在视频增强模式（固定比例/AI 智能选择）下显示；默认循环播放 |
 | 运行中 | `SceneAssetSelection` 面板（data-testid `scene-asset-selection`）：每场景候选缩略图（图片 img / 视频 video 元素，经 `story2videoCreateShareUrl` 生成媒体 URL）、单选、默认选中徽标（「默认选中视频」/「默认选中第 1 张图片」）、确认按钮（禁用直到全部选择）；**素材放大预览（2026-08-13 新增）**：点击图片/视频缩略图（`sas-preview-<scene>-<id>`，图片悬停显示放大镜遮罩）→ 打开 `UiModal` 大图预览/视频播放（图片 `max-width:100%`、`max-height:70vh`；视频 `controls autoplay playsinline`），标题按类型显示「图片预览/视频预览」，正文含「场景 n · 图片 m/视频」元信息与关闭提示；遮罩点击/× 关闭（`preview=null`）；**左右箭头循环切换（2026-08-13 新增）**：媒体两侧 ◀/▶ 按钮（data-testid `sas-preview-prev/next`，aria-label「上一个素材/下一个素材」），在全部素材（按场景 index 升序、场景内按候选顺序，图片+视频混合）间前后**跨场景循环**切换——第一条的上一条为最后一条、最后一条的下一条为第一条（`(idx±1+len)%len`）；元信息显示「第 N/M 个素材」；单候选时按钮禁用 | 缩略图点击 `openPreview(scene, candidate)` 打开预览（不改变单选，radio 选择独立）；`previewPrev()/previewNext()` 在全部素材有序列表 `allCandidates`（跨场景）中循环切换（切换后图片/视频元素随之更换，视频自动播放）；**选定状态切换（2026-08-13 新增）**：预览媒体下方按钮（data-testid `sas-preview-toggle`，aria-pressed 同步）显示当前素材「已选定/未选定」（`previewSelected = selected[scene.index] === candidate.id`）；点击切换：未选定→已选定（同场景原已选定素材自动取消，单值语义，与单选 radio 一致）、已选定→未选定（该场景变为无选定，确认按钮随 allSelected 禁用）；`closePreview()` 关闭；键盘 Enter 也可打开（图片缩略图 `role=button` + `tabindex=0`） |
 | 历史/暂停 | 已暂停任务点击「从断点继续」→ 回到选择面板（不自动推进） | resumeOrchestration 返回 paused |
 | 项目详情（ResultView） | 分段「画面提示词」文本域下方只读翻译块（data-testid `segment-prompt-translation`，标签「中文翻译」） | 只读；界面语言 en 或无翻译时不显示 |
@@ -92,6 +93,10 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 | creationMode.materialVideoImage | 视频+故事讲述 | Video + story telling |
 | creationMode.materialAllImagesHint | 每个场景生成 2 张图片供您选择。 | Each scene generates 2 images for you to choose from. |
 | creationMode.materialVideoImageHint | AI 视频场景生成 2 张图片 + 1 个视频供您选择（同一提示词），其余场景生成 2 张图片。 | AI-video scenes generate 2 images + 1 video (same prompt) for you to choose from; other scenes generate 2 images. |
+| shortVideoHandling.label | 单段视频短于分镜时长的处理 | Handle short AI video clips |
+| shortVideoHandling.loop | 循环播放 | Loop playback |
+| shortVideoHandling.stopAtEnd | 播放完停止 | Stop at end |
+| shortVideoHandling.hint | 仅在视频增强模式（固定比例/AI 智能选择）下生效。选择播放完停止时，AI 视频播放到最后一帧后将定格并慢慢放大。 | Only applies in video enhancement mode (Fixed ratio / AI selected). When Stop at end is chosen, the AI video will freeze on the last frame and slowly zoom in. |
 | sceneAssetSelection.title | 选择分镜素材 | Choose Scene Assets |
 | sceneAssetSelection.confirm | 确认选择并继续（生成旁白 + 合成） | Confirm and continue (narration + compose) |
 | sceneAssetSelection.defaultVideoHint | 默认选中视频 | Video selected by default |
@@ -110,6 +115,82 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 
 - 分镜素材自选模式下，图片调用数 = 场景数 × 2（全自动为场景数 × 1），视频场景额外 1 次视频生成；Token/积分消耗大幅增加，UI 强制提示「建议先用短文案测试后，再用于真实创作」。
 - 视频+图片轮播的 AI 视频场景判定沿用「视频增强模式」（关闭/固定比例/AI 智能选择）现有语义与比例约束；未配置视频生成器时按现有 fail-closed 语义引导设置。
+
+##### 7.1.3a-2 单段视频短于分镜时长的处理（2026-08-18 新增）
+
+> 背景：AI 视频模型生成的视频时长通常为 4-6 秒，而分镜场景时长可能为 8-15 秒甚至更长。原有行为是在场景时长内循环播放这段短视频（一遍可达 2-3 次循环），用户无法选择其他处理方式。本轮新增「播放完停止」选项，允许视频播放一次后定格最后一帧并慢慢放大，营造定格绘画效果。
+
+###### 一、需求概述
+
+1. **新增高级选项**：在「视频增强」配置区的【高级】区域，新增下拉选择「单段视频短于分镜时长的处理」，两个选项：`循环播放`（默认）/ `播放完停止`。
+2. **播放完停止模式**：AI 视频播放到最后一帧后停止，不再循环；然后对最后一帧应用 zoom-in 动效（慢慢放大），持续时间为场景剩余时长（即场景时长 - 视频实际时长），与图片动效中的「慢慢放大」效果一致。
+3. **生效范围**：仅在「视频增强模式」为 `固定比例（成品前段 AI 视频）` 或 `AI 智能选择（最精彩场景）` 时生效。视频增强模式为 `纯图片轮播` 时不显示该选项。
+4. **视频增强模式标签变更**：原 `关闭（纯图片轮播）` 改为 `纯图片轮播`，去除括号说明，多语言同步。
+
+###### 二、数据校验（配置契约）
+
+| 字段 | 类型/枚举 | 默认 | 校验 | 说明 |
+|------|----------|------|------|------|
+| `shortVideoHandling` | `'loop'` \| `'stop-at-end'` | `'loop'` | 枚举白名单校验；非法值回退 `'loop'` | 前端 `S2V_RESTORE_ENUM_OPTIONS` 白名单包含 |
+| `videoMode` | `'off'` \| `'fixed'` \| `'ai-judged'` | `'off'` | 枚举校验（已有） | 决定 `shortVideoHandling` 是否可见 |
+
+- **可见性条件**：`shortVideoHandling` 仅在 `videoMode === 'fixed'` 或 `videoMode === 'ai-judged'` 时显示。`videoMode === 'off'` 时整个选项隐藏（不生成 AI 视频，该选项无意义）。
+- **持久化**：`shortVideoHandling` 纳入 `lastOptions` 持久化白名单，用户选择后跨运行保持。
+- **旧配置兼容**：旧快照/旧配置无 `shortVideoHandling` 字段时，normalizer 默认填充 `'loop'`，行为与变更前一致。
+- **配置传递链**：`renderer (s2vConfig.shortVideoHandling)` -> `IPC` -> `pipeline-engine.js (stageOptions)` -> `stage-executor.js (composeOptionKeys)` -> `story2video-compose-engine.js (options.shortVideoHandling)`。
+
+###### 三、流程与功能逻辑
+
+1. **compose engine 判定逻辑**（`story2video-compose-engine.js` `_encodeVideoSegmentOnce`）：
+   - 检查 `opts.shortVideoHandling === 'stop-at-end'` 且 `videoMode` 为 `'fixed'` 或 `'ai-judged'`（`aiVideoMode` 为 true）。
+   - 满足条件时，用 `ffprobe` 探测源视频实际时长（`_probeVideoDuration`）。
+   - 探测成功且源视频时长 < 场景时长（`targetDuration`）-> 进入播放完停止模式。
+   - 探测失败 -> 回退到循环播放（`-stream_loop -1`），避免旧 provider 的非标准媒体导致成片提前结束。
+   - 源视频时长 >= 场景时长 -> 只裁剪不循环（`-shortest`），不追加末帧尾段。
+
+2. **ffmpeg 滤镜链（播放完停止 + 短视频）**：
+   - 去掉 `-stream_loop -1`（不再循环）。
+   - 用 `split` 将视频流分为两路：`videoBodySrc`（完整视频）和 `videoTailSrc`（末帧）。
+   - `videoBodySrc`：`trim=duration=<源视频时长>`，取完整视频段。
+   - `videoTailSrc`：`trim=start=<末帧时间>:duration=<1/fps>`，取最后一帧 -> `select=eq(n,0)` 固定帧 -> `zoompan` 动效（`1+0.25*min(1,on/72)`，即 72 帧内从 1.0 放大到 1.25）。
+   - 两路 `concat=n=2:v=1:a=0` 拼接，叠加字幕/水印等 overlay 滤镜。
+
+3. **时长控制**：
+   - 有 `padTo`（min-duration 场景）：使用 `-t <padTo>` + `-af apad` 静音补齐尾部，不使用 `-shortest`。
+   - 无 `padTo` 但有 `targetDuration`：使用 `-t <targetDuration>` + `-shortest`，确保合成时长与场景时长一致。
+
+4. **zoom-in 动效参数**：
+   - 复用图片动效的 `buildImageEffectFilter('zoom-in', ...)` 函数。
+   - 放大比例：1.0 -> 1.25（72 帧内线性增长，`1+0.25*min(1,on/72)`）。
+   - 尾段帧数：`tailDuration * fps`，其中 `tailDuration = targetDuration - sourceVideoDuration`。
+
+###### 四、交互与显示项
+
+| 位置 | 显示项 | 交互 | 条件 |
+|------|--------|------|------|
+| 视频增强配置区【高级】 | 下拉选择「单段视频短于分镜时长的处理」（data-testid `s2v-short-video-handling`） | 两项：`循环播放`（默认）/ `播放完停止`；选择即生效并保存 lastOptions | 仅 `videoMode === 'fixed'` 或 `'ai-judged'` 时显示 |
+| 视频增强配置区【高级】 | 提示文字（data-testid 同上区域） | 只读提示，说明生效范围和播放完停止效果 | 随选项一起显示 |
+| 摘要区（视频模式摘要） | 播完停止标记 | 当 `shortVideoHandling === 'stop-at-end'` 时，视频模式摘要追加 ` · 播完停止` | 仅 `videoMode !== 'off'` 时 |
+
+###### 五、提示文字清单（zh / en）
+
+| Key | zh | en |
+|-----|----|----|
+| shortVideoHandling.label | 单段视频短于分镜时长的处理 | Handle short AI video clips |
+| shortVideoHandling.loop | 循环播放 | Loop playback |
+| shortVideoHandling.stopAtEnd | 播放完停止 | Stop at end |
+| shortVideoHandling.hint | 仅在视频增强模式（固定比例/AI 智能选择）下生效。选择播放完停止时，AI 视频播放到最后一帧后将定格并慢慢放大。 | Only applies in video enhancement mode (Fixed ratio / AI selected). When Stop at end is chosen, the AI video will freeze on the last frame and slowly zoom in. |
+
+###### 六、测试覆盖
+
+| 测试场景 | 预期行为 | 测试文件 |
+|----------|----------|----------|
+| 默认循环模式 | `-stream_loop -1`，无 `tpad=stop_mode=clone` | `story2video-compose-engine.test.js` |
+| 播放完停止 + 短视频 | 无 `-stream_loop`；filter 含 `concat=n=2:v=1:a=0`、`select=eq(n,0)`、`zoompan`；`-t` + `-shortest` + `-map [videoOut]` | 同上 |
+| 播放完停止 + 视频足够长 | 无 `-stream_loop`；`-vf` 裁剪，无 `tpad`；`-shortest` | 同上 |
+| 播放完停止 + 探测失败 | 回退 `-stream_loop -1`，无 `tpad` | 同上 |
+| min-duration + 播放完停止 | 无 `-stream_loop`；`-t <padTo>` + `-af apad`，无 `-shortest` | 同上 |
+| 默认循环（无 shortVideoHandling） | 行为与变更前一致 | 同上 |
 
 ##### 7.1.3a-1 等待态 UX 反馈（2026-08-13 新增）
 
@@ -187,7 +268,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
    - 提交经新 IPC `pipeline:confirmSceneAssets(runId, selections)`（selections 为 `[{index, candidateId}]` 纯 JSON）；校验：run 处于 scene_asset_selection 暂停点、覆盖全部场景、index 唯一、candidateId 属于该场景候选清单；非法返回 `INVALID_SCENE_ASSET_SELECTION` 且不写入。合法写入 `context.scene_asset_selection` 后推进 `finalize_assets → compose → publish`（double-click 由推进锁防重入）。
 4. **finalize_assets 阶段**：校验选择完整合法 → 为所选场景生成 TTS（逐场景 `partialTts` 断点续跑）→ 组装与全自动兼容的最终素材清单（scenes 含 `imagePath` 或 `videoPath` + `audioPath` + `promptTranslation`）→ `alignScenes` 字幕时间戳对齐 → 写回 `context.generate_assets` 供 compose 使用；TTS 失败 fail closed 可重试。
 5. **暂停恢复**：`resumeOrchestration` 对 `paused + checkpoint.type='scene_asset_selection'` 恢复为 paused（保留 checkpoint/候选，不重跑 generate_assets），前端回到选择面板；确认后继续。
-6. **提示词翻译**：optimize 阶段完成后，`uiLocale !== 'en'` 时调用默认 LLM 按批（并发 3、每批 3 条）翻译优化后提示词 → `context.prompt_translations.items`（按 index 对齐，单条失败置 null，fail-open 不阻塞）→ generate_assets/finalize_assets 写入每场景 `promptTranslation` → compose 分段 → project-service 持久化（≤20000 字符）；旧项目无该字段时不显示翻译块。
+6. **提示词翻译**：optimize 阶段完成后，`uiLocale !== 'en'` 时仅登记 JSON-safe 的 `context.prompt_translations_pending`；自动模式直接进入素材生成，手动模式先生成候选并进入 `scene_asset_selection` checkpoint，缺少翻译时每场景的 `promptTranslation` 可为 null。手动确认并完成 TTS 后，compose 阶段与视频合成并行调用默认 LLM，按稳定 `index` 回填 `context.prompt_translations.items`、最终 scenes 和 compose 分段（并发 3、每批 3 条，单批 25 秒、总预算约 60 秒，单条失败置 null，fail-open 不阻塞）→ project-service 持久化（≤20000 字符）；并行 apply 不得重建候选、选择、candidateId、媒体或音频字段；旧项目无该字段时不显示翻译块。
 
 ##### 四、交互与显示项
 
@@ -228,6 +309,82 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 
 - 分镜素材自选模式下，图片调用数 = 场景数 × 2（全自动为场景数 × 1），视频场景额外 1 次视频生成；Token/积分消耗大幅增加，UI 强制提示「建议先用短文案测试后，再用于真实创作」。
 - 视频+图片轮播的 AI 视频场景判定沿用「视频增强模式」（关闭/固定比例/AI 智能选择）现有语义与比例约束；未配置视频生成器时按现有 fail-closed 语义引导设置。
+
+##### 7.1.3a-2 单段视频短于分镜时长的处理（2026-08-18 新增）
+
+> 背景：AI 视频模型生成的视频时长通常为 4-6 秒，而分镜场景时长可能为 8-15 秒甚至更长。原有行为是在场景时长内循环播放这段短视频（一遍可达 2-3 次循环），用户无法选择其他处理方式。本轮新增「播放完停止」选项，允许视频播放一次后定格最后一帧并慢慢放大，营造定格绘画效果。
+
+###### 一、需求概述
+
+1. **新增高级选项**：在「视频增强」配置区的【高级】区域，新增下拉选择「单段视频短于分镜时长的处理」，两个选项：`循环播放`（默认）/ `播放完停止`。
+2. **播放完停止模式**：AI 视频播放到最后一帧后停止，不再循环；然后对最后一帧应用 zoom-in 动效（慢慢放大），持续时间为场景剩余时长（即场景时长 - 视频实际时长），与图片动效中的「慢慢放大」效果一致。
+3. **生效范围**：仅在「视频增强模式」为 `固定比例（成品前段 AI 视频）` 或 `AI 智能选择（最精彩场景）` 时生效。视频增强模式为 `纯图片轮播` 时不显示该选项。
+4. **视频增强模式标签变更**：原 `关闭（纯图片轮播）` 改为 `纯图片轮播`，去除括号说明，多语言同步。
+
+###### 二、数据校验（配置契约）
+
+| 字段 | 类型/枚举 | 默认 | 校验 | 说明 |
+|------|----------|------|------|------|
+| `shortVideoHandling` | `'loop'` \| `'stop-at-end'` | `'loop'` | 枚举白名单校验；非法值回退 `'loop'` | 前端 `S2V_RESTORE_ENUM_OPTIONS` 白名单包含 |
+| `videoMode` | `'off'` \| `'fixed'` \| `'ai-judged'` | `'off'` | 枚举校验（已有） | 决定 `shortVideoHandling` 是否可见 |
+
+- **可见性条件**：`shortVideoHandling` 仅在 `videoMode === 'fixed'` 或 `videoMode === 'ai-judged'` 时显示。`videoMode === 'off'` 时整个选项隐藏（不生成 AI 视频，该选项无意义）。
+- **持久化**：`shortVideoHandling` 纳入 `lastOptions` 持久化白名单，用户选择后跨运行保持。
+- **旧配置兼容**：旧快照/旧配置无 `shortVideoHandling` 字段时，normalizer 默认填充 `'loop'`，行为与变更前一致。
+- **配置传递链**：`renderer (s2vConfig.shortVideoHandling)` -> `IPC` -> `pipeline-engine.js (stageOptions)` -> `stage-executor.js (composeOptionKeys)` -> `story2video-compose-engine.js (options.shortVideoHandling)`。
+
+###### 三、流程与功能逻辑
+
+1. **compose engine 判定逻辑**（`story2video-compose-engine.js` `_encodeVideoSegmentOnce`）：
+   - 检查 `opts.shortVideoHandling === 'stop-at-end'` 且 `videoMode` 为 `'fixed'` 或 `'ai-judged'`（`aiVideoMode` 为 true）。
+   - 满足条件时，用 `ffprobe` 探测源视频实际时长（`_probeVideoDuration`）。
+   - 探测成功且源视频时长 < 场景时长（`targetDuration`）-> 进入播放完停止模式。
+   - 探测失败 -> 回退到循环播放（`-stream_loop -1`），避免旧 provider 的非标准媒体导致成片提前结束。
+   - 源视频时长 >= 场景时长 -> 只裁剪不循环（`-shortest`），不追加末帧尾段。
+
+2. **ffmpeg 滤镜链（播放完停止 + 短视频）**：
+   - 去掉 `-stream_loop -1`（不再循环）。
+   - 用 `split` 将视频流分为两路：`videoBodySrc`（完整视频）和 `videoTailSrc`（末帧）。
+   - `videoBodySrc`：`trim=duration=<源视频时长>`，取完整视频段。
+   - `videoTailSrc`：`trim=start=<末帧时间>:duration=<1/fps>`，取最后一帧 -> `select=eq(n,0)` 固定帧 -> `zoompan` 动效（`1+0.25*min(1,on/72)`，即 72 帧内从 1.0 放大到 1.25）。
+   - 两路 `concat=n=2:v=1:a=0` 拼接，叠加字幕/水印等 overlay 滤镜。
+
+3. **时长控制**：
+   - 有 `padTo`（min-duration 场景）：使用 `-t <padTo>` + `-af apad` 静音补齐尾部，不使用 `-shortest`。
+   - 无 `padTo` 但有 `targetDuration`：使用 `-t <targetDuration>` + `-shortest`，确保合成时长与场景时长一致。
+
+4. **zoom-in 动效参数**：
+   - 复用图片动效的 `buildImageEffectFilter('zoom-in', ...)` 函数。
+   - 放大比例：1.0 -> 1.25（72 帧内线性增长，`1+0.25*min(1,on/72)`）。
+   - 尾段帧数：`tailDuration * fps`，其中 `tailDuration = targetDuration - sourceVideoDuration`。
+
+###### 四、交互与显示项
+
+| 位置 | 显示项 | 交互 | 条件 |
+|------|--------|------|------|
+| 视频增强配置区【高级】 | 下拉选择「单段视频短于分镜时长的处理」（data-testid `s2v-short-video-handling`） | 两项：`循环播放`（默认）/ `播放完停止`；选择即生效并保存 lastOptions | 仅 `videoMode === 'fixed'` 或 `'ai-judged'` 时显示 |
+| 视频增强配置区【高级】 | 提示文字（data-testid 同上区域） | 只读提示，说明生效范围和播放完停止效果 | 随选项一起显示 |
+| 摘要区（视频模式摘要） | 播完停止标记 | 当 `shortVideoHandling === 'stop-at-end'` 时，视频模式摘要追加 ` · 播完停止` | 仅 `videoMode !== 'off'` 时 |
+
+###### 五、提示文字清单（zh / en）
+
+| Key | zh | en |
+|-----|----|----|
+| shortVideoHandling.label | 单段视频短于分镜时长的处理 | Handle short AI video clips |
+| shortVideoHandling.loop | 循环播放 | Loop playback |
+| shortVideoHandling.stopAtEnd | 播放完停止 | Stop at end |
+| shortVideoHandling.hint | 仅在视频增强模式（固定比例/AI 智能选择）下生效。选择播放完停止时，AI 视频播放到最后一帧后将定格并慢慢放大。 | Only applies in video enhancement mode (Fixed ratio / AI selected). When Stop at end is chosen, the AI video will freeze on the last frame and slowly zoom in. |
+
+###### 六、测试覆盖
+
+| 测试场景 | 预期行为 | 测试文件 |
+|----------|----------|----------|
+| 默认循环模式 | `-stream_loop -1`，无 `tpad=stop_mode=clone` | `story2video-compose-engine.test.js` |
+| 播放完停止 + 短视频 | 无 `-stream_loop`；filter 含 `concat=n=2:v=1:a=0`、`select=eq(n,0)`、`zoompan`；`-t` + `-shortest` + `-map [videoOut]` | 同上 |
+| 播放完停止 + 视频足够长 | 无 `-stream_loop`；`-vf` 裁剪，无 `tpad`；`-shortest` | 同上 |
+| 播放完停止 + 探测失败 | 回退 `-stream_loop -1`，无 `tpad` | 同上 |
+| min-duration + 播放完停止 | 无 `-stream_loop`；`-t <padTo>` + `-af apad`，无 `-shortest` | 同上 |
+| 默认循环（无 shortVideoHandling） | 行为与变更前一致 | 同上 |
 
 ##### 7.1.3a-1 等待态 UX 反馈（2026-08-13 新增）
 
@@ -2029,6 +2186,7 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 前端展示 | 音色下拉对失效克隆显示「{名称}（已失效，请重新克隆）」且禁用；克隆面板列表显示「已失效，请重新克隆」徽标、「设为默认」按钮禁用（删除仍可用，便于清理旧记录）。 |
 | 提示文字 | 无需新增错误码：失效克隆通过禁用项与徽标提示；用户需删除旧克隆后重新上传音频克隆（新 id 自动合规）。 |
 | 验收标准 | ① 旧注册表 `voice_id="01"` 的克隆在音色下拉中显示「已失效」且不可选，默认音色被自动选中；② 重新克隆（合法 id）后可正常选择并合成；③ 真实流水线「生成图片与旁白」旁白 `x/1` 不再因 voice id 报错（provider 日志无 `voice id wrong`）。 |
+
 
 
 #### 7.1.16.1 克隆音色跨账号失效三层降级合同（2026-08-18）
@@ -4405,6 +4563,10 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - 桌面调用 8013 提示词引擎时，由 `PromptBridge` 统一注入本机「模型设置」默认 LLM 的绑定（provider/model/base_url/api_key，主进程解密）与 `caller=multi-publish-desktop`；引擎不再使用服务端 config.yaml / OpsCenter key 兜底。
 - 需调 LLM 的请求（图片 creative_level>3、video 域）无可用绑定时：桌面 fail-closed 返回可操作错误（不发送请求），引擎侧 422。
 - 图片 creative_level<=3 模板直出免 LLM；api_key 不出渲染层、不落日志；缓存键并入 provider 身份（provider|model|base_url）。
+
+#### Story2Video 页面术语、固定操作区与历史编辑合同（2026-08-17）
+
+视频创作页面的详细产品合同已独立整理到 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)，本节作为主 PRD 索引。流水线选择后的配置/运行页统一称为“流水线启动页”；历史记录进入的任务查看与修改页统一称为“视频任务编辑页”，不再把旧详情弹窗称为任务详情页。固定底部操作条、顶部阶段进度、统一历史卡片字段、失败原因本地化、暂停/删除数据校验、分段跳转、AI 视频生成、音色目录回退和语速滑条均以该文档及 OpenSpec change 为准。
 #### PromptEngine BYOK 桌面调用契约（2026-08-16）
 
 - 桌面调用 8013 提示词引擎时，由 `PromptBridge` 统一注入本机「模型设置」默认 LLM 的绑定（provider/model/base_url/api_key，主进程解密）与 `caller=multi-publish-desktop`；引擎不再使用服务端 config.yaml / OpsCenter key 兜底。

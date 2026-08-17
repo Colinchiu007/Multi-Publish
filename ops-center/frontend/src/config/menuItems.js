@@ -1,0 +1,40 @@
+import {
+  Bell, Camera, Connection, Cpu, DataAnalysis, DataLine, Document, FolderOpened,
+  Grid, HomeFilled, Key, Lock, MagicStick, Monitor, Operation, Postcard, Refresh,
+  Search, ChatDotRound, Setting, Switch, SwitchButton, Tickets, Timer, TrendCharts,
+} from '@element-plus/icons-vue'
+
+export const MENU_ITEMS = [
+  { path: '/', label: '仪表盘', icon: HomeFilled },
+  { path: '/feature-flags', label: '功能开关', icon: Switch },
+  { path: '/scene-context-rules', label: '场景上下文规则', icon: Setting },
+  { path: '/runtime-flags', label: '桌面端功能开关', icon: SwitchButton },
+  { path: '/secrets', label: 'Key 管理', icon: Key },
+  { path: '/platforms', label: '平台凭证', icon: Connection },
+  { path: '/usage', label: '模型用量', icon: DataLine },
+  { path: '/diagnostics', label: '调用失败警告', icon: DataAnalysis },
+  { path: '/publish-dashboard', label: '发布数据', icon: TrendCharts },
+  { path: '/system-health', label: '系统健康', icon: Monitor },
+  { path: '/licenses', label: '许可证管理', icon: Tickets },
+  { path: '/redemption-codes', label: '兑换码', icon: Postcard },
+  { path: '/announcements', label: '运营公告', icon: Bell },
+  { path: '/update-policy', label: '版本发布策略', icon: Refresh },
+  { path: '/content-policy', label: '内容安全策略', icon: Lock },
+  { path: '/model-presets', label: '预设模型', icon: Cpu },
+  { path: '/rate-limit-verifier', label: '限流验证', icon: Timer },
+  { path: '/platform-defs', label: '平台元数据', icon: Grid },
+  { path: '/content-templates', label: '内容模板库', icon: Document },
+  { path: '/keyword-watchlist', label: '关键词监测', icon: Search },
+  { path: '/pipeline-deps', label: '流水线依赖', icon: Connection },
+  { path: '/parameters', label: '项目参数', icon: Operation },
+  { path: '/snapshots', label: '配置快照', icon: Camera },
+  { path: '/env', label: '环境变量', icon: Monitor },
+  { path: '/projects', label: '项目配置', icon: FolderOpened },
+  { path: '/audit-log', label: '审计日志', icon: Document },
+  { path: '/feedback', label: '用户反馈', icon: ChatDotRound, adminOnly: true },
+  { path: '/prompt-eval-workbench', label: '提示词评测', icon: MagicStick },
+  { path: '/model-keys', label: '模型密钥', icon: Key, adminOnly: true },
+  { path: '/settings', label: '设置', icon: Setting },
+]
+
+export const DEFAULT_MENU_ORDER = MENU_ITEMS.map((item) => item.path)

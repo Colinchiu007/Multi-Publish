@@ -235,9 +235,34 @@ class RunStateStore {
   }
 
   remove(runId) {
-    // owner 隔离前后两处都清理，避免残留
-    try { fs.rmSync(this._file(runId), { force: true }) } catch { /* 删除失败可忽略 */ }
-    try { fs.rmSync(this._legacyFile(runId), { force: true }) } catch { /* 删除失败可忽略 */ }
+    // owner 隔离前后两处都清理；若其一失败，恢复已删快照，避免留下半删除状态。
+    const snapshots = []
+    const filePaths = [...new Set([this._file(runId), this._legacyFile(runId)])]
+    for (const filePath of filePaths) {
+      try {
+        if (fs.existsSync(filePath)) snapshots.push({ filePath, content: fs.readFileSync(filePath) })
+      } catch (error) {
+        this._log.warn('RunStateStore', 'remove backup failed: ' + (error && error.message ? error.message : String(error)))
+        return false
+      }
+    }
+
+    const removed = []
+    for (const snapshot of snapshots) {
+      try {
+        fs.rmSync(snapshot.filePath)
+        removed.push(snapshot)
+      } catch (error) {
+        this._log.warn('RunStateStore', 'remove failed: ' + (error && error.message ? error.message : String(error)))
+        for (const previous of removed) {
+          try { fs.writeFileSync(previous.filePath, previous.content) } catch (restoreError) {
+            this._log.warn('RunStateStore', 'remove rollback failed: ' + (restoreError && restoreError.message ? restoreError.message : String(restoreError)))
+          }
+        }
+        return false
+      }
+    }
+    return true
   }
 }
 

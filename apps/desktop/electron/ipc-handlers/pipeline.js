@@ -77,6 +77,15 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
   }))
 
+  ipcMain.handle('pipeline:delete-run', withSenderCheck((_event, runId) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
+    try {
+      const result = pipelineEngine.deleteRun(runId)
+      if (result && result.success) return { code: 0, data: { deleted: true, runId: result.runId } }
+      return { code: EC.REQUEST_ERROR, message: (result && result.error) || '删除运行记录失败' }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
   ipcMain.handle('pipeline:fetch', withSenderCheck(async (_event, name) => {
     if (typeof name !== 'string' || !name.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法流水线名称' }
     try {
@@ -168,6 +177,16 @@ function registerHandlers(ipcMain, deps) {
   ipcMain.handle('pipeline:pauseWithCheckpoint', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.pauseWithCheckpoint() }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  // 按 runId 暂停指定运行（2026-08-16：视频任务编辑页手动暂停，保存检查点可断点续跑）
+  ipcMain.handle('pipeline:pause-run', withSenderCheck((_event, runId) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
+    try {
+      const result = pipelineEngine.pauseRun(runId)
+      if (result && result.success) return { code: 0, data: result }
+      return { code: EC.REQUEST_ERROR, message: (result && result.error) || '暂停流水线失败' }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 

@@ -310,6 +310,8 @@ export async function pipelineCancel() { return invokeWithFallback("pipelineCanc
 export async function pipelineStatus(name) { return invokeWithFallback("pipelineStatus", null, name) }
 export async function pipelineAdvance() { return invokeWithFallback("pipelineAdvance", { code: -1 }) }
 export async function pipelineHistory() { return invokeWithFallback("pipelineHistory", { code: 0, data: [] }) }
+export async function pipelineDeleteRun(runId) { return invokeWithFallback("pipelineDeleteRun", { code: -1, message: 'electronAPI not available' }, runId) }
+export async function pipelinePauseRun(runId) { return invokeWithFallback("pipelinePauseRun", { code: -1, message: 'electronAPI not available' }, runId) }
 
 // ═══ Pipeline 编排模式 API（story2video-compose 等新流水线使用） ═══
 export async function pipelineStartOrchestrated(name, params) { return invokeWithFallback("pipelineStartOrchestrated", { code: -1, message: 'electronAPI not available' }, name, params) }
@@ -428,6 +430,9 @@ export async function logsGetInfo() {
   return invokeWithFallback("logsGetInfo", { code: -1, data: { dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] } })
 }
 export async function logsClear() { return invokeWithFallback("logsClear", { code: -1 }) }
+export async function submitFeedback(payload) {
+  return invokeWithFallback("submitFeedback", { code: -1, message: 'electronAPI not available' }, payload)
+}
 
 export async function videoProcess(type, params) {
   return invokeWithFallback("videoProcess", { code: -1, message: 'electronAPI not available' }, type, params)

@@ -105,6 +105,8 @@ var require_publish = __commonJS({
         pipelineStatus: (name) => ipcRenderer2.invoke("pipeline:status", name),
         pipelineAdvance: () => ipcRenderer2.invoke("pipeline:advance"),
         pipelineHistory: () => ipcRenderer2.invoke("pipeline:history"),
+        pipelineDeleteRun: (runId) => ipcRenderer2.invoke("pipeline:delete-run", runId),
+        pipelinePauseRun: (runId) => ipcRenderer2.invoke("pipeline:pause-run", runId),
         pipelineFetch: (name) => ipcRenderer2.invoke("pipeline:fetch", name),
         // 编排模式 API（story2video-compose）
         pipelineStartOrchestrated: (name, params) => ipcRenderer2.invoke("pipeline:startOrchestrated", name, params),
@@ -135,7 +137,7 @@ var require_publish = __commonJS({
         // 添加沿用 import-media 的 File 路径解析，其余操作直通。
         story2videoBgmLibraryList: () => ipcRenderer2.invoke("story2video:bgm-library-list"),
         story2videoBgmLibraryAdd: (file) => {
-          let filePath = "";
+          let filePath;
           try {
             filePath = String(resolveFilePath(file) || "");
           } catch {
@@ -563,7 +565,8 @@ var require_system = __commonJS({
         // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
         logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
         logsClear: () => ipcRenderer2.invoke("logs:clear"),
-        logError: (message) => ipcRenderer2.invoke("logs:error", { message })
+        logError: (message) => ipcRenderer2.invoke("logs:error", { message }),
+        submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload)
       };
     }
     module2.exports = { createSystemApi: createSystemApi2 };
@@ -954,6 +957,7 @@ var require_access_control = __commonJS({
       "logsGetInfo",
       "logsClear",
       "logError",
+      "submitFeedback",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",

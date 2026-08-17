@@ -1,0 +1,24 @@
+{
+  "id": "s2v-pipeline-page-ux",
+  "title": "视频创作-流水线启动页/历史记录页/视频任务编辑页 UI 统一与交互改造",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "archived",
+  "nextAction": "功能 PR #925 与归档 PR #926 均已合并；OpenSpec 与 CCG task 归档完成",
+  "createdAt": "2026-08-16T23:00:00+08:00",
+  "branch": "codex/s2v-pipeline-page-ux",
+  "openspecChange": "s2v-pipeline-page-ux",
+  "remoteStatus": {
+    "featurePullRequest": 925,
+    "featurePullRequestUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/925",
+    "featureMergedAt": "2026-08-17T06:52:13Z",
+    "featureMergeCommit": "6790d6a9d371845a000fc2161016ccf592e4f6ca",
+    "archivePullRequest": 926,
+    "archivePullRequestUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/926",
+    "archiveMergedAt": "2026-08-17T07:10:35Z",
+    "archiveMergeCommit": "ffc162ab11d11e6b7500a39c1210f17da5f00dc8",
+    "originMainVerified": true
+  }
+}

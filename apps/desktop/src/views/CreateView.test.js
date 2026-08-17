@@ -28,6 +28,7 @@ vi.mock("@/api/publisher", () => ({
   pipelineList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   pipelineStart: vi.fn(),
   pipelinePause: vi.fn(),
+  pipelinePauseRun: vi.fn(),
   pipelineResume: vi.fn(),
   pipelineCancel: vi.fn(),
   pipelineStatus: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("@/api/publisher", () => ({
   pipelineAdvanceToNextCheckpoint: vi.fn(),
   pipelineGetRunContext: vi.fn(),
   pipelineConfirmSceneAssets: vi.fn(),
+  pipelineDeleteRun: vi.fn(),
   story2videoCreateShareUrl: vi.fn(async () => ({ code: 0, data: { url: "media://x" } })),
   storeGetSetting: vi.fn(),
   storeSetSetting: vi.fn(),
@@ -2480,7 +2482,7 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(pushSpy).toHaveBeenCalledWith({
       path: "/create/result",
-      query: { path: "C:/media/output.mp4" },
+      query: { path: "C:/media/output.mp4", runId: "run-completed" },
     });
     pushSpy.mockRestore();
     w.unmount();
@@ -2999,6 +3001,33 @@ describe("CreateView - UI interactions", () => {
     pushSpy.mockRestore();
   });
 
+  it("草稿项目与运行记录合并为一条可编辑历史卡片，并保留运行状态详情", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
+      projectId: "run-draft-history", pipeline: "story2video-compose", status: "running",
+      title: "原任务发布标题", sourceText: "原始文案内容", segments: [{ id: "segment-0", text: "分段文案" }],
+    }] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [{
+      id: "run-draft-history", projectId: "run-draft-history", pipeline: "story2video-compose",
+      status: "failed", currentStage: "optimize", activeMs: 12500, error: "模型余额不足",
+      stages: [{ name: "optimize", status: "failed" }],
+    }] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.history[0]).toMatchObject({
+      projectId: "run-draft-history", title: "原任务发布标题", status: "failed",
+      currentStage: "optimize", activeMs: 12500, error: "模型余额不足",
+      segments: [{ id: "segment-0", text: "分段文案" }],
+    });
+    w.unmount();
+  });
+
   it("历史记录可按完成、暂停和失败状态精确筛选", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [
@@ -3268,23 +3297,37 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
-  it("点击运行中历史项只打开详情，不触发恢复", async () => {
+  it("点击运行中历史项：有 projectId 进入编辑页（旧详情弹窗已废弃），不触发恢复", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
-      { id: "run-live-2", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
+      { id: "run-no-proj", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
+      { id: "run-live-2", projectId: "proj-live", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:01:00.000Z", stages: [] },
     ] });
     mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { id: "run-live-2", status: "running", orchestrationMode: "orchestrator" } });
+    const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
     const w = mount(CreateView, { global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } } });
     w.vm.view = "history";
     await w.vm.loadHistory();
     await nextTick();
     mocks.pipelineResumeOrchestration.mockClear();
-    await w.find(".history-item.is-running .history-item-body").trigger("click");
+    expect(w.findAll(".history-item.is-running")).toHaveLength(2);
+    // 无 projectId 的运行记录不可点击：body 无 button role
+    const noProjItem = w.find('[data-history-id="run-no-proj"] .history-item-body');
+    expect(noProjItem.attributes("role")).toBeUndefined();
+    await noProjItem.trigger("click");
+    await nextTick();
+    expect(pushSpy).not.toHaveBeenCalled();
+    // 有 projectId 的运行记录点击进入编辑页（旧详情弹窗已废弃）
+    await w.find('[data-history-id="run-live-2"] .history-item-body').trigger("click");
     await nextTick();
     expect(w.vm.view).toBe("history");
     expect(mocks.pipelineResumeOrchestration).not.toHaveBeenCalled();
-    expect(w.findComponent(CreateViewHistory).vm.selectedHistoryItem.id).toBe("run-live-2");
+    const resultNavigation = [...pushSpy.mock.calls]
+      .map(([location]) => location)
+      .find((location) => location && location.path === "/create/result");
+    expect(resultNavigation).toEqual({ path: "/create/result", query: { project: "proj-live", runId: "run-live-2" } });
+    pushSpy.mockRestore();
     w.unmount();
   });
 
@@ -3302,7 +3345,7 @@ describe("CreateView - UI interactions", () => {
     expect(before.find(i => i.id === "run-live-3").stages[1].status).toBe("running");
 
     // 刷新：阶段推进 → 原地更新（数组身份不变，避免整表重渲染闪烁）
-    const updated = { ...running, stages: [
+    const updated = { ...running, currentStage: "compose", checkpoint: { stage: "compose" }, activeMs: 15000, stages: [
       { name: "split", status: "completed" }, { name: "optimize", status: "completed" }, { name: "compose", status: "running" } ] };
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [updated] });
     await w.vm.refreshRunningHistory();
@@ -3311,6 +3354,7 @@ describe("CreateView - UI interactions", () => {
     const item = w.vm.history.find(i => i.id === "run-live-3");
     expect(item.stages[1].status).toBe("completed");
     expect(item.stages[2].status).toBe("running");
+    expect(item).toMatchObject({ currentStage: "compose", checkpoint: { stage: "compose" }, activeMs: 15000 });
     expect(w.vm.history.some(i => i.projectId === "p1")).toBe(true);
     w.unmount();
   });
@@ -3847,7 +3891,7 @@ describe("视频创作流水线「已用时」步骤执行耗时口径", () => {
       context: { compose: { data: { videoPath: "C:/tmp/x.mp4" } } },
     });
     expect(handled).toBe(true);
-    const pushCall = pushSpy.mock.calls.find((args) => args[0] && args[0].path === "/create/result");
+    const pushCall = [...pushSpy.mock.calls].reverse().find((args) => args[0] && args[0].path === "/create/result");
     expect(pushCall).toBeTruthy();
     expect(pushCall[0].query.durationMs).toBe(125000);
     pushSpy.mockRestore();
@@ -3899,7 +3943,7 @@ describe("视频创作「已用时」审查闭环回归（C1/W2）", () => {
       context: { publish: { data: { videoPath: "C:/tmp/y.mp4" } } },
     });
     expect(handled).toBe(true);
-    const pushCall = pushSpy.mock.calls.find((args) => args[0] && args[0].path === "/create/result");
+    const pushCall = [...pushSpy.mock.calls].reverse().find((args) => args[0] && args[0].path === "/create/result");
     expect(pushCall).toBeTruthy();
     expect(pushCall[0].query.durationMs).toBe(125000);
     pushSpy.mockRestore();
@@ -4097,6 +4141,30 @@ describe("分镜素材自选等待态 UX（2026-08-13）", () => {
     expect(w.vm.orchestrationRunId).toBeNull();
     expect(w.vm.sceneAssetSelectionActive).toBe(false);
     expect(w.vm.cancelConfirmDialog.visible).toBe(false);
+    w.unmount();
+  });
+
+  it("暂停编排流水线时防止重复提交", async () => {
+    const mocks = await import("@/api/publisher");
+    let resolvePause
+    mocks.pipelinePauseRun.mockImplementation(() => new Promise((resolve) => { resolvePause = resolve }))
+    mocks.pipelineGetRunContext.mockResolvedValue({
+      code: 0,
+      data: { status: { status: "paused" }, stages: [], context: {}, checkpoint: null },
+    })
+    const w = await mountCreate();
+    w.vm.orchestrationRunId = "run-pause-once";
+    w.vm.pipelineRunStatus = { status: "running", stages: [] };
+
+    const firstPause = w.vm.pauseOrchestrationPipeline();
+    const secondPause = w.vm.pauseOrchestrationPipeline();
+    expect(mocks.pipelinePauseRun).toHaveBeenCalledTimes(1);
+    expect(w.vm.pauseActionBusy).toBe(true);
+
+    resolvePause({ code: 0, data: { status: "paused" } });
+    await firstPause;
+    await secondPause;
+    expect(w.vm.pauseActionBusy).toBe(false);
     w.unmount();
   });
 

@@ -1,0 +1,28 @@
+{
+  "id": "story2video-translate-manual-compose",
+  "title": "手动选材模式提示词翻译与视频合成并行",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop/story2video",
+  "currentPhase": "completed",
+  "nextAction": "已合并并归档",
+  "createdAt": "2026-08-17T03:10:00Z",
+  "branch": "codex/story2video-translate-manual-compose",
+  "openspecChange": "story2video-translate-manual-compose",
+  "remoteStatus": {
+    "pullRequest": 928,
+    "url": "https://github.com/Colinchiu007/Multi-Publish/pull/928",
+    "state": "merged",
+    "mergeCommit": "793858f4ca10bd1c5a65bb3d5fc1d1068bef6669",
+    "mergedAt": "2026-08-17T07:35:28Z",
+    "headBranch": "codex/story2video-translate-manual-compose",
+    "baseBranch": "main"
+  },
+  "analysisEvidence": {
+    "localSourceReview": "completed",
+    "subagents": "completed: candidate checkpoint dependency and compose hook state contract",
+    "antigravity": "unavailable: location eligibility check failed",
+    "claude": "unavailable: wrapper exited 1 / API connection failure"
+  }
+}

@@ -76,7 +76,6 @@ import {
   Collection,
   DataAnalysis,
   FolderOpened,
-  Grid,
   HomeFilled,
   Monitor,
   MoreFilled,
@@ -142,8 +141,8 @@ function goToPublish () {
 
 <style scoped>
 .yixiaoer-sidebar {
-  width: 200px;
-  min-width: 200px;
+  width: var(--yixiaoer-sidebar-width, 200px);
+  min-width: var(--yixiaoer-sidebar-width, 200px);
   display: flex;
   flex-direction: column;
   background: linear-gradient(180deg, #f4f2ff 0%, #f0efff 100%);

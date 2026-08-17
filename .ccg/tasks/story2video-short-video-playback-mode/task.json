@@ -1,0 +1,14 @@
+{
+  "id": "story2video-short-video-playback-mode",
+  "title": "Story2Video AI视频短于分镜时长时支持播放完停止并对末帧慢慢放大",
+  "status": "completed",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "story2video",
+  "currentPhase": "completed",
+  "nextAction": "推送GitHub、合并分支、归档",
+  "createdAt": "2026-08-17T13:40:00+08:00",
+  "branch": "codex/story2video-short-video-playback-mode",
+  "openspecChange": "story2video-short-video-playback-mode",
+  "completedAt": "2026-08-17T16:25:36.531Z"
+}

@@ -2243,6 +2243,127 @@ describe('Story2VideoProjectService', () => {
 
     expect(project.segments[0].videoPrompt).toBe('视频优化词')
   })
+
+  it('saveEditableRun 在成片生成前持久化可编辑分段，并让 runId 与项目 ID 对齐', () => {
+    const source = path.join(root, 'editable-run-source')
+    const image = writeFile(path.join(source, 'image.png'))
+    const audio = writeFile(path.join(source, 'audio.mp3'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveEditableRun({
+      id: 'run_editable_before_compose',
+      pipeline: 'story2video-compose',
+      status: 'paused',
+      createdAt: '2026-08-17T00:00:00.000Z',
+      params: { title: '暂停中的视频任务', text: '第一段旁白' },
+      context: {
+        generate_assets: {
+          scenes: [{
+            index: 0,
+            text: '第一段旁白',
+            prompt: '画面提示词',
+            videoPrompt: '视频提示词',
+            imagePath: image,
+            audioPath: audio,
+            duration: 3,
+          }],
+        },
+      },
+    })
+
+    expect(project).toMatchObject({
+      projectId: 'run_editable_before_compose',
+      runId: 'run_editable_before_compose',
+      status: 'paused',
+      videoPath: null,
+      title: '暂停中的视频任务',
+    })
+    expect(project.segments).toHaveLength(1)
+    expect(project.segments[0]).toMatchObject({ text: '第一段旁白', prompt: '画面提示词', videoPrompt: '视频提示词' })
+    expect(fs.existsSync(project.segments[0].imagePath)).toBe(true)
+    expect(fs.existsSync(project.segments[0].audioPath)).toBe(true)
+  })
+
+  it('saveEditableRun 以真实素材选择还原手动候选草稿，状态同步不覆盖分段', () => {
+    const source = path.join(root, 'editable-manual-source')
+    const imageOne = writeFile(path.join(source, 'image-one.png'))
+    const imageTwo = writeFile(path.join(source, 'image-two.png'))
+    const video = writeFile(path.join(source, 'scene.mp4'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+    const run = {
+      id: 'run_editable_manual',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      params: { text: '手动选择素材' },
+      context: {
+        generate_assets: {
+          creationMode: 'manual',
+          selection: { selections: [{ index: 0, candidateId: 'video-1' }] },
+          candidates: [{
+            index: 0,
+            text: '手动选择素材',
+            prompt: '候选提示词',
+            candidates: [
+              { id: 'image-1', kind: 'image', path: imageOne },
+              { id: 'image-2', kind: 'image', path: imageTwo },
+              { id: 'video-1', kind: 'video', path: video },
+            ],
+          }],
+        },
+      },
+    }
+    const project = service.saveEditableRun(run)
+    project.segments[0].text = '用户已编辑文案'
+    service._upsertProject(project)
+
+    const synced = service.syncRunStatus({ ...run, projectId: project.projectId, status: 'paused' })
+
+    expect(project.segments[0].selectedMaterial).toBe('video')
+    expect(fs.existsSync(project.segments[0].videoPath)).toBe(true)
+    expect(synced.status).toBe('paused')
+    expect(synced.segments[0].text).toBe('用户已编辑文案')
+  })
+
+  it('saveEditableRun 在手动选材确认后保留候选素材并采用最终场景的旁白与时长', () => {
+    const source = path.join(root, 'editable-manual-finalized-source')
+    const imageOne = writeFile(path.join(source, 'image-one.png'))
+    const imageTwo = writeFile(path.join(source, 'image-two.png'))
+    const selectedVideo = writeFile(path.join(source, 'scene.mp4'))
+    const finalizedAudio = writeFile(path.join(source, 'scene.mp3'))
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveEditableRun({
+      id: 'run_editable_manual_finalized',
+      pipeline: 'story2video-compose',
+      status: 'paused',
+      params: { text: '手动选材已确认' },
+      context: {
+        generate_assets: {
+          creationMode: 'manual',
+          selection: { selections: [{ index: 0, candidateId: 'video-1' }] },
+          candidates: [{
+            index: 0,
+            text: '手动选材已确认',
+            candidates: [
+              { id: 'image-1', kind: 'image', path: imageOne },
+              { id: 'image-2', kind: 'image', path: imageTwo },
+              { id: 'video-1', kind: 'video', path: selectedVideo },
+            ],
+          }],
+          scenes: [{
+            index: 0, text: '手动选材已确认', audioPath: finalizedAudio, duration: 4.5,
+            subtitleBlocks: [{ start: 0, end: 4.5, text: '手动选材已确认' }],
+          }],
+        },
+      },
+    })
+
+    expect(project.segments[0]).toMatchObject({ selectedMaterial: 'video', duration: 4.5 })
+    expect(project.segments[0].alternateImages).toHaveLength(1)
+    expect(fs.existsSync(project.segments[0].imagePath)).toBe(true)
+    expect(fs.existsSync(project.segments[0].videoPath)).toBe(true)
+    expect(fs.existsSync(project.segments[0].audioPath)).toBe(true)
+  })
 })
 
 describe('Story2VideoProjectService — 多模态优先设置与历史任务图片重试/重生成（2026-08-16 回归）', () => {

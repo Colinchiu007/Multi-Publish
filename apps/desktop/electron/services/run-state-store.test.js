@@ -6,7 +6,7 @@
  * legacy 平铺快照读取自动迁移、remove 清理两处路径、owner provider 校验。
  * 全部使用 os.tmpdir() 独立目录。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -121,6 +121,30 @@ describe('RunStateStore owner 隔离', () => {
     store.remove('run-1')
     expect(fs.existsSync(path.join(dir, 'owners', hash('user-a'), 'run-1.json'))).toBe(false)
     expect(fs.existsSync(path.join(dir, 'run-1.json'))).toBe(false)
+  })
+
+  it('remove 删除其中一处快照失败时恢复已删快照', () => {
+    currentOwner = 'user-a'
+    const store = makeStore()
+    const runId = 'run-rollback'
+    store.saveFailed(makeRun(runId))
+    const ownerPath = path.join(dir, 'owners', hash('user-a'), runId + '.json')
+    const legacyPath = path.join(dir, runId + '.json')
+    fs.copyFileSync(ownerPath, legacyPath)
+    const originalRmSync = fs.rmSync
+    const removeSpy = vi.spyOn(fs, 'rmSync').mockImplementation((filePath, options) => {
+      if (filePath === legacyPath) {
+        const error = new Error('legacy snapshot locked')
+        error.code = 'EPERM'
+        throw error
+      }
+      return originalRmSync(filePath, options)
+    })
+
+    expect(store.remove(runId)).toBe(false)
+    expect(fs.existsSync(ownerPath)).toBe(true)
+    expect(fs.existsSync(legacyPath)).toBe(true)
+    removeSpy.mockRestore()
   })
 
   it('setOwnerProvider 拒绝非函数参数', () => {

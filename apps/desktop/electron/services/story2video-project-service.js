@@ -551,10 +551,11 @@ class Story2VideoProjectService {
     const compose = resolveComposeOutput(run.context)
     if (!compose || !(compose.videoPath || compose.path)) return null
     const projectId = this._assertId(String(run.id || ''))
+    const previousProject = this._readProjects().find(item => item.projectId === projectId) || null
     const scenes = run.context?.generate_assets?.scenes || run.context?.assets?.scenes || []
     const artifacts = this._persistComposeArtifacts(projectId, compose, scenes)
     // manual 模式：把流水线已生成的未选素材一并持久化到项目目录（图2 备选 / 未选视频 / 选中态），
-    // 详情页无需重跑即可展示全部候选（2026-08-14 多素材需求）。
+    // 视频任务编辑页无需重跑即可展示全部候选（2026-08-14 多素材需求）。
     artifacts.segments = this._enrichManualCandidates(artifacts.segments, run, projectId)
     const options = this._safeOptions(run.params, projectId)
     const story2videoTextConfig = run.pipeline === 'story2video-compose'
@@ -565,11 +566,12 @@ class Story2VideoProjectService {
     const project = {
       manifestVersion: 2,
       projectId,
+      runId: projectId,
       pipeline: run.pipeline,
       status: run.status || 'completed',
       title: safeText(run.params?.title || story2videoTextConfig?.config?.publish?.title || sourceText, 160),
       sourceText,
-      createdAt: run.createdAt || now,
+      createdAt: previousProject?.createdAt || run.createdAt || now,
       updatedAt: now,
       endedAt: run.endedAt || now,
       duration: Number.isFinite(Number(compose.duration)) ? Number(compose.duration) : null,
@@ -587,7 +589,166 @@ class Story2VideoProjectService {
       options,
       ...(story2videoTextConfig ? { story2videoTextConfig } : {}),
     }
-    return this._upsertProject(project)
+    const saved = this._upsertProject(project)
+    this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+    return saved
+  }
+
+  /**
+   * 在成片合成前为已生成分段建立可编辑草稿。
+   * 草稿和最终项目共用 run.id，历史记录始终可进入同一个视频任务编辑页。
+   */
+  saveEditableRun (run, { replace = false } = {}) {
+    if (!run || run.pipeline !== 'story2video-compose') return null
+    const projectId = this._assertId(String(run.id || ''))
+    const previousProject = this._readProjects().find(item => item.projectId === projectId) || null
+    if (previousProject && !replace) return previousProject
+
+    const manifest = run.context?.generate_assets
+    const manualScenes = this._manualCandidateScenes(manifest)
+    const finalizedScenes = Array.isArray(manifest?.scenes) ? manifest.scenes : []
+    const sourceScenes = manualScenes.length > 0
+      ? manualScenes.map((candidateScene, position) => {
+          const sourceIndex = Number.isInteger(candidateScene.index) ? candidateScene.index : position
+          const finalizedScene = finalizedScenes.find((scene) => scene && scene.index === sourceIndex) || {}
+          return {
+            ...candidateScene,
+            ...finalizedScene,
+            imagePath: candidateScene.imagePath || finalizedScene.imagePath || null,
+            imageMeta: candidateScene.imageMeta || finalizedScene.imageMeta || null,
+            videoPath: candidateScene.videoPath || finalizedScene.videoPath || null,
+            videoMeta: candidateScene.videoMeta || finalizedScene.videoMeta || null,
+            alternateImages: candidateScene.alternateImages?.length
+              ? candidateScene.alternateImages
+              : (finalizedScene.alternateImages || []),
+            selectedMaterial: candidateScene.selectedMaterial || finalizedScene.selectedMaterial || null,
+          }
+        })
+      : finalizedScenes
+    if (sourceScenes.length === 0) return null
+
+    const projectDir = this._projectDir(projectId)
+    const copyOptional = (candidate, destination, kind) => {
+      if (typeof candidate !== 'string' || !candidate) return null
+      try {
+        return this._copyRequired(candidate, destination, kind)
+      } catch (error) {
+        this.log?.warn?.('[Story2Video] 草稿素材复制失败: ' + (error?.message || String(error)))
+        return null
+      }
+    }
+    const segments = sourceScenes.map((scene, position) => {
+      const source = scene && typeof scene === 'object' ? scene : {}
+      const sourceIndex = Number.isInteger(source.index) && source.index >= 0 ? source.index : position
+      const id = SAFE_ID.test(String(source.id || '')) ? String(source.id) : 'segment-' + sourceIndex
+      const prefix = 'draft_' + String(position).padStart(4, '0')
+      const alternateImages = safeAlternateImages(source.alternateImages).map((alternate, alternateIndex) => ({
+        path: copyOptional(
+          alternate.path,
+          path.join(projectDir, prefix + '_image' + (alternateIndex + 2) + sourceExtension(alternate.path, '.png')),
+          'image',
+        ),
+        meta: alternate.meta,
+      })).filter(alternate => alternate.path)
+      return {
+        id,
+        index: position,
+        sourceIndex,
+        text: safeText(source.text || source.content, 10000),
+        prompt: safeText(source.prompt, 20000),
+        promptTranslation: safeText(source.promptTranslation, 20000) || null,
+        videoPrompt: safeText(source.videoPrompt, 40000) || null,
+        imagePath: copyOptional(source.imagePath, path.join(projectDir, prefix + '_image' + sourceExtension(source.imagePath, '.png')), 'image'),
+        audioPath: copyOptional(source.audioPath, path.join(projectDir, prefix + '_audio' + sourceExtension(source.audioPath, '.mp3')), 'audio'),
+        videoPath: copyOptional(source.videoPath, path.join(projectDir, prefix + '_video' + sourceExtension(source.videoPath, '.mp4')), 'video'),
+        duration: Number.isFinite(Number(source.duration)) ? Number(source.duration) : null,
+        imageMeta: safeAssetMeta(source.imageMeta),
+        audioMeta: safeAssetMeta(source.audioMeta),
+        videoMeta: safeAssetMeta(source.videoMeta),
+        subtitleBlocks: safeSubtitleBlocks(source.subtitleBlocks),
+        subtitleTimeline: safeSubtitleTimeline(source.subtitleTimeline),
+        sceneSource: safeText(source.sceneSource, 80) || null,
+        subtitleSource: safeText(source.subtitleSource, 80) || null,
+        degraded: source.degraded === true,
+        fallbackReason: safeText(source.fallbackReason, 300) || null,
+        status: source.status || 'completed',
+        alternateImages,
+        selectedMaterial: safeMaterialKind(source.selectedMaterial),
+      }
+    })
+    const options = this._safeOptions(run.params, projectId)
+    const story2videoTextConfig = this._persistTextConfig(run.params, projectId, options)
+    const sourceText = safeText(run.params?.text || story2videoTextConfig?.config?.prompt, 100000)
+    const now = new Date().toISOString()
+    const project = {
+      manifestVersion: 2,
+      projectId,
+      runId: projectId,
+      pipeline: run.pipeline,
+      status: run.status || 'running',
+      title: safeText(run.params?.title || story2videoTextConfig?.config?.publish?.title || sourceText, 160),
+      sourceText,
+      createdAt: previousProject?.createdAt || run.createdAt || now,
+      updatedAt: now,
+      endedAt: run.endedAt || null,
+      duration: null,
+      outputSizeBytes: null,
+      format: null,
+      videoPath: null,
+      audioPath: null,
+      segments,
+      dirty: false,
+      options,
+      ...(story2videoTextConfig ? { story2videoTextConfig } : {}),
+    }
+    const saved = this._upsertProject(project)
+    this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
+    return saved
+  }
+
+  /** 同步草稿的运行状态，不重写用户已编辑的分段内容。 */
+  syncRunStatus (run) {
+    if (!run || run.pipeline !== 'story2video-compose') return null
+    const projectId = this._assertId(String(run.projectId || run.id || ''))
+    const previousProject = this._readProjects().find(item => item.projectId === projectId)
+    if (!previousProject) return null
+    return this._upsertProject({
+      ...previousProject,
+      runId: projectId,
+      status: run.status || previousProject.status || 'running',
+      updatedAt: new Date().toISOString(),
+      endedAt: run.endedAt || previousProject.endedAt || null,
+    })
+  }
+
+  _manualCandidateScenes (manifest) {
+    if (!manifest || manifest.creationMode !== 'manual' || !Array.isArray(manifest.candidates)) return []
+    const selections = Array.isArray(manifest.selection?.selections) ? manifest.selection.selections : []
+    const selectionByIndex = new Map(selections.map(selection => [selection?.index, selection]))
+    return manifest.candidates.map((scene, position) => {
+      if (!scene || typeof scene !== 'object') return null
+      const candidates = Array.isArray(scene.candidates) ? scene.candidates : []
+      const selected = selectionByIndex.get(scene.index)
+      const selectedCandidate = selected?.candidateId
+        ? candidates.find(candidate => candidate && candidate.id === selected.candidateId)
+        : null
+      const images = candidates.filter(candidate => candidate?.kind === 'image' && candidate.path)
+      const video = candidates.find(candidate => candidate?.kind === 'video' && candidate.path)
+      const selectedImage = selectedCandidate?.kind === 'image' ? selectedCandidate : images[0]
+      const alternateImage = images.find(candidate => candidate !== selectedImage)
+      return {
+        ...scene,
+        index: Number.isInteger(scene.index) ? scene.index : position,
+        imagePath: selectedImage?.path || null,
+        imageMeta: selectedImage?.meta || null,
+        alternateImages: alternateImage ? [{ path: alternateImage.path, meta: alternateImage.meta }] : [],
+        videoPath: (selectedCandidate?.kind === 'video' ? selectedCandidate.path : video?.path) || null,
+        videoMeta: (selectedCandidate?.kind === 'video' ? selectedCandidate.meta : video?.meta) || null,
+        selectedMaterial: selectedCandidate?.kind === 'video'
+          ? 'video'
+          : (selectedCandidate?.kind === 'image' ? 'image1' : null),
+      }
+    }).filter(Boolean)
   }
 
   _persistTextConfig (params, projectId, options) {

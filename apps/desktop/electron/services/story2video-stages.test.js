@@ -2637,7 +2637,7 @@ describe('提示词翻译与 compose 并行契约', () => {
     expect(result.success).toBe(true)
     expect(context.prompt_translations_pending).toEqual({
       uiLocale: 'zh',
-      items: [{ index: 0, prompt: 'A red apple' }],
+        items: [{ index: 0, prompt: 'A red apple', translation: null }],
     })
     expect(context.prompt_translations).toBeUndefined()
     expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
@@ -2648,24 +2648,24 @@ describe('提示词翻译与 compose 并行契约', () => {
     const pipeline = makePipeline(null, aiGenerator)
     const optimize = pipeline.optimizeExecutor
     const serviceBus = makeOptimizeBus(() => ({ optimized_prompt: 'A red apple' }))
-    for (const uiLocale of ['en', '   ']) {
+    for (const creationMode of ['auto', 'manual']) {
+      for (const uiLocale of ['en', '   ']) {
       const context = { split: [{ text: '红苹果' }] }
       const result = await optimize({
         stage: { options: {} },
-        params: { creationMode: 'auto', uiLocale },
+        params: { creationMode, uiLocale },
         context,
         serviceBus,
       })
       expect(result.success).toBe(true)
       expect(context.prompt_translations_pending).toBeUndefined()
+      }
     }
     expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
   })
 
-  it('手动模式 optimize 仍在 checkpoint 前生成翻译', async () => {
-    const aiGenerator = {
-      generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"一个红苹果"}' }),
-    }
+  it('手动模式 optimize 也只登记可序列化 pending，不提前调用翻译 LLM', async () => {
+    const aiGenerator = { generateWithDefault: vi.fn() }
     const pipeline = makePipeline(null, aiGenerator)
     const optimize = pipeline.optimizeExecutor
     const serviceBus = makeOptimizeBus(() => ({ optimized_prompt: 'A red apple' }))
@@ -2677,9 +2677,12 @@ describe('提示词翻译与 compose 并行契约', () => {
       serviceBus,
     })
     expect(result.success).toBe(true)
-    expect(context.prompt_translations.items[0].translation).toBe('一个红苹果')
-    expect(context.prompt_translations_pending).toBeUndefined()
-    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+    expect(context.prompt_translations_pending).toEqual({
+      uiLocale: 'zh',
+      items: [{ index: 0, prompt: 'A red apple', translation: null }],
+    })
+    expect(context.prompt_translations).toBeUndefined()
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
   })
 
   it('真实 StageExecutor 注册翻译任务，compose 完成后按 scene index 回填', async () => {
@@ -2730,12 +2733,193 @@ describe('提示词翻译与 compose 并行契约', () => {
     expect(context.prompt_translations.items.map((item) => item.translation)).toEqual(['译文0', '译文1'])
   })
 
+  it('手动模式 compose 只补写翻译，不覆盖候选、选择和已选媒体', async () => {
+    const serviceBus = {
+      composeVideo: vi.fn(async () => ({
+        code: 0,
+        data: {
+          videoPath: 'manual-video.mp4',
+          segments: [{ index: 0, prompt: 'manual-prompt' }],
+        },
+      })),
+    }
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const pipeline = {
+      stageExecutor,
+      aiGenerator: {
+        generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"手动译文"}' }),
+      },
+      log: { info() {}, warn() {}, error() {} },
+      registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
+    }
+    registerStory2VideoStages(pipeline)
+    const candidates = [{
+      index: 0,
+      prompt: 'manual-prompt',
+      promptTranslation: null,
+      candidates: [{ id: 'image-0', kind: 'image', path: 'selected.png' }],
+    }]
+    const selection = { selections: [{ index: 0, candidateId: 'image-0' }] }
+    const context = {
+      generate_assets: {
+        candidates,
+        selection,
+        scenes: [{ index: 0, prompt: 'manual-prompt', imagePath: 'selected.png', audioPath: 'voice.mp3' }],
+      },
+      prompt_translations_pending: {
+        uiLocale: 'zh',
+        items: [{ index: 0, prompt: 'manual-prompt' }],
+      },
+      scene_asset_selection: selection,
+    }
+    const result = await stageExecutor.execute({
+      runId: 'translation-manual-compose-preserve',
+      stage: {
+        name: 'compose',
+        type: STAGE_TYPES.COMPOSE,
+        inputFrom: 'generate_assets',
+        options: { composeParallelTask: 'story2video_prompt_translation_compose' },
+      },
+      params: {},
+      context,
+    })
+    expect(result.success).toBe(true)
+    expect(result.output.segments[0].promptTranslation).toBe('手动译文')
+    expect(context.generate_assets.scenes[0]).toMatchObject({
+      index: 0,
+      prompt: 'manual-prompt',
+      promptTranslation: '手动译文',
+      imagePath: 'selected.png',
+      audioPath: 'voice.mp3',
+    })
+    expect(context.generate_assets.candidates).toEqual(candidates)
+    expect(context.generate_assets.selection).toEqual(selection)
+    expect(context.scene_asset_selection).toEqual(selection)
+    expect(context.prompt_translations_pending).toBeUndefined()
+  })
+
+  it('手动模式 compose 在等待翻译时已启动视频合成', async () => {
+    const events = []
+    let resolveTranslation
+    const translationResponse = new Promise((resolve) => { resolveTranslation = resolve })
+    const serviceBus = {
+      composeVideo: vi.fn(async () => {
+        events.push('compose-start')
+        expect(events).toEqual(['translation-start', 'compose-start'])
+        resolveTranslation({ content: '{"0":"手动译文"}' })
+        return { code: 0, data: { videoPath: 'overlap.mp4', segments: [{ index: 0, prompt: 'manual-prompt' }] } }
+      }),
+    }
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const pipeline = {
+      stageExecutor,
+      aiGenerator: {
+        generateWithDefault: vi.fn(() => {
+          events.push('translation-start')
+          return translationResponse
+        }),
+      },
+      log: { info() {}, warn() {}, error() {} },
+      registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
+    }
+    registerStory2VideoStages(pipeline)
+    const result = await stageExecutor.execute({
+      runId: 'translation-manual-compose-overlap',
+      stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'story2video_prompt_translation_compose' } },
+      params: {},
+      context: {
+        generate_assets: { scenes: [{ index: 0, prompt: 'manual-prompt', imagePath: 'selected.png', audioPath: 'voice.mp3' }] },
+        prompt_translations_pending: { uiLocale: 'zh', items: [{ index: 0, prompt: 'manual-prompt' }] },
+      },
+    })
+    expect(result.success).toBe(true)
+    expect(events).toEqual(['translation-start', 'compose-start'])
+  })
+
+  it('手动模式 compose 翻译失败时成片成功并保留手动素材状态', async () => {
+    const serviceBus = {
+      composeVideo: vi.fn(async () => ({
+        code: 0,
+        data: { videoPath: 'manual-fail-open.mp4', segments: [{ index: 0, prompt: 'manual-prompt' }] },
+      })),
+    }
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const pipeline = {
+      stageExecutor,
+      aiGenerator: { generateWithDefault: vi.fn().mockRejectedValue(new Error('translation unavailable')) },
+      log: { info() {}, warn() {}, error() {} },
+      registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
+    }
+    registerStory2VideoStages(pipeline)
+    const candidates = [{ index: 0, candidates: [{ id: 'image-0', kind: 'image', path: 'selected.png' }] }]
+    const selection = { selections: [{ index: 0, candidateId: 'image-0' }] }
+    const context = {
+      generate_assets: {
+        candidates,
+        selection,
+        scenes: [{ index: 0, prompt: 'manual-prompt', imagePath: 'selected.png', audioPath: 'voice.mp3', promptTranslation: null }],
+      },
+      scene_asset_selection: selection,
+      prompt_translations_pending: { uiLocale: 'zh', items: [{ index: 0, prompt: 'manual-prompt' }] },
+    }
+    const result = await stageExecutor.execute({
+      runId: 'translation-manual-compose-fail-open',
+      stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'story2video_prompt_translation_compose' } },
+      params: {},
+      context,
+    })
+    expect(result.success).toBe(true)
+    expect(result.output.videoPath).toBe('manual-fail-open.mp4')
+    expect(context.generate_assets.candidates).toEqual(candidates)
+    expect(context.generate_assets.selection).toEqual(selection)
+    expect(context.scene_asset_selection).toEqual(selection)
+    expect(context.generate_assets.scenes[0]).toMatchObject({
+      index: 0,
+      prompt: 'manual-prompt',
+      promptTranslation: null,
+      imagePath: 'selected.png',
+      audioPath: 'voice.mp3',
+    })
+    expect(context.prompt_translations_pending.items[0].translation).toBeNull()
+    expect(context.prompt_translation_diagnostic.degraded).toBe(true)
+  })
+
+  it('手动模式 compose 复用匹配的已有译文，不重复请求 LLM', async () => {
+    const serviceBus = {
+      composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: 'reused.mp4', segments: [{ index: 0, prompt: 'manual-prompt' }] } })),
+    }
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const aiGenerator = { generateWithDefault: vi.fn() }
+    const pipeline = {
+      stageExecutor,
+      aiGenerator,
+      log: { info() {}, warn() {}, error() {} },
+      registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
+    }
+    registerStory2VideoStages(pipeline)
+    const context = {
+      generate_assets: { scenes: [{ index: 0, prompt: 'manual-prompt', promptTranslation: null }] },
+      prompt_translations_pending: { uiLocale: 'zh', items: [{ index: 0, prompt: 'manual-prompt', translation: '已有译文' }] },
+    }
+    const result = await stageExecutor.execute({
+      runId: 'translation-manual-compose-reuse',
+      stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'story2video_prompt_translation_compose' } },
+      params: {},
+      context,
+    })
+    expect(result.success).toBe(true)
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
+    expect(context.generate_assets.scenes[0].promptTranslation).toBe('已有译文')
+    expect(result.output.segments[0].promptTranslation).toBe('已有译文')
+    expect(context.prompt_translations_pending).toBeUndefined()
+  })
+
   it('单批翻译超时后 fail-open，并保留 pending 供后续重试', async () => {
     vi.useFakeTimers()
     try {
       const pending = {
         uiLocale: 'zh',
-        items: [{ index: 0, prompt: 'A red apple' }],
+      items: [{ index: 0, prompt: 'A red apple', translation: null }],
       }
       const aiGenerator = {
         generateWithDefault: vi.fn(() => new Promise(() => {})),

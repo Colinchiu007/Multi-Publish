@@ -133,6 +133,30 @@ describe('generate_assets manual 候选生成', () => {
     expect(context.assets_progress.imagesTotal).toBe(4)
   })
 
+  it('无翻译 pending 时仍可生成并确认候选，翻译字段保持 null', async () => {
+    const generator = makeImageGenerator()
+    const { generateAssets } = makePipeline(generator, null)
+    const context = {
+      split: [{ text: '场景A' }, { text: '场景B' }],
+      optimize: [{ optimized_prompt: 'prompt-A' }, { optimized_prompt: 'prompt-B' }],
+      prompt_translations_pending: {
+        uiLocale: 'zh',
+        items: [{ index: 0, prompt: 'prompt-A' }, { index: 1, prompt: 'prompt-B' }],
+      },
+    }
+    const result = await generateAssets({
+      stage: BASE_STAGE,
+      params: { creationMode: 'manual', manualMaterialMode: 'all-images', runId: 'run-pending' },
+      context,
+      serviceBus: {},
+    })
+    expect(result.success).toBe(true)
+    expect(result.checkpoint).toBe('scene_asset_selection')
+    expect(result.output.candidates.map((scene) => scene.promptTranslation)).toEqual([null, null])
+    expect(result.output.candidates.every((scene) => scene.candidates.length === 2)).toBe(true)
+    expect(result.output.candidates.map((scene) => scene.index)).toEqual([0, 1])
+  })
+
   it('video-image：AI 视频场景 2 图 + 1 视频（同一提示词），其余 2 图', async () => {
     const generator = makeImageGenerator()
     const { generateAssets } = makePipeline(generator, null)
@@ -678,8 +702,8 @@ describe('pipeline-engine manual 集成', () => {
     run.checkpoint = { type: 'scene_asset_selection', stageName: 'generate_assets' }
     run.context.generate_assets = {
       candidates: [
-        { index: 0, candidates: [{ id: 'image-0', kind: 'image', path: 'C:/tmp/x.png' }] },
-        { index: 1, candidates: [{ id: 'image-0', kind: 'image', path: 'C:/tmp/y.png' }] },
+        { index: 0, promptTranslation: null, candidates: [{ id: 'image-0', kind: 'image', path: 'C:/tmp/x.png' }] },
+        { index: 1, promptTranslation: null, candidates: [{ id: 'image-0', kind: 'image', path: 'C:/tmp/y.png' }] },
       ],
     }
     const bad = await engine.confirmSceneAssets(runId, [{ index: 0, candidateId: 'nope' }])
@@ -721,6 +745,10 @@ describe('pipeline-engine manual 集成', () => {
       const runId = start.runId
       const run = engine._runs.get(runId)
       run.status = 'paused'
+      run.context.prompt_translations_pending = {
+        uiLocale: 'zh',
+        items: [{ index: 0, prompt: '恢复中的提示词' }],
+      }
       run.checkpoint = { type: 'scene_asset_selection', stageName: 'generate_assets', currentStage: run.currentStage, context: run.context }
       store.savePaused(run)
       engine._runs.clear()
@@ -731,6 +759,7 @@ describe('pipeline-engine manual 集成', () => {
       const snapshot = engine.getRunSnapshot(runId)
       expect(snapshot.status.status).toBe('paused')
       expect(snapshot.checkpoint.type).toBe('scene_asset_selection')
+      expect(snapshot.context.prompt_translations_pending.items[0].index).toBe(0)
     } finally {
       try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
     }

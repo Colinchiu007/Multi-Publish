@@ -23,6 +23,8 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   VOICE_INVALID: 'story2video.voice_invalid',
   PROJECT_DELETE_FAILED: 'story2video.project_delete_failed',
   PROJECT_DELETE_CONFIRM: 'story2video.project_delete_confirm',
+  RUN_DELETE_FAILED: 'story2video.run_delete_failed',
+  RUN_DELETE_CONFIRM: 'story2video.run_delete_confirm',
   TEMPLATE_DELETE_CONFIRM: 'story2video.template_delete_confirm',
   BGM_LIBRARY_LOAD_FAILED: 'story2video.bgm_library_load_failed',
   BGM_LIBRARY_RENAME_FAILED: 'story2video.bgm_library_rename_failed',
@@ -124,7 +126,7 @@ const OPTIMIZE_SERVICE_PATTERN = /(prompt-engine.*未运行|prompt-engine.*不�
 const UNSUPPORTED_PARAMS_PATTERN = /(UnsupportedParamsError|unsupported.*param|不支持.*参数)/i
 const COMPOSE_STAGE_PATTERN = /(narration concat|bgm mix|webm transcode|output validation|ffmpeg|旁白合并|背景音乐.{0,12}混|输出校验|视频校验|视频合成)/i
 const TIMEOUT_PATTERN = /(timeout|timed out|etimedout|超时)/i
-// 历史详情页场景素材操作失败归一化（2026-08-14）
+// 视频任务编辑页场景素材操作失败归一化（2026-08-14）
 const SCENE_AUDIO_MISSING_PATTERN = /(没有旁白音频|no narration audio|missing.*(?:narration|voice).*audio)/i
 const SCENE_IMAGE_MISSING_PATTERN = /(没有可用的图片素材|no available image|missing.*image.*(?:scene|segment))/i
 const SCENE_SLOT_EMPTY_PATTERN = /(素材槽位暂无素材|slot.*(?:empty|missing)|material slot)/i
