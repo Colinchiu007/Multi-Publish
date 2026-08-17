@@ -34,3 +34,10 @@
 
 - 首次打包因 D: 无剩余空间返回 ENOSPC；仅清理本 worktree 的 dist-electron，再将忽略的构建输出经 junction 临时转到 C:\Temp 后重试成功。
 - Antigravity 因地区资格不可用；Claude wrapper 因 API 连接失败。已使用仓库允许的本地独立审查路径并记录。
+
+## Remote Delivery
+
+- Pull request: `#928`（https://github.com/Colinchiu007/Multi-Publish/pull/928）。
+- Merge status: merged into `main` at `793858f4ca10bd1c5a65bb3d5fc1d1068bef6669` on `2026-08-17T07:35:28Z`.
+- Passed remote checks: QG Static, QG Unit Tests, QG Desktop Shards 1/2 and 2/2, QG Coverage, QG Browser E2E, QG Visual, electron-tests, GUI tests, builds, documentation sync, lint, and agent judge.
+- Gate 9 exception: QG Autonomous returned `COVERAGE_FAIL` with `score: 0` from the external LLM coverage audit while the deterministic local and remote functional gates passed. The failure was recorded and the PR was merged with administrator override; no test or product behavior was bypassed.
