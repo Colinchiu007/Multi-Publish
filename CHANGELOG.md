@@ -5,6 +5,15 @@
 - 回归：包测试 `packages/ai-autonomous-tester` 189/189（+10：视觉输图/降级/超限护栏/need_review 路由/接线/成本护栏）；workflow 合同 `.github/scripts/autonomous-loop-workflow.test.js` 10/10（+1 求值语义 + `|| ''` 守卫）；`git diff --check` PASS；无 locale/CJK/apps-desktop-electron 变更。
 
 
+## [2026-08-16] feat(desktop): PromptBridge BYOK —— 提示词引擎使用桌面配置的 LLM（llm 对象 + caller + fail-closed）
+
+- 背景：视频创作-历史记录「重新生成图片优化词」实测 prompt-engine(8013) 走引擎自身 config.yaml 兜底的 MiniMax key，而非用户在「模型设置」配置的 SenseNova 文字推理模型。目标契约：哪个产品调用引擎，就用哪个产品自己配置的 LLM。
+- 改动：`PromptBridge` 新增 `resolveLlmBind()`，从 `ModelProviderManager` 解析默认 LLM（sensenova-llm→sensenova、deepseek→deepseek、其余→openai_compat），主进程边界解密 api_key 后组装 `{provider,model,base_url,api_key}` 注入 `optimize` / `optimizeBatch` / `optimizeVideo`（legacy-8013 回退）/ `optimizeVideosBatch`（legacy-8013 回退），并携带 `caller=multi-publish-desktop`；无默认 LLM/缺失 API Key/缺失模型一律 fail-closed 抛可操作中文错误，不再依赖引擎服务端 key。
+- `phase1-context.js` 注入 `promptBridge.modelProviderManager`（与 story2videoProjectService 同模式）。
+- 配套：prompt-engine v0.20.0（BYOK llm 契约 + 移除 key_router/ops_client 兜底 + 缓存 provider 隔离）；图片 creative_level<=3 模板直出仍免 LLM。
+- 回归：桌面 electron/services+bootstrap 2074 passed / 1 skipped（修复 9 个未注入默认 LLM 的旧契约用例）；prompt-engine 全量 975 passed / 3 skipped。
+
+## [2026-08-16] fix(story2video): 分段状态本地化 + 失败原因内联 + 成功写回清除残留 error
 
 - 现象：视频创作-历史记录，分段卡片状态直接输出英文原值（failed/completed），用户看不清发生了什么；曾失败分段（如 agnes-image `UnsupportedParamsError: Setting response_format is not supported`）点击【重试图片】成功后状态已 completed，但旧 error 残留，继续误导。
 - 根因：`ResultView.vue` 徽标直接渲染 `segment.status` 原值；服务层把分段置 `completed` 的写回路径（replaceSegmentAudio / retrySegment / regenerateSceneAudio / regenerateScenePrompt / generateSceneAiVideo / generateSceneImage / generateSceneVideo）不清理既有 `error`，产生「completed + error 并存」的误导状态；既有先例 `regenerateSceneSubtitle` 已写 `error: null`，其余路径漂移。

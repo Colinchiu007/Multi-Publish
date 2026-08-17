@@ -526,6 +526,10 @@ it.each([
   });
 
   const promptBridge = new PromptBridge({ log: { info() {}, warn() {}, error() {} } });
+  promptBridge.modelProviderManager = {
+    getDefault: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'] })),
+    getProviderWithKey: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'], api_key: 'sk-test' })),
+  };
   promptBridge.host = '127.0.0.1';
   promptBridge.port = server.address().port;
   promptBridge.isRunning = true;

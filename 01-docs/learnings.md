@@ -13726,3 +13726,10 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 4（尾行安全归一）**：`strip_embedded_trailer` 与 `append_trailer` 必须同口径，且只处理"最后一段/行尾"形态的尾行；中段出现 "Photoreal NON-IP aesthetic" 这类字面量不误删 FINAL FRAME 块。生命周期固定为 render body → append 尾行 → optimizer 按预算截断（tail 永不截断），三次评审迭代都围绕"尾行判据收紧"（幂等判据、残缺裸尾行剥离、最后一段限定）。
 - **教训 5（断链明示不虚构连续性）**：resume/checkpoint 恢复时若上一场景无 `prev_final_frame` 链，必须显式 degraded 告警（引擎断链明示），不得虚构连续性或静默跳过——fail-open 但明示，让用户知道本次输出没有承接约束。
 - **教训 6（资产驱动规则要可降级）**：`refined_blocks.json` 缺失/损坏时 `_gated_rules()` 回退空表 → 规则不启用零误报。语料驱动的启发式规则（lock-trigger/coverage）本质是统计资产，不是代码常量——资产可缺失、可更新，代码必须 fail-safe。
+
+## 提示词引擎 BYOK 与缓存 provider 隔离复盘（prompt-engine-byok-llm，2026-08-16）
+
+- **教训 1（哪个产品调用就用哪个产品的 LLM）**：提示词引擎的服务端 config.yaml 兜底会让桌面版实测落到 MiniMax 而非用户配置的 SenseNova——产品自配置 LLM 必须由产品侧注入（llm + caller），引擎侧兜底 key 必须移除，否则「设置里换模型」对用户是假承诺。
+- **教训 2（fail-closed 优于回显兜底）**：历史记录「重新生成优化词」曾因引擎 402 回显原文被当成功写入（fail-open）；BYOK 缺绑定一律 422 / 可操作错误，杜绝「看起来成功、实际没调用最新引擎」的假阳性。
+- **教训 3（缓存键必须含 provider 身份）**：`SqlitePromptCache.make_key` 原实现把 provider 追加写在了 `return` 之后（死代码），`CacheManager` L2 又漏传 provider——换 LLM 后仍命中旧缓存。凡是「上下文敏感」字段（含模型绑定）都必须进缓存键，并统一 L1/L2 同一身份。
+- **教训 4（新增 BYOK 边界要同步邻近测试）**：既有桌面契约测试未注入默认 LLM，fail-closed 后 9 个用例立即暴露——凡新增绑定/兜底类边界，邻近测试必须显式 mock 默认 LLM 或声明模板直出（creative_level<=3）。

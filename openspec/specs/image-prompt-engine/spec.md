@@ -137,3 +137,14 @@ prompt-engine（8013）未运行时，optimize 阶段 SHALL 返回明确错误�
 - **WHEN** options.quality_baseline=false
 - **THEN** 请求不附加基线片段，与现状行为一致
 
+### Requirement: 桌面调用必须携带 BYOK llm 绑定（2026-08-16）
+
+桌面 PromptBridge 调用 8013 图片优化（需 LLM 路径：`creative_level>3`）SHALL 注入本机「模型设置」默认 LLM 绑定（`provider`/`model`/`base_url`/`api_key`，主进程解密）与 `caller=multi-publish-desktop`；无可用绑定 MUST fail-closed（不发送请求）；`api_key` MUST 不出渲染层、不落日志。
+
+#### Scenario: 未配置默认 LLM
+- **WHEN** 桌面「模型设置」未配置可用默认 LLM 且发起 `creative_level>3` 优化
+- **THEN** PromptBridge 抛出「模型服务未就绪 / 未配置默认文字推理模型」可操作错误，不向 8013 发送请求
+
+#### Scenario: 模板直出免 LLM
+- **WHEN** 图片请求 `creative_level<=3`
+- **THEN** 桌面与引擎均不要求 llm 绑定，按模板直出路径返回
