@@ -25,4 +25,4 @@
 - [x] 4.2 运行 locale pair/CJK 扫描、Vite build、`node scripts/verify-worktree-deps.js`：全部通过；Vite 仅有既有 chunk/comment warnings。
 - [x] 4.3 运行 QM-1 Electron 打包与 ASAR 清单检查：`electron-builder --win --x64 --publish never` 通过，ASAR/EXE 均生成；Playwright 资源目录缺失为既有环境 warning，未阻断打包。
 - [x] 4.4 完成独立审查并更新 review.md；内部双探针完成交叉核验。antigravity wrapper 因地区资格不可用，Claude wrapper 在本机无输出后终止，均记录为降级证据。
-- [ ] 4.5 `openspec validate` 已通过；PR/CI/远程合并状态待提交分支推送并建立 PR 后核对，再归档 OpenSpec change 与 CCG task。
+- [x] 4.5 `openspec validate` 已通过；PR #920 已于 2026-08-17 合并（`ca274cc766f0f704a31c75dee234d1a37905f188`）；完整 CI 通过，`QG Autonomous` 因外部 LLM 审计不可用返回既有 `NEED_HUMAN`，已按仓库例外记录；下一步归档 OpenSpec change 与 CCG task。

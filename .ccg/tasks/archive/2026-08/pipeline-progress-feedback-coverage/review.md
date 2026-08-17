@@ -43,6 +43,9 @@
 - 第二轮远端 `electron-tests` 证明完整 Vitest 运行会共享其他文件对 `media-tool-paths` 的 mock；已把提取阶段的完整生命周期构造器 `createExtractStageExecutor` 公开为依赖可注入单元，注册器继续绑定生产默认依赖。
 - 第三次本地生命周期矩阵：5 files / 180 tests passed。
 
-## Follow-up
+## Final CI and delivery
 
-- Push codex/pipeline-progress-feedback-v2, create PR, wait for CI, verify remote merge status, then archive the OpenSpec change and CCG task。
+- PR [#920](https://github.com/Colinchiu007/Multi-Publish/pull/920) merged on 2026-08-17 at `ca274cc766f0f704a31c75dee234d1a37905f188`.
+- Final CI for `71c974ee87ed2a8d89b174ff4a11a2b9d16e7b5c` passed `electron-tests`, QG unit/shards/coverage/static/visual/browser E2E, Ubuntu and Windows builds, GUI/visual tests, agent judge, document sync, lint/unit, and locale checks.
+- `QG Autonomous` returned the repository-wide `NEED_HUMAN` result because the external LLM audit was unavailable. It is a documented existing exception rather than a regression from this change; the established admin exception path was used for merge.
+- Remote state was checked before closure. OpenSpec specification synchronization and the OpenSpec/CCG archives are the only remaining process actions for this merged runtime change.

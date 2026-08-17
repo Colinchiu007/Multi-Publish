@@ -1,0 +1,19 @@
+{
+  "id": "pipeline-progress-feedback-coverage",
+  "title": "补齐视频流水线阶段进行中反馈与本地化",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "frontend-electron",
+  "currentPhase": "completed",
+  "nextAction": "OpenSpec 与 CCG 归档完成；PR #920 已合并，远程状态已核对",
+  "openspecChange": "pipeline-progress-feedback-coverage",
+  "branch": "main",
+  "remoteStatus": {
+    "pr": 920,
+    "url": "https://github.com/Colinchiu007/Multi-Publish/pull/920",
+    "mergedAt": "2026-08-17T05:10:28Z",
+    "mergeCommit": "ca274cc766f0f704a31c75dee234d1a37905f188",
+    "ci": "passed except the repository-wide QG Autonomous NEED_HUMAN external-audit exception"
+  }
+}
