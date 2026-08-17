@@ -3,6 +3,13 @@ import { useAuthStore } from '../stores/auth'
 
 const routes = [
   {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('../views/settings/SettingsView.vue'),
+    meta: { requiresAuth: true },
+  },
+
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),

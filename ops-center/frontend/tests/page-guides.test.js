@@ -7,7 +7,7 @@ const operationsPages = [
   'KeywordWatchlist', 'PipelineDeps', 'RedemptionCodes', 'Announcements', 'UpdatePolicy',
   'ContentPolicy', 'ModelPresets', 'RateLimitVerifier', 'PlatformDefs', 'RuntimeFlags',
   'ContentTemplates', 'Parameters', 'Snapshots', 'EnvView', 'AuditLog',
-  'PromptEvalWorkbench', 'ModelKeys',
+  'UserFeedback', 'PromptEvalWorkbench', 'ModelKeys',
 ]
 
 describe('page guides', () => {
