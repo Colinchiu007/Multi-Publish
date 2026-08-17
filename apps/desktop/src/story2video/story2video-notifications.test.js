@@ -272,4 +272,36 @@ describe('Story2Video notification messages', () => {
     expect(countUnicodeCodePoints('A😀中')).toBe(3)
     expect(countUnicodeCodePoints('👩🏽‍💻')).toBe(4)
   })
+
+  it('cloned voice across accounts maps to VOICE_INVALID not QUOTA_EXCEEDED (run_1786 bug)', () => {
+    const result = formatStory2VideoNotification({ error: 'TTS provider failed: voice does not exist' })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID)
+  })
+
+  it('cloned voice Chinese error also correctly classified', () => {
+    const result = formatStory2VideoNotification({ error: 'TTS provider failed: 当前账号无权访问该音色' })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID)
+  })
+
+  it('QUOTA_EXCEEDED only triggers when errorCode is explicit or no other signal', () => {
+    const result = formatStory2VideoNotification({
+      error: 'API Key 额度已用完，请升级套餐',
+      errorCode: 'AUTH_FAILED',
+    })
+    expect(result.messageKey).not.toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
+  })
+
+  it('auth error text with quota keywords classified as API_KEY_INVALID not QUOTA_EXCEEDED', () => {
+    const result = formatStory2VideoNotification({
+      error: 'TTS provider failed: API Key 无效，额度已用完',
+    })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.API_KEY_INVALID)
+  })
+
+  it('quota keywords without auth signal still trigger QUOTA_EXCEEDED (backward compat)', () => {
+    const result = formatStory2VideoNotification({
+      error: '模型 API 的额度或余额已用完',
+    })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
+  })
 })
