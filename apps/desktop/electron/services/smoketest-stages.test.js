@@ -25,13 +25,18 @@ describe('framework-smoke 阶段执行器', () => {
 
   it('verify 输出工具与流水线注册表状态', async () => {
     const { get } = makePipeline()
+    const events = []
     const result = await get(SMOKETEST_STAGE_TYPES.VERIFY)({
-      stage: {}, params: {}, context: {},
+      stage: {}, params: {}, context: {}, onProgress: event => events.push(event),
     })
     expect(result.success).toBe(true)
     expect(result.output.tools).toMatchObject({ ffmpeg: expect.any(Boolean), ffprobe: expect.any(Boolean) })
     expect(result.output.pipelineCount).toBe(2)
     expect(result.output.stageExecutor).toBe(true)
+    expect(events).toEqual([
+      expect.objectContaining({ percent: 0, messageKey: 'stageProgress.smoketestVerify' }),
+      expect.objectContaining({ percent: 100, summaryKey: 'stageProgress.smoketestVerifySummary', detail: { done: 1, total: 1, kind: 'resource' } }),
+    ])
   })
 
   it('report 缺少 context.verify 时失败', async () => {

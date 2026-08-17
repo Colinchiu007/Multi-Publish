@@ -32,6 +32,7 @@ const {
   extractOptimizedPrompt,
   selectBestCandidate,
 } = require('./prompt-engine-contract');
+const { emitStageStart, emitStageItem, emitStageComplete } = require('./stage-progress');
 
 function _firstDefined(...values) {
   return values.find(value => value !== undefined && value !== null);
@@ -39,6 +40,26 @@ function _firstDefined(...values) {
 
 function _isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+const STAGE_PROGRESS_DETAIL_KINDS = new Set(['scene', 'resource', 'image', 'video', 'tts', 'platform', 'segment']);
+
+function _isProgressParamValue(value, depth = 0) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return Number.isFinite(value) || typeof value !== 'number';
+  }
+  if (depth >= 2 || !_isPlainObject(value)) return false;
+  return Object.values(value).every((item) => _isProgressParamValue(item, depth + 1));
+}
+
+function _normalizeProgressLocalization(update, key, paramsKey) {
+  if (update[key] === undefined || update[key] === null) return null;
+  if (typeof update[key] !== 'string' || !update[key].trim() || !update[key].startsWith('stageProgress.')) return false;
+  const params = update[paramsKey];
+  if (params === undefined || params === null) return { key: update[key].trim() };
+  if (!_isPlainObject(params) || !_isProgressParamValue(params)) return false;
+  return { key: update[key].trim(), params: { ...params } };
 }
 
 /**
@@ -83,9 +104,10 @@ function _normalizeComposeProgressForContext(update) {
  * - message 为非空字符串且 ≤80 字符（用户可见进行中文案，内部生成、纯文本插值）；
  * - summary（可选）为非空字符串且 ≤80 字符（完成态摘要）；
  * - detail（可选）为纯对象 { done, total, kind? }：done/total 为非负整数、total ≥ 1、done ≤ total。
+ * - messageKey/summaryKey（可选）必须是 stageProgress.* locale key，参数为浅层纯对象。
  * 任一约束失败返回 null，调用方应丢弃该次更新（fail-closed），不得向 renderer 下发非法值。
  * @param {object} update
- * @returns {{percent: number, message: string, detail?: {done: number, total: number, kind?: string}, summary?: string}|null}
+ * @returns {{percent: number, message: string, detail?: {done: number, total: number, kind?: string}, summary?: string, messageKey?: string, messageParams?: object, summaryKey?: string, summaryParams?: object}|null}
  */
 function normalizeStageProgress(update) {
   if (!update || typeof update !== 'object' || Array.isArray(update)) return null;
@@ -96,11 +118,22 @@ function normalizeStageProgress(update) {
   const normalizedMessage = message.trim();
   if (normalizedMessage.length > 80) return null;
   const normalized = { percent: Math.round(percent), message: normalizedMessage };
+  const messageLocalization = _normalizeProgressLocalization(update, 'messageKey', 'messageParams');
+  const summaryLocalization = _normalizeProgressLocalization(update, 'summaryKey', 'summaryParams');
+  if (messageLocalization === false || summaryLocalization === false) return null;
+  if (messageLocalization) {
+    normalized.messageKey = messageLocalization.key;
+    if (messageLocalization.params) normalized.messageParams = messageLocalization.params;
+  }
   if (update.summary !== undefined && update.summary !== null) {
     if (typeof update.summary !== 'string' || !update.summary.trim()) return null;
     const summary = update.summary.trim();
     if (summary.length > 80) return null;
     normalized.summary = summary;
+  }
+  if (summaryLocalization) {
+    normalized.summaryKey = summaryLocalization.key;
+    if (summaryLocalization.params) normalized.summaryParams = summaryLocalization.params;
   }
   if (update.detail !== undefined && update.detail !== null) {
     if (!_isPlainObject(update.detail)) return null;
@@ -109,7 +142,10 @@ function normalizeStageProgress(update) {
     if (typeof total !== 'number' || !Number.isInteger(total) || total < 1) return null;
     if (done > total) return null;
     const detail = { done, total };
-    if (typeof update.detail.kind === 'string' && update.detail.kind) detail.kind = update.detail.kind;
+    if (update.detail.kind !== undefined && update.detail.kind !== null) {
+      if (typeof update.detail.kind !== 'string' || !STAGE_PROGRESS_DETAIL_KINDS.has(update.detail.kind)) return null;
+      detail.kind = update.detail.kind;
+    }
     normalized.detail = detail;
   }
   return normalized;
@@ -310,13 +346,19 @@ class StageExecutor {
       const text = _resolveInput(stage, params, context);
       // split 阶段进行中/完成反馈（统一契约）：调用前发进行中文案，成功后发场景数摘要
       const emitSplitStarted = () => {
-        if (typeof onProgress === 'function') onProgress({ percent: 5, message: '正在分析文案…' });
+        emitStageStart(onProgress, { messageKey: 'stageProgress.splitWorking' });
       };
       const emitSplitDone = (scenesCount) => {
-        if (typeof onProgress !== 'function') return;
-        const update = { percent: 100, message: '文案分句完成' };
-        if (Number.isInteger(scenesCount) && scenesCount > 0) update.summary = '拆分为了 ' + scenesCount + ' 个场景';
-        onProgress(update);
+        if (!Number.isInteger(scenesCount) || scenesCount < 1) {
+          emitStageComplete(onProgress, { messageKey: 'stageProgress.splitComplete' });
+          return;
+        }
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.splitComplete',
+          summaryKey: 'stageProgress.splitSummary',
+          summaryParams: { count: scenesCount },
+          detail: { done: scenesCount, total: scenesCount, kind: 'scene' },
+        });
       };
       const sceneCountOf = (output) => {
         const arr = output && (Array.isArray(output.scenes) ? output.scenes : output.sentences);
@@ -366,6 +408,7 @@ class StageExecutor {
           'StageExecutor',
           'smart-sentence-splitter 不可用，Story2Video 已降级为本地场景分句: ' + output.fallbackReason,
         );
+        emitSplitDone(sceneCountOf(output));
         return { success: true, output };
       };
 
@@ -827,13 +870,11 @@ class StageExecutor {
             'PUBLISH: ' + platform + ' exception: ' + (e instanceof Error ? e.message : String(e)));
         }
         // 每平台完成后上报（成功/失败均推进计数；发布阶段不因单个平台失败而停滞反馈）
-        if (typeof onProgress === 'function') {
-          onProgress({
-            percent: Math.round(((platformIndex + 1) / platformTotal) * 100),
-            message: '正在发布到 ' + platform + ' (' + (platformIndex + 1) + '/' + platformTotal + ')',
-            detail: { done: platformIndex + 1, total: platformTotal, kind: 'platform' },
-          });
-        }
+        emitStageItem(onProgress, platformIndex + 1, platformTotal, {
+          messageKey: 'stageProgress.publishing',
+          messageParams: { platform },
+          kind: 'platform',
+        });
       }
 
       // 5. 汇总结果

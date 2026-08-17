@@ -11,6 +11,10 @@ const {
   REASONING_LLM_MAX_TOKENS,
 } = require('./videogen-stages')
 
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+
 // 本地 HTTP 视频源：generate 成功路径会真实下载（downloadToFile），不能用外网 URL
 const http = require('http')
 const __videoServer = http.createServer((_req, res) => { res.writeHead(200, { 'Content-Type': 'video/mp4' }); res.end(Buffer.from([0, 0, 0, 0])) })
@@ -212,6 +216,33 @@ describe('videogen 共享阶段执行器', () => {
         'agnes-video', 'generateVideo', expect.objectContaining({ prompt: '[opt] p1' }),
       )
       expect(captured.prompt).toBe('[opt] p1')
+    }, 20000)
+
+    it('分段进度覆盖提示词优化与视频生成且单调递增', async () => {
+      await waitForVideoUrl()
+      const ai = makeVideoAi(async (_providerId, method) => {
+        if (method === 'getVideoStatus') return { code: 0, data: { status: 'completed', videoUrl: VIDEO_URL } }
+        return { code: 0, data: { taskId: 'progress-task' } }
+      })
+      const progress = vi.fn()
+      const { get } = makePipeline(ai, null, {
+        optimizeVideoPromptsBatch: vi.fn(async (prompts) => prompts.map(p => ({ optimized_prompt: '[opt] ' + p }))),
+      })
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_progress', stage: { options: {} }, params: { text: '主题' },
+        context: { storyboard: [{ prompt: 'p1' }, { prompt: 'p2' }] }, onProgress: progress,
+      })
+      const events = progress.mock.calls.map(([event]) => event)
+      const percents = events.map(event => event.percent)
+      expect(result.success).toBe(true)
+      expect(percents.every((percent, index) => index === 0 || percent >= percents[index - 1])).toBe(true)
+      expect(events.filter(event => event.messageKey === 'stageProgress.videogenPrompt').every(event => event.percent >= 0 && event.percent <= 35)).toBe(true)
+      expect(events.filter(event => event.messageKey === 'stageProgress.videogenGenerate').every(event => event.percent >= 35 && event.percent <= 100)).toBe(true)
+      expect(events.at(-1)).toMatchObject({
+        percent: 100,
+        summaryKey: 'stageProgress.videogenSummary',
+        summaryParams: { done: 2, total: 2 },
+      })
     }, 20000)
 
     it('优化请求透传 providerId 与 model（语言路由入参）', async () => {
@@ -473,6 +504,28 @@ describe('videogen 共享阶段执行器', () => {
       })
       expect(result.success).toBe(false)
       expect(result.error).toContain('需要 context.generate/merge.videos')
+    })
+  })
+
+  describe('render 阶段（最终产物校验）', () => {
+    it('产物存在时发送开始与完成反馈', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'videogen-render-'))
+      const videoPath = path.join(tempDir, 'merged.mp4')
+      fs.writeFileSync(videoPath, 'test')
+      try {
+        const progress = vi.fn()
+        const { get } = makePipeline(makeAi('x'))
+        const result = await get(VIDEOGEN_STAGE_TYPES.RENDER)({
+          context: { merge: { videoPath } }, onProgress: progress,
+        })
+        expect(result.success).toBe(true)
+        expect(progress.mock.calls.map(([event]) => event)).toEqual([
+          expect.objectContaining({ percent: 0, messageKey: 'stageProgress.videogenRender' }),
+          expect.objectContaining({ percent: 100, messageKey: 'stageProgress.videogenRenderComplete', summaryKey: 'stageProgress.videogenRenderSummary' }),
+        ])
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true })
+      }
     })
   })
 

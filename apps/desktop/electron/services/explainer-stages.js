@@ -15,6 +15,8 @@
 
 'use strict'
 
+const { emitStageStart, emitStageComplete } = require('./stage-progress')
+
 const EXPLAINER_STAGE_TYPES = {
   RESEARCH: 'explainer_research',
   PROPOSAL: 'explainer_proposal',
@@ -244,9 +246,12 @@ function registerExplainerStages (pipelineEngine) {
       }
       const { system, user } = buildResearchPrompt(topic, stage.options || {})
       try {
-        if (typeof onProgress === 'function') onProgress({ percent: 10, message: '正在生成解说大纲…' })
+        emitStageStart(onProgress, { messageKey: 'stageProgress.explainerResearch' })
         const outline = await callDefaultLlm(aiGenerator, system, user)
-        if (typeof onProgress === 'function') onProgress({ percent: 100, message: '解说大纲生成完成' })
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.explainerResearchComplete',
+          summaryKey: 'stageProgress.explainerResearchSummary',
+        })
         return { success: true, output: outline }
       } catch (error) {
         return { success: false, error: 'research 失败：' + (error && error.message ? error.message : String(error)) }
@@ -271,9 +276,12 @@ function registerExplainerStages (pipelineEngine) {
       }
       const { system, user } = buildProposalPrompt(outline, stage.options || {})
       try {
-        if (typeof onProgress === 'function') onProgress({ percent: 10, message: '正在生成分镜方案…' })
+        emitStageStart(onProgress, { messageKey: 'stageProgress.explainerProposal' })
         const plan = await callDefaultLlm(aiGenerator, system, user)
-        if (typeof onProgress === 'function') onProgress({ percent: 100, message: '分镜方案生成完成' })
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.explainerProposalComplete',
+          summaryKey: 'stageProgress.explainerProposalSummary',
+        })
         return { success: true, output: plan }
       } catch (error) {
         return { success: false, error: 'proposal 失败：' + (error && error.message ? error.message : String(error)) }
@@ -298,9 +306,12 @@ function registerExplainerStages (pipelineEngine) {
       }
       const { system, user } = buildScriptPrompt(plan, stage.options || {})
       try {
-        if (typeof onProgress === 'function') onProgress({ percent: 10, message: '正在生成旁白文案…' })
+        emitStageStart(onProgress, { messageKey: 'stageProgress.explainerScript' })
         const script = await callDefaultLlm(aiGenerator, system, user)
-        if (typeof onProgress === 'function') onProgress({ percent: 100, message: '旁白文案生成完成' })
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.explainerScriptComplete',
+          summaryKey: 'stageProgress.explainerScriptSummary',
+        })
         return { success: true, output: script }
       } catch (error) {
         return { success: false, error: 'script 失败：' + (error && error.message ? error.message : String(error)) }
@@ -325,7 +336,7 @@ function registerExplainerStages (pipelineEngine) {
       }
       const { system, user } = buildScenesPrompt(script, stage.options || {})
       try {
-        if (typeof onProgress === 'function') onProgress({ percent: 10, message: '正在拆分视频场景…' })
+        emitStageStart(onProgress, { messageKey: 'stageProgress.explainerScenes' })
         const raw = await callDefaultLlm(aiGenerator, system, user)
         let scenes = normalizeScenes(parseScenesJson(raw), script)
         if (!scenes) {
@@ -354,6 +365,12 @@ function registerExplainerStages (pipelineEngine) {
             error: 'scenes 阶段无法解析场景：' + snippet,
           }
         }
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.explainerScenesComplete',
+          summaryKey: 'stageProgress.explainerScenesSummary',
+          summaryParams: { count: scenes.length },
+          detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+        })
         return { success: true, output: scenes }
       } catch (error) {
         return { success: false, error: 'scenes 失败：' + (error && error.message ? error.message : String(error)) }
@@ -367,7 +384,7 @@ function registerExplainerStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     EXPLAINER_STAGE_TYPES.GENERATE_ASSETS,
-    async ({ runId, stage, params, context }) => {
+    async ({ runId, stage, params, context, onProgress }) => {
       const scenes = Array.isArray(context.scenes) ? context.scenes : []
       if (scenes.length === 0) {
         return { success: false, error: 'animated-explainer generate_assets 需要 context.scenes' }
@@ -399,6 +416,7 @@ function registerExplainerStages (pipelineEngine) {
         stage: { name: 'assets', type: 'story2video_generate_assets', options: innerOptions },
         params,
         context: adaptedContext,
+        onProgress,
       })
       if (!inner.success) {
         log.warn('ExplainerStages', 'generate_assets reuse failed: ' + inner.error)

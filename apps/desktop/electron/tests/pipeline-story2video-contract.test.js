@@ -666,7 +666,7 @@ describe('阶段级进行中信息契约（stage.progress）', () => {
     expect(snapshot.context.stage_progress).toEqual(snapshot.stages[0].progress)
   })
 
-  it('非法/降序进度被拒绝（fail-closed + percent 单调不降）', async () => {
+  it('非法/降序进度被拒绝，并为成功阶段补完成事件', async () => {
     const { engine } = createEngine()
     engine.registerStageExecutor('contract_progress_bad', async ({ onProgress }) => {
       onProgress({ percent: 50, message: '合法进度' })
@@ -687,8 +687,11 @@ describe('阶段级进行中信息契约（stage.progress）', () => {
     expect(started.success).toBe(true)
     await engine.executeStage(started.runId)
     const snapshot = engine.getRunSnapshot(started.runId)
-    expect(snapshot.stages[0].progress.percent).toBe(90)
-    expect(snapshot.stages[0].progress.message).toBe('最终合法值')
+    expect(snapshot.stages[0].progress).toMatchObject({
+      percent: 100,
+      messageKey: 'stageProgress.stageComplete',
+      summaryKey: 'stageProgress.stageSummary',
+    })
   })
 
   it('_calcProgress 阶段数占比 + 当前阶段 percent 加权', () => {
@@ -714,27 +717,28 @@ describe('阶段级进行中信息契约（stage.progress）', () => {
     expect(engine._calcProgress(run)).toBe(67)
   })
 
-  it('无 onProgress 的执行器不产生 stage.progress（additive 不回归）', async () => {
-    const { engine, serviceBus } = createEngine()
+  it('成功但未自行上报的执行器仍获得可本地化生命周期进度', async () => {
+    const { engine } = createEngine()
+    engine.registerStageExecutor('contract_no_progress', async () => ({ success: true, output: { ok: true } }))
     engine.registerPipeline({
       name: 'contract-no-progress',
       description: 'c',
-      stages: ['split', 'compose'],
-      stageDefs: [
-        { name: 'split', type: 'split' },
-        { name: 'compose', type: 'compose' },
-      ],
+      stages: ['custom'],
+      stageDefs: [{ name: 'custom', type: 'contract_no_progress' }],
     })
     const started = await engine.startOrchestrated('contract-no-progress', {
       autoAdvance: false,
-      initialContext: { text: '第一句。第二句。' },
     })
     expect(started.success).toBe(true)
     await engine.executeStage(started.runId)
     const snapshot = engine.getRunSnapshot(started.runId)
-    expect(snapshot.stages[0].progress).toBeNull()
-    expect(snapshot.stages[0].summary).toBeNull()
-    expect(snapshot.context.stage_progress).toBeUndefined()
+    expect(snapshot.stages[0].progress).toMatchObject({
+      percent: 100,
+      messageKey: 'stageProgress.stageComplete',
+      summaryKey: 'stageProgress.stageSummary',
+    })
+    expect(snapshot.stages[0].summary).toBe('Stage complete.')
+    expect(snapshot.context.stage_progress).toEqual(snapshot.stages[0].progress)
   })
 })
 

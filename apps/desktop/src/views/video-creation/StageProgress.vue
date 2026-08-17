@@ -123,11 +123,16 @@ export default {
     
     stageDetailText(stage, index) {
       if (!stage) return ''
-      // 统一契约（优先）：完成态摘要 → 进行中信息 message → 旧快照降级
-      const hasSummary = typeof stage.summary === 'string' && stage.summary
-      const hasMessage = Boolean(stage.progress && typeof stage.progress.message === 'string' && stage.progress.message)
-      if (stage.status === 'completed' && hasSummary) return stage.summary
-      if (hasMessage) return stage.progress.message
+      // 统一契约（优先）：结构化本地化摘要/进行中信息 → 旧 raw 文案 → 旧快照降级
+      const progress = stage.progress && typeof stage.progress === 'object' ? stage.progress : null
+      if (stage.status === 'completed') {
+        const localizedSummary = this.translateProgress(progress, 'summaryKey', 'summaryParams')
+        if (localizedSummary) return localizedSummary
+        if (typeof stage.summary === 'string' && stage.summary) return stage.summary
+      }
+      const localizedMessage = this.translateProgress(progress, 'messageKey', 'messageParams')
+      if (localizedMessage) return localizedMessage
+      if (progress && typeof progress.message === 'string' && progress.message) return progress.message
       if (!this.orchestrationContext) return this.stageTimeDetailText(stage, index)
       const ctx = this.orchestrationContext
       if (stage.name === 'split' && stage.status === 'completed') {
@@ -159,6 +164,11 @@ export default {
         }
       }
       return ''
+    },
+    translateProgress(progress, keyField, paramsField) {
+      if (!progress || typeof progress[keyField] !== 'string' || !progress[keyField]) return ''
+      const translated = this.$t?.(progress[keyField], progress[paramsField] || {})
+      return typeof translated === 'string' && translated !== progress[keyField] ? translated : ''
     },
     stageStatusLabel(stage, index) {
       if (!stage || !stage.status) return this.$t('stageProgress.statusPending')
