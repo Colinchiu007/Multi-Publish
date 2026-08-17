@@ -1262,6 +1262,47 @@ describe("ResultView", () => {
     w.unmount();
   });
 
+  it("流水线 TTS 失败后重新生成保留具体错误分类（端到端）", async () => {
+    const mocks = await import("@/api/publisher");
+    
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{
+      id: "s1", text: "你好世界", status: "failed",
+      error: "Asset scene generation failed: 0/1 scenes have both image and audio. TTS #0: TTS provider failed: insufficient balance",
+    }];
+    await nextTick();
+    
+    const reason = w.vm.segmentStatusReason(w.vm.segments[0]);
+    expect(reason).toContain("额度");
+    
+    mocks.story2videoRegenerateSceneAudio.mockRejectedValue(
+      new Error("TTS provider failed: insufficient balance")
+    );
+    await w.vm.regenerateSceneAudio("s1");
+    await nextTick();
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.quota_exceeded");
+    w.unmount();
+
+    const w2 = await createView();
+    w2.vm.projectId = "p2";
+    w2.vm.segments = [{
+      id: "s1", text: "测试", status: "failed",
+      error: "Asset scene generation failed: 0/1 scenes have both image and audio. TTS #0: voice id wrong",
+    }];
+    await nextTick();
+    const reason2 = w2.vm.segmentStatusReason(w2.vm.segments[0]);
+    expect(reason2).toContain("音色");
+    
+    mocks.story2videoRegenerateSceneAudio.mockRejectedValue(
+      new Error("TTS provider failed: voice id wrong")
+    );
+    await w2.vm.regenerateSceneAudio("s1");
+    await nextTick();
+    expect(w2.vm.story2videoNotificationDialog.messageKey).toBe("story2video.voice_invalid");
+    w2.unmount();
+  });
+
   describe("未保存修改可见性与离开守卫（2026-08-16）", () => {
     // 经 router-view 真实挂载，确保 vue-router 能调用组件实例的 beforeRouteLeave
     async function createGuardHarness() {
