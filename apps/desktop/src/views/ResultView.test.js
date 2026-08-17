@@ -1217,6 +1217,51 @@ describe("ResultView", () => {
     w.unmount();
   });
 
+  it("重新生成旁白失败时保留供应商额度错误分类", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateSceneAudio.mockRejectedValue(new Error("TTS provider failed: insufficient balance"));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", text: "旁白", status: "completed" }];
+    await nextTick();
+
+    await w.vm.regenerateSceneAudio("s1");
+    await nextTick();
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.quota_exceeded");
+    w.unmount();
+  });
+
+  it("重新生成旁白失败时保留音色失效分类", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateSceneAudio.mockRejectedValue(new Error("TTS provider failed: voice id wrong"));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", text: "旁白", status: "completed" }];
+    await nextTick();
+
+    await w.vm.regenerateSceneAudio("s1");
+    await nextTick();
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.voice_invalid");
+    w.unmount();
+  });
+
+  it("重新生成旁白失败时对未知错误回退到场景失败提示", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateSceneAudio.mockRejectedValue(new Error("TTS provider temporarily unavailable"));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", text: "旁白", status: "completed" }];
+    await nextTick();
+
+    await w.vm.regenerateSceneAudio("s1");
+    await nextTick();
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_audio_regenerate_failed");
+    w.unmount();
+  });
+
   describe("未保存修改可见性与离开守卫（2026-08-16）", () => {
     // 经 router-view 真实挂载，确保 vue-router 能调用组件实例的 beforeRouteLeave
     async function createGuardHarness() {

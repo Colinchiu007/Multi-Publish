@@ -372,7 +372,11 @@ export function historyLoadFailureDetail (message, locale = getStory2VideoLocale
 
 export function resolveStory2VideoNotification (notification = {}, options = {}) {
   const normalizedLocale = normalizeStory2VideoLocale(options.locale || getStory2VideoLocale())
-  const key = resolveMessageKey(notification, STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED)
+  const suppliedFallbackKey = options.fallbackKey || notification?.fallbackKey
+  const fallbackKey = isKnownMessageKey(suppliedFallbackKey)
+    ? suppliedFallbackKey
+    : STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED
+  const key = resolveMessageKey(notification, fallbackKey)
   const rawError = String(notification?.error || notification?.message || '')
   const params = normalizeParams(notification?.messageParams || notification?.errorParams, normalizedLocale, key, rawError)
   return { key, params, message: messageFor(key, params, normalizedLocale) }
