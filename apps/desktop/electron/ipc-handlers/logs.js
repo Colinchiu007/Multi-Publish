@@ -10,6 +10,7 @@
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { log } = deps
+  const feedback = require('../services/feedback')
 
   ipcMain.handle('logs:info', () => {
     try {
@@ -36,6 +37,24 @@ function registerHandlers(ipcMain, deps) {
       return { code: 0, data: true }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
+    }
+  })
+
+  ipcMain.handle('feedback:submit', async (_event, payload) => {
+    try {
+      const data = payload && typeof payload === 'object' ? payload : {}
+      const appVersion = deps.app && typeof deps.app.getVersion === 'function' ? deps.app.getVersion() : ''
+      return await feedback.submitFeedback({
+        opsCenterSync: deps.opsCenterSync,
+        log,
+        loggerModule: log,
+        message: data.message,
+        includeLogs: data.includeLogs === true,
+        appVersion,
+        platform: process.platform,
+      })
+    } catch (e) {
+      return { code: EC.REQUEST_ERROR, message: '反馈提交失败，请稍后重试' }
     }
   })
 }

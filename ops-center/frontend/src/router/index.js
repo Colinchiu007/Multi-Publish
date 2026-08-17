@@ -173,6 +173,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/feedback',
+    name: 'UserFeedback',
+    component: () => import('../views/UserFeedback.vue'),
+    meta: { requiresAuth: true, adminOnly: true },
+  },
+  {
     path: '/prompt-eval-workbench',
     name: 'PromptEvalWorkbench',
     component: () => import('../views/PromptEvalWorkbench.vue'),

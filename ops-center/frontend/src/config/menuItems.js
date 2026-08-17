@@ -1,7 +1,7 @@
 import {
   Bell, Camera, Connection, Cpu, DataAnalysis, DataLine, Document, FolderOpened,
   Grid, HomeFilled, Key, Lock, MagicStick, Monitor, Operation, Postcard, Refresh,
-  Search, Setting, Switch, SwitchButton, Tickets, Timer, TrendCharts,
+  Search, ChatDotRound, Setting, Switch, SwitchButton, Tickets, Timer, TrendCharts,
 } from '@element-plus/icons-vue'
 
 export const MENU_ITEMS = [
@@ -31,6 +31,7 @@ export const MENU_ITEMS = [
   { path: '/env', label: '环境变量', icon: Monitor },
   { path: '/projects', label: '项目配置', icon: FolderOpened },
   { path: '/audit-log', label: '审计日志', icon: Document },
+  { path: '/feedback', label: '用户反馈', icon: ChatDotRound, adminOnly: true },
   { path: '/prompt-eval-workbench', label: '提示词评测', icon: MagicStick },
   { path: '/model-keys', label: '模型密钥', icon: Key, adminOnly: true },
   { path: '/settings', label: '设置', icon: Setting },
