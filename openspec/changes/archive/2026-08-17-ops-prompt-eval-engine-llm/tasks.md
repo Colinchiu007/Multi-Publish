@@ -21,6 +21,6 @@
 ## 4. 验证与交付
 
 - [x] 4.1 cd ops-center/backend && pytest tests/test_prompt_eval_engine_dual.py -q（28 passed）
-- [ ] 4.2 cd ops-center/backend && pytest -q（297 passed，5 个既有/环境隔离失败，见交付记录）
+- [x] 4.2 cd ops-center/backend && pytest -q（已执行：297 passed，5 个既有/环境隔离失败，见交付记录）
 - [x] 4.3 运行 OpenSpec change 状态校验（本 change 4/4 工件完成；全库 validate 受其他 active change 失败影响）
-- [ ] 4.4 完成质量节拍审查、提交 PR，核对 CI/合并状态后归档 OpenSpec 与 CCG task
+- [x] 4.4 完成质量节拍审查、提交 PR，核对 CI/合并状态后归档 OpenSpec 与 CCG task
