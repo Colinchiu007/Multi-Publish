@@ -42,7 +42,7 @@
         </el-menu-item>
         <el-menu-item index="/diagnostics">
           <el-icon><DataAnalysis /></el-icon>
-          <span>创作诊断</span>
+          <span>调用失败警告</span>
         </el-menu-item>
         <el-menu-item index="/publish-dashboard">
           <el-icon><TrendCharts /></el-icon>
