@@ -33,6 +33,11 @@ const tStub = (key, params = {}) => {
     "stageProgress.timeGuidanceRef3min": getAppLocale() === "en" ? "3-minute video: 15–20 min" : "3 分钟视频：合成时长 15–20 分钟",
     "stageProgress.timeGuidanceRef6min": getAppLocale() === "en" ? "6-minute video: 35–45 min" : "6 分钟视频：合成时长 35–45 分钟",
     "stageProgress.timeGuidanceNote": getAppLocale() === "en" ? "The above composition times are all within the normal range." : "以上合成时长均属正常范围。",
+    "stageProgress.assetsImage": "正在生成图片 · {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal}",
+    "stageProgress.assetsSummary": "已生成 {done}/{total} 项素材",
+    "stageProgress.stageWorking": "正在处理…",
+    "stageProgress.stageComplete": "阶段处理完成",
+    "stageProgress.stageSummary": "阶段已完成",
   };
   const template = map[key] || key;
   return Object.keys(params).reduce((s, k) => s.replace(`{${k}}`, String(params[k])), template);
@@ -136,6 +141,51 @@ describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline
     });
     const item = w.find('[data-testid="story2video-stage-split"]');
     expect(item.find(".stage-detail").text()).toBe("拆分为了 12 个场景");
+    w.unmount();
+  });
+
+  it("结构化本地化 key 优先于 raw message，并在 key 缺失时回退 raw", () => {
+    const localized = mountWith({
+      stages: [makeStage({
+        name: "generate_assets",
+        status: "running",
+        progress: {
+          percent: 50,
+          message: "raw fallback",
+          messageKey: "stageProgress.assetsImage",
+          messageParams: { images: 2, imagesTotal: 4, videos: 0, videosTotal: 0, tts: 1, ttsTotal: 4 },
+        },
+      })],
+    });
+    expect(localized.find(".stage-detail").text()).toContain("正在生成图片 · 2/4");
+    localized.unmount();
+
+    const fallback = mountWith({
+      stages: [makeStage({
+        name: "generate_assets",
+        status: "running",
+        progress: { percent: 50, message: "raw fallback", messageKey: "stageProgress.missing" },
+      })],
+    });
+    expect(fallback.find(".stage-detail").text()).toBe("raw fallback");
+    fallback.unmount();
+  });
+
+  it("完成态结构化 summary key 优先于旧 summary", () => {
+    const w = mountWith({
+      stages: [makeStage({
+        name: "generate_assets",
+        status: "completed",
+        summary: "old summary",
+        progress: {
+          percent: 100,
+          message: "old message",
+          summaryKey: "stageProgress.assetsSummary",
+          summaryParams: { done: 8, total: 8 },
+        },
+      })],
+    });
+    expect(w.find(".stage-detail").text()).toBe("已生成 8/8 项素材");
     w.unmount();
   });
 

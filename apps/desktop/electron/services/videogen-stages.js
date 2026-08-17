@@ -27,6 +27,7 @@ const { findFfmpeg } = require('./media-tool-paths')
 const { mapWithModelBudget, withModelBudget } = require('./model-call-scheduler')
 const { segmentScript } = require('./video-script-segmentation')
 const { extractKeyEntities, checkSceneAlignment, assessVisualConsistency } = require('./video-content-alignment')
+const { emitStageProgress, emitStageStart, emitStageItem, emitStageComplete } = require('./stage-progress')
 
 const VIDEOGEN_STAGE_TYPES = {
   CONCEPT: 'videogen_concept',
@@ -427,7 +428,8 @@ function registerVideoGenStages (pipelineEngine) {
   // CONCEPT - 主题 → 创意概念/角色设定（video-content-fidelity：双模式 + 事实/实体提取）
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.CONCEPT,
-    async ({ stage, params }) => {
+    async ({ stage, params, onProgress }) => {
+      emitStageStart(onProgress, { messageKey: 'stageProgress.videogenConcept' })
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       const topic = typeof params.text === 'string' ? params.text.trim() : ''
@@ -453,6 +455,7 @@ function registerVideoGenStages (pipelineEngine) {
           }
           concept.mode = concept.mode || modeInfo.mode
         }
+        emitStageComplete(onProgress, { messageKey: 'stageProgress.videogenConceptComplete', summaryKey: 'stageProgress.videogenConceptSummary' })
         return { success: true, output: { concept, topic, storyboardMode: modeInfo.mode, modeReason: modeInfo.reason } }
       } catch (error) {
         return { success: false, error: 'concept 失败：' + (error && error.message ? error.message : String(error)) }
@@ -465,7 +468,8 @@ function registerVideoGenStages (pipelineEngine) {
   // AVATAR - 数字人选择校验 + 口播文案（avatar-spokesperson）
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.AVATAR,
-    async ({ stage, params, context }) => {
+    async ({ stage, params, context, onProgress }) => {
+      emitStageStart(onProgress, { messageKey: 'stageProgress.videogenAvatar' })
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       const topic = typeof params.text === 'string' ? params.text.trim() : ''
@@ -474,6 +478,7 @@ function registerVideoGenStages (pipelineEngine) {
       const { system, user } = buildScriptPrompt(topic, 'avatar-spokesperson')
       try {
         const script = await callDefaultLlm(aiGenerator, system, user)
+        emitStageComplete(onProgress, { messageKey: 'stageProgress.videogenAvatarComplete', summaryKey: 'stageProgress.videogenAvatarSummary' })
         return { success: true, output: { script, avatarId, topic } }
       } catch (error) {
         return { success: false, error: 'avatar 阶段失败：' + (error && error.message ? error.message : String(error)) }
@@ -485,7 +490,8 @@ function registerVideoGenStages (pipelineEngine) {
   // SCRIPT - 文案（hybrid）
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.SCRIPT,
-    async ({ stage, params, context }) => {
+    async ({ stage, params, context, onProgress }) => {
+      emitStageStart(onProgress, { messageKey: 'stageProgress.videogenScript' })
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       const topic = typeof params.text === 'string' ? params.text.trim() : ''
@@ -493,6 +499,7 @@ function registerVideoGenStages (pipelineEngine) {
       const { system, user } = buildScriptPrompt(topic, 'hybrid')
       try {
         const script = await callDefaultLlm(aiGenerator, system, user)
+        emitStageComplete(onProgress, { messageKey: 'stageProgress.videogenScriptComplete', summaryKey: 'stageProgress.videogenScriptSummary' })
         return { success: true, output: script }
       } catch (error) {
         return { success: false, error: 'script 失败：' + (error && error.message ? error.message : String(error)) }
@@ -504,7 +511,8 @@ function registerVideoGenStages (pipelineEngine) {
   // STORYBOARD - 概念 → 分镜场景数组（video-content-fidelity：段落化 + 保真注入 + 对齐门禁）
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.STORYBOARD,
-    async ({ stage, context }) => {
+    async ({ stage, context, onProgress }) => {
+      emitStageStart(onProgress, { messageKey: 'stageProgress.videogenStoryboard' })
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       const concept = resolveVideogenConcept(context)
@@ -640,6 +648,11 @@ function registerVideoGenStages (pipelineEngine) {
       try {
         context.videoContentFidelity = { ...report, truncated: false }
       } catch (_) { /* 上下文不可写时忽略 */ }
+      emitStageComplete(onProgress, {
+        messageKey: 'stageProgress.videogenStoryboardComplete',
+        summaryKey: 'stageProgress.videogenStoryboardSummary',
+        summaryParams: { count: scenes.length },
+      })
       return { success: true, output: scenes }
     },
   )
@@ -649,7 +662,8 @@ function registerVideoGenStages (pipelineEngine) {
   // GENERATE - 视频生成（provider 门控）
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.GENERATE,
-    async ({ runId, stage, params, context, serviceBus }) => {
+    async ({ runId, stage, params, context, serviceBus, onProgress }) => {
+      emitStageStart(onProgress, { messageKey: 'stageProgress.videogenGenerateStart' })
       const scenes = resolveVideogenScenes(context) || []
       const prompts = scenes.length > 0 ? scenes.map(s => s.prompt) : [params.text || '']
       if (!prompts[0]) return { success: false, error: '该流水线 generate 需要场景提示词或主题' }
@@ -697,6 +711,12 @@ function registerVideoGenStages (pipelineEngine) {
               }
             }
             optResults.push(...part)
+            emitStageItem(onProgress, Math.min(start + chunk.length, prompts.length), prompts.length, {
+              messageKey: 'stageProgress.videogenPrompt',
+              kind: 'scene',
+              percentStart: 0,
+              percentEnd: 35,
+            })
           }
           if (optResults.length !== prompts.length) {
             return {
@@ -812,6 +832,16 @@ function registerVideoGenStages (pipelineEngine) {
         },
       })
       const videos = videoResults.filter(Boolean)
+      let generatedCount = 0
+      for (const result of videos) {
+        generatedCount += 1
+        emitStageItem(onProgress, generatedCount, prompts.length, {
+          messageKey: 'stageProgress.videogenGenerate',
+          kind: 'video',
+          percentStart: 35,
+          percentEnd: 100,
+        })
+      }
       const ok = videos.filter(v => v.success)
       if (ok.length === 0) {
         return { success: false, error: '该流水线视频生成全部失败：' + videos.map(v => v.error).join('；') }
@@ -825,6 +855,11 @@ function registerVideoGenStages (pipelineEngine) {
           }
         }
       } catch (_) { /* 上下文不可写时忽略 */ }
+      emitStageComplete(onProgress, {
+        messageKey: 'stageProgress.videogenGenerateComplete',
+        summaryKey: ok.length === prompts.length ? 'stageProgress.videogenSummary' : 'stageProgress.videogenPartialSummary',
+        summaryParams: { done: ok.length, total: prompts.length },
+      })
       return { success: true, output: { videos: ok, scenes } }
     },
   )
@@ -833,7 +868,7 @@ function registerVideoGenStages (pipelineEngine) {
   // MERGE - FFmpeg 拼接场景视频
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.MERGE,
-    async ({ runId, context }) => {
+    async ({ runId, context, onProgress }) => {
       // 生成阶段的输出按 stage.name 写入 context（animation/character-animation=animate，
       // avatar-spokesperson=generate，hybrid=merge），merge 必须兼容全部候选键
       const videos = (['generate', 'merge', 'animate']
@@ -845,11 +880,20 @@ function registerVideoGenStages (pipelineEngine) {
       const runDir = getRunDir(runId)
       fs.mkdirSync(runDir, { recursive: true })
       try {
+        emitStageStart(onProgress, {
+          messageKey: 'stageProgress.videogenMerge',
+          message: 'Merging generated videos…',
+        })
         const concatFile = path.join(runDir, 'concat-list.txt')
         const lines = videos.map(v => "file '" + String(v.path).replace(/'/g, "'\\''") + "'")
         fs.writeFileSync(concatFile, lines.join('\n'), 'utf8')
         const merged = path.join(runDir, 'merged.mp4')
         await runTool(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', concatFile, '-c', 'copy', merged])
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.videogenMergeComplete',
+          summaryKey: 'stageProgress.videogenMergeSummary',
+          detail: { done: 1, total: 1, kind: 'video' },
+        })
         return { success: true, output: { videoPath: merged } }
       } catch (error) {
         return { success: false, error: 'merge 失败：' + (error && error.message ? error.message : String(error)) }
@@ -861,12 +905,18 @@ function registerVideoGenStages (pipelineEngine) {
   // RENDER - 最终产物校验
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.RENDER,
-    async ({ context }) => {
+    async ({ context, onProgress }) => {
+      emitStageStart(onProgress, { messageKey: 'stageProgress.videogenRender' })
       const merged = context.merge
       const videoPath = merged && (merged.videoPath || (merged.data && merged.data.videoPath))
       if (!videoPath || !fs.existsSync(videoPath)) {
         return { success: false, error: '该流水线 render 未找到合成产物（context.merge.videoPath）' }
       }
+      emitStageComplete(onProgress, {
+        messageKey: 'stageProgress.videogenRenderComplete',
+        summaryKey: 'stageProgress.videogenRenderSummary',
+        detail: { done: 1, total: 1, kind: 'video' },
+      })
       return { success: true, output: { videoPath } }
     },
   )

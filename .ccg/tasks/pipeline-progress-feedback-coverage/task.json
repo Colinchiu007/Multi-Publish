@@ -1,0 +1,12 @@
+{
+  "id": "pipeline-progress-feedback-coverage",
+  "title": "补齐视频流水线阶段进行中反馈与本地化",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "frontend-electron",
+  "currentPhase": "implementation",
+  "nextAction": "提交分支、同步 origin/main 并建立 PR",
+  "openspecChange": "pipeline-progress-feedback-coverage",
+  "branch": "codex/pipeline-progress-feedback-v2"
+}

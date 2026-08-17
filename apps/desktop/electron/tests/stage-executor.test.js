@@ -76,6 +76,27 @@ it('SPLIT 阶段调用 serviceBus.splitText', async function () {
   expect(bus.splitText).toHaveBeenCalledOnce();
 });
 
+it('SPLIT 阶段使用结构化 key 上报开始与完成摘要', async function () {
+  const bus = makeMockServiceBus();
+  const progress = vi.fn();
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'split-progress',
+    stage: { name: 'split', type: STAGE_TYPES.SPLIT, inputFrom: 'input' },
+    params: {},
+    context: { input: '第一句。第二句！' },
+    onProgress: progress,
+  });
+  expect(result.success).toBe(true);
+  expect(progress.mock.calls[0][0]).toMatchObject({ percent: 0, messageKey: 'stageProgress.splitWorking' });
+  expect(progress.mock.calls.at(-1)[0]).toMatchObject({
+    percent: 100,
+    summaryKey: 'stageProgress.splitSummary',
+    summaryParams: { count: 2 },
+    detail: { done: 2, total: 2, kind: 'scene' },
+  });
+});
+
 it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块', async function () {
   const bus = makeMockServiceBus({
     splitText: vi.fn(async () => ({
@@ -1417,6 +1438,36 @@ describe('normalizeStageProgress 统一校验', () => {
       detail: { done: 3, total: 10, kind: 'image' },
       summary: '共 10 张图片',
     });
+  });
+
+  it('结构化本地化字段通过校验并保留参数', () => {
+    expect(normalizeStageProgress({
+      percent: 42,
+      message: 'Working…',
+      messageKey: 'stageProgress.assetsImage',
+      messageParams: { images: 2, imagesTotal: 4, nested: { ok: true } },
+      summary: 'Assets ready',
+      summaryKey: 'stageProgress.assetsSummary',
+      summaryParams: { done: 8, total: 8 },
+      detail: { done: 2, total: 4, kind: 'resource' },
+    })).toMatchObject({
+      messageKey: 'stageProgress.assetsImage',
+      messageParams: { images: 2, imagesTotal: 4, nested: { ok: true } },
+      summaryKey: 'stageProgress.assetsSummary',
+      summaryParams: { done: 8, total: 8 },
+    });
+  });
+
+  it('结构化本地化字段与 detail.kind 非法时 fail closed', () => {
+    const invalid = [
+      { messageKey: 'assetsImage' },
+      { messageKey: 'stageProgress.assetsImage', messageParams: { value: [] } },
+      { summaryKey: 'stageProgress.assetsSummary', summaryParams: { value: NaN } },
+      { detail: { done: 1, total: 2, kind: 'unknown' } },
+    ];
+    for (const extra of invalid) {
+      expect(normalizeStageProgress({ percent: 20, message: 'Working…', ...extra })).toBeNull();
+    }
   });
 
   it('percent 越界/非有限/强转穿透拒绝', () => {

@@ -19,6 +19,7 @@ const os = require('os')
 const path = require('path')
 const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
 const { getAllowedMediaRoots, resolveReadableMediaFile } = require('./story2video-paths')
+const { emitStageItem, emitStageComplete } = require('./stage-progress')
 
 const LOCALIZATION_STAGE_TYPES = {
   TRANSCRIBE: 'localization_transcribe',
@@ -184,7 +185,7 @@ function registerLocalizationStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     LOCALIZATION_STAGE_TYPES.TRANSLATE,
-    async ({ stage, context }) => {
+    async ({ stage, context, onProgress }) => {
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) {
         return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
@@ -196,12 +197,14 @@ function registerLocalizationStages (pipelineEngine) {
       const targetLanguage = context.transcribe.targetLanguage || DEFAULT_TARGET_LANGUAGE
       const { system, user } = buildTranslatePrompt(segments, targetLanguage)
       try {
+        if (typeof onProgress === 'function') onProgress({ percent: 5, message: 'Translating segments…', messageKey: 'stageProgress.localizationWorking', messageParams: { done: 0, total: segments.length }, detail: { done: 0, total: segments.length, kind: 'segment' } })
         const raw = await callDefaultLlm(aiGenerator, system, user)
         const translations = parseTranslations(raw, segments.length)
         const translated = segments.map((segment, index) => ({
           ...segment,
           translatedText: translations[index] || segment.text,
         }))
+        emitStageComplete(onProgress, { messageKey: 'stageProgress.stageComplete', summaryKey: 'stageProgress.localizationSummary', summaryParams: { done: translated.length, total: segments.length } })
         return { success: true, output: { ...context.transcribe, segments: translated } }
       } catch (error) {
         return { success: false, error: 'translate 失败：' + (error && error.message ? error.message : String(error)) }
@@ -215,7 +218,7 @@ function registerLocalizationStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     LOCALIZATION_STAGE_TYPES.TTS,
-    async ({ runId, stage, params, context }) => {
+    async ({ runId, stage, params, context, onProgress }) => {
       const segments = Array.isArray(context.translate?.segments) ? context.translate.segments : []
       if (segments.length === 0) {
         return { success: false, error: 'localization-dub tts 需要 context.translate.segments' }
@@ -257,8 +260,10 @@ function registerLocalizationStages (pipelineEngine) {
             continue
           }
           results.push({ index: i, success: true, path: out, duration: result.duration || (result.data && result.data.duration) || null })
+          emitStageItem(onProgress, i + 1, segments.length, { messageKey: 'stageProgress.localizationTts', kind: 'tts' })
         } catch (error) {
           results.push({ index: i, success: false, error: (error && error.message ? error.message : String(error)) })
+          emitStageItem(onProgress, i + 1, segments.length, { messageKey: 'stageProgress.localizationTts', kind: 'tts' })
         }
       }
       const failed = results.filter(r => !r.success)
@@ -270,6 +275,7 @@ function registerLocalizationStages (pipelineEngine) {
         return { success: false, error: 'localization-dub tts 全部配音生成失败' }
       }
       const output = { ...context.translate, segments: context.translate.segments.map((s, i) => ({ ...s, audioPath: results[i]?.success ? results[i].path : null })), audioFiles }
+      emitStageComplete(onProgress, { messageKey: 'stageProgress.stageComplete', summaryKey: 'stageProgress.localizationSummary', summaryParams: { done: audioFiles.length, total: segments.length } })
       return { success: true, output }
     },
   )
@@ -280,7 +286,7 @@ function registerLocalizationStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     LOCALIZATION_STAGE_TYPES.SYNC,
-    async ({ stage, params, context }) => {
+    async ({ stage, params, context, onProgress }) => {
       const data = context.tts
       const segments = Array.isArray(data?.segments) ? data.segments : []
       const videoPath = data?.videoPath
@@ -302,9 +308,11 @@ function registerLocalizationStages (pipelineEngine) {
         fs.writeFileSync(concatFile, concatLines.join('\n'), 'utf8')
         const dubbedAudio = path.join(runDir, 'dubbed.m4a')
         await runTool(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', concatFile, '-c:a', 'aac', '-b:a', '128k', dubbedAudio])
+        if (typeof onProgress === 'function') onProgress({ percent: 60, message: 'Dubbed audio assembled.', messageKey: 'stageProgress.localizationWorking', messageParams: { done: 1, total: 2 }, detail: { done: 1, total: 2, kind: 'segment' } })
         // 把新音轨封装回原视频
         const output = path.join(runDir, 'video.mp4')
         await runTool(ffmpeg, ['-y', '-i', videoPath, '-i', dubbedAudio, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-shortest', output])
+        emitStageComplete(onProgress, { messageKey: 'stageProgress.stageComplete', summaryKey: 'stageProgress.localizationSummary', summaryParams: { done: 2, total: 2 } })
         return { success: true, output: { videoPath: output, segments, duration: data.duration } }
       } catch (error) {
         return { success: false, error: 'sync 失败：' + (error && error.message ? error.message : String(error)) }

@@ -28,6 +28,16 @@ function makePipeline() {
   return { pipeline, get, reg }
 }
 
+function makeTestVideo (outputPath) {
+  return new Promise((resolve, reject) => {
+    require('child_process').execFile('ffmpeg', [
+      '-y', '-f', 'lavfi', '-i', 'testsrc=duration=2:size=320x180:rate=24',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-shortest', outputPath,
+    ], error => (error ? reject(error) : resolve()))
+  })
+}
+
 describe('clip-factory 阶段执行器', () => {
   it('注册全部 4 个自定义阶段类型', () => {
     const { reg, get } = makePipeline()
@@ -101,6 +111,41 @@ describe('clip-factory 阶段执行器', () => {
   })
 
   describe('caption / export 阶段', () => {
+    it('extract 按片段上报明细并输出完成摘要', async () => {
+      const events = []
+      const { get } = makePipeline()
+      const outputDir = path.join(os.tmpdir(), 'story2video', 'clipfactory-progress-' + Date.now())
+      const inputPath = path.join(outputDir, 'input.mp4')
+      fs.mkdirSync(outputDir, { recursive: true })
+      await makeTestVideo(inputPath)
+      try {
+        const result = await get(CLIPFACTORY_STAGE_TYPES.EXTRACT)({
+          runId: 'progress-' + Date.now(),
+          stage: {},
+          params: {},
+          context: {
+            analyze: {
+              inputPath,
+              segments: [
+                { index: 0, start: 0, duration: 1 },
+                { index: 1, start: 1, duration: 1 },
+              ],
+            },
+          },
+          onProgress: event => events.push(event),
+        })
+        expect(result.success).toBe(true)
+        expect(events).toHaveLength(3)
+        expect(events.slice(0, 2)).toEqual([
+          expect.objectContaining({ percent: 50, messageKey: 'stageProgress.clipfactoryExtract', detail: { done: 1, total: 2, kind: 'segment' } }),
+          expect.objectContaining({ percent: 100, messageKey: 'stageProgress.clipfactoryExtract', detail: { done: 2, total: 2, kind: 'segment' } }),
+        ])
+        expect(events[2]).toMatchObject({ percent: 100, summaryKey: 'stageProgress.clipfactoryExtractSummary', summaryParams: { done: 2, total: 2 } })
+      } finally {
+        fs.rmSync(outputDir, { recursive: true, force: true })
+      }
+    })
+
     it('caption 依赖 context.extract 并生成片段标题', async () => {
       const { get } = makePipeline()
       const missing = await get(CLIPFACTORY_STAGE_TYPES.CAPTION)({

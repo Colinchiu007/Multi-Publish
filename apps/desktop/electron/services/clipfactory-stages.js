@@ -19,6 +19,7 @@ const os = require('os')
 const path = require('path')
 const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
 const { getAllowedMediaRoots, resolveReadableMediaFile } = require('./story2video-paths')
+const { emitStageItem, emitStageComplete } = require('./stage-progress')
 
 const CLIPFACTORY_STAGE_TYPES = {
   ANALYZE: 'clipfactory_analyze',
@@ -118,7 +119,7 @@ function toForwardSlashes (value) {
   return String(value || '').split(path.sep).join('/')
 }
 
-async function extractSegments (inputPath, segments, outputDir, ffmpeg) {
+async function extractSegments (inputPath, segments, outputDir, ffmpeg, onProgress) {
   fs.mkdirSync(outputDir, { recursive: true })
   const clips = []
   const listLines = []
@@ -133,6 +134,10 @@ async function extractSegments (inputPath, segments, outputDir, ffmpeg) {
     ])
     clips.push({ index: segment.index, path: clipPath, start: segment.start, duration: segment.duration })
     listLines.push("file '" + toForwardSlashes(clipPath) + "'")
+    emitStageItem(onProgress, clips.length, segments.length, {
+      messageKey: 'stageProgress.clipfactoryExtract',
+      kind: 'segment',
+    })
   }
   const concatList = path.join(outputDir, 'concat.txt')
   fs.writeFileSync(concatList, listLines.join('\n'), 'utf8')
@@ -185,7 +190,7 @@ function registerClipFactoryStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     CLIPFACTORY_STAGE_TYPES.EXTRACT,
-    async ({ runId, context }) => {
+    async ({ runId, context, onProgress }) => {
       const analysis = context.analyze
       if (!analysis || !Array.isArray(analysis.segments) || analysis.segments.length === 0) {
         return { success: false, error: 'clip-factory extract 需要 context.analyze' }
@@ -193,7 +198,12 @@ function registerClipFactoryStages (pipelineEngine) {
       const ffmpeg = findFfmpeg()
       if (!ffmpeg) return { success: false, error: 'FFmpeg 不可用，无法提取片段' }
       try {
-        const output = await extractSegments(analysis.inputPath, analysis.segments, getRunDir(runId), ffmpeg)
+        const output = await extractSegments(analysis.inputPath, analysis.segments, getRunDir(runId), ffmpeg, onProgress)
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.clipfactoryExtractComplete',
+          summaryKey: 'stageProgress.clipfactoryExtractSummary',
+          summaryParams: { done: output.clips.length, total: analysis.segments.length },
+        })
         return { success: true, output }
       } catch (error) {
         return { success: false, error: 'clip-factory extract 失败：' + (error && error.message ? error.message : String(error)) }

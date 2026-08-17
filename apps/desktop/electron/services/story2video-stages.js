@@ -756,7 +756,7 @@ async function buildManualSceneCandidates (ctx) {
     optimizedPrompts, sentences, videoSceneSet, videoConfig, videoPlan, videoGenerator,
     imageStyle, imageProvider, imageModel, aspectRatio,
     imageConcurrency, inputMode, inputImages, resolveModelProviderManager, manualMaterialMode,
-    videoConcurrency,
+    videoConcurrency, onProgress,
   } = ctx
   const promptTranslationItems = (context && context.prompt_translations && Array.isArray(context.prompt_translations.items))
     ? context.prompt_translations.items
@@ -774,11 +774,34 @@ async function buildManualSceneCandidates (ctx) {
   const videosTotal = effectiveVideoSceneSet.size
   let imagesDone = 0
   let videosDone = 0
-  const writeAssetsProgress = () => {
+  const writeAssetsProgress = (kind = 'resource') => {
     if (context && typeof context === 'object') {
       context.assets_progress = {
         imagesDone, imagesTotal, videosDone, videosTotal, ttsDone: 0, ttsTotal: sentences.length,
       }
+    }
+    if (typeof onProgress === 'function') {
+      const total = imagesTotal + videosTotal
+      const done = imagesDone + videosDone
+      const messageKey = kind === 'image'
+        ? 'stageProgress.assetsImage'
+        : kind === 'video'
+          ? 'stageProgress.assetsVideo'
+          : 'stageProgress.assetsStarting'
+      onProgress({
+        percent: total > 0 ? Math.round((done / total) * 100) : 0,
+        message: 'Generating visual assets…',
+        messageKey,
+        messageParams: {
+          images: imagesDone,
+          imagesTotal,
+          videos: videosDone,
+          videosTotal,
+          tts: 0,
+          ttsTotal: sentences.length,
+        },
+        detail: { done, total, kind: 'resource' },
+      })
     }
   }
   writeAssetsProgress()
@@ -825,7 +848,7 @@ async function buildManualSceneCandidates (ctx) {
           prep && prep.engine_source,
         ))
         videosDone += 1
-        writeAssetsProgress()
+        writeAssetsProgress('video')
         return { index, success: false }
       }
       const videoPromptText = prep.prompt
@@ -863,7 +886,7 @@ async function buildManualSceneCandidates (ctx) {
         ))
       }
       videosDone += 1
-      writeAssetsProgress()
+      writeAssetsProgress('video')
       return { index, success: Boolean(outcome && outcome.success) }
     })
   }
@@ -934,12 +957,12 @@ async function buildManualSceneCandidates (ctx) {
       const candidatePath = persistCandidateCopy(normalized.path, runId, index, seq, 'image', log)
       if (!candidatePath) return { success: false, index, error: '候选图片落盘失败' }
       imagesDone += 1
-      writeAssetsProgress()
+      writeAssetsProgress('image')
       return { success: true, index, path: candidatePath, seq, meta: normalized.meta }
     }
     const contentPolicyCheckpoint = getContentPolicyCheckpoint(result, index)
     imagesDone += 1
-    writeAssetsProgress()
+    writeAssetsProgress('image')
     return {
       success: false,
       index,
@@ -1053,6 +1076,19 @@ async function buildManualSceneCandidates (ctx) {
     },
   }
   if (context && typeof context === 'object') context.generate_assets = assetManifest
+
+  if (typeof onProgress === 'function') {
+    onProgress({
+      percent: 100,
+      message: 'Visual candidates are ready.',
+      messageKey: 'stageProgress.manualCandidatesComplete',
+      messageParams: { scenes: sceneCount, images: imagesTotal, videos: videosTotal },
+      summary: 'Visual candidates are ready for selection.',
+      summaryKey: 'stageProgress.manualCandidatesSummary',
+      summaryParams: { scenes: sceneCount, images: imagesTotal, videos: videosTotal },
+      detail: { done: imagesTotal + videosTotal, total: imagesTotal + videosTotal, kind: 'resource' },
+    })
+  }
 
   log.info('Story2VideoStages',
     'manual candidates: ' + sceneCount + ' scenes (' + imagesTotal + ' images, ' + videosTotal + ' videos) materialMode=' + manualMaterialMode +
@@ -1697,7 +1733,13 @@ function registerStory2VideoStages(pipelineEngine) {
         : scenes.map(s => (s && (s.text || s.content)) || '').filter(Boolean).join('。');
       // 进行中反馈：读全文 + 逐场景融合阶段（LLM/规则可能耗时）
       if (typeof onProgress === 'function') {
-        onProgress({ percent: 10, message: '正在提取全局故事背景并融合进 ' + scenes.length + ' 个场景…' });
+        onProgress({
+          percent: 10,
+          message: 'Building story context…',
+          messageKey: 'stageProgress.sceneContextWorking',
+          messageParams: { total: scenes.length },
+          detail: { done: 0, total: scenes.length, kind: 'scene' },
+        });
       }
       try {
         const result = buildSceneContextResult(scenes, fullText, options);
@@ -1716,10 +1758,26 @@ function registerStory2VideoStages(pipelineEngine) {
           });
           if (result.metadata) result.metadata.seedGenerated = true;
           if (typeof onProgress === 'function') {
-            onProgress({ percent: 100, message: '场景上下文增强 + 历史内容增强完成', summary: '已增强 ' + scenes.length + ' 个场景并生成视觉种子' });
+            onProgress({
+              percent: 100,
+              message: 'Story context and historical visual seeds are ready.',
+              messageKey: 'stageProgress.sceneContextComplete',
+              summary: 'Story context and visual seeds are ready.',
+              summaryKey: 'stageProgress.sceneContextSummary',
+              summaryParams: { count: scenes.length },
+              detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+            });
           }
         } else if (typeof onProgress === 'function') {
-          onProgress({ percent: 100, message: '场景上下文增强完成', summary: '已增强 ' + scenes.length + ' 个场景的上下文' });
+          onProgress({
+            percent: 100,
+            message: 'Story context is ready.',
+            messageKey: 'stageProgress.sceneContextComplete',
+            summary: 'Story context is ready.',
+            summaryKey: 'stageProgress.sceneContextSummary',
+            summaryParams: { count: scenes.length },
+            detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+          });
         }
         // 无完整文案（图片/音频模式）：场景文本拼接推导的全局上下文较弱，显式标记 degraded 供下游/展示识别
         if (!hasFullText && result.metadata && result.metadata.enriched) {
@@ -1757,6 +1815,17 @@ function registerStory2VideoStages(pipelineEngine) {
         };
         if (context && typeof context === 'object') context.scene_context = degraded;
         pipelineEngine.log.warn('Story2VideoStages', 'scene_context 降级透传: ' + degraded.metadata.fallbackReason);
+        if (typeof onProgress === 'function') {
+          onProgress({
+            percent: 100,
+            message: 'Story context fallback is ready.',
+            messageKey: 'stageProgress.sceneContextFallbackComplete',
+            summary: 'Story context fallback is ready.',
+            summaryKey: 'stageProgress.sceneContextFallbackSummary',
+            summaryParams: { count: scenes.length },
+            detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+          });
+        }
         return { success: true, output: degraded };
       }
     },
@@ -1830,7 +1899,13 @@ function registerStory2VideoStages(pipelineEngine) {
         }
         // 进行中反馈：LLM 智能判断（可能多次重试）期间持续提示
         if (typeof onProgress === 'function') {
-          onProgress({ percent: 10, message: '正在智能判断哪些场景适合生成视频…' });
+          onProgress({
+            percent: 10,
+            message: 'Selecting scenes suitable for video generation…',
+            messageKey: 'stageProgress.videoSelectionWorking',
+            messageParams: { total: scenes.length },
+            detail: { done: 0, total: scenes.length, kind: 'scene' },
+          });
         }
         const { system, user } = buildVideoSelectionPrompt(scenes, {
           mode,
@@ -1881,9 +1956,14 @@ function registerStory2VideoStages(pipelineEngine) {
         ratio = plan.ratio
         if (typeof onProgress === 'function') {
           onProgress({
-            percent: 90,
-            message: '视频场景选择完成',
-            summary: '已选 ' + selected.length + ' 个视频场景（占 ' + ratio + '%）',
+            percent: 100,
+            message: 'Video scene selection is ready.',
+            messageKey: 'stageProgress.videoSelectionComplete',
+            messageParams: { count: selected.length, ratio },
+            summary: 'Selected ' + selected.length + ' video scenes (' + ratio + '%).',
+            summaryKey: 'stageProgress.videoSelectionSummary',
+            summaryParams: { count: selected.length, ratio },
+            detail: { done: selected.length, total: scenes.length, kind: 'scene' },
           });
         }
       }
@@ -1919,7 +1999,7 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.OPTIMIZE,
-    async ({ stage, context, serviceBus, params, runId }) => {
+    async ({ stage, context, serviceBus, params, runId, onProgress }) => {
       if (!serviceBus || typeof serviceBus.optimizePrompt !== 'function') {
         return { success: false, error: 'Story2Video optimize 需要 prompt-engine 服务（PromptBridge 未注入）' };
       }
@@ -1935,13 +2015,22 @@ function registerStory2VideoStages(pipelineEngine) {
       const maxAttempts = Math.max(1, Math.min(3, Number(stage.options?.maxRetries ?? 2) + 1))
       // 断点续传：上次失败时已完成的场景结果直接复用，避免重复消耗 LLM 额度。
       const partialResume = (context && Array.isArray(context.optimize_resume)) ? context.optimize_resume : []
-      // 进度前置写入：一开始就显示「共 N 个场景，已完成 0 个」，避免整个阶段期间无数量信息
-      if (context && typeof context === 'object') {
-        context.optimize_progress = {
-          done: partialResume.filter(Boolean).length,
-          total: scenes.length,
+      const emitOptimizeProgress = (messageKey = 'stageProgress.optimizeStarting', percentOverride = null) => {
+        const done = partialResume.filter(Boolean).length
+        const percent = percentOverride === null ? Math.min(90, Math.round((done / scenes.length) * 90)) : percentOverride
+        if (context && typeof context === 'object') context.optimize_progress = { done, total: scenes.length }
+        if (typeof onProgress === 'function') {
+          onProgress({
+            percent,
+            message: 'Optimizing scene prompts…',
+            messageKey,
+            messageParams: { done, total: scenes.length },
+            detail: { done, total: scenes.length, kind: 'scene' },
+          })
         }
       }
+      // 进度前置写入：一开始就显示「共 N 个场景，已完成 0 个」，避免整个阶段期间无数量信息
+      emitOptimizeProgress()
       let output
       try {
         output = await _mapWithConcurrency(scenes, concurrency, async (scene, index) => {
@@ -1968,6 +2057,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 total: scenes.length,
               };
             }
+            emitOptimizeProgress('stageProgress.optimizeScene')
             return skippedEntry;
           }
           // 图片提示词统一走 prompt-engine：构造请求（平台/风格别名归一、自动风格检测、
@@ -2053,6 +2143,7 @@ function registerStory2VideoStages(pipelineEngine) {
                   total: scenes.length,
                 };
               }
+              emitOptimizeProgress('stageProgress.optimizeScene')
               return tooShortEntry;
             }
             throw new Error('Story2Video ' + validated.error)
@@ -2098,6 +2189,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 total: scenes.length,
               };
             }
+            emitOptimizeProgress('stageProgress.optimizeScene')
             return rejectionEntry;
           }
           const entry = {
@@ -2118,6 +2210,7 @@ function registerStory2VideoStages(pipelineEngine) {
               total: scenes.length,
             }
           }
+          emitOptimizeProgress('stageProgress.optimizeScene')
           return entry
         })
       } catch (error) {
@@ -2136,6 +2229,15 @@ function registerStory2VideoStages(pipelineEngine) {
         (params && params.uiLocale) || (stage && stage.options && stage.options.uiLocale) || '',
       ).trim().slice(0, 16)
       if (uiLocale && uiLocale !== 'en' && Array.isArray(output) && output.length > 0) {
+        if (typeof onProgress === 'function') {
+          onProgress({
+            percent: 95,
+            message: 'Translating prompt history…',
+            messageKey: 'stageProgress.optimizeTranslation',
+            messageParams: { total: output.length },
+            detail: { done: output.length, total: output.length, kind: 'scene' },
+          })
+        }
         const prompts = output.map((item) => {
           if (typeof item === 'string') return item
           return (item && (item.optimized_prompt || item.prompt)) || ''
@@ -2149,6 +2251,19 @@ function registerStory2VideoStages(pipelineEngine) {
         }
       }
 
+      if (Array.isArray(output) && typeof onProgress === 'function') {
+        onProgress({
+          percent: 100,
+          message: 'Scene prompt optimization complete.',
+          messageKey: 'stageProgress.optimizeComplete',
+          messageParams: { done: output.length, total: scenes.length },
+          summary: 'Optimized ' + output.length + '/' + scenes.length + ' scene prompts.',
+          summaryKey: 'stageProgress.optimizeSummary',
+          summaryParams: { done: output.length, total: scenes.length },
+          detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+        })
+      }
+
       return { success: true, output };
     },
   );
@@ -2159,7 +2274,7 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS,
-    async ({ runId, stage, params, context, serviceBus }) => {
+    async ({ runId, stage, params, context, serviceBus, onProgress }) => {
       const log = pipelineEngine.log;
       params = params || {};
 
@@ -2304,6 +2419,7 @@ function registerStory2VideoStages(pipelineEngine) {
           imageStyle, imageProvider: resolvedImageProvider, imageModel, aspectRatio,
           imageConcurrency, inputMode, inputImages, resolveModelProviderManager, manualMaterialMode,
           videoConcurrency,
+          onProgress,
         })
       }
 
@@ -2330,10 +2446,46 @@ function registerStory2VideoStages(pipelineEngine) {
       let imagesDone = 0;
       let videosDone = 0;
       let ttsDone = 0;
-      const videosTotal = videoSceneSet.size;
+      const videosTotal = videoGenerator ? videoSceneSet.size : 0;
       // 图片目标数：视频生成通过后，成功视频场景不再生成图片；失败回退图片的场景计入。
-      let imageTargetCount = optimizedPrompts.length - videoSceneSet.size;
-      const writeAssetsProgress = () => {
+      let imageTargetCount = optimizedPrompts.length - videosTotal;
+      const emitAssetsProgress = (kind = 'resource', final = false) => {
+         // 每个场景只占一个工作单元：视频成功或回退图片二选一；TTS 另占一个工作单元。
+         // 分母保持稳定，避免视频失败后补图时进度倒退或短暂显示 100%。
+         const resourceTotal = optimizedPrompts.length + sentences.length
+        const resourceDone = imagesDone + videosDone + ttsDone
+        if (typeof onProgress === 'function') {
+          const messageKey = final
+            ? 'stageProgress.assetsComplete'
+            : kind === 'image'
+              ? 'stageProgress.assetsImage'
+              : kind === 'video'
+                ? 'stageProgress.assetsVideo'
+                : kind === 'tts'
+                  ? 'stageProgress.assetsTts'
+                  : 'stageProgress.assetsStarting'
+          onProgress({
+            percent: final ? 100 : (resourceTotal > 0 ? Math.round((resourceDone / resourceTotal) * 100) : 0),
+            message: final ? 'All assets are ready.' : 'Generating assets…',
+            messageKey,
+            messageParams: {
+              images: imagesDone,
+              imagesTotal: imageTargetCount,
+              videos: videosDone,
+              videosTotal,
+              tts: ttsDone,
+              ttsTotal: sentences.length,
+            },
+             detail: { done: Math.min(resourceDone, resourceTotal), total: resourceTotal, kind: 'resource' },
+            ...(final ? {
+              summary: 'Generated ' + resourceDone + '/' + resourceTotal + ' assets.',
+              summaryKey: 'stageProgress.assetsSummary',
+              summaryParams: { done: resourceDone, total: resourceTotal },
+            } : {}),
+          })
+        }
+      }
+      const writeAssetsProgress = (kind = 'resource') => {
         if (context && typeof context === 'object') {
           context.assets_progress = {
             imagesDone,
@@ -2344,10 +2496,11 @@ function registerStory2VideoStages(pipelineEngine) {
             ttsTotal: sentences.length,
           };
         }
+        emitAssetsProgress(kind)
       };
-      const markImageDone = () => { imagesDone += 1; writeAssetsProgress(); };
-      const markVideoDone = () => { videosDone += 1; writeAssetsProgress(); };
-      const markTtsDone = () => { ttsDone += 1; writeAssetsProgress(); };
+      const markImageDone = () => { imagesDone += 1; writeAssetsProgress('image'); };
+      const markVideoDone = () => { videosDone += 1; writeAssetsProgress('video'); };
+      const markTtsDone = () => { ttsDone += 1; writeAssetsProgress('tts'); };
       // 进度前置写入：阶段一开始即显示「图片 0/N · 视频 0/A · 旁白 0/M」，
       // 避免首个图片/视频/TTS 完成前（如图片生成需 16-30s）前端长期无数量信息
       writeAssetsProgress();
@@ -2419,7 +2572,6 @@ function registerStory2VideoStages(pipelineEngine) {
               continuity,
               prep && prep.engine_source,
             ));
-            markVideoDone();
             return { index, success: false };
           }
           const videoPromptText = prep.prompt;
@@ -2457,7 +2609,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 prep.engine_source,
               ));
             }
-            markVideoDone();
+            if (outcome && outcome.success) markVideoDone();
             return { index, success: Boolean(outcome && outcome.success) };
           } catch (error) {
             log.warn('Story2VideoStages', 'scene ' + index + ' video generation threw: ' + (error && error.message ? error.message : String(error)) + ' → fallback to image carousel');
@@ -2466,7 +2618,6 @@ function registerStory2VideoStages(pipelineEngine) {
               prep && prep.continuity,
               prep && prep.engine_source,
             ));
-            markVideoDone();
             return { index, success: false };
           }
         });
@@ -2476,7 +2627,7 @@ function registerStory2VideoStages(pipelineEngine) {
       // 视频场景的图片由视频结果决定：视频生成成功 → 跳过图片（省额度）；失败 → 视频完成后补生成图片。
       const imageTargets = optimizedPrompts
         .map((prompt, index) => ({ prompt, index }))
-        .filter(item => !videoSceneSet.has(item.index));
+        .filter(item => !videoGenerator || !videoSceneSet.has(item.index));
       imageTargetCount = imageTargets.length;
       writeAssetsProgress();
 
@@ -2487,7 +2638,7 @@ function registerStory2VideoStages(pipelineEngine) {
           try {
             const resumed = resumeCompleted.get(index);
             if (resumed) {
-              markImageDone();
+              if (!resumed.videoPath || resumed.imagePath) markImageDone();
               return {
                 index,
                 success: true,
@@ -2500,7 +2651,6 @@ function registerStory2VideoStages(pipelineEngine) {
             if (videoSceneSet.has(index)) {
               const video = videoResults.get(index);
               if (video && video.success) {
-                markImageDone();
                 return { index, success: true, path: null, videoPath: video.path, meta: { video: true } };
               }
             }
@@ -2711,14 +2861,17 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 视频失败场景回退图片轮播（补生成图片；imageItemTask 内对视频失败场景走图片分支）。
       // 视频生成成功场景已由视频承担，不重复生成图片（省额度）。
-      const fallbackTargets = [...videoSceneSet]
-        .filter(index => !(videoResults.get(index) && videoResults.get(index).success))
+      const fallbackTargets = videoGenerator
+        ? [...videoSceneSet]
+          .filter(index => !(videoResults.get(index) && videoResults.get(index).success))
+        : [];
+      const fallbackItems = fallbackTargets
         .map(index => ({ prompt: optimizedPrompts[index], index }));
-      if (fallbackTargets.length > 0) {
+      if (fallbackItems.length > 0) {
         imageTargetCount += fallbackTargets.length;
         writeAssetsProgress();
         const fallbackResults = await _mapWithConcurrency(
-          fallbackTargets,
+          fallbackItems,
           imageConcurrency,
           (item) => {
             const runItem = () => imageItemTask(item.prompt, item.index);
@@ -2899,6 +3052,7 @@ function registerStory2VideoStages(pipelineEngine) {
       if (context && typeof context === 'object' && context.generate_assets && context.generate_assets.resume) {
         delete context.generate_assets.resume;
       }
+      emitAssetsProgress('resource', true);
       return {
         success: true,
         output: assetManifest,
@@ -3013,7 +3167,9 @@ function registerStory2VideoStages(pipelineEngine) {
         ttsDoneCount += 1
         onProgress({
           percent: Math.round((ttsDoneCount / ttsTotalCount) * 100),
-          message: '正在生成第 ' + ttsDoneCount + '/' + ttsTotalCount + ' 段旁白…',
+          message: 'Generating narration…',
+          messageKey: 'stageProgress.finalizeTts',
+          messageParams: { done: ttsDoneCount, total: ttsTotalCount },
           detail: { done: ttsDoneCount, total: ttsTotalCount, kind: 'tts' },
         })
       }
@@ -3022,7 +3178,13 @@ function registerStory2VideoStages(pipelineEngine) {
         emitTtsProgress()
         return r
       }
-      if (typeof onProgress === 'function') onProgress({ percent: 5, message: '正在准备生成旁白…' })
+      if (typeof onProgress === 'function') onProgress({
+        percent: 5,
+        message: 'Preparing narration…',
+        messageKey: 'stageProgress.finalizeStarting',
+        messageParams: { done: 0, total: ttsTotalCount },
+        detail: { done: 0, total: ttsTotalCount, kind: 'tts' },
+      })
       const ttsResults = await _mapWithConcurrency(candidates, ttsConcurrency, ttsItemTask)
       const failedTts = ttsResults.filter((r) => !r.success)
       if (failedTts.length > 0) {
@@ -3121,6 +3283,18 @@ function registerStory2VideoStages(pipelineEngine) {
         },
       }
       if (context && typeof context === 'object') context.generate_assets = finalManifest
+      if (typeof onProgress === 'function') {
+        onProgress({
+          percent: 100,
+          message: 'Narration and selected assets are ready.',
+          messageKey: 'stageProgress.finalizeComplete',
+          messageParams: { done: pairedScenes.length, total: candidates.length },
+          summary: 'Finalized ' + pairedScenes.length + '/' + candidates.length + ' selected scenes.',
+          summaryKey: 'stageProgress.finalizeSummary',
+          summaryParams: { done: pairedScenes.length, total: candidates.length },
+          detail: { done: candidates.length, total: candidates.length, kind: 'scene' },
+        })
+      }
       log.info('Story2VideoStages',
         'finalize_assets: ' + pairedScenes.length + '/' + candidates.length + ' scenes finalized (tts=' + pairedScenes.length + ')')
       return { success: true, output: finalManifest }

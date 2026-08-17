@@ -122,6 +122,7 @@ describe('podcast-repurpose 阶段执行器', () => {
     it('为每段文案生成配图并透传 analyze 数据', async () => {
       const generateImage = vi.fn(async () => ({ code: 0, data: { path: 'C:/img/0.png' } }))
       const { get } = makePipeline({ generateImage })
+      const events = []
       const result = await get(PODCAST_STAGE_TYPES.VISUALIZE)({
         runId: 'run-p1',
         stage: { options: {} },
@@ -132,6 +133,7 @@ describe('podcast-repurpose 阶段执行器', () => {
             segments: [{ index: 0, text: '第一段', start: 0, end: 5 }, { index: 1, text: '第二段', start: 5, end: 10 }],
           },
         },
+        onProgress: event => events.push(event),
       })
       expect(result.success).toBe(true)
       expect(generateImage).toHaveBeenCalledTimes(2)
@@ -140,6 +142,11 @@ describe('podcast-repurpose 阶段执行器', () => {
       expect(result.output.images).toHaveLength(2)
       expect(result.output.images[1].path).toBe('C:/img/0.png')
       expect(result.output.audioPath).toBe('C:/a.mp3')
+      expect(events).toEqual([
+        expect.objectContaining({ percent: 50, messageKey: 'stageProgress.podcastVisualize', detail: { done: 1, total: 2, kind: 'segment' } }),
+        expect.objectContaining({ percent: 100, messageKey: 'stageProgress.podcastVisualize', detail: { done: 2, total: 2, kind: 'segment' } }),
+        expect.objectContaining({ percent: 100, summaryKey: 'stageProgress.podcastSummary', summaryParams: { done: 2, total: 2 } }),
+      ])
     })
 
     it('缺少 context.analyze.segments 时失败', async () => {

@@ -2009,6 +2009,11 @@ class PipelineEngine {
         this.log.warn('PipelineEngine', '[progress] onProgress 更新被忽略: ' + (error && error.message ? error.message : String(error)));
       }
     };
+    onProgress({
+      percent: 0,
+      message: 'Working…',
+      messageKey: 'stageProgress.stageWorking',
+    });
     try {
       execResult = await this.stageExecutor.execute({
         runId,
@@ -2026,6 +2031,15 @@ class PipelineEngine {
       return { success: false, cancelled: true, error: 'Run cancelled' };
     }
     const result = execResult;
+    if (result && result.success && (!stage.progress || stage.progress.percent < 100)) {
+      onProgress({
+        percent: 100,
+        message: 'Stage complete.',
+        messageKey: 'stageProgress.stageComplete',
+        summary: 'Stage complete.',
+        summaryKey: 'stageProgress.stageSummary',
+      });
+    }
 
     // 阶段执行成功且有输出 -> 写入 context 供后续阶段使用
     if (result.success && result.output !== undefined) {
