@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: 历史重生成视频优化词显式顶格（40000）
+### Requirement: 历史重生成视频优化词显式顶格
 
 Story2Video 历史记录重新生成视频优化词（`regenerateScenePrompt` kind=video）SHALL 显式携带 `max_length`（视频域上限 `VIDEO_ENGINE_LIMITS.videoMaxLengthMax`=40000，2026-08-16 由 20000 上浮），不得依赖后端默认。
 
@@ -22,6 +22,8 @@ Story2Video 历史记录重新生成视频优化词（`regenerateScenePrompt` ki
 
 - **WHEN** 与历史重生成无关的调用方未显式传 `max_length`
 - **THEN** 契约默认（kernel 500 / 视频 batch 1800 / refined 5000）与既有 clamp 断言保持原值，不因本次 change 静默放大
+
+## ADDED Requirements
 
 ### Requirement: 落库上限视频专属
 
