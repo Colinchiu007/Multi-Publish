@@ -254,6 +254,19 @@ function referencedProjectFiles (project) {
   return files
 }
 
+/**
+ * 检测是否为克隆音色不可用错误（换账号后克隆音色失效）。
+ * 用于 regenerateSceneAudio 兆底：有现有音频时静默保留，用户无感。
+ */
+function isClonedVoiceFailure (error) {
+  if (!error) return false
+  const msg = String(error.message || error || '').toLowerCase()
+  return /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/.test(msg)
+    || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong)/.test(msg)
+    || /cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)/.test(msg)
+    || /\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7/.test(msg)
+}
+
 class Story2VideoProjectService {
   constructor (options = {}) {
     this.store = options.store || null
@@ -1045,6 +1058,23 @@ class Story2VideoProjectService {
       this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
       return saved
     } catch (error) {
+      // 克隆音色跨账号失效时，直接保留之前已生成的本地音频，用户无感
+      const prevSegment = previousProject.segments[index]
+      if (isClonedVoiceFailure(error) && prevSegment && prevSegment.audioPath) {
+        try {
+          if (require('fs').existsSync(prevSegment.audioPath)) {
+            project.segments[index] = {
+              ...prevSegment,
+              status: 'completed',
+              error: null,
+            }
+            project.updatedAt = new Date().toISOString()
+            this._upsertProject(project)
+            if (this.log && this.log.info) this.log.info('[Story2Video] 克隆音色不可用，保留现有音频: ' + segmentId)
+            return project
+          }
+        } catch (_e) { /* 文件不存在，走正常错误流程 */ }
+      }
       project.segments[index] = {
         ...previousProject.segments[index],
         status: 'failed',
@@ -1052,7 +1082,7 @@ class Story2VideoProjectService {
       }
       project.updatedAt = new Date().toISOString()
       try { this._upsertProject(project) } catch (storageError) {
-        if (this.log && typeof this.log.warn === 'function') this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
+        if (this.log && this.log.warn) this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
       }
       this._cleanupProjectFiles(projectDir, attemptFiles)
       throw error
