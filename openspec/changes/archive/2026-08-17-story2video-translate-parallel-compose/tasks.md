@@ -16,4 +16,4 @@
 - [x] 3.1 Update Story2Video PRD with data validation, pipeline flow, interaction/display states, copy, and fallback rules.
 - [x] 3.2 Update related PRD/version notes, CHANGELOG.md, 01-docs/learnings.md, and glossary if needed.
 - [x] 3.3 Run focused tests, desktop build/package/ASAR checks, quality-gates self-check, and code review.
-- [ ] 3.4 Push branch, open and merge PR, verify live remote status, archive OpenSpec/CCG task, and update memory.
+- [x] 3.4 Push branch, open and merge PR, verify live remote status, archive OpenSpec/CCG task, and update memory.

@@ -19,11 +19,11 @@
 - **THEN** 不展示翻译块，不报错
 
 ### Requirement: 翻译生成与持久化
-流水线 SHALL 在 optimize 阶段完成后，若提交的 `uiLocale` 不等于 'en'，对每个场景的优化后提示词生成 `promptTranslation`（默认 LLM 翻译，按 index 对齐）；翻译失败 SHALL fail-open（对应项置空，不阻塞流水线）。`promptTranslation` SHALL 随分段持久化（story2video-project-service segment 字段，≤20000 字符截断）。
+流水线 SHALL 在 optimize 阶段完成后，若提交的 `uiLocale` 不等于 'en'，为每个场景的优化后提示词准备 JSON-safe 的延迟翻译 pending payload，但自动素材模式不得在 optimize 阶段等待翻译。pending payload MUST 包含规范化 locale 及按稳定 `index` 对齐的非空 prompt 列表；有效翻译文本 MUST 为非空字符串且不超过 2000 字符。视频合成阶段 SHALL 将翻译任务与 `composeVideo` 并行启动，并按稳定场景 `index` 回填 `promptTranslation`；翻译失败、超时、空响应、非法 JSON、缺项、错误 index 或错误 prompt SHALL fail-open（对应项置空或保留已有有效值，不阻塞流水线）。`promptTranslation` SHALL 随分段持久化（story2video-project-service segment 字段，≤20000 字符截断）。
 
 #### Scenario: 非英语流水线生成翻译
 - **WHEN** 提交 uiLocale='zh' 且 optimize 输出 N 个提示词
-- **THEN** context.optimize.promptTranslations 为按 index 对齐的 N 项（成功项为翻译文本，失败项为 null），generate_assets 写入每场景 promptTranslation
+- **THEN** optimize 仅写入 `context.prompt_translations_pending`，compose 阶段与视频合成并行执行有界翻译任务，并按 index 将成功项写入每场景 `promptTranslation`
 
 #### Scenario: 英语流水线不生成翻译
 - **WHEN** 提交 uiLocale='en' 或缺失（默认 en 语义）
@@ -32,6 +32,14 @@
 #### Scenario: 翻译失败不阻塞
 - **WHEN** 默认 LLM 不可用或某场景翻译失败
 - **THEN** 对应 promptTranslation 为 null，流水线继续，项目正常保存
+
+#### Scenario: 合成阶段翻译超时不阻塞成片
+- **WHEN** 自动素材模式进入 compose，翻译任务超过批次或总预算但 `composeVideo` 成功
+- **THEN** 视频结果正常保存，未完成项保持 null 或既有有效翻译，并记录可诊断的 translation-degraded 状态
+
+#### Scenario: 手动选材仍在确认前完成翻译
+- **WHEN** 手动选材模式生成非英语候选场景
+- **THEN** 候选素材选择 checkpoint 展示前仍有可用的 `promptTranslation`，不得因自动模式的延迟策略而清空候选面板翻译
 
 ### Requirement: 兼容旧数据
 旧项目/旧快照无 promptTranslation 字段时 SHALL 正常加载展示，不得报错。
