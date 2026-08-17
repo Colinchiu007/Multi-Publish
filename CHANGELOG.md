@@ -1,3 +1,9 @@
+## [2026-08-17] fix(ops-center): prompt-eval dual 调 prompt-engine 携带 BYOK LLM
+
+- 根因：prompt-engine BYOK 变更后，图片 creative_level>3 的 /v1/optimize 请求必须携带 llm；ops-center 双路评测默认 creative_level=8，原调用缺少该字段，部署版连新引擎返回 HTTP 422。
+- 修复：双路 run 复用「模型密钥」minimax-llm 或 OPS_PROMPT_EVAL_LLM_* 回退，映射为引擎 provider=minimax，向 /v1/optimize 透传 {provider, model, api_key, base_url} 与 caller=ops-center；缺少 LLM 密钥时入口 400 fail-fast，不向引擎发空 key 请求。
+- 安全/回归：api_key 不写入 engine_meta 或响应；新增真实 HTTP 请求体、已保存密钥优先、422 fail-closed、provider 映射和缺 key 不发请求用例；定向 PromptEval 28 passed，相关 API 30 passed。
+
 ## [2026-08-16] feat(desktop): PromptBridge BYOK —— 提示词引擎使用桌面配置的 LLM（llm 对象 + caller + fail-closed）
 
 - 背景：视频创作-历史记录「重新生成图片优化词」实测 prompt-engine(8013) 走引擎自身 config.yaml 兜底的 MiniMax key，而非用户在「模型设置」配置的 SenseNova 文字推理模型。目标契约：哪个产品调用引擎，就用哪个产品自己配置的 LLM。

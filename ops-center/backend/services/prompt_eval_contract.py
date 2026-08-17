@@ -175,6 +175,17 @@ USAGE_GROUP_PROVIDERS: dict[str, tuple[str, ...]] = {
     "image": ("minimax-image", "flux", "hunyuan"),
 }
 
+ENGINE_PROVIDER_BY_OPS_PROVIDER: dict[str, str] = {
+    "minimax-llm": "minimax",
+    "sensenova-llm": "sensenova",
+    "deepseek": "deepseek",
+}
+
+
+def engine_provider_for(provider: str) -> str:
+    """将运营后台 provider 名映射为 prompt-engine 注册名。"""
+    return ENGINE_PROVIDER_BY_OPS_PROVIDER.get(provider, "openai_compat")
+
 
 def provider_usage_group(provider: str) -> str | None:
     """返回 provider 所属用途分组（llm/vision/image）；未归类返回 None。"""

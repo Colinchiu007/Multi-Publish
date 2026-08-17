@@ -379,6 +379,7 @@ class ProviderKeyNotFoundError(ValueError):
 
 
 provider_usage_group = contract.provider_usage_group
+engine_provider_for = contract.engine_provider_for
 
 
 async def _group_has_default(db: AsyncSession, group: str) -> bool:
@@ -620,12 +621,15 @@ async def create_run(db: AsyncSession, row: PromptEvalCase, username: str,
     try:
         params = _case_engine_params(row)
         base_url = (engine_ctx or {}).get("base_url") or engine_client.engine_base_url()
+        llm = (engine_ctx or {}).get("llm")
         meta = await engine_client.optimize(
             base_url, row.source_text, row.context,
             creative_level=params["creative_level"], num_candidates=params["num_candidates"],
             max_length=500,
             excluded_characters=params["excluded_characters"],
             no_swap_pairs=params["no_swap_pairs"],
+            llm=llm,
+            caller="ops-center",
             http=http,
         )
         engine_zh = meta["optimized_prompt"]

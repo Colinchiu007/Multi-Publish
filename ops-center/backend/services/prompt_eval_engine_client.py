@@ -1,7 +1,8 @@
 """prompt_eval_engine_client — prompt-engine HTTP 客户端（双路对比 engine 变体）。
 
 契约（对齐 prompt-engine POST /v1/optimize）：
-- 请求：{prompt, platform, creative_level, max_length, num_candidates, context, excluded_characters, no_swap_pairs}
+- 请求：{prompt, platform, creative_level, max_length, num_candidates, context, excluded_characters, no_swap_pairs,
+  llm?, caller?}
 - 成功：200 + OptimizeResult（optimized_prompt 非空字符串）
 - 失败：超时/传输错误/5xx/非法 JSON/空输出/引擎内部 error 字段 → EngineUnavailableError
   （fail closed，不静默降级到人工提示词）
@@ -66,6 +67,8 @@ async def optimize(
     excluded_characters: list | None = None,
     no_swap_pairs: list | None = None,
     http: httpx.AsyncClient | None = None,
+    llm: dict | None = None,
+    caller: str | None = None,
 ) -> dict:
     """调用引擎优化单条提示词，返回 OptimizeResult dict；失败抛 EngineUnavailableError。"""
     url = f"{base_url}/v1/optimize"
@@ -79,6 +82,10 @@ async def optimize(
         "excluded_characters": list(excluded_characters or []),
         "no_swap_pairs": list(no_swap_pairs or []),
     }
+    if llm is not None:
+        payload["llm"] = llm
+    if caller:
+        payload["caller"] = caller
     own = http is None
     client = http or httpx.AsyncClient(timeout=OPTIMIZE_TIMEOUT_SECONDS)
     last_err: Exception | None = None
