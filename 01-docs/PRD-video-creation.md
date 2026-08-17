@@ -163,6 +163,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-13 | 阶段进行中信息反馈颗粒度统一方案 | 整体梳理 14 条流水线各阶段「进行中」反馈现状：仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节；提出统一 stage.progress 契约 + StageExecutor onProgress 通道 + UI 去特判 + 分期实施。详见本节 3.1.23 与总 PRD 7.1.9.3 | PRD 7.1.9.3 / 3.1.23 |
 | 2026-08-13 | 阶段进行中信息反馈颗粒度统一实施 | stage.progress + stage.summary 统一契约（getRunSnapshot 下发，与 context.stage_progress 双写）；StageExecutor onProgress 通道 + normalizeStageProgress 校验；publish/finalize_assets/split/optimize 运行中/LLM 阶段逐项接入；StageProgress 去特判通用渲染 + 总进度加权。测试 8 文件 411/411 + Vite build + 打包冒烟通过。PR #756 | PRD 7.1.9.3 / 3.1.23 |
 | 2026-08-13 | 阶段进度实时推送 + 快照裁剪（Phase 3） | `pipeline:update` 实时事件推送（500ms 节流合并、终态立即发送）+ `getRunSnapshot(runId, { progressOnly })` 轻量快照（不含 context）+ preload `onPipelineUpdate`（可取消）+ CreateView 事件驱动更新 + 3s 轮询兜底重置。测试 6 文件 659/659 + Vite build + 打包冒烟通过。PR #770 | PRD 7.1.9.3 Phase 3 |
+| 2026-08-17 | 全流水线阶段反馈覆盖 | 所有视频创作流水线统一采用开始（0%）→可计数子项→完成（100% + 摘要）反馈；`messageKey`/`summaryKey` 由 zh/en locale 渲染，原始文案仅作兼容降级；Story2Video、explainer、talking-head、cinematic、clip-factory、documentary、localization-dub、podcast-repurpose、videogen 与 framework-smoke 均已接入。详见 3.1.23 | PRD 3.1.23 / OpenSpec pipeline-progress-feedback-coverage |
 | 2026-08-13 | 视频创作首页卡片 UI：多列动态布局 + 内置静态背景 + 交互动效（方案 B） | `/create` 流水线选择视图容器放宽至 1600px + 显式 1-5 列断点；背景图由免费生图模型 Pollinations(flux) 一次性预生成 15 张（1024x576 JPEG，统一风格 + 主题意象）并提交仓库静态资源 `apps/desktop/src/assets/pipeline-card-bg/`；前端 `PipelineSelector` 直接引用静态映射，双层暗色遮罩 + 浅色前景保证可读性，渐变兜底 + 入场/悬停动效 + reduced-motion + ARIA；**彻底移除运行时生成链路**（主进程服务/IPC/preload/api/缓存/loopback 全部删除，不调用任何生成 API、不访问网络）。详见本节 3.1.24 | PRD 3.1.24 |
 
 | 2026-08-14 | 全能创作 BGM 素材库管理 | 背景音乐升级为设备级素材库：添加（自动入库 + 选中）/ 重命名 / 删除，下拉选择，历史路径兼容；主进程 `story2video-bgm-library` 服务 + 4 个 IPC 通道 + PUBLIC_CHANNELS；详见本节 3.1.25 | PRD 3.1.25 |
@@ -1648,32 +1649,22 @@ SettingsDialog 关闭（App.vue @close）
 - 系统性漏洞：组件挂载后对**外部模型配置变更**（弹窗/路由）缺乏响应机制；空列表 UI 无占位断言。
 - 落地：新增 settings-dialog revision 信号 + 空状态占位/提示断言；后续任何「弹窗/外部配置变更 → 页面刷新」需求复用该信号；PRD 7.4.1.1 合同补充「空能力下拉占位」「设置弹窗关闭刷新」。
 
-### 3.1.23 流水线阶段进行中信息反馈颗粒度统一（2026-08-13 规划）
+### 3.1.23 流水线阶段进行中信息反馈颗粒度统一（2026-08-17 已实施）
 
 > 完整方案：`01-docs/PLAN-VIDEO-PIPELINE-PROGRESS-FEEDBACK-2026-08-13.md`；主 PRD 合同：`01-docs/PRD.md` 7.1.9.3。
 
 **需求**：进度清单列表中，每个阶段「进行中」的信息反馈应具备统一、可预期的颗粒度，消除「有的阶段有计数/百分比，有的阶段只有『运行中』」的落差。
 
-**现状（2026-08-13 基线）**：
+**实施合同**：
 
-| 阶段 | 运行中反馈 | 粒度 |
-|------|-----------|------|
-| compose | phase + percent + 片段计数 + 子进度条 | 细 |
-| generate_assets | 图片 a/b · 视频 c/d · 旁白 e/f | 细 |
-| optimize | 无（数据有，仅完成后展示） | 中 |
-| split | 无（完成后有场景数摘要） | 中 |
-| domain_enrich / scene_context / select_video_scenes / finalize_assets / publish | 无 | 粗 |
-| animated-explainer / talking-head 等其余流水线全部阶段 | 无 | 粗 |
+1. **统一阶段生命周期**：每个阶段至少上报 `0%` 的开始事件与 `100%` 的完成事件；成功但未自行上报的执行器由 `PipelineEngine` 兜底补齐，避免清单只停留在笼统的“运行中”。
+2. **统一 payload**：`getRunSnapshot().stages[i].progress = { percent, message, messageKey?, messageParams?, summary?, summaryKey?, summaryParams?, detail?, updatedAt }`，并与 `context.stage_progress` 双写。`detail` 使用 `{ done, total, kind }`，其中 `kind` 限定为 `scene/resource/image/video/tts/platform/segment`。
+3. **单调与校验**：百分比必须在 `[0,100]` 且不可倒退；本地化 key 仅允许 `stageProgress.*`；参数、计数与种类不合法时 fail-closed 丢弃该更新，展示反馈不得阻断流水线本身。
+4. **颗粒度**：可迭代工作使用 `done/total`（场景、资源、TTS、平台、片段）；不可细分的 LLM、校验、渲染和文件复制阶段提供开始文案和完成摘要。Story2Video 保留图片/视频/旁白多资源进度与断点恢复；videogen 将提示词优化映射为 `0–35%`、视频生成映射为 `35–100%`。
+5. **全流水线覆盖**：Story2Video、animated-explainer、talking-head、cinematic、clip-factory、documentary-montage、localization-dub、podcast-repurpose、videogen 和 framework-smoke 均接入统一反馈；循环阶段必须有运行中与完成态回归。
+6. **UI 与本地化**：StageProgress 优先按 `messageKey`/`summaryKey` 渲染 zh/en 文案，缺失 key 才回退 raw `message`/`summary`；完成态优先显示结构化摘要。总进度继续使用“已完成阶段数 + 当前阶段百分比”的加权计算。
 
-**目标合同（摘要）**：
-
-1. **统一 stage.progress 模型**：`getRunSnapshot().stages[i].progress = { percent, message, detail?, updatedAt }` + 可选 `stage.summary`；与 `context.stage_progress` 双写。
-2. **StageExecutor onProgress 通道**：`execute` 增加统一 `onProgress({ percent, message, detail })` 参数，`_executeStage` 注入并双写；字段级归一化/校验统一收口；additive 扩展、向后兼容。
-3. **逐阶段接入**：publish 逐平台（「正在发布到 {平台} (i/N)」）、finalize_assets 逐段 TTS、select_video_scenes / scene_context / domain_enrich 与 explainer LLM 阶段调用前后 message、split 完成摘要、optimize 运行中展示（数据已有）。
-4. **UI 通用化**：StageProgress.vue 移除按阶段名特判，统一渲染 message + 迷你进度条；总进度升级为「阶段数占比 + 当前阶段 percent 加权」。
-5. **验收**：任一阶段运行中均显示进行中文案；可计数阶段显示 done/total 与百分比；字段非法不阻断流水线；新增文案 locale zh/en 成对。
-
-**分期**：Phase 1 契约 + UI 通用化 → Phase 2 onProgress 通道 + 逐阶段接入 → Phase 3 实时推送/快照裁剪（可选）。实施前须经 OpenSpec propose。
+**验收**：任一运行中阶段都能显示可理解的活动描述；可计数阶段显示一致的 `done/total` 与百分比；完成阶段显示摘要；不同流水线不再依赖 UI 按名称特判；locale 保持 zh/en 成对；受影响流水线有独立事件回归。
 
 ### 3.1.24 水印功能修复与选项扩展（2026-08-14）
 
