@@ -119,13 +119,13 @@ function toForwardSlashes (value) {
   return String(value || '').split(path.sep).join('/')
 }
 
-async function extractSegments (inputPath, segments, outputDir, ffmpeg, onProgress) {
+async function extractSegments (inputPath, segments, outputDir, ffmpeg, onProgress, executeTool = runTool) {
   fs.mkdirSync(outputDir, { recursive: true })
   const clips = []
   const listLines = []
   for (const segment of segments) {
     const clipPath = path.join(outputDir, 'clip_' + String(segment.index).padStart(4, '0') + '.mp4')
-    await runTool(ffmpeg, [
+    await executeTool(ffmpeg, [
       '-y', '-ss', String(segment.start), '-i', inputPath,
       '-t', String(segment.duration),
       '-c:v', 'libx264', '-preset', 'veryfast',
@@ -166,6 +166,9 @@ function registerClipFactoryStages (pipelineEngine) {
 
   const registered = []
   const log = pipelineEngine.log
+  const executeTool = typeof pipelineEngine.runMediaTool === 'function'
+    ? pipelineEngine.runMediaTool
+    : runTool
 
   pipelineEngine.registerStageExecutor(
     CLIPFACTORY_STAGE_TYPES.ANALYZE,
@@ -198,7 +201,7 @@ function registerClipFactoryStages (pipelineEngine) {
       const ffmpeg = findFfmpeg()
       if (!ffmpeg) return { success: false, error: 'FFmpeg 不可用，无法提取片段' }
       try {
-        const output = await extractSegments(analysis.inputPath, analysis.segments, getRunDir(runId), ffmpeg, onProgress)
+        const output = await extractSegments(analysis.inputPath, analysis.segments, getRunDir(runId), ffmpeg, onProgress, executeTool)
         emitStageComplete(onProgress, {
           messageKey: 'stageProgress.clipfactoryExtractComplete',
           summaryKey: 'stageProgress.clipfactoryExtractSummary',
@@ -265,6 +268,7 @@ function registerClipFactoryStages (pipelineEngine) {
 module.exports = {
   CLIPFACTORY_STAGE_TYPES,
   buildSegments,
+  extractSegments,
   parseSceneTimes,
   registerClipFactoryStages,
   runTool,

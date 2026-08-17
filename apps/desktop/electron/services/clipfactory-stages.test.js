@@ -2,7 +2,6 @@
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
-const childProcess = require('child_process')
 
 vi.mock('./media-tool-paths', () => ({
   findFfmpeg: vi.fn(() => 'ffmpeg'),
@@ -17,11 +16,12 @@ const {
 } = require('./clipfactory-stages')
 const mediaToolPaths = require('./media-tool-paths')
 
-function makePipeline() {
+function makePipeline(options = {}) {
   const executors = new Map()
   const pipeline = {
     stageExecutor: { executors, register(type, fn) { executors.set(type, fn) } },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    runMediaTool: options.runMediaTool,
     registerStageExecutor(type, fn) { executors.set(type, fn); return { success: true } },
   }
   const reg = registerClipFactoryStages(pipeline)
@@ -104,14 +104,11 @@ describe('clip-factory 阶段执行器', () => {
   describe('caption / export 阶段', () => {
     it('extract 按片段上报明细并输出完成摘要', async () => {
       const events = []
-      const { get } = makePipeline()
       const outputDir = path.join(os.tmpdir(), 'story2video', 'clipfactory-progress-' + Date.now())
       const inputPath = path.join(outputDir, 'input.mp4')
       fs.mkdirSync(outputDir, { recursive: true })
-      const execFileSpy = vi.spyOn(childProcess, 'execFile').mockImplementation((binary, args, options, callback) => {
-        callback(null, '', '')
-      })
       try {
+        const { get } = makePipeline({ runMediaTool: vi.fn().mockResolvedValue('') })
         const result = await get(CLIPFACTORY_STAGE_TYPES.EXTRACT)({
           runId: 'progress-' + Date.now(),
           stage: {},
@@ -135,7 +132,6 @@ describe('clip-factory 阶段执行器', () => {
         ])
         expect(events[2]).toMatchObject({ percent: 100, summaryKey: 'stageProgress.clipfactoryExtractSummary', summaryParams: { done: 2, total: 2 } })
       } finally {
-        execFileSpy.mockRestore()
         fs.rmSync(outputDir, { recursive: true, force: true })
       }
     })
