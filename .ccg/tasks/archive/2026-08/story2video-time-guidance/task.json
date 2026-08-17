@@ -1,0 +1,18 @@
+{
+  "id": "story2video-time-guidance",
+  "title": "流水线进度区域增加合成时间说明文案",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已合并并归档",
+  "createdAt": "2026-08-17T00:40:00Z",
+  "branch": "codex/story2video-time-guidance",
+  "remoteStatus": {
+    "pr": 913,
+    "state": "merged",
+    "mergeCommit": "26abc66824b92e3355a2247e2388ec7db0410645",
+    "mergedAt": "2026-08-17T01:23:47Z"
+  }
+}
