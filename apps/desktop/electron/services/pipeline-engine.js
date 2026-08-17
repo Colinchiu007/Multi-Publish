@@ -598,6 +598,7 @@ const PIPELINES = [
         description: '视频合成',
         checkpointRequired: true,
         options: {
+          composeParallelTask: 'story2video_prompt_translation_compose',
           // Story2Video 引擎选项
           transition: 'fade',
           imageEffect: 'zoom-in',

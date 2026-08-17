@@ -1,0 +1,19 @@
+{
+  "id": "story2video-translate-parallel-compose",
+  "title": "提示词翻译与视频合成阶段并行（降低翻译时长不可控影响）",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "desktop/story2video",
+  "currentPhase": "review",
+  "nextAction": "完成打包门禁后提交并同步远程 PR",
+  "createdAt": "2026-08-17T00:40:00Z",
+  "branch": "codex/story2video-translate-parallel-compose",
+  "openspecChange": "story2video-translate-parallel-compose",
+  "analysisEvidence": {
+    "localSourceReview": "completed",
+    "subagents": "unavailable: 403 Forbidden",
+    "antigravity": "unavailable: exit 1",
+    "claude": "unavailable: exit 1"
+  }
+}

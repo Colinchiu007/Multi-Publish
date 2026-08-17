@@ -18,12 +18,15 @@ const {
   resolveSceneFinalFrame,
   optimizeVideoScenePrompts,
   translatePromptsForLocale,
+  runBoundedPromptTranslation,
+  createPromptTranslationPending,
 } = require('./story2video-stages')
 const {
   cleanupRunInputDir,
   importUserSelectedMedia,
 } = require('./story2video-paths')
 const { findFfmpeg } = require('./media-tool-paths')
+const { StageExecutor, STAGE_TYPES } = require('./stage-executor')
 
 afterEach(() => {
   cleanupRunInputDir('run')
@@ -2614,6 +2617,215 @@ describe('translatePromptsForLocale', () => {
     const ai = makeAiGenerator('{}')
     const items = await translatePromptsForLocale(ai, [], 'zh', console)
     expect(items).toEqual([])
+  })
+})
+
+describe('提示词翻译与 compose 并行契约', () => {
+  it('自动模式 optimize 只登记可序列化 pending，不提前调用翻译 LLM', async () => {
+    const aiGenerator = { generateWithDefault: vi.fn() }
+    const pipeline = makePipeline(null, aiGenerator)
+    const optimize = pipeline.optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({ optimized_prompt: 'A red apple' }))
+    const context = { split: [{ text: '红苹果' }] }
+    const result = await optimize({
+      runId: 'translation-auto-pending',
+      stage: { options: {} },
+      params: { creationMode: 'auto', uiLocale: 'zh' },
+      context,
+      serviceBus,
+    })
+    expect(result.success).toBe(true)
+    expect(context.prompt_translations_pending).toEqual({
+      uiLocale: 'zh',
+      items: [{ index: 0, prompt: 'A red apple' }],
+    })
+    expect(context.prompt_translations).toBeUndefined()
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
+  })
+
+  it('英文或空白 locale 不创建翻译任务', async () => {
+    const aiGenerator = { generateWithDefault: vi.fn() }
+    const pipeline = makePipeline(null, aiGenerator)
+    const optimize = pipeline.optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({ optimized_prompt: 'A red apple' }))
+    for (const uiLocale of ['en', '   ']) {
+      const context = { split: [{ text: '红苹果' }] }
+      const result = await optimize({
+        stage: { options: {} },
+        params: { creationMode: 'auto', uiLocale },
+        context,
+        serviceBus,
+      })
+      expect(result.success).toBe(true)
+      expect(context.prompt_translations_pending).toBeUndefined()
+    }
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
+  })
+
+  it('手动模式 optimize 仍在 checkpoint 前生成翻译', async () => {
+    const aiGenerator = {
+      generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"一个红苹果"}' }),
+    }
+    const pipeline = makePipeline(null, aiGenerator)
+    const optimize = pipeline.optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({ optimized_prompt: 'A red apple' }))
+    const context = { split: [{ text: '红苹果' }] }
+    const result = await optimize({
+      stage: { options: {} },
+      params: { creationMode: 'manual', uiLocale: 'zh' },
+      context,
+      serviceBus,
+    })
+    expect(result.success).toBe(true)
+    expect(context.prompt_translations.items[0].translation).toBe('一个红苹果')
+    expect(context.prompt_translations_pending).toBeUndefined()
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(1)
+  })
+
+  it('真实 StageExecutor 注册翻译任务，compose 完成后按 scene index 回填', async () => {
+    const serviceBus = {
+      composeVideo: vi.fn(async () => ({
+        code: 0,
+        data: {
+          videoPath: 'video.mp4',
+          segments: [{ index: 1, prompt: 'p1' }, { index: 0, prompt: 'p0' }],
+        },
+      })),
+    }
+    const stageExecutor = new StageExecutor({ serviceBus, log: { info() {}, warn() {}, error() {} } })
+    const pipeline = {
+      stageExecutor,
+      aiGenerator: {
+        generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"译文0","1":"译文1"}' }),
+      },
+      log: { info() {}, warn() {}, error() {} },
+      registerStageExecutor(type, fn) { return stageExecutor.register(type, fn) || { success: true } },
+    }
+    registerStory2VideoStages(pipeline)
+    const context = {
+      generate_assets: { scenes: [{ index: 0 }, { index: 1 }] },
+      prompt_translations_pending: {
+        uiLocale: 'zh',
+        items: [{ index: 0, prompt: 'p0' }, { index: 1, prompt: 'p1' }],
+      },
+    }
+    const result = await stageExecutor.execute({
+      runId: 'translation-compose-real-hook',
+      stage: {
+        name: 'compose',
+        type: STAGE_TYPES.COMPOSE,
+        inputFrom: 'generate_assets',
+        options: { composeParallelTask: 'story2video_prompt_translation_compose' },
+      },
+      params: {},
+      context,
+    })
+    expect(result.success).toBe(true)
+    expect(result.output.segments).toEqual([
+      { index: 1, prompt: 'p1', promptTranslation: '译文1' },
+      { index: 0, prompt: 'p0', promptTranslation: '译文0' },
+    ])
+    expect(context.generate_assets.scenes.map((scene) => scene.promptTranslation)).toEqual(['译文0', '译文1'])
+    expect(context.prompt_translations_pending).toBeUndefined()
+    expect(context.prompt_translations.items.map((item) => item.translation)).toEqual(['译文0', '译文1'])
+  })
+
+  it('单批翻译超时后 fail-open，并保留 pending 供后续重试', async () => {
+    vi.useFakeTimers()
+    try {
+      const pending = {
+        uiLocale: 'zh',
+        items: [{ index: 0, prompt: 'A red apple' }],
+      }
+      const aiGenerator = {
+        generateWithDefault: vi.fn(() => new Promise(() => {})),
+      }
+      const translationPromise = runBoundedPromptTranslation(aiGenerator, pending, { warn: vi.fn() })
+      await vi.advanceTimersByTimeAsync(25000)
+      await expect(translationPromise).resolves.toEqual({
+        results: [{ index: 0, prompt: 'A red apple', translation: null }],
+        degraded: true,
+        reason: 'prompt translation incomplete or timed out',
+      })
+      expect(aiGenerator.generateWithDefault).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('第一批超时后继续处理第二批，不丢弃后续结果', async () => {
+    vi.useFakeTimers()
+    try {
+      const aiGenerator = {
+        generateWithDefault: vi.fn()
+          .mockImplementationOnce(() => new Promise(() => {}))
+          .mockResolvedValueOnce({ content: '{"3":"第二批译文"}' }),
+      }
+      const translationPromise = runBoundedPromptTranslation(aiGenerator, {
+        uiLocale: 'zh',
+        items: [
+          { index: 0, prompt: 'first' },
+          { index: 1, prompt: 'second' },
+          { index: 2, prompt: 'third' },
+          { index: 3, prompt: 'fourth' },
+        ],
+      }, { warn: vi.fn() })
+      await vi.advanceTimersByTimeAsync(25000)
+      await expect(translationPromise).resolves.toMatchObject({
+        degraded: true,
+        results: [
+          { index: 0, translation: null },
+          { index: 1, translation: null },
+          { index: 2, translation: null },
+          { index: 3, translation: '第二批译文' },
+        ],
+      })
+      expect(aiGenerator.generateWithDefault).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('已有部分译文时重试只请求未完成项，并且 pending 可经 JSON 快照恢复', async () => {
+    const pending = createPromptTranslationPending([
+      { optimized_prompt: 'first' },
+      { optimized_prompt: 'second' },
+    ], 'zh')
+    const restored = JSON.parse(JSON.stringify({
+      ...pending,
+      items: pending.items.map((item, index) => ({ ...item, translation: index === 0 ? '已有译文' : null })),
+    }))
+    const aiGenerator = {
+      generateWithDefault: vi.fn().mockResolvedValue({ content: '{"1":"新译文"}' }),
+    }
+    const result = await runBoundedPromptTranslation(aiGenerator, {
+      ...restored,
+      existingItems: restored.items,
+    }, { warn: vi.fn() })
+    expect(aiGenerator.generateWithDefault).toHaveBeenCalledOnce()
+    expect(aiGenerator.generateWithDefault.mock.calls[0][1].messages[1].content).toContain('second')
+    expect(result.results).toEqual([
+      { index: 0, prompt: 'first', translation: '已有译文' },
+      { index: 1, prompt: 'second', translation: '新译文' },
+    ])
+  })
+
+  it('pending 合并过滤负数、非整数、空提示词和重复 index', async () => {
+    const aiGenerator = {
+      generateWithDefault: vi.fn().mockResolvedValue({ content: '{"0":"译文"}' }),
+    }
+    const result = await runBoundedPromptTranslation(aiGenerator, {
+      uiLocale: 'zh',
+      items: [
+        { index: -1, prompt: 'negative' },
+        { index: 0.5, prompt: 'fraction' },
+        { index: 0, prompt: 'valid' },
+        { index: 0, prompt: 'duplicate' },
+        { index: 1, prompt: '   ' },
+      ],
+    }, { warn: vi.fn() })
+    expect(result.results.map((item) => item.index)).toEqual([0])
+    expect(result.results.every((item) => item.prompt)).toBe(true)
   })
 })
 

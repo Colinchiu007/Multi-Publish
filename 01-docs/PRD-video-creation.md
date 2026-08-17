@@ -254,6 +254,57 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 所有运行参数必须是纯 JSON；归一化器只接受白名单字段并在创建 run 之前拒绝非法值。API Key、Access Token 和 Provider Secret 不得写入运行参数、项目历史或结果清单。
 
+### 3.1.2.4 自动模式提示词翻译与视频合成并行（2026-08-17）
+
+**目标与范围**：提示词翻译是结果页/历史页的只读增强，不参与图片、视频、TTS、字幕或 ffmpeg 输入。自动模式不再让翻译 LLM 阻塞素材生成；翻译任务在视频合成阶段与 `composeVideo` 并行启动，以合成阶段的长耗时覆盖正常翻译耗时。分镜素材自选模式仍须在 `scene_asset_selection` 检查点前完成翻译，候选面板的翻译显示行为不变。
+
+**数据合同与校验**：
+
+| 字段 | 类型/限制 | 规则 |
+|------|-----------|------|
+| `uiLocale` | 字符串，最多 16 字符 | `en`、缺失或空白不创建翻译任务；其他 locale 才进入翻译流程 |
+| `prompt_translations_pending` | JSON 对象 | 仅允许 `{ uiLocale, items }`；不得写入 Promise、函数、Error、响应对象或凭据 |
+| `items[].index` | 非负整数 | 使用稳定场景序号关联翻译；不按完成顺序、不按过滤后的数组位置回填 |
+| `items[].prompt` | 非空字符串 | 从 `optimized_prompt`/`prompt` 读取并 trim；空项被丢弃，不调用翻译 |
+| `items[].translation` | `null` 或非空字符串 | 成功结果 trim，最多 2,000 字符；等于原文、JSON 包装文本、代码围栏标记或空白均视为无效 |
+| 超时预算 | 每批 25 秒；全任务约 60 秒 | 达到批次/总预算立即降级，不得让可选翻译无限延长流水线 |
+
+**流程与时序**：
+
+```text
+自动模式
+  optimize ──→ 写入 prompt_translations_pending（不调用翻译 LLM）
+      └──────→ generate_assets ──→ compose 开始
+                                  ├─ 同时启动 composeVideo
+                                  └─ 同时启动 prompt translation
+                                      └─ 合成成功后等待有限收尾窗口
+                                          ├─ valid → 按 index 回填 segments/scenes
+                                          └─ timeout/error → 保留原 prompt，translation=null，视频仍成功
+```
+
+1. `optimize` 只负责生成优化提示词和可序列化 pending payload；自动模式的 LLM 调用不会因翻译增加串行等待。
+2. `StageExecutor` 仅对显式配置 `composeParallelTask` 的流水线启用并行钩子，其他流水线不启动翻译；合成失败始终优先返回合成错误。
+3. 翻译任务按最多 3 个场景一批处理，单批失败/超时不影响其他已完成批次；已完成项与未完成项均以 stable `index` 保存。
+4. 合成成功后，在有界收尾时间内 apply 结果；翻译 apply 失败只写诊断，不覆盖视频结果。合成成功但翻译降级时，`context.prompt_translation_diagnostic` 记录 locale、原因和项目数量。
+5. 进程重启、阶段重试或 compose 重试只恢复 JSON 数据：已有非空翻译优先复用，未完成项从 pending 重试；pending 只在所有条目完成时清除，避免超时后丢失重试依据。
+
+**功能逻辑与故障边界**：
+
+- `en` 界面保持现状：不创建 pending，不发送翻译请求，不显示翻译栏。
+- 非 `en` 自动模式：翻译不可用、LLM 返回空响应、非法 JSON、响应缺项、网络错误、单批超时或总预算耗尽均 fail-open；原始英文提示词和成片保持可用。
+- 部分成功：有效 index 持久化为翻译，缺失 index 为 `null`；不得用相邻场景或数组序号顶替。
+- Compose 失败：返回 ffmpeg/媒体合成真实失败，不因翻译 Promise 成功而伪造视频成功；后台 Promise 绑定 catch，禁止未处理 rejection。
+- 断点恢复：不恢复正在执行的 Promise；恢复后按 pending 重新发起有界任务，已完成结果不得被空响应覆盖。
+
+**交互、显示项与提示文字**：
+
+- 优化阶段：自动模式不新增等待文案，用户直接看到后续素材生成；阶段清单仍按既有 `pending/running/completed/failed` 展示。
+- 合成阶段：继续显示既有合成子进度、片段数和耗时；翻译为后台增强，不改变合成百分比，不额外创建第二条进度条。
+- 结果页/历史页：非英文且 `promptTranslation` 为非空合法字符串时，在「画面提示词」下方显示只读「中文翻译」/「翻译」；缺失或降级时只显示原始提示词，不显示“翻译超时”、JSON 原文或空占位符。
+- 本变更不新增用户操作按钮；不新增“重试翻译”按钮，不阻塞“查看结果”“重新合成”或历史记录加载。后续如需可见降级提示，须另行确认文案和 locale 合同。
+
+**验收标准**：自动模式优化不调用翻译 LLM；合成与翻译请求在同一 compose 调用内启动；按乱序 index 正确回填；翻译超时/错误不阻塞成功成片且 pending 可恢复；手动模式候选面板仍有翻译；英文界面跳过；合成失败不被翻译结果掩盖；上下文快照可 JSON 序列化。
+
 ### 3.1.2.1 图片提示词统一走 prompt-engine 合同（2026-08-09 落地）
 
 > 设计（manifest / PRD）与实现长期背离：manifest 与本文档早已声明 optimize 阶段走 prompt-engine，但
