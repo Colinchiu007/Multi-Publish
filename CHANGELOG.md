@@ -1,3 +1,8 @@
+## [2026-08-17] fix(ops-center): prompt-eval dual 调 prompt-engine 携带 BYOK LLM
+
+- 根因：prompt-engine BYOK 变更后，图片 creative_level>3 的 /v1/optimize 请求必须携带 llm；ops-center 双路评测默认 creative_level=8，原调用缺少该字段，部署版连新引擎返回 HTTP 422。
+- 修复：双路 run 复用「模型密钥」minimax-llm 或 OPS_PROMPT_EVAL_LLM_* 回退，映射为引擎 provider=minimax，向 /v1/optimize 透传 {provider, model, api_key, base_url} 与 caller=ops-center；缺少 LLM 密钥时入口 400 fail-fast，不向引擎发空 key 请求。
+- 安全/回归：api_key 不写入 engine_meta 或响应；新增真实 HTTP 请求体、已保存密钥优先、422 fail-closed、provider 映射和缺 key 不发请求用例；定向 PromptEval 28 passed，相关 API 30 passed。
 ## [2026-08-17] feat(story2video): 流水线进度区域新增「合成时间说明」提示
 
 - 背景：用户反馈生成视频时不知道整体耗时预期，等待过程容易误判为卡死。

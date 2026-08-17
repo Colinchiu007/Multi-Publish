@@ -1,0 +1,13 @@
+{
+  "id": "ops-prompt-eval-engine-llm",
+  "title": "修复 ops-center prompt-eval 调引擎缺少 BYOK llm",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend-api-contract",
+  "currentPhase": "completed",
+  "nextAction": "PR 合并后归档任务并核对 origin/main",
+  "createdAt": "2026-08-17T09:00:00+08:00",
+  "branch": "codex/ops-prompt-eval-engine-llm",
+  "openspecChange": "ops-prompt-eval-engine-llm"
+}

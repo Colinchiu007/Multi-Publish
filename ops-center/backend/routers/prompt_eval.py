@@ -36,8 +36,14 @@ async def _llm_cfg(db) -> dict:
         api_key = (row.get("api_key") or "").strip()
         if not api_key:
             raise ValueError("已配置的 minimax-llm 密钥为空，请在「模型密钥」重新保存")
-        return {"base_url": row["base_url"], "model": row["model"], "api_key": api_key}
+        return {
+            "provider": service.engine_provider_for(row["provider"]),
+            "base_url": row["base_url"],
+            "model": row["model"],
+            "api_key": api_key,
+        }
     cfg = {
+        "provider": service.engine_provider_for("minimax-llm"),
         "base_url": os.environ.get("OPS_PROMPT_EVAL_LLM_BASE_URL") or "https://api.minimaxi.com/v1",
         "model": os.environ.get("OPS_PROMPT_EVAL_LLM_MODEL") or "MiniMax-M2.7",
         "api_key": os.environ.get("OPS_PROMPT_EVAL_LLM_API_KEY") or "",
@@ -109,6 +115,8 @@ async def create_run(case_id: int, db: AsyncSession = Depends(get_db), user: dic
     engine_ctx = {"base_url": engine_client.engine_base_url()} if dual else None
     try:
         translate_cfg = await _llm_cfg(db) if dual else None
+        if dual:
+            engine_ctx["llm"] = translate_cfg
         created = await service.create_run(db, row, username, engine_ctx=engine_ctx, translate_cfg=translate_cfg)
     except ValueError as e:
         raise HTTPException(400, str(e))

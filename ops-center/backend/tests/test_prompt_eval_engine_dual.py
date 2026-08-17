@@ -31,6 +31,7 @@ import models  # noqa: F401
 from config import settings  # noqa: E402
 from services import prompt_eval_service as svc  # noqa: E402
 from services import prompt_eval_engine_client as engine_client  # noqa: E402
+from services import prompt_eval_contract as contract  # noqa: E402
 from services import prompt_eval_generation_service as generation  # noqa: E402
 from services import prompt_eval_evaluation_service as evaluation  # noqa: E402
 from services import prompt_eval_translation_service as translation  # noqa: E402
@@ -57,6 +58,9 @@ class _FakeHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         eng = self._engine
+        content_length = int(self.headers.get("Content-Length", "0"))
+        request_body = self.rfile.read(content_length)
+        eng.optimize_requests.append(json.loads(request_body))
         if eng.optimize_sleep:
             time.sleep(eng.optimize_sleep)
         if eng.optimize_raw is not None:
@@ -90,6 +94,7 @@ class FakeEngineServer:
     def __init__(self):
         self.optimize_responses = []
         self.optimize_raw = None
+        self.optimize_requests = []
         self.optimize_sleep = 0
         self.health_status = 200
         self.health_sleep = 0
@@ -121,6 +126,27 @@ async def test_optimize_ok(fake_engine):
     data = await engine_client.optimize(fake_engine.base_url, "一个老妇人在做饭")
     assert data["optimized_prompt"]
     assert data["model_used"] == "test-model"
+    assert "llm" not in fake_engine.optimize_requests[-1]
+    assert "caller" not in fake_engine.optimize_requests[-1]
+
+
+@pytest.mark.asyncio
+async def test_optimize_llm_payload(fake_engine):
+    llm = {
+        "provider": "minimax",
+        "model": "MiniMax-M2.7",
+        "api_key": "llm-test-key",
+        "base_url": "https://x/v1",
+    }
+    await engine_client.optimize(
+        fake_engine.base_url,
+        "prompt",
+        llm=llm,
+        caller="ops-center",
+    )
+    request = fake_engine.optimize_requests[-1]
+    assert request["llm"] == llm
+    assert request["caller"] == "ops-center"
 
 
 @pytest.mark.asyncio
@@ -137,6 +163,14 @@ async def test_optimize_5xx_final_fails(fake_engine):
         await engine_client.optimize(fake_engine.base_url, "prompt")
     assert "HTTP 503" in str(ei.value)
     assert ei.value.stage == "engine_optimize"
+
+
+@pytest.mark.asyncio
+async def test_optimize_422_fails_closed(fake_engine):
+    fake_engine.optimize_responses = [422]
+    with pytest.raises(engine_client.EngineUnavailableError) as ei:
+        await engine_client.optimize(fake_engine.base_url, "prompt")
+    assert "HTTP 422" in str(ei.value)
 
 
 @pytest.mark.asyncio
@@ -300,6 +334,13 @@ async def test_compare_mode_validation():
         assert rn.json()["engine_params"]["num_candidates"] == 3
 
 
+def test_engine_provider_mapping():
+    assert contract.engine_provider_for("minimax-llm") == "minimax"
+    assert contract.engine_provider_for("sensenova-llm") == "sensenova"
+    assert contract.engine_provider_for("deepseek") == "deepseek"
+    assert contract.engine_provider_for("custom-openai") == "openai_compat"
+
+
 @pytest.mark.asyncio
 async def test_single_mode_regression(monkeypatch):
     """既有 single 契约零变化：runs 只有 manual，返回 run dict 而非复合体。"""
@@ -354,7 +395,18 @@ async def test_dual_creates_two_variants(fake_engine, monkeypatch):
         assert "engineError" not in data
         assert data["engine"]["prompt_zh"] == "写实风格，金色阳光下的老妇人，细节丰富"
         assert data["engine"]["prompt_en"] == "A realistic old woman cooking in golden sunlight"
+        request = fake_engine.optimize_requests[-1]
+        assert request["llm"] == {
+            "provider": "minimax",
+            "model": "MiniMax-M2.7",
+            "api_key": "llm-test-key",
+            "base_url": "https://x/v1",
+        }
+        assert request["caller"] == "ops-center"
         meta = data["engine"]["engine_meta"]
+        serialized = json.dumps(data, ensure_ascii=False)
+        assert "llm-test-key" not in serialized
+        assert "api_key" not in meta
         assert meta["pair_id"] == data["pair_id"]
         assert meta["creative_level"] == 8 and meta["num_candidates"] == 3
         assert meta["max_length"] == 500
@@ -366,6 +418,59 @@ async def test_dual_creates_two_variants(fake_engine, monkeypatch):
             "写实风格，金色阳光下的老妇人，细节丰富",
         }
         assert {s["prompt_en"] for s in started} == {None, "A realistic old woman cooking in golden sunlight"}
+
+
+@pytest.mark.asyncio
+async def test_dual_engine_uses_saved_llm_key(fake_engine, monkeypatch):
+    """已保存的 minimax-llm 密钥优先于环境变量，并按引擎 provider 名发送。"""
+    import services.prompt_eval_service as svc
+
+    async def fake_translate(cfg, prompt_zh, http=None):
+        return "EN"
+
+    monkeypatch.setenv("OPS_PROMPT_ENGINE_BASE_URL", fake_engine.base_url)
+    monkeypatch.setattr(translation, "translate_prompt_zh", fake_translate)
+    async with _client() as client:
+        admin, h = _headers(role="admin"), _headers()
+        await _seed_provider_keys(client, admin)
+        saved = await client.put("/api/v1/prompt-eval/providers", json={
+            "provider": "minimax-llm", "model": "MiniMax-M2.7-saved",
+            "api_key": "saved-llm-key", "base_url": "https://saved.example/v1",
+        }, headers=admin)
+        assert saved.status_code == 200, saved.text
+        cid = (await client.post("/api/v1/prompt-eval/cases", json=_valid_case("dual"), headers=h)).json()["id"]
+        monkeypatch.setattr(svc, "start_run_pipeline", lambda *args: None)
+        response = await client.post(f"/api/v1/prompt-eval/cases/{cid}/runs", headers=h)
+        assert response.status_code == 200, response.text
+        request = fake_engine.optimize_requests[-1]
+        assert request["llm"] == {
+            "provider": "minimax",
+            "model": "MiniMax-M2.7-saved",
+            "api_key": "saved-llm-key",
+            "base_url": "https://saved.example/v1",
+        }
+        assert request["caller"] == "ops-center"
+        assert "saved-llm-key" not in json.dumps(response.json(), ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_dual_missing_llm_fails_before_engine_request(fake_engine, monkeypatch):
+    """双路未配置 LLM 时入口快速失败，不向新引擎发送缺 llm 请求。"""
+    for name in (
+        "OPS_PROMPT_EVAL_LLM_API_KEY",
+        "OPS_PROMPT_EVAL_LLM_BASE_URL",
+        "OPS_PROMPT_EVAL_LLM_MODEL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPS_PROMPT_ENGINE_BASE_URL", fake_engine.base_url)
+    async with _client() as client:
+        admin, h = _headers(role="admin"), _headers()
+        await _seed_provider_keys(client, admin)
+        cid = (await client.post("/api/v1/prompt-eval/cases", json=_valid_case("dual"), headers=h)).json()["id"]
+        response = await client.post(f"/api/v1/prompt-eval/cases/{cid}/runs", headers=h)
+        assert response.status_code == 400
+        assert "OPS_PROMPT_EVAL_LLM_API_KEY" in response.text
+        assert fake_engine.optimize_requests == []
 
 
 @pytest.mark.asyncio
