@@ -122,8 +122,6 @@ All pages SHALL continue to use the shared top address navigation back/forward c
 - WHEN the user clicks the editor’s “返回” action
 - THEN the router navigates to /create?view=history
 
-## MODIFIED Requirements
-
 ### Requirement: Localized terminology
 
 All new or changed user-visible strings SHALL exist in both apps/desktop/src/locales/zh.js and apps/desktop/src/locales/en.js. Program comments and PRD terminology SHALL call the launch view “流水线启动页” and the result editor “视频任务编辑页”; “视频任务详情页” SHALL not describe a separate modal.
