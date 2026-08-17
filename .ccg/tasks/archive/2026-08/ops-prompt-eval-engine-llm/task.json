@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "backend-api-contract",
   "currentPhase": "completed",
-  "nextAction": "PR 合并后归档任务并核对 origin/main",
+  "nextAction": "已归档；无需后续动作",
   "createdAt": "2026-08-17T09:00:00+08:00",
   "branch": "codex/ops-prompt-eval-engine-llm",
   "openspecChange": "ops-prompt-eval-engine-llm"
