@@ -1,3 +1,11 @@
+## [Unreleased] - 2026-08-16 (视频提示词上限 20000 → 40000)
+
+### 变更
+- 视频域上限 `VIDEO_ENGINE_LIMITS.videoMaxLengthMax` 20000 → **40000**（openspec `s2v-video-maxlength-40000`）：8020 standalone range [200,20000] → [200,40000]；videoPrompt 落库 `safeText` 视频专属 20000 → 40000（图片 prompt 20000 不动）；legacy 8013 [50,2000] 与共享 kernel 默认 500 不放松。8020 引擎侧 `VideoOptimizeRequest.max_length` le 同步 20000 → 40000（prompt-engine change `video-maxlength-40000`）。
+
+### 测试
+- 契约层 standalone clamp 断言同步 40000（22000/30000 范围内透传、40000 顶格）；服务层 video regen 断言 `max_length=40000` 显式透传 + 超长（25000 字符，>旧 20000 上限）完整落库。
+
 ## [Unreleased] - 2026-08-16 (历史重生成视频优化词长度放宽)
 
 ### 变更

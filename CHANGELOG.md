@@ -4,6 +4,12 @@
 - 根因/修复：① llmFn 支持结构化输图 `{ text, images:[{mimeType,base64,dataUrl}] }`，OpenAI 走 `image_url` 数组、Anthropic 走 `image source` base64，diff/基线/当前截图以 base64 内联真传给支持视觉的模型自动判 expected/regression/noise，纯文本调用保持旧协议；② `AgentVisualJudge` 视觉内联默认开启（有 llmFn 时），视觉失败降级纯文本、再失败/不可解析 → `need_review`（fail-closed），单图 3MB 体积护栏（`MAX_IMAGE_BYTES`）；③ 接线修复：`runOrchestratorLoop` 注入 llmFn 给 `TestOrchestrator`，保证 `analyzer.visualJudge` 非空（此前恒 null，图片从未发出）；④ `AIAnalyzer` 新增 `needReview` 分组，`need_review`/LLM 异常/启发式不确定全部路由 `NEED_HUMAN`（优先于回归修复与基线更新），不再静默 `UPDATE_BASELINE`；仅 `status=FAILED` 触发视觉 judge（PASSED 高 diff 不烧 vision 成本）；⑤ workflow 新增 `llm_vision` 输入（默认 true）并移除 `|| ''` 布尔陷阱，显式 false 保持 false、PR 事件恒 false。
 - 回归：包测试 `packages/ai-autonomous-tester` 189/189（+10：视觉输图/降级/超限护栏/need_review 路由/接线/成本护栏）；workflow 合同 `.github/scripts/autonomous-loop-workflow.test.js` 10/10（+1 求值语义 + `|| ''` 守卫）；`git diff --check` PASS；无 locale/CJK/apps-desktop-electron 变更。
 
+## [2026-08-17] feat(story2video): 流水线进度区域新增「合成时间说明」提示
+
+- 背景：用户反馈生成视频时不知道整体耗时预期，等待过程容易误判为卡死。
+- 改动：`StageProgress`（流水线进度区域）新增合成时间说明块——整体完成时间与视频时长（时长越长合成越久）、内容复杂度、大模型推理时间相关；参考区间：1 分钟视频 5–8 分钟、3 分钟视频 15–20 分钟、6 分钟视频 35–45 分钟，以上均属正常范围。
+- 门控：新增 `showTimeGuidance` prop（默认 false），`CreateView` 仅对 story2video-compose（`isOrchestratedPipeline`）传入，避免 story2video 专属口径泄漏到其他暂存式流水线（animated-explainer/talking-head/cinematic/clip-factory 等）；zh/en locale 成对新增 6 键。
+- 回归：`StageProgress.test.js` + story2video-ue-contract + `CreateView.test.js` 全绿；locale 成对 + CJK 基线无新增硬编码（仅行号位移重锚）。
 
 ## [2026-08-16] feat(desktop): PromptBridge BYOK —— 提示词引擎使用桌面配置的 LLM（llm 对象 + caller + fail-closed）
 
