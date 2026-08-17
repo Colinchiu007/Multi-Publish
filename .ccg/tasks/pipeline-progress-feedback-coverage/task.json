@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "frontend-electron",
   "currentPhase": "implementation",
-  "nextAction": "提交分支、同步 origin/main 并建立 PR",
+  "nextAction": "修复 CI 中 clip-factory 测试的 ffmpeg 依赖并重新验证",
   "openspecChange": "pipeline-progress-feedback-coverage",
   "branch": "codex/pipeline-progress-feedback-v2"
 }

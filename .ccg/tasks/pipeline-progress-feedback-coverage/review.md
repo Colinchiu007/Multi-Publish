@@ -36,6 +36,8 @@
 - Cinematic render now creates its run output directory before copying the completed artifact; the new lifecycle regression exposed this pre-existing first-run failure mode.
 - Packaged startup smoke: the environment rejected the hidden-process launch command before execution; electron-builder succeeded and the ASAR inspection confirmed `stage-progress.js`, `stage-executor.js`, and `videogen-stages.js` are packaged.
 - git diff --check：no whitespace errors; Git reports expected LF/CRLF conversion warnings。
+- PR #920 首轮 CI 的 `electron-tests` 唯一失败来自 `clipfactory-stages.test.js` 在 Linux runner 生成 fixture 时直接 spawn 系统 `ffmpeg`（`ENOENT`），不是生产逻辑失败；已改为 spy `child_process.execFile`，测试只验证阶段进度事件契约。
+- 修复后本地生命周期矩阵：5 files / 180 tests passed。
 
 ## Follow-up
 

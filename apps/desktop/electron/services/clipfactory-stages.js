@@ -13,7 +13,7 @@
 
 'use strict'
 
-const { execFile } = require('child_process')
+const childProcess = require('child_process')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -35,7 +35,7 @@ const SCENE_THRESHOLD = 0.3
 
 function runTool (binary, args) {
   return new Promise((resolve, reject) => {
-    execFile(binary, args, { maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
+    childProcess.execFile(binary, args, { maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) reject(new Error(String(stderr || error.message).slice(0, 1200)))
       // ffmpeg 的 metadata=print / 日志走 stderr，成功时也要一并返回供解析
       else resolve(String(stdout) + '\n' + String(stderr))
