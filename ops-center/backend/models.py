@@ -272,6 +272,35 @@ class FeatureFlag(Base):
     enabled = Column(Integer, default=1)
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+
+
+class UserFeedback(Base):
+    """用户反馈正文与安全元数据；附件独立存储，避免把路径暴露给 API。"""
+
+    __tablename__ = "user_feedback"
+
+    id = Column(String(36), primary_key=True)
+    message = Column(Text, nullable=False)
+    client_id_hash = Column(String(64), default="")
+    app_version = Column(String(64), default="")
+    platform = Column(String(32), default="")
+    status = Column(String(16), default="new")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class FeedbackAttachment(Base):
+    """反馈日志归档元数据；stored_name 是由服务端生成的 basename。"""
+
+    __tablename__ = "feedback_attachments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    feedback_id = Column(String(36), ForeignKey("user_feedback.id", ondelete="CASCADE"), nullable=False, unique=True)
+    stored_name = Column(String(128), nullable=False, unique=True)
+    extension = Column(String(8), default="zip")
+    size_bytes = Column(Integer, nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    expires_at = Column(String, nullable=True)
 class PlatformDef(Base):
     """平台发布元数据 — 运营后台管理，桌面端启动拉取覆盖（临时下线/字段上限即时生效）。"""
 

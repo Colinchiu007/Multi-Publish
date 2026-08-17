@@ -116,6 +116,10 @@
           <el-icon><Document /></el-icon>
           <span>审计日志</span>
         </el-menu-item>
+        <el-menu-item v-if="authStore.role === 'admin'" index="/feedback">
+          <el-icon><ChatDotRound /></el-icon>
+          <span>用户反馈</span>
+        </el-menu-item>
         <el-menu-item index="/prompt-eval-workbench">
           <el-icon><MagicStick /></el-icon>
           <span>提示词评测</span>

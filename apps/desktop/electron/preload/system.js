@@ -279,6 +279,7 @@ function createSystemApi(ipcRenderer) {
     logsGetInfo: () => ipcRenderer.invoke('logs:info'),
     logsClear: () => ipcRenderer.invoke('logs:clear'),
     logError: (message) => ipcRenderer.invoke('logs:error', { message }),
+    submitFeedback: (payload) => ipcRenderer.invoke('feedback:submit', payload),
   }
 }
 

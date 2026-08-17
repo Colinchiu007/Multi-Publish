@@ -82,6 +82,20 @@ export default {
       autoClearHint: 'Log files are automatically cleaned when they reach 500M.',
       empty: 'No log files yet',
     },
+    feedback: {
+      title: 'User Feedback',
+      subtitle: 'Tell us what went wrong so we can investigate and improve the app.',
+      label: 'Problem description',
+      placeholder: 'Describe what happened, how to reproduce it, and what you expected.',
+      attachLogs: 'Attach application logs',
+      attachLogsHint: 'Logs are redacted on this device before upload and limited to application log files.',
+      submit: 'Submit feedback',
+      submitting: 'Submitting...',
+      required: 'Enter a problem description first.',
+      tooLong: 'Feedback cannot exceed 10000 characters.',
+      submitted: 'Feedback submitted. Thank you for helping us improve.',
+      submitFailed: 'Could not submit feedback. Please try again later.',
+    },
   },
   create: {
     story2video: {

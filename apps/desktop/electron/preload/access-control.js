@@ -41,7 +41,7 @@ const PUBLIC_METHODS = [
   'modelProviderGetDefault',
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs',
-  'logsGetInfo', 'logsClear', 'logError',
+  'logsGetInfo', 'logsClear', 'logError', 'submitFeedback',
   'renderGetStatus', 'renderInstallDeps', 'onRenderInstallProgress',
   'pipelineList', 'pipelineGet',
   // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：

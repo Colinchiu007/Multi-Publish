@@ -107,6 +107,11 @@ function redact(value) {
   return output
 }
 
+/** Reapply the logger redaction contract to exported historical log text. */
+function redactText(value) {
+  return redact(value)
+}
+
 function safeMeta(meta) {
   if (meta === undefined || meta === null) return ''
   // Error 对象：记录堆栈/消息，便于排查
@@ -242,3 +247,4 @@ const logger = {
 }
 
 module.exports = logger
+module.exports.redactText = redactText
