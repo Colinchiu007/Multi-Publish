@@ -37,8 +37,6 @@
       <UiButton @click="$router.push('/create')">去创作</UiButton>
     </div>
 
-    <div class="result-content-layout">
-      <div class="result-main-content">
     <div v-if="videoPath" class="video-section">
       <video
         ref="videoPlayer"
@@ -155,21 +153,9 @@
       <audio :src="audioSrc" controls class="audio-player"></audio>
     </section>
 
-      </div><!-- /result-main-content -->
-      <aside class="result-segment-sidebar">
-    <section v-if="projectId && segments.length" class="project-section" data-testid="segment-edit-section">
-      <div class="section-heading">
-        <div>
-          <h2>分段编辑</h2>
-          <p>
-            {{ segments.length }} 个分段 · {{ $t('story2video.sceneMaterial.editRecomposeHint') }}
-            <span v-if="segmentsDirty" class="segments-unsaved-chip" data-testid="segments-unsaved-chip">{{ tOrKey('story2video.sceneMaterial.unsavedChanges') }}</span>
-          </p>
-        </div>
-      </div>
-
-      <!-- 分段快捷定位：数字跳转 + 上一条/下一条（2026-08-17 UX 统一） -->
-      <div v-if="segments.length > 1" class="segment-jump-bar" data-testid="segment-jump-bar">
+    <!-- 分段快捷定位固定竖条：右侧 sticky，不随页面滚动（2026-08-18 UX 修正） -->
+    <aside v-if="projectId && segments.length > 1" class="segment-jump-sidebar">
+      <div class="segment-jump-bar" data-testid="segment-jump-bar">
         <span class="segment-jump-label">{{ tOrKey('story2video.sceneMaterial.segmentJumpLabel') }}</span>
         <div class="segment-jump-numbers">
           <button
@@ -185,6 +171,18 @@
         <div class="segment-jump-nav">
           <UiButton size="sm" variant="ghost" :disabled="activeSegmentIndex <= 0" data-testid="segment-jump-prev" @click="jumpSegmentBy(-1)">{{ tOrKey('story2video.sceneMaterial.segmentJumpPrev') }}</UiButton>
           <UiButton size="sm" variant="ghost" :disabled="activeSegmentIndex >= segments.length - 1" data-testid="segment-jump-next" @click="jumpSegmentBy(1)">{{ tOrKey('story2video.sceneMaterial.segmentJumpNext') }}</UiButton>
+        </div>
+      </div>
+    </aside>
+
+    <section v-if="projectId && segments.length" class="project-section" data-testid="segment-edit-section">
+      <div class="section-heading">
+        <div>
+          <h2>分段编辑</h2>
+          <p>
+            {{ segments.length }} 个分段 · {{ $t('story2video.sceneMaterial.editRecomposeHint') }}
+            <span v-if="segmentsDirty" class="segments-unsaved-chip" data-testid="segments-unsaved-chip">{{ tOrKey('story2video.sceneMaterial.unsavedChanges') }}</span>
+          </p>
         </div>
       </div>
 
@@ -354,8 +352,6 @@
         </article>
       </div>
     </section>
-      </aside><!-- /result-segment-sidebar -->
-    </div><!-- /result-content-layout -->
 
     <!-- 底部固定操作条（2026-08-17 UX 统一）：保存分段/重新合成/再次合成视频 不随页面滚动 -->
     <div v-if="projectId && segments.length" class="result-action-bar" data-testid="result-action-bar">
@@ -1505,10 +1501,12 @@ export default {
 /* 视频任务编辑页：整页 flex 纵向布局；编辑内容为固定操作条预留底部安全空间。 */
 .result-page { padding: 24px 24px calc(var(--result-action-bar-space, 88px) + 24px); max-width: 1040px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
 
-/* 双栏布局：左侧主内容 + 右侧分段编辑侧栏（2026-08-18 UX 统一） */
-.result-content-layout { display: flex; gap: 24px; align-items: flex-start; }
-.result-main-content { flex: 1 1 0; min-width: 0; }
-.result-segment-sidebar { position: sticky; top: 24px; width: 380px; max-height: calc(100vh - 48px); overflow-y: auto; flex-shrink: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 16px; }
+/* 分段快捷定位固定竖条：右侧 sticky，不随页面滚动（2026-08-18 UX 修正） */
+.segment-jump-sidebar { position: fixed; right: 20px; top: 80px; width: 200px; z-index: 100; max-height: calc(100vh - 120px); overflow-y: auto; }
+.segment-jump-sidebar .segment-jump-bar { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+.segment-jump-sidebar .segment-jump-numbers { display: flex; flex-wrap: wrap; gap: 6px; }
+.segment-jump-sidebar .segment-jump-nav { display: flex; gap: 8px; justify-content: center; }
+
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .page-header h1 { font-size: 24px; font-weight: 700; margin: 0; }
 .back-to-list { align-self: flex-start; border: none; background: none; color: var(--primary); font-size: 14px; cursor: pointer; padding: 4px 8px; border-radius: 6px; margin-right: auto; }
@@ -1606,8 +1604,10 @@ export default {
 
 
 @media (max-width: 900px) {
-  .result-content-layout { flex-direction: column; }
-  .result-segment-sidebar { position: static; width: 100%; max-height: none; }
+}
+
+@media (max-width: 900px) {
+  .segment-jump-sidebar { display: none; }
 }
 @media (max-width: 720px) {
   .result-page { padding: 16px 16px calc(var(--result-action-bar-space-mobile, 196px) + 16px); }
