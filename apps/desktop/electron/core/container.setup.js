@@ -268,7 +268,7 @@ function createContainer(options) {
     const { TtsVoiceCloneService } = require('../services/tts-voice-clone-service');
     return new TtsVoiceCloneService({
       store: c.get("store"),
-      modelProviderManager: c.get("modelProviderManager"),
+      /* modelProviderManager created in phase1-context.js; injected there */
       log: c.get("logger"),
     });
   });
