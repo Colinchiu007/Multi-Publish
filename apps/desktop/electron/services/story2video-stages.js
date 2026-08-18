@@ -1284,6 +1284,9 @@ async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProv
       return null
     }
     const userDataDir = (() => {
+      if (cloneSvc && typeof cloneSvc._resolveUserDataPath === 'function') {
+        try { return cloneSvc._resolveUserDataPath() || null } catch (_) { /* fall through */ }
+      }
       const container = pipelineEngine && pipelineEngine.container
       if (container && typeof container.get === 'function') {
         try { const s = container.get('store'); return s && typeof s.getUserDataDir === 'function' ? s.getUserDataDir() : null } catch (_) { return null }
