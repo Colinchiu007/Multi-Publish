@@ -2435,7 +2435,7 @@ describe('Story2VideoProjectService', () => {
   })
 })
 
-describe('Story2VideoProjectService — 多模态优先设置与历史任务图片重试/重生成（2026-08-16 回归）', () => {
+describe('Story2VideoProjectService — 历史任务图片重试/重生成（provider 可用性路由，2026-08-16 回归）', () => {
   let root
   let store
 
@@ -2475,11 +2475,10 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
     enabled: true, is_configured: true, models: ['agnes-img-1'],
   }
 
-  function buildManager ({ preferMultimodal = true, providers = {}, defaultImage = null }) {
+  function buildManager ({ providers = {}, defaultImage = null }) {
     return {
       getProvider: vi.fn((id) => providers[id] || null),
       getDefault: vi.fn((category) => (category === 'image' ? defaultImage : null)),
-      getMultimodalPreference: vi.fn(() => preferMultimodal),
     }
   }
 
@@ -2516,9 +2515,8 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
     })
   }
 
-  it('retrySegment(image)：关闭多模态优先且项目固化多模态 provider 时，改用当前 image 默认 provider', async () => {
+  it('retrySegment(image)：项目固化多模态 provider 仍可用时保留（无全局偏好开关）', async () => {
     const service = buildRetryService(buildManager({
-      preferMultimodal: false,
       providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
       defaultImage: IMAGE_PROVIDER,
     }))
@@ -2526,15 +2524,15 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
 
     await service.retrySegment('project-retry-prefer-off', 'segment-0', 'image')
 
+    // saved provider is usable, so it should be kept
     expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
-      image_provider: 'agnes-image',
-      image_model: 'agnes-img-1',
+      image_provider: 'minimax-multimodal',
+      image_model: 'image-01',
     }))
   })
 
   it('retrySegment(image)：开启多模态优先时保留任务固化的多模态 provider', async () => {
     const service = buildRetryService(buildManager({
-      preferMultimodal: true,
       providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
       defaultImage: IMAGE_PROVIDER,
     }))
@@ -2550,7 +2548,6 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
 
   it('retrySegment(image)：关闭多模态优先时保留用户显式选择的 image 类 provider', async () => {
     const service = buildRetryService(buildManager({
-      preferMultimodal: false,
       providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER, 'agnes-image': IMAGE_PROVIDER },
       defaultImage: IMAGE_PROVIDER,
     }))
@@ -2564,22 +2561,24 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
     }))
   })
 
-  it('retrySegment(image)：关闭多模态优先且无可用 image 默认时明确报错，不再回退占位图', async () => {
+  it('retrySegment(image)：项目固化 provider 仍可用时保留，不依赖 defaultImage', async () => {
     const service = buildRetryService(buildManager({
-      preferMultimodal: false,
       providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
       defaultImage: null,
     }))
     writeProjectFixture(service, 'project-retry-no-default', { imageProvider: 'minimax-multimodal', imageModel: 'image-01' })
 
-    await expect(service.retrySegment('project-retry-no-default', 'segment-0', 'image')).rejects.toThrow('未找到可用的图片生成器')
-    expect(service.assetGenerator.generateImage).not.toHaveBeenCalled()
-    expect(service.composeEngine.renderSegment).not.toHaveBeenCalled()
+    await service.retrySegment('project-retry-no-default', 'segment-0', 'image')
+
+    // saved provider is usable, so it should be kept even without defaultImage
+    expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
+      image_provider: 'minimax-multimodal',
+      image_model: 'image-01',
+    }))
   })
 
   it('retrySegment(image)：项目未固化 provider 时保持原空透传（老项目占位图语义不变）', async () => {
     const service = buildRetryService(buildManager({
-      preferMultimodal: false,
       providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
       defaultImage: IMAGE_PROVIDER,
     }))
@@ -2593,10 +2592,9 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
     }))
   })
 
-  it('generateSceneImage：关闭多模态优先时同样弃用固化多模态 provider，改用当前 image 默认', async () => {
+  it('generateSceneImage：项目固化多模态 provider 仍可用时保留（无全局偏好开关）', async () => {
     const service = buildService({
       modelProviderManager: buildManager({
-        preferMultimodal: false,
         providers: { 'minimax-multimodal': MULTIMODAL_PROVIDER },
         defaultImage: IMAGE_PROVIDER,
       }),
@@ -2608,15 +2606,15 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
 
     await service.generateSceneImage('project-image-prefer-off', 'segment-0')
 
+    // saved provider is usable, so it should be kept
     expect(service.assetGenerator.generateImage).toHaveBeenCalledWith('PA', expect.objectContaining({
-      image_provider: 'agnes-image',
-      image_model: 'agnes-img-1',
+      image_provider: 'minimax-multimodal',
+      image_model: 'image-01',
     }))
   })
 
-  it('retrySegment(image)：固化 provider 已删除时改用当前 image 默认（审查 M2 补强）', async () => {
+  it('retrySegment(image)：固化 provider 已删除时改用当前 image 默认', async () => {
     const service = buildRetryService(buildManager({
-      preferMultimodal: false,
       providers: {},
       defaultImage: IMAGE_PROVIDER,
     }))
@@ -2630,9 +2628,8 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
     }))
   })
 
-  it('retrySegment(image)：固化 provider 已禁用/未配置时改用当前 image 默认（审查 M2 补强）', async () => {
+  it('retrySegment(image)：固化 provider 已禁用时改用当前 image 默认', async () => {
     const service = buildRetryService(buildManager({
-      preferMultimodal: false,
       providers: { 'minimax-multimodal': { ...MULTIMODAL_PROVIDER, enabled: false } },
       defaultImage: IMAGE_PROVIDER,
     }))
@@ -2660,7 +2657,6 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
 
   it('retrySegment(image)：旧别名 provider（openai-image）DB 无行时原样透传（asset-generator canonical 路由，审查 M3 补强）', async () => {
     const service = buildRetryService(buildManager({
-      preferMultimodal: false,
       providers: {},
       defaultImage: IMAGE_PROVIDER,
     }))
@@ -2676,7 +2672,6 @@ describe('Story2VideoProjectService — 多模态优先设置与历史任务图�
 
   it('retrySegment(image)：多模态缺 capability_models.image 时不留非图片首模型（交 adapter 默认，审查 m1 补强）', async () => {
     const service = buildRetryService(buildManager({
-      preferMultimodal: true,
       providers: { 'minimax-multimodal': { ...MULTIMODAL_PROVIDER, capability_models: null, models: ['speech-2.8-turbo'] } },
       defaultImage: IMAGE_PROVIDER,
     }))

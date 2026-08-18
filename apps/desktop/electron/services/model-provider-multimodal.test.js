@@ -190,6 +190,11 @@ describe('多模态模型类别与 MiniMax 预设', () => {
       expect(manager.listProviders('image').some(p => p.id === 'minimax-multimodal')).toBe(false)
 
       enableProvider(db, 'minimax-multimodal', 'mm-key')
+    // 设置 video capability_defaults 使多模态模型参与 video 默认解析
+    const row = db.prepare("SELECT config FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    const config = JSON.parse(row.config)
+    config.capability_defaults = ['video']
+    db.prepare("UPDATE model_providers SET config = ? WHERE id = 'minimax-multimodal'").run(JSON.stringify(config))
       expect(manager.listProviders('image').some(p => p.id === 'minimax-multimodal')).toBe(true)
       expect(manager.listProviders('tts').some(p => p.id === 'minimax-multimodal')).toBe(true)
       // video 能力默认关闭（「支持生成视频」开关未开启），能力选择器不并入
@@ -232,28 +237,35 @@ describe('getDefault 多模态路由', () => {
   afterAll(() => { if (database) database.close() })
 
   it('未开启偏好时返回类别 provider', () => {
-    store.setUserSetting('prefer_multimodal', false)
     const tts = manager.getDefault('tts')
     expect(tts.id).toBe('elevenlabs')
   })
 
-  it('开启偏好且多模态声明能力时，llm/tts/image 返回多模态模型（video 由开关控制）', () => {
-    store.setUserSetting('prefer_multimodal', true)
+  it('capability_defaults 启用时，对应能力返回多模态模型（video 由开关控制）', () => {
+    // 设置多模态模型的 capability_defaults
+    const row = db.prepare("SELECT config FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    const config = JSON.parse(row.config)
+    config.capability_defaults = ['llm', 'tts', 'image']
+    db.prepare("UPDATE model_providers SET config = ? WHERE id = 'minimax-multimodal'").run(JSON.stringify(config))
     expect(manager.getDefault('llm').id).toBe('minimax-multimodal')
     expect(manager.getDefault('tts').id).toBe('minimax-multimodal')
     expect(manager.getDefault('image').id).toBe('minimax-multimodal')
     // video 能力默认关闭（「支持生成视频」开关未开启），不返回多模态
     expect(manager.getDefault('video')).toBeNull()
+    // 清理 capability_defaults
+    config.capability_defaults = []
+    db.prepare("UPDATE model_providers SET config = ? WHERE id = 'minimax-multimodal'").run(JSON.stringify(config))
   })
 
-  it('多模态未声明能力（speech_recognition）时回退类别 provider', () => {
-    store.setUserSetting('prefer_multimodal', true)
+  it('capability_defaults 未包含该能力时回退类别 provider', () => {
+    // capability_defaults 已在上一个测试中清空
     expect(manager.getDefault('speech_recognition')).toBeNull()
+    // tts 有类别 provider (elevenlabs)，但 capability_defaults 已清空，不返回多模态
+    expect(manager.getDefault('tts').id).toBe('elevenlabs')
   })
 
   it('多模态未配置时回退类别 provider', async () => {
     db.prepare("UPDATE model_providers SET enabled = ? WHERE id = 'minimax-multimodal'").run(0)
-    store.setUserSetting('prefer_multimodal', true)
     expect(manager.getDefault('tts').id).toBe('elevenlabs')
   })
 })
@@ -272,7 +284,6 @@ describe('多模态 video 能力开关（支持生成视频，默认关闭）', 
     manager = newManager(store)
     enableProvider(db, 'agnes-video', 'agnes-key')
     enableProvider(db, 'minimax-multimodal', 'mm-key')
-    store.setUserSetting('prefer_multimodal', true)
   })
   afterAll(() => { if (database) database.close() })
 
@@ -280,6 +291,8 @@ describe('多模态 video 能力开关（支持生成视频，默认关闭）', 
     const row = db.prepare("SELECT config FROM model_providers WHERE id = 'minimax-multimodal'").get()
     const config = JSON.parse(row.config)
     config.capability_enabled = { ...(config.capability_enabled || {}), video: value }
+    // 确保 capability_defaults 包含 video（beforeAll 已设置，但 setVideoEnabled 会重写 config）
+    if (!Array.isArray(config.capability_defaults)) config.capability_defaults = ['video']
     db.prepare("UPDATE model_providers SET config = ? WHERE id = 'minimax-multimodal'").run(JSON.stringify(config))
   }
 
@@ -309,6 +322,11 @@ describe('多模态 video 能力开关（支持生成视频，默认关闭）', 
 
   it('关闭 video 不影响 llm/image/tts 多模态路由', () => {
     setVideoEnabled(false)
+    // 确保 llm/image/tts 也在 capability_defaults 中
+    const row = db.prepare("SELECT config FROM model_providers WHERE id = 'minimax-multimodal'").get()
+    const config = JSON.parse(row.config)
+    config.capability_defaults = ['llm', 'tts', 'image']
+    db.prepare("UPDATE model_providers SET config = ? WHERE id = 'minimax-multimodal'").run(JSON.stringify(config))
     expect(manager.getDefault('llm').id).toBe('minimax-multimodal')
     expect(manager.getDefault('image').id).toBe('minimax-multimodal')
     expect(manager.getDefault('tts').id).toBe('minimax-multimodal')
@@ -323,25 +341,7 @@ describe('多模态 video 能力开关（支持生成视频，默认关闭）', 
   })
 })
 
-describe('多模态偏好开关', () => {
-  let database
 
-  beforeAll(async () => {
-    const SQL = await initSqlJs()
-    database = new SQL.Database()
-  })
-  afterAll(() => { if (database) database.close() })
-
-  it('默认开启，set/get 往返持久化', async () => {
-    const { store } = await createStore(database)
-    const manager = newManager(store)
-    expect(manager.getMultimodalPreference()).toBe(true)
-    expect(manager.setMultimodalPreference(false).code).toBe(0)
-    expect(manager.getMultimodalPreference()).toBe(false)
-    expect(manager.setMultimodalPreference(true).code).toBe(0)
-    expect(manager.getMultimodalPreference()).toBe(true)
-  })
-})
 
 describe('MinimaxMultimodalAdapter', () => {
   it('能力包含 llm/tts/image/video 方法与基础方法', () => {

@@ -556,6 +556,7 @@ var require_system = __commonJS({
         modelProviderUpdate: (id, data) => ipcRenderer2.invoke("model-provider:update", id, data),
         modelProviderDelete: (id) => ipcRenderer2.invoke("model-provider:delete", id),
         modelProviderSetDefault: (category, id) => ipcRenderer2.invoke("model-provider:set-default", category, id),
+        modelProviderSetCapabilityDefault: (providerId, capability, enabled) => ipcRenderer2.invoke("model-provider:set-capability-default", providerId, capability, enabled),
         modelProviderGetDefault: (category) => ipcRenderer2.invoke("model-provider:get-default", category),
         modelProviderTest: (id) => ipcRenderer2.invoke("model-provider:test", id),
         modelProviderPresets: (category) => ipcRenderer2.invoke("model-provider:presets", category),

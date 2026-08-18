@@ -55,6 +55,13 @@ export async function modelProviderSetDefault (category, providerId) {
   return api.modelProviderSetDefault(category, providerId)
 }
 
+/** 设置多模态模型的能力默认 */
+export async function modelProviderSetCapabilityDefault (providerId, capability, enabled) {
+  const api = getApi()
+  if (!api) return { code: -1, message: 'electronAPI not available' }
+  return api.modelProviderSetCapabilityDefault(providerId, capability, enabled)
+}
+
 /** 获取某类别的默认服务商 */
 export async function modelProviderGetDefault (category) {
   const api = getApi()

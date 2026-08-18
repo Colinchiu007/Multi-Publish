@@ -268,6 +268,7 @@ function createSystemApi(ipcRenderer) {
     modelProviderUpdate: (id, data) => ipcRenderer.invoke('model-provider:update', id, data),
     modelProviderDelete: (id) => ipcRenderer.invoke('model-provider:delete', id),
     modelProviderSetDefault: (category, id) => ipcRenderer.invoke('model-provider:set-default', category, id),
+    modelProviderSetCapabilityDefault: (providerId, capability, enabled) => ipcRenderer.invoke('model-provider:set-capability-default', providerId, capability, enabled),
     modelProviderGetDefault: (category) => ipcRenderer.invoke('model-provider:get-default', category),
     modelProviderTest: (id) => ipcRenderer.invoke('model-provider:test', id),
     modelProviderPresets: (category) => ipcRenderer.invoke('model-provider:presets', category),

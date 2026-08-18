@@ -1584,14 +1584,12 @@ class Story2VideoProjectService {
     }
     const manager = this.modelProviderManager
     const managerReady = manager && typeof manager.getProvider === 'function' &&
-      typeof manager.getDefault === 'function' && typeof manager.getMultimodalPreference === 'function'
+      typeof manager.getDefault === 'function'
     if (!managerReady) return { providerId: saved, model: typeof savedModel === 'string' ? savedModel : '' }
 
     const savedRow = manager.getProvider(saved)
     const savedUsable = Boolean(savedRow && savedRow.enabled === true && savedRow.is_configured === true)
-    const savedIsMultimodal = Boolean(savedRow && savedRow.category === 'multimodal')
-    const preferMultimodal = manager.getMultimodalPreference() !== false
-    if (!savedUsable || (savedIsMultimodal && !preferMultimodal)) {
+    if (!savedUsable) {
       const resolved = this._defaultImageGenerator()
       if (!resolved) return null
       if (this.log && typeof this.log.warn === 'function') {
