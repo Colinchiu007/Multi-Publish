@@ -211,8 +211,8 @@
           </div>
                     <div class="scene-material-section" data-testid="scene-material-section">
             <div class="scene-material-heading">
-              <strong>{{ ('story2video.sceneMaterial.title') }}</strong>
-              <span class="scene-material-hint">{{ ('story2video.sceneMaterial.previewHint') }}</span>
+              <strong>{{ $t('story2video.sceneMaterial.title') }}</strong>
+              <span class="scene-material-hint">{{ $t('story2video.sceneMaterial.previewHint') }}</span>
             </div>
             <div class="scene-material-slots">
               <label
@@ -234,10 +234,10 @@
                 <span class="scene-material-thumb" @click.stop="slot.path ? previewSceneMaterial(slot) : undefined">
                   <img v-if="!slot.kind.includes('video') && slot.url" :src="slot.url" :alt="slot.label" />
                   <video v-else-if="slot.kind.includes('video') && slot.url" :src="slot.url" preload="metadata" muted></video>
-                  <span v-if="!slot.url" class="scene-material-empty-text">{{ ('story2video.sceneMaterial.emptySlot') }}</span>
+                  <span v-if="!slot.url" class="scene-material-empty-text">{{ $t('story2video.sceneMaterial.emptySlot') }}</span>
                 </span>
                 <span class="scene-material-label">{{ slot.label }}</span>
-                <span v-if="slot.selected" class="scene-material-badge">{{ ('story2video.sceneMaterial.selectedBadge') }}</span>
+                <span v-if="slot.selected" class="scene-material-badge">{{ $t('story2video.sceneMaterial.selectedBadge') }}</span>
               </label>
             </div>
             <div class="scene-material-actions">
