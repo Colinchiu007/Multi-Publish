@@ -1,150 +1,141 @@
 # PRD-SCENE-MATERIAL-ENHANCE-2026-08-18
 
+> v2.0 | 2026-08-19 | PR: #977, #980, #984
+
 ## 变更摘要
 
-视频创作历史记录任务详情页的场景素材区域进行全面升级，从 2 图 + 1 视频扩展为 2 图 + 2 视频，并优化交互体验。
+视频创作历史记录任务详情页场景素材区域全面升级：2图+1视频 -> 2图+2视频，优化交互体验。9项变更。
 
-## 变更列表
+---
 
-### 1. 场景素材扩展：2 图 + 2 视频
+## 1. 场景素材扩展：2 图 + 2 视频
 
-变更前：每个场景有 3 个素材 slot（图片 1、图片 2、视频）
-变更后：每个场景有 4 个素材 slot（图片 1、图片 2、视频 1、视频 2）
+变更前3 slot -> 变更后4 slot（image1/image2/video1/video2）。
 
-数据模型：
-- sceneMaterialSlots() 方法现在返回 4 个 slot 对象
-- 每个 slot 包含：kind、label、path、url、selected
-- kind 枚举：image1、image2、video1、video2
-- 视频 1 使用 segment.videoMeta.sceneVideoPath
-- 视频 2 使用 segment.videoMeta.altSceneVideoPath
+数据模型 sceneMaterialSlots(segment) 返回4个slot对象，每个含kind/label/path/url/selected。
 
-Locale Keys 新增：
-- story2video.sceneMaterial.video1Label
-- story2video.sceneMaterial.video2Label
+数据校验：segment为空返回空数组；alternateImages非数组回退[]；videoMeta为空时视频路径为null。
 
-### 2. 每个素材独立生成按钮
+新增Locale: video1Label(视频1/Video 1), video2Label(视频2/Video 2)。
 
-变更前：场景素材下方有两个按钮「生成新图」和「生成 AI 视频」
-变更后：每个素材 slot 有自己的生成按钮
+---
 
-交互逻辑：
-- 图片 slot（image1/image2）：显示「生成新图」按钮
-- 视频 slot（video1/video2）：显示「生成 AI 视频」按钮
-- 点击后重新生成该条内容
-- 生成中状态：按钮显示「生成中...」或「AI 视频生成中...」
+## 2. 每个素材独立生成按钮
 
-数据校验：
-- 视频生成按钮在 segment.videoPrompt 为空时禁用
-- 生成前自动保存未保存的修改
-- 忙碌状态互斥：同一 segment 不能同时触发多个生成操作
+变更前2个统一按钮 -> 变更后每个slot独立按钮。
 
-### 3. 设为当前使用：Radio 按钮
+图片slot显示「生成新图」，点击 generateSceneImage(segmentId)。
+视频slot显示「生成 AI 视频」，点击 generateSceneAiVideo(segmentId, slotKind)。
 
-变更前：点击整个 slot 卡片选择
-变更后：每个 slot 左上角有 radio 按钮
+禁用条件：isSegmentBusy 时 disabled；视频按钮在 !videoPrompt 时 disabled + tooltip「请先编辑或重新生成视频优化词，再生成 AI 视频」。
 
-交互逻辑：
-- Radio 按钮 name 为 scene-material-{segmentId}
-- 同一 segment 内互斥选择
-- 选中状态：slot 边框高亮 + 右上角「当前使用」badge
-- 无内容时 radio 禁用
+生成流程：前置检查 -> 设置忙碌 -> 调用IPC -> 成功更新project/segments + refreshSegmentImageUrls + 通知 -> 失败恢复 + 错误通知 -> finally清除忙碌。
 
-显示项：
-- Radio 按钮：16x16px，accent-color: var(--primary)
-- 位置：slot 左上角 position: absolute; top: 6px; left: 6px
-- Badge：右上角「当前使用」
+互斥规则：同一segment同时只有一个生成操作（isSegmentBusy控制）。
 
-### 4. 视频显示 AI 场景片段
+---
 
-变更前：视频 slot 显示合成后的完整视频
-变更后：视频 slot 显示 AI 在流水线过程中生成的该场景视频片段
+## 3. 设为当前使用：Radio 按钮
 
-数据来源：
-- 视频 1：segment.videoMeta.sceneVideoPath -> segment.videoUrl
-- 视频 2：segment.videoMeta.altSceneVideoPath -> segment.altVideoUrl
+变更前点击整个卡片 -> 变更后左上角radio按钮。
 
-逻辑：
-- refreshSegmentImageUrls() 方法同时解析两个视频 URL
-- 如果 sceneVideoPath 为空，videoUrl 设为 null
-- 如果 altSceneVideoPath 为空，altVideoUrl 设为 null
+Radio name=scene-material-{segmentId}，同segment互斥。无内容时disabled。
 
-### 5. 当前使用状态反映真实素材
+选中态：slot边框高亮 + 右上角「当前使用」badge。
 
-变更前：默认选中视频（如果有）
-变更后：selectedMaterial 字段反映用户实际选择的素材
+Locale: selectedBadge(当前使用/In Use), selectAriaLabel, emptyAriaLabel。
 
-逻辑：
-- effectiveSelectedMaterial(segment) 读取 segment.selectedMaterial
-- 用户通过 radio 按钮选择后，调用 selectSceneMaterial() 更新
-- 服务端持久化选择状态
+---
 
-### 6. 纯图片轮播模式占位符
+## 4. 视频显示 AI 场景片段
 
-场景：流水线未涉及 AI 视频生成（纯图片轮播模式）
+变更前显示合成完整视频 -> 变更后显示AI流水线场景片段。
 
-显示：
-- 视频 slot 显示浅灰色背景色块
-- 色块上显示文字：「未生成」
-- CSS：scene-material-empty-text 样式
+数据源：videoMeta.sceneVideoPath -> videoUrl, videoMeta.altSceneVideoPath -> altVideoUrl。
 
-Locale Key：
-- story2video.sceneMaterial.emptySlot：未生成 / Not generated
+URL解析：refreshSceneMaterialUrls()逐segment解析，失败设为null不影响其他slot。
 
-### 7. 生成 AI 视频后显示
+---
 
-流程：
-1. 用户点击视频 slot 的「生成 AI 视频」按钮
-2. 调用 generateSceneAiVideo(segmentId, slotKind)
-3. 服务端生成 AI 视频片段
-4. 返回更新后的 project 数据
-5. refreshSegmentImageUrls() 解析新的视频 URL
-6. 视频 slot 显示生成的视频
+## 5. 当前使用状态反映真实素材
 
-### 8. 缩略图真实比例
+变更前默认选视频 -> 变更后读取segment.selectedMaterial。
 
-变更前：固定 aspect-ratio: 3/4
-变更后：使用自然比例，min-height: 80px; max-height: 200px
+effectiveSelectedMaterial(segment) 读取 selectedMaterial，值为 image1/image2/video1/video2 或 null。
 
-CSS 变更：
-- .scene-material-thumb 移除固定 aspect-ratio
-- 添加 min-height: 80px 和 max-height: 200px
+---
 
-响应式：
-- 桌面端：4 列网格 grid-template-columns: repeat(4, minmax(0, 1fr))
-- 移动端（<720px）：2 列网格 grid-template-columns: repeat(2, 1fr)
+## 6. 纯图片轮播模式占位符
 
-### 9. 分段编辑 Sticky 侧边栏
+无AI视频生成时，视频slot显示浅灰色色块+「未生成」文字。
 
-变更前：分段编辑面板随页面滚动
-变更后：分段定位侧边栏固定在页面右侧
+Locale: emptySlot(未生成/Not generated)。
 
-CSS：
-- position: fixed
-- right: 20px
-- top: 80px
-- width: 200px
-- z-index: 100
-- max-height: calc(100vh - 120px)
-- overflow-y: auto
+---
 
-响应式：
-- 移动端（<900px）：隐藏侧边栏
+## 7. 生成 AI 视频后显示
+
+完整流程：点击按钮 -> 检查条件 -> 落盘修改 -> 设置忙碌 -> 调用IPC -> 成功更新+刷新URL+通知 -> 失败通知 -> finally清除。
+
+生成完成后 refreshSceneMaterialUrls() 自动解析新视频URL，缩略图自动更新。
+
+---
+
+## 8. 缩略图真实比例
+
+变更前固定 aspect-ratio:3/4 -> 变更后自然比例，min-height:80px, max-height:200px, object-fit:cover。
+
+响应式：桌面4列, 移动端(<720px)2列。
+
+---
+
+## 9. 分段编辑 Sticky 侧边栏
+
+变更前随滚动 -> 变更后 fixed 定位(right:20px, top:80px, z-index:100)。
+
+移动端(<900px)隐藏。点击分段编号平滑滚动。
+
+---
+
+## Locale Keys 完整参考
+
+中文: title=场景素材, image1Label=图片1, image2Label=图片2, video1Label=视频1, video2Label=视频2, emptySlot=未生成, selectedBadge=当前使用, generateImage=生成新图, generateAiVideo=生成AI视频, generating=生成中..., generatingAiVideo=AI视频生成中..., aiVideoNeedsPromptHint=请先编辑或重新生成视频优化词再生成AI视频, previewHint=点击可放大预览, previewImageTitle=图片预览, previewVideoTitle=视频预览, selectAriaLabel=选择{label}作为当前素材, emptyAriaLabel={label}尚未生成
+
+英文对应: Scene Materials, Image 1, Image 2, Video 1, Video 2, Not generated, In Use, Generate New Image, Generate AI video, Generating..., Generating AI video..., Edit or regenerate the video prompt first then generate the AI video, Click to enlarge preview, Image Preview, Video Preview, Select {label} as the active material, {label} is not generated yet
+
+---
 
 ## 文件变更
 
-| 文件 | 变更类型 | 说明 |
-|------|----------|------|
-| apps/desktop/src/views/ResultView.vue | 修改 | 场景素材模板、方法、CSS |
-| apps/desktop/src/locales/zh.js | 修改 | 新增 video1Label/video2Label |
-| apps/desktop/src/locales/en.js | 修改 | 新增 video1Label/video2Label |
+| 文件 | 说明 |
+|------|------|
+| ResultView.vue | 模板+script+CSS全面修改 |
+| zh.js | 新增video1Label/video2Label/generatingAiVideo/aiVideoNeedsPromptHint |
+| en.js | 同上英文版 |
+
+---
+
+## 相关PR
+
+#977 主功能实现, #980 修复按钮$t()腐蚀, #984 修复模板显示$t()腐蚀 — 全部已合并。
+
+---
+
+## 教训
+
+$t()腐蚀：PowerShell sed消耗$字符。检测：grep检查裸括号。预防：sed用单引号保护$。
+
+---
 
 ## 测试验证
 
-- [ ] 场景素材显示 4 个 slot（2 图 + 2 视频）
-- [ ] 每个 slot 有独立的 radio 按钮
-- [ ] 图片 slot 显示「生成新图」按钮
-- [ ] 视频 slot 显示「生成 AI 视频」按钮
-- [ ] 纯图片轮播模式视频 slot 显示「未生成」
-- [ ] 缩略图使用真实比例
-- [ ] 分段定位侧边栏固定不滚动
-- [ ] 移动端响应式布局正确
+- [ ] 4个slot显示正确
+- [ ] radio互斥选择
+- [ ] 图片/视频按钮文案正确
+- [ ] 视频按钮禁用条件
+- [ ] 未生成占位符
+- [ ] 缩略图真实比例
+- [ ] 侧边栏fixed定位
+- [ ] 响应式布局
+- [ ] locale key完整
+- [ ] $t()无腐蚀
