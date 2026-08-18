@@ -838,7 +838,7 @@ export default {
         {
           kind: 'video',
           label: t('videoLabel'),
-        path: (segment.videoMeta && segment.videoMeta.sceneVideoPath) || segment.videoPath || null,
+          path: (segment.videoMeta && segment.videoMeta.sceneVideoPath) || segment.videoPath || null,
           url: segment.videoUrl || null,
           selected: selected === 'video',
         },
@@ -1602,12 +1602,9 @@ export default {
 .segment-file-action.disabled { opacity: 0.45; cursor: not-allowed; }
 .segment-file-action input { display: none; }
 
-
-@media (max-width: 900px) {
-}
-
 @media (max-width: 900px) {
   .segment-jump-sidebar { display: none; }
+
 }
 @media (max-width: 720px) {
   .result-page { padding: 16px 16px calc(var(--result-action-bar-space-mobile, 196px) + 16px); }
