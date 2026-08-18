@@ -71,7 +71,7 @@ function resolveSubtitleType (params) {
 // 快速复刻接口示例 model=speech-2.8-hd；官方「异步语音合成」模型表中
 // speech-02-hd 是唯一标注「复刻相似度」的模型——克隆音色的正式语音合成
 // 必须用 speech-02-hd，不能用 speech-2.8-turbo 等（否则报 voice id wrong）。
-const VOICE_CLONE_MODEL = 'speech-02-hd'
+const VOICE_CLONE_MODEL = 'speech-2.8-hd'
 const CLONED_VOICE_SYNTHESIS_MODEL = 'speech-02-hd'
 
 function isAsyncT2aModel (model) {
