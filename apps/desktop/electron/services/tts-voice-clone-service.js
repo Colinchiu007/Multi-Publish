@@ -638,7 +638,7 @@ class TtsVoiceCloneService {
    */
   async findCloneSamples(voiceId, providerId, model) {
     if (!this._store || !voiceId) return null
-    const owner = this._getOwnerSubject ? this._getOwnerSubject() : null
+    const owner = this._captureOwner()
     if (!owner) return null
     // Try exact model key first, then fall back to known MiniMax TTS models
     // (handles case where pipeline resumes without voiceModel or model changed)
