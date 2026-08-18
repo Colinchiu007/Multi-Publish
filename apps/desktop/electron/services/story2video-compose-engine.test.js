@@ -382,7 +382,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
         const filter = args[args.indexOf('-filter_complex') + 1]
         expect(args).not.toContain('-stream_loop')
         expect(filter).toContain('concat=n=2:v=1:a=0')
-        expect(filter).toContain('select=eq(n\,0)')
+        expect(filter).toContain('select=eq(n\\,0)')
         expect(filter).toContain('zoompan')
         expect(filter).toContain('1+0.25*min(1,on/72)')
         expect(args).toEqual(expect.arrayContaining(['-t', '4', '-shortest', '-map', '[videoOut]', '-map', '1:a:0']))
