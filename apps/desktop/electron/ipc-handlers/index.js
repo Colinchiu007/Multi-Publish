@@ -38,6 +38,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./tts-voice-clone')(ipcMain, deps)
   require('./prompt-eval')(ipcMain, deps)
   require('./generation-feedback')(ipcMain, deps)
+  // 影视工程（film-engineering）流水线
+  require('./film-engineering')(ipcMain, deps)
   require('./logs')(ipcMain, deps)
   // Backlot 项目库
   require('./project')(ipcMain, deps)

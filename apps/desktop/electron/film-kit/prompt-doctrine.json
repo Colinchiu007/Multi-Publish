@@ -1,0 +1,140 @@
+{
+ "blocks": [
+  {
+   "key": "scene_context",
+   "label": "SCENE CONTEXT",
+   "zh": "场景上下文：以角色计数头开篇（如 EXACT 3 CHARACTERS — NO DUPLICATES），后接场景动作与角色行",
+   "en": "Opens with a count header (EXACT 3 CHARACTERS — NO DUPLICATES), then scene action and character lines"
+  },
+  {
+   "key": "geo_spatial_layout",
+   "label": "GEO SPATIAL LAYOUT",
+   "zh": "地理空间布局：纯场景平面图（地标、左右、相机站位、180° 轴线），不含角色与动作；每场锁定逐镜粘贴不变",
+   "en": "Pure floor plan of the place (landmarks, left/right, camera side, 180° axis); no characters, no action; locked across every shot of the scene"
+  },
+  {
+   "key": "action_timing",
+   "label": "ACTION TIMING",
+   "zh": "动作时间线：0.0-2.0s 逐秒动作；镜头运动写进动作；INNER (unspoken) 内心独白；分阶段眨眼与微表情",
+   "en": "Per-second action timeline; camera written inside the action; INNER (unspoken) monologue; phased blinking and micro-expressions"
+  },
+  {
+   "key": "audio",
+   "label": "AUDIO",
+   "zh": "对白与音效：台词只存在于 AUDIO 块；音色锁定描述符原样粘贴；写明混音（人声近麦、环境底噪、说话时压低）",
+   "en": "Dialogue lives only here; voice descriptor pasted verbatim; write the mix (voices close, ambience under, dips when someone speaks)"
+  },
+  {
+   "key": "character_acting",
+   "label": "CHARACTER ACTING",
+   "zh": "角色表演：情绪状态·此刻所求·隐瞒之物·身体节奏·可见习惯·本镜变化；核心行为段永不改变",
+   "en": "Emotional state · want in this moment · what they hide · body rhythm · visible habits · what changes across the shot"
+  },
+  {
+   "key": "style",
+   "label": "STYLE",
+   "zh": "风格前缀：逐字粘贴（Photoreal. NON-IP. 16:9. 12s. SFX only. NO CGI. Cinematic.）",
+   "en": "Style prefix pasted word for word (Photoreal. NON-IP. 16:9. 12s. SFX only. NO CGI. Cinematic.)"
+  },
+  {
+   "key": "positive_constraints",
+   "label": "POSITIVE CONSTRAINTS",
+   "zh": "正向锁定：8K 细节、毛孔级皮肤、无抖动闪烁；计数物体以「是什么在画面中」表述；点名失败镜头长什么样",
+   "en": "Positive locks: 8K detail, pore-level skin, no jitter; counted objects phrased as what IS in frame; name what a failed shot looks like"
+  }
+ ],
+ "rules": [
+  {
+   "key": "assets-first",
+   "title": "Assets first",
+   "zh": "素材先行：角色/场景/道具全部锁定并压力测试之前，不生成任何一个镜头",
+   "en": "Do not generate a single shot until every character, location, and prop is locked and stress-tested"
+  },
+  {
+   "key": "describe-everything",
+   "title": "Describe everything, every time",
+   "zh": "每次全量描述：模型没有记忆，描述符逐字粘贴、永不缩写",
+   "en": "The model has no memory; the descriptor goes into every prompt word for word, never shortened"
+  },
+  {
+   "key": "one-change-at-a-time",
+   "title": "Change one thing at a time",
+   "zh": "一次只改一处：整段重写会丢掉生效的部分；每次迭代记录日志",
+   "en": "Rewrite a prompt fully and you lose the parts that worked; one line per iteration, everything into the log"
+  },
+  {
+   "key": "less-freedom",
+   "title": "Give the model less freedom",
+   "zh": "少给自由：角落而非房间、锚点而非空地、地图而非猜测、每镜一个动作",
+   "en": "A corner instead of a room, an anchor instead of open space, a map instead of guesswork, one action per shot"
+  },
+  {
+   "key": "simplify-shot",
+   "title": "Simplify the shot, not the words",
+   "zh": "镜头不出来就简化镜头：拆成两镜、删一个动作、换角度；10-15 次迭代上限",
+   "en": "If a shot will not come together in 10-15 iterations, split it, remove an action, change the angle"
+  },
+  {
+   "key": "first-second-wide",
+   "title": "The first second is always a wide",
+   "zh": "每场第一秒固定广角：无人声无动作，把站位/光线“拍”进模型",
+   "en": "One second at the start of a scene, no lines and no action: locks positions and light"
+  },
+  {
+   "key": "physics-not-adjectives",
+   "title": "Physics, not adjectives",
+   "zh": "写肌肉不写形容词：颤抖、下颌咬紧、颧骨绷紧、鼻息；静止写成“绷住的张力”而非“别动”",
+   "en": "Describe the work of muscles and body, not emotion words; stillness as held tension, never a freeze"
+  },
+  {
+   "key": "voice-is-descriptor",
+   "title": "The voice is a locked descriptor",
+   "zh": "音色是锁定描述符：register/tempo/accent/manner 在 pre-production 锁定，逐次粘贴",
+   "en": "Lock register, tempo, accent, manner before any dialogue; pasted as-is every time the character speaks"
+  },
+  {
+   "key": "mask-point-changes",
+   "title": "Point changes go on with masks",
+   "zh": "点修改用蒙版：衣服/伤疤/血在 Nano Banana 改后手工蒙版合回原图；图片绝不全图二过模型",
+   "en": "Clothes, scars, blood are point changes masked onto the original; an image never runs through a model twice in full"
+  },
+  {
+   "key": "dialogue-only-in-audio",
+   "title": "Dialogue lives only in the audio block",
+   "zh": "台词只在 AUDIO 块：声音+情绪→引号台词→肢体动作→面部反应；无台词者完全沉默",
+   "en": "Voice+emotion → line in quotes → physical action → facial reaction; everyone else stays completely silent"
+  }
+ ],
+ "glossary": [
+  {
+   "term": "seedance_2_0",
+   "zh": "视频生成模型（Seedance 2.0，剧情镜头主力）",
+   "en": "Video generation model (Seedance 2.0)"
+  },
+  {
+   "term": "nano_banana_2",
+   "zh": "图片生成模型（Nano Banana 2，角色定妆/素材图）",
+   "en": "Image generation model (Nano Banana 2)"
+  },
+  {
+   "term": "soul_cinematic",
+   "zh": "电影感图片模型（氛围/质感图）",
+   "en": "Cinematic image model"
+  },
+  {
+   "term": "reference token",
+   "zh": "引用令牌：<<<uuid>>> 形式的资产引用，逐字保留",
+   "en": "Reference token: <<<uuid>>> asset reference kept verbatim"
+  },
+  {
+   "term": "character sheet",
+   "zh": "角色定妆三视图：面部特写 + 正面无头全身 + 背面全身",
+   "en": "Character sheet: face close-up + headless front full-body + back"
+  },
+  {
+   "term": "GEO block",
+   "zh": "地理空间布局块（每场锁定，逐镜粘贴不变）",
+   "en": "Geo spatial layout block (locked per scene)"
+  }
+ ]
+}

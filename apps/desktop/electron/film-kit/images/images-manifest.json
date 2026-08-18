@@ -1,0 +1,38 @@
+{
+ "char_1.webp": {
+  "name": "REIN"
+ },
+ "char_2.webp": {
+  "name": "JAXX"
+ },
+ "char_3.webp": {
+  "name": "ROKO"
+ },
+ "char_4.webp": {
+  "name": "LULU"
+ },
+ "scene_1.webp": {
+  "shotId": "1b9f0ff0-1fe6-4fe6-9747-67c4ce7edf80",
+  "sceneId": "2f0e48fe-1bfb-46e2-b88d-443da2ee8f90"
+ },
+ "scene_2.webp": {
+  "shotId": "022846fa-7259-4d83-89d7-7b5aecd8bd3e",
+  "sceneId": "34c88b2f-5c46-45a9-925e-4c5618940342"
+ },
+ "scene_3.webp": {
+  "shotId": "abae49f7-d3fc-41bf-8365-7e988053c3e7",
+  "sceneId": "83511736-ef23-4cb6-939d-aa6fd1eafbb9"
+ },
+ "scene_4.webp": {
+  "shotId": "10b666cd-786a-4ead-9087-06c3c8fcedeb",
+  "sceneId": "b88780c8-6d48-41cf-9a12-613c1a7768cc"
+ },
+ "scene_5.webp": {
+  "shotId": "12c33c64-92dc-46d6-a14b-5dadead95ae5",
+  "sceneId": "20be3bfc-bd06-4484-9a3b-a21b42c8374e"
+ },
+ "scene_6.webp": {
+  "shotId": "ada8b995-6757-4688-a1fa-b00183df59ea",
+  "sceneId": "d76d2471-8b75-4a30-9b16-60658a52f173"
+ }
+}

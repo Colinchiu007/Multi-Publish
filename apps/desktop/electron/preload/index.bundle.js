@@ -105,8 +105,6 @@ var require_publish = __commonJS({
         pipelineStatus: (name) => ipcRenderer2.invoke("pipeline:status", name),
         pipelineAdvance: () => ipcRenderer2.invoke("pipeline:advance"),
         pipelineHistory: () => ipcRenderer2.invoke("pipeline:history"),
-        pipelineDeleteRun: (runId) => ipcRenderer2.invoke("pipeline:delete-run", runId),
-        pipelinePauseRun: (runId) => ipcRenderer2.invoke("pipeline:pause-run", runId),
         pipelineFetch: (name) => ipcRenderer2.invoke("pipeline:fetch", name),
         // 编排模式 API（story2video-compose）
         pipelineStartOrchestrated: (name, params) => ipcRenderer2.invoke("pipeline:startOrchestrated", name, params),
@@ -137,7 +135,7 @@ var require_publish = __commonJS({
         // 添加沿用 import-media 的 File 路径解析，其余操作直通。
         story2videoBgmLibraryList: () => ipcRenderer2.invoke("story2video:bgm-library-list"),
         story2videoBgmLibraryAdd: (file) => {
-          let filePath;
+          let filePath = "";
           try {
             filePath = String(resolveFilePath(file) || "");
           } catch {
@@ -149,7 +147,7 @@ var require_publish = __commonJS({
         story2videoBgmLibraryRename: (id, name) => ipcRenderer2.invoke("story2video:bgm-library-rename", { id, name }),
         story2videoBgmLibraryDelete: (id) => ipcRenderer2.invoke("story2video:bgm-library-delete", { id }),
         story2videoExportZip: (files, destinationPath) => ipcRenderer2.invoke("story2video:export-zip", { files, destinationPath }),
-        story2videoCreateShareUrl: (filePath, previousUrl) => ipcRenderer2.invoke("story2video:create-share-url", filePath, previousUrl),
+        story2videoCreateShareUrl: (filePath) => ipcRenderer2.invoke("story2video:create-share-url", filePath),
         story2videoCopyPath: (filePath) => ipcRenderer2.invoke("story2video:copy-path", filePath),
         story2videoShowInFolder: (filePath) => ipcRenderer2.invoke("story2video:show-in-folder", filePath),
         story2videoSaveAs: (filePath, suggestedName) => ipcRenderer2.invoke("story2video:save-as", { filePath, suggestedName }),
@@ -163,18 +161,8 @@ var require_publish = __commonJS({
         story2videoSelectSceneMaterial: (projectId, segmentId, kind) => ipcRenderer2.invoke("story2video:select-scene-material", { projectId, segmentId, kind }),
         story2videoGenerateSceneImage: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-image", { projectId, segmentId }),
         story2videoGenerateSceneVideo: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-video", { projectId, segmentId }),
-        story2videoGenerateSceneAiVideo: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-ai-video", { projectId, segmentId }),
-        story2videoRegenerateSceneSubtitle: (projectId, segmentId) => ipcRenderer2.invoke("story2video:regenerate-scene-subtitle", { projectId, segmentId }),
-        story2videoRegenerateSceneAudio: (projectId, segmentId) => ipcRenderer2.invoke("story2video:regenerate-scene-audio", { projectId, segmentId }),
-        story2videoRegenerateScenePrompt: (projectId, segmentId, kind) => ipcRenderer2.invoke("story2video:regenerate-scene-prompt", { projectId, segmentId, kind }),
         story2videoTranscribe: (filePath) => ipcRenderer2.invoke("story2video:transcribe", { filePath }),
         story2videoCapabilities: () => ipcRenderer2.invoke("story2video:capabilities"),
-        // Story2Video 批量创作（openspec story2video-batch-create）
-        story2videoBatchCreate: (payload) => ipcRenderer2.invoke("story2video:batch:create", payload),
-        story2videoBatchStatus: () => ipcRenderer2.invoke("story2video:batch:status"),
-        story2videoBatchCancel: (batchId, itemIds) => ipcRenderer2.invoke("story2video:batch:cancel", { batchId, itemIds }),
-        // 本地文件选择（.txt/.md 多选）：返回 [{ path, name }]，路径由主进程对话框直接提供
-        story2videoPickBatchFiles: () => ipcRenderer2.invoke("story2video:pick-batch-files"),
         // Cloud Publisher API
         cloudPublishSubmit: (params) => ipcRenderer2.invoke("cloud-publisher:submit", params),
         cloudPublishListTasks: () => ipcRenderer2.invoke("cloud-publisher:list-tasks"),
@@ -565,8 +553,7 @@ var require_system = __commonJS({
         // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
         logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
         logsClear: () => ipcRenderer2.invoke("logs:clear"),
-        logError: (message) => ipcRenderer2.invoke("logs:error", { message }),
-        submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload)
+        logError: (message) => ipcRenderer2.invoke("logs:error", { message })
       };
     }
     module2.exports = { createSystemApi: createSystemApi2 };
@@ -859,6 +846,30 @@ var require_video_clone = __commonJS({
   }
 });
 
+// electron/preload/film-engineering.js
+var require_film_engineering = __commonJS({
+  "electron/preload/film-engineering.js"(exports2, module2) {
+    var { ipcRenderer: ipcRenderer2 } = require("electron");
+    function createFilmEngineeringApi2(ipcRendererRef = ipcRenderer2) {
+      return {
+        filmEngineering: {
+          status: () => ipcRendererRef.invoke("film-engineering:status"),
+          listScenes: () => ipcRendererRef.invoke("film-engineering:list-scenes"),
+          listShots: (sceneId) => ipcRendererRef.invoke("film-engineering:list-shots", sceneId),
+          getShot: (shotId) => ipcRendererRef.invoke("film-engineering:get-shot", shotId),
+          doctrine: () => ipcRendererRef.invoke("film-engineering:doctrine"),
+          copyText: (shotId, mode) => ipcRendererRef.invoke("film-engineering:copy-text", shotId, mode),
+          copyTexts: (shotIds, mode) => ipcRendererRef.invoke("film-engineering:copy-texts", shotIds, mode),
+          adaptScript: (payload) => ipcRendererRef.invoke("film-engineering:adapt-script", payload),
+          exportPrompts: (selectedShots, format) => ipcRendererRef.invoke("film-engineering:export", selectedShots, format),
+          generateSelected: (selectedShots, opts) => ipcRendererRef.invoke("film-engineering:generate-selected", selectedShots, opts)
+        }
+      };
+    }
+    module2.exports = { createFilmEngineeringApi: createFilmEngineeringApi2 };
+  }
+});
+
 // electron/preload/access-control.js
 var require_access_control = __commonJS({
   "electron/preload/access-control.js"(exports2, module2) {
@@ -957,7 +968,6 @@ var require_access_control = __commonJS({
       "logsGetInfo",
       "logsClear",
       "logError",
-      "submitFeedback",
       "renderGetStatus",
       "renderInstallDeps",
       "onRenderInstallProgress",
@@ -986,8 +996,19 @@ var require_access_control = __commonJS({
       "videoClone.pickFile",
       "videoClone.history",
       "videoClone.onProgress",
-      // 批量创作本地文件选择（与主进程 PUBLIC_CHANNELS 的 story2video:pick-batch-files 对齐）：纯设备本地对话框
-      "story2videoPickBatchFiles"
+      // 影视工程：随包 film-kit 资产浏览/复制/剧本套用（设备本地操作，未登录可用）；
+      // 勾选生成（generateSelected）复用 assetGenerator，是否可用由主进程服务自校验。
+      "filmEngineering",
+      "filmEngineering.status",
+      "filmEngineering.listScenes",
+      "filmEngineering.listShots",
+      "filmEngineering.getShot",
+      "filmEngineering.doctrine",
+      "filmEngineering.copyText",
+      "filmEngineering.copyTexts",
+      "filmEngineering.adaptScript",
+      "filmEngineering.exportPrompts",
+      "filmEngineering.generateSelected"
     ];
     function hasAccess(currentLevel, requiredLevel) {
       if (requiredLevel === "public") return true;
@@ -1080,6 +1101,7 @@ var { createTtsVoiceCloneApi } = require_tts_voice_clone();
 var { createPromptEvalApi } = require_prompt_eval();
 var { createPageManagerApi } = require_page_manager();
 var { createVideoCloneApi } = require_video_clone();
+var { createFilmEngineeringApi } = require_film_engineering();
 var {
   ADMIN_ONLY_METHODS,
   PUBLIC_METHODS,
@@ -1116,6 +1138,7 @@ var fullApi = {
   ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer),
   ...createVideoCloneApi(ipcRenderer),
+  ...createFilmEngineeringApi(ipcRenderer),
   // P2 限流自检（authenticated，默认受限）
   rateLimitSelfCheck: (params) => ipcRenderer.invoke("rate-limit:self-check", params),
   rateLimitReport: (payload) => ipcRenderer.invoke("rate-limit:report", payload)
