@@ -1253,6 +1253,76 @@ function summarizeAssetFailures(label, results) {
   });
 }
 
+/**
+ * Unified cloned-voice re-clone fallback for TTS stages.
+ */
+async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProvider, voiceModel, resolveManager, retryFn }) {
+  const _errMsg = String((error && error.message) || error || '')
+  const _errCode = (error && error.code) || (error && error.context && error.context.code) || ''
+  const _isClonedVoiceFail = _errCode === 'INVALID_CONFIG'
+    || /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/i.test(_errMsg)
+    || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong|not\s+support)/i.test(_errMsg)
+    || /cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)/i.test(_errMsg)
+    || /(?:don't|do not|cannot|can't)\s+have\s+access.*voice/i.test(_errMsg)
+    || /\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7/.test(_errMsg)
+    || /\u97f3\u8272.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
+    || /voice.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/i.test(_errMsg)
+    || /\u58f0\u97f3.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
+  if (!_isClonedVoiceFail) return null
+  const log = pipelineEngine && pipelineEngine.log
+  if (log && log.warn) log.warn('[Story2Video] cloned voice unavailable, attempting re-clone', { voiceId, voiceProvider, error: _errMsg.slice(0, 200) })
+  try {
+    const cloneSvc = pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
+      ? (() => { try { return pipelineEngine.container.get('ttsVoiceCloneService') } catch (_) { return null } })() : null
+    if (!cloneSvc || typeof cloneSvc.findCloneSamples !== 'function') {
+      if (log && log.warn) log.warn('[Story2Video] ttsVoiceCloneService not available for re-clone')
+      return null
+    }
+    const samples = await cloneSvc.findCloneSamples(voiceId, voiceProvider, voiceModel || 'speech-02-hd')
+    if (!samples || !samples.sampleStorage) {
+      if (log && log.warn) log.warn('[Story2Video] no persisted clone samples found', { voiceId })
+      return null
+    }
+    const userDataDir = (() => {
+      const container = pipelineEngine && pipelineEngine.container
+      if (container && typeof container.get === 'function') {
+        try { const s = container.get('store'); return s && typeof s.getUserDataDir === 'function' ? s.getUserDataDir() : null } catch (_) { return null }
+      }
+      return null
+    })()
+    if (!userDataDir || !samples.sampleStorage.relativeDir) {
+      if (log && log.warn) log.warn('[Story2Video] userDataDir not available for re-clone')
+      return null
+    }
+    const sampleDir = path.join(userDataDir, samples.sampleStorage.relativeDir)
+    const sampleFiles = fs.readdirSync(sampleDir).filter(f => /\.(mp3|wav|m4a)$/i.test(f))
+    if (sampleFiles.length === 0) {
+      if (log && log.warn) log.warn('[Story2Video] no audio samples on disk', { sampleDir })
+      return null
+    }
+    const audioBuffer = fs.readFileSync(path.join(sampleDir, sampleFiles[0]))
+    const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
+    const manager = typeof resolveManager === "function" ? resolveManager() : null
+    const ttsAdapter = manager && typeof manager.getAdapter === 'function' ? manager.getAdapter(voiceProvider) : null
+    if (!ttsAdapter || typeof ttsAdapter.cloneVoice !== 'function') {
+      if (log && log.warn) log.warn('[Story2Video] TTS adapter does not support cloneVoice', { voiceProvider })
+      return null
+    }
+    const newVoice = await ttsAdapter.cloneVoice({ name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] })
+    if (!newVoice || !newVoice.id) {
+      if (log && log.warn) log.warn('[Story2Video] cloneVoice returned no new voice ID')
+      return null
+    }
+    if (log && log.info) log.info('[Story2Video] re-clone success: ' + voiceId + ' -> ' + newVoice.id)
+    const result = await retryFn(newVoice.id)
+    const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
+    if (normalized) return { path: normalized.path, duration: normalized.duration, meta: normalized.meta }
+  } catch (reCloneErr) {
+    if (log && log.warn) log.warn('[Story2Video] re-clone fallback failed', reCloneErr)
+  }
+  return null
+}
+
 function getContentPolicyCheckpoint(result, fallbackSceneIndex) {
   const checkpoint = result?.checkpoint || result?.data?.checkpoint;
   if (!checkpoint || checkpoint.reason !== 'content_policy' || checkpoint.type !== 'needs_user_input') return null;
@@ -2824,6 +2894,25 @@ function registerStory2VideoStages(pipelineEngine) {
               error: (result && result.message) || 'TTS generation failed',
             };
           } catch (e) {
+            // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
+            const _voiceModel = firstDefined(params.voiceModel, stage.options?.voiceModel) || 'speech-02-hd'
+            const _reCloneResult = await tryReCloneVoice({
+              pipelineEngine, error: e, text: typeof sentence === 'string' ? sentence : sentence.text || sentence.content,
+              voiceId, voiceProvider: resolvedVoiceProvider,
+              voiceModel: _voiceModel,
+              resolveManager: resolveModelProviderManager,
+              retryFn: (newVoiceId) => assetGenerator.generateTTS(typeof sentence === 'string' ? sentence : sentence.text || sentence.content, {
+                voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: _voiceModel,
+                rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
+                pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
+                emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
+                with_timestamps: true, index, runId,
+              }),
+            })
+            if (_reCloneResult) {
+              markTtsDone()
+              return { index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta, timings: _reCloneResult.meta?.timings || null }
+            }
             return { index, success: false, error: e.message };
           }
       };
@@ -3143,68 +3232,31 @@ function registerStory2VideoStages(pipelineEngine) {
           return { index: scene.index, success: false, error: (result && result.message) || 'TTS generation failed' }
         } catch (error) {
           if (pipelineEngine && pipelineEngine.log && pipelineEngine.log.warn) pipelineEngine.log.warn("[S2V] rawTtsItemTask catch", { code: error && error.code, msg: error && error.message, cat: error && error.category })
-          // 三层降级：克隆音色跨账号失效时尝试重新克隆（与 regenerateSceneAudio 同源逻辑，2026-08-18）
-          const _errMsg = String((error && error.message) || error || "")
-          const _errCode = (error && error.code) || (error && error.context && error.context.code) || ""
-          const _isClonedVoiceFail = _errCode === "INVALID_CONFIG"
-            || /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/i.test(_errMsg)
-            || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong|not\s+support)/i.test(_errMsg)
-            || /cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)/i.test(_errMsg)
-            || /\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7/.test(_errMsg)
-            || /\u97f3\u8272.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
-            || /voice.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/i.test(_errMsg)
-            || /\u58f0\u97f3.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
-            || /(?:don't|do not|cannot|can't)\s+have\s+access.*voice/i.test(_errMsg)
-          if (_isClonedVoiceFail) {
-            const cloneSvc = pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
-              ? (() => { try { return pipelineEngine.container.get('ttsVoiceCloneService') } catch (_) { return null } })() : null
-            if (cloneSvc && typeof cloneSvc.findCloneSamples === 'function') {
-              // Layer 1: re-clone from persisted audio samples
-              try {
-                const samples = await cloneSvc.findCloneSamples(voiceId, resolvedVoiceProvider, voiceModel || 'speech-02-hd')
-                if (samples && samples.sampleStorage) {
-                  const _fs = require('fs')
-                  const _path = require('path')
-                  const userDataDir = (pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function')
-                    ? (() => { try { const s = pipelineEngine.container.get('store'); return s && typeof s.getUserDataDir === 'function' ? s.getUserDataDir() : null } catch (_) { return null } })()
-                    : null
-                  if (userDataDir && samples.sampleStorage.relativeDir) {
-                    const sampleDir = _path.join(userDataDir, samples.sampleStorage.relativeDir)
-                    const sampleFiles = _fs.readdirSync(sampleDir).filter(f => /\\.(mp3|wav|m4a)$/i.test(f))
-                    if (sampleFiles.length > 0) {
-                      const samplePath = _path.join(sampleDir, sampleFiles[0])
-                      const audioBuffer = _fs.readFileSync(samplePath)
-                      const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
-                      const manager = (pipelineEngine && pipelineEngine.aiGenerator && pipelineEngine.aiGenerator._modelProviderManager)
-                        || (pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
-                          ? (() => { try { return pipelineEngine.container.get('modelProviderManager') } catch (_) { return null } })() : null)
-                      const ttsAdapter = manager && typeof manager.getAdapter === 'function' ? manager.getAdapter(resolvedVoiceProvider) : null
-                      if (ttsAdapter && typeof ttsAdapter.cloneVoice === 'function') {
-                        const newVoice = await ttsAdapter.cloneVoice({ name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] })
-                        if (newVoice && newVoice.id) {
-                          const retryResult = await assetGenerator.generateTTS(text, {
-                            voice_id: newVoice.id, voice_provider: resolvedVoiceProvider, voice_model: voiceModel,
-                            rate: voiceSpeed, pitch: voicePitch, emotion: voiceEmotion,
-                            index: scene.index, runId: runId || undefined,
-                          })
-                          const retryNormalized = normalizeAssetResult(retryResult, ['path', 'audio_path'])
-                          if (retryNormalized) {
-                            const partial = { index: scene.index, audioPath: retryNormalized.path, duration: retryNormalized.duration, meta: retryNormalized.meta }
-                            context.finalize_assets.partialTts = [...(context.finalize_assets.partialTts || []).filter(p => p.index !== scene.index), partial]
-                            if (pipelineEngine.log && pipelineEngine.log.info) pipelineEngine.log.info('[Story2Video] pipeline re-clone success: ' + voiceId + ' -> ' + newVoice.id)
-                            return { index: scene.index, success: true, path: retryNormalized.path, duration: retryNormalized.duration, meta: retryNormalized.meta }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              } catch (_reCloneErr) {
-                if (pipelineEngine.log && pipelineEngine.log.warn) pipelineEngine.log.warn('[Story2Video] pipeline re-clone failed, falling back', _reCloneErr)
-              }
-            }
-            // Layer 2 already handled: resumed partialTts checked at top of rawTtsItemTask
-            // Layer 3: normal error
+          // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
+          const _resolveManager = () => {
+            try {
+              if (pipelineEngine && pipelineEngine.aiGenerator && typeof pipelineEngine.aiGenerator._modelProviderManager === 'object' && pipelineEngine.aiGenerator._modelProviderManager !== null) return pipelineEngine.aiGenerator._modelProviderManager
+            } catch (_) {}
+            const c = pipelineEngine && pipelineEngine.container
+            if (c && typeof c.get === 'function') { try { const m = c.get('modelProviderManager'); if (m) return m } catch (_) {} }
+            return null
+          }
+          const _reCloneResult = await tryReCloneVoice({
+            pipelineEngine, error, text,
+            voiceId, voiceProvider: resolvedVoiceProvider,
+            voiceModel: voiceModel || 'speech-02-hd',
+            resolveManager: _resolveManager,
+            retryFn: (newVoiceId) => assetGenerator.generateTTS(text, {
+              voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: voiceModel,
+              rate: voiceSpeed, pitch: voicePitch, emotion: voiceEmotion,
+              index: scene.index, runId: runId || undefined,
+            }),
+          })
+          if (_reCloneResult) {
+            const partial = { index: scene.index, audioPath: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta }
+            context.finalize_assets.partialTts = [...(context.finalize_assets.partialTts || []).filter(p => p.index !== scene.index), partial]
+            if (pipelineEngine.log && pipelineEngine.log.info) pipelineEngine.log.info('[Story2Video] pipeline re-clone success: ' + voiceId + ' -> via tryReCloneVoice')
+            return { index: scene.index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta }
           }
           return { index: scene.index, success: false, error: error && error.message ? error.message : String(error) }
         }
