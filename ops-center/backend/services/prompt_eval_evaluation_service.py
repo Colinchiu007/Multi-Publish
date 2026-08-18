@@ -78,8 +78,8 @@ def build_eval_prompt(source_text: str, context: str | None, prompt_zh: str, pro
         "【评分标准】（每个维度 0-100 整数）",
         *dimension_lines,
         "【输出 JSON 契约】",
-        '{ "overall": 0-100整数, "dimensions": [ { "id": "' + dim_ids + '", "score": 0-100整数, "evidence": "非空", "issues": [], "suggestions": [] } ], "problems": [], "promptOptimizationPoints": [] }',
-        "【约束】problems 与 promptOptimizationPoints 可以为空数组但不得省略键；分数必须 0-100 整数；evidence 必须引用图片中实际可见的内容。",
+        '{ "overall": 0-100整数, "dimensions": [ { "id": "' + dim_ids + '", "score": 0-100整数, "evidence": "非空", "issues": [], "suggestions": [] } ], "problems": [ { "severity": "critical|major|minor", "category": "content_missing|content_wrong|style_deviation|layout_composition|color_lighting|text_rendering|ambiguity|context_loss|consistency_break|quality_defect|unknown", "description": "非空问题描述", "promptPart": "source_text|context|optimized_prompt|negative_prompt|unknown" } ], "promptOptimizationPoints": [ { "type": "add_specificity|resolve_ambiguity|enforce_style|align_context|add_negative|structure_ordering|consistency_anchor", "suggestion": "非空优化建议" } ] }',
+        "【约束】problems 每项必须是对象（含 severity/category/description/promptPart 四个键），promptOptimizationPoints 每项必须是对象（含 type/suggestion 两个键）；可以为空数组但不得省略键；分数必须 0-100 整数；evidence 必须引用图片中实际可见的内容。",
     ])
 
 
@@ -101,8 +101,8 @@ def _build_video_eval_prompt(source_text: str, context: str | None, prompt_zh: s
         "3. audio_visual_sync 音画同步（权重 20%）：画面叙事节奏与同步线索是否协调（基于画面帧评估；独立音轨评估为后续版本）。",
         "4. video_aesthetic_quality 视频审美质量（权重 20%）：构图、光影、色彩、镜头运动、画质细节与风格执行度。",
         "【输出 JSON 契约】",
-        '{ "overall": 0-100整数, "dimensions": [ { "id": "' + dim_ids + '", "score": 0-100整数, "evidence": "非空", "issues": [], "suggestions": [] } ], "problems": [], "promptOptimizationPoints": [] }',
-        "【约束】problems 与 promptOptimizationPoints 可以为空数组但不得省略键；分数必须 0-100 整数；evidence 必须引用帧中实际可见的内容，时序/运动判断必须基于三帧之间的差异。",
+        '{ "overall": 0-100整数, "dimensions": [ { "id": "' + dim_ids + '", "score": 0-100整数, "evidence": "非空", "issues": [], "suggestions": [] } ], "problems": [ { "severity": "critical|major|minor", "category": "content_missing|content_wrong|style_deviation|layout_composition|color_lighting|text_rendering|ambiguity|context_loss|consistency_break|quality_defect|unknown", "description": "非空问题描述", "promptPart": "source_text|context|optimized_prompt|negative_prompt|unknown" } ], "promptOptimizationPoints": [ { "type": "add_specificity|resolve_ambiguity|enforce_style|align_context|add_negative|structure_ordering|consistency_anchor", "suggestion": "非空优化建议" } ] }',
+        "【约束】problems 每项必须是对象（含 severity/category/description/promptPart 四个键），promptOptimizationPoints 每项必须是对象（含 type/suggestion 两个键）；可以为空数组但不得省略键；分数必须 0-100 整数；evidence 必须引用帧中实际可见的内容，时序/运动判断必须基于三帧之间的差异。",
     ])
 
 
