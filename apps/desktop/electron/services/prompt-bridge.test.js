@@ -386,3 +386,113 @@ describe('PromptBridge BYOK llm 注入', () => {
     }
   })
 })
+
+
+describe('PromptBridge CLI fallback', () => {
+  function makeBridge () {
+    const bridge = new PromptBridge({})
+    bridge.isRunning = true
+    bridge.modelProviderManager = mockLlmManager()
+    return bridge
+  }
+
+  it('_cliFallbackSingle builds correct CLI args and returns JSON', async () => {
+    const bridge = makeBridge()
+    // Override _cliFallbackSingle to capture args without spawning real process
+    const origMethod = bridge._cliFallbackSingle.bind(bridge)
+    let capturedArgs = null
+    bridge._cliFallbackSingle = (request, traceId) => {
+      // Intercept: build the same args the real method would, but return mock
+      capturedArgs = { request, traceId }
+      return Promise.resolve({ optimized_prompt: 'mock-cli-result', platform: 'generic', model_used: 'template', tokens_used: 0, duration_ms: 0, key_source: 'none', strategy_used: 'template', caller: null, cache_hit: false, error: null })
+    }
+    const result = await bridge._cliFallbackSingle({
+      prompt: 'test prompt',
+      optimization_strategy: 'template',
+      creative_level: 5,
+      platform: 'generic',
+    })
+    expect(result.optimized_prompt).toBe('mock-cli-result')
+    expect(capturedArgs.request.prompt).toBe('test prompt')
+    expect(capturedArgs.request.optimization_strategy).toBe('template')
+  })
+
+  it('optimize falls back to _cliFallbackSingle when HTTP _post fails', async () => {
+    const bridge = makeBridge()
+    bridge._post = vi.fn(() => Promise.reject(new Error('ECONNREFUSED')))
+    // Spy on _cliFallbackSingle
+    const fallbackSpy = vi.fn(() => Promise.resolve({ optimized_prompt: 'fallback-result', platform: 'generic', model_used: 'template', tokens_used: 0, duration_ms: 0, key_source: 'none', strategy_used: 'template', caller: null, cache_hit: false, error: null }))
+    bridge._cliFallbackSingle = fallbackSpy
+
+    const result = await bridge.optimize({ prompt: 'test', optimization_strategy: 'template' })
+    expect(result.optimized_prompt).toBe('fallback-result')
+    expect(bridge._post).toHaveBeenCalledOnce()
+    expect(fallbackSpy).toHaveBeenCalledOnce()
+    // Verify the normalized request was passed to fallback
+    const passedReq = fallbackSpy.mock.calls[0][0]
+    expect(passedReq.prompt).toBe('test')
+    expect(passedReq.optimization_strategy).toBe('template')
+  })
+
+  it('optimizeBatch falls back to _cliFallbackSingle per-item when HTTP _post fails', async () => {
+    const bridge = makeBridge()
+    bridge._post = vi.fn(() => Promise.reject(new Error('ECONNREFUSED')))
+    let callCount = 0
+    bridge._cliFallbackSingle = vi.fn(() => {
+      callCount++
+      return Promise.resolve({ optimized_prompt: `item-${callCount}`, platform: 'generic', model_used: 'template', tokens_used: 0, duration_ms: 0, key_source: 'none', strategy_used: 'template', caller: null, cache_hit: false, error: null })
+    })
+
+    const results = await bridge.optimizeBatch([
+      { prompt: 'item1', optimization_strategy: 'template' },
+      { prompt: 'item2', optimization_strategy: 'template' },
+    ])
+    expect(results).toHaveLength(2)
+    expect(results[0].optimized_prompt).toBe('item-1')
+    expect(results[1].optimized_prompt).toBe('item-2')
+    expect(bridge._post).toHaveBeenCalledOnce()
+    expect(bridge._cliFallbackSingle).toHaveBeenCalledTimes(2)
+  })
+
+  it('optimize does NOT fall back to CLI when HTTP succeeds', async () => {
+    const bridge = makeBridge()
+    bridge._post = vi.fn(() => Promise.resolve({ optimized_prompt: 'http-result' }))
+    const fallbackSpy = vi.fn()
+    bridge._cliFallbackSingle = fallbackSpy
+
+    const result = await bridge.optimize({ prompt: 'test', optimization_strategy: 'template' })
+    expect(result.optimized_prompt).toBe('http-result')
+    expect(fallbackSpy).not.toHaveBeenCalled()
+  })
+
+  it('optimizeBatch does NOT fall back when HTTP succeeds', async () => {
+    const bridge = makeBridge()
+    bridge._post = vi.fn(() => Promise.resolve([{ optimized_prompt: 'batch-result' }]))
+    const fallbackSpy = vi.fn()
+    bridge._cliFallbackSingle = fallbackSpy
+
+    await bridge.optimizeBatch([{ prompt: 'test', optimization_strategy: 'template' }])
+    expect(bridge._post).toHaveBeenCalledOnce()
+    expect(fallbackSpy).not.toHaveBeenCalled()
+  })
+
+  it('optimizeBatch catches per-item CLI errors gracefully', async () => {
+    const bridge = makeBridge()
+    bridge._post = vi.fn(() => Promise.reject(new Error('ECONNREFUSED')))
+    let callCount = 0
+    bridge._cliFallbackSingle = vi.fn(() => {
+      callCount++
+      if (callCount === 1) return Promise.resolve({ optimized_prompt: 'ok', platform: 'generic', model_used: 'template', tokens_used: 0, duration_ms: 0, key_source: 'none', strategy_used: 'template', caller: null, cache_hit: false, error: null })
+      return Promise.reject(new Error('CLI item2 failed'))
+    })
+
+    const results = await bridge.optimizeBatch([
+      { prompt: 'item1', optimization_strategy: 'template' },
+      { prompt: 'item2', optimization_strategy: 'template' },
+    ])
+    expect(results).toHaveLength(2)
+    expect(results[0].optimized_prompt).toBe('ok')
+    expect(results[1].error).toContain('CLI item2 failed')
+  })
+})
+
