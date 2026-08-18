@@ -1,3 +1,12 @@
+## [2026-08-18] feat(story2video): 场景素材视频显示优化 — 侧栏布局 + 真实比例缩略图 + 场景视频片段
+
+- **场景视频片段显示**：视频任务编辑页场景素材区的视频槽位改为显示场景独立生成的 AI 视频片段（segment.videoMeta.sceneVideoPath），而非 compose 阶段合成后的成片视频；compose 引擎覆盖 videoPath 时保留原始 sceneVideoPath。
+- **"当前使用"状态修正**：effectiveSelectedMaterial 不再默认将有 videoPath 的分段标记为"当前使用"，仅在用户通过 selectSceneMaterial 显式选择时才显示标签。
+- **纯图片轮播占位符**：无 AI 视频时视频槽位显示浅灰色色块 + "未生成"文字占位符。
+- **缩略图真实比例**：场景素材缩略图从固定 96x128px 改为 aspect-ratio: 3/4 自适应，object-fit: cover 填充。
+- **分段编辑侧栏**：分段编辑区域从页面内联改为右侧 sticky 侧栏（380px），不随页面滚动；窄屏回退为静态纵向布局。
+- **locale / PRD / CHANGELOG 同步**：zh/en locale 无需新增键（复用现有 emptySlot / selectedBadge），PRD-S2V-PIPELINE-PAGE-UX.md 新增 4.2.1 章节详述功能逻辑、数据校验、交互规则和显示项。
+
 ## [2026-08-17] fix(desktop): 创意等级与提示词执行策略解耦
 
 - `creative_level` 仅描述创意/细节强度，不再参与模型/模板路由；`optimization_strategy` 只允许 `template|llm`，缺省为 `llm`，传入已删除的 `auto` 返回 422。

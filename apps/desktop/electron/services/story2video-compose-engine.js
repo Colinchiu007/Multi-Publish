@@ -1427,7 +1427,8 @@ class Story2VideoComposeEngine {
       finalSegments = segmentRecords.map((segment, index) => {
         const videoPath = path.join(finalSegmentDir, 'segment_' + String(index).padStart(4, '0') + '.mp4')
         fs.copyFileSync(segment.videoPath, videoPath)
-        return { ...segment, videoPath }
+        const sceneVideoPath = (segment.videoMeta && segment.videoMeta.sceneVideoPath) || segment.videoPath
+        return { ...segment, videoPath, videoMeta: { ...(segment.videoMeta || {}), sceneVideoPath } }
       })
     } catch (e) {
       try { fs.rmSync(finalSegmentDir, { recursive: true, force: true }) } catch (_) { /* ignore */ }
