@@ -7,10 +7,6 @@
         <div class="page-subtitle">{{ t('modelProviders.pageSubtitle') }}</div>
       </div>
       <div class="page-actions">
-        <label class="multimodal-preference" :title="t('modelProviders.preferMultimodalTitle')">
-          <input type="checkbox" :checked="preferMultimodal" @change="saveMultimodalPreference($event.target.checked)" />
-          <span>{{ t('modelProviders.preferMultimodalLabel') }}</span>
-        </label>
         <button class="cohere-btn-secondary" data-testid="refresh-providers" @click="loadProviders">⟳ {{ t('modelProviders.refresh') }}</button>
         <button class="cohere-btn-primary" data-testid="add-provider" @click="openAdd">＋ {{ t('modelProviders.addProvider') }}</button>
       </div>
@@ -180,6 +176,22 @@
                   <span class="field-value capability-list">
                     <span v-for="cap in p.capabilities" :key="cap" class="capability-chip">{{ MULTIMODAL_CAPABILITY_LABELS[cap] || cap }}</span>
                   </span>
+                <!-- 多模态模型：按能力设置默认 -->
+                <div v-if="p.category === 'multimodal' && p.capabilities && p.capabilities.length > 0" class="provider-field capability-defaults">
+                  <span class="field-label">{{ t('modelProviders.capabilityDefaultLabel') }}</span>
+                  <span class="field-value capability-default-toggles">
+                    <span
+                      v-for="cap in p.capabilities" :key="'def-' + cap"
+                      class="capability-default-chip"
+                      :class="{ active: ((p.config && Array.isArray(p.config.capability_defaults) ? p.config.capability_defaults : []).includes(cap) || p.is_default) }"
+                      @click.stop="toggleCapabilityDefault(p, cap)"
+                      :title="((p.config && Array.isArray(p.config.capability_defaults) ? p.config.capability_defaults : []).includes(cap) || p.is_default) ? t('modelProviders.unsetDefault') : t('modelProviders.setDefault')"
+                    >
+                      {{ MULTIMODAL_CAPABILITY_LABELS[cap] || cap }}
+                      <span v-if="((p.config && Array.isArray(p.config.capability_defaults) ? p.config.capability_defaults : []).includes(cap) || p.is_default)" class="capability-default-check">&#10003;</span>
+                    </span>
+                  </span>
+                </div>
                 </div>
                 <div class="provider-field">
                   <span class="field-label">{{ t('modelProviders.apiKeyLabel') }}</span>
@@ -205,8 +217,8 @@
                 <button class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
                   :aria-label="p.is_default ? t('modelProviders.isDefault') : t('modelProviders.setDefault')"
                   :title="p.is_default ? t('modelProviders.isDefault') : t('modelProviders.setDefault')"
-                  @click="!p.is_default && setDefault(p)"
-                  :disabled="p.is_default || !(isProviderConfigured(p))"
+                  @click="setDefault(p)"
+                  :disabled="!(isProviderConfigured(p))"
                 >★</button>
                 <button class="cohere-icon-btn cohere-icon-btn-danger"
                   :aria-label="t('modelProviders.delete')" :title="t('modelProviders.delete')" @click="confirmDelete(p)"
@@ -287,6 +299,29 @@
                   {{ formatModels(p.models) }}
                 </span>
               </div>
+              <!-- 多模态模型：能力列表 -->
+              <div v-if="p.category === 'multimodal' && p.capabilities && p.capabilities.length > 0" class="provider-field">
+                <span class="field-label">{{ t('modelProviders.capabilityLabel') }}</span>
+                <span class="field-value capability-list">
+                  <span v-for="cap in p.capabilities" :key="cap" class="capability-chip">{{ MULTIMODAL_CAPABILITY_LABELS[cap] || cap }}</span>
+                </span>
+              </div>
+              <!-- 多模态模型：按能力设置默认 -->
+              <div v-if="p.category === 'multimodal' && p.capabilities && p.capabilities.length > 0" class="provider-field capability-defaults">
+                <span class="field-label">{{ t('modelProviders.capabilityDefaultLabel') }}</span>
+                <span class="field-value capability-default-toggles">
+                  <span
+                    v-for="cap in p.capabilities" :key="'def-' + cap"
+                    class="capability-default-chip"
+                    :class="{ active: ((p.config && Array.isArray(p.config.capability_defaults) ? p.config.capability_defaults : []).includes(cap) || p.is_default) }"
+                    @click.stop="toggleCapabilityDefault(p, cap)"
+                    :title="((p.config && Array.isArray(p.config.capability_defaults) ? p.config.capability_defaults : []).includes(cap) || p.is_default) ? t('modelProviders.unsetDefault') : t('modelProviders.setDefault')"
+                  >
+                    {{ MULTIMODAL_CAPABILITY_LABELS[cap] || cap }}
+                    <span v-if="((p.config && Array.isArray(p.config.capability_defaults) ? p.config.capability_defaults : []).includes(cap) || p.is_default)" class="capability-default-check">&#10003;</span>
+                  </span>
+                </span>
+              </div>
               <div class="provider-field">
                 <span class="field-label">{{ t('modelProviders.apiKeyLabel') }}</span>
                 <span class="field-value mono" :class="(isProviderConfigured(p)) ? 'configured' : 'not-configured'">
@@ -311,8 +346,8 @@
               <button class="cohere-icon-btn" :class="{ 'default-active': p.is_default }"
                 :aria-label="p.is_default ? t('modelProviders.isDefault') : t('modelProviders.setDefault')"
                 :title="p.is_default ? t('modelProviders.isDefault') : t('modelProviders.setDefault')"
-                @click="!p.is_default && setDefault(p)"
-                :disabled="p.is_default || !(isProviderConfigured(p))"
+                @click="setDefault(p)"
+                :disabled="!(isProviderConfigured(p))"
               >★</button>
               <button class="cohere-icon-btn cohere-icon-btn-danger"
                 :aria-label="t('modelProviders.delete')" :title="t('modelProviders.delete')" @click="confirmDelete(p)"
@@ -572,7 +607,6 @@ const {
   testResults,
   testingId,
   safeStorageAvailable,
-  preferMultimodal,
   multimodalVideoEnabled,
   isMiniMaxMultimodal,
   showFormDialog,
@@ -595,8 +629,6 @@ const {
   activeCategoryCounts,
   isProviderConfigured,
   loadProviders,
-  loadMultimodalPreference,
-  saveMultimodalPreference,
   openAdd,
   nextAddStep,
   selectPreset,
@@ -607,6 +639,7 @@ const {
   doDelete,
   toggleEnabled,
   setDefault,
+  toggleCapabilityDefault,
   testProvider,
 } = useModelProviderCrud()
 
@@ -695,7 +728,6 @@ function formatModels (models) {
 
 onMounted(() => {
   loadProviders()
-  loadMultimodalPreference()
   loadSyncConfig()
 })
 </script>
@@ -1512,5 +1544,56 @@ onMounted(() => {
 @media (max-width: 720px) {
   .ops-sync-fields { grid-template-columns: 1fr; }
   .ops-sync-actions { margin-left: 0; }
+}
+
+/* ===== 多模态能力默认切换 ===== */
+.capability-defaults {
+  flex-wrap: wrap;
+}
+.capability-default-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.capability-default-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--muted, #999);
+  background: transparent;
+  user-select: none;
+}
+.capability-default-chip:hover {
+  border-color: var(--primary, #1a73e8);
+  color: var(--primary, #1a73e8);
+}
+.capability-default-chip.active {
+  background: #ffd700;
+  border-color: #ffd700;
+  color: #333;
+  font-weight: 500;
+}
+.capability-default-check {
+  font-size: 11px;
+  font-weight: 700;
+}
+[data-theme="dark"] .capability-default-chip {
+  border-color: #555;
+  color: #aaa;
+}
+[data-theme="dark"] .capability-default-chip:hover {
+  border-color: #8ab4f8;
+  color: #8ab4f8;
+}
+[data-theme="dark"] .capability-default-chip.active {
+  background: #8a7a2a;
+  border-color: #bba830;
+  color: #fff;
 }
 </style>

@@ -934,14 +934,26 @@ class ModelProviderManager {
     }
     try {
       const db = this._store.db
-      const tx = this._store.db.transaction ? this._store.db.transaction(() => {
-        db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ?').run(category)
-        db.prepare('UPDATE model_providers SET is_default = 1 WHERE id = ?').run(providerId)
-      }) : null
-      if (tx) { tx() } else {
-        db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ?').run(category)
-        db.prepare('UPDATE model_providers SET is_default = 1 WHERE id = ?').run(providerId)
+      const isMultimodal = category === CATEGORIES.MULTIMODAL
+      const config = safeJsonParse(provider.config, {}) || {}
+      const capabilities = isMultimodal ? (Array.isArray(config.capabilities) ? config.capabilities : []) : []
+      const doSet = () => {
+        if (isMultimodal) {
+          db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ?').run(CATEGORIES.MULTIMODAL)
+          db.prepare('UPDATE model_providers SET is_default = 1 WHERE id = ?').run(providerId)
+          for (const cap of capabilities) {
+            this._clearCapabilityDefaultForCapability(db, cap, providerId)
+            db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ? AND is_default = 1').run(cap)
+          }
+          config.capability_defaults = [...capabilities]
+          db.prepare('UPDATE model_providers SET config = ? WHERE id = ?').run(JSON.stringify(config), providerId)
+        } else {
+          db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ?').run(category)
+          db.prepare('UPDATE model_providers SET is_default = 1 WHERE id = ?').run(providerId)
+          this._clearCapabilityDefaultForCapability(db, category, providerId)
+        }
       }
+      if (db.transaction) { db.transaction(doSet)() } else { doSet() }
       log.info('ModelProviderManager', 'Default ' + category + ' set to: ' + providerId)
       if (this._store && this._store.db && typeof this._store.db.persist === 'function') {
         this._store.db.persist()
@@ -955,9 +967,7 @@ class ModelProviderManager {
 
   getDefault (category) {
     if (!this._ready) return null
-    // 多模态优先：开启「优先使用多模态模型进行所有的AI操作」且多模态模型已配置、
-    // 并声明支持该能力时，默认解析直接返回多模态模型（流水线按能力自动路由）。
-    if (category !== CATEGORIES.MULTIMODAL && this.getMultimodalPreference()) {
+    if (category !== CATEGORIES.MULTIMODAL) {
       const multimodal = this._multimodalProviderFor(category)
       if (multimodal) return multimodal
     }
@@ -966,24 +976,60 @@ class ModelProviderManager {
     return provider ? this._safeRow(provider) : null
   }
 
-  /** 是否开启「优先使用多模态模型进行所有的AI操作」（默认开启）。 */
-  getMultimodalPreference () {
-    if (!this._store || typeof this._store.getUserSetting !== 'function') return false
+  setCapabilityDefault (providerId, capability, enabled) {
+    if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '本地数据服务尚未就绪，请稍后重试或重启应用。' }
+    if (!MULTIMODAL_CAPABILITY_IDS.includes(capability)) {
+      return { code: -1, errorCode: 'INVALID_CAPABILITY', message: '不支持的能力类型：' + capability }
+    }
+    const provider = this.getProvider(providerId)
+    if (!provider || provider.category !== CATEGORIES.MULTIMODAL) {
+      return { code: -1, errorCode: 'NOT_MULTIMODAL', message: '该服务商不是多模态模型。' }
+    }
+    const providerWithKey = this.getProviderWithKey(providerId)
+    if (!providerWithKey || (!hasUsableApiKey(providerWithKey.api_key) && !canUseWithoutApiKey(providerWithKey))) {
+      return { code: -1, errorCode: 'API_KEY_NOT_CONFIGURED', message: '请先在「模型设置」中配置 API Key，再设为默认。' }
+    }
+    const config = safeJsonParse(provider.config, {}) || {}
+    const caps = Array.isArray(config.capabilities) ? config.capabilities : []
+    if (!caps.includes(capability)) {
+      return { code: -1, errorCode: 'CAPABILITY_NOT_SUPPORTED', message: '该多模态模型不支持能力：' + capability }
+    }
     try {
-      return this._store.getUserSetting('prefer_multimodal', true) !== false
-    } catch (_) {
-      return false
+      const db = this._store.db
+      if (enabled) {
+        this._clearCapabilityDefaultForCapability(db, capability, providerId)
+        db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ? AND is_default = 1').run(capability)
+        if (!Array.isArray(config.capability_defaults)) config.capability_defaults = []
+        if (!config.capability_defaults.includes(capability)) config.capability_defaults.push(capability)
+      } else {
+        if (Array.isArray(config.capability_defaults)) {
+          config.capability_defaults = config.capability_defaults.filter(c => c !== capability)
+        }
+        if (!Array.isArray(config.capability_defaults) || config.capability_defaults.length === 0) {
+          db.prepare('UPDATE model_providers SET is_default = 0 WHERE id = ?').run(providerId)
+        }
+      }
+      db.prepare('UPDATE model_providers SET config = ? WHERE id = ?').run(JSON.stringify(config), providerId)
+      if (this._store && this._store.db && typeof this._store.db.persist === 'function') {
+        this._store.db.persist()
+      }
+      return { code: 0, data: { capability, enabled, capabilityDefaults: config.capability_defaults || [] } }
+    } catch (e) {
+      log.error('ModelProviderManager', 'setCapabilityDefault failed: ' + e.message)
+      return { code: -1, errorCode: 'SET_CAPABILITY_DEFAULT_FAILED', message: '设置能力默认失败，请稍后重试。', messageParams: { detail: String(e && e.message || e) } }
     }
   }
 
-  /** 持久化多模态优先开关。 */
-  setMultimodalPreference (value) {
-    if (!this._store || typeof this._store.setUserSetting !== 'function') return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '本地数据服务尚未就绪，请稍后重试或重启应用。' }
-    try {
-      this._store.setUserSetting('prefer_multimodal', value === true)
-      return { code: 0, data: { preferMultimodal: value === true } }
-    } catch (e) {
-      return { code: -1, message: e.message }
+  _clearCapabilityDefaultForCapability (db, capability, excludeProviderId) {
+    db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ? AND is_default = 1 AND id != ?').run(capability, excludeProviderId)
+    const multimodalRows = db.prepare('SELECT id, config FROM model_providers WHERE category = ?').all(CATEGORIES.MULTIMODAL)
+    for (const row of multimodalRows) {
+      if (row.id === excludeProviderId) continue
+      const cfg = safeJsonParse(row.config, {}) || {}
+      if (Array.isArray(cfg.capability_defaults) && cfg.capability_defaults.includes(capability)) {
+        cfg.capability_defaults = cfg.capability_defaults.filter(c => c !== capability)
+        db.prepare('UPDATE model_providers SET config = ? WHERE id = ?').run(JSON.stringify(cfg), row.id)
+      }
     }
   }
 
@@ -1001,10 +1047,9 @@ class ModelProviderManager {
       if (!(hasUsableApiKey(this._getApiKey(row)) || canUseWithoutApiKey(row))) continue
       const config = safeJsonParse(row.config, {}) || {}
       if (!Array.isArray(config.capabilities) || !config.capabilities.includes(category)) continue
-      // video 能力由多模态模型设置的「支持生成视频」开关控制（默认关闭）：
-      // 仅当 capability_enabled.video === true 时才视为该能力可用，避免声明但套餐不支持视频的
-      // 多模态模型（如 MiniMax 特殊套餐）抢占 video 默认解析（回落显式视频模型如 agnes-video）。
       if (category === 'video' && config.capability_enabled?.video !== true) continue
+      const isDefault = (Array.isArray(config.capability_defaults) && config.capability_defaults.includes(category)) || !!row.is_default
+      if (!isDefault) continue
       return this._safeRow(row)
     }
     return null

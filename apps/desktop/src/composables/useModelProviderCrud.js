@@ -15,14 +15,12 @@ import {
   modelProviderUpdate,
   modelProviderDelete,
   modelProviderSetDefault,
+  modelProviderSetCapabilityDefault,
   modelProviderTest,
   modelProviderPresets,
 } from '@/api/model-providers'
-import { storeGetSetting, storeSetSetting } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 
-/** 偏好开关的持久化 key（与主进程 ModelProviderManager 一致） */
-const PREFER_MULTIMODAL_SETTING_KEY = 'prefer_multimodal'
 
 const LOCAL_NO_KEY_PROVIDER_IDS = new Set(['piper', 'local-diffusion', 'comfyui'])
 
@@ -105,8 +103,6 @@ export function useModelProviderCrud () {
   const filterCategory = ref('all')
   const viewMode = ref('configured') // 'configured' | 'all'
   const safeStorageAvailable = ref(true) // P0: safeStorage 不可用时显示警告
-  // 「优先使用多模态模型进行所有的AI操作」全局开关（默认开启）
-  const preferMultimodal = ref(true)
 
   // 测试结果缓存
   const testResults = ref({})
@@ -200,35 +196,7 @@ export function useModelProviderCrud () {
     }
   }
 
-  // ─── 多模态优先开关 ──────────────────────────
-  async function loadMultimodalPreference () {
-    try {
-      const res = await storeGetSetting(PREFER_MULTIMODAL_SETTING_KEY)
-      // storeGetSetting 已解包 IPC 信封：成功返回裸值（false/true/null），失败返回 null。
-      // 未配置或读取失败时按产品语义默认开启（true）。
-      preferMultimodal.value = res !== false
-    } catch (_) {
-      preferMultimodal.value = true
-    }
-  }
 
-  async function saveMultimodalPreference (value) {
-    const next = value !== false
-    const previous = preferMultimodal.value
-    preferMultimodal.value = next
-    try {
-      const res = await storeSetSetting(PREFER_MULTIMODAL_SETTING_KEY, next)
-      // 保存失败（未登录 AUTH_ERROR、IPC 不可用 undefined 等）时回滚 UI，
-      // 避免乐观更新造成「已保存」假象；再次进入页面又恢复默认值。
-      if (res?.code !== 0) {
-        preferMultimodal.value = previous
-        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.preferMultimodalSaveFailed') }).message)
-      }
-    } catch (_) {
-      preferMultimodal.value = previous
-      ElMessage.error(t('modelProviders.preferMultimodalSaveFailed'))
-    }
-  }
 
   // MiniMax 多模态预设：模型列表由程序预设（seeds）+ 运营后台（catalog 下发）控制，
   // 前端不提供模型列表编辑输入框，仅只读展示。
@@ -428,16 +396,53 @@ export function useModelProviderCrud () {
     }
   }
 
-  // ─── 设为默认 ─────────────────────────────────
+  // ─── 设为默认 ────────────────────────────────────────
   async function setDefault (provider) {
     if (!isProviderConfigured(provider)) {
       ElMessage.warning(t('modelProviders.configureFirst'))
       return
     }
+    if (provider.category === 'multimodal') {
+      const isCurrentlyDefault = provider.is_default
+      const actionLabel = isCurrentlyDefault ? t('modelProviders.unsetDefault') : t('modelProviders.setDefault')
+      try {
+        const { ElMessageBox } = await import('element-plus')
+        await ElMessageBox.confirm(
+          isCurrentlyDefault
+            ? t('modelProviders.unsetMultimodalDefaultConfirm')
+            : t('modelProviders.setMultimodalDefaultConfirm'),
+          actionLabel,
+          { confirmButtonText: t('modelProviders.confirm'), cancelButtonText: t('modelProviders.cancel'), type: 'warning' }
+        )
+      } catch (_) {
+        return
+      }
+    }
     try {
       const res = await modelProviderSetDefault(provider.category, provider.id)
       if (res.code === 0) {
         ElMessage.success(t('modelProviders.setDefaultSuccess'))
+        await loadProviders()
+      } else {
+        ElMessage.error(formatUserError(res, { fallback: t('modelProviders.setDefaultFailed') }).message)
+      }
+    } catch (e) {
+      ElMessage.error(formatUserError(e, { fallback: t('modelProviders.setDefaultFailed') }).message)
+    }
+  }
+
+  // ─── 能力默认切换（多模态模型） ────────────────────────────
+  async function toggleCapabilityDefault (provider, capability) {
+    if (!isProviderConfigured(provider)) {
+      ElMessage.warning(t('modelProviders.configureFirst'))
+      return
+    }
+    const capabilityDefaults = (provider.config && Array.isArray(provider.config.capability_defaults)) ? provider.config.capability_defaults : []
+    const isCurrentlyDefault = capabilityDefaults.includes(capability)
+    try {
+      const res = await modelProviderSetCapabilityDefault(provider.id, capability, !isCurrentlyDefault)
+      if (res.code === 0) {
+        ElMessage.success(t(isCurrentlyDefault ? 'modelProviders.capabilityUnsetDefaultSuccess' : 'modelProviders.capabilitySetDefaultSuccess'))
         await loadProviders()
       } else {
         ElMessage.error(formatUserError(res, { fallback: t('modelProviders.setDefaultFailed') }).message)
@@ -488,7 +493,6 @@ export function useModelProviderCrud () {
     testResults,
     testingId,
     safeStorageAvailable,
-    preferMultimodal,
     multimodalVideoEnabled,
     isMiniMaxMultimodal,
     // 表单状态
@@ -518,8 +522,7 @@ export function useModelProviderCrud () {
     isProviderConfigured,
     // 方法
     loadProviders,
-    loadMultimodalPreference,
-    saveMultimodalPreference,
+    toggleCapabilityDefault,
     openAdd,
     nextAddStep,
     loadAvailablePresets,

@@ -87,6 +87,17 @@ function registerHandlers (ipcMain, deps) {
     }
   }))
 
+  // ─── 设置能力默认（多模态模型） ───────────────
+  ipcMain.handle('model-provider:set-capability-default', withSenderCheck((_event, providerId, capability, enabled) => {
+    try {
+      const mgr = getManager()
+      return mgr.setCapabilityDefault(providerId, capability, enabled)
+    } catch (e) {
+      log.error('[model-provider] set-capability-default error:', e)
+      return { code: EC.REQUEST_ERROR, message: e.message }
+    }
+  }))
+
   // ─── 获取默认 ────────────────────────────────
   ipcMain.handle('model-provider:get-default', (_event, category) => {
     try {
