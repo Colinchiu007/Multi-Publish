@@ -1,0 +1,12 @@
+{
+  "id": "multimodal-per-capability-default",
+  "title": "多模态模型能力级默认设置 - 去掉全局开关，拆分为每个能力的设为默认控制",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend+backend",
+  "currentPhase": "implementation",
+  "nextAction": "创建 worktree 并开始实施",
+  "createdAt": "2026-08-18T21:43:21Z",
+  "branch": "main"
+}

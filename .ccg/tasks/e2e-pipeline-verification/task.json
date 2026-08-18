@@ -1,0 +1,12 @@
+{
+  "id": "e2e-pipeline-verification",
+  "title": "E2E Story2Video pipeline verification with cloned voice fallback",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "implementation",
+  "nextAction": "Run E2E pipeline test with saved profile",
+  "createdAt": "2026-08-18T09:30:00+08:00",
+  "branch": "codex/fix-pipeline-tts-cloned-voice-fallback"
+}
