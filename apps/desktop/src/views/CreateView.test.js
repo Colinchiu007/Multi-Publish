@@ -1745,7 +1745,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.orchestrationError).toBe("");
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.preview_missing",
       messageParams: {},
-      rawError: '',
+      rawError: '', noResume: false,
     });
     expect(alertSpy).not.toHaveBeenCalled();
 
@@ -1771,7 +1771,7 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.model_configuration_required",
       messageParams: {},
-      rawError: "Story2Video 默认 LLM 不可用，请先完成模型设置",
+      rawError: "Story2Video 默认 LLM 不可用，请先完成模型设置", noResume: false,
     });
     expect(alertSpy).not.toHaveBeenCalled();
 
@@ -1798,7 +1798,7 @@ describe("CreateView - S2V orchestration", () => {
 
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.access_denied",
       messageParams: {},
-      rawError: "当前许可证无权访问 pipeline:startOrchestrated",
+      rawError: "当前许可证无权访问 pipeline:startOrchestrated", noResume: false,
     });
     w.unmount();
   });
@@ -2452,7 +2452,7 @@ describe("CreateView - S2V orchestration", () => {
     expect(mocks.pipelineStartOrchestrated).not.toHaveBeenCalled();
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.text_input_only",
       messageParams: {},
-      rawError: '',
+      rawError: '', noResume: true,
     });
     expect(alertSpy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
@@ -3184,8 +3184,29 @@ describe("CreateView - UI interactions", () => {
     w.vm.showStory2VideoErrorDialog({ error: "Image #49: Image generation requires user input after content-policy review" });
     await nextTick();
     expect(w.vm.canResumeStory2Video).toBe(false);
-    // 非政策失败不受影响，仍显示「从断点继续」
-    w.vm.showStory2VideoErrorDialog({ error: "provider timeout, please retry" });
+    // 非政策失败不受影响，仍显示「从断点继续」（需显式 noResume: false 模拟 setOrchestrationError 路径）
+    w.vm.showStory2VideoErrorDialog({ error: "provider timeout, please retry", noResume: false });
+    await nextTick();
+    expect(w.vm.canResumeStory2Video).toBe(true);
+    w.unmount();
+  });
+
+  it("删除项目/运行记录失败不应显示「从断点继续」提示", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.orchestrationRunId = "run-existing";
+    // 模拟删除项目失败（noResume 默认 true）
+    w.vm.showStory2VideoErrorDialog({ messageKey: "story2video.project_delete_failed" });
+    await nextTick();
+    expect(w.vm.canResumeStory2Video).toBe(false);
+    // 模拟删除运行记录失败
+    w.vm.showStory2VideoErrorDialog({ messageKey: "story2video.run_delete_failed" });
+    await nextTick();
+    expect(w.vm.canResumeStory2Video).toBe(false);
+    // 流水线编排错误仍应允许恢复（经 setOrchestrationError 路径）
+    w.vm.showStory2VideoErrorDialog({ messageKey: "story2video.orchestration_failed", noResume: false });
     await nextTick();
     expect(w.vm.canResumeStory2Video).toBe(true);
     w.unmount();
@@ -3240,7 +3261,7 @@ describe("CreateView - UI interactions", () => {
     expect(w.find(".history-error").exists()).toBe(false);
     expect(w.vm.story2videoErrorDialog).toEqual({ visible: true, detail: '', messageKey:  "story2video.history_load_failed",
       messageParams: {},
-      rawError: '',
+      rawError: '', noResume: true,
     });
   });
 

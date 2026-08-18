@@ -1922,7 +1922,7 @@ export default {
       return formatStory2VideoNotification({ messageKey: this.story2videoErrorDialog.messageKey, messageParams: this.story2videoErrorDialog.messageParams }).message
     },
     canResumeStory2Video() {
-      if (!this.story2videoErrorDialog.visible || !this.orchestrationRunId || this.story2videoResuming) return false
+      if (!this.story2videoErrorDialog.visible || !this.orchestrationRunId || this.story2videoErrorDialog.noResume || this.story2videoResuming) return false
       // 原始错误文本（showStory2VideoErrorDialog 时保留）与本地化消息一并参与门控，
       // 与历史列表/主进程使用同一关键字规则（content policy / content_policy / content-policy 均拦截）
       const raw = (this.story2videoErrorDialogMessage || '') + '\n' + (this.story2videoErrorDialog.rawError || '')
@@ -3497,7 +3497,7 @@ export default {
       const resolved = resolveStory2VideoNotification(notification)
       const detail = typeof notification.detail === 'string' ? notification.detail : ''
       const rawError = String(notification?.error || notification?.message || '')
-      this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params, detail, rawError }
+      this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params, detail, rawError, noResume: notification.noResume !== false }
     },
     closeStory2VideoErrorDialog() {
       this.story2videoErrorDialog.visible = false
@@ -3522,6 +3522,7 @@ export default {
           this.showStory2VideoErrorDialog({
             errorCode: res?.data?.errorCode || res?.code,
             error: res?.data?.error || res?.message || '断点恢复失败，请稍后再试。',
+            noResume: false,
           })
         }
       } finally {
@@ -3571,7 +3572,7 @@ export default {
     },
     setOrchestrationError(notification) {
       this.orchestrationError = ''
-      this.showStory2VideoErrorDialog(notification)
+      this.showStory2VideoErrorDialog({ ...notification, noResume: false })
       this.stopPipelinePolling()
       this.needsCheckpoint = false
       if (this.pipelineRunStatus?.status !== 'completed') {
@@ -4000,10 +4001,11 @@ export default {
           this.showStory2VideoErrorDialog({
             errorCode: res?.data?.errorCode || res?.code,
             error: res?.data?.error || res?.message || '断点恢复失败，请稍后再试。',
+            noResume: false,
           })
         }
       } catch (_) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED })
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, noResume: false })
       } finally {
         this.story2videoResuming = false
       }
