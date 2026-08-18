@@ -1167,7 +1167,7 @@ describe('Story2VideoProjectService', () => {
 
       expect(updated.segments[0].videoPath).toMatch(/_video_ai_.*\.mp4$/)
       expect(fs.existsSync(updated.segments[0].videoPath)).toBe(true)
-      expect(updated.segments[0].videoMeta).toEqual({ provider: 'kling', model: 'kling-v1', source: 'ai-video' })
+      expect(updated.segments[0].videoMeta).toEqual({ provider: 'kling', model: 'kling-v1', source: 'ai-video', sceneVideoPath: updated.segments[0].videoPath })
       expect(updated.segments[0].status).toBe('completed')
       expect(fs.existsSync(oldVideo)).toBe(false)
       expect(mockGenerateSceneVideo).toHaveBeenCalledWith(expect.objectContaining({
@@ -1301,7 +1301,7 @@ describe('Story2VideoProjectService', () => {
         size: { width: 1080, height: 1920 },
         fps: 24,
       }))
-      expect(updated.segments[0].videoMeta).toEqual({ provider: 'hunyuan', model: 'hunyuan-video', source: 'ai-video' })
+      expect(updated.segments[0].videoMeta).toEqual({ provider: 'hunyuan', model: 'hunyuan-video', source: 'ai-video', sceneVideoPath: updated.segments[0].videoPath })
     })
 
     it('存储写入失败时清理本次 AI 视频产物且保留旧视频（审查 W3 回归）', async () => {
