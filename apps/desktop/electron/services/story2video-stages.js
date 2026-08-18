@@ -3142,12 +3142,18 @@ function registerStory2VideoStages(pipelineEngine) {
           }
           return { index: scene.index, success: false, error: (result && result.message) || 'TTS generation failed' }
         } catch (error) {
+          if (pipelineEngine && pipelineEngine.log && pipelineEngine.log.warn) pipelineEngine.log.warn("[S2V] rawTtsItemTask catch", { code: error && error.code, msg: error && error.message, cat: error && error.category })
           // 三层降级：克隆音色跨账号失效时尝试重新克隆（与 regenerateSceneAudio 同源逻辑，2026-08-18）
-          const _errMsg = String((error && error.message) || error || '')
-          const _isClonedVoiceFail = /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/i.test(_errMsg)
-            || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong)/i.test(_errMsg)
+          const _errMsg = String((error && error.message) || error || "")
+          const _errCode = (error && error.code) || (error && error.context && error.context.code) || ""
+          const _isClonedVoiceFail = _errCode === "INVALID_CONFIG"
+            || /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/i.test(_errMsg)
+            || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong|not\s+support)/i.test(_errMsg)
             || /cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)/i.test(_errMsg)
             || /\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7/.test(_errMsg)
+            || /\u97f3\u8272.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
+            || /voice.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/i.test(_errMsg)
+            || /\u58f0\u97f3.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
           if (_isClonedVoiceFail) {
             const cloneSvc = pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
               ? (() => { try { return pipelineEngine.container.get('ttsVoiceCloneService') } catch (_) { return null } })() : null

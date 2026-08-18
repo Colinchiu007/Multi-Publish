@@ -302,11 +302,18 @@ function referencedProjectFiles (project) {
  */
 function isClonedVoiceFailure (error) {
   if (!error) return false
-  const msg = String(error.message || error || '').toLowerCase()
+  // error.code: classifyBaseRespError 对音色错误统一返回 INVALID_CONFIG
+  const errCode = error.code || (error.context && error.context.code) || ""
+  if (errCode === "INVALID_CONFIG") return true
+  // 回退：匹配 MiniMax 各种音色相关错误文本（含中英文）
+  const msg = String(error.message || error || "").toLowerCase()
   return /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/.test(msg)
-    || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong)/.test(msg)
+    || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong|not\s+support)/.test(msg)
     || /cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)/.test(msg)
     || /\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7/.test(msg)
+    || /\u97f3\u8272.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(msg)
+    || /voice.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(msg)
+    || /\u58f0\u97f3.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(msg)
 }
 
 class Story2VideoProjectService {
@@ -1270,6 +1277,7 @@ class Story2VideoProjectService {
       this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
       return saved
     } catch (error) {
+      if (this.log && this.log.warn) this.log.warn("[S2V] regenerateSceneAudio catch", { code: error && error.code, msg: error && error.message, cat: error && error.category })
       // 克隆音色跨账号失效时，尝试重新克隆（用保存的原始样本在当前账号重建）
       const prevSegment = previousProject.segments[index]
       if (isClonedVoiceFailure(error) && this.ttsVoiceCloneService) {
