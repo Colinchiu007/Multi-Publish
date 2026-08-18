@@ -3142,6 +3142,63 @@ function registerStory2VideoStages(pipelineEngine) {
           }
           return { index: scene.index, success: false, error: (result && result.message) || 'TTS generation failed' }
         } catch (error) {
+          // 三层降级：克隆音色跨账号失效时尝试重新克隆（与 regenerateSceneAudio 同源逻辑，2026-08-18）
+          const _errMsg = String((error && error.message) || error || '')
+          const _isClonedVoiceFail = /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/i.test(_errMsg)
+            || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong)/i.test(_errMsg)
+            || /cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)/i.test(_errMsg)
+            || /\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7/.test(_errMsg)
+          if (_isClonedVoiceFail) {
+            const cloneSvc = pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
+              ? (() => { try { return pipelineEngine.container.get('ttsVoiceCloneService') } catch (_) { return null } })() : null
+            if (cloneSvc && typeof cloneSvc.findCloneSamples === 'function') {
+              // Layer 1: re-clone from persisted audio samples
+              try {
+                const samples = await cloneSvc.findCloneSamples(voiceId, resolvedVoiceProvider, voiceModel || 'speech-02-hd')
+                if (samples && samples.sampleStorage) {
+                  const _fs = require('fs')
+                  const _path = require('path')
+                  const userDataDir = (pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function')
+                    ? (() => { try { const s = pipelineEngine.container.get('store'); return s && typeof s.getUserDataDir === 'function' ? s.getUserDataDir() : null } catch (_) { return null } })()
+                    : null
+                  if (userDataDir && samples.sampleStorage.relativeDir) {
+                    const sampleDir = _path.join(userDataDir, samples.sampleStorage.relativeDir)
+                    const sampleFiles = _fs.readdirSync(sampleDir).filter(f => /\\.(mp3|wav|m4a)$/i.test(f))
+                    if (sampleFiles.length > 0) {
+                      const samplePath = _path.join(sampleDir, sampleFiles[0])
+                      const audioBuffer = _fs.readFileSync(samplePath)
+                      const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
+                      const manager = (pipelineEngine && pipelineEngine.aiGenerator && pipelineEngine.aiGenerator._modelProviderManager)
+                        || (pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
+                          ? (() => { try { return pipelineEngine.container.get('modelProviderManager') } catch (_) { return null } })() : null)
+                      const ttsAdapter = manager && typeof manager.getAdapter === 'function' ? manager.getAdapter(resolvedVoiceProvider) : null
+                      if (ttsAdapter && typeof ttsAdapter.cloneVoice === 'function') {
+                        const newVoice = await ttsAdapter.cloneVoice({ name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] })
+                        if (newVoice && newVoice.id) {
+                          const retryResult = await assetGenerator.generateTTS(text, {
+                            voice_id: newVoice.id, voice_provider: resolvedVoiceProvider, voice_model: voiceModel,
+                            rate: voiceSpeed, pitch: voicePitch, emotion: voiceEmotion,
+                            index: scene.index, runId: runId || undefined,
+                          })
+                          const retryNormalized = normalizeAssetResult(retryResult, ['path', 'audio_path'])
+                          if (retryNormalized) {
+                            const partial = { index: scene.index, audioPath: retryNormalized.path, duration: retryNormalized.duration, meta: retryNormalized.meta }
+                            context.finalize_assets.partialTts = [...(context.finalize_assets.partialTts || []).filter(p => p.index !== scene.index), partial]
+                            if (pipelineEngine.log && pipelineEngine.log.info) pipelineEngine.log.info('[Story2Video] pipeline re-clone success: ' + voiceId + ' -> ' + newVoice.id)
+                            return { index: scene.index, success: true, path: retryNormalized.path, duration: retryNormalized.duration, meta: retryNormalized.meta }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch (_reCloneErr) {
+                if (pipelineEngine.log && pipelineEngine.log.warn) pipelineEngine.log.warn('[Story2Video] pipeline re-clone failed, falling back', _reCloneErr)
+              }
+            }
+            // Layer 2 already handled: resumed partialTts checked at top of rawTtsItemTask
+            // Layer 3: normal error
+          }
           return { index: scene.index, success: false, error: error && error.message ? error.message : String(error) }
         }
       }
