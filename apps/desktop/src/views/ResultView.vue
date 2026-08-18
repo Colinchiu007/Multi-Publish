@@ -209,49 +209,60 @@
           <div v-if="segment.imageUrl" class="segment-thumb">
             <img :src="segment.imageUrl" :alt="tOrKey('story2video.sceneMaterial.segmentImageAlt', { n: index + 1 })" />
           </div>
-          <div class="scene-material-section" data-testid="scene-material-section">
+                    <div class="scene-material-section" data-testid="scene-material-section">
             <div class="scene-material-heading">
-              <strong>{{ $t('story2video.sceneMaterial.title') }}</strong>
-              <span class="scene-material-hint">{{ $t('story2video.sceneMaterial.previewHint') }}</span>
+              <strong>{{ ('story2video.sceneMaterial.title') }}</strong>
+              <span class="scene-material-hint">{{ ('story2video.sceneMaterial.previewHint') }}</span>
             </div>
             <div class="scene-material-slots">
-              <button
+              <label
                 v-for="slot in sceneMaterialSlots(segment)"
                 :key="slot.kind"
-                type="button"
                 class="scene-material-slot"
                 :class="{ selected: slot.selected, empty: !slot.path }"
-                :disabled="isSegmentBusy(segment.id)"
-                :aria-pressed="slot.selected ? 'true' : 'false'"
-                :aria-label="slot.path
-                  ? $t('story2video.sceneMaterial.selectAriaLabel', { label: slot.label })
-                  : $t('story2video.sceneMaterial.emptyAriaLabel', { label: slot.label })"
-                @click="slot.path ? selectSceneMaterial(segment.id, slot.kind) : undefined"
+                :data-testid="'scene-material-slot-' + slot.kind"
               >
+                <input
+                  type="radio"
+                  class="scene-material-radio"
+                  :name="'scene-material-' + segment.id"
+                  :value="slot.kind"
+                  :checked="slot.selected"
+                  :disabled="isSegmentBusy(segment.id) || !slot.path"
+                  @change="selectSceneMaterial(segment.id, slot.kind)"
+                />
                 <span class="scene-material-thumb" @click.stop="slot.path ? previewSceneMaterial(slot) : undefined">
-                  <img v-if="slot.kind !== 'video' && slot.url" :src="slot.url" :alt="slot.label" />
-                  <video v-else-if="slot.kind === 'video' && slot.url" :src="slot.url" preload="metadata" muted></video>
-                  <span v-if="!slot.url" class="scene-material-empty-text">{{ $t('story2video.sceneMaterial.emptySlot') }}</span>
+                  <img v-if="!slot.kind.includes('video') && slot.url" :src="slot.url" :alt="slot.label" />
+                  <video v-else-if="slot.kind.includes('video') && slot.url" :src="slot.url" preload="metadata" muted></video>
+                  <span v-if="!slot.url" class="scene-material-empty-text">{{ ('story2video.sceneMaterial.emptySlot') }}</span>
                 </span>
                 <span class="scene-material-label">{{ slot.label }}</span>
-                <span v-if="slot.selected" class="scene-material-badge">{{ $t('story2video.sceneMaterial.selectedBadge') }}</span>
-              </button>
+                <span v-if="slot.selected" class="scene-material-badge">{{ ('story2video.sceneMaterial.selectedBadge') }}</span>
+              </label>
             </div>
             <div class="scene-material-actions">
-              <UiButton size="sm" variant="secondary" :disabled="isSegmentBusy(segment.id)" @click="generateSceneImage(segment.id)">
-                {{ segmentBusyKind(segment.id) === 'genImage' ? $t('story2video.sceneMaterial.generating') : $t('story2video.sceneMaterial.generateImage') }}
-              </UiButton>
-              <!-- 场景素材区【生成 AI 视频】：用视频优化词生成 AI 视频；无优化词时禁用并提示（2026-08-17 UX 统一） -->
-              <UiButton
-                size="sm"
-                variant="secondary"
-                data-testid="generate-ai-video-button"
-                :disabled="isSegmentBusy(segment.id) || !segment.videoPrompt"
-                :title="segment.videoPrompt ? '' : $t('story2video.sceneMaterial.aiVideoNeedsPromptHint')"
-                @click="generateSceneAiVideo(segment.id)"
-              >
-                {{ segmentBusyKind(segment.id) === 'aiVideo' ? $t('story2video.sceneMaterial.generatingAiVideo') : $t('story2video.sceneMaterial.generateAiVideo') }}
-              </UiButton>
+              <template v-for="slot in sceneMaterialSlots(segment)" :key="'act-' + slot.kind">
+                <UiButton
+                  v-if="!slot.kind.includes('video')"
+                  size="sm"
+                  variant="secondary"
+                  :disabled="isSegmentBusy(segment.id)"
+                  @click="generateSceneImage(segment.id)"
+                >
+                  {{ segmentBusyKind(segment.id) === 'genImage' ? ('story2video.sceneMaterial.generating') : ('story2video.sceneMaterial.generateImage') }}
+                </UiButton>
+                <UiButton
+                  v-else
+                  size="sm"
+                  variant="secondary"
+                  :data-testid="'generate-' + slot.kind + '-button'"
+                  :disabled="isSegmentBusy(segment.id) || !segment.videoPrompt"
+                  :title="segment.videoPrompt ? '' : ('story2video.sceneMaterial.aiVideoNeedsPromptHint')"
+                  @click="generateSceneAiVideo(segment.id, slot.kind)"
+                >
+                  {{ segmentBusyKind(segment.id) === 'aiVideo' ? ('story2video.sceneMaterial.generatingAiVideo') : ('story2video.sceneMaterial.generateAiVideo') }}
+                </UiButton>
+              </template>
             </div>
           </div>
 
@@ -798,7 +809,9 @@ export default {
           segment.alternateImageUrls = []
         }
         // 优先显示场景独立生成的 AI 视频片段，而非合成后的成片视频（2026-08-18）
-        const sceneVideoPath = (segment.videoMeta && segment.videoMeta.sceneVideoPath) || segment.videoPath
+        const sceneVideoPath = (segment.videoMeta && segment.videoMeta.sceneVideoPath) || null
+        const altSceneVideoPath = (segment.videoMeta && segment.videoMeta.altSceneVideoPath) || null
+        const altSceneVideoPath = (segment.videoMeta && segment.videoMeta.altSceneVideoPath) || null
         if (sceneVideoPath) {
           try {
             segment.videoUrl = await this.resolveLocalUrl(sceneVideoPath, segment.videoUrl)
@@ -817,31 +830,16 @@ export default {
       return null
     },
     sceneMaterialSlots(segment) {
-      const t = (key, params) => this.$t('story2video.sceneMaterial.' + key, params)
+      const t = (key, params) => this.$t('story2video.sceneMaterial.' + key, params
       const selected = this.effectiveSelectedMaterial(segment)
       const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
+      const sceneVideoPath = (segment.videoMeta && segment.videoMeta.sceneVideoPath) || null
+      const altSceneVideoPath = (segment.videoMeta && segment.videoMeta.altSceneVideoPath) || null
       return [
-        {
-          kind: 'image1',
-          label: t('image1Label'),
-          path: segment.imagePath || null,
-          url: segment.imageUrl || null,
-          selected: selected === 'image1',
-        },
-        {
-          kind: 'image2',
-          label: t('image2Label'),
-          path: alternate && alternate.path ? alternate.path : null,
-          url: Array.isArray(segment.alternateImageUrls) && segment.alternateImageUrls[0] ? segment.alternateImageUrls[0] : null,
-          selected: selected === 'image2',
-        },
-        {
-          kind: 'video',
-          label: t('videoLabel'),
-          path: (segment.videoMeta && segment.videoMeta.sceneVideoPath) || segment.videoPath || null,
-          url: segment.videoUrl || null,
-          selected: selected === 'video',
-        },
+        { kind: 'image1', label: t('image1Label'), path: segment.imagePath || null, url: segment.imageUrl || null, selected: selected === 'image1' },
+        { kind: 'image2', label: t('image2Label'), path: (alternate && alternate.path) || null, url: (Array.isArray(segment.alternateImageUrls) && segment.alternateImageUrls[0]) || null, selected: selected === 'image2' },
+        { kind: 'video1', label: t('video1Label'), path: sceneVideoPath || null, url: segment.videoUrl || null, selected: selected === 'video1' },
+        { kind: 'video2', label: t('video2Label'), path: altSceneVideoPath || null, url: segment.altVideoUrl || null, selected: selected === 'video2' },
       ]
     },
     previewSceneMaterial(slot) {
@@ -879,7 +877,7 @@ export default {
         this.segmentBusy = next
       }
     },
-    async generateSceneAiVideo(segmentId) {
+    async generateSceneAiVideo(segmentId, slotKind) {
       if (!this.projectId || this.isSegmentBusy(segmentId)) return
       // 重新生成前先落盘本地编辑：避免基于旧优化词生成，也防止服务端响应覆盖未保存修改（与 W3 语义一致）
       if (this.segmentsDirty && !(await this.saveSegments())) return
@@ -1563,13 +1561,14 @@ export default {
 .scene-material-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .scene-material-heading strong { font-size: 13px; }
 .scene-material-hint { color: var(--text-muted); font-size: 11px; }
-.scene-material-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.scene-material-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .scene-material-slot { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
 .scene-material-slot:hover:not(:disabled) { border-color: var(--primary); }
 .scene-material-slot.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 .scene-material-slot.empty { cursor: not-allowed; opacity: 0.75; }
+.scene-material-radio { position: absolute; top: 6px; left: 6px; accent-color: var(--primary); z-index: 2; width: 16px; height: 16px; cursor: pointer; }
 .scene-material-slot:disabled { opacity: 0.55; cursor: not-allowed; }
-.scene-material-thumb { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 3 / 4; border-radius: 4px; overflow: hidden; background: var(--bg); }
+.scene-material-thumb { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 80px; max-height: 200px; border-radius: 4px; overflow: hidden; background: var(--bg); }
 .scene-material-thumb img, .scene-material-thumb video { width: 100%; height: 100%; object-fit: cover; }
 .scene-material-empty-text { color: var(--text-muted); font-size: 12px; }
 .scene-material-label { font-size: 12px; color: var(--text); }
@@ -1612,7 +1611,7 @@ export default {
   .trim-controls { grid-template-columns: 1fr; }
   .segment-order { margin-left: 0; }
   .actions > *, .section-actions > * { flex: 1 1 auto; }
-  .scene-material-slots { grid-template-columns: 1fr; }
+  .scene-material-slots { grid-template-columns: repeat(2, 1fr); }
   .segment-voice-grid { grid-template-columns: 1fr; }
   .result-header-status { width: 100%; justify-content: flex-start; }
   .result-action-bar { left: 68px; min-height: var(--result-action-bar-space-mobile, 196px); padding: 10px 14px; align-items: flex-start; }
@@ -1623,3 +1622,4 @@ export default {
   .result-action-bar { left: 68px; padding-inline: max(20px, calc((100vw - 68px - 1040px) / 2 + 24px)); }
 }
 </style>
+

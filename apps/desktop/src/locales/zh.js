@@ -488,6 +488,8 @@ export default {
       defaultVideoHint: '默认选中视频',
       defaultFirstImageHint: '默认选中第 1 张图片',
       imageLabel: '图片 {n}',
+      video1Label: '视频 1',
+      video2Label: '视频 2',
       videoLabel: '视频',
       selectHint: '请为每个场景选择最终使用的素材（单选）。',
       confirm: '确认选择并继续（生成旁白 + 合成）',
@@ -1583,3 +1585,4 @@ export default {
     timeGuidanceNote: '以上合成时长均属正常范围。',
   },
 }
+
