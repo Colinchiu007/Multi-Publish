@@ -2700,6 +2700,207 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 - StageProgress阶段状态：等待中/运行中/已完成/失败/等待确认/已取消
 - StageProgress时间格式："X分Y秒" 或 "Y秒"
 
+
+### 3.1.30 电影工程（film-engineering）流水线合并（2026-08-18）
+
+> **范围**：新增「影视工程（Hell Grind）」流水线，包含独立页面 `/film-engineering`、film-kit 资产库、IPC 服务与 i18n 注册。
+> **分支**：`codex/film-engineering-hell-grind` → 合入 `codex/video-creation-ui`。
+
+#### 1) 背景
+
+视频创作模块此前已有 AI 生成、说话头像、电影感等流水线，但缺少面向专业影视制作的「电影工程」流水线。该流水线以经典电影《Hell Grind》为模板，提供完整的分镜库、剧本套用、角色/场景资产管理、一键复制与导出能力，适合需要精细控制的影视创作场景。
+
+#### 2) 流程（数据流）
+
+```
+用户选择「电影工程」流水线卡片
+  ├─ 1. CreateView 路由跳转至 /film-engineering
+  ├─ 2. FilmEngineeringView 加载 film-kit 资产
+  │     ├─ film-manifest.json（流水线元数据：名称/描述/阶段/分类）
+  │     ├─ reference-registry.json（角色/场景/道具注册表）
+  │     ├─ shot-library.json（分镜库：镜头编号/类型/描述/参考图）
+  │     ├─ prompt-doctrine.json（提示词规范：风格/节奏/禁忌）
+  │     └─ images/（角色/场景参考图 WebP）
+  ├─ 3. 用户浏览分镜库，选择模板，套用到当前项目
+  ├─ 4. 一键复制/导出分镜方案
+  └─ 5. 启动流水线进入常规 Story2Video 编排
+```
+
+#### 3) 数据校验
+
+| 项 | 规则 |
+|----|------|
+| film-manifest.json | 必须包含 name/description/stages/category 字段；stages 数组非空；category ∈ {generated,talking_head,cinematic,animation,screen_recording,hybrid,custom,film_engineering} |
+| reference-registry.json | 角色/场景条目必须包含 id/name/type；参考图路径必须指向 images/ 目录下已有 WebP 文件 |
+| shot-library.json | 每条分镜必须包含 shotId/type/description；type ∈ {wide/medium/close-up/extreme-close-up/tracking/aerial} |
+| prompt-doctrine.json | 必须包含 style/tone/prohibited 字段；prohibited 为字符串数组 |
+| IPC 接口 | `film-engineering:list-kits` 返回 kit 列表（至少 1 个）；`film-engineering:get-kit` 返回完整 kit 数据；`film-engineering:export` 返回 JSON 字符串 |
+
+#### 4) 功能逻辑
+
+- **独立页面**：`FilmEngineeringView.vue` 作为独立路由页面，与 Story2Video 流水线启动页并列，通过 `/film-engineering` 路径访问。
+- **资产加载**：页面挂载时从 `electron/film-kit/` 目录读取 JSON 资产文件，通过 IPC 传递到渲染进程。
+- **分镜库浏览**：左侧分镜列表，右侧预览面板，支持按类型筛选。
+- **角色/场景管理**：展示角色卡（名称/描述/参考图）和场景卡（名称/氛围/参考图），支持一键套用到项目。
+- **提示词规范**：显示风格指南和禁忌列表，辅助用户编写高质量提示词。
+- **导出**：将选中的分镜方案导出为 JSON 文件，供后续流水线消费。
+- **一键复制**：将当前分镜方案复制到剪贴板（JSON 格式）。
+
+#### 5) 交互逻辑与显示项
+
+- **卡片注册**：`pipeline-labels.js` 新增 `film-engineering` 条目（name/description/category/stages/stability），PipelineSelector 自动渲染卡片。
+- **路由注册**：`router/index.js` 新增 `/film-engineering` → `FilmEngineeringView`。
+- **IPC 服务**：`electron/ipc-handlers/film-engineering.js` 处理 kit 列表/详情/导出请求。
+- **i18n**：`zh.js` / `en.js` 新增 `pipelines.names.film-engineering` 和 `pipelines.descriptions.film-engineering`。
+
+#### 6) 提示文字
+
+- 加载态：「正在加载影视工程资产...」
+- 空状态：「暂无可用的影视工程模板」
+- 导出成功：「分镜方案已导出」
+- 复制成功：「已复制到剪贴板」
+
+#### 7) 影响范围
+
+- 新增文件：`FilmEngineeringView.vue`、`electron/film-kit/*`、`electron/ipc-handlers/film-engineering.js`、`openspec/specs/film-engineering/spec.md`
+- 修改文件：`pipeline-labels.js`（新增注册）、`router/index.js`（新增路由）、`zh.js` / `en.js`（新增 i18n）
+- 无破坏性变更：不影响现有流水线功能。
+
+### 3.1.31 视频创作页 UI 优化（2026-08-18）
+
+> **范围**：流水线启动页底部按钮对齐、页面导航箭头、返回按钮优化、历史记录卡片信息增强、页面名词统一。
+> **分支**：`codex/video-creation-ui`，PR #990。
+
+#### 3.1.31.1 流水线启动页底部按钮居右对齐
+
+**需求**：流水线启动页底部操作区域（启动流水线/恢复默认选项等按钮）统一居右显示，符合用户操作习惯。
+
+**实现**：
+- `create-view.css`：`.action-bar` 新增 `justify-content: flex-end`。
+- 底部操作区域保持固定定位（`position: fixed`），位于页面底部，z-index 110。
+- 移动端（≤720px）按钮自动换行，仍居右对齐。
+
+**显示项**：
+- 启动流水线按钮
+- 恢复默认选项按钮
+- 运行中时显示暂停/取消按钮
+
+**交互逻辑**：
+- 按钮始终居右，不受内容宽度影响。
+- 多个按钮时从右向左排列。
+
+**数据校验**：
+- 无新增数据字段，仅 CSS 变更。
+
+#### 3.1.31.2 页面导航箭头
+
+**需求**：视频创作页面顶部新增左右箭头按钮，支持在浏览历史中前进/后退，类似浏览器导航。
+
+**实现**：
+- `CreateView.vue`：新增 `viewHistory[]`（状态数组）和 `viewHistoryIndex`（当前索引）。
+- `goBack()`：索引 -1，恢复上一视图状态。
+- `goForward()`：索引 +1，恢复下一视图状态。
+- `pushViewState(state)`：截断后续历史，追加新状态。
+- `applyViewState(state)`：恢复 `view`、`selectedPipeline` 等字段。
+- `canGoBack` / `canGoForward`：计算属性，控制按钮 disabled 状态。
+
+**数据合同**：
+```
+viewState: {
+  view: 'pipelines' | 'quick' | 'history',
+  selectedPipeline: object | null
+}
+```
+
+**交互逻辑**：
+- 箭头按钮位于页面标题左侧（`.page-header-nav`）。
+- ← 按钮：无历史时 disabled，点击执行 `goBack()`。
+- → 按钮：无后续时 disabled，点击执行 `goForward()`。
+- 切换视图（流水线创作/快速渲染/历史记录）时自动 `pushViewState`。
+- 选择流水线进入详情时自动 `pushViewState`。
+
+**显示项**：
+- ← 按钮（disabled 态 opacity 0.35）
+- → 按钮（disabled 态 opacity 0.35）
+
+#### 3.1.31.3 返回按钮优化
+
+**需求**：流水线详情页底部「返回流水线列表」链接文字改为「返回」，点击后跳转历史记录页。
+
+**实现**：
+- `CreateView.vue`：`goToHistory()` 方法设置 `selectedPipeline = null; view = 'history'`，调用 `loadHistory()` 和 `pushViewState()`。
+- 模板中 back button 的 click 处理改为 `goToHistory()`。
+
+**交互逻辑**：
+- 点击「返回」→ 清除选中流水线 → 切换到历史记录视图 → 加载历史数据 → 推送导航状态。
+- 页面顶部导航箭头同步更新（可回退到流水线详情页）。
+
+**显示项**：
+- 「← 返回」链接文字
+
+#### 3.1.31.4 历史记录卡片信息增强
+
+**需求**：历史记录卡片统一显示通用信息，暂停/失败任务额外显示特有字段；发布标题优先显示，空时回退到原文案前 60 字。
+
+**通用信息（所有状态卡片均显示）**：
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| 任务标题 | `publishTitle(item)` | 优先 `title` → `params.title` → 首段文案前 60 字 → 流水线名 |
+| 流水线名称 | `pipelineName(item.pipeline)` | i18n 翻译后的流水线名 |
+| 状态标签 | `historyStatusLabel(item.status)` | 带颜色图标的状态文字 |
+| 提示词预览 | `firstSegmentPreview(item)` | 首段文案前 120 字（截断） |
+| 翻译预览 | `firstSegmentTranslation(item)` | 非中文 locale 显示翻译（前 140 字） |
+| 更新时间 | `displayTime(item)` | 有效更新时间（优先级：updatedAt → completedAt → endedAt → createdAt） |
+| 创建时间 | `createdTime(item)` | ISO 日期格式化 |
+| 耗时 | `historyDuration(item)` | 活跃毫秒数，格式「X分Y秒」 |
+| 流水线 | `item.pipeline` | 流水线标识（tag 样式） |
+
+**暂停任务额外字段**：
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| 暂停环节 | `item.pausedStage` | 本地化阶段名 |
+| 暂停环境 | `pauseEnvironment(item)` | 检查点类型（scene_asset_selection/waiting_approval/needs_user_input/local） |
+
+**失败任务额外字段**：
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| 失败环节 | `failedStage(item)` | status=failed 的阶段名 |
+| 失败原因 | `item.error` | 自然语言描述（非原始错误对象） |
+
+**交互逻辑**：
+- 卡片 body 点击进入视频任务编辑页（已取消除外）。
+- 暂停/失败卡片底部显示「从断点继续」/「修改场景文案并重新生成」按钮。
+- 所有状态卡片共用同一套 CSS 样式（`.history-item` + `.status-*`），仅通过状态类名区分左边框颜色和动画。
+
+**数据校验**：
+- `publishTitle` 回退链：`item.title` → `item.params?.title` → `firstSegmentPreview(item)` 前 60 字 → `pipelineName(item.pipeline)` → `tr('untitled')`。
+- 空值/空白字符串视为缺失，逐级回退。
+- 时间字段复用 §3.1.28 的有效时间解析规则。
+
+#### 3.1.31.5 页面名词统一
+
+**需求**：统一视频创作模块的页面命名，确保 PRD、i18n、注释、模板一致。
+
+**术语定义**：
+| 术语 | 定义 | 使用场景 |
+|------|------|----------|
+| 流水线启动页 | 进入视频创作 → 选择一个流水线后进入的页面 | PRD §3.1.31、注释、模板 |
+| 历史记录页 | 视频创作页面的「历史记录」标签页 | PRD §3.1.28/3.1.29、i18n |
+| 视频任务编辑页 | 从历史记录点击卡片进入的编辑页面 | PRD §3.1.29、i18n |
+| 流水线选择页 | 视频创作页面的「流水线创作」标签页 | PRD §3.1.24 |
+
+**更新范围**：
+- 模板注释：`流水线创作视图（流水线启动页）` → `流水线启动页（流水线创作）`
+- 模板注释：`流水线启动页配置` → `流水线启动页：配置与执行`
+- i18n：`create.history.detailTitle` 值为「视频任务编辑页」
+- PRD：§3.1.28/3.1.29 中的「详情页/详情弹窗」统一为「视频任务编辑页」
+
+**显示项**：
+- 无新增显示项，仅文案/注释统一。
+
+**交互逻辑**：
+- 无交互变更。
+
 ## 10. Story2Video 页面 UX 统一（2026-08-17）
 
 本次流水线启动页、历史记录和视频任务编辑页的详细需求、数据校验、显示项、流程、交互和提示文案见 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)。本节保留视频创作 PRD 的入口索引，并明确以下产品结论：进入流水线后的页面叫“流水线启动页”；历史记录中的详情入口直接进入视频任务编辑页；编辑页底部操作固定；多状态历史卡片共用一套结构；失败原因使用自然语言；暂停在流水线启动页提供，编辑页携带运行中 runId 时也提供同一受校验的暂停动作。
