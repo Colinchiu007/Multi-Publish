@@ -16,6 +16,7 @@ from config import settings
 from middleware.auth import get_current_user, require_admin
 from services import prompt_eval_service as service
 from services import prompt_eval_engine_client as engine_client
+from services.prompt_eval_translation_service import TranslationError
 
 router = APIRouter(prefix="/api/v1/prompt-eval", tags=["prompt-eval"])
 
@@ -89,6 +90,9 @@ async def translate_case(case_id: int, db: AsyncSession = Depends(get_db), user:
         return await service.translate_case(db, row, await _llm_cfg(db))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except TranslationError as e:
+        logger.warning("translate_case LLM 错误 case_id=%s: %s", case_id, e)
+        raise HTTPException(502, f"中英对照生成失败：{e}")
     except Exception as e:
         logger.exception("translate_case 失败 case_id=%s", case_id)
         raise HTTPException(502, "翻译失败，请稍后重试（若持续失败请检查 LLM 密钥配置）")
@@ -183,6 +187,9 @@ async def translate_scene(case_id: int, scene_id: int, db: AsyncSession = Depend
         return await service.translate_scene(db, scene, row, await _llm_cfg(db))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except TranslationError as e:
+        logger.warning("translate_scene LLM 错误 case_id=%s scene_id=%s: %s", case_id, scene_id, e)
+        raise HTTPException(502, f"中英对照生成失败：{e}")
     except Exception:
         logger.exception("translate_scene 失败 case_id=%s scene_id=%s", case_id, scene_id)
         raise HTTPException(502, "中英对照生成失败，请稍后重试（若持续失败请检查 LLM 密钥配置）")
