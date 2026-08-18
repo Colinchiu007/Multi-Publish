@@ -77,6 +77,8 @@ function normalizeOptimizeRequest (request) {
   // 清理驼峰字段，避免透传到引擎
   delete normalized.optimizationStrategy
   delete normalized.bypassCache
+  // 剥离桌面端内部字段：index 仅用于流水线分段追踪，不应透传到引擎（additionalProperties: false 会 422）
+  delete normalized.index
   return normalized
 }
 

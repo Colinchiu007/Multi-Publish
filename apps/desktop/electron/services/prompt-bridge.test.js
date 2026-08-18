@@ -176,6 +176,19 @@ describe('PromptBridge prompt-engine 请求兼容', () => {
     })
   })
 
+  it('剥离内部字段 index：不透传到引擎（additionalProperties: false 会 422）', async () => {
+    const bridge = new PromptBridge({})
+    bridge.isRunning = true
+    bridge.modelProviderManager = mockLlmManager()
+    bridge._post = vi.fn(() => Promise.resolve({ code: 0, data: {} }))
+
+    await bridge.optimize({ prompt: '测试', index: 3, creative_level: 5 })
+
+    const body = JSON.parse(bridge._post.mock.calls[0][1])
+    expect(body).not.toHaveProperty('index')
+    expect(body.prompt).toBe('测试')
+  })
+
   it('context 对象含敏感凭据键时 bridge 拒绝发送（纵深防御）', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true
