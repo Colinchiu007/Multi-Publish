@@ -300,6 +300,8 @@ function extractContext(container) {
   }
   const story2videoProjectService = container.get('story2videoProjectService')
   story2videoProjectService.modelProviderManager = modelProviderManager
+  const ttsVoiceCloneService = container.get('ttsVoiceCloneService')
+  ttsVoiceCloneService.modelProviderManager = modelProviderManager
 
   // ─── 提示词评估服务（PromptEval，v1 图片）───
   const { app: electronAppForPromptEval } = require('electron')
