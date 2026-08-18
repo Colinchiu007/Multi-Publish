@@ -71,7 +71,7 @@ function resolveSubtitleType (params) {
 // 快速复刻接口示例 model=speech-2.8-hd；官方「异步语音合成」模型表中
 // speech-02-hd 是唯一标注「复刻相似度」的模型——克隆音色的正式语音合成
 // 必须用 speech-02-hd，不能用 speech-2.8-turbo 等（否则报 voice id wrong）。
-const VOICE_CLONE_MODEL = 'speech-2.8-hd'
+const VOICE_CLONE_MODEL = 'speech-02-hd'
 const CLONED_VOICE_SYNTHESIS_MODEL = 'speech-02-hd'
 
 function isAsyncT2aModel (model) {
@@ -153,6 +153,7 @@ function buildMiniMaxCloneVoiceId (name) {
     .replace(/[^a-zA-Z0-9_-]/g, '')
     .replace(/[-_]+$/g, '')
     .replace(/^[^a-zA-Z]+/, '')
+    .replace(/^MiniMax/, '')
   if (!base) base = 'CloneVoice'
   const suffix = Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(0, 6)
   let id = 'MiniMax' + base.slice(0, 240) + '_' + suffix
@@ -284,7 +285,7 @@ class MinimaxTtsAdapter extends BaseAdapter {
     }
 
     const body = {
-      model,
+      effectiveModel,
       text: params.text,
       voice_setting: {
         voice_id: voice,
@@ -380,6 +381,7 @@ class MinimaxTtsAdapter extends BaseAdapter {
     let createData = null
     let createError = null
     try {
+      const _reqBody = buildCreateBody(usedSubtitle);
       const createResp = await this._request('/t2a_async_v2', {
         method: 'POST',
         body: JSON.stringify(buildCreateBody(usedSubtitle)),
@@ -554,6 +556,10 @@ class MinimaxTtsAdapter extends BaseAdapter {
       body: JSON.stringify({ file_id: fileId, voice_id: voiceId, model: VOICE_CLONE_MODEL }),
     })
     const cloneJson = await cloneResp.json()
+    const cloneBaseResp = cloneJson?.base_resp
+    if (cloneBaseResp && Number(cloneBaseResp.status_code) !== 0) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'voice clone failed: ' + (cloneBaseResp.status_msg || 'status_code=' + cloneBaseResp.status_code), { providerId: this.id })
+    }
     const finalId = cloneJson?.voice_id || cloneJson?.data?.voice_id || voiceId
     if (!finalId) {
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '音色复刻未返回 voice_id', { providerId: this.id })

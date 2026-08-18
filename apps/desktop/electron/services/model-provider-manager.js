@@ -353,6 +353,14 @@ class ModelProviderManager {
    * P3.2: 清除指定 provider 的 Adapter 缓存
    * 在 updateProvider/deleteProvider 后调用
    */
+  getAdapter (providerId) {
+    if (!providerId || typeof providerId !== 'string') return null
+    if (this._adapterCache.has(providerId)) return this._adapterCache.get(providerId)
+    const provider = this.getProvider(providerId)
+    if (!provider) return null
+    try { return this._getOrCreateAdapter(providerId, provider) } catch (_) { return null }
+  }
+
   _invalidateAdapterCache (providerId) {
     this._adapterCache.delete(providerId)
   }

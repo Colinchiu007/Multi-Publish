@@ -1321,7 +1321,18 @@ async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProv
     const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
     if (normalized) return { path: normalized.path, duration: normalized.duration, meta: normalized.meta }
   } catch (reCloneErr) {
-    if (log && log.warn) log.warn('[Story2Video] re-clone fallback failed', reCloneErr)
+    const _cloneErrMsg = String((reCloneErr && reCloneErr.message) || reCloneErr || '')
+    if (log && log.warn) log.warn('[Story2Video] re-clone failed, attempting system voice fallback:', _cloneErrMsg.slice(0, 200))
+    try {
+      const _fallbackResult = await retryFn('male-qn-qingse')
+      const _fallbackNorm = normalizeAssetResult(_fallbackResult, ['path', 'audio_path'])
+      if (_fallbackNorm) {
+        if (log && log.info) log.warn('[Story2Video] system voice fallback succeeded')
+        return { path: _fallbackNorm.path, duration: _fallbackNorm.duration, meta: _fallbackNorm.meta }
+      }
+    } catch (_fbErr) {
+      if (log && log.warn) log.warn('[Story2Video] system voice fallback also failed', _fbErr)
+    }
   }
   return null
 }
@@ -2905,7 +2916,7 @@ function registerStory2VideoStages(pipelineEngine) {
               voiceModel: _voiceModel,
               resolveManager: resolveModelProviderManager,
               retryFn: (newVoiceId) => assetGenerator.generateTTS(typeof sentence === 'string' ? sentence : sentence.text || sentence.content, {
-                voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: _voiceModel,
+                voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
                 rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                 pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                 emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
