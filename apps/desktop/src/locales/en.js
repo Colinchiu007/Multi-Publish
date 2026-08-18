@@ -392,7 +392,7 @@ export default {
     scene_audio_regenerated: 'Narration regenerated. Save the segments, then recompose the video.',
     scene_audio_regenerate_failed: 'Could not regenerate narration. Check the voice settings and try again.',
     scene_prompt_regenerated: 'Prompt regenerated. Save the segments, then recompose the video.',
-    scene_prompt_regenerate_failed: 'Could not regenerate the prompt. Please try again shortly.',
+    scene_prompt_regenerate_failed: 'Could not regenerate the prompt: {detail}',
     scene_ai_video_generated: 'AI video generated. Save the segments, then recompose the video.',
     scene_ai_video_generate_failed: 'Could not generate the AI video. Check the video provider settings and try again.',
     degraded_assets_warning: 'This video contains offline fallback assets ({kinds}). Preview it before publishing.',

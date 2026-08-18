@@ -392,7 +392,7 @@ export default {
     scene_audio_regenerated: '旁白已重新生成，请保存分段后重新合成。',
     scene_audio_regenerate_failed: '旁白重新生成失败，请检查音色/语音设置后重试。',
     scene_prompt_regenerated: '优化词已重新生成，请保存分段后重新合成。',
-    scene_prompt_regenerate_failed: '优化词重新生成失败，请稍后再试。',
+    scene_prompt_regenerate_failed: '优化词重新生成失败：{detail}',
     scene_ai_video_generated: 'AI 视频已生成，请保存分段后重新合成。',
     scene_ai_video_generate_failed: 'AI 视频生成失败，请检查视频供应商配置后重试。',
     degraded_assets_warning: '此成片包含离线降级素材（{kinds}），请在发布前预览确认。',

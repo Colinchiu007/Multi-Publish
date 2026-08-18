@@ -232,6 +232,8 @@ class PromptBridge extends BasePythonBridge {
     if (typeof withKey.base_url === 'string' && withKey.base_url.trim()) {
       bind.base_url = withKey.base_url.trim()
     }
+    this.log.info(this.name, 'resolveLlmBind: provider=' + bind.provider + ', model=' + bind.model + ', caller=' + bind.caller + (bind.base_url ? ', base_url=' + bind.base_url : ''))
+
     return bind
   }
 
@@ -288,10 +290,18 @@ class PromptBridge extends BasePythonBridge {
     if (requiresLlm(normalized)) {
       normalized.llm = this.resolveLlmBind()
     }
+    const strategy = normalized.optimization_strategy || 'unknown'
+    const promptLen = typeof normalized.prompt === 'string' ? normalized.prompt.length : 0
+    this.log.info(this.name, `optimize: strategy=${strategy}, prompt_len=${promptLen}, has_llm=${!!normalized.llm}, traceId=${traceId || '-'}`)
+    if (normalized.llm) {
+      this.log.info(this.name, `optimize: llm.provider=${normalized.llm.provider}, llm.model=${normalized.llm.model}, caller=${normalized.llm.caller || '-'}`)
+    }
     try {
-      return await this._post('/v1/optimize', JSON.stringify(normalized), undefined, traceId)
+      const result = await this._post('/v1/optimize', JSON.stringify(normalized), undefined, traceId)
+      this.log.info(this.name, `optimize: OK strategy_used=${result && result.strategy_used || '-'}, key_source=${result && result.key_source || '-'}, cache_hit=${result && result.cache_hit || '-'}, traceId=${traceId || '-'}`)
+      return result
     } catch (httpErr) {
-      this.log.warn(this.name, `HTTP failed (${httpErr instanceof Error ? httpErr.message : String(httpErr)}), trying CLI fallback`)
+      this.log.warn(this.name, `optimize: FAILED ${httpErr instanceof Error ? httpErr.message : String(httpErr)}, traceId=${traceId || '-'}`)
       return this._cliFallbackSingle(normalized, traceId)
     }
   }
@@ -458,3 +468,4 @@ class PromptBridge extends BasePythonBridge {
 }
 
 module.exports = PromptBridge
+

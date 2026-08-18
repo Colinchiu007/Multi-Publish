@@ -726,6 +726,9 @@ class ModelProviderManager {
       )
       log.info('ModelProviderManager', 'Provider created: ' + data.id)
       this._applyGovernorLimits()
+      if (this._store && this._store.db && typeof this._store.db.persist === 'function') {
+        this._store.db.persist()
+      }
       return { code: 0, data: this.getProvider(data.id) }
     } catch (e) {
       log.error('ModelProviderManager', 'Create failed: ' + e.message)
@@ -801,6 +804,10 @@ class ModelProviderManager {
       // 运营限流预算变更后同步 governor（rate_per_minute / limit_per_5h 可能被修改）
       this._applyGovernorLimits()
       log.info('ModelProviderManager', 'Provider updated: ' + id)
+      // Key/配置变更后立即持久化到磁盘，防止非正常退出丢失更新
+      if (this._store && this._store.db && typeof this._store.db.persist === 'function') {
+        this._store.db.persist()
+      }
       return { code: 0, data: this.getProvider(id) }
     } catch (e) {
       log.error('ModelProviderManager', 'Update failed: ' + e.message)
@@ -841,6 +848,9 @@ class ModelProviderManager {
         if (typeof this._governor.setProviderTokenWindows === 'function') this._governor.setProviderTokenWindows(id, [])
       }
       log.info('ModelProviderManager', 'Provider deleted: ' + id)
+      if (this._store && this._store.db && typeof this._store.db.persist === 'function') {
+        this._store.db.persist()
+      }
       return { code: 0, message: '已删除' }
     } catch (e) {
       log.error('ModelProviderManager', 'Delete failed: ' + e.message)
@@ -933,6 +943,9 @@ class ModelProviderManager {
         db.prepare('UPDATE model_providers SET is_default = 1 WHERE id = ?').run(providerId)
       }
       log.info('ModelProviderManager', 'Default ' + category + ' set to: ' + providerId)
+      if (this._store && this._store.db && typeof this._store.db.persist === 'function') {
+        this._store.db.persist()
+      }
       return { code: 0, message: 'Set as default' }
     } catch (e) {
       log.error('ModelProviderManager', 'SetDefault failed: ' + e.message)

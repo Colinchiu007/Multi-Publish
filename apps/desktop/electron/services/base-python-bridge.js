@@ -250,7 +250,17 @@ class BasePythonBridge {
       }, (res) => {
         let data = ''
         res.on('data', chunk => { data += chunk })
-        res.on('end', () => { try { resolve(JSON.parse(data)) } catch { resolve({ code: -1, message: data }) } })
+        res.on('end', () => {
+          let parsed
+          try { parsed = JSON.parse(data) } catch { parsed = { code: -1, message: data } }
+          if (res.statusCode && res.statusCode >= 400) {
+            const detail = (parsed && (parsed.detail || parsed.message)) || data
+            this.log.error(this.name, `POST ${path} HTTP ${res.statusCode}: ${typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail).slice(0, 300)}`)
+            reject(new Error(`HTTP ${res.statusCode}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`))
+          } else {
+            resolve(parsed)
+          }
+        })
       })
       req.on('error', reject)
       req.on('timeout', () => { req.destroy(); reject(new Error(`${this.name} request timeout`)) })

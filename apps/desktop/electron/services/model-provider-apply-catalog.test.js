@@ -175,3 +175,17 @@ describe('ModelProviderManager.applyCatalog', () => {
     expect(manager.applyCatalog(null).code).toBe(-1)
   })
 })
+
+describe('ModelProviderManager.updateProvider persist', () => {
+  it('updateProvider 写入 key 后立即调用 persist() 防止非正常退出丢失', () => {
+    const persistSpy = vi.fn()
+    db.persist = persistSpy
+    const result = manager.updateProvider('openai', { api_key: 'sk-test-new-key' })
+    expect(result.code).toBe(0)
+    expect(persistSpy).toHaveBeenCalledTimes(1)
+    // key 已加密写入
+    const r = row('openai')
+    expect(r.api_key).toBe('')
+    expect(r.api_key_enc).toBeTruthy()
+  })
+})

@@ -219,6 +219,11 @@ function normalizeParams (value, locale, messageKey, rawError) {
     params.reason = rawReason ? '（' + rawReason.slice(0, 160) + '）' : ''
   }
 
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED) {
+    const detail = String(rawError || '').trim() || String(supplied.detail || '').trim()
+    params.detail = detail.slice(0, 300)
+  }
+
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING && Array.isArray(supplied.assetKinds)) {
     const labels = LOCALE_TREES[locale].story2video.degradedAssetLabels
     const separator = locale === 'en' ? ', ' : '、'

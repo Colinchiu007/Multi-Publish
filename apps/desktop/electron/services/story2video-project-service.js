@@ -1422,6 +1422,13 @@ class Story2VideoProjectService {
             const { prompt: enginePrompt, ...requestOptions } = imageOptimizeRequest
             return this.serviceBus.optimizePrompt(enginePrompt, { ...requestOptions, index: segment.sourceIndex ?? index })
           })()
+      // Log optimize result before extraction
+      if (this.log && typeof this.log.info === 'function') {
+        const resultSummary = optimized && typeof optimized === 'object' ?
+          `strategy_used=${optimized.strategy_used || '-'}, key_source=${optimized.key_source || '-'}, cache_hit=${optimized.cache_hit || '-'}, model_used=${optimized.model_used || '-'}` :
+          `raw=${String(optimized).slice(0, 100)}`
+        this.log.info('[Story2Video]', `regenerateScenePrompt optimize result: ${resultSummary}`)
+      }
       const optimizedResult = kind === 'image'
         ? extractImageOptimizedPrompt(optimized)
         : { text: extractOptimizedPrompt(optimized), meta: null }
@@ -1446,6 +1453,9 @@ class Story2VideoProjectService {
       this._cleanupUnreferencedProjectFiles(projectId, previousProject, saved)
       return saved
     } catch (error) {
+      if (this.log && typeof this.log.error === 'function') {
+        this.log.error('[Story2Video]', `regenerateScenePrompt failed: ${error.message}`)
+      }
       project.segments[index] = {
         ...previousProject.segments[index],
         status: 'failed',
