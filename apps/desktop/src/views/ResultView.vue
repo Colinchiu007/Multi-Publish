@@ -249,7 +249,7 @@
                   :disabled="isSegmentBusy(segment.id)"
                   @click="generateSceneImage(segment.id)"
                 >
-                  {{ segmentBusyKind(segment.id) === 'genImage' ? ('story2video.sceneMaterial.generating') : ('story2video.sceneMaterial.generateImage') }}
+                  {{ segmentBusyKind(segment.id) === 'genImage' ? $t('story2video.sceneMaterial.generating') : $t('story2video.sceneMaterial.generateImage') }}
                 </UiButton>
                 <UiButton
                   v-else
@@ -257,10 +257,10 @@
                   variant="secondary"
                   :data-testid="'generate-' + slot.kind + '-button'"
                   :disabled="isSegmentBusy(segment.id) || !segment.videoPrompt"
-                  :title="segment.videoPrompt ? '' : ('story2video.sceneMaterial.aiVideoNeedsPromptHint')"
+                  :title="segment.videoPrompt ? '' : $t('story2video.sceneMaterial.aiVideoNeedsPromptHint')"
                   @click="generateSceneAiVideo(segment.id, slot.kind)"
                 >
-                  {{ segmentBusyKind(segment.id) === 'aiVideo' ? ('story2video.sceneMaterial.generatingAiVideo') : ('story2video.sceneMaterial.generateAiVideo') }}
+                  {{ segmentBusyKind(segment.id) === 'aiVideo' ? $t('story2video.sceneMaterial.generatingAiVideo') : $t('story2video.sceneMaterial.generateAiVideo') }}
                 </UiButton>
               </template>
             </div>
