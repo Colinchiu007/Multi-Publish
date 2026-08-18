@@ -37,6 +37,8 @@
       <UiButton @click="$router.push('/create')">去创作</UiButton>
     </div>
 
+    <div class="result-content-layout">
+      <div class="result-main-content">
     <div v-if="videoPath" class="video-section">
       <video
         ref="videoPlayer"
@@ -153,6 +155,8 @@
       <audio :src="audioSrc" controls class="audio-player"></audio>
     </section>
 
+      </div><!-- /result-main-content -->
+      <aside class="result-segment-sidebar">
     <section v-if="projectId && segments.length" class="project-section" data-testid="segment-edit-section">
       <div class="section-heading">
         <div>
@@ -350,6 +354,8 @@
         </article>
       </div>
     </section>
+      </aside><!-- /result-segment-sidebar -->
+    </div><!-- /result-content-layout -->
 
     <!-- 底部固定操作条（2026-08-17 UX 统一）：保存分段/重新合成/再次合成视频 不随页面滚动 -->
     <div v-if="projectId && segments.length" class="result-action-bar" data-testid="result-action-bar">
@@ -795,9 +801,11 @@ export default {
         } else {
           segment.alternateImageUrls = []
         }
-        if (segment.videoPath) {
+        // 优先显示场景独立生成的 AI 视频片段，而非合成后的成片视频（2026-08-18）
+        const sceneVideoPath = (segment.videoMeta && segment.videoMeta.sceneVideoPath) || segment.videoPath
+        if (sceneVideoPath) {
           try {
-            segment.videoUrl = await this.resolveLocalUrl(segment.videoPath, segment.videoUrl)
+            segment.videoUrl = await this.resolveLocalUrl(sceneVideoPath, segment.videoUrl)
           } catch (_) {
             segment.videoUrl = null
           }
@@ -810,7 +818,7 @@ export default {
       if (segment && typeof segment.selectedMaterial === 'string' && segment.selectedMaterial) {
         return segment.selectedMaterial
       }
-      return segment && segment.videoPath ? 'video' : 'image1'
+      return null
     },
     sceneMaterialSlots(segment) {
       const t = (key, params) => this.$t('story2video.sceneMaterial.' + key, params)
@@ -834,7 +842,7 @@ export default {
         {
           kind: 'video',
           label: t('videoLabel'),
-          path: segment.videoPath || null,
+        path: (segment.videoMeta && segment.videoMeta.sceneVideoPath) || segment.videoPath || null,
           url: segment.videoUrl || null,
           selected: selected === 'video',
         },
@@ -1496,6 +1504,11 @@ export default {
 <style scoped>
 /* 视频任务编辑页：整页 flex 纵向布局；编辑内容为固定操作条预留底部安全空间。 */
 .result-page { padding: 24px 24px calc(var(--result-action-bar-space, 88px) + 24px); max-width: 1040px; margin: 0 auto; min-height: 100%; display: flex; flex-direction: column; }
+
+/* 双栏布局：左侧主内容 + 右侧分段编辑侧栏（2026-08-18 UX 统一） */
+.result-content-layout { display: flex; gap: 24px; align-items: flex-start; }
+.result-main-content { flex: 1 1 0; min-width: 0; }
+.result-segment-sidebar { position: sticky; top: 24px; width: 380px; max-height: calc(100vh - 48px); overflow-y: auto; flex-shrink: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 16px; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .page-header h1 { font-size: 24px; font-weight: 700; margin: 0; }
 .back-to-list { align-self: flex-start; border: none; background: none; color: var(--primary); font-size: 14px; cursor: pointer; padding: 4px 8px; border-radius: 6px; margin-right: auto; }
@@ -1558,7 +1571,7 @@ export default {
 .scene-material-slot.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 .scene-material-slot.empty { cursor: not-allowed; opacity: 0.75; }
 .scene-material-slot:disabled { opacity: 0.55; cursor: not-allowed; }
-.scene-material-thumb { display: flex; align-items: center; justify-content: center; width: 96px; height: 128px; border-radius: 4px; overflow: hidden; background: var(--bg); }
+.scene-material-thumb { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 3 / 4; border-radius: 4px; overflow: hidden; background: var(--bg); }
 .scene-material-thumb img, .scene-material-thumb video { width: 100%; height: 100%; object-fit: cover; }
 .scene-material-empty-text { color: var(--text-muted); font-size: 12px; }
 .scene-material-label { font-size: 12px; color: var(--text); }
@@ -1591,6 +1604,11 @@ export default {
 .segment-file-action.disabled { opacity: 0.45; cursor: not-allowed; }
 .segment-file-action input { display: none; }
 
+
+@media (max-width: 900px) {
+  .result-content-layout { flex-direction: column; }
+  .result-segment-sidebar { position: static; width: 100%; max-height: none; }
+}
 @media (max-width: 720px) {
   .result-page { padding: 16px 16px calc(var(--result-action-bar-space-mobile, 196px) + 16px); }
   .section-heading, .segment-header { align-items: flex-start; flex-direction: column; }

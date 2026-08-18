@@ -1509,7 +1509,7 @@ class Story2VideoProjectService {
       }
       const copiedVideo = this._copyRequired(outcome.path, destination, 'video')
       segment.videoPath = copiedVideo
-      segment.videoMeta = { provider: generator.providerId, model: generator.model || null, source: 'ai-video' }
+      segment.videoMeta = { provider: generator.providerId, model: generator.model || null, source: 'ai-video', sceneVideoPath: copiedVideo }
       segment.error = null
       segment.status = 'completed'
       project.segments[index] = segment
