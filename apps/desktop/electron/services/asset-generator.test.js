@@ -289,3 +289,30 @@ describe('generateImage provider negative_prompt 透传（2026-08-16 east-asian-
     expect(payload).not.toHaveProperty('negative_prompt')
   })
 })
+
+  it("re-throws ProviderError from _tryProviderTTS for upstream cloned-voice detection", async () => {
+    const { ProviderError, ERROR_CODES } = require("./adapters/_base/provider-error")
+    const aiGenerator = {
+      generate: vi.fn(async () => {
+        throw new ProviderError(ERROR_CODES.INVALID_CONFIG, "you dont have access to this voice_id", { providerId: "minimax-multimodal" })
+      }),
+    }
+    const gen = new AssetGenerator({ outputDir: "/tmp/test", aiGenerator })
+    await expect(gen.generateTTS("hello", {
+      index: 0,
+      voice_provider: "minimax-multimodal",
+      voice_id: "cloned_voice_123",
+    })).rejects.toThrow(ProviderError)
+    expect(aiGenerator.generate).toHaveBeenCalledWith("tts", "minimax-multimodal", expect.objectContaining({ voice: "cloned_voice_123" }))
+  })
+
+  it("returns code -1 for non-ProviderError in _tryProviderTTS catch", async () => {
+    const aiGenerator = {
+      generate: vi.fn(async () => { throw new Error("generic failure") }),
+    }
+    const gen = new AssetGenerator({ outputDir: "/tmp/test", aiGenerator })
+    const result = await gen.generateTTS("hello", { index: 0, voice_provider: "some-provider" })
+    expect(result.code).toBe(-1)
+    expect(result.message).toContain("some-provider")
+  })
+

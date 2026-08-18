@@ -927,6 +927,8 @@ class AssetGenerator {
     } catch (error) {
       const message = error?.message || String(error)
       this.log.warn('AssetGenerator', 'TTS provider ' + provider + ' failed: ' + message)
+      // Re-throw ProviderError to preserve error.code for upstream cloned-voice detection
+      if (error instanceof ProviderError) throw error
       return { code: -1, message: 'TTS provider "' + provider + '" failed: ' + message }
     }
   }
