@@ -487,6 +487,8 @@ export default {
       defaultVideoHint: 'Video selected by default',
       defaultFirstImageHint: 'First image selected by default',
       imageLabel: 'Image {n}',
+      video1Label: 'Video 1',
+      video2Label: 'Video 2',
       videoLabel: 'Video',
       selectHint: 'Choose the final asset for each scene (single selection).',
       confirm: 'Confirm and continue (narration + compose)',
@@ -1582,3 +1584,4 @@ export default {
     timeGuidanceNote: 'The above composition times are all within the normal range.',
   },
 }
+
