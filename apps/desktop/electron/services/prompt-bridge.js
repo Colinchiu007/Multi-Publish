@@ -262,7 +262,7 @@ class PromptBridge extends BasePythonBridge {
         if (llm.caller) pyArgs.push('--caller', llm.caller)
       }
       this.log.info(this.name, `CLI fallback: python ${pyArgs.slice(0, 5).join(' ')}... traceId=${traceId || '-'}`)
-      execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 30000, windowsHide: true }, (err, stdout, stderr) => {
+      execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 30000, windowsHide: true, env: { ...process.env, PYTHONPATH: PROMPT_DIR } }, (err, stdout, stderr) => {
         if (err) {
           this.log.warn(this.name, `CLI fallback failed: ${err.message}`)
           reject(new Error(`CLI fallback failed: ${err.message}`))
