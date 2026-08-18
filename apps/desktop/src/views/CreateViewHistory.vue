@@ -67,7 +67,7 @@
         >
           <div class="history-item-row history-item-heading">
             <div class="history-heading-copy">
-              <span class="history-name" :title="historyTitle(item)">{{ historyTitle(item) }}</span>
+              <span class="history-name" :title="publishTitle(item)">{{ publishTitle(item) }}</span>
               <span v-if="item.pipeline || item.name" class="history-pipeline-tag">
                 {{ pipelineName(item.pipeline || item.name) }}
               </span>
@@ -116,6 +116,9 @@
           </div>
 
           <dl class="history-meta-grid">
+            <div v-if="item.pipeline || item.name" class="history-meta-item">
+              <dt>{{ tr('pipeline') }}</dt><dd>{{ pipelineName(item.pipeline || item.name) }}</dd>
+            </div>
             <div v-if="displayTime(item)" class="history-meta-item">
               <dt>{{ tr('updatedAt') }}</dt><dd>{{ formatTime(displayTime(item)) }}</dd>
             </div>
@@ -295,6 +298,8 @@ export default {
     },
     historyIdentity (item, index) { return String(item?.id || item?.projectId || item?.runId || index) },
     historyTaskId (item) { return item?.projectId || item?.id || item?.runId || '' },
+    // 发布标题（原文案前 60 字免回）
+    publishTitle (item) { return this.historyTitle(item) },
     // 任务标题回退链：发布标题（project.title / params.title）→ 原文案前 60 字 → 流水线名
     historyTitle (item) {
       if (!item) return this.tr('untitled')

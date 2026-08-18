@@ -49,6 +49,10 @@ const PUBLIC_CHANNELS = new Set([
   // 视频克隆（本地分析流水线）：run/cancel/edit/regenerate/history/pick-file 未登录可用；发布经 PublisherRouter（外部验收边界）
   'video-clone:run', 'video-clone:cancel', 'video-clone:report:edit', 'video-clone:report:regenerate',
   'video-clone:pick-file', 'video-clone:history',
+  'film-engineering:status', 'film-engineering:list-scenes', 'film-engineering:list-shots',
+  'film-engineering:get-shot', 'film-engineering:doctrine',
+  'film-engineering:copy-text', 'film-engineering:copy-texts',
+  'film-engineering:adapt-script', 'film-engineering:export', 'film-engineering:generate-selected',
   'usage:stats', 'usage:daily', 'usage:track',
   'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
 ])

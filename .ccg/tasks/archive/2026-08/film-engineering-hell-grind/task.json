@@ -1,0 +1,13 @@
+{
+  "id": "film-engineering-hell-grind",
+  "title": "影视工程流水线：复刻《Hell Grind》AI 电影开源工程（素材/提示词/分镜还原 + 剧本套用 + 一键复制）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "video-pipeline",
+  "currentPhase": "completed",
+  "nextAction": "已归档：push/PR/CI/merge + 记忆更新",
+  "createdAt": "2026-08-14T20:30:00+08:00",
+  "completedAt": "2026-08-15T00:30:00+08:00",
+  "branch": "codex/film-engineering-hell-grind"
+}

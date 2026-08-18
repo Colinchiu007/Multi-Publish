@@ -29,7 +29,7 @@ describe('PipelineEngine 状态机模式', () => {
       'animated-explainer', 'talking-head', 'cinematic', 'animation',
       'avatar-spokesperson', 'character-animation', 'clip-factory',
       'documentary-montage', 'hybrid', 'localization-dub', 'podcast-repurpose',
-      'screen-demo', 'framework-smoke',
+      'screen-demo', 'framework-smoke', 'film-engineering',
     ])
   })
   it('列表同时提供 stageCount，供桌面卡片显示阶段数', () => {
@@ -41,7 +41,7 @@ describe('PipelineEngine 状态机模式', () => {
 
   it('已实现真实引擎的流水线标记 available=true', () => {
     const list = engine.listPipelines()
-    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid', 'podcast-repurpose']
+    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid', 'podcast-repurpose', 'film-engineering']
     for (const name of implemented) {
       expect(list.find(item => item.name === name)?.available).toBe(true)
     }

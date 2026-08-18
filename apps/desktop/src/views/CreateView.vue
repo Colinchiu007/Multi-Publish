@@ -1,6 +1,10 @@
 <template>
   <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
+      <div class="page-header-nav">
+        <button class="nav-arrow-btn" @click="goBack" :disabled="!canGoBack" title="上一页">←</button>
+        <button class="nav-arrow-btn" @click="goForward" :disabled="!canGoForward" title="下一页">→</button>
+      </div>
       <h1>视频创作</h1>
       <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
     </div>
@@ -17,12 +21,12 @@
 
     <!-- 视图切换 -->
     <div class="view-tabs">
-      <button :class="['view-tab', { active: view === 'pipelines' }]" @click="view = 'pipelines'">流水线创作</button>
-      <button :class="['view-tab', { active: view === 'quick' }]" @click="view = 'quick'">快速渲染</button>
-      <button :class="['view-tab', { active: view === 'history' }]" @click="view = 'history'; loadHistory()">历史记录</button>
+      <button :class="['view-tab', { active: view === 'pipelines' }]" @click="view = 'pipelines'; pushViewState({ view: 'pipelines' })">流水线创作</button>
+      <button :class="['view-tab', { active: view === 'quick' }]" @click="view = 'quick'; pushViewState({ view: 'quick' })">快速渲染</button>
+      <button :class="['view-tab', { active: view === 'history' }]" @click="view = 'history'; loadHistory(); pushViewState({ view: 'history' })">历史记录</button>
     </div>
 
-    <!-- ==================== 流水线创作视图（流水线启动页） ==================== -->
+    <!-- ==================== 流水线启动页（流水线创作） ==================== -->
     <div v-if="view === 'pipelines'" class="view-pane">
       <!-- 流水线列表 -->
       <div v-if="!selectedPipeline">
@@ -35,9 +39,9 @@
         />
       </div>
 
-      <!-- 流水线启动页配置 -->
+      <!-- 流水线启动页：配置与执行 -->
       <div v-else class="pipeline-detail">
-        <button class="back-btn" @click="selectedPipeline = null">← 返回流水线列表</button>
+        <button class="back-btn" @click="selectedPipeline = null; view = 'history'; loadHistory()">← 返回</button>
 
         <div class="detail-header">
           <h2>{{ pipelineName(selectedPipeline.name) }}</h2>
@@ -1389,10 +1393,15 @@ const VIDEO_CLONE_PIPELINE_ENTRY = {
   name: 'video-clone', category: 'generated', stageCount: 6, available: true, estimatedCost: 'medium',
 }
 
+const FILM_ENGINEERING_PIPELINE_ENTRY = {
+  name: 'film-engineering', category: 'generated', stageCount: 4, available: true, estimatedCost: 'low',
+}
+
 function withVideoCloneEntry(pipelines) {
-  const base = prioritizeStory2VideoPipeline(pipelines).filter((p) => p && p.name !== 'video-clone')
+  const base = prioritizeStory2VideoPipeline(pipelines).filter((p) => p && p.name !== 'video-clone' && p.name !== 'film-engineering')
   const idx = base.findIndex((p) => p.name === 'story2video-compose')
   base.splice(idx >= 0 ? idx + 1 : 0, 0, VIDEO_CLONE_PIPELINE_ENTRY)
+  base.splice(idx >= 0 ? idx + 2 : 1, 0, FILM_ENGINEERING_PIPELINE_ENTRY)
   return base
 }
 
@@ -1618,6 +1627,8 @@ export default {
       s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false },
       // 历史
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
+      // 页面导航历史
+      viewHistory: [], viewHistoryIndex: -1,
       // 清理
       cleanups: [],
       quickModes: [
@@ -2034,6 +2045,24 @@ export default {
     },
   },
   methods: {
+    // 页面导航箭头
+    goBack() { if (this.viewHistoryIndex > 0) { this.viewHistoryIndex--; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
+    goForward() { if (this.viewHistoryIndex < this.viewHistory.length - 1) { this.viewHistoryIndex++; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
+    get canGoBack() { return this.viewHistoryIndex > 0; },
+    get canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
+    applyViewState(state) {
+      if (!state) return;
+      if (state.view) this.view = state.view;
+      if (state.selectedPipeline !== undefined) this.selectedPipeline = state.selectedPipeline;
+      if (state.view === 'history') this.loadHistory();
+    },
+    pushViewState(state) {
+      this.viewHistory = this.viewHistory.slice(0, this.viewHistoryIndex + 1);
+      this.viewHistory.push(state);
+      this.viewHistoryIndex = this.viewHistory.length - 1;
+    },
+    // 返回历史记录页
+    goToHistory() { this.selectedPipeline = null; this.view = 'history'; this.loadHistory(); this.pushViewState({ view: 'history' }); },
     translateWithLocaleFallback(key, zhFallback, enFallback, params) {
       const translated = typeof this.$t === 'function' ? this.$t(key, params) : key
       if (typeof translated === 'string' && translated !== key) return translated
@@ -2129,6 +2158,11 @@ export default {
       // 视频克隆是独立流水线（拆解/再创作页），点击入口卡直接路由，不走通用配置详情
       if (p?.name === 'video-clone') {
         this.$router.push('/video-clone')
+        return
+      }
+      if (p?.name === 'film-engineering') {
+        this.pushViewState({ view: 'pipelines', selectedPipeline: p });
+        this.$router.push('/film-engineering')
         return
       }
       this.stopPipelinePolling()

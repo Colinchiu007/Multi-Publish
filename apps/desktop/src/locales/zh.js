@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   common: {
     save: '保存',
     cancel: '取消',
@@ -596,6 +596,7 @@ export default {
       'framework-smoke': '框架冒烟测试',
       'video-clone': '视频克隆',
       'story2video-compose': '故事讲述',
+      'film-engineering': '影视工程',
     },
     descriptions: {
       'animated-explainer': '从主题或创意自动生成完整讲解视频',
@@ -613,6 +614,7 @@ export default {
       'framework-smoke': '快速验证流水线配置',
       'video-clone': '对标拆解与再创作：链接/本地视频 → 拆解报告 → 同款成片',
       'story2video-compose': '将文案自动生成故事讲述视频（故事讲述 + 可选 AI 视频混合）',
+      'film-engineering': '影视工程：复刻《Hell Grind》——真实分镜提示词库、素材索引与剧本套用（一键复制）',
       unavailable: '暂无描述',
     },
     categories: {
@@ -1591,5 +1593,44 @@ export default {
     timeGuidanceRef6min: '6 分钟视频：合成时长 35–45 分钟',
     timeGuidanceNote: '以上合成时长均属正常范围。',
   },
+  filmEngineering: {
+    "title": "影视工程 · 《Hell Grind》电影制作流水线",
+    "subtitle": "复刻开源 AI 电影《Hell Grind》的完整影视工程：真实分镜提示词、角色/场景/道具资产索引、提示词方法论，支持一键复制与剧本套用。",
+    "retry": "重试",
+    "unavailable": "影视工程资源不可用",
+    "unavailableDesc": "随包 film-kit 数据资产缺失或校验失败，无法浏览分镜库。请检查安装完整性后重试。",
+    "noDesktop": "当前环境未提供桌面端能力",
+    "stats": {"scenes": "场景", "shots": "分镜", "references": "资产索引", "duration": "时长"},
+    "source": "原始项目",
+    "characters": "角色",
+    "tabs": {"library": "分镜库", "adapt": "剧本套用", "doctrine": "提示词方法论"},
+    "library": {"empty": "该场景暂无分镜", "selectScene": "请选择左侧场景查看分镜", "total": "共", "selectAll": "全选本场", "copySelected": "批量复制", "exportJson": "导出 JSON", "exportMd": "导出 Markdown", "generate": "生成图片", "copyMode": "复制内容", "copyModeFull": "完整提示词", "copyModeBlocks": "提示词块", "copyModeCharacters": "角色行", "copyModeGeo": "GEO 布局", "shotDetail": "分镜详情", "model": "模型", "resolution": "分辨率", "refTokens": "引用资产", "refUnknown": "未知引用", "copyFull": "复制完整提示词", "copyBlocks": "复制提示词块", "copyCharacters": "复制角色行", "copyGeo": "复制 GEO 布局", "expandPrompt": "展开全文", "collapsePrompt": "收起", "copyToken": "复制令牌", "generateHint": "一次最多 20 个，复用已配置的图片生成模型", "generateResultTitle": "生成结果", "generateSuccess": "成功", "generateFail": "失败"},
+    "adapt": {"scriptLabel": "输入剧本", "scriptPlaceholder": "在这里粘贴你的剧本。按空行分隔场景（每个场景 = 一个分镜模板）。剧情内容会被套用到 Hell Grind 的提示词架构中，其余实现方式（角色定妆、GEO 锁定、动作时间线、AUDIO、STYLE、正向约束）原样保留。", "scriptLimit": "最多 10000 字", "roleMapTitle": "角色映射", "roleMapHint": "把剧本里的角色映射到 Hell Grind 主角（ROKO / JAXX / LULU / REIN 等）。映射后描述符中的角色名会被替换为你的角色名。", "addRole": "添加映射", "removeRole": "移除", "llmEnabled": "启用 LLM 润色（可选）", "adaptBtn": "套用生成", "adapting": "套用中…", "resultTitle": "套用结果", "resultCount": "个套用分镜", "copyShot": "复制该分镜", "warningsTitle": "提示", "noResult": "输入剧本并点击「套用生成」", "roleKeyPlaceholder": "Hell Grind 角色名（如 ROKO）", "roleValuePlaceholder": "你的角色名"},
+    "doctrine": {"blocks": "七大提示词块", "rules": "十条铁律", "glossary": "术语表", "zh": "中文", "en": "英文", "linkNote": "完整方法论文档见随包 prompt-doctrine.zh.md"},
+    "copied": "已复制到剪贴板",
+    "copyFailed": "复制失败，请手动选择复制",
+    "copiedCount": "已复制",
+    "copiedShot": "套用分镜",
+    "promptCopied": "提示词已复制到剪贴板",
+    "selectFirst": "请先勾选分镜",
+    "maxGenerate": "一次最多生成 20 个分镜",
+    "generateSubmitted": "已提交",
+    "generatePartial": "生成完成，其中",
+    "generateFailed": "个失败（详见生成结果）",
+    "exported": "已导出",
+    "adaptDone": "已生成",
+    "adaptFailed": "剧本套用失败",
+    "adaptEmpty": "剧本不能为空",
+    "noDesktopWarning": "当前环境未提供桌面端能力",
+    "errorFallback": "操作失败，请重试",
+    "sceneLoadFailed": "场景加载失败",
+    "shotLoadFailed": "分镜加载失败",
+    "detailLoadFailed": "分镜详情加载失败",
+    "shotsUnit": "个分镜",
+    "copyBatchFailed": "批量复制失败",
+    "exportFailed": "导出失败",
+    "generateFailedMsg": "生成失败",
+  },
+
 }
 

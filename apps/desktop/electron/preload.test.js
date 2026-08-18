@@ -34,12 +34,14 @@ beforeEach(() => {
   const { createSystemApi } = require('./preload/system')
   const { createIdentityApi } = require('./preload/identity')
   const { createVideoCloneApi } = require('./preload/video-clone')
+  const { createFilmEngineeringApi } = require('./preload/film-engineering')
   api = {
     ...createPublishApi(ipcRenderer),
     ...createAccountApi(ipcRenderer),
     ...createSystemApi(ipcRenderer),
     ...createIdentityApi(ipcRenderer),
     ...createVideoCloneApi(ipcRenderer),
+    ...createFilmEngineeringApi(ipcRenderer),
   }
 })
 
@@ -60,8 +62,7 @@ const PUBLISH_METHODS = [
   'schedulerCreate', 'schedulerList', 'schedulerCancel',
   'onProgress',
   'pipelineList', 'pipelineGet', 'pipelineStart', 'pipelinePause', 'pipelineResume',
-  'pipelineCancel', 'pipelineStatus', 'pipelineAdvance', 'pipelineHistory', 'pipelineDeleteRun',
-  'pipelinePauseRun', 'pipelineFetch',
+  'pipelineCancel', 'pipelineStatus', 'pipelineAdvance', 'pipelineHistory', 'pipelineFetch',
   'pipelineStartOrchestrated', 'pipelineExecuteStage',
   'pipelineAdvanceToNextCheckpoint', 'pipelineGetRunContext',
   'story2videoImportMedia', 'story2videoExportZip', 'story2videoCreateShareUrl',
@@ -70,10 +71,7 @@ const PUBLISH_METHODS = [
   'story2videoReplaceSegmentAudio',
   'story2videoRetrySegment', 'story2videoRecomposeProject', 'story2videoTranscribe',
   'story2videoSelectSceneMaterial', 'story2videoGenerateSceneImage', 'story2videoGenerateSceneVideo',
-  'story2videoGenerateSceneAiVideo',
-  'story2videoRegenerateSceneSubtitle', 'story2videoRegenerateSceneAudio', 'story2videoRegenerateScenePrompt',
   'story2videoCapabilities',
-  'story2videoBatchCreate', 'story2videoBatchStatus', 'story2videoBatchCancel', 'story2videoPickBatchFiles',
   'cloudPublishSubmit', 'cloudPublishListTasks', 'cloudPublishGetTask', 'cloudPublishPlatforms',
   'urlCollectFetch',
   'viralAnalyze', 'viralGenerate', 'viralTrending',
@@ -192,10 +190,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 102 个键（101 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 92 个键（91 方法 + pipelines 对象）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(102)
+    expect(Object.keys(r).length).toBe(92)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -204,20 +202,20 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(42)
   })
 
-  it('system 模块应导出 143 个方法', () => {
+  it('system 模块应导出 142 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime（运营后台同步 + 运行时策略）
     // + generationFeedback/promptLibraryList（提示词引擎自进化 P0 反馈管道）
-    expect(Object.keys(r).length).toBe(143)
+    expect(Object.keys(r).length).toBe(142)
   })
 
-  it('合并后 api 总键数应为 293（含 videoClone 命名空间与批量创作 + submitFeedback）', () => {
-    expect(Object.keys(api).length).toBe(293)
+  it('合并后 api 总键数应为 283（含 videoClone 与 filmEngineering 命名空间）', () => {
+    expect(Object.keys(api).length).toBe(283)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(90)
+    expect(PUBLISH_METHODS.length).toBe(80)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',
@@ -347,7 +345,6 @@ describe('invoke 类方法转发到 ipcRenderer.invoke', () => {
     ['story2videoSelectSceneMaterial', 'story2video:select-scene-material', ['project-1', 'segment-0', 'image2']],
     ['story2videoGenerateSceneImage', 'story2video:generate-scene-image', ['project-1', 'segment-0']],
     ['story2videoGenerateSceneVideo', 'story2video:generate-scene-video', ['project-1', 'segment-0']],
-    ['story2videoGenerateSceneAiVideo', 'story2video:generate-scene-ai-video', ['project-1', 'segment-0']],
   ]
 
   beforeEach(() => {
@@ -625,5 +622,44 @@ describe('子模块 require 链可加载', () => {
     } finally {
       __disableElectronMock()
     }
+  })
+})
+
+describe('影视工程 film-engineering preload API', () => {
+  it('createFilmEngineeringApi 应为函数且返回 10 个方法', () => {
+    const { createFilmEngineeringApi } = require('./preload/film-engineering')
+    expect(typeof createFilmEngineeringApi).toBe('function')
+    const api = createFilmEngineeringApi(ipcRenderer)
+    expect(Object.keys(api.filmEngineering).length).toBe(10)
+  })
+
+  it.each([
+    ['status', 'film-engineering:status', []],
+    ['listScenes', 'film-engineering:list-scenes', []],
+    ['listShots', 'film-engineering:list-shots', ['scene-1']],
+    ['getShot', 'film-engineering:get-shot', ['shot-1']],
+    ['doctrine', 'film-engineering:doctrine', []],
+    ['copyText', 'film-engineering:copy-text', ['shot-1', 'full']],
+    ['copyTexts', 'film-engineering:copy-texts', [['shot-1', 'shot-2'], 'blocks']],
+    ['adaptScript', 'film-engineering:adapt-script', [{ script: '第一场\n剧情', characterMap: { ROKO: '小强' } }]],
+    ['exportPrompts', 'film-engineering:export', [[{ shotId: 's1', prompt: 'p' }], 'markdown']],
+    ['generateSelected', 'film-engineering:generate-selected', [[{ shotId: 's1', prompt: 'p' }], { aspectRatio: '16:9' }]],
+  ])('%s() 应转发到 invoke("%s")', (method, channel, args) => {
+    const { createFilmEngineeringApi } = require('./preload/film-engineering')
+    ipcRenderer.invoke.mockClear()
+    const api = createFilmEngineeringApi(ipcRenderer)
+    api.filmEngineering[method](...args)
+    expect(ipcRenderer.invoke).toHaveBeenCalledTimes(1)
+    expect(ipcRenderer.invoke.mock.calls[0][0]).toBe(channel)
+  })
+
+  it('film-engineering 为公开方法（未登录可用）且主进程通道公开', () => {
+    const { PUBLIC_METHODS } = require('./preload/access-control')
+    const { requiredLevelForChannel } = require('./ipc-handlers/license-access-control')
+    expect(PUBLIC_METHODS).toContain('filmEngineering')
+    expect(PUBLIC_METHODS).toContain('filmEngineering.status')
+    expect(PUBLIC_METHODS).toContain('filmEngineering.generateSelected')
+    expect(requiredLevelForChannel('film-engineering:list-scenes')).toBe('public')
+    expect(requiredLevelForChannel('film-engineering:generate-selected')).toBe('public')
   })
 })

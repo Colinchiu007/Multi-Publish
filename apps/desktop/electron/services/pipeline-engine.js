@@ -477,6 +477,43 @@ const PIPELINES = [
     ],
   },
   {
+    name: 'film-engineering',
+    description: '影视工程（Hell Grind 复刻） - 真实分镜提示词库浏览/一键复制/剧本套用/导出',
+    category: 'generated',
+    stages: ['load_template', 'adapt_script', 'select_shots', 'export_prompts'],
+    estimatedCost: 'low',
+    stageDefs: [
+      {
+        name: 'load_template',
+        type: 'film_load_template',
+        description: '加载 Hell Grind 影视工程模板（film-kit，fail-closed）',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'adapt_script',
+        type: 'film_adapt_script',
+        description: '剧本分场并按 Hell Grind 模板组装提示词',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'select_shots',
+        type: 'film_select_shots',
+        description: '按选中分镜 id 过滤（kit 或 adapted）',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'export_prompts',
+        type: 'film_export_prompts',
+        description: '导出选中分镜提示词（JSON/Markdown）',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
+  },
+  {
     name: 'story2video-compose',
     description: 'Story2Video 文案转视频 - 分句+提示词优化+资源生成+合成+发布',
     category: 'generated',

@@ -41,7 +41,7 @@ const PUBLIC_METHODS = [
   'modelProviderGetDefault',
   'modelProviderTest', 'modelProviderPresets', 'modelProviderIsConfigured',
   'modelProviderLogs',
-  'logsGetInfo', 'logsClear', 'logError', 'submitFeedback',
+  'logsGetInfo', 'logsClear', 'logError',
   'renderGetStatus', 'renderInstallDeps', 'onRenderInstallProgress',
   'pipelineList', 'pipelineGet',
   // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：
@@ -56,8 +56,13 @@ const PUBLIC_METHODS = [
   'videoClone',
   'videoClone.run', 'videoClone.cancel', 'videoClone.editReport', 'videoClone.regenerate',
   'videoClone.pickFile', 'videoClone.history', 'videoClone.onProgress',
-  // 批量创作本地文件选择（与主进程 PUBLIC_CHANNELS 的 story2video:pick-batch-files 对齐）：纯设备本地对话框
-  'story2videoPickBatchFiles',
+  // 影视工程：随包 film-kit 资产浏览/复制/剧本套用（设备本地操作，未登录可用）；
+  // 勾选生成（generateSelected）复用 assetGenerator，是否可用由主进程服务自校验。
+  'filmEngineering',
+  'filmEngineering.status', 'filmEngineering.listScenes', 'filmEngineering.listShots',
+  'filmEngineering.getShot', 'filmEngineering.doctrine',
+  'filmEngineering.copyText', 'filmEngineering.copyTexts',
+  'filmEngineering.adaptScript', 'filmEngineering.exportPrompts', 'filmEngineering.generateSelected',
 ]
 
 function hasAccess(currentLevel, requiredLevel) {

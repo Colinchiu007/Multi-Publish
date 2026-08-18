@@ -89,6 +89,12 @@ const PIPELINES = {
     category: 'generated',
     stages: ['ingest', 'analyze', 'plan', 'generate', 'compose', 'publish'],
   },
+  'film-engineering': {
+    name: 'pipelines.names.film-engineering',
+    description: 'pipelines.descriptions.film-engineering',
+    category: 'generated',
+    stages: ['browse', 'select', 'copy', 'adapt'],
+  },
 }
 
 const CATEGORIES = {
