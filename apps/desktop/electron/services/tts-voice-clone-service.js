@@ -640,15 +640,23 @@ class TtsVoiceCloneService {
     if (!this._store || !voiceId) return null
     const owner = this._getOwnerSubject ? this._getOwnerSubject() : null
     if (!owner) return null
-    const key = cloneRegistrySettingKey(providerId, model)
-    let registry
-    try {
-      registry = this._store.getUserSetting(key, null, owner.subject)
-    } catch (_) { return null }
-    if (!registry || !Array.isArray(registry.voices)) return null
-    const clone = registry.voices.find(v => v.id === voiceId && v.deletionState === DELETE_STATES.ACTIVE)
-    if (!clone || !clone.sampleStorage) return null
-    return { sampleStorage: clone.sampleStorage, name: clone.name }
+    // Try exact model key first, then fall back to known MiniMax TTS models
+    // (handles case where pipeline resumes without voiceModel or model changed)
+    const candidateModels = [model, 'speech-2.8-turbo', 'speech-02-hd', 'speech-2.8-hd', 'speech-2.6-hd', 'speech-2.6-turbo'].filter(Boolean)
+    const triedKeys = new Set()
+    for (const m of candidateModels) {
+      const key = cloneRegistrySettingKey(providerId, m)
+      if (triedKeys.has(key)) continue
+      triedKeys.add(key)
+      let registry
+      try {
+        registry = this._store.getUserSetting(key, null, owner.subject)
+      } catch (_) { continue }
+      if (!registry || !Array.isArray(registry.voices)) continue
+      const clone = registry.voices.find(v => v.id === voiceId && v.deletionState === DELETE_STATES.ACTIVE)
+      if (clone && clone.sampleStorage) return { sampleStorage: clone.sampleStorage, name: clone.name }
+    }
+    return null
   }
 
 async renameClone(input) {
