@@ -7,6 +7,7 @@
  * 公共逻辑（start/stop/attach/healthCheck/watchdog/restart）由基类提供
  */
 const http = require('http')
+const { execFile } = require('child_process')
 const { BasePythonBridge } = require('./base-python-bridge')
 const { config } = require('../config/app-config')
 const {
@@ -239,15 +240,62 @@ class PromptBridge extends BasePythonBridge {
    * @param {object} request - { prompt, ...options }
    * @returns {Promise<object>}
    */
+  /**
+   * CLI fallback -- spawn CLI subprocess when HTTP is unavailable.
+   * @param {object} request - normalized optimize request
+   * @param {string} [traceId]
+   * @returns {Promise<object>}
+   * @private
+   */
+  _cliFallbackSingle (request, traceId) {
+    return new Promise((resolve, reject) => {
+      const pyArgs = ['-m', 'prompt_engine.cli', 'optimize', request.prompt || '', '--json']
+      pyArgs.push('--strategy', request.optimization_strategy || 'llm')
+      pyArgs.push('--creative-level', String(request.creative_level || 5))
+      if (request.platform) pyArgs.push('--platform', request.platform)
+      if (request.llm) {
+        const llm = request.llm
+        if (llm.provider) pyArgs.push('--provider', llm.provider)
+        if (llm.model) pyArgs.push('--model', llm.model)
+        if (llm.api_key) pyArgs.push('--api-key', llm.api_key)
+        if (llm.base_url) pyArgs.push('--base-url', llm.base_url)
+        if (llm.caller) pyArgs.push('--caller', llm.caller)
+      }
+      this.log.info(this.name, `CLI fallback: python ${pyArgs.slice(0, 5).join(' ')}... traceId=${traceId || '-'}`)
+      execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 30000, windowsHide: true }, (err, stdout, stderr) => {
+        if (err) {
+          this.log.warn(this.name, `CLI fallback failed: ${err.message}`)
+          reject(new Error(`CLI fallback failed: ${err.message}`))
+          return
+        }
+        try {
+          const result = JSON.parse(stdout.trim())
+          resolve(result)
+        } catch (e) {
+          this.log.warn(this.name, `CLI fallback returned invalid JSON: ${stdout.slice(0, 200)}`)
+          reject(new Error('CLI fallback returned invalid JSON'))
+        }
+      })
+    })
+  }
+
+  /**
+   * optimize -- POST /v1/optimize with CLI fallback on HTTP failure.
+   */
   async optimize (request, traceId) {
     await this.ensureRunning()
-    // async 保证同步校验异常（如敏感凭据拦截）以 rejected promise 呈现，统一走调用方错误处理
     const normalized = normalizeOptimizeRequest(request)
     if (requiresLlm(normalized)) {
       normalized.llm = this.resolveLlmBind()
     }
-    return this._post('/v1/optimize', JSON.stringify(normalized), undefined, traceId)
+    try {
+      return await this._post('/v1/optimize', JSON.stringify(normalized), undefined, traceId)
+    } catch (httpErr) {
+      this.log.warn(this.name, `HTTP failed (${httpErr instanceof Error ? httpErr.message : String(httpErr)}), trying CLI fallback`)
+      return this._cliFallbackSingle(normalized, traceId)
+    }
   }
+
 
   /**
    * 批量优化 — POST /v1/optimize/batch
@@ -264,7 +312,20 @@ class PromptBridge extends BasePythonBridge {
         if (requiresLlm(n)) n.llm = bind
       }
     }
-    return this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }), undefined, traceId)
+    try {
+      return await this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }), undefined, traceId)
+    } catch (httpErr) {
+      this.log.warn(this.name, `Batch HTTP failed (${httpErr instanceof Error ? httpErr.message : String(httpErr)}), trying CLI fallback for ${normalized.length} items`)
+      const results = []
+      for (const n of normalized) {
+        try {
+          results.push(await this._cliFallbackSingle(n, traceId))
+        } catch (cliErr) {
+          results.push({ error: cliErr instanceof Error ? cliErr.message : String(cliErr) })
+        }
+      }
+      return results
+    }
   }
 
   /**
