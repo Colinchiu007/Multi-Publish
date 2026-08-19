@@ -2018,6 +2018,8 @@ export default {
       if (this.quickMode === 'gallery') return this.quickImages.length > 0
       return false
     },
+    canGoBack() { return this.viewHistoryIndex > 0; },
+    canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
   },
   watch: {
     // 「返回」跳 /create?view=history 与直接输入地址时同步历史记录视图（2026-08-16 术语统一）
@@ -2048,8 +2050,6 @@ export default {
     // 页面导航箭头
     goBack() { if (this.viewHistoryIndex > 0) { this.viewHistoryIndex--; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
     goForward() { if (this.viewHistoryIndex < this.viewHistory.length - 1) { this.viewHistoryIndex++; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
-    get canGoBack() { return this.viewHistoryIndex > 0; },
-    get canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
     applyViewState(state) {
       if (!state) return;
       if (state.view) this.view = state.view;

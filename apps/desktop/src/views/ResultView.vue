@@ -811,7 +811,6 @@ export default {
         // 优先显示场景独立生成的 AI 视频片段，而非合成后的成片视频（2026-08-18）
         const sceneVideoPath = (segment.videoMeta && segment.videoMeta.sceneVideoPath) || null
         const altSceneVideoPath = (segment.videoMeta && segment.videoMeta.altSceneVideoPath) || null
-        const altSceneVideoPath = (segment.videoMeta && segment.videoMeta.altSceneVideoPath) || null
         if (sceneVideoPath) {
           try {
             segment.videoUrl = await this.resolveLocalUrl(sceneVideoPath, segment.videoUrl)
@@ -830,11 +829,10 @@ export default {
       return null
     },
     sceneMaterialSlots(segment) {
-      const t = (key, params) => this.$t('story2video.sceneMaterial.' + key, params
+      const t = (key, params) => this.$t('story2video.sceneMaterial.' + key, params)
       const selected = this.effectiveSelectedMaterial(segment)
       const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
       const sceneVideoPath = (segment.videoMeta && segment.videoMeta.sceneVideoPath) || null
-      const altSceneVideoPath = (segment.videoMeta && segment.videoMeta.altSceneVideoPath) || null
       return [
         { kind: 'image1', label: t('image1Label'), path: segment.imagePath || null, url: segment.imageUrl || null, selected: selected === 'image1' },
         { kind: 'image2', label: t('image2Label'), path: (alternate && alternate.path) || null, url: (Array.isArray(segment.alternateImageUrls) && segment.alternateImageUrls[0]) || null, selected: selected === 'image2' },
