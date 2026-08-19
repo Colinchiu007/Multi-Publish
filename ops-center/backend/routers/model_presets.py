@@ -10,6 +10,9 @@ from middleware.auth import get_current_user, require_admin
 from services import model_preset_service
 
 router = APIRouter(prefix="/api/v1/model-presets", tags=["model-presets"])
+def _secret() -> str:
+    return settings.secret_key
+
 
 
 @router.get("")
@@ -126,6 +129,29 @@ async def fetch_models(
     await db.refresh(row)
     return {"models": models, "default_model": default_model, "count": len(models)}
 
+
+
+@router.post("/{preset_id}/test")
+async def test_model_preset(
+    preset_id: str,
+    body: dict | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: dict = Depends(require_admin),
+):
+    """测试模型预设连通性（admin-only）：用配置的 API Key 真实调用 API，验证连通性。
+
+    探测策略（OpenAI 兼容最小请求）：
+    1) POST {base}/chat/completions（max_tokens=1）——覆盖 llm/vision/chat 类；
+    2) 若返回 404/405，或 400 且错误体命中模型关键字 → fallback GET {base}/models —— 覆盖 image 类；
+    3) 均不可达 → 报错并提示「请用真实生成验证」。
+    """
+    from services import model_preset_service
+    try:
+        return await model_preset_service.test_provider_connection(db, preset_id, body or {}, _secret())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"连通性测试失败: {e}")
 
 @router.delete("/{preset_id}")
 async def delete_model_preset(
