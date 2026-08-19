@@ -22,4 +22,4 @@
 
 - [x] 4.1 更新 PRD、视频创作 PRD、CHANGELOG、learnings、i18n glossary
 - [x] 4.2 完成双模型审查尝试并记录降级结果，写入 .ccg/tasks/s2v-pipeline-always-background/review.md
-- [ ] 4.3 质量门禁、提交、推送、PR、实际合并与远程 SHA 核对
+- [x] 4.3 质量门禁、提交、推送、PR、实际合并与远程 SHA 核对（PR #1019，merge 1226333fef4b3435fe79e175058fc1e29080e764，origin/main 已核验）
