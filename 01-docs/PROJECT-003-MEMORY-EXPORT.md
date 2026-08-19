@@ -321,4 +321,4 @@ gh release view v1.1.7
 - **远程视频边界**：当前 `taskId` 未持久化，恢复时不会把未知的远程任务伪造成完成，也不会盲切新模型去查询旧任务；有本地有效视频则复用，无有效产物则走当前模型的正常提交/失败回退。
 - **测试结果**：聚焦 `resume-orchestration.test.js`、`story2video-stages.test.js`、`pipeline-story2video-contract.test.js` 共 3 个文件，175 个测试通过；补充 Windows runner 干净临时目录初始化，并用 `realpathSync.native()` 断言规范化后的媒体路径，覆盖当前图片/TTS/video、legacy Python 路径、当前 LLM 视频场景判断、旧 video plan 路由清理、部分资产复用、失效路径再生成和跨镜 final frame。
 - **质量过程**：外部 Antigravity 因账户/地域资格不可用，Claude wrapper 因本机代理/API 连接失败；按流程降级为三个独立本地只读审查探针，审查结论已记录在 `.ccg/tasks/s2v-resume-current-models/review.md`，未发现未修复 Critical/Major。
-- **交付记录**：代码在隔离 worktree `codex/s2v-resume-current-models` 开发，文档 rebase 冲突已保留双方章节并解决；PR #1031 首轮 CI 发现并已修复 Windows runner 的测试夹具路径差异，待补丁重跑 CI、合并、远端 main 核对和 OpenSpec/CCG 归档后，回填本节的 PR/merge SHA。
+- **交付记录**：代码在隔离 worktree `codex/s2v-resume-current-models` 开发，文档 rebase 冲突已保留双方章节并解决；PR #1031 首轮 CI 发现并已修复 Windows runner 的临时根目录与 canonical 路径差异，第二轮 CI 又定位到部分资产测试中最后一个 raw/canonical 音频断言，已在最终补丁中统一为 `realpathSync.native()`。待补丁重跑 CI、合并、远端 main 核对和 OpenSpec/CCG 归档后，回填本节的 PR/merge SHA。

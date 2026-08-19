@@ -785,6 +785,8 @@ describe('story2video 资源索引契约', () => {
     const oldImage = path.join(root, 'scene-1.png')
     fs.writeFileSync(oldAudio, 'old audio')
     fs.writeFileSync(oldImage, 'old image')
+    const oldAudioRealPath = fs.realpathSync.native(oldAudio)
+    const oldImageRealPath = fs.realpathSync.native(oldImage)
     const generateImage = vi.fn(async (_prompt, opts) => ({ code: 0, data: { path: path.join(root, 'generated-' + opts.index + '.png') } }))
     const generateTTS = vi.fn(async (_text, opts) => ({ code: 0, data: { path: path.join(root, 'generated-' + opts.index + '.mp3'), duration: 2 } }))
     const manager = {
@@ -804,8 +806,8 @@ describe('story2video 资源索引契约', () => {
           split: [{ text: '第一幕' }, { text: '第二幕' }],
           optimize: ['prompt-0', 'prompt-1'],
           generate_assets: { resume: { completed: [
-            { index: 0, audioPath: oldAudio, duration: 2 },
-            { index: 1, imagePath: oldImage },
+            { index: 0, audioPath: oldAudioRealPath, duration: 2 },
+            { index: 1, imagePath: oldImageRealPath },
           ] } },
         },
         serviceBus: {},
@@ -817,8 +819,8 @@ describe('story2video 资源索引契约', () => {
       expect(generateTTS).toHaveBeenCalledTimes(1)
       expect(generateTTS).toHaveBeenCalledWith('第二幕', expect.objectContaining({ voice_model: 'voice-current-model', index: 1 }))
       expect(result.output.scenes).toEqual(expect.arrayContaining([
-        expect.objectContaining({ index: 0, audioPath: oldAudio }),
-        expect.objectContaining({ index: 1, imagePath: oldImage }),
+        expect.objectContaining({ index: 0, audioPath: oldAudioRealPath }),
+        expect.objectContaining({ index: 1, imagePath: oldImageRealPath }),
       ]))
     } finally {
       fs.rmSync(root, { recursive: true, force: true })

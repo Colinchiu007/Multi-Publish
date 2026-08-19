@@ -6,17 +6,17 @@
   "risk": "medium",
   "domain": "desktop",
   "currentPhase": "review",
-  "nextAction": "提交 Windows runner 测试稳定性补丁，推送并等待 PR 重跑后合并归档",
+  "nextAction": "推送最终 Windows runner 测试稳定性补丁，等待 PR 重跑后合并归档",
   "createdAt": "2026-08-19T00:00:00+08:00",
   "branch": "codex/s2v-resume-current-models",
   "openspecChange": "s2v-resume-current-models",
-  "remoteStatus": "pr_open_ci_rerun_pending",
+  "remoteStatus": "pr_open_ready_to_push_final_fixture_fix",
   "qualityRhythm": {
     "changeType": "new feature plus behavior contract",
     "scope": "large cross-module",
     "risk": "medium",
     "externalModelReview": "degraded: antigravity unavailable by account/region; Claude wrapper exited 1",
-    "focusedTests": "175 Story2Video/resume tests passed after Windows canonical-path and temp-root fixture fix; 122 TTS/PromptBridge/multimodal contract tests passed",
+    "focusedTests": "175 Story2Video/resume tests passed after Windows canonical-path and temp-root fixture fix; final partial-asset assertion fix also passes in isolation; 122 TTS/PromptBridge/multimodal contract tests passed",
     "build": "build:vue passed; electron-builder --win --dir --publish never passed; ASAR require chain and 8-second packaged smoke passed"
   }
 }
