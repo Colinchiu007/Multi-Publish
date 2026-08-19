@@ -1,0 +1,22 @@
+{
+  "id": "s2v-resume-current-models",
+  "title": "Story2Video 历史断点恢复切换到当前设置模型",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "review",
+  "nextAction": "提交并推送分支，创建 PR，等待检查后合并并归档",
+  "createdAt": "2026-08-19T00:00:00+08:00",
+  "branch": "codex/s2v-resume-current-models",
+  "openspecChange": "s2v-resume-current-models",
+  "remoteStatus": "pending_pr",
+  "qualityRhythm": {
+    "changeType": "new feature plus behavior contract",
+    "scope": "large cross-module",
+    "risk": "medium",
+    "externalModelReview": "degraded: antigravity unavailable by account/region; Claude wrapper exited 1",
+    "focusedTests": "175 Story2Video/resume tests passed; 122 TTS/PromptBridge/multimodal contract tests passed",
+    "build": "build:vue passed; electron-builder --win --dir --publish never passed; ASAR require chain and 8-second packaged smoke passed"
+  }
+}

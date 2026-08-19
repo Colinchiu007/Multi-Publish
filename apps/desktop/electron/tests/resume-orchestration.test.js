@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
 
-const { PipelineEngine, computeDefaultMaxConcurrentRuns } = require('../services/pipeline-engine')
+const { PipelineEngine, computeDefaultMaxConcurrentRuns, prepareResumeParams } = require('../services/pipeline-engine')
 
 function makeStore() {
   return {
@@ -115,6 +115,40 @@ describe('编排流水线断点恢复', () => {
     expect(snap.status.status).toBe('running')
     expect(snap.currentStage).toBe(1)
     expect(snap.context).toEqual(expect.objectContaining({ x: 2, a: { ok: 'a' } }))
+  })
+
+  it('恢复 Story2Video 快照时只清理旧模型路由，保留内容与语音参数', async () => {
+    const restored = prepareResumeParams({
+        imageProvider: 'old-image',
+        imageModel: 'old-image-model',
+        voiceProvider: 'old-tts',
+        voiceModel: 'old-voice-model',
+        voiceId: 'old-voice-id',
+        voiceSpeed: 1.2,
+        videoProvider: 'old-video',
+        videoModel: 'old-video-model',
+        videoConfig: { provider: 'old-video', model: 'old-video-model', fixedRatio: 30 },
+        stageOptions: {
+          generate_assets: { imageProvider: 'old-image', imageModel: 'old-image-model', voiceProvider: 'old-tts', voiceModel: 'old-voice-model', video: { provider: 'old-video', model: 'old-video-model' } },
+          select_video_scenes: { video: { provider: 'old-video', model: 'old-video-model' } },
+        },
+        aspectRatio: '9:16',
+      }, 'story2video-compose')
+    expect(restored).toMatchObject({
+      __resumeUseCurrentModels: true,
+      voiceId: 'old-voice-id',
+      voiceSpeed: 1.2,
+      aspectRatio: '9:16',
+      videoConfig: { fixedRatio: 30 },
+    })
+    expect(restored).not.toHaveProperty('imageProvider')
+    expect(restored).not.toHaveProperty('imageModel')
+    expect(restored).not.toHaveProperty('voiceProvider')
+    expect(restored).not.toHaveProperty('voiceModel')
+    expect(restored).not.toHaveProperty('videoProvider')
+    expect(restored).not.toHaveProperty('videoModel')
+    expect(restored.stageOptions.generate_assets).toEqual({ video: {} })
+    expect(restored.stageOptions.select_video_scenes).toEqual({ video: {} })
   })
 
   it('非失败/非编排运行拒绝恢复', async () => {

@@ -9,6 +9,18 @@
 - 更新总 PRD §3a、PRD-video-creation 迭代表、i18n glossary 和 learnings；新增 OpenSpec change s2v-pipeline-always-background-run。
 - CreateView/CreateViewHistory 定向回归覆盖自动后台、历史续跑、人工检查点、取消和竞态守卫。
 
+## [Unreleased] - 2026-08-19 (Story2Video 历史断点恢复使用当前模型)
+
+### 变更
+- 历史记录失败/中断任务点击【从断点继续】后，未完成的文字推理、图片、TTS 和视频调用按当前模型设置解析；已完成本地资产按 scene index 复用，允许新旧模型资产混合。
+- 恢复只清理旧 provider/model 路由，保留 prompt、场景文本、画幅、视频比例、voiceId、语速、音调和情绪；旧 video_plan 路由不再覆盖当前视频模型。
+- TTS 保留原 voiceId；当前模型不兼容时不静默换音色、不覆盖旧音频，沿用兼容错误或既有 re-clone 合同。远程视频 taskId 未持久化时不伪造完成。
+- History Continue 仍为一键操作，无新增模型选择 UI。
+
+### 测试与文档
+- 覆盖旧路由清理、legacy Python 路径、已完成图片/音频/视频复用、未完成调用使用当前能力模型和旧 video_plan 不回流。
+- 详见 PRD-video-creation.md §3.1.33、ARCH-STORY2VIDEO-RESUME-CURRENT-MODELS-2026-08-19.md 与 OpenSpec change s2v-resume-current-models。
+
 ## [Unreleased] - 2026-08-17 (Story2Video 页面 UX 与任务操作统一)
 
 ### 变更
