@@ -935,7 +935,7 @@ class ModelProviderManager {
     try {
       const db = this._store.db
       const isMultimodal = category === CATEGORIES.MULTIMODAL
-      const config = safeJsonParse(provider.config, {}) || {}
+      const config = (provider.config && typeof provider.config === 'object') ? provider.config : safeJsonParse(provider.config, {}) || {}
       const capabilities = isMultimodal ? (Array.isArray(config.capabilities) ? config.capabilities : []) : []
       const doSet = () => {
         if (isMultimodal) {
@@ -989,7 +989,7 @@ class ModelProviderManager {
     if (!providerWithKey || (!hasUsableApiKey(providerWithKey.api_key) && !canUseWithoutApiKey(providerWithKey))) {
       return { code: -1, errorCode: 'API_KEY_NOT_CONFIGURED', message: '请先在「模型设置」中配置 API Key，再设为默认。' }
     }
-    const config = safeJsonParse(provider.config, {}) || {}
+    const config = (provider.config && typeof provider.config === 'object') ? provider.config : safeJsonParse(provider.config, {}) || {}
     const caps = Array.isArray(config.capabilities) ? config.capabilities : []
     if (!caps.includes(capability)) {
       return { code: -1, errorCode: 'CAPABILITY_NOT_SUPPORTED', message: '该多模态模型不支持能力：' + capability }
@@ -1137,3 +1137,4 @@ function safeJsonParse (str, fallback) {
 }
 
 module.exports = { ModelProviderManager, canUseWithoutApiKey, hasUsableApiKey, isLoopbackBaseUrl, normalizeProviderModels }
+
