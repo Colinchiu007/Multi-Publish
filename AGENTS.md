@@ -57,14 +57,20 @@
 
 ### 会话隔离前置检查（MANDATORY）
 
-在执行任何代码修改前，AI 必须先完成会话隔离验证：
+在执行任何 apply_patch / git add / 文件修改前，**必须先运行 pre-flight 守卫脚本**：
+
+powershell -ExecutionPolicy Bypass -File scripts/pre-code-edit-guard.ps1
+
+exit 0 -> 放行（当前在 worktree 或非 git 目录）
+exit 1 -> 拒绝（当前在共享主目录，禁止修改）
+
+**其他检查项（并行确认）：**
 
 1. **确认入口**：运行时代码任务必须从 scripts/start-mp-task.ps1 -TaskName <kebab-case> 启动
-2. **确认隔离**：当前 cwd 必须在 worktree（mp-worktrees/mp-<task-name>）中，不得在共享主目录直接修改代码
 3. **确认写保护**：写保护 watcher 必须存活（Session Isolation Write Guard 计划任务状态为 Running）
 4. **确认健康**：mp-worktree-health.ps1 -RequireWriteGuard 检查通过
 
-**未完成会话隔离 → 不允许开始代码修改。**
+**未通过 pre-code-edit-guard -> 不允许开始代码修改，立即创建 worktree。**
 
 ### 违反后果
 
