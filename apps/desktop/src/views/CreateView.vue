@@ -2043,13 +2043,13 @@ export default {
         this.$nextTick(() => this.scrollToSceneAssetPanel())
       }
     },
+    canGoBack() { return this.viewHistoryIndex > 0; },
+    canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
   },
   methods: {
     // 页面导航箭头
     goBack() { if (this.viewHistoryIndex > 0) { this.viewHistoryIndex--; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
     goForward() { if (this.viewHistoryIndex < this.viewHistory.length - 1) { this.viewHistoryIndex++; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
-    get canGoBack() { return this.viewHistoryIndex > 0; },
-    get canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
     applyViewState(state) {
       if (!state) return;
       if (state.view) this.view = state.view;
