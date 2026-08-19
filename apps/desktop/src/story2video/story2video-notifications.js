@@ -1,5 +1,6 @@
 import zhLocale from '@/locales/zh'
 import enLocale from '@/locales/en'
+import { resolveProviderDisplayName, defaultProviderName } from '@/utils/provider-name-map'
 
 export const MAX_STORY2VIDEO_TEXT_CHARACTERS = 6000
 
@@ -166,10 +167,20 @@ export function getStory2VideoNotificationUiText (locale = getStory2VideoLocale(
     resumeHint: read('resumeHint'),
   }
 }
-
 function extractSceneNumber (rawError) {
-  const match = String(rawError || '').match(/scene\s+(\d+)/i)
+  const match = String(rawError || '').match(/(?:scene|场景)\s*(\d+)/i)
   return match ? Number(match[1]) : null
+}
+
+function formatSceneContext (scene, locale) {
+  if (scene === null || scene === undefined) return ''
+  const labelKey = String(scene).includes('/') ? 'sceneRatio' : 'sceneLabel'
+  const label = resolveLocaleRef('@story2video.labels.' + labelKey, locale, { scene })
+  return locale === 'en' ? ' (' + label + ')' : '（' + label + '）'
+}
+
+function fallbackProviderDisplayName (locale) {
+  return resolveLocaleRef(defaultProviderName(locale), locale, {})
 }
 
 function normalizeParams (value, locale, messageKey, rawError) {
@@ -201,27 +212,36 @@ function normalizeParams (value, locale, messageKey, rawError) {
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.PROVIDER_PARAMS_UNSUPPORTED) {
-    const providerMatch = rawError.match(/provider\s*['"]([^'"]+)['"]/i)
     const paramMatch = rawError.match(/Setting\s*['"]([^'"]+)['"]/i) || rawError.match(/参数\s*['"]([^'"]+)['"]/i)
-    params.provider = providerMatch ? providerMatch[1] : String(supplied.provider || '')
+    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
     params.param = paramMatch ? paramMatch[1] : String(supplied.param || '')
+  }
+
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.API_KEY_INVALID) {
+    params.provider = resolveProviderDisplayName(rawError, supplied) ||
+      fallbackProviderDisplayName(locale)
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.ASSET_GENERATION_FAILED) {
     const ratioMatch = rawError.match(/(\d+)\/(\d+)\s*scenes?\s+have\s+both/i)
     const scenes = ratioMatch ? ratioMatch[1] + '/' + ratioMatch[2] : ''
-    params.sceneText = scenes ? '@story2video.labels.sceneLabel' : ''
-    params.scene = scenes || ''
+    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
+    const detailRef = String(supplied.detail || '').trim()
+    const detail = detailRef ? resolveLocaleRef(detailRef, locale, supplied) : ''
+    const contextParts = []
+    if (scenes) contextParts.push(resolveLocaleRef('@story2video.labels.sceneRatio', locale, { scene: scenes }))
+    if (detail) contextParts.push(detail)
+    params.context = contextParts.length > 0
+      ? (locale === 'en' ? ' (' + contextParts.join(', ') + ')' : '（' + contextParts.join('，') + '）')
+      : ''
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID) {
-    const rawReason = String(supplied.reason || rawError || '').trim()
-    params.reason = rawReason ? '（' + rawReason.slice(0, 160) + '）' : ''
+    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED) {
-    const detail = String(rawError || '').trim() || String(supplied.detail || '').trim()
-    params.detail = detail.slice(0, 300)
+    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.DEGRADED_ASSETS_WARNING && Array.isArray(supplied.assetKinds)) {
@@ -249,8 +269,13 @@ function normalizeParams (value, locale, messageKey, rawError) {
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT) {
     const scene = extractSceneNumber(rawError)
-    params.sceneText = scene !== null ? '@story2video.labels.sceneLabel' : (typeof supplied.sceneText === 'string' ? supplied.sceneText : '')
-    params.scene = scene !== null ? String(scene) : (typeof supplied.scene === 'string' ? supplied.scene : '')
+    const providerName = resolveProviderDisplayName(rawError, supplied) || ''
+    params.context = formatSceneContext(scene, locale) || (typeof supplied.context === 'string' ? supplied.context : '')
+    params.provider = providerName || fallbackProviderDisplayName(locale)
+  }
+
+  if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AUDIO_REGENERATE_FAILED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.SCENE_AI_VIDEO_GENERATE_FAILED || messageKey === STORY2VIDEO_NOTIFICATION_KEYS.API_ERROR) {
+    params.provider = resolveProviderDisplayName(rawError, supplied) || fallbackProviderDisplayName(locale)
   }
 
   return params

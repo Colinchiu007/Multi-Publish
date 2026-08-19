@@ -236,7 +236,7 @@ describe("ResultView", () => {
     expect(badges[1].text()).toBe("story2video.segmentStatus.completed");
     const reasons = w.findAll('[data-testid="segment-status-reason"]');
     expect(reasons).toHaveLength(1);
-    expect(reasons[0].text()).toContain("不支持参数");
+    expect(reasons[0].text()).toContain("模型账号不支持当前生成设置");
     w.unmount();
   });
 
@@ -644,7 +644,7 @@ describe("ResultView", () => {
 
     // 空结果原因必须到达用户：映射为 empty_result 具体提示，而不是 operation_failed 通用文案
     expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.empty_result");
-    expect(w.vm.story2videoNotificationDialog.messageParams).toEqual({ sceneText: "", scene: "" });
+    expect(w.vm.story2videoNotificationDialog.messageParams).toEqual({ context: "", provider: "当前" });
   });
 
   it("重试图片失败且 API Key 无效/已过期时显示具体提示（api_key_invalid）", async () => {

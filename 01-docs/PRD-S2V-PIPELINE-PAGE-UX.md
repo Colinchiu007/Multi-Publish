@@ -219,6 +219,9 @@
 - 所有 IPC 参数为纯 JSON 值，不传 Vue reactive proxy。
 - delete/pause/resume 失败返回结构化错误，renderer 不把异常或技术堆栈作为成功提示。
 - locale 新增/修改必须同步 zh.js 与 en.js；renderer 不新增硬编码中文用户文案。
+- Story2Video 失败原因必须遵守“稳定键 + 安全参数 + locale 插值”合同：原始错误只用于分类，不能直接回显；{sceneText}、provider JSON、HTTP 状态码、堆栈、请求 ID、token 和 prompt-engine 前缀均不得进入卡片或对话框。
+- 失败提示需要尽可能指出具体模型账号：已识别 minimax-multimodal 显示“MiniMax模型账号”，已识别 kling 显示“Kling模型账号”；未知 provider 显示“当前模型账号”，英文对应 current model account。禁止展示 provider account、account 或“对应模型账号”。
+- 允许显示的上下文仅包括场景号、素材完成比例、图片/旁白生成类型等自然语言信息；没有上下文时省略括号，不留下 {context} 等未解析变量。
 - 固定操作条不改变主进程任务生命周期，不释放运行中的并发槽位；编辑页仅可通过“暂停”调用既有受校验的 run 控制 IPC，保存和合成操作不修改 run 状态。
 
 ## 7. 验收标准
@@ -239,3 +242,12 @@
 - locale pair、CJK、lint、依赖解析通过。
 - 修改 Electron 主进程后完成 QM-1 打包、asar require 链和 8 秒启动 stderr 验证。
 - OpenSpec、CCG task、PRD、CHANGELOG、learnings 和 memory 完成同步；PR 合并后再归档 change/task。
+
+### 7.2 失败提示详细验收
+
+- 场景 22 限流提示显示“（场景 22）”或“(scene 22)”，且不显示 request ID。
+- Image provider minimax-multimodal 的额度/API Key/空结果提示显示 MiniMax模型账号 或 MiniMax model account。
+- Image provider kling 的限流提示显示 Kling模型账号；无法解析 provider 时显示 当前模型账号，不显示 provider 原词。
+- 0/51 scenes have both image and audio 只转成“场景 0/51，图片和旁白生成”等自然语言，不显示原始异常句。
+- 历史旧数据包含 sceneText 时仍可打开；渲染前忽略该内部字段，最终文案不得出现 {sceneText}。
+- 点击恢复、重试、编辑和删除的状态门控与本次改造前一致；文案细化不改变 run 状态、并发槽位和持久化字段。

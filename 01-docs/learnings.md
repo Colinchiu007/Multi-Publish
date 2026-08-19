@@ -13750,3 +13750,33 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 3**：模板路径应确定性输出；随机选择光影词会制造虚假的“重新生成”差异，且难以审计。
 - **逃逸链**：旧测试覆盖了等级边界，但没有覆盖低等级显式 LLM、高等级显式模板、混合 batch 逐项注入、缓存绕过及执行元数据；属于测试场景缺失与双路径契约漂移。
 - **回归保护**：PromptBridge/kernel/contract/service 与 prompt-engine `test_llm_object.py`、`test_template_render.py` 覆盖上述矩阵；后续修改策略解析或历史重生成必须运行这些套件。
+## Story2Video 历史失败提示技术占位符泄漏与模型账号粒度复盘（error-message-fix，2026-08-19）
+
+### 第一性原因
+
+历史错误友好化改造（引入 commit 73bbafbc9，后续由 ca69919bf 扩展额度/API Key 分类）把 locale 引用 @story2video.labels.sceneLabel 和参数 sceneText 一起带进了 formatter/renderer 边界。sceneText 原本是场景上下文领域的内部变量名，不是用户可读内容；当二次格式化缺少对应参数时，模板变量会原样进入失败提示。与此同时 provider 只被抽象成“对应模型账号”或 provider account，没有把具体账号身份传达给用户。
+
+### 逃逸链
+
+1. 单元测试覆盖了 message key 和部分场景文本，但没有对所有受影响消息键执行最终字符串的 {sceneText}/provider account 禁止断言。
+2. formatter 与 renderer 是两条独立错误入口，旧测试没有要求两者输出同一组安全参数。
+3. 历史卡片集成测试只验证失败原因存在，没有覆盖已知 provider、未知 provider 和 API Key/额度提示的账号粒度。
+4. E2E/视觉层没有用真实历史失败快照验证最终文案；代码审查关注错误分类，却遗漏了 locale 插值参数是否仍为内部字段。
+
+### 系统性漏洞定位
+
+属于“测试场景缺失 + 双路径契约漂移 + 用户可见文案审查盲区”。内部变量名可以在编译和分类测试中合法存在，但它一旦跨过 formatter 到 locale 插值层就成为用户可见内容；没有“最终渲染字符串脱敏”这一独立门禁。
+
+### 修复与回归保护
+
+- 将 sceneText 替换为自然语言 context；formatter 只输出场景号/比例/生成类型，renderer 在边界内完成 locale-aware 拼接。
+- 新增 provider-name-map.js，按 provider ID 映射具体显示名并拒绝 account/provider/数字等泛化值；未知值回退当前模型账号。
+- zh/en 的限流、额度、空结果、素材生成、API Key 文案均以具体模型账号为主语，并保留等待、检查额度、更新 Key、调整场景和断点继续建议。
+- 回归测试覆盖 formatter、renderer、结果页空结果、二次格式化、中英文场景号、已知/未知 provider 和 raw technical marker 脱敏。
+
+### 预防措施
+
+1. locale 变量白名单：用户可见失败提示只允许 context/provider/detail 等安全参数；禁止 sceneText、raw error 和技术对象进入插值。
+2. 每个错误入口必须共享 provider/context 合同，新增错误分类同时补 formatter 与 renderer 测试。
+3. 用户文案审查清单新增：最终字符串不得含未解析变量、内部字段名、provider account、请求 ID、状态码、堆栈或服务端端口。
+4. 归档前执行 locale-sync、OpenSpec validate、定向 Vitest、构建和 PR 远端 checks；外部模型不可用时如实记录降级，不把本地审查冒充外部审查。

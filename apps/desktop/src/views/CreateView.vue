@@ -3522,7 +3522,9 @@ export default {
     },
     showStory2VideoErrorDialog(notification = {}) {
       const resolved = resolveStory2VideoNotification(notification)
-      const detail = typeof notification.detail === 'string' ? notification.detail : ''
+      const detail = notification.messageKey === STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED && typeof notification.detail === 'string'
+        ? notification.detail
+        : ''
       const rawError = String(notification?.error || notification?.message || '')
       this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params, detail, rawError }
     },

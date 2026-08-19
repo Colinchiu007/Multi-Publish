@@ -1,4 +1,7 @@
 // @ts-check
+import { defaultProviderName, resolveProviderDisplayName } from './provider-name-map'
+import zhLocale from '../locales/zh'
+import enLocale from '../locales/en'
 /**
  * pipeline-error-formatter.js — 流水线错误 → 用户可见自然语言格式化
  *
@@ -13,18 +16,14 @@
  *   1. 按特征模式逐条匹配（优先级从具体到宽泛）
  *   2. 无法匹配时返回 operation_failed 兜底
  */
-
 // 流水线错误文案的 locale 命名空间
 const PIPELINE_ERROR_NS = 'story2video'
-
-import zhLocale from '../locales/zh'
-import enLocale from '../locales/en'
 
 /**
  * 模式规则表：每条 { pattern, key, extract }
  *   pattern — 正则（匹配 raw error text）
  *   key     — locale 键（相对于 PIPELINE_ERROR_NS）
- *   extract — 可选函数(rawText, match) → { sceneText?, ... } 提取模板变量
+ *   extract — 可选函数(rawText, match) → { scene?, detail?, provider? } 提取模板变量
  *
  * 规则从上到下匹配，首个命中即返回。
  */
@@ -35,7 +34,8 @@ const RULES = [
     key: 'quota_exceeded',
     extract (raw) {
       const sceneMatch = raw.match(/场景\s*(\d+)/) || raw.match(/scene\s*(\d+)/i)
-      return { sceneText: sceneMatch ? '@story2video.labels.sceneLabel' : '', scene: sceneMatch ? sceneMatch[1] : '' }
+      const provider = resolveProviderDisplayName(raw)
+      return { scene: sceneMatch ? sceneMatch[1] : '', provider }
     },
   },
   // 内容政策 / 需要用户输入
@@ -63,7 +63,16 @@ const RULES = [
   {
     pattern: /rate.?limit|too many requests|429|限流|频率.*限制|Error\s+code:\s*429|rpm\s+exhausted|429\s+Too\s+Many/i,
     key: 'rate_limited',
-    extract () { return {} },
+    extract (raw) { return { provider: resolveProviderDisplayName(raw) } },
+  },
+  // 图片生成多次没有返回结果
+  {
+    pattern: /repeatedly returned no result|多次未返回结果/i,
+    key: 'empty_result',
+    extract (raw) {
+      const sceneMatch = raw.match(/(?:场景|scene)\s*(\d+)/i)
+      return { scene: sceneMatch ? sceneMatch[1] : '', provider: resolveProviderDisplayName(raw) }
+    },
   },
   // prompt-engine 服务不可用
   {
@@ -76,8 +85,7 @@ const RULES = [
     pattern: /UnsupportedParamsError|unsupported.*param|不支持的参数/i,
     key: 'provider_params_unsupported',
     extract (raw) {
-      const providerMatch = raw.match(/provider\s*"([^"]+)"/i) || raw.match(/provider\s*'([^']+)'/i)
-      const provider = providerMatch ? providerMatch[1] : ''
+      const provider = resolveProviderDisplayName(raw)
       const paramMatch = raw.match(/Setting\s*'([^']+)'/i) || raw.match(/setting\s*"([^"]+)"/i)
       const param = paramMatch ? paramMatch[1] : ''
       return { provider, param }
@@ -96,7 +104,8 @@ const RULES = [
       if (hasImageFail && !hasTtsFail) detail = '@story2video.labels.imageGeneration'
       else if (hasTtsFail && !hasImageFail) detail = '@story2video.labels.ttsGeneration'
       else if (hasImageFail && hasTtsFail) detail = '@story2video.labels.bothGeneration'
-      return { sceneText: scenes ? '@story2video.labels.sceneLabel' : '', scene: scenes || '', detail }
+      const provider = resolveProviderDisplayName(raw)
+      return { scene: scenes, detail, provider }
     },
   },
   // 提示词优化失败（笼统）
@@ -116,8 +125,7 @@ const RULES = [
     pattern: /Error code:\s*(\d{3})/,
     key: 'api_error',
     extract (raw) {
-      const m = raw.match(/Error code:\s*(\d{3})/)
-      return { statusCode: m ? m[1] : '' }
+      return { provider: resolveProviderDisplayName(raw) }
     },
   },
 ]
@@ -147,8 +155,20 @@ function resolveLocaleRef (ref, locale, params) {
   return resolved
 }
 
+function formatContext (locale, scene, detail) {
+  const parts = []
+  if (scene) {
+    const labelKey = String(scene).includes('/') ? 'sceneRatio' : 'sceneLabel'
+    parts.push(resolveLocaleRef('@story2video.labels.' + labelKey, locale, { scene }))
+  }
+  if (detail) parts.push(detail)
+  if (parts.length === 0) return ''
+  return locale === 'en' ? ' (' + parts.join(', ') + ')' : '（' + parts.join('，') + '）'
+}
+
 export function formatPipelineError (rawError, options = {}) {
   const raw = String(rawError || '').trim()
+  const locale = String(options.locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
   if (!raw) {
     return { message: '', key: '', params: {} }
   }
@@ -158,10 +178,18 @@ export function formatPipelineError (rawError, options = {}) {
     if (match) {
       const params = typeof rule.extract === 'function' ? rule.extract(raw, match) : {}
       const key = PIPELINE_ERROR_NS + '.' + rule.key
-            const resolved = {}
+      const resolved = {}
       for (const [k, v] of Object.entries(params)) {
-        resolved[k] = resolveLocaleRef(v, options.locale || 'zh', params)
+        if (k === 'scene' || k === 'detail') continue
+        resolved[k] = resolveLocaleRef(v, locale, params)
       }
+      const detail = params.detail ? resolveLocaleRef(params.detail, locale, params) : ''
+      const context = formatContext(locale, params.scene, detail)
+      resolved.context = context
+      if (['rate_limited', 'quota_exceeded', 'empty_result', 'asset_generation_failed', 'provider_params_unsupported'].includes(rule.key)) {
+        resolved.provider = resolved.provider || resolveLocaleRef(defaultProviderName(locale), locale, params)
+      }
+      if (rule.key === 'api_error') resolved.provider = resolved.provider || resolveLocaleRef(defaultProviderName(locale), locale, params)
       return { message: '', key, params: resolved }
     }
   }
