@@ -52,4 +52,6 @@
 - 远程视频 `taskId` 目前仍未持久化，进程中断后的远程任务不能安全查询；恢复不会伪造完成，未来需单独设计任务持久化与原始绑定查询。
 - 视频状态轮询沿用既有“显式失败立即结束、无 URL 继续轮询至超时”的合同；本次不扩大远程 provider 状态枚举。
 - 当前 LLM 的 PromptBridge 路径在每次请求边界读取模型管理器默认配置，未新增外部 `useCurrentModels` 字段，避免污染 Python 服务协议。
-- 远端 PR CI 需要在本次最终 Windows 测试补丁推送后重新运行；首轮 UI/preload/视觉/Autonomous 基线问题仍需项目级别另行治理，不在本次补丁范围。
+- PR #1031 已于 2026-08-19T16:41:30Z 以管理员例外合并，merge SHA 为 `ef980f08a74232890569b5823e47d4e3c7a93e3a`，且 `origin/main` 已核验包含该 SHA。最新 CI 中静态、文档、Lint、Agent Judge、Ubuntu/Windows build 通过；桌面相关作业未出现 Story2Video 恢复测试失败。
+- 最新 CI 的 `ResultView.test.js` 9 个 UI 断言失败、视觉 `/create` 与 `/create/pipeline` 28.59% 差异、Browser E2E `/create` 基线失败、Coverage 连带失败和 Autonomous PRD 覆盖审计失败均与本次运行时代码无关，按项目既有基线例外合并并保留在 `.quality-gates.md`。
+- 归档在独立 worktree `codex/s2v-resume-current-models-archive` 完成，正式 OpenSpec 将同步到 `openspec/specs/story2video-resume-current-models/spec.md`，change 与 CCG task 随归档提交移动。

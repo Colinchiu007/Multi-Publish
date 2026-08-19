@@ -1,0 +1,22 @@
+{
+  "id": "s2v-resume-current-models",
+  "title": "Story2Video 历史断点恢复切换到当前设置模型",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "归档已完成，保留合并与 CI 基线记录",
+  "createdAt": "2026-08-19T00:00:00+08:00",
+  "branch": "codex/s2v-resume-current-models",
+  "openspecChange": "s2v-resume-current-models",
+  "remoteStatus": "merged_pr_1031_ef980f08_main_verified_archived",
+  "qualityRhythm": {
+    "changeType": "new feature plus behavior contract",
+    "scope": "large cross-module",
+    "risk": "medium",
+    "externalModelReview": "degraded: antigravity unavailable by account/region; Claude wrapper exited 1",
+    "focusedTests": "175 Story2Video/resume tests passed after Windows canonical-path and temp-root fixture fix; final partial-asset assertion fix also passes in isolation; 122 TTS/PromptBridge/multimodal contract tests passed; PR CI contained no Story2Video resume regression",
+    "build": "build:vue passed; electron-builder --win --dir --publish never passed; ASAR require chain and 8-second packaged smoke passed; PR #1031 merged as ef980f08 and origin/main verified"
+  }
+}
