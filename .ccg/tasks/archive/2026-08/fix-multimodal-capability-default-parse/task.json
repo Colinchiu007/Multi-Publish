@@ -1,0 +1,1 @@
+{"id":"fix-multimodal-capability-default-parse","title":"Fix multimodal capability default chip error - double JSON.parse","status":"completed","complexity":"S","risk":"low","domain":"backend","currentPhase":"completed","nextAction":"PR #1012 merged","createdAt":"2026-08-19T18:00:00Z","branch":"codex/fix-multimodal-capability-default-parse"}
