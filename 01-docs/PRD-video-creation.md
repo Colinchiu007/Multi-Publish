@@ -2901,6 +2901,53 @@ viewState: {
 **交互逻辑**：
 - 无交互变更。
 
+### 3.1.32 影视工程页面资源不可用 Bug 修复（2026-08-19）
+
+> 范围：修复影视工程页面进入时显示影视工程资源不可用错误。
+> 分支：codex/fix-film-engineering-unavailable，PR #998。
+
+#### 1) 根因
+
+container.setup.js 注册了 filmEngineeringService，但 bootstrap 链路中：
+- phase1-context.js 未通过 container.get('filmEngineeringService') 提取实例
+- phase5-ipc.js 未将 filmEngineeringService 传递给 handlerDependencies
+
+导致 IPC handler film-engineering.js 访问 deps.filmEngineeringService 为 undefined，service.getStatus() 抛 TypeError（非 FILM_KIT_UNAVAILABLE），前端收到通用错误并显示影视工程资源不可用。
+
+#### 2) 流程（修复后数据流）
+
+container.setup.js 注册 filmEngineeringService -> phase1-context.js container.get 提取 -> context.services.filmEngineeringService -> phase5-ipc.js 解构 context -> handlerDependencies.filmEngineeringService -> ipc-handlers/film-engineering.js deps 可用 -> service.getStatus() -> kit-loader 加载 film-kit -> 前端显示正常
+
+#### 3) 数据校验
+
+- phase1-context 返回值：ctx.filmEngineeringService 必须为 truthy（DI 容器注册后）
+- handlerDependencies：filmEngineeringService 必须存在于 handlerDependencies 对象中
+- IPC status 调用：film-engineering:status 返回 code 0 且 data.available 为 true
+
+#### 4) 功能逻辑
+
+- phase1-context.js：新增 container.get('filmEngineeringService') 并在 services 分组中添加
+- phase5-ipc.js：在 context 解构和 handlerDependencies 中均添加 filmEngineeringService
+- phase1-context.test.js：在 expectedFields 数组中补充 filmEngineeringService（回归保护）
+
+#### 5) 交互逻辑与显示项
+
+- 修复前：用户进入 /film-engineering 页面显示影视工程资源不可用错误
+- 修复后：用户进入 /film-engineering 页面正常加载分镜库、场景列表、提示词规范
+- 无新增交互逻辑或显示项
+
+#### 6) 影响范围
+
+- 修改文件：phase1-context.js（+2 行）、phase5-ipc.js（+2 行）、phase1-context.test.js（+2 行）
+- 无破坏性变更：不影响现有流水线功能
+
+#### 7) 测试逃逸分析（QM-5）
+
+- 逃逸链：单元测试全部 mock filmEngineeringService（直接注入 deps），绕过了真实 DI -> context -> IPC 注入链路
+- 系统性漏洞：缺少集成级 IPC 注册验证，测试不应只验证 handler 逻辑，还应验证 handler 依赖的完整注入路径
+- 回归保护：phase1-context.test.js 新增 filmEngineeringService 字段断言，确保 context 始终包含该字段
+
+
 ## 10. Story2Video 页面 UX 统一（2026-08-17）
 
 本次流水线启动页、历史记录和视频任务编辑页的详细需求、数据校验、显示项、流程、交互和提示文案见 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)。本节保留视频创作 PRD 的入口索引，并明确以下产品结论：进入流水线后的页面叫“流水线启动页”；历史记录中的详情入口直接进入视频任务编辑页；编辑页底部操作固定；多状态历史卡片共用一套结构；失败原因使用自然语言；暂停在流水线启动页提供，编辑页携带运行中 runId 时也提供同一受校验的暂停动作。
