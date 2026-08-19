@@ -1,3 +1,18 @@
+## [Unreleased] - 2026-08-20 (历史场景素材四卡布局与预览/选择交互)
+
+### 变更
+- 视频任务编辑页每个场景固定显示四个视觉卡：图片 1、图片 2、视频 1、视频 2；缺少素材时保留与媒体缩略图相同尺寸和背景的空框，四格顺序和几何不折叠。
+- 单选项移动到缩略图下方、素材名称前。缩略图现在只负责打开预览，radio 或其关联名称才是唯一的当前素材选择入口；视频 1/视频 2 继续归一到持久化的 `video` kind，不新增数据库或 IPC 枚举。
+- 预览弹窗从 `lg` 调整为 `xl`，视频两个视觉卡都按视频元素预览；“生成新图”只放在图片 1 卡内，“生成 AI 视频”只放在视频 1 卡内，避免场景级按钮重复出现。
+- 未生成素材只显示本地化的“未生成”/“Not generated”单行文案，清除空视频卡下方未解释的英文残留。
+
+### 数据与交互校验
+- renderer 对 `selectedMaterial` 做 `image1 | image2 | video` 白名单校验，对视觉视频别名统一发送 `video`；空槽、非法 kind、缺少受控路径由 renderer 与 IPC/service 双层拒绝。
+- 预览必须同时具备受控 path 和可用 share URL；URL 失效时保留固定空框并禁止预览，其他场景素材不受影响。生成按钮保留 busy 防重复和 videoPrompt 非空前置校验。
+
+### 测试与文档
+- ResultView 新增四卡顺序、radio-only selection、thumbnail-only preview、视频 kind 归一、按钮归属、空态英文泄漏、URL 失效、视频媒体类型和 locale 成对回归；同步更新 Story2Video PRD、页面 UX PRD、OpenSpec change 与 learnings。
+
 ## [Unreleased] - 2026-08-19 (视频创作流水线自动后台运行)
 
 ### 变更

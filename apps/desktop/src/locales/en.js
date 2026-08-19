@@ -507,11 +507,13 @@ export default {
       previewSelectedLabel: 'Selected',
       previewUnselectedLabel: 'Not selected',
     },
-    // Video task editor scene materials (2026-08-14): 3 slots + generate/recompose
+    // Video task editor scene materials (2026-08-20): 4 visual cards + 3 persisted identities
     sceneMaterial: {
       title: 'Scene Materials',
       image1Label: 'Image 1',
       image2Label: 'Image 2',
+      video1Label: 'Video 1',
+      video2Label: 'Video 2',
       videoLabel: 'Video',
       emptySlot: 'Not generated',
       selectedBadge: 'In Use',
@@ -522,6 +524,7 @@ export default {
       selectAriaLabel: 'Select {label} as the active material',
       emptyAriaLabel: '{label} is not generated yet',
       previewHint: 'Click to enlarge preview',
+      previewAriaLabel: 'Enlarge preview {label}',
       previewImageTitle: 'Image Preview',
       previewVideoTitle: 'Video Preview',
       saving: 'Saving...',

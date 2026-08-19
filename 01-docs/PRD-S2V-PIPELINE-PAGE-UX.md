@@ -106,11 +106,10 @@
 
 ### 4.2 场景素材与 AI 视频
 
-- 场景素材区的“生成视频/生成 AI 视频”必须使用当前分段 videoPrompt。
-- videoPrompt 为空时按钮禁用，并显示“请先填写视频提示词”类本地化提示。
-- 提示词输入下方不再重复显示第二个“生成 AI 视频”按钮。
-- “当前使用”读取此前真实保存的 selectedMaterial；候选素材列表顺序变化或视频文件暂时不存在时，不得按第一个候选项猜测。
-- 生成成功替换当前分段对应视频素材；失败保留旧素材并显示可操作失败提示。
+- 场景素材区的“生成 AI 视频”必须使用当前分段 `videoPrompt`；`videoPrompt` 为空、空白或未保存时，按钮禁用并提示“请先编辑或重新生成视频优化词，再生成 AI 视频”。
+- “生成新图”与“生成 AI 视频”是场景级动作，各只渲染一次：前者放在 `image1` 卡片内，后者放在 `video1` 卡片内，不在备选卡片重复渲染。
+- “当前使用”读取服务端真实保存的 `selectedMaterial`，只接受 `image1 | image2 | video`；候选列表顺序变化、派生 URL 暂时失效或新增视觉别名时，禁止按第一个候选项猜测。
+- 生成成功后替换对应场景素材并重新解析本地 URL；失败保留旧素材、清理本次产物并显示可操作失败提示。
 
 
 ### 4.2.1 场景素材视频显示优化（2026-08-18）
@@ -118,32 +117,34 @@
 #### 需求概述
 优化视频任务编辑页中场景素材区的视频显示逻辑，确保用户看到的是该场景在流水线过程中独立生成的视频片段，而非最终合成的成片视频。
 
-#### 功能逻辑
-- **视频槽位显示**：场景素材区的视频槽位应显示该场景在流水线中通过 AI 视频生成阶段独立生成的视频片段（segment.videoMeta.sceneVideoPath），而非 compose 阶段合成后的成片视频（segment.videoPath）。
-- **数据来源**：流水线 generateSceneAiVideo 生成场景视频时，将原始路径保存到 segment.videoMeta.sceneVideoPath；compose 阶段覆盖 segment.videoPath 为最终成片路径时，通过 segment.videoMeta.sceneVideoPath 保留原始场景视频路径。
-- **显示优先级**：sceneVideoPath > videoPath。当 sceneVideoPath 存在时优先显示；仅当 sceneVideoPath 不存在时回退到 videoPath。
+#### 功能逻辑与数据来源
+- **四个视觉卡位**：每个场景固定渲染 `image1`、`image2`、`video1`、`video2` 四张卡，顺序不可因素材缺失而改变。`image1` 来自 `segment.imagePath`，`image2` 来自 `segment.alternateImages[0].path`，`video1` 优先使用 `segment.videoMeta.sceneVideoPath`，缺失时兼容回退到场景分段字段 `segment.videoPath`，`video2` 仅使用可选的 `segment.videoMeta.altSceneVideoPath`。
+- **视觉与持久化边界**：四个视觉卡不等于四个持久化身份。主进程和 `story2video:select-scene-material` IPC 继续只接受 `image1 | image2 | video`；`video1/video2` 是 renderer 视觉别名，任一有素材的视频 radio 发出的 kind 都归一为 `video`。`video` 的当前使用徽标只在 canonical `video1` 卡显示一次，避免两个视觉卡同时伪造两个持久化选择。
+- **路径与 URL 校验**：服务端对项目/分段 ID 和素材 kind 做白名单校验，并拒绝不存在的目标槽位；renderer 用 `story2videoCreateShareUrl` 将受控本地路径解析为临时预览 URL。路径存在但 URL 解析失败时保留固定空框、禁止缩略图预览，radio 仍遵循路径存在的服务端选择合同。
+- **不能显示成片替代场景素材**：有 `videoMeta.sceneVideoPath` 时始终优先显示场景独立视频；只有旧项目没有该字段时才允许使用 `segment.videoPath` 兼容历史场景视频数据。compose 输出的顶层成片路径不是本区域的数据源。
 
 #### 当前使用状态
 - **仅显式选择生效**：只有当用户通过 selectSceneMaterial IPC 显式选择了某个素材槽位（segment.selectedMaterial 被设置为 image1、image2 或 video）时，才在该槽位右上角显示"当前使用"标签。
 - **默认无选中**：未显式选择时，所有槽位均不显示"当前使用"标签（effectiveSelectedMaterial 返回 null）。
 - **数据校验**：selectedMaterial 必须是 MATERIAL_KINDS 数组中的合法值，否则视为未选择。
 
-#### 纯图片轮播模式占位符
-- **无 AI 视频时显示占位符**：当场景未生成 AI 视频（sceneVideoPath 和 videoPath 均为空）时，视频槽位显示浅灰色背景色块，色块上显示文字"未生成"。
-- **交互**：占位符不可点击预览，鼠标样式为 not-allowed，透明度 0.75。
-- **生成按钮**：占位符状态下，"生成 AI 视频"按钮可用（前提是 videoPrompt 非空）。
+#### 空素材占位与四格布局
+- **无素材也保留卡位**：任一素材路径缺失，仍渲染同样宽高的 media frame；图片和视频内容使用 `object-fit: cover`，空框使用与缩略图一致的背景色和 `aspect-ratio: 3 / 4` 几何，不压缩、不折叠、不把四列布局变成三列。
+- **空态文案唯一且本地化**：空框只显示 locale 的 `emptySlot`（中文“未生成”，英文“Not generated”）一行；不得显示 `Video 1`、`Video 2`、`video1`、`video2` 或第二行未解释的英文 fallback。
+- **交互**：没有可用路径和 URL 的缩略图按钮 disabled，不打开预览；没有路径的 radio disabled；空卡不触发选择 IPC。
+- **生成按钮**：即使视频卡为空，`video1` 内的“生成 AI 视频”仍可用，前提是 `videoPrompt` 非空且该分段不忙。
 
 #### 生成 AI 视频按钮
 - **触发条件**：videoPrompt 非空且当前分段无正在进行的生成任务（isSegmentBusy 为 false）。
-- **禁用条件**：videoPrompt 为空时按钮禁用，title 属性显示提示文字"请先编辑或重新生成视频优化词，再生成 AI 视频"。
+- **禁用条件**：videoPrompt 缺失、为空或 trim 后为空白时按钮禁用，title 属性显示提示文字"请先编辑或重新生成视频优化词，再生成 AI 视频"。
 - **生成中状态**：按钮文字变为"AI 视频生成中..."，按钮禁用。
 - **生成成功**：刷新场景素材 URL，视频槽位显示新生成的 AI 视频片段。
 - **生成失败**：保留旧素材，显示可操作失败提示。
 
-#### 缩略图真实比例
-- **尺寸规则**：每个图片/视频缩略图按真实宽高比显示，使用 aspect-ratio: 3/4 作为默认比例，图片和视频使用 object-fit: cover 填充。
-- **响应式**：缩略图宽度为槽位容器的 100%，高度由 aspect-ratio 自动计算。
-- **移动端**：窄屏下场景素材槽位单列排列，缩略图保持比例。
+#### 媒体框与响应式布局
+- **固定尺寸规则**：每个 thumbnail button 宽度为卡片内容区 100%，使用稳定 `aspect-ratio: 3 / 4` 和不小于 96px 的高度；图片、视频和空态共用同一背景框，媒体内容使用 `object-fit: cover`。
+- **桌面端**：宽屏四列等宽排列；每张卡的单选项、标签、徽标和所属生成按钮均在自身背景框内，不覆盖相邻卡片。
+- **窄屏**：`720px` 及以下改为两列，媒体框几何保持不变；长按钮文案允许换行，不能撑破卡片或遮挡 radio/标签。
 
 #### 分段编辑侧栏
 - **布局**：分段快捷定位栏（数字跳转 + 上一条/下一条）从分段编辑区域内提取出来，改为右侧固定竖条（position: fixed; right: 20px; top: 80px），不随页面滚动而移动。
@@ -151,28 +152,33 @@
 - **响应式**：窄屏（≤900px）下侧栏隐藏（display: none）。
 - **操作条**：底部固定操作条保持在主内容区域底部，不受侧栏影响。
 
-#### 交互逻辑
-- 点击有路径的素材槽位：调用 selectSceneMaterial IPC，设置 selectedMaterial，刷新"当前使用"状态。
-- 点击无路径的素材槽位：无操作（slot.path 为空时 @click 不触发）。
-- 点击缩略图预览：弹出模态框显示大图/视频预览。
-- 生成 AI 视频前自动保存：若分段有未保存修改，先调用 saveSegments 落盘，再触发生成。
+#### 交互逻辑与事件流
+1. 页面加载项目后按固定顺序生成四个视觉 slot，并逐个解析 `imagePath`、备选图路径、`sceneVideoPath/videoPath` 和 `altSceneVideoPath` 的预览 URL；任一解析失败只影响该 slot。
+2. 用户点击有 URL 的 thumbnail button，只执行 `previewSceneMaterial(slot)`，打开预览，不调用选择 IPC、不改变 `selectedMaterial`。article 不再是 ancestor `label`，避免点击预览被浏览器 label activation 误选 radio。
+3. 用户点击 radio 或其紧邻的 label，才执行 `selectSceneMaterial`；renderer 将 `video1/video2` 归一为 `video`，服务端再次校验目标槽位并返回完整 project。成功后刷新 URL、dirty 状态和当前使用徽标；失败保持原选中态。
+4. 用户点击空 thumbnail、空 radio 或正在 busy 的控件时不产生副作用。
+5. 生成 AI 视频前，如果分段有未保存编辑，先执行 `saveSegments`；保存失败不发起生成。生成和选择共享 `segmentBusy[segmentId]`，防止重复请求。
+6. 预览 modal 使用既有 `UiModal` 的 `xl` 尺寸；`image1/image2` 渲染 `<img>`，`video1/video2` 按 slot kind 渲染带 controls/autoplay 的 `<video>`，媒体最大高度受 `75vh` 约束。
 
 #### 显示项
 | 元素 | 显示条件 | 文案/内容 |
 |------|----------|-----------|
-| 图片 1 缩略图 | segment.imagePath 存在 | 图片预览 |
-| 图片 2 缩略图 | segment.alternateImages[0].path 存在 | 图片预览 |
-| 视频缩略图 | sceneVideoPath 或 videoPath 存在 | 视频预览 |
-| 未生成占位符 | 视频路径均为空 | 浅灰色背景 + "未生成"文字 |
-| 当前使用标签 | selectedMaterial 显式设置且对应槽位有素材 | "当前使用" |
-| 生成 AI 视频按钮 | videoPrompt 非空 | "生成 AI 视频" |
-| 生成新图按钮 | 始终显示 | "生成新图" |
+| `image1` | `segment.imagePath` 与 URL 可用 | 图片缩略图；radio 在缩略图下、标签前；卡内显示“生成新图” |
+| `image2` | `alternateImages[0].path` 与 URL 可用 | 图片缩略图；不重复显示生成按钮 |
+| `video1` | `sceneVideoPath` 或兼容 `videoPath` 与 URL 可用 | 视频缩略图；canonical `video` 选中徽标；卡内显示“生成 AI 视频” |
+| `video2` | `altSceneVideoPath` 与 URL 可用 | 可选的视频视觉别名；预览按视频处理，不新增持久化 kind 或重复徽标 |
+| 空 media frame | path 或 URL 缺失 | 与缩略图同尺寸背景 + 唯一一行“未生成” |
+| 选择控件 | path 存在且分段不 busy | 单选项和本地化 `aria-label`；只有 radio 改变当前使用 |
+| 预览 modal | thumbnail path + URL 均可用 | `UiModal size="xl"`，图片/视频分别按 kind 渲染 |
 
-#### 数据校验
-- selectedMaterial：必须是 MATERIAL_KINDS 之一，否则回退为 null。
-- videoMeta.sceneVideoPath：必须是可读的本地文件路径，否则回退到 videoPath。
-- videoPrompt：空字符串或 null 时禁用生成按钮。
-- 缩略图 URL：经 resolveLocalUrl 解析，失败时显示空状态。
+#### 数据校验、错误与边界
+- `selectedMaterial`：renderer 和服务端都只接受 `image1 | image2 | video`；非法、空白或未知值按未选择处理，不自动猜测。目标槽不存在时服务端返回 `VALIDATION_ERROR`/可操作错误，不能落库。
+- `alternateImages`：非数组、空数组或第一项缺少合法 path 时按空的 `image2` 处理；服务端继续限制最多一项并纳入项目文件引用清理。
+- `videoMeta.sceneVideoPath`：有值时优先；缺失时仅兼容回退 `segment.videoPath`。`altSceneVideoPath` 缺失时 `video2` 保留空框，不借用 `video1` URL。
+- `videoPrompt`：trim 后为空或缺失时禁用 AI 视频按钮并显示 title 提示；有未保存编辑时先保存，保存失败不进入生成阶段。
+- 预览 URL：`story2videoCreateShareUrl` 返回非零 code、空 URL、失效路径或异常时，将该 slot URL 清空；固定 frame 和其他 slot 保持可用。
+- 服务端生成失败：旧 image/video path、meta、`selectedMaterial` 保持不变，本次 attemptFiles 清理，用户只看到归一化的本地化提示，不回显路径、堆栈或 provider 原始 JSON。
+- 测试至少覆盖：四卡固定顺序、radio-only selection、thumbnail-only preview、video kind 归一、`selectedMaterial` 非法值、path/URL 不一致、AI prompt guard、busy 防抖、旧字段缺省、空卡英文泄漏和 `xl` modal。
 ### 4.3 音色与语速
 
 - 字段标签从“音色 ID”改为“音色”。

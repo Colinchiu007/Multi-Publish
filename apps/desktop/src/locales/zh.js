@@ -508,11 +508,13 @@
       previewSelectedLabel: '已选定',
       previewUnselectedLabel: '未选定',
     },
-    // 视频任务编辑页场景多素材（2026-08-14）：3 槽位 + 生成/再次合成
+    // 视频任务编辑页场景素材（2026-08-20）：4 个视觉卡 + 3 个持久化素材身份
     sceneMaterial: {
       title: '场景素材',
       image1Label: '图片 1',
       image2Label: '图片 2',
+      video1Label: '视频 1',
+      video2Label: '视频 2',
       videoLabel: '视频',
       emptySlot: '未生成',
       selectedBadge: '当前使用',
@@ -523,6 +525,7 @@
       selectAriaLabel: '选择{label}作为当前素材',
       emptyAriaLabel: '{label}尚未生成',
       previewHint: '点击可放大预览',
+      previewAriaLabel: '放大预览{label}',
       previewImageTitle: '图片预览',
       previewVideoTitle: '视频预览',
       saving: '保存中...',

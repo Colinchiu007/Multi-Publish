@@ -1,0 +1,15 @@
+{
+  "id": "s2v-history-scene-material-layout",
+  "title": "修复视频任务编辑页场景素材布局、预览与选择交互",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-electron",
+  "currentPhase": "implementation",
+  "nextAction": "提交功能分支，基于最新 origin/main rebase 后推送并创建 PR",
+  "createdAt": "2026-08-19T15:42:00+08:00",
+  "branch": "codex/s2v-scene-material-layout",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-s2v-scene-material-layout",
+  "openspecChange": "s2v-history-scene-material-layout",
+  "remoteStatus": "not_started"
+}
