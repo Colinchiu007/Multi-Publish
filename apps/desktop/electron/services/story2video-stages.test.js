@@ -29,6 +29,9 @@ const {
 const { findFfmpeg } = require('./media-tool-paths')
 const { StageExecutor, STAGE_TYPES } = require('./stage-executor')
 
+// CI runner 可能没有预先创建系统临时目录下的 Story2Video 根目录。
+fs.mkdirSync(STORY2VIDEO_TEMP_DIR, { recursive: true })
+
 afterEach(() => {
   cleanupRunInputDir('run')
 })
@@ -679,6 +682,8 @@ describe('story2video 资源索引契约', () => {
     const resumedAudio = path.join(root, 'old-audio.mp3')
     fs.writeFileSync(resumedImage, 'old image')
     fs.writeFileSync(resumedAudio, 'old audio')
+    const resumedImageRealPath = fs.realpathSync.native(resumedImage)
+    const resumedAudioRealPath = fs.realpathSync.native(resumedAudio)
     const generateImage = vi.fn(async (_prompt, opts) => ({ code: 0, data: { path: path.join(root, `new-image-${opts.index}.png`) } }))
     const generateTTS = vi.fn(async (_text, opts) => ({ code: 0, data: { path: path.join(root, `new-audio-${opts.index}.mp3`), duration: 2 } }))
     const manager = {
@@ -722,7 +727,7 @@ describe('story2video 资源索引契约', () => {
         voice_model: 'voice-current-model',
         index: 1,
       }))
-      expect(result.output.scenes[0]).toMatchObject({ imagePath: resumedImage, audioPath: resumedAudio })
+      expect(result.output.scenes[0]).toMatchObject({ imagePath: resumedImageRealPath, audioPath: resumedAudioRealPath })
       expect(result.output.scenes[1]).toMatchObject({ index: 1 })
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
@@ -1408,6 +1413,8 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     const resumedAudio = path.join(resumeDir, 'resume-audio-0.mp3')
     fs.writeFileSync(resumedImage, 'resume image')
     fs.writeFileSync(resumedAudio, 'resume audio')
+    const resumedImageRealPath = fs.realpathSync.native(resumedImage)
+    const resumedAudioRealPath = fs.realpathSync.native(resumedAudio)
     const assetGenerator = {
       generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
       generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: `audio-${index}.mp3`, duration: 2 } })),
@@ -1430,7 +1437,7 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     })
     expect(result).toMatchObject({ success: true })
     expect(result.output.scenes).toHaveLength(2)
-    expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: resumedImage, audioPath: resumedAudio })
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: resumedImageRealPath, audioPath: resumedAudioRealPath })
     expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
     expect(assetGenerator.generateImage).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ index: 1 }))
     expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(1)
@@ -2466,6 +2473,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
       fs.writeFileSync(p, 'resumed')
       return p
     })
+    const resumeVideoRealPaths = resumeVideos.map((filePath) => fs.realpathSync.native(filePath))
     const resumeAudios = ['a0.mp3', 'a1.mp3'].map(name => {
       const p = path.join(resumeDir, name)
       fs.writeFileSync(p, 'resumed audio')
@@ -2519,8 +2527,14 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     expect(optimizeVideoPrompt).toHaveBeenCalledTimes(1)
     expect(optimizeVideoPrompt).toHaveBeenCalledWith('video-prompt-2', expect.objectContaining({ prev_final_frame: 'checkpoint-end-1' }))
     // 场景 0/1 复用续跑产物；场景 2 生成新视频
-    expect(result.output.scenes[0]).toMatchObject({ index: 0, videoPath: resumeVideos[0] })
-    expect(result.output.scenes[1]).toMatchObject({ index: 1, videoPath: resumeVideos[1] })
+    expect(result.output.scenes[0]).toMatchObject({
+      index: 0,
+      videoPath: resumeVideoRealPaths[0],
+    })
+    expect(result.output.scenes[1]).toMatchObject({
+      index: 1,
+      videoPath: resumeVideoRealPaths[1],
+    })
     expect(result.output.scenes[2]).toMatchObject({ index: 2, videoPath: expect.stringContaining('scene_video_002.mp4') })
     expect(result.output.scenes[1].videoMeta.continuity).toMatchObject({
       mode: 'planned_final_frame',
@@ -2535,6 +2549,7 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     const resumeDir = fs.mkdtempSync(path.join(STORY2VIDEO_TEMP_DIR, 's2v-resume-video-model-'))
     const resumedVideo = path.join(resumeDir, 'scene-0.mp4')
     fs.writeFileSync(resumedVideo, 'resumed')
+    const resumedVideoRealPath = fs.realpathSync.native(resumedVideo)
     const calls = []
     const callAdapter = vi.fn(async (provider, method, payload) => {
       calls.push({ provider, method, payload })
@@ -2581,7 +2596,10 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
       })
 
       expect(result.success, JSON.stringify(result)).toBe(true)
-      expect(result.output.scenes[0]).toMatchObject({ index: 0, videoPath: resumedVideo })
+      expect(result.output.scenes[0]).toMatchObject({
+        index: 0,
+        videoPath: resumedVideoRealPath,
+      })
       expect(result.output.scenes[1]).toMatchObject({ index: 1, videoPath: expect.stringContaining('scene_video_001.mp4') })
       const videoSubmissions = calls.filter((call) => call.method === 'generateVideo')
       expect(videoSubmissions).toHaveLength(1)

@@ -32,9 +32,23 @@
 - `git diff --check`：通过。
 - 文档冲突：已解决并 `git ls-files -u` 无输出。
 
+## CI 复核与补丁
+
+首轮 PR CI（run `32270074499`）暴露了本次新增恢复夹具的 Windows runner 差异，已完成最小修复：
+
+- `story2video-stages.test.js` 在测试导入时显式创建 `STORY2VIDEO_TEMP_DIR`，避免干净 runner 的 `mkdtemp` 因父目录不存在而失败。
+- resume 资产断言比较 `fs.realpathSync.native()` 的 canonical 路径，避免 `C:\Users\RUNNER~1` 与 `C:\Users\runneradmin` 的 8.3 短路径差异造成误报。生产代码仍保持受控根目录、普通文件、扩展名、大小和符号链接边界校验。
+- 本地补丁后定向回归：3 个文件、175 tests passed；`node --check` 与 `git diff --check` passed。
+
+首轮 CI 的其他失败与本次运行时代码无关，已分离记录：
+
+- `ResultView.test.js` 的 7 个既有素材槽位、AI 视频按钮和媒体 URL 断言失败；`build-preload.test.js` 的源码与已提交 bundle API 列表漂移。它们属于主线既有 UI/preload 基线，不修改本任务范围。
+- Browser E2E 仅失败 `/` 首页 1 项和 `/create` 内置流水线卡片计数 1 项，`/create/pipeline` 通过；视觉测试仅失败 `/create` 与 `/create/pipeline`，两者同为 28.59% 基线漂移，其余 15/17 页面通过。
+- Autonomous coverage audit 为 PRD 覆盖审计 `score: 0, items: 89`，不是 Story2Video 恢复执行失败。
+
 ## 残余风险
 
 - 远程视频 `taskId` 目前仍未持久化，进程中断后的远程任务不能安全查询；恢复不会伪造完成，未来需单独设计任务持久化与原始绑定查询。
 - 视频状态轮询沿用既有“显式失败立即结束、无 URL 继续轮询至超时”的合同；本次不扩大远程 provider 状态枚举。
 - 当前 LLM 的 PromptBridge 路径在每次请求边界读取模型管理器默认配置，未新增外部 `useCurrentModels` 字段，避免污染 Python 服务协议。
-- 尚需完成 Electron 依赖检查、Vue 构建、QM-1 打包/ASAR/启动检查、远端 PR 合并及归档闭环。
+- 远端 PR CI 需要在本次 Windows 测试补丁推送后重新运行；首轮 UI/preload/视觉/Autonomous 基线问题仍需项目级别另行治理，不在本次补丁范围。
