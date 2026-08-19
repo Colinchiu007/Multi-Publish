@@ -11,4 +11,4 @@
 - [x] 3.1 Update PRD and architecture documentation with validation, flow, interaction, display/copy and risk rules.
 - [x] 3.2 Update changelogs and 01-docs/learnings.md with QM-5 root cause, escape analysis, regression protection and prevention.
 - [x] 3.3 Run focused tests, quality gates, Electron packaging/ASAR checks and dual-model review with documented degradation if external backends remain unavailable.
-- [ ] 3.4 Push, open/merge PR, verify remote main, archive OpenSpec/CCG task and record remoteStatus.
+- [x] 3.4 Push, open/merge PR, verify remote main, archive OpenSpec/CCG task and record remoteStatus.
