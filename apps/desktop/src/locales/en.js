@@ -413,7 +413,7 @@ export default {
     compose_failed: 'Video composition failed. Check disk space and device load, then resume from the breakpoint. If it still fails, try again later.',
     api_error: 'The model API returned an error (status {statusCode}). Check your model configuration and account status, then resume from the breakpoint.',
     pipeline_not_implemented: 'This pipeline has no execution engine yet, so videos cannot be generated.',
-    pipeline_concurrency_limit: '{count} pipelines are already running in the background. Up to {max} can run at once. Wait for one to finish before starting another.',
+    pipeline_concurrency_limit: 'Multiple pipelines are already running in the background, reaching the concurrency limit. Wait for one to finish before starting another.',
     optionsSaved: 'Options saved ✓',
     optionsRestored: 'Restored your last-used options',
     splitSceneCount: 'Split into {count} scenes',

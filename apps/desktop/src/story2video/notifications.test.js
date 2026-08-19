@@ -241,19 +241,19 @@ describe('Story2Video 通知模型', () => {
 })
 
 describe('Story2Video 后台并发通知', () => {
-  it('errorCode=PIPELINE_CONCURRENCY_LIMIT 解析为专用文案并填充 count/max', () => {
-    const zh = resolveStory2VideoNotification({ errorCode: 'PIPELINE_CONCURRENCY_LIMIT', errorParams: { count: 2, max: 2 } })
+  it('errorCode=PIPELINE_CONCURRENCY_LIMIT 解析为专用并发限制文案', () => {
+    const zh = resolveStory2VideoNotification({ errorCode: 'PIPELINE_CONCURRENCY_LIMIT' })
     expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT)
-    expect(zh.message).toBe('当前已有 2 条流水线正在后台运行，最多同时运行 2 条，请等待其中一条完成后再启动。')
+    expect(zh.message).toBe('当前已有多条流水线正在后台运行，达到并发任务最大值，请等待其中一条完成后再启动。')
 
-    const en = resolveStory2VideoNotification({ errorCode: 'PIPELINE_CONCURRENCY_LIMIT', errorParams: { count: 1, max: 2 } }, { locale: 'en-US' })
+    const en = resolveStory2VideoNotification({ errorCode: 'PIPELINE_CONCURRENCY_LIMIT' }, { locale: 'en-US' })
     expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT)
-    expect(en.message).toContain('1 pipelines are already running')
-    expect(en.message).toContain('Up to 2 can run at once')
+    expect(en.message).toContain('pipelines are already running')
+    expect(en.message).toContain('concurrency limit')
   })
 
   it('中文后端并发错误文本也能通过正则映射到并发通知', () => {
-    const resolved = resolveStory2VideoNotification({ error: '当前已有 2 条流水线正在后台运行，最多同时运行 2 条，请等待其中一条完成后再启动。' })
+    const resolved = resolveStory2VideoNotification({ error: '当前已有多条流水线正在后台运行，达到并发任务最大值，请等待其中一条完成后再启动。' })
     expect(resolved.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT)
   })
 })

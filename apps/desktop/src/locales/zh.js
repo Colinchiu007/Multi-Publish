@@ -413,7 +413,7 @@
     compose_failed: '视频合成失败。请检查磁盘空间和设备负载，然后从断点继续；若仍失败，可稍后重试。',
     api_error: '模型 API 返回错误（状态码 {statusCode}）。请检查模型配置和账号状态，然后从断点继续。',
     pipeline_not_implemented: '该流水线尚未实现执行引擎，暂不能生成视频。',
-    pipeline_concurrency_limit: '当前已有 {count} 条流水线正在后台运行，最多同时运行 {max} 条，请等待其中一条完成后再启动。',
+    pipeline_concurrency_limit: '当前已有多条流水线正在后台运行，达到并发任务最大值，请等待其中一条完成后再启动。',
     optionsSaved: '选项已保存 ✓',
     optionsRestored: '已恢复上次的选项设置',
     splitSceneCount: '拆分为了 {count} 个场景',
