@@ -16,6 +16,11 @@
     "url": "https://github.com/Colinchiu007/Multi-Publish/pull/1021",
     "state": "merged",
     "mergeCommit": "f00c298b891e78bc419a37f5b0bfb2ce2998294b",
-    "originMainVerified": true
+    "archivePr": 1027,
+    "archiveUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1027",
+    "archiveState": "merged",
+    "archiveMergeCommit": "4e1809ab09b231c9ee3661bab0b35043ad2c2fac",
+    "originMainVerified": true,
+    "originMainAfterArchive": "4e1809ab09b231c9ee3661bab0b35043ad2c2fac"
   }
 }
