@@ -190,10 +190,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 92 个键（91 方法 + pipelines 对象）', () => {
+  it('publish 模块应导出 102 个键', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(92)
+    expect(Object.keys(r).length).toBe(102)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -202,16 +202,16 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(42)
   })
 
-  it('system 模块应导出 142 个方法', () => {
+  it('system 模块应导出 144 个方法', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncGet/Save/Now/Runtime（运营后台同步 + 运行时策略）
     // + generationFeedback/promptLibraryList（提示词引擎自进化 P0 反馈管道）
-    expect(Object.keys(r).length).toBe(142)
+    expect(Object.keys(r).length).toBe(144)
   })
 
-  it('合并后 api 总键数应为 283（含 videoClone 与 filmEngineering 命名空间）', () => {
-    expect(Object.keys(api).length).toBe(283)
+  it('合并后 api 总键数应为 295（含 videoClone 与 filmEngineering 命名空间）', () => {
+    expect(Object.keys(api).length).toBe(295)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

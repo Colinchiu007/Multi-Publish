@@ -2,7 +2,7 @@
 /**
  * model-provider.test.js — IPC handler 单元测试
  *
- * 覆盖 12 个 model-provider:* handler：
+ * 覆盖 13 model-provider:* handler：
  *   - list / get / create / update / delete / set-default / get-default
  *   - test / presets / is-configured
  *   - logs / clean-logs（第 4 轮新增，含 store 缺失兜底）
@@ -76,8 +76,8 @@ describe('model-provider IPC handlers', () => {
   })
 
   // ─── 注册完整性 ────────────────────────────────
-  it('registers all 12 model-provider handlers', () => {
-    expect(ipcMain.handle).toHaveBeenCalledTimes(12)
+  it('registers all 13 model-provider handlers', () => {
+    expect(ipcMain.handle).toHaveBeenCalledTimes(13)
     const channels = ipcMain.handle.mock.calls.map(c => c[0])
     expect(channels).toEqual([
       'model-provider:list',
@@ -92,6 +92,7 @@ describe('model-provider IPC handlers', () => {
       'model-provider:is-configured',
       'model-provider:logs',
       'model-provider:clean-logs',
+      'model-provider:set-capability-default',
     ])
   })
 

@@ -900,7 +900,7 @@ describe("ResultView", () => {
     w.unmount();
   });
 
-  it("视频任务编辑页渲染每场景 3 个素材槽位（图1/图2/视频）并展示选中态", async () => {
+  it("视频任务编辑页渲染每场景 4 个素材槽位（图1/图2/视频1/视频2）并展示选中态", async () => {
     const w = await createView();
     w.vm.projectId = "p1";
     w.vm.segments = [{
@@ -935,13 +935,13 @@ describe("ResultView", () => {
     const w = await createView();
     w.vm.projectId = "p1";
     w.vm.segments = [{
-      id: "s1", imagePath: "C:/img1.png", videoPath: "C:/v.mp4", selectedMaterial: "image1", status: "completed",
+      id: "s1", imagePath: "C:/img1.png", videoPath: "C:/v.mp4", videoMeta: { sceneVideoPath: "C:/v.mp4", altSceneVideoPath: "C:/v2.mp4" }, selectedMaterial: "image1", status: "completed",
     }];
     await nextTick();
     const section = w.find('[data-testid="scene-material-section"]');
-    await section.findAll(".scene-material-slot")[2].trigger("click");
+    await section.findAll(".scene-material-slot")[3].trigger("click");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(mocks.story2videoSelectSceneMaterial).toHaveBeenCalledWith("p1", "s1", "video");
+    expect(mocks.story2videoSelectSceneMaterial).toHaveBeenCalledWith("p1", "s1", "video2");
     expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.material_selected");
     w.unmount();
   });
