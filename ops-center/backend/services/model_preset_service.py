@@ -758,6 +758,93 @@ async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_ove
 
 
 
+
+async def test_provider_connection(db: AsyncSession, preset_id: str, body: dict, secret: str) -> dict:
+    """测试模型预设连通性（不落库、不产生真实生成费用）。
+
+    探测策略（OpenAI 兼容最小请求）：
+    1) POST {base}/chat/completions（max_tokens=1）——覆盖 llm/vision/chat 类；
+    2) 若返回 404/405，或 400 且错误体命中模型关键字 → fallback GET {base}/models —— 覆盖 image 类；
+    3) 均不可达 → 报错并提示「请用真实生成验证」。
+    api_key/base_url 未提供时回退到已保存密钥（按 provider 匹配 official_keys）。
+    """
+    import httpx
+    from sqlalchemy import select as sa_select
+    from models import OfficialKey, ModelPreset
+    from services.key_service import decrypt_key
+
+    row = await get_model_preset(db, preset_id)
+    if row is None:
+        raise ValueError(f"Model preset not found: {preset_id}")
+
+    # 优先使用 body 中传入的值，否则从数据库获取
+    api_key = str(body.get("api_key") or "").strip()
+    base_url = str(body.get("base_url") or "").strip().rstrip("/")
+    model = str(body.get("model") or "").strip()
+
+    # base_url：优先 body → 数据库 preset
+    if not base_url:
+        base_url = (row.base_url or "").strip().rstrip("/")
+    if not base_url:
+        raise ValueError("未配置 base_url（端口URL），请先填写")
+
+    # api_key：优先 body → official_keys 表（按 provider 匹配）
+    if not api_key:
+        key_row = (await db.execute(
+            sa_select(OfficialKey).where(
+                OfficialKey.provider == preset_id,
+                OfficialKey.is_active == 1,
+            )
+        )).scalar_one_or_none()
+        if key_row:
+            try:
+                api_key = decrypt_key(secret, key_row.api_key)
+            except Exception:
+                pass
+    if not api_key:
+        raise ValueError("未配置 API Key，请先填写（表单或模型密钥表）")
+
+    # model：优先 body → preset 的 default_model → 列表第一个
+    if not model:
+        model = row.default_model or ""
+    if not model:
+        models_list = json.loads(row.models or "[]")
+        if models_list:
+            model = models_list[0]
+    if not model:
+        raise ValueError("未配置模型 ID（default_model 或 models），请先填写")
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    def _is_model_error(text: str) -> bool:
+        t = text.lower()
+        return any(kw in t for kw in ("unknown model", "model not found", "model does not exist",
+                                       "invalid model", "not found", "no such model"))
+
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            # 策略 1: POST chat/completions
+            url = f"{base_url.rstrip('/')}/chat/completions"
+            resp = await client.post(url, json={
+                "model": model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            }, headers=headers)
+            if resp.status_code < 400:
+                return {"ok": True, "detail": "连接成功（chat/completions 可达）"}
+            if resp.status_code in (404, 405) or (resp.status_code == 400 and _is_model_error(resp.text)):
+                # 策略 2: fallback GET /models
+                url2 = f"{base_url.rstrip('/')}/models"
+                resp2 = await client.get(url2, headers=headers)
+                if resp2.status_code < 400:
+                    return {"ok": True, "detail": "连接成功（/models 可达）"}
+                raise ValueError(
+                    f"连通性探测失败：chat/completions={resp.status_code}，/models={resp2.status_code}；"
+                    "该端点可能不支持轻量探测，请改用真实生成/评估验证")
+            raise ValueError(f"HTTP {resp.status_code}: {resp.text[:200]}")
+    except httpx.HTTPError as e:
+        raise ValueError(f"连接失败：{e.__class__.__name__}: {e}")
+
 async def list_catalog(db: AsyncSession) -> list[dict]:
     """目录同步端点数据：仅 is_visible=1，序列化桌面端所需字段（不含敏感项）。"""
     import sqlalchemy as sa

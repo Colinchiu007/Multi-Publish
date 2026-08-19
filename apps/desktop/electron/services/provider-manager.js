@@ -10,7 +10,7 @@
  *   POST   /providers           — 创建新 Provider
  *   PUT    /providers/{name}    — 更新 Provider
  *   DELETE /providers/{name}    — 删除 Provider
- *   POST   /providers/{name}/test — 测试连接
+ *   POST   /model-presets/{name}/test — 测试连接（真实 API 调用）
  *
  * User API (prefix: /api/user):
  *   GET    /providers           — 按层级列出可用 Provider
@@ -59,27 +59,27 @@ class ProviderManager {
 
   /** 列出所有 Provider */
   async listProviders () {
-    return this._callApi('get', '/api/admin/providers')
+    return this._callApi('get', '/api/v1/model-presets')
   }
 
   /** 创建 Provider */
   async createProvider (data) {
-    return this._callApi('post', '/api/admin/providers', data)
+    return this._callApi('post', '/api/v1/model-presets', data)
   }
 
   /** 更新 Provider */
   async updateProvider (name, data) {
-    return this._callApi('put', `/api/admin/providers/${encodeURIComponent(name)}`, data)
+    return this._callApi('put', `/api/v1/model-presets/${encodeURIComponent(name)}`, data)
   }
 
   /** 删除 Provider */
   async deleteProvider (name) {
-    return this._callApi('delete', `/api/admin/providers/${encodeURIComponent(name)}`)
+    return this._callApi('delete', `/api/v1/model-presets/${encodeURIComponent(name)}`)
   }
 
   /** 测试连接 */
   async testProvider (name) {
-    return this._callApi('post', `/api/admin/providers/${encodeURIComponent(name)}/test`)
+    return this._callApi('post', `/api/v1/model-presets/${encodeURIComponent(name)}/test`)
   }
 
   // ─── User API ──────────────────────────────────
