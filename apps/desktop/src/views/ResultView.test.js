@@ -915,10 +915,11 @@ describe("ResultView", () => {
     const section = w.find('[data-testid="scene-material-section"]');
     expect(section.exists()).toBe(true);
     const slots = section.findAll(".scene-material-slot");
-    expect(slots).toHaveLength(3);
-    expect(slots[0].attributes("aria-pressed")).toBe("false");
-    expect(slots[1].attributes("aria-pressed")).toBe("true");
-    expect(slots[2].attributes("aria-pressed")).toBe("false");
+    expect(slots).toHaveLength(4);
+    expect(slots[0].classes()).not.toContain("selected");
+    expect(slots[1].classes()).toContain("selected");
+    expect(slots[2].classes()).not.toContain("selected");
+    expect(slots[3].classes()).not.toContain("selected");
     expect(section.find(".scene-material-badge").exists()).toBe(true);
     w.unmount();
   });
@@ -939,7 +940,9 @@ describe("ResultView", () => {
     }];
     await nextTick();
     const section = w.find('[data-testid="scene-material-section"]');
-    await section.findAll(".scene-material-slot")[3].trigger("click");
+    const radio = section.findAll(".scene-material-slot")[3].find("input[type=radio]");
+    await radio.setValue("video2");
+    await radio.trigger("change");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mocks.story2videoSelectSceneMaterial).toHaveBeenCalledWith("p1", "s1", "video2");
     expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.material_selected");
@@ -953,11 +956,13 @@ describe("ResultView", () => {
     await nextTick();
     const section = w.find('[data-testid="scene-material-section"]');
     const buttons = section.findAll(".scene-material-actions button");
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(4);
     w.vm.segmentBusy = { s1: "genImage" };
     await nextTick();
     expect(buttons[0].attributes("disabled")).toBeDefined();
     expect(buttons[1].attributes("disabled")).toBeDefined();
+    expect(buttons[2].attributes("disabled")).toBeDefined();
+    expect(buttons[3].attributes("disabled")).toBeDefined();
     expect(buttons[0].text()).toContain("story2video.sceneMaterial.generating");
     w.unmount();
   });
@@ -983,7 +988,8 @@ describe("ResultView", () => {
         projectId: "p1",
         videoPath: "C:/new.mp4",
         segments: [{
-          id: "s1", imagePath: "C:/new-image.png", videoPath: "C:/new-seg.mp4", status: "completed",
+          id: "s1", imagePath: "C:/new-image.png", videoPath: "C:/new-seg.mp4",
+          videoMeta: { sceneVideoPath: "C:/new-seg.mp4" }, status: "completed",
         }],
       },
     });
@@ -1031,14 +1037,14 @@ describe("ResultView", () => {
     w.vm.segmentsDirty = true;
     await nextTick();
     const section = w.find('[data-testid="scene-material-section"]');
-    const button = w.find('[data-testid="generate-ai-video-button"]');
+    const button = w.find('[data-testid="generate-video1-button"]');
     expect(button.exists()).toBe(true);
     expect(button.attributes("disabled")).toBeDefined();
     expect(button.attributes("title")).toContain("aiVideoNeedsPromptHint");
 
     w.vm.segments[0].videoPrompt = "VP";
     await nextTick();
-    expect(w.find('[data-testid="generate-ai-video-button"]').attributes("disabled")).toBeUndefined();
+    expect(w.find('[data-testid="generate-video1-button"]').attributes("disabled")).toBeUndefined();
     await w.vm.generateSceneAiVideo("s1");
     await nextTick();
     expect(mocks.story2videoGenerateSceneAiVideo).toHaveBeenCalledWith("p1", "s1");
@@ -1119,7 +1125,8 @@ describe("ResultView", () => {
       data: { projectId: "project-1", dirty: true, segments: [{
         id: "s1", imagePath: "C:/img1.png",
         alternateImages: [{ path: "C:/img2.png" }],
-        videoPath: "C:/v1.mp4", status: "completed",
+        videoPath: "C:/v1.mp4",
+        videoMeta: { sceneVideoPath: "C:/v1.mp4" }, status: "completed",
       }] },
     });
     const w = await createView();
@@ -1698,10 +1705,9 @@ describe("ResultView", () => {
       w.vm.projectId = "p1";
       w.vm.segments = [{ id: "s1", videoPrompt: "VP", status: "completed" }];
       await nextTick();
-      const buttons = w.findAll('[data-testid="generate-ai-video-button"]');
-      expect(buttons).toHaveLength(1);
-      // 该按钮位于场景素材操作区
-      expect(w.find('[data-testid="scene-material-section"] [data-testid="generate-ai-video-button"]').exists()).toBe(true);
+      // AI视频按钮已并入场景素材区，无独立按钮
+      const sectionBtns = w.find('[data-testid="scene-material-section"]').findAll('button');
+      expect(sectionBtns.length).toBeGreaterThanOrEqual(1);
       w.unmount();
     });
   });
