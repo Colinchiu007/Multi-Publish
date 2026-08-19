@@ -304,4 +304,11 @@ describe('Story2Video notification messages', () => {
     })
     expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
   })
+
+  it('SenseNova 429 rpm exhausted classified as RATE_LIMITED not QUOTA_EXCEEDED', () => {
+    const result = formatStory2VideoNotification({
+      error: "Story2Video optimize failed: Story2Video 场景 2 prompt-engine 优化失败: Error code: 429 - {'error': {'message': 'rpm exhausted', 'type': 'quota_exceeded_error', 'code': '8'}}"
+    })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED)
+  })
 })

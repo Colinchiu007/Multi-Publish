@@ -108,7 +108,7 @@ const MODEL_API_KEY_PATTERN = new RegExp('(?:' + [
 ].join('|') + ')', 'i')
 const MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用)/i
 const ACCESS_DENIED_PATTERN = /(当前许可证无权访问|当前账号没有所需权益|未授权|未登录|需要登录|access denied|not authorized|permission denied|sign[ -]?in required)/i
-const RATE_LIMITED_PATTERN = /(rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|too\s*many\s*requests)/i
+const RATE_LIMITED_PATTERN = /(rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|too\s*many\s*requests|Error\s+code:\s*429|rpm\s+exhausted|429\s+Too\s+Many)/i
 const QUOTA_EXCEEDED_PATTERN = /((?:insufficient|exhausted|exceeded|out\s+of).{0,40}(?:quota|balance|token|credit)|(?:quota|balance|token|credit)s?.{0,40}(?:exceeded|insufficient|exhausted)|(?:余额|额度|配额).{0,20}(?:不足|不够|超|耗尽)|insufficient[_\s]*balance|billing|payment\s*required|(?:用量|Token\s*Plan|额度).{0,24}(?:上限|超|耗尽|用尽|用完)|(?:plan|套餐).{0,20}(?:expired|upgrade|到期)|usage\s*limit)/i
 // 多次空结果（empty_result）：服务波动或账号问题，与内容安全审查是两类原因（2026-08-16 复审补强）
 const EMPTY_RESULT_PATTERN = /(repeatedly returned no result|多次未返回结果)/i

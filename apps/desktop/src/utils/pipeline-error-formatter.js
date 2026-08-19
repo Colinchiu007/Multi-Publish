@@ -61,7 +61,7 @@ const RULES = [
   },
   // 频率/配额限制
   {
-    pattern: /rate.?limit|too many requests|429|限流|频率.*限制/i,
+    pattern: /rate.?limit|too many requests|429|限流|频率.*限制|Error\s+code:\s*429|rpm\s+exhausted|429\s+Too\s+Many/i,
     key: 'rate_limited',
     extract () { return {} },
   },

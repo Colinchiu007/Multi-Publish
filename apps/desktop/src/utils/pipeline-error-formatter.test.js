@@ -89,4 +89,10 @@ describe('formatPipelineError', () => {
   it('has locale-consistent rule count', () => {
     expect(RULES.length).toBeGreaterThanOrEqual(10)
   })
+
+  it('matches SenseNova 429 rpm exhausted as rate_limited not quota_exceeded', () => {
+    const raw = "Story2Video optimize failed: Story2Video 场景 2 prompt-engine 优化失败: Error code: 429 - {'error': {'message': 'rpm exhausted', 'type': 'quota_exceeded_error', 'code': '8'}}"
+    const result = formatPipelineError(raw)
+    expect(result.key).toBe('story2video.rate_limited')
+  })
 })
