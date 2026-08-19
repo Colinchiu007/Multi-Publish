@@ -10,7 +10,7 @@
   "createdAt": "2026-08-19T00:00:00+08:00",
   "branch": "codex/s2v-resume-current-models",
   "openspecChange": "s2v-resume-current-models",
-  "remoteStatus": "merged_pr_1031_ef980f08_main_verified_archived",
+  "remoteStatus": "merged_pr_1031_ef980f08_archive_pr_1035_49cf867e_main_verified",
   "qualityRhythm": {
     "changeType": "new feature plus behavior contract",
     "scope": "large cross-module",
