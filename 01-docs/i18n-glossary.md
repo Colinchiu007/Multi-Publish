@@ -26,7 +26,7 @@
 | 打开结果 | Open result | history.openResult |
 | 故事讲述 | Story Telling | `story2video-compose` |
 | 启动流水线 | Start pipeline | — |
-| 后台运行 | Run in background | — |
+| 后台运行 | Run in background | create.story2video.backgroundRunToast / create.story2video.backgroundResumeToast |
 | 口播视频 | Talking Head | `talking-head` |
 | 数字人口播 | Avatar Spokesperson | `avatar-spokesperson` |
 | 旁白 | Narration | — |
