@@ -323,6 +323,14 @@
 - **教训 3（CJK 基线行号脆弱性第三次实证）**：CreateView.vue 增加按钮/方法 → 行号整体漂移 → 基线 1562 条全部错位（当前仍 1562，无真新增）；`--update-baseline` 权威重排修复。行号 id 基线是反复踩坑点（learnings 2026-08-13 提示词引擎教训 4 已提出改内容摘要，待落地）。
 - **教训 4（审查降级路径：antigravity → claude → codex）**：antigravity 地区不可用（Eligibility）、claude wrapper stdin 挂起 exit 1（SDK PATH 已加仍失败）→ 用 `--backend codex` 完成独立审查并产出高质量 C1 竞态发现；质量节拍记录降级，不冒充双模型通过。
 - **交付**：CreateView.test.js +6（175 全绿）、vite build/eslint 0、PRD §3a 合同、CHANGELOG、i18n-glossary、CJK 基线重排。
+## 视频创作流水线启动即后台运行复盘（s2v-pipeline-always-background-run，2026-08-19）
+
+- **根因**：主进程早已用 autoAdvance + background 异步推进 run，但 renderer 仍用“是否点击后台运行按钮”区分前台挂载与后台运行，导致执行事实和 UI 语义分裂。
+- **修复**：编排启动成功后统一 stop polling + resetPipelineUiState + 历史刷新；历史卡片续跑进入 running 时不切创作页、不重新建立轮询；只有 scene_asset_selection paused 保留人工素材选择交互。
+- **数据校验**：启动和续跑响应的 runId 必须是非空字符串；自动后台不调用 pipelineCancel、不释放并发槽位；已有 runId 快照守卫继续丢弃过期轮询响应。
+- **测试逃逸分析**：旧测试覆盖了“点击按钮后脱离”，但没有覆盖“启动成功后立即脱离”和“历史续跑不抢占创作页”；本次新增/改写 CreateView 启动、历史续跑、mounted 不接管、无效 runId 和历史后台提示断言。4 个 4K/音色异步用例仍有独立预存失败，未将其误报为本次回归。
+- **流程预防**：OpenSpec 规格明确运行态后台语义与人工检查点例外；PRD 记录校验、流程、显示项、提示文字和并发合同，避免后续只修改按钮文案而遗漏启动/续跑路径。
+
 ## npm → pnpm 迁移复盘（pnpm-worktree-deps，2026-08-13）
 
 - **交付**：依赖管理迁移 pnpm 11.13.1（`pnpm-workspace.yaml`：nodeLinker=hoisted + allowBuilds 放行 esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js），`pnpm-lock.yaml` 唯一锁文件；7 个 CI workflow + nx.json + workflow-contract 同步；新增 `scripts/verify-worktree-deps.js`（解析门禁）与 `scripts/run-package-install.js`；重写 `scripts/fix-worktree-node-modules.sh`；electron-builder 排除 `!node_modules/.pnpm/**`。新 worktree `pnpm install --frozen-lockfile` 实测 17.1s（1104 包 store 复用、0 下载）；桌面全量 vitest + 其余 workspace 全绿；win 打包 QM-1 通过；CI 全绿后合并（PR #705）。

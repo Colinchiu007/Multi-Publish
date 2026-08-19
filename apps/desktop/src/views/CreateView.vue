@@ -917,16 +917,6 @@
               <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</UiButton>
               <UiButton v-if="needsCheckpoint" @click="advancePipeline">✅ 确认并继续</UiButton>
             </template>
-            <!-- 后台运行（2026-08-13）：仅编排流水线运行中显示；点击后前端恢复初始化，run 在主进程继续后台执行 -->
-            <UiButton
-              v-if="orchestrationRunId && pipelineRunStatus?.status === 'running'"
-              variant="secondary"
-              class="bg-run-btn"
-              data-testid="s2v-background-trigger"
-              @click="detachPipelineToBackground"
-            >
-              {{ translateWithLocaleFallback('create.story2video.backgroundRun', 'backgroundRun', 'Run in background') }}
-            </UiButton>
             <UiButton variant="danger" data-testid="s2v-cancel-trigger" @click="requestCancelPipeline">✕ 取消</UiButton>
           </div>
           <div v-if="!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress !== undefined" class="progress-inline">
@@ -1513,7 +1503,7 @@ export default {
       // 流水线
       pipelines: [VIDEO_CLONE_PIPELINE_ENTRY], pipelineLoading: true, pipelineError: null,
       selectedPipeline: null,
-      pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null, orchestrationStages: [],
+      pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null, orchestrationStages: [], orchestrationStatusRequestId: 0,
       // 流水线输入
       inputMode: 'text', pipelineText: '', pipelineImages: [], pipelineAudio: [], pipelineVideo: null,
       // 配置
@@ -2283,13 +2273,14 @@ export default {
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
-        if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
-          this.orchestrationRunId = outcome.runId
-          this.saveS2VLastOptions()
+        if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
+          this.orchestrationRunId = outcome.runId.trim()
+          await this.saveS2VLastOptions()
           if (this.applyOrchestrationOutcome(outcome)) return
-          await this.updateOrchestrationStatus()
-          if (this.orchestrationRunId && !this.pollTimer) {
-            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          if (outcome.paused === true) {
+            await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
+          } else {
+            await this.runOrchestrationInBackground(outcome.runId)
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
@@ -2313,13 +2304,14 @@ export default {
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
-        if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
-          this.orchestrationRunId = outcome.runId
-          this.saveS2VLastOptions()
+        if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
+          this.orchestrationRunId = outcome.runId.trim()
+          await this.saveS2VLastOptions()
           if (this.applyOrchestrationOutcome(outcome)) return
-          await this.updateOrchestrationStatus()
-          if (this.orchestrationRunId && !this.pollTimer) {
-            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          if (outcome.paused === true) {
+            await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
+          } else {
+            await this.runOrchestrationInBackground(outcome.runId)
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
@@ -2554,13 +2546,14 @@ export default {
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
-        if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
-          this.orchestrationRunId = outcome.runId
-          this.saveS2VLastOptions()
+        if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
+          this.orchestrationRunId = outcome.runId.trim()
+          await this.saveS2VLastOptions()
           if (this.applyOrchestrationOutcome(outcome)) return
-          await this.updateOrchestrationStatus()
-          if (this.orchestrationRunId && !this.pollTimer) {
-            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          if (outcome.paused === true) {
+            await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
+          } else {
+            await this.runOrchestrationInBackground(outcome.runId)
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
@@ -3608,6 +3601,8 @@ export default {
       this.showStory2VideoErrorDialog(notification)
       this.stopPipelinePolling()
       this.needsCheckpoint = false
+      this.sceneAssetSelectionActive = false
+      this.sceneAssetCandidates = []
       if (this.pipelineRunStatus?.status !== 'completed') {
         this.pipelineRunStatus = { status: 'failed', progress: this.pipelineRunStatus?.progress || 0, stages: this.pipelineRunStatus?.stages || this.orchestrationStages }
       }
@@ -3617,9 +3612,10 @@ export default {
       // runId 快照守卫（2026-08-13，后台运行审查 Critical 1）：detach/取消/切换 run 后，
       // 在飞的 pipelineGetRunContext 过期响应不得写回状态或触发跳转，防止僵尸重挂/污染新 run。
       const runId = this.orchestrationRunId
+      const requestId = ++this.orchestrationStatusRequestId
       try {
         const statusResult = await pipelineGetRunContext(runId)
-        if (this.orchestrationRunId !== runId) return
+        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return
         if (statusResult?.code !== 0) {
           this.setOrchestrationError({ code: statusResult?.code, error: statusResult?.message })
           return
@@ -3669,7 +3665,7 @@ export default {
           })
         }
       } catch (_error) {
-        if (this.orchestrationRunId !== runId) return
+        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE })
       }
     },
@@ -3791,6 +3787,7 @@ export default {
       return true
     },
     stopPipelinePolling() {
+      this.orchestrationStatusRequestId += 1
       if (this.pollTimer) {
         clearInterval(this.pollTimer)
         this.pollTimer = null
@@ -3854,7 +3851,7 @@ export default {
     dismissProviderWarnings() {
       this.dismissedProviderWarnings = true
     },
-    // 运行态 UI 重置（取消/后台运行共用，2026-08-13）：仅清理前端轮询与展示状态，不执行引擎操作。
+    // 运行态 UI 重置（取消/自动后台共用）：仅清理前端轮询与展示状态，不执行引擎操作。
     resetPipelineUiState() {
       this.stopPipelinePolling()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
@@ -3872,18 +3869,42 @@ export default {
       await pipelineCancel()
       this.resetPipelineUiState()
     },
-    async detachPipelineToBackground() {
-      // 后台运行（2026-08-13）：仅前端脱离——停止轮询并恢复初始化状态，不调 pipelineCancel。
-      // 主进程 run 继续后台执行，仍占用并发槽位；历史记录「运行中」置顶，可点击经
-      // resumeHistoryItem → pipelineResumeOrchestration（幂等 alreadyRunning）重新挂回并恢复轮询。
-      // 守卫（审查 Warning 2）：方法内重校验 runId 与检查点等待态，防止双击/检查点以 running 呈现时误转后台。
-      if (!this.orchestrationRunId || this.sceneAssetSelectionActive || this.needsCheckpoint) return
+    async runOrchestrationInBackground(runId, toastKey = 'create.story2video.backgroundRunToast') {
+      const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
+      if (!normalizedRunId) return false
+      this.orchestrationRunId = normalizedRunId
       this.resetPipelineUiState()
       this.showS2VOptionsToast(
-        this.translateWithLocaleFallback('create.story2video.backgroundRunToast', 'backgroundRunToast', 'Pipeline moved to background. Track progress under Pipeline history and resume there.'),
+        this.translateWithLocaleFallback(toastKey, 'backgroundRunToast', 'Pipeline is running in the background. Track progress in history.'),
         3000
       )
       await this.loadHistory()
+      return true
+    },
+    async showOrchestrationCheckpoint(runId, pipelineName, outcome = {}) {
+      const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
+      if (!normalizedRunId) return false
+      this.orchestrationRunId = normalizedRunId
+      this.orchestrationResultPath = null
+      this.orchestrationError = ''
+      this.orchestrationContext = outcome.context || null
+      this.pipelineRunStatus = {
+        ...(outcome.status && typeof outcome.status === 'object' ? outcome.status : {}),
+        status: 'paused',
+        progress: Number.isFinite(Number(outcome.progress)) ? Number(outcome.progress) : 0,
+        stages: Array.isArray(outcome.stages) && outcome.stages.length > 0
+          ? outcome.stages
+          : this.getDefaultPipelineStages(pipelineName),
+        checkpoint: outcome.checkpoint || outcome.status?.checkpoint || null,
+      }
+      this.orchestrationStages = this.pipelineRunStatus.stages
+      this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
+      this.view = 'pipelines'
+      await this.updateOrchestrationStatus()
+      if (this.orchestrationRunId && this.pipelineRunStatus?.status !== 'failed' && !this.pollTimer) {
+        this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+      }
+      return true
     },
     async advancePipeline() { await pipelineAdvance(); await this.updatePipelineStatus() },
     async loadHistory() {
@@ -4006,29 +4027,23 @@ export default {
       return true
     },
     async resumeHistoryItem(item) {
-      const runId = item && (item.id || item.runId)
+      const runId = this.historyRunId(item)
       if (!runId || this.story2videoResuming) return
       this.story2videoResuming = true
       try {
         const res = await pipelineResumeOrchestration(runId)
-        if (res?.code === 0 && res.data?.success && res.data?.runId) {
+        if (res?.code === 0 && res.data?.success && typeof res.data?.runId === 'string' && res.data.runId.trim()) {
           const pipelineName = item.pipeline || item.name
           // 分镜素材自选暂停点恢复：保持 paused，进入选择面板（updateOrchestrationStatus 会激活）
           const selectionPaused = res.data.paused === true
-          this.orchestrationRunId = res.data.runId
-          this.orchestrationResultPath = null
-          this.orchestrationError = ''
-          this.pipelineRunStatus = {
-            status: selectionPaused ? 'paused' : 'running',
-            progress: 0,
-            stages: Array.isArray(item.stages) && item.stages.length > 0 ? item.stages : this.getDefaultPipelineStages(pipelineName),
+          if (!selectionPaused) {
+            await this.runOrchestrationInBackground(res.data.runId, 'create.story2video.backgroundResumeToast')
+            return
           }
-          this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
-          this.view = 'pipelines'
-          await this.updateOrchestrationStatus()
-          if (this.orchestrationRunId && !this.pollTimer) {
-            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
-          }
+          await this.showOrchestrationCheckpoint(res.data.runId, pipelineName, {
+            ...res.data,
+            stages: Array.isArray(item.stages) && item.stages.length > 0 ? item.stages : res.data.stages,
+          })
           await this.loadHistory()
         } else {
           this.showStory2VideoErrorDialog({
@@ -4441,30 +4456,6 @@ export default {
       this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' }
     },
 
-    // renderer 重载（HMR/重启/切页返回）后，重新接上主进程仍在运行的编排流水线，
-    // 避免 UI 丢失运行态（用户看到回到列表但流水线实际仍在后台执行）。
-    async resumeRunningOrchestration() {
-      const candidates = ['story2video-compose', 'animated-explainer', 'documentary-montage', 'clip-factory', 'cinematic', 'talking-head', 'framework-smoke', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
-      for (const name of candidates) {
-        try {
-          const res = await pipelineStatus(name)
-          const data = res?.data
-          if (data && data.status === 'running' && data.orchestrationMode === 'orchestrator' && data.id) {
-            const pipeline = (this.pipelines || []).find(item => item.name === name)
-            this.selectedPipeline = pipeline || { name, available: true }
-            this.orchestrationRunId = data.id
-            this.orchestrationStages = this.getDefaultPipelineStages(name)
-            this.inputMode = 'text'
-            await this.updateOrchestrationStatus()
-            if (this.orchestrationRunId && !this.pollTimer) {
-              this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
-            }
-            return
-          }
-        } catch (_) { /* 单条状态查询失败不影响其余 */ }
-      }
-    },
-
     // 阶段显示
     stageStateClass(stage, i) {
       if (!this.pipelineRunStatus) return ''
@@ -4594,7 +4585,6 @@ export default {
       this.view = 'history'
       this.loadHistory()
     }
-    this.resumeRunningOrchestration()
     this.restoreS2VLastOptions()
     this.loadS2VTtsSamples()
     // 背景音乐素材库（2026-08-14）：静默加载，失败不打扰创作主流程（弹窗打开时再提示）

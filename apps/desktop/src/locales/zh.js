@@ -158,9 +158,10 @@
         cancelFailed: '取消失败，请重试。',
       },
       resetOptions: '恢复默认选项',
-      // 2026-08-13 流水线后台运行：运行中可脱离流水线启动页，run 在主进程继续执行，历史记录可重挂
+      // 2026-08-19 流水线自动后台运行：启动/续跑进入 running 后由主进程继续执行，历史记录显示进度
       backgroundRun: '后台运行',
-      backgroundRunToast: '流水线已转入后台运行（仍占用并发名额），可在「流水线记录」中查看进度并继续操作。',
+      backgroundRunToast: '流水线已在后台运行（仍占用并发名额），可在「历史记录」中查看进度。',
+      backgroundResumeToast: '流水线已从断点继续并在后台运行（仍占用并发名额），可在「历史记录」中查看进度。',
       mediaRequirementsImage: '支持 jpg / jpeg / png / webp 格式，单个文件最大 10MB。',
       mediaRequirementsAudio: '支持 wav / m4a / mp3 格式，单个文件最大 50MB。',
       mediaRequirementsBgm: '支持 wav / m4a / mp3 格式，单个文件最大 15MB。',
@@ -270,7 +271,7 @@
       records: '条记录',
       promptPreview: '提示词预览',
       translation: '翻译',
-      runningHint: '任务正在运行，可查看实时阶段进度。',
+      runningHint: '任务正在后台运行（仍占用并发名额），可查看实时阶段进度。',
       pausedStage: '暂停环节',
       pauseEnvironment: '暂停环境/检查点',
       failedStage: '失败环节',

@@ -1,3 +1,14 @@
+## [Unreleased] - 2026-08-19 (视频创作流水线自动后台运行)
+
+### 变更
+- 视频创作编排流水线成功启动后自动按后台任务执行：renderer 停止运行轮询并恢复启动初始态，主进程 run 继续执行且仍占用并发槽位；移除对【后台运行】按钮的依赖。
+- 历史任务卡片点击【继续生成】或【从断点继续】后，进入 running 的任务留在历史视图后台运行并刷新阶段进度；只有分镜素材自选 paused 检查点继续进入创作页交互面板。
+- 启动/续跑的 runId 增加非空字符串校验，旧轮询响应继续按 runId 快照丢弃，自动后台和续跑均不调用 pipelineCancel。
+
+### 文档与测试
+- 更新总 PRD §3a、PRD-video-creation 迭代表、i18n glossary 和 learnings；新增 OpenSpec change s2v-pipeline-always-background-run。
+- CreateView/CreateViewHistory 定向回归覆盖自动后台、历史续跑、人工检查点、取消和竞态守卫。
+
 ## [Unreleased] - 2026-08-17 (Story2Video 页面 UX 与任务操作统一)
 
 ### 变更

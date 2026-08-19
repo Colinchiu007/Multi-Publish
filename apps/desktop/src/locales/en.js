@@ -158,9 +158,10 @@ export default {
         cancelFailed: 'Failed to cancel. Please retry.',
       },
       resetOptions: 'Reset to default options',
-      // 2026-08-13 Pipeline background run: detach the pipeline launch page while the run continues in the main process
+      // 2026-08-19 Pipeline auto-background run: running starts and resumes continue in the main process
       backgroundRun: 'Run in background',
-      backgroundRunToast: 'Pipeline moved to background (still occupies a run slot). Track progress under Pipeline history and resume there.',
+      backgroundRunToast: 'Pipeline is running in the background (still occupies a run slot). Track progress in history.',
+      backgroundResumeToast: 'Pipeline resumed from its checkpoint and is running in the background (still occupies a run slot). Track progress in history.',
       mediaRequirementsImage: 'Supports jpg / jpeg / png / webp. Max 10MB per file.',
       mediaRequirementsAudio: 'Supports wav / m4a / mp3. Max 50MB per file.',
       mediaRequirementsBgm: 'Supports wav / m4a / mp3. Max 15MB per file.',
@@ -270,7 +271,7 @@ export default {
       records: 'records',
       promptPreview: 'Prompt preview',
       translation: 'Translation',
-      runningHint: 'This task is running. View its live stage progress here.',
+      runningHint: 'This task is running in the background (still occupies a run slot). View its live stage progress here.',
       pausedStage: 'Paused stage',
       pauseEnvironment: 'Pause environment/checkpoint',
       failedStage: 'Failed stage',
