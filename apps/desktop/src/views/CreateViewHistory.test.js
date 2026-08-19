@@ -168,6 +168,20 @@ describe('CreateViewHistory', () => {
     expect(wrapper.emitted('open-result')[0][0].id).toBe('done-1')
   })
 
+  it('已完成项目和纯运行记录卡片都发出删除事件', async () => {
+    const wrapper = mountHistory([
+      { id: 'done-project', projectId: 'proj-1', status: 'completed' },
+      { id: 'done-run', projectId: null, status: 'completed' },
+    ])
+
+    await wrapper.find('[data-history-id="done-project"] [data-testid="history-delete-button"]').trigger('click')
+    await wrapper.find('[data-history-id="done-run"] [data-testid="history-delete-button"]').trigger('click')
+
+    expect(wrapper.emitted('delete-history')).toHaveLength(2)
+    expect(wrapper.emitted('delete-history').map(([item]) => item.id)).toEqual(['done-project', 'done-run'])
+    expect(wrapper.emitted('open-result')).toBeUndefined()
+  })
+
   it('completed+projectId 卡片标题回退原文案前 60 字，编辑按钮发出 open-result', async () => {
     const wrapper = mountHistory([
       {

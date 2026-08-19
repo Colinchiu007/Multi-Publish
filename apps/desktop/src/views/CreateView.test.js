@@ -3353,7 +3353,167 @@ describe("CreateView - UI interactions", () => {
     confirmSpy.mockRestore();
   });
 
+  it("历史合并使用当前项目索引的 canonical projectId", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
+      projectId: "run-canonical", pipeline: "story2video-compose", status: "completed", title: "已完成项目",
+    }] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [{
+      id: "run-canonical", projectId: "stale-project", pipeline: "story2video-compose", status: "completed",
+    }] });
+    mocks.story2videoDeleteProject.mockResolvedValue({ code: 0 });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.history[0].projectId).toBe("run-canonical");
+
+    w.vm.requestHistoryDeletion(w.vm.history[0]);
+    await w.vm.confirmProjectDeletion();
+
+    expect(mocks.story2videoDeleteProject).toHaveBeenCalledWith("run-canonical");
+    expect(mocks.pipelineDeleteRun).not.toHaveBeenCalled();
+    expect(w.vm.history).toEqual([]);
+    w.unmount();
+  });
+
+  it("历史运行记录携带失效 projectId 时走 delete-run，不显示项目删除失败", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [{
+      id: "run-with-stale-project", projectId: "missing-project", pipeline: "story2video-compose", status: "completed",
+    }] });
+    mocks.pipelineDeleteRun.mockResolvedValue({ code: 0 });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    expect(w.vm.history[0].projectId).toBeNull();
+
+    await w.find('[data-status="completed"]').trigger("click");
+    await w.find('[data-history-id="run-with-stale-project"] [data-testid="history-delete-button"]').trigger("click");
+    expect(w.vm.story2videoRunDeleteDialog.visible).toBe(true);
+    expect(w.vm.story2videoRunDeleteDialog).toEqual({ visible: true, runId: "run-with-stale-project" });
+    await w.vm.confirmRunDeletion();
+
+    expect(mocks.pipelineDeleteRun).toHaveBeenCalledWith("run-with-stale-project");
+    expect(mocks.story2videoDeleteProject).not.toHaveBeenCalled();
+    expect(w.vm.story2videoErrorDialog.visible).toBe(false);
+    expect(w.vm.history).toEqual([]);
+    w.unmount();
+  });
+
+  it("运行记录删除失败或抛异常时保留历史并显示运行删除错误", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    w.vm.history = [{ id: "failed-run-delete", projectId: null, status: "completed" }];
+    mocks.pipelineDeleteRun.mockResolvedValueOnce({ code: -1, message: "运行记录不存在" });
+
+    w.vm.requestHistoryDeletion(w.vm.history[0]);
+    await w.vm.confirmRunDeletion();
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.run_delete_failed");
+
+    mocks.pipelineDeleteRun.mockRejectedValueOnce(new Error("IPC rejected"));
+    w.vm.requestHistoryDeletion(w.vm.history[0]);
+    await expect(w.vm.confirmRunDeletion()).resolves.toBeUndefined();
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.run_delete_failed");
+    w.unmount();
+  });
+
+  it("项目 ID 与运行 ID 冲突时保持纯运行记录，不误删现存项目", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
+      projectId: "stale-project", pipeline: "story2video-compose", status: "completed", title: "现存项目",
+    }] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [{
+      id: "run-actual", projectId: "stale-project", pipeline: "story2video-compose", status: "completed",
+    }] });
+    mocks.pipelineDeleteRun.mockResolvedValue({ code: 0 });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    expect(w.vm.history[0]).toMatchObject({ id: "run-actual", projectId: null, runId: "run-actual", historyType: "pipeline-run" });
+
+    w.vm.requestHistoryDeletion(w.vm.history[0]);
+    await w.vm.confirmRunDeletion();
+    expect(mocks.pipelineDeleteRun).toHaveBeenCalledWith("run-actual");
+    expect(mocks.story2videoDeleteProject).not.toHaveBeenCalled();
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.history[0]).toMatchObject({ projectId: "stale-project", title: "现存项目" });
+    w.unmount();
+  });
+
+  it("项目删除失败或抛异常时保留历史记录并显示稳定错误", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    w.vm.history = [{ id: "done-project", projectId: "project-delete", status: "completed" }];
+    mocks.story2videoDeleteProject.mockResolvedValueOnce({ code: -1, message: "内部路径不应展示" });
+
+    w.vm.requestHistoryDeletion(w.vm.history[0]);
+    await w.vm.confirmProjectDeletion();
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.project_delete_failed");
+
+    mocks.story2videoDeleteProject.mockRejectedValueOnce(new Error("IPC rejected"));
+    w.vm.requestHistoryDeletion(w.vm.history[0]);
+    await expect(w.vm.confirmProjectDeletion()).resolves.toBeUndefined();
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.project_delete_failed");
+    w.unmount();
+  });
+
+  it("项目删除登录门拒绝时不调用删除接口并保留历史记录", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    w.vm.history = [{ id: "done-project-login", projectId: "project-login", status: "completed" }];
+    mockEnsureLogin.mockResolvedValueOnce(false);
+
+    w.vm.requestHistoryDeletion(w.vm.history[0]);
+    await w.vm.confirmProjectDeletion();
+
+    expect(mockEnsureLogin).toHaveBeenCalledTimes(1);
+    expect(mocks.story2videoDeleteProject).not.toHaveBeenCalled();
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.story2videoErrorDialog.visible).toBe(false);
+    w.unmount();
+  });
+
+  it("运行记录删除登录门拒绝时不调用删除接口并保留历史记录", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    w.vm.history = [{ id: "done-run-login", projectId: null, status: "completed" }];
+    mockEnsureLogin.mockResolvedValueOnce(false);
+
+    w.vm.requestHistoryDeletion(w.vm.history[0]);
+    await w.vm.confirmRunDeletion();
+
+    expect(mockEnsureLogin).toHaveBeenCalledTimes(1);
+    expect(mocks.pipelineDeleteRun).not.toHaveBeenCalled();
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.story2videoErrorDialog.visible).toBe(false);
+    w.unmount();
+  });
+
 });
+
   it("历史记录按有效时间倒序，运行中流水线显示阶段进度色块", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{ projectId: "p1", title: "已完成项目", status: "completed" }] });
@@ -3386,10 +3546,12 @@ describe("CreateView - UI interactions", () => {
 
   it("点击运行中历史项：有 projectId 进入编辑页（旧详情弹窗已废弃），不触发恢复", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
+      projectId: "proj-live", pipeline: "story2video-compose", status: "running", title: "运行中项目",
+    }] });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
       { id: "run-no-proj", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
-      { id: "run-live-2", projectId: "proj-live", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:01:00.000Z", stages: [] },
+      { id: "proj-live", projectId: "proj-live", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:01:00.000Z", stages: [] },
     ] });
     mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { id: "run-live-2", status: "running", orchestrationMode: "orchestrator" } });
     const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
@@ -3406,14 +3568,14 @@ describe("CreateView - UI interactions", () => {
     await nextTick();
     expect(pushSpy).not.toHaveBeenCalled();
     // 有 projectId 的运行记录点击进入编辑页（旧详情弹窗已废弃）
-    await w.find('[data-history-id="run-live-2"] .history-item-body').trigger("click");
+    await w.find('[data-history-id="proj-live"] .history-item-body').trigger("click");
     await nextTick();
     expect(w.vm.view).toBe("history");
     expect(mocks.pipelineResumeOrchestration).not.toHaveBeenCalled();
     const resultNavigation = [...pushSpy.mock.calls]
       .map(([location]) => location)
       .find((location) => location && location.path === "/create/result");
-    expect(resultNavigation).toEqual({ path: "/create/result", query: { project: "proj-live", runId: "run-live-2" } });
+    expect(resultNavigation).toEqual({ path: "/create/result", query: { project: "proj-live", runId: "proj-live" } });
     pushSpy.mockRestore();
     w.unmount();
   });

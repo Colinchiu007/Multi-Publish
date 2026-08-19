@@ -1,0 +1,14 @@
+{
+  "id": "fix-video-history-delete-completed",
+  "title": "修复视频创作历史记录已完成任务删除失败",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档 OpenSpec change 与 CCG task",
+  "createdAt": "2026-08-19T15:20:00+08:00",
+  "branch": "codex/fix-video-history-delete-completed",
+  "openspecChange": "story2video-history-delete-completed",
+  "remoteStatus": "local-only: PR not created; no remote merge"
+}

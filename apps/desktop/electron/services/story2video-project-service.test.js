@@ -822,6 +822,15 @@ describe('Story2VideoProjectService', () => {
     expect(fs.existsSync(path.join(service._ownerDir(), 'project-delete'))).toBe(false)
   })
 
+  it('删除当前 owner 不存在的项目时 fail-closed 且不修改项目索引', () => {
+    const projectDir = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({ store, projectsDir: projectDir })
+    service._writeProjects([{ projectId: 'existing-project', status: 'completed', segments: [] }])
+
+    expect(() => service.deleteProject('missing-project')).toThrow('Story2Video 项目不存在')
+    expect(service.listProjects().map(project => project.projectId)).toEqual(['existing-project'])
+  })
+
   it('animated-explainer 完成运行同样持久化项目（复用 compose 产物与 assets.scenes）', () => {
     const source = path.join(root, 'explainer-source')
     const image = writeFile(path.join(source, 'image.png'))

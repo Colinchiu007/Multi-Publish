@@ -3564,7 +3564,7 @@ export default {
         this.story2videoProjectDeleteDialog = { visible: true, projectId: item.projectId }
         return
       }
-      const runId = item.id || item.runId
+      const runId = this.historyRunId(item)
       if (!runId) return
       this.story2videoRunDeleteDialog = { visible: true, runId }
     },
@@ -3583,9 +3583,14 @@ export default {
       this.closeRunDeletionDialog()
       if (!runId) return
       try {
+        if (!await useLoginGate().ensureLogin()) return
+      } catch (_) {
+        return
+      }
+      try {
         const result = await pipelineDeleteRun(runId)
         if (result?.code === 0) {
-          this.history = this.history.filter(entry => (entry.id || entry.runId) !== runId)
+          this.history = this.history.filter(entry => this.historyRunId(entry) !== runId)
         } else {
           this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_DELETE_FAILED, error: result?.message })
         }
@@ -3596,7 +3601,13 @@ export default {
     async confirmProjectDeletion() {
       const projectId = this.story2videoProjectDeleteDialog.projectId
       this.closeProjectDeletionDialog()
-      if (projectId) await this.deleteHistory({ projectId })
+      if (!projectId) return
+      try {
+        if (!await useLoginGate().ensureLogin()) return
+      } catch (_) {
+        return
+      }
+      await this.deleteHistory({ projectId })
     },
     setOrchestrationError(notification) {
       this.orchestrationError = ''
@@ -3934,15 +3945,37 @@ export default {
         const matchedProjectIds = new Set()
         const runs = hasRuns
           ? pipelineResult.value.data.map(run => {
-              const projectId = run?.projectId || run?.id
-              const project = projectById.get(projectId)
-              if (!project) return { ...run, historyType: 'pipeline-run' }
+              // 持久化的 Story2Video 项目使用 run.id 作为 projectId；旧快照可能
+              // 携带已失效或冲突的 projectId。只有运行 ID 与当前项目索引明确对齐时
+              // 才能合并为项目记录，不能用不受信的 projectId 反向推断项目归属。
+              const runIdCandidates = [...new Set([run?.runId, run?.id]
+                .filter(value => typeof value === 'string' && value.trim())
+                .map(value => value.trim()))]
+              const projectMatches = runIdCandidates
+                .map(runId => ({ runId, project: projectById.get(runId) }))
+                .filter(match => match.project)
+              const matchedProjectIdsForRun = new Set(projectMatches.map(match => match.project.projectId))
+              const project = matchedProjectIdsForRun.size === 1 ? projectMatches[0].project : null
+              const matchedRunId = project
+                ? projectMatches.find(match => match.project.projectId === project.projectId)?.runId || null
+                : null
+              if (!project) {
+                // 失配记录必须明确降级为 pipeline-run，不能把陈旧 projectId
+                // 留给项目删除 IPC，否则项目服务会在当前 owner 索引中拒绝它。
+                return {
+                  ...run,
+                  projectId: null,
+                  runId: runIdCandidates[0] || null,
+                  historyType: 'pipeline-run',
+                }
+              }
+              const projectId = project.projectId
               matchedProjectIds.add(projectId)
               return {
                 ...project,
                 ...run,
                 projectId,
-                runId: run.runId || run.id || project.runId || projectId,
+                runId: matchedRunId || project.runId || null,
                 historyType: 'story2video-project',
                 title: project.title || run.title || project.sourceText || run.sourceText || '',
                 sourceText: project.sourceText || run.sourceText || '',
@@ -4132,9 +4165,22 @@ export default {
     },
     async deleteHistory(item) {
       if (!item?.projectId) return
-      const result = await story2videoDeleteProject(item.projectId)
-      if (result?.code === 0) this.history = this.history.filter(entry => entry.projectId !== item.projectId)
-      else this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED })
+      try {
+        const result = await story2videoDeleteProject(item.projectId)
+        if (result?.code === 0) {
+          this.history = this.history.filter(entry => entry.projectId !== item.projectId)
+        } else {
+          this.showStory2VideoErrorDialog({
+            messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED,
+            error: result?.message,
+          })
+        }
+      } catch (error) {
+        this.showStory2VideoErrorDialog({
+          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED,
+          error: error?.message,
+        })
+      }
     },
 
     // 文件处理

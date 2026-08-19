@@ -333,6 +333,37 @@ describe('Story2Video 交付 IPC', () => {
     expect(capabilities.data.transcription.available).toBe(true)
   })
 
+  it('delete-project 将项目索引缺失映射为错误结果，不伪造删除成功', async () => {
+    const service = {
+      listProjects: vi.fn(() => [{ projectId: 'existing-project' }]),
+      isLocalOwner: vi.fn(() => true),
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
+      deleteProject: vi.fn(() => { throw new Error('Story2Video 项目不存在') }),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    await expect(ipcMain.get('story2video:delete-project')(TRUSTED_EVENT, 'missing-project'))
+      .resolves.toEqual({ code: -1, message: 'Story2Video 项目不存在' })
+    expect(service.deleteProject).toHaveBeenCalledWith('missing-project')
+  })
+
+  it('delete-project 在到达服务前拒绝非法项目 ID', async () => {
+    const service = {
+      _serializeProject: vi.fn(),
+      deleteProject: vi.fn(),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    for (const projectId of ['', null, '../escape']) {
+      const result = await ipcMain.get('story2video:delete-project')(TRUSTED_EVENT, projectId)
+      expect(result).toEqual({ code: -2, message: 'projectId 无效' })
+    }
+    expect(service._serializeProject).not.toHaveBeenCalled()
+    expect(service.deleteProject).not.toHaveBeenCalled()
+  })
+
   it('在到达服务前拒绝非法分段更新参数', async () => {
     const service = { updateSegments: vi.fn() }
     const ipcMain = createIpcMain()
