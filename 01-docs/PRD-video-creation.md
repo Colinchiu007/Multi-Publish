@@ -2953,6 +2953,66 @@ container.setup.js 注册 filmEngineeringService -> phase1-context.js container.
 
 本次流水线启动页、历史记录和视频任务编辑页的详细需求、数据校验、显示项、流程、交互和提示文案见 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)。本节保留视频创作 PRD 的入口索引，并明确以下产品结论：进入流水线后的页面叫“流水线启动页”；历史记录中的详情入口直接进入视频任务编辑页；编辑页底部操作固定；多状态历史卡片共用一套结构；失败原因使用自然语言；暂停在流水线启动页提供，编辑页携带运行中 runId 时也提供同一受校验的暂停动作。
 
+## 11. Story2Video 历史记录失败提示强化（2026-08-19）
+
+### 11.1 目标与范围
+
+历史记录、结果页和失败对话框必须帮助用户判断“哪个模型账号出了什么问题、下一步做什么”，而不是暴露内部模板变量或原始技术错误。本次范围覆盖流水线自由文本 formatter、renderer 通知归一化、zh/en locale、历史卡片/结果页最终渲染和回归测试；不改变原始错误的诊断保存、模型调用协议、IPC 结构、重试和断点恢复语义。
+
+### 11.2 数据合同与校验
+
+| 数据项 | 输入来源 | 展示校验 | 失败回退 |
+|---|---|---|---|
+| message key | 稳定错误码或已知 raw pattern | 必须属于 Story2Video 通知键集合 | operation_failed 本地化文案 |
+| provider | 显式 provider/providerId 或 raw error | 仅接受已知 provider ID；拒绝 account、provider、unknown、数字和空白值 | 中文“当前模型账号”；英文“current model account” |
+| context | 场景号、素材比例、生成类型 | 只拼接有限数字和 locale 标签，不接受 raw error 全文 | 空字符串，不渲染括号 |
+| detail | 已知 locale 引用或受限字段 | 先解析 locale 引用；不把完整异常堆栈传给插值 | 不显示 detail |
+| locale | 当前 zh/en 语言环境 | en* 归一为 en，其余回退 zh | 使用中文文案 |
+| 历史原始错误 | 主进程持久化诊断字段 | 只用于分类和有限提取，renderer 不直接回显 | 通用失败提示 |
+
+provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 MiniMax，kling 显示为 Kling，agnes-image 显示为 Agnes Image。用户可见文案再追加“模型账号”或“model account”。未识别 ID 不猜测品牌，不显示内部 ID。
+
+### 11.3 失败分类与流程逻辑
+
+1. 主进程或流水线产生 raw error，并按既有稳定错误码/模式进入 formatter。
+2. formatter 只提取 provider、场景号、素材比例、生成类型、HTTP 状态码等用于分类的有限字段；HTTP 状态码只参与分类，不进入历史提示。
+3. renderer 通知归一化再次执行 provider 和 locale 校验，兼容旧快照中的 sceneText，但不再消费它。
+4. 归一化结果为 messageKey + messageParams；messageParams 只允许 provider、context、detail、limitMinutes 等白名单字段。
+5. locale 插值生成最终文案；最终文案必须不含 {sceneText}、{provider}、{context} 等未解析变量。
+6. 历史卡片显示自然语言失败原因；用户点击卡片、编辑、修改场景或从断点继续时，继续使用既有恢复门控，不因提示文案改变任务状态。
+
+### 11.4 提示文字与显示项
+
+| 分类 | 中文提示核心 | English copy | 主要动作 |
+|---|---|---|---|
+| 限流 | 生成受频率或额度限制（场景 N），请稍等片刻后重试；若持续出现，请检查 MiniMax模型账号的套餐额度。 | Generation is rate limited (scene N). Wait a moment and retry, or check the MiniMax model account plan quota. | 等待后重试 |
+| 额度/余额 | MiniMax模型账号的额度或余额已用完（场景 N），请检查该模型账号套餐，或更换模型后从断点继续。 | The MiniMax model account quota or balance is exhausted (scene N). Check the plan, or switch models and resume. | 检查额度/更换模型/断点继续 |
+| 空结果 | MiniMax模型账号图片生成多次未返回结果（场景 N），可能是服务波动或账号问题。请调整场景提示词后重试。 | The MiniMax model account repeatedly returned no image result (scene N). Adjust the scene prompt and retry. | 调整场景提示词 |
+| 素材生成 | 素材生成未完成（场景 0/51，图片生成），请检查 MiniMax模型账号的 API 配额和网络连接，然后从断点继续。 | Asset generation is incomplete (scenes 0/51, image generation). Check the MiniMax model account quota and network, then resume. | 检查账号/网络/断点继续 |
+| API Key | MiniMax模型账号的 API Key 无效或已过期，请在模型设置中更新该模型账号的 API Key 后重试。 | The MiniMax model account API key is invalid or expired. Update it in Model Settings and retry. | 打开模型设置 |
+| 参数不支持 | 图片模型 Agnes Image 不支持指定参数，请更换兼容模型后从断点继续。 | The Agnes Image model does not support the parameter. Switch models and resume. | 更换模型 |
+| 未知失败 | 当前操作未能完成，请稍后再试。 | Could not complete the request. Please try again. | 稍后重试 |
+
+历史卡片显示项：失败状态、失败环节、失败原因、任务标题/文案摘要、更新时间、run/project ID 和可用的编辑/恢复/删除动作。技术状态码、请求 ID、堆栈、provider JSON、完整 prompt-engine 错误和内部端口不显示。
+
+### 11.5 交互逻辑
+
+- 失败原因在历史卡片内显示短版自然语言；详情对话框可复用同一 messageKey/messageParams 二次格式化，不能重新读取 raw error。
+- 已知场景号时在原因中显示场景位置；用户点击“修改场景文案并重新生成”仍定位对应场景。
+- 可恢复失败继续显示“从断点继续”；内容政策失败沿既有规则进入场景编辑，不伪造可恢复状态。
+- 限流类提示建议稍后重试；额度/API Key 类提示优先引导检查具体模型账号，不把重试描述成必然有效。
+- unknown provider 不阻断任务状态展示，但使用当前模型账号回退并避免误导性品牌名。
+
+### 11.6 测试与验收矩阵
+
+| 层级 | 必测场景 |
+|---|---|
+| formatter 单测 | 402、429、空结果、素材比例、图片/旁白类型、已知/未知 provider、中文/英文场景号 |
+| renderer 通知单测 | 稳定 key、raw 分类、旧 sceneText 兼容、二次格式化、最终文案无技术占位符 |
+| 结果页回归 | 失败任务显示自然语言原因；空结果不误判内容政策；既有 7 个 baseline 失败保持原样记录 |
+| locale 门禁 | zh/en key 成对、插值变量均有值、无硬编码中文提示 |
+| 交付门禁 | git diff --check、pnpm run build:vue、依赖解析、OpenSpec validate、双模型/本地审查 |
+
 
 
 

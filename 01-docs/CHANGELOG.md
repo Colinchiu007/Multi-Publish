@@ -1958,3 +1958,13 @@
 - 手动选材模式不再在 `optimize` 阶段等待提示词翻译；候选素材和选择 checkpoint 可先展示。
 - 翻译在 `compose` 阶段与视频合成并行，按场景 `index` 回填，不改变候选、选择、媒体和 TTS 数据。
 - 增加手动模式 pending、候选缺翻译、compose 回填与状态保持回归。
+## [Unreleased] - 2026-08-19 (Story2Video 历史失败提示脱敏与模型账号细化)
+
+### 修复
+- 修复视频创作历史记录失败提示可能显示 {sceneText} 内部占位符的问题，统一改为场景号、素材比例和生成类型组成的自然语言 context。
+- 新增 provider 显示名集中映射：已识别的 MiniMax、Kling、Agnes Image 等模型账号在失败提示中直接点名；未知 provider 安全回退为“当前模型账号”。
+- 限流、额度/余额不足、图片生成空结果、素材生成失败和 API Key 失败提示补充具体模型账号与下一步操作，继续屏蔽请求 ID、堆栈、状态码和内部服务前缀。
+
+### 测试与文档
+- 新增 formatter 与 renderer 通知双入口回归，覆盖 zh/en、已知/未知 provider、场景 context、二次格式化和技术占位符泄漏。
+- 同步 PRD-video-creation.md、PRD-S2V-PIPELINE-PAGE-UX.md、OpenSpec change、CCG task 和 QM-5 复盘。

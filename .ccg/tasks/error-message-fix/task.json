@@ -1,0 +1,14 @@
+{
+  "id": "error-message-fix",
+  "title": "强化 Story2Video 历史记录失败提示并明确模型账号",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "review",
+  "nextAction": "提交、推送 PR 并完成远端合并核验",
+  "createdAt": "2026-08-19T20:27:00+08:00",
+  "branch": "codex/error-message-fix",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-error-message-fix",
+  "openspecChange": "s2v-history-error-message-hardening"
+}

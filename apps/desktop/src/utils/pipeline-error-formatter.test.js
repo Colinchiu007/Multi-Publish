@@ -15,7 +15,13 @@ describe('formatPipelineError', () => {
   it('extracts scene number from 402 error', () => {
     const r = formatPipelineError('Story2Video optimize scene 3 failed: Error code: 402')
     expect(r.key).toBe('story2video.quota_exceeded')
-    expect(r.params.sceneText).toContain('场景')
+    expect(r.params.context).toContain('场景')
+  })
+
+  it('extracts the concrete provider without treating provider account as a provider', () => {
+    const r = formatPipelineError('Image provider "minimax-multimodal" failed: Error code: 402', { locale: 'en-US' })
+    expect(r.params.provider).toBe('MiniMax')
+    expect(r.params.context).toBe('')
   })
 
   it('matches content policy review', () => {
@@ -36,22 +42,45 @@ describe('formatPipelineError', () => {
   it('matches rate limit', () => {
     const r = formatPipelineError('rate limit exceeded, too many requests (429)')
     expect(r.key).toBe('story2video.rate_limited')
+    expect(r.params.provider).toBe('当前')
+  })
+
+  it('uses a concrete provider for a rate-limit error when it is present', () => {
+    const r = formatPipelineError('Image provider: kling rate limit exceeded (429)')
+    expect(r.params.provider).toBe('Kling')
+  })
+
+  it('normalizes repeated empty results without exposing the raw failure text', () => {
+    const r = formatPipelineError('Image provider "minimax-multimodal" scene 4 repeatedly returned no result', { locale: 'en-US' })
+    expect(r.key).toBe('story2video.empty_result')
+    expect(r.params.provider).toBe('MiniMax')
+    expect(r.params.context).toBe(' (scene 4)')
   })
 
   it('matches prompt-engine service unavailable', () => {
     const r = formatPipelineError('prompt-engine 未运行或不可达，请检查 PROMPT_DIR 与端口 8013')
     expect(r.key).toBe('story2video.optimize_service_unavailable')
+    expect(r.params.context).toBe('')
   })
 
   it('matches UnsupportedParamsError with provider and param', () => {
     const r = formatPipelineError('Image provider agnes-image failed: UnsupportedParamsError: Setting response_format')
     expect(r.key).toBe('story2video.provider_params_unsupported')
+    expect(r.params.provider).toBe('Agnes Image')
+    expect(r.params.provider).not.toBe('agnes-image')
+  })
+
+  it('falls back to a natural model-account label for an unknown provider', () => {
+    const r = formatPipelineError('Image provider mystery-provider failed: UnsupportedParamsError: Setting response_format')
+    expect(r.params.provider).toBe('当前')
+    expect(r.params.provider).not.toContain('mystery-provider')
   })
 
   it('matches asset generation failure with ratio', () => {
     const r = formatPipelineError('Asset scene generation failed: 0/51 scenes have both image and audio. Image #1: some error')
     expect(r.key).toBe('story2video.asset_generation_failed')
-    expect(r.params.sceneText).toContain('场景')
+    expect(r.params.context).toContain('场景')
+    expect(r.params.context).toContain('图片生成')
   })
 
   it('matches generic optimize failure', () => {
@@ -64,10 +93,11 @@ describe('formatPipelineError', () => {
     expect(r.key).toBe('story2video.compose_failed')
   })
 
-  it('matches API error with status code', () => {
-    const r = formatPipelineError('Error code: 500 from model')
+  it('matches API error without exposing its status code in renderer params', () => {
+    const r = formatPipelineError('Image provider "kling" failed: Error code: 500 from model')
     expect(r.key).toBe('story2video.api_error')
-    expect(r.params.statusCode).toBe('500')
+    expect(r.params.provider).toBe('Kling')
+    expect(r.params.statusCode).toBeUndefined()
   })
 
   it('passes through short natural language errors', () => {

@@ -217,20 +217,21 @@ describe('Story2Video notification messages', () => {
     expect(enPath.message).toContain('local path')
   })
 
-  it('服务商返回音色无效错误时映射为 VOICE_INVALID 友好提示（含原因与建议）', () => {
+  it('服务商返回音色无效错误时映射为具体模型账号提示', () => {
     const notification = formatStory2VideoNotification({
       error: 'TTS provider "minimax-tts" failed: invalid params, voice id wrong',
     })
     expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID)
-    expect(notification.message).toContain('音色无效或已失效')
-    expect(notification.message).toContain('重新选择有效音色')
-    expect(notification.message).toContain('voice id wrong')
+    expect(notification.message).toContain('MiniMax TTS模型账号')
+    expect(notification.message).toContain('音色不可用')
+    expect(notification.message).not.toContain('voice id wrong')
 
     const en = formatStory2VideoNotification({
       error: 'TTS provider "minimax-tts" failed: invalid params, voice id wrong',
     }, 'en')
     expect(en.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.VOICE_INVALID)
-    expect(en.message).toContain('invalid or no longer available')
+    expect(en.message).toContain('MiniMax TTS model account')
+    expect(en.message).not.toContain('voice id wrong')
   })
 
   it('场景重新生成失败错误映射为对应 failed 通知', () => {
