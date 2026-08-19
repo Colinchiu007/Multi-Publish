@@ -24,9 +24,13 @@ const {
 const {
   cleanupRunInputDir,
   importUserSelectedMedia,
+  STORY2VIDEO_TEMP_DIR,
 } = require('./story2video-paths')
 const { findFfmpeg } = require('./media-tool-paths')
 const { StageExecutor, STAGE_TYPES } = require('./stage-executor')
+
+// CI runner 可能没有预先创建系统临时目录下的 Story2Video 根目录。
+fs.mkdirSync(STORY2VIDEO_TEMP_DIR, { recursive: true })
 
 afterEach(() => {
   cleanupRunInputDir('run')
@@ -672,6 +676,186 @@ describe('story2video 资源索引契约', () => {
     }))
   })
 
+  it('历史断点恢复：成功资产复用，未完成图片和语音使用当前设置模型', async () => {
+    const root = fs.mkdtempSync(path.join(STORY2VIDEO_TEMP_DIR, 's2v-current-model-resume-'))
+    const resumedImage = path.join(root, 'old-image.png')
+    const resumedAudio = path.join(root, 'old-audio.mp3')
+    fs.writeFileSync(resumedImage, 'old image')
+    fs.writeFileSync(resumedAudio, 'old audio')
+    const resumedImageRealPath = fs.realpathSync.native(resumedImage)
+    const resumedAudioRealPath = fs.realpathSync.native(resumedAudio)
+    const generateImage = vi.fn(async (_prompt, opts) => ({ code: 0, data: { path: path.join(root, `new-image-${opts.index}.png`) } }))
+    const generateTTS = vi.fn(async (_text, opts) => ({ code: 0, data: { path: path.join(root, `new-audio-${opts.index}.mp3`), duration: 2 } }))
+    const manager = {
+      getDefault: vi.fn((type) => ({
+        id: type === 'image' ? 'current-image' : 'current-tts',
+        models: [type === 'image' ? 'image-current-model' : 'voice-current-model'],
+      })),
+      getProvider: vi.fn(() => null),
+    }
+    const fn = makePipeline({ generateImage, generateTTS }, { _modelProviderManager: manager })
+    try {
+      const result = await fn({
+        stage: { options: { concurrency: 1 } },
+        params: {
+          __resumeUseCurrentModels: true,
+          imageProvider: 'old-image',
+          imageModel: 'old-image-model',
+          voiceProvider: 'old-tts',
+          voiceModel: 'old-voice-model',
+          voiceId: 'old-voice-id',
+        },
+        context: {
+          split: [{ text: '已完成场景' }, { text: '待恢复场景' }],
+          optimize: ['old-prompt-0', 'new-prompt-1'],
+          generate_assets: { resume: { completed: [{ index: 0, imagePath: resumedImage, audioPath: resumedAudio, duration: 2 }] } },
+        },
+        serviceBus: {},
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(generateImage).toHaveBeenCalledTimes(1)
+      expect(generateImage).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
+        image_provider: 'current-image',
+        image_model: 'image-current-model',
+        index: 1,
+      }))
+      expect(generateTTS).toHaveBeenCalledTimes(1)
+      expect(generateTTS).toHaveBeenCalledWith('待恢复场景', expect.objectContaining({
+        voice_id: 'old-voice-id',
+        voice_provider: 'current-tts',
+        voice_model: 'voice-current-model',
+        index: 1,
+      }))
+      expect(result.output.scenes[0]).toMatchObject({ imagePath: resumedImageRealPath, audioPath: resumedAudioRealPath })
+      expect(result.output.scenes[1]).toMatchObject({ index: 1 })
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('历史断点恢复：legacy Python 图片和语音路径也使用当前能力模型', async () => {
+    const calls = []
+    const manager = {
+      getDefault: vi.fn((type) => ({
+        id: type === 'image' ? 'current-image' : 'current-tts',
+        models: [type === 'image' ? 'image-current-model' : 'voice-current-model'],
+      })),
+      getProvider: vi.fn(() => null),
+    }
+    const fn = makePipeline(null, { _modelProviderManager: manager })
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill, payload) => {
+        calls.push({ skill, payload })
+        return skill === 'generate_image'
+          ? { code: 0, data: { path: 'legacy-image.png' } }
+          : { code: 0, data: { path: 'legacy-audio.mp3', duration: 2 } }
+      }),
+    }
+
+    const result = await fn({
+      stage: {
+        options: {
+          concurrency: 1,
+          imageProvider: 'old-image',
+          imageModel: 'old-image-model',
+          voiceProvider: 'old-tts',
+          voiceModel: 'old-voice-model',
+        },
+      },
+      params: { __resumeUseCurrentModels: true },
+      context: { split: [{ text: '待恢复场景' }], optimize: ['prompt'] },
+      serviceBus,
+    })
+
+    expect(result.success).toBe(true)
+    expect(calls.find((call) => call.skill === 'generate_image')?.payload).toMatchObject({
+      image_provider: 'current-image',
+      image_model: 'image-current-model',
+    })
+    expect(calls.find((call) => call.skill === 'generate_tts')?.payload).toMatchObject({
+      voice_provider: 'current-tts',
+      voice_model: 'voice-current-model',
+    })
+  })
+
+  it('历史断点恢复：图片、音频按资产分别复用，缺失资产才调用当前模型', async () => {
+    const root = fs.mkdtempSync(path.join(STORY2VIDEO_TEMP_DIR, 's2v-partial-asset-resume-'))
+    const oldAudio = path.join(root, 'scene-0.mp3')
+    const oldImage = path.join(root, 'scene-1.png')
+    fs.writeFileSync(oldAudio, 'old audio')
+    fs.writeFileSync(oldImage, 'old image')
+    const oldAudioRealPath = fs.realpathSync.native(oldAudio)
+    const oldImageRealPath = fs.realpathSync.native(oldImage)
+    const generateImage = vi.fn(async (_prompt, opts) => ({ code: 0, data: { path: path.join(root, 'generated-' + opts.index + '.png') } }))
+    const generateTTS = vi.fn(async (_text, opts) => ({ code: 0, data: { path: path.join(root, 'generated-' + opts.index + '.mp3'), duration: 2 } }))
+    const manager = {
+      getDefault: vi.fn((type) => ({
+        id: type === 'image' ? 'current-image' : 'current-tts',
+        capability_models: { image: 'image-current-model', tts: 'voice-current-model' },
+        models: ['fallback-model'],
+      })),
+      getProvider: vi.fn(() => null),
+    }
+    const fn = makePipeline({ generateImage, generateTTS }, { _modelProviderManager: manager })
+    try {
+      const result = await fn({
+        stage: { options: { concurrency: 1 } },
+        params: { __resumeUseCurrentModels: true, imageProvider: 'old-image', imageModel: 'old-image-model', voiceProvider: 'old-tts', voiceModel: 'old-voice-model' },
+        context: {
+          split: [{ text: '第一幕' }, { text: '第二幕' }],
+          optimize: ['prompt-0', 'prompt-1'],
+          generate_assets: { resume: { completed: [
+            { index: 0, audioPath: oldAudioRealPath, duration: 2 },
+            { index: 1, imagePath: oldImageRealPath },
+          ] } },
+        },
+        serviceBus: {},
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(generateImage).toHaveBeenCalledTimes(1)
+      expect(generateImage).toHaveBeenCalledWith('prompt-0', expect.objectContaining({ image_model: 'image-current-model', index: 0 }))
+      expect(generateTTS).toHaveBeenCalledTimes(1)
+      expect(generateTTS).toHaveBeenCalledWith('第二幕', expect.objectContaining({ voice_model: 'voice-current-model', index: 1 }))
+      expect(result.output.scenes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ index: 0, audioPath: oldAudioRealPath }),
+        expect.objectContaining({ index: 1, imagePath: oldImageRealPath }),
+      ]))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('历史断点恢复：失效或不受控的旧资产路径不会伪装成功', async () => {
+    const root = fs.mkdtempSync(path.join(STORY2VIDEO_TEMP_DIR, 's2v-invalid-asset-resume-'))
+    const generateImage = vi.fn(async (_prompt, opts) => ({ code: 0, data: { path: path.join(root, 'generated-' + opts.index + '.png') } }))
+    const generateTTS = vi.fn(async (_text, opts) => ({ code: 0, data: { path: path.join(root, 'generated-' + opts.index + '.mp3'), duration: 2 } }))
+    const manager = {
+      getDefault: vi.fn((type) => ({ id: type === 'image' ? 'current-image' : 'current-tts', models: ['current-model'] })),
+      getProvider: vi.fn(() => null),
+    }
+    const fn = makePipeline({ generateImage, generateTTS }, { _modelProviderManager: manager })
+    try {
+      const result = await fn({
+        stage: { options: { concurrency: 1 } },
+        params: { __resumeUseCurrentModels: true },
+        context: {
+          split: [{ text: '失效路径场景' }],
+          optimize: ['prompt'],
+          generate_assets: { resume: { completed: [{ index: 0, imagePath: path.join(root, 'missing.png'), audioPath: path.join(root, 'missing.mp3') }] } },
+        },
+        serviceBus: {},
+      })
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(generateImage).toHaveBeenCalledTimes(1)
+      expect(generateTTS).toHaveBeenCalledTimes(1)
+      expect(result.output.scenes[0].imagePath).toContain('generated-0.png')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('TTS 返回词级时间戳时透传到场景，alignScenes 直接用 TTS 时间戳（不依赖 aligner）', async () => {
     const generateTTS = vi.fn(async () => ({
       code: 0,
@@ -1226,6 +1410,13 @@ describe('story2video 限流/瞬时错误有界重试', () => {
   })
 
   it('资源生成断点续传：已完成场景跳过图片/TTS provider 调用', async () => {
+    const resumeDir = fs.mkdtempSync(path.join(STORY2VIDEO_TEMP_DIR, 's2v-resume-legacy-'))
+    const resumedImage = path.join(resumeDir, 'resume-image-0.png')
+    const resumedAudio = path.join(resumeDir, 'resume-audio-0.mp3')
+    fs.writeFileSync(resumedImage, 'resume image')
+    fs.writeFileSync(resumedAudio, 'resume audio')
+    const resumedImageRealPath = fs.realpathSync.native(resumedImage)
+    const resumedAudioRealPath = fs.realpathSync.native(resumedAudio)
     const assetGenerator = {
       generateImage: vi.fn(async (_prompt, { index }) => ({ code: 0, data: { path: `image-${index}.png` } })),
       generateTTS: vi.fn(async (_text, { index }) => ({ code: 0, data: { path: `audio-${index}.mp3`, duration: 2 } })),
@@ -1236,7 +1427,7 @@ describe('story2video 限流/瞬时错误有界重试', () => {
       optimize: ['p0', 'p1'],
       generate_assets: {
         resume: {
-          completed: [{ index: 0, imagePath: 'C:/tmp/resume-image-0.png', audioPath: 'C:/tmp/resume-audio-0.mp3', duration: 3 }],
+          completed: [{ index: 0, imagePath: resumedImage, audioPath: resumedAudio, duration: 3 }],
         },
       },
     }
@@ -1248,7 +1439,7 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     })
     expect(result).toMatchObject({ success: true })
     expect(result.output.scenes).toHaveLength(2)
-    expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: 'C:/tmp/resume-image-0.png', audioPath: 'C:/tmp/resume-audio-0.mp3' })
+    expect(result.output.scenes[0]).toMatchObject({ index: 0, imagePath: resumedImageRealPath, audioPath: resumedAudioRealPath })
     expect(assetGenerator.generateImage).toHaveBeenCalledTimes(1)
     expect(assetGenerator.generateImage).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ index: 1 }))
     expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(1)
@@ -1256,6 +1447,7 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     expect(context.assets_progress).toEqual({
       imagesDone: 2, imagesTotal: 2, videosDone: 0, videosTotal: 0, ttsDone: 2, ttsTotal: 2,
     })
+    fs.rmSync(resumeDir, { recursive: true, force: true })
   })
 
   it('资源生成进度前置写入：阶段开始即显示「图片 0/N · 旁白 0/M」', async () => {
@@ -1300,9 +1492,10 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     await vi.advanceTimersByTimeAsync(60000)
     const result = await promise
     expect(result).toMatchObject({ success: false })
-    expect(context.generate_assets?.resume?.completed).toEqual([
+    expect(context.generate_assets?.resume?.completed).toEqual(expect.arrayContaining([
       expect.objectContaining({ index: 0, imagePath: 'image-0.png', audioPath: 'audio-0.mp3' }),
-    ])
+      expect.objectContaining({ index: 1, imagePath: 'image-1.png', audioPath: null }),
+    ]))
     expect(context.generate_assets?.resume?.total).toBe(2)
   })
 
@@ -1827,6 +2020,38 @@ describe('story2video 视频+图片轮播混合模式（2026-08-11）', () => {
       expect(result.output.scenes.filter(s => s.useVideo).map(s => s.index)).toEqual([0, 2])
     })
 
+    it('恢复标记下视频计划和 AI 判断均读取当前能力模型', async () => {
+      const llmBindings = []
+      const aiGenerator = {
+        _modelProviderManager: {
+          getDefault: vi.fn((type) => type === 'video'
+            ? { id: 'current-video', models: ['video-current-model'] }
+            : { id: 'current-llm', models: ['llm-current-model'] }),
+        },
+        generateWithDefault: vi.fn(async (type) => {
+          const current = aiGenerator._modelProviderManager.getDefault(type)
+          llmBindings.push({ provider: current.id, model: current.models[0] })
+          return { content: JSON.stringify([{ index: 0, video: true, excitement: 8 }]) }
+        }),
+      }
+      const fn = makeSelectPipeline(aiGenerator)
+      const result = await fn({
+        stage: { options: { video: { mode: 'ai-judged', provider: 'old-video', model: 'old-video-model', minRatio: 20, maxRatio: 80, maxScenes: 1 } } },
+        params: { __resumeUseCurrentModels: true },
+        context: {
+          optimize: ['p0'],
+          split: [{ text: '一' }],
+          video_plan: { provider: 'old-video', model: 'old-video-model' },
+        },
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.output).toMatchObject({ provider: 'current-video', model: 'video-current-model' })
+      expect(llmBindings).toEqual([{ provider: 'current-llm', model: 'llm-current-model' }])
+      expect(result.output.provider).not.toBe('old-video')
+      expect(result.output.model).not.toBe('old-video-model')
+    })
+
     it('ai-judged LLM 返回无法解析时 fail closed', async () => {
       const aiGenerator = {
         _modelProviderManager: {
@@ -2244,13 +2469,18 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
   it('resume 续跑时跨镜链初值从已回写 final_frame 的场景恢复（评审 W1）', async () => {
     if (skipIfNoMedia()) return
     // 上轮已完成的场景 0/1（视频产物存在，final_frame 已回写）→ 本轮仅优化场景 2，且承接 end-1
-    const resumeDir = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-resume-'))
+    const resumeDir = fs.mkdtempSync(path.join(STORY2VIDEO_TEMP_DIR, 's2v-resume-chain-'))
     const resumeVideos = ['v0.mp4', 'v1.mp4'].map(name => {
       const p = path.join(resumeDir, name)
       fs.writeFileSync(p, 'resumed')
       return p
     })
-    const resumeAudios = ['a0.mp3', 'a1.mp3'].map(name => path.join(resumeDir, name))
+    const resumeVideoRealPaths = resumeVideos.map((filePath) => fs.realpathSync.native(filePath))
+    const resumeAudios = ['a0.mp3', 'a1.mp3'].map(name => {
+      const p = path.join(resumeDir, name)
+      fs.writeFileSync(p, 'resumed audio')
+      return p
+    })
     const callAdapter = vi.fn(async (_provider, method) => {
       if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-resume' } }
       if (method === 'getVideoStatus') return { videoUrl: baseUrl }
@@ -2299,8 +2529,14 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
     expect(optimizeVideoPrompt).toHaveBeenCalledTimes(1)
     expect(optimizeVideoPrompt).toHaveBeenCalledWith('video-prompt-2', expect.objectContaining({ prev_final_frame: 'checkpoint-end-1' }))
     // 场景 0/1 复用续跑产物；场景 2 生成新视频
-    expect(result.output.scenes[0]).toMatchObject({ index: 0, videoPath: resumeVideos[0] })
-    expect(result.output.scenes[1]).toMatchObject({ index: 1, videoPath: resumeVideos[1] })
+    expect(result.output.scenes[0]).toMatchObject({
+      index: 0,
+      videoPath: resumeVideoRealPaths[0],
+    })
+    expect(result.output.scenes[1]).toMatchObject({
+      index: 1,
+      videoPath: resumeVideoRealPaths[1],
+    })
     expect(result.output.scenes[2]).toMatchObject({ index: 2, videoPath: expect.stringContaining('scene_video_002.mp4') })
     expect(result.output.scenes[1].videoMeta.continuity).toMatchObject({
       mode: 'planned_final_frame',
@@ -2308,6 +2544,74 @@ describe('generate_assets 视频分支（2026-08-11）', () => {
       finalFrame: 'checkpoint-end-1',
       finalFrameSource: 'resume:checkpoint.final_frame',
     })
+  })
+
+  it('resume 续跑时复用已完成视频，并让未完成视频使用当前 provider/model', async () => {
+    if (skipIfNoMedia()) return
+    const resumeDir = fs.mkdtempSync(path.join(STORY2VIDEO_TEMP_DIR, 's2v-resume-video-model-'))
+    const resumedVideo = path.join(resumeDir, 'scene-0.mp4')
+    fs.writeFileSync(resumedVideo, 'resumed')
+    const resumedVideoRealPath = fs.realpathSync.native(resumedVideo)
+    const calls = []
+    const callAdapter = vi.fn(async (provider, method, payload) => {
+      calls.push({ provider, method, payload })
+      if (method === 'generateVideo') return { code: 0, data: { taskId: 'task-current-model' } }
+      if (method === 'getVideoStatus') return { videoUrl: baseUrl }
+      return { code: 0 }
+    })
+    const aiGenerator = {
+      _modelProviderManager: {
+        getDefault: vi.fn((type) => type === 'video'
+          ? { id: 'current-video', models: ['video-current-model'] }
+          : { id: 'current-llm', models: ['llm-current-model'] }),
+        callAdapter,
+      },
+    }
+    const fn = makeBlendPipeline(aiGenerator)
+    const context = {
+      split: [{ text: '已完成视频' }, { text: '待恢复视频' }],
+      optimize: ['old-prompt-0', 'new-prompt-1'],
+      video_plan: {
+        mode: 'fixed',
+        provider: 'old-video',
+        model: 'old-video-model',
+        scenes: [
+          { index: 0, useVideo: true, seconds: 6 },
+          { index: 1, useVideo: true, seconds: 6 },
+        ],
+        selectedCount: 2,
+      },
+      generate_assets: { resume: { completed: [{ index: 0, videoPath: resumedVideo, audioPath: 'audio-0.mp3', duration: 2 }] } },
+    }
+    try {
+      const result = await fn({
+        runId: 'run_resume_video_model',
+        stage: { options: { videoMode: 'fixed', video: { provider: 'old-video', model: 'old-video-model', pollIntervalMs: 5 } } },
+        params: { __resumeUseCurrentModels: true, videoMode: 'fixed', aspectRatio: '9:16', fps: 30 },
+        context,
+        serviceBus: {
+          optimizeVideoPrompt: vi.fn(async (prompt) => ({ optimized_prompt: prompt })),
+          callPythonSkill: vi.fn(async (skill, payload) => skill === 'generate_tts'
+            ? { code: 0, data: { path: 'audio-' + payload.index + '.mp3', duration: 2 } }
+            : { code: 0, data: { path: 'image-' + payload.index + '.png' } }),
+        },
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(result.output.scenes[0]).toMatchObject({
+        index: 0,
+        videoPath: resumedVideoRealPath,
+      })
+      expect(result.output.scenes[1]).toMatchObject({ index: 1, videoPath: expect.stringContaining('scene_video_001.mp4') })
+      const videoSubmissions = calls.filter((call) => call.method === 'generateVideo')
+      expect(videoSubmissions).toHaveLength(1)
+      expect(videoSubmissions[0]).toMatchObject({
+        provider: 'current-video',
+        payload: expect.objectContaining({ model: 'video-current-model', prompt: 'new-prompt-1' }),
+      })
+    } finally {
+      fs.rmSync(resumeDir, { recursive: true, force: true })
+    }
   })
   it('全新运行带旧回写残留时首个待优化场景拿空链，后续镜按本轮链推进（评审 W1-1 场景 D）', async () => {
     if (skipIfNoMedia()) return

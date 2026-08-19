@@ -4740,6 +4740,10 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 #### Story2Video 页面术语、固定操作区与历史编辑合同（2026-08-17）
 
 视频创作页面的详细产品合同已独立整理到 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)，本节作为主 PRD 索引。流水线选择后的配置/运行页统一称为“流水线启动页”；历史记录进入的任务查看与修改页统一称为“视频任务编辑页”，不再把旧详情弹窗称为任务详情页。固定底部操作条、顶部阶段进度、统一历史卡片字段、失败原因本地化、暂停/删除数据校验、分段跳转、AI 视频生成、音色目录回退和语速滑条均以该文档及 OpenSpec change 为准。
+
+#### Story2Video 历史断点恢复模型合同（2026-08-19）
+
+历史记录【从断点继续】保持一键交互，不增加模型选择器。恢复时文字推理、图片、TTS 和视频的未完成调用在运行时读取当前模型设置；已完成且有效的本地图片、音频、视频资产按 scene index 复用。恢复只替换 provider/model 路由，保留场景内容、提示词、画幅、视频选择参数、voiceId、语速、音调和情绪。新旧模型资产允许混合，不能因模型不同覆盖既有成功文件。当前 TTS 不兼容旧 voiceId 时必须 fail-closed 或走既有 re-clone 合同，不能静默换音色；远程视频 taskId 未持久化时，未知提交状态不得显示为完成。详细的数据校验、流程、风险和显示语义见 ARCH-STORY2VIDEO-RESUME-CURRENT-MODELS-2026-08-19.md 与 PRD-video-creation.md §3.1.33。
 #### PromptEngine BYOK 桌面调用契约（2026-08-16）
 
 - 桌面调用 8013 提示词引擎时，由 `PromptBridge` 统一注入本机「模型设置」默认 LLM 的绑定（provider/model/base_url/api_key，主进程解密）与 `caller=multi-publish-desktop`；引擎不再使用服务端 config.yaml / OpsCenter key 兜底。

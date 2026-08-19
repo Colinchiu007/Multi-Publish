@@ -13780,3 +13780,14 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 2. 每个错误入口必须共享 provider/context 合同，新增错误分类同时补 formatter 与 renderer 测试。
 3. 用户文案审查清单新增：最终字符串不得含未解析变量、内部字段名、provider account、请求 ID、状态码、堆栈或服务端端口。
 4. 归档前执行 locale-sync、OpenSpec validate、定向 Vitest、构建和 PR 远端 checks；外部模型不可用时如实记录降级，不把本地审查冒充外部审查。
+
+## Story2Video 断点恢复未切换当前模型复盘（s2v-resume-current-models，2026-08-19）
+
+- **现象**：历史记录中的失败/中断 Story2Video 任务恢复后，图片、语音和视频阶段仍可能携带启动任务时的 provider/model；用户已经在模型设置中切换模型，但“从断点继续”没有真正使用新设置。
+- **第一性原因**：恢复实现把旧快照 params 深度恢复，并把其中的 provider/model 视为新的显式路由；“已完成资产复用”和“未完成调用路由”没有在同一个恢复合同中分离。legacy Python 路径还存在绕过已解析 resolved 字段的分叉。
+- **方案**：恢复 Story2Video 参数只清除图片/TTS/视频路由字段并设置内部 marker；实际调用前按 capability 解析当前默认 provider/model。完成资产先按 scene index 校验本地路径并复用，未完成资产才调用当前模型。手动 finalize TTS、legacy Python 和视频 plan 同样遵守该策略。
+- **风险判断**：新 TTS 可能没有旧 voiceId、音色质量/语言不同；因此 voiceId 是内容参数，不能静默替换，必须沿用 VOICE_MODEL_MISMATCH/目录合同和既有 re-clone，失败时不覆盖旧音频。图片/视频允许新旧模型混合，视觉风格差异是明确产品取舍。
+- **远程任务边界**：当前 generateSceneVideo 未把远程 taskId 写入 checkpoint/run-state。提交后中断属于未知状态，不能查询、不能标记完成；恢复只能按现有阶段级重试/图片回退语义处理。未来持久化必须绑定原 provider/model。
+- **逃逸链**：旧测试验证了恢复能继续、完成视频能复用和跨镜终态，但没有组合覆盖“设置已切换 + 未完成 provider/model + legacy Python + 旧 video_plan + 远程未知状态”。因此问题逃过了单测和代码审查，属于测试场景缺失与跨路径契约审查盲区。
+- **回归保护**：resume-orchestration.test.js 锁定旧路由清理和内容参数保留；story2video-stages.test.js 锁定 assetGenerator/legacy Python 的当前 image/TTS 模型、已完成图片/音频/视频不重复调用、未完成视频只提交一次且使用当前 provider/model；pipeline-story2video-contract.test.js 继续保护 stage options 合同。
+- **预防措施**：以后新增资产生成路径必须接收统一的 resolvedProvider/resolvedModel，禁止从原始 params/stage.options 重新取路由；恢复设计必须同时给出资产状态矩阵、旧快照兼容性、语音兼容性和远程任务状态说明；用户提示必须与事实状态一致，未知不能成功化。
