@@ -5,11 +5,12 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend-electron",
-  "currentPhase": "implementation",
-  "nextAction": "提交功能分支，基于最新 origin/main rebase 后推送并创建 PR",
+  "currentPhase": "review",
+  "nextAction": "等待 PR #1041 检查，合并后归档 OpenSpec 与 CCG task",
   "createdAt": "2026-08-19T15:42:00+08:00",
   "branch": "codex/s2v-scene-material-layout",
   "worktree": "D:/Data/projects/mp-worktrees/mp-s2v-scene-material-layout",
   "openspecChange": "s2v-history-scene-material-layout",
-  "remoteStatus": "not_started"
+  "remoteStatus": "pr_open",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/1041"
 }
