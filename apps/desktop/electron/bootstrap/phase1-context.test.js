@@ -83,6 +83,8 @@ describe('phase1-context.extractContext', () => {
       'CloudPublisher',
       '_aggregatorBridge', 'publisherRouter', '_PublishAlert',
       'splitterBridge', 'promptBridge', 'serviceBus', 'pluginRegistry',
+      'executionRecorder', 'story2videoProjectService', 'promptEvalService', 'signalCollector',
+      'filmEngineeringService',
     ]
     expectedFields.forEach((f) => {
       expect(ctx).toHaveProperty(f)

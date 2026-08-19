@@ -167,6 +167,7 @@ function extractContext(container) {
   const contactSheetService = container.get('contactSheetService')
   const approvalGateService = container.get('approvalGateService')
   const executionRecorder = container.get('executionRecorder')
+  const filmEngineeringService = container.get('filmEngineeringService')
 
   // ─── ModelProviderManager + ProviderRouter 接线 ───
   const { ModelProviderManager } = require('../services/model-provider-manager')
@@ -391,6 +392,7 @@ function extractContext(container) {
       splitterBridge, promptBridge, serviceBus, pluginRegistry,
       projectService, boardService, contactSheetService, approvalGateService,
       executionRecorder,
+      filmEngineeringService,
       story2videoProjectService,
       promptEvalService,
       signalCollector,
