@@ -42,4 +42,4 @@
 
 ## 交付结论
 
-本地质量门禁通过，无未解决 Critical/Major。PR #1021 已合并，合并提交为 `f00c298b891e78bc419a37f5b0bfb2ce2998294b`，且 `origin/main` 已核对为同一 SHA。OpenSpec change 已归档并同步正式规格；本 CCG task 随后归档至 `.ccg/tasks/archive/2026-08/error-message-fix`。
+本地质量门禁通过，无未解决 Critical/Major。PR #1021 已合并，合并提交为 `f00c298b891e78bc419a37f5b0bfb2ce2998294b`；归档 PR #1027 已合并，合并提交与归档后 `origin/main` 均为 `4e1809ab09b231c9ee3661bab0b35043ad2c2fac`。OpenSpec change 已归档并同步正式规格；本 CCG task 已归档至 `.ccg/tasks/archive/2026-08/error-message-fix`。
