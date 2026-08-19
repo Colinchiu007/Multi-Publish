@@ -14,6 +14,10 @@
     "pr": 1019,
     "merged": true,
     "mergeCommit": "1226333fef4b3435fe79e175058fc1e29080e764",
-    "originMainVerified": true
+    "originMainVerified": true,
+    "archivePr": 1025,
+    "archiveMerged": true,
+    "archiveMergeCommit": "430219aaef3d80bf658fc999bad2014400b9429a",
+    "archiveOriginMainVerified": true
   }
 }
