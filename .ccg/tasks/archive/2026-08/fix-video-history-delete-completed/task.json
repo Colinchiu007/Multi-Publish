@@ -10,5 +10,5 @@
   "createdAt": "2026-08-19T15:20:00+08:00",
   "branch": "codex/fix-video-history-delete-completed",
   "openspecChange": "story2video-history-delete-completed",
-  "remoteStatus": "local-only: PR not created; no remote merge"
+  "remoteStatus": "pr-open: #1037; https://github.com/Colinchiu007/Multi-Publish/pull/1037; awaiting review and merge"
 }
