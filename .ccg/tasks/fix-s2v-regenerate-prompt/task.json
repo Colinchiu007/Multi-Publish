@@ -1,0 +1,26 @@
+{
+  "id": "fix-s2v-regenerate-prompt",
+  "title": "修复 Story2Video 历史记录场景重新生成提示词失败并补齐真实链路测试",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档 OpenSpec change 与 CCG task；remoteStatus=not_created",
+  "createdAt": "2026-08-19T22:20:00+08:00",
+  "branch": "codex/fix-s2v-regenerate-prompt",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-fix-s2v-regenerate-prompt",
+  "openspecChange": "s2v-history-regenerate-prompt-runtime-contract",
+  "remoteStatus": "not_created",
+  "validation": {
+    "openspec": "openspec validate s2v-history-regenerate-prompt-runtime-contract --strict passed",
+    "focusedElectronTests": "322 passed",
+    "resultViewRegenerateTests": "11 passed",
+    "preloadSandbox": "sandbox true/false passed",
+    "localeCjk": "passed",
+    "worktreeDependencies": "passed",
+    "lint": "passed",
+    "qm1": "win-unpacked build, ASAR require, and 8-second startup passed"
+  },
+  "review": ".ccg/tasks/fix-s2v-regenerate-prompt/review.md"
+}

@@ -29,7 +29,7 @@ const {
   PROMPT_ENGINE_LIMITS,
   buildPromptEngineOptimizeRequest,
 } = require('./prompt-engine-contract')
-const { VIDEO_ENGINE_LIMITS } = require('./video-prompt-engine-contract')
+const { VIDEO_ENGINE_LIMITS, extractOptimizedVideoPrompt } = require('./video-prompt-engine-contract')
 const {
   IMAGE_PROVIDER_ALIASES,
 } = require('./asset-generator')
@@ -191,10 +191,6 @@ function extractOptimizedPromptResult (result) {
     if (typeof text === 'string' && text.trim()) return { text, metaSource: source }
   }
   return { text: '', metaSource: source }
-}
-
-function extractOptimizedPrompt (result) {
-  return extractOptimizedPromptResult(result).text
 }
 
 function extractImageOptimizedPrompt (result) {
@@ -1379,8 +1375,6 @@ class Story2VideoProjectService {
         typeof (kind === 'video' ? this.serviceBus.optimizeVideoPrompt : this.serviceBus.optimizePrompt) !== 'function') {
       throw new Error('提示词优化服务不可用')
     }
-    const projectDir = this._projectDir(projectId)
-    const attemptFiles = new Set()
     try {
       const seed = segment.text
       // 图片优化词与流水线契约同源（2026-08-16 上限放开）：经 buildPromptEngineOptimizeRequest
@@ -1431,7 +1425,14 @@ class Story2VideoProjectService {
       }
       const optimizedResult = kind === 'image'
         ? extractImageOptimizedPrompt(optimized)
-        : { text: extractOptimizedPrompt(optimized), meta: null }
+        : (() => {
+            const validated = extractOptimizedVideoPrompt(optimized, {
+              index: segment.sourceIndex ?? index,
+              maxLength: VIDEO_ENGINE_LIMITS.videoMaxLengthMax,
+            })
+            if (!validated.ok) throw new Error(validated.error)
+            return { text: validated.prompt, meta: validated.meta }
+          })()
       const optimizedText = optimizedResult.text
       if (!optimizedText || !optimizedText.trim()) throw new Error('提示词优化结果无效')
       if (kind === 'image') {
@@ -1465,7 +1466,6 @@ class Story2VideoProjectService {
       try { this._upsertProject(project) } catch (storageError) {
         if (this.log && typeof this.log.warn === 'function') this.log.warn('[Story2Video] 保存分段失败状态失败', storageError)
       }
-      this._cleanupProjectFiles(projectDir, attemptFiles)
       throw error
     }
   }

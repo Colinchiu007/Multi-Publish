@@ -33,6 +33,53 @@ const HEALTH_CHECK_TIMEOUT = 10000
 const WATCHDOG_INTERVAL = 30000
 const MAX_RESTARTS = 3
 
+/**
+ * 创建带 HTTP 语义的 bridge 错误，供上层区分“服务已响应但业务失败”和传输故障。
+ * @param {number} statusCode
+ * @param {unknown} detail
+ * @param {object} [context]
+ * @returns {Error & { statusCode: number, detail: unknown, isHttpError: true }}
+ */
+function createBridgeHttpError (statusCode, detail, context = {}) {
+  const normalizedStatus = Number(statusCode)
+  let detailText
+  if (typeof detail === 'string') {
+    detailText = detail
+  } else {
+    try { detailText = JSON.stringify(detail) || String(detail) } catch (_) { detailText = String(detail) }
+  }
+  const error = new Error('HTTP ' + normalizedStatus + ': ' + detailText)
+  error.name = 'PythonBridgeHttpError'
+  error.statusCode = normalizedStatus
+  error.detail = detail
+  error.isHttpError = true
+  Object.assign(error, context)
+  return error
+}
+
+/**
+ * @param {string} bridgeName
+ * @returns {Error & { code: string, isTimeout: true, isTransportError: true }}
+ */
+function createBridgeTimeoutError (bridgeName) {
+  const error = new Error(bridgeName + ' request timeout')
+  error.name = 'PythonBridgeTimeoutError'
+  error.code = 'ETIMEDOUT'
+  error.isTimeout = true
+  error.isTransportError = true
+  return error
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isBridgeHttpError (error) {
+  if (!error || typeof error !== 'object') return false
+  if (error.isHttpError === true || error.name === 'PythonBridgeHttpError') return true
+  return false
+}
+
 class BasePythonBridge {
   /**
    * @param {object} config
@@ -229,7 +276,20 @@ class BasePythonBridge {
   async _post (path, body, timeout, traceId) {
     const reqTimeout = timeout || this.requestTimeout
     if (!this.isRunning) {
-      try { await this.ensureRunning() } catch (e) { throw new Error(`${this.name} is not running and lazy-start failed: ${e instanceof Error ? e.message : String(e)}`) }
+      try {
+        await this.ensureRunning()
+      } catch (e) {
+        const error = new Error(`${this.name} is not running and lazy-start failed: ${e instanceof Error ? e.message : String(e)}`)
+        error.code = 'BRIDGE_UNAVAILABLE'
+        const causeCode = e && typeof e === 'object' ? String(e.code || '').toUpperCase() : ''
+        error.isTransportError = e && typeof e === 'object' && (
+          e.isTransportError === true ||
+          e.isTimeout === true ||
+          ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN'].includes(causeCode)
+        )
+        error.cause = e
+        throw error
+      }
     }
     // 仅记录 path + traceId，绝不记录 body（body 为业务数据，无需入日志）。
     // traceId 必须为 header 安全 ASCII（允许字母/数字/._:-，≤64），否则跳过头发送——
@@ -254,16 +314,20 @@ class BasePythonBridge {
           let parsed
           try { parsed = JSON.parse(data) } catch { parsed = { code: -1, message: data } }
           if (res.statusCode && res.statusCode >= 400) {
-            const detail = (parsed && (parsed.detail || parsed.message)) || data
-            this.log.error(this.name, `POST ${path} HTTP ${res.statusCode}: ${typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail).slice(0, 300)}`)
-            reject(new Error(`HTTP ${res.statusCode}: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`))
+            const detail = parsed && parsed.detail !== undefined
+              ? parsed.detail
+              : (parsed && parsed.message !== undefined
+                  ? parsed.message
+                  : (parsed && parsed.error !== undefined ? parsed.error : data))
+            this.log.error(this.name, 'POST ' + path + ' HTTP ' + res.statusCode + ': ' + (typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail).slice(0, 300)))
+            reject(createBridgeHttpError(res.statusCode, detail, { bridge: this.name, path, responseBody: parsed }))
           } else {
             resolve(parsed)
           }
         })
       })
       req.on('error', reject)
-      req.on('timeout', () => { req.destroy(); reject(new Error(`${this.name} request timeout`)) })
+      req.on('timeout', () => { req.destroy(); reject(createBridgeTimeoutError(this.name)) })
       req.write(body)
       req.end()
     })
@@ -315,4 +379,12 @@ class BasePythonBridge {
   }
 }
 
-module.exports = { BasePythonBridge, MAX_RESTARTS, WATCHDOG_INTERVAL, HEALTH_CHECK_TIMEOUT }
+module.exports = {
+  BasePythonBridge,
+  MAX_RESTARTS,
+  WATCHDOG_INTERVAL,
+  HEALTH_CHECK_TIMEOUT,
+  createBridgeHttpError,
+  createBridgeTimeoutError,
+  isBridgeHttpError,
+}

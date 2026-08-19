@@ -57,7 +57,7 @@
 
 ### Requirement: 重新生成优化词失败必须 fail-closed
 
-历史记录场景「重新生成图片/视频优化词」SHALL 在 prompt-engine 返回错误（含「error（或与流水线 kernel 一致的 detail）字段 + 回显原文」的失败兜底形态，含跨层：error 在顶层、回显在内层 results）时判定为失败：不得把回显原文写入分段，分段 SHALL 保持原有 prompt/videoPrompt 并将 `status` 置为 `failed`，真实失败原因随响应透出。
+历史记录场景「重新生成图片/视频优化词」SHALL 对 Prompt Engine 的 HTTP、业务和跨层响应统一判定：只有响应未声明错误、包含非空优化词并满足对应执行元数据时才算成功；当响应包含错误字段、HTTP 非成功、缺少必要执行元数据，或以原文回显作为错误兜底时，系统 SHALL 判定失败：不得把回显原文写入分段，图片分段 SHALL 保持原有 prompt，视频分段 SHALL 保持原有 videoPrompt 并将 `status` 置为 `failed`，真实失败原因随响应透出。
 
 #### Scenario: 引擎 402 回显原文
 - **WHEN** 用户点击「重新生成图片优化词」且 prompt-engine 返回 `{ optimized_prompt: <原文>, error: "402 insufficient_balance" }`
@@ -70,6 +70,14 @@
 #### Scenario: 视频域错误回显
 - **WHEN** 重新生成视频优化词且引擎返回 error + 回显
 - **THEN** `videoPrompt` 不被改写，分段回写 failed
+
+#### Scenario: 缺失执行元数据
+- **WHEN** 响应含非空优化词但缺少或错误的策略、调用方、缓存旁路等必要执行元数据
+- **THEN** 系统按失败处理，保持原提示词并持久化 failed，不得仅凭文本内容判定成功
+
+#### Scenario: 图片 HTTP 200 业务错误回显
+- **WHEN** 图片优化接口返回 HTTP 200，同时包含非空 optimized_prompt 与 error/detail
+- **THEN** 系统仍按失败处理，不触发 CLI 兜底，不覆盖旧 prompt，并持久化 failed
 
 ### Requirement: 重新生成请求上下文与流水线同源
 

@@ -8,7 +8,7 @@
  */
 const http = require('http')
 const { execFile } = require('child_process')
-const { BasePythonBridge } = require('./base-python-bridge')
+const { BasePythonBridge, createBridgeHttpError, createBridgeTimeoutError, isBridgeHttpError } = require('./base-python-bridge')
 const { config } = require('../config/app-config')
 const {
   normalizePromptEngineStyle,
@@ -41,6 +41,27 @@ const _defaultPromptDir = (() => {
   return process.cwd()
 })()
 const PROMPT_DIR = process.env.PROMPT_DIR || _defaultPromptDir
+
+const TRANSPORT_ERROR_CODES = new Set([
+  'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH',
+  'ENETUNREACH', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN',
+])
+
+/**
+ * CLI 只作为 prompt-engine 未连通时的兼容兜底。
+ * HTTP 4xx/5xx 说明服务已经收到请求，必须把模型/业务错误原样交给调用方。
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isPromptEngineTransportError (error) {
+  if (isBridgeHttpError(error)) return false
+  if (!error || typeof error !== 'object') return false
+  if (error.isTransportError === true || error.isTimeout === true) return true
+  const code = String(error && typeof error === 'object' ? (error.code || error.cause?.code || '') : '').toUpperCase()
+  if (TRANSPORT_ERROR_CODES.has(code)) return true
+  // Business errors are intentionally not classified from message text.
+  return false
+}
 
 function normalizeOptimizeRequest (request) {
   const normalized = request !== null && typeof request === 'object' && !Array.isArray(request)
@@ -266,7 +287,7 @@ class PromptBridge extends BasePythonBridge {
         if (llm.caller) pyArgs.push('--caller', llm.caller)
       }
       this.log.info(this.name, `CLI fallback: python ${pyArgs.slice(0, 5).join(' ')}... traceId=${traceId || '-'}`)
-      execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 30000, windowsHide: true, env: { ...process.env, PYTHONPATH: PROMPT_DIR } }, (err, stdout, stderr) => {
+      execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 30000, windowsHide: true, env: { ...process.env, PYTHONPATH: PROMPT_DIR } }, (err, stdout, _stderr) => {
         if (err) {
           this.log.warn(this.name, `CLI fallback failed: ${err.message}`)
           reject(new Error(`CLI fallback failed: ${err.message}`))
@@ -275,7 +296,7 @@ class PromptBridge extends BasePythonBridge {
         try {
           const result = JSON.parse(stdout.trim())
           resolve(result)
-        } catch (e) {
+        } catch (_error) {
           this.log.warn(this.name, `CLI fallback returned invalid JSON: ${stdout.slice(0, 200)}`)
           reject(new Error('CLI fallback returned invalid JSON'))
         }
@@ -284,7 +305,7 @@ class PromptBridge extends BasePythonBridge {
   }
 
   /**
-   * optimize -- POST /v1/optimize with CLI fallback on HTTP failure.
+   * optimize -- POST /v1/optimize with CLI fallback only for transport failures.
    */
   async optimize (request, traceId) {
     await this.ensureRunning()
@@ -304,6 +325,7 @@ class PromptBridge extends BasePythonBridge {
       return result
     } catch (httpErr) {
       this.log.warn(this.name, `optimize: FAILED ${httpErr instanceof Error ? httpErr.message : String(httpErr)}, traceId=${traceId || '-'}`)
+      if (!isPromptEngineTransportError(httpErr)) throw httpErr
       return this._cliFallbackSingle(normalized, traceId)
     }
   }
@@ -327,7 +349,8 @@ class PromptBridge extends BasePythonBridge {
     try {
       return await this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }), undefined, traceId)
     } catch (httpErr) {
-      this.log.warn(this.name, `Batch HTTP failed (${httpErr instanceof Error ? httpErr.message : String(httpErr)}), trying CLI fallback for ${normalized.length} items`)
+      this.log.warn(this.name, `Batch HTTP failed (${httpErr instanceof Error ? httpErr.message : String(httpErr)}), checking transport fallback for ${normalized.length} items`)
+      if (!isPromptEngineTransportError(httpErr)) throw httpErr
       const results = []
       for (const n of normalized) {
         try {
@@ -373,17 +396,27 @@ class PromptBridge extends BasePythonBridge {
         let data = ''
         res.on('data', chunk => { data += chunk })
         res.on('end', () => {
-        if (res.statusCode >= 400) {
-          let detail = data
-          try { const parsed = JSON.parse(data); detail = parsed.detail || parsed.message || data } catch (_) {}
-          reject(new Error('standalone video engine HTTP ' + res.statusCode + ': ' + detail))
-          return
-        }
-        try { resolve(JSON.parse(data)) } catch { reject(new Error('standalone video engine 返回非法 JSON')) }
-      })
+          if (res.statusCode >= 400) {
+            let responseBody = data
+            let detail = data
+            try {
+              responseBody = JSON.parse(data)
+              detail = responseBody && responseBody.detail !== undefined
+                ? responseBody.detail
+                : (responseBody && responseBody.message !== undefined
+                    ? responseBody.message
+                    : (responseBody && responseBody.error !== undefined ? responseBody.error : data))
+            } catch (_) {
+              // 非 JSON 响应保留原始文本作为 detail。
+            }
+            reject(createBridgeHttpError(res.statusCode, detail, { bridge: this.name, backend: 'standalone-8020', path, responseBody }))
+            return
+          }
+          try { resolve(JSON.parse(data)) } catch { reject(new Error('standalone video engine 返回非法 JSON')) }
+        })
       })
       req.on('error', reject)
-      req.on('timeout', () => { req.destroy(); reject(new Error('standalone video engine request timeout')) })
+      req.on('timeout', () => { req.destroy(); reject(createBridgeTimeoutError(this.name)) })
       req.write(body)
       req.end()
     })
@@ -409,8 +442,7 @@ class PromptBridge extends BasePythonBridge {
         const result = await this._postStandalone('/v1/video/optimize', JSON.stringify(standaloneReq), undefined, traceId)
         return tagVideoEngineResult(result, { backend: 'standalone-8020' })
       } catch (e) {
-        const isClientError = e.message && e.message.startsWith('standalone video engine HTTP 4')
-        if (isClientError) throw e
+        if (!isPromptEngineTransportError(e)) throw e
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video：${e instanceof Error ? e.message : String(e)}`)
       }
@@ -449,8 +481,7 @@ class PromptBridge extends BasePythonBridge {
         const result = await this._postStandalone('/v1/video/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
         return tagVideoEngineResult(result, { backend: 'standalone-8020' })
       } catch (e) {
-        const isClientError = e.message && e.message.startsWith('standalone video engine HTTP 4')
-        if (isClientError) throw e
+        if (!isPromptEngineTransportError(e)) throw e
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video 批量：${e instanceof Error ? e.message : String(e)}`)
       }
@@ -463,7 +494,7 @@ class PromptBridge extends BasePythonBridge {
     const bind = this.resolveLlmBind()
     for (const req of requests) {
       req.llm = bind
-          }
+    }
     const result = await this._post('/v1/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
     return tagVideoEngineResult(result, { backend: 'legacy-8013', fallback: Boolean(_standaloneTarget()) })
   }

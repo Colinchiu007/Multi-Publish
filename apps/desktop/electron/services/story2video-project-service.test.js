@@ -4,6 +4,9 @@
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const http = require('http')
+const PromptBridge = require('./prompt-bridge')
+const ServiceBus = require('./service-bus')
 const { Story2VideoProjectService } = require('./story2video-project-service')
 const { withAssetTransientRetry } = require('./story2video-stages')
 const { cleanupImportedMediaPaths, importUserSelectedMedia } = require('./story2video-paths')
@@ -30,6 +33,45 @@ function imageOptimizationResponse (optimizedPrompt = '新画面提示词', over
       ...overrides,
     }],
   }
+}
+
+function mockPromptLlmManager () {
+  return {
+    getDefault: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', models: ['deepseek-v4-flash'] })),
+    getProviderWithKey: vi.fn(() => ({ id: 'sensenova-llm', models: ['deepseek-v4-flash'], api_key: 'sk-test' })),
+  }
+}
+
+function startPromptEngineServer (handler) {
+  const server = http.createServer((request, response) => {
+    let body = ''
+    request.setEncoding('utf8')
+    request.on('data', chunk => { body += chunk })
+    request.on('end', () => {
+      let parsed = null
+      try { parsed = JSON.parse(body) } catch (_) {
+        // 测试服务允许验证非 JSON 请求体。
+      }
+      try {
+        const result = handler(request, parsed) || {}
+        response.statusCode = result.statusCode || 200
+        response.setHeader('Content-Type', 'application/json')
+        response.end(JSON.stringify(result.body === undefined ? {} : result.body))
+      } catch (error) {
+        response.statusCode = 500
+        response.setHeader('Content-Type', 'application/json')
+        response.end(JSON.stringify({ detail: error.message }))
+      }
+    })
+  })
+  return new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server))
+  })
+}
+
+function stopPromptEngineServer (server) {
+  return new Promise(resolve => server.close(() => resolve()))
 }
 
 describe('Story2VideoProjectService', () => {
@@ -2011,7 +2053,7 @@ describe('Story2VideoProjectService', () => {
 
   it('regenerateScenePrompt video 更新 videoPrompt 且不动 prompt', async () => {
     const projectRoot = path.join(root, 'projects')
-    const optimizeVideoPrompt = vi.fn(async () => ({ results: [{ prompt: '新视频优化词' }] }))
+    const optimizeVideoPrompt = vi.fn(async () => ({ optimized_prompt: '新视频优化词' }))
     const service = new Story2VideoProjectService({
       store,
       projectsDir: projectRoot,
@@ -2034,7 +2076,7 @@ describe('Story2VideoProjectService', () => {
   it('regenerateScenePrompt video 超长返回完整保存（不落回后端默认截断）', async () => {
     const projectRoot = path.join(root, 'projects')
     const long = '镜'.repeat(25000)
-    const optimizeVideoPrompt = vi.fn(async () => ({ results: [{ prompt: long }] }))
+    const optimizeVideoPrompt = vi.fn(async () => ({ optimized_prompt: long }))
     const service = new Story2VideoProjectService({
       store,
       projectsDir: projectRoot,
@@ -2111,7 +2153,11 @@ describe('Story2VideoProjectService', () => {
     await expect(service.regenerateScenePrompt('project-prompt-video-echo', 'segment-0', 'video')).rejects.toThrow('402')
 
     const failed = service.getProject('project-prompt-video-echo')
-    expect(failed.segments[0]).toMatchObject({ videoPrompt: '旧视频词', status: 'failed', error: '402 insufficient_balance_error' })
+    expect(failed.segments[0]).toMatchObject({
+      videoPrompt: '旧视频词',
+      status: 'failed',
+      error: expect.stringContaining('402 insufficient_balance_error'),
+    })
   })
 
   it('regenerateScenePrompt error 无文本 → 同样 fail-closed 不改写分段', async () => {
@@ -2278,6 +2324,300 @@ describe('Story2VideoProjectService', () => {
     expect(requestOptions.context.full_text).toContain('旧项目场景一')
     expect(requestOptions.context.full_text).toContain('旧项目场景二')
     expect(updated.segments[0].prompt).toBe('新画面提示词')
+  })
+
+  it('regenerateScenePrompt 真实 ServiceBus/PromptBridge/HTTP 成功链路落库', async () => {
+    let received
+    const server = await startPromptEngineServer((request, body) => {
+      expect(request.method).toBe('POST')
+      expect(request.url).toBe('/v1/optimize')
+      received = body
+      return { body: imageOptimizationResponse('真实链路新提示词') }
+    })
+    const promptBridge = new PromptBridge({})
+    promptBridge.isRunning = true
+    promptBridge.host = '127.0.0.1'
+    promptBridge.port = server.address().port
+    promptBridge.modelProviderManager = mockPromptLlmManager()
+    const serviceBus = new ServiceBus({
+      pythonBridge: {},
+      splitterBridge: {},
+      promptBridge,
+    })
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: path.join(root, 'projects'),
+      serviceBus,
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-real-success', status: 'completed', options: {},
+      segments: [
+        { id: 'segment-0', index: 0, text: '第一场景', prompt: '旧提示词' },
+        { id: 'segment-1', index: 1, text: '第二场景', prompt: '第二个提示词' },
+      ],
+    }])
+
+    try {
+      const updated = await service.regenerateScenePrompt('project-prompt-real-success', 'segment-0', 'image')
+
+      expect(updated.segments[0].prompt).toBe('真实链路新提示词')
+      expect(updated.segments[0].status).toBe('completed')
+      expect(received).toMatchObject({
+        prompt: expect.stringContaining('第一场景'),
+        optimization_strategy: 'llm',
+        bypass_cache: true,
+        max_length: 2000,
+        context: { full_text: expect.stringContaining('第二场景') },
+        llm: {
+          provider: 'sensenova',
+          model: 'deepseek-v4-flash',
+          api_key: 'sk-test',
+          caller: 'multi-publish-desktop',
+        },
+      })
+      expect(received).not.toHaveProperty('index')
+    } finally {
+      await stopPromptEngineServer(server)
+    }
+  })
+
+  it.each([422, 429, 502])('regenerateScenePrompt 真实 HTTP %s 保持旧词、写入 failed 且不走 CLI fallback', async (statusCode) => {
+    const responseBody = {
+      detail: 'LLM调用失败：未生成有效优化词',
+      error_code: 'LLM_EMPTY',
+    }
+    let requestCount = 0
+    const server = await startPromptEngineServer((request) => {
+      requestCount += 1
+      expect(request.method).toBe('POST')
+      expect(request.url).toBe('/v1/optimize')
+      return { statusCode, body: responseBody }
+    })
+    const promptBridge = new PromptBridge({})
+    promptBridge.isRunning = true
+    promptBridge.host = '127.0.0.1'
+    promptBridge.port = server.address().port
+    promptBridge.modelProviderManager = mockPromptLlmManager()
+    promptBridge._cliFallbackSingle = vi.fn(async () => ({ optimized_prompt: '不应写入的兜底词' }))
+    const serviceBus = new ServiceBus({
+      pythonBridge: {},
+      splitterBridge: {},
+      promptBridge,
+    })
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: path.join(root, 'projects'),
+      serviceBus,
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-real-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '第一场景', prompt: '必须保留的旧提示词' }],
+    }])
+
+    try {
+      await expect(service.regenerateScenePrompt('project-prompt-real-fail', 'segment-0', 'image'))
+        .rejects.toMatchObject({
+          statusCode,
+          detail: responseBody.detail,
+          responseBody,
+        })
+
+      expect(promptBridge._cliFallbackSingle).not.toHaveBeenCalled()
+      expect(requestCount).toBe(1)
+      expect(service.getProject('project-prompt-real-fail').segments[0]).toMatchObject({
+        prompt: '必须保留的旧提示词',
+        status: 'failed',
+        error: expect.stringContaining(responseBody.detail),
+      })
+    } finally {
+      await stopPromptEngineServer(server)
+    }
+  })
+
+  it('regenerateScenePrompt image HTTP 200 业务错误+回显原文仍 fail-closed', async () => {
+    const responseBody = {
+      optimized_prompt: '引擎回显的图片词',
+      error: '402 insufficient_balance_error',
+    }
+    const server = await startPromptEngineServer((request) => {
+      expect(request.method).toBe('POST')
+      expect(request.url).toBe('/v1/optimize')
+      return { body: responseBody }
+    })
+    const promptBridge = new PromptBridge({})
+    promptBridge.isRunning = true
+    promptBridge.host = '127.0.0.1'
+    promptBridge.port = server.address().port
+    promptBridge.modelProviderManager = mockPromptLlmManager()
+    promptBridge._cliFallbackSingle = vi.fn(async () => ({ optimized_prompt: '不应写入的兜底词' }))
+    const serviceBus = new ServiceBus({
+      pythonBridge: {},
+      splitterBridge: {},
+      promptBridge,
+    })
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: path.join(root, 'projects'),
+      serviceBus,
+    })
+    service._writeProjects([{
+      projectId: 'project-prompt-real-business-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '第一场景', prompt: '必须保留的旧提示词' }],
+    }])
+
+    try {
+      await expect(service.regenerateScenePrompt('project-prompt-real-business-fail', 'segment-0', 'image'))
+        .rejects.toThrow('402 insufficient_balance_error')
+      expect(promptBridge._cliFallbackSingle).not.toHaveBeenCalled()
+      expect(service.getProject('project-prompt-real-business-fail').segments[0]).toMatchObject({
+        prompt: '必须保留的旧提示词',
+        status: 'failed',
+        error: expect.stringContaining('402 insufficient_balance_error'),
+      })
+    } finally {
+      await stopPromptEngineServer(server)
+    }
+  })
+
+  it('regenerateScenePrompt video 真实 8020 HTTP 成功链路只更新 videoPrompt', async () => {
+    const previousPort = process.env.VIDEO_PROMPT_PORT
+    const previousHost = process.env.VIDEO_PROMPT_HOST
+    let received
+    const server = await startPromptEngineServer((request, body) => {
+      expect(request.method).toBe('POST')
+      expect(request.url).toBe('/v1/video/optimize')
+      received = body
+      return { body: { optimized_prompt: '真实视频链路新优化词' } }
+    })
+    process.env.VIDEO_PROMPT_PORT = String(server.address().port)
+    process.env.VIDEO_PROMPT_HOST = '127.0.0.1'
+    const promptBridge = new PromptBridge({})
+    promptBridge.isRunning = true
+    promptBridge.host = '127.0.0.1'
+    promptBridge.port = server.address().port
+    promptBridge.modelProviderManager = mockPromptLlmManager()
+    const serviceBus = new ServiceBus({ pythonBridge: {}, splitterBridge: {}, promptBridge })
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects'), serviceBus })
+    service._writeProjects([{
+      projectId: 'project-video-real-success', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 3, text: '赤壁江面', prompt: '旧画面词', videoPrompt: '旧视频词' }],
+    }])
+
+    try {
+      const updated = await service.regenerateScenePrompt('project-video-real-success', 'segment-0', 'video')
+
+      expect(updated.segments[0]).toMatchObject({
+        prompt: '旧画面词',
+        videoPrompt: '真实视频链路新优化词',
+        status: 'completed',
+      })
+      expect(received).toMatchObject({
+        prompt: '赤壁江面',
+        max_length: 40000,
+        llm: {
+          provider: 'sensenova',
+          model: 'deepseek-v4-flash',
+          api_key: 'sk-test',
+          caller: 'multi-publish-desktop',
+        },
+      })
+    } finally {
+      await stopPromptEngineServer(server)
+      if (previousPort === undefined) delete process.env.VIDEO_PROMPT_PORT
+      else process.env.VIDEO_PROMPT_PORT = previousPort
+      if (previousHost === undefined) delete process.env.VIDEO_PROMPT_HOST
+      else process.env.VIDEO_PROMPT_HOST = previousHost
+    }
+  })
+
+  it('regenerateScenePrompt video HTTP 200 业务错误+回显原文仍 fail-closed', async () => {
+    const previousPort = process.env.VIDEO_PROMPT_PORT
+    const previousHost = process.env.VIDEO_PROMPT_HOST
+    const responseBody = {
+      optimized_prompt: '引擎回显的视频词',
+      error: '402 insufficient_balance_error',
+    }
+    const server = await startPromptEngineServer((request) => {
+      expect(request.method).toBe('POST')
+      expect(request.url).toBe('/v1/video/optimize')
+      return { body: responseBody }
+    })
+    process.env.VIDEO_PROMPT_PORT = String(server.address().port)
+    process.env.VIDEO_PROMPT_HOST = '127.0.0.1'
+    const promptBridge = new PromptBridge({})
+    promptBridge.isRunning = true
+    promptBridge.host = '127.0.0.1'
+    promptBridge.port = server.address().port
+    promptBridge.modelProviderManager = mockPromptLlmManager()
+    const serviceBus = new ServiceBus({ pythonBridge: {}, splitterBridge: {}, promptBridge })
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects'), serviceBus })
+    service._writeProjects([{
+      projectId: 'project-video-real-business-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '赤壁江面', prompt: '旧画面词', videoPrompt: '必须保留的旧视频词' }],
+    }])
+
+    try {
+      await expect(service.regenerateScenePrompt('project-video-real-business-fail', 'segment-0', 'video'))
+        .rejects.toThrow('402 insufficient_balance_error')
+      expect(service.getProject('project-video-real-business-fail').segments[0]).toMatchObject({
+        prompt: '旧画面词',
+        videoPrompt: '必须保留的旧视频词',
+        status: 'failed',
+        error: expect.stringContaining('402 insufficient_balance_error'),
+      })
+    } finally {
+      await stopPromptEngineServer(server)
+      if (previousPort === undefined) delete process.env.VIDEO_PROMPT_PORT
+      else process.env.VIDEO_PROMPT_PORT = previousPort
+      if (previousHost === undefined) delete process.env.VIDEO_PROMPT_HOST
+      else process.env.VIDEO_PROMPT_HOST = previousHost
+    }
+  })
+
+  it.each([422, 429, 502])('regenerateScenePrompt video 真实 8020 HTTP %s 不回退 8013 且保留旧词', async (statusCode) => {
+    const previousPort = process.env.VIDEO_PROMPT_PORT
+    const previousHost = process.env.VIDEO_PROMPT_HOST
+    const responseBody = { detail: '视频模型账号余额不足', error_code: 'QUOTA_EXCEEDED' }
+    let requestCount = 0
+    const server = await startPromptEngineServer((request) => {
+      requestCount += 1
+      expect(request.method).toBe('POST')
+      expect(request.url).toBe('/v1/video/optimize')
+      return { statusCode, body: responseBody }
+    })
+    process.env.VIDEO_PROMPT_PORT = String(server.address().port)
+    process.env.VIDEO_PROMPT_HOST = '127.0.0.1'
+    const promptBridge = new PromptBridge({})
+    promptBridge.isRunning = true
+    promptBridge.host = '127.0.0.1'
+    promptBridge.port = server.address().port
+    promptBridge.modelProviderManager = mockPromptLlmManager()
+    promptBridge._post = vi.fn(async () => { throw new Error('8013 fallback must not be called') })
+    const serviceBus = new ServiceBus({ pythonBridge: {}, splitterBridge: {}, promptBridge })
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects'), serviceBus })
+    service._writeProjects([{
+      projectId: 'project-video-real-fail', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '赤壁江面', prompt: '旧画面词', videoPrompt: '必须保留的旧视频词' }],
+    }])
+
+    try {
+      await expect(service.regenerateScenePrompt('project-video-real-fail', 'segment-0', 'video'))
+        .rejects.toMatchObject({ statusCode, detail: responseBody.detail, responseBody })
+      expect(requestCount).toBe(1)
+      expect(promptBridge._post).not.toHaveBeenCalled()
+      expect(service.getProject('project-video-real-fail').segments[0]).toMatchObject({
+        prompt: '旧画面词',
+        videoPrompt: '必须保留的旧视频词',
+        status: 'failed',
+        error: expect.stringContaining(responseBody.detail),
+      })
+    } finally {
+      await stopPromptEngineServer(server)
+      if (previousPort === undefined) delete process.env.VIDEO_PROMPT_PORT
+      else process.env.VIDEO_PROMPT_PORT = previousPort
+      if (previousHost === undefined) delete process.env.VIDEO_PROMPT_HOST
+      else process.env.VIDEO_PROMPT_HOST = previousHost
+    }
   })
 
   it('saveRun 持久化视频优化词（videoPrompt）到分段', () => {

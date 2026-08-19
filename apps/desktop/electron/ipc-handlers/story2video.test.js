@@ -386,6 +386,27 @@ describe('Story2Video 交付 IPC', () => {
     expect(service.regenerateSceneAudio).not.toHaveBeenCalled()
   })
 
+  it('场景优化词服务失败时返回失败 envelope，不伪装成成功', async () => {
+    const service = {
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
+      regenerateScenePrompt: vi.fn(async () => {
+        const error = new Error('HTTP 422: 当前模型账号未生成有效优化词')
+        error.statusCode = 422
+        error.detail = '当前模型账号未生成有效优化词'
+        throw error
+      }),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    const result = await ipcMain.get('story2video:regenerate-scene-prompt')(TRUSTED_EVENT, {
+      projectId: 'project-1', segmentId: 'segment-0', kind: 'image',
+    })
+
+    expect(result).toEqual({ code: -1, message: 'HTTP 422: 当前模型账号未生成有效优化词' })
+    expect(service.regenerateScenePrompt).toHaveBeenCalledWith('project-1', 'segment-0', 'image')
+  })
+
   it('替换旁白成功后清理受控媒体临时副本', async () => {
     const paths = (await import('../services/story2video-paths')).default
     const source = path.join(root, 'replacement.mp3')

@@ -1296,6 +1296,27 @@ describe("ResultView", () => {
     w.unmount();
   });
 
+  it.each(["image", "video"])("重新生成%s优化词返回 IPC 失败时提示 scene_prompt_regenerate_failed 且不覆盖本地分段", async (kind) => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateScenePrompt.mockResolvedValue({
+      code: -1,
+      message: "HTTP 422: 当前模型账号未生成有效优化词",
+    });
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", prompt: "旧图词", videoPrompt: "旧视频词", status: "completed" }];
+    await nextTick();
+
+    await w.vm.regenerateScenePrompt("s1", kind);
+    await nextTick();
+
+    expect(mocks.story2videoRegenerateScenePrompt).toHaveBeenCalledWith("p1", "s1", kind);
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_prompt_regenerate_failed");
+    expect(w.vm.segments[0]).toMatchObject({ prompt: "旧图词", videoPrompt: "旧视频词" });
+    expect(w.vm.segmentBusy).toEqual({});
+    w.unmount();
+  });
+
   it("重新生成字幕失败提示 scene_subtitle_regenerate_failed", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoRegenerateSceneSubtitle.mockRejectedValue(new Error("无法重新生成字幕"));

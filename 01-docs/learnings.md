@@ -1,3 +1,12 @@
+## PromptBridge HTTP 业务错误误触发 CLI 兜底复盘（fix-s2v-regenerate-prompt，2026-08-20）
+
+- **现象**：视频创作历史详情点击场景【重新生成提示词】时，模型账号/额度等 Prompt Engine 业务失败被统一显示为「当前模型账号的优化词重新生成失败」，且可能进入 CLI/旧 8013 兜底，掩盖真实 HTTP 状态和错误原因。
+- **第一性根因**：4536b024 为 PromptBridge.optimize/optimizeBatch 增加 CLI 兜底时，把所有 _post() reject 都当作传输故障；10442f9d 虽让 _post() 保留 HTTP detail，仍未改变 catch 分流。HTTP 422/429/502 与连接拒绝在控制流上没有结构化区分。
+- **教训 1（错误类型先于错误文本）**：bridge 必须用结构化 HTTP 错误、超时/传输错误区分「服务已收到请求」和「服务未连通」；只有后者允许兼容兜底，不能从 message 文本猜业务错误。
+- **教训 2（历史路径必须复用领域契约）**：视频历史重生成不能只取 optimized_prompt；必须复用视频契约的错误、执行元数据、长度和结构校验，失败时保留原 videoPrompt 并写回 failed。
+- **逃逸原因**：旧服务测试在 ServiceBus.optimizePrompt/optimizeVideoPrompt 边界深度 mock，覆盖了理想对象和部分错误对象，却没有真实 PromptBridge -> HTTP；旧 PromptBridge 测试只验证 generic ECONNREFUSED 能 fallback，没有 HTTP 4xx/5xx 不 fallback 的反例；ResultView/IPC 测试也没有贯穿 preload、主进程和 HTTP 的窗口级链路。
+- **回归保护**：prompt-bridge.test.js 增加真实 HTTP 成功及 422/429/502 状态矩阵；story2video-project-service.test.js 增加真实 ServiceBus/PromptBridge/HTTP 的图片与 8020 视频成功、业务错误回显和 HTTP 错误用例；结果页和 IPC 保留失败通知、旧值和 busy 状态断言。后续任何 fallback 或 Prompt Engine 响应契约变更必须同时覆盖「transport fallback works」和「HTTP business error does not fallback」两类反例。
+
 ## 分段状态 failed/completed 误导展示与残留 error 复盘（fix-s2v-segment-status-reason，2026-08-16）
 
 - **现象**：视频创作-历史记录分段卡片直接显示英文原值状态（failed/completed）；用户点击【重试图片】成功后，分段状态变 completed 但旧 error（`UnsupportedParamsError: Setting response_format is not supported...`）仍残留，UI 语义矛盾、无法理解失败原因。

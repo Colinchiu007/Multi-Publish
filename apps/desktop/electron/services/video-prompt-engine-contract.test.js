@@ -468,7 +468,7 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
     it('独立引擎不可用 → warning + 回退 8013 /v1/optimize（domain=video）', async () => {
       process.env.VIDEO_PROMPT_PORT = '8020'
       const bridge = makeBridge()
-      bridge._postStandalone.mockRejectedValue(new Error('ECONNREFUSED'))
+      bridge._postStandalone.mockRejectedValue(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }))
       const res = await bridge.optimizeVideo('a cat', { platform: 'kling-pro' })
       expect(bridge._postStandalone).toHaveBeenCalledTimes(1)
       expect(bridge._post).toHaveBeenCalledTimes(1)
@@ -478,6 +478,27 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
       expect(res._prompt_engine_backend).toBe('legacy-8013')
       expect(res._prompt_engine_fallback).toBe(true)
       expect(mockLog.warn).toHaveBeenCalled()
+    })
+
+    it('独立引擎 HTTP 502 不回退 8013 且保留结构化错误', async () => {
+      process.env.VIDEO_PROMPT_PORT = '8020'
+      const bridge = makeBridge()
+      const responseBody = { detail: '视频模型账号余额不足', error_code: 'QUOTA_EXCEEDED' }
+      bridge._postStandalone.mockRejectedValue(Object.assign(new Error('HTTP 502: 视频模型账号余额不足'), {
+        name: 'PythonBridgeHttpError',
+        isHttpError: true,
+        statusCode: 502,
+        detail: responseBody.detail,
+        responseBody,
+      }))
+      bridge._post.mockClear()
+
+      await expect(bridge.optimizeVideo('a cat', { platform: 'kling-pro' })).rejects.toMatchObject({
+        statusCode: 502,
+        detail: responseBody.detail,
+        responseBody,
+      })
+      expect(bridge._post).not.toHaveBeenCalled()
     })
 
     it('批量：8020 /v1/video/optimize/batch 优先（含 output_language），失败回退 8013 /v1/optimize/batch（无该字段）', async () => {
@@ -499,7 +520,7 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
       expect(resOk[0]).toMatchObject({ _prompt_engine_backend: 'standalone-8020' })
       expect(resOk[1]).toMatchObject({ _prompt_engine_backend: 'standalone-8020' })
       // 回退路径：8013 请求 domain=video、无 output_language
-      bridge._postStandalone.mockRejectedValue(new Error('timeout'))
+      bridge._postStandalone.mockRejectedValue(Object.assign(new Error('request timeout'), { code: 'ETIMEDOUT' }))
       const res = await bridge.optimizeVideosBatch(['关羽白马之战', 'a cat'])
       expect(bridge._post.mock.calls[0][0]).toBe('/v1/optimize/batch')
       expect(res.requests).toHaveLength(2)
@@ -520,7 +541,7 @@ describe('独立视频引擎（8020）— video-prompt-engine-enhancement D8', (
         _prompt_engine_backend: 'standalone-8020',
       })])
 
-      bridge._postStandalone.mockRejectedValue(new Error('timeout'))
+      bridge._postStandalone.mockRejectedValue(Object.assign(new Error('request timeout'), { code: 'ETIMEDOUT' }))
       bridge._post.mockResolvedValue([{ optimized_prompt: 'legacy-1' }])
       const fallback = await bridge.optimizeVideosBatch(['scene one'])
       expect(fallback).toEqual([expect.objectContaining({

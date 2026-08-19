@@ -34,6 +34,7 @@ function makeMockPromptBridge() {
   return {
     optimize: vi.fn(async (req) => ({ code: 0, data: { optimized: req.prompt + ' [opt]' } })),
     optimizeBatch: vi.fn(async (reqs) => ({ code: 0, data: reqs.map(r => r.prompt + ' [opt]') })),
+    optimizeVideo: vi.fn(async (prompt, options) => ({ code: 0, data: { optimized: prompt + ' [video-opt]', options } })),
     start: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
     healthCheck: vi.fn(async () => true),
@@ -91,6 +92,19 @@ it('ServiceBus.optimizePrompt 委托 promptBridge.optimize', async function () {
   eq(result.code, 0);
   eq(result.data.optimized, '一只猫 [opt]');
   expect(promptBridge.optimize).toHaveBeenCalledWith({ prompt: '一只猫', style: 'cinematic' }, undefined);
+});
+
+it('ServiceBus.optimizeVideoPrompt 委托 promptBridge.optimizeVideo 并保留 max_length', async function () {
+  const promptBridge = makeMockPromptBridge();
+  const bus = new ServiceBus({
+    pythonBridge: makeMockPythonBridge(),
+    splitterBridge: makeMockSplitterBridge(),
+    promptBridge,
+    log: mockLog,
+  });
+  const result = await bus.optimizeVideoPrompt('历史场景', { index: 2, max_length: 40000 });
+  eq(result.data.optimized, '历史场景 [video-opt]');
+  expect(promptBridge.optimizeVideo).toHaveBeenCalledWith('历史场景', { index: 2, max_length: 40000 });
 });
 
 it('ServiceBus.optimizePromptsBatch 委托 promptBridge.optimizeBatch', async function () {

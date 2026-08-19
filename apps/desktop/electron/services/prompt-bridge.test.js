@@ -1,4 +1,5 @@
 // @vitest-environment node
+const http = require('http')
 const PromptBridge = require('./prompt-bridge')
 
 /**
@@ -11,7 +12,105 @@ function mockLlmManager () {
   }
 }
 
+function startJsonServer (handler) {
+  const server = http.createServer((request, response) => {
+    let body = ''
+    request.setEncoding('utf8')
+    request.on('data', chunk => { body += chunk })
+    request.on('end', () => {
+      let parsedBody = null
+      try { parsedBody = JSON.parse(body) } catch (_) {
+        // 测试服务允许验证非 JSON 请求体。
+      }
+      const result = handler(request, parsedBody)
+      response.statusCode = result.statusCode || 200
+      response.setHeader('Content-Type', 'application/json')
+      response.end(JSON.stringify(result.body))
+    })
+  })
+  return new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve(server))
+  })
+}
+
+function stopServer (server) {
+  return new Promise(resolve => server.close(() => resolve()))
+}
+
 describe('PromptBridge prompt-engine 请求兼容', () => {
+  it('真实 HTTP 成功链路携带 BYOK 并剥离内部 index', async () => {
+    let received
+    const server = await startJsonServer((_request, body) => {
+      received = body
+      return {
+        body: {
+          results: [{
+            optimized_prompt: 'generated prompt',
+            strategy_used: 'llm',
+            key_source: 'caller',
+            cache_hit: false,
+          }],
+        },
+      }
+    })
+    try {
+      const bridge = new PromptBridge({})
+      bridge.isRunning = true
+      bridge.host = '127.0.0.1'
+      bridge.port = server.address().port
+      bridge.modelProviderManager = mockLlmManager()
+
+      const result = await bridge.optimize({ prompt: 'a city at night', index: 2 })
+
+      expect(result.results[0].optimized_prompt).toBe('generated prompt')
+      expect(received).toMatchObject({
+        prompt: 'a city at night',
+        optimization_strategy: 'llm',
+        llm: {
+          provider: 'sensenova',
+          model: 'deepseek-v4-flash',
+          api_key: 'sk-test',
+          caller: 'multi-publish-desktop',
+        },
+      })
+      expect(received).not.toHaveProperty('index')
+    } finally {
+      await stopServer(server)
+    }
+  })
+
+  it.each([422, 429, 502])('真实 HTTP %s 保留状态和 detail，不能误触发 CLI fallback', async (statusCode) => {
+    let requestCount = 0
+    const server = await startJsonServer((request) => {
+      requestCount += 1
+      expect(request.method).toBe('POST')
+      expect(request.url).toBe('/v1/optimize')
+      return {
+        statusCode,
+        body: { detail: 'LLM调用失败：未生成有效优化词', error_code: 'LLM_EMPTY' },
+      }
+    })
+    try {
+      const bridge = new PromptBridge({})
+      bridge.isRunning = true
+      bridge.host = '127.0.0.1'
+      bridge.port = server.address().port
+      bridge.modelProviderManager = mockLlmManager()
+      bridge._cliFallbackSingle = vi.fn(async () => ({ optimized_prompt: 'masked fallback' }))
+
+      await expect(bridge.optimize({ prompt: 'a city at night' })).rejects.toMatchObject({
+        statusCode,
+        detail: 'LLM调用失败：未生成有效优化词',
+        responseBody: { detail: 'LLM调用失败：未生成有效优化词', error_code: 'LLM_EMPTY' },
+      })
+      expect(bridge._cliFallbackSingle).not.toHaveBeenCalled()
+      expect(requestCount).toBe(1)
+    } finally {
+      await stopServer(server)
+    }
+  })
+
   it('批量优化会省略空的可选字段，并把文本上下文转换为 synopsis 对象', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true
@@ -432,7 +531,7 @@ describe('PromptBridge CLI fallback', () => {
 
   it('optimize falls back to _cliFallbackSingle when HTTP _post fails', async () => {
     const bridge = makeBridge()
-    bridge._post = vi.fn(() => Promise.reject(new Error('ECONNREFUSED')))
+    bridge._post = vi.fn(() => Promise.reject(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })))
     // Spy on _cliFallbackSingle
     const fallbackSpy = vi.fn(() => Promise.resolve({ optimized_prompt: 'fallback-result', platform: 'generic', model_used: 'template', tokens_used: 0, duration_ms: 0, key_source: 'none', strategy_used: 'template', caller: null, cache_hit: false, error: null }))
     bridge._cliFallbackSingle = fallbackSpy
@@ -449,7 +548,7 @@ describe('PromptBridge CLI fallback', () => {
 
   it('optimizeBatch falls back to _cliFallbackSingle per-item when HTTP _post fails', async () => {
     const bridge = makeBridge()
-    bridge._post = vi.fn(() => Promise.reject(new Error('ECONNREFUSED')))
+    bridge._post = vi.fn(() => Promise.reject(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })))
     let callCount = 0
     bridge._cliFallbackSingle = vi.fn(() => {
       callCount++
@@ -491,7 +590,7 @@ describe('PromptBridge CLI fallback', () => {
 
   it('optimizeBatch catches per-item CLI errors gracefully', async () => {
     const bridge = makeBridge()
-    bridge._post = vi.fn(() => Promise.reject(new Error('ECONNREFUSED')))
+    bridge._post = vi.fn(() => Promise.reject(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })))
     let callCount = 0
     bridge._cliFallbackSingle = vi.fn(() => {
       callCount++
