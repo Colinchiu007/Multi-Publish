@@ -38,6 +38,8 @@
 
 tracked 文件会从 HEAD 精确恢复，违规记录追加到同一目录的 violations.jsonl。docs/、01-docs/、scripts/、openspec/、.ccg/、.agent_context/、.hermes/ 及根级流程文档保持可写；node_modules/、dist/ 等 gitignored 构建产物不会被误隔离。文件被占用时只做有界重试并保留原文件，不会覆盖或删除数据。
 
+隔离动作发生时，写保护还会在共享根 `.agent_context/write-guard-alert.json` 写入最新违规快照（ts/path/action/hint）。该放行目录会被 AI 会话读取；配合编辑前运行的 `scripts/pre-code-edit-guard.ps1`（在共享主目录 BLOCKED 时自动展示最近违规与 worktree 指引），让会话直接感知 write guard 的存在与正确工作流，而不是被静默恢复后无从得知。
+
 ## Windows 计划任务
 
 当前用户注册两个任务：健康巡检每 15 分钟运行一次（可用 -Minutes 调整为 1-60 分钟），写保护在登录时启动：

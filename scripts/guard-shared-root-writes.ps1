@@ -84,6 +84,26 @@ function Write-Violation([string]$relative, [string]$action, [long]$size, [strin
     } catch {
         Write-Warning "cannot append violation log for $relative`: $($_.Exception.Message)"
     }
+    # 会话可见告警：隔离动作同时写共享根 .agent_context/write-guard-alert.json，
+    # 让未来会话进入共享主目录时直接感知违规并改用隔离 worktree（violations.jsonl 在 LocalAppData，会话默认不可见）。
+    try {
+        $alertDir = Join-Path $root '.agent_context'
+        New-Item -ItemType Directory -Force -Path $alertDir | Out-Null
+        $alert = @{
+            ts     = (Get-Date).ToUniversalTime().ToString('o')
+            path   = $relative
+            action = $action
+            size   = $size
+            detail = $detail
+            hint   = 'Shared main dir is read-only for runtime paths (apps/ packages/ ops-center/ config/ .github/). Edit inside an isolated worktree: scripts/start-mp-task.ps1 -TaskName <task>'
+        } | ConvertTo-Json -Compress
+        $alertPath = Join-Path $alertDir 'write-guard-alert.json'
+        $tmpPath = $alertPath + '.tmp'
+        Set-Content -LiteralPath $tmpPath -Value $alert -Encoding UTF8 -ErrorAction Stop
+        Move-Item -LiteralPath $tmpPath -Destination $alertPath -Force -ErrorAction Stop
+    } catch {
+        Write-Warning "cannot write write-guard-alert for $relative`: $($_.Exception.Message)"
+    }
 }
 
 function Restore-Tracked([string]$relative) {
