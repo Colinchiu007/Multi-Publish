@@ -1,0 +1,16 @@
+{
+  "id": "fix-pipeline-stage-error-propagation",
+  "title": "修复流水线阶段失败时错误信息未传递到渲染层",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-20T09:42:00Z",
+  "completedAt": "2026-08-20T09:44:00Z",
+  "branch": "main",
+  "filesChanged": ["apps/desktop/electron/services/pipeline-engine.js"],
+  "linesChanged": 1,
+  "testResult": "131 tests passed"
+}
