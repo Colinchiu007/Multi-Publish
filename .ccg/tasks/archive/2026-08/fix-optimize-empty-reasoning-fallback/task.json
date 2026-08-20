@@ -1,14 +1,16 @@
 {
   "id": "fix-optimize-empty-reasoning-fallback",
   "title": "修复提示词优化失败：LLM 只返回空/纯推理时回退原文继续",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "backend",
-  "currentPhase": "review",
-  "nextAction": "提交推送 PR",
+  "currentPhase": "completed",
+  "nextAction": "归档",
   "createdAt": "2026-08-20T11:40:00Z",
   "branch": "codex/fix-optimize-empty-reasoning-fallback",
+  "completedAt": "2026-08-20T11:45:00Z",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/1069",
   "filesChanged": [
     "apps/desktop/electron/services/story2video-stages.js",
     "apps/desktop/electron/services/story2video-stages.test.js"
