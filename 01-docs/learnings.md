@@ -1,3 +1,13 @@
+## agent 漏跑 quality-rhythm 质量节拍的根因与预防（fix-s2v-delete-silent-error，2026-08-20）
+
+- **现象**：用户报 s2v「删除项目误报『项目未能删除，请稍后再试』」，agent 直接临场排查并改代码，但只加载了 quality-rhythm skill 而**未真正执行 QM-5 Bug 反思循环五步**（缺 git blame 到 commit、逃逸链、系统性漏洞定位）；用户追问「为何没应用质量节拍」后才补跑。
+- **教训 1（skill 必须「执行」而非「加载」）**：收到 `/quality-rhythm` 或触发质量节拍时，必须按 skill 的 Phase 跑完整闭环；Bug 类任务强制走 QM-5 五步（第一性原因 git blame → 逃逸链 → 系统性漏洞 → 修复+回归测试 → 预防措施落地文件），不得只做 ad-hoc 调试。
+- **教训 2（QM-5 第①步必须 blame 到具体 commit）**：任何 Bug 修复都要 `git blame` 定位引入点 commit 与意图，确认是 feature 初版引入还是修别的 bug 改坏；本次 `deleteProject` 由 `e1b46eba0`（feat(story2video): complete legacy parity and harden provider media downloads）整体引入，顺序缺陷即原始引入点。
+- **教训 3（删除/清理类操作的不可变式）**：凡「先改索引/元数据、后清磁盘目录」的操作，两步非原子——索引成功即用户可见完成，目录清理失败必须是尽力而为（`try/catch` + `warn`），不得把目录清理失败当作致命错误抛回 UI，否则出现「已删除却误报失败」（2026-08-20 实为 Windows 文件锁 EPERM，旧路径静默无日志）。
+- **教训 4（失败路径必须有可观测性）**：`catch` 吞掉错误只回传前端会导致日志盲区，无法事后确认根因；所有失败路径必须 `log.warn/error` 真实错误，便于下次定位。
+- **逃逸链**：本次 agent 自身漏跑 skill（流程缺失/agent 纪律）；既有测试只覆盖删除成功路径（测试场景缺失）；旧代码 catch 静默无日志（可观测性缺失）。
+- **预防**：收到质量节拍指令必须跑完整闭环再动手；Bug 类一律先 QM-5 五步；删除/清理操作统一「索引成功=成功、目录清理尽力而为」契约并加回归测试；失败路径补 log。
+
 ## 历史场景素材四卡布局与预览/选择交互复盘（s2v-history-scene-material-layout，2026-08-20）
 
 - **需求与交付**：结果页场景素材区固定渲染 image1、image2、video1、video2 四个视觉卡；radio 放在缩略图下方、素材名称之前，缩略图只预览；预览弹窗使用 xl；生成新图/生成 AI 视频分别只在 image1/video1 卡内出现；空素材保持固定 media frame 并只显示本地化“未生成”。
