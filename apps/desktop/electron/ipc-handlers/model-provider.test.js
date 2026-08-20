@@ -86,13 +86,13 @@ describe('model-provider IPC handlers', () => {
       'model-provider:update',
       'model-provider:delete',
       'model-provider:set-default',
+      'model-provider:set-capability-default',
       'model-provider:get-default',
       'model-provider:test',
       'model-provider:presets',
       'model-provider:is-configured',
       'model-provider:logs',
       'model-provider:clean-logs',
-      'model-provider:set-capability-default',
     ])
   })
 

@@ -1,0 +1,13 @@
+{
+  "id": "fix-pr-ci-gates",
+  "title": "处理 PR 1037 CI 门禁失败",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "ci/frontend",
+  "currentPhase": "review",
+  "nextAction": "提交并推送 CI 契约修复，等待 PR 1037 新一轮检查",
+  "createdAt": "2026-08-20T00:00:00+08:00",
+  "branch": "codex/fix-video-history-delete-completed",
+  "pullRequest": 1037
+}
