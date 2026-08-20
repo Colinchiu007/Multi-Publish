@@ -36,6 +36,10 @@
 
 已通过的定向回归：
 
-7 files passed, 871 tests passed
+7 files passed, 877 tests passed
 
-补充通过：ResultView 单文件 96 tests；OpenSpec strict validate；locale pair check；CJK scan（基线 1489，无新增硬编码）；变更文件 ESLint（0 errors，2 个既有 warning）；Node syntax check；`git diff --check`；worktree dependency resolution。`build:vue` 已通过。`check:ts` 仍被仓库既有的 Electron/服务类型声明漂移阻断，相关输出未显示本次 ResultView/历史组件新增错误；packaged smoke 在最终交付阶段继续记录。
+补充通过：ResultView 单文件 102 tests；OpenSpec strict validate；locale pair check；CJK scan（基线 1489，无新增硬编码）；变更文件 ESLint（0 errors，2 个既有 warning）；Node syntax check；`git diff --check`；worktree dependency resolution。`build:vue` 已通过。基线为 `aed56124`（`origin/main`）。
+
+Electron QM-1 已完成：`electron-builder --win --dir --publish never` exit code 0；ASAR 清单包含 Story2Video project service、bundled preload、Story2Video IPC handler 以及 RPA engine package；从提取后的 ASAR 加载 RPA 入口返回 `RPA_REQUIRE_OK object`；打包应用存活 10 秒，stderr 为空，未出现 ASAR 路径、配置/插件路径或 updater 失败栈。启动 stdout 中的 `spawn python ENOENT`、回调端口已占用、license permission warning 和 updater `not-available` 均为本机环境/既有启动信息，不是本次改动引入的致命错误。
+
+`check:ts` 仍被仓库既有的 Electron/服务类型声明漂移阻断，相关输出未显示本次 ResultView/历史组件新增错误；该限制已记录，不将类型检查误报为通过。
