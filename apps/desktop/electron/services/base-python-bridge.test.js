@@ -363,6 +363,32 @@ describe('BasePythonBridge — 子类继承验证', () => {
     expect(JSON.parse(body).prompt).toBe('a cat')
   })
 
+  it('15b. PromptBridge.optimize 空/纯推理错误不触发 CLI 兜底，透传 error 供回退原文', async () => {
+    const PromptBridge = require('./prompt-bridge')
+    const b = new PromptBridge({})
+    b.modelProviderManager = mockLlmManager()
+    b.isRunning = true
+    b.ensureRunning = vi.fn(async () => {})
+    b._post = vi.fn(() => Promise.reject(new Error('LLM调用失败: LLM 返回了空内容或仅包含推理内容，未生成有效优化词')))
+    b._cliFallbackSingle = vi.fn(async () => ({ shouldNotReach: true }))
+    const result = await b.optimize({ prompt: 'a cat' })
+    expect(b._cliFallbackSingle).not.toHaveBeenCalled()
+    expect(result.error).toMatch(/空内容|仅包含推理内容|未生成有效优化词/)
+  })
+
+  it('15c. PromptBridge.optimize 其他 HTTP 错误仍走 CLI 兜底', async () => {
+    const PromptBridge = require('./prompt-bridge')
+    const b = new PromptBridge({})
+    b.modelProviderManager = mockLlmManager()
+    b.isRunning = true
+    b.ensureRunning = vi.fn(async () => {})
+    b._post = vi.fn(() => Promise.reject(new Error('ECONNREFUSED 127.0.0.1:8013')))
+    b._cliFallbackSingle = vi.fn(async () => ({ optimized_prompt: 'cli result' }))
+    const result = await b.optimize({ prompt: 'a cat' })
+    expect(b._cliFallbackSingle).toHaveBeenCalled()
+    expect(result.optimized_prompt).toBe('cli result')
+  })
+
   it('16. PromptBridge.optimizeBatch 标准化字符串数组为对象数组', async () => {
     const PromptBridge = require('./prompt-bridge')
     const b = new PromptBridge({})

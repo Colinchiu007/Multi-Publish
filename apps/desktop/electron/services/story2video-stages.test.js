@@ -11,6 +11,7 @@ const {
   hasMeaningfulText,
   isPromptEngineTooShortRejection,
   isPromptEngineEmptyReasoningError,
+  tryReCloneVoice,
   pickFixedVideoScenes,
   parseVideoSelection,
   clampVideoSelection,
@@ -1591,6 +1592,50 @@ describe('isPromptEngineTooShortRejection — 过短校验拒绝判定', () => {
     expect(isPromptEngineTooShortRejection('prompt-engine 请求被拒绝(422): unknown style value: foo')).toBe(false)
     expect(isPromptEngineTooShortRejection('prompt-engine 优化失败: llm error')).toBe(false)
     expect(isPromptEngineTooShortRejection('')).toBe(false)
+  })
+})
+
+describe('tryReCloneVoice — 克隆音色不可访问时的默认音色兜底', () => {
+  it('适配器不支持 cloneVoice 时回退 provider 默认音色并标记 voice_fallback', async () => {
+    const engine = { log: { warn() {}, info() {} }, container: { get: () => null } }
+    const retryFn = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/fallback.mp3', audio_path: 'C:/tmp/fallback.mp3', duration: 1.5 } }))
+    const result = await tryReCloneVoice({
+      pipelineEngine: engine,
+      error: new Error("you don't have access to this voice_id"),
+      text: '测试文案', voiceId: 'MiniMaxCloneVoice_00jngz', voiceProvider: 'minimax-multimodal', voiceModel: 'speech-2.8-turbo',
+      resolveManager: () => ({ getAdapter: () => ({}) }),
+      retryFn,
+    })
+    expect(retryFn).toHaveBeenCalledWith('default')
+    expect(result.path).toBe('C:/tmp/fallback.mp3')
+    expect(result.meta.voice_fallback).toBe(true)
+  })
+
+  it('默认音色兜底仍失败时返回 null 且不伪造成功', async () => {
+    const engine = { log: { warn() {}, info() {} }, container: { get: () => null } }
+    const retryFn = vi.fn(async () => { throw new Error('still no access') })
+    const result = await tryReCloneVoice({
+      pipelineEngine: engine, error: new Error("you don't have access to this voice_id"), text: '测试文案',
+      voiceId: 'X', voiceProvider: 'p', voiceModel: 'm', resolveManager: () => ({ getAdapter: () => ({}) }), retryFn,
+    })
+    expect(result).toBeNull()
+  })
+
+  it('默认音色兜底对瞬时超时做有界重试后成功', async () => {
+    const engine = { log: { warn() {}, info() {} }, container: { get: () => null } }
+    let calls = 0
+    const retryFn = vi.fn(async () => {
+      calls += 1
+      if (calls === 1) throw new Error('MiniMax 异步语音合成查询超时')
+      return { code: 0, data: { path: 'C:/tmp/fallback2.mp3', audio_path: 'C:/tmp/fallback2.mp3', duration: 1.5 } }
+    })
+    const result = await tryReCloneVoice({
+      pipelineEngine: engine, error: new Error("you don't have access to this voice_id"), text: '测试文案',
+      voiceId: 'X', voiceProvider: 'p', voiceModel: 'm', resolveManager: () => ({}), retryFn,
+    })
+    expect(retryFn).toHaveBeenCalledTimes(2)
+    expect(result.path).toBe('C:/tmp/fallback2.mp3')
+    expect(result.meta.voice_fallback).toBe(true)
   })
 })
 
