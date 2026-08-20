@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "frontend",
   "currentPhase": "verification",
-  "nextAction": "CI 通过后合并 PR",
+  "nextAction": "PR #1057 范围内 CI 全绿（Unit/Visual/Coverage/Shards/Static/Doc Gate），待人工 review 合并；Browser E2E 与 Autonomous 为 main 存量失败不在本任务范围",
   "createdAt": "2026-08-20T08:00:00Z",
   "branch": "codex/fix-ci-resultview-visual-autonomous"
 }
