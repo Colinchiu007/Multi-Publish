@@ -69,6 +69,14 @@ The material area SHALL keep four stable cards. Each card SHALL place its radio 
 - **WHEN** the segment is busy with image or AI-video generation
 - **THEN** the in-card generation controls are disabled, show their localized busy labels, and remain protected from duplicate requests
 
+#### Scenario: 四槽位渲染与选中态
+- **WHEN** the historical editor loads a project with any mixture of generated and missing image/video assets
+- **THEN** it renders exactly four visual cards in the fixed image1, image2, video1, video2 order; empty cards keep fixed media geometry, populated selected cards show the current-use state, and video2 does not duplicate the canonical video badge
+
+#### Scenario: 缩略图预览与选择隔离
+- **WHEN** the user activates a populated image or video thumbnail
+- **THEN** only the corresponding preview opens; the selection IPC is not called, and only a radio change event can select the material
+
 #### Scenario: 再次合成并列入口
 - **WHEN** the segment editor is displayed
 - **THEN** the existing Save/Recompose/Recompose Video controls remain available in the bottom action bar and this change does not alter their service flow
@@ -91,6 +99,10 @@ All new or changed visible material labels SHALL exist in paired zh/en locale di
 #### Scenario: locale 成对与通知键
 - **WHEN** material labels or generation-state text changes
 - **THEN** zh.js and en.js contain matching keys and existing notification keys remain unchanged
+
+#### Scenario: 视频选择边界
+- **WHEN** a video visual card has only a legacy videoMeta path and no canonical segment videoPath
+- **THEN** the path may still be previewed, but its radio is disabled and no persisted material selection is sent
 
 ### Requirement: 响应式布局
 The four-card layout SHALL use four columns on wide screens and two columns at narrow widths. Every card's media frame SHALL keep the same stable aspect ratio and background whether the asset is present or absent; card actions SHALL wrap without overlapping the radio, label, or media frame.

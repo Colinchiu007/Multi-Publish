@@ -55,4 +55,4 @@ pre-code-edit-guard.ps1 passed and the write-guard watcher was running. The repo
 
 ## Conclusion
 
-The implementation is ready for commit and remote delivery. The only remaining work is commit, rebase onto the current origin/main, push/PR merge, then OpenSpec and CCG task archival.
+The implementation was committed and merged through PR #1041 with squash merge SHA c6ad1655e2374e0f1acc010b404d4dcd8836e24b. OpenSpec and CCG task archives are complete on the closure branch; repository-level CI exceptions are recorded in .quality-gates.md and the task metadata.
