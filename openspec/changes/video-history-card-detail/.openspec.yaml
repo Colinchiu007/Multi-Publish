@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-08-19
+goal: Make every started non-running video task identifiable, previewable, and
+  editable from history with reliable metadata and media fallbacks.

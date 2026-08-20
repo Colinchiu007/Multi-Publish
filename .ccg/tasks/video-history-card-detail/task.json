@@ -1,0 +1,14 @@
+{
+  "id": "video-history-card-detail",
+  "title": "视频创作历史记录卡片与非运行任务详情编辑增强",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "frontend-electron",
+  "currentPhase": "review",
+  "nextAction": "完成 Electron QM-1 打包、提交推送、PR 合并并归档",
+  "openspecChange": "video-history-card-detail",
+  "branch": "codex/video-history-card-detail",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-video-history-card-detail",
+  "createdAt": "2026-08-19T13:30:00+08:00"
+}

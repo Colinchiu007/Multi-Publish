@@ -105,6 +105,8 @@ var require_publish = __commonJS({
         pipelineStatus: (name) => ipcRenderer2.invoke("pipeline:status", name),
         pipelineAdvance: () => ipcRenderer2.invoke("pipeline:advance"),
         pipelineHistory: () => ipcRenderer2.invoke("pipeline:history"),
+        pipelineDeleteRun: (runId) => ipcRenderer2.invoke("pipeline:delete-run", runId),
+        pipelinePauseRun: (runId) => ipcRenderer2.invoke("pipeline:pause-run", runId),
         pipelineFetch: (name) => ipcRenderer2.invoke("pipeline:fetch", name),
         // 编排模式 API（story2video-compose）
         pipelineStartOrchestrated: (name, params) => ipcRenderer2.invoke("pipeline:startOrchestrated", name, params),
@@ -135,7 +137,7 @@ var require_publish = __commonJS({
         // 添加沿用 import-media 的 File 路径解析，其余操作直通。
         story2videoBgmLibraryList: () => ipcRenderer2.invoke("story2video:bgm-library-list"),
         story2videoBgmLibraryAdd: (file) => {
-          let filePath = "";
+          let filePath;
           try {
             filePath = String(resolveFilePath(file) || "");
           } catch {
@@ -147,12 +149,13 @@ var require_publish = __commonJS({
         story2videoBgmLibraryRename: (id, name) => ipcRenderer2.invoke("story2video:bgm-library-rename", { id, name }),
         story2videoBgmLibraryDelete: (id) => ipcRenderer2.invoke("story2video:bgm-library-delete", { id }),
         story2videoExportZip: (files, destinationPath) => ipcRenderer2.invoke("story2video:export-zip", { files, destinationPath }),
-        story2videoCreateShareUrl: (filePath) => ipcRenderer2.invoke("story2video:create-share-url", filePath),
+        story2videoCreateShareUrl: (filePath, previousUrl) => ipcRenderer2.invoke("story2video:create-share-url", filePath, previousUrl),
         story2videoCopyPath: (filePath) => ipcRenderer2.invoke("story2video:copy-path", filePath),
         story2videoShowInFolder: (filePath) => ipcRenderer2.invoke("story2video:show-in-folder", filePath),
         story2videoSaveAs: (filePath, suggestedName) => ipcRenderer2.invoke("story2video:save-as", { filePath, suggestedName }),
         story2videoListProjects: () => ipcRenderer2.invoke("story2video:list-projects"),
         story2videoGetProject: (projectId) => ipcRenderer2.invoke("story2video:get-project", projectId),
+        story2videoGetThumbnail: (projectId) => ipcRenderer2.invoke("story2video:get-thumbnail", projectId),
         story2videoDeleteProject: (projectId) => ipcRenderer2.invoke("story2video:delete-project", projectId),
         story2videoUpdateSegments: (projectId, segments) => ipcRenderer2.invoke("story2video:update-segments", { projectId, segments }),
         story2videoReplaceSegmentAudio: (projectId, segmentId, filePath) => ipcRenderer2.invoke("story2video:replace-segment-audio", { projectId, segmentId, filePath }),
@@ -161,8 +164,18 @@ var require_publish = __commonJS({
         story2videoSelectSceneMaterial: (projectId, segmentId, kind) => ipcRenderer2.invoke("story2video:select-scene-material", { projectId, segmentId, kind }),
         story2videoGenerateSceneImage: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-image", { projectId, segmentId }),
         story2videoGenerateSceneVideo: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-video", { projectId, segmentId }),
+        story2videoGenerateSceneAiVideo: (projectId, segmentId) => ipcRenderer2.invoke("story2video:generate-scene-ai-video", { projectId, segmentId }),
+        story2videoRegenerateSceneSubtitle: (projectId, segmentId) => ipcRenderer2.invoke("story2video:regenerate-scene-subtitle", { projectId, segmentId }),
+        story2videoRegenerateSceneAudio: (projectId, segmentId) => ipcRenderer2.invoke("story2video:regenerate-scene-audio", { projectId, segmentId }),
+        story2videoRegenerateScenePrompt: (projectId, segmentId, kind) => ipcRenderer2.invoke("story2video:regenerate-scene-prompt", { projectId, segmentId, kind }),
         story2videoTranscribe: (filePath) => ipcRenderer2.invoke("story2video:transcribe", { filePath }),
         story2videoCapabilities: () => ipcRenderer2.invoke("story2video:capabilities"),
+        // Story2Video 批量创作（openspec story2video-batch-create）
+        story2videoBatchCreate: (payload) => ipcRenderer2.invoke("story2video:batch:create", payload),
+        story2videoBatchStatus: () => ipcRenderer2.invoke("story2video:batch:status"),
+        story2videoBatchCancel: (batchId, itemIds) => ipcRenderer2.invoke("story2video:batch:cancel", { batchId, itemIds }),
+        // 本地文件选择（.txt/.md 多选）：返回 [{ path, name }]，路径由主进程对话框直接提供
+        story2videoPickBatchFiles: () => ipcRenderer2.invoke("story2video:pick-batch-files"),
         // Cloud Publisher API
         cloudPublishSubmit: (params) => ipcRenderer2.invoke("cloud-publisher:submit", params),
         cloudPublishListTasks: () => ipcRenderer2.invoke("cloud-publisher:list-tasks"),
@@ -554,7 +567,8 @@ var require_system = __commonJS({
         // 应用日志 API（设置-通用设置：查看/清理/渲染进程错误上报）
         logsGetInfo: () => ipcRenderer2.invoke("logs:info"),
         logsClear: () => ipcRenderer2.invoke("logs:clear"),
-        logError: (message) => ipcRenderer2.invoke("logs:error", { message })
+        logError: (message) => ipcRenderer2.invoke("logs:error", { message }),
+        submitFeedback: (payload) => ipcRenderer2.invoke("feedback:submit", payload)
       };
     }
     module2.exports = { createSystemApi: createSystemApi2 };
@@ -977,6 +991,10 @@ var require_access_control = __commonJS({
       // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：
       // File 路径经 webUtils 解析后仅发送路径给主进程做受控复制，纯设备本地操作。
       "story2videoImportMedia",
+      // Story2Video 本地历史读取与缩略图查询：项目数据按 owner 隔离，未登录也可查看本机历史。
+      "story2videoListProjects",
+      "story2videoGetProject",
+      "story2videoGetThumbnail",
       // BGM 素材库（与主进程 PUBLIC_CHANNELS 的 story2video:bgm-library-* 对齐）：
       // 设备级本地素材库管理（列表/添加/改名/删除），未登录可用。
       "story2videoBgmLibraryList",

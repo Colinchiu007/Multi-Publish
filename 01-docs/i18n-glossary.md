@@ -16,10 +16,15 @@
 | 更新时间 | Updated | history.updated |
 | 创建时间 | Created | history.created |
 | 耗时 | Duration | history.duration |
+| 视频时长 | Video duration | history.videoDuration |
+| 文案预览 | Content preview | history.contentPreview |
+| 未生成 | Not generated | history.notGenerated |
+| 视频任务编辑页 | Video task editor | story2video.history.editor |
+| 已取消任务可编辑 | Cancelled task is editable | story2video.history.cancelledEditable |
 | 暂停环节 | Paused stage | history.pausedStage |
 | 暂停环境/检查点 | Pause environment/checkpoint | history.pauseEnvironment |
 | 失败环节 | Failed stage | history.failedStage |
-| 错误摘要 | Error summary | history.errorSummary |
+| 失败原因 | Failure reason | history.errorSummary |
 | 查看任务详情 | View task details | history.viewDetails |
 | 从断点继续 | Resume from breakpoint | history.resume |
 | 继续生成 | Continue generation | history.continue |

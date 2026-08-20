@@ -1995,3 +1995,15 @@
 ### 测试与文档
 - 新增 formatter 与 renderer 通知双入口回归，覆盖 zh/en、已知/未知 provider、场景 context、二次格式化和技术占位符泄漏。
 - 同步 PRD-video-creation.md、PRD-S2V-PIPELINE-PAGE-UX.md、OpenSpec change、CCG task 和 QM-5 复盘。
+## [Unreleased] - 2026-08-20 (Story2Video 历史卡片与非运行任务编辑)
+
+### 变更
+- 历史记录六个状态标签统一使用任务卡片：所有状态均显示标题、任务文案预览、首场景缩略图、视频时长、更新时间和任务耗时；标题为空时按标题、参数标题、任务文案、流水线名称回退，文案预览超过 120 个 JavaScript 字符追加 `…`。
+- 增加首场景素材缩略图 IPC：合法图片优先；没有图片时由受控 FFmpeg 生成第一个视频的第 0 秒首帧；路径、符号链接、大小、格式和失败回滚均 fail-closed，失败只显示“未生成”占位而不阻塞历史列表。
+- 历史 project/run 合并按 projectId、项目 runId、legacy id 去重，项目标题/文案/分段/素材优先，run 状态/阶段/错误/检查点/运行耗时补充；纯 run 记录不会伪造编辑项目。
+- 只要流水线已经启动且不是 running，拥有项目的 paused、failed、completed、cancelled 任务均可进入视频任务编辑页；cancelled 可编辑但不能断点继续，running 继续使用流水线控制流。
+- 结果页为缺失或失败的图片、视频、提示词、翻译、字幕和语音保留固定“未生成”占位；更新时间覆盖内容成功写入及暂停/继续/取消/失败/完成操作。
+
+### 测试与门禁
+- 新增/更新历史卡片、project/run 合并、更新时间、缩略图 IPC、媒体槽兼容和 ResultView 占位回归；定向测试、类型检查、locale/CJK、依赖解析和 Electron QM-1 门禁在交付前执行。
+- 外部 Antigravity 因区域/账户资格不可用、Claude wrapper 因超时/代理连接失败未返回报告；已记录内部审查结论和残余风险，不将内部审查冒充外部双模型审查。

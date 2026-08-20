@@ -356,6 +356,9 @@ export async function story2videoListProjects() {
 export async function story2videoGetProject(projectId) {
   return invokeWithFallback("story2videoGetProject", { code: -1, message: 'electronAPI not available' }, projectId)
 }
+export async function story2videoGetThumbnail(projectId) {
+  return invokeWithFallback("story2videoGetThumbnail", { code: -1, message: 'electronAPI not available' }, projectId)
+}
 export async function story2videoDeleteProject(projectId) {
   return invokeWithFallback("story2videoDeleteProject", { code: -1, message: 'electronAPI not available' }, projectId)
 }

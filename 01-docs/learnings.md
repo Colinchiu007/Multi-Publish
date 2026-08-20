@@ -13801,3 +13801,35 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **逃逸链**：旧测试验证了恢复能继续、完成视频能复用和跨镜终态，但没有组合覆盖“设置已切换 + 未完成 provider/model + legacy Python + 旧 video_plan + 远程未知状态”。因此问题逃过了单测和代码审查，属于测试场景缺失与跨路径契约审查盲区。
 - **回归保护**：resume-orchestration.test.js 锁定旧路由清理和内容参数保留；story2video-stages.test.js 锁定 assetGenerator/legacy Python 的当前 image/TTS 模型、已完成图片/音频/视频不重复调用、未完成视频只提交一次且使用当前 provider/model；pipeline-story2video-contract.test.js 继续保护 stage options 合同。
 - **预防措施**：以后新增资产生成路径必须接收统一的 resolvedProvider/resolvedModel，禁止从原始 params/stage.options 重新取路由；恢复设计必须同时给出资产状态矩阵、旧快照兼容性、语音兼容性和远程任务状态说明；用户提示必须与事实状态一致，未知不能成功化。
+
+## Story2Video 历史卡片、缩略图与非运行编辑复盘（video-history-card-detail，2026-08-20）
+
+### 第一性原因
+
+历史记录同时消费项目草稿和流水线运行快照，但旧实现只在部分状态展示卡片字段，并把提示词、执行耗时和视频时长混用；取消任务又被当成不可进入详情的终态。项目内容保存与暂停/取消/失败/完成状态写回也没有统一的更新时间合同，导致用户看到的更新时间不能代表最近一次操作。首场景媒体缺少统一图片优先、视频首帧和失败降级规则，结果页缺失素材还会因为条件渲染而消失。
+
+### 逃逸链
+
+1. 单元测试：旧用例主要覆盖 completed 或纯排序，未要求六个标签使用同一套字段，也未覆盖标题为空、任务文案与提示词不同、视频时长与 activeMs 同时存在的组合。
+2. 集成测试：project/run 快照只覆盖常见 projectId，未覆盖旧 run 只有 id 时的匹配；缩略图没有覆盖图片优先、路径越界、符号链接和 FFmpeg 失败的完整矩阵。
+3. E2E/视觉：没有真实历史列表到 cancelled 编辑页、缺失图片/视频/语音占位和运行中卡片控制边界的窗口验收；旧详情规则反而固化了 cancelled 不可编辑。
+4. 代码审查：没有把“项目内容真源/运行状态真源”写成合并后校验合同，也没有逐项检查 updatedAt 是否覆盖内容写入和操作写入。
+
+### 系统性漏洞定位
+
+属于“测试场景缺失 + project/run 数据契约不显式 + UI 终态边界审查盲区”。历史快照兼容不能只按当前结构测试；用户可见卡片还需要验证字段语义，而不是只验证字段存在。
+
+### 修复与回归保护
+
+- CreateViewHistory 统一所有状态的卡片结构，标题按标题/参数标题/任务文案/流水线回退；文案预览只读任务文案并限制 120 字符；增加首场景缩略图、视频时长和“未生成”占位。
+- Story2VideoProjectService 增加安全的图片优先/视频第 0 秒首帧生成、缓存校验、并发合并和 fail-soft IPC；路径必须在受控根目录内且输出格式有效。
+- CreateView 用三索引匹配 project/run，项目内容优先、run 状态补充，纯 run 不伪造项目；ResultView 固定缺失/失败素材槽位。
+- 统一单调 updatedAt helper，覆盖内容保存、暂停、继续、取消、失败和完成状态写回；回归断言同一时钟 tick 下也能前进。
+
+### 预防措施
+
+1. 新增历史字段必须写入“字段语义 + 来源优先级 + 无效值处理 + 中英文文案”的合同，禁止用相近但语义不同的 duration 替代 videoDuration。
+2. project/run 合并变更必须覆盖 projectId、runId、legacy id、旧 run 只有 id、旧 run 内容过期和纯 run 无项目五种数据形态。
+3. 新媒体展示必须同时覆盖合法素材、缺失、失败、文件被清理、越界/符号链接和窗口加载失败；固定槽位不能因 v-if 消失。
+4. 终态可编辑规则必须同时检查 running 排除、paused/failed/completed/cancelled 进入、cancelled 禁止 resume、纯 run 禁止伪造项目；文档与 locale 成对更新。
+5. 外部模型不可用时必须如实记录；本地审查、定向测试、打包窗口验收和远端 CI 的证据分开记录，不能互相替代。

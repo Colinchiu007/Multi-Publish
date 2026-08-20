@@ -51,6 +51,18 @@ export function historyEffectiveTime (item) {
   return firstValidTime(item, HISTORY_TIME_KEYS)
 }
 
+export function latestHistoryTimestamp (...items) {
+  let latest = null
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    for (const key of HISTORY_TIME_KEYS) {
+      const parsed = parseHistoryTime(item[key])
+      if (parsed !== null && (latest === null || parsed > latest)) latest = parsed
+    }
+  }
+  return latest === null ? null : new Date(latest).toISOString()
+}
+
 function historyCreatedTime (item) {
   return firstValidTime(item, CREATION_TIME_KEYS)
 }
