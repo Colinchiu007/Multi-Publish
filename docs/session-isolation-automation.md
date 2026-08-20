@@ -40,6 +40,14 @@ tracked 文件会从 HEAD 精确恢复，违规记录追加到同一目录的 vi
 
 隔离动作发生时，写保护还会在共享根 `.agent_context/write-guard-alert.json` 写入最新违规快照（ts/path/action/hint）。该放行目录会被 AI 会话读取；配合编辑前运行的 `scripts/pre-code-edit-guard.ps1`（在共享主目录 BLOCKED 时自动展示最近违规与 worktree 指引），让会话直接感知 write guard 的存在与正确工作流，而不是被静默恢复后无从得知。
 
+## 依赖复用与 node_modules Junction 禁令
+
+worktree 依赖通过 pnpm 全局 store 硬链接复用（`pnpm config get store-dir` 指向 `D:/Data/projects/.pnpm-store`）：每个 worktree 的 `node_modules` 只含指向 store 的链接与 workspace 链接，`@multi-publish/*` 由 pnpm 自动指向**当前** worktree 的 `packages/`。
+
+**禁止整目录 Junction 复用 node_modules**：历史方案级联共享物理 `node_modules`，导致 `@multi-publish/*` 解析到其它 checkout（双模块实例）；`scripts/fix-worktree-node-modules.sh` 用于检测与修复此类残留。
+
+新 worktree 依赖就绪可走秒级复用：`scripts/prepare-worktree-deps.ps1 -Worktree <dir>` —— store 热时零下载、electron 幂等跳过、`verify-worktree-deps` 门禁保证解析正确；等价于 pnpm store 的「软链接」效果，但不引入 node_modules junction。
+
 ## Windows 计划任务
 
 当前用户注册两个任务：健康巡检每 15 分钟运行一次（可用 -Minutes 调整为 1-60 分钟），写保护在登录时启动：
