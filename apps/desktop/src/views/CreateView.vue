@@ -3871,6 +3871,33 @@ export default {
       await pipelineCancel()
       this.resetPipelineUiState()
     },
+    // 后台恢复/继续一个 run：切到流水线视图并实时跟踪进度（不重置 runId）。
+    // 与 runOrchestrationInBackground 不同——后者用于"首次后台生成"并留在历史页观察，
+    // 而断点恢复是用户的显式继续动作，应跳转到流水线页并持续拉取运行态。
+    async openRunningPipeline(runId, pipelineName, toastKey = 'create.story2video.backgroundResumeToast') {
+      const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
+      if (!normalizedRunId) return false
+      // 只停止已有轮询，不得调用 resetPipelineUiState（会把 orchestrationRunId 清成 null）
+      this.stopPipelinePolling()
+      this.orchestrationRunId = normalizedRunId
+      this.orchestrationResultPath = null
+      this.orchestrationError = ''
+      this.orchestrationContext = null
+      this.orchestrationStages = this.getDefaultPipelineStages(pipelineName)
+      this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
+      this.view = 'pipelines'
+      if (toastKey) {
+        this.showS2VOptionsToast(
+          this.translateWithLocaleFallback(toastKey, 'backgroundResumeToast', 'Pipeline resumed in the background. Tracking progress…'),
+          3000
+        )
+      }
+      await this.updateOrchestrationStatus()
+      if (this.orchestrationRunId && this.pipelineRunStatus?.status !== 'failed' && !this.pollTimer) {
+        this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+      }
+      return true
+    },
     async runOrchestrationInBackground(runId, toastKey = 'create.story2video.backgroundRunToast') {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false
@@ -4092,7 +4119,9 @@ export default {
           // 分镜素材自选暂停点恢复：保持 paused，进入选择面板（updateOrchestrationStatus 会激活）
           const selectionPaused = res.data.paused === true
           if (!selectionPaused) {
-            await this.runOrchestrationInBackground(res.data.runId, 'create.story2video.backgroundResumeToast')
+            // 失败任务断点恢复：后端已 fire-and-forget 启动 _autoAdvanceRun 推进，
+            // 这里必须跳转并持有 runId 实时跟踪，否则流水线页会因 runId 为空而看不到任何进展。
+            await this.openRunningPipeline(res.data.runId, pipelineName)
             return
           }
           await this.showOrchestrationCheckpoint(res.data.runId, pipelineName, {

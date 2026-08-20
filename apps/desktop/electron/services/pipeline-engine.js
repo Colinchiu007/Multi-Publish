@@ -1496,7 +1496,20 @@ class PipelineEngine {
 
     const promise = this._autoAdvanceRun(restored.id);
     promise.catch((err) => {
-      this.log.warn('PipelineEngine', 'background resume autoAdvance failed: ' + (err && err.message ? err.message : String(err)));
+      // fail-closed：恢复推进若意外抛错，必须把 run 标记为 failed 终态，
+      // 否则前端会看到 run 永久停留在 running 而无任何进展，无法定位失败原因。
+      const msg = (err && err.stack) ? err.stack : (err && err.message ? err.message : String(err));
+      this.log.error('PipelineEngine', 'background resume autoAdvance threw, marking run failed: ' + msg);
+      try {
+        const run = this._runs.get(restored.id);
+        if (run && run.status === 'running') {
+          run.status = 'failed';
+          run.error = '恢复推进失败：' + (err && err.message ? err.message : String(err));
+          run.endedAt = Date.now();
+          this._emit('runStatus', run);
+          this._syncStory2VideoProjectStatus(run);
+        }
+      } catch (_) { /* 兜底标记失败本身不应再抛错 */ }
     });
     return { success: true, runId: restored.id };
   }

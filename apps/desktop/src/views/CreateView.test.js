@@ -3260,11 +3260,38 @@ describe("CreateView - UI interactions", () => {
     await resumeBtn.trigger("click");
     await nextTick();
     expect(mocks.pipelineResumeOrchestration).toHaveBeenCalledWith("run-failed-r1");
-    expect(w.vm.view).toBe("history");
-    expect(w.vm.orchestrationRunId).toBeNull();
-    expect(w.vm.pipelineRunStatus).toBeNull();
-    expect(w.vm.s2vOptionsToast).toContain("后台运行");
-    expect(mocks.pipelineGetRunContext).not.toHaveBeenCalled();
+    // 断点恢复是用户的显式继续动作：必须跳到流水线视图并实时跟踪该 run，
+    // 否则流水线页会因 orchestrationRunId 为空而停留在默认阶段、看不到任何推进。
+    expect(w.vm.view).toBe("pipelines");
+    expect(w.vm.orchestrationRunId).toBe("run-failed-r1");
+    expect(w.vm.pipelineRunStatus?.status).toBe("running");
+    expect(mocks.pipelineGetRunContext).toHaveBeenCalledWith("run-failed-r1");
+    expect(w.vm.s2vOptionsToast).toContain("继续");
+    expect(w.vm.pollTimer).not.toBeNull();
+    w.unmount();
+  });
+
+  it("openRunningPipeline：保留 runId、跳到流水线视图、拉取运行态并启动轮询（断点恢复根因回归）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineGetRunContext.mockResolvedValue({
+      code: 0,
+      data: { runId: "run-resume-1", pipeline: "story2video-compose", status: { status: "running" }, stages: [{ name: "split", status: "running" }] },
+    });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } },
+    });
+    w.vm.pipelines = [{ name: "story2video-compose", available: true, stages: [] }];
+    w.vm.orchestrationRunId = null;
+    w.vm.pipelineRunStatus = null;
+    expect(w.vm.pollTimer).toBeNull();
+    const ok = await w.vm.openRunningPipeline("run-resume-1", "story2video-compose");
+    await nextTick();
+    expect(ok).toBe(true);
+    expect(w.vm.view).toBe("pipelines");
+    expect(w.vm.orchestrationRunId).toBe("run-resume-1");
+    expect(w.vm.pipelineRunStatus?.status).toBe("running");
+    expect(mocks.pipelineGetRunContext).toHaveBeenCalledWith("run-resume-1");
+    expect(w.vm.pollTimer).not.toBeNull();
     w.unmount();
   });
 
@@ -3369,11 +3396,13 @@ describe("CreateView - UI interactions", () => {
     await w.vm.resumeHistoryItem(w.vm.filteredHistory[0]);
     await nextTick();
     expect(mocks.pipelineResumeOrchestration).toHaveBeenCalledWith("run-running-r1");
-    expect(w.vm.view).toBe("history");
-    expect(w.vm.orchestrationRunId).toBeNull();
-    expect(w.vm.pipelineRunStatus).toBeNull();
-    expect(w.vm.s2vOptionsToast).toContain("后台运行");
-    expect(mocks.pipelineGetRunContext).not.toHaveBeenCalled();
+    // 重启后 running 快照断点续跑同样是用户的显式继续动作：跳转流水线视图并实时跟踪，
+    // 否则同断点继续一样会因 runId 为空停在默认阶段、看不到推进。
+    expect(w.vm.view).toBe("pipelines");
+    expect(w.vm.orchestrationRunId).toBe("run-running-r1");
+    expect(w.vm.pipelineRunStatus?.status).toBe("running");
+    expect(mocks.pipelineGetRunContext).toHaveBeenCalledWith("run-running-r1");
+    expect(w.vm.pollTimer).not.toBeNull();
     w.unmount();
   });
 
@@ -4453,6 +4482,19 @@ describe("流水线自动后台运行（2026-08-19）", () => {
     await nextTick();
     return w;
   };
+
+  it("openRunningPipeline：无效 runId 不切换视图、不启动轮询（不污染当前运行态）", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = await mountRunning();
+    const before = { runId: w.vm.orchestrationRunId, status: w.vm.pipelineRunStatus, view: w.vm.view };
+    const ok = await w.vm.openRunningPipeline("  ");
+    await nextTick();
+    expect(ok).toBe(false);
+    expect(w.vm.view).toBe(before.view);
+    expect(w.vm.orchestrationRunId).toBe(before.runId);
+    expect(w.vm.pipelineRunStatus).toBe(before.status);
+    w.unmount();
+  });
 
   it("运行中编排流水线不再要求手动点击后台运行按钮", async () => {
     const w = await mountRunning();
