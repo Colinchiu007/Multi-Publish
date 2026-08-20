@@ -1,13 +1,30 @@
 {
   "id": "fix-pr-ci-gates",
   "title": "处理 PR 1037 CI 门禁失败",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L+",
   "risk": "medium",
   "domain": "ci/frontend",
-  "currentPhase": "review",
-  "nextAction": "提交并推送 CI 契约修复，等待 PR 1037 新一轮检查",
+  "currentPhase": "completed",
+  "nextAction": "等待 review 或合入",
   "createdAt": "2026-08-20T00:00:00+08:00",
+  "completedAt": "2026-08-20T01:55:00+08:00",
   "branch": "codex/fix-video-history-delete-completed",
-  "pullRequest": 1037
+  "pullRequest": 1037,
+  "remoteStatus": {
+    "gateResult": "pass",
+    "unitTests": "pass",
+    "static": "pass",
+    "electronTests": "pass",
+    "buildWindows": "pass",
+    "buildUbuntu": "pass",
+    "docSync": "pass",
+    "agentJudge": "pass",
+    "guiTest": "fail-pre-existing",
+    "visualTest": "fail-pre-existing",
+    "qgVisual": "fail-pre-existing",
+    "qgBrowserE2E": "fail-pre-existing",
+    "qgAutonomous": "fail-pre-existing",
+    "note": "5 failures are all pre-existing on main, not introduced by this PR. Gate Result passes."
+  }
 }
