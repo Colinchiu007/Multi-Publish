@@ -343,8 +343,36 @@ function registerPromptTranslationComposeTask (pipelineEngine) {
  * 解析视频生成器：显式 provider/model 优先，否则取模型管理器默认 video 能力。
  * 返回 null 表示未配置（调用方 fail closed 引导设置）。
  */
-function resolveVideoGeneratorConfig (pipelineEngine, explicit) {
-  if (explicit && typeof explicit === 'object') {
+function resolveCapabilityModel (provider, type) {
+  if (!provider || typeof provider !== 'object') return ''
+  const capabilityModel = provider.capability_models && typeof provider.capability_models === 'object'
+    ? provider.capability_models[type]
+    : null
+  if (typeof capabilityModel === 'string' && capabilityModel.trim()) return capabilityModel.trim()
+  const models = Array.isArray(provider.models)
+    ? provider.models.filter(item => typeof item === 'string' && item.trim())
+    : []
+  return models[0] ? models[0].trim() : ''
+}
+
+function resolveCurrentCapabilityConfig (pipelineEngine, type, explicit = {}, options = {}) {
+  const useCurrentModels = options.useCurrentModels === true
+  const explicitProvider = !useCurrentModels && typeof explicit.provider === 'string' ? explicit.provider.trim() : ''
+  const explicitModel = !useCurrentModels && typeof explicit.model === 'string' ? explicit.model.trim() : ''
+  if (explicitProvider) return { providerId: explicitProvider, model: explicitModel }
+
+  const aiGenerator = getAiGenerator(pipelineEngine)
+  let manager = aiGenerator && aiGenerator._modelProviderManager
+  if (!manager && pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function') {
+    try { manager = pipelineEngine.container.get('modelProviderManager') } catch (_) { /* 未注册 */ }
+  }
+  const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault(type) : null
+  if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
+  return { providerId: provider.id.trim(), model: resolveCapabilityModel(provider, type) }
+}
+
+function resolveVideoGeneratorConfig (pipelineEngine, explicit, options = {}) {
+  if (options.useCurrentModels !== true && explicit && typeof explicit === 'object') {
     const providerId = typeof explicit.provider === 'string' ? explicit.provider.trim() : ''
     if (providerId) {
       return {
@@ -353,23 +381,7 @@ function resolveVideoGeneratorConfig (pipelineEngine, explicit) {
       }
     }
   }
-  const aiGenerator = getAiGenerator(pipelineEngine)
-  const manager = aiGenerator && aiGenerator._modelProviderManager
-  const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault('video') : null
-  if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
-  const models = Array.isArray(provider.models)
-    ? provider.models.filter(item => typeof item === 'string' && item.trim())
-    : []
-  // 多模态 provider：优先取 capability_models.video（能力默认模型），models 首项可能是 image/llm 模型
-  // （与前端 getS2VDefaultVideoModel 同源，2026-08-11 W1）。
-  let model
-  if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
-    const videoModel = provider.capability_models.video
-    model = models.includes(videoModel) ? videoModel : (videoModel || models[0] || '')
-  } else {
-    model = models[0] || ''
-  }
-  return { providerId: provider.id.trim(), model: model ? model.trim() : '' }
+  return resolveCurrentCapabilityConfig(pipelineEngine, 'video', {}, options)
 }
 
 /** 场景估算时长：sentence.duration 优先，其次 split.targetSeconds，兜底默认 6s。 */
@@ -1459,7 +1471,22 @@ function writeSceneFinalFrame(scenes, index, rawFinalFrame) {
 
 function isResumedVideoScene(resumeCompleted, index) {
   const resumed = resumeCompleted && typeof resumeCompleted.get === 'function' ? resumeCompleted.get(index) : null
-  return Boolean(resumed && typeof resumed.videoPath === 'string' && fs.existsSync(resumed.videoPath))
+  return Boolean(resumed && typeof resumed.videoPath === 'string' && resumed.videoPath && fs.existsSync(resumed.videoPath))
+}
+
+function normalizeResumeEntry (item) {
+  if (!item || !Number.isInteger(item.index) || item.index < 0) return null
+  const imagePath = resolveReadableMediaFile(item.imagePath, { kind: 'image' })
+  const audioPath = resolveReadableMediaFile(item.audioPath, { kind: 'audio' })
+  const videoPath = resolveReadableMediaFile(item.videoPath, { kind: 'video' })
+  if (!imagePath && !audioPath && !videoPath) return null
+  return {
+    ...item,
+    index: item.index,
+    imagePath,
+    audioPath,
+    videoPath,
+  }
 }
 
 function resumeEntryOf(resumeCompleted, index) {
@@ -1924,7 +1951,7 @@ function registerStory2VideoStages(pipelineEngine) {
       const generator = resolveVideoGeneratorConfig(pipelineEngine, {
         provider: videoConfig.provider,
         model: videoConfig.model,
-      })
+      }, { useCurrentModels: params.__resumeUseCurrentModels === true })
       if (!generator) {
         return {
           success: false,
@@ -2375,16 +2402,18 @@ function registerStory2VideoStages(pipelineEngine) {
       }
 
       const firstDefined = (...values) => values.find(v => v !== undefined && v !== null);
+      const useCurrentModels = params.__resumeUseCurrentModels === true;
       const concurrency = normalizeAssetConcurrency(firstDefined(params.concurrency, stage.options?.concurrency, 3));
       const imageStyle = firstDefined(params.imageStyle, stage.options?.imageStyle, 'cinematic');
-      const imageProvider = firstDefined(params.imageProvider, stage.options?.imageProvider);
-      const imageModel = firstDefined(params.imageModel, stage.options?.imageModel);
+      const imageProvider = useCurrentModels ? undefined : firstDefined(params.imageProvider, stage.options?.imageProvider);
+      const imageModel = useCurrentModels ? undefined : firstDefined(params.imageModel, stage.options?.imageModel);
       const aspectRatio = firstDefined(params.aspectRatio, stage.options?.aspectRatio, '16:9');
       const voiceId = firstDefined(params.voiceId, stage.options?.voiceId, 'default');
-      const voiceProvider = firstDefined(params.voiceProvider, stage.options?.voiceProvider);
+      const voiceProvider = useCurrentModels ? undefined : firstDefined(params.voiceProvider, stage.options?.voiceProvider);
+      const voiceModel = useCurrentModels ? undefined : firstDefined(params.voiceModel, stage.options?.voiceModel);
       // 多模态优先：未显式指定 provider 时，按能力让 ModelProviderManager.getDefault 解析
-      // （开启「优先多模态」且多模态模型声明支持该能力时返回多模态模型）。仅 assetGenerator
-      // 路径生效，legacy python 路径保持原有空 provider 行为。
+      // （开启「优先多模态」且多模态模型声明支持该能力时返回多模态模型）。恢复任务的
+      // 当前模型解析结果同时传给 assetGenerator 与 legacy Python 路径，避免两条路径分叉。
       const resolveCapabilityProvider = (type) => {
         const manager = resolveModelProviderManager()
         if (!manager || typeof manager.getDefault !== 'function') return ''
@@ -2411,8 +2440,12 @@ function registerStory2VideoStages(pipelineEngine) {
         return null
       }
       const hasAssetGenerator = Boolean((pipelineEngine && pipelineEngine._assetGenerator) || (serviceBus && serviceBus._assetGenerator))
-      const resolvedImageProvider = imageProvider || (hasAssetGenerator ? resolveCapabilityProvider('image') : '')
-      const resolvedVoiceProvider = voiceProvider || (hasAssetGenerator ? resolveCapabilityProvider('tts') : '')
+      const currentImage = useCurrentModels ? resolveCurrentCapabilityConfig(pipelineEngine, 'image') : null
+      const currentVoice = useCurrentModels ? resolveCurrentCapabilityConfig(pipelineEngine, 'tts') : null
+      const resolvedImageProvider = (useCurrentModels ? currentImage?.providerId : imageProvider) || (hasAssetGenerator ? resolveCapabilityProvider('image') : '')
+      const resolvedImageModel = useCurrentModels ? (currentImage?.model || '') : imageModel
+      const resolvedVoiceProvider = (useCurrentModels ? currentVoice?.providerId : voiceProvider) || (hasAssetGenerator ? resolveCapabilityProvider('tts') : '')
+      const resolvedVoiceModel = useCurrentModels ? (currentVoice?.model || '') : voiceModel
       // 统一调度预算：按「前端设置的默认模型」+ provider 配置的每分钟连接次数（运营后台）解析并发上限。
       // 预算来源优先级：provider config.rate_per_minute > 静态表 > 类别默认；未配置时回退请求并发。
       const resolveBudgetConcurrency = (type, providerId, requested) => {
@@ -2456,7 +2489,7 @@ function registerStory2VideoStages(pipelineEngine) {
         ? resolveVideoGeneratorConfig(pipelineEngine, {
             provider: videoConfig.provider || (videoPlan && videoPlan.provider),
             model: videoConfig.model || (videoPlan && videoPlan.model),
-          })
+          }, { useCurrentModels })
         : null;
 
       // 分镜素材自选（creationMode='manual'，2026-08-12）：生成候选（每场景 2 图 + 可选 1 视频）、
@@ -2476,7 +2509,7 @@ function registerStory2VideoStages(pipelineEngine) {
         return await buildManualSceneCandidates({
           pipelineEngine, serviceBus, runId, stage, params, context, log,
           optimizedPrompts, sentences, videoSceneSet, videoConfig, videoPlan, videoGenerator,
-          imageStyle, imageProvider: resolvedImageProvider, imageModel, aspectRatio,
+           imageStyle, imageProvider: resolvedImageProvider, imageModel: resolvedImageModel, aspectRatio,
           imageConcurrency, inputMode, inputImages, resolveModelProviderManager, manualMaterialMode,
           videoConcurrency,
           onProgress,
@@ -2495,11 +2528,8 @@ function registerStory2VideoStages(pipelineEngine) {
         ? context.generate_assets.resume.completed
         : [];
       for (const item of priorResume) {
-        if (item && Number.isInteger(item.index) &&
-            (typeof item.imagePath === 'string' || typeof item.videoPath === 'string') &&
-            typeof item.audioPath === 'string') {
-          resumeCompleted.set(item.index, item);
-        }
+        const normalized = normalizeResumeEntry(item)
+        if (normalized) resumeCompleted.set(normalized.index, normalized)
       }
 
       // 实时进度（供前端阶段清单展示「图片 x/y · 视频 a/b · 旁白 x/y」）
@@ -2606,7 +2636,7 @@ function registerStory2VideoStages(pipelineEngine) {
         });
         videoPromise = _mapWithConcurrency(videoSceneIndexes, videoConcurrency, async (index) => {
           const resumed = resumeCompleted.get(index);
-          if (resumed && typeof resumed.videoPath === 'string' && fs.existsSync(resumed.videoPath)) {
+          if (resumed && typeof resumed.videoPath === 'string' && resumed.videoPath && fs.existsSync(resumed.videoPath)) {
             // 复用断点产物时保留连续性元数据（checkpoint 中的计划终态链），不再只有 { resumed: true }
             const optimizationScenes = getOptimizationScenes(context || {})
             const restored = resolveSceneFinalFrame(
@@ -2697,20 +2727,23 @@ function registerStory2VideoStages(pipelineEngine) {
       const imageItemTask = async (prompt, index) => {
           try {
             const resumed = resumeCompleted.get(index);
-            if (resumed) {
-              if (!resumed.videoPath || resumed.imagePath) markImageDone();
+            if (resumed && resumed.imagePath) {
+              markImageDone();
               return {
                 index,
                 success: true,
-                path: resumed.imagePath || null,
-                videoPath: resumed.videoPath || null,
+                path: resumed.imagePath,
+                videoPath: null,
                 meta: { resumed: true },
               };
+            }
+            if (resumed && resumed.videoPath && fs.existsSync(resumed.videoPath)) {
+              return { index, success: true, path: null, videoPath: resumed.videoPath, meta: { resumed: true } };
             }
             // 视频场景：AI 视频已生成 → 跳过图片（省额度）；失败 → 回退图片轮播
             if (videoSceneSet.has(index)) {
               const video = videoResults.get(index);
-              if (video && video.success) {
+              if (video && video.success && video.path) {
                 return { index, success: true, path: null, videoPath: video.path, meta: { video: true } };
               }
             }
@@ -2730,7 +2763,7 @@ function registerStory2VideoStages(pipelineEngine) {
               result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
                 style: imageStyle,
                 image_provider: resolvedImageProvider,
-                image_model: imageModel,
+                image_model: resolvedImageModel,
                 index,
                 aspect_ratio: aspectRatio,
                 runId,
@@ -2745,8 +2778,8 @@ function registerStory2VideoStages(pipelineEngine) {
                   const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
                     prompt: attemptPrompt,
                     style: imageStyle,
-                    image_provider: imageProvider,
-                    image_model: imageModel,
+                    image_provider: resolvedImageProvider,
+                    image_model: resolvedImageModel,
                     index,
                     aspect_ratio: aspectRatio,
                     runId,
@@ -2824,7 +2857,7 @@ function registerStory2VideoStages(pipelineEngine) {
           return assetGenerator
             ? runItem()
             : modelCallScheduler.withModelBudget(
-                { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: imageModel },
+                 { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: resolvedImageModel },
                 runItem,
               );
         },
@@ -2834,7 +2867,7 @@ function registerStory2VideoStages(pipelineEngine) {
       const ttsItemTask = async (sentence, index) => {
           try {
             const resumed = resumeCompleted.get(index);
-            if (resumed) {
+            if (resumed && resumed.audioPath) {
               markTtsDone();
               return { index, success: true, path: resumed.audioPath, duration: resumed.duration || null, meta: { resumed: true } };
             }
@@ -2858,7 +2891,7 @@ function registerStory2VideoStages(pipelineEngine) {
               ? assetGenerator.generateTTS(text, {
                   voice_id: voiceId,
                   voice_provider: resolvedVoiceProvider,
-                  voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
+                   voice_model: resolvedVoiceModel,
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
@@ -2871,8 +2904,8 @@ function registerStory2VideoStages(pipelineEngine) {
               : serviceBus.callPythonSkill('generate_tts', {
                   text,
                   voice_id: voiceId,
-                  voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
-                  voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
+                  voice_provider: resolvedVoiceProvider,
+                  voice_model: resolvedVoiceModel,
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
@@ -2898,7 +2931,7 @@ function registerStory2VideoStages(pipelineEngine) {
             };
           } catch (e) {
             // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
-            const _voiceModel = firstDefined(params.voiceModel, stage.options?.voiceModel) || 'speech-02-hd'
+            const _voiceModel = resolvedVoiceModel || 'speech-02-hd'
             const _reCloneResult = await tryReCloneVoice({
               pipelineEngine, error: e, text: typeof sentence === 'string' ? sentence : sentence.text || sentence.content,
               voiceId, voiceProvider: resolvedVoiceProvider,
@@ -2929,7 +2962,7 @@ function registerStory2VideoStages(pipelineEngine) {
           return assetGenerator
             ? runItem()
             : modelCallScheduler.withModelBudget(
-                { governor: pipelineEngine.governor, type: 'tts', providerId: resolvedVoiceProvider, model: firstDefined(params.voiceModel, stage.options?.voiceModel) },
+                { governor: pipelineEngine.governor, type: 'tts', providerId: resolvedVoiceProvider, model: resolvedVoiceModel },
                 runItem,
               );
         },
@@ -2957,7 +2990,7 @@ function registerStory2VideoStages(pipelineEngine) {
             return assetGenerator
               ? runItem()
               : modelCallScheduler.withModelBudget(
-                  { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: imageModel },
+                  { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: resolvedImageModel },
                   runItem,
                 );
           },
@@ -3100,18 +3133,26 @@ function registerStory2VideoStages(pipelineEngine) {
         if (context && typeof context === 'object') {
           context.generate_assets = context.generate_assets || {};
           context.generate_assets.resume = {
-            completed: pairedScenes.map((scene) => ({
-              index: scene.index,
-              imagePath: scene.imagePath || null,
-              videoPath: scene.videoPath || null,
-              audioPath: scene.audioPath,
-              duration: scene.duration || null,
-              // Round3 B：计划终态 + 连续性元数据随断点持久化，resume 恢复时 checkpoint 优先
-              final_frame: (scene.videoMeta && scene.videoMeta.continuity && scene.videoMeta.continuity.finalFrame)
-                ? scene.videoMeta.continuity.finalFrame
-                : null,
-              continuity: (scene.videoMeta && scene.videoMeta.continuity) || null,
-            })),
+            completed: Array.from({ length: maxScenes }, (_, index) => {
+              const image = imageByIndex.get(index);
+              const video = videoByIndex.get(index);
+              const audio = ttsResults[index];
+              const scene = pairedScenes.find(item => item.index === index);
+              const imagePath = image && image.success && image.path ? image.path : null;
+              const videoPath = video && video.success && video.path ? video.path : null;
+              const audioPath = audio && audio.success && audio.path ? audio.path : null;
+              if (!imagePath && !videoPath && !audioPath) return null;
+              return {
+                index,
+                imagePath,
+                videoPath,
+                audioPath,
+                duration: (audio && audio.duration) || (scene && scene.duration) || null,
+                // Round3 B：计划终态 + 连续性元数据随断点持久化，resume 恢复时 checkpoint 优先
+                final_frame: (video && video.meta && video.meta.continuity && video.meta.continuity.finalFrame) || null,
+                continuity: (video && video.meta && video.meta.continuity) || null,
+              };
+            }).filter(Boolean),
             total: maxScenes,
             savedAt: new Date().toISOString(),
           };
@@ -3178,16 +3219,21 @@ function registerStory2VideoStages(pipelineEngine) {
       const concurrency = normalizeAssetConcurrency((params && params.concurrency) || (stage && stage.options && stage.options.concurrency) || 3)
       const ttsConcurrency = Math.max(1, Math.min(concurrency, MAX_ASSET_CONCURRENCY))
       const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator
+      const useCurrentModels = params && params.__resumeUseCurrentModels === true
       const voiceId = (params && params.voiceId) || (stage && stage.options && stage.options.voiceId) || 'default'
-      const voiceProvider = (params && params.voiceProvider) || (stage && stage.options && stage.options.voiceProvider) || ''
-      const voiceModel = (params && params.voiceModel) || (stage && stage.options && stage.options.voiceModel) || ''
+      const voiceProvider = useCurrentModels
+        ? ''
+        : ((params && params.voiceProvider) || (stage && stage.options && stage.options.voiceProvider) || '')
+      const voiceModel = useCurrentModels
+        ? ''
+        : ((params && params.voiceModel) || (stage && stage.options && stage.options.voiceModel) || '')
       const voiceSpeed = (params && params.voiceSpeed) !== undefined ? params.voiceSpeed : (stage && stage.options && stage.options.voiceSpeed)
       const voicePitch = (params && params.voicePitch) !== undefined ? params.voicePitch : (stage && stage.options && stage.options.voicePitch)
       const voiceEmotion = (params && params.voiceEmotion) || (stage && stage.options && stage.options.voiceEmotion) || 'default'
       if (!context.finalize_assets || typeof context.finalize_assets !== 'object') context.finalize_assets = {}
       const partialTts = Array.isArray(context.finalize_assets.partialTts) ? context.finalize_assets.partialTts : []
       const partialByIndex = new Map(partialTts.filter((p) => p && Number.isInteger(p.index)).map((p) => [p.index, p]))
-      const resolvedVoiceProvider = voiceProvider || (assetGenerator ? (() => {
+      const resolvedVoiceProvider = voiceProvider || ((assetGenerator || useCurrentModels) ? (() => {
         try {
           const manager = (pipelineEngine && pipelineEngine.aiGenerator && pipelineEngine.aiGenerator._modelProviderManager) ||
             (pipelineEngine && pipelineEngine.container && pipelineEngine.container.get && pipelineEngine.container.get('modelProviderManager'))
@@ -3195,6 +3241,14 @@ function registerStory2VideoStages(pipelineEngine) {
           return provider && typeof provider.id === 'string' ? provider.id.trim() : ''
         } catch (_) { return '' }
       })() : '')
+      const resolvedVoiceModel = useCurrentModels ? (() => {
+        try {
+          const manager = (pipelineEngine && pipelineEngine.aiGenerator && pipelineEngine.aiGenerator._modelProviderManager) ||
+            (pipelineEngine && pipelineEngine.container && pipelineEngine.container.get && pipelineEngine.container.get('modelProviderManager'))
+          const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault('tts') : null
+          return resolveCapabilityModel(provider, 'tts')
+        } catch (_) { return '' }
+      })() : voiceModel
 
       const rawTtsItemTask = async (scene) => {
         const resumed = partialByIndex.get(scene.index)
@@ -3208,7 +3262,7 @@ function registerStory2VideoStages(pipelineEngine) {
             ? assetGenerator.generateTTS(text, {
                 voice_id: voiceId,
                 voice_provider: resolvedVoiceProvider,
-                voice_model: voiceModel,
+                voice_model: resolvedVoiceModel,
                 rate: voiceSpeed,
                 pitch: voicePitch,
                 emotion: voiceEmotion,
@@ -3218,8 +3272,8 @@ function registerStory2VideoStages(pipelineEngine) {
             : serviceBus.callPythonSkill('generate_tts', {
                 text,
                 voice_id: voiceId,
-                voice_provider: voiceProvider,
-                voice_model: voiceModel,
+                voice_provider: resolvedVoiceProvider,
+                voice_model: resolvedVoiceModel,
                 rate: voiceSpeed,
                 pitch: voicePitch,
                 emotion: voiceEmotion,
@@ -3247,10 +3301,10 @@ function registerStory2VideoStages(pipelineEngine) {
           const _reCloneResult = await tryReCloneVoice({
             pipelineEngine, error, text,
             voiceId, voiceProvider: resolvedVoiceProvider,
-            voiceModel: voiceModel || 'speech-02-hd',
+            voiceModel: resolvedVoiceModel || 'speech-02-hd',
             resolveManager: _resolveManager,
             retryFn: (newVoiceId) => assetGenerator.generateTTS(text, {
-              voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: voiceModel,
+              voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: resolvedVoiceModel,
               rate: voiceSpeed, pitch: voicePitch, emotion: voiceEmotion,
               index: scene.index, runId: runId || undefined,
             }),

@@ -1,3 +1,13 @@
+## 历史场景素材四卡布局与预览/选择交互复盘（s2v-history-scene-material-layout，2026-08-20）
+
+- **需求与交付**：结果页场景素材区固定渲染 image1、image2、video1、video2 四个视觉卡；radio 放在缩略图下方、素材名称之前，缩略图只预览；预览弹窗使用 xl；生成新图/生成 AI 视频分别只在 image1/video1 卡内出现；空素材保持固定 media frame 并只显示本地化“未生成”。
+- **教训 1（预览与选择必须是不同的 DOM 控件）**：把 radio、缩略图和素材名称包在同一个 ancestor label 或卡片 click handler 中，会让浏览器原生 label activation 把“查看大图”误当成“设为当前使用”。正确合同是独立 button type=button 负责预览，独立 radio + label 负责选择，并为两者分别提供可访问名称。
+- **教训 2（视觉卡数量不等于持久化身份数量）**：renderer 可以为主视频和 alternate 视频提供两个显示位，但后端仍只接受 image1 | image2 | video。视觉别名必须在 IPC 边界归一，当前使用徽标只在 canonical video1 显示，不能为了视觉布局扩展数据库枚举。
+- **教训 3（空态必须保留几何，不应泄漏 raw fallback）**：缺 path、缺 share URL 和媒体生成中间态都要保留固定宽高背景；空框只渲染 locale 的 emptySlot 一行，不渲染 video1/video2 或第二行英文 fallback。空态测试应断言 DOM 文案次数，而不是只断言 slot 存在。
+- **教训 4（场景级操作只渲染一次）**：生成图片和生成 AI 视频是 segment 级 IPC，不属于每个候选卡。把按钮放进 slot loop 会产生重复操作和含义歧义；应选择 canonical image1/video1 作为唯一承载卡，同时保留 prompt guard、busy guard 和失败回滚语义。
+- **逃逸链**：既有组件测试固化了三槽位/卡片点击选择语义，未覆盖缩略图与 radio 的事件隔离、四卡空态几何和场景级按钮重复；视觉检查只关注媒体是否出现，没有检查空框下的 raw 英文 fallback。系统性漏洞属于测试场景缺失与审查对持久化枚举边界关注不足。
+- **回归保护**：ResultView.test.js 增加四卡顺序、缩略图不调用选择 IPC、radio 归一发送 video、canonical video1 徽标、按钮只出现一次、空态单行文案、path/URL 失效和 video1/video2 预览类型断言；后续修改 ResultView 素材卡必须同时运行该文件、locale pair/CJK 检查和 Vue build。
+
 ## 分段状态 failed/completed 误导展示与残留 error 复盘（fix-s2v-segment-status-reason，2026-08-16）
 
 - **现象**：视频创作-历史记录分段卡片直接显示英文原值状态（failed/completed）；用户点击【重试图片】成功后，分段状态变 completed 但旧 error（`UnsupportedParamsError: Setting response_format is not supported...`）仍残留，UI 语义矛盾、无法理解失败原因。
@@ -225,9 +235,9 @@
 - **教训 3（判定表只在生效层启用）**：missing_audio 判定表若在 batch 层启用，会因中间产物无尾行产生假阴性——判定表仅限 refined 尾行实际渲染的场景（评审 W1）。教训：跨层复用的校验规则必须绑定「该输出形态真实出现的层」。
 - **评审**：Claude 1C/2W 全修复 + 13 Info（6 修，其余归 Batch B/C）；antigravity 后端不可用降级记录。
 
-## 场景多素材详情页（3 素材槽 + 生成/重合成）复盘（s2v-scene-multi-materials，2026-08-14）
+## 场景多素材详情页初版复盘（3 素材身份；已由 2026-08-20 四视觉卡契约取代）（s2v-scene-multi-materials，2026-08-14）
 
-- **需求/交付**：视频创作-全能创作-历史记录详情页每场景最多 3 个可选素材槽——图1=`imagePath`、图2=`alternateImages[0].path`、视频=`videoPath`，`selectedMaterial` 记录选中态；新增【生成新图】【生成视频】【再次合成视频】（重合成复用已选素材 + TTS 语音/字幕/背景音乐）。流水线完成后可从详情页继续生成/选择/重合成。PR #823（squash `8b90e85e`）已合并。
+- **需求/交付（历史版本）**：视频创作-全能创作-历史记录详情页初版每场景最多 3 个可选素材身份——图1=`imagePath`、图2=`alternateImages[0].path`、视频=`videoPath`，`selectedMaterial` 记录选中态；新增【生成新图】【生成视频】【再次合成视频】（重合成复用已选素材 + TTS 语音/字幕/背景音乐）。该持久化边界仍然保留，但当前 UI 卡片数量和预览/选择交互以 PRD-video-creation.md §3.1.26.1 为准。PR #823（squash `8b90e85e`）已合并。
 - **槽位身份稳定**：选中只写 `selectedMaterial` 标记、不搬动文件；`alternateImages` 强制 `length<=1` 保证「图2=alternateImages[0]」槽位身份可推断，并与旧数据（无备选图）兼容。
 - **替换语义**：已有 2 图时点【生成新图】——图1 非选中替换图1、图1 选中则替换图2；已有视频时点【生成视频】替换原视频；生成接口按槽位覆盖写，返回后刷新素材区。
 - **教训 1（C1：compose 回显全字段会污染图1 槽）**：compose-engine 回显 scene 的 `...scene` 展开会把 `_scenesForCompose` 的渲染映射路径（含备选图）持久化回 `imagePath` 槽 → 槽位回填必须保留项目原值；`restoredImageCopies` 孤儿副本清理必须「仅当原值与副本路径不同才登记」，防止误删仍被引用的同名文件。
@@ -13780,3 +13790,14 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 2. 每个错误入口必须共享 provider/context 合同，新增错误分类同时补 formatter 与 renderer 测试。
 3. 用户文案审查清单新增：最终字符串不得含未解析变量、内部字段名、provider account、请求 ID、状态码、堆栈或服务端端口。
 4. 归档前执行 locale-sync、OpenSpec validate、定向 Vitest、构建和 PR 远端 checks；外部模型不可用时如实记录降级，不把本地审查冒充外部审查。
+
+## Story2Video 断点恢复未切换当前模型复盘（s2v-resume-current-models，2026-08-19）
+
+- **现象**：历史记录中的失败/中断 Story2Video 任务恢复后，图片、语音和视频阶段仍可能携带启动任务时的 provider/model；用户已经在模型设置中切换模型，但“从断点继续”没有真正使用新设置。
+- **第一性原因**：恢复实现把旧快照 params 深度恢复，并把其中的 provider/model 视为新的显式路由；“已完成资产复用”和“未完成调用路由”没有在同一个恢复合同中分离。legacy Python 路径还存在绕过已解析 resolved 字段的分叉。
+- **方案**：恢复 Story2Video 参数只清除图片/TTS/视频路由字段并设置内部 marker；实际调用前按 capability 解析当前默认 provider/model。完成资产先按 scene index 校验本地路径并复用，未完成资产才调用当前模型。手动 finalize TTS、legacy Python 和视频 plan 同样遵守该策略。
+- **风险判断**：新 TTS 可能没有旧 voiceId、音色质量/语言不同；因此 voiceId 是内容参数，不能静默替换，必须沿用 VOICE_MODEL_MISMATCH/目录合同和既有 re-clone，失败时不覆盖旧音频。图片/视频允许新旧模型混合，视觉风格差异是明确产品取舍。
+- **远程任务边界**：当前 generateSceneVideo 未把远程 taskId 写入 checkpoint/run-state。提交后中断属于未知状态，不能查询、不能标记完成；恢复只能按现有阶段级重试/图片回退语义处理。未来持久化必须绑定原 provider/model。
+- **逃逸链**：旧测试验证了恢复能继续、完成视频能复用和跨镜终态，但没有组合覆盖“设置已切换 + 未完成 provider/model + legacy Python + 旧 video_plan + 远程未知状态”。因此问题逃过了单测和代码审查，属于测试场景缺失与跨路径契约审查盲区。
+- **回归保护**：resume-orchestration.test.js 锁定旧路由清理和内容参数保留；story2video-stages.test.js 锁定 assetGenerator/legacy Python 的当前 image/TTS 模型、已完成图片/音频/视频不重复调用、未完成视频只提交一次且使用当前 provider/model；pipeline-story2video-contract.test.js 继续保护 stage options 合同。
+- **预防措施**：以后新增资产生成路径必须接收统一的 resolvedProvider/resolvedModel，禁止从原始 params/stage.options 重新取路由；恢复设计必须同时给出资产状态矩阵、旧快照兼容性、语音兼容性和远程任务状态说明；用户提示必须与事实状态一致，未知不能成功化。

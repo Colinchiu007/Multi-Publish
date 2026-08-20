@@ -1463,7 +1463,9 @@ class PipelineEngine {
         }
         return { ...base, status: 'pending', startedAt: null, completedAt: null };
       }),
-      params: snapshot.params || {},
+      // 恢复 Story2Video 时，内容参数仍来自原任务，但图片/TTS/视频路由改由当前设置解析。
+      // 其它流水线保持原有参数恢复语义。
+      params: prepareResumeParams(snapshot.params || {}, snapshot.pipeline),
       progress: 0,
       checkpoint: null,
       createdAt: snapshot.createdAt || now,
@@ -2373,6 +2375,21 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
   const input = params || {};
   const stageOptions = input.stageOptions && input.stageOptions[stageName];
   const result = stageOptions && typeof stageOptions === 'object' ? { ...stageOptions } : {};
+  const currentModelsOnResume = pipelineName === STORY2VIDEO_PIPELINE && input.__resumeUseCurrentModels === true;
+  if (currentModelsOnResume && stageName === 'generate_assets') {
+    delete result.imageProvider;
+    delete result.imageModel;
+    delete result.voiceProvider;
+    delete result.voiceModel;
+    if (result.video && typeof result.video === 'object') {
+      delete result.video.provider;
+      delete result.video.model;
+    }
+  }
+  if (currentModelsOnResume && stageName === 'select_video_scenes' && result.video && typeof result.video === 'object') {
+    delete result.video.provider;
+    delete result.video.model;
+  }
   const set = (key, value) => {
     if (value !== undefined && value !== null) result[key] = value;
   };
@@ -2455,5 +2472,64 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
   return result;
 }
 
-module.exports = { PipelineEngine, STAGE_TYPES, computeDefaultMaxConcurrentRuns };
+/**
+ * 为 Story2Video 历史恢复准备运行参数。
+ *
+ * 成功资产通过 context 中的本地路径复用；没有成功资产的调用不应继续携带
+ * 启动任务时的 provider/model。只删除模型路由字段，保留提示词、音色 ID、
+ * 速度/音调/情绪、视频比例等内容与生成参数。
+ * @param {object} params
+ * @param {string} pipelineName
+ * @returns {object}
+ */
+function prepareResumeParams(params, pipelineName) {
+  let restored
+  try {
+    restored = JSON.parse(JSON.stringify(params && typeof params === 'object' ? params : {}))
+  } catch (_) {
+    restored = { ...(params && typeof params === 'object' ? params : {}) }
+  }
+  if (pipelineName !== STORY2VIDEO_PIPELINE) return restored
+
+  const clearRouting = (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return
+    delete value.provider
+    delete value.model
+    delete value.imageProvider
+    delete value.imageModel
+    delete value.voiceProvider
+    delete value.voiceModel
+    delete value.videoProvider
+    delete value.videoModel
+  }
+
+  delete restored.imageProvider
+  delete restored.imageModel
+  delete restored.voiceProvider
+  delete restored.voiceModel
+  delete restored.videoProvider
+  delete restored.videoModel
+  clearRouting(restored.videoConfig)
+
+  const stageOptions = restored.stageOptions
+  if (stageOptions && typeof stageOptions === 'object' && !Array.isArray(stageOptions)) {
+    clearRouting(stageOptions.generate_assets)
+    clearRouting(stageOptions.select_video_scenes && stageOptions.select_video_scenes.video)
+    clearRouting(stageOptions.generate_assets && stageOptions.generate_assets.video)
+  }
+
+  const textConfig = restored.story2videoTextConfig
+  if (textConfig && typeof textConfig === 'object' && !Array.isArray(textConfig)) {
+    clearRouting(textConfig.image)
+    clearRouting(textConfig.voice)
+    clearRouting(textConfig.video)
+  }
+
+  // Internal-only marker. It is consumed by Story2Video stage resolution and is
+  // never shown in History or exposed as a model-selection control.
+  restored.__resumeUseCurrentModels = true
+  return restored
+}
+
+module.exports = { PipelineEngine, STAGE_TYPES, computeDefaultMaxConcurrentRuns, prepareResumeParams };
 

@@ -309,3 +309,16 @@ git tag -l
 # 查看Release
 gh release view v1.1.7
 ```
+
+---
+
+## 十一、Story2Video 历史断点恢复当前模型（2026-08-19）
+
+- **需求决策**：History 的【从断点继续】保持一键操作，不增加“旧模型/当前模型”选择器和确认弹窗；恢复时未完成的文字推理、图片、TTS、视频调用读取当前设置模型，已经完成且有效的本地图片、音频、视频按 `scene index` 复用。
+- **实现边界**：`prepareResumeParams()` 对 Story2Video 参数做 JSON-safe 克隆，清理旧图片/TTS/视频路由字段并写入内部 `__resumeUseCurrentModels` 标记；保留 prompt、场景文本、比例、voiceId、语速、音调、情绪等内容参数。`video_plan.provider/model` 在恢复时不再覆盖当前视频能力配置。
+- **资产校验**：`generate_assets.resume.completed` 逐资产校验合法整数 `index`、受控媒体根目录、文件存在/可读性、扩展名、大小与符号链接边界。图片、音频、视频独立复用，旧快照可只有其中一种资产；无效路径被丢弃后按当前模型重新生成。
+- **语音风险决策**：保留原 `voiceId`，不静默更换音色。当前 provider/model 的 voice catalog 或 adapter 不兼容时沿用既有 fail-closed、默认音色回退和 re-clone 合同；语速、音调、情绪继续作为内容参数。
+- **远程视频边界**：当前 `taskId` 未持久化，恢复时不会把未知的远程任务伪造成完成，也不会盲切新模型去查询旧任务；有本地有效视频则复用，无有效产物则走当前模型的正常提交/失败回退。
+- **测试结果**：聚焦 `resume-orchestration.test.js`、`story2video-stages.test.js`、`pipeline-story2video-contract.test.js` 共 3 个文件，175 个测试通过；补充 Windows runner 干净临时目录初始化，并用 `realpathSync.native()` 断言规范化后的媒体路径，覆盖当前图片/TTS/video、legacy Python 路径、当前 LLM 视频场景判断、旧 video plan 路由清理、部分资产复用、失效路径再生成和跨镜 final frame。
+- **质量过程**：外部 Antigravity 因账户/地域资格不可用，Claude wrapper 因本机代理/API 连接失败；按流程降级为三个独立本地只读审查探针，审查结论已记录在归档 task 的 `review.md`，未发现未修复 Critical/Major。
+- **交付记录**：代码在隔离 worktree `codex/s2v-resume-current-models` 开发，文档 rebase 冲突已保留双方章节并解决；PR #1031（https://github.com/Colinchiu007/Multi-Publish/pull/1031）已于 2026-08-19T16:41:30Z 合并，merge SHA `ef980f08a74232890569b5823e47d4e3c7a93e3a`；PR CI 中 Story2Video 恢复相关用例未失败，UI/ResultView、视觉、Browser E2E、Coverage 连带和 Autonomous 失败属于已记录主线基线例外。正式规格已同步至 `openspec/specs/story2video-resume-current-models/spec.md`，OpenSpec change 已归档至 `openspec/changes/archive/2026-08-20-s2v-resume-current-models`，CCG task 与 review 已归档至 `.ccg/tasks/archive/2026-08/s2v-resume-current-models`。归档 PR #1035（https://github.com/Colinchiu007/Multi-Publish/pull/1035）已于 2026-08-19T16:55:21Z 合并，merge SHA `49cf867e4b7dc5b7cf0ff574cd3b864646562db9`；最终元数据 PR #1036（https://github.com/Colinchiu007/Multi-Publish/pull/1036）已于 2026-08-19T17:00:26Z 合并，merge SHA `89f1aec4a7f4c4fdf58d1628646b93e9e28a88df`；`origin/main` 已核验包含这些提交。
