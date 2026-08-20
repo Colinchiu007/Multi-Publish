@@ -90,7 +90,7 @@ describe('Story2VideoProjectService', () => {
 
       const result = await service.getThumbnail('thumbnail-image-first')
 
-      expect(result).toMatchObject({ status: 'ready', kind: 'image', path: image })
+      expect(result).toMatchObject({ status: 'ready', kind: 'image', path: fs.realpathSync.native(image) })
       expect(service.thumbnailRunner).not.toHaveBeenCalled()
     })
 
@@ -104,7 +104,7 @@ describe('Story2VideoProjectService', () => {
       }])
 
       await expect(service.getThumbnail('thumbnail-image-fallback')).resolves.toMatchObject({
-        status: 'ready', kind: 'image', path: alternate,
+        status: 'ready', kind: 'image', path: fs.realpathSync.native(alternate),
       })
     })
 
@@ -132,7 +132,10 @@ describe('Story2VideoProjectService', () => {
       expect(runner).toHaveBeenCalledTimes(1)
       expect(runner.mock.calls[0][1]).toEqual(expect.arrayContaining(['-ss', '0', '-frames:v', '1']))
       expect(JSON.parse(fs.readFileSync(path.join(projectDir, 'thumbnail-first-scene.json'), 'utf8'))).toMatchObject({
-        sourcePath: video,
+        // sourcePath 固化的是 resolveReadableFile 的 canonical 返回值；Windows CI 上
+        // fs.realpathSync.native 返回 8.3 短名（RUNNER~1），与 os.tmpdir() 长名不同，
+        // 期望值必须与实现共用同一规范化函数才能跨环境一致。
+        sourcePath: fs.realpathSync.native(video),
       })
     })
 
@@ -160,7 +163,7 @@ describe('Story2VideoProjectService', () => {
 
       expect(result).toMatchObject({ status: 'ready', kind: 'video-frame' })
       expect(runner).toHaveBeenCalledTimes(2)
-      expect(JSON.parse(fs.readFileSync(path.join(projectDir, 'thumbnail-first-scene.json'), 'utf8')).sourcePath).toBe(second)
+      expect(JSON.parse(fs.readFileSync(path.join(projectDir, 'thumbnail-first-scene.json'), 'utf8')).sourcePath).toBe(fs.realpathSync.native(second))
     })
 
     it('缺失素材与 FFmpeg 失败分别返回 missing/failed，不抛给历史列表', async () => {
@@ -303,7 +306,9 @@ describe('Story2VideoProjectService', () => {
         videoPath: null,
         videoMeta: { sceneVideoPath: sceneVideo },
       }])
-      expect(selected[0].videoPath).toBe(sceneVideo)
+      // _scenesForCompose returns the canonical (realpathSync.native) path; on Windows CI
+      // the 8.3 short name differs from the os.tmpdir()-based long name built above.
+      expect(selected[0].videoPath).toBe(fs.realpathSync.native(sceneVideo))
 
       expect(() => service._scenesForCompose([{
         id: 'segment-1',
