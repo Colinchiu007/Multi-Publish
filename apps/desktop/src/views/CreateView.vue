@@ -1301,7 +1301,7 @@ import {
   pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineConfirmSceneAssets, pipelineGetRunContext,
   pipelinePauseRun, pipelineDeleteRun,
   storeGetSetting, storeSetSetting,
-  story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
+  story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects, story2videoGetThumbnail,
   story2videoDeleteProject,
   story2videoBgmLibraryList, story2videoBgmLibraryAdd,
   story2videoBgmLibraryRename, story2videoBgmLibraryDelete,
@@ -1334,7 +1334,7 @@ import {
   getPipelineStatus,
 } from '@/i18n/pipeline-labels'
 import { getAppLocale } from '@/i18n'
-import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
+import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, latestHistoryTimestamp, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
@@ -3931,22 +3931,41 @@ export default {
           ? projectsResult.value.data.map(project => ({ ...project, historyType: 'story2video-project' }))
           : []
         const projectById = new Map(projects.map(project => [project.projectId, project]))
+        const projectByRunId = new Map(
+          projects
+            .filter(project => typeof project?.runId === 'string' && project.runId.trim())
+            .map(project => [project.runId, project]),
+        )
+        const projectByLegacyId = new Map(
+          projects
+            .filter(project => typeof project?.id === 'string' && project.id.trim())
+            .map(project => [project.id, project]),
+        )
         const matchedProjectIds = new Set()
         const runs = hasRuns
           ? pipelineResult.value.data.map(run => {
-              const projectId = run?.projectId || run?.id
-              const project = projectById.get(projectId)
+              const runKeys = [run?.projectId, run?.runId, run?.id]
+                .filter(value => typeof value === 'string' && value.trim())
+              const project = runKeys.reduce((matched, key) => matched || projectById.get(key) || projectByRunId.get(key) || projectByLegacyId.get(key), null)
               if (!project) return { ...run, historyType: 'pipeline-run' }
+              const projectId = project.projectId
               matchedProjectIds.add(projectId)
               return {
-                ...project,
                 ...run,
+                ...project,
                 projectId,
                 runId: run.runId || run.id || project.runId || projectId,
                 historyType: 'story2video-project',
                 title: project.title || run.title || project.sourceText || run.sourceText || '',
                 sourceText: project.sourceText || run.sourceText || '',
                 segments: Array.isArray(project.segments) ? project.segments : run.segments,
+                status: run.status || project.status,
+                currentStage: run.currentStage ?? project.currentStage,
+                stages: Array.isArray(run.stages) && run.stages.length ? run.stages : project.stages,
+                checkpoint: run.checkpoint ?? project.checkpoint,
+                error: run.error || project.error,
+                activeMs: run.activeMs ?? project.activeMs,
+                updatedAt: latestHistoryTimestamp(project, run) || project.updatedAt || run.updatedAt,
               }
             })
           : []
@@ -3981,6 +4000,7 @@ export default {
         }
 
         this.history = sortHistoryByEffectiveTime([...runs, ...projectsWithoutRuns])
+        void this.hydrateHistoryThumbnails(this.history, requestId)
         this.scheduleHistoryRefresh()
         if (!hasProjects || !hasRuns) {
           // 具体原因透传：IPC 已返回 message（存储不可用/无法识别当前用户/…），
@@ -4003,8 +4023,31 @@ export default {
         if (requestId === this.historyRequestId) this.historyLoading = false
       }
     },
+    async hydrateHistoryThumbnails(items, requestId) {
+      const records = (Array.isArray(items) ? items : []).filter(item => item?.projectId)
+      let cursor = 0
+      const worker = async () => {
+        while (cursor < records.length) {
+          const index = cursor++
+          const item = records[index]
+          if (requestId !== this.historyRequestId) return
+          try {
+            const result = await settleHistoryRequest(() => story2videoGetThumbnail(item.projectId))
+            if (requestId !== this.historyRequestId) return
+            const data = result?.code === 0 ? result.data : null
+            item.thumbnailUrl = data?.status === 'ready' ? (data.url || null) : null
+            item.thumbnailStatus = data?.status || 'missing'
+          } catch (_) {
+            if (requestId !== this.historyRequestId) return
+            item.thumbnailUrl = null
+            item.thumbnailStatus = 'failed'
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(4, records.length) }, () => worker()))
+    },
     openHistoryResult(item) {
-      if (!item?.projectId || item.status === 'cancelled') return
+      if (!item?.projectId || item.status === 'running') return
       const query = { project: item.projectId }
       const runId = this.historyRunId(item)
       if (runId) query.runId = runId
@@ -4020,7 +4063,7 @@ export default {
     // Kept as a compatibility alias for callers outside the history component.
     // It is deliberately read-only for non-completed records.
     openHistory(item) {
-      if (item?.status === 'completed') this.openHistoryResult(item)
+      if (item?.status !== 'running') this.openHistoryResult(item)
     },
     historyItemResumable(item) {
       if (!item || !['failed', 'paused'].includes(item.status) || !(item.id || item.runId)) return false
@@ -4099,14 +4142,14 @@ export default {
           if (!item || item.status !== 'running') continue
           const fresh = runningById.get(item.id)
           if (fresh) {
-            item.stages = fresh.stages || item.stages
-            item.currentStage = fresh.currentStage
-            item.checkpoint = fresh.checkpoint || item.checkpoint
+            item.stages = Array.isArray(fresh.stages) && fresh.stages.length ? fresh.stages : item.stages
+            item.currentStage = fresh.currentStage ?? item.currentStage
+            item.checkpoint = fresh.checkpoint ?? item.checkpoint
             item.progress = fresh.progress ?? item.progress
-            item.error = fresh.error || item.error || null
+            item.error = fresh.error ?? item.error ?? null
             item.activeMs = fresh.activeMs ?? item.activeMs
-            item.activeSegmentStartedAt = fresh.activeSegmentStartedAt || item.activeSegmentStartedAt || null
-            item.updatedAt = fresh.updatedAt || item.updatedAt
+            item.activeSegmentStartedAt = fresh.activeSegmentStartedAt ?? item.activeSegmentStartedAt ?? null
+            item.updatedAt = fresh.updatedAt ?? item.updatedAt
             runningById.delete(item.id)
           } else {
             // 运行已结束（完成/失败/取消）：触发一次完整加载，

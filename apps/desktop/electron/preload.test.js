@@ -67,7 +67,7 @@ const PUBLISH_METHODS = [
   'pipelineAdvanceToNextCheckpoint', 'pipelineGetRunContext',
   'story2videoImportMedia', 'story2videoExportZip', 'story2videoCreateShareUrl',
   'story2videoCopyPath', 'story2videoShowInFolder', 'story2videoSaveAs', 'story2videoListProjects',
-  'story2videoGetProject', 'story2videoDeleteProject', 'story2videoUpdateSegments',
+  'story2videoGetProject', 'story2videoGetThumbnail', 'story2videoDeleteProject', 'story2videoUpdateSegments',
   'story2videoReplaceSegmentAudio',
   'story2videoRetrySegment', 'story2videoRecomposeProject', 'story2videoTranscribe',
   'story2videoSelectSceneMaterial', 'story2videoGenerateSceneImage', 'story2videoGenerateSceneVideo',
@@ -190,10 +190,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 102 个键', () => {
+  it('publish 模块应导出 103 个键', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(102)
+    expect(Object.keys(r).length).toBe(103)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -210,12 +210,12 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(144)
   })
 
-  it('合并后 api 总键数应为 295（含 videoClone 与 filmEngineering 命名空间）', () => {
-    expect(Object.keys(api).length).toBe(295)
+  it('合并后 api 总键数应为 296（含 videoClone 与 filmEngineering 命名空间）', () => {
+    expect(Object.keys(api).length).toBe(296)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(80)
+    expect(PUBLISH_METHODS.length).toBe(81)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',
@@ -392,6 +392,17 @@ describe('Story2Video 媒体导入桥接', () => {
     const { requiredLevelForChannel } = require('./ipc-handlers/license-access-control')
     expect(PUBLIC_METHODS).toContain('story2videoImportMedia')
     expect(requiredLevelForChannel('story2video:import-media')).toBe('public')
+  })
+
+  it('Story2Video 本地历史读取和缩略图查询为公开方法且主进程通道公开', () => {
+    const { PUBLIC_METHODS } = require('./preload/access-control')
+    const { requiredLevelForChannel } = require('./ipc-handlers/license-access-control')
+    for (const method of ['story2videoListProjects', 'story2videoGetProject', 'story2videoGetThumbnail']) {
+      expect(PUBLIC_METHODS).toContain(method)
+    }
+    expect(requiredLevelForChannel('story2video:list-projects')).toBe('public')
+    expect(requiredLevelForChannel('story2video:get-project')).toBe('public')
+    expect(requiredLevelForChannel('story2video:get-thumbnail')).toBe('public')
   })
 })
 
