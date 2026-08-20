@@ -125,6 +125,9 @@ class RunStateStore {
       error: run.error || null,
       orchestrationMode: run.orchestrationMode || 'orchestrator',
       createdAt: run.createdAt || null,
+      // 关联项目 ID：失败早于草稿创建时 run 没有 project，快照仍须持久化 projectId，
+      // 供历史页匹配项目与回填卡片标题/文案预览（增量字段，version 保持 1）
+      projectId: typeof run.projectId === 'string' && run.projectId ? run.projectId : null,
       // 已用时：各执行段实际耗时累计（毫秒），跨应用重启/断点恢复不丢失（version 保持 1，纯增量字段）
       activeMs: Number.isFinite(Number(run.activeMs)) ? Number(run.activeMs) : 0,
       // 运行中快照没有终态时间；终态快照用 run.endedAt 或当前时间
