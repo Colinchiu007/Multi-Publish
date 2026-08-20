@@ -1194,13 +1194,23 @@ class Story2VideoProjectService {
   deleteProject (projectId) {
     this._assertId(projectId)
     const projects = this._readProjects()
-    if (!projects.some(project => project.projectId === projectId)) {
-      throw new Error('Story2Video 项目不存在')
+    const exists = projects.some(project => project.projectId === projectId)
+    // 逻辑删除：索引移除成功即视为删除完成，目录清理是尽力而为。
+    // 索引中不存在同样返回 deleted:true（幂等），避免「已删除的项目再次点击删除」
+    // 仍误报 “项目未能删除，请稍后再试”（2026-08-20 修复）。
+    if (exists) {
+      this._writeProjects(projects.filter(project => project.projectId !== projectId))
     }
-    this._writeProjects(projects.filter(project => project.projectId !== projectId))
     const projectDir = this._projectDir(projectId)
     if (isPathWithin(projectDir, [this._ownerDir()])) {
-      fs.rmSync(projectDir, { recursive: true, force: true })
+      try {
+        fs.rmSync(projectDir, { recursive: true, force: true })
+      } catch (dirError) {
+        // Windows 下视频/首帧缩略图可能被本地媒体服务或 ffmpeg 缩略图进程临时占用
+        // 而锁定（EPERM），目录清除失败不应阻断已完成的逻辑删除，孤立目录为本地垃圾，
+        // 记录告警而非抛错，防止 UI 弹出误导性 “项目未能删除” 提示。
+        this.log?.warn?.('[Story2Video] 项目目录清理失败（索引已删除）: ' + (dirError && dirError.message ? dirError.message : String(dirError)) + ' path=' + projectDir)
+      }
     }
     return { projectId, deleted: true }
   }

@@ -16,6 +16,10 @@ export const HISTORY_TIME_KEYS = Object.freeze([
   'created_at',
 ])
 
+// 历史状态标签清单（tab 顺序即 UI 顺序）：interrupted = 应用退出/崩溃导致的运行中断，
+// 与 paused（用户手动暂停）语义分离，绝不互转（2026-08-20 状态语义修订）
+export const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'interrupted', 'failed', 'completed', 'cancelled'])
+
 const CREATION_TIME_KEYS = Object.freeze(['createdAt', 'created_at'])
 const IDENTITY_KEYS = Object.freeze(['id', 'projectId', 'runId'])
 
@@ -104,7 +108,7 @@ export function filterHistoryByStatus (items, status = 'all') {
 }
 
 export function historyStatusCounts (items) {
-  const counts = { all: 0, running: 0, paused: 0, failed: 0, completed: 0, cancelled: 0 }
+  const counts = { all: 0, running: 0, paused: 0, interrupted: 0, failed: 0, completed: 0, cancelled: 0 }
   for (const item of Array.isArray(items) ? items : []) {
     counts.all += 1
     if (Object.prototype.hasOwnProperty.call(counts, item?.status)) counts[item.status] += 1

@@ -10,6 +10,7 @@ const {
   normalizeAssetConcurrency,
   hasMeaningfulText,
   isPromptEngineTooShortRejection,
+  isPromptEngineEmptyReasoningError,
   pickFixedVideoScenes,
   parseVideoSelection,
   clampVideoSelection,
@@ -449,6 +450,26 @@ describe('story2video 资源索引契约', () => {
       optimized_prompt: '测试',
       skipped_optimize: true,
       optimize_note: 'prompt_engine_too_short_use_original',
+    })
+    expect(serviceBus.calls).toHaveLength(1)
+  })
+  it('prompt-engine 返回空内容/仅推理错误时回退原文并继续（2026-08-20 视频任务失败根因）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({
+      optimized_prompt: '原文',
+      error: 'LLM 返回了空内容或仅包含推理内容，未生成有效优化词',
+    }))
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '一个有内容的场景描述。' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toMatchObject({
+      optimized_prompt: '一个有内容的场景描述。',
+      skipped_optimize: true,
+      optimize_note: 'prompt_engine_empty_reasoning_use_original',
     })
     expect(serviceBus.calls).toHaveLength(1)
   })
@@ -1574,6 +1595,20 @@ describe('isPromptEngineTooShortRejection — 过短校验拒绝判定', () => {
 })
 
 describe('story2video 生成并发按 provider 每分钟连接次数收敛', () => {
+describe('isPromptEngineEmptyReasoningError — 空内容/纯推理判定', () => {
+  it('命中空内容/仅推理/未生成有效优化词文案', () => {
+    expect(isPromptEngineEmptyReasoningError('场景 0 prompt-engine 优化失败: LLM 返回了空内容或仅包含推理内容，未生成有效优化词')).toBe(true)
+    expect(isPromptEngineEmptyReasoningError('prompt-engine 优化失败: empty content from LLM')).toBe(true)
+    expect(isPromptEngineEmptyReasoningError('LLM output only reasoning content')).toBe(true)
+  })
+
+  it('非空/非推理错误不误判', () => {
+    expect(isPromptEngineEmptyReasoningError('prompt-engine 优化失败: quota exceeded')).toBe(false)
+    expect(isPromptEngineEmptyReasoningError('prompt-engine 请求被拒绝(422): Too short')).toBe(false)
+    expect(isPromptEngineEmptyReasoningError('')).toBe(false)
+  })
+})
+
   it('provider rate_per_minute=20（maxConcurrent=2）时图片/TTS 并发上限为 2，而非请求的 5（assetGenerator 路径不套外层 governor）', async () => {
     const executors = new Map()
     let gate

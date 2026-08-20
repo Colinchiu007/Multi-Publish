@@ -2784,6 +2784,76 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
+  it("stale running（长时间无更新）归入已中断而非已暂停：已暂停仅保留手动暂停", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [{
+      id: "run-stale-1", pipeline: "story2video-compose", status: "running",
+      updatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      stages: [{ name: "generate_assets", status: "running" }],
+      params: { text: "被中断任务的文案" },
+    }, {
+      id: "run-fresh-1", pipeline: "story2video-compose", status: "running",
+      updatedAt: new Date().toISOString(),
+      stages: [{ name: "optimize", status: "running" }],
+    }] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    const stale = w.vm.history.find(item => item.id === "run-stale-1");
+    // 合同（2026-08-20 修订）：非手动暂停的运行中残留一律为 interrupted，不得进入「已暂停」标签
+    expect(stale.status).toBe("interrupted");
+    expect(stale._originalStatus).toBe("running");
+    expect(stale.pausedStage).toBe("generate_assets");
+    const fresh = w.vm.history.find(item => item.id === "run-fresh-1");
+    expect(fresh.status).toBe("running");
+    expect(w.vm.history.filter(item => item.status === "paused")).toHaveLength(0);
+    w.unmount();
+  });
+
+  it("无项目匹配的 run 记录用 params 回填标题与原文案：卡片不再显示流水线名词与「未生成」", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [{
+      id: "run-orphan-1", pipeline: "story2video-compose", status: "failed",
+      error: "provider timeout",
+      updatedAt: "2026-08-15T12:00:00.000Z",
+      params: { text: "孤儿任务的原始文案", title: "孤儿任务标题" },
+    }, {
+      id: "run-orphan-2", pipeline: "story2video-compose", status: "failed",
+      error: "provider timeout",
+      updatedAt: "2026-08-15T11:00:00.000Z",
+      params: { text: "只有文案没有标题的孤儿任务" },
+    }] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    const first = w.vm.history.find(item => item.id === "run-orphan-1");
+    expect(first.title).toBe("孤儿任务标题");
+    expect(first.sourceText).toBe("孤儿任务的原始文案");
+    const second = w.vm.history.find(item => item.id === "run-orphan-2");
+    expect(second.sourceText).toBe("只有文案没有标题的孤儿任务");
+    // 渲染断言：卡片标题与文案预览来自 params 回退，而非流水线名词/未生成占位
+    expect(w.text()).toContain("孤儿任务标题");
+    expect(w.text()).toContain("孤儿任务的原始文案");
+    const titles = w.findAll(".history-name").map(node => node.text());
+    expect(titles).toContain("孤儿任务标题");
+    for (const title of titles) expect(title).not.toContain("故事视频合成");
+    // 文案预览区域不得出现「未生成」占位（页面其他合法区域如缩略图占位/视频时长仍可显示「未生成」）
+    const previews = w.findAll(".prompt-preview-text").map(node => node.text());
+    expect(previews).toContain("孤儿任务的原始文案");
+    for (const preview of previews) expect(preview).not.toContain("未生成");
+    w.unmount();
+  });
+
   it("历史加载失败时弹窗携带可操作建议（本地存储原因）", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: -1, message: "Story2Video 项目存储不可用", data: [] });

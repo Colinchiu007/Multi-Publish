@@ -30,7 +30,9 @@ describe('CreateViewHistory', () => {
     const tablist = wrapper.find('[role="tablist"]')
     expect(tablist.exists()).toBe(true)
     const tabs = wrapper.findAll('[role="tab"]')
-    expect(tabs).toHaveLength(6)
+    // 7 个状态标签：含「已中断」（应用退出/崩溃中断，区别于手动暂停）
+    expect(tabs).toHaveLength(7)
+    expect(tabs.map(tab => tab.attributes('data-status'))).toEqual(['all', 'running', 'paused', 'interrupted', 'failed', 'completed', 'cancelled'])
     expect(tabs[0].attributes('aria-selected')).toBe('true')
     expect(tabs[0].attributes('tabindex')).toBe('0')
     expect(wrapper.find('select').exists()).toBe(false)
@@ -62,7 +64,7 @@ describe('CreateViewHistory', () => {
   })
 
   it('keeps the same card contract in every status tab, including title fallback, thumbnail slot and video duration', async () => {
-    const statuses = ['running', 'paused', 'failed', 'completed', 'cancelled']
+    const statuses = ['running', 'paused', 'interrupted', 'failed', 'completed', 'cancelled']
     const wrapper = mountHistory(statuses.map((status, index) => ({
       id: 'task-' + status,
       projectId: 'project-' + status,
@@ -131,6 +133,55 @@ describe('CreateViewHistory', () => {
     expect(wrapper.find('[data-history-id="cancelled"]').classes()).toContain('is-interactive')
     await bodies[1].trigger('click')
     expect(wrapper.emitted('open-result')?.[0]).toEqual([{ id: 'cancelled', projectId: 'proj-c', status: 'cancelled', updatedAt: '2026-08-15T11:00:00Z' }])
+  })
+
+  it('已中断卡片显示中断环节与提示并可断点继续；已暂停标签只显示手动暂停任务', async () => {
+    const wrapper = mountHistory([
+      { id: 'interrupted-1', status: 'interrupted', pausedStage: 'generate_assets', updatedAt: '2026-08-15T12:00:00Z' },
+      { id: 'manual-paused', status: 'paused', pausedStage: 'compose', updatedAt: '2026-08-15T11:00:00Z' },
+    ])
+    const interrupted = wrapper.find('[data-history-id="interrupted-1"]')
+    expect(interrupted.classes()).toContain('status-interrupted')
+    expect(interrupted.text()).toContain('create.history.interruptedStage')
+    expect(interrupted.text()).toContain('create.history.interruptedHint')
+    // 中断任务可断点继续（快照仍为 running，恢复链不变）
+    expect(interrupted.find('.s2v-btn-resume').exists()).toBe(true)
+
+    // 「已暂停」标签精确过滤：只有手动暂停任务出现，中断任务不得混入
+    await wrapper.find('[role="tab"][data-status="paused"]').trigger('click')
+    expect(wrapper.findAll('.history-item')).toHaveLength(1)
+    expect(wrapper.find('.history-item').attributes('data-history-id')).toBe('manual-paused')
+    await wrapper.find('[role="tab"][data-status="interrupted"]').trigger('click')
+    expect(wrapper.findAll('.history-item')).toHaveLength(1)
+    expect(wrapper.find('.history-item').attributes('data-history-id')).toBe('interrupted-1')
+  })
+
+  it('无项目匹配的 run 卡片用 params 回退标题与文案预览，不再显示流水线名词与「未生成」', () => {
+    const wrapper = mountHistory([
+      {
+        id: 'run-only-1',
+        pipeline: 'story2video-compose',
+        status: 'failed',
+        error: 'provider timeout',
+        params: { text: '这是任务的原始文案内容', title: '发布标题甲' },
+      },
+      {
+        id: 'run-only-2',
+        pipeline: 'story2video-compose',
+        status: 'interrupted',
+        params: { text: '仅有文案没有标题' },
+      },
+    ])
+    const first = wrapper.find('[data-history-id="run-only-1"]')
+    expect(first.find('.history-name').text()).toContain('发布标题甲')
+    expect(first.find('.prompt-preview-text').text()).toContain('这是任务的原始文案内容')
+    expect(first.find('.prompt-preview-text').text()).not.toContain('create.history.notGenerated')
+
+    const second = wrapper.find('[data-history-id="run-only-2"]')
+    // 无 params.title 时标题回退到 params.text 前 60 字，而不是流水线名称
+    expect(second.find('.history-name').text()).toContain('仅有文案没有标题')
+    expect(second.find('.history-name').text()).not.toContain('create.pipelines.story2video-compose')
+    expect(second.find('.prompt-preview-text').text()).toContain('仅有文案没有标题')
   })
 
   it('shows localized paused checkpoint and both failed stage and error details', () => {

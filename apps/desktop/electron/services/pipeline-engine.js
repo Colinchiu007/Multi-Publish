@@ -1017,13 +1017,17 @@ class PipelineEngine {
           const id = snapshot.runId
           if (!id || seenIds.has(id)) continue
           seenIds.add(id)
-          // 运行中快照在应用重启后不再是运行中状态，转为已暂停；记录暂停环节
-          const normalizedStatus = snapshot.status === 'running' ? 'paused' : (snapshot.status || 'failed')
+          // 运行中快照在应用重启后不再是运行中状态，转为「已中断」（区别于用户手动暂停：
+          // 手动暂停经 savePaused 落盘为 paused；running 残留为应用退出/崩溃导致）；记录中断环节
+          const normalizedStatus = snapshot.status === 'running' ? 'interrupted' : (snapshot.status || 'failed')
           const pausedStageIndex = Number.isInteger(snapshot.currentStage) ? snapshot.currentStage : -1
           const pausedStageName = (Array.isArray(snapshot.stages) && pausedStageIndex >= 0 && pausedStageIndex < snapshot.stages.length)
             ? (snapshot.stages[pausedStageIndex].name || snapshot.stages[pausedStageIndex].stage || '') : ''
           persisted.push({
             id,
+            // 快照须携带 projectId（旧快照缺失时回退 runId 本身）：历史页据此匹配 story2video 项目，
+            // 避免 run-only 卡片丢失标题与文案预览（2026-08-20 修复）
+            projectId: snapshot.projectId || id,
             pipeline: snapshot.pipeline,
             status: normalizedStatus,
             currentStage: pausedStageIndex >= 0 ? pausedStageIndex : 0,

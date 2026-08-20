@@ -130,6 +130,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 | 日期 | 范围 | 核心内容 | 主文档 |
 |------|------|----------|--------|
+| 2026-08-20 | 历史状态语义修订：新增「已中断」状态 | 运行残留 running 快照（应用退出/崩溃/强杀）与 stale-running（>30 分钟无更新）归一化为「已中断（interrupted）」，不再误归「已暂停」；「已暂停」仅保留用户手动暂停与 scene_asset_selection 检查点；run-only 失败记录用快照 params 回填标题与原文案（卡片不再显示流水线名 +「未生成」）；筛选器 7 标签、↯ 图标、紫色系色条/徽章、中断环节提示。详见本节 3.1.34 | PRD 3.1.34 / S2V-PIPELINE-PAGE-UX §5 |
 | 2026-08-15 | 长成片合成超时与错误提示 | 下游 ffmpeg concat/xfade/旁白/BGM/WebM/输出校验预算按对应媒体时长动态缩放并设最小值/硬上限；execFile 的 killed + SIGTERM/ETIMEDOUT 归一为阶段超时；新增中英文合成超时、成片总时长和单段时长稳定通知键，错误只展示可操作建议。回归覆盖短片、50 分钟、非法时长、上限和实际阶段传参 | PRD §7.1.25a / 本节 3.1.4.2 / OpenSpec s2v-timeout-notifications |
 | 2026-08-14 | 水印四角边距调远 | 用户反馈左上/左下/右上/右下四角距边过近；水平/底部边距 20px→40px、顶部边距 40px→60px（center/moving 不受影响）；`buildWatermarkFilter` 坐标表达式与测试断言同步更新，真实 ffmpeg 渲染回归确认不越界。详见本节 3.1.24 | PRD 3.1.24 |
 | 2026-08-14 | 水印坐标修复 + 位置/字号/透明度选项 | 全能创作水印成片不可见修复：根因 `buildWatermarkFilter` drawtext 坐标出画布（bottom-* 用 `y=h-20`、center 用 `y=(h+text_h)/2`，drawtext 按文字左上角定位），自 commit `e1b46eba0`（2026-07-23）引入，保存链路无断点；修复后六位置 + moving 帧级验证可见。新增位置 6 枚举（top-left/top-right/bottom-left/bottom-right/center/moving，moving 为确定性 Lissajous 平滑漂移非随机）、字号 5 档（16/24/32/40/48 默认 24）、透明度 10 档（10%-100% 步进 10% 默认 60%）；normalizer 白名单 fail-closed + compose clamp 二次防线；快照恢复陈旧枚举吸附合法档位；文案 locales zh/en 成对 14 键。详见本节 3.1.24 | PRD 3.1.24 / openspec watermark-options |
@@ -774,6 +775,8 @@ Story2Video 的 50 分钟产品上限与下游 ffmpeg 执行预算是两个独�
 
 ### 3.1.11 历史记录已暂停状态与 UI 优化（2026-08-10）
 
+> ⚠️ **合同修订（2026-08-20）**：本节「running 快照归一化为 paused」已废弃——运行残留快照现归一化为「已中断（interrupted）」，仅用户手动暂停与 scene_asset_selection 检查点保留「已暂停」；「暂停环节」文案仅适用于用户手动暂停，中断场景改用「中断环节」。以 3.1.34 为准。
+
 **背景**：此前应用重启后，持久化的 running 快照在历史记录中仍显示为「运行中」，用户无法区分"真正在运行"和"因关闭应用而中断"的任务。同时历史记录列表 UI 过于紧凑，信息层次不清晰。
 
 **一、已暂停状态（后端）**
@@ -921,6 +924,8 @@ Story2Video 的 50 分钟产品上限与下游 ffmpeg 执行预算是两个独�
 - 修改：apps/desktop/src/views/CreateView.vue（引入组件、移除内联模板和样式）
 - 构建：vite build 通过，CreateView chunk 141KB
 ### 3.1.14 CreateHistory.vue 独立页面 stale running 检测（2026-08-11）
+
+> ⚠️ **合同修订（2026-08-20）**：本节 stale running（>30 分钟无更新）转为 paused 的逻辑已改为转为「已中断（interrupted）」；阈值与推导算法不变。以 3.1.34 为准。
 
 **背景**：3.1.12 仅在 CreateView.vue 的 loadHistory() 中添加了 stale running 检测（updatedAt 超过 30 分钟的 running 任务自动标记为 paused），但 CreateHistory.vue（独立历史记录页面 `#/create/history`）的 loadPipelines() 缺少相同的检测逻辑。用户在独立历史页面看到的仍然是"运行中"而非"已暂停"。
 
@@ -1257,6 +1262,8 @@ export function usePipelineHistory(options = {}) {
 - 修改：apps/desktop/src/views/CreateViewHistory.vue（CSS 优化）
 
 ### 3.1.19 failed 状态保留原始值 + 暂停环节显示修正（2026-08-11）
+
+> ⚠️ **合同修订（2026-08-20）**：本节「30 分钟无更新的 running → paused」（二、流程第 3 步与三、功能逻辑表第 3 行）已废弃，改为 →「已中断（interrupted）」，提示文案改用「中断环节」；failed 保留原始值、内容策略不恢复等条款不变。以 3.1.34 为准。
 
 **背景**：3.1.17 将 failed 状态统一转换为 paused，导致用户无法区分"执行失败"和"用户暂停"。本次修正保留 failed 原始状态，在前端层区分显示。
 
@@ -3106,6 +3113,94 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 - 新 TTS 可能拥有不同的音色集合、音色质量、语言覆盖和时长表现；保留 voiceId 能避免静默换音色，但可能导致该场景失败并需要用户处理。
 - 新旧图片/视频模型的风格、画幅细节和运动表现可能不同，混合成片是明确允许的产品行为，不保证全片视觉同质。
 - 远程视频 taskId 当前未持久化，不能保证“提交后进程中断”时避免远程重复任务；未来必须单独设计持久化与原绑定查询合同。
+
+### 3.1.34 历史状态语义修订：新增「已中断」状态 + run-only 卡片回填（2026-08-20）
+
+**背景**：用户反馈两处历史记录问题：
+
+1. **状态归类错误**：任务 `run_1787…i1f1` 执行失败，却同时出现在「已暂停」与「执行失败」两个标签下。用户明确：「已暂停的任务一定是用户手动暂停的才应该是这个状态」。
+2. **卡片显示错误**：「已暂停」「执行失败」「已取消」标签下的任务卡片标题显示流水线名词（如「故事视频合成」）、文案预览显示「未生成」。
+
+**根因与逃逸分析**：
+
+- Bug 1：getHistory() 把持久化 running 快照归一化为 paused（3.1.11 合同），CreateView/usePipelineHistory 又把 30 分钟无更新的 stale running 转为 paused（3.1.19 合同）——「已暂停」语义被污染为「非运行中」而非「用户手动暂停」。
+- Bug 2：失败早于 saveEditableRun 草稿创建（无 project 记录）时，历史卡片无 title/sourceText，标题回退为流水线名称、文案预览回退为「未生成」。
+- 逃逸根因：**PRD 自身定义了错误合同**（本节 3.1.11/3.1.14/3.1.19 的「running→paused 归一化」、S2V-PIPELINE-PAGE-UX §5.1 第 4/5 项），测试忠实实现了错误需求，因此单元/集成/E2E 全部通过却拦不住该 Bug。预防措施：状态语义变更必须先经 PM 确认（本任务由用户原话「已暂停=用户手动暂停」驱动），并同步修订所有 PRD 合同条款（本节顶部废弃警示机制）。
+
+**核心决策**：新增「已中断（interrupted）」状态——应用退出/崩溃/强杀导致的 running 快照残留（saveRunning）与 stale-running（>30 分钟无更新）归入此类；「已暂停（paused）」仅保留用户手动暂停（pauseRun → savePaused）与 scene_asset_selection 检查点。
+
+**一、数据校验**
+
+| 数据 | 校验规则 | 失败处理 |
+|---|---|---|
+| 快照 projectId | run-state-store `_write()` 写入快照时增量附加 projectId（快照 version 保持 1，旧快照兼容）；getHistory() persisted 条目用 `snapshot.projectId || runId` 兜底 | 缺失不影响读取，仅影响 run-only 卡片回填 |
+| interrupted 判定 | 磁盘快照 status='running'（重启残留）→ interrupted；展示层 `running` 且 `updatedAt > 30min` → interrupted | 快照 status 仍为 'running'，恢复链 resumeOrchestration 不变 |
+| pausedStage | 仅用户手动暂停与 scene_asset_selection 检查点填充；interrupted 从 snapshot.currentStage 推导（无效索引或阶段缺失时为 null） | null 时提示行隐藏 |
+| params 回填 | run-only 记录（无 project 匹配）：title ← run.params.title/publishTitle，sourceText ← run.params.text；仅当对应字段 trim 后非空才采用 | 空白视为缺失，继续回退链 |
+| 恢复资格 | interrupted 与 paused/failed 同等可恢复（historyItemResumable 含 interrupted）；内容策略类错误（needs_user_input/content_policy/可能需要修改文案）仍不显示恢复按钮 | 不可恢复时不渲染恢复按钮 |
+| locale/CJK | zh/en 成对新增 4 键（tabs.interrupted/statuses.interrupted/interruptedStage/interruptedHint）；renderer 不新增硬编码中文 | CI locale-sync 与 CJK 基线拦截 |
+
+**二、流程**
+
+    用户打开历史记录
+      -> loadHistory() 并行请求 projects + pipeline runs
+      -> 对持久化 running 快照（重启后残留）：normalizedStatus = 'interrupted'（原 'paused'），
+         persisted 条目回填 projectId（snapshot.projectId || runId）
+      -> 对每个 run.status === 'running' 且 updatedAt > 30min 的任务：
+          1. run.status = 'interrupted'（原 'paused'）
+          2. 无 pausedStage -> 从 stages 推导（优先级同 3.1.19：failed 阶段 -> 最后一个非 completed -> 最后阶段）
+      -> run-only 记录（无 project）：title/sourceText 从快照 params 回填
+      -> 排序：所有任务按有效更新时间倒序，状态严格筛选（7 个标签互斥，精确匹配）
+      -> 渲染 CreateViewHistory 组件（taskContent 回退链含 params.text）
+
+**三、功能逻辑**
+
+| 场景 | 原状态 | 显示状态 | 环节提示 | 恢复按钮 |
+|---|---|---|---|---|
+| 应用退出/崩溃/强杀后的 running 快照残留 | running（快照） | 已中断 | 「中断环节：{currentStage 推导}」 | 显示 |
+| 30 分钟无更新的 running | running → interrupted | 已中断 | 「中断环节：{running 阶段推导}」 | 显示 |
+| 用户手动暂停 | paused | 已暂停 | 「暂停环节：{pausedStage}」 | 显示 |
+| scene_asset_selection 检查点 | paused | 已暂停 | 「暂停环节：{pausedStage}」（等待素材选择） | 显示（进入素材选择） |
+| 超时/崩溃导致失败 | failed | 执行失败 | 「失败环节：{stages 推导}」 | 显示 |
+| 内容策略拒绝 | failed | 执行失败 | 「失败环节」 | 不显示 |
+| 正常完成 | completed | 已完成 | - | 不显示 |
+| 用户取消 | cancelled | 已取消 | - | 不显示（可进入编辑页） |
+
+**四、交互逻辑**
+
+1. **状态筛选**：筛选器共 7 项——全部/进行中/已暂停/已中断/执行失败/已完成/已取消；过滤条件严格相等匹配，标签互斥（修复"同一任务同时出现在已暂停与执行失败"）。
+2. **中断提示**：interrupted 卡片显示「中断环节：{阶段名}」；无阶段名时显示「应用已退出或长时间未更新，可点击继续生成」（interruptedHint）。
+3. **暂停提示**：paused 卡片仍显示「暂停环节：{pausedStage}」。
+4. **恢复操作**：interrupted 卡片显示「从断点继续」按钮，触发 resume-history 事件，走既有 resumeOrchestration 恢复链（磁盘快照 status 仍为 'running'，与 3.1.33 当前设置模型恢复逻辑兼容）。
+5. **卡片悬停**：沿用既有 hover 效果（translateY(-1px) + box-shadow，0.15s ease）。
+
+**五、显示项与提示文字**
+
+| 元素 | 位置 | 内容/样式 |
+|---|---|---|
+| 状态色条 | 卡片左侧 3px | interrupted 紫色 #6d28d9（running 蓝 / paused 橙 / failed 红 / completed 绿 / cancelled 灰 / interrupted 紫） |
+| 状态徽章 | 标题行右侧 | 图标 ↯ + 文本「已中断」（locale statuses.interrupted） |
+| 中断提示行 | 卡片第二行 | 「中断环节：xxx」（locale interruptedStage；无阶段时 interruptedHint） |
+| 标签页 | 筛选器 | 「已中断」（locale tabs.interrupted），与「已暂停」并列 |
+| 标题回退链 | 任务标题 | title → params.title/publishTitle → sourceText/text/场景文案 → 流水线名称 → 未命名任务（run-only 记录 params 回填后不再落到流水线名） |
+| 文案预览 | 任务正文 | sourceText → text → params.text → segments 拼接；全部缺失才显示「未生成」 |
+
+**六、回归保护**
+
+- pipeline-engine.test.js：running 快照归一化为 interrupted（原断言 paused 更新）；persisted 条目 projectId 回填断言。
+- CreateView.test.js：stale running → interrupted；run-only 卡片标题/文案回填断言（不再出现流水线名 +「未生成」组合）。
+- CreateViewHistory.test.js / usePipelineHistory.test.js：stale 检测同步 interrupted；恢复按钮资格。
+- locale 成对：zh/en 4 键同步（locale-sync 门禁）；CJK 基线无新增硬编码（行号位移重锚）。
+
+**七、相关文件**
+
+- 后端：apps/desktop/electron/services/pipeline-engine.js（getHistory）、apps/desktop/electron/services/run-state-store.js（_write 快照 projectId）
+- 前端：apps/desktop/src/views/CreateView.vue（run-only params 回填 + stale interrupted）、apps/desktop/src/views/CreateViewHistory.vue（7 标签/↯ 图标/中断提示/恢复按钮/taskContent 回退链）、apps/desktop/src/composables/usePipelineHistory.js（stale interrupted + resumable）、apps/desktop/src/views/history-utils.js（HISTORY_STATUSES 加 interrupted + counts）、apps/desktop/src/styles/history-panel.css（紫色系）
+- 文案：apps/desktop/src/locales/zh.js + en.js（4 键成对）
+
+**八、废弃合同**
+
+3.1.11（running 快照→paused）、3.1.14（stale running→paused）、3.1.19（30 分钟无更新→paused）及 S2V-PIPELINE-PAGE-UX §5.1 第 4/5 项中与本节冲突的条款以本节为准（各节顶部已加废弃警示）。
 
 
 

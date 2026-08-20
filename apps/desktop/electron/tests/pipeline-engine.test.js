@@ -189,7 +189,7 @@ describe('PipelineEngine 状态机模式', () => {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 
-  it('getHistory 合并持久化 running 快照：重启后运行中任务仍显示且可继续', () => {
+  it('getHistory 合并持久化 running 快照：重启后中断任务归入 interrupted（非手动暂停）', () => {
     const os = require('os')
     const path = require('path')
     const fs = require('fs')
@@ -199,6 +199,7 @@ describe('PipelineEngine 状态机模式', () => {
 
     store.saveRunning({
       id: 'run-running-persisted',
+      projectId: 'run-running-persisted',
       pipeline: 'story2video-compose',
       status: 'running',
       currentStage: 2,
@@ -215,20 +216,65 @@ describe('PipelineEngine 状态机模式', () => {
     })
 
     // 模拟应用重启：新引擎（内存为空）复用同一 store
-    // 运行中快照在重启后不再是运行中状态，引擎将其转为 paused
+    // 运行中快照在重启后不再是运行中状态：归一化为 interrupted（已中断）。
+    // 合同（2026-08-20 修订）：「已暂停」仅保留用户手动暂停；应用退出/崩溃导致的中断
+    // 不得显示为 paused，否则失败/中断任务会错误出现在「已暂停」标签。
     const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
     const history = engineB.getHistory()
     expect(history).toContainEqual(expect.objectContaining({
       id: 'run-running-persisted',
       pipeline: 'story2video-compose',
-      // 重启后持久化 running 快照按 PRD「已暂停状态归一化合同」转为 paused，并记录暂停环节
-      status: 'paused',
+      status: 'interrupted',
       pausedStage: 'generate_assets',
       completedAt: null,
     }))
+    // 中断记录必须携带 projectId，供渲染层与 story2video 项目记录合并去重（消除双卡片）
+    const interruptedEntry = history.find((item) => item.id === 'run-running-persisted')
+    expect(interruptedEntry.projectId).toBe('run-running-persisted')
+    // 中断任务绝不能归入 paused（「已暂停」= 用户手动暂停语义）
+    expect(history.filter((item) => item.id === 'run-running-persisted' && item.status === 'paused')).toHaveLength(0)
 
     // running 快照不混入 listFailed（失败/取消语义不变）
     expect(store.listFailed().map((s) => s.runId)).not.toContain('run-running-persisted')
+    // 快照持久化携带 projectId（增量字段），重启恢复链与历史合并均可读取
+    expect(store.load('run-running-persisted').projectId).toBe('run-running-persisted')
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('getHistory 持久化 paused 快照重启后保持 paused：手动暂停语义不被中断归一化影响', () => {
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    const { RunStateStore } = require('../services/run-state-store')
+    const dir = path.join(os.tmpdir(), 'pipeline-engine-paused-history-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+
+    // pauseRun 手动暂停写入 paused 快照（含 checkpoint）
+    store.savePaused({
+      id: 'run-manual-paused',
+      projectId: 'run-manual-paused',
+      pipeline: 'story2video-compose',
+      status: 'paused',
+      currentStage: 1,
+      stages: [
+        { name: 'split', status: 'completed' },
+        { name: 'optimize', status: 'paused' },
+      ],
+      context: {},
+      params: {},
+      checkpoint: { type: 'stage', stage: 'optimize' },
+      error: null,
+      orchestrationMode: 'orchestrator',
+      createdAt: '2026-08-20T01:00:00.000Z',
+    })
+
+    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const history = engineB.getHistory()
+    expect(history).toContainEqual(expect.objectContaining({
+      id: 'run-manual-paused',
+      status: 'paused',
+      pausedStage: 'optimize',
+    }))
     fs.rmSync(dir, { recursive: true, force: true })
   })
 

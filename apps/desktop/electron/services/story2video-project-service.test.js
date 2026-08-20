@@ -90,7 +90,7 @@ describe('Story2VideoProjectService', () => {
 
       const result = await service.getThumbnail('thumbnail-image-first')
 
-      expect(result).toMatchObject({ status: 'ready', kind: 'image', path: image })
+      expect(result).toMatchObject({ status: 'ready', kind: 'image', path: fs.realpathSync.native(image) })
       expect(service.thumbnailRunner).not.toHaveBeenCalled()
     })
 
@@ -104,7 +104,7 @@ describe('Story2VideoProjectService', () => {
       }])
 
       await expect(service.getThumbnail('thumbnail-image-fallback')).resolves.toMatchObject({
-        status: 'ready', kind: 'image', path: alternate,
+        status: 'ready', kind: 'image', path: fs.realpathSync.native(alternate),
       })
     })
 
@@ -132,7 +132,10 @@ describe('Story2VideoProjectService', () => {
       expect(runner).toHaveBeenCalledTimes(1)
       expect(runner.mock.calls[0][1]).toEqual(expect.arrayContaining(['-ss', '0', '-frames:v', '1']))
       expect(JSON.parse(fs.readFileSync(path.join(projectDir, 'thumbnail-first-scene.json'), 'utf8'))).toMatchObject({
-        sourcePath: video,
+        // sourcePath 固化的是 resolveReadableFile 的 canonical 返回值；Windows CI 上
+        // fs.realpathSync.native 返回 8.3 短名（RUNNER~1），与 os.tmpdir() 长名不同，
+        // 期望值必须与实现共用同一规范化函数才能跨环境一致。
+        sourcePath: fs.realpathSync.native(video),
       })
     })
 
@@ -160,7 +163,7 @@ describe('Story2VideoProjectService', () => {
 
       expect(result).toMatchObject({ status: 'ready', kind: 'video-frame' })
       expect(runner).toHaveBeenCalledTimes(2)
-      expect(JSON.parse(fs.readFileSync(path.join(projectDir, 'thumbnail-first-scene.json'), 'utf8')).sourcePath).toBe(second)
+      expect(JSON.parse(fs.readFileSync(path.join(projectDir, 'thumbnail-first-scene.json'), 'utf8')).sourcePath).toBe(fs.realpathSync.native(second))
     })
 
     it('缺失素材与 FFmpeg 失败分别返回 missing/failed，不抛给历史列表', async () => {
@@ -303,7 +306,9 @@ describe('Story2VideoProjectService', () => {
         videoPath: null,
         videoMeta: { sceneVideoPath: sceneVideo },
       }])
-      expect(selected[0].videoPath).toBe(sceneVideo)
+      // _scenesForCompose returns the canonical (realpathSync.native) path; on Windows CI
+      // the 8.3 short name differs from the os.tmpdir()-based long name built above.
+      expect(selected[0].videoPath).toBe(fs.realpathSync.native(sceneVideo))
 
       expect(() => service._scenesForCompose([{
         id: 'segment-1',
@@ -1090,6 +1095,46 @@ describe('Story2VideoProjectService', () => {
     expect(result).toEqual({ projectId: 'project-delete', deleted: true })
     expect(service.listProjects()).toEqual([])
     expect(fs.existsSync(path.join(service._ownerDir(), 'project-delete'))).toBe(false)
+  })
+
+  it('删除项目时目录清理因文件被占用而失败，仍视为删除成功且不抛错', () => {
+    const projectDir = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({ store, projectsDir: projectDir })
+    service._writeProjects([{ projectId: 'project-delete-locked', status: 'completed', segments: [] }])
+    writeFile(path.join(service._projectDir('project-delete-locked'), 'video.mp4'))
+    const warn = vi.fn()
+    service.log = { warn }
+
+    const origRm = fs.rmSync.bind(fs)
+    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementation((target, options) => {
+      if (typeof target === 'string' && target.includes('project-delete-locked')) {
+        const err = new Error('EPERM: operation not permitted')
+        err.code = 'EPERM'
+        throw err
+      }
+      return origRm(target, options)
+    })
+
+    const result = service.deleteProject('project-delete-locked')
+
+    rmSpy.mockRestore()
+    expect(result).toEqual({ projectId: 'project-delete-locked', deleted: true })
+    expect(service.listProjects()).toEqual([])
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it('删除索引中已不存在的项目返回删除成功而非报错（幂等）', () => {
+    const projectDir = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({ store, projectsDir: projectDir })
+    // 磁盘上留有孤立目录，但索引中无此项目
+    fs.mkdirSync(service._projectDir('project-gone'), { recursive: true })
+    writeFile(path.join(service._projectDir('project-gone'), 'video.mp4'))
+
+    const result = service.deleteProject('project-gone')
+
+    expect(result).toEqual({ projectId: 'project-gone', deleted: true })
+    // 孤立目录应被尽力清理（不抛错）
+    expect(fs.existsSync(path.join(service._ownerDir(), 'project-gone'))).toBe(false)
   })
 
   it('animated-explainer 完成运行同样持久化项目（复用 compose 产物与 assets.scenes）', () => {

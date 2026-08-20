@@ -3974,7 +3974,16 @@ export default {
               const runKeys = [run?.projectId, run?.runId, run?.id]
                 .filter(value => typeof value === 'string' && value.trim())
               const project = runKeys.reduce((matched, key) => matched || projectById.get(key) || projectByRunId.get(key) || projectByLegacyId.get(key), null)
-              if (!project) return { ...run, historyType: 'pipeline-run' }
+              if (!project) {
+                return {
+                  ...run,
+                  historyType: 'pipeline-run',
+                  // run-only 记录（失败早于草稿创建，无 project 可匹配）：用 params 回填标题与原文案，
+                  // 否则卡片标题回退为流水线名、文案预览显示「未生成」（2026-08-20 修复）
+                  title: run.title || run.params?.title || run.params?.publishTitle || '',
+                  sourceText: run.sourceText || run.params?.text || '',
+                }
+              }
               const projectId = project.projectId
               matchedProjectIds.add(projectId)
               return {
@@ -3997,7 +4006,8 @@ export default {
             })
           : []
         const projectsWithoutRuns = projects.filter(project => !matchedProjectIds.has(project.projectId))
-        // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停
+        // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为「已中断」
+        // （应用退出/崩溃留下的运行残留；手动暂停任务经 savePaused 持久化为 paused，不受此转换影响）
         const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
         const now = Date.now()
         for (const run of runs) {
@@ -4005,7 +4015,7 @@ export default {
             const updatedAt = run.updatedAt ? new Date(run.updatedAt).getTime() : 0
             if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
               run._originalStatus = run.status
-              run.status = 'paused'
+              run.status = 'interrupted'
               if (!run.pausedStage) {
                 const stages = Array.isArray(run.stages) ? run.stages : []
                 const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
@@ -4093,7 +4103,7 @@ export default {
       if (item?.status !== 'running') this.openHistoryResult(item)
     },
     historyItemResumable(item) {
-      if (!item || !['failed', 'paused'].includes(item.status) || !(item.id || item.runId)) return false
+      if (!item || !['failed', 'paused', 'interrupted'].includes(item.status) || !(item.id || item.runId)) return false
       // 内容政策/需要用户输入类失败必须修改文案后重新启动，不允许原样恢复
       if (RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))) return false
       return true
