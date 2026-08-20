@@ -3610,12 +3610,10 @@ describe("CreateView - UI interactions", () => {
 
   it("点击运行中历史项：即使有 projectId 也不进入编辑页、不触发恢复", async () => {
     const mocks = await import("@/api/publisher");
-    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
-      projectId: "proj-live", pipeline: "story2video-compose", status: "running", title: "运行中项目",
-    }] });
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [] });
     mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [
       { id: "run-no-proj", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:00:00.000Z", stages: [] },
-      { id: "proj-live", projectId: "proj-live", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:01:00.000Z", stages: [] },
+      { id: "run-live-2", projectId: "proj-live", pipeline: "story2video-compose", status: "running", createdAt: "2026-08-07T00:01:00.000Z", stages: [] },
     ] });
     mocks.pipelineStatus.mockResolvedValue({ code: 0, data: { id: "run-live-2", status: "running", orchestrationMode: "orchestrator" } });
     const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
@@ -3632,12 +3630,11 @@ describe("CreateView - UI interactions", () => {
     await nextTick();
     expect(pushSpy).not.toHaveBeenCalled();
     // 有 projectId 的运行记录仍只保留流水线控制入口，不能进入编辑页
-    await w.find('[data-history-id="proj-live"] .history-item-body').trigger("click");
+    await w.find('[data-history-id="run-live-2"] .history-item-body').trigger("click");
     await nextTick();
     expect(w.vm.view).toBe("history");
     expect(mocks.pipelineResumeOrchestration).not.toHaveBeenCalled();
     expect(pushSpy).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/create/result" }));
-
     pushSpy.mockRestore();
     w.unmount();
   });

@@ -3963,6 +3963,7 @@ export default {
                 .filter(value => typeof value === 'string' && value.trim())
               const matchedRuns = canonicalRunIds
                 .map(key => ({ key, project: projectById.get(key) || projectByRunId.get(key) || projectByLegacyId.get(key) }))
+                .filter(match => match.project)
               const matchedProjectIdsForRun = new Set(matchedRuns.map(match => match.project.projectId))
               const project = matchedProjectIdsForRun.size === 1 ? matchedRuns[0].project : null
               const matchedRunId = project
