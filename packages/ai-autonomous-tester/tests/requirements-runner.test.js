@@ -2,6 +2,30 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("path");
 const { RequirementsTestRunner } = require("../src/runners/requirements-runner");
+const { filterPrdItemsByFeatureIds } = require("../src/runners/requirements-runner");
+
+describe("filterPrdItemsByFeatureIds", () => {
+  const items = [
+    { id: "feat_aaa", name: "A", source: "prd" },
+    { id: "feat_bbb", name: "B", source: "prd" },
+    { id: "feat_ccc", name: "C", source: "prd" },
+    { name: "no-id", source: "prd" },
+  ];
+
+  it("requiredIds 为空时保持全量（兼容旧行为）", () => {
+    assert.equal(filterPrdItemsByFeatureIds(items, []).length, items.length);
+    assert.equal(filterPrdItemsByFeatureIds(items, undefined).length, items.length);
+  });
+
+  it("只保留本 PR 关联的需求项", () => {
+    const result = filterPrdItemsByFeatureIds(items, ["feat_bbb"]);
+    assert.deepEqual(result.map((i) => i.id), ["feat_bbb"]);
+  });
+
+  it("未命中时返回空数组（调用方据此报告型跳过，历史需求不再算失败）", () => {
+    assert.equal(filterPrdItemsByFeatureIds(items, ["feat_zzz"]).length, 0);
+  });
+});
 
 describe("RequirementsTestRunner", () => {
   it("constructor: sets options", () => {

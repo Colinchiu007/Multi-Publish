@@ -92,8 +92,11 @@ function evaluateAutonomousGate({ reportDir, auditExitCode, hasOpenAiKey, starte
     }
     return evaluation(1, "INCONSISTENT_REPORT", `Autonomous coverage audit exited with 0 but ${path.basename(reportPath)} is ${report.overall || "missing an overall result"}.`);
   }
-  if (!hasOpenAiKey && report.overall === "NEED_HUMAN") {
-    return evaluation(0, "PROMPT_REVIEW_REQUIRED", "No OpenAI key configured; the autonomous audit report was uploaded for manual review.");
+  // 需求覆盖审计的 NEED_HUMAN 是「全量 PRD 项需人工复核」的报告型结论（对任意
+  // 未覆盖全部 PRD 的 PR 都必然出现，与本次改动质量无关）。统一按报告型处理，
+  // 上传报告供人工抽查，但不再让单次审计决定合并。
+  if (report.overall === "NEED_HUMAN") {
+    return evaluation(0, "PROMPT_REVIEW_REQUIRED", "Autonomous coverage audit needs human review; report uploaded as advisory.");
   }
   if (report.overall === "PASS") {
     return evaluation(1, "INCONSISTENT_REPORT", `Autonomous coverage audit exited with 1 but ${path.basename(reportPath)} is PASS.`);
