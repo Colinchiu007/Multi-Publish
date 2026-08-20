@@ -168,7 +168,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-13 | 视频创作首页卡片 UI：多列动态布局 + 内置静态背景 + 交互动效（方案 B） | `/create` 流水线选择视图容器放宽至 1600px + 显式 1-5 列断点；背景图由免费生图模型 Pollinations(flux) 一次性预生成 15 张（1024x576 JPEG，统一风格 + 主题意象）并提交仓库静态资源 `apps/desktop/src/assets/pipeline-card-bg/`；前端 `PipelineSelector` 直接引用静态映射，双层暗色遮罩 + 浅色前景保证可读性，渐变兜底 + 入场/悬停动效 + reduced-motion + ARIA；**彻底移除运行时生成链路**（主进程服务/IPC/preload/api/缓存/loopback 全部删除，不调用任何生成 API、不访问网络）。详见本节 3.1.24 | PRD 3.1.24 |
 
 | 2026-08-14 | 全能创作 BGM 素材库管理 | 背景音乐升级为设备级素材库：添加（自动入库 + 选中）/ 重命名 / 删除，下拉选择，历史路径兼容；主进程 `story2video-bgm-library` 服务 + 4 个 IPC 通道 + PUBLIC_CHANNELS；详见本节 3.1.25 | PRD 3.1.25 |
-| 2026-08-14 | 视频任务编辑页场景多素材与再次合成 | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从视频任务编辑页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
+| 2026-08-14 | 视频任务编辑页场景多素材与再次合成（初版，已由 2026-08-20 四视觉卡修订） | 初版每个场景 3 个素材身份（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；后续在附录 A 固化为 4 个视觉卡、3 个持久化身份；其余生成、选择和重合成流程沿用。 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 | 2026-08-15 | 视频提示词引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架 | **Batch B**：`prev_final_frame`（≤1000 字符，句末截断）链式承接上一镜计划终态；`HIGGSFIELD_FMT_V4` 缓存盐（key 含 prev_final_frame 哈希）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）；Story2Video 视频提示词按场景串行优化、媒体生成保持并发、计划终态回写 scene.video.final_frame、checkpoint 终态恢复链、断链显式 degraded。**Batch C**：refined 12 块导演骨架（SCENE NOTE…FINAL FRAME，值 ≤4000，白名单）；FAIL CHECK 仅指令不出现在输出；尾行清理只认完整 trailer 尾段；块覆盖度 ≥0.8（advisory -5）；7 条 lock-gated 规则默认启用 dead_center/exposure_break/eye_line，否定感知（not overexposed / no waxy skin 不判罚）。详见本节 3.1.27 | PRD 3.1.27 / openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output | | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
 | 2026-08-16 | 历史记录场景 AI 视频重新生成（W4 闭环） | 完成 3.1.29 的 W4 真缺口：结果页新增【生成 AI 视频】，以分段 videoPrompt（缺省回退 prompt/text）为提示词复用流水线 stages 契约（generateVideo→轮询→下载校验），成功替换分段 videoPath/videoMeta、失败保留旧视频回写 failed；IPC/权益/preload/api/locales/通知归一化全链路补齐；详见本节 3.1.29.1 | PRD 3.1.29.1 / openspec s2v-history-ai-video-regen |
 | 2026-08-15 | 历史记录场景内容编辑/重新生成与整片重合成 | 已完成任务每个场景可修改文案/字幕块/视频优化词/语音设置（updateSegments 白名单透传 + 限长收敛，voiceSpeed/Pitch 收敛 [0.1,10]），重新生成字幕（本地重切清空时间轴、重置失败态与来源标记）/旁白（TTS 失败回滚保留旧音频 + 回写 failed）/图片与视频优化词（image 重写 prompt 清翻译、video 写 videoPrompt），配合既有【生成新图】【生成视频】与【重新合成】完成整片重合成；voiceSpeed 收敛 [0.5,2]、voicePitch 收敛 [-12,12]（与流水线契约对齐）；同项目写串行队列防并发覆盖；compose 回显缺省时 videoPrompt 按原值回填；历史卡片新增【编辑】入口并进入视频任务编辑页；详见本节 3.1.29 | PRD 3.1.29 / openspec s2v-history-scene-edit-recompose |
@@ -1733,9 +1733,9 @@ SettingsDialog 关闭（App.vue @close）
 5. **i18n**：所有用户可见文案 zh/en 成对新增 `create.story2video.bgmLibrary.*` 与 `story2video.bgm_library_*`。
 6. **验收**：添加 → 列表 +1 且自动选中；重命名 → 列表刷新且退出编辑态；删除 → 列表 -1，删除选中项时 `bgmPath` 回退空；历史 BGM 路径不在库时保留为独立选项、入库后不再显示；服务层单测（16 例）+ 渲染端用例 + preload/IPC 测试全部通过。
 
-### 3.1.26 视频任务编辑页场景多素材选择与再次合成（2026-08-14）
+### 3.1.26 视频任务编辑页场景多素材选择与再次合成（2026-08-14；2026-08-20 布局与交互修订）
 
-**需求**：「视频创作-历史记录 → 视频任务编辑页」每个场景最多展示并支持 3 个可选素材槽：**图1 / 图2（备选图）/ 视频（备选素材）**；新增按钮【生成新图】【生成视频】（生成更多素材供选择）与【再次合成视频】（用当前选定素材 + 已有 TTS 旁白/字幕/背景音乐重新合成成片）；流水线完成后即可从视频任务编辑页继续生成、选择素材并重新合成。其余既有功能（分段编辑、替换旁白、重试、重新合成、导出等）保持不变。
+**需求**：「视频创作-历史记录 → 视频任务编辑页」每个场景固定展示 4 个视觉卡：**图1 / 图2（备选图）/ 视频1 / 视频2（两个视频显示位）**；底层仍只有 3 个持久化素材身份 `image1 | image2 | video`。新增按钮【生成新图】【生成 AI 视频】（生成更多素材供选择）与【再次合成视频】（用当前选定素材 + 已有 TTS 旁白/字幕/背景音乐重新合成成片）；流水线完成后即可从视频任务编辑页继续生成、预览、选择素材并重新合成。其余既有功能（分段编辑、替换旁白、重试、重新合成、导出等）保持不变。
 
 #### 1) 数据模型与槽位身份
 
@@ -1745,6 +1745,8 @@ SettingsDialog 关闭（App.vue @close）
 | 图2 | `segment.alternateImages[0].path` | 备选图；服务端强制 `length ≤ 1`（只存一张备选）；`meta` 与 `imageMeta` 同结构 |
 | 视频 | `segment.videoPath` | 备选/当前分段视频 |
 | 选中态 | `segment.selectedMaterial: 'image1' \| 'image2' \| 'video'` | 可选；缺失时按遗留语义：有 `videoPath` 视为 video，否则 image1（UI 展示与合成映射一致） |
+| 视频1视觉卡 | `videoMeta.sceneVideoPath`，缺失时兼容 `segment.videoPath` | canonical 视频显示位；`selectedMaterial='video'` 时只在此卡显示「当前使用」 |
+| 视频2视觉卡 | `videoMeta.altSceneVideoPath` | 可选 alternate 视频预览位，不新增持久化 kind，不重复显示选中徽标 |
 
 - 槽位身份固定，**不支持交换/删除**；「生成新图」按规则替换具体槽位（见功能逻辑）。
 - 兼容旧项目：无 `selectedMaterial` 的旧分段自动沿用遗留语义，`_scenesForCompose` 不剥离旧 `videoPath`（2026-08-14 测试回捕：实现曾误置空导致旧项目再次合成丢视频，已修复）。
@@ -1762,11 +1764,11 @@ SettingsDialog 关闭（App.vue @close）
 
 ```
 历史记录 → 点击任务 → 视频任务编辑页（ResultView）
-  ├─ 场景素材区：3 槽位卡片（图1/图2/视频），当前使用槽高亮 + 徽标
+  ├─ 场景素材区：4 个视觉卡片（图1/图2/视频1/视频2），当前使用槽高亮 + 徽标；video1/video2 仍映射到一个持久化 video 身份
   ├─ 【生成新图】→ 主进程 generateSceneImage → 按槽位规则替换 → 返回最新项目 → 刷新缩略图 → 成功通知
-  ├─ 【生成视频】→ 主进程 generateSceneVideo → 以当前选中图片渲染新分段视频 → 替换 videoPath → 成功通知
-  ├─ 点击有素材槽位 → selectSceneMaterial → 持久化选中态 → 刷新 → 成功通知
-  ├─ 点击缩略图 → 预览弹窗（图片大图 / 视频播放器）
+  ├─ 【生成 AI 视频】→ 主进程 generateSceneAiVideo → 按 videoPrompt 生成/校验/保存新分段视频 → 刷新 video1 → 成功通知
+  ├─ 点击 radio 或其 label → selectSceneMaterial → 持久化 image1/image2/video 选中态 → 刷新 → 成功通知
+  ├─ 点击有 URL 的缩略图 → 仅打开预览弹窗（图片大图 / 视频播放器），不调用选择 IPC
   └─ 【再次合成视频】→ 复用 story2video:recompose-project（recomposeProject）→ 按选中态映射场景 → 整片重合成
 ```
 
@@ -1782,18 +1784,19 @@ SettingsDialog 关闭（App.vue @close）
 
 #### 5) 交互逻辑
 
-- 槽位卡片为 `<button>`：有素材可点击选中（点击缩略图区域进入预览，`@click.stop` 隔离）；空槽可点但无操作；`aria-pressed` 标记选中态；`aria-label` 区分「选择{label}」/「{label}暂无素材」。
+- 每个视觉卡是独立 article；缩略图是独立 button type="button"，只负责预览。radio 位于缩略图下方、素材名称前，并通过稳定 id/name/value 与本地化 label、aria-label 关联。卡片本身没有选择 click handler，避免 ancestor label 的原生激活把预览误判为选择。
+- radio 是唯一的设为当前使用入口。空卡 radio disabled；路径存在但预览 URL 失效时缩略图 disabled，radio 是否可选仍按服务端路径合同和 slot selectable 判定；非法 kind 或空槽请求由 renderer 与 IPC/service 双层拒绝。
 - busy 防抖：任一生成/选择操作进行中，该分段所有素材操作禁用（`segmentBusy[segmentId]` 单例），按钮文案切换「生成中...」；`isSegmentBusy` 返回布尔（disabled），`segmentBusyKind` 返回类型标识（文案分支，2026-08-14 修复：原 Boolean 实现导致「生成中/重试中」文案永不显示）。
-- 【生成新图】【生成视频】失败：错误经 `resolveStory2VideoNotification` 归一化（SCENE_AUDIO_MISSING / SCENE_IMAGE_MISSING / SCENE_SLOT_EMPTY / OPERATION_FAILED）后弹窗提示，并刷新素材 URL。
+- 【生成新图】【生成 AI 视频】失败：错误经 resolveStory2VideoNotification 归一化后弹窗提示，并刷新素材 URL；失败保留旧素材和旧选中态。
 - 【再次合成视频】与【重新合成】并列：busy 共用 `recomposing`；`recomposeProject` 成功后刷新项目与素材 URL。
-- 预览弹窗：UiModal lg 尺寸；图片显示大图，视频显示 `<video controls autoplay>`；空素材显示占位文本。
+- 预览弹窗：UiModal xl 尺寸；图片显示大图，video1/video2 都显示 `<video controls autoplay>`；空素材保持固定 media frame，不打开弹窗。
 
 #### 6) 显示项
 
-- 场景素材区标题「场景素材」+ 提示「点击素材预览，点击缩略图查看大图」；
-- 槽位标签：备选图 1 / 备选图 2 / 备选视频（zh）/ Alternate Image 1 / Alternate Image 2 / Alternate Video（en）；
-- 空槽占位「暂无素材」；选中徽标「当前使用」；
-- 按钮：「生成新图」「生成视频」「生成中...」「再次合成视频」「合成中...」；
+- 场景素材区标题「场景素材」+ 提示「点击可放大预览」；
+- 槽位标签：图片 1 / 图片 2 / 视频 1 / 视频 2（zh）/ Image 1 / Image 2 / Video 1 / Video 2（en）；
+- 空槽占位「未生成」/「Not generated」，每个空 media frame 只显示一行本地化文案；选中徽标「当前使用」/「In Use」。
+- 卡内按钮：「生成新图」「生成 AI 视频」，分别只出现在 image1/video1 卡内；busy 时显示对应本地化生成中状态并禁用；底部保留「再次合成视频」「合成中...」。
 - 成功通知：新图片已生成 / 场景视频已生成 / 已切换使用素材；失败通知：见提示文字。
 
 #### 7) 提示文字（zh / en）
@@ -1819,7 +1822,7 @@ SettingsDialog 关闭（App.vue @close）
 
 - 服务层（story2video-project-service.test.js）：槽位规则 4 分支、生成失败回滚、select 校验（非法 kind/空槽）、`_scenesForCompose` 四态、saveRun manual 富化、备选图纳入引用清理、旧项目兼容；
 - preload.test.js：新方法通道转发 + 数量断言（92 / 282 / 80）；
-- ResultView.test.js：3 槽位渲染与选中态、点击选中调用 IPC、busy 态、再次合成调用 recompose、成功/失败通知归一化；
+- ResultView.test.js：4 个视觉卡固定顺序与选中态、thumbnail-only preview、radio-only selection、video kind 归一、按钮只渲染一次、busy 态、空框/URL 失效、再次合成调用 recompose、成功/失败通知归一化；
 - locale：zh/en 成对 + CI Gate 7（check-locale-sync）通过；渲染端无新增中文字面量。
 
 ### 3.1.28 历史记录状态标签、统一排序与只读详情（2026-08-15）
@@ -2132,6 +2135,44 @@ SettingsDialog 关闭（App.vue @close）
 - 历史快照兼容沿用 #887 规则：存量 run 保留原 `optimize.maxLength`（恢复/续跑沿用旧值），重新生成时按新默认透传。
 
 **状态**：已实现——历史重生成视频优化词（`regenerateScenePrompt` kind=video）显式携带视频域上限 `max_length`（`VIDEO_ENGINE_LIMITS.videoMaxLengthMax`）：8020 standalone builder 收敛 [200,40000]、8013 legacy builder 收敛 [50,2000]，共享 kernel 默认 500 与 legacy 执行器契约 [50,2000] 不放松；2026-08-16 上界由 20000 再放宽至 40000（openspec `s2v-video-maxlength-40000`，8020 引擎侧同步 le=40000）。渲染层「提示词最大长度」档位列为可选后续。
+
+### 附录 A：场景素材四卡布局与预览/选择交互修订（2026-08-20）
+
+本修订覆盖 3.1.26 中历史场景素材区的旧交互描述。产品展示层固定为四个视觉卡，服务端持久化层仍只保留三种素材身份，不新增数据库字段、IPC kind 或迁移。
+
+#### 数据模型与校验
+
+1. 每个 segment 必须按固定顺序生成 image1、image2、video1、video2 四个视觉 slot。image1 读取 imagePath；image2 读取 alternateImages 的第一项 path；video1 优先读取 videoMeta.sceneVideoPath，缺失时兼容读取 videoPath；video2 只读取 videoMeta.altSceneVideoPath。视频 radio 的 selectable 还必须满足 canonical videoPath 存在，以匹配主进程 video 持久化校验；仅有 videoMeta 的异常旧数据允许预览但不允许选择。
+2. selectedMaterial 只允许 image1、image2、video。空白、未知值、video1、video2 等非法值按未选择处理，不能根据第一个有素材的 slot 猜测当前使用。video1 和 video2 是 renderer 视觉别名，不是新的持久化枚举。
+3. 每个 slot 同时计算 path、resolved URL、selectable 和 selected。path 缺失时 radio 必须 disabled；path 存在但 URL 签发失败时保留固定空框，缩略图按钮 disabled，radio 是否可选仍由服务端 path 合同和 slot selectable 决定。
+4. alternateImages 不是数组、为空或首项没有合法 path 时，image2 作为空 slot；videoMeta 缺失时只允许 video1 按旧项目规则回退 videoPath，video2 不借用 video1 的路径或 URL。
+5. 服务端和 IPC 继续校验 projectId、segmentId、素材 kind 和目标槽位存在性。renderer 的 disabled/白名单是第一层防线，主进程 validation/service 是第二层防线；伪造请求不能改变项目选中态或素材路径。
+
+#### 流程与功能逻辑
+
+历史记录 -> 视频任务编辑页 -> 加载项目 -> 刷新每个场景的图片、备选图片、场景视频和 alternate 视频预览 URL -> 生成四个固定视觉卡。任何一个 URL 失败只清空对应 slot URL，其他 slot 和四卡几何不受影响。
+
+1. 点击有 path 且 URL 有效的缩略图，只调用 previewSceneMaterial，打开预览弹窗；不调用 select-scene-material，不改 selectedMaterial，不改 dirty 状态。卡片不得使用包裹缩略图和 radio 的 ancestor label，避免浏览器原生 label 激活把预览误判为选择。
+2. 点击 radio 或 radio 对应的素材名称 label，才调用 selectSceneMaterial。image1/image2 直接发送同名 kind；video1/video2 都归一发送 canonical video。选择成功后使用服务端返回的完整 project，刷新派生 URL 并显示当前使用徽标；失败保留原选中态并显示归一化提示。
+3. 当前使用徽标只在 image1、image2 或 canonical video1 显示。video2 可以预览和作为视频候选显示，但不重复伪造第二个 video 持久化身份或第二个当前使用徽标。
+4. 空 slot 的缩略图按钮不打开预览，空 slot radio 不调用 IPC。四个 slot 始终存在，不能因为没有图片或视频而折叠成三格或改变顺序。
+5. 生成新图是场景级操作，只在 image1 卡内显示一次，调用 generateSceneImage(segmentId)。生成 AI 视频是场景级操作，只在 video1 卡内显示一次，调用 generateSceneAiVideo(segmentId)。image2 和 video2 不重复显示同一操作按钮。
+6. 生成前检查 segmentBusy 和输入条件；AI 视频还必须要求 videoPrompt trim 后非空。若有未保存分段修改，先保存，保存失败不提交生成请求。同一场景同一时间最多一个生成/选择写操作，finally 必须清除 busy。
+7. 成功生成后用主进程返回的 path 更新项目，调用 refreshSegmentImageUrls 重新签发 URL，保留 selectedMaterial 语义并显示成功通知。失败时保留旧素材和旧选中态，清理本次 attemptFiles，只显示本地化且可操作的错误提示，不显示绝对路径、堆栈、provider JSON 或内部 prompt。
+
+#### 交互与显示合同
+
+- 卡片结构固定为 media frame -> radio + 素材名称 -> 当前使用徽标（如适用）-> 所属生成按钮（如适用）。radio 位于缩略图底部，并且在素材名称文字前。
+- 缩略图使用独立 button type=button，图片和视频分别使用 img 与 video；video1/video2 预览都必须渲染 video 元素并提供 controls/autoplay。
+- 预览弹窗使用 UiModal 的 xl 尺寸，媒体最大高度受 75vh 约束；弹窗只负责查看，不附带选择动作。
+- 每个 media frame 宽度为卡片内容区 100%，使用 aspect-ratio 3/4、min-height 96px 和统一背景色。图片、视频和空态共用相同几何，媒体内容使用 object-fit cover。
+- 宽屏使用四列等宽布局；视口不大于 720px 时使用两列。生成按钮允许文案换行，但不能撑破卡片、遮挡 radio、label 或媒体框。
+- 有素材时 radio 的可访问名称为“选择{label}作为当前素材”，缩略图的可访问名称为“放大预览{label}”；空态使用“{label}尚未生成”。所有文案必须在 zh/en locale 成对存在。
+- 空媒体框只显示一行本地化 emptySlot：中文“未生成”、英文“Not generated”。不得显示 Video 1、Video 2、video1、video2 或第二行未解释的英文 fallback。
+
+#### 回归与验收
+
+ResultView 测试必须覆盖四卡固定顺序、radio-only selection、thumbnail-only preview、video kind 归一、canonical video1 徽标、按钮不重复、busy/prompt guard、path/URL 失效、非法 selectedMaterial、旧字段缺省、空态英文泄漏、xl modal、图片/视频媒体类型和键盘可访问性。交付前还必须通过 zh/en locale 成对检查、CJK 硬编码扫描、Vue build、变更文件 ESLint、worktree dependency 解析和 git diff hygiene。
 
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 
@@ -3012,6 +3053,52 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 | 结果页回归 | 失败任务显示自然语言原因；空结果不误判内容政策；既有 7 个 baseline 失败保持原样记录 |
 | locale 门禁 | zh/en key 成对、插值变量均有值、无硬编码中文提示 |
 | 交付门禁 | git diff --check、pnpm run build:vue、依赖解析、OpenSpec validate、双模型/本地审查 |
+
+### 3.1.33 历史断点恢复使用当前设置模型（2026-08-19）
+
+需求：视频创作历史记录中，失败或中断的 Story2Video 任务点击【从断点继续】后，未完成的文字推理、图片、语音和视频调用使用当前“模型设置”中的能力模型；已完成且有效的本地资产继续复用。不新增模型选择操作。
+
+#### 功能逻辑
+
+1. 主进程读取旧 run snapshot 后，只对 Story2Video 在内存中增加内部恢复标记，不改变 version 1 快照结构。
+2. 恢复参数保留场景文案、提示词、scene index、输入图片/音频、画幅、视频模式与选择比例、voiceId、语速、音调和情绪。
+3. 顶层与阶段 options 中的旧 image/TTS/video provider 与 model 被清理；已完成的 video_plan 不再把旧视频路由当作未完成调用的显式配置。
+4. 运行到实际调用边界时，按能力读取当前默认 provider；多模态 provider 优先读取 capability_models.image/tts/video/llm，缺失时回退该 provider 的首个可用 model。
+5. 每个场景先检查 resume.completed 中按 index 保存的本地路径。图片、音频、视频路径有效时直接复用，不能因为原模型与当前模型不同而重生成。
+6. 未完成场景允许与旧资产混合完成；最终结果按 scene index 配对，不能按完成顺序拼接。
+
+#### 数据校验
+
+| 数据 | 校验规则 | 失败处理 |
+|---|---|---|
+| 恢复参数 | 非对象按空对象；只保存 JSON-safe 内容 | 沿用既有恢复错误合同 |
+| 已完成资产 | index 为非负整数；路径为受控可读本地文件 | 忽略无效条目，未完成场景重新生成 |
+| provider/model | 当前 provider 已启用且声明对应能力；model 取能力默认值 | 没有可用配置时沿用既有“请先配置模型”错误 |
+| voiceId | 保留原 ID，交由当前 provider/model 音色合同校验 | 不静默替换音色，不覆盖旧音频；沿用兼容错误或既有 re-clone |
+| video task | 当前快照没有持久化远程 taskId | 未知状态不记为完成，按阶段级重试/图片回退语义处理 |
+
+#### 资产与模型行为矩阵
+
+| 状态 | 图片 | 语音 | 视频 | 结果 |
+|---|---|---|---|---|
+| 已完成本地资产有效 | 复用旧文件 | 复用旧文件 | 复用旧文件和 continuity 元数据 | 不调用新 provider |
+| 场景未完成 | 当前 image provider/model | 当前 TTS provider/model + 原 voiceId | 当前 video provider/model | 允许新旧模型资产混合 |
+| 新 TTS 不支持旧音色 | 不影响图片 | fail-closed 或按现有合同 re-clone | 不影响视频路由 | 不生成错误音色/空音频 |
+| 远程视频提交未知 | 不适用 | 不适用 | 不伪造完成，不查询不存在的持久化 taskId | 继续现有阶段重试/回退 |
+
+#### 交互、显示项与提示文字
+
+- 历史页保留单一【从断点继续】按钮，不显示“使用旧模型/当前模型”选择器，不新增确认弹窗。
+- 复用资产仍显示原有场景素材；混合新旧资产不增加额外卡片或标签。
+- 当前模型路由属于主进程运行时行为，不改变现有历史状态标签。
+- 音色不兼容、模型未配置和视频失败沿用现有本地化错误/诊断面；远程未知状态不得显示为“已完成”。
+- 本迭代不新增用户可见 locale key；若后续需要显示“已复用/当前模型/远程状态未知”，必须先补 zh/en 成对文案、术语词典和渲染回归。
+
+#### 风险与限制
+
+- 新 TTS 可能拥有不同的音色集合、音色质量、语言覆盖和时长表现；保留 voiceId 能避免静默换音色，但可能导致该场景失败并需要用户处理。
+- 新旧图片/视频模型的风格、画幅细节和运动表现可能不同，混合成片是明确允许的产品行为，不保证全片视觉同质。
+- 远程视频 taskId 当前未持久化，不能保证“提交后进程中断”时避免远程重复任务；未来必须单独设计持久化与原绑定查询合同。
 
 
 

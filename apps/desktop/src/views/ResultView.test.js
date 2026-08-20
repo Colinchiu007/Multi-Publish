@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
+import zh from "@/locales/zh";
+import en from "@/locales/en";
 
 vi.mock("@/api/publisher", () => ({
   story2videoExportZip: vi.fn(),
@@ -44,13 +46,24 @@ import ResultView from "./ResultView.vue";
 describe("ResultView", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  async function createView() {
+  async function createView({ localizeSceneMaterial = false } = {}) {
     await router.push("/");
     const w = mount(ResultView, {
       global: {
         plugins: [router],
         components: { UiButton },
-        mocks: { $t: (key, params) => (params && params.label ? params.label : key) }
+        mocks: {
+          $t: (key, params) => {
+            if (localizeSceneMaterial && key.startsWith("story2video.sceneMaterial.")) {
+              const sceneKey = key.slice("story2video.sceneMaterial.".length);
+              const localized = zh.story2video.sceneMaterial[sceneKey];
+              if (typeof localized === "string") {
+                return localized.replace(/\{label\}/g, params?.label || "");
+              }
+            }
+            return params && params.label ? params.label : key;
+          }
+        }
       }
     });
     await nextTick();
@@ -900,7 +913,7 @@ describe("ResultView", () => {
     w.unmount();
   });
 
-  it("视频任务编辑页渲染每场景 4 个素材槽位（图1/图2/视频1/视频2）并展示选中态", async () => {
+  it("视频任务编辑页渲染固定 4 个视觉素材槽位并展示选中态", async () => {
     const w = await createView();
     w.vm.projectId = "p1";
     w.vm.segments = [{
@@ -908,6 +921,7 @@ describe("ResultView", () => {
       imagePath: "C:/img1.png",
       alternateImages: [{ path: "C:/img2.png" }],
       videoPath: "C:/v.mp4",
+      videoMeta: { sceneVideoPath: "C:/v.mp4", altSceneVideoPath: "C:/v2.mp4" },
       selectedMaterial: "image2",
       status: "completed",
     }];
@@ -915,15 +929,26 @@ describe("ResultView", () => {
     const section = w.find('[data-testid="scene-material-section"]');
     expect(section.exists()).toBe(true);
     const slots = section.findAll(".scene-material-slot");
-    expect(slots).toHaveLength(3);
-    expect(slots[0].attributes("aria-pressed")).toBe("false");
-    expect(slots[1].attributes("aria-pressed")).toBe("true");
-    expect(slots[2].attributes("aria-pressed")).toBe("false");
+    expect(slots).toHaveLength(4);
+    expect(slots.map(slot => slot.attributes("data-testid"))).toEqual([
+      "scene-material-slot-image1",
+      "scene-material-slot-image2",
+      "scene-material-slot-video1",
+      "scene-material-slot-video2",
+    ]);
+    expect(slots[0].find(".scene-material-radio").attributes("checked")).toBeUndefined();
+    expect(slots[1].find(".scene-material-radio").attributes("checked")).toBeDefined();
+    expect(slots[2].find(".scene-material-radio").attributes("checked")).toBeUndefined();
+    expect(slots[3].find(".scene-material-radio").attributes("checked")).toBeUndefined();
+    expect(slots[2].find(".scene-material-radio").attributes("disabled")).toBeUndefined();
+    expect(slots[3].find(".scene-material-radio").attributes("disabled")).toBeUndefined();
     expect(section.find(".scene-material-badge").exists()).toBe(true);
+    expect(slots[0].element.firstElementChild.tagName).toBe("BUTTON");
+    expect(slots[0].element.children[1].className).toContain("scene-material-choice");
     w.unmount();
   });
 
-  it("点击已填充素材槽调用 select IPC 并提示已选择", async () => {
+  it("点击缩略图只打开预览，不调用 select IPC；radio 才能选择", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoSelectSceneMaterial.mockResolvedValue({
       code: 0,
@@ -932,33 +957,139 @@ describe("ResultView", () => {
         segments: [{ id: "s1", imagePath: "C:/img1.png", videoPath: "C:/v.mp4", selectedMaterial: "video", status: "completed" }],
       },
     });
+    mocks.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "media://preview" } });
     const w = await createView();
     w.vm.projectId = "p1";
     w.vm.segments = [{
-      id: "s1", imagePath: "C:/img1.png", videoPath: "C:/v.mp4", videoMeta: { sceneVideoPath: "C:/v.mp4", altSceneVideoPath: "C:/v2.mp4" }, selectedMaterial: "image1", status: "completed",
+      id: "s1", imagePath: "C:/img1.png", imageUrl: "media://img1", videoPath: "C:/v.mp4", videoUrl: "media://video", videoMeta: { sceneVideoPath: "C:/v.mp4", altSceneVideoPath: "C:/v2.mp4" }, selectedMaterial: "image1", status: "completed",
     }];
     await nextTick();
     const section = w.find('[data-testid="scene-material-section"]');
-    await section.findAll(".scene-material-slot")[3].trigger("click");
+    await section.find('[data-testid="scene-material-slot-video1"] .scene-material-thumb').trigger("click");
+    expect(mocks.story2videoSelectSceneMaterial).not.toHaveBeenCalled();
+    expect(w.vm.sceneMaterialPreview.visible).toBe(true);
+    expect(w.vm.sceneMaterialPreview.kind).toBe("video1");
+    expect(w.findAllComponents({ name: "UiModal" }).find(modal => modal.props("title") === "story2video.sceneMaterial.previewVideoTitle").props("size")).toBe("xl");
+
+    await section.find('[data-testid="scene-material-slot-video1"] .scene-material-radio').setValue(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(mocks.story2videoSelectSceneMaterial).toHaveBeenCalledWith("p1", "s1", "video2");
-    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.material_selected");
+    expect(mocks.story2videoSelectSceneMaterial).toHaveBeenCalledWith("p1", "s1", "video");
     w.unmount();
   });
 
-  it("生成新图/生成视频按钮在 busy 时禁用并显示生成中文案", async () => {
+  it("持久化 video 只在 canonical video1 卡显示当前使用，video2 不重复徽标", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{
+      id: "s1",
+      videoPath: "C:/v1.mp4",
+      videoUrl: "media://v1",
+      videoMeta: { sceneVideoPath: "C:/v1.mp4", altSceneVideoPath: "C:/v2.mp4" },
+      altVideoUrl: "media://v2",
+      selectedMaterial: "video",
+      status: "completed",
+    }];
+    await nextTick();
+    const section = w.find('[data-testid="scene-material-section"]');
+    expect(section.find('[data-testid="scene-material-slot-video1"] .scene-material-radio').attributes("checked")).toBeDefined();
+    expect(section.find('[data-testid="scene-material-slot-video2"] .scene-material-radio').attributes("checked")).toBeUndefined();
+    expect(section.find('[data-testid="scene-material-slot-video1"] .scene-material-badge').exists()).toBe(true);
+    expect(section.find('[data-testid="scene-material-slot-video2"] .scene-material-badge').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("生成新图/生成 AI 视频按钮只出现在对应素材卡内，并在 busy 时禁用", async () => {
     const w = await createView();
     w.vm.projectId = "p1";
     w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
     await nextTick();
     const section = w.find('[data-testid="scene-material-section"]');
-    const buttons = section.findAll(".scene-material-actions button");
+    const buttons = section.findAll(".scene-material-slot-action button");
     expect(buttons).toHaveLength(2);
+    expect(section.find('[data-testid="scene-material-slot-image1"] [data-testid="generate-image-button"]').exists()).toBe(true);
+    expect(section.find('[data-testid="scene-material-slot-image2"] [data-testid="generate-image-button"]').exists()).toBe(false);
+    expect(section.find('[data-testid="scene-material-slot-video1"] [data-testid="generate-ai-video-button"]').exists()).toBe(true);
+    expect(section.find('[data-testid="scene-material-slot-video2"] [data-testid="generate-ai-video-button"]').exists()).toBe(false);
     w.vm.segmentBusy = { s1: "genImage" };
     await nextTick();
     expect(buttons[0].attributes("disabled")).toBeDefined();
     expect(buttons[1].attributes("disabled")).toBeDefined();
     expect(buttons[0].text()).toContain("story2video.sceneMaterial.generating");
+    w.unmount();
+  });
+
+  it("空素材保持四格背景与固定缩略图，并只显示本地化未生成文案", async () => {
+    const w = await createView({ localizeSceneMaterial: true });
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", status: "completed" }];
+    await nextTick();
+    const slots = w.findAll('[data-testid^="scene-material-slot-"]');
+    expect(slots).toHaveLength(4);
+    expect(slots.every(slot => slot.find(".scene-material-thumb").exists())).toBe(true);
+    expect(slots.every(slot => slot.find(".scene-material-thumb").attributes("disabled") !== undefined)).toBe(true);
+    expect(slots.every(slot => slot.find(".scene-material-empty-text").text() === zh.story2video.sceneMaterial.emptySlot)).toBe(true);
+    expect(slots.every(slot => slot.findAll(".scene-material-empty-text").length === 1)).toBe(true);
+    expect(slots.every(slot => slot.find(".scene-material-radio").attributes("disabled") !== undefined)).toBe(true);
+    expect(w.find('[data-testid="scene-material-slot-video1"]').text()).not.toContain("Video 1");
+    expect(w.find('[data-testid="scene-material-slot-video2"]').text()).not.toContain("Video 2");
+    await slots[2].find(".scene-material-thumb").trigger("click");
+    expect(w.vm.sceneMaterialPreview.visible).toBe(false);
+    w.unmount();
+  });
+
+  it("场景素材新增文案在 zh/en 成对存在且空态只有一条未生成文案", () => {
+    const zhMaterial = zh.story2video.sceneMaterial;
+    const enMaterial = en.story2video.sceneMaterial;
+    expect(zhMaterial.emptySlot).toBe("未生成");
+    expect(enMaterial.emptySlot).toBe("Not generated");
+    for (const key of ["video1Label", "video2Label", "previewAriaLabel"]) {
+      expect(zhMaterial[key]).toBeTruthy();
+      expect(enMaterial[key]).toBeTruthy();
+    }
+  });
+
+  it("素材路径存在但分享 URL 失效时保留固定空框且不打开预览", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
+    await nextTick();
+    const slot = w.find('[data-testid="scene-material-slot-image1"]');
+    expect(slot.classes()).toContain("empty");
+    expect(slot.find(".scene-material-thumb").attributes("disabled")).toBeDefined();
+    expect(slot.find(".scene-material-radio").attributes("disabled")).toBeUndefined();
+    await slot.find(".scene-material-thumb").trigger("click");
+    expect(w.vm.sceneMaterialPreview.visible).toBe(false);
+    w.unmount();
+  });
+
+  it("视频预览按 video1/video2 都渲染为 video 元素", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{
+      id: "s1", videoUrl: "media://v1", videoMeta: { sceneVideoPath: "C:/v1.mp4", altSceneVideoPath: "C:/v2.mp4" }, altVideoUrl: "media://v2", status: "completed",
+    }];
+    await nextTick();
+    w.vm.previewSceneMaterial(w.vm.sceneMaterialSlots(w.vm.segments[0])[3]);
+    await nextTick();
+    expect(w.vm.sceneMaterialPreview.kind).toBe("video2");
+    expect(document.body.querySelector(".scene-material-preview-body video")).not.toBeNull();
+    expect(document.body.querySelector(".scene-material-preview-body img")).toBeNull();
+    w.unmount();
+  });
+
+  it("只有 videoMeta 路径的异常旧数据可预览但不能伪造 video 选择", async () => {
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{
+      id: "s1", videoMeta: { sceneVideoPath: "C:/v1.mp4", altSceneVideoPath: "C:/v2.mp4" }, videoUrl: "media://v1", altVideoUrl: "media://v2", selectedMaterial: "video", status: "completed",
+    }];
+    await nextTick();
+    const section = w.find('[data-testid="scene-material-section"]');
+    expect(section.find('[data-testid="scene-material-slot-video1"] .scene-material-radio').attributes("disabled")).toBeDefined();
+    expect(section.find('[data-testid="scene-material-slot-video2"] .scene-material-radio').attributes("disabled")).toBeDefined();
+    expect(section.find('[data-testid="scene-material-slot-video1"] .scene-material-thumb').attributes("disabled")).toBeUndefined();
+    await section.find('[data-testid="scene-material-slot-video1"] .scene-material-thumb').trigger("click");
+    expect(w.vm.sceneMaterialPreview.visible).toBe(true);
     w.unmount();
   });
 
@@ -1035,6 +1166,16 @@ describe("ResultView", () => {
     expect(button.exists()).toBe(true);
     expect(button.attributes("disabled")).toBeDefined();
     expect(button.attributes("title")).toContain("aiVideoNeedsPromptHint");
+
+    w.vm.segments[0].videoPrompt = "   ";
+    await nextTick();
+    expect(w.find('[data-testid="generate-ai-video-button"]').attributes("disabled")).toBeDefined();
+
+    w.vm.segments[0].videoPrompt = { text: "VP" };
+    await nextTick();
+    expect(w.find('[data-testid="generate-ai-video-button"]').attributes("disabled")).toBeDefined();
+    await w.vm.generateSceneAiVideo("s1");
+    expect(mocks.story2videoGenerateSceneAiVideo).not.toHaveBeenCalled();
 
     w.vm.segments[0].videoPrompt = "VP";
     await nextTick();
@@ -1113,7 +1254,10 @@ describe("ResultView", () => {
 
   it("保存分段返回含 imagePath 分段后重建图片 URL（回归：保存后图片消失）", async () => {
     const api = await import("@/api/publisher");
-    api.story2videoCreateShareUrl.mockResolvedValue({ code: 0, data: { url: "file:///C:/img1.png" } });
+    api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({
+      code: 0,
+      data: { url: "file:///" + String(filePath).replace(/^[A-Za-z]:[\\/]/, "") },
+    }));
     api.story2videoUpdateSegments.mockResolvedValue({
       code: 0,
       data: { projectId: "project-1", dirty: true, segments: [{
@@ -1128,9 +1272,9 @@ describe("ResultView", () => {
     await nextTick();
     await w.vm.saveSegments();
     await nextTick();
-    expect(w.vm.segments[0].imageUrl).toBe("file:///C:/img1.png");
-    expect(w.vm.segments[0].alternateImageUrls).toEqual(["file:///C:/img1.png"]);
-    expect(w.vm.segments[0].videoUrl).toBe("file:///C:/img1.png");
+    expect(w.vm.segments[0].imageUrl).toBe("file:///img1.png");
+    expect(w.vm.segments[0].alternateImageUrls).toEqual(["file:///img2.png"]);
+    expect(w.vm.segments[0].videoUrl).toBe("file:///v1.mp4");
     w.unmount();
   });
 
