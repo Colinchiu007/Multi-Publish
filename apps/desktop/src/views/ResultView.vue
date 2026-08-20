@@ -959,10 +959,10 @@ export default {
       return [
         { kind: 'image1', label: t('image1Label'), path: image1Path, url: image1Path ? (segment.imageUrl || null) : null, selectable: Boolean(image1Path), selected: selected === 'image1' && Boolean(image1Path) },
         { kind: 'image2', label: t('image2Label'), path: image2Path, url: image2Path ? ((Array.isArray(segment.alternateImageUrls) && segment.alternateImageUrls[0]) || null) : null, selectable: Boolean(image2Path), selected: selected === 'image2' && Boolean(image2Path) },
-        { kind: 'video1', label: t('video1Label'), path: sceneVideoPath, url: sceneVideoPath ? (segment.videoUrl || null) : null, selectable: Boolean(sceneVideoPath), selected: videoSelected && Boolean(sceneVideoPath) },
+        { kind: 'video1', label: t('video1Label'), path: sceneVideoPath, url: sceneVideoPath ? (segment.videoUrl || null) : null, selectable: Boolean(segment.videoPath && sceneVideoPath), selected: videoSelected && Boolean(segment.videoPath && sceneVideoPath) },
         // The service persists one canonical video identity. video2 is a visual alias
         // for an optional alternate display path and must not duplicate the badge.
-        { kind: 'video2', label: t('video2Label'), path: altSceneVideoPath, url: altSceneVideoPath ? (segment.altVideoUrl || null) : null, selectable: Boolean(altSceneVideoPath), selected: false },
+        { kind: 'video2', label: t('video2Label'), path: altSceneVideoPath, url: altSceneVideoPath ? (segment.altVideoUrl || null) : null, selectable: Boolean(segment.videoPath && altSceneVideoPath), selected: false },
       ]
     },
     previewSceneMaterial(slot) {
