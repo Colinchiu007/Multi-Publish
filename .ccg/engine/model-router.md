@@ -70,17 +70,15 @@ Read ~/.claude/.ccg/config.toml
 
 ### 实施阶段
 
-**默认模式（Builder 模式为主）**：当 `backend.primary` ≠ `claude` 时，实施阶段默认由后端模型全权写代码（最大化外部模型写代码、降低 Claude token 消耗）：
+**默认模式**（Claude 执行）：
+- 外部模型仅提供建议，Claude 执行所有文件修改
+
+**Builder 模式**（用户选择时，backend 模型全权写代码）：
 - backend 模型 + `$BACKEND/builder.md` — **有完整写权限**，直接写代码到文件系统
 - 支持任意已配置的 backend 模型（`codex` / `grok` / `kimi` / `opencode` / `antigravity`），Claude token 消耗极低
+- backend 为 `claude` 时改用 Agent Teams（见第 1b 节）
 - Claude 监控进度，审查产出，必要时接管
 - 适用于 M-L 复杂度、低中风险的明确实施任务
-
-**纯 CC 降级（`backend.primary` = `claude`）**：不调用 wrapper、不改写文件，改用 Agent Teams 子代理（见第 1b 节）。
-
-**例外（仍由 Claude 执行）**：高风险的发布 / 凭据 / 权限类变更、或用户明确要求时，回退到 Claude 默认执行，外部模型仅提供建议。
-
-> 语义变更：旧约定为「用户选择时才启用 Builder」；本项目改为「默认启用 Builder」，除非命中纯 CC 降级或上述例外。
 
 ## 3. 调用模板
 
