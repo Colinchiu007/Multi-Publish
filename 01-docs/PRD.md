@@ -4744,6 +4744,11 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 #### Story2Video 历史断点恢复模型合同（2026-08-19）
 
 历史记录【从断点继续】保持一键交互，不增加模型选择器。恢复时文字推理、图片、TTS 和视频的未完成调用在运行时读取当前模型设置；已完成且有效的本地图片、音频、视频资产按 scene index 复用。恢复只替换 provider/model 路由，保留场景内容、提示词、画幅、视频选择参数、voiceId、语速、音调和情绪。新旧模型资产允许混合，不能因模型不同覆盖既有成功文件。当前 TTS 不兼容旧 voiceId 时必须 fail-closed 或走既有 re-clone 合同，不能静默换音色；远程视频 taskId 未持久化时，未知提交状态不得显示为完成。详细的数据校验、流程、风险和显示语义见 ARCH-STORY2VIDEO-RESUME-CURRENT-MODELS-2026-08-19.md 与 PRD-video-creation.md §3.1.33。
+
+#### Story2Video 完成历史删除身份路由合同（2026-08-20）
+
+视频创作历史列表删除必须先依据当前项目索引确认项目归属，再决定删除目标：只有运行 ID 与当前用户项目索引明确匹配的记录才允许调用项目删除；流水线运行记录携带的 projectId 仅作为历史快照字段，不能反向证明项目归属。运行 ID 与项目 ID 失配、项目索引中不存在对应项目或记录为纯流水线运行时，必须调用运行记录删除并保留准确的失败提示。删除失败或登录门拒绝时不得从列表乐观移除记录；成功后才更新历史列表。验收必须覆盖已完成项目、陈旧 projectId、ID 冲突、删除失败和 IPC 异常路径，避免把运行删除错误路由为项目删除。
+
 #### PromptEngine BYOK 桌面调用契约（2026-08-16）
 
 - 桌面调用 8013 提示词引擎时，由 `PromptBridge` 统一注入本机「模型设置」默认 LLM 的绑定（provider/model/base_url/api_key，主进程解密）与 `caller=multi-publish-desktop`；引擎不再使用服务端 config.yaml / OpsCenter key 兜底。
