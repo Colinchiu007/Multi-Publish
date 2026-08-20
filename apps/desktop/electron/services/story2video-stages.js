@@ -1757,6 +1757,17 @@ function isPromptEngineTooShortRejection (message) {
 }
 
 /**
+ * 识别「LLM 只返回空/纯推理」错误（如 DeepSeek 只输出 思考 块，剥离后无可用优化词）。
+ * prompt-engine 会返回「空内容或仅包含推理内容，未生成有效优化词」；与 Too short 一样
+ * 应回退原文继续，避免单个场景拖垮整条流水线。
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isPromptEngineEmptyReasoningError (message) {
+  return /空内容|仅包含推理内容|未生成有效优化词|empty\s+content|only\s+(reasoning|thinking|thought)/i.test(String(message || ''))
+}
+
+/**
  * 净化 LLM 返回的优化提示词：剥离 <think>...</think> 思考块（带推理能力的模型
  * 可能把思考过程直接放进 content），避免思考内容被当作图片提示词。
  * @param {string|null} content
@@ -2223,6 +2234,25 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!validated.ok) {
             // prompt-engine 校验拒绝（如 Too short）：输入过短无法优化 → 回退原文并继续，
             // 不因「81」这类单词数字输入让整条流水线失败（方案B 2026-08-09 配套）。
+            if (isPromptEngineEmptyReasoningError(validated.error)) {
+              const emptyReasoningEntry = {
+                optimized_prompt: promptSeed,
+                providerId: null,
+                model: null,
+                skipped_optimize: true,
+                optimize_note: 'prompt_engine_empty_reasoning_use_original',
+              };
+              partialResume[index] = emptyReasoningEntry;
+              if (context && typeof context === 'object') {
+                context.optimize_resume = partialResume;
+                context.optimize_progress = {
+                  done: partialResume.filter(Boolean).length,
+                  total: scenes.length,
+                };
+              }
+              emitOptimizeProgress('stageProgress.optimizeScene')
+              return emptyReasoningEntry;
+            }
             if (isPromptEngineTooShortRejection(validated.error)) {
               const tooShortEntry = {
                 optimized_prompt: promptSeed,
@@ -3501,6 +3531,7 @@ module.exports = {
   resolveInputAudio,
   hasMeaningfulText,
   isPromptEngineTooShortRejection,
+  isPromptEngineEmptyReasoningError,
   // 视频+图片轮播混合模式辅助（供测试）
   VIDEO_MODES,
   resolveVideoGeneratorConfig,
