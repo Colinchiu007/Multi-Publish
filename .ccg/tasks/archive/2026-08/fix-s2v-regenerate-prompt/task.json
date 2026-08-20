@@ -6,12 +6,20 @@
   "risk": "medium",
   "domain": "backend",
   "currentPhase": "completed",
-  "nextAction": "等待创建 PR 并完成远程合并；remoteStatus=pushed_no_pr",
+  "nextAction": "等待 PR #1047 审查与合并；remoteStatus=pr_open",
   "createdAt": "2026-08-19T22:20:00+08:00",
   "branch": "codex/fix-s2v-regenerate-prompt",
   "worktree": "D:/Data/projects/mp-worktrees/mp-fix-s2v-regenerate-prompt",
   "openspecChange": "s2v-history-regenerate-prompt-runtime-contract",
-  "remoteStatus": "pushed_no_pr",
+  "remoteStatus": "pr_open",
+  "pullRequest": {
+    "number": 1047,
+    "url": "https://github.com/Colinchiu007/Multi-Publish/pull/1047",
+    "state": "OPEN",
+    "base": "main",
+    "head": "codex/fix-s2v-regenerate-prompt",
+    "mergeStateStatus": "DIRTY"
+  },
   "validation": {
     "openspec": "openspec validate s2v-history-regenerate-prompt-runtime-contract --strict passed",
     "focusedElectronTests": "322 passed",
