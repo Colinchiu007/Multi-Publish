@@ -64,7 +64,7 @@ function canonicalPath (candidate) {
   const suffix = []
   while (true) {
     try {
-      return path.join(fs.realpathSync(cursor), ...suffix.reverse())
+      return path.join(fs.realpathSync.native(cursor), ...suffix.reverse())
     } catch {
       const parent = path.dirname(cursor)
       if (parent === cursor) return resolved
@@ -108,7 +108,7 @@ function resolveReadableFile (candidate, options = {}) {
   try {
     const linkStat = fs.lstatSync(absolute)
     if (!linkStat.isFile() || linkStat.isSymbolicLink()) return null
-    const realPath = fs.realpathSync(absolute)
+    const realPath = fs.realpathSync.native(absolute)
     if (!isPathWithin(realPath, roots)) return null
     const stat = fs.statSync(realPath)
     const maxBytes = Number.isFinite(Number(options.maxBytes))
@@ -199,7 +199,7 @@ function importUserSelectedMedia (candidate, kind, options = {}) {
   try {
     const linkStat = fs.lstatSync(localPath)
     if (!linkStat.isFile() || linkStat.isSymbolicLink()) throw new Error('媒体文件类型无效')
-    source = fs.realpathSync(localPath)
+    source = fs.realpathSync.native(localPath)
     const stat = fs.statSync(source)
     if (!stat.isFile() || stat.size <= 0 || stat.size > rule.maxBytes) throw new Error('媒体文件超过大小上限')
   } catch (error) {
