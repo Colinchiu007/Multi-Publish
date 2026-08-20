@@ -361,8 +361,8 @@ async function exerciseCreate(r) {
   const firstPipelineId = await r.page.locator('.pipeline-card').first().getAttribute('data-pipeline-id').catch(() => null);
   record(r, '故事讲述流水线优先显示', firstPipelineId === CAROUSEL_PIPELINE && await pipelineCard.first().innerText().then(text => /故事讲述|story telling/i.test(text)));
   const cardCount = await r.page.locator('.pipeline-card').count();
-  // 15 个内置流水线卡片（视频克隆入口卡于 PR #626 加入后同步；改动 CreateView 流水线卡片需同步此计数）
-  record(r, '全部内置流水线卡片渲染', cardCount === 15, { count: cardCount });
+  // 16 个内置流水线卡片（14 条来自 pipelineList + CreateView 额外插入 video-clone 与 film-engineering；改动 CreateView 流水线卡片需同步此计数）
+  record(r, '全部内置流水线卡片渲染', cardCount === 16, { count: cardCount });
 
   // 图片轮播（本次排除项）：仅保留既有启动路径回归
   if (await pipelineCard.count()) {
