@@ -78,12 +78,20 @@
             </span>
           </div>
 
-          <div v-if="firstSegmentPreview(item)" class="history-item-row history-prompt-preview">
-            <span class="history-field-label">{{ tr('promptPreview') }}</span>
-            <span class="prompt-preview-text">{{ truncate(firstSegmentPreview(item), 120) }}</span>
-            <div v-if="currentLocale() !== 'en' && firstSegmentTranslation(item)" class="prompt-translation-readonly">
-              <span class="translation-label">{{ tr('translation') }}</span>
-              <span class="translation-text">{{ truncate(firstSegmentTranslation(item), 140) }}</span>
+          <div class="history-card-main">
+            <div class="history-thumbnail" :class="{ 'is-empty': !item.thumbnailUrl }" data-testid="history-thumbnail">
+              <img v-if="item.thumbnailUrl" :src="item.thumbnailUrl" :alt="historyTitle(item)" @error="onThumbnailError(item)" />
+              <span v-else>{{ tr('notGenerated') }}</span>
+            </div>
+            <div class="history-card-copy">
+              <div class="history-item-row history-prompt-preview">
+                <span class="history-field-label">{{ tr('contentPreview') }}</span>
+                <span class="prompt-preview-text">{{ truncate(taskContent(item), 120) || tr('notGenerated') }}</span>
+              </div>
+              <div v-if="currentLocale() !== 'en' && firstSegmentTranslation(item)" class="prompt-translation-readonly">
+                <span class="translation-label">{{ tr('translation') }}</span>
+                <span class="translation-text">{{ truncate(firstSegmentTranslation(item), 140) }}</span>
+              </div>
             </div>
           </div>
 
@@ -127,6 +135,9 @@
             </div>
             <div v-if="historyDuration(item) !== null" class="history-meta-item">
               <dt>{{ tr('duration') }}</dt><dd>{{ formatDuration(historyDuration(item)) }}</dd>
+            </div>
+            <div class="history-meta-item">
+              <dt>{{ tr('videoDuration') }}</dt><dd>{{ videoDurationText(item) }}</dd>
             </div>
             <div v-if="item.mode" class="history-meta-item">
               <dt>{{ tr('mode') }}</dt><dd>{{ localizedMode(item) }}</dd>
@@ -175,7 +186,7 @@
                 @click.stop="$emit('open-result', item)"
               >{{ tr('policyEditAndRegenerate') }}</button>
               <button
-                v-if="item.status === 'completed' && item.projectId"
+                v-if="detailEditable(item)"
                 type="button"
                 class="s2v-btn-secondary s2v-btn-sm"
                 data-testid="history-edit-recompose-button"
@@ -303,16 +314,19 @@ export default {
     // 任务标题回退链：发布标题（project.title / params.title）→ 原文案前 60 字 → 流水线名
     historyTitle (item) {
       if (!item) return this.tr('untitled')
-      if (item.title) return item.title
+      if (typeof item.title === 'string' && item.title.trim()) return item.title.trim()
       const paramsTitle = item.params && (item.params.title || item.params.publishTitle)
-      if (paramsTitle) return paramsTitle
-      const firstText = (Array.isArray(item.segments) ? item.segments : []).find(segment => segment && segment.text)?.text
-      if (firstText) return this.truncate(firstText, 60)
+      if (typeof paramsTitle === 'string' && paramsTitle.trim()) return paramsTitle.trim()
+      const content = this.taskContent(item)
+      if (content) return this.truncate(content, 60)
       return this.pipelineName(item.pipeline || item.name) || this.tr('untitled')
     },
-    // 详情统一进入视频任务编辑页：非 cancelled 且有 projectId 的卡片可点击。
+    // 已启动且非运行中的项目进入视频任务编辑页；running 只保留流水线控制入口。
     historyItemOpenable (item) {
-      return Boolean(item && item.status !== 'cancelled' && item.projectId)
+      return this.detailEditable(item)
+    },
+    detailEditable (item) {
+      return Boolean(item && item.projectId && item.startedPipeline !== false && item.status !== 'running')
     },
     openDetail (item) {
       if (!this.historyItemOpenable(item)) return
@@ -321,12 +335,26 @@ export default {
     firstSegmentPreview (item) {
       return (Array.isArray(item?.segments) ? item.segments : []).find(segment => segment?.text)?.text || ''
     },
+    taskContent (item) {
+      if (!item) return ''
+      if (typeof item.sourceText === 'string' && item.sourceText.trim()) return item.sourceText
+      if (typeof item.text === 'string' && item.text.trim()) return item.text
+      return (Array.isArray(item.segments) ? item.segments : [])
+        .map(segment => typeof segment?.text === 'string' ? segment.text.trim() : '')
+        .filter(Boolean)
+        .join(' ')
+    },
     firstSegmentTranslation (item) {
       return (Array.isArray(item?.segments) ? item.segments : []).find(segment => segment?.promptTranslation)?.promptTranslation || ''
     },
     truncate (value, max) {
       const text = String(value || '')
       return text.length > max ? text.slice(0, max - 1) + '…' : text
+    },
+    onThumbnailError (item) {
+      if (!item || typeof item !== 'object') return
+      item.thumbnailUrl = null
+      item.thumbnailStatus = 'failed'
     },
     pipelineName (id) { return getPipelineName(key => this.$t?.(key), id) },
     localizedMode (item) {
@@ -340,6 +368,35 @@ export default {
     historyDuration (item) {
       const value = item?.activeMs ?? item?.duration
       return Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null
+    },
+    videoDuration (item) {
+      // duration is pipeline execution time for history runs; only explicit
+      // media-duration fields are eligible for the video duration row.
+      const candidates = [
+        item?.videoDuration,
+        item?.video_duration,
+        item?.video?.duration,
+        item?.composeDuration,
+        item?.durationSeconds,
+      ]
+      for (const candidate of candidates) {
+        if (candidate === null || candidate === undefined || candidate === '') continue
+        const value = Number(candidate)
+        if (Number.isFinite(value) && value >= 0) return value
+      }
+      return null
+    },
+    videoDurationText (item) {
+      const value = this.videoDuration(item)
+      return value === null ? this.tr('notGenerated') : this.formatSeconds(value)
+    },
+    formatSeconds (seconds) {
+      const value = Number(seconds)
+      if (!Number.isFinite(value) || value < 0) return this.tr('notGenerated')
+      const totalSeconds = Math.round(value)
+      const minutes = Math.floor(totalSeconds / 60)
+      const remainder = totalSeconds % 60
+      return minutes > 0 ? minutes + ' ' + this.tr('minutes') + ' ' + remainder + ' ' + this.tr('seconds') : remainder + ' ' + this.tr('seconds')
     },
     formatTime (value) {
       const date = new Date(value)

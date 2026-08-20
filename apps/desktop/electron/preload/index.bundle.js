@@ -155,6 +155,7 @@ var require_publish = __commonJS({
         story2videoSaveAs: (filePath, suggestedName) => ipcRenderer2.invoke("story2video:save-as", { filePath, suggestedName }),
         story2videoListProjects: () => ipcRenderer2.invoke("story2video:list-projects"),
         story2videoGetProject: (projectId) => ipcRenderer2.invoke("story2video:get-project", projectId),
+        story2videoGetThumbnail: (projectId) => ipcRenderer2.invoke("story2video:get-thumbnail", projectId),
         story2videoDeleteProject: (projectId) => ipcRenderer2.invoke("story2video:delete-project", projectId),
         story2videoUpdateSegments: (projectId, segments) => ipcRenderer2.invoke("story2video:update-segments", { projectId, segments }),
         story2videoReplaceSegmentAudio: (projectId, segmentId, filePath) => ipcRenderer2.invoke("story2video:replace-segment-audio", { projectId, segmentId, filePath }),
@@ -990,6 +991,10 @@ var require_access_control = __commonJS({
       // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：
       // File 路径经 webUtils 解析后仅发送路径给主进程做受控复制，纯设备本地操作。
       "story2videoImportMedia",
+      // Story2Video 本地历史读取与缩略图查询：项目数据按 owner 隔离，未登录也可查看本机历史。
+      "story2videoListProjects",
+      "story2videoGetProject",
+      "story2videoGetThumbnail",
       // BGM 素材库（与主进程 PUBLIC_CHANNELS 的 story2video:bgm-library-* 对齐）：
       // 设备级本地素材库管理（列表/添加/改名/删除），未登录可用。
       "story2videoBgmLibraryList",

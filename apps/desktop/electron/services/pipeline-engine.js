@@ -927,6 +927,7 @@ class PipelineEngine {
 
     run.status = 'paused';
     stage.status = 'paused';
+    this._syncStory2VideoProjectStatus(run);
     return { success: true };
   }
 
@@ -942,6 +943,7 @@ class PipelineEngine {
 
     run.status = 'running';
     stage.status = 'running';
+    this._syncStory2VideoProjectStatus(run);
     return { success: true };
   }
 
@@ -1474,6 +1476,7 @@ class PipelineEngine {
       activeMs: Number.isFinite(Number(snapshot.activeMs)) ? Number(snapshot.activeMs) : 0,
       _activeSegmentStartedAt: null,
       orchestrationMode: 'orchestrator',
+      projectId: snapshot.projectId || runId,
       context: JSON.parse(JSON.stringify(snapshot.context || {})),
       stageResults: [],
       resumedFrom: runId,
@@ -1482,6 +1485,7 @@ class PipelineEngine {
     this._runs.set(restored.id, restored);
     this._runs.set('_' + restored.pipeline, restored);
     this._currentPipeline = restored.pipeline;
+    this._syncStory2VideoProjectStatus(restored);
     if (this.runStateStore) {
       try { this.runStateStore.remove(runId); } catch (_) { /* 快照清理失败不影响恢复 */ }
     }
@@ -1543,6 +1547,7 @@ class PipelineEngine {
       activeMs: Number.isFinite(Number(snapshot.activeMs)) ? Number(snapshot.activeMs) : 0,
       _activeSegmentStartedAt: null,
       orchestrationMode: 'orchestrator',
+      projectId: snapshot.projectId || runId,
       context: JSON.parse(JSON.stringify(snapshot.context || {})),
       stageResults: [],
       resumedFrom: runId,
@@ -1551,6 +1556,7 @@ class PipelineEngine {
     this._runs.set(restored.id, restored);
     this._runs.set('_' + restored.pipeline, restored);
     this._currentPipeline = restored.pipeline;
+    this._syncStory2VideoProjectStatus(restored);
     return { success: true, runId: restored.id, paused: true };
   }
 
@@ -1583,6 +1589,7 @@ class PipelineEngine {
       run.checkpoint = checkpoint;
       run.status = 'paused';
       if (stage) stage.status = 'paused';
+      this._syncStory2VideoProjectStatus(run);
       this._emit('checkpoint:pause', {
         runId,
         stageName: stage?.name,
@@ -1639,6 +1646,7 @@ class PipelineEngine {
       }
       run.status = 'running';
       if (run.stages[run.currentStage]) run.stages[run.currentStage].status = 'running';
+      this._syncStory2VideoProjectStatus(run);
     }
     return this._autoAdvanceRun(runId);
   }
@@ -2313,6 +2321,7 @@ class PipelineEngine {
         run.checkpoint = checkpoint;
         run.status = 'paused';
         stage.status = 'paused';
+        this._syncStory2VideoProjectStatus(run);
         // Backlot 事件：检查点暂停
         this._emit('checkpoint:pause', { runId, stageName: stage.name, checkpointType: execResult.checkpoint });
         // 分镜素材自选检查点：持久化 paused 快照（含 checkpoint），应用重启后仍可回到选择面板

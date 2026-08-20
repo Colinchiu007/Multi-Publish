@@ -173,6 +173,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     story2videoSaveAs: (filePath, suggestedName) => ipcRenderer.invoke('story2video:save-as', { filePath, suggestedName }),
     story2videoListProjects: () => ipcRenderer.invoke('story2video:list-projects'),
     story2videoGetProject: (projectId) => ipcRenderer.invoke('story2video:get-project', projectId),
+    story2videoGetThumbnail: (projectId) => ipcRenderer.invoke('story2video:get-thumbnail', projectId),
     story2videoDeleteProject: (projectId) => ipcRenderer.invoke('story2video:delete-project', projectId),
     story2videoUpdateSegments: (projectId, segments) => ipcRenderer.invoke('story2video:update-segments', { projectId, segments }),
     story2videoReplaceSegmentAudio: (projectId, segmentId, filePath) => ipcRenderer.invoke('story2video:replace-segment-audio', { projectId, segmentId, filePath }),
