@@ -1,3 +1,11 @@
+## [2026-08-20] fix(story2video): 历史状态语义修订 —— 新增「已中断」状态，修复状态归类与卡片显示
+
+- 现象：任务执行失败却同时出现在「已暂停」与「执行失败」两个标签；「已暂停」「执行失败」「已取消」标签下卡片标题显示流水线名词（如「故事视频合成」）、文案预览显示「未生成」。
+- 根因：① 3.1.11/3.1.14/3.1.19 把持久化 running 快照与 stale-running（>30 分钟无更新）归一化为 paused，「已暂停」语义被污染为「非运行中」而非「用户手动暂停」；② 失败早于 saveEditableRun 草稿创建时，run-only 记录无 project 可匹配，标题/文案回退为流水线名与「未生成」。
+- 修复：新增「已中断（interrupted）」状态——saveRunning 残留快照与 stale-running 归入「已中断」，「已暂停」仅保留用户手动暂停与 scene_asset_selection 检查点；run-only 记录用快照 params 回填标题与原文案；筛选器 7 标签、↯ 图标、紫色系色条/徽章、中断环节提示；zh/en locale 成对 4 键（tabs.interrupted/statuses.interrupted/interruptedStage/interruptedHint）。
+- 数据：run-state-store 快照增量附加 projectId（version 保持 1）；HISTORY_STATUSES 加 interrupted + counts；恢复链不变（磁盘快照 status 仍为 running）。
+- 回归：pipeline-engine / CreateView / CreateViewHistory / usePipelineHistory 定向 302 例 + 全量测试通过；CJK 基线无新增硬编码；QM-1 打包验证通过。
+
 ## [2026-08-19] fix(story2video): 历史断点恢复使用当前设置模型
 
 - 历史记录任务继续执行时，未完成的文字推理、图片、语音和视频调用改用当前模型设置；已完成的本地资产继续复用。
