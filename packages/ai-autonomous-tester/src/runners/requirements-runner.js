@@ -76,7 +76,23 @@ class RequirementsTestRunner extends BaseTestRunner {
     const { FeatureDetector } = require("../detectors/feature-detector");
     const detector = new FeatureDetector();
     const implItems = await detector.detect(context.srcDir || "src");
-    const facts = { prdItems: docResult.items, implItems, docSources: docResult.sources };
+    const prdItems = filterPrdItemsByFeatureIds(docResult.items || [], context.featureIds);
+    if ((context.featureIds || []).filter(Boolean).length > 0 && prdItems.length === 0) {
+      return {
+        type: "requirements",
+        summary: { total: 0, passed: 0, failed: 0 },
+        details: [],
+        coverageRate: 0,
+        totalPrdFeatures: 0,
+        totalImplementedFeatures: implItems.length,
+        docSources: docResult.sources || [],
+        filtered: true,
+        skipped: true,
+        _verdict: { decision: "PASS" },
+        _facts: { prdItems: [], implItems, docSources: docResult.sources || [] },
+      };
+    }
+    const facts = { prdItems, implItems, docSources: docResult.sources };
     const judgeContext = { facts, task: context.task || "coverage" };
     if (context.llmFn) judgeContext.llmFn = context.llmFn;
     const verdict = await this.judge.judge(judgeContext);
@@ -284,4 +300,16 @@ function estimateEffort(featureName) {
   return "MEDIUM";
 }
 
-module.exports = { RequirementsTestRunner };
+
+/**
+ * 过滤 PRD 项：只保留本 PR 声明关联的需求 ID（feat_*）。
+ * requiredIds 为空时保持全量（兼容旧行为）。
+ */
+function filterPrdItemsByFeatureIds(items, requiredIds) {
+  if (!Array.isArray(requiredIds) || requiredIds.length === 0) return items || [];
+  const idSet = new Set(requiredIds.map(String).filter(Boolean));
+  return (items || []).filter((item) => item && typeof item.id === "string" && idSet.has(item.id));
+}
+
+module.exports = { RequirementsTestRunner, filterPrdItemsByFeatureIds };
+

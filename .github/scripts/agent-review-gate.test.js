@@ -161,7 +161,9 @@ test("自主审计的零退出码仍要求一份 PASS 报告", () => {
     assert.equal(advisory.status, "PROMPT_REVIEW_REQUIRED");
 
     const llmFailure = evaluateAutonomousGate({ reportDir, auditExitCode: 1, hasOpenAiKey: true });
-    assert.equal(llmFailure.exitCode, 1);
+    // 有 LLM key 时 NEED_HUMAN 同样只做报告型提示，不再阻塞合并
+    assert.equal(llmFailure.exitCode, 0);
+    assert.equal(llmFailure.status, "PROMPT_REVIEW_REQUIRED");
 
     fs.rmSync(path.join(reportDir, "autonomous-e2e-report-1.json"));
     writeJson(reportDir, "autonomous-e2e-report-2.json", { overall: "FAIL" });

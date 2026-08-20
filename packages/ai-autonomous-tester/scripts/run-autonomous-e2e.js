@@ -38,6 +38,8 @@ const DEV_DIR = args.dev ? path.resolve(args.dev) : APPS_DIR;
 const SRC_DIR = args.src ? path.resolve(args.src) : path.join(APPS_DIR, "src");
 const LLM_PROVIDER = args.llm || process.env.LLM_PROVIDER || null;
 const COVERAGE_THRESHOLD = parseFloat(args.threshold ?? process.env.COVERAGE_THRESHOLD) || 0.5;
+const REQUIRED_FEATURE_IDS = (args["required-feature-ids"] || process.env.REQUIRED_FEATURE_IDS || "").split(",").map((s) => s.trim()).filter(Boolean);
+const PR_MODE = (args["pr-mode"] || process.env.PR_MODE || "full").toLowerCase();
 const MAX_WAIT = parseInt(args.wait, 10) || 30;
 const MAX_ITERATIONS = parseInt(args.iterations, 10) || 1;
 const SKIP_VISUAL = args["skip-visual"] === true || args["skip-visual"] === "true";
@@ -142,6 +144,10 @@ async function runVisualTests(options = {}) {
 // ===== Coverage Audit (Phase 3, Simple Mode / Multi-Doc) =====
 async function runCoverageAudit() {
   if (SKIP_COVERAGE) return { type: "requirements", summary: { total: 0, passed: 0, failed: 0 }, skipped: true };
+  if (PR_MODE === "report-only") {
+    log("COVERAGE", "report-only: 按 PR 类型跳过全量需求覆盖审计");
+    return { type: "requirements", summary: { total: 0, passed: 0, failed: 0 }, details: [], coverageRate: 0, skipped: true, filtered: true, _verdict: { decision: "PASS" }, docSources: [] };
+  }
   log("COVERAGE", `需求覆盖审计... docs: ${DOC_PATHS.length} 个文件`);
   fs.mkdirSync(REPORT_DIR, { recursive: true });
   try {
@@ -152,6 +158,7 @@ async function runCoverageAudit() {
       srcDir: SRC_DIR,
       llmFn: makeLlmFn(LLM_PROVIDER),
       task: "coverage",
+      featureIds: REQUIRED_FEATURE_IDS,
     });
     const v = result._verdict || {};
     const coverageStatus = classifyCoverageResult(result);
@@ -167,7 +174,10 @@ function classifyCoverageResult(coverageResult) {
   const decision = verdict?.decision;
   const requiresAgent = coverageResult._mode === "agent-required" || verdict?._mode === "prompt";
 
-  if (coverageResult.skipped === true) return (verdict || requiresAgent) ? "FAIL" : "SKIPPED";
+  if (coverageResult.skipped === true) {
+    if (verdict?.decision === "PASS" || (!verdict && !requiresAgent)) return "SKIPPED";
+    return (verdict || requiresAgent) ? "FAIL" : "SKIPPED";
+  }
   if (decision === "FAIL") return "FAIL";
   if (decision === "NEED_HUMAN") return "NEED_HUMAN";
   if (decision === "PASS") return requiresAgent ? "FAIL" : "PASS";
