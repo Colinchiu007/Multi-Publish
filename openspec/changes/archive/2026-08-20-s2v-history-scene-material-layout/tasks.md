@@ -19,4 +19,4 @@
 
 - [x] 4.1 Run focused and relevant desktop tests, locale synchronization, lint/build checks, and diff hygiene checks.
 - [x] 4.2 Perform dual-model review or record external-model degradation, resolve findings, and write the CCG review artifact.
-- [ ] 4.3 Commit the branch, push it, open/merge the GitHub PR, verify origin/main, archive the OpenSpec/CCG task, and update remote status.
+- [x] 4.3 Commit the branch, push it, open/merge the GitHub PR, verify origin/main, archive the OpenSpec/CCG task, and update remote status.

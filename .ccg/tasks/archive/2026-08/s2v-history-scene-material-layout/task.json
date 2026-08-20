@@ -1,0 +1,26 @@
+{
+  "id": "s2v-history-scene-material-layout",
+  "title": "修复视频任务编辑页场景素材布局、预览与选择交互",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend-electron",
+  "currentPhase": "completed",
+  "nextAction": "已合并并完成 OpenSpec/CCG 归档",
+  "createdAt": "2026-08-19T15:42:00+08:00",
+  "branch": "codex/s2v-scene-material-layout",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-s2v-scene-material-layout",
+  "openspecChange": "s2v-history-scene-material-layout",
+  "remoteStatus": "merged",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/1041",
+  "mergeSha": "c6ad1655e2374e0f1acc010b404d4dcd8836e24b",
+  "mergedAt": "2026-08-19T23:45:09Z",
+  "openspecArchive": "openspec/changes/archive/2026-08-20-s2v-history-scene-material-layout",
+  "ccgArchive": ".ccg/tasks/archive/2026-08/s2v-history-scene-material-layout",
+  "ciExceptions": [
+    "QG Visual/visual-test: create and create/pipeline baseline mismatch; create/result and create/history passed",
+    "QG Browser E2E/gui-test: create route built-in pipeline card count expected 16 but received 15; all six integration flows passed",
+    "QG Autonomous: existing repository coverage audit failure",
+    "Electron CI/QG Unit Tests/QG Coverage/Desktop Shards: stale model-provider handler expectation and committed preload bundle/source API drift; unrelated to this renderer-only change"
+  ]
+}
