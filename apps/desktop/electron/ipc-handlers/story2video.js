@@ -114,6 +114,25 @@ function registerHandlers (ipcMain, deps = {}) {
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
+  ipcMain.handle('story2video:get-thumbnail', withSenderCheck(async (_event, projectId) => {
+    if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
+    try {
+      const thumbnail = await requireProjectService().getThumbnail(projectId)
+      if (!thumbnail || thumbnail.status !== 'ready' || !thumbnail.path) {
+        return { code: 0, data: { status: thumbnail?.status || 'missing', kind: thumbnail?.kind || 'missing', url: null } }
+      }
+      const resolved = validateFilePath(thumbnail.path, projectRoots)
+      if (!resolved) return { code: 0, data: { status: 'failed', kind: 'failed', url: null } }
+      const url = createShareFileUrl(resolved, { allowedRoots: allowedMediaRoots(), mediaServer })
+      if (typeof url !== 'string' || !url.trim()) {
+        return { code: 0, data: { status: 'failed', kind: 'failed', url: null } }
+      }
+      return { code: 0, data: { status: 'ready', kind: thumbnail.kind, url } }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: error.message }
+    }
+  }))
+
   ipcMain.handle('story2video:delete-project', withSenderCheck(async (_event, projectId) => {
     if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
     try { return { code: 0, data: await requireProjectService()._serializeProject(projectId, () => requireProjectService().deleteProject(projectId)) } }
@@ -165,7 +184,7 @@ function registerHandlers (ipcMain, deps = {}) {
 
   ipcMain.handle('story2video:select-scene-material', withSenderCheck(async (_event, request) => {
     if (!request || typeof request !== 'object' || !isSafeId(request.projectId) ||
-        !isSafeId(request.segmentId) || !['image1', 'image2', 'video'].includes(request.kind)) {
+        !isSafeId(request.segmentId) || !['image1', 'image2', 'video', 'video1', 'video2'].includes(request.kind)) {
       return { code: EC.VALIDATION_ERROR, message: '素材选择参数无效' }
     }
     try {

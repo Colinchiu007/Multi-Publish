@@ -65,6 +65,276 @@ describe('Story2VideoProjectService', () => {
 
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
 
+  describe('历史首场景缩略图与更新时间', () => {
+    function writeProject (service, projectId, segments, extra = {}) {
+      service._writeProjects([{
+        projectId,
+        status: 'completed',
+        startedPipeline: true,
+        segments,
+        ...extra,
+      }])
+    }
+
+    it('图片素材优先于视频，不调用 FFmpeg', async () => {
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: path.join(root, 'projects'),
+        findFfmpeg: vi.fn(() => 'ffmpeg'),
+        thumbnailRunner: vi.fn(),
+      })
+      const projectDir = service._projectDir('thumbnail-image-first')
+      const image = writeFile(path.join(projectDir, 'scene.png'), 'image')
+      const video = writeFile(path.join(projectDir, 'scene.mp4'), 'video')
+      writeProject(service, 'thumbnail-image-first', [{ imagePath: image, videoPath: video }])
+
+      const result = await service.getThumbnail('thumbnail-image-first')
+
+      expect(result).toMatchObject({ status: 'ready', kind: 'image', path: image })
+      expect(service.thumbnailRunner).not.toHaveBeenCalled()
+    })
+
+    it('首张图片缺失时继续选择后备图片', async () => {
+      const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+      const projectDir = service._projectDir('thumbnail-image-fallback')
+      const alternate = writeFile(path.join(projectDir, 'alternate.png'), 'alternate')
+      writeProject(service, 'thumbnail-image-fallback', [{
+        imagePath: path.join(projectDir, 'missing.png'),
+        alternateImages: [{ path: alternate }],
+      }])
+
+      await expect(service.getThumbnail('thumbnail-image-fallback')).resolves.toMatchObject({
+        status: 'ready', kind: 'image', path: alternate,
+      })
+    })
+
+    it('无图片时用第一个视频的首帧生成并缓存缩略图', async () => {
+      const runner = vi.fn(async (_binary, args) => {
+        const output = args.at(-1)
+        writeFile(output, Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+      })
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: path.join(root, 'projects'),
+        findFfmpeg: vi.fn(() => 'ffmpeg'),
+        thumbnailRunner: runner,
+      })
+      const projectDir = service._projectDir('thumbnail-video-frame')
+      const video = writeFile(path.join(projectDir, 'scene.mp4'), 'video')
+      writeProject(service, 'thumbnail-video-frame', [{ videoPath: video }])
+
+      const first = await service.getThumbnail('thumbnail-video-frame')
+      const second = await service.getThumbnail('thumbnail-video-frame')
+
+      expect(first).toMatchObject({ status: 'ready', kind: 'video-frame' })
+      expect(fs.existsSync(first.path)).toBe(true)
+      expect(second.path).toBe(first.path)
+      expect(runner).toHaveBeenCalledTimes(1)
+      expect(runner.mock.calls[0][1]).toEqual(expect.arrayContaining(['-ss', '0', '-frames:v', '1']))
+      expect(JSON.parse(fs.readFileSync(path.join(projectDir, 'thumbnail-first-scene.json'), 'utf8'))).toMatchObject({
+        sourcePath: video,
+      })
+    })
+
+    it('首个视频首帧失败后继续尝试第二个视频', async () => {
+      const runner = vi.fn(async (_binary, args) => {
+        const input = args[args.indexOf('-i') + 1]
+        if (input.endsWith('first.mp4')) throw new Error('first video is corrupt')
+        writeFile(args.at(-1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+      })
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: path.join(root, 'projects'),
+        findFfmpeg: vi.fn(() => 'ffmpeg'),
+        thumbnailRunner: runner,
+      })
+      const projectDir = service._projectDir('thumbnail-video-fallback')
+      const first = writeFile(path.join(projectDir, 'first.mp4'), 'first')
+      const second = writeFile(path.join(projectDir, 'second.mp4'), 'second')
+      writeProject(service, 'thumbnail-video-fallback', [{
+        videoPath: first,
+        videoMeta: { sceneVideoPath: second },
+      }])
+
+      const result = await service.getThumbnail('thumbnail-video-fallback')
+
+      expect(result).toMatchObject({ status: 'ready', kind: 'video-frame' })
+      expect(runner).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(fs.readFileSync(path.join(projectDir, 'thumbnail-first-scene.json'), 'utf8')).sourcePath).toBe(second)
+    })
+
+    it('缺失素材与 FFmpeg 失败分别返回 missing/failed，不抛给历史列表', async () => {
+      const missingService = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+      writeProject(missingService, 'thumbnail-missing', [{ imagePath: path.join(root, 'missing.png') }])
+      await expect(missingService.getThumbnail('thumbnail-missing')).resolves.toMatchObject({ status: 'missing', path: null })
+
+      const failedService = new Story2VideoProjectService({
+        store,
+        projectsDir: path.join(root, 'projects'),
+        findFfmpeg: vi.fn(() => 'ffmpeg'),
+        thumbnailRunner: vi.fn(async () => { throw new Error('ffmpeg failed') }),
+      })
+      const projectDir = failedService._projectDir('thumbnail-failed')
+      const video = writeFile(path.join(projectDir, 'scene.mp4'), 'video')
+      writeProject(failedService, 'thumbnail-failed', [{ videoPath: video }])
+      await expect(failedService.getThumbnail('thumbnail-failed')).resolves.toMatchObject({ status: 'failed', path: null })
+    })
+
+    it('源文件未变化时复用缓存，变化后重新生成；源文件再次变化且生成失败时不复用过期缓存', async () => {
+      let shouldFail = false
+      const runner = vi.fn(async (_binary, args) => {
+        if (shouldFail) throw new Error('temporary ffmpeg outage')
+        writeFile(args.at(-1), Buffer.from([0xff, 0xd8, 0xff, 0xd9, runner.mock.calls.length]))
+      })
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: path.join(root, 'projects'),
+        findFfmpeg: vi.fn(() => 'ffmpeg'),
+        thumbnailRunner: runner,
+      })
+      const projectDir = service._projectDir('thumbnail-cache')
+      const video = writeFile(path.join(projectDir, 'scene.mp4'), 'video')
+      writeProject(service, 'thumbnail-cache', [{ videoPath: video }])
+      const first = await service.getThumbnail('thumbnail-cache')
+      expect(await service.getThumbnail('thumbnail-cache')).toMatchObject({ path: first.path })
+      expect(runner).toHaveBeenCalledTimes(1)
+
+      fs.appendFileSync(video, '-changed')
+      const regenerated = await service.getThumbnail('thumbnail-cache')
+      expect(regenerated.path).toBe(first.path)
+      expect(runner).toHaveBeenCalledTimes(2)
+
+      fs.appendFileSync(video, '-changed-again')
+      shouldFail = true
+      const failed = await service.getThumbnail('thumbnail-cache')
+      expect(failed).toMatchObject({ status: 'failed', kind: 'failed', path: null })
+      expect(runner).toHaveBeenCalledTimes(3)
+    })
+
+    it('拒绝项目目录外路径和符号链接素材，并合并同项目并发请求', async () => {
+      const runner = vi.fn(async (_binary, args) => {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        writeFile(args.at(-1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+      })
+      const service = new Story2VideoProjectService({
+        store,
+        projectsDir: path.join(root, 'projects'),
+        findFfmpeg: vi.fn(() => 'ffmpeg'),
+        thumbnailRunner: runner,
+      })
+      const projectDir = service._projectDir('thumbnail-safe')
+      const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-outside-'))
+      const outside = writeFile(path.join(outsideRoot, 'outside.mp4'), 'outside')
+      writeProject(service, 'thumbnail-safe', [{ videoPath: outside }])
+      await expect(service.getThumbnail('thumbnail-safe')).resolves.toMatchObject({ status: 'missing', path: null })
+      fs.rmSync(outsideRoot, { recursive: true, force: true })
+
+      const source = writeFile(path.join(projectDir, 'source.mp4'), 'source')
+      const link = path.join(projectDir, 'link.mp4')
+      let symlinkAvailable = true
+      try {
+        fs.symlinkSync(source, link, 'file')
+      } catch {
+        symlinkAvailable = false
+      }
+      if (symlinkAvailable) {
+        writeProject(service, 'thumbnail-safe', [{ videoPath: link }])
+        await expect(service.getThumbnail('thumbnail-safe')).resolves.toMatchObject({ status: 'missing', path: null })
+      }
+
+      writeProject(service, 'thumbnail-safe', [{ videoPath: source }])
+      const results = await Promise.all([
+        service.getThumbnail('thumbnail-safe'),
+        service.getThumbnail('thumbnail-safe'),
+      ])
+      expect(results[0]).toEqual(results[1])
+      expect(runner).toHaveBeenCalledTimes(1)
+    })
+
+    it('内容编辑和运行状态同步都会推进 updatedAt，且保持单调', () => {
+      const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+      const projectDir = service._projectDir('updated-at')
+      const image = writeFile(path.join(projectDir, 'image.png'), 'image')
+      service._writeProjects([{
+        projectId: 'updated-at', runId: 'updated-at', pipeline: 'story2video-compose', status: 'paused',
+        startedPipeline: true, updatedAt: '2026-01-01T00:00:00.000Z',
+        segments: [{ id: 'segment-0', index: 0, text: '旧文案', prompt: '旧提示词', imagePath: image }],
+      }])
+      const before = service.getProject('updated-at').updatedAt
+      const edited = service.updateSegments('updated-at', [{ id: 'segment-0', text: '新文案', prompt: '新提示词' }])
+      const synced = service.syncRunStatus({ id: 'updated-at', pipeline: 'story2video-compose', status: 'cancelled', endedAt: '2026-01-02T00:00:00.000Z' })
+
+      expect(Date.parse(edited.updatedAt)).toBeGreaterThan(Date.parse(before))
+      expect(Date.parse(synced.updatedAt)).toBeGreaterThan(Date.parse(edited.updatedAt))
+      expect(synced.status).toBe('cancelled')
+      expect(synced.endedAt).toBe('2026-01-02T00:00:00.000Z')
+    })
+
+    it('兼容历史项目使用数字 epoch 保存的 updatedAt', () => {
+      const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+      service._writeProjects([{
+        projectId: 'numeric-updated-at',
+        status: 'paused',
+        startedPipeline: true,
+        updatedAt: 1700000000,
+        segments: [],
+      }])
+
+      const updated = service.syncRunStatus({
+        id: 'numeric-updated-at',
+        pipeline: 'story2video-compose',
+        status: 'cancelled',
+      })
+
+      expect(Date.parse(updated.updatedAt)).toBeGreaterThan(1700000000000)
+      expect(updated.status).toBe('cancelled')
+    })
+
+    it('video1 使用 sceneVideoPath 时回填到 compose videoPath，并拒绝不受控视频路径', () => {
+      const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+      const projectDir = service._projectDir('video-slot-contract')
+      const sceneVideo = writeFile(path.join(projectDir, 'scene-video.mp4'), 'video')
+      const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-video-outside-'))
+      const outsideVideo = writeFile(path.join(outsideRoot, 'outside.mp4'), 'outside')
+
+      const selected = service._scenesForCompose([{
+        id: 'segment-0',
+        selectedMaterial: 'video1',
+        videoPath: null,
+        videoMeta: { sceneVideoPath: sceneVideo },
+      }])
+      expect(selected[0].videoPath).toBe(sceneVideo)
+
+      expect(() => service._scenesForCompose([{
+        id: 'segment-1',
+        selectedMaterial: 'video2',
+        videoMeta: { altSceneVideoPath: outsideVideo },
+      }])).toThrow('视频2素材不存在')
+      fs.rmSync(outsideRoot, { recursive: true, force: true })
+    })
+
+    it('video1 选择仅有受控 sceneVideoPath 的素材并推进更新时间', () => {
+      const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+      const projectDir = service._projectDir('video1-select')
+      const sceneVideo = writeFile(path.join(projectDir, 'scene-video.mp4'), 'video')
+      service._writeProjects([{
+        projectId: 'video1-select',
+        status: 'completed',
+        startedPipeline: true,
+        updatedAt: '2026-08-19T00:00:00.000Z',
+        segments: [{
+          id: 'segment-0',
+          videoPath: null,
+          videoMeta: { sceneVideoPath: sceneVideo },
+        }],
+      }])
+
+      const saved = service.selectSceneMaterial('video1-select', 'segment-0', 'video1')
+      expect(saved.segments[0].selectedMaterial).toBe('video1')
+      expect(Date.parse(saved.updatedAt)).toBeGreaterThan(Date.parse('2026-08-19T00:00:00.000Z'))
+    })
+  })
+
   it('把完成运行的成片、完整旁白和每个分段持久化到受控目录', () => {
     const source = path.join(root, 'source')
     const image = writeFile(path.join(source, 'image.png'))

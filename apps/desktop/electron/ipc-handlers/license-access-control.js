@@ -34,7 +34,7 @@ const PUBLIC_CHANNELS = new Set([
   // 本地只读历史通道：未登录时也可查看本机创作历史（写/敏感通道仍要求登录）。
   //  - story2video:list-projects / story2video:get-project：项目数据按 owner 隔离（__legacy__=设备级本地空间）
   //  - pipeline:history：设备级 run 历史（不过滤 owner，本地内存/持久化快照）
-  'story2video:list-projects', 'story2video:get-project',
+  'story2video:list-projects', 'story2video:get-project', 'story2video:get-thumbnail',
   // 本地媒体导入（story2video:import-media）：把用户经 webUtils 选中的文件复制到应用控制的
   // 临时目录（kind/扩展名/大小校验 + withSenderCheck 可信来源），纯设备本地操作、不暴露私有数据，
   // 未登录/未激活许可证时也必须可用，否则图片轮播的背景音乐/旁白/视频素材选择完全不可用（2026-08-09）。

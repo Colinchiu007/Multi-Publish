@@ -469,3 +469,13 @@ aise NotImplementedError 不在编译期检查，子类遗漏实现只在运行�
 - **理由**: ASAR 是只读归档，包内 `__dirname` 相对路径既无法定位 `extraResources`，也不能作为插件写入目录。进程存活不能证明规则和预设已加载。
 - **实现**: `shared-utils/platform-config-path` 统一解析配置路径；`PluginLoader` 将 Electron `app` 作为运行时依赖注入，并保留 Node/自定义部署回退。
 - **验证**: TDD 覆盖安装版 resources、显式配置、项目根目录和 userData 插件路径；QM-1 增加真实打包启动 stderr 检查。
+
+### D-040: Story2Video 历史项目与运行记录合并，并允许非运行项目编辑
+- **类型**: 产品数据模型/交互边界
+- **决策**: 历史视图把 Story2Video project 作为内容真源，把 Pipeline run 作为状态和运行信息真源。匹配依次使用 projectId、项目 runId、legacy id；项目标题、文案、分段和素材优先，run 的状态、阶段、检查点、错误、runId 和运行耗时补充。没有 projectId 的纯 run 不生成结果页项目。
+- **理由**: 旧快照可能只有 run id，直接把 run.id 当 projectId 会产生重复卡片或打开不存在的项目；反过来只显示 project 会丢失失败阶段和最新状态。显式分层能兼容历史数据并避免伪造可编辑资源。
+- **交互边界**: 已启动且非 running 的 paused、failed、completed、cancelled 项目进入视频任务编辑页；running 保留流水线控制；cancelled 可改内容但不支持断点继续。
+- **缩略图决策**: 第一场景合法图片优先，缺图才生成第一个合法视频的第 0 秒首帧。任何路径越界、符号链接、大小/格式不符或 FFmpeg 失败都降级为“未生成”，不阻塞历史。
+- **时间决策**: updatedAt 是内容或操作时间，不是单纯完成时间。内容成功保存、暂停/继续/取消及失败/完成状态写回均刷新，并使用单调时间戳；project/run 合并取最新有效值。
+- **替代方案**: 继续维持“取消不可编辑”的旧规则会让已生成项目在取消后无法修订；统一只读详情会把内容修改流程拆成两个页面，均与用户要求的直接编辑不符。
+- **验证**: CreateView/CreateViewHistory/ResultView 与项目服务回归覆盖状态入口、project/run 合并、素材占位、缩略图优先级和时间更新；真实 Electron 打包窗口仍需完成最终人工验收。

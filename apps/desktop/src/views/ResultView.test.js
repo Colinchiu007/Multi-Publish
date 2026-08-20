@@ -228,8 +228,9 @@ describe("ResultView", () => {
     ];
     await nextTick();
     const blocks = w.findAll('[data-testid="segment-prompt-translation"]');
-    expect(blocks).toHaveLength(1);
+    expect(blocks).toHaveLength(2);
     expect(blocks[0].text()).toContain("一个红苹果");
+    expect(blocks[1].text()).toContain("story2video.sceneMaterial.emptySlot");
   });
 
   it("分段状态徽标使用本地化标签而非英文原值，failed 分段内联展示可读原因（2026-08-16）", async () => {
@@ -250,6 +251,60 @@ describe("ResultView", () => {
     const reasons = w.findAll('[data-testid="segment-status-reason"]');
     expect(reasons).toHaveLength(1);
     expect(reasons[0].text()).toContain("模型账号不支持当前生成设置");
+    w.unmount();
+  });
+
+  it("兼容旧项目顶层 altVideoPath 并用于视频 2 素材槽", async () => {
+    const api = await import("@/api/publisher");
+    api.story2videoCreateShareUrl.mockImplementation(async (filePath) => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.segments = [{
+      id: "legacy-alt-video",
+      altVideoPath: "C:/videos/legacy-alt.mp4",
+      imagePath: null,
+      audioPath: null,
+    }];
+
+    await w.vm.refreshSceneMaterialUrls();
+
+    expect(api.story2videoCreateShareUrl).toHaveBeenCalledWith("C:/videos/legacy-alt.mp4", undefined);
+    expect(w.vm.sceneMaterialSlots(w.vm.segments[0])).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "video2", path: "C:/videos/legacy-alt.mp4", url: "media://C:/videos/legacy-alt.mp4" }),
+    ]));
+    w.unmount();
+  });
+
+  it("素材预览加载失败时让渲染槽位不可选并保留来源路径", async () => {
+    const w = await createView();
+    w.vm.segments = [{
+      id: "broken-media",
+      imagePath: "C:/images/broken.png",
+      videoPath: "C:/videos/broken.mp4",
+      videoMeta: { sceneVideoPath: "C:/videos/broken.mp4" },
+      imageUrl: "media://broken.png",
+      videoUrl: "media://broken.mp4",
+    }];
+    w.vm.clearSceneMaterialUrl(w.vm.segments[0], "image1");
+    expect(w.vm.segments[0].imagePath).toBe("C:/images/broken.png");
+    expect(w.vm.segments[0].imageUrl).toBeNull();
+    expect(w.vm.sceneMaterialSlots(w.vm.segments[0]).find(slot => slot.kind === "image1").path).toBeNull();
+    w.vm.clearSceneMaterialUrl(w.vm.segments[0], "video1");
+    expect(w.vm.segments[0].videoPath).toBe("C:/videos/broken.mp4");
+    expect(w.vm.segments[0].videoMeta.sceneVideoPath).toBe("C:/videos/broken.mp4");
+    expect(w.vm.segments[0].videoUrl).toBeNull();
+    expect(w.vm.sceneMaterialSlots(w.vm.segments[0]).find(slot => slot.kind === "video1").path).toBeNull();
+    expect(w.vm.segmentsDirty).toBe(false);
+    w.unmount();
+  });
+
+  it("没有完整旁白时保留占位并禁用下载按钮", async () => {
+    const w = await createView();
+    w.vm.projectId = "project-without-narration";
+    w.vm.audioPath = null;
+    w.vm.audioSrc = null;
+    await nextTick();
+    expect(w.find('[data-testid="narration-placeholder"]').exists()).toBe(true);
+    expect(w.find('[data-testid="download-narration-button"]').attributes("disabled")).toBeDefined();
     w.unmount();
   });
 
@@ -936,6 +991,10 @@ describe("ResultView", () => {
       "scene-material-slot-video1",
       "scene-material-slot-video2",
     ]);
+    expect(slots[0].attributes("aria-pressed")).toBe("false");
+    expect(slots[1].attributes("aria-pressed")).toBe("true");
+    expect(slots[2].attributes("aria-pressed")).toBe("false");
+    expect(slots[3].attributes("aria-pressed")).toBe("false");
     expect(slots[0].find(".scene-material-radio").attributes("checked")).toBeUndefined();
     expect(slots[1].find(".scene-material-radio").attributes("checked")).toBeDefined();
     expect(slots[2].find(".scene-material-radio").attributes("checked")).toBeUndefined();
@@ -1846,6 +1905,22 @@ describe("ResultView", () => {
       expect(buttons).toHaveLength(1);
       // 该按钮位于场景素材操作区
       expect(w.find('[data-testid="scene-material-section"] [data-testid="generate-ai-video-button"]').exists()).toBe(true);
+      w.unmount();
+    });
+
+    it("缺失详情素材保留图片、翻译、字幕、提示词和旁白的位置并显示未生成", async () => {
+      const w = await createView();
+      w.vm.projectId = "p1";
+      w.vm.audioPath = null;
+      w.vm.audioSrc = null;
+      w.vm.segments = [{ id: "s1", status: "failed", prompt: "", videoPrompt: "", subtitleBlocks: [] }];
+      await nextTick();
+
+      expect(w.find('[data-testid="segment-image-preview"]').text()).toContain("emptySlot");
+      expect(w.find('[data-testid="segment-prompt-translation"]').text()).toContain("emptySlot");
+      expect(w.find('[data-testid="segment-subtitle-textarea"]').attributes("placeholder")).toContain("emptySlot");
+      expect(w.find('[data-testid="segment-video-prompt-textarea"]').attributes("placeholder")).toContain("emptySlot");
+      expect(w.find('[data-testid="narration-placeholder"]').text()).toContain("emptySlot");
       w.unmount();
     });
   });

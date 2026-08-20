@@ -46,6 +46,7 @@ vi.mock("@/api/publisher", () => ({
   story2videoImportMedia: vi.fn(),
   story2videoTranscribe: vi.fn(),
   story2videoListProjects: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  story2videoGetThumbnail: vi.fn().mockResolvedValue({ code: 0, data: { status: "missing", url: null } }),
   story2videoDeleteProject: vi.fn(),
   story2videoBgmLibraryList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
   story2videoBgmLibraryAdd: vi.fn(),
@@ -3006,6 +3007,40 @@ describe("CreateView - UI interactions", () => {
     pushSpy.mockRestore();
   });
 
+  it("历史项目加载后按 projectId hydration 缩略图，缺失或失败保持未生成占位", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [
+      { projectId: "project-ready", pipeline: "story2video-compose", status: "completed", sourceText: "有缩略图的任务" },
+      { projectId: "project-missing", pipeline: "story2video-compose", status: "failed", sourceText: "没有缩略图的任务" },
+    ] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [] });
+    mocks.story2videoGetThumbnail.mockImplementation(async (projectId) => projectId === "project-ready"
+      ? { code: 0, data: { status: "ready", url: "media://history-ready" } }
+      : { code: 0, data: { status: "failed", url: null } });
+
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } },
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(mocks.story2videoGetThumbnail).toHaveBeenCalledWith("project-ready");
+    expect(mocks.story2videoGetThumbnail).toHaveBeenCalledWith("project-missing");
+    expect(w.vm.history.find(item => item.projectId === "project-ready")).toMatchObject({
+      thumbnailUrl: "media://history-ready",
+      thumbnailStatus: "ready",
+    });
+    expect(w.vm.history.find(item => item.projectId === "project-missing")).toMatchObject({
+      thumbnailUrl: null,
+      thumbnailStatus: "failed",
+    });
+    expect(w.find('[data-history-id="project-ready"] [data-testid="history-thumbnail"] img').attributes("src")).toBe("media://history-ready");
+    expect(w.find('[data-history-id="project-missing"] [data-testid="history-thumbnail"]').text()).toContain("未生成");
+    w.unmount();
+  });
+
   it("草稿项目与运行记录合并为一条可编辑历史卡片，并保留运行状态详情", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
@@ -3029,6 +3064,35 @@ describe("CreateView - UI interactions", () => {
       projectId: "run-draft-history", title: "原任务发布标题", status: "failed",
       currentStage: "optimize", activeMs: 12500, error: "模型余额不足",
       segments: [{ id: "segment-0", text: "分段文案" }],
+    });
+    w.unmount();
+  });
+
+  it("历史合并保留项目内容优先级并允许运行快照使用 currentStage=0", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
+      projectId: "history-merge-contract", pipeline: "story2video-compose", status: "completed",
+      runId: "history-merge-contract-run", title: "项目标题", sourceText: "项目文案", currentStage: 2,
+      segments: [{ id: "project-segment", text: "项目分段" }],
+    }] });
+    mocks.pipelineHistory.mockResolvedValue({ code: 0, data: [{
+      id: "history-merge-contract-run", pipeline: "story2video-compose",
+      status: "failed", title: "运行快照标题", sourceText: "运行快照文案", currentStage: 0,
+      segments: [{ id: "run-segment", text: "运行快照分段" }],
+    }] });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } },
+    });
+    w.vm.view = "history";
+    await w.vm.loadHistory();
+    await nextTick();
+
+    expect(w.vm.history).toHaveLength(1);
+    expect(w.vm.history[0]).toMatchObject({
+      title: "项目标题",
+      sourceText: "项目文案",
+      currentStage: 0,
+      segments: [{ id: "project-segment", text: "项目分段" }],
     });
     w.unmount();
   });
@@ -3544,7 +3608,7 @@ describe("CreateView - UI interactions", () => {
     w.unmount();
   });
 
-  it("点击运行中历史项：有 projectId 进入编辑页（旧详情弹窗已废弃），不触发恢复", async () => {
+  it("点击运行中历史项：即使有 projectId 也不进入编辑页、不触发恢复", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoListProjects.mockResolvedValue({ code: 0, data: [{
       projectId: "proj-live", pipeline: "story2video-compose", status: "running", title: "运行中项目",
@@ -3567,15 +3631,13 @@ describe("CreateView - UI interactions", () => {
     await noProjItem.trigger("click");
     await nextTick();
     expect(pushSpy).not.toHaveBeenCalled();
-    // 有 projectId 的运行记录点击进入编辑页（旧详情弹窗已废弃）
+    // 有 projectId 的运行记录仍只保留流水线控制入口，不能进入编辑页
     await w.find('[data-history-id="proj-live"] .history-item-body').trigger("click");
     await nextTick();
     expect(w.vm.view).toBe("history");
     expect(mocks.pipelineResumeOrchestration).not.toHaveBeenCalled();
-    const resultNavigation = [...pushSpy.mock.calls]
-      .map(([location]) => location)
-      .find((location) => location && location.path === "/create/result");
-    expect(resultNavigation).toEqual({ path: "/create/result", query: { project: "proj-live", runId: "proj-live" } });
+    expect(pushSpy).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/create/result" }));
+
     pushSpy.mockRestore();
     w.unmount();
   });

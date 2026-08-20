@@ -2,9 +2,11 @@
 'use strict'
 
 const crypto = require('crypto')
+const { execFile } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { promisify } = require('util')
 const {
   IMPORTED_MEDIA_DIR,
   MAX_AUDIO_FILE_BYTES,
@@ -34,6 +36,7 @@ const {
   IMAGE_PROVIDER_ALIASES,
 } = require('./asset-generator')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
+const { findFfmpeg } = require('./media-tool-paths')
 
 const SETTING_KEY = 'story2video_projects_v1'
 const MAX_PROJECTS = 100
@@ -42,7 +45,27 @@ const AUTO_PIPELINES = ['story2video-compose', 'animated-explainer', 'clip-facto
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024
 const SAFE_ID = /^[a-zA-Z0-9_-]{1,100}$/
 // 场景素材槽位身份：image1 = imagePath、image2 = alternateImages[0].path、video = videoPath
-const MATERIAL_KINDS = ['image1', 'image2', 'video']
+const MATERIAL_KINDS = ['image1', 'image2', 'video', 'video1', 'video2']
+const THUMBNAIL_FILE_NAME = 'thumbnail-first-scene.jpg'
+const THUMBNAIL_META_FILE_NAME = 'thumbnail-first-scene.json'
+const THUMBNAIL_MAX_BYTES = 12 * 1024 * 1024
+const THUMBNAIL_TIMEOUT_MS = 15000
+const execFileAsync = promisify(execFile)
+
+function isJpegFile (filePath) {
+  try {
+    const handle = fs.openSync(filePath, 'r')
+    try {
+      const header = Buffer.alloc(3)
+      const bytesRead = fs.readSync(handle, header, 0, header.length, 0)
+      return bytesRead === 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff
+    } finally {
+      fs.closeSync(handle)
+    }
+  } catch (_) {
+    return false
+  }
+}
 
 /**
  * 解析输出分辨率字符串（如 720x1280 / 1080×1920），非法返回 null（与流水线 parseOutputSize 语义对齐）。
@@ -70,6 +93,17 @@ function safeText (value, maxLength) {
   return typeof value === 'string' ? value.slice(0, maxLength) : ''
 }
 
+function nextUpdatedAt (previous) {
+  const previousMs = typeof previous === 'number' && Number.isFinite(previous)
+    ? (Math.abs(previous) < 1e11 ? previous * 1000 : previous)
+    : Date.parse(typeof previous === 'string' ? previous : '')
+  const nextMs = Math.max(
+    Date.now(),
+    Number.isFinite(previousMs) ? previousMs + 1 : 0,
+  )
+  return new Date(nextMs).toISOString()
+}
+
 function safeAssetMeta (value) {
   if (!value || typeof value !== 'object') return null
   const meta = {
@@ -78,6 +112,9 @@ function safeAssetMeta (value) {
     model: safeText(value.model, 160),
     format: safeText(value.format, 20),
     degraded: value.degraded === true,
+  }
+  for (const key of ['sceneVideoPath', 'altSceneVideoPath']) {
+    if (typeof value[key] === 'string' && value[key].trim()) meta[key] = safeText(value[key], 1000)
   }
   return Object.values(meta).some(Boolean) ? meta : null
 }
@@ -296,6 +333,29 @@ function referencedProjectFiles (project) {
   return files
 }
 
+function firstSceneThumbnailCandidates (project) {
+  const firstSegment = Array.isArray(project?.segments) ? project.segments[0] : null
+  if (!firstSegment || typeof firstSegment !== 'object') {
+    return { images: [], videos: [] }
+  }
+  const images = [
+    firstSegment.imagePath,
+    ...(Array.isArray(firstSegment.alternateImages)
+      ? firstSegment.alternateImages.map(item => item?.path)
+      : []),
+  ].filter(value => typeof value === 'string' && value.trim())
+  const videos = [
+    firstSegment.videoPath,
+    firstSegment.videoMeta?.sceneVideoPath,
+    firstSegment.videoMeta?.altSceneVideoPath,
+  ].filter(value => typeof value === 'string' && value.trim())
+  return { images, videos }
+}
+
+function thumbnailTemporaryPath (destination) {
+  return destination + '.tmp-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + path.extname(destination)
+}
+
 /**
  * 检测是否为克隆音色不可用错误（换账号后克隆音色失效）。
  * 用于 regenerateSceneAudio 兆底：有现有音频时静默保留，用户无感。
@@ -332,6 +392,8 @@ class Story2VideoProjectService {
       excludeMessages: ['视频生成超时或失败', '视频生成任务失败', '视频生成任务状态为'],
     }))
     this.log = options.log || require('./logger')
+    this.findFfmpeg = typeof options.findFfmpeg === 'function' ? options.findFfmpeg : findFfmpeg
+    this.thumbnailRunner = typeof options.thumbnailRunner === 'function' ? options.thumbnailRunner : execFileAsync
     this.projectsDir = path.resolve(options.projectsDir || path.join(getUserDataDir(), 'story2video-projects'))
     this.maxProjects = Number.isInteger(options.maxProjects) && options.maxProjects > 0
       ? options.maxProjects
@@ -339,6 +401,7 @@ class Story2VideoProjectService {
     // 同项目写操作串行队列：regenerate/update 等 read-modify-write 全程持锁，
     // 防止跨段并发或「保存」与「重新生成」竞态互相覆盖（2026-08-15 审查 W2）。
     this._projectQueues = new Map()
+    this._thumbnailPromises = new Map()
   }
 
   _serializeProject (projectId, task) {
@@ -431,18 +494,23 @@ class Story2VideoProjectService {
   }
 
   _upsertProject (project) {
-    const projects = this._readProjects().filter(item => item.projectId !== project.projectId)
-    projects.unshift(project)
+    const previous = this._readProjects().find(item => item.projectId === project.projectId) || null
+    const normalized = {
+      ...project,
+      updatedAt: nextUpdatedAt(previous?.updatedAt || project.updatedAt),
+    }
+    const projects = this._readProjects().filter(item => item.projectId !== normalized.projectId)
+    projects.unshift(normalized)
     const kept = projects.slice(0, this.maxProjects)
     this._writeProjects(kept)
-    this._writeManifest(project)
+    this._writeManifest(normalized)
     for (const evicted of projects.slice(this.maxProjects)) {
       try {
         const evictedDir = this._projectDir(evicted.projectId)
         if (isPathWithin(evictedDir, [this._ownerDir()])) fs.rmSync(evictedDir, { recursive: true, force: true })
       } catch (_) { /* 历史清理失败不影响新项目 */ }
     }
-    return project
+    return normalized
   }
 
   _cleanupUnreferencedProjectFiles (projectId, previousProject, nextProject) {
@@ -518,6 +586,189 @@ class Story2VideoProjectService {
     return resolveReadableFile(candidate, { allowedRoots, maxBytes: MAX_VIDEO_BYTES })
   }
 
+  _thumbnailCachePaths (projectId) {
+    const projectDir = this._projectDir(projectId)
+    return {
+      projectDir,
+      thumbnailPath: path.join(projectDir, THUMBNAIL_FILE_NAME),
+      metadataPath: path.join(projectDir, THUMBNAIL_META_FILE_NAME),
+    }
+  }
+
+  _readThumbnailCache (thumbnailPath, metadataPath, sourcePath) {
+    try {
+      const thumbnailStat = fs.lstatSync(thumbnailPath)
+      if (!thumbnailStat.isFile() || thumbnailStat.isSymbolicLink() || thumbnailStat.size <= 0 || thumbnailStat.size > THUMBNAIL_MAX_BYTES) return null
+      const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'))
+      const sourceStat = fs.statSync(sourcePath)
+      if (!metadata || metadata.sourcePath !== sourcePath ||
+          Number(metadata.size) !== Number(sourceStat.size) ||
+          Number(metadata.mtimeMs) !== Number(sourceStat.mtimeMs) ||
+          Number(metadata.ctimeMs) !== Number(sourceStat.ctimeMs)) return null
+      return thumbnailPath
+    } catch (_) {
+      return null
+    }
+  }
+
+  async _ensureVideoThumbnail (projectId, sourcePath) {
+    const { thumbnailPath, metadataPath } = this._thumbnailCachePaths(projectId)
+    const sourceStat = fs.statSync(sourcePath)
+    const cached = this._readThumbnailCache(thumbnailPath, metadataPath, sourcePath)
+    if (cached) return cached
+
+    const ffmpeg = this.findFfmpeg()
+    if (!ffmpeg) throw new Error('FFmpeg 不可用')
+    const temporary = thumbnailTemporaryPath(thumbnailPath)
+    const metadataTemporary = thumbnailTemporaryPath(metadataPath)
+    const transactionId = process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+    const thumbnailBackup = thumbnailPath + '.bak-' + transactionId
+    const metadataBackup = metadataPath + '.bak-' + transactionId
+    let backedUpThumbnail = false
+    let backedUpMetadata = false
+    let installedThumbnail = false
+    let installedMetadata = false
+    let restoredThumbnail = false
+    let restoredMetadata = false
+    const cleanupArtifact = (filePath) => {
+      try {
+        fs.unlinkSync(filePath)
+      } catch (cleanupError) {
+        if (cleanupError?.code !== 'ENOENT') {
+          this.log?.warn?.('[Story2Video] 缩略图临时文件清理失败: ' + (cleanupError?.message || String(cleanupError)))
+        }
+      }
+    }
+    const restoreBackup = (backupPath, destinationPath, label) => {
+      if (!fs.existsSync(backupPath)) return true
+      try {
+        fs.renameSync(backupPath, destinationPath)
+        return true
+      } catch (renameError) {
+        // 同目录 rename 失败时尝试复制后删除，尽量恢复旧素材并避免遗留备份。
+        // 两种恢复方式都失败时保留备份，不能静默丢失旧缩略图。
+        try {
+          fs.copyFileSync(backupPath, destinationPath, fs.constants.COPYFILE_EXCL)
+          cleanupArtifact(backupPath)
+          return true
+        } catch (copyError) {
+          this.log?.warn?.('[Story2Video] 缩略图' + label + '回滚失败: ' + (copyError?.message || renameError?.message || String(copyError)))
+          return false
+        }
+      }
+    }
+    try {
+      await this.thumbnailRunner(ffmpeg, [
+        '-hide_banner',
+        '-loglevel', 'error',
+        '-y',
+        '-ss', '0',
+        '-i', sourcePath,
+        '-frames:v', '1',
+        '-vf', 'scale=640:-2:force_original_aspect_ratio=decrease',
+        '-q:v', '4',
+        temporary,
+      ], {
+        timeout: THUMBNAIL_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+        windowsHide: true,
+      })
+      const outputStat = fs.lstatSync(temporary)
+      if (!outputStat.isFile() || outputStat.isSymbolicLink() || outputStat.size <= 0 || outputStat.size > THUMBNAIL_MAX_BYTES) {
+        throw new Error('缩略图产物无效')
+      }
+      if (!isJpegFile(temporary)) throw new Error('缩略图格式无效')
+      const metadata = {
+        sourcePath,
+        size: sourceStat.size,
+        mtimeMs: sourceStat.mtimeMs,
+        ctimeMs: sourceStat.ctimeMs,
+      }
+      fs.writeFileSync(metadataTemporary, JSON.stringify(metadata), { encoding: 'utf8', flag: 'wx' })
+      JSON.parse(fs.readFileSync(metadataTemporary, 'utf8'))
+      // Keep the previous thumbnail and sidecar until both replacement files are installed.
+      if (fs.existsSync(thumbnailPath)) {
+        fs.renameSync(thumbnailPath, thumbnailBackup)
+        backedUpThumbnail = true
+      }
+      if (fs.existsSync(metadataPath)) {
+        fs.renameSync(metadataPath, metadataBackup)
+        backedUpMetadata = true
+      }
+      fs.renameSync(temporary, thumbnailPath)
+      installedThumbnail = true
+      fs.renameSync(metadataTemporary, metadataPath)
+      installedMetadata = true
+      return thumbnailPath
+    } catch (error) {
+      if (installedMetadata) {
+        try { fs.unlinkSync(metadataPath) } catch (_) { /* ignore rollback cleanup */ }
+      }
+      if (installedThumbnail) {
+        try { fs.unlinkSync(thumbnailPath) } catch (_) { /* ignore rollback cleanup */ }
+      }
+      if (backedUpMetadata && fs.existsSync(metadataBackup)) {
+        restoredMetadata = restoreBackup(metadataBackup, metadataPath, '元数据')
+      }
+      if (backedUpThumbnail && fs.existsSync(thumbnailBackup)) {
+        restoredThumbnail = restoreBackup(thumbnailBackup, thumbnailPath, '文件')
+      }
+      throw error
+    } finally {
+      cleanupArtifact(temporary)
+      cleanupArtifact(metadataTemporary)
+      if (installedMetadata || restoredMetadata || !backedUpMetadata) cleanupArtifact(metadataBackup)
+      if (installedThumbnail || restoredThumbnail || !backedUpThumbnail) cleanupArtifact(thumbnailBackup)
+    }
+  }
+
+  async getThumbnail (projectId) {
+    this._assertId(projectId)
+    const existing = this._thumbnailPromises.get(projectId)
+    if (existing) return existing
+    const task = (async () => {
+      try {
+        const project = this.getProject(projectId)
+        const candidates = firstSceneThumbnailCandidates(project)
+        let videoFailure = null
+        for (const candidate of candidates.images) {
+          const resolved = this._resolveSource(candidate, 'image')
+          if (resolved) return { status: 'ready', kind: 'image', path: resolved }
+        }
+        for (const candidate of candidates.videos) {
+          const resolved = this._resolveSource(candidate, 'video')
+          if (!resolved) continue
+          try {
+            const thumbnailPath = await this._ensureVideoThumbnail(projectId, resolved)
+            return { status: 'ready', kind: 'video-frame', path: thumbnailPath }
+          } catch (error) {
+            videoFailure = error
+            this.log?.warn?.('[Story2Video] 历史首帧缩略图生成失败: ' + (error?.message || String(error)))
+            const cachePaths = this._thumbnailCachePaths(projectId)
+            const fallback = this._readThumbnailCache(cachePaths.thumbnailPath, cachePaths.metadataPath, resolved)
+            if (fallback) return { status: 'ready', kind: 'video-frame', path: fallback, stale: true }
+          }
+        }
+        if (videoFailure) return { status: 'failed', kind: 'failed', path: null }
+        return { status: 'missing', kind: 'missing', path: null }
+      } catch (error) {
+        this.log?.warn?.('[Story2Video] 历史缩略图读取失败: ' + (error?.message || String(error)))
+        if (/^projectId 无效$/.test(String(error?.message || ''))) throw error
+        return { status: 'failed', kind: 'failed', path: null }
+      } finally {
+        this._thumbnailPromises.delete(projectId)
+      }
+    })()
+    this._thumbnailPromises.set(projectId, task)
+    // A synchronous return path (for example, a ready image) can finish the async IIFE
+    // before the Map insertion above. Delete only this exact promise after insertion so
+    // completed requests never become a permanent stale cache entry.
+    task.finally(() => {
+      if (this._thumbnailPromises.get(projectId) === task) this._thumbnailPromises.delete(projectId)
+    }).catch(() => {})
+    return task
+  }
+
   _resolveTranscriptionSource (candidate) {
     // 转录会把音频发送给 provider，只允许已导入或项目自有的受控副本。
     return resolveReadableMediaFile(candidate, {
@@ -576,6 +827,7 @@ class Story2VideoProjectService {
         duration: Number.isFinite(Number(segment.duration)) ? Number(segment.duration) : null,
         imageMeta: safeAssetMeta(segment.imageMeta),
         audioMeta: safeAssetMeta(segment.audioMeta),
+        videoMeta: safeAssetMeta(segment.videoMeta),
         subtitleBlocks: safeSubtitleBlocks(segment.subtitleBlocks),
         subtitleTimeline: safeSubtitleTimeline(segment.subtitleTimeline),
         sceneSource: safeText(segment.sceneSource, 80) || null,
@@ -624,6 +876,9 @@ class Story2VideoProjectService {
       updatedAt: now,
       endedAt: run.endedAt || now,
       duration: Number.isFinite(Number(compose.duration)) ? Number(compose.duration) : null,
+      videoDuration: Number.isFinite(Number(compose.videoDuration || compose.durationSeconds || compose.duration))
+        ? Number(compose.videoDuration || compose.durationSeconds || compose.duration)
+        : null,
       outputSizeBytes: (() => {
         try {
           const stat = fs.statSync(artifacts.videoPath)
@@ -741,6 +996,7 @@ class Story2VideoProjectService {
       updatedAt: now,
       endedAt: run.endedAt || null,
       duration: null,
+      videoDuration: null,
       outputSizeBytes: null,
       format: null,
       videoPath: null,
@@ -766,7 +1022,7 @@ class Story2VideoProjectService {
       runId: projectId,
       status: run.status || previousProject.status || 'running',
       updatedAt: new Date().toISOString(),
-      endedAt: run.endedAt || previousProject.endedAt || null,
+      endedAt: run.status === 'running' ? null : (run.endedAt || previousProject.endedAt || null),
     })
   }
 
@@ -1055,6 +1311,9 @@ class Story2VideoProjectService {
       ...project,
       ...artifacts,
       duration: Number.isFinite(Number(result.data.duration)) ? Number(result.data.duration) : project.duration,
+      videoDuration: Number.isFinite(Number(result.data.videoDuration || result.data.durationSeconds || result.data.duration))
+        ? Number(result.data.videoDuration || result.data.durationSeconds || result.data.duration)
+        : project.videoDuration,
       format: result.data.format || project.format,
       dirty: false,
       status: 'completed',
@@ -1078,6 +1337,25 @@ class Story2VideoProjectService {
       const scene = { ...segment }
       const selected = safeMaterialKind(segment.selectedMaterial)
       if (selected === 'video') return scene
+      if (selected === 'video1') {
+        const candidates = [scene.videoPath, scene.videoMeta && scene.videoMeta.sceneVideoPath]
+        const resolved = candidates
+          .filter(candidate => typeof candidate === 'string' && candidate.trim())
+          .map(candidate => this._resolveSource(candidate, 'video'))
+          .find(Boolean)
+        if (!resolved) throw new Error('视频1素材不存在、不可读或超出限制')
+        scene.videoPath = resolved
+        return scene
+      }
+      if (selected === 'video2') {
+        const alternateVideo = scene.videoMeta && scene.videoMeta.altSceneVideoPath
+        const resolved = typeof alternateVideo === 'string' && alternateVideo.trim()
+          ? this._resolveSource(alternateVideo, 'video')
+          : null
+        if (!resolved) throw new Error('视频2素材不存在、不可读或超出限制')
+        scene.videoPath = resolved
+        return scene
+      }
       if (selected === 'image2') {
         const alternate = Array.isArray(segment.alternateImages) ? segment.alternateImages[0] : null
         if (alternate && typeof alternate.path === 'string' && alternate.path) {
@@ -1183,7 +1461,11 @@ class Story2VideoProjectService {
       ? Boolean(segment.imagePath)
       : kind === 'image2'
         ? Boolean(Array.isArray(segment.alternateImages) && segment.alternateImages[0] && segment.alternateImages[0].path)
-        : Boolean(segment.videoPath)
+        : kind === 'video2'
+          ? Boolean(segment.videoMeta && this._resolveSource(segment.videoMeta.altSceneVideoPath, 'video'))
+          : kind === 'video1'
+            ? Boolean(this._resolveSource(segment.videoPath, 'video') || this._resolveSource(segment.videoMeta && segment.videoMeta.sceneVideoPath, 'video'))
+            : Boolean(segment.videoPath || (segment.videoMeta && segment.videoMeta.sceneVideoPath))
     if (!hasSlot) throw new Error('该素材槽位暂无素材，请先生成素材')
     const previousProject = { ...project, segments: project.segments.map(item => ({ ...item })) }
     project.segments[index] = { ...segment, selectedMaterial: kind }
@@ -1882,4 +2164,5 @@ module.exports = {
   SETTING_KEY,
   copyFileAtomic,
   resolveComposeOutput,
+  nextUpdatedAt,
 }

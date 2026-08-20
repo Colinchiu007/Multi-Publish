@@ -61,23 +61,76 @@ describe('CreateViewHistory', () => {
     expect(wrapper.text()).toContain('history.failedStage')
   })
 
-  it('非 cancelled 且有 projectId 的卡片点击进入编辑页（open-result），已取消卡片保持不可点击', async () => {
+  it('keeps the same card contract in every status tab, including title fallback, thumbnail slot and video duration', async () => {
+    const statuses = ['running', 'paused', 'failed', 'completed', 'cancelled']
+    const wrapper = mountHistory(statuses.map((status, index) => ({
+      id: 'task-' + status,
+      projectId: 'project-' + status,
+      status,
+      sourceText: '任务文案 ' + status,
+      videoDuration: 61,
+      duration: 900000,
+      updatedAt: '2026-08-15T' + String(12 - index).padStart(2, '0') + ':00:00Z',
+    })))
+
+    for (const status of statuses) {
+      await wrapper.find('[role="tab"][data-status="' + status + '"]').trigger('click')
+      const card = wrapper.find('[data-history-id="task-' + status + '"]')
+      expect(card.find('.history-name').text()).toContain('任务文案 ' + status)
+      expect(card.find('[data-testid="history-thumbnail"]').exists()).toBe(true)
+      expect(card.text()).toContain('create.history.notGenerated')
+      expect(card.text()).toContain('create.history.contentPreview')
+      expect(card.text()).toContain('任务文案 ' + status)
+      expect(card.text()).toContain('create.history.videoDuration')
+      expect(card.text()).not.toContain('undefined')
+      expect(card.text()).not.toContain('null')
+    }
+  })
+
+  it('thumbnail 加载失败时回退到稳定的未生成占位', async () => {
+    const item = { id: 'thumbnail-error', projectId: 'project-thumbnail-error', status: 'completed', thumbnailUrl: 'media://stale' }
+    const wrapper = mountHistory([item])
+    const image = wrapper.find('[data-testid="history-thumbnail"] img')
+    expect(image.exists()).toBe(true)
+
+    await image.trigger('error')
+
+    expect(item.thumbnailUrl).toBeNull()
+    expect(item.thumbnailStatus).toBe('failed')
+    expect(wrapper.find('[data-testid="history-thumbnail"] img').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="history-thumbnail"]').text()).toContain('create.history.notGenerated')
+  })
+
+  it('uses explicit media duration and never renders pipeline execution duration as video duration', () => {
+    const wrapper = mountHistory([
+      { id: 'video-duration', status: 'completed', duration: 900000, video: { duration: 65 } },
+      { id: 'missing-video-duration', status: 'completed', duration: 900000 },
+      { id: 'invalid-video-duration', status: 'completed', videoDuration: 'NaN', duration: 900000 },
+    ])
+    expect(wrapper.vm.videoDuration(wrapper.props('history')[0])).toBe(65)
+    expect(wrapper.vm.videoDuration(wrapper.props('history')[1])).toBeNull()
+    expect(wrapper.vm.videoDuration(wrapper.props('history')[2])).toBeNull()
+    expect(wrapper.find('[data-history-id="video-duration"]').text()).toContain('1 create.history.minutes 5 create.history.seconds')
+    expect(wrapper.find('[data-history-id="missing-video-duration"]').text()).toContain('create.history.notGenerated')
+  })
+
+  it('仅非 running 且有 projectId 的卡片点击进入编辑页，running 不可进入而 cancelled 可编辑', async () => {
     const wrapper = mountHistory([
       { id: 'running', projectId: 'proj-r', status: 'running', updatedAt: '2026-08-15T12:00:00Z' },
       { id: 'cancelled', projectId: 'proj-c', status: 'cancelled', updatedAt: '2026-08-15T11:00:00Z' },
     ])
     const bodies = wrapper.findAll('.history-item-body')
-    expect(bodies[0].attributes('role')).toBe('button')
-    expect(bodies[0].attributes('tabindex')).toBe('0')
-    expect(wrapper.find('[data-history-id="running"]').classes()).toContain('is-interactive')
+    expect(bodies[0].attributes('role')).toBeUndefined()
+    expect(bodies[0].attributes('tabindex')).toBeUndefined()
+    expect(wrapper.find('[data-history-id="running"]').classes()).not.toContain('is-interactive')
     await bodies[0].trigger('click')
-    expect(wrapper.emitted('open-result')?.[0]).toEqual([{ id: 'running', projectId: 'proj-r', status: 'running', updatedAt: '2026-08-15T12:00:00Z' }])
+    expect(wrapper.emitted('open-result')).toBeUndefined()
     expect(wrapper.emitted('resume-history')).toBeUndefined()
-    expect(bodies[1].attributes('role')).toBeUndefined()
-    expect(bodies[1].attributes('tabindex')).toBeUndefined()
-    expect(wrapper.find('[data-history-id="cancelled"]').classes()).not.toContain('is-interactive')
+    expect(bodies[1].attributes('role')).toBe('button')
+    expect(bodies[1].attributes('tabindex')).toBe('0')
+    expect(wrapper.find('[data-history-id="cancelled"]').classes()).toContain('is-interactive')
     await bodies[1].trigger('click')
-    expect(wrapper.emitted('open-result')).toHaveLength(1)
+    expect(wrapper.emitted('open-result')?.[0]).toEqual([{ id: 'cancelled', projectId: 'proj-c', status: 'cancelled', updatedAt: '2026-08-15T11:00:00Z' }])
   })
 
   it('shows localized paused checkpoint and both failed stage and error details', () => {
@@ -119,16 +172,16 @@ describe('CreateViewHistory', () => {
     expect(wrapper.emitted('open-result')).toBeUndefined()
   })
 
-  it('已取消卡片允许删除，但不进入编辑页', async () => {
+  it('已取消卡片允许删除，也可以进入编辑页但不会自动恢复', async () => {
     const wrapper = mountHistory([{ id: 'cancelled-1', projectId: 'proj-c', status: 'cancelled' }])
     const body = wrapper.find('.history-item-body')
-    expect(body.attributes('role')).toBeUndefined()
+    expect(body.attributes('role')).toBe('button')
     await body.trigger('click')
-    expect(wrapper.emitted('open-result')).toBeUndefined()
+    expect(wrapper.emitted('open-result')).toHaveLength(1)
     expect(wrapper.find('.s2v-btn-danger').exists()).toBe(true)
     await wrapper.find('.s2v-btn-danger').trigger('click')
     expect(wrapper.emitted('delete-history')).toHaveLength(1)
-    expect(wrapper.emitted('open-result')).toBeUndefined()
+    expect(wrapper.emitted('open-result')).toHaveLength(1)
   })
 
   it('卡片统一展示通用信息（标题/时间/耗时/ID/流水线）与状态附加信息（失败环节/失败原因）', () => {
@@ -145,9 +198,10 @@ describe('CreateViewHistory', () => {
     expect(card.text()).toContain('失败任务')
     expect(card.text()).toContain('create.history.updatedAt')
     expect(card.text()).toContain('create.history.createdAt')
-    expect(card.text()).toContain('create.history.minutes')
+    expect(card.text()).toContain('create.history.duration')
+    expect(card.text()).toContain('create.history.videoDuration')
     expect(card.text()).toContain('create.history.projectId')
-    expect(card.text()).toContain('create.history.promptPreview')
+    expect(card.text()).toContain('create.history.contentPreview')
     expect(card.text()).toContain('提示词 A')
     expect(card.text()).toContain('Prompt A')
     expect(card.text()).toContain('create.history.failedStage')

@@ -857,6 +857,38 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     expect(cancelledRun.stages[1].completedAt).toBeTruthy()
   })
 
+  it('取消已持久化的 Story2Video run 时同步项目为 cancelled 并推进更新时间', () => {
+    const syncRunStatus = vi.fn((run) => ({
+      projectId: run.projectId,
+      status: run.status,
+      updatedAt: '2026-08-20T00:00:01.000Z',
+    }))
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      story2videoProjectService: { syncRunStatus },
+    })
+    const run = {
+      id: 'run-cancel-project',
+      projectId: 'project-cancel',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      currentStage: 0,
+      stages: [{ name: 'compose', status: 'running' }],
+      context: {},
+    }
+    engine._runs.set(run.id, run)
+    engine._runs.set('_story2video-compose', run)
+    engine._currentPipeline = 'story2video-compose'
+
+    expect(engine.cancel()).toEqual({ success: true })
+    expect(syncRunStatus).toHaveBeenCalledTimes(1)
+    expect(syncRunStatus).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'project-cancel',
+      status: 'cancelled',
+    }))
+  })
+
   it('setRunFinalizedHook 在 _finalizeRun 终态后调用（additive，失败仅 warn）', () => {
     const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
     const calls = []

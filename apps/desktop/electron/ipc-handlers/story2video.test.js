@@ -377,6 +377,72 @@ describe('Story2Video 交付 IPC', () => {
     expect(service.updateSegments).not.toHaveBeenCalled()
   })
 
+  it('get-thumbnail 为受控缩略图签发媒体 URL', async () => {
+    const thumbnailPath = path.join(root, 'thumbnail.jpg')
+    fs.writeFileSync(thumbnailPath, 'thumbnail')
+    const service = {
+      projectsDir: root,
+      getThumbnail: vi.fn(async () => ({ status: 'ready', kind: 'image', path: thumbnailPath })),
+    }
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    registerHandlers(ipcMain, { ...deps, story2videoProjectService: service })
+
+    const result = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, 'project-thumbnail')
+
+    expect(result).toMatchObject({ code: 0, data: { status: 'ready', kind: 'image' } })
+    expect(result.data.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/media\//)
+    expect(deps.story2videoMediaServer.createUrl).toHaveBeenCalledWith(fs.realpathSync.native(thumbnailPath))
+  })
+
+  it('get-thumbnail 对缺失或生成失败的缩略图保持 url=null', async () => {
+    const getThumbnail = vi.fn()
+      .mockResolvedValueOnce({ status: 'missing', kind: 'missing', path: null })
+      .mockResolvedValueOnce({ status: 'failed', kind: 'failed', path: null })
+    const service = { projectsDir: root, getThumbnail }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    const missing = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, 'project-thumbnail')
+    const failed = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, 'project-thumbnail')
+
+    expect(missing).toEqual({ code: 0, data: { status: 'missing', kind: 'missing', url: null } })
+    expect(failed).toEqual({ code: 0, data: { status: 'failed', kind: 'failed', url: null } })
+  })
+
+  it('get-thumbnail 不会把空媒体 URL 标记为 ready', async () => {
+    const thumbnailPath = path.join(root, 'thumbnail-empty-url.jpg')
+    fs.writeFileSync(thumbnailPath, 'thumbnail')
+    const service = {
+      projectsDir: root,
+      getThumbnail: vi.fn(async () => ({ status: 'ready', kind: 'image', path: thumbnailPath })),
+    }
+    const deps = createDeps()
+    deps.story2videoMediaServer.createUrl.mockReturnValueOnce('')
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...deps, story2videoProjectService: service })
+
+    const result = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, 'project-empty-thumbnail-url')
+
+    expect(result).toEqual({ code: 0, data: { status: 'failed', kind: 'failed', url: null } })
+  })
+
+  it('get-thumbnail 在参数非法或来源不可信时不进入项目服务', async () => {
+    const service = {
+      projectsDir: root,
+      getThumbnail: vi.fn(),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    const invalid = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, '../escape')
+    const untrusted = await ipcMain.get('story2video:get-thumbnail')(UNTRUSTED_EVENT, 'project-thumbnail')
+
+    expect(invalid).toEqual({ code: -2, message: 'projectId 无效' })
+    expect(untrusted).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(service.getThumbnail).not.toHaveBeenCalled()
+  })
+
   it('场景字幕/旁白/优化词重新生成：拒绝不可信页面、非法 ID 与非白名单优化词类型', async () => {
     const service = {
       regenerateSceneSubtitle: vi.fn(),

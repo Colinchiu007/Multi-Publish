@@ -42,8 +42,7 @@
 .history-item:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.12); transform: translateY(-3px); }
 .history-item:active { transform: translateY(0); box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
 .history-item.is-interactive { cursor: pointer; }
-.history-item.is-cancelled { cursor: default; opacity: .84; }
-.history-item.is-cancelled:hover { box-shadow: none; transform: none; }
+.history-item.is-cancelled { opacity: .96; }
 
 .history-item.status-completed { border-left-color: var(--status-completed-text, #065f46); }
 .history-item.status-failed { border-left-color: var(--status-failed-text, #991b1b); }
@@ -58,6 +57,11 @@
 .history-item-body.is-interactive { cursor: pointer; }
 .history-item-body.is-interactive:focus-visible { outline: 2px solid var(--primary, #409eff); outline-offset: -2px; }
 .history-item-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.history-card-main { display: grid; grid-template-columns: 136px minmax(0, 1fr); gap: 14px; align-items: start; }
+.history-card-copy { min-width: 0; }
+.history-thumbnail { display: flex; align-items: center; justify-content: center; width: 136px; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 6px; background: var(--status-pending-bg, #f3f4f6); color: var(--text-light, #999); font-size: 12px; }
+.history-thumbnail img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.history-thumbnail.is-empty { border: 1px dashed var(--border, #dcdfe6); }
 .history-item-heading { justify-content: space-between; }
 .history-heading-copy { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 .history-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; color: var(--text, #333); letter-spacing: -0.01em; }
@@ -159,6 +163,8 @@
   .history-status-tabs { width: 100%; }
   .history-status-tab { flex: 1 0 auto; min-width: 68px; }
   .history-item-row { flex-wrap: wrap; }
+  .history-card-main { grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
+  .history-thumbnail { width: 96px; }
   .history-name { flex-basis: 100%; }
   .history-meta { flex-wrap: wrap; gap: 8px; }
   .history-actions { width: 100%; justify-content: flex-end; }
