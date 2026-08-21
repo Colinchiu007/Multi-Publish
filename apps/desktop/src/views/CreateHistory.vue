@@ -241,7 +241,7 @@ export default {
     stageLabel(s) {
       const name = this.shortName(typeof s === 'string' ? s : (s?.name || s?.stage || ''))
       if (!s || typeof s !== 'object') return name
-      const marks = { completed: '✓', running: '⟳', failed: '✕', cancelled: '—', pending: '' }
+      const marks = { completed: '✓', skipped: '⏭', running: '⟳', failed: '✕', cancelled: '—', pending: '' }
       return (marks[s.status] ? marks[s.status] + ' ' : '') + name
     },
     stageTitle(s) {
@@ -255,7 +255,7 @@ export default {
       if (typeof p.progress === 'number' && Number.isFinite(p.progress)) return Math.max(0, Math.min(100, Math.round(p.progress)))
       const stages = Array.isArray(p.stages) ? p.stages : []
       if (stages.length === 0) return 0
-      const done = stages.filter((s) => s && typeof s === 'object' && (s.status === 'completed' || s.status === 'failed' || s.status === 'cancelled')).length
+      const done = stages.filter((s) => s && typeof s === 'object' && ['completed', 'skipped', 'failed', 'cancelled'].includes(s.status)).length
       return Math.round((done / stages.length) * 100)
     },
     shortName(name) {

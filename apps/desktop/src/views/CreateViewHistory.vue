@@ -469,6 +469,7 @@ export default {
     historyStageState (stage) {
       const status = stage && typeof stage === 'object' ? stage.status : ''
       if (status === 'completed') return 'done'
+      if (status === 'skipped') return 'skipped'
       if (status === 'running') return 'active'
       if (['failed', 'needs_user_input', 'cancelled'].includes(status)) return 'failed'
       return 'pending'

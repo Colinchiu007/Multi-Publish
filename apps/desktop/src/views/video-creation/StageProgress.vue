@@ -89,6 +89,7 @@ export default {
       if (!stage || !stage.status) return ''
       const status = stage.status
       if (status === 'completed') return 'completed'
+      if (status === 'skipped') return 'skipped'
       if (status === 'running') return 'running'
       if (status === 'failed') return 'failed'
       if (status === 'waiting_approval') return 'waiting'
@@ -99,6 +100,7 @@ export default {
       if (!stage || !stage.status) return '○'
       const status = stage.status
       if (status === 'completed') return '✓'
+      if (status === 'skipped') return '⏭'
       if (status === 'running') return '⟳'
       if (status === 'failed') return '✕'
       if (status === 'waiting_approval' || status === 'paused') return '⏸'
@@ -173,6 +175,11 @@ export default {
     stageStatusLabel(stage, index) {
       if (!stage || !stage.status) return this.$t('stageProgress.statusPending')
       const status = stage.status
+      if (status === 'skipped') {
+        // 发布阶段未选平台：明确提示「未选发布，跳过」，而非误报「已完成」
+        if (stage.name === 'publish') return this.$t('stageProgress.publishSkipped')
+        return this.$t('stageProgress.statusSkipped')
+      }
       if (status === 'paused') {
         if (this.checkpoint && this.checkpoint.type === 'scene_asset_selection') {
           return this.translateStageStatus('create.story2video.selectionWait.stageLabel', 'Awaiting asset selection')
@@ -195,7 +202,7 @@ export default {
     },
     stageTimeText(stage) {
       if (!stage || !stage.startedAt) return ''
-      if (stage.status !== 'running' && stage.status !== 'completed' && stage.status !== 'failed') return ''
+      if (stage.status !== 'running' && stage.status !== 'completed' && stage.status !== 'failed' && stage.status !== 'skipped') return ''
       const start = Date.parse(stage.startedAt)
       if (!Number.isFinite(start)) return ''
       const end = stage.completedAt ? Date.parse(stage.completedAt) : Date.now()

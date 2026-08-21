@@ -1191,26 +1191,31 @@ class PipelineEngine {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
 
-    return this._advanceRun(run);
+    return this._advanceRun(run, { skipped: this._isStageSkipped(null, run, run.stages[run.currentStage]) });
   }
 
   /**
    * 只推进指定运行，避免 orchestrator 按 runId 执行后误用全局 currentPipeline。
    * @param {object} run
    */
-  _advanceRun(run) {
+  _advanceRun(run, opts) {
     if (!run || !Array.isArray(run.stages) || !run.stages[run.currentStage]) {
       return { success: false, error: 'No active stage' };
     }
 
+    const skipped = Boolean(opts && opts.skipped);
     const completedStageName = run.stages[run.currentStage].name;
     // 检查点只代表当前阶段的暂停状态，推进后不能泄漏到下一个运行快照。
     run.checkpoint = null;
-    // Complete current stage
-    run.stages[run.currentStage].status = 'completed';
-    run.stages[run.currentStage].completedAt = new Date().toISOString();
+    // 未选发布平台等「可选阶段被跳过」语义：以 skipped 而非 completed 收尾，
+    // 让 run 阶段快照/历史/进度板能明确区分「真实完成」与「跳过」。
+    const stageRef = run.stages[run.currentStage];
+    const completedAt = new Date().toISOString();
+    stageRef.status = skipped ? 'skipped' : 'completed';
+    stageRef.completedAt = completedAt;
+    if (skipped) stageRef.skippedAt = completedAt;
 
-    // Backlot 事件：阶段完成
+    // Backlot 事件：阶段完成（跳过阶段同样触发，供进度板/实时推送同步）
     this._emit('stage:complete', { runId: run.id, stageName: completedStageName, stageIndex: run.currentStage });
 
     // Advance to next stage
@@ -1241,8 +1246,24 @@ class PipelineEngine {
     return { success: true, currentStage: run.stages[run.currentStage].name, checkpoint };
   }
 
-  /** 通过 Python 后端加载流水线完整定义 */
+  /**
+   * 判断阶段执行结果是否为「跳过」（如发布阶段未选择任何平台）。
+   * 优先读执行结果 output.skipped；检查点恢复等没有新执行结果的路径回退读 run.context[stageName]。
+   * @param {object|null} execResult
+   * @param {object|null} run
+   * @param {object|null} stage
+   * @returns {boolean}
+   */
+  _isStageSkipped(execResult, run, stage) {
+    if (execResult && execResult.output && execResult.output.skipped === true) return true;
+    if (!stage || !run || !run.context) return false;
+    const name = stage.name || stage.stage;
+    if (!name) return false;
+    const out = run.context[name];
+    return !!(out && out.skipped === true);
+  }
   async fetchPipelineFromBackend(pipelineName) {
+  /** 通过 Python 后端加载流水线完整定义 */
     const bridge = this._getPythonBridge();
     if (bridge && bridge.isRunning()) {
       try {
@@ -1615,7 +1636,7 @@ class PipelineEngine {
       return { ...result, checkpointData: checkpoint, paused: true };
     }
 
-    const advResult = this._advanceRun(run);
+    const advResult = this._advanceRun(run, { skipped: this._isStageSkipped(result, run, run.stages[run.currentStage]) });
     if (advResult.message === 'Pipeline completed') {
       return { ...result, completed: true, context: run.context, activeMs: this._computeElapsedMs(run) };
     }
@@ -1656,7 +1677,7 @@ class PipelineEngine {
         };
       }
       // 检查点阶段已经执行完毕，确认操作应先完成该阶段，再执行后续阶段。
-      const advanced = this._advanceRun(run);
+      const advanced = this._advanceRun(run, { skipped: this._isStageSkipped(null, run, run.stages[run.currentStage]) });
       if (!advanced.success) return advanced;
       if (advanced.message === 'Pipeline completed') {
         return { success: true, runId, context: run.context, completed: true, results: [], activeMs: this._computeElapsedMs(run) };
@@ -1974,6 +1995,8 @@ class PipelineEngine {
   _finalizeRun(run, status, error) {
     if (!run || run.endedAt) return;
     run.status = status;
+    // 完成态进度固定为 100%（持久化到历史卡片；_advanceRun 在最后一个阶段不再重算 run.progress）
+    if (status === 'completed') run.progress = 100;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
     if ((status === 'failed' || status === 'cancelled') && Array.isArray(run.stages) && run.stages[run.currentStage]) {
@@ -2134,7 +2157,8 @@ class PipelineEngine {
   _calcProgress(run) {
     const total = run.stages.length;
     if (!total) return 0;
-    const completed = run.stages.filter((s) => s.status === 'completed').length;
+    // skipped 阶段同样视为已完成（如未选平台的发布），保证完成态进度为 100%。
+    const completed = run.stages.filter((s) => s.status === 'completed' || s.status === 'skipped').length;
     // 阶段内进行中进度加权：running 阶段带合法 stage.progress.percent 时按比例计入，
     // 避免长时间停在阶段边界（阶段数占比 + 当前阶段 percent 加权）。
     let runningShare = 0;
@@ -2361,7 +2385,7 @@ class PipelineEngine {
       }
 
       // 推进到下一阶段（同步 advance）
-      const advResult = this._advanceRun(run);
+      const advResult = this._advanceRun(run, { skipped: this._isStageSkipped(execResult, run, stage) });
       if (!advResult.success) {
         // 持久化失败等推进错误已经由 _advanceRun 发出 pipeline:fail。
         if (advResult.message === 'Pipeline completed') {

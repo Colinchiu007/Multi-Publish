@@ -1561,6 +1561,8 @@ export default {
         platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
+      // 后台运行完成监听（2026-08-21）：run 在后台执行但仍在创作页跟踪终态，完成后自动跳转结果页
+      s2vBackgroundTracking: false,
       // 分镜素材自选（2026-08-12）：scene_asset_selection 检查点激活与候选
       sceneAssetSelectionActive: false, sceneAssetCandidates: [], sceneAssetSelectionError: '', sceneAssetConfirming: false,
       // 等待态 UX（2026-08-13）：首次激活自动定位/高亮一次性标记 + 面板注意力高亮
@@ -3759,6 +3761,7 @@ export default {
       this.pipelineRunStatus = { status: 'completed', progress: 100, stages: this.orchestrationStages }
       this.needsCheckpoint = false
       this.orchestrationRunId = null
+      this.s2vBackgroundTracking = false
       if (!videoPath) {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
         return true
@@ -3795,12 +3798,61 @@ export default {
         this.pollTimer = null
       }
     },
+    // 后台运行完成监听（2026-08-21）：不把 run 挂回可见进度，仅监听终态；
+    // 完成后自动跳转结果页，失败/取消则停止监听并刷新历史。
+    startBackgroundCompletionWatch() {
+      if (!this.orchestrationRunId || !this.s2vBackgroundTracking || this._s2vAlive === false) return
+      this.stopPipelinePolling()
+      this.pollTimer = setInterval(() => this.checkBackgroundRunCompletion(), 3000)
+    },
+    async checkBackgroundRunCompletion() {
+      const runId = this.orchestrationRunId
+      if (!runId || !this.s2vBackgroundTracking) return false
+      const requestId = ++this.orchestrationStatusRequestId
+      try {
+        const statusResult = await pipelineGetRunContext(runId)
+        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId || !this.s2vBackgroundTracking) return false
+        if (statusResult?.code !== 0 || !statusResult.data) return false
+        const status = statusResult.data.status && statusResult.data.status.status
+        // 结果页时长等元数据：与 updateOrchestrationStatus 同口径透传，避免后台完成跳转丢失 activeMs
+        this.story2videoRunMeta = {
+          createdAt: statusResult.data.createdAt || null,
+          endedAt: statusResult.data.endedAt || null,
+          outputSizeBytes: statusResult.data.outputSizeBytes || null,
+          activeMs: Number.isFinite(Number(statusResult.data.activeMs)) ? Number(statusResult.data.activeMs) : null,
+          activeSegmentStartedAt: statusResult.data.activeSegmentStartedAt || null,
+        }
+        if (status === 'completed') {
+          return this.applyOrchestrationOutcome({
+            success: true,
+            completed: true,
+            context: statusResult.data.context,
+            error: statusResult.data.error || (statusResult.data.status && statusResult.data.status.error),
+          })
+        }
+        if (status === 'failed' || status === 'cancelled') {
+          this.stopPipelinePolling()
+          this.s2vBackgroundTracking = false
+          this.orchestrationRunId = null
+          await this.loadHistory()
+          return false
+        }
+      } catch (_error) {
+        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return false
+      }
+      return false
+    },
     // 实时推送事件处理（openspec pipeline-progress-real-time-push）：
     // 事件 payload 为轻量快照（progressOnly，不含 context）——只更新阶段进度/状态与 run 级 progress，
     // 不覆盖完整 context（轮询 getRunContext 全量快照为准，避免事件与轮询竞态回退）。
     handlePipelinePush(snapshot) {
       if (!snapshot || !snapshot.runId) return
       if (this.orchestrationRunId && snapshot.runId !== this.orchestrationRunId) return
+      // 后台运行（2026-08-21）：不重写可见运行态，仅用终态事件驱动完成监听跳转
+      if (this.s2vBackgroundTracking) {
+        if (snapshot.status && snapshot.status.status === 'completed') void this.checkBackgroundRunCompletion()
+        return
+      }
       if (Array.isArray(snapshot.stages) && snapshot.stages.length > 0) {
         this.orchestrationStages = snapshot.stages
       }
@@ -3858,6 +3910,7 @@ export default {
       this.stopPipelinePolling()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
+      this.s2vBackgroundTracking = false
       this.dismissedProviderWarnings = false
       this.orchestrationResultPath = null
       this.story2videoRunMeta = null
@@ -3872,13 +3925,14 @@ export default {
       this.resetPipelineUiState()
     },
     // 后台恢复/继续一个 run：切到流水线视图并实时跟踪进度（不重置 runId）。
-    // 与 runOrchestrationInBackground 不同——后者用于"首次后台生成"并留在历史页观察，
-    // 而断点恢复是用户的显式继续动作，应跳转到流水线页并持续拉取运行态。
+    // 与 runOrchestrationInBackground 不同——后者用于"首次后台生成"：创作页保持初始态、主进程后台执行，
+    // run 完成后自动跳转结果页；断点恢复是用户显式继续动作，跳到流水线页并持续拉取运行态。
     async openRunningPipeline(runId, pipelineName, toastKey = 'create.story2video.backgroundResumeToast') {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false
       // 只停止已有轮询，不得调用 resetPipelineUiState（会把 orchestrationRunId 清成 null）
       this.stopPipelinePolling()
+      this.s2vBackgroundTracking = false
       this.orchestrationRunId = normalizedRunId
       this.orchestrationResultPath = null
       this.orchestrationError = ''
@@ -3901,12 +3955,16 @@ export default {
     async runOrchestrationInBackground(runId, toastKey = 'create.story2video.backgroundRunToast') {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false
-      this.orchestrationRunId = normalizedRunId
       this.resetPipelineUiState()
+      // 后台运行仍保留完成监听：主进程继续执行、创作页不阻塞，run 完成后自动跳转结果页。
+      this.orchestrationRunId = normalizedRunId
+      this.s2vBackgroundTracking = true
       this.showS2VOptionsToast(
         this.translateWithLocaleFallback(toastKey, 'backgroundRunToast', 'Pipeline is running in the background. Track progress in history.'),
         3000
       )
+      // 先武装完成监听再刷新历史，避免 loadHistory 异常使监听标志残留、完成后无法跳转
+      this.startBackgroundCompletionWatch()
       await this.loadHistory()
       return true
     },
@@ -3914,6 +3972,7 @@ export default {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false
       this.orchestrationRunId = normalizedRunId
+      this.s2vBackgroundTracking = false
       this.orchestrationResultPath = null
       this.orchestrationError = ''
       this.orchestrationContext = outcome.context || null
