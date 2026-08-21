@@ -1,0 +1,19 @@
+{
+  "id": "fix-s2v-history-scene-gen-buttons",
+  "title": "视频详情场景素材未生成槽生成按钮缺失 + 生成AI视频灰显修复",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已合并归档：PR #1078 merged，merge SHA e17f3c32dc09ca319377590e2582dc15fb0292d0",
+  "createdAt": "2026-08-21T00:00:00Z",
+  "completedAt": "2026-08-21T01:06:42Z",
+  "branch": "codex/fix-s2v-history-scene-gen-buttons",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-fix-s2v-history-scene-gen-buttons",
+  "openspecChange": "fix-s2v-history-scene-gen-buttons",
+  "prNumber": 1078,
+  "mergeSha": "e17f3c32dc09ca319377590e2582dc15fb0292d0",
+  "remoteStatus": "merged",
+  "review": "Claude analyzer+reviewer wrapper exit 0；opencode backend 地区/服务端错误不可用，已降级（见 review.md），不重调"
+}

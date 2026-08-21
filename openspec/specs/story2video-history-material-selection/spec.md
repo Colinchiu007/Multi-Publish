@@ -109,7 +109,8 @@
 - **THEN** 返回 `VALIDATION_ERROR`，不触发任何生成/写入副作用
 
 ### Requirement: 详情页布局与交互（ResultView）
-详情页 SHALL 保持原有内容不变，每个 segment 新增「场景素材」区并稳定显示四个视觉卡（图 1、图 2、视频 1、视频 2）。缩略图只打开预览；radio 只能通过 change 事件选择当前使用素材；选中槽显示高亮边框与「当前使用」徽标。图 1 卡内只显示一次【生成新图】，视频 1 卡内只显示一次【生成 AI 视频】，其他卡不得重复显示场景级生成按钮；busy 态显示本地化「生成中...」并沿用 `segmentBusy` 防抖；【再次合成视频】入口继续使用既有服务流程。预览 modal SHALL 使用 xl 尺寸，video1/video2 均按视频元素预览。
+
+详情页 SHALL 保持原有内容不变，每个 segment 新增「场景素材」区并稳定显示四个视觉卡（图 1、图 2、视频 1、视频 2）。缩略图只打开预览；radio 只能通过 change 事件选择当前使用素材；选中槽显示高亮边框与「当前使用」徽标。图 1/图 2 卡内都显示一次【生成新图】（同一场景级动作，调用 `generateSceneImage`，写入目标由选中态规则决定：图 2 槽为空时从图 2 卡点击补入该空槽；已有备选图时按「替换未选中」规则落位），视频 1/视频 2 卡内都显示一次【生成 AI 视频】（同一场景级动作，调用 `generateSceneAiVideo`，结果写入 canonical 视频槽并显示在 video1 卡；video2 保持视觉别名、不新增持久化身份）；busy 态显示本地化「生成中...」并沿用 `segmentBusy` 防抖；生成 AI 视频按钮仅当 `videoPrompt`/`prompt`/`text` 全为空时禁用（提示词回退契约与后端 `generateSceneAiVideo` 一致）；【再次合成视频】入口继续使用既有服务流程。预览 modal SHALL 使用 xl 尺寸，video1/video2 均按视频元素预览。
 
 #### Scenario: 四槽位渲染与选中态
 - **WHEN** 详情页加载项目且 segment 有任意素材组合
@@ -125,11 +126,21 @@
 
 #### Scenario: 生成按钮与 busy 态
 - **WHEN** 用户点击【生成新图】或【生成 AI 视频】
-- **THEN** 对应卡内按钮进入「生成中...」busy 态并禁用（`segmentBusy`），完成或失败后恢复；并发双击不产生重复调用
+- **THEN** 对应卡内按钮进入「生成中...」busy 态并禁用（`segmentBusy`），完成或失败后恢复；并发双击不产生重复调用；同一场景全部生成入口在 busy 时统一禁用
 
 #### Scenario: 生成按钮归属明确且不重复
 - **WHEN** 一个 segment 被显示
-- **THEN** image1 内恰好有一个【生成新图】按钮，video1 内恰好有一个【生成 AI 视频】按钮，image2 和 video2 不显示重复的场景级生成按钮
+- **THEN** image1/image2 卡内各有一个【生成新图】按钮，video1/video2 卡内各有一个【生成 AI 视频】按钮；它们都是同一场景级动作的入口，写入目标由选中态/身份规则决定，不改变持久化身份
+
+#### Scenario: 空卡也有生成入口
+- **WHEN** image2 或 video2 槽为空（未生成）
+- **THEN** 图 2 卡内仍显示【生成新图】、视频 2 卡内仍显示【生成 AI 视频】；从图 2 空卡点击【生成新图】补入该空槽（`alternateImages` 为空时先写图 2），从任何视频卡点击【生成 AI 视频】写入 canonical 视频槽并显示在 video1 卡
+
+#### Scenario: AI 视频门控与后端回退契约一致
+- **WHEN** segment 无 `videoPrompt` 但 `prompt` 或 `text` 任一 trim 非空
+- **THEN** video1/video2 卡的【生成 AI 视频】按钮可用，点击不静默拦截，调用 `story2videoGenerateSceneAiVideo(projectId, segmentId)`
+- **WHEN** `videoPrompt`/`prompt`/`text` 三者全为空
+- **THEN** 按钮禁用，title 显示「请先编辑或重新生成视频优化词，再生成 AI 视频」
 
 #### Scenario: 预览弹窗尺寸与媒体类型
 - **WHEN** 用户打开缩略图预览
