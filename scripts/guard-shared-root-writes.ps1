@@ -66,6 +66,19 @@ function Test-TrackedFile([string]$relative) {
     return ($out.Count -eq 1 -and $out[0] -match '^100(644|755|120000)\s')
 }
 
+function Test-MatchesIndex([string]$relative, [string]$full) {
+    # 内容与 index（=HEAD，clean 树）一致则放行。
+    # 修复隔离风暴：restore/checkout 重写同一文件会再次触发事件，
+    # 仅靠 ignoreUntil(3s) 无法覆盖延迟事件，导致隔离->恢复->再隔离自持循环。
+    $stage = @(Git @('ls-files','--stage','--',$relative) 2>$null)
+    if ($stage.Count -ne 1 -or $stage[0] -notmatch '^100(644|755|120000)\s([0-9a-f]{40})\s') { return $false }
+    $indexHash = $Matches[2]
+    $diskHash = @(Git @('hash-object','--no-filters','--path',$relative,'--',$full) 2>$null)
+    if ($diskHash.Count -ge 1 -and $diskHash[0].Trim() -eq $indexHash) { return $true }
+    $filteredHash = @(Git @('hash-object','--path',$relative,'--',$full) 2>$null)
+    return ($filteredHash.Count -ge 1 -and $filteredHash[0].Trim() -eq $indexHash)
+}
+
 function Test-GitIgnored([string]$relative) {
     $null = Git @('check-ignore','-q','--',$relative) 2>$null
     return $LASTEXITCODE -eq 0
@@ -123,6 +136,7 @@ function Invoke-GuardPath([string]$Path) {
     $tracked = Test-TrackedFile $relative
     if (-not $exists -and -not $tracked) { return $result }
     if (-not $tracked -and (Test-GitIgnored $relative)) { return $result }
+    if ($exists -and $tracked -and (Test-MatchesIndex $relative $full)) { return $result }
 
     if (-not $exists) {
         if ($tracked) {
