@@ -31,7 +31,9 @@
 | 打开结果 | Open result | history.openResult |
 | 故事讲述 | Story Telling | `story2video-compose` |
 | 启动流水线 | Start pipeline | — |
-| 后台运行 | Run in background | create.story2video.backgroundRunToast / create.story2video.backgroundResumeToast |
+| 启动即前台跟踪 | Start & foreground tracking | create.story2video.startForegroundToast |
+| 后台运行 | Run in background | create.story2video.backgroundResumeToast |
+| 已中断 | Interrupted | create.history.tabs.interrupted / create.history.statuses.interrupted / stageProgress.interruptedStage / stageProgress.interruptedHint |
 | 口播视频 | Talking Head | `talking-head` |
 | 数字人口播 | Avatar Spokesperson | `avatar-spokesperson` |
 | 旁白 | Narration | — |

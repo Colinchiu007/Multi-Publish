@@ -60,7 +60,7 @@ Multi-Publish 现有系统（发布侧）
 | 合成 | 已接入 | Electron + ffmpeg；支持按场景多页定时字幕、图片动效、转场、BGM、水印和输出校验 |
 | 模板 | 已接入 | 7 个模板预设和自定义模板库；CreateView 可将预设映射到运行参数（不等同于 7 个 Remotion Composition） |
 | 发布 | 已接入 | 未选择平台时阶段状态为 `skipped`，流水线进度显示「未选发布，跳过」，不得显示「已完成」；开启发布但缺 router/凭据时失败，不报告假成功 |
-| 结果交付/ZIP | 已接入 | 流水线执行完成（含自动后台模式）自动跳转视频预览/结果页；本地播放 URL 由主进程生成，可下载、复制路径、打开目录，并以流式 ZIP 导出 |
+| 结果交付/ZIP | 已接入 | 流水线执行完成（前台跟踪或离开页面转后台模式）自动跳转视频预览/结果页；本地播放 URL 由主进程生成，可下载、复制路径、打开目录，并以流式 ZIP 导出 |
 | 本地项目历史 | 已接入 | 完成项目按用户隔离持久化，最多保留 100 项；重启后可恢复成片和分段媒体。失败运行断点续作与云历史不在本地合同内 |
 | 分段项目编辑 | 已接入 | 结果页支持编辑、排序、删除、替换旁白、图片/视频重试和重新合成；不再把旧项目 `batch` 编辑器列为缺失 |
 | 旁白与转录 | 已接入（TTS） | text 标准模式由配置的 TTS Provider 生成逐段旁白并交付完整旁白；上传音频和手动 STT 不属于该模式 |
@@ -130,6 +130,7 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 | 日期 | 范围 | 核心内容 | 主文档 |
 |------|------|----------|--------|
+| 2026-08-21 | 流水线启动前台跟踪 + 独立历史页「已中断」对齐 | 启动流水线后创作页实时轮询展示阶段进度；离开页面自动转后台运行、仅历史可见；重新进入创作页回到全新新建状态（并发门禁不变）。启动/续跑前台语义统一，移除旧「启动即后台」监听机器。独立历史页 CreateHistory.vue 同步「已中断」标签、stale running 规则与紫色样式。详见本节 3.1.35 | PRD 3.1.35 / S2V-PIPELINE-PAGE-UX §5 |
 | 2026-08-21 | 发布跳过状态与完成跳转修复 | 未选择任何发布平台时，发布阶段以 `skipped` 收尾（不再误标 `completed`），流水线进度显示「未选发布，跳过」，完成态进度仍为 100%；自动后台运行的任务在创作页仍监听终态，执行完成后自动跳转视频预览/结果页（恢复「完成即跳转」）。回归覆盖引擎快照/进度、StageProgress skipped 渲染、历史卡片阶段状态与结果页跳转 | PRD-video-creation §1.6 / OpenSpec s2v-publish-skip-jump |
 | 2026-08-20 | 历史状态语义修订：新增「已中断」状态 | 运行残留 running 快照（应用退出/崩溃/强杀）与 stale-running（>30 分钟无更新）归一化为「已中断（interrupted）」，不再误归「已暂停」；「已暂停」仅保留用户手动暂停与 scene_asset_selection 检查点；run-only 失败记录用快照 params 回填标题与原文案（卡片不再显示流水线名 +「未生成」）；筛选器 7 标签、↯ 图标、紫色系色条/徽章、中断环节提示。详见本节 3.1.34 | PRD 3.1.34 / S2V-PIPELINE-PAGE-UX §5 |
 | 2026-08-15 | 长成片合成超时与错误提示 | 下游 ffmpeg concat/xfade/旁白/BGM/WebM/输出校验预算按对应媒体时长动态缩放并设最小值/硬上限；execFile 的 killed + SIGTERM/ETIMEDOUT 归一为阶段超时；新增中英文合成超时、成片总时长和单段时长稳定通知键，错误只展示可操作建议。回归覆盖短片、50 分钟、非法时长、上限和实际阶段传参 | PRD §7.1.25a / 本节 3.1.4.2 / OpenSpec s2v-timeout-notifications |
@@ -3203,6 +3204,80 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 **八、废弃合同**
 
 3.1.11（running 快照→paused）、3.1.14（stale running→paused）、3.1.19（30 分钟无更新→paused）及 S2V-PIPELINE-PAGE-UX §5.1 第 4/5 项中与本节冲突的条款以本节为准（各节顶部已加废弃警示）。
+
+### 3.1.35 流水线启动前台跟踪与离开转后台生命周期（2026-08-21）
+
+**背景**：2026-08-19 的 s2v-pipeline-always-background 把「启动」定义为纯后台（创作页不展示阶段进度），2026-08-20 的断点续跑修复（PR #1072 / 3.1.33 相关）让历史「继续/从断点继续」恢复时回到创作页前台跟踪，形成「新启动无前台进度、续跑有前台进度」的不对称。用户确认目标模型：**启动流水线后在创作页实时轮询展示进度；离开页面后任务自动转后台运行，仅在历史记录可见；再次进入创作页回到全新新建状态，可在并发上限内再次启动。**
+
+**一、数据校验**
+
+| 数据 | 校验规则 | 失败处理 |
+|---|---|---|
+| runId | `startOrchestrationForeground(runId)` 仅接受非空字符串且 trim 后非空 | 返回 false，不改变当前运行态、不切换视图、不启动轮询 |
+| outcome 增强字段 | outcome.context/stages 仅作初始占位；阶段与上下文以 `updateOrchestrationStatus()` 首次全量拉取为准 | 缺失时用 `getDefaultPipelineStages()` 占位，轮询补齐，不依赖 start 返回值 |
+| 轮询竞态 | 三重守卫：`orchestrationRunId` 快照比对 + `orchestrationStatusRequestId` 单调递增 + `_s2vAlive` 组件存活 | 过期响应或卸载后响应一律丢弃，不写回状态、不触发结果页跳转 |
+| 并发占槽 | 主进程 `_assertConcurrencyBudget()` 仍是唯一权威判定；后台运行不释放槽位 | 超限照常返回 `PIPELINE_CONCURRENCY_LIMIT` 及 count/max 文案，前端不进入前台跟踪 |
+| locale | zh/en 成对：新增 `create.story2video.startForegroundToast`，修订 `backgroundResumeToast`；renderer 不新增硬编码中文 | CI locale-sync pair + CJK 基线拦截 |
+
+**二、流程**
+
+```
+用户点击「启动流水线」
+  -> pipelineStartOrchestrated 返回 runId（autoAdvance + background 主进程异步推进）
+  -> applyOrchestrationOutcome 处理同步完成/失败；outcome.paused 走素材选择检查点
+  -> 否则 startOrchestrationForeground(runId)：保留 runId，立即 updateOrchestrationStatus() 拉取全量快照
+  -> 3s 轮询 + pipeline:update 事件双向更新 StageProgress（runId 快照守卫）
+  -> 用户留在页面：完成态 applyOrchestrationOutcome 自动跳转 /create/result；失败/取消展示错误并停止轮询
+  -> 用户离开页面：beforeUnmount 停止轮询与事件订阅，run 继续在后台执行
+  -> 用户重新进入创作页：mounted 全新初始态，不重挂任何 run；历史记录 5s 轮询显示运行中进度
+```
+
+**三、功能逻辑**
+
+| 场景 | 行为 |
+|---|---|
+| 新启动（文案/视频/Story2Video 三条启动路径） | 前台跟踪：展示 StageProgress、running-controls（暂停/取消），启动按钮隐藏；toast 提示开始实时展示进度 |
+| 历史「继续/从断点继续」恢复 running | 沿用 openRunningPipeline 前台跟踪（语义与启动对齐），toast 提示断点继续并实时展示进度 |
+| scene_asset_selection 检查点 | 保持 paused，进入素材选择面板；不自动继续、不转后台 |
+| 前台完成 | applyOrchestrationOutcome 自动跳转结果页（带 activeMs/输出元数据） |
+| 前台失败/取消 | 停止轮询、展示错误、刷新历史 |
+| 离开页面 | 清轮询；主进程不受影响，run 仅历史可见；不弹结果页 |
+| 重新进入 | 全新新建初始态；并发上限允许时可再次启动（旧 run 未结束时由主进程并发门禁拦截） |
+
+**四、交互逻辑**
+
+1. 启动成功后进入前台跟踪：`stopPipelinePolling()` 只清旧轮询，**不得调用 `resetPipelineUiState()`**（否则 runId 被清空、进度无法挂载）。
+2. 首次 `updateOrchestrationStatus()` 失败或返回非 running 时同样展示错误/终态，不盲目启动轮询；轮询仅在组件存活（`_s2vAlive !== false`）、runId 未变、未进入 failed 终态时开启。
+3. `handlePipelinePush` 事件到达时更新阶段进度并重置 3s 轮询计时；事件与轮询双写由 runId 守卫防竞态。
+4. 卸载竞态：`updateOrchestrationStatus()` 与 `applyOrchestrationOutcome()` 均检查 `_s2vAlive`，组件已卸载时丢弃在飞响应，杜绝已卸载组件触发 `router.push`。
+5. 删除既有的纯后台机器（`runOrchestrationInBackground` / `startBackgroundCompletionWatch` / `checkBackgroundRunCompletion` / `s2vBackgroundTracking`），避免「启动后台观感」与「续跑前台观感」两套契约并存。
+6. 同一 `/create` 页面内切换顶部 tab（「历史记录」或「快速渲染」）与离开创作页具有相同生命周期效果：停止轮询与 `pipeline:update` 订阅，清理当前 renderer run 展示态，不调用取消 IPC；主进程任务继续执行并占用并发槽位。切回「流水线创作」只回到新建任务列表，不自动恢复之前的 run。
+7. 启动 IPC 是异步请求。切 tab、切换流水线、取消或重置时递增 `orchestrationStartRequestId`；IPC 返回后必须验证请求代际仍有效且当前视图仍为「流水线创作」，否则丢弃响应，禁止旧 runId 重新挂载、重新开启轮询或弹出过期错误。
+
+**五、显示项与提示文字**
+
+| 元素 | 位置 | 内容/样式 |
+|---|---|---|
+| 启动 toast | 创作页 action-bar | zh：「流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。」 en：`Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page and remains visible in History (still occupies a run slot).`（locale `create.story2video.startForegroundToast`） |
+| 续跑 toast | 创作页 action-bar | zh：「流水线已从断点继续，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看。」（locale `create.story2video.backgroundResumeToast` 修订） |
+| 运行控制 | running-controls | 暂停（⏸）/取消（✕）保持在运行态可用；启动/批量/恢复默认选项入口隐藏 |
+| 独立历史页 | CreateHistory.vue | interrupted 状态标签「已中断」（紫色 #6d28d9）、卡片路由 `/create`、stale running 与主历史页同规则（30 分钟阈值）归入 interrupted；中断提示复用 locale `stageProgress.interruptedStage/interruptedHint` |
+
+**六、回归保护**
+
+- CreateView.test.js：启动即前台跟踪（runId 保留、GET 运行态被调用、轮询开启、toast 文案、不调用 cancel、启动按钮隐藏）；runId 快照守卫（切换 run 后旧响应不写回）；完成自动跳结果页；卸载后终态不跳转；离开页面停轮询且保留 runId；重进为全新初始态。
+- CreateView.test.js：同页 tab 脱离不取消后台 run、清理展示态并在切回时保持新建初始态；启动响应延迟期间切 tab 后旧响应被代际令牌丢弃。
+- CreateHistory.test.js：statusLabel interrupted；stale running → interrupted（30 分钟阈值一致、暂停环节推导）。
+- locale 成对与 CJK 基线：zh/en 同步新增/修订 key；行号位移场景按脚本文档显式 `--update-baseline`。
+
+**七、相关文件**
+
+- 前端：apps/desktop/src/views/CreateView.vue（startOrchestrationForeground、卸载守卫、移除后台监听）、apps/desktop/src/views/CreateHistory.vue（interrupted 标签/路由/stale 规则）、apps/desktop/src/styles/history-page.css（紫色系）。
+- 文案：apps/desktop/src/locales/zh.js + en.js（startForegroundToast 新增、backgroundResumeToast 修订、backgroundRunToast 删除）。
+
+**八、废弃合同**
+
+总 PRD「视频创作流水线启动即后台运行 §3a」与 OpenSpec s2v-pipeline-always-background 中「启动成功后 renderer 立即停止轮询、恢复初始态、仅历史观察」的条款废弃；「离开页面转后台、重进初始态、并发占槽、检查点例外」维持。以本节为准。
 
 
 

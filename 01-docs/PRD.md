@@ -4559,9 +4559,9 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 流水线启动后应在后台持续运行：用户返回流水线列表或切换模块不影响执行；历史记录可查看运行中未完成的任务及其实时流程状态；同一应用支持多个流水线并行，但设上限防止资源过载。
 
 ### 1. 后台运行（已具备，本次固化合同）
-- **启动即后台**：`pipeline:startOrchestrated` 传 `autoAdvance: true, background: true` 时，主进程后台推进整条流水线并立即返回 `runId`；renderer 每 3s 轮询 `pipeline:getRunContext` 刷新阶段状态。
+- **启动即前台跟踪（2026-08-21 修订）**：`pipeline:startOrchestrated` 传 `autoAdvance: true, background: true` 时，主进程后台推进整条流水线并立即返回 `runId`；renderer 启动成功后立即以 3s 轮询 `pipeline:getRunContext` + `pipeline:update` 事件在创作页实时展示阶段进度；离开页面（beforeUnmount）才停止轮询，run 继续后台执行。
 - **页面无关性**：运行绑定在主进程 `PipelineEngine._runs`（runId 驱动），不依赖任何页面/组件生命周期。CreateView `beforeUnmount` 仅清理轮询 timer 与时钟，**不取消 run**。
-- **返回恢复查看**：CreateView `mounted` 调用 `resumeRunningOrchestration()`——遍历候选流水线名，用 `pipeline:status` 找到 `status=running && orchestrationMode=orchestrator` 的运行并自动恢复阶段清单查看（含轮询）。renderer 重载/切页返回均适用。
+- **重新进入为初始态（2026-08-21 修订）**：CreateView `mounted` 不重挂、不自动恢复任何 run；每次进入创作页都是全新新建任务状态。后台运行中的任务仅在历史记录可见（历史页 5s 轮询刷新运行进度）。
 - **断点恢复**：失败 run 落 `RunStateStore` 快照，`pipeline:resumeOrchestration` 从失败阶段继续（并发槽位占用，见下）。
 - **运行中任务持久化（2026-08-09 新增）**：运行中编排 run 阶段级落盘 running 快照（`saveRunning`）+ 退出兜底 `saveRunningState()`；应用退出/强杀重启后，任务以「运行中」状态继续显示在历史记录并可「从断点继续」（见 7.1.21）。
 
@@ -4599,7 +4599,7 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 
 ### 3a. 前台/后台切换历史实现（2026-08-13，已废弃）
 
-> 本节仅保留历史决策和迁移背景，不是现行交互合同。2026-08-19 起，现行规则以 §3a.1 为准：运行中的编排流水线启动或续跑即自动后台运行，用户不再点击【后台运行】。
+> 本节仅保留历史决策和迁移背景，不是现行交互合同。2026-08-19 起的“启动即后台”方案已被后续前台跟踪方案替代；当前唯一权威合同见 §3a.2。
 
 **需求**：运行流水线状态下，在【取消】按钮旁增加【后台运行】按钮。点击后当前流水线在后台继续运行，前端流水线详情恢复初始化状态（重新显示【启动流水线】），用户可再次启动流水线（受 §3 并发上限约束）。
 
@@ -4637,7 +4637,9 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - 前端单测：运行中+runId 显示按钮；idle / paused / 无 runId 不显示；点击后 `pipelineCancel` 未被调用、状态恢复初始化、启动按钮重新出现、toast 显示；在飞轮询过期响应不写回；检查点等待态点击无效；取消路径回归（`pipelineCancel` 仍被调用）。
 - 交互验收（人工）：启动流水线 → 点击【后台运行】→ 详情恢复初始化 → 历史记录可见运行中任务 → 点击卡片重挂恢复进度 → 并发满时启动新流水线弹并发提示（既有文案）。
 
-### 3a.1 现行合同：视频创作流水线启动前台跟踪与防重复启动（2026-08-21 修订）
+### 3a.1 历史中间合同：视频创作流水线启动前台跟踪与防重复启动（2026-08-21，已废弃）
+
+> 本节是 2026-08-21 短暂采用的中间版本，仅用于解释变更背景和兼容测试，不得作为当前实现依据。它把“启动前台跟踪”与“续跑留在历史后台”混在一起，已被 §3a.2 的统一生命周期合同替代。当前唯一权威规则是：启动/续跑均在创作页前台跟踪，离开页面才转后台，重新进入创作页回到新建初始态。
 
 **产品原则**：点击【启动流水线】后，编排 run 挂回当前视图实时展示阶段进度（阶段清单/当前阶段/进度/暂停/取消），用户在创作页即可看到整条流水线运行状态，不再启动即脱离到后台。主进程保持 autoAdvance + background 无损推进（IPC 不阻塞、关闭窗口不打断）；【后台运行】按钮不显示，脱离或查看历史走历史记录与断点续跑。
 
@@ -4675,6 +4677,48 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - CreateViewHistory 测试覆盖 running 卡片后台提示、阶段进度、状态过滤和继续按钮事件。
 - 主进程 pipeline-engine 与 resume-orchestration 测试继续证明异步推进、持久化快照、幂等 alreadyRunning 和并发槽位不回归。
 - 人工验收覆盖：启动后继续编辑另一条任务；历史卡片可见并实时刷新；从断点继续不抢占创作页；素材选择暂停可进入面板；并发达到上限提示实际 N/M。
+> ⚠️ **2026-08-21 合同修订**：本节「启动即后台、renderer 停止轮询、恢复初始态、续跑留在历史」整体废弃，以 §3a.2 为准。
+
+### 3a.2 现行合同：启动前台跟踪 + 离开转后台 + 重进初始态（2026-08-21）
+
+**产品原则**：视频创作编排流水线启动成功后，创作页即成为该任务的「前台跟踪页」——实时展示阶段进度、暂停/取消控制，并在完成时自动跳转结果页；用户离开页面后任务自动转后台运行，仅在历史记录可见；再次进入创作页回到全新新建状态。启动与历史续跑前台语义统一。
+
+**启动流程与数据校验**
+1. 用户点击【启动流水线】后，renderer 依次校验登录状态、流水线可用性、输入模式、文案 Unicode 字符数、媒体路径、模型/音色能力和版本化配置（同 3a.1 第 1 步）。
+2. IPC 启动响应必须同时满足 code=0、success 不为 false、runId 是 trim 后的非空字符串；任何条件不满足都进入现有错误弹窗，不清空其他运行态，不进入前台跟踪。
+3. 启动成功后等待选项快照保存完成，再调用 `startOrchestrationForeground(runId, pipelineName, outcome)`：helper 只接收字符串 runId；先 `stopPipelinePolling()` 清旧轮询，**不得调用 `resetPipelineUiState()`**；保留 runId、立即 `updateOrchestrationStatus()` 拉取全量运行快照，然后开启 3s 轮询。
+4. outcome 的 context/stages 仅为可选初始占位，阶段数据以 `updateOrchestrationStatus()` 首次全量拉取为准；缺失时用默认阶段列表占位。
+5. 自动前台不得调用 pipelineCancel、不得删除运行快照、不得修改主进程并发计数；run 继续在 Electron 主进程推进，仍占用 maxConcurrentRuns 槽位。
+
+**离开、重进与轮询生命周期**
+- 离开页面：`beforeUnmount` 清空 3s 轮询与 `pipeline:update` 事件订阅，run 继续后台执行；不弹结果页跳转。历史记录（创作页内嵌 / 独立历史页）每 5s 轮询刷新运行中任务进度。
+- 同一 `/create` 页面切换到「历史记录」或「快速渲染」tab，视为主动脱离流水线前台跟踪：立即停止 renderer 轮询与实时事件订阅，清理当前页面的 run 展示态并回到对应 tab；不得调用 `pipelineCancel`，主进程 run 继续后台执行并占用并发槽位。切回「流水线创作」tab 时只显示全新的新建列表，不自动重挂刚才的 run。
+- 重新进入：`mounted` 不恢复、不重挂任何 run，始终全新新建任务状态；并发门禁允许时可再次启动（超限由主进程 `PIPELINE_CONCURRENCY_LIMIT` 拦截）。
+- 卸载竞态守卫：`updateOrchestrationStatus()` 与 `applyOrchestrationOutcome()` 均在 `_s2vAlive === false` 时丢弃在飞响应，禁止已卸载组件写状态或触发 `router.push`。
+- 启动响应竞态守卫：启动 IPC 返回前若用户切换 tab、切换流水线、取消或重置页面，必须递增启动请求代际令牌；返回的 runId 仅在代际仍一致且当前仍处于「流水线创作」tab 时挂回，过期响应不得恢复 run、开启轮询、写入错误或触发跳转。
+- 轮询快照守卫：每次请求使用发起时 runId，响应返回后若当前 runId 已变化/清空或请求序号过期则丢弃（不写回阶段、上下文、错误或结果页跳转）。
+
+**历史任务卡片与续跑流程**
+- 历史列表 running 卡片展示状态圆点/状态/阶段色块/当前阶段/更新时间/创建时间/任务 ID 与「仍占用并发名额」提示；存在 running 时每 5 秒刷新。
+- 点击运行中任务【继续】【继续生成】或 failed/paused/interrupted 的【从断点继续】时，校验恢复响应 code=0、success=true、runId 非空。
+- 恢复结果进入 running 时，`openRunningPipeline` 前台跟踪（语义与启动一致，不再切到后台仅历史观察）；`alreadyRunning=true` 幂等确认，不重复创建 run。
+- 恢复结果 paused=true 且 checkpoint 为 scene_asset_selection：进入创作页素材选择面板（等用户输入，不得当作 running，不得自动推进 compose）。
+
+**显示项与提示文字**
+| 场景 | 中文 | English |
+|------|------|---------|
+| 启动前台 toast | 流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。 | Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page and remains visible in History (still occupies a run slot). |
+| 断点续跑 toast | 流水线已从断点继续，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看。 | Pipeline resumed and is tracking progress live; it keeps running in the background after you leave this page and remains visible in History. |
+| 历史运行提示 | 任务正在后台运行（仍占用并发名额），可查看实时阶段进度。 | This task is running in the background (still occupies a run slot). View its live stage progress here. |
+| 独立历史页“已中断” | 已中断 / 中断环节（应用退出/崩溃残留或 stale >30 分钟），紫色标签 | Interrupted / Interrupted stage (app exit/crash residue or stale >30 min), purple badge |
+| 并发超限 | 当前已有 N 条流水线正在后台运行，最多同时运行 M 条，请等待其中一条完成后再启动。 | Use the existing localized concurrency-limit mapping with actual N/M. |
+
+**验收与测试**
+- CreateView 测试：三条编排启动入口前台跟踪（保留 runId、GET 运行态、轮询、toast、启动按钮隐藏、不调用取消）；runId 快照守卫（切换 run 后旧响应不写回）；完成自动跳结果页；组件卸载后终态不跳转；离开页面停轮询且保留 runId；重进为全新初始态。
+- CreateView tab 测试：切换到历史记录/快速渲染停止轮询、清理页面展示态且不取消后台 run；切回流水线创作保持新建初始态；启动 IPC 在途时切 tab，旧响应不得重新挂回 run。
+- CreateHistory 测试：statusLabel interrupted；stale running（>30 分钟）归入 interrupted。
+- 主进程 pipeline-engine / resume-orchestration：异步推进、持久化快照、幂等 alreadyRunning、并发槽位不回归。
+- locale/CJK：zh/en 成对（startForegroundToast 新增、backgroundResumeToast 修订、backgroundRunToast 删除）；渲染端不新增硬编码中文。
 
 ### 4. 验收标准
 - 引擎单测：`getHistory` 含运行中且无重复；上限 2 拒绝第 3 条；注入 1 时第 2 条拒绝、取消后释放；`resumeOrchestration` 超限拒绝；`computeDefaultMaxConcurrentRuns` 覆盖 1/2/3/4 资源档位与注入覆盖。

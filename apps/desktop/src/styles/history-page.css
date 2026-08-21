@@ -242,6 +242,7 @@
 .pipeline-card.failed { border-left-color: var(--apple-error); }
 .pipeline-card.cancelled { border-left-color: var(--apple-ink-tertiary); }
 .pipeline-card.paused { border-left-color: var(--apple-warning); }
+.pipeline-card.interrupted { border-left-color: var(--status-interrupted-text, #6d28d9); }
 .pipeline-card.completed { border-left-color: var(--apple-success); }
 
 .pipeline-info {
@@ -262,6 +263,7 @@
 .pipeline-status-dot.failed { background: var(--apple-error); }
 .pipeline-status-dot.cancelled { background: var(--apple-ink-tertiary); }
 .pipeline-status-dot.paused { background: var(--apple-warning); }
+.pipeline-status-dot.interrupted { background: var(--status-interrupted-text, #6d28d9); }
 .pipeline-status-dot.running {
   background: var(--apple-accent);
   animation: pulse-dot 1.5s ease-in-out infinite;
@@ -299,6 +301,7 @@
 .pipeline-status.failed { background: var(--apple-error-bg); color: var(--apple-error); }
 .pipeline-status.cancelled { background: var(--apple-surface-tertiary); color: var(--apple-ink-tertiary); }
 .pipeline-status.paused { background: var(--apple-warning-bg); color: var(--apple-warning); }
+.pipeline-status.interrupted { background: rgba(124, 58, 237, 0.1); color: var(--status-interrupted-text, #6d28d9); }
 .pipeline-status.running { background: var(--apple-info-bg); color: var(--apple-accent); }
 
 /* --- Pipeline Progress --- */
@@ -384,6 +387,10 @@
   border-radius: var(--apple-radius-sm);
   white-space: nowrap;
   font-weight: var(--apple-weight-medium);
+}
+.history-interrupted-hint {
+  color: var(--status-interrupted-text, #6d28d9);
+  background: rgba(124, 58, 237, 0.06);
 }
 
 /* --- Spinner --- */

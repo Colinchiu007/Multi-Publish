@@ -21,9 +21,9 @@
 
     <!-- 视图切换 -->
     <div class="view-tabs">
-      <button :class="['view-tab', { active: view === 'pipelines' }]" @click="view = 'pipelines'; pushViewState({ view: 'pipelines' })">流水线创作</button>
-      <button :class="['view-tab', { active: view === 'quick' }]" @click="view = 'quick'; pushViewState({ view: 'quick' })">快速渲染</button>
-      <button :class="['view-tab', { active: view === 'history' }]" @click="view = 'history'; loadHistory(); pushViewState({ view: 'history' })">历史记录</button>
+      <button :class="['view-tab', { active: view === 'pipelines' }]" @click="switchView('pipelines')">流水线创作</button>
+      <button :class="['view-tab', { active: view === 'quick' }]" @click="switchView('quick')">快速渲染</button>
+      <button :class="['view-tab', { active: view === 'history' }]" @click="switchView('history')">历史记录</button>
     </div>
 
     <!-- ==================== 流水线启动页（流水线创作） ==================== -->
@@ -41,7 +41,7 @@
 
       <!-- 流水线启动页：配置与执行 -->
       <div v-else class="pipeline-detail">
-        <button class="back-btn" @click="selectedPipeline = null; view = 'history'; loadHistory()">← 返回</button>
+        <button class="back-btn" @click="goToHistory()">← 返回</button>
 
         <div class="detail-header">
           <h2>{{ pipelineName(selectedPipeline.name) }}</h2>
@@ -1561,8 +1561,8 @@ export default {
         platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
-      // 后台运行完成监听（2026-08-21）：run 在后台执行但仍在创作页跟踪终态，完成后自动跳转结果页
-      s2vBackgroundTracking: false,
+      // 启动请求代际：切换 tab、流水线或取消时使在途 IPC 响应失效，避免旧响应重新挂回创作页。
+      orchestrationStartRequestId: 0,
       // 分镜素材自选（2026-08-12）：scene_asset_selection 检查点激活与候选
       sceneAssetSelectionActive: false, sceneAssetCandidates: [], sceneAssetSelectionError: '', sceneAssetConfirming: false,
       // 等待态 UX（2026-08-13）：首次激活自动定位/高亮一次性标记 + 面板注意力高亮
@@ -2022,6 +2022,7 @@ export default {
     // 「返回」跳 /create?view=history 与直接输入地址时同步历史记录视图（2026-08-16 术语统一）
     '$route.query.view'(value) {
       if (value === 'history' && this.view !== 'history') {
+        this.detachPipelineView('history')
         this.view = 'history'
         this.loadHistory()
       }
@@ -2049,9 +2050,24 @@ export default {
     goForward() { if (this.viewHistoryIndex < this.viewHistory.length - 1) { this.viewHistoryIndex++; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
     applyViewState(state) {
       if (!state) return;
+      this.detachPipelineView(state.view)
       if (state.view) this.view = state.view;
       if (state.selectedPipeline !== undefined) this.selectedPipeline = state.selectedPipeline;
       if (state.view === 'history') this.loadHistory();
+    },
+    // 离开流水线创作视图只脱离 renderer 跟踪，不取消主进程 run；重新进入时回到新建列表。
+    detachPipelineView(nextView) {
+      if (this.view !== 'pipelines' || nextView === 'pipelines') return
+      this.resetPipelineUiState()
+      this.selectedPipeline = null
+      this.s2vOptionsToast = ''
+    },
+    switchView(nextView) {
+      if (!['pipelines', 'quick', 'history'].includes(nextView)) return
+      this.detachPipelineView(nextView)
+      this.view = nextView
+      if (nextView === 'history') this.loadHistory()
+      this.pushViewState({ view: nextView })
     },
     pushViewState(state) {
       this.viewHistory = this.viewHistory.slice(0, this.viewHistoryIndex + 1);
@@ -2059,7 +2075,7 @@ export default {
       this.viewHistoryIndex = this.viewHistory.length - 1;
     },
     // 返回历史记录页
-    goToHistory() { this.selectedPipeline = null; this.view = 'history'; this.loadHistory(); this.pushViewState({ view: 'history' }); },
+    goToHistory() { this.detachPipelineView('history'); this.selectedPipeline = null; this.view = 'history'; this.loadHistory(); this.pushViewState({ view: 'history' }); },
     translateWithLocaleFallback(key, zhFallback, enFallback, params) {
       const translated = typeof this.$t === 'function' ? this.$t(key, params) : key
       if (typeof translated === 'string' && translated !== key) return translated
@@ -2163,6 +2179,7 @@ export default {
         return
       }
       this.stopPipelinePolling()
+      this.orchestrationStartRequestId += 1
       this.selectedPipeline = p
       this.startingPipeline = false
       this.pipelineRunStatus = null
@@ -2241,6 +2258,7 @@ export default {
       // （运行/暂停/检查点）时同样拒绝，兜底 canStartPipeline 的按钮禁用与连点竞态。
       if (this.startingPipeline) return
       if (this.isOrchestratedPipeline(this.selectedPipeline?.name) && this.orchestrationRunId) return
+      const startRequestId = ++this.orchestrationStartRequestId
       this.startingPipeline = true
       try {
         // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
@@ -2253,7 +2271,7 @@ export default {
           return
         }
         if (this.isAutoPipeline(this.selectedPipeline.name) || this.isMediaAutoPipeline(this.selectedPipeline.name)) {
-          await this.startOrchestratedPipeline()
+          await this.startOrchestratedPipeline(startRequestId)
           return
         }
         const params = {
@@ -2274,7 +2292,7 @@ export default {
         this.startingPipeline = false
       }
     },
-    async startExplainerPipeline() {
+    async startExplainerPipeline(startRequestId = this.orchestrationStartRequestId) {
       try {
         const text = this.pipelineText.trim()
         if (!text) {
@@ -2296,22 +2314,24 @@ export default {
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
         if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId.trim()
           await this.saveS2VLastOptions()
+          if (!this.isCurrentOrchestrationStart(startRequestId)) return
           if (this.applyOrchestrationOutcome(outcome)) return
           if (outcome.paused === true) {
             await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
           } else {
-            // 恢复旧流程（2026-08-21）：启动后 run 挂回当前视图实时展示阶段进度，不再脱离到后台
-            await this.openRunningPipeline(outcome.runId, this.selectedPipeline.name, '')
+            await this.startOrchestrationForeground(outcome.runId, this.selectedPipeline.name, outcome)
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
-    async startMediaPipeline() {
+    async startMediaPipeline(startRequestId = this.orchestrationStartRequestId) {
       try {
         const videoPath = this.pipelineVideo?.path
         if (!videoPath) {
@@ -2328,18 +2348,20 @@ export default {
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
         if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId.trim()
           await this.saveS2VLastOptions()
+          if (!this.isCurrentOrchestrationStart(startRequestId)) return
           if (this.applyOrchestrationOutcome(outcome)) return
           if (outcome.paused === true) {
             await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
           } else {
-            // 恢复旧流程（2026-08-21）：启动后 run 挂回当前视图实时展示阶段进度，不再脱离到后台
-            await this.openRunningPipeline(outcome.runId, this.selectedPipeline.name, '')
+            await this.startOrchestrationForeground(outcome.runId, this.selectedPipeline.name, outcome)
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
@@ -2536,12 +2558,12 @@ export default {
         try { await storeSetSetting('story2video.lastOptions.v1', null) } catch { /* 清理失败可忽略 */ }
       } finally { this.s2vRestoring = false }
     },
-    async startOrchestratedPipeline() {
+    async startOrchestratedPipeline(startRequestId = this.orchestrationStartRequestId) {
       if (this.selectedPipeline.name !== 'story2video-compose' && this.isAutoPipeline(this.selectedPipeline.name)) {
-        return this.startExplainerPipeline()
+        return this.startExplainerPipeline(startRequestId)
       }
       if (this.isMediaAutoPipeline(this.selectedPipeline.name)) {
-        return this.startMediaPipeline()
+        return this.startMediaPipeline(startRequestId)
       }
       try {
         if (this.inputMode !== 'text') {
@@ -2571,18 +2593,20 @@ export default {
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
         if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId.trim()
           await this.saveS2VLastOptions()
+          if (!this.isCurrentOrchestrationStart(startRequestId)) return
           if (this.applyOrchestrationOutcome(outcome)) return
           if (outcome.paused === true) {
             await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
           } else {
-            // 恢复旧流程（2026-08-21）：启动后 run 挂回当前视图实时展示阶段进度，不再脱离到后台
-            await this.openRunningPipeline(outcome.runId, this.selectedPipeline.name, '')
+            await this.startOrchestrationForeground(outcome.runId, this.selectedPipeline.name, outcome)
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
@@ -3635,6 +3659,9 @@ export default {
         this.pipelineRunStatus = { status: 'failed', progress: this.pipelineRunStatus?.progress || 0, stages: this.pipelineRunStatus?.stages || this.orchestrationStages }
       }
     },
+    isCurrentOrchestrationStart(requestId) {
+      return requestId === this.orchestrationStartRequestId && this._s2vAlive !== false && this.view === 'pipelines'
+    },
     async updateOrchestrationStatus() {
       if (!this.orchestrationRunId) return
       // runId 快照守卫（2026-08-13，后台运行审查 Critical 1）：detach/取消/切换 run 后，
@@ -3644,6 +3671,8 @@ export default {
       try {
         const statusResult = await pipelineGetRunContext(runId)
         if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return
+        // 组件已卸载（离开页面/路由切换）时丢弃在飞响应，主进程 run 不受影响
+        if (this._s2vAlive === false) return
         if (statusResult?.code !== 0) {
           this.setOrchestrationError({ code: statusResult?.code, error: statusResult?.message })
           return
@@ -3758,6 +3787,8 @@ export default {
         smokeReport?.videoPath || smokeReport?.path || null
     },
     applyOrchestrationOutcome(outcome) {
+      // 卸载后残留响应不得写状态或触发跳转（2026-08-21 unmount 竞态守卫）
+      if (this._s2vAlive === false) return false
       if (Array.isArray(outcome?.stages)) this.orchestrationStages = outcome.stages
       if (outcome?.context) this.orchestrationContext = outcome.context
       // 检查点确认/单步执行返回的终态 activeMs 优先于轮询缓存，避免结果页时长偏短（W2 审查闭环）
@@ -3785,7 +3816,6 @@ export default {
       this.pipelineRunStatus = { status: 'completed', progress: 100, stages: this.orchestrationStages }
       this.needsCheckpoint = false
       this.orchestrationRunId = null
-      this.s2vBackgroundTracking = false
       if (!videoPath) {
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PREVIEW_MISSING })
         return true
@@ -3822,61 +3852,12 @@ export default {
         this.pollTimer = null
       }
     },
-    // 后台运行完成监听（2026-08-21）：不把 run 挂回可见进度，仅监听终态；
-    // 完成后自动跳转结果页，失败/取消则停止监听并刷新历史。
-    startBackgroundCompletionWatch() {
-      if (!this.orchestrationRunId || !this.s2vBackgroundTracking || this._s2vAlive === false) return
-      this.stopPipelinePolling()
-      this.pollTimer = setInterval(() => this.checkBackgroundRunCompletion(), 3000)
-    },
-    async checkBackgroundRunCompletion() {
-      const runId = this.orchestrationRunId
-      if (!runId || !this.s2vBackgroundTracking) return false
-      const requestId = ++this.orchestrationStatusRequestId
-      try {
-        const statusResult = await pipelineGetRunContext(runId)
-        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId || !this.s2vBackgroundTracking) return false
-        if (statusResult?.code !== 0 || !statusResult.data) return false
-        const status = statusResult.data.status && statusResult.data.status.status
-        // 结果页时长等元数据：与 updateOrchestrationStatus 同口径透传，避免后台完成跳转丢失 activeMs
-        this.story2videoRunMeta = {
-          createdAt: statusResult.data.createdAt || null,
-          endedAt: statusResult.data.endedAt || null,
-          outputSizeBytes: statusResult.data.outputSizeBytes || null,
-          activeMs: Number.isFinite(Number(statusResult.data.activeMs)) ? Number(statusResult.data.activeMs) : null,
-          activeSegmentStartedAt: statusResult.data.activeSegmentStartedAt || null,
-        }
-        if (status === 'completed') {
-          return this.applyOrchestrationOutcome({
-            success: true,
-            completed: true,
-            context: statusResult.data.context,
-            error: statusResult.data.error || (statusResult.data.status && statusResult.data.status.error),
-          })
-        }
-        if (status === 'failed' || status === 'cancelled') {
-          this.stopPipelinePolling()
-          this.s2vBackgroundTracking = false
-          this.orchestrationRunId = null
-          await this.loadHistory()
-          return false
-        }
-      } catch (_error) {
-        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return false
-      }
-      return false
-    },
     // 实时推送事件处理（openspec pipeline-progress-real-time-push）：
     // 事件 payload 为轻量快照（progressOnly，不含 context）——只更新阶段进度/状态与 run 级 progress，
     // 不覆盖完整 context（轮询 getRunContext 全量快照为准，避免事件与轮询竞态回退）。
     handlePipelinePush(snapshot) {
       if (!snapshot || !snapshot.runId) return
-      if (this.orchestrationRunId && snapshot.runId !== this.orchestrationRunId) return
-      // 后台运行（2026-08-21）：不重写可见运行态，仅用终态事件驱动完成监听跳转
-      if (this.s2vBackgroundTracking) {
-        if (snapshot.status && snapshot.status.status === 'completed') void this.checkBackgroundRunCompletion()
-        return
-      }
+      if (!this.orchestrationRunId || snapshot.runId !== this.orchestrationRunId) return
       if (Array.isArray(snapshot.stages) && snapshot.stages.length > 0) {
         this.orchestrationStages = snapshot.stages
       }
@@ -3931,10 +3912,10 @@ export default {
     },
     // 运行态 UI 重置（取消/自动后台共用）：仅清理前端轮询与展示状态，不执行引擎操作。
     resetPipelineUiState() {
+      this.orchestrationStartRequestId += 1
       this.stopPipelinePolling()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
-      this.s2vBackgroundTracking = false
       this.startingPipeline = false
       this.dismissedProviderWarnings = false
       this.orchestrationResultPath = null
@@ -3950,16 +3931,13 @@ export default {
       this.resetPipelineUiState()
     },
     // 后台恢复/继续一个 run：切到流水线视图并实时跟踪进度（不重置 runId）。
-    // 与 runOrchestrationInBackground 不同——后者用于"首次后台生成"：创作页保持初始态、主进程后台执行，
     // run 完成后自动跳转结果页；断点恢复是用户显式继续动作，跳到流水线页并持续拉取运行态。
-    // 2026-08-21 回归修复："启动流水线"成功路径也走此函数——run 挂回当前视图实时展示阶段进度，
-    // 恢复旧流程；runOrchestrationInBackground 仅保留作历史记录/未来后台场景的备用入口。
+    // 历史记录中的运行任务由用户显式重新挂回创作页，继续实时查看或断点续跑。
     async openRunningPipeline(runId, pipelineName, toastKey = 'create.story2video.backgroundResumeToast') {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false
       // 只停止已有轮询，不得调用 resetPipelineUiState（会把 orchestrationRunId 清成 null）
       this.stopPipelinePolling()
-      this.s2vBackgroundTracking = false
       this.orchestrationRunId = normalizedRunId
       this.orchestrationResultPath = null
       this.orchestrationError = ''
@@ -3979,27 +3957,47 @@ export default {
       }
       return true
     },
-    async runOrchestrationInBackground(runId, toastKey = 'create.story2video.backgroundRunToast') {
+    // 启动即前台跟踪（2026-08-21 交互修订）：启动成功后与断点续跑同口径，在创作页
+    // 实时轮询展示阶段进度；离开页面时 beforeUnmount 停止轮询，主进程 run 继续后台执行，
+    // 仅历史记录可见；重新进入创作页回到全新新建初始态（mounted 不重挂任何 run）。
+    async startOrchestrationForeground(runId, pipelineName, outcome = {}) {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false
-      this.resetPipelineUiState()
-      // 后台运行仍保留完成监听：主进程继续执行、创作页不阻塞，run 完成后自动跳转结果页。
+      // 只停止已有轮询，不得调用 resetPipelineUiState（会把 orchestrationRunId 清成 null）
+      this.stopPipelinePolling()
       this.orchestrationRunId = normalizedRunId
-      this.s2vBackgroundTracking = true
+      this.orchestrationResultPath = null
+      this.orchestrationError = ''
+      this.orchestrationContext = (outcome && typeof outcome === 'object' && outcome.context) ? outcome.context : null
+      // 每条新 run 都从干净的前端展示态开始；不影响主进程中已启动的任务。
+      this.needsCheckpoint = false
+      this.providerWarnings = []
+      this.dismissedProviderWarnings = false
+      this.story2videoRunMeta = null
+      this.sceneAssetSelectionActive = false
+      this.sceneAssetCandidates = []
+      this.sceneAssetSelectionError = ''
+      this.sceneAssetConfirming = false
+      this.dismissedBgmSkippedNotice = false
+      this.orchestrationStages = (outcome && Array.isArray(outcome.stages) && outcome.stages.length > 0)
+        ? outcome.stages
+        : this.getDefaultPipelineStages(pipelineName)
+      this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
+      this.view = 'pipelines'
       this.showS2VOptionsToast(
-        this.translateWithLocaleFallback(toastKey, 'backgroundRunToast', 'Pipeline is running in the background. Track progress in history.'),
-        3000
+        this.translateWithLocaleFallback('create.story2video.startForegroundToast', '流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。', 'Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page, remains visible in History (still occupies a run slot).'),
+        4000
       )
-      // 先武装完成监听再刷新历史，避免 loadHistory 异常使监听标志残留、完成后无法跳转
-      this.startBackgroundCompletionWatch()
-      await this.loadHistory()
+      await this.updateOrchestrationStatus()
+      if (this._s2vAlive !== false && this.orchestrationRunId && this.pipelineRunStatus?.status !== 'failed' && !this.pollTimer) {
+        this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+      }
       return true
     },
     async showOrchestrationCheckpoint(runId, pipelineName, outcome = {}) {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false
       this.orchestrationRunId = normalizedRunId
-      this.s2vBackgroundTracking = false
       this.orchestrationResultPath = null
       this.orchestrationError = ''
       this.orchestrationContext = outcome.context || null
@@ -4752,6 +4750,7 @@ export default {
     await this.loadMaxOutputResolution()
     // 路由直接进入历史记录视图（/create?view=history）
     if (this.$route?.query?.view === 'history') {
+      this.detachPipelineView('history')
       this.view = 'history'
       this.loadHistory()
     }
@@ -4771,7 +4770,7 @@ export default {
     this._s2vAlive = false
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this._settingsDialogUnwatch) { this._settingsDialogUnwatch(); this._settingsDialogUnwatch = null }
-    if (this.pollTimer) clearInterval(this.pollTimer)
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null }
     if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
     if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }
     if (this.s2vBatchPollTimer) { clearInterval(this.s2vBatchPollTimer); this.s2vBatchPollTimer = null }
