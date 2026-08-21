@@ -1,12 +1,13 @@
 {
   "id": "fix-s2v-cloned-voice-selection",
   "title": "故事讲述流水线克隆音色被换成模型官方音色修复",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "desktop",
-  "currentPhase": "review",
-  "nextAction": "推送 PR，CI 通过后合并并归档",
+  "currentPhase": "completed",
+  "nextAction": "PR #1094 已合并，归档完成",
+  "remoteStatus": { "pr": 1094, "mergedSha": "d2b1b31dcbf308cbf1ebeae5d6bd9beb075e68bc", "ci": "all pass" },
   "createdAt": "2026-08-22T06:10:00+08:00",
   "branch": "codex/fix-s2v-cloned-voice-selection"
 }
