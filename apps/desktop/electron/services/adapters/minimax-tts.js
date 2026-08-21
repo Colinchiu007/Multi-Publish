@@ -554,6 +554,15 @@ class MinimaxTtsAdapter extends BaseAdapter {
       body: JSON.stringify({ file_id: fileId, voice_id: voiceId, model: VOICE_CLONE_MODEL }),
     })
     const cloneJson = await cloneResp.json()
+    // 音色复刻失败必须 fail closed：MiniMax 业务错误常以 HTTP 200 + base_resp.status_code != 0
+    // 返回（如 2038 voice clone user forbidden）。若忽略 base_resp 并把本地生成的
+    // voice_id 当作成功回显，会持久化一个不存在的幻影克隆音色，后续 TTS 必然报
+    // voice id wrong，流水线还会误判为“克隆音色不可用”而回退默认官方音色。
+    const cloneBaseResp = cloneJson?.base_resp
+    if (cloneBaseResp && Number.isFinite(Number(cloneBaseResp.status_code)) && Number(cloneBaseResp.status_code) !== 0) {
+      const statusMsg = cloneBaseResp.status_msg || ('MiniMax 音色复刻失败（status_code=' + cloneBaseResp.status_code + '）')
+      throw classifyBaseRespError(statusMsg, this.id, cloneBaseResp.status_code)
+    }
     const finalId = cloneJson?.voice_id || cloneJson?.data?.voice_id || voiceId
     if (!finalId) {
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '音色复刻未返回 voice_id', { providerId: this.id })
