@@ -110,6 +110,9 @@ const MODEL_API_KEY_PATTERN = new RegExp('(?:' + [
 const MODEL_CONFIGURATION_PATTERN = /(默认\s*LLM|默认.*模型|未找到.*(?:默认.*)?(?:LLM|模型)|模型.*不可用)/i
 const ACCESS_DENIED_PATTERN = /(当前许可证无权访问|当前账号没有所需权益|未授权|未登录|需要登录|access denied|not authorized|permission denied|sign[ -]?in required)/i
 const RATE_LIMITED_PATTERN = /(rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|too\s*many\s*requests|Error\s+code:\s*429|rpm\s+exhausted|429\s+Too\s+Many)/i
+// 供应商明确表示用量窗口已耗尽时优先于通用 429 分类（例如 opencode GoUsageLimitError）。
+// 只匹配“已达到/耗尽”语义，避免把普通 usage limit 配置说明误报为额度错误。
+const USAGE_LIMIT_EXCEEDED_PATTERN = /(GoUsageLimitError|(?:\d+\s*[- ]?hour|daily|weekly|monthly)?\s*usage\s+limit\s+(?:has\s+been\s+)?(?:reached|exhausted|exceeded))/i
 const QUOTA_EXCEEDED_PATTERN = /((?:insufficient|exhausted|exceeded|out\s+of).{0,40}(?:quota|balance|token|credit)|(?:quota|balance|token|credit)s?.{0,40}(?:exceeded|insufficient|exhausted)|(?:余额|额度|配额).{0,20}(?:不足|不够|超|耗尽)|insufficient[_\s]*balance|billing|payment\s*required|(?:用量|Token\s*Plan|额度).{0,24}(?:上限|超|耗尽|用尽|用完)|(?:plan|套餐).{0,20}(?:expired|upgrade|到期)|usage\s*limit)/i
 // 多次空结果（empty_result）：服务波动或账号问题，与内容安全审查是两类原因（2026-08-16 复审补强）
 const EMPTY_RESULT_PATTERN = /(repeatedly returned no result|多次未返回结果)/i
@@ -314,8 +317,9 @@ function resolveMessageKey (notification, fallbackKey) {
   const raw = String(notification?.error || notification?.message || '').trim()
   if (Number(notification?.code) === -3 || Number(notification?.errorCode) === -3) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
   if (ACCESS_DENIED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.ACCESS_DENIED
+  // 明确的用量窗口耗尽优先于 429；仅凭普通 429 仍走 RATE_LIMITED。
+  if (notification?.errorCode === 'QUOTA_EXCEEDED' || Number(notification?.code) === 402 || (!notification?.errorCode && USAGE_LIMIT_EXCEEDED_PATTERN.test(raw))) return STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED
   if (notification?.errorCode === 'RATE_LIMITED' || Number(notification?.code) === 429 || RATE_LIMITED_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED
-  if (notification?.errorCode === 'QUOTA_EXCEEDED' || Number(notification?.code) === 402) return STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED
   // 文本模式匹配仅作为最后扎线：当 errorCode 已明确为非 QUOTA 时，禁止文本模式覆盖（避免 auth/quota 错误被误分类）
   if (!notification?.errorCode && QUOTA_EXCEEDED_PATTERN.test(raw) && !API_KEY_INVALID_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED
   if (notification?.errorCode === 'EMPTY_RESULT' || EMPTY_RESULT_PATTERN.test(raw)) return STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT
