@@ -1862,6 +1862,11 @@ describe("CreateView - S2V orchestration", () => {
     expect(w.vm.canStartPipeline).toBe(false);
     await w.vm.handleStartPipeline();
     expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledTimes(1);
+    // 启动完成后 busy 标志复位；切换流水线时也一并清理，避免残留 flag 锁死按钮（审查 Major 闭合）
+    expect(w.vm.startingPipeline).toBe(false);
+    w.vm.startingPipeline = true;
+    w.vm.selectPipeline({ name: "story2video-compose", stages: [] });
+    expect(w.vm.startingPipeline).toBe(false);
     w.unmount();
   });
 

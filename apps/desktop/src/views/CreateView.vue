@@ -2164,6 +2164,7 @@ export default {
       }
       this.stopPipelinePolling()
       this.selectedPipeline = p
+      this.startingPipeline = false
       this.pipelineRunStatus = null
       this.orchestrationStages = (this.isAutoPipeline(p?.name) || this.isMediaAutoPipeline(p?.name)) ? this.getDefaultPipelineStages(p.name) : []
       this.orchestrationRunId = null
@@ -2228,6 +2229,8 @@ export default {
     // UI「启动流水线」入口：登录门 + 启动
     async handleStartPipeline () {
       // 双击防护（2026-08-21 回归修复）：启动请求在途时直接拦截，canStartPipeline 同步禁用按钮兜底
+      // 与 startPipeline 内部 startingPipeline 守卫构成双重防线：登录门在途也拦截连点，
+      // 防止绕过登录门直接调用 startPipeline 的入口跳过 busy 检查。
       if (this.startingPipeline) return false
       if (!(await this.ensureLoginForStart())) return false
       await this.startPipeline()
@@ -3932,6 +3935,7 @@ export default {
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
       this.s2vBackgroundTracking = false
+      this.startingPipeline = false
       this.dismissedProviderWarnings = false
       this.orchestrationResultPath = null
       this.story2videoRunMeta = null
