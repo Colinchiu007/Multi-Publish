@@ -1,3 +1,17 @@
+## [Unreleased] - 2026-08-21 (流水线启动前台跟踪 + 独立历史页「已中断」对齐)
+
+### 变更
+- 视频创作流水线启动成功后创作页实时轮询展示阶段进度；离开页面自动转后台运行、仅历史可见；重新进入回到全新新建状态（启动/续跑前台语义统一，并发门禁与 scene_asset_selection 检查点例外不变）。
+- 移除旧的「启动即后台」监听机器（`runOrchestrationInBackground`/`startBackgroundCompletionWatch`/`checkBackgroundRunCompletion`/`s2vBackgroundTracking`），并新增 `_s2vAlive` 卸载竞态守卫，防止已卸载组件被终态响应触发结果页跳转。
+- 独立历史页 `CreateHistory.vue` 对齐「已中断」：stale running 归入 interrupted、状态标签/路由/紫色样式；提示文案复用 locale `stageProgress.interruptedStage` / `stageProgress.interruptedHint`。
+
+### 文案与文档
+- locale zh/en 成对：新增 `create.story2video.startForegroundToast`，修订 `backgroundResumeToast`，删除已无引用的 `backgroundRunToast`。
+- 同步 PRD-video-creation §3.1.35、总 PRD §3a.2（§3a.1 标废弃）、S2V-PIPELINE-PAGE-UX §5/§5.2.1、i18n-glossary 与 OpenSpec change `s2v-start-foreground-tracking`。
+
+### 测试与门禁
+- CreateView / CreateHistory / history-utils 定向 Vitest 全绿；locale pair（zh/en）+ CJK 基线通过；CJK 基线按脚本文档对行号位移显式重锚。
+
 ## [Unreleased] - 2026-08-20 (历史场景素材四卡布局与预览/选择交互)
 ## [Unreleased] - 2026-08-21 (历史详情场景素材未生成槽生成按钮 + 生成AI视频灰显修复)
 

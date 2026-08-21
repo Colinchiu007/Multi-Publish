@@ -17,6 +17,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import CreateHistory from './CreateHistory.vue'
+import i18n from '@/i18n'
 
 describe('CreateHistory', () => {
   beforeEach(() => {
@@ -112,16 +113,34 @@ describe('CreateHistory', () => {
 
   // ─── 辅助方法 ───
   it('statusLabel 返回正确的中文标签', () => {
-    const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
+    const w = mount(CreateHistory, { global: { plugins: [i18n], stubs: { UiButton: true } } })
     expect(w.vm.statusLabel('completed')).toBe('已完成')
     expect(w.vm.statusLabel('running')).toBe('运行中')
     expect(w.vm.statusLabel('failed')).toBe('生成失败')
     expect(w.vm.statusLabel('cancelled')).toBe('已取消')
     expect(w.vm.statusLabel('paused')).toBe('已暂停')
+    expect(w.vm.statusLabel('interrupted')).toBe('已中断')
     expect(w.vm.statusLabel(null)).toBe('已完成')
     expect(w.vm.statusLabel('unknown')).toBe('unknown')
   })
 
+  it('stale running（长时间无更新）归入已中断而非已暂停', async () => {
+    const staleDate = new Date(Date.now() - 31 * 60 * 1000).toISOString()
+    pipelineHistoryMock.mockResolvedValue({
+      code: 0,
+      data: [
+        { id: 'run-stale', pipelineName: 'story-to-video', status: 'running', updatedAt: staleDate, stages: [{ name: 'compose', status: 'running' }] },
+      ],
+    })
+    const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
+    await nextTick()
+    await w.findAll('.tab')[1].trigger('click')
+    await new Promise(r => setTimeout(r, 0))
+    await nextTick()
+    expect(w.vm.pipelines[0].status).toBe('interrupted')
+    expect(w.vm.pipelines[0].pausedStage).toBe('compose')
+    w.unmount()
+  })
   it('stageClass 从对象提取 status', () => {
     const w = mount(CreateHistory, { global: { stubs: { UiButton: true } } })
     expect(w.vm.stageClass({ status: 'completed' })).toBe('completed')
