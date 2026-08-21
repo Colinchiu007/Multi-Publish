@@ -1,0 +1,16 @@
+{
+  "id": "restore-s2v-foreground-progress",
+  "title": "恢复 Story2Video 启动流水线前台进度展示并防重复启动",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "PR #1082 已合并（3b4db8201），CI 全绿；已归档",
+  "createdAt": "2026-08-21T13:00:00+08:00",
+  "branch": "codex/restore-s2v-foreground-progress",
+  "completedAt": "2026-08-21T16:00:00+08:00",
+  "pr": 1082,
+  "mergeCommit": "3b4db8201c61b0c5d7fcdd2125916c832b83cc65",
+  "remoteStatus": "merged_origin_main_ci_green"
+}
