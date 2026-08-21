@@ -22,13 +22,13 @@ renderer 的 sceneMaterialSlots(segment) 返回 4 个 slot 对象，每个含 ki
 
 ## 2. 场景级生成按钮归属
 
-生成动作属于场景，不属于某一张候选图片或视频。因此每个场景只渲染两枚按钮，并放进对应卡片：
+生成动作属于场景，不属于某一张候选图片或视频。因此每个场景的生成按钮是场景级动作，并放进对应图片/视频卡片（多卡入口只是同一动作的重复暴露）：
 
-- image1 卡内显示「生成新图」，点击 generateSceneImage(segmentId)。
-- video1 卡内显示「生成 AI 视频」，点击 generateSceneAiVideo(segmentId)。
-- image2 和 video2 不重复显示同一场景级按钮，避免用户误以为按钮只替换当前卡或触发两次请求。
+- image1/image2 卡内都显示「生成新图」，点击 generateSceneImage(segmentId)，写入目标由选中态规则决定；image2 槽为空时从 image2 卡点击会补入该空槽。
+- video1/video2 卡内都显示「生成 AI 视频」，点击 generateSceneAiVideo(segmentId)，结果写入 canonical 视频槽并显示在 video1 卡。
+- video2 仍是视觉别名，不新增持久化身份；从任一视频卡点击都触发同一 canonical 生成动作。
 
-禁用条件：isSegmentBusy 时两枚按钮都 disabled；视频按钮在 !videoPrompt 或 prompt.trim() 为空时 disabled，并通过 title 显示「请先编辑或重新生成视频优化词，再生成 AI 视频」。
+禁用条件：isSegmentBusy 时两枚按钮都 disabled；视频按钮在 videoPrompt/prompt/text 任一 trim 后非空时可点，三者全空时 disabled，并通过 title 显示「请先编辑或重新生成视频优化词，再生成 AI 视频」。
 
 生成流程：前置检查 -> 未保存分段先保存 -> 设置 segmentBusy -> 调用 IPC -> 成功更新 project/segments -> refreshSegmentImageUrls 重新生成预览 URL -> 显示本地化成功通知；失败保留旧素材、清理本次产物、显示归一化失败通知 -> finally 清除忙碌。
 
@@ -115,7 +115,7 @@ Locale：emptySlot=未生成/Not generated；每个空框只渲染一次该键�
 | 文件 | 说明 |
 |------|------|
 | ResultView.vue | 模板、场景素材数据校验、radio/preview 事件隔离、按钮归属、固定媒体框和 xl 预览弹窗 |
-| ResultView.test.js | 四卡顺序、radio-only、preview-only、视频 kind 归一、按钮不重复、空态英文泄漏、URL 失效边界和 locale 成对回归 |
+| ResultView.test.js | 四卡顺序、radio-only、preview-only、视频 kind 归一、生成按钮覆盖全部图片/视频卡、空态英文泄漏、URL 失效边界和 locale 成对回归 |
 | zh.js / en.js | video1/video2 标签和 previewAriaLabel 成对维护；既有生成/空态/提示文案保持成对 |
 | PRD / OpenSpec | 同步数据模型、流程、交互、显示项、提示文字、错误处理和回归矩阵 |
 
@@ -137,7 +137,7 @@ $t()腐蚀：PowerShell sed消耗$字符。检测：grep检查裸括号。预防
 
 - [x] 4 个视觉 slot 固定顺序、空框保持四格
 - [x] radio 位于缩略图下方、标签之前；thumbnail 不触发选择 IPC
-- [x] 图片/AI 视频按钮只在 image1/video1 卡内各出现一次
+- [x] 图片/AI 视频按钮覆盖 image1/image2 与 video1/video2 卡（场景级动作多入口）
 - [x] 视频按钮 prompt guard、busy guard 和 dirty 自动保存流程保持
 - [x] 未生成只显示一条本地化 emptySlot，不泄漏英文 kind
 - [x] aspect-ratio:3/4、固定背景和 4 列/2 列响应式规则

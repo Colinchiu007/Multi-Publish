@@ -61,6 +61,16 @@ Story2Video compose 的用户可见错误必须优先使用稳定消息键，而
 **强制点**：流水线专属文案所在组件的挂载条件是共享的（`(pipelineRunStatus.stages || orchestrationStages).length`）时，必须由父组件按流水线类型门控；新增用例至少包含「非目标流水线不渲染」。
 
 ## 6. 生成类 IPC 失败必须校验 code 并走消息归一化（2026-08-16，s2v-retry-image-error-masking）
+## 8. 场景级生成动作可多卡重复暴露；能力门控必须与后端契约一致（2026-08-21，fix-s2v-history-scene-gen-buttons）
+
+**模式**：场景级生成动作（如【生成新图】【生成 AI 视频】）可以在多个视觉卡上重复暴露同一入口（image1/image2、video1/video2），但写入目标必须由既有的选中态/身份规则决定，禁止为视觉别名新增持久化身份或按卡改写后端契约。
+
+**反例（真实 Bug 根因）**：渲染层 `hasUsableVideoPrompt` 只校验 `videoPrompt`，而后端 `generateSceneAiVideo` 实际回退 `videoPrompt || prompt || text`——历史记录未持久化 videoPrompt 时按钮灰显无法生成；且老测试把「image2/video2 无生成按钮」写成断言（反向固化错误行为）。只放宽模板 `:disabled` 不够：方法入口（`generateSceneAiVideo` 内的 guard）必须同步放宽，否则按钮可点但静默 return。
+
+**强制点**：
+- renderer 的“能否生成”门控必须与后端提示词回退契约逐字一致（本例：`videoPrompt || prompt || text` 任一 trim 非空）。
+- 多卡重复暴露的按钮必须是同一场景级调用，新增断言覆盖：占位空槽也有按钮、busy 传播到全部入口、无 videoPrompt 但有 prompt/text 时按钮可点且真实触发 IPC。
+- 禁止写测试断言“某槽不应有生成按钮”或用 `toHaveLength(2)` 固化错误行为；用 `data-testid` 定位而非位置索引。
 
 **模式**：消费返回 `{code, message, data}` 契约的生成结果（生成图片/视频/音频）时，服务层必须在消费产物（复制/替换）前校验 `code === 0` 且产物路径存在；失败结果与抛异常是两条不同的失败路径，都要保留原始 message（缺失回退领域兜底文案）、保留旧媒体、清理本次产物并持久化失败状态。渲染层 catch 一律把错误文本交给既有通知归一化（quota/rate-limit/API Key/权限模式），不固定显示单一键。
 
