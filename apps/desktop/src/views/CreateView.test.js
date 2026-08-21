@@ -1836,12 +1836,37 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.startPipeline();
     expect(mocks.pipelineStartOrchestrated).toHaveBeenCalled();
     expect(mocks.pipelineStart).not.toHaveBeenCalled();
-    // 自动后台仍保留 runId 用于完成监听（完成即跳转），但不挂回可见进度
+    // 恢复旧流程（2026-08-21）：run 挂回当前视图，实时拉取并展示阶段进度，不再脱离到后台
     expect(w.vm.orchestrationRunId).toBe("run-123");
-    expect(w.vm.s2vBackgroundTracking).toBe(true);
-    expect(w.vm.pipelineRunStatus).toBeNull();
-    expect(w.vm.s2vOptionsToast).toContain("后台运行");
-    expect(mocks.pipelineGetRunContext).not.toHaveBeenCalled();
+    expect(w.vm.s2vBackgroundTracking).toBe(false);
+    expect(w.vm.pipelineRunStatus).toMatchObject({ status: "running" });
+    expect(w.vm.s2vOptionsToast).not.toContain("后台运行");
+    expect(mocks.pipelineGetRunContext).toHaveBeenCalledWith("run-123");
+    expect(w.vm.pollTimer).toBeTruthy();
+    w.unmount();
+  });
+
+  it("启动流水线后 run 挂到当前视图并禁止重复启动", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.pipelineStartOrchestrated.mockResolvedValue({ code: 0, data: { runId: "run-once" } });
+    mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { status: { status: "running" }, context: {} } });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.selectedPipeline = { name: "story2video-compose", description: "test", stages: [], category: "generated" };
+    w.vm.pipelineText = "防重复启动";
+    await w.vm.handleStartPipeline();
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledTimes(1);
+    // 运行中「启动流水线」按钮门控 + startPipeline 方法守卫均拦截重复启动
+    expect(w.vm.canStartPipeline).toBe(false);
+    await w.vm.handleStartPipeline();
+    expect(mocks.pipelineStartOrchestrated).toHaveBeenCalledTimes(1);
+    // 启动完成后 busy 标志复位；切换流水线时也一并清理，避免残留 flag 锁死按钮（审查 Major 闭合）
+    expect(w.vm.startingPipeline).toBe(false);
+    w.vm.startingPipeline = true;
+    w.vm.selectPipeline({ name: "story2video-compose", stages: [] });
+    expect(w.vm.startingPipeline).toBe(false);
     w.unmount();
   });
 

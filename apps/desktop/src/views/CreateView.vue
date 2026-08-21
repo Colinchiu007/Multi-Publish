@@ -1573,6 +1573,7 @@ export default {
       cancelConfirmDialog: { visible: false, error: '' },
       story2videoResuming: false,
       pauseActionBusy: false,
+      startingPipeline: false,
       story2videoRunMeta: null,
       stageClockTick: 0,
       s2vRestoring: false,
@@ -1856,6 +1857,10 @@ export default {
     canStartPipeline() {
       if (!this.selectedPipeline) return false
       if (!this.pipelineAvailable(this.selectedPipeline.name)) return false
+      // 防重复启动（2026-08-21 回归修复）：启动请求在途禁止点击；编排 run 已挂到当前视图
+      // （运行/暂停/检查点）时同样禁用「启动流水线」，防止连点起出重复后台任务。
+      if (this.startingPipeline) return false
+      if (this.isOrchestratedPipeline(this.selectedPipeline.name) && this.orchestrationRunId) return false
       if (this.isOrchestratedPipeline(this.selectedPipeline.name)) {
         return this.inputMode === 'text' && this.pipelineText.trim().length > 0
       }
@@ -2159,6 +2164,7 @@ export default {
       }
       this.stopPipelinePolling()
       this.selectedPipeline = p
+      this.startingPipeline = false
       this.pipelineRunStatus = null
       this.orchestrationStages = (this.isAutoPipeline(p?.name) || this.isMediaAutoPipeline(p?.name)) ? this.getDefaultPipelineStages(p.name) : []
       this.orchestrationRunId = null
@@ -2222,36 +2228,51 @@ export default {
     },
     // UI「启动流水线」入口：登录门 + 启动
     async handleStartPipeline () {
+      // 双击防护（2026-08-21 回归修复）：启动请求在途时直接拦截，canStartPipeline 同步禁用按钮兜底
+      // 与 startPipeline 内部 startingPipeline 守卫构成双重防线：登录门在途也拦截连点，
+      // 防止绕过登录门直接调用 startPipeline 的入口跳过 busy 检查。
+      if (this.startingPipeline) return false
       if (!(await this.ensureLoginForStart())) return false
-      return this.startPipeline()
+      await this.startPipeline()
+      return true
     },
     async startPipeline() {
-      // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
-      this.dismissedBgmSkippedNotice = false
-      // 新运行重置模型服务异常提示：清空旧警告并取消关闭状态（跨运行不残留）
-      this.providerWarnings = []
-      this.dismissedProviderWarnings = false
-      if (!this.pipelineAvailable(this.selectedPipeline?.name)) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED })
-        return
+      // 防重复启动（2026-08-21 回归修复）：请求在途用 busy 标志拦截；编排 run 已挂到当前视图
+      // （运行/暂停/检查点）时同样拒绝，兜底 canStartPipeline 的按钮禁用与连点竞态。
+      if (this.startingPipeline) return
+      if (this.isOrchestratedPipeline(this.selectedPipeline?.name) && this.orchestrationRunId) return
+      this.startingPipeline = true
+      try {
+        // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
+        this.dismissedBgmSkippedNotice = false
+        // 新运行重置模型服务异常提示：清空旧警告并取消关闭状态（跨运行不残留）
+        this.providerWarnings = []
+        this.dismissedProviderWarnings = false
+        if (!this.pipelineAvailable(this.selectedPipeline?.name)) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED })
+          return
+        }
+        if (this.isAutoPipeline(this.selectedPipeline.name) || this.isMediaAutoPipeline(this.selectedPipeline.name)) {
+          await this.startOrchestratedPipeline()
+          return
+        }
+        const params = {
+          text: this.pipelineText, style: this.selectedStyle,
+          llm: this.llmConfig, budget: this.budgetConfig,
+          checkpoint: this.checkpointPolicy, output: this.outputConfig,
+          inputMode: this.inputMode,
+          images: this.pipelineImages.map(i => i.preview),
+          audio: this.pipelineAudio.map(a => ({ name: a.name, path: a.path })),
+          video: this.pipelineVideo?.path || null,
+        }
+        const res = await pipelineStart(this.selectedPipeline.name, params)
+        if (res?.code === 0) {
+          await this.updatePipelineStatus()
+          this.pollTimer = setInterval(() => this.updatePipelineStatus(), 3000)
+        } else { alert(res?.message || '启动失败') }
+      } finally {
+        this.startingPipeline = false
       }
-      if (this.isAutoPipeline(this.selectedPipeline.name) || this.isMediaAutoPipeline(this.selectedPipeline.name)) {
-        return this.startOrchestratedPipeline()
-      }
-      const params = {
-        text: this.pipelineText, style: this.selectedStyle,
-        llm: this.llmConfig, budget: this.budgetConfig,
-        checkpoint: this.checkpointPolicy, output: this.outputConfig,
-        inputMode: this.inputMode,
-        images: this.pipelineImages.map(i => i.preview),
-        audio: this.pipelineAudio.map(a => ({ name: a.name, path: a.path })),
-        video: this.pipelineVideo?.path || null,
-      }
-      const res = await pipelineStart(this.selectedPipeline.name, params)
-      if (res?.code === 0) {
-        await this.updatePipelineStatus()
-        this.pollTimer = setInterval(() => this.updatePipelineStatus(), 3000)
-      } else { alert(res?.message || '启动失败') }
     },
     async startExplainerPipeline() {
       try {
@@ -2282,7 +2303,8 @@ export default {
           if (outcome.paused === true) {
             await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
           } else {
-            await this.runOrchestrationInBackground(outcome.runId)
+            // 恢复旧流程（2026-08-21）：启动后 run 挂回当前视图实时展示阶段进度，不再脱离到后台
+            await this.openRunningPipeline(outcome.runId, this.selectedPipeline.name, '')
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
@@ -2313,7 +2335,8 @@ export default {
           if (outcome.paused === true) {
             await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
           } else {
-            await this.runOrchestrationInBackground(outcome.runId)
+            // 恢复旧流程（2026-08-21）：启动后 run 挂回当前视图实时展示阶段进度，不再脱离到后台
+            await this.openRunningPipeline(outcome.runId, this.selectedPipeline.name, '')
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
@@ -2555,7 +2578,8 @@ export default {
           if (outcome.paused === true) {
             await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
           } else {
-            await this.runOrchestrationInBackground(outcome.runId)
+            // 恢复旧流程（2026-08-21）：启动后 run 挂回当前视图实时展示阶段进度，不再脱离到后台
+            await this.openRunningPipeline(outcome.runId, this.selectedPipeline.name, '')
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
@@ -3911,6 +3935,7 @@ export default {
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
       this.s2vBackgroundTracking = false
+      this.startingPipeline = false
       this.dismissedProviderWarnings = false
       this.orchestrationResultPath = null
       this.story2videoRunMeta = null
@@ -3927,6 +3952,8 @@ export default {
     // 后台恢复/继续一个 run：切到流水线视图并实时跟踪进度（不重置 runId）。
     // 与 runOrchestrationInBackground 不同——后者用于"首次后台生成"：创作页保持初始态、主进程后台执行，
     // run 完成后自动跳转结果页；断点恢复是用户显式继续动作，跳到流水线页并持续拉取运行态。
+    // 2026-08-21 回归修复："启动流水线"成功路径也走此函数——run 挂回当前视图实时展示阶段进度，
+    // 恢复旧流程；runOrchestrationInBackground 仅保留作历史记录/未来后台场景的备用入口。
     async openRunningPipeline(runId, pipelineName, toastKey = 'create.story2video.backgroundResumeToast') {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false

@@ -1,0 +1,12 @@
+{
+  "id": "restore-s2v-foreground-progress",
+  "title": "恢复 Story2Video 启动流水线前台进度展示并防重复启动",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "review",
+  "nextAction": "双模型审查通过后提交推送 PR",
+  "createdAt": "2026-08-21T13:00:00+08:00",
+  "branch": "codex/restore-s2v-foreground-progress"
+}

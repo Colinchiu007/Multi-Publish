@@ -4637,15 +4637,16 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - 前端单测：运行中+runId 显示按钮；idle / paused / 无 runId 不显示；点击后 `pipelineCancel` 未被调用、状态恢复初始化、启动按钮重新出现、toast 显示；在飞轮询过期响应不写回；检查点等待态点击无效；取消路径回归（`pipelineCancel` 仍被调用）。
 - 交互验收（人工）：启动流水线 → 点击【后台运行】→ 详情恢复初始化 → 历史记录可见运行中任务 → 点击卡片重挂恢复进度 → 并发满时启动新流水线弹并发提示（既有文案）。
 
-### 3a.1 现行合同：视频创作流水线启动即后台运行（2026-08-19）
+### 3a.1 现行合同：视频创作流水线启动前台跟踪与防重复启动（2026-08-21 修订）
 
-**产品原则**：视频创作编排流水线一旦成功启动并进入 running，就视为后台任务。用户不需要点击【后台运行】；该按钮不再显示。主进程执行方式保持 autoAdvance + background，renderer 只负责提交、提示和历史观察。
+**产品原则**：点击【启动流水线】后，编排 run 挂回当前视图实时展示阶段进度（阶段清单/当前阶段/进度/暂停/取消），用户在创作页即可看到整条流水线运行状态，不再启动即脱离到后台。主进程保持 autoAdvance + background 无损推进（IPC 不阻塞、关闭窗口不打断）；【后台运行】按钮不显示，脱离或查看历史走历史记录与断点续跑。
 
 **启动流程与数据校验**
 1. 用户点击【启动流水线】后，renderer 依次校验登录状态、流水线可用性、输入模式、文案 Unicode 字符数、媒体路径、模型/音色能力和版本化配置。
 2. IPC 启动响应必须同时满足 code=0、success 不为 false、runId 是 trim 后的非空字符串；任何条件不满足都进入现有错误弹窗，不清空其他运行态，不显示成功后台提示。
-3. 启动成功后等待选项快照保存完成，再调用自动后台 helper。helper 只接收字符串 runId，停止 renderer 轮询，清理当前运行展示态，恢复【启动流水线】和可编辑配置，然后刷新历史。
-4. 自动后台不得调用 pipelineCancel、不得删除运行快照、不得修改主进程并发计数。run 继续在 Electron 主进程推进，仍占用 maxConcurrentRuns 槽位。
+3. 启动成功后等待选项快照保存完成，再把 run 挂回当前视图（保留 orchestrationRunId、进入流水线视图，调用 openRunningPipeline 拉取运行上下文；实时推送更新阶段 + 3s 轮询兜底；完成后自动跳转结果页）。启动不展示“已在后台运行”提示。
+4. 防重复启动三重门控：`startingPipeline` busy 标志（请求在途）、`orchestrationRunId` 非空（运行/暂停/检查点已挂载）与 `canStartPipeline` 同步禁用【启动流水线】按钮；`startPipeline` / `handleStartPipeline` 方法级守卫兜底，`selectPipeline` / `resetPipelineUiState` 统一清理 busy 标志，避免切换流水线或取消后残留锁死。
+5. 前台跟踪不得调用 pipelineCancel、不得删除运行快照、不修改主进程并发计数；run 仍由 Electron 主进程推进并占用 maxConcurrentRuns 槽位；取消仍走 pipelineCancel。
 
 **历史任务卡片与续跑流程**
 - 历史列表的 running 卡片必须展示状态圆点、运行中/后台运行中状态、阶段色块、阶段进度、当前阶段、更新时间、创建时间、任务 ID 和仍占并发名额的提示；列表存在 running 时继续每 5 秒刷新。
@@ -4664,13 +4665,13 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 **显示项与提示文字**
 | 场景 | 中文 | English |
 |------|------|---------|
-| 自动启动后台 toast | 流水线已在后台运行（仍占用并发名额），可在「历史记录」中查看进度。 | Pipeline is running in the background (still occupies a run slot). Track progress in history. |
-| 断点续跑后台 toast | 流水线已从断点继续并在后台运行（仍占用并发名额），可在「历史记录」中查看进度。 | Pipeline resumed from its checkpoint and is running in the background (still occupies a run slot). Track progress in history. |
+| 启动流水线 | 前台展示阶段进度（阶段清单/当前阶段/进度/状态），完成后跳转结果页；不展示“已在后台运行”提示 | Foreground stage progress; jump to result on completion; no background toast |
+| 断点续跑 | 流水线已从断点继续，切到流水线视图实时跟踪进度。 | Pipeline resumed and is being tracked in the pipeline view. |
 | 历史运行提示 | 任务正在后台运行（仍占用并发名额），可查看实时阶段进度。 | This task is running in the background (still occupies a run slot). View its live stage progress here. |
 | 并发超限 | 当前已有 N 条流水线正在后台运行，最多同时运行 M 条，请等待其中一条完成后再启动。 | Use the existing localized concurrency-limit mapping with actual N/M. |
 
 **验收与测试**
-- CreateView 测试覆盖三条编排启动入口自动后台、无效 runId 守卫、历史失败/运行中续跑留在历史、mounted 不自动接管 running、人工素材选择 paused 仍进入交互、旧轮询响应不写回和取消路径。
+- CreateView 测试覆盖三条编排启动入口前台挂载（orchestrationRunId 保留、pipelineGetRunContext 轮询、pollTimer 建立）、防重复启动（运行中按钮禁用 + 方法守卫拦截）、启动完成/切换流水线后 startingPipeline 复位、无效 runId 守卫、mounted 不自动接管 running、人工素材选择 paused 仍进入交互、旧轮询响应不写回和取消路径。
 - CreateViewHistory 测试覆盖 running 卡片后台提示、阶段进度、状态过滤和继续按钮事件。
 - 主进程 pipeline-engine 与 resume-orchestration 测试继续证明异步推进、持久化快照、幂等 alreadyRunning 和并发槽位不回归。
 - 人工验收覆盖：启动后继续编辑另一条任务；历史卡片可见并实时刷新；从断点继续不抢占创作页；素材选择暂停可进入面板；并发达到上限提示实际 N/M。
