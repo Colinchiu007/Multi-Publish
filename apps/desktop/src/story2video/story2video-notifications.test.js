@@ -5,6 +5,7 @@ import {
   countUnicodeCodePoints,
   formatStory2VideoNotification,
   getStory2VideoNotificationUiText,
+  resolveStory2VideoNotification,
 } from './story2video-notifications'
 
 describe('Story2Video notification messages', () => {
@@ -311,5 +312,37 @@ describe('Story2Video notification messages', () => {
       error: "Story2Video optimize failed: Story2Video 场景 2 prompt-engine 优化失败: Error code: 429 - {'error': {'message': 'rpm exhausted', 'type': 'quota_exceeded_error', 'code': '8'}}"
     })
     expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED)
+  })
+
+  it.each([
+    'Error code: 429 - GoUsageLimitError: 5-hour usage limit reached. Resets in 1hr 32min.',
+    'The model usage limit has been reached. Please try again later.',
+  ])('供应商明确表示用量窗口耗尽时优先映射为额度提示：%s', error => {
+    const result = formatStory2VideoNotification({ error })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
+    expect(result.message).toContain('额度')
+  })
+
+  it('普通 429 仍然映射为限流提示', () => {
+    const result = formatStory2VideoNotification({
+      error: 'Error code: 429 - Too Many Requests',
+    })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED)
+  })
+
+  it('提示词重生成使用 fallbackKey 时保留额度分类', () => {
+    const result = resolveStory2VideoNotification({
+      fallbackKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED,
+      error: 'Error code: 429 - GoUsageLimitError: 5-hour usage limit reached',
+    })
+    expect(result.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
+  })
+
+  it('显式非额度错误码不会被用量文本覆盖', () => {
+    const result = formatStory2VideoNotification({
+      errorCode: 'AUTH_FAILED',
+      error: 'GoUsageLimitError: 5-hour usage limit reached',
+    })
+    expect(result.messageKey).not.toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
   })
 })

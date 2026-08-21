@@ -1171,7 +1171,8 @@ export default {
         this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATED })
       } catch (error) {
         this.showStory2VideoNotification({
-          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED,
+          // 仅作为未知错误的回退；让额度、限流、API Key 等原始错误进入统一归一化。
+          fallbackKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED,
           error: error && error.message ? error.message : '',
         })
       } finally {
