@@ -13843,3 +13843,15 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 3. 新媒体展示必须同时覆盖合法素材、缺失、失败、文件被清理、越界/符号链接和窗口加载失败；固定槽位不能因 v-if 消失。
 4. 终态可编辑规则必须同时检查 running 排除、paused/failed/completed/cancelled 进入、cancelled 禁止 resume、纯 run 禁止伪造项目；文档与 locale 成对更新。
 5. 外部模型不可用时必须如实记录；本地审查、定向测试、打包窗口验收和远端 CI 的证据分开记录，不能互相替代。
+
+### 历史详情场景素材未生成槽生成按钮缺失 + 生成AI视频灰显（2026-08-21，fix-s2v-history-scene-gen-buttons）
+
+**现象**：视频创作-历史记录-视频详情（ResultView.vue）场景素材的图片 2/视频 2 空卡下方没有【生成新图】/【生成 AI 视频】按钮；视频 1 的【生成 AI 视频】在无 videoPrompt 时灰显不可点。
+
+**第一性原因**：① 2026-08-20 四视觉卡修订设计了「场景级生成按钮只在 image1/video1 卡渲染一次」，image2/video2 空槽因此没有生成入口；② 渲染层 `hasUsableVideoPrompt` 只校验 `segment.videoPrompt`，而后端 `generateSceneAiVideo` 实际回退 `videoPrompt || prompt || text`，老项目未持久化 videoPrompt 时前端错误禁用按钮。
+
+**逃逸链**：单元测试把「image2/video2 无按钮」（`toHaveLength(2)`）写成断言反向固化错误行为；服务层测试覆盖了后端回退但没有任何渲染层用例把前端门控与后端契约绑定；E2E/视觉无空槽+可回退提示词场景。
+
+**修复**：生成按钮覆盖 image1/image2 与 video1/video2 全部视觉卡（保持场景级动作，写入目标由选中态/身份规则决定，video2 仍是视觉别名）；`hasUsableVideoPrompt` 改为 `videoPrompt || prompt || text` 任一 trim 非空，与后端契约一致（模板 disabled 与方法入口 guard 同时放宽，避免可点但静默 return）。
+
+**预防**：场景级生成动作可以在多个视觉卡重复暴露多入口，但禁止为视觉别名新增持久化身份；renderer 的“能否生成”门控必须与后端提示词回退契约逐字一致并加跨层断言；测试禁止用 `toHaveLength(2)`/“无按钮”固化错误行为，用 data-testid 定位。已沉淀至 `.ccg/spec/frontend/index.md` §8。

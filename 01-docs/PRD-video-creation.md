@@ -2165,8 +2165,8 @@ SettingsDialog 关闭（App.vue @close）
 2. 点击 radio 或 radio 对应的素材名称 label，才调用 selectSceneMaterial。image1/image2 直接发送同名 kind；video1/video2 都归一发送 canonical video。选择成功后使用服务端返回的完整 project，刷新派生 URL 并显示当前使用徽标；失败保留原选中态并显示归一化提示。
 3. 当前使用徽标只在 image1、image2 或 canonical video1 显示。video2 可以预览和作为视频候选显示，但不重复伪造第二个 video 持久化身份或第二个当前使用徽标。
 4. 空 slot 的缩略图按钮不打开预览，空 slot radio 不调用 IPC。四个 slot 始终存在，不能因为没有图片或视频而折叠成三格或改变顺序。
-5. 生成新图是场景级操作，只在 image1 卡内显示一次，调用 generateSceneImage(segmentId)。生成 AI 视频是场景级操作，只在 video1 卡内显示一次，调用 generateSceneAiVideo(segmentId)。image2 和 video2 不重复显示同一操作按钮。
-6. 生成前检查 segmentBusy 和输入条件；AI 视频还必须要求 videoPrompt trim 后非空。若有未保存分段修改，先保存，保存失败不提交生成请求。同一场景同一时间最多一个生成/选择写操作，finally 必须清除 busy。
+5. 生成新图生成 AI 视频都是场景级操作：生成新图显示在 image1/image2 卡内并调用 generateSceneImage(segmentId)，写入目标由选中态规则决定；生成 AI 视频显示在 video1/video2 卡内并调用 generateSceneAiVideo(segmentId)，结果写入 canonical 视频槽。多卡入口只是同一动作的重复暴露，不改变落点语义；video2 仍是视觉别名，不新增持久化身份。生成 AI 视频按钮仅当 videoPrompt/prompt/text 全为空时禁用（提示词回退契约与后端 generateSceneAiVideo 一致）。
+6. 生成前检查 segmentBusy 和输入条件；AI 视频要求 videoPrompt/prompt/text 任一 trim 后非空（与后端回退契约一致）。若有未保存分段修改，先保存，保存失败不提交生成请求。同一场景同一时间最多一个生成/选择写操作，finally 必须清除 busy。
 7. 成功生成后用主进程返回的 path 更新项目，调用 refreshSegmentImageUrls 重新签发 URL，保留 selectedMaterial 语义并显示成功通知。失败时保留旧素材和旧选中态，清理本次 attemptFiles，只显示本地化且可操作的错误提示，不显示绝对路径、堆栈、provider JSON 或内部 prompt。
 
 #### 交互与显示合同
@@ -2182,6 +2182,7 @@ SettingsDialog 关闭（App.vue @close）
 #### 回归与验收
 
 ResultView 测试必须覆盖四卡固定顺序、radio-only selection、thumbnail-only preview、video kind 归一、canonical video1 徽标、按钮不重复、busy/prompt guard、path/URL 失效、非法 selectedMaterial、旧字段缺省、空态英文泄漏、xl modal、图片/视频媒体类型和键盘可访问性。交付前还必须通过 zh/en locale 成对检查、CJK 硬编码扫描、Vue build、变更文件 ESLint、worktree dependency 解析和 git diff hygiene。
+ResultView 测试必须覆盖四卡固定顺序、radio-only selection、thumbnail-only preview、video kind 归一、canonical video1 徽标、生成按钮覆盖全部图片/视频卡、busy/prompt guard（videoPrompt/prompt/text 回退）、path/URL 失效、非法 selectedMaterial、旧字段缺省、空态英文泄漏、xl modal、图片/视频媒体类型和键盘可访问性。交付前还必须通过 zh/en locale 成对检查、CJK 硬编码扫描、Vue build、变更文件 ESLint、worktree dependency 解析和 git diff hygiene。
 
 ### 3.1.27 历史记录可见性与终态一致（2026-08-15）
 

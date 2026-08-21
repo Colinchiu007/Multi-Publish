@@ -116,8 +116,8 @@
 
 ### 4.2 场景素材与 AI 视频
 
-- 场景素材区的“生成 AI 视频”必须使用当前分段 `videoPrompt`；`videoPrompt` 为空、空白或未保存时，按钮禁用并提示“请先编辑或重新生成视频优化词，再生成 AI 视频”。
-- “生成新图”与“生成 AI 视频”是场景级动作，各只渲染一次：前者放在 `image1` 卡片内，后者放在 `video1` 卡片内，不在备选卡片重复渲染。
+- 场景素材区的“生成 AI 视频”以当前分段 `videoPrompt || prompt || text` 为提示词源（与后端回退契约一致）；三者全为空或未保存时，按钮禁用并提示“请先编辑或重新生成视频优化词，再生成 AI 视频”。
+- “生成新图”“生成 AI 视频”是场景级动作：生成新图显示在 `image1`/`image2` 卡内、生成 AI 视频显示在 `video1`/`video2` 卡内，各卡入口都是同一动作的重复暴露，不改变落点语义；`video1`/`video2` 仍是同一视频身份的视觉别名。
 - “当前使用”读取服务端真实保存的 `selectedMaterial`，只接受 `image1 | image2 | video`；候选列表顺序变化、派生 URL 暂时失效或新增视觉别名时，禁止按第一个候选项猜测。
 - 生成成功后替换对应场景素材并重新解析本地 URL；失败保留旧素材、清理本次产物并显示可操作失败提示。
 
@@ -142,7 +142,7 @@
 - **无素材也保留卡位**：任一素材路径缺失，仍渲染同样宽高的 media frame；图片和视频内容使用 `object-fit: cover`，空框使用与缩略图一致的背景色和 `aspect-ratio: 3 / 4` 几何，不压缩、不折叠、不把四列布局变成三列。
 - **空态文案唯一且本地化**：空框只显示 locale 的 `emptySlot`（中文“未生成”，英文“Not generated”）一行；不得显示 `Video 1`、`Video 2`、`video1`、`video2` 或第二行未解释的英文 fallback。
 - **交互**：没有可用路径和 URL 的缩略图按钮 disabled，不打开预览；没有路径的 radio disabled；空卡不触发选择 IPC。
-- **生成按钮**：即使视频卡为空，`video1` 内的“生成 AI 视频”仍可用，前提是 `videoPrompt` 非空且该分段不忙。
+- **生成按钮**：即使视频 1/视频 2 卡为空，“生成 AI 视频”仍可用，前提是 `videoPrompt`/`prompt`/`text` 任一非空（与后端回退契约一致）且该分段不忙。
 
 #### 生成 AI 视频按钮
 - **触发条件**：videoPrompt 非空且当前分段无正在进行的生成任务（isSegmentBusy 为 false）。
@@ -174,7 +174,7 @@
 | 元素 | 显示条件 | 文案/内容 |
 |------|----------|-----------|
 | `image1` | `segment.imagePath` 与 URL 可用 | 图片缩略图；radio 在缩略图下、标签前；卡内显示“生成新图” |
-| `image2` | `alternateImages[0].path` 与 URL 可用 | 图片缩略图；不重复显示生成按钮 |
+| `image2` | `alternateImages[0].path` 与 URL 可用 | 图片缩略图；卡内显示“生成新图”（场景级动作入口） |
 | `video1` | `sceneVideoPath` 或兼容 `videoPath` 与 URL 可用 | 视频缩略图；canonical `video` 选中徽标；卡内显示“生成 AI 视频” |
 | `video2` | `altSceneVideoPath` 与 URL 可用 | 可选的视频视觉别名；预览按视频处理，不新增持久化 kind 或重复徽标 |
 | 空 media frame | path 或 URL 缺失 | 与缩略图同尺寸背景 + 唯一一行“未生成” |
