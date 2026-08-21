@@ -1595,47 +1595,84 @@ describe('isPromptEngineTooShortRejection — 过短校验拒绝判定', () => {
   })
 })
 
-describe('tryReCloneVoice — 克隆音色不可访问时的默认音色兜底', () => {
-  it('适配器不支持 cloneVoice 时回退 provider 默认音色并标记 voice_fallback', async () => {
+describe('tryReCloneVoice — 克隆音色不可访问时不得静默换默认音色', () => {
+  it('克隆服务不可用时不调用 retryFn，返回 null 交由上层透传原始音色错误', async () => {
     const engine = { log: { warn() {}, info() {} }, container: { get: () => null } }
     const retryFn = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/fallback.mp3', audio_path: 'C:/tmp/fallback.mp3', duration: 1.5 } }))
     const result = await tryReCloneVoice({
       pipelineEngine: engine,
       error: new Error("you don't have access to this voice_id"),
       text: '测试文案', voiceId: 'MiniMaxCloneVoice_00jngz', voiceProvider: 'minimax-multimodal', voiceModel: 'speech-2.8-turbo',
-      resolveManager: () => ({ getAdapter: () => ({}) }),
+      resolveManager: () => ({ getAdapter: () => ({ cloneVoice: vi.fn() }) }),
       retryFn,
     })
-    expect(retryFn).toHaveBeenCalledWith('default')
-    expect(result.path).toBe('C:/tmp/fallback.mp3')
-    expect(result.meta.voice_fallback).toBe(true)
-  })
-
-  it('默认音色兜底仍失败时返回 null 且不伪造成功', async () => {
-    const engine = { log: { warn() {}, info() {} }, container: { get: () => null } }
-    const retryFn = vi.fn(async () => { throw new Error('still no access') })
-    const result = await tryReCloneVoice({
-      pipelineEngine: engine, error: new Error("you don't have access to this voice_id"), text: '测试文案',
-      voiceId: 'X', voiceProvider: 'p', voiceModel: 'm', resolveManager: () => ({ getAdapter: () => ({}) }), retryFn,
-    })
     expect(result).toBeNull()
+    expect(retryFn).not.toHaveBeenCalled()
   })
 
-  it('默认音色兜底对瞬时超时做有界重试后成功', async () => {
-    const engine = { log: { warn() {}, info() {} }, container: { get: () => null } }
-    let calls = 0
-    const retryFn = vi.fn(async () => {
-      calls += 1
-      if (calls === 1) throw new Error('MiniMax 异步语音合成查询超时')
-      return { code: 0, data: { path: 'C:/tmp/fallback2.mp3', audio_path: 'C:/tmp/fallback2.mp3', duration: 1.5 } }
-    })
-    const result = await tryReCloneVoice({
-      pipelineEngine: engine, error: new Error("you don't have access to this voice_id"), text: '测试文案',
-      voiceId: 'X', voiceProvider: 'p', voiceModel: 'm', resolveManager: () => ({}), retryFn,
-    })
-    expect(retryFn).toHaveBeenCalledTimes(2)
-    expect(result.path).toBe('C:/tmp/fallback2.mp3')
-    expect(result.meta.voice_fallback).toBe(true)
+  it('本地样本存在但重新克隆失败时返回 null，不换用 provider 默认音色', async () => {
+    const sampleRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 's2v-clone-fail-'))
+    const sampleDir = path.join(sampleRoot, 'voice-clone-samples', 'owner', 'storage-1')
+    await fs.promises.mkdir(sampleDir, { recursive: true })
+    await fs.promises.writeFile(path.join(sampleDir, 'sample.mp3'), Buffer.from([1, 2, 3]))
+    try {
+      const engine = {
+        log: { warn() {}, info() {} },
+        container: {
+          get: (key) => key === 'ttsVoiceCloneService'
+            ? {
+                findCloneSamples: vi.fn(async () => ({ sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' } })),
+                _resolveUserDataPath: () => sampleRoot,
+              }
+            : null,
+        },
+      }
+      const retryFn = vi.fn(async () => { throw new Error('should not be called with default voice') })
+      const result = await tryReCloneVoice({
+        pipelineEngine: engine,
+        error: new Error("you don't have access to this voice_id"),
+        text: '测试文案', voiceId: 'MiniMaxCloneVoice_00jngz', voiceProvider: 'minimax-multimodal', voiceModel: 'speech-2.8-turbo',
+        resolveManager: () => ({ getAdapter: () => ({ cloneVoice: vi.fn(async () => { throw new Error('2038 voice clone user forbidden') }) }) }),
+        retryFn,
+      })
+      expect(result).toBeNull()
+      expect(retryFn).not.toHaveBeenCalled()
+    } finally {
+      await fs.promises.rm(sampleRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('重克隆成功但重试合成失败时返回 null，保留原始错误', async () => {
+    const sampleRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 's2v-clone-retry-'))
+    const sampleDir = path.join(sampleRoot, 'voice-clone-samples', 'owner', 'storage-1')
+    await fs.promises.mkdir(sampleDir, { recursive: true })
+    await fs.promises.writeFile(path.join(sampleDir, 'sample.mp3'), Buffer.from([1, 2, 3]))
+    try {
+      const engine = {
+        log: { warn() {}, info() {} },
+        container: {
+          get: (key) => key === 'ttsVoiceCloneService'
+            ? {
+                findCloneSamples: vi.fn(async () => ({ sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' } })),
+                _resolveUserDataPath: () => sampleRoot,
+              }
+            : null,
+        },
+      }
+      const retryFn = vi.fn(async (newVoiceId) => { throw new Error('voice id wrong after re-clone: ' + newVoiceId) })
+      const result = await tryReCloneVoice({
+        pipelineEngine: engine,
+        error: new Error("you don't have access to this voice_id"),
+        text: '测试文案', voiceId: 'MiniMaxCloneVoice_00jngz', voiceProvider: 'minimax-multimodal', voiceModel: 'speech-2.8-turbo',
+        resolveManager: () => ({ getAdapter: () => ({ cloneVoice: vi.fn(async () => ({ id: 'MiniMaxCloneVoice_new123' })) }) }),
+        retryFn,
+      })
+      expect(result).toBeNull()
+      expect(retryFn).toHaveBeenCalledTimes(1)
+      expect(retryFn).toHaveBeenCalledWith('MiniMaxCloneVoice_new123')
+    } finally {
+      await fs.promises.rm(sampleRoot, { recursive: true, force: true })
+    }
   })
 })
 

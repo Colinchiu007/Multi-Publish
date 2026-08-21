@@ -2277,6 +2277,18 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 依赖注入 | container.setup.js 注册 ttsVoiceCloneService 并注入到 Story2VideoProjectService，使其能调用 findCloneSamples 和 ttsVoiceCloneService。缺失注入时 Layer 1 跳过，仅执行 Layer 2/3。 |
 | 验收标准 | 1. 换 MiniMax 账号后重新生成旁白，若本地有克隆样本 -> 自动重新克隆成功 -> 旁白正常生成；2. 若本地样本已删除但场景有旧音频 -> 保留旧音频，用户看到成功；3. 若无旧音频 -> 正常报错；4. 错误分类不再将 voice not found 误报为额度不足；5. 非克隆音色错误（网络超时、内容安全等）不触发三层降级，按原有逻辑处理。 |
 
+
+#### 7.1.16.2 克隆音色不得静默替换为官方音色（2026-08-22）
+
+**背景**：真实链路 run_1787325756406_9q90 中用户选择本地音频克隆音色「音色001」，成片旁白却是模型官方音色。根因是 `cloneVoice` 未检查 `base_resp` 业务错误（如 2038 无复刻权限），把平台不存在的 voice_id 当成克隆成功持久化；生成时幻影音色失败，流水线又静默回退 provider 默认官方音色。
+
+| 合同 | 要求 |
+|------|------|
+| 复刻失败 fail closed | minimax-tts `cloneVoice` 必须检查 `base_resp.status_code`：非 0（含 2038）即抛 ProviderError（复用 classifyBaseRespError），不得返回本地生成的 voice_id；应用不得持久化幻影克隆音色。 |
+| 生成阶段不回退官方音色 | story2video `tryReCloneVoice` 只允许用本地样本重克隆后重试；clone service 缺失、样本缺失、重克隆失败或重试失败时返回原始音色错误，不得用 `retryFn('default')` 换成 provider 默认官方音色（与 7.1.16.1 Layer 3 一致）。 |
+| 用户提示 | 克隆音色不可用且无法重建时，TTS 分段按失败透传，前端显示音色/语音相关失败原因，不再产出静默替换音色的成片。 |
+| 验收标准 | ① 复刻接口 200 + 2038 业务错误 → 前端不出现「音色001」、无幻影克隆持久化；② `tryReCloneVoice` 回归断言不调用 `retryFn('default')`、返回 null；③ 真实运行若克隆音色重建失败，流水线报告失败且成片不含被替换的官方音色。 |
+
 #### 7.1.17 提示词优化输出净化与无实质内容守卫（2026-08-09）
 
 **背景**：真实链路「图片轮播」文案输入「12」，提示词优化阶段输出的图片提示词为 `<think>……</think>\n\nA man in his late thirties stands at a crossroads……`——带推理能力的 LLM（MiniMax-M3/M2.7 等）在 OpenAI 兼容接口下把思考过程以 `<think>` 块放进 `content`，系统原样当提示词；同时纯数字文案被模型凭空编造出与原文无关的场景。
