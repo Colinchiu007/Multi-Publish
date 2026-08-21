@@ -92,6 +92,12 @@
   background: var(--status-failed-bg);
 }
 
+.stage-item.skipped {
+  border-color: var(--status-pending-bg, #e5e7eb);
+  background: var(--status-pending-bg, #f3f4f6);
+  color: var(--text-muted, #6b7280);
+}
+
 .stage-item.waiting {
   border-color: var(--status-waiting-bg);
   background: var(--status-waiting-bg);
@@ -122,6 +128,11 @@
 
 .stage-item.failed .stage-icon {
   background: var(--status-failed-text);
+  color: #fff;
+}
+
+.stage-item.skipped .stage-icon {
+  background: var(--text-muted, #6b7280);
   color: #fff;
 }
 

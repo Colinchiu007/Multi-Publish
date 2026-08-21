@@ -125,6 +125,7 @@
   font-weight: 500; transition: all 0.2s ease; border: 1px solid transparent;
 }
 .history-progress-seg.done { background: var(--status-completed-bg, #d1fae5); color: var(--status-completed-text, #065f46); border-color: rgba(6,95,70,0.1); }
+.history-progress-seg.skipped { background: var(--status-pending-bg, #f3f4f6); color: var(--text-muted, #6b7280); border-color: rgba(107,114,128,0.14); }
 .history-progress-seg.active {
   background: var(--history-progress-active-bg, #2563eb); color: #fff; font-weight: 600;
   box-shadow: 0 0 0 2px var(--history-progress-active-shadow, #bfdbfe);

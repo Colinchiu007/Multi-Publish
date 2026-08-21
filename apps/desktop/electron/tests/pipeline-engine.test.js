@@ -685,6 +685,37 @@ describe('PipelineEngine animated-explainer 编排', () => {
     expect(snapshot.stages.every(stage => stage.status === 'completed')).toBe(true)
   })
 
+  it('发布阶段未选平台时标记为 skipped 而非 completed（完成态进度仍为 100%）', async () => {
+    const stageExecutor = {
+      execute: vi.fn(async ({ stage }) => (
+        stage.name === 'publish'
+          ? { success: true, output: { skipped: true, message: 'Publishing disabled or no platforms selected', publishedTo: [], failedPlatforms: [] } }
+          : { success: true, output: { completedStage: stage.name } }
+      )),
+    }
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const started = await engine.startOrchestrated('animated-explainer', {
+      text: '测试主题',
+      autoAdvance: true,
+      checkpointPolicy: 'none',
+      publishEnabled: false,
+      platforms: [],
+    })
+    expect(started.success).toBe(true)
+    expect(started.completed).toBe(true)
+    const snapshot = engine.getRunSnapshot(started.runId)
+    expect(snapshot.status.status).toBe('completed')
+    const publishStage = snapshot.stages.find(stage => stage.name === 'publish')
+    expect(publishStage.status).toBe('skipped')
+    expect(publishStage.skippedAt).toBeTypeOf('string')
+    expect(snapshot.stages.filter(stage => stage.status === 'completed').length).toBe(snapshot.stages.length - 1)
+    expect(snapshot.status.progress).toBe(100)
+    // 持久化到历史卡片的完成态进度同样为 100%（_finalizeRun 固定完成态进度）
+    const historyRun = engine.getHistory().find(item => item.id === started.runId)
+    expect(historyRun.progress).toBe(100)
+    expect(started.context.publish.skipped).toBe(true)
+  })
+
   it('background 模式立即返回 runId，后台自动推进到完成', async () => {
     const stageExecutor = {
       execute: vi.fn(async ({ stage }) => ({

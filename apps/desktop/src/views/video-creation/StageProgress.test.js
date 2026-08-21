@@ -7,6 +7,8 @@ import { getAppLocale, setAppLocale } from "@/i18n";
 const tStub = (key, params = {}) => {
   const map = {
     "stageProgress.statusCompleted": "已完成",
+    "stageProgress.statusSkipped": "已跳过",
+    "stageProgress.publishSkipped": "未选发布，跳过",
     "stageProgress.statusRunning": "运行中",
     "stageProgress.statusFailed": "失败",
     "stageProgress.statusWaitingApproval": "等待确认",
@@ -102,6 +104,28 @@ describe("StageProgress 等待态渲染（2026-08-13）", () => {
     expect(w.find('[data-testid="story2video-stage-split"]').classes()).toContain("completed");
     expect(w.find('[data-testid="story2video-stage-generate_assets"]').classes()).toContain("running");
     expect(w.find('[data-testid="story2video-stage-generate_assets"] .stage-icon').text()).toBe("⟳");
+    w.unmount();
+  });
+
+  it("发布阶段未选平台（skipped）：显示 class=skipped、⏭ 图标与「未选发布，跳过」", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "publish", status: "skipped", startedAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z" })],
+      orchestrationContext: { publish: { skipped: true } },
+    });
+    const item = w.find('[data-testid="story2video-stage-publish"]');
+    expect(item.classes()).toContain("skipped");
+    expect(item.find(".stage-icon").text()).toBe("⏭");
+    expect(item.find(".stage-status").text()).toContain("未选发布，跳过");
+    w.unmount();
+  });
+
+  it("非发布阶段 skipped：显示通用「已跳过」", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "optimize", status: "skipped" })],
+    });
+    const item = w.find('[data-testid="story2video-stage-optimize"]');
+    expect(item.classes()).toContain("skipped");
+    expect(item.find(".stage-status").text()).toContain("已跳过");
     w.unmount();
   });
 });

@@ -1836,7 +1836,9 @@ describe("CreateView - S2V orchestration", () => {
     await w.vm.startPipeline();
     expect(mocks.pipelineStartOrchestrated).toHaveBeenCalled();
     expect(mocks.pipelineStart).not.toHaveBeenCalled();
-    expect(w.vm.orchestrationRunId).toBeNull();
+    // 自动后台仍保留 runId 用于完成监听（完成即跳转），但不挂回可见进度
+    expect(w.vm.orchestrationRunId).toBe("run-123");
+    expect(w.vm.s2vBackgroundTracking).toBe(true);
     expect(w.vm.pipelineRunStatus).toBeNull();
     expect(w.vm.s2vOptionsToast).toContain("后台运行");
     expect(mocks.pipelineGetRunContext).not.toHaveBeenCalled();
@@ -4521,14 +4523,16 @@ describe("流水线自动后台运行（2026-08-19）", () => {
     await w.vm.runOrchestrationInBackground("run-bg-1");
     await nextTick();
     expect(mocks.pipelineCancel).not.toHaveBeenCalled();
-    expect(w.vm.orchestrationRunId).toBeNull();
+    // 后台 run 仍保留 runId 用于完成监听（恢复「完成即跳转」），但不挂回可见进度
+    expect(w.vm.orchestrationRunId).toBe("run-bg-1");
+    expect(w.vm.s2vBackgroundTracking).toBe(true);
     expect(w.vm.pipelineRunStatus).toBeNull();
     expect(w.vm.orchestrationContext).toBeNull();
     expect(w.vm.orchestrationError).toBe("");
     expect(w.vm.providerWarnings).toEqual([]);
     expect(w.vm.sceneAssetSelectionActive).toBe(false);
     expect(w.vm.story2videoRunMeta).toBeNull();
-    expect(w.vm.pollTimer).toBeNull();
+    expect(w.vm.pollTimer).not.toBeNull();
     expect(w.vm.s2vOptionsToast).toContain("后台运行");
     expect(w.find('[data-testid="start-story2video"]').exists()).toBe(true);
     w.unmount();
@@ -4547,9 +4551,35 @@ describe("流水线自动后台运行（2026-08-19）", () => {
     resolveStatus({ code: 0, data: { status: { status: "running" }, stages: [{ name: "optimize", status: "running" }], context: { split: { scenes: [{}] } }, checkpoint: null } });
     await Promise.all([pollPromise, backgroundPromise]);
     await nextTick();
-    expect(w.vm.orchestrationRunId).toBeNull();
+    expect(w.vm.orchestrationRunId).toBe("run-bg-1");
     expect(w.vm.pipelineRunStatus).toBeNull();
     expect(w.vm.orchestrationContext).toBeNull();
+    w.unmount();
+  });
+
+  it("后台 run 完成后自动跳转结果页（恢复「完成即跳转」）", async () => {
+    const mocks = await import("@/api/publisher");
+    const pushSpy = vi.spyOn(router, "push").mockResolvedValue();
+    const w = await mountRunning();
+    await w.vm.runOrchestrationInBackground("run-bg-1");
+    // mountRunning 已把 pipelineGetRunContext mock 为 running，这里覆盖为终态完成
+    mocks.pipelineGetRunContext.mockResolvedValue({
+      code: 0,
+      data: {
+        status: { status: "completed" },
+        context: { compose: { data: { videoPath: "C:/tmp/bg.mp4" } } },
+        activeMs: 2500,
+      },
+    });
+    await nextTick();
+    const handled = await w.vm.checkBackgroundRunCompletion();
+    expect(handled).toBe(true);
+    expect(w.vm.orchestrationRunId).toBeNull();
+    const pushCall = [...pushSpy.mock.calls].reverse().find((args) => args[0] && args[0].path === "/create/result");
+    expect(pushCall).toBeTruthy();
+    expect(pushCall[0].query.path).toBe("C:/tmp/bg.mp4");
+    expect(pushCall[0].query.durationMs).toBe(2500);
+    pushSpy.mockRestore();
     w.unmount();
   });
 
