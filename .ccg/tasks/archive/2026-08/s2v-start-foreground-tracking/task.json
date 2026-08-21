@@ -1,12 +1,15 @@
 {
   "id": "s2v-start-foreground-tracking",
   "title": "视频创作流水线启动前台跟踪 + 独立历史页「已中断」对齐",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "frontend",
-  "currentPhase": "review",
+  "currentPhase": "archived",
   "nextAction": "推送分支、创建 PR、等待 CI 合并后归档；双模型审查因外部后端不可用降级为手工审查（见 review.md）",
   "createdAt": "2026-08-21T14:00:00Z",
   "branch": "codex/s2v-start-foreground-tracking"
+  "remoteStatus": "merged",
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1088",
+  "mergeCommit": "7bac9549b107439412261eb1ab4dfbfd40db878d"
 }
