@@ -25,6 +25,10 @@ const {
 
 const PROMPT_PORT = config.promptBridge.port
 const PROMPT_HOST = config.promptBridge.host
+// LLM 只返回空/纯推理内容时（如 DeepSeek 只输出思考块），prompt-engine 会以 502/错误返回。
+// 命中该错误时不要重复调用 CLI 兜底（同样会再烧一次 LLM 且可能再次拿到空内容），
+// 直接透传 error 结果，由 story2video optimize 阶段回退原文继续。见 isPromptEngineEmptyReasoningError。
+const EMPTY_REASONING_ERROR_PATTERN = /空内容|仅包含推理内容|未生成有效优化词|empty\s+content|only\s+(reasoning|thinking|thought)/i
 // BYOK：提示词引擎的 LLM 一律由调用方（桌面版「模型设置」）注入，引擎不再使用服务端 key 兜底
 const CALLER_ID = 'multi-publish-desktop'
 // P1-A: 移除硬编码开发者路径，必须通过环境变量配置
@@ -304,6 +308,11 @@ class PromptBridge extends BasePythonBridge {
       return result
     } catch (httpErr) {
       this.log.warn(this.name, `optimize: FAILED ${httpErr instanceof Error ? httpErr.message : String(httpErr)}, traceId=${traceId || '-'}`)
+      const httpMessage = httpErr instanceof Error ? httpErr.message : String(httpErr)
+      if (EMPTY_REASONING_ERROR_PATTERN.test(httpMessage)) {
+        this.log.warn(this.name, `optimize: empty-reasoning LLM 结果，跳过 CLI 兜底并回退原文, traceId=${traceId || '-'}`)
+        return { error: httpMessage, optimized_prompt: '' }
+      }
       return this._cliFallbackSingle(normalized, traceId)
     }
   }

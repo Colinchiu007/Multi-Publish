@@ -31,6 +31,9 @@ const { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal
 const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 const DEFAULT_TIMEOUT = 120000
 const DEFAULT_MODEL = 'image-01'
+// MiniMax Image 官方提示词长度上限（image-01）：超过 1500 字符服务端返回 400
+// （prompt length must be less than 1500）。长优化词在此截断而不是让整条流水线失败。
+const MAX_IMAGE_PROMPT_CHARS = 1500
 
 // MiniMax Image 目前只支持产品配置中的固定模型，避免 UI 与调用参数漂移。
 const MINIMAX_IMAGE_MODELS = [
@@ -175,7 +178,7 @@ class MinimaxImageAdapter extends BaseAdapter {
 
     const body = {
       model,
-      prompt: params.prompt,
+      prompt: Array.from(String(params.prompt)).slice(0, MAX_IMAGE_PROMPT_CHARS).join(''),
       response_format: 'url',
       n: params.n || 1,
     }

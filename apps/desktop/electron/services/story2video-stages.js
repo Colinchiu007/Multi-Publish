@@ -1127,7 +1127,8 @@ function unwrapScenesArray (source) {
 }
 
 const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota|queue\s*(?:is\s+)?full|队列.*(?:满|饱和)/i;
-const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i;
+// aborted：上游请求被中止（如 MiniMax 偶发不返回）应按瞬时错误重试，而非直接判失败。
+const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|aborted|超时|网络/i;
 
 function messageOf(value) {
   if (value && typeof value === 'object') return String(value.message || value.error || value.msg || '');
@@ -1283,12 +1284,27 @@ async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProv
   if (!_isClonedVoiceFail) return null
   const log = pipelineEngine && pipelineEngine.log
   if (log && log.warn) log.warn('[Story2Video] cloned voice unavailable, attempting re-clone', { voiceId, voiceProvider, error: _errMsg.slice(0, 200) })
+  const fallbackToDefaultVoice = async (reason) => {
+    if (!retryFn || typeof retryFn !== 'function') return null
+    if (log && log.warn) log.warn('[Story2Video] falling back to default TTS voice for this run: ' + reason)
+    try {
+      const result = await withAssetTransientRetry(() => retryFn('default'), { maxAttempts: 3 })
+      const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
+      if (normalized) {
+        normalized.meta = { ...(normalized.meta && typeof normalized.meta === 'object' ? normalized.meta : {}), voice_fallback: true, voice_fallback_reason: reason }
+      }
+      return normalized
+    } catch (fallbackErr) {
+      if (log && log.warn) log.warn('[Story2Video] default TTS voice fallback failed: ' + (fallbackErr && fallbackErr.message ? fallbackErr.message : String(fallbackErr)))
+      return null
+    }
+  }
   try {
     const cloneSvc = pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
       ? (() => { try { return pipelineEngine.container.get('ttsVoiceCloneService') } catch (_) { return null } })() : null
     if (!cloneSvc || typeof cloneSvc.findCloneSamples !== 'function') {
       if (log && log.warn) log.warn('[Story2Video] ttsVoiceCloneService not available for re-clone')
-      return null
+      return await fallbackToDefaultVoice('clone service unavailable')
     }
     const samples = await cloneSvc.findCloneSamples(voiceId, voiceProvider, voiceModel || 'speech-02-hd')
     if (!samples || !samples.sampleStorage) {
@@ -1321,7 +1337,7 @@ async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProv
     const ttsAdapter = manager && typeof manager.getAdapter === 'function' ? manager.getAdapter(voiceProvider) : null
     if (!ttsAdapter || typeof ttsAdapter.cloneVoice !== 'function') {
       if (log && log.warn) log.warn('[Story2Video] TTS adapter does not support cloneVoice', { voiceProvider })
-      return null
+      return await fallbackToDefaultVoice('tts adapter does not support cloneVoice')
     }
     const newVoice = await ttsAdapter.cloneVoice({ name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] })
     if (!newVoice || !newVoice.id) {
@@ -1335,6 +1351,8 @@ async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProv
   } catch (reCloneErr) {
     if (log && log.warn) log.warn('[Story2Video] re-clone fallback failed', reCloneErr)
   }
+  const defaultFallback = await fallbackToDefaultVoice('re-clone failed or unsupported')
+  if (defaultFallback) return defaultFallback
   return null
 }
 
@@ -3551,4 +3569,5 @@ module.exports = {
   applyPromptTranslationsToScenes,
   runBoundedPromptTranslation,
   STORY2VIDEO_COMPOSE_PARALLEL_TASK,
+  tryReCloneVoice,
 };
