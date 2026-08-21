@@ -10,10 +10,14 @@ const { getPlatformName } = require('@multi-publish/shared-utils/src/platform-de
 __enableElectronMock()
 
 let WebviewManager, AUTH_TAB_ID
+const credentialLoadMock = vi.fn(() => null)
 
 beforeEach(async () => {
   vi.resetModules()
   __resetElectronMock()
+  __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })
+  __registerMock('./credential-store', { loadCredential: credentialLoadMock })
+  patchViewAndSessionMocks()
   const mod = await import('./webview-manager.js')
   WebviewManager = mod.default || mod
   AUTH_TAB_ID = mod.AUTH_TAB_ID
@@ -230,5 +234,135 @@ describe('WebviewManager 虚拟登录标签（蚁小二对标）', () => {
     expect(wm.closeTab(AUTH_TAB_ID)).toBe(false)
     expect(() => wm.resize()).not.toThrow()
     expect(wm.getAllTabs().find(t => t.tabId === AUTH_TAB_ID)).toBeUndefined()
+  })
+})
+
+function patchViewAndSessionMocks () {
+  __electronMock.WebContentsView = function (opts) {
+    this._opts = opts || {}
+    const handlers = {}
+    this.webContents = {
+      _handlers: handlers,
+      on: function (evt, fn) { handlers[evt] = fn },
+      once: function () {},
+      canGoBack: function () { return false },
+      canGoForward: function () { return false },
+      loadURL: vi.fn(function () { return Promise.resolve() }),
+      executeJavaScript: vi.fn(function () { return Promise.resolve() }),
+      isDestroyed: function () { return false },
+    }
+    this.setBounds = vi.fn()
+    this.setVisible = vi.fn()
+  }
+  const partitions = []
+  __electronMock.session._partitions = partitions
+  __electronMock.session.fromPartition = function (partition) {
+    const created = {
+      partition,
+      cookies: {
+        setCalls: [],
+        set: function (cookie) { created.cookies.setCalls.push(cookie); return Promise.resolve() },
+        get: function () { return Promise.resolve([]) },
+      },
+      on: function () {},
+    }
+    partitions.push(created)
+    return created
+  }
+  return partitions
+}
+
+describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
+  beforeEach(() => {
+    credentialLoadMock.mockReset()
+    credentialLoadMock.mockReturnValue(null)
+  })
+
+  it('带 accountId 时使用按账号持久分区并从加密凭证恢复 Cookie', async () => {
+    const partitions = patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({
+      cookies: [{ url: 'https://www.zhihu.com', name: 'session', value: 'abc' }],
+      localStorage: { token: 'xyz' },
+    })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    const tabId = wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-1' })
+
+    expect(tabId).toBeTruthy()
+    expect(credentialLoadMock).toHaveBeenCalledWith('account-1', expect.any(String))
+    const created = partitions[partitions.length - 1]
+    expect(created.partition).toBe('persist:account-account-1')
+    expect(created.cookies.setCalls).toEqual([{ url: 'https://www.zhihu.com', name: 'session', value: 'abc' }])
+  })
+
+  it('凭证缺少 url 的 Cookie 以初始页面 URL 补齐后再注入', async () => {
+    const partitions = patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({ cookies: [{ name: 'sid', value: 'v1' }] })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://creator.douyin.com', accountId: 'acc_2' })
+
+    const created = partitions[partitions.length - 1]
+    expect(created.cookies.setCalls).toEqual([{ url: 'https://creator.douyin.com', name: 'sid', value: 'v1' }])
+  })
+
+  it('页面加载完成后恢复凭证中的 localStorage', async () => {
+    patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({ localStorage: { token: 'xyz' } })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-1' })
+
+    const activeView = wm._tabViews.get(wm._activeTabId)
+    activeView.webContents._handlers['did-finish-load']()
+    expect(activeView.webContents.executeJavaScript).toHaveBeenCalled()
+    const script = activeView.webContents.executeJavaScript.mock.calls[0][0]
+    expect(script).toContain('"token":"xyz"')
+  })
+
+  it('无 accountId 时保持一次性浏览分区且不读取凭证', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://www.baidu.com' })
+
+    expect(credentialLoadMock).not.toHaveBeenCalled()
+    const created = partitions[partitions.length - 1]
+    expect(created.partition).toMatch(/^persist:browse-btab-\d+$/)
+  })
+
+  it('非法 accountId 或凭证读取失败时静默降级，不阻塞标签创建', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    // 非法 accountId → 降级为一次性浏览分区，不读取凭证
+    const fallbackTabId = wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'bad/../id' })
+    expect(fallbackTabId).toBeTruthy()
+    expect(credentialLoadMock).not.toHaveBeenCalled()
+    expect(partitions[partitions.length - 1].partition).toMatch(/^persist:browse-btab-\d+$/)
+
+    // 合法 accountId 但凭证解密失败 → 仍创建账号分区标签，只是无 Cookie 注入
+    credentialLoadMock.mockReset()
+    credentialLoadMock.mockImplementation(() => { throw new Error('decrypt failed') })
+    const tabId = wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-1' })
+    expect(tabId).toBeTruthy()
+    const created = partitions[partitions.length - 1]
+    expect(created.partition).toBe('persist:account-account-1')
+    expect(created.cookies.setCalls).toEqual([])
   })
 })

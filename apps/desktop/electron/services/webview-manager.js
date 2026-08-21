@@ -19,12 +19,21 @@
  *      ███│████│██████
  */
 const { EventEmitter } = require('events')
-const { WebContentsView, session, ipcMain } = require('electron')
+const { app, WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
+const os = require('os')
 const log = require('./logger')
+const credentialStore = require('./credential-store')
 const { PLATFORM_DASHBOARD_URLS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
+
+// 账号级持久会话分区标识校验（与 comment-manager 保持一致）
+const SAFE_IDENTIFIER = /^[a-zA-Z0-9_-]+$/
+
+function _getUserDataDir () {
+  try { return app.getPath('userData') } catch (e) { return path.join(os.homedir(), '.multi-publish') }
+}
 
 // 虚拟登录标签 ID（对齐蚁小二：登录页以全屏标签形式呈现在 TabBar 中）
 const AUTH_TAB_ID = 'auth-login'
@@ -277,6 +286,7 @@ class WebviewManager extends EventEmitter {
    * @param {Object} [opts]
    * @param {string} [opts.url] - 初始 URL（默认 about:blank）
    * @param {Array} [opts.cookies] - 需要恢复的 Cookie 数组
+   * @param {string} [opts.accountId] - 账号 ID（使用按账号持久分区并从加密凭证恢复登录态）
    * @returns {string|null} tabId
    */
   createNewTabPage (opts) {
@@ -284,8 +294,28 @@ class WebviewManager extends EventEmitter {
 
     var self = this
     var tabId = 'btab-' + (++this._tabIdCounter)
-    var partition = 'persist:browse-' + tabId
+    // 账号级标签使用按账号持久化的 session 分区，保持创作者中心登录态
+    var accountId = (opts && opts.accountId) || null
+    var useAccountSession = typeof accountId === 'string' && SAFE_IDENTIFIER.test(accountId)
+    var partition = useAccountSession
+      ? 'persist:account-' + accountId
+      : 'persist:browse-' + tabId
     var viewSession = session.fromPartition(partition, { cache: true })
+
+    // 从加密凭证恢复账号会话（Cookie 必须在 loadURL 之前注入），失败静默降级
+    var accountCredential = null
+    if (useAccountSession) {
+      try { accountCredential = credentialStore.loadCredential(accountId, _getUserDataDir()) } catch (e) { accountCredential = null }
+      var credCookies = (accountCredential && Array.isArray(accountCredential.cookies)) ? accountCredential.cookies : []
+      var initialUrlForCookies = (opts && opts.url) || ''
+      for (var ci = 0; ci < credCookies.length; ci++) {
+        var credCookie = credCookies[ci]
+        if (!credCookie || typeof credCookie.name !== 'string' || typeof credCookie.value !== 'string') continue
+        var cookieToSet = credCookie
+        if (!cookieToSet.url && initialUrlForCookies) cookieToSet = Object.assign({ url: initialUrlForCookies }, credCookie)
+        try { viewSession.cookies.set(cookieToSet).catch(function () {}) } catch (e) { /* skip invalid */ }
+      }
+    }
 
     // 恢复 Cookie
     if (opts && opts.cookies && opts.cookies.length > 0) {
@@ -330,6 +360,24 @@ class WebviewManager extends EventEmitter {
 
     // 设置导航监听
     self._setupNav(tabId, view)
+
+    // 页面加载后恢复账号 localStorage（与 openTab 的凭证恢复模式一致）
+    var credLocalStorage = (accountCredential && accountCredential.localStorage && typeof accountCredential.localStorage === 'object')
+      ? accountCredential.localStorage
+      : null
+    if (credLocalStorage && Object.keys(credLocalStorage).length > 0) {
+      var credLsData = JSON.stringify(credLocalStorage)
+      view.webContents.on('did-finish-load', function () {
+        view.webContents.executeJavaScript(
+          '(function() {\n' +
+          '  var data = ' + credLsData + ';\n' +
+          '  Object.keys(data).forEach(function(k) {\n' +
+          '    try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }\n' +
+          '  });\n' +
+          '})()'
+        ).catch(function () {})
+      })
+    }
 
     // 加载初始 URL
     if (initialUrl && initialUrl !== 'about:blank') {

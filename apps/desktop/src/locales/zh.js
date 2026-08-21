@@ -973,6 +973,7 @@
     verifyFailed: '验证失败',
     accountIncomplete: '账号信息不完整',
     creatorUnsupported: '暂不支持该平台的创作者中心',
+    cardCreatorTitle: '点击打开创作者中心',
     confirmDeleteAccount: (ctx) => '确定删除「' + ctx.named('platform') + '」账号「' + ctx.named('name') + '」吗？',
     confirmDeleteTitle: '确认删除',
     deleteFailed: '删除失败',
