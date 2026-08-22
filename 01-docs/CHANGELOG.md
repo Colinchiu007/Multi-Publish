@@ -1,3 +1,12 @@
+## [Unreleased] - 2026-08-22 (字幕保护短语与在线结果质量门)
+
+### 变更
+- 字幕 `no_cut_bigrams` 支持任意长度保护短语并追加「蒙古/江南/包税人/大汗」，TypeScript、Electron JS 镜像与 smart-sentence-splitter Python 三端同步；流式累积在短语前缀中间不再硬切，超长 `max_chars` 配置下保护短语完整优先。
+- 在线字幕归一化新增顺序连续覆盖与短语边界质量门：覆盖率足够但内容错序、重复、遗漏或切开保护短语时，该场景整体回退本地字幕并记录 `fallbackReason`，合格在线结果继续采用 `smart-sentence-splitter`。
+
+### 测试与门禁
+- Electron 相关 131 passed、TypeScript 133 passed、sidecar Python 151 passed；新增用户样例与极端 `max_chars` 向量；QM-1 win-unpacked、ASAR require 与 8s 启动冒烟通过。
+
 ## [Unreleased] - 2026-08-21 (流水线启动前台跟踪 + 独立历史页「已中断」对齐)
 
 ### 变更
