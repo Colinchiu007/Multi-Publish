@@ -2898,7 +2898,9 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 并行生成 TTS 音频（分批控制并发）
       const ttsItemTask = async (sentence, index) => {
-          try {
+        let text;
+        let generateTts;
+        try {
             const resumed = resumeCompleted.get(index);
             if (resumed && resumed.audioPath) {
               markTtsDone();
@@ -2919,12 +2921,12 @@ function registerStory2VideoStages(pipelineEngine) {
                 meta: { supplied: true },
               };
             }
-            const text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
-            const result = await withAssetTransientRetry(() => assetGenerator
+            text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
+            generateTts = (voiceIdForAttempt, voiceModelForAttempt = resolvedVoiceModel) => withAssetTransientRetry(() => assetGenerator
               ? assetGenerator.generateTTS(text, {
-                  voice_id: voiceId,
+                  voice_id: voiceIdForAttempt,
                   voice_provider: resolvedVoiceProvider,
-                   voice_model: resolvedVoiceModel,
+                  voice_model: voiceModelForAttempt,
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
@@ -2936,15 +2938,16 @@ function registerStory2VideoStages(pipelineEngine) {
                 })
               : serviceBus.callPythonSkill('generate_tts', {
                   text,
-                  voice_id: voiceId,
+                  voice_id: voiceIdForAttempt,
                   voice_provider: resolvedVoiceProvider,
-                  voice_model: resolvedVoiceModel,
+                  voice_model: voiceModelForAttempt,
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
                   index,
                   runId,
                 }));
+            const result = await generateTts(voiceId);
             const normalized = normalizeAssetResult(result, ['path', 'audio_path']);
             if (normalized) {
               markTtsDone();
@@ -2962,28 +2965,25 @@ function registerStory2VideoStages(pipelineEngine) {
               success: false,
               error: (result && result.message) || 'TTS generation failed',
             };
-          } catch (e) {
-            // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
-            const _voiceModel = resolvedVoiceModel || 'speech-02-hd'
-            const _reCloneResult = await tryReCloneVoice({
-              pipelineEngine, error: e, text: typeof sentence === 'string' ? sentence : sentence.text || sentence.content,
-              voiceId, voiceProvider: resolvedVoiceProvider,
-              voiceModel: _voiceModel,
-              resolveManager: resolveModelProviderManager,
-              retryFn: (newVoiceId) => assetGenerator.generateTTS(typeof sentence === 'string' ? sentence : sentence.text || sentence.content, {
-                voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: _voiceModel,
-                rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
-                pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
-                emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
-                with_timestamps: true, index, runId,
-              }),
-            })
-            if (_reCloneResult) {
-              markTtsDone()
-              return { index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta, timings: _reCloneResult.meta?.timings || null }
-            }
+        } catch (e) {
+          if (typeof generateTts !== 'function') {
             return { index, success: false, error: e.message };
           }
+          // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
+          const _voiceModel = resolvedVoiceModel || 'speech-02-hd'
+          const _reCloneResult = await tryReCloneVoice({
+            pipelineEngine, error: e, text,
+            voiceId, voiceProvider: resolvedVoiceProvider,
+            voiceModel: _voiceModel,
+            resolveManager: resolveModelProviderManager,
+            retryFn: (newVoiceId) => generateTts(newVoiceId),
+          })
+          if (_reCloneResult) {
+            markTtsDone()
+            return { index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta, timings: _reCloneResult.meta?.timings || null }
+          }
+          return { index, success: false, error: e.message };
+        }
       };
       // 同 image 的调度边界：assetGenerator 路径由 AIGenerator 内部 governor 单层调度；
       // 仅 legacy python 路径在外层套 withModelBudget（避免同 key 双包自死锁）。
@@ -3290,29 +3290,30 @@ function registerStory2VideoStages(pipelineEngine) {
         }
         const text = String(scene.text || '')
         if (!text) return { index: scene.index, success: false, error: '场景缺少旁白文字' }
+        const generateTts = (voiceIdForAttempt) => withAssetTransientRetry(() => assetGenerator
+          ? assetGenerator.generateTTS(text, {
+              voice_id: voiceIdForAttempt,
+              voice_provider: resolvedVoiceProvider,
+              voice_model: resolvedVoiceModel,
+              rate: voiceSpeed,
+              pitch: voicePitch,
+              emotion: voiceEmotion,
+              index: scene.index,
+              runId: runId || undefined,
+            })
+          : serviceBus.callPythonSkill('generate_tts', {
+              text,
+              voice_id: voiceIdForAttempt,
+              voice_provider: resolvedVoiceProvider,
+              voice_model: resolvedVoiceModel,
+              rate: voiceSpeed,
+              pitch: voicePitch,
+              emotion: voiceEmotion,
+              index: scene.index,
+              runId: runId || undefined,
+            }))
         try {
-          const result = await withAssetTransientRetry(() => assetGenerator
-            ? assetGenerator.generateTTS(text, {
-                voice_id: voiceId,
-                voice_provider: resolvedVoiceProvider,
-                voice_model: resolvedVoiceModel,
-                rate: voiceSpeed,
-                pitch: voicePitch,
-                emotion: voiceEmotion,
-                index: scene.index,
-                runId: runId || undefined,
-              })
-            : serviceBus.callPythonSkill('generate_tts', {
-                text,
-                voice_id: voiceId,
-                voice_provider: resolvedVoiceProvider,
-                voice_model: resolvedVoiceModel,
-                rate: voiceSpeed,
-                pitch: voicePitch,
-                emotion: voiceEmotion,
-                index: scene.index,
-                runId: runId || undefined,
-              }))
+          const result = await generateTts(voiceId)
           const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
           if (normalized) {
             const partial = { index: scene.index, audioPath: normalized.path, duration: normalized.duration, meta: normalized.meta }
@@ -3336,11 +3337,7 @@ function registerStory2VideoStages(pipelineEngine) {
             voiceId, voiceProvider: resolvedVoiceProvider,
             voiceModel: resolvedVoiceModel || 'speech-02-hd',
             resolveManager: _resolveManager,
-            retryFn: (newVoiceId) => assetGenerator.generateTTS(text, {
-              voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: resolvedVoiceModel,
-              rate: voiceSpeed, pitch: voicePitch, emotion: voiceEmotion,
-              index: scene.index, runId: runId || undefined,
-            }),
+            retryFn: (newVoiceId) => generateTts(newVoiceId),
           })
           if (_reCloneResult) {
             const partial = { index: scene.index, audioPath: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta }

@@ -1,7 +1,7 @@
 // @vitest-environment node
 const { PipelineEngine } = require('../services/pipeline-engine')
 const { StageExecutor } = require('../services/stage-executor')
-const { registerStory2VideoStages } = require('../services/story2video-stages')
+const { registerStory2VideoStages, STORY2VIDEO_STAGE_TYPES } = require('../services/story2video-stages')
 const {
   IMPORTED_MEDIA_DIR,
   getRunInputDir,
@@ -43,6 +43,63 @@ function createEngine() {
   // 本文件契约测试涉及同流水线并发运行，必须环境无关。
   const engine = new PipelineEngine({ serviceBus, stageExecutor, aiGenerator, log, maxConcurrentRuns: 2 })
   return { engine, serviceBus, aiGenerator }
+}
+
+function createReclonePipelineEngine() {
+  const sampleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-contract-reclone-'))
+  const sampleDir = path.join(sampleRoot, 'voice-clone-samples', 'owner', 'storage-1')
+  fs.mkdirSync(sampleDir, { recursive: true })
+  fs.writeFileSync(path.join(sampleDir, 'sample.mp3'), Buffer.from([1, 2, 3]))
+
+  const ttsCalls = []
+  const cloneVoice = vi.fn(async () => ({ id: 'MiniMaxVoice_recloned123' }))
+  const findCloneSamples = vi.fn(async () => ({
+    sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' },
+    name: '音色001',
+  }))
+  const manager = {
+    getAdapter: vi.fn(() => ({ cloneVoice })),
+  }
+  const cloneService = {
+    findCloneSamples,
+    _resolveUserDataPath: () => sampleRoot,
+  }
+  const container = {
+    get: vi.fn((key) => key === 'ttsVoiceCloneService' ? cloneService : null),
+  }
+
+  const serviceBus = {
+    ttsCalls,
+    callPythonSkill: vi.fn(async (skill, payload) => {
+      if (skill === 'generate_image') {
+        return { code: 0, data: { path: 'e2e-image.png' } }
+      }
+      if (skill === 'generate_tts') {
+        ttsCalls.push(payload)
+        if (ttsCalls.length === 1) {
+          throw Object.assign(new Error('voice id is not accessible'), { code: 'INVALID_CONFIG' })
+        }
+        return { code: 0, data: { path: 'e2e-audio-recloned.mp3', duration: 1.25 } }
+      }
+      throw new Error('unexpected Python skill: ' + skill)
+    }),
+  }
+  const aiGenerator = { _modelProviderManager: manager }
+  const stageExecutor = new StageExecutor({ serviceBus, container, log })
+  const engine = new PipelineEngine({ serviceBus, stageExecutor, aiGenerator, log, maxConcurrentRuns: 2 })
+  engine.container = container
+  registerStory2VideoStages(engine)
+
+  return {
+    engine,
+    serviceBus,
+    findCloneSamples,
+    cloneVoice,
+    manager,
+    cleanup() {
+      fs.rmSync(sampleRoot, { recursive: true, force: true })
+    },
+  }
 }
 
 describe('story2video 编排契约', () => {
@@ -797,6 +854,103 @@ describe('getRunSnapshot progressOnly 轻量快照', () => {
     expect(light.checkpoint).toEqual({ type: 'scene_asset_selection', stageName: 'finalize_assets', stageIndex: 5, required: true })
     expect(light.checkpoint.context).toBeUndefined()
     expect(light.checkpoint.savedAt).toBeUndefined()
+  })
+})
+
+describe('story2video 真实 StageExecutor 重克隆回归', () => {
+  it('generate_assets legacy serviceBus 重克隆成功后复用 callPythonSkill', async () => {
+    const fixture = createReclonePipelineEngine()
+    try {
+      const result = await fixture.engine.stageExecutor.execute({
+        runId: 'run_e2e_voice_clone_001',
+        stage: {
+          name: 'generate_assets',
+          type: STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS,
+          options: { concurrency: 1 },
+        },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          split: [{ text: '音色001 的 E2E 旁白' }],
+          optimize: ['一个安静的室内场景'],
+        },
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'e2e-audio-recloned.mp3',
+        imagePath: 'e2e-image.png',
+      })
+      expect(fixture.serviceBus.ttsCalls.map((payload) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(fixture.serviceBus.ttsCalls.map((payload) => payload.voice_model)).toEqual([
+        'speech-2.8-turbo',
+        'speech-2.8-turbo',
+      ])
+      expect(fixture.findCloneSamples).toHaveBeenCalledWith(
+        'MiniMaxVoice_original001',
+        'minimax-multimodal',
+        expect.any(String),
+      )
+      expect(fixture.manager.getAdapter).toHaveBeenCalledWith('minimax-multimodal')
+      expect(fixture.cloneVoice).toHaveBeenCalledTimes(1)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('finalize_assets legacy serviceBus 重克隆成功后复用 callPythonSkill', async () => {
+    const fixture = createReclonePipelineEngine()
+    try {
+      const result = await fixture.engine.stageExecutor.execute({
+        runId: 'run_e2e_voice_clone_finalize',
+        stage: {
+          name: 'finalize_assets',
+          type: STORY2VIDEO_STAGE_TYPES.FINALIZE_ASSETS,
+          options: { creationMode: 'manual', concurrency: 1 },
+        },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          generate_assets: {
+            candidates: [{
+              index: 0,
+              text: '音色001 的最终旁白',
+              prompt: '一个安静的室内场景',
+              candidates: [{ id: 'image-0', kind: 'image', path: 'e2e-image.png' }],
+            }],
+          },
+          scene_asset_selection: {
+            selections: [{ index: 0, candidateId: 'image-0' }],
+          },
+        },
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'e2e-audio-recloned.mp3',
+        imagePath: 'e2e-image.png',
+      })
+      expect(fixture.serviceBus.ttsCalls.map((payload) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(fixture.serviceBus.ttsCalls.map((payload) => payload.voice_model)).toEqual([
+        'speech-2.8-turbo',
+        'speech-2.8-turbo',
+      ])
+      expect(fixture.cloneVoice).toHaveBeenCalledTimes(1)
+    } finally {
+      fixture.cleanup()
+    }
   })
 })
 

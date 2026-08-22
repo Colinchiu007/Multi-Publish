@@ -1,0 +1,14 @@
+{
+  "id": "fix-run-voice-clone-001",
+  "title": "修复 run_1787360004146_izko 音色001克隆重试失败",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-electron",
+  "currentPhase": "completed",
+  "nextAction": "推送分支并创建 PR，合并后同步 remoteStatus",
+  "createdAt": "2026-08-22T02:00:00Z",
+  "branch": "codex/fix-run-voice-clone-001",
+  "openspecChange": "fix-run-voice-clone-001",
+  "remoteStatus": "not_pushed"
+}
