@@ -1,3 +1,10 @@
+## [2026-08-23] fix(story2video): 提示词中文翻译兼容 HTML/marker 包裹 JSON 并加固示例回显
+
+- 现象：结果页「中文翻译」未正确生成——LLM 返回 HTML 闭合/未闭合标签、`<thinking>` 思考块或 marker/说明文字包裹的翻译 JSON 时，旧解析把包裹文本当译文。
+- 根因：`translatePromptsForLocale` 只剥离 markdown 代码块，`JSON.parse(raw)` 对包裹响应直接抛错，逐行回退把包装文本写入 `item.translation`。
+- 修复：新增 `extractParseableJsonObject` / `extractBalancedJsonAt`——从每个 `{` 起点扫描平衡 JSON（字符串内花括号/转义不影响深度），跳过不可解析片段，取最后一个可解析且为对象的 JSON；仍失败才走既有逐行回退（fail-open 保持）；兼容 LLM 回显示例后给出最终译文、说明文字含未闭合花括号等边界。
+- 回归：`story2video-stages.test.js` 137 passed（新增 6 条：闭合 HTML、前导 HTML/思考文本、marker+前后文字、JSON 值含花括号/转义引号、说明文字含未闭合花括号、回显示例取最终对象）；双模型审查 PASS（opencode + claude，W1/W2 已处置）。
+
 ## [2026-08-21] feat(accounts): 账号卡片整体可点击打开创作者中心并保持登录态
 
 - 交互：账号管理中账号卡片整体可点击（按钮、链接、输入框等交互元素除外），点击打开全屏标签页加载该平台创作者中心；新增 i18n title 提示与 cursor:pointer（accountsPage.cardCreatorTitle，zh/en 成对）。
