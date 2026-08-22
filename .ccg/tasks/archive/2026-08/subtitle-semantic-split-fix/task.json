@@ -1,0 +1,28 @@
+{
+  "id": "subtitle-semantic-split-fix",
+  "title": "修复字幕语义边界：江南归属与谓语起点切分",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-videogen",
+  "currentPhase": "completed",
+  "nextAction": "已完成实现、测试、审查、远程合并与归档",
+  "createdAt": "2026-08-22T15:22:00+08:00",
+  "branch": "codex/subtitle-semantic-split-fix",
+  "openspecChange": "subtitle-semantic-split-fix",
+  "targetRunId": "run_1787360004146_izko",
+  "remoteStatus": {
+    "multiPublish": {
+      "pr": 1109,
+      "state": "MERGED",
+      "mergeSha": "292baaba46c3bd6ae8e2dcdf0a038844d76542f4",
+      "remote": "origin/main"
+    },
+    "smartSentenceSplitter": {
+      "pr": 20,
+      "state": "MERGED",
+      "mergeSha": "765b216bb24ee7201b49641177e703665b99ffd6",
+      "remote": "origin/main"
+    }
+  }
+}
