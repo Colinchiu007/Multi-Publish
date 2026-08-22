@@ -36,7 +36,7 @@
 - TypeScript：`subtitle-vectors.test.ts` + `story2video-engine.test.ts` = 133 passed。
 - Python sidecar：`test_scene_subtitle.py` + `test_subtitle_vectors.py` = 151 passed（仅既有 jieba/pkg_resources 警告）。
 - 边界探针：min=1..10、max=min..min+20、前后填充 0/1/3/8/15，共 4200 组，所有已知保护短语不跨块、无空块、无死循环。
-- `node --check`、`git diff --check` 通过；`verify-worktree-deps.js` 待 QM-1 前执行。
+- `node --check`、`git diff --check`、`verify-worktree-deps.js` 通过；QM-1 win-unpacked、ASAR require 链和 8 秒启动冒烟均通过。
 
 ## 双模型外部审查
 
@@ -49,4 +49,4 @@
 
 ## 结论
 
-无未解决 Critical/Major。剩余 Warning 均为后续增强项，不阻塞本次提交；QM-1 打包验证完成后再推送。
+无未解决 Critical/Major。Multi-Publish PR #1096 已合并并由 origin/main 核验；smart-sentence-splitter PR #19 的 7 项 CI 全部通过，但因 main 分支保护要求至少 1 名有写权限审阅者批准而保持 OPEN/BLOCKED。作者无法自审，当前仓库仅有作者协作者；已在 PR 留言请求维护者批准。该远端审批阻塞解除后，才可完成 sidecar 合并并归档 OpenSpec/CCG task。
