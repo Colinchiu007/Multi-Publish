@@ -380,8 +380,9 @@ export class SubtitleSegmenter {
   private static WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers);
   // v1.2.2：good_tail 路径的块首排除集（仅纯黏着后缀，如 "个|性" 的 性）。
   private static WORD_GOOD_TAIL_BLOCKERS = new Set(subtitleRules.word_split.good_tail_blockers ?? '');
-  // v1.2.3：成词保护（no_cut_bigrams）——切点两侧构成这些双字词时禁止切开（如 "能|够"、"就|是"）。
-  private static WORD_NO_CUT_BIGRAMS = new Set(subtitleRules.word_split.no_cut_bigrams ?? []);
+  // v1.2.3：成词保护（兼容字段名 no_cut_bigrams）——项目可以是任意长度短语，
+  // 切点不得落在任一短语内部（如 "蒙古"、"江南"、"包税人"）。
+  private static WORD_NO_CUT_PHRASES = new Set(subtitleRules.word_split.no_cut_bigrams ?? []);
 
   constructor(
     config?: Partial<SubtitleSegmentationConfig>,
@@ -501,7 +502,8 @@ export class SubtitleSegmenter {
         cur = '';
         lastHardCut = false;
       } else if (cur.length >= this.config.maxCharsPerBlock && stack.length === 0) {
-        const pos = this.applyEnumerationShift(cur, this.findSplitPos(cur), false);
+        let pos = this.applyEnumerationShift(cur, this.findSplitPos(cur), false);
+        pos = this.safeCutPosition(cur, pos);
         if (pos > 0) {
           blocks.push(cur.slice(0, pos));
           cur = cur.slice(pos);
@@ -515,7 +517,8 @@ export class SubtitleSegmenter {
             this.config.minCharsPerBlock,
             this.config.minCharsPerBlock,
           );
-          const hardPos = ws > 0 ? ws : cur.length;
+          const hardPos = this.safeCutPosition(cur, ws > 0 ? ws : cur.length);
+          if (hardPos <= 0) continue;
           blocks.push(cur.slice(0, hardPos));
           cur = cur.slice(hardPos);
           lastHardCut = true;
@@ -687,18 +690,31 @@ export class SubtitleSegmenter {
     for (let b of blocks) {
       while (b.length > this.config.maxCharsPerBlock) {
         let pos = this.applyEnumerationShift(b, this.findSplitPos(b), true);
+        pos = this.safeCutPosition(b, pos);
+        const isWholeProtectedPhrase = [...SubtitleSegmenter.WORD_NO_CUT_PHRASES]
+          .some((phrase) => phrase && phrase === b);
+        if (isWholeProtectedPhrase) {
+          // 保护短语本身可能比 maxChars 更长；完整短语优先于违反长度上限。
+          out.push(b);
+          b = '';
+          break;
+        }
         if (pos <= 0 || pos >= b.length) pos = this.config.maxCharsPerBlock;
+        // 固定长度兜底后再次检查，避免兜底切点落回受保护短语内部。
+        pos = this.safeCutPosition(b, pos);
+        if (pos <= 0 || pos >= b.length) pos = Math.min(this.config.maxCharsPerBlock, b.length - 1);
         // 平衡约束：尾块 < minChars 时切分点前移至 len - minChars（区间内优先找标点/词边界）
         if (b.length - pos < this.config.minCharsPerBlock) {
           const minPos = Math.max(1, b.length - this.config.minCharsPerBlock);
           const hi = b.length - 1;
           const ws = this.wordSafeSplit(b, minPos, hi, minPos, this.config.minCharsPerBlock);
           if (ws > 0 && ws < b.length) {
-            pos = ws;
+            pos = this.safeCutPosition(b, ws);
           } else {
             // 越界修复：balanced == len(b)（尾字符恰为标点时 i+1 越界）视为无效
             const balanced = this.findSplitPosInRange(b, minPos, hi);
             pos = balanced > 0 && balanced < b.length ? balanced : minPos;
+            pos = this.safeCutPosition(b, pos);
           }
         }
         out.push(b.slice(0, pos));
@@ -734,11 +750,51 @@ export class SubtitleSegmenter {
     return s.length;
   }
 
+  /** 返回切点所在的受保护短语跨度；切点恰在短语两端时安全。 */
+  private protectedPhraseSpanAtBoundary(text: string, i: number): { phrase: string; start: number; end: number } | null {
+    if (i <= 0 || i >= text.length) return null;
+    for (const phrase of SubtitleSegmenter.WORD_NO_CUT_PHRASES) {
+      if (!phrase || phrase.length < 2) continue;
+      let start = text.indexOf(phrase);
+      while (start >= 0) {
+        const end = start + phrase.length;
+        if (start < i && i < end) return { phrase, start, end };
+        if (start >= i) break;
+        start = text.indexOf(phrase, start + 1);
+      }
+    }
+    return null;
+  }
+
+  /** 返回文本末尾尚未完整出现的受保护短语前缀，避免流式累积在前缀中间切断。 */
+  private protectedPhrasePrefixAtEnd(text: string): { phrase: string; start: number; length: number } | null {
+    let best: { phrase: string; start: number; length: number } | null = null;
+    for (const phrase of SubtitleSegmenter.WORD_NO_CUT_PHRASES) {
+      if (!phrase || phrase.length < 2) continue;
+      for (let prefixLength = 1; prefixLength < phrase.length; prefixLength++) {
+        if (text.endsWith(phrase.slice(0, prefixLength))
+          && (!best || prefixLength > best.length)) {
+          best = { phrase, start: text.length - prefixLength, length: prefixLength };
+        }
+      }
+    }
+    return best;
+  }
+
+  /** 将候选切点移到受保护短语外，保证字幕块边界不落在短语内部。 */
+  private safeCutPosition(text: string, i: number): number {
+    const span = this.protectedPhraseSpanAtBoundary(text, i);
+    if (span) return span.start > 0 ? span.start : span.end;
+    const prefix = this.protectedPhrasePrefixAtEnd(text);
+    if (prefix && i >= prefix.start) return prefix.start > 0 ? prefix.start : 0;
+    return i;
+  }
+
   /** 词边界好切点：切点后为连词/介词（块首引导），或切点前为助词/副词/句内标点（块尾收束）。 */
   private isGoodCut(text: string, i: number): boolean {
     if (i >= text.length) return false;
-    // v1.2.3：切点落在成词内（如 "能|够"、"就|是"、"因|为"）一律不是好切点。
-    if (i > 0 && SubtitleSegmenter.WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1))) return false;
+    // v1.2.3：切点落在任意长度成词短语内部一律不是好切点。
+    if (this.protectedPhraseSpanAtBoundary(text, i)) return false;
     if (SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])) return true;
     // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
     // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
@@ -773,7 +829,7 @@ export class SubtitleSegmenter {
       if (i < text.length
         && !SubtitleSegmenter.WORD_BAD_FOLLOWERS.has(text[i])
         && (i === 0 || !isDigitChar(text[i - 1]))
-        && (i === 0 || !SubtitleSegmenter.WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1)))) {
+        && !this.protectedPhraseSpanAtBoundary(text, i)) {
         return i;
       }
     }

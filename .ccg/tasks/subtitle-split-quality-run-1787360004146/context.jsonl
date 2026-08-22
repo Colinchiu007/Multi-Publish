@@ -1,0 +1,5 @@
+{"path":"apps/desktop/electron/services/story2video-segmentation.js","reason":"在线字幕覆盖率验收与归一化入口","symbols":["withSubtitleBlocks","normalizeServiceSplitResult","engineSubtitleCoverage"]}
+{"path":"apps/desktop/electron/services/story2video-segmentation-engine.js","reason":"本地 JS 镜像字幕算法","symbols":["subtitleSplitToBlocks","isGoodCut","wordSafeSplit"]}
+{"path":"apps/desktop/electron/services/story2video-segmentation.test.js","reason":"在线/本地分句合同回归测试"}
+{"path":"packages/story2video-engine/src/subtitle-rules.json","reason":"三端共享词边界规则表"}
+{"path":"D:/Data/projects/smart-sentence-splitter/src/splitter/scene_subtitle/subtitle_segmenter.py","reason":"8002 sidecar 权威实现，外部工作树只读核验"}
