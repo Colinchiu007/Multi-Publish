@@ -12,7 +12,7 @@
   "projectId": "run_1787360004146_izko",
   "voiceId": "MiniMaxCloneVoice_00jngz",
   "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1099",
-  "remoteStatus": "pr_open_doc_sync_failure",
+  "remoteStatus": "pr_open_checks_in_progress",
   "e2eRunId": "run_1787383680119_kba0",
   "e2eEvidence": "D:/Temp/mp-real-e2e-voice-001-rerun/report.json",
   "packagedEvidence": "D:/Temp/mp-packaged-smoke-profile-voice-clone-20260822"
