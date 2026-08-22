@@ -11,6 +11,7 @@
 const fs = require('fs')
 const path = require('path')
 const log = require('./logger')
+const { buildResolveElementCode } = require('./rpa-selector-utils')
 
 // PRD F10.8: 文件 MIME 类型推断（JS File API 回退用）
 function _guessMimeType (fileName) {
@@ -109,8 +110,9 @@ const helpersMixin = {
   // ========== executeJavaScript utilities ==========
   async _waitForElement(win, sel, timeout) {
     timeout = timeout||30000
+    const resolveJs = buildResolveElementCode(sel)
     // eslint-disable-next-line no-unused-vars
-    try { return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';return new Promise(function(r){let e=document.querySelector(s);if(e){r(true);return}let o=new MutationObserver(function(){let f=document.querySelector(s);if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
+    try { return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');return new Promise(function(r){let e=_fn();if(e){r(true);return}let o=new MutationObserver(function(){let f=_fn();if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
   },
   async _waitForCondition(win, fn, timeout, interval) {
     // R75 防护：fn 必须是硬编码函数字面量字符串，禁止拼接用户输入
@@ -132,23 +134,26 @@ const helpersMixin = {
   },
   async _fillInput(win, sel, val) {
     const sv=JSON.stringify(val)
+    const resolveJs = buildResolveElementCode(sel)
     // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化，移除 script/on*= 事件
-    return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';let el=document.querySelector(s);if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));return}let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+    return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){try{el.focus();var _r=document.createRange();_r.selectNodeContents(el);var _s=window.getSelection();_s.removeAllRanges();_s.addRange(_r);document.execCommand("delete");document.execCommand("insertText",false,'+sv+');el.dispatchEvent(new Event("input",{bubbles:true}));return true}catch(_e){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));return true}}let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
   },
   async _click(win, sel) {
-    return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';let el=document.querySelector(s);if(!el)throw new Error("not found: "+s);el.click();return true})()')
+    const resolveJs = buildResolveElementCode(sel)
+    return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');el.click();return true})()')
   },
 
   // ========== CDP file upload ==========
-  async _setFileInput(win, filePath) {
+  async _setFileInput(win, filePath, fileSelector) {
+    fileSelector = fileSelector || 'input[type="file"]'
     if (!fs.existsSync(filePath)) throw new Error('File not found: '+filePath)
     const dbg = win.webContents.debugger
     // eslint-disable-next-line no-unused-vars
     try { await dbg.attach('1.3') } catch (e) { /* ignore */ }
     try {
-      const fr = await dbg.sendCommand('Runtime.evaluate',{expression:'(function(){return document.querySelectorAll(\'input[type="file"]\').length>0?1:0})()',returnByValue:true})
+      const fr = await dbg.sendCommand('Runtime.evaluate',{expression:'(function(){return document.querySelectorAll('+JSON.stringify(fileSelector)+').length>0?1:0})()',returnByValue:true})
       if (fr.result.value!==1) throw new Error('No file input found')
-      const re = await dbg.sendCommand('Runtime.evaluate',{expression:'document.querySelector(\'input[type="file"]\')'})
+      const re = await dbg.sendCommand('Runtime.evaluate',{expression:'document.querySelector('+JSON.stringify(fileSelector)+')'})
       const nd = await dbg.sendCommand('DOM.requestNode',{objectId:re.result.objectId})
       await dbg.sendCommand('DOM.setFileInputFiles',{files:[path.resolve(filePath)],nodeId:nd.nodeId||nd})
       log.info('RpaView','CDP file: '+path.basename(filePath)); return true
@@ -157,12 +162,13 @@ const helpersMixin = {
       // PRD F10.8: CDP 失败时回退到 JS File API / DataTransfer
       log.warn('RpaView', 'CDP upload failed, fallback to JS File API: ' + cdpErr.message)
       try { await dbg.detach() } catch (e) { /* ignore */ }
-      return await this._setFileInputViaJs(win, filePath)
+      return await this._setFileInputViaJs(win, filePath, fileSelector)
     } finally { try { await dbg.detach() } catch (e) { /* ignore */ } }
   },
 
   // PRD F10.8: JS File API 回退 — 读取文件为 Buffer，通过 DataTransfer 构造 File 并 dispatch change
-  async _setFileInputViaJs(win, filePath) {
+  async _setFileInputViaJs(win, filePath, fileSelector) {
+    fileSelector = fileSelector || 'input[type="file"]'
     const fsSync = require('fs')
     const buf = fsSync.readFileSync(filePath)
     const base64 = buf.toString('base64')
@@ -176,7 +182,7 @@ const helpersMixin = {
       'var bin=atob(b64);var n=bin.length;var bytes=new Uint8Array(n);' +
       'for(var i=0;i<n;i++)bytes[i]=bin.charCodeAt(i);' +
       'var file=new File([bytes],name,{type:mime});' +
-      'var input=document.querySelector(\'input[type="file"]\');' +
+      'var input=document.querySelector('+JSON.stringify(fileSelector)+');' +
       'if(!input)throw new Error("No file input found (JS fallback)");' +
       'var dt=new DataTransfer();dt.items.add(file);input.files=dt.files;' +
       'input.dispatchEvent(new Event("change",{bubbles:true}));' +

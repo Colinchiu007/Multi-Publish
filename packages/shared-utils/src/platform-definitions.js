@@ -110,7 +110,7 @@ const PLATFORM_COOKIE_DOMAINS = {
   kuaishou: ['kuaishou.com'],
   toutiao: ['toutiao.com'],
   bilibili: ['bilibili.com'],
-  baijiahao: ['baijiahao.baidu.com', 'passport.baidu.com'],
+  baijiahao: ['baijiahao.baidu.com', 'passport.baidu.com', 'baidu.com'],
   youtube: ['youtube.com', 'studio.youtube.com', 'accounts.google.com'],
   tiktok: ['tiktok.com'],
   twitter: ['twitter.com', 'x.com'],
@@ -195,7 +195,7 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
 const { PLATFORM_NAMES, PLATFORM_ICONS } = require('./platform-display-definitions.json')
 
 // ─── 支持二维码登录的平台列表 ─────────────────
-const QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao']
+const QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao', 'kuaishou']
 
 /**
  * 获取平台显示名称

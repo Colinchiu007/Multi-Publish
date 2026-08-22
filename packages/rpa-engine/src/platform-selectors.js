@@ -91,10 +91,13 @@ module.exports = {
     },
     kuaishou: {
       upload_btn: ['button:has-text("上传视频")', '[class*="upload"]', 'a:has-text("上传视频")'],
-      file_input: ['input[type="file"]'],
+      file_input: ['#joyride-wrapper input[type="file"]', 'input[type="file"]'],
       title_input: ['input[placeholder*="标题"]', '[class*="title"] input'],
-      desc_textarea: ['textarea', '[class*="desc"] textarea', '[class*="description"] input'],
-      publish_btn: ['button:has-text("发布")', '[class*="submit"]', '[class*="publish"] button'],
+      editor: ['#work-description-edit', '[contenteditable="true"]', 'textarea', '[class*="desc"] textarea'],
+      desc_textarea: ['#work-description-edit', 'textarea', '[class*="desc"] textarea', '[class*="description"] input'],
+      cover_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
+      cover_trigger: ['[class*="cover"]', '[class*="封面"]', 'text=上传封面'],
+      publish_btn: ['button:has-text("发布")', 'button:has-text("发表")', 'span:has-text("发 布")', 'span:has-text("发布")', 'span:has-text("立即投稿")', '[class*="submit"]', '[class*="publish"] button'],
     },
     toutiao: {
       write_btn: ['a:has-text("发表文章")', 'button:has-text("写文章")', '[class*="write"]'],
@@ -138,13 +141,16 @@ module.exports = {
       next_btn: ['div[role="button"]:has-text("Next")', 'button:has-text("Next")', 'div[aria-label*="Next"][role="button"]'],
       create_btn: ['svg[aria-label="New post"]', 'svg[aria-label="Create"]', 'a[href*="create"]'],
     },
-        baijiahao: {
+    baijiahao: {
       write_btn: ['a[href*="write"]', '[class*="write"]', '.publish-btn', 'button:has-text("写文章")'],
-      title_input: ['input[placeholder*="标题"]', '.title-input input', '[class*="title"] input', '#title'],
-      editor_frame: ['iframe[class*="editor"]', 'iframe[src*="editor"]'],
-      editor: ['[contenteditable]', '.editor-content', '.article-content', '[class*="editor"]'],
-      tag_input: ['input[placeholder*="标签"]', '.tag-input input', '[class*="tag"] input'],
-      publish_btn: ['button:has-text("发布")', 'button:has-text("提交")', '.submit-btn', '[class*="submit"]'],
+      // 百家号视频 V2：标题自动从视频文件名生成（无独立标题输入框）；作品描述为 Lexical contenteditable
+      file_input: ['input[type="file"][accept*="mp4"]', 'input[type="file"]'],
+      editor: ['[data-lexical-editor="true"]', '[contenteditable="true"]', '#desc', '[contenteditable]'],
+      desc_textarea: ['[data-lexical-editor="true"]', '[contenteditable="true"]', '#desc', 'textarea'],
+      tag_input: [],
+      cover_input: ['input[type="file"][accept*="image"]'],
+      cover_trigger: ['.cover-tabs-container', '[class*="cover"]', '[class*="封面"]'],
+      publish_btn: ['button[data-testid="publish-btn"]', 'button.cheetah-btn-primary:has-text("发布")', 'button:has-text("发布")', 'button:has-text("提交")'],
     },
     facebook: {
       upload_btn: ['button:has-text("上传视频")', 'a[aria-label*="Create"][role="button"]', '[data-pagelet*="composer"] button', 'div[role="button"]:has-text("视频")'],

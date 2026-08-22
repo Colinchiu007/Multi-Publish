@@ -48,6 +48,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     // 发布 API
     publishWechat: (articleData) => ipcRenderer.invoke('publish:wechat', articleData),
     publishBatch: (platforms, article) => ipcRenderer.invoke('publish:batch', { platforms, article }),
+    extractVideoCover: (videoPath) => ipcRenderer.invoke('cover:extract', videoPath),
     listAccounts: () => ipcRenderer.invoke('accounts:list'),
 
     // 渲染 API

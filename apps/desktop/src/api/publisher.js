@@ -441,3 +441,13 @@ export async function videoProcess(type, params) {
   return invokeWithFallback("videoProcess", { code: -1, message: 'electronAPI not available' }, type, params)
 }
 
+
+
+/**
+ * 提取视频首帧作为封面
+ * @param {string} videoPath - 视频文件路径
+ * @returns {Promise<{code: number, data?: {coverPath: string}, message: string}>}
+ */
+export function extractVideoCover(videoPath) {
+  return window.electronAPI.extractVideoCover(videoPath)
+}
