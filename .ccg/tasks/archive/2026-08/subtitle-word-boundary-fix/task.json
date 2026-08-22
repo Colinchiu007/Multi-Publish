@@ -1,0 +1,21 @@
+{
+  "id": "subtitle-word-boundary-fix",
+  "title": "修复字幕常用双字词边界与未闭合引号保真",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-videogen",
+  "currentPhase": "completed",
+  "nextAction": "已归档；PR 1111 与 sidecar PR 21 已合并",
+
+  "createdAt": "2026-08-22T20:10:00+08:00",
+  "branch": "codex/subtitle-word-boundary-fix",
+  "openspecChange": "subtitle-word-boundary-fix",
+  "targetRunId": "run_1787360004146_izko",
+  "remoteStatus": {
+    "multiPublishPR": "1111",
+    "multiPublishMerge": "778344b6b4886307811d6b940bcf13e72d24c8db",
+    "sidecarPR": "21",
+    "sidecarMerge": "c3522c7753a6c72924c6a69fe1b95564daf36af9"
+  }
+}
