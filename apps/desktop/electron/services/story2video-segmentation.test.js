@@ -89,8 +89,16 @@ describe('Story2Video 双层分句合同', () => {
     expect(blocks.some(block => block.includes(word))).toBe(true)
   })
 
-  it('用户样例本地回退时不拆蒙古、江南、包税人和大汗', () => {
+  it('用户样例按语义边界切分，并保护蒙古、江南、包税人和大汗', () => {
     const blocks = splitSubtitleBlocks(USER_SAMPLE, { minChars: 8, maxChars: 15 })
+    expect(blocks).toEqual([
+      '那时候蒙古统治者水平有限',
+      '对汉地的管理极其粗放',
+      '江南士绅摇身一变',
+      '成了蒙元的包税人',
+      '大汗把权力一下放',
+      '收税成本蹭蹭往下降',
+    ])
 
     expect(normalizeSubtitleContent(blocks.join(''))).toBe(normalizeSubtitleContent(USER_SAMPLE))
     for (const phrase of ['蒙古', '江南', '包税人', '大汗']) {

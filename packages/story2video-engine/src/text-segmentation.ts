@@ -805,18 +805,22 @@ export class SubtitleSegmenter {
 
   /**
    * 在 [lo, hi] 内找不劈词的切点索引；-1 表示无（v1.2）。
-   * 策略（优先级）：好切点从后往前找（头块尽量长），要求头块 >= minHead 且排除孤悬 ≤3 字短尾；
+   * 策略（优先级）：后块引导字切点优先于普通尾部收束切点；同类切点从后往前找（头块尽量长），
+   * 要求头块 >= minHead 且排除孤悬 ≤3 字短尾；
    * v1.2.2 软约束：头块欠长但 >= minHead-2 且尾块 >= tailMin 时仍接受；
    * 非黏着后缀切点从前往后找，要求头块 >= minHead；无则 -1，回退算术/标点切分。
    */
   private wordSafeSplit(text: string, lo: number, hi: number, minHead = 1, tailMin = 0): number {
     let fallback = -1;
+    let tailFallback = -1;
     for (let i = hi; i >= lo; i--) {
       const tail = text.length - i;
       if (!(i >= minHead || (tailMin > 0 && i >= minHead - 2 && tail >= tailMin))) continue;
       if (!this.isGoodCut(text, i)) continue;
       if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i]))) {
-        return i;
+        if (SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])) return i;
+        if (tailFallback < 0) tailFallback = i;
+        continue;
       }
       // v1.2.3 孤悬尾防护（仅 tail==4 且块首非连词/介词）："着|脖" 劈 "脖子" → 前移找 tail 达标点
       if (fallback < 0 && tail === 4 && !SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])
@@ -824,6 +828,7 @@ export class SubtitleSegmenter {
         fallback = i;
       }
     }
+    if (tailFallback >= 0) return tailFallback;
     if (fallback >= 0) return fallback;
     for (let i = Math.max(lo, minHead); i <= hi; i++) {
       if (i < text.length

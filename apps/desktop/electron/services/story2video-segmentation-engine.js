@@ -499,12 +499,15 @@ function wordSafeSplit (text, lo, hi, minHead, tailMin) {
   if (minHead === undefined || minHead === null) minHead = 1
   if (tailMin === undefined || tailMin === null) tailMin = 0
   let fallback = -1
+  let tailFallback = -1
   for (let i = hi; i >= lo; i--) {
     const tail = text.length - i
     if (!(i >= minHead || (tailMin > 0 && i >= minHead - 2 && tail >= tailMin))) continue
     if (!isGoodCut(text, i)) continue
     if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || WORD_GOOD_LEAD.has(text[i]))) {
-      return i
+      if (WORD_GOOD_LEAD.has(text[i])) return i
+      if (tailFallback < 0) tailFallback = i
+      continue
     }
     // v1.2.3 孤悬尾防护（仅 tail==4 且块首非连词/介词）："着|脖" 劈 "脖子" → 前移找 tail 达标点
     if (fallback < 0 && tail === 4 && !WORD_GOOD_LEAD.has(text[i])
@@ -512,6 +515,7 @@ function wordSafeSplit (text, lo, hi, minHead, tailMin) {
       fallback = i
     }
   }
+  if (tailFallback >= 0) return tailFallback
   if (fallback >= 0) return fallback
   for (let i = Math.max(lo, minHead); i <= hi; i++) {
     if (i < text.length
