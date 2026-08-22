@@ -12,6 +12,7 @@ const { findProtectedPhraseAtBoundary } = require('./story2video-segmentation-en
 
 const USER_SAMPLE = '那时候蒙古统治者水平有限，对汉地的管理极其粗放，江南士绅摇身一变成了蒙元的包税人。大汗把权力一下放，收税成本蹭蹭往下降。'
 const SEMANTIC_PACING_SAMPLE = '其实是跟南宋的老爷们提前谈妥了。之前蒙哥非要死磕，还搞屠城，吓得这些老爷们拼死抵抗。汉族地主阶级最爽的日子绝对是元朝。他们甚至嚣张到把大量蒙古人都卖去当奴隶。'
+const WORD_BOUNDARY_SAMPLE = '这种士大夫做大的局面，哪怕朱元璋建立大明也没能彻底翻转。暂时没法彻底打破士绅垄断。只是这里的\"宽\"被那些狼心狗肺的人硬说成是\"宽仁\"。那些人用实际行动展现出结果。居然还写诗怀念前朝。\"字里行间全在抱怨元末的群雄挡了他给蒙元当奴才的路。'
 
 describe('Story2Video 双层分句合同', () => {
   it('字幕只在单个场景内部二次切分，并保持原文顺序（v0.15.2 清理块尾标点）', () => {
@@ -133,6 +134,17 @@ describe('Story2Video 双层分句合同', () => {
       '他们甚至嚣张到',
       '把大量蒙古人都卖去当奴隶',
     ])
+  })
+
+  it('常用双字词不被硬切，未闭合引号后的正文保留', () => {
+    const blocks = splitSubtitleBlocks(WORD_BOUNDARY_SAMPLE, { minChars: 8, maxChars: 15 })
+    expect(normalizeSubtitleContent(blocks.join(''))).toBe(normalizeSubtitleContent(WORD_BOUNDARY_SAMPLE))
+    expect(blocks.some(block => block.includes('哪怕'))).toBe(true)
+    expect(blocks.some(block => block.includes('没法'))).toBe(true)
+    expect(blocks.some(block => block.includes('那些'))).toBe(true)
+    expect(blocks.some(block => block.includes('字里行间全在抱怨'))).toBe(true)
+    expect(blocks.some(block => block.includes('展现'))).toBe(true)
+    expect(blocks.some(block => block.includes('\"宽\"'))).toBe(true)
   })
 
   it('服务场景保持原边界，并为每个场景附加本地字幕块和来源', () => {

@@ -28,6 +28,74 @@ const QUOTE_MAP = new Map(subtitleRules.quote_pairs)
 function isSymmetricQuote (char) {
   return LEFT_QUOTES.has(char) && RIGHT_QUOTES.has(char) && QUOTE_MAP.get(char) === char
 }
+
+const SYMMETRIC_QUOTE_INTRODUCERS = ['感慨', '写道', '说道', '说', '表示', '称', '指出', '告诉', '问', '回答', '引用', '诗句', '如下', '是']
+
+function isLikelySymmetricOpening (text, index) {
+  if (index <= 0) return true
+  const previous = text[index - 1]
+  if ('：:，,；;（([{【「『\n '.includes(previous)) return true
+  const prefix = text.slice(Math.max(0, index - 6), index)
+  return SYMMETRIC_QUOTE_INTRODUCERS.some((word) => prefix.endsWith(word))
+}
+
+function isLikelySymmetricClosing (text, index) {
+  if (index >= text.length - 1) return true
+  if (isLikelySymmetricOpening(text, index)) return false
+  const next = text[index + 1]
+  return '。！？；.!?;，,、:：）)]】」』\n '.includes(next)
+}
+
+function hasUsableQuoteClose (text, start, quote) {
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === quote) {
+      if (!isSymmetricQuote(quote) || isLikelySymmetricClosing(text, i)) return true
+      // 另一个对称引号更像新的开引号，当前开引号应视为孤立。
+      return false
+    }
+    if (SENTENCE_BOUNDARY.has(text[i])) return false
+  }
+  return false
+}
+
+/** 删除未配对引号，但保留引号后的正文；用于句界扫描前的输入归一化。 */
+function stripUnpairedQuotes (text) {
+  const drop = new Array(text.length).fill(false)
+  const stack = []
+  const symmetricOpeners = new Set(subtitleRules.quote_pairs.filter(([left, right]) => left === right).map(([left]) => left))
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (symmetricOpeners.has(ch)) {
+      const top = stack[stack.length - 1]
+      if (top && top.q === ch && !isLikelySymmetricOpening(text, i)) stack.pop()
+      else if (top && top.q === ch) {
+        drop[top.index] = true
+        stack.pop()
+        stack.push({ q: ch, index: i })
+      }
+      else stack.push({ q: ch, index: i })
+    } else if (LEFT_QUOTES.has(ch)) {
+      stack.push({ q: ch, index: i })
+    } else if (RIGHT_QUOTES.has(ch)) {
+      if (stack.length && QUOTE_MAP.get(stack[stack.length - 1].q) === ch) {
+        stack.pop()
+      } else {
+        drop[i] = true
+      }
+    }
+    if (SENTENCE_BOUNDARY.has(ch)) {
+      while (stack.length) {
+        const top = stack[stack.length - 1]
+        const close = QUOTE_MAP.get(top.q)
+        if (close && hasUsableQuoteClose(text, i + 1, close)) break
+        drop[top.index] = true
+        stack.pop()
+      }
+    }
+  }
+  for (const entry of stack) drop[entry.index] = true
+  return Array.from(text).filter((_, i) => !drop[i]).join('')
+}
 // Step 3/6 词边界感知切分（v1.2）：无标点硬切/平衡切分时优先在不劈词的位置切分。
 const WORD_GOOD_LEAD = new Set(subtitleRules.word_split.good_lead)
 const WORD_SEMANTIC_LEAD = new Set(subtitleRules.word_split.semantic_lead || '')
@@ -468,8 +536,10 @@ function protectedPhraseSpanAtBoundary (text, i) {
 /** 返回文本末尾尚未完整出现的受保护短语前缀，避免流式累积在前缀中间切断。 */
 function protectedPhrasePrefixAtEnd (text) {
   let best = null
+  let completeLength = 0
   for (const phrase of WORD_NO_CUT_PHRASES) {
     if (!phrase || phrase.length < 2) continue
+    if (text.endsWith(phrase) && phrase.length > completeLength) completeLength = phrase.length
     for (let prefixLength = 1; prefixLength < phrase.length; prefixLength++) {
       if (text.endsWith(phrase.slice(0, prefixLength))
         && (!best || prefixLength > best.length)) {
@@ -477,6 +547,7 @@ function protectedPhrasePrefixAtEnd (text) {
       }
     }
   }
+  if (best && completeLength >= best.length) return null
   return best
 }
 
@@ -759,7 +830,8 @@ function subtitleEnforceMax (blocks, config) {
 /** Step 1-6 主流程：分句 → 引号 → 长度 → 合并 → 标点 → 强制（强制后再清理一次） */
 function subtitleSplitToBlocks (text, config) {
   const all = []
-  for (const sentence of subtitleSplitSentences(text, config)) {
+  const sanitizedText = stripUnpairedQuotes(text)
+  for (const sentence of subtitleSplitSentences(sanitizedText, config)) {
     for (const fragment of subtitleSplitQuoteBoundaries(sentence, config)) {
       let blocks = subtitleLengthSplit(fragment, config)
       blocks = subtitleMergeShort(blocks, config)

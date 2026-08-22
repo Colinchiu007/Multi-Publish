@@ -379,6 +379,73 @@ export class SubtitleSegmenter {
       && SubtitleSegmenter.RIGHT_QUOTES.has(ch)
       && SubtitleSegmenter.QUOTE_MAP.get(ch) === ch;
   }
+
+  private static SYMMETRIC_QUOTE_INTRODUCERS = ['感慨', '写道', '说道', '说', '表示', '称', '指出', '告诉', '问', '回答', '引用', '诗句', '如下', '是'];
+
+  private static isLikelySymmetricOpening(text: string, index: number): boolean {
+    if (index <= 0) return true;
+    const previous = text[index - 1];
+    if ('：:，,；;（([{【「『\n '.includes(previous)) return true;
+    const prefix = text.slice(Math.max(0, index - 6), index);
+    return SubtitleSegmenter.SYMMETRIC_QUOTE_INTRODUCERS.some((word) => prefix.endsWith(word));
+  }
+
+  private static isLikelySymmetricClosing(text: string, index: number): boolean {
+    if (index >= text.length - 1) return true;
+    if (SubtitleSegmenter.isLikelySymmetricOpening(text, index)) return false;
+    const next = text[index + 1];
+    return '。！？；.!?;，,、:：）)]】」』\n '.includes(next);
+  }
+
+  private static hasUsableQuoteClose(text: string, start: number, quote: string): boolean {
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === quote) {
+        if (!SubtitleSegmenter.isSymmetricQuote(quote) || SubtitleSegmenter.isLikelySymmetricClosing(text, i)) return true;
+        return false;
+      }
+      if (SubtitleSegmenter.SENTENCE_BOUNDARY.has(text[i])) return false;
+    }
+    return false;
+  }
+
+  /** 删除未配对引号，但保留引号后的正文；用于句界扫描前的输入归一化。 */
+  private static stripUnpairedQuotes(text: string): string {
+    const drop = new Array(text.length).fill(false);
+    const stack: { q: string; index: number }[] = [];
+    const symmetricOpeners = new Set<string>();
+    for (const pair of SubtitleSegmenter.QUOTE_PAIRS) {
+      if (pair[0] === pair[1]) symmetricOpeners.add(pair[0]);
+    }
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (symmetricOpeners.has(ch)) {
+        const top = stack[stack.length - 1];
+        if (top?.q === ch && !SubtitleSegmenter.isLikelySymmetricOpening(text, i)) stack.pop();
+        else if (top?.q === ch) {
+          drop[top.index] = true;
+          stack.pop();
+          stack.push({ q: ch, index: i });
+        }
+        else stack.push({ q: ch, index: i });
+      } else if (SubtitleSegmenter.LEFT_QUOTES.has(ch)) {
+        stack.push({ q: ch, index: i });
+      } else if (SubtitleSegmenter.RIGHT_QUOTES.has(ch)) {
+        if (stack.length && SubtitleSegmenter.QUOTE_MAP.get(stack[stack.length - 1].q) === ch) stack.pop();
+        else drop[i] = true;
+      }
+      if (SubtitleSegmenter.SENTENCE_BOUNDARY.has(ch)) {
+        while (stack.length) {
+          const top = stack[stack.length - 1];
+          const close = SubtitleSegmenter.QUOTE_MAP.get(top.q);
+          if (close && SubtitleSegmenter.hasUsableQuoteClose(text, i + 1, close)) break;
+          drop[top.index] = true;
+          stack.pop();
+        }
+      }
+    }
+    for (const entry of stack) drop[entry.index] = true;
+    return [...text].filter((_, i) => !drop[i]).join('');
+  }
   // Step 3/6 词边界感知切分（v1.2）：无标点硬切/平衡切分时优先在不劈词的位置切分。
   private static WORD_GOOD_LEAD = new Set(subtitleRules.word_split.good_lead);
   private static WORD_SEMANTIC_LEAD = new Set(subtitleRules.word_split.semantic_lead ?? '');
@@ -410,7 +477,8 @@ export class SubtitleSegmenter {
   /** Step 1-6：分句 → 引号 → 长度 → 合并 → 标点 → 强制（强制后再清理一次） */
   private splitToBlocks(text: string): string[] {
     const all: string[] = [];
-    for (const sentence of this.splitSentences(text)) {
+    const sanitizedText = SubtitleSegmenter.stripUnpairedQuotes(text);
+    for (const sentence of this.splitSentences(sanitizedText)) {
       for (const fragment of this.splitQuoteBoundaries(sentence)) {
         let blocks = this.lengthSplit(fragment);
         blocks = this.mergeShort(blocks);
@@ -796,8 +864,10 @@ export class SubtitleSegmenter {
   /** 返回文本末尾尚未完整出现的受保护短语前缀，避免流式累积在前缀中间切断。 */
   private protectedPhrasePrefixAtEnd(text: string): { phrase: string; start: number; length: number } | null {
     let best: { phrase: string; start: number; length: number } | null = null;
+    let completeLength = 0;
     for (const phrase of SubtitleSegmenter.WORD_NO_CUT_PHRASES) {
       if (!phrase || phrase.length < 2) continue;
+      if (text.endsWith(phrase) && phrase.length > completeLength) completeLength = phrase.length;
       for (let prefixLength = 1; prefixLength < phrase.length; prefixLength++) {
         if (text.endsWith(phrase.slice(0, prefixLength))
           && (!best || prefixLength > best.length)) {
@@ -805,6 +875,7 @@ export class SubtitleSegmenter {
         }
       }
     }
+    if (best && completeLength >= best.length) return null;
     return best;
   }
 
