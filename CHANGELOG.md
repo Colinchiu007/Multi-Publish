@@ -1,3 +1,8 @@
+## [2026-08-21] feat(accounts): 账号卡片整体可点击打开创作者中心并保持登录态
+
+- 交互：账号管理中账号卡片整体可点击（按钮、链接、输入框等交互元素除外），点击打开全屏标签页加载该平台创作者中心；新增 i18n title 提示与 cursor:pointer（accountsPage.cardCreatorTitle，zh/en 成对）。
+- 登录态：webview-manager.createNewTabPage 对合法 accountId 使用 persist:account-<id> 持久 session 分区（此前一次性 persist:browse-<tabId> 分区导致登录态丢失）；主进程从 credential-store 加密凭证恢复 Cookie（loadURL 前注入，缺 url 以初始页 URL 补齐）与 localStorage（did-finish-load 后恢复），读取/解密失败静默降级不阻塞标签创建，非法 accountId 回退一次性浏览分区且不读取凭证。
+- 回归：卡片 3 例 + webview-manager 5 例新测试，相关套件 54/54 通过；CJK 基线按行号位移吸收更新（无新增硬编码用户文案）；QM-1 打包验证通过（启动 8s 存活、stderr 干净）。
 ## [2026-08-20] fix(story2video): 历史状态语义修订 —— 新增「已中断」状态，修复状态归类与卡片显示
 
 - 现象：任务执行失败却同时出现在「已暂停」与「执行失败」两个标签；「已暂停」「执行失败」「已取消」标签下卡片标题显示流水线名词（如「故事视频合成」）、文案预览显示「未生成」。

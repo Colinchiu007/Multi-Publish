@@ -12,6 +12,10 @@ function mockLlmManager () {
 }
 
 describe('PromptBridge prompt-engine 请求兼容', () => {
+  it('请求超时适配慢推理模型（120s），HTTP 层不再提前掐断', () => {
+    const bridge = new PromptBridge({})
+    expect(bridge.requestTimeout).toBe(120000)
+  })
   it('批量优化会省略空的可选字段，并把文本上下文转换为 synopsis 对象', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true

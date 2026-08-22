@@ -163,8 +163,8 @@
       resetOptions: '恢复默认选项',
       // 2026-08-19 流水线自动后台运行：启动/续跑进入 running 后由主进程继续执行，历史记录显示进度
       backgroundRun: '后台运行',
-      backgroundRunToast: '流水线已在后台运行（仍占用并发名额），可在「历史记录」中查看进度。',
-      backgroundResumeToast: '流水线已从断点继续并在后台运行（仍占用并发名额），可在「历史记录」中查看进度。',
+      backgroundResumeToast: '流水线已从断点继续，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看。',
+      startForegroundToast: '流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。',
       mediaRequirementsImage: '支持 jpg / jpeg / png / webp 格式，单个文件最大 10MB。',
       mediaRequirementsAudio: '支持 wav / m4a / mp3 格式，单个文件最大 50MB。',
       mediaRequirementsBgm: '支持 wav / m4a / mp3 格式，单个文件最大 15MB。',
@@ -998,6 +998,7 @@
     verifyFailed: '验证失败',
     accountIncomplete: '账号信息不完整',
     creatorUnsupported: '暂不支持该平台的创作者中心',
+    cardCreatorTitle: '点击打开创作者中心',
     confirmDeleteAccount: (ctx) => '确定删除「' + ctx.named('platform') + '」账号「' + ctx.named('name') + '」吗？',
     confirmDeleteTitle: '确认删除',
     deleteFailed: '删除失败',

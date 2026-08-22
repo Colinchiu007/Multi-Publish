@@ -415,6 +415,20 @@ describe('MinimaxTtsAdapter — MiniMax TTS Adapter', () => {
       expect(urls.every((u) => !u.includes('/v1/v1'))).toBe(true)
     })
 
+    it('复刻接口 200 + base_resp 业务错误时 fail closed，不持久化幻影克隆音色（2038 无权限）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ file: { file_id: 12345 } }),
+        createFetchResponse({ base_resp: { status_code: 2038, status_msg: 'voice clone user forbidden' } }),
+      ])
+      global.fetch = fetchMock
+      const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
+      const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' })
+      const error = await adapter.cloneVoice({ name: '音色001', samples: [{ blob, fileName: 'clone.mp3', contentType: 'audio/mpeg' }] }).catch((e) => e)
+      expect(error).toBeInstanceOf(ProviderError)
+      expect(error.context).toMatchObject({ statusCode: 2038 })
+      expect(error.message).toContain('voice clone user forbidden')
+    })
+
     it('缺少样本时抛出配置错误', async () => {
       const adapter = new MinimaxTtsAdapter({ id: 'minimax-tts', apiKey: 'mm-test' })
       await expect(adapter.cloneVoice({ name: 'x', samples: [] })).rejects.toThrow()

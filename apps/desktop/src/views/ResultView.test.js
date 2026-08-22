@@ -1531,6 +1531,24 @@ describe("ResultView", () => {
     w.unmount();
   });
 
+  it("重新生成图片优化词遇到模型用量上限时提示额度耗尽", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateScenePrompt.mockRejectedValue(new Error(
+      "Error code: 429 - GoUsageLimitError: 5-hour usage limit reached. Resets in 1hr 32min."
+    ));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", prompt: "旧图词", status: "completed" }];
+    await nextTick();
+
+    await w.vm.regenerateScenePrompt("s1", "image");
+    await nextTick();
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.quota_exceeded");
+    expect(w.vm.story2videoNotificationDialog.messageParams.provider).toBe("当前");
+    w.unmount();
+  });
+
   it("重新生成字幕失败提示 scene_subtitle_regenerate_failed", async () => {
     const mocks = await import("@/api/publisher");
     mocks.story2videoRegenerateSceneSubtitle.mockRejectedValue(new Error("无法重新生成字幕"));

@@ -59,6 +59,16 @@ const RULES = [
       return { limitMinutes: m ? m[1] : '30' }
     },
   },
+  // 供应商明确表示用量窗口已耗尽（必须先于通用 429）
+  {
+    pattern: /GoUsageLimitError|usage\s+limit\s+(?:has\s+been\s+)?(?:reached|exhausted|exceeded)|(?:\d+\s*[- ]?hour|daily|weekly|monthly)\s+usage\s+limit\s+(?:has\s+been\s+)?(?:reached|exhausted|exceeded)/i,
+    key: 'quota_exceeded',
+    extract (raw) {
+      const sceneMatch = raw.match(/场景\s*(\d+)/) || raw.match(/scene\s*(\d+)/i)
+      const provider = resolveProviderDisplayName(raw)
+      return { scene: sceneMatch ? sceneMatch[1] : '', provider }
+    },
+  },
   // 频率/配额限制
   {
     pattern: /rate.?limit|too many requests|429|限流|频率.*限制|Error\s+code:\s*429|rpm\s+exhausted|429\s+Too\s+Many/i,

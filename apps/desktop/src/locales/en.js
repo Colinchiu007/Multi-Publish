@@ -163,8 +163,8 @@ export default {
       resetOptions: 'Reset to default options',
       // 2026-08-19 Pipeline auto-background run: running starts and resumes continue in the main process
       backgroundRun: 'Run in background',
-      backgroundRunToast: 'Pipeline is running in the background (still occupies a run slot). Track progress in history.',
-      backgroundResumeToast: 'Pipeline resumed from its checkpoint and is running in the background (still occupies a run slot). Track progress in history.',
+      backgroundResumeToast: 'Pipeline resumed and is tracking progress live; it keeps running in the background after you leave this page and remains visible in History.',
+      startForegroundToast: 'Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page and remains visible in History (still occupies a run slot).',
       mediaRequirementsImage: 'Supports jpg / jpeg / png / webp. Max 10MB per file.',
       mediaRequirementsAudio: 'Supports wav / m4a / mp3. Max 50MB per file.',
       mediaRequirementsBgm: 'Supports wav / m4a / mp3. Max 15MB per file.',
@@ -997,6 +997,7 @@ export default {
     verifyFailed: 'Verification failed',
     accountIncomplete: 'Account info is incomplete',
     creatorUnsupported: 'Creator center is not supported for this platform yet',
+    cardCreatorTitle: 'Click to open the creator center',
     confirmDeleteAccount: (ctx) => 'Delete the ' + ctx.named('platform') + ' account "' + ctx.named('name') + '"?',
     confirmDeleteTitle: 'Confirm Delete',
     deleteFailed: 'Delete failed',

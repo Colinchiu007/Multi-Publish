@@ -2,6 +2,8 @@
   <article
     class="account-row account-card"
     :data-testid="`account-card-${account.id}`"
+    :title="t('accountsPage.cardCreatorTitle')"
+    @click="onCardClick"
     :class="{ 'is-selected': selected, 'is-default': account.is_default }"
     :aria-label="`${platformLabel}账号：${accountName(account)}`"
   >
@@ -122,6 +124,7 @@
 
 <script setup>
 import { nextTick, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { CircleCheck, Delete, EditPen, Monitor, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -145,8 +148,16 @@ const emit = defineEmits([
   'open-creator',
 ])
 
+const { t } = useI18n()
+
 const editing = ref(false)
 const nameInput = ref(null)
+
+// 卡片整体可点击：点击按钮、链接、输入框等交互元素时保持其自身行为，不触发卡片级动作
+function onCardClick (event) {
+  if (event.target.closest('button, a, input, label, select, textarea')) return
+  emit('open-creator', props.account)
+}
 
 function startEditing () {
   editing.value = true
@@ -249,6 +260,7 @@ function formatDate (value) {
 <style scoped>
 .account-card {
   position: relative;
+  cursor: pointer;
   min-width: 0;
   min-height: 252px;
   display: flex;

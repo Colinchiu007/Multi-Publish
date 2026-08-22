@@ -89,6 +89,8 @@
                 <span v-if="p.status === 'running'" class="pipeline-running-hint">与流水线页面实时同步</span>
                 <span v-if="p.status === 'paused' && p.pausedStage" class="pipeline-paused-hint">暂停环节：{{ stageLabel(p.pausedStage) }}</span>
                 <span v-if="p.status === 'failed'" class="pipeline-paused-hint" style="background:var(--status-failed-bg);color:var(--status-failed-text);">生成失败</span>
+                <span v-if="p.status === 'interrupted' && p.pausedStage" class="pipeline-paused-hint history-interrupted-hint">{{ interruptedStageText() }} · {{ stageLabel(p.pausedStage) }}</span>
+                <span v-else-if="p.status === 'interrupted'" class="pipeline-paused-hint history-interrupted-hint">{{ interruptedHintText() }}</span>
               </div>
             </div>
           </div>
@@ -180,14 +182,15 @@ export default {
         if (requestId !== this.pipelineRequestId) return
         if (r?.code === 0 && Array.isArray(r.data)) this.pipelines = r.data
         else this.pipelineError = formatUserError(r, { fallback: '流水线记录加载失败，请重试' }).message
-      // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停（超时/崩溃遗留）
+      // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已中断（超时/崩溃遗留）
       const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
       const now = Date.now()
       for (const p of this.pipelines) {
         if (p && p.status === 'running') {
           const updatedAt = p.updatedAt ? new Date(p.updatedAt).getTime() : 0
           if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
-            p.status = 'paused'
+            p._originalStatus = p.status
+            p.status = 'interrupted'
             if (!p.pausedStage) {
               const stages = Array.isArray(p.stages) ? p.stages : []
               const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
@@ -214,7 +217,7 @@ export default {
     },
     openPipeline(p) {
       if (!p) return
-      if (p.status === 'running' || p.status === 'failed' || p.status === 'cancelled' || p.status === 'paused') {
+      if (p.status === 'running' || p.status === 'failed' || p.status === 'cancelled' || p.status === 'paused' || p.status === 'interrupted') {
         // 运行中/失败/已取消：跳回创作页，CreateView 恢复查看该流水线进度/支持断点继续
         this.$router.push('/create')
         return
@@ -231,12 +234,27 @@ export default {
       }
     },
     statusLabel(s) {
-      const labels = { completed: '已完成', running: '运行中', failed: '生成失败', cancelled: '已取消', paused: '已暂停' }
+      const labels = { completed: '已完成', running: '运行中', failed: '生成失败', cancelled: '已取消', paused: '已暂停', interrupted: this.interruptedStatusLabel() }
       return labels[s] || s || '已完成'
+    },
+    interruptedStatusLabel() {
+      const key = 'create.history.tabs.interrupted'
+      const translated = typeof this.$t === 'function' ? this.$t(key) : null
+      return translated || 'Interrupted'
     },
     stageClass(s) {
       if (s && typeof s === 'object') return s.status || ''
       return ''
+    },
+    interruptedStageText() {
+      const key = 'stageProgress.interruptedStage'
+      const translated = typeof this.$t === 'function' ? this.$t(key) : key
+      return (typeof translated === 'string' && translated !== key) ? translated : 'Interrupted stage'
+    },
+    interruptedHintText() {
+      const key = 'stageProgress.interruptedHint'
+      const translated = typeof this.$t === 'function' ? this.$t(key) : key
+      return (typeof translated === 'string' && translated !== key) ? translated : 'The task was interrupted by an app exit or crash. Resume from the breakpoint to continue.'
     },
     stageLabel(s) {
       const name = this.shortName(typeof s === 'string' ? s : (s?.name || s?.stage || ''))

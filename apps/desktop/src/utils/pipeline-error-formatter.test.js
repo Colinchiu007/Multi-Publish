@@ -45,6 +45,17 @@ describe('formatPipelineError', () => {
     expect(r.params.provider).toBe('当前')
   })
 
+  it('matches explicit Go usage limit before generic 429 rate limiting', () => {
+    const r = formatPipelineError('Story2Video optimize failed: Error code: 429 - GoUsageLimitError: 5-hour usage limit reached. Resets in 1hr 32min.')
+    expect(r.key).toBe('story2video.quota_exceeded')
+    expect(r.params.provider).toBe('当前')
+  })
+
+  it('matches usage limit reached without a provider-specific error name', () => {
+    const r = formatPipelineError('The model usage limit has been reached; try again later.')
+    expect(r.key).toBe('story2video.quota_exceeded')
+  })
+
   it('uses a concrete provider for a rate-limit error when it is present', () => {
     const r = formatPipelineError('Image provider: kling rate limit exceeded (429)')
     expect(r.params.provider).toBe('Kling')

@@ -22,6 +22,7 @@ fail-open），每场景附加 `subtitleTimeline`（真实词级时间 + charTim
 
 **字幕分割质量护栏（双实现共享，splitter v0.14.2 起）**：
 - **min_chars 不变量**：每块清理后长度 ≥ min_chars；例外（独立短句/标点或空格边界短片段/≤3 字合法短尾）必须在共享向量 `subtitle_segmentation_vectors.json` 的 `short_block_exceptions` 中显式声明（含 reason）；无标点硬切产生的孤悬尾块视为违规，按 Step 3/6 平衡切分（如 15+4 → 11+8）；
+- **语义引导词优先（v1.2.4）**：`已经`、`依然` 等成词副词优先把切点前移到副词前，让前块带走完整名词短语、后块以副词开头（如 `底层农民的实际负担｜依然重得吓人`）；5-6 字语义短尾必须在共享向量 `short_block_exceptions` 显式声明。
 - **时间戳严格连续**：proportional/equal 均要求 `start_i == round(start_{i-1} + duration_{i-1}, 2)`（舍入后累加），禁止 0.01s 级间隙/重叠；`start_time`/`duration` 保留 2 位小数（**四舍五入 half-up**，`floor(x*100+0.5)/100` 与 `Math.round(x*100)/100` 语义一致，禁止 Python 原生 `round()`——银行家舍入会在 .xx5 边界与 TS 产生 0.01s 级分歧）；
 - **向量双轨管理（防自证陷阱）**：`expected_blocks` 必须为手工真值（按规范人工推导后再与实现输出核对），禁止直接把实现输出写入向量——否则实现与向量共同漂移，测试失去拦截力。
 #### 7.1.2 文案边界与用户提示合同| 合同 | 要求 ||------|------|| 文案输入 | Story2Video 只接受文案输入；按 Unicode code point 计数，最多 6,000 个中文、英文或 emoji 字符；不以场景数量限制用户输入 || 前后端一致性 | Renderer 在调用 IPC 前拦截超限文案，主进程 normalizer 以同一 6,000 字符规则再次校验；后端直接调用不得绕过该限制 || 反馈呈现 | Story2Video 的编排错误、文件校验错误与结果页错误统一使用应用内模态框；页面不重复渲染同一错误，也不得直接显示服务端技术错误 || 本地化 | 消息以稳定的消息键和参数存储，默认中文；当前提供中文和英文目录，未知技术错误必须回退到友好的本地化通用说明 |#### 7.1.3 故事讲述自动执行与表单边界`story2video-compose` 是历史、IPC、项目清单和执行器使用的稳定机器 ID，**不得改名**；仅产品显示层使用 locale资源，默认中文显示“故事讲述”，英文显示“Story Telling”（2026-08-14 更名，原名“全能创作 / Omni Creation”，再早“图片轮播 / Image Carousel”）。所有阶段、类别、状态和操作文字必须使用同一套 localekey，未知内部 ID 只能回退为原始 ID。| 范围 | 产品合同 ||------|----------|| 六阶段 | 文案拆分 → 内容增强 → 画面提示词优化 → 图片/视频/旁白生成 → 合成轮播视频 → 发布（未启用时明确为 `skipped`）。用户确认后固定 `autoAdvance=true` 与 `checkpointPolicy='none'`，不提供人工 checkpoint、继续或推进操作。 || 运行反馈 | 图片轮播只使用条目式阶段清单显示 `pending/running/completed/skipped/failed/needs_user_input` 与可读摘要；不渲染 S2V 百分比进度作为反馈。取消入口保留。 || 进度区固定（2026-08-09） | 流水线运行/结束期间，**进度头部固定**：进度条 + 百分比 + 已用时（+ 完成摘要）使用 `position: sticky; top: 0` 固定在主内容区（`.cohere-main`）顶部，不随页面滚动离开视口；背景使用主题 `--bg`（明暗主题一致），贴顶时底部圆角 + 轻阴影与阶段明细分隔。阶段明细列表（stage-item）仍随内容正常滚动，避免整块进度区（阶段较多时）遮挡下方输入/配置区。 || 内容政策耗尽 | `needs_user_input` 不是可推进的通用 checkpoint。用户必须先取消旧运行，再以修改后的文案创建新运行；不得在原 run 上继续、恢复或用占位图伪造成功。 || 受控默认 | 分句语言默认“自动识别”；音调、并发数和创意强度不在图片轮播表单展示，只能使用版本化、可审计、可回滚的受控默认值。 || 两类风格 | 图片风格决定图片供应商输出的视觉审美；提示词风格决定优化器如何组织、表达画面提示词。两项必须同时保留，不能因枚举相似而合并。 |
@@ -2276,6 +2277,18 @@ Electron 打包、工作树、PR 或发布状态证据。
 | 用户无感设计 | 三层降级的全部重试逻辑在主进程内完成，前端仅看到最终结果：重新生成成功（可能用了新克隆的音色）或保留了已有音频（用户无感知）或正常失败。不弹出「请检查音色设置」「重新克隆」等提示 - 除非三层全部失败才显示原始错误。 |
 | 依赖注入 | container.setup.js 注册 ttsVoiceCloneService 并注入到 Story2VideoProjectService，使其能调用 findCloneSamples 和 ttsVoiceCloneService。缺失注入时 Layer 1 跳过，仅执行 Layer 2/3。 |
 | 验收标准 | 1. 换 MiniMax 账号后重新生成旁白，若本地有克隆样本 -> 自动重新克隆成功 -> 旁白正常生成；2. 若本地样本已删除但场景有旧音频 -> 保留旧音频，用户看到成功；3. 若无旧音频 -> 正常报错；4. 错误分类不再将 voice not found 误报为额度不足；5. 非克隆音色错误（网络超时、内容安全等）不触发三层降级，按原有逻辑处理。 |
+
+
+#### 7.1.16.2 克隆音色不得静默替换为官方音色（2026-08-22）
+
+**背景**：真实链路 run_1787325756406_9q90 中用户选择本地音频克隆音色「音色001」，成片旁白却是模型官方音色。根因是 `cloneVoice` 未检查 `base_resp` 业务错误（如 2038 无复刻权限），把平台不存在的 voice_id 当成克隆成功持久化；生成时幻影音色失败，流水线又静默回退 provider 默认官方音色。
+
+| 合同 | 要求 |
+|------|------|
+| 复刻失败 fail closed | minimax-tts `cloneVoice` 必须检查 `base_resp.status_code`：非 0（含 2038）即抛 ProviderError（复用 classifyBaseRespError），不得返回本地生成的 voice_id；应用不得持久化幻影克隆音色。 |
+| 生成阶段不回退官方音色 | story2video `tryReCloneVoice` 只允许用本地样本重克隆后重试；clone service 缺失、样本缺失、重克隆失败或重试失败时返回原始音色错误，不得用 `retryFn('default')` 换成 provider 默认官方音色（与 7.1.16.1 Layer 3 一致）。 |
+| 用户提示 | 克隆音色不可用且无法重建时，TTS 分段按失败透传，前端显示音色/语音相关失败原因，不再产出静默替换音色的成片。 |
+| 验收标准 | ① 复刻接口 200 + 2038 业务错误 → 前端不出现「音色001」、无幻影克隆持久化；② `tryReCloneVoice` 回归断言不调用 `retryFn('default')`、返回 null；③ 真实运行若克隆音色重建失败，流水线报告失败且成片不含被替换的官方音色。 |
 
 #### 7.1.17 提示词优化输出净化与无实质内容守卫（2026-08-09）
 
@@ -4559,9 +4572,9 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 流水线启动后应在后台持续运行：用户返回流水线列表或切换模块不影响执行；历史记录可查看运行中未完成的任务及其实时流程状态；同一应用支持多个流水线并行，但设上限防止资源过载。
 
 ### 1. 后台运行（已具备，本次固化合同）
-- **启动即后台**：`pipeline:startOrchestrated` 传 `autoAdvance: true, background: true` 时，主进程后台推进整条流水线并立即返回 `runId`；renderer 每 3s 轮询 `pipeline:getRunContext` 刷新阶段状态。
+- **启动即前台跟踪（2026-08-21 修订）**：`pipeline:startOrchestrated` 传 `autoAdvance: true, background: true` 时，主进程后台推进整条流水线并立即返回 `runId`；renderer 启动成功后立即以 3s 轮询 `pipeline:getRunContext` + `pipeline:update` 事件在创作页实时展示阶段进度；离开页面（beforeUnmount）才停止轮询，run 继续后台执行。
 - **页面无关性**：运行绑定在主进程 `PipelineEngine._runs`（runId 驱动），不依赖任何页面/组件生命周期。CreateView `beforeUnmount` 仅清理轮询 timer 与时钟，**不取消 run**。
-- **返回恢复查看**：CreateView `mounted` 调用 `resumeRunningOrchestration()`——遍历候选流水线名，用 `pipeline:status` 找到 `status=running && orchestrationMode=orchestrator` 的运行并自动恢复阶段清单查看（含轮询）。renderer 重载/切页返回均适用。
+- **重新进入为初始态（2026-08-21 修订）**：CreateView `mounted` 不重挂、不自动恢复任何 run；每次进入创作页都是全新新建任务状态。后台运行中的任务仅在历史记录可见（历史页 5s 轮询刷新运行进度）。
 - **断点恢复**：失败 run 落 `RunStateStore` 快照，`pipeline:resumeOrchestration` 从失败阶段继续（并发槽位占用，见下）。
 - **运行中任务持久化（2026-08-09 新增）**：运行中编排 run 阶段级落盘 running 快照（`saveRunning`）+ 退出兜底 `saveRunningState()`；应用退出/强杀重启后，任务以「运行中」状态继续显示在历史记录并可「从断点继续」（见 7.1.21）。
 
@@ -4599,7 +4612,7 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 
 ### 3a. 前台/后台切换历史实现（2026-08-13，已废弃）
 
-> 本节仅保留历史决策和迁移背景，不是现行交互合同。2026-08-19 起，现行规则以 §3a.1 为准：运行中的编排流水线启动或续跑即自动后台运行，用户不再点击【后台运行】。
+> 本节仅保留历史决策和迁移背景，不是现行交互合同。2026-08-19 起的“启动即后台”方案已被后续前台跟踪方案替代；当前唯一权威合同见 §3a.2。
 
 **需求**：运行流水线状态下，在【取消】按钮旁增加【后台运行】按钮。点击后当前流水线在后台继续运行，前端流水线详情恢复初始化状态（重新显示【启动流水线】），用户可再次启动流水线（受 §3 并发上限约束）。
 
@@ -4637,7 +4650,9 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - 前端单测：运行中+runId 显示按钮；idle / paused / 无 runId 不显示；点击后 `pipelineCancel` 未被调用、状态恢复初始化、启动按钮重新出现、toast 显示；在飞轮询过期响应不写回；检查点等待态点击无效；取消路径回归（`pipelineCancel` 仍被调用）。
 - 交互验收（人工）：启动流水线 → 点击【后台运行】→ 详情恢复初始化 → 历史记录可见运行中任务 → 点击卡片重挂恢复进度 → 并发满时启动新流水线弹并发提示（既有文案）。
 
-### 3a.1 现行合同：视频创作流水线启动前台跟踪与防重复启动（2026-08-21 修订）
+### 3a.1 历史中间合同：视频创作流水线启动前台跟踪与防重复启动（2026-08-21，已废弃）
+
+> 本节是 2026-08-21 短暂采用的中间版本，仅用于解释变更背景和兼容测试，不得作为当前实现依据。它把“启动前台跟踪”与“续跑留在历史后台”混在一起，已被 §3a.2 的统一生命周期合同替代。当前唯一权威规则是：启动/续跑均在创作页前台跟踪，离开页面才转后台，重新进入创作页回到新建初始态。
 
 **产品原则**：点击【启动流水线】后，编排 run 挂回当前视图实时展示阶段进度（阶段清单/当前阶段/进度/暂停/取消），用户在创作页即可看到整条流水线运行状态，不再启动即脱离到后台。主进程保持 autoAdvance + background 无损推进（IPC 不阻塞、关闭窗口不打断）；【后台运行】按钮不显示，脱离或查看历史走历史记录与断点续跑。
 
@@ -4675,6 +4690,48 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - CreateViewHistory 测试覆盖 running 卡片后台提示、阶段进度、状态过滤和继续按钮事件。
 - 主进程 pipeline-engine 与 resume-orchestration 测试继续证明异步推进、持久化快照、幂等 alreadyRunning 和并发槽位不回归。
 - 人工验收覆盖：启动后继续编辑另一条任务；历史卡片可见并实时刷新；从断点继续不抢占创作页；素材选择暂停可进入面板；并发达到上限提示实际 N/M。
+> ⚠️ **2026-08-21 合同修订**：本节「启动即后台、renderer 停止轮询、恢复初始态、续跑留在历史」整体废弃，以 §3a.2 为准。
+
+### 3a.2 现行合同：启动前台跟踪 + 离开转后台 + 重进初始态（2026-08-21）
+
+**产品原则**：视频创作编排流水线启动成功后，创作页即成为该任务的「前台跟踪页」——实时展示阶段进度、暂停/取消控制，并在完成时自动跳转结果页；用户离开页面后任务自动转后台运行，仅在历史记录可见；再次进入创作页回到全新新建状态。启动与历史续跑前台语义统一。
+
+**启动流程与数据校验**
+1. 用户点击【启动流水线】后，renderer 依次校验登录状态、流水线可用性、输入模式、文案 Unicode 字符数、媒体路径、模型/音色能力和版本化配置（同 3a.1 第 1 步）。
+2. IPC 启动响应必须同时满足 code=0、success 不为 false、runId 是 trim 后的非空字符串；任何条件不满足都进入现有错误弹窗，不清空其他运行态，不进入前台跟踪。
+3. 启动成功后等待选项快照保存完成，再调用 `startOrchestrationForeground(runId, pipelineName, outcome)`：helper 只接收字符串 runId；先 `stopPipelinePolling()` 清旧轮询，**不得调用 `resetPipelineUiState()`**；保留 runId、立即 `updateOrchestrationStatus()` 拉取全量运行快照，然后开启 3s 轮询。
+4. outcome 的 context/stages 仅为可选初始占位，阶段数据以 `updateOrchestrationStatus()` 首次全量拉取为准；缺失时用默认阶段列表占位。
+5. 自动前台不得调用 pipelineCancel、不得删除运行快照、不得修改主进程并发计数；run 继续在 Electron 主进程推进，仍占用 maxConcurrentRuns 槽位。
+
+**离开、重进与轮询生命周期**
+- 离开页面：`beforeUnmount` 清空 3s 轮询与 `pipeline:update` 事件订阅，run 继续后台执行；不弹结果页跳转。历史记录（创作页内嵌 / 独立历史页）每 5s 轮询刷新运行中任务进度。
+- 同一 `/create` 页面切换到「历史记录」或「快速渲染」tab，视为主动脱离流水线前台跟踪：立即停止 renderer 轮询与实时事件订阅，清理当前页面的 run 展示态并回到对应 tab；不得调用 `pipelineCancel`，主进程 run 继续后台执行并占用并发槽位。切回「流水线创作」tab 时只显示全新的新建列表，不自动重挂刚才的 run。
+- 重新进入：`mounted` 不恢复、不重挂任何 run，始终全新新建任务状态；并发门禁允许时可再次启动（超限由主进程 `PIPELINE_CONCURRENCY_LIMIT` 拦截）。
+- 卸载竞态守卫：`updateOrchestrationStatus()` 与 `applyOrchestrationOutcome()` 均在 `_s2vAlive === false` 时丢弃在飞响应，禁止已卸载组件写状态或触发 `router.push`。
+- 启动响应竞态守卫：启动 IPC 返回前若用户切换 tab、切换流水线、取消或重置页面，必须递增启动请求代际令牌；返回的 runId 仅在代际仍一致且当前仍处于「流水线创作」tab 时挂回，过期响应不得恢复 run、开启轮询、写入错误或触发跳转。
+- 轮询快照守卫：每次请求使用发起时 runId，响应返回后若当前 runId 已变化/清空或请求序号过期则丢弃（不写回阶段、上下文、错误或结果页跳转）。
+
+**历史任务卡片与续跑流程**
+- 历史列表 running 卡片展示状态圆点/状态/阶段色块/当前阶段/更新时间/创建时间/任务 ID 与「仍占用并发名额」提示；存在 running 时每 5 秒刷新。
+- 点击运行中任务【继续】【继续生成】或 failed/paused/interrupted 的【从断点继续】时，校验恢复响应 code=0、success=true、runId 非空。
+- 恢复结果进入 running 时，`openRunningPipeline` 前台跟踪（语义与启动一致，不再切到后台仅历史观察）；`alreadyRunning=true` 幂等确认，不重复创建 run。
+- 恢复结果 paused=true 且 checkpoint 为 scene_asset_selection：进入创作页素材选择面板（等用户输入，不得当作 running，不得自动推进 compose）。
+
+**显示项与提示文字**
+| 场景 | 中文 | English |
+|------|------|---------|
+| 启动前台 toast | 流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。 | Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page and remains visible in History (still occupies a run slot). |
+| 断点续跑 toast | 流水线已从断点继续，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看。 | Pipeline resumed and is tracking progress live; it keeps running in the background after you leave this page and remains visible in History. |
+| 历史运行提示 | 任务正在后台运行（仍占用并发名额），可查看实时阶段进度。 | This task is running in the background (still occupies a run slot). View its live stage progress here. |
+| 独立历史页“已中断” | 已中断 / 中断环节（应用退出/崩溃残留或 stale >30 分钟），紫色标签 | Interrupted / Interrupted stage (app exit/crash residue or stale >30 min), purple badge |
+| 并发超限 | 当前已有 N 条流水线正在后台运行，最多同时运行 M 条，请等待其中一条完成后再启动。 | Use the existing localized concurrency-limit mapping with actual N/M. |
+
+**验收与测试**
+- CreateView 测试：三条编排启动入口前台跟踪（保留 runId、GET 运行态、轮询、toast、启动按钮隐藏、不调用取消）；runId 快照守卫（切换 run 后旧响应不写回）；完成自动跳结果页；组件卸载后终态不跳转；离开页面停轮询且保留 runId；重进为全新初始态。
+- CreateView tab 测试：切换到历史记录/快速渲染停止轮询、清理页面展示态且不取消后台 run；切回流水线创作保持新建初始态；启动 IPC 在途时切 tab，旧响应不得重新挂回 run。
+- CreateHistory 测试：statusLabel interrupted；stale running（>30 分钟）归入 interrupted。
+- 主进程 pipeline-engine / resume-orchestration：异步推进、持久化快照、幂等 alreadyRunning、并发槽位不回归。
+- locale/CJK：zh/en 成对（startForegroundToast 新增、backgroundResumeToast 修订、backgroundRunToast 删除）；渲染端不新增硬编码中文。
 
 ### 4. 验收标准
 - 引擎单测：`getHistory` 含运行中且无重复；上限 2 拒绝第 3 条；注入 1 时第 2 条拒绝、取消后释放；`resumeOrchestration` 超限拒绝；`computeDefaultMaxConcurrentRuns` 覆盖 1/2/3/4 资源档位与注入覆盖。

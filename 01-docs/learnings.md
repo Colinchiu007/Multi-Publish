@@ -13855,3 +13855,15 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 **修复**：生成按钮覆盖 image1/image2 与 video1/video2 全部视觉卡（保持场景级动作，写入目标由选中态/身份规则决定，video2 仍是视觉别名）；`hasUsableVideoPrompt` 改为 `videoPrompt || prompt || text` 任一 trim 非空，与后端契约一致（模板 disabled 与方法入口 guard 同时放宽，避免可点但静默 return）。
 
 **预防**：场景级生成动作可以在多个视觉卡重复暴露多入口，但禁止为视觉别名新增持久化身份；renderer 的“能否生成”门控必须与后端提示词回退契约逐字一致并加跨层断言；测试禁止用 `toHaveLength(2)`/“无按钮”固化错误行为，用 data-testid 定位。已沉淀至 `.ccg/spec/frontend/index.md` §8。
+
+## Story2Video 字幕常用词边界与未闭合引号保真（subtitle-word-boundary-fix，2026-08-22）
+
+- **现象**：用户整段文案分句后出现 `哪|怕`、`没|法`、`那|些`、`展|现` 等常用词被硬切；`前朝。"字里行间…` 这类未闭合半角引号会让后续句号失效，正文被吞。
+- **根因**：`no_cut_bigrams` 只覆盖此前用户反馈词；引号清理只发生在句界切分之后，孤立开引号会让 `_split_sentences` 的引号栈永不闭合，后续正文与句号一起被吞。
+- **修复**：常用词加入共享 `subtitle-rules.json`；三端在句界扫描前先做 `stripUnpairedQuotes`，只移除无法配对的引号字符并保留正文；`protectedPhrasePrefixAtEnd` 增加“文本已完整结束于保护短语时不再把末尾单字误判为另一短语前缀”的守卫，修复 `江南` 被 `南宋灭亡时` 误伤成 `江|南`。
+- **逃逸链**：单元测试覆盖了旧保护词但未覆盖“未闭合引号 + 多句 + 完整长文”组合；共享向量没有带上用户整段文案；Python/TS 向量测试各自独立，缺少同一输入的三端逐字对比。
+- **回归保护**：新增 `user_common_words_and_unpaired_quote`、`user_full_ming_scholar_script` 共享向量，三端共用；Electron 141、TS 166、Python 169 全部通过；QM-1 打包与 ASAR 抽取真实 require 通过。
+- **预防**：以后新增常用词/引号规则必须同步三端规则表与共享向量；长文本测试不能只验词不验引号，句界预处理必须晚于引号配对检查、早于 `splitSentences`；向 `no_cut_bigrams` 加入以单字开头的新短语时，必须回归“该单字出现在其他完整保护短语末尾”的极端配置。
+### 已经/依然 语义引导切分（subtitle-adverb-lead-cut，2026-08-23）
+
+长文 A/B 回归：仅加入 `已→经`、`依→然` 两个语义引导词，221 块中只有 48/49、152/153 变化，分别是“底层农民的实际负担｜依然重得吓人”与“这举动说明老朱的态度｜已经变软了”，其余 217 块不变；现有共享向量全部通过。规则落在 `word_split.semantic_lead` + `semantic_lead_followers`，短尾通过 `short_block_exceptions` 声明。
