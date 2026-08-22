@@ -1,0 +1,14 @@
+{
+  "id": "subtitle-semantic-split-fix",
+  "title": "修复字幕语义边界：江南归属与谓语起点切分",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-videogen",
+  "currentPhase": "review",
+  "nextAction": "推送两个 feature 分支，创建并合并 PR，随后归档 OpenSpec 与 CCG task",
+  "createdAt": "2026-08-22T15:22:00+08:00",
+  "branch": "codex/subtitle-semantic-split-fix",
+  "openspecChange": "subtitle-semantic-split-fix",
+  "targetRunId": "run_1787360004146_izko"
+}

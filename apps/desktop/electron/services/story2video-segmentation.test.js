@@ -11,6 +11,7 @@ const {
 const { findProtectedPhraseAtBoundary } = require('./story2video-segmentation-engine')
 
 const USER_SAMPLE = '那时候蒙古统治者水平有限，对汉地的管理极其粗放，江南士绅摇身一变成了蒙元的包税人。大汗把权力一下放，收税成本蹭蹭往下降。'
+const SEMANTIC_PACING_SAMPLE = '其实是跟南宋的老爷们提前谈妥了。之前蒙哥非要死磕，还搞屠城，吓得这些老爷们拼死抵抗。汉族地主阶级最爽的日子绝对是元朝。他们甚至嚣张到把大量蒙古人都卖去当奴隶。'
 
 describe('Story2Video 双层分句合同', () => {
   it('字幕只在单个场景内部二次切分，并保持原文顺序（v0.15.2 清理块尾标点）', () => {
@@ -89,8 +90,16 @@ describe('Story2Video 双层分句合同', () => {
     expect(blocks.some(block => block.includes(word))).toBe(true)
   })
 
-  it('用户样例本地回退时不拆蒙古、江南、包税人和大汗', () => {
+  it('用户样例按语义边界切分，并保护蒙古、江南、包税人和大汗', () => {
     const blocks = splitSubtitleBlocks(USER_SAMPLE, { minChars: 8, maxChars: 15 })
+    expect(blocks).toEqual([
+      '那时候蒙古统治者水平有限',
+      '对汉地的管理极其粗放',
+      '江南士绅摇身一变',
+      '成了蒙元的包税人',
+      '大汗把权力一下放',
+      '收税成本蹭蹭往下降',
+    ])
 
     expect(normalizeSubtitleContent(blocks.join(''))).toBe(normalizeSubtitleContent(USER_SAMPLE))
     for (const phrase of ['蒙古', '江南', '包税人', '大汗']) {
@@ -108,6 +117,22 @@ describe('Story2Video 双层分句合同', () => {
     const blocks = splitSubtitleBlocks('蒙古江南包税人大汗', { minChars: 1, maxChars: 1 })
 
     expect(blocks).toEqual(['蒙古', '江南', '包税人', '大汗'])
+  })
+
+  it('语义停顿不因短尾合并而丢失动作边界', () => {
+    const blocks = splitSubtitleBlocks(SEMANTIC_PACING_SAMPLE, { minChars: 8, maxChars: 15 })
+
+    expect(blocks).toEqual([
+      '其实是跟南宋的老爷们',
+      '提前谈妥了',
+      '之前蒙哥非要死磕',
+      '还搞屠城',
+      '吓得这些老爷们拼死抵抗',
+      '汉族地主阶级最爽的日子',
+      '绝对是元朝',
+      '他们甚至嚣张到',
+      '把大量蒙古人都卖去当奴隶',
+    ])
   })
 
   it('服务场景保持原边界，并为每个场景附加本地字幕块和来源', () => {
