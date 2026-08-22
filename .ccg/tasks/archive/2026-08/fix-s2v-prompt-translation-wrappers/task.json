@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "backend",
   "currentPhase": "completed",
-  "nextAction": "功能 PR #1117 已合并；CCG 任务归档 PR 待合并",
+  "nextAction": "功能 PR #1117 与 CCG 任务归档 PR #1121 均已合并，归档完成",
   "createdAt": "2026-08-23T08:00:00Z",
   "branch": "codex/fix-s2v-prompt-translation-wrappers",
   "worktree": "D:/Data/projects/mp-worktrees/mp-fix-s2v-prompt-translation-wrappers",
@@ -29,6 +29,7 @@
     "claude": "Approve, no blocking findings; W1/W2 fixed before final approval",
     "artifact": ".ccg/tasks/archive/2026-08/fix-s2v-prompt-translation-wrappers/review.md"
   },
-  "archivePr": "pending",
-  "archiveMergeSha": "pending"
+  "archivePr": "https://github.com/Colinchiu007/Multi-Publish/pull/1121",
+  "archiveMergeSha": "b83410e26c62f120006e75095b3738ccda4c9253",
+  "archiveMergedAt": "2026-08-22T18:12:00Z"
 }
