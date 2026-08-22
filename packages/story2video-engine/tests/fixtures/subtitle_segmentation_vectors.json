@@ -900,6 +900,36 @@
           "reason": "语义引导短尾：已经变软了"
         }
       ]
+    },
+    {
+      "id": "user_guan_yu_phrase_boundaries",
+      "input": "关羽是河东杀了人跑路到涿郡的通缉犯。为什么被删，我们就得看看三国志作者陈寿。从扎营、搞粮草、看地形，到变阵型。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "关羽是河东杀了人",
+        "跑路到涿郡的通缉犯",
+        "为什么被删",
+        "我们就得看看三国志作者陈寿",
+        "从扎营、搞粮草",
+        "看地形，到变阵型"
+      ],
+      "note": "关羽/三国志/地形/杀了人 保护短语不跨块；验证高频历史人物词在长文案中不被硬切。",
+      "short_block_exceptions": [
+        {
+          "index": 2,
+          "len": 5,
+          "reason": "语义/标点边界短块：为什么被删"
+        },
+        {
+          "index": 4,
+          "len": 7,
+          "reason": "语义/标点边界短块：从扎营、搞粮草"
+        }
+      ]
     }
   ]
 }
