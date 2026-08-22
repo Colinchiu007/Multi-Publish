@@ -53,3 +53,9 @@
 - 复验：cover-extractor `node --check` 通过；store 目录 ESLint 通过；桌面端四文件回归 106 passed；verify-worktree-deps OK。
 - QM-1 复验：electron-builder `--win --dir --publish never` exit 0；解包 ASAR 确认 cover-extractor.js 与 @multi-publish/rpa-engine 存在；真实 require 链 REQUIRE_CHAIN_OK；打包应用 8 秒存活，stderr 为空，stdout 显示主窗口/内置服务正常启动。
 - 尚未执行快手最终发布、git push 与 PR 创建；双模型外部审查仍因 wrapper 后端不可用未闭环。
+
+## 2026-08-23 PR 交付同步
+
+- 已提交并通过 pre-commit：93bed459c `fix(desktop): 封面提取 loopback 通道与服务生命周期收口`（26 文件）。
+- 已 push origin/codex/yixiaoer-ue-parity-v2；已创建 PR #1116（https://github.com/Colinchiu007/Multi-Publish/pull/1116）。
+- 快手最终发布与扫码入库仍需要用户明确确认；PR 未合并前任务保持 in_progress，不归档。
