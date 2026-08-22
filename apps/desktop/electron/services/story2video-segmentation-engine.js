@@ -25,6 +25,9 @@ const ENUM_PREDICATE_STARTERS = new Set(subtitleRules.enum.predicate_starters)
 const LEFT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[0]))
 const RIGHT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[1]))
 const QUOTE_MAP = new Map(subtitleRules.quote_pairs)
+function isSymmetricQuote (char) {
+  return LEFT_QUOTES.has(char) && RIGHT_QUOTES.has(char) && QUOTE_MAP.get(char) === char
+}
 // Step 3/6 词边界感知切分（v1.2）：无标点硬切/平衡切分时优先在不劈词的位置切分。
 const WORD_GOOD_LEAD = new Set(subtitleRules.word_split.good_lead)
 const WORD_SEMANTIC_LEAD = new Set(subtitleRules.word_split.semantic_lead || '')
@@ -331,7 +334,9 @@ function subtitleSplitSentences (text, _config) {
   const stack = []
   for (const ch of text) {
     cur += ch
-    if (LEFT_QUOTES.has(ch)) {
+    if (isSymmetricQuote(ch) && stack.length && stack[stack.length - 1] === ch) {
+      stack.pop()
+    } else if (LEFT_QUOTES.has(ch)) {
       stack.push(ch)
     } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
       stack.pop()
@@ -351,7 +356,15 @@ function subtitleSplitQuoteBoundaries (text, config) {
   let cur = ''
   const stack = []
   for (const ch of text) {
-    if (LEFT_QUOTES.has(ch)) {
+    if (isSymmetricQuote(ch) && stack.length && stack[stack.length - 1].q === ch) {
+      const top = stack.pop()
+      const contentLen = cur.length - top.start - 1
+      cur += ch
+      if (stack.length === 0 && contentLen >= config.minCharsPerBlock) {
+        fragments.push(cur)
+        cur = ''
+      }
+    } else if (LEFT_QUOTES.has(ch)) {
       stack.push({ q: ch, start: cur.length })
       cur += ch
     } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1].q) === ch) {
@@ -515,6 +528,11 @@ function wordSafeSplit (text, lo, hi, minHead, tailMin) {
     if (!(i >= minHead || (tailMin > 0 && i >= minHead - 2 && tail >= tailMin))) continue
     if (!isGoodCut(text, i)) continue
     const isSemanticLead = isSemanticLeadAt(text, i)
+    // 语义引导允许短一字（如“他们甚至嚣张到｜把…”），但不再放宽到 min-2，
+    // 避免在“成了”前形成 6 字头块。
+    if (isSemanticLead && i < Math.max(1, minHead - 1)) continue
+    // “成了”是谓语起点，但不接受欠长头块；否则“硬生生让蒙元｜成了…”会只剩 6 字。
+    if (text[i] === '成' && i < minHead) continue
     if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || WORD_GOOD_LEAD.has(text[i]) || isSemanticLead)) {
       if (isSemanticLead) return i
       if (WORD_GOOD_LEAD.has(text[i])) return i
@@ -548,7 +566,9 @@ function subtitleLengthSplit (text, config) {
   let lastHardCut = false
   for (const ch of text) {
     cur += ch
-    if (LEFT_QUOTES.has(ch)) {
+    if (isSymmetricQuote(ch) && stack.length && stack[stack.length - 1] === ch) {
+      stack.pop()
+    } else if (LEFT_QUOTES.has(ch)) {
       stack.push(ch)
     } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
       stack.pop()
@@ -648,7 +668,9 @@ function dropUnpairedQuotes (text) {
   const stack = []
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
-    if (LEFT_QUOTES.has(ch)) {
+    if (isSymmetricQuote(ch) && stack.length && text[stack[stack.length - 1]] === ch) {
+      stack.pop()
+    } else if (LEFT_QUOTES.has(ch)) {
       stack.push(i)
     } else if (RIGHT_QUOTES.has(ch)) {
       if (stack.length && QUOTE_MAP.get(text[stack[stack.length - 1]]) === ch) {
