@@ -1,0 +1,19 @@
+{
+  "id": "fix-run-voice-clone-production-contract",
+  "title": "修复故事视频真实生产环境克隆音色重克隆调用契约",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "等待 PR #1099 合并，合并后同步 remoteStatus",
+  "createdAt": "2026-08-22T15:23:00+08:00",
+  "branch": "codex/fix-run-voice-clone-001",
+  "projectId": "run_1787360004146_izko",
+  "voiceId": "MiniMaxCloneVoice_00jngz",
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1099",
+  "remoteStatus": "pr_open_doc_sync_failure",
+  "e2eRunId": "run_1787383680119_kba0",
+  "e2eEvidence": "D:/Temp/mp-real-e2e-voice-001-rerun/report.json",
+  "packagedEvidence": "D:/Temp/mp-packaged-smoke-profile-voice-clone-20260822"
+}

@@ -1321,12 +1321,32 @@ async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProv
     const audioBuffer = fs.readFileSync(path.join(sampleDir, sampleFiles[0]))
     const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
     const manager = typeof resolveManager === "function" ? resolveManager() : null
-    const ttsAdapter = manager && typeof manager.getAdapter === 'function' ? manager.getAdapter(voiceProvider) : null
-    if (!ttsAdapter || typeof ttsAdapter.cloneVoice !== 'function') {
-      if (log && log.warn) log.warn('[Story2Video] TTS adapter does not support cloneVoice', { voiceProvider })
-      return null
+    const cloneParams = { name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] }
+    let newVoice
+    if (manager && typeof manager.callAdapter === 'function') {
+      // ModelProviderManager is the production boundary: it injects the decrypted
+      // provider key, checks capabilities, and wraps adapter results as code/data.
+      const cloneResult = await manager.callAdapter(voiceProvider, 'cloneVoice', cloneParams)
+      if (!cloneResult || cloneResult.code !== 0) {
+        const cloneError = cloneResult && cloneResult.error
+        if (cloneError instanceof Error) throw cloneError
+        const message = cloneResult && cloneResult.message
+          ? cloneResult.message
+          : 'TTS adapter does not support cloneVoice'
+        throw Object.assign(new Error(message), {
+          code: cloneResult && (cloneResult.errorCode || cloneResult.code),
+        })
+      }
+      newVoice = cloneResult.data
+    } else {
+      // Keep compatibility with the small adapter doubles used by older callers.
+      const ttsAdapter = manager && typeof manager.getAdapter === 'function' ? manager.getAdapter(voiceProvider) : null
+      if (!ttsAdapter || typeof ttsAdapter.cloneVoice !== 'function') {
+        if (log && log.warn) log.warn('[Story2Video] TTS adapter does not support cloneVoice', { voiceProvider })
+        return null
+      }
+      newVoice = await ttsAdapter.cloneVoice(cloneParams)
     }
-    const newVoice = await ttsAdapter.cloneVoice({ name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] })
     if (!newVoice || !newVoice.id) {
       if (log && log.warn) log.warn('[Story2Video] cloneVoice returned no new voice ID')
       return null

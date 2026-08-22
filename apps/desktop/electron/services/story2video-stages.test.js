@@ -80,7 +80,14 @@ async function createRecloneFixture() {
     name: '音色001',
   }))
   const manager = {
-    getAdapter: vi.fn(() => ({ cloneVoice })),
+    // Match the production ModelProviderManager contract. It exposes
+    // callAdapter(), not getAdapter(), and wraps adapter results in code/data.
+    callAdapter: vi.fn(async (providerId, method, params) => {
+      if (providerId !== 'minimax-multimodal' || method !== 'cloneVoice') {
+        return { code: -1, errorCode: 'UNEXPECTED_CALL', message: providerId + '.' + method }
+      }
+      return { code: 0, data: await cloneVoice(params) }
+    }),
   }
   const cloneService = {
     findCloneSamples,
@@ -106,7 +113,14 @@ function expectRecloneAttempt(fixture) {
     'minimax-multimodal',
     expect.any(String),
   )
-  expect(fixture.manager.getAdapter).toHaveBeenCalledWith('minimax-multimodal')
+  expect(fixture.manager.callAdapter).toHaveBeenCalledWith(
+    'minimax-multimodal',
+    'cloneVoice',
+    expect.objectContaining({
+      name: 'MiniMaxVoice_original001',
+      samples: [expect.objectContaining({ blob: expect.any(Blob) })],
+    }),
+  )
   expect(fixture.cloneVoice).toHaveBeenCalledTimes(1)
 }
 
@@ -1755,7 +1769,7 @@ describe('Story2Video 阶段重克隆 — legacy serviceBus TTS 路径', () => {
         serviceBus,
       })
 
-      expect(result.success, JSON.stringify({ result, getAdapterCalls: fixture.manager.getAdapter.mock.calls.length, cloneCalls: fixture.cloneVoice.mock.calls.length, findSamplesCalls: fixture.container.get.mock.calls })).toBe(true)
+      expect(result.success, JSON.stringify({ result, callAdapterCalls: fixture.manager.callAdapter.mock.calls.length, cloneCalls: fixture.cloneVoice.mock.calls.length, findSamplesCalls: fixture.container.get.mock.calls })).toBe(true)
       expect(ttsCalls).toHaveLength(2)
       expect(ttsCalls.map((payload) => payload.voice_id)).toEqual([
         'MiniMaxVoice_original001',
