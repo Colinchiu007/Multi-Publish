@@ -4,9 +4,13 @@ const {
   createLocalSplitResult,
   isSplitterUnavailableError,
   normalizeServiceSplitResult,
+  normalizeSubtitleContent,
   splitScenesLocally,
   splitSubtitleBlocks,
 } = require('./story2video-segmentation')
+const { findProtectedPhraseAtBoundary } = require('./story2video-segmentation-engine')
+
+const USER_SAMPLE = '那时候蒙古统治者水平有限，对汉地的管理极其粗放，江南士绅摇身一变成了蒙元的包税人。大汗把权力一下放，收税成本蹭蹭往下降。'
 
 describe('Story2Video 双层分句合同', () => {
   it('字幕只在单个场景内部二次切分，并保持原文顺序（v0.15.2 清理块尾标点）', () => {
@@ -85,6 +89,27 @@ describe('Story2Video 双层分句合同', () => {
     expect(blocks.some(block => block.includes(word))).toBe(true)
   })
 
+  it('用户样例本地回退时不拆蒙古、江南、包税人和大汗', () => {
+    const blocks = splitSubtitleBlocks(USER_SAMPLE, { minChars: 8, maxChars: 15 })
+
+    expect(normalizeSubtitleContent(blocks.join(''))).toBe(normalizeSubtitleContent(USER_SAMPLE))
+    for (const phrase of ['蒙古', '江南', '包税人', '大汗']) {
+      expect(blocks.some(block => block.includes(phrase))).toBe(true)
+    }
+    let offset = 0
+    const normalizedSample = normalizeSubtitleContent(USER_SAMPLE)
+    for (const block of blocks.slice(0, -1)) {
+      offset += normalizeSubtitleContent(block).length
+      expect(findProtectedPhraseAtBoundary(normalizedSample, offset)).toBe('')
+    }
+  })
+
+  it('保护短语长度超过 maxChars 时仍整体保留，避免流式硬切前缀', () => {
+    const blocks = splitSubtitleBlocks('蒙古江南包税人大汗', { minChars: 1, maxChars: 1 })
+
+    expect(blocks).toEqual(['蒙古', '江南', '包税人', '大汗'])
+  })
+
   it('服务场景保持原边界，并为每个场景附加本地字幕块和来源', () => {
     const result = normalizeServiceSplitResult({
       tier_used: 'tier3_rule',
@@ -135,6 +160,62 @@ describe('Story2Video 双层分句合同', () => {
     expect(result.scenes[0].subtitleSource).toBe('smart-sentence-splitter')
     expect(result.scenes[1].subtitleBlocks).toEqual(['第二句话介绍产品', '它包含苹果、香蕉和橘子'])
     expect(result.scenes[1].subtitleSource).toBe('smart-sentence-splitter')
+  })
+
+  it('引擎字幕包含空块或纯标点块时按旧合同忽略，剩余内容完整仍采纳', () => {
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [{
+        text: '第一句话。',
+        subtitles: [{ text: '第一句话' }, { text: '' }, { text: '。' }],
+      }],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result.scenes[0].subtitleSource).toBe('smart-sentence-splitter')
+    expect(result.scenes[0].subtitleBlocks).toEqual(['第一句话'])
+  })
+
+  it('引擎字幕覆盖率足够但拆开江南时回退本地并记录原因', () => {
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [{
+        text: USER_SAMPLE,
+        subtitles: [
+          { text: '那时候蒙古统治者水平有限' },
+          { text: '对汉地的管理极其粗放，江' },
+          { text: '南士绅摇身一变成了蒙元的包税人' },
+          { text: '大汗把权力一下放' },
+          { text: '收税成本蹭蹭往下降' },
+        ],
+      }],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result.scenes[0]).toMatchObject({
+      text: USER_SAMPLE,
+      subtitleSource: 'local-typescript',
+      fallbackReason: expect.stringContaining('江南'),
+    })
+    expect(result.scenes[0].fallbackReason).toBe('online-subtitle-unsafe-boundary:江南')
+    expect(result.scenes[0].subtitleBlocks.some(block => block.includes('江南'))).toBe(true)
+    expect(result.subtitleSource).toBe('local-typescript')
+  })
+
+  it('引擎字幕覆盖率足够但内容错序/重复时回退本地', () => {
+    const text = '第一段内容用于测试在线字幕顺序，第二段内容继续提供足够文字。'
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [{
+        text,
+        subtitles: [
+          { text: '第一段内容用于测试在线字幕顺序' },
+          { text: '第一段内容继续提供足够文字' },
+        ],
+      }],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result.scenes[0].subtitleSource).toBe('local-typescript')
+    expect(result.scenes[0].fallbackReason).toContain('content-mismatch')
+    expect(normalizeSubtitleContent(result.scenes[0].subtitleBlocks.join(''))).toBe(normalizeSubtitleContent(text))
   })
 
   it('引擎字幕覆盖率不足（残缺）时回退本地分块，不静默丢内容', () => {

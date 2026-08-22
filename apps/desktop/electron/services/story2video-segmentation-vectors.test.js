@@ -32,8 +32,8 @@ describe('Story2Video JS 镜像共享向量（规范 v1.2）', () => {
   for (const v of vectors) {
     it(`向量 ${v.id} 字幕块一致`, () => {
       const blocks = splitTextToSubtitles(v.input, {
-        minCharsPerBlock: v.config?.min_chars_per_block ?? 8,
-        maxCharsPerBlock: v.config?.max_chars_per_block ?? 15,
+        subtitleMinChars: v.config?.min_chars_per_block ?? 8,
+        subtitleMaxChars: v.config?.max_chars_per_block ?? 15,
         timeCalculationMethod: v.config?.time_calculation_method === 'equal' ? 'equal' : 'proportional',
       })
       expect(blocks).toEqual(v.expected_blocks)
@@ -45,8 +45,8 @@ describe('Story2Video JS 镜像共享向量（规范 v1.2）', () => {
       const minChars = v.config?.min_chars_per_block ?? 8
       const exceptions = new Map((v.short_block_exceptions || []).map((e) => [e.index, e.reason || '']))
       const blocks = splitTextToSubtitles(v.input, {
-        minCharsPerBlock: minChars,
-        maxCharsPerBlock: v.config?.max_chars_per_block ?? 15,
+        subtitleMinChars: minChars,
+        subtitleMaxChars: v.config?.max_chars_per_block ?? 15,
       })
       for (let i = 0; i < blocks.length; i++) {
         if (blocks[i].length >= minChars) continue

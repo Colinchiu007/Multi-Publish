@@ -523,6 +523,40 @@
       ],
       "note": "用户坏例#6：顿号枚举保护吞并谓语 → 15+3 劈词「滚/烫」孤尾（v1.2.1：predicate_starters 加「混」+ 无顿号吞并守卫回退锚点）",
       "short_block_exceptions": []
+    },
+    {
+      "id": "user_mongol_tax_collectors",
+      "input": "那时候蒙古统治者水平有限，对汉地的管理极其粗放，江南士绅摇身一变成了蒙元的包税人。大汗把权力一下放，收税成本蹭蹭往下降。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "那时候蒙古统治者水平有限",
+        "对汉地的管理极其粗放，江南",
+        "士绅摇身一变成了蒙元的包税人",
+        "大汗把权力一下放",
+        "收税成本蹭蹭往下降"
+      ],
+      "note": "用户线上坏例回归：保护蒙古、江南、包税人和大汗，避免字幕块边界落在短语内部。",
+      "short_block_exceptions": []
+    },
+    {
+      "id": "protected_phrase_overrides_max",
+      "input": "蒙古江南包税人大汗",
+      "config": {
+        "min_chars_per_block": 1,
+        "max_chars_per_block": 1,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "蒙古",
+        "江南",
+        "包税人",
+        "大汗"
+      ],
+      "note": "保护短语完整性优先于极端 max_chars 配置，流式累积不得在短语前缀中间切断。"
     }
   ]
 }

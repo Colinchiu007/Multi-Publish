@@ -31,8 +31,9 @@ const WORD_GOOD_TAIL = new Set(subtitleRules.word_split.good_tail)
 const WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers)
 // v1.2.2：good_tail 路径的块首排除集（仅纯黏着后缀，如 "个|性" 的 性）。
 const WORD_GOOD_TAIL_BLOCKERS = new Set(subtitleRules.word_split.good_tail_blockers || '')
-// v1.2.3：成词保护（no_cut_bigrams）——切点两侧构成这些双字词时禁止切开（如 "能|够"、"就|是"）。
-const WORD_NO_CUT_BIGRAMS = new Set(subtitleRules.word_split.no_cut_bigrams || [])
+// v1.2.3：成词保护（兼容字段名 no_cut_bigrams）——项目可以是任意长度短语，
+// 切点不得落在任一短语内部（如 "蒙古"、"江南"、"包税人"）。
+const WORD_NO_CUT_PHRASES = new Set(subtitleRules.word_split.no_cut_bigrams || [])
 
 // ==================== 默认配置（与 text-segmentation.ts DEFAULT_CONFIG 一致） ====================
 
@@ -433,11 +434,55 @@ function cleanLen (text) {
   return s.length
 }
 
+/** 返回切点所在的受保护短语跨度；切点恰在短语两端时安全。 */
+function protectedPhraseSpanAtBoundary (text, i) {
+  if (i <= 0 || i >= text.length) return null
+  for (const phrase of WORD_NO_CUT_PHRASES) {
+    if (!phrase || phrase.length < 2) continue
+    let start = text.indexOf(phrase)
+    while (start >= 0) {
+      const end = start + phrase.length
+      if (start < i && i < end) return { phrase, start, end }
+      if (start >= i) break
+      start = text.indexOf(phrase, start + 1)
+    }
+  }
+  return null
+}
+
+/** 返回文本末尾尚未完整出现的受保护短语前缀，避免流式累积在前缀中间切断。 */
+function protectedPhrasePrefixAtEnd (text) {
+  let best = null
+  for (const phrase of WORD_NO_CUT_PHRASES) {
+    if (!phrase || phrase.length < 2) continue
+    for (let prefixLength = 1; prefixLength < phrase.length; prefixLength++) {
+      if (text.endsWith(phrase.slice(0, prefixLength))
+        && (!best || prefixLength > best.length)) {
+        best = { phrase, start: text.length - prefixLength, length: prefixLength }
+      }
+    }
+  }
+  return best
+}
+
+function findProtectedPhraseAtBoundary (text, i) {
+  return protectedPhraseSpanAtBoundary(text, i)?.phrase || ''
+}
+
+/** 将候选切点移到受保护短语外，保证字幕块边界不落在短语内部。 */
+function safeCutPosition (text, i) {
+  const span = protectedPhraseSpanAtBoundary(text, i)
+  if (span) return span.start > 0 ? span.start : span.end
+  const prefix = protectedPhrasePrefixAtEnd(text)
+  if (prefix && i >= prefix.start) return prefix.start > 0 ? prefix.start : 0
+  return i
+}
+
 /** 词边界好切点：切点后为连词/介词（块首引导），或切点前为助词/副词/句内标点（块尾收束）。 */
 function isGoodCut (text, i) {
   if (i >= text.length) return false
-  // v1.2.3：切点落在成词内（如 "能|够"、"就|是"、"因|为"）一律不是好切点。
-  if (i > 0 && WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1))) return false
+  // v1.2.3：切点落在任意长度成词短语内部一律不是好切点。
+  if (protectedPhraseSpanAtBoundary(text, i)) return false
   if (WORD_GOOD_LEAD.has(text[i])) return true
   // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
   // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
@@ -472,7 +517,7 @@ function wordSafeSplit (text, lo, hi, minHead, tailMin) {
     if (i < text.length
       && !WORD_BAD_FOLLOWERS.has(text[i])
       && (i === 0 || !isDigitChar(text[i - 1]))
-      && (i === 0 || !WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1)))) {
+      && !protectedPhraseSpanAtBoundary(text, i)) {
       return i
     }
   }
@@ -500,7 +545,8 @@ function subtitleLengthSplit (text, config) {
       cur = ''
       lastHardCut = false
     } else if (cur.length >= config.maxCharsPerBlock && stack.length === 0) {
-      const pos = applyEnumerationShift(cur, findSplitPos(cur), false, config)
+      let pos = applyEnumerationShift(cur, findSplitPos(cur), false, config)
+      pos = safeCutPosition(cur, pos)
       if (pos > 0) {
         blocks.push(cur.slice(0, pos))
         cur = cur.slice(pos)
@@ -514,7 +560,8 @@ function subtitleLengthSplit (text, config) {
           config.minCharsPerBlock,
           config.minCharsPerBlock,
         )
-        const hardPos = ws > 0 ? ws : cur.length
+        const hardPos = safeCutPosition(cur, ws > 0 ? ws : cur.length)
+        if (hardPos <= 0) continue
         blocks.push(cur.slice(0, hardPos))
         cur = cur.slice(hardPos)
         lastHardCut = true
@@ -634,18 +681,31 @@ function subtitleEnforceMax (blocks, config) {
   const out = []
   for (let b of blocks) {
     while (b.length > config.maxCharsPerBlock) {
-      let pos = applyEnumerationShift(b, findSplitPos(b), true, config)
+      let requestedPos = applyEnumerationShift(b, findSplitPos(b), true, config)
+      let pos = safeCutPosition(b, requestedPos)
+      const isWholeProtectedPhrase = [...WORD_NO_CUT_PHRASES]
+        .some((phrase) => phrase && phrase === b)
+      if (isWholeProtectedPhrase) {
+        // 保护短语本身可能比 maxChars 更长；完整短语优先于违反长度上限。
+        out.push(b)
+        b = ''
+        break
+      }
       if (pos <= 0 || pos >= b.length) pos = config.maxCharsPerBlock
+      // 固定长度兜底后再次检查，避免兜底切点落回受保护短语内部。
+      pos = safeCutPosition(b, pos)
+      if (pos <= 0 || pos >= b.length) pos = Math.min(config.maxCharsPerBlock, b.length - 1)
       if (b.length - pos < config.minCharsPerBlock) {
         const minPos = Math.max(1, b.length - config.minCharsPerBlock)
         const hi = b.length - 1
         const ws = wordSafeSplit(b, minPos, hi, minPos, config.minCharsPerBlock)
         if (ws > 0 && ws < b.length) {
-          pos = ws
+          pos = safeCutPosition(b, ws)
         } else {
           // 越界修复：balanced == len(b)（尾字符恰为标点时 i+1 越界）视为无效
           const balanced = findSplitPosInRange(b, minPos, hi)
           pos = balanced > 0 && balanced < b.length ? balanced : minPos
+          pos = safeCutPosition(b, pos)
         }
       }
       out.push(b.slice(0, pos))
@@ -693,6 +753,7 @@ function splitTextToSubtitles (text, options = {}) {
 module.exports = {
   DEFAULT_CONFIG,
   calculateTargetWords,
+  findProtectedPhraseAtBoundary,
   normalizeSegmentationOptions,
   splitScenesLocally,
   splitTextToScenes,

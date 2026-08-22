@@ -593,7 +593,7 @@ locale key；未知内部 ID 只能安全回退为原始 ID，不能以 slug 标
 | 层级 | 权威实现 | 输出与降级合同 |
 |------|----------|----------------|
 | 场景层 | `smart-sentence-splitter` 8002 | 正常响应的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界；Multi-Publish 不得再次改写。仅 `ECONNREFUSED`、`ETIMEDOUT`、`ECONNRESET`、服务未运行等不可用错误可使用本地场景降级；业务错误或缺失 `scenes` 的非法响应必须失败 |
-| 字幕层 | `smart-sentence-splitter` 8002（`config.subtitle`）+ 本地 v1.2 镜像 | 每个场景的 `text` 独立切分，目标每页 8-15 字；**词边界感知（v1.2）**：无标点切分/平衡切分优先不劈词（`扶余国`/`电视剧`/`复杂`/`空白一片` 等），短块判定用 clean 后长度，`subtitle_min_chars/subtitle_max_chars/subtitle_timing` 经 stage-executor 透传为 8002 `config.subtitle.min_chars_per_block/max_chars_per_block/time_calculation_method`；8002 不可用或字幕残缺时回退本地逻辑，三端（Python/TS/JS）逐字一致；字幕不得跨越场景，按顺序拼接后必须等于该场景规范化文本 |
+| 字幕层 | `smart-sentence-splitter` 8002（`config.subtitle`）+ 本地 v1.2.3 镜像 | 每个场景的 `text` 独立切分，目标每页 8-15 字；**词边界感知（v1.2.3）**：无标点切分/平衡切分优先不劈词（`扶余国`/`电视剧`/`复杂`/`空白一片`/`蒙古`/`江南`/`包税人`/`大汗` 等），`no_cut_bigrams` 项按任意长度短语解释，`subtitle_min_chars/subtitle_max_chars/subtitle_timing` 经 stage-executor 透传为 8002 `config.subtitle.min_chars_per_block/max_chars_per_block/time_calculation_method`；8002 在线字幕在归一化层必须先通过顺序连续覆盖与短语边界质量门，未通过时该场景整体回退本地并记录 `fallbackReason`；保护短语完整优先于 `max_chars` 超长配置；三端（Python/TS/JS）逐字一致；字幕不得跨越场景，按顺序拼接后必须等于该场景规范化文本 |
 | 可观测性 | 运行结果与项目清单 | 每个场景持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks` 和 `subtitleTimeline`；`tier_used=tier3_rule` 仍表示经过 8002，只是 sidecar 内部选择规则层，不等于本地降级 |
 
 Story2Video 的 `target_duration/base_words_per_second/speech_rate/min_words/max_words` 必须转换为
