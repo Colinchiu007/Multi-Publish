@@ -28,7 +28,7 @@
 - `story2video-stages.test.js` fixture 改为生产 `callAdapter()` 契约，并断言 provider、方法、clone 参数和包装结果。
 - legacy `generate_assets` 与 `finalize_assets` 回归继续断言两次 `generate_tts`，第二次使用新 voice ID，且不出现 `default`。
 - 定向 Vitest：`story2video-stages.test.js`、`pipeline-story2video-contract.test.js`、`model-provider-call-adapter.test.js`、`minimax-tts.test.js` 共 **258 passed**。
-- `node scripts/verify-worktree-deps.js`、变更文件 ESLint、`node --check`、`git diff --check` 均通过。
+- `node scripts/verify-worktree-deps.js`、`node --check`、`git diff --check` 均通过；ESLint 仍报告该文件原有的 4 个 error/4 个 warning，均在本次 diff 之外，变更行无新增 lint 问题。
 
 ## 真实环境 E2E
 
