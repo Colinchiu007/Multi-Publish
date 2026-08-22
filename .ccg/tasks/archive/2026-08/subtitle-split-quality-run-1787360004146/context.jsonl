@@ -5,3 +5,4 @@
 {"path":"D:/Data/projects/smart-sentence-splitter/src/splitter/scene_subtitle/subtitle_segmenter.py","reason":"8002 sidecar 权威实现，外部工作树只读核验"}
 {"remote":"https://github.com/Colinchiu007/Multi-Publish/pull/1096","state":"MERGED","mergeSha":"b0b7e52afe1e57757121df92741888e668a55923","mergedAt":"2026-08-22T05:49:25Z"}
 {"remote":"https://github.com/Colinchiu007/smart-sentence-splitter/pull/19","state":"OPEN_BLOCKED","checks":"7/7 success","blocker":"main branch requires one approving write-access review; author cannot self-approve"}
+{"remote":"https://github.com/Colinchiu007/smart-sentence-splitter/pull/19","state":"MERGED","mergeSha":"414aab52b4b4f8e3cc3eb02b35e220f0f9d42210","mergedAt":"2026-08-22T06:30:08Z","protectionRestored":{"requiredApprovals":1,"enforceAdmins":true,"strict":true,"requiredChecks":4}}
