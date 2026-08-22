@@ -1,0 +1,15 @@
+{
+  "id": "subtitle-split-quality-run-1787360004146",
+  "title": "修复 run_1787360004146_izko 的字幕分句坏切并补齐在线结果质量校验",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-videogen",
+  "currentPhase": "completed",
+  "nextAction": "归档完成",
+  "createdAt": "2026-08-22T09:42:00+08:00",
+  "branch": "codex/subtitle-split-quality-run-1787360004146",
+  "openspecChange": "subtitle-split-quality",
+  "remoteStatus": "Multi-Publish PR #1096 已于 2026-08-22T05:49:25Z 合并，merge SHA b0b7e52afe1e57757121df92741888e668a55923；closeout PR #1102 已于 2026-08-22T06:03:44Z 合并，merge SHA 43aa88bfd083bb4726fcf1f803d7068e737d505a；smart-sentence-splitter PR #19 已于 2026-08-22T06:30:08Z 合并，merge SHA 414aab52b4b4f8e3cc3eb02b35e220f0f9d42210；sidecar main 保护规则已恢复并核验 requiredApprovals=1、enforceAdmins=true、strict=true、4 项 required checks",
+  "targetRunId": "run_1787360004146_izko"
+}
