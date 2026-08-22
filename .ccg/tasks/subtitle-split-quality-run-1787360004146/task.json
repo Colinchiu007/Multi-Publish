@@ -6,10 +6,10 @@
   "risk": "medium",
   "domain": "desktop-videogen",
   "currentPhase": "review",
-  "nextAction": "完成双模型审查、QM-1 打包验证与远程 PR 同步",
+  "nextAction": "等待 smart-sentence-splitter PR #19 获得至少 1 名有写权限审阅者批准后合并；随后归档 OpenSpec change 与 CCG task",
   "createdAt": "2026-08-22T09:42:00+08:00",
   "branch": "codex/subtitle-split-quality-run-1787360004146",
   "openspecChange": "subtitle-split-quality",
-  "remoteStatus": "PR #1096 (Multi-Publish) + #19 (smart-sentence-splitter) created; waiting CI/merge",
+  "remoteStatus": "Multi-Publish PR #1096 已于 2026-08-22T05:49:25Z 合并，merge SHA b0b7e52afe1e57757121df92741888e668a55923，origin/main 已核验；smart-sentence-splitter PR #19 的 7 项 CI 全部通过但仍 OPEN/BLOCKED，main 分支保护要求至少 1 名有写权限审阅者批准，作者无法自审，当前仓库仅有作者协作者",
   "targetRunId": "run_1787360004146_izko"
 }
