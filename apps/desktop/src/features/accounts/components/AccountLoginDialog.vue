@@ -23,7 +23,7 @@
         <button
           type="button"
           :class="{ active: mode === 'qrcode' }"
-          :disabled="!qrAvailable"
+          :disabled="!qrAvailable && modelValue !== 'kuaishou'"
           data-testid="mode-qrcode"
           @click="$emit('update:mode', 'qrcode')"
         >
