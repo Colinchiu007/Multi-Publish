@@ -98,6 +98,57 @@ function getAiGenerator (pipelineEngine) {
 }
 
 /**
+ * 从 LLM 原文提取最后一个可解析且为对象的平衡 JSON（兼容 markdown 代码块、HTML 闭合/未闭合标签、
+ * marker 或说明文字等任意包装，起始 `{` 不被消费）。说明文字/LLM 回显示例本身含花括号时，
+ * 遍历每个 `{` 起点并跳过不可解析片段；取最后一个可解析对象，避免把示例误当最终译文。
+ * 找不到可解析对象时返回 null，调用方回退逐行解析。
+ * @param {string} text
+ * @returns {string|null}
+ */
+function extractParseableJsonObject (text) {
+  if (typeof text !== 'string') return null
+  let best = null
+  for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
+    const candidate = extractBalancedJsonAt(text, start)
+    if (!candidate) continue
+    try {
+      const parsed = JSON.parse(candidate)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) best = candidate
+    } catch (_) { /* 该起点不可解析，继续下一个 */ }
+  }
+  return best
+}
+
+/**
+ * 从指定 `{` 起点扫描首个平衡 JSON 片段；字符串内的花括号与转义不参与深度计数。
+ * 无法闭合时返回 null。
+ * @param {string} text
+ * @param {number} start
+ * @returns {string|null}
+ */
+function extractBalancedJsonAt (text, start) {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null
+}
+
+/**
  * 提示词本地语言翻译（2026-08-12）：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
  * fail-open：LLM 不可用/单场景失败 → 对应项 translation=null，不阻塞流水线。
  */
@@ -139,10 +190,16 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
       }
       // 优先按 index 对齐的 JSON 解析；失败时回退逐行（编号前缀）映射
       let map = null
-      try {
-        const parsed = JSON.parse(raw)
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed
-      } catch (_) { /* fallthrough */ }
+      // 先提取最后一个可解析的平衡 JSON 对象：LLM 可能用 HTML 闭合/未闭合标签、marker
+      // 或说明文字包裹 JSON，也可能先回显示例再给最终译文；直接 parse 会失败并让逐行
+      // 回退把包裹文本当译文（2026-08-23 双模型审查 W1 加固）。
+      const jsonCandidate = extractParseableJsonObject(raw)
+      if (jsonCandidate) {
+        try {
+          const parsed = JSON.parse(jsonCandidate)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed
+        } catch (_) { /* fallthrough */ }
+      }
       if (map) {
         for (const item of slice) {
           const translated = map[String(item.index)]
