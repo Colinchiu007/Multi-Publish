@@ -46,12 +46,14 @@ function makeStageExecutor() {
   }
 }
 
-function makePipeline(assetGenerator, aiGenerator) {
+function makePipeline(assetGenerator, aiGenerator, options = {}) {
   const stageExecutor = makeStageExecutor()
   const pipeline = {
     stageExecutor,
     _assetGenerator: assetGenerator,
     aiGenerator,
+    container: options.container,
+    governor: options.governor,
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     registerStageExecutor(type, fn) {
       stageExecutor.register(type, fn)
@@ -62,7 +64,64 @@ function makePipeline(assetGenerator, aiGenerator) {
   const assetsExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
   assetsExecutor.optimizeExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
   assetsExecutor.sceneContextExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.SCENE_CONTEXT)
+  assetsExecutor.finalizeAssetsExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.FINALIZE_ASSETS)
   return assetsExecutor
+}
+
+async function createRecloneFixture() {
+  const sampleRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 's2v-stage-reclone-'))
+  const sampleDir = path.join(sampleRoot, 'voice-clone-samples', 'owner', 'storage-1')
+  await fs.promises.mkdir(sampleDir, { recursive: true })
+  await fs.promises.writeFile(path.join(sampleDir, 'sample.mp3'), Buffer.from([1, 2, 3]))
+
+  const cloneVoice = vi.fn(async () => ({ id: 'MiniMaxVoice_recloned123' }))
+  const findCloneSamples = vi.fn(async () => ({
+    sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' },
+    name: '音色001',
+  }))
+  const manager = {
+    // Match the production ModelProviderManager contract. It exposes
+    // callAdapter(), not getAdapter(), and wraps adapter results in code/data.
+    callAdapter: vi.fn(async (providerId, method, params) => {
+      if (providerId !== 'minimax-multimodal' || method !== 'cloneVoice') {
+        return { code: -1, errorCode: 'UNEXPECTED_CALL', message: providerId + '.' + method }
+      }
+      return { code: 0, data: await cloneVoice(params) }
+    }),
+  }
+  const cloneService = {
+    findCloneSamples,
+    _resolveUserDataPath: () => sampleRoot,
+  }
+  const container = {
+    get: vi.fn((key) => key === 'ttsVoiceCloneService' ? cloneService : null),
+  }
+
+  return {
+    sampleRoot,
+    manager,
+    cloneVoice,
+    findCloneSamples,
+    container,
+    aiGenerator: { _modelProviderManager: manager },
+  }
+}
+
+function expectRecloneAttempt(fixture) {
+  expect(fixture.findCloneSamples).toHaveBeenCalledWith(
+    'MiniMaxVoice_original001',
+    'minimax-multimodal',
+    expect.any(String),
+  )
+  expect(fixture.manager.callAdapter).toHaveBeenCalledWith(
+    'minimax-multimodal',
+    'cloneVoice',
+    expect.objectContaining({
+      name: 'MiniMaxVoice_original001',
+      samples: [expect.objectContaining({ blob: expect.any(Blob) })],
+    }),
+  )
+  expect(fixture.cloneVoice).toHaveBeenCalledTimes(1)
 }
 
 /**
@@ -1672,6 +1731,229 @@ describe('tryReCloneVoice — 克隆音色不可访问时不得静默换默认�
       expect(retryFn).toHaveBeenCalledWith('MiniMaxCloneVoice_new123')
     } finally {
       await fs.promises.rm(sampleRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('Story2Video 阶段重克隆 — legacy serviceBus TTS 路径', () => {
+  it('generate_assets 重克隆成功后复用 serviceBus.callPythonSkill，而不是访问不存在的 assetGenerator', async () => {
+    const fixture = await createRecloneFixture()
+    const ttsCalls = []
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill, payload) => {
+        if (skill === 'generate_image') {
+          return { code: 0, data: { path: 'image-0.png' } }
+        }
+        if (skill === 'generate_tts') {
+          ttsCalls.push(payload)
+          if (ttsCalls.length === 1) throw Object.assign(new Error('invalid params, voice id wrong'), { code: 'INVALID_CONFIG' })
+          return { code: 0, data: { path: 'audio-recloned.mp3', duration: 1.25 } }
+        }
+        throw new Error('unexpected Python skill: ' + skill)
+      }),
+    }
+    const assetsExecutor = makePipeline(null, fixture.aiGenerator, { container: fixture.container })
+
+    try {
+      const result = await assetsExecutor({
+        runId: 'run_1787360004146_izko',
+        stage: { options: { concurrency: 1 } },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+        },
+        context: {
+          split: [{ text: '音色001 的测试旁白' }],
+          optimize: ['一个安静的室内场景'],
+        },
+        serviceBus,
+      })
+
+      expect(result.success, JSON.stringify({ result, callAdapterCalls: fixture.manager.callAdapter.mock.calls.length, cloneCalls: fixture.cloneVoice.mock.calls.length, findSamplesCalls: fixture.container.get.mock.calls })).toBe(true)
+      expect(ttsCalls).toHaveLength(2)
+      expect(ttsCalls.map((payload) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(ttsCalls.map((payload) => payload.voice_model)).toEqual([undefined, undefined])
+      expectRecloneAttempt(fixture)
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'audio-recloned.mp3',
+        imagePath: 'image-0.png',
+      })
+      expect(ttsCalls.some((payload) => payload.voice_id === 'default')).toBe(false)
+    } finally {
+      await fs.promises.rm(fixture.sampleRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('finalize_assets 重克隆成功后同样复用 legacy serviceBus TTS 路径', async () => {
+    const fixture = await createRecloneFixture()
+    const ttsCalls = []
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill, payload) => {
+        if (skill !== 'generate_tts') throw new Error('unexpected Python skill: ' + skill)
+        ttsCalls.push(payload)
+        if (ttsCalls.length === 1) throw Object.assign(new Error("you don't have access to this voice_id"), { code: 'INVALID_CONFIG' })
+        return { code: 0, data: { path: 'finalized-audio-recloned.mp3', duration: 1.5 } }
+      }),
+    }
+    const assetsExecutor = makePipeline(null, fixture.aiGenerator, { container: fixture.container })
+
+    try {
+      const result = await assetsExecutor.finalizeAssetsExecutor({
+        runId: 'run_1787360004146_izko-finalize',
+        stage: { options: { creationMode: 'manual', concurrency: 1 } },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          generate_assets: {
+            candidates: [{
+              index: 0,
+              text: '音色001 的手动旁白',
+              prompt: '一个安静的室内场景',
+              candidates: [{ id: 'image-0', kind: 'image', path: 'image-0.png' }],
+            }],
+          },
+          scene_asset_selection: {
+            selections: [{ index: 0, candidateId: 'image-0' }],
+          },
+        },
+        serviceBus,
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(ttsCalls.map((payload) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(ttsCalls.map((payload) => payload.voice_model)).toEqual(['speech-2.8-turbo', 'speech-2.8-turbo'])
+      expectRecloneAttempt(fixture)
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'finalized-audio-recloned.mp3',
+        imagePath: 'image-0.png',
+      })
+      expect(ttsCalls.some((payload) => payload.voice_id === 'default')).toBe(false)
+    } finally {
+      await fs.promises.rm(fixture.sampleRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('finalize_assets 使用 assetGenerator 时重克隆后仍调用 assetGenerator.generateTTS', async () => {
+    const fixture = await createRecloneFixture()
+    const ttsCalls = []
+    const assetGenerator = {
+      generateTTS: vi.fn(async (text, payload) => {
+        ttsCalls.push({ text, payload })
+        if (ttsCalls.length === 1) throw Object.assign(new Error('voice id wrong'), { code: 'INVALID_CONFIG' })
+        return { code: 0, data: { path: 'finalized-asset-generator-recloned.mp3', duration: 1.9 } }
+      }),
+    }
+    const assetsExecutor = makePipeline(assetGenerator, fixture.aiGenerator, { container: fixture.container })
+
+    try {
+      const result = await assetsExecutor.finalizeAssetsExecutor({
+        runId: 'run_1787360004146_izko-finalize-asset-generator',
+        stage: { options: { creationMode: 'manual', concurrency: 1 } },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          generate_assets: {
+            candidates: [{
+              index: 0,
+              text: '音色001 的 assetGenerator 手动旁白',
+              prompt: '一个安静的室内场景',
+              candidates: [{ id: 'image-0', kind: 'image', path: 'image-0.png' }],
+            }],
+          },
+          scene_asset_selection: {
+            selections: [{ index: 0, candidateId: 'image-0' }],
+          },
+        },
+        serviceBus: {},
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(2)
+      expect(ttsCalls.map(({ payload }) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(ttsCalls.map(({ payload }) => payload.voice_model)).toEqual(['speech-2.8-turbo', 'speech-2.8-turbo'])
+      expectRecloneAttempt(fixture)
+      expect(ttsCalls[1]).toMatchObject({
+        text: '音色001 的 assetGenerator 手动旁白',
+        payload: {
+          voice_provider: 'minimax-multimodal',
+          voice_model: 'speech-2.8-turbo',
+        },
+      })
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'finalized-asset-generator-recloned.mp3',
+        imagePath: 'image-0.png',
+      })
+    } finally {
+      await fs.promises.rm(fixture.sampleRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('generate_assets 使用 assetGenerator 时重克隆后仍调用 assetGenerator.generateTTS', async () => {
+    const fixture = await createRecloneFixture()
+    const ttsCalls = []
+    const assetGenerator = {
+      generateImage: vi.fn(async () => ({ code: 0, data: { path: 'image-asset-generator.png' } })),
+      generateTTS: vi.fn(async (text, payload) => {
+        ttsCalls.push({ text, payload })
+        if (ttsCalls.length === 1) throw Object.assign(new Error('voice id wrong'), { code: 'INVALID_CONFIG' })
+        return { code: 0, data: { path: 'audio-asset-generator-recloned.mp3', duration: 1.75 } }
+      }),
+    }
+    const assetsExecutor = makePipeline(assetGenerator, fixture.aiGenerator, { container: fixture.container })
+
+    try {
+      const result = await assetsExecutor({
+        runId: 'run_1787360004146_izko-asset-generator',
+        stage: { options: { concurrency: 1 } },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          split: [{ text: '音色001 的 assetGenerator 测试旁白' }],
+          optimize: ['一个安静的室内场景'],
+        },
+        serviceBus: {},
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(2)
+      expect(ttsCalls.map(({ payload }) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(ttsCalls.map(({ payload }) => payload.voice_model)).toEqual(['speech-2.8-turbo', 'speech-2.8-turbo'])
+      expectRecloneAttempt(fixture)
+      expect(ttsCalls[1]).toMatchObject({
+        text: '音色001 的 assetGenerator 测试旁白',
+        payload: {
+          voice_provider: 'minimax-multimodal',
+          voice_model: 'speech-2.8-turbo',
+          with_timestamps: true,
+        },
+      })
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'audio-asset-generator-recloned.mp3',
+        imagePath: 'image-asset-generator.png',
+      })
+    } finally {
+      await fs.promises.rm(fixture.sampleRoot, { recursive: true, force: true })
     }
   })
 })
