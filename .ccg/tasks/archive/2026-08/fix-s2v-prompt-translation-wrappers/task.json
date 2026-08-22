@@ -1,0 +1,34 @@
+{
+  "id": "fix-s2v-prompt-translation-wrappers",
+  "title": "修复提示词优化中文翻译：LLM 返回 HTML/marker 包裹 JSON 时解析失败/把包裹文本当译文",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "功能 PR #1117 已合并；CCG 任务归档 PR 待合并",
+  "createdAt": "2026-08-23T08:00:00Z",
+  "branch": "codex/fix-s2v-prompt-translation-wrappers",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-fix-s2v-prompt-translation-wrappers",
+  "targetRunId": "run_1787393830245_r5tb",
+  "rootCauseCommits": ["f7899b20b5", "16b2db8427"],
+  "remoteStatus": {
+    "pr": 1117,
+    "mergedSha": "1e47e20121d6a34cb9fe012c56a9fd39924476f0",
+    "mergedAt": "2026-08-22T17:45:31Z",
+    "ci": "all required checks pass",
+    "featureBranch": "deleted"
+  },
+  "tests": {
+    "story2videoStages": "137 passed / 137",
+    "promptTranslationFocused": "13 passed",
+    "syntax": "node --check passed"
+  },
+  "review": {
+    "opencode": "PASS, no Critical",
+    "claude": "Approve, no blocking findings; W1/W2 fixed before final approval",
+    "artifact": ".ccg/tasks/archive/2026-08/fix-s2v-prompt-translation-wrappers/review.md"
+  },
+  "archivePr": "pending",
+  "archiveMergeSha": "pending"
+}

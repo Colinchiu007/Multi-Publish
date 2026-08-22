@@ -13867,3 +13867,17 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 ### 已经/依然 语义引导切分（subtitle-adverb-lead-cut，2026-08-23）
 
 长文 A/B 回归：仅加入 `已→经`、`依→然` 两个语义引导词，221 块中只有 48/49、152/153 变化，分别是“底层农民的实际负担｜依然重得吓人”与“这举动说明老朱的态度｜已经变软了”，其余 217 块不变；现有共享向量全部通过。规则落在 `word_split.semantic_lead` + `semantic_lead_followers`，短尾通过 `short_block_exceptions` 声明。
+
+## Story2Video 提示词优化中文翻译被包装文本污染复盘（fix-s2v-prompt-translation-wrappers，2026-08-23）
+
+- **现象**：结果页“中文翻译”没有生成正确译文，偶发显示 `<response>`、`<thinking>`、marker、前后说明文字，或整段 JSON/协议噪声。
+- **第一性原因**：`f7899b20b5` 首次引入 `translatePromptsForLocale` 时直接对 LLM `content` 执行 `JSON.parse(raw)`；`16b2db8427` 只补了 Markdown fence 剥离。推理模型和 provider wrapper 会返回 HTML/思考块/协议 marker/说明文字包裹 JSON，解析失败后旧逐行回退把包装文本当成译文写入 `segment.promptTranslation`。
+- **修复**：先遍历每个 `{` 起点，用平衡扫描处理嵌套对象、字符串内花括号和反斜杠转义；跳过未闭合或不可解析候选，取最后一个可解析对象，再按现有 index 映射。无合法对象时保留逐行 fail-open，避免阻塞流水线。
+- **逃逸链**：单测只覆盖裸 JSON/Markdown fence，未覆盖真实 provider 包装、转义、嵌套和示例回显；集成/E2E 未断言真实 LLM 响应形状到最终翻译字段；视觉审查只看页面可见性，不验证翻译语义；首轮外部审查发现“首个花括号独占”残余风险，复审前已修复。
+- **回归保护**：`apps/desktop/electron/services/story2video-stages.test.js` 新增 HTML 闭合、thinking/前导文本、marker、转义引号、未闭合前导花括号和示例回显 6 例；定向翻译 13 passed，文件套件 137 passed。
+- **预防**：所有结构化 LLM 消费点按真实响应形态建立 fixture；解析候选、结构校验和用户字段脱噪必须分开断言；任何原文/逐行回退必须证明不会把协议包装写入用户可见字段。相同模式适用于 `prompt-engine-contract.js` 与 `video-prompt-engine-contract.js` 的优化结果解析。
+
+## Windows Claude wrapper 启动环境诊断（2026-08-23）
+
+- **结论**：交互式终端的 `claude` 可用；偶发的 `codeagent-wrapper` 子进程找不到 `claude` 属于 PATH/启动环境差异，不是 Claude CLI 不可用。
+- **处理**：先在可用终端用 `Get-Command claude`/实际安装目录定位 CLI，再把 CLI 所在目录和正确 Git Bash 路径注入 wrapper 子进程环境；重新运行固定 diff 的只读审查。审查结果必须区分“CLI 可用性”“wrapper 启动成功”和“审查发现已解决”三件事。
