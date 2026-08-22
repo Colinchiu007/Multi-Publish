@@ -376,6 +376,8 @@ export class SubtitleSegmenter {
   private static QUOTE_MAP = new Map<string, string>(subtitleRules.quote_pairs as [string, string][]);
   // Step 3/6 词边界感知切分（v1.2）：无标点硬切/平衡切分时优先在不劈词的位置切分。
   private static WORD_GOOD_LEAD = new Set(subtitleRules.word_split.good_lead);
+  private static WORD_SEMANTIC_LEAD = new Set(subtitleRules.word_split.semantic_lead ?? '');
+  private static WORD_SEMANTIC_LEAD_FOLLOWERS: Record<string, string> = subtitleRules.word_split.semantic_lead_followers ?? {};
   private static WORD_GOOD_TAIL = new Set(subtitleRules.word_split.good_tail);
   private static WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers);
   // v1.2.2：good_tail 路径的块首排除集（仅纯黏着后缀，如 "个|性" 的 性）。
@@ -534,7 +536,8 @@ export class SubtitleSegmenter {
       // 平衡约束（与 Python 实现一致）：硬切后的尾块清理后为 4..min-1 字（非合法 ≤3 短尾）时，
       // 从上一块让字给尾块（区间内优先标点），避免孤悬尾块（如 15+4 → 11+8）
       const tailClean = cur.trim().replace(/[。！？；，、.!?;…]+$/, '');
-      if (lastHardCut && blocks.length > 0 && tailClean.length > 3
+      const startsSemanticLead = this.isSemanticLeadAt(cur.trim(), 0);
+      if (lastHardCut && !startsSemanticLead && blocks.length > 0 && tailClean.length > 3
         && tailClean.length < this.config.minCharsPerBlock
         && blocks[blocks.length - 1].length >= this.config.minCharsPerBlock) {
         const prev = blocks[blocks.length - 1];
@@ -615,10 +618,11 @@ export class SubtitleSegmenter {
       const isSentenceEnd = stripped.length > 0
         && SubtitleSegmenter.SENTENCE_BOUNDARY.has(stripped[stripped.length - 1])
         && bCleanLen > 3;
+      const startsSemanticLead = this.isSemanticLeadAt(stripped, 0);
       const mergedLen = prevCleanLen + bCleanLen;
       if (isSentenceEnd) {
         merged.push(b);
-      } else if ((prevCleanLen < this.config.minCharsPerBlock || isPunctTail || isShortTail
+      } else if (!startsSemanticLead && (prevCleanLen < this.config.minCharsPerBlock || isPunctTail || isShortTail
         || bCleanLen < this.config.minCharsPerBlock) && mergedLen <= this.config.maxCharsPerBlock) {
         merged[merged.length - 1] = merged[merged.length - 1] + b;
       } else {
@@ -795,6 +799,7 @@ export class SubtitleSegmenter {
     if (i >= text.length) return false;
     // v1.2.3：切点落在任意长度成词短语内部一律不是好切点。
     if (this.protectedPhraseSpanAtBoundary(text, i)) return false;
+    if (this.isSemanticLeadAt(text, i)) return true;
     if (SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])) return true;
     // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
     // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
@@ -817,7 +822,9 @@ export class SubtitleSegmenter {
       const tail = text.length - i;
       if (!(i >= minHead || (tailMin > 0 && i >= minHead - 2 && tail >= tailMin))) continue;
       if (!this.isGoodCut(text, i)) continue;
-      if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i]))) {
+      const isSemanticLead = this.isSemanticLeadAt(text, i);
+      if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i]) || isSemanticLead)) {
+        if (isSemanticLead) return i;
         if (SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])) return i;
         if (tailFallback < 0) tailFallback = i;
         continue;
@@ -839,6 +846,13 @@ export class SubtitleSegmenter {
       }
     }
     return -1;
+  }
+
+  /** 语义引导字必须满足自身的词组后续约束（如“提”只在“提前”中生效）。 */
+  private isSemanticLeadAt(text: string, i: number): boolean {
+    if (i < 0 || i >= text.length || !SubtitleSegmenter.WORD_SEMANTIC_LEAD.has(text[i])) return false;
+    const allowedFollowers = SubtitleSegmenter.WORD_SEMANTIC_LEAD_FOLLOWERS[text[i]];
+    return allowedFollowers === undefined || [...allowedFollowers].includes(text[i + 1] ?? '');
   }
 
   /** Step 7：时间戳分配（proportional 按字数比例 / equal 等分） */

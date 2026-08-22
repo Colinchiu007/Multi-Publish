@@ -27,6 +27,8 @@ const RIGHT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[1]))
 const QUOTE_MAP = new Map(subtitleRules.quote_pairs)
 // Step 3/6 词边界感知切分（v1.2）：无标点硬切/平衡切分时优先在不劈词的位置切分。
 const WORD_GOOD_LEAD = new Set(subtitleRules.word_split.good_lead)
+const WORD_SEMANTIC_LEAD = new Set(subtitleRules.word_split.semantic_lead || '')
+const WORD_SEMANTIC_LEAD_FOLLOWERS = subtitleRules.word_split.semantic_lead_followers || {}
 const WORD_GOOD_TAIL = new Set(subtitleRules.word_split.good_tail)
 const WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers)
 // v1.2.2：good_tail 路径的块首排除集（仅纯黏着后缀，如 "个|性" 的 性）。
@@ -483,10 +485,18 @@ function isGoodCut (text, i) {
   if (i >= text.length) return false
   // v1.2.3：切点落在任意长度成词短语内部一律不是好切点。
   if (protectedPhraseSpanAtBoundary(text, i)) return false
+  if (isSemanticLeadAt(text, i)) return true
   if (WORD_GOOD_LEAD.has(text[i])) return true
   // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
   // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
   return i > 0 && WORD_GOOD_TAIL.has(text[i - 1]) && !WORD_GOOD_TAIL_BLOCKERS.has(text[i])
+}
+
+/** 语义引导字必须满足自身的词组后续约束（如“提”只在“提前”中生效）。 */
+function isSemanticLeadAt (text, i) {
+  if (i < 0 || i >= text.length || !WORD_SEMANTIC_LEAD.has(text[i])) return false
+  const allowedFollowers = WORD_SEMANTIC_LEAD_FOLLOWERS[text[i]]
+  return allowedFollowers === undefined || Array.from(allowedFollowers).includes(text[i + 1] || '')
 }
 
 /**
@@ -504,7 +514,9 @@ function wordSafeSplit (text, lo, hi, minHead, tailMin) {
     const tail = text.length - i
     if (!(i >= minHead || (tailMin > 0 && i >= minHead - 2 && tail >= tailMin))) continue
     if (!isGoodCut(text, i)) continue
-    if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || WORD_GOOD_LEAD.has(text[i]))) {
+    const isSemanticLead = isSemanticLeadAt(text, i)
+    if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || WORD_GOOD_LEAD.has(text[i]) || isSemanticLead)) {
+      if (isSemanticLead) return i
       if (WORD_GOOD_LEAD.has(text[i])) return i
       if (tailFallback < 0) tailFallback = i
       continue
@@ -579,7 +591,8 @@ function subtitleLengthSplit (text, config) {
   }
   if (cur) {
     const tailClean = cur.trim().replace(/[。！？；，、.!?;…]+$/, '')
-    if (lastHardCut && blocks.length > 0 && tailClean.length > 3
+    const startsSemanticLead = isSemanticLeadAt(cur.trim(), 0)
+    if (lastHardCut && !startsSemanticLead && blocks.length > 0 && tailClean.length > 3
       && tailClean.length < config.minCharsPerBlock
       && blocks[blocks.length - 1].length >= config.minCharsPerBlock) {
       const prev = blocks[blocks.length - 1]
@@ -615,10 +628,11 @@ function subtitleMergeShort (blocks, config) {
     const isSentenceEnd = stripped.length > 0
       && SENTENCE_BOUNDARY.has(stripped[stripped.length - 1])
       && bCleanLen > 3
+    const startsSemanticLead = isSemanticLeadAt(stripped, 0)
     const mergedLen = prevCleanLen + bCleanLen
     if (isSentenceEnd) {
       merged.push(b)
-    } else if ((prevCleanLen < config.minCharsPerBlock || isPunctTail || isShortTail
+    } else if (!startsSemanticLead && (prevCleanLen < config.minCharsPerBlock || isPunctTail || isShortTail
       || bCleanLen < config.minCharsPerBlock) && mergedLen <= config.maxCharsPerBlock) {
       merged[merged.length - 1] = merged[merged.length - 1] + b
     } else {

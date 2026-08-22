@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "desktop-videogen",
   "currentPhase": "review",
-  "nextAction": "完成本地审查、构建与提交合并",
+  "nextAction": "提交并合并 Multi-Publish 与 sidecar 修复，完成归档",
   "createdAt": "2026-08-22T15:22:00+08:00",
   "branch": "codex/subtitle-semantic-split-fix",
   "openspecChange": "subtitle-semantic-split-fix",
