@@ -8,6 +8,8 @@
  *
  * 依赖：log / PlatformConfig / getConfigPath / platformSelectors
  *       ProgressThrottle / FieldRetryState
+log.info('RpaView', 'DIAG[module] rpa-engine path: ' + require.resolve('@multi-publish/rpa-engine'))
+log.info('RpaView', 'DIAG[module] kuaishou keys: ' + (platformSelectors.PLATFORM_PUBLISH_SELECTORS && platformSelectors.PLATFORM_PUBLISH_SELECTORS.kuaishou ? Object.keys(platformSelectors.PLATFORM_PUBLISH_SELECTORS.kuaishou).join('|') : 'MISSING'))
  *
  * 模块级变量：
  *   - _platformConfigInstance：PlatformConfig 单例（_getPlatformConfig 使用）
@@ -59,6 +61,7 @@ const platformsMixin = {
   async _publish_generic(win, article, platform, publishConfig) {
     const config = publishConfig || this._getPlatformConfig(platform)
     const sel = config.selectors
+log.info('RpaView', '['+platform+'] DIAG[publish] publishConfig given: ' + (publishConfig?'YES':'NO') + '; sel keys: ' + Object.keys(sel||{}).join('|') + '; pubBtn: ' + (sel&&sel.publish_btn?sel.publish_btn.length:'EMPTY') + '; titleIn: ' + (sel&&sel.title_input?sel.title_input.length:'EMPTY') + '; fileIn: ' + (sel&&sel.file_input?sel.file_input.length:'EMPTY') + '; coverIn: ' + (sel&&sel.cover_input?'Y':'N') + '; art.title: ' + String(article&&article.title||'').slice(0,20) + '; video: ' + String(article&&article.video_path||'').slice(0,40) + '; cover: ' + String(article&&article.cover_path||'').slice(0,40))
     const throttle = new ProgressThrottle(5000, 10)
     const retry = new FieldRetryState(3)
 
@@ -70,10 +73,23 @@ const platformsMixin = {
     const curUrl = win.webContents.getURL()
     if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('signin'))
       return { success: false, error: platform+' not logged in', platform: platform }
+    // SPA 鐧诲綍鎬?DOM 鎺㈡祴锛歎RL 鏈烦杞絾椤甸潰宸叉槸鐧诲綍寮曞锛堝揩鎵嬬瓑 SPA 鏈櫥褰曚笉鏀瑰彉 URL锛?
+    const loginProbe = await win.webContents.executeJavaScript(`(function(){
+      var t = (document.body && document.body.innerText) || '';
+      return {
+                hasLoginPrompt: /立即登录|扫码登录|登录后|请登录/.test(t.slice(0, 4000)),
+        hasForm: !!document.querySelector('input[type="file"], textarea, [contenteditable="true"]')
+      };
+    })()`).catch(function () { return { hasLoginPrompt: false, hasForm: true } })
+    if (loginProbe && loginProbe.hasLoginPrompt && !loginProbe.hasForm) {
+      log.warn('RpaView', '['+platform+'] SPA login page detected, fail fast')
+      return { success: false, error: platform+' not logged in', platform: platform }
+    }
 
     if (config.preFill) await this._execHook(win, config.preFill, config.hookContext)
 
     // title
+    log.info('RpaView', '['+platform+'] DIAG[title] cond=' + (!!article.title) + ' titleType=' + typeof article.title + ' titleVal=' + JSON.stringify(String(article.title)).slice(0,30) + ' selTitleIn=' + (sel.title_input ? sel.title_input.length : 'NONE'))
     if (article.title && sel.title_input && sel.title_input.length > 0) {
       retry.addField('title')
       while (!retry.isDone('title')) {
@@ -81,6 +97,8 @@ const platformsMixin = {
           this._emitProgress(platform, 'filling title...', 20)
           if (await this._waitForElement(win, sel.title_input[0], 10000)) {
             await this._fillInput(win, sel.title_input[0], article.title); retry.markDone('title')
+          } else {
+            if (!retry.retry('title')) break; await this._sleep(1000)
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] title: '+e.message)
@@ -98,6 +116,8 @@ const platformsMixin = {
           this._emitProgress(platform, 'filling content...', 35)
           if (await this._waitForElement(win, cs[0], 10000)) {
             await this._fillInput(win, cs[0], article.content); retry.markDone('content')
+          } else {
+            if (!retry.retry('content')) break; await this._sleep(1000)
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] content: '+e.message)
@@ -107,6 +127,7 @@ const platformsMixin = {
     }
 
     // file upload
+    log.info('RpaView', '['+platform+'] DIAG[file] video=' + String(article.video_path||'').slice(0,30) + ' fileIn=' + (sel.file_input ? sel.file_input.length : 'NONE'))
     if (article.video_path && sel.file_input && sel.file_input.length > 0) {
       retry.addField('file_upload')
       while (!retry.isDone('file_upload')) {
@@ -117,6 +138,8 @@ const platformsMixin = {
             const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
             if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
             retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 60)
+          } else {
+            if (!retry.retry('file_upload')) break; await this._sleep(2000)
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] upload: '+e.message)
@@ -127,7 +150,16 @@ const platformsMixin = {
 
     // cover
     if (article.cover_path && sel.cover_input) {
-      try { this._emitProgress(platform,'uploading cover...',65); await this._setFileInput(win,article.cover_path); await this._sleep(2000) } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message) }
+      try {
+        this._emitProgress(platform,'uploading cover...',65)
+        const coverSel = 'input[type="file"][accept*="image"], input[type="file"][accept*="jpg"], input[type="file"][accept*="jpeg"], input[type="file"][accept*="png"]'
+        // 先点击封面上传触发器（打开上传面板），再设置文件；trigger 不存在时直接设置
+        if (sel.cover_trigger && sel.cover_trigger.length > 0) {
+          try { await this._click(win, sel.cover_trigger[0]); await this._sleep(1800) } catch (e) { log.warn('RpaView','['+platform+'] cover trigger: '+e.message) }
+        }
+        await this._setFileInput(win, article.cover_path, coverSel)
+        await this._sleep(2000)
+      } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message) }
     }
 
     // tags
@@ -145,7 +177,13 @@ const platformsMixin = {
 
     if (config.prePublishHook) await this._execHook(win, config.prePublishHook, config.hookContext)
 
+    // 平台专用发布前准备（百家号：关闭引导弹窗 + 选择创作声明）
+    if (platform === 'baijiahao') {
+      try { await this._prepBaijiahao(win) } catch (e) { log.warn('RpaView', 'baijiahao prep: ' + e.message) }
+    }
+
     // publish button
+    log.info('RpaView', '['+platform+'] DIAG[publish2] pubBtn=' + (sel.publish_btn ? sel.publish_btn.length : 'NONE') + ' cfgHasApi=' + (config.has_api) + ' prePublishHook=' + String(config.prePublishHook||''))
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')
       while (!retry.isDone('publish')) {
@@ -160,12 +198,36 @@ const platformsMixin = {
           return await this._verifyPublishSuccess(win,platform,config,rp)
         } catch(e) {
           log.warn('RpaView','['+platform+'] publish btn: '+e.message)
+          try {
+            const dump = await win.webContents.executeJavaScript('(function(){var out=[];var all=document.querySelectorAll("button,a,[role=button],span");for(var i=0;i<all.length;i++){var b=all[i];if(!b.offsetParent)continue;var t=(b.innerText||b.textContent||"").trim().replace(/\s+/g," ");if(t&&t.length<=14){var cls=(typeof b.className==="string"&&b.className)?("."+b.className.split(" ").slice(0,2).join(".")):"";out.push(b.tagName.toLowerCase()+cls+"="+t)}}return out.slice(0,60).join(" | ")})()')
+            log.info('RpaView','['+platform+'] DOM buttons: ' + String(dump).slice(0,1200))
+          } catch(dumpErr) { /* ignore */ }
           if (!retry.retry('publish')) return {success:false,error:e.message,platform:platform}
           await this._sleep(1500)
         }
       }
     }
     return {success:false,error:platform+' no publish_btn selector',platform:platform}
+  },
+
+  // ========== 平台专用：百家号发布前准备（创作声明等） ==========
+  async _prepBaijiahao(win) {
+    this._emitProgress('baijiahao', 'preparing declaration...', 82)
+    // 关闭"视频新增一键填写功能"引导弹窗
+    try {
+      await win.webContents.executeJavaScript('(function(){var b=[...document.querySelectorAll("button,a,span,div")].filter(function(e){return (e.innerText||"").trim()==="我知道了"&&e.children.length===0});if(b.length){b[0].click();return true}return false})()')
+    } catch (e) { /* ignore */ }
+    await this._sleep(1200)
+    // 选择创作声明：点击输入框 → 弹窗选"无需声明" → 确定
+    const opened = await win.webContents.executeJavaScript('(function(){var el=[...document.querySelectorAll("input")].find(function(i){return i.placeholder.indexOf("创作声明")!==-1});if(!el)return "NO_INPUT";if(el.value)return "ALREADY";el.click();el.focus();return "OPENED"})()')
+    if (opened === 'OPENED') {
+      await this._sleep(2500)
+      await win.webContents.executeJavaScript('(function(){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div")].filter(function(e){return (e.innerText||"").trim()==="无需声明"});if(cands.length){cands[0].click();return true}return false})()')
+      await this._sleep(1200)
+      await win.webContents.executeJavaScript('(function(){var btns=[...document.querySelectorAll(".cheetah-modal-footer button,.cheetah-modal-footer span")].filter(function(e){return (e.innerText||"").trim()==="确定"});if(btns.length){var b=btns[0];if(b.tagName==="BUTTON")b.click();else b.parentElement.click();return true}return false})()')
+      await this._sleep(1500)
+    }
+    return true
   },
 
   // ========== Verify publish success ==========

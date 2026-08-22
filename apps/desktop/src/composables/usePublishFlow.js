@@ -106,6 +106,7 @@ export function usePublishFlow(options) {
   const isAccountAvailable = typeof options.isAccountAvailable === 'function'
     ? options.isAccountAvailable
     : null
+  const activeMode = options.activeMode || null
   // 主动操作登录门：发布前未登录 → 弹登录引导，登录成功后继续
   const { ensureLogin } = useLoginGate()
 
@@ -249,10 +250,15 @@ export function usePublishFlow(options) {
     // 主动操作登录门：未登录弹登录窗口，登录成功后继续发布
     if (!(await ensureLogin({ message: '发布功能需要登录后使用，是否立即登录？' }))) return
     if (!article.title.trim()) {
-      ElMessage.warning('请输入文章标题')
+      ElMessage.warning('请输入标题')
       return
     }
-    if (!article.content.trim()) {
+    const isVideoMode = activeMode && activeMode.value === 'video'
+    if (isVideoMode && !article.video_path) {
+      ElMessage.warning('请选择视频文件')
+      return
+    }
+    if (!isVideoMode && !article.content.trim()) {
       ElMessage.warning('请输入正文内容')
       return
     }
@@ -295,6 +301,8 @@ export function usePublishFlow(options) {
     activeTaskIds.value = []
     activeScheduleIds.value = []
     let off
+    const doneTaskIds = new Set()
+    let taskTotal = 0
 
     try {
       // 敏感词预检
@@ -351,6 +359,19 @@ export function usePublishFlow(options) {
 
       off = onProgress(function (data) {
         addProgress('[' + data.platform + '] ' + data.stage)
+        // 后台任务结果实时回填（task:success / task:failed），全部完成才注销监听
+        if (!data.taskId || !data.stage) return
+        const isFinal = data.stage.indexOf('✓') === 0 || data.stage.indexOf('✗') === 0
+        if (!isFinal) return
+        doneTaskIds.add(data.taskId)
+        if (data.stage.indexOf('✓') === 0) {
+          result.value = { success: true, message: data.platform + ' 发布成功', url: (data.result && data.result.url) || '' }
+        } else {
+          result.value = { success: false, message: data.platform + ' ' + data.stage, url: '' }
+        }
+        if (taskTotal > 0 && doneTaskIds.size >= taskTotal && typeof off === 'function') {
+          off()
+        }
       })
 
       addProgress('发布到 ' + targets.length + ' 个目标（含多账号）...', 'info')
@@ -360,7 +381,8 @@ export function usePublishFlow(options) {
         activeTaskIds.value = Array.isArray(res.data && res.data.taskIds)
           ? res.data.taskIds.slice()
           : []
-        const count = (res.data && res.data.taskIds && res.data.taskIds.length) || ''
+        taskTotal = activeTaskIds.value.length
+        const count = taskTotal || ''
         addProgress('✓ 已添加 ' + count + ' 个任务', 'success')
         result.value = { success: true, message: res.message || '任务已加入队列', url: '' }
       } else {

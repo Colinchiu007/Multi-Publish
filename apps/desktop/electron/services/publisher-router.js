@@ -31,7 +31,7 @@ const ROUTE_TABLE = {
   kuaishou:     { mode: 'rpa_vm', timeout: 300000 },
   toutiao:      { mode: 'rpa_vm', timeout: 120000 },
   bilibili:     { mode: 'rpa_vm', timeout: 300000 },
-  baijiahao:    { mode: 'rpa_vm', timeout: 120000 },
+  baijiahao:    { mode: 'rpa_vm', timeout: 300000 },
   youtube:      { mode: 'rpa_vm', timeout: 300000 },
   tiktok:       { mode: 'rpa_vm', timeout: 300000 },
   twitter:      { mode: 'rpa_vm', timeout: 120000 },
