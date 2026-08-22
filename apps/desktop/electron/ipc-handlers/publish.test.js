@@ -335,24 +335,27 @@ describe('publish IPC Logto 权益门禁', () => {
     ['publish:wechat', { title: '无权益' }],
     ['publish:batch', { platforms: ['wechat', 'douyin'], article: { title: '无权益' } }],
   ])('%s 无权益时不向队列写入任何任务', async (channel, payload) => {
-    const deps = createMockDeps()
-    const rawIpcMain = createMockIpcMain()
-    const identityService = {
-      getState: () => ({ status: 'authenticated' }),
-      requireEntitlement: vi.fn(async () => { throw new Error('ENTITLEMENT_REQUIRED') }),
-    }
-    const controlledIpcMain = createAccessControlledIpcMain(
-      rawIpcMain,
-      { isPro: () => true },
-      { NODE_ENV: 'production' },
-      __electronMock.app,
-      identityService,
-    )
-    registerHandlers(controlledIpcMain, deps)
+    __electronMock.app.isPackaged = true
+    try {
+      const deps = createMockDeps()
+      const rawIpcMain = createMockIpcMain()
+      const identityService = {
+        getState: () => ({ status: 'authenticated' }),
+        requireEntitlement: vi.fn(async () => { throw new Error('ENTITLEMENT_REQUIRED') }),
+      }
+      const controlledIpcMain = createAccessControlledIpcMain(
+        rawIpcMain,
+        { isPro: () => true },
+        { NODE_ENV: 'production' },
+        __electronMock.app,
+        identityService,
+      )
+      registerHandlers(controlledIpcMain, deps)
 
-    const result = await rawIpcMain._get(channel)(TRUSTED_EVENT, payload)
+      const result = await rawIpcMain._get(channel)(TRUSTED_EVENT, payload)
 
-    expect(result).toMatchObject({ code: -3 })
-    expect(deps.taskQueue.add).not.toHaveBeenCalled()
+      expect(result).toMatchObject({ code: -3 })
+      expect(deps.taskQueue.add).not.toHaveBeenCalled()
+    } finally { __electronMock.app.isPackaged = false }
   })
 })

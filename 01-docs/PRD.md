@@ -4799,6 +4799,15 @@ ormalizeStory2VideoTextParams 必须透传 utoAdvance 与 ackground 布尔标�
 - 需调 LLM 的请求（图片 creative_level>3、video 域）无可用绑定时：桌面 fail-closed 返回可操作错误（不发送请求），引擎侧 422。
 - 图片 creative_level<=3 模板直出免 LLM；api_key 不出渲染层、不落日志；缓存键并入 provider 身份（provider|model|base_url）。
 
+#### task-051 蚁小二 UE 收口与真实发布验收（2026-08-22）
+
+- 发布页单篇模式使用独立主操作区承载发布目标、保存草稿、草稿箱、发布和取消任务；桌面长表单滚动时操作区保持可见，宽度不超过 1080px 时回到正常流，页头与批量操作支持窄屏换行。
+- 账号登录弹窗的固定文案通过 accountsPage 的 zh/en locale 提供；快手在平台二维码 capability 缺失时仍允许选择二维码并提交，其他不支持平台继续禁用。
+- 百家号视频 V2 selector 合同：tag_input 可为空；write_btn、file_input、editor、desc_textarea、cover_input、cover_trigger、publish_btn 必须提供非空选择器数组。百家号 cookie domain 不接受公共 baidu.com。
+- 发布回归覆盖二维码入口、视频/封面/进度状态、平台 cookie 边界和单篇/批量操作区。二维码可见、按钮可点、页面跳转或单测通过均不等同于真实平台发布成功；快手真实扫码、同 profile 恢复及最终发布需记录现场证据并在最终发布动作前人工确认。
+- 发布取消采用 allSettled 语义：单个取消请求失败时保留对应任务 ID 供重试，不再中断其余取消调用；封面提取通过 loopback HTTP 同源媒体通道加载本地视频，避免 data/file 跨 scheme 被 Chromium 拦截。
+- 本轮真实环境已确认快手 passport 二维码、同 profile 重启恢复、视频表单填充和 QM-1 打包启动；最终快手发布必须在用户明确确认后执行并留存现场证据。
+
 #### Story2Video 页面术语、固定操作区与历史编辑合同（2026-08-17）
 
 视频创作页面的详细产品合同已独立整理到 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)，本节作为主 PRD 索引。流水线选择后的配置/运行页统一称为“流水线启动页”；历史记录进入的任务查看与修改页统一称为“视频任务编辑页”，不再把旧详情弹窗称为任务详情页。固定底部操作条、顶部阶段进度、统一历史卡片字段、失败原因本地化、暂停/删除数据校验、分段跳转、AI 视频生成、音色目录回退和语速滑条均以该文档及 OpenSpec change 为准。

@@ -35,8 +35,28 @@
     <div class="cohere-page-header">
       <div class="publish-header-row">
         <div class="flex-spacer">
-          <div class="page-title">{{ t('publishPage.publishTitle') }}<span v-if="hasExplicitPublishType" class="publish-type-context"> · {{ publishTypeLabel }}</span></div>
+          <div class="page-title">
+            {{ t('publishPage.publishTitle') }}<span v-if="hasExplicitPublishType" class="publish-type-context"> · {{ publishTypeLabel }}</span>
+          </div>
           <div class="page-subtitle">{{ batchMode ? t('publishPage.batchSubtitle') : t('publishPage.singleSubtitle') }}</div>
+        </div>
+        <div class="publish-mode-tabs" v-if="!batchMode">
+          <button
+            type="button"
+            class="publish-mode-tab"
+            :class="{ active: activeMode === 'video' }"
+            @click="activeMode = 'video'"
+          >
+            ▶ {{ t('publishPage.modeVideo') }}
+          </button>
+          <button
+            type="button"
+            class="publish-mode-tab"
+            :class="{ active: activeMode === 'article' }"
+            @click="activeMode = 'article'"
+          >
+            ▤ {{ t('publishPage.modeArticle') }}
+          </button>
         </div>
         <label class="cohere-toggle batch-mode-toggle">
           <input data-testid="publish-batch-mode" type="checkbox" v-model="batchMode" class="coral-check" @change="checkBatchAccess" />
@@ -163,6 +183,83 @@
     <template v-else>
       <div class="cohere-content cohere-content-split">
         <div class="flex-main">
+          <template v-if="activeMode === 'video'">
+            <div class="cohere-card cohere-card-static">
+              <div class="cohere-form">
+                <div class="cohere-form-item">
+                  <label class="cohere-form-label">{{ t('publishPage.videoFile') }}</label>
+                  <el-upload
+                    drag
+                    :auto-upload="false"
+                    :limit="1"
+                    accept="video/*"
+                    class="video-upload-zone"
+                    :on-change="(file) => { article.video_path = (file.raw && (file.raw.path || file.raw.name)) || file.name || '' }"
+                  >
+                    <el-icon class="el-icon--upload" :size="48"><upload-filled /></el-icon>
+                    <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
+                    <template #tip><div class="el-upload__tip">{{ t('publishPage.dragVideoHint') }}</div></template>
+                  </el-upload>
+                </div>
+                <div class="cohere-form-item">
+                  <label class="cohere-form-label">{{ t('publishPage.title') }}</label>
+                  <UiInput v-model="article.title" :placeholder="t('publishPage.videoTitlePlaceholder')" />
+                </div>
+                <div class="cohere-form-item">
+                  <label class="cohere-form-label">{{ t('publishPage.videoDescLabel') }}</label>
+                  <UiInput type="textarea" v-model="article.content" :placeholder="t('publishPage.videoDescPlaceholder')" :rows="4" />
+                </div>
+                <div class="cohere-form-item">
+                  <label class="cohere-form-label">{{ t('publishPage.cover') }}</label>
+                  <div class="video-cover-row">
+                    <el-upload
+                      v-model:file-list="coverFileList"
+                      class="publish-media-upload"
+                      :auto-upload="false"
+                      :limit="1"
+                      accept="image/*"
+                      :on-change="handleCoverFileChange"
+                      :on-remove="handleCoverFileRemove"
+                    >
+                      <button type="button" class="media-upload-trigger">{{ t('publishPage.selectCover') }}</button>
+                      <template #tip><div class="el-upload__tip">{{ t('publishPage.coverTip') }}</div></template>
+                    </el-upload>
+                    <UiButton v-if="article.video_path" variant="ghost" size="sm" @click="handleExtractVideoCover">
+                      📷 {{ t('publishPage.extractCover') }}
+                    </UiButton>
+                  </div>
+                  <UiInput v-model="article.cover_url" :placeholder="t('publishPage.coverUrlPlaceholder')" class="stack-gap-top" />
+                </div>
+                <div class="cohere-form-item publish-metadata-grid">
+                  <div>
+                    <label class="cohere-form-label">{{ t('publishPage.tags') }}</label>
+                    <UiInput v-model="tagsText" :placeholder="t('publishPage.tagsPlaceholder')" />
+                  </div>
+                  <div>
+                    <label class="cohere-form-label">{{ t('publishPage.topics') }}</label>
+                    <UiInput v-model="topicsText" :placeholder="t('publishPage.topicsPlaceholder')" />
+                  </div>
+                  <div>
+                    <label class="cohere-form-label">{{ t('publishPage.mentions') }}</label>
+                    <UiInput v-model="mentionsText" :placeholder="t('publishPage.mentionsPlaceholder')" />
+                  </div>
+                </div>
+                <div class="cohere-form-item">
+                  <label class="cohere-form-label">{{ t('publishPage.schedule') }}</label>
+                  <UiInput type="datetime-local" v-model="article.publishTime" class="input-max-260" />
+                  <span class="publish-time-hint">{{ t('publishPage.scheduleHint') }}</span>
+                </div>
+                <div class="cohere-form-item">
+                  <button class="publish-section-toggle" type="button" @click="showDiffPanel = !showDiffPanel">
+                    <span>{{ t('publishPage.diffContent') }}</span>
+                    <span class="publish-section-toggle__state">{{ showDiffPanel ? t('publishPage.collapse') : t('publishPage.expand') }}</span>
+                  </button>
+                  <PlatformOverridePanel v-if="showDiffPanel" :platforms="selectedOverridePlatforms" :model-value="diffEdits" @update:model-value="replaceDiffEdits" />
+                </div>
+              </div>
+            </div>
+          </template>
+          <template v-else>
           <div class="cohere-card cohere-card-static">
             <div class="cohere-form">
               <div class="cohere-form-item">
@@ -276,6 +373,7 @@
               </div>
             </div>
           </div>
+          </template>
         </div>
         <div class="flex-side">
           <!-- 智能标签建议 -->
@@ -293,7 +391,7 @@
             <UiButton variant="ghost" size="sm" @click="showTitlePanel = true">{{ t('publishPage.titleReference') }}</UiButton>
           </div>
 
-          <div class="cohere-card cohere-card-static">
+          <div class="cohere-card cohere-card-static publish-action-card" data-testid="publish-action-card">
             <div class="cohere-form cohere-form-gap">
               <div class="cohere-form-label">{{ t('publishPage.publishTarget') }}</div>
               <PublishTargetSelector
@@ -305,20 +403,23 @@
                 @toggle-platform="togglePlatform"
                 @toggle-account="toggleAccount"
               />
-              <div class="cohere-divider"></div>
-              <UiButton variant="secondary" class="side-button-block" @click="saveDraft" :disabled="publishing">{{ t('publishPage.saveDraft') }}</UiButton>
-              <UiButton variant="ghost" size="sm" class="side-button-block" @click="showDraftList = true; loadDrafts()">{{ t('publishPage.drafts') }}</UiButton>
-              <UiButton data-testid="publish-submit" class="side-button-full" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
-                {{ publishing ? t('publishPage.publishing') : t('publishPage.quickPublish') }}
-              </UiButton>
-              <UiButton
-                v-if="activeTaskIds.length > 0 || activeScheduleIds.length > 0"
-                variant="danger"
-                class="side-button-block side-button-block-top"
-                @click="cancelPublish"
-              >
-                {{ t('publishPage.cancelTasks') }}
-              </UiButton>
+              <div class="publish-action-controls" data-testid="publish-action-controls">
+                <div class="cohere-divider"></div>
+                <UiButton variant="secondary" class="side-button-block" @click="saveDraft" :disabled="publishing">{{ t('publishPage.saveDraft') }}</UiButton>
+                <UiButton variant="ghost" size="sm" class="side-button-block" @click="showDraftList = true; loadDrafts()">{{ t('publishPage.drafts') }}</UiButton>
+                <UiButton data-testid="publish-submit" class="side-button-full" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
+                  {{ publishing ? t('publishPage.publishing') : t('publishPage.quickPublish') }}
+                </UiButton>
+                <UiButton
+                  v-if="activeTaskIds.length > 0 || activeScheduleIds.length > 0"
+                  data-testid="publish-cancel"
+                  variant="danger"
+                  class="side-button-block side-button-block-top"
+                  @click="cancelPublish"
+                >
+                  {{ t('publishPage.cancelTasks') }}
+                </UiButton>
+              </div>
             </div>
           </div>
           <div v-if="progress.length > 0" class="cohere-card cohere-card-offset" data-testid="publish-progress">
@@ -386,6 +487,7 @@
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
@@ -433,6 +535,8 @@ const publishTypeLabel = computed(() => ({
   article: t('publishPage.typeArticle'),
   wechat: t('publishPage.typeWechat'),
 }[publishType.value]))
+
+const activeMode = ref(publishType.value === 'video' ? 'video' : 'article')
 
 const showDiffPanel = ref(false)
 const diffEdits = reactive({})
@@ -523,6 +627,24 @@ function handleCoverFileRemove () {
   coverFileList.value = []
 }
 
+async function handleExtractVideoCover () {
+  if (!article.video_path) return
+  try {
+    const result = await window.electronAPI?.extractVideoCover?.(article.video_path)
+    const coverPath = result?.path || result?.data?.coverPath || ''
+    if (coverPath) {
+      article.cover_path = coverPath
+      article.cover_file = { path: coverPath, name: 'video-cover.jpg' }
+      coverFileList.value = [{ name: 'video-cover.jpg', url: coverPath, path: coverPath }]
+      ElMessage.success('封面已提取')
+    } else {
+      ElMessage.warning('封面提取失败：' + (result?.message || '未知错误'))
+    }
+  } catch (e) {
+    ElMessage.warning('封面提取失败：' + (e.message || e))
+  }
+}
+
 const showTagPanel = ref(true)
 const showTitlePanel = ref(false)
 const showAiWriter = ref(false)
@@ -590,6 +712,7 @@ const {
   precheckEnabled,
   diffEdits,
   isAccountAvailable,
+  activeMode,
 })
 
 const {
@@ -729,16 +852,30 @@ defineExpose({
   loadDraft,
   removeDraft,
   replaceDiffEdits,
+  activeMode,
+  handleExtractVideoCover,
 })
 </script>
 
 <style scoped>
 /* —— 语义化 class（原 inline style 迁移，2026-08-10） —— */
-.publish-header-row { display: flex; align-items: center; gap: var(--space-md); width: 100%; }
+.publish-header-row { display: flex; align-items: center; gap: var(--space-md); width: 100%; flex-wrap: wrap; }
+.publish-header-row .flex-spacer { flex: 1 1 240px; min-width: 0; }
 .batch-mode-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .cohere-content-split { display: flex; gap: var(--space-xl); }
 .batch-articles { display: flex; flex-direction: column; gap: var(--space-md); }
 .cohere-card-static { cursor: default; position: relative; }
+.publish-action-card {
+  align-self: flex-start;
+  width: 100%;
+  box-sizing: border-box;
+  position: sticky;
+  top: 16px;
+  z-index: 2;
+}
+.publish-action-controls {
+  padding-top: 12px;
+}
 .cohere-card-offset { margin-top: 16px; cursor: default; }
 .cohere-form-gap { gap: var(--space-md); }
 .article-card-row { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md); }
@@ -757,7 +894,7 @@ defineExpose({
 .stack-gap { margin-bottom: var(--space-md); }
 .stack-gap-top { margin-top: 12px; }
 .stack-center { text-align: center; }
-.row-actions { display: flex; gap: var(--space-sm); }
+.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
 .row-actions-compact { display: flex; gap: 4px; }
 .progress-title { font-weight: 600; font-size: 14px; margin-bottom: var(--space-sm); }
 .progress-toolbar { display: flex; gap: var(--space-sm); margin-bottom: var(--space-sm); }
@@ -776,6 +913,24 @@ defineExpose({
 .copy-url-button.is-copied { background: var(--cohere-green, #67c23a); color: var(--surface); border-color: var(--cohere-green, #67c23a); }
 
 .publish-type-context { color: var(--coral, #f56c6c); font-size: 14px; font-weight: 600; }
+.publish-mode-tabs { display: flex; gap: 0; border: 1px solid var(--border-light, #e0e0e0); border-radius: 8px; overflow: hidden; }
+.publish-mode-tab {
+  padding: 6px 16px;
+  border: none;
+  background: var(--surface, #fff);
+  color: var(--muted, #73777d);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s ease;
+  white-space: nowrap;
+}
+.publish-mode-tab:hover { background: var(--soft-stone, #f8f8fa); color: var(--text-primary, #25252b); }
+.publish-mode-tab.active { background: var(--coral, #f56c6c); color: #fff; }
+.video-upload-zone :deep(.el-upload-dragger) { padding: 40px 20px; border: 2px dashed var(--border-light, #dcdfe6); border-radius: 12px; }
+.video-upload-zone :deep(.el-upload-dragger:hover) { border-color: var(--coral, #f56c6c); }
+.video-upload-zone :deep(.el-icon--upload) { font-size: 48px; color: var(--muted, #909399); margin-bottom: 8px; }
+.video-cover-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .publish-drafts-page {
   min-height: 100%;
   padding: 24px;
@@ -905,8 +1060,16 @@ defineExpose({
   .cohere-content {
     flex-direction: column;
   }
+
+  .publish-action-card {
+    position: static;
+  }
 }
 @media (max-width: 720px) {
+  .publish-header-row { align-items: flex-start; }
+  .publish-mode-tabs { flex: 1 1 100%; order: 2; }
+  .publish-mode-tabs .publish-mode-tab { flex: 1 1 0; }
+  .batch-mode-toggle { order: 3; }
   .publish-drafts-page { padding: 16px 12px 24px; }
   .publish-drafts-header,
   .publish-draft-card { align-items: flex-start; flex-direction: column; }

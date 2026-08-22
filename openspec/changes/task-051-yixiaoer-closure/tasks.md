@@ -1,0 +1,28 @@
+# Tasks — task-051-yixiaoer-closure
+
+## 1. 基线与测试
+
+- [x] 1.1 完成当前分支相对 origin/main 的差异审计并记录远端认证状态
+- [x] 1.2 为快手二维码按钮、视频模式、封面提取和进度展示补齐回归测试
+- [x] 1.3 修复发布标题文案断言与平台 cookie domain 契约测试
+
+## 2. 真实 Electron 验收
+
+- [x] 2.1 启动并通过 START_CONTRACT_OK / CDP / identity 检查
+- [x] 2.2 快手 passport 打开、二维码就绪与同 profile 重启恢复（扫码登录入库待用户扫码）
+- [ ] 2.3 D:\01.mp4 快手视频发布；记录成功或失败阶段证据（最终点击待用户明确确认）
+- [ ] 2.4 复核百家号视频发布证据边界，不把历史口述当作当前验证
+
+## 3. UE 收口
+
+- [x] 3.1 发布页 sticky 主操作区与移动响应式回归（结构/CSS/组件回归已通过，真实 viewport 截图仍为补充项）
+- [x] 3.2 账号页连接状态真实来源/中性未知态
+- [x] 3.3 locale、PRD、CHANGELOG 同步
+
+## 4. 交付
+
+- [x] 4.1 运行受影响单测、集成测试和 CJK locale 检查
+- [x] 4.2 Electron QM-1 打包与启动验证
+- [ ] 4.3 双模型审查，Critical 修复后重审
+- [ ] 4.4 推送分支并创建 PR，记录 remoteStatus
+- [ ] 4.5 OpenSpec、CCG task、质量节拍三同步归档

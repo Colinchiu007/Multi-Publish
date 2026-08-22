@@ -20,6 +20,7 @@ var require_publish = __commonJS({
         // 发布 API
         publishWechat: (articleData) => ipcRenderer2.invoke("publish:wechat", articleData),
         publishBatch: (platforms, article) => ipcRenderer2.invoke("publish:batch", { platforms, article }),
+        extractVideoCover: (videoPath) => ipcRenderer2.invoke("cover:extract", videoPath),
         listAccounts: () => ipcRenderer2.invoke("accounts:list"),
         // 渲染 API
         renderStart: (data) => ipcRenderer2.invoke("render:start", data),

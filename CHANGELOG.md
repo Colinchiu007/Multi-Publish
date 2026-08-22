@@ -9346,3 +9346,13 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 分块合成新增开始/成功/失败及每 10 秒输出字节心跳（30 秒无增长 WARN），保留既有 merge_l{level}_chunk_{n} created 诊断文本和 87%→89% 前端进度。
 - 日志只保留 basename 和非敏感诊断元数据；不记录绝对路径、完整 FFmpeg 参数、素材内容或凭据。此变更改善定位能力，不改变转场、编码参数、并发或实际耗时。
 
+## [2026-08-22] feat(desktop): task-051 蚁小二 UE 收口与快手验收准备
+
+- 发布页单篇模式新增 sticky 主操作卡，发布目标、保存草稿、草稿箱、发布和取消任务保持在同一操作区；窄屏下回到正常文档流，并为页头与批量操作增加换行保护。
+- 快手二维码入口在平台 capability 缺失时保留可用回退；非二维码平台仍 fail closed。账号登录弹窗固定文案接入 zh/en locale。
+- 百家号 cookie domain 收紧为明确创作者域及认证域；selector 契约明确仅 tag_input 可为空，其余视频发布字段必须非空。
+- 新增发布页单篇/批量 DOM 分支、快手二维码入口、登录文案语言切换、平台 selector 和账号状态的回归覆盖。
+- 当前变更已通过 OpenSpec strict validation；真实快手扫码/发布、Electron QM-1 和 PR 状态仍需现场验证，历史百家号发布结果不作为本轮证据。
+- 发布取消改为 allSettled 语义：成功取消的 ID 移除、失败或被拒的 ID 保留，取消请求不再抛出未处理 rejection；新增部分失败/拒绝回归测试。
+- 封面提取改为 loopback HTTP 同源媒体通道，修复 Chromium 对 data/file 跨 scheme 加载本地视频的拦截；真实 Electron 已从 D:\01.mp4 提取封面 JPEG。
+- 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。

@@ -177,6 +177,41 @@ describe("PublishView", () => {
     expect(w.get('[data-testid="publish-progress"]').text()).toContain('已提交')
   })
 
+  it('非批量发布保留独立的主操作区结构', async () => {
+    const w = await createWrapper()
+
+    const actionCard = w.get('.flex-side [data-testid="publish-action-card"]')
+    expect(actionCard.exists()).toBe(true)
+    expect(actionCard.find('[data-testid="publish-target-selector"]').exists()).toBe(true)
+    expect(actionCard.find('[data-testid="publish-action-controls"]').exists()).toBe(true)
+    expect(actionCard.find('[data-testid="publish-submit"]').exists()).toBe(true)
+    expect(w.find('[data-testid="publish-cancel"]').exists()).toBe(false)
+
+    w.vm.activeTaskIds = ['task-1']
+    await nextTick()
+    expect(actionCard.find('[data-testid="publish-cancel"]').exists()).toBe(true)
+  })
+
+  it('批量模式切换真实渲染批量操作区并恢复单篇操作卡', async () => {
+    const w = await createWrapper()
+    const batchMode = w.get('[data-testid="publish-batch-mode"]')
+
+    await batchMode.setValue(true)
+    await nextTick()
+
+    expect(w.vm.batchMode).toBe(true)
+    expect(w.find('[data-testid="publish-batch-submit"]').exists()).toBe(true)
+    expect(w.find('[data-testid="publish-action-card"]').exists()).toBe(false)
+    expect(w.find('.publish-mode-tabs').exists()).toBe(false)
+
+    await batchMode.setValue(false)
+    await nextTick()
+
+    expect(w.find('[data-testid="publish-batch-submit"]').exists()).toBe(false)
+    expect(w.find('[data-testid="publish-action-card"]').exists()).toBe(true)
+    expect(w.find('[data-testid="publish-submit"]').exists()).toBe(true)
+  })
+
   it("renders page title and mode toggle", async () => {
     const w = await createWrapper();
     expect(w.text()).toContain("一键发布");
