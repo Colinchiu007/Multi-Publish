@@ -110,7 +110,7 @@ const PLATFORM_COOKIE_DOMAINS = {
   kuaishou: ['kuaishou.com', 'passport.kuaishou.com'],
   toutiao: ['toutiao.com'],
   bilibili: ['bilibili.com'],
-  baijiahao: ['baijiahao.baidu.com', 'passport.baidu.com', 'baidu.com'],
+  baijiahao: ['baijiahao.baidu.com', 'passport.baidu.com'],
   youtube: ['youtube.com', 'studio.youtube.com', 'accounts.google.com'],
   tiktok: ['tiktok.com'],
   twitter: ['twitter.com', 'x.com'],

@@ -16,6 +16,7 @@
  */
 import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import i18n from '@/i18n'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from './useLoginGate'
 import {
@@ -250,7 +251,7 @@ export function usePublishFlow(options) {
     // 主动操作登录门：未登录弹登录窗口，登录成功后继续发布
     if (!(await ensureLogin({ message: '发布功能需要登录后使用，是否立即登录？' }))) return
     if (!article.title.trim()) {
-      ElMessage.warning('请输入标题')
+      ElMessage.warning(i18n.global.t('publishPage.titleRequired'))
       return
     }
     const isVideoMode = activeMode && activeMode.value === 'video'
@@ -421,9 +422,57 @@ export function usePublishFlow(options) {
     return { success: cancelled > 0, cancelled }
   }
 
+  async function cancelPublish () {
+    const taskIds = activeTaskIds.value.slice()
+    const scheduleIds = activeScheduleIds.value.slice()
+    if (taskIds.length === 0 && scheduleIds.length === 0) {
+      ElMessage.info(i18n.global.t('publishPage.noActiveTasks'))
+      return { success: false, cancelled: 0, pending: 0 }
+    }
+    const results = await Promise.allSettled([
+      ...taskIds.map(id => Promise.resolve().then(() => cancelTask(id))),
+      ...scheduleIds.map(id => Promise.resolve().then(() => schedulerCancel(id))),
+    ])
+    const cancelledTaskIds = taskIds.filter((_, index) => isCancelSettled(results[index]))
+    const cancelledScheduleIds = scheduleIds.filter((_, index) => {
+      return isCancelSettled(results[taskIds.length + index])
+    })
+    const cancelled = cancelledTaskIds.length + cancelledScheduleIds.length
+    activeTaskIds.value = taskIds.filter(id => !cancelledTaskIds.includes(id))
+    activeScheduleIds.value = scheduleIds.filter(id => !cancelledScheduleIds.includes(id))
+    const pendingCount = activeTaskIds.value.length + activeScheduleIds.value.length
+    const message = buildCancelMessage(cancelled, pendingCount)
+    const detail = pendingCount > 0
+      ? message + i18n.global.t('publishPage.cancelledRetryHint')
+      : message
+    addProgress(detail, pendingCount > 0 ? 'danger' : 'warning')
+    result.value = { success: false, cancelled, message }
+    return {
+      success: cancelled > 0 && pendingCount === 0,
+      cancelled,
+      pending: pendingCount,
+    }
+  }
+
+  function isCancelSettled (settled) {
+    return settled.status === 'fulfilled' &&
+      settled.value &&
+      settled.value.code === 0 &&
+      settled.value.data !== false
+  }
+
+  function buildCancelMessage (cancelled, pending) {
+    if (cancelled > 0 && pending > 0) {
+      return i18n.global.t('publishPage.cancelPartial', { count: cancelled, failed: pending })
+    }
+    if (pending > 0) return i18n.global.t('publishPage.cancelFailed')
+    return i18n.global.t('publishPage.cancelledCount', { count: cancelled })
+  }
+
+
   async function retryPublish () {
     if (!result.value || result.value.success) {
-      ElMessage.info('当前没有失败的发布任务')
+      ElMessage.info(i18n.global.t('publishPage.noFailedPublish'))
       return
     }
     return handlePublish()

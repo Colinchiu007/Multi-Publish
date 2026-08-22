@@ -15,6 +15,7 @@ const fs = require('fs')
 const os = require('os')
 const crypto = require('crypto')
 
+const http = require('http')
 const log = require('./logger')
 
 /**
@@ -27,6 +28,26 @@ const log = require('./logger')
  * @param {number} [options.seekTime=0.5] - 截取时间点（秒，0.5 避免纯黑首帧）
  * @returns {Promise<string|null>} 封面图片的临时文件路径，失败返回 null
  */
+
+function buildCoverPage (videoSrc, width, height, quality, seekTime) {
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>'
+    + '<video id="v" muted preload="auto" style="width:' + width + 'px"></video>'
+    + '<canvas id="c"></canvas>'
+    + '<scr' + 'ipt>'
+    + 'var video=document.getElementById("v"),canvas=document.getElementById("c");'
+    + 'var OW=' + width + ',OH=' + height + ',Q=' + quality + ',ST=' + seekTime + ';'
+    + 'function capture(){var vw=video.videoWidth,vh=video.videoHeight;'
+    + 'if(!vw||!vh)return null;var h=OH||Math.round(vw>0?(vh*OW/vw):vh);'
+    + 'canvas.width=OW;canvas.height=h;var ctx=canvas.getContext("2d");'
+    + 'ctx.drawImage(video,0,0,OW,h);return canvas.toDataURL("image/jpeg",Q/100);}'
+    + 'function run(){return new Promise(function(res,rej){'
+    + 'video.addEventListener("loadedmetadata",function(){video.currentTime=Math.min(ST,video.duration*0.1);});'
+    + 'video.addEventListener("seeked",function(){try{res(capture())}catch(e){rej(e.message)}});'
+    + 'video.addEventListener("error",function(){rej("video error")});'
+    + 'video.src=' + JSON.stringify(videoSrc) + ';video.load();});}'
+    + 'window.__cp=run();'
+    + '</scr' + 'ipt></body></html>'
+}
 async function extractVideoCover(videoPath, options = {}) {
   const {
     width = 1280,
@@ -40,7 +61,6 @@ async function extractVideoCover(videoPath, options = {}) {
     return null
   }
 
-  const fileUrl = 'file:///' + videoPath.replace(/\\/g, '/')
   const outputDir = path.join(os.tmpdir(), 'multi-publish-covers')
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true })
@@ -54,6 +74,60 @@ async function extractVideoCover(videoPath, options = {}) {
     log.info('CoverExtractor', 'Cover already exists: ' + outputPath)
     return outputPath
   }
+
+  const server = http.createServer((req, res) => {
+    if (req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end(buildCoverPage('http://127.0.0.1:' + server.address().port + '/video', width, height, quality, seekTime))
+      return
+    }
+    if (req.url === '/video') {
+      let size
+      try {
+        size = fs.statSync(videoPath).size
+      } catch (_) {
+        res.writeHead(404)
+        res.end()
+        return
+      }
+      const range = req.headers.range || ''
+      const match = /^bytes=(\d+)-(\d*)$/.exec(range)
+      if (match) {
+        const start = Number(match[1])
+        const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1
+        if (start > end || start >= size) {
+          res.writeHead(416)
+          res.end()
+          return
+        }
+        res.writeHead(206, {
+          'Content-Type': 'video/mp4',
+          'Accept-Ranges': 'bytes',
+          'Content-Range': 'bytes ' + start + '-' + end + '/' + size,
+          'Content-Length': end - start + 1,
+        })
+        if (req.method === 'HEAD') { res.end(); return }
+        fs.createReadStream(videoPath, { start, end }).pipe(res)
+      } else {
+        res.writeHead(200, {
+          'Content-Type': 'video/mp4',
+          'Accept-Ranges': 'bytes',
+          'Content-Length': size,
+        })
+        if (req.method === 'HEAD') { res.end(); return }
+        fs.createReadStream(videoPath).pipe(res)
+      }
+      return
+    }
+    res.writeHead(404)
+    res.end()
+  })
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const port = server.address().port
 
   let win = null
   try {
@@ -69,30 +143,8 @@ async function extractVideoCover(videoPath, options = {}) {
       },
     })
 
-    const videoSrc = JSON.stringify(fileUrl)
-    const html = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>'
-      + '<video id="v" muted preload="auto" style="width:' + width + 'px"></video>'
-      + '<canvas id="c"></canvas>'
-      + '<scr' + 'ipt>'
-      + 'var video=document.getElementById("v"),canvas=document.getElementById("c");'
-      + 'var OW=' + width + ',OH=' + height + ',Q=' + quality + ',ST=' + seekTime + ';'
-      + 'function capture(){var vw=video.videoWidth,vh=video.videoHeight;'
-      + 'if(!vw||!vh)return null;'
-      + 'var h=OH||Math.round(vw>0?(vh*OW/vw):vh);'
-      + 'canvas.width=OW;canvas.height=h;'
-      + 'var ctx=canvas.getContext("2d");'
-      + 'ctx.drawImage(video,0,0,OW,h);'
-      + 'return canvas.toDataURL("image/jpeg",Q/100);}'
-      + 'function run(){return new Promise(function(res,rej){'
-      + 'video.addEventListener("loadedmetadata",function(){'
-      + 'video.currentTime=Math.min(ST,video.duration*0.1);});'
-      + 'video.addEventListener("seeked",function(){try{res(capture())}catch(e){rej(e.message)}});'
-      + 'video.addEventListener("error",function(){rej("video error")});'
-      + 'video.src=' + videoSrc + ';video.load();});}'
-      + 'window.__cp=run();'
-      + '</scr' + 'ipt></body></html>'
 
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+    await win.loadURL('http://127.0.0.1:' + port + '/')
 
     const dataUrl = await Promise.race([
       win.webContents.executeJavaScript('window.__cp'),
@@ -117,6 +169,10 @@ async function extractVideoCover(videoPath, options = {}) {
     if (win && !win.isDestroyed()) {
       win.destroy()
     }
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections()
+    }
+    await new Promise(resolve => server.close(() => resolve()))
   }
 }
 

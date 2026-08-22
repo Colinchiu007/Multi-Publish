@@ -391,7 +391,7 @@
             <UiButton variant="ghost" size="sm" @click="showTitlePanel = true">{{ t('publishPage.titleReference') }}</UiButton>
           </div>
 
-          <div class="cohere-card cohere-card-static">
+          <div class="cohere-card cohere-card-static publish-action-card" data-testid="publish-action-card">
             <div class="cohere-form cohere-form-gap">
               <div class="cohere-form-label">{{ t('publishPage.publishTarget') }}</div>
               <PublishTargetSelector
@@ -403,20 +403,23 @@
                 @toggle-platform="togglePlatform"
                 @toggle-account="toggleAccount"
               />
-              <div class="cohere-divider"></div>
-              <UiButton variant="secondary" class="side-button-block" @click="saveDraft" :disabled="publishing">{{ t('publishPage.saveDraft') }}</UiButton>
-              <UiButton variant="ghost" size="sm" class="side-button-block" @click="showDraftList = true; loadDrafts()">{{ t('publishPage.drafts') }}</UiButton>
-              <UiButton data-testid="publish-submit" class="side-button-full" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
-                {{ publishing ? t('publishPage.publishing') : t('publishPage.quickPublish') }}
-              </UiButton>
-              <UiButton
-                v-if="activeTaskIds.length > 0 || activeScheduleIds.length > 0"
-                variant="danger"
-                class="side-button-block side-button-block-top"
-                @click="cancelPublish"
-              >
-                {{ t('publishPage.cancelTasks') }}
-              </UiButton>
+              <div class="publish-action-controls" data-testid="publish-action-controls">
+                <div class="cohere-divider"></div>
+                <UiButton variant="secondary" class="side-button-block" @click="saveDraft" :disabled="publishing">{{ t('publishPage.saveDraft') }}</UiButton>
+                <UiButton variant="ghost" size="sm" class="side-button-block" @click="showDraftList = true; loadDrafts()">{{ t('publishPage.drafts') }}</UiButton>
+                <UiButton data-testid="publish-submit" class="side-button-full" :disabled="selectedPlatforms.length === 0 || publishing" @click="handlePublish">
+                  {{ publishing ? t('publishPage.publishing') : t('publishPage.quickPublish') }}
+                </UiButton>
+                <UiButton
+                  v-if="activeTaskIds.length > 0 || activeScheduleIds.length > 0"
+                  data-testid="publish-cancel"
+                  variant="danger"
+                  class="side-button-block side-button-block-top"
+                  @click="cancelPublish"
+                >
+                  {{ t('publishPage.cancelTasks') }}
+                </UiButton>
+              </div>
             </div>
           </div>
           <div v-if="progress.length > 0" class="cohere-card cohere-card-offset" data-testid="publish-progress">
@@ -856,11 +859,23 @@ defineExpose({
 
 <style scoped>
 /* —— 语义化 class（原 inline style 迁移，2026-08-10） —— */
-.publish-header-row { display: flex; align-items: center; gap: var(--space-md); width: 100%; }
+.publish-header-row { display: flex; align-items: center; gap: var(--space-md); width: 100%; flex-wrap: wrap; }
+.publish-header-row .flex-spacer { flex: 1 1 240px; min-width: 0; }
 .batch-mode-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .cohere-content-split { display: flex; gap: var(--space-xl); }
 .batch-articles { display: flex; flex-direction: column; gap: var(--space-md); }
 .cohere-card-static { cursor: default; position: relative; }
+.publish-action-card {
+  align-self: flex-start;
+  width: 100%;
+  box-sizing: border-box;
+  position: sticky;
+  top: 16px;
+  z-index: 2;
+}
+.publish-action-controls {
+  padding-top: 12px;
+}
 .cohere-card-offset { margin-top: 16px; cursor: default; }
 .cohere-form-gap { gap: var(--space-md); }
 .article-card-row { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md); }
@@ -879,7 +894,7 @@ defineExpose({
 .stack-gap { margin-bottom: var(--space-md); }
 .stack-gap-top { margin-top: 12px; }
 .stack-center { text-align: center; }
-.row-actions { display: flex; gap: var(--space-sm); }
+.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
 .row-actions-compact { display: flex; gap: 4px; }
 .progress-title { font-weight: 600; font-size: 14px; margin-bottom: var(--space-sm); }
 .progress-toolbar { display: flex; gap: var(--space-sm); margin-bottom: var(--space-sm); }
@@ -1045,8 +1060,16 @@ defineExpose({
   .cohere-content {
     flex-direction: column;
   }
+
+  .publish-action-card {
+    position: static;
+  }
 }
 @media (max-width: 720px) {
+  .publish-header-row { align-items: flex-start; }
+  .publish-mode-tabs { flex: 1 1 100%; order: 2; }
+  .publish-mode-tabs .publish-mode-tab { flex: 1 1 0; }
+  .batch-mode-toggle { order: 3; }
   .publish-drafts-page { padding: 16px 12px 24px; }
   .publish-drafts-header,
   .publish-draft-card { align-items: flex-start; flex-direction: column; }
