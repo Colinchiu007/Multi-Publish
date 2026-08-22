@@ -104,9 +104,58 @@ const WORD_GOOD_TAIL = new Set(subtitleRules.word_split.good_tail)
 const WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers)
 // v1.2.2：good_tail 路径的块首排除集（仅纯黏着后缀，如 "个|性" 的 性）。
 const WORD_GOOD_TAIL_BLOCKERS = new Set(subtitleRules.word_split.good_tail_blockers || '')
+const CUT_AFTER_LE_ALLOW = new Set(subtitleRules.word_split.cut_after_le_allow || '')
+const WORD_ORACLE_MAX_TOKEN_LENGTH = subtitleRules.word_split.oracle_max_token_length ?? 8
 // v1.2.3：成词保护（兼容字段名 no_cut_bigrams）——项目可以是任意长度短语，
 // 切点不得落在任一短语内部（如 "蒙古"、"江南"、"包税人"）。
 const WORD_NO_CUT_PHRASES = new Set(subtitleRules.word_split.no_cut_bigrams || [])
+
+const CJK_TOKEN = /^[\u3400-\u4dbf\u4e00-\u9fff]{2,}$/u
+const SEGMENTER_CACHE_LIMIT = 256
+let segmentitSegmenter = null
+const SEGMENTER_CACHE = new Map()
+function cloneSpans (spans) {
+  return spans.map(({ start, end }) => ({ start, end }))
+}
+function cacheSpans (text, spans) {
+  const immutable = Object.freeze(spans.map((span) => Object.freeze({ ...span })))
+  if (SEGMENTER_CACHE.size >= SEGMENTER_CACHE_LIMIT) {
+    const oldest = SEGMENTER_CACHE.keys().next().value
+    if (oldest !== undefined) SEGMENTER_CACHE.delete(oldest)
+  }
+  SEGMENTER_CACHE.set(text, immutable)
+  return cloneSpans(immutable)
+}
+function segmenterSpans (text) {
+  if (!text) return []
+  const cached = SEGMENTER_CACHE.get(text)
+  if (cached) return cloneSpans(cached)
+  try {
+    if (!segmentitSegmenter) {
+      const mod = require('segmentit')
+      segmentitSegmenter = new mod.Segment()
+      mod.useDefault(segmentitSegmenter)
+    }
+    const tokens = segmentitSegmenter.doSegment(text)
+    const spans = []
+    let cursor = 0
+    for (const token of tokens || []) {
+      const word = token && token.w ? token.w : ''
+      if (!CJK_TOKEN.test(word) || word.length > WORD_ORACLE_MAX_TOKEN_LENGTH) continue
+      const idx = text.indexOf(word, cursor)
+      if (idx < 0) continue
+      const end = idx + word.length
+      const previousEnd = spans.length ? spans[spans.length - 1].end : 0
+      if (idx < cursor || idx < previousEnd || end <= idx || end > text.length) continue
+      if (text.slice(idx, end) !== word) continue
+      spans.push({ start: idx, end })
+      cursor = end
+    }
+    return cacheSpans(text, spans)
+  } catch {
+    return cacheSpans(text, [])
+  }
+}
 
 // ==================== 默认配置（与 text-segmentation.ts DEFAULT_CONFIG 一致） ====================
 
@@ -138,12 +187,27 @@ const DEFAULT_CONFIG = {
 
 /** 数字字符判定（v1.2.3 小数点豁免）：对齐 Python str.isdigit 的常用子集（Unicode 十进制数字）。 */
 function isDigitChar (c) {
-  return c.length === 1 && /[\p{Nd}]/u.test(c)
+  return typeof c === 'string' && c.length === 1 && /[\p{Nd}]/u.test(c)
 }
 
-/** v1.2.3：当前累积文本以 数字+半角点 结尾（如 "713."）→ 该 "." 是小数点/数字一部分，不是句界。 */
-function isNumberDot (text) {
-  return text.length >= 2 && text[text.length - 1] === '.' && isDigitChar(text[text.length - 2])
+function isAsciiWordChar (c) {
+  return typeof c === 'string' && /^[A-Za-z0-9_]$/.test(c)
+}
+
+function isDecimalToken (text, start, end) {
+  const token = text.slice(start, end)
+  if (!/^[\p{Nd}]+\.[\p{Nd}]+$/u.test(token)) return false
+  return !isAsciiWordChar(text[start - 1]) && !isAsciiWordChar(text[end])
+}
+
+/** 小数点只在完整的数字 token（整数部分和小数部分都非空）内豁免。 */
+function isDecimalPointAt (text, index) {
+  if (index < 0 || index >= text.length || text[index] !== '.') return false
+  let start = index
+  while (start > 0 && (isDigitChar(text[start - 1]) || text[start - 1] === '.')) start -= 1
+  let end = index + 1
+  while (end < text.length && (isDigitChar(text[end]) || text[end] === '.')) end += 1
+  return isDecimalToken(text, start, end)
 }
 
 function firstDefined (...values) {
@@ -400,7 +464,10 @@ function subtitleSplitSentences (text, _config) {
   const out = []
   let cur = ''
   const stack = []
+  let sourceOffset = 0
   for (const ch of text) {
+    const sourceIndex = sourceOffset
+    sourceOffset += ch.length
     cur += ch
     if (isSymmetricQuote(ch) && stack.length && stack[stack.length - 1] === ch) {
       stack.pop()
@@ -409,7 +476,8 @@ function subtitleSplitSentences (text, _config) {
     } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
       stack.pop()
     }
-    if (SENTENCE_BOUNDARY.has(ch) && stack.length === 0 && !isNumberDot(cur)) {
+    if (SENTENCE_BOUNDARY.has(ch) && stack.length === 0
+      && !(ch === '.' && isDecimalPointAt(text, sourceIndex))) {
       out.push(cur)
       cur = ''
     }
@@ -477,7 +545,7 @@ function applyEnumerationShift (text, pos, requireTailMin, config) {
 function findSplitPos (text) {
   for (let i = text.length - 1; i >= 0; i--) {
     if (PRIORITY_PUNCT.has(text[i]) && text[i] !== '、') {
-      if (text[i] === '.' && ((i > 0 && isDigitChar(text[i - 1])) || (i + 1 < text.length && isDigitChar(text[i + 1])))) {
+      if (text[i] === '.' && isDecimalPointAt(text, i)) {
         continue // v1.2.3：数字中的小数点不是切分锚点
       }
       return i + 1
@@ -496,7 +564,7 @@ function findSplitPos (text) {
 function findSplitPosInRange (text, lo, hi) {
   for (let i = hi; i >= lo; i--) {
     if (PRIORITY_PUNCT.has(text[i])) {
-      if (text[i] === '.' && ((i > 0 && isDigitChar(text[i - 1])) || (i + 1 < text.length && isDigitChar(text[i + 1])))) {
+      if (text[i] === '.' && isDecimalPointAt(text, i)) {
         continue // v1.2.3：数字中的小数点不是切分锚点
       }
       return i + 1
@@ -555,6 +623,20 @@ function findProtectedPhraseAtBoundary (text, i) {
   return protectedPhraseSpanAtBoundary(text, i)?.phrase || ''
 }
 
+/** 返回文本开头匹配到的最长显式保护短语；普通分词 token 仅作软提示。 */
+function protectedPhraseStartingAt (text) {
+  let best = null
+  for (const phrase of WORD_NO_CUT_PHRASES) {
+    if (phrase && text.startsWith(phrase) && (!best || phrase.length > best.length)) best = phrase
+  }
+  return best
+}
+
+function isWholeProtectedPhrase (text) {
+  const phrase = protectedPhraseStartingAt(text)
+  return phrase !== null && phrase.length === text.length
+}
+
 /** 将候选切点移到受保护短语外，保证字幕块边界不落在短语内部。 */
 function safeCutPosition (text, i) {
   const span = protectedPhraseSpanAtBoundary(text, i)
@@ -564,16 +646,92 @@ function safeCutPosition (text, i) {
   return i
 }
 
+function isCodePointBoundary (text, i) {
+  if (i <= 0 || i >= text.length) return true
+  const previous = text.charCodeAt(i - 1)
+  const current = text.charCodeAt(i)
+  return !(previous >= 0xd800 && previous <= 0xdbff
+    && current >= 0xdc00 && current <= 0xdfff)
+}
+
+function isDecimalInterior (text, i) {
+  if (i <= 0 || i >= text.length) return false
+  const previous = text[i - 1]
+  const current = text[i]
+  if (!((isDigitChar(previous) && isDigitChar(current))
+    || (isDigitChar(previous) && current === '.')
+    || (previous === '.' && isDigitChar(current)))) return false
+  let start = i
+  while (start > 0 && (isDigitChar(text[start - 1]) || text[start - 1] === '.')) start -= 1
+  let end = i
+  while (end < text.length && (isDigitChar(text[end]) || text[end] === '.')) end += 1
+  return isDecimalToken(text, start, end)
+}
+
+function isLeBoundaryAllowed (text, i) {
+  if (i <= 0 || text[i - 1] !== '了') return true
+  if (CUT_AFTER_LE_ALLOW.has(text[i])) return true
+  const nextPair = text.slice(i, i + 2)
+  if (/^[他她它其这那][给在还就要将被从对是有能会想把]/u.test(nextPair)) return true
+  const before = text.slice(Math.max(0, i - 4), i)
+  return before.endsWith('成了') && !before.endsWith('完成了') && !before.endsWith('做成了')
+}
+
+function isSafeCutPosition (text, i) {
+  if (i <= 0 || i >= text.length) return false
+  if (!isCodePointBoundary(text, i)) return false
+  if (protectedPhraseSpanAtBoundary(text, i)) return false
+  if (!isLeBoundaryAllowed(text, i)) return false
+  if (isDecimalInterior(text, i)) return false
+  return true
+}
+
+function findSafeCutPosition (text, preferred, lo = 1, hi = text.length - 1) {
+  const lower = Math.max(1, lo)
+  const upper = Math.min(text.length - 1, hi)
+  if (lower > upper) return -1
+  const bounded = Math.min(upper, Math.max(lower, preferred))
+  const direct = safeCutPosition(text, bounded)
+  if (direct >= lower && direct <= upper && isSafeCutPosition(text, direct)) return direct
+  for (let distance = 1; distance <= upper - lower; distance += 1) {
+    const candidates = []
+    const right = bounded + distance
+    if (right <= upper) {
+      const safeRight = safeCutPosition(text, right)
+      if (safeRight >= lower && safeRight <= upper && isSafeCutPosition(text, safeRight)) candidates.push(safeRight)
+    }
+    const left = bounded - distance
+    if (left >= lower) {
+      const safeLeft = safeCutPosition(text, left)
+      if (safeLeft >= lower && safeLeft <= upper && isSafeCutPosition(text, safeLeft)) candidates.push(safeLeft)
+    }
+    const soft = candidates.find((candidate) => isSoftWordBoundary(text, candidate))
+    if (soft !== undefined) return soft
+    if (candidates.length) return candidates[0]
+  }
+  return -1
+}
+
+/** 分词器只作为等距候选的软 tie-break，不改变显式短语和字符规则。 */
+function isSoftWordBoundary (text, i) {
+  return segmenterSpans(text).some((span) => span.end === i
+    && span.end - span.start <= WORD_ORACLE_MAX_TOKEN_LENGTH)
+}
+
 /** 词边界好切点：切点后为连词/介词（块首引导），或切点前为助词/副词/句内标点（块尾收束）。 */
 function isGoodCut (text, i) {
-  if (i >= text.length) return false
+  if (i <= 0 || i >= text.length) return false
+  if (!isLeBoundaryAllowed(text, i)) return false
   // v1.2.3：切点落在任意长度成词短语内部一律不是好切点。
   if (protectedPhraseSpanAtBoundary(text, i)) return false
+  if (!isSafeCutPosition(text, i)) return false
   if (isSemanticLeadAt(text, i)) return true
   if (WORD_GOOD_LEAD.has(text[i])) return true
   // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
   // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
-  return i > 0 && WORD_GOOD_TAIL.has(text[i - 1]) && !WORD_GOOD_TAIL_BLOCKERS.has(text[i])
+  return i > 0 && WORD_GOOD_TAIL.has(text[i - 1])
+    && !WORD_GOOD_TAIL_BLOCKERS.has(text[i])
+    && isSafeCutPosition(text, i)
 }
 
 /** 语义引导字必须满足自身的词组后续约束（如“提”只在“提前”中生效）。 */
@@ -622,6 +780,7 @@ function wordSafeSplit (text, lo, hi, minHead, tailMin) {
     if (i < text.length
       && !WORD_BAD_FOLLOWERS.has(text[i])
       && (i === 0 || !isDigitChar(text[i - 1]))
+      && isSafeCutPosition(text, i)
       && !protectedPhraseSpanAtBoundary(text, i)) {
       return i
     }
@@ -635,7 +794,10 @@ function subtitleLengthSplit (text, config) {
   let cur = ''
   const stack = []
   let lastHardCut = false
+  let sourceOffset = 0
   for (const ch of text) {
+    const sourceIndex = sourceOffset
+    sourceOffset += ch.length
     cur += ch
     if (isSymmetricQuote(ch) && stack.length && stack[stack.length - 1] === ch) {
       stack.pop()
@@ -645,15 +807,52 @@ function subtitleLengthSplit (text, config) {
       stack.pop()
     }
     const isPunct = PRIORITY_PUNCT.has(ch) || ch === ' ' || ch === '\n' || ch === '\u3000'
-    // v1.2.3：数字中的小数点（如 713.3）不是切分标点
-    if (isPunct && cur.length >= config.minCharsPerBlock
-      && !(ch === '.' && cur.length >= 2 && isDigitChar(cur[cur.length - 2]))) {
+    const phraseAtStart = protectedPhraseStartingAt(cur)
+    if (stack.length === 0 && phraseAtStart === cur && cur.length > config.maxCharsPerBlock) {
+      // 显式短语是原子单元，允许它单独超过 max；后续字符从新块开始累积。
       blocks.push(cur)
       cur = ''
       lastHardCut = false
+      continue
+    }
+    // v1.2.3：数字中的小数点（如 713.3）不是切分标点
+    if (isPunct && cur.length >= config.minCharsPerBlock
+      && !(ch === '.' && isDecimalPointAt(text, sourceIndex))) {
+      blocks.push(cur)
+      cur = ''
+      lastHardCut = false
+    } else if (cur.length === config.maxCharsPerBlock
+      && stack.length === 0 && cur.endsWith('了')) {
+      const deferredPos = wordSafeSplit(
+        cur,
+        1,
+        cur.length - 1,
+        config.minCharsPerBlock,
+        config.minCharsPerBlock,
+      )
+      if (deferredPos > 0
+        && (isSemanticLeadAt(cur, deferredPos) || WORD_GOOD_LEAD.has(cur[deferredPos]))) {
+        blocks.push(cur.slice(0, deferredPos))
+        cur = cur.slice(deferredPos)
+        lastHardCut = false
+      } else {
+        continue
+      }
+    } else if (cur.length >= config.maxCharsPerBlock + 1
+      && stack.length === 0
+      && cur[config.maxCharsPerBlock - 1] === '了') {
+      if (isLeBoundaryAllowed(cur, config.maxCharsPerBlock)) {
+        blocks.push(cur.slice(0, config.maxCharsPerBlock))
+        cur = cur.slice(config.maxCharsPerBlock)
+        lastHardCut = false
+      } else {
+        continue
+      }
     } else if (cur.length >= config.maxCharsPerBlock && stack.length === 0) {
-      let pos = applyEnumerationShift(cur, findSplitPos(cur), false, config)
-      pos = safeCutPosition(cur, pos)
+      const requestedPos = applyEnumerationShift(cur, findSplitPos(cur), false, config)
+      const pos = requestedPos > 0
+        ? findSafeCutPosition(cur, requestedPos, 1, Math.min(config.maxCharsPerBlock, cur.length - 1))
+        : -1
       if (pos > 0) {
         blocks.push(cur.slice(0, pos))
         cur = cur.slice(pos)
@@ -667,10 +866,16 @@ function subtitleLengthSplit (text, config) {
           config.minCharsPerBlock,
           config.minCharsPerBlock,
         )
-        const hardPos = safeCutPosition(cur, ws > 0 ? ws : cur.length)
-        if (hardPos <= 0) continue
-        blocks.push(cur.slice(0, hardPos))
-        cur = cur.slice(hardPos)
+        const hardPos = findSafeCutPosition(
+          cur,
+          ws > 0 ? ws : Math.min(config.maxCharsPerBlock, cur.length - 1),
+          1,
+          Math.min(config.maxCharsPerBlock, cur.length - 1),
+        )
+        const forcedPos = hardPos > 0 ? hardPos : -1
+        if (forcedPos <= 0) continue
+        blocks.push(cur.slice(0, forcedPos))
+        cur = cur.slice(forcedPos)
         lastHardCut = true
       }
     } else if (cur.length >= config.maxCharsPerBlock * 2 && stack.length > 0) {
@@ -691,11 +896,15 @@ function subtitleLengthSplit (text, config) {
       const lo = Math.max(1, prev.length - need)
       const hi = prev.length - 1
       let pos = findSplitPosInRange(prev, lo, hi)
+      pos = pos > 0 ? findSafeCutPosition(prev, pos, 1, Math.min(lo, prev.length - 1)) : -1
       if (pos <= 0) {
         // v1.2.2 词边界感知让字：区间内无标点时，向 lo 左侧找不劈词的好切点
         // （避免把 "…从文化认|同滑向…" 的 "同" 硬让出劈开 "文化认同"）。
         const ws = wordSafeSplit(prev, 1, lo, 1)
-        pos = ws > 0 ? ws : lo
+        pos = ws > 0 ? findSafeCutPosition(prev, ws, 1, Math.min(lo, prev.length - 1)) : -1
+      }
+      if (pos <= 0) {
+        pos = Math.min(lo, prev.length - 1)
       }
       blocks[blocks.length - 1] = prev.slice(0, pos)
       cur = prev.slice(pos) + cur
@@ -792,32 +1001,60 @@ function subtitleEnforceMax (blocks, config) {
   const out = []
   for (let b of blocks) {
     while (b.length > config.maxCharsPerBlock) {
-      let requestedPos = applyEnumerationShift(b, findSplitPos(b), true, config)
-      let pos = safeCutPosition(b, requestedPos)
-      const isWholeProtectedPhrase = [...WORD_NO_CUT_PHRASES]
-        .some((phrase) => phrase && phrase === b)
-      if (isWholeProtectedPhrase) {
+      const phraseAtStart = protectedPhraseStartingAt(b)
+      if (phraseAtStart && phraseAtStart.length > config.maxCharsPerBlock) {
+        // 显式保护短语是原子单元，允许它单独超过 max；后续文本继续处理。
+        out.push(phraseAtStart)
+        b = b.slice(phraseAtStart.length)
+        continue
+      }
+      const requestedPos = applyEnumerationShift(b, findSplitPos(b), true, config)
+      let pos = requestedPos > 0
+        ? findSafeCutPosition(b, requestedPos, 1, Math.min(config.maxCharsPerBlock, b.length - 1))
+        : -1
+      const wholeProtected = isWholeProtectedPhrase(b)
+      if (wholeProtected) {
         // 保护短语本身可能比 maxChars 更长；完整短语优先于违反长度上限。
         out.push(b)
         b = ''
         break
       }
-      if (pos <= 0 || pos >= b.length) pos = config.maxCharsPerBlock
-      // 固定长度兜底后再次检查，避免兜底切点落回受保护短语内部。
-      pos = safeCutPosition(b, pos)
-      if (pos <= 0 || pos >= b.length) pos = Math.min(config.maxCharsPerBlock, b.length - 1)
+      if (pos <= 0 || pos >= b.length) {
+        const fixedPos = Math.min(config.maxCharsPerBlock, b.length - 1)
+        pos = findSafeCutPosition(b, fixedPos, 1, fixedPos)
+        if (pos <= 0 || pos >= b.length) {
+          // 当前长度区间没有合法边界时，允许整块超长，避免绕过显式/语义保护裸切。
+          pos = findSafeCutPosition(b, fixedPos, 1, b.length - 1)
+          if (pos <= 0 || pos >= b.length) {
+            out.push(b)
+            b = ''
+            break
+          }
+        }
+      }
       if (b.length - pos < config.minCharsPerBlock) {
         const minPos = Math.max(1, b.length - config.minCharsPerBlock)
-        const hi = b.length - 1
+        const hi = Math.min(b.length - 1, config.maxCharsPerBlock)
+        const boundedMinPos = Math.min(minPos, hi)
         const ws = wordSafeSplit(b, minPos, hi, minPos, config.minCharsPerBlock)
         if (ws > 0 && ws < b.length) {
-          pos = safeCutPosition(b, ws)
+          pos = findSafeCutPosition(b, ws, boundedMinPos, hi)
         } else {
           // 越界修复：balanced == len(b)（尾字符恰为标点时 i+1 越界）视为无效
           const balanced = findSplitPosInRange(b, minPos, hi)
-          pos = balanced > 0 && balanced < b.length ? balanced : minPos
-          pos = safeCutPosition(b, pos)
+          pos = balanced > 0 && balanced < b.length
+            ? findSafeCutPosition(b, balanced, boundedMinPos, hi)
+            : -1
+          const balancedPos = pos > 0 && pos < b.length
+            ? pos
+            : findSafeCutPosition(b, boundedMinPos, boundedMinPos, hi)
+          if (balancedPos > 0 && balancedPos < b.length) pos = balancedPos
         }
+      }
+      if (pos <= 0 || pos >= b.length) {
+        out.push(b)
+        b = ''
+        break
       }
       out.push(b.slice(0, pos))
       b = b.slice(pos)

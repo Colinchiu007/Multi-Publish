@@ -14,14 +14,8 @@
     "build": "tsc",
     "test": "vitest run"
   },
-  "dependencies": {},
-  "peerDependencies": {
+  "dependencies": {
     "segmentit": "^2.0.3"
-  },
-  "peerDependenciesMeta": {
-    "segmentit": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "typescript": "^5.5.0"
