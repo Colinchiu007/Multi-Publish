@@ -871,6 +871,35 @@
           "reason": "语义/标点边界短块：王师早晚日边来"
         }
       ]
+    },
+    {
+      "id": "user_adverb_semantic_lead",
+      "input": "底层农民的实际负担依然重得吓人。这举动说明老朱的态度已经变软了。换前几年早开杀戒了。",
+      "config": {
+        "min_chars_per_block": 8,
+        "max_chars_per_block": 15,
+        "time_calculation_method": "proportional"
+      },
+      "expected_blocks": [
+        "底层农民的实际负担",
+        "依然重得吓人",
+        "这举动说明老朱的态度",
+        "已经变软了",
+        "换前几年早开杀戒了"
+      ],
+      "note": "已经/依然 语义引导词优先切分：保留完整名词短语，副词开短尾经 short_block_exceptions 声明。",
+      "short_block_exceptions": [
+        {
+          "index": 1,
+          "len": 6,
+          "reason": "语义引导短尾：依然重得吓人"
+        },
+        {
+          "index": 3,
+          "len": 5,
+          "reason": "语义引导短尾：已经变软了"
+        }
+      ]
     }
   ]
 }
