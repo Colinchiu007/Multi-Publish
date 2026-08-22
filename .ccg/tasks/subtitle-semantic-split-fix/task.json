@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "desktop-videogen",
   "currentPhase": "review",
-  "nextAction": "提交并合并 Multi-Publish 与 sidecar 修复，完成归档",
+  "nextAction": "推送两个 feature 分支，创建并合并 PR，随后归档 OpenSpec 与 CCG task",
   "createdAt": "2026-08-22T15:22:00+08:00",
   "branch": "codex/subtitle-semantic-split-fix",
   "openspecChange": "subtitle-semantic-split-fix",

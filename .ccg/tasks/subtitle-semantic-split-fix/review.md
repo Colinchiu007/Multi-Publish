@@ -2,9 +2,10 @@
 
 ## 变更
 
-- `word_split.good_lead` 三端同步增加 `成`。
-- `wordSafeSplit` / `_word_safe_split` 先选择后块引导字切点，再回退到普通尾部收束切点。
-- 用户样例向量和 Electron 精确断言锁定 6 块语义输出。
+- `word_split.good_lead` 三端同步增加 `成`，并新增受约束的 `semantic_lead`（`提/还/把/绝`）。
+- `wordSafeSplit` / `_word_safe_split` 先选择后块语义引导字切点，再回退到普通尾部收束切点。
+- `mergeShort` 与硬切尾块平衡跳过语义引导后块，避免“提前谈妥了”“还搞屠城”等完整短语被回吸。
+- 用户样例向量和 Electron 精确断言锁定 6 块语义输出，并补充完整用户文案向量。
 
 ## 审查结论
 
@@ -15,7 +16,11 @@
 
 ## 本地检查
 
-- TS story2video-engine：154 passed。
-- Electron 字幕向量、合同、parity：131 passed。
-- sidecar Python 字幕向量与专项测试：152 passed。
-- 用户新文案：Electron 与 Python 均输出 38 块，拼接字符数均为 348。
+- TS story2video-engine：157 passed。
+- Electron 字幕合同、向量、parity：134 passed（使用 `apps/desktop/vitest.config.js`；首次未带配置的裸调用产生 `describe is not defined`，未计入算法结果）。
+- sidecar Python 字幕向量、场景字幕与导出器：168 passed（仅既存 `jieba/pkg_resources` 警告）。
+- 完整用户文案已真实调用 Electron JS 与 Python sidecar 入口，均输出 39 块；机器比较逐块相等，拼接后的非换行字符完整覆盖。
+- TypeScript `tsc --noEmit`、Electron `node --check`、`git diff --check`、`node scripts/verify-worktree-deps.js` 均通过。
+- OpenSpec：`openspec validate subtitle-semantic-split-fix --strict` 通过。
+- QM-1：`pnpm exec electron-builder --win --dir --publish never` 退出码 0；asar 清单包含 Electron 分句镜像和共享规则，构建生成的 preload bundle 已精确恢复。
+- 外部审查：Claude wrapper 退出码 1；opencode wrapper 未返回可用报告，按仓库降级流程执行本地逐项审查。
