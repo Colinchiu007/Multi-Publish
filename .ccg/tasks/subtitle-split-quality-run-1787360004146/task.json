@@ -10,6 +10,6 @@
   "createdAt": "2026-08-22T09:42:00+08:00",
   "branch": "codex/subtitle-split-quality-run-1787360004146",
   "openspecChange": "subtitle-split-quality",
-  "remoteStatus": "branch-created-from-origin-main; no PR yet",
+  "remoteStatus": "PR #1096 (Multi-Publish) + #19 (smart-sentence-splitter) created; waiting CI/merge",
   "targetRunId": "run_1787360004146_izko"
 }
