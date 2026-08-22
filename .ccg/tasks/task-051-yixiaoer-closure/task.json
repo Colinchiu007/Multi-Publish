@@ -11,5 +11,5 @@
   "branch": "codex/yixiaoer-ue-parity-v2",
   "worktree": "D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2",
   "openspecChange": "task-051-yixiaoer-closure",
-  "remoteStatus": "2026-08-23 已 push origin/codex/yixiaoer-ue-parity-v2（93bed459c）；已创建 PR #1116（https://github.com/Colinchiu007/Multi-Publish/pull/1116）；待审查合并，快手最终发布待用户确认"
+  "remoteStatus": "2026-08-23 已 push origin/codex/yixiaoer-ue-parity-v2（93bed459c→dc3b2f2c8→9635c32d9，已合并 origin/main 解决 PR 冲突）；PR #1116 MERGEABLE，CI 检查排队/运行中，尚未合并；快手最终发布待用户确认"
 }
