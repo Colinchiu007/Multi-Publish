@@ -38,15 +38,40 @@ describe("V1.1 Platform Verification - Cross-platform Consistency", () => {
     });
   }
 
-  // No empty selector arrays
+  // Only documented optional controls may be empty. Baijiahao video V2 has no
+  // independent tag input; all other configured controls are required.
   for (const p of EXPECTED) {
-    test(p + " no empty arrays", () => {
-      for (const [, v] of Object.entries(selectors.PLATFORM_PUBLISH_SELECTORS[p])) {
+    test(p + " has no unexpected empty selector arrays", () => {
+      const allowedEmptyFields = p === "baijiahao" ? new Set(["tag_input"]) : new Set();
+      for (const [field, v] of Object.entries(selectors.PLATFORM_PUBLISH_SELECTORS[p])) {
         expect(Array.isArray(v)).toBe(true);
+        if (allowedEmptyFields.has(field)) {
+          expect(v).toEqual([]);
+          continue;
+        }
         expect(v.length).toBeGreaterThan(0);
+        expect(v.every((selector) => typeof selector === "string" && selector.length > 0)).toBe(true);
       }
     });
   }
+
+  test("baijiahao V2 selector contract", () => {
+    const sel = selectors.PLATFORM_PUBLISH_SELECTORS.baijiahao;
+    expect(sel.tag_input).toEqual([]);
+    for (const field of [
+      "write_btn",
+      "file_input",
+      "editor",
+      "desc_textarea",
+      "cover_input",
+      "cover_trigger",
+      "publish_btn",
+    ]) {
+      expect(Array.isArray(sel[field])).toBe(true);
+      expect(sel[field].length).toBeGreaterThan(0);
+      expect(sel[field].every((value) => typeof value === "string" && value.length > 0)).toBe(true);
+    }
+  });
 
   // All selectors are strings
   test("all selectors are non-empty strings", () => {

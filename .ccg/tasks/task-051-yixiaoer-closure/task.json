@@ -1,0 +1,15 @@
+{
+  "id": "task-051-yixiaoer-closure",
+  "title": "接手 task-051：快手真实发布验收与蚁小二 UE 收口",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "high",
+  "domain": "frontend-electron-rpa-release-validation",
+  "currentPhase": "review",
+  "nextAction": "等待用户明确确认后执行快手最终发布；随后推送分支并创建 PR",
+  "createdAt": "2026-08-22T10:20:00+08:00",
+  "branch": "codex/yixiaoer-ue-parity-v2",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-v2",
+  "openspecChange": "task-051-yixiaoer-closure",
+  "remoteStatus": "2026-08-22 git fetch origin --prune 与 git ls-remote 成功；origin/codex/yixiaoer-ue-parity-v2 存在且仍指向 182429975，当前 worktree 领先远端且尚未 push；未创建 PR"
+}
