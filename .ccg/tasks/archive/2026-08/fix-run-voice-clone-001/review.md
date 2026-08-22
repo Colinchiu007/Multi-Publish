@@ -37,4 +37,4 @@
 
 - `serviceBus._assetGenerator` 注入形式未单独覆盖。
 - provider 返回 `{ success: false }` 而非抛异常时不触发重克隆，需按既有 provider 合同确认是否补场景。
-- 组合完整流水线（split→compose→ffmpeg 解码）未在本机复跑；本次 E2E 覆盖到真实 StageExecutor 调度层。
+- 组合完整流水线已在本机复跑并通过：真实 split→scene_context→optimize→select_video_scenes→generate_assets→compose→publish，ffmpeg 解码成功；publish 未启用平台时按 skipped 收尾。
