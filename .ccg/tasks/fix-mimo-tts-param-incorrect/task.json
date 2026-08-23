@@ -1,0 +1,15 @@
+{
+  "id": "fix-mimo-tts-param-incorrect",
+  "title": "修复 MiMo TTS 默认音色导致流水线语音生成 Param Incorrect",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop/provider-contract",
+  "currentPhase": "review",
+  "nextAction": "完成本地审查后提交、推送并创建 PR",
+  "createdAt": "2026-08-23T18:00:00+08:00",
+  "branch": "codex/fix-mimo-tts-param-incorrect",
+  "openspecChange": "fix-mimo-tts-param-incorrect",
+  "rootCause": "MiMo TTS 适配器把未选择音色的空配置归一为 audio.voice=default；MiMo 普通 TTS 官方内置默认音色为 mimo_default，API 因非法 voice 返回 Param Incorrect。",
+  "reportedRun": "run_1787475502069_9888"
+}

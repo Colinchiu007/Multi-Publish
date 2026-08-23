@@ -33,7 +33,7 @@ const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider
 const DEFAULT_BASE_URL = 'https://api.xiaomimimo.com/v1'
 const DEFAULT_TIMEOUT = 60000
 const DEFAULT_MODEL = 'mimo-v2.5-tts'
-const DEFAULT_VOICE = 'default'
+const DEFAULT_VOICE = 'mimo_default'
 const DEFAULT_OUTPUT_FORMAT = 'wav'
 
 // 静态预定义 MiMo TTS 模型列表
@@ -122,7 +122,7 @@ class MimoTtsAdapter extends BaseAdapter {
    * @param {object} params
    * @param {string} params.text - 要合成的文本（必填）
    * @param {string} [params.model='mimo-v2.5-tts'] - TTS 模型 ID
-   * @param {string} [params.voice='default'] - 声音 ID
+   * @param {string} [params.voice='mimo_default'] - 声音 ID
    * @param {string} [params.outputFormat='wav'] - 输出格式（wav/mp3/flac）
    * @param {number} [params.speed] - 速度（无法直接映射，忽略）
    * @param {number} [params.pitch] - 音调（无法直接映射，忽略）
