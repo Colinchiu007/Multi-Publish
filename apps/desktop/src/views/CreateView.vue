@@ -26,6 +26,8 @@
       <button :class="['view-tab', { active: view === 'history' }]" @click="switchView('history')">历史记录</button>
     </div>
 
+    <div v-if="s2vOptionsToast" class="s2v-options-toast" role="status" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</div>
+
     <!-- ==================== 流水线启动页（流水线创作） ==================== -->
     <div v-if="view === 'pipelines'" class="view-pane">
       <!-- 流水线列表 -->
@@ -47,56 +49,6 @@
           <h2>{{ pipelineName(selectedPipeline.name) }}</h2>
           <p class="detail-desc">{{ pipelineDescription(selectedPipeline.name) }}</p>
           <p v-if="pipelineMode(selectedPipeline.name)" class="detail-mode" data-testid="pipeline-mode-label">{{ pipelineMode(selectedPipeline.name) }}</p>
-        </div>
-
-        <!-- 阶段进度 -->
-        <StageProgress
-          v-if="pipelineRunStatus && (pipelineRunStatus.stages || orchestrationStages).length"
-          :stages="pipelineRunStatus.stages || orchestrationStages"
-          :progress-percent="orchestrationProgressPercent"
-          :elapsed-ms="orchestrationElapsedMs"
-          :summary="orchestrationSummary"
-          :show-time-guidance="isOrchestratedPipeline(selectedPipeline?.name)"
-          :orchestration-context="orchestrationContext"
-          :checkpoint="pipelineRunStatus?.checkpoint || null"
-        />
-
-        <!-- 分镜素材自选：检查点激活 → 引导横幅 + 就近素材选择面板（等待态 UX 2026-08-13） -->
-        <template v-if="sceneAssetSelectionActive">
-          <div class="s2v-selection-banner" role="status" data-testid="s2v-selection-banner">
-            <span class="s2v-selection-banner-text">
-              {{ translateWithLocaleFallback('create.story2video.selectionWait.banner', '分镜素材已生成，请为每个分镜选择最终素材。', 'Storyboard assets are ready — pick the final material for each scene.', { count: sceneAssetCandidates.length }) }}
-            </span>
-            <UiButton class="s2v-selection-banner-cta" data-testid="s2v-selection-go" @click="scrollToSceneAssetPanel">
-              {{ translateWithLocaleFallback('create.story2video.selectionWait.goSelect', '去选择素材', 'Select assets') }}
-            </UiButton>
-          </div>
-          <div
-            ref="sceneAssetPanel"
-            class="s2v-scene-asset-panel"
-            :class="{ 's2v-scene-asset-panel-attention': sceneAssetAttention }"
-            data-testid="s2v-scene-asset-panel"
-          >
-            <SceneAssetSelection
-              :run-id="orchestrationRunId"
-              :candidates="sceneAssetCandidates"
-              :confirming="sceneAssetConfirming"
-              :error="sceneAssetSelectionError"
-              @confirm="confirmSceneAssetSelections"
-            />
-          </div>
-        </template>
-
-        <!-- 模型服务异常提示（非阻塞，可关闭） -->
-        <div v-if="providerWarningText" class="provider-warning-banner" role="alert" data-testid="story2video-provider-warning-banner">
-          ⚠️ {{ providerWarningText }}
-          <button class="provider-warning-banner-close" data-testid="dismiss-provider-warning" @click="dismissProviderWarnings" :aria-label="translateWithLocaleFallback('common.close', '关闭', 'Close')">✕</button>
-        </div>
-
-        <!-- BGM 被跳过提示（非阻塞，可关闭） -->
-        <div v-if="story2videoBgmSkippedNotice" class="bgm-skipped-notice" role="alert" data-testid="story2video-bgm-skipped-notice">
-          🎵 {{ story2videoBgmSkippedNotice }}
-          <button class="bgm-skipped-notice-close" data-testid="dismiss-bgm-skipped-notice" @click="dismissBgmSkippedNotice" :aria-label="translateWithLocaleFallback('common.close', '关闭', 'Close')">✕</button>
         </div>
 
         <!-- 输入区域 -->
@@ -873,7 +825,6 @@
 
         <!-- 执行控制 -->
         <div class="action-bar" data-testid="pipeline-action-bar">
-          <span v-if="s2vOptionsToast" class="s2v-options-toast" role="status" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</span>
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
             <UiButton class="btn-start" data-testid="start-story2video" @click="handleStartPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
@@ -897,7 +848,7 @@
           <div v-else class="running-controls">
             <template v-if="orchestrationRunId">
               <p v-if="pipelineRunStatus?.checkpoint?.reason === 'content_policy'" class="orchestration-attention">
-                {{ pipelineRunStatus.checkpoint.recommendation || '图片内容需要处理；取消后修改文案并重新启动流水线。' }}
+                {{ pipelineRunStatus.checkpoint.recommendation || translateWithLocaleFallback('create.story2video.contentPolicyAttention', '图片内容需要处理；取消后修改文案并重新启动流水线。', 'Some image content needs attention. Cancel, update the text, and start the pipeline again.') }}
               </p>
               <p v-else-if="sceneAssetSelectionActive" class="orchestration-waiting" data-testid="s2v-selection-waiting-text">
                 {{ translateWithLocaleFallback('create.story2video.selectionWait.controlText', '⏳ 等待您选择分镜素材，确认后将生成旁白并合成视频。', 'Awaiting your asset selection — narration and compositing will start after you confirm.') }}
@@ -915,13 +866,9 @@
             <template v-else>
               <UiButton v-if="pipelineRunStatus.status === 'paused'" @click="resumePipeline">▶ {{ translateWithLocaleFallback('create.story2video.resume', 'Resume', 'Resume') }}</UiButton>
               <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</UiButton>
-              <UiButton v-if="needsCheckpoint" @click="advancePipeline">✅ 确认并继续</UiButton>
+              <UiButton v-if="needsCheckpoint" @click="advancePipeline">{{ translateWithLocaleFallback('create.story2video.confirmAndContinue', '确认并继续', 'Confirm and continue') }}</UiButton>
             </template>
             <UiButton variant="danger" data-testid="s2v-cancel-trigger" @click="requestCancelPipeline">✕ 取消</UiButton>
-          </div>
-          <div v-if="!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress !== undefined" class="progress-inline">
-            <div class="progress-bar"><div class="progress-fill" :style="{ width: pipelineRunStatus.progress + '%' }"></div></div>
-            <span class="progress-text">{{ pipelineRunStatus.progress }}%</span>
           </div>
         </div>
       </div>
@@ -987,6 +934,107 @@
         @delete-history="requestHistoryDeletion"
       />
     </div>
+
+    <UiModal
+      :visible="pipelineProgressModalOpen"
+      :title="pipelineProgressModalTitle"
+      size="xl"
+      width="960px"
+      variant="progress"
+      test-id="s2v-progress-modal"
+      :close-on-overlay="false"
+      :close-on-esc="false"
+      :close-disabled="pipelineProgressCloseDisabled"
+      :close-aria-label="pipelineProgressCloseLabel"
+      @close="detachPipelineToBackground"
+    >
+      <div class="pipeline-progress-modal-content" data-testid="pipeline-progress-modal-content">
+        <StageProgress
+          v-if="pipelineProgressStages.length"
+          :stages="pipelineProgressStages"
+          :progress-percent="orchestrationProgressPercent"
+          :elapsed-ms="orchestrationElapsedMs"
+          :summary="orchestrationSummary"
+          :show-time-guidance="isOrchestratedPipeline(selectedPipeline?.name)"
+          :orchestration-context="orchestrationContext"
+          :checkpoint="pipelineRunStatus?.checkpoint || null"
+        />
+        <div
+          v-if="!isOrchestratedPipeline(selectedPipeline?.name) && pipelineProgressStages.length === 0 && pipelineRunStatus && pipelineRunStatus.progress !== undefined"
+          class="pipeline-progress-basic"
+          data-testid="pipeline-progress-basic"
+        >
+          <div class="pipeline-progress-basic-track">
+            <div class="pipeline-progress-basic-fill" :style="{ width: Math.max(0, Math.min(100, Number(pipelineRunStatus.progress) || 0)) + '%' }"></div>
+          </div>
+          <span>{{ Number.isFinite(Number(pipelineRunStatus.progress)) ? Math.round(Number(pipelineRunStatus.progress)) : 0 }}%</span>
+        </div>
+
+        <template v-if="sceneAssetSelectionActive">
+          <div class="s2v-selection-banner" role="status" data-testid="s2v-selection-banner">
+            <span class="s2v-selection-banner-text">
+              {{ translateWithLocaleFallback('create.story2video.selectionWait.banner', '分镜素材已生成，请为每个分镜选择最终素材。', 'Storyboard assets are ready — pick the final material for each scene.', { count: sceneAssetCandidates.length }) }}
+            </span>
+            <UiButton class="s2v-selection-banner-cta" data-testid="s2v-selection-go" @click="scrollToSceneAssetPanel">
+              {{ translateWithLocaleFallback('create.story2video.selectionWait.goSelect', '去选择素材', 'Select assets') }}
+            </UiButton>
+          </div>
+          <div
+            ref="sceneAssetPanel"
+            class="s2v-scene-asset-panel"
+            :class="{ 's2v-scene-asset-panel-attention': sceneAssetAttention }"
+            data-testid="s2v-scene-asset-panel"
+          >
+            <SceneAssetSelection
+              :run-id="orchestrationRunId"
+              :candidates="sceneAssetCandidates"
+              :confirming="sceneAssetConfirming"
+              :error="sceneAssetSelectionError"
+              @confirm="confirmSceneAssetSelections"
+            />
+          </div>
+        </template>
+
+        <div v-if="pipelineProgressCheckpointText" class="pipeline-progress-checkpoint" role="status" data-testid="pipeline-progress-checkpoint">
+          {{ pipelineProgressCheckpointText }}
+        </div>
+
+        <div v-if="pipelineProgressStatusError" class="pipeline-progress-status-error" role="status" data-testid="pipeline-progress-status-error">
+          {{ pipelineProgressStatusError }}
+        </div>
+
+        <div v-if="providerWarningText" class="provider-warning-banner" role="alert" data-testid="story2video-provider-warning-banner">
+          ⚠️ {{ providerWarningText }}
+          <button class="provider-warning-banner-close" data-testid="dismiss-provider-warning" @click="dismissProviderWarnings" :aria-label="translateWithLocaleFallback('common.close', '关闭', 'Close')">✕</button>
+        </div>
+
+        <div v-if="story2videoBgmSkippedNotice" class="bgm-skipped-notice" role="alert" data-testid="story2video-bgm-skipped-notice">
+          🎵 {{ story2videoBgmSkippedNotice }}
+          <button class="bgm-skipped-notice-close" data-testid="dismiss-bgm-skipped-notice" @click="dismissBgmSkippedNotice" :aria-label="translateWithLocaleFallback('common.close', '关闭', 'Close')">✕</button>
+        </div>
+
+        <div
+          v-if="!pipelineProgressStages.length && !pipelineProgressHasNumericPercent"
+          class="pipeline-progress-empty"
+          role="status"
+          data-testid="pipeline-progress-empty"
+        >
+          {{ pipelineProgressLoadingText }}
+        </div>
+      </div>
+
+      <template #footer>
+        <span v-if="pipelineProgressCloseDisabled" class="pipeline-progress-manual-hint" data-testid="pipeline-progress-manual-hint">{{ pipelineProgressManualHint }}</span>
+        <UiButton
+          v-if="canDetachPipelineToBackground"
+          variant="secondary"
+          data-testid="s2v-background-trigger"
+          @click="detachPipelineToBackground"
+        >
+          {{ translateWithLocaleFallback('create.story2video.backgroundRun', '后台运行', 'Run in background') }}
+        </UiButton>
+      </template>
+    </UiModal>
 
     <UiModal
       :visible="story2videoErrorDialog.visible"
@@ -1379,6 +1427,221 @@ const STORY2VIDEO_OUTPUT_ASPECT_RATIOS = Object.freeze({
 // 已实现真实执行引擎的流水线（与 pipeline-engine 注册表 available 字段保持一致；此处为前端兜底）
 const IMPLEMENTED_PIPELINES = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
 
+const PIPELINE_TERMINAL_STATUSES = Object.freeze(['idle', 'completed', 'failed', 'cancelled'])
+const PIPELINE_END_STATUSES = Object.freeze(['completed', 'failed', 'cancelled'])
+const PIPELINE_RUN_STATUSES = Object.freeze(['idle', 'pending', 'running', 'paused', 'waiting_approval', 'needs_user_input', 'completed', 'failed', 'cancelled'])
+const PIPELINE_STAGE_STATUSES = Object.freeze(['pending', 'running', 'completed', 'skipped', 'failed', 'cancelled', 'paused', 'waiting_approval', 'needs_user_input'])
+
+function normalizeProgressPercent(value, fallback = null) {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.max(0, Math.min(100, Math.round(numeric)))
+}
+
+function normalizePipelineStage(stage) {
+  if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return null
+  const name = typeof stage.name === 'string' && stage.name.trim()
+    ? stage.name.trim()
+    : (typeof stage.stage === 'string' && stage.stage.trim() ? stage.stage.trim() : '')
+  if (!name) return null
+  if (typeof stage.status !== 'string' || !PIPELINE_STAGE_STATUSES.includes(stage.status)) return null
+  const status = stage.status
+  const progress = stage.progress && typeof stage.progress === 'object' && !Array.isArray(stage.progress)
+    ? { ...stage.progress }
+    : null
+  if (progress) {
+    const percent = normalizeProgressPercent(progress.percent)
+    if (percent === null) delete progress.percent
+    else progress.percent = percent
+  }
+  return { ...stage, name, status, ...(progress ? { progress } : {}) }
+}
+
+function normalizePipelineStages(stages, fallback = []) {
+  const source = Array.isArray(stages) ? stages : fallback
+  return source.map(normalizePipelineStage).filter(Boolean)
+}
+
+function pipelineStageKey(stage, index) {
+  if (!stage || typeof stage !== 'object') return String(index)
+  return String(stage.id || stage.name || stage.stage || index)
+}
+
+function mergePipelineStages(previousStages, incomingStages) {
+  const previous = Array.isArray(previousStages) ? previousStages : []
+  if (!Array.isArray(incomingStages)) return previous
+  if (previous.length === 0) return incomingStages
+
+  // Progress-only events may contain only the active stage. Preserve the rest of
+  // the last complete snapshot while merging fields supplied by the event.
+  const incomingByKey = new Map(incomingStages.map((stage, index) => [pipelineStageKey(stage, index), stage]))
+  if (incomingStages.length >= previous.length) {
+    return incomingStages.map((stage, index) => {
+      const previousStage = previous.find((item, previousIndex) => pipelineStageKey(item, previousIndex) === pipelineStageKey(stage, index))
+      if (!previousStage || typeof previousStage !== 'object') return stage
+      return {
+        ...previousStage,
+        ...stage,
+        ...(previousStage.progress || stage.progress
+          ? { progress: { ...(previousStage.progress || {}), ...(stage.progress || {}) } }
+          : {}),
+      }
+    })
+  }
+  return previous.map((stage, index) => {
+    const incoming = incomingByKey.get(pipelineStageKey(stage, index))
+    if (!incoming || typeof incoming !== 'object') return stage
+    return {
+      ...stage,
+      ...incoming,
+      ...(stage.progress || incoming.progress
+        ? { progress: { ...(stage.progress || {}), ...(incoming.progress || {}) } }
+        : {}),
+    }
+  })
+}
+
+function normalizePipelineStatusSnapshot(snapshot, fallbackStages = []) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null
+  if (typeof snapshot.status !== 'string' || !snapshot.status.trim()) return null
+  const status = snapshot.status.trim()
+  if (!PIPELINE_RUN_STATUSES.includes(status)) return null
+  const stages = normalizePipelineStages(snapshot.stages, fallbackStages)
+  const progress = normalizeProgressPercent(snapshot.progress, null)
+  const checkpoint = snapshot.checkpoint && typeof snapshot.checkpoint === 'object' && !Array.isArray(snapshot.checkpoint)
+    ? { ...snapshot.checkpoint }
+    : null
+  return {
+    ...snapshot,
+    status,
+    ...(progress === null ? {} : { progress }),
+    stages,
+    checkpoint,
+  }
+}
+
+function hasManualPipelineCheckpoint(snapshot, needsCheckpoint = false, context = null) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return Boolean(needsCheckpoint)
+  const checkpoint = snapshot.checkpoint && typeof snapshot.checkpoint === 'object' && !Array.isArray(snapshot.checkpoint)
+    ? snapshot.checkpoint
+    : null
+  const checkpointKinds = new Set(['scene_asset_selection', 'content_policy', 'needs_user_input', 'waiting_approval', 'approval'])
+  const checkpointType = String(checkpoint?.type || '').trim().toLowerCase()
+  const checkpointReason = String(checkpoint?.reason || '').trim().toLowerCase()
+  if (checkpointKinds.has(checkpointType) || checkpointKinds.has(checkpointReason)) return true
+  if (snapshot.status === 'waiting_approval' || snapshot.status === 'needs_user_input') return true
+  const snapshotContext = snapshot.context && typeof snapshot.context === 'object' && !Array.isArray(snapshot.context)
+    ? snapshot.context
+    : null
+  const contextCandidates = context?.generate_assets?.candidates || snapshotContext?.generate_assets?.candidates
+  // 旧版暂停快照可能丢失 checkpoint 元数据，但保留了待选素材清单。
+  // 这只能证明“需要人工处理”，不能证明 confirmSceneAssets 协议仍可用，
+  // 因此调用方只禁用后台脱离，不凭空渲染可提交的选择表单。
+  if (snapshot.status === 'paused' && Array.isArray(contextCandidates) && contextCandidates.length > 0) return true
+  const stages = Array.isArray(snapshot.stages) ? snapshot.stages : []
+  return Boolean(needsCheckpoint || stages.some(stage => {
+    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return false
+    const status = String(stage.status || '').trim().toLowerCase()
+    if (!['paused', 'waiting_approval', 'needs_user_input'].includes(status)) return false
+    const stageType = String(stage.checkpointType || stage.checkpoint || '').trim().toLowerCase()
+    const stageName = String(stage.name || stage.stage || '').trim().toLowerCase()
+    return stage.requiresCheckpoint === true
+      || checkpointKinds.has(stageType)
+      || stageName === 'finalize_assets'
+  }))
+}
+
+function hasLegacyPipelineCheckpointEvidence(snapshot, context = null) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return false
+  const checkpoint = snapshot.checkpoint && typeof snapshot.checkpoint === 'object' && !Array.isArray(snapshot.checkpoint)
+    ? snapshot.checkpoint
+    : null
+  if (checkpoint?.type || checkpoint?.reason) return false
+
+  const snapshotContext = snapshot.context && typeof snapshot.context === 'object' && !Array.isArray(snapshot.context)
+    ? snapshot.context
+    : null
+  const contextCandidates = context?.generate_assets?.candidates || snapshotContext?.generate_assets?.candidates
+  if (snapshot.status === 'paused' && Array.isArray(contextCandidates) && contextCandidates.length > 0) return true
+
+  const checkpointKinds = new Set(['scene_asset_selection', 'content_policy', 'needs_user_input', 'waiting_approval', 'approval'])
+  const stages = Array.isArray(snapshot.stages) ? snapshot.stages : []
+  return stages.some(stage => {
+    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return false
+    const status = String(stage.status || '').trim().toLowerCase()
+    const stageType = String(stage.checkpointType || stage.checkpoint || '').trim().toLowerCase()
+    const stageName = String(stage.name || stage.stage || '').trim().toLowerCase()
+    return ['paused', 'waiting_approval', 'needs_user_input'].includes(status)
+      && (stage.requiresCheckpoint === true || checkpointKinds.has(stageType) || stageName === 'finalize_assets')
+  })
+}
+
+function normalizePipelineRunMeta(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return { valid: false, value: null }
+  const invalidMeta = Symbol('invalid-pipeline-meta')
+  const metaKeys = ['createdAt', 'endedAt', 'outputSizeBytes', 'activeMs', 'activeSegmentStartedAt']
+  const fields = metaKeys.filter(key => Object.prototype.hasOwnProperty.call(snapshot, key))
+  const readNonNegative = (key) => {
+    if (!Object.prototype.hasOwnProperty.call(snapshot, key) || snapshot[key] === null || snapshot[key] === undefined || snapshot[key] === '') return null
+    const numeric = Number(snapshot[key])
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : invalidMeta
+  }
+  const activeMs = readNonNegative('activeMs')
+  const outputSizeBytes = readNonNegative('outputSizeBytes')
+  if (activeMs === invalidMeta || outputSizeBytes === invalidMeta) {
+    return { valid: false, value: null }
+  }
+  const readDate = (key) => {
+    if (!Object.prototype.hasOwnProperty.call(snapshot, key) || snapshot[key] === null || snapshot[key] === undefined || snapshot[key] === '') return null
+    return typeof snapshot[key] === 'string' ? snapshot[key] : null
+  }
+  return {
+    valid: true,
+    fields,
+    value: {
+      createdAt: readDate('createdAt'),
+      endedAt: readDate('endedAt'),
+      outputSizeBytes,
+      activeMs,
+      activeSegmentStartedAt: readDate('activeSegmentStartedAt'),
+    },
+  }
+}
+
+function mergePipelineRunMeta(previous, result) {
+  if (!result?.valid) return previous || null
+  const fields = Array.isArray(result.fields) ? result.fields : []
+  if (fields.length === 0) return previous || null
+  const merged = { ...(previous && typeof previous === 'object' ? previous : {}) }
+  for (const field of fields) merged[field] = result.value[field]
+  return merged
+}
+
+function createPipelineRunMeta(createdAt = new Date().toISOString()) {
+  return {
+    createdAt: typeof createdAt === 'string' && createdAt ? createdAt : new Date().toISOString(),
+    endedAt: null,
+    outputSizeBytes: null,
+    activeMs: null,
+    activeSegmentStartedAt: null,
+  }
+}
+
+function createPipelineRunMetaFromSnapshot(snapshot = {}) {
+  const base = createPipelineRunMeta(snapshot?.createdAt)
+  const result = normalizePipelineRunMeta(snapshot)
+  return mergePipelineRunMeta(base, result) || base
+}
+
+function normalizePipelineContext(snapshot, fallback = null) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return { valid: false, value: null }
+  if (!Object.prototype.hasOwnProperty.call(snapshot, 'context')) return { valid: true, value: fallback, provided: false }
+  const context = snapshot.context
+  if (context === null || context === undefined) return { valid: true, value: null, provided: true }
+  if (typeof context !== 'object' || Array.isArray(context)) return { valid: false, value: null, provided: true }
+  return { valid: true, value: context, provided: true }
+}
+
 const VIDEO_CLONE_PIPELINE_ENTRY = {
   name: 'video-clone', category: 'generated', stageCount: 6, available: true, estimatedCost: 'medium',
 }
@@ -1504,6 +1767,15 @@ export default {
       pipelines: [VIDEO_CLONE_PIPELINE_ENTRY], pipelineLoading: true, pipelineError: null,
       selectedPipeline: null,
       pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null, orchestrationStages: [], orchestrationStatusRequestId: 0,
+      // 统一流水线进度弹窗：弹窗只承载观察内容，关闭/后台运行会使 renderer 脱离而不取消主进程任务。
+      pipelineProgressModalOpen: false,
+      // 单次状态请求失败时保留最近一次合法进度，并在弹窗内提示可恢复状态。
+      pipelineProgressStatusError: '',
+      // 普通流水线按名称查询状态，没有 runId；请求代际仍必须隔离切换/后台化后的旧响应。
+      pipelineStatusRequestId: 0,
+      // 普通流水线只有启动响应明确返回 runId/id 时才允许按单任务后台脱离。
+      // 仅凭名称查询到的状态不能伪造 run identity。
+      pipelineRunId: null,
       // 流水线输入
       inputMode: 'text', pipelineText: '', pipelineImages: [], pipelineAudio: [], pipelineVideo: null,
       // 配置
@@ -1560,9 +1832,11 @@ export default {
         // 参数治理 R2：autoAdvance 恒 true（提交 params 字面量），前端字段已移除。
         platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
-      orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
+      orchestrationRunId: null, orchestrationContext: null, orchestrationContextRunId: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
       // 启动请求代际：切换 tab、流水线或取消时使在途 IPC 响应失效，避免旧响应重新挂回创作页。
       orchestrationStartRequestId: 0,
+      // 检查点/暂停/恢复等用户动作的独立代际：后台化或切换 run 后，旧 IPC 响应不得写回新任务。
+      orchestrationActionRequestId: 0,
       // 分镜素材自选（2026-08-12）：scene_asset_selection 检查点激活与候选
       sceneAssetSelectionActive: false, sceneAssetCandidates: [], sceneAssetSelectionError: '', sceneAssetConfirming: false,
       // 等待态 UX（2026-08-13）：首次激活自动定位/高亮一次性标记 + 面板注意力高亮
@@ -1938,10 +2212,89 @@ export default {
       if (RESUME_BLOCKING_ERROR_PATTERN.test(raw)) return false
       return true
     },
+    pipelineProgressStages() {
+      const statusStages = this.pipelineRunStatus?.stages
+      const stages = Array.isArray(statusStages) && statusStages.length > 0
+        ? statusStages
+        : this.orchestrationStages
+      return normalizePipelineStages(stages)
+    },
+    pipelineProgressPercent() {
+      return normalizeProgressPercent(this.pipelineRunStatus?.progress, null)
+    },
+    pipelineProgressHasNumericPercent() {
+      return this.pipelineProgressPercent !== null
+    },
+    pipelineProgressLoadingText() {
+      return this.translateWithLocaleFallback(
+        'create.story2video.progressLoading',
+        '正在加载流水线进度…',
+        'Loading pipeline progress…',
+      )
+    },
+    pipelineProgressModalTitle() {
+      const name = this.pipelineName(this.selectedPipeline?.name) || this.selectedPipeline?.name || ''
+      const translated = this.$t?.('create.story2video.progressTitle', { name })
+      return typeof translated === 'string' && translated !== 'create.story2video.progressTitle'
+        ? translated
+        : (name ? 'Pipeline progress · ' + name : 'Pipeline progress')
+    },
+    pipelineProgressCloseDisabled() {
+      return this.isPipelineManualCheckpoint()
+    },
+    pipelineProgressCloseLabel() {
+      const key = this.pipelineProgressCloseDisabled
+        ? 'create.story2video.progressManualCloseLabel'
+        : 'create.story2video.progressCloseLabel'
+      const translated = this.$t?.(key)
+      return typeof translated === 'string' && translated !== key
+        ? translated
+        : (this.pipelineProgressCloseDisabled
+          ? 'This task needs your input and cannot be closed or moved to the background'
+          : 'Close and run in background')
+    },
+    pipelineProgressManualHint() {
+      const key = this.pipelineProgressLegacyCheckpoint
+        ? 'create.story2video.progressLegacyCheckpointHint'
+        : 'create.story2video.progressManualHint'
+      const translated = this.$t?.(key)
+      return typeof translated === 'string' && translated !== key
+        ? translated
+        : (this.pipelineProgressLegacyCheckpoint
+          ? 'This task comes from a legacy manual checkpoint and has no submit action protocol. Use Cancel below or restore it from History.'
+          : 'This task needs your input before it can continue.')
+    },
+    pipelineProgressLegacyCheckpoint() {
+      const snapshot = this.pipelineRunStatus
+      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return false
+      const checkpoint = snapshot.checkpoint && typeof snapshot.checkpoint === 'object' && !Array.isArray(snapshot.checkpoint)
+        ? snapshot.checkpoint
+        : null
+      if (checkpoint?.type || checkpoint?.reason) return false
+      return hasLegacyPipelineCheckpointEvidence(snapshot, this.orchestrationContext)
+    },
+    pipelineProgressCheckpointText() {
+      const checkpoint = this.pipelineRunStatus?.checkpoint
+      if (!checkpoint || typeof checkpoint !== 'object') return ''
+      const key = checkpoint.reason === 'content_policy' || checkpoint.type === 'content_policy'
+        ? 'create.story2video.progressContentPolicyHint'
+        : (checkpoint.type === 'scene_asset_selection' || checkpoint.reason === 'scene_asset_selection' ? 'create.story2video.progressSelectionHint' : '')
+      if (!key) return ''
+      const translated = this.$t?.(key)
+      return typeof translated === 'string' && translated !== key ? translated : ''
+    },
+    canDetachPipelineToBackground() {
+      if (this._s2vAlive === false || !this.selectedPipeline || this.isPipelineManualCheckpoint()) return false
+      const runId = typeof this.orchestrationRunId === 'string' ? this.orchestrationRunId.trim() : ''
+      if (this.isOrchestratedPipeline(this.selectedPipeline.name)) return Boolean(runId)
+      if (!this.pipelineRunId) return false
+      const status = this.pipelineRunStatus?.status
+      return Boolean(this.pipelineRunStatus && status && !['idle', 'completed', 'failed', 'cancelled'].includes(status))
+    },
     orchestrationProgressPercent() {
       // 主进程权威值优先（_calcProgress = 阶段数占比 + 当前阶段 percent 加权，统一契约下发）
-      const authoritative = this.pipelineRunStatus?.progress
-      if (Number.isFinite(authoritative) && authoritative >= 0 && authoritative <= 100) return Math.round(authoritative)
+      const authoritative = normalizeProgressPercent(this.pipelineRunStatus?.progress, null)
+      if (authoritative !== null) return authoritative
       // 回退：本地按阶段状态计算（历史 run / 旧快照无 progress 字段）
       const stages = this.pipelineRunStatus?.stages || this.orchestrationStages
       if (!Array.isArray(stages) || stages.length === 0) return 0
@@ -2179,13 +2532,16 @@ export default {
         return
       }
       this.stopPipelinePolling()
+      this.closePipelineProgressModal()
       this.orchestrationStartRequestId += 1
       this.selectedPipeline = p
       this.startingPipeline = false
       this.pipelineRunStatus = null
+      this.pipelineRunId = null
       this.orchestrationStages = (this.isAutoPipeline(p?.name) || this.isMediaAutoPipeline(p?.name)) ? this.getDefaultPipelineStages(p.name) : []
       this.orchestrationRunId = null
       this.orchestrationContext = null
+      this.orchestrationContextRunId = null
       this.orchestrationResultPath = null
       this.orchestrationError = ''
       // 切换流水线时一并重置模型服务异常提示（跨流水线/跨运行不残留）
@@ -2259,6 +2615,7 @@ export default {
       if (this.startingPipeline) return
       if (this.isOrchestratedPipeline(this.selectedPipeline?.name) && this.orchestrationRunId) return
       const startRequestId = ++this.orchestrationStartRequestId
+      const pipelineName = this.selectedPipeline?.name
       this.startingPipeline = true
       try {
         // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
@@ -2283,13 +2640,55 @@ export default {
           audio: this.pipelineAudio.map(a => ({ name: a.name, path: a.path })),
           video: this.pipelineVideo?.path || null,
         }
-        const res = await pipelineStart(this.selectedPipeline.name, params)
-        if (res?.code === 0) {
+        const res = await pipelineStart(pipelineName, params)
+        if (res?.code !== 0) {
+          if (this.isCurrentOrchestrationStart(startRequestId) && this.selectedPipeline?.name === pipelineName) {
+            this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: res?.message })
+          }
+          return
+        }
+        if (!this.isCurrentOrchestrationStart(startRequestId) || this.selectedPipeline?.name !== pipelineName) return
+        const startedRunId = typeof res?.data?.runId === 'string'
+          ? res.data.runId.trim()
+          : (typeof res?.data?.id === 'string' ? res.data.id.trim() : '')
+        if (!startedRunId) {
+          // 普通流水线的旧 IPC 响应没有稳定 run identity 时，禁止按名称查询状态。
+          // 名称查询可能命中另一个任务；主进程已启动的任务仍继续执行，交给历史记录观察。
+          await this.resetPipelineToNewTaskState({
+            toastKey: 'create.story2video.backgroundStartedWithoutTracking',
+            fallbackZh: '任务已启动并在后台运行，但当前无法实时跟踪进度，请在历史记录中查看。',
+            fallbackEn: 'The task started and is running in the background, but live progress is unavailable. View it in History.',
+            durationMs: 5000,
+          })
+          return
+        }
+        this.pipelineRunId = startedRunId
+        {
           await this.updatePipelineStatus()
-          this.pollTimer = setInterval(() => this.updatePipelineStatus(), 3000)
-        } else { alert(res?.message || '启动失败') }
+          // 首次状态拉取失败也要建立轮询：下一次 tick 继续重试，避免任务静默失联。
+          if (
+            this.isCurrentOrchestrationStart(startRequestId)
+            && this.selectedPipeline?.name === pipelineName
+            && this.pipelineRunId === startedRunId
+            && !PIPELINE_TERMINAL_STATUSES.includes(this.pipelineRunStatus?.status)
+            && !this.pollTimer
+          ) {
+            this.pollTimer = setInterval(() => { void this.updatePipelineStatus() }, 3000)
+          }
+        }
+      } catch (error) {
+        if (
+          this.isCurrentOrchestrationStart(startRequestId)
+          && this.selectedPipeline?.name === pipelineName
+          && !this.isOrchestratedPipeline(pipelineName)
+        ) {
+          this.pipelineRunStatus = null
+          this.pipelineRunId = null
+          this.closePipelineProgressModal()
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: error?.message })
+        }
       } finally {
-        this.startingPipeline = false
+        if (this.orchestrationStartRequestId === startRequestId) this.startingPipeline = false
       }
     },
     async startExplainerPipeline(startRequestId = this.orchestrationStartRequestId) {
@@ -2317,6 +2716,8 @@ export default {
         if (!this.isCurrentOrchestrationStart(startRequestId)) return
         if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId.trim()
+          this.orchestrationContext = null
+          this.orchestrationContextRunId = null
           await this.saveS2VLastOptions()
           if (!this.isCurrentOrchestrationStart(startRequestId)) return
           if (this.applyOrchestrationOutcome(outcome)) return
@@ -2351,6 +2752,8 @@ export default {
         if (!this.isCurrentOrchestrationStart(startRequestId)) return
         if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId.trim()
+          this.orchestrationContext = null
+          this.orchestrationContextRunId = null
           await this.saveS2VLastOptions()
           if (!this.isCurrentOrchestrationStart(startRequestId)) return
           if (this.applyOrchestrationOutcome(outcome)) return
@@ -2596,6 +2999,8 @@ export default {
         if (!this.isCurrentOrchestrationStart(startRequestId)) return
         if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
           this.orchestrationRunId = outcome.runId.trim()
+          this.orchestrationContext = null
+          this.orchestrationContextRunId = null
           await this.saveS2VLastOptions()
           if (!this.isCurrentOrchestrationStart(startRequestId)) return
           if (this.applyOrchestrationOutcome(outcome)) return
@@ -3584,14 +3989,21 @@ export default {
     async resumeStory2Video() {
       const runId = this.orchestrationRunId
       if (!runId || this.story2videoResuming) return
+      const actionRequestId = ++this.orchestrationActionRequestId
       this.story2videoResuming = true
       try {
         const res = await pipelineResumeOrchestration(runId)
-        if (res?.code === 0 && res.data?.success && res.data?.runId) {
-          this.orchestrationRunId = res.data.runId
+        if (!this.isCurrentOrchestrationAction(runId, actionRequestId)) return
+        const returnedRunId = typeof res?.data?.runId === 'string' ? res.data.runId.trim() : ''
+        if (res?.code === 0 && res.data?.success && returnedRunId && returnedRunId !== runId) return
+        if (res?.code === 0 && res.data?.success && returnedRunId) {
+          this.orchestrationRunId = returnedRunId
+          this.orchestrationContext = null
+          this.orchestrationContextRunId = null
           this.orchestrationResultPath = null
           this.orchestrationError = ''
           this.closeStory2VideoErrorDialog()
+          this.story2videoRunMeta = createPipelineRunMetaFromSnapshot(res.data)
           this.pipelineRunStatus = { status: 'running', progress: 0, stages: this.orchestrationStages }
           await this.updateOrchestrationStatus()
           if (this.orchestrationRunId && !this.pollTimer) {
@@ -3604,7 +4016,7 @@ export default {
           })
         }
       } finally {
-        this.story2videoResuming = false
+        if (this.isCurrentOrchestrationAction(runId, actionRequestId)) this.story2videoResuming = false
       }
     },
     // 历史记录删除分流（2026-08-16）：有 projectId 的成片任务走项目删除；纯流水线运行记录走 delete-run
@@ -3648,113 +4060,234 @@ export default {
       this.closeProjectDeletionDialog()
       if (projectId) await this.deleteHistory({ projectId })
     },
-    setOrchestrationError(notification) {
+    setOrchestrationError(notification, statusSnapshot = null) {
       this.orchestrationError = ''
       this.showStory2VideoErrorDialog(notification)
       this.stopPipelinePolling()
+      this.closePipelineProgressModal()
       this.needsCheckpoint = false
       this.sceneAssetSelectionActive = false
       this.sceneAssetCandidates = []
       if (this.pipelineRunStatus?.status !== 'completed') {
-        this.pipelineRunStatus = { status: 'failed', progress: this.pipelineRunStatus?.progress || 0, stages: this.pipelineRunStatus?.stages || this.orchestrationStages }
+        const snapshot = statusSnapshot && typeof statusSnapshot === 'object' && !Array.isArray(statusSnapshot)
+          ? statusSnapshot
+          : {}
+        this.pipelineRunStatus = {
+          ...(this.pipelineRunStatus || {}),
+          ...snapshot,
+          status: 'failed',
+          progress: snapshot.progress ?? this.pipelineRunStatus?.progress ?? 0,
+          stages: Array.isArray(snapshot.stages)
+            ? snapshot.stages
+            : (this.pipelineRunStatus?.stages || this.orchestrationStages),
+        }
       }
     },
     isCurrentOrchestrationStart(requestId) {
       return requestId === this.orchestrationStartRequestId && this._s2vAlive !== false && this.view === 'pipelines'
     },
+    isCurrentOrchestrationAction(runId, actionRequestId) {
+      return Boolean(
+        runId
+        && runId === this.orchestrationRunId
+        && actionRequestId === this.orchestrationActionRequestId
+        && this._s2vAlive !== false
+        && this.view === 'pipelines'
+      )
+    },
+    syncPipelineCheckpointState(snapshot, context = this.orchestrationContext) {
+      const status = snapshot && typeof snapshot === 'object' ? snapshot : this.pipelineRunStatus
+      const checkpoint = status?.checkpoint && typeof status.checkpoint === 'object' ? status.checkpoint : null
+      const checkpointType = String(checkpoint?.type || '').trim().toLowerCase()
+      const checkpointReason = String(checkpoint?.reason || '').trim().toLowerCase()
+      const selectionCheckpoint = checkpointType === 'scene_asset_selection' || checkpointReason === 'scene_asset_selection'
+      this.sceneAssetSelectionActive = Boolean(selectionCheckpoint)
+      if (selectionCheckpoint) {
+        const snapshotContext = status?.context && typeof status.context === 'object' && !Array.isArray(status.context)
+          ? status.context
+          : (status?.status?.context && typeof status.status.context === 'object' && !Array.isArray(status.status.context) ? status.status.context : null)
+        const candidateContext = [context, snapshotContext].find(value =>
+          value && typeof value === 'object' && !Array.isArray(value)
+          && Array.isArray(value.generate_assets?.candidates)
+        )
+        const manifest = candidateContext?.generate_assets
+        this.sceneAssetCandidates = Array.isArray(manifest?.candidates) ? manifest.candidates : []
+        this.sceneAssetSelectionError = ''
+      } else {
+        this.sceneAssetCandidates = []
+        this.sceneAssetSelectionError = ''
+      }
+      this.needsCheckpoint = hasManualPipelineCheckpoint(status, false, context)
+      return this.needsCheckpoint
+    },
+    setPipelineProgressStatusError() {
+      this.pipelineProgressStatusError = this.translateWithLocaleFallback(
+        'create.story2video.progressStatusUnavailable',
+        '进度暂时不可用，任务仍在运行，系统将继续重试。',
+        'Progress is temporarily unavailable. The task is still running and will be retried.',
+      )
+      if (this.pipelineRunStatus && this.selectedPipeline && !PIPELINE_TERMINAL_STATUSES.includes(this.pipelineRunStatus.status)) {
+        this.openPipelineProgressModal()
+      }
+    },
+    clearPipelineProgressStatusError() {
+      this.pipelineProgressStatusError = ''
+    },
     async updateOrchestrationStatus() {
-      if (!this.orchestrationRunId) return
+      if (!this.orchestrationRunId) return { ok: false, reason: 'missing-run-id' }
       // runId 快照守卫（2026-08-13，后台运行审查 Critical 1）：detach/取消/切换 run 后，
       // 在飞的 pipelineGetRunContext 过期响应不得写回状态或触发跳转，防止僵尸重挂/污染新 run。
       const runId = this.orchestrationRunId
       const requestId = ++this.orchestrationStatusRequestId
       try {
         const statusResult = await pipelineGetRunContext(runId)
-        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return
+        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return { ok: false, stale: true }
         // 组件已卸载（离开页面/路由切换）时丢弃在飞响应，主进程 run 不受影响
-        if (this._s2vAlive === false) return
+        if (this._s2vAlive === false) return { ok: false, stale: true }
         if (statusResult?.code !== 0) {
-          this.setOrchestrationError({ code: statusResult?.code, error: statusResult?.message })
-          return
+          this.setPipelineProgressStatusError()
+          return { ok: false, reason: 'request-failed' }
         }
         if (!statusResult.data) {
-          this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE })
-          return
+          this.setPipelineProgressStatusError()
+          return { ok: false, reason: 'missing-data' }
         }
-        this.orchestrationContext = statusResult.data.context || null
-        this.providerWarnings = Array.isArray(statusResult.data.providerWarnings)
-          ? statusResult.data.providerWarnings
-          : []
-        this.story2videoRunMeta = {
-          createdAt: statusResult.data.createdAt || null,
-          endedAt: statusResult.data.endedAt || null,
-          outputSizeBytes: statusResult.data.outputSizeBytes || null,
-          // 已用时口径：步骤执行耗时累计（主进程 activeMs + 运行中在飞段起点）
-          activeMs: Number.isFinite(Number(statusResult.data.activeMs)) ? Number(statusResult.data.activeMs) : null,
-          activeSegmentStartedAt: statusResult.data.activeSegmentStartedAt || null,
+        const returnedRunId = statusResult.data.runId || statusResult.data.id
+        if (typeof returnedRunId === 'string' && returnedRunId.trim() && returnedRunId.trim() !== runId) {
+          this.setPipelineProgressStatusError()
+          return { ok: false, reason: 'run-id-mismatch' }
         }
-        const snapshotStatus = statusResult.data.status || {}
+        const fallbackContext = this.orchestrationContextRunId === runId
+          ? this.orchestrationContext
+          : null
+        const contextResult = normalizePipelineContext(statusResult.data, fallbackContext)
+        const metaResult = normalizePipelineRunMeta(statusResult.data)
+        if (!contextResult.valid || !metaResult.valid) {
+          this.setPipelineProgressStatusError()
+          return { ok: false, reason: 'invalid-data' }
+        }
+        const snapshotStatus = statusResult.data.status
+        if (!snapshotStatus || typeof snapshotStatus !== 'object' || Array.isArray(snapshotStatus)) {
+          this.setPipelineProgressStatusError()
+          return { ok: false, reason: 'invalid-status' }
+        }
         const stages = Array.isArray(statusResult.data.stages)
           ? statusResult.data.stages
           : (Array.isArray(snapshotStatus.stages) ? snapshotStatus.stages : (this.orchestrationStages.length ? this.orchestrationStages : this.getDefaultStory2VideoStages()))
-        this.orchestrationStages = stages
-        this.pipelineRunStatus = {
+        const checkpoint = Object.prototype.hasOwnProperty.call(statusResult.data, 'checkpoint')
+          ? statusResult.data.checkpoint
+          : (Object.prototype.hasOwnProperty.call(snapshotStatus, 'checkpoint') ? snapshotStatus.checkpoint : this.pipelineRunStatus?.checkpoint)
+        const normalized = normalizePipelineStatusSnapshot({
           ...snapshotStatus,
           currentStage: statusResult.data.currentStage ?? snapshotStatus.currentStage,
           stages,
-          checkpoint: statusResult.data.checkpoint || snapshotStatus.checkpoint || null,
+          checkpoint,
+        }, this.orchestrationStages)
+        if (!normalized) {
+          this.setPipelineProgressStatusError()
+          return { ok: false, reason: 'invalid-status' }
         }
-        // 分镜素材自选（2026-08-12）：scene_asset_selection 检查点 → 展示素材选择面板
-        const selectionCheckpoint = this.pipelineRunStatus.checkpoint && this.pipelineRunStatus.checkpoint.type === 'scene_asset_selection'
-        this.sceneAssetSelectionActive = Boolean(selectionCheckpoint)
-        if (selectionCheckpoint) {
-          const manifest = this.orchestrationContext && this.orchestrationContext.generate_assets
-          this.sceneAssetCandidates = Array.isArray(manifest && manifest.candidates) ? manifest.candidates : []
-          this.sceneAssetSelectionError = ''
+        const hasProviderWarnings = Object.prototype.hasOwnProperty.call(statusResult.data, 'providerWarnings')
+          || Object.prototype.hasOwnProperty.call(snapshotStatus, 'providerWarnings')
+        const providerWarnings = Object.prototype.hasOwnProperty.call(statusResult.data, 'providerWarnings')
+          ? statusResult.data.providerWarnings
+          : snapshotStatus.providerWarnings
+        // Full polling snapshots are authoritative: an omitted warning list means
+        // the previous run warning is no longer active. Progress-only pushes use a
+        // separate path and intentionally preserve warnings when the field is absent.
+        this.providerWarnings = hasProviderWarnings && Array.isArray(providerWarnings)
+          ? providerWarnings.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+          : []
+        const mergedStages = mergePipelineStages(this.orchestrationStages, normalized.stages)
+        if (normalized.status === 'completed' && !contextResult.value) {
+          // A completed status without this run's final context is not enough to
+          // select a result file. Keep the last valid foreground snapshot and
+          // retry instead of treating an older run's context as this run's result.
+          this.orchestrationStages = mergedStages
+          this.pipelineRunStatus = {
+            ...(this.pipelineRunStatus || {}),
+            progress: normalized.progress ?? this.pipelineRunStatus?.progress ?? 0,
+            stages: mergedStages,
+            checkpoint: normalized.checkpoint,
+            status: this.pipelineRunStatus?.status && !PIPELINE_TERMINAL_STATUSES.includes(this.pipelineRunStatus.status)
+              ? this.pipelineRunStatus.status
+              : 'running',
+          }
+          this.setPipelineProgressStatusError()
+          this.syncPipelineCheckpointState(this.pipelineRunStatus, fallbackContext)
+          this.openPipelineProgressModal()
+          this.restartOrchestrationPolling()
+          return { ok: false, reason: 'missing-terminal-context' }
         }
-        this.needsCheckpoint = false
-        if (['completed', 'failed', 'cancelled'].includes(statusResult.data.status?.status)) {
-          this.applyOrchestrationOutcome({
-            success: statusResult.data.status.status === 'completed',
-            completed: statusResult.data.status.status === 'completed',
-            context: statusResult.data.context,
-            error: statusResult.data.error || statusResult.data.status.error,
+        this.clearPipelineProgressStatusError()
+        if (contextResult.provided || this.orchestrationContextRunId !== runId) {
+          this.orchestrationContext = contextResult.value
+          this.orchestrationContextRunId = runId
+        }
+        this.story2videoRunMeta = mergePipelineRunMeta(this.story2videoRunMeta, metaResult)
+        this.orchestrationStages = mergedStages
+        normalized.stages = this.orchestrationStages
+        this.pipelineRunStatus = normalized
+        this.syncPipelineCheckpointState(normalized, this.orchestrationContext)
+        if (PIPELINE_END_STATUSES.includes(normalized.status)) {
+          this.applyOrchestrationTerminalStatus(normalized.status, {
+            ...statusResult.data,
+            status: normalized,
+            context: contextResult.provided ? contextResult.value : null,
+            error: statusResult.data.error || normalized.error,
+            stages: normalized.stages,
           })
+        } else {
+          this.openPipelineProgressModal()
         }
+        return { ok: true, status: normalized.status, terminal: PIPELINE_END_STATUSES.includes(normalized.status) }
       } catch (_error) {
-        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return
-        this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE })
+        if (this._s2vAlive === false || this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return { ok: false, stale: true }
+        this.setPipelineProgressStatusError()
+        return { ok: false, reason: 'exception' }
       }
     },
     async advanceOrchestration() {
-      if (!this.orchestrationRunId) return
-      const res = await pipelineAdvanceToNextCheckpoint(this.orchestrationRunId)
+      const runId = this.orchestrationRunId
+      if (!runId) return
+      const actionRequestId = ++this.orchestrationActionRequestId
+      const res = await pipelineAdvanceToNextCheckpoint(runId)
+      if (!this.isCurrentOrchestrationAction(runId, actionRequestId)) return
+      const returnedRunId = res?.data?.runId || res?.data?.id
+      if (typeof returnedRunId === 'string' && returnedRunId.trim() && returnedRunId.trim() !== runId) return
       if (res?.code === 0 && res.data?.success !== false) {
-        if (!this.applyOrchestrationOutcome(res.data || {})) await this.updateOrchestrationStatus()
+        if (!this.applyOrchestrationOutcome(res.data || {}, runId, actionRequestId) && this.isCurrentOrchestrationAction(runId, actionRequestId)) await this.updateOrchestrationStatus()
       }
       else { this.setOrchestrationError({ code: res?.code, error: res?.message || res?.data?.error }) }
     },
     // 分镜素材自选：确认全部场景素材选择并推进（finalize_assets → compose → publish）
     async confirmSceneAssetSelections(selections) {
-      if (!this.orchestrationRunId || this.sceneAssetConfirming) return
+      const runId = this.orchestrationRunId
+      if (!runId || this.sceneAssetConfirming) return
+      const actionRequestId = ++this.orchestrationActionRequestId
       this.sceneAssetConfirming = true
       this.sceneAssetSelectionError = ''
       try {
-        const res = await pipelineConfirmSceneAssets(this.orchestrationRunId, this.cloneForIpc(selections))
+        const res = await pipelineConfirmSceneAssets(runId, this.cloneForIpc(selections))
+        if (!this.isCurrentOrchestrationAction(runId, actionRequestId)) return
+        const returnedRunId = res?.data?.runId || res?.data?.id
+        if (typeof returnedRunId === 'string' && returnedRunId.trim() && returnedRunId.trim() !== runId) return
         if (res?.code === 0 && res.data?.success !== false) {
           this.sceneAssetSelectionActive = false
           this.sceneAssetCandidates = []
           // P0 反馈管道：采纳事件埋点（feature flag 开启且 API 存在时生效，缺失静默跳过）
-          this.reportEvolutionFeedback({ type: 'accepted', detail: { mode: 'scene-asset-selection', runId: this.orchestrationRunId } })
-          if (!this.applyOrchestrationOutcome(res.data || {})) await this.updateOrchestrationStatus()
+          this.reportEvolutionFeedback({ type: 'accepted', detail: { mode: 'scene-asset-selection', runId } })
+          if (!this.applyOrchestrationOutcome(res.data || {}, runId, actionRequestId) && this.isCurrentOrchestrationAction(runId, actionRequestId)) await this.updateOrchestrationStatus()
         } else {
           this.sceneAssetSelectionError = res?.data?.error || res?.message ||
             this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
         }
       } catch (_) {
-        this.sceneAssetSelectionError = this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
+        if (this.isCurrentOrchestrationAction(runId, actionRequestId)) {
+          this.sceneAssetSelectionError = this.translateWithLocaleFallback('story2video.sceneAssetSelection.confirmError', '素材选择提交失败，请重试。', 'Failed to submit asset selection. Please try again.')
+        }
       } finally {
-        this.sceneAssetConfirming = false
+        if (this.isCurrentOrchestrationAction(runId, actionRequestId)) this.sceneAssetConfirming = false
       }
     },
     // P0 反馈管道：向主进程上报用户操作反馈（采纳/重新生成/编辑/下载）
@@ -3786,11 +4319,22 @@ export default {
         cinematicRender?.videoPath || cinematicRender?.path ||
         smokeReport?.videoPath || smokeReport?.path || null
     },
-    applyOrchestrationOutcome(outcome) {
+    applyOrchestrationOutcome(outcome, expectedRunId = null, expectedActionRequestId = null) {
       // 卸载后残留响应不得写状态或触发跳转（2026-08-21 unmount 竞态守卫）
       if (this._s2vAlive === false) return false
-      if (Array.isArray(outcome?.stages)) this.orchestrationStages = outcome.stages
-      if (outcome?.context) this.orchestrationContext = outcome.context
+      const runId = this.orchestrationRunId
+      if (expectedRunId && !this.isCurrentOrchestrationAction(expectedRunId, expectedActionRequestId ?? this.orchestrationActionRequestId)) return false
+      const outcomeRunId = typeof outcome?.runId === 'string' ? outcome.runId.trim() : ''
+      if (outcomeRunId && ((expectedRunId && outcomeRunId !== expectedRunId) || (!expectedRunId && runId && outcomeRunId !== runId))) return false
+      if (Array.isArray(outcome?.stages)) this.orchestrationStages = mergePipelineStages(this.orchestrationStages, normalizePipelineStages(outcome.stages))
+      const hasOutcomeContext = Object.prototype.hasOwnProperty.call(outcome || {}, 'context')
+      const outcomeContext = hasOutcomeContext && outcome.context && typeof outcome.context === 'object' && !Array.isArray(outcome.context)
+        ? outcome.context
+        : null
+      if (hasOutcomeContext) {
+        this.orchestrationContext = outcomeContext
+        this.orchestrationContextRunId = outcomeContext ? runId : null
+      }
       // 检查点确认/单步执行返回的终态 activeMs 优先于轮询缓存，避免结果页时长偏短（W2 审查闭环）
       if (outcome && outcome.activeMs !== null && outcome.activeMs !== undefined && Number.isFinite(Number(outcome.activeMs)) && Number(outcome.activeMs) >= 0) {
         this.story2videoRunMeta = {
@@ -3804,16 +4348,32 @@ export default {
         this.needsCheckpoint = false
       }
       if (outcome?.success === false) {
-        this.setOrchestrationError({ errorCode: outcome.errorCode, errorParams: outcome.errorParams, error: outcome.error })
+        this.setOrchestrationError({ errorCode: outcome.errorCode, errorParams: outcome.errorParams, error: outcome.error }, outcome.status)
         return true
       }
       if (!outcome?.completed) return false
-      const context = outcome.context || this.orchestrationContext
-      const runId = this.orchestrationRunId
+      const context = outcomeContext || (this.orchestrationContextRunId === runId ? this.orchestrationContext : null)
+      if (!context) {
+        this.pipelineRunStatus = {
+          ...(this.pipelineRunStatus || {}),
+          status: 'running',
+          progress: normalizeProgressPercent(outcome.progress, this.pipelineRunStatus?.progress ?? 0),
+          stages: this.orchestrationStages,
+        }
+        this.setPipelineProgressStatusError()
+        this.openPipelineProgressModal()
+        return false
+      }
       const videoPath = this.extractOrchestrationVideoPath(context)
       const projectId = context?.story2videoProject?.projectId || null
       this.stopPipelinePolling()
-      this.pipelineRunStatus = { status: 'completed', progress: 100, stages: this.orchestrationStages }
+      this.closePipelineProgressModal()
+      this.pipelineRunStatus = {
+        ...(this.pipelineRunStatus || {}),
+        status: 'completed',
+        progress: 100,
+        stages: this.orchestrationStages,
+      }
       this.needsCheckpoint = false
       this.orchestrationRunId = null
       if (!videoPath) {
@@ -3845,8 +4405,58 @@ export default {
       this.$router.push({ path: '/create/result', query })
       return true
     },
+    applyOrchestrationTerminalStatus(status, snapshot = {}) {
+      if (this._s2vAlive === false) return true
+      if (status === 'idle') {
+        this.stopPipelinePolling()
+        this.closePipelineProgressModal()
+        return true
+      }
+      if (status === 'completed') {
+        const runId = this.orchestrationRunId
+        const snapshotContext = snapshot.context && typeof snapshot.context === 'object' && !Array.isArray(snapshot.context)
+          ? snapshot.context
+          : null
+        const context = snapshotContext || (this.orchestrationContextRunId === runId ? this.orchestrationContext : null)
+        if (!context) {
+          this.setPipelineProgressStatusError()
+          this.openPipelineProgressModal()
+          this.restartOrchestrationPolling()
+          return false
+        }
+        this.stopPipelinePolling()
+        return this.applyOrchestrationOutcome({
+          ...snapshot,
+          completed: true,
+          success: true,
+          context,
+          stages: this.pipelineRunStatus?.stages || this.orchestrationStages,
+        })
+      }
+      if (status === 'cancelled') {
+        this.stopPipelinePolling()
+        this.closePipelineProgressModal()
+        this.pipelineRunStatus = {
+          ...(this.pipelineRunStatus || {}),
+          ...(snapshot.status || {}),
+          status: 'cancelled',
+          stages: Array.isArray(snapshot.stages)
+            ? snapshot.stages
+            : (this.pipelineRunStatus?.stages || this.orchestrationStages),
+        }
+        this.needsCheckpoint = false
+        this.orchestrationRunId = null
+        this.orchestrationContext = null
+        this.orchestrationContextRunId = null
+        return true
+      }
+      this.stopPipelinePolling()
+      this.setOrchestrationError({ errorCode: snapshot.errorCode, error: snapshot.error || snapshot.status?.error }, snapshot.status)
+      return true
+    },
     stopPipelinePolling() {
       this.orchestrationStatusRequestId += 1
+      this.pipelineStatusRequestId += 1
       if (this.pollTimer) {
         clearInterval(this.pollTimer)
         this.pollTimer = null
@@ -3856,19 +4466,66 @@ export default {
     // 事件 payload 为轻量快照（progressOnly，不含 context）——只更新阶段进度/状态与 run 级 progress，
     // 不覆盖完整 context（轮询 getRunContext 全量快照为准，避免事件与轮询竞态回退）。
     handlePipelinePush(snapshot) {
-      if (!snapshot || !snapshot.runId) return
+      if (this._s2vAlive === false || this.view !== 'pipelines' || !snapshot || typeof snapshot !== 'object' || !snapshot.runId) return
       if (!this.orchestrationRunId || snapshot.runId !== this.orchestrationRunId) return
-      if (Array.isArray(snapshot.stages) && snapshot.stages.length > 0) {
-        this.orchestrationStages = snapshot.stages
+      if (!snapshot.status || typeof snapshot.status !== 'object' || Array.isArray(snapshot.status)) return
+      const prevStatus = (this.pipelineRunStatus && typeof this.pipelineRunStatus === 'object') ? this.pipelineRunStatus : {}
+      const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key)
+      const incomingStages = hasOwn(snapshot, 'stages')
+        ? snapshot.stages
+        : (hasOwn(snapshot.status, 'stages') ? snapshot.status.stages : prevStatus.stages)
+      const checkpoint = hasOwn(snapshot, 'checkpoint')
+        ? snapshot.checkpoint
+        : (hasOwn(snapshot.status, 'checkpoint') ? snapshot.status.checkpoint : prevStatus.checkpoint)
+      const normalized = normalizePipelineStatusSnapshot({
+        ...prevStatus,
+        ...snapshot.status,
+        stages: incomingStages,
+        checkpoint,
+      }, this.orchestrationStages)
+      if (!normalized) return
+      this.orchestrationStages = mergePipelineStages(this.orchestrationStages, normalized.stages)
+      normalized.stages = this.orchestrationStages
+      this.pipelineRunStatus = normalized
+      const hasProviderWarnings = hasOwn(snapshot, 'providerWarnings') || hasOwn(snapshot.status, 'providerWarnings')
+      if (hasProviderWarnings) {
+        const warnings = hasOwn(snapshot, 'providerWarnings') ? snapshot.providerWarnings : snapshot.status.providerWarnings
+        this.providerWarnings = Array.isArray(warnings)
+          ? warnings.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+          : []
       }
-      if (snapshot.status && typeof snapshot.status === 'object') {
-        const prevStatus = (this.pipelineRunStatus && typeof this.pipelineRunStatus === 'object') ? this.pipelineRunStatus : {}
-        this.pipelineRunStatus = {
-          ...prevStatus,
-          ...snapshot.status,
-          stages: Array.isArray(snapshot.stages) && snapshot.stages.length > 0 ? snapshot.stages : prevStatus.stages,
+      const contextSource = hasOwn(snapshot, 'context') ? snapshot : (hasOwn(snapshot.status, 'context') ? snapshot.status : null)
+      const contextResult = contextSource
+        ? normalizePipelineContext(contextSource, this.orchestrationContextRunId === snapshot.runId ? this.orchestrationContext : null)
+        : { valid: true, value: this.orchestrationContextRunId === snapshot.runId ? this.orchestrationContext : null, provided: false }
+      if (!contextResult.valid) return
+      if (contextResult.provided) {
+        this.orchestrationContext = contextResult.value
+        this.orchestrationContextRunId = contextResult.value ? snapshot.runId : null
+      }
+      if (PIPELINE_END_STATUSES.includes(normalized.status)) {
+        // 推送事件通常是 progressOnly 快照，终态可能缺少最终 context/videoPath。
+        // 有完整 context 时可直接收尾；否则先拉取一次全量 run context，禁止用残缺事件跳转结果页。
+        // 终态收尾只信任本次快照携带的 context；缓存 context 可能来自旧进度，不能用来产出结果页。
+        const eventContext = contextResult.provided ? contextResult.value : null
+        if (eventContext) {
+          const metaResult = normalizePipelineRunMeta(snapshot)
+          if (metaResult.valid) this.story2videoRunMeta = mergePipelineRunMeta(this.story2videoRunMeta, metaResult)
+          this.applyOrchestrationTerminalStatus(normalized.status, {
+            ...snapshot,
+            status: normalized,
+            context: eventContext,
+            stages: normalized.stages,
+            error: snapshot.error || normalized.error,
+          })
+        } else {
+          void this.updateOrchestrationStatus()
         }
+        return
       }
+      this.clearPipelineProgressStatusError()
+      this.syncPipelineCheckpointState(normalized, this.orchestrationContext)
+      this.openPipelineProgressModal()
       // 事件到达说明 run 活跃：重置 3s 轮询计时，压缩事件+轮询双写竞态窗口
       this.restartOrchestrationPolling()
     },
@@ -3878,11 +4535,47 @@ export default {
       this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
     },
     async updatePipelineStatus() {
-      if (!this.selectedPipeline) return
-      const s = await pipelineStatus(this.selectedPipeline.name)
-      if (s?.code === 0) {
-        this.pipelineRunStatus = s.data || {}
-        this.needsCheckpoint = (s.data?.stages || []).some(st => st.status === 'waiting_approval')
+      const pipelineName = this.selectedPipeline?.name
+      if (!pipelineName || this._s2vAlive === false || !this.pipelineRunId) return { ok: false, reason: 'missing-run-id' }
+      const requestRunId = this.pipelineRunId
+      const requestId = ++this.pipelineStatusRequestId
+      try {
+        const s = await pipelineStatus(pipelineName)
+        if (
+          this._s2vAlive === false
+          || this.selectedPipeline?.name !== pipelineName
+          || this.pipelineRunId !== requestRunId
+          || this.pipelineStatusRequestId !== requestId
+        ) return
+        if (s?.code !== 0 || !s.data) {
+          this.setPipelineProgressStatusError()
+          return
+        }
+        const returnedRunId = typeof s.data.runId === 'string'
+          ? s.data.runId.trim()
+          : (typeof s.data.id === 'string' ? s.data.id.trim() : '')
+        if (!returnedRunId || returnedRunId !== requestRunId) {
+          this.setPipelineProgressStatusError()
+          return { ok: false, reason: 'run-id-mismatch' }
+        }
+        const normalized = normalizePipelineStatusSnapshot(s.data, this.pipelineRunStatus?.stages || this.orchestrationStages)
+        if (!normalized) {
+          this.setPipelineProgressStatusError()
+          return
+        }
+        this.clearPipelineProgressStatusError()
+        normalized.runId = requestRunId
+        this.pipelineRunStatus = normalized
+        this.syncPipelineCheckpointState(normalized, null)
+        if (PIPELINE_TERMINAL_STATUSES.includes(normalized.status)) {
+          this.stopPipelinePolling()
+          this.closePipelineProgressModal()
+          return
+        }
+        this.openPipelineProgressModal()
+      } catch (_error) {
+        if (this._s2vAlive === false || this.selectedPipeline?.name !== pipelineName || this.pipelineRunId !== requestRunId || this.pipelineStatusRequestId !== requestId) return
+        this.setPipelineProgressStatusError()
       }
     },
     async pausePipeline() { await pipelinePause(); await this.updatePipelineStatus() },
@@ -3890,17 +4583,21 @@ export default {
     async pauseOrchestrationPipeline() {
       const runId = this.orchestrationRunId
       if (!runId || this.pauseActionBusy) return
+      const actionRequestId = ++this.orchestrationActionRequestId
       this.pauseActionBusy = true
       try {
         const result = await pipelinePauseRun(runId)
+        if (!this.isCurrentOrchestrationAction(runId, actionRequestId)) return
         if (result?.code !== 0) {
           this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: result?.message })
         }
-        await this.updateOrchestrationStatus()
+        if (this.isCurrentOrchestrationAction(runId, actionRequestId)) await this.updateOrchestrationStatus()
       } catch (error) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: error?.message })
+        if (this.isCurrentOrchestrationAction(runId, actionRequestId)) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: error?.message })
+        }
       } finally {
-        this.pauseActionBusy = false
+        if (this.isCurrentOrchestrationAction(runId, actionRequestId)) this.pauseActionBusy = false
       }
     },
     async resumePipeline() { await pipelineResume(); await this.updatePipelineStatus() },
@@ -3913,10 +4610,17 @@ export default {
     // 运行态 UI 重置（取消/自动后台共用）：仅清理前端轮询与展示状态，不执行引擎操作。
     resetPipelineUiState() {
       this.orchestrationStartRequestId += 1
+      this.orchestrationActionRequestId += 1
+      this.pipelineStatusRequestId += 1
       this.stopPipelinePolling()
+      this.closePipelineProgressModal()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
-      this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
+      this.pipelineRunId = null
+      this.pipelineProgressStatusError = ''
+      this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationContextRunId = null; this.orchestrationError = ''; this.providerWarnings = []
       this.startingPipeline = false
+      this.pauseActionBusy = false
+      this.story2videoResuming = false
       this.dismissedProviderWarnings = false
       this.orchestrationResultPath = null
       this.story2videoRunMeta = null
@@ -3930,18 +4634,67 @@ export default {
       await pipelineCancel()
       this.resetPipelineUiState()
     },
+    isPipelineManualCheckpoint() {
+      if (this.sceneAssetSelectionActive) return true
+      // 保护显式 checkpoint、等待用户状态，以及带 checkpoint 语义的旧暂停阶段；
+      // 普通手动暂停（没有这些证据）仍可按用户意图转入后台。
+      return hasManualPipelineCheckpoint(this.pipelineRunStatus, this.needsCheckpoint, this.orchestrationContext)
+    },
+    openPipelineProgressModal() {
+      if (this._s2vAlive === false || !this.selectedPipeline || !this.pipelineRunStatus) return false
+      const status = this.pipelineRunStatus.status
+      if (!PIPELINE_RUN_STATUSES.includes(status) || PIPELINE_TERMINAL_STATUSES.includes(status)) return false
+      this.pipelineProgressModalOpen = true
+      return true
+    },
+    closePipelineProgressModal() {
+      this.pipelineProgressModalOpen = false
+    },
+    async resetPipelineToNewTaskState({ toastKey, fallbackZh, fallbackEn, durationMs = 4000 } = {}) {
+      this.orchestrationStartRequestId += 1
+      this.pipelineStatusRequestId += 1
+      this.stopPipelinePolling()
+      this.resetPipelineUiState()
+      this.selectedPipeline = null
+      this.view = 'pipelines'
+      if (toastKey) {
+        this.s2vOptionsToast = this.translateWithLocaleFallback(toastKey, fallbackZh, fallbackEn)
+        if (this.s2vOptionsToastTimer) clearTimeout(this.s2vOptionsToastTimer)
+        this.s2vOptionsToastTimer = setTimeout(() => { this.s2vOptionsToast = '' }, durationMs)
+      }
+      try {
+        await this.loadHistory()
+      } catch (_) {
+        // 历史刷新失败不能阻塞新建页复位；下次进入历史记录时再重试。
+      }
+      return true
+    },
+    async detachPipelineToBackground() {
+      if (!this.canDetachPipelineToBackground) return false
+      return this.resetPipelineToNewTaskState({
+        toastKey: 'create.story2video.backgroundDetachedToast',
+        fallbackZh: '任务已转入后台运行，在历史记录中可查看',
+        fallbackEn: 'The task is now running in the background. You can view it in History.',
+      })
+    },
     // 后台恢复/继续一个 run：切到流水线视图并实时跟踪进度（不重置 runId）。
     // run 完成后自动跳转结果页；断点恢复是用户显式继续动作，跳到流水线页并持续拉取运行态。
     // 历史记录中的运行任务由用户显式重新挂回创作页，继续实时查看或断点续跑。
-    async openRunningPipeline(runId, pipelineName, toastKey = 'create.story2video.backgroundResumeToast') {
+    async openRunningPipeline(runId, pipelineName, toastKey = 'create.story2video.backgroundResumeToast', outcome = {}) {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false
       // 只停止已有轮询，不得调用 resetPipelineUiState（会把 orchestrationRunId 清成 null）
       this.stopPipelinePolling()
+      this.closePipelineProgressModal()
+      this.orchestrationActionRequestId += 1
+      this.pauseActionBusy = false
+      this.story2videoResuming = false
       this.orchestrationRunId = normalizedRunId
       this.orchestrationResultPath = null
       this.orchestrationError = ''
       this.orchestrationContext = null
+      this.orchestrationContextRunId = null
+      this.story2videoRunMeta = createPipelineRunMetaFromSnapshot(outcome)
       this.orchestrationStages = this.getDefaultPipelineStages(pipelineName)
       this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
       this.view = 'pipelines'
@@ -3952,7 +4705,9 @@ export default {
         )
       }
       await this.updateOrchestrationStatus()
-      if (this.orchestrationRunId && this.pipelineRunStatus?.status !== 'failed' && !this.pollTimer) {
+      if (this._s2vAlive === false || this.orchestrationRunId !== normalizedRunId || this.view !== 'pipelines') return false
+      this.openPipelineProgressModal()
+      if (this._s2vAlive !== false && this.orchestrationRunId && !PIPELINE_TERMINAL_STATUSES.includes(this.pipelineRunStatus?.status) && !this.pollTimer) {
         this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
       }
       return true
@@ -3965,15 +4720,20 @@ export default {
       if (!normalizedRunId) return false
       // 只停止已有轮询，不得调用 resetPipelineUiState（会把 orchestrationRunId 清成 null）
       this.stopPipelinePolling()
+      this.closePipelineProgressModal()
+      this.orchestrationActionRequestId += 1
+      this.pauseActionBusy = false
+      this.story2videoResuming = false
       this.orchestrationRunId = normalizedRunId
       this.orchestrationResultPath = null
       this.orchestrationError = ''
-      this.orchestrationContext = (outcome && typeof outcome === 'object' && outcome.context) ? outcome.context : null
+      this.orchestrationContext = (outcome && typeof outcome === 'object' && outcome.context && typeof outcome.context === 'object' && !Array.isArray(outcome.context)) ? outcome.context : null
+      this.orchestrationContextRunId = this.orchestrationContext ? normalizedRunId : null
       // 每条新 run 都从干净的前端展示态开始；不影响主进程中已启动的任务。
       this.needsCheckpoint = false
       this.providerWarnings = []
       this.dismissedProviderWarnings = false
-      this.story2videoRunMeta = null
+      this.story2videoRunMeta = createPipelineRunMetaFromSnapshot(outcome)
       this.sceneAssetSelectionActive = false
       this.sceneAssetCandidates = []
       this.sceneAssetSelectionError = ''
@@ -3989,7 +4749,9 @@ export default {
         4000
       )
       await this.updateOrchestrationStatus()
-      if (this._s2vAlive !== false && this.orchestrationRunId && this.pipelineRunStatus?.status !== 'failed' && !this.pollTimer) {
+      if (this._s2vAlive === false || this.orchestrationRunId !== normalizedRunId || this.view !== 'pipelines') return false
+      this.openPipelineProgressModal()
+      if (this._s2vAlive !== false && this.orchestrationRunId && !PIPELINE_TERMINAL_STATUSES.includes(this.pipelineRunStatus?.status) && !this.pollTimer) {
         this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
       }
       return true
@@ -3997,10 +4759,16 @@ export default {
     async showOrchestrationCheckpoint(runId, pipelineName, outcome = {}) {
       const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
       if (!normalizedRunId) return false
+      this.closePipelineProgressModal()
+      this.orchestrationActionRequestId += 1
+      this.pauseActionBusy = false
+      this.story2videoResuming = false
       this.orchestrationRunId = normalizedRunId
       this.orchestrationResultPath = null
       this.orchestrationError = ''
-      this.orchestrationContext = outcome.context || null
+      this.orchestrationContext = outcome.context && typeof outcome.context === 'object' && !Array.isArray(outcome.context) ? outcome.context : null
+      this.orchestrationContextRunId = this.orchestrationContext ? normalizedRunId : null
+      this.story2videoRunMeta = createPipelineRunMeta(outcome?.createdAt)
       this.pipelineRunStatus = {
         ...(outcome.status && typeof outcome.status === 'object' ? outcome.status : {}),
         status: 'paused',
@@ -4014,7 +4782,9 @@ export default {
       this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
       this.view = 'pipelines'
       await this.updateOrchestrationStatus()
-      if (this.orchestrationRunId && this.pipelineRunStatus?.status !== 'failed' && !this.pollTimer) {
+      if (this._s2vAlive === false || this.orchestrationRunId !== normalizedRunId || this.view !== 'pipelines') return false
+      this.openPipelineProgressModal()
+      if (this._s2vAlive !== false && this.orchestrationRunId && !PIPELINE_TERMINAL_STATUSES.includes(this.pipelineRunStatus?.status) && !this.pollTimer) {
         this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
       }
       return true
@@ -4257,13 +5027,17 @@ export default {
       try {
         const r = await settleHistoryRequest(() => pipelineHistory())
         if (!r || r.code !== 0 || !Array.isArray(r.data)) return
-        const runningById = new Map(r.data.filter(item => item && item.status === 'running').map(item => [item.id, item]))
+        const runningById = new Map(r.data
+          .filter(item => item && item.status === 'running')
+          .map(item => [this.historyRunId(item), item])
+          .filter(([runId]) => Boolean(runId)))
         const list = this.history || []
         let finishedTransition = false
         for (let i = list.length - 1; i >= 0; i--) {
           const item = list[i]
           if (!item || item.status !== 'running') continue
-          const fresh = runningById.get(item.id)
+          const runId = this.historyRunId(item)
+          const fresh = runningById.get(runId)
           if (fresh) {
             item.stages = Array.isArray(fresh.stages) && fresh.stages.length ? fresh.stages : item.stages
             item.currentStage = fresh.currentStage ?? item.currentStage
@@ -4273,7 +5047,7 @@ export default {
             item.activeMs = fresh.activeMs ?? item.activeMs
             item.activeSegmentStartedAt = fresh.activeSegmentStartedAt ?? item.activeSegmentStartedAt ?? null
             item.updatedAt = fresh.updatedAt ?? item.updatedAt
-            runningById.delete(item.id)
+            runningById.delete(runId)
           } else {
             // 运行已结束（完成/失败/取消）：触发一次完整加载，
             // 让该任务以终态（已完成/失败/已取消）继续留在历史中，而不是直接消失。
@@ -4768,9 +5542,10 @@ export default {
   },
   beforeUnmount() {
     this._s2vAlive = false
+    this.stopPipelinePolling()
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this._settingsDialogUnwatch) { this._settingsDialogUnwatch(); this._settingsDialogUnwatch = null }
-    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null }
+    if (this.s2vOptionsToastTimer) { clearTimeout(this.s2vOptionsToastTimer); this.s2vOptionsToastTimer = null }
     if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
     if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }
     if (this.s2vBatchPollTimer) { clearInterval(this.s2vBatchPollTimer); this.s2vBatchPollTimer = null }

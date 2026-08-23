@@ -44,7 +44,7 @@ describe('Story2Video fast-mode UI contract', () => {
   it('renders stage checklist instead of Story2Video percentage progress', () => {
     expect(source).toContain('data-testid="story2video-stage-list"')
     expect(source).toContain('story2video-stage-${stage.name || index}')
-    expect(source).toContain("!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress")
+    expect(source).toContain("!isOrchestratedPipeline(selectedPipeline?.name) && pipelineProgressStages.length === 0 && pipelineRunStatus && pipelineRunStatus.progress")
   })
 
   it('阶段迷你进度条通用渲染（任意阶段带合法 percent；compose 保留既有 testid）', () => {

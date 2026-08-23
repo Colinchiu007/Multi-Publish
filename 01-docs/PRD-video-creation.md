@@ -3321,6 +3321,17 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 - 分镜复制、批量复制、JSON/Markdown 导出、剧本套用、生成入口不再出现“提交的数据不符合要求”。
 - 点击分镜卡可打开详情抽屉并显示提示词正文。
 - 打包 Electron 应用运行 `test:e2e:film-engineering` 达到 24/24 PASS。
+#### 视频流水线统一进度弹窗与后台脱离合同（2026-08-23）
+
+视频创作页面中只要存在可观察的流水线阶段状态，就使用统一进度弹窗承载完整详情。弹窗采用 `UiModal` 的 progress variant，桌面最大宽度 `960px`，最大高度按视口减去固定操作条空间计算，body 独立滚动；总进度、已用时、摘要、阶段状态/详情/耗时/子进度、合成时间说明、provider warning、BGM 跳过提示、checkpoint 和素材选择均保留。历史页仍显示轻量阶段摘要，不复制可操作的完整进度面板。
+
+启动或历史续跑得到合法非空 `runId` 后，renderer 以该 run 建立 3 秒轮询和 `pipeline:update` 推送观察。用户点击【后台运行】或右上角关闭时，先递增 request/action generation，停止轮询并清除 renderer 展示态，恢复新建任务页面，显示“任务已转入后台运行，在历史记录中可查看”，随后刷新历史；该动作不调用 `pipelineCancel`，不释放主进程并发槽位，后台 run 继续执行。弹窗遮罩和 Escape 均不可关闭，关闭只允许右上角按钮，离场包含缩小缩放。
+
+输入合同：`runId` 必须是 trim 后非空字符串；阶段列表必须为数组；阶段和上下文字段按对象/数组类型守卫；所有 progress 数值必须为有限值并归一化到 `0..100`；JSON 数字字符串可读取，非法值隐藏或安全回退。启动、恢复、轮询、push 和暂停响应均验证 runId、请求代际和组件存活，旧响应不得污染新建状态。
+
+人工检查点是明确例外：`scene_asset_selection`、`content_policy`、`waiting_approval`、`needs_user_input` 或 `needsCheckpoint=true` 时不显示后台按钮，右上角关闭 disabled，弹窗必须保留选择/修改/取消交互；旧快照即使只有状态枚举、没有 checkpoint 对象，也按人工检查点保护。
+
+普通非编排流水线没有稳定 run identity 时只复用该视觉弹窗和安全清理，不声明按 run 的恢复/取消能力；新增此能力必须先补主进程 runId/API 合同和跨端回归。
 
 
 
