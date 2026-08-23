@@ -58,4 +58,3 @@ PromptBridge/ServiceBus 的图片与视频提示词优化 SHALL 抽取 `provider
 #### Scenario: 非额度 HTTP 失败保持现状
 - **WHEN** prompt-engine 网络/HTTP 失败且无 quota 信号
 - **THEN** 保留现有 CLI/legacy fallback 语义
-

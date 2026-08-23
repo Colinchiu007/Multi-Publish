@@ -17,4 +17,3 @@
 - [x] commit、push、PR、CI 全绿
 - [x] 合并回 main，核对 merge SHA
 - [x] openspec validate/archive + CCG archive + learnings 三同步
-

@@ -30,4 +30,3 @@ Story2Video SHALL 对同一 `(providerId, voiceId)` 的克隆音色恢复最多�
 #### Scenario: 无映射时恢复为新运行
 - **WHEN** context 无 voice_recovery 映射
 - **THEN** 仍允许本运行按去重规则执行一次 cloneVoice
-
