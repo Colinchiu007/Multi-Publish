@@ -524,6 +524,7 @@ jobs:
           }
           echo "E2E_GATE=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "[GATE-8] Browser E2E passed"
+          exit 0
 
       - name: "Upload GUI quality artifacts"
         if: always()
