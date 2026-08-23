@@ -19,7 +19,7 @@
  *   - 双向约束字段收敛（excluded_characters / no_swap_pairs / color_ratio）+ 多切时间块（shots[]/beats[]）
  *   - 收尾参数行 appendVideoTrailer + 平台参数画像（PLATFORM_VIDEO_PROFILES）
  *   - 结构完整性 fail-closed 校验（声明排除/防替换但正文无引用协议标记 → 拒绝）
- *   - 精修层 max_length 层级语义（按后端能力门控：8013 [50,2000] / 8020 [200,20000]）
+ *   - 精修层 max_length 层级语义（按后端能力门控：8013 [50,2000] / 8020 [200,40000]）
  *
  * ⚠️ 与图片提示词契约刻意分文件、分命名，避免混淆（共享逻辑经 kernel）。
  */
@@ -71,7 +71,15 @@ const VIDEO_ENGINE_LIMITS = Object.freeze({
   transitionMax: 50,
   continuityTokenMax: 100,
   positiveConstraintsMax: 10,
-  finalFrameMax: 500,
+  finalFrameMax: 1000,
+  prevFinalFrameMax: 1000,
+  blockValueMax: 4000,
+  // Round3 C：导演分镜块骨架白名单（12 键，与引擎 refined_blocks 渲染骨架同源）
+  blockKeys: Object.freeze([
+    'SCENE NOTE', 'SPATIAL LAYOUT', 'LIGHTING', 'COLOR', 'CAMERA',
+    'ENVIRONMENT', 'CONTINUITY', 'CHARACTERS', 'SKIN', 'ACTING',
+    'STILLNESS LOCK', 'FINAL FRAME',
+  ]),
   // video-content-fidelity S4：context 白名单键与长度上限（对齐 prompt-engine OptimizeRequest.context 已知键）
   contextKeys: Object.freeze(['synopsis', 'character', 'setting', 'character_list', 'full_text']),
   contextKeyMax: Object.freeze({ synopsis: 500, character: 500, setting: 500, full_text: 2000, character_list: 10 }),
@@ -89,13 +97,13 @@ const VIDEO_ENGINE_LIMITS = Object.freeze({
   // 常规层默认对齐 8020 引擎默认（video_prompt_engine/models.py max_length 默认 1800）；
   // 旧契约发 500（PROMPT_ENGINE_LIMITS.maxLength.default）与引擎默认失配，500 字符装不下 batch 层 100 词下界
   videoMaxLengthBatchDefault: 1800,
-  // 精修层目标上限（引擎侧 video_prompt_engine/models.py le=20000 已对齐）：容纳 500-5000 词导演分镜单
-  videoMaxLengthMax: 20000,
+  // 精修层目标上限（引擎侧 video_prompt_engine/models.py le=40000 已对齐）：容纳 500-5000 词导演分镜单
+  videoMaxLengthMax: 40000,
   // 目标后端能力范围（防 422，评审 C1 证据）：8013 prompt_engine/models.py ge=50/le=2000；
-  // 8020 video_prompt_engine/models.py ge=200/le=20000（Higgsfield P0 边界上浮，tasks 4.4）
+  // 8020 video_prompt_engine/models.py ge=200/le=40000（2026-08-16 上界 20000→40000）
   videoMaxLengthRanges: Object.freeze({
     legacy: Object.freeze({ min: 50, max: 2000 }),
-    standalone: Object.freeze({ min: 200, max: 20000 }),
+    standalone: Object.freeze({ min: 200, max: 40000 }),
   }),
 })
 
@@ -166,6 +174,40 @@ function _normalizeVideoNumCandidates (value) {
  */
 const BUILT_IN_VIDEO_NO_TEXT_NEGATIVE = 'clean frame, no text, no subtitles, no watermarks, no logos, no text overlays, no burned-in text, no characters or letters rendered in the frame, no watermark artifacts';
 
+/**
+ * 跨镜承接上镜终态归一：非字符串丢弃；trim 后空丢弃；>1000 按句截断（句子边界优先，兜底硬截断）。
+ * @param {unknown} value
+ * @returns {string | undefined}
+ */
+function normalizePrevFinalFrame (value) {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  if (trimmed.length <= VIDEO_ENGINE_LIMITS.prevFinalFrameMax) return trimmed
+  // 按句截断：在 1000 字符窗口内回溯最近句末，避免恰好落在下一句中间时切断实体；无句末才硬截断
+  const head = trimmed.slice(0, VIDEO_ENGINE_LIMITS.prevFinalFrameMax)
+  let sentenceEnd = -1
+  const re = /[。！？.!?；;][\s）)」』”]*/gu
+  for (const match of head.matchAll(re)) sentenceEnd = match.index + match[0].trimEnd().length
+  // 仅剩 1 个字符（如 head 以单个句号开头）时视为退化，回退硬截断保底完整 1000 字符
+  return sentenceEnd > 1 ? head.slice(0, sentenceEnd) : head
+}
+
+/**
+ * 导演分镜块骨架归一（Round3 C）：12 键白名单 + 字符串值 trim/截断 4000；非法键/非字符串丢弃；空 → undefined。
+ * @param {unknown} value
+ * @returns {object | undefined}
+ */
+function normalizeVideoBlocks (value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const out = {}
+  for (const key of VIDEO_ENGINE_LIMITS.blockKeys) {
+    const raw = value[key]
+    if (typeof raw === 'string' && raw.trim()) out[key] = raw.trim().slice(0, VIDEO_ENGINE_LIMITS.blockValueMax)
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 function normalizeVideoContext (context) {
   if (!context || typeof context !== 'object' || Array.isArray(context)) return undefined
   const out = {}
@@ -215,6 +257,9 @@ function buildVideoOptimizeRequest (prompt, options = {}) {
     ),
     num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }
+
+  // Round3 B 跨镜承接：prev_final_frame 仅由独立视频引擎（8020）消费；
+  // 8013 兼容后端不支持该字段，构造时剥离（与 output_language/model 同先例），8020 路径见 buildStandaloneVideoOptimizeRequest
 
   if (styleRaw) {
     request.style = normalizePromptEngineStyle(styleRaw)
@@ -343,7 +388,7 @@ function _detectOutputLanguage (texts) {
 
 /**
  * 构造独立视频引擎（8020）请求体 — VideoOptimizeRequest（无 domain 字段）。
- * 平台/风格/边界收敛与 8013 共用同一归一化；max_length 按 8020 能力范围 [200,20000] 门控；
+ * 平台/风格/边界收敛与 8013 共用同一归一化；max_length 按 8020 能力范围 [200,40000] 门控；
  * output_language 解析：显式参数 → 目标平台集合（国产模型 zh / 国外模型 en）→ model 关键词兜底 → 文本 CJK 自动检测。
  * @param {string} prompt
  * @param {object} [options]
@@ -369,6 +414,10 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
     ),
     num_candidates: _normalizeVideoNumCandidates(options.num_candidates ?? options.numCandidates),
   }
+
+  // Round3 B：跨镜承接上镜终态（非字符串丢弃、trim 空丢弃、>1000 按句截断）
+  const prevFinalFrame = normalizePrevFinalFrame(options.prev_final_frame)
+  if (prevFinalFrame) request.prev_final_frame = prevFinalFrame
 
   if (styleRaw) {
     request.style = normalizePromptEngineStyle(styleRaw)
@@ -409,6 +458,8 @@ function buildStandaloneVideoOptimizeRequest (prompt, options = {}) {
 
 /**
  * 归一化响应中的 video 结构化字段；越界收敛、缺失给默认值。
+ * final_frame 为「计划终态」提示词元数据（供跨镜承接 prev_final_frame 链复用），
+ * 非解码输出视频的证据（是否真正落到画面需以实际生成产物为准）。
  * 导演工作流字段（video-prompt-higgsfield-mechanics）：excluded_characters / no_swap_pairs /
  * color_ratio / shots[]（含 beats[]）——非法输入丢弃而非抛出，超限截断。
  * @param {unknown} raw
@@ -444,6 +495,9 @@ function normalizeVideoMeta (raw) {
   if (typeof raw.final_frame === 'string' && raw.final_frame.trim()) {
     video.final_frame = raw.final_frame.trim().slice(0, VIDEO_ENGINE_LIMITS.finalFrameMax)
   }
+  // Round3 C：导演分镜块骨架回显（12 键白名单 + 值 ≤4000；缺失/非法丢弃，零回归）
+  const blocks = normalizeVideoBlocks(raw.blocks)
+  if (blocks) video.blocks = blocks
 
   const excluded = _normalizeExcludedCharacters(raw.excluded_characters)
   if (excluded) video.excluded_characters = excluded
@@ -658,7 +712,7 @@ function _assertReferenceProtocol (result, video, opts = {}) {
  *
  * @param {unknown} result - PromptBridge._post 的解析结果
  * @param {{ index?: number, maxLength?: number, warn?: (msg: string) => void }} [opts]
- * @returns {{ ok: true, prompt: string, meta: object, video: object | null, truncated: boolean } | { ok: false, error: string }}
+ * @returns {{ ok: true, prompt: string, meta: object, video: object | null, engine_source: 'standalone-8020' | 'legacy-8013' | 'unknown', truncated: boolean } | { ok: false, error: string }}
  */
 function extractOptimizedVideoPrompt (result, opts = {}) {
   const base = extractOptimizedBase(result, { ...opts, engineLabel: '视频' })
@@ -666,9 +720,15 @@ function extractOptimizedVideoPrompt (result, opts = {}) {
   const video = normalizeVideoMeta(result && typeof result === 'object' ? result.video : undefined)
   const integrityError = _assertReferenceProtocol(result, video, opts)
   if (integrityError) return { ok: false, error: integrityError }
-  const meta = { ...base.meta }
+  // PromptBridge 在响应外层附加的后端来源标记（不进入发送给引擎的 payload）
+  const engineSource = result && typeof result === 'object' && !Array.isArray(result)
+    ? (result._prompt_engine_backend === 'standalone-8020' || result._prompt_engine_backend === 'legacy-8013'
+        ? result._prompt_engine_backend
+        : 'unknown')
+    : 'unknown'
+  const meta = { ...base.meta, engine_source: engineSource }
   if (video) meta.video = video
-  return { ok: true, prompt: base.prompt, meta, video, truncated: base.truncated }
+  return { ok: true, prompt: base.prompt, meta, video, engine_source: engineSource, truncated: base.truncated }
 }
 
 module.exports = {
@@ -684,6 +744,7 @@ module.exports = {
   normalizeVideoDomain,
   normalizeVideoPlatform,
   normalizeVideoContext,
+  normalizePrevFinalFrame,
   normalizeVideoMeta,
   getVideoProfile,
   appendVideoTrailer,

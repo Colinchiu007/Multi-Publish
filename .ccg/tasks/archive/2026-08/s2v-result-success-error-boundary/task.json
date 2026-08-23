@@ -1,0 +1,17 @@
+{
+  "id": "s2v-result-success-error-boundary",
+  "title": "修复 Story2Video 合成成功后的结果页误报",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "归档 OpenSpec change 与 CCG task",
+  "openspecChange": "s2v-result-success-error-boundary",
+  "createdAt": "2026-08-15T00:00:00Z",
+  "branch": "codex/s2v-result-success-error-boundary",
+  "remoteStatus": "merged",
+  "pullRequest": 854,
+  "mergeCommit": "9035c886117c5ec8d0fe4e735d270e7b4a35f585",
+  "mergedAt": "2026-08-15T08:55:13Z"
+}

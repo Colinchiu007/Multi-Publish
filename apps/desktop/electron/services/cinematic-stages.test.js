@@ -70,5 +70,30 @@ describe('cinematic 阶段执行器', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('需要有效的合成产物')
     })
+
+    it('render 上报开始与结构化完成摘要', async () => {
+      const outputDir = require('path').join(require('os').tmpdir(), 'story2video', 'cinematic-progress-' + Date.now())
+      const inputPath = require('path').join(outputDir, 'composed.mp4')
+      require('fs').mkdirSync(outputDir, { recursive: true })
+      require('fs').writeFileSync(inputPath, 'video')
+      const events = []
+      try {
+        const { get } = makePipeline()
+        const result = await get(CINEMATIC_STAGE_TYPES.RENDER)({
+          runId: 'progress-' + Date.now(),
+          stage: {},
+          params: {},
+          context: { compose: { composedPath: inputPath, duration: 6 } },
+          onProgress: event => events.push(event),
+        })
+        expect(result.success).toBe(true)
+        expect(events).toEqual([
+          expect.objectContaining({ percent: 0, messageKey: 'stageProgress.cinematicRender' }),
+          expect.objectContaining({ percent: 100, summaryKey: 'stageProgress.cinematicRenderSummary', detail: { done: 1, total: 1, kind: 'video' } }),
+        ])
+      } finally {
+        require('fs').rmSync(outputDir, { recursive: true, force: true })
+      }
+    })
   })
 })

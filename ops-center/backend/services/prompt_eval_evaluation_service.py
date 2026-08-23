@@ -3,10 +3,45 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 
 import httpx
 
 from services import prompt_eval_contract as contract
+
+_THINK_RE = re.compile("<think>.*?</think>", re.S)
+
+
+def _strip_think(text: str) -> str:
+    """剥离推理模型（如 MiniMax-M3）的 <think>...</think> 思维链，含未闭合尾部。"""
+    stripped = _THINK_RE.sub("", text or "")
+    tail = stripped.rfind("<think>")
+    if tail != -1 and "</think>" not in stripped[tail:]:
+        stripped = stripped[:tail]
+    return stripped.strip()
+
+
+def _extract_json_text(text: str) -> str:
+    """从 LLM 输出中提取 JSON 文本：优先 ```json 围栏，否则取首个 { 到最后一个 }。"""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.startswith("json"):
+            text = text[4:].strip()
+        return text
+    fence = text.find("```")
+    if fence != -1:
+        after = text[fence + 3:].strip()
+        if after.startswith("json"):
+            after = after[4:].strip()
+        end = after.find("```")
+        if end != -1:
+            return after[:end].strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        return text[start:end + 1]
+    return text
 
 EVAL_SYSTEM = (
     "你是专业的 AI 生成图像评估专家。你负责评估「提示词优化引擎」的输出效果："
@@ -19,7 +54,9 @@ class EvaluationError(Exception):
     pass
 
 
-def build_eval_prompt(source_text: str, context: str | None, prompt_zh: str, prompt_en: str | None, image_count: int) -> str:
+def build_eval_prompt(source_text: str, context: str | None, prompt_zh: str, prompt_en: str | None, image_count: int, media_type: str = "image") -> str:
+    if media_type == "video":
+        return _build_video_eval_prompt(source_text, context, prompt_zh, prompt_en)
     dims = contract.resolve_dimension_weights(image_count)
     cross = image_count >= 2
     dimension_lines = [
@@ -41,8 +78,31 @@ def build_eval_prompt(source_text: str, context: str | None, prompt_zh: str, pro
         "【评分标准】（每个维度 0-100 整数）",
         *dimension_lines,
         "【输出 JSON 契约】",
-        '{ "overall": 0-100整数, "dimensions": [ { "id": "' + dim_ids + '", "score": 0-100整数, "evidence": "非空", "issues": [], "suggestions": [] } ], "problems": [], "promptOptimizationPoints": [] }',
-        "【约束】problems 与 promptOptimizationPoints 可以为空数组但不得省略键；分数必须 0-100 整数；evidence 必须引用图片中实际可见的内容。",
+        '{ "overall": 0-100整数, "dimensions": [ { "id": "' + dim_ids + '", "score": 0-100整数, "evidence": "非空", "issues": [], "suggestions": [] } ], "problems": [ { "severity": "critical|major|minor", "category": "content_missing|content_wrong|style_deviation|layout_composition|color_lighting|text_rendering|ambiguity|context_loss|consistency_break|quality_defect|unknown", "description": "非空问题描述", "promptPart": "source_text|context|optimized_prompt|negative_prompt|unknown" } ], "promptOptimizationPoints": [ { "type": "add_specificity|resolve_ambiguity|enforce_style|align_context|add_negative|structure_ordering|consistency_anchor", "suggestion": "非空优化建议" } ] }',
+        "【约束】problems 每项必须是对象（含 severity/category/description/promptPart 四个键），promptOptimizationPoints 每项必须是对象（含 type/suggestion 两个键）；可以为空数组但不得省略键；分数必须 0-100 整数；evidence 必须引用图片中实际可见的内容。",
+    ])
+
+
+def _build_video_eval_prompt(source_text: str, context: str | None, prompt_zh: str, prompt_en: str | None) -> str:
+    """视频评估模板：固定 4 视频维度，输入为首/中/尾 3 帧（按帧序列判断时序与运动）。"""
+    dims = contract.resolve_video_dimension_weights()
+    dim_ids = "|".join(d["id"] for d in dims)
+    return "\n".join([
+        "【角色】" + EVAL_SYSTEM,
+        "【输入快照】",
+        f"- 原始文案：{source_text or ''}",
+        f"- 文案上下文：{context or '（未提供）'}",
+        f"- 优化后的提示词（中文）：{prompt_zh or ''}",
+        f"- 优化后的提示词（英文对照）：{prompt_en or '（未提供）'}",
+        "- 视频抽帧：3 张（首/中/尾，按时间顺序），代表生成的视频片段",
+        "【评分标准】（每个维度 0-100 整数）",
+        "1. temporal_consistency 时序一致性（权重 30%）：首/中/尾三帧之间主体、场景、动作是否时序连续，无跳变、闪烁或突变。",
+        "2. motion_accuracy 运动准确性（权重 30%）：动作与运动轨迹是否符合提示词描述（运动方式/方向/速度），是否出现形变、扭曲或不合理运动。",
+        "3. audio_visual_sync 音画同步（权重 20%）：画面叙事节奏与同步线索是否协调（基于画面帧评估；独立音轨评估为后续版本）。",
+        "4. video_aesthetic_quality 视频审美质量（权重 20%）：构图、光影、色彩、镜头运动、画质细节与风格执行度。",
+        "【输出 JSON 契约】",
+        '{ "overall": 0-100整数, "dimensions": [ { "id": "' + dim_ids + '", "score": 0-100整数, "evidence": "非空", "issues": [], "suggestions": [] } ], "problems": [ { "severity": "critical|major|minor", "category": "content_missing|content_wrong|style_deviation|layout_composition|color_lighting|text_rendering|ambiguity|context_loss|consistency_break|quality_defect|unknown", "description": "非空问题描述", "promptPart": "source_text|context|optimized_prompt|negative_prompt|unknown" } ], "promptOptimizationPoints": [ { "type": "add_specificity|resolve_ambiguity|enforce_style|align_context|add_negative|structure_ordering|consistency_anchor", "suggestion": "非空优化建议" } ] }',
+        "【约束】problems 每项必须是对象（含 severity/category/description/promptPart 四个键），promptOptimizationPoints 每项必须是对象（含 type/suggestion 两个键）；可以为空数组但不得省略键；分数必须 0-100 整数；evidence 必须引用帧中实际可见的内容，时序/运动判断必须基于三帧之间的差异。",
     ])
 
 
@@ -62,19 +122,15 @@ def build_vision_messages(prompt: str, images: list[bytes]) -> list[dict]:
     return [{"role": "user", "content": content}]
 
 
-def parse_and_validate(raw: str, image_count: int) -> dict:
+def parse_and_validate(raw: str, image_count: int, media_type: str = "image") -> dict:
     """解析评估 LLM 输出并 fail closed 校验，返回归一化结果。"""
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:].strip()
+    text = _extract_json_text(_strip_think(raw))
     try:
         parsed = json.loads(text)
     except Exception as e:
         raise EvaluationError(f"评估输出不是合法 JSON: {e}")
     try:
-        contract.validate_eval_result(parsed, image_count)
+        contract.validate_eval_result(parsed, image_count, media_type=media_type)
     except ValueError as e:
         raise EvaluationError(str(e))
     return {

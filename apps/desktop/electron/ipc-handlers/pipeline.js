@@ -6,7 +6,7 @@
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
-  const { pipelineEngine, BrowserWindow, log } = deps
+  const { pipelineEngine, BrowserWindow, log, story2videoBatchQueue, dialog } = deps
 
   ipcMain.handle('pipeline:list', withSenderCheck(() => {
     try {
@@ -75,6 +75,15 @@ function registerHandlers(ipcMain, deps) {
       const history = pipelineEngine.getHistory()
       return { code: 0, data: Array.isArray(history) ? history : [] }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+  }))
+
+  ipcMain.handle('pipeline:delete-run', withSenderCheck((_event, runId) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
+    try {
+      const result = pipelineEngine.deleteRun(runId)
+      if (result && result.success) return { code: 0, data: { deleted: true, runId: result.runId } }
+      return { code: EC.REQUEST_ERROR, message: (result && result.error) || '删除运行记录失败' }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
   ipcMain.handle('pipeline:fetch', withSenderCheck(async (_event, name) => {
@@ -171,6 +180,16 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
+  // 按 runId 暂停指定运行（2026-08-16：视频任务编辑页手动暂停，保存检查点可断点续跑）
+  ipcMain.handle('pipeline:pause-run', withSenderCheck((_event, runId) => {
+    if (typeof runId !== 'string' || !runId.trim()) return { code: EC.VALIDATION_ERROR, message: '缺少或非法 runId' }
+    try {
+      const result = pipelineEngine.pauseRun(runId)
+      if (result && result.success) return { code: 0, data: result }
+      return { code: EC.REQUEST_ERROR, message: (result && result.error) || '暂停流水线失败' }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
   ipcMain.handle('pipeline:resumeFromCheckpoint', withSenderCheck(() => {
     try {
       return { code: 0, data: pipelineEngine.resumeFromCheckpoint() }
@@ -187,6 +206,85 @@ function registerHandlers(ipcMain, deps) {
     try {
       return { code: 0, data: pipelineEngine.registerStageExecutor(stageType, fn) }
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  // ---- Story2Video 批量创作（openspec story2video-batch-create）----
+
+  ipcMain.handle('story2video:batch:create', withSenderCheck(async (_event, payload) => {
+    if (!story2videoBatchQueue || typeof story2videoBatchQueue.createBatch !== 'function') {
+      return { code: EC.REQUEST_ERROR, message: '批量创作队列服务不可用' }
+    }
+    if (payload === undefined || payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      return { code: EC.VALIDATION_ERROR, message: '批量创作参数必须为对象' }
+    }
+    try {
+      const result = await story2videoBatchQueue.createBatch(payload)
+      if (result && result.success) {
+        return { code: 0, data: { batchId: result.batchId, items: result.items } }
+      }
+      return {
+        code: EC.VALIDATION_ERROR,
+        message: (result && result.error) || '批量创作创建失败',
+        errorCode: result && result.errorCode ? result.errorCode : undefined,
+        errorParams: result && result.errorParams ? result.errorParams : undefined,
+        failedItems: result && Array.isArray(result.failedItems) ? result.failedItems : undefined,
+      }
+    } catch (err) {
+      log.error('[pipeline] story2video batch create error:', err)
+      return { code: EC.REQUEST_ERROR, message: err.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:batch:status', withSenderCheck(() => {
+    if (!story2videoBatchQueue || typeof story2videoBatchQueue.getBatches !== 'function') {
+      return { code: EC.REQUEST_ERROR, message: '批量创作队列服务不可用', data: [] }
+    }
+    try {
+      return { code: 0, data: story2videoBatchQueue.getBatches() }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message, data: [] } }
+  }))
+
+  ipcMain.handle('story2video:batch:cancel', withSenderCheck((_event, payload) => {
+    if (!story2videoBatchQueue || typeof story2videoBatchQueue.cancelBatchItems !== 'function') {
+      return { code: EC.REQUEST_ERROR, message: '批量创作队列服务不可用' }
+    }
+    if (payload === undefined || payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      return { code: EC.VALIDATION_ERROR, message: '批量取消参数必须为对象' }
+    }
+    if (typeof payload.batchId !== 'string' || !payload.batchId.trim()) {
+      return { code: EC.VALIDATION_ERROR, message: '缺少或非法 batchId' }
+    }
+    try {
+      const result = story2videoBatchQueue.cancelBatchItems(payload.batchId, payload.itemIds)
+      if (result && result.success) return { code: 0, data: result }
+      return {
+        code: EC.VALIDATION_ERROR,
+        message: (result && result.error) || '批量任务不存在',
+        errorCode: result && result.errorCode ? result.errorCode : undefined,
+      }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  ipcMain.handle('story2video:pick-batch-files', withSenderCheck(async (_event) => {
+    const dialogApi = dialog || (() => { try { return require('electron').dialog } catch { return null } })()
+    if (!dialogApi || typeof dialogApi.showOpenDialog !== 'function') {
+      return { code: EC.REQUEST_ERROR, message: '文件选择对话框不可用' }
+    }
+    try {
+      const result = await dialogApi.showOpenDialog({
+        title: '选择批量创作文案文件',
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: '文本文件', extensions: ['txt', 'md'] }],
+      })
+      if (!result || result.canceled === true || !result.filePaths || result.filePaths.length === 0) {
+        return { code: 0, data: { files: [] } }
+      }
+      const nodePath = require('path')
+      const files = result.filePaths.map((filePath) => ({ path: filePath, name: nodePath.basename(filePath) }))
+      return { code: 0, data: { files } }
+    } catch (e) {
+      return { code: EC.REQUEST_ERROR, message: e.message }
+    }
   }))
 
   // ---- 阶段进度实时推送（openspec pipeline-progress-real-time-push）----

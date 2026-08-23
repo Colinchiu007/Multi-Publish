@@ -14,6 +14,8 @@
 
 'use strict'
 
+const { emitStageStart, emitStageComplete } = require('./stage-progress')
+
 const DOCUMENTARY_STAGE_TYPES = {
   RESEARCH: 'documentary_research',
   INGEST: 'documentary_ingest',
@@ -195,7 +197,7 @@ function registerDocumentaryStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     DOCUMENTARY_STAGE_TYPES.RESEARCH,
-    async ({ stage, params }) => {
+    async ({ stage, params, onProgress }) => {
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) {
         return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
@@ -206,7 +208,12 @@ function registerDocumentaryStages (pipelineEngine) {
       }
       const { system, user } = buildResearchPrompt(topic, stage.options || {})
       try {
+        emitStageStart(onProgress, { messageKey: 'stageProgress.documentaryResearch' })
         const outline = await callDefaultLlm(aiGenerator, system, user)
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.documentaryResearchComplete',
+          summaryKey: 'stageProgress.documentaryResearchSummary',
+        })
         return { success: true, output: outline }
       } catch (error) {
         return { success: false, error: 'research 失败：' + (error && error.message ? error.message : String(error)) }
@@ -220,7 +227,7 @@ function registerDocumentaryStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     DOCUMENTARY_STAGE_TYPES.INGEST,
-    async ({ stage, context }) => {
+    async ({ stage, context, onProgress }) => {
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) {
         return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
@@ -231,6 +238,7 @@ function registerDocumentaryStages (pipelineEngine) {
       }
       const { system, user } = buildIngestPrompt(outline, stage.options || {})
       try {
+        emitStageStart(onProgress, { messageKey: 'stageProgress.documentaryIngest' })
         const raw = await callDefaultLlm(aiGenerator, system, user)
         let scenes = normalizeScenes(parseScenesJson(raw), outline)
         if (!scenes) {
@@ -243,6 +251,12 @@ function registerDocumentaryStages (pipelineEngine) {
             error: 'ingest 阶段无法解析场景：' + snippet,
           }
         }
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.documentaryIngestComplete',
+          summaryKey: 'stageProgress.documentaryIngestSummary',
+          summaryParams: { count: scenes.length },
+          detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+        })
         return { success: true, output: scenes }
       } catch (error) {
         return { success: false, error: 'ingest 失败：' + (error && error.message ? error.message : String(error)) }
@@ -256,7 +270,7 @@ function registerDocumentaryStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     DOCUMENTARY_STAGE_TYPES.EDIT,
-    async ({ runId, stage, params, context }) => {
+    async ({ runId, stage, params, context, onProgress }) => {
       const scenes = Array.isArray(context.ingest) ? context.ingest : []
       if (scenes.length === 0) {
         return { success: false, error: 'documentary-montage edit 需要 context.ingest' }
@@ -281,14 +295,26 @@ function registerDocumentaryStages (pipelineEngine) {
       if (!innerOptions.imageModel && defaultImage) innerOptions.imageModel = defaultImage.model
       if (!innerOptions.voiceProvider && defaultVoice) innerOptions.voiceProvider = defaultVoice.providerId
       if (!innerOptions.voiceModel && defaultVoice) innerOptions.voiceModel = defaultVoice.model
+      emitStageStart(onProgress, {
+        messageKey: 'stageProgress.documentaryEdit',
+        messageParams: { total: scenes.length },
+      })
       const inner = await pipelineEngine.stageExecutor.execute({
         runId,
         stage: { name: 'edit', type: 'story2video_generate_assets', options: innerOptions },
         params,
         context: adaptedContext,
+        onProgress,
       })
       if (!inner.success) {
         log.warn('DocumentaryStages', 'edit (generate_assets reuse) failed: ' + inner.error)
+      } else {
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.documentaryEditComplete',
+          summaryKey: 'stageProgress.documentaryEditSummary',
+          summaryParams: { count: scenes.length },
+          detail: { done: scenes.length, total: scenes.length, kind: 'resource' },
+        })
       }
       return inner
     },
@@ -300,7 +326,7 @@ function registerDocumentaryStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     DOCUMENTARY_STAGE_TYPES.NARRATE,
-    async ({ context }) => {
+    async ({ context, onProgress }) => {
       const manifest = context.edit || context.assets
       const scenes = manifest && Array.isArray(manifest.scenes) ? manifest.scenes : []
       if (scenes.length === 0) {
@@ -310,6 +336,13 @@ function registerDocumentaryStages (pipelineEngine) {
       if (missingNarration) {
         return { success: false, error: 'documentary-montage narrate 检测到缺少旁白音频的场景' }
       }
+      emitStageStart(onProgress, { messageKey: 'stageProgress.documentaryNarrate' })
+      emitStageComplete(onProgress, {
+        messageKey: 'stageProgress.documentaryNarrateComplete',
+        summaryKey: 'stageProgress.documentaryNarrateSummary',
+        summaryParams: { count: scenes.length },
+        detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+      })
       return { success: true, output: manifest }
     },
   )

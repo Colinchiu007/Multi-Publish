@@ -43,15 +43,28 @@ describe('Story2Video 通知模型', () => {
     })
   })
 
+  it('resolve 路径将时长超限和合成超时映射到专用 key', () => {
+    expect(resolveStory2VideoNotification({ error: '成片总时长不能超过 50 分钟' })).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_DURATION_EXCEEDED,
+      params: { limitMinutes: 50 },
+    })
+    expect(resolveStory2VideoNotification({ error: '单段旁白时长不能超过 3 分钟' })).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_SEGMENT_DURATION_EXCEEDED,
+    })
+    expect(resolveStory2VideoNotification({ error: 'WebM transcode failed: ffmpeg timed out' }, { locale: 'en-US' })).toMatchObject({
+      key: STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_TIMEOUT,
+    })
+  })
+
   it('识别生成限流错误，展示带场景号的友好文案，且技术细节不泄漏', () => {
     const resolved = resolveStory2VideoNotification({
       error: 'Story2Video optimize failed: Story2Video optimize scene 22 failed: You\'ve reached the API rate limit for free users. (request id: 202608060521497814857554AuUFtW2)',
     })
     expect(resolved).toMatchObject({
       key: STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED,
-      params: { sceneText: '（第 22 个场景）' },
+      params: { context: '（场景 22）', provider: '当前' },
     })
-    expect(resolved.message).toContain('（第 22 个场景）')
+    expect(resolved.message).toContain('（场景 22）')
     expect(resolved.message).toContain('请稍等片刻后重试')
     expect(resolved.message).not.toContain('request id')
 
@@ -59,12 +72,12 @@ describe('Story2Video 通知模型', () => {
       error: 'provider 429 rate limit',
     }, { locale: 'en-US' })).toMatchObject({
       key: STORY2VIDEO_NOTIFICATION_KEYS.RATE_LIMITED,
-      message: 'Generation is rate limited. Wait a moment and try again, or check your provider plan quota.',
+      message: 'Generation is rate limited. Wait a moment and try again, or check the current model account plan quota.',
     })
 
-    // 对话框二次格式化路径：messageParams 中的 sceneText 需透传
+    // 对话框二次格式化路径：messageParams 中的 context 需透传
     const dialogMessage = formatStory2VideoNotification({ messageKey: resolved.key, messageParams: resolved.params })
-    expect(dialogMessage.message).toContain('（第 22 个场景）')
+    expect(dialogMessage.message).toContain('（场景 22）')
   })
 
   it('识别额度耗尽错误并给出明确的本地化提示（不重试类）', () => {
@@ -73,16 +86,16 @@ describe('Story2Video 通知模型', () => {
     })
     expect(resolved).toMatchObject({
       key: STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED,
-      params: { sceneText: '（第 3 个场景）' },
+      params: { context: '（场景 3）', provider: '当前' },
     })
     expect(resolved.message).toContain('额度或余额已用完')
-    expect(resolved.message).toContain('第 3 个场景')
+    expect(resolved.message).toContain('（场景 3）')
 
     expect(resolveStory2VideoNotification({
       error: 'Your account balance is insufficient',
     }, { locale: 'en-US' })).toMatchObject({
       key: STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED,
-      message: 'The model API quota or balance is exhausted. Check your provider plan, or switch models and resume from the breakpoint.',
+      message: 'The current model account quota or balance is exhausted. Check the current model account plan, or switch models and resume from the breakpoint.',
     })
   })
 
@@ -111,6 +124,78 @@ describe('Story2Video 通知模型', () => {
       .toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
     expect(resolveStory2VideoNotification({ error: 'No API key found in config' }).key)
       .toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODEL_API_KEY_REQUIRED)
+  })
+
+  it('内容安全审查（content-policy）错误归一化为具体提示，而非通用文案', () => {
+    const zh = resolveStory2VideoNotification({
+      error: 'Image generation requires user input after content-policy review',
+    })
+    expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT)
+    expect(zh.message).toContain('内容安全审核')
+
+    const en = resolveStory2VideoNotification({
+      error: 'Image generation requires user input after content-policy review',
+    }, { locale: 'en-US' })
+    expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT)
+    expect(en.message).toContain('content safety review')
+  })
+
+  it('MiniMax 真实额度文案（已达到 Token Plan 用量上限）归一化为额度类别（2026-08-16 审查补强）', () => {
+    const zh = resolveStory2VideoNotification({
+      error: 'Image provider "minimax-multimodal" failed: 已达到 Token Plan 用量上限',
+    })
+    expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
+    expect(zh.message).toContain('额度')
+
+    const en = resolveStory2VideoNotification({
+      error: 'Image generation failed: Token Plan usage limit reached',
+    }, { locale: 'en-US' })
+    expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
+  })
+
+  it('失败提示指出具体模型账号，且不把 provider account 当作服务商', () => {
+    const resolved = resolveStory2VideoNotification({
+      error: 'Image provider "minimax-multimodal" failed: quota exhausted',
+    })
+    expect(resolved.params.provider).toBe('MiniMax')
+    expect(resolved.message).toContain('MiniMax模型账号')
+    expect(resolved.message).not.toContain('对应模型账号')
+
+    const generic = resolveStory2VideoNotification({
+      error: 'Image generation repeatedly returned no result; check the provider account',
+    })
+    expect(generic.params.provider).toBe('当前')
+    expect(generic.message).not.toContain('provider account')
+  })
+
+  it('多次空结果消息（empty_result）映射为独立类别，而非通用失败或内容安全审查（2026-08-16 审查补强）', () => {
+    const zh = resolveStory2VideoNotification({
+      error: 'Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account',
+    })
+    expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT)
+    expect(zh.message).toContain('多次未返回结果')
+    expect(zh.message).not.toContain('内容安全审查')
+    expect(zh.key).not.toBe(STORY2VIDEO_NOTIFICATION_KEYS.NEEDS_USER_INPUT)
+
+    const en = resolveStory2VideoNotification({
+      error: '图片生成多次未返回结果，请调整该场景提示词后重试',
+    }, { locale: 'en-US' })
+    expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.EMPTY_RESULT)
+    expect(en.message).toContain('repeatedly returned no result')
+  })
+
+  it('API Key 无效/已过期错误归一化为具体提示（api_key_invalid），而非通用文案', () => {
+    const zh = resolveStory2VideoNotification({ error: 'Invalid api key' })
+    expect(zh.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.API_KEY_INVALID)
+    expect(zh.message).toContain('当前模型账号')
+    expect(zh.message).toContain('API Key')
+
+    const en = resolveStory2VideoNotification({
+      error: 'Image provider "minimax-multimodal" failed: 鉴权失败',
+    }, { locale: 'en-US' })
+    expect(en.key).toBe(STORY2VIDEO_NOTIFICATION_KEYS.API_KEY_INVALID)
+    expect(en.message).toContain('MiniMax model account')
+    expect(en.message).toContain('API key')
   })
 
   it('无 api-key 上下文的解密失败不误归类为「API Key 未配置」', () => {

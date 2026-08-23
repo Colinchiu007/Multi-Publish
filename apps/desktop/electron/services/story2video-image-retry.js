@@ -234,11 +234,23 @@ async function runContentPolicyImageRetry ({ prompt, sceneIndex, maxAttempts, ge
   throw new Error('Content-policy image retry did not settle')
 }
 
+/**
+ * 按 checkpoint.reason 生成 needs_user_input 的用户可见消息（单一来源，2026-08-16）：
+ * content_policy → 内容安全审查；empty_result → 多次未返回结果（服务波动或账号问题）。
+ * 严禁在 empty_result 消息中内嵌 "content-policy" 字样，避免渲染层模式再次误映射为内容审查。
+ */
+function needsUserInputMessage (checkpoint) {
+  return checkpoint?.reason === 'content_policy'
+    ? 'Image generation requires user input after content-policy review'
+    : 'Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account'
+}
+
 module.exports = {
   MAX_IMAGE_GENERATION_ATTEMPTS,
   buildContentPolicySafePrompt,
   createContentPolicyCheckpoint,
   createEmptyResultCheckpoint,
   isContentPolicyRejection,
+  needsUserInputMessage,
   runContentPolicyImageRetry,
 }

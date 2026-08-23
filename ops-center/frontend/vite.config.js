@@ -13,7 +13,12 @@ export default defineConfig({
   },
   plugins: [vue()],
   server: {
+    // 显式绑定 IPv4：Windows 上默认 'localhost' 可能只解析到 ::1，
+    // 导致访问 http://127.0.0.1:5173 连接被拒（白屏）；strictPort 防止端口被占时
+    // 静默漂移到 5174 造成"打开的是别人/旧实例"。
+    host: '127.0.0.1',
     port: 5173,
+    strictPort: true,
     proxy: {
       // 登录由 ops-center 本地提供（自包含管理员登录，不再依赖 platform-orchestrator）
       '/api/auth': {

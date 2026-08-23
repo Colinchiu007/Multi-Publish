@@ -592,7 +592,7 @@ describe('useModelProviderCrud', function () {
         'CATEGORY_OPTIONS', 'CATEGORY_LABELS', 'MULTIMODAL_CAPABILITY_LABELS',
         // 数据状态
         'providers', 'loading', 'submitting', 'filterCategory', 'viewMode',
-        'testResults', 'testingId', 'safeStorageAvailable', 'preferMultimodal',
+        'testResults', 'testingId', 'safeStorageAvailable',
         // 表单状态
         'showFormDialog', 'isEditing', 'form',
         // 删除状态
@@ -606,7 +606,7 @@ describe('useModelProviderCrud', function () {
         'categoryCounts', 'configuredCategoryCounts', 'activeCategoryCounts',
         'isMiniMaxMultimodal',
         // 方法
-        'loadProviders', 'loadMultimodalPreference', 'saveMultimodalPreference',
+        'loadProviders', 'toggleCapabilityDefault',
         'openAdd', 'nextAddStep', 'loadAvailablePresets',
         'selectPreset', 'selectCustom', 'openEdit',
         'submitForm', 'confirmDelete', 'doDelete',
@@ -655,31 +655,7 @@ describe('useModelProviderCrud', function () {
       expect(crud.CATEGORY_LABELS.value.multimodal).toBe('Multimodal Models')
     })
 
-    it('preferMultimodal 默认开启（true）', function () {
-      expect(crud.preferMultimodal.value).toBe(true)
-    })
 
-    it('loadMultimodalPreference 读取已保存开关（false 生效）', async function () {
-      const publisher = await import('@/api/publisher')
-      publisher.storeGetSetting.mockResolvedValueOnce({ code: 0, data: false })
-      await crud.loadMultimodalPreference()
-      expect(publisher.storeGetSetting).toHaveBeenCalledWith('prefer_multimodal')
-      expect(crud.preferMultimodal.value).toBe(false)
-    })
-
-    it('loadMultimodalPreference 无保存值时默认开启', async function () {
-      const publisher = await import('@/api/publisher')
-      publisher.storeGetSetting.mockResolvedValueOnce({ code: 0, data: null })
-      await crud.loadMultimodalPreference()
-      expect(crud.preferMultimodal.value).toBe(true)
-    })
-
-    it('saveMultimodalPreference 持久化开关', async function () {
-      const publisher = await import('@/api/publisher')
-      await crud.saveMultimodalPreference(false)
-      expect(publisher.storeSetSetting).toHaveBeenCalledWith('prefer_multimodal', false)
-      expect(crud.preferMultimodal.value).toBe(false)
-    })
   })
   })
   describe('多模态「支持生成视频」开关（默认关闭）', function () {

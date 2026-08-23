@@ -1,0 +1,14 @@
+{
+  "id": "investigate-s2v-compose-success-error",
+  "title": "调查视频合成成功但提示操作失败",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop/story2video",
+  "currentPhase": "completed",
+  "nextAction": "如需修复，另建运行时代码任务隔离结果页错误边界",
+  "createdAt": "2026-08-15T00:00:00+08:00",
+  "completedAt": "2026-08-15T14:00:00+08:00",
+  "branch": "main",
+  "remoteStatus": "not_applicable_investigation_only"
+}

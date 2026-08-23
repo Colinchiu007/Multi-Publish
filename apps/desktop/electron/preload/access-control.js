@@ -47,6 +47,8 @@ const PUBLIC_METHODS = [
   // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：
   // File 路径经 webUtils 解析后仅发送路径给主进程做受控复制，纯设备本地操作。
   'story2videoImportMedia',
+  // Story2Video 本地历史读取与缩略图查询：项目数据按 owner 隔离，未登录也可查看本机历史。
+  'story2videoListProjects', 'story2videoGetProject', 'story2videoGetThumbnail',
   // BGM 素材库（与主进程 PUBLIC_CHANNELS 的 story2video:bgm-library-* 对齐）：
   // 设备级本地素材库管理（列表/添加/改名/删除），未登录可用。
   'story2videoBgmLibraryList', 'story2videoBgmLibraryAdd',
@@ -56,6 +58,13 @@ const PUBLIC_METHODS = [
   'videoClone',
   'videoClone.run', 'videoClone.cancel', 'videoClone.editReport', 'videoClone.regenerate',
   'videoClone.pickFile', 'videoClone.history', 'videoClone.onProgress',
+  // 影视工程：随包 film-kit 资产浏览/复制/剧本套用（设备本地操作，未登录可用）；
+  // 勾选生成（generateSelected）复用 assetGenerator，是否可用由主进程服务自校验。
+  'filmEngineering',
+  'filmEngineering.status', 'filmEngineering.listScenes', 'filmEngineering.listShots',
+  'filmEngineering.getShot', 'filmEngineering.doctrine',
+  'filmEngineering.copyText', 'filmEngineering.copyTexts',
+  'filmEngineering.adaptScript', 'filmEngineering.exportPrompts', 'filmEngineering.generateSelected',
 ]
 
 function hasAccess(currentLevel, requiredLevel) {

@@ -1,0 +1,8 @@
+- [ ] Audit current baseline and affected call chain
+- [ ] Add normalizer contract and regression tests for shortVideoHandling
+- [ ] Add advanced UI control, payload wiring, restore validation, paired locale text, and UI tests
+- [ ] Implement mode-gated stop-at-end FFmpeg behavior with final-frame zoom tail and loop fallback
+- [ ] Add compose/stage integration tests and real temporary FFmpeg regression fixture
+- [ ] Update PRD, related architecture/design docs, CHANGELOG, and learnings
+- [ ] Run OpenSpec validation, focused tests, quality gates, package/build checks, and dual-model review
+- [ ] Commit, push branch, create/merge PR, verify remote main and archive task/change

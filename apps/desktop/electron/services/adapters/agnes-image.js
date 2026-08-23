@@ -5,8 +5,10 @@
  * Agnes Image API 关键特性：
  * - 认证头 Authorization: Bearer {key}
  * - generateImage: POST /images/generations（OpenAI 兼容）
- * - 请求体 { model: 'agnes-image-2.1-flash', prompt, size: '2K', ratio: '16:9', response_format: 'url' }
- * - 响应中 data[0].url 为图片 URL
+ * - 请求体 { model: 'agnes-image-2.1-flash', prompt, size: '2K', ratio: '16:9', extra_body: { response_format: 'url'|'b64_json' } }
+ * - 官方文档（agnes-image-2.1-flash）：顶层 response_format 会被网关以 UnsupportedParamsError 拒绝，必须放在 extra_body 内
+ * - 调用方传 response_format: 'b64_json' 时返回 { images: [{ b64_json }], format: 'b64_json' }，默认 url 模式返回 { urls, format: 'url' }
+ * - url 模式响应中 data[0].url 为图片 URL；b64_json 模式响应中 data[0].b64_json 为 Base64 数据
  * - 支持 size 参数映射：像素尺寸 → 档位（如 2048x2048 → 2K）
  *
  * 默认端点 https://apihub.agnes-ai.com/v1，需 API Key。
@@ -154,7 +156,10 @@ class AgnesImageAdapter extends BaseAdapter {
    * @param {string} [params.size] - 像素尺寸（如 2048x2048），自动映射到档位
    * @param {string} [params.sizeTier] - 档位（1K/2K/4K），优先于 size
    * @param {string} [params.ratio='16:9'] - 宽高比
-   * @returns {Promise<{urls: string[], format: string}>}
+   * @param {string} [params.response_format] - 输出格式（url / b64_json），默认 url；
+   *   调用方（asset-generator）默认传 b64_json，此时返回 Base64 避免二次下载 URL
+   * @returns {Promise<{urls?: string[], images?: Array<{b64_json: string}>, format: 'url'|'b64_json'}>}
+   *   消费方必须按 format 分支；asset-generator 经 extractProviderImageBuffer/Url 同时兼容两种形状
    */
   async generateImage(params) {
     if (!params || !params.prompt) {
@@ -165,12 +170,18 @@ class AgnesImageAdapter extends BaseAdapter {
     const ratio = params.ratio || DEFAULT_RATIO
     const sizeTier = params.sizeTier || parseSizeTier(params.size) || '2K'
 
+    // 2026-08-16 按官方文档（agnes-image-2.1-flash）：请求体顶层 response_format 会被
+    // litellm 网关以 UnsupportedParamsError 拒绝，输出格式必须放 extra_body.response_format。
+    // 调用方（asset-generator）默认请求 b64_json，Base64 直出可绕开 URL 二次下载
+    // （本机 fake-ip DNS 下 URL 会被 SSRF 守卫拦截，复盘细节见 01-docs/learnings.md）。
+    // 白名单：url / b64_json；未知值按 url 处理。
+    const responseFormat = params.response_format === 'b64_json' ? 'b64_json' : 'url'
     const body = {
       model,
       prompt: params.prompt,
       size: sizeTier,
       ratio,
-      response_format: 'url',
+      extra_body: { response_format: responseFormat },
     }
 
     const resp = await this._request('/images/generations', {
@@ -178,9 +189,26 @@ class AgnesImageAdapter extends BaseAdapter {
       body: JSON.stringify(body),
     })
     const data = await resp.json()
+    const imageItem = data?.data?.[0]
+
+    if (responseFormat === 'b64_json') {
+      const b64 = imageItem?.b64_json
+      if (!b64) {
+        throw new ProviderError(
+          ERROR_CODES.PROVIDER_ERROR,
+          'Missing b64_json in response',
+          { providerId: this.id, model, responseFormat }
+        )
+      }
+      return {
+        images: [{ b64_json: b64 }],
+        model: data?.model || model,
+        format: 'b64_json',
+      }
+    }
 
     // OpenAI 兼容响应：data[0].url
-    const url = data?.data?.[0]?.url
+    const url = imageItem?.url
     if (!url) {
       throw new ProviderError(
         ERROR_CODES.PROVIDER_ERROR,

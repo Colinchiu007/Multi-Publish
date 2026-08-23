@@ -1,3 +1,288 @@
+## Story2Video 克隆音色重试的生产 manager 契约复盘（fix-run-voice-clone-production-contract，2026-08-23）
+
+- **现象**：初次 TTS 因跨账号克隆音色 `voice_id` 无权限失败；重克隆在真实 Electron 中继续失败，测试环境却通过。
+- **第一性原因**：`tryReCloneVoice()` 使用 `manager.getAdapter()`，而生产 `ModelProviderManager` 的公开边界是 `callAdapter(providerId, method, params)`；旧测试 double 恰好暴露了不存在的 `getAdapter()`，掩盖了契约错位。
+- **逃逸链**：单测只验证了旧 double 的 clone 结果，没有验证生产 manager 接口形状；集成测试未穿过 `callAdapter` 的 `{ code, data }` 包装；既有 E2E 未覆盖跨账号 clone voice 失效后的真实重克隆。
+- **修复与预防**：重克隆经 `callAdapter` 注入 provider 凭据并解析包装结果，成功后只替换 voice ID、继续使用原始 TTS provider；回归 fixture 模拟生产调用契约，并保留真实 Electron E2E。涉及 manager/adapter 调用时，测试 double 必须与生产公开 API 同形，不能只提供底层 registry 方法。
+
+## agent 漏跑 quality-rhythm 质量节拍的根因与预防（fix-s2v-delete-silent-error，2026-08-20）
+
+- **现象**：用户报 s2v「删除项目误报『项目未能删除，请稍后再试』」，agent 直接临场排查并改代码，但只加载了 quality-rhythm skill 而**未真正执行 QM-5 Bug 反思循环五步**（缺 git blame 到 commit、逃逸链、系统性漏洞定位）；用户追问「为何没应用质量节拍」后才补跑。
+- **教训 1（skill 必须「执行」而非「加载」）**：收到 `/quality-rhythm` 或触发质量节拍时，必须按 skill 的 Phase 跑完整闭环；Bug 类任务强制走 QM-5 五步（第一性原因 git blame → 逃逸链 → 系统性漏洞 → 修复+回归测试 → 预防措施落地文件），不得只做 ad-hoc 调试。
+- **教训 2（QM-5 第①步必须 blame 到具体 commit）**：任何 Bug 修复都要 `git blame` 定位引入点 commit 与意图，确认是 feature 初版引入还是修别的 bug 改坏；本次 `deleteProject` 由 `e1b46eba0`（feat(story2video): complete legacy parity and harden provider media downloads）整体引入，顺序缺陷即原始引入点。
+- **教训 3（删除/清理类操作的不可变式）**：凡「先改索引/元数据、后清磁盘目录」的操作，两步非原子——索引成功即用户可见完成，目录清理失败必须是尽力而为（`try/catch` + `warn`），不得把目录清理失败当作致命错误抛回 UI，否则出现「已删除却误报失败」（2026-08-20 实为 Windows 文件锁 EPERM，旧路径静默无日志）。
+- **教训 4（失败路径必须有可观测性）**：`catch` 吞掉错误只回传前端会导致日志盲区，无法事后确认根因；所有失败路径必须 `log.warn/error` 真实错误，便于下次定位。
+- **逃逸链**：本次 agent 自身漏跑 skill（流程缺失/agent 纪律）；既有测试只覆盖删除成功路径（测试场景缺失）；旧代码 catch 静默无日志（可观测性缺失）。
+- **预防**：收到质量节拍指令必须跑完整闭环再动手；Bug 类一律先 QM-5 五步；删除/清理操作统一「索引成功=成功、目录清理尽力而为」契约并加回归测试；失败路径补 log。
+
+## 历史场景素材四卡布局与预览/选择交互复盘（s2v-history-scene-material-layout，2026-08-20）
+
+- **需求与交付**：结果页场景素材区固定渲染 image1、image2、video1、video2 四个视觉卡；radio 放在缩略图下方、素材名称之前，缩略图只预览；预览弹窗使用 xl；生成新图/生成 AI 视频分别只在 image1/video1 卡内出现；空素材保持固定 media frame 并只显示本地化“未生成”。
+- **教训 1（预览与选择必须是不同的 DOM 控件）**：把 radio、缩略图和素材名称包在同一个 ancestor label 或卡片 click handler 中，会让浏览器原生 label activation 把“查看大图”误当成“设为当前使用”。正确合同是独立 button type=button 负责预览，独立 radio + label 负责选择，并为两者分别提供可访问名称。
+- **教训 2（视觉卡数量不等于持久化身份数量）**：renderer 可以为主视频和 alternate 视频提供两个显示位，但后端仍只接受 image1 | image2 | video。视觉别名必须在 IPC 边界归一，当前使用徽标只在 canonical video1 显示，不能为了视觉布局扩展数据库枚举。
+- **教训 3（空态必须保留几何，不应泄漏 raw fallback）**：缺 path、缺 share URL 和媒体生成中间态都要保留固定宽高背景；空框只渲染 locale 的 emptySlot 一行，不渲染 video1/video2 或第二行英文 fallback。空态测试应断言 DOM 文案次数，而不是只断言 slot 存在。
+- **教训 4（场景级操作只渲染一次）**：生成图片和生成 AI 视频是 segment 级 IPC，不属于每个候选卡。把按钮放进 slot loop 会产生重复操作和含义歧义；应选择 canonical image1/video1 作为唯一承载卡，同时保留 prompt guard、busy guard 和失败回滚语义。
+- **逃逸链**：既有组件测试固化了三槽位/卡片点击选择语义，未覆盖缩略图与 radio 的事件隔离、四卡空态几何和场景级按钮重复；视觉检查只关注媒体是否出现，没有检查空框下的 raw 英文 fallback。系统性漏洞属于测试场景缺失与审查对持久化枚举边界关注不足。
+- **回归保护**：ResultView.test.js 增加四卡顺序、缩略图不调用选择 IPC、radio 归一发送 video、canonical video1 徽标、按钮只出现一次、空态单行文案、path/URL 失效和 video1/video2 预览类型断言；后续修改 ResultView 素材卡必须同时运行该文件、locale pair/CJK 检查和 Vue build。
+
+## 分段状态 failed/completed 误导展示与残留 error 复盘（fix-s2v-segment-status-reason，2026-08-16）
+
+- **现象**：视频创作-历史记录分段卡片直接显示英文原值状态（failed/completed）；用户点击【重试图片】成功后，分段状态变 completed 但旧 error（`UnsupportedParamsError: Setting response_format is not supported...`）仍残留，UI 语义矛盾、无法理解失败原因。
+- **根因**：① `ResultView.vue` 徽标 `${segment.status || 'completed'}` 直出后端枚举原值，未走 locale 映射；② 服务层多个「成功→completed」写回点（图片/视频生成、重试、音频替换/重生成、提示词重生成、AI 视频生成）不清理分段旧 `error`，造成 `completed` + `error` 并存；既有先例 `regenerateSceneSubtitle` 已写 `error: null`，其余路径未同步（双路径漂移）。
+- **教训 1（状态与错误字段是同一份真相）**：`status` 与 `error` 必须同写同清——「成功置 completed」与「失败置 failed+error」是一枚硬币的两面；任何成功写回点都要显式 `error: null`，不能依赖「新数据覆盖」隐式清理（覆盖不保证发生，重试路径尤其会继承旧 error）。
+- **教训 2（用户可见枚举必须本地化）**：直接暴露给用户的枚举值（status/errorCode/阶段等）不得原样输出英文；至少建立 `story2video.segmentStatus.*` 这类映射（未知值默认安全标签，如 completed），禁止透传原值。
+- **教训 3（失败原因复用归一化而非裸错误）**：内联原因复用 `resolveStory2VideoNotification({ error })` 分类映射（额度/API Key/参数不受支持/内容策略等 → 可读且可操作的本地化文案），未命中回退 operation_failed 通用文案并 120 码点截断——不暴露内部错误文本/堆栈，同时让已知类别覆盖大多数排查场景而非纯通用文案。
+- **逃逸链**：渲染测试只断言「状态存在」，无「状态文案本地化」与「completed 残留 error 不展示」用例（测试场景缺失）；服务层测试只覆盖「成功更新素材路径/失败保留 error」，无「曾失败分段成功重试后 error 清理」用例（不对称覆盖：失败侧有回归、成功侧无）；CJK 基线按 file:line 存储，行号位移会触发假阳性（既有已知边界，需 --update-baseline 且人工核对无新增）。
+- **回归保护**：`story2video-project-service.test.js` +2（retrySegment 成功清 error、generateSceneImage 成功清 error）；`ResultView.test.js` +3（本地化标签与原因内联、completed 残留 error 不渲染、未命中回退通用文案）；后续改任何分段状态写回必须同时跑这两个文件。
+
+## 历史记录保存分段后图片全部消失复盘（fix-s2v-save-segments-image-loss，2026-08-16）
+
+- **现象**：视频创作-历史记录结果页点击【保存分段】后所有分段图片/素材槽/视频槽消失；主进程数据与图片文件未丢，纯渲染端显示为空。
+- **根因**：`saveSegments()`（`e1b46eba0` 引入）用主进程 IPC 返回的落库分段整体替换 `this.segments`——持久化分段只含 `imagePath/videoPath/alternateImages[].path`，不含渲染端派生字段 `imageUrl/alternateImageUrls/videoUrl`；替换后未像 retry/regenerate/select 等媒体变更路径那样调用 `refreshSegmentImageUrls()`，模板 `v-if="segment.imageUrl"` 全部落空；`replaceSegmentAudio()` 同类缺陷一并修复。
+- **教训 1（替换 this.segments 的路径必须重建渲染端派生 URL）**：`imageUrl` 等短令牌 URL 是渲染端运行时字段、不落库；凡「用 IPC 返回整体替换 this.segments」的落库操作必须紧跟 `refreshSegmentImageUrls()`，这是结构性不变式而非可选约定（本次就是唯一漏掉该不变式调用点，其余 10+ 处都有）。
+- **教训 2（保存类测试禁止只 mock 空数组）**：既有保存分段用例 mock `segments: []` 被长度守卫跳过替换分支，缺陷无法暴露；保存/更新类用例至少要有一条「返回含 imagePath 非空分段 → 派生 URL 重建」的真实数据路径，并断言旧 URL 作为 `previousUrl` 的令牌复用/回收。
+- **逃逸链**：单测只 mock 空 segments（测试场景缺失）；无「保存后媒体 URL 重建」集成/E2E/视觉回归；多轮审查聚焦保存语义/队列串行/竞态，审查清单缺「替换 this.segments 后重建 URL」检查项（审查盲区）。
+- **回归保护**：`ResultView.test.js` +3 用例（非空返回重建 imageUrl/alternateImageUrls/videoUrl、空返回保留并断言 previousUrl、旁白替换不消失——其中两条修复前必失败）；后续改任何 `this.segments` 替换路径必须同时跑该文件。
+
+## agnes-image 适配器忽略 b64_json 契约复盘（fix-agnes-image-b64-json，2026-08-16）
+
+- **现象**：PR #897 路由修复生效后，历史任务【重试图片】走 agnes-image 仍失败：URL 下载被 AssetGenerator SSRF 守卫拦截（`asset-generator.js:322/723`）。
+- **根因（第一性）**：`asset-generator.js:584` 调用生图适配器时始终传 `response_format:'b64_json'`，但 agnes-image 适配器实现于更早、固定发送顶层 `response_format:'url'` 并返回 URL——调用方契约从未被执行；顶层 response_format 又违反 agnes-image-2.1-flash 官方文档（须放 `extra_body`，顶层被网关 UnsupportedParamsError 拒绝，历史 103 次样本全失败）。
+- **逃逸链**：适配器单测只断言顶层 `response_format:'url'`，从未覆盖调用方 b64_json 参数（测试场景缺失）；PR #897 回归只到 service 层 provider 解析，真实生图被标为“用户确认后执行”，实际执行后才发现适配器契约问题（审查盲区/流程缺失）。
+- **系统性漏洞**：跨适配器「调用方请求参数 → 适配器行为」契约没有统一回归（imagen/grok 遵守 b64_json，agnes 忽略）；供应商文档契约（extra_body）没有测试固化。
+- **回归保护**：`agnes-image.test.js` +4 用例固化 extra_body 位置与 b64_json 直出/fail closed；后续新增/修改生图适配器必须断言「调用方 `response_format` 被尊重」+「顶层无 response_format」。
+- **预防**：生图适配器验收清单加入「尊重调用方 response_format」与「extra_body 契约」两项（已写入 openspec change spec 与本复盘）。
+
+## 历史记录重新生成优化词 fail-open 吞错 + 请求 context 与流水线失源复盘（fix-s2v-history-prompt-fail-open，2026-08-16）
+
+- **现象**：视频创作-历史记录点「重新生成图片优化词」产出的新优化词只有原文 + Photoreal 后缀，不像最新引擎结果；实为 prompt-engine(8013) 额度不足返回 `{ optimized_prompt: <原文>, error: 402 insufficient_balance_error }` 失败兜底，桌面侧提取器先取文本后查 error，把回显原文当成功写入（UI 呈现「已重新生成」）。
+- **根因**：`story2video-project-service.extractOptimizedPrompt`（`a555fe7c` 引入历史记录场景编辑时自建）对「错误兜底回显原文」形态 fail-open——文本非空即返回、同对象 error 不生效；且 image 重生成请求只带 `max_length`，缺流水线同源 `context`（full_text/scene_type/synopsis），契约不一致。
+- **教训 1（引擎失败兜底必须 error-first）**：`{ optimized_prompt: <回显>, error: <真实错误> }` 是外部引擎的失败兜底形态，本地提取器必须把 error/detail 判错放在文本提取之前（同层与跨层：error 在顶层、回显在内层 results），否则额度/服务类错误会被用户当成成功结果看到。
+- **教训 2（判错键与流水线 kernel 单一来源对齐）**：本地提取器的错误键对齐 `prompt-engine-kernel.extractOptimizedBase`（error → detail），不再单独判 `message`（kernel 不判 message；成功响应带信息性 message 时旧逻辑会过度 fail-closed）。
+- **教训 3（历史重生成请求参数必须与流水线同源）**：重生成/重试类接口复用流水线同一 `buildOptimizeContext` 与 `buildPromptEngineOptimizeRequest` 构造请求（白名单/敏感键/归一在同一契约层），避免「历史路径参数落后于流水线演进」——本次历史路径缺 context，正是 #887 放开 max_length 后只补长度没补上下文的结果。
+- **教训 4（stage 元键不得透传）**：从持久化 optimize 配置取请求参数只允许契约键白名单，stage 元键（maxRetries/concurrency/uiLocale）不得进请求；context 构造只在该域分支内执行，不波及另一域路径。
+- **逃逸链**：既有测试只覆盖「engine 抛异常 / 成功文本」，没有「error 字段 + 回显原文」形态（测试场景缺失）；流水线 kernel 早已 fail-closed，历史服务路径是后补的本地提取器，属双路径漂移（单点实现未对齐权威）。
+- **回归保护**：`story2video-project-service.test.js` +6 用例（402 回显 image/video、error 无文本、顶层 error+内层回显、顶层 error+空 results、context 同源、存量项目降级）；后续改重生成请求构造或提取器必须同时跑该文件与 `story2video-stages.test.js`（同源函数回归）。
+
+## 历史任务图片重试忽略「多模态优先」设置复盘（fix-s2v-image-model-selection，2026-08-16）
+
+- **现象**：用户在「设置-模型设置」取消勾选「优先使用多模态模型进行所有的AI操作」（`prefer_multimodal`）并添加专用生图模型（agnes image），但历史记录任务点【重试图片】/【重生图片】仍调用任务创建时固化的多模态 provider（MiniMax，用户 Key 套餐失效）→ 弹「模型 API 的额度或余额已用完」。
+- **根因**：`Story2VideoProjectService.retrySegment`（image 分支）与 `generateSceneImage` 直接把 `project.options.imageProvider/imageModel`（由 `saveRun`→`_safeOptions(run.params)` 白名单固化）透传给 `assetGenerator.generateImage`，从不按当前 `prefer_multimodal`/image 默认重新解析；创建时 `listProviders('image')` 把声明 image 能力的多模态行并入下拉且默认选中第一个 → 固化成了 minimax-multimodal。真正按设置解析的只有新流水线 `story2video-stages.js` 的 `resolveCapabilityProvider('image')`（走 `getDefault('image')`）。
+- **教训 1（历史任务复用的固化配置 ≠ 永远有效）**：任务创建时固化的 provider/model 是「当时的默认」，不代表用户设置未变；涉及外部账户额度/套餐的调用，重试/重生时必须按当前设置重新解析，否则过期 Key 会被历史任务持续调用。
+- **教训 2（解析来源必须与流水线同源）**：历史重试与新建流水线必须共用同一套默认解析（`getDefault('image')` / `getMultimodalPreference()`），避免「创建时 UI 下拉固化的值」绕过设置路由长期生效。
+- **教训 3（无可用默认要 fail closed）**：关闭多模态优先又无 image 类 provider 时抛可读错误引导配置，不静默回退占位图（占位图会掩盖配置缺失）。
+- **逃逸链**：project-service 既有测试只覆盖「固化值透传」路径，无「当前设置变化后重试历史任务」用例（测试场景缺失）；双模型审查 antigravity 区域不可用降级为单模型 + 主代理自审（审查盲区记录）；Claude reviewer 结论 0 Critical / 0 Warning。
+- **回归保护**：`story2video-project-service.test.js` +6 用例（关多模态改默认 / 开多模态保留 / 显式 image provider 保留 / 无默认明确报错 / 老项目空透传 / generateSceneImage 同逻辑）；后续改模型选择/多模态优先语义必须同时跑该文件与 `model-provider-multimodal.test.js`。
+## 结果页视频预览令牌失效误报自愈 + 旧令牌回收复盘（s2v-video-preview-token-refresh，2026-08-16）
+
+- **现象**：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存（用户报障）。结果页主视频正常，历史编辑回放旧任务才复现。
+- **根因**：本地媒体服务签发短生命令牌 URL（TTL 15 分钟、128 条 FIFO 注册表逐出、生产零 revoke）；历史任务编辑是长期会话，旧任务回放时原令牌已过期或被新签发逐出 → `<video>` 元素触发 error → 渲染层固定弹「视频预览加载失败」文案（属误报，run 终态与成片均完好）。
+- **教训 1（本地媒体令牌必须带生命周期语义）**：短 TTL + 容量逐出的令牌不能只签不发；同槽位替换时必须回收旧令牌（`create-share-url` 可选 `previousUrl`，签发成功后 best-effort revoke），否则长期编辑会话必然踩过期/逐出。
+- **教训 2（令牌 URL 回收域必须收紧）**：revoke 前必须校验同源 + `/media/<token>` 形状（`isLocalMediaTokenUrl`），否则会误逐出共享 128 条注册表的分段图/音频/视频活跃令牌（审查 W1 修复：先域检查再 revoke，非本地 URL 静默忽略）。
+- **教训 3（IPC 契约扩展向后兼容）**：为既有 IPC 增加可选参数时，preload 与 renderer API 层只在参数 defined 时转发，1 参旧调用方字节级兼容；renderer 所有替换点（主视频/旁白/分段素材/裁剪预览）同步透传旧地址，逐槽位回收。
+- **教训 4（渲染 error 先自愈再报错）**：`handleError` 首次 error 以同一 videoPath 重签 URL 并 `await $nextTick()` 后 `player.load()` 一次，二次失败才弹既有本地化文案；不 rewrite run 终态、不无限循环（`videoReloadAttempted` 状态机）。
+- **逃逸链**：IPC 测试只覆盖「签发成功/失败」，无令牌生命周期（TTL/逐出/revoke 契约）用例（测试场景缺失）；渲染测试只断言「error 弹窗文案」，无「error 后恢复播放」路径（测试场景缺失）；双模型审查 antigravity 地区不可用降级，Claude 第一轮 W1 捕获 revoke 域过宽（审查盲区）。
+- **回归保护**：IPC +4 用例（回收/不回收/非本地 URL 拒绝/同源非媒体路径拒绝，`story2video.test.js`）；ResultView +5 用例（自愈不弹窗、二次失败弹窗、重签失败不标记、loadVideoPath 重置并透传、refreshSegmentImageUrls 透传，`ResultView.test.js`）；后续改令牌生命周期/预览 URL 替换必须同时跑这两个文件。
+
+## GitHub Actions PR 事件投递偶发故障 + CJK 基线本地/CI 偏差复盘（2026-08-16）
+
+- **现象**：`codex/s2v-video-preview-token-refresh` 分支所有 PR 事件（opened/synchronize/reopened）一度零投递（`gh run list --branch` 无新 run），同一时间窗其他 PR（#887/#888）正常触发；close+reopen、空提交 push、复制新分支重开 PR 均无效，约 1 小时后随其他 PR 合并 main 自动恢复。
+- **教训 1（事件投递故障识别）**：分支 push 后 15-30 分钟仍无任何 run、而其他分支正常 = 平台侧事件投递故障；`gh pr checks` 报 "no checks reported" 是同一信号的 PR 面表现。
+- **教训 2（无 `workflow_dispatch` 的 workflow 只能等事件恢复）**：electron-ci / doc-gate / build 无手动触发器；兜底 = 有 dispatch 的 workflow 手动 `gh workflow run <name> --ref <branch>` 派发 + 无 dispatch 者跑本地等价（doc-gate 用 `check-docs-sync.sh --base/--head`，electron 用全量 vitest）。事件恢复后必须以 PR head 最新 SHA 的自动 run 为准，手动 run 只作兜底证据（旧 SHA 结果不代表最终）。
+- **教训 3（CJK 基线按 file:line 存储 → 本地/CI 偏差）**：本地基于旧 `origin/main` 跑 `check-locale-sync.js --cjk` PASS 不代表 CI PASS——CI 基线是合并流上的最新版；行号偏移（本次 ResultView.vue +5 偏移 11 处）触发 fresh 假阳性（1502=1502 无新增文案）时，先逐条对账确认无真实新增，再显式 `--update-baseline` 并作为独立 commit 提交（重锚后 QG Static PASS）。
+- **教训 4（PR head 分支名核对）**：事件投递故障时用「复制新分支重开 PR」兜底会产生 head 分支与 worktree 分支名不一致（`-2` 后缀）；push 前必须 `gh pr view --json headRefName` 核对目标，避免推错分支导致 PR 一直显示旧 SHA。
+- **回归保护**：CI 首轮失败先查基线/缓存类假阳性（`--update-baseline` 前必须对账）；事件投递恢复判定 = 该分支出现新 event 的自动 run 且 headSha 为最新；`.quality-gates.md` 已记录本次完整处置链路（含 QG Static 重锚）。
+## 古代东亚故事出图西方面孔全链盲区复盘（s2v-east-asian-face-anchor，2026-08-16）
+
+- **现象**：朱蒙·高句丽题材（卒本川/五女山城）场景图出现西方面孔；提示词里没有任何人物外貌约束。
+- **根因（四层盲区叠加）**：① 文化识别规则只有中原王朝/近代朝鲜，缺「朝鲜·东北亚古国」条目——古国专属词（高句丽/扶余/卒本川/朱蒙）全部落空，era=mixed 不触发既有负面锚门控；② domain seed 无人物形象维度，任何东方历史剧默认都不约束面孔；③ 面孔负面锚（西方面孔/金发/蓝眼）被 `ancient && strongEra` 门控排除，mixed/moderate era 的历史剧完全裸奔；④ negative_prompt 透传链路断裂——场景级负面锚在 optimize 请求里生成后从未进入 generate_image 载荷（auto/manual × assetGenerator/python 四分支全缺）。
+- **教训 1（历史剧人物形象必须显式正锚定，不能依赖负面锚兜底）**：正锚（东亚人面孔、黑发、黄皮肤、深色瞳）进 domain seed + 场景上下文，随最终英文提示词到达全部 provider；负面锚是第二道防线，且不能只由 era 强度决定——C1 门控为 ancient && strongEra && 非西方文化 &&（文化命中或东亚专属意象线索）。无文化命中的古希腊/维京/玛雅等古史不注入（审查实证：修复前「古代希腊+宫殿+马车」被强制东亚化）；「宫殿/马车/将军」等古语词非东亚专属（希腊宫殿、维京长船同样存在），不得作为东亚化线索。
+- **教训 2（文化规则要覆盖「古国」语义层）**：keywords 应取「无活跃现代语义」的古国专属词（高句丽/扶余/卒本川/朱蒙）；现代仍有活跃语义的地名/国名（百济/新罗/鸭绿江/桓仁/五女山）不收录，避免误触发。
+- **教训 3（场景级上下文字段要闭环到消费端）**：scene_context 生成 negative_anchors 后，generate_assets 必须按 index 解析并透传；「请求里有了、生成时没用」的字段就是隐式断链，需在 stages 层做端到端透传断言（auto/manual × assetGenerator/python 四分支）。无场景锚但有用户配置 `stage.options.negative_prompt` 时仍须透传 base，与 optimize 请求语义一致。
+- **教训 4（负向透传覆盖范围按 adapter 实述）**：`negative_prompt` 透传到 adapter 层后只有 local-diffusion 消费，云厂商 adapter 按已知键构造载荷并忽略未知键；文档不得宣称「全部 provider 生效」，正锚进最终英文提示词才是全 provider 主修复手段。
+- **教训 5（人物形象正锚不受 includeNegativeAnchors 开关控制）**：`include_negative_anchors:false` 只关闭负面锚，正锚仍注入——此为设计取舍，非缺陷。
+- **逃逸链**：规则/引擎测试只断言 optimize 请求上下文，不追到出图载荷（测试场景缺失）；负面锚门控用例只有 ancient+strong 与「文化命中」方向，缺「无文化命中的非东亚古史反向」用例（测试场景缺失，审查 C1 实证漏网）；双模型审查第一轮未覆盖面孔维度（审查盲区），第二轮 claude 以真实模块调用实证复现。
+- **回归保护**：`story-context-engine.test.js` 用户剧本黄金用例（culture/era/seed/负面锚断言）+ C1/W4 门控矩阵 + 古希腊/维京/玛雅反向 + 武林正向对照；`story2video-stages.test.js` 四分支透传断言 + 无锚 base 透传；`asset-generator.test.js` provider 载荷断言（含无锚不带键）；后续新增人物形象/文化规则必须同时跑这三个文件。
+
+## MiniMax「重试图片」误报内容安全审查复盘（s2v-retry-content-policy-message，2026-08-16）
+- **融合说明（rebase PR #882/#888）**：内容政策类别最终采用远端 NEEDS_USER_INPUT 整合结构（`story2video.needs_user_input` + sceneLabel 引用），「独立类别」教训落实为独立于 content-policy 的 empty_result / api_key_invalid 类别；门控/语义解耦、业务错误码先读等核心教训不受影响。
+
+- **现象**：已成功生成过的提示词再次【重试图片】失败，只显示「当前操作未能完成，请稍后再试。」；应用日志多条 `Image provider minimax-multimodal requires user input after content-policy retries`，实际是用户保存的 MiniMax API Key 已过期。
+- **根因**：`minimax-image.js` 缺失 HTTP 200 + `base_resp.status_code != 0` 业务错误解析（视频适配器 `minimax.js`、语音 `minimax-tts.js` 已有先例）。过期 Key 的业务错误体（`Invalid api key` 类，返回码非 0）被当成「HTTP 200 无图空结果」→ `emptyResult=true` → 进入空结果重试圈（同提示词重试 → 第 3 次起改写 → 5 次后 checkpoint `empty_result`）→ `asset-generator.js` 硬编码 `requires user input after content-policy review` → 渲染层归一化未映射 content-policy / 无效 Key 类别 → `operation_failed` 通用文案。
+- **教训 1（业务错误码必须先于产物读取）**：HTTP 200 不代表成功；读取产出字段前必须解析供应商业务错误码（`base_resp.status_code`），且与同族适配器（视频/语音/TTS）保持同一解析顺序与分类语义。新增适配器必须带「200 + 业务错误码」测试用例。
+- **教训 2（空结果 ≠ 内容策略）**：重试圈结束后 `empty_result` 不得映射为 content-policy；消息分类唯一来源是 `checkpoint.reason`，禁止硬编码。
+- **教训 3（渲染归一化缺失类别 = 新的错误掩盖层）**：API Key「无效/过期」是与「缺失」不同的类别（`MODEL_API_KEY_REQUIRED` 只覆盖未配置/未找到），需独立模式与文案；内容安全审查需独立类别并支持场景号插值。缺失类模式必须先于无效类匹配，避免误抢。
+- **逃逸链**：适配器无 200+业务错误码用例（测试场景缺失）；重试/资产层无「业务错误不得进入内容策略圈」断言（测试场景缺失）；渲染层归一化缺 content-policy / 无效 Key 映射（审查盲区）。
+- **回归保护**：`minimax-image.test.js` +2（AUTH_FAILED / QUOTA_EXCEEDED）；`story2video-image-retry.test.js` +1（AUTH_FAILED 立即失败不进圈，category=auth）；`asset-generator-provider.test.js` empty_result 消息断言不再称 content-policy；`notifications.test.js` / `story2video-notifications.test.js` / `ResultView.test.js` 新增两类映射断言（zh/en）。
+- **教训 4（用户可见消息本身不能喂给错误分类正则）**：首轮实现把 empty_result 消息写成 "...(content-policy, service fluctuation or account issue)..."，结果被渲染层 `CONTENT_POLICY_PATTERN` 再次映射成内容安全审查——消息文案必须用 `checkpoint.reason` 分支生成（单一来源 helper），并加「消息不再命中误分类正则」的断言。
+- **教训 5（同一正则不能既做门控又做语义标注）**：复审发现把 empty-result 短语加进门控正则后，历史页「内容政策拦截」提示条与场景提取复用同一模式，空结果失败被标成内容政策。门控（是否可恢复）与语义标注（是什么原因）必须解耦：`CONTENT_POLICY_ERROR_PATTERN` 子集仅用于场景提取/提示条，门控正则保留全部短语，并补「空结果不提取场景但门控仍拦截」双断言。
+- **教训 6（分类正则的裸关键词过宽）**：适配器 isAuth 的裸 `api[ _-]?key` 把「您的 API Key 额度已用完，请升级套餐」误判为 AUTH_FAILED（应为 QUOTA_EXCEEDED）。认证判定必须邻近失效信号（invalid/expired/失效/过期等），额度判定优先于宽泛关键词；同时补认证表述（Authentication failed / Invalid authentication credentials / token invalid）双向覆盖，并新增「含 API Key 的额度文案 → QUOTA」回归。
+- **预防措施**：图像/视频/语音适配器统一「业务错误码先于产物读取」顺序并补齐三类（图片已修，视频/语音/TTS 复核列为 follow-up）；provider 错误分类契约（AUTH_FAILED/QUOTA_EXCEEDED/CONTENT_POLICY/PROVIDER_ERROR）与渲染归一化类别做双向映射测试；重试圈 `checkpoint.reason` 为消息分类唯一来源；新增用户可见错误文案必须同时验证其在归一化正则下的分类结果。
+
+## 内容政策失败恢复按钮差异与插值契约复盘（s2v-resume-btn-policy-hint，2026-08-16）
+
+- **现象**：视频创作历史记录里最新失败任务（内容政策拦截）没有「从断点继续」按钮，旧任务有。用户以为是回归，实为主进程恢复守卫判定该失败不可原样恢复（`PIPELINE_USER_INPUT_REQUIRED`），前端历史卡片判定未覆盖相同关键字，行为不一致。
+- **根因**：主进程 `pipeline-engine.js` `resumeOrchestration` 用 `/needs_user_input|content[_\s-]?policy|CONTENT_POLICY/i` 拦截，前端历史区恢复判定各自维护关键字，且不覆盖中文「内容政策」（主进程拒绝文案）——同一业务规则两份关键字清单，必然漂移。
+- **教训 1（关键字规则必须单一来源）**：跨进程/跨组件的业务判定关键字应集中导出（`RESUME_BLOCKING_ERROR_PATTERN`），派生正则（场景提取）用 `.source` 复用，禁止另维护清单。
+- **教训 2（vue-i18n 函数消息不做 {named} 插值）**：`i18n/index.js` 的 `toMessageFunctions` 把全部字符串语料转成 `() => source`，vue-i18n v11 对函数消息直接返回、不插值。带参数的新文案必须写成 `(ctx) => … ctx.named('name') …`（文件头注释已声明此约定）。组件测试的 `$t` mock 若手动拼接参数，会掩盖真实插值失效——mock 应复刻 `toMessageFunctions` + 函数消息调用语义，让插值契约进入断言。
+- **逃逸链**：历史卡片判定与主进程守卫无共享契约测试（审查盲区）；新文案测试用「聪明 mock」拼接场景号，真实插值 bug 全绿通过（测试质量不足）。
+- **回归保护**：`RESUME_BLOCKING_ERROR_PATTERN` 变体矩阵 + 中文变体场景提取（history-utils.test.js）；`CreateViewHistory.test.js` 的 `$t` mock 复刻真实函数消息调用并断言渲染文案；后续新增恢复类关键字/提示文案必须走共享常量与函数消息，并跑三个相关 vitest 文件。
+
+## 结果页「重试图片」错误被两层掩盖复盘（s2v-retry-image-error-masking，2026-08-16）
+
+- **现象**：结果页点击【重试图片】失败时只显示「当前操作未能完成，请稍后再试。」，余额不足/限流/API Key 等真实原因被吞掉，故障无法诊断。
+- **根因（两层掩盖）**：服务层 `retrySegment()`/`generateSceneImage()` 未校验 `generateImage` 返回契约 `{code, message, data.path}`——`code !== 0` 时 `generatedPath` 为 undefined，直接落入 `_copyRequired` 抛误导性「产物不存在」，provider 真实原因被替换；渲染层 catch 固定显示 `operation_failed` 丢弃 `error.message`，绕过 `story2video-notifications.js` 既有归一化；主进程失败路径无日志。
+- **教训 1（生成器失败有两条路径：返回失败结果 ≠ 抛异常）**：消费返回 `{code,message,data}` 契约的生成结果时，必须在 `_copyRequired` 前显式校验 `code === 0` 且产物存在；失败结果必须与异常同等对待——上抛原始 message（缺失回退「图片生成失败」）、保留旧媒体、清理本次产物、持久化 failed + error。同类参照 `regenerateSceneAudio` 已有的 code 守卫；TTS 同族校验留 follow-up。
+- **教训 2（渲染层失败展示必须走消息归一化，禁止固定键）**：错误文本应交给既有通知归一化（quota/rate-limit/API Key/权限模式），已知类别显示本地化文案，未映射回退 `operation_failed`；固定键显示等于丢弃诊断信息，且不得把内部路径/堆栈暴露给用户。
+- **教训 3（回归测试必须覆盖「返回失败结果」路径）**：mock 生成器返回 `{code:-1, message:'余额不足'}`，断言 IPC message 包含原因、分段 failed + error 持久化、warn 日志包含 message；断言固定文案等于反向固化错误行为。
+- **逃逸链**：服务层测试只覆盖成功/异常 throw，缺「返回失败结果」（测试场景缺失）；渲染层测试断言固定文案（测试质量不足 + 审查盲区）。
+- **回归保护**：`story2video-project-service.test.js` +2（retry / generateSceneImage 失败保留原因、旧媒体、清理、不触发 renderSegment，含 `log.warn` 断言）；`ResultView.test.js` +2（quota 归一化 messageKey、未映射兜底 `operation_failed`、raw 文本不进弹窗）；`story2video-notifications` 26 passed。
+- **预防措施**：生成器消费前 code/产物校验 + 失败路径状态持久化与日志；渲染层 catch 透传 `error?.message` 进归一化；主进程 warn 日志（含 message）；frontend spec 追加「生成类 IPC 失败必须校验 code 并走消息归一化」条目。
+
+## 字幕分句成词保护缺失复盘（subtitle-split-quality，2026-08-16）
+
+- **现象**：`能/够`、`就/是`、`做/成`、`在/上`、`动/态`、`规/划`、`专/属` 等成词被切；
+  `降雨量狂飙到一天713.3毫米` 被劈成 `713.`+`3毫米`；v1.2 修复后 `扶余国`、`电视剧` 不再被
+  算术平衡切劈开，但标点分割+clean 导致的短尾块仍会触发二次切分把词切断。
+- **根因**：切点判定是「单字启发式」（good_lead/good_tail/bad_followers），本质无前瞻——
+  只问切点两侧单字是否像边界，不回答「切掉之后是否劈词」；标点分割后 clean 去掉末尾逗号，
+  前块缩短、短尾块无法被 merge_short 捕获（用户实测的 `扶余国`、`电视剧` 即由此切断）。
+- **教训 1（标点分割要有延迟决策）**：Step 3 标点分割「当前块 >= min 就切」不检查切完后
+  尾块是否会太短或切断词语；v1.2.3 用 `no_cut_bigrams` 成词保护 + 孤悬尾回退实现
+  「切点前瞻」：切点两侧构成成词（如 `能|够`）一律拒绝，尾块仅 4 字且块首非连词时
+  前移找达标切点。
+- **教训 2（半角点是双身份字符）**：`.` 同时是句界、优先级标点、尾随标点；数字中的小数点
+  必须三处豁免（句界切分、切分锚点、区间锚点）且三端（Python/TS/JS）一致，否则
+  `713.`+`3毫米` 复发。
+- **教训 3（good_tail 扩容要带排除集）**：`个` 入 good_tail 后 `个|性` 变成「好切点」；
+  独立 `good_tail_blockers`（性）只拦截纯黏着后缀，避免用 bad_followers 误伤
+  `的|电视`、`是|这位` 等真边界。
+- **逃逸链**：既有单测覆盖「无标点硬切」「平衡切分」场景，但缺「标点分割后 clean 变短 +
+  成词位于切点两侧」组合用例；向量语料无小数/成词双字用例（测试场景缺失）。
+- **回归保护**：sidecar `test_scene_subtitle.py` 新增 7 例（文帝 3 块、挥刀自宫 4 块、
+  713.3、扶余国/电视剧/高高在上/脖子/城邦/做成 完整块断言、个性不劈）；MP JS 合同测试
+  +8 例、parity 语料 +10 句；后续改词表/切点逻辑必须三端同步并跑 502+122 回归。
+
+
+## 提示词评测评估解析推理模型思维链复盘（fix-ops-center-eval-think，2026-08-15）
+
+- **现象**：404 修复后真实生成成功（2 张图落盘），但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。
+- **根因**：MiniMax-M3 为推理模型，`chat/completions` 的 `content` 以 `<think>...</think>` 思维链开头、后接 ```json 围栏 JSON；`parse_and_validate` 只处理「以 ``` 开头」的围栏，`json.loads` 遇到 `<think>` 前缀直接失败。已用真实密钥复现：HTTP 200、`finish=stop`、content=`<think>…```json{…}``` `，剥离 `<think>` 后 JSON 完整可解析。
+- **教训 1（LLM 输出解析契约必须按真实响应形状固化）**：翻译服务 `_strip_think` 已处理同一问题（MiniMax 系推理模型），评估服务漏了——两个服务消费同一 provider，修复一处必须全局检索同类解析点；mock 必须使用真实 provider 响应形状（含思维链+围栏），否则测试反向固化错误行为。
+- **教训 2（推理模型响应有未闭合截断形态）**：`finish_reason=length` 截断时 `<think>` 无闭合标签，剥离逻辑必须同时处理「闭合块」与「未闭合尾部」，未提取到合法 JSON 保持 fail closed，不得静默降级。
+- **逃逸链**：单测 mock 纯 JSON（测试场景缺失）→ 集成/E2E 用 fake evaluate（未覆盖真实 provider）→ 审查未核对真实响应形状。
+- **回归保护**：`test_prompt_eval_services.py::test_parse_eval_think_and_fence` 覆盖 `<think>`+```json 围栏 / 无围栏前导文本 / 仅思维链 fail closed / 未闭合截断 fail closed；parse 前统一 `_strip_think` + `_extract_json_text`。
+
+## 提示词评测图片生成 MiniMax 404 复盘（fix-ops-center-image-gen-minimax，2026-08-15）
+
+- **现象**：运营后台「提示词评测」点击【生成图片并评估】报 `生成失败：generation: 生成服务返回 404: 404 page not found`；MiniMax 密钥（minimax-image/image-01）保存与「测试连通」均正常（PR #861 已修探测）。
+- **根因**：`prompt_eval_generation_service.generate_images()` 对所有 provider 统一请求 OpenAI 兼容 `{base}/images/generations`；MiniMax 图片生成是**专有端点** `POST {base}/image_generation`，请求体无 `size`、响应是 `data.image_base64`（base64 模式）/ `data.image_urls`（url 模式）+ `base_resp.status_code`。
+- **教训 1（生成类 provider 不能假设 OpenAI 兼容）**：MiniMax image-01 与 OpenAI 兼容「差一个端点」——`/images/generations`（404）vs `/image_generation`。凡是直连第三方生成 provider，端点、请求体字段、响应结构、业务错误载体四项必须按官方契约逐一核对；mock 响应必须用真实契约形状，否则测试反向固化错误行为（既有用例用 OpenAI 形状 mock minimax，正好掩盖了这个 bug）。
+- **教训 2（业务失败载体各不同）**：OpenAI 兼容用 HTTP 状态码，MiniMax 用 `base_resp.status_code`（HTTP 200 也可能业务失败）；且 base64 模式返回 `data.image_base64`、url 模式才返回 `data.image_urls`，字段名差异会导致「404 修成空结果」的二次事故。fail-closed 判定要同时覆盖「HTTP 状态」与「业务状态码」（类型归一），且业务失败不进入重试。
+- **教训 3（数量上限与返回数量差异要显式校验）**：前端允许 image_count 1-20，MiniMax `n` 仅 1-9；不做显式校验会把非法请求透传给 provider（400 文案难懂）。返回图片数 != 请求数也要 fail closed（覆盖 failed_count>0），避免评估阶段图片数与维度权重错位。
+- **逃逸链**：单测 mock minimax 用 OpenAI 兼容响应形状（测试质量不足）；生成服务初版未按 provider 差异建模（审查盲区）。
+- **回归保护**：`test_prompt_eval_services.py` 新增 8 场景（MiniMax 端点/payload 断言、base64 落盘含 data URL 前缀、URL 下载、业务失败 fail closed 不重试、字符串 status_code 不误判、数量不符 fail closed、n 越界拒绝、flux 含 base_resp 不被误拦截）。
+
+## 字幕分句坏切复盘（subtitle-split-quality，2026-08-15）
+
+- **现象**：Story2Video 字幕出现 `扶余国`→`扶余/国`、`电视剧`→`电/视剧`、`复杂`→`复/杂`、`空白一片`→`空/白一片`、`卵生、日影受孕` 7 字孤悬；用户质疑是否本地源码落后于远程。
+- **版本核验**：本地 HEAD == origin/main == `6cefc0c`（fetch 后零差异），sidecar `subtitle_segmenter.py` blob hash 与远程一致，全 ref 最新提交（v0.15.2）已在 main，残留分支均 ahead:0——**坏切是算法缺陷，不是版本漂移**。接到「是不是源码不新」的疑问时，先做 blob/HEAD/远程三方核验再下结论。
+- **根因（三机制独立成立）**：
+  1. Step 6 平衡兜底按算术位置切（`min_pos = len-min`），无词边界感知 → `扶余/国`、`电/视剧`；
+  2. Step 3 无标点硬切整块，不检查劈词 → `复/杂`、`空/白一片`；
+  3. Step 4 用含标点长度判定短块，clean 去尾标点后块变短逃过 mergeShort → 顿号短块孤悬；
+  4. 配置透传：`stage-executor.js` 白名单缺 `subtitle_min_chars/subtitle_max_chars/subtitle_timing`，UI 参数到不了 8002 `config.subtitle`，且测试用 `not.toHaveProperty('subtitle_min_chars')` **反向固化丢弃**。
+- **教训 1（字级切分必须有词边界感知）**：CJK 无空格，按 max_chars 算术硬切必然劈词；硬切/平衡切分锚点优先级应为「标点 → 好切点（块首连词/介词、块尾助词/句内标点）→ 非黏着切点（排除 `bad_followers` 强黏着后缀）→ 算术回退」，字符集入规则表单源共享。
+- **教训 2（短块判定必须用 clean 后长度）**：Step 4 判定与 Step 5 清理必须同口径；用含标点长度判短块会在清理后漏救。
+- **教训 3（QM 禁例：测试不得固化「参数被丢弃」）**：`not.toHaveProperty(...)` 只能证明「不泄漏顶层」，必须同时正向断言映射落点（`config.subtitle.min_chars_per_block`），否则丢弃行为反而被测试保护。
+- **逃逸链**：单测只有泛化语料、无用户坏例（测试场景缺失）；向量真值由实现输出反写导致同漂（向量管理缺陷——本次改为手工真值 + `short_block_exceptions` 显式声明）；三端镜像手抄无 JS 向量断言（审查盲区——本次新增 JS 向量回归）。
+- **回归保护**：共享向量 25 条（含 5 条用户坏例）三副本（sidecar / TS fixture / JS 断言）；TS `subtitle-vectors.test.ts`、JS `story2video-segmentation-vectors.test.js`、parity 21、stage-executor 正向断言、E2E real 8002 用户 5 段坏例。
+- **预防措施**：改规则 = 改 `subtitle-rules.json` 表 + 三端同步 + 双端共享向量重跑；新增用户坏例时以手工真值写入并声明 `short_block_exceptions` reason；镜像手抄类代码必须有共享向量断言。
+
+
+## 模型密钥删除功能复盘（fix-ops-center-provider-key-delete，2026-08-15）
+
+- **需求**：运营后台「模型密钥」无删除入口，配错的密钥（provider/model 填错、密钥失效）无法移除，只能改 model 绕过或留脏数据。
+- **实现**：后端 DELETE /providers/{key_id}（admin 权限、404、物理删除）+ list/upsert 返回 id；前端删除按钮 + ElMessageBox 二次确认。
+- **教训 1（回退查找与 CRUD 联动）**：删除后 get_llm_key/get_vision_key 按 enabled=1 查询自动失效，无需额外联动逻辑——前提是查询走 DB 无缓存；若未来引入内存缓存必须在删除路径同步失效。
+- **教训 2（删除接口的存在性错误码）**：删除不存在资源返回 404 而非 400/静默成功，幂等删除语义；前端 confirm 取消用 catch 静默返回，避免误报。
+- **回归保护**：test_prompt_eval_api.py +2（删除成功+回退失效+重建、403/401/404+数据不变）。
+## 模型密钥探测 400 误报复盘（fix-ops-center-provider-test-minimax，2026-08-15）
+
+- **现象**：MiniMax 图片模型（image-01）密钥测试连通报 HTTP 400 unknown model，密钥实际有效。
+- **根因**：连通性探测先 POST chat/completions，回退 /models 仅认 404/405；MiniMax 对「模型不适用 chat 端点」返回 400 而非 404。
+- **教训 1（供应商契约：探测响应码按真实行为建矩阵）**：不同 provider 对「模型不支持该端点」的响应码不同（OpenAI 兼容常为 404，MiniMax 为 400）。连通性探测至少覆盖「404/405 无条件回退 + 400 按错误体关键字门控回退」，并以回归用例锁定。
+- **教训 2（400 回退必须门控，避免掩盖真实错误）**：400 语义宽泛（参数非法/鉴权/限流），无条件回退会被 /models 200 掩盖；用错误体关键字（unknown model/invalid model/model not found 等）门控，非模型类 400 保持 fail-closed。
+- **逃逸链**：单测只覆盖 404/405 与 401，缺 400 场景（测试场景缺失）；审查未对照 provider 真实错误语义（审查盲区）。
+- **回归保护**：`test_prompt_eval_services.py::test_provider_connection_probe` case 6-8（400 模型错误回退、400 非模型错误不回退、400+/models 失败提示真实生成）+ case 2 401 调用数断言。
+## 失败任务历史「看不到」与 stage 终态不一致复盘（s2v-history-visibility，2026-08-15）
+
+- **现象**：compose 阶段失败后任务在历史记录中「看不到」。实测：主进程 `pipelineHistory()` 返回 14 条（失败任务第 2 位），但前端历史列表 33 条中该任务排第 27 位（`status=failed`，`pausedStage=compose`），被 20+ 条已完成项目压底。
+- **教训 1（顶层终态 ≠ 阶段终态）**：`_finalizeRun` 只置 `run.status`，失败路径漏更新 `run.stages[run.currentStage]`——快照/详情页出现「顶层 failed + 当前 stage running」矛盾组合。对比 pause/cancel/resume/advance 均更新 stage，唯独失败路径缺失。教训：run 终态流转必须与当前 stage 终态成对维护，加终态一致性断言（failed/cancelled 时必须无 running stage）。
+- **教训 2（排序语义要按「用户关注度」而非「状态类别」）**：原排序「运行中 → 已完成项目 → 暂停 → 失败」把未完成任务排在已完成项目之后，违背用户直觉（未完成 = 待处理 = 最需要看到）。教训：历史类列表默认排序应以「未完成/待处理优先 + 时间倒序」为准；排序变更要有「最新失败任务不被埋没」的显式回归用例。
+- **教训 3（逃逸链）**：单测覆盖了 getHistory 合并/去重/快照恢复，但未覆盖「finalize 后 stage 终态」与「前端排序分组」；E2E 使用固定少量历史，无法暴露 20+ 条项目时的沉底。教训：状态机服务层补「终态一致」断言；列表类 UI 补「大数据量下关注项位置」用例。
+- **回归保护**：`pipeline-engine.test.js`（_finalizeRun failed/cancelled stage 同步 + completedAt）、`CreateView.test.js`（失败/暂停排在已完成项目之前）。
+## 运营后台提示词评测视频模式复盘（prompt-eval-video，2026-08-15）
+
+- **交付**：PR #833（squash `e2893256`）已合并，15 项 CI 全绿。运营后台「提示词评测」新增视频模式：`mediaType=video` case 真实调用视频生成 provider（Agnes Video V2.0 异步契约：POST /videos → 域名根 agnesapi 轮询 → MP4 下载校验 → ffmpeg 抽帧首/中/尾 3 帧）→ 复用视觉评估通道但维度固定为视频 4 维（temporal_consistency/motion_accuracy/audio_visual_sync/video_aesthetic_quality，权重 0.30/0.30/0.20/0.20）。
+- **教训 1（C1 媒体越权：媒体授权必须按 run 归属收窄）**：初版媒体访问按 case 维度放行，同 case 其他 run 的生成物可被越权读取。评审 C1 收窄为「引用该文件的 run 所属 case」的 owner/admin 才可访问视频与帧文件，并补跨用户媒体越权回归测试。
+- **教训 2（C2 场景模式 media_type 回归）**：场景模式（source_mode=scene）原只支持图片，视频 case 引入 mediaType 后若不设边界会放行 scene+video 组合。新增「媒体类型边界」契约：scene 仅图片（400「场景模式暂不支持视频评测」）、video 仅 single（400「视频评测暂不支持双路对比」），拒绝组合不创建 case/run。
+- **教训 3（视频生成 fail closed 全链路）**：密钥缺失/提交失败/轮询超时/下载失败/MP4 魔数不合法/抽帧失败任一环节失败 → run.status=failed 且 error 记录生成阶段原因，绝不静默降级为图片评估；MP4 校验用 ftyp 魔数 + 50MB 上限，ffmpeg 抽帧走 imageio-ffmpeg（FFMPEG_BIN 可覆盖，asyncio.to_thread 不阻塞事件循环）。
+- **教训 4（生成失败与评估失败双态分离）**：生成成功但评估输出非法（维度白名单外/分数越界/problems·points 缺失）→ run.eval_status=failed 且视频与帧保留可查看（不删产物）；与生成失败（run.status=failed）互不混淆。
+- **评审**：antigravity 地区不可用降级记录；Claude 首轮 2 Critical + 7 Warning 全修复并补回归；复审 8/8 无 Critical；W-2（CDN 3xx 跳转跟随）、W-3（dual 缺 LLM key 500）与 design.md 轮询端点描述同步修复。
+- **外部验收边界**：真实 Agnes 视频生成 / 视觉评估为外部验收项（自动化测试全 mock），需运营后台真机验证后另行确认。
+- **回归保护**：新增 contract +4、video_service 24、migration 1、video_api 6（含跨用户媒体越权/场景快照/生成失败 fail closed）；全量相关 10 套件 115 passed；前端 `npm run build` 通过。
+
+## 批量创作队列调度设计复盘（story2video-batch-create，2026-08-15）
+
+- **背景**：故事讲述新增批量创作：一次入队 1-10 条文案 / 1-20 个 .txt/.md 文件，按队列依次运行（批量并行 ≤2、手动运行中批量并行 ≤1、批量+手动 < 引擎全局预算），完成后进历史记录。落地为独立队列服务 `Story2VideoBatchQueue`（不嵌 PipelineEngine），run 打标 `source='batch'` 复用既有编排链路。
+- **教训 1（调度循环必须支持一轮启动多个）**：初版 `_drain` 每轮只启动 1 个任务即 return，导致并行 ≤2 永远达不到（并行上限形同虚设）。重构为死循环 `_collectPending + _canStartNow` 持续补位直到并行上限或无可启动项；终态事件/创建/取消均触发 `_drain`，`_draining` 防重入 + 尾部补偿（事件在 drain 期间到达可能错过启动窗口）。
+- **教训 2（引擎预算拒绝≠任务失败）**：`startOrchestrated` 返回 `PIPELINE_CONCURRENCY_LIMIT` 时若直接标记 failed，会导致真实高负载下批量任务批量误失败。修法：并发/预算类拒绝走 1s 退避重试（`_scheduleRetry`），其余错误才标记 failed。
+- **教训 3（normalizer 丢未知字段）**：`startOrchestrated` 的 config normalizer 会剥离未知字段（batchId/batchItemId），直接塞 params 会丢失打标。修法：normalize 前提取 `batchMeta`、normalize 后重新附加——「先取后补」模式适用于任何主进程透传标记。
+- **教训 4（索引隔离防串扰）**：批量 run 若写 `_currentPipeline` / `_<name>` 索引，会顶掉用户手动任务的详情页状态（后台批量跑完 → 手动详情被重挂为批量 run）。批量 run 只写 `_runs`，不写索引——「后台任务不得扰动前台状态」的通用边界。
+- **教训 5（fail-closed 整体拒绝）**：批量入队任何一项校验失败（超长/空/超限）都不得部分入队：整体拒绝 + `failedItems` 明细透传，前端展示首项标签，避免「看似成功实则缺项」的静默丢失。
+- **教训 6（事件订阅窗口）**：队列构造时即订阅 `pipeline:complete/fail`（先于任何 run 启动），无事件丢失窗口；`setRunFinalizedHook` 已被 diagnostics-reporter 占用，不可复用。
+- **回归保护**：`story2video-batch-queue.test.js` 15 例（并行 ≤2 入队即双跑、手动互斥、预算退避、取消仅 pending、索引隔离）；IPC 11 例；CreateView 7 例；全量 vitest 通过。
+
+## Windows GBK locale 下 read_text() 静默吞错 + 格式演进三件套复盘（prompt-engine-higgsfield-round3a，2026-08-15）
+
+- **交付**：round3a（PR #47，commit `ea35c78` + `e1f1788`）——图片缓存 key 全组件化（IMAGE_FMT_V1）、视频确定性校验（timeline_missing/timing_break，盐 V2）、音频分层（audio_layers 四段尾行）；全量 pytest 736 passed / 0 failed。
+- **教训 1（文件读取必须显式 encoding）**：`rest.py` 用 `read_text()` 无 encoding 读含 UTF-8 中文的 prompts.json，Windows GBK locale 下抛 `UnicodeDecodeError` 被 `except Exception: pass` 吞掉 → `rag_cases` 恒 0，全量测试「随机失败 1 项」实为确定性编码问题。教训：JSON/YAML 等文本文件读取一律显式 `encoding="utf-8"`；空 `except Exception: pass` 是 bug 温床，至少保留 `logger.exception`。
+- **教训 2（LLM 输出格式演进必须成套审查正则/判定表/渲染）**：新 Audio 四段尾行被尾行剥离正则（只匹配 `only.`）拦腰截断产出双尾行（评审 C1）。教训：格式契约变更时，剥离正则、判定表、渲染模板三处必须同 change 成套审查，并补「新格式尾行」回归测试。
+- **教训 3（判定表只在生效层启用）**：missing_audio 判定表若在 batch 层启用，会因中间产物无尾行产生假阴性——判定表仅限 refined 尾行实际渲染的场景（评审 W1）。教训：跨层复用的校验规则必须绑定「该输出形态真实出现的层」。
+- **评审**：Claude 1C/2W 全修复 + 13 Info（6 修，其余归 Batch B/C）；antigravity 后端不可用降级记录。
+
+## 场景多素材详情页初版复盘（3 素材身份；已由 2026-08-20 四视觉卡契约取代）（s2v-scene-multi-materials，2026-08-14）
+
+- **需求/交付（历史版本）**：视频创作-全能创作-历史记录详情页初版每场景最多 3 个可选素材身份——图1=`imagePath`、图2=`alternateImages[0].path`、视频=`videoPath`，`selectedMaterial` 记录选中态；新增【生成新图】【生成视频】【再次合成视频】（重合成复用已选素材 + TTS 语音/字幕/背景音乐）。该持久化边界仍然保留，但当前 UI 卡片数量和预览/选择交互以 PRD-video-creation.md §3.1.26.1 为准。PR #823（squash `8b90e85e`）已合并。
+- **槽位身份稳定**：选中只写 `selectedMaterial` 标记、不搬动文件；`alternateImages` 强制 `length<=1` 保证「图2=alternateImages[0]」槽位身份可推断，并与旧数据（无备选图）兼容。
+- **替换语义**：已有 2 图时点【生成新图】——图1 非选中替换图1、图1 选中则替换图2；已有视频时点【生成视频】替换原视频；生成接口按槽位覆盖写，返回后刷新素材区。
+- **教训 1（C1：compose 回显全字段会污染图1 槽）**：compose-engine 回显 scene 的 `...scene` 展开会把 `_scenesForCompose` 的渲染映射路径（含备选图）持久化回 `imagePath` 槽 → 槽位回填必须保留项目原值；`restoredImageCopies` 孤儿副本清理必须「仅当原值与副本路径不同才登记」，防止误删仍被引用的同名文件。
+- **教训 2（W1：任何「服务端返回新 segments」路径必须刷新素材 URL）**：详情页 retry / 再次合成等路径都必须调 `refreshSegmentImageUrls()`（内部串接 `refreshSceneMaterialUrls`），否则素材区空白。
+- **产物清理语义**：`referencedProjectFiles` 必须包含 `alternateImages[].path`；`_cleanupUnreferencedProjectFiles` 只删不再被引用文件，多素材槽位产物不误删。
+- **门禁证据**：定向 3 套件 415/415；全量 Vitest 7705 passed；locale zh/en 成对 + `check-locale-sync --cjk` 1512 PASS；QM-1 打包 exit 0 + asar 提取验证 4 新 IPC；PR CI 17 项全绿（QG Desktop Shards 首跑 3 例并行 flake，`gh run rerun --failed` 复跑全绿）。
+
+---
+
+## 分支保护 path-filtered 检查卡死 ops-center-only PR 复盘（branch-protection-path-filter，2026-08-14）
+
+- **现象**：PR #822（ops-center 提示词评测双路对比）CI 15 项全绿、无 review 要求，`mergeStateStatus` 仍 BLOCKED；`gh pr checks` 无任何非 pass 项，reviews 为空。
+- **根因**：分支保护 required contexts 含 `gui-test`、`visual-test` 两个 **path-filtered** 检查（workflow 仅 `apps/desktop/**`、`packages/**` 变更时触发）。ops-center-only PR 不会产生这两个 check run → required 永不满足，结构性 BLOCKED（非 PR 问题）。旁证：#821 同为 ops-center-only，其 head commit 同样没有这两个 check 却能合并（规则为近期新增或曾 admin 强合）。
+- **修法**：`PATCH /repos/{owner}/{repo}/branches/main/protection/required_status_checks` 从 contexts 移除 `gui-test`/`visual-test`（保留 13 项）；桌面端门禁已由 QG Visual / QG Browser E2E / QG Desktop Shards / electron-tests 覆盖，无门禁缺口。修复后 #822 转 CLEAN 并正常 squash 合并（未用 --admin 强合）。
+- **教训 1（path-filtered 检查不得列入 required contexts）**：GitHub 分支保护对未命中 path filter 的 workflow 视为「检查缺失」而非「跳过」，任何不触达该路径的 PR 永久 BLOCKED。新增 required check 前必须确认其触发条件覆盖所有会走该分支的 PR 类型；需要全量门禁时用单 workflow 内条件 job（如 quality-gate.yml 的 QG 系列），不要用多个 path-filtered workflow 各自 required。
+- **教训 2（BLOCKED 诊断路径）**：`mergeStateStatus=BLOCKED` 且 statusCheckRollup 无 pending 项时，直接比对分支保护 contexts（`gh api repos/{owner}/{repo}/branches/main/protection`）与 PR head commit 实际 check runs（`gh api .../commits/{sha}/check-runs`），差集即卡点。
+- **教训 3（gh api PATCH 细节）**：`-f strict=false` 会把布尔传成字符串导致 422，改用 `-F strict=false`（类型推断）或 `--input` 原始 JSON；该 PATCH 整体替换 contexts 列表，必须带全量。
+
+---
+
+## 合并 domain_enrich 到 scene_context 复盘（merge-domain-enrich-into-scene-context，2026-08-14）
+
+- **交付**：删除独立 `domain_enrich` 阶段与 `story2video-domain.js`，`imagePromptSeed` 种子生成移植进 `scene_context` 执行器（`contentType==='history'`，独立于 `enabled` 开关）；新增 `detectSentiment`/`buildDomainSeed` 到 story-context-engine.js；Python YAML 契约镜像同步删 domain_enrich 段；OpenSpec change 归档（PR 待合）。
+- **教训 1（阶段数变更的断言散布面要全量回归兜底）**：8→7 阶段改动后，定向测试全绿但 `pipeline-engine.test.js` 的 `stageCount` 硬编码 8 漏改——它不在任何定向清单里，只有全量 vitest 能抓到（7650 测试中唯一红）。教训：改阶段清单时，除 E2E/契约/UI 外，全局检索 `stageCount`、`8 阶段`、阶段数组字面量。
+- **教训 2（跨语言契约镜像必须同 change 同步）**：`story2video-compose.yaml`（Python 侧流水线定义）声明了已删除的 `domain_enrich` executor，Claude 审查抓住。教训：删 JS executor 时同步检索 `packages/python-backend` 下的 YAML/定义文件；契约镜像文件应列入 change 的 tasks 清单而非事后补。
+- **教训 3（纯规则合并也要用 golden 锁行为差异）**：seed visualStyle 从「逐场景关键词」变「全文全局判定」是用户可见的 prompt 输出变化，被「行为可观测等价」的目标表述掩盖；Claude 审查要求登记 Risk + golden 测试后才暴露。教训：宣称「等价」的重构必须列出所有可感知差异维度，每条配测试或显式 Risk。
+
+---
 ## 精修层长度判据「字符预算 vs 词数刻度」矛盾复盘（higgsfield-p0 边界修订，2026-08-14）
 
 - **Bug**：evaluator 精修层上界 `max(500, max_length//5)`，max_length=5000 字符预算 → 上界仅 1000 词；语料实证精修层中位 22,871 字符 ≈ 4,500 词，2760 词长模板被硬扣（直接评估 length_ok=False）。
@@ -65,6 +350,14 @@
 - **教训 3（CJK 基线行号脆弱性第三次实证）**：CreateView.vue 增加按钮/方法 → 行号整体漂移 → 基线 1562 条全部错位（当前仍 1562，无真新增）；`--update-baseline` 权威重排修复。行号 id 基线是反复踩坑点（learnings 2026-08-13 提示词引擎教训 4 已提出改内容摘要，待落地）。
 - **教训 4（审查降级路径：antigravity → claude → codex）**：antigravity 地区不可用（Eligibility）、claude wrapper stdin 挂起 exit 1（SDK PATH 已加仍失败）→ 用 `--backend codex` 完成独立审查并产出高质量 C1 竞态发现；质量节拍记录降级，不冒充双模型通过。
 - **交付**：CreateView.test.js +6（175 全绿）、vite build/eslint 0、PRD §3a 合同、CHANGELOG、i18n-glossary、CJK 基线重排。
+## 视频创作流水线启动即后台运行复盘（s2v-pipeline-always-background-run，2026-08-19）
+
+- **根因**：主进程早已用 autoAdvance + background 异步推进 run，但 renderer 仍用“是否点击后台运行按钮”区分前台挂载与后台运行，导致执行事实和 UI 语义分裂。
+- **修复**：编排启动成功后统一 stop polling + resetPipelineUiState + 历史刷新；历史卡片续跑进入 running 时不切创作页、不重新建立轮询；只有 scene_asset_selection paused 保留人工素材选择交互。
+- **数据校验**：启动和续跑响应的 runId 必须是非空字符串；自动后台不调用 pipelineCancel、不释放并发槽位；已有 runId 快照守卫继续丢弃过期轮询响应。
+- **测试逃逸分析**：旧测试覆盖了“点击按钮后脱离”，但没有覆盖“启动成功后立即脱离”和“历史续跑不抢占创作页”；本次新增/改写 CreateView 启动、历史续跑、mounted 不接管、无效 runId 和历史后台提示断言。4 个 4K/音色异步用例仍有独立预存失败，未将其误报为本次回归。
+- **流程预防**：OpenSpec 规格明确运行态后台语义与人工检查点例外；PRD 记录校验、流程、显示项、提示文字和并发合同，避免后续只修改按钮文案而遗漏启动/续跑路径。
+
 ## npm → pnpm 迁移复盘（pnpm-worktree-deps，2026-08-13）
 
 - **交付**：依赖管理迁移 pnpm 11.13.1（`pnpm-workspace.yaml`：nodeLinker=hoisted + allowBuilds 放行 esbuild/vue-demi/ffmpeg-ffprobe-static/nx/tesseract.js），`pnpm-lock.yaml` 唯一锁文件；7 个 CI workflow + nx.json + workflow-contract 同步；新增 `scripts/verify-worktree-deps.js`（解析门禁）与 `scripts/run-package-install.js`；重写 `scripts/fix-worktree-node-modules.sh`；electron-builder 排除 `!node_modules/.pnpm/**`。新 worktree `pnpm install --frozen-lockfile` 实测 17.1s（1104 包 store 复用、0 下载）；桌面全量 vitest + 其余 workspace 全绿；win 打包 QM-1 通过；CI 全绿后合并（PR #705）。
@@ -13377,3 +13670,221 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **对齐编排**：Tier1 直接用 TTS 词级时间戳聚合（coverage<0.5 或估算值弃用，避免劣质时间戳），Tier2 ASR 仅处理无时间戳/不合格场景；Tier1 循环与抓取路径全部 fail-open——任何失败只 warn 并回退，不中断流水线。时间戳抓取要有界（10s 超时）+ 读取前按 content-length 拦截超限（8MB），不能先读完再丢弃。
 - **时长顺带修正**：edge-tts duration 从 `mp3字节/16000` 粗估（误差可达数倍）改为真实词尾 +0.3s。
 - **流程教训**：多会话共享工作区时，改动提交必须走隔离 worktree（基于含依赖接线的 commit 建分支，`git apply --3way` 搬改动），不能混入他人分支；node_modules 可用 junction 指向主工作区跑单元测试（仅依赖解析，不涉及打包产物证据）。
+
+## 登录控制信号被误当凭证数据复盘（fix-login-credential-capture-error，2026-08-14）
+
+### 现象
+账号管理添加账号，打开平台登录页后未做任何操作直接关闭页签，误弹「未捕获到有效登录凭证」。
+
+### 根因
+`auth:open-login` IPC 处理器无条件把 `AuthViewManager.openLogin()` 的 resolve 值传给 `saveCapturedAccount()`。而 `AuthViewManager` 的关闭/Esc/超时路径 resolve 的是控制信号（`{ cancelled: true }` / `{ timeout: true }`），不是凭证数据；`saveCapturedAccount` 的「无 cookies/localStorage/indexedDB → 抛『未捕获到有效登录凭证』」是真实失败时的 fail-closed 校验，被控制信号误触发。
+
+### 逃逸链
+1. IPC handler 无「openLogin 返回控制信号」的契约测试（单测层缺失）；
+2. `Accounts.vue` 渲染层测试虽 mock 了 `cancelled`，但主进程侧从未实现返回该字段的契约（契约断层）；
+3. 集成/E2E 未覆盖「关闭页签 → 不保存、不报错」（场景缺失）。
+
+### 修复
+- `auth:open-login` handler 拦截控制信号：取消 → `{ code: 0, cancelled: true }`（静默）；超时 → `TIMEOUT_ERROR` + 明确超时文案；两者均不调 `saveCapturedAccount`。
+- `FirstRun.vue` 同步识别 `cancelled`（同 IPC 的另一消费方，避免取消误报「添加成功」）。
+- 回归测试：IPC 层断言返回契约 + 不调保存；渲染层断言取消不弹 alert。
+
+### 经验沉淀（审查清单更新点）
+- **新增「控制信号 vs 业务数据」审查项**：任何 `Promise.resolve` 值被透传给下一层时，先确认 resolve 值集合里是否存在非业务数据的控制信号（cancel/timeout/close），若有必须在消费边界拦截并规格化（OpenSpec 场景）。
+- **IPC 返回契约测试**：主进程 IPC handler 的返回形状（含取消/超时分支）必须有契约测试钉死，渲染层的 mock 不能替代主进程侧断言。
+# 历史记录状态标签与统一排序复盘（2026-08-15）
+
+## QM-5
+- **第一性原因**：旧实现把状态优先级和时间排序耦合，并让卡片整体承担恢复/导航语义；`41930e6b` 的组件拆分保留了该交互耦合，`99cbddd2` 又暴露失败状态合并问题，最终造成最新失败/暂停任务被已完成任务掩盖。
+- **逃逸分析**：单测只有同状态/简单历史 fixture，缺少混合状态更新时间、epoch 0、键盘标签与按钮冒泡场景；集成/E2E 没有历史详情字段和取消态不可点击断言；视觉审查没有覆盖窄屏标签与详情信息密度。
+- **系统性漏洞**：测试场景缺失 + UI 交互设计审查盲区。
+- **修复与回归保护**：新增 `history-utils` 纯排序/筛选测试、`CreateViewHistory` 标签/详情/动作测试、CreateView 混合时间排序测试；暂停/失败字段通过 zh/en locale 合同校验。
+- **预防措施**：以后历史列表复用单一有效时间工具；组件模板必须分离详情 body 与写操作 footer；UI 变更门禁增加键盘/ARIA、窄屏和状态专属字段检查。
+
+本次范围只涉及 renderer 展示、交互、样式、locale 和文档，不改变 IPC、持久化结构、provider 或恢复引擎。
+
+## 并发会话共享 HEAD 导致全局分支漂移复盘（session-isolation-hardening，2026-08-15）
+
+- **表象与第一性原因**：多个 Codex 任务以 `D:/Data/projects/Multi-Publish` 为同一 cwd；任务 `01a000cf-d579-7722-8abf-2d98de957e6b` 于 2026-08-15 10:04:54 +08:00 执行 `git checkout -B codex/fix-s2v-v3 origin/main` 后，所有共享该目录的任务立即看到同一 feature 分支。Git 的 `HEAD` 属于 worktree，不属于 Codex 会话；会话级声明和 pre-commit 只能阻止错误提交，不能隔离或撤销 checkout。
+- **逃逸链与系统性漏洞**：规范要求独立 worktree，但桌面任务仍可绑定共享项目目录；Git 无 `pre-checkout` hook，既有保护仅在提交时触发；并行 `handoff_thread` 又同时竞争共享源目录的 index、HEAD 与 stash，三次迁移均失败并留下 detached Codex worktree。流程具备书面约束，却缺少 checkout 后自动恢复与持久事故标记。
+- **恢复证据**：暂停其他任务 Git 写入，安全移除占用 `main` 的陈旧 worktree，将四个 `.tmp-*.js` 保存到 `stash@{0}`（message：`shared-main-recovery-temp-files-20260815`），再把共享主目录恢复为干净且跟踪 `origin/main`。恢复时不得 pop/drop 共享 stash；需要取回临时文件时先按 stash message 重新定位，再用路径级 `git restore --source=<stash> -- <path>`。
+- **永久修复**：共享主目录定义为 main-only 协调目录；新增 `post-checkout` 在干净状态递归安全恢复 `main`，脏状态或恢复失败时保留现场并写 `.agent_context/shared-root-violation`；`pre-commit` 在 marker 存在时 fail closed；`session-init.sh <task-name>` 只创建/复用 `D:/Data/projects/mp-worktrees/mp-<task-name>` + `codex/<task-name>`，错误分支或其他仓库占位均拒绝。
+- **迁移与工具边界**：多个任务已经共享一个 cwd 时必须暂停 Git 写入并逐个串行迁移，禁止并行 handoff/stash/checkout。Windows 上此流程固定使用 `D:/Program Files/Git/usr/bin/bash.exe` 或 Git Bash；裸 `bash` 在本机可能落到不可用 WSL。回滚仅重新安装上一版本 hooks，不删除恢复 stash；worktree 删除继续逐个运行 `scripts/safe-worktree-remove.ps1`。
+- **归档回补**：`session-guard.ps1` 的“另一活跃会话声明不可覆盖”（`session.json` pid 存活时拒绝，除非 `-Force`）在修复落地时缺少对应回归测试；归档任务补上该场景（`session-guard.test.ps1` 新增断言），避免后续把 fail-open 退化当通过。共享主目录必须保持 `main` 且干净，stash 列表里的恢复项与另一会话的未跟踪目录均不得触碰。
+
+## Story2Video 50 分钟上限后的固定 ffmpeg 超时与通用错误提示复盘（2026-08-15）
+
+### 第一性原因
+- 产品时长上限调整到 50 分钟只改了 compose 预检；e39e22cfa 引入的 concat 60s，以及 e1b46eba 引入的旁白/BGM/WebM/输出校验 120s/120s/180s/60s，仍按短成片设计。此前 feffc5da 只把单段编码改为动态预算，没有覆盖全片下游阶段。
+- fed08eed 引入 Story2Video 通知归一化时，未知错误统一安全回退，但没有定义“成片总时长 / 单段旁白 / 合成阶段 timeout”的稳定消息键。更隐蔽的是 Node execFile 的 timeout 错误可能只有 killed=true、signal=SIGTERM，message 不含 timeout，单靠 renderer 正则无法可靠分类。
+
+### 逃逸链与系统性漏洞
+1. 单元测试：耗时方法大量 mock；只覆盖短媒体与固定 timeout 数值，没有 3000s 预算矩阵，也没有 killed + SIGTERM 的子进程错误形态。
+2. 集成测试：真实 ffmpeg fixture 约 0.25-4s，无法触发长成片预算；阶段调用链未断言旁白使用真实音频总时长、BGM/WebM/校验使用预计成片时长。
+3. E2E：没有接近 50 分钟的长成片，因成本高而未覆盖；通知 E2E 只验证通用 fallback，反而固化了“具体原因不可见”。
+4. 代码审查：上限变更只审了预检常量，没有沿调用链搜索所有 timeout；错误映射审查只看文本 pattern，没有核对 execFile 的真实 error 结构。
+5. 分类：测试场景缺失 + 审查盲区 + 产品上限与执行预算联动流程缺失。
+
+### 修复与回归保护
+- 新增统一有界预算 helper：按 duration × factor + overhead 计算，再钳制阶段最小值和硬上限；concat/xfade/旁白/BGM/WebM/校验分别使用当前阶段对应媒体时长。
+- execFile timeout 在主进程统一归一为带阶段语义的 ETIMEDOUT；renderer 只映射稳定错误合同，不猜某一种 stderr。
+- 新增三类通知键与 zh/en 文案；只显示缩短/拆分、磁盘/负载检查和断点重试建议，不回显路径、命令、stderr、token 或堆栈。
+- 回归覆盖短片下限、3000s、非法时长、阶段上限、阶段时长传参、killed + SIGTERM、通知优先级与技术细节脱敏。
+
+### 预防措施
+- “提高产品媒体时长上限”审查必须沿链检查：输入校验 → 中间产物 → 所有子进程 timeout → 输出校验 → 用户错误映射；只改入口常量不算完成。
+- 子进程 timeout 分类必须在执行边界归一化；renderer 不得把操作系统 signal/message 当稳定 API。该规则已写入 .ccg/spec/frontend/index.md。
+- 长媒体测试不必真的生成 50 分钟文件，但必须同时具备预算数学测试、调用链传参测试和至少一组短媒体真实 ffmpeg 冒烟；三者互补，不能只 mock 或只跑短片。
+
+## Story2Video 合成成功后的结果页误报复盘（2026-08-15，s2v-result-success-error-boundary）
+
+### 第一性原因与逃逸链
+- `_advanceRun` 先发 `pipeline:complete` 再保存项目，约 1.15 秒竞态窗口内结果页可能读不到项目；结果页大范围 `try/catch` 又把旁白或场景预览失败误报为任务失败。
+- 旧测试未锁定完成事件与 `saveRun` 顺序，也未覆盖“项目/成片成功但附加资源失败”的组合；系统性漏洞是测试场景缺失与错误边界审查盲区。
+
+### 修复与预防
+- 完成事件后移到项目持久化成功之后；持久化失败同步最后阶段为 `failed` 并发送 `pipeline:fail`。
+- 结果页按项目、成片、旁白和场景素材独立降级；主视频播放器错误使用预览级文案。定向回归 86/86 全绿，规则已写入 frontend spec。
+
+## Story2Video 长合成“假卡死”可观测性复盘（story2video-compose-observability，2026-08-15）
+
+- **现象**：长视频分块转场合成在 UI 87%-89% 可持续数分钟。既有引擎每完成一块才输出 merge_l{level}_chunk_{n} created，因此无法从日志区分 FFmpeg 尚未启动、持续 CPU 重编码、子进程退出、输出停止增长或阶段超时。
+- **第一性原因**：compose 没有跨阶段关联 ID，FFmpeg 通过不带 PID/输出状态的 execFileAsync 执行；分块只有完成事件，运行期间没有心跳。根因不是单纯的 UI 百分比，而是引擎缺少能够证明“仍在工作”的运行时证据。
+- **逃逸链**：原测试验证了 87→89 单调进度和块完成文本日志，但没有断言 FFmpeg 启动、超时、失败、空输出、输出大小或块开始事件；短时真实 FFmpeg 用例不会自然暴露长时间无日志窗口。
+- **修复**：以 composeId 串联 compose_started/stage/终态事件；统一 FFmpeg 包装记录 started/succeeded/failed/timeout/output_missing；chunk 记录 started/succeeded/failed，超过 10 秒记录输出字节心跳，30 秒无增长 WARN。stderr 经过路径替换和长度截断，日志不写完整路径/命令/素材/prompt/凭据。
+- **预防**：所有新增长耗时本地子进程路径必须覆盖“启动 + 成功 + 失败/超时 + 产物校验”四态；需要帧级 ETA 时单独设计 spawn + progress pipe 合同，不得把高频解析混入普通诊断日志；测试至少包含一个可控超时和一个输出增长心跳。
+## 视频提示词引擎 Higgsfield Round3 B/C 复盘（prompt-engine-round3bc-delivery，2026-08-15）
+
+- **教训 1（跨镜承接语义红线）**：`final_frame` / `prev_final_frame` 是"计划中的最终画面描述"（计划态文本），不是解码帧/实际渲染帧。契约层、OpenSpec spec、PRD、learnings 四处措辞必须一致用"终态描述/承接事实"，避免下游（compose/渲染）误把它当真实帧结果消费。`story2video-stages.js` 回写 `scene.video.final_frame` 只是把上一场景的优化输出作为下一场景的承接输入，不改变素材链语义。
+- **教训 2（V4 缓存一次失效）**：任何"上下文敏感"的请求字段都必须进缓存 key。Round3 B 把 `prev_final_frame` 的 SHA-1 前缀哈希加入 `_cache_key`——否则"换了上一镜终态仍命中旧结果"，是比缓存穿透更隐蔽的脏命中。设计缓存盐时逐字段过一遍：哪些字段变化会让旧输出失效？
+- **教训 3（否定感知 gated）**：启发式违规规则必须做否定感知（"no cold palette" 不触发 warm_light_leak，"don't look at camera" 不触发 eye_line），否则误报率不可接受；同时 lock 触发词不能包含尾行模板里的字面量——`style_contamination` 用 hyper-realistic/photorealistic detail/写实，**不用裸词 photoreal**，否则 "Photoreal. NON-IP." 尾行会自触发。
+- **教训 4（尾行安全归一）**：`strip_embedded_trailer` 与 `append_trailer` 必须同口径，且只处理"最后一段/行尾"形态的尾行；中段出现 "Photoreal NON-IP aesthetic" 这类字面量不误删 FINAL FRAME 块。生命周期固定为 render body → append 尾行 → optimizer 按预算截断（tail 永不截断），三次评审迭代都围绕"尾行判据收紧"（幂等判据、残缺裸尾行剥离、最后一段限定）。
+- **教训 5（断链明示不虚构连续性）**：resume/checkpoint 恢复时若上一场景无 `prev_final_frame` 链，必须显式 degraded 告警（引擎断链明示），不得虚构连续性或静默跳过——fail-open 但明示，让用户知道本次输出没有承接约束。
+- **教训 6（资产驱动规则要可降级）**：`refined_blocks.json` 缺失/损坏时 `_gated_rules()` 回退空表 → 规则不启用零误报。语料驱动的启发式规则（lock-trigger/coverage）本质是统计资产，不是代码常量——资产可缺失、可更新，代码必须 fail-safe。
+
+## 提示词引擎 BYOK 与缓存 provider 隔离复盘（prompt-engine-byok-llm，2026-08-16）
+
+- **教训 1（哪个产品调用就用哪个产品的 LLM）**：提示词引擎的服务端 config.yaml 兜底会让桌面版实测落到 MiniMax 而非用户配置的 SenseNova——产品自配置 LLM 必须由产品侧注入（llm + caller），引擎侧兜底 key 必须移除，否则「设置里换模型」对用户是假承诺。
+- **教训 2（fail-closed 优于回显兜底）**：历史记录「重新生成优化词」曾因引擎 402 回显原文被当成功写入（fail-open）；BYOK 缺绑定一律 422 / 可操作错误，杜绝「看起来成功、实际没调用最新引擎」的假阳性。
+- **教训 3（缓存键必须含 provider 身份）**：`SqlitePromptCache.make_key` 原实现把 provider 追加写在了 `return` 之后（死代码），`CacheManager` L2 又漏传 provider——换 LLM 后仍命中旧缓存。凡是「上下文敏感」字段（含模型绑定）都必须进缓存键，并统一 L1/L2 同一身份。
+- **教训 4（新增 BYOK 边界要同步邻近测试）**：既有桌面契约测试未注入默认 LLM，fail-closed 后 9 个用例立即暴露——凡新增绑定/兜底类边界，邻近测试必须显式 mock 默认 LLM 或声明模板直出（creative_level<=3）。
+## 创意等级与提示词执行策略解耦复盘（decouple-creative-level-strategy，2026-08-17）
+
+- **现象**：同一段历史场景文案生成结果只有原文加固定技术底座，无法确认是否真正调用了最新 LLM；低等级请求还容易被误认为“引擎自动判断创意等级”。
+- **根因**：`creative_level` 在 `auto` 兼容路由中同时承担等级和执行分流，调用方没有显式表达“必须模型/必须模板”；缓存结果缺少可见的执行证据，人工重生成没有绕过缓存。
+- **教训 1**：创意/细节强度与资源执行策略是两个正交维度。当前只允许 `optimization_strategy=template|llm`，缺省为 `llm`；`auto` 不再接受，显式模板才走确定性模板路径。
+- **教训 2**：用户点击“重新生成”必须有可验证语义：强制 BYOK LLM、`bypass_cache=true`，并返回 `strategy_used/key_source/model_used/caller/cache_hit`。
+- **教训 3**：模板路径应确定性输出；随机选择光影词会制造虚假的“重新生成”差异，且难以审计。
+- **逃逸链**：旧测试覆盖了等级边界，但没有覆盖低等级显式 LLM、高等级显式模板、混合 batch 逐项注入、缓存绕过及执行元数据；属于测试场景缺失与双路径契约漂移。
+- **回归保护**：PromptBridge/kernel/contract/service 与 prompt-engine `test_llm_object.py`、`test_template_render.py` 覆盖上述矩阵；后续修改策略解析或历史重生成必须运行这些套件。
+## Story2Video 历史失败提示技术占位符泄漏与模型账号粒度复盘（error-message-fix，2026-08-19）
+
+### 第一性原因
+
+历史错误友好化改造（引入 commit 73bbafbc9，后续由 ca69919bf 扩展额度/API Key 分类）把 locale 引用 @story2video.labels.sceneLabel 和参数 sceneText 一起带进了 formatter/renderer 边界。sceneText 原本是场景上下文领域的内部变量名，不是用户可读内容；当二次格式化缺少对应参数时，模板变量会原样进入失败提示。与此同时 provider 只被抽象成“对应模型账号”或 provider account，没有把具体账号身份传达给用户。
+
+### 逃逸链
+
+1. 单元测试覆盖了 message key 和部分场景文本，但没有对所有受影响消息键执行最终字符串的 {sceneText}/provider account 禁止断言。
+2. formatter 与 renderer 是两条独立错误入口，旧测试没有要求两者输出同一组安全参数。
+3. 历史卡片集成测试只验证失败原因存在，没有覆盖已知 provider、未知 provider 和 API Key/额度提示的账号粒度。
+4. E2E/视觉层没有用真实历史失败快照验证最终文案；代码审查关注错误分类，却遗漏了 locale 插值参数是否仍为内部字段。
+
+### 系统性漏洞定位
+
+属于“测试场景缺失 + 双路径契约漂移 + 用户可见文案审查盲区”。内部变量名可以在编译和分类测试中合法存在，但它一旦跨过 formatter 到 locale 插值层就成为用户可见内容；没有“最终渲染字符串脱敏”这一独立门禁。
+
+### 修复与回归保护
+
+- 将 sceneText 替换为自然语言 context；formatter 只输出场景号/比例/生成类型，renderer 在边界内完成 locale-aware 拼接。
+- 新增 provider-name-map.js，按 provider ID 映射具体显示名并拒绝 account/provider/数字等泛化值；未知值回退当前模型账号。
+- zh/en 的限流、额度、空结果、素材生成、API Key 文案均以具体模型账号为主语，并保留等待、检查额度、更新 Key、调整场景和断点继续建议。
+- 回归测试覆盖 formatter、renderer、结果页空结果、二次格式化、中英文场景号、已知/未知 provider 和 raw technical marker 脱敏。
+
+### 预防措施
+
+1. locale 变量白名单：用户可见失败提示只允许 context/provider/detail 等安全参数；禁止 sceneText、raw error 和技术对象进入插值。
+2. 每个错误入口必须共享 provider/context 合同，新增错误分类同时补 formatter 与 renderer 测试。
+3. 用户文案审查清单新增：最终字符串不得含未解析变量、内部字段名、provider account、请求 ID、状态码、堆栈或服务端端口。
+4. 归档前执行 locale-sync、OpenSpec validate、定向 Vitest、构建和 PR 远端 checks；外部模型不可用时如实记录降级，不把本地审查冒充外部审查。
+
+## Story2Video 断点恢复未切换当前模型复盘（s2v-resume-current-models，2026-08-19）
+
+- **现象**：历史记录中的失败/中断 Story2Video 任务恢复后，图片、语音和视频阶段仍可能携带启动任务时的 provider/model；用户已经在模型设置中切换模型，但“从断点继续”没有真正使用新设置。
+- **第一性原因**：恢复实现把旧快照 params 深度恢复，并把其中的 provider/model 视为新的显式路由；“已完成资产复用”和“未完成调用路由”没有在同一个恢复合同中分离。legacy Python 路径还存在绕过已解析 resolved 字段的分叉。
+- **方案**：恢复 Story2Video 参数只清除图片/TTS/视频路由字段并设置内部 marker；实际调用前按 capability 解析当前默认 provider/model。完成资产先按 scene index 校验本地路径并复用，未完成资产才调用当前模型。手动 finalize TTS、legacy Python 和视频 plan 同样遵守该策略。
+- **风险判断**：新 TTS 可能没有旧 voiceId、音色质量/语言不同；因此 voiceId 是内容参数，不能静默替换，必须沿用 VOICE_MODEL_MISMATCH/目录合同和既有 re-clone，失败时不覆盖旧音频。图片/视频允许新旧模型混合，视觉风格差异是明确产品取舍。
+- **远程任务边界**：当前 generateSceneVideo 未把远程 taskId 写入 checkpoint/run-state。提交后中断属于未知状态，不能查询、不能标记完成；恢复只能按现有阶段级重试/图片回退语义处理。未来持久化必须绑定原 provider/model。
+- **逃逸链**：旧测试验证了恢复能继续、完成视频能复用和跨镜终态，但没有组合覆盖“设置已切换 + 未完成 provider/model + legacy Python + 旧 video_plan + 远程未知状态”。因此问题逃过了单测和代码审查，属于测试场景缺失与跨路径契约审查盲区。
+- **回归保护**：resume-orchestration.test.js 锁定旧路由清理和内容参数保留；story2video-stages.test.js 锁定 assetGenerator/legacy Python 的当前 image/TTS 模型、已完成图片/音频/视频不重复调用、未完成视频只提交一次且使用当前 provider/model；pipeline-story2video-contract.test.js 继续保护 stage options 合同。
+- **预防措施**：以后新增资产生成路径必须接收统一的 resolvedProvider/resolvedModel，禁止从原始 params/stage.options 重新取路由；恢复设计必须同时给出资产状态矩阵、旧快照兼容性、语音兼容性和远程任务状态说明；用户提示必须与事实状态一致，未知不能成功化。
+
+## Story2Video 历史卡片、缩略图与非运行编辑复盘（video-history-card-detail，2026-08-20）
+
+### 第一性原因
+
+历史记录同时消费项目草稿和流水线运行快照，但旧实现只在部分状态展示卡片字段，并把提示词、执行耗时和视频时长混用；取消任务又被当成不可进入详情的终态。项目内容保存与暂停/取消/失败/完成状态写回也没有统一的更新时间合同，导致用户看到的更新时间不能代表最近一次操作。首场景媒体缺少统一图片优先、视频首帧和失败降级规则，结果页缺失素材还会因为条件渲染而消失。
+
+### 逃逸链
+
+1. 单元测试：旧用例主要覆盖 completed 或纯排序，未要求六个标签使用同一套字段，也未覆盖标题为空、任务文案与提示词不同、视频时长与 activeMs 同时存在的组合。
+2. 集成测试：project/run 快照只覆盖常见 projectId，未覆盖旧 run 只有 id 时的匹配；缩略图没有覆盖图片优先、路径越界、符号链接和 FFmpeg 失败的完整矩阵。
+3. E2E/视觉：没有真实历史列表到 cancelled 编辑页、缺失图片/视频/语音占位和运行中卡片控制边界的窗口验收；旧详情规则反而固化了 cancelled 不可编辑。
+4. 代码审查：没有把“项目内容真源/运行状态真源”写成合并后校验合同，也没有逐项检查 updatedAt 是否覆盖内容写入和操作写入。
+
+### 系统性漏洞定位
+
+属于“测试场景缺失 + project/run 数据契约不显式 + UI 终态边界审查盲区”。历史快照兼容不能只按当前结构测试；用户可见卡片还需要验证字段语义，而不是只验证字段存在。
+
+### 修复与回归保护
+
+- CreateViewHistory 统一所有状态的卡片结构，标题按标题/参数标题/任务文案/流水线回退；文案预览只读任务文案并限制 120 字符；增加首场景缩略图、视频时长和“未生成”占位。
+- Story2VideoProjectService 增加安全的图片优先/视频第 0 秒首帧生成、缓存校验、并发合并和 fail-soft IPC；路径必须在受控根目录内且输出格式有效。
+- CreateView 用三索引匹配 project/run，项目内容优先、run 状态补充，纯 run 不伪造项目；ResultView 固定缺失/失败素材槽位。
+- 统一单调 updatedAt helper，覆盖内容保存、暂停、继续、取消、失败和完成状态写回；回归断言同一时钟 tick 下也能前进。
+
+### 预防措施
+
+1. 新增历史字段必须写入“字段语义 + 来源优先级 + 无效值处理 + 中英文文案”的合同，禁止用相近但语义不同的 duration 替代 videoDuration。
+2. project/run 合并变更必须覆盖 projectId、runId、legacy id、旧 run 只有 id、旧 run 内容过期和纯 run 无项目五种数据形态。
+3. 新媒体展示必须同时覆盖合法素材、缺失、失败、文件被清理、越界/符号链接和窗口加载失败；固定槽位不能因 v-if 消失。
+4. 终态可编辑规则必须同时检查 running 排除、paused/failed/completed/cancelled 进入、cancelled 禁止 resume、纯 run 禁止伪造项目；文档与 locale 成对更新。
+5. 外部模型不可用时必须如实记录；本地审查、定向测试、打包窗口验收和远端 CI 的证据分开记录，不能互相替代。
+
+### 历史详情场景素材未生成槽生成按钮缺失 + 生成AI视频灰显（2026-08-21，fix-s2v-history-scene-gen-buttons）
+
+**现象**：视频创作-历史记录-视频详情（ResultView.vue）场景素材的图片 2/视频 2 空卡下方没有【生成新图】/【生成 AI 视频】按钮；视频 1 的【生成 AI 视频】在无 videoPrompt 时灰显不可点。
+
+**第一性原因**：① 2026-08-20 四视觉卡修订设计了「场景级生成按钮只在 image1/video1 卡渲染一次」，image2/video2 空槽因此没有生成入口；② 渲染层 `hasUsableVideoPrompt` 只校验 `segment.videoPrompt`，而后端 `generateSceneAiVideo` 实际回退 `videoPrompt || prompt || text`，老项目未持久化 videoPrompt 时前端错误禁用按钮。
+
+**逃逸链**：单元测试把「image2/video2 无按钮」（`toHaveLength(2)`）写成断言反向固化错误行为；服务层测试覆盖了后端回退但没有任何渲染层用例把前端门控与后端契约绑定；E2E/视觉无空槽+可回退提示词场景。
+
+**修复**：生成按钮覆盖 image1/image2 与 video1/video2 全部视觉卡（保持场景级动作，写入目标由选中态/身份规则决定，video2 仍是视觉别名）；`hasUsableVideoPrompt` 改为 `videoPrompt || prompt || text` 任一 trim 非空，与后端契约一致（模板 disabled 与方法入口 guard 同时放宽，避免可点但静默 return）。
+
+**预防**：场景级生成动作可以在多个视觉卡重复暴露多入口，但禁止为视觉别名新增持久化身份；renderer 的“能否生成”门控必须与后端提示词回退契约逐字一致并加跨层断言；测试禁止用 `toHaveLength(2)`/“无按钮”固化错误行为，用 data-testid 定位。已沉淀至 `.ccg/spec/frontend/index.md` §8。
+
+## Story2Video 字幕常用词边界与未闭合引号保真（subtitle-word-boundary-fix，2026-08-22）
+
+- **现象**：用户整段文案分句后出现 `哪|怕`、`没|法`、`那|些`、`展|现` 等常用词被硬切；`前朝。"字里行间…` 这类未闭合半角引号会让后续句号失效，正文被吞。
+- **根因**：`no_cut_bigrams` 只覆盖此前用户反馈词；引号清理只发生在句界切分之后，孤立开引号会让 `_split_sentences` 的引号栈永不闭合，后续正文与句号一起被吞。
+- **修复**：常用词加入共享 `subtitle-rules.json`；三端在句界扫描前先做 `stripUnpairedQuotes`，只移除无法配对的引号字符并保留正文；`protectedPhrasePrefixAtEnd` 增加“文本已完整结束于保护短语时不再把末尾单字误判为另一短语前缀”的守卫，修复 `江南` 被 `南宋灭亡时` 误伤成 `江|南`。
+- **逃逸链**：单元测试覆盖了旧保护词但未覆盖“未闭合引号 + 多句 + 完整长文”组合；共享向量没有带上用户整段文案；Python/TS 向量测试各自独立，缺少同一输入的三端逐字对比。
+- **回归保护**：新增 `user_common_words_and_unpaired_quote`、`user_full_ming_scholar_script` 共享向量，三端共用；Electron 141、TS 166、Python 169 全部通过；QM-1 打包与 ASAR 抽取真实 require 通过。
+- **预防**：以后新增常用词/引号规则必须同步三端规则表与共享向量；长文本测试不能只验词不验引号，句界预处理必须晚于引号配对检查、早于 `splitSentences`；向 `no_cut_bigrams` 加入以单字开头的新短语时，必须回归“该单字出现在其他完整保护短语末尾”的极端配置。
+### 已经/依然 语义引导切分（subtitle-adverb-lead-cut，2026-08-23）
+
+长文 A/B 回归：仅加入 `已→经`、`依→然` 两个语义引导词，221 块中只有 48/49、152/153 变化，分别是“底层农民的实际负担｜依然重得吓人”与“这举动说明老朱的态度｜已经变软了”，其余 217 块不变；现有共享向量全部通过。规则落在 `word_split.semantic_lead` + `semantic_lead_followers`，短尾通过 `short_block_exceptions` 声明。
+
+## Story2Video 提示词优化中文翻译被包装文本污染复盘（fix-s2v-prompt-translation-wrappers，2026-08-23）
+
+- **现象**：结果页“中文翻译”没有生成正确译文，偶发显示 `<response>`、`<thinking>`、marker、前后说明文字，或整段 JSON/协议噪声。
+- **第一性原因**：`f7899b20b5` 首次引入 `translatePromptsForLocale` 时直接对 LLM `content` 执行 `JSON.parse(raw)`；`16b2db8427` 只补了 Markdown fence 剥离。推理模型和 provider wrapper 会返回 HTML/思考块/协议 marker/说明文字包裹 JSON，解析失败后旧逐行回退把包装文本当成译文写入 `segment.promptTranslation`。
+- **修复**：先遍历每个 `{` 起点，用平衡扫描处理嵌套对象、字符串内花括号和反斜杠转义；跳过未闭合或不可解析候选，取最后一个可解析对象，再按现有 index 映射。无合法对象时保留逐行 fail-open，避免阻塞流水线。
+- **逃逸链**：单测只覆盖裸 JSON/Markdown fence，未覆盖真实 provider 包装、转义、嵌套和示例回显；集成/E2E 未断言真实 LLM 响应形状到最终翻译字段；视觉审查只看页面可见性，不验证翻译语义；首轮外部审查发现“首个花括号独占”残余风险，复审前已修复。
+- **回归保护**：`apps/desktop/electron/services/story2video-stages.test.js` 新增 HTML 闭合、thinking/前导文本、marker、转义引号、未闭合前导花括号和示例回显 6 例；定向翻译 13 passed，文件套件 137 passed。
+- **预防**：所有结构化 LLM 消费点按真实响应形态建立 fixture；解析候选、结构校验和用户字段脱噪必须分开断言；任何原文/逐行回退必须证明不会把协议包装写入用户可见字段。相同模式适用于 `prompt-engine-contract.js` 与 `video-prompt-engine-contract.js` 的优化结果解析。
+
+## Windows Claude wrapper 启动环境诊断（2026-08-23）
+
+- **结论**：交互式终端的 `claude` 可用；偶发的 `codeagent-wrapper` 子进程找不到 `claude` 属于 PATH/启动环境差异，不是 Claude CLI 不可用。
+- **处理**：先在可用终端用 `Get-Command claude`/实际安装目录定位 CLI，再把 CLI 所在目录和正确 Git Bash 路径注入 wrapper 子进程环境；重新运行固定 diff 的只读审查。审查结果必须区分“CLI 可用性”“wrapper 启动成功”和“审查发现已解决”三件事。

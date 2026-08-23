@@ -2,7 +2,7 @@
 /**
  * story-context-engine — Story2Video 场景上下文增强中间层（规则驱动，无 IO，可测）。
  *
- * 定位：位于「分句引擎输出场景（split / domain_enrich）」与「图片提示词优化引擎（prompt-engine）」
+ * 定位：位于「分句引擎输出场景（split / scene_context）」与「图片提示词优化引擎（prompt-engine）」
  * 之间，读取完整文案提取全局故事上下文（时代/朝代/文化地域/题材/设定/角色/道具/视觉风格/语气），
  * 再把全局锚点融合进每个场景，形成逐场景上下文块与负面锚点，保证提示词生成图片/视频时
  * 故事背景的准确性、一致性与连贯性（如唐代全文 + 「一个老妇人在做饭」→ 不生成西方老太太现代厨房）。
@@ -451,6 +451,101 @@ function detectTime (text) {
   return { timeOfDay, season }
 }
 
+// ---------------------------------------------------------------------------
+// 历史内容增强（imagePromptSeed 种子生成，domain_enrich 合并进 scene_context，2026-08-14）
+// 情感→光线三元判定独立于 detectTone（四元语气），词表自 story2video-domain.js 原样迁移。
+// ---------------------------------------------------------------------------
+const SENTIMENT_POSITIVE_WORDS = Object.freeze(['喜悦', '欢乐', '胜利', '成功', '和平', '美好'])
+const SENTIMENT_NEGATIVE_WORDS = Object.freeze(['悲伤', '失败', '死亡', '战争', '痛苦', '灾难'])
+const MODERN_SEED_VISUAL_STYLE = '现代真实场景、自然肤色、清晰构图、柔和日光'
+const ANCIENT_SEED_VISUAL_STYLE = '古朴建筑、传统服饰、电影感体积光、低饱和暖色'
+const NEUTRAL_SEED_VISUAL_STYLE = '具有叙事感的电影画面、自然光线、层次清晰'
+
+// 人物外貌锚（2026-08-16 east-asian-face-anchor）：文化 → 外观 固定映射，代码常量（决策 1），
+// 不扩 rules schema。用户反馈古代中国+朝鲜剧本出西方面孔：正向锚进 seed/contextBlock，
+// 负面锚进 negativeAnchors 并透传出图。
+const EAST_ASIAN_APPEARANCE = '东亚人面孔、黑发、黄皮肤、深色瞳'
+const EAST_ASIAN_CULTURES = new Set(['中国', '日本', '韩国', '朝鲜·东北亚古国'])
+const WESTERN_CULTURES = new Set(['欧洲', '美国'])
+const OTHER_REGION_APPEARANCE = Object.freeze({
+  印度: '南亚人面孔、棕色皮肤、深色瞳',
+  阿拉伯: '阿拉伯人面孔、深色皮肤、深色瞳',
+  埃及: '埃及人面孔、深色皮肤、深色瞳',
+})
+const FACE_NEGATIVE_ANCHORS = Object.freeze(['西方面孔', '金发', '蓝眼', '高鼻深目', '欧式五官'])
+// W2：无文化命中时 strong ancient 需东亚意象线索才默认东亚锚，防止古希腊/波斯/维京/玛雅被强制东亚化
+const EAST_ASIAN_CUE_GENRES = new Set(['历史', '武侠', '仙侠', '宫廷'])
+// 东亚专属意象词（审查 C1）：宫殿/将军/马车/轿子/油灯/烛台等古语词非东亚专属
+// （希腊宫殿、维京长船同样存在），不得作为无文化 strong ancient 的东亚化线索，
+// 防止古希腊/维京/玛雅等无文化命中的古史被强制东亚化
+const EAST_ASIAN_CUE_TERMS = Object.freeze(['皇帝', '剑客', '朝廷', '城墙', '科举', '江湖', '武林', '丝绸之路'])
+// W4：场景级非东亚人物意象守卫（胡人/波斯/西方使者/古希腊/维京/玛雅等），命中则跳过正锚并移除面孔负面锚
+const NON_EA_SCENE_CUE_TERMS = Object.freeze(['胡人', '波斯', '粟特', '大食', '色目', '金发', '蓝眼', '西方使者', '美国', '美军', '欧洲', '罗马', '伦敦', '巴黎', '白种', '希腊', '雅典', '斯巴达', '维京', '玛雅', '北欧'])
+
+function containsNonEaSceneCue (text) {
+  if (!text) return false
+  return NON_EA_SCENE_CUE_TERMS.some(term => text.includes(term))
+}
+
+/**
+ * 人物外貌正锚解析：东亚文化 → 东亚锚；印度/阿拉伯/埃及 → 当地民族面孔；
+ * 欧洲/美国绝不注入；无文化命中时仅 strong ancient + 东亚意象线索才默认东亚锚。
+ * @param {object|null} story
+ * @param {string} [sceneText] 场景文本（W4 场景级守卫）
+ * @returns {string} 空串 = 不注入
+ */
+function resolveAppearanceAnchor (story, sceneText) {
+  if (!story || typeof story !== 'object') return ''
+  const culture = story.culture || ''
+  const era = story.era
+  if (containsNonEaSceneCue(sceneText)) return ''
+  if (WESTERN_CULTURES.has(culture)) return ''
+  if (EAST_ASIAN_CULTURES.has(culture)) return EAST_ASIAN_APPEARANCE
+  if (OTHER_REGION_APPEARANCE[culture]) return OTHER_REGION_APPEARANCE[culture]
+  if (!culture && story.eraStrong === true && era === 'ancient' && story.eastAsianCue === true) return EAST_ASIAN_APPEARANCE
+  return ''
+}
+
+/**
+ * 情感倾向三元判定（positive/negative/peaceful）。
+ * 独立于 detectTone（四元语气），消费路径不同（seed 光线分支），不复用以避免行为回归（design D2）。
+ * @param {string} sceneText
+ * @returns {'positive'|'negative'|'peaceful'}
+ */
+function detectSentiment (sceneText) {
+  const text = String(sceneText || '')
+  if (SENTIMENT_POSITIVE_WORDS.some(word => text.includes(word))) return 'positive'
+  if (SENTIMENT_NEGATIVE_WORDS.some(word => text.includes(word))) return 'negative'
+  return 'peaceful'
+}
+
+/**
+ * 历史内容增强种子（imagePromptSeed）模板：`文本；视觉风格；光线；无文字、主体明确`。
+ * visualStyle 优先 `story.dynasty.visualStyle`（规则表 16 朝代超集），回退 era 风格（modern/ancient），
+ * 再回退叙事风格；不用合并版 story.visualStyle（会多出文本显式风格词，改变 optimize 输入分布，design D3）。
+ * @param {string} sceneText
+ * @param {object|null} story 全局故事上下文（enabled=false 时调用方传 null 走中性风格兜底）
+ * @returns {string}
+ */
+function buildDomainSeed (sceneText, story) {
+  const text = typeof sceneText === 'string' ? sceneText.trim() : String(sceneText || '').trim()
+  const storyObj = story && typeof story === 'object' ? story : {}
+  const dynasty = storyObj.dynasty && typeof storyObj.dynasty === 'object' ? storyObj.dynasty : null
+  const era = storyObj.era === 'modern' || storyObj.era === 'ancient' ? storyObj.era : 'mixed'
+  const visualStyle = (dynasty && dynasty.visualStyle)
+    || (era === 'modern' ? MODERN_SEED_VISUAL_STYLE
+      : (era === 'ancient' ? ANCIENT_SEED_VISUAL_STYLE : NEUTRAL_SEED_VISUAL_STYLE))
+  const sentiment = detectSentiment(text)
+  const appearanceAnchor = resolveAppearanceAnchor(storyObj, text)
+  return [
+    text,
+    visualStyle,
+    sentiment === 'negative' ? '阴影与冷色氛围' : '自然层次与叙事光线',
+    '无文字、主体明确',
+    appearanceAnchor ? '人物形象：' + appearanceAnchor : '',
+  ].filter(Boolean).join('；')
+}
+
 /**
  * 时代判定（审查 W2）：避免单关键词误判。
  * 返回 { era, strong }：strong=true 才允许注入时代负面锚点（防止「寺庙」等单信号
@@ -484,7 +579,7 @@ function buildSummary (text, story, maxLength) {
   return truncateBySentence(combined, maxLength)
 }
 
-function buildGlobalNegativeAnchors (era, culture, strongEra) {
+function buildGlobalNegativeAnchors (era, culture, strongEra, eastAsianCue) {
   const anchors = []
   // 仅时代判定 strong（朝代命中或多独立信号）时注入时代负面锚点，防止单关键词误判污染整篇（审查 W2）
   if (strongEra) {
@@ -493,6 +588,13 @@ function buildGlobalNegativeAnchors (era, culture, strongEra) {
     if (culture === '中国' && (era === 'ancient' || era === 'mixed')) {
       anchors.push('西方现代建筑', '西式餐具')
     }
+  }
+  // 面孔负面锚（C1，2026-08-16 east-asian-face-anchor）：ancient + strong 才注入，
+  // 文化命中不覆盖此门（防「高句丽+手机合影」mixed 弱信号或现代题材误伤西方角色）；欧洲/美国除外。
+  // 无文化命中时必须同时具备东亚意象线索（审查 C1），防止古希腊/维京/玛雅等古史被强制东亚化
+  if (era === 'ancient' && strongEra && !WESTERN_CULTURES.has(culture)
+      && (EAST_ASIAN_CULTURES.has(culture) || eastAsianCue)) {
+    anchors.push(...FACE_NEGATIVE_ANCHORS)
   }
   return dedupe(anchors)
 }
@@ -508,10 +610,10 @@ function extractStoryContext (fullText, options = {}) {
   const text = normalizeText(fullText)
   if (!text) {
     return {
-      genre: 'general', era: 'mixed', dynasty: null, culture: '', region: '', setting: [],
+      genre: 'general', era: 'mixed', eraStrong: false, dynasty: null, culture: '', region: '', setting: [],
       time: { timeOfDay: '', season: '' }, characters: [], props: { ancient: [], modern: [] },
       visualStyle: '', tone: '', summary: '', anchors: [], negativeAnchors: [],
-      confidence: 0, evidence: {}, method: 'rule-based', multiCandidates: [],
+      confidence: 0, evidence: {}, method: 'rule-based', multiCandidates: [], eastAsianCue: false,
     }
   }
 
@@ -526,8 +628,13 @@ function extractStoryContext (fullText, options = {}) {
   const visualStyle = detectVisualStyle(text, dynasty)
   const tone = detectTone(text)
   const time = detectTime(text)
+  // W2：无文化 strong ancient 的东亚锚门控线索（题材属东亚或全文命中东亚专属术语）。
+  // genre 分支与术语分支统一过 W4 守卫：古代希腊/维京/玛雅等不得因 genre=历史 或
+  // 宫殿/马车等非东亚专属词被强制东亚化（审查 C1）
+  const eastAsianCue = (EAST_ASIAN_CUE_GENRES.has(genre.genre) || keywordHits(text, EAST_ASIAN_CUE_TERMS).length > 0)
+    && !containsNonEaSceneCue(text)
   const negativeAnchors = opts.includeNegativeAnchors
-    ? buildGlobalNegativeAnchors(era, culture.culture, eraDetected.strong)
+    ? buildGlobalNegativeAnchors(era, culture.culture, eraDetected.strong, eastAsianCue)
     : []
 
   const evidence = {
@@ -558,6 +665,7 @@ function extractStoryContext (fullText, options = {}) {
   return {
     genre: genre.genre,
     era,
+    eraStrong: eraDetected.strong,
     dynasty,
     culture: culture.culture,
     region: culture.region,
@@ -574,6 +682,7 @@ function extractStoryContext (fullText, options = {}) {
     evidence,
     method: 'rule-based',
     multiCandidates: culture.multiCandidates,
+    eastAsianCue,
   }
 }
 
@@ -612,14 +721,18 @@ function buildSceneContextBlock (scene, story, options = {}) {
     ? COOKING_POSITIVE_PROPS.ancient
     : []
 
+  const appearanceAnchor = resolveAppearanceAnchor(storyObj, sceneText)
+  const sceneHasNonEaCue = containsNonEaSceneCue(sceneText)
+
   const contextBlock = truncateBySentence(joinNonEmpty([
     location ? location + '，' + sceneText : sceneText,
     storyObj.visualStyle ? '；视觉' + storyObj.visualStyle : '',
     positiveProps.length > 0 ? '；使用' + positiveProps.join('、') : '',
     storyObj.tone ? '；光线' + storyObj.tone : '',
+    appearanceAnchor ? '；人物形象：' + appearanceAnchor : '',
   ], ''), opts.contextBlockMaxChars)
 
-  const negativeAnchors = []
+  let negativeAnchors = []
   if (opts.includeNegativeAnchors) {
     if (storyObj.negativeAnchors && Array.isArray(storyObj.negativeAnchors)) {
       negativeAnchors.push(...storyObj.negativeAnchors)
@@ -627,6 +740,12 @@ function buildSceneContextBlock (scene, story, options = {}) {
     if (cooking) {
       if (era === 'ancient') negativeAnchors.push(...COOKING_NEGATIVE_ANCHORS.ancient)
       if (era === 'modern') negativeAnchors.push(...COOKING_NEGATIVE_ANCHORS.modern)
+    }
+    // W4：场景含非东亚人物意象（胡人/波斯/西方使者等）→ 移除该场景面孔负面锚，
+    // 避免抑制波斯/西方角色合法的深目高鼻特征
+    if (sceneHasNonEaCue) {
+      const faceSet = new Set(FACE_NEGATIVE_ANCHORS)
+      negativeAnchors = negativeAnchors.filter(item => !faceSet.has(item))
     }
   }
 
@@ -806,6 +925,7 @@ module.exports = {
   TIME_RULES,
   TONE_RULES,
   VISUAL_STYLE_RULES,
+  buildDomainSeed,
   buildPromptEngineSceneContext,
   buildSceneContextBlock,
   buildSceneContextResult,
@@ -815,6 +935,7 @@ module.exports = {
   detectEra,
   detectGenre,
   detectProps,
+  detectSentiment,
   detectSetting,
   detectTime,
   detectVisualStyle,

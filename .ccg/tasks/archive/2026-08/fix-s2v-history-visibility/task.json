@@ -1,0 +1,14 @@
+{
+  "id": "fix-s2v-history-visibility",
+  "title": "修复 Story2Video 失败任务历史记录不可见（stage 状态不一致 + 排序沉底）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "已完成并归档",
+  "openspecChange": "s2v-history-visibility",
+  "createdAt": "2026-08-15T03:00:00Z",
+  "branch": "codex/s2v-history-fix",
+  "remoteStatus": "PR #840 merged as f11b6fa5572d5437f6b7b18b457bfba8f1856039; origin/main verified at the same SHA"
+}

@@ -1,0 +1,51 @@
+# Review — pipeline-progress-feedback-coverage
+
+## Scope
+
+- 统一阶段进度 payload：messageKey/messageParams、summaryKey/summaryParams、detail.kind 校验与 raw fallback。
+- 覆盖 Story2Video、explainer、talking-head、cinematic、clip-factory、documentary、localization-dub、podcast-repurpose、videogen、smoketest。
+- 检查失败、断点续传、并行资源生成、阶段完成补发、renderer 本地化和 Electron 打包文件集。
+
+## Findings
+
+- Critical: 无。
+- Major: 无在当前实现与回归测试中确认的阻断问题。
+- Warning: 无。所有改造执行器均至少有一条独立的开始/进行中或逐项计数、完成摘要回归；循环阶段同时断言 `detail.done/total`。
+- Warning: electron-builder 报告 apps/desktop/.playwright-browsers 不存在；这是当前 worktree 的既有可选资源缺失 warning，未阻断打包，但真实 Playwright 运行前仍需按项目说明安装浏览器。
+- Info: PipelineEngine 只接受 percent 单调不降，detail 计数由执行器维护；本次 Story2Video 资源总量改为“每个场景一个工作单元 + 每段 TTS”，避免视频成功/失败回退图片时分母漂移。
+
+## Independent review evidence
+
+- 内部独立探针 A：发现并核验 videogen 前置阶段静默、部分生成摘要语义和 Story2Video 资源分母风险；已修复前置阶段开始/完成反馈、部分摘要和资源计数。
+- 内部独立探针 B：发现 videogen generate 的 0–35/35–100 单调进度、merge/render 以及其余流水线事件断言覆盖缺口；已补 videogen 关键回归，并补 cinematic、clip-factory、documentary、localization-dub、podcast-repurpose、smoketest 的独立事件回归。
+- 外部 antigravity：wrapper 返回 eligibility failure，提示当前地区不可用。
+- 外部 Claude：wrapper 启动后无输出，超过等待窗口后终止；未将其结果作为通过依据。
+
+## Validation
+
+- pnpm --dir apps/desktop exec vitest run ...：核心生命周期矩阵 12 files / 308 tests passed；videogen 定向回归 1 file / 36 tests passed，共 13 files / 344 tests。
+- node .github/scripts/check-locale-sync.js --cjk：1499 baseline，no new hardcoded CJK。
+- node .github/scripts/check-locale-sync.js --pair-base HEAD：pair check passed。
+- node scripts/verify-worktree-deps.js：OK。
+- pnpm --dir apps/desktop run build:vue：passed；仅既有 Rollup warnings。
+- openspec validate pipeline-progress-feedback-coverage --strict：valid。
+- pnpm --dir apps/desktop exec electron-builder --win --x64 --publish never：passed。
+- ASAR and executable existence checks: passed。
+- Final focused regression after fallback-count correction: Story2Video + videogen 143 tests passed。
+- Final lifecycle matrix: 13 files / 344 tests passed。
+- Cinematic render now creates its run output directory before copying the completed artifact; the new lifecycle regression exposed this pre-existing first-run failure mode.
+- Packaged startup smoke: the environment rejected the hidden-process launch command before execution; electron-builder succeeded and the ASAR inspection confirmed `stage-progress.js`, `stage-executor.js`, and `videogen-stages.js` are packaged.
+- git diff --check：no whitespace errors; Git reports expected LF/CRLF conversion warnings。
+- PR #920 首轮 CI 的 `electron-tests` 唯一失败来自 `clipfactory-stages.test.js` 在 Linux runner 生成 fixture 时直接 spawn 系统 `ffmpeg`（`ENOENT`），不是生产逻辑失败；已改为 spy `child_process.execFile`，测试只验证阶段进度事件契约。
+- 修复后本地生命周期矩阵：5 files / 180 tests passed。
+- 首轮修复后的远端 CI 仍因 Vitest 在完整 runner 中未拦截 Node 内建 `child_process` spy 而失败；已将 `extractSegments` 与 `runMediaTool` 依赖显式注入，测试不再执行真实 FFmpeg。
+- 再次本地生命周期矩阵：5 files / 180 tests passed。
+- 第二轮远端 `electron-tests` 证明完整 Vitest 运行会共享其他文件对 `media-tool-paths` 的 mock；已把提取阶段的完整生命周期构造器 `createExtractStageExecutor` 公开为依赖可注入单元，注册器继续绑定生产默认依赖。
+- 第三次本地生命周期矩阵：5 files / 180 tests passed。
+
+## Final CI and delivery
+
+- PR [#920](https://github.com/Colinchiu007/Multi-Publish/pull/920) merged on 2026-08-17 at `ca274cc766f0f704a31c75dee234d1a37905f188`.
+- Final CI for `71c974ee87ed2a8d89b174ff4a11a2b9d16e7b5c` passed `electron-tests`, QG unit/shards/coverage/static/visual/browser E2E, Ubuntu and Windows builds, GUI/visual tests, agent judge, document sync, lint/unit, and locale checks.
+- `QG Autonomous` returned the repository-wide `NEED_HUMAN` result because the external LLM audit was unavailable. It is a documented existing exception rather than a regression from this change; the established admin exception path was used for merge.
+- Remote state was checked before closure. OpenSpec specification synchronization and the OpenSpec/CCG archives are the only remaining process actions for this merged runtime change.

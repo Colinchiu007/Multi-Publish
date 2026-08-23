@@ -183,6 +183,19 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
       expect(body.n).toBe(1)
     })
 
+    it('提示词超过 1500 字符时截断到 MiniMax 官方上限', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: { image_urls: ['x'] } }),
+      ])
+      global.fetch = fetchMock
+      const longPrompt = 'a'.repeat(2000)
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      await adapter.generateImage({ prompt: longPrompt })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(Array.from(body.prompt).length).toBeLessThanOrEqual(1500)
+      expect(body.prompt).toBe('a'.repeat(1500))
+    })
+
     it('忽略调用方传入的 model，始终使用固定 image-01', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ data: { image_urls: ['x'] } }),
@@ -303,6 +316,99 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
         expect(e).toBeInstanceOf(ProviderError)
         expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
         expect(e.message).toMatch(/no image|empty image_urls/i)
+      }
+    })
+
+    it('HTTP 200 + base_resp.status_code 非 0（Key 无效/过期）→ ProviderError(AUTH_FAILED)，而非误标空结果/内容审查', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 1004, status_msg: 'Invalid api key' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.AUTH_FAILED)
+        expect(e.message).toContain('Invalid api key')
+        expect(e.emptyResult).toBeUndefined()
+        expect(e.context.statusCode).toBe(1004)
+      }
+    })
+
+    it('HTTP 200 + base_resp.status_code 非 0（额度用尽）→ ProviderError(QUOTA_EXCEEDED)', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 2056, status_msg: '已达到 Token Plan 用量上限' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.QUOTA_EXCEEDED)
+        expect(e.message).toContain('用量上限')
+        expect(e.emptyResult).toBeUndefined()
+      }
+    })
+
+    it('HTTP 200 + base_resp 业务错误：套餐到期升级提示（无 key 上下文）→ QUOTA_EXCEEDED 而非 AUTH（2026-08-16 正则收紧回归）', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 2056, status_msg: 'Your plan has expired, please upgrade to continue' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.QUOTA_EXCEEDED)
+        expect(e.code).not.toBe(ERROR_CODES.AUTH_FAILED)
+      }
+    })
+
+    it('HTTP 200 + base_resp 业务错误：含「API Key」的额度文案 → QUOTA_EXCEEDED 而非 AUTH（2026-08-16 复审收紧回归）', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 2056, status_msg: '您的 API Key 额度已用完，请升级套餐' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.QUOTA_EXCEEDED)
+        expect(e.code).not.toBe(ERROR_CODES.AUTH_FAILED)
+      }
+    })
+
+    it('HTTP 200 + base_resp 业务错误：Authentication failed → AUTH_FAILED（2026-08-16 复审补强）', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ base_resp: { status_code: 1004, status_msg: 'Authentication failed' }, data: {} }),
+      ])
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      try {
+        await adapter.generateImage({ prompt: 'test' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ProviderError)
+        expect(e.code).toBe(ERROR_CODES.AUTH_FAILED)
+      }
+    })
+
+    it('HTTP 200 + base_resp 业务错误：Invalid authentication credentials / token invalid → AUTH_FAILED（2026-08-16 复审补强）', async () => {
+      for (const statusMsg of ['Invalid authentication credentials', 'token invalid', 'Invalid api key: quota exceeded']) {
+        global.fetch = createFetchMock([
+          createFetchResponse({ base_resp: { status_code: 1004, status_msg: statusMsg }, data: {} }),
+        ])
+        const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+        try {
+          await adapter.generateImage({ prompt: 'test' })
+          expect.fail('Should throw')
+        } catch (e) {
+          expect(e).toBeInstanceOf(ProviderError)
+          expect(e.code).toBe(ERROR_CODES.AUTH_FAILED)
+        }
       }
     })
 

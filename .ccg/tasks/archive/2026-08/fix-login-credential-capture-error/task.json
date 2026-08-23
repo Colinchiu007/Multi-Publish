@@ -1,0 +1,15 @@
+{
+  "id": "fix-login-credential-capture-error",
+  "title": "修复：账号管理登录页直接关闭页签报错「未捕获到有效登录凭证」",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop/ipc-auth",
+  "currentPhase": "completed",
+  "nextAction": "无",
+  "createdAt": "2026-08-14T10:00:00Z",
+  "completedAt": "2026-08-14T18:10:00Z",
+  "branch": "codex/fix-login-credential-capture-error",
+  "openspecChange": "fix-login-credential-capture-error",
+  "remoteStatus": "PR #816 merged (bd065376)"
+}

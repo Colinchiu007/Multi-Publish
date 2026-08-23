@@ -1,0 +1,9 @@
+{"file":"apps/desktop/src/views/ResultView.vue","role":"模板、事件、methods、样式"}
+{"file":"apps/desktop/src/views/ResultView.test.js","role":"组件交互与视觉结构回归"}
+{"file":"apps/desktop/src/locales/zh.js","role":"中文素材文案"}
+{"file":"apps/desktop/src/locales/en.js","role":"英文素材文案"}
+{"file":"01-docs/PRD-S2V-PIPELINE-PAGE-UX.md","role":"历史编辑页 UX 真相源"}
+{"file":"01-docs/PRD-video-creation.md","role":"视频创作产品规格"}
+{"file":"01-docs/CHANGELOG.md","role":"变更记录"}
+{"file":"01-docs/learnings.md","role":"质量节拍复盘/记忆"}
+{"file":"openspec/specs/story2video-history-material-selection/spec.md","role":"OpenSpec 正式能力规格"}

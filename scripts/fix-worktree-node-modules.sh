@@ -19,7 +19,17 @@ while [ $# -gt 0 ]; do
     *) WORKTREE="$1"; shift ;;
   esac
 done
-[ -n "$WORKTREE" ] || WORKTREE="D:/Data/projects/mp-worktrees/mp-pnpm-worktree-deps"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_GIT_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir)"
+REPO_COMMON_DIR="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)"
+if [ "$REPO_GIT_DIR" != "$REPO_COMMON_DIR" ]; then
+    WORKTREE_BASE="$(dirname "$REPO_ROOT")"
+else
+    WORKTREE_BASE="$(dirname "$REPO_ROOT")/mp-worktrees"
+fi
+WORKTREE_ROOT="${MP_WORKTREES:-$WORKTREE_BASE}"
+[ -n "$WORKTREE" ] || WORKTREE="$WORKTREE_ROOT/mp-pnpm-worktree-deps"
 
 realpath_worktree() { (cd "$WORKTREE" && pwd -W 2>/dev/null || pwd); }
 sleep_or_pause() { sleep "$1" 2>/dev/null || powershell -NoProfile -Command "Start-Sleep -Seconds $1" 2>/dev/null || true; }
@@ -27,8 +37,8 @@ WT="$(realpath_worktree)"
 
 echo "[fix] worktree = $WT"
 case "$WT" in
-  /c/tmp/*|C:/tmp/*|/d/Data/projects/mp-worktrees/*|D:/Data/projects/mp-worktrees/*) ;;
-  *) echo "[fix] REFUSE: worktree 必须在 D:/Data/projects/mp-worktrees 下（历史 C:/tmp 兼容）"; exit 1 ;;
+  /c/tmp/*|C:/tmp/*|"$WORKTREE_ROOT"/*) ;;
+  *) echo "[fix] REFUSE: worktree 必须在 $WORKTREE_ROOT 下（历史 C:/tmp 兼容）"; exit 1 ;;
 esac
 [ -f "$WT/apps/desktop/package.json" ] || { echo "[fix] 不是有效 worktree（缺 apps/desktop/package.json）"; exit 1; }
 

@@ -14,6 +14,17 @@
           </span>
         </div>
         <div v-if="summary" class="progress-summary">{{ summary }}</div>
+        <!-- 合成时间说明（2026-08-17）：story2video 专属参考口径，仅 showTimeGuidance 时渲染 -->
+        <div v-if="showTimeGuidance" class="stage-time-guidance" data-testid="story2video-time-guidance">
+          <p class="time-guidance-title">{{ $t('stageProgress.timeGuidanceTitle') }}</p>
+          <p class="time-guidance-intro">{{ $t('stageProgress.timeGuidanceIntro') }}</p>
+          <ul class="time-guidance-refs">
+            <li>{{ $t('stageProgress.timeGuidanceRef1min') }}</li>
+            <li>{{ $t('stageProgress.timeGuidanceRef3min') }}</li>
+            <li>{{ $t('stageProgress.timeGuidanceRef6min') }}</li>
+          </ul>
+          <p class="time-guidance-note">{{ $t('stageProgress.timeGuidanceNote') }}</p>
+        </div>
       </div>
       <div
         v-for="(stage, index) in stages"
@@ -64,6 +75,8 @@ export default {
     progressPercent: { type: Number, default: 0 },
     elapsedMs: { type: Number, default: null },
     summary: { type: String, default: '' },
+    // story2video 专属合成时间说明（2026-08-17）：由父组件按流水线类型门控，避免泄漏到其他暂存式流水线
+    showTimeGuidance: { type: Boolean, default: false },
     orchestrationContext: { type: Object, default: null },
     // 当前运行检查点（scene_asset_selection 等）：用于区分「等待用户选择素材」与「手动暂停」
     checkpoint: { type: Object, default: null },
@@ -76,6 +89,7 @@ export default {
       if (!stage || !stage.status) return ''
       const status = stage.status
       if (status === 'completed') return 'completed'
+      if (status === 'skipped') return 'skipped'
       if (status === 'running') return 'running'
       if (status === 'failed') return 'failed'
       if (status === 'waiting_approval') return 'waiting'
@@ -86,6 +100,7 @@ export default {
       if (!stage || !stage.status) return '○'
       const status = stage.status
       if (status === 'completed') return '✓'
+      if (status === 'skipped') return '⏭'
       if (status === 'running') return '⟳'
       if (status === 'failed') return '✕'
       if (status === 'waiting_approval' || status === 'paused') return '⏸'
@@ -110,11 +125,16 @@ export default {
     
     stageDetailText(stage, index) {
       if (!stage) return ''
-      // 统一契约（优先）：完成态摘要 → 进行中信息 message → 旧快照降级
-      const hasSummary = typeof stage.summary === 'string' && stage.summary
-      const hasMessage = Boolean(stage.progress && typeof stage.progress.message === 'string' && stage.progress.message)
-      if (stage.status === 'completed' && hasSummary) return stage.summary
-      if (hasMessage) return stage.progress.message
+      // 统一契约（优先）：结构化本地化摘要/进行中信息 → 旧 raw 文案 → 旧快照降级
+      const progress = stage.progress && typeof stage.progress === 'object' ? stage.progress : null
+      if (stage.status === 'completed') {
+        const localizedSummary = this.translateProgress(progress, 'summaryKey', 'summaryParams')
+        if (localizedSummary) return localizedSummary
+        if (typeof stage.summary === 'string' && stage.summary) return stage.summary
+      }
+      const localizedMessage = this.translateProgress(progress, 'messageKey', 'messageParams')
+      if (localizedMessage) return localizedMessage
+      if (progress && typeof progress.message === 'string' && progress.message) return progress.message
       if (!this.orchestrationContext) return this.stageTimeDetailText(stage, index)
       const ctx = this.orchestrationContext
       if (stage.name === 'split' && stage.status === 'completed') {
@@ -134,7 +154,11 @@ export default {
       }
       if (stage.name === 'compose' && stage.status === 'running') {
         const p = ctx.compose_progress
-        if (p && Number.isFinite(p.percent)) {
+        if (p && Number.isFinite(p.percent) && p.percent >= 0 && p.percent <= 100) {
+          if (p.phase === 'concat') {
+            if (getAppLocale() !== 'en' && typeof p.message === 'string' && p.message.trim()) return p.message
+            return this.$t('stageProgress.composeConcat', { percent: Math.round(p.percent) })
+          }
           if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
             return this.$t('stageProgress.composeSegments', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
           }
@@ -143,9 +167,19 @@ export default {
       }
       return ''
     },
+    translateProgress(progress, keyField, paramsField) {
+      if (!progress || typeof progress[keyField] !== 'string' || !progress[keyField]) return ''
+      const translated = this.$t?.(progress[keyField], progress[paramsField] || {})
+      return typeof translated === 'string' && translated !== progress[keyField] ? translated : ''
+    },
     stageStatusLabel(stage, index) {
       if (!stage || !stage.status) return this.$t('stageProgress.statusPending')
       const status = stage.status
+      if (status === 'skipped') {
+        // 发布阶段未选平台：明确提示「未选发布，跳过」，而非误报「已完成」
+        if (stage.name === 'publish') return this.$t('stageProgress.publishSkipped')
+        return this.$t('stageProgress.statusSkipped')
+      }
       if (status === 'paused') {
         if (this.checkpoint && this.checkpoint.type === 'scene_asset_selection') {
           return this.translateStageStatus('create.story2video.selectionWait.stageLabel', 'Awaiting asset selection')
@@ -168,7 +202,7 @@ export default {
     },
     stageTimeText(stage) {
       if (!stage || !stage.startedAt) return ''
-      if (stage.status !== 'running' && stage.status !== 'completed' && stage.status !== 'failed') return ''
+      if (stage.status !== 'running' && stage.status !== 'completed' && stage.status !== 'failed' && stage.status !== 'skipped') return ''
       const start = Date.parse(stage.startedAt)
       if (!Number.isFinite(start)) return ''
       const end = stage.completedAt ? Date.parse(stage.completedAt) : Date.now()

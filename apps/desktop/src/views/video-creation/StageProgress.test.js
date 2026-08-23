@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
 import { mount } from "@vue/test-utils";
 import StageProgress from "./StageProgress.vue";
+import { getAppLocale, setAppLocale } from "@/i18n";
 
 const tStub = (key, params = {}) => {
   const map = {
     "stageProgress.statusCompleted": "已完成",
+    "stageProgress.statusSkipped": "已跳过",
+    "stageProgress.publishSkipped": "未选发布，跳过",
     "stageProgress.statusRunning": "运行中",
     "stageProgress.statusFailed": "失败",
     "stageProgress.statusWaitingApproval": "等待确认",
@@ -19,8 +22,24 @@ const tStub = (key, params = {}) => {
     "stageProgress.optimizeDone": "共 {total} 个场景，已完成 {done} 个",
     "stageProgress.composeSegments": "正在合成片段 {done}/{total} · {percent}%",
     "stageProgress.composeVideo": "视频合成 {percent}%",
+    "stageProgress.composeConcat": getAppLocale() === "en"
+      ? "Concatenating video segments · {percent}%"
+      : "正在拼接视频片段 · {percent}%",
     "stageProgress.assetsDetail": "图片 {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal}",
     "stageProgress.assetsDetailNoVideo": "图片 {images}/{imagesTotal} · 旁白 {tts}/{ttsTotal}",
+    "stageProgress.timeGuidanceTitle": getAppLocale() === "en" ? "About composition time" : "合成时间说明",
+    "stageProgress.timeGuidanceIntro": getAppLocale() === "en"
+      ? "Overall completion time is related to video duration — the longer the video, the longer it takes to compose — and also to content complexity and LLM inference time."
+      : "整体完成时间与视频时长有关：时长越长，合成越久；同时与内容的复杂程度、大模型的推理时间长短也有关系。",
+    "stageProgress.timeGuidanceRef1min": getAppLocale() === "en" ? "1-minute video: 5–8 min" : "1 分钟视频：合成时长 5–8 分钟",
+    "stageProgress.timeGuidanceRef3min": getAppLocale() === "en" ? "3-minute video: 15–20 min" : "3 分钟视频：合成时长 15–20 分钟",
+    "stageProgress.timeGuidanceRef6min": getAppLocale() === "en" ? "6-minute video: 35–45 min" : "6 分钟视频：合成时长 35–45 分钟",
+    "stageProgress.timeGuidanceNote": getAppLocale() === "en" ? "The above composition times are all within the normal range." : "以上合成时长均属正常范围。",
+    "stageProgress.assetsImage": "正在生成图片 · {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal}",
+    "stageProgress.assetsSummary": "已生成 {done}/{total} 项素材",
+    "stageProgress.stageWorking": "正在处理…",
+    "stageProgress.stageComplete": "阶段处理完成",
+    "stageProgress.stageSummary": "阶段已完成",
   };
   const template = map[key] || key;
   return Object.keys(params).reduce((s, k) => s.replace(`{${k}}`, String(params[k])), template);
@@ -36,6 +55,8 @@ const makeStage = (overrides = {}) => ({
 
 const mountWith = (props) =>
   mount(StageProgress, { props, global: { mocks: { $t: tStub } } });
+
+beforeEach(() => setAppLocale("zh"));
 
 describe("StageProgress 等待态渲染（2026-08-13）", () => {
   it("scene_asset_selection 检查点暂停：显示「等待选择素材」+ waiting paused 样式 + ⏸ 图标", () => {
@@ -85,6 +106,28 @@ describe("StageProgress 等待态渲染（2026-08-13）", () => {
     expect(w.find('[data-testid="story2video-stage-generate_assets"] .stage-icon').text()).toBe("⟳");
     w.unmount();
   });
+
+  it("发布阶段未选平台（skipped）：显示 class=skipped、⏭ 图标与「未选发布，跳过」", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "publish", status: "skipped", startedAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z" })],
+      orchestrationContext: { publish: { skipped: true } },
+    });
+    const item = w.find('[data-testid="story2video-stage-publish"]');
+    expect(item.classes()).toContain("skipped");
+    expect(item.find(".stage-icon").text()).toBe("⏭");
+    expect(item.find(".stage-status").text()).toContain("未选发布，跳过");
+    w.unmount();
+  });
+
+  it("非发布阶段 skipped：显示通用「已跳过」", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "optimize", status: "skipped" })],
+    });
+    const item = w.find('[data-testid="story2video-stage-optimize"]');
+    expect(item.classes()).toContain("skipped");
+    expect(item.find(".stage-status").text()).toContain("已跳过");
+    w.unmount();
+  });
 });
 
 describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline-progress-feedback-unification）", () => {
@@ -125,6 +168,51 @@ describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline
     w.unmount();
   });
 
+  it("结构化本地化 key 优先于 raw message，并在 key 缺失时回退 raw", () => {
+    const localized = mountWith({
+      stages: [makeStage({
+        name: "generate_assets",
+        status: "running",
+        progress: {
+          percent: 50,
+          message: "raw fallback",
+          messageKey: "stageProgress.assetsImage",
+          messageParams: { images: 2, imagesTotal: 4, videos: 0, videosTotal: 0, tts: 1, ttsTotal: 4 },
+        },
+      })],
+    });
+    expect(localized.find(".stage-detail").text()).toContain("正在生成图片 · 2/4");
+    localized.unmount();
+
+    const fallback = mountWith({
+      stages: [makeStage({
+        name: "generate_assets",
+        status: "running",
+        progress: { percent: 50, message: "raw fallback", messageKey: "stageProgress.missing" },
+      })],
+    });
+    expect(fallback.find(".stage-detail").text()).toBe("raw fallback");
+    fallback.unmount();
+  });
+
+  it("完成态结构化 summary key 优先于旧 summary", () => {
+    const w = mountWith({
+      stages: [makeStage({
+        name: "generate_assets",
+        status: "completed",
+        summary: "old summary",
+        progress: {
+          percent: 100,
+          message: "old message",
+          summaryKey: "stageProgress.assetsSummary",
+          summaryParams: { done: 8, total: 8 },
+        },
+      })],
+    });
+    expect(w.find(".stage-detail").text()).toBe("已生成 8/8 项素材");
+    w.unmount();
+  });
+
   it("无 stage.progress / summary：安全降级（不渲染迷你进度条，detail 仅保留既有时间文本）", () => {
     const w = mountWith({
       stages: [
@@ -150,6 +238,54 @@ describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline
     w.unmount();
   });
 
+  it("compose 旧快照带 message 时优先显示按块消息，同时保留 percent 子进度条", () => {
+    const message = "正在拼接视频片段（分块 3/5）";
+    const w = mountWith({
+      stages: [makeStage({ name: "compose", status: "running", startedAt: new Date().toISOString() })],
+      orchestrationContext: {
+        compose_progress: { phase: "concat", percent: 88.2, segmentsDone: 12, segmentsTotal: 12, message },
+      },
+    });
+    const item = w.find('[data-testid="story2video-stage-compose"]');
+    expect(item.find(".stage-detail").text()).toBe(message);
+    expect(item.find(".stage-detail").text()).not.toContain("视频合成 88%");
+    expect(item.find('[data-testid="story2video-stage-compose-progress"]').attributes("aria-valuenow")).toBe("88");
+    w.unmount();
+  });
+
+  it("compose message 为空白时继续使用 phase/percent 本地化回退", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "compose", status: "running", startedAt: new Date().toISOString() })],
+      orchestrationContext: { compose_progress: { phase: "concat", percent: 88.2, message: "   " } },
+    });
+    expect(w.find(".stage-detail").text()).toContain("正在拼接视频片段 · 88%");
+    w.unmount();
+  });
+
+  it("英文界面不直显中文 compose message，改用本地化 concat 文案", () => {
+    setAppLocale("en");
+    const w = mountWith({
+      stages: [makeStage({ name: "compose", status: "running", startedAt: new Date().toISOString() })],
+      orchestrationContext: {
+        compose_progress: { phase: "concat", percent: 88.2, message: "正在拼接视频片段（分块 3/5）" },
+      },
+    });
+    expect(w.find(".stage-detail").text()).toBe("Concatenating video segments · 88%");
+    w.unmount();
+  });
+
+  it("compose percent 越界时不显示 message 与子进度条", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "compose", status: "running" })],
+      orchestrationContext: {
+        compose_progress: { phase: "concat", percent: 101, message: "正在拼接视频片段（分块 5/5）" },
+      },
+    });
+    expect(w.find('[data-testid="story2video-stage-detail-compose"]').exists()).toBe(false);
+    expect(w.find('[data-testid="story2video-stage-compose-progress"]').exists()).toBe(false);
+    w.unmount();
+  });
+
   it("optimize 运行中：旧快照降级展示 optimize_progress（不再等完成）", () => {
     const w = mountWith({
       stages: [makeStage({ name: "optimize", status: "running", startedAt: new Date().toISOString() })],
@@ -157,6 +293,38 @@ describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline
     });
     const item = w.find('[data-testid="story2video-stage-optimize"]');
     expect(item.find(".stage-detail").text()).toBe("共 5 个场景，已完成 2 个");
+    w.unmount();
+  });
+});
+
+describe("StageProgress 合成时间说明块（2026-08-17）", () => {
+  it("showTimeGuidance=true 时渲染合成时间说明（标题/说明/三档参考/正常范围）", () => {
+    const w = mountWith({ stages: [makeStage()], showTimeGuidance: true });
+    const box = w.find('[data-testid="story2video-time-guidance"]');
+    expect(box.exists()).toBe(true);
+    expect(box.text()).toContain("合成时间说明");
+    expect(box.text()).toContain("整体完成时间与视频时长有关");
+    expect(box.text()).toContain("1 分钟视频：合成时长 5–8 分钟");
+    expect(box.text()).toContain("3 分钟视频：合成时长 15–20 分钟");
+    expect(box.text()).toContain("6 分钟视频：合成时长 35–45 分钟");
+    expect(box.text()).toContain("以上合成时长均属正常范围。");
+    w.unmount();
+  });
+
+  it("默认（非 story2video 场景）不渲染说明块", () => {
+    const w = mountWith({ stages: [makeStage()] });
+    expect(w.find('[data-testid="story2video-time-guidance"]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it("英文界面渲染英文合成时间说明", () => {
+    setAppLocale("en");
+    const w = mountWith({ stages: [makeStage()], showTimeGuidance: true });
+    const box = w.find('[data-testid="story2video-time-guidance"]');
+    expect(box.exists()).toBe(true);
+    expect(box.text()).toContain("About composition time");
+    expect(box.text()).toContain("1-minute video: 5–8 min");
+    expect(box.text()).toContain("The above composition times are all within the normal range.");
     w.unmount();
   });
 });

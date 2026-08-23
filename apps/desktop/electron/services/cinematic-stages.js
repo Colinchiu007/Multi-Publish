@@ -19,6 +19,7 @@ const os = require('os')
 const path = require('path')
 const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
 const { getAllowedMediaRoots, resolveReadableMediaFile } = require('./story2video-paths')
+const { emitStageStart, emitStageComplete } = require('./stage-progress')
 
 const CINEMATIC_STAGE_TYPES = {
   INGEST: 'cinematic_ingest',
@@ -83,7 +84,7 @@ function registerCinematicStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     CINEMATIC_STAGE_TYPES.INGEST,
-    async ({ params }) => {
+    async ({ params, onProgress }) => {
       const rawVideo = params && (params.video || params.videoPath)
       const inputPath = resolveReadableMediaFile(rawVideo, {
         kind: 'video',
@@ -93,7 +94,13 @@ function registerCinematicStages (pipelineEngine) {
         return { success: false, error: 'cinematic ingest 需要可读的本地视频（params.video）' }
       }
       try {
+        emitStageStart(onProgress, { messageKey: 'stageProgress.cinematicIngest' })
         const meta = await probeVideo(inputPath)
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.cinematicIngestComplete',
+          summaryKey: 'stageProgress.cinematicIngestSummary',
+          detail: { done: 1, total: 1, kind: 'video' },
+        })
         return { success: true, output: { inputPath, ...meta } }
       } catch (error) {
         return { success: false, error: 'cinematic ingest 失败：' + (error && error.message ? error.message : String(error)) }
@@ -104,7 +111,7 @@ function registerCinematicStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     CINEMATIC_STAGE_TYPES.GRADE,
-    async ({ runId, context }) => {
+    async ({ runId, context, onProgress }) => {
       const ingest = context.ingest
       if (!ingest || typeof ingest.inputPath !== 'string') {
         return { success: false, error: 'cinematic grade 需要 context.ingest' }
@@ -115,6 +122,7 @@ function registerCinematicStages (pipelineEngine) {
       fs.mkdirSync(runDir, { recursive: true })
       const gradedPath = path.join(runDir, 'graded.mp4')
       try {
+        emitStageStart(onProgress, { messageKey: 'stageProgress.cinematicGrade' })
         await runTool(ffmpeg, [
           '-y', '-i', ingest.inputPath,
           '-vf', 'eq=contrast=1.1:brightness=0.02:saturation=1.2',
@@ -122,6 +130,11 @@ function registerCinematicStages (pipelineEngine) {
           '-c:a', 'aac',
           gradedPath,
         ])
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.cinematicGradeComplete',
+          summaryKey: 'stageProgress.cinematicGradeSummary',
+          detail: { done: 1, total: 1, kind: 'video' },
+        })
         return { success: true, output: { gradedPath, duration: ingest.duration } }
       } catch (error) {
         return { success: false, error: 'cinematic grade 失败：' + (error && error.message ? error.message : String(error)) }
@@ -132,7 +145,7 @@ function registerCinematicStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     CINEMATIC_STAGE_TYPES.COMPOSE,
-    async ({ runId, stage, context }) => {
+    async ({ runId, stage, context, onProgress }) => {
       const grade = context.grade
       if (!grade || typeof grade.gradedPath !== 'string') {
         return { success: false, error: 'cinematic compose 需要 context.grade' }
@@ -147,6 +160,7 @@ function registerCinematicStages (pipelineEngine) {
       const fadeOut = Math.min(1, duration / 4)
       const fadeOutStart = Math.max(0, duration - fadeOut)
       try {
+        emitStageStart(onProgress, { messageKey: 'stageProgress.cinematicCompose' })
         // 注意：捆绑 FFmpeg 用 x 语法（1920x1080）组合 pad 会解析失败，
         // 必须用冒号语法（1920:1080）且 pad 偏移用字面量 0。
         const dims = String(resolution).replace('x', ':')
@@ -159,6 +173,11 @@ function registerCinematicStages (pipelineEngine) {
           '-c:a', 'aac',
           composedPath,
         ])
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.cinematicComposeComplete',
+          summaryKey: 'stageProgress.cinematicComposeSummary',
+          detail: { done: 1, total: 1, kind: 'video' },
+        })
         return { success: true, output: { composedPath, duration, resolution } }
       } catch (error) {
         return { success: false, error: 'cinematic compose 失败：' + (error && error.message ? error.message : String(error)) }
@@ -169,19 +188,26 @@ function registerCinematicStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     CINEMATIC_STAGE_TYPES.RENDER,
-    async ({ runId, context }) => {
+    async ({ runId, context, onProgress }) => {
       const compose = context.compose
       if (!compose || typeof compose.composedPath !== 'string' || !fs.existsSync(compose.composedPath)) {
         return { success: false, error: 'cinematic render 需要有效的合成产物' }
       }
       const runDir = getRunDir(runId)
+      fs.mkdirSync(runDir, { recursive: true })
       const outputPath = path.join(runDir, 'cinematic_output.mp4')
       try {
+        emitStageStart(onProgress, { messageKey: 'stageProgress.cinematicRender' })
         // 已编码；直接复制避免二次压缩
         fs.copyFileSync(compose.composedPath, outputPath)
         if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size <= 0) {
           throw new Error('渲染产物为空')
         }
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.cinematicRenderComplete',
+          summaryKey: 'stageProgress.cinematicRenderSummary',
+          detail: { done: 1, total: 1, kind: 'video' },
+        })
         return {
           success: true,
           output: {

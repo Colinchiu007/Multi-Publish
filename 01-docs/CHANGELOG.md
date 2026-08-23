@@ -1,3 +1,169 @@
+## [Unreleased] - 2026-08-22 (字幕保护短语与在线结果质量门)
+
+### 变更
+- 字幕 `no_cut_bigrams` 支持任意长度保护短语并追加「蒙古/江南/包税人/大汗」，TypeScript、Electron JS 镜像与 smart-sentence-splitter Python 三端同步；流式累积在短语前缀中间不再硬切，超长 `max_chars` 配置下保护短语完整优先。
+- 在线字幕归一化新增顺序连续覆盖与短语边界质量门：覆盖率足够但内容错序、重复、遗漏或切开保护短语时，该场景整体回退本地字幕并记录 `fallbackReason`，合格在线结果继续采用 `smart-sentence-splitter`。
+- 语义停顿规则补充 `semantic_lead`（受约束的「提前/还/把/绝对」引导），并将「摇身一变｜成了」「日子｜绝对是元朝」等动作/判断边界优先于普通尾部收束，避免完整短语被短块合并重新吸回。
+
+### 测试与门禁
+- Electron 相关 131 passed、TypeScript 133 passed、sidecar Python 151 passed；新增用户样例与极端 `max_chars` 向量；QM-1 win-unpacked、ASAR require 与 8s 启动冒烟通过。
+
+## [Unreleased] - 2026-08-23 (Story2Video 克隆音色生产重试契约)
+
+### 修复
+- Story2Video 初次 TTS 因跨账号克隆音色 `voice_id` 失效时，重克隆统一通过生产 `ModelProviderManager.callAdapter(providerId, 'cloneVoice', params)` 调用，并复用初始 TTS provider；重克隆或重试失败继续 fail-closed，不静默切换官方默认音色。
+
+### 验证
+- 已在真实 Electron profile 上验证克隆失败 → 重克隆 → TTS 重试 → compose 的完整链路；原问题 run `run_1787420188187_9w38` 已恢复并完成。
+
+## [Unreleased] - 2026-08-21 (流水线启动前台跟踪 + 独立历史页「已中断」对齐)
+
+### 变更
+- 视频创作流水线启动成功后创作页实时轮询展示阶段进度；离开页面自动转后台运行、仅历史可见；重新进入回到全新新建状态（启动/续跑前台语义统一，并发门禁与 scene_asset_selection 检查点例外不变）。
+- 移除旧的「启动即后台」监听机器（`runOrchestrationInBackground`/`startBackgroundCompletionWatch`/`checkBackgroundRunCompletion`/`s2vBackgroundTracking`），并新增 `_s2vAlive` 卸载竞态守卫，防止已卸载组件被终态响应触发结果页跳转。
+- 独立历史页 `CreateHistory.vue` 对齐「已中断」：stale running 归入 interrupted、状态标签/路由/紫色样式；提示文案复用 locale `stageProgress.interruptedStage` / `stageProgress.interruptedHint`。
+
+### 文案与文档
+- locale zh/en 成对：新增 `create.story2video.startForegroundToast`，修订 `backgroundResumeToast`，删除已无引用的 `backgroundRunToast`。
+- 同步 PRD-video-creation §3.1.35、总 PRD §3a.2（§3a.1 标废弃）、S2V-PIPELINE-PAGE-UX §5/§5.2.1、i18n-glossary 与 OpenSpec change `s2v-start-foreground-tracking`。
+
+### 测试与门禁
+- CreateView / CreateHistory / history-utils 定向 Vitest 全绿；locale pair（zh/en）+ CJK 基线通过；CJK 基线按脚本文档对行号位移显式重锚。
+
+## [Unreleased] - 2026-08-20 (历史场景素材四卡布局与预览/选择交互)
+## [Unreleased] - 2026-08-21 (历史详情场景素材未生成槽生成按钮 + 生成AI视频灰显修复)
+
+### 变更
+- 场景素材的生成按钮覆盖全部视觉卡：【生成新图】显示在图片 1/图片 2 卡内、【生成 AI 视频】显示在视频 1/视频 2 卡内，均为同一场景级动作的入口，写入目标仍由既有选中态/身份规则决定，video 2 保持视觉别名、不新增持久化身份。
+- 【生成 AI 视频】的门控与后端回退契约对齐：`videoPrompt`/`prompt`/`text` 任一非空即可生成，修复老项目未持久化 `videoPrompt` 时按钮灰显不可点击的问题；三者全空仍禁用并提示。
+
+### 测试与文档
+- ResultView.test.js 更新错误固化断言（按钮 2→4），新增 videoPrompt 缺省回退 prompt/text 时可点并真实调用 IPC 的回归；同步 PRD、前端 spec 与 learnings。
+
+## [Unreleased] - 2026-08-20 (历史场景素材四卡布局与预览/选择交互)
+
+### 变更
+- 视频任务编辑页每个场景固定显示四个视觉卡：图片 1、图片 2、视频 1、视频 2；缺少素材时保留与媒体缩略图相同尺寸和背景的空框，四格顺序和几何不折叠。
+- 单选项移动到缩略图下方、素材名称前。缩略图现在只负责打开预览，radio 或其关联名称才是唯一的当前素材选择入口；视频 1/视频 2 继续归一到持久化的 `video` kind，不新增数据库或 IPC 枚举。
+- 预览弹窗从 `lg` 调整为 `xl`，视频两个视觉卡都按视频元素预览；“生成新图”“生成 AI 视频”按 2026-08-21 修订覆盖全部图片/视频卡，均为同一场景级动作的多入口。
+- 未生成素材只显示本地化的“未生成”/“Not generated”单行文案，清除空视频卡下方未解释的英文残留。
+
+### 数据与交互校验
+- renderer 对 `selectedMaterial` 做 `image1 | image2 | video` 白名单校验，对视觉视频别名统一发送 `video`；空槽、非法 kind、缺少受控路径由 renderer 与 IPC/service 双层拒绝。
+- 预览必须同时具备受控 path 和可用 share URL；URL 失效时保留固定空框并禁止预览，其他场景素材不受影响。生成按钮保留 busy 防重复和 videoPrompt 非空前置校验。
+
+### 测试与文档
+- ResultView 新增四卡顺序、radio-only selection、thumbnail-only preview、视频 kind 归一、按钮归属、空态英文泄漏、URL 失效、视频媒体类型和 locale 成对回归；同步更新 Story2Video PRD、页面 UX PRD、OpenSpec change 与 learnings。
+
+## [Unreleased] - 2026-08-19 (视频创作流水线自动后台运行)
+
+### 变更
+- 视频创作编排流水线成功启动后自动按后台任务执行：renderer 停止运行轮询并恢复启动初始态，主进程 run 继续执行且仍占用并发槽位；移除对【后台运行】按钮的依赖。
+- 历史任务卡片点击【继续生成】或【从断点继续】后，进入 running 的任务留在历史视图后台运行并刷新阶段进度；只有分镜素材自选 paused 检查点继续进入创作页交互面板。
+- 启动/续跑的 runId 增加非空字符串校验，旧轮询响应继续按 runId 快照丢弃，自动后台和续跑均不调用 pipelineCancel。
+
+### 文档与测试
+- 更新总 PRD §3a、PRD-video-creation 迭代表、i18n glossary 和 learnings；新增 OpenSpec change s2v-pipeline-always-background-run。
+- CreateView/CreateViewHistory 定向回归覆盖自动后台、历史续跑、人工检查点、取消和竞态守卫。
+
+## [Unreleased] - 2026-08-19 (Story2Video 历史断点恢复使用当前模型)
+
+### 变更
+- 历史记录失败/中断任务点击【从断点继续】后，未完成的文字推理、图片、TTS 和视频调用按当前模型设置解析；已完成本地资产按 scene index 复用，允许新旧模型资产混合。
+- 恢复只清理旧 provider/model 路由，保留 prompt、场景文本、画幅、视频比例、voiceId、语速、音调和情绪；旧 video_plan 路由不再覆盖当前视频模型。
+- TTS 保留原 voiceId；当前模型不兼容时不静默换音色、不覆盖旧音频，沿用兼容错误或既有 re-clone 合同。远程视频 taskId 未持久化时不伪造完成。
+- History Continue 仍为一键操作，无新增模型选择 UI。
+
+### 测试与文档
+- 覆盖旧路由清理、legacy Python 路径、已完成图片/音频/视频复用、未完成调用使用当前能力模型和旧 video_plan 不回流。
+- 详见 PRD-video-creation.md §3.1.33、ARCH-STORY2VIDEO-RESUME-CURRENT-MODELS-2026-08-19.md 与 OpenSpec change s2v-resume-current-models。
+
+## [Unreleased] - 2026-08-17 (Story2Video 页面 UX 与任务操作统一)
+
+### 变更
+- 流水线启动页底部启动/暂停/继续/取消操作固定，运行阶段进度固定在内容顶部；视频任务编辑页保存与合成操作固定到底部。
+- 历史记录统一所有状态卡片结构与通用任务信息，补齐删除入口；“编辑并重新合成”改为“编辑”；失败技术摘要改为本地化“失败原因”，任务标题为空时回退到原文案摘要。
+- 历史详情入口统一进入视频任务编辑页，旧 /create/history 重定向到历史记录视图；编辑页增加分段跳转、上一条/下一条、AI 视频生成入口、音色目录/输入回退和语速滑条。
+- 新增 pipeline:pause-run / pipeline:delete-run 桥接，删除和暂停持久化失败时保持原状态，防止历史记录出现半删除或假暂停。
+
+### 文档与测试
+- 详细合同见 01-docs/PRD-S2V-PIPELINE-PAGE-UX.md 与 openspec/changes/s2v-pipeline-page-ux/。
+- 定向桌面回归：5 个测试文件、422/422 用例通过。
+
+## [Unreleased] - 2026-08-16 (视频提示词上限 20000 → 40000)
+
+### 变更
+- 视频域上限 `VIDEO_ENGINE_LIMITS.videoMaxLengthMax` 20000 → **40000**（openspec `s2v-video-maxlength-40000`）：8020 standalone range [200,20000] → [200,40000]；videoPrompt 落库 `safeText` 视频专属 20000 → 40000（图片 prompt 20000 不动）；legacy 8013 [50,2000] 与共享 kernel 默认 500 不放松。8020 引擎侧 `VideoOptimizeRequest.max_length` le 同步 20000 → 40000（prompt-engine change `video-maxlength-40000`）。
+
+### 测试
+- 契约层 standalone clamp 断言同步 40000（22000/30000 范围内透传、40000 顶格）；服务层 video regen 断言 `max_length=40000` 显式透传 + 超长（25000 字符，>旧 20000 上限）完整落库。
+
+## [Unreleased] - 2026-08-16 (历史重生成视频优化词长度放宽)
+
+### 变更
+- 历史记录「重新生成视频优化词」显式携带视频域 `max_length`（`VIDEO_ENGINE_LIMITS.videoMaxLengthMax`=20000）：8020 独立引擎 [200,20000] / 8013 legacy [50,2000] 由契约 builder 各自收敛，不再落回后端默认（legacy 500 / standalone 1800）截断；共享 kernel 默认 500 与 legacy 执行器契约收敛不放松。
+
+### 测试
+- 服务层 regenerateScenePrompt video 用例断言 `max_length=20000` 显式透传 + 超长（5000 字符）返回完整落库（safeText 20000）；video-prompt-engine-contract 既有双后端 clamp 断言保持（定向 Vitest 184/184）。
+
+### 文档
+- OpenSpec change `s2v-history-video-maxlength`（proposal/design/specs/tasks）；PRD 3.1.29.5 状态更新（待实现 → 已实现）。
+
+## [Unreleased] - 2026-08-16 (历史记录图片提示词完整展示 + 未保存修改离开守卫)
+
+### 修复
+- 历史详情弹窗场景列表图片提示词 60 字符硬截断，长提示词（历史案例截断在 "Wunü Mo" 单词中间）无法完整查看；改为每个场景「旁白 / 画面提示词」两行独立完整展示（只渲染存在字段，长文本自动换行 + 列表滚动），卡片预览 120 截断保持。
+- 结果页分段编辑修改后没有保存引导、直接返回会静默丢失；新增「有未保存修改」标识与离开守卫（保存并离开 / 不保存离开 / 取消），保存成功才放行、失败留页。
+
+### 测试
+- ResultView 离开守卫 6 用例（真实 router-view 触发 beforeRouteLeave + Teleport stub DOM 点击）；CreateViewHistory 长提示词完整展示 / 分行 / 空字段不渲染 / 卡片预览截断用例；locale zh/en 成对（新增 8 键：create.history.sceneNarration/scenePrompt + story2video.sceneMaterial 6 键）；CJK 基线经 --update-baseline 吸收行号偏移（官方门禁 1499/1499 无新增硬编码）；vue build 通过。
+## [Unreleased] - 2026-08-16 (图片提示词 max_length 上限放开 500→2000 + 可配置)
+
+### 变更
+- 图片提示词优化 `optimize.max_length` 默认上限从 500 放开到 8013 契约上限 2000（pipeline stageDef 默认与文本配置契约默认同步），长提示词不再在 500 字符处按字符硬截断（历史案例：截断在 "Wunü Mo" 单词中间）。
+- 创作页「外观」区新增「提示词最大长度」设置（200–2000，默认 2000），按需控制提示词长度与成本；执行器契约收敛 [50, 2000] 保持不变，不因放开默认放宽校验。
+- 陈旧快照兼容：历史 last-options 缺 `maxPromptLength` 字段或越界时回落默认 2000，不破坏既有存储；已保存 run 快照 retain 原 `optimize.maxLength`（恢复/续跑沿用旧值），重新生成图片优化词时按新默认 2000 透传。
+
+### 测试
+- 主进程：pipeline 契约 `max_length` 断言 500→2000；新增 `resolveRuntimeStageOptions` 透传用例（`Story2VideoTextConfig.optimize.maxLength` → 请求 `max_length`）；text-config 默认 2000 断言。
+- 渲染层：CreateView 默认 2000、下拉 8 档渲染、`buildStory2VideoTextConfig` 透传、恢复钳制（越界/缺失回退、合法保留）用例。
+- locale：zh/en 成对新增 `create.story2video.maxPromptLength`；CJK 基线经显式 `--update-baseline` 吸收行号偏移（当前=基线 1500，无新增硬编码）。
+
+### 文档
+- OpenSpec change `s2v-optimize-maxlength`（proposal/design/specs/tasks 完成）；`locale-cjk-baseline.json` 行号重映射。
+
+## [Unreleased] - 2026-08-15 (历史记录场景内容编辑、重新生成与整片重合成)
+
+### 新增
+- 已完成任务每个场景补齐内容闭环：**文本类元素可修改**（场景文案、字幕块、视频优化词、语音设置：音色 ID/语速/音调/情绪），**生成类元素可重新生成**（字幕、旁白语音、图片/视频优化词）。
+- 历史记录入口：completed 且有 `projectId` 的任务卡片与详情弹窗新增【编辑并重新合成】按钮，详情弹窗展示只读场景列表与提示文案。
+- 重新生成字幕：按场景文案本地分句重切 `subtitleBlocks` 并清空 `subtitleTimeline`（派生数据，合成时重建时间轴），不消耗外部额度。
+- 重新生成旁白：按场景/项目语音设置调 TTS 替换 `audioPath`；失败保留旧音频、清理本次产物并回写 failed。
+- 重新生成图片/视频优化词：`image` 重写 `prompt` 并清空 `promptTranslation`（旧翻译失效）；`video` 重写 `videoPrompt`；失败不改动分段。
+- `updateSegments` 白名单扩展：videoPrompt/subtitleBlocks/subtitleTimeline/voiceId/voiceProvider/voiceModel/voiceSpeed/voicePitch/voiceEmotion 限长收敛（videoPrompt 20000、voiceId 160、voiceEmotion 80、voiceSpeed [0.5,2]、voicePitch [-12,12]（与流水线契约对齐，负值低沉音色可用）、subtitleBlocks ≤200 块×500 字符）；白名单外字段忽略不落库。
+- 主进程同项目写串行队列（`_serializeProject`）：保存分段/整片重合成/三种重新生成按 projectId 串行执行，防止跨段并发或保存与重新生成竞态互相覆盖；渲染端任一分段生成中禁用全局保存/重新合成按钮。
+- 重新生成前自动保存未落盘编辑（防本地修改被服务端响应覆盖）；重新生成字幕重置失败状态与字幕来源标记；compose 回显缺省 videoPrompt 时按项目原值回填（防重新合成后优化词丢失）。
+
+### 修复
+- 历史记录场景内容此前只能查看、无法修改，也没有整片重新合成入口；本迭代补齐「修改 → 保存分段 → 重新合成」完整流程。
+- 完整桌面套件回归：`generate_assets` 视频分支的 `optimizedVideoPrompts` 仅在视频场景存在时定义，无视频场景（或视频生成器不可用）时持久化 `videoPrompt` 会引用未定义变量；已提升为分支外声明并补全量回归（story2video-stages.test.js 101/101 通过）。
+
+### 测试
+- 服务层 `safeVoiceSpeed`/`safeVoicePitch` 分界收敛/`extractOptimizedPrompt`/新字段透传与白名单外忽略/三个 regenerate 方法成功与失败回滚/recompose 保留 videoPrompt（C1 回归）/`_serializeProject` 串行队列（W2 回归）；IPC 三通道可信来源与非法 id/kind 拒绝 + 队列包裹断言；preload 方法数断言 99/289/87；ResultView 保存透传、字幕编辑拆分与清空语义、三按钮成功/失败通知、重新生成前自动保存、任一分段 busy 禁用全局按钮；CreateViewHistory 编辑入口与场景列表；notifications 失败归一化。定向 72+ 项通过，完整门禁见交付记录。
+
+### 文档
+- PRD-video-creation §3.1.29（数据模型/校验/流程/功能逻辑/交互/提示文字/安全边界/测试要求）+ 迭代记录表；OpenSpec change `s2v-history-scene-edit-recompose`。
+
+## [Unreleased] - 2026-08-15 (视频创作历史记录状态浏览)
+
+### 变更
+- 视频创作历史记录改为六个状态标签，全部与状态筛选统一按有效更新时间倒序。
+- 统一历史卡片信息，暂停环境/检查点与失败环节/错误摘要支持中英文；非取消卡片提供只读任务详情，取消卡片保持不可打开。
+- 恢复、继续生成、打开结果、删除保持独立显式操作，避免点击卡片产生隐式副作用。
+
+### 测试
+- 新增有效时间归一化、状态筛选、标签键盘/ARIA、详情和动作隔离测试；定向 211 项通过，完整套件/构建/视觉结果见质量门禁记录。
+
 ## [Unreleased] - 2026-08-14 (流水线更名：全能创作 → 故事讲述)
 
 ### 变更
@@ -1851,3 +2017,35 @@
 ### 文档
 - PRD 7.1.18「历史记录可见性与运行状态合同」+ learnings 复盘。
 
+
+
+## [2026-08-17] feat(story2video): 翻译调度优化
+
+- 自动模式把只读提示词翻译延后到视频合成阶段并行执行；增加稳定 index 回填、批次/总预算、fail-open 诊断、pending 恢复契约，保留 manual 候选翻译时序。
+## [2026-08-17] feat(story2video): 手动选材模式提示词翻译与视频合成并行
+
+- 手动选材模式不再在 `optimize` 阶段等待提示词翻译；候选素材和选择 checkpoint 可先展示。
+- 翻译在 `compose` 阶段与视频合成并行，按场景 `index` 回填，不改变候选、选择、媒体和 TTS 数据。
+- 增加手动模式 pending、候选缺翻译、compose 回填与状态保持回归。
+## [Unreleased] - 2026-08-19 (Story2Video 历史失败提示脱敏与模型账号细化)
+
+### 修复
+- 修复视频创作历史记录失败提示可能显示 {sceneText} 内部占位符的问题，统一改为场景号、素材比例和生成类型组成的自然语言 context。
+- 新增 provider 显示名集中映射：已识别的 MiniMax、Kling、Agnes Image 等模型账号在失败提示中直接点名；未知 provider 安全回退为“当前模型账号”。
+- 限流、额度/余额不足、图片生成空结果、素材生成失败和 API Key 失败提示补充具体模型账号与下一步操作，继续屏蔽请求 ID、堆栈、状态码和内部服务前缀。
+
+### 测试与文档
+- 新增 formatter 与 renderer 通知双入口回归，覆盖 zh/en、已知/未知 provider、场景 context、二次格式化和技术占位符泄漏。
+- 同步 PRD-video-creation.md、PRD-S2V-PIPELINE-PAGE-UX.md、OpenSpec change、CCG task 和 QM-5 复盘。
+## [Unreleased] - 2026-08-20 (Story2Video 历史卡片与非运行任务编辑)
+
+### 变更
+- 历史记录六个状态标签统一使用任务卡片：所有状态均显示标题、任务文案预览、首场景缩略图、视频时长、更新时间和任务耗时；标题为空时按标题、参数标题、任务文案、流水线名称回退，文案预览超过 120 个 JavaScript 字符追加 `…`。
+- 增加首场景素材缩略图 IPC：合法图片优先；没有图片时由受控 FFmpeg 生成第一个视频的第 0 秒首帧；路径、符号链接、大小、格式和失败回滚均 fail-closed，失败只显示“未生成”占位而不阻塞历史列表。
+- 历史 project/run 合并按 projectId、项目 runId、legacy id 去重，项目标题/文案/分段/素材优先，run 状态/阶段/错误/检查点/运行耗时补充；纯 run 记录不会伪造编辑项目。
+- 只要流水线已经启动且不是 running，拥有项目的 paused、failed、completed、cancelled 任务均可进入视频任务编辑页；cancelled 可编辑但不能断点继续，running 继续使用流水线控制流。
+- 结果页为缺失或失败的图片、视频、提示词、翻译、字幕和语音保留固定“未生成”占位；更新时间覆盖内容成功写入及暂停/继续/取消/失败/完成操作。
+
+### 测试与门禁
+- 新增/更新历史卡片、project/run 合并、更新时间、缩略图 IPC、媒体槽兼容和 ResultView 占位回归；定向测试、类型检查、locale/CJK、依赖解析和 Electron QM-1 门禁在交付前执行。
+- 外部 Antigravity 因区域/账户资格不可用、Claude wrapper 因超时/代理连接失败未返回报告；已记录内部审查结论和残余风险，不将内部审查冒充外部双模型审查。

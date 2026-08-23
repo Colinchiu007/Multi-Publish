@@ -1,0 +1,10 @@
+{"path":"apps/desktop/src/story2video/story2video-notifications.js","reason":"renderer notification classification and safe parameter normalization"}
+{"path":"apps/desktop/src/utils/pipeline-error-formatter.js","reason":"pipeline raw error classification"}
+{"path":"apps/desktop/src/utils/provider-name-map.js","reason":"provider ID to user-visible model account name mapping"}
+{"path":"apps/desktop/src/locales/zh.js","reason":"Chinese user-visible failure copy"}
+{"path":"apps/desktop/src/locales/en.js","reason":"English user-visible failure copy"}
+{"path":"apps/desktop/src/story2video/notifications.test.js","reason":"notification regression matrix"}
+{"path":"apps/desktop/src/utils/pipeline-error-formatter.test.js","reason":"formatter regression matrix"}
+{"path":"apps/desktop/src/views/ResultView.test.js","reason":"history/result page integration regression"}
+{"path":"01-docs/PRD-video-creation.md","reason":"product requirements and acceptance contract"}
+{"path":"01-docs/PRD-S2V-PIPELINE-PAGE-UX.md","reason":"history card display and interaction contract"}

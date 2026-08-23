@@ -40,10 +40,11 @@ describe('logs IPC handlers', () => {
     registerHandlers(ipcMain, { log: mockLog })
   })
 
-  it('注册 logs:info / logs:clear / logs:error 三个通道', () => {
+  it('注册日志通道与 feedback:submit 通道', () => {
     expect(ipcMain.handle).toHaveBeenCalledWith('logs:info', expect.any(Function))
     expect(ipcMain.handle).toHaveBeenCalledWith('logs:clear', expect.any(Function))
     expect(ipcMain.handle).toHaveBeenCalledWith('logs:error', expect.any(Function))
+    expect(ipcMain.handle).toHaveBeenCalledWith('feedback:submit', expect.any(Function))
   })
 
   it('logs:info 返回 getLogsInfo() 结果', async () => {

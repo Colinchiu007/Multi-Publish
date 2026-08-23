@@ -178,9 +178,11 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     analyticsService, proxyPool, _chunkedUploader, keywordMonitor,
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, videoEngine, pipelineEngine, modelProviderManager,
+    story2videoBatchQueue,
     opsCenterSync,
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, usageTracker, cloudPublisher, identityService,
+    filmEngineeringService,
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector,
   } = context
@@ -193,9 +195,11 @@ function registerAllIpcHandlers({ app, BrowserWindow, context }) {
     analyticsService, proxyPool, _chunkedUploader, keywordMonitor,
     BACKEND_PLATFORMS, templateManager, licenseManager, aiWriter,
     compositionManager, aiGenerator, videoEngine, pipelineEngine, modelProviderManager,
+    story2videoBatchQueue,
     opsCenterSync,
     projectService, boardService, contactSheetService, approvalGateService,
     executionRecorder, identityService, credentialStore, accountStateRestorer,
+    filmEngineeringService,
     story2videoProjectService, story2videoMediaServer,
     promptEvalService, signalCollector,
   }

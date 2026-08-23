@@ -1,0 +1,13 @@
+{
+  "id": "prompt-eval-engine-dual-path",
+  "title": "ops-center 提示词评测接入 prompt-engine（双路对比：人工原版 vs 引擎优化版）",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ops-center",
+  "currentPhase": "planning",
+  "nextAction": "propose OpenSpec change（HTTP 接口 + 双路对比数据模型）",
+  "openspecChange": "prompt-eval-engine-dual-path",
+  "createdAt": "2026-08-14T08:00:00Z",
+  "branch": "main"
+}

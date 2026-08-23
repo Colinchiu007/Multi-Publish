@@ -1,7 +1,7 @@
 {
   "id": "login-gate-proactive-actions",
   "title": "主动操作未登录弹登录窗口并延续操作（useLoginGate + 核心入口接入）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "medium",
   "domain": "frontend-auth-ux",

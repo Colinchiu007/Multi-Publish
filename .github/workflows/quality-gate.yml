@@ -36,6 +36,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -69,6 +71,11 @@ jobs:
           if ($errors -gt 0) { exit 1 }
           Write-Host "All Electron JS files pass syntax check"
 
+      # --- Gate 2b: 桌面 dev 启动脚本单测（worktree 独立端口/退出留痕回归保护）---
+      - name: "Gate 2b - Desktop dev scripts (node --test)"
+        run: |
+          node --test apps/desktop/scripts/dev-ports.test.js apps/desktop/scripts/dev-launcher.test.js apps/desktop/scripts/dev-exit-log.test.js
+
       # --- Gate 3: 硬编码密钥扫描（同时执行 CI workflow 契约测试）---
       - name: "Gate 3 - Hardcoded secrets scan"
         run: |
@@ -96,6 +103,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -203,6 +212,8 @@ jobs:
         shard: ["1/2", "2/2"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -290,6 +301,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -315,6 +328,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -435,6 +450,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -525,6 +542,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史（与 origin/main 计算 merge-base/diff 需要；对齐 doc-gate.yml）
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -541,11 +560,34 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # --- Gate 9: PRD/源码自主覆盖审计 ---
+      - name: "Gate 9 - PR metadata"
+        id: pr-meta
+        shell: pwsh
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          $title = "" + "$env:PR_TITLE" + ""
+          $body = "" + "$env:PR_BODY" + ""
+          $labels = "" + "$env:PR_LABELS" + ""
+          $isMaintenance = ($title -match '^(fix|chore|docs|refactor|test)\b') -or ($labels -match 'bug|fix|docs|refactor|chore|test')
+          if ($isMaintenance) {
+            "PR_MODE=report-only" | Out-File -Append $env:GITHUB_ENV
+          } else {
+            "PR_MODE=full" | Out-File -Append $env:GITHUB_ENV
+          }
+          $ids = [regex]::Matches($body, 'feat_[A-Za-z0-9_]+') | ForEach-Object { $_.Value } | Sort-Object -Unique
+          if ($ids.Count -gt 0) {
+            "REQUIRED_FEATURE_IDS=$($ids -join ',')" | Out-File -Append $env:GITHUB_ENV
+          }
       - name: "Gate 9 - Autonomous coverage audit"
         id: autonomous-gate
         shell: pwsh
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
           Write-Host "=== Gate 9: Autonomous Coverage Audit ==="
@@ -558,7 +600,9 @@ jobs:
             "--skip-visual",
             "--docs=01-docs/PRD.md",
             "--threshold=0.5"
+            "--pr-mode=$env:PR_MODE"
           )
+          if ($env:REQUIRED_FEATURE_IDS) { $auditArgs += "--required-feature-ids=$env:REQUIRED_FEATURE_IDS" }
           if ($env:OPENAI_API_KEY) { $auditArgs += "--llm=openai" }
 
           $output = & node @auditArgs 2>&1

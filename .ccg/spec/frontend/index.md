@@ -36,3 +36,52 @@ async updateOrchestrationStatus() {
 
 - 新增用户可见文案一律写入 `apps/desktop/src/locales/zh.js` 与 `en.js` **成对**（CI Gate 7 拦截）；渲染端（.vue script/template）禁止新增中文字符串字面量（CJK 基线扫描按 `file:line` 匹配，新增行会触发误报 → 用 `node .github/scripts/check-locale-sync.js --cjk --update-baseline` 权威重排，但必须先确认「无真新增」）。
 - 产品名词翻译集中维护于 `01-docs/i18n-glossary.md`，新增术语先登记再使用。
+
+## 5. 结果页层级错误隔离（2026-08-15，s2v-result-success-error-boundary）
+
+**模式**：Story2Video 结果页对项目读取、成片 URL、旁白 URL 和场景素材 URL 分别处理；附加资源失败不能否定已完成的成片。
+
+**强制点**：完成事件必须在项目持久化成功后发送；持久化失败发送失败终态；成片缺失使用预览缺失提示，播放器加载失败使用预览级提示。
+
+## 4. Story2Video 合成错误映射
+
+Story2Video compose 的用户可见错误必须优先使用稳定消息键，而不是把后端技术错误文本直接交给 renderer：
+
+- 总时长超限使用 story2video.compose_duration_exceeded；单段旁白超限使用 story2video.compose_segment_duration_exceeded；concat、xfade、旁白、BGM、WebM 或输出校验超时使用 story2video.compose_timeout。
+- 主进程负责把 execFile 的 timeout 终止归一成带阶段语义的 ETIMEDOUT；前端只做兼容识别，不依赖某一种 stderr 或 signal 文案。
+- zh.js 与 en.js 必须成对更新；参数只接受安全的数值上限，未知技术字段、路径、命令、stderr、token 和堆栈不得进入用户文案。
+- 每个稳定消息键至少覆盖：中英文渲染、优先级、未知错误回退、技术细节脱敏，以及真实执行器可能返回的 timeout 形态。
+
+## 7. 共享进度/通用组件的新增文案必须按流水线类型门控（2026-08-17，story2video-time-guidance）
+
+**模式**：给共享组件加默认关闭的展示开关 prop（如 `showTimeGuidance`），父组件只在目标流水线（`isOrchestratedPipeline(name)`）下传入 true；同时补「默认不渲染」反向断言 + 父组件接线断言，防止回退。
+
+**反例（真实审查发现）**：把 story2video 专属的「合成时间参考 1/3/6 分钟」说明块无条件放进共享 `StageProgress`——所有 auto/media-auto 流水线（animated-explainer、talking-head、cinematic、clip-factory、localization-dub 等）都走同一个暂存式阶段组件，专属口径直接泄漏成误导文案。
+
+**强制点**：流水线专属文案所在组件的挂载条件是共享的（`(pipelineRunStatus.stages || orchestrationStages).length`）时，必须由父组件按流水线类型门控；新增用例至少包含「非目标流水线不渲染」。
+
+## 6. 生成类 IPC 失败必须校验 code 并走消息归一化（2026-08-16，s2v-retry-image-error-masking）
+## 8. 场景级生成动作可多卡重复暴露；能力门控必须与后端契约一致（2026-08-21，fix-s2v-history-scene-gen-buttons）
+
+**模式**：场景级生成动作（如【生成新图】【生成 AI 视频】）可以在多个视觉卡上重复暴露同一入口（image1/image2、video1/video2），但写入目标必须由既有的选中态/身份规则决定，禁止为视觉别名新增持久化身份或按卡改写后端契约。
+
+**反例（真实 Bug 根因）**：渲染层 `hasUsableVideoPrompt` 只校验 `videoPrompt`，而后端 `generateSceneAiVideo` 实际回退 `videoPrompt || prompt || text`——历史记录未持久化 videoPrompt 时按钮灰显无法生成；且老测试把「image2/video2 无生成按钮」写成断言（反向固化错误行为）。只放宽模板 `:disabled` 不够：方法入口（`generateSceneAiVideo` 内的 guard）必须同步放宽，否则按钮可点但静默 return。
+
+**强制点**：
+- renderer 的“能否生成”门控必须与后端提示词回退契约逐字一致（本例：`videoPrompt || prompt || text` 任一 trim 非空）。
+- 多卡重复暴露的按钮必须是同一场景级调用，新增断言覆盖：占位空槽也有按钮、busy 传播到全部入口、无 videoPrompt 但有 prompt/text 时按钮可点且真实触发 IPC。
+- 禁止写测试断言“某槽不应有生成按钮”或用 `toHaveLength(2)` 固化错误行为；用 `data-testid` 定位而非位置索引。
+
+**模式**：消费返回 `{code, message, data}` 契约的生成结果（生成图片/视频/音频）时，服务层必须在消费产物（复制/替换）前校验 `code === 0` 且产物路径存在；失败结果与抛异常是两条不同的失败路径，都要保留原始 message（缺失回退领域兜底文案）、保留旧媒体、清理本次产物并持久化失败状态。渲染层 catch 一律把错误文本交给既有通知归一化（quota/rate-limit/API Key/权限模式），不固定显示单一键。
+
+**反例（真实 Bug 根因）**：`retrySegment()`/`generateSceneImage()` 未校验 `generateImage` 返回码，`code !== 0` 时 `generatedPath` 为 undefined，落入 `_copyRequired` 抛「产物不存在」——provider 真实原因（余额不足/限流/API Key）被替换；渲染层 catch 固定 `operation_failed` 丢弃 `error.message` 并绕过归一化。`regenerateSceneAudio` 已有正确 code 守卫，同文件两处新通道遗漏。
+
+**强制点**：
+```js
+if (!generated || generated.code !== 0 || !generatedPath) {
+  throw new Error(generated?.message || '图片生成失败')
+}
+// 渲染层 catch：showStory2VideoNotification({ error: error?.message || '' })
+```
+- 主进程失败路径必须有 warn 级日志（含错误 message）。
+- 回归必须 mock 生成器返回「失败结果对象」（非抛异常）断言原因保留 + 状态持久化 + 日志；不得用断言固定文案反向固化错误行为。

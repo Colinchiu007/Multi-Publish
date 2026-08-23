@@ -1,4 +1,5 @@
 import { Segment, useDefault, SegmentitToken } from 'segmentit';
+import subtitleRules from './subtitle-rules.json';
 
 /** 全局 segmentit 分词实例（懒加载） */
 let _segmentit: InstanceType<typeof Segment> | null = null;
@@ -8,6 +9,59 @@ function getSegmenter(): InstanceType<typeof Segment> {
     useDefault(_segmentit);
   }
   return _segmentit;
+}
+
+export interface SegmentSpan {
+  start: number;
+  end: number;
+}
+
+const CJK_TOKEN = /^[\u3400-\u4dbf\u4e00-\u9fff]{2,}$/u;
+const ORACLE_MAX_TOKEN_LENGTH = subtitleRules.word_split.oracle_max_token_length ?? 8;
+const SPAN_CACHE_LIMIT = 256;
+const SPAN_CACHE = new Map<string, readonly Readonly<SegmentSpan>[]>();
+
+function cloneSpans(spans: readonly Readonly<SegmentSpan>[]): SegmentSpan[] {
+  return spans.map(({ start, end }) => ({ start, end }));
+}
+
+function cacheSpans(text: string, spans: SegmentSpan[]): SegmentSpan[] {
+  const immutable = Object.freeze(
+    spans.map((span) => Object.freeze({ ...span })),
+  ) as readonly Readonly<SegmentSpan>[];
+  if (SPAN_CACHE.size >= SPAN_CACHE_LIMIT) {
+    const oldest = SPAN_CACHE.keys().next().value;
+    if (oldest !== undefined) SPAN_CACHE.delete(oldest);
+  }
+  SPAN_CACHE.set(text, immutable);
+  return cloneSpans(immutable);
+}
+
+/** 分词器词边界跨度；失败或无法分词时返回空数组，回退既有规则。 */
+export function segmenterSpans(text: string): SegmentSpan[] {
+  if (!text) return [];
+  const cached = SPAN_CACHE.get(text);
+  if (cached) return cloneSpans(cached);
+  try {
+    const tokens = getSegmenter().doSegment(text);
+    const spans: SegmentSpan[] = [];
+    let cursor = 0;
+    for (const token of tokens) {
+      const word = token?.w || '';
+      if (!CJK_TOKEN.test(word) || word.length > ORACLE_MAX_TOKEN_LENGTH) continue;
+      const idx = text.indexOf(word, cursor);
+      if (idx < 0) continue;
+      const end = idx + word.length;
+      const previousEnd = spans.length ? spans[spans.length - 1].end : 0;
+      if (idx < cursor || idx < previousEnd || end <= idx || end > text.length) continue;
+      if (text.slice(idx, end) !== word) continue;
+      spans.push({ start: idx, end });
+      cursor = end;
+    }
+    return cacheSpans(text, spans);
+  } catch {
+    return cacheSpans(text, []);
+  }
 }
 
 /**

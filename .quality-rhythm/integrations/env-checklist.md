@@ -59,11 +59,21 @@ node integrations/install-mechanism.js <项目> --yes
 - [ ] `.quality-gates.md` 由 ci-hardening 脚手架渲染生成（单一来源 `skills/other/ci-hardening/assets/templates/quality-gates.md.tpl`）
 - [ ] 按项目裁剪：QM 条款、测试命令、spec-contract 中的项目背景
 
-## 6. 重启 Codex（技能加载）
+## 6. 会话隔离与共享主目录写保护（Windows）
+
+- [ ] 共享仓库根为 `main` 且干净；运行时代码任务默认落在 `<repo-parent>/mp-worktrees/mp-<task>`
+- [ ] `powershell -ExecutionPolicy Bypass -File scripts/bootstrap-write-guard.ps1` 退出码 0，输出 Bootstrap OK
+- [ ] `Get-ScheduledTask -TaskPath '\Multi-Publish\'` 同时包含 `Session Isolation Health` 与 `Session Isolation Write Guard`
+- [ ] `scripts/mp-worktree-health.ps1 -RequireWriteGuard` 退出码 0（watcher 运行、main clean、hooks 一致、无 outside worktree）
+- [ ] 自检均为 PASS：`scripts/session-write-guard.test.ps1`、`scripts/session-isolation-automation.test.ps1`
+- [ ] 首个任务通过 `scripts/start-mp-task.ps1 -TaskName <kebab-case>` 启动，worktree 落在可解析隔离根
+- [ ] 按需覆盖：`-WorktreeRoot` / `MP_WORKTREES`、`-GitBash` / `MP_GIT_BASH`、`-GitPath` / `MP_GIT`
+
+## 7. 重启 Codex（技能加载）
 
 - [ ] 完全重启 Codex 应用（.agents/skills、openspec 技能、AGENTS.md 都是启动时加载）
 
-## 7. 生效验证（验证门禁 + 重启后逐项）
+## 8. 生效验证（验证门禁 + 重启后逐项）
 
 **自动门禁（任一 FAIL 阻塞完成）：**
 - [ ] `node verify-env.js <项目>` → 输出 PASS/FAIL 报告；FAIL 项修复后重跑（install-mechanism.js 会自动调用）
@@ -81,3 +91,4 @@ node integrations/install-mechanism.js <项目> --yes
 - `~/.codex/config.toml` 中的插件市场 local source、历史项目 trust 列表
 - Multica 平台运行时块（平台特定）
 - 项目历史（.ccg/tasks 归档、openspec/changes 历史、codegraph 索引）
+- Windows 计划任务、git hooks 与实时 watcher（必须由项目 `scripts/bootstrap-write-guard.ps1` 注册/启动）

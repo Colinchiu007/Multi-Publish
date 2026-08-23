@@ -32,6 +32,7 @@ const {
   extractOptimizedPrompt,
   selectBestCandidate,
 } = require('./prompt-engine-contract');
+const { emitStageStart, emitStageItem, emitStageComplete } = require('./stage-progress');
 
 function _firstDefined(...values) {
   return values.find(value => value !== undefined && value !== null);
@@ -39,6 +40,26 @@ function _firstDefined(...values) {
 
 function _isPlainObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+const STAGE_PROGRESS_DETAIL_KINDS = new Set(['scene', 'resource', 'image', 'video', 'tts', 'platform', 'segment']);
+
+function _isProgressParamValue(value, depth = 0) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return Number.isFinite(value) || typeof value !== 'number';
+  }
+  if (depth >= 2 || !_isPlainObject(value)) return false;
+  return Object.values(value).every((item) => _isProgressParamValue(item, depth + 1));
+}
+
+function _normalizeProgressLocalization(update, key, paramsKey) {
+  if (update[key] === undefined || update[key] === null) return null;
+  if (typeof update[key] !== 'string' || !update[key].trim() || !update[key].startsWith('stageProgress.')) return false;
+  const params = update[paramsKey];
+  if (params === undefined || params === null) return { key: update[key].trim() };
+  if (!_isPlainObject(params) || !_isProgressParamValue(params)) return false;
+  return { key: update[key].trim(), params: { ...params } };
 }
 
 /**
@@ -83,9 +104,10 @@ function _normalizeComposeProgressForContext(update) {
  * - message 为非空字符串且 ≤80 字符（用户可见进行中文案，内部生成、纯文本插值）；
  * - summary（可选）为非空字符串且 ≤80 字符（完成态摘要）；
  * - detail（可选）为纯对象 { done, total, kind? }：done/total 为非负整数、total ≥ 1、done ≤ total。
+ * - messageKey/summaryKey（可选）必须是 stageProgress.* locale key，参数为浅层纯对象。
  * 任一约束失败返回 null，调用方应丢弃该次更新（fail-closed），不得向 renderer 下发非法值。
  * @param {object} update
- * @returns {{percent: number, message: string, detail?: {done: number, total: number, kind?: string}, summary?: string}|null}
+ * @returns {{percent: number, message: string, detail?: {done: number, total: number, kind?: string}, summary?: string, messageKey?: string, messageParams?: object, summaryKey?: string, summaryParams?: object}|null}
  */
 function normalizeStageProgress(update) {
   if (!update || typeof update !== 'object' || Array.isArray(update)) return null;
@@ -96,11 +118,22 @@ function normalizeStageProgress(update) {
   const normalizedMessage = message.trim();
   if (normalizedMessage.length > 80) return null;
   const normalized = { percent: Math.round(percent), message: normalizedMessage };
+  const messageLocalization = _normalizeProgressLocalization(update, 'messageKey', 'messageParams');
+  const summaryLocalization = _normalizeProgressLocalization(update, 'summaryKey', 'summaryParams');
+  if (messageLocalization === false || summaryLocalization === false) return null;
+  if (messageLocalization) {
+    normalized.messageKey = messageLocalization.key;
+    if (messageLocalization.params) normalized.messageParams = messageLocalization.params;
+  }
   if (update.summary !== undefined && update.summary !== null) {
     if (typeof update.summary !== 'string' || !update.summary.trim()) return null;
     const summary = update.summary.trim();
     if (summary.length > 80) return null;
     normalized.summary = summary;
+  }
+  if (summaryLocalization) {
+    normalized.summaryKey = summaryLocalization.key;
+    if (summaryLocalization.params) normalized.summaryParams = summaryLocalization.params;
   }
   if (update.detail !== undefined && update.detail !== null) {
     if (!_isPlainObject(update.detail)) return null;
@@ -109,7 +142,10 @@ function normalizeStageProgress(update) {
     if (typeof total !== 'number' || !Number.isInteger(total) || total < 1) return null;
     if (done > total) return null;
     const detail = { done, total };
-    if (typeof update.detail.kind === 'string' && update.detail.kind) detail.kind = update.detail.kind;
+    if (update.detail.kind !== undefined && update.detail.kind !== null) {
+      if (typeof update.detail.kind !== 'string' || !STAGE_PROGRESS_DETAIL_KINDS.has(update.detail.kind)) return null;
+      detail.kind = update.detail.kind;
+    }
     normalized.detail = detail;
   }
   return normalized;
@@ -160,6 +196,19 @@ function _buildStorySplitterOptions(options) {
     if (value !== undefined) scene[key] = value;
   }
   if (Object.keys(scene).length > 0) config.scene = scene;
+
+  // 字幕分块参数透传（v1.2）：subtitle_min_chars / subtitle_max_chars / subtitle_timing
+  // → config.subtitle.min_chars_per_block / max_chars_per_block / time_calculation_method
+  const subtitle = _isPlainObject(config.subtitle) ? { ...config.subtitle } : {};
+  const subtitleAliases = [
+    ['min_chars_per_block', _firstDefined(source.subtitle_min_chars, source.subtitleMinChars, source.min_chars_per_block)],
+    ['max_chars_per_block', _firstDefined(source.subtitle_max_chars, source.subtitleMaxChars, source.max_chars_per_block)],
+    ['time_calculation_method', _firstDefined(source.subtitle_timing, source.subtitleTiming)],
+  ];
+  for (const [key, value] of subtitleAliases) {
+    if (value !== undefined) subtitle[key] = value;
+  }
+  if (Object.keys(subtitle).length > 0) config.subtitle = subtitle;
   if (source.enable_paragraph_aware !== undefined) {
     config.enable_paragraph_aware = source.enable_paragraph_aware;
   }
@@ -204,6 +253,7 @@ class StageExecutor {
     this.container = container || null;
     this.log = log || require('./logger');
     this._customExecutors = new Map();
+    this._composeParallelTasks = new Map();
     this._builtinExecutors = this._buildBuiltinExecutors();
   }
 
@@ -218,6 +268,18 @@ class StageExecutor {
     }
     this._customExecutors.set(stageType, fn);
     this.log.info('StageExecutor', 'Registered custom executor: ' + stageType);
+  }
+
+  /**
+   * 注册合成阶段的可选并行任务。工厂必须立即返回 { promise, apply?, timeoutMs? }，
+   * 以保证任务与 composeVideo 同时启动；Promise 不得写入流水线 context。
+   */
+  registerComposeParallelTask(taskType, factory) {
+    if (typeof taskType !== 'string' || !taskType.trim() || typeof factory !== 'function') {
+      throw new Error('Compose parallel task requires a type and factory');
+    }
+    this._composeParallelTasks.set(taskType, factory);
+    this.log.info('StageExecutor', 'Registered compose parallel task: ' + taskType);
   }
 
   /**
@@ -284,13 +346,19 @@ class StageExecutor {
       const text = _resolveInput(stage, params, context);
       // split 阶段进行中/完成反馈（统一契约）：调用前发进行中文案，成功后发场景数摘要
       const emitSplitStarted = () => {
-        if (typeof onProgress === 'function') onProgress({ percent: 5, message: '正在分析文案…' });
+        emitStageStart(onProgress, { messageKey: 'stageProgress.splitWorking' });
       };
       const emitSplitDone = (scenesCount) => {
-        if (typeof onProgress !== 'function') return;
-        const update = { percent: 100, message: '文案分句完成' };
-        if (Number.isInteger(scenesCount) && scenesCount > 0) update.summary = '拆分为了 ' + scenesCount + ' 个场景';
-        onProgress(update);
+        if (!Number.isInteger(scenesCount) || scenesCount < 1) {
+          emitStageComplete(onProgress, { messageKey: 'stageProgress.splitComplete' });
+          return;
+        }
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.splitComplete',
+          summaryKey: 'stageProgress.splitSummary',
+          summaryParams: { count: scenesCount },
+          detail: { done: scenesCount, total: scenesCount, kind: 'scene' },
+        });
       };
       const sceneCountOf = (output) => {
         const arr = output && (Array.isArray(output.scenes) ? output.scenes : output.sentences);
@@ -340,6 +408,7 @@ class StageExecutor {
           'StageExecutor',
           'smart-sentence-splitter 不可用，Story2Video 已降级为本地场景分句: ' + output.fallbackReason,
         );
+        emitSplitDone(sceneCountOf(output));
         return { success: true, output };
       };
 
@@ -495,14 +564,22 @@ class StageExecutor {
     });
 
     // COMPOSE - 视频合成（基于 ffmpeg 的真实合成引擎）
-    map.set(STAGE_TYPES.COMPOSE, async ({ stage, params, context }) => {
+    map.set(STAGE_TYPES.COMPOSE, async ({ stage, params, context, runId }) => {
       const assets = _resolveInput(stage, params, context);
       const composeOptionKeys = [
         'transition', 'transitionDuration', 'imageEffect', 'subtitleEnabled', 'subtitleStyle',
         'watermark', 'watermarkText', 'watermarkConfig', 'resolution', 'fps', 'format',
         'bgmPath', 'bgmVolume', 'voiceVolume', 'defaultSceneDuration', 'sceneDurationMode', 'minSceneDuration',
+        'videoMode', 'shortVideoHandling',
       ];
       const composeOptions = { ...(stage.options || {}) };
+      const parallelTaskType = typeof composeOptions.composeParallelTask === 'string'
+        ? composeOptions.composeParallelTask.trim()
+        : '';
+      delete composeOptions.composeParallelTask;
+      if (parallelTaskType && context && typeof context === 'object') {
+        delete context.compose_parallel_diagnostic;
+      }
       for (const key of composeOptionKeys) {
         if (params[key] !== undefined) composeOptions[key] = params[key];
       }
@@ -518,9 +595,139 @@ class StageExecutor {
           context.compose_progress = normalized;
         }
       };
-      const result = await self.serviceBus.composeVideo(assets, composeOptions);
+      const parallelAbortController = typeof AbortController === 'function' ? new AbortController() : null;
+      let parallelTaskSpec = null;
+      const parallelFactory = parallelTaskType ? self._composeParallelTasks.get(parallelTaskType) : null;
+      if (parallelFactory) {
+        try {
+          const candidate = parallelFactory({
+            runId,
+            stage,
+            params,
+            context,
+            assets,
+            signal: parallelAbortController ? parallelAbortController.signal : undefined,
+          });
+          parallelTaskSpec = candidate && typeof candidate.then === 'function'
+            ? { promise: candidate }
+            : candidate;
+          if (!parallelTaskSpec || typeof parallelTaskSpec.promise?.then !== 'function') {
+            parallelTaskSpec = null;
+          }
+        } catch (error) {
+          parallelTaskSpec = {
+            promise: Promise.resolve({
+              degraded: true,
+              reason: error && error.message ? error.message : String(error),
+            }),
+          };
+        }
+      } else if (parallelTaskType && context && typeof context === 'object') {
+        context.compose_parallel_diagnostic = {
+          taskType: parallelTaskType,
+          degraded: true,
+          reason: 'parallel task not registered',
+        };
+      }
+      const parallelPromise = parallelTaskSpec
+        ? Promise.resolve(parallelTaskSpec.promise).catch((error) => ({
+            degraded: true,
+            reason: error && error.message ? error.message : String(error),
+          }))
+        : null;
+      const taskTimeout = parallelTaskSpec && Number.isFinite(Number(parallelTaskSpec.timeoutMs))
+        ? Number(parallelTaskSpec.timeoutMs)
+        : Number((stage.options || {}).composeParallelTimeoutMs);
+      const parallelTimeoutMs = Number.isFinite(taskTimeout) ? Math.max(0, taskTimeout) : 60000;
+      let parallelTimeoutId;
+      const parallelDeadline = parallelPromise
+        ? new Promise((resolve) => {
+            parallelTimeoutId = setTimeout(() => resolve({ __timeout: true }), parallelTimeoutMs);
+          })
+        : null;
+      const parallelFinalizationPromise = parallelPromise
+        ? Promise.race([parallelPromise, parallelDeadline])
+        : null;
+      const cancelParallelTask = async () => {
+        if (parallelAbortController) parallelAbortController.abort();
+        if (parallelTaskSpec && typeof parallelTaskSpec.cancel === 'function') {
+          try { await parallelTaskSpec.cancel({ runId, stage, params, context, assets }); } catch (_) { /* best effort */ }
+        }
+      };
+      // compose 失败时立即返回 compose 错误；parallelPromise 已绑定 catch，避免后台任务产生未处理 rejection。
+      let result;
+      try {
+        result = await self.serviceBus.composeVideo(assets, composeOptions);
+      } catch (error) {
+        await cancelParallelTask();
+        if (parallelTimeoutId) clearTimeout(parallelTimeoutId);
+        throw error;
+      }
       // code === 0 或 code === undefined（直接返回数据的桥接）都算成功
       if (result && (result.code === 0 || result.code === undefined)) {
+        const composeOutput = result.data || result;
+        if (parallelFinalizationPromise) {
+          const parallelResult = await parallelFinalizationPromise;
+          const timedOut = parallelResult && parallelResult.__timeout === true;
+          if (timedOut) {
+            await cancelParallelTask();
+            if (context && typeof context === 'object') {
+              context.compose_parallel_diagnostic = {
+                taskType: parallelTaskType,
+                degraded: true,
+                reason: 'parallel task finalization timeout',
+              };
+            }
+            const apply = parallelTaskSpec && typeof parallelTaskSpec.apply === 'function'
+              ? parallelTaskSpec.apply
+              : null;
+            if (apply) {
+              try {
+                await apply({
+                  runId,
+                  stage,
+                  params,
+                  context,
+                  assets,
+                  composeOutput,
+                  result: { degraded: true, reason: 'parallel task finalization timeout', results: [] },
+                });
+              } catch (_) { /* 超时后的 fail-open 收尾不得覆盖 compose 成功 */ }
+            }
+          } else if (parallelResult && (typeof parallelTaskSpec.apply === 'function' || typeof parallelResult.apply === 'function')) {
+            try {
+              const apply = typeof parallelTaskSpec.apply === 'function' ? parallelTaskSpec.apply : parallelResult.apply;
+              await apply({
+                runId,
+                stage,
+                params,
+                context,
+                assets,
+                composeOutput,
+                result: parallelResult,
+              });
+            } catch (error) {
+              if (context && typeof context === 'object') {
+                context.compose_parallel_diagnostic = {
+                  taskType: parallelTaskType,
+                  degraded: true,
+                  reason: error && error.message ? error.message : String(error),
+                };
+              }
+            }
+          }
+          if (parallelResult && parallelResult.degraded === true && context && typeof context === 'object' && !context.compose_parallel_diagnostic) {
+            context.compose_parallel_diagnostic = {
+              taskType: parallelTaskType,
+              degraded: true,
+              reason: parallelResult.reason || 'parallel task degraded',
+            };
+          }
+          if (parallelResult && !timedOut && parallelResult.degraded !== true && context && typeof context === 'object') {
+            delete context.compose_parallel_diagnostic;
+          }
+        }
+        if (parallelTimeoutId) clearTimeout(parallelTimeoutId);
         // 5a：TTS 时长样本采集（best-effort，采集失败不影响流水线；为 5b 自适应校准铺路）
         try {
           collectStory2VideoTtsSamples({
@@ -533,6 +740,8 @@ class StageExecutor {
         } catch (_) { /* 采集为纯增强，异常静默 */ }
         return { success: true, output: result.data || result };
       }
+      await cancelParallelTask();
+      if (parallelTimeoutId) clearTimeout(parallelTimeoutId);
       // 引擎不可用时返回失败（不再用占位成功）
       return { success: false, error: (result && result.message) || 'Compose failed' };
     });
@@ -662,13 +871,11 @@ class StageExecutor {
             'PUBLISH: ' + platform + ' exception: ' + (e instanceof Error ? e.message : String(e)));
         }
         // 每平台完成后上报（成功/失败均推进计数；发布阶段不因单个平台失败而停滞反馈）
-        if (typeof onProgress === 'function') {
-          onProgress({
-            percent: Math.round(((platformIndex + 1) / platformTotal) * 100),
-            message: '正在发布到 ' + platform + ' (' + (platformIndex + 1) + '/' + platformTotal + ')',
-            detail: { done: platformIndex + 1, total: platformTotal, kind: 'platform' },
-          });
-        }
+        emitStageItem(onProgress, platformIndex + 1, platformTotal, {
+          messageKey: 'stageProgress.publishing',
+          messageParams: { platform },
+          kind: 'platform',
+        });
       }
 
       // 5. 汇总结果

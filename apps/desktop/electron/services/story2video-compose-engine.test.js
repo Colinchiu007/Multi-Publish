@@ -14,6 +14,7 @@ const {
   findFfmpeg,
   findFfprobe,
   normalizeComposeProgressUpdate,
+  countChunkedMergeChunks,
   buildTransitionPlan,
   escapeSubtitleText,
   normalizeComposeScenes,
@@ -21,7 +22,11 @@ const {
   buildSubtitleFilter,
   buildWatermarkFilter,
   buildScaleFilter,
+  computeFfmpegStageTimeoutMs,
+  isFfmpegStageTimeoutError,
+  normalizeFfmpegStageError,
   computeSegmentEncodeTimeoutMs,
+  computeMergeEncodeTimeoutMs,
   resolveMaxOutputDimensions,
   validateResolutionCapability,
   computeWorkResolution,
@@ -108,12 +113,12 @@ describe('escapeSubtitleText — ffmpeg drawtext 字幕转义', () => {
 })
 
 describe('Story2VideoComposeEngine 资源与效果契约', () => {
-  it('默认成片上限与旧 PRD 一致为 10 分钟', () => {
+  it('默认成片上限为 50 分钟，旁白总时长上限与成片一致', () => {
     const engine = new Story2VideoComposeEngine({
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })
-    expect(engine.maxDurationSeconds).toBe(10 * 60)
-    expect(engine.maxAudioDurationSeconds).toBe(15 * 60)
+    expect(engine.maxDurationSeconds).toBe(50 * 60)
+    expect(engine.maxAudioDurationSeconds).toBe(50 * 60)
     expect(engine.maxSegmentDurationSeconds).toBe(3 * 60)
   })
 
@@ -247,8 +252,9 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
 
     it('moving 为确定性 Lissajous 漂移：sin/cos、无 random、无逗号、起点居中', () => {
       const filter = buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'moving' } })
-      expect(filter).toContain(":x='(w-text_w)/2*(1+0.9*sin(2*PI*t/10))'")
-      expect(filter).toContain(":y='(h-text_h)/2*(1+0.9*cos(2*PI*t/14))'")
+      // 回归：用户反馈漂移过快，周期放大 10 倍（x 100s / y 140s，速度约为原 1/10）
+      expect(filter).toContain(":x='(w-text_w)/2*(1+0.9*sin(2*PI*t/100))'")
+      expect(filter).toContain(":y='(h-text_h)/2*(1+0.9*cos(2*PI*t/140))'")
       expect(filter).not.toContain('random(')
       const expr = filter.slice(filter.indexOf(':x='))
       expect(expr).not.toContain(',')
@@ -312,6 +318,137 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     // fps 极值：1fps×6s=6、120fps×6s=720
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 1, 6)).toContain('min(1,on/6)')
     expect(buildImageEffectFilter('zoom-in', 1280, 720, 120, 6)).toContain('min(1,on/720)')
+  })
+
+  describe('AI 视频短于分镜时长的处理', () => {
+    function makeVideoEngine (videoDuration) {
+      const engine = new Story2VideoComposeEngine({
+        outputDir: fs.mkdtempSync(path.join(os.tmpdir(), 's2v-short-video-contract-')),
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      })
+      engine._probeVideoDuration = vi.fn().mockResolvedValue(videoDuration)
+      engine._runFfmpegStage = vi.fn().mockResolvedValue({ stderr: '' })
+      engine._requireFfmpegOutput = vi.fn()
+      return engine
+    }
+
+    function videoOptions (overrides = {}) {
+      return {
+        width: 320,
+        height: 180,
+        fps: 24,
+        effectDuration: 4,
+        duration: null,
+        audioDuration: 4,
+        videoMode: 'fixed',
+        padTo: null,
+        shortVideoHandling: 'loop',
+        subtitleText: '',
+        subtitleTimeline: [],
+        subtitleStyle: undefined,
+        watermark: false,
+        watermarkText: '',
+        watermarkConfig: undefined,
+        transition: 'none',
+        voiceVolume: 1,
+        composeId: 'test-compose',
+        sceneIndex: 0,
+        ...overrides,
+      }
+    }
+
+    it('默认循环模式保留无限循环和 TTS 音频映射', async () => {
+      const engine = makeVideoEngine(1)
+      try {
+        await engine._encodeVideoSegmentOnce('video.mp4', 'voice.mp3', 'segment.mp4', videoOptions())
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        expect(args).toEqual(expect.arrayContaining(['-stream_loop', '-1', '-map', '0:v:0', '-map', '1:a:0']))
+        expect(args.join(' ')).not.toContain('tpad=stop_mode=clone')
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
+
+    it('播放完停止模式对短视频冻结末帧并按 zoom-in 进度放大', async () => {
+      const engine = makeVideoEngine(1)
+      try {
+        await engine._encodeVideoSegmentOnce(
+          'video.mp4',
+          'voice.mp3',
+          'segment.mp4',
+          videoOptions({ shortVideoHandling: 'stop-at-end' }),
+        )
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        const filter = args[args.indexOf('-filter_complex') + 1]
+        expect(args).not.toContain('-stream_loop')
+        expect(filter).toContain('concat=n=2:v=1:a=0')
+        expect(filter).toContain('select=eq(n\,0)')
+        expect(filter).toContain('zoompan')
+        expect(filter).toContain('1+0.25*min(1,on/72)')
+        expect(args).toEqual(expect.arrayContaining(['-t', '4', '-shortest', '-map', '[videoOut]', '-map', '1:a:0']))
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
+
+    it('播放完停止模式在视频足够长时只裁剪，不追加末帧尾段', async () => {
+      const engine = makeVideoEngine(5)
+      try {
+        await engine._encodeVideoSegmentOnce(
+          'video.mp4',
+          'voice.mp3',
+          'segment.mp4',
+          videoOptions({ shortVideoHandling: 'stop-at-end' }),
+        )
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        const filter = args[args.indexOf('-vf') + 1]
+        expect(args).not.toContain('-stream_loop')
+        expect(filter).not.toContain('tpad=stop_mode=clone')
+        expect(args).toEqual(expect.arrayContaining(['-shortest', '-map', '0:v:0', '-map', '1:a:0']))
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
+
+    it('播放完停止模式探测失败时回退到循环，避免短视频场景黑屏或提前结束', async () => {
+      const engine = makeVideoEngine(null)
+      try {
+        await engine._encodeVideoSegmentOnce(
+          'video.mp4',
+          'voice.mp3',
+          'segment.mp4',
+          videoOptions({ shortVideoHandling: 'stop-at-end' }),
+        )
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        expect(args).toEqual(expect.arrayContaining(['-stream_loop', '-1']))
+        expect(args.join(' ')).not.toContain('tpad=stop_mode=clone')
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
+
+    it('min-duration 停止模式使用 -t + apad 保留静音补齐尾部', async () => {
+      const engine = makeVideoEngine(1)
+      try {
+        await engine._encodeVideoSegmentOnce(
+          'video.mp4',
+          'voice.mp3',
+          'segment.mp4',
+          videoOptions({
+            effectDuration: 6,
+            audioDuration: 3,
+            padTo: 6,
+            shortVideoHandling: 'stop-at-end',
+          }),
+        )
+        const args = engine._runFfmpegStage.mock.calls[0][0]
+        expect(args).not.toContain('-stream_loop')
+        expect(args).toEqual(expect.arrayContaining(['-t', '6', '-af', 'apad', '-map', '1:a:0']))
+        expect(args).not.toContain('-shortest')
+      } finally {
+        fs.rmSync(engine.outputDir, { recursive: true, force: true })
+      }
+    })
   })
 
   it('为每个字幕页生成首尾不重叠的 FFmpeg 半开时间区间', () => {
@@ -931,7 +1068,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     }
   })
 
-  it('min-duration 模式：原始音频和 <600s 但补齐后超限时在预检拒绝，不进入渲染（W1）', async () => {
+  it('min-duration 模式：原始音频和 <3000s 但补齐后超限时在预检拒绝，不进入渲染（W1）', async () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-min-duration-limit-'))
     const image = writeFixture(root, 'image.png')
@@ -940,8 +1077,8 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       outputDir: root,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })
-    // 11 段 × 50s = 550s < 600（通过音频和校验）；minSceneDuration=60 → 11 × max(50,60) = 660 > 600 → 预检拒绝
-    const scenes = Array.from({ length: 11 }, () => ({ imagePath: image, audioPath: audio, text: 'x' }))
+    // 55 段 × 50s = 2750s < 3000（通过音频和校验）；minSceneDuration=60 → 55 × max(50,60) = 3300 > 3000 → 预检拒绝
+    const scenes = Array.from({ length: 55 }, () => ({ imagePath: image, audioPath: audio, text: 'x' }))
     engine._probeMediaDuration = vi.fn().mockResolvedValue(50)
     engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, Buffer.from('segment')))
     engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, Buffer.from('narration')))
@@ -1082,7 +1219,11 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       await expect(engine._probeMediaDuration(invalidMedia)).resolves.toBeNull()
       expect(log.warn).toHaveBeenCalledWith(
         'Story2VideoCompose',
-        expect.stringContaining('Failed to probe media duration'),
+        'ffprobe_failed',
+        expect.objectContaining({
+          event: 'ffprobe_failed',
+          operation: 'duration_probe',
+        }),
       )
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
@@ -1228,7 +1369,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     }
   })
 
-  it('在执行 ffmpeg 前拒绝超过 10 分钟的声明时长', async () => {
+  it('在执行 ffmpeg 前拒绝超过 50 分钟的声明时长', async () => {
     if (!findFfmpeg()) return
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-duration-'))
     const image = path.join(root, 'image.png')
@@ -1243,10 +1384,10 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
 
     try {
       const result = await engine.compose({
-        scenes: [{ imagePath: image, audioPath: audio, duration: 601 }],
+        scenes: [{ imagePath: image, audioPath: audio, duration: 3001 }],
       })
       expect(result).toMatchObject({ code: -1 })
-      expect(result.message).toMatch(/10 分钟|时长|duration/i)
+      expect(result.message).toMatch(/50 分钟|50 minutes/i)
       expect(engine._createSegment).not.toHaveBeenCalled()
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
@@ -1274,6 +1415,136 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       const result = await engine.compose({ scenes })
       expect(result).toMatchObject({ code: -1 })
       expect(result.message).toMatch(/单段|3 分钟|时长/)
+      expect(engine._createSegment).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('批量旁白总时长超过 50 分钟时在合成前失败且提示 50 分钟', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-total-duration-over-'))
+    const scenes = Array.from({ length: 20 }, (_v, index) => {
+      const imagePath = path.join(root, 'image-' + index + '.png')
+      const audioPath = path.join(root, 'audio-' + index + '.mp3')
+      fs.writeFileSync(imagePath, 'image')
+      fs.writeFileSync(audioPath, 'audio')
+      return { imagePath, audioPath }
+    })
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      // 旁白总时长上限放宽到 60 分钟：成片检查在前（默认 3000s），确保本用例命中「成片总时长」分支而非旁白分支
+      maxAudioDurationSeconds: 60 * 60,
+    })
+    // 每段 151s × 20 = 3020s > 3000s（50 分钟），单段 151s < 3 分钟不会触发单段上限
+    engine._probeMediaDuration = vi.fn(async () => 151)
+    engine._createSegment = vi.fn()
+
+    try {
+      const result = await engine.compose({ scenes })
+      expect(result).toMatchObject({ code: -1 })
+      expect(result.message).toContain('成片总时长不能超过 50 分钟')
+      expect(engine._createSegment).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('批量旁白总时长不超过 50 分钟时通过预检并进入片段合成', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-total-duration-ok-'))
+    const scenes = Array.from({ length: 20 }, (_v, index) => {
+      const imagePath = path.join(root, 'image-' + index + '.png')
+      const audioPath = path.join(root, 'audio-' + index + '.mp3')
+      fs.writeFileSync(imagePath, 'image')
+      fs.writeFileSync(audioPath, 'audio')
+      return { imagePath, audioPath, text: '第' + (index + 1) + '段' }
+    })
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    // 每段 149s × 20 = 2980s ≤ 3000s（50 分钟）
+    engine._probeMediaDuration = vi.fn(async () => 149)
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._validateOutput = vi.fn(async () => {})
+
+    try {
+      const result = await engine.compose({ scenes }, { transition: 'none', validateOutput: false })
+      expect(result.code).toBe(0)
+      expect(engine._createSegment).toHaveBeenCalledTimes(20)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('成片总时长恰为 3000 秒通过预检、3000.1 秒拒绝（严格大于语义）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-boundary-3000-'))
+    const scenes = Array.from({ length: 20 }, (_v, index) => {
+      const imagePath = path.join(root, 'image-' + index + '.png')
+      const audioPath = path.join(root, 'audio-' + index + '.mp3')
+      fs.writeFileSync(imagePath, 'image')
+      fs.writeFileSync(audioPath, 'audio')
+      return { imagePath, audioPath, text: '第' + (index + 1) + '段' }
+    })
+    const passEngine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    // 20 × 150s = 3000s = 恰好 50 分钟，锁定严格 > 边界（3000 通过）
+    passEngine._probeMediaDuration = vi.fn(async () => 150)
+    passEngine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    passEngine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    passEngine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    passEngine._validateOutput = vi.fn(async () => {})
+    try {
+      const passResult = await passEngine.compose({ scenes }, { transition: 'none', validateOutput: false })
+      expect(passResult.code).toBe(0)
+      expect(passEngine._createSegment).toHaveBeenCalledTimes(20)
+
+      const rejectEngine = new Story2VideoComposeEngine({
+        outputDir: root,
+        log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      })
+      // 20 × 150.005s = 3000.1s > 3000s → 成片检查拒绝
+      rejectEngine._probeMediaDuration = vi.fn(async () => 150.005)
+      rejectEngine._createSegment = vi.fn()
+      const rejectResult = await rejectEngine.compose({ scenes })
+      expect(rejectResult).toMatchObject({ code: -1 })
+      expect(rejectResult.message).toContain('成片总时长不能超过 50 分钟')
+      expect(rejectEngine._createSegment).not.toHaveBeenCalled()
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('旁白总时长上限低于成片上限时返回旁白文案（更严旁白约束）', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-narration-cap-'))
+    const scenes = Array.from({ length: 14 }, (_v, index) => {
+      const imagePath = path.join(root, 'image-' + index + '.png')
+      const audioPath = path.join(root, 'audio-' + index + '.mp3')
+      fs.writeFileSync(imagePath, 'image')
+      fs.writeFileSync(audioPath, 'audio')
+      return { imagePath, audioPath }
+    })
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      maxDurationSeconds: 50 * 60,
+      maxAudioDurationSeconds: 40 * 60, // 更严的旁白上限
+    })
+    // 每段 175s × 14 = 2450s ≤ 3000s（成片上限通过、单段 175s ≤ 180s）；> 2400s（旁白上限触发）
+    engine._probeMediaDuration = vi.fn(async () => 175)
+    engine._createSegment = vi.fn()
+    try {
+      const result = await engine.compose({ scenes })
+      expect(result).toMatchObject({ code: -1 })
+      expect(result.message).toContain('旁白音频总时长不能超过 40 分钟')
       expect(engine._createSegment).not.toHaveBeenCalled()
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
@@ -1308,6 +1579,38 @@ describe('Story2VideoComposeEngine 子进度发射（compose_progress 契约）'
       text: '第' + (index + 1) + '段',
     }))
   }
+
+  it('min-duration 合成把旁白实际总时长与预计成片时长分别传给下游阶段', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-timeout-duration-'))
+    const engine = makeProgressEngine(root)
+    engine._probeMediaDuration = vi.fn()
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(6)
+      .mockResolvedValueOnce(6)
+      .mockResolvedValueOnce(12)
+    engine._mixBgm = vi.fn(async (_video, _bgm, output) => fs.writeFileSync(output, 'mixed'))
+    engine._transcodeWebm = vi.fn(async (_input, output) => fs.writeFileSync(output, 'webm'))
+    try {
+      const result = await engine.compose({ scenes: makeScenes(root, 2) }, {
+        transition: 'none',
+        sceneDurationMode: 'min-duration',
+        minSceneDuration: 6,
+        bgmPath: writeFixture(root, 'bgm.mp3'),
+        format: 'webm',
+      })
+
+      expect(result.code).toBe(0)
+      expect(engine._concatSegments.mock.calls[0][3].segmentDurations).toEqual([6, 6])
+      expect(engine._concatNarrationAudio.mock.calls[0][4]).toBe(5)
+      expect(engine._mixBgm.mock.calls[0][4]).toBe(12)
+      expect(engine._transcodeWebm.mock.calls[0][2]).toBe(12)
+      expect(engine._validateOutput.mock.calls[0][1]).toBe(12)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
 
   it('normalizeComposeProgressUpdate 字段级校验（取整/钳制/非法丢弃）', () => {
     expect(normalizeComposeProgressUpdate({ phase: 'segments', percent: 39.4, segmentsDone: 3, segmentsTotal: 5 }))
@@ -1494,6 +1797,271 @@ describe('Story2VideoComposeEngine 子进度发射（compose_progress 契约）'
       fs.rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('超长片段（>8 段）走真实分块拼接：concat 进度在 87→89 间按块单调推进并记录块日志', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-progress-chunked-'))
+    const engine = makeProgressEngine(root)
+    // 保留真实 _concatSegments/_concatSegmentsChunked（含递归），仅 mock 底层 ffmpeg 合并
+    engine._concatSegments = Story2VideoComposeEngine.prototype._concatSegments
+    engine._xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => fs.writeFileSync(outputPath, 'video'))
+    engine._plainConcat = vi.fn(async (_segs, outputPath) => fs.writeFileSync(outputPath, 'video'))
+    const progress = []
+    try {
+      const result = await engine.compose({ scenes: makeScenes(root, 10) }, { transition: 'fade' }, (u) => progress.push(u))
+      expect(result.code).toBe(0)
+      const concat = progress.filter(p => p.phase === 'concat')
+      // 10 段 → l0 2 块 + l1 1 块 = 3 块；初始 87 + 每块 87+2·k/3：87 / 88 / 88 / 89
+      expect(concat.length).toBe(4)
+      const percents = concat.map(p => p.percent)
+      expect(percents[0]).toBe(87)
+      expect(percents.at(-1)).toBe(89)
+      for (let i = 1; i < percents.length; i++) expect(percents[i]).toBeGreaterThanOrEqual(percents[i - 1])
+      expect(percents.every(p => p >= 87 && p <= 89)).toBe(true)
+      // 每完成一块记录 merge_l{level}_chunk_{n} created 日志
+      const logLines = engine.log.info.mock.calls.map(args => args[1])
+      expect(logLines.filter(l => /merge_l\d_chunk_\d+ created/.test(l))).toHaveLength(3)
+      expect(logLines).toContain('merge_l0_chunk_000 created: merge_l0_chunk_000.mp4')
+      expect(logLines).toContain('merge_l1_chunk_000 created: merge_l1_chunk_000.mp4')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('Story2VideoComposeEngine 合成可观测性日志', () => {
+  function makeObservabilityEngine (root, overrides = {}) {
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const engine = new Story2VideoComposeEngine({ outputDir: root, log })
+    engine._probeMediaDuration = vi.fn(async () => 2)
+    engine._createSegment = vi.fn(async (_image, _audio, output) => fs.writeFileSync(output, 'segment'))
+    engine._concatSegments = vi.fn(async (_segments, output) => fs.writeFileSync(output, 'video'))
+    engine._concatNarrationAudio = vi.fn(async (_audioPaths, output) => fs.writeFileSync(output, 'narration'))
+    engine._validateOutput = vi.fn(async () => {})
+    for (const [key, value] of Object.entries(overrides)) engine[key] = value
+    return { engine, log }
+  }
+
+  function makeObservabilityScenes (root, count = 2) {
+    return Array.from({ length: count }, (_value, index) => ({
+      imagePath: writeFixture(root, 'image-' + index + '.png'),
+      audioPath: writeFixture(root, 'audio-' + index + '.mp3'),
+      duration: 1,
+    }))
+  }
+
+  function eventsFrom (log) {
+    return [...log.debug.mock.calls, ...log.info.mock.calls, ...log.warn.mock.calls, ...log.error.mock.calls]
+      .map((args) => args[2])
+      .filter((meta) => meta && typeof meta === 'object' && typeof meta.event === 'string')
+  }
+
+  it('成功合成使用一个 composeId 串联生命周期和阶段事件', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-success-'))
+    const { engine, log } = makeObservabilityEngine(root)
+    try {
+      const result = await engine.compose({ scenes: makeObservabilityScenes(root) }, { transition: 'none' })
+      expect(result.code).toBe(0)
+      const events = eventsFrom(log)
+      const started = events.find((meta) => meta.event === 'compose_started')
+      const succeeded = events.find((meta) => meta.event === 'compose_succeeded')
+      expect(started).toMatchObject({ stage: 'compose', sceneCount: 2 })
+      expect(succeeded).toMatchObject({ composeId: started.composeId, segmentCount: 2 })
+      expect(events.filter((meta) => meta.event === 'compose_stage_started').every((meta) => meta.composeId === started.composeId)).toBe(true)
+      expect(events.filter((meta) => meta.event === 'compose_stage_succeeded').length).toBeGreaterThanOrEqual(3)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('失败合成记录 compose_failed，并且不写入含空格的素材绝对路径', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-fail-'))
+    const privatePath = 'C:\\private folder\\secret clip.mp4'
+    const { engine, log } = makeObservabilityEngine(root, {
+      _concatSegments: vi.fn(async () => { throw new Error('concat failed at ' + privatePath) }),
+    })
+    try {
+      await expect(engine.compose({ scenes: makeObservabilityScenes(root) }, { transition: 'fade' }))
+        .rejects.toThrow('concat failed')
+      const events = eventsFrom(log)
+      const failure = events.find((meta) => meta.event === 'compose_failed')
+      expect(failure).toMatchObject({ stage: 'concat' })
+      expect(failure.error).toContain('<path>')
+      expect(failure.error).not.toContain(privatePath)
+      expect(failure.error).not.toContain('private folder')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('旁白合并失败返回给上层的错误也不会泄露 Windows 绝对路径', async () => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-return-redaction-'))
+    const privatePath = 'C:\\private folder\\secret narration.m4a'
+    const { engine } = makeObservabilityEngine(root, {
+      _concatNarrationAudio: vi.fn(async () => { throw new Error('failed to open ' + privatePath) }),
+    })
+    try {
+      const result = await engine.compose({ scenes: makeObservabilityScenes(root) }, { transition: 'none' })
+      expect(result).toMatchObject({ code: -1 })
+      expect(result.message).toContain('Narration concat failed: failed to open <path>')
+      expect(result.message).not.toContain(privatePath)
+      expect(result.message).not.toContain('private folder')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['Windows', 'C:\\private folder\\secret segment.mp4'],
+    ['Unix', '/private folder/secret segment.mp4'],
+  ])('片段创建失败返回给上层的错误不会泄露 %s 绝对路径', async (_platform, privatePath) => {
+    if (!findFfmpeg()) return
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-segment-redaction-'))
+    const { engine } = makeObservabilityEngine(root, {
+      _createSegment: vi.fn(async () => { throw new Error('failed to open ' + privatePath) }),
+    })
+    try {
+      const result = await engine.compose({ scenes: makeObservabilityScenes(root, 1) }, { transition: 'none' })
+      expect(result).toMatchObject({ code: -1 })
+      expect(result.message).toContain('Segment 0 failed to create: failed to open <path>')
+      expect(result.message).not.toContain(privatePath)
+      expect(result.message).not.toContain('private folder')
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('分块合成记录块的开始、完成和关联字段', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-chunk-'))
+    const { engine, log } = makeObservabilityEngine(root)
+    const inputs = Array.from({ length: 10 }, (_value, index) => writeFixture(root, 'segment-' + index + '.mp4', 'video'))
+    const output = path.join(root, 'output.mp4')
+    engine._xfadeMerge = vi.fn(async (_segments, _plan, target) => fs.writeFileSync(target, 'merged'))
+    engine._plainConcat = vi.fn(async (_segments, target) => fs.writeFileSync(target, 'merged'))
+    try {
+      await engine._concatSegmentsChunked(inputs, Array(10).fill(2), output, root, {
+        composeId: 'compose_test_01',
+        transitionName: 'fade',
+        transitionDuration: 0.5,
+      }, 0)
+      const events = eventsFrom(log)
+      const started = events.find((meta) => meta.event === 'merge_chunk_started')
+      const succeeded = events.find((meta) => meta.event === 'merge_chunk_succeeded')
+      expect(started).toMatchObject({ composeId: 'compose_test_01', level: 0, chunkIndex: 0, totalChunks: 3 })
+      expect(succeeded).toMatchObject({ composeId: 'compose_test_01', level: 0, chunkIndex: 0, outputBytes: 6 })
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('缺少 FFmpeg 输出时记录安全的 ffmpeg_output_missing 事件', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-missing-'))
+    const { engine, log } = makeObservabilityEngine(root)
+    const missing = path.join(root, 'missing.mp4')
+    try {
+      expect(() => engine._requireFfmpegOutput(missing, {
+        composeId: 'compose_test_02',
+        stage: 'concat',
+        operation: 'plain_concat',
+      }, 'failed to open ' + missing)).toThrow('ffmpeg did not produce output')
+      const event = eventsFrom(log).find((meta) => meta.event === 'ffmpeg_output_missing')
+      expect(event).toMatchObject({ composeId: 'compose_test_02', stage: 'concat', output: 'missing.mp4', outputBytes: 0 })
+      expect(event.stderr).not.toContain(root)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('FFmpeg 超时记录 ffmpeg_timeout 及阶段关联字段', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-timeout-'))
+    const timeoutError = new Error('process timed out')
+    timeoutError.code = 'ETIMEDOUT'
+    timeoutError.killed = true
+    timeoutError.signal = 'SIGTERM'
+    timeoutError.stderr = 'error while opening ' + root + '/secret.mp4'
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log,
+      execFfmpegStage: vi.fn(async () => { throw timeoutError }),
+    })
+    try {
+      await expect(engine._runFfmpegStage(['-version'], { timeout: 25000 }, {
+        composeId: 'compose_test_timeout',
+        stage: 'concat',
+        operation: 'xfade_merge',
+        inputCount: 8,
+        outputPath: path.join(root, 'merged.mp4'),
+      })).rejects.toThrow('process timed out')
+      const event = eventsFrom(log).find((meta) => meta.event === 'ffmpeg_timeout')
+      expect(event).toMatchObject({
+        composeId: 'compose_test_timeout',
+        stage: 'concat',
+        operation: 'xfade_merge',
+        timeoutMs: 25000,
+        errorCode: 'ETIMEDOUT',
+        signal: 'SIGTERM',
+        killed: true,
+      })
+      expect(event.stderr).not.toContain(root)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('FFmpeg 心跳记录输出增长，并向块回调提供相同诊断数据', async () => {
+    vi.useFakeTimers()
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-heartbeat-'))
+    const output = path.join(root, 'merged.mp4')
+    const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    let resolveStage
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log,
+      execFfmpegStage: vi.fn(() => new Promise((resolve) => { resolveStage = resolve })),
+    })
+    const heartbeats = []
+    try {
+      const running = engine._runFfmpegStage(['-version'], { timeout: 25000 }, {
+        composeId: 'compose_test_heartbeat',
+        stage: 'concat',
+        operation: 'xfade_merge',
+        outputPath: output,
+        heartbeat: true,
+        onHeartbeat: (heartbeat) => heartbeats.push(heartbeat),
+      })
+      fs.writeFileSync(output, 'grown-output')
+      await vi.advanceTimersByTimeAsync(10000)
+      resolveStage({ stdout: '', stderr: '' })
+      await running
+      const event = eventsFrom(log).find((meta) => meta.event === 'ffmpeg_heartbeat')
+      expect(event).toMatchObject({ composeId: 'compose_test_heartbeat', output: 'merged.mp4', outputGrowing: true, outputBytes: 12 })
+      expect(log.info.mock.calls.some((args) => args[2]?.event === 'ffmpeg_heartbeat')).toBe(true)
+      expect(heartbeats).toEqual([expect.objectContaining({ outputGrowing: true, outputBytes: 12 })])
+    } finally {
+      vi.useRealTimers()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('预检失败仍以同一个 composeId 记录开始与失败事件', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-compose-observe-preflight-'))
+    const { engine, log } = makeObservabilityEngine(root)
+    try {
+      const result = await engine.compose({ scenes: [] })
+      expect(result.code).toBe(-1)
+      const events = eventsFrom(log)
+      const started = events.find((meta) => meta.event === 'compose_started')
+      const failure = events.find((meta) => meta.event === 'compose_failed')
+      expect(started).toMatchObject({ stage: 'compose', sceneCount: 0 })
+      expect(failure).toMatchObject({ composeId: started.composeId, stage: 'preflight' })
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('Story2Video 六档字幕字号', () => {
@@ -1598,6 +2166,72 @@ describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）',
     expect(plainConcat).toHaveBeenCalledTimes(1)
     expect(xfadeMerge).not.toHaveBeenCalled()
   })
+
+  it('无损 concat 接收当前输入片段时长，供动态预算计算', async () => {
+    const segments = makeSegments(3)
+    const durations = [600, 700, 800]
+    const output = path.join(tmp, 'out.mp4')
+    const plainConcat = vi.fn(async (_segs, outputPath) => fs.writeFileSync(outputPath, 'video'))
+    engine._plainConcat = plainConcat
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'none', segmentDurations: durations })
+
+    expect(plainConcat).toHaveBeenCalledWith(segments, output, tmp, durations)
+  })
+
+  it('分块合成：每完成一块触发 onChunkCreated（level/chunkIndex/done/total/path）', async () => {
+    const segments = makeSegments(27)
+    const durations = segments.map((_, i) => 6 + (i % 3))
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+
+    const created = []
+    await engine._concatSegments(segments, output, tmp, {
+      transition: 'fade',
+      transitionDuration: 0.4,
+      segmentDurations: durations,
+      onChunkCreated: (chunk) => created.push(chunk),
+    })
+
+    // 27 段 → l0 4 块（8/8/8/3）+ l1 1 块，共 5 块；done/total 跨递归层级单调累加
+    expect(created).toHaveLength(5)
+    expect(created.map(c => c.level)).toEqual([0, 0, 0, 0, 1])
+    expect(created.map(c => c.chunkIndex)).toEqual([0, 1, 2, 3, 0])
+    expect(created.map(c => c.done)).toEqual([1, 2, 3, 4, 5])
+    expect(created.map(c => c.total)).toEqual([5, 5, 5, 5, 5])
+    for (const chunk of created) {
+      expect(path.basename(chunk.path)).toBe('merge_l' + chunk.level + '_chunk_' + String(chunk.chunkIndex).padStart(3, '0') + '.mp4')
+    }
+  })
+
+  it('分块合成：每完成一块记录 merge_l{level}_chunk_{n} created 日志', async () => {
+    const segments = makeSegments(27)
+    const durations = segments.map((_, i) => 6 + (i % 3))
+    const output = path.join(tmp, 'out.mp4')
+    const xfadeMerge = vi.fn(async (_segs, _plan, outputPath) => { fs.writeFileSync(outputPath, 'video') })
+    engine._xfadeMerge = xfadeMerge
+    const info = vi.fn()
+    engine.log = { info, warn() {}, error() {} }
+
+    await engine._concatSegments(segments, output, tmp, { transition: 'fade', transitionDuration: 0.4, segmentDurations: durations })
+
+    const logLines = info.mock.calls.map(args => args[1])
+    expect(logLines.filter(l => /merge_l\d_chunk_\d+ created/.test(l))).toHaveLength(5)
+    expect(logLines).toContain('merge_l0_chunk_000 created: merge_l0_chunk_000.mp4')
+    expect(logLines).toContain('merge_l1_chunk_000 created: merge_l1_chunk_000.mp4')
+  })
+
+  it('countChunkedMergeChunks 全流程总块数（各级块数之和，末级仅复制不新增块）', () => {
+    expect(countChunkedMergeChunks(27, 8)).toBe(5) // l0: 4 + l1: 1
+    expect(countChunkedMergeChunks(9, 8)).toBe(3) // l0: 2 + l1: 1
+    expect(countChunkedMergeChunks(8, 8)).toBe(1)
+    expect(countChunkedMergeChunks(6, 8)).toBe(1)
+    expect(countChunkedMergeChunks(100, 8)).toBe(16) // 13 + 2 + 1
+    expect(countChunkedMergeChunks(2, 8)).toBe(1)
+    expect(countChunkedMergeChunks(1, 8)).toBe(1)
+    expect(countChunkedMergeChunks(0, 8)).toBe(0)
+  })
 })
 
 describe('computeSegmentEncodeTimeoutMs — 片段编码超时按时长估算', () => {
@@ -1617,6 +2251,57 @@ describe('computeSegmentEncodeTimeoutMs — 片段编码超时按时长估算', 
   it('缺省时长/帧率使用安全默认值且不低于下限', () => {
     expect(computeSegmentEncodeTimeoutMs(null, undefined)).toBe(30000)
     expect(computeSegmentEncodeTimeoutMs(undefined, null)).toBe(30000)
+  })
+})
+
+describe('computeFfmpegStageTimeoutMs — 全片 ffmpeg 超时按媒体时长估算', () => {
+  it('将 execFile 的超时终止状态识别为阶段超时，而普通 SIGTERM 不误判', () => {
+    expect(isFfmpegStageTimeoutError({ code: 'ETIMEDOUT' })).toBe(true)
+    expect(isFfmpegStageTimeoutError({ killed: true, signal: 'SIGTERM' })).toBe(true)
+    expect(isFfmpegStageTimeoutError({ killed: true, signal: 'SIGKILL' })).toBe(false)
+    expect(isFfmpegStageTimeoutError({ code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' })).toBe(false)
+  })
+
+  it('将 execFile 超时错误归一为带阶段语义的 ETIMEDOUT，普通错误保持原对象', () => {
+    const sourceError = Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' })
+    const normalized = normalizeFfmpegStageError(sourceError, 'webm transcode')
+    expect(normalized).not.toBe(sourceError)
+    expect(normalized.code).toBe('ETIMEDOUT')
+    expect(normalized.message).toBe('webm transcode ffmpeg stage timed out')
+    expect(normalized.cause).toBe(sourceError)
+
+    const ordinaryError = new Error('invalid input')
+    expect(normalizeFfmpegStageError(ordinaryError, 'webm transcode')).toBe(ordinaryError)
+  })
+
+  it('短片保持各阶段既有最小预算', () => {
+    expect(computeFfmpegStageTimeoutMs('concat', 1)).toBe(60000)
+    expect(computeFfmpegStageTimeoutMs('narration', 1)).toBe(120000)
+    expect(computeFfmpegStageTimeoutMs('bgm', 1)).toBe(120000)
+    expect(computeFfmpegStageTimeoutMs('webm', 1)).toBe(180000)
+    expect(computeFfmpegStageTimeoutMs('validate', 1)).toBe(60000)
+  })
+
+  it('50 分钟输出按阶段放大，不再落入固定 60s/120s/180s', () => {
+    expect(computeFfmpegStageTimeoutMs('concat', 3000)).toBe(780000)
+    expect(computeFfmpegStageTimeoutMs('narration', 3000)).toBe(6030000)
+    expect(computeFfmpegStageTimeoutMs('bgm', 3000)).toBe(6030000)
+    expect(computeFfmpegStageTimeoutMs('webm', 3000)).toBe(18120000)
+    expect(computeFfmpegStageTimeoutMs('validate', 3000)).toBe(6030000)
+  })
+
+  it.each([undefined, null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, 'oops'])(
+    '无效时长 %s 回退阶段最小预算',
+    duration => {
+      expect(computeFfmpegStageTimeoutMs('webm', duration)).toBe(180000)
+    },
+  )
+
+  it('极端估算受阶段硬上限约束，xfade 同样封顶 6 小时', () => {
+    expect(computeFfmpegStageTimeoutMs('concat', 100000)).toBe(30 * 60 * 1000)
+    expect(computeFfmpegStageTimeoutMs('narration', 100000)).toBe(2 * 60 * 60 * 1000)
+    expect(computeFfmpegStageTimeoutMs('webm', 100000)).toBe(6 * 60 * 60 * 1000)
+    expect(computeMergeEncodeTimeoutMs(100000)).toBe(6 * 60 * 60 * 1000)
   })
 })
 

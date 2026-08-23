@@ -28,13 +28,13 @@ const PUBLIC_CHANNELS = new Set([
   'model-provider:test', 'model-provider:presets',
   'model-provider:is-configured', 'model-provider:logs',
   'ops-center-sync:get', 'ops-center-sync:save', 'ops-center-sync:now', 'ops-center-sync:runtime',
-  'logs:info', 'logs:clear', 'logs:error',
+  'logs:info', 'logs:clear', 'logs:error', 'feedback:submit',
   'render:status', 'render:install-deps',
   'pipeline:list', 'pipeline:get', 'pipeline:history',
   // 本地只读历史通道：未登录时也可查看本机创作历史（写/敏感通道仍要求登录）。
   //  - story2video:list-projects / story2video:get-project：项目数据按 owner 隔离（__legacy__=设备级本地空间）
   //  - pipeline:history：设备级 run 历史（不过滤 owner，本地内存/持久化快照）
-  'story2video:list-projects', 'story2video:get-project',
+  'story2video:list-projects', 'story2video:get-project', 'story2video:get-thumbnail',
   // 本地媒体导入（story2video:import-media）：把用户经 webUtils 选中的文件复制到应用控制的
   // 临时目录（kind/扩展名/大小校验 + withSenderCheck 可信来源），纯设备本地操作、不暴露私有数据，
   // 未登录/未激活许可证时也必须可用，否则图片轮播的背景音乐/旁白/视频素材选择完全不可用（2026-08-09）。
@@ -43,9 +43,16 @@ const PUBLIC_CHANNELS = new Set([
   // 添加/改名/删除/列表均为纯本地文件操作，未登录可用（与 import-media 同属本地素材管理）。
   'story2video:bgm-library-list', 'story2video:bgm-library-add',
   'story2video:bgm-library-rename', 'story2video:bgm-library-delete',
+  // 批量创作文件选择（story2video:pick-batch-files）：纯本地系统对话框（.txt/.md 多选），
+  // 与 video-clone:pick-file 同属设备本地操作，未登录可用；批量创建/状态/取消需登录（story2video_write）。
+  'story2video:pick-batch-files',
   // 视频克隆（本地分析流水线）：run/cancel/edit/regenerate/history/pick-file 未登录可用；发布经 PublisherRouter（外部验收边界）
   'video-clone:run', 'video-clone:cancel', 'video-clone:report:edit', 'video-clone:report:regenerate',
   'video-clone:pick-file', 'video-clone:history',
+  'film-engineering:status', 'film-engineering:list-scenes', 'film-engineering:list-shots',
+  'film-engineering:get-shot', 'film-engineering:doctrine',
+  'film-engineering:copy-text', 'film-engineering:copy-texts',
+  'film-engineering:adapt-script', 'film-engineering:export', 'film-engineering:generate-selected',
   'usage:stats', 'usage:daily', 'usage:track',
   'identity:get-state', 'identity:sign-in', 'identity:switch-account', 'identity:sign-out',
 ])
@@ -109,6 +116,13 @@ const LOGIN_ONLY_FEATURE_MAP = Object.freeze({
   'story2video:replace-segment-audio': 'story2video_write',
   'story2video:retry-segment': 'story2video_write',
   'story2video:recompose-project': 'story2video_write',
+  'story2video:select-scene-material': 'story2video_write',
+  'story2video:generate-scene-image': 'story2video_write',
+  'story2video:generate-scene-video': 'story2video_write',
+  'story2video:generate-scene-ai-video': 'story2video_write',
+  'story2video:regenerate-scene-subtitle': 'story2video_write',
+  'story2video:regenerate-scene-audio': 'story2video_write',
+  'story2video:regenerate-scene-prompt': 'story2video_write',
   'story2video:transcribe': 'story2video_write',
   'story2video:capabilities': 'story2video_write',
   'story2video:export-zip': 'story2video_write',
@@ -116,6 +130,9 @@ const LOGIN_ONLY_FEATURE_MAP = Object.freeze({
   'story2video:copy-path': 'story2video_write',
   'story2video:show-in-folder': 'story2video_write',
   'story2video:save-as': 'story2video_write',
+  'story2video:batch:create': 'story2video_write',
+  'story2video:batch:status': 'story2video_write',
+  'story2video:batch:cancel': 'story2video_write',
   // 模型服务商配置写操作（2026-08-11：未登录被拒）
   'model-provider:create': 'model_provider_write',
   'model-provider:update': 'model_provider_write',

@@ -161,11 +161,13 @@ function extractContext(container) {
   const aiGenerator = container.get('aiGenerator')
   const videoEngine = container.get('videoEngine')
   const pipelineEngine = container.get('pipelineEngine')
+  const story2videoBatchQueue = container.get('story2videoBatchQueue')
   const projectService = container.get('projectService')
   const boardService = container.get('boardService')
   const contactSheetService = container.get('contactSheetService')
   const approvalGateService = container.get('approvalGateService')
   const executionRecorder = container.get('executionRecorder')
+  const filmEngineeringService = container.get('filmEngineeringService')
 
   // ─── ModelProviderManager + ProviderRouter 接线 ───
   const { ModelProviderManager } = require('../services/model-provider-manager')
@@ -299,6 +301,8 @@ function extractContext(container) {
   }
   const story2videoProjectService = container.get('story2videoProjectService')
   story2videoProjectService.modelProviderManager = modelProviderManager
+  const ttsVoiceCloneService = container.get('ttsVoiceCloneService')
+  ttsVoiceCloneService.modelProviderManager = modelProviderManager
 
   // ─── 提示词评估服务（PromptEval，v1 图片）───
   const { app: electronAppForPromptEval } = require('electron')
@@ -362,6 +366,8 @@ function extractContext(container) {
   const _chunkedUploader = container.get('chunkedUploader')
   const splitterBridge = container.get('splitterBridge')
   const promptBridge = container.get('promptBridge')
+  // BYOK：提示词引擎的 LLM 由桌面「模型设置」默认 LLM 注入（引擎不再使用服务端 key 兜底）
+  promptBridge.modelProviderManager = modelProviderManager
   const serviceBus = container.get('serviceBus')
   const pluginRegistry = container.get('pluginRegistry')
 
@@ -380,11 +386,13 @@ function extractContext(container) {
       systemTray, offlineManager, publishMonitor,
       templateManager, licenseManager, aiWriter,
       renderEngine, compositionManager, aiGenerator, videoEngine, pipelineEngine,
+      story2videoBatchQueue,
       modelProviderManager, providerRouter, providerManager, opsCenterSync, usageReporter,
       _aggregatorBridge, publisherRouter, _PublishAlert,
       splitterBridge, promptBridge, serviceBus, pluginRegistry,
       projectService, boardService, contactSheetService, approvalGateService,
       executionRecorder,
+      filmEngineeringService,
       story2videoProjectService,
       promptEvalService,
       signalCollector,

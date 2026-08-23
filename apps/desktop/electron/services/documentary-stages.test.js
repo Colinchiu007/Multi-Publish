@@ -58,10 +58,12 @@ describe('documentary-montage 阶段执行器', () => {
     it('用默认 LLM 生成纪录片大纲', async () => {
       const ai = makeAi('1. 背景：…\n2. 现场：…')
       const { get } = makePipeline(ai)
+      const events = []
       const result = await get(DOCUMENTARY_STAGE_TYPES.RESEARCH)({
         stage: {},
         params: { text: '长江大桥的历史' },
         context: {},
+        onProgress: event => events.push(event),
       })
       expect(result.success).toBe(true)
       expect(result.output).toContain('背景')
@@ -70,6 +72,10 @@ describe('documentary-montage 阶段执行器', () => {
           expect.objectContaining({ role: 'user', content: expect.stringContaining('长江大桥的历史') }),
         ]),
       }))
+      expect(events).toEqual([
+        expect.objectContaining({ percent: 0, messageKey: 'stageProgress.documentaryResearch' }),
+        expect.objectContaining({ percent: 100, summaryKey: 'stageProgress.documentaryResearchSummary' }),
+      ])
     })
 
     it('缺少主题时失败', async () => {

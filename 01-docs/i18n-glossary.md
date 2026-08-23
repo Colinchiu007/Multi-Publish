@@ -6,9 +6,34 @@
 
 | zh | en | 机器 ID（稳定，不改名） |
 |----|----|--------------------------|
+| 历史状态筛选 | History status filter | history.statusFilter |
+| 全部 | All | history.status.all |
+| 进行中 | Running | history.status.running |
+| 已暂停 | Paused | history.status.paused |
+| 执行失败 | Failed | history.status.failed |
+| 已完成 | Completed | history.status.completed |
+| 已取消 | Cancelled | history.status.cancelled |
+| 更新时间 | Updated | history.updated |
+| 创建时间 | Created | history.created |
+| 耗时 | Duration | history.duration |
+| 视频时长 | Video duration | history.videoDuration |
+| 文案预览 | Content preview | history.contentPreview |
+| 未生成 | Not generated | history.notGenerated |
+| 视频任务编辑页 | Video task editor | story2video.history.editor |
+| 已取消任务可编辑 | Cancelled task is editable | story2video.history.cancelledEditable |
+| 暂停环节 | Paused stage | history.pausedStage |
+| 暂停环境/检查点 | Pause environment/checkpoint | history.pauseEnvironment |
+| 失败环节 | Failed stage | history.failedStage |
+| 失败原因 | Failure reason | history.errorSummary |
+| 查看任务详情 | View task details | history.viewDetails |
+| 从断点继续 | Resume from breakpoint | history.resume |
+| 继续生成 | Continue generation | history.continue |
+| 打开结果 | Open result | history.openResult |
 | 故事讲述 | Story Telling | `story2video-compose` |
 | 启动流水线 | Start pipeline | — |
-| 后台运行 | Run in background | — |
+| 启动即前台跟踪 | Start & foreground tracking | create.story2video.startForegroundToast |
+| 后台运行 | Run in background | create.story2video.backgroundResumeToast |
+| 已中断 | Interrupted | create.history.tabs.interrupted / create.history.statuses.interrupted / stageProgress.interruptedStage / stageProgress.interruptedHint |
 | 口播视频 | Talking Head | `talking-head` |
 | 数字人口播 | Avatar Spokesperson | `avatar-spokesperson` |
 | 旁白 | Narration | — |
@@ -23,6 +48,11 @@
 | 提示词 | Prompt | — |
 | 草稿箱 | Drafts | — |
 | 流水线 | Pipeline | — |
+| 流水线启动页 | Pipeline launch page | create.story2video |
+| 视频任务编辑页 | Video task editor | story2video.sceneMaterial |
+| 失败原因 | Failure reason | create.history.errorSummary |
+| 音色 | Voice | story2video.sceneMaterial.voiceIdLabel |
+| 返回 | Back | story2video.sceneMaterial.backToHistory |
 
 ## 维护规则
 

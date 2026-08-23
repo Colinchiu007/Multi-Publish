@@ -1,0 +1,13 @@
+{
+  "id": "user-feedback-log-upload",
+  "title": "桌面端用户反馈与日志上传、运营后台反馈查看",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "cross-app",
+  "currentPhase": "completed",
+  "nextAction": "归档任务",
+  "createdAt": "2026-08-17T06:00:00Z",
+  "branch": "codex/user-feedback-log-upload",
+  "openspecChange": "user-feedback-log-upload"
+}

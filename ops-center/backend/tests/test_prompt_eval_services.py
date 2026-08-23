@@ -18,10 +18,11 @@ PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4
 
 
 class FakeResponse:
-    def __init__(self, status_code, json_data, text=""):
+    def __init__(self, status_code, json_data, text="", content=b""):
         self.status_code = status_code
         self._json = json_data
         self.text = text
+        self.content = content
 
     def json(self):
         return self._json
@@ -57,11 +58,12 @@ async def test_generate_saves_valid_image_and_retries_429():
     out = tempfile.mkdtemp(prefix="pe-gen-")
     client = FakeClient([
         FakeResponse(429, {}, "rate"),
-        FakeResponse(200, {"data": [{"b64_json": base64.b64encode(PNG).decode("ascii")}]}),
+        FakeResponse(200, {"data": {"image_base64": [base64.b64encode(PNG).decode("ascii")]}, "base_resp": {"status_code": 0, "status_msg": "success"}}),
     ])
     files = await gen.generate_images(_cfg(), "提示词", 1, "1:1", out, 7, http=client)
     assert len(files) == 1 and files[0].startswith("run_7_")
     assert len(client.calls) == 2  # 429 后重试
+    assert client.calls[-1]["url"] == "https://x/v1/image_generation"
     saved = open(os.path.join(out, files[0]), "rb").read()
     assert gen.validate_image_bytes(saved)
 
@@ -69,12 +71,105 @@ async def test_generate_saves_valid_image_and_retries_429():
 @pytest.mark.asyncio
 async def test_generate_empty_or_invalid_fails():
     out = tempfile.mkdtemp(prefix="pe-gen2-")
-    client = FakeClient([FakeResponse(200, {"data": []})])
+    client = FakeClient([FakeResponse(200, {"data": {}, "base_resp": {"status_code": 0, "status_msg": "success"}})])
     with pytest.raises(gen.GenerationError, match="空结果"):
         await gen.generate_images(_cfg(), "p", 1, "1:1", out, 1, http=client)
-    client2 = FakeClient([FakeResponse(200, {"data": [{"b64_json": base64.b64encode(b"not an image").decode("ascii")}]})])
+    client2 = FakeClient([FakeResponse(200, {"data": {"image_base64": [base64.b64encode(b"not an image").decode("ascii")]}, "base_resp": {"status_code": 0, "status_msg": "success"}})])
     with pytest.raises(gen.GenerationError, match="魔数"):
         await gen.generate_images(_cfg(), "p", 1, "1:1", out, 2, http=client2)
+
+
+def test_minimax_payload_contract():
+    # MiniMax image-01：无 size、response_format=base64、保留 aspect_ratio/n
+    p = gen.build_image_payload("minimax-image", "image-01", "p", 2, "16:9")
+    assert p == {"model": "image-01", "prompt": "p", "n": 2, "aspect_ratio": "16:9", "response_format": "base64"}
+    assert "size" not in p
+    # n 越界（0 或 >9）→ fail closed（前端允许 1-20，MiniMax 仅 1-9）
+    for bad_n in (0, -1, 10, 20):
+        with pytest.raises(gen.GenerationError, match="1-9"):
+            gen.build_image_payload("minimax-image", "image-01", "p", bad_n, "1:1")
+    # flux 保持 OpenAI 兼容（size + b64_json）
+    pf = gen.build_image_payload("flux", "f", "p", 1, "1:1")
+    assert pf["size"] == "1024x1024" and pf["response_format"] == "b64_json"
+
+
+@pytest.mark.asyncio
+async def test_minimax_generate_uses_image_generation_endpoint():
+    out = tempfile.mkdtemp(prefix="pe-gen-mm-")
+    client = FakeClient([FakeResponse(200, {
+        "data": {"image_base64": ["data:image/png;base64," + base64.b64encode(PNG).decode("ascii")]},
+        "base_resp": {"status_code": 0, "status_msg": "success"},
+    })])
+    files = await gen.generate_images(_cfg(), "p", 1, "1:1", out, 9, http=client)
+    assert client.calls[0]["url"] == "https://x/v1/image_generation"
+    assert client.calls[0]["json"]["response_format"] == "base64"
+    assert "size" not in client.calls[0]["json"]
+    assert len(files) == 1
+    assert gen.validate_image_bytes(open(os.path.join(out, files[0]), "rb").read())
+
+
+@pytest.mark.asyncio
+async def test_minimax_base64_plain_and_data_url_prefix():
+    out = tempfile.mkdtemp(prefix="pe-gen-mm-b64-")
+    b64 = base64.b64encode(PNG).decode("ascii")
+    # 纯 base64（官方契约 image_base64）与 data URL 前缀均兼容
+    client = FakeClient([FakeResponse(200, {"data": {"image_base64": [b64, "data:image/png;base64," + b64]}, "base_resp": {"status_code": 0, "status_msg": "success"}})])
+    files = await gen.generate_images(_cfg(), "p", 2, "1:1", out, 6, http=client)
+    assert len(files) == 2
+    for f in files:
+        assert gen.validate_image_bytes(open(os.path.join(out, f), "rb").read())
+
+
+@pytest.mark.asyncio
+async def test_minimax_business_failure_fail_closed():
+    out = tempfile.mkdtemp(prefix="pe-gen-mm-fail-")
+    client = FakeClient([FakeResponse(200, {"data": {}, "base_resp": {"status_code": 1001, "status_msg": "invalid params"}})])
+    with pytest.raises(gen.GenerationError, match="业务失败 1001"):
+        await gen.generate_images(_cfg(), "p", 1, "1:1", out, 3, http=client)
+    assert len(client.calls) == 1  # 业务失败不重试
+
+
+@pytest.mark.asyncio
+async def test_minimax_business_success_with_string_status_code():
+    # 官方契约示例 metadata 为字符串；base_resp.status_code 若为 "0" 字符串不得误判失败
+    out = tempfile.mkdtemp(prefix="pe-gen-mm-str-")
+    b64 = base64.b64encode(PNG).decode("ascii")
+    client = FakeClient([FakeResponse(200, {"data": {"image_base64": [b64]}, "base_resp": {"status_code": "0", "status_msg": "success"}})])
+    files = await gen.generate_images(_cfg(), "p", 1, "1:1", out, 8, http=client)
+    assert len(files) == 1
+
+
+@pytest.mark.asyncio
+async def test_minimax_count_shortfall_fail_closed():
+    out = tempfile.mkdtemp(prefix="pe-gen-mm-short-")
+    b64 = base64.b64encode(PNG).decode("ascii")
+    client = FakeClient([FakeResponse(200, {"data": {"image_base64": [b64]}, "base_resp": {"status_code": 0, "status_msg": "success"}})])
+    with pytest.raises(gen.GenerationError, match="数量不符"):
+        await gen.generate_images(_cfg(), "p", 2, "1:1", out, 9, http=client)
+
+
+@pytest.mark.asyncio
+async def test_minimax_url_result_downloads():
+    out = tempfile.mkdtemp(prefix="pe-gen-mm-url-")
+    client = FakeClient([
+        FakeResponse(200, {"data": {"image_urls": ["https://img.example.com/a.png"]}, "base_resp": {"status_code": 0, "status_msg": "success"}}),
+        FakeResponse(200, {}, content=PNG),
+    ])
+    files = await gen.generate_images(_cfg(), "p", 1, "1:1", out, 4, http=client)
+    assert len(files) == 1 and files[0].startswith("run_4_")
+    assert client.calls[1]["method"] == "get"
+    assert gen.validate_image_bytes(open(os.path.join(out, files[0]), "rb").read())
+
+
+@pytest.mark.asyncio
+async def test_flux_still_uses_openai_images_generations():
+    out = tempfile.mkdtemp(prefix="pe-gen-flux-")
+    client = FakeClient([FakeResponse(200, {"data": [{"b64_json": base64.b64encode(PNG).decode("ascii")}], "base_resp": {"status_code": 0, "status_msg": "success"}})])
+    files = await gen.generate_images({"provider": "flux", "model": "f", "api_key": "sk", "base_url": "https://x/v1"}, "p", 1, "1:1", out, 5, http=client)
+    assert client.calls[0]["url"] == "https://x/v1/images/generations"
+    assert client.calls[0]["json"]["size"] == "1024x1024"
+    assert client.calls[0]["json"]["response_format"] == "b64_json"
+    assert len(files) == 1  # 非 MiniMax 忽略 base_resp，不被误拦截
 
 
 def test_magic_validation():
@@ -109,10 +204,11 @@ async def test_provider_connection_probe():
     assert client.calls[0]["url"] == "https://x/v1/chat/completions"
     assert client.calls[0]["json"]["max_tokens"] == 1
 
-    # 2) chat 401 → ValueError 带状态码
+    # 2) chat 401 → ValueError 带状态码，且不触发 /models 回退
     client2 = FakeClient([FakeResponse(401, {}, "unauthorized")])
     with pytest.raises(svc.ValueError if hasattr(svc, "ValueError") else ValueError, match="401"):
         await svc.test_provider_connection(db, {"provider": "x", "model": "m", "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client2)
+    assert len(client2.calls) == 1
 
     # 3) chat 404 → fallback /models 200 → ok
     client3 = FakeClient([FakeResponse(404, {}, "nf"), FakeResponse(200, {})])
@@ -127,6 +223,27 @@ async def test_provider_connection_probe():
     # 5) 无 api_key 且未保存 → ValueError
     with pytest.raises(ValueError, match="API Key"):
         await svc.test_provider_connection(db, {"provider": "flux", "model": "f", "base_url": "https://x/v1"}, "s", http=FakeClient([]))
+
+    # 6) chat 400（MiniMax 图片模型 unknown model）→ fallback /models 200 → ok
+    client6 = FakeClient([FakeResponse(400, {}, "invalid params, unknown model 'image-01'"), FakeResponse(200, {})])
+    r6 = await svc.test_provider_connection(db, {"provider": "minimax-image", "model": "image-01",
+                                                 "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client6)
+    assert r6["ok"] is True and "/models" in r6["detail"]
+    assert client6.calls[1]["url"] == "https://x/v1/models"
+    assert len(client6.calls) == 2
+
+    # 7) chat 400 + models 404 → ValueError 提示真实生成验证（不误判成功）
+    client7 = FakeClient([FakeResponse(400, {}, "unknown model"), FakeResponse(404, {}, "nf")])
+    with pytest.raises(ValueError, match="真实生成"):
+        await svc.test_provider_connection(db, {"provider": "minimax-image", "model": "image-01",
+                                                 "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client7)
+
+    # 8) chat 400 非模型类错误（参数非法等）→ 不回退，直接失败
+    client8 = FakeClient([FakeResponse(400, {}, "invalid request body")])
+    with pytest.raises(ValueError, match="400"):
+        await svc.test_provider_connection(db, {"provider": "minimax-image", "model": "image-01",
+                                                 "api_key": "sk", "base_url": "https://x/v1"}, "s", http=client8)
+    assert len(client8.calls) == 1
 
 
 def test_strip_think_block():
@@ -184,6 +301,21 @@ def test_eval_prompt_and_fail_closed():
         ev.parse_and_validate(json.dumps(bad2), 1)
     with pytest.raises(ev.EvaluationError):
         ev.parse_and_validate(json.dumps(_valid_eval(1)), 2)  # 单图 3 维度提交给多图
+
+
+def test_parse_eval_think_and_fence():
+    """推理模型真实响应形状回归：<think> 思维链 + ```json 围栏（MiniMax-M3）。"""
+    valid = json.dumps(_valid_eval(2))
+    raw_think = f"<think>让我先分析两张图</think>\n```json\n{valid}\n```\n"
+    assert ev.parse_and_validate(raw_think, 2)["overall"] == 80
+    # 未闭合 <think>（模型输出被截断）→ 无有效 JSON → fail closed
+    with pytest.raises(ev.EvaluationError):
+        ev.parse_and_validate("<think>分析中……（输出被截断", 2)
+    # 无围栏、带前导/尾随文本 → 提取首个 { 到最后一个 }
+    raw_bare = f"评估结果：\n{valid}\n（以上）"
+    assert ev.parse_and_validate(raw_bare, 2)["overall"] == 80
+    with pytest.raises(ev.EvaluationError):
+        ev.parse_and_validate("<think>only reasoning</think>", 1)
 
 
 @pytest.mark.asyncio

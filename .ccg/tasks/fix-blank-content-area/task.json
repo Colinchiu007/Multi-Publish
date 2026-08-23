@@ -1,0 +1,18 @@
+{
+  "id": "fix-blank-content-area",
+  "title": "修复应用页面内容区空白",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-19T04:00:00Z",
+  "completedAt": "2026-08-19T04:12:00Z",
+  "branch": "codex/fix-blank-content-area",
+  "commit": "e8c9bb4d",
+  "files": [
+    "apps/desktop/src/views/CreateView.vue",
+    "apps/desktop/src/views/ResultView.vue"
+  ]
+}

@@ -39,6 +39,7 @@ describe('Story2Video text 参数合同', () => {
       optimize: expect.objectContaining({
         style: 'realistic',
         creative_level: 5,
+        optimization_strategy: 'llm',
       }),
       generate_assets: expect.objectContaining({
         imageStyle: 'cinematic',
@@ -67,6 +68,7 @@ describe('Story2Video text 参数合同', () => {
       minSceneDuration: 6,
     }))
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.mode).toBe('text')
+    expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.optimize.maxLength).toBe(2000)
     expect(DEFAULT_STORY2VIDEO_TEXT_CONFIG.split.language).toBe('auto')
     expect(result).not.toHaveProperty('seconds')
     expect(result).not.toHaveProperty('generateBase')
@@ -77,9 +79,10 @@ describe('Story2Video text 参数合同', () => {
     expect(result.story2videoTextConfig).not.toHaveProperty('perImageDuration')
     expect(result.stageOptions.optimize).toMatchObject({
       platform: 'generic',
-      max_length: 500,
+      max_length: 2000,
       num_candidates: 1,
       auto_detect_style: true,
+      optimization_strategy: 'llm',
     })
   })
 
@@ -155,12 +158,12 @@ describe('Story2Video text 参数合同', () => {
     })
 
     expect(result.story2videoTextConfig.optimize).toEqual({
-      platform: 'tongyi', style: 'realistic', creativeLevel: 5,
+      platform: 'tongyi', style: 'realistic', creativeLevel: 5, optimizationStrategy: 'llm',
       maxLength: 400, numCandidates: 3, autoDetectStyle: false,
       negativePrompt: '', context: { synopsis: '角色一致性' },
     })
     expect(result.stageOptions.optimize).toEqual({
-      platform: 'tongyi', style: 'realistic', creative_level: 5,
+      platform: 'tongyi', style: 'realistic', creative_level: 5, optimization_strategy: 'llm',
       max_length: 400, num_candidates: 3, auto_detect_style: false,
       negative_prompt: '', context: { synopsis: '角色一致性' },
     })
@@ -231,8 +234,9 @@ describe('Story2Video text 参数合同', () => {
     expect(result.stageOptions.split).toMatchObject({ mode: 'precise', max_sentence_length: 120, target_duration: 4 })
     expect(result.stageOptions.optimize).toEqual({
       platform: 'generic', style: 'anime', creative_level: 8,
-      max_length: 500, num_candidates: 1, auto_detect_style: true,
-      negative_prompt: '水印、文字',
+      optimization_strategy: 'llm',
+      max_length: 2000, num_candidates: 1, auto_detect_style: true,
+      negative_prompt: '水印、文字', context: undefined,
     })
     expect(result.stageOptions.compose).toMatchObject({
       transition: 'slide-left',
@@ -253,7 +257,7 @@ describe('Story2Video text 参数合同', () => {
     })
 
     expect(result.stageOptions.optimize).toMatchObject({
-      platform: 'generic', style: 'realistic', max_length: 500, num_candidates: 1, auto_detect_style: true,
+      platform: 'generic', style: 'realistic', max_length: 2000, num_candidates: 1, auto_detect_style: true,
     })
     expect(result).not.toHaveProperty('seconds')
     expect(result.story2videoTextConfig).not.toHaveProperty('versions')
@@ -642,6 +646,7 @@ describe('Story2Video scene_context 配置契约（2026-08-11）', () => {
       max_anchors: 8,
       include_negative_anchors: true,
       context_block_max_chars: 400,
+      contentType: 'general',
     })
   })
 
@@ -658,6 +663,7 @@ describe('Story2Video scene_context 配置契约（2026-08-11）', () => {
       max_anchors: 5,
       include_negative_anchors: false,
       context_block_max_chars: 200,
+      contentType: 'general',
     })
   })
 

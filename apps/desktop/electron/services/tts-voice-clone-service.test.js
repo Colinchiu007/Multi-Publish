@@ -1484,4 +1484,81 @@ describe("多模态模型克隆样本限制（2026-08-12）", () => {
     expect(mm.data.maxSampleDurationSeconds).toBe(tts.data.maxSampleDurationSeconds);
     expect(mm.data.allowedExtensions).toEqual(tts.data.allowedExtensions);
   });
+
+describe("findCloneSamples — owner 解析修复（2026-08-18）", () => {
+  it("findCloneSamples 使用 _captureOwner 正确解析 owner 并返回 persisted samples", async () => {
+    const store = createOwnerStore("user-clone-find");
+    const userDataDir = nodeFs.mkdtempSync(path.join(os.tmpdir(), "clone-find-test-"));
+    const service = new TtsVoiceCloneService({
+      store,
+      modelProviderManager: createManager(),
+      userDataPath: userDataDir,
+      randomUUID: () => "clone-find-uuid",
+      createSelectionToken: () => "selection-find",
+      probeDuration: vi.fn(async () => 10),
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+
+    // Manually write a registry entry as if a clone was previously created
+    const registryKey = "tts-voice-clones:v2:minimax-tts:speech-2.8-turbo";
+    const owner = "user-clone-find";
+    store.setUserSetting(registryKey, {
+      version: 2,
+      providerId: "minimax-tts",
+      model: "speech-2.8-turbo",
+      voices: [{
+        id: "MiniMaxCloneVoice_test123",
+        name: "test-voice",
+        source: "user_clone",
+        createdAt: Date.now(),
+        deletionState: "active",
+        sampleStorage: {
+          relativeDir: "voice-clone-samples/user-clone-find/test-storage-id",
+          sampleCount: 1,
+        },
+      }],
+    }, owner);
+
+    // findCloneSamples should now resolve owner via _captureOwner and find the entry
+    const result = await service.findCloneSamples("MiniMaxCloneVoice_test123", "minimax-tts", "speech-2.8-turbo");
+    expect(result).not.toBeNull();
+    expect(result.sampleStorage).toBeDefined();
+    expect(result.sampleStorage.relativeDir).toBe("voice-clone-samples/user-clone-find/test-storage-id");
+    expect(result.name).toBe("test-voice");
+  });
+
+  it("findCloneSamples 在 owner 不匹配时返回 null", async () => {
+    const store = createOwnerStore("user-other");
+    const service = new TtsVoiceCloneService({
+      store,
+      modelProviderManager: createManager(),
+      userDataPath: nodeFs.mkdtempSync(path.join(os.tmpdir(), "clone-find-nomatch-")),
+      randomUUID: () => "clone-find-uuid-2",
+      createSelectionToken: () => "selection-find-2",
+      probeDuration: vi.fn(async () => 10),
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+
+    // Registry exists but under a different owner
+    const registryKey = "tts-voice-clones:v2:minimax-tts:speech-2.8-turbo";
+    store.setUserSetting(registryKey, {
+      version: 2,
+      providerId: "minimax-tts",
+      model: "speech-2.8-turbo",
+      voices: [{
+        id: "MiniMaxCloneVoice_other",
+        name: "other-voice",
+        source: "user_clone",
+        createdAt: Date.now(),
+        deletionState: "active",
+        sampleStorage: { relativeDir: "voice-clone-samples/user-other/xxx", sampleCount: 1 },
+      }],
+    }, "user-other");
+
+    // Active owner is "user-other" but store returns settings for that owner — should work
+    const result = await service.findCloneSamples("MiniMaxCloneVoice_other", "minimax-tts", "speech-2.8-turbo");
+    expect(result).not.toBeNull();
+    expect(result.sampleStorage).toBeDefined();
+  });
+});
 });

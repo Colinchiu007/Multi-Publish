@@ -104,3 +104,51 @@ def test_eval_result_fail_closed():
     bad_score = _valid_eval(); bad_score["dimensions"][0]["score"] = 150
     with pytest.raises(ValueError, match="score"):
         c.validate_eval_result(bad_score, 1)
+
+def test_video_dimension_weights():
+    dims = c.resolve_video_dimension_weights()
+    assert [d["id"] for d in dims] == ["temporal_consistency", "motion_accuracy", "audio_visual_sync", "video_aesthetic_quality"]
+    assert sum(d["weight"] for d in dims) == pytest.approx(1, abs=1e-5)
+    assert [d["weight"] for d in dims] == [0.30, 0.30, 0.20, 0.20]
+
+
+def test_video_dimensions_consistent_with_desktop():
+    d = _desktop()
+    assert [x["id"] for x in d["VIDEO_DIMENSIONS"]] == [x["id"] for x in c.VIDEO_DIMENSIONS]
+    assert [x["weight"] for x in d["VIDEO_DIMENSIONS"]] == [x["weight"] for x in c.VIDEO_DIMENSIONS]
+
+
+def _valid_video_eval():
+    dims = [{"id": d["id"], "score": 80, "evidence": "e", "issues": [], "suggestions": []} for d in c.resolve_video_dimension_weights()]
+    return {"overall": 80, "dimensions": dims, "problems": [], "promptOptimizationPoints": []}
+
+
+def test_eval_result_video_fail_closed():
+    c.validate_eval_result(_valid_video_eval(), 3, media_type="video")
+    with pytest.raises(ValueError, match="media_type"):
+        c.validate_eval_result(_valid_video_eval(), 3, media_type="audio")
+    # 视频维度白名单：图片维度 id 拒绝
+    bad = _valid_video_eval()
+    bad["dimensions"][0]["id"] = "relevance"
+    with pytest.raises(ValueError, match="unknown dimension"):
+        c.validate_eval_result(bad, 3, media_type="video")
+    # 缺一个视频维度 → 拒绝
+    bad = _valid_video_eval()
+    bad["dimensions"].pop()
+    with pytest.raises(ValueError, match="dimensions"):
+        c.validate_eval_result(bad, 3, media_type="video")
+    # 图片路径不受影响：视频 4 维提交给图片 → 拒绝
+    with pytest.raises(ValueError, match="unknown dimension"):
+        c.validate_eval_result(_valid_video_eval(), 3, media_type="image")
+
+
+def test_build_eval_prompt_video():
+    from services.prompt_eval_evaluation_service import build_eval_prompt
+    prompt = build_eval_prompt("原文", None, "提示词", "EN", 3, media_type="video")
+    for dim_id in ("temporal_consistency", "motion_accuracy", "audio_visual_sync", "video_aesthetic_quality"):
+        assert dim_id in prompt
+    assert "首/中/尾" in prompt
+    assert "cross_image_consistency" not in prompt
+    # 图片默认路径不变
+    img = build_eval_prompt("原文", None, "提示词", "EN", 1)
+    assert "relevance" in img and "temporal_consistency" not in img

@@ -50,10 +50,17 @@ function nodeModulesPath(root, name) {
 }
 
 function isInstalled(root, name, files) {
-  const dir = nodeModulesPath(root, name)
-  if (!fs.existsSync(dir)) return false
-  if (!files || files.length === 0) return true
-  return files.every((f) => fs.existsSync(path.join(dir, f)))
+  // npm/hoisted 布局在根 node_modules；pnpm hoisted 下 workspace 包落在 apps/desktop/node_modules
+  const candidates = [
+    nodeModulesPath(root, name),
+    path.join(root, 'apps', 'desktop', 'node_modules', ...name.split('/')),
+  ]
+  for (const dir of candidates) {
+    if (!fs.existsSync(dir)) continue
+    if (!files || files.length === 0) return true
+    if (files.every((f) => fs.existsSync(path.join(dir, f)))) return true
+  }
+  return false
 }
 
 function readJson(file) {
@@ -274,6 +281,7 @@ module.exports = {
 if (require.main === module) {
   main(process.argv)
 }
+
 
 
 

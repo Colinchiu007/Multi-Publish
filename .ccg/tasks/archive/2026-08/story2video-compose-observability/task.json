@@ -1,0 +1,15 @@
+{
+  "id": "story2video-compose-observability",
+  "title": "Story2Video 合成链路细粒度结构化日志",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "observability",
+  "currentPhase": "completed",
+  "nextAction": "PR #857 已合并（squash a8a1a668）；OpenSpec change 已归档为 2026-08-15-story2video-compose-observability",
+  "createdAt": "2026-08-15T00:00:00Z",
+  "branch": "codex/story2video-compose-observability",
+  "remoteStatus": "merged",
+  "pullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/857",
+  "openspecChange": "story2video-compose-observability"
+}

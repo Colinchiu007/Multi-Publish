@@ -81,13 +81,19 @@ const PIPELINES = {
     name: 'pipelines.names.story2video-compose',
     description: 'pipelines.descriptions.story2video-compose',
     category: 'generated',
-    stages: ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
+    stages: ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
   },
   'video-clone': {
     name: 'pipelines.names.video-clone',
     description: 'pipelines.descriptions.video-clone',
     category: 'generated',
     stages: ['ingest', 'analyze', 'plan', 'generate', 'compose', 'publish'],
+  },
+  'film-engineering': {
+    name: 'pipelines.names.film-engineering',
+    description: 'pipelines.descriptions.film-engineering',
+    category: 'generated',
+    stages: ['browse', 'select', 'copy', 'adapt'],
   },
 }
 
@@ -165,6 +171,7 @@ const STATUSES = {
   pending: 'pipelines.statuses.pending',
   running: 'pipelines.statuses.running',
   completed: 'pipelines.statuses.completed',
+  skipped: 'pipelines.statuses.skipped',
   failed: 'pipelines.statuses.failed',
   needs_user_input: 'pipelines.statuses.needs_user_input',
   paused: 'pipelines.statuses.paused',

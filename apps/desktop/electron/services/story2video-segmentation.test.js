@@ -4,11 +4,32 @@ const {
   createLocalSplitResult,
   isSplitterUnavailableError,
   normalizeServiceSplitResult,
+  normalizeSubtitleContent,
   splitScenesLocally,
   splitSubtitleBlocks,
 } = require('./story2video-segmentation')
+const { findProtectedPhraseAtBoundary } = require('./story2video-segmentation-engine')
+
+const USER_SAMPLE = '那时候蒙古统治者水平有限，对汉地的管理极其粗放，江南士绅摇身一变成了蒙元的包税人。大汗把权力一下放，收税成本蹭蹭往下降。'
+const SEMANTIC_PACING_SAMPLE = '其实是跟南宋的老爷们提前谈妥了。之前蒙哥非要死磕，还搞屠城，吓得这些老爷们拼死抵抗。汉族地主阶级最爽的日子绝对是元朝。他们甚至嚣张到把大量蒙古人都卖去当奴隶。'
+const WORD_BOUNDARY_SAMPLE = '这种士大夫做大的局面，哪怕朱元璋建立大明也没能彻底翻转。暂时没法彻底打破士绅垄断。只是这里的\"宽\"被那些狼心狗肺的人硬说成是\"宽仁\"。那些人用实际行动展现出结果。居然还写诗怀念前朝。\"字里行间全在抱怨元末的群雄挡了他给蒙元当奴才的路。'
 
 describe('Story2Video 双层分句合同', () => {
+  it.each([
+    ['杀了人', '人'],
+    ['完成了任务', '任务'],
+    ['写了信', '信'],
+  ])('JS mirror 不在了后普通宾语处切分：%s', (text, object) => {
+    const blocks = splitSubtitleBlocks(text + '并继续完成后续说明内容', { minChars: 2, maxChars: 4 })
+    const boundary = text.indexOf('了') + 1
+    let offset = 0
+    for (const block of blocks) {
+      offset += block.length
+      expect(offset).not.toBe(boundary)
+    }
+    expect(blocks.join('')).toContain(object)
+  })
+
   it('字幕只在单个场景内部二次切分，并保持原文顺序（v0.15.2 清理块尾标点）', () => {
     const firstScene = '俄罗斯在欧洲挡着北约东扩，我们也支持。'
     const secondScene = '可这两个兄弟偏偏都各怀鬼胎。'
@@ -44,6 +65,101 @@ describe('Story2Video 双层分句合同', () => {
 
     expect(blocks.join('')).toBe(text)
     expect(lengths.every(length => length >= 8 && length <= 15)).toBe(true)
+  })
+
+  it('v1.2.3 回归：挥刀自宫句按用户期望切成 4 块且不劈成词', () => {
+    const blocks = splitSubtitleBlocks(
+      '这套政策根本经不起扒，说白了就是逼着全体华人为了挤进西方圈子，挥刀自宫搞文化阉割。',
+      { minChars: 8, maxChars: 15 },
+    )
+    expect(blocks).toEqual([
+      '这套政策根本经不起扒',
+      '说白了就是逼着全体华人',
+      '为了挤进西方圈子',
+      '挥刀自宫搞文化阉割',
+    ])
+  })
+
+  it('v1.2.3 回归：文帝进京句三块切分、成词完好', () => {
+    const blocks = splitSubtitleBlocks(
+      '要理解文帝进京这件事，得先搞清楚一个前提：功臣集团为什么选他？',
+      { minChars: 8, maxChars: 15 },
+    )
+    expect(blocks).toEqual([
+      '要理解文帝进京这件事',
+      '得先搞清楚一个前提：',
+      '功臣集团为什么选他',
+    ])
+  })
+
+  it.each([
+    ['713.3 毫米数字中小数点不劈', '今年夏天，台风肆虐导致广西暴雨如注，降雨量狂飙到一天713.3毫米。', '713.3毫米'],
+    ['扶余国不劈', '因此，在韩国的历史教科书里，能看到大量关于扶余国和扶余人的记载。', '扶余国'],
+    ['电视剧不劈', '2005年，韩国收视率最高的电视剧《朱蒙》播出，里面讲述的正是这位扶余王子的故事。', '电视剧'],
+    ['高高在上不劈', '他们觉得自己是高高在上的现代国家，把文化和国家认同搅在一起，是落后操作。', '高高在上'],
+    ['脖子不劈', '说到底，新加坡华人也不想被掐着脖子不让说方言，也不想硬演一家亲，也怀疑政府在偷偷引进印度人。', '脖子'],
+    ['城邦不劈', '新加坡本质上就是个西方体系下的华人城邦', '城邦'],
+    ['做成不劈', '于是深圳干了一件全世界都没干成的事：把AI空域调度做成城市标配基建。', '做成'],
+    ['枪声枚举整块', '枪声、爆炸声、呐喊声混成一锅滚烫的粥。', '枪声、爆炸声、呐喊声'],
+  ])('%s：成词/数字以完整块出现', (_label, text, word) => {
+    const blocks = splitSubtitleBlocks(text, { minChars: 8, maxChars: 15 })
+    expect(blocks.some(block => block.includes(word))).toBe(true)
+  })
+
+  it('用户样例按语义边界切分，并保护蒙古、江南、包税人和大汗', () => {
+    const blocks = splitSubtitleBlocks(USER_SAMPLE, { minChars: 8, maxChars: 15 })
+    expect(blocks).toEqual([
+      '那时候蒙古统治者水平有限',
+      '对汉地的管理极其粗放',
+      '江南士绅摇身一变',
+      '成了蒙元的包税人',
+      '大汗把权力一下放',
+      '收税成本蹭蹭往下降',
+    ])
+
+    expect(normalizeSubtitleContent(blocks.join(''))).toBe(normalizeSubtitleContent(USER_SAMPLE))
+    for (const phrase of ['蒙古', '江南', '包税人', '大汗']) {
+      expect(blocks.some(block => block.includes(phrase))).toBe(true)
+    }
+    let offset = 0
+    const normalizedSample = normalizeSubtitleContent(USER_SAMPLE)
+    for (const block of blocks.slice(0, -1)) {
+      offset += normalizeSubtitleContent(block).length
+      expect(findProtectedPhraseAtBoundary(normalizedSample, offset)).toBe('')
+    }
+  })
+
+  it('保护短语长度超过 maxChars 时仍整体保留，避免流式硬切前缀', () => {
+    const blocks = splitSubtitleBlocks('蒙古江南包税人大汗', { minChars: 1, maxChars: 1 })
+
+    expect(blocks).toEqual(['蒙古', '江南', '包税人', '大汗'])
+  })
+
+  it('语义停顿不因短尾合并而丢失动作边界', () => {
+    const blocks = splitSubtitleBlocks(SEMANTIC_PACING_SAMPLE, { minChars: 8, maxChars: 15 })
+
+    expect(blocks).toEqual([
+      '其实是跟南宋的老爷们',
+      '提前谈妥了',
+      '之前蒙哥非要死磕',
+      '还搞屠城',
+      '吓得这些老爷们拼死抵抗',
+      '汉族地主阶级最爽的日子',
+      '绝对是元朝',
+      '他们甚至嚣张到',
+      '把大量蒙古人都卖去当奴隶',
+    ])
+  })
+
+  it('常用双字词不被硬切，未闭合引号后的正文保留', () => {
+    const blocks = splitSubtitleBlocks(WORD_BOUNDARY_SAMPLE, { minChars: 8, maxChars: 15 })
+    expect(normalizeSubtitleContent(blocks.join(''))).toBe(normalizeSubtitleContent(WORD_BOUNDARY_SAMPLE))
+    expect(blocks.some(block => block.includes('哪怕'))).toBe(true)
+    expect(blocks.some(block => block.includes('没法'))).toBe(true)
+    expect(blocks.some(block => block.includes('那些'))).toBe(true)
+    expect(blocks.some(block => block.includes('字里行间全在抱怨'))).toBe(true)
+    expect(blocks.some(block => block.includes('展现'))).toBe(true)
+    expect(blocks.some(block => block.includes('\"宽\"'))).toBe(true)
   })
 
   it('服务场景保持原边界，并为每个场景附加本地字幕块和来源', () => {
@@ -96,6 +212,62 @@ describe('Story2Video 双层分句合同', () => {
     expect(result.scenes[0].subtitleSource).toBe('smart-sentence-splitter')
     expect(result.scenes[1].subtitleBlocks).toEqual(['第二句话介绍产品', '它包含苹果、香蕉和橘子'])
     expect(result.scenes[1].subtitleSource).toBe('smart-sentence-splitter')
+  })
+
+  it('引擎字幕包含空块或纯标点块时按旧合同忽略，剩余内容完整仍采纳', () => {
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [{
+        text: '第一句话。',
+        subtitles: [{ text: '第一句话' }, { text: '' }, { text: '。' }],
+      }],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result.scenes[0].subtitleSource).toBe('smart-sentence-splitter')
+    expect(result.scenes[0].subtitleBlocks).toEqual(['第一句话'])
+  })
+
+  it('引擎字幕覆盖率足够但拆开江南时回退本地并记录原因', () => {
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [{
+        text: USER_SAMPLE,
+        subtitles: [
+          { text: '那时候蒙古统治者水平有限' },
+          { text: '对汉地的管理极其粗放，江' },
+          { text: '南士绅摇身一变成了蒙元的包税人' },
+          { text: '大汗把权力一下放' },
+          { text: '收税成本蹭蹭往下降' },
+        ],
+      }],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result.scenes[0]).toMatchObject({
+      text: USER_SAMPLE,
+      subtitleSource: 'local-typescript',
+      fallbackReason: expect.stringContaining('江南'),
+    })
+    expect(result.scenes[0].fallbackReason).toBe('online-subtitle-unsafe-boundary:江南')
+    expect(result.scenes[0].subtitleBlocks.some(block => block.includes('江南'))).toBe(true)
+    expect(result.subtitleSource).toBe('local-typescript')
+  })
+
+  it('引擎字幕覆盖率足够但内容错序/重复时回退本地', () => {
+    const text = '第一段内容用于测试在线字幕顺序，第二段内容继续提供足够文字。'
+    const result = normalizeServiceSplitResult({
+      tier_used: 'tier2_semantic',
+      scenes: [{
+        text,
+        subtitles: [
+          { text: '第一段内容用于测试在线字幕顺序' },
+          { text: '第一段内容继续提供足够文字' },
+        ],
+      }],
+    }, { subtitleMinChars: 8, subtitleMaxChars: 15 })
+
+    expect(result.scenes[0].subtitleSource).toBe('local-typescript')
+    expect(result.scenes[0].fallbackReason).toContain('content-mismatch')
+    expect(normalizeSubtitleContent(result.scenes[0].subtitleBlocks.join(''))).toBe(normalizeSubtitleContent(text))
   })
 
   it('引擎字幕覆盖率不足（残缺）时回退本地分块，不静默丢内容', () => {

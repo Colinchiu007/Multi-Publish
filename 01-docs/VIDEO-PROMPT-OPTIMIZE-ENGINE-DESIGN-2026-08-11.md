@@ -249,3 +249,14 @@ v1.0 推荐的「8013 domain=video 分支」方案在实施阶段被用户要求
 - **独立视频引擎**（prompt-engine 仓库 `video_prompt_engine/`，端口 8020）：独立包/知识库/缓存/策略/配置，源码不 import 图片 `prompt_engine.*`；支持 140 条视频种子、SQLite 双级缓存、JSON 结构化重试、veo/kling/hailuo/doubao/seedance/generic_video 六平台策略、输入分类、评估反馈闭环、中文输出（`output_language=zh`）。
 - **Multi-Publish videogen 集成**：`VIDEO_PROMPT_PORT=8020` 启用独立引擎优先，失败/未配置回退 8013 `domain=video`（兼容；`video-prompt-engine-contract.js` 分文件分命名，与图片契约不混）。
 - 契约单一来源仍为 `video-prompt-engine-contract.js`（独立引擎请求/响应 + 8013 兼容路径共用 `extractOptimizedVideoPrompt` 输出校验）。
+
+---
+
+## 十二、v1.2 附注（2026-08-15）：Round3 B/C 交付——跨镜承接状态包 + 导演分镜块骨架
+
+§五 依赖图的两大高价值批次已实施完毕（OpenSpec `higgsfield-round3b-cross-scene` / `higgsfield-round3c-refined-output`），完整数据校验/流程/功能逻辑/交互/显示项/提示文字/测试要求已写入 [PRD-video-creation.md §3.1.27](PRD-video-creation.md)，要点：
+
+- **Batch B（长片一致性内核）**：`prev_final_frame`（≤1000 字符、桌面侧句末截断）→ SCENE Continuity 事实引用承接段 → 连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）→ `HIGGSFIELD_FMT_V4` 缓存盐（key 含承接哈希）→ Story2Video 按场景串行优化 + 媒体生成并发 + 计划终态回写 + checkpoint 断点恢复链 + 断链显式 degraded。
+- **Batch C（refined 输出形态）**：12 块导演骨架（值 ≤4000、白名单）、FAIL CHECK 仅指令、trailer 尾段安全归一、块覆盖度 ≥0.8（advisory -5）、7 条 lock-gated 规则默认启用 3 条（否定感知：`not overexposed`/`no waxy skin` 不判罚；`style_contamination` 不用 `photoreal` 触发词）。
+- **语义红线**：`final_frame` 是「计划中的最终画面描述」，不是解码真实视频帧的证据；块覆盖度与 gated 规则是质量信号，不是硬性验收门槛。
+- **验证**：引擎全量 pytest 810 passed / 3 skipped（web E2E 环境性 5 errors 与基线一致）；桌面关联套件 221 passed；三 change `openspec validate --strict` 均 valid。

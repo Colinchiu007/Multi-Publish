@@ -130,6 +130,64 @@ describe('Story2Video 交付 IPC', () => {
     expect(shown.data.path).toBe(fs.realpathSync.native(video))
   })
 
+  it('create-share-url 传 previousUrl 时先签发新地址再回收旧令牌', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    deps.story2videoMediaServer.revoke = vi.fn(() => true)
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+
+    const oldUrl = 'http://127.0.0.1:34821/media/oldtokentoken12345'
+    const result = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video, oldUrl)
+
+    expect(result.code).toBe(0)
+    expect(result.data.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/media\/[A-Za-z0-9_-]{16,}/)
+    expect(deps.story2videoMediaServer.revoke).toHaveBeenCalledWith(oldUrl)
+  })
+
+  it('create-share-url 不传 previousUrl 时不回收任何令牌', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    deps.story2videoMediaServer.revoke = vi.fn(() => true)
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+
+    const result = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video)
+
+    expect(result.code).toBe(0)
+    expect(deps.story2videoMediaServer.revoke).not.toHaveBeenCalled()
+  })
+
+  it('create-share-url 的 previousUrl 非本地媒体 URL 时拒绝调用 revoke', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    deps.story2videoMediaServer.revoke = vi.fn(() => false)
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+
+    const result = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video, 'file:///C:/videos/old.mp4')
+
+    expect(result.code).toBe(0)
+    expect(deps.story2videoMediaServer.revoke).not.toHaveBeenCalled()
+  })
+
+  it('create-share-url 的 previousUrl 同源但非媒体路径时拒绝调用 revoke', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    deps.story2videoMediaServer.revoke = vi.fn(() => false)
+    registerHandlers(ipcMain, deps)
+    const video = path.join(root, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+
+    const result = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video, 'http://127.0.0.1:34821/other/path')
+
+    expect(result.code).toBe(0)
+    expect(deps.story2videoMediaServer.revoke).not.toHaveBeenCalled()
+  })
+
   it('save-as 通过系统保存对话框把受控文件复制到用户选择的位置', async () => {
     const ipcMain = createIpcMain()
     const deps = createDeps()
@@ -218,10 +276,19 @@ describe('Story2Video 交付 IPC', () => {
       isLocalOwner: vi.fn(() => true),
       getProject: vi.fn(() => ({ projectId: 'project-1' })),
       deleteProject: vi.fn(() => ({ projectId: 'project-1', deleted: true })),
+      // 主进程同项目写队列：mock 直接透传任务（审查 W2 修复后 handler 通过 _serializeProject 调用服务）
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
       updateSegments: vi.fn(() => ({ projectId: 'project-1', dirty: true })),
       replaceSegmentAudio: vi.fn(() => ({ projectId: 'project-1', dirty: true })),
       retrySegment: vi.fn(async () => ({ projectId: 'project-1' })),
       recomposeProject: vi.fn(async () => ({ projectId: 'project-1', dirty: false })),
+      regenerateSceneSubtitle: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      regenerateSceneAudio: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      regenerateScenePrompt: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      generateSceneAiVideo: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      selectSceneMaterial: vi.fn(() => ({ projectId: 'project-1', dirty: true })),
+      generateSceneImage: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
+      generateSceneVideo: vi.fn(async () => ({ projectId: 'project-1', dirty: true })),
       transcribeFile: vi.fn(async () => ({ text: '识别文本' })),
       getCapabilities: vi.fn(() => ({ transcription: { available: true }, remix: { available: false } })),
     }
@@ -237,14 +304,31 @@ describe('Story2Video 交付 IPC', () => {
     })
     await ipcMain.get('story2video:retry-segment')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0', mode: 'image' })
     await ipcMain.get('story2video:recompose-project')(TRUSTED_EVENT, 'project-1')
+    await ipcMain.get('story2video:regenerate-scene-subtitle')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
+    await ipcMain.get('story2video:regenerate-scene-audio')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
+    await ipcMain.get('story2video:regenerate-scene-prompt')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0', kind: 'video' })
+    await ipcMain.get('story2video:generate-scene-ai-video')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
+    await ipcMain.get('story2video:select-scene-material')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0', kind: 'video' })
+    await ipcMain.get('story2video:generate-scene-image')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
+    await ipcMain.get('story2video:generate-scene-video')(TRUSTED_EVENT, { projectId: 'project-1', segmentId: 'segment-0' })
     await ipcMain.get('story2video:transcribe')(TRUSTED_EVENT, { filePath: 'C:/controlled/audio.mp3' })
     const capabilities = await ipcMain.get('story2video:capabilities')(TRUSTED_EVENT)
 
     expect(service.updateSegments).toHaveBeenCalledWith('project-1', [{ id: 'segment-0', text: '新文案' }])
+    // 保存/重合成/全部重新生成/素材替换/选择/删除均经同项目串行队列，防止跨段并发覆盖（审查 W2/W4 回归）
+    expect(service._serializeProject).toHaveBeenCalledTimes(12)
+    expect(service._serializeProject).toHaveBeenCalledWith('project-1', expect.any(Function))
     expect(service.replaceSegmentAudio).toHaveBeenCalledWith('project-1', 'segment-0', 'C:/controlled/replacement.mp3')
     expect(service.deleteProject).toHaveBeenCalledWith('project-1')
     expect(service.retrySegment).toHaveBeenCalledWith('project-1', 'segment-0', 'image')
     expect(service.recomposeProject).toHaveBeenCalledWith('project-1')
+    expect(service.regenerateSceneSubtitle).toHaveBeenCalledWith('project-1', 'segment-0')
+    expect(service.regenerateSceneAudio).toHaveBeenCalledWith('project-1', 'segment-0')
+    expect(service.regenerateScenePrompt).toHaveBeenCalledWith('project-1', 'segment-0', 'video')
+    expect(service.generateSceneAiVideo).toHaveBeenCalledWith('project-1', 'segment-0')
+    expect(service.selectSceneMaterial).toHaveBeenCalledWith('project-1', 'segment-0', 'video')
+    expect(service.generateSceneImage).toHaveBeenCalledWith('project-1', 'segment-0')
+    expect(service.generateSceneVideo).toHaveBeenCalledWith('project-1', 'segment-0')
     expect(service.transcribeFile).toHaveBeenCalledWith('C:/controlled/audio.mp3')
     expect(capabilities.data.transcription.available).toBe(true)
   })
@@ -262,12 +346,119 @@ describe('Story2Video 交付 IPC', () => {
     expect(service.updateSegments).not.toHaveBeenCalled()
   })
 
+  it('get-thumbnail 为受控缩略图签发媒体 URL', async () => {
+    const thumbnailPath = path.join(root, 'thumbnail.jpg')
+    fs.writeFileSync(thumbnailPath, 'thumbnail')
+    const service = {
+      projectsDir: root,
+      getThumbnail: vi.fn(async () => ({ status: 'ready', kind: 'image', path: thumbnailPath })),
+    }
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    registerHandlers(ipcMain, { ...deps, story2videoProjectService: service })
+
+    const result = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, 'project-thumbnail')
+
+    expect(result).toMatchObject({ code: 0, data: { status: 'ready', kind: 'image' } })
+    expect(result.data.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/media\//)
+    expect(deps.story2videoMediaServer.createUrl).toHaveBeenCalledWith(fs.realpathSync.native(thumbnailPath))
+  })
+
+  it('get-thumbnail 对缺失或生成失败的缩略图保持 url=null', async () => {
+    const getThumbnail = vi.fn()
+      .mockResolvedValueOnce({ status: 'missing', kind: 'missing', path: null })
+      .mockResolvedValueOnce({ status: 'failed', kind: 'failed', path: null })
+    const service = { projectsDir: root, getThumbnail }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    const missing = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, 'project-thumbnail')
+    const failed = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, 'project-thumbnail')
+
+    expect(missing).toEqual({ code: 0, data: { status: 'missing', kind: 'missing', url: null } })
+    expect(failed).toEqual({ code: 0, data: { status: 'failed', kind: 'failed', url: null } })
+  })
+
+  it('get-thumbnail 不会把空媒体 URL 标记为 ready', async () => {
+    const thumbnailPath = path.join(root, 'thumbnail-empty-url.jpg')
+    fs.writeFileSync(thumbnailPath, 'thumbnail')
+    const service = {
+      projectsDir: root,
+      getThumbnail: vi.fn(async () => ({ status: 'ready', kind: 'image', path: thumbnailPath })),
+    }
+    const deps = createDeps()
+    deps.story2videoMediaServer.createUrl.mockReturnValueOnce('')
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...deps, story2videoProjectService: service })
+
+    const result = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, 'project-empty-thumbnail-url')
+
+    expect(result).toEqual({ code: 0, data: { status: 'failed', kind: 'failed', url: null } })
+  })
+
+  it('get-thumbnail 在参数非法或来源不可信时不进入项目服务', async () => {
+    const service = {
+      projectsDir: root,
+      getThumbnail: vi.fn(),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    const invalid = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, '../escape')
+    const untrusted = await ipcMain.get('story2video:get-thumbnail')(UNTRUSTED_EVENT, 'project-thumbnail')
+
+    expect(invalid).toEqual({ code: -2, message: 'projectId 无效' })
+    expect(untrusted).toEqual({ code: -3, message: '未授权的调用来源' })
+    expect(service.getThumbnail).not.toHaveBeenCalled()
+  })
+
+  it('场景字幕/旁白/优化词重新生成：拒绝不可信页面、非法 ID 与非白名单优化词类型', async () => {
+    const service = {
+      regenerateSceneSubtitle: vi.fn(),
+      regenerateSceneAudio: vi.fn(),
+      regenerateScenePrompt: vi.fn(),
+      generateSceneAiVideo: vi.fn(),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    const untrustedSubtitle = await ipcMain.get('story2video:regenerate-scene-subtitle')(UNTRUSTED_EVENT, {
+      projectId: 'project-1', segmentId: 'segment-0',
+    })
+    expect(untrustedSubtitle).toEqual({ code: -3, message: '未授权的调用来源' })
+
+    const badId = await ipcMain.get('story2video:regenerate-scene-subtitle')(TRUSTED_EVENT, {
+      projectId: '../escape', segmentId: 'segment-0',
+    })
+    expect(badId.code).toBeLessThan(0)
+
+    const untrustedAiVideo = await ipcMain.get('story2video:generate-scene-ai-video')(UNTRUSTED_EVENT, {
+      projectId: 'project-1', segmentId: 'segment-0',
+    })
+    expect(untrustedAiVideo).toEqual({ code: -3, message: '未授权的调用来源' })
+
+    const badAiVideoId = await ipcMain.get('story2video:generate-scene-ai-video')(TRUSTED_EVENT, {
+      projectId: 'project-1', segmentId: '../escape',
+    })
+    expect(badAiVideoId.code).toBeLessThan(0)
+    expect(service.generateSceneAiVideo).not.toHaveBeenCalled()
+
+    const badKind = await ipcMain.get('story2video:regenerate-scene-prompt')(TRUSTED_EVENT, {
+      projectId: 'project-1', segmentId: 'segment-0', kind: 'unsupported',
+    })
+    expect(badKind.code).toBeLessThan(0)
+    expect(service.regenerateScenePrompt).not.toHaveBeenCalled()
+    expect(service.regenerateSceneSubtitle).not.toHaveBeenCalled()
+    expect(service.regenerateSceneAudio).not.toHaveBeenCalled()
+  })
+
   it('替换旁白成功后清理受控媒体临时副本', async () => {
     const paths = (await import('../services/story2video-paths')).default
     const source = path.join(root, 'replacement.mp3')
     fs.writeFileSync(source, 'voice')
     const imported = paths.importUserSelectedMedia(source, 'audio')
     const service = {
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
       replaceSegmentAudio: vi.fn(() => ({ projectId: 'project-1', segments: [] })),
     }
     const ipcMain = createIpcMain()
@@ -288,6 +479,7 @@ describe('Story2Video 交付 IPC', () => {
     fs.writeFileSync(source, 'voice')
     const imported = paths.importUserSelectedMedia(source, 'audio')
     const service = {
+      _serializeProject: vi.fn(async (_projectId, task) => task()),
       replaceSegmentAudio: vi.fn(() => { throw new Error('写入项目失败') }),
     }
     const ipcMain = createIpcMain()

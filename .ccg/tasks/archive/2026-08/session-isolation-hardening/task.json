@@ -1,0 +1,14 @@
+{
+  "id": "session-isolation-hardening",
+  "title": "强化并发 Codex 会话的 Git worktree 隔离与共享主目录保护",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "tooling",
+  "currentPhase": "completed",
+  "nextAction": "已合并并安装共享 hooks，执行三同步归档",
+  "createdAt": "2026-08-15T12:30:00+08:00",
+  "branch": "codex/session-isolation-hardening",
+  "openspecChange": "session-isolation-hardening",
+  "remoteStatus": "PR #844 已合并，merge commit f2af0370；全部 CI 通过，共享 hooks 已安装并验证"
+}

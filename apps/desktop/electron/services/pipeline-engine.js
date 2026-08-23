@@ -477,10 +477,47 @@ const PIPELINES = [
     ],
   },
   {
+    name: 'film-engineering',
+    description: '影视工程（Hell Grind 复刻） - 真实分镜提示词库浏览/一键复制/剧本套用/导出',
+    category: 'generated',
+    stages: ['load_template', 'adapt_script', 'select_shots', 'export_prompts'],
+    estimatedCost: 'low',
+    stageDefs: [
+      {
+        name: 'load_template',
+        type: 'film_load_template',
+        description: '加载 Hell Grind 影视工程模板（film-kit，fail-closed）',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'adapt_script',
+        type: 'film_adapt_script',
+        description: '剧本分场并按 Hell Grind 模板组装提示词',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'select_shots',
+        type: 'film_select_shots',
+        description: '按选中分镜 id 过滤（kit 或 adapted）',
+        checkpointRequired: false,
+        options: {},
+      },
+      {
+        name: 'export_prompts',
+        type: 'film_export_prompts',
+        description: '导出选中分镜提示词（JSON/Markdown）',
+        checkpointRequired: false,
+        options: {},
+      },
+    ],
+  },
+  {
     name: 'story2video-compose',
     description: 'Story2Video 文案转视频 - 分句+提示词优化+资源生成+合成+发布',
     category: 'generated',
-    stages: ['split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
+    stages: ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
     estimatedCost: 'high',
     // stageDefs 定义每个阶段的执行类型和参数（供 StageExecutor 使用）
     // 旧流水线无 stageDefs 字段，回退为 MANUAL_CHECKPOINT
@@ -511,19 +548,9 @@ const PIPELINES = [
         inputFrom: null, // 从 params.text 取
       },
       {
-        name: 'domain_enrich',
-        type: 'story2video_domain_enrich', // 历史内容领域增强（可选）
-        description: '时代/朝代识别与视觉上下文增强',
-        checkpointRequired: false,
-        options: {
-          contentType: 'general',
-        },
-        inputFrom: 'split',
-      },
-      {
         name: 'scene_context',
-        type: 'story2video_scene_context', // 自定义类型：场景上下文增强中间层（2026-08-11）
-        description: '场景上下文增强：读全文提取全局故事背景并融合进每个场景（时代/地域/角色/道具/风格/负面锚点）',
+        type: 'story2video_scene_context', // 自定义类型：场景上下文增强中间层（2026-08-11；2026-08-14 吸收 domain_enrich 职责）
+        description: '场景上下文增强 + 历史内容增强：读全文提取全局故事背景并融合进每个场景（时代/地域/角色/道具/风格/负面锚点），contentType=history 时为每个场景生成 imagePromptSeed 视觉种子',
         checkpointRequired: false,
         options: {
           enabled: true,
@@ -531,8 +558,9 @@ const PIPELINES = [
           max_anchors: 8,
           include_negative_anchors: true,
           context_block_max_chars: 400,
+          contentType: 'general',
         },
-        inputFrom: 'domain_enrich', // 从 context.domain_enrich 取（scene_context 内部还读 params.text 全文）
+        inputFrom: 'split', // 从 context.split 取（scene_context 内部还读 params.text 全文）
       },
       {
         name: 'optimize',
@@ -543,7 +571,8 @@ const PIPELINES = [
           platform: 'generic',
           style: 'realistic',
           creative_level: 5,
-          max_length: 500,
+          optimization_strategy: 'llm',
+          max_length: 2000,
           num_candidates: 1,
           auto_detect_style: true,
           negative_prompt: '',
@@ -607,6 +636,7 @@ const PIPELINES = [
         description: '视频合成',
         checkpointRequired: true,
         options: {
+          composeParallelTask: 'story2video_prompt_translation_compose',
           // Story2Video 引擎选项
           transition: 'fade',
           imageEffect: 'zoom-in',
@@ -863,13 +893,21 @@ class PipelineEngine {
       _activeSegmentStartedAt: null,
       // 编排模式扩展字段（默认 state_machine 模式不使用）
       orchestrationMode: 'state_machine',
+      // 批量创作标记（2026-08-14）：仅批量队列透传；历史记录/统计据此区分来源。
+      source: params.source === 'batch' ? 'batch' : undefined,
+      batchId: params.source === 'batch' && typeof params.batchId === 'string' ? params.batchId : undefined,
+      batchItemId: params.source === 'batch' && typeof params.batchItemId === 'string' ? params.batchItemId : undefined,
       context: {},
       stageResults: [],
     };
 
     this._runs.set(runId, run);
-    this._runs.set('_' + pipelineName, run); // Also index by pipeline name
-    this._currentPipeline = pipelineName;
+    // 批量 run 不写 _<name> 索引/currentPipeline：手动流水线启动页按索引查询状态，
+    // 若被批量 run 覆盖，手动页面会读到批量任务进度（状态串扰）。
+    if (run.source !== 'batch') {
+      this._runs.set('_' + pipelineName, run); // Also index by pipeline name
+      this._currentPipeline = pipelineName;
+    }
 
     // Backlot 事件：流水线启动
     this._emit('pipeline:start', { runId, pipelineType: pipelineName, stages: run.stages.map(s => s.name) });
@@ -882,9 +920,14 @@ class PipelineEngine {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
     if (run.status !== 'running') return { success: false, error: 'Pipeline is not running' };
+    const stage = Array.isArray(run.stages) && Number.isInteger(run.currentStage)
+      ? run.stages[run.currentStage]
+      : null;
+    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return { success: false, error: 'Pipeline stage state is invalid' };
 
     run.status = 'paused';
-    run.stages[run.currentStage].status = 'paused';
+    stage.status = 'paused';
+    this._syncStory2VideoProjectStatus(run);
     return { success: true };
   }
 
@@ -893,9 +936,14 @@ class PipelineEngine {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
     if (run.status !== 'paused') return { success: false, error: 'Pipeline is not paused' };
+    const stage = Array.isArray(run.stages) && Number.isInteger(run.currentStage)
+      ? run.stages[run.currentStage]
+      : null;
+    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return { success: false, error: 'Pipeline stage state is invalid' };
 
     run.status = 'running';
-    run.stages[run.currentStage].status = 'running';
+    stage.status = 'running';
+    this._syncStory2VideoProjectStatus(run);
     return { success: true };
   }
 
@@ -969,13 +1017,17 @@ class PipelineEngine {
           const id = snapshot.runId
           if (!id || seenIds.has(id)) continue
           seenIds.add(id)
-          // 运行中快照在应用重启后不再是运行中状态，转为已暂停；记录暂停环节
-          const normalizedStatus = snapshot.status === 'running' ? 'paused' : (snapshot.status || 'failed')
+          // 运行中快照在应用重启后不再是运行中状态，转为「已中断」（区别于用户手动暂停：
+          // 手动暂停经 savePaused 落盘为 paused；running 残留为应用退出/崩溃导致）；记录中断环节
+          const normalizedStatus = snapshot.status === 'running' ? 'interrupted' : (snapshot.status || 'failed')
           const pausedStageIndex = Number.isInteger(snapshot.currentStage) ? snapshot.currentStage : -1
           const pausedStageName = (Array.isArray(snapshot.stages) && pausedStageIndex >= 0 && pausedStageIndex < snapshot.stages.length)
             ? (snapshot.stages[pausedStageIndex].name || snapshot.stages[pausedStageIndex].stage || '') : ''
           persisted.push({
             id,
+            // 快照须携带 projectId（旧快照缺失时回退 runId 本身）：历史页据此匹配 story2video 项目，
+            // 避免 run-only 卡片丢失标题与文案预览（2026-08-20 修复）
+            projectId: snapshot.projectId || id,
             pipeline: snapshot.pipeline,
             status: normalizedStatus,
             currentStage: pausedStageIndex >= 0 ? pausedStageIndex : 0,
@@ -1002,6 +1054,52 @@ class PipelineEngine {
     return [...active, ...this._history, ...persisted];
   }
 
+  /**
+   * 删除一条历史运行记录（含持久化快照）。运行中的 run 拒绝删除。
+   * 供历史记录页删除无 projectId 的 run 记录（有 projectId 的任务走 story2video 项目删除）。
+   * 仅删除记录本身，不清理 run 输入/输出文件（与取消路径的清理语义分离）。
+   */
+  deleteRun (runId) {
+    if (typeof runId !== 'string' || !runId.trim()) return { success: false, error: 'runId 非法' }
+    const id = runId.trim()
+    const run = this._runs.get(id)
+    if (run && run.status === 'running') return { success: false, error: '运行中的流水线不能删除' }
+    const historyIndex = this._history.findIndex(item => item && item.id === id)
+    let hasSnapshot = false
+    if (this.runStateStore && typeof this.runStateStore.remove === 'function') {
+      // 持久化快照存在性：内存清空（应用重启）后仅剩快照的记录也要可删
+      if (typeof this.runStateStore.load === 'function') {
+        try {
+          hasSnapshot = Boolean(this.runStateStore.load(id))
+        } catch (loadError) {
+          this.log.warn('PipelineEngine', 'run state snapshot load failed: ' + (loadError && loadError.message ? loadError.message : String(loadError)))
+          return { success: false, error: '读取运行记录失败' }
+        }
+      }
+      if (!run && historyIndex < 0 && !hasSnapshot) return { success: false, error: '运行记录不存在' }
+      try {
+        const removeResult = this.runStateStore.remove(id)
+        if (removeResult === false) {
+          return { success: false, error: '删除运行记录失败：持久化快照未清理' }
+        }
+      } catch (removeError) {
+        this.log.warn('PipelineEngine', 'run state snapshot remove failed: ' + (removeError && removeError.message ? removeError.message : String(removeError)))
+        return { success: false, error: '删除运行记录失败：持久化快照未清理' }
+      }
+    } else if (!run && historyIndex < 0) {
+      return { success: false, error: '运行记录不存在' }
+    }
+    if (run) {
+      this._runs.delete(id)
+      if (this._runs.get('_' + run.pipeline) === run) {
+        this._runs.delete('_' + run.pipeline)
+        if (this._currentPipeline === run.pipeline) this._currentPipeline = null
+      }
+    }
+    if (historyIndex >= 0) this._history.splice(historyIndex, 1)
+    return { success: true, runId: id }
+  }
+
   /** 当前正在运行的编排流水线数量（去重 _<name> 索引）。 */
   _countActiveRuns() {
     const seen = new Set();
@@ -1010,6 +1108,18 @@ class PipelineEngine {
       if (seen.has(run)) continue;
       seen.add(run);
       if (run.orchestrationMode === 'orchestrator' && run.status === 'running') count += 1;
+    }
+    return count;
+  }
+
+  /** 当前正在运行的「手动」编排流水线数量（去重 _<name> 索引；批量 run 不计入）。 */
+  _countActiveManualRuns() {
+    const seen = new Set();
+    let count = 0;
+    for (const run of this._runs.values()) {
+      if (seen.has(run)) continue;
+      seen.add(run);
+      if (run.orchestrationMode === 'orchestrator' && run.status === 'running' && run.source !== 'batch') count += 1;
     }
     return count;
   }
@@ -1081,34 +1191,45 @@ class PipelineEngine {
     const run = this._getCurrentRun();
     if (!run) return { success: false, error: 'No active pipeline' };
 
-    return this._advanceRun(run);
+    return this._advanceRun(run, { skipped: this._isStageSkipped(null, run, run.stages[run.currentStage]) });
   }
 
   /**
    * 只推进指定运行，避免 orchestrator 按 runId 执行后误用全局 currentPipeline。
    * @param {object} run
    */
-  _advanceRun(run) {
+  _advanceRun(run, opts) {
     if (!run || !Array.isArray(run.stages) || !run.stages[run.currentStage]) {
       return { success: false, error: 'No active stage' };
     }
 
+    const skipped = Boolean(opts && opts.skipped);
     const completedStageName = run.stages[run.currentStage].name;
     // 检查点只代表当前阶段的暂停状态，推进后不能泄漏到下一个运行快照。
     run.checkpoint = null;
-    // Complete current stage
-    run.stages[run.currentStage].status = 'completed';
-    run.stages[run.currentStage].completedAt = new Date().toISOString();
+    // 未选发布平台等「可选阶段被跳过」语义：以 skipped 而非 completed 收尾，
+    // 让 run 阶段快照/历史/进度板能明确区分「真实完成」与「跳过」。
+    const stageRef = run.stages[run.currentStage];
+    const completedAt = new Date().toISOString();
+    stageRef.status = skipped ? 'skipped' : 'completed';
+    stageRef.completedAt = completedAt;
+    if (skipped) stageRef.skippedAt = completedAt;
 
-    // Backlot 事件：阶段完成
+    // Backlot 事件：阶段完成（跳过阶段同样触发，供进度板/实时推送同步）
     this._emit('stage:complete', { runId: run.id, stageName: completedStageName, stageIndex: run.currentStage });
 
     // Advance to next stage
     run.currentStage++;
     if (run.currentStage >= run.stages.length) {
+      this._finalizeRun(run, 'completed');
+      if (run.status !== 'completed') {
+        // 项目持久化失败时只发失败终态，禁止 renderer/批量队列误判为完成。
+        const error = run.error || 'Story2Video 项目保存失败';
+        this._emit('pipeline:fail', { runId: run.id, pipelineType: run.pipeline, error });
+        return { success: false, error, errorCode: 'STORY2VIDEO_PROJECT_SAVE_FAILED' };
+      }
       // Backlot 事件：流水线完成（totalDuration 用步骤执行耗时累计口径，不用墙钟 createdAt→now）
       this._emit('pipeline:complete', { runId: run.id, pipelineType: run.pipeline, totalDuration: this._computeElapsedMs(run) });
-      this._finalizeRun(run, 'completed');
       return { success: true, message: 'Pipeline completed' };
     }
 
@@ -1125,8 +1246,24 @@ class PipelineEngine {
     return { success: true, currentStage: run.stages[run.currentStage].name, checkpoint };
   }
 
-  /** 通过 Python 后端加载流水线完整定义 */
+  /**
+   * 判断阶段执行结果是否为「跳过」（如发布阶段未选择任何平台）。
+   * 优先读执行结果 output.skipped；检查点恢复等没有新执行结果的路径回退读 run.context[stageName]。
+   * @param {object|null} execResult
+   * @param {object|null} run
+   * @param {object|null} stage
+   * @returns {boolean}
+   */
+  _isStageSkipped(execResult, run, stage) {
+    if (execResult && execResult.output && execResult.output.skipped === true) return true;
+    if (!stage || !run || !run.context) return false;
+    const name = stage.name || stage.stage;
+    if (!name) return false;
+    const out = run.context[name];
+    return !!(out && out.skipped === true);
+  }
   async fetchPipelineFromBackend(pipelineName) {
+  /** 通过 Python 后端加载流水线完整定义 */
     const bridge = this._getPythonBridge();
     if (bridge && bridge.isRunning()) {
       try {
@@ -1167,6 +1304,17 @@ class PipelineEngine {
     if (typeof params !== 'object' || Array.isArray(params)) {
       return { success: false, error: 'Pipeline params must be an object' };
     }
+    // 批量创作标记（2026-08-14）：normalizer 重建 params 会丢弃未知字段，先白名单提取、
+    // normalize 后重新附加，保证 run 打标（source/batchId/batchItemId）不丢失。
+    const batchMeta = {
+      source: params.source === 'batch' ? 'batch' : undefined,
+      batchId: params.source === 'batch' && typeof params.batchId === 'string' && params.batchId.trim()
+        ? params.batchId.trim()
+        : undefined,
+      batchItemId: params.source === 'batch' && typeof params.batchItemId === 'string' && params.batchItemId.trim()
+        ? params.batchItemId.trim()
+        : undefined,
+    }
     if (pipelineName === STORY2VIDEO_PIPELINE) {
       try {
         params = normalizeStory2VideoTextParams(params);
@@ -1180,6 +1328,12 @@ class PipelineEngine {
           errorParams: error?.params || null,
         };
       }
+    }
+    // 批量创作标记重新附加（normalizer 重建 params 后）
+    if (batchMeta.source === 'batch') {
+      params.source = 'batch'
+      params.batchId = batchMeta.batchId
+      params.batchItemId = batchMeta.batchItemId
     }
     const initialContext = params.initialContext !== undefined
       ? params.initialContext
@@ -1336,7 +1490,9 @@ class PipelineEngine {
         }
         return { ...base, status: 'pending', startedAt: null, completedAt: null };
       }),
-      params: snapshot.params || {},
+      // 恢复 Story2Video 时，内容参数仍来自原任务，但图片/TTS/视频路由改由当前设置解析。
+      // 其它流水线保持原有参数恢复语义。
+      params: prepareResumeParams(snapshot.params || {}, snapshot.pipeline),
       progress: 0,
       checkpoint: null,
       createdAt: snapshot.createdAt || now,
@@ -1345,6 +1501,7 @@ class PipelineEngine {
       activeMs: Number.isFinite(Number(snapshot.activeMs)) ? Number(snapshot.activeMs) : 0,
       _activeSegmentStartedAt: null,
       orchestrationMode: 'orchestrator',
+      projectId: snapshot.projectId || runId,
       context: JSON.parse(JSON.stringify(snapshot.context || {})),
       stageResults: [],
       resumedFrom: runId,
@@ -1353,13 +1510,27 @@ class PipelineEngine {
     this._runs.set(restored.id, restored);
     this._runs.set('_' + restored.pipeline, restored);
     this._currentPipeline = restored.pipeline;
+    this._syncStory2VideoProjectStatus(restored);
     if (this.runStateStore) {
       try { this.runStateStore.remove(runId); } catch (_) { /* 快照清理失败不影响恢复 */ }
     }
 
     const promise = this._autoAdvanceRun(restored.id);
     promise.catch((err) => {
-      this.log.warn('PipelineEngine', 'background resume autoAdvance failed: ' + (err && err.message ? err.message : String(err)));
+      // fail-closed：恢复推进若意外抛错，必须把 run 标记为 failed 终态，
+      // 否则前端会看到 run 永久停留在 running 而无任何进展，无法定位失败原因。
+      const msg = (err && err.stack) ? err.stack : (err && err.message ? err.message : String(err));
+      this.log.error('PipelineEngine', 'background resume autoAdvance threw, marking run failed: ' + msg);
+      try {
+        const run = this._runs.get(restored.id);
+        if (run && run.status === 'running') {
+          run.status = 'failed';
+          run.error = '恢复推进失败：' + (err && err.message ? err.message : String(err));
+          run.endedAt = Date.now();
+          this._emit('runStatus', run);
+          this._syncStory2VideoProjectStatus(run);
+        }
+      } catch (_) { /* 兜底标记失败本身不应再抛错 */ }
     });
     return { success: true, runId: restored.id };
   }
@@ -1414,6 +1585,7 @@ class PipelineEngine {
       activeMs: Number.isFinite(Number(snapshot.activeMs)) ? Number(snapshot.activeMs) : 0,
       _activeSegmentStartedAt: null,
       orchestrationMode: 'orchestrator',
+      projectId: snapshot.projectId || runId,
       context: JSON.parse(JSON.stringify(snapshot.context || {})),
       stageResults: [],
       resumedFrom: runId,
@@ -1422,6 +1594,7 @@ class PipelineEngine {
     this._runs.set(restored.id, restored);
     this._runs.set('_' + restored.pipeline, restored);
     this._currentPipeline = restored.pipeline;
+    this._syncStory2VideoProjectStatus(restored);
     return { success: true, runId: restored.id, paused: true };
   }
 
@@ -1454,6 +1627,7 @@ class PipelineEngine {
       run.checkpoint = checkpoint;
       run.status = 'paused';
       if (stage) stage.status = 'paused';
+      this._syncStory2VideoProjectStatus(run);
       this._emit('checkpoint:pause', {
         runId,
         stageName: stage?.name,
@@ -1462,12 +1636,18 @@ class PipelineEngine {
       return { ...result, checkpointData: checkpoint, paused: true };
     }
 
-    const advResult = this._advanceRun(run);
+    const advResult = this._advanceRun(run, { skipped: this._isStageSkipped(result, run, run.stages[run.currentStage]) });
     if (advResult.message === 'Pipeline completed') {
       return { ...result, completed: true, context: run.context, activeMs: this._computeElapsedMs(run) };
     }
-    if (!advResult.success && advResult.message !== 'Pipeline completed') {
+    if (!advResult.success) {
       this.log.warn('PipelineEngine', 'advance after executeStage: ' + (advResult.message || advResult.error));
+      return {
+        ...result,
+        success: false,
+        error: advResult.error,
+        errorCode: advResult.errorCode,
+      };
     }
     return result;
   }
@@ -1497,13 +1677,14 @@ class PipelineEngine {
         };
       }
       // 检查点阶段已经执行完毕，确认操作应先完成该阶段，再执行后续阶段。
-      const advanced = this._advanceRun(run);
+      const advanced = this._advanceRun(run, { skipped: this._isStageSkipped(null, run, run.stages[run.currentStage]) });
       if (!advanced.success) return advanced;
       if (advanced.message === 'Pipeline completed') {
         return { success: true, runId, context: run.context, completed: true, results: [], activeMs: this._computeElapsedMs(run) };
       }
       run.status = 'running';
       if (run.stages[run.currentStage]) run.stages[run.currentStage].status = 'running';
+      this._syncStory2VideoProjectStatus(run);
     }
     return this._autoAdvanceRun(runId);
   }
@@ -1714,6 +1895,55 @@ class PipelineEngine {
   }
 
   /**
+   * 按 runId 暂停指定运行（2026-08-16 UX 统一：视频任务编辑页手动暂停）。
+   * 与 pauseWithCheckpoint 语义一致：编排运行保存检查点并持久化 paused 快照，可断点续跑。
+   */
+  pauseRun (runId) {
+    if (typeof runId !== 'string' || !runId.trim()) return { success: false, error: 'runId 非法' }
+    const id = runId.trim()
+    const run = this._runs.get(id)
+    if (!run) return { success: false, error: '运行记录不存在' }
+    if (run.status !== 'running') return { success: false, error: '仅运行中的流水线可暂停' }
+    const stage = Array.isArray(run.stages) && Number.isInteger(run.currentStage)
+      ? run.stages[run.currentStage]
+      : null
+    if (!stage || typeof stage !== 'object' || Array.isArray(stage)) return { success: false, error: '运行记录阶段数据无效' }
+    const previousStatus = run.status
+    const previousStageStatus = stage.status
+    const previousCheckpoint = run.checkpoint
+    let checkpoint = previousCheckpoint
+    try {
+      if (run.orchestrationMode === 'orchestrator') {
+        checkpoint = this._buildCheckpoint(run, {
+          stageName: stage.name,
+          stageIndex: run.currentStage,
+          required: true,
+          type: 'manual_pause',
+        })
+      }
+    } catch (checkpointError) {
+      this.log.warn('PipelineEngine', 'pause checkpoint build failed: ' + (checkpointError && checkpointError.message ? checkpointError.message : String(checkpointError)))
+      return { success: false, error: '保存暂停检查点失败' }
+    }
+    run.status = 'paused'
+    stage.status = 'paused'
+    run.checkpoint = checkpoint
+    if (this.runStateStore && typeof this.runStateStore.savePaused === 'function') {
+      try {
+        if (this.runStateStore.savePaused(run) === false) throw new Error('savePaused returned false')
+      } catch (saveError) {
+        this.log.warn('PipelineEngine', 'pauseRun paused snapshot save failed: ' + (saveError && saveError.message ? saveError.message : String(saveError)))
+        run.status = previousStatus
+        stage.status = previousStageStatus
+        run.checkpoint = previousCheckpoint
+        return { success: false, error: '保存暂停检查点失败' }
+      }
+    }
+    this._syncStory2VideoProjectStatus(run)
+    return { success: true, runId: id, checkpoint }
+  }
+
+  /**
    * 从检查点恢复（编排模式增强）
    */
   resumeFromCheckpoint() {
@@ -1765,8 +1995,16 @@ class PipelineEngine {
   _finalizeRun(run, status, error) {
     if (!run || run.endedAt) return;
     run.status = status;
+    // 完成态进度固定为 100%（持久化到历史卡片；_advanceRun 在最后一个阶段不再重算 run.progress）
+    if (status === 'completed') run.progress = 100;
     if (error) run.error = error;
     run.endedAt = new Date().toISOString();
+    if ((status === 'failed' || status === 'cancelled') && Array.isArray(run.stages) && run.stages[run.currentStage]) {
+      const terminalStage = run.stages[run.currentStage];
+      terminalStage.status = status;
+      if (error) terminalStage.error = error;
+      terminalStage.completedAt = new Date().toISOString();
+    }
     // 诊断附加字段（additive）：失败分类 + 根因候选 + 环境快照。构建失败仅记 warn，不改变 run 终态。
     try {
       run.diagnostics = buildRunDiagnostics(run, captureEnvSnapshot({
@@ -1825,9 +2063,26 @@ class PipelineEngine {
       } catch (persistError) {
         run.status = 'failed';
         run.error = 'Story2Video 项目保存失败: ' + persistError.message;
+        const failedStageIndex = Math.min(
+          Array.isArray(run.stages) ? run.stages.length - 1 : -1,
+          Math.max(0, Number(run.currentStage) - 1),
+        );
+        const failedStage = failedStageIndex >= 0 ? run.stages[failedStageIndex] : null;
+        if (failedStage) {
+          failedStage.status = 'failed';
+          failedStage.completedAt = new Date().toISOString();
+        }
+        if (run.orchestrationMode === 'orchestrator' && this.runStateStore && typeof this.runStateStore.saveFailed === 'function') {
+          try {
+            this.runStateStore.saveFailed(run);
+          } catch (snapshotError) {
+            this.log.warn('PipelineEngine', 'project persistence failure snapshot save failed: ' + (snapshotError && snapshotError.message ? snapshotError.message : String(snapshotError)));
+          }
+        }
         this.log.error('PipelineEngine', run.error);
       }
     }
+    this._syncStory2VideoProjectStatus(run)
     const historyEntry = {
       ...run,
       stages: Array.isArray(run.stages) ? run.stages.map(stage => ({ ...stage })) : [],
@@ -1865,10 +2120,45 @@ class PipelineEngine {
     }
   }
 
+  _persistEditableStory2VideoProject (run, replace) {
+    if (!run || run.pipeline !== 'story2video-compose' || !this.story2videoProjectService ||
+        typeof this.story2videoProjectService.saveEditableRun !== 'function') return null
+    if (run.projectId && !replace) return null
+    try {
+      const project = this.story2videoProjectService.saveEditableRun(run, { replace })
+      if (!project) return null
+      run.projectId = project.projectId
+      run.context = run.context || {}
+      run.context.story2videoProject = project
+      this._saveRunningCheckpoint(run)
+      return project
+    } catch (error) {
+      this.log.warn('PipelineEngine', 'editable Story2Video project save failed: ' + (error?.message || String(error)))
+      return null
+    }
+  }
+
+  _syncStory2VideoProjectStatus (run) {
+    if (!run || run.pipeline !== 'story2video-compose' || !run.projectId || !this.story2videoProjectService ||
+        typeof this.story2videoProjectService.syncRunStatus !== 'function') return null
+    try {
+      const project = this.story2videoProjectService.syncRunStatus(run)
+      if (project) {
+        run.context = run.context || {}
+        run.context.story2videoProject = project
+      }
+      return project
+    } catch (error) {
+      this.log.warn('PipelineEngine', 'Story2Video project status sync failed: ' + (error?.message || String(error)))
+      return null
+    }
+  }
+
   _calcProgress(run) {
     const total = run.stages.length;
     if (!total) return 0;
-    const completed = run.stages.filter((s) => s.status === 'completed').length;
+    // skipped 阶段同样视为已完成（如未选平台的发布），保证完成态进度为 100%。
+    const completed = run.stages.filter((s) => s.status === 'completed' || s.status === 'skipped').length;
     // 阶段内进行中进度加权：running 阶段带合法 stage.progress.percent 时按比例计入，
     // 避免长时间停在阶段边界（阶段数占比 + 当前阶段 percent 加权）。
     let runningShare = 0;
@@ -1947,6 +2237,11 @@ class PipelineEngine {
         this.log.warn('PipelineEngine', '[progress] onProgress 更新被忽略: ' + (error && error.message ? error.message : String(error)));
       }
     };
+    onProgress({
+      percent: 0,
+      message: 'Working…',
+      messageKey: 'stageProgress.stageWorking',
+    });
     try {
       execResult = await this.stageExecutor.execute({
         runId,
@@ -1964,11 +2259,25 @@ class PipelineEngine {
       return { success: false, cancelled: true, error: 'Run cancelled' };
     }
     const result = execResult;
+    if (result && result.success && (!stage.progress || stage.progress.percent < 100)) {
+      onProgress({
+        percent: 100,
+        message: 'Stage complete.',
+        messageKey: 'stageProgress.stageComplete',
+        summary: 'Stage complete.',
+        summaryKey: 'stageProgress.stageSummary',
+      });
+    }
 
     // 阶段执行成功且有输出 -> 写入 context 供后续阶段使用
     if (result.success && result.output !== undefined) {
       run.context = run.context || {};
       run.context[stage.name] = result.output;
+      // 分段素材准备完成后立即建立可编辑草稿。这样运行中、暂停或失败的任务
+      // 都能从历史记录进入同一个视频任务编辑页，而无需等待最终合成。
+      if (stage.name === 'generate_assets' || stage.name === 'finalize_assets') {
+        this._persistEditableStory2VideoProject(run, stage.name === 'finalize_assets');
+      }
     }
     const normalizedResult = { ...result };
     if (normalizedResult.success && this._shouldCheckpoint(fullStage, run.params)) {
@@ -2054,6 +2363,7 @@ class PipelineEngine {
         run.checkpoint = checkpoint;
         run.status = 'paused';
         stage.status = 'paused';
+        this._syncStory2VideoProjectStatus(run);
         // Backlot 事件：检查点暂停
         this._emit('checkpoint:pause', { runId, stageName: stage.name, checkpointType: execResult.checkpoint });
         // 分镜素材自选检查点：持久化 paused 快照（含 checkpoint），应用重启后仍可回到选择面板
@@ -2075,9 +2385,9 @@ class PipelineEngine {
       }
 
       // 推进到下一阶段（同步 advance）
-      const advResult = this._advanceRun(run);
+      const advResult = this._advanceRun(run, { skipped: this._isStageSkipped(execResult, run, stage) });
       if (!advResult.success) {
-        // 流水线完成或出错
+        // 持久化失败等推进错误已经由 _advanceRun 发出 pipeline:fail。
         if (advResult.message === 'Pipeline completed') {
           return {
             success: true,
@@ -2087,7 +2397,14 @@ class PipelineEngine {
             completed: true,
           };
         }
-        break;
+        return {
+          success: false,
+          runId,
+          results,
+          context: run.context,
+          error: advResult.error,
+          errorCode: advResult.errorCode,
+        };
       }
     }
 
@@ -2109,6 +2426,21 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
   const input = params || {};
   const stageOptions = input.stageOptions && input.stageOptions[stageName];
   const result = stageOptions && typeof stageOptions === 'object' ? { ...stageOptions } : {};
+  const currentModelsOnResume = pipelineName === STORY2VIDEO_PIPELINE && input.__resumeUseCurrentModels === true;
+  if (currentModelsOnResume && stageName === 'generate_assets') {
+    delete result.imageProvider;
+    delete result.imageModel;
+    delete result.voiceProvider;
+    delete result.voiceModel;
+    if (result.video && typeof result.video === 'object') {
+      delete result.video.provider;
+      delete result.video.model;
+    }
+  }
+  if (currentModelsOnResume && stageName === 'select_video_scenes' && result.video && typeof result.video === 'object') {
+    delete result.video.provider;
+    delete result.video.model;
+  }
   const set = (key, value) => {
     if (value !== undefined && value !== null) result[key] = value;
   };
@@ -2120,6 +2452,10 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
     set('style', input.promptStyle || input.imageStyle || input.style);
     set('creative_level', input.creativeLevel);
     set('negative_prompt', input.negativePrompt);
+    // 图片提示词最大长度（2026-08-16）：渲染层经 Story2VideoTextConfig.optimize.maxLength 提交；
+    // undefined 时 set 不写键，回退 stageDef 默认 max_length=2000（隐式兜底，见 pipeline-story2video-contract 恒含断言）。
+    // 执行器 buildPromptEngineOptimizeRequest 契约仍收敛到 [50, 2000]（8013 le=2000），不因放开默认放宽校验。
+    set('max_length', input.story2videoTextConfig?.optimize?.maxLength);
   } else if (stageName === 'generate_assets') {
     set('concurrency', input.concurrency);
     set('imageStyle', input.imageStyle);
@@ -2140,12 +2476,14 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
     set('templateId', input.templateId);
     set('creationMode', input.creationMode);
     set('manualMaterialMode', input.manualMaterialMode);
+    set('videoMode', input.videoMode);
+    set('video', input.videoConfig);
   } else if (stageName === 'finalize_assets') {
     set('creationMode', input.creationMode);
-  } else if (stageName === 'domain_enrich') {
-    set('contentType', input.contentType);
   } else if (stageName === 'scene_context') {
-    // 渲染层未显式提交时走 stageDefs 默认值（enabled=true 等）；已提交的 stageOptions 原样透传
+    // 渲染层未显式提交时走 stageDefs 默认值（enabled=true 等）；已提交的 stageOptions 原样透传。
+    // contentType 开关（原 domain_enrich stageOptions，design D4）在此透传。
+    set('contentType', input.contentType);
   } else if (stageName === 'select_video_scenes') {
     set('video', input.videoConfig);
     set('videoMode', input.videoMode);
@@ -2166,6 +2504,8 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
     set('format', input.format || input.output?.format);
     set('sceneDurationMode', input.sceneDurationMode);
     set('minSceneDuration', input.minSceneDuration);
+    set('videoMode', input.videoMode);
+    set('shortVideoHandling', input.shortVideoHandling);
   } else if (pipelineName === 'clip-factory' && stageName === 'analyze') {
     // clip-factory 选项按 pipeline 名区分（analyze 阶段名与 podcast 共用）。
     set('sceneThreshold', input.sceneThreshold);
@@ -2183,5 +2523,64 @@ function resolveRuntimeStageOptions(stageName, params, pipelineName) {
   return result;
 }
 
-module.exports = { PipelineEngine, STAGE_TYPES, computeDefaultMaxConcurrentRuns };
+/**
+ * 为 Story2Video 历史恢复准备运行参数。
+ *
+ * 成功资产通过 context 中的本地路径复用；没有成功资产的调用不应继续携带
+ * 启动任务时的 provider/model。只删除模型路由字段，保留提示词、音色 ID、
+ * 速度/音调/情绪、视频比例等内容与生成参数。
+ * @param {object} params
+ * @param {string} pipelineName
+ * @returns {object}
+ */
+function prepareResumeParams(params, pipelineName) {
+  let restored
+  try {
+    restored = JSON.parse(JSON.stringify(params && typeof params === 'object' ? params : {}))
+  } catch (_) {
+    restored = { ...(params && typeof params === 'object' ? params : {}) }
+  }
+  if (pipelineName !== STORY2VIDEO_PIPELINE) return restored
+
+  const clearRouting = (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return
+    delete value.provider
+    delete value.model
+    delete value.imageProvider
+    delete value.imageModel
+    delete value.voiceProvider
+    delete value.voiceModel
+    delete value.videoProvider
+    delete value.videoModel
+  }
+
+  delete restored.imageProvider
+  delete restored.imageModel
+  delete restored.voiceProvider
+  delete restored.voiceModel
+  delete restored.videoProvider
+  delete restored.videoModel
+  clearRouting(restored.videoConfig)
+
+  const stageOptions = restored.stageOptions
+  if (stageOptions && typeof stageOptions === 'object' && !Array.isArray(stageOptions)) {
+    clearRouting(stageOptions.generate_assets)
+    clearRouting(stageOptions.select_video_scenes && stageOptions.select_video_scenes.video)
+    clearRouting(stageOptions.generate_assets && stageOptions.generate_assets.video)
+  }
+
+  const textConfig = restored.story2videoTextConfig
+  if (textConfig && typeof textConfig === 'object' && !Array.isArray(textConfig)) {
+    clearRouting(textConfig.image)
+    clearRouting(textConfig.voice)
+    clearRouting(textConfig.video)
+  }
+
+  // Internal-only marker. It is consumed by Story2Video stage resolution and is
+  // never shown in History or exposed as a model-selection control.
+  restored.__resumeUseCurrentModels = true
+  return restored
+}
+
+module.exports = { PipelineEngine, STAGE_TYPES, computeDefaultMaxConcurrentRuns, prepareResumeParams };
 

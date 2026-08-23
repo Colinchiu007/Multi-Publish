@@ -89,6 +89,7 @@ describe('localization-dub 阶段执行器', () => {
     it('把台词翻译为目标语言并保留时间段', async () => {
       const ai = makeAi('1. Hello\n2. Good morning')
       const { get } = makePipeline(ai)
+      const events = []
       const result = await get(LOCALIZATION_STAGE_TYPES.TRANSLATE)({
         stage: {},
         params: {},
@@ -98,11 +99,16 @@ describe('localization-dub 阶段执行器', () => {
             segments: [{ index: 0, text: '你好', start: 0, end: 5 }, { index: 1, text: '早上好', start: 5, end: 10 }],
           },
         },
+        onProgress: event => events.push(event),
       })
       expect(result.success).toBe(true)
       expect(result.output.segments[0].translatedText).toBe('Hello')
       expect(result.output.segments[1].translatedText).toBe('Good morning')
       expect(result.output.segments[0].start).toBe(0)
+      expect(events).toEqual([
+        expect.objectContaining({ percent: 5, messageKey: 'stageProgress.localizationWorking', detail: { done: 0, total: 2, kind: 'segment' } }),
+        expect.objectContaining({ percent: 100, summaryKey: 'stageProgress.localizationSummary', summaryParams: { done: 2, total: 2 } }),
+      ])
     })
 
     it('缺少 context.transcribe 时失败', async () => {
@@ -131,6 +137,7 @@ describe('localization-dub 阶段执行器', () => {
         registerStageExecutor(type, fn) { stageExecutor.register(type, fn); return { success: true } },
       }
       registerLocalizationStages(pipeline2)
+      const events = []
       const result = await stageExecutor.executors.get(LOCALIZATION_STAGE_TYPES.TTS)({
         runId: 'run_1',
         stage: { options: {} },
@@ -141,10 +148,15 @@ describe('localization-dub 阶段执行器', () => {
             segments: [{ index: 0, text: '你好', translatedText: 'Hello', start: 0, end: 5 }],
           },
         },
+        onProgress: event => events.push(event),
       })
       expect(result.success).toBe(true)
       expect(result.output.segments[0].audioPath).toBe('C:/tts/0.mp3')
       expect(serviceBus._assetGenerator.generateTTS).toHaveBeenCalledTimes(1)
+      expect(events).toEqual([
+        expect.objectContaining({ percent: 100, messageKey: 'stageProgress.localizationTts', detail: { done: 1, total: 1, kind: 'tts' } }),
+        expect.objectContaining({ percent: 100, summaryKey: 'stageProgress.localizationSummary', summaryParams: { done: 1, total: 1 } }),
+      ])
     })
 
     it('全部配音失败时返回错误', async () => {

@@ -11,12 +11,11 @@
 const DIAG_STAGES = Object.freeze([
   'preflight',
   'split',
-  'domain_enrich',
+  'scene_context',
   'optimize',
   'generate_assets',
   'compose',
   'publish',
-  'scene_context',
   'select_video_scenes',
 ])
 

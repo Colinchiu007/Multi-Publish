@@ -1,0 +1,15 @@
+{
+  "id": "fix-s2v-history-scene-prompt-persistence",
+  "title": "历史记录场景图片提示词显示完整 + 未保存修改可见与离开守卫（1+2）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "PR #896 合并后归档完成",
+  "createdAt": "2026-08-16T06:30:00Z",
+  "completedAt": "2026-08-16T14:20:00Z",
+  "branch": "codex/fix-s2v-history-scene-prompt-persistence",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-fix-s2v-history-scene-prompt-persistence",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/896"
+}

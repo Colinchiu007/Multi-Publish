@@ -5,6 +5,7 @@
  * 注册与 story2video-compose 流水线配套的自定义 STAGE_TYPES：
  *   - story2video_optimize: 逐场景视觉提示词统一走 prompt-engine（风格检测/改写/输出校验）
  *   - story2video_generate_assets: 并行生成图片 + TTS 音频
+ *   - story2video_prompt_translation_compose: 在合成期间并行翻译提示词
  *
  * 设计意图：
  *   split / compose / publish 阶段使用 StageExecutor 内置类型。
@@ -23,7 +24,6 @@ const http = require('http');
 const https = require('https');
 const os = require('os');
 const path = require('path');
-const { enrichHistoryScenes, passthroughScenes } = require('./story2video-domain');
 const { alignScenes } = require('./subtitle-align-service')
 const {
   getAllowedMediaRoots,
@@ -32,6 +32,7 @@ const {
 } = require('./story2video-paths');
 const {
   MAX_IMAGE_GENERATION_ATTEMPTS,
+  needsUserInputMessage,
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
 const { ERROR_CODES } = require('./adapters/_base/provider-error');
@@ -43,9 +44,13 @@ const {
 } = require('./prompt-engine-contract');
 const {
   extractOptimizedVideoPrompt,
+  normalizePrevFinalFrame,
 } = require('./video-prompt-engine-contract');
 const {
+  buildDomainSeed,
   buildSceneContextResult,
+  extractStoryContext,
+  sceneTextOf,
   CONTEXT_KEY_WHITELIST,
   buildPromptEngineSceneContext,
   mergeNegativePrompt,
@@ -55,13 +60,16 @@ const {
  * Story2Video-compose 专用的阶段类型
  */
 const STORY2VIDEO_STAGE_TYPES = {
-  DOMAIN_ENRICH: 'story2video_domain_enrich',
   SCENE_CONTEXT: 'story2video_scene_context',
   OPTIMIZE: 'story2video_optimize',
   SELECT_VIDEO_SCENES: 'story2video_select_video_scenes',
   GENERATE_ASSETS: 'story2video_generate_assets',
   FINALIZE_ASSETS: 'story2video_finalize_assets',
 };
+
+const STORY2VIDEO_COMPOSE_PARALLEL_TASK = 'story2video_prompt_translation_compose';
+const PROMPT_TRANSLATION_BATCH_TIMEOUT_MS = 25000;
+const PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS = 60000;
 
 const MAX_ASSET_CONCURRENCY = 8;
 // 视频下载大小上限（与 story2video-paths MEDIA_RULES.video 一致：512MB）
@@ -90,13 +98,64 @@ function getAiGenerator (pipelineEngine) {
 }
 
 /**
+ * 从 LLM 原文提取最后一个可解析且为对象的平衡 JSON（兼容 markdown 代码块、HTML 闭合/未闭合标签、
+ * marker 或说明文字等任意包装，起始 `{` 不被消费）。说明文字/LLM 回显示例本身含花括号时，
+ * 遍历每个 `{` 起点并跳过不可解析片段；取最后一个可解析对象，避免把示例误当最终译文。
+ * 找不到可解析对象时返回 null，调用方回退逐行解析。
+ * @param {string} text
+ * @returns {string|null}
+ */
+function extractParseableJsonObject (text) {
+  if (typeof text !== 'string') return null
+  let best = null
+  for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
+    const candidate = extractBalancedJsonAt(text, start)
+    if (!candidate) continue
+    try {
+      const parsed = JSON.parse(candidate)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) best = candidate
+    } catch (_) { /* 该起点不可解析，继续下一个 */ }
+  }
+  return best
+}
+
+/**
+ * 从指定 `{` 起点扫描首个平衡 JSON 片段；字符串内的花括号与转义不参与深度计数。
+ * 无法闭合时返回 null。
+ * @param {string} text
+ * @param {number} start
+ * @returns {string|null}
+ */
+function extractBalancedJsonAt (text, start) {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null
+}
+
+/**
  * 提示词本地语言翻译（2026-08-12）：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
  * fail-open：LLM 不可用/单场景失败 → 对应项 translation=null，不阻塞流水线。
  */
 async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
-  const items = (Array.isArray(prompts) ? prompts : []).map((prompt, index) => ({
-    index,
-    prompt: typeof prompt === 'string' ? prompt : '',
+  const items = (Array.isArray(prompts) ? prompts : []).map((value, position) => ({
+    index: value && typeof value === 'object' && Number.isInteger(value.index) ? value.index : position,
+    prompt: typeof value === 'string' ? value : (typeof value?.prompt === 'string' ? value.prompt : ''),
     translation: null,
   }))
   if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
@@ -123,18 +182,33 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
           { role: 'user', content: '{\n' + joined + '\n}' },
         ],
       })
-      const raw = result && typeof result.content === 'string' ? result.content.trim() : ''
+      let raw = result && typeof result.content === 'string' ? result.content.trim() : ''
+      // 剥离 LLM 可能返回的 markdown 代码块包装（```json ... ```），防止 JSON.parse 失败回退时将标记语法当译文
+      if (raw) {
+        const fenceMatch = raw.match(/^```(?:json)?\s*\r?\n([\s\S]*?)\r?\n\s*```\s*$/)
+        if (fenceMatch) raw = fenceMatch[1].trim()
+      }
       // 优先按 index 对齐的 JSON 解析；失败时回退逐行（编号前缀）映射
       let map = null
-      try {
-        const parsed = JSON.parse(raw)
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed
-      } catch (_) { /* fallthrough */ }
+      // 先提取最后一个可解析的平衡 JSON 对象：LLM 可能用 HTML 闭合/未闭合标签、marker
+      // 或说明文字包裹 JSON，也可能先回显示例再给最终译文；直接 parse 会失败并让逐行
+      // 回退把包裹文本当译文（2026-08-23 双模型审查 W1 加固）。
+      const jsonCandidate = extractParseableJsonObject(raw)
+      if (jsonCandidate) {
+        try {
+          const parsed = JSON.parse(jsonCandidate)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed
+        } catch (_) { /* fallthrough */ }
+      }
       if (map) {
         for (const item of slice) {
           const translated = map[String(item.index)]
           if (typeof translated === 'string' && translated.trim() && translated.trim() !== item.prompt) {
-            item.translation = translated.trim().slice(0, 2000)
+            const text = translated.trim()
+            // 防御：值本身是 JSON 对象文本（如 LLM 未正确拆解键值对）或代码块标记，不作为译文
+            if (!/^\{["']\d/.test(text) && text !== 'json') {
+              item.translation = text.slice(0, 2000)
+            }
           }
         }
       } else {
@@ -142,6 +216,12 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
         for (let i = 0; i < slice.length && i < lines.length; i++) {
           const line = lines[i].replace(/^\d+\s*[.)、]\s*/, '').trim()
           if (line && line !== slice[i].prompt) slice[i].translation = line.slice(0, 2000)
+        }
+        // 逐行回退也排除 JSON 对象文本和代码块标记
+        for (const item of slice) {
+          if (typeof item.translation === 'string' && (/^\{["']\d/.test(item.translation) || item.translation === 'json')) {
+            item.translation = null
+          }
         }
       }
     } catch (error) {
@@ -153,12 +233,203 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
   return items
 }
 
+function createPromptTranslationPending (output, uiLocale) {
+  const source = Array.isArray(output) ? output : []
+  return {
+    uiLocale: String(uiLocale || '').trim().slice(0, 16),
+    items: source.map((item, index) => ({
+      index,
+      prompt: typeof item === 'string'
+        ? item.trim()
+        : (typeof item?.optimized_prompt === 'string'
+          ? item.optimized_prompt.trim()
+          : (typeof item?.prompt === 'string' ? item.prompt.trim() : '')),
+    })).filter((item) => item.prompt),
+  }
+}
+
+function applyPromptTranslationsToScenes (scenes, translations) {
+  const byIndex = new Map((Array.isArray(translations) ? translations : [])
+    .filter((item) => item && Number.isInteger(item.index))
+    .map((item) => [item.index, typeof item.translation === 'string' && item.translation.trim() ? item.translation.trim() : null]))
+  if (!Array.isArray(scenes)) return
+  for (const scene of scenes) {
+    if (!scene || !Number.isInteger(scene.index)) continue
+    scene.promptTranslation = byIndex.has(scene.index) ? byIndex.get(scene.index) : null
+  }
+}
+
+function mergePromptTranslationItems (items, existingItems) {
+  const existingByIndex = new Map((Array.isArray(existingItems) ? existingItems : [])
+    .filter((item) => item && Number.isInteger(item.index) && item.index >= 0 && typeof item.prompt === 'string' && item.prompt.trim())
+    .map((item) => [item.index, item]))
+  const seenIndexes = new Set()
+  return (Array.isArray(items) ? items : []).map((item) => {
+    if (!item || !Number.isInteger(item.index) || item.index < 0 || typeof item.prompt !== 'string' || !item.prompt.trim()) return null
+    if (seenIndexes.has(item.index)) return null
+    seenIndexes.add(item.index)
+    const existing = existingByIndex.get(item && item.index)
+    const existingMatchesPrompt = existing && existing.prompt.trim() === item.prompt.trim()
+    const translation = existingMatchesPrompt && typeof existing.translation === 'string' && existing.translation.trim()
+      ? existing.translation.trim().slice(0, 2000)
+      : (typeof item?.translation === 'string' && item.translation.trim() ? item.translation.trim().slice(0, 2000) : null)
+    return { index: item.index, prompt: item.prompt.trim(), translation }
+  }).filter(Boolean)
+}
+
+async function runBoundedPromptTranslation (aiGenerator, pending, log) {
+  const items = mergePromptTranslationItems(pending?.items, pending?.existingItems)
+  const resultItems = items.map((item) => ({ ...item }))
+  if (items.length === 0) return { results: resultItems, degraded: false }
+  const batchSize = 3
+  const startedAt = Date.now()
+  const batches = []
+  const untranslatedItems = items.filter((item) => !item.translation)
+  for (let offset = 0; offset < untranslatedItems.length; offset += batchSize) {
+    batches.push(untranslatedItems.slice(offset, offset + batchSize))
+  }
+  let degraded = false
+  for (const batch of batches) {
+    if (Date.now() - startedAt >= PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS) {
+      degraded = true
+      break
+    }
+    const remaining = Math.max(1, PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS - (Date.now() - startedAt))
+    const timeoutMs = Math.min(PROMPT_TRANSLATION_BATCH_TIMEOUT_MS, remaining)
+    let timeoutId
+    try {
+      const translationPromise = translatePromptsForLocale(
+        aiGenerator,
+        batch.map((item) => ({ index: item.index, prompt: item.prompt })),
+        pending.uiLocale,
+        log,
+      )
+      const timeoutPromise = new Promise((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), timeoutMs)
+      })
+      const translated = await Promise.race([translationPromise, timeoutPromise])
+      if (!translated) {
+        degraded = true
+        continue
+      }
+      if (!Array.isArray(translated) || translated.length !== batch.length || translated.some((item, index) => (
+        !item || item.index !== batch[index].index || item.prompt !== batch[index].prompt
+      ))) {
+        degraded = true
+        continue
+      }
+      for (let index = 0; index < batch.length; index += 1) {
+        const source = translated[index]
+        const target = resultItems.find((item) => item.index === batch[index].index)
+        if (target && source && typeof source.translation === 'string' && source.translation.trim()) {
+          target.translation = source.translation.trim().slice(0, 2000)
+        }
+      }
+    } catch (error) {
+      degraded = true
+      if (log && typeof log.warn === 'function') {
+        log.warn('Story2VideoStages', 'bounded prompt translation failed: ' + (error?.message || String(error)))
+      }
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }
+  if (resultItems.some((item) => !item.translation)) degraded = true
+  return {
+    results: resultItems,
+    degraded,
+    reason: degraded ? 'prompt translation incomplete or timed out' : null,
+  }
+}
+
+function registerPromptTranslationComposeTask (pipelineEngine) {
+  const stageExecutor = pipelineEngine && pipelineEngine.stageExecutor
+  if (!stageExecutor || typeof stageExecutor.registerComposeParallelTask !== 'function') return
+  stageExecutor.registerComposeParallelTask(STORY2VIDEO_COMPOSE_PARALLEL_TASK, ({ context }) => {
+    const pending = context && context.prompt_translations_pending
+    const existing = context && context.prompt_translations
+    const existingItems = existing && Array.isArray(existing.items) ? existing.items : null
+    if ((!pending || !Array.isArray(pending.items) || pending.items.length === 0) && !existingItems) return null
+    const aiGenerator = getAiGenerator(pipelineEngine)
+    const baseItems = Array.isArray(pending?.items) && pending.items.length > 0
+      ? pending.items
+      : existingItems
+    const mergedItems = mergePromptTranslationItems(baseItems, existingItems)
+    const translationPending = {
+      uiLocale: pending?.uiLocale || existing?.uiLocale || '',
+      items: mergedItems,
+      existingItems: mergedItems,
+    }
+    const promise = mergedItems.every((item) => typeof item.translation === 'string' && item.translation.trim())
+      ? Promise.resolve({ results: mergedItems, degraded: false })
+      : runBoundedPromptTranslation(aiGenerator, translationPending, pipelineEngine.log)
+    return {
+      promise,
+      timeoutMs: PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS + 5000,
+      apply: ({ context: runContext, composeOutput, result }) => {
+        const resultItems = Array.isArray(result && result.results) ? result.results : []
+        const fallbackItems = mergedItems
+        const items = mergePromptTranslationItems(
+          fallbackItems.length > 0 ? fallbackItems : resultItems,
+          resultItems,
+        )
+        const uiLocale = pending?.uiLocale || existing?.uiLocale || ''
+        if (runContext && typeof runContext === 'object') {
+          runContext.prompt_translations = { uiLocale, items }
+          if (result && result.degraded === true) {
+            runContext.prompt_translations_pending = { uiLocale, items }
+            runContext.prompt_translation_diagnostic = {
+              uiLocale,
+              degraded: true,
+              reason: result.reason || 'prompt translation incomplete or timed out',
+              itemCount: items.length,
+            }
+          } else {
+            delete runContext.prompt_translations_pending
+            delete runContext.prompt_translation_diagnostic
+          }
+        }
+        applyPromptTranslationsToScenes(runContext && runContext.generate_assets && runContext.generate_assets.scenes, items)
+        applyPromptTranslationsToScenes(composeOutput && composeOutput.segments, items)
+      },
+    }
+  })
+}
+
 /**
  * 解析视频生成器：显式 provider/model 优先，否则取模型管理器默认 video 能力。
  * 返回 null 表示未配置（调用方 fail closed 引导设置）。
  */
-function resolveVideoGeneratorConfig (pipelineEngine, explicit) {
-  if (explicit && typeof explicit === 'object') {
+function resolveCapabilityModel (provider, type) {
+  if (!provider || typeof provider !== 'object') return ''
+  const capabilityModel = provider.capability_models && typeof provider.capability_models === 'object'
+    ? provider.capability_models[type]
+    : null
+  if (typeof capabilityModel === 'string' && capabilityModel.trim()) return capabilityModel.trim()
+  const models = Array.isArray(provider.models)
+    ? provider.models.filter(item => typeof item === 'string' && item.trim())
+    : []
+  return models[0] ? models[0].trim() : ''
+}
+
+function resolveCurrentCapabilityConfig (pipelineEngine, type, explicit = {}, options = {}) {
+  const useCurrentModels = options.useCurrentModels === true
+  const explicitProvider = !useCurrentModels && typeof explicit.provider === 'string' ? explicit.provider.trim() : ''
+  const explicitModel = !useCurrentModels && typeof explicit.model === 'string' ? explicit.model.trim() : ''
+  if (explicitProvider) return { providerId: explicitProvider, model: explicitModel }
+
+  const aiGenerator = getAiGenerator(pipelineEngine)
+  let manager = aiGenerator && aiGenerator._modelProviderManager
+  if (!manager && pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function') {
+    try { manager = pipelineEngine.container.get('modelProviderManager') } catch (_) { /* 未注册 */ }
+  }
+  const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault(type) : null
+  if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
+  return { providerId: provider.id.trim(), model: resolveCapabilityModel(provider, type) }
+}
+
+function resolveVideoGeneratorConfig (pipelineEngine, explicit, options = {}) {
+  if (options.useCurrentModels !== true && explicit && typeof explicit === 'object') {
     const providerId = typeof explicit.provider === 'string' ? explicit.provider.trim() : ''
     if (providerId) {
       return {
@@ -167,23 +438,7 @@ function resolveVideoGeneratorConfig (pipelineEngine, explicit) {
       }
     }
   }
-  const aiGenerator = getAiGenerator(pipelineEngine)
-  const manager = aiGenerator && aiGenerator._modelProviderManager
-  const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault('video') : null
-  if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
-  const models = Array.isArray(provider.models)
-    ? provider.models.filter(item => typeof item === 'string' && item.trim())
-    : []
-  // 多模态 provider：优先取 capability_models.video（能力默认模型），models 首项可能是 image/llm 模型
-  // （与前端 getS2VDefaultVideoModel 同源，2026-08-11 W1）。
-  let model
-  if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
-    const videoModel = provider.capability_models.video
-    model = models.includes(videoModel) ? videoModel : (videoModel || models[0] || '')
-  } else {
-    model = models[0] || ''
-  }
-  return { providerId: provider.id.trim(), model: model ? model.trim() : '' }
+  return resolveCurrentCapabilityConfig(pipelineEngine, 'video', {}, options)
 }
 
 /** 场景估算时长：sentence.duration 优先，其次 split.targetSeconds，兜底默认 6s。 */
@@ -566,7 +821,7 @@ async function buildManualSceneCandidates (ctx) {
     optimizedPrompts, sentences, videoSceneSet, videoConfig, videoPlan, videoGenerator,
     imageStyle, imageProvider, imageModel, aspectRatio,
     imageConcurrency, inputMode, inputImages, resolveModelProviderManager, manualMaterialMode,
-    videoConcurrency,
+    videoConcurrency, onProgress,
   } = ctx
   const promptTranslationItems = (context && context.prompt_translations && Array.isArray(context.prompt_translations.items))
     ? context.prompt_translations.items
@@ -584,11 +839,34 @@ async function buildManualSceneCandidates (ctx) {
   const videosTotal = effectiveVideoSceneSet.size
   let imagesDone = 0
   let videosDone = 0
-  const writeAssetsProgress = () => {
+  const writeAssetsProgress = (kind = 'resource') => {
     if (context && typeof context === 'object') {
       context.assets_progress = {
         imagesDone, imagesTotal, videosDone, videosTotal, ttsDone: 0, ttsTotal: sentences.length,
       }
+    }
+    if (typeof onProgress === 'function') {
+      const total = imagesTotal + videosTotal
+      const done = imagesDone + videosDone
+      const messageKey = kind === 'image'
+        ? 'stageProgress.assetsImage'
+        : kind === 'video'
+          ? 'stageProgress.assetsVideo'
+          : 'stageProgress.assetsStarting'
+      onProgress({
+        percent: total > 0 ? Math.round((done / total) * 100) : 0,
+        message: 'Generating visual assets…',
+        messageKey,
+        messageParams: {
+          images: imagesDone,
+          imagesTotal,
+          videos: videosDone,
+          videosTotal,
+          tts: 0,
+          ttsTotal: sentences.length,
+        },
+        detail: { done, total, kind: 'resource' },
+      })
     }
   }
   writeAssetsProgress()
@@ -607,44 +885,38 @@ async function buildManualSceneCandidates (ctx) {
     const videoFps = Number(params.fps || (params.output && params.output.fps) || (stage && stage.options && stage.options.fps)) || 30
     const videoRunDir = path.join(os.tmpdir(), 'story2video', 'videoscenes', String(runId || 'run'))
     const planScenes = Array.isArray(videoPlan && videoPlan.scenes) ? videoPlan.scenes : []
+    // Round3 B 跨镜承接：视频提示词按场景顺序串行优化（prev_final_frame 链），生成仍按预算并发；
+    // 优化失败场景按混合模式回退（images only）。终态回写 scenes[index].video.final_frame 供后续镜承接。
+    const optimizedVideoPrompts = await optimizeVideoScenePrompts({
+      pipelineEngine,
+      serviceBus,
+      videoSceneIndexes,
+      optimizedPrompts,
+      scenes: getOptimizationScenes(context || {}),
+      resumeCompleted: null,
+      videoGenerator,
+      videoConfig,
+      runId,
+      log,
+      fallbackLabel: 'fallback to images only',
+      missingBridgeLabel: 'manual video fallback to images only',
+    })
     videoPromise = _mapWithConcurrency(videoSceneIndexes, effectiveVideoConcurrency, async (index) => {
-      const promptItem = optimizedPrompts[index]
-      const promptText = typeof promptItem === 'string'
-        ? promptItem
-        : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
-      if (!promptText) {
-        videoResults.set(index, { success: false, error: '视频场景缺少提示词' })
+      const prep = optimizedVideoPrompts.get(index)
+      if (!prep || prep.error || !prep.prompt) {
+        const continuity = prep && prep.continuity
+          ? prep.continuity
+          : buildPlannedFinalFrameContinuity({ reason: prep && prep.error ? 'prompt_optimization_failed' : 'missing_prompt' })
+        videoResults.set(index, attachVideoContinuityMeta(
+          { success: false, error: (prep && prep.error) || '视频场景缺少提示词' },
+          continuity,
+          prep && prep.engine_source,
+        ))
         videosDone += 1
-        writeAssetsProgress()
+        writeAssetsProgress('video')
         return { index, success: false }
       }
-      let videoPromptText = promptText
-      const bus = serviceBus || pipelineEngine.serviceBus
-      if (bus && typeof bus.optimizeVideoPrompt === 'function') {
-        try {
-          const optResult = await bus.optimizeVideoPrompt(promptText, {
-            platform: videoGenerator.providerId || undefined,
-            ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
-            traceId: runId,
-          })
-          const validated = extractOptimizedVideoPrompt(optResult, { index })
-          if (!validated.ok) throw new Error(validated.error)
-          videoPromptText = validated.prompt
-        } catch (error) {
-          log.warn('Story2VideoStages', 'scene ' + index + ' manual video prompt optimize failed: ' +
-            (error && error.message ? error.message : String(error)) + ' → fallback to images only')
-          videoResults.set(index, { success: false, error: '视频提示词优化失败：' + (error && error.message ? error.message : String(error)) })
-          videosDone += 1
-          writeAssetsProgress()
-          return { index, success: false }
-        }
-      } else {
-        log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → manual video fallback to images only')
-        videoResults.set(index, { success: false, error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' })
-        videosDone += 1
-        writeAssetsProgress()
-        return { index, success: false }
-      }
+      const videoPromptText = prep.prompt
       const planScene = planScenes.find(scene => scene.index === index)
       let outcome
       try {
@@ -665,13 +937,21 @@ async function buildManualSceneCandidates (ctx) {
             pollIntervalMs: videoConfig.pollIntervalMs,
           })),
         )
-        videoResults.set(index, outcome)
+        videoResults.set(index, attachVideoContinuityMeta(
+          outcome,
+          prep.continuity,
+          prep.engine_source,
+        ))
       } catch (error) {
         log.warn('Story2VideoStages', 'scene ' + index + ' manual video generation threw: ' + (error && error.message ? error.message : String(error)) + ' → fallback to images only')
-        videoResults.set(index, { success: false, error: error && error.message ? error.message : String(error) })
+        videoResults.set(index, attachVideoContinuityMeta(
+          { success: false, error: error && error.message ? error.message : String(error) },
+          prep.continuity,
+          prep.engine_source,
+        ))
       }
       videosDone += 1
-      writeAssetsProgress()
+      writeAssetsProgress('video')
       return { index, success: Boolean(outcome && outcome.success) }
     })
   }
@@ -682,6 +962,7 @@ async function buildManualSceneCandidates (ctx) {
       ? promptItem
       : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
     if (!promptText) return { success: false, index, error: '场景缺少提示词' }
+    const negativePrompt = resolveSceneNegativePrompt(context, stage, index)
     let result
     if (assetGenerator) {
       result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
@@ -691,6 +972,7 @@ async function buildManualSceneCandidates (ctx) {
         index,
         aspect_ratio: aspectRatio,
         runId,
+        ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
       }))
     } else {
       const retryResult = await runContentPolicyImageRetry({
@@ -706,6 +988,7 @@ async function buildManualSceneCandidates (ctx) {
             index,
             aspect_ratio: aspectRatio,
             runId,
+            ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
           }))
           const providerError = attemptResult?.error || attemptResult?.data?.error
           if (providerError && typeof providerError === 'object') throw providerError
@@ -725,7 +1008,7 @@ async function buildManualSceneCandidates (ctx) {
       } else if (retryResult.status === 'needs_user_input') {
         result = {
           code: -1,
-          message: 'Image generation requires user input after content-policy review',
+          message: needsUserInputMessage(retryResult.checkpoint),
           needsUserInput: true,
           checkpoint: retryResult.checkpoint,
           data: { needsUserInput: true, checkpoint: retryResult.checkpoint, generationAttempts: retryResult.attempts },
@@ -739,12 +1022,12 @@ async function buildManualSceneCandidates (ctx) {
       const candidatePath = persistCandidateCopy(normalized.path, runId, index, seq, 'image', log)
       if (!candidatePath) return { success: false, index, error: '候选图片落盘失败' }
       imagesDone += 1
-      writeAssetsProgress()
+      writeAssetsProgress('image')
       return { success: true, index, path: candidatePath, seq, meta: normalized.meta }
     }
     const contentPolicyCheckpoint = getContentPolicyCheckpoint(result, index)
     imagesDone += 1
-    writeAssetsProgress()
+    writeAssetsProgress('image')
     return {
       success: false,
       index,
@@ -776,7 +1059,7 @@ async function buildManualSceneCandidates (ctx) {
   if (contentPolicyFailure) {
     return {
       success: false,
-      error: contentPolicyFailure.error || 'Image generation requires user input after content-policy review',
+      error: contentPolicyFailure.error || needsUserInputMessage(contentPolicyFailure.checkpoint),
       needsUserInput: true,
       checkpoint: contentPolicyFailure.checkpoint || null,
       generationAttempts: contentPolicyFailure.generationAttempts || [],
@@ -859,6 +1142,19 @@ async function buildManualSceneCandidates (ctx) {
   }
   if (context && typeof context === 'object') context.generate_assets = assetManifest
 
+  if (typeof onProgress === 'function') {
+    onProgress({
+      percent: 100,
+      message: 'Visual candidates are ready.',
+      messageKey: 'stageProgress.manualCandidatesComplete',
+      messageParams: { scenes: sceneCount, images: imagesTotal, videos: videosTotal },
+      summary: 'Visual candidates are ready for selection.',
+      summaryKey: 'stageProgress.manualCandidatesSummary',
+      summaryParams: { scenes: sceneCount, images: imagesTotal, videos: videosTotal },
+      detail: { done: imagesTotal + videosTotal, total: imagesTotal + videosTotal, kind: 'resource' },
+    })
+  }
+
   log.info('Story2VideoStages',
     'manual candidates: ' + sceneCount + ' scenes (' + imagesTotal + ' images, ' + videosTotal + ' videos) materialMode=' + manualMaterialMode +
     ' successImages=' + assetManifest.stats.successImages + ' successVideos=' + assetManifest.stats.successVideos)
@@ -888,7 +1184,8 @@ function unwrapScenesArray (source) {
 }
 
 const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota|queue\s*(?:is\s+)?full|队列.*(?:满|饱和)/i;
-const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i;
+// aborted：上游请求被中止（如 MiniMax 偶发不返回）应按瞬时错误重试，而非直接判失败。
+const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|aborted|超时|网络/i;
 
 function messageOf(value) {
   if (value && typeof value === 'object') return String(value.message || value.error || value.msg || '');
@@ -939,14 +1236,20 @@ async function withTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 
  * 对返回结果对象（如 { code: -1, message }）或抛错的资源生成调用做有界重试。
  * 仅在可判定为瞬时（限流/超时/网络）时重试；内容政策检查点、模型配置等失败原样返回。
  */
-async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4 } = {}) {
+async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4, excludeMessages = [] } = {}) {
+  // 可重试判定：瞬时错误且未被调用方排除（历史路径排除轮询超时/任务终态，避免重试重复提交计费任务，审查 M1）
+  const isTransient = (value) => {
+    if (!isTransientErrorLike(value)) return false;
+    const text = messageOf(value);
+    return !excludeMessages.some((marker) => text.includes(marker));
+  };
   let last = null;
   for (let attempt = 1; attempt <= Math.max(maxAttempts, rateLimitMaxAttempts); attempt++) {
     let outcome;
     try {
       outcome = await fn(attempt);
     } catch (error) {
-      if (!isTransientErrorLike(error)) throw error;
+      if (!isTransient(error)) throw error;
       last = error;
       const limit = isRateLimitErrorLike(error) ? rateLimitMaxAttempts : maxAttempts;
       if (attempt >= limit) return { code: -1, message: error.message || String(error) };
@@ -954,7 +1257,7 @@ async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttemp
       continue;
     }
     const ok = outcome && (Number(outcome.code) === 0 || outcome.success === true);
-    const transient = !ok && outcome && isTransientErrorLike(outcome);
+    const transient = !ok && outcome && isTransient(outcome);
     if (ok) return outcome;
     if (!transient) return outcome;
     last = outcome;
@@ -1020,6 +1323,101 @@ function summarizeAssetFailures(label, results) {
   });
 }
 
+/**
+ * Unified cloned-voice re-clone fallback for TTS stages.
+ * 约定：仅尝试用本地样本重新克隆并重试合成；重新克隆失败时透传原始音色错误，
+ * 不得静默换成 provider 默认官方音色（用户显式选择了克隆音色）。
+ */
+async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProvider, voiceModel, resolveManager, retryFn }) {
+  const _errMsg = String((error && error.message) || error || '')
+  const _errCode = (error && error.code) || (error && error.context && error.context.code) || ''
+  const _isClonedVoiceFail = _errCode === 'INVALID_CONFIG'
+    || /voice\s+(?:id\s+)?(?:wrong|not\s+found|does\s+not\s+exist|unavailable|missing)/i.test(_errMsg)
+    || /voice_id.*(?:not\s+found|not\s+exist|invalid|wrong|not\s+support)/i.test(_errMsg)
+    || /cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)/i.test(_errMsg)
+    || /(?:don't|do not|cannot|can't)\s+have\s+access.*voice/i.test(_errMsg)
+    || /\u5f53\u524d\u8d26\u53f7.*\u97f3\u8272|\u8d26\u53f7.*\u97f3\u8272|\u5c5e\u4e8e.*\u5176\u4ed6.*\u8d26\u53f7/.test(_errMsg)
+    || /\u97f3\u8272.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
+    || /voice.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/i.test(_errMsg)
+    || /\u58f0\u97f3.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
+  if (!_isClonedVoiceFail) return null
+  const log = pipelineEngine && pipelineEngine.log
+  if (log && log.warn) log.warn('[Story2Video] cloned voice unavailable, attempting re-clone', { voiceId, voiceProvider, error: _errMsg.slice(0, 200) })
+  try {
+    const cloneSvc = pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
+      ? (() => { try { return pipelineEngine.container.get('ttsVoiceCloneService') } catch (_) { return null } })() : null
+    if (!cloneSvc || typeof cloneSvc.findCloneSamples !== 'function') {
+      if (log && log.warn) log.warn('[Story2Video] ttsVoiceCloneService not available for re-clone')
+      return null
+    }
+    const samples = await cloneSvc.findCloneSamples(voiceId, voiceProvider, voiceModel || 'speech-02-hd')
+    if (!samples || !samples.sampleStorage) {
+      if (log && log.warn) log.warn('[Story2Video] no persisted clone samples found', { voiceId })
+      return null
+    }
+    const userDataDir = (() => {
+      if (cloneSvc && typeof cloneSvc._resolveUserDataPath === 'function') {
+        try { return cloneSvc._resolveUserDataPath() || null } catch (_) { /* fall through */ }
+      }
+      const container = pipelineEngine && pipelineEngine.container
+      if (container && typeof container.get === 'function') {
+        try { const s = container.get('store'); return s && typeof s.getUserDataDir === 'function' ? s.getUserDataDir() : null } catch (_) { return null }
+      }
+      return null
+    })()
+    if (!userDataDir || !samples.sampleStorage.relativeDir) {
+      if (log && log.warn) log.warn('[Story2Video] userDataDir not available for re-clone')
+      return null
+    }
+    const sampleDir = path.join(userDataDir, samples.sampleStorage.relativeDir)
+    const sampleFiles = fs.readdirSync(sampleDir).filter(f => /\.(mp3|wav|m4a)$/i.test(f))
+    if (sampleFiles.length === 0) {
+      if (log && log.warn) log.warn('[Story2Video] no audio samples on disk', { sampleDir })
+      return null
+    }
+    const audioBuffer = fs.readFileSync(path.join(sampleDir, sampleFiles[0]))
+    const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
+    const manager = typeof resolveManager === "function" ? resolveManager() : null
+    const cloneParams = { name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] }
+    let newVoice
+    if (manager && typeof manager.callAdapter === 'function') {
+      // ModelProviderManager is the production boundary: it injects the decrypted
+      // provider key, checks capabilities, and wraps adapter results as code/data.
+      const cloneResult = await manager.callAdapter(voiceProvider, 'cloneVoice', cloneParams)
+      if (!cloneResult || cloneResult.code !== 0) {
+        const cloneError = cloneResult && cloneResult.error
+        if (cloneError instanceof Error) throw cloneError
+        const message = cloneResult && cloneResult.message
+          ? cloneResult.message
+          : 'TTS adapter does not support cloneVoice'
+        throw Object.assign(new Error(message), {
+          code: cloneResult && (cloneResult.errorCode || cloneResult.code),
+        })
+      }
+      newVoice = cloneResult.data
+    } else {
+      // Keep compatibility with the small adapter doubles used by older callers.
+      const ttsAdapter = manager && typeof manager.getAdapter === 'function' ? manager.getAdapter(voiceProvider) : null
+      if (!ttsAdapter || typeof ttsAdapter.cloneVoice !== 'function') {
+        if (log && log.warn) log.warn('[Story2Video] TTS adapter does not support cloneVoice', { voiceProvider })
+        return null
+      }
+      newVoice = await ttsAdapter.cloneVoice(cloneParams)
+    }
+    if (!newVoice || !newVoice.id) {
+      if (log && log.warn) log.warn('[Story2Video] cloneVoice returned no new voice ID')
+      return null
+    }
+    if (log && log.info) log.info('[Story2Video] re-clone success: ' + voiceId + ' -> ' + newVoice.id)
+    const result = await retryFn(newVoice.id)
+    const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
+    if (normalized) return { path: normalized.path, duration: normalized.duration, meta: normalized.meta }
+  } catch (reCloneErr) {
+    if (log && log.warn) log.warn('[Story2Video] re-clone fallback failed', reCloneErr)
+  }
+  return null
+}
+
 function getContentPolicyCheckpoint(result, fallbackSceneIndex) {
   const checkpoint = result?.checkpoint || result?.data?.checkpoint;
   if (!checkpoint || checkpoint.reason !== 'content_policy' || checkpoint.type !== 'needs_user_input') return null;
@@ -1071,12 +1469,285 @@ function buildContentPolicyCheckpointMeta(failedImages) {
 }
 
 function getOptimizationScenes(context) {
-  // scene_context 中间层（全局故事背景 + 逐场景上下文块）优先，回退 domain_enrich → split → sentences
-  const source = context.scene_context || context.domain_enrich || context.split || context.sentences;
+  // scene_context 中间层（全局故事背景 + 逐场景上下文块 + 历史种子）优先，回退 split → sentences
+  const source = context.scene_context || context.split || context.sentences;
   if (Array.isArray(source)) return source;
   if (source && Array.isArray(source.scenes)) return source.scenes;
   if (source && Array.isArray(source.sentences)) return source.sentences;
   return null;
+}
+
+/**
+ * 按场景索引取 negativeAnchors（2026-08-16 east-asian-face-anchor）。
+ * 出图阶段自行按 index 从 scene_context 取，不从 optimize 条目带（W5：覆盖
+ * skipped_optimize / too_short / llm_rejected 三种回退分支）。
+ * 前置条件：scene_context.scenes 数组顺序与 generate 循环 index 严格 1:1
+ * （split→scene_context→optimize→generate 正常流程成立；断点续传/降级回退已由 W5 覆盖）。
+ * @returns {string[]}
+ */
+function sceneNegativeAnchorsOf(context, index) {
+  const scenes = getOptimizationScenes(context || {});
+  const scene = Array.isArray(scenes) ? scenes[index] : null;
+  return scene && typeof scene === 'object' && !Array.isArray(scene) && Array.isArray(scene.negativeAnchors)
+    ? scene.negativeAnchors
+    : [];
+}
+
+/**
+ * 合并 stage.options.negative_prompt 与场景负面锚（<={max}）。
+ * 无场景锚但用户配置了 stage.options.negative_prompt 时仍透传 base（审查 W：与 optimize 请求
+ * 语义一致）；两者皆无才返回空串（调用方不带 negative_prompt 键）。
+ */
+function resolveSceneNegativePrompt(context, stage, index) {
+  const anchors = sceneNegativeAnchorsOf(context, index);
+  const base = stage && stage.options && typeof stage.options.negative_prompt === 'string' ? stage.options.negative_prompt : '';
+  if (anchors.length === 0 && !base) return '';
+  return mergeNegativePrompt(base, anchors, 500);
+}
+
+function resumeFinalFrameOf(resumeEntry) {
+  if (!resumeEntry || typeof resumeEntry !== 'object' || Array.isArray(resumeEntry)) return { value: '', source: null }
+  const candidates = [
+    ['checkpoint.final_frame', resumeEntry.final_frame],
+    ['checkpoint.continuity.finalFrame', resumeEntry.continuity && resumeEntry.continuity.finalFrame],
+    ['checkpoint.videoMeta.continuity.finalFrame', resumeEntry.videoMeta && resumeEntry.videoMeta.continuity && resumeEntry.videoMeta.continuity.finalFrame],
+    ['video.final_frame', resumeEntry.video && resumeEntry.video.final_frame],
+    ['endingState', resumeEntry.endingState],
+    ['finalFrame', resumeEntry.finalFrame],
+  ]
+  for (const [source, raw] of candidates) {
+    const value = normalizePrevFinalFrame(raw)
+    if (value) return { value, source }
+  }
+  return { value: '', source: null }
+}
+
+function resolveSceneFinalFrame(scene, resumeEntry) {
+  if (resumeEntry) {
+    const restored = resumeFinalFrameOf(resumeEntry)
+    if (restored.value) return restored
+  }
+  if (!scene || typeof scene !== 'object' || Array.isArray(scene)) return { value: '', source: null }
+  const candidates = [
+    ['video.final_frame', scene.video && scene.video.final_frame],
+    ['endingState', scene.endingState],
+    ['finalFrame', scene.finalFrame],
+  ]
+  for (const [source, raw] of candidates) {
+    const value = normalizePrevFinalFrame(raw)
+    if (value) return { value, source }
+  }
+  return { value: '', source: null }
+}
+
+function writeSceneFinalFrame(scenes, index, rawFinalFrame) {
+  const finalFrame = normalizePrevFinalFrame(rawFinalFrame)
+  const scene = Array.isArray(scenes) ? scenes[index] : null
+  if (!finalFrame || !scene || typeof scene !== 'object' || Array.isArray(scene)) return ''
+  if (!scene.video || typeof scene.video !== 'object' || Array.isArray(scene.video)) scene.video = {}
+  scene.video.final_frame = finalFrame
+  return finalFrame
+}
+
+function isResumedVideoScene(resumeCompleted, index) {
+  const resumed = resumeCompleted && typeof resumeCompleted.get === 'function' ? resumeCompleted.get(index) : null
+  return Boolean(resumed && typeof resumed.videoPath === 'string' && resumed.videoPath && fs.existsSync(resumed.videoPath))
+}
+
+function normalizeResumeEntry (item) {
+  if (!item || !Number.isInteger(item.index) || item.index < 0) return null
+  const imagePath = resolveReadableMediaFile(item.imagePath, { kind: 'image' })
+  const audioPath = resolveReadableMediaFile(item.audioPath, { kind: 'audio' })
+  const videoPath = resolveReadableMediaFile(item.videoPath, { kind: 'video' })
+  if (!imagePath && !audioPath && !videoPath) return null
+  return {
+    ...item,
+    index: item.index,
+    imagePath,
+    audioPath,
+    videoPath,
+  }
+}
+
+function resumeEntryOf(resumeCompleted, index) {
+  return resumeCompleted && typeof resumeCompleted.get === 'function' ? resumeCompleted.get(index) : null
+}
+
+function continuityOfResumeEntry(resumeEntry) {
+  return resumeEntry && resumeEntry.continuity && typeof resumeEntry.continuity === 'object' && !Array.isArray(resumeEntry.continuity)
+    ? resumeEntry.continuity
+    : null
+}
+
+function buildPlannedFinalFrameContinuity ({ backend = 'unknown', finalFrame = null, finalFrameSource = null, reason = 'missing_final_frame' } = {}) {
+  const normalizedFrame = normalizePrevFinalFrame(finalFrame)
+  const active = Boolean(normalizedFrame)
+  return {
+    mode: 'planned_final_frame',
+    status: active ? 'active' : 'degraded',
+    backend: typeof backend === 'string' && backend.trim() ? backend.trim() : 'unknown',
+    finalFrameSource: active && typeof finalFrameSource === 'string' && finalFrameSource.trim() ? finalFrameSource.trim() : null,
+    finalFrame: normalizedFrame || null,
+    reason: active ? null : reason,
+  }
+}
+
+function continuityFromResumeEntry (resumeEntry, resolved) {
+  const stored = continuityOfResumeEntry(resumeEntry)
+  const finalFrame = resolved && resolved.value
+    ? resolved.value
+    : (stored && stored.finalFrame) || null
+  const backend = (stored && stored.backend) || (resumeEntry && resumeEntry.engine_source) || 'unknown'
+  const source = resolved && resolved.source
+    ? 'resume:' + resolved.source
+    : (finalFrame ? 'resume:checkpoint.continuity.finalFrame' : null)
+  return buildPlannedFinalFrameContinuity({
+    backend,
+    finalFrame,
+    finalFrameSource: source,
+    reason: 'missing_final_frame',
+  })
+}
+
+function attachVideoContinuityMeta (outcome, continuity, engineSource) {
+  if (!outcome || typeof outcome !== 'object' || Array.isArray(outcome)) return outcome
+  const existingMeta = outcome.meta && typeof outcome.meta === 'object' && !Array.isArray(outcome.meta)
+    ? outcome.meta
+    : {}
+  const resolvedContinuity = continuity && typeof continuity === 'object' && !Array.isArray(continuity)
+    ? continuity
+    : buildPlannedFinalFrameContinuity({ backend: engineSource })
+  return {
+    ...outcome,
+    meta: {
+      ...existingMeta,
+      ...(typeof engineSource === 'string' && engineSource ? { engine_source: engineSource } : {}),
+      continuity: resolvedContinuity,
+    },
+  }
+}
+
+async function optimizeVideoScenePrompts({
+  pipelineEngine,
+  serviceBus,
+  videoSceneIndexes,
+  optimizedPrompts,
+  scenes,
+  resumeCompleted,
+  videoGenerator,
+  videoConfig,
+  runId,
+  log,
+  fallbackLabel,
+  missingBridgeLabel,
+}) {
+  const results = new Map()
+  let lastFinalFrame = ''
+  let finalFrameSource = null
+  let chainBrokenWarned = false
+  let continuity = buildPlannedFinalFrameContinuity({ reason: 'not_started' })
+
+  for (const index of videoSceneIndexes) {
+    if (isResumedVideoScene(resumeCompleted, index)) {
+      const resumeEntry = resumeEntryOf(resumeCompleted, index)
+      // checkpoint 终态优先（resume.completed[index].final_frame / .video.final_frame / 旧字段），
+      // 缺 checkpoint 终态再回退 scene 对象回写值；两者都缺 → 断链（fail-safe）。
+      const restored = resolveSceneFinalFrame(Array.isArray(scenes) ? scenes[index] : null, resumeEntry)
+      lastFinalFrame = restored.value
+      finalFrameSource = restored.source ? 'resume:' + restored.source : null
+      continuity = continuityFromResumeEntry(resumeEntry, restored)
+      if (lastFinalFrame) {
+        log.info('Story2VideoStages', 'video-optimize resume scene ' + index +
+          ' final_frame restored (source=' + restored.source + ', chars=' + lastFinalFrame.length + ')')
+      } else if (!chainBrokenWarned) {
+        chainBrokenWarned = true
+        log.warn('Story2VideoStages', 'resume scene ' + index +
+          ' 缺少可用 final_frame，跨镜承接（prev_final_frame 链）已从该场景断开')
+      }
+      continue
+    }
+    const promptItem = optimizedPrompts[index]
+    const promptText = typeof promptItem === 'string'
+      ? promptItem
+      : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '')
+    if (!promptText) {
+      lastFinalFrame = ''
+      finalFrameSource = null
+      continuity = buildPlannedFinalFrameContinuity({ backend: continuity.backend, reason: 'missing_prompt' })
+      results.set(index, { error: '视频场景缺少提示词' })
+      continue
+    }
+
+    const bus = serviceBus || pipelineEngine.serviceBus
+    if (!bus || typeof bus.optimizeVideoPrompt !== 'function') {
+      lastFinalFrame = ''
+      finalFrameSource = null
+      continuity = buildPlannedFinalFrameContinuity({ backend: continuity.backend, reason: 'missing_prompt_bridge' })
+      log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → ' + missingBridgeLabel)
+      results.set(index, { error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' })
+      continue
+    }
+
+    try {
+      if (lastFinalFrame) {
+        log.info('Story2VideoStages', 'video-optimize scene ' + index +
+          ' prev_final_frame injected (source=' + finalFrameSource + ', chars=' + lastFinalFrame.length + ')')
+      }
+      const optResult = await bus.optimizeVideoPrompt(promptText, {
+        platform: videoGenerator.providerId || undefined,
+        ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
+        ...(lastFinalFrame ? { prev_final_frame: lastFinalFrame } : {}),
+        traceId: runId,
+      })
+      const validated = extractOptimizedVideoPrompt(optResult, { index })
+      if (!validated.ok) throw new Error(validated.error)
+      const engineSource = validated.engine_source || 'unknown'
+      continuity = buildPlannedFinalFrameContinuity({ backend: engineSource, reason: 'missing_final_frame' })
+
+      const finalFrame = writeSceneFinalFrame(
+        scenes,
+        index,
+        validated.video && validated.video.final_frame,
+      )
+      if (finalFrame) {
+        lastFinalFrame = finalFrame
+        finalFrameSource = 'runtime:video.final_frame'
+        continuity = buildPlannedFinalFrameContinuity({ backend: engineSource, finalFrame, finalFrameSource })
+      } else {
+        lastFinalFrame = ''
+        finalFrameSource = null
+        continuity = buildPlannedFinalFrameContinuity({ backend: engineSource, reason: 'missing_final_frame' })
+        if (!chainBrokenWarned) {
+          chainBrokenWarned = true
+          log.warn('Story2VideoStages', 'scene ' + index +
+            ' 视频引擎未返回 final_frame，跨镜承接（prev_final_frame 链）未生效（需 8020 独立视频引擎）')
+        }
+      }
+      results.set(index, {
+        prompt: validated.prompt,
+        engine_source: engineSource,
+        continuity: { ...continuity },
+      })
+    } catch (error) {
+      lastFinalFrame = ''
+      finalFrameSource = null
+      continuity = buildPlannedFinalFrameContinuity({ backend: continuity.backend, reason: 'prompt_optimization_failed' })
+      const safeErrorNames = new Set([
+        'Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError',
+        'URIError', 'EvalError', 'AggregateError', 'AbortError', 'TimeoutError',
+        'FetchError', 'AxiosError',
+      ])
+      const rawErrorName = error && typeof error.name === 'string' ? error.name.trim() : ''
+      const errorName = safeErrorNames.has(rawErrorName) ? rawErrorName : 'Error'
+      const errorCode = error && typeof error.code === 'string' && /^[A-Z0-9_-]{1,64}$/.test(error.code)
+        ? ' code=' + error.code
+        : ''
+      log.warn('Story2VideoStages', 'scene ' + index + ' video prompt optimize failed (' + errorName + errorCode + ') → ' + fallbackLabel)
+      results.set(index, { error: '视频提示词优化失败' })
+    }
+  }
+
+  return results
 }
 
 function getScenePromptSeed(scene) {
@@ -1166,6 +1837,17 @@ function isPromptEngineTooShortRejection (message) {
 }
 
 /**
+ * 识别「LLM 只返回空/纯推理」错误（如 DeepSeek 只输出 思考 块，剥离后无可用优化词）。
+ * prompt-engine 会返回「空内容或仅包含推理内容，未生成有效优化词」；与 Too short 一样
+ * 应回退原文继续，避免单个场景拖垮整条流水线。
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isPromptEngineEmptyReasoningError (message) {
+  return /空内容|仅包含推理内容|未生成有效优化词|empty\s+content|only\s+(reasoning|thinking|thought)/i.test(String(message || ''))
+}
+
+/**
  * 净化 LLM 返回的优化提示词：剥离 <think>...</think> 思考块（带推理能力的模型
  * 可能把思考过程直接放进 content），避免思考内容被当作图片提示词。
  * @param {string|null} content
@@ -1206,41 +1888,21 @@ function registerStory2VideoStages(pipelineEngine) {
   }
 
   const registered = [];
-
-  // ----------------------------------------------------------
-  // DOMAIN_ENRICH - 历史内容领域增强（可选）
-  // ----------------------------------------------------------
-  pipelineEngine.registerStageExecutor(
-    STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH,
-    async ({ stage, params, context, onProgress }) => {
-      params = params || {};
-      if (typeof onProgress === 'function') onProgress({ percent: 5, message: '正在识别时代/朝代与视觉上下文…' });
-      const source = context.split || context.sentences || [];
-      const scenes = Array.isArray(source)
-        ? source
-        : (source.scenes || source.sentences || []);
-      const contentType = params.contentType || stage.options?.contentType || 'general';
-      if (contentType !== 'history') {
-        return { success: true, output: passthroughScenes(scenes) };
-      }
-      const output = enrichHistoryScenes(scenes);
-      if (typeof onProgress === 'function') onProgress({ percent: 100, message: '领域增强完成' });
-      return { success: true, output };
-    },
-  );
-  registered.push(STORY2VIDEO_STAGE_TYPES.DOMAIN_ENRICH);
+  registerPromptTranslationComposeTask(pipelineEngine);
 
   // ----------------------------------------------------------
   // SCENE_CONTEXT - 场景上下文增强中间层（分句 → 提示词优化之间的故事背景上下文）
   // 读完整文案提取全局故事上下文（时代/朝代/文化地域/题材/设定/角色/道具/视觉风格/语气），
   // 再把全局锚点融合进每个场景，形成逐场景上下文块与负面锚点，注入提示词优化，
   // 保证图片/视频生成的故事背景准确性、一致性与连贯性（如唐代全文 + 「一个老妇人在做饭」）。
+  // 2026-08-14：吸收原 domain_enrich 职责——contentType=history 时为每个场景生成
+  // imagePromptSeed/prompt（视觉种子模板），且独立于 enabled 开关（enabled=false 只跳过融合）。
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.SCENE_CONTEXT,
     async ({ stage, params, context, onProgress }) => {
       params = params || {};
-      const source = context.scene_context || context.domain_enrich || context.split || context.sentences || [];
+      const source = context.scene_context || context.split || context.sentences || [];
       const scenes = Array.isArray(source)
         ? source
         : (source.scenes || source.sentences || []);
@@ -1249,6 +1911,8 @@ function registerStory2VideoStages(pipelineEngine) {
         return { success: false, error: '场景上下文增强需要非空场景数组' };
       }
       const options = stage.options || {};
+      // contentType 开关（原 domain_enrich stageOptions，design D4）：history → 生成视觉种子；general → 不生成（透传语义）
+      const contentType = params.contentType || options.contentType || 'general';
       // 全文优先 params.text；图片/音频模式无文案时降级为逐场景文本拼接，仍可提取局部上下文
       const hasFullText = typeof params.text === 'string' && params.text.trim().length > 0;
       const fullText = hasFullText
@@ -1256,12 +1920,51 @@ function registerStory2VideoStages(pipelineEngine) {
         : scenes.map(s => (s && (s.text || s.content)) || '').filter(Boolean).join('。');
       // 进行中反馈：读全文 + 逐场景融合阶段（LLM/规则可能耗时）
       if (typeof onProgress === 'function') {
-        onProgress({ percent: 10, message: '正在提取全局故事背景并融合进 ' + scenes.length + ' 个场景…' });
+        onProgress({
+          percent: 10,
+          message: 'Building story context…',
+          messageKey: 'stageProgress.sceneContextWorking',
+          messageParams: { total: scenes.length },
+          detail: { done: 0, total: scenes.length, kind: 'scene' },
+        });
       }
       try {
         const result = buildSceneContextResult(scenes, fullText, options);
-        if (typeof onProgress === 'function') {
-          onProgress({ percent: 100, message: '场景上下文增强完成', summary: '已增强 ' + scenes.length + ' 个场景的上下文' });
+        // 历史内容增强（imagePromptSeed 种子，design D1/D3）：独立于 scene_context enabled——
+        // enabled=false 只跳过上下文融合，不跳过种子生成（保持合并前 domain_enrich 独立语义）。
+        // enabled=false 时 result.story 为 null：为种子单独提取一次规则表结果，不把上下文融合进场景。
+        if (contentType === 'history') {
+          const seedStory = result.story
+            || (() => { try { return extractStoryContext(fullText, options) } catch (_) { return null } })();
+          result.scenes = result.scenes.map(scene => {
+            const base = scene && typeof scene === 'object' ? scene : {};
+            // sceneTextOf 兼容字符串场景（直接取场景文本；split 输出为对象时等价 base.text/content）
+            const sceneText = sceneTextOf(scene);
+            const seed = buildDomainSeed(sceneText, seedStory);
+            return { ...base, imagePromptSeed: seed, prompt: seed };
+          });
+          if (result.metadata) result.metadata.seedGenerated = true;
+          if (typeof onProgress === 'function') {
+            onProgress({
+              percent: 100,
+              message: 'Story context and historical visual seeds are ready.',
+              messageKey: 'stageProgress.sceneContextComplete',
+              summary: 'Story context and visual seeds are ready.',
+              summaryKey: 'stageProgress.sceneContextSummary',
+              summaryParams: { count: scenes.length },
+              detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+            });
+          }
+        } else if (typeof onProgress === 'function') {
+          onProgress({
+            percent: 100,
+            message: 'Story context is ready.',
+            messageKey: 'stageProgress.sceneContextComplete',
+            summary: 'Story context is ready.',
+            summaryKey: 'stageProgress.sceneContextSummary',
+            summaryParams: { count: scenes.length },
+            detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+          });
         }
         // 无完整文案（图片/音频模式）：场景文本拼接推导的全局上下文较弱，显式标记 degraded 供下游/展示识别
         if (!hasFullText && result.metadata && result.metadata.enriched) {
@@ -1271,20 +1974,45 @@ function registerStory2VideoStages(pipelineEngine) {
         if (context && typeof context === 'object') context.scene_context = result;
         return { success: true, output: result };
       } catch (error) {
-        // 规则引擎异常：降级透传（增强失败不阻断流水线），记录 degraded 与原因
+        // 规则引擎异常：降级透传（增强失败不阻断流水线），记录 degraded 与原因。
+        // 审查 C1：contentType=history 时降级分支也要生成 imagePromptSeed 种子——
+        // 合并前 domain_enrich 独立阶段纯规则永不抛错、始终产出种子；合并后不能因
+        // scene_context 引擎失败让种子消失（design D1「seed 独立于 scene_context」）。
+        let degradedScenes = scenes;
+        if (contentType === 'history') {
+          let seedStory = null;
+          try { seedStory = extractStoryContext(fullText, options) } catch (_) { seedStory = null }
+          degradedScenes = scenes.map(scene => {
+            const base = scene && typeof scene === 'object' ? scene : {};
+            const seed = buildDomainSeed(sceneTextOf(scene), seedStory);
+            return { ...base, imagePromptSeed: seed, prompt: seed };
+          });
+        }
         const degraded = {
           story: null,
-          scenes,
+          scenes: degradedScenes,
           metadata: {
             enriched: false,
             degraded: true,
             extractor: 'rule-based',
             fallbackReason: error && error.message ? String(error.message).slice(0, 300) : 'scene_context_engine_error',
             sceneCount: scenes.length,
+            seedGenerated: contentType === 'history',
           },
         };
         if (context && typeof context === 'object') context.scene_context = degraded;
         pipelineEngine.log.warn('Story2VideoStages', 'scene_context 降级透传: ' + degraded.metadata.fallbackReason);
+        if (typeof onProgress === 'function') {
+          onProgress({
+            percent: 100,
+            message: 'Story context fallback is ready.',
+            messageKey: 'stageProgress.sceneContextFallbackComplete',
+            summary: 'Story context fallback is ready.',
+            summaryKey: 'stageProgress.sceneContextFallbackSummary',
+            summaryParams: { count: scenes.length },
+            detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+          });
+        }
         return { success: true, output: degraded };
       }
     },
@@ -1303,7 +2031,7 @@ function registerStory2VideoStages(pipelineEngine) {
       const mode = VIDEO_MODES.has(videoConfig.mode) ? videoConfig.mode : 'off'
       const rawOptimize = context.optimize || context.optimized_prompts
       const optimizePrompts = unwrapScenesArray(rawOptimize)
-      const rawSentences = context.domain_enrich || context.split || context.sentences
+      const rawSentences = context.split || context.sentences
       const sentences = unwrapScenesArray(rawSentences)
       const sceneCount = Math.max(optimizePrompts.length, sentences.length)
       if (mode === 'off' || sceneCount === 0) {
@@ -1314,7 +2042,7 @@ function registerStory2VideoStages(pipelineEngine) {
       const generator = resolveVideoGeneratorConfig(pipelineEngine, {
         provider: videoConfig.provider,
         model: videoConfig.model,
-      })
+      }, { useCurrentModels: params.__resumeUseCurrentModels === true })
       if (!generator) {
         return {
           success: false,
@@ -1358,7 +2086,13 @@ function registerStory2VideoStages(pipelineEngine) {
         }
         // 进行中反馈：LLM 智能判断（可能多次重试）期间持续提示
         if (typeof onProgress === 'function') {
-          onProgress({ percent: 10, message: '正在智能判断哪些场景适合生成视频…' });
+          onProgress({
+            percent: 10,
+            message: 'Selecting scenes suitable for video generation…',
+            messageKey: 'stageProgress.videoSelectionWorking',
+            messageParams: { total: scenes.length },
+            detail: { done: 0, total: scenes.length, kind: 'scene' },
+          });
         }
         const { system, user } = buildVideoSelectionPrompt(scenes, {
           mode,
@@ -1409,9 +2143,14 @@ function registerStory2VideoStages(pipelineEngine) {
         ratio = plan.ratio
         if (typeof onProgress === 'function') {
           onProgress({
-            percent: 90,
-            message: '视频场景选择完成',
-            summary: '已选 ' + selected.length + ' 个视频场景（占 ' + ratio + '%）',
+            percent: 100,
+            message: 'Video scene selection is ready.',
+            messageKey: 'stageProgress.videoSelectionComplete',
+            messageParams: { count: selected.length, ratio },
+            summary: 'Selected ' + selected.length + ' video scenes (' + ratio + '%).',
+            summaryKey: 'stageProgress.videoSelectionSummary',
+            summaryParams: { count: selected.length, ratio },
+            detail: { done: selected.length, total: scenes.length, kind: 'scene' },
           });
         }
       }
@@ -1447,7 +2186,7 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.OPTIMIZE,
-    async ({ stage, context, serviceBus, params, runId }) => {
+    async ({ stage, context, serviceBus, params, runId, onProgress }) => {
       if (!serviceBus || typeof serviceBus.optimizePrompt !== 'function') {
         return { success: false, error: 'Story2Video optimize 需要 prompt-engine 服务（PromptBridge 未注入）' };
       }
@@ -1463,13 +2202,22 @@ function registerStory2VideoStages(pipelineEngine) {
       const maxAttempts = Math.max(1, Math.min(3, Number(stage.options?.maxRetries ?? 2) + 1))
       // 断点续传：上次失败时已完成的场景结果直接复用，避免重复消耗 LLM 额度。
       const partialResume = (context && Array.isArray(context.optimize_resume)) ? context.optimize_resume : []
-      // 进度前置写入：一开始就显示「共 N 个场景，已完成 0 个」，避免整个阶段期间无数量信息
-      if (context && typeof context === 'object') {
-        context.optimize_progress = {
-          done: partialResume.filter(Boolean).length,
-          total: scenes.length,
+      const emitOptimizeProgress = (messageKey = 'stageProgress.optimizeStarting', percentOverride = null) => {
+        const done = partialResume.filter(Boolean).length
+        const percent = percentOverride === null ? Math.min(90, Math.round((done / scenes.length) * 90)) : percentOverride
+        if (context && typeof context === 'object') context.optimize_progress = { done, total: scenes.length }
+        if (typeof onProgress === 'function') {
+          onProgress({
+            percent,
+            message: 'Optimizing scene prompts…',
+            messageKey,
+            messageParams: { done, total: scenes.length },
+            detail: { done, total: scenes.length, kind: 'scene' },
+          })
         }
       }
+      // 进度前置写入：一开始就显示「共 N 个场景，已完成 0 个」，避免整个阶段期间无数量信息
+      emitOptimizeProgress()
       let output
       try {
         output = await _mapWithConcurrency(scenes, concurrency, async (scene, index) => {
@@ -1496,6 +2244,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 total: scenes.length,
               };
             }
+            emitOptimizeProgress('stageProgress.optimizeScene')
             return skippedEntry;
           }
           // 图片提示词统一走 prompt-engine：构造请求（平台/风格别名归一、自动风格检测、
@@ -1565,6 +2314,25 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!validated.ok) {
             // prompt-engine 校验拒绝（如 Too short）：输入过短无法优化 → 回退原文并继续，
             // 不因「81」这类单词数字输入让整条流水线失败（方案B 2026-08-09 配套）。
+            if (isPromptEngineEmptyReasoningError(validated.error)) {
+              const emptyReasoningEntry = {
+                optimized_prompt: promptSeed,
+                providerId: null,
+                model: null,
+                skipped_optimize: true,
+                optimize_note: 'prompt_engine_empty_reasoning_use_original',
+              };
+              partialResume[index] = emptyReasoningEntry;
+              if (context && typeof context === 'object') {
+                context.optimize_resume = partialResume;
+                context.optimize_progress = {
+                  done: partialResume.filter(Boolean).length,
+                  total: scenes.length,
+                };
+              }
+              emitOptimizeProgress('stageProgress.optimizeScene')
+              return emptyReasoningEntry;
+            }
             if (isPromptEngineTooShortRejection(validated.error)) {
               const tooShortEntry = {
                 optimized_prompt: promptSeed,
@@ -1581,6 +2349,7 @@ function registerStory2VideoStages(pipelineEngine) {
                   total: scenes.length,
                 };
               }
+              emitOptimizeProgress('stageProgress.optimizeScene')
               return tooShortEntry;
             }
             throw new Error('Story2Video ' + validated.error)
@@ -1626,6 +2395,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 total: scenes.length,
               };
             }
+            emitOptimizeProgress('stageProgress.optimizeScene')
             return rejectionEntry;
           }
           const entry = {
@@ -1646,6 +2416,7 @@ function registerStory2VideoStages(pipelineEngine) {
               total: scenes.length,
             }
           }
+          emitOptimizeProgress('stageProgress.optimizeScene')
           return entry
         })
       } catch (error) {
@@ -1658,18 +2429,36 @@ function registerStory2VideoStages(pipelineEngine) {
         delete context.optimize_resume
       }
 
-      // 提示词本地语言翻译（2026-08-12）：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
-      // fail-open：LLM 不可用/单场景失败 → translation=null，不阻塞流水线；上下文独立键存储，防数组往返丢失。
-      const uiLocale = (params && params.uiLocale) || (stage && stage.options && stage.options.uiLocale) || ''
+      // 提示词本地语言翻译：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
+      // 所有 Story2Video 创作模式均延后到 compose，与长耗时的视频合成并行；上下文独立键存储，防数组往返丢失。
+      const uiLocale = String(
+        (params && params.uiLocale) || (stage && stage.options && stage.options.uiLocale) || '',
+      ).trim().slice(0, 16)
       if (uiLocale && uiLocale !== 'en' && Array.isArray(output) && output.length > 0) {
-        const prompts = output.map((item) => {
-          if (typeof item === 'string') return item
-          return (item && (item.optimized_prompt || item.prompt)) || ''
-        })
-        const translations = await translatePromptsForLocale(getAiGenerator(pipelineEngine), prompts, uiLocale, pipelineEngine.log)
         if (context && typeof context === 'object') {
-          context.prompt_translations = { uiLocale, items: translations }
+          const pending = createPromptTranslationPending(output, uiLocale)
+          const existingItems = context.prompt_translations && Array.isArray(context.prompt_translations.items)
+            ? context.prompt_translations.items
+            : null
+          context.prompt_translations_pending = {
+            ...pending,
+            items: mergePromptTranslationItems(pending.items, existingItems),
+          }
+          delete context.prompt_translations
         }
+      }
+
+      if (Array.isArray(output) && typeof onProgress === 'function') {
+        onProgress({
+          percent: 100,
+          message: 'Scene prompt optimization complete.',
+          messageKey: 'stageProgress.optimizeComplete',
+          messageParams: { done: output.length, total: scenes.length },
+          summary: 'Optimized ' + output.length + '/' + scenes.length + ' scene prompts.',
+          summaryKey: 'stageProgress.optimizeSummary',
+          summaryParams: { done: output.length, total: scenes.length },
+          detail: { done: scenes.length, total: scenes.length, kind: 'scene' },
+        })
       }
 
       return { success: true, output };
@@ -1682,13 +2471,13 @@ function registerStory2VideoStages(pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS,
-    async ({ runId, stage, params, context, serviceBus }) => {
+    async ({ runId, stage, params, context, serviceBus, onProgress }) => {
       const log = pipelineEngine.log;
       params = params || {};
 
       // 从 context 获取前序阶段的输出
       let optimizedPrompts = context.optimize || context.optimized_prompts;
-      let sentences = context.domain_enrich || context.split || context.sentences;
+      let sentences = context.split || context.sentences;
 
       // 兼容 prompt-engine 的包装响应 { results } / { data: { results } }
       if (!Array.isArray(optimizedPrompts)) {
@@ -1723,16 +2512,18 @@ function registerStory2VideoStages(pipelineEngine) {
       }
 
       const firstDefined = (...values) => values.find(v => v !== undefined && v !== null);
+      const useCurrentModels = params.__resumeUseCurrentModels === true;
       const concurrency = normalizeAssetConcurrency(firstDefined(params.concurrency, stage.options?.concurrency, 3));
       const imageStyle = firstDefined(params.imageStyle, stage.options?.imageStyle, 'cinematic');
-      const imageProvider = firstDefined(params.imageProvider, stage.options?.imageProvider);
-      const imageModel = firstDefined(params.imageModel, stage.options?.imageModel);
+      const imageProvider = useCurrentModels ? undefined : firstDefined(params.imageProvider, stage.options?.imageProvider);
+      const imageModel = useCurrentModels ? undefined : firstDefined(params.imageModel, stage.options?.imageModel);
       const aspectRatio = firstDefined(params.aspectRatio, stage.options?.aspectRatio, '16:9');
       const voiceId = firstDefined(params.voiceId, stage.options?.voiceId, 'default');
-      const voiceProvider = firstDefined(params.voiceProvider, stage.options?.voiceProvider);
+      const voiceProvider = useCurrentModels ? undefined : firstDefined(params.voiceProvider, stage.options?.voiceProvider);
+      const voiceModel = useCurrentModels ? undefined : firstDefined(params.voiceModel, stage.options?.voiceModel);
       // 多模态优先：未显式指定 provider 时，按能力让 ModelProviderManager.getDefault 解析
-      // （开启「优先多模态」且多模态模型声明支持该能力时返回多模态模型）。仅 assetGenerator
-      // 路径生效，legacy python 路径保持原有空 provider 行为。
+      // （开启「优先多模态」且多模态模型声明支持该能力时返回多模态模型）。恢复任务的
+      // 当前模型解析结果同时传给 assetGenerator 与 legacy Python 路径，避免两条路径分叉。
       const resolveCapabilityProvider = (type) => {
         const manager = resolveModelProviderManager()
         if (!manager || typeof manager.getDefault !== 'function') return ''
@@ -1759,8 +2550,12 @@ function registerStory2VideoStages(pipelineEngine) {
         return null
       }
       const hasAssetGenerator = Boolean((pipelineEngine && pipelineEngine._assetGenerator) || (serviceBus && serviceBus._assetGenerator))
-      const resolvedImageProvider = imageProvider || (hasAssetGenerator ? resolveCapabilityProvider('image') : '')
-      const resolvedVoiceProvider = voiceProvider || (hasAssetGenerator ? resolveCapabilityProvider('tts') : '')
+      const currentImage = useCurrentModels ? resolveCurrentCapabilityConfig(pipelineEngine, 'image') : null
+      const currentVoice = useCurrentModels ? resolveCurrentCapabilityConfig(pipelineEngine, 'tts') : null
+      const resolvedImageProvider = (useCurrentModels ? currentImage?.providerId : imageProvider) || (hasAssetGenerator ? resolveCapabilityProvider('image') : '')
+      const resolvedImageModel = useCurrentModels ? (currentImage?.model || '') : imageModel
+      const resolvedVoiceProvider = (useCurrentModels ? currentVoice?.providerId : voiceProvider) || (hasAssetGenerator ? resolveCapabilityProvider('tts') : '')
+      const resolvedVoiceModel = useCurrentModels ? (currentVoice?.model || '') : voiceModel
       // 统一调度预算：按「前端设置的默认模型」+ provider 配置的每分钟连接次数（运营后台）解析并发上限。
       // 预算来源优先级：provider config.rate_per_minute > 静态表 > 类别默认；未配置时回退请求并发。
       const resolveBudgetConcurrency = (type, providerId, requested) => {
@@ -1804,7 +2599,7 @@ function registerStory2VideoStages(pipelineEngine) {
         ? resolveVideoGeneratorConfig(pipelineEngine, {
             provider: videoConfig.provider || (videoPlan && videoPlan.provider),
             model: videoConfig.model || (videoPlan && videoPlan.model),
-          })
+          }, { useCurrentModels })
         : null;
 
       // 分镜素材自选（creationMode='manual'，2026-08-12）：生成候选（每场景 2 图 + 可选 1 视频）、
@@ -1824,9 +2619,10 @@ function registerStory2VideoStages(pipelineEngine) {
         return await buildManualSceneCandidates({
           pipelineEngine, serviceBus, runId, stage, params, context, log,
           optimizedPrompts, sentences, videoSceneSet, videoConfig, videoPlan, videoGenerator,
-          imageStyle, imageProvider: resolvedImageProvider, imageModel, aspectRatio,
+           imageStyle, imageProvider: resolvedImageProvider, imageModel: resolvedImageModel, aspectRatio,
           imageConcurrency, inputMode, inputImages, resolveModelProviderManager, manualMaterialMode,
           videoConcurrency,
+          onProgress,
         })
       }
 
@@ -1842,21 +2638,54 @@ function registerStory2VideoStages(pipelineEngine) {
         ? context.generate_assets.resume.completed
         : [];
       for (const item of priorResume) {
-        if (item && Number.isInteger(item.index) &&
-            (typeof item.imagePath === 'string' || typeof item.videoPath === 'string') &&
-            typeof item.audioPath === 'string') {
-          resumeCompleted.set(item.index, item);
-        }
+        const normalized = normalizeResumeEntry(item)
+        if (normalized) resumeCompleted.set(normalized.index, normalized)
       }
 
       // 实时进度（供前端阶段清单展示「图片 x/y · 视频 a/b · 旁白 x/y」）
       let imagesDone = 0;
       let videosDone = 0;
       let ttsDone = 0;
-      const videosTotal = videoSceneSet.size;
+      const videosTotal = videoGenerator ? videoSceneSet.size : 0;
       // 图片目标数：视频生成通过后，成功视频场景不再生成图片；失败回退图片的场景计入。
-      let imageTargetCount = optimizedPrompts.length - videoSceneSet.size;
-      const writeAssetsProgress = () => {
+      let imageTargetCount = optimizedPrompts.length - videosTotal;
+      const emitAssetsProgress = (kind = 'resource', final = false) => {
+         // 每个场景只占一个工作单元：视频成功或回退图片二选一；TTS 另占一个工作单元。
+         // 分母保持稳定，避免视频失败后补图时进度倒退或短暂显示 100%。
+         const resourceTotal = optimizedPrompts.length + sentences.length
+        const resourceDone = imagesDone + videosDone + ttsDone
+        if (typeof onProgress === 'function') {
+          const messageKey = final
+            ? 'stageProgress.assetsComplete'
+            : kind === 'image'
+              ? 'stageProgress.assetsImage'
+              : kind === 'video'
+                ? 'stageProgress.assetsVideo'
+                : kind === 'tts'
+                  ? 'stageProgress.assetsTts'
+                  : 'stageProgress.assetsStarting'
+          onProgress({
+            percent: final ? 100 : (resourceTotal > 0 ? Math.round((resourceDone / resourceTotal) * 100) : 0),
+            message: final ? 'All assets are ready.' : 'Generating assets…',
+            messageKey,
+            messageParams: {
+              images: imagesDone,
+              imagesTotal: imageTargetCount,
+              videos: videosDone,
+              videosTotal,
+              tts: ttsDone,
+              ttsTotal: sentences.length,
+            },
+             detail: { done: Math.min(resourceDone, resourceTotal), total: resourceTotal, kind: 'resource' },
+            ...(final ? {
+              summary: 'Generated ' + resourceDone + '/' + resourceTotal + ' assets.',
+              summaryKey: 'stageProgress.assetsSummary',
+              summaryParams: { done: resourceDone, total: resourceTotal },
+            } : {}),
+          })
+        }
+      }
+      const writeAssetsProgress = (kind = 'resource') => {
         if (context && typeof context === 'object') {
           context.assets_progress = {
             imagesDone,
@@ -1867,10 +2696,11 @@ function registerStory2VideoStages(pipelineEngine) {
             ttsTotal: sentences.length,
           };
         }
+        emitAssetsProgress(kind)
       };
-      const markImageDone = () => { imagesDone += 1; writeAssetsProgress(); };
-      const markVideoDone = () => { videosDone += 1; writeAssetsProgress(); };
-      const markTtsDone = () => { ttsDone += 1; writeAssetsProgress(); };
+      const markImageDone = () => { imagesDone += 1; writeAssetsProgress('image'); };
+      const markVideoDone = () => { videosDone += 1; writeAssetsProgress('video'); };
+      const markTtsDone = () => { ttsDone += 1; writeAssetsProgress('tts'); };
       // 进度前置写入：阶段一开始即显示「图片 0/N · 视频 0/A · 旁白 0/M」，
       // 避免首个图片/视频/TTS 完成前（如图片生成需 16-30s）前端长期无数量信息
       writeAssetsProgress();
@@ -1880,6 +2710,7 @@ function registerStory2VideoStages(pipelineEngine) {
       const videoResults = new Map();
       const videoSceneIndexes = [...videoSceneSet].sort((a, b) => a - b);
       let videoPromise = Promise.resolve();
+      let optimizedVideoPrompts = null;
       if (videoGenerator && videosTotal > 0) {
         const manager = resolveModelProviderManager();
         if (!manager || typeof manager.callAdapter !== 'function') {
@@ -1895,52 +2726,55 @@ function registerStory2VideoStages(pipelineEngine) {
         const videoConcurrency = resolveBudgetConcurrency('video', videoGenerator.providerId, requestedVideoConcurrency);
         log.info('Story2VideoStages', 'video generation concurrency=' + videoConcurrency +
           ' (requested=' + requestedVideoConcurrency + ', scenes=' + videosTotal + ')');
+        // Round3 B 跨镜承接：视频提示词按场景顺序串行优化（prev_final_frame 链），生成仍按预算并发；
+        // 优化失败场景按混合模式回退图片轮播。终态回写 scenes[index].video.final_frame 供后续镜承接。
+        // 注意：串行优化会阻塞其后 image/TTS 阶段，这是跨镜承接的有意代价（链完整性优先）；
+        // 吞吐损失集中在提示词优化阶段，不扩散到生成并发预算。
+        optimizedVideoPrompts = await optimizeVideoScenePrompts({
+          pipelineEngine,
+          serviceBus,
+          videoSceneIndexes,
+          optimizedPrompts,
+          scenes: getOptimizationScenes(context || {}),
+          resumeCompleted,
+          videoGenerator,
+          videoConfig,
+          runId,
+          log,
+          fallbackLabel: 'fallback to image carousel',
+          missingBridgeLabel: 'fallback to image carousel',
+        });
         videoPromise = _mapWithConcurrency(videoSceneIndexes, videoConcurrency, async (index) => {
           const resumed = resumeCompleted.get(index);
-          if (resumed && typeof resumed.videoPath === 'string' && fs.existsSync(resumed.videoPath)) {
-            videoResults.set(index, { success: true, path: resumed.videoPath, meta: { resumed: true } });
+          if (resumed && typeof resumed.videoPath === 'string' && resumed.videoPath && fs.existsSync(resumed.videoPath)) {
+            // 复用断点产物时保留连续性元数据（checkpoint 中的计划终态链），不再只有 { resumed: true }
+            const optimizationScenes = getOptimizationScenes(context || {})
+            const restored = resolveSceneFinalFrame(
+              Array.isArray(optimizationScenes) ? optimizationScenes[index] : null,
+              resumed,
+            )
+            const resumedContinuity = continuityFromResumeEntry(resumed, restored)
+            videoResults.set(index, attachVideoContinuityMeta(
+              { success: true, path: resumed.videoPath, meta: { resumed: true } },
+              resumedContinuity,
+              resumedContinuity.backend,
+            ));
             markVideoDone();
             return { index, success: true };
           }
-          const promptItem = optimizedPrompts[index];
-          const promptText = typeof promptItem === 'string'
-            ? promptItem
-            : ((promptItem && (promptItem.prompt || promptItem.optimized_prompt || promptItem.optimized)) || '');
-          if (!promptText) {
-            videoResults.set(index, { success: false, error: '视频场景缺少提示词' });
-            markVideoDone();
+          const prep = optimizedVideoPrompts.get(index);
+          if (!prep || prep.error || !prep.prompt) {
+            const continuity = prep && prep.continuity
+              ? prep.continuity
+              : buildPlannedFinalFrameContinuity({ reason: prep && prep.error ? 'prompt_optimization_failed' : 'missing_prompt' })
+            videoResults.set(index, attachVideoContinuityMeta(
+              { success: false, error: (prep && prep.error) || '视频场景缺少提示词' },
+              continuity,
+              prep && prep.engine_source,
+            ));
             return { index, success: false };
           }
-
-          // 视频提示词统一走 prompt-engine（domain=video）：不得把图片优化提示词直接当视频提示词用。
-          // 混合模式语义：视频优化失败 → 该场景回退图片轮播，不中断整条流水线（PRD 7.1.x）。
-          let videoPromptText = promptText;
-          const bus = serviceBus || pipelineEngine.serviceBus;
-          if (bus && typeof bus.optimizeVideoPrompt === 'function') {
-            try {
-              const optResult = await bus.optimizeVideoPrompt(promptText, {
-                platform: videoGenerator.providerId || undefined,
-                ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
-                traceId: runId,
-              });
-              const validated = extractOptimizedVideoPrompt(optResult, { index });
-              if (!validated.ok) throw new Error(validated.error);
-              videoPromptText = validated.prompt;
-            } catch (error) {
-              log.warn('Story2VideoStages', 'scene ' + index + ' video prompt optimize failed: ' +
-                (error && error.message ? error.message : String(error)) + ' → fallback to image carousel');
-              videoResults.set(index, { success: false, error: '视频提示词优化失败：' +
-                (error && error.message ? error.message : String(error)) });
-              markVideoDone();
-              return { index, success: false };
-            }
-          } else {
-            log.warn('Story2VideoStages', 'scene ' + index + ' PromptBridge 未注入 → fallback to image carousel');
-            videoResults.set(index, { success: false, error: '视频提示词优化需要 prompt-engine 服务（PromptBridge 未注入）' });
-            markVideoDone();
-            return { index, success: false };
-          }
-
+          const videoPromptText = prep.prompt;
           const planScene = planScenes.find(scene => scene.index === index);
           const runItem = () => withAssetTransientRetry(() => generateSceneVideo({
             manager,
@@ -1962,17 +2796,28 @@ function registerStory2VideoStages(pipelineEngine) {
               runItem,
             );
             if (outcome.success) {
-              videoResults.set(index, outcome);
+              videoResults.set(index, attachVideoContinuityMeta(
+                outcome,
+                prep.continuity,
+                prep.engine_source,
+              ));
             } else {
               log.warn('Story2VideoStages', 'scene ' + index + ' video generation failed: ' + outcome.error + ' → fallback to image carousel');
-              videoResults.set(index, outcome);
+              videoResults.set(index, attachVideoContinuityMeta(
+                outcome,
+                prep.continuity,
+                prep.engine_source,
+              ));
             }
-            markVideoDone();
+            if (outcome && outcome.success) markVideoDone();
             return { index, success: Boolean(outcome && outcome.success) };
           } catch (error) {
             log.warn('Story2VideoStages', 'scene ' + index + ' video generation threw: ' + (error && error.message ? error.message : String(error)) + ' → fallback to image carousel');
-            videoResults.set(index, { success: false, error: error && error.message ? error.message : String(error) });
-            markVideoDone();
+            videoResults.set(index, attachVideoContinuityMeta(
+              { success: false, error: error && error.message ? error.message : String(error) },
+              prep && prep.continuity,
+              prep && prep.engine_source,
+            ));
             return { index, success: false };
           }
         });
@@ -1982,7 +2827,7 @@ function registerStory2VideoStages(pipelineEngine) {
       // 视频场景的图片由视频结果决定：视频生成成功 → 跳过图片（省额度）；失败 → 视频完成后补生成图片。
       const imageTargets = optimizedPrompts
         .map((prompt, index) => ({ prompt, index }))
-        .filter(item => !videoSceneSet.has(item.index));
+        .filter(item => !videoGenerator || !videoSceneSet.has(item.index));
       imageTargetCount = imageTargets.length;
       writeAssetsProgress();
 
@@ -1992,25 +2837,28 @@ function registerStory2VideoStages(pipelineEngine) {
       const imageItemTask = async (prompt, index) => {
           try {
             const resumed = resumeCompleted.get(index);
-            if (resumed) {
+            if (resumed && resumed.imagePath) {
               markImageDone();
               return {
                 index,
                 success: true,
-                path: resumed.imagePath || null,
-                videoPath: resumed.videoPath || null,
+                path: resumed.imagePath,
+                videoPath: null,
                 meta: { resumed: true },
               };
+            }
+            if (resumed && resumed.videoPath && fs.existsSync(resumed.videoPath)) {
+              return { index, success: true, path: null, videoPath: resumed.videoPath, meta: { resumed: true } };
             }
             // 视频场景：AI 视频已生成 → 跳过图片（省额度）；失败 → 回退图片轮播
             if (videoSceneSet.has(index)) {
               const video = videoResults.get(index);
-              if (video && video.success) {
-                markImageDone();
+              if (video && video.success && video.path) {
                 return { index, success: true, path: null, videoPath: video.path, meta: { video: true } };
               }
             }
             const promptText = typeof prompt === 'string' ? prompt : prompt.prompt || prompt.optimized_prompt || prompt.optimized;
+            const negativePrompt = resolveSceneNegativePrompt(context, stage, index);
             if (inputMode === 'images' && inputImages[index] !== undefined) {
               const suppliedPath = resolveInputImage(inputImages[index], runId, index);
               if (!suppliedPath) {
@@ -2025,10 +2873,11 @@ function registerStory2VideoStages(pipelineEngine) {
               result = await withAssetTransientRetry(() => assetGenerator.generateImage(promptText, {
                 style: imageStyle,
                 image_provider: resolvedImageProvider,
-                image_model: imageModel,
+                image_model: resolvedImageModel,
                 index,
                 aspect_ratio: aspectRatio,
                 runId,
+                ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
               }));
             } else {
               const retryResult = await runContentPolicyImageRetry({
@@ -2039,11 +2888,12 @@ function registerStory2VideoStages(pipelineEngine) {
                   const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
                     prompt: attemptPrompt,
                     style: imageStyle,
-                    image_provider: imageProvider,
-                    image_model: imageModel,
+                    image_provider: resolvedImageProvider,
+                    image_model: resolvedImageModel,
                     index,
                     aspect_ratio: aspectRatio,
                     runId,
+                    ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
                   }));
                   const providerError = attemptResult?.error || attemptResult?.data?.error;
                   if (providerError && typeof providerError === 'object') throw providerError;
@@ -2063,7 +2913,7 @@ function registerStory2VideoStages(pipelineEngine) {
               } else if (retryResult.status === 'needs_user_input') {
                 result = {
                   code: -1,
-                  message: 'Image generation requires user input after content-policy review',
+                  message: needsUserInputMessage(retryResult.checkpoint),
                   needsUserInput: true,
                   checkpoint: retryResult.checkpoint,
                   data: {
@@ -2117,7 +2967,7 @@ function registerStory2VideoStages(pipelineEngine) {
           return assetGenerator
             ? runItem()
             : modelCallScheduler.withModelBudget(
-                { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: imageModel },
+                 { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: resolvedImageModel },
                 runItem,
               );
         },
@@ -2125,9 +2975,11 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 并行生成 TTS 音频（分批控制并发）
       const ttsItemTask = async (sentence, index) => {
-          try {
+        let text;
+        let generateTts;
+        try {
             const resumed = resumeCompleted.get(index);
-            if (resumed) {
+            if (resumed && resumed.audioPath) {
               markTtsDone();
               return { index, success: true, path: resumed.audioPath, duration: resumed.duration || null, meta: { resumed: true } };
             }
@@ -2146,12 +2998,12 @@ function registerStory2VideoStages(pipelineEngine) {
                 meta: { supplied: true },
               };
             }
-            const text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
-            const result = await withAssetTransientRetry(() => assetGenerator
+            text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
+            generateTts = (voiceIdForAttempt, voiceModelForAttempt = resolvedVoiceModel) => withAssetTransientRetry(() => assetGenerator
               ? assetGenerator.generateTTS(text, {
-                  voice_id: voiceId,
+                  voice_id: voiceIdForAttempt,
                   voice_provider: resolvedVoiceProvider,
-                  voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
+                  voice_model: voiceModelForAttempt,
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
@@ -2163,15 +3015,16 @@ function registerStory2VideoStages(pipelineEngine) {
                 })
               : serviceBus.callPythonSkill('generate_tts', {
                   text,
-                  voice_id: voiceId,
-                  voice_provider: firstDefined(params.voiceProvider, stage.options?.voiceProvider),
-                  voice_model: firstDefined(params.voiceModel, stage.options?.voiceModel),
+                  voice_id: voiceIdForAttempt,
+                  voice_provider: resolvedVoiceProvider,
+                  voice_model: voiceModelForAttempt,
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
                   index,
                   runId,
                 }));
+            const result = await generateTts(voiceId);
             const normalized = normalizeAssetResult(result, ['path', 'audio_path']);
             if (normalized) {
               markTtsDone();
@@ -2189,9 +3042,25 @@ function registerStory2VideoStages(pipelineEngine) {
               success: false,
               error: (result && result.message) || 'TTS generation failed',
             };
-          } catch (e) {
+        } catch (e) {
+          if (typeof generateTts !== 'function') {
             return { index, success: false, error: e.message };
           }
+          // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
+          const _voiceModel = resolvedVoiceModel || 'speech-02-hd'
+          const _reCloneResult = await tryReCloneVoice({
+            pipelineEngine, error: e, text,
+            voiceId, voiceProvider: resolvedVoiceProvider,
+            voiceModel: _voiceModel,
+            resolveManager: resolveModelProviderManager,
+            retryFn: (newVoiceId) => generateTts(newVoiceId),
+          })
+          if (_reCloneResult) {
+            markTtsDone()
+            return { index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta, timings: _reCloneResult.meta?.timings || null }
+          }
+          return { index, success: false, error: e.message };
+        }
       };
       // 同 image 的调度边界：assetGenerator 路径由 AIGenerator 内部 governor 单层调度；
       // 仅 legacy python 路径在外层套 withModelBudget（避免同 key 双包自死锁）。
@@ -2203,7 +3072,7 @@ function registerStory2VideoStages(pipelineEngine) {
           return assetGenerator
             ? runItem()
             : modelCallScheduler.withModelBudget(
-                { governor: pipelineEngine.governor, type: 'tts', providerId: resolvedVoiceProvider, model: firstDefined(params.voiceModel, stage.options?.voiceModel) },
+                { governor: pipelineEngine.governor, type: 'tts', providerId: resolvedVoiceProvider, model: resolvedVoiceModel },
                 runItem,
               );
         },
@@ -2214,21 +3083,24 @@ function registerStory2VideoStages(pipelineEngine) {
 
       // 视频失败场景回退图片轮播（补生成图片；imageItemTask 内对视频失败场景走图片分支）。
       // 视频生成成功场景已由视频承担，不重复生成图片（省额度）。
-      const fallbackTargets = [...videoSceneSet]
-        .filter(index => !(videoResults.get(index) && videoResults.get(index).success))
+      const fallbackTargets = videoGenerator
+        ? [...videoSceneSet]
+          .filter(index => !(videoResults.get(index) && videoResults.get(index).success))
+        : [];
+      const fallbackItems = fallbackTargets
         .map(index => ({ prompt: optimizedPrompts[index], index }));
-      if (fallbackTargets.length > 0) {
+      if (fallbackItems.length > 0) {
         imageTargetCount += fallbackTargets.length;
         writeAssetsProgress();
         const fallbackResults = await _mapWithConcurrency(
-          fallbackTargets,
+          fallbackItems,
           imageConcurrency,
           (item) => {
             const runItem = () => imageItemTask(item.prompt, item.index);
             return assetGenerator
               ? runItem()
               : modelCallScheduler.withModelBudget(
-                  { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: imageModel },
+                  { governor: pipelineEngine.governor, type: 'image', providerId: resolvedImageProvider, model: resolvedImageModel },
                   runItem,
                 );
           },
@@ -2265,6 +3137,8 @@ function registerStory2VideoStages(pipelineEngine) {
           prompt: typeof prompt === 'string' ? prompt : prompt?.prompt || prompt?.optimized_prompt || prompt?.optimized || '',
           // 历史提示词翻译（2026-08-12）：非 en 界面随分段持久化，结果页只读展示
           promptTranslation: promptTranslationOf(i),
+          // 视频优化词（2026-08-15）：视频场景持久化到分段 videoPrompt，供视频任务编辑页编辑/重新生成
+          videoPrompt: videoByIndex.has(i) ? ((optimizedVideoPrompts && optimizedVideoPrompts.get(i))?.prompt || null) : null,
           imagePath: (image && image.success && image.path) ? image.path : null,
           videoPath: (video && video.path) ? video.path : null,
           audioPath: audio.path,
@@ -2369,13 +3243,26 @@ function registerStory2VideoStages(pipelineEngine) {
         if (context && typeof context === 'object') {
           context.generate_assets = context.generate_assets || {};
           context.generate_assets.resume = {
-            completed: pairedScenes.map((scene) => ({
-              index: scene.index,
-              imagePath: scene.imagePath || null,
-              videoPath: scene.videoPath || null,
-              audioPath: scene.audioPath,
-              duration: scene.duration || null,
-            })),
+            completed: Array.from({ length: maxScenes }, (_, index) => {
+              const image = imageByIndex.get(index);
+              const video = videoByIndex.get(index);
+              const audio = ttsResults[index];
+              const scene = pairedScenes.find(item => item.index === index);
+              const imagePath = image && image.success && image.path ? image.path : null;
+              const videoPath = video && video.success && video.path ? video.path : null;
+              const audioPath = audio && audio.success && audio.path ? audio.path : null;
+              if (!imagePath && !videoPath && !audioPath) return null;
+              return {
+                index,
+                imagePath,
+                videoPath,
+                audioPath,
+                duration: (audio && audio.duration) || (scene && scene.duration) || null,
+                // Round3 B：计划终态 + 连续性元数据随断点持久化，resume 恢复时 checkpoint 优先
+                final_frame: (video && video.meta && video.meta.continuity && video.meta.continuity.finalFrame) || null,
+                continuity: (video && video.meta && video.meta.continuity) || null,
+              };
+            }).filter(Boolean),
             total: maxScenes,
             savedAt: new Date().toISOString(),
           };
@@ -2395,6 +3282,7 @@ function registerStory2VideoStages(pipelineEngine) {
       if (context && typeof context === 'object' && context.generate_assets && context.generate_assets.resume) {
         delete context.generate_assets.resume;
       }
+      emitAssetsProgress('resource', true);
       return {
         success: true,
         output: assetManifest,
@@ -2441,16 +3329,21 @@ function registerStory2VideoStages(pipelineEngine) {
       const concurrency = normalizeAssetConcurrency((params && params.concurrency) || (stage && stage.options && stage.options.concurrency) || 3)
       const ttsConcurrency = Math.max(1, Math.min(concurrency, MAX_ASSET_CONCURRENCY))
       const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator
+      const useCurrentModels = params && params.__resumeUseCurrentModels === true
       const voiceId = (params && params.voiceId) || (stage && stage.options && stage.options.voiceId) || 'default'
-      const voiceProvider = (params && params.voiceProvider) || (stage && stage.options && stage.options.voiceProvider) || ''
-      const voiceModel = (params && params.voiceModel) || (stage && stage.options && stage.options.voiceModel) || ''
+      const voiceProvider = useCurrentModels
+        ? ''
+        : ((params && params.voiceProvider) || (stage && stage.options && stage.options.voiceProvider) || '')
+      const voiceModel = useCurrentModels
+        ? ''
+        : ((params && params.voiceModel) || (stage && stage.options && stage.options.voiceModel) || '')
       const voiceSpeed = (params && params.voiceSpeed) !== undefined ? params.voiceSpeed : (stage && stage.options && stage.options.voiceSpeed)
       const voicePitch = (params && params.voicePitch) !== undefined ? params.voicePitch : (stage && stage.options && stage.options.voicePitch)
       const voiceEmotion = (params && params.voiceEmotion) || (stage && stage.options && stage.options.voiceEmotion) || 'default'
       if (!context.finalize_assets || typeof context.finalize_assets !== 'object') context.finalize_assets = {}
       const partialTts = Array.isArray(context.finalize_assets.partialTts) ? context.finalize_assets.partialTts : []
       const partialByIndex = new Map(partialTts.filter((p) => p && Number.isInteger(p.index)).map((p) => [p.index, p]))
-      const resolvedVoiceProvider = voiceProvider || (assetGenerator ? (() => {
+      const resolvedVoiceProvider = voiceProvider || ((assetGenerator || useCurrentModels) ? (() => {
         try {
           const manager = (pipelineEngine && pipelineEngine.aiGenerator && pipelineEngine.aiGenerator._modelProviderManager) ||
             (pipelineEngine && pipelineEngine.container && pipelineEngine.container.get && pipelineEngine.container.get('modelProviderManager'))
@@ -2458,6 +3351,14 @@ function registerStory2VideoStages(pipelineEngine) {
           return provider && typeof provider.id === 'string' ? provider.id.trim() : ''
         } catch (_) { return '' }
       })() : '')
+      const resolvedVoiceModel = useCurrentModels ? (() => {
+        try {
+          const manager = (pipelineEngine && pipelineEngine.aiGenerator && pipelineEngine.aiGenerator._modelProviderManager) ||
+            (pipelineEngine && pipelineEngine.container && pipelineEngine.container.get && pipelineEngine.container.get('modelProviderManager'))
+          const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault('tts') : null
+          return resolveCapabilityModel(provider, 'tts')
+        } catch (_) { return '' }
+      })() : voiceModel
 
       const rawTtsItemTask = async (scene) => {
         const resumed = partialByIndex.get(scene.index)
@@ -2466,29 +3367,30 @@ function registerStory2VideoStages(pipelineEngine) {
         }
         const text = String(scene.text || '')
         if (!text) return { index: scene.index, success: false, error: '场景缺少旁白文字' }
+        const generateTts = (voiceIdForAttempt) => withAssetTransientRetry(() => assetGenerator
+          ? assetGenerator.generateTTS(text, {
+              voice_id: voiceIdForAttempt,
+              voice_provider: resolvedVoiceProvider,
+              voice_model: resolvedVoiceModel,
+              rate: voiceSpeed,
+              pitch: voicePitch,
+              emotion: voiceEmotion,
+              index: scene.index,
+              runId: runId || undefined,
+            })
+          : serviceBus.callPythonSkill('generate_tts', {
+              text,
+              voice_id: voiceIdForAttempt,
+              voice_provider: resolvedVoiceProvider,
+              voice_model: resolvedVoiceModel,
+              rate: voiceSpeed,
+              pitch: voicePitch,
+              emotion: voiceEmotion,
+              index: scene.index,
+              runId: runId || undefined,
+            }))
         try {
-          const result = await withAssetTransientRetry(() => assetGenerator
-            ? assetGenerator.generateTTS(text, {
-                voice_id: voiceId,
-                voice_provider: resolvedVoiceProvider,
-                voice_model: voiceModel,
-                rate: voiceSpeed,
-                pitch: voicePitch,
-                emotion: voiceEmotion,
-                index: scene.index,
-                runId: runId || undefined,
-              })
-            : serviceBus.callPythonSkill('generate_tts', {
-                text,
-                voice_id: voiceId,
-                voice_provider: voiceProvider,
-                voice_model: voiceModel,
-                rate: voiceSpeed,
-                pitch: voicePitch,
-                emotion: voiceEmotion,
-                index: scene.index,
-                runId: runId || undefined,
-              }))
+          const result = await generateTts(voiceId)
           const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
           if (normalized) {
             const partial = { index: scene.index, audioPath: normalized.path, duration: normalized.duration, meta: normalized.meta }
@@ -2497,6 +3399,29 @@ function registerStory2VideoStages(pipelineEngine) {
           }
           return { index: scene.index, success: false, error: (result && result.message) || 'TTS generation failed' }
         } catch (error) {
+          if (pipelineEngine && pipelineEngine.log && pipelineEngine.log.warn) pipelineEngine.log.warn("[S2V] rawTtsItemTask catch", { code: error && error.code, msg: error && error.message, cat: error && error.category })
+          // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
+          const _resolveManager = () => {
+            try {
+              if (pipelineEngine && pipelineEngine.aiGenerator && typeof pipelineEngine.aiGenerator._modelProviderManager === 'object' && pipelineEngine.aiGenerator._modelProviderManager !== null) return pipelineEngine.aiGenerator._modelProviderManager
+            } catch (_) {}
+            const c = pipelineEngine && pipelineEngine.container
+            if (c && typeof c.get === 'function') { try { const m = c.get('modelProviderManager'); if (m) return m } catch (_) {} }
+            return null
+          }
+          const _reCloneResult = await tryReCloneVoice({
+            pipelineEngine, error, text,
+            voiceId, voiceProvider: resolvedVoiceProvider,
+            voiceModel: resolvedVoiceModel || 'speech-02-hd',
+            resolveManager: _resolveManager,
+            retryFn: (newVoiceId) => generateTts(newVoiceId),
+          })
+          if (_reCloneResult) {
+            const partial = { index: scene.index, audioPath: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta }
+            context.finalize_assets.partialTts = [...(context.finalize_assets.partialTts || []).filter(p => p.index !== scene.index), partial]
+            if (pipelineEngine.log && pipelineEngine.log.info) pipelineEngine.log.info('[Story2Video] pipeline re-clone success: ' + voiceId + ' -> via tryReCloneVoice')
+            return { index: scene.index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta }
+          }
           return { index: scene.index, success: false, error: error && error.message ? error.message : String(error) }
         }
       }
@@ -2509,7 +3434,9 @@ function registerStory2VideoStages(pipelineEngine) {
         ttsDoneCount += 1
         onProgress({
           percent: Math.round((ttsDoneCount / ttsTotalCount) * 100),
-          message: '正在生成第 ' + ttsDoneCount + '/' + ttsTotalCount + ' 段旁白…',
+          message: 'Generating narration…',
+          messageKey: 'stageProgress.finalizeTts',
+          messageParams: { done: ttsDoneCount, total: ttsTotalCount },
           detail: { done: ttsDoneCount, total: ttsTotalCount, kind: 'tts' },
         })
       }
@@ -2518,7 +3445,13 @@ function registerStory2VideoStages(pipelineEngine) {
         emitTtsProgress()
         return r
       }
-      if (typeof onProgress === 'function') onProgress({ percent: 5, message: '正在准备生成旁白…' })
+      if (typeof onProgress === 'function') onProgress({
+        percent: 5,
+        message: 'Preparing narration…',
+        messageKey: 'stageProgress.finalizeStarting',
+        messageParams: { done: 0, total: ttsTotalCount },
+        detail: { done: 0, total: ttsTotalCount, kind: 'tts' },
+      })
       const ttsResults = await _mapWithConcurrency(candidates, ttsConcurrency, ttsItemTask)
       const failedTts = ttsResults.filter((r) => !r.success)
       if (failedTts.length > 0) {
@@ -2617,6 +3550,18 @@ function registerStory2VideoStages(pipelineEngine) {
         },
       }
       if (context && typeof context === 'object') context.generate_assets = finalManifest
+      if (typeof onProgress === 'function') {
+        onProgress({
+          percent: 100,
+          message: 'Narration and selected assets are ready.',
+          messageKey: 'stageProgress.finalizeComplete',
+          messageParams: { done: pairedScenes.length, total: candidates.length },
+          summary: 'Finalized ' + pairedScenes.length + '/' + candidates.length + ' selected scenes.',
+          summaryKey: 'stageProgress.finalizeSummary',
+          summaryParams: { done: pairedScenes.length, total: candidates.length },
+          detail: { done: candidates.length, total: candidates.length, kind: 'scene' },
+        })
+      }
       log.info('Story2VideoStages',
         'finalize_assets: ' + pairedScenes.length + '/' + candidates.length + ' scenes finalized (tts=' + pairedScenes.length + ')')
       return { success: true, output: finalManifest }
@@ -2663,16 +3608,25 @@ module.exports = {
   resolveInputAudio,
   hasMeaningfulText,
   isPromptEngineTooShortRejection,
+  isPromptEngineEmptyReasoningError,
   // 视频+图片轮播混合模式辅助（供测试）
   VIDEO_MODES,
   resolveVideoGeneratorConfig,
   estimateSceneSeconds,
   pickFixedVideoScenes,
   buildVideoSelectionPrompt,
+  buildOptimizeContext,
   parseVideoSelection,
   clampVideoSelection,
   unwrapScenesArray,
   generateSceneVideo,
+  withAssetTransientRetry,
+  resolveSceneFinalFrame,
+  optimizeVideoScenePrompts,
+  translatePromptsForLocale,
+  createPromptTranslationPending,
+  applyPromptTranslationsToScenes,
+  runBoundedPromptTranslation,
+  STORY2VIDEO_COMPOSE_PARALLEL_TASK,
+  tryReCloneVoice,
 };
-
-

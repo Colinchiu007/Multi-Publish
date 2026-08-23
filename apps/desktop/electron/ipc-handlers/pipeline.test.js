@@ -63,6 +63,8 @@ function createMockDeps(overrides = {}) {
       getStatus: vi.fn(),
       advance: vi.fn(),
       getHistory: vi.fn(() => []),
+      deleteRun: vi.fn(),
+      pauseRun: vi.fn(),
       fetchPipelineFromBackend: vi.fn(),
       startOrchestrated: vi.fn(),
       executeStage: vi.fn(),
@@ -95,6 +97,10 @@ const NEW_PROTECTED_CHANNELS = [
   ['pipeline:registerPipeline', 'registerPipeline', [{ name: 'custom', stages: [] }]],
   ['pipeline:registerStageExecutor', 'registerStageExecutor', ['render', vi.fn()]],
 ]
+
+// delete-run / pause-run 返回合同不同于通用写操作（data 为 { deleted, runId } / { runId, checkpoint } 而非原样回传），单独维护
+const PAUSE_RUN_CHANNEL = ['pipeline:pause-run', 'pauseRun', ['run-9']]
+const DELETE_RUN_CHANNEL = ['pipeline:delete-run', 'deleteRun', ['run-9']]
 
 const READ_PROTECTED_CHANNELS = [
   ['pipeline:list', 'listPipelines', []],
@@ -136,7 +142,7 @@ describe('pipeline IPC 写操作 sender 校验', () => {
     expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
   })
 
-  it.each(NEW_PROTECTED_CHANNELS)(
+  it.each([...NEW_PROTECTED_CHANNELS, DELETE_RUN_CHANNEL])(
     '%s 拒绝外部网页调用且不执行 pipelineEngine.%s',
     async (channel, method, args) => {
       const deps = createMockDeps()
@@ -152,7 +158,7 @@ describe('pipeline IPC 写操作 sender 校验', () => {
 })
 
 describe('pipeline IPC 查询 sender 校验', () => {
-  it.each([...NEW_PROTECTED_CHANNELS, ...READ_PROTECTED_CHANNELS])(
+  it.each([...NEW_PROTECTED_CHANNELS, PAUSE_RUN_CHANNEL, DELETE_RUN_CHANNEL, ...READ_PROTECTED_CHANNELS])(
     '%s 拒绝外部网页调用且不执行 pipelineEngine.%s',
     async (channel, method, args) => {
       const deps = createMockDeps()
@@ -177,6 +183,66 @@ describe('pipeline IPC 查询 sender 校验', () => {
     await expect(ipcMain._get('pipeline:getRunContext')(TRUSTED_EVENT, 42)).resolves.toEqual({
       code: -2, message: '缺少或非法 runId',
     })
+    await expect(ipcMain._get('pipeline:delete-run')(TRUSTED_EVENT, '')).resolves.toEqual({
+      code: -2, message: '缺少或非法 runId',
+    })
+    expect(deps.pipelineEngine.deleteRun).not.toHaveBeenCalled()
+    await expect(ipcMain._get('pipeline:pause-run')(TRUSTED_EVENT, '')).resolves.toEqual({
+      code: -2, message: '缺少或非法 runId',
+    })
+    expect(deps.pipelineEngine.pauseRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('pipeline:pause-run 暂停指定运行', () => {
+  it('可信来源暂停成功返回 checkpoint 载荷', async () => {
+    const deps = createMockDeps()
+    deps.pipelineEngine.pauseRun.mockReturnValue({ success: true, runId: 'run-9', checkpoint: { type: 'manual_pause' } })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:pause-run')(TRUSTED_EVENT, 'run-9')
+
+    expect(deps.pipelineEngine.pauseRun).toHaveBeenCalledWith('run-9')
+    expect(result).toEqual({ code: 0, data: { success: true, runId: 'run-9', checkpoint: { type: 'manual_pause' } } })
+  })
+
+  it('引擎拒绝（非运行中/不存在）时返回错误码与原因', async () => {
+    const deps = createMockDeps()
+    deps.pipelineEngine.pauseRun.mockReturnValue({ success: false, error: '仅运行中的流水线可暂停' })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:pause-run')(TRUSTED_EVENT, 'run-9')
+
+    expect(deps.pipelineEngine.pauseRun).toHaveBeenCalledWith('run-9')
+    expect(result.code).toBe(-1)
+    expect(result.message).toContain('仅运行中的流水线可暂停')
+  })
+})
+
+describe('pipeline:delete-run 删除历史运行记录', () => {
+  it('可信来源删除成功返回 deleted 载荷', async () => {
+    const deps = createMockDeps()
+    deps.pipelineEngine.deleteRun.mockReturnValue({ success: true, runId: 'run-9' })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:delete-run')(TRUSTED_EVENT, 'run-9')
+
+    expect(deps.pipelineEngine.deleteRun).toHaveBeenCalledWith('run-9')
+    expect(result).toEqual({ code: 0, data: { deleted: true, runId: 'run-9' } })
+  })
+
+  it('引擎拒绝（运行中/不存在）时返回错误码与原因', async () => {
+    const deps = createMockDeps()
+    deps.pipelineEngine.deleteRun.mockReturnValue({ success: false, error: '运行中的流水线不能删除' })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+
+    const result = await ipcMain._get('pipeline:delete-run')(TRUSTED_EVENT, 'run-10')
+
+    expect(result).toEqual({ code: -1, message: '运行中的流水线不能删除' })
   })
 })
 
@@ -415,5 +481,122 @@ describe('阶段进度实时推送桥（pipeline:update）', () => {
     cleanup.cleanup()
     vi.advanceTimersByTime(500)
     expect(send).not.toHaveBeenCalled()
+  })
+})
+
+// ============================================================
+// Story2Video 批量创作（openspec story2video-batch-create）
+// ============================================================
+describe('Story2Video 批量创作 IPC', () => {
+  function createBatchDeps(overrides = {}) {
+    return createMockDeps({
+      story2videoBatchQueue: {
+        createBatch: vi.fn(async () => ({ success: true, batchId: 'batch_1', items: [{ itemId: 'i1', status: 'running' }] })),
+        getBatches: vi.fn(() => []),
+        cancelBatchItems: vi.fn(() => ({ success: true, cancelled: 1 })),
+      },
+      ...overrides,
+    })
+  }
+
+  it('story2video:batch:create 拒绝外部网页调用', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createBatchDeps())
+    const handler = ipcMain._get('story2video:batch:create')
+
+    const result = await handler(UNTRUSTED_EVENT, { mode: 'text', texts: ['a'] })
+
+    expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+  })
+
+  it('story2video:batch:create 成功返回 batchId + items', async () => {
+    const queue = { createBatch: vi.fn(async () => ({ success: true, batchId: 'batch_1', items: [{ itemId: 'i1' }] })) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ story2videoBatchQueue: queue }))
+
+    const result = await ipcMain._get('story2video:batch:create')(TRUSTED_EVENT, { mode: 'text', texts: ['文案A'] })
+
+    expect(result).toEqual({ code: 0, data: { batchId: 'batch_1', items: [{ itemId: 'i1' }] } })
+    expect(queue.createBatch).toHaveBeenCalledWith({ mode: 'text', texts: ['文案A'] })
+  })
+
+  it('story2video:batch:create 校验失败透传 errorCode + failedItems', async () => {
+    const queue = {
+      createBatch: vi.fn(async () => ({ success: false, error: '至少输入 1 条文案', errorCode: 'BATCH_NO_ITEMS', failedItems: [] })),
+    }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ story2videoBatchQueue: queue }))
+
+    const result = await ipcMain._get('story2video:batch:create')(TRUSTED_EVENT, { mode: 'text', texts: [] })
+
+    expect(result).toMatchObject({ code: -2, message: '至少输入 1 条文案', errorCode: 'BATCH_NO_ITEMS', failedItems: [] })
+  })
+
+  it('story2video:batch:status 返回批次列表', async () => {
+    const queue = { getBatches: vi.fn(() => [{ id: 'batch_1', summary: { running: 1 } }]) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ story2videoBatchQueue: queue }))
+
+    const result = await ipcMain._get('story2video:batch:status')(TRUSTED_EVENT)
+
+    expect(result).toEqual({ code: 0, data: [{ id: 'batch_1', summary: { running: 1 } }] })
+  })
+
+  it('story2video:batch:cancel 缺少 batchId 返回校验错误', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createBatchDeps())
+
+    const result = await ipcMain._get('story2video:batch:cancel')(TRUSTED_EVENT, {})
+
+    expect(result).toEqual({ code: -2, message: '缺少或非法 batchId' })
+  })
+
+  it('story2video:batch:cancel 成功返回取消数量', async () => {
+    const queue = { cancelBatchItems: vi.fn(() => ({ success: true, cancelled: 2 })) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ story2videoBatchQueue: queue }))
+
+    const result = await ipcMain._get('story2video:batch:cancel')(TRUSTED_EVENT, { batchId: 'batch_1', itemIds: ['i1', 'i2'] })
+
+    expect(result).toEqual({ code: 0, data: { success: true, cancelled: 2 } })
+    expect(queue.cancelBatchItems).toHaveBeenCalledWith('batch_1', ['i1', 'i2'])
+  })
+
+  it('story2video:pick-batch-files 通过 dialog 过滤 .txt/.md 并返回路径+名称', async () => {
+    const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: ['C:/a.txt', 'C:/b.md'] })) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ dialog }))
+
+    const result = await ipcMain._get('story2video:pick-batch-files')(TRUSTED_EVENT)
+
+    expect(result).toEqual({
+      code: 0,
+      data: { files: [{ path: 'C:/a.txt', name: 'a.txt' }, { path: 'C:/b.md', name: 'b.md' }] },
+    })
+    expect(dialog.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '文本文件', extensions: ['txt', 'md'] }],
+    }))
+  })
+
+  it('story2video:pick-batch-files 取消返回空列表', async () => {
+    const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })) }
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps({ dialog }))
+
+    const result = await ipcMain._get('story2video:pick-batch-files')(TRUSTED_EVENT)
+
+    expect(result).toEqual({ code: 0, data: { files: [] } })
+  })
+
+  it('批量队列服务缺失时返回错误 envelope 不抛错', async () => {
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, createMockDeps())
+
+    const createResult = await ipcMain._get('story2video:batch:create')(TRUSTED_EVENT, { mode: 'text', texts: ['a'] })
+    expect(createResult.code).toBe(-1)
+
+    const statusResult = await ipcMain._get('story2video:batch:status')(TRUSTED_EVENT)
+    expect(statusResult).toEqual({ code: -1, message: '批量创作队列服务不可用', data: [] })
   })
 })

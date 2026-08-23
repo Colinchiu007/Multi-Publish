@@ -220,6 +220,8 @@ async function addAccount (platform) {
     const api = window.electronAPI
     if (api?.authOpenLogin) {
       const res = await authOpenLogin(platform)
+      // 用户关闭登录页取消：静默返回，不提示成功/失败
+      if (res?.cancelled) return
       if (res.code !== 0) window.alert(res.message || '添加失败')
       else window.alert('账号添加成功，继续添加或进入下一步')
     } else {

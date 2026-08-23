@@ -2,6 +2,13 @@ name: autonomous-loop
 
 # AI 全自动多轮视觉测试循环。
 # PR 仅运行只读检查；基线和补丁作为 artifacts 输出，必须人工审核后提交。
+#
+# LLM 供应商配置：
+#   - 默认 OpenAI（gpt-4o-mini）。使用第三方/中转站时：secrets.OPENAI_API_KEY 填供应商 key，
+#     secrets.LLM_BASE_URL 填 OpenAI 兼容端点（如 https://api.deepseek.com/v1）、secrets.LLM_MODEL 填其在售模型名；
+#     workflow_dispatch 也可用 llm_base_url / llm_model 输入临时覆盖，无需预建 secret。
+#   - Anthropic：secrets.ANTHROPIC_API_KEY + inputs.llm_provider=anthropic。
+#   - PR 事件不注入任何 secrets（GitHub 安全限制），打 label 触发的 run 一律只读检查。
 
 on:
   push:
@@ -39,6 +46,24 @@ on:
         required: false
         default: true
         type: boolean
+      llm_provider:
+        description: "LLM 协议：openai（官方或 OpenAI 兼容端点/中转站）或 anthropic"
+        required: false
+        default: "openai"
+        type: choice
+        options:
+          - "openai"
+          - "anthropic"
+      llm_base_url:
+        description: "OpenAI 兼容 Base URL（中转站填供应商地址，如 https://api.deepseek.com/v1）；留空 = 官方端点，已配 LLM_BASE_URL secret 时回落 secret"
+        required: false
+        default: ""
+        type: string
+      llm_model:
+        description: "模型名（中转站填其在售模型，如 deepseek-chat）；留空 = 各协议默认（gpt-4o-mini / claude-3-5-sonnet-latest）"
+        required: false
+        default: ""
+        type: string
   pull_request:
     branches: [main]
     types: [labeled]
@@ -62,8 +87,11 @@ jobs:
     env:
       MAX_ITER: ${{ inputs.iterations || 3 }}
       FUNCTIONAL_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.functional }}
-      LLM_PROVIDER: openai
+      LLM_PROVIDER: ${{ github.event_name != 'pull_request' && (inputs.llm_provider || secrets.LLM_PROVIDER) || 'openai' }}
+      LLM_BASE_URL: ${{ github.event_name != 'pull_request' && (inputs.llm_base_url || secrets.LLM_BASE_URL) || '' }}
+      LLM_MODEL: ${{ github.event_name != 'pull_request' && (inputs.llm_model || secrets.LLM_MODEL) || '' }}
       OPENAI_API_KEY: ${{ github.event_name != 'pull_request' && secrets.OPENAI_API_KEY || '' }}
+      ANTHROPIC_API_KEY: ${{ github.event_name != 'pull_request' && secrets.ANTHROPIC_API_KEY || '' }}
       COVERAGE_THRESHOLD: 0.5
 
     steps:
@@ -137,15 +165,43 @@ jobs:
       - name: Report final status
         if: always()
         shell: pwsh
+        env:
+          LOOP_REPORT_DIR: ${{ github.workspace }}/apps/desktop/tests/visual-testing/reports
         run: |
           $exitCode = 1
-          if (-not [int]::TryParse($env:LOOP_EXIT, [ref]$exitCode)) {
+          $parsed = [int]::TryParse($env:LOOP_EXIT, [ref]$exitCode)
+          if (-not $parsed) {
             $exitCode = 1
           }
 
           if ($exitCode -eq 0) {
             Write-Host "::notice::Autonomous loop PASSED after all iterations"
-          } else {
-            Write-Host "::error::Autonomous loop FAILED - see artifacts for details"
-            exit 1
+            exit 0
           }
+
+          # 无任何 LLM API Key 时，NEED_HUMAN 属于"降级只读检查"而非测试失败
+          # （语义对齐 .github/scripts/agent-review-gate.js 的 PROMPT_REVIEW_REQUIRED）
+          # 仅在 LOOP_EXIT 有效解析且等于 1（runner 的 NEED_HUMAN 退出码）时降级，基础设施故障不被标绿
+          if ($parsed -and $exitCode -eq 1 -and
+              [string]::IsNullOrEmpty($env:OPENAI_API_KEY) -and
+              [string]::IsNullOrEmpty($env:ANTHROPIC_API_KEY)) {
+            $reportDir = $env:LOOP_REPORT_DIR
+            if (-not [string]::IsNullOrEmpty($reportDir)) {
+              $reportFile = Get-ChildItem -Path $reportDir -Filter "autonomous-loop-report-*.json" -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+              if ($reportFile) {
+                try {
+                  $report = Get-Content -LiteralPath $reportFile.FullName -Raw | ConvertFrom-Json
+                  if ($report -is [pscustomobject] -and $report.finalStatus -ceq "NEED_HUMAN") {
+                    Write-Host "::warning::Autonomous loop degraded to read-only check (no LLM API key configured); report uploaded for manual review. finalStatus=NEED_HUMAN, iterations=$($report.iterations)"
+                    exit 0
+                  }
+                } catch {
+                  # 报告损坏时回落失败，不静默放行
+                }
+              }
+            }
+          }
+
+          Write-Host "::error::Autonomous loop FAILED - see artifacts for details"
+          exit 1

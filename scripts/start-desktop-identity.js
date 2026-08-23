@@ -14,8 +14,10 @@ function getJson(url) {
 }
 
 async function main() {
-  const targets = await getJson('http://127.0.0.1:9222/json/list')
-  const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://127.0.0.1:5174'))
+  const cdpPort = process.env.MP_CDP_PORT || '9222'
+  const vitePort = process.env.MP_VITE_PORT || '5174'
+  const targets = await getJson(`http://127.0.0.1:${cdpPort}/json/list`)
+  const page = targets.find((t) => t.type === 'page' && t.url.startsWith(`http://127.0.0.1:${vitePort}`))
   if (!page) { console.log('NO_PAGE'); return }
   const ws = new WebSocket(page.webSocketDebuggerUrl)
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej })

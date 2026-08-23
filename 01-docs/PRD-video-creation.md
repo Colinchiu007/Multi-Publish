@@ -1,7 +1,7 @@
 # PROJECT-003 Multi-Publish — 视频创作模块 PRD
 
-> **版本**: v1.8
-> **日期**: 2026-07-29
+> **版本**: v1.10
+> **日期**: 2026-08-21
 > **状态**: 实现基线已更新（持续迭代）
 > **产品定位**: 将 OpenMontage 的视频生成能力集成到 Multi-Publish 桌面客户端，实现"创作→渲染→发布"完整闭环  
 > **目标用户**: 自媒体创作者、内容运营、企业内容团队  
@@ -59,15 +59,15 @@ Multi-Publish 现有系统（发布侧）
 | 图片 Provider 合同 | 已接入 | 使用注册 ID `dall-e`，兼容旧 `openai-image`；Imagen 将数量和宽高映射为 `sampleCount` 与宽高比；远程图片 URL 仅接受 HTTPS，解析结果必须是固定的可公开路由地址；仅已配置且主机名、协议、端口完全匹配的本机 loopback Provider endpoint 可下载；下载响应按流式 25MiB 上限读取，DNS 和远程下载共用 30 秒总预算；ComfyUI 因缺 workflow、轮询和下载输出合同而在 S2V 主链显式失败 |
 | 合成 | 已接入 | Electron + ffmpeg；支持按场景多页定时字幕、图片动效、转场、BGM、水印和输出校验 |
 | 模板 | 已接入 | 7 个模板预设和自定义模板库；CreateView 可将预设映射到运行参数（不等同于 7 个 Remotion Composition） |
-| 发布 | 已接入 | 未选择平台时明确 `skipped`；开启发布但缺 router/凭据时失败，不报告假成功 |
-| 结果交付/ZIP | 已接入 | 编排完成自动进入结果页；本地播放 URL 由主进程生成，可下载、复制路径、打开目录，并以流式 ZIP 导出 |
+| 发布 | 已接入 | 未选择平台时阶段状态为 `skipped`，流水线进度显示「未选发布，跳过」，不得显示「已完成」；开启发布但缺 router/凭据时失败，不报告假成功 |
+| 结果交付/ZIP | 已接入 | 流水线执行完成（前台跟踪或离开页面转后台模式）自动跳转视频预览/结果页；本地播放 URL 由主进程生成，可下载、复制路径、打开目录，并以流式 ZIP 导出 |
 | 本地项目历史 | 已接入 | 完成项目按用户隔离持久化，最多保留 100 项；重启后可恢复成片和分段媒体。失败运行断点续作与云历史不在本地合同内 |
 | 分段项目编辑 | 已接入 | 结果页支持编辑、排序、删除、替换旁白、图片/视频重试和重新合成；不再把旧项目 `batch` 编辑器列为缺失 |
 | 旁白与转录 | 已接入（TTS） | text 标准模式由配置的 TTS Provider 生成逐段旁白并交付完整旁白；上传音频和手动 STT 不属于该模式 |
 | 成片裁剪 | 已接入 | 通过 Python `VideoTrimmer` + ffmpeg 真实裁剪；结果页提供双范围控件和区间预览 |
 | 创作模式 | 已收敛 | `story2video-compose` 仅保留 `text`；`image/remix/gallery/audio/batch` 不再作为该流水线的创作模式 |
 | 媒体安全约束 | 已接入 | text 标准模式只直接接收 BGM（<=15MB）；普通流水线与结果页使用的图片/旁白工具仍执行格式、大小和受控路径校验，不构成 Story2Video 创作模式 |
-| 时长约束 | 已接入 | text 标准模式成片 <=10 分钟；普通流水线/结果编辑使用旁白工具时仍执行总时长和单段时长限制，合成前通过 ffprobe 二次校验 |
+| 时长约束 | 已接入 | text 标准模式成片 <=50 分钟（默认上限，见 PRD §7.1.25a）；普通流水线/结果编辑使用旁白工具时仍执行总时长和单段时长限制，合成前通过 ffprobe 二次校验 |
 
 运行前提：本地可执行 `ffmpeg`；`8002`（场景分句）和 `8013`（提示词）是外部服务边界。
 8002 不可用时允许明确标记的本地场景降级，非法响应仍阻断；8013 不可用时阻断优化阶段。
@@ -123,13 +123,17 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 ---
 
-### 1.6 近期迭代修订记录（2026-08-07 / 08）
+### 1.6 近期迭代修订记录（2026-08-07 / 15）
 
 > 本节汇总最近多轮针对【视频创作】-【图片轮播】的稳定性、体验与交付修复。
 > 详细合同见 `01-docs/PRD.md` 7.1.12-7.1.15 与历史/后台运行章节；本模块 PRD 与总 PRD 以总 PRD 为准。
 
 | 日期 | 范围 | 核心内容 | 主文档 |
 |------|------|----------|--------|
+| 2026-08-21 | 流水线启动前台跟踪 + 独立历史页「已中断」对齐 | 启动流水线后创作页实时轮询展示阶段进度；离开页面自动转后台运行、仅历史可见；重新进入创作页回到全新新建状态（并发门禁不变）。启动/续跑前台语义统一，移除旧「启动即后台」监听机器。独立历史页 CreateHistory.vue 同步「已中断」标签、stale running 规则与紫色样式。详见本节 3.1.35 | PRD 3.1.35 / S2V-PIPELINE-PAGE-UX §5 |
+| 2026-08-21 | 发布跳过状态与完成跳转修复 | 未选择任何发布平台时，发布阶段以 `skipped` 收尾（不再误标 `completed`），流水线进度显示「未选发布，跳过」，完成态进度仍为 100%；自动后台运行的任务在创作页仍监听终态，执行完成后自动跳转视频预览/结果页（恢复「完成即跳转」）。回归覆盖引擎快照/进度、StageProgress skipped 渲染、历史卡片阶段状态与结果页跳转 | PRD-video-creation §1.6 / OpenSpec s2v-publish-skip-jump |
+| 2026-08-20 | 历史状态语义修订：新增「已中断」状态 | 运行残留 running 快照（应用退出/崩溃/强杀）与 stale-running（>30 分钟无更新）归一化为「已中断（interrupted）」，不再误归「已暂停」；「已暂停」仅保留用户手动暂停与 scene_asset_selection 检查点；run-only 失败记录用快照 params 回填标题与原文案（卡片不再显示流水线名 +「未生成」）；筛选器 7 标签、↯ 图标、紫色系色条/徽章、中断环节提示。详见本节 3.1.34 | PRD 3.1.34 / S2V-PIPELINE-PAGE-UX §5 |
+| 2026-08-15 | 长成片合成超时与错误提示 | 下游 ffmpeg concat/xfade/旁白/BGM/WebM/输出校验预算按对应媒体时长动态缩放并设最小值/硬上限；execFile 的 killed + SIGTERM/ETIMEDOUT 归一为阶段超时；新增中英文合成超时、成片总时长和单段时长稳定通知键，错误只展示可操作建议。回归覆盖短片、50 分钟、非法时长、上限和实际阶段传参 | PRD §7.1.25a / 本节 3.1.4.2 / OpenSpec s2v-timeout-notifications |
 | 2026-08-14 | 水印四角边距调远 | 用户反馈左上/左下/右上/右下四角距边过近；水平/底部边距 20px→40px、顶部边距 40px→60px（center/moving 不受影响）；`buildWatermarkFilter` 坐标表达式与测试断言同步更新，真实 ffmpeg 渲染回归确认不越界。详见本节 3.1.24 | PRD 3.1.24 |
 | 2026-08-14 | 水印坐标修复 + 位置/字号/透明度选项 | 全能创作水印成片不可见修复：根因 `buildWatermarkFilter` drawtext 坐标出画布（bottom-* 用 `y=h-20`、center 用 `y=(h+text_h)/2`，drawtext 按文字左上角定位），自 commit `e1b46eba0`（2026-07-23）引入，保存链路无断点；修复后六位置 + moving 帧级验证可见。新增位置 6 枚举（top-left/top-right/bottom-left/bottom-right/center/moving，moving 为确定性 Lissajous 平滑漂移非随机）、字号 5 档（16/24/32/40/48 默认 24）、透明度 10 档（10%-100% 步进 10% 默认 60%）；normalizer 白名单 fail-closed + compose clamp 二次防线；快照恢复陈旧枚举吸附合法档位；文案 locales zh/en 成对 14 键。详见本节 3.1.24 | PRD 3.1.24 / openspec watermark-options |
 | 2026-08-13 | 视频克隆：入口卡 + 默认链接 + 自动复刻层级 | CreateView「流水线创作」新增「视频克隆」标准流水线卡（`[data-pipeline-id="video-clone"]`，紧随全能创作，点击直达 /video-clone）；视频克隆页输入来源默认「链接」（v1.14）；复刻层级下拉移除（v1.15），改为程序按拆解报告证据自动定级 L0/L1/L2（v1.16，驱动 generate/compose 分支 + F4 按层级验收，UI 展示「自动目标层级 → 达成 grade」）；打包 E2E 回捕修复（L0 封面负索引 + E2E 脚本适配默认链接）。详见 PRD-VIDEO-CLONE v1.14–v1.16 | PRD-VIDEO-CLONE-2026-08-12 |
@@ -158,13 +162,26 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 | 2026-08-10 | 历史记录已暂停状态 + UI 优化 | 后端 getHistory() 持久化 running 快照自动转为 paused 状态并记录 pausedStage（暂停环节名称）；前端历史记录流水线卡片重构：状态徽章前置、卡片左侧状态色条（running 蓝/failed 红/paused 橙/completed 绿/cancelled 灰）、运行中脉冲动画、暂停环节提示「暂停环节：xxx」、失败状态提示；openPipeline() 支持 paused 状态跳转恢复；CSS 全面优化（间距、圆角、字号、hover 效果）。详见本节 3.1.11 | PRD 7.1.23 |
 | 2026-08-13 | 流水线矩阵文档 | 新增 [PIPELINE-MATRIX.md](./PIPELINE-MATRIX.md)：14 条流水线 × 阶段 × 执行引擎 × 可用性 × 供应商要求总览，含 JS stageDefs 与 Python YAML manifest 阶段命名漂移基线（§6）。commit f51bb852 | PIPELINE-MATRIX.md |
 | 2026-08-13 | 流水线【后台运行】按钮 | 运行中流水线可一键转后台：前端脱离（停止轮询 + 恢复初始化），run 在主进程继续执行、仍占并发槽位；历史记录「运行中」可点击重挂；轮询竞态守卫（runId 快照）；检查点等待态禁止转后台。详见总 PRD「视频创作后台运行与并发合同 §3a」 | PRD 后台运行合同 §3a |
+| 2026-08-19 | 流水线启动/断点续跑统一自动后台 | 运行中的编排任务不再依赖【后台运行】按钮：启动成功即停止 renderer 轮询、恢复创作页初始态并刷新历史；历史卡片【继续/从断点继续】恢复到 running 时留在历史后台执行；scene_asset_selection paused 仍进入素材选择交互；runId 类型、并发占槽、取消不调用和旧轮询响应丢弃均有回归保护。详见总 PRD「视频创作流水线启动即后台运行 §3a」 | OpenSpec s2v-pipeline-always-background-run |
 | 2026-08-13 | 生成阶段三路并行 + 阶段改名 | **图片/视频/旁白并行生成**：非视频场景图片与 TTS 旁白在阶段启动时立即并行；AI 视频有界并发（请求值默认 2，受 provider 每分钟预算收敛）同步生成；视频失败场景在视频结束后补生成图片（`assets_progress.imagesTotal` 动态纳入，先更新计数再启动补图）；进度展示「图片 a/b · 视频 c/d · 旁白 e/f」（纯图模式回退「图片 a/b · 旁白 c/d」）。阶段名「生成图片与旁白」→「图片/视频/旁白生成」（zh）/「Generate Images/Videos/Voiceover」（en）。PR #717 | PRD 7.1.9.x |
 | 2026-08-13 | 阶段进行中信息反馈颗粒度统一方案 | 整体梳理 14 条流水线各阶段「进行中」反馈现状：仅 compose/generate_assets/optimize 有子进度，其余阶段运行中无细节；提出统一 stage.progress 契约 + StageExecutor onProgress 通道 + UI 去特判 + 分期实施。详见本节 3.1.23 与总 PRD 7.1.9.3 | PRD 7.1.9.3 / 3.1.23 |
 | 2026-08-13 | 阶段进行中信息反馈颗粒度统一实施 | stage.progress + stage.summary 统一契约（getRunSnapshot 下发，与 context.stage_progress 双写）；StageExecutor onProgress 通道 + normalizeStageProgress 校验；publish/finalize_assets/split/optimize 运行中/LLM 阶段逐项接入；StageProgress 去特判通用渲染 + 总进度加权。测试 8 文件 411/411 + Vite build + 打包冒烟通过。PR #756 | PRD 7.1.9.3 / 3.1.23 |
 | 2026-08-13 | 阶段进度实时推送 + 快照裁剪（Phase 3） | `pipeline:update` 实时事件推送（500ms 节流合并、终态立即发送）+ `getRunSnapshot(runId, { progressOnly })` 轻量快照（不含 context）+ preload `onPipelineUpdate`（可取消）+ CreateView 事件驱动更新 + 3s 轮询兜底重置。测试 6 文件 659/659 + Vite build + 打包冒烟通过。PR #770 | PRD 7.1.9.3 Phase 3 |
+| 2026-08-17 | 全流水线阶段反馈覆盖 | 所有视频创作流水线统一采用开始（0%）→可计数子项→完成（100% + 摘要）反馈；`messageKey`/`summaryKey` 由 zh/en locale 渲染，原始文案仅作兼容降级；Story2Video、explainer、talking-head、cinematic、clip-factory、documentary、localization-dub、podcast-repurpose、videogen 与 framework-smoke 均已接入。详见 3.1.23 | PRD 3.1.23 / OpenSpec pipeline-progress-feedback-coverage |
 | 2026-08-13 | 视频创作首页卡片 UI：多列动态布局 + 内置静态背景 + 交互动效（方案 B） | `/create` 流水线选择视图容器放宽至 1600px + 显式 1-5 列断点；背景图由免费生图模型 Pollinations(flux) 一次性预生成 15 张（1024x576 JPEG，统一风格 + 主题意象）并提交仓库静态资源 `apps/desktop/src/assets/pipeline-card-bg/`；前端 `PipelineSelector` 直接引用静态映射，双层暗色遮罩 + 浅色前景保证可读性，渐变兜底 + 入场/悬停动效 + reduced-motion + ARIA；**彻底移除运行时生成链路**（主进程服务/IPC/preload/api/缓存/loopback 全部删除，不调用任何生成 API、不访问网络）。详见本节 3.1.24 | PRD 3.1.24 |
 
 | 2026-08-14 | 全能创作 BGM 素材库管理 | 背景音乐升级为设备级素材库：添加（自动入库 + 选中）/ 重命名 / 删除，下拉选择，历史路径兼容；主进程 `story2video-bgm-library` 服务 + 4 个 IPC 通道 + PUBLIC_CHANNELS；详见本节 3.1.25 | PRD 3.1.25 |
+| 2026-08-14 | 视频任务编辑页场景多素材与再次合成（初版，已由 2026-08-20 四视觉卡修订） | 初版每个场景 3 个素材身份（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；后续在附录 A 固化为 4 个视觉卡、3 个持久化身份；其余生成、选择和重合成流程沿用。 | PRD 3.1.26 / openspec s2v-history-multi-materials |
+| 2026-08-15 | 视频提示词引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架 | **Batch B**：`prev_final_frame`（≤1000 字符，句末截断）链式承接上一镜计划终态；`HIGGSFIELD_FMT_V4` 缓存盐（key 含 prev_final_frame 哈希）；连续性 advisory 评分 -5（英文实体 ≥40% + 角色名硬判据 / 中文白名单 ≥60% 或整句重合 ≥0.5）；Story2Video 视频提示词按场景串行优化、媒体生成保持并发、计划终态回写 scene.video.final_frame、checkpoint 终态恢复链、断链显式 degraded。**Batch C**：refined 12 块导演骨架（SCENE NOTE…FINAL FRAME，值 ≤4000，白名单）；FAIL CHECK 仅指令不出现在输出；尾行清理只认完整 trailer 尾段；块覆盖度 ≥0.8（advisory -5）；7 条 lock-gated 规则默认启用 dead_center/exposure_break/eye_line，否定感知（not overexposed / no waxy skin 不判罚）。详见本节 3.1.27 | PRD 3.1.27 / openspec higgsfield-round3b-cross-scene + higgsfield-round3c-refined-output | | 每个场景 3 素材槽（图1/图2/视频）+【生成新图】【生成视频】【再次合成视频】；流水线完成后可从详情页继续生成/选择素材并重新合成；manual 模式 saveRun 富化候选素材；`_scenesForCompose` 按选中态映射（缺失选中态保留遗留语义）；详见本节 3.1.26 | PRD 3.1.26 / openspec s2v-history-multi-materials |
+| 2026-08-16 | 历史记录场景 AI 视频重新生成（W4 闭环） | 完成 3.1.29 的 W4 真缺口：结果页新增【生成 AI 视频】，以分段 videoPrompt（缺省回退 prompt/text）为提示词复用流水线 stages 契约（generateVideo→轮询→下载校验），成功替换分段 videoPath/videoMeta、失败保留旧视频回写 failed；IPC/权益/preload/api/locales/通知归一化全链路补齐；详见本节 3.1.29.1 | PRD 3.1.29.1 / openspec s2v-history-ai-video-regen |
+| 2026-08-15 | 历史记录场景内容编辑/重新生成与整片重合成 | 已完成任务每个场景可修改文案/字幕块/视频优化词/语音设置（updateSegments 白名单透传 + 限长收敛，voiceSpeed/Pitch 收敛 [0.1,10]），重新生成字幕（本地重切清空时间轴、重置失败态与来源标记）/旁白（TTS 失败回滚保留旧音频 + 回写 failed）/图片与视频优化词（image 重写 prompt 清翻译、video 写 videoPrompt），配合既有【生成新图】【生成视频】与【重新合成】完成整片重合成；voiceSpeed 收敛 [0.5,2]、voicePitch 收敛 [-12,12]（与流水线契约对齐）；同项目写串行队列防并发覆盖；compose 回显缺省时 videoPrompt 按原值回填；历史卡片新增【编辑】入口并进入视频任务编辑页；详见本节 3.1.29 | PRD 3.1.29 / openspec s2v-history-scene-edit-recompose |
+| 2026-08-16 | 视频提示词优化长度放宽（已实现） | 用户诉求：图片提示词上限放开后（PR #887），视频提示词优化也希望长度尽量放宽，避免长提示词被截断；方案沿用域级模式——Story2Video 域显式 max_length（流水线 stageDef/文本配置默认 + 各入口显式携带），共享 kernel 默认 500 与视频 legacy 8020 契约不变，执行器契约 [50,2000] 收敛不放松；PM 已确认放宽诉求；历史重生成视频优化词显式顶格（max_length=20000，8020 standalone [200,20000] / 8013 legacy [50,2000] 由契约 builder 各自收敛）。详见本节 3.1.29.5 | PRD 3.1.29.5 / openspec s2v-history-video-maxlength |
+| 2026-08-16 | 视频任务编辑页图片提示词完整展示 + 未保存修改离开守卫 | 视频任务编辑页完整显示场景旁白与画面提示词（不再以 60 字符截断）；历史卡片预览仍为 120 字符摘要；编辑页新增「有未保存修改」标识与离开确认（保存并离开 / 不保存离开 / 取消），保存成功才放行、失败留页；明确保存语义为【保存分段】手动持久化 + 生成/重合成前自动保存；详见本节 3.1.29.3 | PRD 3.1.29.3 / openspec story2video-history-scene-prompt-persistence |
+| 2026-08-18 | 页面名词统一与术语同步 | 统一使用「流水线启动页」术语（流水线创作视图中选择流水线后进入的页面）；注释、模板、i18n 同步更新。 | PRD 3.1.31 |
+| 2026-08-18 | 历史记录卡片信息增强 | 历史记录卡片显示发布标题（回退到原文案前 60 字）；元数据区新增流水线名称显示；统一各状态标签下的卡片 CSS 样式。 | PRD 3.1.31 |
+| 2026-08-18 | 页面导航箭头 + 返回按钮优化 | 视频创作页面顶部新增左右箭头按钮（历史导航）；流水线详情页「返回流水线列表」改为「返回」，点击后跳转历史记录。 | PRD 3.1.31 |
+| 2026-08-18 | 流水线启动页底部按钮居右对齐 | action-bar 新增 `justify-content: flex-end`，启动流水线/恢复默认选项等按钮统一居右显示。 | PRD 3.1.31 |
+| 2026-08-18 | 电影工程（film-engineering）流水线合并 | 合并 `codex/film-engineering-hell-grind` 分支：film-kit 资产/分镜库/剧本套用/一键复制/导出；pipeline-labels.js 新增 film-engineering 注册；Electron 主进程新增 film-engineering IPC 服务。详见 3.1.30 | PRD 3.1.30 |
 **待真实验收项**（需真实 provider 账号/API，见 `E2E-PENDING.md`）：✅ MiniMax 异步 T2A 成片（2026-08-08 已通过：旁白 1/1、成片 20s）；分段图片/下载交互、失败任务历史展示、provider 异常横幅；真实克隆音色生成成片（待办 C-1，需重新克隆后验证）。
 
 ---
@@ -247,6 +264,66 @@ Windows 安装环境中的 Python、依赖、服务启动和真实接口验收�
 
 所有运行参数必须是纯 JSON；归一化器只接受白名单字段并在创建 run 之前拒绝非法值。API Key、Access Token 和 Provider Secret 不得写入运行参数、项目历史或结果清单。
 
+### 3.1.2.4 Story2Video 提示词翻译与视频合成并行（自动/手动模式，2026-08-17）
+
+**目标与范围**：提示词翻译是结果页/历史页的只读增强，不参与图片、视频、TTS、字幕或 ffmpeg 输入。自动模式与分镜素材自选模式均不再让翻译 LLM 阻塞素材生成或候选素材选择；翻译任务统一在视频合成阶段与 `composeVideo` 并行启动，以合成阶段的长耗时覆盖正常翻译耗时。手动模式的候选面板只依赖场景 `index`、候选 `candidateId` 和媒体路径，允许候选生成阶段暂时没有 `promptTranslation`；翻译完成后只回填翻译字段，不改变候选、选择或媒体数据。
+
+**数据合同与校验**：
+
+| 字段 | 类型/限制 | 规则 |
+|------|-----------|------|
+| `uiLocale` | 字符串，最多 16 字符 | `en`、缺失或空白不创建翻译任务；其他 locale 才进入翻译流程 |
+| `prompt_translations_pending` | JSON 对象 | 仅允许 `{ uiLocale, items }`；不得写入 Promise、函数、Error、响应对象或凭据 |
+| `items[].index` | 非负整数 | 使用稳定场景序号关联翻译；不按完成顺序、不按过滤后的数组位置回填 |
+| `items[].prompt` | 非空字符串 | 从 `optimized_prompt`/`prompt` 读取并 trim；空项被丢弃，不调用翻译 |
+| `items[].translation` | `null` 或非空字符串 | 成功结果 trim，最多 2,000 字符；等于原文、JSON 包装文本、代码围栏标记或空白均视为无效 |
+| 超时预算 | 每批 25 秒；全任务约 60 秒 | 达到批次/总预算立即降级，不得让可选翻译无限延长流水线 |
+
+**流程与时序**：
+
+```text
+自动模式
+  optimize ──→ 写入 prompt_translations_pending（不调用翻译 LLM）
+      └──────→ generate_assets ──→ compose 开始
+
+手动模式
+  optimize ──→ 写入 prompt_translations_pending（不调用翻译 LLM）
+      └──────→ generate_assets 候选 ──→ scene_asset_selection checkpoint
+                                      └─ 用户确认 index + candidateId
+                                          └─ finalize_assets ──→ compose 开始
+
+compose 开始后（两种模式相同）
+  ├─ 同时启动 composeVideo
+  └─ 同时启动 prompt translation
+      └─ 合成成功后等待有限收尾窗口
+          ├─ valid → 按 index 回填 segments/scenes
+          └─ timeout/error → 保留原 prompt，translation=null，视频仍成功
+```
+
+1. `optimize` 只负责生成优化提示词和可序列化 pending payload；自动模式与手动模式的 LLM 调用都不会因翻译增加串行等待。
+2. `StageExecutor` 仅对显式配置 `composeParallelTask` 的流水线启用并行钩子，其他流水线不启动翻译；合成失败始终优先返回合成错误。
+3. 翻译任务按最多 3 个场景一批处理，单批失败/超时不影响其他已完成批次；已完成项与未完成项均以 stable `index` 保存。
+4. 合成成功后，在有界收尾时间内 apply 结果；翻译 apply 失败只写诊断，不覆盖视频结果。合成成功但翻译降级时，`context.prompt_translation_diagnostic` 记录 locale、原因和项目数量。
+5. 进程重启、阶段重试或 compose 重试只恢复 JSON 数据：已有非空翻译优先复用，未完成项从 pending 重试；pending 只在所有条目完成时清除，避免超时后丢失重试依据。
+
+**功能逻辑与故障边界**：
+
+- `en` 界面保持现状：不创建 pending，不发送翻译请求，不显示翻译栏。
+- 非 `en` 自动/手动模式：翻译不可用、LLM 返回空响应、非法 JSON、响应缺项、网络错误、单批超时或总预算耗尽均 fail-open；原始英文提示词、候选素材、选中素材和成片保持可用。
+- 部分成功：有效 index 持久化为翻译，缺失 index 为 `null`；不得用相邻场景或数组序号顶替。
+- Compose 失败：返回 ffmpeg/媒体合成真实失败，不因翻译 Promise 成功而伪造视频成功；后台 Promise 绑定 catch，禁止未处理 rejection。
+- 断点恢复：不恢复正在执行的 Promise；恢复后按 pending 重新发起有界任务，已完成结果不得被空响应覆盖。
+
+**交互、显示项与提示文字**：
+
+- 优化阶段：自动/手动模式均不新增翻译等待文案；用户直接看到后续素材生成。手动模式候选生成完成后直接进入既有素材选择面板，不显示“等待翻译”阻塞态。阶段清单仍按既有 `pending/running/completed/failed` 展示。
+- 手动候选面板：候选选择仍以 `scene.index + candidateId` 为唯一提交合同；`promptTranslation` 缺失不禁用候选卡片、确认按钮或恢复选择。候选面板当前不把翻译作为排序、过滤或选择依据。
+- 合成阶段：继续显示既有合成子进度、片段数和耗时；翻译为后台增强，不改变合成百分比，不额外创建第二条进度条。
+- 结果页/历史页：非英文且 `promptTranslation` 为非空合法字符串时，在「画面提示词」下方显示只读「中文翻译」/「翻译」；缺失或降级时只显示原始提示词，不显示“翻译超时”、JSON 原文或空占位符。
+- 本变更不新增用户操作按钮；不新增“重试翻译”按钮，不阻塞“查看结果”“重新合成”或历史记录加载。后续如需可见降级提示，须另行确认文案和 locale 合同。
+
+**验收标准**：自动/手动模式 optimize 均不调用翻译 LLM；手动模式候选 checkpoint 在无翻译时仍可选择；合成与翻译请求在同一 compose 调用内启动；按乱序 index 正确回填；翻译超时/错误不阻塞成功成片且 pending 可恢复；候选、选择、媒体和 TTS 字段不被翻译 apply 覆盖；英文界面跳过；合成失败不被翻译结果掩盖；上下文快照可 JSON 序列化。
+
 ### 3.1.2.1 图片提示词统一走 prompt-engine 合同（2026-08-09 落地）
 
 > 设计（manifest / PRD）与实现长期背离：manifest 与本文档早已声明 optimize 阶段走 prompt-engine，但
@@ -312,7 +389,7 @@ split（分句）→ domain_enrich（历史内容领域增强，可选）
 
 - prompt-engine（`D:\\Data\\projects\\prompt-engine`，FastAPI / 8013）为图片提示词优化的**前置依赖**；本地已可 import 且 `.env` 已配置 LLM/各 provider key。
 - 真实优化质量（LLM 改写效果、风格检测准确率、配额）属于**外部验收边界**：单元/集成测试用 mock PromptBridge / 本地 HTTP stub 覆盖契约与 fail-closed 行为，不冒充真实 8013 + provider 验收通过（见 learnings 与 quality-gates 记录）。
-- `creative_level ≤ 3` 走 prompt-engine 模板直出（免 LLM key），`> 3` 需要 LLM key（未配置时服务端返回 error → fail closed）。
+`creative_level` 表示创意/细节强度，引擎不会根据文案自动判断该等级。`optimization_strategy` 只允许 `template` 或 `llm`，缺省为 `llm`；`template` 强制图片确定性模板，`llm` 强制使用桌面当前 BYOK 文字推理模型，`auto` 已删除且返回 422；video + template 返回 422。历史记录“重新生成图片优化词”固定 `llm + bypass_cache=true`，因此不会把模板或缓存命中伪装为新生成；结果可用 strategy_used/key_source/model_used/caller/cache_hit 诊断。
 
 ### 3.1.2.3 独立视频提示词优化引擎（video-prompt-engine，2026-08-12 规划）
 
@@ -385,7 +462,7 @@ videogen：storyboard 场景提示词 → PromptBridge.optimizeVideosBatch（dom
   → CreateView.loadHistory() 并行两个只读请求（Promise.allSettled + 5s 竞速超时）：
        ├─ story2video:list-projects   → Story2VideoProjectService.listProjects()（本地 SQLite 项目索引，owner 隔离）
        └─ pipeline:history            → PipelineEngine.getHistory()（本会话内存 run + 持久化失败快照，设备级）
-  → 合并：运行中流水线置顶 → 已完成项目 → 终态流水线（按 projectId 去重，项目优先）
+  → 合并：所有任务按有效更新时间倒序（字段优先级与无效值处理见 §3.1.28；按 projectId 去重，项目优先）
   → 未登录（localMode=true）时顶部显示「本地模式」提示条
   → 任一请求失败（code!=0 / 非数组 / 超时 / reject）：
        ├─ 收集失败 message → historyLoadFailureDetail() 按原因映射可操作建议
@@ -415,7 +492,7 @@ videogen：storyboard 场景提示词 → PromptBridge.optimizeVideosBatch（dom
 | 显示项 | 位置 | 行为 |
 |--------|------|------|
 | 本地模式提示条 | 历史视图顶部（`data-testid="history-local-mode-banner"`） | 未登录（localMode=true）时显示；已登录/登录态变化后随下次 loadHistory 刷新 |
-| 历史列表 | 历史视图 | 运行中置顶 + 项目 + 终态流水线；空时显示「暂无创作记录」 |
+| 历史列表 | 历史视图 | 全部与状态筛选均按有效更新时间倒序；空时显示「暂无创作记录」 |
 | 错误弹窗 | 应用内弹窗 | 标题「提示」+ 通用文案 + detail 建议行（仅当可映射原因时）+ 「知道了」按钮 |
 | 空态 | 历史视图 | 「暂无创作记录」（无数据时） |
 
@@ -516,13 +593,16 @@ locale key；未知内部 ID 只能安全回退为原始 ID，不能以 slug 标
 | 层级 | 权威实现 | 输出与降级合同 |
 |------|----------|----------------|
 | 场景层 | `smart-sentence-splitter` 8002 | 正常响应的 `scenes` 是图片、视频提示词和逐场景 TTS 的唯一边界；Multi-Publish 不得再次改写。仅 `ECONNREFUSED`、`ETIMEDOUT`、`ECONNRESET`、服务未运行等不可用错误可使用本地场景降级；业务错误或缺失 `scenes` 的非法响应必须失败 |
-| 字幕层 | Multi-Publish 本地逻辑 | 对每个场景的 `text` 独立二次切分，目标为每页 8-15 个字符，优先在标点后断开；字幕不得跨越场景，按顺序拼接后必须等于该场景规范化文本 |
+| 字幕层 | `smart-sentence-splitter` 8002（`config.subtitle`）+ 本地 v1.2.3 镜像 | 每个场景的 `text` 独立切分，目标每页 8-15 字；**词边界感知（v1.2.3）**：无标点切分/平衡切分优先不劈词（`扶余国`/`电视剧`/`复杂`/`空白一片`/`蒙古`/`江南`/`包税人`/`大汗` 等），`no_cut_bigrams` 项按任意长度短语解释，`subtitle_min_chars/subtitle_max_chars/subtitle_timing` 经 stage-executor 透传为 8002 `config.subtitle.min_chars_per_block/max_chars_per_block/time_calculation_method`；8002 在线字幕在归一化层必须先通过顺序连续覆盖与短语边界质量门，未通过时该场景整体回退本地并记录 `fallbackReason`；保护短语完整优先于 `max_chars` 超长配置；三端（Python/TS/JS）逐字一致；字幕不得跨越场景，按顺序拼接后必须等于该场景规范化文本；**语义引导词（v1.2.4）**：`已经`/`依然` 等成词副词优先在副词前切分，5-6 字语义短尾在共享向量 `short_block_exceptions` 声明 |
 | 可观测性 | 运行结果与项目清单 | 每个场景持久化 `sceneSource`、`subtitleSource`、`degraded`、`fallbackReason`、`subtitleBlocks` 和 `subtitleTimeline`；`tier_used=tier3_rule` 仍表示经过 8002，只是 sidecar 内部选择规则层，不等于本地降级 |
 
 Story2Video 的 `target_duration/base_words_per_second/speech_rate/min_words/max_words` 必须转换为
 8002 实际消费的 `config.scene.target_seconds/base_words_per_second/speech_rate/min_words_per_segment/max_words_per_segment/enforce_sentence_boundary/allow_single_sentence_overflow`；
-`max_sentence_length` 同步写入 `config.sentence_tokenizer`。字幕页长度和时间轴选项只由本地逻辑消费，
-不得混入 8002 请求。为兼容 sidecar 现有中文算法，`min_words/max_words` 名称保留但计量单位是字数/字符数。
+`max_sentence_length` 同步写入 `config.sentence_tokenizer`。`subtitle_min_chars/subtitle_max_chars/subtitle_timing`
+（v1.2）必须转换为 8002 实际消费的 `config.subtitle.min_chars_per_block/max_chars_per_block/time_calculation_method`，
+不得作为会被忽略的顶层扩展字段；8002 不可用时本地 v1.2 镜像消费同样的 min/max 参数。字幕页时间轴选项
+（字号/样式等渲染配置）只由本地 compose 逻辑消费，不得混入 8002 请求。为兼容 sidecar 现有中文算法，
+`min_words/max_words` 名称保留但计量单位是字数/字符数。
 
 字幕时间轴必须在 compose 阶段基于 ffprobe 读取的逐场景真实音频时长生成，不能把
 edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `0` 开始，字幕区间连续且
@@ -538,13 +618,45 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 | 媒体 | 格式 | 大小 | 时长 |
 |------|------|------|------|
 | 图片（普通流水线/结果编辑） | JPEG / PNG / WebP | 单图 <=10MB | 不适用 |
-| 旁白音频（结果编辑/STT 工具） | WAV / M4A / MP3 | 单文件 <=50MB | 总计 <=15 分钟；多文件时单段 <=3 分钟 |
+| 旁白音频（结果编辑/STT 工具） | WAV / M4A / MP3 | 单文件 <=50MB | 总计 <=50 分钟；多文件时单段 <=3 分钟 |
 | 背景音乐（text 标准模式） | WAV / M4A / MP3 | 单文件 <=15MB | 成片混音以视频结束为准 |
-| 输出视频 | MP4 / WebM | 由本地磁盘决定 | Story2Video 成片 <=10 分钟 |
+| 输出视频 | MP4 / WebM | 由本地磁盘决定 | Story2Video 成片 <=50 分钟 |
 
 这些媒体工具不恢复 `image/audio/gallery/batch` 创作模式。前端先检查扩展名和文件大小；可信 preload 将用户选择的音频复制到应用临时目录，
 主进程再做 canonical path、符号链接、大小和 ffprobe 时长检查。任意磁盘文件选择因此
 无需把整个盘符加入白名单。流水线完成、失败或取消时删除导入的临时媒体。
+
+#### 3.1.4.2 长成片合成预算与失败提示合同（2026-08-15）
+
+Story2Video 的 50 分钟产品上限与下游 ffmpeg 执行预算是两个独立边界：前者决定输入是否可接受，后者决定本地处理最多等待多久。下游不得继续沿用面向短成片的固定全片超时。
+
+| 阶段 | 时长基准 | 预算合同 |
+|------|----------|----------|
+| concat | 当前无损拼接输入片段总时长 | 按时长缩放，短片不低于 60s，阶段上限 30min |
+| xfade | 当前转场计划输出时长 | 按时长缩放，短片不低于 120s，阶段上限 6h |
+| 旁白合并 | ffprobe 实测旁白总时长 | 按时长缩放，短片不低于 120s，阶段上限 2h |
+| BGM 混音 / 输出校验 | 预计最终成片时长 | 按时长缩放，短片分别不低于 120s / 60s，阶段上限 2h |
+| WebM 转码 | 预计最终成片时长 | 按时长缩放，短片不低于 180s，阶段上限 6h |
+
+预算使用 ceil(duration × factor × 1000) + overhead 后再执行阶段上下限钳制；时长缺失或非法时只使用该阶段最小预算，不把未知值伪装成长片。execFile 因 timeout 被终止时，主进程统一返回带阶段语义的 ETIMEDOUT 错误，renderer 再映射到 story2video.compose_timeout。
+
+| 错误类型 | 稳定消息键 | 用户建议 |
+|----------|------------|----------|
+| 成片或旁白总时长超限 | story2video.compose_duration_exceeded | 缩短文案/减少场景；确认输入大小约束后重新启动 |
+| 单段旁白超限 | story2video.compose_segment_duration_exceeded | 拆分过长段落或调整文案后重新启动 |
+| 合成阶段 timeout | story2video.compose_timeout | 检查磁盘空间与设备负载，然后从断点继续；仍失败时稍后重试 |
+
+未知技术错误仍使用通用本地化提示；任何错误提示不得展示 ffmpeg 命令、文件路径、stderr、token 或堆栈。
+
+#### 3.1.4.3 合成可诊断日志合同（2026-08-15）
+
+当长视频在 concat 87%-89% 区间停留较久时，系统必须能区分“正在重编码”“FFmpeg 未启动/异常退出”“输出不再增长”“阶段超时”和“输出文件未生成”，而不是只留下单个完成日志。
+
+1. **关联与阶段**：每次合成生成内部 composeId；开始、阶段开始/成功/失败、最终成功/失败都携带该 ID。阶段覆盖片段编码、concat/xfade、旁白合并、BGM、WebM、输出校验和持久化。
+2. **FFmpeg 结果**：每个 FFmpeg 阶段记录启动 PID、输入数量、预算、耗时、输出文件 basename 与输出字节数；正常退出、失败、超时（ETIMEDOUT 或 killed+SIGTERM）和“命令成功但无产物”必须是不同事件。
+3. **分块合成**：每块记录 level、chunkIndex、totalChunks、输入数、开始/结束/失败；保留 merge_l{level}_chunk_{n} created 兼容文本。超过 10 秒的合并每 10 秒以 INFO 记录输出字节心跳，连续 30 秒无增长以 WARN 标记，确保桌面默认日志级别下可见。
+4. **隐私与边界**：日志只记 basename、计数、时长、字节数、PID/退出状态和已清理的 stderr 摘要；不写绝对路径、完整命令、素材文本、prompt 或凭据。首版不解析 FFmpeg progress pipe，因此可定位“是否仍有输出”，但不承诺帧级 ETA 或提升实际耗时。
+5. **验收**：一次 87% 长拼接可按 composeId 查到最后一个块、最近输出大小、是否 stalled、最终结果；现有进度百分比和 FFmpeg 参数不变。
 
 ### 3.1.9 场景时长与图片动效设计合同（2026-08-08 补充）
 
@@ -664,6 +776,8 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 
 
 ### 3.1.11 历史记录已暂停状态与 UI 优化（2026-08-10）
+
+> ⚠️ **合同修订（2026-08-20）**：本节「running 快照归一化为 paused」已废弃——运行残留快照现归一化为「已中断（interrupted）」，仅用户手动暂停与 scene_asset_selection 检查点保留「已暂停」；「暂停环节」文案仅适用于用户手动暂停，中断场景改用「中断环节」。以 3.1.34 为准。
 
 **背景**：此前应用重启后，持久化的 running 快照在历史记录中仍显示为「运行中」，用户无法区分"真正在运行"和"因关闭应用而中断"的任务。同时历史记录列表 UI 过于紧凑，信息层次不清晰。
 
@@ -812,6 +926,8 @@ edge-tts 文件大小估算当作最终时长。每个场景的首个字幕从 `
 - 修改：apps/desktop/src/views/CreateView.vue（引入组件、移除内联模板和样式）
 - 构建：vite build 通过，CreateView chunk 141KB
 ### 3.1.14 CreateHistory.vue 独立页面 stale running 检测（2026-08-11）
+
+> ⚠️ **合同修订（2026-08-20）**：本节 stale running（>30 分钟无更新）转为 paused 的逻辑已改为转为「已中断（interrupted）」；阈值与推导算法不变。以 3.1.34 为准。
 
 **背景**：3.1.12 仅在 CreateView.vue 的 loadHistory() 中添加了 stale running 检测（updatedAt 超过 30 分钟的 running 任务自动标记为 paused），但 CreateHistory.vue（独立历史记录页面 `#/create/history`）的 loadPipelines() 缺少相同的检测逻辑。用户在独立历史页面看到的仍然是"运行中"而非"已暂停"。
 
@@ -1149,6 +1265,8 @@ export function usePipelineHistory(options = {}) {
 
 ### 3.1.19 failed 状态保留原始值 + 暂停环节显示修正（2026-08-11）
 
+> ⚠️ **合同修订（2026-08-20）**：本节「30 分钟无更新的 running → paused」（二、流程第 3 步与三、功能逻辑表第 3 行）已废弃，改为 →「已中断（interrupted）」，提示文案改用「中断环节」；failed 保留原始值、内容策略不恢复等条款不变。以 3.1.34 为准。
+
 **背景**：3.1.17 将 failed 状态统一转换为 paused，导致用户无法区分"执行失败"和"用户暂停"。本次修正保留 failed 原始状态，在前端层区分显示。
 
 **一、数据校验**
@@ -1172,7 +1290,7 @@ export function usePipelineHistory(options = {}) {
       3. 若无 pausedStage -> 从 stages 推导
   -> 对每个 run.status === 'failed' 且无 pausedStage 的任务：
       1. 从 stages 推导 pausedStage（不改变 status）
-  -> 排序：running -> projects -> paused -> failed -> 其余
+  -> 排序：所有任务按有效更新时间倒序，状态严格筛选
   -> 渲染 CreateViewHistory 组件
 ```
 
@@ -1555,32 +1673,22 @@ SettingsDialog 关闭（App.vue @close）
 - 系统性漏洞：组件挂载后对**外部模型配置变更**（弹窗/路由）缺乏响应机制；空列表 UI 无占位断言。
 - 落地：新增 settings-dialog revision 信号 + 空状态占位/提示断言；后续任何「弹窗/外部配置变更 → 页面刷新」需求复用该信号；PRD 7.4.1.1 合同补充「空能力下拉占位」「设置弹窗关闭刷新」。
 
-### 3.1.23 流水线阶段进行中信息反馈颗粒度统一（2026-08-13 规划）
+### 3.1.23 流水线阶段进行中信息反馈颗粒度统一（2026-08-17 已实施）
 
 > 完整方案：`01-docs/PLAN-VIDEO-PIPELINE-PROGRESS-FEEDBACK-2026-08-13.md`；主 PRD 合同：`01-docs/PRD.md` 7.1.9.3。
 
 **需求**：进度清单列表中，每个阶段「进行中」的信息反馈应具备统一、可预期的颗粒度，消除「有的阶段有计数/百分比，有的阶段只有『运行中』」的落差。
 
-**现状（2026-08-13 基线）**：
+**实施合同**：
 
-| 阶段 | 运行中反馈 | 粒度 |
-|------|-----------|------|
-| compose | phase + percent + 片段计数 + 子进度条 | 细 |
-| generate_assets | 图片 a/b · 视频 c/d · 旁白 e/f | 细 |
-| optimize | 无（数据有，仅完成后展示） | 中 |
-| split | 无（完成后有场景数摘要） | 中 |
-| domain_enrich / scene_context / select_video_scenes / finalize_assets / publish | 无 | 粗 |
-| animated-explainer / talking-head 等其余流水线全部阶段 | 无 | 粗 |
+1. **统一阶段生命周期**：每个阶段至少上报 `0%` 的开始事件与 `100%` 的完成事件；成功但未自行上报的执行器由 `PipelineEngine` 兜底补齐，避免清单只停留在笼统的“运行中”。
+2. **统一 payload**：`getRunSnapshot().stages[i].progress = { percent, message, messageKey?, messageParams?, summary?, summaryKey?, summaryParams?, detail?, updatedAt }`，并与 `context.stage_progress` 双写。`detail` 使用 `{ done, total, kind }`，其中 `kind` 限定为 `scene/resource/image/video/tts/platform/segment`。
+3. **单调与校验**：百分比必须在 `[0,100]` 且不可倒退；本地化 key 仅允许 `stageProgress.*`；参数、计数与种类不合法时 fail-closed 丢弃该更新，展示反馈不得阻断流水线本身。
+4. **颗粒度**：可迭代工作使用 `done/total`（场景、资源、TTS、平台、片段）；不可细分的 LLM、校验、渲染和文件复制阶段提供开始文案和完成摘要。Story2Video 保留图片/视频/旁白多资源进度与断点恢复；videogen 将提示词优化映射为 `0–35%`、视频生成映射为 `35–100%`。
+5. **全流水线覆盖**：Story2Video、animated-explainer、talking-head、cinematic、clip-factory、documentary-montage、localization-dub、podcast-repurpose、videogen 和 framework-smoke 均接入统一反馈；循环阶段必须有运行中与完成态回归。
+6. **UI 与本地化**：StageProgress 优先按 `messageKey`/`summaryKey` 渲染 zh/en 文案，缺失 key 才回退 raw `message`/`summary`；完成态优先显示结构化摘要。总进度继续使用“已完成阶段数 + 当前阶段百分比”的加权计算。
 
-**目标合同（摘要）**：
-
-1. **统一 stage.progress 模型**：`getRunSnapshot().stages[i].progress = { percent, message, detail?, updatedAt }` + 可选 `stage.summary`；与 `context.stage_progress` 双写。
-2. **StageExecutor onProgress 通道**：`execute` 增加统一 `onProgress({ percent, message, detail })` 参数，`_executeStage` 注入并双写；字段级归一化/校验统一收口；additive 扩展、向后兼容。
-3. **逐阶段接入**：publish 逐平台（「正在发布到 {平台} (i/N)」）、finalize_assets 逐段 TTS、select_video_scenes / scene_context / domain_enrich 与 explainer LLM 阶段调用前后 message、split 完成摘要、optimize 运行中展示（数据已有）。
-4. **UI 通用化**：StageProgress.vue 移除按阶段名特判，统一渲染 message + 迷你进度条；总进度升级为「阶段数占比 + 当前阶段 percent 加权」。
-5. **验收**：任一阶段运行中均显示进行中文案；可计数阶段显示 done/total 与百分比；字段非法不阻断流水线；新增文案 locale zh/en 成对。
-
-**分期**：Phase 1 契约 + UI 通用化 → Phase 2 onProgress 通道 + 逐阶段接入 → Phase 3 实时推送/快照裁剪（可选）。实施前须经 OpenSpec propose。
+**验收**：任一运行中阶段都能显示可理解的活动描述；可计数阶段显示一致的 `done/total` 与百分比；完成阶段显示摘要；不同流水线不再依赖 UI 按名称特判；locale 保持 zh/en 成对；受影响流水线有独立事件回归。
 
 ### 3.1.24 水印功能修复与选项扩展（2026-08-14）
 
@@ -1634,6 +1742,466 @@ SettingsDialog 关闭（App.vue @close）
 5. **i18n**：所有用户可见文案 zh/en 成对新增 `create.story2video.bgmLibrary.*` 与 `story2video.bgm_library_*`。
 6. **验收**：添加 → 列表 +1 且自动选中；重命名 → 列表刷新且退出编辑态；删除 → 列表 -1，删除选中项时 `bgmPath` 回退空；历史 BGM 路径不在库时保留为独立选项、入库后不再显示；服务层单测（16 例）+ 渲染端用例 + preload/IPC 测试全部通过。
 
+### 3.1.26 视频任务编辑页场景多素材选择与再次合成（2026-08-14；2026-08-20 布局与交互修订）
+
+**需求**：「视频创作-历史记录 → 视频任务编辑页」每个场景固定展示 4 个视觉卡：**图1 / 图2（备选图）/ 视频1 / 视频2（两个视频显示位）**；底层仍只有 3 个持久化素材身份 `image1 | image2 | video`。新增按钮【生成新图】【生成 AI 视频】（生成更多素材供选择）与【再次合成视频】（用当前选定素材 + 已有 TTS 旁白/字幕/背景音乐重新合成成片）；流水线完成后即可从视频任务编辑页继续生成、预览、选择素材并重新合成。其余既有功能（分段编辑、替换旁白、重试、重新合成、导出等）保持不变。
+
+#### 1) 数据模型与槽位身份
+
+| 槽位 | 字段 | 说明 |
+|------|------|------|
+| 图1 | `segment.imagePath` | 既有主图，至少 1 张图 |
+| 图2 | `segment.alternateImages[0].path` | 备选图；服务端强制 `length ≤ 1`（只存一张备选）；`meta` 与 `imageMeta` 同结构 |
+| 视频 | `segment.videoPath` | 备选/当前分段视频 |
+| 选中态 | `segment.selectedMaterial: 'image1' \| 'image2' \| 'video'` | 可选；缺失时按遗留语义：有 `videoPath` 视为 video，否则 image1（UI 展示与合成映射一致） |
+| 视频1视觉卡 | `videoMeta.sceneVideoPath`，缺失时兼容 `segment.videoPath` | canonical 视频显示位；`selectedMaterial='video'` 时只在此卡显示「当前使用」 |
+| 视频2视觉卡 | `videoMeta.altSceneVideoPath` | 可选 alternate 视频预览位，不新增持久化 kind，不重复显示选中徽标 |
+
+- 槽位身份固定，**不支持交换/删除**；「生成新图」按规则替换具体槽位（见功能逻辑）。
+- 兼容旧项目：无 `selectedMaterial` 的旧分段自动沿用遗留语义，`_scenesForCompose` 不剥离旧 `videoPath`（2026-08-14 测试回捕：实现曾误置空导致旧项目再次合成丢视频，已修复）。
+
+#### 2) 数据校验（服务端 fail-closed）
+
+- `alternateImages`：仅接受数组、截断取 1 项；每项 `{ path, meta }`，`path` 必须为可解析媒体（图片白名单/受控目录），`meta` 走 `safeAssetMeta` 白名单字段；非法项整体丢弃。
+- `selectedMaterial`：白名单 `['image1','image2','video']`，非法值返回 null（沿用遗留语义）。
+- `selectSceneMaterial(projectId, segmentId, kind)`：`kind` 不在白名单 → 抛「素材类型无效」；分段不存在 → 「分段不存在」；目标槽为空 → 「该素材槽位暂无素材，请先生成素材」，不落库。
+- `generateSceneImage`：`assetGenerator.generateImage` 不可用 → 「图片生成服务不可用」；生成产物 `_copyRequired` 失败或结果无有效路径 → 失败回滚（回写 failed 状态、清理本次 attemptFiles，保留旧素材）。
+- `generateSceneVideo`：无 `audioPath` → 「该场景没有旁白音频，无法生成视频」（**不写失败状态**）；`composeEngine.renderSegment` 不可用 → 「视频合成服务不可用」；渲染失败 → 回写 failed、**保留旧视频**、清理本次产物；无选中图 → 「该场景没有可用的图片素材，请先生成图片」。
+- IPC 层：三个新通道 `story2video:generate-scene-image / generate-scene-video / select-scene-material` 均 `withSenderCheck` + `isSafeId`（projectId/segmentId）+ 参数类型校验，失败统一 `VALIDATION_ERROR`；license-access-control 均映射 `story2video_write`。
+
+#### 3) 流程
+
+```
+历史记录 → 点击任务 → 视频任务编辑页（ResultView）
+  ├─ 场景素材区：4 个视觉卡片（图1/图2/视频1/视频2），当前使用槽高亮 + 徽标；video1/video2 仍映射到一个持久化 video 身份
+  ├─ 【生成新图】→ 主进程 generateSceneImage → 按槽位规则替换 → 返回最新项目 → 刷新缩略图 → 成功通知
+  ├─ 【生成 AI 视频】→ 主进程 generateSceneAiVideo → 按 videoPrompt 生成/校验/保存新分段视频 → 刷新 video1 → 成功通知
+  ├─ 点击 radio 或其 label → selectSceneMaterial → 持久化 image1/image2/video 选中态 → 刷新 → 成功通知
+  ├─ 点击有 URL 的缩略图 → 仅打开预览弹窗（图片大图 / 视频播放器），不调用选择 IPC
+  └─ 【再次合成视频】→ 复用 story2video:recompose-project（recomposeProject）→ 按选中态映射场景 → 整片重合成
+```
+
+#### 4) 功能逻辑（生成/选择/合成规则）
+
+- **生成新图槽位规则**（用户确认规则）：
+  1. 无备选图（只有图1）→ 补图2 槽，**不改变当前选中态**；
+  2. 已有备选图且当前选中图1 → 替换图2（图1 选中时换图2）；
+  3. 已有备选图且选中图2/视频/未选 → 替换图1（图1 未选中时换图1）。
+- **生成视频规则**：始终以「当前选中的图片」为画面（图2 选中用备选图，否则图1），显式剥离旧 `videoPath` 避免引擎复用旧视频；成功后替换 `videoPath`，**不自动改变选中态**；失败保留旧视频。
+- **合成映射 `_scenesForCompose`**（compose/renderSegment 引擎零改动）：`video` 选中 → 保留 videoPath；`image1`/`image2` 选中 → 传选中图片并置空 videoPath；无选中 → 遗留语义（videoPath 优先）。「再次合成视频」与既有「重新合成」共用此映射。
+- **manual 模式富化（saveRun）**：流水线 manual 分镜自选完成后，从 `context.generate_assets`（finalManifest candidates/selection）恢复未选素材：选图 → 未选中的另一张候选图复制为图2 槽 + `selectedMaterial='image1'`；选视频 → 两张候选图补图1/图2 + `selectedMaterial='video'`；未选视频但存在视频候选 → 补 videoPath；auto 模式无候选不富化（字段缺省即旧行为）。
+
+#### 5) 交互逻辑
+
+- 每个视觉卡是独立 article；缩略图是独立 button type="button"，只负责预览。radio 位于缩略图下方、素材名称前，并通过稳定 id/name/value 与本地化 label、aria-label 关联。卡片本身没有选择 click handler，避免 ancestor label 的原生激活把预览误判为选择。
+- radio 是唯一的设为当前使用入口。空卡 radio disabled；路径存在但预览 URL 失效时缩略图 disabled，radio 是否可选仍按服务端路径合同和 slot selectable 判定；非法 kind 或空槽请求由 renderer 与 IPC/service 双层拒绝。
+- busy 防抖：任一生成/选择操作进行中，该分段所有素材操作禁用（`segmentBusy[segmentId]` 单例），按钮文案切换「生成中...」；`isSegmentBusy` 返回布尔（disabled），`segmentBusyKind` 返回类型标识（文案分支，2026-08-14 修复：原 Boolean 实现导致「生成中/重试中」文案永不显示）。
+- 【生成新图】【生成 AI 视频】失败：错误经 resolveStory2VideoNotification 归一化后弹窗提示，并刷新素材 URL；失败保留旧素材和旧选中态。
+- 【再次合成视频】与【重新合成】并列：busy 共用 `recomposing`；`recomposeProject` 成功后刷新项目与素材 URL。
+- 预览弹窗：UiModal xl 尺寸；图片显示大图，video1/video2 都显示 `<video controls autoplay>`；空素材保持固定 media frame，不打开弹窗。
+
+#### 6) 显示项
+
+- 场景素材区标题「场景素材」+ 提示「点击可放大预览」；
+- 槽位标签：图片 1 / 图片 2 / 视频 1 / 视频 2（zh）/ Image 1 / Image 2 / Video 1 / Video 2（en）；
+- 空槽占位「未生成」/「Not generated」，每个空 media frame 只显示一行本地化文案；选中徽标「当前使用」/「In Use」。
+- 卡内按钮：「生成新图」「生成 AI 视频」，分别只出现在 image1/video1 卡内；busy 时显示对应本地化生成中状态并禁用；底部保留「再次合成视频」「合成中...」。
+- 成功通知：新图片已生成 / 场景视频已生成 / 已切换使用素材；失败通知：见提示文字。
+
+#### 7) 提示文字（zh / en）
+
+| key | zh | en |
+|-----|----|----|
+| story2video.scene_image_generated | 新图片已生成。 | A new image has been generated. |
+| story2video.scene_video_generated | 场景视频已生成。 | The scene video has been generated. |
+| story2video.material_selected | 已切换使用素材。 | Material switched. |
+| story2video.scene_audio_missing | 该场景没有旁白音频，无法生成视频。 | This scene has no narration audio and cannot generate a video. |
+| story2video.scene_image_missing | 该场景没有可用的图片素材，请先生成图片。 | No usable image material for this scene; generate an image first. |
+| story2video.scene_slot_empty | 该素材槽位暂无素材，请先生成素材。 | This material slot is empty; generate material first. |
+| story2video.sceneMaterial.* | 见 locales zh/en 成对（title/image1Label/image2Label/videoLabel/emptySlot/selectedBadge/generateImage/generateVideo/generating/selectAriaLabel/emptyAriaLabel/previewHint/previewImageTitle/previewVideoTitle/recomposeFinal/recomposingFinal/recomposeFinalHint） | 同左成对 |
+
+#### 8) 安全边界
+
+- 新 IPC 通道全量走 `withSenderCheck` + 白名单 id 校验 + `story2video_write` 权限映射；
+- 所有素材路径经 `_copyRequired`/`resolveReadableMediaFile` 受控复制到项目目录，UI 只接触项目内副本；
+- `_cleanupUnreferencedProjectFiles` 将 `alternateImages[].path` 纳入引用集，替换素材时旧文件安全清理，不误删在用备选图；
+- `generateSceneVideo` 渲染输出与失败产物落在项目目录 attemptFiles 集，失败清理不越界（`isPathWithin` 受控）。
+
+#### 9) 测试要求
+
+- 服务层（story2video-project-service.test.js）：槽位规则 4 分支、生成失败回滚、select 校验（非法 kind/空槽）、`_scenesForCompose` 四态、saveRun manual 富化、备选图纳入引用清理、旧项目兼容；
+- preload.test.js：新方法通道转发 + 数量断言（92 / 282 / 80）；
+- ResultView.test.js：4 个视觉卡固定顺序与选中态、thumbnail-only preview、radio-only selection、video kind 归一、按钮只渲染一次、busy 态、空框/URL 失效、再次合成调用 recompose、成功/失败通知归一化；
+- locale：zh/en 成对 + CI Gate 7（check-locale-sync）通过；渲染端无新增中文字面量。
+
+### 3.1.28 历史记录状态标签、统一排序与非运行任务编辑（2026-08-20）
+
+> **术语与流转更新（2026-08-17）**：本节中的“详情页/详情弹窗”已由「视频任务编辑页」替代。符合编辑条件的历史卡片直接进入编辑页；不会再打开独立只读详情弹窗。完整的固定操作栏、暂停、状态卡片和编辑交互合同见 `PRD-S2V-PIPELINE-PAGE-UX.md`。
+
+历史记录页面打开后默认选择“全部”。所有任务（包括筛选后的单一状态）按有效更新时间倒序排列，不再按状态分组。有效更新时间按以下优先级读取：`updatedAt` → `updated_at` → `completedAt` → `completed_at` → `endedAt` → `ended_at` → `createdAt` → `created_at`；字段接受 ISO 日期字符串及有限数字时间戳，绝对值小于 `1e11` 的数字按秒转换，其余按毫秒转换。空值、空白字符串、非有限数字和无效日期视为缺失；缺失更新时间时回退有效创建时间，再缺失则按 0 排在有时间记录之后。相同有效更新时间按创建时间倒序，再按首个非空 `id`/`projectId`/`runId` 字典序，最后保持原始输入顺序。时间戳 0 是有效时间，不能误判为空。全部任务和每个状态筛选复用同一排序函数，状态筛选为严格相等，`failed` 不并入 `paused`。当同一任务同时存在项目草稿和流水线运行记录时，历史卡片合并两者：项目提供标题、文案、分段和素材；运行记录提供状态、阶段、错误、检查点、耗时与运行时间，禁止重复显示两张卡片。
+
+状态选择使用六个可访问标签：全部、进行中、已暂停、执行失败、已完成、已取消。标签容器为 `tablist`，标签为 `tab`，当前项使用 `aria-selected=true` 和 roving tabindex；支持鼠标点击、Enter/Space、左右方向键、Home/End，切换只改变筛选条件，不触发恢复或写入。
+
+每张卡片统一展示标题、流水线、状态、文案预览、首场景缩略图、有效更新时间、创建时间、任务耗时、视频时长、模式、任务/项目标识和阶段摘要。标题为空时按 `title → params.title/publishTitle → sourceText/text/场景文案 → 流水线名 → 未命名任务` 回退；文案预览只读取任务文案，最多 120 个 JavaScript 字符，超长追加 `…`，不使用图片/视频提示词替代。视频时长只读取明确的成片/视频时长字段，流水线执行耗时仍单独显示为“耗时”。暂停任务额外显示已本地化的暂停环节及暂停环境/检查点；失败任务额外显示失败环节和自然语言“失败原因”，不得直接展示 `Story2Video optimize failed`、HTTP 状态码或模型原始错误对象。
+
+已启动且有有效 `projectId` 的 paused、failed、completed、cancelled 卡片 body 或“编辑”动作进入视频任务编辑页；进入不会自动恢复、继续、暂停、取消或删除。running 卡片不从主体进入编辑页，继续使用流水线控制入口；没有 `projectId` 的纯 pipeline run 记录不得伪造编辑页项目；cancelled 项目可以查看、修改和保存，但不显示或执行“从断点继续”。
+
+恢复、继续生成、打开结果、删除均为独立显式操作，点击这些按钮不会打开详情，也不会隐式恢复任务。轮询更新会重新应用有效时间排序，同时通过原数组 `splice` 保持响应式列表身份。未改动 IPC、持久化结构、过期任务清理或恢复引擎；仅调整 renderer 展示、交互和纯排序工具。
+
+验收必须覆盖 ISO/秒/毫秒/0/非法时间、同时间 tie-break、全部与状态筛选一致排序、六标签 ARIA/键盘行为、标题/文案回退、图片优先和视频首帧缩略图、视频时长与执行耗时分离、暂停/失败本地化字段、running 不进入编辑、四种非运行项目状态可编辑、纯 run 不伪造项目、显式动作不冒泡、轮询重排和中英文 locale 成对校验。
+
+### 3.1.29 历史记录场景内容编辑、重新生成与整片重合成（2026-08-15）
+
+> **术语与流转更新（2026-08-17）**：本节中的“结果页/详情弹窗/编辑并重新合成”分别统一为「视频任务编辑页 / 不再使用 / 编辑」。历史入口携带项目与运行标识直接进入编辑页；当前页面与数据校验合同见 `PRD-S2V-PIPELINE-PAGE-UX.md`。
+
+**需求**：「视频创作-历史记录」中已经启动流水线且不处于 running 的项目任务，其每个场景的内容组成元素（本场景文案、字幕、语音、图片/视频优化词、图片、视频）应可进入视频任务编辑页修改；此前终态范围不完整，且缺少统一的缺失素材占位。本迭代为 paused、failed、completed、cancelled 项目补齐完整闭环：**文本类元素可修改**（场景文案、字幕块、视频优化词、语音设置），**生成类元素可重新生成**（字幕、旁白语音、图片/视频优化词；图片/视频素材沿用既有【生成新图】【生成视频】），修改/重新生成后通过【保存分段】+【重新合成】生成新成片；running 仍由流水线控制页管理，不从历史卡片主体进入编辑页。
+
+#### 1) 数据模型（分段新增/扩展字段）
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `segment.subtitleBlocks` | string[] | 数组取前 200 块、每块 ≤500 字符、过滤空值 | 字幕块（每块一句）；与 `subtitleTimeline` 区分：timeline 是带时间轴的字幕（compose 输出），blocks 是纯文本字幕（可编辑、可重切） |
+| `segment.videoPrompt` | string \| null | ≤40000 字符 | 视频优化词（video-prompt-engine 输出，compose 消费；2026-08-16 由 20000 上浮） |
+| `segment.voiceId` | string | ≤160 字符 | 场景级音色 ID，留空回退项目默认音色 |
+| `segment.voiceProvider` / `segment.voiceModel` | string | 各 ≤160 字符 | 场景级语音 provider/model（透传保留） |
+| `segment.voiceSpeed` / `segment.voicePitch` | number | speed 收敛 [0.5, 2]、pitch 收敛 [-12, 12] | 语速倍率 / 音调（支持负值=低沉、0=中性，与 CreateView 滑杆及 story2video-text-config 契约一致）；非有限数字回退原值 |
+| `segment.voiceEmotion` | string | ≤80 字符 | 情绪参数（如 calm/cheerful），可选 |
+
+- `subtitleTimeline` 为**派生数据**：字幕重新生成时清空，合成时按新字幕块重建时间轴，避免陈旧时间轴与新字幕错位。
+- 兼容旧项目：未保存过新字段的旧分段字段缺省，UI 展示空值、保存时按白名单透传即可。
+
+#### 2) 数据校验（服务端 fail-closed）
+
+- `updateSegments` 白名单扩展：仅接受 `text / prompt / videoPrompt / subtitleBlocks / subtitleTimeline / voiceId / voiceProvider / voiceModel / voiceSpeed / voicePitch / voiceEmotion`；白名单外字段（imagePath/videoPath/audioPath 等）一律忽略（不覆盖、不落库）。
+- 所有文本字段经 `safeText` 限长收敛（videoPrompt 40000、voiceId/Provider/Model 160、voiceEmotion 80、text 10000、prompt 20000）；`subtitleBlocks` 经 `safeSubtitleBlocks`（≤200 块 × ≤500 字符、过滤空值）；`voiceSpeed` 经 `safeVoiceSpeed` 收敛 [0.5, 2]、`voicePitch` 经 `safeVoicePitch` 收敛 [-12, 12]（拆分为两个收敛函数，避免共用收敛把 pitch 0/负值篡改为 0.1，审查 W1），非有限数字回退原值。
+- **videoPrompt 持久化回填（C1）**：compose 输出分段不含 `videoPrompt`（`normalizeComposeScenes` 白名单丢弃），`_persistComposeArtifacts` 按 index 从 fallback 分段回填（流水线 saveRun 主路径与 recomposeProject 均覆盖），重新合成后视频优化词不会丢失；recomposeProject 恢复映射 `videoPrompt: original.videoPrompt || segment.videoPrompt || null` 兜底。
+- IPC 层三个新通道 `story2video:regenerate-scene-subtitle / regenerate-scene-audio / regenerate-scene-prompt`：均 `withSenderCheck` + `isSafeId`（projectId/segmentId）+ 参数类型校验；`regenerate-scene-prompt` 的 `kind` 白名单 `['image','video']`，非法值抛「优化词类型无效」；失败统一 `VALIDATION_ERROR`。license-access-control 均映射 `story2video_write`。
+- 重新生成前置校验（fail-closed）：
+  - 字幕：场景无 `text` → 「该场景没有旁白文字，无法重新生成字幕」；`splitSubtitleBlocks` 拆不出块 → 「该场景无法拆分字幕」。
+  - 旁白：场景无 `text` → 「该场景没有旁白文字，无法生成语音」；`assetGenerator.generateTTS` 不可用 → 「语音生成服务不可用」。
+  - 优化词：场景无 `text` → 「该场景没有旁白文字，无法重新生成优化词」；`serviceBus.optimizePrompt/optimizeVideoPrompt` 不可用 → 「提示词优化服务不可用」；优化结果提取为空/含 error → 「提示词优化结果无效」（fail-closed，不写库）。
+
+#### 3) 流程
+
+```
+历史记录 → 可编辑任务 → 卡片【编辑】 → 视频任务编辑页（ResultView）
+  ├─ 场景区：文案 textarea + 字幕 textarea（每行一句）+ 视频优化词 textarea + 语音设置网格 + 素材槽/生成按钮
+  ├─ 修改文本类元素（文案/字幕/视频优化词/音色/语速/音调/情绪）→ 标脏 →【保存分段】
+  ├─ 【重新生成字幕】→ 本地按文案重切字幕块 → 清空时间轴 → 成功/失败通知
+  ├─ 【重新生成旁白】→ 按场景/项目语音设置调 TTS → 替换 audioPath → 成功/失败通知
+  ├─ 【重新生成图片优化词/视频优化词】→ prompt-engine → 重写 prompt/videoPrompt → 成功/失败通知
+  ├─ 【生成新图】【生成视频】→ 沿用 3.1.26 素材生成逻辑
+  └─ 【重新合成】→ 以最新分段内容 + 素材 + 语音设置整片重合成 → 新成片预览
+```
+
+#### 4) 功能逻辑
+
+- **保存分段**：透传编辑后的新字段到 `updateSegments`；服务端白名单收敛后整体落库；返回的 segments 回写 UI；保存失败保持编辑态并提示。
+- **重新生成字幕**：不消耗外部额度；按 `splitSubtitleBlocks(segment.text)` 本地分句重切，替换 `subtitleBlocks` 并清空 `subtitleTimeline`；成功置 `status='completed'`、`error=null`、`subtitleSource='local-typescript'`（重置旧失败状态与来源标记，审查 I2）。
+- **重新生成旁白**：用 `segment.voiceId || project.options.voiceId`（provider/model/speed/pitch/emotion 同理，段级优先）调用 `generateTTS`（带时间戳）；成功复制音频到项目目录（`segment.id_audio_tts_<ts>.<ext>`）替换 `audioPath` + `audioMeta`；**失败保留旧音频**、清理本次 attemptFiles、回写 `status='failed'` + error，不吞错。
+- **重新生成优化词**：`kind=image` → `serviceBus.optimizePrompt(segment.text)` → 重写 `prompt` 并**清空 `promptTranslation`**（提示词变化后旧翻译失效）；`kind=video` → `serviceBus.optimizeVideoPrompt(segment.text)` → 重写 `videoPrompt`；成功置 completed，失败不改动分段。
+- **整片重新合成**：沿用既有 `story2video:recompose-project`；合成消费最新分段内容（text/prompt/videoPrompt/subtitleBlocks/voice 设置/素材选中态）。
+- **同项目写串行（W2）**：主进程对同一 `projectId` 的保存分段/整片重合成/三种重新生成统一经 `_serializeProject` per-project promise 队列串行执行（read-modify-write 全程持锁），杜绝跨段并发或「保存」与「重新生成」竞态互相覆盖；队列执行后自动清理，不泄漏。
+- **重新生成前自动保存（W3）**：渲染端检测到未落盘编辑（`segmentsDirty`）时，先调用保存分段再执行重新生成，确保重切/TTS/优化基于最新文案，且服务端响应不会覆盖本地编辑；响应按整项目回写并重新解析素材 URL。
+
+#### 5) 交互逻辑
+
+- 场景卡片新增可编辑区块：字幕 textarea（`subtitleBlocksText` 合并展示、`updateSegmentSubtitleBlocks` 按行拆分，行内 trim + 过滤空行；**手动编辑后同步清空 `subtitleTimeline`，清空输入框后不再回退旧时间轴**，审查 I1）；视频优化词 textarea；语音设置网格（音色 ID / 语速 / 音调 / 情绪）。
+- 语音输入框边界与流水线契约一致（W1）：语速 `min=0.5 max=2 step=0.1`、音调 `min=-12 max=12 step=0.1`（支持负值低沉音色）。
+- 每个生成按钮在对应场景 busy 时禁用：`segmentBusy` 键 `subtitle`（字幕）/ `tts`（旁白）/ `promptImage` / `promptVideo`；按钮文案切换「重新生成字幕 ↔ 字幕生成中...」「重新生成旁白 ↔ 旁白生成中...」「重新生成图片/视频优化词 ↔ 优化词生成中...」。**任一分段 busy 时（`anySegmentBusy`）同时禁用全局【保存分段】与【重新合成】，避免与主进程写队列交叉（W2）。**
+- 重新生成成功后自动刷新 project + segments，并提示「请保存分段后重新合成」；失败按错误归一化提示（见下表），不中断其他场景操作。
+- 语音设置仅在【重新生成旁白】时生效（作为 TTS 参数）；修改后同样需【保存分段】持久化。
+- 历史记录入口：paused、failed、completed、cancelled 且存在有效 `projectId`、并确认流水线已启动的任务卡片显示【编辑】（`editAndRecompose`），点击跳转视频任务编辑页并携带项目上下文；running 任务保留流水线控制入口；无 `projectId` 的记录不显示编辑入口，不能由 `runId` 伪造项目。
+- 原“详情弹窗场景列表”仅作为历史版本记录保留；当前不创建只读弹窗，分段内容、提示词、素材和错误信息均在视频任务编辑页查看与修改。
+
+#### 6) 提示文字（locales zh/en 成对）
+
+| key | 中文 | English |
+|------|------|---------|
+| story2video.sceneMaterial.editRecomposeHint | 修改文案、字幕、语音或优化词后，点击「保存分段」，再点击「重新合成」生成新视频 | Edit text, subtitles, voice or prompts, click "Save segments", then "Recompose" to generate a new video. |
+| story2video.sceneMaterial.subtitleLabel | 字幕（每行一句） | Subtitles (one line per block) |
+| story2video.sceneMaterial.regenerateSubtitle | 重新生成字幕 | Regenerate subtitles |
+| story2video.sceneMaterial.regeneratingSubtitle | 字幕生成中... | Regenerating subtitles... |
+| story2video.sceneMaterial.videoPromptLabel | 视频优化词 | Video prompt |
+| story2video.sceneMaterial.regenerateImagePrompt | 重新生成图片优化词 | Regenerate image prompt |
+| story2video.sceneMaterial.regenerateVideoPrompt | 重新生成视频优化词 | Regenerate video prompt |
+| story2video.sceneMaterial.regeneratingPrompt | 优化词生成中... | Regenerating prompt... |
+| story2video.sceneMaterial.voiceSettingsLabel | 语音设置（重新生成旁白时使用） | Voice settings (used when regenerating narration) |
+| story2video.sceneMaterial.voiceIdLabel | 音色 ID | Voice ID |
+| story2video.sceneMaterial.voiceIdPlaceholder | 留空使用项目默认音色 | Leave empty to use project default |
+| story2video.sceneMaterial.voiceSpeedLabel | 语速 | Speed |
+| story2video.sceneMaterial.voicePitchLabel | 音调 | Pitch |
+| story2video.sceneMaterial.voiceEmotionLabel | 情绪 | Emotion |
+| story2video.sceneMaterial.voiceEmotionPlaceholder | 如 calm、cheerful（可选） | e.g. calm, cheerful (optional) |
+| story2video.scene_subtitle_regenerated | 字幕已重新生成，请保存分段后重新合成。 | Subtitles regenerated. Save segments and recompose. |
+| story2video.scene_subtitle_regenerate_failed | 字幕重新生成失败，请稍后再试。 | Failed to regenerate subtitles. Please try again. |
+| story2video.scene_audio_regenerated | 旁白已重新生成，请保存分段后重新合成。 | Narration regenerated. Save segments and recompose. |
+| story2video.scene_audio_regenerate_failed | 旁白重新生成失败，请检查音色/语音设置后重试。 | Failed to regenerate narration. Check voice settings and retry. |
+| story2video.scene_prompt_regenerated | 优化词已重新生成，请保存分段后重新合成。 | Prompt regenerated. Save segments and recompose. |
+| story2video.scene_prompt_regenerate_failed | 优化词重新生成失败，请稍后再试。 | Failed to regenerate prompt. Please try again. |
+| create.history.editAndRecompose | 编辑 | Edit |
+| create.history.sceneListLabel | 场景列表 | Scenes |
+| create.history.sceneListHint | 点击「编辑」进入视频任务编辑页：可修改每个场景的文案、字幕、语音设置与图片/视频优化词，重新生成字幕/旁白/图片/视频，最后重新合成整片。 | Click "Edit" to open the video task editor: modify each scene's text, subtitles, voice settings and image/video prompts, regenerate subtitles/narration/images/videos, then recompose the whole video. |
+
+- 失败错误归一化（story2video-notifications.js `resolveMessageKey`）：含「无法重新生成字幕/无法拆分字幕」或 `subtitle.*(regenerat|split).*(fail|unavailable|invalid)` → `scene_subtitle_regenerate_failed`；含「无法生成语音/语音生成服务不可用/无法重新生成旁白」或 `tts.*(fail|unavailable|invalid)` → `scene_audio_regenerate_failed`；含「无法重新生成优化词/提示词优化服务不可用/优化词类型无效/优化结果无效」或 `prompt.*(regenerat|optimiz).*(fail|unavailable|invalid)` → `scene_prompt_regenerate_failed`（中英文均覆盖）。
+
+#### 7) 安全边界
+
+- 三个新 IPC 通道全量 `withSenderCheck` + `isSafeId` + `story2video_write` 权限映射；无新增文件越界（旁白产物走 `_copyRequired` + `_cleanupUnreferencedProjectFiles` 引用集）。
+- `updateSegments` 白名单外字段不落库，杜绝通过分段更新注入不可信路径/素材。
+- 渲染端无新增中文字面量（全部走 locales 成对）；CI Gate 7 check-locale-sync 拦截。
+
+#### 8) 测试要求
+
+- 服务层（story2video-project-service.test.js）：`safeVoiceSpeed`/`safeVoicePitch` 收敛（speed 0/负数/超大/非法、pitch 负值原样保留）、`extractOptimizedPrompt` 多结构、updateSegments 新字段透传 + 白名单外忽略 + 限长收敛、regenerateSceneSubtitle（清 timeline/无文案 fail/重置 error+subtitleSource）、regenerateSceneAudio（成功替换/失败回滚保留旧音频 + 回写 failed）、regenerateScenePrompt（image 清 translation / video 写 videoPrompt / 非法 kind / 空结果 fail）、recompose 保留 videoPrompt（compose 回显缺省时从项目原值回填，C1 回归）、`_serializeProject` 同项目写串行且队列不泄漏（W2 回归）；
+- IPC（story2video.test.js）：三通道可信来源/非法 id/非法 kind 拒绝 + 参数校验；保存/重合成/三种重新生成均经 `_serializeProject` 队列（W2 回归断言 5 次包裹 + projectId 透传）；
+- preload.test.js：新方法通道转发 + 数量断言（99 / 289 / 87）；
+- ResultView.test.js：保存透传新字段、字幕 textarea 编辑拆分（含清空不回退旧时间轴/手动编辑清时间轴，I1 回归）、三按钮成功/失败通知、重新生成前自动保存（W3 回归）、任一分段 busy 禁用保存与重新合成（W2 回归）；
+- CreateViewHistory.test.js：编辑动作渲染/跳转、历史卡片内联场景提示与提示文案；
+- locale：zh/en 成对 + check-locale-sync 通过；渲染端无新增中文字面量。
+
+
+#### 3.1.29.1 AI 视频重新生成（W4 闭环：videoPrompt 消费路径，2026-08-16）
+
+**背景（W4 真缺口）**：3.1.29 交付后，历史场景的「视频优化词」可编辑、可重新生成，但结果页既有【生成视频】按钮走 `generateSceneVideo`（图片动效渲染，不消费 `videoPrompt`、不调用 AI 视频生成），导致「修改视频优化词后重新生成视频」没有落地路径——AI 视频生成此前只存在于流水线 generate_assets 阶段。本小节补齐：**分段级 AI 视频重新生成**，以 `videoPrompt`（缺省回退 `prompt`/`text`）为提示词，复用流水线同一 stages 契约（generateVideo 提交 → getVideoStatus 轮询 → 下载校验），成功后替换分段 `videoPath`，失败保留旧视频并回写失败态。
+
+##### 1) 数据校验（服务端 fail-closed）
+
+- 输入：`projectId` / `segmentId` 必须通过 `isSafeId`（`[a-zA-Z0-9_-]{1,100}`）；分段不存在 → 「分段不存在」。
+- 提示词前置校验：`segment.videoPrompt || segment.prompt || segment.text` 经 `safeText(..., 20000)` 收敛；全部为空 → 拒绝并提示「该场景没有视频优化词，请先编辑或重新生成视频优化词」（**不调用生成器、不改动分段状态**）。
+- 服务可用性前置校验（fail-closed，不调用生成器）：
+  - `modelProviderManager` 缺失或 `callAdapter`/`getDefault` 不可用 → 「AI 视频生成服务不可用，请在模型设置中启用视频供应商」；
+  - 默认 video 供应商解析失败（`getDefault('video')` 无 id）→ 「未配置可用的视频供应商，请在模型设置中启用视频生成能力」。
+- 生成尺寸 `_videoSize`：优先解析 `project.options.resolution`（支持 `WxH`/`W×H`，160..4096 边界，`parseOutputSize` 非法回退比例映射）；否则按 `options.aspectRatio` 映射（16:9→1280x720、9:16→720x1280、1:1→1024x1024、4:3→1280x960、3:4→960x1280，未知比例回退 9:16），长边封顶 1280（与流水线 `resolveVideoSize` 同源语义）。
+- 帧率 `fps`：`project.options.fps` 为正数则透传，否则默认 30；stages 内部再做 `pickFrameCountForSceneDuration` 帧数换算。
+- 轮询间隔：`project.options.video.pollIntervalMs` 为正数则透传，否则默认 10000ms（与流水线 `stage.options.video.pollIntervalMs` 同参名契约）。
+- 时长估算：复用 stages `estimateSceneSeconds`（`segment.duration` + `options.defaultSceneDuration` 兜底）。
+- 模型选择 `_defaultVideoGenerator`：`manager.getDefault('video')` 的 provider；`category === 'multimodal'` 且 `capability_models.video` 为字符串时优先取能力模型（须在 `models` 列表内，否则用能力模型原值；models 为空时回退能力模型），否则取 `models[0]`；provider id 必填（trim 后非空），model 可为空串（stages 层按 undefined 处理）。
+
+##### 2) 流程与功能逻辑
+
+```
+结果页（历史记录场景）→【生成 AI 视频】
+  ├─ 前置：segmentsDirty 时先【保存分段】（W3 语义：基于最新 videoPrompt，防响应覆盖本地编辑）
+  ├─ 服务端 generateSceneAiVideo(projectId, segmentId)（_serializeProject 同项目写串行队列内执行）
+  │    ├─ 解析提示词/供应商/尺寸/fps/时长（见上）
+  │    ├─ 复用 stages.generateSceneVideo：generateVideo 提交（prompt/model/width/height/numFrames/frameRate）→
+  │    │     getVideoStatus 轮询（≤10 分钟；provider code<0/success=false/status failed|error|cancelled 立即终止）→
+  │    │     http(s) 下载（≤5 重定向、流式字节上限）→ ffprobe 解码校验
+  │    ├─ 成功：_copyRequired 复制到项目目录（segment.id_video_ai_<ts>.mp4），替换 segment.videoPath，
+  │    │        videoMeta={provider, model, source:'ai-video'}，status='completed'，持久化后按引用集清理旧素材
+  │    └─ 失败：保留旧 videoPath、清理本次 attemptFiles、回写 status='failed'+error，异常上抛（不吞错）
+  └─ 渲染端：成功 → 整项目回写 + segmentsDirty=true + 重新解析素材 URL（refreshSegmentImageUrls）+
+      提示「AI 视频已生成，请保存分段后重新合成。」；失败 → 归一化失败提示
+```
+
+- 与流水线一致性：同一 `generateSceneVideo` stages 契约与下载/校验守卫（2026-08-11 W3/W5：错误终止态不空转、仅 http/https 下载、probe 校验），避免历史记录重新生成的视频质量与新建流水线不一致。
+- 清理语义：成功路径旧 `videoPath` 随 `_cleanupUnreferencedProjectFiles` 引用集删除；失败路径 attemptFiles（本次复制目标）经 `_cleanupProjectFiles` 清理，旧视频保留。
+- 注入点：`generateSceneVideoStage` / `estimateSceneSecondsStage` 通过构造器可注入（缺省为 stages 导出），便于单测隔离且不改变生产装配（phase1-context 注入 `modelProviderManager` 后即用）。
+
+##### 3) 交互逻辑
+
+- 位置：场景「视频优化词」输入区操作行，紧随【重新生成视频优化词】按钮之后。
+- 按钮：【生成 AI 视频】（`data-testid="generate-ai-video-button"`）；场景 busy 或 `segment.videoPrompt` 为空时禁用，空提示词时按钮 title 显示「请先编辑或重新生成视频优化词，再生成 AI 视频」（不弹错，直接禁用引导）。
+- busy 状态：`segmentBusy[segmentId] = 'aiVideo'`；busy 期间按钮文案切换「AI 视频生成中...」，且该场景其他生成按钮同步禁用（`isSegmentBusy`）；`anySegmentBusy` 联动禁用全局【保存分段】【重新合成】。
+- 成功：整项目回写 + 素材 URL 重新解析（video 槽预览更新为 AI 视频）+ 成功通知；`segmentsDirty=true` 提示用户保存后重合成。
+- 失败：按错误归一化弹窗提示（见提示文字），不中断其他场景操作；旧视频保留在素材槽可继续使用。
+- 与【生成视频】（图片动效渲染）关系：两者并存——【生成视频】为无供应商兜底渲染路径；【生成 AI 视频】为 AI 视频生成路径（消费 videoPrompt）。用户可任选其一，最新一次生成的素材替换 video 槽。
+
+##### 4) 提示文字（locales zh/en 成对）
+
+| key | 中文 | English |
+|------|------|---------|
+| story2video.sceneMaterial.generateAiVideo | 生成 AI 视频 | Generate AI video |
+| story2video.sceneMaterial.generatingAiVideo | AI 视频生成中... | Generating AI video... |
+| story2video.sceneMaterial.aiVideoNeedsPromptHint | 请先编辑或重新生成视频优化词，再生成 AI 视频 | Edit or regenerate the video prompt first, then generate the AI video |
+| story2video.scene_ai_video_generated | AI 视频已生成，请保存分段后重新合成。 | AI video generated. Save segments and recompose. |
+| story2video.scene_ai_video_generate_failed | AI 视频生成失败，请检查视频供应商配置后重试。 | AI video generation failed. Check the video provider configuration and retry. |
+
+- 失败错误归一化（story2video-notifications.js `resolveMessageKey`，顺序在 SCENE_PROMPT_REGENERATE_FAILED 之后锚定，避免误归）：含「无法生成 AI 视频 / 未配置可用的视频供应商 / AI 视频生成服务不可用 / 视频生成（调用失败|任务失败|未返回任务|超时或失败|下载超过|文件无法解码|任务状态为）」或 `ai video.*(fail|unavailable|invalid)` → `scene_ai_video_generate_failed`；该场景没有视频优化词（前置校验）同样归一化到该失败提示（文案已内含操作指引）。
+
+##### 5) 安全边界
+
+- IPC 通道 `story2video:generate-scene-ai-video`：`withSenderCheck`（不可信 sender 拒绝）+ `isSafeId` 双参数 + 参数类型校验；失败 `VALIDATION_ERROR`；license-access-control 映射 `story2video_write`（登录即可用，与同级生成通道一致）。
+- 素材路径：AI 视频产物经 `_copyRequired`（受控根 `projectsDir`/`STORY2VIDEO_TEMP_DIR` 内校验 + 字节上限）复制；下载仅允许 http/https（stages W5 守卫），轮询超时上限 10 分钟。
+- 渲染端无新增中文字面量（全部走 locales 成对）；CI Gate 7 check-locale-sync 拦截。
+
+##### 6) 测试要求
+
+- 服务层（story2video-project-service.test.js「AI 视频重新生成（W4）」describe）：成功替换 videoPath/videoMeta（provider/model/source='ai-video'）+ 旧素材按引用集清理 + stages 调用参数（providerId/model/prompt/size/fps + manager 透传）；videoPrompt 缺省回退 prompt；无任何文案 fail-closed 不调生成器且状态不变；未配置视频供应商 / 服务不可用 fail-closed；失败保留旧视频 + 回写 failed + 清理本次产物；multimodal `capability_models.video` 选模型 + `resolution` 解析尺寸。
+- IPC（story2video.test.js）：新通道不可信来源 / 非法 id 拒绝且不调服务；成功路径经 `_serializeProject` 队列（断言次数 6 与参数透传）。
+- ResultView.test.js：按钮渲染 + 无 videoPrompt 禁用 + title 提示；成功通知 + 预保存 + 分段回写；失败归一化通知。
+- preload.test.js：`story2videoGenerateSceneAiVideo` 通道转发 + 数量断言（100 / 290 / 88）。
+- notifications：中英文 AI 视频失败归一化（含「未配置可用的视频供应商」「视频生成调用失败」「ai video generation failed」）。
+- locale：zh/en 成对 + check-locale-sync 通过；preload bundle 重新构建并含新通道行。
+
+#### 3.1.29.2 历史记录重生成增强：串行队列全覆盖与瞬时重试（2026-08-16）
+
+**背景**：3.1.29/3.1.29.1 交付后，双模型审查发现两类遗留问题：① `replace-segment-audio`、`retry-segment`、`select-scene-material`、`generate-scene-image`、`generate-scene-video` 五个写通道绕过 `_serializeProject` 同项目串行队列直接调用服务，用户并发（快速连点/多窗口）时多个写操作可能交错读写同一项目文件，产生互相覆盖或部分写入竞态；② 历史记录「生成 AI 视频」直接调用 stage 一次，provider 瞬时限流/网络超时（如 `request timed out`）即失败，与流水线 generate_assets 阶段的有界重试行为不一致。本小节补齐 W4（队列全覆盖）+ W5（瞬时重试）。
+
+##### 1) 数据校验与并发控制（W4）
+
+- **写通道清单**（以下通道全部经 `requireProjectService()._serializeProject(projectId, () => serviceMethod(...))` 执行，同项目串行、跨项目并行）：
+
+| 通道 | 方法 | 参数 | 说明 |
+|------|------|------|------|
+| `story2video:replace-segment-audio` | `replaceSegmentAudio` | projectId / segmentId / filePath | 替换旁白（受控媒体临时副本） |
+| `story2video:retry-segment` | `retrySegment` | projectId / segmentId / mode(image\|video) | 分段重试 |
+| `story2video:select-scene-material` | `selectSceneMaterial` | projectId / segmentId / kind(image1\|image2\|video) | 场景素材选择（由同步返回改为异步透传，返回语义不变） |
+| `story2video:generate-scene-image` | `generateSceneImage` | projectId / segmentId | 生成新图 |
+| `story2video:generate-scene-video` | `generateSceneVideo` | projectId / segmentId | 生成视频（图片动效渲染） |
+| `story2video:delete-project` | `deleteProject` | projectId | 删除项目（入队防「删除后队列任务复活项目」竞态，审查 M3） |
+
+- **入队语义**：参数校验在入队前完成（非法参数直接 `VALIDATION_ERROR`，不进入队列）；服务方法异常经 catch 归一化为 `REQUEST_ERROR` + 透传 message（含 `_serializeProject` 未暴露时的兜底，不静默降级）。
+- **覆盖完整性**：连同既有入队通道（`update-segments` / `recompose-project` / `regenerate-scene-subtitle` / `regenerate-scene-audio` / `regenerate-scene-prompt` / `generate-scene-ai-video`）与 `delete-project`，历史记录**全部写路径（含删除）**同项目串行化；「保存分段」「重新合成」「删除」与「任意重新生成/素材替换/选择」不再并发交错（删除入队同时消除「删除后队列内任务 `_upsertProject` 复活项目」竞态）。
+
+##### 2) 瞬时错误重试（W5）
+
+- **注入点**：`Story2VideoProjectService` 构造器新增可注入 `assetRetry`（`options.assetRetry`），缺省为 `story2video-stages.withAssetTransientRetry`（与流水线 generate_assets 同一函数，单一来源，参数漂移风险为零）。
+- **重试范围**：仅对瞬时错误重试——抛错或结果对象命中 `isTransientErrorLike`（timeout / network / 429 限流类，如 `request timed out`）；内容政策检查点、模型配置、参数校验等非瞬时失败原样返回/上抛，不重试。
+- **轮询超时/任务终态不重试（审查 M1）**：历史交互路径的默认重试包装排除「视频生成超时或失败」「视频生成任务失败」「视频生成任务状态为」三类文案——它们代表**任务已提交后的**轮询超时或 provider 终止态，整体重试等于重新提交计费任务（最坏 3 次计费 + 30 分钟队列持锁）。提交阶段（`generateVideo` 调用、任务 ID 缺失）与下载阶段的瞬时错误仍正常重试。流水线路径（stages 默认参数）行为不变。
+- **有界退避**：普通瞬时错误最多 3 次（`maxAttempts=3`）、限流最多 4 次（`rateLimitMaxAttempts=4`），退避 `800ms×attempt`（限流 `2500ms×attempt`），不无限重试。
+- **fail-closed 语义不变**：重试仅包在 `generateSceneVideoStage` 调用外；重试耗尽返回 `{code:-1, message}` 或最后一次 outcome，由 `generateSceneAiVideo` 既有守卫（`!outcome.success || !outcome.path` → throw）失败上抛，**旧视频保留、分段回写 failed、本次产物清理**——与 3.1.29.1 完全一致。守卫读取 `outcome.error || outcome.message`（审查 M2：抛错路径耗尽时真实瞬时错误文案经 `{code:-1,message}` 保留，不再退化为兜底「AI 视频生成失败」）。
+
+##### 3) 流程与功能逻辑
+
+```
+用户操作 → IPC 通道（withSenderCheck + isSafeId + 参数校验）
+  └─ _serializeProject(projectId, task)：同项目写串行队列
+       ├─ replace-segment-audio / retry-segment / select-scene-material /
+       │  generate-scene-image / generate-scene-video / 既有 6 通道
+       └─ generateSceneAiVideo：assetRetry(() => generateSceneVideoStage({...}))
+            ├─ 瞬时错误 → 退避重试（最多 3 次 / 限流 4 次）
+            ├─ 成功 → 产物落盘替换（见 3.1.29.1）
+            └─ 重试耗尽/非瞬时失败 → throw → REQUEST_ERROR 透传
+```
+
+##### 4) 提示文字
+
+- 本变更**无新增用户可见文案**（重试为服务端透明行为；队列串行为既有机制补全，不影响 UI 文案）。失败提示沿用 3.1.29.1 的 `scene_ai_video_generate_failed` 归一化文案；瞬时失败重试后成功不产生任何失败提示。
+
+##### 5) 测试要求
+
+- IPC（`story2video.test.js`）：主 mock 增加 `selectSceneMaterial/generateSceneImage/generateSceneVideo`；`_serializeProject` 队列断言 6→**12**（含 3 个新通道 + `delete-project` 入队与参数透传）；「替换旁白」成功/失败两个用例的 mock 补齐 `_serializeProject`（验证队列包装不改变清理语义）。
+- 服务层（`story2video-project-service.test.js`）：「AI 视频生成经注入 assetRetry 包装，瞬时失败重试后成功」（stage 抛错 1 次 → 第 2 次成功，断言调用 2 次、重试原因、产物替换、status=completed）；「默认 withAssetTransientRetry 对瞬时错误重试后成功」（stage 返回 `{success:false, error:'request timed out'}` → 成功，断言调用 2 次、产物替换）；「重试耗尽 fail-closed」（真实 `withAssetTransientRetry(maxAttempts:1)` 耗尽，断言抛出与回写错误均为真实 `request timed out`、旧视频保留、无新产物）；「非瞬时结果对象不重试」（内容政策类失败 stage 只调用 1 次、原样上抛）。
+- 全量桌面 vitest、QM-1 打包（`electron-builder --win --dir` + 8s 冒烟）、CI 全绿。
+
+#### 3.1.29.3 历史记录图片提示词完整展示 + 未保存修改离开守卫（2026-08-16）
+
+**背景**：用户反馈两类问题：① 旧的历史查看界面把图片提示词按 60 字符硬截断（案例截断在 "Wunü Mo" 单词中间），长提示词信息丢失无法查看；② 视频任务编辑页分段编辑修改后没有自动保存、也没有清晰的保存引导，直接返回/离开时会静默丢失未保存修改。
+
+##### 1) 视频任务编辑页完整展示
+
+- 视频任务编辑页的场景信息由「单行混合预览 + 60 字符截断」改为**每个场景两行独立展示**：「旁白」行（`scene.text`）与「画面提示词」行（`scene.prompt`），只渲染存在的字段，空字段不占行；移除 60 字符硬截断，长文本 `white-space: normal; word-break: break-word` 自动换行，列表限高滚动。
+- 历史卡片预览仍按 120 字符截断（设计如此：卡片是摘要，完整内容在视频任务编辑页查看）。
+
+##### 2) 结果页未保存修改标识与离开守卫
+
+- 分段编辑区新增「有未保存修改」标识（`segmentsDirty=true` 时显示，保存成功后消失）。
+- 新增 `beforeRouteLeave` 离开守卫：存在未保存修改时挂起导航并弹出确认框，三个动作：
+  - 【保存并离开】：先调保存分段，保存成功才放行；保存失败留在当前页并保持弹窗（可再试或取消）。
+  - 【不保存离开】：放弃未保存修改直接导航。
+  - 【取消】：撤销导航，留在结果页继续编辑。
+- 组件被销毁且守卫仍挂起时（如测试/异常路径）兜底取消导航，保证 `next` 只调用一次、不悬挂。
+- **保存语义（回答「现在是怎么保存的」）**：分段编辑为**手动保存**——修改标脏后点【保存分段】持久化（IPC `story2video:update-segments`）；「重新生成字幕/旁白/优化词」「生成新图/视频」「重新合成」等后续动作前会自动保存未落盘编辑（3.1.29 W3 既有机制）；本次新增离开确认，防止直接返回时静默丢失。
+
+##### 3) 测试与门禁
+
+- ResultView.test.js：6 用例（无 dirty 放行 / chip 显示与保存后消失 / 取消留页 / 保存成功并离开 / 保存失败留页 / 不保存离开），经真实 `<router-view>` 挂载触发 `beforeRouteLeave`，弹窗按钮经 Teleport stub 就地渲染后 DOM 触发。
+- CreateViewHistory.test.js：长提示词（>120 字符）详情完整可见、无省略号；旁白/画面提示词分行；只有 text 或只有 prompt 时不渲染空行；卡片预览仍 120 截断。
+- locale zh/en 成对（新增 8 键：create.history.sceneNarration/scenePrompt + story2video.sceneMaterial 6 键）；CJK 基线 `--update-baseline` 吸收行号偏移（官方门禁 1499/1499 无新增硬编码）；`pnpm run build:vue` 通过。
+#### 3.1.29.4 结果页/历史编辑视频预览令牌失效自愈与旧令牌回收（2026-08-16）
+
+**背景**：视频创作-历史记录，任务内容编辑中弹出「视频预览加载失败」，但成片文件实际已保存。根因：本地媒体服务签发短生命令牌 URL（TTL 15 分钟、128 条 FIFO 注册表逐出、生产零 revoke），编辑会话回放旧任务时旧令牌已过期/被逐出，`<video>` 元素 error 被渲染层固定弹为「视频预览加载失败」，属误报。
+
+#### 1) 主视频预览 error 自愈（渲染端）
+
+- 结果页 `handleError` 首次 error 时自愈：对同一 `videoPath` 重签本地预览 URL（透传旧地址为 `previousUrl`），`await $nextTick()` 后 `player.load()`；**仅二次失败**才弹既有本地化文案 `videoPreviewFailed`。
+- 自愈标记 `videoReloadAttempted` 在 `loadVideoPath`/`loadProject` 成功后重置；重签失败不置位（下次 error 仍可自愈一次）。
+- 文案与 run 终态均不修改（既有 `preview_missing`/`videoPreviewFailed` 契约不变）。
+
+#### 2) 令牌回收契约（IPC）
+
+- `story2video:create-share-url` 接受可选第三参 `previousUrl`：签发成功后 best-effort 回收旧令牌。
+- **仅同源（与新签发 URL 同 origin）+ `/media/` 令牌形状路径**的 `previousUrl` 才调用 `revoke`；`file://`、异源、非媒体路径一律忽略，防止误逐出共享 128 条注册表的分段图/音频/视频活跃令牌。
+- 分段图/音频/视频 URL 替换处同步透传旧地址，长期编辑会话逐槽位回收。
+- preload 与 `api/publisher.js` 透传第二参数；`previousUrl` 仅 defined 时转发，1 参调用方（SceneAssetSelection 等）行为字节级不变。
+
+#### 3) 测试要求
+
+- IPC（`story2video.test.js`）：+4 用例——传 previousUrl 时 revoke 被调用；不传时不调用；`file://` 非本地 URL 拒绝 revoke；同源非媒体路径拒绝 revoke。
+- 渲染端（`ResultView.test.js`）：+5 用例——首次 error 自愈不弹窗且透传旧 videoSrc；二次 error 弹 `videoPreviewFailed`；重签失败直接弹且不标记已自愈；`loadVideoPath` 成功后重置标记并透传旧地址；`refreshSegmentImageUrls` 透传旧 imageUrl。
+- 全量桌面 vitest、QM-1 打包（`electron-builder --win --dir` + 8s 冒烟）、CI 全绿。
+
+#### 3.1.29.5 视频提示词优化长度放宽（已实现，2026-08-16）
+
+**背景**：图片提示词 `optimize.max_length` 上限放开（PR #887，500→2000 可配置）后，用户希望视频提示词的优化字数也尽量放宽，避免长视频提示词在生成/优化时被截断。
+
+**需求**：Story2Video 视频提示词优化（`scene.videoPrompt` / 视频优化词路径）在合理成本内放宽长度上限，长提示词不因长度被静默截断。
+
+**边界与实现约束**：
+- 沿用 PR #887 域级模式：Story2Video 域显式携带 `max_length`（流水线 stageDef 默认与文本配置默认同步，各入口显式透传），**不改共享 kernel 默认 500**（`buildPromptEngineOptimizeRequest` 未显式时保持现状），**不改视频 legacy 8020 契约**——避免静默放大所有通用 `optimize` 调用方与视频 legacy 路径的成本。
+- 执行器契约收敛 `[50, 2000]` 不放松（8013 上限 2000）；若需超过 2000，须先与供应商/网关确认真实上限、配额与成本再评估，禁止仅凭本地放宽。
+- 渲染层可仿照图片提示词提供「提示词最大长度」可配置档位（200–2000，默认 2000），越界/缺失回退默认。
+- 历史快照兼容沿用 #887 规则：存量 run 保留原 `optimize.maxLength`（恢复/续跑沿用旧值），重新生成时按新默认透传。
+
+**状态**：已实现——历史重生成视频优化词（`regenerateScenePrompt` kind=video）显式携带视频域上限 `max_length`（`VIDEO_ENGINE_LIMITS.videoMaxLengthMax`）：8020 standalone builder 收敛 [200,40000]、8013 legacy builder 收敛 [50,2000]，共享 kernel 默认 500 与 legacy 执行器契约 [50,2000] 不放松；2026-08-16 上界由 20000 再放宽至 40000（openspec `s2v-video-maxlength-40000`，8020 引擎侧同步 le=40000）。渲染层「提示词最大长度」档位列为可选后续。
+
+### 附录 A：场景素材四卡布局与预览/选择交互修订（2026-08-20）
+
+本修订覆盖 3.1.26 中历史场景素材区的旧交互描述。产品展示层固定为四个视觉卡，服务端持久化层仍只保留三种素材身份，不新增数据库字段、IPC kind 或迁移。
+
+#### 数据模型与校验
+
+1. 每个 segment 必须按固定顺序生成 image1、image2、video1、video2 四个视觉 slot。image1 读取 imagePath；image2 读取 alternateImages 的第一项 path；video1 优先读取 videoMeta.sceneVideoPath，缺失时兼容读取 videoPath；video2 只读取 videoMeta.altSceneVideoPath。视频 radio 的 selectable 还必须满足 canonical videoPath 存在，以匹配主进程 video 持久化校验；仅有 videoMeta 的异常旧数据允许预览但不允许选择。
+2. selectedMaterial 只允许 image1、image2、video。空白、未知值、video1、video2 等非法值按未选择处理，不能根据第一个有素材的 slot 猜测当前使用。video1 和 video2 是 renderer 视觉别名，不是新的持久化枚举。
+3. 每个 slot 同时计算 path、resolved URL、selectable 和 selected。path 缺失时 radio 必须 disabled；path 存在但 URL 签发失败时保留固定空框，缩略图按钮 disabled，radio 是否可选仍由服务端 path 合同和 slot selectable 决定。
+4. alternateImages 不是数组、为空或首项没有合法 path 时，image2 作为空 slot；videoMeta 缺失时只允许 video1 按旧项目规则回退 videoPath，video2 不借用 video1 的路径或 URL。
+5. 服务端和 IPC 继续校验 projectId、segmentId、素材 kind 和目标槽位存在性。renderer 的 disabled/白名单是第一层防线，主进程 validation/service 是第二层防线；伪造请求不能改变项目选中态或素材路径。
+
+#### 流程与功能逻辑
+
+历史记录 -> 视频任务编辑页 -> 加载项目 -> 刷新每个场景的图片、备选图片、场景视频和 alternate 视频预览 URL -> 生成四个固定视觉卡。任何一个 URL 失败只清空对应 slot URL，其他 slot 和四卡几何不受影响。
+
+1. 点击有 path 且 URL 有效的缩略图，只调用 previewSceneMaterial，打开预览弹窗；不调用 select-scene-material，不改 selectedMaterial，不改 dirty 状态。卡片不得使用包裹缩略图和 radio 的 ancestor label，避免浏览器原生 label 激活把预览误判为选择。
+2. 点击 radio 或 radio 对应的素材名称 label，才调用 selectSceneMaterial。image1/image2 直接发送同名 kind；video1/video2 都归一发送 canonical video。选择成功后使用服务端返回的完整 project，刷新派生 URL 并显示当前使用徽标；失败保留原选中态并显示归一化提示。
+3. 当前使用徽标只在 image1、image2 或 canonical video1 显示。video2 可以预览和作为视频候选显示，但不重复伪造第二个 video 持久化身份或第二个当前使用徽标。
+4. 空 slot 的缩略图按钮不打开预览，空 slot radio 不调用 IPC。四个 slot 始终存在，不能因为没有图片或视频而折叠成三格或改变顺序。
+5. 生成新图生成 AI 视频都是场景级操作：生成新图显示在 image1/image2 卡内并调用 generateSceneImage(segmentId)，写入目标由选中态规则决定；生成 AI 视频显示在 video1/video2 卡内并调用 generateSceneAiVideo(segmentId)，结果写入 canonical 视频槽。多卡入口只是同一动作的重复暴露，不改变落点语义；video2 仍是视觉别名，不新增持久化身份。生成 AI 视频按钮仅当 videoPrompt/prompt/text 全为空时禁用（提示词回退契约与后端 generateSceneAiVideo 一致）。
+6. 生成前检查 segmentBusy 和输入条件；AI 视频要求 videoPrompt/prompt/text 任一 trim 后非空（与后端回退契约一致）。若有未保存分段修改，先保存，保存失败不提交生成请求。同一场景同一时间最多一个生成/选择写操作，finally 必须清除 busy。
+7. 成功生成后用主进程返回的 path 更新项目，调用 refreshSegmentImageUrls 重新签发 URL，保留 selectedMaterial 语义并显示成功通知。失败时保留旧素材和旧选中态，清理本次 attemptFiles，只显示本地化且可操作的错误提示，不显示绝对路径、堆栈、provider JSON 或内部 prompt。
+
+#### 交互与显示合同
+
+- 卡片结构固定为 media frame -> radio + 素材名称 -> 当前使用徽标（如适用）-> 所属生成按钮（如适用）。radio 位于缩略图底部，并且在素材名称文字前。
+- 缩略图使用独立 button type=button，图片和视频分别使用 img 与 video；video1/video2 预览都必须渲染 video 元素并提供 controls/autoplay。
+- 预览弹窗使用 UiModal 的 xl 尺寸，媒体最大高度受 75vh 约束；弹窗只负责查看，不附带选择动作。
+- 每个 media frame 宽度为卡片内容区 100%，使用 aspect-ratio 3/4、min-height 96px 和统一背景色。图片、视频和空态共用相同几何，媒体内容使用 object-fit cover。
+- 宽屏使用四列等宽布局；视口不大于 720px 时使用两列。生成按钮允许文案换行，但不能撑破卡片、遮挡 radio、label 或媒体框。
+- 有素材时 radio 的可访问名称为“选择{label}作为当前素材”，缩略图的可访问名称为“放大预览{label}”；空态使用“{label}尚未生成”。所有文案必须在 zh/en locale 成对存在。
+- 空媒体框只显示一行本地化 emptySlot：中文“未生成”、英文“Not generated”。不得显示 Video 1、Video 2、video1、video2 或第二行未解释的英文 fallback。
+
+#### 回归与验收
+
+ResultView 测试必须覆盖四卡固定顺序、radio-only selection、thumbnail-only preview、video kind 归一、canonical video1 徽标、按钮不重复、busy/prompt guard、path/URL 失效、非法 selectedMaterial、旧字段缺省、空态英文泄漏、xl modal、图片/视频媒体类型和键盘可访问性。交付前还必须通过 zh/en locale 成对检查、CJK 硬编码扫描、Vue build、变更文件 ESLint、worktree dependency 解析和 git diff hygiene。
+ResultView 测试必须覆盖四卡固定顺序、radio-only selection、thumbnail-only preview、video kind 归一、canonical video1 徽标、生成按钮覆盖全部图片/视频卡、busy/prompt guard（videoPrompt/prompt/text 回退）、path/URL 失效、非法 selectedMaterial、旧字段缺省、空态英文泄漏、xl modal、图片/视频媒体类型和键盘可访问性。交付前还必须通过 zh/en locale 成对检查、CJK 硬编码扫描、Vue build、变更文件 ESLint、worktree dependency 解析和 git diff hygiene。
+
+### 3.1.27 历史记录可见性与终态一致（2026-08-15）
+
+**背景**：① 流水线失败/取消时，主进程仅置 run 顶层终态，当前 stage（如 compose）仍保持 `running`，历史卡片与持久化快照出现「视频合成 运行中」假象；② 历史列表把「暂停/失败」任务排在全部已完成项目之后（实测 30+ 条历史中最新失败任务排第 27 位），用户误以为任务丢失。
+
+#### 1) 终态一致（主进程）
+
+- `_finalizeRun(run, status, error)` 在 `status=failed|cancelled` 时，把 `run.stages[run.currentStage]` 同步为同一终态并补 `completedAt`（与 `_advanceRun` 完成语义一致）；`cancel()` 先置 stage 时幂等兜底。
+- 覆盖路径：`executeStage` 失败、`_autoAdvanceRun` 失败、`cancel()`；`getRunSnapshot`/`runStateStore.saveFailed` 快照随之携带正确 stage 终态。
+- 回归保护：`pipeline-engine.test.js`「_finalizeRun failed/cancelled 同步当前 stage 终态」断言 stage 终态 + completedAt + 已完成 stage 不受影响。
+
+#### 2) 历史排序（前端 CreateView.loadHistory）
+
+- 排序规则：全部及各状态筛选均按 §3.1.28 有效更新时间倒序；不再按状态优先级分组。
+- 失败任务 `pausedStage` 优先取 `stage.status==='failed'` 的阶段，无 failed stage 时才回退「非 completed / 末位」。
+- 回归保护：`CreateView.test.js`「失败/暂停的未完成任务排在已完成项目之前」断言 `[failed, paused, project×2]` 顺序。
+
 ### 3.3 叠加层（Remotion 快速路径，P1）
 
 | 类型 | 说明 | 参数 |
@@ -1684,7 +2252,60 @@ SettingsDialog 关闭（App.vue @close）
 | `generic-hd` | 1920×1080 | 通用 |
 | `cinematic` | 2560×1080 | 电影感 21:9 |
 | `linkedin` | 1920×1080 | LinkedIn |
-| `instagram-feed` | 1080×1080 | Instagram 信息流 |
+| `instagram-feed` | 1080×1080 | Instagram 信息流
+
+### 3.1.27 视频提示词优化引擎 Round3 B/C：跨镜承接状态包 + 导演分镜块骨架（2026-08-15）
+
+**需求**：把《Hell Grind》长片一致性算法内核（上一镜终态显式交接给下一镜）与 refined 导演分镜单形态（12 块骨架 + 覆盖度 + 启发式 gated 判据）落到独立视频提示词引擎（8020）与 Story2Video 视频提示词链路上。OpenSpec：`higgsfield-round3b-cross-scene` / `higgsfield-round3c-refined-output`。
+
+#### 1) 数据模型与校验（引擎侧 + 桌面契约侧）
+
+- `prev_final_frame`（上镜终态描述）：引擎 `VideoOptimizeRequest` 与桌面契约双侧上限 **1000 字符**；桌面侧归一——非字符串丢弃、trim 后空丢弃、超长按句截断（句末回溯，无句末硬截断）。
+- `final_frame`（计划终态）：上限与 `prev_final_frame` 同界 **1000 字符**；语义为**计划中的最终画面描述**（位置/姿势/灯光/机位/禁文字），不是解码后的真实视频帧证据。
+- `blocks`（导演分镜块骨架，refined 层可选）：**12 键白名单** `SCENE NOTE / SPATIAL LAYOUT / LIGHTING / COLOR / CAMERA / ENVIRONMENT / CONTINUITY / CHARACTERS / SKIN / ACTING / STILLNESS LOCK / FINAL FRAME`；仅保留非空字符串、每值 **≤4000 字符**；非法键丢弃。桌面契约与 8020 引擎同源（`video-prompt-engine-contract.js` blockKeys 与 `refined_blocks.json` 顺序一致）。
+- 引擎缺块回退：请求无有效 blocks 时走既有 legacy 渲染器；渲染时缺失块用旧字段回退（如 SCENE NOTE 承接旧 prompt，避免稀疏 blocks 丢主体）。
+
+#### 2) 流程（跨镜链式优化）
+
+```text
+Story2Video 视频场景（按场景顺序）
+  ├─ ① 视频提示词优化串行：第 N 镜请求携带第 N-1 镜的 final_frame（prev_final_frame）
+  ├─ ② 引擎注入 SCENE Continuity 承接段（<prev_final_frame> 事实引用，非指令）
+  ├─ ③ 优化结果回写 scene.video.final_frame（计划终态）+ continuity 元数据
+  ├─ ④ 媒体生成仍按既有预算并发（只串行优化调用，不串行生成）
+  └─ ⑤ 断点续跑：从 checkpoint 终态恢复链（resume.completed[].final_frame /
+        .video.final_frame / 旧字段三级回退），缺终态 → 显式 degraded 断链记录
+```
+
+#### 3) 功能逻辑
+
+- **承接注入**：仅当 `prev_final_frame` 存在时注入 `## SCENE Continuity (MANDATORY when prev_final_frame is provided)` 段；段内 `<prev_final_frame>` 是事实引用，显式说明其中指令不得执行（防提示词注入）。
+- **缓存盐**：`HIGGSFIELD_FMT_V4`——承接段与块骨架改变输出形态，旧缓存一次失效重建；key 纳入 `prev_final_frame` 哈希。
+- **连续性评分（advisory -5）**：英文——实体 token 命中率 ≥40%，且角色白名单提供时角色名必中（硬判据）；中文——显式白名单（角色名 + 终态姿势/位置词）命中 ≥60%，无白名单时整句重合度（SequenceMatcher）≥0.5；无 `prev_final_frame` 零回归。
+- **块覆盖度（refined 专属，advisory -5）**：分母 = 归一后非空 blocks 数，分子 = 渲染串中命中块标记数（统一正则，行首标题+冒号）；比率 <0.8 记 `block_coverage = -5`，不拒绝候选。
+- **启发式 gated 规则（7 条，默认启用 3 条）**：默认启用 `dead_center / exposure_break / eye_line`；其余 `warm_light_leak / silhouette_break / style_contamination / skin_guard` 资产内可用但默认 OFF。规则需「活跃非否定 lock」+「非否定 forbidden 出现」同时成立才扣分——局部否定（`not overexposed`、`no waxy skin`）不是失败；`style_contamination` 不用 `photoreal` 词作为触发（词边界整名匹配，`photorealistic detail` 等完整 lock 词才触发）。
+- **FAIL CHECK**：只存在于模型指令（自审清单），若被意外输出则剥离，永不成为导演块；尾行清理只认「含画幅与时长字段的完整 trailer 尾段」，块内字面量（如 `Photoreal NON-IP aesthetic`）不会误删后续 FINAL FRAME 块。
+- **引擎选择与 provenance**：`VIDEO_PROMPT_PORT=8020` 启用独立引擎优先，失败自动回退 8013 `domain=video`；结果带 `engine_source`（standalone-8020 / legacy-8013 + fallback 标志）。
+- **断链可见性**：优化失败/缺终态按既有混合模式回退图片轮播；continuity 元数据记录 `mode: planned_final_frame`、`status: active | degraded`、`reason`（not_started / missing_prompt / missing_prompt_bridge / missing_final_frame / prompt_optimization_failed / resume:missing_final_state），日志显式提示断链，不虚构连续性。
+
+#### 4) 交互逻辑与显示项
+
+- 无新增 UI 表面；优化阶段进度/失败展示沿用既有 stage.progress 契约。
+- 断点续跑场景：复用断点产物时保留 continuity 元数据（checkpoint 计划终态链），不再只有 `{ resumed: true }`。
+- 视频提示词优化失败按既有「混合模式回退图片轮播」交互，不弹窗阻断。
+
+#### 5) 提示文字（zh / en）
+
+- 无新增用户可见文案；失败原因沿用既有阶段失败提示（引擎侧日志含 `prev_final_frame injected (source=…, chars=…)`、`缺少可用 final_frame，跨镜承接已从该场景断开` 等诊断日志，仅主进程日志可见）。
+
+#### 6) 测试要求
+
+- 引擎：`tests/test_cross_scene.py`（边界/缓存/承接/择优）、`tests/test_refined_blocks.py`（块契约/渲染/尾行/覆盖度/gated/盐 V4）、`tests/test_analyze_hg_corpus.py`（语料资产）；全量 `pytest tests/ -q --ignore=tests/test_web_e2e.py` 通过。
+- 契约：`video-prompt-engine-contract.test.js`（prev_final_frame 归一/块白名单/engine_source 回退）、`story2video-stages.test.js`（串行链/断点恢复/断链明示）、`story2video-manual-assets.test.js`（manual 集成零回归）；桌面关联套件全绿。
+
+---
+
+### 3.1.24 视频创作首页流水线卡片 UI |
 
 ### 3.1.24 视频创作首页流水线卡片 UI：多列动态布局 + 内置静态背景 + 交互动效（2026-08-13 落地，方案 B）
 
@@ -1847,12 +2468,12 @@ SettingsDialog 关闭（App.vue @close）
 - [x] 图片动效按场景有效时长归一化：zoompan `d=总帧数` + 进度 `min(1, on/T)`，短场景动效不被切走、长场景不提前定格；回归覆盖字符串断言与（可选）真实 ffmpeg 帧级验证；`renderSegment` 上报时长与 compose 一致收敛到 0.1..3600。
 - [x] `perImageDuration`（单画面时长/无旁白场景时长）已从 renderer/normalizer/模板库/YAML 移除；旧项目历史配置兼容忽略，`defaultSceneDuration` 保留为内部默认 6 秒回退。
 - [x] 场景层正常路径由 8002 的 `scenes` 决定；仅服务不可用时本地降级，非法响应不降级，并在运行结果和项目清单保留来源字段。
-- [x] Story2Video 分句别名映射到 8002 的 `config.sentence_tokenizer/scene`；自定义时长、语速和场景字数不会被 FastAPI 静默忽略，字幕选项不发送给服务。
+- [x] Story2Video 分句别名映射到 8002 的 `config.sentence_tokenizer/scene`；自定义时长、语速和场景字数不会被 FastAPI 静默忽略；字幕参数（`subtitle_min_chars/subtitle_max_chars/subtitle_timing`，v1.2）透传为 `config.subtitle.*`，不再静默丢弃。
 - [x] 每个场景独立生成 8-15 字目标的字幕块；字幕不跨场景，旧项目缺少字幕块时可在 compose 阶段兼容生成。
 - [x] 分页字幕时间轴以 ffprobe 真实 TTS 时长生成，区间连续不重叠，语速变化时等比例缩放，最后一页精确结束。
 - [x] 缺失音频时长不会被固定截断；短片段转场会自动收敛或降级。
 - [x] 输出文件必须非空并通过 ffmpeg 解码校验。
-- [x] 图片/音频/BGM 输入格式、大小、路径和总时长受控；成片不超过 10 分钟。
+- [x] 图片/音频/BGM 输入格式、大小、路径和总时长受控；成片不超过 50 分钟（默认上限，见 PRD §7.1.25a）。
 - [x] 编排完成自动进入结果页；完成项目、完整旁白和分段媒体按用户持久化，最多保留 100 项。
 - [x] 分段编辑、排序、删除、替换旁白、图片/视频重试和重新合成有项目服务与 UI 回归测试。
 - [x] ZIP 导出不把全部视频读入内存；真实裁剪使用 ffmpeg，并可在 UI 中选择和预览区间。
@@ -2132,3 +2753,575 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 - PipelineSelector错误态：错误信息 + "重试"按钮
 - StageProgress阶段状态：等待中/运行中/已完成/失败/等待确认/已取消
 - StageProgress时间格式："X分Y秒" 或 "Y秒"
+
+
+### 3.1.30 电影工程（film-engineering）流水线合并（2026-08-18）
+
+> **范围**：新增「影视工程（Hell Grind）」流水线，包含独立页面 `/film-engineering`、film-kit 资产库、IPC 服务与 i18n 注册。
+> **分支**：`codex/film-engineering-hell-grind` → 合入 `codex/video-creation-ui`。
+
+#### 1) 背景
+
+视频创作模块此前已有 AI 生成、说话头像、电影感等流水线，但缺少面向专业影视制作的「电影工程」流水线。该流水线以经典电影《Hell Grind》为模板，提供完整的分镜库、剧本套用、角色/场景资产管理、一键复制与导出能力，适合需要精细控制的影视创作场景。
+
+#### 2) 流程（数据流）
+
+```
+用户选择「电影工程」流水线卡片
+  ├─ 1. CreateView 路由跳转至 /film-engineering
+  ├─ 2. FilmEngineeringView 加载 film-kit 资产
+  │     ├─ film-manifest.json（流水线元数据：名称/描述/阶段/分类）
+  │     ├─ reference-registry.json（角色/场景/道具注册表）
+  │     ├─ shot-library.json（分镜库：镜头编号/类型/描述/参考图）
+  │     ├─ prompt-doctrine.json（提示词规范：风格/节奏/禁忌）
+  │     └─ images/（角色/场景参考图 WebP）
+  ├─ 3. 用户浏览分镜库，选择模板，套用到当前项目
+  ├─ 4. 一键复制/导出分镜方案
+  └─ 5. 启动流水线进入常规 Story2Video 编排
+```
+
+#### 3) 数据校验
+
+| 项 | 规则 |
+|----|------|
+| film-manifest.json | 必须包含 name/description/stages/category 字段；stages 数组非空；category ∈ {generated,talking_head,cinematic,animation,screen_recording,hybrid,custom,film_engineering} |
+| reference-registry.json | 角色/场景条目必须包含 id/name/type；参考图路径必须指向 images/ 目录下已有 WebP 文件 |
+| shot-library.json | 每条分镜必须包含 shotId/type/description；type ∈ {wide/medium/close-up/extreme-close-up/tracking/aerial} |
+| prompt-doctrine.json | 必须包含 style/tone/prohibited 字段；prohibited 为字符串数组 |
+| IPC 接口 | `film-engineering:list-kits` 返回 kit 列表（至少 1 个）；`film-engineering:get-kit` 返回完整 kit 数据；`film-engineering:export` 返回 JSON 字符串 |
+
+#### 4) 功能逻辑
+
+- **独立页面**：`FilmEngineeringView.vue` 作为独立路由页面，与 Story2Video 流水线启动页并列，通过 `/film-engineering` 路径访问。
+- **资产加载**：页面挂载时从 `electron/film-kit/` 目录读取 JSON 资产文件，通过 IPC 传递到渲染进程。
+- **分镜库浏览**：左侧分镜列表，右侧预览面板，支持按类型筛选。
+- **角色/场景管理**：展示角色卡（名称/描述/参考图）和场景卡（名称/氛围/参考图），支持一键套用到项目。
+- **提示词规范**：显示风格指南和禁忌列表，辅助用户编写高质量提示词。
+- **导出**：将选中的分镜方案导出为 JSON 文件，供后续流水线消费。
+- **一键复制**：将当前分镜方案复制到剪贴板（JSON 格式）。
+
+#### 5) 交互逻辑与显示项
+
+- **卡片注册**：`pipeline-labels.js` 新增 `film-engineering` 条目（name/description/category/stages/stability），PipelineSelector 自动渲染卡片。
+- **路由注册**：`router/index.js` 新增 `/film-engineering` → `FilmEngineeringView`。
+- **IPC 服务**：`electron/ipc-handlers/film-engineering.js` 处理 kit 列表/详情/导出请求。
+- **i18n**：`zh.js` / `en.js` 新增 `pipelines.names.film-engineering` 和 `pipelines.descriptions.film-engineering`。
+
+#### 6) 提示文字
+
+- 加载态：「正在加载影视工程资产...」
+- 空状态：「暂无可用的影视工程模板」
+- 导出成功：「分镜方案已导出」
+- 复制成功：「已复制到剪贴板」
+
+#### 7) 影响范围
+
+- 新增文件：`FilmEngineeringView.vue`、`electron/film-kit/*`、`electron/ipc-handlers/film-engineering.js`、`openspec/specs/film-engineering/spec.md`
+- 修改文件：`pipeline-labels.js`（新增注册）、`router/index.js`（新增路由）、`zh.js` / `en.js`（新增 i18n）
+- 无破坏性变更：不影响现有流水线功能。
+
+### 3.1.31 视频创作页 UI 优化（2026-08-18）
+
+> **范围**：流水线启动页底部按钮对齐、页面导航箭头、返回按钮优化、历史记录卡片信息增强、页面名词统一。
+> **分支**：`codex/video-creation-ui`，PR #990。
+
+#### 3.1.31.1 流水线启动页底部按钮居右对齐
+
+**需求**：流水线启动页底部操作区域（启动流水线/恢复默认选项等按钮）统一居右显示，符合用户操作习惯。
+
+**实现**：
+- `create-view.css`：`.action-bar` 新增 `justify-content: flex-end`。
+- 底部操作区域保持固定定位（`position: fixed`），位于页面底部，z-index 110。
+- 移动端（≤720px）按钮自动换行，仍居右对齐。
+
+**显示项**：
+- 启动流水线按钮
+- 恢复默认选项按钮
+- 运行中时显示暂停/取消按钮
+
+**交互逻辑**：
+- 按钮始终居右，不受内容宽度影响。
+- 多个按钮时从右向左排列。
+
+**数据校验**：
+- 无新增数据字段，仅 CSS 变更。
+
+#### 3.1.31.2 页面导航箭头
+
+**需求**：视频创作页面顶部新增左右箭头按钮，支持在浏览历史中前进/后退，类似浏览器导航。
+
+**实现**：
+- `CreateView.vue`：新增 `viewHistory[]`（状态数组）和 `viewHistoryIndex`（当前索引）。
+- `goBack()`：索引 -1，恢复上一视图状态。
+- `goForward()`：索引 +1，恢复下一视图状态。
+- `pushViewState(state)`：截断后续历史，追加新状态。
+- `applyViewState(state)`：恢复 `view`、`selectedPipeline` 等字段。
+- `canGoBack` / `canGoForward`：计算属性，控制按钮 disabled 状态。
+
+**数据合同**：
+```
+viewState: {
+  view: 'pipelines' | 'quick' | 'history',
+  selectedPipeline: object | null
+}
+```
+
+**交互逻辑**：
+- 箭头按钮位于页面标题左侧（`.page-header-nav`）。
+- ← 按钮：无历史时 disabled，点击执行 `goBack()`。
+- → 按钮：无后续时 disabled，点击执行 `goForward()`。
+- 切换视图（流水线创作/快速渲染/历史记录）时自动 `pushViewState`。
+- 选择流水线进入详情时自动 `pushViewState`。
+
+**显示项**：
+- ← 按钮（disabled 态 opacity 0.35）
+- → 按钮（disabled 态 opacity 0.35）
+
+#### 3.1.31.3 返回按钮优化
+
+**需求**：流水线详情页底部「返回流水线列表」链接文字改为「返回」，点击后跳转历史记录页。
+
+**实现**：
+- `CreateView.vue`：`goToHistory()` 方法设置 `selectedPipeline = null; view = 'history'`，调用 `loadHistory()` 和 `pushViewState()`。
+- 模板中 back button 的 click 处理改为 `goToHistory()`。
+
+**交互逻辑**：
+- 点击「返回」→ 清除选中流水线 → 切换到历史记录视图 → 加载历史数据 → 推送导航状态。
+- 页面顶部导航箭头同步更新（可回退到流水线详情页）。
+
+**显示项**：
+- 「← 返回」链接文字
+
+#### 3.1.31.4 历史记录卡片信息增强
+
+**需求**：历史记录六个状态标签共用一张卡片，统一显示通用信息，暂停/失败任务额外显示特有字段；标题为空时回退到任务文案，文案预览使用任务原文案，所有状态包括 cancelled 均遵守相同显示结构。
+
+**通用信息（所有状态卡片均显示）**：
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| 任务标题 | `publishTitle(item)` | 优先 `title` → `params.title` → 首段文案前 60 字 → 流水线名 |
+| 流水线名称 | `pipelineName(item.pipeline)` | i18n 翻译后的流水线名 |
+| 状态标签 | `historyStatusLabel(item.status)` | 带颜色图标的状态文字 |
+| 文案预览 | `taskContent(item)` | 任务 `sourceText/text` 或场景文案拼接后的前 120 个 JavaScript 字符，超长追加 `…`；不读取图片/视频提示词 |
+| 首场景缩略图 | `story2video:get-thumbnail` | 第一场景合法图片优先；无图片时取第一段合法视频的第 0 秒首帧；失败显示固定空背景和“未生成” |
+| 视频时长 | `videoDuration(item)` | 仅使用 `videoDuration`、`video.duration`、`composeDuration` 等明确成片时长字段；缺失显示“未生成” |
+| 翻译预览 | `firstSegmentTranslation(item)` | 非中文 locale 显示翻译（前 140 字）；编辑页缺失时保留“未生成”占位 |
+| 更新时间 | `displayTime(item)` | 有效更新时间（优先级：updatedAt → completedAt → endedAt → createdAt） |
+| 创建时间 | `createdTime(item)` | ISO 日期格式化 |
+| 耗时 | `historyDuration(item)` | 活跃毫秒数，格式「X分Y秒」 |
+| 流水线 | `item.pipeline` | 流水线标识（tag 样式） |
+
+**暂停任务额外字段**：
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| 暂停环节 | `item.pausedStage` | 本地化阶段名 |
+| 暂停环境 | `pauseEnvironment(item)` | 检查点类型（scene_asset_selection/waiting_approval/needs_user_input/local） |
+
+**失败任务额外字段**：
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| 失败环节 | `failedStage(item)` | status=failed 的阶段名 |
+| 失败原因 | `item.error` | 自然语言描述（非原始错误对象） |
+
+**交互逻辑**：
+- paused、failed、completed、cancelled 且有有效项目的卡片 body 点击进入视频任务编辑页；running 不进入编辑页；纯 run 记录不生成编辑路由。
+- 暂停/失败卡片底部显示「从断点继续」/「修改场景文案并重新生成」按钮。
+- 所有状态卡片共用同一套 CSS 样式（`.history-item` + `.status-*`），仅通过状态类名区分左边框颜色和动画。
+
+**数据校验**：
+- 标题回退链：`item.title` → `item.params?.title/publishTitle` → `taskContent(item)` 前 60 字 → `pipelineName(item.pipeline)` → `tr('untitled')`；空白字符串视为缺失。
+- 空值/空白字符串视为缺失，逐级回退。
+- 时间字段复用 §3.1.28 的有效时间解析规则。
+- project/run 合并时项目标题、文案、分段和素材优先，run 的状态、阶段、检查点、错误、runId 和运行耗时补充；`updatedAt` 取两侧最新有效时间。
+- `updatedAt` 在内容、素材、提示词、翻译、字幕、语音成功保存，以及暂停、继续、取消、失败、完成状态写回后更新，且同一项目的时间戳单调递增。
+- 详情页的图片、视频、图片/视频提示词、翻译、字幕、语音任一字段未生成、失败、文件不存在或不可读时，保留固定槽位和空背景，显示“未生成”，不阻塞其他场景编辑。
+
+#### 3.1.31.5 页面名词统一
+
+**需求**：统一视频创作模块的页面命名，确保 PRD、i18n、注释、模板一致。
+
+**术语定义**：
+| 术语 | 定义 | 使用场景 |
+|------|------|----------|
+| 流水线启动页 | 进入视频创作 → 选择一个流水线后进入的页面 | PRD §3.1.31、注释、模板 |
+| 历史记录页 | 视频创作页面的「历史记录」标签页 | PRD §3.1.28/3.1.29、i18n |
+| 视频任务编辑页 | 从历史记录点击卡片进入的编辑页面 | PRD §3.1.29、i18n |
+| 流水线选择页 | 视频创作页面的「流水线创作」标签页 | PRD §3.1.24 |
+
+**更新范围**：
+- 模板注释：`流水线创作视图（流水线启动页）` → `流水线启动页（流水线创作）`
+- 模板注释：`流水线启动页配置` → `流水线启动页：配置与执行`
+- i18n：`create.history.detailTitle` 值为「视频任务编辑页」
+- PRD：§3.1.28/3.1.29 中的「详情页/详情弹窗」统一为「视频任务编辑页」
+
+**显示项**：
+- 无新增显示项，仅文案/注释统一。
+
+**交互逻辑**：
+- 无交互变更。
+
+### 3.1.32 影视工程页面资源不可用 Bug 修复（2026-08-19）
+
+> 范围：修复影视工程页面进入时显示影视工程资源不可用错误。
+> 分支：codex/fix-film-engineering-unavailable，PR #998。
+
+#### 1) 根因
+
+container.setup.js 注册了 filmEngineeringService，但 bootstrap 链路中：
+- phase1-context.js 未通过 container.get('filmEngineeringService') 提取实例
+- phase5-ipc.js 未将 filmEngineeringService 传递给 handlerDependencies
+
+导致 IPC handler film-engineering.js 访问 deps.filmEngineeringService 为 undefined，service.getStatus() 抛 TypeError（非 FILM_KIT_UNAVAILABLE），前端收到通用错误并显示影视工程资源不可用。
+
+#### 2) 流程（修复后数据流）
+
+container.setup.js 注册 filmEngineeringService -> phase1-context.js container.get 提取 -> context.services.filmEngineeringService -> phase5-ipc.js 解构 context -> handlerDependencies.filmEngineeringService -> ipc-handlers/film-engineering.js deps 可用 -> service.getStatus() -> kit-loader 加载 film-kit -> 前端显示正常
+
+#### 3) 数据校验
+
+- phase1-context 返回值：ctx.filmEngineeringService 必须为 truthy（DI 容器注册后）
+- handlerDependencies：filmEngineeringService 必须存在于 handlerDependencies 对象中
+- IPC status 调用：film-engineering:status 返回 code 0 且 data.available 为 true
+
+#### 4) 功能逻辑
+
+- phase1-context.js：新增 container.get('filmEngineeringService') 并在 services 分组中添加
+- phase5-ipc.js：在 context 解构和 handlerDependencies 中均添加 filmEngineeringService
+- phase1-context.test.js：在 expectedFields 数组中补充 filmEngineeringService（回归保护）
+
+#### 5) 交互逻辑与显示项
+
+- 修复前：用户进入 /film-engineering 页面显示影视工程资源不可用错误
+- 修复后：用户进入 /film-engineering 页面正常加载分镜库、场景列表、提示词规范
+- 无新增交互逻辑或显示项
+
+#### 6) 影响范围
+
+- 修改文件：phase1-context.js（+2 行）、phase5-ipc.js（+2 行）、phase1-context.test.js（+2 行）
+- 无破坏性变更：不影响现有流水线功能
+
+#### 7) 测试逃逸分析（QM-5）
+
+- 逃逸链：单元测试全部 mock filmEngineeringService（直接注入 deps），绕过了真实 DI -> context -> IPC 注入链路
+- 系统性漏洞：缺少集成级 IPC 注册验证，测试不应只验证 handler 逻辑，还应验证 handler 依赖的完整注入路径
+- 回归保护：phase1-context.test.js 新增 filmEngineeringService 字段断言，确保 context 始终包含该字段
+
+
+## 10. Story2Video 页面 UX 统一（2026-08-17）
+
+本次流水线启动页、历史记录和视频任务编辑页的详细需求、数据校验、显示项、流程、交互和提示文案见 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)。本节保留视频创作 PRD 的入口索引，并明确以下产品结论：进入流水线后的页面叫“流水线启动页”；历史记录中的详情入口直接进入视频任务编辑页；编辑页底部操作固定；多状态历史卡片共用一套结构；失败原因使用自然语言；暂停在流水线启动页提供，编辑页携带运行中 runId 时也提供同一受校验的暂停动作。
+
+## 11. Story2Video 历史记录失败提示强化（2026-08-19）
+
+### 11.1 目标与范围
+
+历史记录、结果页和失败对话框必须帮助用户判断“哪个模型账号出了什么问题、下一步做什么”，而不是暴露内部模板变量或原始技术错误。本次范围覆盖流水线自由文本 formatter、renderer 通知归一化、zh/en locale、历史卡片/结果页最终渲染和回归测试；不改变原始错误的诊断保存、模型调用协议、IPC 结构、重试和断点恢复语义。
+
+### 11.2 数据合同与校验
+
+| 数据项 | 输入来源 | 展示校验 | 失败回退 |
+|---|---|---|---|
+| message key | 稳定错误码或已知 raw pattern | 必须属于 Story2Video 通知键集合 | operation_failed 本地化文案 |
+| provider | 显式 provider/providerId 或 raw error | 仅接受已知 provider ID；拒绝 account、provider、unknown、数字和空白值 | 中文“当前模型账号”；英文“current model account” |
+| context | 场景号、素材比例、生成类型 | 只拼接有限数字和 locale 标签，不接受 raw error 全文 | 空字符串，不渲染括号 |
+| detail | 已知 locale 引用或受限字段 | 先解析 locale 引用；不把完整异常堆栈传给插值 | 不显示 detail |
+| locale | 当前 zh/en 语言环境 | en* 归一为 en，其余回退 zh | 使用中文文案 |
+| 历史原始错误 | 主进程持久化诊断字段 | 只用于分类和有限提取，renderer 不直接回显 | 通用失败提示 |
+
+provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 MiniMax，kling 显示为 Kling，agnes-image 显示为 Agnes Image。用户可见文案再追加“模型账号”或“model account”。未识别 ID 不猜测品牌，不显示内部 ID。
+
+### 11.3 失败分类与流程逻辑
+
+1. 主进程或流水线产生 raw error，并按既有稳定错误码/模式进入 formatter。
+2. formatter 只提取 provider、场景号、素材比例、生成类型、HTTP 状态码等用于分类的有限字段；HTTP 状态码只参与分类，不进入历史提示。
+3. renderer 通知归一化再次执行 provider 和 locale 校验，兼容旧快照中的 sceneText，但不再消费它。
+4. 归一化结果为 messageKey + messageParams；messageParams 只允许 provider、context、detail、limitMinutes 等白名单字段。
+5. locale 插值生成最终文案；最终文案必须不含 {sceneText}、{provider}、{context} 等未解析变量。
+6. 历史卡片显示自然语言失败原因；用户点击卡片、编辑、修改场景或从断点继续时，继续使用既有恢复门控，不因提示文案改变任务状态。
+
+### 11.4 提示文字与显示项
+
+| 分类 | 中文提示核心 | English copy | 主要动作 |
+|---|---|---|---|
+| 限流 | 生成受频率或额度限制（场景 N），请稍等片刻后重试；若持续出现，请检查 MiniMax模型账号的套餐额度。 | Generation is rate limited (scene N). Wait a moment and retry, or check the MiniMax model account plan quota. | 等待后重试 |
+| 额度/余额 | MiniMax模型账号的额度或余额已用完（场景 N），请检查该模型账号套餐，或更换模型后从断点继续。 | The MiniMax model account quota or balance is exhausted (scene N). Check the plan, or switch models and resume. | 检查额度/更换模型/断点继续 |
+| 空结果 | MiniMax模型账号图片生成多次未返回结果（场景 N），可能是服务波动或账号问题。请调整场景提示词后重试。 | The MiniMax model account repeatedly returned no image result (scene N). Adjust the scene prompt and retry. | 调整场景提示词 |
+| 素材生成 | 素材生成未完成（场景 0/51，图片生成），请检查 MiniMax模型账号的 API 配额和网络连接，然后从断点继续。 | Asset generation is incomplete (scenes 0/51, image generation). Check the MiniMax model account quota and network, then resume. | 检查账号/网络/断点继续 |
+| API Key | MiniMax模型账号的 API Key 无效或已过期，请在模型设置中更新该模型账号的 API Key 后重试。 | The MiniMax model account API key is invalid or expired. Update it in Model Settings and retry. | 打开模型设置 |
+| 参数不支持 | 图片模型 Agnes Image 不支持指定参数，请更换兼容模型后从断点继续。 | The Agnes Image model does not support the parameter. Switch models and resume. | 更换模型 |
+| 未知失败 | 当前操作未能完成，请稍后再试。 | Could not complete the request. Please try again. | 稍后重试 |
+
+历史卡片显示项：失败状态、失败环节、失败原因、任务标题/文案摘要、更新时间、run/project ID 和可用的编辑/恢复/删除动作。技术状态码、请求 ID、堆栈、provider JSON、完整 prompt-engine 错误和内部端口不显示。
+
+### 11.5 交互逻辑
+
+- 失败原因在历史卡片内显示短版自然语言；详情对话框可复用同一 messageKey/messageParams 二次格式化，不能重新读取 raw error。
+- 已知场景号时在原因中显示场景位置；用户点击“修改场景文案并重新生成”仍定位对应场景。
+- 可恢复失败继续显示“从断点继续”；内容政策失败沿既有规则进入场景编辑，不伪造可恢复状态。
+- 限流类提示建议稍后重试；额度/API Key 类提示优先引导检查具体模型账号，不把重试描述成必然有效。
+- unknown provider 不阻断任务状态展示，但使用当前模型账号回退并避免误导性品牌名。
+
+### 11.6 测试与验收矩阵
+
+| 层级 | 必测场景 |
+|---|---|
+| formatter 单测 | 402、429、空结果、素材比例、图片/旁白类型、已知/未知 provider、中文/英文场景号 |
+| renderer 通知单测 | 稳定 key、raw 分类、旧 sceneText 兼容、二次格式化、最终文案无技术占位符 |
+| 结果页回归 | 失败任务显示自然语言原因；空结果不误判内容政策；既有 7 个 baseline 失败保持原样记录 |
+| locale 门禁 | zh/en key 成对、插值变量均有值、无硬编码中文提示 |
+| 交付门禁 | git diff --check、pnpm run build:vue、依赖解析、OpenSpec validate、双模型/本地审查 |
+
+### 3.1.33 历史断点恢复使用当前设置模型（2026-08-19）
+
+需求：视频创作历史记录中，失败或中断的 Story2Video 任务点击【从断点继续】后，未完成的文字推理、图片、语音和视频调用使用当前“模型设置”中的能力模型；已完成且有效的本地资产继续复用。不新增模型选择操作。
+
+#### 功能逻辑
+
+1. 主进程读取旧 run snapshot 后，只对 Story2Video 在内存中增加内部恢复标记，不改变 version 1 快照结构。
+2. 恢复参数保留场景文案、提示词、scene index、输入图片/音频、画幅、视频模式与选择比例、voiceId、语速、音调和情绪。
+3. 顶层与阶段 options 中的旧 image/TTS/video provider 与 model 被清理；已完成的 video_plan 不再把旧视频路由当作未完成调用的显式配置。
+4. 运行到实际调用边界时，按能力读取当前默认 provider；多模态 provider 优先读取 capability_models.image/tts/video/llm，缺失时回退该 provider 的首个可用 model。
+5. 每个场景先检查 resume.completed 中按 index 保存的本地路径。图片、音频、视频路径有效时直接复用，不能因为原模型与当前模型不同而重生成。
+6. 未完成场景允许与旧资产混合完成；最终结果按 scene index 配对，不能按完成顺序拼接。
+
+#### 数据校验
+
+| 数据 | 校验规则 | 失败处理 |
+|---|---|---|
+| 恢复参数 | 非对象按空对象；只保存 JSON-safe 内容 | 沿用既有恢复错误合同 |
+| 已完成资产 | index 为非负整数；路径为受控可读本地文件 | 忽略无效条目，未完成场景重新生成 |
+| provider/model | 当前 provider 已启用且声明对应能力；model 取能力默认值 | 没有可用配置时沿用既有“请先配置模型”错误 |
+| voiceId | 保留原 ID，交由当前 provider/model 音色合同校验 | 不静默替换音色，不覆盖旧音频；沿用兼容错误或既有 re-clone |
+| video task | 当前快照没有持久化远程 taskId | 未知状态不记为完成，按阶段级重试/图片回退语义处理 |
+
+#### 资产与模型行为矩阵
+
+| 状态 | 图片 | 语音 | 视频 | 结果 |
+|---|---|---|---|---|
+| 已完成本地资产有效 | 复用旧文件 | 复用旧文件 | 复用旧文件和 continuity 元数据 | 不调用新 provider |
+| 场景未完成 | 当前 image provider/model | 当前 TTS provider/model + 原 voiceId | 当前 video provider/model | 允许新旧模型资产混合 |
+| 新 TTS 不支持旧音色 | 不影响图片 | fail-closed 或按现有合同 re-clone | 不影响视频路由 | 不生成错误音色/空音频 |
+| 远程视频提交未知 | 不适用 | 不适用 | 不伪造完成，不查询不存在的持久化 taskId | 继续现有阶段重试/回退 |
+
+#### 交互、显示项与提示文字
+
+- 历史页保留单一【从断点继续】按钮，不显示“使用旧模型/当前模型”选择器，不新增确认弹窗。
+- 复用资产仍显示原有场景素材；混合新旧资产不增加额外卡片或标签。
+- 当前模型路由属于主进程运行时行为，不改变现有历史状态标签。
+- 音色不兼容、模型未配置和视频失败沿用现有本地化错误/诊断面；远程未知状态不得显示为“已完成”。
+- 本迭代不新增用户可见 locale key；若后续需要显示“已复用/当前模型/远程状态未知”，必须先补 zh/en 成对文案、术语词典和渲染回归。
+
+#### 风险与限制
+
+- 新 TTS 可能拥有不同的音色集合、音色质量、语言覆盖和时长表现；保留 voiceId 能避免静默换音色，但可能导致该场景失败并需要用户处理。
+- 新旧图片/视频模型的风格、画幅细节和运动表现可能不同，混合成片是明确允许的产品行为，不保证全片视觉同质。
+- 远程视频 taskId 当前未持久化，不能保证“提交后进程中断”时避免远程重复任务；未来必须单独设计持久化与原绑定查询合同。
+
+### 3.1.34 历史状态语义修订：新增「已中断」状态 + run-only 卡片回填（2026-08-20）
+
+**背景**：用户反馈两处历史记录问题：
+
+1. **状态归类错误**：任务 `run_1787…i1f1` 执行失败，却同时出现在「已暂停」与「执行失败」两个标签下。用户明确：「已暂停的任务一定是用户手动暂停的才应该是这个状态」。
+2. **卡片显示错误**：「已暂停」「执行失败」「已取消」标签下的任务卡片标题显示流水线名词（如「故事视频合成」）、文案预览显示「未生成」。
+
+**根因与逃逸分析**：
+
+- Bug 1：getHistory() 把持久化 running 快照归一化为 paused（3.1.11 合同），CreateView/usePipelineHistory 又把 30 分钟无更新的 stale running 转为 paused（3.1.19 合同）——「已暂停」语义被污染为「非运行中」而非「用户手动暂停」。
+- Bug 2：失败早于 saveEditableRun 草稿创建（无 project 记录）时，历史卡片无 title/sourceText，标题回退为流水线名称、文案预览回退为「未生成」。
+- 逃逸根因：**PRD 自身定义了错误合同**（本节 3.1.11/3.1.14/3.1.19 的「running→paused 归一化」、S2V-PIPELINE-PAGE-UX §5.1 第 4/5 项），测试忠实实现了错误需求，因此单元/集成/E2E 全部通过却拦不住该 Bug。预防措施：状态语义变更必须先经 PM 确认（本任务由用户原话「已暂停=用户手动暂停」驱动），并同步修订所有 PRD 合同条款（本节顶部废弃警示机制）。
+
+**核心决策**：新增「已中断（interrupted）」状态——应用退出/崩溃/强杀导致的 running 快照残留（saveRunning）与 stale-running（>30 分钟无更新）归入此类；「已暂停（paused）」仅保留用户手动暂停（pauseRun → savePaused）与 scene_asset_selection 检查点。
+
+**一、数据校验**
+
+| 数据 | 校验规则 | 失败处理 |
+|---|---|---|
+| 快照 projectId | run-state-store `_write()` 写入快照时增量附加 projectId（快照 version 保持 1，旧快照兼容）；getHistory() persisted 条目用 `snapshot.projectId || runId` 兜底 | 缺失不影响读取，仅影响 run-only 卡片回填 |
+| interrupted 判定 | 磁盘快照 status='running'（重启残留）→ interrupted；展示层 `running` 且 `updatedAt > 30min` → interrupted | 快照 status 仍为 'running'，恢复链 resumeOrchestration 不变 |
+| pausedStage | 仅用户手动暂停与 scene_asset_selection 检查点填充；interrupted 从 snapshot.currentStage 推导（无效索引或阶段缺失时为 null） | null 时提示行隐藏 |
+| params 回填 | run-only 记录（无 project 匹配）：title ← run.params.title/publishTitle，sourceText ← run.params.text；仅当对应字段 trim 后非空才采用 | 空白视为缺失，继续回退链 |
+| 恢复资格 | interrupted 与 paused/failed 同等可恢复（historyItemResumable 含 interrupted）；内容策略类错误（needs_user_input/content_policy/可能需要修改文案）仍不显示恢复按钮 | 不可恢复时不渲染恢复按钮 |
+| locale/CJK | zh/en 成对新增 4 键（tabs.interrupted/statuses.interrupted/interruptedStage/interruptedHint）；renderer 不新增硬编码中文 | CI locale-sync 与 CJK 基线拦截 |
+
+**二、流程**
+
+    用户打开历史记录
+      -> loadHistory() 并行请求 projects + pipeline runs
+      -> 对持久化 running 快照（重启后残留）：normalizedStatus = 'interrupted'（原 'paused'），
+         persisted 条目回填 projectId（snapshot.projectId || runId）
+      -> 对每个 run.status === 'running' 且 updatedAt > 30min 的任务：
+          1. run.status = 'interrupted'（原 'paused'）
+          2. 无 pausedStage -> 从 stages 推导（优先级同 3.1.19：failed 阶段 -> 最后一个非 completed -> 最后阶段）
+      -> run-only 记录（无 project）：title/sourceText 从快照 params 回填
+      -> 排序：所有任务按有效更新时间倒序，状态严格筛选（7 个标签互斥，精确匹配）
+      -> 渲染 CreateViewHistory 组件（taskContent 回退链含 params.text）
+
+**三、功能逻辑**
+
+| 场景 | 原状态 | 显示状态 | 环节提示 | 恢复按钮 |
+|---|---|---|---|---|
+| 应用退出/崩溃/强杀后的 running 快照残留 | running（快照） | 已中断 | 「中断环节：{currentStage 推导}」 | 显示 |
+| 30 分钟无更新的 running | running → interrupted | 已中断 | 「中断环节：{running 阶段推导}」 | 显示 |
+| 用户手动暂停 | paused | 已暂停 | 「暂停环节：{pausedStage}」 | 显示 |
+| scene_asset_selection 检查点 | paused | 已暂停 | 「暂停环节：{pausedStage}」（等待素材选择） | 显示（进入素材选择） |
+| 超时/崩溃导致失败 | failed | 执行失败 | 「失败环节：{stages 推导}」 | 显示 |
+| 内容策略拒绝 | failed | 执行失败 | 「失败环节」 | 不显示 |
+| 正常完成 | completed | 已完成 | - | 不显示 |
+| 用户取消 | cancelled | 已取消 | - | 不显示（可进入编辑页） |
+
+**四、交互逻辑**
+
+1. **状态筛选**：筛选器共 7 项——全部/进行中/已暂停/已中断/执行失败/已完成/已取消；过滤条件严格相等匹配，标签互斥（修复"同一任务同时出现在已暂停与执行失败"）。
+2. **中断提示**：interrupted 卡片显示「中断环节：{阶段名}」；无阶段名时显示「应用已退出或长时间未更新，可点击继续生成」（interruptedHint）。
+3. **暂停提示**：paused 卡片仍显示「暂停环节：{pausedStage}」。
+4. **恢复操作**：interrupted 卡片显示「从断点继续」按钮，触发 resume-history 事件，走既有 resumeOrchestration 恢复链（磁盘快照 status 仍为 'running'，与 3.1.33 当前设置模型恢复逻辑兼容）。
+5. **卡片悬停**：沿用既有 hover 效果（translateY(-1px) + box-shadow，0.15s ease）。
+
+**五、显示项与提示文字**
+
+| 元素 | 位置 | 内容/样式 |
+|---|---|---|
+| 状态色条 | 卡片左侧 3px | interrupted 紫色 #6d28d9（running 蓝 / paused 橙 / failed 红 / completed 绿 / cancelled 灰 / interrupted 紫） |
+| 状态徽章 | 标题行右侧 | 图标 ↯ + 文本「已中断」（locale statuses.interrupted） |
+| 中断提示行 | 卡片第二行 | 「中断环节：xxx」（locale interruptedStage；无阶段时 interruptedHint） |
+| 标签页 | 筛选器 | 「已中断」（locale tabs.interrupted），与「已暂停」并列 |
+| 标题回退链 | 任务标题 | title → params.title/publishTitle → sourceText/text/场景文案 → 流水线名称 → 未命名任务（run-only 记录 params 回填后不再落到流水线名） |
+| 文案预览 | 任务正文 | sourceText → text → params.text → segments 拼接；全部缺失才显示「未生成」 |
+
+**六、回归保护**
+
+- pipeline-engine.test.js：running 快照归一化为 interrupted（原断言 paused 更新）；persisted 条目 projectId 回填断言。
+- CreateView.test.js：stale running → interrupted；run-only 卡片标题/文案回填断言（不再出现流水线名 +「未生成」组合）。
+- CreateViewHistory.test.js / usePipelineHistory.test.js：stale 检测同步 interrupted；恢复按钮资格。
+- locale 成对：zh/en 4 键同步（locale-sync 门禁）；CJK 基线无新增硬编码（行号位移重锚）。
+
+**七、相关文件**
+
+- 后端：apps/desktop/electron/services/pipeline-engine.js（getHistory）、apps/desktop/electron/services/run-state-store.js（_write 快照 projectId）
+- 前端：apps/desktop/src/views/CreateView.vue（run-only params 回填 + stale interrupted）、apps/desktop/src/views/CreateViewHistory.vue（7 标签/↯ 图标/中断提示/恢复按钮/taskContent 回退链）、apps/desktop/src/composables/usePipelineHistory.js（stale interrupted + resumable）、apps/desktop/src/views/history-utils.js（HISTORY_STATUSES 加 interrupted + counts）、apps/desktop/src/styles/history-panel.css（紫色系）
+- 文案：apps/desktop/src/locales/zh.js + en.js（4 键成对）
+
+**八、废弃合同**
+
+3.1.11（running 快照→paused）、3.1.14（stale running→paused）、3.1.19（30 分钟无更新→paused）及 S2V-PIPELINE-PAGE-UX §5.1 第 4/5 项中与本节冲突的条款以本节为准（各节顶部已加废弃警示）。
+
+### 3.1.35 流水线启动前台跟踪与离开转后台生命周期（2026-08-21）
+
+**背景**：2026-08-19 的 s2v-pipeline-always-background 把「启动」定义为纯后台（创作页不展示阶段进度），2026-08-20 的断点续跑修复（PR #1072 / 3.1.33 相关）让历史「继续/从断点继续」恢复时回到创作页前台跟踪，形成「新启动无前台进度、续跑有前台进度」的不对称。用户确认目标模型：**启动流水线后在创作页实时轮询展示进度；离开页面后任务自动转后台运行，仅在历史记录可见；再次进入创作页回到全新新建状态，可在并发上限内再次启动。**
+
+**一、数据校验**
+
+| 数据 | 校验规则 | 失败处理 |
+|---|---|---|
+| runId | `startOrchestrationForeground(runId)` 仅接受非空字符串且 trim 后非空 | 返回 false，不改变当前运行态、不切换视图、不启动轮询 |
+| outcome 增强字段 | outcome.context/stages 仅作初始占位；阶段与上下文以 `updateOrchestrationStatus()` 首次全量拉取为准 | 缺失时用 `getDefaultPipelineStages()` 占位，轮询补齐，不依赖 start 返回值 |
+| 轮询竞态 | 三重守卫：`orchestrationRunId` 快照比对 + `orchestrationStatusRequestId` 单调递增 + `_s2vAlive` 组件存活 | 过期响应或卸载后响应一律丢弃，不写回状态、不触发结果页跳转 |
+| 并发占槽 | 主进程 `_assertConcurrencyBudget()` 仍是唯一权威判定；后台运行不释放槽位 | 超限照常返回 `PIPELINE_CONCURRENCY_LIMIT` 及 count/max 文案，前端不进入前台跟踪 |
+| locale | zh/en 成对：新增 `create.story2video.startForegroundToast`，修订 `backgroundResumeToast`；renderer 不新增硬编码中文 | CI locale-sync pair + CJK 基线拦截 |
+
+**二、流程**
+
+```
+用户点击「启动流水线」
+  -> pipelineStartOrchestrated 返回 runId（autoAdvance + background 主进程异步推进）
+  -> applyOrchestrationOutcome 处理同步完成/失败；outcome.paused 走素材选择检查点
+  -> 否则 startOrchestrationForeground(runId)：保留 runId，立即 updateOrchestrationStatus() 拉取全量快照
+  -> 3s 轮询 + pipeline:update 事件双向更新 StageProgress（runId 快照守卫）
+  -> 用户留在页面：完成态 applyOrchestrationOutcome 自动跳转 /create/result；失败/取消展示错误并停止轮询
+  -> 用户离开页面：beforeUnmount 停止轮询与事件订阅，run 继续在后台执行
+  -> 用户重新进入创作页：mounted 全新初始态，不重挂任何 run；历史记录 5s 轮询显示运行中进度
+```
+
+**三、功能逻辑**
+
+| 场景 | 行为 |
+|---|---|
+| 新启动（文案/视频/Story2Video 三条启动路径） | 前台跟踪：展示 StageProgress、running-controls（暂停/取消），启动按钮隐藏；toast 提示开始实时展示进度 |
+| 历史「继续/从断点继续」恢复 running | 沿用 openRunningPipeline 前台跟踪（语义与启动对齐），toast 提示断点继续并实时展示进度 |
+| scene_asset_selection 检查点 | 保持 paused，进入素材选择面板；不自动继续、不转后台 |
+| 前台完成 | applyOrchestrationOutcome 自动跳转结果页（带 activeMs/输出元数据） |
+| 前台失败/取消 | 停止轮询、展示错误、刷新历史 |
+| 离开页面 | 清轮询；主进程不受影响，run 仅历史可见；不弹结果页 |
+| 重新进入 | 全新新建初始态；并发上限允许时可再次启动（旧 run 未结束时由主进程并发门禁拦截） |
+
+**四、交互逻辑**
+
+1. 启动成功后进入前台跟踪：`stopPipelinePolling()` 只清旧轮询，**不得调用 `resetPipelineUiState()`**（否则 runId 被清空、进度无法挂载）。
+2. 首次 `updateOrchestrationStatus()` 失败或返回非 running 时同样展示错误/终态，不盲目启动轮询；轮询仅在组件存活（`_s2vAlive !== false`）、runId 未变、未进入 failed 终态时开启。
+3. `handlePipelinePush` 事件到达时更新阶段进度并重置 3s 轮询计时；事件与轮询双写由 runId 守卫防竞态。
+4. 卸载竞态：`updateOrchestrationStatus()` 与 `applyOrchestrationOutcome()` 均检查 `_s2vAlive`，组件已卸载时丢弃在飞响应，杜绝已卸载组件触发 `router.push`。
+5. 删除既有的纯后台机器（`runOrchestrationInBackground` / `startBackgroundCompletionWatch` / `checkBackgroundRunCompletion` / `s2vBackgroundTracking`），避免「启动后台观感」与「续跑前台观感」两套契约并存。
+6. 同一 `/create` 页面内切换顶部 tab（「历史记录」或「快速渲染」）与离开创作页具有相同生命周期效果：停止轮询与 `pipeline:update` 订阅，清理当前 renderer run 展示态，不调用取消 IPC；主进程任务继续执行并占用并发槽位。切回「流水线创作」只回到新建任务列表，不自动恢复之前的 run。
+7. 启动 IPC 是异步请求。切 tab、切换流水线、取消或重置时递增 `orchestrationStartRequestId`；IPC 返回后必须验证请求代际仍有效且当前视图仍为「流水线创作」，否则丢弃响应，禁止旧 runId 重新挂载、重新开启轮询或弹出过期错误。
+
+**五、显示项与提示文字**
+
+| 元素 | 位置 | 内容/样式 |
+|---|---|---|
+| 启动 toast | 创作页 action-bar | zh：「流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。」 en：`Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page and remains visible in History (still occupies a run slot).`（locale `create.story2video.startForegroundToast`） |
+| 续跑 toast | 创作页 action-bar | zh：「流水线已从断点继续，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看。」（locale `create.story2video.backgroundResumeToast` 修订） |
+| 运行控制 | running-controls | 暂停（⏸）/取消（✕）保持在运行态可用；启动/批量/恢复默认选项入口隐藏 |
+| 独立历史页 | CreateHistory.vue | interrupted 状态标签「已中断」（紫色 #6d28d9）、卡片路由 `/create`、stale running 与主历史页同规则（30 分钟阈值）归入 interrupted；中断提示复用 locale `stageProgress.interruptedStage/interruptedHint` |
+
+**六、回归保护**
+
+- CreateView.test.js：启动即前台跟踪（runId 保留、GET 运行态被调用、轮询开启、toast 文案、不调用 cancel、启动按钮隐藏）；runId 快照守卫（切换 run 后旧响应不写回）；完成自动跳结果页；卸载后终态不跳转；离开页面停轮询且保留 runId；重进为全新初始态。
+- CreateView.test.js：同页 tab 脱离不取消后台 run、清理展示态并在切回时保持新建初始态；启动响应延迟期间切 tab 后旧响应被代际令牌丢弃。
+- CreateHistory.test.js：statusLabel interrupted；stale running → interrupted（30 分钟阈值一致、暂停环节推导）。
+- locale 成对与 CJK 基线：zh/en 同步新增/修订 key；行号位移场景按脚本文档显式 `--update-baseline`。
+
+**七、相关文件**
+
+- 前端：apps/desktop/src/views/CreateView.vue（startOrchestrationForeground、卸载守卫、移除后台监听）、apps/desktop/src/views/CreateHistory.vue（interrupted 标签/路由/stale 规则）、apps/desktop/src/styles/history-page.css（紫色系）。
+- 文案：apps/desktop/src/locales/zh.js + en.js（startForegroundToast 新增、backgroundResumeToast 修订、backgroundRunToast 删除）。
+
+**八、废弃合同**
+
+总 PRD「视频创作流水线启动即后台运行 §3a」与 OpenSpec s2v-pipeline-always-background 中「启动成功后 renderer 立即停止轮询、恢复初始态、仅历史观察」的条款废弃；「离开页面转后台、重进初始态、并发占槽、检查点例外」维持。以本节为准。
+
+### 3.1.36 影视工程提交数据不符合要求与真实 E2E 修复（2026-08-23）
+
+> 范围：修复电影工程分镜复制、导出、剧本套用和生成入口的“提交的数据不符合要求。请检查输入后重试。”，并补齐详情抽屉与 IPC 参数序列化问题。
+> 分支：codex/film-engineering-submit-validation，PR #1125。
+
+#### 1) 现象
+
+- 进入电影工程后，复制分镜/批量复制/JSON/Markdown 导出/剧本套用/生成等提交操作显示“提交的数据不符合要求。请检查输入后重试。”
+- 点击分镜卡不会打开详情抽屉，用户无法查看提示词正文。
+- 导出与批量生成在 renderer 控制台报 “An object could not be cloned”，refTokens 带 Vue reactive proxy 无法经 IPC 序列化。
+
+#### 2) 根因
+
+1. `withKit(fn)` 原实现为 `fn(...args)`，但主进程 handler 统一遵循 `(_e, ...params)`：Electron event 占位被当作第一个业务参数，`sceneId/shotId/selectedShots` 全部左移为 undefined，入参校验失败返回 VALIDATION_ERROR，前端渲染为通用提示。
+2. FilmEngineeringView 点击分镜时只调用 `openShot(shotId)`，未设置详情抽屉 `detailOpen = true`。
+3. useFilmEngineering 的 `selectedShotsPayload()` 直接透传 Vue 响应式数组，嵌套 `refTokens` 是 reactive proxy，IPC 参数无法克隆。
+
+#### 3) 修复与数据合同
+
+- `withKit` 改为 `fn(event, ...args)`，handler 继续使用 `(_e, ...params)` 签名，业务参数不再左移。
+- 前端新增 `onOpenShot`：先 `detailOpen.value = true` 再 `openShot(shotId)`。
+- `selectedShotsPayload()` 改为 `JSON.parse(JSON.stringify(list))` 脱壳，保证 renderer 提交到 IPC 的参数是纯 JSON。
+- 校验上限不变：剧本 10000、角色映射 10 键、数组批量 50、生成批量 20、prompt 50000。
+
+#### 4) 回归保护
+
+- 单元/组件：film-engineering.test.js 补充 withKit event 转发参数用例；useFilmEngineering.test.js 补充 selectedShotsPayload 脱壳用例。
+- 真实打包 Electron E2E：新增 apps/desktop/tests/e2e/film-engineering-real.js，命令 `pnpm --filter @multi-publish/desktop test:e2e:film-engineering`，驱动 `dist-electron/win-unpacked/Multi-Publish.exe` 完成 24 项检查。
+- E2E 覆盖：打包启动、入口路由、Hell Grind kit、162 个场景、分镜列表、详情抽屉、单镜/批量复制、JSON/Markdown 导出、剧本套用、方法论、生成入口真实调用。
+- 验证结果：24/24 PASS；film-engineering 页面 pageErrors 为空；生成入口真实产出 `img_0000.png`。
+
+#### 5) 影响范围与未覆盖边界
+
+- 修改文件：electron/ipc-handlers/film-engineering.js、src/composables/useFilmEngineering.js、src/views/FilmEngineeringView.vue、对应测试/apps/desktop/package.json。
+- 生成入口在未配置外部图片 Provider 时走离线 ffmpeg 占位图 fallback；真实外部 Provider 验收不属于本次修复范围。
+- 真实 E2E 脚本为显式运行门禁，未接入默认 `pnpm test:e2e`（该门禁依赖 Vite + mock desktop 环境，不打包 EXE）。
+
+#### 6) 验收标准
+
+- 分镜复制、批量复制、JSON/Markdown 导出、剧本套用、生成入口不再出现“提交的数据不符合要求”。
+- 点击分镜卡可打开详情抽屉并显示提示词正文。
+- 打包 Electron 应用运行 `test:e2e:film-engineering` 达到 24/24 PASS。
+
+
+
+

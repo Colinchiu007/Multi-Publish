@@ -1,7 +1,7 @@
 {
   "id": "fix-ci-existing-failures",
   "title": "排查并修复 CI 既有失败：stage-executor 全量串扰 + gui-test /create E2E",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "medium",
   "domain": "test-infra",

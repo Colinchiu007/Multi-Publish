@@ -68,6 +68,26 @@ describe('talking-head 阶段执行器', () => {
       expect(result.error).toContain('需要 context.upload')
     })
 
+    it('transcribe 上报分句计数与完成摘要', async () => {
+      const { get } = makePipeline()
+      const progress = vi.fn()
+      const result = await get(TALKINGHEAD_STAGE_TYPES.TRANSCRIBE)({
+        stage: {}, params: {},
+        context: { upload: { script: '第一句。\n第二句。', duration: 6 } },
+        onProgress: progress,
+      })
+      expect(result.success).toBe(true)
+      expect(progress.mock.calls.map(([event]) => event.percent)).toEqual([0, 100, 100])
+      expect(progress.mock.calls[1][0]).toMatchObject({
+        messageKey: 'stageProgress.talkingheadTranscribe',
+        detail: { done: 2, total: 2, kind: 'segment' },
+      })
+      expect(progress.mock.calls[2][0]).toMatchObject({
+        summaryKey: 'stageProgress.talkingheadTranscribeSummary',
+        summaryParams: { total: 2 },
+      })
+    })
+
     it('captions 依赖 context.transcribe', async () => {
       const { get } = makePipeline()
       const result = await get(TALKINGHEAD_STAGE_TYPES.CAPTIONS)({
@@ -75,6 +95,25 @@ describe('talking-head 阶段执行器', () => {
       })
       expect(result.success).toBe(false)
       expect(result.error).toContain('需要 context.transcribe')
+    })
+
+    it('captions 上报字幕单元完成摘要', async () => {
+      const { get } = makePipeline()
+      const progress = vi.fn()
+      const result = await get(TALKINGHEAD_STAGE_TYPES.CAPTIONS)({
+        runId: 'talkinghead-progress-test', stage: {}, params: {},
+        context: { transcribe: { segments: [
+          { start: 0, end: 2, text: '第一句。' },
+          { start: 2, end: 4, text: '第二句。' },
+        ] } },
+        onProgress: progress,
+      })
+      expect(result.success).toBe(true)
+      expect(progress.mock.calls.at(-1)[0]).toMatchObject({
+        percent: 100,
+        summaryKey: 'stageProgress.talkingheadCaptionsSummary',
+        summaryParams: { total: 2 },
+      })
     })
 
     it('render 缺少有效字幕时报错', async () => {

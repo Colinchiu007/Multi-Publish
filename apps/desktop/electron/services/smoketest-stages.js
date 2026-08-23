@@ -16,6 +16,7 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
+const { emitStageStart, emitStageComplete } = require('./stage-progress')
 
 const SMOKETEST_STAGE_TYPES = {
   VERIFY: 'smoketest_verify',
@@ -60,12 +61,18 @@ function registerSmokeTestStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     SMOKETEST_STAGE_TYPES.VERIFY,
-    async () => {
+    async ({ onProgress }) => {
+      emitStageStart(onProgress, { messageKey: 'stageProgress.smoketestVerify' })
       const ffmpeg = findFfmpeg()
       const ffprobe = findFfprobe()
       const pipelines = typeof pipelineEngine.listPipelines === 'function'
         ? pipelineEngine.listPipelines()
         : []
+      emitStageComplete(onProgress, {
+        messageKey: 'stageProgress.smoketestVerifyComplete',
+        summaryKey: 'stageProgress.smoketestVerifySummary',
+        detail: { done: 1, total: 1, kind: 'resource' },
+      })
       return {
         success: true,
         output: {
@@ -86,7 +93,7 @@ function registerSmokeTestStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     SMOKETEST_STAGE_TYPES.REPORT,
-    async ({ runId, stage, context }) => {
+    async ({ runId, stage, context, onProgress }) => {
       const verify = context.verify
       if (!verify || typeof verify !== 'object') {
         return { success: false, error: 'framework-smoke report 需要 context.verify' }
@@ -97,6 +104,7 @@ function registerSmokeTestStages (pipelineEngine) {
       fs.mkdirSync(runDir, { recursive: true })
       const outputPath = path.join(runDir, 'smoketest_output.mp4')
       try {
+        emitStageStart(onProgress, { messageKey: 'stageProgress.smoketestReport' })
         await runTool(ffmpeg, [
           '-y', '-f', 'lavfi', '-i', 'testsrc=duration=2:size=640x360:rate=24',
           '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
@@ -122,6 +130,11 @@ function registerSmokeTestStages (pipelineEngine) {
       if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size <= 0) {
         return { success: false, error: 'framework-smoke 测试视频为空' }
       }
+      emitStageComplete(onProgress, {
+        messageKey: 'stageProgress.smoketestReportComplete',
+        summaryKey: 'stageProgress.smoketestReportSummary',
+        detail: { done: 1, total: 1, kind: 'video' },
+      })
       return {
         success: true,
         output: {

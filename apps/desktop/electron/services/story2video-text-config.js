@@ -7,6 +7,7 @@ const {
   PROMPT_ENGINE_STYLES,
   normalizePromptEnginePlatform,
   normalizePromptEngineStyle,
+  normalizeOptimizationStrategy,
   assertNoSensitiveContext,
 } = require('./prompt-engine-contract')
 
@@ -39,7 +40,8 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     platform: 'generic',
     style: 'realistic',
     creativeLevel: 5,
-    maxLength: 500,
+    optimizationStrategy: 'llm',
+    maxLength: 2000,
     numCandidates: 1,
     autoDetectStyle: true,
     negativePrompt: '',
@@ -70,6 +72,7 @@ const DEFAULT_STORY2VIDEO_TEXT_CONFIG = Object.freeze({
     minRatio: 20,
     maxRatio: 40,
     maxScenes: 3,
+    shortVideoHandling: 'loop',
   }),
   // 创作模式（2026-08-12）：auto=全自动（默认，现有流水线）；manual=分镜素材自选
   creation: Object.freeze({
@@ -124,6 +127,7 @@ const IMAGE_EFFECTS = new Set([
 const TRANSITIONS = new Set(['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down'])
 const SCENE_DURATION_MODES = new Set(['follow-audio', 'min-duration'])
 const VIDEO_MODES = new Set(['off', 'fixed', 'ai-judged'])
+const SHORT_VIDEO_HANDLING_MODES = new Set(['loop', 'stop-at-end'])
 // 创作模式（2026-08-12）：auto=全自动（现有流水线）；manual=分镜素材自选
 const CREATION_MODES = new Set(['auto', 'manual'])
 const MANUAL_MATERIAL_MODES = new Set(['all-images', 'video-image'])
@@ -360,7 +364,16 @@ function normalizeStory2VideoTextParams(params = {}) {
     platform: normalizePromptEnginePlatform(firstDefined(own(optimizeInput, 'platform'), params.promptPlatform)),
     style: normalizePromptEngineStyle(firstDefined(own(optimizeInput, 'style'), params.promptStyle, params.style)),
     creativeLevel: numberValue(firstDefined(own(optimizeInput, 'creativeLevel'), params.creativeLevel), 5, 'optimize.creativeLevel', 1, 10),
-    maxLength: numberValue(firstDefined(own(optimizeInput, 'maxLength'), params.maxPromptLength), 500, 'optimize.maxLength', 50, 2000, true),
+    optimizationStrategy: normalizeOptimizationStrategy((() => {
+      const value = firstDefined(
+        own(optimizeInput, 'optimizationStrategy'),
+        own(optimizeInput, 'optimization_strategy'),
+        params.optimizationStrategy,
+        params.optimization_strategy,
+      )
+      return value === undefined || value === null || value === '' ? 'llm' : value
+    })()),
+    maxLength: numberValue(firstDefined(own(optimizeInput, 'maxLength'), params.maxPromptLength), 2000, 'optimize.maxLength', 50, 2000, true),
     numCandidates: numberValue(firstDefined(own(optimizeInput, 'numCandidates'), params.numCandidates), 1, 'optimize.numCandidates', 1, 5, true),
     autoDetectStyle: booleanValue(firstDefined(own(optimizeInput, 'autoDetectStyle'), params.autoDetectStyle), true),
     negativePrompt: textValue(own(optimizeInput, 'negativePrompt'), '', 'optimize.negativePrompt', 500),
@@ -449,6 +462,12 @@ function normalizeStory2VideoTextParams(params = {}) {
     minRatio: numberValue(own(videoInput, 'minRatio'), 20, 'video.minRatio', 5, 80, true),
     maxRatio: numberValue(own(videoInput, 'maxRatio'), 40, 'video.maxRatio', 5, 80, true),
     maxScenes: numberValue(own(videoInput, 'maxScenes'), 3, 'video.maxScenes', 1, 12, true),
+    shortVideoHandling: enumValue(
+      firstDefined(own(videoInput, 'shortVideoHandling'), params.shortVideoHandling),
+      'loop',
+      'video.shortVideoHandling',
+      SHORT_VIDEO_HANDLING_MODES,
+    ),
   }
   if (videoConfig.minRatio > videoConfig.maxRatio) {
     throw new Error('Story2Video video.minRatio 不能大于 video.maxRatio')
@@ -550,18 +569,20 @@ function normalizeStory2VideoTextParams(params = {}) {
       subtitle_max_chars: split.subtitleMaxChars,
       subtitle_timing: split.subtitleTiming,
     },
-    domain_enrich: { contentType },
     scene_context: {
       enabled: sceneContext.enabled,
       max_summary_length: sceneContext.maxSummaryLength,
       max_anchors: sceneContext.maxAnchors,
       include_negative_anchors: sceneContext.includeNegativeAnchors,
       context_block_max_chars: sceneContext.contextBlockMaxChars,
+      // contentType 开关（原 domain_enrich stageOptions，design D4）：history → scene_context 生成视觉种子
+      contentType,
     },
     optimize: {
       platform: optimize.platform,
       style: optimize.style,
       creative_level: optimize.creativeLevel,
+      optimization_strategy: optimize.optimizationStrategy,
       max_length: optimize.maxLength,
       num_candidates: optimize.numCandidates,
       auto_detect_style: optimize.autoDetectStyle,
@@ -579,6 +600,7 @@ function normalizeStory2VideoTextParams(params = {}) {
         provider: videoConfig.provider || null,
         model: videoConfig.model || null,
         maxScenes: videoConfig.maxScenes,
+        shortVideoHandling: videoConfig.shortVideoHandling,
       },
       voiceId: voice.id,
       voiceProvider: voice.provider || null,
@@ -604,6 +626,7 @@ function normalizeStory2VideoTextParams(params = {}) {
         minRatio: videoConfig.minRatio,
         maxRatio: videoConfig.maxRatio,
         maxScenes: videoConfig.maxScenes,
+        shortVideoHandling: videoConfig.shortVideoHandling,
       },
     },
     compose: {
@@ -624,6 +647,8 @@ function normalizeStory2VideoTextParams(params = {}) {
       fps: output.fps,
       format: output.format,
       defaultSceneDuration,
+      videoMode: videoConfig.mode,
+      shortVideoHandling: videoConfig.shortVideoHandling,
     },
     publish: {
       publishEnabled: publish.enabled || publish.platforms.length > 0,
@@ -648,6 +673,7 @@ function normalizeStory2VideoTextParams(params = {}) {
     audio: [],
     video: null,
     videoMode: videoConfig.mode,
+    shortVideoHandling: videoConfig.shortVideoHandling,
     videoConfig,
     size,
     contentType,

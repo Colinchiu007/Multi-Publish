@@ -1,6 +1,6 @@
 {
   "branch": "codex/p2-history-i18n",
-  "openspecChange": "desktop-ui-i18n-p2(已归档,第一批)",
+  "openspecChange": "desktop-ui-i18n-p2",
   "complexity": "M",
   "id": "p2-history-i18n",
   "pr": "#585 merged 54a4522e",

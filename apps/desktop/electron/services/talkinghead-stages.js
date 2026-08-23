@@ -19,6 +19,7 @@ const os = require('os')
 const path = require('path')
 const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
 const { getAllowedMediaRoots, resolveReadableMediaFile } = require('./story2video-paths')
+const { emitStageStart, emitStageItem, emitStageComplete } = require('./stage-progress')
 
 const TALKINGHEAD_STAGE_TYPES = {
   UPLOAD: 'talkinghead_upload',
@@ -95,7 +96,7 @@ function registerTalkingHeadStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     TALKINGHEAD_STAGE_TYPES.UPLOAD,
-    async ({ params }) => {
+    async ({ params, onProgress }) => {
       const rawVideo = params && (params.video || params.videoPath)
       const videoPath = resolveReadableMediaFile(rawVideo, {
         kind: 'video',
@@ -111,10 +112,16 @@ function registerTalkingHeadStages (pipelineEngine) {
       const ffprobe = findFfprobe()
       if (!ffprobe) return { success: false, error: 'ffprobe 不可用，无法探测视频' }
       try {
+        emitStageStart(onProgress, { messageKey: 'stageProgress.talkingheadUpload' })
         const probe = await runTool(ffprobe, [
           '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', videoPath,
         ])
         const duration = Number(probe.trim())
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.talkingheadUploadComplete',
+          summaryKey: 'stageProgress.talkingheadUploadSummary',
+          detail: { done: 1, total: 1, kind: 'video' },
+        })
         return {
           success: true,
           output: {
@@ -132,7 +139,7 @@ function registerTalkingHeadStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     TALKINGHEAD_STAGE_TYPES.TRANSCRIBE,
-    async ({ context }) => {
+    async ({ context, onProgress }) => {
       const upload = context.upload
       if (!upload || typeof upload.script !== 'string' || !upload.script) {
         return { success: false, error: 'talking-head transcribe 需要 context.upload（含文案）' }
@@ -141,6 +148,17 @@ function registerTalkingHeadStages (pipelineEngine) {
       if (segments.length === 0) {
         return { success: false, error: 'talking-head transcribe 无法从文案生成分句' }
       }
+      emitStageStart(onProgress, { messageKey: 'stageProgress.talkingheadTranscribeStart' })
+      emitStageItem(onProgress, segments.length, segments.length, {
+        messageKey: 'stageProgress.talkingheadTranscribe',
+        kind: 'segment',
+      })
+      emitStageComplete(onProgress, {
+        messageKey: 'stageProgress.talkingheadTranscribeComplete',
+        summaryKey: 'stageProgress.talkingheadTranscribeSummary',
+        summaryParams: { total: segments.length },
+        detail: { done: segments.length, total: segments.length, kind: 'segment' },
+      })
       return { success: true, output: { script: upload.script, segments } }
     },
   )
@@ -148,16 +166,27 @@ function registerTalkingHeadStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     TALKINGHEAD_STAGE_TYPES.CAPTIONS,
-    async ({ runId, context }) => {
+    async ({ runId, context, onProgress }) => {
       const transcribe = context.transcribe
       const segments = transcribe && Array.isArray(transcribe.segments) ? transcribe.segments : []
       if (segments.length === 0) {
         return { success: false, error: 'talking-head captions 需要 context.transcribe' }
       }
       const runDir = getRunDir(runId)
+      emitStageStart(onProgress, { messageKey: 'stageProgress.talkingheadCaptionsStart' })
       fs.mkdirSync(runDir, { recursive: true })
       const srtPath = path.join(runDir, 'subs.srt')
       fs.writeFileSync(srtPath, buildSrt(segments), 'utf8')
+      emitStageItem(onProgress, segments.length, segments.length, {
+        messageKey: 'stageProgress.talkingheadCaptions',
+        kind: 'segment',
+      })
+      emitStageComplete(onProgress, {
+        messageKey: 'stageProgress.talkingheadCaptionsComplete',
+        summaryKey: 'stageProgress.talkingheadCaptionsSummary',
+        summaryParams: { total: segments.length },
+        detail: { done: segments.length, total: segments.length, kind: 'segment' },
+      })
       return { success: true, output: { srtPath, segments } }
     },
   )
@@ -165,7 +194,7 @@ function registerTalkingHeadStages (pipelineEngine) {
 
   pipelineEngine.registerStageExecutor(
     TALKINGHEAD_STAGE_TYPES.RENDER,
-    async ({ runId, context }) => {
+    async ({ runId, context, onProgress }) => {
       const upload = context.upload
       const captions = context.captions
       if (!upload || typeof upload.videoPath !== 'string') {
@@ -180,6 +209,7 @@ function registerTalkingHeadStages (pipelineEngine) {
       fs.mkdirSync(runDir, { recursive: true })
       const outputPath = path.join(runDir, 'talkinghead_output.mp4')
       try {
+        emitStageStart(onProgress, { messageKey: 'stageProgress.talkingheadRender' })
         // cwd=runDir 使 subtitles=subs.srt 使用相对路径，规避 Windows 路径转义
         await runTool(ffmpeg, [
           '-y', '-i', upload.videoPath,
@@ -191,6 +221,11 @@ function registerTalkingHeadStages (pipelineEngine) {
         if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size <= 0) {
           throw new Error('渲染产物为空')
         }
+        emitStageComplete(onProgress, {
+          messageKey: 'stageProgress.talkingheadRenderComplete',
+          summaryKey: 'stageProgress.talkingheadRenderSummary',
+          detail: { done: 1, total: 1, kind: 'video' },
+        })
         return {
           success: true,
           output: {

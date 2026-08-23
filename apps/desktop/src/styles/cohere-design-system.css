@@ -62,7 +62,10 @@
 
   /* 布局 */
   --nav-height: 56px;
+  /* Cohere 旧布局侧栏宽度；不要与蚁小二工作区混用。 */
   --sidebar-width: 240px;
+  /* 蚁小二工作区侧栏宽度；流水线页面固定操作条使用此变量。 */
+  --yixiaoer-sidebar-width: 200px;
 
   --yixiaoer-nav-height: 70px;
   --yixiaoer-nav-border: #e8eaf2;

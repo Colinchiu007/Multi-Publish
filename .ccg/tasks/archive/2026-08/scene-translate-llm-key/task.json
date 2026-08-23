@@ -1,0 +1,12 @@
+{
+  "id": "scene-translate-llm-key",
+  "title": "场景模式批量生成中英对照 0 成功 3 失败——LLM 密钥未配置 fail-fast 明确提示",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ops-center",
+  "currentPhase": "completed",
+  "nextAction": "已合并 PR #821 (d4275407)",
+  "createdAt": "2026-08-14T15:30:00Z",
+  "branch": "codex/scene-translate-llm-key"
+}

@@ -92,6 +92,7 @@ const { registerDocumentaryStages } = require('../services/documentary-stages');
 const { registerLocalizationStages } = require('../services/localization-stages');
 const { registerVideoGenStages } = require('../services/videogen-stages');
 const { registerPodcastRepurposeStages } = require('../services/podcast-repurpose-stages');
+const { registerFilmEngineeringStages } = require('../services/film-engineering/film-engineering-stages');
 
 function createContainer(options) {
   const container = new Container();
@@ -119,6 +120,7 @@ function createContainer(options) {
   container.register("pipelineEngine", function(c) {
     const engine = new PipelineEngine({
       serviceBus: c.get("serviceBus"),
+      ttsVoiceCloneService: c.get("ttsVoiceCloneService"),
       container: c,
       log: c.get("logger"),
       aiGenerator: c.get("aiGenerator"),
@@ -157,12 +159,21 @@ function createContainer(options) {
         registerLocalizationStages(engine);
         registerVideoGenStages(engine);
         registerPodcastRepurposeStages(engine);
+        registerFilmEngineeringStages(engine);
       } catch (e) {
         c.get("logger").warn("container",
           "registerStory2VideoStages failed: " + (e instanceof Error ? e.message : String(e)));
       }
     }
     return engine;
+  });
+  // Story2Video 批量创作队列服务（依赖 pipelineEngine：事件驱动调度；批量并行≤2 / 手动互斥 / 全局预算）
+  container.register("story2videoBatchQueue", function(c) {
+    const { Story2VideoBatchQueue } = require('../services/story2video-batch-queue');
+    return new Story2VideoBatchQueue({
+      pipelineEngine: c.get("pipelineEngine"),
+      log: c.get("logger"),
+    });
   });
   container.register("urlCollector", function() { return new UrlCollector(); });
   container.register("viralEngine", function() { return new ViralEngine(); });
@@ -255,6 +266,14 @@ function createContainer(options) {
       getMaxOutputResolution: () => resolveMaxOutputResolution(store, getFeatureFlagProvider),
     });
   });
+    container.register("ttsVoiceCloneService", function(c) {
+    const { TtsVoiceCloneService } = require('../services/tts-voice-clone-service');
+    return new TtsVoiceCloneService({
+      store: c.get("store"),
+      /* modelProviderManager created in phase1-context.js; injected there */
+      log: c.get("logger"),
+    });
+  });
   container.register("story2videoProjectService", function(c) {
     const { Story2VideoProjectService } = require('../services/story2video-project-service');
     return new Story2VideoProjectService({
@@ -262,6 +281,7 @@ function createContainer(options) {
       composeEngine: c.get("story2videoEngine"),
       assetGenerator: c.get("assetGenerator"),
       aiGenerator: c.get("aiGenerator"),
+      serviceBus: c.get("serviceBus"),
       log: c.get("logger"),
     });
   });
@@ -283,6 +303,15 @@ function createContainer(options) {
     bus._assetGenerator = c.get("assetGenerator");
     return bus;
   });
+  // FilmEngineering 影视工程服务（film-kit 懒加载 + fail-closed）
+  container.register('filmEngineeringService', function(c) {
+    const { FilmEngineeringService } = require('../services/film-engineering/film-engineering-service');
+    return new FilmEngineeringService({
+      log: c.get('logger'),
+      assetGenerator: c.get('assetGenerator'),
+      llm: null,
+    });
+  });
   // PluginRegistry 插件注册中心
   container.register("pluginRegistry", function(c) {
     return new PluginRegistry({
@@ -296,7 +325,8 @@ function createContainer(options) {
     "store", "authViewManager", "rpaViewManager", "webviewManager",
     "callbackServer", "qrCodeLogin", "renderEngine",
     "contentIntelligence", "publishImpactTracker", "keywordMonitor",
-    "oauthManager", "batchManager", "taskQueue", "publisherRouter"
+    "oauthManager", "batchManager", "taskQueue", "publisherRouter",
+    "story2videoBatchQueue"
   ]);
 
   return container;

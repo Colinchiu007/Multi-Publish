@@ -1,0 +1,14 @@
+{
+  "id": "session-automation-enforcement",
+  "title": "会话隔离自动启动器、健康守护与自检",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "tooling",
+  "currentPhase": "completed",
+  "nextAction": "已归档；稳定计划任务由共享 main/scripts 注册",
+  "branch": "main",
+  "worktree": "D:/Data/projects/Multi-Publish",
+  "openspecChange": "session-automation-enforcement",
+  "remoteStatus": "merged PR #851, squash b1cf7d07e8e63d9a6724caba927221c4057b5ad7"
+}

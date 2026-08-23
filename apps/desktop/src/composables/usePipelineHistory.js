@@ -11,6 +11,7 @@
 import { ref, computed } from 'vue'
 import { pipelineHistory, story2videoListProjects } from '@/api/publisher'
 import { historyLoadFailureDetail } from '@/story2video/story2video-notifications'
+import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, sortHistoryByEffectiveTime } from '@/views/history-utils'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
@@ -45,9 +46,7 @@ export function usePipelineHistory(options = {}) {
   let _historyRefreshing = false
 
   const filteredHistory = computed(() => {
-    if (historyFilter.value === 'all') return history.value
-    if (historyFilter.value === 'paused') return history.value.filter(item => item.status === 'paused' || item.status === 'failed')
-    return history.value.filter(item => item.status === historyFilter.value)
+    return filterHistoryByStatus(history.value, historyFilter.value)
   })
 
   const historyLocalModeText = computed(() => {
@@ -89,14 +88,15 @@ export function usePipelineHistory(options = {}) {
         ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
         : []
 
-      // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停
+      // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为「已中断」
+      // （应用退出/崩溃残留；手动暂停任务持久化为 paused，不受此转换影响）
       const now = Date.now()
       for (const run of runs) {
         if (run.status === 'running') {
           const updatedAt = run.updatedAt ? new Date(run.updatedAt).getTime() : 0
           if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
             run._originalStatus = run.status
-            run.status = 'paused'
+            run.status = 'interrupted'
             if (!run.pausedStage) {
               const stages = Array.isArray(run.stages) ? run.stages : []
               const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
@@ -123,14 +123,7 @@ export function usePipelineHistory(options = {}) {
         run.stages = _enrichStages(run.stages, run.context)
       }
 
-      // 运行中流水线置顶，其次已完成项目，最后终态流水线
-      history.value = [
-        ...runs.filter(run => run.status === 'running'),
-        ...projects,
-        ...runs.filter(run => run.status === 'paused'),
-        ...runs.filter(run => run.status === 'failed'),
-        ...runs.filter(run => run.status !== 'running' && run.status !== 'paused' && run.status !== 'failed'),
-      ]
+      history.value = sortHistoryByEffectiveTime([...runs, ...projects])
 
       scheduleHistoryRefresh()
 
@@ -192,8 +185,10 @@ export function usePipelineHistory(options = {}) {
         return
       }
       if (runningById.size > 0) {
-        list.unshift(...runningById.values())
+        list.push(...runningById.values())
       }
+      const sorted = sortHistoryByEffectiveTime(list)
+      list.splice(0, list.length, ...sorted)
     } catch (_) {
       // 刷新失败保留现有状态
     } finally {
@@ -211,8 +206,8 @@ export function usePipelineHistory(options = {}) {
    * @returns {boolean}
    */
   function historyItemResumable(item) {
-    if (!item || (item.status !== 'failed' && item.status !== 'paused') || !(item.id || item.runId)) return false
-    if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
+    if (!item || (item.status !== 'failed' && item.status !== 'paused' && item.status !== 'interrupted') || !(item.id || item.runId)) return false
+    if (RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))) return false
     return true
   }
 

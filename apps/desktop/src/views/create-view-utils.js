@@ -31,7 +31,7 @@ export function humanName(name) {
  * 历史记录状态标签
  */
 export function historyStatusLabel(status) {
-  const map = { completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }
+  const map = { completed: '已完成', failed: '执行失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }
   return map[status] || status || '未知'
 }
 
@@ -78,7 +78,7 @@ export const IMPLEMENTED_PIPELINES = ['story2video-compose', 'animated-explainer
  * 自动流水线阶段名映射
  */
 export const AUTO_PIPELINE_STAGES = Object.freeze({
-  'story2video-compose': ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
+  'story2video-compose': ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
   'animated-explainer': ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish'],
   'framework-smoke': ['verify', 'report'],
   'documentary-montage': ['research', 'ingest', 'edit', 'narrate', 'render'],
@@ -93,7 +93,7 @@ export const AUTO_PIPELINE_STAGES = Object.freeze({
  * Story2Video 阶段名
  */
 export const STORY2VIDEO_STAGE_NAMES = Object.freeze([
-  'split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
+  'split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
 ])
 
 /**

@@ -29,18 +29,19 @@ describe('PipelineEngine 状态机模式', () => {
       'animated-explainer', 'talking-head', 'cinematic', 'animation',
       'avatar-spokesperson', 'character-animation', 'clip-factory',
       'documentary-montage', 'hybrid', 'localization-dub', 'podcast-repurpose',
-      'screen-demo', 'framework-smoke',
+      'screen-demo', 'framework-smoke', 'film-engineering',
     ])
   })
   it('列表同时提供 stageCount，供桌面卡片显示阶段数', () => {
     const pipeline = engine.listPipelines().find(item => item.name === 'story2video-compose')
     // 2026-08-11：新增 select_video_scenes 阶段（视频+图片轮播混合模式）+ scene_context 中间层（#526）
-    expect(pipeline.stageCount).toBe(8)
+    // 2026-08-14：domain_enrich 合并进 scene_context（merge-domain-enrich-into-scene-context），运行阶段 8→7
+    expect(pipeline.stageCount).toBe(7)
   })
 
   it('已实现真实引擎的流水线标记 available=true', () => {
     const list = engine.listPipelines()
-    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid', 'podcast-repurpose']
+    const implemented = ['story2video-compose', 'animated-explainer', 'talking-head', 'cinematic', 'clip-factory', 'framework-smoke', 'documentary-montage', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid', 'podcast-repurpose', 'film-engineering']
     for (const name of implemented) {
       expect(list.find(item => item.name === name)?.available).toBe(true)
     }
@@ -188,7 +189,7 @@ describe('PipelineEngine 状态机模式', () => {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 
-  it('getHistory 合并持久化 running 快照：重启后运行中任务仍显示且可继续', () => {
+  it('getHistory 合并持久化 running 快照：重启后中断任务归入 interrupted（非手动暂停）', () => {
     const os = require('os')
     const path = require('path')
     const fs = require('fs')
@@ -198,6 +199,7 @@ describe('PipelineEngine 状态机模式', () => {
 
     store.saveRunning({
       id: 'run-running-persisted',
+      projectId: 'run-running-persisted',
       pipeline: 'story2video-compose',
       status: 'running',
       currentStage: 2,
@@ -214,21 +216,236 @@ describe('PipelineEngine 状态机模式', () => {
     })
 
     // 模拟应用重启：新引擎（内存为空）复用同一 store
-    // 运行中快照在重启后不再是运行中状态，引擎将其转为 paused
+    // 运行中快照在重启后不再是运行中状态：归一化为 interrupted（已中断）。
+    // 合同（2026-08-20 修订）：「已暂停」仅保留用户手动暂停；应用退出/崩溃导致的中断
+    // 不得显示为 paused，否则失败/中断任务会错误出现在「已暂停」标签。
     const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
     const history = engineB.getHistory()
     expect(history).toContainEqual(expect.objectContaining({
       id: 'run-running-persisted',
       pipeline: 'story2video-compose',
-      // 重启后持久化 running 快照按 PRD「已暂停状态归一化合同」转为 paused，并记录暂停环节
-      status: 'paused',
+      status: 'interrupted',
       pausedStage: 'generate_assets',
       completedAt: null,
     }))
+    // 中断记录必须携带 projectId，供渲染层与 story2video 项目记录合并去重（消除双卡片）
+    const interruptedEntry = history.find((item) => item.id === 'run-running-persisted')
+    expect(interruptedEntry.projectId).toBe('run-running-persisted')
+    // 中断任务绝不能归入 paused（「已暂停」= 用户手动暂停语义）
+    expect(history.filter((item) => item.id === 'run-running-persisted' && item.status === 'paused')).toHaveLength(0)
 
     // running 快照不混入 listFailed（失败/取消语义不变）
     expect(store.listFailed().map((s) => s.runId)).not.toContain('run-running-persisted')
+    // 快照持久化携带 projectId（增量字段），重启恢复链与历史合并均可读取
+    expect(store.load('run-running-persisted').projectId).toBe('run-running-persisted')
     fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('getHistory 持久化 paused 快照重启后保持 paused：手动暂停语义不被中断归一化影响', () => {
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    const { RunStateStore } = require('../services/run-state-store')
+    const dir = path.join(os.tmpdir(), 'pipeline-engine-paused-history-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+
+    // pauseRun 手动暂停写入 paused 快照（含 checkpoint）
+    store.savePaused({
+      id: 'run-manual-paused',
+      projectId: 'run-manual-paused',
+      pipeline: 'story2video-compose',
+      status: 'paused',
+      currentStage: 1,
+      stages: [
+        { name: 'split', status: 'completed' },
+        { name: 'optimize', status: 'paused' },
+      ],
+      context: {},
+      params: {},
+      checkpoint: { type: 'stage', stage: 'optimize' },
+      error: null,
+      orchestrationMode: 'orchestrator',
+      createdAt: '2026-08-20T01:00:00.000Z',
+    })
+
+    const engineB = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    const history = engineB.getHistory()
+    expect(history).toContainEqual(expect.objectContaining({
+      id: 'run-manual-paused',
+      status: 'paused',
+      pausedStage: 'optimize',
+    }))
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('deleteRun 删除内存 run、内存历史与持久化快照；运行中 run 拒绝删除', () => {
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    const { RunStateStore } = require('../services/run-state-store')
+    const dir = path.join(os.tmpdir(), 'pipeline-engine-delete-run-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+
+    // 1) 持久化快照（重启可见的记录）可删除
+    store.saveFailed({
+      id: 'run-delete-persisted', pipeline: 'story2video-compose', status: 'failed',
+      currentStage: 1, stages: [{ name: 'optimize', status: 'failed' }],
+      context: {}, params: {}, error: 'boom', orchestrationMode: 'orchestrator',
+      createdAt: '2026-08-10T01:00:00.000Z', endedAt: '2026-08-10T01:05:00.000Z',
+    })
+    expect(engine.getHistory().some((item) => item.id === 'run-delete-persisted')).toBe(true)
+    expect(engine.deleteRun('run-delete-persisted')).toEqual({ success: true, runId: 'run-delete-persisted' })
+    expect(engine.getHistory().some((item) => item.id === 'run-delete-persisted')).toBe(false)
+    expect(store.load('run-delete-persisted')).toBeNull()
+
+    // 2) 内存 run（含 _<name> 索引）与内存历史可删除
+    engine.registerPipeline({ name: 'delete-run-test', description: '删除测试', stages: ['a'], stageDefs: [{ name: 'a', type: 'rp_a' }] })
+    engine.registerStageExecutor('rp_a', async () => ({ success: true, output: {} }))
+    const started = engine.start('delete-run-test', {})
+    // start 后 run 处于执行态：先置为终态再删除（运行中删除是另一条用例）
+    engine._runs.get(started.runId).status = 'failed'
+    expect(engine.deleteRun(started.runId)).toEqual({ success: true, runId: started.runId })
+    expect(engine.getHistory().some((item) => item.id === started.runId)).toBe(false)
+    expect(engine._runs.get('_delete-run-test')).toBeUndefined()
+
+    // 3) 运行中的 run 拒绝删除
+    engine.registerPipeline({ name: 'delete-running-test', description: '运行中删除测试', stages: ['a'], stageDefs: [{ name: 'a', type: 'rp_a' }] })
+    engine.registerStageExecutor('rp_a', async () => ({ success: true, output: {} }))
+    const running = engine.start('delete-running-test', {})
+    engine._runs.get(running.runId).status = 'running'
+    expect(engine.deleteRun(running.runId).success).toBe(false)
+    expect(engine._runs.get(running.runId)).toBeDefined()
+
+    // 4) 不存在的 runId 报错
+    expect(engine.deleteRun('no-such-run').success).toBe(false)
+    expect(engine.deleteRun('  ').success).toBe(false)
+
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('deleteRun 持久化快照删除失败时保留内存 run 与历史', () => {
+    const remove = vi.fn(() => false)
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      runStateStore: { load: vi.fn(() => ({ runId: 'run-delete-failure' })), remove },
+    })
+    const run = {
+      id: 'run-delete-failure',
+      pipeline: 'story2video-compose',
+      status: 'failed',
+      stages: [],
+      context: {},
+    }
+    engine._runs.set(run.id, run)
+    engine._runs.set('_story2video-compose', run)
+    engine._history.push(run)
+
+    expect(engine.deleteRun(run.id)).toEqual({
+      success: false,
+      error: '删除运行记录失败：持久化快照未清理',
+    })
+    expect(remove).toHaveBeenCalledWith(run.id)
+    expect(engine._runs.get(run.id)).toBe(run)
+    expect(engine._runs.get('_story2video-compose')).toBe(run)
+    expect(engine._history).toContain(run)
+  })
+
+  it('pauseRun 按 runId 暂停运行中编排任务并保存检查点与 paused 快照；非运行中/不存在拒绝', () => {
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    const { RunStateStore } = require('../services/run-state-store')
+    const dir = path.join(os.tmpdir(), 'pipeline-engine-pause-run-' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2))
+    const store = new RunStateStore({ dir, log: { warn() {}, info() {} } })
+    const engine = new PipelineEngine({ serviceBus: {}, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, runStateStore: store })
+    engine.registerPipeline({
+      name: 'pause-run-test',
+      description: '按 runId 暂停测试',
+      stages: ['a', 'b'],
+      stageDefs: [{ name: 'a', type: 'rp_a' }, { name: 'b', type: 'rp_b' }],
+    })
+    engine.registerStageExecutor('rp_a', async () => ({ success: true, output: {} }))
+    engine.registerStageExecutor('rp_b', async () => ({ success: true, output: {} }))
+
+    const started = engine.start('pause-run-test', {})
+    engine._runs.get(started.runId).status = 'running'
+    engine._runs.get(started.runId).orchestrationMode = 'orchestrator'
+
+    // 1) 运行中可暂停：编排 run 写入 checkpoint（manual_pause）并持久化 paused 快照
+    const result = engine.pauseRun(started.runId)
+    expect(result.success).toBe(true)
+    expect(result.runId).toBe(started.runId)
+    const run = engine._runs.get(started.runId)
+    expect(run.status).toBe('paused')
+    expect(run.checkpoint.type).toBe('manual_pause')
+
+    // 2) 非运行中（已暂停）拒绝重复暂停
+    expect(engine.pauseRun(started.runId).success).toBe(false)
+
+    // 3) 不存在 / 非法 runId 拒绝
+    expect(engine.pauseRun('no-such-run').success).toBe(false)
+    expect(engine.pauseRun('  ').success).toBe(false)
+
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('pauseRun 持久化暂停快照失败时回滚内存状态与检查点', () => {
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      runStateStore: { savePaused: vi.fn(() => false) },
+    })
+    engine.registerPipeline({
+      name: 'pause-persist-failure',
+      description: '暂停持久化失败回滚测试',
+      stages: ['a'],
+      stageDefs: [{ name: 'a', type: 'pause_a' }],
+    })
+    const started = engine.start('pause-persist-failure', {})
+    const run = engine._runs.get(started.runId)
+    run.status = 'running'
+    run.orchestrationMode = 'orchestrator'
+    run.checkpoint = { type: 'previous_checkpoint' }
+    const stage = run.stages[0]
+    const previousStageStatus = stage.status
+
+    expect(engine.pauseRun(started.runId)).toEqual({ success: false, error: '保存暂停检查点失败' })
+    expect(run.status).toBe('running')
+    expect(stage.status).toBe(previousStageStatus)
+    expect(run.checkpoint).toEqual({ type: 'previous_checkpoint' })
+  })
+
+  it('pause/resume 及 pauseRun 拒绝非对象阶段数据', () => {
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const pausedRun = {
+      id: 'malformed-paused',
+      pipeline: 'story2video-compose',
+      status: 'paused',
+      currentStage: 0,
+      stages: ['malformed'],
+      orchestrationMode: 'state_machine',
+    }
+    engine._runs.set(pausedRun.id, pausedRun)
+    engine._runs.set('_malformed-paused-pipeline', pausedRun)
+    engine._currentPipeline = 'malformed-paused-pipeline'
+    expect(engine.resume()).toEqual({ success: false, error: 'Pipeline stage state is invalid' })
+    expect(pausedRun.status).toBe('paused')
+
+    const runningRun = {
+      id: 'malformed-running',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 0,
+      stages: [1],
+      orchestrationMode: 'orchestrator',
+    }
+    engine._runs.set(runningRun.id, runningRun)
+    engine._currentPipeline = 'malformed-paused-pipeline'
+    engine._runs.set('_malformed-paused-pipeline', runningRun)
+    expect(engine.pause()).toEqual({ success: false, error: 'Pipeline stage state is invalid' })
+    expect(runningRun.status).toBe('running')
+    expect(engine.pauseRun(runningRun.id)).toEqual({ success: false, error: '运行记录阶段数据无效' })
+    expect(runningRun.status).toBe('running')
   })
 
   it('saveRunningState 把内存运行中编排任务落盘为 running 快照（退出兜底）', async () => {
@@ -468,6 +685,37 @@ describe('PipelineEngine animated-explainer 编排', () => {
     expect(snapshot.stages.every(stage => stage.status === 'completed')).toBe(true)
   })
 
+  it('发布阶段未选平台时标记为 skipped 而非 completed（完成态进度仍为 100%）', async () => {
+    const stageExecutor = {
+      execute: vi.fn(async ({ stage }) => (
+        stage.name === 'publish'
+          ? { success: true, output: { skipped: true, message: 'Publishing disabled or no platforms selected', publishedTo: [], failedPlatforms: [] } }
+          : { success: true, output: { completedStage: stage.name } }
+      )),
+    }
+    const engine = new PipelineEngine({ stageExecutor, log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const started = await engine.startOrchestrated('animated-explainer', {
+      text: '测试主题',
+      autoAdvance: true,
+      checkpointPolicy: 'none',
+      publishEnabled: false,
+      platforms: [],
+    })
+    expect(started.success).toBe(true)
+    expect(started.completed).toBe(true)
+    const snapshot = engine.getRunSnapshot(started.runId)
+    expect(snapshot.status.status).toBe('completed')
+    const publishStage = snapshot.stages.find(stage => stage.name === 'publish')
+    expect(publishStage.status).toBe('skipped')
+    expect(publishStage.skippedAt).toBeTypeOf('string')
+    expect(snapshot.stages.filter(stage => stage.status === 'completed').length).toBe(snapshot.stages.length - 1)
+    expect(snapshot.status.progress).toBe(100)
+    // 持久化到历史卡片的完成态进度同样为 100%（_finalizeRun 固定完成态进度）
+    const historyRun = engine.getHistory().find(item => item.id === started.runId)
+    expect(historyRun.progress).toBe(100)
+    expect(started.context.publish.skipped).toBe(true)
+  })
+
   it('background 模式立即返回 runId，后台自动推进到完成', async () => {
     const stageExecutor = {
       execute: vi.fn(async ({ stage }) => ({
@@ -648,6 +896,76 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     expect(() => JSON.stringify(run.diagnostics)).not.toThrow()
   })
 
+  it('_finalizeRun failed/cancelled 同步当前 stage 终态（历史卡片不再显示「运行中」假象）', () => {
+    const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
+    const failedRun = {
+      id: 'run-stage-failed',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      stages: [
+        { name: 'split', status: 'completed' },
+        { name: 'compose', status: 'running' },
+      ],
+      currentStage: 1,
+      context: {},
+    }
+    engine._runs.set(failedRun.id, failedRun)
+    engine._finalizeRun(failedRun, 'failed', '成片总时长不能超过 10 分钟')
+    expect(failedRun.stages[1].status).toBe('failed')
+    expect(failedRun.stages[1].completedAt).toBeTruthy()
+    expect(failedRun.stages[0].status).toBe('completed')
+
+    const cancelledRun = {
+      id: 'run-stage-cancelled',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      stages: [
+        { name: 'split', status: 'completed' },
+        { name: 'compose', status: 'cancelled' },
+      ],
+      currentStage: 1,
+      context: {},
+    }
+    engine._runs.set(cancelledRun.id, cancelledRun)
+    engine._finalizeRun(cancelledRun, 'cancelled', 'cancelled')
+    expect(cancelledRun.stages[1].status).toBe('cancelled')
+    expect(cancelledRun.stages[1].completedAt).toBeTruthy()
+  })
+
+  it('取消已持久化的 Story2Video run 时同步项目为 cancelled 并推进更新时间', () => {
+    const syncRunStatus = vi.fn((run) => ({
+      projectId: run.projectId,
+      status: run.status,
+      updatedAt: '2026-08-20T00:00:01.000Z',
+    }))
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      story2videoProjectService: { syncRunStatus },
+    })
+    const run = {
+      id: 'run-cancel-project',
+      projectId: 'project-cancel',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      currentStage: 0,
+      stages: [{ name: 'compose', status: 'running' }],
+      context: {},
+    }
+    engine._runs.set(run.id, run)
+    engine._runs.set('_story2video-compose', run)
+    engine._currentPipeline = 'story2video-compose'
+
+    expect(engine.cancel()).toEqual({ success: true })
+    expect(syncRunStatus).toHaveBeenCalledTimes(1)
+    expect(syncRunStatus).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'project-cancel',
+      status: 'cancelled',
+    }))
+  })
+
   it('setRunFinalizedHook 在 _finalizeRun 终态后调用（additive，失败仅 warn）', () => {
     const engine = new PipelineEngine({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } })
     const calls = []
@@ -665,5 +983,253 @@ describe('PipelineEngine 已用时（步骤执行耗时累计口径）', () => {
     engine2._runs.set(run2.id, run2)
     expect(() => engine2._finalizeRun(run2, 'completed', null)).not.toThrow()
     expect(run2.status).toBe('completed')
+  })
+
+  it('_advanceRun 在 Story2Video 项目持久化完成后才发出 pipeline:complete', () => {
+    const order = []
+    const saveRun = vi.fn(() => {
+      order.push('saveRun')
+      return { projectId: 'project-complete' }
+    })
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      story2videoProjectService: { saveRun },
+    })
+    vi.spyOn(engine, '_emit').mockImplementation((eventName) => { order.push(eventName) })
+    const run = {
+      id: 'run-persist-before-complete',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 0,
+      stages: [{ name: 'publish', status: 'running' }],
+      context: {},
+      params: {},
+      orchestrationMode: 'orchestrator',
+      startedAt: new Date().toISOString(),
+    }
+    engine._runs.set(run.id, run)
+
+    const result = engine._advanceRun(run)
+
+    expect(result).toMatchObject({ success: true, message: 'Pipeline completed' })
+    expect(order).toEqual(['stage:complete', 'saveRun', 'pipeline:complete'])
+    expect(run.status).toBe('completed')
+  })
+
+  it('_advanceRun 项目持久化失败时进入 failed 且不发出 pipeline:complete', () => {
+    const events = []
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      story2videoProjectService: { saveRun: vi.fn(() => { throw new Error('disk full') }) },
+    })
+    vi.spyOn(engine, '_emit').mockImplementation((eventName) => { events.push(eventName) })
+    const run = {
+      id: 'run-persist-failure',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 0,
+      stages: [{ name: 'publish', status: 'running' }],
+      context: {},
+      params: {},
+      orchestrationMode: 'orchestrator',
+      startedAt: new Date().toISOString(),
+    }
+    engine._runs.set(run.id, run)
+
+    const result = engine._advanceRun(run)
+
+    expect(result).toMatchObject({ success: false, error: expect.stringContaining('Story2Video 项目保存失败') })
+    expect(run.status).toBe('failed')
+    expect(run.stages[0].status).toBe('failed')
+    expect(events).toContain('pipeline:fail')
+    expect(events).not.toContain('pipeline:complete')
+  })
+
+  it('_executeStage 在生成素材后创建草稿项目，暂停和失败会同步同一项目状态', async () => {
+    const saveEditableRun = vi.fn(() => ({ projectId: 'run-editable-project', segments: [{ id: 'segment-0' }] }))
+    const syncRunStatus = vi.fn(() => ({ projectId: 'run-editable-project', status: 'paused' }))
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      stageExecutor: { execute: vi.fn(async () => ({ success: true, output: { scenes: [{ index: 0, text: '第一段' }] } })) },
+      story2videoProjectService: { saveEditableRun, syncRunStatus },
+    })
+    const run = {
+      id: 'run-editable-project',
+      pipeline: 'story2video-compose',
+      status: 'running',
+      currentStage: 4,
+      stages: [
+        { name: 'split', status: 'completed' },
+        { name: 'scene_context', status: 'completed' },
+        { name: 'optimize', status: 'completed' },
+        { name: 'select_video_scenes', status: 'completed' },
+        { name: 'generate_assets', status: 'running' },
+        { name: 'compose', status: 'pending' },
+      ],
+      context: {},
+      params: {},
+      orchestrationMode: 'orchestrator',
+      activeMs: 0,
+      stageResults: [],
+      createdAt: new Date().toISOString(),
+    }
+    engine._runs.set(run.id, run)
+
+    const result = await engine.executeStage(run.id)
+
+    expect(result.success).toBe(true)
+    expect(saveEditableRun).toHaveBeenCalledWith(run, { replace: false })
+    expect(run.projectId).toBe('run-editable-project')
+    run.status = 'running'
+    run.stages[run.currentStage].status = 'running'
+    expect(engine.pauseRun(run.id)).toEqual({ success: true, runId: run.id, checkpoint: expect.anything() })
+    expect(syncRunStatus).toHaveBeenCalledWith(expect.objectContaining({ id: run.id, status: 'paused' }))
+    engine._finalizeRun(run, 'failed', 'compose failed')
+    expect(syncRunStatus).toHaveBeenLastCalledWith(expect.objectContaining({ id: run.id, status: 'failed' }))
+  })
+})
+
+describe('PipelineEngine 批量创作打标与索引隔离', () => {
+  let engine
+
+  beforeEach(() => {
+    engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      stageExecutor: {
+        execute: vi.fn(async () => ({ success: true, output: {} })),
+      },
+    })
+  })
+
+  it('startOrchestrated 透传 source=batch 打标到 run（normalizer 重建后不丢失）', async () => {
+    const started = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      source: 'batch',
+      batchId: 'batch-1',
+      batchItemId: 'item-1',
+      text: '批量测试文案',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '批量测试文案',
+        split: { language: 'zh' },
+      },
+    })
+    expect(started.success).toBe(true)
+    const run = engine._runs.get(started.runId)
+    expect(run.source).toBe('batch')
+    expect(run.batchId).toBe('batch-1')
+    expect(run.batchItemId).toBe('item-1')
+  })
+
+  it('非批量 run 不打标，且仍写 _<name> 索引与 _currentPipeline', async () => {
+    const started = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      text: '手动测试文案',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '手动测试文案',
+        split: { language: 'zh' },
+      },
+    })
+    expect(started.success).toBe(true)
+    const run = engine._runs.get(started.runId)
+    expect(run.source).toBeUndefined()
+    expect(run.batchId).toBeUndefined()
+    expect(engine._runs.get('_story2video-compose')).toBe(run)
+    expect(engine._currentPipeline).toBe('story2video-compose')
+  })
+
+  it('批量 run 不覆盖 _<name> 索引：手动 getStatus 保持 idle', async () => {
+    const started = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      source: 'batch',
+      batchId: 'batch-2',
+      batchItemId: 'item-2',
+      text: '批量测试文案2',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '批量测试文案2',
+        split: { language: 'zh' },
+      },
+    })
+    expect(started.success).toBe(true)
+    // 批量 run 启动后，手动状态查询不受影响
+    const manualStatus = engine.getStatus('story2video-compose')
+    expect(manualStatus.status).toBe('idle')
+    expect(engine._runs.get('_story2video-compose')).toBeUndefined()
+    expect(engine._currentPipeline).toBeNull()
+  })
+
+  it('_countActiveManualRuns 只统计非批量运行中 run', async () => {
+    const startedBatch = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      source: 'batch',
+      batchId: 'batch-3',
+      batchItemId: 'item-3',
+      text: '批量测试文案3',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '批量测试文案3',
+        split: { language: 'zh' },
+      },
+    })
+    expect(startedBatch.success).toBe(true)
+    expect(engine._countActiveManualRuns()).toBe(0)
+    expect(engine._countActiveRuns()).toBe(1)
+
+    const startedManual = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      text: '手动测试文案2',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '手动测试文案2',
+        split: { language: 'zh' },
+      },
+    })
+    expect(startedManual.success).toBe(true)
+    expect(engine._countActiveManualRuns()).toBe(1)
+    expect(engine._countActiveRuns()).toBe(2)
+  })
+
+  it('批量 run 完成进入 _history 并保留 batch 标记', async () => {
+    const started = await engine.startOrchestrated('story2video-compose', {
+      initialContext: {},
+      autoAdvance: false,
+      source: 'batch',
+      batchId: 'batch-4',
+      batchItemId: 'item-4',
+      text: '批量测试文案4',
+      inputMode: 'text',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '批量测试文案4',
+        split: { language: 'zh' },
+      },
+    })
+    const run = engine._runs.get(started.runId)
+    run.stages.forEach(s => { s.status = 'completed' })
+    run.currentStage = run.stages.length
+    engine._finalizeRun(run, 'completed', null)
+    const historyEntry = engine._history.find(item => item.id === started.runId)
+    expect(historyEntry).toBeTruthy()
+    expect(historyEntry.source).toBe('batch')
+    expect(historyEntry.batchId).toBe('batch-4')
+    expect(historyEntry.batchItemId).toBe('item-4')
   })
 })

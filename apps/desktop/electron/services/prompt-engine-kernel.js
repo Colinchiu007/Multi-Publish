@@ -41,6 +41,10 @@ const PROMPT_ENGINE_LIMITS = Object.freeze({
   contextDepthMax: 32,
 })
 
+const PROMPT_ENGINE_OPTIMIZATION_STRATEGIES = Object.freeze(new Set([
+  'template', 'llm',
+]))
+
 /** context 会发给外部服务，禁止透传的敏感凭据键（归一化后匹配）。 */
 const SENSITIVE_CONTEXT_KEYS = new Set([
   'api_key', 'access_token', 'refresh_token', 'auth_token', 'bearer_token', 'token',
@@ -99,6 +103,33 @@ function normalizePromptEngineStyle(value) {
  */
 function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, value))
+}
+
+/**
+ * 归一化优化执行策略。缺省值固定为 llm；template/llm 由调用方显式选择。
+ * @param {unknown} value
+ * @returns {'template'|'llm'}
+ */
+function normalizeOptimizationStrategy(value) {
+  if (value === undefined || value === null || value === '') return 'llm'
+  if (typeof value !== 'string') {
+    throw new TypeError('optimization_strategy 必须是 template 或 llm')
+  }
+  const raw = value.trim().toLowerCase()
+  if (!raw) return 'llm'
+  if (PROMPT_ENGINE_OPTIMIZATION_STRATEGIES.has(raw)) return raw
+  throw new RangeError('optimization_strategy 必须是 template 或 llm')
+}
+
+/**
+ * 解析实际优化执行路径。creative_level 只控制生成强度，不参与策略路由。
+ * @param {{ optimization_strategy?: unknown, optimizationStrategy?: unknown }} options
+ * @returns {'template'|'llm'}
+ */
+function resolveOptimizationStrategy(options = {}) {
+  return normalizeOptimizationStrategy(
+    options.optimization_strategy ?? options.optimizationStrategy,
+  )
 }
 
 /**
@@ -169,6 +200,9 @@ function extractOptimizedBase(result, opts = {}) {
   if (typeof result.style === 'string') meta.style = result.style
   if (typeof result.model_used === 'string') meta.model_used = result.model_used
   if (typeof result.key_source === 'string') meta.key_source = result.key_source
+  if (typeof result.strategy_used === 'string') meta.strategy_used = result.strategy_used
+  if (typeof result.caller === 'string') meta.caller = result.caller
+  if (typeof result.cache_hit === 'boolean') meta.cache_hit = result.cache_hit
 
   return { ok: true, prompt: finalPrompt, meta, truncated }
 }
@@ -351,10 +385,13 @@ module.exports = {
   PROMPT_ENGINE_STYLE_ALIASES,
   DEFAULT_PROMPT_ENGINE_STYLE,
   PROMPT_ENGINE_LIMITS,
+  PROMPT_ENGINE_OPTIMIZATION_STRATEGIES,
   SENSITIVE_CONTEXT_KEYS,
   assertNoSensitiveContext,
   normalizePromptEngineStyle,
   clampNumber,
+  normalizeOptimizationStrategy,
+  resolveOptimizationStrategy,
   extractOptimizedBase,
   resolveTieredMaxLength,
   PLAUSIBLE_FAILURE_PATTERNS,

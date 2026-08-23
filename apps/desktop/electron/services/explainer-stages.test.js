@@ -84,6 +84,20 @@ describe('animated-explainer 阶段执行器', () => {
       }))
     })
 
+    it('用结构化 key 上报开始与完成摘要', async () => {
+      const { get } = makePipeline(makeAi('1. 起源：…'))
+      const progress = vi.fn()
+      const result = await get(EXPLAINER_STAGE_TYPES.RESEARCH)({
+        stage: {}, params: { text: '主题' }, context: {}, onProgress: progress,
+      })
+      expect(result.success).toBe(true)
+      expect(progress.mock.calls.map(([event]) => event.percent)).toEqual([0, 100])
+      expect(progress.mock.calls[0][0].messageKey).toBe('stageProgress.explainerResearch')
+      expect(progress.mock.calls[1][0]).toMatchObject({
+        summaryKey: 'stageProgress.explainerResearchSummary',
+      })
+    })
+
     it('缺少主题时失败', async () => {
       const { get } = makePipeline(makeAi('x'))
       const result = await get(EXPLAINER_STAGE_TYPES.RESEARCH)({
@@ -182,6 +196,22 @@ describe('scenes 阶段与 JSON 解析', () => {
     expect(result.output[0]).toMatchObject({ prompt: '海边日出，暖色调', text: '清晨，太阳从海平面升起。', duration: 6 })
   })
 
+  it('scenes 阶段完成时上报场景计数摘要', async () => {
+    const ai = makeAi(scenesJson)
+    const { get } = makePipeline(ai)
+    const progress = vi.fn()
+    const result = await get(EXPLAINER_STAGE_TYPES.SCENES)({
+      stage: {}, params: {}, context: { script: '旁白文案。' }, onProgress: progress,
+    })
+    expect(result.success).toBe(true)
+    expect(progress.mock.calls.at(-1)[0]).toMatchObject({
+      percent: 100,
+      summaryKey: 'stageProgress.explainerScenesSummary',
+      summaryParams: { count: 2 },
+      detail: { done: 2, total: 2, kind: 'scene' },
+    })
+  })
+
   it('scenes 阶段解析失败时用行级兜底继续（长文案）', async () => {
     const { get } = makePipeline(makeAi('抱歉，我无法生成。'))
     const result = await get(EXPLAINER_STAGE_TYPES.SCENES)({
@@ -218,6 +248,7 @@ describe('generate_assets 适配与 editing', () => {
       stage: { options: { concurrency: 2 } },
       params: {},
       context: { scenes },
+      onProgress: vi.fn(),
     })
     expect(result.success).toBe(true)
     expect(inner).toHaveBeenCalledWith(expect.objectContaining({
@@ -226,6 +257,7 @@ describe('generate_assets 适配与 editing', () => {
         optimize: [{ optimized_prompt: 'p1', prompt: 'p1' }],
         split: scenes,
       }),
+      onProgress: expect.any(Function),
     }))
   })
 

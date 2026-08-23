@@ -76,6 +76,27 @@ it('SPLIT 阶段调用 serviceBus.splitText', async function () {
   expect(bus.splitText).toHaveBeenCalledOnce();
 });
 
+it('SPLIT 阶段使用结构化 key 上报开始与完成摘要', async function () {
+  const bus = makeMockServiceBus();
+  const progress = vi.fn();
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const result = await exec.execute({
+    runId: 'split-progress',
+    stage: { name: 'split', type: STAGE_TYPES.SPLIT, inputFrom: 'input' },
+    params: {},
+    context: { input: '第一句。第二句！' },
+    onProgress: progress,
+  });
+  expect(result.success).toBe(true);
+  expect(progress.mock.calls[0][0]).toMatchObject({ percent: 0, messageKey: 'stageProgress.splitWorking' });
+  expect(progress.mock.calls.at(-1)[0]).toMatchObject({
+    percent: 100,
+    summaryKey: 'stageProgress.splitSummary',
+    summaryParams: { count: 2 },
+    detail: { done: 2, total: 2, kind: 'scene' },
+  });
+});
+
 it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块', async function () {
   const bus = makeMockServiceBus({
     splitText: vi.fn(async () => ({
@@ -148,7 +169,13 @@ it('Story2Video SPLIT 保留服务场景，并在场景内生成本地字幕块'
   expect(sentOptions).not.toHaveProperty('fallback_to_local');
   expect(sentOptions).not.toHaveProperty('require_scene_output');
   expect(sentOptions).not.toHaveProperty('target_duration');
+  // 字幕分块参数必须透传到 config.subtitle（v1.2），且不得泄漏为顶层键
+  expect(sentOptions.config.subtitle).toMatchObject({
+    min_chars_per_block: 8,
+    max_chars_per_block: 15,
+  });
   expect(sentOptions).not.toHaveProperty('subtitle_min_chars');
+  expect(sentOptions).not.toHaveProperty('subtitle_max_chars');
   // 分镜字数主控只走本地 fallback（snake_case 键），8002 请求不得包含（双模型审查 W2）
   expect(sentOptions).not.toHaveProperty('target_chars_per_scene');
   expect(sentOptions.config.scene).not.toHaveProperty('target_chars_per_scene');
@@ -520,6 +547,10 @@ it.each([
   });
 
   const promptBridge = new PromptBridge({ log: { info() {}, warn() {}, error() {} } });
+  promptBridge.modelProviderManager = {
+    getDefault: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'] })),
+    getProviderWithKey: vi.fn(() => ({ id: 'sensenova-llm', name: 'SenseNova', base_url: 'https://token.sensenova.cn/v1', models: ['deepseek-v4-flash'], api_key: 'sk-test' })),
+  };
   promptBridge.host = '127.0.0.1';
   promptBridge.port = server.address().port;
   promptBridge.isRunning = true;
@@ -567,6 +598,214 @@ it('COMPOSE 阶段处理 code === 0 成功', async function () {
   });
   eq(result.success, true);
   eq(result.output.videoPath, '/tmp/out.mp4');
+});
+
+it('COMPOSE 可并行启动注册任务，并按 index 回填结果', async function () {
+  let composeStarted = false;
+  let parallelStarted = false;
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async (_assets) => {
+      composeStarted = true;
+      await Promise.resolve();
+      return {
+        code: 0,
+        data: {
+          videoPath: '/tmp/out.mp4',
+          segments: [{ index: 1, prompt: 'p1' }, { index: 0, prompt: 'p0' }],
+        },
+      };
+    }),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('story2video-prompt-translation', async () => {
+    parallelStarted = true;
+    return {
+      results: [{ index: 0, translation: '译文0' }, { index: 1, translation: '译文1' }],
+      degraded: false,
+      apply: ({ composeOutput, result }) => {
+        const translations = new Map(result.results.map((item) => [item.index, item.translation]));
+        composeOutput.segments.forEach((segment) => {
+          segment.promptTranslation = translations.get(segment.index) || null;
+        });
+      },
+    };
+  });
+  const result = await exec.execute({
+    runId: 'compose-parallel',
+    stage: {
+      name: 'compose',
+      type: STAGE_TYPES.COMPOSE,
+      inputFrom: 'assets',
+      options: { composeParallelTask: 'story2video-prompt-translation' },
+    },
+    params: {},
+    context: {
+      assets: { scenes: [] },
+      prompt_translations_pending: { uiLocale: 'zh', items: [] },
+    },
+  });
+  eq(result.success, true);
+  eq(composeStarted, true);
+  eq(parallelStarted, true);
+  expect(result.output.segments).toEqual([
+    { index: 1, prompt: 'p1', promptTranslation: '译文1' },
+    { index: 0, prompt: 'p0', promptTranslation: '译文0' },
+  ]);
+});
+
+it('COMPOSE 在合成未完成时已启动并行任务，并优先使用任务自身超时预算', async function () {
+  let parallelStarted = false;
+  let resolveParallel;
+  const parallelPromise = new Promise((resolve) => { resolveParallel = resolve; });
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => {
+      expect(parallelStarted).toBe(true);
+      resolveParallel({ results: [], degraded: false });
+      return { code: 0, data: { videoPath: '/tmp/out.mp4', segments: [] } };
+    }),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation-overlap', () => {
+    parallelStarted = true;
+    return { promise: parallelPromise, timeoutMs: 1, apply: vi.fn() };
+  });
+  const result = await exec.execute({
+    runId: 'compose-parallel-overlap',
+    stage: {
+      name: 'compose',
+      type: STAGE_TYPES.COMPOSE,
+      options: { composeParallelTask: 'translation-overlap', composeParallelTimeoutMs: 60000 },
+    },
+    params: {},
+    context: {},
+  });
+  expect(result.success).toBe(true);
+  expect(parallelStarted).toBe(true);
+  expect(bus.composeVideo).toHaveBeenCalledOnce();
+});
+
+it('COMPOSE 并行任务失败时保持合成成功并记录降级', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4', segments: [{ index: 0 }] } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation', async () => ({
+    degraded: true,
+    reason: 'translation timeout',
+    apply: ({ composeOutput }) => composeOutput.segments.forEach((segment) => { segment.promptTranslation = null; }),
+  }));
+  const context = {
+    assets: { scenes: [] },
+    prompt_translations_pending: { uiLocale: 'zh', items: [] },
+  };
+  const result = await exec.execute({
+    runId: 'compose-parallel-fail-open',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, inputFrom: 'assets', options: { composeParallelTask: 'translation' } },
+    params: {},
+    context,
+  });
+  eq(result.success, true);
+  eq(result.output.segments[0].promptTranslation, null);
+  eq(context.compose_parallel_diagnostic.degraded, true);
+});
+
+it('COMPOSE 并行任务不掩盖合成失败', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: -1, message: 'ffmpeg failed' })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation', async () => ({ results: [], degraded: false }));
+  const result = await exec.execute({
+    runId: 'compose-parallel-compose-fail',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'translation' } },
+    params: {},
+    context: { prompt_translations_pending: { uiLocale: 'zh', items: [] } },
+  });
+  eq(result.success, false);
+  ok(/ffmpeg failed/.test(result.error));
+});
+
+it('COMPOSE 配置了未注册并行任务时记录降级诊断但不阻塞合成', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4' } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  const context = {};
+  const result = await exec.execute({
+    runId: 'compose-parallel-unregistered',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'missing-task' } },
+    params: {},
+    context,
+  });
+  expect(result.success).toBe(true);
+  expect(context.compose_parallel_diagnostic).toEqual({
+    taskType: 'missing-task',
+    degraded: true,
+    reason: 'parallel task not registered',
+  });
+});
+
+it('COMPOSE 成功重试后清除上一次并行降级诊断', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4' } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation-retry', () => ({
+    promise: Promise.resolve({ results: [], degraded: false }),
+  }));
+  const context = {
+    compose_parallel_diagnostic: { taskType: 'translation-retry', degraded: true, reason: 'previous timeout' },
+  };
+  const result = await exec.execute({
+    runId: 'compose-parallel-retry',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'translation-retry' } },
+    params: {},
+    context,
+  });
+  expect(result.success).toBe(true);
+  expect(context.compose_parallel_diagnostic).toBeUndefined();
+});
+
+it('COMPOSE 合成失败时取消仍在运行的并行任务', async function () {
+  const cancel = vi.fn(async () => {});
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: -1, message: 'ffmpeg failed' })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation-cancel', () => ({
+    promise: new Promise(() => {}),
+    cancel,
+  }));
+  const result = await exec.execute({
+    runId: 'compose-parallel-cancel',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'translation-cancel' } },
+    params: {},
+    context: {},
+  });
+  expect(result.success).toBe(false);
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+it('COMPOSE 并行任务超时后仍执行 fail-open 收尾', async function () {
+  const bus = makeMockServiceBus({
+    composeVideo: vi.fn(async () => ({ code: 0, data: { videoPath: '/tmp/out.mp4', segments: [{ index: 0 }] } })),
+  });
+  const exec = new StageExecutor({ serviceBus: bus, log: { info() {}, warn() {}, error() {} } });
+  exec.registerComposeParallelTask('translation-timeout', () => ({
+    promise: new Promise(() => {}),
+    timeoutMs: 1,
+    apply: ({ composeOutput }) => composeOutput.segments.forEach((segment) => { segment.promptTranslation = null; }),
+  }));
+  const context = { assets: {} };
+  const result = await exec.execute({
+    runId: 'compose-parallel-timeout',
+    stage: { name: 'compose', type: STAGE_TYPES.COMPOSE, options: { composeParallelTask: 'translation-timeout' } },
+    params: {},
+    context,
+  });
+  eq(result.success, true);
+  eq(result.output.segments[0].promptTranslation, null);
+  eq(context.compose_parallel_diagnostic.degraded, true);
 });
 
 it('COMPOSE 成功后采集 TTS 时长样本（Batch 5a，best-effort）', async function () {
@@ -1132,13 +1371,13 @@ it('registerStageExecutor 在无 stageExecutor 时返回错误', function () {
 });
 
 // ============================================================
-// 5. 现有 14 条流水线回归（state_machine 模式）
+// 5. 现有 15 条流水线回归（state_machine 模式）
 // ============================================================
 
-it('现有 14 条流水线在 state_machine 模式下全部可启动', function () {
+it('现有 15 条流水线在 state_machine 模式下全部可启动', function () {
   const pe = new PipelineEngine(); // 无 serviceBus，纯状态机
   const list = pe.listPipelines();
-  eq(list.length, 14, '应有 14 条流水线（含 story2video-compose）');
+  eq(list.length, 15, '应有 15 条流水线（含 film-engineering 与 story2video-compose）');
   for (const pl of list) {
     const r = pe.start(pl.name, { test: true });
     eq(r.success, true, pl.name + ' 应可启动');
@@ -1146,7 +1385,7 @@ it('现有 14 条流水线在 state_machine 模式下全部可启动', function 
   }
 });
 
-it('story2video-compose 流水线已注册为第 14 条', function () {
+it('story2video-compose 流水线已注册为第 15 条（2026-08-15：新增 film-engineering 后顺延）', function () {
   const pe = new PipelineEngine();
   const list = pe.listPipelines();
   const s2v = list.find(p => p.name === 'story2video-compose');
@@ -1154,17 +1393,17 @@ it('story2video-compose 流水线已注册为第 14 条', function () {
   eq(s2v.category, 'generated');
   const detail = pe.getPipeline('story2video-compose');
   // 2026-08-11：新增 select_video_scenes 阶段（视频+图片轮播混合模式）与 scene_context 阶段（场景上下文增强中间层）
-  eq(detail.stages.length, 8);
+  // 2026-08-14：domain_enrich 合并入 scene_context（merge-domain-enrich-into-scene-context），运行清单 8→7 阶段
+  eq(detail.stages.length, 7);
   eq(detail.stageDefs[0].name, 'split');
-  eq(detail.stageDefs[1].name, 'domain_enrich');
-  eq(detail.stageDefs[2].name, 'scene_context');
-  eq(detail.stageDefs[3].name, 'optimize');
-  eq(detail.stageDefs[4].name, 'select_video_scenes');
-  eq(detail.stageDefs[5].name, 'generate_assets');
+  eq(detail.stageDefs[1].name, 'scene_context');
+  eq(detail.stageDefs[2].name, 'optimize');
+  eq(detail.stageDefs[3].name, 'select_video_scenes');
+  eq(detail.stageDefs[4].name, 'generate_assets');
   // 2026-08-12：分镜素材自选（manual）新增 finalize_assets 阶段定义（auto 模式不进入运行清单）
-  eq(detail.stageDefs[6].name, 'finalize_assets');
-  eq(detail.stageDefs[7].name, 'compose');
-  eq(detail.stageDefs[8].name, 'publish');
+  eq(detail.stageDefs[5].name, 'finalize_assets');
+  eq(detail.stageDefs[6].name, 'compose');
+  eq(detail.stageDefs[7].name, 'publish');
 });
 
 it('现有 14 条流水线可完整 advance 到完成', function () {
@@ -1199,6 +1438,36 @@ describe('normalizeStageProgress 统一校验', () => {
       detail: { done: 3, total: 10, kind: 'image' },
       summary: '共 10 张图片',
     });
+  });
+
+  it('结构化本地化字段通过校验并保留参数', () => {
+    expect(normalizeStageProgress({
+      percent: 42,
+      message: 'Working…',
+      messageKey: 'stageProgress.assetsImage',
+      messageParams: { images: 2, imagesTotal: 4, nested: { ok: true } },
+      summary: 'Assets ready',
+      summaryKey: 'stageProgress.assetsSummary',
+      summaryParams: { done: 8, total: 8 },
+      detail: { done: 2, total: 4, kind: 'resource' },
+    })).toMatchObject({
+      messageKey: 'stageProgress.assetsImage',
+      messageParams: { images: 2, imagesTotal: 4, nested: { ok: true } },
+      summaryKey: 'stageProgress.assetsSummary',
+      summaryParams: { done: 8, total: 8 },
+    });
+  });
+
+  it('结构化本地化字段与 detail.kind 非法时 fail closed', () => {
+    const invalid = [
+      { messageKey: 'assetsImage' },
+      { messageKey: 'stageProgress.assetsImage', messageParams: { value: [] } },
+      { summaryKey: 'stageProgress.assetsSummary', summaryParams: { value: NaN } },
+      { detail: { done: 1, total: 2, kind: 'unknown' } },
+    ];
+    for (const extra of invalid) {
+      expect(normalizeStageProgress({ percent: 20, message: 'Working…', ...extra })).toBeNull();
+    }
   });
 
   it('percent 越界/非有限/强转穿透拒绝', () => {

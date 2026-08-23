@@ -31,6 +31,9 @@ const { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal
 const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
 const DEFAULT_TIMEOUT = 120000
 const DEFAULT_MODEL = 'image-01'
+// MiniMax Image 官方提示词长度上限（image-01）：超过 1500 字符服务端返回 400
+// （prompt length must be less than 1500）。长优化词在此截断而不是让整条流水线失败。
+const MAX_IMAGE_PROMPT_CHARS = 1500
 
 // MiniMax Image 目前只支持产品配置中的固定模型，避免 UI 与调用参数漂移。
 const MINIMAX_IMAGE_MODELS = [
@@ -175,7 +178,7 @@ class MinimaxImageAdapter extends BaseAdapter {
 
     const body = {
       model,
-      prompt: params.prompt,
+      prompt: Array.from(String(params.prompt)).slice(0, MAX_IMAGE_PROMPT_CHARS).join(''),
       response_format: 'url',
       n: params.n || 1,
     }
@@ -186,6 +189,28 @@ class MinimaxImageAdapter extends BaseAdapter {
       body: JSON.stringify(body),
     })
     const data = await resp.json()
+
+    // MiniMax 业务错误：HTTP 200 + base_resp.status_code != 0（如 Key 无效/过期、额度用尽）。
+    // 必须在读取 image_urls 之前解析，否则业务错误会被当成「空结果」误入内容策略重试圈，
+    // 最后误报为 content-policy review（2026-08-16 复盘：过期 Key 的真实根因）。与
+    // minimax.js（视频）/minimax-tts.js（语音）保持同一解析顺序。
+    const baseResp = data?.base_resp
+    if (baseResp && Number.isFinite(Number(baseResp.status_code)) && Number(baseResp.status_code) !== 0) {
+      const statusMsg = baseResp.status_msg || ('MiniMax 图片生成失败（status_code=' + baseResp.status_code + '）')
+      const isContentPolicy = hasStrictContentPolicySignal(statusMsg)
+      // 认证判定收紧：裸 "api key" 不得直接判 AUTH（如「API Key 额度已用完，请升级套餐」是额度问题）；
+      // 必须邻近 invalid/expired 等失效信号，或命中 authenticat/credential/token 失效表述（2026-08-16 复审）。
+      const isAuth = /api[ _-]?key[^\n]{0,24}(?:invalid|expired|失效|过期|无效|错误|不正确)|(?:invalid|expired)\s+api[ _-]?key|invalid\s+api\s*key|(?:key|密钥).{0,16}(?:invalid|expired|失效|过期|无效|错误|不正确)|authenticat|credential|unauthorized|access\s+denied|(?:token|凭证).{0,16}(?:invalid|expired|无效|失效)/i.test(String(statusMsg))
+      const isQuota = /额度|用量|quota|balance|exhausted|insufficient|billing|payment\s*required|(?:token\s*plan|用量|额度).{0,24}(?:上限|超|耗尽|用尽|用完)|升级|upgrade/i.test(String(statusMsg))
+      throw new ProviderError(
+        isContentPolicy ? ERROR_CODES.CONTENT_POLICY
+          : isAuth ? ERROR_CODES.AUTH_FAILED
+            : isQuota ? ERROR_CODES.QUOTA_EXCEEDED
+              : ERROR_CODES.PROVIDER_ERROR,
+        statusMsg,
+        { providerId: this.id, statusCode: Number(baseResp.status_code) },
+      )
+    }
 
     // MiniMax 响应中 data.image_urls 为 URL 数组
     const imageUrls = data?.data?.image_urls || data?.image_urls || []

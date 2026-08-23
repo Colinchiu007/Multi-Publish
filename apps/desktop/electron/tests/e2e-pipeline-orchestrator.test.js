@@ -118,27 +118,29 @@ test('PipelineEngine orchestrator - stage 1 (split) 执行成功并写入 contex
   console.log('  stage 1 (split) 完成，场景数:', ctx.split.scenes?.length);
 });
 
-test('PipelineEngine orchestrator - domain_enrich 后由 prompt-engine 执行 optimize', { timeout: 60000 }, async () => {
+test('PipelineEngine orchestrator - scene_context 后由 prompt-engine 执行 optimize', { timeout: 60000 }, async () => {
   const { pipelineEngine, promptBridge } = await buildContainer();
   const res = await pipelineEngine.startOrchestrated('story2video-compose', {
     text: '美丽的日落。海边的椰子树。',
     autoAdvance: false,
+    // domain_enrich 合并入 scene_context 后阶段数 8→7；手动逐步执行跳过 checkpoint 暂停，
+    // 否则 optimize 完成后下一次 executeStage 会重跑 optimize。
+    checkpointPolicy: 'none',
   });
-  for (const stageName of ['split', 'domain_enrich', 'scene_context', 'optimize']) {
+  for (const stageName of ['split', 'scene_context', 'optimize']) {
     const execRes = await pipelineEngine.executeStage(res.runId);
     if (!execRes.success) console.log('  ' + stageName + ' error:', execRes.error, execRes.details);
     assert.ok(execRes.success, stageName + ' 应执行成功');
   }
   const ctx = pipelineEngine.getRunContext(res.runId);
   assert.ok(ctx.split, 'context 应包含 split 结果');
-  assert.ok(ctx.domain_enrich, 'context 应包含 domain_enrich 结果');
   assert.ok(ctx.scene_context, 'context 应包含 scene_context 结果');
   assert.ok(ctx.optimize, 'context 应包含 optimize 结果');
   assert.equal(ctx.optimize[0].providerId, 'prompt-engine');
-  const enrichedScenes = ctx.domain_enrich.scenes || ctx.domain_enrich.sentences || ctx.domain_enrich;
-  assert.ok(Array.isArray(enrichedScenes), 'domain_enrich 应提供场景数组');
+  const enrichedScenes = ctx.scene_context.scenes || ctx.scene_context.sentences || ctx.scene_context;
+  assert.ok(Array.isArray(enrichedScenes), 'scene_context 应提供场景数组');
   assert.equal(promptBridge.calls.length, enrichedScenes.length,
-    'prompt-engine 应逐场景接收 domain_enrich 输出');
+    'prompt-engine 应逐场景接收 scene_context 输出');
   assert.ok(promptBridge.calls.every(call => typeof call.prompt === 'string' && call.prompt.length > 0),
     '优化请求必须携带场景 prompt seed');
   assert.ok(promptBridge.calls.every(call => call.auto_detect_style === true || call.style),
@@ -147,7 +149,7 @@ test('PipelineEngine orchestrator - domain_enrich 后由 prompt-engine 执行 op
     '优化输出必须来自 mock prompt-engine');
   assert.ok(ctx.optimize.every(item => item.providerId === 'prompt-engine' && item.model === 'e2e-model'),
     '优化输出必须保留 prompt-engine 身份');
-  console.log('  domain_enrich + optimize 完成');
+  console.log('  scene_context + optimize 完成');
 });
 
 test('PipelineEngine orchestrator - prompt-engine 不可用时 optimize 明确 fail-closed', { timeout: 60000 }, async () => {
@@ -164,7 +166,7 @@ test('PipelineEngine orchestrator - prompt-engine 不可用时 optimize 明确 f
     autoAdvance: false,
   });
   assert.ok(res.success, '应成功创建 orchestrator run');
-  for (const stageName of ['split', 'domain_enrich', 'scene_context']) {
+  for (const stageName of ['split', 'scene_context']) {
     const execRes = await pipelineEngine.executeStage(res.runId);
     assert.ok(execRes.success, stageName + ' 应执行成功');
   }
@@ -188,3 +190,59 @@ test('PipelineEngine orchestrator - advanceToNextCheckpoint 推进到完成', { 
   console.log('  autoAdvance 完成，paused:', res.paused);
 });
 
+
+// ── 字幕分句 v1.2 真实 8002 链路回归（5 段用户坏例）──────────────────────────
+// 断言 Python sidecar（smart-sentence-splitter /v1/split）实际返回的字幕块序列
+// 不再劈词（扶余国/电视剧/复杂 等），与共享向量 expected_blocks 逐字一致。
+const USER_SUBTITLE_CASES = [
+  {
+    label: '扶余神话（顿号短块+连词）',
+    text: '故事里充满了神话色彩。卵生、日影受孕、鱼鳖搭桥，但剥去这些奇幻的外壳，内核却无比清晰。',
+    expected: ['故事里充满了神话色彩', '卵生、日影受孕、鱼鳖搭桥', '但剥去这些奇幻的外壳', '内核却无比清晰'],
+  },
+  {
+    label: '扶余国 不劈词',
+    text: '因此，在韩国的历史教科书里，能看到大量关于扶余国和扶余人的记载。',
+    expected: ['因此，在韩国的历史教科书里', '能看到大量关于扶余国', '和扶余人的记载'],
+  },
+  {
+    label: '电视剧《朱蒙》不劈词',
+    text: '2005年，韩国收视率最高的电视剧《朱蒙》播出，里面讲述的正是这位扶余王子的故事。',
+    expected: ['2005年，韩国收视率最高的', '电视剧《朱蒙》播出', '里面讲述的正是', '这位扶余王子的故事'],
+  },
+  {
+    label: '燕国/空白一片 不劈词',
+    text: '西周人对东北的了解本就模糊，连分封在河北的燕国早期历史都空白一片，更不要说辽西以东的虚实。',
+    expected: ['西周人对东北的了解本就模糊', '连分封在河北的', '燕国早期历史都空白一片', '更不要说辽西以东的虚实'],
+  },
+  {
+    label: '复杂/顿号枚举整体保留',
+    text: '历史上的族群迁徙与政权更迭本就复杂，而民族叙事则倾向于把一切复杂简单化、直线化。',
+    expected: ['历史上的族群迁徙', '与政权更迭本就复杂', '而民族叙事则倾向于', '把一切复杂简单化、直线化'],
+  },
+  {
+    label: '声音枚举吞谓语/滚烫不劈词',
+    text: '枪声、爆炸声、呐喊声混成一锅滚烫的粥。',
+    expected: ['枪声、爆炸声、呐喊声', '混成一锅滚烫的粥'],
+  },
+]
+
+test('E2E real 8002 - 5 段用户坏例字幕分块符合 v1.2 目标', { timeout: 180000 }, async () => {
+  const { pipelineEngine } = await buildContainer()
+  for (const c of USER_SUBTITLE_CASES) {
+    const res = await pipelineEngine.startOrchestrated('story2video-compose', {
+      text: c.text,
+      autoAdvance: false,
+    })
+    assert.ok(res.success, '应创建 run: ' + res.error)
+    const execRes = await pipelineEngine.executeStage(res.runId)
+    assert.ok(execRes.success, c.label + ' split 应成功: ' + execRes.error)
+    const scenes = execRes.output && execRes.output.scenes
+    assert.ok(Array.isArray(scenes) && scenes.length > 0, c.label + ' 应返回 scenes')
+    const blocks = scenes.flatMap((s) => s.subtitleBlocks || [])
+    assert.deepEqual(blocks, c.expected, c.label + ' 字幕块应命中 v1.2 目标')
+    console.log('  [8002] ' + c.label + ' → ' + blocks.join(' | '))
+    // 释放并发槽：本轮只验证 split 阶段，run 不推进到终态时手动取消
+    pipelineEngine.cancel()
+  }
+})

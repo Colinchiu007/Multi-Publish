@@ -632,7 +632,34 @@ class TtsVoiceCloneService {
    * - 新名称走 safeDisplayName 同款校验（1..128、无控制字符）；
    * - 名称允许重复（供应商不要求唯一），前端以「音色XXX」自动命名避免默认冲突。
    */
-  async renameClone(input) {
+    /**
+   * 根据 voiceId 查找克隆音色的原始音频样本路径（用于跨账号重新克隆）。
+   * 返回 { sampleStorage, name } 或 null。
+   */
+  async findCloneSamples(voiceId, providerId, model) {
+    if (!this._store || !voiceId) return null
+    const owner = this._captureOwner()
+    if (!owner) return null
+    // Try exact model key first, then fall back to known MiniMax TTS models
+    // (handles case where pipeline resumes without voiceModel or model changed)
+    const candidateModels = [model, 'speech-2.8-turbo', 'speech-02-hd', 'speech-2.8-hd', 'speech-2.6-hd', 'speech-2.6-turbo'].filter(Boolean)
+    const triedKeys = new Set()
+    for (const m of candidateModels) {
+      const key = cloneRegistrySettingKey(providerId, m)
+      if (triedKeys.has(key)) continue
+      triedKeys.add(key)
+      let registry
+      try {
+        registry = this._store.getUserSetting(key, null, owner.subject)
+      } catch (_) { continue }
+      if (!registry || !Array.isArray(registry.voices)) continue
+      const clone = registry.voices.find(v => v.id === voiceId && v.deletionState === DELETE_STATES.ACTIVE)
+      if (clone && clone.sampleStorage) return { sampleStorage: clone.sampleStorage, name: clone.name }
+    }
+    return null
+  }
+
+async renameClone(input) {
     const request = this._normalizeRenameRequest(input);
     if (!request) return failure("VOICE_CLONE_INVALID_ARGUMENTS");
     const owner = this._captureOwner();

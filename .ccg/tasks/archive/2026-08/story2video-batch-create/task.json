@@ -1,0 +1,16 @@
+{
+  "id": "story2video-batch-create",
+  "title": "Story2Video 故事讲述-批量创作视频（队列、并行限制、弹窗、历史记录）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "frontend+backend",
+  "currentPhase": "completed",
+  "nextAction": "归档",
+  "createdAt": "2026-08-14T00:00:00Z",
+  "branch": "codex/story2video-batch-create",
+  "openspecChange": "story2video-batch-create",
+  "pr": "https://github.com/Colinchiu007/Multi-Publish/pull/831",
+  "mergedSha": "5450372bb9086e95b972ad6667bf591a7a4cf4b2",
+  "remoteStatus": "merged 2026-08-15 01:29 UTC, CI 18 checks all green"
+}

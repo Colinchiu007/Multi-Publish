@@ -1,0 +1,12 @@
+{
+  "id": "s2v-history-ai-video-regen",
+  "title": "Story2Video 历史记录场景 AI 视频重新生成（W4 闭环：videoPrompt 消费路径）",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "PR #870 已合并 d044d4b4，CI 全绿，QM-1 打包通过",
+  "createdAt": "2026-08-15T22:00:00Z",
+  "branch": "codex/s2v-history-ai-video-regen"
+}

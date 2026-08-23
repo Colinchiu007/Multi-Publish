@@ -25,7 +25,7 @@
  */
 
 const { BaseAdapter } = require('./_base/base')
-const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider-error')
+const { ProviderError, ERROR_CODES, fromHttpStatus, hasStrictContentPolicySignal } = require('./_base/provider-error')
 const { MINIMAX_SYSTEM_VOICES } = require('./minimax-tts-voices')
 
 const DEFAULT_BASE_URL = 'https://api.minimaxi.com/v1'
@@ -93,7 +93,30 @@ function voiceInvalidOrConfigError (message, providerId) {
   return new ProviderError(code, normalized || 'MiniMax 语音合成失败', { providerId })
 }
 
-// 静态预定义 MiniMax TTS 模型列表（speech-2.8-turbo 为首选默认）
+/**
+ * MiniMax base_resp 业务错误分类（与 minimax-image.js 保持一致）：
+ * HTTP 200 + base_resp.status_code != 0 时，按 status_msg 文本区分
+ * auth/quota/content_policy/voice/其他，避免笼统归为 PROVIDER_ERROR。
+ */
+function classifyBaseRespError (message, providerId, statusCode) {
+  const msg = String(message || '').trim()
+  const isContentPolicy = hasStrictContentPolicySignal(msg)
+  // 认证判定收紧：裸 "api key" 不得直接判 AUTH；必须邻近 invalid/expired 等失效信号
+  const isAuth = /api[ _-]?key[^\n]{0,24}(?:invalid|expired|\u5931\u6548|\u8fc7\u671f|\u65e0\u6548|\u9519\u8bef|\u4e0d\u6b63\u786e)|(?:invalid|expired)\s+api[ _-]?key|invalid\s+api\s*key|(?:key|\u5bc6\u94a5).{0,16}(?:invalid|expired|\u5931\u6548|\u8fc7\u671f|\u65e0\u6548|\u9519\u8bef|\u4e0d\u6b63\u786e)|authenticat|credential|unauthorized|access\s+denied|(?:token|\u51ed\u8bc1).{0,16}(?:invalid|expired|\u65e0\u6548|\u5931\u6548)/i.test(msg)
+  const isQuota = /\u4f59\u989d|\u989d\u5ea6|\u7528\u91cf|quota|balance|exhausted|insufficient|billing|payment\s*required|(?:token\s*plan|\u989d\u5ea6).{0,24}(?:\u4e0a\u9650|\u8d85|\u8017\u5c3d|\u7528\u5c3d|\u7528\u5b8c)|\u5347\u7ea7|upgrade/i.test(msg)
+    const isVoiceInvalid = /voice\s+(?:id\s+)?(?:wrong|invalid|not\s+found|does\s+not\s+exist|unavailable|missing)|(?:invalid|unsupported)\s+voice|voice_id.*(?:invalid|wrong|not\s+found|not\s+exist|unsupported)|cloned?\s+voice.*(?:not\s+found|not\s+available|unavailable)|don'?t\s+have\s+access.*voice_id|access.*(?:to\s+)?(?:this\s+)?voice|(?:\\u97f3\\u8272|\\u58f0\\u97f3).*(?:\\u65e0\\u6548|\\u4e0d\\u5b58\\u5728|\\u5931\\u6548|\\u9519\\u8bef|\\u4e0d\\u5b58\\u5728)|\\u5f53\\u524d\\u8d26\\u53f7.*\\u97f3\\u8272|\\u8d26\\u53f7.*\\u97f3\\u8272|\\u5c5e\\u4e8e.*\\u5176\\u4ed6.*\\u8d26\\u53f7/i.test(msg)
+  const code = isContentPolicy ? ERROR_CODES.CONTENT_POLICY
+    : isAuth ? ERROR_CODES.AUTH_FAILED
+      : isQuota ? ERROR_CODES.QUOTA_EXCEEDED
+        : isVoiceInvalid ? ERROR_CODES.INVALID_CONFIG
+          : ERROR_CODES.PROVIDER_ERROR
+  return new ProviderError(code, msg || 'MiniMax \u8bed\u97f3\u5408\u6210\u5931\u8d25', {
+    providerId,
+    ...(statusCode != null ? { statusCode: Number(statusCode) } : {}),
+  })
+}
+
+// \u9759\u6001\u9884\u5b9a\u4e49 MiniMax TTS \u6a21\u578b\u5217\u8868（speech-2.8-turbo 为首选默认）
 const MINIMAX_TTS_MODELS = [
   { id: 'speech-2.8-turbo',  name: 'Speech 2.8 Turbo',  description: '异步长文本语音合成（T2A Async），极致生成速度' },
   { id: 'speech-2.8-hd',     name: 'Speech 2.8 HD',     description: '高质量语音合成 v2.8' },
@@ -256,7 +279,7 @@ class MinimaxTtsAdapter extends BaseAdapter {
 
     // 异步 T2A 模型（speech-2.8-*/speech-02-*）必须走 t2a_async_v2 创建任务 → 查询 → 下载，
     // 同步端点 /t2a_v2 对异步模型返回 200 但不含 data.audio。
-    if (isAsyncT2aModel(effectiveModel)) {
+        if (isAsyncT2aModel(effectiveModel)) {
       return this._synthesizeAsync({ text: params.text, model: effectiveModel, voice, speed, pitch, outputFormat, subtitleType })
     }
 
@@ -287,6 +310,13 @@ class MinimaxTtsAdapter extends BaseAdapter {
     const data = await resp.json()
 
     // MiniMax 响应中 data.audio 为 hex 编码字符串
+    // MiniMax 业务错误：HTTP 200 + base_resp.status_code != 0
+    const baseResp = data?.base_resp
+    if (baseResp && Number.isFinite(Number(baseResp.status_code)) && Number(baseResp.status_code) !== 0) {
+      const statusMsg = baseResp.status_msg || ('MiniMax 语音合成失败（status_code=' + baseResp.status_code + ')')
+      throw classifyBaseRespError(statusMsg, this.id, baseResp.status_code)
+    }
+
     const hexAudio = data?.data?.audio || data?.audio
     if (!hexAudio) {
       throw new ProviderError(
@@ -385,7 +415,7 @@ class MinimaxTtsAdapter extends BaseAdapter {
         || createData?.message
         || 'MiniMax 异步语音合成未返回 task_id'
       // 音色无效/参数错误属于配置问题：非瞬时、不重试，快速失败并透传具体原因
-      throw voiceInvalidOrConfigError(message, this.id)
+      throw classifyBaseRespError(message, this.id, createData?.base_resp?.status_code)
     }
 
     const pollTimeoutMs = Number.isFinite(Number(this.options.asyncPollTimeoutMs))
@@ -443,13 +473,14 @@ class MinimaxTtsAdapter extends BaseAdapter {
         const message = typeof errorValue === 'string'
           ? errorValue
           : (errorValue && errorValue.message) || String(data?.status || nested?.status || '') || 'MiniMax 异步语音合成失败'
-        throw voiceInvalidOrConfigError(message, this.id)
+        throw classifyBaseRespError(message, this.id)
 
       }
       if (statusCode !== undefined && Number(statusCode) !== 0) {
-        throw voiceInvalidOrConfigError(
+        throw classifyBaseRespError(
           String(baseResp.status_msg || ('MiniMax 异步语音合成失败（status_code=' + statusCode + '）')),
           this.id,
+          statusCode,
         )
       }
 
@@ -523,6 +554,15 @@ class MinimaxTtsAdapter extends BaseAdapter {
       body: JSON.stringify({ file_id: fileId, voice_id: voiceId, model: VOICE_CLONE_MODEL }),
     })
     const cloneJson = await cloneResp.json()
+    // 音色复刻失败必须 fail closed：MiniMax 业务错误常以 HTTP 200 + base_resp.status_code != 0
+    // 返回（如 2038 voice clone user forbidden）。若忽略 base_resp 并把本地生成的
+    // voice_id 当作成功回显，会持久化一个不存在的幻影克隆音色，后续 TTS 必然报
+    // voice id wrong，流水线还会误判为“克隆音色不可用”而回退默认官方音色。
+    const cloneBaseResp = cloneJson?.base_resp
+    if (cloneBaseResp && Number.isFinite(Number(cloneBaseResp.status_code)) && Number(cloneBaseResp.status_code) !== 0) {
+      const statusMsg = cloneBaseResp.status_msg || ('MiniMax 音色复刻失败（status_code=' + cloneBaseResp.status_code + '）')
+      throw classifyBaseRespError(statusMsg, this.id, cloneBaseResp.status_code)
+    }
     const finalId = cloneJson?.voice_id || cloneJson?.data?.voice_id || voiceId
     if (!finalId) {
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '音色复刻未返回 voice_id', { providerId: this.id })

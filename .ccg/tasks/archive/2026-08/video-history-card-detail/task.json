@@ -1,0 +1,14 @@
+{
+  "id": "video-history-card-detail",
+  "title": "视频创作历史记录卡片与非运行任务详情编辑增强",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "frontend-electron",
+  "currentPhase": "ship",
+  "nextAction": "提交并推送功能分支，创建、检查并合并 GitHub PR",
+  "openspecChange": "video-history-card-detail",
+  "branch": "codex/video-history-card-detail",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-video-history-card-detail",
+  "createdAt": "2026-08-19T13:30:00+08:00"
+}

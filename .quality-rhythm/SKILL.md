@@ -37,6 +37,13 @@ type: workflow
 - **跳过质量节拍流程**：Code Review 打回
 - **绕过强制检查**：视为流程违规
 
+### 会话隔离与共享主目录写保护门禁（MUST）
+
+- **共享主目录只读运行时代码**：仓库根（例如 `D:/Data/projects/Multi-Publish`）是 main-only 协调目录，`apps/`、`packages/`、`ops-center/`、`config/`、`.github/` 等运行时路径不得直接落盘；运行时代码任务必须先通过 `scripts/start-mp-task.ps1 -TaskName <task-name>` 创建独立 worktree（默认 `<仓库父目录>/mp-worktrees/mp-<task-name>`，可用 `-WorktreeRoot` / `MP_WORKTREES` 覆盖）。
+- **实时写保护检查（pre-flight + 提交前）**：确认 `Session Isolation Write Guard` 计划任务已注册且 watcher 运行中，`scripts/mp-worktree-health.ps1 -RequireWriteGuard` 通过；共享主目录必须保持 `main` + clean。
+- **被隔离文件的处置**：写保护会把运行时目录直接落盘的文件移入 `%LOCALAPPDATA%\Multi-Publish\session-isolation\quarantine\`，tracked 文件从 HEAD 恢复；发现隔离残留先按 `docs/session-isolation-automation.md` 恢复，禁止用 `--no-verify` 绕过提交守卫。
+- **新机器启用**：安装 skill 只提供门禁文本，还需在克隆仓库后运行 `powershell -ExecutionPolicy Bypass -File scripts/bootstrap-write-guard.ps1` 安装 hooks、计划任务与 watcher；自检和健康门禁通过前不要开始运行时代码任务。
+
 ---
 
 # 质量节拍

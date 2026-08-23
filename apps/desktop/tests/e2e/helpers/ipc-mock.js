@@ -49,6 +49,22 @@
     providerCategories: modelProviderFixtures.categories || [],
     comments: (window.__fixtures && window.__fixtures.comments && window.__fixtures.comments.comments) || [],
     schedulerTasks: (window.__fixtures && window.__fixtures.comments && window.__fixtures.comments.schedulerTasks) || [],
+    story2videoProjects: [{
+      projectId: 'e2e-story2video-project',
+      title: 'E2E 视频任务',
+      pipeline: 'story2video-compose',
+      sourceText: '用于验证历史任务直接进入视频任务编辑页的 E2E 文案。',
+      createdAt: '2026-07-10T10:00:00Z',
+      updatedAt: '2026-07-10T10:05:00Z',
+      segments: [{
+        id: 'e2e-scene-0',
+        index: 0,
+        text: '用于验证历史任务直接进入视频任务编辑页的 E2E 文案。',
+        status: 'completed',
+        duration: 5,
+      }],
+      options: {},
+    }],
     // 运行时状态
     offline: false,
     licensed: { isPro: false, trial: true, trialDaysLeft: 7 },
@@ -481,9 +497,9 @@
     // 流水线
     pipelines: pipelinesObj,
     // 与 electron/services/pipeline-engine.js 的 PIPELINES/listPipelines 对齐：
-    // 14 条内置流水线（CreateView 额外插入 video-clone → 卡片共 15），story2video-compose（故事讲述）优先，screen-demo 无真实引擎标记 available=false。
+    // 14 条内置流水线（CreateView 额外插入 video-clone 与 film-engineering → 卡片共 16），story2video-compose（故事讲述）优先，screen-demo 无真实引擎标记 available=false。
     pipelineList: makeHandler('pipelineList', async () => ok([
-      { name: 'story2video-compose', description: '将文案自动生成图片轮播视频（可选 AI 视频混合）', category: 'generated', stageCount: 7, estimatedCost: 'medium', available: true, stages: ['split', 'domain_enrich', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'] },
+      { name: 'story2video-compose', description: '将文案自动生成图片轮播视频（可选 AI 视频混合）', category: 'generated', stageCount: 7, estimatedCost: 'medium', available: true, stages: ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'] },
       { name: 'animated-explainer', description: '从主题或创意自动生成完整讲解视频', category: 'generated', stageCount: 8, estimatedCost: 'medium', available: true, stages: ['research', 'proposal', 'script', 'scenes', 'assets', 'editing', 'compose', 'publish'] },
       { name: 'talking-head', description: '上传视频和文案，生成带字幕的口播视频', category: 'talking_head', stageCount: 4, estimatedCost: 'low', available: true, stages: ['upload', 'transcribe', 'captions', 'render'] },
       { name: 'cinematic', description: '将素材视频渲染成电影感短片', category: 'cinematic', stageCount: 4, estimatedCost: 'low', available: true, stages: ['ingest', 'grade', 'compose', 'render'] },
@@ -514,9 +530,28 @@
     pipelineStatus: makeHandler('pipelineStatus', async () => ok({ status: 'idle' })),
     pipelineAdvance: makeHandler('pipelineAdvance', async () => ok(true)),
     pipelineHistory: makeHandler('pipelineHistory', async () => ok([
-      { pipelineName: '热点流水线', status: 'completed', startedAt: '2026-07-10T10:00:00Z', completedAt: '2026-07-10T10:05:00Z', stages: [{ name: '采集', status: 'completed' }, { name: 'AI写作', status: 'completed' }] }
+      {
+        id: 'e2e-story2video-project',
+        projectId: 'e2e-story2video-project',
+        pipeline: 'story2video-compose',
+        status: 'completed',
+        createdAt: '2026-07-10T10:00:00Z',
+        updatedAt: '2026-07-10T10:05:00Z',
+        endedAt: '2026-07-10T10:05:00Z',
+        activeMs: 300000,
+        stages: [{ name: 'split', status: 'completed' }, { name: 'compose', status: 'completed' }],
+      }
     ])),
     pipelineFetch: makeHandler('pipelineFetch', async () => ok(null)),
+    story2videoListProjects: makeHandler('story2videoListProjects', async () => ok(state.story2videoProjects)),
+    story2videoGetProject: makeHandler('story2videoGetProject', async (projectId) => {
+      const project = state.story2videoProjects.find(item => item.projectId === projectId)
+      return project ? ok(project) : fail('项目不存在')
+    }),
+    story2videoDeleteProject: makeHandler('story2videoDeleteProject', async (projectId) => {
+      state.story2videoProjects = state.story2videoProjects.filter(item => item.projectId !== projectId)
+      return ok(true)
+    }),
 
     // Story2Video 媒体导入（preload 桥接：getPathForFile 返回字符串，导入通道返回 { code, data: { path } }）
     getPathForFile: () => 'C:/mock/e2e-video.mp4',

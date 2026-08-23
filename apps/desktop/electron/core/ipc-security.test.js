@@ -106,9 +106,12 @@ describe('ipc-security — isTrustedSender', () => {
     expect(isTrustedSender(makeEvent('http://localhost/'), mockApp)).toBe(false)
   })
 
-  // Bug fix (QM-5) 回归保护：Vite 端口漂移容错
-  // 当 5174 被占用时 Vite 会自动切到 5175/5176 等，严格端口匹配会导致开发环境 IPC 来源校验失败
-  it('开发环境允许 Vite 端口漂移（5175-5180 范围）', () => {
+  // Bug fix (QM-5) 回归保护：Vite 端口漂移容错仅在 DEV_SERVER_PORT 未显式设置时生效
+  // 当 5174 被占用时 Vite 会自动切到 5175/5176 等；显式注入 DEV_SERVER_PORT 后（worktree 独立端口）
+  // 该容错带必须关闭，否则兄弟 worktree 派生端口落在 5174-5180 时会穿透 IPC 信任（C1）
+  it('DEV_SERVER_PORT 未设置时允许 Vite 端口漂移（5175-5180 范围）', () => {
+    delete process.env.DEV_SERVER_PORT
+    expect(isTrustedSender(makeEvent('http://localhost:5174/'), mockApp)).toBe(true)
     expect(isTrustedSender(makeEvent('http://localhost:5175/'), mockApp)).toBe(true)
     expect(isTrustedSender(makeEvent('http://localhost:5176/'), mockApp)).toBe(true)
     expect(isTrustedSender(makeEvent('http://localhost:5180/'), mockApp)).toBe(true)
@@ -117,11 +120,12 @@ describe('ipc-security — isTrustedSender', () => {
     expect(isTrustedSender(makeEvent('http://localhost:5173/'), mockApp)).toBe(false)
   })
 
-  it('DEV_SERVER_PORT 自定义时严格匹配', () => {
+  it('DEV_SERVER_PORT 自定义时严格匹配，5174-5180 容错带关闭', () => {
     process.env.DEV_SERVER_PORT = '3000'
     expect(isTrustedSender(makeEvent('http://localhost:3000/'), mockApp)).toBe(true)
-    // 自定义端口时，5174-5180 范围仍容错
-    expect(isTrustedSender(makeEvent('http://localhost:5174/'), mockApp)).toBe(true)
+    // 显式端口下容错带必须关闭（C1：防止兄弟 worktree 派生端口穿透 IPC 信任）
+    expect(isTrustedSender(makeEvent('http://localhost:5174/'), mockApp)).toBe(false)
+    expect(isTrustedSender(makeEvent('http://localhost:5175/'), mockApp)).toBe(false)
     expect(isTrustedSender(makeEvent('http://localhost:3001/'), mockApp)).toBe(false)
   })
 

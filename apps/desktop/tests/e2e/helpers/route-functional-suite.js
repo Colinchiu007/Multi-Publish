@@ -361,8 +361,8 @@ async function exerciseCreate(r) {
   const firstPipelineId = await r.page.locator('.pipeline-card').first().getAttribute('data-pipeline-id').catch(() => null);
   record(r, '故事讲述流水线优先显示', firstPipelineId === CAROUSEL_PIPELINE && await pipelineCard.first().innerText().then(text => /故事讲述|story telling/i.test(text)));
   const cardCount = await r.page.locator('.pipeline-card').count();
-  // 15 个内置流水线卡片（视频克隆入口卡于 PR #626 加入后同步；改动 CreateView 流水线卡片需同步此计数）
-  record(r, '全部内置流水线卡片渲染', cardCount === 15, { count: cardCount });
+  // 16 个内置流水线卡片（14 条来自 pipelineList + CreateView 额外插入 video-clone 与 film-engineering；改动 CreateView 流水线卡片需同步此计数）
+  record(r, '全部内置流水线卡片渲染', cardCount === 16, { count: cardCount });
 
   // 图片轮播（本次排除项）：仅保留既有启动路径回归
   if (await pipelineCard.count()) {
@@ -452,12 +452,29 @@ async function exercisePipeline(r) {
 }
 
 async function exerciseCreateHistory(r) {
-  record(r, '渲染历史 fixture 渲染', await r.page.locator('.render-card').count() > 0);
-  record(r, '流水线记录可切换', await clickText(r, '流水线记录'));
-  record(r, '流水线历史列表渲染', await r.page.locator('.pipeline-card').count() > 0);
-  await r.goto('/create/history');
-  const preview = await clickText(r, '预览');
-  if (preview) record(r, '历史预览跳转结果页', (await r.currentRoute()).startsWith('/create/result'));
+  // /create/history 已重定向到 /create?view=history（历史记录标签为唯一入口，旧独立页废弃）
+  record(r, '历史记录标签渲染', await r.page.locator('.history-status-tabs').count() > 0);
+  record(r, '历史任务卡片渲染', await r.page.locator('.history-item').count() > 0);
+  const editableTask = r.page.locator('.history-item-body.is-interactive').first();
+  const hasEditableTask = await editableTask.count() > 0;
+  let openedEditor = false;
+  if (hasEditableTask) {
+    await editableTask.click({ timeout: FEATURE_READY_TIMEOUT });
+    await r.page.waitForFunction(() => window.location.hash.startsWith('#/create/result?project=e2e-story2video-project'), null, { timeout: FEATURE_READY_TIMEOUT });
+    openedEditor = true;
+  }
+  record(r, '历史任务直达视频任务编辑页', openedEditor);
+  if (openedEditor) {
+    record(r, '视频任务编辑页显示任务标题', await bodyHas(r, 'E2E 视频任务'));
+  }
+  await r.resetToRoute('/create?view=history');
+  record(r, '历史记录可切换', await clickText(r, '流水线创作'));
+  await r.resetToRoute('/create?view=history');
+  const failedTab = r.page.locator('.history-status-tab[data-status="failed"]');
+  await failedTab.waitFor({ state: 'visible', timeout: FEATURE_READY_TIMEOUT });
+  await failedTab.click({ timeout: FEATURE_READY_TIMEOUT });
+  const failedTabSelected = await failedTab.evaluate((element) => element.getAttribute('aria-selected') === 'true');
+  record(r, '状态标签可切换', failedTabSelected);
 }
 
 async function exerciseCloudPublish(r) {
@@ -522,7 +539,7 @@ const definitions = {
   create: { route: '/create', title: '视频创作', exercise: exerciseCreate },
   result: { route: '/create/result', title: '视频预览', exercise: exerciseResult },
   pipeline: { route: '/create/pipeline', redirectExpected: '/create', title: '视频创作', exercise: exercisePipeline },
-  'create-history': { route: '/create/history', title: '创作历史', exercise: exerciseCreateHistory },
+  'create-history': { route: '/create/history', redirectExpected: '/create?view=history', title: '视频创作', exercise: exerciseCreateHistory },
   'cloud-publish': { route: '/cloud-publish', title: '云端发布', exercise: exerciseCloudPublish },
   intelligence: { route: '/intelligence', title: '内容情报', exercise: exerciseIntelligence },
   calendar: { route: '/calendar', title: '发布日历', exercise: exerciseCalendar }

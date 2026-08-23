@@ -41,6 +41,20 @@ function isSafeId (value) {
   return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value)
 }
 
+// Only reclaim a token that belongs to this local media server: same origin as the
+// freshly issued URL and a media path with a valid token shape. Anything else (file://,
+// foreign origin, non-media path) is ignored so a stale renderer value cannot evict a
+// token still in active use by another segment.
+function isLocalMediaTokenUrl (value, sampleUrl) {
+  try {
+    const previous = new URL(value)
+    const sample = new URL(sampleUrl)
+    return previous.origin === sample.origin && /^\/media\/[A-Za-z0-9_-]{16,128}$/.test(previous.pathname)
+  } catch (_) {
+    return false
+  }
+}
+
 function registerHandlers (ipcMain, deps = {}) {
   const electron = require('electron')
   const BrowserWindow = deps.BrowserWindow || electron.BrowserWindow
@@ -100,9 +114,28 @@ function registerHandlers (ipcMain, deps = {}) {
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
+  ipcMain.handle('story2video:get-thumbnail', withSenderCheck(async (_event, projectId) => {
+    if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
+    try {
+      const thumbnail = await requireProjectService().getThumbnail(projectId)
+      if (!thumbnail || thumbnail.status !== 'ready' || !thumbnail.path) {
+        return { code: 0, data: { status: thumbnail?.status || 'missing', kind: thumbnail?.kind || 'missing', url: null } }
+      }
+      const resolved = validateFilePath(thumbnail.path, projectRoots)
+      if (!resolved) return { code: 0, data: { status: 'failed', kind: 'failed', url: null } }
+      const url = createShareFileUrl(resolved, { allowedRoots: allowedMediaRoots(), mediaServer })
+      if (typeof url !== 'string' || !url.trim()) {
+        return { code: 0, data: { status: 'failed', kind: 'failed', url: null } }
+      }
+      return { code: 0, data: { status: 'ready', kind: thumbnail.kind, url } }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: error.message }
+    }
+  }))
+
   ipcMain.handle('story2video:delete-project', withSenderCheck(async (_event, projectId) => {
     if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
-    try { return { code: 0, data: requireProjectService().deleteProject(projectId) } }
+    try { return { code: 0, data: await requireProjectService()._serializeProject(projectId, () => requireProjectService().deleteProject(projectId)) } }
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
@@ -111,7 +144,7 @@ function registerHandlers (ipcMain, deps = {}) {
         !Array.isArray(request.segments) || request.segments.length === 0) {
       return { code: EC.VALIDATION_ERROR, message: '分段更新参数无效' }
     }
-    try { return { code: 0, data: requireProjectService().updateSegments(request.projectId, request.segments) } }
+    try { return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().updateSegments(request.projectId, request.segments)) } }
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
@@ -123,7 +156,7 @@ function registerHandlers (ipcMain, deps = {}) {
     try {
       return {
         code: 0,
-        data: await requireProjectService().replaceSegmentAudio(request.projectId, request.segmentId, request.filePath),
+        data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().replaceSegmentAudio(request.projectId, request.segmentId, request.filePath)),
       }
     } catch (error) {
       return { code: EC.REQUEST_ERROR, message: error.message }
@@ -138,15 +171,80 @@ function registerHandlers (ipcMain, deps = {}) {
       return { code: EC.VALIDATION_ERROR, message: '分段重试参数无效' }
     }
     try {
-      const data = await requireProjectService().retrySegment(request.projectId, request.segmentId, request.mode)
+      const data = await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().retrySegment(request.projectId, request.segmentId, request.mode))
       return { code: 0, data }
     } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:recompose-project', withSenderCheck(async (_event, projectId) => {
     if (!isSafeId(projectId)) return { code: EC.VALIDATION_ERROR, message: 'projectId 无效' }
-    try { return { code: 0, data: await requireProjectService().recomposeProject(projectId) } }
+    try { return { code: 0, data: await requireProjectService()._serializeProject(projectId, () => requireProjectService().recomposeProject(projectId)) } }
     catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:select-scene-material', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) ||
+        !isSafeId(request.segmentId) || !['image1', 'image2', 'video', 'video1', 'video2'].includes(request.kind)) {
+      return { code: EC.VALIDATION_ERROR, message: '素材选择参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().selectSceneMaterial(request.projectId, request.segmentId, request.kind)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:generate-scene-image', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景图片生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().generateSceneImage(request.projectId, request.segmentId)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:generate-scene-ai-video', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景 AI 视频重新生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().generateSceneAiVideo(request.projectId, request.segmentId)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:generate-scene-video', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景视频生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().generateSceneVideo(request.projectId, request.segmentId)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:regenerate-scene-subtitle', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景字幕重新生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().regenerateSceneSubtitle(request.projectId, request.segmentId)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:regenerate-scene-audio', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) || !isSafeId(request.segmentId)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景旁白重新生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().regenerateSceneAudio(request.projectId, request.segmentId)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
+  }))
+
+  ipcMain.handle('story2video:regenerate-scene-prompt', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || !isSafeId(request.projectId) ||
+        !isSafeId(request.segmentId) || !['image', 'video'].includes(request.kind)) {
+      return { code: EC.VALIDATION_ERROR, message: '场景优化词重新生成参数无效' }
+    }
+    try {
+      return { code: 0, data: await requireProjectService()._serializeProject(request.projectId, () => requireProjectService().regenerateScenePrompt(request.projectId, request.segmentId, request.kind)) }
+    } catch (error) { return { code: EC.REQUEST_ERROR, message: error.message } }
   }))
 
   ipcMain.handle('story2video:transcribe', withSenderCheck(async (_event, request) => {
@@ -266,12 +364,20 @@ function registerHandlers (ipcMain, deps = {}) {
     }
   }))
 
-  ipcMain.handle('story2video:create-share-url', withSenderCheck(async (_event, filePath) => {
+  ipcMain.handle('story2video:create-share-url', withSenderCheck(async (_event, filePath, previousUrl) => {
     try {
       const allowedRoots = allowedMediaRoots()
       const resolved = validateFilePath(filePath, projectRoots)
       if (!resolved) return { code: EC.VALIDATION_ERROR, message: '视频文件路径无效或不允许访问' }
-      return { code: 0, data: { url: createShareFileUrl(resolved, { allowedRoots, mediaServer }), path: resolved } }
+      const url = createShareFileUrl(resolved, { allowedRoots, mediaServer })
+      // Best-effort reclaim of the previous short-lived media token: after re-issuing a
+      // fresh URL for the same file, the old token is revoked so it cannot linger. Only
+      // same-server media URLs are accepted; anything else is ignored.
+      if (typeof previousUrl === 'string' && previousUrl && isLocalMediaTokenUrl(previousUrl, url) &&
+          mediaServer && typeof mediaServer.revoke === 'function') {
+        try { mediaServer.revoke(previousUrl) } catch (_) { /* revoke is best-effort */ }
+      }
+      return { code: 0, data: { url, path: resolved } }
     } catch (error) {
       return { code: EC.REQUEST_ERROR, message: error.message }
     }

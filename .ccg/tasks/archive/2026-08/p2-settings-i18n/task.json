@@ -1,6 +1,6 @@
 {
   "branch": "codex/p2-settings-i18n",
-  "openspecChange": "desktop-ui-i18n-p2(已归档,第一批)",
+  "openspecChange": "desktop-ui-i18n-p2",
   "complexity": "M",
   "id": "p2-settings-i18n",
   "pr": "#602 merged 1bc36e64",

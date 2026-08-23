@@ -50,7 +50,8 @@ const ROOT_CAUSE_RULES = Object.freeze([
     causeId: 'sidecar_unavailable',
     label: 'Python sidecar 未运行或端口被占用',
     test: (ctx) => /ECONNREFUSED|connection refused|not running|端口.*占用|sidecar.*(不可|未运行|down)|bridge.*(fail|不可)/i.test(buildText(ctx)) &&
-      ['split', 'domain_enrich', 'optimize', 'generate_assets'].includes(ctx.stage),
+      // scene_context 为纯规则阶段（不调用 8002/8013），不列入 sidecar 白名单
+      ['split', 'optimize', 'generate_assets'].includes(ctx.stage),
     checks: ['确认 8002/8013 sidecar 进程存活且健康检查通过', '确认端口未被其他进程占用'],
     advice: '重启 sidecar（或恢复后端服务）后重试该阶段',
     confidence: 'high',

@@ -8,7 +8,7 @@
 - Node.js 20+、Codex CLI、git + GitHub 认证
 - Claude Code CLI（可选；CCG 双模型分析需要）
 
-## 安装步骤（6 步）
+## 安装步骤（7 步）
 
 ### 1. CCG 机制（官方安装器）
 
@@ -66,9 +66,19 @@ git clone https://github.com/Colinchiu007/quality-rhythm.git   # → ~/.agents/s
 - `.github/workflows/quality-gate.yml` + `.quality-gates.md` 由 ci-hardening 脚手架渲染（并行 QG + 触发去重，单一来源 `skills/other/ci-hardening/assets/templates/`）
 - husky 钩子已由 install-mechanism.js 自动注册（`node .husky/install.js --force`）
 
-### 6. 重启 Codex + 验证
+### 6. 会话隔离与共享主目录写保护（Windows 一键）
 
-**必须完全重启 Codex**（技能/AGENTS.md 启动时加载），然后逐项验证（详见 env-checklist 第 7 节）：
+Multi-Publish 的共享主目录必须保持 main + clean，运行时代码只允许落在隔离 worktree。克隆仓库后运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/bootstrap-write-guard.ps1
+```
+
+该命令自动完成：git hooks 安装 → 自检（session-write-guard / session-isolation-automation）→ 注册 `Session Isolation Health`（默认每 15 分钟）与 `Session Isolation Write Guard`（登录启动）→ 启动 watcher → 健康门禁；幂等可重跑。新电脑可覆盖：`-WorktreeRoot` / `MP_WORKTREES`、`-GitBash` / `MP_GIT_BASH`、`-GitPath` / `MP_GIT`。验证命令见 env-checklist 第 7 节。
+
+### 7. 重启 Codex + 验证
+
+**必须完全重启 Codex**（技能/AGENTS.md 启动时加载），然后逐项验证（详见 env-checklist 第 8 节）：
 ```bash
 openspec doctor                                   # OpenSpec 健康
 openspec list --specs                             # 契约可见
@@ -170,3 +180,4 @@ integrations/
 - Multica 平台运行时块
 - 项目历史（.ccg/tasks 归档、openspec 历史、codegraph 索引）
 - 机制文本与模板可复制；**工具链与认证需按 checklist 手工配置，重启后验证生效**
+- Windows 计划任务、git hooks 与实时 watcher 不会随 skill 安装自动生效，必须在新电脑上运行项目内 `scripts/bootstrap-write-guard.ps1`

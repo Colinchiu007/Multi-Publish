@@ -42,7 +42,7 @@ prompt-engine 返回的优化结果 SHALL 经过输出校验：optimized_prompt 
 - **THEN** 阶段失败并报告 expected/got 数量
 
 ### Requirement: 配置契约边界
-Story2Video optimize 配置 SHALL 对齐 prompt-engine 参数边界并做输入校验：platform 7 枚举、style 14 枚举、creativeLevel 1-10（默认 5）、maxLength 50-2000（默认 300）、numCandidates 1-5（默认 1）、negativePrompt ≤500、autoDetectStyle boolean（默认 true）、context 对象或字符串；越界输入拒绝或按边界收敛，旧字段（style/creativeLevel/negativePrompt）保持兼容。
+Story2Video optimize 配置 SHALL 对齐 prompt-engine 参数边界并做输入校验：platform 7 枚举、style 14 枚举、creativeLevel 1-10（默认 5）、optimizationStrategy（auto/template/llm，缺省 auto）、maxLength 50-2000（默认 300）、numCandidates 1-5（默认 1）、negativePrompt ≤500、autoDetectStyle boolean（默认 true）、bypassCache boolean（默认 false）、context 对象或字符串；越界输入拒绝或按边界收敛，旧字段（style/creativeLevel/negativePrompt）保持兼容。
 
 #### Scenario: 配置范围校验
 - **WHEN** 用户传入越界 creativeLevel/maxLength/numCandidates 或非法 platform/style
@@ -137,3 +137,34 @@ prompt-engine（8013）未运行时，optimize 阶段 SHALL 返回明确错误�
 - **WHEN** options.quality_baseline=false
 - **THEN** 请求不附加基线片段，与现状行为一致
 
+### Requirement: 执行策略与创意等级解耦（2026-08-17）
+
+`creative_level` SHALL 只表达期望的创意与细节强度，不得作为桌面产品是否使用用户 LLM 的隐式业务开关。请求的 `optimization_strategy` 只允许 `llm` 或 `template`，缺省为 `llm`；`llm` 强制使用调用方 LLM，`template` 强制使用确定性模板且仅限图片。`auto` 已删除，传入 MUST 在引擎边界返回 422。显式策略优先于 creative_level；`domain=video + template` MUST 在引擎边界返回 422。
+
+#### Scenario: 显式策略覆盖等级
+- **WHEN** 图片请求 creative_level=1 + optimization_strategy=llm，或 creative_level=10 + optimization_strategy=template
+- **THEN** PromptBridge 分别注入 BYOK LLM 或不注入 LLM；不按等级覆写显式策略
+
+#### Scenario: 缺省请求使用 LLM
+- **WHEN** 图片请求未传 optimization_strategy 且未携带 llm
+- **THEN** PromptBridge 与引擎返回 422，不回退服务端 key
+
+### Requirement: 历史记录手动图片优化必须真实重生成（2026-08-17）
+
+视频创作历史记录的“重新生成图片优化词” SHALL 构造 `optimization_strategy=llm` 与 `bypass_cache=true`，并使用当前桌面模型设置解析出的 BYOK LLM；不得因低 creative_level 命中模板路径或历史缓存而把旧结果标为新结果。响应 `strategy_used`、`key_source`、`model_used`、`caller`、`cache_hit` SHALL 随优化元数据保留，供诊断。
+
+#### Scenario: 历史图片优化绕过缓存
+- **WHEN** 用户在历史任务的任一场景点击重新生成图片优化词
+- **THEN** 请求含 optimization_strategy=llm 与 bypass_cache=true，结果 cache_hit=false、key_source=caller；任一 error/detail 或空文本立即失败，不写回原文回显
+
+### Requirement: 桌面调用必须携带 BYOK llm 绑定（2026-08-16）
+
+桌面 PromptBridge 调用 8013 图片优化的 LLM 路径（缺省或显式 `optimization_strategy=llm`）SHALL 注入本机「模型设置」默认 LLM 绑定（`provider`/`model`/`base_url`/`api_key`，主进程解密）与 `caller=multi-publish-desktop`；无可用绑定 MUST fail-closed（不发送请求）；多模态默认 provider 必须取 `capability_models.llm`，不得误取 `models[0]`；`api_key` MUST 不出渲染层、不落日志。显式 `template` 路径不注入 LLM。
+
+#### Scenario: 未配置默认 LLM
+- **WHEN** 桌面「模型设置」未配置可用默认 LLM 且发起缺省或 `optimization_strategy=llm` 的优化
+- **THEN** PromptBridge 抛出「模型服务未就绪 / 未配置默认文字推理模型」可操作错误，不向 8013 发送请求
+
+#### Scenario: 模板直出免 LLM
+- **WHEN** 图片请求显式 optimization_strategy=template
+- **THEN** 桌面与引擎均不要求 llm 绑定，按模板直出路径返回

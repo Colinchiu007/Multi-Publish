@@ -22,7 +22,7 @@ const https = require('https')
 const { promisify } = require('util')
 const { spawn } = require('child_process')
 const { findFfmpeg } = require('./media-tool-paths')
-const { runContentPolicyImageRetry } = require('./story2video-image-retry')
+const { needsUserInputMessage, runContentPolicyImageRetry } = require('./story2video-image-retry')
 const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
 const execFileAsync = promisify(execFile)
@@ -588,6 +588,8 @@ class AssetGenerator {
             aspectRatio: opts.aspect_ratio,
             style: opts.style,
             model: opts.image_model || opts.imageModel,
+            // 面孔/时代负面锚透传（2026-08-16 east-asian-face-anchor）；不消费该键的 adapter 忽略
+            ...(opts.negative_prompt ? { negative_prompt: opts.negative_prompt } : {}),
           })
           const providerError = result?.error || result?.data?.error
           if (providerError && typeof providerError === 'object') throw providerError
@@ -613,10 +615,13 @@ class AssetGenerator {
 
       if (retryResult.status === 'needs_user_input') {
         const checkpoint = retryResult.checkpoint
-        this.log.warn('AssetGenerator', 'Image provider ' + provider + ' requires user input after content-policy retries')
+        // 按 checkpoint.reason 区分真实原因：内容策略拒绝 vs 多次空结果（服务波动/账号问题），
+        // 不再一律笼统报「content-policy review」（2026-08-16 复盘：过期 Key 被误标为内容审查）。
+        const isContentPolicy = checkpoint?.reason === 'content_policy'
+        this.log.warn('AssetGenerator', 'Image provider ' + provider + ' requires user input after ' + (isContentPolicy ? 'content-policy' : 'empty-result') + ' retries')
         return {
           code: -1,
-          message: 'Image generation requires user input after content-policy review',
+          message: needsUserInputMessage(checkpoint),
           needsUserInput: true,
           checkpoint,
           data: {
@@ -922,6 +927,8 @@ class AssetGenerator {
     } catch (error) {
       const message = error?.message || String(error)
       this.log.warn('AssetGenerator', 'TTS provider ' + provider + ' failed: ' + message)
+      // Re-throw ProviderError to preserve error.code for upstream cloned-voice detection
+      if (error instanceof ProviderError) throw error
       return { code: -1, message: 'TTS provider "' + provider + '" failed: ' + message }
     }
   }
@@ -1123,4 +1130,5 @@ module.exports = {
   extractProviderImageUrl,
   isPrivateAddress,
   getPythonCommands,
+  IMAGE_PROVIDER_ALIASES,
 }

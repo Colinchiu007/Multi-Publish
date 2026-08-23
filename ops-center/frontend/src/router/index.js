@@ -3,6 +3,13 @@ import { useAuthStore } from '../stores/auth'
 
 const routes = [
   {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('../views/settings/SettingsView.vue'),
+    meta: { requiresAuth: true },
+  },
+
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),
@@ -127,6 +134,7 @@ const routes = [
     path: '/platform-defs',
     name: 'PlatformDefs',
     component: () => import('../views/PlatformDefs.vue'),
+    meta: { requiresAuth: true },
   },
   {
     path: '/runtime-flags',
@@ -163,6 +171,12 @@ const routes = [
     name: 'AuditLog',
     component: () => import('../views/AuditLog.vue'),
     meta: { requiresAuth: true },
+  },
+  {
+    path: '/feedback',
+    name: 'UserFeedback',
+    component: () => import('../views/UserFeedback.vue'),
+    meta: { requiresAuth: true, adminOnly: true },
   },
   {
     path: '/prompt-eval-workbench',

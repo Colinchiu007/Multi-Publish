@@ -1,7 +1,7 @@
 {
   "id": "logging-system-audit",
   "title": "评估项目日志体系与日志内容完善度，输出补充细化建议",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "low",
   "domain": "observability",

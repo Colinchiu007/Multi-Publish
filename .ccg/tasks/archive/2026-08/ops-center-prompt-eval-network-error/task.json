@@ -1,0 +1,14 @@
+{
+  "id": "ops-center-prompt-eval-network-error",
+  "title": "运营后台提示词评测页加载列表报 Network Error——传输层失败文案可操作化",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已合并归档：PR #827 squash acd90961（2026-08-15），CI 全绿；归档至 .ccg/tasks/archive/2026-08/",
+  "createdAt": "2026-08-15T01:00:00Z",
+  "branch": "codex/fix-ops-center-prompt-eval-network-error",
+  "mergedAt": "2026-08-15T02:02:48Z",
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/827"
+}

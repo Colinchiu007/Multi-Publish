@@ -1,0 +1,16 @@
+{
+  "id": "s2v-publish-skip-jump",
+  "title": "修复视频创作流水线发布跳过状态与完成跳转",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-story2video",
+  "currentPhase": "completed",
+  "nextAction": "已合并 main（PR #1079）+ 归档",
+  "createdAt": "2026-08-21T08:10:00+08:00",
+  "completedAt": "2026-08-21T09:30:00+08:00",
+  "branch": "codex/s2v-publish-skip-jump",
+  "pr": 1079,
+  "mergeCommit": "09085e23b1a176dc6b2da47feebfc7808443fd56",
+  "prd": "01-docs/PRD-video-creation.md"
+}

@@ -11,6 +11,7 @@
  */
 
 const {
+  findProtectedPhraseAtBoundary,
   normalizeSegmentationOptions,
   splitScenesLocally: splitScenesLocallyEngine,
   splitTextToScenes,
@@ -77,12 +78,48 @@ function sceneTextOf (scene) {
 /** 引擎字幕最小覆盖率：低于该值视为残缺，回退本地分块（防静默丢内容）。 */
 const ENGINE_SUBTITLE_MIN_COVERAGE = 0.6
 
+/** 在线字幕质量比较使用的内容规范化：忽略空白、标点和引号，保留实际字符顺序。 */
+function normalizeSubtitleContent (value) {
+  return String(value || '').replace(/[\s。！？；，、：:.!?;…“”‘’（）《》【】「」『』"']+/gu, '')
+}
+
 /** 覆盖率：去空白与标点后，引擎字幕拼接长度 / 场景文本长度（0..1）。 */
 function engineSubtitleCoverage (text, subtitles) {
-  const clean = (value) => String(value || '').replace(/[\s。！？；，、.!?;…“”‘’（）《》【】「」『』"']+/gu, '')
-  const total = clean(text).length
+  const total = normalizeSubtitleContent(text).length
   if (!total) return 1
-  return clean(subtitles.join('')).length / total
+  return subtitles.reduce((length, subtitle) => length + normalizeSubtitleContent(subtitle).length, 0) / total
+}
+
+/**
+ * 在线字幕必须连续覆盖场景原文，且块边界不得切开共享保护短语。
+ * 返回稳定的回退原因，供历史结果和日志追溯。
+ */
+function validateEngineSubtitles (text, subtitles) {
+  const normalizedText = normalizeSubtitleContent(text)
+  const normalizedSubtitles = subtitles.map(normalizeSubtitleContent)
+  const coverage = engineSubtitleCoverage(text, subtitles)
+  if (!normalizedText || coverage < ENGINE_SUBTITLE_MIN_COVERAGE) {
+    return { valid: false, reason: 'online-subtitle-coverage' }
+  }
+
+  let cursor = 0
+  for (let index = 0; index < normalizedSubtitles.length; index++) {
+    const subtitle = normalizedSubtitles[index]
+    if (normalizedText.slice(cursor, cursor + subtitle.length) !== subtitle) {
+      return { valid: false, reason: 'online-subtitle-content-mismatch' }
+    }
+    cursor += subtitle.length
+    if (index < normalizedSubtitles.length - 1) {
+      const phrase = findProtectedPhraseAtBoundary(normalizedText, cursor)
+      if (phrase) {
+        return { valid: false, reason: 'online-subtitle-unsafe-boundary:' + phrase }
+      }
+    }
+  }
+  if (cursor !== normalizedText.length) {
+    return { valid: false, reason: 'online-subtitle-content-mismatch' }
+  }
+  return { valid: true, reason: '' }
 }
 
 /**
@@ -98,10 +135,13 @@ function withSubtitleBlocks (scene, index, source, degraded, reason, options) {
     ? rawSubtitles
       .map((item) => (item && typeof item === 'object' ? item.text : item))
       .map((value) => String(value || '').trim())
-      .filter(Boolean)
+      .filter((value) => normalizeSubtitleContent(value).length > 0)
     : []
-  const useEngineSubtitles = engineSubtitles.length > 0 &&
-    engineSubtitleCoverage(text, engineSubtitles) >= ENGINE_SUBTITLE_MIN_COVERAGE
+  const subtitleValidation = engineSubtitles.length > 0
+    ? validateEngineSubtitles(text, engineSubtitles)
+    : { valid: false, reason: 'online-subtitle-coverage' }
+  const useEngineSubtitles = subtitleValidation.valid
+  const subtitleFallbackReason = reason || subtitleValidation.reason
   return {
     ...rest,
     index,
@@ -110,7 +150,7 @@ function withSubtitleBlocks (scene, index, source, degraded, reason, options) {
     sceneSource: source,
     subtitleSource: useEngineSubtitles ? 'smart-sentence-splitter' : 'local-typescript',
     degraded,
-    ...(reason ? { fallbackReason: reason } : {}),
+    ...(subtitleFallbackReason && !useEngineSubtitles ? { fallbackReason: subtitleFallbackReason } : {}),
   }
 }
 
@@ -207,6 +247,7 @@ module.exports = {
   createLocalSplitResult,
   isSplitterUnavailableError,
   normalizeSegmentationOptions,
+  normalizeSubtitleContent,
   normalizeServiceSplitResult,
   splitScenesLocally,
   splitSubtitleBlocks,

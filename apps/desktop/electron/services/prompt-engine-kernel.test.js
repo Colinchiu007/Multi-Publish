@@ -15,6 +15,8 @@ const {
   assertNoSensitiveContext,
   normalizePromptEngineStyle,
   clampNumber,
+  normalizeOptimizationStrategy,
+  resolveOptimizationStrategy,
   extractOptimizedBase,
   resolveTieredMaxLength,
   filterPlausibleNegativePrompt,
@@ -33,11 +35,26 @@ describe('prompt-engine-kernel 导出完整性', () => {
     expect(typeof assertNoSensitiveContext).toBe('function')
     expect(typeof normalizePromptEngineStyle).toBe('function')
     expect(typeof clampNumber).toBe('function')
+    expect(typeof normalizeOptimizationStrategy).toBe('function')
+    expect(typeof resolveOptimizationStrategy).toBe('function')
     expect(typeof extractOptimizedBase).toBe('function')
     expect(typeof resolveTieredMaxLength).toBe('function')
     expect(typeof filterPlausibleNegativePrompt).toBe('function')
     expect(typeof normalizePositiveConstraints).toBe('function')
     expect(typeof scorePrompt).toBe('function')
+  })
+
+  it('策略缺省 llm，creative_level 不参与路由，auto 被拒绝', () => {
+    expect(normalizeOptimizationStrategy(' LLM ')).toBe('llm')
+    expect(normalizeOptimizationStrategy(undefined)).toBe('llm')
+    expect(normalizeOptimizationStrategy('')).toBe('llm')
+    expect(() => normalizeOptimizationStrategy('unknown')).toThrow(/optimization_strategy/)
+    expect(() => normalizeOptimizationStrategy('auto')).toThrow(/optimization_strategy/)
+    expect(() => normalizeOptimizationStrategy(1)).toThrow(/optimization_strategy/)
+    expect(resolveOptimizationStrategy({ creative_level: 1, optimization_strategy: 'llm' })).toBe('llm')
+    expect(resolveOptimizationStrategy({ creative_level: 10, optimization_strategy: 'template' })).toBe('template')
+    expect(resolveOptimizationStrategy({ creative_level: 1 })).toBe('llm')
+    expect(resolveOptimizationStrategy({ domain: 'video', creative_level: 1 })).toBe('llm')
   })
 
   it('maxLength 归属标注：视频契约不得借用（由 videoMaxLengthRanges 承担）', () => {
@@ -78,9 +95,27 @@ describe('extractOptimizedBase fail-closed 核心', () => {
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
-  it('基础 meta 透传（platform/style/model_used/key_source），未知键忽略', () => {
-    const r = extractOptimizedBase({ optimized_prompt: 'x', platform: 'p', style: 's', model_used: 'm', key_source: 'k', extra: 1 })
-    expect(r.meta).toEqual({ platform: 'p', style: 's', model_used: 'm', key_source: 'k' })
+  it('基础 meta 透传（含策略、调用方与缓存命中），未知键忽略', () => {
+    const r = extractOptimizedBase({
+      optimized_prompt: 'x',
+      platform: 'p',
+      style: 's',
+      model_used: 'm',
+      key_source: 'k',
+      strategy_used: 'llm',
+      caller: 'multi-publish-desktop',
+      cache_hit: false,
+      extra: 1,
+    })
+    expect(r.meta).toEqual({
+      platform: 'p',
+      style: 's',
+      model_used: 'm',
+      key_source: 'k',
+      strategy_used: 'llm',
+      caller: 'multi-publish-desktop',
+      cache_hit: false,
+    })
   })
 
   it('index 前缀：场景 N 前缀加入错误信息', () => {

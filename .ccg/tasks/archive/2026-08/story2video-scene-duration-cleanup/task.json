@@ -1,7 +1,7 @@
 {
   "id": "story2video-scene-duration-cleanup",
   "title": "Story2Video 场景时长逻辑清理：动效按有效时长归一化 + 去除无旁白纯图片轮播模式内容",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "electron+frontend",

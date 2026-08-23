@@ -67,13 +67,47 @@
         </div>
       </div>
     </div>
+
+    <section class="feedback-section" aria-labelledby="feedback-title">
+      <div class="feedback-header">
+        <div>
+          <div id="feedback-title" class="feedback-title">{{ t('settings.feedback.title') }}</div>
+          <div class="feedback-subtitle">{{ t('settings.feedback.subtitle') }}</div>
+        </div>
+      </div>
+      <form class="feedback-form" @submit.prevent="submitFeedback">
+        <label class="feedback-label" for="feedback-message">{{ t('settings.feedback.label') }}</label>
+        <textarea
+          id="feedback-message"
+          v-model="feedbackMessage"
+          class="feedback-textarea"
+          :placeholder="t('settings.feedback.placeholder')"
+          maxlength="10000"
+          rows="5"
+          :disabled="submittingFeedback"
+        ></textarea>
+        <div class="feedback-count">{{ feedbackMessage.length }}/10000</div>
+        <label class="feedback-checkbox">
+          <input v-model="includeFeedbackLogs" type="checkbox" :disabled="submittingFeedback">
+          <span>{{ t('settings.feedback.attachLogs') }}</span>
+        </label>
+        <div class="feedback-log-hint">{{ t('settings.feedback.attachLogsHint') }}</div>
+        <div v-if="feedbackError" class="feedback-message feedback-error" role="alert">{{ feedbackError }}</div>
+        <div v-if="feedbackSuccess" class="feedback-message feedback-success" role="status">{{ feedbackSuccess }}</div>
+        <div class="feedback-actions">
+          <button class="cohere-btn-primary" type="submit" :disabled="submittingFeedback">
+            {{ submittingFeedback ? t('settings.feedback.submitting') : t('settings.feedback.submit') }}
+          </button>
+        </div>
+      </form>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { logsGetInfo, logsClear } from '@/api/publisher'
+import { logsGetInfo, logsClear, submitFeedback as submitFeedbackRequest } from '@/api/publisher'
 import { getAppLocale, setAppLocale } from '@/i18n'
 
 const { t } = useI18n()
@@ -81,6 +115,11 @@ const loading = ref(false)
 const clearing = ref(false)
 const info = reactive({ dir: '', totalBytes: 0, fileCount: 0, maxFileBytes: 0, files: [] })
 const localeModel = ref(getAppLocale())
+const feedbackMessage = ref('')
+const includeFeedbackLogs = ref(false)
+const submittingFeedback = ref(false)
+const feedbackError = ref('')
+const feedbackSuccess = ref('')
 
 function changeLocale (event) {
   localeModel.value = setAppLocale(event && event.target && event.target.value === 'en' ? 'en' : 'zh')
@@ -124,6 +163,39 @@ async function clearLogs () {
     }
   } finally {
     clearing.value = false
+  }
+}
+
+async function submitFeedback () {
+  if (submittingFeedback.value) return
+  feedbackError.value = ''
+  feedbackSuccess.value = ''
+  const message = feedbackMessage.value.trim()
+  if (!message) {
+    feedbackError.value = t('settings.feedback.required')
+    return
+  }
+  if (message.length > 10000) {
+    feedbackError.value = t('settings.feedback.tooLong')
+    return
+  }
+  submittingFeedback.value = true
+  try {
+    const result = await submitFeedbackRequest({
+      message,
+      includeLogs: includeFeedbackLogs.value === true,
+    })
+    if (result && result.code === 0) {
+      feedbackMessage.value = ''
+      includeFeedbackLogs.value = false
+      feedbackSuccess.value = t('settings.feedback.submitted')
+    } else {
+      feedbackError.value = t('settings.feedback.submitFailed')
+    }
+  } catch {
+    feedbackError.value = t('settings.feedback.submitFailed')
+  } finally {
+    submittingFeedback.value = false
   }
 }
 
@@ -286,5 +358,109 @@ onMounted(loadInfo)
   padding: 32px;
   text-align: center;
   color: var(--text-muted, #718096);
+}
+
+.feedback-section {
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 20px;
+}
+
+.feedback-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.feedback-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-primary, #1a202c);
+}
+
+.feedback-subtitle,
+.feedback-log-hint {
+  color: var(--text-muted, #718096);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.feedback-subtitle {
+  margin-top: 4px;
+}
+
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feedback-label {
+  color: var(--text-secondary, #4a5568);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.feedback-textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  border: 1px solid var(--border-light, #cbd5e0);
+  border-radius: 7px;
+  padding: 10px 12px;
+  color: var(--text-primary, #1a202c);
+  background: var(--surface, #fff);
+  font: inherit;
+  line-height: 1.55;
+}
+
+.feedback-textarea:focus {
+  outline: 2px solid var(--primary, #4c6fff);
+  outline-offset: 1px;
+}
+
+.feedback-count {
+  align-self: flex-end;
+  color: var(--text-muted, #718096);
+  font-size: 11px;
+}
+
+.feedback-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary, #4a5568);
+  font-size: 13px;
+}
+
+.feedback-checkbox input {
+  width: 15px;
+  height: 15px;
+}
+
+.feedback-message {
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.feedback-error {
+  color: #b42318;
+  background: #fff1f0;
+}
+
+.feedback-success {
+  color: #067647;
+  background: #ecfdf3;
+}
+
+.feedback-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
 }
 </style>

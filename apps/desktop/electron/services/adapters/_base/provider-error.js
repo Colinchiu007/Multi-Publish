@@ -137,7 +137,7 @@ function fromHttpStatus(status, message, context = {}) {
   return new ProviderError(code, errorMessage, { ...context, statusCode })
 }
 
-const RATE_LIMIT_MESSAGE_PATTERN = /\brate[_\s-]?limit\b|too\s+many\s+requests|限流|请求频率|rate_limit/i
+const RATE_LIMIT_MESSAGE_PATTERN = /\brate[\s_-]?limit\b|too\s+many\s+requests|限流|请求频率|rate_limit|Error\s+code:\s*429|rpm\s+exhausted|429\s+Too\s+Many/i
 const QUOTA_MESSAGE_PATTERN = /\b(?:insufficient|exhausted|exceeded|out\s+of)\b[^\n]{0,40}\b(?:quota|balance|token|credit)s?\b|(?:quota|balance|token|credit)s?[^\n]{0,40}\b(?:exceeded|insufficient|exhausted)\b|(?:余额|额度|配额|点数)[^\n]{0,20}(?:不足|不够|超过|超限|耗尽)|insufficient\s+balance|billing|payment\s+required/i
 
 /**

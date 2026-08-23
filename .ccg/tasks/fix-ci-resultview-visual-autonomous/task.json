@@ -1,0 +1,12 @@
+{
+  "id": "fix-ci-resultview-visual-autonomous",
+  "title": "修复 Story2Video 4-slot ResultView、/create E2E 与视觉基线 CI 失败",
+  "status": "pending_review",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "verification",
+  "nextAction": "PR #1057 范围内 CI 全绿（Unit/Visual/Coverage/Shards/Static/Doc Gate），待人工 review 合并；Browser E2E 与 Autonomous 为 main 存量失败不在本任务范围",
+  "createdAt": "2026-08-20T08:00:00Z",
+  "branch": "codex/fix-ci-resultview-visual-autonomous"
+}

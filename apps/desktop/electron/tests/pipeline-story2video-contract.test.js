@@ -1,7 +1,7 @@
 // @vitest-environment node
 const { PipelineEngine } = require('../services/pipeline-engine')
 const { StageExecutor } = require('../services/stage-executor')
-const { registerStory2VideoStages } = require('../services/story2video-stages')
+const { registerStory2VideoStages, STORY2VIDEO_STAGE_TYPES } = require('../services/story2video-stages')
 const {
   IMPORTED_MEDIA_DIR,
   getRunInputDir,
@@ -45,6 +45,63 @@ function createEngine() {
   return { engine, serviceBus, aiGenerator }
 }
 
+function createReclonePipelineEngine() {
+  const sampleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-contract-reclone-'))
+  const sampleDir = path.join(sampleRoot, 'voice-clone-samples', 'owner', 'storage-1')
+  fs.mkdirSync(sampleDir, { recursive: true })
+  fs.writeFileSync(path.join(sampleDir, 'sample.mp3'), Buffer.from([1, 2, 3]))
+
+  const ttsCalls = []
+  const cloneVoice = vi.fn(async () => ({ id: 'MiniMaxVoice_recloned123' }))
+  const findCloneSamples = vi.fn(async () => ({
+    sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' },
+    name: '音色001',
+  }))
+  const manager = {
+    getAdapter: vi.fn(() => ({ cloneVoice })),
+  }
+  const cloneService = {
+    findCloneSamples,
+    _resolveUserDataPath: () => sampleRoot,
+  }
+  const container = {
+    get: vi.fn((key) => key === 'ttsVoiceCloneService' ? cloneService : null),
+  }
+
+  const serviceBus = {
+    ttsCalls,
+    callPythonSkill: vi.fn(async (skill, payload) => {
+      if (skill === 'generate_image') {
+        return { code: 0, data: { path: 'e2e-image.png' } }
+      }
+      if (skill === 'generate_tts') {
+        ttsCalls.push(payload)
+        if (ttsCalls.length === 1) {
+          throw Object.assign(new Error('voice id is not accessible'), { code: 'INVALID_CONFIG' })
+        }
+        return { code: 0, data: { path: 'e2e-audio-recloned.mp3', duration: 1.25 } }
+      }
+      throw new Error('unexpected Python skill: ' + skill)
+    }),
+  }
+  const aiGenerator = { _modelProviderManager: manager }
+  const stageExecutor = new StageExecutor({ serviceBus, container, log })
+  const engine = new PipelineEngine({ serviceBus, stageExecutor, aiGenerator, log, maxConcurrentRuns: 2 })
+  engine.container = container
+  registerStory2VideoStages(engine)
+
+  return {
+    engine,
+    serviceBus,
+    findCloneSamples,
+    cloneVoice,
+    manager,
+    cleanup() {
+      fs.rmSync(sampleRoot, { recursive: true, force: true })
+    },
+  }
+}
+
 describe('story2video 编排契约', () => {
   it('本地阶段默认值与版本化 text 合同一致', () => {
     const { engine } = createEngine()
@@ -64,19 +121,24 @@ describe('story2video 编排契约', () => {
       voiceId: 'default',
     })
     expect(stages.optimize.type).toBe('story2video_optimize')
+    // 恒含断言（review W1）：stageDef 兜底 max_length=2000，运行时 undefined 时不覆盖，
+    // 通用执行器 tiered 默认 500 永不命中 Story2Video 入口
+    expect(stages.optimize.options.max_length).toBe(2000)
     expect(stages.scene_context).toMatchObject({
       type: 'story2video_scene_context',
-      inputFrom: 'domain_enrich',
+      inputFrom: 'split',
       options: {
         enabled: true,
         max_summary_length: 300,
         max_anchors: 8,
         include_negative_anchors: true,
         context_block_max_chars: 400,
+        contentType: 'general',
       },
     })
     expect(stages.optimize.inputFrom).toBe('scene_context')
     expect(stages.compose.options).toMatchObject({
+      composeParallelTask: 'story2video_prompt_translation_compose',
       resolution: '720x1280',
       subtitleEnabled: false,
       bgmVolume: 0.5,
@@ -137,7 +199,7 @@ describe('story2video 编排契约', () => {
     expect(started).toMatchObject({ success: true, completed: true })
     expect(started.paused).toBeUndefined()
     expect(stageExecutor.execute.mock.calls.map(([request]) => request.stage.name)).toEqual([
-      'split', 'domain_enrich', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
+      'split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish',
     ])
     expect(engine.getRunSnapshot(started.runId)).toMatchObject({
       status: { status: 'completed' },
@@ -159,16 +221,18 @@ describe('story2video 编排契约', () => {
       text: '唐朝长安城的灯火照亮宫殿。',
       contentType: 'history',
       autoAdvance: false,
+      // 阶段序列不含 domain_enrich 后 optimize 为第 3 阶段；手动逐步执行
+      // 需要跳过 checkpoint 暂停（否则第 4 次 executeStage 会重跑 optimize）。
+      checkpointPolicy: 'none',
     })
 
-    await engine.executeStage(started.runId)
+    // 阶段序列：split → scene_context → optimize（checkpointPolicy:none 下每次 executeStage 推进一个阶段）
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
     const optimized = await engine.executeStage(started.runId)
 
     expect(optimized.success).toBe(true)
-    expect(engine.getRunContext(started.runId).domain_enrich).toMatchObject({
-      domainEnriched: true,
+    expect(engine.getRunContext(started.runId).scene_context).toMatchObject({
       scenes: [expect.objectContaining({
         text: '唐朝长安城的灯火照亮宫殿。',
         imagePromptSeed: expect.stringContaining('唐代'),
@@ -180,8 +244,8 @@ describe('story2video 编排契约', () => {
       expect.objectContaining({
         platform: 'generic',
         creative_level: 5,
-        // 与 prompt-engine-contract maxLength.default=500 一致（00a581d1 引入时测试期望 300 未同步）
-        max_length: 500,
+        // 图片提示词上限 2026-08-16 放开：pipeline stageDef 默认 2000（原 500）
+        max_length: 2000,
         num_candidates: 1,
         auto_detect_style: true,
       }),
@@ -196,9 +260,10 @@ describe('story2video 编排契约', () => {
     const started = await engine.startOrchestrated('story2video-compose', {
       text: '城市夜景。未来交通。',
       autoAdvance: false,
+      checkpointPolicy: 'none',
     })
 
-    await engine.executeStage(started.runId)
+    // 阶段序列：split → scene_context → optimize（checkpointPolicy:none 下每次 executeStage 推进一个阶段）
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
     const optimized = await engine.executeStage(started.runId)
@@ -210,14 +275,43 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'realistic',
         creative_level: 5,
-        // 与 prompt-engine-contract maxLength.default=500 一致
-        max_length: 500,
+        // 图片提示词上限 2026-08-16 放开：pipeline stageDef 默认 2000
+        max_length: 2000,
         num_candidates: 1,
         auto_detect_style: true,
       })
     }
     expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
     expect(serviceBus.optimizePromptsBatch).not.toHaveBeenCalled()
+  })
+
+  it('optimize.maxLength 可配置：渲染层 Story2VideoTextConfig 透传到 prompt-engine 请求（2026-08-16 上限放开 500→2000）', async () => {
+    const { engine, serviceBus, aiGenerator } = createEngine()
+    registerStory2VideoStages(engine)
+    const started = await engine.startOrchestrated('story2video-compose', {
+      text: '可配置提示词长度。',
+      autoAdvance: false,
+      checkpointPolicy: 'none',
+      story2videoTextConfig: {
+        version: 1,
+        mode: 'text',
+        prompt: '可配置提示词长度。',
+        optimize: { maxLength: 700 },
+      },
+    })
+    expect(started.success).toBe(true)
+
+    // 阶段序列：split → scene_context → optimize（checkpointPolicy:none 下每次 executeStage 推进一个阶段）
+    await engine.executeStage(started.runId)
+    await engine.executeStage(started.runId)
+    const optimized = await engine.executeStage(started.runId)
+
+    expect(optimized.success).toBe(true)
+    expect(serviceBus.optimizePrompt).toHaveBeenCalledTimes(2)
+    for (const [, options] of serviceBus.optimizePrompt.mock.calls) {
+      expect(options.max_length).toBe(700)
+    }
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
   })
 
   it('启动时保留 initialContext，并让运行快照同时提供 context 与 status', async () => {
@@ -509,10 +603,11 @@ describe('story2video 编排契约', () => {
         optimize: { style: 'anime', creativeLevel: 8, numCandidates: 2 },
       },
       autoAdvance: false,
+      checkpointPolicy: 'none',
     })
 
     expect(started.success).toBe(true)
-    await engine.executeStage(started.runId)
+    // 阶段序列：split → scene_context → optimize（checkpointPolicy:none 下每次 executeStage 推进一个阶段）
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
     await engine.executeStage(started.runId)
@@ -532,8 +627,8 @@ describe('story2video 编排契约', () => {
         platform: 'generic',
         style: 'anime',
         creative_level: 8,
-        // 与 prompt-engine-contract maxLength.default=500 一致
-        max_length: 500,
+        // 图片提示词上限 2026-08-16 放开：pipeline stageDef 默认 2000
+        max_length: 2000,
         num_candidates: 2,
         auto_detect_style: true,
       })
@@ -628,7 +723,7 @@ describe('阶段级进行中信息契约（stage.progress）', () => {
     expect(snapshot.context.stage_progress).toEqual(snapshot.stages[0].progress)
   })
 
-  it('非法/降序进度被拒绝（fail-closed + percent 单调不降）', async () => {
+  it('非法/降序进度被拒绝，并为成功阶段补完成事件', async () => {
     const { engine } = createEngine()
     engine.registerStageExecutor('contract_progress_bad', async ({ onProgress }) => {
       onProgress({ percent: 50, message: '合法进度' })
@@ -649,8 +744,11 @@ describe('阶段级进行中信息契约（stage.progress）', () => {
     expect(started.success).toBe(true)
     await engine.executeStage(started.runId)
     const snapshot = engine.getRunSnapshot(started.runId)
-    expect(snapshot.stages[0].progress.percent).toBe(90)
-    expect(snapshot.stages[0].progress.message).toBe('最终合法值')
+    expect(snapshot.stages[0].progress).toMatchObject({
+      percent: 100,
+      messageKey: 'stageProgress.stageComplete',
+      summaryKey: 'stageProgress.stageSummary',
+    })
   })
 
   it('_calcProgress 阶段数占比 + 当前阶段 percent 加权', () => {
@@ -676,27 +774,28 @@ describe('阶段级进行中信息契约（stage.progress）', () => {
     expect(engine._calcProgress(run)).toBe(67)
   })
 
-  it('无 onProgress 的执行器不产生 stage.progress（additive 不回归）', async () => {
-    const { engine, serviceBus } = createEngine()
+  it('成功但未自行上报的执行器仍获得可本地化生命周期进度', async () => {
+    const { engine } = createEngine()
+    engine.registerStageExecutor('contract_no_progress', async () => ({ success: true, output: { ok: true } }))
     engine.registerPipeline({
       name: 'contract-no-progress',
       description: 'c',
-      stages: ['split', 'compose'],
-      stageDefs: [
-        { name: 'split', type: 'split' },
-        { name: 'compose', type: 'compose' },
-      ],
+      stages: ['custom'],
+      stageDefs: [{ name: 'custom', type: 'contract_no_progress' }],
     })
     const started = await engine.startOrchestrated('contract-no-progress', {
       autoAdvance: false,
-      initialContext: { text: '第一句。第二句。' },
     })
     expect(started.success).toBe(true)
     await engine.executeStage(started.runId)
     const snapshot = engine.getRunSnapshot(started.runId)
-    expect(snapshot.stages[0].progress).toBeNull()
-    expect(snapshot.stages[0].summary).toBeNull()
-    expect(snapshot.context.stage_progress).toBeUndefined()
+    expect(snapshot.stages[0].progress).toMatchObject({
+      percent: 100,
+      messageKey: 'stageProgress.stageComplete',
+      summaryKey: 'stageProgress.stageSummary',
+    })
+    expect(snapshot.stages[0].summary).toBe('Stage complete.')
+    expect(snapshot.context.stage_progress).toEqual(snapshot.stages[0].progress)
   })
 })
 
@@ -755,6 +854,103 @@ describe('getRunSnapshot progressOnly 轻量快照', () => {
     expect(light.checkpoint).toEqual({ type: 'scene_asset_selection', stageName: 'finalize_assets', stageIndex: 5, required: true })
     expect(light.checkpoint.context).toBeUndefined()
     expect(light.checkpoint.savedAt).toBeUndefined()
+  })
+})
+
+describe('story2video 真实 StageExecutor 重克隆回归', () => {
+  it('generate_assets legacy serviceBus 重克隆成功后复用 callPythonSkill', async () => {
+    const fixture = createReclonePipelineEngine()
+    try {
+      const result = await fixture.engine.stageExecutor.execute({
+        runId: 'run_e2e_voice_clone_001',
+        stage: {
+          name: 'generate_assets',
+          type: STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS,
+          options: { concurrency: 1 },
+        },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          split: [{ text: '音色001 的 E2E 旁白' }],
+          optimize: ['一个安静的室内场景'],
+        },
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'e2e-audio-recloned.mp3',
+        imagePath: 'e2e-image.png',
+      })
+      expect(fixture.serviceBus.ttsCalls.map((payload) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(fixture.serviceBus.ttsCalls.map((payload) => payload.voice_model)).toEqual([
+        'speech-2.8-turbo',
+        'speech-2.8-turbo',
+      ])
+      expect(fixture.findCloneSamples).toHaveBeenCalledWith(
+        'MiniMaxVoice_original001',
+        'minimax-multimodal',
+        expect.any(String),
+      )
+      expect(fixture.manager.getAdapter).toHaveBeenCalledWith('minimax-multimodal')
+      expect(fixture.cloneVoice).toHaveBeenCalledTimes(1)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('finalize_assets legacy serviceBus 重克隆成功后复用 callPythonSkill', async () => {
+    const fixture = createReclonePipelineEngine()
+    try {
+      const result = await fixture.engine.stageExecutor.execute({
+        runId: 'run_e2e_voice_clone_finalize',
+        stage: {
+          name: 'finalize_assets',
+          type: STORY2VIDEO_STAGE_TYPES.FINALIZE_ASSETS,
+          options: { creationMode: 'manual', concurrency: 1 },
+        },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          generate_assets: {
+            candidates: [{
+              index: 0,
+              text: '音色001 的最终旁白',
+              prompt: '一个安静的室内场景',
+              candidates: [{ id: 'image-0', kind: 'image', path: 'e2e-image.png' }],
+            }],
+          },
+          scene_asset_selection: {
+            selections: [{ index: 0, candidateId: 'image-0' }],
+          },
+        },
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'e2e-audio-recloned.mp3',
+        imagePath: 'e2e-image.png',
+      })
+      expect(fixture.serviceBus.ttsCalls.map((payload) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(fixture.serviceBus.ttsCalls.map((payload) => payload.voice_model)).toEqual([
+        'speech-2.8-turbo',
+        'speech-2.8-turbo',
+      ])
+      expect(fixture.cloneVoice).toHaveBeenCalledTimes(1)
+    } finally {
+      fixture.cleanup()
+    }
   })
 })
 

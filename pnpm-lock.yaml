@@ -99,6 +99,9 @@ importers:
       pinia:
         specifier: ^2.3.0
         version: 2.3.1(typescript@6.0.3)(vue@3.5.35(typescript@6.0.3))
+      segmentit:
+        specifier: ^2.0.3
+        version: 2.0.3
       sql.js:
         specifier: ^1.11.0
         version: 1.14.1

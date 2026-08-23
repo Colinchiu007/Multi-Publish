@@ -272,6 +272,35 @@ class FeatureFlag(Base):
     enabled = Column(Integer, default=1)
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+
+
+class UserFeedback(Base):
+    """用户反馈正文与安全元数据；附件独立存储，避免把路径暴露给 API。"""
+
+    __tablename__ = "user_feedback"
+
+    id = Column(String(36), primary_key=True)
+    message = Column(Text, nullable=False)
+    client_id_hash = Column(String(64), default="")
+    app_version = Column(String(64), default="")
+    platform = Column(String(32), default="")
+    status = Column(String(16), default="new")
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+
+
+class FeedbackAttachment(Base):
+    """反馈日志归档元数据；stored_name 是由服务端生成的 basename。"""
+
+    __tablename__ = "feedback_attachments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    feedback_id = Column(String(36), ForeignKey("user_feedback.id", ondelete="CASCADE"), nullable=False, unique=True)
+    stored_name = Column(String(128), nullable=False, unique=True)
+    extension = Column(String(8), default="zip")
+    size_bytes = Column(Integer, nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
+    expires_at = Column(String, nullable=True)
 class PlatformDef(Base):
     """平台发布元数据 — 运营后台管理，桌面端启动拉取覆盖（临时下线/字段上限即时生效）。"""
 
@@ -485,10 +514,13 @@ class PromptEvalCase(Base):
     prompt_en_source = Column(String(32), nullable=True)  # machine_translation / manual
     prompt_en_translated_at = Column(String, nullable=True)
     prompt_en_cache_zh = Column(Text, nullable=True)  # 幂等缓存键（prompt_zh 快照）
+    media_type = Column(String(16), default="image", nullable=False)  # image / video（v2）
     provider = Column(String(64), nullable=False)
     model = Column(String(128), nullable=False)
     image_count = Column(Integer, default=1)
     aspect_ratio = Column(String(16), default="1:1")
+    compare_mode = Column(String(16), default="single")  # single / dual（双路对比：人工 vs 引擎优化）
+    engine_params = Column(Text, nullable=True)  # JSON：{creative_level, num_candidates, excluded_characters, no_swap_pairs}（dual 用，v1 默认空）
     created_by = Column(String(100), default="")
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
@@ -507,7 +539,8 @@ class PromptEvalRun(Base):
     model = Column(String(128), nullable=False)
     status = Column(String(16), default="queued")  # queued/processing/succeeded/failed
     image_paths = Column(Text, nullable=True)  # JSON 数组（落盘/COS URL）
-    video_path = Column(String(512), nullable=True)  # v2 预留
+    video_path = Column(String(512), nullable=True)  # 视频文件相对路径（video case）
+    video_frames = Column(Text, nullable=True)  # JSON 数组（首/中/尾 3 帧文件名）
     eval_status = Column(String(16), default="pending")  # pending/succeeded/failed
     overall_score = Column(Float, nullable=True)
     grade = Column(String(16), nullable=True)
@@ -515,6 +548,11 @@ class PromptEvalRun(Base):
     problems = Column(Text, nullable=True)  # JSON
     optimization_points = Column(Text, nullable=True)  # JSON
     error = Column(Text, nullable=True)  # 阶段 + 原因
+    prompt_variant = Column(String(16), default="manual")  # manual / engine（双路对比变体）
+    prompt_source_zh = Column(Text, nullable=True)  # A 路（manual 原版 prompt_zh）快照，对比用
+    engine_meta = Column(Text, nullable=True)  # JSON：pair_id/creative_level/num_candidates/max_length/模型/耗时
+    prompt_zh = Column(Text, nullable=True)  # 变体 prompt_zh 快照（engine 变体填充；manual 为空则回退 case）
+    prompt_en = Column(Text, nullable=True)  # 变体 prompt_en 快照（engine 变体填充）
     created_by = Column(String(100), default="")
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     completed_at = Column(String, nullable=True)
@@ -535,6 +573,7 @@ class PromptEvalProviderKey(Base):
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
     updated_by = Column(String(100), default="")
+    is_default = Column(Integer, default=0)  # LLM/视觉/生图用途分组唯一默认标记
 
 class PromptEvalScene(Base):
     """提示词评测场景层（scene 模式）：场景文字 + 字幕二次分句 + 场景上下文 + 中英优化提示词。"""

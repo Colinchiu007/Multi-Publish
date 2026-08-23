@@ -122,6 +122,8 @@ function createPublishApi(ipcRenderer, options = {}) {
     pipelineStatus: (name) => ipcRenderer.invoke('pipeline:status', name),
     pipelineAdvance: () => ipcRenderer.invoke('pipeline:advance'),
     pipelineHistory: () => ipcRenderer.invoke('pipeline:history'),
+    pipelineDeleteRun: (runId) => ipcRenderer.invoke('pipeline:delete-run', runId),
+    pipelinePauseRun: (runId) => ipcRenderer.invoke('pipeline:pause-run', runId),
     pipelineFetch: (name) => ipcRenderer.invoke('pipeline:fetch', name),
     // 编排模式 API（story2video-compose）
     pipelineStartOrchestrated: (name, params) => ipcRenderer.invoke('pipeline:startOrchestrated', name, params),
@@ -153,7 +155,7 @@ function createPublishApi(ipcRenderer, options = {}) {
     // 添加沿用 import-media 的 File 路径解析，其余操作直通。
     story2videoBgmLibraryList: () => ipcRenderer.invoke('story2video:bgm-library-list'),
     story2videoBgmLibraryAdd: (file) => {
-      let filePath = ''
+      let filePath
       try {
         filePath = String(resolveFilePath(file) || '')
       } catch {
@@ -165,19 +167,34 @@ function createPublishApi(ipcRenderer, options = {}) {
     story2videoBgmLibraryRename: (id, name) => ipcRenderer.invoke('story2video:bgm-library-rename', { id, name }),
     story2videoBgmLibraryDelete: (id) => ipcRenderer.invoke('story2video:bgm-library-delete', { id }),
     story2videoExportZip: (files, destinationPath) => ipcRenderer.invoke('story2video:export-zip', { files, destinationPath }),
-    story2videoCreateShareUrl: (filePath) => ipcRenderer.invoke('story2video:create-share-url', filePath),
+    story2videoCreateShareUrl: (filePath, previousUrl) => ipcRenderer.invoke('story2video:create-share-url', filePath, previousUrl),
     story2videoCopyPath: (filePath) => ipcRenderer.invoke('story2video:copy-path', filePath),
     story2videoShowInFolder: (filePath) => ipcRenderer.invoke('story2video:show-in-folder', filePath),
     story2videoSaveAs: (filePath, suggestedName) => ipcRenderer.invoke('story2video:save-as', { filePath, suggestedName }),
     story2videoListProjects: () => ipcRenderer.invoke('story2video:list-projects'),
     story2videoGetProject: (projectId) => ipcRenderer.invoke('story2video:get-project', projectId),
+    story2videoGetThumbnail: (projectId) => ipcRenderer.invoke('story2video:get-thumbnail', projectId),
     story2videoDeleteProject: (projectId) => ipcRenderer.invoke('story2video:delete-project', projectId),
     story2videoUpdateSegments: (projectId, segments) => ipcRenderer.invoke('story2video:update-segments', { projectId, segments }),
     story2videoReplaceSegmentAudio: (projectId, segmentId, filePath) => ipcRenderer.invoke('story2video:replace-segment-audio', { projectId, segmentId, filePath }),
     story2videoRetrySegment: (projectId, segmentId, mode) => ipcRenderer.invoke('story2video:retry-segment', { projectId, segmentId, mode }),
     story2videoRecomposeProject: (projectId) => ipcRenderer.invoke('story2video:recompose-project', projectId),
+    story2videoSelectSceneMaterial: (projectId, segmentId, kind) => ipcRenderer.invoke('story2video:select-scene-material', { projectId, segmentId, kind }),
+    story2videoGenerateSceneImage: (projectId, segmentId) => ipcRenderer.invoke('story2video:generate-scene-image', { projectId, segmentId }),
+    story2videoGenerateSceneVideo: (projectId, segmentId) => ipcRenderer.invoke('story2video:generate-scene-video', { projectId, segmentId }),
+    story2videoGenerateSceneAiVideo: (projectId, segmentId) => ipcRenderer.invoke('story2video:generate-scene-ai-video', { projectId, segmentId }),
+    story2videoRegenerateSceneSubtitle: (projectId, segmentId) => ipcRenderer.invoke('story2video:regenerate-scene-subtitle', { projectId, segmentId }),
+    story2videoRegenerateSceneAudio: (projectId, segmentId) => ipcRenderer.invoke('story2video:regenerate-scene-audio', { projectId, segmentId }),
+    story2videoRegenerateScenePrompt: (projectId, segmentId, kind) => ipcRenderer.invoke('story2video:regenerate-scene-prompt', { projectId, segmentId, kind }),
     story2videoTranscribe: (filePath) => ipcRenderer.invoke('story2video:transcribe', { filePath }),
     story2videoCapabilities: () => ipcRenderer.invoke('story2video:capabilities'),
+
+    // Story2Video 批量创作（openspec story2video-batch-create）
+    story2videoBatchCreate: (payload) => ipcRenderer.invoke('story2video:batch:create', payload),
+    story2videoBatchStatus: () => ipcRenderer.invoke('story2video:batch:status'),
+    story2videoBatchCancel: (batchId, itemIds) => ipcRenderer.invoke('story2video:batch:cancel', { batchId, itemIds }),
+    // 本地文件选择（.txt/.md 多选）：返回 [{ path, name }]，路径由主进程对话框直接提供
+    story2videoPickBatchFiles: () => ipcRenderer.invoke('story2video:pick-batch-files'),
 
     // Cloud Publisher API
     cloudPublishSubmit: (params) => ipcRenderer.invoke('cloud-publisher:submit', params),

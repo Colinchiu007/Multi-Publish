@@ -1,0 +1,14 @@
+{
+  "id": "subtitle-quality-prd-supplement",
+  "title": "补充 Story2Video 字幕分句质量子 PRD",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "子 PRD 已创建并挂接主 PRD 索引，文档校验通过",
+  "createdAt": "2026-08-23T01:00:00+08:00",
+  "branch": "codex/subtitle-quality-prd-supplement",
+  "sourceSpec": "openspec/specs/subtitle-split-quality/spec.md",
+  "remoteStatus": "docs-only: main-direct"
+}

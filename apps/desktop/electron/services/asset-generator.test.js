@@ -254,3 +254,65 @@ describe('TTS 词级时间戳（消除事后 whisper ASR）', () => {
     expect(textSpy).not.toHaveBeenCalled()
   })
 })
+
+describe('generateImage provider negative_prompt 透传（2026-08-16 east-asian-face-anchor）', () => {
+  it('generateImage 把 opts.negative_prompt 传入 aiGenerator.generate(image) 调用', async () => {
+    const aiGenerator = {
+      generate: vi.fn(async () => ({
+        images: [{ b64_json: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' }],
+      })),
+    }
+    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator })
+    const result = await gen.generateImage('朱蒙站在山脊上眺望', {
+      index: 0,
+      image_provider: 'openai-image',
+      negative_prompt: '西方面孔, 金发',
+    })
+    expect(result.code).toBe(0)
+    expect(aiGenerator.generate).toHaveBeenCalledWith(
+      'image',
+      'dall-e',
+      expect.objectContaining({ negative_prompt: '西方面孔, 金发' }),
+    )
+  })
+
+  it('未传 negative_prompt 时不带该键（不污染 provider 载荷）', async () => {
+    const aiGenerator = {
+      generate: vi.fn(async () => ({
+        images: [{ b64_json: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' }],
+      })),
+    }
+    const gen = new AssetGenerator({ outputDir: '/tmp/test', aiGenerator })
+    const result = await gen.generateImage('prompt', { index: 0, image_provider: 'openai-image' })
+    expect(result.code).toBe(0)
+    const payload = aiGenerator.generate.mock.calls[0][2]
+    expect(payload).not.toHaveProperty('negative_prompt')
+  })
+})
+
+  it("re-throws ProviderError from _tryProviderTTS for upstream cloned-voice detection", async () => {
+    const { ProviderError, ERROR_CODES } = require("./adapters/_base/provider-error")
+    const aiGenerator = {
+      generate: vi.fn(async () => {
+        throw new ProviderError(ERROR_CODES.INVALID_CONFIG, "you dont have access to this voice_id", { providerId: "minimax-multimodal" })
+      }),
+    }
+    const gen = new AssetGenerator({ outputDir: "/tmp/test", aiGenerator })
+    await expect(gen.generateTTS("hello", {
+      index: 0,
+      voice_provider: "minimax-multimodal",
+      voice_id: "cloned_voice_123",
+    })).rejects.toThrow(ProviderError)
+    expect(aiGenerator.generate).toHaveBeenCalledWith("tts", "minimax-multimodal", expect.objectContaining({ voice: "cloned_voice_123" }))
+  })
+
+  it("returns code -1 for non-ProviderError in _tryProviderTTS catch", async () => {
+    const aiGenerator = {
+      generate: vi.fn(async () => { throw new Error("generic failure") }),
+    }
+    const gen = new AssetGenerator({ outputDir: "/tmp/test", aiGenerator })
+    const result = await gen.generateTTS("hello", { index: 0, voice_provider: "some-provider" })
+    expect(result.code).toBe(-1)
+    expect(result.message).toContain("some-provider")
+  })
+

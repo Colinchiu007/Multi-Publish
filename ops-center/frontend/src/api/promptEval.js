@@ -1,25 +1,6 @@
-import axios from 'axios'
+import { createApiClient } from './http'
 
-const api = axios.create({ baseURL: '/api/v1' })
-
-api.interceptors.request.use(config => {
-  const saved = localStorage.getItem('ops_token')
-  if (saved) {
-    try {
-      const data = JSON.parse(saved)
-      if (data.token) config.headers.Authorization = `Bearer ${data.token}`
-    } catch {}
-  }
-  return config
-})
-
-api.interceptors.response.use(
-  res => res,
-  err => {
-    if (err.response?.status === 401) localStorage.removeItem('ops_token')
-    return Promise.reject(err)
-  }
-)
+const api = createApiClient()
 
 export function createPromptEvalCase(data) {
   return api.post('/prompt-eval/cases', data).then(r => r.data)
@@ -57,12 +38,20 @@ export function getPromptEvalSummary() {
   return api.get('/prompt-eval/summary').then(r => r.data)
 }
 
+export function getPromptEvalEngineStatus() {
+  return api.get('/prompt-eval/engine/status').then(r => r.data)
+}
+
 export function listPromptEvalProviders() {
   return api.get('/prompt-eval/providers').then(r => r.data)
 }
 
 export function upsertPromptEvalProvider(data) {
   return api.put('/prompt-eval/providers', data).then(r => r.data)
+}
+
+export function deletePromptEvalProvider(keyId) {
+  return api.delete(`/prompt-eval/providers/${keyId}`).then(r => r.data)
 }
 
 export function testPromptEvalProvider(data) {
@@ -88,4 +77,8 @@ export function translatePromptEvalScene(caseId, sceneId) {
 
 export function createPromptEvalSceneRun(caseId, sceneId) {
   return api.post(`/prompt-eval/cases/${caseId}/scenes/${sceneId}/runs`).then(r => r.data)
+}
+
+export function setDefaultPromptEvalProvider(keyId) {
+  return api.put('/prompt-eval/providers/' + keyId + '/default').then(r => r.data)
 }

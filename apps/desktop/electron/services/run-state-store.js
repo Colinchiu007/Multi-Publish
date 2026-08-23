@@ -125,6 +125,9 @@ class RunStateStore {
       error: run.error || null,
       orchestrationMode: run.orchestrationMode || 'orchestrator',
       createdAt: run.createdAt || null,
+      // 关联项目 ID：失败早于草稿创建时 run 没有 project，快照仍须持久化 projectId，
+      // 供历史页匹配项目与回填卡片标题/文案预览（增量字段，version 保持 1）
+      projectId: typeof run.projectId === 'string' && run.projectId ? run.projectId : null,
       // 已用时：各执行段实际耗时累计（毫秒），跨应用重启/断点恢复不丢失（version 保持 1，纯增量字段）
       activeMs: Number.isFinite(Number(run.activeMs)) ? Number(run.activeMs) : 0,
       // 运行中快照没有终态时间；终态快照用 run.endedAt 或当前时间
@@ -235,9 +238,34 @@ class RunStateStore {
   }
 
   remove(runId) {
-    // owner 隔离前后两处都清理，避免残留
-    try { fs.rmSync(this._file(runId), { force: true }) } catch { /* 删除失败可忽略 */ }
-    try { fs.rmSync(this._legacyFile(runId), { force: true }) } catch { /* 删除失败可忽略 */ }
+    // owner 隔离前后两处都清理；若其一失败，恢复已删快照，避免留下半删除状态。
+    const snapshots = []
+    const filePaths = [...new Set([this._file(runId), this._legacyFile(runId)])]
+    for (const filePath of filePaths) {
+      try {
+        if (fs.existsSync(filePath)) snapshots.push({ filePath, content: fs.readFileSync(filePath) })
+      } catch (error) {
+        this._log.warn('RunStateStore', 'remove backup failed: ' + (error && error.message ? error.message : String(error)))
+        return false
+      }
+    }
+
+    const removed = []
+    for (const snapshot of snapshots) {
+      try {
+        fs.rmSync(snapshot.filePath)
+        removed.push(snapshot)
+      } catch (error) {
+        this._log.warn('RunStateStore', 'remove failed: ' + (error && error.message ? error.message : String(error)))
+        for (const previous of removed) {
+          try { fs.writeFileSync(previous.filePath, previous.content) } catch (restoreError) {
+            this._log.warn('RunStateStore', 'remove rollback failed: ' + (restoreError && restoreError.message ? restoreError.message : String(restoreError)))
+          }
+        }
+        return false
+      }
+    }
+    return true
   }
 }
 

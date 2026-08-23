@@ -19,6 +19,7 @@ const os = require('os')
 const path = require('path')
 const { findFfmpeg, findFfprobe } = require('./media-tool-paths')
 const { getAllowedMediaRoots, resolveReadableMediaFile } = require('./story2video-paths')
+const { emitStageItem, emitStageComplete } = require('./stage-progress')
 
 const PODCAST_STAGE_TYPES = Object.freeze({
   ANALYZE: 'podcast_analyze',
@@ -137,7 +138,7 @@ function registerPodcastRepurposeStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     PODCAST_STAGE_TYPES.VISUALIZE,
-    async ({ runId, stage, params, context }) => {
+    async ({ runId, stage, params, context, onProgress }) => {
       const segments = Array.isArray(context.analyze && context.analyze.segments) ? context.analyze.segments : []
       if (segments.length === 0) {
         return { success: false, error: 'podcast-repurpose visualize 需要 context.analyze.segments' }
@@ -164,10 +165,13 @@ function registerPodcastRepurposeStages (pipelineEngine) {
           } else {
             images.push({ index: i, success: false, error: (result && result.message) || '图片生成失败' })
           }
+          emitStageItem(onProgress, i + 1, segments.length, { messageKey: 'stageProgress.podcastVisualize', kind: 'segment' })
         } catch (error) {
           images.push({ index: i, success: false, error: error && error.message ? error.message : String(error) })
+          emitStageItem(onProgress, i + 1, segments.length, { messageKey: 'stageProgress.podcastVisualize', kind: 'segment' })
         }
       }
+      emitStageComplete(onProgress, { messageKey: 'stageProgress.stageComplete', summaryKey: 'stageProgress.podcastSummary', summaryParams: { done: images.filter(item => item.success).length, total: segments.length } })
       return { success: true, output: { ...context.analyze, images } }
     },
   )
@@ -178,7 +182,7 @@ function registerPodcastRepurposeStages (pipelineEngine) {
   // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     PODCAST_STAGE_TYPES.ASSEMBLE,
-    async ({ runId, context }) => {
+    async ({ runId, context, onProgress }) => {
       const segments = Array.isArray(context.visualize && context.visualize.segments) ? context.visualize.segments : []
       const images = Array.isArray(context.visualize && context.visualize.images) ? context.visualize.images : []
       const audioPath = context.visualize && context.visualize.audioPath
@@ -193,7 +197,10 @@ function registerPodcastRepurposeStages (pipelineEngine) {
       for (let i = 0; i < segments.length; i++) {
         const segment = segments[i]
         const image = images[i]
-        if (!segment || !image || image.success !== true || !image.path) continue
+        if (!segment || !image || image.success !== true || !image.path) {
+          emitStageItem(onProgress, i + 1, segments.length, { messageKey: 'stageProgress.podcastAssemble', kind: 'segment' })
+          continue
+        }
         const clipPath = path.join(runDir, 'seg_' + String(i).padStart(4, '0') + '.m4a')
         try {
           await runTool(ffmpeg, [
@@ -211,13 +218,16 @@ function registerPodcastRepurposeStages (pipelineEngine) {
             audioPath: clipPath,
             duration: Number((segment.end - segment.start).toFixed(3)),
           })
+          emitStageItem(onProgress, i + 1, segments.length, { messageKey: 'stageProgress.podcastAssemble', kind: 'segment' })
         } catch (error) {
           log.warn('PodcastRepurpose', 'segment ' + i + ' audio cut failed: ' + (error && error.message ? error.message : String(error)))
+          emitStageItem(onProgress, i + 1, segments.length, { messageKey: 'stageProgress.podcastAssemble', kind: 'segment' })
         }
       }
       if (scenes.length === 0) {
         return { success: false, error: '未能切分任何可用的音频片段（请检查音频文件与文案）' }
       }
+      emitStageComplete(onProgress, { messageKey: 'stageProgress.stageComplete', summaryKey: 'stageProgress.podcastSummary', summaryParams: { done: scenes.length, total: segments.length } })
       return { success: true, output: { scenes } }
     },
   )

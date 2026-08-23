@@ -1,0 +1,26 @@
+{
+  "id": "error-message-fix",
+  "title": "强化 Story2Video 历史记录失败提示并明确模型账号",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "归档任务并保留远端合并记录",
+  "createdAt": "2026-08-19T20:27:00+08:00",
+  "branch": "codex/error-message-fix",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-error-message-fix",
+  "openspecChange": "s2v-history-error-message-hardening",
+  "remoteStatus": {
+    "pr": 1021,
+    "url": "https://github.com/Colinchiu007/Multi-Publish/pull/1021",
+    "state": "merged",
+    "mergeCommit": "f00c298b891e78bc419a37f5b0bfb2ce2998294b",
+    "archivePr": 1027,
+    "archiveUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1027",
+    "archiveState": "merged",
+    "archiveMergeCommit": "4e1809ab09b231c9ee3661bab0b35043ad2c2fac",
+    "originMainVerified": true,
+    "originMainAfterArchive": "4e1809ab09b231c9ee3661bab0b35043ad2c2fac"
+  }
+}

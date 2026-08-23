@@ -5,7 +5,9 @@
  * Agnes Image API 关键特性：
  * - 认证头 Authorization: Bearer {key}
  * - generateImage: POST /images/generations（OpenAI 兼容）
- * - 请求体 { model: 'agnes-image-2.1-flash', prompt, size: '2K', ratio: '16:9', response_format: 'url' }
+ * - 请求体 { model: 'agnes-image-2.1-flash', prompt, size: '2K', ratio: '16:9', extra_body: { response_format: 'url'|'b64_json' } }
+ * - 官方文档（agnes-image-2.1-flash）：顶层 response_format 会被网关拒绝，必须放 extra_body 内
+ * - response_format='b64_json' 时返回 { images: [{ b64_json }], format: 'b64_json' }
  * - 响应中 data[0].url 为图片 URL
  * - 支持 size 参数映射：2048x2048 → 2K
  * - listModels: 静态返回 1 个模型
@@ -175,11 +177,80 @@ describe('AgnesImageAdapter — Agnes Image Adapter', () => {
       global.fetch = fetchMock
 
       const adapter = new AgnesImageAdapter({ id: 'agnes-image', apiKey: 'agnes-test' })
-      await adapter.generateImage({ prompt: 'test' })
+      const result = await adapter.generateImage({ prompt: 'test' })
 
       const body = JSON.parse(fetchMock.calls[0].opts.body)
       expect(body.model).toBe('agnes-image-2.1-flash')
-      expect(body.response_format).toBe('url')
+      // 回归保护（2026-08-16）：官方文档要求 response_format 必须放 extra_body 内，
+      // 顶层不携带该字段（顶层会被 litellm 网关拒绝，复盘见 learnings）。
+      expect(body).not.toHaveProperty('response_format')
+      expect(body.extra_body).toEqual({ response_format: 'url' })
+      // url 默认路径返回形状锁定（审查 M2）：{ urls, format: 'url' }
+      expect(result).toEqual({ urls: ['x'], format: 'url' })
+    })
+
+    it('response_format 放在 extra_body 内（官方文档契约，2026-08-16）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: [{ url: 'https://cdn.example.com/img.png' }] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesImageAdapter({ id: 'agnes-image', apiKey: 'agnes-test' })
+      const result = await adapter.generateImage({ prompt: 'a cat' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body).not.toHaveProperty('response_format')
+      expect(body.extra_body.response_format).toBe('url')
+      // 请求体键集合：model/prompt/size/ratio + extra_body（无 return_base64、无顶层 response_format）
+      expect(Object.keys(body).sort()).toEqual(['extra_body', 'model', 'prompt', 'ratio', 'size'])
+      // url 返回形状断言（审查 M2）
+      expect(result).toEqual({ urls: ['https://cdn.example.com/img.png'], format: 'url' })
+    })
+
+    it('显式 response_format=url 时按 url 模式处理（审查 M2 补充）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: [{ url: 'https://cdn.example.com/img.png' }] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesImageAdapter({ id: 'agnes-image', apiKey: 'agnes-test' })
+      const result = await adapter.generateImage({ prompt: 'a cat', response_format: 'url' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body).not.toHaveProperty('response_format')
+      expect(body.extra_body.response_format).toBe('url')
+      // 未知值/显式 url 一律回落 url 模式，返回 urls
+      expect(result).toEqual({ urls: ['https://cdn.example.com/img.png'], format: 'url' })
+    })
+
+    it('response_format 为 b64_json 时请求体 extra_body.response_format=b64_json（2026-08-16 真实调用复盘）', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: [{ b64_json: 'QUJD' }] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesImageAdapter({ id: 'agnes-image', apiKey: 'agnes-test' })
+      const result = await adapter.generateImage({ prompt: 'a cat', response_format: 'b64_json' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body).not.toHaveProperty('response_format')
+      expect(body.extra_body.response_format).toBe('b64_json')
+      // Base64 直出，无需二次 URL 下载（避免 SSRF 守卫拦 URL 的真实失败路径）
+      expect(result).toEqual({
+        images: [{ b64_json: 'QUJD' }],
+        model: 'agnes-image-2.1-flash',
+        format: 'b64_json',
+      })
+    })
+
+    it('b64_json 模式下响应缺失 b64_json 抛 ProviderError', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: [{ url: 'https://cdn.example.com/img.png' }] }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new AgnesImageAdapter({ id: 'agnes-image', apiKey: 'agnes-test' })
+      await expect(adapter.generateImage({ prompt: 'a cat', response_format: 'b64_json' })).rejects.toThrow('Missing b64_json in response')
     })
 
     it('size 2048x2048 → 2K 档位', async () => {

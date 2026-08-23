@@ -73,15 +73,33 @@ change 完成时 SHALL 三同步归档：OpenSpec archive（规格）、CCG task
 - **THEN** 以 `openspec status --change <name>` 为准，CCG task.json 仅反映当前执行阶段
 
 ### Requirement: 归档三同步自动检查
-系统 SHALL 提供 scripts/openspec-sync-check.js：扫描 .ccg/tasks 下 task.json 的 openspecChange 关联与 openspec/changes 状态，对「task 已 completed 但关联 change 未 archive」输出警告并返回非零；无关联任务不得误报。
+系统 SHALL 提供 `scripts/openspec-sync-check.js`：扫描 `.ccg/tasks` 下 task.json 的 `openspecChange` 关联与 `openspec/changes` 状态，并以可自动化的错误码报告三同步漂移。无关联任务不得误报。
+
+- `status=completed` 与 `currentPhase in {completed, archived}` MUST 双向一致；任一方向不一致均为 task 元数据错误。
+- `openspecState=superseded` 只能在 `supersededBy` 是非空字符串时用于豁免缺失 change；否则为 task 元数据错误。
+- 当已完成 CCG task 关联的 change 仍 active 时，检查 SHALL 返回非零 workflow violation；若该 active change 的 `tasks.md` 缺失、没有 task checkbox，或仍有未完成 checkbox，检查 SHALL 额外报告可追踪性 violation。
+- 已完成 task 关联的 change 既不 active 也未归档且未具备有效 supersession 证据时，检查 SHALL 返回 nonzero workflow violation。
+- 输入/元数据错误使用 exit `2`；有效数据的 workflow violation 使用 exit `1`；无发现使用 exit `0`。
 
 #### Scenario: task 完成但 change 未归档
-- **WHEN** CCG task status=completed 且 openspecChange 关联存在但对应 change 仍 active
-- **THEN** 检查脚本输出该任务并返回非零，提示执行 openspec archive
+- **WHEN** CCG task 的 `status=completed`、`currentPhase=completed` 且关联的 OpenSpec change 仍 active
+- **THEN** 检查输出 active-change workflow violation，提示归档该 change
+
+#### Scenario: active change 仍有未完成任务
+- **WHEN** 一个已完成 CCG task 关联 active change，且其 `tasks.md` 含有一个或多个 `- [ ]` checkbox
+- **THEN** 检查除 active-change violation 外还输出 incomplete-task-tracking violation，并包含未完成数量
+
+#### Scenario: 终态字段双向漂移
+- **WHEN** task 的 `status=completed` 与非终态 `currentPhase` 组合，或 task 使用终态 `currentPhase` 但 `status` 不是 `completed`
+- **THEN** 检查把该记录报告为 task-state input error 并返回 exit `2`
+
+#### Scenario: superseded 缺少替代证据
+- **WHEN** task 的 `openspecState=superseded` 但 `supersededBy` 缺失、非字符串或 trim 后为空
+- **THEN** 检查把该记录报告为 supersession-evidence input error，不允许其豁免缺失 change
 
 #### Scenario: 无关联任务
-- **WHEN** task.json 无 openspecChange 字段
-- **THEN** 检查脚本跳过该任务，不产生警告
+- **WHEN** task.json 无 `openspecChange` 字段
+- **THEN** 检查跳过该 task，不产生 change-state violation
 
 ### Requirement: M+/中高风险任务建 change 模板化
 CCG 评估为 M+ 复杂度或中/高风险的任务，SHALL 在任务创建时同步执行 `openspec new change`，把建 change 作为固定动作而非可选项；S 复杂度且低风险任务不受此约束。
@@ -102,11 +120,11 @@ change 的每个 WHEN/THEN 场景 SHALL 在实现时映射到对应测试（单�
 - **THEN** 先运行 openspec validate 确认 change 有效，并核对场景-测试映射无遗漏
 
 ### Requirement: 分层分支策略
-分支策略 SHALL 分层执行：运行时代码变更（apps/、packages/ 及关联配置/CI）MUST 在 git 分支上进行，经 PR 审查与 CI 后合并回 main，禁止直接修改 main；纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）MAY 在 main 直接小步提交，但 MUST 保持可回滚且不得与并发会话的脏文件冲突。判定以「是否影响运行行为」为准，禁止以文档提交夹带运行时代码。
+分支策略 SHALL 分层执行：运行时代码变更（apps/、packages/ 及关联配置/CI）MUST 在 `D:/Data/projects/mp-worktrees/mp-<task-name>` 下的独立 linked worktree 与 `codex/<task-name>` 分支进行，经 PR 审查与 CI 后合并回 main；共享主工作区 MUST 保持在 main，禁止运行时代码任务在共享主工作区切换 feature 分支或修改代码。纯流程/规格/文档变更（openspec/、.ccg/、docs/、scripts/ 工具脚本、CHANGELOG、.quality-gates.md）MAY 在 main 直接小步提交，但 MUST 保持可回滚且不得与并发会话的脏文件冲突。判定以「是否影响运行行为」为准，禁止以文档提交夹带运行时代码。
 
 #### Scenario: 运行时代码必须分支
 - **WHEN** 变更涉及产品代码、测试、构建或部署配置
-- **THEN** 必须在 codex/ 分支上开发并经 PR 合并回 main，不得直接在 main 提交
+- **THEN** 必须在 D 盘独立 linked worktree 的 codex/ 分支上开发并经 PR 合并回 main，不得在共享主工作区开发或提交
 
 #### Scenario: 纯流程文档允许 main
 - **WHEN** 变更仅涉及 openspec/、.ccg/、docs/、工具脚本等纯流程/文档
@@ -114,5 +132,9 @@ change 的每个 WHEN/THEN 场景 SHALL 在实现时映射到对应测试（单�
 
 #### Scenario: 文档夹带代码
 - **WHEN** 一次提交同时包含流程文档与运行时代码
-- **THEN** 该提交按运行时代码处理，必须拆分并走分支+PR
+- **THEN** 该提交按运行时代码处理，必须拆分并走独立 worktree + 分支 + PR
+
+#### Scenario: 共享主工作区误切 feature 分支
+- **WHEN** 任一会话使共享主工作区成功切换到非 main 分支
+- **THEN** Git 守卫必须立即检测并恢复 main；恢复失败时必须进入 fail-closed 事故状态并给出精确恢复步骤
 

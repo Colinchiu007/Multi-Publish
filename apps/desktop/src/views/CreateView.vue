@@ -1,6 +1,10 @@
 <template>
-  <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline }">
+  <div class="create-page" :class="{ 'create-page--pipeline-list': view === 'pipelines' && !selectedPipeline, 'create-page--pipeline-detail': view === 'pipelines' && selectedPipeline }">
     <div class="page-header">
+      <div class="page-header-nav">
+        <button class="nav-arrow-btn" @click="goBack" :disabled="!canGoBack" title="上一页">←</button>
+        <button class="nav-arrow-btn" @click="goForward" :disabled="!canGoForward" title="下一页">→</button>
+      </div>
       <h1>视频创作</h1>
       <p class="text-muted">基于 OpenMontage 流水线引擎，AI 驱动从脚本到成片的全流程</p>
     </div>
@@ -17,13 +21,13 @@
 
     <!-- 视图切换 -->
     <div class="view-tabs">
-      <button :class="['view-tab', { active: view === 'pipelines' }]" @click="view = 'pipelines'">流水线创作</button>
-      <button :class="['view-tab', { active: view === 'quick' }]" @click="view = 'quick'">快速渲染</button>
-      <button :class="['view-tab', { active: view === 'history' }]" @click="view = 'history'; loadHistory()">历史记录</button>
+      <button :class="['view-tab', { active: view === 'pipelines' }]" @click="switchView('pipelines')">流水线创作</button>
+      <button :class="['view-tab', { active: view === 'quick' }]" @click="switchView('quick')">快速渲染</button>
+      <button :class="['view-tab', { active: view === 'history' }]" @click="switchView('history')">历史记录</button>
     </div>
 
-    <!-- ==================== 流水线创作视图 ==================== -->
-    <div v-if="view === 'pipelines'">
+    <!-- ==================== 流水线启动页（流水线创作） ==================== -->
+    <div v-if="view === 'pipelines'" class="view-pane">
       <!-- 流水线列表 -->
       <div v-if="!selectedPipeline">
         <PipelineSelector
@@ -35,9 +39,9 @@
         />
       </div>
 
-      <!-- 流水线详情 & 配置 -->
+      <!-- 流水线启动页：配置与执行 -->
       <div v-else class="pipeline-detail">
-        <button class="back-btn" @click="selectedPipeline = null">← 返回流水线列表</button>
+        <button class="back-btn" @click="goToHistory()">← 返回</button>
 
         <div class="detail-header">
           <h2>{{ pipelineName(selectedPipeline.name) }}</h2>
@@ -52,6 +56,7 @@
           :progress-percent="orchestrationProgressPercent"
           :elapsed-ms="orchestrationElapsedMs"
           :summary="orchestrationSummary"
+          :show-time-guidance="isOrchestratedPipeline(selectedPipeline?.name)"
           :orchestration-context="orchestrationContext"
           :checkpoint="pipelineRunStatus?.checkpoint || null"
         />
@@ -300,6 +305,13 @@
                 <span class="config-hint">{{ story2videoPromptStyleHint }}</span>
               </div>
               <div class="config-item">
+                <label>{{ s2vMaxPromptLengthLabel }}</label>
+                <select v-model="s2vConfig.maxPromptLength" class="form-select" data-testid="s2v-max-prompt-length-select">
+                  <option v-for="n in s2vMaxPromptLengthOptions" :key="n" :value="n">{{ n }}</option>
+                </select>
+                <span class="config-hint">{{ s2vMaxPromptLengthHint }}</span>
+              </div>
+              <div class="config-item">
                 <label>图片动效</label>
                 <select v-model="s2vConfig.imageEffect" class="form-select">
                   <option value="none">无效果</option>
@@ -479,16 +491,25 @@
               <!-- 视频增强模式：manual + 全部图片轮播 时忽略（不生成 AI 视频） -->
               <template v-if="s2vConfig.creationMode === 'auto' || s2vConfig.manualMaterialMode === 'video-image'">
               <div class="config-item">
-                <label>视频增强模式</label>
+                <label>{{ translateWithLocaleFallback('create.story2video.batch.videoModeLabel', '视频增强模式', 'Video enhancement mode') }}</label>
                 <select v-model="s2vConfig.videoMode" class="form-select" data-testid="s2v-video-mode">
-                  <option value="off">关闭（纯图片轮播）</option>
-                  <option value="fixed">固定比例（成片前段 AI 视频）</option>
-                  <option value="ai-judged">AI 智能选择（最精彩场景）</option>
+                  <option value="off">{{ translateWithLocaleFallback('videoConfig.videoModeOff', '纯图片轮播', 'Image carousel only') }}</option>
+                  <option value="fixed">{{ translateWithLocaleFallback('videoConfig.videoModeFixed', '固定比例', 'Fixed ratio') }}</option>
+                  <option value="ai-judged">{{ translateWithLocaleFallback('videoConfig.videoModeAiJudged', 'AI 智能选择', 'AI selected') }}</option>
                 </select>
-                <p class="config-hint">AI 视频更贵也更慢，仅用于最值得动态化的场景；其余场景继续图片轮播，节省额度。</p>
+                <p class="config-hint">{{ translateWithLocaleFallback('create.story2video.videoModeHint', 'AI 视频更贵也更慢，仅用于最值得动态化的场景；其余场景继续图片轮播，节省额度。', 'AI video is more expensive and slower — used only for the most dynamic scenes; others use image carousel to save quota.') }}</p>
+              </div>
+              <!-- 单段视频短于分镜时长处理：仅 videoMode 为 fixed 或 ai-judged 时显示 -->
+              <div v-if="s2vConfig.videoMode === 'fixed' || s2vConfig.videoMode === 'ai-judged'" class="config-item">
+                <label>{{ translateWithLocaleFallback('create.story2video.batch.shortVideoHandlingLabel', '单段视频短于分镜时长的处理', 'Handle short AI video clips') }}</label>
+                <select v-model="s2vConfig.shortVideoHandling" class="form-select" data-testid="s2v-short-video-handling">
+                  <option value="loop">{{ translateWithLocaleFallback('create.story2video.batch.shortVideoHandlingLoop', '循环播放', 'Loop playback') }}</option>
+                  <option value="stop-at-end">{{ translateWithLocaleFallback('create.story2video.batch.shortVideoHandlingStopAtEnd', '播放完停止', 'Stop at end') }}</option>
+                </select>
+                <p class="config-hint">{{ translateWithLocaleFallback('create.story2video.batch.shortVideoHandlingHint', '仅在视频增强模式（固定比例/AI 智能选择）下生效。选择播放完停止时，AI 视频播放到最后一帧后将定格并慢慢放大。', 'Only applies in video enhancement mode (Fixed ratio / AI selected). When Stop at end is chosen, the AI video will freeze on the last frame and slowly zoom in.') }}</p>
               </div>
               <div v-if="s2vConfig.videoMode !== 'off'" class="config-item">
-                <label>视频生成器</label>
+                <label>{{ translateWithLocaleFallback('create.story2video.videoGenerator', '视频生成器', 'Video generator') }}</label>
                 <select v-model="s2vConfig.videoProvider" class="form-select" @change="handleS2VVideoProviderChange" data-testid="s2v-video-provider">
                   <!-- 无可用视频生成器时下拉显示「无」，避免空白选中项（2026-08-12 审查 M2 对齐图片） -->
                   <option v-if="s2vVideoProviders.length === 0" value="">无</option>
@@ -851,11 +872,20 @@
         </div>
 
         <!-- 执行控制 -->
-        <div class="action-bar">
+        <div class="action-bar" data-testid="pipeline-action-bar">
           <span v-if="s2vOptionsToast" class="s2v-options-toast" role="status" data-testid="s2v-options-toast">{{ s2vOptionsToast }}</span>
           <div v-if="!pipelineRunStatus || pipelineRunStatus.status === 'idle'">
             <UiButton class="btn-start" data-testid="start-story2video" @click="handleStartPipeline" :disabled="!canStartPipeline">
               {{ translateWithLocaleFallback('create.story2video.startPipeline', '启动流水线', 'Start pipeline') }}
+            </UiButton>
+            <UiButton
+              v-if="isOrchestratedPipeline(selectedPipeline?.name)"
+              variant="secondary"
+              class="btn-start s2v-batch-trigger"
+              data-testid="s2v-batch-trigger"
+              @click="openS2VBatchDialog"
+            >
+              {{ translateWithLocaleFallback('create.story2video.batch.trigger', '批量创作', 'Batch create') }}
             </UiButton>
             <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="reset-options-link" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
               {{ translateWithLocaleFallback('create.story2video.resetOptions', '恢复默认选项', 'Reset to default options') }}
@@ -872,22 +902,21 @@
               <p v-else-if="sceneAssetSelectionActive" class="orchestration-waiting" data-testid="s2v-selection-waiting-text">
                 {{ translateWithLocaleFallback('create.story2video.selectionWait.controlText', '⏳ 等待您选择分镜素材，确认后将生成旁白并合成视频。', 'Awaiting your asset selection — narration and compositing will start after you confirm.') }}
               </p>
+              <!-- 编排流水线暂停（2026-08-16 UX 统一）：运行中可手动暂停，暂停点保存后可从历史记录断点续跑 -->
+              <UiButton
+                v-if="pipelineRunStatus?.status === 'running' && !sceneAssetSelectionActive && pipelineRunStatus?.checkpoint?.reason !== 'content_policy'"
+                variant="secondary"
+                class="s2v-pause-btn"
+                data-testid="s2v-pause-trigger"
+                :disabled="pauseActionBusy"
+                @click="pauseOrchestrationPipeline"
+              >⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</UiButton>
             </template>
             <template v-else>
-              <UiButton v-if="pipelineRunStatus.status === 'paused'" @click="resumePipeline">▶ 继续</UiButton>
-              <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ 暂停</UiButton>
+              <UiButton v-if="pipelineRunStatus.status === 'paused'" @click="resumePipeline">▶ {{ translateWithLocaleFallback('create.story2video.resume', 'Resume', 'Resume') }}</UiButton>
+              <UiButton v-else-if="pipelineRunStatus.status === 'running'" @click="pausePipeline">⏸ {{ translateWithLocaleFallback('create.story2video.pause', 'Pause', 'Pause') }}</UiButton>
               <UiButton v-if="needsCheckpoint" @click="advancePipeline">✅ 确认并继续</UiButton>
             </template>
-            <!-- 后台运行（2026-08-13）：仅编排流水线运行中显示；点击后前端恢复初始化，run 在主进程继续后台执行 -->
-            <UiButton
-              v-if="orchestrationRunId && pipelineRunStatus?.status === 'running'"
-              variant="secondary"
-              class="bg-run-btn"
-              data-testid="s2v-background-trigger"
-              @click="detachPipelineToBackground"
-            >
-              {{ translateWithLocaleFallback('create.story2video.backgroundRun', 'backgroundRun', 'Run in background') }}
-            </UiButton>
             <UiButton variant="danger" data-testid="s2v-cancel-trigger" @click="requestCancelPipeline">✕ 取消</UiButton>
           </div>
           <div v-if="!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress !== undefined" class="progress-inline">
@@ -953,9 +982,9 @@
         :history-filter="historyFilter"
         :story2video-resuming="story2videoResuming"
         @update:historyFilter="historyFilter = $event"
-        @open-history="openHistory"
         @resume-history="resumeHistoryItem"
-        @delete-history="requestProjectDeletion"
+        @open-result="openHistoryResult"
+        @delete-history="requestHistoryDeletion"
       />
     </div>
 
@@ -985,6 +1014,20 @@
       <template #footer>
         <UiButton variant="secondary" @click="closeProjectDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
         <UiButton variant="danger" @click="confirmProjectDeletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
+      </template>
+    </UiModal>
+
+    <!-- 流水线运行记录删除确认（2026-08-16）：历史记录中无 projectId 的 run 走 pipeline:delete-run -->
+    <UiModal
+      :visible="story2videoRunDeleteDialog.visible"
+      :title="story2videoErrorDialogUiText.dialogTitle"
+      size="sm"
+      @close="closeRunDeletionDialog"
+    >
+      <p class="story2video-error-dialog-message">{{ story2videoRunDeleteDialogMessage }}</p>
+      <template #footer>
+        <UiButton variant="secondary" @click="closeRunDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
+        <UiButton variant="danger" @click="confirmRunDeletion" data-testid="confirm-run-deletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
       </template>
     </UiModal>
 
@@ -1090,6 +1133,148 @@
         <UiButton variant="danger" data-testid="s2v-cancel-confirm-ok" @click="confirmCancelPipeline">{{ translateWithLocaleFallback('create.story2video.selectionWait.cancelConfirm', '确认取消', 'Confirm cancel') }}</UiButton>
       </template>
     </UiModal>
+
+    <!-- 批量创作（2026-08-15 story2video-batch-create）：按队列依次运行；最大并行 2；手动任务运行中批量并行 1 -->
+    <UiModal
+      :visible="s2vBatchDialogOpen"
+      :title="translateWithLocaleFallback('create.story2video.batch.dialogTitle', '批量创作', 'Batch create')"
+      size="lg"
+      @close="closeS2VBatchDialog"
+    >
+      <div class="s2v-batch-dialog" data-testid="s2v-batch-dialog">
+        <!-- 创作模式：固定「全自动」且隐藏不显示（提交时写死 mode=text + creationMode=auto） -->
+        <div class="config-item">
+          <label>{{ translateWithLocaleFallback('create.story2video.batch.videoModeLabel', '视频增强模式', 'Video enhancement mode') }}</label>
+          <select v-model="s2vBatchVideoMode" class="form-select" data-testid="s2v-batch-video-mode">
+            <option value="off">{{ translateWithLocaleFallback('videoConfig.videoModeOff', '关闭', 'Off') }}</option>
+            <option value="fixed">{{ translateWithLocaleFallback('videoConfig.videoModeFixed', '固定比例', 'Fixed ratio') }}</option>
+            <option value="ai-judged">{{ translateWithLocaleFallback('videoConfig.videoModeAiJudged', 'AI 智能选择', 'AI selected') }}</option>
+          </select>
+        </div>
+        <p class="config-hint s2v-batch-rule-hint" data-testid="s2v-batch-rule-hint">
+          {{ translateWithLocaleFallback('create.story2video.batch.ruleHint', '批量创作按队列依次运行，软件最大并行任务数量为 2。如果当前有正在执行中的手动任务，批量创作在同一时间只运行 1 个任务。', 'Batch tasks run in a queue (max 2 in parallel). While a manual task is running, only 1 batch task runs at a time.') }}
+        </p>
+
+        <div class="s2v-batch-tabs" role="tablist" data-testid="s2v-batch-tabs">
+          <button
+            type="button"
+            :class="['s2v-batch-tab', { active: s2vBatchTab === 'text' }]"
+            data-testid="s2v-batch-tab-text"
+            @click="s2vBatchTab = 'text'"
+          >{{ translateWithLocaleFallback('create.story2video.batch.tabText', '输入文案', 'Text input') }}</button>
+          <button
+            type="button"
+            :class="['s2v-batch-tab', { active: s2vBatchTab === 'files' }]"
+            data-testid="s2v-batch-tab-files"
+            @click="s2vBatchTab = 'files'"
+          >{{ translateWithLocaleFallback('create.story2video.batch.tabFiles', '本地文件', 'Local files') }}</button>
+        </div>
+
+        <!-- 输入文案（1-10 条） -->
+        <div v-if="s2vBatchTab === 'text'" class="s2v-batch-tab-body" data-testid="s2v-batch-text-pane">
+          <div v-for="(text, index) in s2vBatchTexts" :key="index" class="s2v-batch-text-row">
+            <textarea
+              v-model="s2vBatchTexts[index]"
+              class="form-input textarea s2v-batch-text-area"
+              rows="3"
+              :placeholder="translateWithLocaleFallback('create.story2video.batch.textPlaceholder', '输入第 ' + (index + 1) + ' 条文案（每条最多 ' + MAX_STORY2VIDEO_TEXT_CHARACTERS + ' 字）', 'Enter text ' + (index + 1) + ' (max ' + MAX_STORY2VIDEO_TEXT_CHARACTERS + ' chars each)', { index: index + 1, max: MAX_STORY2VIDEO_TEXT_CHARACTERS })"
+              :data-testid="'s2v-batch-text-' + index"
+            ></textarea>
+            <button
+              v-if="s2vBatchTexts.length > 1"
+              type="button"
+              class="btn-icon s2v-batch-text-remove"
+              :data-testid="'s2v-batch-text-remove-' + index"
+              :title="translateWithLocaleFallback('common.delete', '删除', 'Delete')"
+              @click="removeS2VBatchText(index)"
+            ><span class="material-symbols-outlined">close</span></button>
+          </div>
+          <div class="s2v-batch-text-actions">
+            <UiButton variant="secondary" :disabled="s2vBatchTexts.length >= S2V_BATCH_MAX_TEXTS" data-testid="s2v-batch-add-text" @click="addS2VBatchText">
+              + {{ translateWithLocaleFallback('create.story2video.batch.addText', '新增文案', 'Add text') }}
+            </UiButton>
+            <span v-if="s2vBatchTexts.length >= S2V_BATCH_MAX_TEXTS" class="config-hint">
+              {{ translateWithLocaleFallback('create.story2video.batch.textLimitHint', '最多可输入 10 条文案', 'Up to 10 texts') }}
+            </span>
+          </div>
+        </div>
+
+        <!-- 本地文件（.txt/.md，最多 20 个） -->
+        <div v-else class="s2v-batch-tab-body" data-testid="s2v-batch-files-pane">
+          <input
+            ref="s2vBatchFileInput"
+            type="file"
+            accept=".txt,.md,text/plain,text/markdown"
+            multiple
+            style="display:none"
+            @change="handleS2VBatchFileInput"
+          />
+          <div class="s2v-batch-file-actions">
+            <UiButton variant="secondary" data-testid="s2v-batch-pick-files" @click="pickS2VBatchFiles">
+              {{ translateWithLocaleFallback('create.story2video.batch.pickFiles', '选择文件', 'Choose files') }}
+            </UiButton>
+            <span class="config-hint">
+              {{ translateWithLocaleFallback('create.story2video.batch.fileHint', '仅支持 .txt / .md 文件，最多 20 个，单个文件最大 2MB。', 'Only .txt / .md files, up to 20 files, 2MB each.') }}
+            </span>
+          </div>
+          <ul v-if="s2vBatchFiles.length" class="s2v-batch-file-list">
+            <li v-for="(file, index) in s2vBatchFiles" :key="file.path" class="s2v-batch-file-item" :data-testid="'s2v-batch-file-' + index">
+              <span class="s2v-batch-file-name" :title="file.path">{{ file.name }}</span>
+              <button
+                type="button"
+                class="btn-icon"
+                :title="translateWithLocaleFallback('common.delete', '删除', 'Delete')"
+                @click="removeS2VBatchFile(index)"
+              ><span class="material-symbols-outlined">close</span></button>
+            </li>
+          </ul>
+          <p v-else class="config-hint">{{ translateWithLocaleFallback('create.story2video.batch.fileEmpty', '尚未选择文件。', 'No files selected yet.') }}</p>
+        </div>
+
+        <!-- 任务与排队信息 -->
+        <div class="s2v-batch-status" data-testid="s2v-batch-status">
+          <div class="s2v-batch-status-head">
+            <span class="s2v-batch-status-title">{{ translateWithLocaleFallback('create.story2video.batch.queueTitle', '任务与排队', 'Tasks & queue') }}</span>
+            <span v-if="s2vBatchLoading" class="config-hint">{{ translateWithLocaleFallback('common.loading', '加载中...', 'Loading...') }}</span>
+          </div>
+          <p v-if="!s2vBatches.length && !s2vBatchLoading" class="config-hint" data-testid="s2v-batch-status-empty">
+            {{ translateWithLocaleFallback('create.story2video.batch.queueEmpty', '暂无批量任务。启动后，任务与排队状态将显示在这里。', 'No batch tasks yet. Start a batch to see its queue status here.') }}
+          </p>
+          <div v-for="batch in s2vBatches" :key="batch.id" class="s2v-batch-card" :data-testid="'s2v-batch-card-' + batch.id">
+            <div class="s2v-batch-card-head">
+              <span class="s2v-batch-card-time">{{ formatS2VBatchCreatedAt(batch.createdAt) }}</span>
+              <span class="s2v-batch-card-mode">{{ batch.mode === 'files' ? translateWithLocaleFallback('create.story2video.batch.modeFiles', '本地文件', 'Local files') : translateWithLocaleFallback('create.story2video.batch.modeText', '输入文案', 'Text input') }}</span>
+              <span class="s2v-batch-card-summary">{{ batchSummaryText(batch) }}</span>
+            </div>
+            <ul class="s2v-batch-item-list">
+              <li v-for="item in batch.items" :key="item.itemId" class="s2v-batch-item" :data-testid="'s2v-batch-item-' + item.itemId">
+                <span class="s2v-batch-item-label" :title="item.label">{{ item.label }}</span>
+                <span :class="['s2v-batch-item-badge', 'status-' + item.status]" data-testid="s2v-batch-item-status">{{ s2vBatchItemStatusText(item) }}</span>
+                <span v-if="item.status === 'running'" class="s2v-batch-item-progress">
+                  {{ item.progress != null ? item.progress + '%' : '' }}<template v-if="item.currentStage"> · {{ item.currentStage }}</template>
+                </span>
+                <button
+                  v-if="item.status === 'pending'"
+                  type="button"
+                  class="btn-icon s2v-batch-item-cancel"
+                  :title="translateWithLocaleFallback('create.story2video.batch.cancelItem', '取消排队', 'Cancel queued task')"
+                  data-testid="s2v-batch-item-cancel"
+                  @click="cancelS2VBatchItem(batch.id, item.itemId)"
+                ><span class="material-symbols-outlined">close</span></button>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <p v-if="s2vBatchError" class="s2v-batch-error" role="alert" data-testid="s2v-batch-error">{{ s2vBatchError }}</p>
+      </div>
+      <template #footer>
+        <UiButton variant="primary" :disabled="s2vBatchStarting || !s2vBatchCanStart" data-testid="s2v-batch-start" @click="startS2VBatch">
+          {{ s2vBatchStarting ? translateWithLocaleFallback('common.loading', '启动中...', 'Starting...') : translateWithLocaleFallback('create.story2video.batch.start', '启动', 'Start') }}
+        </UiButton>
+        <UiButton variant="secondary" @click="closeS2VBatchDialog">{{ translateWithLocaleFallback('create.story2video.batch.close', '关闭', 'Close') }}</UiButton>
+      </template>
+    </UiModal>
   </div>
 </template>
 
@@ -1114,11 +1299,13 @@ import {
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
   pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineConfirmSceneAssets, pipelineGetRunContext,
+  pipelinePauseRun, pipelineDeleteRun,
   storeGetSetting, storeSetSetting,
-  story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects,
+  story2videoImportMedia, story2videoImportMediaPath, story2videoTranscribe, story2videoListProjects, story2videoGetThumbnail,
   story2videoDeleteProject,
   story2videoBgmLibraryList, story2videoBgmLibraryAdd,
-  story2videoBgmLibraryRename, story2videoBgmLibraryDelete
+  story2videoBgmLibraryRename, story2videoBgmLibraryDelete,
+  story2videoBatchCreate, story2videoBatchStatus, story2videoBatchCancel, story2videoPickBatchFiles
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
@@ -1147,6 +1334,7 @@ import {
   getPipelineStatus,
 } from '@/i18n/pipeline-labels'
 import { getAppLocale } from '@/i18n'
+import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, latestHistoryTimestamp, policySceneQuery, sortHistoryByEffectiveTime } from './history-utils'
 import {
   MAX_STORY2VIDEO_TEXT_CHARACTERS,
   STORY2VIDEO_NOTIFICATION_KEYS,
@@ -1195,10 +1383,15 @@ const VIDEO_CLONE_PIPELINE_ENTRY = {
   name: 'video-clone', category: 'generated', stageCount: 6, available: true, estimatedCost: 'medium',
 }
 
+const FILM_ENGINEERING_PIPELINE_ENTRY = {
+  name: 'film-engineering', category: 'generated', stageCount: 4, available: true, estimatedCost: 'low',
+}
+
 function withVideoCloneEntry(pipelines) {
-  const base = prioritizeStory2VideoPipeline(pipelines).filter((p) => p && p.name !== 'video-clone')
+  const base = prioritizeStory2VideoPipeline(pipelines).filter((p) => p && p.name !== 'video-clone' && p.name !== 'film-engineering')
   const idx = base.findIndex((p) => p.name === 'story2video-compose')
   base.splice(idx >= 0 ? idx + 1 : 0, 0, VIDEO_CLONE_PIPELINE_ENTRY)
+  base.splice(idx >= 0 ? idx + 2 : 1, 0, FILM_ENGINEERING_PIPELINE_ENTRY)
   return base
 }
 
@@ -1232,7 +1425,6 @@ const STYLES = [
 
 const STORY2VIDEO_STAGE_NAMES = Object.freeze([
   'split',
-  'domain_enrich',
   'scene_context',
   'optimize',
   'select_video_scenes',
@@ -1268,6 +1460,7 @@ const S2V_PLATFORMS = [
 const S2V_RESTORE_ENUM_OPTIONS = Object.freeze({
   contentType: ['general', 'history'],
   videoMode: ['off', 'fixed', 'ai-judged'],
+  shortVideoHandling: ['loop', 'stop-at-end'],
   creationMode: ['auto', 'manual'],
   manualMaterialMode: ['all-images', 'video-image'],
   imageStyle: ['cinematic', 'realistic', 'anime', 'watercolor', 'minimalist'],
@@ -1310,7 +1503,7 @@ export default {
       // 流水线
       pipelines: [VIDEO_CLONE_PIPELINE_ENTRY], pipelineLoading: true, pipelineError: null,
       selectedPipeline: null,
-      pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null, orchestrationStages: [],
+      pipelineRunStatus: null, needsCheckpoint: false, pollTimer: null, orchestrationStages: [], orchestrationStatusRequestId: 0,
       // 流水线输入
       inputMode: 'text', pipelineText: '', pipelineImages: [], pipelineAudio: [], pipelineVideo: null,
       // 配置
@@ -1342,7 +1535,7 @@ export default {
         // 参数治理 R2（7.1.19）：concurrency 为系统管理参数（契约默认 3，范围 1-8），前端不暴露不提交。
         templateId: '', imageEffect: 'zoom-in',
         // 视频+图片轮播混合模式（2026-08-11）：默认关闭保持纯图片轮播
-        videoMode: 'off', videoProvider: '', videoModel: '',
+        videoMode: 'off', shortVideoHandling: 'loop', videoProvider: '', videoModel: '',
         videoFixedRatio: 25, videoMinRatio: 20, videoMaxRatio: 40, videoMaxScenes: 3,
         // 创作模式（2026-08-12）：auto=全自动（默认）；manual=分镜素材自选（materialMode 仅 manual 生效）
         creationMode: 'auto', manualMaterialMode: 'all-images',
@@ -1357,6 +1550,8 @@ export default {
         splitSubtitleMinChars: 8, splitSubtitleMaxChars: 15, splitSubtitleTiming: 'proportional',
         // 参数治理（7.1.19）：creativeLevel 为系统管理参数（默认 5），前端不暴露不提交，由契约默认兜底。
         promptStyle: 'realistic', negativePrompt: '',
+        // 图片提示词最大长度（2026-08-16）：上限放开到 8013 契约 2000，默认 2000，可调低控制成本
+        maxPromptLength: 2000,
         transition: 'fade', subtitleEnabled: true,
         subtitleSize: 'size3', subtitleStyleName: 'style1',
         subtitleStyle: { size: 'md', style: 'style1', color: 'white' },
@@ -1366,15 +1561,19 @@ export default {
         platforms: [], publishEnabled: false, title: '', tagsText: '', publishContent: '', coverUrl: '',
       },
       orchestrationRunId: null, orchestrationContext: null, orchestrationResultPath: null, orchestrationError: '', providerWarnings: [],
+      // 启动请求代际：切换 tab、流水线或取消时使在途 IPC 响应失效，避免旧响应重新挂回创作页。
+      orchestrationStartRequestId: 0,
       // 分镜素材自选（2026-08-12）：scene_asset_selection 检查点激活与候选
       sceneAssetSelectionActive: false, sceneAssetCandidates: [], sceneAssetSelectionError: '', sceneAssetConfirming: false,
       // 等待态 UX（2026-08-13）：首次激活自动定位/高亮一次性标记 + 面板注意力高亮
       selectionGuided: false, sceneAssetAttention: false, sceneAssetAttentionTimer: null,
       dismissedBgmSkippedNotice: false,
       dismissedProviderWarnings: false,
-      story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '' },
+      story2videoErrorDialog: { visible: false, messageKey: '', messageParams: {}, detail: '', rawError: '' },
       cancelConfirmDialog: { visible: false, error: '' },
       story2videoResuming: false,
+      pauseActionBusy: false,
+      startingPipeline: false,
       story2videoRunMeta: null,
       stageClockTick: 0,
       s2vRestoring: false,
@@ -1382,6 +1581,7 @@ export default {
       s2vCloneOpen: false,
       s2vOptionsToastTimer: null,
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
+      story2videoRunDeleteDialog: { visible: false, runId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
       // 背景音乐素材库（2026-08-14）：设备级持久化，添加/重命名/删除后自动刷新
       s2vBgmLibrary: [],
@@ -1391,6 +1591,19 @@ export default {
       s2vBgmLibraryRenameDraft: '',
       s2vBgmLibraryDeleteDialogOpen: false,
       s2vBgmLibraryDeleteTargetId: null,
+      // 批量创作（2026-08-15 story2video-batch-create）：弹窗状态 / 输入源 / 队列展示
+      s2vBatchDialogOpen: false,
+      s2vBatchTab: 'text',
+      s2vBatchVideoMode: 'off',
+      s2vBatchTexts: [''],
+      s2vBatchFiles: [],
+      s2vBatchStarting: false,
+      s2vBatchLoading: false,
+      s2vBatchError: '',
+      s2vBatches: [],
+      s2vBatchPollTimer: null,
+      S2V_BATCH_MAX_TEXTS: 10,
+      S2V_BATCH_MAX_FILES: 20,
       MAX_STORY2VIDEO_TEXT_CHARACTERS,
       s2vImageProviders: [], s2vVoiceProviders: [], s2vVideoProviders: [],
       s2vVoiceCatalog: [], s2vVoiceCatalogLoading: false, s2vVoiceCatalogError: '', s2vVoiceCatalogErrorCode: '', s2vVoiceCapability: null,
@@ -1407,6 +1620,8 @@ export default {
       s2vOpenSections: { basic: true, appearance: false, videoEnhance: false, voice: false, advanced: false, publish: false },
       // 历史
       history: [], historyLoading: false, historyLocalMode: false, historyFilter: 'all', historyRequestId: 0, historyPollTimer: null,
+      // 页面导航历史
+      viewHistory: [], viewHistoryIndex: -1,
       // 清理
       cleanups: [],
       quickModes: [
@@ -1430,9 +1645,7 @@ export default {
       return this.s2vTemplateLibrary.find(template => template.id === this.s2vConfig.templateId) || null
     },
     filteredHistory() {
-      if (this.historyFilter === 'all') return this.history
-      if (this.historyFilter === 'paused') return this.history.filter(item => item.status === 'paused' || item.status === 'failed')
-      return this.history.filter(item => item.status === this.historyFilter)
+      return filterHistoryByStatus(this.history, this.historyFilter)
     },
     activeOutputConfig() {
       return this.isOrchestratedPipeline(this.selectedPipeline?.name) ? this.s2vOutputConfig : this.outputConfig
@@ -1542,6 +1755,13 @@ export default {
         'Controls how image prompts are written and organized; it does not replace image style.'
       )
     },
+    s2vMaxPromptLengthOptions: () => [200, 300, 400, 500, 700, 1000, 1500, 2000],
+    s2vMaxPromptLengthLabel() {
+      return typeof this.$t === 'function' ? this.$t('create.story2video.maxPromptLength') : 'create.story2video.maxPromptLength'
+    },
+    s2vMaxPromptLengthHint() {
+      return typeof this.$t === 'function' ? this.$t('create.story2video.maxPromptLengthHint') : 'create.story2video.maxPromptLengthHint'
+    },
     // ---- 分镜粒度双视图（三层模型①）：底层统一 targetCharsPerScene 主控 ----
     // 语言感知估算（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3 × voice.speed（speechRate 单一来源）
     s2vSplitCharsPerSecond() {
@@ -1637,6 +1857,10 @@ export default {
     canStartPipeline() {
       if (!this.selectedPipeline) return false
       if (!this.pipelineAvailable(this.selectedPipeline.name)) return false
+      // 防重复启动（2026-08-21 回归修复）：启动请求在途禁止点击；编排 run 已挂到当前视图
+      // （运行/暂停/检查点）时同样禁用「启动流水线」，防止连点起出重复后台任务。
+      if (this.startingPipeline) return false
+      if (this.isOrchestratedPipeline(this.selectedPipeline.name) && this.orchestrationRunId) return false
       if (this.isOrchestratedPipeline(this.selectedPipeline.name)) {
         return this.inputMode === 'text' && this.pipelineText.trim().length > 0
       }
@@ -1707,9 +1931,11 @@ export default {
     },
     canResumeStory2Video() {
       if (!this.story2videoErrorDialog.visible || !this.orchestrationRunId || this.story2videoResuming) return false
-      const raw = this.story2videoErrorDialogMessage || ''
+      // 原始错误文本（showStory2VideoErrorDialog 时保留）与本地化消息一并参与门控，
+      // 与历史列表/主进程使用同一关键字规则（content policy / content_policy / content-policy 均拦截）
+      const raw = (this.story2videoErrorDialogMessage || '') + '\n' + (this.story2videoErrorDialog.rawError || '')
       // 内容政策失败需要人工修改文案，不允许原样恢复
-      if (/内容政策|content\s*policy|needs_user_input|可能需要修改文案/i.test(raw)) return false
+      if (RESUME_BLOCKING_ERROR_PATTERN.test(raw)) return false
       return true
     },
     orchestrationProgressPercent() {
@@ -1777,6 +2003,9 @@ export default {
     story2videoProjectDeleteDialogMessage() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_CONFIRM }).message
     },
+    story2videoRunDeleteDialogMessage() {
+      return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_DELETE_CONFIRM }).message
+    },
     story2videoTemplateDeleteDialogMessage() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM }).message
     },
@@ -1786,8 +2015,18 @@ export default {
       if (this.quickMode === 'gallery') return this.quickImages.length > 0
       return false
     },
+    canGoBack() { return this.viewHistoryIndex > 0; },
+    canGoForward() { return this.viewHistoryIndex < this.viewHistory.length - 1; },
   },
   watch: {
+    // 「返回」跳 /create?view=history 与直接输入地址时同步历史记录视图（2026-08-16 术语统一）
+    '$route.query.view'(value) {
+      if (value === 'history' && this.view !== 'history') {
+        this.detachPipelineView('history')
+        this.view = 'history'
+        this.loadHistory()
+      }
+    },
     // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
     s2vConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
     s2vOutputConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
@@ -1806,6 +2045,37 @@ export default {
     },
   },
   methods: {
+    // 页面导航箭头
+    goBack() { if (this.viewHistoryIndex > 0) { this.viewHistoryIndex--; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
+    goForward() { if (this.viewHistoryIndex < this.viewHistory.length - 1) { this.viewHistoryIndex++; this.applyViewState(this.viewHistory[this.viewHistoryIndex]); } },
+    applyViewState(state) {
+      if (!state) return;
+      this.detachPipelineView(state.view)
+      if (state.view) this.view = state.view;
+      if (state.selectedPipeline !== undefined) this.selectedPipeline = state.selectedPipeline;
+      if (state.view === 'history') this.loadHistory();
+    },
+    // 离开流水线创作视图只脱离 renderer 跟踪，不取消主进程 run；重新进入时回到新建列表。
+    detachPipelineView(nextView) {
+      if (this.view !== 'pipelines' || nextView === 'pipelines') return
+      this.resetPipelineUiState()
+      this.selectedPipeline = null
+      this.s2vOptionsToast = ''
+    },
+    switchView(nextView) {
+      if (!['pipelines', 'quick', 'history'].includes(nextView)) return
+      this.detachPipelineView(nextView)
+      this.view = nextView
+      if (nextView === 'history') this.loadHistory()
+      this.pushViewState({ view: nextView })
+    },
+    pushViewState(state) {
+      this.viewHistory = this.viewHistory.slice(0, this.viewHistoryIndex + 1);
+      this.viewHistory.push(state);
+      this.viewHistoryIndex = this.viewHistory.length - 1;
+    },
+    // 返回历史记录页
+    goToHistory() { this.detachPipelineView('history'); this.selectedPipeline = null; this.view = 'history'; this.loadHistory(); this.pushViewState({ view: 'history' }); },
     translateWithLocaleFallback(key, zhFallback, enFallback, params) {
       const translated = typeof this.$t === 'function' ? this.$t(key, params) : key
       if (typeof translated === 'string' && translated !== key) return translated
@@ -1865,10 +2135,10 @@ export default {
         basic: `${this.s2vConfig.contentType === 'history' ? '历史内容' : '通用内容'} · ${this.s2vConfig.imageProvider || '默认图片模型'}`,
         appearance: `${this.s2vConfig.imageStyle || '电影感'} · ${this.s2vConfig.imageEffect || '无效果'}`,
         videoEnhance: this.s2vConfig.videoMode === 'off' || !this.s2vConfig.videoMode
-          ? '关闭'
+          ? '纯图片轮播'
           : (this.s2vConfig.videoMode === 'fixed'
-            ? `固定 ${this.s2vConfig.videoFixedRatio}%`
-            : `AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.videoMaxRatio}%`),
+            ? `固定 ${this.s2vConfig.videoFixedRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')
+            : `AI 判断 ${this.s2vConfig.videoMinRatio}%-${this.s2vConfig.videoMaxRatio}%` + (this.s2vConfig.shortVideoHandling === 'stop-at-end' ? ' · 播完停止' : '')),
         voice: `${this.s2vConfig.voiceProvider || '自动 Edge TTS'}${this.s2vConfig.voiceModel ? ` · ${this.s2vConfig.voiceModel}` : ''}${this.s2vConfig.voiceId ? ' · 已选音色' : ''}`,
         advanced: `${this.s2vConfig.splitLanguage === 'auto' ? '自动识别' : this.s2vConfig.splitLanguage} · ${this.s2vConfig.splitMode || '均衡'}`,
         publish: this.s2vConfig.platforms?.length ? `已选 ${this.s2vConfig.platforms.length} 个平台` : '不发布',
@@ -1884,7 +2154,7 @@ export default {
     getStability(name) { return STABILITY_MAP[name] || 'experimental' },
     formatTime(iso) { if (!iso) return ''; return new Date(iso).toLocaleString('zh-CN') },
     historyStatusLabel(status) {
-      return { completed: '已完成', failed: '已暂停', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
+      return { completed: '已完成', failed: '执行失败', cancelled: '已取消', running: '进行中', paused: '已暂停', pending: '等待中' }[status] || status || '未知'
     },
 
     // 流水线操作
@@ -1903,8 +2173,15 @@ export default {
         this.$router.push('/video-clone')
         return
       }
+      if (p?.name === 'film-engineering') {
+        this.pushViewState({ view: 'pipelines', selectedPipeline: p });
+        this.$router.push('/film-engineering')
+        return
+      }
       this.stopPipelinePolling()
+      this.orchestrationStartRequestId += 1
       this.selectedPipeline = p
+      this.startingPipeline = false
       this.pipelineRunStatus = null
       this.orchestrationStages = (this.isAutoPipeline(p?.name) || this.isMediaAutoPipeline(p?.name)) ? this.getDefaultPipelineStages(p.name) : []
       this.orchestrationRunId = null
@@ -1968,38 +2245,54 @@ export default {
     },
     // UI「启动流水线」入口：登录门 + 启动
     async handleStartPipeline () {
+      // 双击防护（2026-08-21 回归修复）：启动请求在途时直接拦截，canStartPipeline 同步禁用按钮兜底
+      // 与 startPipeline 内部 startingPipeline 守卫构成双重防线：登录门在途也拦截连点，
+      // 防止绕过登录门直接调用 startPipeline 的入口跳过 busy 检查。
+      if (this.startingPipeline) return false
       if (!(await this.ensureLoginForStart())) return false
-      return this.startPipeline()
+      await this.startPipeline()
+      return true
     },
     async startPipeline() {
-      // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
-      this.dismissedBgmSkippedNotice = false
-      // 新运行重置模型服务异常提示：清空旧警告并取消关闭状态（跨运行不残留）
-      this.providerWarnings = []
-      this.dismissedProviderWarnings = false
-      if (!this.pipelineAvailable(this.selectedPipeline?.name)) {
-        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED })
-        return
+      // 防重复启动（2026-08-21 回归修复）：请求在途用 busy 标志拦截；编排 run 已挂到当前视图
+      // （运行/暂停/检查点）时同样拒绝，兜底 canStartPipeline 的按钮禁用与连点竞态。
+      if (this.startingPipeline) return
+      if (this.isOrchestratedPipeline(this.selectedPipeline?.name) && this.orchestrationRunId) return
+      const startRequestId = ++this.orchestrationStartRequestId
+      this.startingPipeline = true
+      try {
+        // 新运行重置 BGM 跳过提示（下次 compose 完成时重新评估）
+        this.dismissedBgmSkippedNotice = false
+        // 新运行重置模型服务异常提示：清空旧警告并取消关闭状态（跨运行不残留）
+        this.providerWarnings = []
+        this.dismissedProviderWarnings = false
+        if (!this.pipelineAvailable(this.selectedPipeline?.name)) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_NOT_IMPLEMENTED })
+          return
+        }
+        if (this.isAutoPipeline(this.selectedPipeline.name) || this.isMediaAutoPipeline(this.selectedPipeline.name)) {
+          await this.startOrchestratedPipeline(startRequestId)
+          return
+        }
+        const params = {
+          text: this.pipelineText, style: this.selectedStyle,
+          llm: this.llmConfig, budget: this.budgetConfig,
+          checkpoint: this.checkpointPolicy, output: this.outputConfig,
+          inputMode: this.inputMode,
+          images: this.pipelineImages.map(i => i.preview),
+          audio: this.pipelineAudio.map(a => ({ name: a.name, path: a.path })),
+          video: this.pipelineVideo?.path || null,
+        }
+        const res = await pipelineStart(this.selectedPipeline.name, params)
+        if (res?.code === 0) {
+          await this.updatePipelineStatus()
+          this.pollTimer = setInterval(() => this.updatePipelineStatus(), 3000)
+        } else { alert(res?.message || '启动失败') }
+      } finally {
+        this.startingPipeline = false
       }
-      if (this.isAutoPipeline(this.selectedPipeline.name) || this.isMediaAutoPipeline(this.selectedPipeline.name)) {
-        return this.startOrchestratedPipeline()
-      }
-      const params = {
-        text: this.pipelineText, style: this.selectedStyle,
-        llm: this.llmConfig, budget: this.budgetConfig,
-        checkpoint: this.checkpointPolicy, output: this.outputConfig,
-        inputMode: this.inputMode,
-        images: this.pipelineImages.map(i => i.preview),
-        audio: this.pipelineAudio.map(a => ({ name: a.name, path: a.path })),
-        video: this.pipelineVideo?.path || null,
-      }
-      const res = await pipelineStart(this.selectedPipeline.name, params)
-      if (res?.code === 0) {
-        await this.updatePipelineStatus()
-        this.pollTimer = setInterval(() => this.updatePipelineStatus(), 3000)
-      } else { alert(res?.message || '启动失败') }
     },
-    async startExplainerPipeline() {
+    async startExplainerPipeline(startRequestId = this.orchestrationStartRequestId) {
       try {
         const text = this.pipelineText.trim()
         if (!text) {
@@ -2021,20 +2314,24 @@ export default {
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
-        if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
-          this.orchestrationRunId = outcome.runId
-          this.saveS2VLastOptions()
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
+        if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
+          this.orchestrationRunId = outcome.runId.trim()
+          await this.saveS2VLastOptions()
+          if (!this.isCurrentOrchestrationStart(startRequestId)) return
           if (this.applyOrchestrationOutcome(outcome)) return
-          await this.updateOrchestrationStatus()
-          if (this.orchestrationRunId && !this.pollTimer) {
-            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          if (outcome.paused === true) {
+            await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
+          } else {
+            await this.startOrchestrationForeground(outcome.runId, this.selectedPipeline.name, outcome)
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
-    async startMediaPipeline() {
+    async startMediaPipeline(startRequestId = this.orchestrationStartRequestId) {
       try {
         const videoPath = this.pipelineVideo?.path
         if (!videoPath) {
@@ -2051,16 +2348,20 @@ export default {
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
-        if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
-          this.orchestrationRunId = outcome.runId
-          this.saveS2VLastOptions()
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
+        if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
+          this.orchestrationRunId = outcome.runId.trim()
+          await this.saveS2VLastOptions()
+          if (!this.isCurrentOrchestrationStart(startRequestId)) return
           if (this.applyOrchestrationOutcome(outcome)) return
-          await this.updateOrchestrationStatus()
-          if (this.orchestrationRunId && !this.pollTimer) {
-            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          if (outcome.paused === true) {
+            await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
+          } else {
+            await this.startOrchestrationForeground(outcome.runId, this.selectedPipeline.name, outcome)
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
       }
     },
@@ -2172,6 +2473,16 @@ export default {
           this.s2vConfig[field] = options.includes(defaultConfig[field]) ? defaultConfig[field] : options[0]
         }
       }
+      // 图片提示词最大长度（2026-08-16）：陈旧快照缺字段/越界时回落默认 2000；
+      // 区间内非档位值吸附到最近档位（下拉 8 档，避免 select 无匹配项），引擎契约 [50,2000] 恒接受
+      const maxPromptLength = Number(this.s2vConfig.maxPromptLength)
+      if (Number.isFinite(maxPromptLength) && maxPromptLength >= 200 && maxPromptLength <= 2000) {
+        this.s2vConfig.maxPromptLength = this.s2vMaxPromptLengthOptions.reduce(
+          (a, b) => (Math.abs(b - maxPromptLength) < Math.abs(a - maxPromptLength) ? b : a)
+        )
+      } else {
+        this.s2vConfig.maxPromptLength = 2000
+      }
       const defaultOutput = defaults.s2vOutputConfig || {}
       for (const [field, options] of Object.entries(S2V_RESTORE_OUTPUT_ENUM_OPTIONS)) {
         const value = this.s2vOutputConfig[field]
@@ -2247,12 +2558,12 @@ export default {
         try { await storeSetSetting('story2video.lastOptions.v1', null) } catch { /* 清理失败可忽略 */ }
       } finally { this.s2vRestoring = false }
     },
-    async startOrchestratedPipeline() {
+    async startOrchestratedPipeline(startRequestId = this.orchestrationStartRequestId) {
       if (this.selectedPipeline.name !== 'story2video-compose' && this.isAutoPipeline(this.selectedPipeline.name)) {
-        return this.startExplainerPipeline()
+        return this.startExplainerPipeline(startRequestId)
       }
       if (this.isMediaAutoPipeline(this.selectedPipeline.name)) {
-        return this.startMediaPipeline()
+        return this.startMediaPipeline(startRequestId)
       }
       try {
         if (this.inputMode !== 'text') {
@@ -2269,97 +2580,7 @@ export default {
           return
         }
         this.orchestrationError = ''
-        const output = this.cloneForIpc(this.s2vOutputConfig)
-        const config = this.cloneForIpc(this.s2vConfig)
-        const tags = String(config.tagsText || '')
-          .split(',')
-          .map(tag => tag.trim())
-          .filter(Boolean)
-        const story2videoTextConfig = {
-          version: 1,
-          mode: 'text',
-          prompt: text,
-          size: output.resolution,
-          contentType: config.contentType,
-          split: {
-            language: config.splitLanguage,
-            mode: config.splitMode,
-            maxSentenceLength: config.splitMaxSentenceLength,
-            targetSeconds: config.splitTargetSeconds,
-            targetCharsPerScene: config.splitTargetCharsPerScene,
-            // 语言感知基准语速（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3，与 UI 估算同源
-            baseWordsPerSecond: getLanguageBaseWordsPerSecond(config.splitLanguage),
-            // 参数治理 R2：speechRate 由 normalizer 以 voice.speed 派生（单一来源），不提交。
-            minWords: config.splitMinWords,
-            maxWords: config.splitMaxWords,
-            enforceSentenceBoundary: config.splitEnforceSentenceBoundary,
-            overflowToNext: config.splitOverflowToNext,
-            subtitleMinChars: config.splitSubtitleMinChars,
-            subtitleMaxChars: config.splitSubtitleMaxChars,
-            subtitleTiming: config.splitSubtitleTiming,
-          },
-          optimize: {
-            style: config.promptStyle,
-            // 参数治理（7.1.19）：creativeLevel 为系统管理参数，不提交，normalizer 默认 5 兜底。
-            negativePrompt: config.negativePrompt,
-          },
-          image: {
-            provider: config.imageProvider || '',
-            model: config.imageModel || '',
-            style: config.imageStyle,
-            effect: config.imageEffect,
-            aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
-          },
-          // 视频+图片轮播混合模式（2026-08-11）：off=纯图片轮播；fixed=前段固定比例 AI 视频；ai-judged=AI 智能选择
-          video: {
-            mode: config.videoMode || 'off',
-            provider: config.videoProvider || '',
-            model: config.videoModel || '',
-            fixedRatio: config.videoFixedRatio,
-            minRatio: config.videoMinRatio,
-            maxRatio: config.videoMaxRatio,
-            maxScenes: config.videoMaxScenes,
-          },
-          // 创作模式（2026-08-12）：auto=全自动；manual=分镜素材自选（materialMode 仅 manual 生效）
-          creation: {
-            mode: config.creationMode || 'auto',
-            materialMode: config.manualMaterialMode || 'all-images',
-          },
-          voice: {
-            provider: config.voiceProvider || '',
-            model: config.voiceModel || '',
-            id: config.voiceId,
-            speed: config.voiceSpeed,
-            volume: config.voiceVolume,
-            // 参数治理（7.1.19）：pitch 为系统管理参数，不提交，normalizer 默认 0 兜底。
-          },
-          subtitle: {
-            enabled: config.subtitleEnabled,
-            size: config.subtitleSize,
-            style: config.subtitleStyleName,
-            color: config.subtitleStyle?.color || 'white',
-          },
-          bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
-          transition: config.transition,
-          sceneDurationMode: config.sceneDurationMode,
-          minSceneDuration: config.minSceneDuration,
-          templateId: config.templateId || '',
-          // 参数治理 R2：concurrency 为系统管理参数，不提交，normalizer 默认 3 兜底。
-          watermark: {
-            ...config.watermarkConfig,
-            enabled: Boolean(config.watermarkText),
-            text: config.watermarkText || '',
-          },
-          output: { fps: output.fps, format: output.format },
-          publish: {
-            enabled: config.publishEnabled === true || (Array.isArray(config.platforms) && config.platforms.length > 0),
-            platforms: Array.isArray(config.platforms) ? config.platforms : [],
-            title: config.title || '',
-            content: config.publishContent || text,
-            tags,
-            coverUrl: config.coverUrl || '',
-          },
-        }
+        const story2videoTextConfig = this.buildStory2VideoTextConfig(text)
         const params = {
           text,
           inputMode: 'text',
@@ -2372,21 +2593,293 @@ export default {
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
-        if (res?.code === 0 && outcome?.runId && outcome.success !== false) {
-          this.orchestrationRunId = outcome.runId
-          this.saveS2VLastOptions()
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
+        if (res?.code === 0 && typeof outcome?.runId === 'string' && outcome.runId.trim() && outcome.success !== false) {
+          this.orchestrationRunId = outcome.runId.trim()
+          await this.saveS2VLastOptions()
+          if (!this.isCurrentOrchestrationStart(startRequestId)) return
           if (this.applyOrchestrationOutcome(outcome)) return
-          await this.updateOrchestrationStatus()
-          if (this.orchestrationRunId && !this.pollTimer) {
-            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+          if (outcome.paused === true) {
+            await this.showOrchestrationCheckpoint(outcome.runId, this.selectedPipeline.name, outcome)
+          } else {
+            await this.startOrchestrationForeground(outcome.runId, this.selectedPipeline.name, outcome)
           }
         } else { this.setOrchestrationError({ code: res?.code, errorCode: outcome?.errorCode, errorParams: outcome?.errorParams, error: res?.message || outcome?.error }) }
       } catch (_) {
+        if (!this.isCurrentOrchestrationStart(startRequestId)) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.ORCHESTRATION_FAILED, messageParams: { reason: '' } })
+      }
+    },
+    // 批量创作/手动流水线共用配置构造（2026-08-15 story2video-batch-create）：
+    // 从 s2vConfig 构建 Story2VideoTextConfig；批量模式取模板后删除 prompt 并按条注入。
+    buildStory2VideoTextConfig(text) {
+      const output = this.cloneForIpc(this.s2vOutputConfig)
+      const config = this.cloneForIpc(this.s2vConfig)
+      const tags = String(config.tagsText || '')
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(Boolean)
+      return {
+        version: 1,
+        mode: 'text',
+        prompt: text,
+        size: output.resolution,
+        contentType: config.contentType,
+        split: {
+          language: config.splitLanguage,
+          mode: config.splitMode,
+          maxSentenceLength: config.splitMaxSentenceLength,
+          targetSeconds: config.splitTargetSeconds,
+          targetCharsPerScene: config.splitTargetCharsPerScene,
+          // 语言感知基准语速（Batch 5a）：zh 4.5 / en 2.8 / 其余 3.3，与 UI 估算同源
+          baseWordsPerSecond: getLanguageBaseWordsPerSecond(config.splitLanguage),
+          // 参数治理 R2：speechRate 由 normalizer 以 voice.speed 派生（单一来源），不提交。
+          minWords: config.splitMinWords,
+          maxWords: config.splitMaxWords,
+          enforceSentenceBoundary: config.splitEnforceSentenceBoundary,
+          overflowToNext: config.splitOverflowToNext,
+          subtitleMinChars: config.splitSubtitleMinChars,
+          subtitleMaxChars: config.splitSubtitleMaxChars,
+          subtitleTiming: config.splitSubtitleTiming,
+        },
+        optimize: {
+          style: config.promptStyle,
+          // 图片提示词最大长度（2026-08-16）：渲染层可配置，主进程契约收敛 [50,2000]
+          maxLength: config.maxPromptLength,
+          // 参数治理（7.1.19）：creativeLevel 为系统管理参数，不提交，normalizer 默认 5 兜底。
+          negativePrompt: config.negativePrompt,
+        },
+        image: {
+          provider: config.imageProvider || '',
+          model: config.imageModel || '',
+          style: config.imageStyle,
+          effect: config.imageEffect,
+          aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
+        },
+        // 视频+图片轮播混合模式（2026-08-11）：off=纯图片轮播；fixed=前段固定比例 AI 视频；ai-judged=AI 智能选择
+        video: {
+          mode: config.videoMode || 'off',
+          shortVideoHandling: config.shortVideoHandling || 'loop',
+          provider: config.videoProvider || '',
+          model: config.videoModel || '',
+          fixedRatio: config.videoFixedRatio,
+          minRatio: config.videoMinRatio,
+          maxRatio: config.videoMaxRatio,
+          maxScenes: config.videoMaxScenes,
+        },
+        // 创作模式（2026-08-12）：auto=全自动；manual=分镜素材自选（materialMode 仅 manual 生效）
+        creation: {
+          mode: config.creationMode || 'auto',
+          materialMode: config.manualMaterialMode || 'all-images',
+        },
+        voice: {
+          provider: config.voiceProvider || '',
+          model: config.voiceModel || '',
+          id: config.voiceId,
+          speed: config.voiceSpeed,
+          volume: config.voiceVolume,
+          // 参数治理（7.1.19）：pitch 为系统管理参数，不提交，normalizer 默认 0 兜底。
+        },
+        subtitle: {
+          enabled: config.subtitleEnabled,
+          size: config.subtitleSize,
+          style: config.subtitleStyleName,
+          color: config.subtitleStyle?.color || 'white',
+        },
+        bgm: { enabled: Boolean(config.bgmPath), path: config.bgmPath || '', volume: config.bgmVolume },
+        transition: config.transition,
+        sceneDurationMode: config.sceneDurationMode,
+        minSceneDuration: config.minSceneDuration,
+        templateId: config.templateId || '',
+        // 参数治理 R2：concurrency 为系统管理参数，不提交，normalizer 默认 3 兜底。
+        watermark: {
+          ...config.watermarkConfig,
+          enabled: Boolean(config.watermarkText),
+          text: config.watermarkText || '',
+        },
+        output: { fps: output.fps, format: output.format },
+        publish: {
+          enabled: config.publishEnabled === true || (Array.isArray(config.platforms) && config.platforms.length > 0),
+          platforms: Array.isArray(config.platforms) ? config.platforms : [],
+          title: config.title || '',
+          content: config.publishContent || text,
+          tags,
+          coverUrl: config.coverUrl || '',
+        },
       }
     },
     cloneForIpc(value) {
       try { return JSON.parse(JSON.stringify(value)) } catch { return {} }
+    },
+    // ---- 批量创作（2026-08-15 story2video-batch-create）----
+    openS2VBatchDialog() {
+      this.s2vBatchDialogOpen = true
+      this.s2vBatchError = ''
+      this.refreshS2VBatches()
+      // 弹窗打开期间 3s 轮询队列状态；关闭后停止（批量任务在主进程队列继续后台执行）
+      if (!this.s2vBatchPollTimer) {
+        this.s2vBatchPollTimer = setInterval(() => {
+          if (this.s2vBatchDialogOpen) this.refreshS2VBatches()
+        }, 3000)
+      }
+    },
+    closeS2VBatchDialog() {
+      this.s2vBatchDialogOpen = false
+      if (this.s2vBatchPollTimer) {
+        clearInterval(this.s2vBatchPollTimer)
+        this.s2vBatchPollTimer = null
+      }
+    },
+    addS2VBatchText() {
+      if (this.s2vBatchTexts.length >= this.S2V_BATCH_MAX_TEXTS) return
+      this.s2vBatchTexts.push('')
+    },
+    removeS2VBatchText(index) {
+      if (this.s2vBatchTexts.length <= 1) return
+      this.s2vBatchTexts.splice(index, 1)
+    },
+    async pickS2VBatchFiles() {
+      try {
+        const res = await story2videoPickBatchFiles()
+        const files = res?.code === 0 && Array.isArray(res.data?.files) ? res.data.files : []
+        if (!files.length) return
+        const merged = [...this.s2vBatchFiles]
+        for (const file of files) {
+          if (!file || typeof file.path !== 'string' || !file.path) continue
+          if (merged.some(existing => existing.path === file.path)) continue
+          if (merged.length >= this.S2V_BATCH_MAX_FILES) {
+            this.s2vBatchError = this.translateWithLocaleFallback('create.story2video.batch.fileLimitError', '最多选择 20 个文件，超出部分已忽略。', 'Up to 20 files; extra selections were ignored.')
+            break
+          }
+          merged.push({ name: file.name || String(file.path).split(/[\\/]/).pop(), path: file.path })
+        }
+        this.s2vBatchFiles = merged
+      } catch (_) {
+        this.s2vBatchError = this.translateWithLocaleFallback('create.story2video.batch.pickFailed', '打开文件选择窗口失败，请重试。', 'Failed to open the file picker. Please retry.')
+      }
+    },
+    // 浏览器降级路径（非 Electron 环境）：隐藏 input 兜底选择
+    handleS2VBatchFileInput(event) {
+      const selected = Array.from(event?.target?.files || [])
+      const merged = [...this.s2vBatchFiles]
+      for (const file of selected) {
+        const path = typeof file.path === 'string' && file.path ? file.path : file.name
+        if (merged.some(existing => existing.path === path)) continue
+        if (merged.length >= this.S2V_BATCH_MAX_FILES) break
+        merged.push({ name: file.name, path })
+      }
+      this.s2vBatchFiles = merged
+      if (event?.target) event.target.value = ''
+    },
+    removeS2VBatchFile(index) {
+      this.s2vBatchFiles.splice(index, 1)
+    },
+    formatS2VBatchCreatedAt(iso) {
+      if (!iso) return ''
+      const date = new Date(iso)
+      if (Number.isNaN(date.getTime())) return ''
+      const pad = (n) => String(n).padStart(2, '0')
+      return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+        + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds())
+    },
+    batchSummaryText(batch) {
+      const summary = batch && batch.summary ? batch.summary : null
+      if (!summary) return ''
+      const parts = []
+      if (summary.running > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryRunning', summary.running + ' 运行中', summary.running + ' running', { count: summary.running }))
+      if (summary.pending > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryPending', summary.pending + ' 排队中', summary.pending + ' queued', { count: summary.pending }))
+      if (summary.completed > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryCompleted', summary.completed + ' 已完成', summary.completed + ' completed', { count: summary.completed }))
+      if (summary.failed > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryFailed', summary.failed + ' 失败', summary.failed + ' failed', { count: summary.failed }))
+      if (summary.cancelled > 0) parts.push(this.translateWithLocaleFallback('create.story2video.batch.summaryCancelled', summary.cancelled + ' 已取消', summary.cancelled + ' cancelled', { count: summary.cancelled }))
+      return parts.join(' · ') || this.translateWithLocaleFallback('create.story2video.batch.summaryTotal', '共 ' + summary.total + ' 个任务', summary.total + ' tasks', { total: summary.total })
+    },
+    s2vBatchItemStatusText(item) {
+      const statusMap = {
+        pending: ['create.story2video.batch.statusPending', '排队中', 'Queued'],
+        running: ['create.story2video.batch.statusRunning', '运行中', 'Running'],
+        completed: ['create.story2video.batch.statusCompleted', '已完成', 'Completed'],
+        failed: ['create.story2video.batch.statusFailed', '失败', 'Failed'],
+        cancelled: ['create.story2video.batch.statusCancelled', '已取消', 'Cancelled'],
+      }
+      const entry = statusMap[item && item.status] || ['', String(item && item.status || ''), String(item && item.status || '')]
+      return this.translateWithLocaleFallback(entry[0], entry[1], entry[2])
+    },
+    s2vBatchCanStart() {
+      if (this.s2vBatchStarting) return false
+      if (this.s2vBatchTab === 'text') return this.s2vBatchTexts.some(text => String(text || '').trim().length > 0)
+      return this.s2vBatchFiles.length > 0
+    },
+    async startS2VBatch() {
+      if (this.s2vBatchStarting) return
+      this.s2vBatchError = ''
+      const template = this.buildStory2VideoTextConfig('')
+      delete template.prompt
+      // 批量创作固定「全自动」创作模式 + 弹窗独立视频增强模式（不随主表单配置变化）
+      template.creation = { mode: 'auto', materialMode: 'all-images' }
+      template.video = { ...template.video, mode: this.s2vBatchVideoMode || 'off' }
+      let payload
+      if (this.s2vBatchTab === 'text') {
+        const texts = this.s2vBatchTexts.map(text => String(text || '').trim()).filter(Boolean)
+        if (!texts.length) {
+          this.s2vBatchError = this.translateWithLocaleFallback('create.story2video.batch.noTextError', '请至少输入 1 条文案。', 'Enter at least 1 text.')
+          return
+        }
+        payload = { mode: 'text', texts, story2videoTextConfigTemplate: template, uiLocale: getAppLocale() }
+      } else {
+        const files = this.s2vBatchFiles.map(file => ({ path: file.path, name: file.name }))
+        if (!files.length) {
+          this.s2vBatchError = this.translateWithLocaleFallback('create.story2video.batch.noFileError', '请至少选择 1 个文件。', 'Choose at least 1 file.')
+          return
+        }
+        payload = { mode: 'files', files, story2videoTextConfigTemplate: template, uiLocale: getAppLocale() }
+      }
+      this.s2vBatchStarting = true
+      try {
+        const res = await story2videoBatchCreate(this.cloneForIpc(payload))
+        if (res?.code === 0 && res?.data?.batchId) {
+          await this.refreshS2VBatches()
+          this.s2vBatchTexts = ['']
+          this.s2vBatchFiles = []
+        } else {
+          const failedItems = Array.isArray(res?.failedItems) ? res.failedItems : []
+          const failedLabel = failedItems.length > 0
+            ? '（' + failedItems.map(item => item.label).join('、') + '）'
+            : ''
+          const message = (res?.message || '未知错误') + failedLabel
+          this.s2vBatchError = this.translateWithLocaleFallback(
+            'create.story2video.batch.createFailed',
+            '启动失败：' + message,
+            'Start failed: ' + message,
+            { message }
+          )
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.s2vBatchError = this.translateWithLocaleFallback(
+          'create.story2video.batch.createFailed',
+          '启动失败：' + message,
+          'Start failed: ' + message,
+          { message }
+        )
+      } finally {
+        this.s2vBatchStarting = false
+      }
+    },
+    async refreshS2VBatches() {
+      if (this.s2vBatchLoading) return
+      this.s2vBatchLoading = true
+      try {
+        const res = await story2videoBatchStatus()
+        if (res?.code === 0 && Array.isArray(res.data)) this.s2vBatches = res.data
+      } catch (_) { /* 轮询失败静默，下个周期重试 */ } finally {
+        this.s2vBatchLoading = false
+      }
+    },
+    async cancelS2VBatchItem(batchId, itemId) {
+      try {
+        const res = await story2videoBatchCancel(batchId, [itemId])
+        if (res?.code === 0) await this.refreshS2VBatches()
+      } catch (_) { /* 取消失败静默 */ }
     },
     // 分镜字数主控：clamp 到 [minWords, maxWords] ∩ [1,200]，并同步旧 targetSeconds（估算，与 normalizer 幂等反推一致）
     applyS2VTargetChars(rawChars) {
@@ -3079,8 +3572,11 @@ export default {
     },
     showStory2VideoErrorDialog(notification = {}) {
       const resolved = resolveStory2VideoNotification(notification)
-      const detail = typeof notification.detail === 'string' ? notification.detail : ''
-      this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params, detail }
+      const detail = notification.messageKey === STORY2VIDEO_NOTIFICATION_KEYS.HISTORY_LOAD_FAILED && typeof notification.detail === 'string'
+        ? notification.detail
+        : ''
+      const rawError = String(notification?.error || notification?.message || '')
+      this.story2videoErrorDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params, detail, rawError }
     },
     closeStory2VideoErrorDialog() {
       this.story2videoErrorDialog.visible = false
@@ -3111,12 +3607,41 @@ export default {
         this.story2videoResuming = false
       }
     },
+    // 历史记录删除分流（2026-08-16）：有 projectId 的成片任务走项目删除；纯流水线运行记录走 delete-run
+    requestHistoryDeletion(item) {
+      if (!item) return
+      if (item.projectId) {
+        this.story2videoProjectDeleteDialog = { visible: true, projectId: item.projectId }
+        return
+      }
+      const runId = item.id || item.runId
+      if (!runId) return
+      this.story2videoRunDeleteDialog = { visible: true, runId }
+    },
     requestProjectDeletion(item) {
       if (!item?.projectId) return
       this.story2videoProjectDeleteDialog = { visible: true, projectId: item.projectId }
     },
     closeProjectDeletionDialog() {
       this.story2videoProjectDeleteDialog = { visible: false, projectId: null }
+    },
+    closeRunDeletionDialog() {
+      this.story2videoRunDeleteDialog = { visible: false, runId: null }
+    },
+    async confirmRunDeletion() {
+      const runId = this.story2videoRunDeleteDialog.runId
+      this.closeRunDeletionDialog()
+      if (!runId) return
+      try {
+        const result = await pipelineDeleteRun(runId)
+        if (result?.code === 0) {
+          this.history = this.history.filter(entry => (entry.id || entry.runId) !== runId)
+        } else {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_DELETE_FAILED, error: result?.message })
+        }
+      } catch (error) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_DELETE_FAILED, error: error?.message })
+      }
     },
     async confirmProjectDeletion() {
       const projectId = this.story2videoProjectDeleteDialog.projectId
@@ -3128,18 +3653,26 @@ export default {
       this.showStory2VideoErrorDialog(notification)
       this.stopPipelinePolling()
       this.needsCheckpoint = false
+      this.sceneAssetSelectionActive = false
+      this.sceneAssetCandidates = []
       if (this.pipelineRunStatus?.status !== 'completed') {
         this.pipelineRunStatus = { status: 'failed', progress: this.pipelineRunStatus?.progress || 0, stages: this.pipelineRunStatus?.stages || this.orchestrationStages }
       }
+    },
+    isCurrentOrchestrationStart(requestId) {
+      return requestId === this.orchestrationStartRequestId && this._s2vAlive !== false && this.view === 'pipelines'
     },
     async updateOrchestrationStatus() {
       if (!this.orchestrationRunId) return
       // runId 快照守卫（2026-08-13，后台运行审查 Critical 1）：detach/取消/切换 run 后，
       // 在飞的 pipelineGetRunContext 过期响应不得写回状态或触发跳转，防止僵尸重挂/污染新 run。
       const runId = this.orchestrationRunId
+      const requestId = ++this.orchestrationStatusRequestId
       try {
         const statusResult = await pipelineGetRunContext(runId)
-        if (this.orchestrationRunId !== runId) return
+        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return
+        // 组件已卸载（离开页面/路由切换）时丢弃在飞响应，主进程 run 不受影响
+        if (this._s2vAlive === false) return
         if (statusResult?.code !== 0) {
           this.setOrchestrationError({ code: statusResult?.code, error: statusResult?.message })
           return
@@ -3189,7 +3722,7 @@ export default {
           })
         }
       } catch (_error) {
-        if (this.orchestrationRunId !== runId) return
+        if (this.orchestrationRunId !== runId || this.orchestrationStatusRequestId !== requestId) return
         this.setOrchestrationError({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.RUN_STATUS_UNAVAILABLE })
       }
     },
@@ -3254,6 +3787,8 @@ export default {
         smokeReport?.videoPath || smokeReport?.path || null
     },
     applyOrchestrationOutcome(outcome) {
+      // 卸载后残留响应不得写状态或触发跳转（2026-08-21 unmount 竞态守卫）
+      if (this._s2vAlive === false) return false
       if (Array.isArray(outcome?.stages)) this.orchestrationStages = outcome.stages
       if (outcome?.context) this.orchestrationContext = outcome.context
       // 检查点确认/单步执行返回的终态 activeMs 优先于轮询缓存，避免结果页时长偏短（W2 审查闭环）
@@ -3274,6 +3809,7 @@ export default {
       }
       if (!outcome?.completed) return false
       const context = outcome.context || this.orchestrationContext
+      const runId = this.orchestrationRunId
       const videoPath = this.extractOrchestrationVideoPath(context)
       const projectId = context?.story2videoProject?.projectId || null
       this.stopPipelinePolling()
@@ -3289,6 +3825,7 @@ export default {
       const meta = this.story2videoRunMeta || {}
       const query = { path: videoPath }
       if (projectId) query.project = projectId
+      if (runId) query.runId = runId
       // 新口径：结果页时长 = 步骤执行耗时累计，不含暂停/断点恢复空闲时间
       // 存在性守卫：显式排除 null/undefined（Number(null)===0 陷阱）
       if (meta.activeMs !== null && meta.activeMs !== undefined && Number.isFinite(Number(meta.activeMs)) && Number(meta.activeMs) >= 0) {
@@ -3309,6 +3846,7 @@ export default {
       return true
     },
     stopPipelinePolling() {
+      this.orchestrationStatusRequestId += 1
       if (this.pollTimer) {
         clearInterval(this.pollTimer)
         this.pollTimer = null
@@ -3319,7 +3857,7 @@ export default {
     // 不覆盖完整 context（轮询 getRunContext 全量快照为准，避免事件与轮询竞态回退）。
     handlePipelinePush(snapshot) {
       if (!snapshot || !snapshot.runId) return
-      if (this.orchestrationRunId && snapshot.runId !== this.orchestrationRunId) return
+      if (!this.orchestrationRunId || snapshot.runId !== this.orchestrationRunId) return
       if (Array.isArray(snapshot.stages) && snapshot.stages.length > 0) {
         this.orchestrationStages = snapshot.stages
       }
@@ -3348,6 +3886,23 @@ export default {
       }
     },
     async pausePipeline() { await pipelinePause(); await this.updatePipelineStatus() },
+    // 编排流水线手动暂停（2026-08-16 UX 统一）：保存暂停点，历史记录「已暂停」可断点续跑
+    async pauseOrchestrationPipeline() {
+      const runId = this.orchestrationRunId
+      if (!runId || this.pauseActionBusy) return
+      this.pauseActionBusy = true
+      try {
+        const result = await pipelinePauseRun(runId)
+        if (result?.code !== 0) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: result?.message })
+        }
+        await this.updateOrchestrationStatus()
+      } catch (error) {
+        this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED, error: error?.message })
+      } finally {
+        this.pauseActionBusy = false
+      }
+    },
     async resumePipeline() { await pipelineResume(); await this.updatePipelineStatus() },
     dismissBgmSkippedNotice() {
       this.dismissedBgmSkippedNotice = true
@@ -3355,11 +3910,13 @@ export default {
     dismissProviderWarnings() {
       this.dismissedProviderWarnings = true
     },
-    // 运行态 UI 重置（取消/后台运行共用，2026-08-13）：仅清理前端轮询与展示状态，不执行引擎操作。
+    // 运行态 UI 重置（取消/自动后台共用）：仅清理前端轮询与展示状态，不执行引擎操作。
     resetPipelineUiState() {
+      this.orchestrationStartRequestId += 1
       this.stopPipelinePolling()
       this.pipelineRunStatus = null; this.needsCheckpoint = false
       this.orchestrationRunId = null; this.orchestrationContext = null; this.orchestrationError = ''; this.providerWarnings = []
+      this.startingPipeline = false
       this.dismissedProviderWarnings = false
       this.orchestrationResultPath = null
       this.story2videoRunMeta = null
@@ -3373,18 +3930,94 @@ export default {
       await pipelineCancel()
       this.resetPipelineUiState()
     },
-    async detachPipelineToBackground() {
-      // 后台运行（2026-08-13）：仅前端脱离——停止轮询并恢复初始化状态，不调 pipelineCancel。
-      // 主进程 run 继续后台执行，仍占用并发槽位；历史记录「运行中」置顶，可点击经
-      // resumeHistoryItem → pipelineResumeOrchestration（幂等 alreadyRunning）重新挂回并恢复轮询。
-      // 守卫（审查 Warning 2）：方法内重校验 runId 与检查点等待态，防止双击/检查点以 running 呈现时误转后台。
-      if (!this.orchestrationRunId || this.sceneAssetSelectionActive || this.needsCheckpoint) return
-      this.resetPipelineUiState()
+    // 后台恢复/继续一个 run：切到流水线视图并实时跟踪进度（不重置 runId）。
+    // run 完成后自动跳转结果页；断点恢复是用户显式继续动作，跳到流水线页并持续拉取运行态。
+    // 历史记录中的运行任务由用户显式重新挂回创作页，继续实时查看或断点续跑。
+    async openRunningPipeline(runId, pipelineName, toastKey = 'create.story2video.backgroundResumeToast') {
+      const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
+      if (!normalizedRunId) return false
+      // 只停止已有轮询，不得调用 resetPipelineUiState（会把 orchestrationRunId 清成 null）
+      this.stopPipelinePolling()
+      this.orchestrationRunId = normalizedRunId
+      this.orchestrationResultPath = null
+      this.orchestrationError = ''
+      this.orchestrationContext = null
+      this.orchestrationStages = this.getDefaultPipelineStages(pipelineName)
+      this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
+      this.view = 'pipelines'
+      if (toastKey) {
+        this.showS2VOptionsToast(
+          this.translateWithLocaleFallback(toastKey, 'backgroundResumeToast', 'Pipeline resumed in the background. Tracking progress…'),
+          3000
+        )
+      }
+      await this.updateOrchestrationStatus()
+      if (this.orchestrationRunId && this.pipelineRunStatus?.status !== 'failed' && !this.pollTimer) {
+        this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+      }
+      return true
+    },
+    // 启动即前台跟踪（2026-08-21 交互修订）：启动成功后与断点续跑同口径，在创作页
+    // 实时轮询展示阶段进度；离开页面时 beforeUnmount 停止轮询，主进程 run 继续后台执行，
+    // 仅历史记录可见；重新进入创作页回到全新新建初始态（mounted 不重挂任何 run）。
+    async startOrchestrationForeground(runId, pipelineName, outcome = {}) {
+      const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
+      if (!normalizedRunId) return false
+      // 只停止已有轮询，不得调用 resetPipelineUiState（会把 orchestrationRunId 清成 null）
+      this.stopPipelinePolling()
+      this.orchestrationRunId = normalizedRunId
+      this.orchestrationResultPath = null
+      this.orchestrationError = ''
+      this.orchestrationContext = (outcome && typeof outcome === 'object' && outcome.context) ? outcome.context : null
+      // 每条新 run 都从干净的前端展示态开始；不影响主进程中已启动的任务。
+      this.needsCheckpoint = false
+      this.providerWarnings = []
+      this.dismissedProviderWarnings = false
+      this.story2videoRunMeta = null
+      this.sceneAssetSelectionActive = false
+      this.sceneAssetCandidates = []
+      this.sceneAssetSelectionError = ''
+      this.sceneAssetConfirming = false
+      this.dismissedBgmSkippedNotice = false
+      this.orchestrationStages = (outcome && Array.isArray(outcome.stages) && outcome.stages.length > 0)
+        ? outcome.stages
+        : this.getDefaultPipelineStages(pipelineName)
+      this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
+      this.view = 'pipelines'
       this.showS2VOptionsToast(
-        this.translateWithLocaleFallback('create.story2video.backgroundRunToast', 'backgroundRunToast', 'Pipeline moved to background. Track progress under Pipeline history and resume there.'),
-        3000
+        this.translateWithLocaleFallback('create.story2video.startForegroundToast', '流水线已启动，正在实时展示进度；离开本页后任务继续后台运行，可在「历史记录」中查看（仍占用并发名额）。', 'Pipeline started. Progress is shown live here; it keeps running in the background after you leave this page, remains visible in History (still occupies a run slot).'),
+        4000
       )
-      await this.loadHistory()
+      await this.updateOrchestrationStatus()
+      if (this._s2vAlive !== false && this.orchestrationRunId && this.pipelineRunStatus?.status !== 'failed' && !this.pollTimer) {
+        this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+      }
+      return true
+    },
+    async showOrchestrationCheckpoint(runId, pipelineName, outcome = {}) {
+      const normalizedRunId = typeof runId === 'string' ? runId.trim() : ''
+      if (!normalizedRunId) return false
+      this.orchestrationRunId = normalizedRunId
+      this.orchestrationResultPath = null
+      this.orchestrationError = ''
+      this.orchestrationContext = outcome.context || null
+      this.pipelineRunStatus = {
+        ...(outcome.status && typeof outcome.status === 'object' ? outcome.status : {}),
+        status: 'paused',
+        progress: Number.isFinite(Number(outcome.progress)) ? Number(outcome.progress) : 0,
+        stages: Array.isArray(outcome.stages) && outcome.stages.length > 0
+          ? outcome.stages
+          : this.getDefaultPipelineStages(pipelineName),
+        checkpoint: outcome.checkpoint || outcome.status?.checkpoint || null,
+      }
+      this.orchestrationStages = this.pipelineRunStatus.stages
+      this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
+      this.view = 'pipelines'
+      await this.updateOrchestrationStatus()
+      if (this.orchestrationRunId && this.pipelineRunStatus?.status !== 'failed' && !this.pollTimer) {
+        this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
+      }
+      return true
     },
     async advancePipeline() { await pipelineAdvance(); await this.updatePipelineStatus() },
     async loadHistory() {
@@ -3408,11 +4041,57 @@ export default {
         const projects = hasProjects
           ? projectsResult.value.data.map(project => ({ ...project, historyType: 'story2video-project' }))
           : []
-        const projectIds = new Set(projects.map(project => project.projectId))
+        const projectById = new Map(projects.map(project => [project.projectId, project]))
+        const projectByRunId = new Map(
+          projects
+            .filter(project => typeof project?.runId === 'string' && project.runId.trim())
+            .map(project => [project.runId, project]),
+        )
+        const projectByLegacyId = new Map(
+          projects
+            .filter(project => typeof project?.id === 'string' && project.id.trim())
+            .map(project => [project.id, project]),
+        )
+        const matchedProjectIds = new Set()
         const runs = hasRuns
-          ? pipelineResult.value.data.filter(run => !projectIds.has(run.id))
+          ? pipelineResult.value.data.map(run => {
+              const runKeys = [run?.projectId, run?.runId, run?.id]
+                .filter(value => typeof value === 'string' && value.trim())
+              const project = runKeys.reduce((matched, key) => matched || projectById.get(key) || projectByRunId.get(key) || projectByLegacyId.get(key), null)
+              if (!project) {
+                return {
+                  ...run,
+                  historyType: 'pipeline-run',
+                  // run-only 记录（失败早于草稿创建，无 project 可匹配）：用 params 回填标题与原文案，
+                  // 否则卡片标题回退为流水线名、文案预览显示「未生成」（2026-08-20 修复）
+                  title: run.title || run.params?.title || run.params?.publishTitle || '',
+                  sourceText: run.sourceText || run.params?.text || '',
+                }
+              }
+              const projectId = project.projectId
+              matchedProjectIds.add(projectId)
+              return {
+                ...run,
+                ...project,
+                projectId,
+                runId: run.runId || run.id || project.runId || projectId,
+                historyType: 'story2video-project',
+                title: project.title || run.title || project.sourceText || run.sourceText || '',
+                sourceText: project.sourceText || run.sourceText || '',
+                segments: Array.isArray(project.segments) ? project.segments : run.segments,
+                status: run.status || project.status,
+                currentStage: run.currentStage ?? project.currentStage,
+                stages: Array.isArray(run.stages) && run.stages.length ? run.stages : project.stages,
+                checkpoint: run.checkpoint ?? project.checkpoint,
+                error: run.error || project.error,
+                activeMs: run.activeMs ?? project.activeMs,
+                updatedAt: latestHistoryTimestamp(project, run) || project.updatedAt || run.updatedAt,
+              }
+            })
           : []
-        // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为已暂停
+        const projectsWithoutRuns = projects.filter(project => !matchedProjectIds.has(project.projectId))
+        // stale running 检测：updatedAt 超过 30 分钟仍为 running 的任务视为「已中断」
+        // （应用退出/崩溃留下的运行残留；手动暂停任务经 savePaused 持久化为 paused，不受此转换影响）
         const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
         const now = Date.now()
         for (const run of runs) {
@@ -3420,7 +4099,7 @@ export default {
             const updatedAt = run.updatedAt ? new Date(run.updatedAt).getTime() : 0
             if (updatedAt && (now - updatedAt) > STALE_RUNNING_THRESHOLD_MS) {
               run._originalStatus = run.status
-              run.status = 'paused'
+              run.status = 'interrupted'
               if (!run.pausedStage) {
                 const stages = Array.isArray(run.stages) ? run.stages : []
                 const runningStage = stages.find(s => s && s.status === 'running') || stages[stages.length - 1]
@@ -3441,15 +4120,8 @@ export default {
           }
         }
 
-        // 运行中流水线置顶（需求：历史记录可查看运行中未完成任务及其实时流程状态），
-        // 其次是已完成项目，最后是终态流水线。
-        this.history = [
-          ...runs.filter(run => run.status === 'running'),
-          ...projects,
-          ...runs.filter(run => run.status === 'paused'),
-          ...runs.filter(run => run.status === 'failed'),
-          ...runs.filter(run => run.status !== 'running' && run.status !== 'paused' && run.status !== 'failed'),
-        ]
+        this.history = sortHistoryByEffectiveTime([...runs, ...projectsWithoutRuns])
+        void this.hydrateHistoryThumbnails(this.history, requestId)
         this.scheduleHistoryRefresh()
         if (!hasProjects || !hasRuns) {
           // 具体原因透传：IPC 已返回 message（存储不可用/无法识别当前用户/…），
@@ -3472,57 +4144,74 @@ export default {
         if (requestId === this.historyRequestId) this.historyLoading = false
       }
     },
+    async hydrateHistoryThumbnails(items, requestId) {
+      const records = (Array.isArray(items) ? items : []).filter(item => item?.projectId)
+      let cursor = 0
+      const worker = async () => {
+        while (cursor < records.length) {
+          const index = cursor++
+          const item = records[index]
+          if (requestId !== this.historyRequestId) return
+          try {
+            const result = await settleHistoryRequest(() => story2videoGetThumbnail(item.projectId))
+            if (requestId !== this.historyRequestId) return
+            const data = result?.code === 0 ? result.data : null
+            item.thumbnailUrl = data?.status === 'ready' ? (data.url || null) : null
+            item.thumbnailStatus = data?.status || 'missing'
+          } catch (_) {
+            if (requestId !== this.historyRequestId) return
+            item.thumbnailUrl = null
+            item.thumbnailStatus = 'failed'
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(4, records.length) }, () => worker()))
+    },
+    openHistoryResult(item) {
+      if (!item?.projectId || item.status === 'running') return
+      const query = { project: item.projectId }
+      const runId = this.historyRunId(item)
+      if (runId) query.runId = runId
+      // 内容政策拦截任务不能断点续跑：携带场景号让结果页定位涉及场景，用户改文案后重新合成
+      const focusScenes = policySceneQuery(item.error)
+      if (item.status === 'failed' && focusScenes && !this.historyItemResumable(item)) query.focusScenes = focusScenes
+      this.$router.push({ path: '/create/result', query })
+    },
+    historyRunId(item) {
+      const value = item?.runId || item?.id
+      return typeof value === 'string' && value.trim() ? value.trim() : ''
+    },
+    // Kept as a compatibility alias for callers outside the history component.
+    // It is deliberately read-only for non-completed records.
     openHistory(item) {
-      if (!item) return
-      // 运行中：切回流水线创作视图并接上该 run。同会话内 resumeOrchestration 幂等返回
-      // （alreadyRunning，附加实时进度）；跨重启的运行中快照则从断点重建并继续。
-      if (item.status === 'running') {
-        this.resumeHistoryItem(item)
-        return
-      }
-      // 失败且可断点恢复：从历史直接续跑，避免失败任务在历史中不可操作
-      if (item.status === 'failed' && this.historyItemResumable(item)) {
-        this.resumeHistoryItem(item)
-        return
-      }
-      // 分镜素材自选暂停点：恢复为选择面板（不自动推进）
-      if (item.status === 'paused' && item.checkpoint?.type === 'scene_asset_selection') {
-        this.resumeHistoryItem(item)
-        return
-      }
-      if (!item?.projectId) return
-      this.$router.push({ path: '/create/result', query: { project: item.projectId } })
+      if (item?.status !== 'running') this.openHistoryResult(item)
     },
     historyItemResumable(item) {
-      if (!item || item.status !== 'failed' || !(item.id || item.runId)) return false
+      if (!item || !['failed', 'paused', 'interrupted'].includes(item.status) || !(item.id || item.runId)) return false
       // 内容政策/需要用户输入类失败必须修改文案后重新启动，不允许原样恢复
-      if (/needs_user_input|content[_-\s]?policy|可能需要修改文案/i.test(String(item.error || ''))) return false
+      if (RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))) return false
       return true
     },
     async resumeHistoryItem(item) {
-      const runId = item && (item.id || item.runId)
+      const runId = this.historyRunId(item)
       if (!runId || this.story2videoResuming) return
       this.story2videoResuming = true
       try {
         const res = await pipelineResumeOrchestration(runId)
-        if (res?.code === 0 && res.data?.success && res.data?.runId) {
+        if (res?.code === 0 && res.data?.success && typeof res.data?.runId === 'string' && res.data.runId.trim()) {
           const pipelineName = item.pipeline || item.name
           // 分镜素材自选暂停点恢复：保持 paused，进入选择面板（updateOrchestrationStatus 会激活）
           const selectionPaused = res.data.paused === true
-          this.orchestrationRunId = res.data.runId
-          this.orchestrationResultPath = null
-          this.orchestrationError = ''
-          this.pipelineRunStatus = {
-            status: selectionPaused ? 'paused' : 'running',
-            progress: 0,
-            stages: Array.isArray(item.stages) && item.stages.length > 0 ? item.stages : this.getDefaultPipelineStages(pipelineName),
+          if (!selectionPaused) {
+            // 失败任务断点恢复：后端已 fire-and-forget 启动 _autoAdvanceRun 推进，
+            // 这里必须跳转并持有 runId 实时跟踪，否则流水线页会因 runId 为空而看不到任何进展。
+            await this.openRunningPipeline(res.data.runId, pipelineName)
+            return
           }
-          this.selectedPipeline = (this.pipelines || []).find(p => p.name === pipelineName) || { name: pipelineName, available: true }
-          this.view = 'pipelines'
-          await this.updateOrchestrationStatus()
-          if (this.orchestrationRunId && !this.pollTimer) {
-            this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
-          }
+          await this.showOrchestrationCheckpoint(res.data.runId, pipelineName, {
+            ...res.data,
+            stages: Array.isArray(item.stages) && item.stages.length > 0 ? item.stages : res.data.stages,
+          })
           await this.loadHistory()
         } else {
           this.showStory2VideoErrorDialog({
@@ -3576,9 +4265,14 @@ export default {
           if (!item || item.status !== 'running') continue
           const fresh = runningById.get(item.id)
           if (fresh) {
-            item.stages = fresh.stages || item.stages
-            item.currentStage = fresh.currentStage
-            item.updatedAt = fresh.updatedAt || item.updatedAt
+            item.stages = Array.isArray(fresh.stages) && fresh.stages.length ? fresh.stages : item.stages
+            item.currentStage = fresh.currentStage ?? item.currentStage
+            item.checkpoint = fresh.checkpoint ?? item.checkpoint
+            item.progress = fresh.progress ?? item.progress
+            item.error = fresh.error ?? item.error ?? null
+            item.activeMs = fresh.activeMs ?? item.activeMs
+            item.activeSegmentStartedAt = fresh.activeSegmentStartedAt ?? item.activeSegmentStartedAt ?? null
+            item.updatedAt = fresh.updatedAt ?? item.updatedAt
             runningById.delete(item.id)
           } else {
             // 运行已结束（完成/失败/取消）：触发一次完整加载，
@@ -3592,8 +4286,10 @@ export default {
           return
         }
         if (runningById.size > 0) {
-          list.unshift(...runningById.values())
+          list.push(...runningById.values())
         }
+        const sorted = sortHistoryByEffectiveTime(list)
+        list.splice(0, list.length, ...sorted)
       } catch (_) {
         // 刷新失败保留现有状态，下一轮重试
       } finally {
@@ -3928,30 +4624,6 @@ export default {
       this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' }
     },
 
-    // renderer 重载（HMR/重启/切页返回）后，重新接上主进程仍在运行的编排流水线，
-    // 避免 UI 丢失运行态（用户看到回到列表但流水线实际仍在后台执行）。
-    async resumeRunningOrchestration() {
-      const candidates = ['story2video-compose', 'animated-explainer', 'documentary-montage', 'clip-factory', 'cinematic', 'talking-head', 'framework-smoke', 'localization-dub', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid']
-      for (const name of candidates) {
-        try {
-          const res = await pipelineStatus(name)
-          const data = res?.data
-          if (data && data.status === 'running' && data.orchestrationMode === 'orchestrator' && data.id) {
-            const pipeline = (this.pipelines || []).find(item => item.name === name)
-            this.selectedPipeline = pipeline || { name, available: true }
-            this.orchestrationRunId = data.id
-            this.orchestrationStages = this.getDefaultPipelineStages(name)
-            this.inputMode = 'text'
-            await this.updateOrchestrationStatus()
-            if (this.orchestrationRunId && !this.pollTimer) {
-              this.pollTimer = setInterval(() => this.updateOrchestrationStatus(), 3000)
-            }
-            return
-          }
-        } catch (_) { /* 单条状态查询失败不影响其余 */ }
-      }
-    },
-
     // 阶段显示
     stageStateClass(stage, i) {
       if (!this.pipelineRunStatus) return ''
@@ -3979,8 +4651,12 @@ export default {
       return this.pipelineStatus(stage?.status || 'pending')
     },
     // 阶段详情：拆分场景数 / 优化 x/y / 图片·旁白 x/y
-    stageDetailText(stage, i) {
+    stageDetailText(stage, _index) {
       if (!stage || (stage.status !== 'completed' && stage.status !== 'running')) return ''
+      const hasSummary = typeof stage.summary === 'string' && stage.summary
+      const hasMessage = Boolean(stage.progress && typeof stage.progress.message === 'string' && stage.progress.message)
+      if (stage.status === 'completed' && hasSummary) return stage.summary
+      if (hasMessage) return stage.progress.message
       const ctx = this.orchestrationContext || {}
       if (stage.name === 'split') {
         const scenes = Array.isArray(ctx.split) ? ctx.split : (ctx.split?.scenes || null)
@@ -4014,7 +4690,11 @@ export default {
       }
       if (stage.name === 'compose') {
         const p = ctx.compose_progress
-        if (p && Number.isFinite(p.percent)) {
+        if (p && Number.isFinite(p.percent) && p.percent >= 0 && p.percent <= 100) {
+          if (p.phase === 'concat') {
+            if (getAppLocale() !== 'en' && typeof p.message === 'string' && p.message.trim()) return p.message
+            return this.$t('stageProgress.composeConcat', { percent: Math.round(p.percent) })
+          }
           if (p.phase === 'segments' && Number.isInteger(p.segmentsTotal) && p.segmentsTotal > 0 && Number.isInteger(p.segmentsDone)) {
             return this.translateWithLocaleFallback('story2video.composeSegments', '正在合成片段 ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', 'Composing segment ' + p.segmentsDone + '/' + p.segmentsTotal + ' · ' + Math.round(p.percent) + '%', { done: p.segmentsDone, total: p.segmentsTotal, percent: Math.round(p.percent) })
           }
@@ -4068,7 +4748,12 @@ export default {
     )
     await Promise.all([this.loadPipelines(), this.loadS2VProviders()])
     await this.loadMaxOutputResolution()
-    this.resumeRunningOrchestration()
+    // 路由直接进入历史记录视图（/create?view=history）
+    if (this.$route?.query?.view === 'history') {
+      this.detachPipelineView('history')
+      this.view = 'history'
+      this.loadHistory()
+    }
     this.restoreS2VLastOptions()
     this.loadS2VTtsSamples()
     // 背景音乐素材库（2026-08-14）：静默加载，失败不打扰创作主流程（弹窗打开时再提示）
@@ -4085,9 +4770,10 @@ export default {
     this._s2vAlive = false
     this.cleanups.forEach(fn => { try { fn() } catch(_e) { /* ignore cleanup errors */ } })
     if (this._settingsDialogUnwatch) { this._settingsDialogUnwatch(); this._settingsDialogUnwatch = null }
-    if (this.pollTimer) clearInterval(this.pollTimer)
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null }
     if (this._stageClockTimer) { clearInterval(this._stageClockTimer); this._stageClockTimer = null }
     if (this.historyPollTimer) { clearInterval(this.historyPollTimer); this.historyPollTimer = null }
+    if (this.s2vBatchPollTimer) { clearInterval(this.s2vBatchPollTimer); this.s2vBatchPollTimer = null }
     if (this.sceneAssetAttentionTimer) { clearTimeout(this.sceneAssetAttentionTimer); this.sceneAssetAttentionTimer = null }
     this.flushS2VLastOptionsSave()
   },

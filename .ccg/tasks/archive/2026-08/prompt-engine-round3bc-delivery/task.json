@@ -1,0 +1,14 @@
+{
+  "id": "prompt-engine-round3bc-delivery",
+  "title": "Higgsfield Round3 B/C 跨镜状态包与块骨架交付",
+  "status": "in_progress",
+  "complexity": "L+",
+  "risk": "medium",
+  "domain": "prompt-engine",
+  "currentPhase": "review",
+  "nextAction": "完成 fresh validation、双模型审查和远端 PR 合并后归档",
+  "openspecChange": ["higgsfield-round3b-cross-scene", "higgsfield-round3c-refined-output"],
+  "createdAt": "2026-08-15T00:00:00Z",
+  "branch": "codex/prompt-engine-round3bc-delivery",
+  "remoteStatus": "pending"
+}

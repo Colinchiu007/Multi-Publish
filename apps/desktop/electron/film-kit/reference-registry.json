@@ -1,0 +1,2658 @@
+{
+ "cb12a815-1c81-4e9f-9e9c-14eef510fb36": {
+  "kind": "prop",
+  "name": "skate",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/7366f2ea-d74c-4aa4-84c2-69bd31a2969c.jpg"
+  ]
+ },
+ "a6bd1bc8-b3e1-4a66-b108-0e953154b15e": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/5dfa2194-d2dd-46c4-9034-716256ff9348.jpg"
+  ]
+ },
+ "2b1c3150-db8c-44ec-8178-1f0e77b25236": {
+  "kind": "character",
+  "name": "MONSTER-NO-HAND",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/89548a2e-f6ff-45ce-bd66-bb45155659ad.png"
+  ]
+ },
+ "13154896-0437-46f1-ac99-d64e1421618b": {
+  "kind": "prop",
+  "name": "@bomb_on_tire",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/3b91dcd7-5890-4dae-be27-0e68ecca2fe5.png"
+  ]
+ },
+ "befeb0bc-10b6-46c9-9dcd-e6348062a785": {
+  "kind": "character",
+  "name": "REIN_AFTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/50432386-4fc4-4ede-b7fb-1747230db335.jpg"
+  ]
+ },
+ "018b68c5-f3a9-45db-a4f2-48ba02061ebd": {
+  "kind": "scene",
+  "name": "beforetree_back",
+  "category": "auto:environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/ac36cae9-31a3-406e-9621-bef8a79588da.png"
+  ]
+ },
+ "39fab7f2-1a95-455b-bff5-0aa7afb8dc35": {
+  "kind": "character",
+  "name": "FINAL_ROKO",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/ed252b7b-44ef-4857-86cb-486a14634dcd.jpg"
+  ]
+ },
+ "ef4bf52c-6d47-47e4-978c-a30b99a38d1e": {
+  "kind": "character",
+  "name": "CRYSTAL_ROKO",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/273d5acc-3c88-4e60-9421-a15002513456.jpg"
+  ]
+ },
+ "b8e57bfb-c73f-4f0e-b77b-3abf15dbee15": {
+  "kind": "prop",
+  "name": "suit",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/6fdf92bf-06e3-4325-a875-f41d562a29bb.jpg"
+  ]
+ },
+ "d07b4d5f-679f-43d5-bc9d-b7afa9cf136c": {
+  "kind": "character",
+  "name": "FINAL_OKO",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/e65b94df-e53b-49c8-b5ae-df9d7a22599a.jpg"
+  ]
+ },
+ "2f5d3c6f-bca8-422c-b3f6-e0895f60cdfe": {
+  "kind": "prop",
+  "name": "rogatka",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/96eaf6ed-4c7d-4ee4-9c60-12dddbb71ff6.png"
+  ]
+ },
+ "5e4fede4-a7e5-4232-9f38-814770ab0bd0": {
+  "kind": "character",
+  "name": "GUARDIAN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/dc8eaf2a-25a3-4a36-8ce0-76db2c2b4aeb.png"
+  ]
+ },
+ "6d85aac0-432a-4fef-b677-d48fff805a39": {
+  "kind": "scene",
+  "name": "portal",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/b6526b81-dde1-4202-b900-94e173793afc.png"
+  ]
+ },
+ "421b50fd-e3a0-4e8a-8a14-7181f387f496": {
+  "kind": "character",
+  "name": "MONSTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/85deb741-7221-4e46-b71f-02c5fe7005f0.jpg"
+  ]
+ },
+ "17382103-75be-4c82-b3ef-082c0b9d1c21": {
+  "kind": "character",
+  "name": "GNDLPH",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/2512224b-378e-4985-86be-87c3cd1dbd28.png"
+  ]
+ },
+ "1eb77449-0617-49ed-a8f4-482e35af3d9c": {
+  "kind": "character",
+  "name": "JAX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtojAWSL4h46JO61bL2AuiEIDs/5e939092-0cba-4cfa-8f3a-28f4b926d8b5.png"
+  ]
+ },
+ "86b1c21d-6a3f-438c-959d-6809a877ce57": {
+  "kind": "character",
+  "name": "FINAL_OKO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/4d200de7-9472-48da-9cf7-0fd26aaa7f72.png"
+  ]
+ },
+ "05cc6fa9-6b0d-4285-ad98-cabf92e5daca": {
+  "kind": "character",
+  "name": "FIRST_MONSTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/c3fd99ec-a06f-4fe7-9925-46ecbb5e013d.jpg"
+  ]
+ },
+ "db5fe6c3-cb12-4808-9681-ed7847c17bcd": {
+  "kind": "character",
+  "name": "JAXX_AFTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/76e65b89-8d9e-44be-9228-5198ac5759dd.jpg"
+  ]
+ },
+ "913f3545-f03e-4182-8926-caabb8942733": {
+  "kind": "character",
+  "name": "JAXX_BOARD",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/a0125a08-9f9a-42cd-9583-6c14c988ef56.png"
+  ]
+ },
+ "e418c4c9-7a24-458b-aafd-be7fcc852c47": {
+  "kind": "character",
+  "name": "STATUE_BOSS",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/fffc523c-4864-4852-8f36-0ce6555877d8.png"
+  ]
+ },
+ "38053738-2003-461a-8083-165d70506e43": {
+  "kind": "character",
+  "name": "ROCO",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/1d4ce1b9-37cd-4dae-9687-b9e3ec2fc5f8.png"
+  ]
+ },
+ "a1163bfb-a4f7-4fab-897d-ff11d27220e2": {
+  "kind": "character",
+  "name": "ROKO_ORIGIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/46818556-b94c-4149-aa47-bebd293e401f.png"
+  ]
+ },
+ "aa3c91ca-fe2e-4055-9c03-5398bc29c979": {
+  "kind": "character",
+  "name": "ROKO_REF",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/4705e23e-d8e4-4117-94ea-b673fcef960f.png"
+  ]
+ },
+ "59e83ebf-7c2c-4356-85c0-9cfb981ada77": {
+  "kind": "scene",
+  "name": "museum",
+  "category": "auto:environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/bb3651d6-dea2-49b7-8253-e10601fe64bb.png"
+  ]
+ },
+ "0c9ca387-df27-44c3-a263-afc2a9f0f6d0": {
+  "kind": "character",
+  "name": "JAX_TEEN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/63fcc5ca-0768-4857-b965-c7f9b2abf2bf.png"
+  ]
+ },
+ "63357702-c3af-430d-9c35-42a520c9c993": {
+  "kind": "character",
+  "name": "YOUNGROCO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/f4ad6706-cc59-4ab9-a738-d369538499be.png"
+  ]
+ },
+ "99f65436-2bc5-4b7b-a896-599a5fe52c98": {
+  "kind": "character",
+  "name": "JAXX",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/b8ed322f-03c9-428e-a135-a2868bc81fcf.jpg"
+  ]
+ },
+ "dbe82610-743a-4305-a50e-c18cb183e0ce": {
+  "kind": "character",
+  "name": "PROP_BOTTLE",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/04943e1a-9d43-4349-8ad5-9ecfe6fa88e0.png"
+  ]
+ },
+ "e2e7af9a-311d-4251-9398-6be6848aeda1": {
+  "kind": "character",
+  "name": "MONSTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/e26e0979-611c-4a3e-ba24-bdd26daf9d45.jpg"
+  ]
+ },
+ "ebe48b03-cc7b-4d37-a57c-2109842423f6": {
+  "kind": "character",
+  "name": "ROKO_TEEN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/62208b8a-fc03-4823-b320-a81dfe3749ad.png"
+  ]
+ },
+ "a7d245fc-e82b-4a79-b42f-b2c7958afbdf": {
+  "kind": "character",
+  "name": "BATYR",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/6fbe847c-bf87-4404-8a50-00f3518c6763.png"
+  ]
+ },
+ "9b60d2ba-9f35-4ac8-bf93-d56bedfe9493": {
+  "kind": "character",
+  "name": "REIN_DUST",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/017f0eca-2aff-40fe-8630-36ac3c230a99.png"
+  ]
+ },
+ "fcea0342-3d11-48ce-9d95-d41d82766464": {
+  "kind": "character",
+  "name": "BATYR",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/e57f47db-b786-45c4-bd97-85c47fb95f87.png"
+  ]
+ },
+ "12ca2793-6b13-4278-942f-66e124f1fba4": {
+  "kind": "character",
+  "name": "MONSTER-FIRST-VIEW-1",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BqgOGcA94CGnwINqTD0SrzqIad/d0e2f6ba-41d5-40c6-9081-a751b90a293c.jpg"
+  ]
+ },
+ "0c7b5b28-2b95-4a98-b3a8-e82af614f69b": {
+  "kind": "character",
+  "name": "REIN_NEW",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/2b490a77-13cd-4932-acde-329a36c87cb5.png"
+  ]
+ },
+ "287782af-5af5-4ae2-a7a8-b8573e475b46": {
+  "kind": "character",
+  "name": "ROKO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/8a3d4dbd-28b5-45c1-9ca5-e7e295131a38.png"
+  ]
+ },
+ "1d4e9c1f-0ffc-4ff8-9897-135fd0200afb": {
+  "kind": "character",
+  "name": "ROCO_COSTUME",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu87bnbVF6vTjFAF0NsctDxqwO/7028ca83-349c-484f-85a9-79cee368cd67.jpg"
+  ]
+ },
+ "c914a243-33bd-4f12-900f-385a6aed4063": {
+  "kind": "prop",
+  "name": "PIZZA",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/6ce10f2c-79f4-4e27-8601-9cf6ef4b438f.png"
+  ]
+ },
+ "daf0186f-4651-4cf3-a8b4-6524ae16e227": {
+  "kind": "character",
+  "name": "JAX_FINAL",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/419e9c77-6502-4de5-b4c4-fdd9e05994bb.png"
+  ]
+ },
+ "6938c9f1-e251-45c4-baee-49cc93134102": {
+  "kind": "character",
+  "name": "ROCO_HOME",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/7e6f4c5a-48c8-42b6-96b2-42d19c99dd9c.png"
+  ]
+ },
+ "aacb32af-4d56-45ca-b6a1-966fe3f74668": {
+  "kind": "prop",
+  "name": "CANDY_PILE",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/7e247d34-f626-404d-b9e5-60fb0cb3ce1a.png"
+  ]
+ },
+ "8a2002b5-6af6-449e-a4e3-7e1398aa17de": {
+  "kind": "prop",
+  "name": "pistols",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/ae03cc51-1b3d-4718-878c-cfc6a51ee1ec.png"
+  ]
+ },
+ "5fbe4bd4-1dbe-47bc-9ebd-c249e38b6602": {
+  "kind": "character",
+  "name": "JAX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/bfe1d487-9de0-4b5c-ba63-275a964f7005.png"
+  ]
+ },
+ "ea4c67b1-9bba-4877-8f79-27545e97343c": {
+  "kind": "character",
+  "name": "BATTLE_ROKO",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/92a5dda7-ac6b-4204-8ba4-df968683f2a9.jpg"
+  ]
+ },
+ "4f6a849d-8ef2-440a-bf22-f6ec0a6b956d": {
+  "kind": "character",
+  "name": "MONSTER-FIRST-VIEW",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BqgOGcA94CGnwINqTD0SrzqIad/d0e2f6ba-41d5-40c6-9081-a751b90a293c.jpg"
+  ]
+ },
+ "80611e39-81ab-4643-ae66-981f4bd40e16": {
+  "kind": "prop",
+  "name": "blood_fist_ref",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/9328f5e0-ed58-4a90-98ac-39048734daa1.png"
+  ]
+ },
+ "240813dd-afb3-445d-a3ad-8790f30d6f03": {
+  "kind": "character",
+  "name": "ROKO_RVANIY",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/6567349d-333f-4c27-a463-67b67f64d1cf.jpg"
+  ]
+ },
+ "be8a9f62-f8ec-4e50-8ebd-1c5682aaee89": {
+  "kind": "character",
+  "name": "ROCCO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/f9c878b5-88df-4f54-9db6-4b8ed820661e.png"
+  ]
+ },
+ "cfee3e2d-67d8-40ef-92ea-9d5218ae9cd0": {
+  "kind": "prop",
+  "name": "shield",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/168cba86-bc7f-4453-8b1a-5aea4027e1f4.jpg"
+  ]
+ },
+ "9cf17e2c-42ff-4ada-99f0-a2496e2e7d81": {
+  "kind": "scene",
+  "name": "museum_front",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/ba9b837c-e464-4dd6-82bf-2a8f3f639c1e.jpg"
+  ]
+ },
+ "2891e4c8-5634-42df-bf59-a62474eb069f": {
+  "kind": "prop",
+  "name": "arrow",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_2vqs1rYujJ4zRcgHzxKQrOt4qSE/295fb2d6-0c27-4c7e-9659-a37f5ce042a1.jpg"
+  ]
+ },
+ "19ee24a6-1bd3-4c05-8579-daee12349133": {
+  "kind": "prop",
+  "name": "PIZZA_BOX",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/eeac3473-6cbc-42fa-9a9a-be9915c9e1a6.png"
+  ]
+ },
+ "dca95e60-10ce-4c7c-ad53-256fc6dd0ea7": {
+  "kind": "character",
+  "name": "LULU",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/2f3b5d6b-bc3b-4323-a81e-18cf0b72f0da.jpg"
+  ]
+ },
+ "b4b3da9a-4a5d-4ed6-97af-4fec98fcacef": {
+  "kind": "scene",
+  "name": "museum",
+  "category": "auto:environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_2vqs1rYujJ4zRcgHzxKQrOt4qSE/ef6619ed-1fa5-411b-96fd-4ef7dc41098b.png"
+  ]
+ },
+ "a998c6db-60ed-42c6-8c7e-060e5161661e": {
+  "kind": "character",
+  "name": "REIN-1",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/a21b9b97-2c5a-4d90-bf3d-4f33f4ae5ad7.png"
+  ]
+ },
+ "1b1bf5d9-d27e-49f9-b868-2de11b149ba8": {
+  "kind": "character",
+  "name": "KNIGHT_NOHEAD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/2eb41e8e-2e52-44f1-88aa-76fb7a504a6d.png"
+  ]
+ },
+ "a29b0b54-7b1e-40a2-a5a2-79a1011ec4ed": {
+  "kind": "character",
+  "name": "RO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/1709545b-552b-49e1-9b3d-eaec7a93d3d2.jpg"
+  ]
+ },
+ "2525a57c-2006-429e-8455-bbb6a7e9212a": {
+  "kind": "scene",
+  "name": "final_museum",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/b623cd9b-c892-49fc-9ddb-62a82cdde50c.jpg"
+  ]
+ },
+ "76c847f2-eb01-4e09-a629-723425cfbba3": {
+  "kind": "character",
+  "name": "GAND",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/7c4b6ba9-31f6-4dbb-a032-24cb15be73dd.png"
+  ]
+ },
+ "e32a6b69-8dbe-4f99-8993-951c6b3c2dc4": {
+  "kind": "character",
+  "name": "1REIN_MONSTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/699fec0d-04ab-40ec-9beb-8800ef9c395a.png"
+  ]
+ },
+ "7775a76e-1932-4d82-bc5b-efd21834b2c4": {
+  "kind": "character",
+  "name": "CRYSTALBLADE",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/879bc44f-e108-44e5-8daa-d08a3759cee8.jpg"
+  ]
+ },
+ "5502264c-e9c6-438c-bd4b-5b2f84fb1d9c": {
+  "kind": "character",
+  "name": "MONSTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/24df1684-3894-4247-b724-800b14325176.jpg"
+  ]
+ },
+ "4ee6edb3-ef4a-465d-82de-687867ab39a5": {
+  "kind": "character",
+  "name": "REIN_HOME",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/d4dc15b5-7d59-4838-8425-4e95dac866fb.png"
+  ]
+ },
+ "ee4ccbd9-fc8d-43fc-9427-912e2d36811d": {
+  "kind": "prop",
+  "name": "skate-Rein-scifi",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/346a5794-8146-4485-a0c5-a6051a57ed93.jpg"
+  ]
+ },
+ "13eec1bf-1371-4cdc-b3dd-66478176c8c2": {
+  "kind": "prop",
+  "name": "roko_board",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/44ad9b1b-962c-462a-ac31-3f6053da6fb6.png"
+  ]
+ },
+ "3e86e59e-2112-4cc0-aaca-a9b275551f69": {
+  "kind": "character",
+  "name": "ROCOCRYSTALL",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/5d5e241b-9b6d-4c57-aa4a-efb7f45fe479.png"
+  ]
+ },
+ "18755cb6-a90f-4150-9095-92b869fc070e": {
+  "kind": "character",
+  "name": "ROKO_NEW",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/e2099ff8-602a-49c1-8d05-15101a76c2cc.jpg"
+  ]
+ },
+ "50d66536-251a-41f6-8d8c-c5f068908143": {
+  "kind": "character",
+  "name": "JAXX_TIBET_1",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/d0de27ba-274b-480c-9b75-c215ff62a4e2.png"
+  ]
+ },
+ "e92f3ea2-1332-4d0f-b95b-b99280a663f5": {
+  "kind": "character",
+  "name": "ROKO",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/914e9069-231b-497b-9e01-3bf089ac0cd0.jpg"
+  ]
+ },
+ "400571d5-ebbb-4da1-bc3e-54637dd86d14": {
+  "kind": "prop",
+  "name": "toysword",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/dbac5c9b-88dd-41a8-989e-c09bdcfe08e9.png"
+  ]
+ },
+ "770b4a3a-5bed-4f30-8384-de678688dd38": {
+  "kind": "prop",
+  "name": "hand",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/52b77f8c-ec89-4026-b420-7b7383853d9c.png"
+  ]
+ },
+ "9e3a60f0-3e6c-45cd-abf0-f18bcbe40ea0": {
+  "kind": "prop",
+  "name": "PIZZA_BOX",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/4ea78966-0b9e-477e-b4e2-b30d5847b44d.png"
+  ]
+ },
+ "cd2555c7-2ea2-4185-88b0-b2e1d4cf189b": {
+  "kind": "character",
+  "name": "OFFICERS",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/0dd58a9a-b015-4015-a19c-f9e6a25b9f7f.jpg"
+  ]
+ },
+ "47967c0f-607b-4c15-8948-f77b8d4a8790": {
+  "kind": "character",
+  "name": "KNIGHT",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/bd05d37c-dc10-48d3-8cdd-624ad6f3619b.png"
+  ]
+ },
+ "b5171957-fef9-4957-b8e8-3f508dc7ca91": {
+  "kind": "character",
+  "name": "YOUNGJAX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/ba4c6bd8-2643-49e2-a7f7-9a085d3e28d5.png"
+  ]
+ },
+ "1ac73a23-b92d-4038-963d-9e21cd714160": {
+  "kind": "character",
+  "name": "GANDELFINA",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/033e8404-2f34-4cb3-920d-27afb9a9c815.png"
+  ]
+ },
+ "dbc86e5d-7cc5-4835-a992-abea785bef7c": {
+  "kind": "character",
+  "name": "SHOPER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/5cd74092-1233-4f6f-93b5-40edf386bc0a.png"
+  ]
+ },
+ "670eb594-138a-4b35-9091-febbcfeb9983": {
+  "kind": "character",
+  "name": "JAXX_DUST",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/4f5d85a4-6fc0-4efe-856b-c0d87b90f5c6.png"
+  ]
+ },
+ "16860ad4-f28b-42bb-9fed-71d9a883f29b": {
+  "kind": "scene",
+  "name": "@loc_final_back",
+  "category": "auto:environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/aea883e9-0331-4152-9b86-3f94cfc17e92.png"
+  ]
+ },
+ "0c4f7e9f-3f54-45d1-82bb-35fd5d6eec90": {
+  "kind": "character",
+  "name": "CRYSTAL_ARMS",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/69a9cf2b-6230-4bfd-be00-9258eb1e8384.jpg"
+  ]
+ },
+ "3f7ec9f7-26d5-485a-969c-fcf9fe8cb853": {
+  "kind": "character",
+  "name": "REIN_27",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/43daaffe-e1a2-4c46-9e57-2e033b8faa3b.png"
+  ]
+ },
+ "19af0318-c48e-421b-81cb-7e0bcb6a0c2a": {
+  "kind": "character",
+  "name": "SANCTUM_MONK",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/d90347a1-ebe9-46de-94b5-6809264685d0.png"
+  ]
+ },
+ "64f6d6ba-c63b-47de-9754-c2261a3bccf5": {
+  "kind": "character",
+  "name": "ROKO_TIBET_BOARD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/3fbd444b-5b08-406d-a332-384230f85997.png"
+  ]
+ },
+ "1cbdc2d1-1b01-447a-b022-1bd6e4f7cc9c": {
+  "kind": "character",
+  "name": "LULU_ORIGIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/d93b10c8-aecb-4dd1-b859-c9922b915ba4.png"
+  ]
+ },
+ "b4a67e01-8f11-4b7b-aa76-bb4f63d84d02": {
+  "kind": "character",
+  "name": "REIN_HOME",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/7969ed30-3f88-4070-8021-d9b87cedbe2e.png"
+  ]
+ },
+ "2d94adc2-a686-424a-b4dd-b03644450630": {
+  "kind": "character",
+  "name": "WARRIOR_RED",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/1f55c052-c006-448d-902e-895e00d3b47e.png"
+  ]
+ },
+ "e3cde30b-18dd-4dc5-9c2d-480e510c0d47": {
+  "kind": "prop",
+  "name": "ARTIFACT_WHITE",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/7818dc0f-82c3-45b5-86ef-9f7a4df1eb05.png"
+  ]
+ },
+ "79031036-ecda-488a-939c-71ceda01803a": {
+  "kind": "character",
+  "name": "YOUNGLULU",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/f1984f9d-0b57-4a5c-abd6-b6d66b233e4c.png"
+  ]
+ },
+ "fdb45b20-509f-4f0c-9ac0-80c711e2ab58": {
+  "kind": "prop",
+  "name": "tablet_ref",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/390af2f3-5265-4ec6-a76f-6fb4ac3fe7d8.png"
+  ]
+ },
+ "0b56ca2e-74d3-4be2-b3b9-c86b9e2658f1": {
+  "kind": "character",
+  "name": "MONSTER3",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/bf27c2f7-e740-4f08-a12b-64e8282edbe1.jpg"
+  ]
+ },
+ "b6353c8d-8090-4ee4-8d75-13b719bb07a9": {
+  "kind": "character",
+  "name": "SOROH",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/0e90099e-06f5-4f22-a6d0-9f7e84d7c5ac.jpg"
+  ]
+ },
+ "c39a5171-9713-41ca-94c5-7b2e98cea45b": {
+  "kind": "character",
+  "name": "JAX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/45edd5af-55d4-482d-8afd-46f411c63299.png"
+  ]
+ },
+ "f775efc1-8818-481f-8c21-cd7884caebe7": {
+  "kind": "character",
+  "name": "CRYSTAL_KNIGHT",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/cf2518b3-9f5e-4ed3-b9b3-e0aee1bc02bb.jpg"
+  ]
+ },
+ "76593e99-b31d-47c6-9cbc-1e327d5b60de": {
+  "kind": "prop",
+  "name": "portal_opening",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/f16c0073-4230-432d-a208-553bb8e9190e.png"
+  ]
+ },
+ "be3b0c9b-e555-4a10-95a5-6fafaa8a591b": {
+  "kind": "character",
+  "name": "ROCOFIST",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/ba2b5eb8-097f-4459-a61a-74ee60dd6180.jpg"
+  ]
+ },
+ "9587d77c-00d2-479d-9732-e8f8aa84f03d": {
+  "kind": "character",
+  "name": "YOUNGREIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/25f23413-fd3e-4dce-8cd0-9e5074583da9.png"
+  ]
+ },
+ "359487ec-cb36-48e8-83ab-72b19d4909b1": {
+  "kind": "character",
+  "name": "REIN_1",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/6470b160-e187-418c-a95b-e833feda299d.png"
+  ]
+ },
+ "64547de0-2e3a-4b24-a5be-609f2386baa7": {
+  "kind": "character",
+  "name": "HAND_MONSTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/8b581232-3e1d-4528-b1c6-18bf04eb1599.jpg"
+  ]
+ },
+ "97856017-75e8-4a47-8309-493b36cf63ce": {
+  "kind": "character",
+  "name": "REIN_BOARD",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/75432d03-21a2-41b5-ae03-bba8da48fba0.png"
+  ]
+ },
+ "81da22a1-f7dc-4d4d-9b8e-082eb713b794": {
+  "kind": "character",
+  "name": "SAMURAI_3",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/4f09412a-71d3-4300-a119-d0ab90052df5.png"
+  ]
+ },
+ "5b2fdd2b-af56-4ce9-b2ed-6b6c9b812220": {
+  "kind": "character",
+  "name": "SAMURAIZOMBIE",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/9e318cba-c791-4102-93ad-29868e54619a.png"
+  ]
+ },
+ "8c062014-4584-441d-9d1c-89d39dee99ff": {
+  "kind": "prop",
+  "name": "MONK_WEAPONS",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/4c51089e-4e32-42f7-9a47-cb7a177e0d2e.png"
+  ]
+ },
+ "9ca727de-d494-453f-9bc5-4870f882ad06": {
+  "kind": "character",
+  "name": "ROKO_BOARD",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/0e1fb5fc-6967-41b1-be03-08b2e6c109fe.png"
+  ]
+ },
+ "b72f8086-e6c1-4072-87a5-9ac280a21069": {
+  "kind": "character",
+  "name": "MONSTER2",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/430ae82c-b552-47cc-a411-b8dbfcd03cb0.jpg"
+  ]
+ },
+ "c54aaa53-aaca-45a1-98a8-77655fc7c752": {
+  "kind": "character",
+  "name": "ROKO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/4732c3ff-872b-49a0-9503-ab92400889c3.png"
+  ]
+ },
+ "a9978113-5af8-4f21-be09-9e34b08d336e": {
+  "kind": "character",
+  "name": "JAX_SHOULDER_WOUND",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/330f3d7d-363a-4e47-9211-faf2a96d5bac.png"
+  ]
+ },
+ "49603990-f27c-4d64-bd2d-9419d3cabdc8": {
+  "kind": "character",
+  "name": "BATTLE_LULU",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/963be4a1-2fa7-4c60-8984-ac8800e885a8.jpg"
+  ]
+ },
+ "6923de2f-5c1e-4e15-83fe-52679c804145": {
+  "kind": "scene",
+  "name": "museum",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/ca93b09f-1320-4ff3-b70c-f2bb5a931e76.jpg"
+  ]
+ },
+ "20158406-e91b-4c8f-aef3-5cb695c8ea4e": {
+  "kind": "character",
+  "name": "MAIN_MONK1",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/cc33234a-81b5-4252-b5ee-51ef2511908f.png"
+  ]
+ },
+ "ebce2423-4960-467c-a02e-95ae20a5d4da": {
+  "kind": "character",
+  "name": "MONSTER_111",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/a1601324-64fa-43ff-8741-f19319702d6b.png"
+  ]
+ },
+ "0e1fc7da-294e-470b-847a-dc18c4fb4d68": {
+  "kind": "character",
+  "name": "REIN_TEEN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/9fd15058-95d4-47b8-8fb7-6f2fb6983ea4.png"
+  ]
+ },
+ "0659b5a8-76d5-4591-8356-c2323bf31e18": {
+  "kind": "character",
+  "name": "ROKO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtojAWSL4h46JO61bL2AuiEIDs/15161c08-c8e3-4044-91f2-d4b3d712f54c.png"
+  ]
+ },
+ "7312bbb6-7f76-4ebf-8eb2-334961298656": {
+  "kind": "character",
+  "name": "MONBOMB",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/349e7abd-c351-46da-9392-2bbcbe8e04d6.jpg"
+  ]
+ },
+ "261187c7-d047-469c-9bcd-2289b8d737a8": {
+  "kind": "character",
+  "name": "JAX_HOME",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/a6b4c0e9-03a0-41b4-a7f7-65fc631c63ec.png"
+  ]
+ },
+ "c6af1772-2e4f-4849-a606-bd41d98763bb": {
+  "kind": "scene",
+  "name": "museum_after",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/6465f65d-d468-4215-aa11-b52fc0acaced.jpg"
+  ]
+ },
+ "8673588e-3461-4402-94e1-da99e66200e1": {
+  "kind": "prop",
+  "name": "detonator_ref",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/4b23d274-26d5-4d1f-a7ef-5fba63a5988d.jpg"
+  ]
+ },
+ "40fb64c8-c75d-4be5-8c55-ca0a6953a8b2": {
+  "kind": "prop",
+  "name": "taxi",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/8489660c-41f0-4544-8f40-9cc30996a2dd.jpg"
+  ]
+ },
+ "40572fff-2e1c-42fd-92fc-338fccc24d8b": {
+  "kind": "character",
+  "name": "WORKERSHA",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/e13652e6-23cd-416c-bcbe-2ba1ea34e5c7.png"
+  ]
+ },
+ "933885c3-eb80-4854-a2d2-5eed2405617a": {
+  "kind": "character",
+  "name": "BOY1",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/90db0a81-6cdc-4e59-a01d-533e71d15fa1.png"
+  ]
+ },
+ "7156c829-a982-4380-97f2-894d2c84e968": {
+  "kind": "character",
+  "name": "KNIGHT_SWORD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/3ca0640e-41c7-46ae-8521-c2804668017b.png"
+  ]
+ },
+ "b5c33d09-4ec6-4c21-88e2-5858fc16528a": {
+  "kind": "character",
+  "name": "JAX",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/4e5f19f0-7bb7-48e1-abd5-87a375d0922f.png"
+  ]
+ },
+ "415b5539-a17d-457c-8f72-d79492f9f6fc": {
+  "kind": "character",
+  "name": "REIN_SKATE",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/a090edad-ee55-4db9-a70f-876ae2f1f61b.png"
+  ]
+ },
+ "5a8634f7-517d-4392-8ec1-bec4d807ea14": {
+  "kind": "character",
+  "name": "JAX_27",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/f6ab445d-39fd-45f3-89b6-a64724118f55.png"
+  ]
+ },
+ "8d6dbe3e-f69e-4f12-a151-73f71935af60": {
+  "kind": "character",
+  "name": "REIN_HOME",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/a94fe1f9-00ce-4f25-ae56-f4f10b408970.png"
+  ]
+ },
+ "fa172306-c84d-4cd2-b46b-fd054fb108d2": {
+  "kind": "character",
+  "name": "ROCO-ARMOUR-NO-HELMET",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtpG8rGMe0H62wxxLLEgosU4Ef/03233c41-68c2-4500-9a35-6e781512fd41.png"
+  ]
+ },
+ "75ae12a3-47b5-4d9f-be20-b583bcf4e8f6": {
+  "kind": "prop",
+  "name": "BOARDS",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/bf29ae04-67ea-42de-9146-c8dcfb1869b7.png"
+  ]
+ },
+ "dd65ef9b-d783-49b2-b1ab-a98717cad780": {
+  "kind": "character",
+  "name": "ARENA",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/73d33d91-06be-41a4-8f5d-5fa974322122.jpg"
+  ]
+ },
+ "96ee5d20-e7e8-4582-911a-cf24b13f631a": {
+  "kind": "character",
+  "name": "JAX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtpG8rGMe0H62wxxLLEgosU4Ef/7ee923f9-c7d1-4195-98d3-88f867f44d7d.png"
+  ]
+ },
+ "72a3b9ef-ab2f-4001-a5f7-ee1e1cefb536": {
+  "kind": "character",
+  "name": "SECOND_MONSTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/15d37fcb-683c-4670-b045-b89caadc8e34.jpg"
+  ]
+ },
+ "d7c49b92-6e05-4b12-aff8-76a1e3b2f589": {
+  "kind": "character",
+  "name": "ROCO-ARMOUR",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtpG8rGMe0H62wxxLLEgosU4Ef/3e258706-2fed-461a-86f3-9a2d55ba0637.png"
+  ]
+ },
+ "03e7dd04-f759-44e6-a868-a5f755bf6b31": {
+  "kind": "character",
+  "name": "JAX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/cd7b079d-dfc3-4d58-8cc0-244c23b7ba7e.png"
+  ]
+ },
+ "9df0487a-b540-4393-880e-2da49a21332e": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtojAWSL4h46JO61bL2AuiEIDs/15e148fc-82ed-4a15-98b7-409bb9901aaf.png"
+  ]
+ },
+ "e24af209-2671-45a5-9088-ca5aeacadef9": {
+  "kind": "character",
+  "name": "MONSTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/2ea63024-2e8a-4993-95c2-ee4917f71656.jpg"
+  ]
+ },
+ "daab4912-1a99-4b00-b0c3-25e533cb9dad": {
+  "kind": "scene",
+  "name": "Museum",
+  "category": "auto:environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/de3b953f-7e4e-47c9-8ea2-82e7a6f58b34.jpg"
+  ]
+ },
+ "655e24fa-56c8-411f-a1f4-6490092daf49": {
+  "kind": "character",
+  "name": "STATUE_BOSS",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu87bnbVF6vTjFAF0NsctDxqwO/212d2a38-ffe3-4175-a606-39629e44e665.png"
+  ]
+ },
+ "c234452c-eb22-4d04-9f2a-4456b72bb944": {
+  "kind": "character",
+  "name": "BOY2",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/e39b6df1-06ec-498a-9450-68ddfb3caf83.png"
+  ]
+ },
+ "1f02d1e4-e023-4896-841c-9c04c7b6bc59": {
+  "kind": "character",
+  "name": "BATTLE_MONSTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/e010a844-14d3-4dac-8b27-215aa7a0a10a.png"
+  ]
+ },
+ "1f4b883e-08d3-407a-9933-90df1ffb06f0": {
+  "kind": "character",
+  "name": "CROWD_MONKS",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/0b0417e9-51a1-42bf-8427-fd134acfc0f2.png"
+  ]
+ },
+ "d4da94bd-ca97-4999-a295-d1bbaa0141be": {
+  "kind": "character",
+  "name": "ROCO-X-ARMS",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/e913c707-366a-4650-a6f1-4e954a4ecd72.jpg"
+  ]
+ },
+ "a870c778-529e-490a-9bfa-4ccf77d2fbde": {
+  "kind": "prop",
+  "name": "bomb",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/c7e85dd6-c477-4606-a0af-a506ac64131c.png"
+  ]
+ },
+ "2de01506-7254-4245-b02a-f351f7b6961f": {
+  "kind": "prop",
+  "name": "bow",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_2vqs1rYujJ4zRcgHzxKQrOt4qSE/3245cd74-ff74-4163-8f4b-d4cdd23187f2.jpg"
+  ]
+ },
+ "57e8c4f1-eb54-42b8-b272-52d6c1895870": {
+  "kind": "character",
+  "name": "JAX_HOME",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/074e9d58-05d4-428f-8acd-44085e3f5963.png"
+  ]
+ },
+ "914eb6de-7924-4033-9b26-a3ea9f485e4d": {
+  "kind": "character",
+  "name": "ROKO_NOKEANU",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/19de364b-9a64-4793-8cba-e9cd547490c4.jpg"
+  ]
+ },
+ "b45115de-a4a5-4333-88a0-ec4c8209d302": {
+  "kind": "character",
+  "name": "ROKO_FINAL",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/0ad2d476-77e2-46f4-897d-29e724aa1084.jpg"
+  ]
+ },
+ "9bc3d3bd-55d7-4ce1-9e4c-1e1bcfaa6ee9": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/3424c57c-3843-4a76-af77-8a1a11e11e2e.png"
+  ]
+ },
+ "ffeb00d0-4856-4a2f-b70b-b1aef1acf831": {
+  "kind": "prop",
+  "name": "bullet",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/5df50337-eaef-4b09-8ee9-d7f6c223d784.png"
+  ]
+ },
+ "08139e31-36a1-42bd-8319-4b880c7ac0ad": {
+  "kind": "character",
+  "name": "MONK",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtojAWSL4h46JO61bL2AuiEIDs/dbf01fcc-027f-497a-ba52-92e0233e918d.png"
+  ]
+ },
+ "2f2ffac0-baf7-475a-8684-624420ecc253": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/a3988696-7e05-4eeb-9809-badef552efd3.jpg"
+  ]
+ },
+ "3416888a-495a-4695-8ae5-96a6f73f2f56": {
+  "kind": "prop",
+  "name": "claysphere",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/3bed1a6f-0f80-4c22-9f2d-d63d9102bea8.png"
+  ]
+ },
+ "65d60e3e-783f-49a2-bdc9-af8d9be8d7be": {
+  "kind": "prop",
+  "name": "parents_car",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/bfc0e8fd-b205-480a-9857-7df40a7b2524.png"
+  ]
+ },
+ "f80638bd-c54c-4a30-8d3e-88724eab1e81": {
+  "kind": "character",
+  "name": "PARENT_2",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/920b5471-10dd-4503-84e8-8319a51b79e2.png"
+  ]
+ },
+ "3de65efb-9e1c-43aa-a35d-6327b1d7163f": {
+  "kind": "character",
+  "name": "ROCO_HOME",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/7b9ce935-1e28-42dc-b474-94551fb6af11.png"
+  ]
+ },
+ "a3ba7457-e000-4b8d-af0e-9678afeb21fa": {
+  "kind": "character",
+  "name": "ROKO",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/653532e3-5715-4aa3-9c26-a739e8ed705b.jpg"
+  ]
+ },
+ "4a98722d-2687-46ae-a4ba-44dfd6833456": {
+  "kind": "character",
+  "name": "JAX_HOME",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/ca0b6a11-fab0-46b4-ba1b-f5a2eb7179c0.png"
+  ]
+ },
+ "bf8fc0b1-c66c-44c5-aeec-5098172674cb": {
+  "kind": "character",
+  "name": "REIN_TIBET_BOARD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/efc0c0d7-1e84-4325-b245-6ededa728e51.png"
+  ]
+ },
+ "c91472f3-2336-435d-94f8-e0401fc4370c": {
+  "kind": "character",
+  "name": "LULU",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/74bbabad-dce8-4adb-8b31-2205ef5b211b.jpg"
+  ]
+ },
+ "1a2f4529-b84a-4109-ab06-51d53bd61402": {
+  "kind": "character",
+  "name": "MONSTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/2f67bfbd-5c71-4fd0-8113-de1214a5a345.png"
+  ]
+ },
+ "fcc81822-0058-4d67-913a-014d3ddb3396": {
+  "kind": "prop",
+  "name": "monster_arm",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/d2e3fe46-ae25-4060-add5-7101e4ba120f.png"
+  ]
+ },
+ "2cf9a1c9-1b1a-4326-b9a3-bf73a16cb9bc": {
+  "kind": "character",
+  "name": "ROKO_111",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/07834076-c81e-43db-ad9e-aefee23552f8.png"
+  ]
+ },
+ "e9cc2125-7589-4db0-8b42-6348d60580a2": {
+  "kind": "prop",
+  "name": "artefact",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/49424c15-3f35-4b54-93f9-0ce6f1d77167.jpg"
+  ]
+ },
+ "3dbd9ba0-850a-49da-b4b0-bc0372364426": {
+  "kind": "character",
+  "name": "FINAL_REIN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/284b9c75-4c97-4a89-9f71-ae7ef65527b5.jpg"
+  ]
+ },
+ "1355cf69-0fae-4efc-ba5a-b4b13dac0c54": {
+  "kind": "character",
+  "name": "POLICE_CARS",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/c168771a-a19d-4d48-86ec-2ab144bcd693.png"
+  ]
+ },
+ "7c198ed2-ac23-4c44-84d8-a64cdecd00d6": {
+  "kind": "prop",
+  "name": "clay_bomb",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/257eb502-9fa1-4eb6-9d6c-ad46f90b42c6.png"
+  ]
+ },
+ "3a1916e7-70a9-4965-a1cd-158b51c3c00b": {
+  "kind": "character",
+  "name": "REIN_NOSKATE",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/cc3f109c-cc4f-4b4d-af5f-1341115c7aec.png"
+  ]
+ },
+ "0a5a2504-764f-4095-829c-58b9f7c9b4ae": {
+  "kind": "character",
+  "name": "REINWITH",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/5cb008e0-0262-4f64-aaab-796690aae8ee.png"
+  ]
+ },
+ "217d52e1-a9b0-4079-9801-b75bd30276e2": {
+  "kind": "character",
+  "name": "MONSTER_NOHANDS_PS",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/979885c2-63e7-43d2-a4a9-1a78b98002c3.jpg"
+  ]
+ },
+ "3e54cd26-9f37-4782-a1ad-3c07bc222fc9": {
+  "kind": "character",
+  "name": "CRYSTAL_ARMOR",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/8a20fa5c-ffb6-4ab9-bf56-8ac0aab6c99c.png"
+  ]
+ },
+ "fe192b44-a6b4-4ba9-ab17-d3a6f177be14": {
+  "kind": "prop",
+  "name": "JOINT",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/e13124b5-cca9-4de2-bcbf-5c0786ca25bc.png"
+  ]
+ },
+ "6f943f12-6dbb-4417-b579-b3ee645750a9": {
+  "kind": "character",
+  "name": "JAXX_SKATE",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/95e26ce8-50b9-45ae-a02a-c99e3a61548b.png"
+  ]
+ },
+ "a8ef1f8e-1040-41a5-829a-125472cc3085": {
+  "kind": "character",
+  "name": "ROCOBATTLE",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/36801b67-8785-459c-9e88-866f8d7306eb.png"
+  ]
+ },
+ "98e5fa9e-98c5-4251-a778-6fee327ed8ce": {
+  "kind": "character",
+  "name": "JAXBROKEN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/212b8e66-5f78-469b-9ac9-7bd0260cd78b.png"
+  ]
+ },
+ "a2f5c3a5-7316-41ae-b1da-dd1257daf084": {
+  "kind": "prop",
+  "name": "Rein-Board",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtpG8rGMe0H62wxxLLEgosU4Ef/8608379f-90d5-4f66-8c7a-35cc609b7fcf.png"
+  ]
+ },
+ "7f628da1-96cb-48fa-900d-7222ad45b7ed": {
+  "kind": "character",
+  "name": "SAMURAI-DEAD",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BqgOGcA94CGnwINqTD0SrzqIad/96295835-2513-499b-af00-afedad2e9e8e.png"
+  ]
+ },
+ "4f1c2e3c-d986-4508-ad34-4badd89bb46e": {
+  "kind": "scene",
+  "name": "boys_loc",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/32d74bb9-c927-4c88-b462-50e44710a94d.png"
+  ]
+ },
+ "16c61f9f-a4b1-4453-9115-3e929fdc999f": {
+  "kind": "character",
+  "name": "MUS",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/a9b93787-65ae-4f81-b5e1-e2f908ca3bf6.png"
+  ]
+ },
+ "1235ea3d-0584-442e-b6ff-286538949e46": {
+  "kind": "prop",
+  "name": "joint_ref",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/8aa90e18-7770-4393-a8b0-e15faf395149.png"
+  ]
+ },
+ "0e02cab4-cf77-4e9c-943e-408ba23cc8e9": {
+  "kind": "scene",
+  "name": "wastelandback",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/8884539c-c526-477c-beca-4d14da695710.png"
+  ]
+ },
+ "4a913286-7202-4298-9ce6-5ce94d05c082": {
+  "kind": "character",
+  "name": "ROCOFIST",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/e94f9152-2811-4e8e-a795-e092b7d4e34e.jpg"
+  ]
+ },
+ "fdbacf4c-db7d-4715-96b8-b62583316e80": {
+  "kind": "prop",
+  "name": "white_aftefact_mini",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/66af869f-7dcf-4409-9bbe-90d8ccd49c7f.png"
+  ]
+ },
+ "c0dd3c21-7a28-4b28-b963-0240691f8781": {
+  "kind": "prop",
+  "name": "artifact_white",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/95ea54b2-68e9-480e-acd6-10d21bc94eff.png"
+  ]
+ },
+ "aec0018e-5788-4d0c-bec2-5ba44bc45883": {
+  "kind": "character",
+  "name": "JAXX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/2f094ea8-c31b-4399-a753-2567407479a2.png"
+  ]
+ },
+ "9c711f00-17a2-421c-a164-7249a2d7cfbd": {
+  "kind": "character",
+  "name": "PARENT_1",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/48cdd5ba-25e0-46e8-ba87-3304fbaa7213.jpg"
+  ]
+ },
+ "7ead1172-0653-423b-86d8-b4bc8eb5e824": {
+  "kind": "prop",
+  "name": "van",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/6f333fac-3163-493e-b6cf-4e276d36346f.png"
+  ]
+ },
+ "dd901b23-a654-446d-8e31-4dbb0b1ef46f": {
+  "kind": "prop",
+  "name": "jaxx_bomb",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/20a7e043-fa24-47a1-8242-8e0378de5e5f.png"
+  ]
+ },
+ "52d74bfd-3df3-4cd7-a853-c5af9910c293": {
+  "kind": "character",
+  "name": "MAIN_MONK2",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/10df8f80-ba69-4f2a-aa66-53ccf6c9c79e.png"
+  ]
+ },
+ "b0562618-a7bb-482e-939d-f78fad149583": {
+  "kind": "prop",
+  "name": "white_artefact",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/4e0122f1-6966-4d46-80ce-0d5faeeaa811.png"
+  ]
+ },
+ "7cb38e5d-7d4d-4ff4-8d09-440cf1f05f57": {
+  "kind": "prop",
+  "name": "umbr",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/b3787e79-a0f9-4e0c-87f4-3b00e6a86ed9.png"
+  ]
+ },
+ "cfa6a0ca-5d92-4808-b609-e52f0c580408": {
+  "kind": "character",
+  "name": "MONKS_TIBET",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/0eb70570-81bd-4a99-a1db-ba1adaebd398.png"
+  ]
+ },
+ "0116fa7c-2af5-4a31-8ab3-c9ce0a9b70c7": {
+  "kind": "prop",
+  "name": "BOARD_REIN",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/145c8a82-d31b-4f2b-ace1-cbc9c2d6327d.png"
+  ]
+ },
+ "e0fe310f-0d8e-4abf-a458-6ec6c3b741f5": {
+  "kind": "character",
+  "name": "ROKO_AFTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/e3cc1258-8eb7-45fc-a69d-b2942b4d68cb.jpg"
+  ]
+ },
+ "7da8760f-ae4e-401d-b040-b0a87091564a": {
+  "kind": "character",
+  "name": "LULU",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/95b441b8-ccfb-4fd5-9697-eac41e407a88.png"
+  ]
+ },
+ "cab7aed7-68b4-4f9e-8833-3e7edc803a9e": {
+  "kind": "character",
+  "name": "MONSTER4",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/f792a105-d0d6-4e15-90f1-08fb38c8c1bd.jpg"
+  ]
+ },
+ "2025d96a-8b84-4ab1-9bae-f5b201d080e9": {
+  "kind": "character",
+  "name": "FINAL_MUSEUM",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/262ee927-50c7-467c-b24b-4a50ac169adb.png"
+  ]
+ },
+ "ed7e70d1-c7c0-4bc6-bf61-19bfd53fa6a6": {
+  "kind": "prop",
+  "name": "joint",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/a1bb0ff8-6138-4427-9670-e9125d5e7698.png"
+  ]
+ },
+ "45170338-c4f2-4950-b44f-015b7664c9c0": {
+  "kind": "prop",
+  "name": "SCANNER",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/5fad1b19-202f-46d2-9b86-72586c80c19e.png"
+  ]
+ },
+ "e378ff16-20cb-4e3f-8c3a-2011a472e123": {
+  "kind": "scene",
+  "name": "Museum-Inside-After-Fight",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BqgOGcA94CGnwINqTD0SrzqIad/706a41e2-fe97-4bcf-b5c8-2d3e5357ec75.jpg"
+  ]
+ },
+ "233dd66e-a183-49cc-a08f-e82472dd6218": {
+  "kind": "character",
+  "name": "DAGON_CHOPPED",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/38eddeaf-41da-4f27-8a90-831f24863e5a.png"
+  ]
+ },
+ "ff08734a-05e9-4a72-9f5d-b2a1ae8b44cb": {
+  "kind": "character",
+  "name": "ROKO_BATYR",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/5a85de80-2bbd-4f19-a7c9-0c0aa86346a9.jpg"
+  ]
+ },
+ "7c7ea71a-bcc1-44fe-8fb2-a09e3a16d444": {
+  "kind": "character",
+  "name": "ROCO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/4bf6909c-7937-4518-825d-5531af8a3997.png"
+  ]
+ },
+ "0eefcd1c-222a-4b53-a3e2-433ead7d4f01": {
+  "kind": "prop",
+  "name": "ROCO_SWORD_FULL",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/b9c04f9f-fcef-44e5-b486-bd59074bbbb5.png"
+  ]
+ },
+ "34f5047f-7ec8-496f-922e-38a9916a5a5a": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/12409d27-b081-45d3-b87e-e54f6039e289.png"
+  ]
+ },
+ "bd49a7ca-5e48-4ff2-aba8-9da3b9dc2832": {
+  "kind": "character",
+  "name": "MUSEUM",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/d8c25301-ded4-4799-bbba-604cf62c5cad.jpg"
+  ]
+ },
+ "292846bd-62f2-4b8d-9c34-01c03c42ed72": {
+  "kind": "prop",
+  "name": "shield",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/ff48fc45-c7fb-44ab-b69f-c7b1212625b2.jpg"
+  ]
+ },
+ "428da993-0e97-45b6-aa6f-42c094d4016c": {
+  "kind": "character",
+  "name": "FINAL_JAXX",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/d63ae77a-597a-4189-864b-cf4361f780bb.jpg"
+  ]
+ },
+ "e10a62b4-fd96-4438-8174-21fdf9a4b05e": {
+  "kind": "character",
+  "name": "ROCO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/c311cae1-6aa0-4ec5-9c77-1b71284115a4.png"
+  ]
+ },
+ "0f0bb756-9eef-474f-b3ed-31105ac9320b": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/bf1de7a5-affe-4656-bd72-f5efd8b7e86c.jpg"
+  ]
+ },
+ "7167694e-a3be-4220-bb8f-79737e7e173e": {
+  "kind": "character",
+  "name": "1JAX_MONSTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/b1eeb836-b34c-43d0-ac35-ca93bc6046a3.png"
+  ]
+ },
+ "2b36a82f-db3e-44c5-98dc-885761a6c364": {
+  "kind": "scene",
+  "name": "museum",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/48f73ff5-9c66-4cfc-9727-e465bce0c624.jpg"
+  ]
+ },
+ "38f44d5c-e373-405d-8dd7-882c4349fa4f": {
+  "kind": "character",
+  "name": "RAIN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/3613144e-156f-4312-bb86-50679380d848.jpg"
+  ]
+ },
+ "f3f4f4a8-9cc6-442a-8cc4-9be8059ede58": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/7c5ae533-d090-460b-89d6-f7f603a81b7c.png"
+  ]
+ },
+ "7fc21dee-d97b-44ac-9ab0-c56783019300": {
+  "kind": "character",
+  "name": "KNIGHT",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtojAWSL4h46JO61bL2AuiEIDs/9af369f7-c03d-442b-94a0-2108c6ce4124.png"
+  ]
+ },
+ "9d13ec48-503e-44e5-82a7-9aae572f7a2f": {
+  "kind": "prop",
+  "name": "jaxx_bomb",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/6714cb1e-3d32-483d-908e-229ad782a9a5.png"
+  ]
+ },
+ "abe192f3-5026-4812-bc99-537a2a9fa6b5": {
+  "kind": "character",
+  "name": "MONSTERHAND",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/3c4b176a-5291-4982-af32-41c00a329037.jpg"
+  ]
+ },
+ "7fbf16d9-77bb-4859-90cd-4bcc89fe8298": {
+  "kind": "character",
+  "name": "DAGON",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/5dbcf010-9aee-48cb-9804-845f9f07dc47.jpg"
+  ]
+ },
+ "1d58fa3e-7359-4376-bb67-ea43d20c8fdb": {
+  "kind": "character",
+  "name": "ROCOKNIGHT",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/0c8a2f6d-5354-4831-b2c5-f6d9bdcc1b7c.jpg"
+  ]
+ },
+ "b2880b63-bd49-4d04-ab8e-c9afd21d5b2f": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/9d590a1f-0276-4640-a6a1-2413d830d612.png"
+  ]
+ },
+ "455232e3-57fa-4aad-8663-894758df74c5": {
+  "kind": "character",
+  "name": "ROKO_FINAL",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/b613d71f-a3b9-4e6b-9553-49614aa52315.png"
+  ]
+ },
+ "77c1a3bc-2c16-402b-8c6b-b6de0dd7e0d5": {
+  "kind": "character",
+  "name": "ROKO_TIBET_1",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/9e0a3785-3f59-497d-9051-b4b863cb42b9.png"
+  ]
+ },
+ "f4fa2673-6674-4889-86c6-ddffece5b212": {
+  "kind": "scene",
+  "name": "Museum",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/defe0fb9-8b42-4597-8957-ed0350997c43.jpg"
+  ]
+ },
+ "e396547e-df91-4ae5-b2b7-b730eb86f7b3": {
+  "kind": "prop",
+  "name": "crystal_sword",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/644797cc-6133-4761-9ab4-584ed17a55fb.png"
+  ]
+ },
+ "329dcdd8-003e-484f-a30d-6b93b874e571": {
+  "kind": "character",
+  "name": "ROKO-1",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_2vqs1rYujJ4zRcgHzxKQrOt4qSE/696cbe98-3e98-456c-b593-33c560896e91.jpg"
+  ]
+ },
+ "e778319d-fa98-49ff-915a-56214d146ffd": {
+  "kind": "prop",
+  "name": "jaxx_guns",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/3c911510-5fa5-4cfd-ace9-ae3e2f02ddfd.png"
+  ]
+ },
+ "9771d7f3-0c4f-4896-b821-50d025a597a7": {
+  "kind": "character",
+  "name": "LULU",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/e3f9f421-7e58-4b86-9d69-90114f1775f8.jpg"
+  ]
+ },
+ "e4e0a3a0-52c5-485e-b5a1-c315b597d103": {
+  "kind": "character",
+  "name": "REIN_TIBET_1",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/d4178816-0513-4b32-a542-88ca519417cf.png"
+  ]
+ },
+ "bb660817-b354-4122-84b5-b176ea6d651d": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtpG8rGMe0H62wxxLLEgosU4Ef/0dc5e927-d9dc-463b-887b-82aa7700a3ea.png"
+  ]
+ },
+ "ac21bc57-1249-42b4-8001-44b023813bb5": {
+  "kind": "character",
+  "name": "JAX_LATE",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/a7dce0ba-5d2e-48a6-b76d-c3a93d11507d.png"
+  ]
+ },
+ "56cc9ff1-9a98-4f59-99ee-5af7b69b4c0b": {
+  "kind": "character",
+  "name": "ROKO_DUST",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/b87dd13d-d7a4-486c-b560-d04a44966ed0.png"
+  ]
+ },
+ "55fc82c4-2fc2-4879-a55f-0b4bb530c5cd": {
+  "kind": "prop",
+  "name": "knife",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_2vqs1rYujJ4zRcgHzxKQrOt4qSE/6a01187c-e0e6-4993-a073-d5fc91f47e6b.jpg"
+  ]
+ },
+ "7d0bc396-a00c-4343-8a35-64b7e5736ff3": {
+  "kind": "prop",
+  "name": "shield",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/68e9b5d2-39e0-4872-b80f-d6cf2c212dc9.jpg"
+  ]
+ },
+ "ebe8a665-a31c-4006-89f1-ed2207fb3472": {
+  "kind": "character",
+  "name": "JAX_NEW",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/c4626aaa-2487-4169-a0ee-bd9819f446d4.png"
+  ]
+ },
+ "5e2b18c5-585b-430c-ac16-c6675c701016": {
+  "kind": "prop",
+  "name": "ARROW",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/958afb70-9dd3-43d5-9270-f65cbb3367ef.png"
+  ]
+ },
+ "ea6dc1c0-36c2-47b6-a343-2ed9060db9d5": {
+  "kind": "character",
+  "name": "ROCO_27",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/863b4f79-733a-4d8e-89bf-3d377bfefc25.png"
+  ]
+ },
+ "61e5ffdd-7613-43f5-831f-002c71a5789c": {
+  "kind": "scene",
+  "name": "Wasteland",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/7c3bfc98-12a7-46ad-a431-6c54b509f837.png"
+  ]
+ },
+ "4e68264b-6a95-489d-8b14-47427f9aae7a": {
+  "kind": "character",
+  "name": "STATUE_BOSS",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/f6444750-185c-4c48-b80a-a4c569079d2c.png"
+  ]
+ },
+ "f79f25dd-7ca1-49ee-a977-ad64cc0f1050": {
+  "kind": "character",
+  "name": "LULU_FINAL",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/353a264a-ee36-45df-8408-06f28e55e863.png"
+  ]
+ },
+ "2092a603-3c33-43af-adea-8d577d90a6bc": {
+  "kind": "character",
+  "name": "LULU",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/2bb2156c-cf3f-4e3f-a1ae-b50374738719.png"
+  ]
+ },
+ "e9e3d00e-ff0a-454f-be64-a458044b9284": {
+  "kind": "character",
+  "name": "JAXX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/c6552155-9c1d-4151-8d52-5c92a8c21dbd.jpg"
+  ]
+ },
+ "ecabbb7d-39ec-4313-94d3-e6d31118eb64": {
+  "kind": "prop",
+  "name": "JOINT",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/19ebd5f8-6c62-4b3c-94bd-70eced3c06a9.png"
+  ]
+ },
+ "51dac96b-376f-4d4e-a1fb-74e845bf7b5b": {
+  "kind": "character",
+  "name": "JAXX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/fa983a5e-d5d4-459e-9b99-8fc6b8ba9ef3.png"
+  ]
+ },
+ "6a94eefc-e3a5-4099-a847-2f535516232e": {
+  "kind": "character",
+  "name": "WEAPON",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/73f50a2e-dd70-48e1-afd4-33e675aaf137.png"
+  ]
+ },
+ "54289a6b-4bfb-40df-bda8-8e7db0589b4a": {
+  "kind": "prop",
+  "name": "boombox",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/6f371bdd-700a-4224-b9be-2f8ae1418e73.png"
+  ]
+ },
+ "c8cbe244-4813-41c1-99c8-a5eac6740b77": {
+  "kind": "prop",
+  "name": "old_bag",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/c95be1ad-8627-48e3-8129-5f6b949ea4c7.png"
+  ]
+ },
+ "a46b6c39-5bc4-401f-b148-d5482a0709b5": {
+  "kind": "character",
+  "name": "STATUE_BOSS_ROT",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/426b5a18-4a83-459c-9a2b-ef71c2f2a554.jpg"
+  ]
+ },
+ "abd5831a-fa9f-4058-9f8a-3781b09cbdc1": {
+  "kind": "character",
+  "name": "MONSTER_CHOPPED",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/1e86580e-6efa-40e5-beed-a88c99c42a8b.png"
+  ]
+ },
+ "6caf1031-e35b-43a1-ad1e-35197f39f4d5": {
+  "kind": "character",
+  "name": "MONSTER-(NO-BLOOD)",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BqgOGcA94CGnwINqTD0SrzqIad/74edc518-cdff-44ff-944d-814174025d80.png"
+  ]
+ },
+ "c2c9929b-b124-4a89-9c02-6ba9c31da234": {
+  "kind": "prop",
+  "name": "akari_crystal",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/27534ef3-89ed-435c-9996-40cf48d363ad.png"
+  ]
+ },
+ "bae2c9e2-eeca-4be5-a841-a11945ba02d6": {
+  "kind": "character",
+  "name": "MONSTER_BLOODY_PS",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/3ada083a-b10f-48fd-9a98-5b15a248d729.jpg"
+  ]
+ },
+ "63ffe19e-59d4-4698-866e-9038c8e31860": {
+  "kind": "character",
+  "name": "REINN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/592b1a2a-3162-4383-9597-d76802a1c191.png"
+  ]
+ },
+ "143eb4d1-889b-4f4d-9397-17c7c1e07a5e": {
+  "kind": "character",
+  "name": "ROKO_NOHEAD_FINAL",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/9caa37f8-5846-408b-859f-b12b6a647db1.jpg"
+  ]
+ },
+ "faa1d133-51ca-4620-9245-408796a96ac7": {
+  "kind": "character",
+  "name": "REIN_DUST",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/76330fc0-368f-4a68-93a3-28c58161ab7e.png"
+  ]
+ },
+ "6b8e81c5-7a3e-484b-a180-575218269c25": {
+  "kind": "character",
+  "name": "JAX",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/dbfc9f17-8fe9-4e60-b172-1b6033159d83.png"
+  ]
+ },
+ "b6d09361-1e89-4fe2-ab5e-45a794ea8e2c": {
+  "kind": "prop",
+  "name": "sword",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/ec693179-ce6e-4996-9b20-1d63e4e58810.png"
+  ]
+ },
+ "bb4d0dc2-a958-4324-aa29-9a1a57183c03": {
+  "kind": "character",
+  "name": "JAXX_TIBET_BOARD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/24fd3442-7cff-44ec-a8d5-2e1ecdddb2cc.png"
+  ]
+ },
+ "f8389670-88c9-40c2-bb73-d5bffcdd59f5": {
+  "kind": "character",
+  "name": "BATYR1",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/97a0257a-59e5-4c3d-b87a-1906483dd650.jpg"
+  ]
+ },
+ "5f991e18-79fd-4478-abfe-0413d19cd582": {
+  "kind": "prop",
+  "name": "emojis",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/5802bacf-d139-46a2-90b3-ce80bbe82627.png"
+  ]
+ },
+ "b091d5b1-2a35-4f43-859e-f359ea665e5f": {
+  "kind": "character",
+  "name": "MONSTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/b46ebc8c-1319-4bba-9869-fc4349570c6d.png"
+  ]
+ },
+ "f9494978-d014-4701-820c-3b9a4e88c56e": {
+  "kind": "character",
+  "name": "JAX_DIRTY",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/cb50ed02-d15c-4813-8560-1284ead7ca37.png"
+  ]
+ },
+ "956d6325-fd89-42ec-89ac-dbd560579a85": {
+  "kind": "prop",
+  "name": "rocosword",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/2ddb3e44-08d9-45f4-ba06-fdb7cf3331d0.png"
+  ]
+ },
+ "9d67d3b8-14ec-4067-b1e2-075554f1d20c": {
+  "kind": "character",
+  "name": "LULU_TEEN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/ce9b41f4-77a7-4275-ab2a-4982618ede49.png"
+  ]
+ },
+ "c25bfadd-5954-48c2-bf26-f56b0664b38a": {
+  "kind": "character",
+  "name": "ROCO_HOME",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/30e0c49c-deb7-4962-9445-e4b1cd63f95a.png"
+  ]
+ },
+ "2c02f067-4794-450a-8952-ca5b045dcd3e": {
+  "kind": "prop",
+  "name": "pizza",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/1c39bf52-7e15-49cc-a86c-4cc5f27526a6.png"
+  ]
+ },
+ "35498cb4-72e0-4a8f-940e-1c56c88d354f": {
+  "kind": "character",
+  "name": "JAX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/8b3d3833-d4a4-4a49-bce7-a4452960ae1d.jpg"
+  ]
+ },
+ "963e557a-2619-44fb-be7c-33cf4ade0e73": {
+  "kind": "prop",
+  "name": "spear_tibet",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/8a4f66b6-0528-4a3b-a83f-75c2fc2fe773.png"
+  ]
+ },
+ "33020ed8-444b-4ec6-a20d-aa61805002a7": {
+  "kind": "character",
+  "name": "MUSEUM",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/176f7289-080a-44fe-b46b-878e6a7dfa03.jpg"
+  ]
+ },
+ "4a1a6eb8-e08e-40a5-a218-24b24e4e8cac": {
+  "kind": "character",
+  "name": "MONSTER3",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/e20b493f-3755-4ef2-a029-5d66616f2861.jpg"
+  ]
+ },
+ "513bbefe-efa4-4be9-8cd6-b6c2ab51e983": {
+  "kind": "character",
+  "name": "KNIGHT_FULL",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/eba1c801-2600-4f6e-adb9-79dccd5064c1.jpg"
+  ]
+ },
+ "020e79a0-f0ff-4099-948a-1cf72a2fd121": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/d2dcff73-2ca1-41d0-a7a8-e8fefc51e1a1.png"
+  ]
+ },
+ "c387fcdc-9378-49ee-b378-c9836e0881b6": {
+  "kind": "character",
+  "name": "JAXX_FINAL",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/b772ab75-20cb-4159-93f5-ff23846449da.png"
+  ]
+ },
+ "d83119d2-426f-4558-95d5-3e7f19f419e7": {
+  "kind": "character",
+  "name": "ROCO_DIRTY",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/1e1212a2-1fd2-40a3-9022-0ba5c2882321.png"
+  ]
+ },
+ "418756c5-c126-4170-8a18-bcd13e3d94a4": {
+  "kind": "character",
+  "name": "MUSEUM_2",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/2e679d9f-59ec-4690-8598-dc0a5b0612dc.png"
+  ]
+ },
+ "5e1d7988-631a-42b5-a3e6-23d62fc6ab5e": {
+  "kind": "character",
+  "name": "REIN_DIRTY",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/66afb3c2-a43b-4a61-af0f-a68445c22bc1.png"
+  ]
+ },
+ "898af2cb-3943-4580-84ec-ff7bd031be38": {
+  "kind": "character",
+  "name": "REIN_EKZO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/e8b61b72-e8f0-452e-a923-ece9b689ae8b.png"
+  ]
+ },
+ "7ee7ba73-4519-4fde-bd22-5e37929570b4": {
+  "kind": "character",
+  "name": "REIN_LATE",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/f82d1bdb-069c-4b72-b708-099d1253bacc.png"
+  ]
+ },
+ "8580cfcd-bc63-4519-8d10-a4183814c4df": {
+  "kind": "character",
+  "name": "REIN_ORIGIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/90f061ec-a0a7-4c7f-bd67-e27bffb52ab0.png"
+  ]
+ },
+ "255adc8c-6ce1-47ec-8d32-851e002fd80f": {
+  "kind": "character",
+  "name": "ROKO_BLOODY",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/0691ce1a-e4a5-44c0-9dae-26066bd58277.jpg"
+  ]
+ },
+ "f6700443-baec-4f68-9118-c7d5b23d8b9d": {
+  "kind": "prop",
+  "name": "shield",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/184c70fe-635c-46e1-a465-05a99a56755e.jpg"
+  ]
+ },
+ "2fab5266-108e-4831-a507-18eb85d6ae56": {
+  "kind": "prop",
+  "name": "rein_flying_board",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/f587a71e-6d0b-441a-a2c6-36fb6e8653b5.jpg"
+  ]
+ },
+ "6047c012-8327-486a-abae-851a2b0f128e": {
+  "kind": "character",
+  "name": "ROKO_SKATE",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/c3508390-4720-4c06-8f5f-f054bd7d9474.png"
+  ]
+ },
+ "74548308-e6cf-41f1-9cbe-3cc706281a26": {
+  "kind": "character",
+  "name": "REIN_FINAL",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/8c42fddd-a967-45d5-b98f-690221cf9738.png"
+  ]
+ },
+ "13341be6-3c0c-4342-b93f-e0b1d4bbc74f": {
+  "kind": "character",
+  "name": "LULU_AFTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/cca3d4a3-7069-4c3e-844c-ca7169981980.jpg"
+  ]
+ },
+ "64b60019-9848-43c1-8152-caa67325c26a": {
+  "kind": "character",
+  "name": "GUARDIAN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/42b67cec-358a-4be8-a497-e969ec1d7abb.png"
+  ]
+ },
+ "336d457d-690a-4596-8b5e-3bda813b1412": {
+  "kind": "character",
+  "name": "ROKO_NOSKATE",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/ca730e93-e7d7-42b3-8d34-a21ab61db488.png"
+  ]
+ },
+ "670bc6b6-1038-4117-bcc0-fbcc388c60d8": {
+  "kind": "character",
+  "name": "ROKO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/19e81b7e-3ad9-4dd0-a94b-158dc2c07a23.png"
+  ]
+ },
+ "f6b0ad15-8442-4722-8e45-396ee945548b": {
+  "kind": "character",
+  "name": "ROCO_COLD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/c6f7d900-4f6d-4403-873c-09771d69b750.jpg"
+  ]
+ },
+ "c30bb898-c269-4e28-9cf0-d716c79b0b9f": {
+  "kind": "character",
+  "name": "ROCO_HAND",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/7a5018c6-56a2-4c57-8da6-d47b2e81392d.png"
+  ]
+ },
+ "b2b44870-fbcc-4fed-96c9-f05dafb0f494": {
+  "kind": "character",
+  "name": "JAXX_ORIGIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/f00057fd-7bef-4dc8-8408-fd50fefa7510.png"
+  ]
+ },
+ "1c815411-6ca9-4423-a77f-b9ad562bd45d": {
+  "kind": "character",
+  "name": "DAGON_MONSTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/8781ff1e-013b-4570-89de-be175194cadf.png"
+  ]
+ },
+ "af94a00b-fdef-4710-857f-2c0e40e88730": {
+  "kind": "character",
+  "name": "NOARM_MONSTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/8da71547-e4bc-486a-8964-df0eb9754afc.png"
+  ]
+ },
+ "cb4d8e7a-3d72-4a6e-a137-6139c53bf71c": {
+  "kind": "character",
+  "name": "GUARD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/c6260ca4-b11e-4c49-aaa6-7a5cf299e86f.jpg"
+  ]
+ },
+ "264e0dfc-eaaa-4ad1-9f71-2e19f461611d": {
+  "kind": "character",
+  "name": "YROCO_RAIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/902286e6-e3e5-4e16-b7ed-a3fb769c09af.png"
+  ]
+ },
+ "f401c3f8-b5ca-4e15-8c71-87fc9bde812b": {
+  "kind": "character",
+  "name": "MONSTER4",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/1bc68ff5-f3e4-4134-8a72-d5b9fea4dccd.jpg"
+  ]
+ },
+ "fe89430e-794f-42fa-a0a8-dc32fa30a952": {
+  "kind": "prop",
+  "name": "candy_hand",
+  "category": "auto:prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/1186ba0b-9db8-462c-ada4-b149b55d58b0.png"
+  ]
+ },
+ "90724bfd-1a23-4312-8193-24f498ab7206": {
+  "kind": "character",
+  "name": "REINBROKEN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/30ea53f5-de2d-448e-981d-3dcf0fd3315a.png"
+  ]
+ },
+ "05b4331b-7df3-4341-b65c-3a000cb13864": {
+  "kind": "character",
+  "name": "YOUNG_LULU",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/93d9d40c-32b3-420b-aa61-a03f3c320f71.png"
+  ]
+ },
+ "32c9d137-e270-46fc-b054-35fbb9f2ea42": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/89b7ca88-6715-4fcd-b7dd-e5dcc1dfb414.png"
+  ]
+ },
+ "067b4940-af70-49c7-9fce-1647c5696ae9": {
+  "kind": "character",
+  "name": "ROKO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/13a40f49-23f1-4745-801c-0a5e3ce52be0.png"
+  ]
+ },
+ "23ee0800-db9a-4656-965b-0bd6fb770c39": {
+  "kind": "character",
+  "name": "DAGON",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_2vqs1rYujJ4zRcgHzxKQrOt4qSE/bd8929e8-41ad-49fd-a6a1-04a0c8cc1f41.jpg"
+  ]
+ },
+ "403c4eaa-db55-4c22-b082-de69182c2fc4": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/cadd37dd-bef6-41fc-907b-8115010d8b22.jpg"
+  ]
+ },
+ "4111f8ee-6aa2-45db-bf20-7f2d40409683": {
+  "kind": "character",
+  "name": "ROKO_INJURED",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/ad296143-24a9-497e-8373-dde5f7c1e018.jpg"
+  ]
+ },
+ "6a3f1c88-0621-4766-a011-c426d1abc0d9": {
+  "kind": "character",
+  "name": "ROKO_TIBET_BOARD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/3af7b34e-9276-46b0-8b53-fd5701bb52f2.jpg"
+  ]
+ },
+ "2f4d6312-c1e0-448f-9276-033ece47a727": {
+  "kind": "character",
+  "name": "ARMORSHIELD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/2b5d5de0-aa39-4c46-ab2a-da780c906711.png"
+  ]
+ },
+ "c06c35ff-0825-4541-af6f-573c85c32d32": {
+  "kind": "character",
+  "name": "ROKO_TIBET_1",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/1819b371-aa7a-4c05-8c14-c24d66e0f830.png"
+  ]
+ },
+ "6d89e027-69f3-42cc-a948-ef2ba67a0a38": {
+  "kind": "character",
+  "name": "LULU_FINAL",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/a49719a6-935c-486a-b746-f19728343c6e.png"
+  ]
+ },
+ "160c936b-2ca7-4fb6-876b-c3b91b7a87d3": {
+  "kind": "character",
+  "name": "SOROH",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/ffc4c611-d1eb-4ae7-aeda-6bc6505e1c96.png"
+  ]
+ },
+ "d2a28cee-0eb1-4c54-aa5c-674d65fdb8aa": {
+  "kind": "character",
+  "name": "BEFORE_ROKO",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/62a6e27c-68e0-46be-94f1-2c68bb02179d.png"
+  ]
+ },
+ "c356eaf8-fdd3-46cc-a0a3-249233a71d68": {
+  "kind": "scene",
+  "name": "museum2",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/dd152709-0f22-446e-93d0-f466c61f83a1.jpg"
+  ]
+ },
+ "5ee76b51-29b7-4bb6-bafa-7333a1534e8f": {
+  "kind": "character",
+  "name": "JAX_BLOOD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bo29bcxcot8DunaQDBIFnDXGhc/15eced48-c48d-43b1-b38b-c3f1a31f4c9a.png"
+  ]
+ },
+ "64f26b6d-7e29-4a04-adde-9567721ae290": {
+  "kind": "character",
+  "name": "JAX",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/fb31bcc9-cb96-4d5d-846c-3fe4bb31a90e.png"
+  ]
+ },
+ "ba90e071-21a9-41b5-b228-dcecab23a83c": {
+  "kind": "character",
+  "name": "LOCATION",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/cc3b28d8-470b-4321-97f8-d4bcec9e40b4.png"
+  ]
+ },
+ "a9f2e998-06cc-4f17-b05b-e8ec84155ccf": {
+  "kind": "character",
+  "name": "MONS",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/1a99882b-740e-412c-a8d6-d9b3801f83c6.jpg"
+  ]
+ },
+ "3b8d342a-49b3-4102-aaf3-728fcbfc66fd": {
+  "kind": "scene",
+  "name": "museum_after",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/cd5fca28-297a-48c7-a601-70f52d7533c0.jpg"
+  ]
+ },
+ "8204fa1d-fbb4-4eb7-b32b-37aecbd0add0": {
+  "kind": "character",
+  "name": "REIN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/33a25806-3373-4385-8eb8-b5f521105907.jpg"
+  ]
+ },
+ "3720c68c-f499-4369-bbc7-174fba674808": {
+  "kind": "character",
+  "name": "CHOPPED_MONSTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/a7a9ef62-c30e-4951-b7fc-d5f65c18478e.png"
+  ]
+ },
+ "b691466c-caba-4cdc-86a5-8079ea3e0e30": {
+  "kind": "character",
+  "name": "ROCOUNHELM",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/4e6d5624-dfaf-4fc4-bd1e-38d1aaa41404.jpg"
+  ]
+ },
+ "9fb9aa10-0a7f-41f1-9284-470f42179600": {
+  "kind": "scene",
+  "name": "museum",
+  "category": "auto:environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/5ed43cea-b6bb-4205-9618-6f306175e149.png"
+  ]
+ },
+ "5fcff017-8574-4ab8-80c1-4526c03c27c2": {
+  "kind": "character",
+  "name": "MUSEUM",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3CxcD6MGHuglHwZQ2aEylCSM/ec8dbed2-0dcf-49e5-b84b-f83826d2dd59.png"
+  ]
+ },
+ "7c2653ad-da30-4709-b05b-ded0fac7d8e7": {
+  "kind": "character",
+  "name": "YLULU",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/68bb4dd7-73d6-464d-97cc-7003df8c7dcd.png"
+  ]
+ },
+ "24d22d02-f98e-46ba-af37-ea1b9951dd34": {
+  "kind": "character",
+  "name": "FINAL_LULU",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/a10edcae-3f43-45b7-b49d-117377ec8d0a.jpg"
+  ]
+ },
+ "1a498c4c-0af9-4936-9734-262ddbf7f2ed": {
+  "kind": "character",
+  "name": "LULU",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3DceaodfgWmy2JKTLmokw2y8gJA/7b5496d0-35dd-4d5b-b19a-b2daac70f225.jpg"
+  ]
+ },
+ "84b9b821-5394-46ca-816f-a5f15066847d": {
+  "kind": "character",
+  "name": "YOUNG_ROCO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/643931bd-1344-4eac-90d0-3a0289acb026.jpg"
+  ]
+ },
+ "0e66e962-1c77-4b8b-9245-baef69ca32e7": {
+  "kind": "scene",
+  "name": "hall",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/cc8d91df-de9e-47b6-ab1e-b53d1e2734c8.png"
+  ]
+ },
+ "87122f71-917a-49b0-ab52-06b5d409b667": {
+  "kind": "scene",
+  "name": "pizzeria",
+  "category": "environment",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu8ZLzFyHscGTeGWT5RLpuuGeh/390f261e-9c57-41a4-a0d7-bf8d1d54cc54.png"
+  ]
+ },
+ "a0ec4ee5-7ab9-4ce3-99f1-55f820d4bf89": {
+  "kind": "character",
+  "name": "MONSTER",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu7q9GSAmPllrI2zQSK1uSdTPv/c5c0dc40-edac-46f4-9039-2202d38282a8.jpg"
+  ]
+ },
+ "7e48d607-3ae7-4cf6-a619-99a7a22309ef": {
+  "kind": "character",
+  "name": "CHOPPED_MONSTER",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/a3e89aec-00b6-42c0-b3b3-ab422718b89a.jpg"
+  ]
+ },
+ "28efad7f-6aaf-49f5-8f96-114c8bab7228": {
+  "kind": "character",
+  "name": "GUARDIAN",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3BtojAWSL4h46JO61bL2AuiEIDs/c672b70d-5174-438e-8e2c-02c722ae12e3.png"
+  ]
+ },
+ "41eedf6b-42c3-4806-b63a-9d4d9b297464": {
+  "kind": "character",
+  "name": "MONSTER2",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/73f77c43-c59d-4291-b7c8-631ca1b803fa.jpg"
+  ]
+ },
+ "0a6adcb3-52b1-4fbd-b7cd-d6ee95a89a12": {
+  "kind": "character",
+  "name": "PORTAL",
+  "category": "auto:character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu2pi9xLuqqA0BTvvdqad639gj/9bd992bd-3393-494a-929b-d6290e61459b.png"
+  ]
+ },
+ "0a94ba18-d6ec-43df-a1f0-a739f9e0a668": {
+  "kind": "character",
+  "name": "RO",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu5a9ZV9PkKp2t1c1c5DMFQVUn/98b04e0a-1d66-4259-8975-900dd7417b75.jpg"
+  ]
+ },
+ "35bffada-97d5-40a5-9d69-6d0cdf265fd1": {
+  "kind": "prop",
+  "name": "all_boards",
+  "category": "prop",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/3aaf4cb3-23d3-4e6e-8d9c-56da6269e937.jpg"
+  ]
+ },
+ "0e6d0d92-273a-43f1-97ae-8ddd3171f704": {
+  "kind": "character",
+  "name": "ROKO_SWORD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/e73bb0a0-fa01-41e2-b672-26ad76997404.png"
+  ]
+ },
+ "c8ecd31c-df50-4452-b7b3-d175a74877d8": {
+  "kind": "character",
+  "name": "REIN_TIBET_BOARD",
+  "category": "character",
+  "imageUrls": [
+   "https://d2ol7oe51mr4n9.cloudfront.net/user_3Bu3gESmf225MQ9sNWXhUG57aXC/5ee0af94-bcaf-49e4-8400-78671389cbd7.png"
+  ]
+ }
+}
