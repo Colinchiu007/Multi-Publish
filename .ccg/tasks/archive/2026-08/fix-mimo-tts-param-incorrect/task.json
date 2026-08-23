@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "desktop/provider-contract",
   "currentPhase": "completed",
-  "nextAction": "已完成三同步归档；PR #1140、归档 PR、origin/main 与归档状态均已核验；运行中的旧实例需重启后加载修复",
+  "nextAction": "已完成三同步归档；PR #1140、归档 PR #1141、origin/main 与归档状态均已核验；运行中的旧实例需重启后加载修复",
   "createdAt": "2026-08-23T18:00:00+08:00",
   "branch": "codex/fix-mimo-tts-param-incorrect",
   "openspecChange": "fix-mimo-tts-param-incorrect",
@@ -24,6 +24,10 @@
     "originMainVerified": true,
     "mergedAt": "2026-08-23T10:35:47Z",
     "runtimeNote": "当前运行应用来自另一 worktree，需重启应用后加载修复；本次未杀进程或修改该 worktree",
-    "archiveStatus": "pending_archive_pr"
+    "archivePr": 1141,
+    "archivePrUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1141",
+    "archiveMergeCommit": "11a333ed7e5cbfd4e961f80ece1a989d84e67385",
+    "archiveStatus": "merged_and_origin_main_verified",
+    "archiveMergedAt": "2026-08-23T10:48:00Z"
   }
 }
