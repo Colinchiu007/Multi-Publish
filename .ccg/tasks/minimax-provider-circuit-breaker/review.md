@@ -16,5 +16,7 @@
 
 ## 验证
 
-- 修复后定向 Vitest：story2video-stages + manual + videogen + provider-run-context + prompt-bridge = 248 passed。
+- 初始修复后定向 Vitest：story2video-stages + manual + videogen + provider-run-context + prompt-bridge = 248 passed。
+- CI 首轮发现 `ServiceBus.optimizePrompt/optimizePromptsBatch` 在无运行 context 时多传 `{ providerRunContext: undefined }`，破坏旧三参调用兼容；已在 `service-bus.js` 仅对真实 context 追加内部参数，并补 2 条透传回归。该文件当前 29 passed，合并聚焦套件 274 passed。
+- 本轮外部审查：Claude CLI 不在 PATH；OpenCode 因提示词目录权限被拒且未产出 agent message，均按降级记录。主代理逐行复核 service-bus 兼容性、providerRunContext 透传和既有熔断覆盖，未发现 Critical/Warning。
 - QM-1 完整 build:win 成功；打包版 8 秒存活且 stderr 为空。
