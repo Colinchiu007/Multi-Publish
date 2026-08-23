@@ -3279,6 +3279,28 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 
 总 PRD「视频创作流水线启动即后台运行 §3a」与 OpenSpec s2v-pipeline-always-background 中「启动成功后 renderer 立即停止轮询、恢复初始态、仅历史观察」的条款废弃；「离开页面转后台、重进初始态、并发占槽、检查点例外」维持。以本节为准。
 
+### 3.1.36 Provider 运行级熔断与克隆音色恢复去重（2026-08-23）
+
+**背景**：run_1787423931138_9cak 中失效 `voice_id` 被每个并发 TTS 任务各自重克隆；MiniMax 随即返回余额/Token Plan 额度错误后，图片、文字推理与视频队列仍继续领取并消耗上游额度。
+
+**一、产品规则**
+1. 同一次流水线运行内，同一个 `(providerId, voiceId)` 克隆音色仅允许重克隆一次；并发 TTS 共享同一恢复结果，成功后后续任务复用新 voice id，失败后本运行不再重复克隆。
+2. provider 返回余额不足、Token Plan、usage limit、用量上限等额度/套餐错误时，当前运行立即按 provider 维度熔断；剩余未启动的图片、TTS、LLM、视频和重克隆任务不再调用上游，已在途请求自然收尾。
+3. 熔断仅作用于当前内存运行，不写入 checkpoint；断点恢复继续复用 `resume.completed` / `partialTts` 已完成产物，已恢复的新 voice id 以可序列化字段供后续恢复复用。
+4. 全部 provider/model 统一处理，不做 MiniMax 特判；限流仍允许现有短暂重试，额度错误不进入限流重试。
+
+**二、技术合同**
+1. `ProviderRunContext` 按 provider ID 维护运行级 breaker，经 `getProviderRunContext(context)` 绑定到流水线上下文；`ModelProviderManager.callAdapter` 可选第四参 `{ providerRunContext }`，quota 错误自动打开 breaker，旧三参调用保持兼容。
+2. `_mapWithConcurrency` 支持 `shouldStart`；breaker 打开后未启动队列返回 `{ success: false, skipped: true }`，不执行上游调用。
+3. LLM 直调与 PromptBridge 优化链路共享默认 LLM provider 的 breaker；prompt-engine 出现 quota 错误时禁止 CLI/legacy fallback 再次触发同一 provider。
+4. Story2Video 与 videogen 的图片、TTS、视频提交/轮询、cloneVoice 统一经 runtime options 接入；`tryReCloneVoice` 通过 ProviderRunContext 去重并持久化 `voice_recovery[providerId][voiceId]`。
+
+**三、验收标准**
+1. 同一 run 并发 TTS 遇到同一失效音色时 `cloneVoice` 调用次数为 1；成功后所有任务使用新 voice id，失败后不再重克隆。
+2. 任意 provider quota 错误后，后续同 provider 的 image/TTS/LLM/video/cloneVoice 未启动调用次数为 0。
+3. 断点恢复后已完成图片/音频/视频继续复用，新 voice id 映射可读取；breaker 不复用上次运行状态。
+4. 限流/超时/网络仍按现有重试规则执行；额度错误不重试。
+
 
 
 

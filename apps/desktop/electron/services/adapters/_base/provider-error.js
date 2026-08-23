@@ -138,7 +138,7 @@ function fromHttpStatus(status, message, context = {}) {
 }
 
 const RATE_LIMIT_MESSAGE_PATTERN = /\brate[\s_-]?limit\b|too\s+many\s+requests|限流|请求频率|rate_limit|Error\s+code:\s*429|rpm\s+exhausted|429\s+Too\s+Many/i
-const QUOTA_MESSAGE_PATTERN = /\b(?:insufficient|exhausted|exceeded|out\s+of)\b[^\n]{0,40}\b(?:quota|balance|token|credit)s?\b|(?:quota|balance|token|credit)s?[^\n]{0,40}\b(?:exceeded|insufficient|exhausted)\b|(?:余额|额度|配额|点数)[^\n]{0,20}(?:不足|不够|超过|超限|耗尽)|insufficient\s+balance|billing|payment\s+required/i
+const QUOTA_MESSAGE_PATTERN = /\b(?:insufficient|exhausted|exceeded|out\s+of)\b[^\n]{0,40}\b(?:quota|balance|token|credit)s?\b|(?:quota|balance|token|credit)s?[^\n]{0,40}\b(?:exceeded|insufficient|exhausted)\b|(?:usage|token\s*plan)[^\n]{0,30}\blimit\b|(?:用量|额度|配额)[^\n]{0,16}(?:上限|不足|不够|超出|超限|耗尽)|达到额度上限|余额不足|insufficient\s+balance|billing|payment\s+required/i
 
 /**
  * 统一把 provider 失败归类为五类，供限流/排队/重试网关决策：
@@ -148,13 +148,41 @@ const QUOTA_MESSAGE_PATTERN = /\b(?:insufficient|exhausted|exceeded|out\s+of)\b[
  * - 'content_policy' → 明确内容安全拒绝，进入改写/人工处理流程
  * - 'other'          → 其余错误，不重试
  */
+function collectProviderFailureTexts(error, depth = 0) {
+  if (!error || typeof error !== 'object' || depth > 4) return []
+  const texts = []
+  const push = (value) => { if (typeof value === 'string' && value.trim()) texts.push(value.trim().slice(0, 2000)) }
+  push(error.message)
+  push(error.msg)
+  push(error.error)
+  push(error.status_msg)
+  const source = error.context && typeof error.context === 'object' ? error.context : (error.data && typeof error.data === 'object' ? error.data : null)
+  if (source) {
+    push(source.message)
+    push(source.msg)
+    push(source.error)
+    push(source.status_msg)
+    push(source.base_resp && source.base_resp.status_msg)
+    push(source.base_resp && source.base_resp.message)
+    push(source.response && typeof source.response === 'object' ? source.response.message : null)
+  }
+  for (const key of ['error', 'context', 'data', 'response']) {
+    const nested = error[key]
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) texts.push(...collectProviderFailureTexts(nested, depth + 1))
+  }
+  return texts
+}
+
 function classifyProviderFailure(error) {
   if (!error || typeof error !== 'object') return 'other'
-  const message = String(error.message || error.error || error.msg || '')
+  const message = collectProviderFailureTexts(error).join('\n')
   const statusCode = Number(error.statusCode ?? error.status ?? error.context?.statusCode)
   const code = error.code || error.context?.code
 
-  if (statusCode === 429 || code === ERROR_CODES.RATE_LIMITED) return 'rate'
+  if (statusCode === 429 || code === ERROR_CODES.RATE_LIMITED) {
+    if (QUOTA_MESSAGE_PATTERN.test(message)) return 'quota'
+    return 'rate'
+  }
   if (statusCode === 402 || code === ERROR_CODES.QUOTA_EXCEEDED) return 'quota'
   if (code === ERROR_CODES.TIMEOUT || code === ERROR_CODES.NETWORK_ERROR) return 'transient'
   if (code === ERROR_CODES.CONTENT_POLICY) return 'content_policy'

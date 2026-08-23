@@ -1,4 +1,12 @@
 ## Story2Video 克隆音色重试的生产 manager 契约复盘（fix-run-voice-clone-production-contract，2026-08-23）
+## Provider 运行级熔断与克隆音色恢复去重复盘（minimax-provider-circuit-breaker，2026-08-23）
+
+- **现象**：run_1787423931138_9cak 中失效 `voice_id` 触发几十个并发 TTS 各自重克隆；MiniMax 返回余额/Token Plan 错误后，图片、LLM、视频队列仍继续领取任务，把「一次额度耗尽」放大成整批无效请求。
+- **第一性原因**：`tryReCloneVoice` 没有运行级去重；`RATE_LIMIT_PATTERN` 把额度/quota 当限流进入重试；`callAdapter` 未暴露 runtime breaker，导致各阶段各自为战。
+- **逃逸链**：单测覆盖单个重克隆与限流，未覆盖并发共享、额度分类和跨 image/TTS/LLM/video 的队列停止；集成/E2E 未在额度错误后统计上游调用停止；审查把「统一 provider 边界」当成 manager 三参即可，未要求 runtime 控制对象。
+- **系统性漏洞**：provider 错误分类分散在 story2video 本地正则与 provider-error 双实现；运行时控制缺少显式传参通道，队列 worker 领取任务前不检查熔断。
+- **修复与预防**：新增 `ProviderRunContext`（provider 维度、运行内存作用域、voice 恢复去重），`callAdapter` 支持可选第四参并在 quota 时自动 open；`_mapWithConcurrency` 支持 `shouldStart`；PromptBridge 对 quota 禁止 CLI/legacy fallback；断点恢复继续复用已完成产物与新 voice id 映射。后续 provider 调用链改动必须检查 runtime options 透传，新增队列必须支持领取前熔断检查。
+
 
 - **现象**：初次 TTS 因跨账号克隆音色 `voice_id` 无权限失败；重克隆在真实 Electron 中继续失败，测试环境却通过。
 - **第一性原因**：`tryReCloneVoice()` 使用 `manager.getAdapter()`，而生产 `ModelProviderManager` 的公开边界是 `callAdapter(providerId, method, params)`；旧测试 double 恰好暴露了不存在的 `getAdapter()`，掩盖了契约错位。

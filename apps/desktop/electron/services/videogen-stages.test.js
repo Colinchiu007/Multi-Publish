@@ -214,6 +214,7 @@ describe('videogen 共享阶段执行器', () => {
       expect(result.success).toBe(true)
       expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith(
         'agnes-video', 'generateVideo', expect.objectContaining({ prompt: '[opt] p1' }),
+        { providerRunContext: expect.any(Object) },
       )
       expect(captured.prompt).toBe('[opt] p1')
     }, 20000)
@@ -336,6 +337,7 @@ describe('videogen 共享阶段执行器', () => {
       expect(batchCalls).toEqual([12])
       expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith(
         'agnes-video', 'generateVideo', expect.objectContaining({ prompt: '[opt] scene-prompt-0' }),
+        { providerRunContext: expect.any(Object) },
       )
     })
 
@@ -359,6 +361,7 @@ describe('videogen 共享阶段执行器', () => {
       expect(batchCalls).toEqual([20, 2])
       expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith(
         'agnes-video', 'generateVideo', expect.objectContaining({ prompt: '[opt] scene-prompt-0' }),
+        { providerRunContext: expect.any(Object) },
       )
     })
 
@@ -411,7 +414,7 @@ describe('videogen 共享阶段执行器', () => {
       })
       expect(result.success).toBe(false)
       expect(result.error).toContain('Missing task_id in response')
-      expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith('agnes-video', 'generateVideo', expect.any(Object))
+      expect(ai._modelProviderManager.callAdapter).toHaveBeenCalledWith('agnes-video', 'generateVideo', expect.any(Object), { providerRunContext: expect.any(Object) })
     })
 
     it('callAdapter 成功但响应无 taskId 时保留「未返回任务 ID」提示', async () => {

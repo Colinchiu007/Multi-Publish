@@ -203,7 +203,13 @@ class ModelProviderManager {
    * @param {object} params - 方法参数
    * @returns {Promise<{code: number, data?: any, message?: string, error?: Error}>}
    */
-  async callAdapter (providerId, method, params = {}) {
+  async callAdapter (providerId, method, params = {}, options = {}) {
+    const providerRunContext = options && typeof options === 'object' ? options.providerRunContext : null
+    const { ProviderCircuitOpenError } = require('./provider-run-context')
+    if (providerRunContext && providerRunContext.isOpen && providerRunContext.isOpen(providerId)) {
+      const failure = providerRunContext.failureOf ? providerRunContext.failureOf(providerId) : null
+      return { code: -1, errorCode: 'PROVIDER_CIRCUIT_OPEN', message: `服务商「${providerId}」已因额度/套餐上限熔断，本次运行已停止该服务商的新请求：${(failure && failure.message) || ''}`, error: new ProviderCircuitOpenError(providerId, failure && failure.message) }
+    }
     if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '模型服务尚未初始化，请稍后重试或重启应用。' }
 
     // 检查 Adapter 工厂是否注册
@@ -246,7 +252,23 @@ class ModelProviderManager {
       : (provider.category === 'video' ? 10 * 60 * 1000 : 2 * 60 * 1000)
     const startTime = Date.now()
     try {
+      if (providerRunContext && method === 'cloneVoice' && params && typeof params.name === 'string' && params.name) {
+        const recovery = await withCallTimeout(providerRunContext.cloneVoiceOnce({
+          providerId,
+          voiceId: params.name,
+          fn: () => adapter[method](params),
+        }), timeoutMs, providerId, method)
+        if (recovery.failed) {
+          const error = recovery.error
+          if (providerRunContext && typeof providerRunContext.openIfQuota === 'function') providerRunContext.openIfQuota(providerId, error)
+          return { code: -1, error, message: (error && error.message) || 'voice clone failed' }
+        }
+        return { code: 0, data: { id: recovery.voiceId } }
+      }
       const result = await withCallTimeout(adapter[method](params), timeoutMs, providerId, method)
+      if (providerRunContext && result && typeof result === 'object' && (Number(result.code) < 0 || result.success === false)) {
+        providerRunContext.openIfQuota(providerId, result.error && typeof result.error === 'object' ? result.error : result)
+      }
       const latency_ms = Date.now() - startTime
       this._writeLog(provider, method, 'success', latency_ms, null)
       // 慢响应检测：超过类别阈值 → 记为模型服务异常（供前端提示 + 日志定位）
@@ -277,9 +299,11 @@ class ModelProviderManager {
             kind: e.code === ERROR_CODES.TIMEOUT ? 'timeout' : 'network',
           })
         }
+        if (providerRunContext && typeof providerRunContext.openIfQuota === 'function') providerRunContext.openIfQuota(providerId, e)
         return { code: -1, error: e, message: e.message }
       }
       // 普通 Error 包装
+      if (providerRunContext && typeof providerRunContext.openIfQuota === 'function') providerRunContext.openIfQuota(providerId, e)
       log.error('ModelProviderManager', `callAdapter ${providerId}.${method} failed: ${e.message}`)
       return { code: -1, message: e.message }
     }
