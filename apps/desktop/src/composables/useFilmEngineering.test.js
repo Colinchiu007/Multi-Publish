@@ -133,4 +133,30 @@ describe('useFilmEngineering', () => {
     expect(c.shotDetail.value.shotId).toBe('shot-1')
     expect(c.shotDetail.value.resolvedRefs[0].entry.name).toBe('REIN')
   })
+
+  it('导出：exportPrompts 收到可结构化克隆的纯 JSON 负载', async () => {
+    const api = installMockApi()
+    stubWindow(api)
+    const c = useFilmEngineering()
+    await c.loadScenes()
+    c.toggleShot('shot-1')
+    await c.exportSelected('json')
+    const payload = api.exportPrompts.mock.calls[0][0]
+    expect(Array.isArray(payload)).toBe(true)
+    expect(() => structuredClone(payload)).not.toThrow()
+    expect(api.exportPrompts).toHaveBeenCalledWith(payload, 'json')
+  })
+
+  it('勾选生成：generateSelected 收到可结构化克隆的纯 JSON 负载', async () => {
+    const api = installMockApi()
+    stubWindow(api)
+    const c = useFilmEngineering()
+    await c.loadScenes()
+    c.toggleShot('shot-1')
+    const res = await c.generateSelected()
+    expect(res).toBeTruthy()
+    const payload = api.generateSelected.mock.calls[0][0]
+    expect(() => structuredClone(payload)).not.toThrow()
+    expect(api.generateSelected).toHaveBeenCalledWith(payload, { aspectRatio: '16:9' })
+  })
 })

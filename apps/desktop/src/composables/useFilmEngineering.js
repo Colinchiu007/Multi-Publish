@@ -227,7 +227,7 @@ export function useFilmEngineering () {
       const s = byId.get(id)
       if (s) list.push({ shotId: s.shotId, sceneId: s.sceneId, prompt: s.prompt, model: s.model, refTokens: s.refTokens || [] })
     }
-    return list
+    return JSON.parse(JSON.stringify(list))
   }
 
   function downloadText (text, fileName) {

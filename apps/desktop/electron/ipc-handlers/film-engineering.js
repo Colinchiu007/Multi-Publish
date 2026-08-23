@@ -36,9 +36,9 @@ function registerHandlers (ipcMain, deps) {
   }
 
   function withKit (fn) {
-    return (_event, ...args) => {
+    return (event, ...args) => {
       try {
-        return { code: 0, data: fn(...args) }
+        return { code: 0, data: fn(event, ...args) }
       } catch (e) {
         const kitErr = kitError(e)
         if (kitErr) return kitErr
