@@ -1,0 +1,14 @@
+{
+  "id": "subtitle-segmenter-oracle",
+  "title": "优化 Story2Video 字幕分句的词边界与了后宾语保护",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "代码、测试、打包与审查完成；无 PR，remoteStatus=not_started",
+  "createdAt": "2026-08-23T00:00:00+08:00",
+  "branch": "codex/subtitle-segmenter-oracle",
+  "openspecChange": "subtitle-segmenter-oracle",
+  "remoteStatus": "not_started"
+}

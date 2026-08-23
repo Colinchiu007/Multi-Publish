@@ -30,6 +30,7 @@ import {
   getRecommendedTransitions,
 } from '../src/effects-library';
 import { cn, createQueryString, formatDate } from '../src/utils';
+import { segmenterSpans } from '../src/segment';
 import type {
   ImageEffect,
   TransitionEffect,
@@ -173,6 +174,52 @@ describe('SceneSegmenter', () => {
 });
 
 describe('SubtitleSegmenter', () => {
+  it('segmentit oracle 返回至少二字 CJK token 的安全、单调原文跨度', () => {
+    const text = '保持个性独立，蒙古江南灭亡地形';
+    const spans = segmenterSpans(text);
+
+    expect(spans.length).toBeGreaterThan(0);
+    let previousEnd = 0;
+    for (const span of spans) {
+      expect(span.start).toBeGreaterThanOrEqual(previousEnd);
+      expect(span.end).toBeGreaterThan(span.start);
+      expect(span.end).toBeLessThanOrEqual(text.length);
+      expect(text.slice(span.start, span.end)).toMatch(/^[\u3400-\u4dbf\u4e00-\u9fff]{2,}$/u);
+      previousEnd = span.end;
+    }
+    expect(spans.map(({ start, end }) => text.slice(start, end))).toEqual(
+      expect.arrayContaining(['个性', '蒙古', '江南', '灭亡', '地形']),
+    );
+  });
+
+  it.each([
+    ['杀了人', '人'],
+    ['完成了任务', '任务'],
+    ['写了信', '信'],
+  ])('了后普通宾语不成为字幕边界：%s', (text, object) => {
+    const boundary = text.indexOf('了') + 1;
+    const blocks = new SubtitleSegmenter({ minCharsPerBlock: 2, maxCharsPerBlock: 4 })
+      .segment(text + '并继续完成后续说明内容', 10, 0)
+      .map((block) => block.text);
+    const offsets: number[] = [];
+    let offset = 0;
+    for (const block of blocks) {
+      offset += block.length;
+      offsets.push(offset);
+    }
+    expect(blocks.join('')).toContain(object);
+    expect(offsets).not.toContain(boundary);
+  });
+
+  it('了后真实 clause starter 仍可成为边界候选', () => {
+    const text = '他完成了但是仍然需要继续说明这个决定';
+    const blocks = new SubtitleSegmenter({ minCharsPerBlock: 2, maxCharsPerBlock: 5 })
+      .segment(text, 10, 0)
+      .map((block) => block.text);
+    expect(blocks.join('')).toBe(text);
+    expect(blocks.some((block) => block.endsWith('了'))).toBe(true);
+  });
+
   it('将文本分割为字幕块', () => {
     const segmenter = new SubtitleSegmenter();
     const result = segmenter.segment('今天天气真好。我们去公园玩吧！', 10.0, 0);

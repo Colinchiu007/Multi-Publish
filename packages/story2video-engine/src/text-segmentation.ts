@@ -17,11 +17,29 @@
 
 // 字幕分割规则单源（subtitle-rules.json，与 smart-sentence-splitter Python 共享同一份规则）
 import subtitleRules from './subtitle-rules.json';
+import { segmenterSpans } from './segment';
 // ==================== 通用工具 ====================
 
 /** 数字字符判定（v1.2.3 小数点豁免）：对齐 Python str.isdigit 的常用子集（Unicode 十进制数字）。 */
 function isDigitChar (c: string): boolean {
   return c.length === 1 && /[\p{Nd}]/u.test(c);
+}
+
+function isAsciiWordChar (c: string | undefined): boolean {
+  return c !== undefined && /[A-Za-z0-9_]/.test(c);
+}
+
+function isCodePointBoundary (text: string, index: number): boolean {
+  if (index <= 0 || index >= text.length) return true;
+  const previous = text.charCodeAt(index - 1);
+  const current = text.charCodeAt(index);
+  return !(previous >= 0xd800 && previous <= 0xdbff && current >= 0xdc00 && current <= 0xdfff);
+}
+
+function isDecimalToken(text: string, start: number, end: number): boolean {
+  const token = text.slice(start, end);
+  if (!/^\p{Nd}+\.\p{Nd}+$/u.test(token)) return false;
+  return !isAsciiWordChar(text[start - 1]) && !isAsciiWordChar(text[end]);
 }
 
 // ==================== 配置类型定义 ====================
@@ -454,6 +472,8 @@ export class SubtitleSegmenter {
   private static WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers);
   // v1.2.2：good_tail 路径的块首排除集（仅纯黏着后缀，如 "个|性" 的 性）。
   private static WORD_GOOD_TAIL_BLOCKERS = new Set(subtitleRules.word_split.good_tail_blockers ?? '');
+  private static CUT_AFTER_LE_ALLOW = new Set(subtitleRules.word_split.cut_after_le_allow ?? '');
+  private static WORD_ORACLE_MAX_TOKEN_LENGTH = subtitleRules.word_split.oracle_max_token_length ?? 8;
   // v1.2.3：成词保护（兼容字段名 no_cut_bigrams）——项目可以是任意长度短语，
   // 切点不得落在任一短语内部（如 "蒙古"、"江南"、"包税人"）。
   private static WORD_NO_CUT_PHRASES = new Set(subtitleRules.word_split.no_cut_bigrams ?? []);
@@ -502,9 +522,14 @@ export class SubtitleSegmenter {
       || SubtitleSegmenter.RIGHT_QUOTES.has(c);
   }
 
-  /** v1.2.3：当前累积文本以 数字+半角点 结尾（如 "713."）→ 该 "." 是小数点/数字一部分，不是句界。 */
-  private static isNumberDot (text: string): boolean {
-    return text.length >= 2 && text[text.length - 1] === '.' && isDigitChar(text[text.length - 2]);
+  /** 小数点只在完整的数字 token（整数部分和小数部分都非空）内豁免。 */
+  private static isDecimalPointAt(text: string, index: number): boolean {
+    if (index < 0 || index >= text.length || text[index] !== '.') return false;
+    let start = index;
+    while (start > 0 && (isDigitChar(text[start - 1]) || text[start - 1] === '.')) start -= 1;
+    let end = index + 1;
+    while (end < text.length && (isDigitChar(text[end]) || text[end] === '.')) end += 1;
+    return isDecimalToken(text, start, end);
   }
 
   /** Step 1：分句（句界归属前块；未闭合引号内的句界不生效） */
@@ -512,7 +537,10 @@ export class SubtitleSegmenter {
     const out: string[] = [];
     let cur = '';
     const stack: string[] = [];
+    let sourceOffset = 0;
     for (const ch of text) {
+      const sourceIndex = sourceOffset;
+      sourceOffset += ch.length;
       cur += ch;
       if (SubtitleSegmenter.isSymmetricQuote(ch)
         && stack.length && stack[stack.length - 1] === ch) {
@@ -523,7 +551,8 @@ export class SubtitleSegmenter {
         && SubtitleSegmenter.QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
         stack.pop();
       }
-      if (SubtitleSegmenter.SENTENCE_BOUNDARY.has(ch) && stack.length === 0 && !SubtitleSegmenter.isNumberDot(cur)) {
+      if (SubtitleSegmenter.SENTENCE_BOUNDARY.has(ch) && stack.length === 0
+        && !(ch === '.' && SubtitleSegmenter.isDecimalPointAt(text, sourceIndex))) {
         out.push(cur);
         cur = '';
       }
@@ -573,7 +602,10 @@ export class SubtitleSegmenter {
     let cur = '';
     const stack: string[] = [];
     let lastHardCut = false; // 最近一次切分是否为无标点硬切
+    let sourceOffset = 0;
     for (const ch of text) {
+      const sourceIndex = sourceOffset;
+      sourceOffset += ch.length;
       cur += ch;
       if (SubtitleSegmenter.isSymmetricQuote(ch)
         && stack.length && stack[stack.length - 1] === ch) {
@@ -585,15 +617,57 @@ export class SubtitleSegmenter {
         stack.pop();
       }
       const isPunct = SubtitleSegmenter.PRIORITY_PUNCT.has(ch) || ch === ' ' || ch === '\n' || ch === '\u3000';
-      // v1.2.3：数字中的小数点（如 713.3）不是切分标点
-      if (isPunct && cur.length >= this.config.minCharsPerBlock
-        && !(ch === '.' && cur.length >= 2 && isDigitChar(cur[cur.length - 2]))) {
+      const phraseAtStart = this.protectedPhraseStartingAt(cur);
+      if (stack.length === 0 && phraseAtStart === cur && cur.length > this.config.maxCharsPerBlock) {
+        // 显式短语是原子单元，允许它单独超过 max；后续字符从新块开始累积。
         blocks.push(cur);
         cur = '';
         lastHardCut = false;
+        continue;
+      }
+      // v1.2.3：数字中的小数点（如 713.3）不是切分标点
+      if (isPunct && cur.length >= this.config.minCharsPerBlock
+        && !(ch === '.' && SubtitleSegmenter.isDecimalPointAt(text, sourceIndex))) {
+        blocks.push(cur);
+        cur = '';
+        lastHardCut = false;
+      } else if (cur.length === this.config.maxCharsPerBlock
+        && stack.length === 0 && cur.endsWith('了')) {
+        // 满块刚好停在“了”时，先兑现已经可见的强语义边界（如“提前”），
+        // 否则等待后续字，避免在尚未看到宾语时提前切分。
+        const deferredPos = this.wordSafeSplit(
+          cur,
+          1,
+          cur.length - 1,
+          this.config.minCharsPerBlock,
+          this.config.minCharsPerBlock,
+        );
+        if (deferredPos > 0
+          && (this.isSemanticLeadAt(cur, deferredPos)
+            || SubtitleSegmenter.WORD_GOOD_LEAD.has(cur[deferredPos]))) {
+          blocks.push(cur.slice(0, deferredPos));
+          cur = cur.slice(deferredPos);
+          lastHardCut = false;
+        } else {
+          continue;
+        }
+      } else if (cur.length >= this.config.maxCharsPerBlock + 1
+        && stack.length === 0
+        && cur[this.config.maxCharsPerBlock - 1] === '了') {
+        // “了”后的边界要等到后续字足够明确；普通宾语继续留在当前块，
+        // 而“了他给……”在看到“给”后才允许从“了”后切开。
+        if (SubtitleSegmenter.isLeBoundaryAllowed(cur, this.config.maxCharsPerBlock)) {
+          blocks.push(cur.slice(0, this.config.maxCharsPerBlock));
+          cur = cur.slice(this.config.maxCharsPerBlock);
+          lastHardCut = false;
+        } else {
+          continue;
+        }
       } else if (cur.length >= this.config.maxCharsPerBlock && stack.length === 0) {
-        let pos = this.applyEnumerationShift(cur, this.findSplitPos(cur), false);
-        pos = this.safeCutPosition(cur, pos);
+        const requestedPos = this.applyEnumerationShift(cur, this.findSplitPos(cur), false);
+        const pos = requestedPos > 0
+          ? this.findSafeCutPosition(cur, requestedPos, 1, Math.min(this.config.maxCharsPerBlock, cur.length - 1))
+          : -1;
         if (pos > 0) {
           blocks.push(cur.slice(0, pos));
           cur = cur.slice(pos);
@@ -607,10 +681,16 @@ export class SubtitleSegmenter {
             this.config.minCharsPerBlock,
             this.config.minCharsPerBlock,
           );
-          const hardPos = this.safeCutPosition(cur, ws > 0 ? ws : cur.length);
-          if (hardPos <= 0) continue;
-          blocks.push(cur.slice(0, hardPos));
-          cur = cur.slice(hardPos);
+          const hardPos = this.findSafeCutPosition(
+            cur,
+            ws > 0 ? ws : Math.min(this.config.maxCharsPerBlock, cur.length - 1),
+            1,
+            Math.min(this.config.maxCharsPerBlock, cur.length - 1),
+          );
+          const forcedPos = hardPos > 0 ? hardPos : -1;
+          if (forcedPos <= 0) continue;
+          blocks.push(cur.slice(0, forcedPos));
+          cur = cur.slice(forcedPos);
           lastHardCut = true;
         }
       } else if (cur.length >= this.config.maxCharsPerBlock * 2 && stack.length > 0) {
@@ -633,14 +713,21 @@ export class SubtitleSegmenter {
         const lo = Math.max(1, prev.length - need);
         const hi = prev.length - 1;
         let pos = this.findSplitPosInRange(prev, lo, hi);
+        pos = pos > 0
+          ? this.findSafeCutPosition(prev, pos, 1, Math.min(lo, prev.length - 1))
+          : -1;
         if (pos <= 0) {
           // v1.2.2 词边界感知让字：区间内无标点时，向 lo 左侧找不劈词的好切点
           // （避免把 "…从文化认|同滑向…" 的 "同" 硬让出劈开 "文化认同"）。
           const ws = this.wordSafeSplit(prev, 1, lo, 1);
-          pos = ws > 0 ? ws : lo;
+          pos = ws > 0
+            ? this.findSafeCutPosition(prev, ws, 1, Math.min(lo, prev.length - 1))
+            : -1;
         }
-        blocks[blocks.length - 1] = prev.slice(0, pos);
-        cur = prev.slice(pos) + cur;
+        if (pos > 0) {
+          blocks[blocks.length - 1] = prev.slice(0, pos);
+          cur = prev.slice(pos) + cur;
+        }
       }
       blocks.push(cur);
     }
@@ -651,7 +738,7 @@ export class SubtitleSegmenter {
   private findSplitPos(text: string): number {
     for (let i = text.length - 1; i >= 0; i--) {
       if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i]) && text[i] !== '、') {
-        if (text[i] === '.' && ((i > 0 && isDigitChar(text[i - 1])) || (i + 1 < text.length && isDigitChar(text[i + 1])))) {
+        if (text[i] === '.' && SubtitleSegmenter.isDecimalPointAt(text, i)) {
           continue; // v1.2.3：数字中的小数点不是切分锚点
         }
         return i + 1;
@@ -784,33 +871,61 @@ export class SubtitleSegmenter {
     const out: string[] = [];
     for (let b of blocks) {
       while (b.length > this.config.maxCharsPerBlock) {
-        let pos = this.applyEnumerationShift(b, this.findSplitPos(b), true);
-        pos = this.safeCutPosition(b, pos);
-        const isWholeProtectedPhrase = [...SubtitleSegmenter.WORD_NO_CUT_PHRASES]
-          .some((phrase) => phrase && phrase === b);
+        const phraseAtStart = this.protectedPhraseStartingAt(b);
+        if (phraseAtStart && phraseAtStart.length > this.config.maxCharsPerBlock) {
+          // 显式保护短语是原子单元，允许它单独超过 max；后续文本继续处理。
+          out.push(phraseAtStart);
+          b = b.slice(phraseAtStart.length);
+          continue;
+        }
+        const requestedPos = this.applyEnumerationShift(b, this.findSplitPos(b), true);
+        let pos = requestedPos > 0
+          ? this.findSafeCutPosition(b, requestedPos, 1, Math.min(this.config.maxCharsPerBlock, b.length - 1))
+          : -1;
+        const isWholeProtectedPhrase = this.isWholeProtectedPhrase(b);
         if (isWholeProtectedPhrase) {
           // 保护短语本身可能比 maxChars 更长；完整短语优先于违反长度上限。
           out.push(b);
           b = '';
           break;
         }
-        if (pos <= 0 || pos >= b.length) pos = this.config.maxCharsPerBlock;
-        // 固定长度兜底后再次检查，避免兜底切点落回受保护短语内部。
-        pos = this.safeCutPosition(b, pos);
-        if (pos <= 0 || pos >= b.length) pos = Math.min(this.config.maxCharsPerBlock, b.length - 1);
+        if (pos <= 0 || pos >= b.length) {
+          const fixedPos = Math.min(this.config.maxCharsPerBlock, b.length - 1);
+          pos = this.findSafeCutPosition(b, fixedPos, 1, fixedPos);
+          if (pos <= 0 || pos >= b.length) {
+            // 当前长度区间没有合法边界时，扩大搜索；仍无边界则整体保留。
+            pos = this.findSafeCutPosition(b, fixedPos, 1, b.length - 1);
+            if (pos <= 0 || pos >= b.length) {
+              out.push(b);
+              b = '';
+              break;
+            }
+          }
+        }
         // 平衡约束：尾块 < minChars 时切分点前移至 len - minChars（区间内优先找标点/词边界）
         if (b.length - pos < this.config.minCharsPerBlock) {
           const minPos = Math.max(1, b.length - this.config.minCharsPerBlock);
-          const hi = b.length - 1;
+          const hi = Math.min(b.length - 1, this.config.maxCharsPerBlock);
+          const boundedMinPos = Math.min(minPos, hi);
           const ws = this.wordSafeSplit(b, minPos, hi, minPos, this.config.minCharsPerBlock);
           if (ws > 0 && ws < b.length) {
-            pos = this.safeCutPosition(b, ws);
+            pos = this.findSafeCutPosition(b, ws, boundedMinPos, hi);
           } else {
             // 越界修复：balanced == len(b)（尾字符恰为标点时 i+1 越界）视为无效
             const balanced = this.findSplitPosInRange(b, minPos, hi);
-            pos = balanced > 0 && balanced < b.length ? balanced : minPos;
-            pos = this.safeCutPosition(b, pos);
+            pos = balanced > 0 && balanced < b.length
+              ? this.findSafeCutPosition(b, balanced, boundedMinPos, hi)
+              : -1;
+            if (pos <= 0 || pos >= b.length) {
+              pos = this.findSafeCutPosition(b, boundedMinPos, boundedMinPos, hi);
+            }
           }
+        }
+        if (pos <= 0 || pos >= b.length) {
+          // 不能为了满足 max 而绕过显式短语、了后宾语或小数边界守卫。
+          out.push(b);
+          b = '';
+          break;
         }
         out.push(b.slice(0, pos));
         b = b.slice(pos);
@@ -824,7 +939,7 @@ export class SubtitleSegmenter {
   private findSplitPosInRange(text: string, lo: number, hi: number): number {
     for (let i = hi; i >= lo; i--) {
       if (SubtitleSegmenter.PRIORITY_PUNCT.has(text[i])) {
-        if (text[i] === '.' && ((i > 0 && isDigitChar(text[i - 1])) || (i + 1 < text.length && isDigitChar(text[i + 1])))) {
+        if (text[i] === '.' && SubtitleSegmenter.isDecimalPointAt(text, i)) {
           continue; // v1.2.3：数字中的小数点不是切分锚点
         }
         return i + 1;
@@ -861,6 +976,20 @@ export class SubtitleSegmenter {
     return null;
   }
 
+  /** 返回文本开头匹配到的最长显式保护短语；普通分词 token 仅作软提示。 */
+  private protectedPhraseStartingAt(text: string): string | null {
+    let best: string | null = null;
+    for (const phrase of SubtitleSegmenter.WORD_NO_CUT_PHRASES) {
+      if (phrase && text.startsWith(phrase) && (!best || phrase.length > best.length)) best = phrase;
+    }
+    return best;
+  }
+
+  private isWholeProtectedPhrase(text: string): boolean {
+    const phrase = this.protectedPhraseStartingAt(text);
+    return phrase !== null && phrase.length === text.length;
+  }
+
   /** 返回文本末尾尚未完整出现的受保护短语前缀，避免流式累积在前缀中间切断。 */
   private protectedPhrasePrefixAtEnd(text: string): { phrase: string; start: number; length: number } | null {
     let best: { phrase: string; start: number; length: number } | null = null;
@@ -888,18 +1017,88 @@ export class SubtitleSegmenter {
     return i;
   }
 
+  /** 判断候选切点是否可用；所有长度兜底都必须经过此守卫。 */
+  private isSafeCutPosition(text: string, i: number): boolean {
+    if (i <= 0 || i >= text.length) return false;
+    if (!isCodePointBoundary(text, i)) return false;
+    if (this.protectedPhraseSpanAtBoundary(text, i)) return false;
+    if (!SubtitleSegmenter.isLeBoundaryAllowed(text, i)) return false;
+    if (this.isDecimalInterior(text, i)) return false;
+    return true;
+  }
+
+  /** 了后的边界保护：默认保护普通宾语，但保留标点/从句引导和显式语义转折。 */
+  private static isLeBoundaryAllowed(text: string, i: number): boolean {
+    if (i <= 0 || text[i - 1] !== '了') return true;
+    if (SubtitleSegmenter.CUT_AFTER_LE_ALLOW.has(text[i])) return true;
+    const nextPair = text.slice(i, i + 2);
+    if (/^[他她它其这那][给在还就要将被从对是有能会想把]/u.test(nextPair)) return true;
+    const before = text.slice(Math.max(0, i - 4), i);
+    return before.endsWith('成了') && !before.endsWith('完成了') && !before.endsWith('做成了');
+  }
+
+  private isDecimalInterior(text: string, i: number): boolean {
+    if (i <= 0 || i >= text.length) return false;
+    const previous = text[i - 1];
+    const current = text[i];
+    if (!((isDigitChar(previous) && isDigitChar(current))
+      || (isDigitChar(previous) && current === '.')
+      || (previous === '.' && isDigitChar(current)))) return false;
+    let start = i;
+    while (start > 0 && (isDigitChar(text[start - 1]) || text[start - 1] === '.')) start -= 1;
+    let end = i;
+    while (end < text.length && (isDigitChar(text[end]) || text[end] === '.')) end += 1;
+    return isDecimalToken(text, start, end);
+  }
+
+  /** 在候选点附近寻找合法边界，优先保持候选方向并限制在当前切分区间。 */
+  private findSafeCutPosition(text: string, preferred: number, lo = 1, hi = text.length - 1): number {
+    const lower = Math.max(1, lo);
+    const upper = Math.min(text.length - 1, hi);
+    if (lower > upper) return -1;
+    const bounded = Math.min(upper, Math.max(lower, preferred));
+    const direct = this.safeCutPosition(text, bounded);
+    if (direct >= lower && direct <= upper && this.isSafeCutPosition(text, direct)) return direct;
+    for (let distance = 1; distance <= upper - lower; distance++) {
+      const right = bounded + distance;
+      const left = bounded - distance;
+      const candidates: number[] = [];
+      if (right <= upper) {
+        const safeRight = this.safeCutPosition(text, right);
+        if (safeRight >= lower && safeRight <= upper && this.isSafeCutPosition(text, safeRight)) candidates.push(safeRight);
+      }
+      if (left >= lower) {
+        const safeLeft = this.safeCutPosition(text, left);
+        if (safeLeft >= lower && safeLeft <= upper && this.isSafeCutPosition(text, safeLeft)) candidates.push(safeLeft);
+      }
+      const soft = candidates.find((candidate) => SubtitleSegmenter.isSoftWordBoundary(text, candidate));
+      if (soft !== undefined) return soft;
+      if (candidates.length) return candidates[0];
+    }
+    return -1;
+  }
+
+  /** 分词器只作为等距候选的软 tie-break，不改变显式短语和字符规则。 */
+  private static isSoftWordBoundary(text: string, i: number): boolean {
+    return segmenterSpans(text).some((span) => span.end === i
+      && span.end - span.start <= (subtitleRules.word_split.oracle_max_token_length ?? 8));
+  }
+
   /** 词边界好切点：切点后为连词/介词（块首引导），或切点前为助词/副词/句内标点（块尾收束）。 */
   private isGoodCut(text: string, i: number): boolean {
-    if (i >= text.length) return false;
+    if (i <= 0 || i >= text.length) return false;
+    if (!SubtitleSegmenter.isLeBoundaryAllowed(text, i)) return false;
     // v1.2.3：切点落在任意长度成词短语内部一律不是好切点。
     if (this.protectedPhraseSpanAtBoundary(text, i)) return false;
+    if (!this.isSafeCutPosition(text, i)) return false;
     if (this.isSemanticLeadAt(text, i)) return true;
     if (SubtitleSegmenter.WORD_GOOD_LEAD.has(text[i])) return true;
     // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
     // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
     return i > 0
       && SubtitleSegmenter.WORD_GOOD_TAIL.has(text[i - 1])
-      && !SubtitleSegmenter.WORD_GOOD_TAIL_BLOCKERS.has(text[i]);
+      && !SubtitleSegmenter.WORD_GOOD_TAIL_BLOCKERS.has(text[i])
+      && this.isSafeCutPosition(text, i);
   }
 
   /**
@@ -940,6 +1139,7 @@ export class SubtitleSegmenter {
       if (i < text.length
         && !SubtitleSegmenter.WORD_BAD_FOLLOWERS.has(text[i])
         && (i === 0 || !isDigitChar(text[i - 1]))
+        && this.isSafeCutPosition(text, i)
         && !this.protectedPhraseSpanAtBoundary(text, i)) {
         return i;
       }

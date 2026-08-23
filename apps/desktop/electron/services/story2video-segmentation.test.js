@@ -15,6 +15,21 @@ const SEMANTIC_PACING_SAMPLE = '其实是跟南宋的老爷们提前谈妥了。
 const WORD_BOUNDARY_SAMPLE = '这种士大夫做大的局面，哪怕朱元璋建立大明也没能彻底翻转。暂时没法彻底打破士绅垄断。只是这里的\"宽\"被那些狼心狗肺的人硬说成是\"宽仁\"。那些人用实际行动展现出结果。居然还写诗怀念前朝。\"字里行间全在抱怨元末的群雄挡了他给蒙元当奴才的路。'
 
 describe('Story2Video 双层分句合同', () => {
+  it.each([
+    ['杀了人', '人'],
+    ['完成了任务', '任务'],
+    ['写了信', '信'],
+  ])('JS mirror 不在了后普通宾语处切分：%s', (text, object) => {
+    const blocks = splitSubtitleBlocks(text + '并继续完成后续说明内容', { minChars: 2, maxChars: 4 })
+    const boundary = text.indexOf('了') + 1
+    let offset = 0
+    for (const block of blocks) {
+      offset += block.length
+      expect(offset).not.toBe(boundary)
+    }
+    expect(blocks.join('')).toContain(object)
+  })
+
   it('字幕只在单个场景内部二次切分，并保持原文顺序（v0.15.2 清理块尾标点）', () => {
     const firstScene = '俄罗斯在欧洲挡着北约东扩，我们也支持。'
     const secondScene = '可这两个兄弟偏偏都各怀鬼胎。'
