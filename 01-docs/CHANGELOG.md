@@ -8,6 +8,14 @@
 ### 测试与门禁
 - Electron 相关 131 passed、TypeScript 133 passed、sidecar Python 151 passed；新增用户样例与极端 `max_chars` 向量；QM-1 win-unpacked、ASAR require 与 8s 启动冒烟通过。
 
+## [Unreleased] - 2026-08-23 (Story2Video 克隆音色生产重试契约)
+
+### 修复
+- Story2Video 初次 TTS 因跨账号克隆音色 `voice_id` 失效时，重克隆统一通过生产 `ModelProviderManager.callAdapter(providerId, 'cloneVoice', params)` 调用，并复用初始 TTS provider；重克隆或重试失败继续 fail-closed，不静默切换官方默认音色。
+
+### 验证
+- 已在真实 Electron profile 上验证克隆失败 → 重克隆 → TTS 重试 → compose 的完整链路；原问题 run `run_1787420188187_9w38` 已恢复并完成。
+
 ## [Unreleased] - 2026-08-21 (流水线启动前台跟踪 + 独立历史页「已中断」对齐)
 
 ### 变更

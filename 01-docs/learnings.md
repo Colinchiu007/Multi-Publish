@@ -1,3 +1,10 @@
+## Story2Video 克隆音色重试的生产 manager 契约复盘（fix-run-voice-clone-production-contract，2026-08-23）
+
+- **现象**：初次 TTS 因跨账号克隆音色 `voice_id` 无权限失败；重克隆在真实 Electron 中继续失败，测试环境却通过。
+- **第一性原因**：`tryReCloneVoice()` 使用 `manager.getAdapter()`，而生产 `ModelProviderManager` 的公开边界是 `callAdapter(providerId, method, params)`；旧测试 double 恰好暴露了不存在的 `getAdapter()`，掩盖了契约错位。
+- **逃逸链**：单测只验证了旧 double 的 clone 结果，没有验证生产 manager 接口形状；集成测试未穿过 `callAdapter` 的 `{ code, data }` 包装；既有 E2E 未覆盖跨账号 clone voice 失效后的真实重克隆。
+- **修复与预防**：重克隆经 `callAdapter` 注入 provider 凭据并解析包装结果，成功后只替换 voice ID、继续使用原始 TTS provider；回归 fixture 模拟生产调用契约，并保留真实 Electron E2E。涉及 manager/adapter 调用时，测试 double 必须与生产公开 API 同形，不能只提供底层 registry 方法。
+
 ## agent 漏跑 quality-rhythm 质量节拍的根因与预防（fix-s2v-delete-silent-error，2026-08-20）
 
 - **现象**：用户报 s2v「删除项目误报『项目未能删除，请稍后再试』」，agent 直接临场排查并改代码，但只加载了 quality-rhythm skill 而**未真正执行 QM-5 Bug 反思循环五步**（缺 git blame 到 commit、逃逸链、系统性漏洞定位）；用户追问「为何没应用质量节拍」后才补跑。
