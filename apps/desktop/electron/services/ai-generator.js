@@ -9,7 +9,7 @@
  *   - 路径 C（故障转移）: useFailover=true 时通过 router.executeWithFailover
  */
 
-const { ProviderError } = require('./adapters/_base/provider-error')
+const { ProviderError, classifyProviderFailure } = require('./adapters/_base/provider-error')
 
 // type → Adapter method 映射
 const TYPE_TO_METHOD = {
@@ -75,7 +75,7 @@ class AIGenerator {
    * @param {object} params - 调用参数
    * @param {function} [onProgress] - 进度回调
    */
-  async generate(type, providerId, params, onProgress) {
+  async generate(type, providerId, params, onProgress, runtimeOptions = {}) {
     if (!this._modelProviderManager || !this._modelProviderManager._ready) {
       throw new Error('Model provider manager not available');
     }
@@ -83,14 +83,14 @@ class AIGenerator {
     const dispatch = () => {
       // P3.5: 故障转移路径（useFailover=true 且 providerId 为 null）
       if (params && params.useFailover && this._router && !providerId) {
-        return this._generateWithFailover(type, params, onProgress);
+        return this._generateWithFailover(type, params, onProgress, runtimeOptions);
       }
       // P3.5: Adapter 直调路径（有 Adapter 工厂注册）
       if (providerId && this._hasAdapter(providerId)) {
-        return this._generateViaAdapter(type, providerId, params, onProgress);
+        return this._generateViaAdapter(type, providerId, params, onProgress, runtimeOptions);
       }
       // Fallback: python-bridge 路径
-      return this._generateViaPythonBridge(type, providerId, params, onProgress);
+      return this._generateViaPythonBridge(type, providerId, params, onProgress, runtimeOptions);
     };
 
     // API 并发/限流/排队/重试网关：覆盖 llm/tts/image/video/audio 全部 provider 调用。
@@ -109,7 +109,7 @@ class AIGenerator {
    *
    * 仅允许 Adapter 直调，避免默认模型在未注册 Adapter 时退回到 Python bridge。
    */
-  async generateWithDefault(type, params, onProgress) {
+  async generateWithDefault(type, params, onProgress, runtimeOptions) {
     const manager = this._modelProviderManager;
     if (!manager || !manager._ready) {
       throw new Error('Model provider manager not available');
@@ -143,7 +143,7 @@ class AIGenerator {
     const generationParams = params && typeof params === 'object'
       ? { ...params, model }
       : { model };
-    const result = await this.generate(type, providerId, generationParams, onProgress);
+    const result = await this.generate(type, providerId, generationParams, onProgress, runtimeOptions);
     if (type === 'llm' && (!result || typeof result.content !== 'string' || !result.content.trim())) {
       throw new Error('Default provider returned empty content');
     }
@@ -156,14 +156,18 @@ class AIGenerator {
   }
 
   /** P3.5: 通过 callAdapter 调用 */
-  async _generateViaAdapter(type, providerId, params, onProgress) {
+  async _generateViaAdapter(type, providerId, params, onProgress, runtimeOptions = {}) {
     const config = this._modelProviderManager.getProviderWithKey(providerId);
     if (!config) throw new Error('Unknown provider: ' + providerId);
 
     const method = TYPE_TO_METHOD[type] || 'chatCompletion';
     this._safeProgress(onProgress, { percent: 0, stage: 'calling adapter: ' + providerId });
 
-    const result = await this._modelProviderManager.callAdapter(providerId, method, params);
+    const providerRunContext = runtimeOptions && runtimeOptions.providerRunContext
+    if (providerRunContext && typeof providerRunContext.assertAvailable === 'function') providerRunContext.assertAvailable(providerId)
+    const result = Object.keys(runtimeOptions || {}).length > 0
+      ? await this._modelProviderManager.callAdapter(providerId, method, params, runtimeOptions)
+      : await this._modelProviderManager.callAdapter(providerId, method, params);
 
     if (result.code !== 0) {
       // ProviderError 透传
@@ -178,7 +182,7 @@ class AIGenerator {
   }
 
   /** P3.5: 通过 router.executeWithFailover 调用 */
-  async _generateWithFailover(type, params, onProgress) {
+  async _generateWithFailover(type, params, onProgress, runtimeOptions = {}) {
     if (!this._router) {
       throw new Error('Router not available for failover');
     }
@@ -187,7 +191,9 @@ class AIGenerator {
     this._safeProgress(onProgress, { percent: 0, stage: 'failover start' });
 
     const result = await this._router.executeWithFailover(type, async (provider) => {
-      const r = await this._modelProviderManager.callAdapter(provider.id, method, params);
+      const r = Object.keys(runtimeOptions || {}).length > 0
+        ? await this._modelProviderManager.callAdapter(provider.id, method, params, runtimeOptions)
+        : await this._modelProviderManager.callAdapter(provider.id, method, params);
       if (r.code !== 0) {
         if (r.error && r.error instanceof ProviderError) throw r.error;
         throw new Error(r.message || 'Adapter call failed');
@@ -200,11 +206,13 @@ class AIGenerator {
   }
 
   /** Fallback: 通过 python-bridge 调用后端 */
-  async _generateViaPythonBridge(type, providerId, params, onProgress) {
+  async _generateViaPythonBridge(type, providerId, params, onProgress, runtimeOptions = {}) {
     if (providerId) {
       const config = this._modelProviderManager.getProviderWithKey(providerId);
       if (!config) throw new Error('Unknown provider: ' + providerId);
     }
+    const providerRunContext = runtimeOptions && runtimeOptions.providerRunContext
+    if (providerRunContext && providerId && typeof providerRunContext.assertAvailable === 'function') providerRunContext.assertAvailable(providerId)
 
     const PythonBridge = this._getPythonBridge();
     if (PythonBridge && PythonBridge.isRunning()) {
@@ -215,6 +223,8 @@ class AIGenerator {
         }, 300000);
       } catch (e) {
         this._safeProgress(onProgress, { percent: 0, stage: 'error: ' + e.message });
+        const providerRunContext = runtimeOptions && runtimeOptions.providerRunContext
+        if (providerRunContext && typeof providerRunContext.openIfQuota === 'function' && classifyProviderFailure(e) === 'quota') providerRunContext.open(providerId, e)
         throw e;
       }
     }

@@ -48,7 +48,10 @@ class ServiceBus {
    */
   async optimizePrompt (prompt, options) {
     // traceId 是控制字段：提取后透传给 Bridge，绝不混入发送给 Python 的业务 payload
-    const { traceId, ...rest } = options || {}
+    const { traceId, providerRunContext, ...rest } = options || {}
+    if (providerRunContext) {
+      return this.promptBridge.optimize({ prompt, ...rest }, traceId, { providerRunContext })
+    }
     return this.promptBridge.optimize({ prompt, ...rest }, traceId)
   }
 
@@ -60,8 +63,11 @@ class ServiceBus {
    */
   async optimizePromptsBatch (prompts, options) {
     // traceId 是控制字段：提取后透传给 Bridge，绝不混入每个 request 项
-    const { traceId, ...rest } = options || {}
+    const { traceId, providerRunContext, ...rest } = options || {}
     const requests = prompts.map(p => ({ prompt: p, ...rest }))
+    if (providerRunContext) {
+      return this.promptBridge.optimizeBatch(requests, traceId, { providerRunContext })
+    }
     return this.promptBridge.optimizeBatch(requests, traceId)
   }
 

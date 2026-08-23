@@ -1,0 +1,13 @@
+{
+  "id": "minimax-provider-circuit-breaker",
+  "title": "Provider 级额度熔断 + 音色重克隆去重",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "electron",
+  "currentPhase": "review",
+  "nextAction": "修复 ServiceBus 旧调用兼容性并等待 CI 重跑",
+  "createdAt": "2026-08-23T04:30:00Z",
+  "branch": "codex/minimax-provider-circuit-breaker",
+  "remoteStatus": "pr_open_ci_failed_compatibility_fix_pending"
+}

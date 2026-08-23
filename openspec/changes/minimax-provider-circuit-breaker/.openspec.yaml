@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-08-23
+goal: Stop queued image, TTS, LLM, audio, and video provider calls for the
+  remainder of a pipeline run after a quota or token plan failure; retry one
+  stale voice_id clone once per run per provider and voice key
