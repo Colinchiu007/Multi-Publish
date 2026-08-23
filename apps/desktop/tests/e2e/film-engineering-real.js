@@ -123,7 +123,7 @@ async function run () {
   try {
     app = await _electron.launch({
       executablePath: EXE,
-      args: ['--no-sandbox', '--disable-gpu'],
+      args: ['--no-sandbox', '--disable-gpu', '--lang=zh-CN'],
       cwd: DESKTOP,
       env: {
         ...process.env,
@@ -188,7 +188,7 @@ async function run () {
     check('点击分镜打开详情抽屉', Boolean(detailLoaded))
     if (detailLoaded) {
       check('详情包含提示词正文', (await detail.locator('.fe-prompt-text').textContent() || '').trim().length > 0)
-      const drawerCopy = detail.locator('.fe-detail-copies .el-button').first()
+      const drawerCopy = detail.locator('[data-testid="fe-detail-copy"]')
       await drawerCopy.click()
       await waitForToast(page, /提示词已复制|复制失败/, 10000)
       await assertNoValidationMessage(page, '分镜详情复制')
@@ -196,10 +196,10 @@ async function run () {
     }
 
     await shots.first().locator('.fe-shot-check').click()
-    const batchCopy = page.getByRole('button', { name: /批量复制/ })
-    const exportJson = page.getByRole('button', { name: /导出 JSON/ })
-    const exportMarkdown = page.getByRole('button', { name: /导出 Markdown/ })
-    const generate = page.locator('.fe-shots').getByRole('button', { name: /生成图片/ })
+    const batchCopy = page.locator('[data-testid="fe-copy-selected"]')
+    const exportJson = page.locator('[data-testid="fe-export-json"]')
+    const exportMarkdown = page.locator('[data-testid="fe-export-markdown"]')
+    const generate = page.locator('[data-testid="fe-generate"]')
     check('勾选分镜后批量工具栏可用', !(await batchCopy.isDisabled()) && !(await exportJson.isDisabled()) && !(await exportMarkdown.isDisabled()))
 
     await batchCopy.click()

@@ -22,3 +22,9 @@
 ### 结论
 
 无 Critical 未处理项。推送 PR 后以真实 windows-latest 运行结果为最终验收；合并前必须看到 Build & Release Windows job 的 E2E 步骤通过并上传 `film-engineering-real-e2e` artifact。
+
+### CI 实测（第一次）
+
+- windows-latest 可启动打包 EXE：Electron 进程、主窗口、电影工程入口、film-kit、162 场景、分镜列表、详情抽屉均通过。
+- 失败点：runner 默认英文界面，脚本按中文“批量复制”等文案定位导致 30s 超时。
+- 处置：E2E 增加 `--lang=zh-CN`，并在分镜工具栏/详情抽屉按钮补充稳定 `data-testid`，已提交等待重跑。
