@@ -3279,6 +3279,49 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 
 总 PRD「视频创作流水线启动即后台运行 §3a」与 OpenSpec s2v-pipeline-always-background 中「启动成功后 renderer 立即停止轮询、恢复初始态、仅历史观察」的条款废弃；「离开页面转后台、重进初始态、并发占槽、检查点例外」维持。以本节为准。
 
+### 3.1.36 影视工程提交数据不符合要求与真实 E2E 修复（2026-08-23）
+
+> 范围：修复电影工程分镜复制、导出、剧本套用和生成入口的“提交的数据不符合要求。请检查输入后重试。”，并补齐详情抽屉与 IPC 参数序列化问题。
+> 分支：codex/film-engineering-submit-validation，PR #1125。
+
+#### 1) 现象
+
+- 进入电影工程后，复制分镜/批量复制/JSON/Markdown 导出/剧本套用/生成等提交操作显示“提交的数据不符合要求。请检查输入后重试。”
+- 点击分镜卡不会打开详情抽屉，用户无法查看提示词正文。
+- 导出与批量生成在 renderer 控制台报 “An object could not be cloned”，refTokens 带 Vue reactive proxy 无法经 IPC 序列化。
+
+#### 2) 根因
+
+1. `withKit(fn)` 原实现为 `fn(...args)`，但主进程 handler 统一遵循 `(_e, ...params)`：Electron event 占位被当作第一个业务参数，`sceneId/shotId/selectedShots` 全部左移为 undefined，入参校验失败返回 VALIDATION_ERROR，前端渲染为通用提示。
+2. FilmEngineeringView 点击分镜时只调用 `openShot(shotId)`，未设置详情抽屉 `detailOpen = true`。
+3. useFilmEngineering 的 `selectedShotsPayload()` 直接透传 Vue 响应式数组，嵌套 `refTokens` 是 reactive proxy，IPC 参数无法克隆。
+
+#### 3) 修复与数据合同
+
+- `withKit` 改为 `fn(event, ...args)`，handler 继续使用 `(_e, ...params)` 签名，业务参数不再左移。
+- 前端新增 `onOpenShot`：先 `detailOpen.value = true` 再 `openShot(shotId)`。
+- `selectedShotsPayload()` 改为 `JSON.parse(JSON.stringify(list))` 脱壳，保证 renderer 提交到 IPC 的参数是纯 JSON。
+- 校验上限不变：剧本 10000、角色映射 10 键、数组批量 50、生成批量 20、prompt 50000。
+
+#### 4) 回归保护
+
+- 单元/组件：film-engineering.test.js 补充 withKit event 转发参数用例；useFilmEngineering.test.js 补充 selectedShotsPayload 脱壳用例。
+- 真实打包 Electron E2E：新增 apps/desktop/tests/e2e/film-engineering-real.js，命令 `pnpm --filter @multi-publish/desktop test:e2e:film-engineering`，驱动 `dist-electron/win-unpacked/Multi-Publish.exe` 完成 24 项检查。
+- E2E 覆盖：打包启动、入口路由、Hell Grind kit、162 个场景、分镜列表、详情抽屉、单镜/批量复制、JSON/Markdown 导出、剧本套用、方法论、生成入口真实调用。
+- 验证结果：24/24 PASS；film-engineering 页面 pageErrors 为空；生成入口真实产出 `img_0000.png`。
+
+#### 5) 影响范围与未覆盖边界
+
+- 修改文件：electron/ipc-handlers/film-engineering.js、src/composables/useFilmEngineering.js、src/views/FilmEngineeringView.vue、对应测试/apps/desktop/package.json。
+- 生成入口在未配置外部图片 Provider 时走离线 ffmpeg 占位图 fallback；真实外部 Provider 验收不属于本次修复范围。
+- 真实 E2E 脚本为显式运行门禁，未接入默认 `pnpm test:e2e`（该门禁依赖 Vite + mock desktop 环境，不打包 EXE）。
+
+#### 6) 验收标准
+
+- 分镜复制、批量复制、JSON/Markdown 导出、剧本套用、生成入口不再出现“提交的数据不符合要求”。
+- 点击分镜卡可打开详情抽屉并显示提示词正文。
+- 打包 Electron 应用运行 `test:e2e:film-engineering` 达到 24/24 PASS。
+
 
 
 
