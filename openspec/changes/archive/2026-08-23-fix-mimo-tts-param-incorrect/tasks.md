@@ -13,4 +13,4 @@
 - [x] 3.1 运行 `node --check`、`git diff --check`、`node scripts/verify-worktree-deps.js` 和变更文件 lint。
 - [x] 3.2 执行 Electron 目录构建、ASAR require 链和打包启动冒烟，确认无配置、插件或 ASAR 路径错误（`build:vue`、`electron-builder --win --dir --publish never`、ASAR require、8 秒启动均通过）。
 - [x] 3.3 完成本地/双模型审查记录 QM-5 逃逸链，并在无法调用外部 wrapper 时记录降级原因（见 `review.md`）。
-- [x] 3.4 创建 PR #1140（`https://github.com/Colinchiu007/Multi-Publish/pull/1140`，head `7a1ee8340`），当前 CI 检查进行中；合并后核验 `origin/main` 并归档 OpenSpec change 与 CCG task。
+- [x] 3.4 创建并合并 PR #1140（`https://github.com/Colinchiu007/Multi-Publish/pull/1140`；head `50539f97d`；merge `40f32a88b7a2e20cf1b5bb32538a039351162a76`），所有 required checks 通过，`origin/main` 已核验包含 merge SHA；运行中的旧实例需重启后加载修复。
