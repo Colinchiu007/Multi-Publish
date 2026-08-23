@@ -202,6 +202,36 @@ describe('MimoTtsAdapter — 小米 MiMo TTS Adapter', () => {
       expect(body.audio.voice).toBe('female')
     })
 
+    it('未传 voice 时使用 MiMo 官方内置默认音色', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({
+          choices: [{ message: { audio: { data: 'x' } } }],
+        }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      await adapter.synthesize({ text: 'Hi' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.audio.voice).toBe('mimo_default')
+    })
+
+    it('voice 为空字符串时使用 MiMo 官方内置默认音色', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({
+          choices: [{ message: { audio: { data: 'x' } } }],
+        }),
+      ])
+      global.fetch = fetchMock
+
+      const adapter = new MimoTtsAdapter({ id: 'mimo-tts', apiKey: 'mimo-test' })
+      await adapter.synthesize({ text: 'Hi', voice: '' })
+
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.audio.voice).toBe('mimo_default')
+    })
+
     it('outputFormat 映射到 audio.format（默认 wav）', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({

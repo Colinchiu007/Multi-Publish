@@ -1,3 +1,10 @@
+## MiMo TTS 服务商默认音色必须遵循官方 Voice ID（fix-mimo-tts-param-incorrect，2026-08-23）
+
+- **现象**：`run_1787475502069_9888` 的 Story2Video 流水线在 `generate_assets` 语音生成阶段失败，日志为 MiMo `Param Incorrect`；设置使用 `mimo-v2.5-tts` 且未选择具体音色。
+- **第一性原因**：`mimo-tts.js` 初始适配器把空音色归一为 `audio.voice=default`，但 MiMo v2.5 普通 TTS 官方预置音色是 `mimo_default`。
+- **逃逸链**：适配器单测只覆盖显式音色，没有覆盖省略/空字符串的最终序列化请求体；集成/E2E 没有真实 MiMo 参数合同断言；审查没有把默认值和官方文档逐项对照。
+- **修复与预防**：默认值改为 `mimo_default`，新增未传/空字符串请求体回归；以后新增或修改 provider adapter，必须保留官方文档证据，并用最终 `JSON.stringify` 后的请求体覆盖省略值、空值、显式值。Voice Design/Voice Clone 等不同模型必须单独核对模型合同，不得用普通 TTS 默认值推断。
+
 ## Story2Video 克隆音色重试的生产 manager 契约复盘（fix-run-voice-clone-production-contract，2026-08-23）
 ## Provider 运行级熔断与克隆音色恢复去重复盘（minimax-provider-circuit-breaker，2026-08-23）
 
