@@ -1,0 +1,70 @@
+[codeagent-wrapper]
+  Backend: claude
+  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -
+  PID: 28296
+  Log: D:\Temp\codeagent-wrapper-28296.log
+  Web UI: http://localhost:56933
+  Session-ID: 42b76be5-6da6-4c0e-ab62-194659743f99
+# Review: fix-s2v-prompt-translation-wrappers
+
+**Verdict: ✅ Approve with non-blocking warnings** — the fix is correct for its primary scenarios, tests pass, and there is no regression path where old-parse-succeeds-but-new-fails. Two warnings below are robustness/coverage gaps in the exact wrapper class the fix targets, not defects in what was implemented.
+
+## 验证摘要
+- 运行 `vitest run electron/services/story2video-stages.test.js -t "translatePromptsForLocale"`：**10 passed / 124 skipped**，3 条新测试全部通过。
+- 独立探针复刻 `extractFirstJsonObject` 验证 16 个边界用例（字符串转义 `\"`/`\\`/`\\\"`/`\u0022`、嵌套对象、数组内对象、字符串值内含 `{}`、无花括号、非字符串、带花括号 prose）：全部通过。
+- 回归分析：旧代码 `JSON.parse(raw)` 只在整个 raw 恰为合法 JSON 时成功；此时 `raw` 即首个平衡对象（`jsonCandidate === raw`），新代码结果完全一致 → **无旧成功新失败的回归**。新代码成功集是旧代码的超集。
+
+---
+
+## Warning 🟡
+
+### W1. 「首个 `{` 独占」：包装文本含花括号时，真实 JSON 永远不被解析
+**[story2video-stages.js:109, 126, 176]**
+
+- **What**: `extractFirstJsonObject` 锁定文本中**第一个** `{`（`indexOf('{')`），从它开始平衡扫描，返回第一个平衡段（或 null），从不前进到后续 `{`。
+- **Why**: 这恰好是被修复的包装场景的残余漏洞。当 LLM 在真正的 JSON 之前输出含花括号的前导文字时：
+  - **未闭合 prose 花括号**：`注意 {没有闭合 {"0":"real"}` → 扫描到文本末 depth 未归零 → 返回 `null` → 真实 JSON 被跳过，静默落入逐行回退（probe 实测：`expect null`）。
+  - **可解析的示例对象**：LLM 回显 system prompt 中的示例 `例如 {"0":"译文一"} 请返回 {"0":"真实"}` → 首个平衡段 `{"0":"译文一"}` **JSON.parse 成功** → 错误地把 `译文一` 当译文锁定（probe 实测：返回 `{"0":"译文一"}`）。这是「干净但错误」的失败，比旧的整段垃圾更难发现。
+- **Fix**: 改为遍历每个 `{` 出现位置，逐个候选尝试（或返回候选数组，由调用方依次 JSON.parse）；优先接受首个**可解析**的平衡对象：
+
+  ```js
+  function extractFirstJsonObject (text) {
+    if (typeof text !== 'string') return null
+    for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
+      // 从 start 做现有平衡扫描...
+      // on depth===0: const cand = text.slice(start, i+1)
+      //   try { JSON.parse(cand) 成功则 return cand } catch { 继续下一个 { }
+    }
+    return null
+  }
+  ```
+  注意把 JSON.parse 移入函数会改变签名语义（当前职责是纯提取、parse 交给调用方）；更小侵入的替代是把「首个平衡段未 parse 成功则继续找下一个」放进调用方。LLM 输出受 `max_tokens` 约束，退化为 O(n²) 也可接受，但应保证每个 `{` 的扫描短路。
+
+### W2. 测试覆盖缺口：字符串转义 / 嵌套路径零直接测试，首花括号边界未锁
+**[story2video-stages.test.js:3044–3063]**
+
+- **Why**: 新函数核心复杂度在字符串转义（`\"`/`\\`/`\\\"`）与嵌套/数组内对象，但三条新测试的 JSON 值都是纯中文无花括号、无引号转义，**这些路径在仓库内零测试**；`extractFirstJsonObject` 未导出，只能经 `translatePromptsForLocale` 间接到达，未来重构可能静默破坏。W1 的两个失败场景（prose 含未闭合/可解析花括号）也无测试锁定。
+- **Fix**: 至少补两条回归：
+  1. `例如 {"0":"示例"} 请返回 {"0":"真实"}` → 期望取 `真实`（若采纳 W1 修复）；
+  2. 字符串值含花括号/转义引号：`{"0":"译文 {备注} \"引号\""}` → 期望 `译文 {备注} "引号"`。
+  可选：为便于直接单测，导出 `extractFirstJsonObject`（`module.exports` 或 `exports.extractFirstJsonObject`）。
+
+---
+
+## Info 🟢
+
+- **[story2video-stages.test.js:3051]** 测试名 「HTML 未闭合标签包裹」但 fixture `<thinking>let me translate</thinking>{...}` 实为**闭合** `</thinking>`。功能上闭合/未闭合标签走同一条扫描路径（忽略第一个 `{` 前所有字符），但命名高估了覆盖，建议改名（如「带前导思考文本的 HTML 标签包裹」）。
+- **[story2video-stages.js:168–171]** 现有 markdown fence 剥离对新 JSON 路径部分冗余（扫描本就兼容围栏），但**勿删除**——逐行回退路径仍依赖它过滤 ```` ```json ```` 行。
+- **集成契约**：`translatePromptsForLocale` 是 `raw → jsonCandidate → JSON.parse → 失败回退逐行` 的唯一消费者；`createPromptTranslationPending` / `applyPromptTranslationsToScenes` / `mergePromptTranslationItems` 链不受影响。默认取首个重复对象（`{"0":"old"}{"0":"new"}`）行为较旧的整段 parse 失败有改善，可接受。
+- **复用机会**：`prompt-engine-contract.js` 的 `extractOptimizedPrompt` 与 `video-prompt-engine-contract.js` 的 `extractOptimizedVideoPrompt` 同样解析 LLM 输出，若观察到同类 HTML/说明文字包裹失败，可考虑复用此扫描器（本次改动范围外，仅记录）。
+
+---
+
+## Summary
+
+核心正确性达标：字符串转义、嵌套对象、无花括号回退三项边界经实测全部正确；三条回归测试覆盖了「闭合 HTML、前导思考文本、前后 marker 文字」三类主要包装并全部通过；失败降级路径（JSON.parse 失败 → 逐行回退）行为保持不变。无 Critical 问题。
+
+最值得跟进的改进是 **W1 的「首 `{` 独占」**——它是本轮修复所针对的包装场景在极端情形下的唯一残余漏洞，且失败模式可能是「干净但错误的译文」而非显眼垃圾。若确认实际 LLM 输出不会在 JSON 前出现含花括号的文字，可降级为后续优化；否则建议按 W1 的 Fix 方案迭代。
+
+---
+SESSION_ID: 42b76be5-6da6-4c0e-ab62-194659743f99

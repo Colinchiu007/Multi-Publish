@@ -1,3 +1,10 @@
+## Story2Video 克隆音色重试的生产 manager 契约复盘（fix-run-voice-clone-production-contract，2026-08-23）
+
+- **现象**：初次 TTS 因跨账号克隆音色 `voice_id` 无权限失败；重克隆在真实 Electron 中继续失败，测试环境却通过。
+- **第一性原因**：`tryReCloneVoice()` 使用 `manager.getAdapter()`，而生产 `ModelProviderManager` 的公开边界是 `callAdapter(providerId, method, params)`；旧测试 double 恰好暴露了不存在的 `getAdapter()`，掩盖了契约错位。
+- **逃逸链**：单测只验证了旧 double 的 clone 结果，没有验证生产 manager 接口形状；集成测试未穿过 `callAdapter` 的 `{ code, data }` 包装；既有 E2E 未覆盖跨账号 clone voice 失效后的真实重克隆。
+- **修复与预防**：重克隆经 `callAdapter` 注入 provider 凭据并解析包装结果，成功后只替换 voice ID、继续使用原始 TTS provider；回归 fixture 模拟生产调用契约，并保留真实 Electron E2E。涉及 manager/adapter 调用时，测试 double 必须与生产公开 API 同形，不能只提供底层 registry 方法。
+
 ## agent 漏跑 quality-rhythm 质量节拍的根因与预防（fix-s2v-delete-silent-error，2026-08-20）
 
 - **现象**：用户报 s2v「删除项目误报『项目未能删除，请稍后再试』」，agent 直接临场排查并改代码，但只加载了 quality-rhythm skill 而**未真正执行 QM-5 Bug 反思循环五步**（缺 git blame 到 commit、逃逸链、系统性漏洞定位）；用户追问「为何没应用质量节拍」后才补跑。
@@ -13855,3 +13862,29 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 **修复**：生成按钮覆盖 image1/image2 与 video1/video2 全部视觉卡（保持场景级动作，写入目标由选中态/身份规则决定，video2 仍是视觉别名）；`hasUsableVideoPrompt` 改为 `videoPrompt || prompt || text` 任一 trim 非空，与后端契约一致（模板 disabled 与方法入口 guard 同时放宽，避免可点但静默 return）。
 
 **预防**：场景级生成动作可以在多个视觉卡重复暴露多入口，但禁止为视觉别名新增持久化身份；renderer 的“能否生成”门控必须与后端提示词回退契约逐字一致并加跨层断言；测试禁止用 `toHaveLength(2)`/“无按钮”固化错误行为，用 data-testid 定位。已沉淀至 `.ccg/spec/frontend/index.md` §8。
+
+## Story2Video 字幕常用词边界与未闭合引号保真（subtitle-word-boundary-fix，2026-08-22）
+
+- **现象**：用户整段文案分句后出现 `哪|怕`、`没|法`、`那|些`、`展|现` 等常用词被硬切；`前朝。"字里行间…` 这类未闭合半角引号会让后续句号失效，正文被吞。
+- **根因**：`no_cut_bigrams` 只覆盖此前用户反馈词；引号清理只发生在句界切分之后，孤立开引号会让 `_split_sentences` 的引号栈永不闭合，后续正文与句号一起被吞。
+- **修复**：常用词加入共享 `subtitle-rules.json`；三端在句界扫描前先做 `stripUnpairedQuotes`，只移除无法配对的引号字符并保留正文；`protectedPhrasePrefixAtEnd` 增加“文本已完整结束于保护短语时不再把末尾单字误判为另一短语前缀”的守卫，修复 `江南` 被 `南宋灭亡时` 误伤成 `江|南`。
+- **逃逸链**：单元测试覆盖了旧保护词但未覆盖“未闭合引号 + 多句 + 完整长文”组合；共享向量没有带上用户整段文案；Python/TS 向量测试各自独立，缺少同一输入的三端逐字对比。
+- **回归保护**：新增 `user_common_words_and_unpaired_quote`、`user_full_ming_scholar_script` 共享向量，三端共用；Electron 141、TS 166、Python 169 全部通过；QM-1 打包与 ASAR 抽取真实 require 通过。
+- **预防**：以后新增常用词/引号规则必须同步三端规则表与共享向量；长文本测试不能只验词不验引号，句界预处理必须晚于引号配对检查、早于 `splitSentences`；向 `no_cut_bigrams` 加入以单字开头的新短语时，必须回归“该单字出现在其他完整保护短语末尾”的极端配置。
+### 已经/依然 语义引导切分（subtitle-adverb-lead-cut，2026-08-23）
+
+长文 A/B 回归：仅加入 `已→经`、`依→然` 两个语义引导词，221 块中只有 48/49、152/153 变化，分别是“底层农民的实际负担｜依然重得吓人”与“这举动说明老朱的态度｜已经变软了”，其余 217 块不变；现有共享向量全部通过。规则落在 `word_split.semantic_lead` + `semantic_lead_followers`，短尾通过 `short_block_exceptions` 声明。
+
+## Story2Video 提示词优化中文翻译被包装文本污染复盘（fix-s2v-prompt-translation-wrappers，2026-08-23）
+
+- **现象**：结果页“中文翻译”没有生成正确译文，偶发显示 `<response>`、`<thinking>`、marker、前后说明文字，或整段 JSON/协议噪声。
+- **第一性原因**：`f7899b20b5` 首次引入 `translatePromptsForLocale` 时直接对 LLM `content` 执行 `JSON.parse(raw)`；`16b2db8427` 只补了 Markdown fence 剥离。推理模型和 provider wrapper 会返回 HTML/思考块/协议 marker/说明文字包裹 JSON，解析失败后旧逐行回退把包装文本当成译文写入 `segment.promptTranslation`。
+- **修复**：先遍历每个 `{` 起点，用平衡扫描处理嵌套对象、字符串内花括号和反斜杠转义；跳过未闭合或不可解析候选，取最后一个可解析对象，再按现有 index 映射。无合法对象时保留逐行 fail-open，避免阻塞流水线。
+- **逃逸链**：单测只覆盖裸 JSON/Markdown fence，未覆盖真实 provider 包装、转义、嵌套和示例回显；集成/E2E 未断言真实 LLM 响应形状到最终翻译字段；视觉审查只看页面可见性，不验证翻译语义；首轮外部审查发现“首个花括号独占”残余风险，复审前已修复。
+- **回归保护**：`apps/desktop/electron/services/story2video-stages.test.js` 新增 HTML 闭合、thinking/前导文本、marker、转义引号、未闭合前导花括号和示例回显 6 例；定向翻译 13 passed，文件套件 137 passed。
+- **预防**：所有结构化 LLM 消费点按真实响应形态建立 fixture；解析候选、结构校验和用户字段脱噪必须分开断言；任何原文/逐行回退必须证明不会把协议包装写入用户可见字段。相同模式适用于 `prompt-engine-contract.js` 与 `video-prompt-engine-contract.js` 的优化结果解析。
+
+## Windows Claude wrapper 启动环境诊断（2026-08-23）
+
+- **结论**：交互式终端的 `claude` 可用；偶发的 `codeagent-wrapper` 子进程找不到 `claude` 属于 PATH/启动环境差异，不是 Claude CLI 不可用。
+- **处理**：先在可用终端用 `Get-Command claude`/实际安装目录定位 CLI，再把 CLI 所在目录和正确 Git Bash 路径注入 wrapper 子进程环境；重新运行固定 diff 的只读审查。审查结果必须区分“CLI 可用性”“wrapper 启动成功”和“审查发现已解决”三件事。

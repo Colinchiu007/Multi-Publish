@@ -3322,6 +3322,46 @@ describe('translatePromptsForLocale', () => {
     const items = await translatePromptsForLocale(ai, [], 'zh', console)
     expect(items).toEqual([])
   })
+
+  it('HTML 闭合标签包裹的 JSON 也能正确解析', async () => {
+    const ai = makeAiGenerator('<response>{"0":"一个红苹果","1":"一片蓝天"}</response>')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('一个红苹果')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('带前导 HTML 标签/思考文本的 JSON 也能正确解析', async () => {
+    const ai = makeAiGenerator('<thinking>let me translate</thinking>{"0":"一个红苹果","1":"一片蓝天"}')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('一个红苹果')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('marker 协议包裹（前后说明文字）的 JSON 也能正确解析', async () => {
+    const ai = makeAiGenerator('以下是译文：\n{"0":"一个红苹果","1":"一片蓝天"}\n完毕')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('一个红苹果')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('JSON 值含花括号与转义引号时仍正确解析', async () => {
+    const ai = makeAiGenerator('{"0":"译文 {备注} \\"引号\\"","1":"一片蓝天"}')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('译文 {备注} "引号"')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('说明文字含未闭合花括号时不干扰真实 JSON', async () => {
+    const ai = makeAiGenerator('注意 {没有闭合 {"0":"真实译文"}')
+    const items = await translatePromptsForLocale(ai, ['A red apple'], 'zh', console)
+    expect(items[0].translation).toBe('真实译文')
+  })
+
+  it('LLM 回显示例后返回真实 JSON 时取最终对象', async () => {
+    const ai = makeAiGenerator('例如 {"0":"示例译文"} 请返回 {"0":"真实译文"}')
+    const items = await translatePromptsForLocale(ai, ['A red apple'], 'zh', console)
+    expect(items[0].translation).toBe('真实译文')
+  })
 })
 
 describe('提示词翻译与 compose 并行契约', () => {

@@ -5,9 +5,7 @@ Story2Video 文案生成字幕的坏切修复（2026-08-15 用户反馈：`扶�
 `复杂`→`复/杂`、`空白一片`→`空/白一片`、`卵生、日影受孕` 7 字孤悬）。调查证实坏切为算法缺陷而非
 版本漂移（本地==远程 `6cefc0c`）。本 spec 固化三端（sidecar Python / MP TS 镜像 / MP JS 镜像）
 逐字一致的字幕分句 v1.2 语义，并修复 stage-executor 字幕参数透传。
-
 ## Requirements
-
 ### Requirement: 词边界感知切分（无标点切分不劈词）
 无标点硬切（Step 3）与平衡切分（Step 6）的切分锚点 SHALL 优先选择不劈词的位置：好切点
 （块首为连词/介词 `good_lead`，或块尾为助词/副词/句内标点 `good_tail`）从后往前找（排除孤悬 ≤3 字短尾），
@@ -103,3 +101,86 @@ sidecar Python、MP TS 镜像、MP JS 镜像 SHALL 对同一文本同一配置�
 #### Scenario: 用户 6 段坏例命中目标
 - **WHEN** 8002 服务运行（sidecar 代码 ≥ v0.16.0/词边界修复 + v1.2.1 枚举守卫）且执行该 E2E 用例
 - **THEN** 6 段文本的字幕块序列分别命中共享向量 `expected_blocks`，逐字相等
+
+### Requirement: 本地字幕切分保护短语边界
+
+本地字幕切分器 SHALL 将共享规则表中的 no_cut_bigrams 项视为不可切开的短语；该字段中的项目可以是任意长度，而不只限于两个字符。字幕切点不得落在任一匹配短语的内部。
+
+#### Scenario: 用户样例的受保护短语不被拆开
+- **WHEN** 本地切分器处理包含“蒙古”“江南”“包税人”“大汗”的用户样例文案
+- **THEN** 任意相邻字幕块边界都不得落在这四个短语内部，且字幕块拼接后保留原文中的全部非块尾标点字符
+
+#### Scenario: 受保护短语长度超过最长字幕块
+- **WHEN** 配置的 max_chars_per_block 小于某个共享保护短语的长度
+- **THEN** 该短语 SHALL 仍作为完整字幕块输出，不得为满足长度上限而在短语内部切分
+#### Scenario: 三端共享规则保持一致
+- **WHEN** TypeScript、Electron JS 镜像和 smart-sentence-splitter Python 端加载同一规则表
+- **THEN** 三端 SHALL 对同一输入使用相同的短语边界保护语义
+
+### Requirement: 在线字幕结果必须通过内容与边界质量门
+
+在线字幕结果 SHALL 只有在按原文顺序连续覆盖场景文本，且所有相邻字幕块边界均不落在共享保护短语内部时，才可标记为 smart-sentence-splitter 并直接采用。
+
+#### Scenario: 在线结果包含坏词边界
+- **WHEN** 在线结果的字幕块覆盖率足够但在“江|南”或其他受保护短语内部切分
+- **THEN** 该场景 SHALL 回退到本地字幕切分，subtitleSource SHALL 为 local-typescript，并记录可追溯的回退原因
+
+#### Scenario: 在线结果内容错序或重复
+- **WHEN** 在线字幕拼接长度达到覆盖率阈值但不能按顺序连续匹配场景原文
+- **THEN** 该场景 SHALL 回退到本地字幕切分，不得以 smart-sentence-splitter 标记不连续结果
+
+#### Scenario: 在线结果合法
+- **WHEN** 在线字幕按顺序完整覆盖场景文本且所有边界安全
+- **THEN** 系统 SHALL 原样采用在线字幕，并保持 subtitleSource 为 smart-sentence-splitter
+
+### Requirement: 场景文本与现有来源合同保持兼容
+
+字幕质量修复 SHALL 只替换不合格场景的 subtitleBlocks，不得修改服务返回的场景 text；现有 subtitleSource 枚举值 SHALL 保持兼容。
+
+#### Scenario: 单场景回退不改变场景文本
+- **WHEN** 某个在线场景因字幕质量门失败而回退
+- **THEN** 场景 text SHALL 与服务结果中的规范化文本一致，且其他合格场景仍可继续使用在线字幕
+
+### Requirement: 语义引导字优先形成字幕边界
+
+字幕切分器 SHALL 将共享规则表中的 `semantic_lead` 及其后续约束视为语义边界候选。后块以语义引导字开头时，候选排序 SHALL 优先保留该边界，并且 `mergeShort` 与硬切后的尾块平衡 SHALL 不得将该后块重新合并或从该边界回吸字符。
+
+#### Scenario: 动作短语不被回吸
+- **WHEN** 文本包含“其实是跟南宋的老爷们提前谈妥了”“之前蒙哥非要死磕，还搞屠城”或“他们甚至嚣张到把大量蒙古人都卖去当奴隶”
+- **THEN** 字幕 SHALL 分别保留“其实是跟南宋的老爷们｜提前谈妥了”“之前蒙哥非要死磕｜还搞屠城”和“他们甚至嚣张到｜把大量蒙古人都卖去当奴隶”的语义边界
+
+#### Scenario: 判断短语不劈词
+- **WHEN** 文本包含“汉族地主阶级最爽的日子绝对是元朝”
+- **THEN** 字幕 SHALL 输出“汉族地主阶级最爽的日子｜绝对是元朝”，且不得在“绝对”内部切分
+
+#### Scenario: 三端结果一致
+- **WHEN** TypeScript、Electron JS 镜像和 smart-sentence-splitter Python 端使用相同 min/max 配置处理同一文本
+- **THEN** 三端 SHALL 输出逐块相同的字幕文本，并保持原文字符顺序和完整覆盖
+
+### Requirement: 常用双字词不得被字幕边界拆开
+
+字幕切分器 SHALL 将共享规则表中的 `no_cut_bigrams` 词组视为不可切开的短语。对于“哪怕”“没法”“那些”“展现”等用户反馈词，任意切点 SHALL 不得落在词组内部，且 TypeScript、Electron JS 与 Python 端 SHALL 使用同一规则源。
+
+#### Scenario: 用户反馈词保持完整
+- **WHEN** 以 `min_chars=8`、`max_chars=15` 处理包含“哪怕朱元璋”“暂时没法彻底”“只是这里的那些”或“实际行动展现出”的文本
+- **THEN** 输出 SHALL 不包含“哪｜怕”“没｜法”“那｜些”或“展｜现”的边界，且拼接后保留原文字符顺序
+
+### Requirement: 未闭合引号不得吞掉后续正文
+
+字幕清理遇到未闭合或多余引号时 SHALL 只处理无法配对的引号字符，正文内容 SHALL 保持可见并参与后续长度切分；句界处理 SHALL 不因单个未闭合半角引号永久屏蔽后续句号。
+
+#### Scenario: 未闭合半角引号后的正文保留
+- **WHEN** 文本包含 `前朝。"字里行间全在抱怨元末群雄。` 且没有对应闭引号
+- **THEN** 字幕 SHALL 保留“字里行间全在抱怨元末群雄”的正文，不得输出空块或丢弃后续文本；未配对引号可被规范化移除
+
+#### Scenario: 对称半角引号仍正常闭合
+- **WHEN** 文本包含 `他说"元以宽失天下"。`
+- **THEN** 成对引号内容 SHALL 保持为一个可见片段，后续句号 SHALL 正常形成句界
+
+### Requirement: 三端共享回归
+
+同一输入和字幕配置经 TypeScript、Electron JS 与 smart-sentence-splitter Python 端处理时 SHALL 输出逐块一致，且共享向量 SHALL 锁定新增边界与引号场景。
+
+#### Scenario: 完整用户文案回归
+- **WHEN** 三端处理用户提供的明代士绅文案
+- **THEN** 结果 SHALL 逐块一致，保护词不跨块，正文拼接覆盖原文（忽略块尾句读和被规范化移除的未配对引号）

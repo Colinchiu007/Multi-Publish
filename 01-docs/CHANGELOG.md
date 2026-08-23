@@ -1,3 +1,21 @@
+## [Unreleased] - 2026-08-22 (字幕保护短语与在线结果质量门)
+
+### 变更
+- 字幕 `no_cut_bigrams` 支持任意长度保护短语并追加「蒙古/江南/包税人/大汗」，TypeScript、Electron JS 镜像与 smart-sentence-splitter Python 三端同步；流式累积在短语前缀中间不再硬切，超长 `max_chars` 配置下保护短语完整优先。
+- 在线字幕归一化新增顺序连续覆盖与短语边界质量门：覆盖率足够但内容错序、重复、遗漏或切开保护短语时，该场景整体回退本地字幕并记录 `fallbackReason`，合格在线结果继续采用 `smart-sentence-splitter`。
+- 语义停顿规则补充 `semantic_lead`（受约束的「提前/还/把/绝对」引导），并将「摇身一变｜成了」「日子｜绝对是元朝」等动作/判断边界优先于普通尾部收束，避免完整短语被短块合并重新吸回。
+
+### 测试与门禁
+- Electron 相关 131 passed、TypeScript 133 passed、sidecar Python 151 passed；新增用户样例与极端 `max_chars` 向量；QM-1 win-unpacked、ASAR require 与 8s 启动冒烟通过。
+
+## [Unreleased] - 2026-08-23 (Story2Video 克隆音色生产重试契约)
+
+### 修复
+- Story2Video 初次 TTS 因跨账号克隆音色 `voice_id` 失效时，重克隆统一通过生产 `ModelProviderManager.callAdapter(providerId, 'cloneVoice', params)` 调用，并复用初始 TTS provider；重克隆或重试失败继续 fail-closed，不静默切换官方默认音色。
+
+### 验证
+- 已在真实 Electron profile 上验证克隆失败 → 重克隆 → TTS 重试 → compose 的完整链路；原问题 run `run_1787420188187_9w38` 已恢复并完成。
+
 ## [Unreleased] - 2026-08-21 (流水线启动前台跟踪 + 独立历史页「已中断」对齐)
 
 ### 变更

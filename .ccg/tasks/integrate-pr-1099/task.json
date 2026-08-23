@@ -1,0 +1,16 @@
+{
+  "id": "integrate-pr-1099",
+  "title": "同步 PR 1099 到最新主线并使音色重克隆修复长期生效",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "implementation",
+  "nextAction": "完成合并提交，运行门禁与定向回归后推送 PR 分支",
+  "createdAt": "2026-08-23T00:00:00Z",
+  "branch": "codex/fix-run-voice-clone-001",
+  "projectId": "run_1787420188187_9w38",
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1099",
+  "sourceFix": "PR 1099 existing commits; no business logic rewrite",
+  "remoteStatus": "pr_open_conflicting"
+}

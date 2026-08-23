@@ -25,14 +25,88 @@ const ENUM_PREDICATE_STARTERS = new Set(subtitleRules.enum.predicate_starters)
 const LEFT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[0]))
 const RIGHT_QUOTES = new Set(subtitleRules.quote_pairs.map((q) => q[1]))
 const QUOTE_MAP = new Map(subtitleRules.quote_pairs)
+function isSymmetricQuote (char) {
+  return LEFT_QUOTES.has(char) && RIGHT_QUOTES.has(char) && QUOTE_MAP.get(char) === char
+}
+
+const SYMMETRIC_QUOTE_INTRODUCERS = ['感慨', '写道', '说道', '说', '表示', '称', '指出', '告诉', '问', '回答', '引用', '诗句', '如下', '是']
+
+function isLikelySymmetricOpening (text, index) {
+  if (index <= 0) return true
+  const previous = text[index - 1]
+  if ('：:，,；;（([{【「『\n '.includes(previous)) return true
+  const prefix = text.slice(Math.max(0, index - 6), index)
+  return SYMMETRIC_QUOTE_INTRODUCERS.some((word) => prefix.endsWith(word))
+}
+
+function isLikelySymmetricClosing (text, index) {
+  if (index >= text.length - 1) return true
+  if (isLikelySymmetricOpening(text, index)) return false
+  const next = text[index + 1]
+  return '。！？；.!?;，,、:：）)]】」』\n '.includes(next)
+}
+
+function hasUsableQuoteClose (text, start, quote) {
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === quote) {
+      if (!isSymmetricQuote(quote) || isLikelySymmetricClosing(text, i)) return true
+      // 另一个对称引号更像新的开引号，当前开引号应视为孤立。
+      return false
+    }
+    if (SENTENCE_BOUNDARY.has(text[i])) return false
+  }
+  return false
+}
+
+/** 删除未配对引号，但保留引号后的正文；用于句界扫描前的输入归一化。 */
+function stripUnpairedQuotes (text) {
+  const drop = new Array(text.length).fill(false)
+  const stack = []
+  const symmetricOpeners = new Set(subtitleRules.quote_pairs.filter(([left, right]) => left === right).map(([left]) => left))
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (symmetricOpeners.has(ch)) {
+      const top = stack[stack.length - 1]
+      if (top && top.q === ch && !isLikelySymmetricOpening(text, i)) stack.pop()
+      else if (top && top.q === ch) {
+        drop[top.index] = true
+        stack.pop()
+        stack.push({ q: ch, index: i })
+      }
+      else stack.push({ q: ch, index: i })
+    } else if (LEFT_QUOTES.has(ch)) {
+      stack.push({ q: ch, index: i })
+    } else if (RIGHT_QUOTES.has(ch)) {
+      if (stack.length && QUOTE_MAP.get(stack[stack.length - 1].q) === ch) {
+        stack.pop()
+      } else {
+        drop[i] = true
+      }
+    }
+    if (SENTENCE_BOUNDARY.has(ch)) {
+      while (stack.length) {
+        const top = stack[stack.length - 1]
+        const close = QUOTE_MAP.get(top.q)
+        if (close && hasUsableQuoteClose(text, i + 1, close)) break
+        drop[top.index] = true
+        stack.pop()
+      }
+    }
+  }
+  for (const entry of stack) drop[entry.index] = true
+  return Array.from(text).filter((_, i) => !drop[i]).join('')
+}
 // Step 3/6 词边界感知切分（v1.2）：无标点硬切/平衡切分时优先在不劈词的位置切分。
 const WORD_GOOD_LEAD = new Set(subtitleRules.word_split.good_lead)
+const WORD_SEMANTIC_LEAD = new Set(subtitleRules.word_split.semantic_lead || '')
+const WORD_SEMANTIC_LEAD_FOLLOWERS = subtitleRules.word_split.semantic_lead_followers || {}
 const WORD_GOOD_TAIL = new Set(subtitleRules.word_split.good_tail)
 const WORD_BAD_FOLLOWERS = new Set(subtitleRules.word_split.bad_followers)
 // v1.2.2：good_tail 路径的块首排除集（仅纯黏着后缀，如 "个|性" 的 性）。
 const WORD_GOOD_TAIL_BLOCKERS = new Set(subtitleRules.word_split.good_tail_blockers || '')
-// v1.2.3：成词保护（no_cut_bigrams）——切点两侧构成这些双字词时禁止切开（如 "能|够"、"就|是"）。
-const WORD_NO_CUT_BIGRAMS = new Set(subtitleRules.word_split.no_cut_bigrams || [])
+// v1.2.3：成词保护（兼容字段名 no_cut_bigrams）——项目可以是任意长度短语，
+// 切点不得落在任一短语内部（如 "蒙古"、"江南"、"包税人"）。
+const WORD_NO_CUT_PHRASES = new Set(subtitleRules.word_split.no_cut_bigrams || [])
 
 // ==================== 默认配置（与 text-segmentation.ts DEFAULT_CONFIG 一致） ====================
 
@@ -328,7 +402,9 @@ function subtitleSplitSentences (text, _config) {
   const stack = []
   for (const ch of text) {
     cur += ch
-    if (LEFT_QUOTES.has(ch)) {
+    if (isSymmetricQuote(ch) && stack.length && stack[stack.length - 1] === ch) {
+      stack.pop()
+    } else if (LEFT_QUOTES.has(ch)) {
       stack.push(ch)
     } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
       stack.pop()
@@ -348,7 +424,15 @@ function subtitleSplitQuoteBoundaries (text, config) {
   let cur = ''
   const stack = []
   for (const ch of text) {
-    if (LEFT_QUOTES.has(ch)) {
+    if (isSymmetricQuote(ch) && stack.length && stack[stack.length - 1].q === ch) {
+      const top = stack.pop()
+      const contentLen = cur.length - top.start - 1
+      cur += ch
+      if (stack.length === 0 && contentLen >= config.minCharsPerBlock) {
+        fragments.push(cur)
+        cur = ''
+      }
+    } else if (LEFT_QUOTES.has(ch)) {
       stack.push({ q: ch, start: cur.length })
       cur += ch
     } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1].q) === ch) {
@@ -433,15 +517,70 @@ function cleanLen (text) {
   return s.length
 }
 
+/** 返回切点所在的受保护短语跨度；切点恰在短语两端时安全。 */
+function protectedPhraseSpanAtBoundary (text, i) {
+  if (i <= 0 || i >= text.length) return null
+  for (const phrase of WORD_NO_CUT_PHRASES) {
+    if (!phrase || phrase.length < 2) continue
+    let start = text.indexOf(phrase)
+    while (start >= 0) {
+      const end = start + phrase.length
+      if (start < i && i < end) return { phrase, start, end }
+      if (start >= i) break
+      start = text.indexOf(phrase, start + 1)
+    }
+  }
+  return null
+}
+
+/** 返回文本末尾尚未完整出现的受保护短语前缀，避免流式累积在前缀中间切断。 */
+function protectedPhrasePrefixAtEnd (text) {
+  let best = null
+  let completeLength = 0
+  for (const phrase of WORD_NO_CUT_PHRASES) {
+    if (!phrase || phrase.length < 2) continue
+    if (text.endsWith(phrase) && phrase.length > completeLength) completeLength = phrase.length
+    for (let prefixLength = 1; prefixLength < phrase.length; prefixLength++) {
+      if (text.endsWith(phrase.slice(0, prefixLength))
+        && (!best || prefixLength > best.length)) {
+        best = { phrase, start: text.length - prefixLength, length: prefixLength }
+      }
+    }
+  }
+  if (best && completeLength >= best.length) return null
+  return best
+}
+
+function findProtectedPhraseAtBoundary (text, i) {
+  return protectedPhraseSpanAtBoundary(text, i)?.phrase || ''
+}
+
+/** 将候选切点移到受保护短语外，保证字幕块边界不落在短语内部。 */
+function safeCutPosition (text, i) {
+  const span = protectedPhraseSpanAtBoundary(text, i)
+  if (span) return span.start > 0 ? span.start : span.end
+  const prefix = protectedPhrasePrefixAtEnd(text)
+  if (prefix && i >= prefix.start) return prefix.start > 0 ? prefix.start : 0
+  return i
+}
+
 /** 词边界好切点：切点后为连词/介词（块首引导），或切点前为助词/副词/句内标点（块尾收束）。 */
 function isGoodCut (text, i) {
   if (i >= text.length) return false
-  // v1.2.3：切点落在成词内（如 "能|够"、"就|是"、"因|为"）一律不是好切点。
-  if (i > 0 && WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1))) return false
+  // v1.2.3：切点落在任意长度成词短语内部一律不是好切点。
+  if (protectedPhraseSpanAtBoundary(text, i)) return false
+  if (isSemanticLeadAt(text, i)) return true
   if (WORD_GOOD_LEAD.has(text[i])) return true
   // v1.2.2：块尾收束路径额外要求切点后首字符非强黏着后缀（good_tail_blockers），
   // 避免 "…保持个|性独立" 类劈词（"个" 入 good_tail 后 "个性" 被拆）。
   return i > 0 && WORD_GOOD_TAIL.has(text[i - 1]) && !WORD_GOOD_TAIL_BLOCKERS.has(text[i])
+}
+
+/** 语义引导字必须满足自身的词组后续约束（如“提”只在“提前”中生效）。 */
+function isSemanticLeadAt (text, i) {
+  if (i < 0 || i >= text.length || !WORD_SEMANTIC_LEAD.has(text[i])) return false
+  const allowedFollowers = WORD_SEMANTIC_LEAD_FOLLOWERS[text[i]]
+  return allowedFollowers === undefined || Array.from(allowedFollowers).includes(text[i + 1] || '')
 }
 
 /**
@@ -454,12 +593,22 @@ function wordSafeSplit (text, lo, hi, minHead, tailMin) {
   if (minHead === undefined || minHead === null) minHead = 1
   if (tailMin === undefined || tailMin === null) tailMin = 0
   let fallback = -1
+  let tailFallback = -1
   for (let i = hi; i >= lo; i--) {
     const tail = text.length - i
     if (!(i >= minHead || (tailMin > 0 && i >= minHead - 2 && tail >= tailMin))) continue
     if (!isGoodCut(text, i)) continue
-    if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || WORD_GOOD_LEAD.has(text[i]))) {
-      return i
+    const isSemanticLead = isSemanticLeadAt(text, i)
+    // 语义引导允许短一字（如“他们甚至嚣张到｜把…”），但不再放宽到 min-2，
+    // 避免在“成了”前形成 6 字头块。
+    if (isSemanticLead && i < Math.max(1, minHead - 1)) continue
+    // “成了”是谓语起点，但不接受欠长头块；否则“硬生生让蒙元｜成了…”会只剩 6 字。
+    if (text[i] === '成' && i < minHead) continue
+    if (tail > 3 && (tailMin === 0 || tail >= tailMin || tail >= 5 || WORD_GOOD_LEAD.has(text[i]) || isSemanticLead)) {
+      if (isSemanticLead) return i
+      if (WORD_GOOD_LEAD.has(text[i])) return i
+      if (tailFallback < 0) tailFallback = i
+      continue
     }
     // v1.2.3 孤悬尾防护（仅 tail==4 且块首非连词/介词）："着|脖" 劈 "脖子" → 前移找 tail 达标点
     if (fallback < 0 && tail === 4 && !WORD_GOOD_LEAD.has(text[i])
@@ -467,12 +616,13 @@ function wordSafeSplit (text, lo, hi, minHead, tailMin) {
       fallback = i
     }
   }
+  if (tailFallback >= 0) return tailFallback
   if (fallback >= 0) return fallback
   for (let i = Math.max(lo, minHead); i <= hi; i++) {
     if (i < text.length
       && !WORD_BAD_FOLLOWERS.has(text[i])
       && (i === 0 || !isDigitChar(text[i - 1]))
-      && (i === 0 || !WORD_NO_CUT_BIGRAMS.has(text.slice(i - 1, i + 1)))) {
+      && !protectedPhraseSpanAtBoundary(text, i)) {
       return i
     }
   }
@@ -487,7 +637,9 @@ function subtitleLengthSplit (text, config) {
   let lastHardCut = false
   for (const ch of text) {
     cur += ch
-    if (LEFT_QUOTES.has(ch)) {
+    if (isSymmetricQuote(ch) && stack.length && stack[stack.length - 1] === ch) {
+      stack.pop()
+    } else if (LEFT_QUOTES.has(ch)) {
       stack.push(ch)
     } else if (RIGHT_QUOTES.has(ch) && stack.length && QUOTE_MAP.get(stack[stack.length - 1]) === ch) {
       stack.pop()
@@ -500,7 +652,8 @@ function subtitleLengthSplit (text, config) {
       cur = ''
       lastHardCut = false
     } else if (cur.length >= config.maxCharsPerBlock && stack.length === 0) {
-      const pos = applyEnumerationShift(cur, findSplitPos(cur), false, config)
+      let pos = applyEnumerationShift(cur, findSplitPos(cur), false, config)
+      pos = safeCutPosition(cur, pos)
       if (pos > 0) {
         blocks.push(cur.slice(0, pos))
         cur = cur.slice(pos)
@@ -514,7 +667,8 @@ function subtitleLengthSplit (text, config) {
           config.minCharsPerBlock,
           config.minCharsPerBlock,
         )
-        const hardPos = ws > 0 ? ws : cur.length
+        const hardPos = safeCutPosition(cur, ws > 0 ? ws : cur.length)
+        if (hardPos <= 0) continue
         blocks.push(cur.slice(0, hardPos))
         cur = cur.slice(hardPos)
         lastHardCut = true
@@ -528,7 +682,8 @@ function subtitleLengthSplit (text, config) {
   }
   if (cur) {
     const tailClean = cur.trim().replace(/[。！？；，、.!?;…]+$/, '')
-    if (lastHardCut && blocks.length > 0 && tailClean.length > 3
+    const startsSemanticLead = isSemanticLeadAt(cur.trim(), 0)
+    if (lastHardCut && !startsSemanticLead && blocks.length > 0 && tailClean.length > 3
       && tailClean.length < config.minCharsPerBlock
       && blocks[blocks.length - 1].length >= config.minCharsPerBlock) {
       const prev = blocks[blocks.length - 1]
@@ -564,10 +719,11 @@ function subtitleMergeShort (blocks, config) {
     const isSentenceEnd = stripped.length > 0
       && SENTENCE_BOUNDARY.has(stripped[stripped.length - 1])
       && bCleanLen > 3
+    const startsSemanticLead = isSemanticLeadAt(stripped, 0)
     const mergedLen = prevCleanLen + bCleanLen
     if (isSentenceEnd) {
       merged.push(b)
-    } else if ((prevCleanLen < config.minCharsPerBlock || isPunctTail || isShortTail
+    } else if (!startsSemanticLead && (prevCleanLen < config.minCharsPerBlock || isPunctTail || isShortTail
       || bCleanLen < config.minCharsPerBlock) && mergedLen <= config.maxCharsPerBlock) {
       merged[merged.length - 1] = merged[merged.length - 1] + b
     } else {
@@ -583,7 +739,9 @@ function dropUnpairedQuotes (text) {
   const stack = []
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
-    if (LEFT_QUOTES.has(ch)) {
+    if (isSymmetricQuote(ch) && stack.length && text[stack[stack.length - 1]] === ch) {
+      stack.pop()
+    } else if (LEFT_QUOTES.has(ch)) {
       stack.push(i)
     } else if (RIGHT_QUOTES.has(ch)) {
       if (stack.length && QUOTE_MAP.get(text[stack[stack.length - 1]]) === ch) {
@@ -634,18 +792,31 @@ function subtitleEnforceMax (blocks, config) {
   const out = []
   for (let b of blocks) {
     while (b.length > config.maxCharsPerBlock) {
-      let pos = applyEnumerationShift(b, findSplitPos(b), true, config)
+      let requestedPos = applyEnumerationShift(b, findSplitPos(b), true, config)
+      let pos = safeCutPosition(b, requestedPos)
+      const isWholeProtectedPhrase = [...WORD_NO_CUT_PHRASES]
+        .some((phrase) => phrase && phrase === b)
+      if (isWholeProtectedPhrase) {
+        // 保护短语本身可能比 maxChars 更长；完整短语优先于违反长度上限。
+        out.push(b)
+        b = ''
+        break
+      }
       if (pos <= 0 || pos >= b.length) pos = config.maxCharsPerBlock
+      // 固定长度兜底后再次检查，避免兜底切点落回受保护短语内部。
+      pos = safeCutPosition(b, pos)
+      if (pos <= 0 || pos >= b.length) pos = Math.min(config.maxCharsPerBlock, b.length - 1)
       if (b.length - pos < config.minCharsPerBlock) {
         const minPos = Math.max(1, b.length - config.minCharsPerBlock)
         const hi = b.length - 1
         const ws = wordSafeSplit(b, minPos, hi, minPos, config.minCharsPerBlock)
         if (ws > 0 && ws < b.length) {
-          pos = ws
+          pos = safeCutPosition(b, ws)
         } else {
           // 越界修复：balanced == len(b)（尾字符恰为标点时 i+1 越界）视为无效
           const balanced = findSplitPosInRange(b, minPos, hi)
           pos = balanced > 0 && balanced < b.length ? balanced : minPos
+          pos = safeCutPosition(b, pos)
         }
       }
       out.push(b.slice(0, pos))
@@ -659,7 +830,8 @@ function subtitleEnforceMax (blocks, config) {
 /** Step 1-6 主流程：分句 → 引号 → 长度 → 合并 → 标点 → 强制（强制后再清理一次） */
 function subtitleSplitToBlocks (text, config) {
   const all = []
-  for (const sentence of subtitleSplitSentences(text, config)) {
+  const sanitizedText = stripUnpairedQuotes(text)
+  for (const sentence of subtitleSplitSentences(sanitizedText, config)) {
     for (const fragment of subtitleSplitQuoteBoundaries(sentence, config)) {
       let blocks = subtitleLengthSplit(fragment, config)
       blocks = subtitleMergeShort(blocks, config)
@@ -693,6 +865,7 @@ function splitTextToSubtitles (text, options = {}) {
 module.exports = {
   DEFAULT_CONFIG,
   calculateTargetWords,
+  findProtectedPhraseAtBoundary,
   normalizeSegmentationOptions,
   splitScenesLocally,
   splitTextToScenes,
