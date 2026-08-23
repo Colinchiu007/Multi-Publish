@@ -16,7 +16,10 @@ const { _electron } = require('playwright')
 
 const DESKTOP = path.resolve(__dirname, '..', '..')
 const EXE = process.env.FILM_E2E_EXE || path.join(DESKTOP, 'dist-electron', 'win-unpacked', 'Multi-Publish.exe')
-const OUTPUT_DIR = process.env.FILM_E2E_OUTPUT || path.join(os.tmpdir(), 'multi-publish-film-engineering-e2e-' + Date.now())
+const REPO_ROOT = path.resolve(DESKTOP, '..', '..')
+const OUTPUT_DIR = process.env.FILM_E2E_OUTPUT
+  ? path.resolve(REPO_ROOT, process.env.FILM_E2E_OUTPUT)
+  : path.join(os.tmpdir(), 'multi-publish-film-engineering-e2e-' + Date.now())
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const report = {
@@ -196,7 +199,7 @@ async function run () {
     const batchCopy = page.getByRole('button', { name: /批量复制/ })
     const exportJson = page.getByRole('button', { name: /导出 JSON/ })
     const exportMarkdown = page.getByRole('button', { name: /导出 Markdown/ })
-    const generate = page.getByRole('button', { name: /生成图片/ })
+    const generate = page.locator('.fe-shots').getByRole('button', { name: /生成图片/ })
     check('勾选分镜后批量工具栏可用', !(await batchCopy.isDisabled()) && !(await exportJson.isDisabled()) && !(await exportMarkdown.isDisabled()))
 
     await batchCopy.click()
@@ -229,7 +232,7 @@ async function run () {
 
     const libraryTab = page.locator('.fe-tabs .el-tabs__item').filter({ hasText: '分镜库' })
     await libraryTab.click()
-    await page.getByRole('button', { name: /生成图片/ }).click()
+    await generate.click()
     const generateMessage = await waitForToast(page, /已提交|生成完成|Provider|配置|不可用|生成失败|提交的数据不符合要求/, 15000)
     const expectedProviderBlock = /Provider|配置|不可用|API|模型服务商/i.test(generateMessage)
     const generationSucceeded = /已提交|生成完成/.test(generateMessage)
