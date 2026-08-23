@@ -16,7 +16,10 @@ const { _electron } = require('playwright')
 
 const DESKTOP = path.resolve(__dirname, '..', '..')
 const EXE = process.env.FILM_E2E_EXE || path.join(DESKTOP, 'dist-electron', 'win-unpacked', 'Multi-Publish.exe')
-const OUTPUT_DIR = process.env.FILM_E2E_OUTPUT || path.join(os.tmpdir(), 'multi-publish-film-engineering-e2e-' + Date.now())
+const REPO_ROOT = path.resolve(DESKTOP, '..', '..')
+const OUTPUT_DIR = process.env.FILM_E2E_OUTPUT
+  ? path.resolve(REPO_ROOT, process.env.FILM_E2E_OUTPUT)
+  : path.join(os.tmpdir(), 'multi-publish-film-engineering-e2e-' + Date.now())
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const report = {
@@ -120,7 +123,7 @@ async function run () {
   try {
     app = await _electron.launch({
       executablePath: EXE,
-      args: ['--no-sandbox', '--disable-gpu'],
+      args: ['--no-sandbox', '--disable-gpu', '--lang=zh-CN'],
       cwd: DESKTOP,
       env: {
         ...process.env,
@@ -185,7 +188,7 @@ async function run () {
     check('点击分镜打开详情抽屉', Boolean(detailLoaded))
     if (detailLoaded) {
       check('详情包含提示词正文', (await detail.locator('.fe-prompt-text').textContent() || '').trim().length > 0)
-      const drawerCopy = detail.locator('.fe-detail-copies .el-button').first()
+      const drawerCopy = detail.locator('[data-testid="fe-detail-copy"]')
       await drawerCopy.click()
       await waitForToast(page, /提示词已复制|复制失败/, 10000)
       await assertNoValidationMessage(page, '分镜详情复制')
@@ -193,10 +196,10 @@ async function run () {
     }
 
     await shots.first().locator('.fe-shot-check').click()
-    const batchCopy = page.getByRole('button', { name: /批量复制/ })
-    const exportJson = page.getByRole('button', { name: /导出 JSON/ })
-    const exportMarkdown = page.getByRole('button', { name: /导出 Markdown/ })
-    const generate = page.getByRole('button', { name: /生成图片/ })
+    const batchCopy = page.locator('[data-testid="fe-copy-selected"]')
+    const exportJson = page.locator('[data-testid="fe-export-json"]')
+    const exportMarkdown = page.locator('[data-testid="fe-export-markdown"]')
+    const generate = page.locator('[data-testid="fe-generate"]')
     check('勾选分镜后批量工具栏可用', !(await batchCopy.isDisabled()) && !(await exportJson.isDisabled()) && !(await exportMarkdown.isDisabled()))
 
     await batchCopy.click()
@@ -229,7 +232,7 @@ async function run () {
 
     const libraryTab = page.locator('.fe-tabs .el-tabs__item').filter({ hasText: '分镜库' })
     await libraryTab.click()
-    await page.getByRole('button', { name: /生成图片/ }).click()
+    await generate.click()
     const generateMessage = await waitForToast(page, /已提交|生成完成|Provider|配置|不可用|生成失败|提交的数据不符合要求/, 15000)
     const expectedProviderBlock = /Provider|配置|不可用|API|模型服务商/i.test(generateMessage)
     const generationSucceeded = /已提交|生成完成/.test(generateMessage)

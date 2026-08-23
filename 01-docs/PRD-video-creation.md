@@ -3309,12 +3309,13 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 - 真实打包 Electron E2E：新增 apps/desktop/tests/e2e/film-engineering-real.js，命令 `pnpm --filter @multi-publish/desktop test:e2e:film-engineering`，驱动 `dist-electron/win-unpacked/Multi-Publish.exe` 完成 24 项检查。
 - E2E 覆盖：打包启动、入口路由、Hell Grind kit、162 个场景、分镜列表、详情抽屉、单镜/批量复制、JSON/Markdown 导出、剧本套用、方法论、生成入口真实调用。
 - 验证结果：24/24 PASS；film-engineering 页面 pageErrors 为空；生成入口真实产出 `img_0000.png`。
+- CI 门禁：PR #1130 将该真实 E2E 接入 Build & Release Windows job，打包后自动运行并上传报告。
 
 #### 5) 影响范围与未覆盖边界
 
 - 修改文件：electron/ipc-handlers/film-engineering.js、src/composables/useFilmEngineering.js、src/views/FilmEngineeringView.vue、对应测试/apps/desktop/package.json。
 - 生成入口在未配置外部图片 Provider 时走离线 ffmpeg 占位图 fallback；真实外部 Provider 验收不属于本次修复范围。
-- 真实 E2E 脚本为显式运行门禁，未接入默认 `pnpm test:e2e`（该门禁依赖 Vite + mock desktop 环境，不打包 EXE）。
+- 2026-08-23 起，真实 E2E 接入 Build & Release Windows job：打包出 `dist-electron/win-unpacked/Multi-Publish.exe` 后自动运行 `test:e2e:film-engineering` 并上传报告；默认 `pnpm test:e2e` 仍运行 Vite + mock desktop 环境，不打包 EXE。
 
 #### 6) 验收标准
 

@@ -41,6 +41,7 @@ jobs:
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -119,6 +120,22 @@ jobs:
           name: Multi-Publish-Windows
           path: apps/desktop/dist-electron/Multi-Publish*.exe
           retention-days: 30
+
+      # 打包产物真实 E2E：覆盖电影工程入口/场景/分镜/详情/复制/导出/套用/方法论/生成
+      - name: Run film engineering real E2E
+        if: runner.os == 'Windows'
+        run: pnpm --filter @multi-publish/desktop test:e2e:film-engineering
+        env:
+          FILM_E2E_OUTPUT: apps/desktop/tests/e2e/reports/film-engineering-real
+
+      - name: Upload film engineering E2E report
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: film-engineering-real-e2e
+          path: apps/desktop/tests/e2e/reports/film-engineering-real/**
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Build Electron app (Linux)
         if: runner.os == 'Linux'
