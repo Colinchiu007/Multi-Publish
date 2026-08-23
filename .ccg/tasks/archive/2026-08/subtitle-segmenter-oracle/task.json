@@ -6,9 +6,9 @@
   "risk": "medium",
   "domain": "backend",
   "currentPhase": "completed",
-  "nextAction": "代码、测试、打包与审查完成；无 PR，remoteStatus=not_started",
+  "nextAction": "Multi-Publish PR #1123 已合并；Python sidecar PR #24 CI 全绿但因缺少非作者批准仍为 OPEN/BLOCKED，需合格协作者审核后合并",
   "createdAt": "2026-08-23T00:00:00+08:00",
   "branch": "codex/subtitle-segmenter-oracle",
   "openspecChange": "subtitle-segmenter-oracle",
-  "remoteStatus": "not_started"
+  "remoteStatus": "Multi-Publish PR #1123 merged as 8216f84ac9250c5b8c8fbdc838e9fcdc7cf011ee; smart-sentence-splitter PR #24 OPEN/BLOCKED/REVIEW_REQUIRED, CI green, waiting for non-author approval: https://github.com/Colinchiu007/smart-sentence-splitter/pull/24"
 }
