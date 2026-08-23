@@ -1,0 +1,24 @@
+{
+  "id": "integrate-pr-1099",
+  "title": "同步 PR 1099 到最新主线并使音色重克隆修复长期生效",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-23T00:00:00Z",
+  "branch": "codex/fix-run-voice-clone-001",
+  "projectId": "run_1787420188187_9w38",
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1099",
+  "sourceFix": "PR 1099 existing commits; no business logic rewrite",
+  "remoteStatus": "pr_merged",
+  "mergedAt": "2026-08-23T00:18:01Z",
+  "mergeCommit": "a964c545d1a91ef7b17d24b43521c0b58420eb23",
+  "ciStatus": "all_green",
+  "localValidation": {
+    "targetedVitest": "4 files, 264 passed",
+    "openspecSyncCheck": "failed: pre-existing repository-wide task/change consistency violations; no violation references integrate-pr-1099",
+    "gitDiffCheck": "passed"
+  }
+}
