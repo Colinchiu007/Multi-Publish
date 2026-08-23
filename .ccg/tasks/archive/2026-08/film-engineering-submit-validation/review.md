@@ -54,4 +54,4 @@
 - 临时 profile 未配置外部图片 Provider，生成入口走的是 `ffmpeg-placeholder` 真实 fallback，未验证第三方图片模型真实出图。
 - 电影工程 E2E 是 opt-in 脚本，未纳入 CI 自动运行。
 - 本机 Windows 计划任务 `Session Isolation Write Guard` 已注册但未运行；`pre-code-edit-guard.ps1` 与共享主目录 clean 检查通过，本任务未在共享根写运行时文件。
-- 当前尚未创建/合并 PR，remoteStatus 待提交后记录。
+- PR 已创建：https://github.com/Colinchiu007/Multi-Publish/pull/1125，remoteStatus=open，待合并后远程同步。
