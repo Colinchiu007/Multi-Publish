@@ -27,3 +27,9 @@
 - 定向 Vitest：283 passed（UiModal + StageProgress + CreateView）。
 - 浏览器交互验证：桌面 1440x900 与窄屏 390x844，遮罩/Escape 不关闭、右上关闭/后台按钮恢复新建态并显示指定提示、人工检查点关闭 disabled、action bar z 100/110 可点击、弹窗标题实际渲染“故事讲述 进度”。
 - 未发现未修复的 Critical / Major。
+
+## CI 契约回归（第二轮）
+
+- 首轮 PR 检查在 `src/views/story2video-ue-contract.test.js:47` 失败：旧断言要求 CreateView 模板含 `!isOrchestratedPipeline(selectedPipeline?.name) && pipelineRunStatus && pipelineRunStatus.progress`；修复非编排双进度条后新增 `pipelineProgressStages.length === 0`，源文本契约未同步。
+- 修复：断言同步为 `!isOrchestratedPipeline(selectedPipeline?.name) && pipelineProgressStages.length === 0 && ...`；本地含该契约文件跑 4 文件、288 tests passed。
+- 教训：运行时模板条件的源文本契约测试也要纳入定向回归清单；只跑组件行为测试会漏掉这类断言。
