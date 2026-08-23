@@ -4357,6 +4357,7 @@ Vue 展示组件
 - [PM-PRD-rongmeibao.md](./PM-PRD-rongmeibao.md) — 融媒宝差距分析 → F1-F4 集成规划
 - [PRD-remotion.md](./PRD-remotion.md) — Remotion 视频渲染
 - [PRD-video-creation.md](./PRD-video-creation.md) — 视频创作模块
+- [PRD-STORY2VIDEO-SUBTITLE-QUALITY.md](./PRD-STORY2VIDEO-SUBTITLE-QUALITY.md) — Story2Video 字幕分句质量与可读性
 
 ### 19.3 架构决策记录（ADR）
 
