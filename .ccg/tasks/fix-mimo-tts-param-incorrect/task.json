@@ -6,10 +6,18 @@
   "risk": "medium",
   "domain": "desktop/provider-contract",
   "currentPhase": "review",
-  "nextAction": "完成本地审查后提交、推送并创建 PR",
+  "nextAction": "等待 PR #1140 CI 检查与合并，合并后同步 remoteStatus 并归档",
   "createdAt": "2026-08-23T18:00:00+08:00",
   "branch": "codex/fix-mimo-tts-param-incorrect",
   "openspecChange": "fix-mimo-tts-param-incorrect",
   "rootCause": "MiMo TTS 适配器把未选择音色的空配置归一为 audio.voice=default；MiMo 普通 TTS 官方内置默认音色为 mimo_default，API 因非法 voice 返回 Param Incorrect。",
-  "reportedRun": "run_1787475502069_9888"
+  "reportedRun": "run_1787475502069_9888",
+  "prNumber": 1140,
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1140",
+  "remoteStatus": {
+    "state": "open",
+    "headSha": "7a1ee83407794e94d8f5d6881919b5241794a6d3",
+    "checks": "in_progress",
+    "mergeCommit": null
+  }
 }

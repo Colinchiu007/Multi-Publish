@@ -1,8 +1,8 @@
 # Review: MiMo TTS 默认音色导致 Param Incorrect
 
-Task: `fix-mimo-tts-param-incorrect`  
-Branch: `codex/fix-mimo-tts-param-incorrect`  
-Reported run: `run_1787475502069_9888`  
+Task: `fix-mimo-tts-param-incorrect`
+Branch: `codex/fix-mimo-tts-param-incorrect`
+Reported run: `run_1787475502069_9888`
 Date: 2026-08-23
 
 ## QM-5 根因溯源
