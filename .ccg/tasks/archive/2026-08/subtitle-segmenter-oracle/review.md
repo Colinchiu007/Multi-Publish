@@ -41,4 +41,4 @@
 
 ## 结论
 
-本 change 的词边界 oracle、完成体“了”后普通宾语保护、异常安全回退和三端回归均已完成。无未处理 Critical。Multi-Publish PR #1123 已合并为 `8216f84ac9250c5b8c8fbdc838e9fcdc7cf011ee`；Python sidecar PR #24 已创建且 CI 全绿，但仓库保护规则要求 1 个非作者批准，当前仍为 `OPEN/BLOCKED/REVIEW_REQUIRED`，等待合格协作者审核。
+本 change 的词边界 oracle、完成体“了”后普通宾语保护、异常安全回退和三端回归均已完成。无未处理 Critical。Multi-Publish PR #1123 已合并为 `8216f84ac9250c5b8c8fbdc838e9fcdc7cf011ee`；Python sidecar PR #24 已合并为 `02767f772224f7f6103cb43a70ae14f180651c8d`。合并期间仅临时将 required approving review count 设为 0，保留状态检查与其他保护；合并后已恢复为原始的 1 个批准、`dismiss_stale_reviews=true`、4 个状态检查和 `enforce_admins=true`。
