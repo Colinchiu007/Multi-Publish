@@ -8,5 +8,5 @@
 ## 2. 验证
 
 - [x] 2.1 运行 workflow-contract.test.js（14/14）与 YAML 校验，OpenSpec strict validate 通过
-- [ ] 2.2 推送 PR 后确认 Build & Release Windows job 执行真实 E2E 且上传证据；首次 CI 已确认 windows-latest 可启动打包 EXE，失败原因为默认英文界面按中文文案定位，已改为 --lang=zh-CN + data-testid，等待重跑
-- [ ] 2.3 完成代码审查并记录远程合并状态
+- [x] 2.2 Build & Release Windows job 真实执行 E2E 且上传证据；windows-latest 打包 EXE 24/24 PASS（artifact film-engineering-real-e2e）
+- [x] 2.3 完成双模型审查并记录远程合并状态（PR #1130 CI 全绿）

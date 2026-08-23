@@ -1,13 +1,14 @@
 {
   "id": "film-engineering-e2e-ci",
   "title": "电影工程真实 E2E 接入 CI 默认门禁",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "ci",
-  "currentPhase": "review",
-  "nextAction": "推送 PR，在 windows-latest 实测打包后 E2E，通过后合并",
+  "currentPhase": "completed",
+  "nextAction": "已推送 PR #1130，CI 全绿，待合并后远程同步归档",
   "createdAt": "2026-08-23T13:40:00+08:00",
   "branch": "codex/film-engineering-e2e-ci",
   "openspecChange": "film-engineering-real-e2e-ci"
+  "remoteStatus": "PR open: https://github.com/Colinchiu007/Multi-Publish/pull/1130 (CI all green)"
 }
