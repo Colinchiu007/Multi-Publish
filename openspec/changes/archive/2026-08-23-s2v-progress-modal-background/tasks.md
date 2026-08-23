@@ -22,4 +22,4 @@
 - [x] 4.1 Run dependency/worktree resolution checks, focused Vitest suites, Vue build, locale/CJK checks, lint/syntax checks, and diff checks.
 - [x] 4.2 Perform desktop and narrow-viewport interaction verification for modal scrolling, action-bar clicks, close animation, overlay/Escape behavior, and stale-response isolation.
 - [x] 4.3 Run the required parallel opencode and Claude reviews, record the merged findings in .ccg/tasks/s2v-progress-modal-background/review.md, and fix all blocking findings.
-- [ ] 4.4 Commit the branch, push it, create and merge the GitHub PR, verify origin/main contains the merge, then archive the OpenSpec and CCG task artifacts.
+- [x] 4.4 Feature PR #1127 was pushed and squash-merged as `19a01746e738dcbd489b3ea8f5de4240d2dcffc0`; all required CI checks passed, `origin/main` was verified to contain the merge, and the OpenSpec/CCG artifacts were moved to their archive paths.
