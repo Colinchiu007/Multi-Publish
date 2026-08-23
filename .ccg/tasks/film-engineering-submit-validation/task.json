@@ -1,0 +1,13 @@
+{
+  "id": "film-engineering-submit-validation",
+  "title": "修复视频创作电影工程进入时的参数校验提示",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "review",
+  "nextAction": "完成双模型审查与 ASAR/启动验证后提交推送 PR",
+  "createdAt": "2026-08-23T06:00:00+08:00",
+  "branch": "codex/film-engineering-submit-validation",
+  "openspecChange": "fix-film-engineering-ipc-event-forwarding"
+}
