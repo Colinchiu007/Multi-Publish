@@ -13888,3 +13888,12 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 
 - **结论**：交互式终端的 `claude` 可用；偶发的 `codeagent-wrapper` 子进程找不到 `claude` 属于 PATH/启动环境差异，不是 Claude CLI 不可用。
 - **处理**：先在可用终端用 `Get-Command claude`/实际安装目录定位 CLI，再把 CLI 所在目录和正确 Git Bash 路径注入 wrapper 子进程环境；重新运行固定 diff 的只读审查。审查结果必须区分“CLI 可用性”“wrapper 启动成功”和“审查发现已解决”三件事。
+
+## 视频流水线进度弹窗与后台脱离（s2v-progress-modal-background，2026-08-23）
+
+- **交付**：CreateView 运行中的完整阶段信息迁入 `UiModal variant=progress`（960px 上限、body 滚动、modeless、底部 action bar 保持可点击）；恢复【后台运行】，右上关闭与按钮共用 detach，不调用取消、轮询代际失效、恢复新建态并刷新历史；遮罩/Escape 不关闭，离场 scale(0.96) 缩小；人工检查点禁后台化；普通流水线无 runId 时只统一视觉壳。
+- **教训 1（“人工检查点”与“旧版提示”是两个判定）**：初版 `pipelineProgressLegacyCheckpoint` 直接复用 `hasManualPipelineCheckpoint`，导致只有 `waiting_approval`/`needs_user_input` 状态枚举、无旧快照证据时也显示“旧版人工检查点无操作协议”，让用户误以为快照损坏。修正为独立的 `hasLegacyPipelineCheckpointEvidence`（仅 paused+候选素材/requiresCheckpoint/finalize_assets 等证据算 legacy），文案分类与后台化阻断解耦，并补 `not.toContain('旧版人工检查点')` 回归。
+- **教训 2（modeless 窗口不能简单沿用 modal 焦点合同）**：进度弹窗需要底部 action bar 可用，因此 `UiModal` 进度变体不注册全局 ESC/焦点陷阱，`aria-modal=false`；只在 closeDisabled 时把焦点留在 dialog，可关闭时聚焦右上按钮。任何给进度窗补“全局键盘”的行为都会破坏底部操作。
+- **教训 3（普通流水线 identity 缺口不能靠视觉统一掩盖）**：非编排流水线按名称查询状态、启动响应可能无稳定 runId；统一弹窗后若仍显示 run-scoped 后台/恢复会造成串任务。本轮只允许启动响应明确返回 `runId/id` 时提供后台按钮；后续需主进程补充普通流水线 runId/API 合同。
+- **逃逸链**：旧自动后台改造删除按钮但测试只覆盖“无按钮”，没有覆盖“用户需要显式后台出口”；UiModal 遮罩/Escape 默认行为被当作所有弹窗共同合同；检查点文案分类没有独立测试。修复后 281 项定向测试全绿。
+- **预防**：① 进度观察窗/弹窗的新交互必须同时覆盖关闭策略、底层操作条、检查点阻断和离场动画；② 状态机判定不得把“语义分类”与“行为阻断”复用同一函数而不加反向断言；③ CJK 基线行号位移只允许显式更新并核对新增引用。

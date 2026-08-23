@@ -131,6 +131,34 @@ describe("StageProgress 等待态渲染（2026-08-13）", () => {
 });
 
 describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline-progress-feedback-unification）", () => {
+  it("总进度越界或非数值时安全收敛到 0..100", () => {
+    const high = mountWith({ stages: [makeStage()], progressPercent: 150 });
+    expect(high.find('[data-testid="story2video-orchestration-progress"] .progress-fill').attributes("style")).toContain("width: 100%");
+    high.unmount();
+
+    const low = mountWith({ stages: [makeStage()], progressPercent: -1 });
+    expect(low.find('[data-testid="story2video-orchestration-progress"] .progress-fill').attributes("style")).toContain("width: 0%");
+    low.unmount();
+
+    const invalid = mountWith({ stages: [makeStage()], progressPercent: "not-a-number" });
+    expect(invalid.find('[data-testid="story2video-orchestration-progress"] .progress-fill').attributes("style")).toContain("width: 0%");
+    invalid.unmount();
+  });
+
+  it("阶段子进度只接受有限的 0..100 数值，并将合法小数取整", () => {
+    const w = mountWith({
+      stages: [
+        makeStage({ name: "publish", status: "running", progress: { percent: "51.6", message: "publishing" } }),
+        makeStage({ name: "compose", status: "running", progress: { percent: 101, message: "invalid" } }),
+        makeStage({ name: "split", status: "running", progress: { percent: -1, message: "invalid" } }),
+      ],
+    });
+    expect(w.find('[data-testid="story2video-stage-progress-publish"]').attributes("aria-valuenow")).toBe("52");
+    expect(w.find('[data-testid="story2video-stage-compose-progress"]').exists()).toBe(false);
+    expect(w.find('[data-testid="story2video-stage-progress-split"]').exists()).toBe(false);
+    w.unmount();
+  });
+
   it("任意阶段带 stage.progress：显示 message + 迷你进度条（非 compose 阶段）", () => {
     const w = mountWith({
       stages: [
