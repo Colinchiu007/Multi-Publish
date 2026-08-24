@@ -1,23 +1,6 @@
-# story2video-voice-recovery Specification
+# Delta: Story2Video Voice Recovery
 
-## Purpose
-同一 Story2Video 运行内对同一个失效 `(providerId, voiceId)` 最多重克隆一次，并发 TTS 共享恢复结果，并让断点恢复复用已恢复 voice id。
-## Requirements
-### Requirement: 失效音色重克隆去重
-
-Story2Video SHALL 对同一 `(providerId, voiceId)` 的克隆音色恢复最多执行一次 cloneVoice；并发 TTS 回调 SHALL 共享同一 pending Promise；clone 成功 SHALL 记录新 voice id 并供后续 TTS 尝试复用；clone 失败 SHALL 记录本次运行不再重复 clone。
-
-#### Scenario: 并发 TTS 共享克隆
-- **WHEN** 多个 TTS 任务同时遇到同一失效克隆音色
-- **THEN** 只执行一次 cloneVoice，其余任务等待同一 Promise 结果
-
-#### Scenario: 克隆成功后续任务复用新 ID
-- **WHEN** 一次克隆成功返回新 voice id
-- **THEN** 后续同音色失败项直接使用新 voice id 重试 TTS，不再调用 cloneVoice
-
-#### Scenario: 克隆失败只尝试一次
-- **WHEN** 一次 cloneVoice 失败
-- **THEN** 本次运行内该 voice_id 不再重克隆，阶段按原始错误失败
+## MODIFIED Requirements
 
 ### Requirement: 恢复结果可断点复用
 
@@ -42,4 +25,3 @@ Story2Video SHALL 对同一 `(providerId, voiceId)` 的克隆音色恢复最多�
 
 - **WHEN** provider 返回的替换 id 已存在于当前用户注册表
 - **THEN** 系统拒绝覆盖现有记录，保留原 registry 内容，并继续让本次 TTS 使用 provider 返回的新 id
-

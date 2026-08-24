@@ -1562,3 +1562,113 @@ describe("findCloneSamples — owner 解析修复（2026-08-18）", () => {
   });
 });
 });
+
+describe("replaceCloneVoiceId — 重克隆后持久化迁移", () => {
+  it("替换 owner registry 中的旧 id，并同步迁移当前用户偏好", async () => {
+    const owner = "user-recovery";
+    const store = createOwnerStore(owner);
+    const userDataPath = nodeFs.mkdtempSync(path.join(os.tmpdir(), "clone-recovery-"));
+    const manager = createManager();
+    const service = new TtsVoiceCloneService({
+      store,
+      modelProviderManager: manager,
+      userDataPath,
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+    const providerId = PROVIDER_ID;
+    const model = MODEL;
+    const oldVoiceId = "voice-clone-old";
+    const newVoiceId = "voice-clone-recovered";
+    const registryKey = cloneRegistrySettingKey(providerId, model);
+    store.setUserSetting(registryKey, {
+      version: 2,
+      providerId,
+      model,
+      voices: [{
+        id: oldVoiceId,
+        name: "Recovered voice",
+        source: "user_clone",
+        createdAt: 123,
+        deletionState: "active",
+        sampleStorage: {
+          relativeDir: `voice-clone-samples/${ownerHash(owner)}/storage-1`,
+          sampleCount: 1,
+        },
+      }],
+    }, owner);
+    store.setUserSetting(PREFERENCE_KEY, { providerId, model, voiceId: oldVoiceId, selectedAt: 456 }, owner);
+
+    try {
+      await expect(service.replaceCloneVoiceId({
+        providerId,
+        model,
+        voiceId: oldVoiceId,
+        replacementVoiceId: newVoiceId,
+      })).resolves.toMatchObject({
+        code: 0,
+        data: { migrated: true, preferenceMigrated: true, voice: { id: newVoiceId } },
+      });
+
+      expect(store.getValue(owner, registryKey).voices).toEqual([
+        expect.objectContaining({
+          id: newVoiceId,
+          name: "Recovered voice",
+          sampleStorage: expect.objectContaining({ sampleCount: 1 }),
+        }),
+      ]);
+      expect(store.getValue(owner, PREFERENCE_KEY)).toMatchObject({
+        providerId,
+        model,
+        voiceId: newVoiceId,
+        selectedAt: 456,
+      });
+    } finally {
+      nodeFs.rmSync(userDataPath, { recursive: true, force: true });
+    }
+  });
+
+  it("目标 id 已存在时拒绝迁移，不覆盖其他克隆记录", async () => {
+    const owner = "user-recovery-duplicate";
+    const store = createOwnerStore(owner);
+    const userDataPath = nodeFs.mkdtempSync(path.join(os.tmpdir(), "clone-recovery-duplicate-"));
+    const manager = createManager();
+    const service = new TtsVoiceCloneService({
+      store,
+      modelProviderManager: manager,
+      userDataPath,
+      getVoiceCapability: catalogMocks.getVoiceCapability,
+    });
+    const registryKey = cloneRegistrySettingKey(PROVIDER_ID, MODEL);
+    const voices = [
+      {
+        id: "voice-clone-old",
+        name: "Old",
+        source: "user_clone",
+        createdAt: 1,
+        deletionState: "active",
+        sampleStorage: { relativeDir: `voice-clone-samples/${ownerHash(owner)}/storage-1`, sampleCount: 1 },
+      },
+      {
+        id: "voice-clone-existing",
+        name: "Existing",
+        source: "user_clone",
+        createdAt: 2,
+        deletionState: "active",
+        sampleStorage: { relativeDir: `voice-clone-samples/${ownerHash(owner)}/storage-2`, sampleCount: 1 },
+      },
+    ];
+    store.setUserSetting(registryKey, { version: 2, providerId: PROVIDER_ID, model: MODEL, voices }, owner);
+
+    try {
+      await expect(service.replaceCloneVoiceId({
+        providerId: PROVIDER_ID,
+        model: MODEL,
+        voiceId: "voice-clone-old",
+        replacementVoiceId: "voice-clone-existing",
+      })).resolves.toMatchObject({ code: -1, message: "VOICE_CLONE_DUPLICATE_ID" });
+      expect(store.getValue(owner, registryKey).voices).toEqual(voices);
+    } finally {
+      nodeFs.rmSync(userDataPath, { recursive: true, force: true });
+    }
+  });
+});

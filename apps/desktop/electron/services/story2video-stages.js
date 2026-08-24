@@ -1452,6 +1452,33 @@ async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProv
       return null
     }
     if (log && log.info) log.info('[Story2Video] re-clone success: ' + voiceId + ' -> ' + newVoice.id)
+    if (cloneSvc && typeof cloneSvc.replaceCloneVoiceId === 'function') {
+      try {
+        const migration = await cloneSvc.replaceCloneVoiceId({
+          providerId: voiceProvider,
+          model: samples.model || voiceModel || 'speech-02-hd',
+          voiceId,
+          replacementVoiceId: newVoice.id,
+        })
+        if (!migration || migration.code !== 0) {
+          if (log && log.warn) {
+            log.warn('[Story2Video] re-clone registry migration failed; continuing with recovered voice', {
+              voiceId,
+              replacementVoiceId: newVoice.id,
+              reason: migration && migration.message ? migration.message : 'unknown',
+            })
+          }
+        }
+      } catch (migrationError) {
+        if (log && log.warn) {
+          log.warn('[Story2Video] re-clone registry migration threw; continuing with recovered voice', {
+            voiceId,
+            replacementVoiceId: newVoice.id,
+            reason: migrationError && migrationError.code ? migrationError.code : 'error',
+          })
+        }
+      }
+    }
     persistRecovery(newVoice.id)
     const result = await retryFn(newVoice.id)
     const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
