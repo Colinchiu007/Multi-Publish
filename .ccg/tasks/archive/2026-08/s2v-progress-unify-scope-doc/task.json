@@ -1,0 +1,19 @@
+{
+  "id": "s2v-progress-unify-scope-doc",
+  "title": "统一进度弹窗范围边界文档收口",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "等待 PR #1146 CI 完成；合并后核对 origin/main",
+  "createdAt": "2026-08-24T03:06:00+08:00",
+  "branch": "codex/s2v-progress-unify-scope-doc",
+  "evidence": {
+    "pullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/1146",
+    "remoteStatus": "pr_open_checks_pending",
+    "review": ".ccg/tasks/archive/2026-08/s2v-progress-unify-scope-doc/review.md",
+    "documentSync": "scripts/check-docs-sync.sh --base=main --head=HEAD: PASS",
+    "diffCheck": "git diff --check origin/main...HEAD: PASS"
+  }
+}
