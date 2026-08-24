@@ -4,7 +4,7 @@
 
 - [ ] 1.1 撰写《桌面端前端交互规范》docs/frontend-interaction-spec.md：确认框/Toast/Loading/空态/弹窗唯一实现清单 + 危险操作确认门禁条款 + token 引用规则
 - [ ] 1.2 新建 src/styles/tokens.css 设计定标表（含三套旧变量映射关系注释），本任务仅文档化映射，文件落地在 P2
-- [ ] 1.3 新建 .github/scripts/check-frontend-consistency.js：三个 grep 卡点——①渲染层直调 window.electronAPI（api/ 白名单）②window.confirm ③渲染端新增硬编码中文基线不增长；本地 node 直跑验证通过
+- [ ] 1.3 新建 .github/scripts/check-frontend-consistency.js：两个 grep 卡点——①渲染层直调 window.electronAPI（api/ 白名单，含 src 根入口文件）②window.confirm；第三项"硬编码中文基线不增长"委托既有 Gate 7 check-locale-sync.js --cjk（避免双基线冲突，已在 yml 接线）
 - [ ] 1.4 将卡点接入现有 quality-gate workflow；全仓检索契约测试确认无破坏（ci-hardening M3 前置）
 - [ ] 1.5 【子代理审查】P0 全部产物经审查代理核对后提交
 
