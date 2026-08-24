@@ -1,6 +1,6 @@
 # 修复审查：OpenRouter 默认模型状态
 
-状态：本地交付门禁通过；外部双模型审查因后端无最终回执降级，待 PR/CI 远程验证。
+状态：远程交付门禁通过，PR 已合并；外部双模型审查因后端无最终回执降级，但本地与远程验证均已完成。
 
 ## QM-5 Bug 反思
 
@@ -75,3 +75,10 @@ PR #1150 已于 2026-08-24 创建并推送，head 初始提交为 `4dca22c0f`；
 PR #1150 的首轮 head `b7c3819e4720b1392d250672f9dd61ed2e3ff21f` 在 Doc Sync Gate 的 run `32705424067` / job `97365360720` 失败。失败原因不是实现或测试，而是运行时代码变更只携带了 CCG/OpenSpec/质量工件，未修改门禁认可的产品文档路径。
 
 已在 `01-docs/PRD.md` §7.4.1.2 补充“普通模型覆盖遗留多模态全局默认”的原子状态迁移规则，并把运行时路由、持久化 provider 行、重新加载后的卡片状态三层一致性和对应回归测试写入验收合同。该文档变更随下一次推送触发 Doc Sync Gate 复验；在新的 required checks 全部完成前，`remoteStatus` 保持待验证。
+
+## 远程交付完成（2026-08-24）
+
+- PR [#1150](https://github.com/Colinchiu007/Multi-Publish/pull/1150) 于 `2026-08-24T08:45:10Z` squash 合并，合并提交为 `de8143ce42ccb6211bff92abdfd06e64b60df81c`。
+- `git fetch origin --prune` 后以 `git merge-base --is-ancestor` 确认该提交已包含于 `origin/main`。
+- 所有必需 CI 均通过：文档同步、单元与 Lint、覆盖率、静态检查、浏览器与视觉门禁、两组桌面分片、Electron、GUI、Windows/Ubuntu 构建与 Agent Judge；release 为预期跳过。
+- OpenSpec change 已归档为 `2026-08-24-fix-openrouter-default-model-state`，CCG task 与本审查记录同步移入 2026-08 归档；任务最终状态为 `remoteStatus=merged_verified`、`qualityGateStatus=passed_remote_ci`。
