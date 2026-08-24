@@ -1,5 +1,13 @@
 # 合并 Check 白名单（QG Autonomous 报告型化）
 
+## 触发覆盖合同（2026-08-24）
+
+任何目标为 `main` 的 PR——包括仅改 `01-docs/**`、Markdown、`.ccg/**`、`openspec/**` 或 `.github/**` 的流程 PR——都必须产生 required context 对应的**真实** check run。GitHub 会把被 `paths-ignore` 跳过的 required workflow 视为缺失，不会将其当作通过或已跳过。
+
+- `quality-gate.yml`、`electron-ci.yml`、`build.yml` 的 `pull_request` 不得配置 `paths-ignore`；`doc-gate.yml` 同样不得按路径跳过 main PR。
+- 三个全量 workflow 的 `push main` 继续使用统一 `paths-ignore`，避免 docs-only 提交合并后重复跑完整 CI；build 的 `v*` tag 发布不受影响。
+- 禁止用同名 no-op job、手动 dispatch 或外部 status API 伪造 required check；缺失的 job 必须由对应 workflow 在 PR 事件中真实执行。
+
 > 2026-08-20 起，`QG Autonomous`（全量 PRD 需求覆盖审计）已从「合并硬闸门」降级为
 > **报告型门禁**：`NEED_HUMAN`（对任意未覆盖全部历史 PRD 项的 PR 都可能出现）不再
 > 阻塞合并，审计报告（artifact `quality-gate-autonomous-reports`）继续上传供人工抽查。

@@ -28,6 +28,18 @@ const { buildInitScript } = require('./fixture-loader');
 
 const DEFAULT_APP_READY_TIMEOUT = 15000;
 const RESET_APP_READY_TIMEOUT = 15000;
+const NAVIGATION_TIMEOUT = 20000;
+const NAVIGATION_RETRY_DELAY_MS = 100;
+const TRANSIENT_NAVIGATION_ERROR = 'net::ERR_NO_BUFFER_SPACE';
+const MAX_NAVIGATION_ATTEMPTS = 2;
+
+function isTransientNavigationError(error) {
+  return String(error?.message || error).includes(TRANSIENT_NAVIGATION_ERROR);
+}
+
+function waitForNavigationRetry() {
+  return new Promise((resolve) => setTimeout(resolve, NAVIGATION_RETRY_DELAY_MS));
+}
 
 class FunctionalRunner {
   constructor(options = {}) {
@@ -114,7 +126,7 @@ class FunctionalRunner {
   async goto(route, options = {}) {
     const expectedRoute = options.expectedRoute || route;
     const url = this.url + '/#' + route;
-    await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await this.navigate(url);
     await this.waitForAppReady(expectedRoute);
     this.actions.push({ kind: 'goto', route, expectedRoute, at: Date.now() });
   }
@@ -123,10 +135,33 @@ class FunctionalRunner {
   async resetToRoute(route, options = {}) {
     const expectedRoute = options.expectedRoute || route;
     const resetUrl = `${this.url}/?__e2e_reset=${++this.resetSequence}#${route}`;
-    await this.page.goto(resetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await this.navigate(resetUrl);
     const readyTimeout = options.readyTimeout ?? RESET_APP_READY_TIMEOUT;
     await this.waitForAppReady(expectedRoute, readyTimeout);
     this.actions.push({ kind: 'resetToRoute', route, expectedRoute, readyTimeout, at: Date.now() });
+  }
+
+  /**
+   * Windows runner 偶发耗尽临时网络缓冲时，给同一导航一次短暂恢复机会。
+   * 其他错误和第二次失败必须原样抛出，避免隐藏真实路由或应用启动故障。
+   */
+  async navigate(url) {
+    for (let attempt = 1; attempt <= MAX_NAVIGATION_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT });
+      } catch (error) {
+        if (!isTransientNavigationError(error) || attempt === MAX_NAVIGATION_ATTEMPTS) {
+          throw error;
+        }
+        this.actions.push({
+          kind: 'navigationRetry',
+          attempt,
+          reason: TRANSIENT_NAVIGATION_ERROR,
+          at: Date.now(),
+        });
+        await waitForNavigationRetry();
+      }
+    }
   }
 
   /** 等待 Vue 完成挂载并切换到目标路由 */

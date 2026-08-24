@@ -3355,6 +3355,8 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 
 普通非编排流水线没有稳定 run identity 时只复用该视觉弹窗和安全清理，不声明按 run 的恢复/取消能力；新增此能力必须先补主进程 runId/API 合同和跨端回归。
 
+**范围边界（2026-08-23 审计收口）**：统一进度弹窗合同只覆盖“有可观察流水线阶段状态”的编排流水线前台跟踪、历史续跑前台跟踪，以及获得稳定 run identity 的普通流水线；快速渲染（Remotion）loading、发布 timeline 和独立分析状态不属于该壳，保持各自轻量过程提示，不得原样声明“后台运行/在历史记录中可查看”。`CreateHistory.vue` 已废弃（`/create/history` 重定向到 `/create?view=history`，无生产引用），其内嵌进度卡片不得重新接入；当前唯一的生产历史组件是 `CreateViewHistory.vue`。
+
 
 
 

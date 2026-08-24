@@ -1,0 +1,14 @@
+{
+  "id": "fix-docs-only-pr-ci-checks",
+  "title": "修复纯文档 PR 被必需 CI 检查永久阻塞",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci-test",
+  "currentPhase": "review",
+  "nextAction": "推送打包电影工程 E2E 终态观察修复，并验证完整远程 CI",
+  "createdAt": "2026-08-24T12:10:34+08:00",
+  "branch": "codex/s2v-progress-unify-scope-doc",
+  "openspecChange": "fix-docs-only-pr-ci-checks",
+  "remoteStatus": "ci_feedback_fix_ready_to_push"
+}

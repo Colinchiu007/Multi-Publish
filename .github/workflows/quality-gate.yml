@@ -15,19 +15,6 @@ on:
       - 'openspec/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      # 文档/流程改动不触发 CI（清单与 .github/scripts/workflow-contract.test.js 的 CI_IGNORED_PATHS 保持同步）
-      - '01-docs/**'
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.editorconfig'
-      - '.ccg/**'
-      - '.claude/**'
-      - '.hermes/**'
-      - '.agents/**'
-      - 'openspec/**'
   workflow_dispatch:
 jobs:
   static-gates:
@@ -509,6 +496,10 @@ jobs:
             node apps/desktop/tests/e2e/helpers/route-functional-suite.test.js
             $contractExit = $LASTEXITCODE
             if ($contractExit -ne 0) { exit $contractExit }
+
+            node apps/desktop/tests/e2e/helpers/functional-runner.test.js
+            $runnerContractExit = $LASTEXITCODE
+            if ($runnerContractExit -ne 0) { exit $runnerContractExit }
 
             pnpm.cmd --filter @multi-publish/desktop run test:e2e
             $e2eExit = $LASTEXITCODE

@@ -290,6 +290,15 @@
 
 ---
 
+## 纯文档 PR 被全量 CI 路径过滤永久阻塞复盘（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：PR #1146 仅修改文档、`.ccg` 与流程记录；手动执行 Quality Gate 后 8 个 QG job 全绿，仍因 `electron-tests`、`单元测试 + Lint`、`文档同步检查`、双平台 build 没有 check run 而 `BLOCKED`。
+- **根因**：build/electron-ci/quality-gate 与 doc-gate 的 `pull_request.paths-ignore` 将 docs-only PR 整个 workflow 跳过，但分支保护仍把其中的 job 名称列为 required context。GitHub 对此不会生成“skipped 也满足”的状态，结果是结构性永远缺失。
+- **修复原则**：所有目标为 `main` 的 PR 都执行真实 workflow；仅合并后的 `push main` 保留统一路径过滤，避免同一 docs-only 改动重复消耗 CI。禁止用同名空 job、手动 dispatch 或 status API 伪造绿灯。
+- **回归保护**：`.github/scripts/workflow-contract.test.js` 断言三个全量 workflow 的 PR 不含 `paths-ignore`、main push 忽略清单仍一致，并断言 Doc Gate 对任意 main PR 运行。
+
+---
+
 ## 合并 domain_enrich 到 scene_context 复盘（merge-domain-enrich-into-scene-context，2026-08-14）
 
 - **交付**：删除独立 `domain_enrich` 阶段与 `story2video-domain.js`，`imagePromptSeed` 种子生成移植进 `scene_context` 执行器（`contentType==='history'`，独立于 `enabled` 开关）；新增 `detectSentiment`/`buildDomainSeed` 到 story-context-engine.js；Python YAML 契约镜像同步删 domain_enrich 段；OpenSpec change 归档（PR 待合）。
@@ -13912,3 +13921,21 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 3（普通流水线 identity 缺口不能靠视觉统一掩盖）**：非编排流水线按名称查询状态、启动响应可能无稳定 runId；统一弹窗后若仍显示 run-scoped 后台/恢复会造成串任务。本轮只允许启动响应明确返回 `runId/id` 时提供后台按钮；后续需主进程补充普通流水线 runId/API 合同。
 - **逃逸链**：旧自动后台改造删除按钮但测试只覆盖“无按钮”，没有覆盖“用户需要显式后台出口”；UiModal 遮罩/Escape 默认行为被当作所有弹窗共同合同；检查点文案分类没有独立测试。修复后 281 项定向测试全绿。
 - **预防**：① 进度观察窗/弹窗的新交互必须同时覆盖关闭策略、底层操作条、检查点阻断和离场动画；② 状态机判定不得把“语义分类”与“行为阻断”复用同一函数而不加反向断言；③ CJK 基线行号位移只允许显式更新并核对新增引用。
+
+## 统一进度弹窗范围边界审计（s2v-progress-unify-scope-doc，2026-08-23）
+
+- **结论**：生产可达的实时进度详情由 `CreateView` 进度弹窗承载；历史摘要与恢复入口由 `CreateViewHistory.vue` 承载。`/create/history` 已重定向到 `/create?view=history`，`CreateHistory.vue` 无生产引用，属于废弃组件。
+- **边界**：统一壳按“是否具有可观察流水线阶段状态 + run identity/恢复协议”收敛；快速渲染（Remotion）loading、发布 timeline、独立分析状态不套用，避免无历史恢复协议却声明“后台运行/在历史记录中可查看”。
+- **教训**：UI 统一不等于语义统一；跨页面共用“进度弹窗”前必须确认 runId、阶段合同和历史恢复路径，否则会为轻量任务伪造后台/历史能力。
+## Windows Browser E2E 导航资源耗尽不能靠跳过 CI 掩盖（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：移除 docs-only PR 的路径过滤后，PR #1146 首次执行完整 Gate 8；Windows runner 在 `/accounts` 路由的 `page.goto` 报 `net::ERR_NO_BUFFER_SPACE`，同 run 的账号管理集成流仍通过。
+- **第一性原因**：`FunctionalRunner.goto()` 与 `resetToRoute()` 自 E2E 基础设施引入时都直接执行一次 `page.goto`；Windows 临时 socket buffer 耗尽没有恢复边界，单次瞬态故障直接终止整套扫描。
+- **逃逸链**：此前 docs-only PR 因 `pull_request.paths-ignore` 不运行 Browser E2E（流程缺失）；E2E 覆盖可发现问题但没有针对瞬态导航错误的恢复合同（测试场景缺失）；审查只验证了串行并发控制，未检查底层 Playwright 导航错误分类（审查盲区）。
+- **修复与预防**：仅精确匹配 `net::ERR_NO_BUFFER_SPACE` 时短暂等待并重试一次，第二次与任何其他错误原样抛出；`goto`/`resetToRoute` 共享实现，`waitForAppReady` 只在成功后执行。node:test 覆盖成功恢复、非匹配、不成功耗尽与 reset 路径，并由 Gate 8 在真实浏览器扫描前运行；禁止通过恢复 `paths-ignore`、跳过 Gate 8 或把全部错误重试来掩盖问题。
+## 打包 E2E 必须等待真实终态，不得把临界延迟误报为未知（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：PR #1146 Windows build 的电影工程 E2E 在生成检查处报“未捕获生成结果提示”；artifact `9507479285` 最终消息数组实际含 `生成失败`。`ffmpeg` placeholder fallback 因 Windows 缺失 fontconfig 配置耗时，终态在旧 15 秒窗口后约 70ms 出现。
+- **第一性原因**：`film-engineering-real.js` 的生成 toast 调用把 15 秒作为固定预算，没有把已知打包 fallback 的异步终态纳入观察时间。
+- **逃逸链**：首次同 PR Windows build 更快走“已提交 1 个分镜”，未覆盖慢 fallback（测试场景缺失）；CI artifact 已保留消息但 E2E 没有在失败时用它回判（测试质量不足）；审查侧未对“终态可能在 timeout 边界后出现”做预算核验（审查盲区）。
+- **修复与预防**：生成终态预算固定为 30 秒，仍只接受既有真实终态，超时继续失败；模块用 `require.main` 守卫，`waitForToast` 可由 node:test 直接验证延迟消息。后续打包 E2E 修改终态等待时必须覆盖慢路径、未知超时和模块导入无副作用。

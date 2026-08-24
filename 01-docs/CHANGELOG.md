@@ -1,3 +1,17 @@
+## [Unreleased] - 2026-08-24 (纯文档 PR 必需 CI 检查修复)
+
+### CI
+- 所有目标为 main 的 PR（含文档/流程/CI-only）均运行 Quality Gate、Electron CI、双平台 build 和 Doc Gate 的真实 job，避免分支保护把 path-filtered workflow 当作缺失 check。
+- `push main` 的统一路径过滤保持不变，docs-only 提交合并后不重复运行全套 CI；workflow 契约测试区分 PR 全覆盖与 push 去重。
+- Windows Browser E2E 对精确 `net::ERR_NO_BUFFER_SPACE` 导航错误至多重试一次；`goto`、`resetToRoute` 共用该策略，非匹配或第二次错误仍原样失败，快速合同在真实 E2E 前运行。
+- 打包电影工程 E2E 的生成终态等待从 15 秒扩展为 30 秒，确保 Windows fallback 的 `生成失败` 能被真实分类；node:test require 合同不会启动 Electron。
+
+## [Unreleased] - 2026-08-23 (统一进度弹窗范围边界收口)
+
+### 文档
+- 明确统一进度弹窗仅覆盖“有可观察流水线阶段状态”且具备 run 观察/恢复合同的路径；快速渲染 loading、发布 timeline、独立分析状态不套用，不提供伪造的“后台运行/历史可查看”语义。
+- 标记 `CreateHistory.vue` 为废弃组件：`/create/history` 重定向到 `/create?view=history`，独立历史页内嵌进度卡片不得重新接入。
+
 ## [Unreleased] - 2026-08-23 (视频流水线进度弹窗与显式后台运行)
 
 ### 变更

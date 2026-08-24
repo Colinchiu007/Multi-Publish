@@ -20,19 +20,6 @@ on:
       - 'openspec/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      # 文档/流程改动不触发 CI（清单与 .github/scripts/workflow-contract.test.js 的 CI_IGNORED_PATHS 保持同步）
-      - '01-docs/**'
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.editorconfig'
-      - '.ccg/**'
-      - '.claude/**'
-      - '.hermes/**'
-      - '.agents/**'
-      - 'openspec/**'
 jobs:
   build:
     strategy:
@@ -120,6 +107,10 @@ jobs:
           name: Multi-Publish-Windows
           path: apps/desktop/dist-electron/Multi-Publish*.exe
           retention-days: 30
+
+      - name: Run film engineering E2E contract
+        if: runner.os == 'Windows'
+        run: node apps/desktop/tests/e2e/film-engineering-real.test.js
 
       # 打包产物真实 E2E：覆盖电影工程入口/场景/分镜/详情/复制/导出/套用/方法论/生成
       - name: Run film engineering real E2E

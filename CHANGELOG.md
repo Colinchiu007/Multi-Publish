@@ -1,8 +1,20 @@
+## [未发布] fix(ci): 纯文档 PR 也产生必需检查
+
+- 移除 full CI 与 Doc Gate 的 `pull_request.paths-ignore`：目标为 main 的文档/流程 PR 现在会运行真实 required job，不再因 check 缺失永久 BLOCKED。
+- 保留 main push 的统一路径过滤和 build tag 发布行为，避免合并后的 docs-only 提交重复跑全量 CI；新增 workflow 契约测试锁定该差异。
+- 首次全量 PR 检查暴露 Windows Browser E2E 的 `net::ERR_NO_BUFFER_SPACE` 导航瞬态失败；`FunctionalRunner` 现仅对该精确错误重试一次，其他错误和重试耗尽仍原样失败，Gate 8 在真实浏览器扫描前执行对应合同测试。
+- 打包电影工程 E2E 的生成终态观察窗口从 15 秒提升到 30 秒，覆盖 Windows 本地 fallback 延迟到达的 `生成失败` 结果；仍保留成功、Provider/配置阻断和参数校验失败的真实分类。
+
 ## [未发布] fix(story2video): 恢复克隆音色持久化并修正图片轮播合成超时
 
 - 修复：供应商侧克隆音色失效并重克隆成功后，将新 `voiceId` 回写当前用户、当前 provider/model 的 registry；用户偏好仍指向旧 ID 时一并迁移。目标 ID 已存在时拒绝覆盖，偏好写入故障不阻断本次已成功的 TTS 重试。
 - 修复：图片轮播 `zoompan` 片段的 ffmpeg timeout 纳入 `workScale^2` 工作画布成本，预算收敛在 60 秒至 10 分钟；2x/1.5x/1x 降档重试不再共用过短预算。
 - 验证：真实电影工程加载、提示词导出、剧本套用和图片入口通过；Story2Video 的真实 AI 视频/图片轮播已有 H.264/AAC MP4 证据。本次复用真实 JPEG/TTS 素材直接合成 1920x1080、6.264 秒、1,516,241 bytes 的 MP4；327 条定向测试、Vite 构建和 Windows Electron 打包通过。
+
+## [2026-08-23] docs(story2video): 收口统一进度弹窗范围边界
+
+- 明确统一进度弹窗只覆盖编排流水线/历史恢复等有可观察阶段状态的路径；快速渲染 loading、发布 timeline 和独立分析状态不套用。
+- 标记独立历史页 `CreateHistory.vue` 为废弃组件，`/create/history` 重定向到 `/create?view=history`，进度详情统一由 `CreateView` 进度弹窗承载。
 
 ## [2026-08-23] fix(story2video): 提示词中文翻译兼容 HTML/marker 包裹 JSON 并加固示例回显
 
