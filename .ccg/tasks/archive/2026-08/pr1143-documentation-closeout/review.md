@@ -31,3 +31,9 @@
 ## 范围判定
 
 本任务不改变产品行为，PR #1143 的正式 OpenSpec change 已归档且正式规格已同步，因此未重复创建或归档 OpenSpec change。
+
+## 交付状态
+
+- docs-only 收尾 PR：#1147，head 为 acd88a9c858865d4e7dc3f3ef862bca312f7f997。
+- 远端状态：OPEN；mergeStateStatus 为 BLOCKED。
+- 本任务没有执行该 docs PR 的合并操作，等待用户另行授权。
