@@ -1,0 +1,15 @@
+{
+  "id": "fix-multitab-title-isolation",
+  "title": "修复多标签标题串扰为快手标题",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-electron",
+  "currentPhase": "completed",
+  "nextAction": "已完成本地验证与归档；等待推送、PR 和合并",
+  "createdAt": "2026-08-23T14:40:00+08:00",
+  "branch": "codex/fix-multitab-title-isolation",
+  "openspecChange": "fix-multitab-title-isolation",
+  "remoteStatus": "pending_pr_local_branch",
+  "externalModelReview": "OpenCode 未返回有效审查文本；Claude wrapper 因 401 authentication_failed 未能完成审查，已按降级流程执行本地逐行审查。"
+}

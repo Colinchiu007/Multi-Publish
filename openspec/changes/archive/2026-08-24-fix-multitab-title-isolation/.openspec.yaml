@@ -1,0 +1,3 @@
+schema: spec-driven
+created: 2026-08-24
+goal: 保证每个浏览器标签按 tabId 独立维护标题和导航状态，并拒绝过期异步刷新覆盖实时事件。

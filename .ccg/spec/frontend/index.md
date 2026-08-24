@@ -97,3 +97,11 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 - `hasManualPipelineCheckpoint()` 只判定「是否阻断后台化」；`hasLegacyPipelineCheckpointEvidence()` 单独判定「是否使用旧版快照提示」，不能复用前者做文案分类。
 - 新增文案一律 zh/en 成对；CJK 基线按 file:line 匹配，行号位移只允许显式 `--update-baseline`，并人工核对新增引用的中文字符串都只来自 locale/translateWithLocaleFallback。
 - 普通流水线没有稳定 run identity 时不得按名称伪造单任务后台/恢复/取消；run-scoped 控制必须等主进程补 runId/API 合同。
+
+## 10. 实时标签事件必须胜过飞行中的刷新快照（2026-08-24，fix-multitab-title-isolation）
+
+**模式**：renderer 同时消费实时事件和异步列表/详情刷新时，请求发起时必须记录请求序号、活动目标和事件版本；返回时先拒绝非最新请求或目标不匹配结果，再以请求期间到达的实时事件覆盖同一实体的旧字段。
+
+**反例**：`tabStore` 没有消费 `tab-title-updated`，且 `getAllTabs()` / `getActiveTab()` 在标签切换后仍可无条件写回。多个发布平台并发加载时，旧快照会把当前导航栏标题串成其他标签（例如快手）。
+
+**强制点**：事件处理必须按 `tabId` 更新实体；只有活动实体可以更新全局导航栏。列表刷新覆盖前至少覆盖“两个请求乱序”和“标题事件发生在列表请求飞行期间”两个回归场景。
