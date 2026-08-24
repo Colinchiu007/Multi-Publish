@@ -441,6 +441,29 @@ describe('useModelProviderCrud', function () {
       expect(modelProviderSetDefault).not.toHaveBeenCalled()
     })
 
+    it('OpenRouter 设为默认成功后，用重载列表立即更新默认卡片数据', async function () {
+      const openRouter = { id: 'openrouter', name: 'OpenRouter', category: 'llm', is_configured: true, is_default: false }
+      crud.providers.value = [
+        { id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal', is_configured: true, is_default: true },
+        openRouter,
+      ]
+      modelProviderSetDefault.mockResolvedValueOnce({ code: 0 })
+      modelProviderList.mockResolvedValueOnce({
+        code: 0,
+        data: [
+          { id: 'minimax-multimodal', name: 'MiniMax', category: 'multimodal', is_configured: true, is_default: false },
+          { ...openRouter, is_default: true },
+        ],
+      })
+
+      await crud.setDefault(openRouter)
+
+      expect(modelProviderSetDefault).toHaveBeenCalledWith('llm', 'openrouter')
+      expect(modelProviderList).toHaveBeenCalledTimes(1)
+      expect(crud.providers.value.find(provider => provider.id === 'openrouter').is_default).toBe(true)
+      expect(crud.providers.value.find(provider => provider.id === 'minimax-multimodal').is_default).toBe(false)
+    })
+
     it('testProvider 请求拒绝时记录稳定失败结果并复位 testingId', async function () {
       modelProviderTest.mockRejectedValueOnce(new Error('连接超时'))
 

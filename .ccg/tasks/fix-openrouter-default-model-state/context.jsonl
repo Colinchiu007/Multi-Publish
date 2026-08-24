@@ -1,0 +1,4 @@
+{"path":"apps/desktop/electron/services/model-provider-manager.js","symbols":["setDefault","getDefault","_clearCapabilityDefaultForCapability","_multimodalProviderFor"],"reason":"默认状态持久化与文字推理路由的唯一事实来源"}
+{"path":"apps/desktop/electron/services/model-provider-multimodal.test.js","symbols":["普通 provider 覆盖多模态全局默认"],"reason":"覆盖遗留多模态全局默认被 OpenRouter 覆盖的真实顺序"}
+{"path":"apps/desktop/src/composables/useModelProviderCrud.js","symbols":["setDefault","loadProviders"],"reason":"成功 IPC 后重新加载列表，驱动卡片默认样式"}
+{"path":"apps/desktop/src/composables/useModelProviderCrud.test.js","symbols":["OpenRouter 设为默认成功后，用重载列表立即更新默认卡片数据"],"reason":"验证 renderer 消费刷新后的持久化默认标记"}
