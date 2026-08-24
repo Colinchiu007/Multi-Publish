@@ -21,6 +21,10 @@ export const useTabStore = defineStore('tabs', () => {
 
   // ── Unsubscribe handles ──
   const _unsubscribes = []
+  let _tabsRefreshRequest = 0
+  let _navigationRefreshRequest = 0
+  let _tabUpdateVersion = 0
+  const _tabLiveUpdates = new Map()
 
   // ── Getters ──
   const activeTab = computed(() => tabs.value.find(t => t.tabId === activeTabId.value) || null)
@@ -38,22 +42,47 @@ export const useTabStore = defineStore('tabs', () => {
     return api
   }
 
+  function _recordTabUpdate(data) {
+    if (!data?.tabId) return
+    const previous = _tabLiveUpdates.get(data.tabId)
+    _tabLiveUpdates.set(data.tabId, {
+      version: ++_tabUpdateVersion,
+      title: typeof data.title === 'string' ? data.title : previous?.title,
+      url: typeof data.url === 'string' ? data.url : previous?.url
+    })
+  }
+
+  function _applyNewerTabUpdate(tab, requestVersion) {
+    const update = _tabLiveUpdates.get(tab.tabId)
+    if (!update || update.version <= requestVersion) return tab
+    return {
+      ...tab,
+      ...(update.title !== undefined ? { title: update.title } : {}),
+      ...(update.url !== undefined ? { url: update.url } : {})
+    }
+  }
+
   // ── Internal: 刷新完整 tab 列表 ──
-  async function _refreshTabs() {
+  async function _refreshTabs(expectedActiveTabId = null) {
     const api = _api()
     if (!api) return
+    const requestId = ++_tabsRefreshRequest
+    const requestTabUpdateVersion = _tabUpdateVersion
     try {
       const result = await api.getAllTabs()
+      if (requestId !== _tabsRefreshRequest) return
       // 确保 home tab 始终存在
       const homeExists = result.data?.some(t => t.isHome)
       if (!homeExists && result.data) {
         result.data.unshift({ tabId: 'home', url: '', title: '首页', loading: false, canGoBack: false, canGoForward: false, isActive: false, isHome: true })
       }
       if (result?.code === 0 && Array.isArray(result.data)) {
-        tabs.value = result.data
+        tabs.value = result.data.map(tab => _applyNewerTabUpdate(tab, requestTabUpdateVersion))
         // 确保 activeTabId 同步
         const active = result.data.find(t => t.isActive)
-        if (active) activeTabId.value = active.tabId
+        if (active && (!expectedActiveTabId || active.tabId === expectedActiveTabId)) {
+          activeTabId.value = active.tabId
+        }
       }
     } catch (e) {
       console.error('[tabStore] refreshTabs failed:', e)
@@ -64,15 +93,25 @@ export const useTabStore = defineStore('tabs', () => {
   async function _refreshNavigation() {
     const api = _api()
     if (!api) return
+    const requestId = ++_navigationRefreshRequest
+    const requestedTabId = activeTabId.value
+    const requestTabUpdateVersion = _tabUpdateVersion
     try {
       const result = await api.getActiveTab()
-      if (result?.code === 0 && result.data) {
+      if (requestId !== _navigationRefreshRequest || requestedTabId !== activeTabId.value) return
+      if (result?.code === 0 && result.data && result.data.tabId === activeTabId.value) {
+        const activeTabData = _applyNewerTabUpdate(result.data, requestTabUpdateVersion)
         navigation.value = {
-          url: result.data.url || '',
-          title: result.data.title || '',
-          canGoBack: !!result.data.canGoBack,
-          canGoForward: !!result.data.canGoForward,
-          loading: !!result.data.loading
+          url: activeTabData.url || '',
+          title: activeTabData.title || '',
+          canGoBack: !!activeTabData.canGoBack,
+          canGoForward: !!activeTabData.canGoForward,
+          loading: !!activeTabData.loading
+        }
+        const tab = tabs.value.find(t => t.tabId === activeTabData.tabId)
+        if (tab) {
+          tab.title = activeTabData.title || tab.title
+          tab.url = activeTabData.url || tab.url
         }
       }
     } catch (e) {
@@ -92,11 +131,17 @@ export const useTabStore = defineStore('tabs', () => {
 
     // 订阅事件
     _unsubscribes.push(
-      api.onTabEvent('tab-created', () => _refreshTabs()),
-      api.onTabEvent('tab-closed', () => _refreshTabs()),
-      api.onTabEvent('tab-switched', () => {
-        _refreshTabs()
-        _refreshNavigation()
+      api.onTabEvent('tab-created', (data) => {
+        if (data?.tabId) activeTabId.value = data.tabId
+        return Promise.all([_refreshTabs(data?.tabId || null), _refreshNavigation()])
+      }),
+      api.onTabEvent('tab-closed', (data) => {
+        if (data?.tabId) _tabLiveUpdates.delete(data.tabId)
+        return _refreshTabs()
+      }),
+      api.onTabEvent('tab-switched', (data) => {
+        if (data?.tabId) activeTabId.value = data.tabId
+        return Promise.all([_refreshTabs(data?.tabId || null), _refreshNavigation()])
       }),
       api.on('tab-loading', (data) => {
         if (data?.tabId === activeTabId.value) {
@@ -108,20 +153,32 @@ export const useTabStore = defineStore('tabs', () => {
           navigation.value.loading = false
         }
       }),
+      api.on('tab-title-updated', (data) => {
+        if (!data?.tabId) return
+        _recordTabUpdate(data)
+        const tab = tabs.value.find(t => t.tabId === data.tabId)
+        if (tab && typeof data.title === 'string') {
+          tab.title = data.title
+        }
+        if (data.tabId === activeTabId.value && typeof data.title === 'string') {
+          navigation.value.title = data.title
+        }
+      }),
       api.onNavigationChanged((data) => {
-        if (data?.tabId === activeTabId.value) {
+        if (!data?.tabId) return
+        _recordTabUpdate(data)
+        const tab = tabs.value.find(t => t.tabId === data.tabId)
+        if (tab) {
+          tab.title = data.title || tab.title
+          tab.url = data.url || tab.url
+        }
+        if (data.tabId === activeTabId.value) {
           navigation.value = {
             url: data.url || '',
             title: data.title || '',
             canGoBack: !!data.canGoBack,
             canGoForward: !!data.canGoForward,
             loading: false
-          }
-          // 更新 tab 列表中的 title
-          const tab = tabs.value.find(t => t.tabId === data.tabId)
-          if (tab) {
-            tab.title = data.title || tab.title
-            tab.url = data.url || tab.url
           }
         }
       })

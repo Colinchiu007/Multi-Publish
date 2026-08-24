@@ -1,3 +1,21 @@
+## [未发布] fix(ci): 纯文档 PR 也产生必需检查
+
+- 移除 full CI 与 Doc Gate 的 `pull_request.paths-ignore`：目标为 main 的文档/流程 PR 现在会运行真实 required job，不再因 check 缺失永久 BLOCKED。
+- 保留 main push 的统一路径过滤和 build tag 发布行为，避免合并后的 docs-only 提交重复跑全量 CI；新增 workflow 契约测试锁定该差异。
+- 首次全量 PR 检查暴露 Windows Browser E2E 的 `net::ERR_NO_BUFFER_SPACE` 导航瞬态失败；`FunctionalRunner` 现仅对该精确错误重试一次，其他错误和重试耗尽仍原样失败，Gate 8 在真实浏览器扫描前执行对应合同测试。
+- 打包电影工程 E2E 的生成终态观察窗口从 15 秒提升到 30 秒，覆盖 Windows 本地 fallback 延迟到达的 `生成失败` 结果；仍保留成功、Provider/配置阻断和参数校验失败的真实分类。
+
+## [未发布] fix(story2video): 恢复克隆音色持久化并修正图片轮播合成超时
+
+- 修复：供应商侧克隆音色失效并重克隆成功后，将新 `voiceId` 回写当前用户、当前 provider/model 的 registry；用户偏好仍指向旧 ID 时一并迁移。目标 ID 已存在时拒绝覆盖，偏好写入故障不阻断本次已成功的 TTS 重试。
+- 修复：图片轮播 `zoompan` 片段的 ffmpeg timeout 纳入 `workScale^2` 工作画布成本，预算收敛在 60 秒至 10 分钟；2x/1.5x/1x 降档重试不再共用过短预算。
+- 验证：真实电影工程加载、提示词导出、剧本套用和图片入口通过；Story2Video 的真实 AI 视频/图片轮播已有 H.264/AAC MP4 证据。本次复用真实 JPEG/TTS 素材直接合成 1920x1080、6.264 秒、1,516,241 bytes 的 MP4；327 条定向测试、Vite 构建和 Windows Electron 打包通过。
+
+## [2026-08-23] docs(story2video): 收口统一进度弹窗范围边界
+
+- 明确统一进度弹窗只覆盖编排流水线/历史恢复等有可观察阶段状态的路径；快速渲染 loading、发布 timeline 和独立分析状态不套用。
+- 标记独立历史页 `CreateHistory.vue` 为废弃组件，`/create/history` 重定向到 `/create?view=history`，进度详情统一由 `CreateView` 进度弹窗承载。
+
 ## [2026-08-23] fix(story2video): 提示词中文翻译兼容 HTML/marker 包裹 JSON 并加固示例回显
 
 - 现象：结果页「中文翻译」未正确生成——LLM 返回 HTML 闭合/未闭合标签、`<thinking>` 思考块或 marker/说明文字包裹的翻译 JSON 时，旧解析把包裹文本当译文。
@@ -9346,3 +9364,19 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 分块合成新增开始/成功/失败及每 10 秒输出字节心跳（30 秒无增长 WARN），保留既有 merge_l{level}_chunk_{n} created 诊断文本和 87%→89% 前端进度。
 - 日志只保留 basename 和非敏感诊断元数据；不记录绝对路径、完整 FFmpeg 参数、素材内容或凭据。此变更改善定位能力，不改变转场、编码参数、并发或实际耗时。
 
+## [Unreleased] - 2026-08-23 (视频流水线进度弹窗与显式后台运行)
+
+- 运行中的视频流水线现在在统一进度弹窗中展示完整阶段信息，并恢复【后台运行】入口；后台化不取消主进程任务，页面回到新建态并提示可在历史记录查看。
+- 进度弹窗仅允许右上角关闭，遮罩/Escape 不关闭，离场使用缩小缩放动画；底部固定操作条保持可用。人工 checkpoint 禁止后台化，普通流水线无稳定 run identity 时不伪造按任务控制。
+## [2026-08-22] feat(desktop): task-051 蚁小二 UE 收口与快手验收准备
+
+- 发布页单篇模式新增 sticky 主操作卡，发布目标、保存草稿、草稿箱、发布和取消任务保持在同一操作区；窄屏下回到正常文档流，并为页头与批量操作增加换行保护。
+- 快手二维码入口在平台 capability 缺失时保留可用回退；非二维码平台仍 fail closed。账号登录弹窗固定文案接入 zh/en locale。
+- 百家号 cookie domain 收紧为明确创作者域及认证域；selector 契约明确仅 tag_input 可为空，其余视频发布字段必须非空。
+- 新增发布页单篇/批量 DOM 分支、快手二维码入口、登录文案语言切换、平台 selector 和账号状态的回归覆盖。
+- 当前变更已通过 OpenSpec strict validation；真实快手扫码/发布、Electron QM-1 和 PR 状态仍需现场验证，历史百家号发布结果不作为本轮证据。
+- 发布取消改为 allSettled 语义：成功取消的 ID 移除、失败或被拒的 ID 保留，取消请求不再抛出未处理 rejection；新增部分失败/拒绝回归测试。
+- 封面提取改为 loopback HTTP 同源媒体通道，修复 Chromium 对 data/file 跨 scheme 加载本地视频的拦截；真实 Electron 已从 D:\01.mp4 提取封面 JPEG。
+- 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
+- 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
+- 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。

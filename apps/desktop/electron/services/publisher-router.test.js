@@ -135,6 +135,42 @@ describe("PublisherRouter", () => {
       }, { signal: controller.signal })).rejects.toThrow("任务已取消")
       expect(rpaViewManager.cancel).toHaveBeenCalledWith("wechat_mp", "acc-race")
     });
+    it("发布诊断只向上游透传脱敏网络摘要", async () => {
+      const rpaViewManager = {
+        publish: vi.fn(async () => ({
+          success: true,
+          url: "https://example.test/post/1?access_token=secret-token&postId=post-123",
+          diagnostics: {
+            text: "用户发布正文和 cookie=secret-cookie",
+            requests: [{
+              url: "https://example.test/api/publish?access_token=secret-token",
+              status: 201,
+              mimeType: "application/json",
+              body: '{"token":"secret-token","content":"用户发布正文"}',
+            }],
+            artifact: { postId: "post-123", title: "用户发布正文" },
+          },
+        })),
+      };
+      const publisher = new PublisherRouter().createPublisher("wechat_mp", {
+        rpaViewManager,
+        store: { getAccount: vi.fn(() => null) },
+      });
+
+      const result = await publisher.publish({ id: "task-diagnostics", article: {} });
+      const serialized = JSON.stringify(result.diagnostics);
+
+      expect(result.diagnostics).toEqual({
+        responseCount: 1,
+        responses: [{ endpoint: "https://example.test/api/publish", status: 201, mimeType: "application/json" }],
+        artifactFound: true,
+      });
+      expect(result.url).toBe("https://example.test/post/1?postId=post-123");
+      expect(serialized).not.toContain("secret-token");
+      expect(serialized).not.toContain("secret-cookie");
+      expect(serialized).not.toContain("用户发布正文");
+      expect(serialized).not.toContain("access_token");
+    });
     it("向 RPA 传递账号 localStorage 并吞掉取消清理异常", async () => {
       const account = {
         cookies: [{ name: "session", value: "secret", domain: ".mp.weixin.qq.com" }, { name: "third-party", value: "drop", domain: ".evil.example" }],

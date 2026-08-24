@@ -61,7 +61,9 @@
     </nav>
 
     <footer class="yixiaoer-sidebar-footer">
-      <span class="yixiaoer-sidebar-status"><i aria-hidden="true"></i>客户端已连接</span>
+      <span class="yixiaoer-sidebar-status is-unknown" data-testid="yixiaoer-sidebar-status">
+        <i aria-hidden="true"></i>{{ t('sidebar.clientStatusUnknown') }}
+      </span>
     </footer>
   </aside>
 </template>
@@ -69,6 +71,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
   ArrowDown,
   Calendar,
@@ -89,6 +92,7 @@ import { useLicenseStore } from '@/stores/license'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const identityStore = useIdentityStore()
 const licenseStore = useLicenseStore()
 const moreOpen = ref(false)
@@ -339,7 +343,7 @@ function goToPublish () {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #2fc27a;
+  background: #a7a8b5;
 }
 
 .yixiaoer-sidebar-settings {

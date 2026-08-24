@@ -36,6 +36,7 @@ async updateOrchestrationStatus() {
 
 - 新增用户可见文案一律写入 `apps/desktop/src/locales/zh.js` 与 `en.js` **成对**（CI Gate 7 拦截）；渲染端（.vue script/template）禁止新增中文字符串字面量（CJK 基线扫描按 `file:line` 匹配，新增行会触发误报 → 用 `node .github/scripts/check-locale-sync.js --cjk --update-baseline` 权威重排，但必须先确认「无真新增」）。
 - 产品名词翻译集中维护于 `01-docs/i18n-glossary.md`，新增术语先登记再使用。
+- **带参文案必须写成 Message Function，不能写成含 `{name}` 的普通字符串**：`i18n/index.js` 的 `toMessageFunctions` 会把静态字符串包成 `() => source`，以避免 Electron CSP 所禁止的运行时消息编译；因此 `'失败：{message}'` 不会插值、会原样显示。使用 `(ctx) => '失败：' + ctx.named('message')`（zh/en 两侧一致），并至少覆盖一条非默认语言与“标题/文本不含 `{name}` 字面量”的渲染断言。
 
 ## 5. 结果页层级错误隔离（2026-08-15，s2v-result-success-error-boundary）
 
@@ -85,3 +86,27 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 ```
 - 主进程失败路径必须有 warn 级日志（含错误 message）。
 - 回归必须 mock 生成器返回「失败结果对象」（非抛异常）断言原因保留 + 状态持久化 + 日志；不得用断言固定文案反向固化错误行为。
+
+## 9. 进度观察窗与人工检查点身份必须分开判定（2026-08-23，s2v-progress-modal-background）
+
+**模式**：运行中进度用 modeless 观察窗承载，但不把「可观察进度」等同于「可后台化」。关闭/后台脱离必须在方法入口用受控状态机重校验（runId、组件存活、人工检查点、终态枚举），并且只能走唯一公共 detach 方法；否则遮罩、ESC、关闭按钮或旧响应会各自漂移成不同语义。进度观察窗统一禁遮罩/Escape、只右上角关闭，并保持底部操作条在其 z-index 之上可直接点击。
+
+**反例（本轮边界）**：直接把 `waiting_approval` / `needs_user_input` 状态枚举或带候选素材的旧暂停快照当成普通 running，会让需要人工输入的任务被后台化后静默卡死；反过来把这些状态全部标记为「旧版检查点」又会误报数据损坏。两者必须分开：状态枚举缺少元数据用普通人工操作提示，只有旧的 paused+候选素材/requiresCheckpoint/finalize_assets 证据才使用「旧版快照无操作协议」提示。
+
+**强制点**：
+- `hasManualPipelineCheckpoint()` 只判定「是否阻断后台化」；`hasLegacyPipelineCheckpointEvidence()` 单独判定「是否使用旧版快照提示」，不能复用前者做文案分类。
+- 新增文案一律 zh/en 成对；CJK 基线按 file:line 匹配，行号位移只允许显式 `--update-baseline`，并人工核对新增引用的中文字符串都只来自 locale/translateWithLocaleFallback。
+- 普通流水线没有稳定 run identity 时不得按名称伪造单任务后台/恢复/取消；run-scoped 控制必须等主进程补 runId/API 合同。
+
+## 10. 实时标签事件必须胜过飞行中的刷新快照（2026-08-24，fix-multitab-title-isolation）
+
+**模式**：renderer 同时消费实时事件和异步列表/详情刷新时，请求发起时必须记录请求序号、活动目标和事件版本；返回时先拒绝非最新请求或目标不匹配结果，再以请求期间到达的实时事件覆盖同一实体的旧字段。
+
+**反例**：`tabStore` 没有消费 `tab-title-updated`，且 `getAllTabs()` / `getActiveTab()` 在标签切换后仍可无条件写回。多个发布平台并发加载时，旧快照会把当前导航栏标题串成其他标签（例如快手）。
+
+**强制点**：事件处理必须按 `tabId` 更新实体；只有活动实体可以更新全局导航栏。列表刷新覆盖前至少覆盖“两个请求乱序”和“标题事件发生在列表请求飞行期间”两个回归场景。
+
+## 11. 统一进度弹窗范围边界（2026-08-23，s2v-progress-unify-scope-doc）
+
+- 统一进度弹窗只覆盖“有可观察流水线阶段状态”的编排流水线/历史恢复前台跟踪，以及获得稳定 run identity 的普通流水线；快速渲染 loading、发布 timeline、独立分析状态不套用，禁止为此类轻量任务伪造“后台运行/历史可查看”语义。
+- `CreateHistory.vue` 已废弃：`/create/history` 重定向到 `/create?view=history`，无生产引用，不得重新接入其内嵌进度卡片；历史入口统一为 `CreateViewHistory.vue` 摘要与恢复。

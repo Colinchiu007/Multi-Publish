@@ -244,6 +244,14 @@ function createAccessControlledIpcMain(ipcMain, licenseManager, env = process.en
           }
           const feature = requiredFeatureForChannel(channel)
           if (feature && identityService) {
+            // 开发/未打包模式跳过业务权益校验（与 getAccessLevel 的 dev admin 短路一致）：
+
+            // 本地验证发布流程时账号可能未开通 cloud_publish，产品权益门禁不应阻塞开发/测试。
+
+            const isDevMode = app && app.isPackaged === false
+
+            if (!isDevMode) {
+
             if (typeof identityService.requireEntitlement !== 'function') return entitlementDenied(channel)
             try {
               await identityService.requireEntitlement(feature, {
@@ -252,6 +260,8 @@ function createAccessControlledIpcMain(ipcMain, licenseManager, env = process.en
             } catch (_) {
               return entitlementDenied(channel)
             }
+            }
+
           }
           return handler.apply(this, args)
         })

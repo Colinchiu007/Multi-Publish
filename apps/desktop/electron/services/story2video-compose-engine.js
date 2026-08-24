@@ -356,12 +356,14 @@ function computeWorkResolution (width, height, workScale) {
   return { width: w, height: h }
 }
 
-function computeSegmentEncodeTimeoutMs (effectDuration, fps) {
+function computeSegmentEncodeTimeoutMs (effectDuration, fps, workScale = 2) {
   const seconds = Math.max(0.1, Number(effectDuration) || 3)
   const frameRate = clampNumber(fps, 1, 120, 30)
-  // 假设最低编码速度 10fps（4K zoompan 慢速场景），预留 20s 缓冲
-  const estimatedMs = Math.ceil((seconds * frameRate) / 10) * 1000
-  return Math.max(30000, Math.min(300000, estimatedMs + 20000))
+  const scale = clampNumber(workScale, 1, 2, 2)
+  // zoompan 在低速桌面环境按最低 10fps 估算；工作倍率越高，像素量近似按平方增长。
+  // 给每次重试独立预算，避免片段已经持续写入时被固定短超时误杀。
+  const estimatedMs = Math.ceil((seconds * frameRate * scale * scale) / 10) * 1000
+  return Math.max(60000, Math.min(600000, estimatedMs + 30000))
 }
 
 const FFMPEG_STAGE_TIMEOUT_PROFILES = Object.freeze({
@@ -1842,8 +1844,8 @@ class Story2VideoComposeEngine {
     // 输出
     args.push(outputPath)
 
-    // 编码超时按时长×帧率估算（最低 30s），避免 4K zoompan 慢速编码被固定 30s 误杀
-    const encodeTimeout = computeSegmentEncodeTimeoutMs(opts.effectDuration, opts.fps)
+    // 编码超时按时长、帧率和工作倍率估算，避免 zoompan 慢速编码被过短预算误杀。
+    const encodeTimeout = computeSegmentEncodeTimeoutMs(opts.effectDuration, opts.fps, opts.workScale)
     const { stderr } = await this._runFfmpegStage(args, { timeout: encodeTimeout, maxBuffer: 1024 * 1024 }, {
       composeId: opts.composeId,
       stage: 'segments',

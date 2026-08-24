@@ -1,0 +1,33 @@
+{
+  "id": "fix-mimo-tts-param-incorrect",
+  "title": "修复 MiMo TTS 默认音色导致流水线语音生成 Param Incorrect",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop/provider-contract",
+  "currentPhase": "completed",
+  "nextAction": "已完成三同步归档；PR #1140、归档 PR #1141、origin/main 与归档状态均已核验；运行中的旧实例需重启后加载修复",
+  "createdAt": "2026-08-23T18:00:00+08:00",
+  "branch": "codex/fix-mimo-tts-param-incorrect",
+  "openspecChange": "fix-mimo-tts-param-incorrect",
+  "rootCause": "MiMo TTS 适配器把未选择音色的空配置归一为 audio.voice=default；MiMo 普通 TTS 官方内置默认音色为 mimo_default，API 因非法 voice 返回 Param Incorrect。",
+  "reportedRun": "run_1787475502069_9888",
+  "prNumber": 1140,
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1140",
+  "remoteStatus": {
+    "state": "merged",
+    "prNumber": 1140,
+    "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1140",
+    "headSha": "50539f97d023e2c944b2d7a0be649e18b61b6ae4",
+    "mergeCommit": "40f32a88b7a2e20cf1b5bb32538a039351162a76",
+    "checks": "all required checks passed",
+    "originMainVerified": true,
+    "mergedAt": "2026-08-23T10:35:47Z",
+    "runtimeNote": "当前运行应用来自另一 worktree，需重启应用后加载修复；本次未杀进程或修改该 worktree",
+    "archivePr": 1141,
+    "archivePrUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1141",
+    "archiveMergeCommit": "11a333ed7e5cbfd4e961f80ece1a989d84e67385",
+    "archiveStatus": "merged_and_origin_main_verified",
+    "archiveMergedAt": "2026-08-23T10:48:00Z"
+  }
+}

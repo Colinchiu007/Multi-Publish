@@ -2235,22 +2235,28 @@ describe('_concatSegments 分块合成（25+ 场景防单命令输入过多）',
 })
 
 describe('computeSegmentEncodeTimeoutMs — 片段编码超时按时长估算', () => {
-  it('短片段（3s@30fps）不低于 30s 下限', () => {
-    expect(computeSegmentEncodeTimeoutMs(3, 30)).toBe(30000)
+  it('短片段（3s@30fps）按默认 2x 工作倍率保留 66s 预算', () => {
+    expect(computeSegmentEncodeTimeoutMs(3, 30)).toBe(66000)
   })
 
-  it('20.79s@30fps（4K zoompan 慢速场景）放宽到 ~83s，避免固定 30s 误杀', () => {
-    // ceil(20.79*30/10)*1000 + 20000 = 63000 + 20000
-    expect(computeSegmentEncodeTimeoutMs(20.79, 30)).toBe(83000)
+  it('20.79s@30fps（4K zoompan 慢速场景）按 2x 工作倍率放宽到 ~280s', () => {
+    // ceil(20.79*30*4/10)*1000 + 30000 = 280000
+    expect(computeSegmentEncodeTimeoutMs(20.79, 30, 2)).toBe(280000)
   })
 
-  it('超长片段封顶 5min', () => {
-    expect(computeSegmentEncodeTimeoutMs(600, 60)).toBe(300000)
+  it('降档后预算随工作倍率下降，避免无谓延长重试', () => {
+    expect(computeSegmentEncodeTimeoutMs(6.42, 30, 2)).toBe(108000)
+    expect(computeSegmentEncodeTimeoutMs(6.42, 30, 1.5)).toBe(74000)
+    expect(computeSegmentEncodeTimeoutMs(6.42, 30, 1)).toBe(60000)
+  })
+
+  it('超长片段封顶 10min', () => {
+    expect(computeSegmentEncodeTimeoutMs(600, 60)).toBe(600000)
   })
 
   it('缺省时长/帧率使用安全默认值且不低于下限', () => {
-    expect(computeSegmentEncodeTimeoutMs(null, undefined)).toBe(30000)
-    expect(computeSegmentEncodeTimeoutMs(undefined, null)).toBe(30000)
+    expect(computeSegmentEncodeTimeoutMs(null, undefined)).toBe(66000)
+    expect(computeSegmentEncodeTimeoutMs(undefined, null)).toBe(60000)
   })
 })
 

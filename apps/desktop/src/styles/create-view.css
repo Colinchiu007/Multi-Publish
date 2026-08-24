@@ -313,7 +313,23 @@
 /* 流水线启动页底部操作条：脱离内容流并固定在主工作区底部。 */
 .action-bar { position: fixed; left: var(--yixiaoer-sidebar-width, 200px); right: 0; bottom: 0; z-index: 110; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; min-height: var(--pipeline-action-bar-space, 88px); padding: 14px max(20px, calc((100vw - var(--yixiaoer-sidebar-width, 200px) - 1080px) / 2 + 32px)); border-top: 1px solid var(--hairline, rgba(0,0,0,0.06)); background: var(--surface, #fff); box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
 .action-bar > div { min-width: 0; }
-.s2v-options-toast { position: absolute; right: 16px; bottom: calc(100% + 10px); font-size: 12px; color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 4px 10px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out; }
+.s2v-options-toast { position: fixed; left: max(calc(var(--yixiaoer-sidebar-width, 200px) + 16px), 16px); right: 16px; bottom: calc(var(--pipeline-action-bar-space, 88px) + 16px); z-index: 2500; width: fit-content; max-width: min(720px, calc(100vw - 32px)); font-size: 12px; color: var(--banner-success-text); background: var(--banner-success-bg); border: 1px solid var(--banner-success-text); border-radius: 6px; padding: 8px 12px; white-space: normal; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); animation: s2v-toast-fade 1.6s ease-in-out both; }
+
+/* 统一流水线进度弹窗：内容滚动，阶段列表不再嵌套第二个滚动容器。 */
+.pipeline-progress-modal-content { min-width: 0; }
+.pipeline-progress-modal-content .stage-progress { position: relative; top: auto; z-index: auto; background: var(--apple-surface-primary, var(--surface, #fff)); padding: 0; margin: 0; }
+.pipeline-progress-modal-content .stages-list { max-height: none; overflow: visible; gap: 10px; }
+.pipeline-progress-modal-content .stages-sticky-header { position: sticky; top: 0; z-index: 1; padding: 4px 0 10px; background: var(--apple-surface-primary, var(--surface, #fff)); }
+.pipeline-progress-modal-content .stage-status { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; text-align: right; }
+.pipeline-progress-basic { display: flex; align-items: center; gap: 10px; margin: 12px 0 16px; color: var(--text, #333); font-size: 13px; font-weight: 600; }
+.pipeline-progress-basic-track { flex: 1; min-width: 0; height: 8px; overflow: hidden; background: var(--border, #dcdfe6); border-radius: 4px; }
+.pipeline-progress-basic-fill { height: 100%; background: var(--primary, #2563eb); border-radius: inherit; transition: width 0.3s ease; }
+.pipeline-progress-checkpoint { margin: 12px 0; padding: 10px 12px; color: var(--banner-warning-color, #7c4a03); background: var(--banner-warning-bg, #fff4ce); border: 1px solid var(--banner-warning-border, #e7c56a); border-radius: 6px; line-height: 1.5; overflow-wrap: anywhere; }
+.pipeline-progress-status-error { margin: 12px 0; padding: 10px 12px; color: var(--banner-error-text, #9f1239); background: var(--banner-error-bg, #fff1f2); border: 1px solid var(--banner-error-border, #fecdd3); border-radius: 6px; line-height: 1.5; overflow-wrap: anywhere; }
+.pipeline-progress-empty { margin: 12px 0; padding: 18px 12px; color: var(--text-muted, #6b7280); border: 1px dashed var(--border, #dcdfe6); border-radius: 6px; text-align: center; line-height: 1.5; }
+.pipeline-progress-manual-hint { flex: 1; min-width: 0; color: var(--text-muted, #6b7280); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.ui-modal-progress .provider-warning-banner, .ui-modal-progress .bgm-skipped-notice { margin-bottom: 12px; }
+.ui-modal-progress .s2v-scene-asset-panel { margin-bottom: 8px; }
 @keyframes s2v-toast-fade { 0% { opacity: 0; } 12% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; } }
 .voice-clone-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: transparent; font-size: 14px; font-weight: 600; cursor: pointer; padding: 2px 0; }
 .voice-clone-toggle-icon { font-size: 12px; color: var(--text-muted, #888); }
@@ -367,6 +383,7 @@
   .mode-tabs { overflow-x: auto; }
   .config-grid { grid-template-columns: 1fr; }
   .action-bar { left: 68px; min-height: var(--pipeline-action-bar-space-mobile, 136px); padding: 10px 14px; align-items: flex-start; }
+  .s2v-options-toast { left: 84px; bottom: calc(var(--pipeline-action-bar-space-mobile, 136px) + 12px); max-width: calc(100vw - 100px); }
   .action-bar .running-controls, .action-bar > div:first-of-type { width: 100%; }
   .btn-start { width: 100%; }
 }

@@ -382,7 +382,9 @@ const qrImageSource = computed(() => {
 
 const allPlatforms = computed(() => platformStore.platforms.map(item => ({ id: item.id, label: item.label })))
 const totalAccounts = computed(() => accountStore.accounts.length)
-const qrAvailable = computed(() => platformStore.supportsQrCode(newPlatform.value))
+const qrAvailable = computed(() =>
+  platformStore.supportsQrCode(newPlatform.value) || newPlatform.value === 'kuaishou'
+)
 const sortOrderLabel = computed(() => accountStore.sortOrder === 'desc' ? t('accountsPage.sortDesc') : t('accountsPage.sortAsc'))
 
 function shouldShowAuthorizationGuide () {

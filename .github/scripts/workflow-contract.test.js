@@ -7,6 +7,7 @@ const yaml = require('js-yaml');
 const workflowPath = path.join(__dirname, '..', 'workflows', 'visual-test.yml');
 const qualityGatePath = path.join(__dirname, '..', 'workflows', 'quality-gate.yml');
 const agentJudgePath = path.join(__dirname, '..', 'workflows', 'agent-judge.yml');
+const buildWorkflowPath = path.join(__dirname, '..', 'workflows', 'build.yml');
 const desktopPackagePath = path.join(__dirname, '..', '..', 'apps', 'desktop', 'package.json');
 const desktopVitestConfigPath = path.join(__dirname, '..', '..', 'apps', 'desktop', 'vitest.config.js');
 const rootPackagePath = path.join(__dirname, '..', '..', 'package.json');
@@ -42,14 +43,31 @@ test('Quality Gate Gate 8 在真实浏览器扫描前执行 manual 控件合同�
 
   assert.ok(gate8, 'Gate 8 workflow step must exist');
   assert.match(gate8, /node apps\/desktop\/tests\/e2e\/helpers\/route-functional-suite\.test\.js/);
+  assert.match(gate8, /node apps\/desktop\/tests\/e2e\/helpers\/functional-runner\.test\.js/);
   assert.ok(
     gate8.indexOf('route-functional-suite.test.js') < gate8.indexOf('pnpm.cmd --filter @multi-publish/desktop run test:e2e'),
     'manual 控件合同测试必须先于真实 Browser E2E',
   );
+  assert.ok(
+    gate8.indexOf('functional-runner.test.js') < gate8.indexOf('pnpm.cmd --filter @multi-publish/desktop run test:e2e'),
+    '导航恢复合同测试必须先于真实 Browser E2E',
+  );
   assert.match(gate8, /\$contractExit\s*=\s*\$LASTEXITCODE/);
   assert.match(gate8, /if \(\$contractExit -ne 0\) \{ exit \$contractExit \}/);
+  assert.match(gate8, /\$runnerContractExit\s*=\s*\$LASTEXITCODE/);
+  assert.match(gate8, /if \(\$runnerContractExit -ne 0\) \{ exit \$runnerContractExit \}/);
   assert.match(gate8, /\$e2eExit\s*=\s*\$LASTEXITCODE/);
   assert.match(gate8, /finally\s*\{[\s\S]*?taskkill \/PID \$viteProcess\.Id \/T \/F/);
+});
+
+test('Windows 打包电影工程 E2E 先运行终态观察合同', () => {
+  const workflow = fs.readFileSync(buildWorkflowPath, 'utf8');
+  const contractIndex = workflow.indexOf('node apps/desktop/tests/e2e/film-engineering-real.test.js');
+  const e2eIndex = workflow.indexOf('pnpm --filter @multi-publish/desktop test:e2e:film-engineering');
+
+  assert.ok(contractIndex >= 0, 'Windows build 必须运行电影工程 E2E 终态观察合同');
+  assert.ok(e2eIndex >= 0, 'Windows build 必须运行电影工程真实 E2E');
+  assert.ok(contractIndex < e2eIndex, '终态观察合同必须先于电影工程真实 E2E');
 });
 
 test('桌面覆盖率门禁串行运行，避免全量 V8 coverage 资源竞争', () => {
@@ -160,14 +178,15 @@ const CI_IGNORED_PATHS = [
   'openspec/**',
 ];
 
-test('CI 路径门控：全量 workflow 的 pull_request 使用同一 paths-ignore 白名单', () => {
+test('CI 路径门控：全量 workflow 的 main PR 不得用 paths-ignore 跳过必需检查', () => {
   const names = ['build.yml', 'electron-ci.yml', 'quality-gate.yml'];
   for (const name of names) {
     const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', name), 'utf8'));
-    assert.deepEqual(
+    assert.deepEqual(wf.on.pull_request.branches, ['main']);
+    assert.equal(
       wf.on.pull_request['paths-ignore'],
-      CI_IGNORED_PATHS,
-      `${name} 的 pull_request.paths-ignore 必须与 CI_IGNORED_PATHS 一致`,
+      undefined,
+      `${name} 的 pull_request 不得过滤文档/流程 PR，否则 required check 会缺失`,
     );
   }
 });
@@ -184,12 +203,15 @@ test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', (
   }
 });
 
-test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => {
+test('Doc Gate 对所有 main PR 运行真实文档与测试门禁', () => {
   const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'doc-gate.yml'), 'utf8'));
-  const ignored = wf.on.pull_request['paths-ignore'];
-  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**', 'package.json', 'pnpm-lock.yaml', 'nx.json', 'packages/*/vitest.config.js']) {
-    assert.ok(ignored.includes(dir), `doc-gate paths-ignore 必须包含 ${dir}`);
-  }
+  assert.deepEqual(wf.on.pull_request.branches, undefined);
+  assert.deepEqual(wf.on.pull_request.types, ['opened', 'synchronize', 'reopened']);
+  assert.equal(
+    wf.on.pull_request['paths-ignore'],
+    undefined,
+    'doc-gate 不得过滤 docs-only 或 CI-only PR，否则 required check 会缺失',
+  );
 });
 
 test('Nx affected 引入契约：nx 配置与 quality-gate 双模式', () => {
@@ -204,7 +226,8 @@ test('Nx affected 引入契约：nx 配置与 quality-gate 双模式', () => {
   const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
   assert.deepEqual(wf.on.push.branches, ['main']);
   assert.deepEqual(wf.on.push['paths-ignore'], CI_IGNORED_PATHS);
-  assert.deepEqual(wf.on.pull_request['paths-ignore'], CI_IGNORED_PATHS);
+  assert.deepEqual(wf.on.pull_request.branches, ['main']);
+  assert.equal(wf.on.pull_request['paths-ignore'], undefined);
   assert.ok(Object.keys(wf.on).includes('workflow_dispatch'), 'quality-gate 必须保留 workflow_dispatch');
 
   const src = fs.readFileSync(qualityGatePath, 'utf8');

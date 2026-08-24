@@ -1,0 +1,3 @@
+schema: spec-driven
+created: 2026-08-24
+goal: Eliminate structural BLOCKED states caused by path-filtered required workflows.

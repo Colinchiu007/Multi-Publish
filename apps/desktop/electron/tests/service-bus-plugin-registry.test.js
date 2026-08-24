@@ -93,6 +93,25 @@ it('ServiceBus.optimizePrompt 委托 promptBridge.optimize', async function () {
   expect(promptBridge.optimize).toHaveBeenCalledWith({ prompt: '一只猫', style: 'cinematic' }, undefined);
 });
 
+it('ServiceBus.optimizePrompt 仅在传入 providerRunContext 时透传内部运行参数', async function () {
+  const promptBridge = makeMockPromptBridge();
+  const bus = new ServiceBus({
+    pythonBridge: makeMockPythonBridge(),
+    splitterBridge: makeMockSplitterBridge(),
+    promptBridge,
+    log: mockLog,
+  });
+  const providerRunContext = { openIfQuota: vi.fn() };
+
+  await bus.optimizePrompt('一只猫', { providerRunContext });
+
+  expect(promptBridge.optimize).toHaveBeenCalledWith(
+    { prompt: '一只猫' },
+    undefined,
+    { providerRunContext },
+  );
+});
+
 it('ServiceBus.optimizePromptsBatch 委托 promptBridge.optimizeBatch', async function () {
   const promptBridge = makeMockPromptBridge();
   const bus = new ServiceBus({
@@ -109,6 +128,25 @@ it('ServiceBus.optimizePromptsBatch 委托 promptBridge.optimizeBatch', async fu
     { prompt: 'prompt1', style: 'cinematic' },
     { prompt: 'prompt2', style: 'cinematic' },
   ], undefined);
+});
+
+it('ServiceBus.optimizePromptsBatch 仅在传入 providerRunContext 时透传内部运行参数', async function () {
+  const promptBridge = makeMockPromptBridge();
+  const bus = new ServiceBus({
+    pythonBridge: makeMockPythonBridge(),
+    splitterBridge: makeMockSplitterBridge(),
+    promptBridge,
+    log: mockLog,
+  });
+  const providerRunContext = { openIfQuota: vi.fn() };
+
+  await bus.optimizePromptsBatch(['一只猫', '一条狗'], { providerRunContext });
+
+  expect(promptBridge.optimizeBatch).toHaveBeenCalledWith(
+    [{ prompt: '一只猫' }, { prompt: '一条狗' }],
+    undefined,
+    { providerRunContext },
+  );
 });
 
 it('ServiceBus 透传 traceId 且不进 payload（R3）', async function () {

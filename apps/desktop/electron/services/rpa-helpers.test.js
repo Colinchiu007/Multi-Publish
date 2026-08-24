@@ -59,8 +59,8 @@ describe("FieldRetryState", () => {
     const fr = new FieldRetryState(3);
     fr.addField("title");
     expect(fr.hasUnfinished).toBe(true);
-    // NOTE: isDone("title") returns true because (0 || 3) >= 3 is true — original behavior
-    expect(fr.isDone("title")).toBe(true);
+    // 新字段尚未达到 retryCount，isDone 应为 false
+    expect(fr.isDone("title")).toBe(false);
   });
 
   it("markDone sets field to retryCount", () => {
@@ -101,11 +101,11 @@ describe("FieldRetryState", () => {
     const { FieldRetryState } = require("../services/rpa-field-retry");
     const fr = new FieldRetryState(2);
     fr.addField("title");
-    // NOTE: (0 || 2) >= 2 = true — original code treats 0 as retryCount
-    expect(fr.isDone("title")).toBe(true);
-    fr.retry("title");  // 0→1, isDone = 1 >= 2 = false
+    // 0 < 2 尚未完成
     expect(fr.isDone("title")).toBe(false);
-    fr.retry("title");  // 1→2, isDone = 2 >= 2 = true
+    fr.retry("title");  // 0→1 仍 < 2
+    expect(fr.isDone("title")).toBe(false);
+    fr.retry("title");  // 1→2 达到上限
     expect(fr.isDone("title")).toBe(true);  // 1 attempt + 1 retry = 2 ≥ 2
   });
 

@@ -19,12 +19,54 @@
  *      ███│████│██████
  */
 const { EventEmitter } = require('events')
-const { WebContentsView, session, ipcMain } = require('electron')
+const { app, WebContentsView, session, ipcMain } = require('electron')
 const path = require('path')
+const os = require('os')
 const log = require('./logger')
+const credentialStore = require('./credential-store')
 const { PLATFORM_DASHBOARD_URLS, getPlatformName } = require('@multi-publish/shared-utils/src/platform-definitions')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('../ipc-handlers/helpers')
+
+// 账号级持久会话分区标识校验（与 comment-manager 保持一致）
+const SAFE_IDENTIFIER = /^[a-zA-Z0-9_-]+$/
+
+function _getUserDataDir () {
+  try { return app.getPath('userData') } catch (e) { return path.join(os.homedir(), '.multi-publish') }
+}
+
+/**
+ * 将 Playwright 捕获的 Cookie 转成 Electron session.cookies.set 接受的格式。
+ * Playwright 使用 expires / PascalCase sameSite，而 Electron 使用
+ * expirationDate / 小写 sameSite；格式不转换时 cookies.set 会失败并被静默吞掉。
+ * @param {object} cookie
+ * @param {string} fallbackUrl
+ * @returns {object|null}
+ */
+function normalizeElectronCookie (cookie, fallbackUrl) {
+  if (!cookie || typeof cookie !== 'object' || typeof cookie.name !== 'string' || typeof cookie.value !== 'string') return null
+
+  var normalized = Object.assign({}, cookie)
+  if (!normalized.url && !normalized.domain && fallbackUrl) {
+    normalized.url = fallbackUrl
+  } else if (!normalized.url && normalized.domain) {
+    normalized.url = (normalized.secure === false ? 'http' : 'https') + '://' + String(normalized.domain).replace(/^\.+/, '') + '/'
+  }
+  if (!normalized.url) return null
+
+  if (!Number.isFinite(Number(normalized.expirationDate)) && Number.isFinite(Number(normalized.expires)) && Number(normalized.expires) > 0) {
+    normalized.expirationDate = Number(normalized.expires)
+  }
+  delete normalized.expires
+
+  if (typeof normalized.sameSite === 'string') {
+    var sameSite = normalized.sameSite.toLowerCase()
+    normalized.sameSite = sameSite === 'none' ? 'no_restriction' :
+      sameSite === 'strict' ? 'strict' :
+        sameSite === 'lax' ? 'lax' : 'unspecified'
+  }
+  return normalized
+}
 
 // 虚拟登录标签 ID（对齐蚁小二：登录页以全屏标签形式呈现在 TabBar 中）
 const AUTH_TAB_ID = 'auth-login'
@@ -54,10 +96,16 @@ class WebviewManager extends EventEmitter {
     // ─── 虚拟登录标签（对齐蚁小二全屏登录体验）──────────
     /** @type {import('./auth-view-manager')|null} */
     this._authViewManager = null
-    /** @type {{tabId: string, url: string, title: string, platform: string, isLogin: boolean}|null} */
+    /** @type {import('./qrcode-login')|null} */
+    this._qrCodeLogin = null
+    /** @type {{tabId: string, url: string, title: string, platform: string, isLogin: boolean, manager?: object}|null} */
     this._authTabInfo = null
     /** @type {string|null} 打开登录标签前的活动标签，用于关闭后回退 */
     this._authPrevTabId = null
+
+    // AccountManager 持有当前身份 owner_subject，并负责从加密凭证库读取账号会话。
+    // 不在此处直接读取 credential-store，避免绕过身份命名空间。
+    this._accountManager = null
   }
 
   // ─── 虚拟登录标签集成 ──────────────────────────
@@ -69,17 +117,39 @@ class WebviewManager extends EventEmitter {
   attachAuthViewManager (authViewManager) {
     var self = this
     this._authViewManager = authViewManager
-    authViewManager.onOpened = function (info) { self._onAuthViewOpened(info) }
-    authViewManager.onClosed = function () { self._onAuthViewClosed() }
+    authViewManager.onOpened = function (info) { self._onAuthViewOpened(info, authViewManager) }
+    authViewManager.onClosed = function () { self._onAuthViewClosed(authViewManager) }
+  }
+
+  /**
+   * 挂载二维码登录管理器，使扫码页与普通网页登录共用虚拟登录标签生命周期。
+   * @param {Object} qrCodeLogin
+   */
+  attachQrCodeLogin (qrCodeLogin) {
+    if (!qrCodeLogin) return
+    var self = this
+    this._qrCodeLogin = qrCodeLogin
+    qrCodeLogin.onOpened = function (info) { self._onAuthViewOpened(info, qrCodeLogin) }
+    qrCodeLogin.onClosed = function () { self._onAuthViewClosed(qrCodeLogin) }
   }
 
   /**
    * 登录视图打开 → 注入虚拟登录标签并切换为活动标签
    * @param {{platform: string, accountId: string|null, url: string}} info
    */
-  _onAuthViewOpened (info) {
+  _onAuthViewOpened (info, viewManager) {
     var self = this
-    if (!info || self._authTabInfo) return
+    if (!info) return
+
+    // 同一时刻只保留一个登录标签，避免两个 WebContentsView 叠在页面上。
+    if (self._authTabInfo) {
+      if (self._authTabInfo.manager === viewManager) return
+      var previousLoginManager = self._authTabInfo.manager
+      if (previousLoginManager && typeof previousLoginManager.close === 'function') {
+        previousLoginManager.close()
+      }
+      if (self._authTabInfo) return
+    }
 
     var platform = info.platform || ''
     var title = getPlatformName(platform) + '登录'
@@ -91,7 +161,8 @@ class WebviewManager extends EventEmitter {
       isLogin: true,
       loading: false,
       canGoBack: false,
-      canGoForward: false
+      canGoForward: false,
+      manager: viewManager || self._authViewManager
     }
     // 记录回退目标并隐藏所有浏览器标签
     self._authPrevTabId = self._activeTabId
@@ -111,14 +182,19 @@ class WebviewManager extends EventEmitter {
   /**
    * 登录视图关闭 → 移除虚拟登录标签并回退到之前的标签
    */
-  _onAuthViewClosed () {
+  _onAuthViewClosed (viewManager) {
     var self = this
     if (!self._authTabInfo) return
+    if (viewManager && self._authTabInfo.manager && self._authTabInfo.manager !== viewManager) return
 
+    // 用户在登录期间可能已经主动切到另一个标签。此时仅移除虚拟登录标签，
+    // 不应以“恢复原标签”覆盖用户当前的显式选择。
+    var authTabWasActive = self._activeTabId === AUTH_TAB_ID
     self._authTabInfo = null
     var prevTabId = self._authPrevTabId
     self._authPrevTabId = null
     self._broadcast('tab-closed', { tabId: AUTH_TAB_ID })
+    if (!authTabWasActive) return
 
     // 回退：优先恢复之前的浏览器标签，否则回到首页
     if (prevTabId && self._tabViews.has(prevTabId)) {
@@ -153,6 +229,25 @@ class WebviewManager extends EventEmitter {
 
   setMainWindow (win) {
     this.mainWindow = win
+  }
+
+  _getActiveLoginViewManager () {
+    if (this._authTabInfo && this._authTabInfo.manager) return this._authTabInfo.manager
+    return this._authViewManager
+  }
+
+  _hideActiveLoginView () {
+    var loginViewManager = this._getActiveLoginViewManager()
+    if (loginViewManager && typeof loginViewManager.hide === 'function') loginViewManager.hide()
+  }
+
+  /**
+   * 注入账号凭证读取器。启动阶段由 bootstrap 接线，运行时 owner_subject
+   * 由 AccountManager 的身份提供器解析。
+   * @param {object|null} accountManager
+   */
+  setAccountManager (accountManager) {
+    this._accountManager = accountManager || null
   }
 
   // ─── 布局控制 ──────────────────────────────────
@@ -277,9 +372,7 @@ class WebviewManager extends EventEmitter {
    * @param {Object} [opts]
    * @param {string} [opts.url] - 初始 URL（默认 about:blank）
    * @param {Array} [opts.cookies] - 需要恢复的 Cookie 数组
-   * @param {string} [opts.title] - 初始标签标题（默认 New Tab，页面标题加载后覆盖）
-   * @param {string} [opts.accountId] - 账号 ID；合法时复用该账号登录会话分区
-   *   persist:auth-{accountId}（credential-store 第一层），创作者中心打开即已登录
+   * @param {string} [opts.accountId] - 账号 ID（使用按账号持久分区并从加密凭证恢复登录态）
    * @returns {string|null} tabId
    */
   createNewTabPage (opts) {
@@ -287,19 +380,48 @@ class WebviewManager extends EventEmitter {
 
     var self = this
     var tabId = 'btab-' + (++this._tabIdCounter)
-    // 账号会话复用：合法 accountId 使用登录分区（与 auth-view-session.createSession 一致）；
-    // 含非法字符时一律回退独立浏览分区，避免污染或串用其他账号会话
-    var accountId = opts && typeof opts.accountId === 'string' ? opts.accountId.trim() : ''
-    var partition = /^[A-Za-z0-9_-]+$/.test(accountId)
-      ? 'persist:auth-' + accountId
+    var platform = (opts && opts.platform) || ''
+    var initialUrl = (opts && opts.url) || 'about:blank'
+    // 账号级标签使用按账号持久化的 session 分区，保持创作者中心登录态
+    var accountId = (opts && opts.accountId) || null
+    var useAccountSession = typeof accountId === 'string' && SAFE_IDENTIFIER.test(accountId)
+    var partition = useAccountSession
+      ? 'persist:account-' + accountId
       : 'persist:browse-' + tabId
     var viewSession = session.fromPartition(partition, { cache: true })
+    var cookieRestorations = []
 
-    // 恢复 Cookie
+    // 从当前身份命名空间的加密凭证恢复账号会话。旧版本没有 AccountManager
+    // 接线时回退到 legacy credential-store，兼容已有本地账号。
+    var accountCredential = null
+    if (useAccountSession) {
+      try {
+        if (this._accountManager && typeof this._accountManager.loadSavedCredentials === 'function') {
+          accountCredential = this._accountManager.loadSavedCredentials(accountId, platform)
+        } else {
+          accountCredential = credentialStore.loadCredential(accountId, _getUserDataDir())
+        }
+      } catch (e) { accountCredential = null }
+      var credCookies = (accountCredential && Array.isArray(accountCredential.cookies)) ? accountCredential.cookies : []
+      var initialUrlForCookies = initialUrl === 'about:blank' ? '' : initialUrl
+      for (var ci = 0; ci < credCookies.length; ci++) {
+        var cookieToSet = normalizeElectronCookie(credCookies[ci], initialUrlForCookies)
+        if (!cookieToSet) continue
+        try {
+          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(cookieToSet)).catch(function () {}))
+        } catch (e) { /* skip invalid */ }
+      }
+    }
+
+    // 恢复调用方明确传入的 Cookie；与账号凭证一样必须等待设置完成。
     if (opts && opts.cookies && opts.cookies.length > 0) {
       var cookies = opts.cookies
       for (var i = 0; i < cookies.length; i++) {
-        try { viewSession.cookies.set(cookies[i]).catch(function () {}) } catch (e) { /* skip invalid */ }
+        var suppliedCookie = normalizeElectronCookie(cookies[i], initialUrl === 'about:blank' ? '' : initialUrl)
+        if (!suppliedCookie) continue
+        try {
+          cookieRestorations.push(Promise.resolve(viewSession.cookies.set(suppliedCookie)).catch(function () {}))
+        } catch (e) { /* skip invalid */ }
       }
     }
 
@@ -320,12 +442,10 @@ class WebviewManager extends EventEmitter {
     self.mainWindow.contentView.addChildView(view)
 
     // 设置初始状态
-    var initialUrl = (opts && opts.url) || 'about:blank'
-    var initialTitle = opts && typeof opts.title === 'string' && opts.title.trim() ? opts.title.trim() : 'New Tab'
     self._tabViews.set(tabId, view)
     self._tabStates.set(tabId, {
       url: initialUrl,
-      title: initialTitle,
+      title: 'New Tab',
       loading: false,
       canGoBack: false,
       canGoForward: false
@@ -340,9 +460,44 @@ class WebviewManager extends EventEmitter {
     // 设置导航监听
     self._setupNav(tabId, view)
 
-    // 加载初始 URL
-    if (initialUrl && initialUrl !== 'about:blank') {
-      view.webContents.loadURL(initialUrl).catch(function () { /* ignore nav errors */ })
+    // 页面加载后恢复账号 localStorage（与 openTab 的凭证恢复模式一致）
+    var credLocalStorage = (accountCredential && accountCredential.localStorage && typeof accountCredential.localStorage === 'object')
+      ? accountCredential.localStorage
+      : null
+    if (credLocalStorage && Object.keys(credLocalStorage).length > 0) {
+      var credLsData = JSON.stringify(credLocalStorage)
+      var localStorageRestored = false
+      view.webContents.on('did-finish-load', function () {
+        if (localStorageRestored) return
+        localStorageRestored = true
+        Promise.resolve(view.webContents.executeJavaScript(
+          '(function() {\n' +
+          '  var data = ' + credLsData + ';\n' +
+          '  Object.keys(data).forEach(function(k) {\n' +
+          '    try { localStorage.setItem(k, data[k]); } catch (e) { /* ignore */ }\n' +
+          '  });\n' +
+          '})()'
+        )).then(function () {
+          // 首次页面可能已按“未登录”状态渲染；写入 token 后重新请求目标页，
+          // 让平台在首个有效应用请求中读取到 localStorage。
+          if (initialUrl && initialUrl !== 'about:blank') {
+            return view.webContents.loadURL(initialUrl).catch(function () {})
+          }
+        }, function () {})
+      })
+    }
+
+    // Cookie 必须在首个导航请求前完成。否则平台会先收到无凭证请求并把标签
+    // 重定向到登录页，随后才写入 Cookie，用户看到的就是“账号已添加但未登录”。
+    var navigateAfterCookies = function () {
+      if (initialUrl && initialUrl !== 'about:blank') {
+        view.webContents.loadURL(initialUrl).catch(function () { /* ignore nav errors */ })
+      }
+    }
+    if (cookieRestorations.length > 0 || useAccountSession) {
+      Promise.all(cookieRestorations).then(navigateAfterCookies, navigateAfterCookies)
+    } else {
+      navigateAfterCookies()
     }
 
     // 调整位置
@@ -366,8 +521,9 @@ class WebviewManager extends EventEmitter {
 
     // 虚拟登录标签：关闭即结束登录会话（触发 onClosed 钩子完成标签清理）
     if (tabId === AUTH_TAB_ID) {
-      if (self._authViewManager) {
-        self._authViewManager.close()
+      var loginViewManager = self._getActiveLoginViewManager()
+      if (loginViewManager && typeof loginViewManager.close === 'function') {
+        loginViewManager.close()
         return true
       }
       return false
@@ -433,8 +589,8 @@ class WebviewManager extends EventEmitter {
 
     // Home tab：隐藏所有 WebContentsView，显示 router-view
     if (tabId === self._homeTabId) {
-      if (self._activeTabId === AUTH_TAB_ID && self._authViewManager) {
-        self._authViewManager.hide()
+      if (self._activeTabId === AUTH_TAB_ID) {
+        self._hideActiveLoginView()
       }
       self._hideAllTabs()
       self._activeTabId = tabId
@@ -448,9 +604,10 @@ class WebviewManager extends EventEmitter {
 
     // 虚拟登录标签：显示登录视图，隐藏浏览器标签
     if (tabId === AUTH_TAB_ID) {
-      if (!self._authTabInfo || !self._authViewManager) return false
+      var loginViewManager = self._getActiveLoginViewManager()
+      if (!self._authTabInfo || !loginViewManager || typeof loginViewManager.show !== 'function') return false
       self._hideAllTabs()
-      self._authViewManager.show()
+      loginViewManager.show()
       self._activeTabId = tabId
       self._broadcast('tab-switched', {
         tabId: tabId,
@@ -464,8 +621,8 @@ class WebviewManager extends EventEmitter {
     if (!self._tabViews.has(tabId)) return false
 
     // 离开登录标签时隐藏登录视图
-    if (self._activeTabId === AUTH_TAB_ID && self._authViewManager) {
-      self._authViewManager.hide()
+    if (self._activeTabId === AUTH_TAB_ID) {
+      self._hideActiveLoginView()
     }
 
     // 隐藏当前活动标签
@@ -691,7 +848,7 @@ class WebviewManager extends EventEmitter {
 
     if (!isUrl) {
       // 检测不带协议的域名（如 example.com）
-      if (/^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(query)) {
+      if (/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(query)) {
         isUrl = true
         query = 'https://' + query
       }
@@ -844,8 +1001,9 @@ class WebviewManager extends EventEmitter {
     // 登录标签活动态：登录视图由 AuthViewManager 自行定位（全屏 y=76），
     // 浏览器标签保持隐藏，不做布局
     if (this._activeTabId === AUTH_TAB_ID && this._authTabInfo) {
-      if (this._authViewManager && typeof this._authViewManager._onWindowResize === 'function') {
-        this._authViewManager._onWindowResize()
+      var loginViewManager = this._getActiveLoginViewManager()
+      if (loginViewManager && typeof loginViewManager._onWindowResize === 'function') {
+        loginViewManager._onWindowResize()
       }
     } else if (this._tabViews.size > 0) {
       // 处理浏览器标签页（新系统）
@@ -890,24 +1048,24 @@ class WebviewManager extends EventEmitter {
         positions.push({ x: 0, y: NAV_HEIGHT, width: W, height: H })
         break
       case 2: {
-        var hw = Math.floor((W - GAP) / 2)
+        const hw = Math.floor((W - GAP) / 2)
         positions.push({ x: 0, y: NAV_HEIGHT, width: hw, height: H })
         positions.push({ x: hw + GAP, y: NAV_HEIGHT, width: W - hw - GAP, height: H })
         break
       }
       case 3: {
-        var hw = Math.floor((W - GAP) / 2)
-        var hh = Math.floor((H - GAP) / 2)
+        const hw = Math.floor((W - GAP) / 2)
+        const hh = Math.floor((H - GAP) / 2)
         positions.push({ x: 0, y: NAV_HEIGHT, width: hw, height: hh })
         positions.push({ x: hw + GAP, y: NAV_HEIGHT, width: W - hw - GAP, height: hh })
         positions.push({ x: 0, y: NAV_HEIGHT + hh + GAP, width: W, height: H - hh - GAP })
         break
       }
       case 4: {
-        var hw = Math.floor((W - GAP) / 2)
-        var hh = Math.floor((H - GAP) / 2)
-        var y1 = NAV_HEIGHT
-        var y2 = NAV_HEIGHT + hh + GAP
+        const hw = Math.floor((W - GAP) / 2)
+        const hh = Math.floor((H - GAP) / 2)
+        const y1 = NAV_HEIGHT
+        const y2 = NAV_HEIGHT + hh + GAP
         positions.push({ x: 0, y: y1, width: hw, height: hh })
         positions.push({ x: hw + GAP, y: y1, width: W - hw - GAP, height: hh })
         positions.push({ x: 0, y: y2, width: hw, height: H - hh - GAP })
@@ -915,10 +1073,10 @@ class WebviewManager extends EventEmitter {
         break
       }
       case 6: {
-        var tw = Math.floor((W - 2 * GAP) / 3)
-        var hh = Math.floor((H - GAP) / 2)
-        for (var r = 0; r < 2; r++) {
-          for (var c = 0; c < 3; c++) {
+        const tw = Math.floor((W - 2 * GAP) / 3)
+        const hh = Math.floor((H - GAP) / 2)
+        for (let r = 0; r < 2; r++) {
+          for (let c = 0; c < 3; c++) {
             positions.push({
               x: c * (tw + GAP),
               y: NAV_HEIGHT + r * (hh + GAP),

@@ -10,10 +10,14 @@ const { getPlatformName } = require('@multi-publish/shared-utils/src/platform-de
 __enableElectronMock()
 
 let WebviewManager, AUTH_TAB_ID
+const credentialLoadMock = vi.fn(() => null)
 
 beforeEach(async () => {
   vi.resetModules()
   __resetElectronMock()
+  __registerMock('./logger', { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })
+  __registerMock('./credential-store', { loadCredential: credentialLoadMock })
+  patchViewAndSessionMocks()
   const mod = await import('./webview-manager.js')
   WebviewManager = mod.default || mod
   AUTH_TAB_ID = mod.AUTH_TAB_ID
@@ -59,6 +63,17 @@ function createManagerWithBrowserTab () {
 }
 
 function createFakeAuthViewManager () {
+  return {
+    show: vi.fn(),
+    hide: vi.fn(),
+    close: vi.fn(),
+    onOpened: null,
+    onClosed: null,
+    _onWindowResize: vi.fn()
+  }
+}
+
+function createFakeQrCodeLogin () {
   return {
     show: vi.fn(),
     hide: vi.fn(),
@@ -231,48 +246,310 @@ describe('WebviewManager 虚拟登录标签（蚁小二对标）', () => {
     expect(() => wm.resize()).not.toThrow()
     expect(wm.getAllTabs().find(t => t.tabId === AUTH_TAB_ID)).toBeUndefined()
   })
+
+  it('二维码登录接入同一个虚拟登录标签，打开时隐藏现有创作者中心', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    const qrCodeLogin = createFakeQrCodeLogin()
+    wm.attachQrCodeLogin(qrCodeLogin)
+
+    qrCodeLogin.onOpened({
+      platform: 'kuaishou',
+      accountId: 'auth-kuaishou-1',
+      url: 'https://passport.kuaishou.com/',
+    })
+
+    expect(view.setVisible).toHaveBeenCalledWith(false)
+    expect(wm._activeTabId).toBe(AUTH_TAB_ID)
+    expect(wm.getActiveTab()).toMatchObject({
+      tabId: AUTH_TAB_ID,
+      isLogin: true,
+      title: getPlatformName('kuaishou') + '登录',
+    })
+  })
+
+  it('二维码登录关闭后恢复原标签；切换和关闭只操作二维码视图', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    const auth = createFakeAuthViewManager()
+    const qrCodeLogin = createFakeQrCodeLogin()
+    wm.attachAuthViewManager(auth)
+    wm.attachQrCodeLogin(qrCodeLogin)
+    qrCodeLogin.onOpened({
+      platform: 'kuaishou',
+      accountId: 'auth-kuaishou-1',
+      url: 'https://passport.kuaishou.com/',
+    })
+
+    expect(wm.closeTab(AUTH_TAB_ID)).toBe(true)
+    expect(qrCodeLogin.close).toHaveBeenCalledTimes(1)
+    expect(auth.close).not.toHaveBeenCalled()
+
+    wm.switchToTab('btab-1')
+    expect(qrCodeLogin.hide).toHaveBeenCalledTimes(1)
+    expect(wm.switchToTab(AUTH_TAB_ID)).toBe(true)
+    expect(qrCodeLogin.show).toHaveBeenCalledTimes(1)
+    wm.resize()
+    expect(qrCodeLogin._onWindowResize).toHaveBeenCalledTimes(1)
+
+    qrCodeLogin.onClosed()
+    expect(wm._activeTabId).toBe('btab-1')
+    expect(view.setVisible).toHaveBeenLastCalledWith(true)
+  })
+
+  it('后台扫码会话结束时保留用户后来主动选择的标签', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const qrCodeLogin = createFakeQrCodeLogin()
+    const laterView = createBrowserView()
+    wm._tabViews.set('btab-2', laterView)
+    wm._tabStates.set('btab-2', {
+      url: 'https://cp.kuaishou.com/article/publish/video',
+      title: '快手创作者中心',
+      loading: false,
+      canGoBack: false,
+      canGoForward: false
+    })
+    wm.attachQrCodeLogin(qrCodeLogin)
+
+    qrCodeLogin.onOpened({
+      platform: 'kuaishou',
+      accountId: 'auth-kuaishou-1',
+      url: 'https://passport.kuaishou.com/',
+    })
+    expect(wm.switchToTab('btab-2')).toBe(true)
+
+    qrCodeLogin.onClosed()
+
+    expect(wm._authTabInfo).toBeNull()
+    expect(wm._activeTabId).toBe('btab-2')
+    expect(laterView.setVisible).toHaveBeenLastCalledWith(true)
+  })
 })
 
-describe('WebviewManager createNewTabPage 账号会话分区（创作者中心全屏标签）', () => {
-  function createManager () {
+function patchViewAndSessionMocks () {
+  __electronMock.WebContentsView = function (opts) {
+    this._opts = opts || {}
+    const handlers = {}
+    this.webContents = {
+      _handlers: handlers,
+      on: function (evt, fn) { handlers[evt] = fn },
+      once: function () {},
+      canGoBack: function () { return false },
+      canGoForward: function () { return false },
+      loadURL: vi.fn(function () { return Promise.resolve() }),
+      executeJavaScript: vi.fn(function () { return Promise.resolve() }),
+      isDestroyed: function () { return false },
+    }
+    this.setBounds = vi.fn()
+    this.setVisible = vi.fn()
+  }
+  const partitions = []
+  __electronMock.session._partitions = partitions
+  __electronMock.session.fromPartition = function (partition) {
+    const created = {
+      partition,
+      cookies: {
+        setCalls: [],
+        set: function (cookie) { created.cookies.setCalls.push(cookie); return Promise.resolve() },
+        get: function () { return Promise.resolve([]) },
+      },
+      on: function () {},
+    }
+    partitions.push(created)
+    return created
+  }
+  return partitions
+}
+
+describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
+  beforeEach(() => {
+    credentialLoadMock.mockReset()
+    credentialLoadMock.mockReturnValue(null)
+  })
+
+  it('带 accountId 时使用按账号持久分区并从加密凭证恢复 Cookie', async () => {
+    const partitions = patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({
+      cookies: [{ url: 'https://www.zhihu.com', name: 'session', value: 'abc' }],
+      localStorage: { token: 'xyz' },
+    })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    const tabId = wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-1' })
+
+    expect(tabId).toBeTruthy()
+    expect(credentialLoadMock).toHaveBeenCalledWith('account-1', expect.any(String))
+    const created = partitions[partitions.length - 1]
+    expect(created.partition).toBe('persist:account-account-1')
+    expect(created.cookies.setCalls).toEqual([{ url: 'https://www.zhihu.com', name: 'session', value: 'abc' }])
+  })
+
+  it('身份命名空间凭证优先于 legacy credential-store，适用于所有平台', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+    wm.setAccountManager({
+      loadSavedCredentials: vi.fn(() => ({
+        cookies: [{ domain: '.baijiahao.baidu.com', name: 'BDUSS', value: 'owner-value', secure: true }],
+        localStorage: { token: 'owner-token' },
+      })),
+    })
+
+    wm.createNewTabPage({ url: 'https://baijiahao.baidu.com/', platform: 'baijiahao', accountId: 'baijia-1' })
+
+    expect(credentialLoadMock).not.toHaveBeenCalled()
+    expect(partitions[partitions.length - 1].cookies.setCalls).toEqual([
+      { url: 'https://baijiahao.baidu.com/', domain: '.baijiahao.baidu.com', name: 'BDUSS', value: 'owner-value', secure: true },
+    ])
+  })
+
+  it('账号标签创建会把 platform 传给身份凭证读取器，并等待 Cookie 注入后导航', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const loadSavedCredentials = vi.fn(() => ({
+      cookies: [{ url: 'https://cp.kuaishou.com', name: 'kuaishou_sid', value: 'owner-cookie' }],
+    }))
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+    wm.setAccountManager({ loadSavedCredentials })
+
+    wm.createNewTabPage({ url: 'https://cp.kuaishou.com/article/publish/video', platform: 'kuaishou', accountId: 'ks-1' })
+
+    const view = wm._tabViews.get(wm._activeTabId)
+    expect(loadSavedCredentials).toHaveBeenCalledWith('ks-1', 'kuaishou')
+    expect(view.webContents.loadURL).not.toHaveBeenCalled()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(view.webContents.loadURL).toHaveBeenCalledWith('https://cp.kuaishou.com/article/publish/video')
+    expect(partitions[partitions.length - 1].cookies.setCalls).toEqual([
+      { url: 'https://cp.kuaishou.com', name: 'kuaishou_sid', value: 'owner-cookie' },
+    ])
+  })
+
+  it('凭证缺少 url 的 Cookie 以初始页面 URL 补齐后再注入', async () => {
+    const partitions = patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({ cookies: [{ name: 'sid', value: 'v1' }] })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://creator.douyin.com', accountId: 'acc_2' })
+
+    const created = partitions[partitions.length - 1]
+    expect(created.cookies.setCalls).toEqual([{ url: 'https://creator.douyin.com', name: 'sid', value: 'v1' }])
+  })
+
+  it('页面加载完成后恢复凭证中的 localStorage', async () => {
+    patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({ localStorage: { token: 'xyz' } })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-1' })
+
+    const activeView = wm._tabViews.get(wm._activeTabId)
+    activeView.webContents._handlers['did-finish-load']()
+    expect(activeView.webContents.executeJavaScript).toHaveBeenCalled()
+    const script = activeView.webContents.executeJavaScript.mock.calls[0][0]
+    expect(script).toContain('"token":"xyz"')
+    await Promise.resolve()
+    expect(activeView.webContents.loadURL).toHaveBeenCalledWith('https://creator.zhihu.com')
+  })
+
+  it('将 Playwright Cookie 的 expires/sameSite 转为 Electron 字段', async () => {
+    const partitions = patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({
+      cookies: [{
+        domain: '.baijiahao.baidu.com',
+        name: 'BDUSS',
+        value: 'v1',
+        expires: 1893456000,
+        sameSite: 'Lax',
+      }],
+    })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://baijiahao.baidu.com/', platform: 'baijiahao', accountId: 'baijia-1' })
+
+    expect(partitions[partitions.length - 1].cookies.setCalls).toEqual([{
+      domain: '.baijiahao.baidu.com',
+      name: 'BDUSS',
+      value: 'v1',
+      expirationDate: 1893456000,
+      sameSite: 'lax',
+      url: 'https://baijiahao.baidu.com/',
+    }])
+  })
+
+  it('无 accountId 时保持一次性浏览分区且不读取凭证', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://www.baidu.com' })
+
+    expect(credentialLoadMock).not.toHaveBeenCalled()
+    const created = partitions[partitions.length - 1]
+    expect(created.partition).toMatch(/^persist:browse-btab-\d+$/)
+  })
+
+  it('非法 accountId 或凭证读取失败时静默降级，不阻塞标签创建', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    // 非法 accountId → 降级为一次性浏览分区，不读取凭证
+    const fallbackTabId = wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'bad/../id' })
+    expect(fallbackTabId).toBeTruthy()
+    expect(credentialLoadMock).not.toHaveBeenCalled()
+    expect(partitions[partitions.length - 1].partition).toMatch(/^persist:browse-btab-\d+$/)
+
+    // 合法 accountId 但凭证解密失败 → 仍创建账号分区标签，只是无 Cookie 注入
+    credentialLoadMock.mockReset()
+    credentialLoadMock.mockImplementation(() => { throw new Error('decrypt failed') })
+    const tabId = wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-1' })
+    expect(tabId).toBeTruthy()
+    const created = partitions[partitions.length - 1]
+    expect(created.partition).toBe('persist:account-account-1')
+    expect(created.cookies.setCalls).toEqual([])
+  })
+})
+
+describe('WebviewManager 浏览器标签标题隔离', () => {
+  it('不同 WebContentsView 的 page-title-updated 只更新对应 tab 并广播对应 tabId', () => {
     const wm = new WebviewManager()
     wm.mainWindow = createMainWindow()
     wm._subscribers.add('test-subscriber')
-    wm._homeTabId = 'home'
-    return wm
-  }
 
-  it('合法 accountId 复用登录分区 persist:auth-{accountId} 且初始标题取传入值', () => {
-    const electron = require('electron')
-    const spy = vi.spyOn(electron.session, 'fromPartition')
-    const wm = createManager()
+    const firstTabId = wm.createNewTabPage({ url: 'https://creator.douyin.com' })
+    const secondTabId = wm.createNewTabPage({ url: 'https://cp.kuaishou.com' })
+    const firstView = wm._tabViews.get(firstTabId)
+    const secondView = wm._tabViews.get(secondTabId)
 
-    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com/', accountId: 'acc-001', title: '抖音创作者中心' })
+    firstView.webContents._handlers['page-title-updated']({}, '抖音创作者中心')
+    secondView.webContents._handlers['page-title-updated']({}, '快手创作者服务')
 
-    expect(tabId).toBeTruthy()
-    expect(spy).toHaveBeenCalledWith('persist:auth-acc-001', { cache: true })
-    expect(wm._tabStates.get(tabId).title).toBe('抖音创作者中心')
-  })
-
-  it('非法 accountId 回退独立浏览分区，防止会话串用', () => {
-    const electron = require('electron')
-    const spy = vi.spyOn(electron.session, 'fromPartition')
-    const wm = createManager()
-
-    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com/', accountId: '../evil' })
-
-    expect(tabId).toBeTruthy()
-    expect(spy).toHaveBeenCalledWith('persist:browse-' + tabId, { cache: true })
-  })
-
-  it('未提供 accountId 时使用独立分区且标题回退 New Tab', () => {
-    const electron = require('electron')
-    const spy = vi.spyOn(electron.session, 'fromPartition')
-    const wm = createManager()
-
-    const tabId = wm.createNewTabPage({ url: 'https://creator.douyin.com/' })
-
-    expect(spy).toHaveBeenCalledWith('persist:browse-' + tabId, { cache: true })
-    expect(wm._tabStates.get(tabId).title).toBe('New Tab')
+    expect(wm._tabStates.get(firstTabId).title).toBe('抖音创作者中心')
+    expect(wm._tabStates.get(secondTabId).title).toBe('快手创作者服务')
+    const titleEvents = wm.mainWindow.webContents.send.mock.calls
+      .filter(call => call[0] === 'page-manager:tab-title-updated')
+      .map(call => call[1].data)
+    expect(titleEvents).toEqual([
+      { tabId: firstTabId, title: '抖音创作者中心' },
+      { tabId: secondTabId, title: '快手创作者服务' }
+    ])
   })
 })

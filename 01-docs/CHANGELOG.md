@@ -1,3 +1,31 @@
+## [Unreleased] - 2026-08-24 (纯文档 PR 必需 CI 检查修复)
+
+### CI
+- 所有目标为 main 的 PR（含文档/流程/CI-only）均运行 Quality Gate、Electron CI、双平台 build 和 Doc Gate 的真实 job，避免分支保护把 path-filtered workflow 当作缺失 check。
+- `push main` 的统一路径过滤保持不变，docs-only 提交合并后不重复运行全套 CI；workflow 契约测试区分 PR 全覆盖与 push 去重。
+- Windows Browser E2E 对精确 `net::ERR_NO_BUFFER_SPACE` 导航错误至多重试一次；`goto`、`resetToRoute` 共用该策略，非匹配或第二次错误仍原样失败，快速合同在真实 E2E 前运行。
+- 打包电影工程 E2E 的生成终态等待从 15 秒扩展为 30 秒，确保 Windows fallback 的 `生成失败` 能被真实分类；node:test require 合同不会启动 Electron。
+
+## [Unreleased] - 2026-08-23 (统一进度弹窗范围边界收口)
+
+### 文档
+- 明确统一进度弹窗仅覆盖“有可观察流水线阶段状态”且具备 run 观察/恢复合同的路径；快速渲染 loading、发布 timeline、独立分析状态不套用，不提供伪造的“后台运行/历史可查看”语义。
+- 标记 `CreateHistory.vue` 为废弃组件：`/create/history` 重定向到 `/create?view=history`，独立历史页内嵌进度卡片不得重新接入。
+
+## [Unreleased] - 2026-08-23 (视频流水线进度弹窗与显式后台运行)
+
+### 变更
+- 恢复运行态【后台运行】入口；点击按钮或进度弹窗右上角关闭只停止 renderer 观察、恢复新建任务状态并刷新历史，不调用取消 IPC，主进程任务继续执行并保持并发占用。
+- 将启动页内嵌的完整阶段信息迁移到统一进度弹窗，保留总进度、已用时、全部阶段、阶段详情/子进度、合成时间说明、provider warning、BGM 跳过提示、加载/不可用提示和人工 checkpoint 内容。
+- 进度弹窗禁止遮罩和 Escape 关闭，仅右上角关闭按钮可触发后台脱离；离场含 opacity + scale 缩小动画；固定底部操作条继续可点击。
+- 人工检查点（素材选择、内容策略、waiting_approval、needs_user_input、needsCheckpoint）隐藏后台入口并禁用关闭，避免任务失去继续所需的用户输入。
+- 普通流水线缺少稳定 run identity 时只复用视觉壳和安全清理，不伪造按单任务恢复/取消能力；历史页保留轻量摘要，完整详情统一在控制页弹窗中查看。
+
+### 数据与测试
+- 对 runId、stage 数组/对象、progress 有限值与 `0..100` 范围做归一化；启动、恢复、push、轮询和暂停响应增加 run/request/action generation 与组件存活守卫。
+- 新增 UiModal、CreateView、StageProgress 回归，覆盖 Teleport、遮罩/Escape 策略、后台/关闭等价、人工 checkpoint、底部操作条、非法数值和旧响应竞态。
+- 同步 OpenSpec `s2v-progress-modal-background`、PRD、设计规范、前端 spec、learnings 与 CCG task。
+
 ## [Unreleased] - 2026-08-22 (字幕保护短语与在线结果质量门)
 
 ### 变更

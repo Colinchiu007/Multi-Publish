@@ -1,4 +1,19 @@
+## MiMo TTS 服务商默认音色必须遵循官方 Voice ID（fix-mimo-tts-param-incorrect，2026-08-23）
+
+- **现象**：`run_1787475502069_9888` 的 Story2Video 流水线在 `generate_assets` 语音生成阶段失败，日志为 MiMo `Param Incorrect`；设置使用 `mimo-v2.5-tts` 且未选择具体音色。
+- **第一性原因**：`mimo-tts.js` 初始适配器把空音色归一为 `audio.voice=default`，但 MiMo v2.5 普通 TTS 官方预置音色是 `mimo_default`。
+- **逃逸链**：适配器单测只覆盖显式音色，没有覆盖省略/空字符串的最终序列化请求体；集成/E2E 没有真实 MiMo 参数合同断言；审查没有把默认值和官方文档逐项对照。
+- **修复与预防**：默认值改为 `mimo_default`，新增未传/空字符串请求体回归；以后新增或修改 provider adapter，必须保留官方文档证据，并用最终 `JSON.stringify` 后的请求体覆盖省略值、空值、显式值。Voice Design/Voice Clone 等不同模型必须单独核对模型合同，不得用普通 TTS 默认值推断。
+
 ## Story2Video 克隆音色重试的生产 manager 契约复盘（fix-run-voice-clone-production-contract，2026-08-23）
+## Provider 运行级熔断与克隆音色恢复去重复盘（minimax-provider-circuit-breaker，2026-08-23）
+
+- **现象**：run_1787423931138_9cak 中失效 `voice_id` 触发几十个并发 TTS 各自重克隆；MiniMax 返回余额/Token Plan 错误后，图片、LLM、视频队列仍继续领取任务，把「一次额度耗尽」放大成整批无效请求。
+- **第一性原因**：`tryReCloneVoice` 没有运行级去重；`RATE_LIMIT_PATTERN` 把额度/quota 当限流进入重试；`callAdapter` 未暴露 runtime breaker，导致各阶段各自为战。
+- **逃逸链**：单测覆盖单个重克隆与限流，未覆盖并发共享、额度分类和跨 image/TTS/LLM/video 的队列停止；集成/E2E 未在额度错误后统计上游调用停止；审查把「统一 provider 边界」当成 manager 三参即可，未要求 runtime 控制对象。
+- **系统性漏洞**：provider 错误分类分散在 story2video 本地正则与 provider-error 双实现；运行时控制缺少显式传参通道，队列 worker 领取任务前不检查熔断。
+- **修复与预防**：新增 `ProviderRunContext`（provider 维度、运行内存作用域、voice 恢复去重），`callAdapter` 支持可选第四参并在 quota 时自动 open；`_mapWithConcurrency` 支持 `shouldStart`；PromptBridge 对 quota 禁止 CLI/legacy fallback；断点恢复继续复用已完成产物与新 voice id 映射。后续 provider 调用链改动必须检查 runtime options 透传，新增队列必须支持领取前熔断检查。
+
 
 - **现象**：初次 TTS 因跨账号克隆音色 `voice_id` 无权限失败；重克隆在真实 Electron 中继续失败，测试环境却通过。
 - **第一性原因**：`tryReCloneVoice()` 使用 `manager.getAdapter()`，而生产 `ModelProviderManager` 的公开边界是 `callAdapter(providerId, method, params)`；旧测试 double 恰好暴露了不存在的 `getAdapter()`，掩盖了契约错位。
@@ -272,6 +287,15 @@
 - **教训 1（path-filtered 检查不得列入 required contexts）**：GitHub 分支保护对未命中 path filter 的 workflow 视为「检查缺失」而非「跳过」，任何不触达该路径的 PR 永久 BLOCKED。新增 required check 前必须确认其触发条件覆盖所有会走该分支的 PR 类型；需要全量门禁时用单 workflow 内条件 job（如 quality-gate.yml 的 QG 系列），不要用多个 path-filtered workflow 各自 required。
 - **教训 2（BLOCKED 诊断路径）**：`mergeStateStatus=BLOCKED` 且 statusCheckRollup 无 pending 项时，直接比对分支保护 contexts（`gh api repos/{owner}/{repo}/branches/main/protection`）与 PR head commit 实际 check runs（`gh api .../commits/{sha}/check-runs`），差集即卡点。
 - **教训 3（gh api PATCH 细节）**：`-f strict=false` 会把布尔传成字符串导致 422，改用 `-F strict=false`（类型推断）或 `--input` 原始 JSON；该 PATCH 整体替换 contexts 列表，必须带全量。
+
+---
+
+## 纯文档 PR 被全量 CI 路径过滤永久阻塞复盘（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：PR #1146 仅修改文档、`.ccg` 与流程记录；手动执行 Quality Gate 后 8 个 QG job 全绿，仍因 `electron-tests`、`单元测试 + Lint`、`文档同步检查`、双平台 build 没有 check run 而 `BLOCKED`。
+- **根因**：build/electron-ci/quality-gate 与 doc-gate 的 `pull_request.paths-ignore` 将 docs-only PR 整个 workflow 跳过，但分支保护仍把其中的 job 名称列为 required context。GitHub 对此不会生成“skipped 也满足”的状态，结果是结构性永远缺失。
+- **修复原则**：所有目标为 `main` 的 PR 都执行真实 workflow；仅合并后的 `push main` 保留统一路径过滤，避免同一 docs-only 改动重复消耗 CI。禁止用同名空 job、手动 dispatch 或 status API 伪造绿灯。
+- **回归保护**：`.github/scripts/workflow-contract.test.js` 断言三个全量 workflow 的 PR 不含 `paths-ignore`、main push 忽略清单仍一致，并断言 Doc Gate 对任意 main PR 运行。
 
 ---
 
@@ -13888,3 +13912,30 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 
 - **结论**：交互式终端的 `claude` 可用；偶发的 `codeagent-wrapper` 子进程找不到 `claude` 属于 PATH/启动环境差异，不是 Claude CLI 不可用。
 - **处理**：先在可用终端用 `Get-Command claude`/实际安装目录定位 CLI，再把 CLI 所在目录和正确 Git Bash 路径注入 wrapper 子进程环境；重新运行固定 diff 的只读审查。审查结果必须区分“CLI 可用性”“wrapper 启动成功”和“审查发现已解决”三件事。
+
+## 视频流水线进度弹窗与后台脱离（s2v-progress-modal-background，2026-08-23）
+
+- **交付**：CreateView 运行中的完整阶段信息迁入 `UiModal variant=progress`（960px 上限、body 滚动、modeless、底部 action bar 保持可点击）；恢复【后台运行】，右上关闭与按钮共用 detach，不调用取消、轮询代际失效、恢复新建态并刷新历史；遮罩/Escape 不关闭，离场 scale(0.96) 缩小；人工检查点禁后台化；普通流水线无 runId 时只统一视觉壳。
+- **教训 1（“人工检查点”与“旧版提示”是两个判定）**：初版 `pipelineProgressLegacyCheckpoint` 直接复用 `hasManualPipelineCheckpoint`，导致只有 `waiting_approval`/`needs_user_input` 状态枚举、无旧快照证据时也显示“旧版人工检查点无操作协议”，让用户误以为快照损坏。修正为独立的 `hasLegacyPipelineCheckpointEvidence`（仅 paused+候选素材/requiresCheckpoint/finalize_assets 等证据算 legacy），文案分类与后台化阻断解耦，并补 `not.toContain('旧版人工检查点')` 回归。
+- **教训 2（modeless 窗口不能简单沿用 modal 焦点合同）**：进度弹窗需要底部 action bar 可用，因此 `UiModal` 进度变体不注册全局 ESC/焦点陷阱，`aria-modal=false`；只在 closeDisabled 时把焦点留在 dialog，可关闭时聚焦右上按钮。任何给进度窗补“全局键盘”的行为都会破坏底部操作。
+- **教训 3（普通流水线 identity 缺口不能靠视觉统一掩盖）**：非编排流水线按名称查询状态、启动响应可能无稳定 runId；统一弹窗后若仍显示 run-scoped 后台/恢复会造成串任务。本轮只允许启动响应明确返回 `runId/id` 时提供后台按钮；后续需主进程补充普通流水线 runId/API 合同。
+- **逃逸链**：旧自动后台改造删除按钮但测试只覆盖“无按钮”，没有覆盖“用户需要显式后台出口”；UiModal 遮罩/Escape 默认行为被当作所有弹窗共同合同；检查点文案分类没有独立测试。修复后 281 项定向测试全绿。
+- **预防**：① 进度观察窗/弹窗的新交互必须同时覆盖关闭策略、底层操作条、检查点阻断和离场动画；② 状态机判定不得把“语义分类”与“行为阻断”复用同一函数而不加反向断言；③ CJK 基线行号位移只允许显式更新并核对新增引用。
+
+## 统一进度弹窗范围边界审计（s2v-progress-unify-scope-doc，2026-08-23）
+
+- **结论**：生产可达的实时进度详情由 `CreateView` 进度弹窗承载；历史摘要与恢复入口由 `CreateViewHistory.vue` 承载。`/create/history` 已重定向到 `/create?view=history`，`CreateHistory.vue` 无生产引用，属于废弃组件。
+- **边界**：统一壳按“是否具有可观察流水线阶段状态 + run identity/恢复协议”收敛；快速渲染（Remotion）loading、发布 timeline、独立分析状态不套用，避免无历史恢复协议却声明“后台运行/在历史记录中可查看”。
+- **教训**：UI 统一不等于语义统一；跨页面共用“进度弹窗”前必须确认 runId、阶段合同和历史恢复路径，否则会为轻量任务伪造后台/历史能力。
+## Windows Browser E2E 导航资源耗尽不能靠跳过 CI 掩盖（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：移除 docs-only PR 的路径过滤后，PR #1146 首次执行完整 Gate 8；Windows runner 在 `/accounts` 路由的 `page.goto` 报 `net::ERR_NO_BUFFER_SPACE`，同 run 的账号管理集成流仍通过。
+- **第一性原因**：`FunctionalRunner.goto()` 与 `resetToRoute()` 自 E2E 基础设施引入时都直接执行一次 `page.goto`；Windows 临时 socket buffer 耗尽没有恢复边界，单次瞬态故障直接终止整套扫描。
+- **逃逸链**：此前 docs-only PR 因 `pull_request.paths-ignore` 不运行 Browser E2E（流程缺失）；E2E 覆盖可发现问题但没有针对瞬态导航错误的恢复合同（测试场景缺失）；审查只验证了串行并发控制，未检查底层 Playwright 导航错误分类（审查盲区）。
+- **修复与预防**：仅精确匹配 `net::ERR_NO_BUFFER_SPACE` 时短暂等待并重试一次，第二次与任何其他错误原样抛出；`goto`/`resetToRoute` 共享实现，`waitForAppReady` 只在成功后执行。node:test 覆盖成功恢复、非匹配、不成功耗尽与 reset 路径，并由 Gate 8 在真实浏览器扫描前运行；禁止通过恢复 `paths-ignore`、跳过 Gate 8 或把全部错误重试来掩盖问题。
+## 打包 E2E 必须等待真实终态，不得把临界延迟误报为未知（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：PR #1146 Windows build 的电影工程 E2E 在生成检查处报“未捕获生成结果提示”；artifact `9507479285` 最终消息数组实际含 `生成失败`。`ffmpeg` placeholder fallback 因 Windows 缺失 fontconfig 配置耗时，终态在旧 15 秒窗口后约 70ms 出现。
+- **第一性原因**：`film-engineering-real.js` 的生成 toast 调用把 15 秒作为固定预算，没有把已知打包 fallback 的异步终态纳入观察时间。
+- **逃逸链**：首次同 PR Windows build 更快走“已提交 1 个分镜”，未覆盖慢 fallback（测试场景缺失）；CI artifact 已保留消息但 E2E 没有在失败时用它回判（测试质量不足）；审查侧未对“终态可能在 timeout 边界后出现”做预算核验（审查盲区）。
+- **修复与预防**：生成终态预算固定为 30 秒，仍只接受既有真实终态，超时继续失败；模块用 `require.main` 守卫，`waitForToast` 可由 node:test 直接验证延迟消息。后续打包 E2E 修改终态等待时必须覆盖慢路径、未知超时和模块导入无副作用。

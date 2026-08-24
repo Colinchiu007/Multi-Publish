@@ -9,7 +9,6 @@
 const log = require('./logger')
 const {
   PRESET_PROVIDERS,
-  CATEGORY_LABELS,
   CATEGORIES,
   MULTIMODAL_CAPABILITY_IDS,
 } = require('./model-provider-seeds')
@@ -203,7 +202,13 @@ class ModelProviderManager {
    * @param {object} params - 方法参数
    * @returns {Promise<{code: number, data?: any, message?: string, error?: Error}>}
    */
-  async callAdapter (providerId, method, params = {}) {
+  async callAdapter (providerId, method, params = {}, options = {}) {
+    const providerRunContext = options && typeof options === 'object' ? options.providerRunContext : null
+    const { ProviderCircuitOpenError } = require('./provider-run-context')
+    if (providerRunContext && providerRunContext.isOpen && providerRunContext.isOpen(providerId)) {
+      const failure = providerRunContext.failureOf ? providerRunContext.failureOf(providerId) : null
+      return { code: -1, errorCode: 'PROVIDER_CIRCUIT_OPEN', message: `服务商「${providerId}」已因额度/套餐上限熔断，本次运行已停止该服务商的新请求：${(failure && failure.message) || ''}`, error: new ProviderCircuitOpenError(providerId, failure && failure.message) }
+    }
     if (!this._ready) return { code: -1, errorCode: 'STORE_NOT_INITIALIZED', message: '模型服务尚未初始化，请稍后重试或重启应用。' }
 
     // 检查 Adapter 工厂是否注册
@@ -246,7 +251,23 @@ class ModelProviderManager {
       : (provider.category === 'video' ? 10 * 60 * 1000 : 2 * 60 * 1000)
     const startTime = Date.now()
     try {
+      if (providerRunContext && method === 'cloneVoice' && params && typeof params.name === 'string' && params.name) {
+        const recovery = await withCallTimeout(providerRunContext.cloneVoiceOnce({
+          providerId,
+          voiceId: params.name,
+          fn: () => adapter[method](params),
+        }), timeoutMs, providerId, method)
+        if (recovery.failed) {
+          const error = recovery.error
+          if (providerRunContext && typeof providerRunContext.openIfQuota === 'function') providerRunContext.openIfQuota(providerId, error)
+          return { code: -1, error, message: (error && error.message) || 'voice clone failed' }
+        }
+        return { code: 0, data: { id: recovery.voiceId } }
+      }
       const result = await withCallTimeout(adapter[method](params), timeoutMs, providerId, method)
+      if (providerRunContext && result && typeof result === 'object' && (Number(result.code) < 0 || result.success === false)) {
+        providerRunContext.openIfQuota(providerId, result.error && typeof result.error === 'object' ? result.error : result)
+      }
       const latency_ms = Date.now() - startTime
       this._writeLog(provider, method, 'success', latency_ms, null)
       // 慢响应检测：超过类别阈值 → 记为模型服务异常（供前端提示 + 日志定位）
@@ -277,9 +298,11 @@ class ModelProviderManager {
             kind: e.code === ERROR_CODES.TIMEOUT ? 'timeout' : 'network',
           })
         }
+        if (providerRunContext && typeof providerRunContext.openIfQuota === 'function') providerRunContext.openIfQuota(providerId, e)
         return { code: -1, error: e, message: e.message }
       }
       // 普通 Error 包装
+      if (providerRunContext && typeof providerRunContext.openIfQuota === 'function') providerRunContext.openIfQuota(providerId, e)
       log.error('ModelProviderManager', `callAdapter ${providerId}.${method} failed: ${e.message}`)
       return { code: -1, message: e.message }
     }
@@ -1022,12 +1045,26 @@ class ModelProviderManager {
 
   _clearCapabilityDefaultForCapability (db, capability, excludeProviderId) {
     db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ? AND is_default = 1 AND id != ?').run(capability, excludeProviderId)
-    const multimodalRows = db.prepare('SELECT id, config FROM model_providers WHERE category = ?').all(CATEGORIES.MULTIMODAL)
+    const multimodalRows = db.prepare('SELECT id, is_default, config FROM model_providers WHERE category = ?').all(CATEGORIES.MULTIMODAL)
     for (const row of multimodalRows) {
       if (row.id === excludeProviderId) continue
       const cfg = safeJsonParse(row.config, {}) || {}
-      if (Array.isArray(cfg.capability_defaults) && cfg.capability_defaults.includes(capability)) {
-        cfg.capability_defaults = cfg.capability_defaults.filter(c => c !== capability)
+      const explicitDefaults = Array.isArray(cfg.capability_defaults) ? cfg.capability_defaults : []
+      const hasGlobalDefault = !!row.is_default
+      const declaredCapabilities = Array.isArray(cfg.capabilities) ? cfg.capabilities : []
+      if (!hasGlobalDefault && !explicitDefaults.includes(capability)) continue
+
+      // 旧版“多模态整体默认”相当于其所有已声明能力均为默认。普通 provider
+      // 覆盖其中一个能力时，必须先把其余能力显式保留，再清除整体标记；否则
+      // _multimodalProviderFor 会继续将整体标记视为当前能力默认，导致成功提示与实际路由不一致。
+      const defaultsToKeep = hasGlobalDefault
+        ? Array.from(new Set([...declaredCapabilities, ...explicitDefaults]))
+        : explicitDefaults
+      cfg.capability_defaults = defaultsToKeep.filter(c => c !== capability)
+
+      if (hasGlobalDefault) {
+        db.prepare('UPDATE model_providers SET is_default = 0, config = ? WHERE id = ?').run(JSON.stringify(cfg), row.id)
+      } else {
         db.prepare('UPDATE model_providers SET config = ? WHERE id = ?').run(JSON.stringify(cfg), row.id)
       }
     }

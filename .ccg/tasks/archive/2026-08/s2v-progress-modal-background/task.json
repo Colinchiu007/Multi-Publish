@@ -1,0 +1,23 @@
+{
+  "id": "s2v-progress-modal-background",
+  "title": "视频创作流水线进度弹窗与后台运行入口",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "frontend",
+  "currentPhase": "completed",
+  "nextAction": "已完成归档；功能 PR、归档 PR 与 origin/main 均已核验",
+  "openspecChange": "s2v-progress-modal-background",
+  "branch": "codex/s2v-progress-modal-background",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-s2v-progress-modal-background",
+  "createdAt": "2026-08-23T00:00:00+08:00",
+  "remoteStatus": {
+    "featurePr": 1127,
+    "featureMergeSha": "19a01746e738dcbd489b3ea8f5de4240d2dcffc0",
+    "featureHeadSha": "668a146c84a3e7593040c315ea41766e120f5d0a",
+    "ci": "all required checks passed",
+    "archivePr": 1136,
+    "archiveMergeSha": "ee5e9b57f9b62c15da2ad13def61affbe99b0c02",
+    "archiveStatus": "merged and verified on origin/main"
+  }
+}

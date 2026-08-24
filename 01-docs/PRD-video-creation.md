@@ -3279,6 +3279,27 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 
 总 PRD「视频创作流水线启动即后台运行 §3a」与 OpenSpec s2v-pipeline-always-background 中「启动成功后 renderer 立即停止轮询、恢复初始态、仅历史观察」的条款废弃；「离开页面转后台、重进初始态、并发占槽、检查点例外」维持。以本节为准。
 
+### 3.1.36 Provider 运行级熔断与克隆音色恢复去重（2026-08-23）
+
+**背景**：run_1787423931138_9cak 中失效 `voice_id` 被每个并发 TTS 任务各自重克隆；MiniMax 随即返回余额/Token Plan 额度错误后，图片、文字推理与视频队列仍继续领取并消耗上游额度。
+
+**一、产品规则**
+1. 同一次流水线运行内，同一个 `(providerId, voiceId)` 克隆音色仅允许重克隆一次；并发 TTS 共享同一恢复结果，成功后后续任务复用新 voice id，失败后本运行不再重复克隆。
+2. provider 返回余额不足、Token Plan、usage limit、用量上限等额度/套餐错误时，当前运行立即按 provider 维度熔断；剩余未启动的图片、TTS、LLM、视频和重克隆任务不再调用上游，已在途请求自然收尾。
+3. 熔断仅作用于当前内存运行，不写入 checkpoint；断点恢复继续复用 `resume.completed` / `partialTts` 已完成产物，已恢复的新 voice id 以可序列化字段供后续恢复复用。
+4. 全部 provider/model 统一处理，不做 MiniMax 特判；限流仍允许现有短暂重试，额度错误不进入限流重试。
+
+**二、技术合同**
+1. `ProviderRunContext` 按 provider ID 维护运行级 breaker，经 `getProviderRunContext(context)` 绑定到流水线上下文；`ModelProviderManager.callAdapter` 可选第四参 `{ providerRunContext }`，quota 错误自动打开 breaker，旧三参调用保持兼容。
+2. `_mapWithConcurrency` 支持 `shouldStart`；breaker 打开后未启动队列返回 `{ success: false, skipped: true }`，不执行上游调用。
+3. LLM 直调与 PromptBridge 优化链路共享默认 LLM provider 的 breaker；prompt-engine 出现 quota 错误时禁止 CLI/legacy fallback 再次触发同一 provider。
+4. Story2Video 与 videogen 的图片、TTS、视频提交/轮询、cloneVoice 统一经 runtime options 接入；`tryReCloneVoice` 通过 ProviderRunContext 去重并持久化 `voice_recovery[providerId][voiceId]`。
+
+**三、验收标准**
+1. 同一 run 并发 TTS 遇到同一失效音色时 `cloneVoice` 调用次数为 1；成功后所有任务使用新 voice id，失败后不再重克隆。
+2. 任意 provider quota 错误后，后续同 provider 的 image/TTS/LLM/video/cloneVoice 未启动调用次数为 0。
+3. 断点恢复后已完成图片/音频/视频继续复用，新 voice id 映射可读取；breaker 不复用上次运行状态。
+4. 限流/超时/网络仍按现有重试规则执行；额度错误不重试。
 ### 3.1.36 影视工程提交数据不符合要求与真实 E2E 修复（2026-08-23）
 
 > 范围：修复电影工程分镜复制、导出、剧本套用和生成入口的“提交的数据不符合要求。请检查输入后重试。”，并补齐详情抽屉与 IPC 参数序列化问题。
@@ -3309,18 +3330,32 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 - 真实打包 Electron E2E：新增 apps/desktop/tests/e2e/film-engineering-real.js，命令 `pnpm --filter @multi-publish/desktop test:e2e:film-engineering`，驱动 `dist-electron/win-unpacked/Multi-Publish.exe` 完成 24 项检查。
 - E2E 覆盖：打包启动、入口路由、Hell Grind kit、162 个场景、分镜列表、详情抽屉、单镜/批量复制、JSON/Markdown 导出、剧本套用、方法论、生成入口真实调用。
 - 验证结果：24/24 PASS；film-engineering 页面 pageErrors 为空；生成入口真实产出 `img_0000.png`。
+- CI 门禁：PR #1130 将该真实 E2E 接入 Build & Release Windows job，打包后自动运行并上传报告。
 
 #### 5) 影响范围与未覆盖边界
 
 - 修改文件：electron/ipc-handlers/film-engineering.js、src/composables/useFilmEngineering.js、src/views/FilmEngineeringView.vue、对应测试/apps/desktop/package.json。
 - 生成入口在未配置外部图片 Provider 时走离线 ffmpeg 占位图 fallback；真实外部 Provider 验收不属于本次修复范围。
-- 真实 E2E 脚本为显式运行门禁，未接入默认 `pnpm test:e2e`（该门禁依赖 Vite + mock desktop 环境，不打包 EXE）。
+- 2026-08-23 起，真实 E2E 接入 Build & Release Windows job：打包出 `dist-electron/win-unpacked/Multi-Publish.exe` 后自动运行 `test:e2e:film-engineering` 并上传报告；默认 `pnpm test:e2e` 仍运行 Vite + mock desktop 环境，不打包 EXE。
 
 #### 6) 验收标准
 
 - 分镜复制、批量复制、JSON/Markdown 导出、剧本套用、生成入口不再出现“提交的数据不符合要求”。
 - 点击分镜卡可打开详情抽屉并显示提示词正文。
 - 打包 Electron 应用运行 `test:e2e:film-engineering` 达到 24/24 PASS。
+#### 视频流水线统一进度弹窗与后台脱离合同（2026-08-23）
+
+视频创作页面中只要存在可观察的流水线阶段状态，就使用统一进度弹窗承载完整详情。弹窗采用 `UiModal` 的 progress variant，桌面最大宽度 `960px`，最大高度按视口减去固定操作条空间计算，body 独立滚动；总进度、已用时、摘要、阶段状态/详情/耗时/子进度、合成时间说明、provider warning、BGM 跳过提示、checkpoint 和素材选择均保留。历史页仍显示轻量阶段摘要，不复制可操作的完整进度面板。
+
+启动或历史续跑得到合法非空 `runId` 后，renderer 以该 run 建立 3 秒轮询和 `pipeline:update` 推送观察。用户点击【后台运行】或右上角关闭时，先递增 request/action generation，停止轮询并清除 renderer 展示态，恢复新建任务页面，显示“任务已转入后台运行，在历史记录中可查看”，随后刷新历史；该动作不调用 `pipelineCancel`，不释放主进程并发槽位，后台 run 继续执行。弹窗遮罩和 Escape 均不可关闭，关闭只允许右上角按钮，离场包含缩小缩放。
+
+输入合同：`runId` 必须是 trim 后非空字符串；阶段列表必须为数组；阶段和上下文字段按对象/数组类型守卫；所有 progress 数值必须为有限值并归一化到 `0..100`；JSON 数字字符串可读取，非法值隐藏或安全回退。启动、恢复、轮询、push 和暂停响应均验证 runId、请求代际和组件存活，旧响应不得污染新建状态。
+
+人工检查点是明确例外：`scene_asset_selection`、`content_policy`、`waiting_approval`、`needs_user_input` 或 `needsCheckpoint=true` 时不显示后台按钮，右上角关闭 disabled，弹窗必须保留选择/修改/取消交互；旧快照即使只有状态枚举、没有 checkpoint 对象，也按人工检查点保护。
+
+普通非编排流水线没有稳定 run identity 时只复用该视觉弹窗和安全清理，不声明按 run 的恢复/取消能力；新增此能力必须先补主进程 runId/API 合同和跨端回归。
+
+**范围边界（2026-08-23 审计收口）**：统一进度弹窗合同只覆盖“有可观察流水线阶段状态”的编排流水线前台跟踪、历史续跑前台跟踪，以及获得稳定 run identity 的普通流水线；快速渲染（Remotion）loading、发布 timeline 和独立分析状态不属于该壳，保持各自轻量过程提示，不得原样声明“后台运行/在历史记录中可查看”。`CreateHistory.vue` 已废弃（`/create/history` 重定向到 `/create?view=history`，无生产引用），其内嵌进度卡片不得重新接入；当前唯一的生产历史组件是 `CreateViewHistory.vue`。
 
 
 

@@ -76,6 +76,16 @@ describe('Container setup', () => {
     expect(c.get('rpaViewManager')).toBe(svc);
   });
 
+  test('wires QR code login into the virtual login tab lifecycle', () => {
+    var c = createContainer();
+    var webviewManager = c.get('webviewManager');
+    var qrCodeLogin = c.get('qrCodeLogin');
+
+    expect(webviewManager._qrCodeLogin).toBe(qrCodeLogin);
+    expect(typeof qrCodeLogin.onOpened).toBe('function');
+    expect(typeof qrCodeLogin.onClosed).toBe('function');
+  });
+
   test('dependency injection works', () => {
     var c = createContainer();
     var ci = c.get('contentIntelligence');

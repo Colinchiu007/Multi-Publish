@@ -1,0 +1,24 @@
+{
+  "id": "minimax-provider-circuit-breaker",
+  "title": "Provider 级额度熔断 + 音色重克隆去重",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "electron",
+  "currentPhase": "completed",
+  "nextAction": "已完成归档；功能 PR #1134、归档 PR 与 origin/main 均已核验",
+  "openspecChange": "minimax-provider-circuit-breaker",
+  "createdAt": "2026-08-23T04:30:00Z",
+  "branch": "codex/minimax-provider-circuit-breaker",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-minimax-provider-circuit-breaker",
+  "remoteStatus": {
+    "featurePr": 1134,
+    "featureHeadSha": "d2ed28a50",
+    "featureMergeSha": "7768c9597597ea7ab340dca2cca6db50def81d90",
+    "ci": "all required checks passed",
+    "archivePr": 1138,
+    "archiveMergeSha": "05260fc5fe494442f3c455dff430dc86f212073e",
+    "archiveStatus": "merged and verified on origin/main",
+    "archiveMergedAt": "2026-08-23T08:31:40Z"
+  }
+}

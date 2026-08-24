@@ -91,7 +91,7 @@ platforms:
     icon: 🎬
     category: 中文
     content_category: VIDEO
-    publish_url: "https://cp.kuaishou.com/"
+    publish_url: "https://cp.kuaishou.com/article/publish/video?tabType=1"
     data_url: ""
     comment_url: ""
     cover_size: 1080x1440
@@ -141,11 +141,11 @@ platforms:
   baijiahao:
     id: 4
     name: 百家号
-    type: article
+    type: mixed
     icon: 📖
     category: 中文
-    content_category: IMAGE_TEXT
-    publish_url: "https://baijiahao.baidu.com/"
+    content_category: MIXED
+    publish_url: "https://baijiahao.baidu.com/builder/rc/edit?type=videoV2"
     data_url: ""
     comment_url: ""
     cover_size: 1200x675

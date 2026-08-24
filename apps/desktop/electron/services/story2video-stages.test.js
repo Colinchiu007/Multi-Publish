@@ -16,6 +16,7 @@ const {
   parseVideoSelection,
   clampVideoSelection,
   estimateSceneSeconds,
+  withAssetTransientRetry,
   resolveVideoGeneratorConfig,
   resolveSceneFinalFrame,
   optimizeVideoScenePrompts,
@@ -79,6 +80,10 @@ async function createRecloneFixture() {
     sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' },
     name: '音色001',
   }))
+  const replaceCloneVoiceId = vi.fn(async ({ voiceId, replacementVoiceId }) => ({
+    code: 0,
+    data: { migrated: true, voice: { id: replacementVoiceId }, previousVoiceId: voiceId },
+  }))
   const manager = {
     // Match the production ModelProviderManager contract. It exposes
     // callAdapter(), not getAdapter(), and wraps adapter results in code/data.
@@ -91,6 +96,7 @@ async function createRecloneFixture() {
   }
   const cloneService = {
     findCloneSamples,
+    replaceCloneVoiceId,
     _resolveUserDataPath: () => sampleRoot,
   }
   const container = {
@@ -102,6 +108,7 @@ async function createRecloneFixture() {
     manager,
     cloneVoice,
     findCloneSamples,
+    replaceCloneVoiceId,
     container,
     aiGenerator: { _modelProviderManager: manager },
   }
@@ -120,8 +127,14 @@ function expectRecloneAttempt(fixture) {
       name: 'MiniMaxVoice_original001',
       samples: [expect.objectContaining({ blob: expect.any(Blob) })],
     }),
+    { providerRunContext: expect.any(Object) },
   )
   expect(fixture.cloneVoice).toHaveBeenCalledTimes(1)
+  expect(fixture.replaceCloneVoiceId).toHaveBeenCalledWith(expect.objectContaining({
+    providerId: 'minimax-multimodal',
+    voiceId: 'MiniMaxVoice_original001',
+    replacementVoiceId: 'MiniMaxVoice_recloned123',
+  }))
 }
 
 /**
@@ -1372,6 +1385,25 @@ describe('story2video 内容策略人工处理', () => {
 describe('story2video 限流/瞬时错误有界重试', () => {
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('额度/套餐错误按结果对象不重试，立即返回失败', async () => {
+    const calls = vi.fn()
+    const result = await withAssetTransientRetry(() => {
+      calls()
+      return { code: -1, message: 'Token Plan usage limit reached' }
+    })
+    expect(calls).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ code: -1, message: 'Token Plan usage limit reached' })
+  })
+
+  it('额度/套餐抛错型错误不重试，直接抛出', async () => {
+    const calls = vi.fn()
+    await expect(withAssetTransientRetry(() => {
+      calls()
+      throw new Error('Token Plan usage limit reached')
+    })).rejects.toThrow('Token Plan usage limit reached')
+    expect(calls).toHaveBeenCalledTimes(1)
   })
 
   it('提示词优化遇到限流时用更长退避重试并恢复', async () => {
