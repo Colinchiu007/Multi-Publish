@@ -571,12 +571,13 @@ class AssetGenerator {
     }
 
     let generationAttempts = []
+    const runtimeOptions = opts && opts.providerRunContext ? { providerRunContext: opts.providerRunContext } : undefined
     try {
       const retryResult = await runContentPolicyImageRetry({
         prompt,
         sceneIndex: opts?.index,
         generate: async ({ prompt: attemptPrompt }) => {
-          const result = await this.aiGenerator.generate('image', provider, {
+          const imageParams = {
             prompt: attemptPrompt,
             n: 1,
             batch_size: 1,
@@ -590,7 +591,10 @@ class AssetGenerator {
             model: opts.image_model || opts.imageModel,
             // 面孔/时代负面锚透传（2026-08-16 east-asian-face-anchor）；不消费该键的 adapter 忽略
             ...(opts.negative_prompt ? { negative_prompt: opts.negative_prompt } : {}),
-          })
+          }
+          const result = runtimeOptions
+            ? await this.aiGenerator.generate('image', provider, imageParams, undefined, runtimeOptions)
+            : await this.aiGenerator.generate('image', provider, imageParams)
           const providerError = result?.error || result?.data?.error
           if (providerError && typeof providerError === 'object') throw providerError
           if (result?.success === false || Number(result?.code) < 0) {
@@ -871,6 +875,7 @@ class AssetGenerator {
 
     const cleanText = String(text || '').slice(0, 4000)
     if (!cleanText) return { code: -1, message: 'TTS provider "' + provider + '" requires text' }
+    const runtimeOptions = opts && opts.providerRunContext ? { providerRunContext: opts.providerRunContext } : undefined
     try {
       const selectedVoice = firstNonEmptyString(opts?.voice_id, opts?.voiceId)
       const voiceId = selectedVoice && !['default', 'male', 'female-soft'].includes(selectedVoice)
@@ -884,7 +889,7 @@ class AssetGenerator {
       // 词级时间戳请求：适配器（如 MiniMax subtitle_enable/subtitle_type=word）在支持时
       // 返回 subtitleFile 下载链接，由本方法抓取解析为 timings；不支持/失败时 fail-open。
       const wantTimestamps = opts?.with_timestamps === true || opts?.withTimestamps === true
-      const result = await this.aiGenerator.generate('tts', provider, {
+      const ttsParams = {
         text: cleanText,
         input: cleanText,
         voice: voiceId,
@@ -903,7 +908,10 @@ class AssetGenerator {
         pitch: opts?.pitch,
         emotion: opts?.emotion,
         ...(wantTimestamps ? { withTimestamps: true, subtitleType: 'word', subtitle_type: 'word' } : {}),
-      })
+      }
+      const result = runtimeOptions
+        ? await this.aiGenerator.generate('tts', provider, ttsParams, undefined, runtimeOptions)
+        : await this.aiGenerator.generate('tts', provider, ttsParams)
       const audio = extractProviderAudio(result)
       if (!audio) throw new Error('provider did not return supported binary audio')
 

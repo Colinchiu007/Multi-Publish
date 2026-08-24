@@ -35,7 +35,8 @@ const {
   needsUserInputMessage,
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
-const { ERROR_CODES } = require('./adapters/_base/provider-error');
+const { classifyProviderFailure } = require('./adapters/_base/provider-error');
+const { getProviderRunContext } = require('./provider-run-context');
 const modelCallScheduler = require('./model-call-scheduler');
 const {
   buildPromptEngineOptimizeRequest,
@@ -98,10 +99,61 @@ function getAiGenerator (pipelineEngine) {
 }
 
 /**
+ * 从 LLM 原文提取最后一个可解析且为对象的平衡 JSON（兼容 markdown 代码块、HTML 闭合/未闭合标签、
+ * marker 或说明文字等任意包装，起始 `{` 不被消费）。说明文字/LLM 回显示例本身含花括号时，
+ * 遍历每个 `{` 起点并跳过不可解析片段；取最后一个可解析对象，避免把示例误当最终译文。
+ * 找不到可解析对象时返回 null，调用方回退逐行解析。
+ * @param {string} text
+ * @returns {string|null}
+ */
+function extractParseableJsonObject (text) {
+  if (typeof text !== 'string') return null
+  let best = null
+  for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
+    const candidate = extractBalancedJsonAt(text, start)
+    if (!candidate) continue
+    try {
+      const parsed = JSON.parse(candidate)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) best = candidate
+    } catch (_) { /* 该起点不可解析，继续下一个 */ }
+  }
+  return best
+}
+
+/**
+ * 从指定 `{` 起点扫描首个平衡 JSON 片段；字符串内的花括号与转义不参与深度计数。
+ * 无法闭合时返回 null。
+ * @param {string} text
+ * @param {number} start
+ * @returns {string|null}
+ */
+function extractBalancedJsonAt (text, start) {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null
+}
+
+/**
  * 提示词本地语言翻译（2026-08-12）：非 en 界面为历史记录「画面提示词」旁只读翻译生成。
  * fail-open：LLM 不可用/单场景失败 → 对应项 translation=null，不阻塞流水线。
  */
-async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
+async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log, runtimeOptions) {
   const items = (Array.isArray(prompts) ? prompts : []).map((value, position) => ({
     index: value && typeof value === 'object' && Number.isInteger(value.index) ? value.index : position,
     prompt: typeof value === 'string' ? value : (typeof value?.prompt === 'string' ? value.prompt : ''),
@@ -130,7 +182,7 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
           { role: 'system', content: system },
           { role: 'user', content: '{\n' + joined + '\n}' },
         ],
-      })
+      }, undefined, runtimeOptions)
       let raw = result && typeof result.content === 'string' ? result.content.trim() : ''
       // 剥离 LLM 可能返回的 markdown 代码块包装（```json ... ```），防止 JSON.parse 失败回退时将标记语法当译文
       if (raw) {
@@ -139,10 +191,16 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log) {
       }
       // 优先按 index 对齐的 JSON 解析；失败时回退逐行（编号前缀）映射
       let map = null
-      try {
-        const parsed = JSON.parse(raw)
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed
-      } catch (_) { /* fallthrough */ }
+      // 先提取最后一个可解析的平衡 JSON 对象：LLM 可能用 HTML 闭合/未闭合标签、marker
+      // 或说明文字包裹 JSON，也可能先回显示例再给最终译文；直接 parse 会失败并让逐行
+      // 回退把包裹文本当译文（2026-08-23 双模型审查 W1 加固）。
+      const jsonCandidate = extractParseableJsonObject(raw)
+      if (jsonCandidate) {
+        try {
+          const parsed = JSON.parse(jsonCandidate)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed
+        } catch (_) { /* fallthrough */ }
+      }
       if (map) {
         for (const item of slice) {
           const translated = map[String(item.index)]
@@ -220,7 +278,7 @@ function mergePromptTranslationItems (items, existingItems) {
   }).filter(Boolean)
 }
 
-async function runBoundedPromptTranslation (aiGenerator, pending, log) {
+async function runBoundedPromptTranslation (aiGenerator, pending, log, runtimeOptions) {
   const items = mergePromptTranslationItems(pending?.items, pending?.existingItems)
   const resultItems = items.map((item) => ({ ...item }))
   if (items.length === 0) return { results: resultItems, degraded: false }
@@ -246,6 +304,7 @@ async function runBoundedPromptTranslation (aiGenerator, pending, log) {
         batch.map((item) => ({ index: item.index, prompt: item.prompt })),
         pending.uiLocale,
         log,
+        runtimeOptions,
       )
       const timeoutPromise = new Promise((resolve) => {
         timeoutId = setTimeout(() => resolve(null), timeoutMs)
@@ -293,6 +352,7 @@ function registerPromptTranslationComposeTask (pipelineEngine) {
     const existing = context && context.prompt_translations
     const existingItems = existing && Array.isArray(existing.items) ? existing.items : null
     if ((!pending || !Array.isArray(pending.items) || pending.items.length === 0) && !existingItems) return null
+    const providerRunContext = getProviderRunContext(context || {})
     const aiGenerator = getAiGenerator(pipelineEngine)
     const baseItems = Array.isArray(pending?.items) && pending.items.length > 0
       ? pending.items
@@ -305,7 +365,7 @@ function registerPromptTranslationComposeTask (pipelineEngine) {
     }
     const promise = mergedItems.every((item) => typeof item.translation === 'string' && item.translation.trim())
       ? Promise.resolve({ results: mergedItems, degraded: false })
-      : runBoundedPromptTranslation(aiGenerator, translationPending, pipelineEngine.log)
+      : runBoundedPromptTranslation(aiGenerator, translationPending, pipelineEngine.log, { providerRunContext })
     return {
       promise,
       timeoutMs: PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS + 5000,
@@ -637,11 +697,11 @@ function downloadVideoToFile (url, dest, options = {}) {
  * 单场景 AI 视频生成：generateVideo 提交 → getVideoStatus 轮询（≤10 分钟）→ 下载落盘。
  * 与 videogen-stages GENERATE 阶段同一契约（复用 provider 适配器能力）。
  */
-async function generateSceneVideo ({ manager, providerId, model, prompt, index, seconds, size, fps, runDir, pollIntervalMs }) {
+async function generateSceneVideo ({ manager, providerId, model, prompt, index, seconds, size, fps, runDir, pollIntervalMs, providerRunContext }) {
   const frameRate = Number(fps) > 0 ? Number(fps) : 24
   const pollInterval = Number.isFinite(Number(pollIntervalMs)) && Number(pollIntervalMs) > 0 ? Number(pollIntervalMs) : 10000
   const numFrames = pickFrameCountForSceneDuration(seconds)
-  const submit = await manager.callAdapter(providerId, 'generateVideo', {
+  const submitParams = {
     prompt,
     model: model || undefined,
     width: size.width,
@@ -650,7 +710,10 @@ async function generateSceneVideo ({ manager, providerId, model, prompt, index, 
     frameRate,
     num_frames: numFrames,
     frame_rate: frameRate,
-  })
+  }
+  const submit = providerRunContext
+    ? await manager.callAdapter(providerId, 'generateVideo', submitParams, { providerRunContext })
+    : await manager.callAdapter(providerId, 'generateVideo', submitParams)
   if (submit && submit.code !== 0) {
     return { success: false, error: (submit && submit.message) || ('视频生成调用失败（provider: ' + providerId + '）') }
   }
@@ -664,7 +727,10 @@ async function generateSceneVideo ({ manager, providerId, model, prompt, index, 
   let pollError = ''
   while (Date.now() < pollDeadline) {
     await sleep(pollInterval)
-    const status = await manager.callAdapter(providerId, 'getVideoStatus', { videoId: taskId, taskId })
+    const statusParams = { videoId: taskId, taskId }
+    const status = providerRunContext
+      ? await manager.callAdapter(providerId, 'getVideoStatus', statusParams, { providerRunContext })
+      : await manager.callAdapter(providerId, 'getVideoStatus', statusParams)
     // provider 显式报错（code<0 / success=false，无 URL）视为终止态，避免空转整轮 10 分钟（2026-08-11 W3）
     if (status && (Number(status.code) < 0 || status.success === false)) {
       pollError = (status && status.message) || '视频生成任务失败（provider: ' + providerId + '）'
@@ -774,6 +840,7 @@ async function buildManualSceneCandidates (ctx) {
     return item && typeof item.translation === 'string' && item.translation ? item.translation : null
   }
   const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator
+  const providerRunContext = getProviderRunContext(context || {})
   const sceneCount = optimizedPrompts.length
   // manual 模式：all-images 忽略 video_plan（videoMode 不生效）；video-image 沿用 select_video_scenes 判定
   const effectiveVideoSceneSet = manualMaterialMode === 'video-image' ? videoSceneSet : new Set()
@@ -843,6 +910,7 @@ async function buildManualSceneCandidates (ctx) {
       log,
       fallbackLabel: 'fallback to images only',
       missingBridgeLabel: 'manual video fallback to images only',
+      providerRunContext,
     })
     videoPromise = _mapWithConcurrency(videoSceneIndexes, effectiveVideoConcurrency, async (index) => {
       const prep = optimizedVideoPrompts.get(index)
@@ -878,6 +946,8 @@ async function buildManualSceneCandidates (ctx) {
             fps: videoFps,
             runDir: videoRunDir,
             pollIntervalMs: videoConfig.pollIntervalMs,
+            providerRunContext,
+            providerRunContext,
           })),
         )
         videoResults.set(index, attachVideoContinuityMeta(
@@ -896,7 +966,7 @@ async function buildManualSceneCandidates (ctx) {
       videosDone += 1
       writeAssetsProgress('video')
       return { index, success: Boolean(outcome && outcome.success) }
-    })
+    }, { shouldStart: () => !providerRunContext.isOpen(videoGenerator.providerId), skippedError: '视频 provider 已熔断，手动候选未启动场景已跳过' })
   }
 
   // 每场景 2 张图片（同一优化提示词两次独立调用；index 语义保持场景号，落盘后复制到独立候选路径）
@@ -915,6 +985,7 @@ async function buildManualSceneCandidates (ctx) {
         index,
         aspect_ratio: aspectRatio,
         runId,
+        providerRunContext,
         ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
       }))
     } else {
@@ -923,6 +994,7 @@ async function buildManualSceneCandidates (ctx) {
         sceneIndex: index,
         maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
         generate: async ({ prompt: attemptPrompt }) => {
+          providerRunContext.assertAvailable(imageProvider)
           const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
             prompt: attemptPrompt,
             style: imageStyle,
@@ -992,7 +1064,7 @@ async function buildManualSceneCandidates (ctx) {
       for (let seq = 0; seq < 2; seq++) results.push(await generateOneImage(item.prompt, item.index, seq))
       return results
     },
-  )
+    { shouldStart: () => !providerRunContext.isOpen(imageProvider), skippedError: '图片 provider 已熔断，手动候选未启动已跳过' })
   // 视频候选与图片候选并行启动（2026-08-13，与 auto 对齐）：不再等待视频全部完成。
   const [, imageResultSets] = await Promise.all([videoPromise, imagePromise])
   const imageResults = imageResultSets.flat()
@@ -1126,26 +1198,40 @@ function unwrapScenesArray (source) {
   return []
 }
 
-const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|额度|quota|queue\s*(?:is\s+)?full|队列.*(?:满|饱和)/i;
-const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|超时|网络/i;
 
 function messageOf(value) {
   if (value && typeof value === 'object') return String(value.message || value.error || value.msg || '');
   return String(value || '');
 }
 
-function isRateLimitErrorLike(value) {
+const RATE_LIMIT_PATTERN = /rate\s*limit|rate_limit|限流|频率.*(?:受限|限制)|queue\s*(?:is\s+)?full|队列.*(?:满|饱和)/i;
+const TRANSIENT_PATTERN = /timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|network\s*error|aborted|超时|网络/i;
+
+function outcomeTextOf(value) {
   if (value && typeof value === 'object') {
-    if (value.code === ERROR_CODES.RATE_LIMITED) return true;
-    if (Number(value.statusCode) === 429 || Number(value.status) === 429 || Number(value.code) === 429) return true;
+    if (typeof value.message === 'string' && value.message.trim()) return value.message
+    if (typeof value.msg === 'string' && value.msg.trim()) return value.msg
+    if (typeof value.error === 'string' && value.error.trim()) return value.error
   }
-  return RATE_LIMIT_PATTERN.test(messageOf(value));
+  return String(value || '')
+}
+
+function isRateLimitOutcomeLike(value) {
+  return RATE_LIMIT_PATTERN.test(outcomeTextOf(value))
+}
+
+function isTransientOutcomeLike(value) {
+  if (isRateLimitOutcomeLike(value)) return true
+  return TRANSIENT_PATTERN.test(outcomeTextOf(value))
+}
+
+function isRateLimitErrorLike(value) {
+  return classifyProviderFailure(value) === 'rate'
 }
 
 function isTransientErrorLike(value) {
-  if (isRateLimitErrorLike(value)) return true;
-  if (value && typeof value === 'object' && [ERROR_CODES.TIMEOUT, ERROR_CODES.NETWORK_ERROR].includes(value.code)) return true;
-  return TRANSIENT_PATTERN.test(messageOf(value));
+  const category = classifyProviderFailure(value)
+  return category === 'rate' || category === 'transient'
 }
 
 function sleep(ms) {
@@ -1180,18 +1266,16 @@ async function withTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 
  */
 async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttempts = 4, excludeMessages = [] } = {}) {
   // 可重试判定：瞬时错误且未被调用方排除（历史路径排除轮询超时/任务终态，避免重试重复提交计费任务，审查 M1）
-  const isTransient = (value) => {
-    if (!isTransientErrorLike(value)) return false;
-    const text = messageOf(value);
-    return !excludeMessages.some((marker) => text.includes(marker));
-  };
+  const appliesExclusion = (text) => !excludeMessages.some((marker) => text.includes(marker));
+  const isTransientError = (value) => isTransientErrorLike(value) && appliesExclusion(messageOf(value));
+  const isTransientOutcome = (value) => isTransientOutcomeLike(value) && appliesExclusion(outcomeTextOf(value));
   let last = null;
   for (let attempt = 1; attempt <= Math.max(maxAttempts, rateLimitMaxAttempts); attempt++) {
     let outcome;
     try {
       outcome = await fn(attempt);
     } catch (error) {
-      if (!isTransient(error)) throw error;
+      if (!isTransientError(error)) throw error;
       last = error;
       const limit = isRateLimitErrorLike(error) ? rateLimitMaxAttempts : maxAttempts;
       if (attempt >= limit) return { code: -1, message: error.message || String(error) };
@@ -1199,13 +1283,13 @@ async function withAssetTransientRetry(fn, { maxAttempts = 3, rateLimitMaxAttemp
       continue;
     }
     const ok = outcome && (Number(outcome.code) === 0 || outcome.success === true);
-    const transient = !ok && outcome && isTransient(outcome);
+    const transient = !ok && outcome && isTransientOutcome(outcome);
     if (ok) return outcome;
     if (!transient) return outcome;
     last = outcome;
-    const limit = isRateLimitErrorLike(outcome) ? rateLimitMaxAttempts : maxAttempts;
+    const limit = isRateLimitOutcomeLike(outcome) ? rateLimitMaxAttempts : maxAttempts;
     if (attempt >= limit) return outcome;
-    await sleep((isRateLimitErrorLike(outcome) ? 2500 : 800) * attempt);
+    await sleep((isRateLimitOutcomeLike(outcome) ? 2500 : 800) * attempt);
   }
   return last;
 }
@@ -1267,8 +1351,10 @@ function summarizeAssetFailures(label, results) {
 
 /**
  * Unified cloned-voice re-clone fallback for TTS stages.
+ * 约定：仅尝试用本地样本重新克隆并重试合成；重新克隆失败时透传原始音色错误，
+ * 不得静默换成 provider 默认官方音色（用户显式选择了克隆音色）。
  */
-async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProvider, voiceModel, resolveManager, retryFn }) {
+async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProvider, voiceModel, resolveManager, retryFn, context }) {
   const _errMsg = String((error && error.message) || error || '')
   const _errCode = (error && error.code) || (error && error.context && error.context.code) || ''
   const _isClonedVoiceFail = _errCode === 'INVALID_CONFIG'
@@ -1282,6 +1368,23 @@ async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProv
     || /\u58f0\u97f3.*(?:\u65e0\u6548|\u4e0d\u5b58\u5728|\u5931\u6548|\u9519\u8bef|\u4e0d\u652f\u6301)/.test(_errMsg)
   if (!_isClonedVoiceFail) return null
   const log = pipelineEngine && pipelineEngine.log
+  const runContext = context && typeof context === 'object' ? context : null
+  const providerRunContext = runContext ? getProviderRunContext(runContext) : null
+  const persistRecovery = (newVoiceId) => {
+    if (!runContext) return
+    runContext.voice_recovery = runContext.voice_recovery || {}
+    runContext.voice_recovery[voiceProvider] = runContext.voice_recovery[voiceProvider] || {}
+    runContext.voice_recovery[voiceProvider][voiceId] = { voiceId: newVoiceId }
+  }
+  if (runContext && runContext.voice_recovery && runContext.voice_recovery[voiceProvider]) {
+    const entry = runContext.voice_recovery[voiceProvider][voiceId]
+    const recoveredId = typeof entry === 'string' ? entry : (entry && typeof entry.voiceId === 'string' ? entry.voiceId : null)
+    if (recoveredId) {
+      const recovered = await retryFn(recoveredId)
+      const normalized = normalizeAssetResult(recovered, ['path', 'audio_path'])
+      return normalized ? { path: normalized.path, duration: normalized.duration, meta: normalized.meta } : null
+    }
+  }
   if (log && log.warn) log.warn('[Story2Video] cloned voice unavailable, attempting re-clone', { voiceId, voiceProvider, error: _errMsg.slice(0, 200) })
   try {
     const cloneSvc = pipelineEngine && pipelineEngine.container && typeof pipelineEngine.container.get === 'function'
@@ -1318,17 +1421,65 @@ async function tryReCloneVoice({ pipelineEngine, error, text, voiceId, voiceProv
     const audioBuffer = fs.readFileSync(path.join(sampleDir, sampleFiles[0]))
     const blob = new Blob([audioBuffer], { type: 'audio/mpeg' })
     const manager = typeof resolveManager === "function" ? resolveManager() : null
-    const ttsAdapter = manager && typeof manager.getAdapter === 'function' ? manager.getAdapter(voiceProvider) : null
-    if (!ttsAdapter || typeof ttsAdapter.cloneVoice !== 'function') {
-      if (log && log.warn) log.warn('[Story2Video] TTS adapter does not support cloneVoice', { voiceProvider })
-      return null
+    const cloneParams = { name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] }
+    let newVoice
+    if (manager && typeof manager.callAdapter === 'function') {
+      // ModelProviderManager is the production boundary: it injects the decrypted
+      // provider key, checks capabilities, and wraps adapter results as code/data.
+      const cloneResult = await manager.callAdapter(voiceProvider, 'cloneVoice', cloneParams, providerRunContext ? { providerRunContext } : {})
+      if (!cloneResult || cloneResult.code !== 0) {
+        const cloneError = cloneResult && cloneResult.error
+        if (cloneError instanceof Error) throw cloneError
+        const message = cloneResult && cloneResult.message
+          ? cloneResult.message
+          : 'TTS adapter does not support cloneVoice'
+        throw Object.assign(new Error(message), {
+          code: cloneResult && (cloneResult.errorCode || cloneResult.code),
+        })
+      }
+      newVoice = cloneResult.data
+    } else {
+      // Keep compatibility with the small adapter doubles used by older callers.
+      const ttsAdapter = manager && typeof manager.getAdapter === 'function' ? manager.getAdapter(voiceProvider) : null
+      if (!ttsAdapter || typeof ttsAdapter.cloneVoice !== 'function') {
+        if (log && log.warn) log.warn('[Story2Video] TTS adapter does not support cloneVoice', { voiceProvider })
+        return null
+      }
+      newVoice = await ttsAdapter.cloneVoice(cloneParams)
     }
-    const newVoice = await ttsAdapter.cloneVoice({ name: voiceId, samples: [{ blob, fileName: sampleFiles[0] }] })
     if (!newVoice || !newVoice.id) {
       if (log && log.warn) log.warn('[Story2Video] cloneVoice returned no new voice ID')
       return null
     }
     if (log && log.info) log.info('[Story2Video] re-clone success: ' + voiceId + ' -> ' + newVoice.id)
+    if (cloneSvc && typeof cloneSvc.replaceCloneVoiceId === 'function') {
+      try {
+        const migration = await cloneSvc.replaceCloneVoiceId({
+          providerId: voiceProvider,
+          model: samples.model || voiceModel || 'speech-02-hd',
+          voiceId,
+          replacementVoiceId: newVoice.id,
+        })
+        if (!migration || migration.code !== 0) {
+          if (log && log.warn) {
+            log.warn('[Story2Video] re-clone registry migration failed; continuing with recovered voice', {
+              voiceId,
+              replacementVoiceId: newVoice.id,
+              reason: migration && migration.message ? migration.message : 'unknown',
+            })
+          }
+        }
+      } catch (migrationError) {
+        if (log && log.warn) {
+          log.warn('[Story2Video] re-clone registry migration threw; continuing with recovered voice', {
+            voiceId,
+            replacementVoiceId: newVoice.id,
+            reason: migrationError && migrationError.code ? migrationError.code : 'error',
+          })
+        }
+      }
+    }
+    persistRecovery(newVoice.id)
     const result = await retryFn(newVoice.id)
     const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
     if (normalized) return { path: normalized.path, duration: normalized.duration, meta: normalized.meta }
@@ -1560,6 +1711,7 @@ async function optimizeVideoScenePrompts({
   log,
   fallbackLabel,
   missingBridgeLabel,
+  providerRunContext,
 }) {
   const results = new Map()
   let lastFinalFrame = ''
@@ -1618,6 +1770,7 @@ async function optimizeVideoScenePrompts({
         ...(videoConfig.optimize && typeof videoConfig.optimize === 'object' ? videoConfig.optimize : {}),
         ...(lastFinalFrame ? { prev_final_frame: lastFinalFrame } : {}),
         traceId: runId,
+        providerRunContext,
       })
       const validated = extractOptimizedVideoPrompt(optResult, { index })
       if (!validated.ok) throw new Error(validated.error)
@@ -1754,6 +1907,17 @@ function hasMeaningfulText(text) {
  */
 function isPromptEngineTooShortRejection (message) {
   return /too short|太短|太简短|过短|must be at least|min[_ -]?length|shorter than/i.test(String(message || ''))
+}
+
+/**
+ * 识别「LLM 只返回空/纯推理」错误（如 DeepSeek 只输出 思考 块，剥离后无可用优化词）。
+ * prompt-engine 会返回「空内容或仅包含推理内容，未生成有效优化词」；与 Too short 一样
+ * 应回退原文继续，避免单个场景拖垮整条流水线。
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isPromptEngineEmptyReasoningError (message) {
+  return /空内容|仅包含推理内容|未生成有效优化词|empty\s+content|only\s+(reasoning|thinking|thought)/i.test(String(message || ''))
 }
 
 /**
@@ -1935,6 +2099,7 @@ function registerStory2VideoStages(pipelineEngine) {
     STORY2VIDEO_STAGE_TYPES.SELECT_VIDEO_SCENES,
     async ({ stage, params, context, onProgress }) => {
       const log = pipelineEngine.log
+      const providerRunContext = getProviderRunContext(context || {})
       params = params || {}
       const videoConfig = (stage && stage.options && stage.options.video) || params.videoConfig || {}
       const mode = VIDEO_MODES.has(videoConfig.mode) ? videoConfig.mode : 'off'
@@ -2028,7 +2193,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 { role: 'system', content: system },
                 { role: 'user', content: user },
               ],
-            })
+            }, undefined, { providerRunContext })
             raw = result && typeof result.content === 'string' ? result.content.trim() : ''
           } catch (error) {
             lastError = 'AI 智能选择失败：' + (error && error.message ? error.message : String(error))
@@ -2099,6 +2264,7 @@ function registerStory2VideoStages(pipelineEngine) {
       if (!serviceBus || typeof serviceBus.optimizePrompt !== 'function') {
         return { success: false, error: 'Story2Video optimize 需要 prompt-engine 服务（PromptBridge 未注入）' };
       }
+      const providerRunContext = getProviderRunContext(context || {});
 
       const scenes = getOptimizationScenes(context || {});
       if (!Array.isArray(scenes) || scenes.length === 0) {
@@ -2203,7 +2369,7 @@ function registerStory2VideoStages(pipelineEngine) {
           let result
           try {
             result = await withTransientRetry(
-              () => serviceBus.optimizePrompt(enginePrompt, { ...requestOptions, traceId: runId }),
+              () => serviceBus.optimizePrompt(enginePrompt, { ...requestOptions, traceId: runId, providerRunContext }),
               { maxAttempts, rateLimitMaxAttempts: Math.max(maxAttempts + 1, 4) },
             )
           } catch (lastError) {
@@ -2223,6 +2389,25 @@ function registerStory2VideoStages(pipelineEngine) {
           if (!validated.ok) {
             // prompt-engine 校验拒绝（如 Too short）：输入过短无法优化 → 回退原文并继续，
             // 不因「81」这类单词数字输入让整条流水线失败（方案B 2026-08-09 配套）。
+            if (isPromptEngineEmptyReasoningError(validated.error)) {
+              const emptyReasoningEntry = {
+                optimized_prompt: promptSeed,
+                providerId: null,
+                model: null,
+                skipped_optimize: true,
+                optimize_note: 'prompt_engine_empty_reasoning_use_original',
+              };
+              partialResume[index] = emptyReasoningEntry;
+              if (context && typeof context === 'object') {
+                context.optimize_resume = partialResume;
+                context.optimize_progress = {
+                  done: partialResume.filter(Boolean).length,
+                  total: scenes.length,
+                };
+              }
+              emitOptimizeProgress('stageProgress.optimizeScene')
+              return emptyReasoningEntry;
+            }
             if (isPromptEngineTooShortRejection(validated.error)) {
               const tooShortEntry = {
                 optimized_prompt: promptSeed,
@@ -2364,6 +2549,7 @@ function registerStory2VideoStages(pipelineEngine) {
     async ({ runId, stage, params, context, serviceBus, onProgress }) => {
       const log = pipelineEngine.log;
       params = params || {};
+      const providerRunContext = getProviderRunContext(context || {});
 
       // 从 context 获取前序阶段的输出
       let optimizedPrompts = context.optimize || context.optimized_prompts;
@@ -2633,6 +2819,7 @@ function registerStory2VideoStages(pipelineEngine) {
           log,
           fallbackLabel: 'fallback to image carousel',
           missingBridgeLabel: 'fallback to image carousel',
+          providerRunContext,
         });
         videoPromise = _mapWithConcurrency(videoSceneIndexes, videoConcurrency, async (index) => {
           const resumed = resumeCompleted.get(index);
@@ -2710,7 +2897,7 @@ function registerStory2VideoStages(pipelineEngine) {
             ));
             return { index, success: false };
           }
-        });
+        }, { shouldStart: (index) => !providerRunContext.isOpen(videoGenerator.providerId) || Boolean(resumeCompleted.get(index) && resumeCompleted.get(index).videoPath && fs.existsSync(resumeCompleted.get(index).videoPath)), skippedError: '视频 provider 已因额度/套餐上限熔断，未启动场景已跳过' });
       }
 
       // 图片首批目标：非视频场景立即并行生成（不再等待视频完成）。
@@ -2767,6 +2954,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 index,
                 aspect_ratio: aspectRatio,
                 runId,
+                providerRunContext,
                 ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
               }));
             } else {
@@ -2775,6 +2963,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 sceneIndex: index,
                 maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
                 generate: async ({ prompt: attemptPrompt }) => {
+                  providerRunContext.assertAvailable(resolvedImageProvider)
                   const attemptResult = await withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_image', {
                     prompt: attemptPrompt,
                     style: imageStyle,
@@ -2861,11 +3050,13 @@ function registerStory2VideoStages(pipelineEngine) {
                 runItem,
               );
         },
-      );
+      { shouldStart: (item, index) => !providerRunContext.isOpen(resolvedImageProvider) || Boolean(resumeCompleted.get(index) && (resumeCompleted.get(index).imagePath || (resumeCompleted.get(index).videoPath && fs.existsSync(resumeCompleted.get(index).videoPath)))), skippedError: '图片 provider 已因额度/套餐上限熔断，未启动场景已跳过' });
 
       // 并行生成 TTS 音频（分批控制并发）
       const ttsItemTask = async (sentence, index) => {
-          try {
+        let text;
+        let generateTts;
+        try {
             const resumed = resumeCompleted.get(index);
             if (resumed && resumed.audioPath) {
               markTtsDone();
@@ -2886,12 +3077,12 @@ function registerStory2VideoStages(pipelineEngine) {
                 meta: { supplied: true },
               };
             }
-            const text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
-            const result = await withAssetTransientRetry(() => assetGenerator
+            text = typeof sentence === 'string' ? sentence : sentence.text || sentence.content;
+            generateTts = (voiceIdForAttempt, voiceModelForAttempt = resolvedVoiceModel) => withAssetTransientRetry(() => assetGenerator
               ? assetGenerator.generateTTS(text, {
-                  voice_id: voiceId,
+                  voice_id: voiceIdForAttempt,
                   voice_provider: resolvedVoiceProvider,
-                   voice_model: resolvedVoiceModel,
+                  voice_model: voiceModelForAttempt,
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
@@ -2900,18 +3091,20 @@ function registerStory2VideoStages(pipelineEngine) {
                   with_timestamps: true,
                   index,
                   runId,
+                  providerRunContext,
                 })
-              : serviceBus.callPythonSkill('generate_tts', {
+              : (providerRunContext.assertAvailable(resolvedVoiceProvider), withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_tts', {
                   text,
-                  voice_id: voiceId,
+                  voice_id: voiceIdForAttempt,
                   voice_provider: resolvedVoiceProvider,
-                  voice_model: resolvedVoiceModel,
+                  voice_model: voiceModelForAttempt,
                   rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
                   pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
                   emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
                   index,
                   runId,
-                }));
+                }))))
+            const result = await generateTts(voiceId);
             const normalized = normalizeAssetResult(result, ['path', 'audio_path']);
             if (normalized) {
               markTtsDone();
@@ -2929,28 +3122,26 @@ function registerStory2VideoStages(pipelineEngine) {
               success: false,
               error: (result && result.message) || 'TTS generation failed',
             };
-          } catch (e) {
-            // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
-            const _voiceModel = resolvedVoiceModel || 'speech-02-hd'
-            const _reCloneResult = await tryReCloneVoice({
-              pipelineEngine, error: e, text: typeof sentence === 'string' ? sentence : sentence.text || sentence.content,
-              voiceId, voiceProvider: resolvedVoiceProvider,
-              voiceModel: _voiceModel,
-              resolveManager: resolveModelProviderManager,
-              retryFn: (newVoiceId) => assetGenerator.generateTTS(typeof sentence === 'string' ? sentence : sentence.text || sentence.content, {
-                voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: _voiceModel,
-                rate: firstDefined(params.voiceSpeed, stage.options?.voiceSpeed),
-                pitch: firstDefined(params.voicePitch, stage.options?.voicePitch),
-                emotion: firstDefined(params.voiceEmotion, stage.options?.voiceEmotion),
-                with_timestamps: true, index, runId,
-              }),
-            })
-            if (_reCloneResult) {
-              markTtsDone()
-              return { index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta, timings: _reCloneResult.meta?.timings || null }
-            }
+        } catch (e) {
+          if (typeof generateTts !== 'function') {
             return { index, success: false, error: e.message };
           }
+          // Unified re-clone via shared tryReCloneVoice helper (2026-08-18)
+          const _voiceModel = resolvedVoiceModel || 'speech-02-hd'
+          const _reCloneResult = await tryReCloneVoice({
+            pipelineEngine, error: e, text,
+            voiceId, voiceProvider: resolvedVoiceProvider,
+            voiceModel: _voiceModel,
+            resolveManager: resolveModelProviderManager,
+            retryFn: (newVoiceId) => generateTts(newVoiceId),
+            context,
+          })
+          if (_reCloneResult) {
+            markTtsDone()
+            return { index, success: true, path: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta, timings: _reCloneResult.meta?.timings || null }
+          }
+          return { index, success: false, error: e.message };
+        }
       };
       // 同 image 的调度边界：assetGenerator 路径由 AIGenerator 内部 governor 单层调度；
       // 仅 legacy python 路径在外层套 withModelBudget（避免同 key 双包自死锁）。
@@ -2966,7 +3157,7 @@ function registerStory2VideoStages(pipelineEngine) {
                 runItem,
               );
         },
-      );
+      { shouldStart: (sentence, index) => !providerRunContext.isOpen(resolvedVoiceProvider) || Boolean(resumeCompleted.get(index) && resumeCompleted.get(index).audioPath), skippedError: 'TTS provider 已因额度/套餐上限熔断，未启动旁白已跳过' });
       // 三路并行：图片（首批非视频场景）+ 旁白 + 视频 同时启动（2026-08-13 优化），
       // 视频串行完成不再是图片/旁白的前置条件。
       const [imageResults, ttsResults] = await Promise.all([imagePromise, ttsPromise, videoPromise]);
@@ -2994,7 +3185,7 @@ function registerStory2VideoStages(pipelineEngine) {
                   runItem,
                 );
           },
-        );
+        { shouldStart: (item, index) => !providerRunContext.isOpen(resolvedImageProvider) || Boolean(resumeCompleted.get(index) && (resumeCompleted.get(index).imagePath || (resumeCompleted.get(index).videoPath && fs.existsSync(resumeCompleted.get(index).videoPath)))), skippedError: '图片 provider 已熔断，视频失败回退图片也已跳过' });
         imageResults.push(...fallbackResults);
       }
 
@@ -3220,6 +3411,7 @@ function registerStory2VideoStages(pipelineEngine) {
       const ttsConcurrency = Math.max(1, Math.min(concurrency, MAX_ASSET_CONCURRENCY))
       const assetGenerator = pipelineEngine._assetGenerator || serviceBus._assetGenerator
       const useCurrentModels = params && params.__resumeUseCurrentModels === true
+      const providerRunContext = getProviderRunContext(context || {})
       const voiceId = (params && params.voiceId) || (stage && stage.options && stage.options.voiceId) || 'default'
       const voiceProvider = useCurrentModels
         ? ''
@@ -3257,29 +3449,31 @@ function registerStory2VideoStages(pipelineEngine) {
         }
         const text = String(scene.text || '')
         if (!text) return { index: scene.index, success: false, error: '场景缺少旁白文字' }
+        const generateTts = (voiceIdForAttempt) => withAssetTransientRetry(() => assetGenerator
+          ? assetGenerator.generateTTS(text, {
+              voice_id: voiceIdForAttempt,
+              voice_provider: resolvedVoiceProvider,
+              voice_model: resolvedVoiceModel,
+              rate: voiceSpeed,
+              pitch: voicePitch,
+              emotion: voiceEmotion,
+              index: scene.index,
+              runId: runId || undefined,
+              providerRunContext,
+            })
+          : (providerRunContext.assertAvailable(resolvedVoiceProvider), withAssetTransientRetry(() => serviceBus.callPythonSkill('generate_tts', {
+              text,
+              voice_id: voiceIdForAttempt,
+              voice_provider: resolvedVoiceProvider,
+              voice_model: resolvedVoiceModel,
+              rate: voiceSpeed,
+              pitch: voicePitch,
+              emotion: voiceEmotion,
+              index: scene.index,
+              runId: runId || undefined,
+            }))))
         try {
-          const result = await withAssetTransientRetry(() => assetGenerator
-            ? assetGenerator.generateTTS(text, {
-                voice_id: voiceId,
-                voice_provider: resolvedVoiceProvider,
-                voice_model: resolvedVoiceModel,
-                rate: voiceSpeed,
-                pitch: voicePitch,
-                emotion: voiceEmotion,
-                index: scene.index,
-                runId: runId || undefined,
-              })
-            : serviceBus.callPythonSkill('generate_tts', {
-                text,
-                voice_id: voiceId,
-                voice_provider: resolvedVoiceProvider,
-                voice_model: resolvedVoiceModel,
-                rate: voiceSpeed,
-                pitch: voicePitch,
-                emotion: voiceEmotion,
-                index: scene.index,
-                runId: runId || undefined,
-              }))
+          const result = await generateTts(voiceId)
           const normalized = normalizeAssetResult(result, ['path', 'audio_path'])
           if (normalized) {
             const partial = { index: scene.index, audioPath: normalized.path, duration: normalized.duration, meta: normalized.meta }
@@ -3303,11 +3497,8 @@ function registerStory2VideoStages(pipelineEngine) {
             voiceId, voiceProvider: resolvedVoiceProvider,
             voiceModel: resolvedVoiceModel || 'speech-02-hd',
             resolveManager: _resolveManager,
-            retryFn: (newVoiceId) => assetGenerator.generateTTS(text, {
-              voice_id: newVoiceId, voice_provider: resolvedVoiceProvider, voice_model: resolvedVoiceModel,
-              rate: voiceSpeed, pitch: voicePitch, emotion: voiceEmotion,
-              index: scene.index, runId: runId || undefined,
-            }),
+            retryFn: (newVoiceId) => generateTts(newVoiceId),
+            context,
           })
           if (_reCloneResult) {
             const partial = { index: scene.index, audioPath: _reCloneResult.path, duration: _reCloneResult.duration, meta: _reCloneResult.meta }
@@ -3345,7 +3536,7 @@ function registerStory2VideoStages(pipelineEngine) {
         messageParams: { done: 0, total: ttsTotalCount },
         detail: { done: 0, total: ttsTotalCount, kind: 'tts' },
       })
-      const ttsResults = await _mapWithConcurrency(candidates, ttsConcurrency, ttsItemTask)
+      const ttsResults = await _mapWithConcurrency(candidates, ttsConcurrency, ttsItemTask, { shouldStart: (scene) => !providerRunContext.isOpen(resolvedVoiceProvider) || partialByIndex.has(scene.index), skippedError: 'TTS provider 已因额度/套餐上限熔断，未启动旁白已跳过' })
       const failedTts = ttsResults.filter((r) => !r.success)
       if (failedTts.length > 0) {
         return {
@@ -3472,13 +3663,19 @@ function registerStory2VideoStages(pipelineEngine) {
  * @param {Function} fn - async (item, index) => result
  * @returns {Promise<Array>}
  */
-async function _mapWithConcurrency(items, concurrency, fn) {
+async function _mapWithConcurrency(items, concurrency, fn, options = {}) {
   const results = new Array(items.length);
   let nextIndex = 0;
 
   async function worker() {
     while (nextIndex < items.length) {
       const current = nextIndex++;
+      if (typeof options.shouldStart === 'function' && options.shouldStart(items[current], current) === false) {
+        results[current] = typeof options.skippedResult === 'function'
+          ? await options.skippedResult(items[current], current)
+          : { index: current, success: false, skipped: true, error: options.skippedError || 'provider circuit open, queue item skipped' }
+        continue
+      }
       results[current] = await fn(items[current], current);
     }
   }
@@ -3501,6 +3698,7 @@ module.exports = {
   resolveInputAudio,
   hasMeaningfulText,
   isPromptEngineTooShortRejection,
+  isPromptEngineEmptyReasoningError,
   // 视频+图片轮播混合模式辅助（供测试）
   VIDEO_MODES,
   resolveVideoGeneratorConfig,
@@ -3520,4 +3718,5 @@ module.exports = {
   applyPromptTranslationsToScenes,
   runBoundedPromptTranslation,
   STORY2VIDEO_COMPOSE_PARALLEL_TASK,
+  tryReCloneVoice,
 };

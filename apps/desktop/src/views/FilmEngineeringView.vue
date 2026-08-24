@@ -78,10 +78,10 @@
                   <el-option :label="t('filmEngineering.library.copyModeCharacters')" value="characters" />
                   <el-option :label="t('filmEngineering.library.copyModeGeo')" value="geo" />
                 </el-select>
-                <el-button size="small" :disabled="selectedShotIds.length === 0" @click="copySelected">{{ t('filmEngineering.library.copySelected') }}（{{ selectedShotIds.length }}）</el-button>
-                <el-button size="small" :disabled="selectedShotIds.length === 0" :loading="exportLoading" @click="() => exportSelected('json')">{{ t('filmEngineering.library.exportJson') }}</el-button>
-                <el-button size="small" :disabled="selectedShotIds.length === 0" :loading="exportLoading" @click="() => exportSelected('markdown')">{{ t('filmEngineering.library.exportMd') }}</el-button>
-                <el-button size="small" type="primary" :disabled="selectedShotIds.length === 0 || selectedShotIds.length > 20" :loading="generating" @click="onGenerate">
+                <el-button size="small" data-testid="fe-copy-selected" :disabled="selectedShotIds.length === 0" @click="copySelected">{{ t('filmEngineering.library.copySelected') }}（{{ selectedShotIds.length }}）</el-button>
+                <el-button size="small" data-testid="fe-export-json" :disabled="selectedShotIds.length === 0" :loading="exportLoading" @click="() => exportSelected('json')">{{ t('filmEngineering.library.exportJson') }}</el-button>
+                <el-button size="small" data-testid="fe-export-markdown" :disabled="selectedShotIds.length === 0" :loading="exportLoading" @click="() => exportSelected('markdown')">{{ t('filmEngineering.library.exportMd') }}</el-button>
+                <el-button size="small" type="primary" data-testid="fe-generate" :disabled="selectedShotIds.length === 0 || selectedShotIds.length > 20" :loading="generating" @click="onGenerate">
                   {{ t('filmEngineering.library.generate') }}
                 </el-button>
               </div>
@@ -90,7 +90,7 @@
               <div v-else class="fe-shot-list">
                 <div v-for="s in shots" :key="s.shotId" class="fe-shot-card" :class="{ 'is-selected': selectedShotIds.includes(s.shotId) }">
                   <el-checkbox :model-value="selectedShotIds.includes(s.shotId)" @change="() => toggleShot(s.shotId)" class="fe-shot-check" />
-                  <div class="fe-shot-body" @click="openShot(s.shotId)">
+                  <div class="fe-shot-body" @click="onOpenShot(s.shotId)">
                     <div class="fe-shot-head">
                       <el-tag size="small" type="info">{{ s.model }}</el-tag>
                       <el-tag v-if="s.width && s.height" size="small" effect="plain">{{ s.width }}×{{ s.height }}</el-tag>
@@ -195,7 +195,7 @@
           <span class="fe-shot-id">{{ shotDetail.shotId }}</span>
         </div>
         <div class="fe-detail-copies">
-          <el-button size="small" @click="copyText(shotDetail.shotId, 'full')">{{ t('filmEngineering.library.copyFull') }}</el-button>
+          <el-button size="small" data-testid="fe-detail-copy" @click="copyText(shotDetail.shotId, 'full')">{{ t('filmEngineering.library.copyFull') }}</el-button>
           <el-button size="small" @click="copyText(shotDetail.shotId, 'blocks')">{{ t('filmEngineering.library.copyBlocks') }}</el-button>
           <el-button size="small" @click="copyText(shotDetail.shotId, 'characters')">{{ t('filmEngineering.library.copyCharacters') }}</el-button>
           <el-button size="small" @click="copyText(shotDetail.shotId, 'geo')">{{ t('filmEngineering.library.copyGeo') }}</el-button>
@@ -312,6 +312,11 @@ function promptPreview (text, max = 260) {
 
 function onSceneClick (node) {
   selectScene(node.id)
+}
+
+async function onOpenShot (shotId) {
+  detailOpen.value = true
+  await openShot(shotId)
 }
 
 function onGenerate () {

@@ -217,6 +217,26 @@ describe('QrCodeLogin 凭证边界', () => {
     expect(accountManager.saveCapturedAccount).toHaveBeenCalledTimes(1)
   })
 
+  it('快手扫码后的页内导航也会触发凭证提取', async () => {
+    const accountManager = createManager()
+    const qrCodeLogin = new QrCodeLogin({ accountManager })
+    qrCodeLogin.setMainWindow(createMainWindow())
+    const extractAuthData = vi.spyOn(qrCodeLogin, '_extractAuthData').mockResolvedValue({
+      cookies: [{ name: 'session', value: 'secret' }],
+      localStorage: {},
+      accountName: '快手账号',
+    })
+    const loginPromise = qrCodeLogin.openLogin('kuaishou', 0)
+    const handlers = createdViews[0].handlers
+    handlers['did-finish-load']({})
+    handlers['did-navigate-in-page']({}, 'https://cp.kuaishou.com/profile')
+    await vi.advanceTimersByTimeAsync(2000)
+    await loginPromise
+
+    expect(extractAuthData).toHaveBeenCalledTimes(1)
+    expect(accountManager.saveCapturedAccount).toHaveBeenCalledWith('kuaishou', expect.objectContaining({ name: '快手账号' }))
+  })
+
   it('忽略把平台成功路径放在 query 中的恶意外部 URL', async () => {
     const accountManager = createManager()
     const qrCodeLogin = new QrCodeLogin({ accountManager })
@@ -298,5 +318,75 @@ describe('QrCodeLogin 凭证边界', () => {
 
     expect(extractAuthData).toHaveBeenCalledTimes(1)
     expect(accountManager.saveCapturedAccount).toHaveBeenCalledTimes(1)
+  })
+
+  it('检测快手二维码时优先接受 alt/class 等稳定 DOM 属性', async () => {
+    const accountManager = createManager()
+    const mainWindow = createMainWindow()
+    const qrCodeLogin = new QrCodeLogin({ accountManager })
+    qrCodeLogin.setMainWindow(mainWindow)
+    const loginPromise = qrCodeLogin.openLogin('kuaishou', 0).catch(error => error)
+    const session = qrCodeLogin._activeSession
+    createdViews[0].webContents.executeJavaScript.mockResolvedValueOnce({
+      type: 'img',
+      src: 'data:image/png;base64,qr-image',
+      width: 125,
+      height: 125,
+    })
+
+    await qrCodeLogin._detectQrCodeOnce(session)
+
+    expect(createdViews[0].webContents.executeJavaScript.mock.calls[0][0]).toContain('img[alt*="qrcode" i]')
+    expect(mainWindow.webContents.send).toHaveBeenCalledWith('qrcode:detected', expect.objectContaining({
+      platform: 'kuaishou',
+      image: expect.objectContaining({ width: 125, height: 125 }),
+    }))
+    qrCodeLogin.close()
+    await expect(loginPromise).resolves.toBeInstanceOf(Error)
+  })
+
+  it('快手登录页准备时包含失效刷新与扫码模式切换策略', async () => {
+    const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+    qrCodeLogin.setMainWindow(createMainWindow())
+    const loginPromise = qrCodeLogin.openLogin('kuaishou', 0).catch(error => error)
+    const session = qrCodeLogin._activeSession
+
+    await qrCodeLogin._prepareQrPage(session)
+
+    const script = createdViews[0].webContents.executeJavaScript.mock.calls[0][0]
+    expect(script).toContain('.qrcode-status-timeout')
+    expect(script).toContain('.platform-switch')
+    qrCodeLogin.close()
+    await expect(loginPromise).resolves.toBeInstanceOf(Error)
+  })
+
+  it('扫码登录以全屏虚拟标签布局打开，并暴露显示、隐藏和关闭生命周期', async () => {
+    const mainWindow = createMainWindow()
+    const qrCodeLogin = new QrCodeLogin({ accountManager: createManager() })
+    const onOpened = vi.fn()
+    const onClosed = vi.fn()
+    qrCodeLogin.onOpened = onOpened
+    qrCodeLogin.onClosed = onClosed
+    qrCodeLogin.setMainWindow(mainWindow)
+
+    const loginPromise = qrCodeLogin.openLogin('kuaishou', 0).catch(error => error)
+    const view = createdViews[0]
+
+    expect(view.setBounds).toHaveBeenCalledWith({ x: 0, y: 76, width: 1200, height: 724 })
+    expect(onOpened).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'kuaishou',
+      accountId: expect.stringMatching(/^auth-kuaishou-/),
+      url: expect.stringContaining('kuaishou'),
+    }))
+
+    qrCodeLogin.hide()
+    expect(view.setVisible).toHaveBeenLastCalledWith(false)
+    qrCodeLogin.show()
+    expect(view.setVisible).toHaveBeenLastCalledWith(true)
+
+    qrCodeLogin.close()
+    expect(onClosed).toHaveBeenCalledTimes(1)
+    expect(mainWindow.contentView.removeChildView).toHaveBeenCalledWith(view)
+    await expect(loginPromise).resolves.toBeInstanceOf(Error)
   })
 })

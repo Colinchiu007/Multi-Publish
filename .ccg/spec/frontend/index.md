@@ -36,6 +36,7 @@ async updateOrchestrationStatus() {
 
 - 新增用户可见文案一律写入 `apps/desktop/src/locales/zh.js` 与 `en.js` **成对**（CI Gate 7 拦截）；渲染端（.vue script/template）禁止新增中文字符串字面量（CJK 基线扫描按 `file:line` 匹配，新增行会触发误报 → 用 `node .github/scripts/check-locale-sync.js --cjk --update-baseline` 权威重排，但必须先确认「无真新增」）。
 - 产品名词翻译集中维护于 `01-docs/i18n-glossary.md`，新增术语先登记再使用。
+- **带参文案必须写成 Message Function，不能写成含 `{name}` 的普通字符串**：`i18n/index.js` 的 `toMessageFunctions` 会把静态字符串包成 `() => source`，以避免 Electron CSP 所禁止的运行时消息编译；因此 `'失败：{message}'` 不会插值、会原样显示。使用 `(ctx) => '失败：' + ctx.named('message')`（zh/en 两侧一致），并至少覆盖一条非默认语言与“标题/文本不含 `{name}` 字面量”的渲染断言。
 
 ## 5. 结果页层级错误隔离（2026-08-15，s2v-result-success-error-boundary）
 
@@ -61,6 +62,16 @@ Story2Video compose 的用户可见错误必须优先使用稳定消息键，而
 **强制点**：流水线专属文案所在组件的挂载条件是共享的（`(pipelineRunStatus.stages || orchestrationStages).length`）时，必须由父组件按流水线类型门控；新增用例至少包含「非目标流水线不渲染」。
 
 ## 6. 生成类 IPC 失败必须校验 code 并走消息归一化（2026-08-16，s2v-retry-image-error-masking）
+## 8. 场景级生成动作可多卡重复暴露；能力门控必须与后端契约一致（2026-08-21，fix-s2v-history-scene-gen-buttons）
+
+**模式**：场景级生成动作（如【生成新图】【生成 AI 视频】）可以在多个视觉卡上重复暴露同一入口（image1/image2、video1/video2），但写入目标必须由既有的选中态/身份规则决定，禁止为视觉别名新增持久化身份或按卡改写后端契约。
+
+**反例（真实 Bug 根因）**：渲染层 `hasUsableVideoPrompt` 只校验 `videoPrompt`，而后端 `generateSceneAiVideo` 实际回退 `videoPrompt || prompt || text`——历史记录未持久化 videoPrompt 时按钮灰显无法生成；且老测试把「image2/video2 无生成按钮」写成断言（反向固化错误行为）。只放宽模板 `:disabled` 不够：方法入口（`generateSceneAiVideo` 内的 guard）必须同步放宽，否则按钮可点但静默 return。
+
+**强制点**：
+- renderer 的“能否生成”门控必须与后端提示词回退契约逐字一致（本例：`videoPrompt || prompt || text` 任一 trim 非空）。
+- 多卡重复暴露的按钮必须是同一场景级调用，新增断言覆盖：占位空槽也有按钮、busy 传播到全部入口、无 videoPrompt 但有 prompt/text 时按钮可点且真实触发 IPC。
+- 禁止写测试断言“某槽不应有生成按钮”或用 `toHaveLength(2)` 固化错误行为；用 `data-testid` 定位而非位置索引。
 
 **模式**：消费返回 `{code, message, data}` 契约的生成结果（生成图片/视频/音频）时，服务层必须在消费产物（复制/替换）前校验 `code === 0` 且产物路径存在；失败结果与抛异常是两条不同的失败路径，都要保留原始 message（缺失回退领域兜底文案）、保留旧媒体、清理本次产物并持久化失败状态。渲染层 catch 一律把错误文本交给既有通知归一化（quota/rate-limit/API Key/权限模式），不固定显示单一键。
 
@@ -75,3 +86,27 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 ```
 - 主进程失败路径必须有 warn 级日志（含错误 message）。
 - 回归必须 mock 生成器返回「失败结果对象」（非抛异常）断言原因保留 + 状态持久化 + 日志；不得用断言固定文案反向固化错误行为。
+
+## 9. 进度观察窗与人工检查点身份必须分开判定（2026-08-23，s2v-progress-modal-background）
+
+**模式**：运行中进度用 modeless 观察窗承载，但不把「可观察进度」等同于「可后台化」。关闭/后台脱离必须在方法入口用受控状态机重校验（runId、组件存活、人工检查点、终态枚举），并且只能走唯一公共 detach 方法；否则遮罩、ESC、关闭按钮或旧响应会各自漂移成不同语义。进度观察窗统一禁遮罩/Escape、只右上角关闭，并保持底部操作条在其 z-index 之上可直接点击。
+
+**反例（本轮边界）**：直接把 `waiting_approval` / `needs_user_input` 状态枚举或带候选素材的旧暂停快照当成普通 running，会让需要人工输入的任务被后台化后静默卡死；反过来把这些状态全部标记为「旧版检查点」又会误报数据损坏。两者必须分开：状态枚举缺少元数据用普通人工操作提示，只有旧的 paused+候选素材/requiresCheckpoint/finalize_assets 证据才使用「旧版快照无操作协议」提示。
+
+**强制点**：
+- `hasManualPipelineCheckpoint()` 只判定「是否阻断后台化」；`hasLegacyPipelineCheckpointEvidence()` 单独判定「是否使用旧版快照提示」，不能复用前者做文案分类。
+- 新增文案一律 zh/en 成对；CJK 基线按 file:line 匹配，行号位移只允许显式 `--update-baseline`，并人工核对新增引用的中文字符串都只来自 locale/translateWithLocaleFallback。
+- 普通流水线没有稳定 run identity 时不得按名称伪造单任务后台/恢复/取消；run-scoped 控制必须等主进程补 runId/API 合同。
+
+## 10. 实时标签事件必须胜过飞行中的刷新快照（2026-08-24，fix-multitab-title-isolation）
+
+**模式**：renderer 同时消费实时事件和异步列表/详情刷新时，请求发起时必须记录请求序号、活动目标和事件版本；返回时先拒绝非最新请求或目标不匹配结果，再以请求期间到达的实时事件覆盖同一实体的旧字段。
+
+**反例**：`tabStore` 没有消费 `tab-title-updated`，且 `getAllTabs()` / `getActiveTab()` 在标签切换后仍可无条件写回。多个发布平台并发加载时，旧快照会把当前导航栏标题串成其他标签（例如快手）。
+
+**强制点**：事件处理必须按 `tabId` 更新实体；只有活动实体可以更新全局导航栏。列表刷新覆盖前至少覆盖“两个请求乱序”和“标题事件发生在列表请求飞行期间”两个回归场景。
+
+## 11. 统一进度弹窗范围边界（2026-08-23，s2v-progress-unify-scope-doc）
+
+- 统一进度弹窗只覆盖“有可观察流水线阶段状态”的编排流水线/历史恢复前台跟踪，以及获得稳定 run identity 的普通流水线；快速渲染 loading、发布 timeline、独立分析状态不套用，禁止为此类轻量任务伪造“后台运行/历史可查看”语义。
+- `CreateHistory.vue` 已废弃：`/create/history` 重定向到 `/create?view=history`，无生产引用，不得重新接入其内嵌进度卡片；历史入口统一为 `CreateViewHistory.vue` 摘要与恢复。

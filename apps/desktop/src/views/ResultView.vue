@@ -256,7 +256,7 @@
                   <label :for="'scene-material-radio-' + segment.id + '-' + slot.kind" class="scene-material-label">{{ slot.label }}</label>
                 </div>
                 <span v-if="slot.selected" class="scene-material-badge">{{ $t('story2video.sceneMaterial.selectedBadge') }}</span>
-                <div v-if="slot.kind === 'image1'" class="scene-material-slot-action">
+                <div v-if="slot.kind === 'image1' || slot.kind === 'image2'" class="scene-material-slot-action">
                   <UiButton
                     size="sm"
                     variant="secondary"
@@ -267,7 +267,7 @@
                     {{ segmentBusyKind(segment.id) === 'genImage' ? $t('story2video.sceneMaterial.generating') : $t('story2video.sceneMaterial.generateImage') }}
                   </UiButton>
                 </div>
-                <div v-if="slot.kind === 'video1'" class="scene-material-slot-action">
+                <div v-if="slot.kind === 'video1' || slot.kind === 'video2'" class="scene-material-slot-action">
                   <UiButton
                     size="sm"
                     variant="secondary"
@@ -1171,7 +1171,8 @@ export default {
         this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATED })
       } catch (error) {
         this.showStory2VideoNotification({
-          messageKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED,
+          // 仅作为未知错误的回退；让额度、限流、API Key 等原始错误进入统一归一化。
+          fallbackKey: STORY2VIDEO_NOTIFICATION_KEYS.SCENE_PROMPT_REGENERATE_FAILED,
           error: error && error.message ? error.message : '',
         })
       } finally {
@@ -1536,7 +1537,7 @@ export default {
       return this.segmentBusy[segmentId] || ''
     },
     hasUsableVideoPrompt(segment) {
-      return Boolean(segment && typeof segment.videoPrompt === 'string' && segment.videoPrompt.trim())
+      return Boolean(segment && [segment.videoPrompt, segment.prompt, segment.text].some(source => typeof source === 'string' && source.trim()))
     },
     async replaceSegmentAudio(segmentId, event) {
       const input = event?.target

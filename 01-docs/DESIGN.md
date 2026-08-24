@@ -473,6 +473,29 @@ Primary CTAs and pills meet comfortable touch sizing through 12px-24px padding a
 4. For editorial pages, combine `blog-filter-chip`, `button-pill-outline`, and `research-table` instead of generic marketing cards.
 5. Keep component examples structurally honest: placeholder product frames are better than invented product content.
 
+## 视频流水线进度弹窗（2026-08-23）
+
+### 结构与层级
+
+- 进度弹窗是运行详情的唯一完整承载，不在启动页正文重复渲染 StageProgress。统一使用 `UiModal variant=progress`、`xl`、`960px` 最大宽度。
+- 桌面 overlay 的 z-index 为 100，固定底部 action bar 为 110；overlay 保持视觉遮罩但不拦截 action bar，弹窗 surface 与 body 内容仍可交互。
+- header/footer 固定，body 使用 `overflow-y: auto`；最大高度减去 `88px` action-bar 空间和安全边距，窄屏按 `136px` 移动 action-bar 空间计算。
+
+### 交互与动效
+
+- 进度弹窗是 modeless 观察窗：遮罩点击和 Escape 不关闭，只有右上角关闭按钮可触发 detach。关闭按钮带可访问 label 和稳定 test id。
+- 离场使用 opacity + `scale(0.96) translateY(4px)`，让用户明确看到观察窗被收起，而不是任务被取消。
+- 普通 running 编排任务 footer 提供【后台运行】；右上角关闭和该按钮走同一 detach handler。toast 为“任务已转入后台运行，在历史记录中可查看”。
+- 人工 checkpoint（素材选择/内容策略/等待用户输入）关闭按钮 disabled，footer 不显示后台按钮，保留确认、修改、取消动作。
+
+### 内容与数据表现
+
+总进度、已用时、终态摘要、所有阶段、状态、详情、阶段耗时、子进度、合成时间参考、provider warning、BGM 跳过、加载/不可用提示和素材选择面板都属于弹窗内容。数组、对象和进度范围先归一化，错误字段只隐藏或走既有 fallback，不使 renderer 崩溃。
+
+### 范围边界与废弃组件
+
+该统一壳只覆盖编排流水线、历史续跑等“有可观察流水线阶段状态”的路径；快速渲染 loading、发布 timeline、独立分析状态保持各自轻量展示。已废弃的 `CreateHistory.vue` 不再提供内嵌进度卡片，历史入口统一为 `CreateViewHistory.vue` 的摘要与恢复。
+
 ## Known Gaps
 
 - Exact proprietary font files are not bundled; use the documented fallbacks when implementing externally.

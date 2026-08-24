@@ -108,6 +108,15 @@
               <span>{{ localizedEnvironment(pauseEnvironment(item)) }}</span>
             </div>
           </div>
+          <div v-if="item.status === 'interrupted'" class="history-state-detail history-interrupted-hint">
+            <div class="history-state-detail-row">
+              <span class="history-field-label">{{ tr('interruptedStage') }}</span>
+              <span>{{ localizedStage(item.pausedStage || activeStage(item)) || tr('notAvailable') }}</span>
+            </div>
+            <div class="history-state-detail-row">
+              <span>{{ tr('interruptedHint') }}</span>
+            </div>
+          </div>
           <div v-if="item.status === 'failed'" class="history-state-detail history-failed-hint">
             <div class="history-state-detail-row">
               <span class="history-field-label">{{ tr('failedStage') }}</span>
@@ -164,7 +173,7 @@
         <div class="history-item-footer">
           <div class="history-actions">
               <button
-                v-if="['failed', 'paused'].includes(item.status) && historyItemResumable(item)"
+                v-if="['failed', 'paused', 'interrupted'].includes(item.status) && historyItemResumable(item)"
                 type="button"
                 class="s2v-btn-resume s2v-btn-sm"
                 :disabled="story2videoResuming"
@@ -211,10 +220,10 @@ import { getAppLocale } from '@/i18n'
 import zhLocale from '@/locales/zh'
 import enLocale from '@/locales/en'
 import { getPipelineMode, getPipelineName, getPipelineStage } from '@/i18n/pipeline-labels'
-import { CONTENT_POLICY_ERROR_PATTERN, RESUME_BLOCKING_ERROR_PATTERN, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
+import { CONTENT_POLICY_ERROR_PATTERN, HISTORY_STATUSES, RESUME_BLOCKING_ERROR_PATTERN, contentPolicyScenes, filterHistoryByStatus, historyDisplayTime, historyStatusCounts } from './history-utils'
 import { formatPipelineError } from '@/utils/pipeline-error-formatter'
 
-const HISTORY_STATUSES = Object.freeze(['all', 'running', 'paused', 'failed', 'completed', 'cancelled'])
+// HISTORY_STATUSES 由 ./history-utils 统一导出（含 interrupted），单一来源，避免与测试合同漂移
 
 export default {
   name: 'CreateViewHistory',
@@ -339,6 +348,10 @@ export default {
       if (!item) return ''
       if (typeof item.sourceText === 'string' && item.sourceText.trim()) return item.sourceText
       if (typeof item.text === 'string' && item.text.trim()) return item.text
+      // run-only 记录（无 project 匹配，快照携带 params）：params.text 回退，
+      // 避免卡片文案预览显示「未生成」（2026-08-20 修复）
+      const paramsText = item.params && item.params.text
+      if (typeof paramsText === 'string' && paramsText.trim()) return paramsText.trim()
       return (Array.isArray(item.segments) ? item.segments : [])
         .map(segment => typeof segment?.text === 'string' ? segment.text.trim() : '')
         .filter(Boolean)
@@ -362,7 +375,7 @@ export default {
     },
     localizedStage (stage) { return stage ? getPipelineStage(key => this.$t?.(key), String(stage)) : '' },
     historyStatusLabel (status) { return this.tr('statuses.' + (status || 'unknown')) },
-    historyStatusIcon (status) { return ({ completed: '✓', failed: '×', cancelled: '–', running: '↻', paused: 'Ⅱ', pending: '○' })[status] || '•' },
+    historyStatusIcon (status) { return ({ completed: '✓', failed: '×', cancelled: '–', running: '↻', paused: 'Ⅱ', interrupted: '↯', pending: '○' })[status] || '•' },
     displayTime (item) { return historyDisplayTime(item) },
     createdTime (item) { return historyDisplayTime({ createdAt: item?.createdAt, created_at: item?.created_at }) },
     historyDuration (item) {
@@ -406,7 +419,7 @@ export default {
       }).format(date)
     },
     historyItemResumable (item) {
-      if (!item || !['failed', 'paused'].includes(item.status) || !(item.id || item.runId)) return false
+      if (!item || !['failed', 'paused', 'interrupted'].includes(item.status) || !(item.id || item.runId)) return false
       return !RESUME_BLOCKING_ERROR_PATTERN.test(String(item.error || ''))
     },
     policyResumeHintFor (item) {
@@ -456,6 +469,7 @@ export default {
     historyStageState (stage) {
       const status = stage && typeof stage === 'object' ? stage.status : ''
       if (status === 'completed') return 'done'
+      if (status === 'skipped') return 'skipped'
       if (status === 'running') return 'active'
       if (['failed', 'needs_user_input', 'cancelled'].includes(status)) return 'failed'
       return 'pending'

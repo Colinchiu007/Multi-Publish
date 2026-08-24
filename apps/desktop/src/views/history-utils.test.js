@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   CONTENT_POLICY_ERROR_PATTERN,
+  HISTORY_STATUSES,
   HISTORY_TIME_KEYS,
   RESUME_BLOCKING_ERROR_PATTERN,
   collectContentPolicySceneNumbers,
   contentPolicyScenes,
   filterHistoryByStatus,
   historyEffectiveTime,
+  historyStatusCounts,
   policySceneQuery,
   sortHistoryByEffectiveTime,
 } from './history-utils'
@@ -47,10 +49,24 @@ describe('history-utils', () => {
     const items = [
       { id: 'failed', status: 'failed', updatedAt: '2026-08-15T12:00:00Z' },
       { id: 'paused', status: 'paused', updatedAt: '2026-08-15T11:00:00Z' },
+      { id: 'interrupted', status: 'interrupted', updatedAt: '2026-08-15T10:30:00Z' },
       { id: 'running', status: 'running', updatedAt: '2026-08-15T10:00:00Z' },
     ]
     expect(filterHistoryByStatus(items, 'paused').map(item => item.id)).toEqual(['paused'])
-    expect(filterHistoryByStatus(items, 'all').map(item => item.id)).toEqual(['failed', 'paused', 'running'])
+    // 中断任务不得混入已暂停：paused 过滤必须精确匹配状态
+    expect(filterHistoryByStatus(items, 'paused').map(item => item.id)).not.toContain('interrupted')
+    expect(filterHistoryByStatus(items, 'interrupted').map(item => item.id)).toEqual(['interrupted'])
+    expect(filterHistoryByStatus(items, 'all').map(item => item.id)).toEqual(['failed', 'paused', 'interrupted', 'running'])
+  })
+
+  it('状态清单与计数合同包含 interrupted（已中断 ≠ 已暂停，2026-08-20 状态语义修订）', () => {
+    expect(HISTORY_STATUSES).toEqual(['all', 'running', 'paused', 'interrupted', 'failed', 'completed', 'cancelled'])
+    const counts = historyStatusCounts([
+      { id: 'a', status: 'interrupted' },
+      { id: 'b', status: 'paused' },
+      { id: 'c', status: 'failed' },
+    ])
+    expect(counts).toEqual({ all: 3, running: 0, paused: 1, interrupted: 1, failed: 1, completed: 0, cancelled: 0 })
   })
   it('RESUME_BLOCKING_ERROR_PATTERN 门控统一命中内容政策与空结果变体', () => {
     for (const text of ['content-policy', 'content policy', 'content_policy', 'contentpolicy', 'needs_user_input', '可能需要修改文案', '内容政策', '该失败需要人工处理（内容政策），请修改文案后重新启动', 'Image generation repeatedly returned no result (service fluctuation or account issue); adjust the scene prompt and retry, or check the provider account', '图片生成多次未返回结果（可能是内容安全策略或服务波动）']) {

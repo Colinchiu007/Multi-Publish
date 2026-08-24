@@ -183,6 +183,19 @@ describe('MinimaxImageAdapter — MiniMax Image Adapter', () => {
       expect(body.n).toBe(1)
     })
 
+    it('提示词超过 1500 字符时截断到 MiniMax 官方上限', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ data: { image_urls: ['x'] } }),
+      ])
+      global.fetch = fetchMock
+      const longPrompt = 'a'.repeat(2000)
+      const adapter = new MinimaxImageAdapter({ id: 'minimax-image', apiKey: 'mm-test' })
+      await adapter.generateImage({ prompt: longPrompt })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(Array.from(body.prompt).length).toBeLessThanOrEqual(1500)
+      expect(body.prompt).toBe('a'.repeat(1500))
+    })
+
     it('忽略调用方传入的 model，始终使用固定 image-01', async () => {
       const fetchMock = createFetchMock([
         createFetchResponse({ data: { image_urls: ['x'] } }),

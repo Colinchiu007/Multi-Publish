@@ -3,24 +3,6 @@ name: Doc Sync Gate
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths-ignore:
-      # 纯文档/CI/配置变更 PR 自动 bypass，不再需要 bypass-doc-gate label
-      - '**.md'
-      - 'docs/**'
-      - '.github/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.ccg/**'
-      - '.claude/**'
-      - '.hermes/**'
-      - '.agents/**'
-      - 'openspec/**'
-      - '.editorconfig'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'nx.json'
-      - 'packages/*/vitest.config.js'
-
 jobs:
   doc-sync:
     name: 文档同步检查

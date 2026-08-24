@@ -1,0 +1,14 @@
+{
+  "id": "film-engineering-submit-validation",
+  "title": "修复视频创作电影工程进入时的参数校验提示",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop",
+  "currentPhase": "completed",
+  "nextAction": "PR 已创建，待合并后远程同步",
+  "createdAt": "2026-08-23T06:00:00+08:00",
+  "branch": "codex/film-engineering-submit-validation",
+  "openspecChange": "fix-film-engineering-ipc-event-forwarding",
+  "remoteStatus": "PR open: https://github.com/Colinchiu007/Multi-Publish/pull/1125"
+}

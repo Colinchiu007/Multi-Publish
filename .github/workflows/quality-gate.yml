@@ -15,19 +15,6 @@ on:
       - 'openspec/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      # 文档/流程改动不触发 CI（清单与 .github/scripts/workflow-contract.test.js 的 CI_IGNORED_PATHS 保持同步）
-      - '01-docs/**'
-      - 'docs/**'
-      - '*.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.editorconfig'
-      - '.ccg/**'
-      - '.claude/**'
-      - '.hermes/**'
-      - '.agents/**'
-      - 'openspec/**'
   workflow_dispatch:
 jobs:
   static-gates:
@@ -510,6 +497,10 @@ jobs:
             $contractExit = $LASTEXITCODE
             if ($contractExit -ne 0) { exit $contractExit }
 
+            node apps/desktop/tests/e2e/helpers/functional-runner.test.js
+            $runnerContractExit = $LASTEXITCODE
+            if ($runnerContractExit -ne 0) { exit $runnerContractExit }
+
             pnpm.cmd --filter @multi-publish/desktop run test:e2e
             $e2eExit = $LASTEXITCODE
           } finally {
@@ -524,6 +515,7 @@ jobs:
           }
           echo "E2E_GATE=PASS" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "[GATE-8] Browser E2E passed"
+          exit 0
 
       - name: "Upload GUI quality artifacts"
         if: always()
@@ -560,6 +552,27 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # --- Gate 9: PRD/源码自主覆盖审计 ---
+      - name: "Gate 9 - PR metadata"
+        id: pr-meta
+        shell: pwsh
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          $title = "" + "$env:PR_TITLE" + ""
+          $body = "" + "$env:PR_BODY" + ""
+          $labels = "" + "$env:PR_LABELS" + ""
+          $isMaintenance = ($title -match '^(fix|chore|docs|refactor|test)\b') -or ($labels -match 'bug|fix|docs|refactor|chore|test')
+          if ($isMaintenance) {
+            "PR_MODE=report-only" | Out-File -Append $env:GITHUB_ENV
+          } else {
+            "PR_MODE=full" | Out-File -Append $env:GITHUB_ENV
+          }
+          $ids = [regex]::Matches($body, 'feat_[A-Za-z0-9_]+') | ForEach-Object { $_.Value } | Sort-Object -Unique
+          if ($ids.Count -gt 0) {
+            "REQUIRED_FEATURE_IDS=$($ids -join ',')" | Out-File -Append $env:GITHUB_ENV
+          }
       - name: "Gate 9 - Autonomous coverage audit"
         id: autonomous-gate
         shell: pwsh
@@ -579,7 +592,9 @@ jobs:
             "--skip-visual",
             "--docs=01-docs/PRD.md",
             "--threshold=0.5"
+            "--pr-mode=$env:PR_MODE"
           )
+          if ($env:REQUIRED_FEATURE_IDS) { $auditArgs += "--required-feature-ids=$env:REQUIRED_FEATURE_IDS" }
           if ($env:OPENAI_API_KEY) { $auditArgs += "--llm=openai" }
 
           $output = & node @auditArgs 2>&1

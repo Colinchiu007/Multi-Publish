@@ -109,6 +109,55 @@ describe('film-engineering IPC 正常通道', () => {
     expect(result.data.length).toBe(1)
   })
 
+  it('list-shots 合法 sceneId 按 IPC 参数顺序转发到服务', async () => {
+    const deps = makeDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const result = await ipcMain._get('film-engineering:list-shots')(TRUSTED_EVENT, 'scene-42')
+    expect(result.code).toBe(0)
+    expect(deps.filmEngineeringService.listShots).toHaveBeenCalledWith('scene-42')
+  })
+
+  it('get-shot 合法 shotId 按 IPC 参数顺序转发到服务', async () => {
+    const deps = makeDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const result = await ipcMain._get('film-engineering:get-shot')(TRUSTED_EVENT, 'shot-42')
+    expect(result.code).toBe(0)
+    expect(deps.filmEngineeringService.getShot).toHaveBeenCalledWith('shot-42')
+  })
+
+  it('copy-text 合法 shotId 和 mode 按 IPC 参数顺序转发到服务', async () => {
+    const deps = makeDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const result = await ipcMain._get('film-engineering:copy-text')(TRUSTED_EVENT, 'shot-42', ' blocks ')
+    expect(result.code).toBe(0)
+    expect(deps.filmEngineeringService.buildCopyText).toHaveBeenCalledWith('shot-42', 'blocks')
+    expect(result.data.mode).toBe('blocks')
+  })
+
+  it('copy-texts 合法 shotIds 和 mode 按 IPC 参数顺序转发到服务', async () => {
+    const deps = makeDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const shotIds = ['shot-1', 'shot-2']
+    const result = await ipcMain._get('film-engineering:copy-texts')(TRUSTED_EVENT, shotIds, ' geo ')
+    expect(result.code).toBe(0)
+    expect(deps.filmEngineeringService.buildCopyTexts).toHaveBeenCalledWith(shotIds, 'geo')
+    expect(result.data.count).toBe(2)
+  })
+
+  it('export 合法 selectedShots 和 format 按 IPC 参数顺序转发到服务', async () => {
+    const deps = makeDeps()
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const selectedShots = [{ shotId: 'shot-42', prompt: 'prompt' }]
+    const result = await ipcMain._get('film-engineering:export')(TRUSTED_EVENT, selectedShots, 'markdown')
+    expect(result.code).toBe(0)
+    expect(deps.filmEngineeringService.exportPrompts).toHaveBeenCalledWith(selectedShots, 'markdown')
+  })
+
   it('list-shots 非法 sceneId 返回 VALIDATION_ERROR', async () => {
     const deps = makeDeps()
     const ipcMain = createMockIpcMain()

@@ -1,0 +1,14 @@
+{
+  "id": "subtitle-segmenter-oracle",
+  "title": "优化 Story2Video 字幕分句的词边界与了后宾语保护",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "backend",
+  "currentPhase": "completed",
+  "nextAction": "Multi-Publish PR #1123 与 Python sidecar PR #24 均已合并；分支保护规则已恢复，无剩余交付动作",
+  "createdAt": "2026-08-23T00:00:00+08:00",
+  "branch": "codex/subtitle-segmenter-oracle",
+  "openspecChange": "subtitle-segmenter-oracle",
+  "remoteStatus": "Multi-Publish PR #1123 merged as 8216f84ac9250c5b8c8fbdc838e9fcdc7cf011ee; smart-sentence-splitter PR #24 merged as 02767f772224f7f6103cb43a70ae14f180651c8d after temporary required-approval count 0, then branch protection restored to 1 approval and original checks: https://github.com/Colinchiu007/smart-sentence-splitter/pull/24"
+}

@@ -1,3 +1,35 @@
+## MiMo TTS 服务商默认音色必须遵循官方 Voice ID（fix-mimo-tts-param-incorrect，2026-08-23）
+
+- **现象**：`run_1787475502069_9888` 的 Story2Video 流水线在 `generate_assets` 语音生成阶段失败，日志为 MiMo `Param Incorrect`；设置使用 `mimo-v2.5-tts` 且未选择具体音色。
+- **第一性原因**：`mimo-tts.js` 初始适配器把空音色归一为 `audio.voice=default`，但 MiMo v2.5 普通 TTS 官方预置音色是 `mimo_default`。
+- **逃逸链**：适配器单测只覆盖显式音色，没有覆盖省略/空字符串的最终序列化请求体；集成/E2E 没有真实 MiMo 参数合同断言；审查没有把默认值和官方文档逐项对照。
+- **修复与预防**：默认值改为 `mimo_default`，新增未传/空字符串请求体回归；以后新增或修改 provider adapter，必须保留官方文档证据，并用最终 `JSON.stringify` 后的请求体覆盖省略值、空值、显式值。Voice Design/Voice Clone 等不同模型必须单独核对模型合同，不得用普通 TTS 默认值推断。
+
+## Story2Video 克隆音色重试的生产 manager 契约复盘（fix-run-voice-clone-production-contract，2026-08-23）
+## Provider 运行级熔断与克隆音色恢复去重复盘（minimax-provider-circuit-breaker，2026-08-23）
+
+- **现象**：run_1787423931138_9cak 中失效 `voice_id` 触发几十个并发 TTS 各自重克隆；MiniMax 返回余额/Token Plan 错误后，图片、LLM、视频队列仍继续领取任务，把「一次额度耗尽」放大成整批无效请求。
+- **第一性原因**：`tryReCloneVoice` 没有运行级去重；`RATE_LIMIT_PATTERN` 把额度/quota 当限流进入重试；`callAdapter` 未暴露 runtime breaker，导致各阶段各自为战。
+- **逃逸链**：单测覆盖单个重克隆与限流，未覆盖并发共享、额度分类和跨 image/TTS/LLM/video 的队列停止；集成/E2E 未在额度错误后统计上游调用停止；审查把「统一 provider 边界」当成 manager 三参即可，未要求 runtime 控制对象。
+- **系统性漏洞**：provider 错误分类分散在 story2video 本地正则与 provider-error 双实现；运行时控制缺少显式传参通道，队列 worker 领取任务前不检查熔断。
+- **修复与预防**：新增 `ProviderRunContext`（provider 维度、运行内存作用域、voice 恢复去重），`callAdapter` 支持可选第四参并在 quota 时自动 open；`_mapWithConcurrency` 支持 `shouldStart`；PromptBridge 对 quota 禁止 CLI/legacy fallback；断点恢复继续复用已完成产物与新 voice id 映射。后续 provider 调用链改动必须检查 runtime options 透传，新增队列必须支持领取前熔断检查。
+
+
+- **现象**：初次 TTS 因跨账号克隆音色 `voice_id` 无权限失败；重克隆在真实 Electron 中继续失败，测试环境却通过。
+- **第一性原因**：`tryReCloneVoice()` 使用 `manager.getAdapter()`，而生产 `ModelProviderManager` 的公开边界是 `callAdapter(providerId, method, params)`；旧测试 double 恰好暴露了不存在的 `getAdapter()`，掩盖了契约错位。
+- **逃逸链**：单测只验证了旧 double 的 clone 结果，没有验证生产 manager 接口形状；集成测试未穿过 `callAdapter` 的 `{ code, data }` 包装；既有 E2E 未覆盖跨账号 clone voice 失效后的真实重克隆。
+- **修复与预防**：重克隆经 `callAdapter` 注入 provider 凭据并解析包装结果，成功后只替换 voice ID、继续使用原始 TTS provider；回归 fixture 模拟生产调用契约，并保留真实 Electron E2E。涉及 manager/adapter 调用时，测试 double 必须与生产公开 API 同形，不能只提供底层 registry 方法。
+
+## agent 漏跑 quality-rhythm 质量节拍的根因与预防（fix-s2v-delete-silent-error，2026-08-20）
+
+- **现象**：用户报 s2v「删除项目误报『项目未能删除，请稍后再试』」，agent 直接临场排查并改代码，但只加载了 quality-rhythm skill 而**未真正执行 QM-5 Bug 反思循环五步**（缺 git blame 到 commit、逃逸链、系统性漏洞定位）；用户追问「为何没应用质量节拍」后才补跑。
+- **教训 1（skill 必须「执行」而非「加载」）**：收到 `/quality-rhythm` 或触发质量节拍时，必须按 skill 的 Phase 跑完整闭环；Bug 类任务强制走 QM-5 五步（第一性原因 git blame → 逃逸链 → 系统性漏洞 → 修复+回归测试 → 预防措施落地文件），不得只做 ad-hoc 调试。
+- **教训 2（QM-5 第①步必须 blame 到具体 commit）**：任何 Bug 修复都要 `git blame` 定位引入点 commit 与意图，确认是 feature 初版引入还是修别的 bug 改坏；本次 `deleteProject` 由 `e1b46eba0`（feat(story2video): complete legacy parity and harden provider media downloads）整体引入，顺序缺陷即原始引入点。
+- **教训 3（删除/清理类操作的不可变式）**：凡「先改索引/元数据、后清磁盘目录」的操作，两步非原子——索引成功即用户可见完成，目录清理失败必须是尽力而为（`try/catch` + `warn`），不得把目录清理失败当作致命错误抛回 UI，否则出现「已删除却误报失败」（2026-08-20 实为 Windows 文件锁 EPERM，旧路径静默无日志）。
+- **教训 4（失败路径必须有可观测性）**：`catch` 吞掉错误只回传前端会导致日志盲区，无法事后确认根因；所有失败路径必须 `log.warn/error` 真实错误，便于下次定位。
+- **逃逸链**：本次 agent 自身漏跑 skill（流程缺失/agent 纪律）；既有测试只覆盖删除成功路径（测试场景缺失）；旧代码 catch 静默无日志（可观测性缺失）。
+- **预防**：收到质量节拍指令必须跑完整闭环再动手；Bug 类一律先 QM-5 五步；删除/清理操作统一「索引成功=成功、目录清理尽力而为」契约并加回归测试；失败路径补 log。
+
 ## 历史场景素材四卡布局与预览/选择交互复盘（s2v-history-scene-material-layout，2026-08-20）
 
 - **需求与交付**：结果页场景素材区固定渲染 image1、image2、video1、video2 四个视觉卡；radio 放在缩略图下方、素材名称之前，缩略图只预览；预览弹窗使用 xl；生成新图/生成 AI 视频分别只在 image1/video1 卡内出现；空素材保持固定 media frame 并只显示本地化“未生成”。
@@ -255,6 +287,15 @@
 - **教训 1（path-filtered 检查不得列入 required contexts）**：GitHub 分支保护对未命中 path filter 的 workflow 视为「检查缺失」而非「跳过」，任何不触达该路径的 PR 永久 BLOCKED。新增 required check 前必须确认其触发条件覆盖所有会走该分支的 PR 类型；需要全量门禁时用单 workflow 内条件 job（如 quality-gate.yml 的 QG 系列），不要用多个 path-filtered workflow 各自 required。
 - **教训 2（BLOCKED 诊断路径）**：`mergeStateStatus=BLOCKED` 且 statusCheckRollup 无 pending 项时，直接比对分支保护 contexts（`gh api repos/{owner}/{repo}/branches/main/protection`）与 PR head commit 实际 check runs（`gh api .../commits/{sha}/check-runs`），差集即卡点。
 - **教训 3（gh api PATCH 细节）**：`-f strict=false` 会把布尔传成字符串导致 422，改用 `-F strict=false`（类型推断）或 `--input` 原始 JSON；该 PATCH 整体替换 contexts 列表，必须带全量。
+
+---
+
+## 纯文档 PR 被全量 CI 路径过滤永久阻塞复盘（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：PR #1146 仅修改文档、`.ccg` 与流程记录；手动执行 Quality Gate 后 8 个 QG job 全绿，仍因 `electron-tests`、`单元测试 + Lint`、`文档同步检查`、双平台 build 没有 check run 而 `BLOCKED`。
+- **根因**：build/electron-ci/quality-gate 与 doc-gate 的 `pull_request.paths-ignore` 将 docs-only PR 整个 workflow 跳过，但分支保护仍把其中的 job 名称列为 required context。GitHub 对此不会生成“skipped 也满足”的状态，结果是结构性永远缺失。
+- **修复原则**：所有目标为 `main` 的 PR 都执行真实 workflow；仅合并后的 `push main` 保留统一路径过滤，避免同一 docs-only 改动重复消耗 CI。禁止用同名空 job、手动 dispatch 或 status API 伪造绿灯。
+- **回归保护**：`.github/scripts/workflow-contract.test.js` 断言三个全量 workflow 的 PR 不含 `paths-ignore`、main push 忽略清单仍一致，并断言 Doc Gate 对任意 main PR 运行。
 
 ---
 
@@ -13833,3 +13874,68 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 3. 新媒体展示必须同时覆盖合法素材、缺失、失败、文件被清理、越界/符号链接和窗口加载失败；固定槽位不能因 v-if 消失。
 4. 终态可编辑规则必须同时检查 running 排除、paused/failed/completed/cancelled 进入、cancelled 禁止 resume、纯 run 禁止伪造项目；文档与 locale 成对更新。
 5. 外部模型不可用时必须如实记录；本地审查、定向测试、打包窗口验收和远端 CI 的证据分开记录，不能互相替代。
+
+### 历史详情场景素材未生成槽生成按钮缺失 + 生成AI视频灰显（2026-08-21，fix-s2v-history-scene-gen-buttons）
+
+**现象**：视频创作-历史记录-视频详情（ResultView.vue）场景素材的图片 2/视频 2 空卡下方没有【生成新图】/【生成 AI 视频】按钮；视频 1 的【生成 AI 视频】在无 videoPrompt 时灰显不可点。
+
+**第一性原因**：① 2026-08-20 四视觉卡修订设计了「场景级生成按钮只在 image1/video1 卡渲染一次」，image2/video2 空槽因此没有生成入口；② 渲染层 `hasUsableVideoPrompt` 只校验 `segment.videoPrompt`，而后端 `generateSceneAiVideo` 实际回退 `videoPrompt || prompt || text`，老项目未持久化 videoPrompt 时前端错误禁用按钮。
+
+**逃逸链**：单元测试把「image2/video2 无按钮」（`toHaveLength(2)`）写成断言反向固化错误行为；服务层测试覆盖了后端回退但没有任何渲染层用例把前端门控与后端契约绑定；E2E/视觉无空槽+可回退提示词场景。
+
+**修复**：生成按钮覆盖 image1/image2 与 video1/video2 全部视觉卡（保持场景级动作，写入目标由选中态/身份规则决定，video2 仍是视觉别名）；`hasUsableVideoPrompt` 改为 `videoPrompt || prompt || text` 任一 trim 非空，与后端契约一致（模板 disabled 与方法入口 guard 同时放宽，避免可点但静默 return）。
+
+**预防**：场景级生成动作可以在多个视觉卡重复暴露多入口，但禁止为视觉别名新增持久化身份；renderer 的“能否生成”门控必须与后端提示词回退契约逐字一致并加跨层断言；测试禁止用 `toHaveLength(2)`/“无按钮”固化错误行为，用 data-testid 定位。已沉淀至 `.ccg/spec/frontend/index.md` §8。
+
+## Story2Video 字幕常用词边界与未闭合引号保真（subtitle-word-boundary-fix，2026-08-22）
+
+- **现象**：用户整段文案分句后出现 `哪|怕`、`没|法`、`那|些`、`展|现` 等常用词被硬切；`前朝。"字里行间…` 这类未闭合半角引号会让后续句号失效，正文被吞。
+- **根因**：`no_cut_bigrams` 只覆盖此前用户反馈词；引号清理只发生在句界切分之后，孤立开引号会让 `_split_sentences` 的引号栈永不闭合，后续正文与句号一起被吞。
+- **修复**：常用词加入共享 `subtitle-rules.json`；三端在句界扫描前先做 `stripUnpairedQuotes`，只移除无法配对的引号字符并保留正文；`protectedPhrasePrefixAtEnd` 增加“文本已完整结束于保护短语时不再把末尾单字误判为另一短语前缀”的守卫，修复 `江南` 被 `南宋灭亡时` 误伤成 `江|南`。
+- **逃逸链**：单元测试覆盖了旧保护词但未覆盖“未闭合引号 + 多句 + 完整长文”组合；共享向量没有带上用户整段文案；Python/TS 向量测试各自独立，缺少同一输入的三端逐字对比。
+- **回归保护**：新增 `user_common_words_and_unpaired_quote`、`user_full_ming_scholar_script` 共享向量，三端共用；Electron 141、TS 166、Python 169 全部通过；QM-1 打包与 ASAR 抽取真实 require 通过。
+- **预防**：以后新增常用词/引号规则必须同步三端规则表与共享向量；长文本测试不能只验词不验引号，句界预处理必须晚于引号配对检查、早于 `splitSentences`；向 `no_cut_bigrams` 加入以单字开头的新短语时，必须回归“该单字出现在其他完整保护短语末尾”的极端配置。
+### 已经/依然 语义引导切分（subtitle-adverb-lead-cut，2026-08-23）
+
+长文 A/B 回归：仅加入 `已→经`、`依→然` 两个语义引导词，221 块中只有 48/49、152/153 变化，分别是“底层农民的实际负担｜依然重得吓人”与“这举动说明老朱的态度｜已经变软了”，其余 217 块不变；现有共享向量全部通过。规则落在 `word_split.semantic_lead` + `semantic_lead_followers`，短尾通过 `short_block_exceptions` 声明。
+
+## Story2Video 提示词优化中文翻译被包装文本污染复盘（fix-s2v-prompt-translation-wrappers，2026-08-23）
+
+- **现象**：结果页“中文翻译”没有生成正确译文，偶发显示 `<response>`、`<thinking>`、marker、前后说明文字，或整段 JSON/协议噪声。
+- **第一性原因**：`f7899b20b5` 首次引入 `translatePromptsForLocale` 时直接对 LLM `content` 执行 `JSON.parse(raw)`；`16b2db8427` 只补了 Markdown fence 剥离。推理模型和 provider wrapper 会返回 HTML/思考块/协议 marker/说明文字包裹 JSON，解析失败后旧逐行回退把包装文本当成译文写入 `segment.promptTranslation`。
+- **修复**：先遍历每个 `{` 起点，用平衡扫描处理嵌套对象、字符串内花括号和反斜杠转义；跳过未闭合或不可解析候选，取最后一个可解析对象，再按现有 index 映射。无合法对象时保留逐行 fail-open，避免阻塞流水线。
+- **逃逸链**：单测只覆盖裸 JSON/Markdown fence，未覆盖真实 provider 包装、转义、嵌套和示例回显；集成/E2E 未断言真实 LLM 响应形状到最终翻译字段；视觉审查只看页面可见性，不验证翻译语义；首轮外部审查发现“首个花括号独占”残余风险，复审前已修复。
+- **回归保护**：`apps/desktop/electron/services/story2video-stages.test.js` 新增 HTML 闭合、thinking/前导文本、marker、转义引号、未闭合前导花括号和示例回显 6 例；定向翻译 13 passed，文件套件 137 passed。
+- **预防**：所有结构化 LLM 消费点按真实响应形态建立 fixture；解析候选、结构校验和用户字段脱噪必须分开断言；任何原文/逐行回退必须证明不会把协议包装写入用户可见字段。相同模式适用于 `prompt-engine-contract.js` 与 `video-prompt-engine-contract.js` 的优化结果解析。
+
+## Windows Claude wrapper 启动环境诊断（2026-08-23）
+
+- **结论**：交互式终端的 `claude` 可用；偶发的 `codeagent-wrapper` 子进程找不到 `claude` 属于 PATH/启动环境差异，不是 Claude CLI 不可用。
+- **处理**：先在可用终端用 `Get-Command claude`/实际安装目录定位 CLI，再把 CLI 所在目录和正确 Git Bash 路径注入 wrapper 子进程环境；重新运行固定 diff 的只读审查。审查结果必须区分“CLI 可用性”“wrapper 启动成功”和“审查发现已解决”三件事。
+
+## 视频流水线进度弹窗与后台脱离（s2v-progress-modal-background，2026-08-23）
+
+- **交付**：CreateView 运行中的完整阶段信息迁入 `UiModal variant=progress`（960px 上限、body 滚动、modeless、底部 action bar 保持可点击）；恢复【后台运行】，右上关闭与按钮共用 detach，不调用取消、轮询代际失效、恢复新建态并刷新历史；遮罩/Escape 不关闭，离场 scale(0.96) 缩小；人工检查点禁后台化；普通流水线无 runId 时只统一视觉壳。
+- **教训 1（“人工检查点”与“旧版提示”是两个判定）**：初版 `pipelineProgressLegacyCheckpoint` 直接复用 `hasManualPipelineCheckpoint`，导致只有 `waiting_approval`/`needs_user_input` 状态枚举、无旧快照证据时也显示“旧版人工检查点无操作协议”，让用户误以为快照损坏。修正为独立的 `hasLegacyPipelineCheckpointEvidence`（仅 paused+候选素材/requiresCheckpoint/finalize_assets 等证据算 legacy），文案分类与后台化阻断解耦，并补 `not.toContain('旧版人工检查点')` 回归。
+- **教训 2（modeless 窗口不能简单沿用 modal 焦点合同）**：进度弹窗需要底部 action bar 可用，因此 `UiModal` 进度变体不注册全局 ESC/焦点陷阱，`aria-modal=false`；只在 closeDisabled 时把焦点留在 dialog，可关闭时聚焦右上按钮。任何给进度窗补“全局键盘”的行为都会破坏底部操作。
+- **教训 3（普通流水线 identity 缺口不能靠视觉统一掩盖）**：非编排流水线按名称查询状态、启动响应可能无稳定 runId；统一弹窗后若仍显示 run-scoped 后台/恢复会造成串任务。本轮只允许启动响应明确返回 `runId/id` 时提供后台按钮；后续需主进程补充普通流水线 runId/API 合同。
+- **逃逸链**：旧自动后台改造删除按钮但测试只覆盖“无按钮”，没有覆盖“用户需要显式后台出口”；UiModal 遮罩/Escape 默认行为被当作所有弹窗共同合同；检查点文案分类没有独立测试。修复后 281 项定向测试全绿。
+- **预防**：① 进度观察窗/弹窗的新交互必须同时覆盖关闭策略、底层操作条、检查点阻断和离场动画；② 状态机判定不得把“语义分类”与“行为阻断”复用同一函数而不加反向断言；③ CJK 基线行号位移只允许显式更新并核对新增引用。
+
+## 统一进度弹窗范围边界审计（s2v-progress-unify-scope-doc，2026-08-23）
+
+- **结论**：生产可达的实时进度详情由 `CreateView` 进度弹窗承载；历史摘要与恢复入口由 `CreateViewHistory.vue` 承载。`/create/history` 已重定向到 `/create?view=history`，`CreateHistory.vue` 无生产引用，属于废弃组件。
+- **边界**：统一壳按“是否具有可观察流水线阶段状态 + run identity/恢复协议”收敛；快速渲染（Remotion）loading、发布 timeline、独立分析状态不套用，避免无历史恢复协议却声明“后台运行/在历史记录中可查看”。
+- **教训**：UI 统一不等于语义统一；跨页面共用“进度弹窗”前必须确认 runId、阶段合同和历史恢复路径，否则会为轻量任务伪造后台/历史能力。
+## Windows Browser E2E 导航资源耗尽不能靠跳过 CI 掩盖（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：移除 docs-only PR 的路径过滤后，PR #1146 首次执行完整 Gate 8；Windows runner 在 `/accounts` 路由的 `page.goto` 报 `net::ERR_NO_BUFFER_SPACE`，同 run 的账号管理集成流仍通过。
+- **第一性原因**：`FunctionalRunner.goto()` 与 `resetToRoute()` 自 E2E 基础设施引入时都直接执行一次 `page.goto`；Windows 临时 socket buffer 耗尽没有恢复边界，单次瞬态故障直接终止整套扫描。
+- **逃逸链**：此前 docs-only PR 因 `pull_request.paths-ignore` 不运行 Browser E2E（流程缺失）；E2E 覆盖可发现问题但没有针对瞬态导航错误的恢复合同（测试场景缺失）；审查只验证了串行并发控制，未检查底层 Playwright 导航错误分类（审查盲区）。
+- **修复与预防**：仅精确匹配 `net::ERR_NO_BUFFER_SPACE` 时短暂等待并重试一次，第二次与任何其他错误原样抛出；`goto`/`resetToRoute` 共享实现，`waitForAppReady` 只在成功后执行。node:test 覆盖成功恢复、非匹配、不成功耗尽与 reset 路径，并由 Gate 8 在真实浏览器扫描前运行；禁止通过恢复 `paths-ignore`、跳过 Gate 8 或把全部错误重试来掩盖问题。
+## 打包 E2E 必须等待真实终态，不得把临界延迟误报为未知（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：PR #1146 Windows build 的电影工程 E2E 在生成检查处报“未捕获生成结果提示”；artifact `9507479285` 最终消息数组实际含 `生成失败`。`ffmpeg` placeholder fallback 因 Windows 缺失 fontconfig 配置耗时，终态在旧 15 秒窗口后约 70ms 出现。
+- **第一性原因**：`film-engineering-real.js` 的生成 toast 调用把 15 秒作为固定预算，没有把已知打包 fallback 的异步终态纳入观察时间。
+- **逃逸链**：首次同 PR Windows build 更快走“已提交 1 个分镜”，未覆盖慢 fallback（测试场景缺失）；CI artifact 已保留消息但 E2E 没有在失败时用它回判（测试质量不足）；审查侧未对“终态可能在 timeout 边界后出现”做预算核验（审查盲区）。
+- **修复与预防**：生成终态预算固定为 30 秒，仍只接受既有真实终态，超时继续失败；模块用 `require.main` 守卫，`waitForToast` 可由 node:test 直接验证延迟消息。后续打包 E2E 修改终态等待时必须覆盖慢路径、未知超时和模块导入无副作用。

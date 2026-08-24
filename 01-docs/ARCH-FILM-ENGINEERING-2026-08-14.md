@@ -129,6 +129,8 @@ film_export_prompts → JSON/Markdown 导出（格式非法报错）
 
 10 通道全部 `withSenderCheck`（防外部网页调用）+ 入参运行时校验，统一信封 `{code, data?, message?}`；`code===0` 成功。校验上限：剧本 10000、角色映射 10 键、数组批量 50、生成批量 20、prompt 50000。通道加入 PUBLIC_CHANNELS（未登录可用）。preload 暴露 `window.electronAPI.filmEngineering.*` 10 方法。
 
+主进程 handler 统一签名 `(_e, ...params)`，`withKit` 必须同时转发 Electron event 与业务参数（`fn(event, ...args)`）；若只转发业务参数，参数会左移并触发 VALIDATION_ERROR。renderer 提交到 IPC 的 payload 必须是纯 JSON，Vue reactive proxy 由 composable 在构造 payload 时脱壳。
+
 ## 6. 前端设计
 
 ### 6.1 composable（useFilmEngineering.js）
@@ -160,6 +162,7 @@ film_export_prompts → JSON/Markdown 导出（格式非法报错）
 | IPC | ipc-handlers/film-engineering.test.js | 校验/sender/FILM_KIT_UNAVAILABLE |
 | 服务聚合 | film-engineering-service.test.js | status/export/generate 容错聚合 |
 | preload | preload.test.js | 10 方法桥接 + public 权限 |
+| 真实 E2E | apps/desktop/tests/e2e/film-engineering-real.js | 打包 Electron EXE 24 项：入口/场景/分镜/详情/复制/导出/套用/方法论/生成（`pnpm test:e2e:film-engineering`） |
 | 前端 | useFilmEngineering.test.js + CreateView.test.js | IPC 数据转发/空态/错误路径/入口路由 |
 | i18n | src/i18n/i18n.test.js | zh/en 对称 + filmEngineering 命名空间 |
 

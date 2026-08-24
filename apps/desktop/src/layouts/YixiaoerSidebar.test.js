@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import i18n from '@/i18n'
 
 const routeState = vi.hoisted(() => ({ path: '/accounts' }))
 const push = vi.hoisted(() => vi.fn())
@@ -35,9 +36,11 @@ afterEach(() => {
 })
 
 function mountSidebar (path = '/accounts') {
+  i18n.global.locale.value = 'zh'
   routeState.path = path
   wrapper = mount(YixiaoerSidebar, {
     global: {
+      plugins: [i18n],
       stubs: {
         RouterLink: {
           props: { to: { type: [String, Object], default: '' } },
@@ -60,6 +63,9 @@ describe('YixiaoerSidebar', () => {
 
     expect(sidebar.text()).toContain('测试用户')
     expect(sidebar.text()).toContain('免费版')
+    const status = sidebar.get('[data-testid="yixiaoer-sidebar-status"]')
+    expect(status.text()).toBe('客户端状态未知')
+    expect(status.classes()).toContain('is-unknown')
     expect(sidebar.text()).toContain('主页')
     expect(sidebar.text()).toContain('发布')
     expect(sidebar.text()).toContain('账号')

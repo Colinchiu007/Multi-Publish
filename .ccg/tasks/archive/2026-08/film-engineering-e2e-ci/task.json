@@ -1,0 +1,14 @@
+{
+  "id": "film-engineering-e2e-ci",
+  "title": "电影工程真实 E2E 接入 CI 默认门禁",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci",
+  "currentPhase": "completed",
+  "nextAction": "PR #1130 的 Gate 8 检查结果全绿但步骤退出码异常，已补显式成功退出并等待 CI 重跑",
+  "createdAt": "2026-08-23T13:40:00+08:00",
+  "branch": "codex/film-engineering-e2e-ci",
+  "openspecChange": "film-engineering-real-e2e-ci",
+  "remoteStatus": "PR open: https://github.com/Colinchiu007/Multi-Publish/pull/1130 (awaiting CI rerun after Gate 8 exit-code fix)"
+}

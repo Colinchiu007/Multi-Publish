@@ -7,6 +7,8 @@ import { getAppLocale, setAppLocale } from "@/i18n";
 const tStub = (key, params = {}) => {
   const map = {
     "stageProgress.statusCompleted": "已完成",
+    "stageProgress.statusSkipped": "已跳过",
+    "stageProgress.publishSkipped": "未选发布，跳过",
     "stageProgress.statusRunning": "运行中",
     "stageProgress.statusFailed": "失败",
     "stageProgress.statusWaitingApproval": "等待确认",
@@ -104,9 +106,59 @@ describe("StageProgress 等待态渲染（2026-08-13）", () => {
     expect(w.find('[data-testid="story2video-stage-generate_assets"] .stage-icon').text()).toBe("⟳");
     w.unmount();
   });
+
+  it("发布阶段未选平台（skipped）：显示 class=skipped、⏭ 图标与「未选发布，跳过」", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "publish", status: "skipped", startedAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:00:00Z" })],
+      orchestrationContext: { publish: { skipped: true } },
+    });
+    const item = w.find('[data-testid="story2video-stage-publish"]');
+    expect(item.classes()).toContain("skipped");
+    expect(item.find(".stage-icon").text()).toBe("⏭");
+    expect(item.find(".stage-status").text()).toContain("未选发布，跳过");
+    w.unmount();
+  });
+
+  it("非发布阶段 skipped：显示通用「已跳过」", () => {
+    const w = mountWith({
+      stages: [makeStage({ name: "optimize", status: "skipped" })],
+    });
+    const item = w.find('[data-testid="story2video-stage-optimize"]');
+    expect(item.classes()).toContain("skipped");
+    expect(item.find(".stage-status").text()).toContain("已跳过");
+    w.unmount();
+  });
 });
 
 describe("StageProgress 阶段级进行中信息统一契约（openspec pipeline-progress-feedback-unification）", () => {
+  it("总进度越界或非数值时安全收敛到 0..100", () => {
+    const high = mountWith({ stages: [makeStage()], progressPercent: 150 });
+    expect(high.find('[data-testid="story2video-orchestration-progress"] .progress-fill').attributes("style")).toContain("width: 100%");
+    high.unmount();
+
+    const low = mountWith({ stages: [makeStage()], progressPercent: -1 });
+    expect(low.find('[data-testid="story2video-orchestration-progress"] .progress-fill').attributes("style")).toContain("width: 0%");
+    low.unmount();
+
+    const invalid = mountWith({ stages: [makeStage()], progressPercent: "not-a-number" });
+    expect(invalid.find('[data-testid="story2video-orchestration-progress"] .progress-fill').attributes("style")).toContain("width: 0%");
+    invalid.unmount();
+  });
+
+  it("阶段子进度只接受有限的 0..100 数值，并将合法小数取整", () => {
+    const w = mountWith({
+      stages: [
+        makeStage({ name: "publish", status: "running", progress: { percent: "51.6", message: "publishing" } }),
+        makeStage({ name: "compose", status: "running", progress: { percent: 101, message: "invalid" } }),
+        makeStage({ name: "split", status: "running", progress: { percent: -1, message: "invalid" } }),
+      ],
+    });
+    expect(w.find('[data-testid="story2video-stage-progress-publish"]').attributes("aria-valuenow")).toBe("52");
+    expect(w.find('[data-testid="story2video-stage-compose-progress"]').exists()).toBe(false);
+    expect(w.find('[data-testid="story2video-stage-progress-split"]').exists()).toBe(false);
+    w.unmount();
+  });
+
   it("任意阶段带 stage.progress：显示 message + 迷你进度条（非 compose 阶段）", () => {
     const w = mountWith({
       stages: [

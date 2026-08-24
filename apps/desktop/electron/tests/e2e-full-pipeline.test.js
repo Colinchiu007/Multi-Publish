@@ -164,7 +164,7 @@ test('E2E: PipelineEngine 真实执行 Story2Video 六阶段并产出可解码�
     completedRun.stages.map(stage => stage.name),
     ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish'],
   );
-  assert.ok(completedRun.stages.every(stage => stage.status === 'completed'));
+  assert.ok(completedRun.stages.every(stage => stage.status === 'completed' || (stage.name === 'publish' && stage.status === 'skipped')));
 
   const context = result.context || completedRun.context;
   for (const stageName of ['split', 'scene_context', 'optimize', 'select_video_scenes', 'generate_assets', 'compose', 'publish']) {

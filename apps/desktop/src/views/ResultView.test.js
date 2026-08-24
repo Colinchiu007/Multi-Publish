@@ -1057,23 +1057,22 @@ describe("ResultView", () => {
     w.unmount();
   });
 
-  it("生成新图/生成 AI 视频按钮只出现在对应素材卡内，并在 busy 时禁用", async () => {
+  it("生成新图/生成 AI 视频按钮出现在所有图片/视频卡内，并在 busy 时禁用", async () => {
     const w = await createView();
     w.vm.projectId = "p1";
     w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", status: "completed" }];
     await nextTick();
     const section = w.find('[data-testid="scene-material-section"]');
     const buttons = section.findAll(".scene-material-slot-action button");
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(4);
     expect(section.find('[data-testid="scene-material-slot-image1"] [data-testid="generate-image-button"]').exists()).toBe(true);
-    expect(section.find('[data-testid="scene-material-slot-image2"] [data-testid="generate-image-button"]').exists()).toBe(false);
+    expect(section.find('[data-testid="scene-material-slot-image2"] [data-testid="generate-image-button"]').exists()).toBe(true);
     expect(section.find('[data-testid="scene-material-slot-video1"] [data-testid="generate-ai-video-button"]').exists()).toBe(true);
-    expect(section.find('[data-testid="scene-material-slot-video2"] [data-testid="generate-ai-video-button"]').exists()).toBe(false);
+    expect(section.find('[data-testid="scene-material-slot-video2"] [data-testid="generate-ai-video-button"]').exists()).toBe(true);
     w.vm.segmentBusy = { s1: "genImage" };
     await nextTick();
-    expect(buttons[0].attributes("disabled")).toBeDefined();
-    expect(buttons[1].attributes("disabled")).toBeDefined();
-    expect(buttons[0].text()).toContain("story2video.sceneMaterial.generating");
+    expect(buttons.every(button => button.attributes("disabled") !== undefined)).toBe(true);
+    expect(section.find('[data-testid="scene-material-slot-image1"] [data-testid="generate-image-button"]').text()).toContain("story2video.sceneMaterial.generating");
     w.unmount();
   });
 
@@ -1221,29 +1220,62 @@ describe("ResultView", () => {
     w.vm.segmentsDirty = true;
     await nextTick();
     const section = w.find('[data-testid="scene-material-section"]');
-    const button = w.find('[data-testid="generate-ai-video-button"]');
+    const button = w.find('[data-testid="scene-material-slot-video1"] [data-testid="generate-ai-video-button"]');
     expect(button.exists()).toBe(true);
     expect(button.attributes("disabled")).toBeDefined();
     expect(button.attributes("title")).toContain("aiVideoNeedsPromptHint");
 
     w.vm.segments[0].videoPrompt = "   ";
     await nextTick();
-    expect(w.find('[data-testid="generate-ai-video-button"]').attributes("disabled")).toBeDefined();
+    expect(w.find('[data-testid="scene-material-slot-video1"] [data-testid="generate-ai-video-button"]').attributes("disabled")).toBeDefined();
 
     w.vm.segments[0].videoPrompt = { text: "VP" };
     await nextTick();
-    expect(w.find('[data-testid="generate-ai-video-button"]').attributes("disabled")).toBeDefined();
+    expect(w.find('[data-testid="scene-material-slot-video1"] [data-testid="generate-ai-video-button"]').attributes("disabled")).toBeDefined();
     await w.vm.generateSceneAiVideo("s1");
     expect(mocks.story2videoGenerateSceneAiVideo).not.toHaveBeenCalled();
 
+    // 后端契约回退（videoPrompt 缺省时回退 prompt/text）：空 videoPrompt + 有 prompt 时可点
+    w.vm.segments[0].videoPrompt = "";
+    w.vm.segments[0].prompt = "场景画面提示词";
+    await nextTick();
+    expect(w.find('[data-testid="scene-material-slot-video1"] [data-testid="generate-ai-video-button"]').attributes("disabled")).toBeUndefined();
+
     w.vm.segments[0].videoPrompt = "VP";
     await nextTick();
-    expect(w.find('[data-testid="generate-ai-video-button"]').attributes("disabled")).toBeUndefined();
+    expect(w.find('[data-testid="scene-material-slot-video1"] [data-testid="generate-ai-video-button"]').attributes("disabled")).toBeUndefined();
     await w.vm.generateSceneAiVideo("s1");
     await nextTick();
     expect(mocks.story2videoGenerateSceneAiVideo).toHaveBeenCalledWith("p1", "s1");
     expect(w.vm.saveSegments).toHaveBeenCalled();
     expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_ai_video_generated");
+    expect(w.vm.segments[0].videoPath).toBe("C:/new-ai.mp4");
+    w.unmount();
+  });
+
+  it("无 videoPrompt 但有 prompt/text 时 AI 视频按钮可点并真实调用 IPC（后端回退契约）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoGenerateSceneAiVideo.mockResolvedValue({
+      code: 0,
+      data: {
+        projectId: "p1",
+        segments: [{ id: "s1", imagePath: "C:/img1.png", videoPath: "C:/new-ai.mp4", status: "completed" }],
+      },
+    });
+    mocks.story2videoCreateShareUrl.mockImplementation(async filePath => ({ code: 0, data: { url: "media://" + filePath } }));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", imagePath: "C:/img1.png", prompt: "场景画面提示词", status: "completed" }];
+    await nextTick();
+    const video1 = w.find('[data-testid="scene-material-slot-video1"] [data-testid="generate-ai-video-button"]');
+    const video2 = w.find('[data-testid="scene-material-slot-video2"] [data-testid="generate-ai-video-button"]');
+    expect(video1.exists()).toBe(true);
+    expect(video1.attributes("disabled")).toBeUndefined();
+    expect(video2.exists()).toBe(true);
+    expect(video2.attributes("disabled")).toBeUndefined();
+    await w.vm.generateSceneAiVideo("s1");
+    await nextTick();
+    expect(mocks.story2videoGenerateSceneAiVideo).toHaveBeenCalledWith("p1", "s1");
     expect(w.vm.segments[0].videoPath).toBe("C:/new-ai.mp4");
     w.unmount();
   });
@@ -1496,6 +1528,24 @@ describe("ResultView", () => {
     expect(mocks.story2videoRegenerateScenePrompt).toHaveBeenCalledWith("p1", "s1", "video");
     expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.scene_prompt_regenerated");
     expect(w.vm.segments[0].videoPrompt).toBe("新视频词");
+    w.unmount();
+  });
+
+  it("重新生成图片优化词遇到模型用量上限时提示额度耗尽", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoRegenerateScenePrompt.mockRejectedValue(new Error(
+      "Error code: 429 - GoUsageLimitError: 5-hour usage limit reached. Resets in 1hr 32min."
+    ));
+    const w = await createView();
+    w.vm.projectId = "p1";
+    w.vm.segments = [{ id: "s1", prompt: "旧图词", status: "completed" }];
+    await nextTick();
+
+    await w.vm.regenerateScenePrompt("s1", "image");
+    await nextTick();
+
+    expect(w.vm.story2videoNotificationDialog.messageKey).toBe("story2video.quota_exceeded");
+    expect(w.vm.story2videoNotificationDialog.messageParams.provider).toBe("当前");
     w.unmount();
   });
 
@@ -1902,7 +1952,7 @@ describe("ResultView", () => {
       w.vm.segments = [{ id: "s1", videoPrompt: "VP", status: "completed" }];
       await nextTick();
       const buttons = w.findAll('[data-testid="generate-ai-video-button"]');
-      expect(buttons).toHaveLength(1);
+      expect(buttons).toHaveLength(2);
       // 该按钮位于场景素材操作区
       expect(w.find('[data-testid="scene-material-section"] [data-testid="generate-ai-video-button"]').exists()).toBe(true);
       w.unmount();

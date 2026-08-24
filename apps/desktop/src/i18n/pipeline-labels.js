@@ -171,6 +171,7 @@ const STATUSES = {
   pending: 'pipelines.statuses.pending',
   running: 'pipelines.statuses.running',
   completed: 'pipelines.statuses.completed',
+  skipped: 'pipelines.statuses.skipped',
   failed: 'pipelines.statuses.failed',
   needs_user_input: 'pipelines.statuses.needs_user_input',
   paused: 'pipelines.statuses.paused',

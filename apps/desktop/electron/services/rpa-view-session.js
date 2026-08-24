@@ -56,9 +56,85 @@ const sessionMixin = {
   // ========== Cookie / browser storage restore ==========
   async _restoreCookies(win, cookies) {
     if (!cookies||!cookies.length) return
+    let restored = 0
     // eslint-disable-next-line no-unused-vars
-    for (let ci=0;ci<cookies.length;ci++) { try { await win.webContents.session.cookies.set(cookies[ci]) } catch (e) { /* ignore */ } }
-    log.info('RpaView','Restored '+cookies.length+' cookies')
+    for (let ci=0;ci<cookies.length;ci++) {
+      const c = cookies[ci] || {}
+      try {
+        const setArgs = { name: c.name, value: c.value, path: c.path || '/' }
+        if (typeof c.secure === 'boolean') setArgs.secure = c.secure
+        if (typeof c.httpOnly === 'boolean') setArgs.httpOnly = c.httpOnly
+        if (typeof c.expirationDate === 'number' && Number.isFinite(c.expirationDate)) setArgs.expirationDate = c.expirationDate
+        if (typeof c.sameSite === 'string' && c.sameSite) setArgs.sameSite = c.sameSite
+        if (typeof c.url === 'string' && c.url) {
+          setArgs.url = c.url
+        } else if (typeof c.domain === 'string' && c.domain) {
+          // Electron cookies.set requires url (v40+); keep domain to preserve domain-scoped cookie
+          setArgs.url = (c.secure ? 'https' : 'http') + '://' + c.domain.replace(/^\./, '') + '/'
+          setArgs.domain = c.domain
+        } else {
+          continue
+        }
+        await win.webContents.session.cookies.set(setArgs)
+        restored += 1
+      } catch (e) { /* ignore invalid cookie */ }
+    }
+    log.info('RpaView','Restored '+restored+'/'+cookies.length+' cookies')
+  },
+
+  // 从最新登录分区补充完整 cookie（登录会话是最权威来源，可补回凭证过滤丢掉的父域 cookie 如 BDUSS）
+  async _restoreAuthPartitionCookies(win, platform, accountId) {
+    try {
+      const fs = require('fs')
+      const roots = [
+        path.join(app.getPath('userData'), 'session', 'Partitions'),
+        path.join(app.getPath('userData'), 'Partitions'),
+      ]
+      const prefix = 'auth-auth-' + platform + '-'
+      let latestDir = null
+      for (const root of roots) {
+        if (!fs.existsSync(root)) continue
+        let names = []
+        try { names = fs.readdirSync(root) } catch (_) { continue }
+        const candidates = names
+          .filter(function (name) { return name.startsWith(prefix) })
+          .filter(function (name) {
+            try { return fs.statSync(path.join(root, name)).isDirectory() } catch (_) { return false }
+          })
+          .sort()
+        if (candidates.length > 0) {
+          latestDir = path.join(root, candidates[candidates.length - 1])
+          break
+        }
+      }
+      if (!latestDir) {
+        log.info('RpaView', '[' + platform + '] no auth partition to supplement cookies')
+        return 0
+      }
+      const partitionName = path.basename(latestDir)
+      const authSession = session.fromPartition('persist:' + partitionName)
+      const cookies = await authSession.cookies.get({})
+      let restored = 0
+      for (let ci = 0; ci < cookies.length; ci++) {
+        const c = cookies[ci] || {}
+        try {
+          const setArgs = { name: c.name, value: c.value, path: c.path || '/' }
+          if (typeof c.secure === 'boolean') setArgs.secure = c.secure
+          if (typeof c.httpOnly === 'boolean') setArgs.httpOnly = c.httpOnly
+          if (typeof c.expirationDate === 'number' && Number.isFinite(c.expirationDate)) setArgs.expirationDate = c.expirationDate
+          if (typeof c.sameSite === 'string' && c.sameSite) setArgs.sameSite = c.sameSite
+          setArgs.url = (c.secure ? 'https' : 'http') + '://' + c.domain.replace(/^\./, '') + '/'
+          setArgs.domain = c.domain
+          await win.webContents.session.cookies.set(setArgs)
+          restored += 1
+        } catch (e) { /* ignore invalid cookie */ }
+      }
+      log.info('RpaView', '[' + platform + '] supplemented ' + restored + '/' + cookies.length + ' cookies from auth partition ' + partitionName)
+      return restored
+    } catch (e) {
+      log.warn('RpaView', '[' + platform + '] auth partition cookie supplement failed: ' + e.message)
+      return 0
+    }
   },
   async _restoreBrowserStorage(win, platform, authData) {
     const localStorage = authData?.localStorage

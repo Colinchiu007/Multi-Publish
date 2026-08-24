@@ -1,9 +1,79 @@
+## [Unreleased] - 2026-08-24 (纯文档 PR 必需 CI 检查修复)
+
+### CI
+- 所有目标为 main 的 PR（含文档/流程/CI-only）均运行 Quality Gate、Electron CI、双平台 build 和 Doc Gate 的真实 job，避免分支保护把 path-filtered workflow 当作缺失 check。
+- `push main` 的统一路径过滤保持不变，docs-only 提交合并后不重复运行全套 CI；workflow 契约测试区分 PR 全覆盖与 push 去重。
+- Windows Browser E2E 对精确 `net::ERR_NO_BUFFER_SPACE` 导航错误至多重试一次；`goto`、`resetToRoute` 共用该策略，非匹配或第二次错误仍原样失败，快速合同在真实 E2E 前运行。
+- 打包电影工程 E2E 的生成终态等待从 15 秒扩展为 30 秒，确保 Windows fallback 的 `生成失败` 能被真实分类；node:test require 合同不会启动 Electron。
+
+## [Unreleased] - 2026-08-23 (统一进度弹窗范围边界收口)
+
+### 文档
+- 明确统一进度弹窗仅覆盖“有可观察流水线阶段状态”且具备 run 观察/恢复合同的路径；快速渲染 loading、发布 timeline、独立分析状态不套用，不提供伪造的“后台运行/历史可查看”语义。
+- 标记 `CreateHistory.vue` 为废弃组件：`/create/history` 重定向到 `/create?view=history`，独立历史页内嵌进度卡片不得重新接入。
+
+## [Unreleased] - 2026-08-23 (视频流水线进度弹窗与显式后台运行)
+
+### 变更
+- 恢复运行态【后台运行】入口；点击按钮或进度弹窗右上角关闭只停止 renderer 观察、恢复新建任务状态并刷新历史，不调用取消 IPC，主进程任务继续执行并保持并发占用。
+- 将启动页内嵌的完整阶段信息迁移到统一进度弹窗，保留总进度、已用时、全部阶段、阶段详情/子进度、合成时间说明、provider warning、BGM 跳过提示、加载/不可用提示和人工 checkpoint 内容。
+- 进度弹窗禁止遮罩和 Escape 关闭，仅右上角关闭按钮可触发后台脱离；离场含 opacity + scale 缩小动画；固定底部操作条继续可点击。
+- 人工检查点（素材选择、内容策略、waiting_approval、needs_user_input、needsCheckpoint）隐藏后台入口并禁用关闭，避免任务失去继续所需的用户输入。
+- 普通流水线缺少稳定 run identity 时只复用视觉壳和安全清理，不伪造按单任务恢复/取消能力；历史页保留轻量摘要，完整详情统一在控制页弹窗中查看。
+
+### 数据与测试
+- 对 runId、stage 数组/对象、progress 有限值与 `0..100` 范围做归一化；启动、恢复、push、轮询和暂停响应增加 run/request/action generation 与组件存活守卫。
+- 新增 UiModal、CreateView、StageProgress 回归，覆盖 Teleport、遮罩/Escape 策略、后台/关闭等价、人工 checkpoint、底部操作条、非法数值和旧响应竞态。
+- 同步 OpenSpec `s2v-progress-modal-background`、PRD、设计规范、前端 spec、learnings 与 CCG task。
+
+## [Unreleased] - 2026-08-22 (字幕保护短语与在线结果质量门)
+
+### 变更
+- 字幕 `no_cut_bigrams` 支持任意长度保护短语并追加「蒙古/江南/包税人/大汗」，TypeScript、Electron JS 镜像与 smart-sentence-splitter Python 三端同步；流式累积在短语前缀中间不再硬切，超长 `max_chars` 配置下保护短语完整优先。
+- 在线字幕归一化新增顺序连续覆盖与短语边界质量门：覆盖率足够但内容错序、重复、遗漏或切开保护短语时，该场景整体回退本地字幕并记录 `fallbackReason`，合格在线结果继续采用 `smart-sentence-splitter`。
+- 语义停顿规则补充 `semantic_lead`（受约束的「提前/还/把/绝对」引导），并将「摇身一变｜成了」「日子｜绝对是元朝」等动作/判断边界优先于普通尾部收束，避免完整短语被短块合并重新吸回。
+
+### 测试与门禁
+- Electron 相关 131 passed、TypeScript 133 passed、sidecar Python 151 passed；新增用户样例与极端 `max_chars` 向量；QM-1 win-unpacked、ASAR require 与 8s 启动冒烟通过。
+
+## [Unreleased] - 2026-08-23 (Story2Video 克隆音色生产重试契约)
+
+### 修复
+- Story2Video 初次 TTS 因跨账号克隆音色 `voice_id` 失效时，重克隆统一通过生产 `ModelProviderManager.callAdapter(providerId, 'cloneVoice', params)` 调用，并复用初始 TTS provider；重克隆或重试失败继续 fail-closed，不静默切换官方默认音色。
+
+### 验证
+- 已在真实 Electron profile 上验证克隆失败 → 重克隆 → TTS 重试 → compose 的完整链路；原问题 run `run_1787420188187_9w38` 已恢复并完成。
+
+## [Unreleased] - 2026-08-21 (流水线启动前台跟踪 + 独立历史页「已中断」对齐)
+
+### 变更
+- 视频创作流水线启动成功后创作页实时轮询展示阶段进度；离开页面自动转后台运行、仅历史可见；重新进入回到全新新建状态（启动/续跑前台语义统一，并发门禁与 scene_asset_selection 检查点例外不变）。
+- 移除旧的「启动即后台」监听机器（`runOrchestrationInBackground`/`startBackgroundCompletionWatch`/`checkBackgroundRunCompletion`/`s2vBackgroundTracking`），并新增 `_s2vAlive` 卸载竞态守卫，防止已卸载组件被终态响应触发结果页跳转。
+- 独立历史页 `CreateHistory.vue` 对齐「已中断」：stale running 归入 interrupted、状态标签/路由/紫色样式；提示文案复用 locale `stageProgress.interruptedStage` / `stageProgress.interruptedHint`。
+
+### 文案与文档
+- locale zh/en 成对：新增 `create.story2video.startForegroundToast`，修订 `backgroundResumeToast`，删除已无引用的 `backgroundRunToast`。
+- 同步 PRD-video-creation §3.1.35、总 PRD §3a.2（§3a.1 标废弃）、S2V-PIPELINE-PAGE-UX §5/§5.2.1、i18n-glossary 与 OpenSpec change `s2v-start-foreground-tracking`。
+
+### 测试与门禁
+- CreateView / CreateHistory / history-utils 定向 Vitest 全绿；locale pair（zh/en）+ CJK 基线通过；CJK 基线按脚本文档对行号位移显式重锚。
+
+## [Unreleased] - 2026-08-20 (历史场景素材四卡布局与预览/选择交互)
+## [Unreleased] - 2026-08-21 (历史详情场景素材未生成槽生成按钮 + 生成AI视频灰显修复)
+
+### 变更
+- 场景素材的生成按钮覆盖全部视觉卡：【生成新图】显示在图片 1/图片 2 卡内、【生成 AI 视频】显示在视频 1/视频 2 卡内，均为同一场景级动作的入口，写入目标仍由既有选中态/身份规则决定，video 2 保持视觉别名、不新增持久化身份。
+- 【生成 AI 视频】的门控与后端回退契约对齐：`videoPrompt`/`prompt`/`text` 任一非空即可生成，修复老项目未持久化 `videoPrompt` 时按钮灰显不可点击的问题；三者全空仍禁用并提示。
+
+### 测试与文档
+- ResultView.test.js 更新错误固化断言（按钮 2→4），新增 videoPrompt 缺省回退 prompt/text 时可点并真实调用 IPC 的回归；同步 PRD、前端 spec 与 learnings。
+
 ## [Unreleased] - 2026-08-20 (历史场景素材四卡布局与预览/选择交互)
 
 ### 变更
 - 视频任务编辑页每个场景固定显示四个视觉卡：图片 1、图片 2、视频 1、视频 2；缺少素材时保留与媒体缩略图相同尺寸和背景的空框，四格顺序和几何不折叠。
 - 单选项移动到缩略图下方、素材名称前。缩略图现在只负责打开预览，radio 或其关联名称才是唯一的当前素材选择入口；视频 1/视频 2 继续归一到持久化的 `video` kind，不新增数据库或 IPC 枚举。
-- 预览弹窗从 `lg` 调整为 `xl`，视频两个视觉卡都按视频元素预览；“生成新图”只放在图片 1 卡内，“生成 AI 视频”只放在视频 1 卡内，避免场景级按钮重复出现。
+- 预览弹窗从 `lg` 调整为 `xl`，视频两个视觉卡都按视频元素预览；“生成新图”“生成 AI 视频”按 2026-08-21 修订覆盖全部图片/视频卡，均为同一场景级动作的多入口。
 - 未生成素材只显示本地化的“未生成”/“Not generated”单行文案，清除空视频卡下方未解释的英文残留。
 
 ### 数据与交互校验

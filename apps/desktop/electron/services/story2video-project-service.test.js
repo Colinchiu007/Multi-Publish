@@ -1097,6 +1097,46 @@ describe('Story2VideoProjectService', () => {
     expect(fs.existsSync(path.join(service._ownerDir(), 'project-delete'))).toBe(false)
   })
 
+  it('删除项目时目录清理因文件被占用而失败，仍视为删除成功且不抛错', () => {
+    const projectDir = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({ store, projectsDir: projectDir })
+    service._writeProjects([{ projectId: 'project-delete-locked', status: 'completed', segments: [] }])
+    writeFile(path.join(service._projectDir('project-delete-locked'), 'video.mp4'))
+    const warn = vi.fn()
+    service.log = { warn }
+
+    const origRm = fs.rmSync.bind(fs)
+    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementation((target, options) => {
+      if (typeof target === 'string' && target.includes('project-delete-locked')) {
+        const err = new Error('EPERM: operation not permitted')
+        err.code = 'EPERM'
+        throw err
+      }
+      return origRm(target, options)
+    })
+
+    const result = service.deleteProject('project-delete-locked')
+
+    rmSpy.mockRestore()
+    expect(result).toEqual({ projectId: 'project-delete-locked', deleted: true })
+    expect(service.listProjects()).toEqual([])
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it('删除索引中已不存在的项目返回删除成功而非报错（幂等）', () => {
+    const projectDir = path.join(root, 'projects')
+    const service = new Story2VideoProjectService({ store, projectsDir: projectDir })
+    // 磁盘上留有孤立目录，但索引中无此项目
+    fs.mkdirSync(service._projectDir('project-gone'), { recursive: true })
+    writeFile(path.join(service._projectDir('project-gone'), 'video.mp4'))
+
+    const result = service.deleteProject('project-gone')
+
+    expect(result).toEqual({ projectId: 'project-gone', deleted: true })
+    // 孤立目录应被尽力清理（不抛错）
+    expect(fs.existsSync(path.join(service._ownerDir(), 'project-gone'))).toBe(false)
+  })
+
   it('animated-explainer 完成运行同样持久化项目（复用 compose 产物与 assets.scenes）', () => {
     const source = path.join(root, 'explainer-source')
     const image = writeFile(path.join(source, 'image.png'))

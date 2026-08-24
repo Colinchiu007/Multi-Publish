@@ -25,6 +25,10 @@ const {
 
 const PROMPT_PORT = config.promptBridge.port
 const PROMPT_HOST = config.promptBridge.host
+// LLM 只返回空/纯推理内容时（如 DeepSeek 只输出思考块），prompt-engine 会以 502/错误返回。
+// 命中该错误时不要重复调用 CLI 兜底（同样会再烧一次 LLM 且可能再次拿到空内容），
+// 直接透传 error 结果，由 story2video optimize 阶段回退原文继续。见 isPromptEngineEmptyReasoningError。
+const EMPTY_REASONING_ERROR_PATTERN = /空内容|仅包含推理内容|未生成有效优化词|empty\s+content|only\s+(reasoning|thinking|thought)/i
 // BYOK：提示词引擎的 LLM 一律由调用方（桌面版「模型设置」）注入，引擎不再使用服务端 key 兜底
 const CALLER_ID = 'multi-publish-desktop'
 // P1-A: 移除硬编码开发者路径，必须通过环境变量配置
@@ -200,7 +204,7 @@ class PromptBridge extends BasePythonBridge {
       host: PROMPT_HOST,
       workDir: PROMPT_DIR,
       log,
-      requestTimeout: 60000,
+      requestTimeout: 120000,
     })
   }
 
@@ -266,7 +270,7 @@ class PromptBridge extends BasePythonBridge {
         if (llm.caller) pyArgs.push('--caller', llm.caller)
       }
       this.log.info(this.name, `CLI fallback: python ${pyArgs.slice(0, 5).join(' ')}... traceId=${traceId || '-'}`)
-      execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 30000, windowsHide: true, env: { ...process.env, PYTHONPATH: PROMPT_DIR } }, (err, stdout, stderr) => {
+      execFile('python', pyArgs, { cwd: PROMPT_DIR, timeout: 120000, windowsHide: true, env: { ...process.env, PYTHONPATH: PROMPT_DIR } }, (err, stdout, stderr) => {
         if (err) {
           this.log.warn(this.name, `CLI fallback failed: ${err.message}`)
           reject(new Error(`CLI fallback failed: ${err.message}`))
@@ -286,10 +290,34 @@ class PromptBridge extends BasePythonBridge {
   /**
    * optimize -- POST /v1/optimize with CLI fallback on HTTP failure.
    */
-  async optimize (request, traceId) {
+  _defaultLlmProviderId () {
+    const manager = this.modelProviderManager
+    const def = manager && typeof manager.getDefault === 'function' ? manager.getDefault('llm') : null
+    return def && typeof def.id === 'string' ? def.id.trim() : ''
+  }
+
+  _assertLlmProviderAvailable (runtime) {
+    const ctx = runtime && runtime.providerRunContext
+    const providerId = this._defaultLlmProviderId()
+    if (ctx && providerId && typeof ctx.assertAvailable === 'function') ctx.assertAvailable(providerId)
+  }
+
+  _openLlmProviderOnQuota (runtime, error) {
+    const ctx = runtime && runtime.providerRunContext
+    const providerId = this._defaultLlmProviderId()
+    return Boolean(providerId && ctx && typeof ctx.openIfQuota === 'function' && ctx.openIfQuota(providerId, error))
+  }
+
+  _maybeOpenLlmProviderQuota (runtime, result) {
+    if (!runtime || !runtime.providerRunContext) return
+    if (result && typeof result === 'object' && (result.error || result.message)) runtime.providerRunContext.openIfQuota(this._defaultLlmProviderId(), result.error || result)
+  }
+
+  async optimize (request, traceId, runtime = {}) {
     await this.ensureRunning()
     const normalized = normalizeOptimizeRequest(request)
     if (requiresLlm(normalized)) {
+      this._assertLlmProviderAvailable(runtime)
       normalized.llm = this.resolveLlmBind()
     }
     const strategy = normalized.optimization_strategy || 'unknown'
@@ -301,9 +329,19 @@ class PromptBridge extends BasePythonBridge {
     try {
       const result = await this._post('/v1/optimize', JSON.stringify(normalized), undefined, traceId)
       this.log.info(this.name, `optimize: OK strategy_used=${result && result.strategy_used || '-'}, key_source=${result && result.key_source || '-'}, cache_hit=${result && result.cache_hit || '-'}, traceId=${traceId || '-'}`)
+      this._maybeOpenLlmProviderQuota(runtime, result)
       return result
     } catch (httpErr) {
       this.log.warn(this.name, `optimize: FAILED ${httpErr instanceof Error ? httpErr.message : String(httpErr)}, traceId=${traceId || '-'}`)
+      const httpMessage = httpErr instanceof Error ? httpErr.message : String(httpErr)
+      if (EMPTY_REASONING_ERROR_PATTERN.test(httpMessage)) {
+        this.log.warn(this.name, `optimize: empty-reasoning LLM 结果，跳过 CLI 兜底并回退原文, traceId=${traceId || '-'}`)
+        return { error: httpMessage, optimized_prompt: '' }
+      }
+      if (this._openLlmProviderOnQuota(runtime, httpErr)) {
+        this.log.warn(this.name, `optimize: quota/token-plan 错误，跳过 CLI 兜底, traceId=${traceId || '-'}`)
+        return { error: httpMessage, optimized_prompt: '' }
+      }
       return this._cliFallbackSingle(normalized, traceId)
     }
   }
@@ -314,11 +352,12 @@ class PromptBridge extends BasePythonBridge {
    * @param {object[]} requests - 优化请求数组
    * @returns {Promise<object>}
    */
-  async optimizeBatch (requests, traceId) {
+  async optimizeBatch (requests, traceId, runtime = {}) {
     await this.ensureRunning()
     const normalized = requests.map(normalizeOptimizeRequest)
     // 任一请求需要 LLM 即整体注入同一条默认 LLM 绑定（同一产品统一配置的模型）
     const bind = normalized.some(requiresLlm) ? this.resolveLlmBind() : null
+    if (normalized.some(requiresLlm)) this._assertLlmProviderAvailable(runtime)
     if (bind) {
       for (const n of normalized) {
         if (requiresLlm(n)) n.llm = bind
@@ -328,6 +367,10 @@ class PromptBridge extends BasePythonBridge {
       return await this._post('/v1/optimize/batch', JSON.stringify({ requests: normalized }), undefined, traceId)
     } catch (httpErr) {
       this.log.warn(this.name, `Batch HTTP failed (${httpErr instanceof Error ? httpErr.message : String(httpErr)}), trying CLI fallback for ${normalized.length} items`)
+      if (this._openLlmProviderOnQuota(runtime, httpErr)) {
+        this.log.warn(this.name, `Batch quota/token-plan 错误，跳过 CLI 兜底, traceId=${traceId || '-'}`)
+        return normalized.map((n) => ({ error: httpErr instanceof Error ? httpErr.message : String(httpErr) }))
+      }
       const results = []
       for (const n of normalized) {
         try {
@@ -401,15 +444,18 @@ class PromptBridge extends BasePythonBridge {
     const prompt = isObjectReq ? promptOrRequest.prompt : String(promptOrRequest)
     const opts = isObjectReq ? { ...promptOrRequest } : options
     // traceId 是控制字段：提取后不进业务 payload，仅用于 X-Request-Id 头
-    const { traceId, ...rest } = opts || {}
+    const { traceId, providerRunContext, ...rest } = opts || {}
+    const runtime = { providerRunContext }
     if (_standaloneTarget()) {
       try {
+        this._assertLlmProviderAvailable(runtime)
         const standaloneReq = buildStandaloneVideoOptimizeRequest(prompt, rest)
         standaloneReq.llm = this.resolveLlmBind()
         const result = await this._postStandalone('/v1/video/optimize', JSON.stringify(standaloneReq), undefined, traceId)
         return tagVideoEngineResult(result, { backend: 'standalone-8020' })
       } catch (e) {
         const isClientError = e.message && e.message.startsWith('standalone video engine HTTP 4')
+        if (this._openLlmProviderOnQuota(runtime, e)) throw e
         if (isClientError) throw e
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video：${e instanceof Error ? e.message : String(e)}`)
@@ -420,6 +466,7 @@ class PromptBridge extends BasePythonBridge {
     // 独立视频引擎失败回退 8013：video 域必须走 BYOK llm 绑定（调用方自己的 LLM）
     legacyReq.llm = this.resolveLlmBind()
     const result = await this._post('/v1/optimize', JSON.stringify(legacyReq), undefined, traceId)
+    this._maybeOpenLlmProviderQuota(runtime, result)
     return tagVideoEngineResult(result, { backend: 'legacy-8013', fallback: Boolean(_standaloneTarget()) })
   }
 
@@ -431,7 +478,8 @@ class PromptBridge extends BasePythonBridge {
    */
   async optimizeVideosBatch (prompts, options) {
     // traceId 是控制字段：从顶层 options 提取，不进业务 payload
-    const { traceId, ...restOptions } = options || {}
+    const { traceId, providerRunContext, ...restOptions } = options || {}
+    const runtime = { providerRunContext }
     const build = (item) => {
       if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
         return { prompt: item.prompt, opts: { ...item } }
@@ -440,6 +488,7 @@ class PromptBridge extends BasePythonBridge {
     }
     if (_standaloneTarget()) {
       try {
+        this._assertLlmProviderAvailable(runtime)
         const requests = (prompts || []).map(item => {
           const { prompt, opts } = build(item)
           return buildStandaloneVideoOptimizeRequest(prompt, opts)
@@ -450,6 +499,7 @@ class PromptBridge extends BasePythonBridge {
         return tagVideoEngineResult(result, { backend: 'standalone-8020' })
       } catch (e) {
         const isClientError = e.message && e.message.startsWith('standalone video engine HTTP 4')
+        if (this._openLlmProviderOnQuota(runtime, e)) throw e
         if (isClientError) throw e
         const target = _standaloneTarget()
         this.log.warn('PromptBridge', `独立视频引擎(${target.host}:${target.port})不可用，回退 8013 domain=video 批量：${e instanceof Error ? e.message : String(e)}`)
@@ -465,6 +515,7 @@ class PromptBridge extends BasePythonBridge {
       req.llm = bind
           }
     const result = await this._post('/v1/optimize/batch', JSON.stringify({ requests }), undefined, traceId)
+    this._maybeOpenLlmProviderQuota(runtime, result)
     return tagVideoEngineResult(result, { backend: 'legacy-8013', fallback: Boolean(_standaloneTarget()) })
   }
 }

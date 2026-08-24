@@ -104,6 +104,7 @@ describe("PublishView", () => {
     setActivePinia(createPinia());
     window.electronAPI = {
       publishBatch: vi.fn().mockResolvedValue({ code: 0, data: { taskIds: ["t1"] }, message: "ok" }),
+      getPathForFile: vi.fn().mockReturnValue('D:/media/from-file-api.mp4'),
       sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
       offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
       offlineAddToCache: vi.fn().mockResolvedValue({ code: 0 }),
@@ -175,6 +176,41 @@ describe("PublishView", () => {
     await nextTick()
 
     expect(w.get('[data-testid="publish-progress"]').text()).toContain('已提交')
+  })
+
+  it('非批量发布保留独立的主操作区结构', async () => {
+    const w = await createWrapper()
+
+    const actionCard = w.get('.flex-side [data-testid="publish-action-card"]')
+    expect(actionCard.exists()).toBe(true)
+    expect(actionCard.find('[data-testid="publish-target-selector"]').exists()).toBe(true)
+    expect(actionCard.find('[data-testid="publish-action-controls"]').exists()).toBe(true)
+    expect(actionCard.find('[data-testid="publish-submit"]').exists()).toBe(true)
+    expect(w.find('[data-testid="publish-cancel"]').exists()).toBe(false)
+
+    w.vm.activeTaskIds = ['task-1']
+    await nextTick()
+    expect(actionCard.find('[data-testid="publish-cancel"]').exists()).toBe(true)
+  })
+
+  it('批量模式切换真实渲染批量操作区并恢复单篇操作卡', async () => {
+    const w = await createWrapper()
+    const batchMode = w.get('[data-testid="publish-batch-mode"]')
+
+    await batchMode.setValue(true)
+    await nextTick()
+
+    expect(w.vm.batchMode).toBe(true)
+    expect(w.find('[data-testid="publish-batch-submit"]').exists()).toBe(true)
+    expect(w.find('[data-testid="publish-action-card"]').exists()).toBe(false)
+    expect(w.find('.publish-mode-tabs').exists()).toBe(false)
+
+    await batchMode.setValue(false)
+    await nextTick()
+
+    expect(w.find('[data-testid="publish-batch-submit"]').exists()).toBe(false)
+    expect(w.find('[data-testid="publish-action-card"]').exists()).toBe(true)
+    expect(w.find('[data-testid="publish-submit"]').exists()).toBe(true)
   })
 
   it("renders page title and mode toggle", async () => {
@@ -439,6 +475,7 @@ describe("PublishView — extra coverage", () => {
     setActivePinia(createPinia());
     window.electronAPI = {
       publishBatch: vi.fn().mockResolvedValue({ code: 0, data: { taskIds: ["t1"] }, message: "ok" }),
+      getPathForFile: vi.fn().mockReturnValue('D:/media/from-file-api.mp4'),
       sensitiveCheck: vi.fn().mockResolvedValue({ code: 0, data: { words: [] } }),
       offlineStatus: vi.fn().mockResolvedValue({ code: 0, data: { offline: false } }),
       offlineAddToCache: vi.fn().mockResolvedValue({ code: 0 }),
@@ -553,6 +590,42 @@ describe("PublishView — extra coverage", () => {
     // video_path is set via inline :on-change in template, test the reactive behavior
     w.vm.article.video_path = "/videos/test.mp4";
     expect(w.vm.article.video_path).toBe("/videos/test.mp4");
+  });
+
+  it("video upload resolves the native File path before publishing", async () => {
+    const w = await createWrapper();
+    const raw = { name: "01.mp4", type: "video/mp4", size: 12 };
+
+    await w.vm.handleVideoFileChange({ raw, name: raw.name });
+
+    expect(window.electronAPI.getPathForFile).toHaveBeenCalledWith(raw);
+    expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
+  });
+
+  it("封面提取结果使用当前语言的提示文案", async () => {
+    const w = await createWrapper();
+    w.vm.article.video_path = "D:/source.mp4";
+    window.electronAPI.extractVideoCover = vi.fn()
+      .mockResolvedValueOnce({ data: { coverPath: "D:/cover.jpg" } })
+      .mockResolvedValueOnce({ message: "" });
+
+    await w.vm.handleExtractVideoCover();
+    expect(ElMessage.success).toHaveBeenCalledWith("封面已提取");
+    expect(w.vm.article.cover_path).toBe("D:/cover.jpg");
+
+    i18n.global.locale.value = "en";
+    await w.vm.handleExtractVideoCover();
+    expect(ElMessage.warning).toHaveBeenLastCalledWith("Cover extraction failed: Unknown error");
+  });
+
+  it("cover upload refuses a filename when native path resolution fails", async () => {
+    const w = await createWrapper();
+    window.electronAPI.getPathForFile.mockReturnValueOnce("");
+
+    await w.vm.handleCoverFileChange({ raw: { name: "cover.jpg", type: "image/jpeg" }, name: "cover.jpg" });
+
+    expect(w.vm.article.cover_path).toBe("");
+    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining("无法获取所选"));
   });
 
   it("点击 AI 按钮会打开写作面板", async () => {

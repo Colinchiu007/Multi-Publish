@@ -30,6 +30,21 @@ function registerHandlers(ipcMain, deps) {
     return null
   }
 
+  // 封面提取：cover:extract
+  ipcMain.handle('cover:extract', withSenderCheck(async (event, videoPath) => {
+    try {
+      if (typeof videoPath !== 'string' || !videoPath) {
+        return { code: EC.VALIDATION_ERROR, message: 'videoPath 必须为非空字符串' }
+      }
+      const { extractVideoCover } = require('../services/cover-extractor')
+      const coverPath = await extractVideoCover(videoPath)
+      if (!coverPath) {
+        return { code: EC.REQUEST_ERROR, message: '封面提取失败' }
+      }
+      return { code: 0, data: { coverPath }, message: '封面提取成功' }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
   ipcMain.handle('publish:wechat', withSenderCheck(async (event, articleData) => {
     try {
       const offlineManager = require('../services/offline-manager')

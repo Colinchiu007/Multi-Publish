@@ -6,9 +6,9 @@
       <div class="stages-sticky-header" data-testid="story2video-stage-sticky-header">
         <div data-testid="story2video-orchestration-progress">
           <div class="progress-bar">
-            <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
+            <div class="progress-fill" :style="{ width: normalizedProgressPercent + '%' }"></div>
           </div>
-          <span class="progress-text">{{ progressPercent }}%</span>
+          <span class="progress-text">{{ normalizedProgressPercent }}%</span>
           <span v-if="elapsedMs !== null" class="elapsed-text">
             {{ $t('stageProgress.elapsed', { duration: formatDuration(elapsedMs) }) }}
           </span>
@@ -72,7 +72,8 @@ export default {
   name: 'StageProgress',
   props: {
     stages: { type: Array, default: () => [] },
-    progressPercent: { type: Number, default: 0 },
+    // IPC 快照可能把数字序列化为字符串；渲染层仍在 computed 中做有限值和值域校验。
+    progressPercent: { type: [Number, String], default: 0 },
     elapsedMs: { type: Number, default: null },
     summary: { type: String, default: '' },
     // story2video 专属合成时间说明（2026-08-17）：由父组件按流水线类型门控，避免泄漏到其他暂存式流水线
@@ -81,31 +82,40 @@ export default {
     // 当前运行检查点（scene_asset_selection 等）：用于区分「等待用户选择素材」与「手动暂停」
     checkpoint: { type: Object, default: null },
   },
+  computed: {
+    normalizedProgressPercent() {
+      const numeric = Number(this.progressPercent)
+      if (!Number.isFinite(numeric)) return 0
+      return Math.max(0, Math.min(100, Math.round(numeric)))
+    },
+  },
   methods: {
     stageName(name) {
       return getPipelineStage((key) => this.$t?.(key), name)
     },
-    stageStateClass(stage, index) {
+    stageStateClass(stage, _index) {
       if (!stage || !stage.status) return ''
       const status = stage.status
       if (status === 'completed') return 'completed'
+      if (status === 'skipped') return 'skipped'
       if (status === 'running') return 'running'
       if (status === 'failed') return 'failed'
-      if (status === 'waiting_approval') return 'waiting'
+      if (status === 'waiting_approval' || status === 'needs_user_input') return 'waiting'
       if (status === 'paused') return 'waiting paused'
       return 'pending'
     },
-    stageStateIcon(stage, index) {
+    stageStateIcon(stage, _index) {
       if (!stage || !stage.status) return '○'
       const status = stage.status
       if (status === 'completed') return '✓'
+      if (status === 'skipped') return '⏭'
       if (status === 'running') return '⟳'
       if (status === 'failed') return '✕'
-      if (status === 'waiting_approval' || status === 'paused') return '⏸'
+      if (status === 'waiting_approval' || status === 'needs_user_input' || status === 'paused') return '⏸'
       if (status === 'cancelled') return '—'
       return '○'
     },
-    stageTimeDetailText(stage, index) {
+    stageTimeDetailText(stage, _index) {
       if (!stage) return ''
       const status = stage.status || ''
       const locale = getAppLocale() === 'en' ? 'en-US' : 'zh-CN'
@@ -170,9 +180,14 @@ export default {
       const translated = this.$t?.(progress[keyField], progress[paramsField] || {})
       return typeof translated === 'string' && translated !== progress[keyField] ? translated : ''
     },
-    stageStatusLabel(stage, index) {
+    stageStatusLabel(stage, _index) {
       if (!stage || !stage.status) return this.$t('stageProgress.statusPending')
       const status = stage.status
+      if (status === 'skipped') {
+        // 发布阶段未选平台：明确提示「未选发布，跳过」，而非误报「已完成」
+        if (stage.name === 'publish') return this.$t('stageProgress.publishSkipped')
+        return this.$t('stageProgress.statusSkipped')
+      }
       if (status === 'paused') {
         if (this.checkpoint && this.checkpoint.type === 'scene_asset_selection') {
           return this.translateStageStatus('create.story2video.selectionWait.stageLabel', 'Awaiting asset selection')
@@ -184,6 +199,7 @@ export default {
         running: 'statusRunning',
         failed: 'statusFailed',
         waiting_approval: 'statusWaitingApproval',
+        needs_user_input: 'statusWaitingApproval',
         cancelled: 'statusCancelled',
         pending: 'statusPending',
       }
@@ -195,7 +211,7 @@ export default {
     },
     stageTimeText(stage) {
       if (!stage || !stage.startedAt) return ''
-      if (stage.status !== 'running' && stage.status !== 'completed' && stage.status !== 'failed') return ''
+      if (stage.status !== 'running' && stage.status !== 'completed' && stage.status !== 'failed' && stage.status !== 'skipped') return ''
       const start = Date.parse(stage.startedAt)
       if (!Number.isFinite(start)) return ''
       const end = stage.completedAt ? Date.parse(stage.completedAt) : Date.now()
@@ -205,11 +221,13 @@ export default {
     stageProgressPercent(stage) {
       if (!stage) return null
       // 统一契约优先：stage.progress.percent；旧快照降级：context.compose_progress（compose 子进度）
-      const p = (stage && stage.progress && Number.isFinite(stage.progress.percent))
-        ? stage.progress
+      const stagePercent = Number(stage?.progress?.percent)
+      const p = Number.isFinite(stagePercent)
+        ? { ...stage.progress, percent: stagePercent }
         : (stage.name === 'compose' && this.orchestrationContext && this.orchestrationContext.compose_progress)
-      if (!p || !Number.isFinite(p.percent) || p.percent < 0 || p.percent > 100) return null
-      return Math.round(p.percent)
+      const percent = Number(p?.percent)
+      if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null
+      return Math.round(percent)
     },
     formatDuration(ms) {
       const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000))

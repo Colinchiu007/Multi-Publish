@@ -28,6 +28,7 @@ const { mapWithModelBudget, withModelBudget } = require('./model-call-scheduler'
 const { segmentScript } = require('./video-script-segmentation')
 const { extractKeyEntities, checkSceneAlignment, assessVisualConsistency } = require('./video-content-alignment')
 const { emitStageProgress, emitStageStart, emitStageItem, emitStageComplete } = require('./stage-progress')
+const { getProviderRunContext } = require('./provider-run-context')
 
 const VIDEOGEN_STAGE_TYPES = {
   CONCEPT: 'videogen_concept',
@@ -117,7 +118,7 @@ function getVideoProviderConfig (aiGenerator) {
   return { providerId: provider.id.trim(), model: model || '' }
 }
 
-async function callDefaultLlm (aiGenerator, systemPrompt, userContent, maxTokens) {
+async function callDefaultLlm (aiGenerator, systemPrompt, userContent, maxTokens, runtimeOptions) {
   if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
     throw new Error('默认 LLM 不可用，请先完成模型设置')
   }
@@ -136,7 +137,7 @@ async function callDefaultLlm (aiGenerator, systemPrompt, userContent, maxTokens
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ],
-  })
+  }, undefined, runtimeOptions)
   const content = result && typeof result.content === 'string' ? result.content.trim() : ''
   if (!content) throw new Error('默认 LLM 返回空内容')
   return content
@@ -428,22 +429,23 @@ function registerVideoGenStages (pipelineEngine) {
   // CONCEPT - 主题 → 创意概念/角色设定（video-content-fidelity：双模式 + 事实/实体提取）
   pipelineEngine.registerStageExecutor(
     VIDEOGEN_STAGE_TYPES.CONCEPT,
-    async ({ stage, params, onProgress }) => {
+    async ({ stage, params, context, onProgress }) => {
       emitStageStart(onProgress, { messageKey: 'stageProgress.videogenConcept' })
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
+      const providerRunContext = getProviderRunContext(context || {})
       const topic = typeof params.text === 'string' ? params.text.trim() : ''
       if (!topic) return { success: false, error: '该流水线需要非空主题（params.text）' }
       const modeInfo = resolveStoryboardMode(topic, params.storyboardMode || (stage.options && stage.options.storyboardMode))
       const fidelity = FIDELITY_MODES.includes(modeInfo.mode)
       const { system, user } = buildConceptPrompt(topic, stage.kind || 'animation', modeInfo.mode)
       try {
-        let raw = await callDefaultLlm(aiGenerator, system, user)
+        let raw = await callDefaultLlm(aiGenerator, system, user, undefined, { providerRunContext })
         let concept = fidelity ? parseJsonObject(raw) : (parseJsonArray(raw) && parseJsonArray(raw)[0] || raw)
         // fidelity/hybrid：key_facts/entities 缺失时重试一次（CONCEPT_FACTS_MISSING 兜底）
         if (fidelity) {
           if (!concept || !Array.isArray(concept.key_facts) || !Array.isArray(concept.entities)) {
-            raw = await callDefaultLlm(aiGenerator, system, user)
+            raw = await callDefaultLlm(aiGenerator, system, user, undefined, { providerRunContext })
             concept = parseJsonObject(raw)
           }
           if (!concept || !Array.isArray(concept.key_facts) || !Array.isArray(concept.entities)) {
@@ -470,6 +472,7 @@ function registerVideoGenStages (pipelineEngine) {
     VIDEOGEN_STAGE_TYPES.AVATAR,
     async ({ stage, params, context, onProgress }) => {
       emitStageStart(onProgress, { messageKey: 'stageProgress.videogenAvatar' })
+      const providerRunContext = getProviderRunContext(context || {})
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       const topic = typeof params.text === 'string' ? params.text.trim() : ''
@@ -477,7 +480,7 @@ function registerVideoGenStages (pipelineEngine) {
       const avatarId = params.avatarId || stage.options?.avatarId || ''
       const { system, user } = buildScriptPrompt(topic, 'avatar-spokesperson')
       try {
-        const script = await callDefaultLlm(aiGenerator, system, user)
+        const script = await callDefaultLlm(aiGenerator, system, user, undefined, { providerRunContext })
         emitStageComplete(onProgress, { messageKey: 'stageProgress.videogenAvatarComplete', summaryKey: 'stageProgress.videogenAvatarSummary' })
         return { success: true, output: { script, avatarId, topic } }
       } catch (error) {
@@ -492,13 +495,14 @@ function registerVideoGenStages (pipelineEngine) {
     VIDEOGEN_STAGE_TYPES.SCRIPT,
     async ({ stage, params, context, onProgress }) => {
       emitStageStart(onProgress, { messageKey: 'stageProgress.videogenScript' })
+      const providerRunContext = getProviderRunContext(context || {})
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       const topic = typeof params.text === 'string' ? params.text.trim() : ''
       if (!topic) return { success: false, error: '该流水线需要非空主题（params.text）' }
       const { system, user } = buildScriptPrompt(topic, 'hybrid')
       try {
-        const script = await callDefaultLlm(aiGenerator, system, user)
+        const script = await callDefaultLlm(aiGenerator, system, user, undefined, { providerRunContext })
         emitStageComplete(onProgress, { messageKey: 'stageProgress.videogenScriptComplete', summaryKey: 'stageProgress.videogenScriptSummary' })
         return { success: true, output: script }
       } catch (error) {
@@ -513,6 +517,7 @@ function registerVideoGenStages (pipelineEngine) {
     VIDEOGEN_STAGE_TYPES.STORYBOARD,
     async ({ stage, context, onProgress }) => {
       emitStageStart(onProgress, { messageKey: 'stageProgress.videogenStoryboard' })
+      const providerRunContext = getProviderRunContext(context || {})
       const aiGenerator = getAiGenerator(pipelineEngine)
       if (!aiGenerator) return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       const concept = resolveVideogenConcept(context)
@@ -549,7 +554,7 @@ function registerVideoGenStages (pipelineEngine) {
       } catch (_) { /* 配置异常走默认 */ }
 
       const extractLlm = alignmentConfig.llmExtractFallback && fullText
-        ? async (system, user) => callDefaultLlm(aiGenerator, system, user, 2000)
+        ? async (system, user) => callDefaultLlm(aiGenerator, system, user, 2000, { providerRunContext })
         : null
 
       let scenes = null
@@ -583,7 +588,7 @@ function registerVideoGenStages (pipelineEngine) {
         try {
           // fidelity/hybrid 注入分段全文 + source_paras，输出体积显著大于 creative：显式放大输出预算
           const storyboardMaxTokens = mode === 'creative' ? undefined : 8000
-          raw = await callDefaultLlm(aiGenerator, system, user, storyboardMaxTokens)
+          raw = await callDefaultLlm(aiGenerator, system, user, storyboardMaxTokens, { providerRunContext })
         } catch (error) {
           lastError = error && error.message ? error.message : String(error)
           break
@@ -664,6 +669,7 @@ function registerVideoGenStages (pipelineEngine) {
     VIDEOGEN_STAGE_TYPES.GENERATE,
     async ({ runId, stage, params, context, serviceBus, onProgress }) => {
       emitStageStart(onProgress, { messageKey: 'stageProgress.videogenGenerateStart' })
+      const providerRunContext = getProviderRunContext(context || {})
       const scenes = resolveVideogenScenes(context) || []
       const prompts = scenes.length > 0 ? scenes.map(s => s.prompt) : [params.text || '']
       if (!prompts[0]) return { success: false, error: '该流水线 generate 需要场景提示词或主题' }
@@ -703,6 +709,7 @@ function registerVideoGenStages (pipelineEngine) {
               ...(typeof videoProvider.model === 'string' && videoProvider.model ? { model: videoProvider.model } : {}),
               ...(optimizeContext ? { context: optimizeContext } : {}),
               ...(stage.options && stage.options.optimize ? stage.options.optimize : {}),
+              providerRunContext,
             })
             if (!Array.isArray(part)) {
               return {
@@ -777,7 +784,7 @@ function registerVideoGenStages (pipelineEngine) {
             frameRate,
             num_frames: numFrames,
             frame_rate: frameRate,
-          })
+          }, { providerRunContext })
           // callAdapter 失败时返回 { code: -1, message }（不透传会掩盖真实 provider 错误，
           // 如 MiniMax 特殊套餐的 Missing task_id / 401），必须原样上报供排查。
           if (submit && submit.code !== 0) {
@@ -797,7 +804,7 @@ function registerVideoGenStages (pipelineEngine) {
           let videoUrl = null
           while (Date.now() < pollDeadline) {
             await new Promise(r => setTimeout(r, 10000))
-            const status = await manager.callAdapter(videoProvider.providerId, 'getVideoStatus', { videoId: taskId, taskId })
+            const status = await manager.callAdapter(videoProvider.providerId, 'getVideoStatus', { videoId: taskId, taskId }, { providerRunContext })
             const url = status && (status.videoUrl || status.url || (status.data && (status.data.videoUrl || status.data.url)))
             if (url) { videoUrl = url; break }
             const state = status && (status.status || (status.data && status.data.status)) || ''

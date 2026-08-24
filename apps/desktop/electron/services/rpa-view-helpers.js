@@ -11,6 +11,7 @@
 const fs = require('fs')
 const path = require('path')
 const log = require('./logger')
+const { buildResolveElementCode } = require('./rpa-selector-utils')
 
 // PRD F10.8: 文件 MIME 类型推断（JS File API 回退用）
 function _guessMimeType (fileName) {
@@ -23,6 +24,15 @@ function _guessMimeType (fileName) {
     pdf: 'application/pdf', txt: 'text/plain', json: 'application/json',
   }
   return map[ext] || 'application/octet-stream'
+}
+
+function _sanitizeCaptureEndpoint (url) {
+  try {
+    const parsed = new URL(String(url || ''))
+    return parsed.origin + parsed.pathname
+  } catch (_) {
+    return ''
+  }
 }
 
 const helpersMixin = {
@@ -109,8 +119,9 @@ const helpersMixin = {
   // ========== executeJavaScript utilities ==========
   async _waitForElement(win, sel, timeout) {
     timeout = timeout||30000
+    const resolveJs = buildResolveElementCode(sel)
     // eslint-disable-next-line no-unused-vars
-    try { return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';return new Promise(function(r){let e=document.querySelector(s);if(e){r(true);return}let o=new MutationObserver(function(){let f=document.querySelector(s);if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
+    try { return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');return new Promise(function(r){let e=_fn();if(e){r(true);return}let o=new MutationObserver(function(){let f=_fn();if(f){o.disconnect();r(true)}});o.observe(document.body,{childList:true,subtree:true});setTimeout(function(){o.disconnect();r(false)},'+timeout+')})})()') } catch(e) { return false }
   },
   async _waitForCondition(win, fn, timeout, interval) {
     // R75 防护：fn 必须是硬编码函数字面量字符串，禁止拼接用户输入
@@ -132,37 +143,52 @@ const helpersMixin = {
   },
   async _fillInput(win, sel, val) {
     const sv=JSON.stringify(val)
+    const resolveJs = buildResolveElementCode(sel)
     // 安全修复（2026-07-16）：contenteditable 元素 innerHTML 净化，移除 script/on*= 事件
-    return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';let el=document.querySelector(s);if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));return}let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+    return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("input not found");if(el.getAttribute("contenteditable")==="true"){try{el.focus();var _r=document.createRange();_r.selectNodeContents(el);var _s=window.getSelection();_s.removeAllRanges();_s.addRange(_r);document.execCommand("delete");document.execCommand("insertText",false,'+sv+');el.dispatchEvent(new Event("input",{bubbles:true}));return true}catch(_e){let tmp=document.createElement("div");tmp.innerHTML='+sv+';tmp.querySelectorAll("script, iframe, object, embed").forEach(function(n){n.remove()});tmp.querySelectorAll("*").forEach(function(n){[].forEach.call(n.attributes,function(a){if(a.name.toLowerCase().indexOf("on")===0)n.removeAttribute(a.name)})});el.innerHTML=tmp.innerHTML;el.dispatchEvent(new Event("input",{bubbles:true}));return true}}let ns=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set||Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,"value")?.set;if(ns)ns.call(el,'+sv+');else el.value='+sv+';el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
   },
   async _click(win, sel) {
-    return await win.webContents.executeJavaScript('(function(){var s='+JSON.stringify(sel)+';let el=document.querySelector(s);if(!el)throw new Error("not found: "+s);el.click();return true})()')
+    const resolveJs = buildResolveElementCode(sel)
+    return await win.webContents.executeJavaScript('(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');el.click();return true})()')
   },
 
   // ========== CDP file upload ==========
-  async _setFileInput(win, filePath) {
+  async _setFileInput(win, filePath, fileSelector) {
+    fileSelector = fileSelector || 'input[type="file"]'
     if (!fs.existsSync(filePath)) throw new Error('File not found: '+filePath)
     const dbg = win.webContents.debugger
     // eslint-disable-next-line no-unused-vars
     try { await dbg.attach('1.3') } catch (e) { /* ignore */ }
     try {
-      const fr = await dbg.sendCommand('Runtime.evaluate',{expression:'(function(){return document.querySelectorAll(\'input[type="file"]\').length>0?1:0})()',returnByValue:true})
-      if (fr.result.value!==1) throw new Error('No file input found')
-      const re = await dbg.sendCommand('Runtime.evaluate',{expression:'document.querySelector(\'input[type="file"]\')'})
-      const nd = await dbg.sendCommand('DOM.requestNode',{objectId:re.result.objectId})
-      await dbg.sendCommand('DOM.setFileInputFiles',{files:[path.resolve(filePath)],nodeId:nd.nodeId||nd})
+      // Resolve the node through the DOM domain. Runtime.evaluate returns a
+      // remote object only for the current execution context; on creator SPAs
+      // that object can be released before DOM.requestNode runs. DOM.querySelector
+      // keeps the lookup and file assignment in the same renderer DOM snapshot.
+      await dbg.sendCommand('DOM.enable')
+      const documentResult = await dbg.sendCommand('DOM.getDocument',{depth:-1,pierce:true})
+      const rootNodeId = documentResult?.root?.nodeId
+      if (!rootNodeId) throw new Error('DOM document unavailable')
+      const queryResult = await dbg.sendCommand('DOM.querySelector',{
+        nodeId: rootNodeId,
+        selector: fileSelector,
+      })
+      if (!queryResult?.nodeId) throw new Error('No file input found')
+      await dbg.sendCommand('DOM.setFileInputFiles',{
+        files:[path.resolve(filePath)],
+        nodeId:queryResult.nodeId,
+      })
       log.info('RpaView','CDP file: '+path.basename(filePath)); return true
     // eslint-disable-next-line no-unused-vars
     } catch (cdpErr) {
       // PRD F10.8: CDP 失败时回退到 JS File API / DataTransfer
       log.warn('RpaView', 'CDP upload failed, fallback to JS File API: ' + cdpErr.message)
-      try { await dbg.detach() } catch (e) { /* ignore */ }
-      return await this._setFileInputViaJs(win, filePath)
+      return await this._setFileInputViaJs(win, filePath, fileSelector)
     } finally { try { await dbg.detach() } catch (e) { /* ignore */ } }
   },
 
   // PRD F10.8: JS File API 回退 — 读取文件为 Buffer，通过 DataTransfer 构造 File 并 dispatch change
-  async _setFileInputViaJs(win, filePath) {
+  async _setFileInputViaJs(win, filePath, fileSelector) {
+    fileSelector = fileSelector || 'input[type="file"]'
     const fsSync = require('fs')
     const buf = fsSync.readFileSync(filePath)
     const base64 = buf.toString('base64')
@@ -176,7 +202,7 @@ const helpersMixin = {
       'var bin=atob(b64);var n=bin.length;var bytes=new Uint8Array(n);' +
       'for(var i=0;i<n;i++)bytes[i]=bin.charCodeAt(i);' +
       'var file=new File([bytes],name,{type:mime});' +
-      'var input=document.querySelector(\'input[type="file"]\');' +
+      'var input=document.querySelector('+JSON.stringify(fileSelector)+');' +
       'if(!input)throw new Error("No file input found (JS fallback)");' +
       'var dt=new DataTransfer();dt.items.add(file);input.files=dt.files;' +
       'input.dispatchEvent(new Event("change",{bubbles:true}));' +
@@ -185,6 +211,72 @@ const helpersMixin = {
     await win.webContents.executeJavaScript(js)
     log.info('RpaView', 'JS File API fallback: ' + fileName)
     return true
+  },
+
+  // 发布点击后的网络证据采集。只在点击发布前短时开启，避免影响页面其它请求。
+  // 原始响应体只在 parseResponseBody 回调的局部作用域内使用，禁止写入 records、日志或 IPC 结果。
+  async _startPublishNetworkCapture(win, options = {}) {
+    const dbg = win.webContents.debugger
+    const records = []
+    const evidence = []
+    const responseByRequestId = new Map()
+    const pendingBodies = new Set()
+    const parseResponseBody = typeof options.parseResponseBody === 'function' ? options.parseResponseBody : null
+    const relevant = (url) => /(?:publish|submit|create|article|content|media|video|clue|work)/i.test(url || '')
+    let stopped = false
+    const onMessage = async (_event, method, params) => {
+      try {
+        if (stopped) return
+        if (method === 'Network.responseReceived' && relevant(params?.response?.url)) {
+          const record = {
+            endpoint: _sanitizeCaptureEndpoint(params.response.url),
+            status: params.response.status,
+            mimeType: String(params.response.mimeType || '').slice(0, 160),
+          }
+          records.push(record)
+          responseByRequestId.set(params.requestId, record)
+        }
+        if (method !== 'Network.loadingFinished') return
+        const response = responseByRequestId.get(params.requestId)
+        if (!response || !parseResponseBody) return
+        const bodyPromise = dbg.sendCommand('Network.getResponseBody', { requestId: params.requestId })
+          .then(async result => {
+            const body = result?.base64Encoded
+              ? Buffer.from(result.body || '', 'base64').toString('utf8')
+              : String(result?.body || '')
+            const parsedEvidence = await parseResponseBody(body.slice(0, 200 * 1024), { ...response })
+            if (parsedEvidence && typeof parsedEvidence === 'object') evidence.push(parsedEvidence)
+          })
+          .catch(() => {})
+        pendingBodies.add(bodyPromise)
+        await bodyPromise
+        pendingBodies.delete(bodyPromise)
+      } catch (_) { /* 页面导航/窗口销毁时网络证据可为空 */ }
+    }
+    try {
+      try { await dbg.attach('1.3') } catch (_) { /* 已附加时继续 */ }
+      dbg.on('message', onMessage)
+      await dbg.sendCommand('Network.enable')
+    } catch (error) {
+      try { dbg.removeListener('message', onMessage) } catch (_) { /* ignore */ }
+      try { await dbg.detach() } catch (_) { /* ignore */ }
+      log.warn('RpaView', 'publish network capture unavailable: ' + error.message)
+      return null
+    }
+    return {
+      records,
+      evidence,
+      async stop () {
+        if (stopped) return records.map(record => ({ ...record }))
+        stopped = true
+        await Promise.allSettled([...pendingBodies])
+        try { await dbg.sendCommand('Network.disable') } catch (_) { /* ignore */ }
+        try { dbg.removeListener('message', onMessage) } catch (_) { /* ignore */ }
+        try { await dbg.detach() } catch (_) { /* ignore */ }
+        responseByRequestId.clear()
+        return records.map(record => ({ ...record }))
+      },
+    }
   },
 
   // ========== Network response monitor ==========

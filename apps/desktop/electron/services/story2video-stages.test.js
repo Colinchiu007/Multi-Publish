@@ -10,10 +10,13 @@ const {
   normalizeAssetConcurrency,
   hasMeaningfulText,
   isPromptEngineTooShortRejection,
+  isPromptEngineEmptyReasoningError,
+  tryReCloneVoice,
   pickFixedVideoScenes,
   parseVideoSelection,
   clampVideoSelection,
   estimateSceneSeconds,
+  withAssetTransientRetry,
   resolveVideoGeneratorConfig,
   resolveSceneFinalFrame,
   optimizeVideoScenePrompts,
@@ -44,12 +47,14 @@ function makeStageExecutor() {
   }
 }
 
-function makePipeline(assetGenerator, aiGenerator) {
+function makePipeline(assetGenerator, aiGenerator, options = {}) {
   const stageExecutor = makeStageExecutor()
   const pipeline = {
     stageExecutor,
     _assetGenerator: assetGenerator,
     aiGenerator,
+    container: options.container,
+    governor: options.governor,
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     registerStageExecutor(type, fn) {
       stageExecutor.register(type, fn)
@@ -60,7 +65,76 @@ function makePipeline(assetGenerator, aiGenerator) {
   const assetsExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.GENERATE_ASSETS)
   assetsExecutor.optimizeExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.OPTIMIZE)
   assetsExecutor.sceneContextExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.SCENE_CONTEXT)
+  assetsExecutor.finalizeAssetsExecutor = stageExecutor.executors.get(STORY2VIDEO_STAGE_TYPES.FINALIZE_ASSETS)
   return assetsExecutor
+}
+
+async function createRecloneFixture() {
+  const sampleRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 's2v-stage-reclone-'))
+  const sampleDir = path.join(sampleRoot, 'voice-clone-samples', 'owner', 'storage-1')
+  await fs.promises.mkdir(sampleDir, { recursive: true })
+  await fs.promises.writeFile(path.join(sampleDir, 'sample.mp3'), Buffer.from([1, 2, 3]))
+
+  const cloneVoice = vi.fn(async () => ({ id: 'MiniMaxVoice_recloned123' }))
+  const findCloneSamples = vi.fn(async () => ({
+    sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' },
+    name: '音色001',
+  }))
+  const replaceCloneVoiceId = vi.fn(async ({ voiceId, replacementVoiceId }) => ({
+    code: 0,
+    data: { migrated: true, voice: { id: replacementVoiceId }, previousVoiceId: voiceId },
+  }))
+  const manager = {
+    // Match the production ModelProviderManager contract. It exposes
+    // callAdapter(), not getAdapter(), and wraps adapter results in code/data.
+    callAdapter: vi.fn(async (providerId, method, params) => {
+      if (providerId !== 'minimax-multimodal' || method !== 'cloneVoice') {
+        return { code: -1, errorCode: 'UNEXPECTED_CALL', message: providerId + '.' + method }
+      }
+      return { code: 0, data: await cloneVoice(params) }
+    }),
+  }
+  const cloneService = {
+    findCloneSamples,
+    replaceCloneVoiceId,
+    _resolveUserDataPath: () => sampleRoot,
+  }
+  const container = {
+    get: vi.fn((key) => key === 'ttsVoiceCloneService' ? cloneService : null),
+  }
+
+  return {
+    sampleRoot,
+    manager,
+    cloneVoice,
+    findCloneSamples,
+    replaceCloneVoiceId,
+    container,
+    aiGenerator: { _modelProviderManager: manager },
+  }
+}
+
+function expectRecloneAttempt(fixture) {
+  expect(fixture.findCloneSamples).toHaveBeenCalledWith(
+    'MiniMaxVoice_original001',
+    'minimax-multimodal',
+    expect.any(String),
+  )
+  expect(fixture.manager.callAdapter).toHaveBeenCalledWith(
+    'minimax-multimodal',
+    'cloneVoice',
+    expect.objectContaining({
+      name: 'MiniMaxVoice_original001',
+      samples: [expect.objectContaining({ blob: expect.any(Blob) })],
+    }),
+    { providerRunContext: expect.any(Object) },
+  )
+  expect(fixture.cloneVoice).toHaveBeenCalledTimes(1)
+  expect(fixture.replaceCloneVoiceId).toHaveBeenCalledWith(expect.objectContaining({
+    providerId: 'minimax-multimodal',
+    voiceId: 'MiniMaxVoice_original001',
+    replacementVoiceId: 'MiniMaxVoice_recloned123',
+  }))
 }
 
 /**
@@ -449,6 +523,26 @@ describe('story2video 资源索引契约', () => {
       optimized_prompt: '测试',
       skipped_optimize: true,
       optimize_note: 'prompt_engine_too_short_use_original',
+    })
+    expect(serviceBus.calls).toHaveLength(1)
+  })
+  it('prompt-engine 返回空内容/仅推理错误时回退原文并继续（2026-08-20 视频任务失败根因）', async () => {
+    const fn = makePipeline(null).optimizeExecutor
+    const serviceBus = makeOptimizeBus(() => ({
+      optimized_prompt: '原文',
+      error: 'LLM 返回了空内容或仅包含推理内容，未生成有效优化词',
+    }))
+    const result = await fn({
+      stage: { options: {} },
+      params: {},
+      context: { split: [{ text: '一个有内容的场景描述。' }] },
+      serviceBus,
+    })
+    expect(result).toMatchObject({ success: true })
+    expect(result.output[0]).toMatchObject({
+      optimized_prompt: '一个有内容的场景描述。',
+      skipped_optimize: true,
+      optimize_note: 'prompt_engine_empty_reasoning_use_original',
     })
     expect(serviceBus.calls).toHaveLength(1)
   })
@@ -1293,6 +1387,25 @@ describe('story2video 限流/瞬时错误有界重试', () => {
     vi.useRealTimers()
   })
 
+  it('额度/套餐错误按结果对象不重试，立即返回失败', async () => {
+    const calls = vi.fn()
+    const result = await withAssetTransientRetry(() => {
+      calls()
+      return { code: -1, message: 'Token Plan usage limit reached' }
+    })
+    expect(calls).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ code: -1, message: 'Token Plan usage limit reached' })
+  })
+
+  it('额度/套餐抛错型错误不重试，直接抛出', async () => {
+    const calls = vi.fn()
+    await expect(withAssetTransientRetry(() => {
+      calls()
+      throw new Error('Token Plan usage limit reached')
+    })).rejects.toThrow('Token Plan usage limit reached')
+    expect(calls).toHaveBeenCalledTimes(1)
+  })
+
   it('提示词优化遇到限流时用更长退避重试并恢复', async () => {
     vi.useFakeTimers()
     const fn = makePipeline(null).optimizeExecutor
@@ -1573,7 +1686,325 @@ describe('isPromptEngineTooShortRejection — 过短校验拒绝判定', () => {
   })
 })
 
+describe('tryReCloneVoice — 克隆音色不可访问时不得静默换默认音色', () => {
+  it('克隆服务不可用时不调用 retryFn，返回 null 交由上层透传原始音色错误', async () => {
+    const engine = { log: { warn() {}, info() {} }, container: { get: () => null } }
+    const retryFn = vi.fn(async () => ({ code: 0, data: { path: 'C:/tmp/fallback.mp3', audio_path: 'C:/tmp/fallback.mp3', duration: 1.5 } }))
+    const result = await tryReCloneVoice({
+      pipelineEngine: engine,
+      error: new Error("you don't have access to this voice_id"),
+      text: '测试文案', voiceId: 'MiniMaxCloneVoice_00jngz', voiceProvider: 'minimax-multimodal', voiceModel: 'speech-2.8-turbo',
+      resolveManager: () => ({ getAdapter: () => ({ cloneVoice: vi.fn() }) }),
+      retryFn,
+    })
+    expect(result).toBeNull()
+    expect(retryFn).not.toHaveBeenCalled()
+  })
+
+  it('本地样本存在但重新克隆失败时返回 null，不换用 provider 默认音色', async () => {
+    const sampleRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 's2v-clone-fail-'))
+    const sampleDir = path.join(sampleRoot, 'voice-clone-samples', 'owner', 'storage-1')
+    await fs.promises.mkdir(sampleDir, { recursive: true })
+    await fs.promises.writeFile(path.join(sampleDir, 'sample.mp3'), Buffer.from([1, 2, 3]))
+    try {
+      const engine = {
+        log: { warn() {}, info() {} },
+        container: {
+          get: (key) => key === 'ttsVoiceCloneService'
+            ? {
+                findCloneSamples: vi.fn(async () => ({ sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' } })),
+                _resolveUserDataPath: () => sampleRoot,
+              }
+            : null,
+        },
+      }
+      const retryFn = vi.fn(async () => { throw new Error('should not be called with default voice') })
+      const result = await tryReCloneVoice({
+        pipelineEngine: engine,
+        error: new Error("you don't have access to this voice_id"),
+        text: '测试文案', voiceId: 'MiniMaxCloneVoice_00jngz', voiceProvider: 'minimax-multimodal', voiceModel: 'speech-2.8-turbo',
+        resolveManager: () => ({ getAdapter: () => ({ cloneVoice: vi.fn(async () => { throw new Error('2038 voice clone user forbidden') }) }) }),
+        retryFn,
+      })
+      expect(result).toBeNull()
+      expect(retryFn).not.toHaveBeenCalled()
+    } finally {
+      await fs.promises.rm(sampleRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('重克隆成功但重试合成失败时返回 null，保留原始错误', async () => {
+    const sampleRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 's2v-clone-retry-'))
+    const sampleDir = path.join(sampleRoot, 'voice-clone-samples', 'owner', 'storage-1')
+    await fs.promises.mkdir(sampleDir, { recursive: true })
+    await fs.promises.writeFile(path.join(sampleDir, 'sample.mp3'), Buffer.from([1, 2, 3]))
+    try {
+      const engine = {
+        log: { warn() {}, info() {} },
+        container: {
+          get: (key) => key === 'ttsVoiceCloneService'
+            ? {
+                findCloneSamples: vi.fn(async () => ({ sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' } })),
+                _resolveUserDataPath: () => sampleRoot,
+              }
+            : null,
+        },
+      }
+      const retryFn = vi.fn(async (newVoiceId) => { throw new Error('voice id wrong after re-clone: ' + newVoiceId) })
+      const result = await tryReCloneVoice({
+        pipelineEngine: engine,
+        error: new Error("you don't have access to this voice_id"),
+        text: '测试文案', voiceId: 'MiniMaxCloneVoice_00jngz', voiceProvider: 'minimax-multimodal', voiceModel: 'speech-2.8-turbo',
+        resolveManager: () => ({ getAdapter: () => ({ cloneVoice: vi.fn(async () => ({ id: 'MiniMaxCloneVoice_new123' })) }) }),
+        retryFn,
+      })
+      expect(result).toBeNull()
+      expect(retryFn).toHaveBeenCalledTimes(1)
+      expect(retryFn).toHaveBeenCalledWith('MiniMaxCloneVoice_new123')
+    } finally {
+      await fs.promises.rm(sampleRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('Story2Video 阶段重克隆 — legacy serviceBus TTS 路径', () => {
+  it('generate_assets 重克隆成功后复用 serviceBus.callPythonSkill，而不是访问不存在的 assetGenerator', async () => {
+    const fixture = await createRecloneFixture()
+    const ttsCalls = []
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill, payload) => {
+        if (skill === 'generate_image') {
+          return { code: 0, data: { path: 'image-0.png' } }
+        }
+        if (skill === 'generate_tts') {
+          ttsCalls.push(payload)
+          if (ttsCalls.length === 1) throw Object.assign(new Error('invalid params, voice id wrong'), { code: 'INVALID_CONFIG' })
+          return { code: 0, data: { path: 'audio-recloned.mp3', duration: 1.25 } }
+        }
+        throw new Error('unexpected Python skill: ' + skill)
+      }),
+    }
+    const assetsExecutor = makePipeline(null, fixture.aiGenerator, { container: fixture.container })
+
+    try {
+      const result = await assetsExecutor({
+        runId: 'run_1787360004146_izko',
+        stage: { options: { concurrency: 1 } },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+        },
+        context: {
+          split: [{ text: '音色001 的测试旁白' }],
+          optimize: ['一个安静的室内场景'],
+        },
+        serviceBus,
+      })
+
+      expect(result.success, JSON.stringify({ result, callAdapterCalls: fixture.manager.callAdapter.mock.calls.length, cloneCalls: fixture.cloneVoice.mock.calls.length, findSamplesCalls: fixture.container.get.mock.calls })).toBe(true)
+      expect(ttsCalls).toHaveLength(2)
+      expect(ttsCalls.map((payload) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(ttsCalls.map((payload) => payload.voice_model)).toEqual([undefined, undefined])
+      expectRecloneAttempt(fixture)
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'audio-recloned.mp3',
+        imagePath: 'image-0.png',
+      })
+      expect(ttsCalls.some((payload) => payload.voice_id === 'default')).toBe(false)
+    } finally {
+      await fs.promises.rm(fixture.sampleRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('finalize_assets 重克隆成功后同样复用 legacy serviceBus TTS 路径', async () => {
+    const fixture = await createRecloneFixture()
+    const ttsCalls = []
+    const serviceBus = {
+      callPythonSkill: vi.fn(async (skill, payload) => {
+        if (skill !== 'generate_tts') throw new Error('unexpected Python skill: ' + skill)
+        ttsCalls.push(payload)
+        if (ttsCalls.length === 1) throw Object.assign(new Error("you don't have access to this voice_id"), { code: 'INVALID_CONFIG' })
+        return { code: 0, data: { path: 'finalized-audio-recloned.mp3', duration: 1.5 } }
+      }),
+    }
+    const assetsExecutor = makePipeline(null, fixture.aiGenerator, { container: fixture.container })
+
+    try {
+      const result = await assetsExecutor.finalizeAssetsExecutor({
+        runId: 'run_1787360004146_izko-finalize',
+        stage: { options: { creationMode: 'manual', concurrency: 1 } },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          generate_assets: {
+            candidates: [{
+              index: 0,
+              text: '音色001 的手动旁白',
+              prompt: '一个安静的室内场景',
+              candidates: [{ id: 'image-0', kind: 'image', path: 'image-0.png' }],
+            }],
+          },
+          scene_asset_selection: {
+            selections: [{ index: 0, candidateId: 'image-0' }],
+          },
+        },
+        serviceBus,
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(ttsCalls.map((payload) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(ttsCalls.map((payload) => payload.voice_model)).toEqual(['speech-2.8-turbo', 'speech-2.8-turbo'])
+      expectRecloneAttempt(fixture)
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'finalized-audio-recloned.mp3',
+        imagePath: 'image-0.png',
+      })
+      expect(ttsCalls.some((payload) => payload.voice_id === 'default')).toBe(false)
+    } finally {
+      await fs.promises.rm(fixture.sampleRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('finalize_assets 使用 assetGenerator 时重克隆后仍调用 assetGenerator.generateTTS', async () => {
+    const fixture = await createRecloneFixture()
+    const ttsCalls = []
+    const assetGenerator = {
+      generateTTS: vi.fn(async (text, payload) => {
+        ttsCalls.push({ text, payload })
+        if (ttsCalls.length === 1) throw Object.assign(new Error('voice id wrong'), { code: 'INVALID_CONFIG' })
+        return { code: 0, data: { path: 'finalized-asset-generator-recloned.mp3', duration: 1.9 } }
+      }),
+    }
+    const assetsExecutor = makePipeline(assetGenerator, fixture.aiGenerator, { container: fixture.container })
+
+    try {
+      const result = await assetsExecutor.finalizeAssetsExecutor({
+        runId: 'run_1787360004146_izko-finalize-asset-generator',
+        stage: { options: { creationMode: 'manual', concurrency: 1 } },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          generate_assets: {
+            candidates: [{
+              index: 0,
+              text: '音色001 的 assetGenerator 手动旁白',
+              prompt: '一个安静的室内场景',
+              candidates: [{ id: 'image-0', kind: 'image', path: 'image-0.png' }],
+            }],
+          },
+          scene_asset_selection: {
+            selections: [{ index: 0, candidateId: 'image-0' }],
+          },
+        },
+        serviceBus: {},
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(2)
+      expect(ttsCalls.map(({ payload }) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(ttsCalls.map(({ payload }) => payload.voice_model)).toEqual(['speech-2.8-turbo', 'speech-2.8-turbo'])
+      expectRecloneAttempt(fixture)
+      expect(ttsCalls[1]).toMatchObject({
+        text: '音色001 的 assetGenerator 手动旁白',
+        payload: {
+          voice_provider: 'minimax-multimodal',
+          voice_model: 'speech-2.8-turbo',
+        },
+      })
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'finalized-asset-generator-recloned.mp3',
+        imagePath: 'image-0.png',
+      })
+    } finally {
+      await fs.promises.rm(fixture.sampleRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('generate_assets 使用 assetGenerator 时重克隆后仍调用 assetGenerator.generateTTS', async () => {
+    const fixture = await createRecloneFixture()
+    const ttsCalls = []
+    const assetGenerator = {
+      generateImage: vi.fn(async () => ({ code: 0, data: { path: 'image-asset-generator.png' } })),
+      generateTTS: vi.fn(async (text, payload) => {
+        ttsCalls.push({ text, payload })
+        if (ttsCalls.length === 1) throw Object.assign(new Error('voice id wrong'), { code: 'INVALID_CONFIG' })
+        return { code: 0, data: { path: 'audio-asset-generator-recloned.mp3', duration: 1.75 } }
+      }),
+    }
+    const assetsExecutor = makePipeline(assetGenerator, fixture.aiGenerator, { container: fixture.container })
+
+    try {
+      const result = await assetsExecutor({
+        runId: 'run_1787360004146_izko-asset-generator',
+        stage: { options: { concurrency: 1 } },
+        params: {
+          voiceId: 'MiniMaxVoice_original001',
+          voiceProvider: 'minimax-multimodal',
+          voiceModel: 'speech-2.8-turbo',
+        },
+        context: {
+          split: [{ text: '音色001 的 assetGenerator 测试旁白' }],
+          optimize: ['一个安静的室内场景'],
+        },
+        serviceBus: {},
+      })
+
+      expect(result.success, JSON.stringify(result)).toBe(true)
+      expect(assetGenerator.generateTTS).toHaveBeenCalledTimes(2)
+      expect(ttsCalls.map(({ payload }) => payload.voice_id)).toEqual([
+        'MiniMaxVoice_original001',
+        'MiniMaxVoice_recloned123',
+      ])
+      expect(ttsCalls.map(({ payload }) => payload.voice_model)).toEqual(['speech-2.8-turbo', 'speech-2.8-turbo'])
+      expectRecloneAttempt(fixture)
+      expect(ttsCalls[1]).toMatchObject({
+        text: '音色001 的 assetGenerator 测试旁白',
+        payload: {
+          voice_provider: 'minimax-multimodal',
+          voice_model: 'speech-2.8-turbo',
+          with_timestamps: true,
+        },
+      })
+      expect(result.output.scenes[0]).toMatchObject({
+        audioPath: 'audio-asset-generator-recloned.mp3',
+        imagePath: 'image-asset-generator.png',
+      })
+    } finally {
+      await fs.promises.rm(fixture.sampleRoot, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('story2video 生成并发按 provider 每分钟连接次数收敛', () => {
+describe('isPromptEngineEmptyReasoningError — 空内容/纯推理判定', () => {
+  it('命中空内容/仅推理/未生成有效优化词文案', () => {
+    expect(isPromptEngineEmptyReasoningError('场景 0 prompt-engine 优化失败: LLM 返回了空内容或仅包含推理内容，未生成有效优化词')).toBe(true)
+    expect(isPromptEngineEmptyReasoningError('prompt-engine 优化失败: empty content from LLM')).toBe(true)
+    expect(isPromptEngineEmptyReasoningError('LLM output only reasoning content')).toBe(true)
+  })
+
+  it('非空/非推理错误不误判', () => {
+    expect(isPromptEngineEmptyReasoningError('prompt-engine 优化失败: quota exceeded')).toBe(false)
+    expect(isPromptEngineEmptyReasoningError('prompt-engine 请求被拒绝(422): Too short')).toBe(false)
+    expect(isPromptEngineEmptyReasoningError('')).toBe(false)
+  })
+})
+
   it('provider rate_per_minute=20（maxConcurrent=2）时图片/TTS 并发上限为 2，而非请求的 5（assetGenerator 路径不套外层 governor）', async () => {
     const executors = new Map()
     let gate
@@ -2922,6 +3353,46 @@ describe('translatePromptsForLocale', () => {
     const ai = makeAiGenerator('{}')
     const items = await translatePromptsForLocale(ai, [], 'zh', console)
     expect(items).toEqual([])
+  })
+
+  it('HTML 闭合标签包裹的 JSON 也能正确解析', async () => {
+    const ai = makeAiGenerator('<response>{"0":"一个红苹果","1":"一片蓝天"}</response>')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('一个红苹果')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('带前导 HTML 标签/思考文本的 JSON 也能正确解析', async () => {
+    const ai = makeAiGenerator('<thinking>let me translate</thinking>{"0":"一个红苹果","1":"一片蓝天"}')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('一个红苹果')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('marker 协议包裹（前后说明文字）的 JSON 也能正确解析', async () => {
+    const ai = makeAiGenerator('以下是译文：\n{"0":"一个红苹果","1":"一片蓝天"}\n完毕')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('一个红苹果')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('JSON 值含花括号与转义引号时仍正确解析', async () => {
+    const ai = makeAiGenerator('{"0":"译文 {备注} \\"引号\\"","1":"一片蓝天"}')
+    const items = await translatePromptsForLocale(ai, ['A red apple', 'A blue sky'], 'zh', console)
+    expect(items[0].translation).toBe('译文 {备注} "引号"')
+    expect(items[1].translation).toBe('一片蓝天')
+  })
+
+  it('说明文字含未闭合花括号时不干扰真实 JSON', async () => {
+    const ai = makeAiGenerator('注意 {没有闭合 {"0":"真实译文"}')
+    const items = await translatePromptsForLocale(ai, ['A red apple'], 'zh', console)
+    expect(items[0].translation).toBe('真实译文')
+  })
+
+  it('LLM 回显示例后返回真实 JSON 时取最终对象', async () => {
+    const ai = makeAiGenerator('例如 {"0":"示例译文"} 请返回 {"0":"真实译文"}')
+    const items = await translatePromptsForLocale(ai, ['A red apple'], 'zh', console)
+    expect(items[0].translation).toBe('真实译文')
   })
 })
 

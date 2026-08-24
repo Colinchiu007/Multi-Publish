@@ -49,7 +49,7 @@ export const usePlatformStore = defineStore('platforms', () => {
     instagram: 'https://www.instagram.com/', facebook: 'https://www.facebook.com/',
   }
 
-  const DEFAULT_QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao']
+  const DEFAULT_QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao', 'kuaishou']
 
   const DEFAULT_PLATFORMS = [
     { id: 'wechat_mp', label: '微信公众号' },

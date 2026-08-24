@@ -96,6 +96,7 @@ apps/desktop/tests/e2e/reports/integration.flow-*.json
 apps/desktop/tests/e2e/reports/b1-core-publish.json
 apps/desktop/tests/e2e/reports/routes-scan.json
 apps/desktop/tests/e2e/reports/screenshots/
+apps/desktop/tests/e2e/reports/film-engineering-real/
 
 # 涓存椂鑴氭湰鍜屾埅鍥?
 scripts/*.js
