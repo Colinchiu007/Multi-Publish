@@ -24,6 +24,13 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push: pushMock }),
 }))
 
+// 批量删除走 confirmDanger 确认门禁（desktop-ui-consistency）；测试默认确认通过，
+// 确认交互本身由 confirm-danger 契约测试与视觉回归覆盖。
+const confirmDangerMock = vi.fn(async () => true)
+vi.mock('@/utils/confirm-danger', () => ({
+  confirmDanger: (...args) => confirmDangerMock(...args),
+}))
+
 // PublishHistory 已统一走 platformStore；mock 返回空值让组件回退到 PLATFORM_NAMES/PLATFORM_ICONS 与显式 contentType。
 vi.mock('@/stores/platforms', () => ({
   usePlatformStore: () => ({
@@ -424,9 +431,30 @@ describe('PublishHistory', () => {
     expect(deleteButton.attributes('disabled')).toBeUndefined()
     await deleteButton.trigger('click')
 
+    // 危险操作确认门禁：必须先经 confirmDanger 且文案携带影响条数
+    expect(confirmDangerMock).toHaveBeenCalledTimes(1)
+    const dangerOptions = confirmDangerMock.mock.calls[0][0]
+    expect(dangerOptions.message).toContain('1')
+
     expect(historyDeleteMock).toHaveBeenCalledWith(['record-1'])
     expect(historyListMock).toHaveBeenLastCalledWith({ limit: 50, offset: 0 })
     expect(wrapper.text()).toContain('已选择 0 项')
+  })
+
+  it('批量删除在用户取消确认时不执行且保留选择集', async () => {
+    confirmDangerMock.mockResolvedValueOnce(false)
+    const wrapper = mountView()
+    await nextTick()
+    await nextTick()
+
+    await wrapper.get('[data-testid="start-selection"]').trigger('click')
+    await wrapper.get('.record-selector input').setValue(true)
+    const deleteButton = wrapper.findAll('.selection-toolbar .toolbar-button').find(button => button.text().includes('删除'))
+    await deleteButton.trigger('click')
+
+    expect(confirmDangerMock).toHaveBeenCalledTimes(1)
+    expect(historyDeleteMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('已选择 1 项')
   })
 
   it('移动端记录主体使用可收缩布局，批量复选框不会撑出卡片', () => {

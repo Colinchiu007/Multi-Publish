@@ -165,9 +165,13 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import { usePromptEval } from '@/composables/prompt-eval'
+import { confirmDanger } from '@/utils/confirm-danger'
 
 const tab = ref('run')
+const { t } = useI18n()
 const fileInput = ref(null)
 const selectedImages = ref([])
 const form = ref({ sourceText: '', context: '', optimizedPrompt: '', negativePrompt: '' })
@@ -269,9 +273,18 @@ async function openDetail(id) {
 }
 
 async function removeRecord(id) {
-  if (!window.confirm('确认删除评估记录 ' + id + ' ？')) return
-  await remove(id)
-  if (detail.value && detail.value.id === id) detail.value = null
+  const confirmed = await confirmDanger({
+    title: t('promptEval.deleteConfirmTitle'),
+    message: t('promptEval.deleteConfirmMessage', { id }),
+    confirmText: t('promptEval.deleteConfirmButton'),
+  })
+  if (!confirmed) return
+  try {
+    await remove(id)
+    if (detail.value && detail.value.id === id) detail.value = null
+  } catch (e) {
+    ElMessage.error(t('promptEval.deleteFailed'))
+  }
 }
 
 async function switchAnalyze() {

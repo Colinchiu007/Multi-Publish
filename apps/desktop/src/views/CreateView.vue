@@ -5072,6 +5072,7 @@ export default {
     },
     async deleteHistory(item) {
       if (!item?.projectId) return
+      // 确认门禁由上游 requestHistoryDeletion 的应用内删除对话框承担（唯一确认，勿叠加）
       const result = await story2videoDeleteProject(item.projectId)
       if (result?.code === 0) this.history = this.history.filter(entry => entry.projectId !== item.projectId)
       else this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED })

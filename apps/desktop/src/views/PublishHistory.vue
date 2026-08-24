@@ -303,6 +303,7 @@ import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
+import { confirmDanger } from '@/utils/confirm-danger'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
 
 const { t } = useI18n()
@@ -605,6 +606,13 @@ async function retryRecord (record) {
 async function deleteSelectedRecords () {
   const ids = [...selectedIds.value]
   if (ids.length === 0 || deletingSelected.value) return
+
+  const confirmed = await confirmDanger({
+    title: t('historyPage.deleteSelectedConfirmTitle'),
+    message: t('historyPage.deleteSelectedConfirmMessage', { count: ids.length }),
+    confirmText: t('historyPage.deleteSelectedConfirmButton'),
+  })
+  if (!confirmed) return
 
   deletingSelected.value = true
   actionMessage.value = ''

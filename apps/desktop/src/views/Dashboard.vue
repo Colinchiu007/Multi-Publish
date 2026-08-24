@@ -144,6 +144,8 @@ import UiButton from "../components/UiButton.vue";
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 // eslint-disable-next-line no-unused-vars
 import { syncAll, syncPlatform } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
@@ -154,6 +156,7 @@ import UpgradeModal from '@/components/UpgradeModal.vue'
 
 const syncing = ref(false)
 const dismissBanner = ref(false)
+const { t } = useI18n()
 const showUpgradeModal = ref(false)
 const platformData = ref([])
 const statsData = ref(null)
@@ -204,6 +207,7 @@ async function refreshSync () {
     await loadCached()
   } catch (e) {
     console.warn('Sync failed:', e.message)
+    ElMessage.error(t('dashboard.syncFailed'))
   } finally {
     syncing.value = false
   }
@@ -215,8 +219,10 @@ async function loadStats () {
   try {
     const res = await api.dashboardStats()
     if (res.code === 0) statsData.value = res.data
-  // eslint-disable-next-line no-unused-vars
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.warn('Load stats failed:', e.message)
+    ElMessage.error(t('dashboard.loadStatsFailed'))
+  }
 }
 
 async function loadRecent () {
@@ -225,8 +231,10 @@ async function loadRecent () {
   try {
     const res = await api.historyList({ limit: 5 })
     if (res.code === 0) recentPublishes.value = (res.data && res.data.records) || []
-  // eslint-disable-next-line no-unused-vars
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.warn('Load recent failed:', e.message)
+    ElMessage.error(t('dashboard.loadRecentFailed'))
+  }
 }
 
 async function loadCached () {
@@ -237,6 +245,7 @@ async function loadCached () {
     if (res.code === 0) platformData.value = res.data || []
   } catch (e) {
     console.warn('Load cached failed:', e.message)
+    ElMessage.error(t('dashboard.loadCachedFailed'))
   }
 }
 
