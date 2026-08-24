@@ -1,3 +1,9 @@
+## [Unreleased] - 2026-08-24 (纯文档 PR 必需 CI 检查修复)
+
+### CI
+- 所有目标为 main 的 PR（含文档/流程/CI-only）均运行 Quality Gate、Electron CI、双平台 build 和 Doc Gate 的真实 job，避免分支保护把 path-filtered workflow 当作缺失 check。
+- `push main` 的统一路径过滤保持不变，docs-only 提交合并后不重复运行全套 CI；workflow 契约测试区分 PR 全覆盖与 push 去重。
+
 ## [Unreleased] - 2026-08-23 (统一进度弹窗范围边界收口)
 
 ### 文档

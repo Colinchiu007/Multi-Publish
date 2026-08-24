@@ -160,14 +160,15 @@ const CI_IGNORED_PATHS = [
   'openspec/**',
 ];
 
-test('CI 路径门控：全量 workflow 的 pull_request 使用同一 paths-ignore 白名单', () => {
+test('CI 路径门控：全量 workflow 的 main PR 不得用 paths-ignore 跳过必需检查', () => {
   const names = ['build.yml', 'electron-ci.yml', 'quality-gate.yml'];
   for (const name of names) {
     const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', name), 'utf8'));
-    assert.deepEqual(
+    assert.deepEqual(wf.on.pull_request.branches, ['main']);
+    assert.equal(
       wf.on.pull_request['paths-ignore'],
-      CI_IGNORED_PATHS,
-      `${name} 的 pull_request.paths-ignore 必须与 CI_IGNORED_PATHS 一致`,
+      undefined,
+      `${name} 的 pull_request 不得过滤文档/流程 PR，否则 required check 会缺失`,
     );
   }
 });
@@ -184,12 +185,15 @@ test('CI 路径门控：保留 push 触发的 workflow 同样使用白名单', (
   }
 });
 
-test('Doc Gate 自动 bypass：流程类目录必须位于 paths-ignore', () => {
+test('Doc Gate 对所有 main PR 运行真实文档与测试门禁', () => {
   const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'doc-gate.yml'), 'utf8'));
-  const ignored = wf.on.pull_request['paths-ignore'];
-  for (const dir of ['.ccg/**', '.claude/**', '.hermes/**', '.agents/**', 'openspec/**', 'package.json', 'pnpm-lock.yaml', 'nx.json', 'packages/*/vitest.config.js']) {
-    assert.ok(ignored.includes(dir), `doc-gate paths-ignore 必须包含 ${dir}`);
-  }
+  assert.deepEqual(wf.on.pull_request.branches, undefined);
+  assert.deepEqual(wf.on.pull_request.types, ['opened', 'synchronize', 'reopened']);
+  assert.equal(
+    wf.on.pull_request['paths-ignore'],
+    undefined,
+    'doc-gate 不得过滤 docs-only 或 CI-only PR，否则 required check 会缺失',
+  );
 });
 
 test('Nx affected 引入契约：nx 配置与 quality-gate 双模式', () => {
@@ -204,7 +208,8 @@ test('Nx affected 引入契约：nx 配置与 quality-gate 双模式', () => {
   const wf = yaml.load(fs.readFileSync(qualityGatePath, 'utf8'));
   assert.deepEqual(wf.on.push.branches, ['main']);
   assert.deepEqual(wf.on.push['paths-ignore'], CI_IGNORED_PATHS);
-  assert.deepEqual(wf.on.pull_request['paths-ignore'], CI_IGNORED_PATHS);
+  assert.deepEqual(wf.on.pull_request.branches, ['main']);
+  assert.equal(wf.on.pull_request['paths-ignore'], undefined);
   assert.ok(Object.keys(wf.on).includes('workflow_dispatch'), 'quality-gate 必须保留 workflow_dispatch');
 
   const src = fs.readFileSync(qualityGatePath, 'utf8');

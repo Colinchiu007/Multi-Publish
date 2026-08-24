@@ -290,6 +290,15 @@
 
 ---
 
+## 纯文档 PR 被全量 CI 路径过滤永久阻塞复盘（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：PR #1146 仅修改文档、`.ccg` 与流程记录；手动执行 Quality Gate 后 8 个 QG job 全绿，仍因 `electron-tests`、`单元测试 + Lint`、`文档同步检查`、双平台 build 没有 check run 而 `BLOCKED`。
+- **根因**：build/electron-ci/quality-gate 与 doc-gate 的 `pull_request.paths-ignore` 将 docs-only PR 整个 workflow 跳过，但分支保护仍把其中的 job 名称列为 required context。GitHub 对此不会生成“skipped 也满足”的状态，结果是结构性永远缺失。
+- **修复原则**：所有目标为 `main` 的 PR 都执行真实 workflow；仅合并后的 `push main` 保留统一路径过滤，避免同一 docs-only 改动重复消耗 CI。禁止用同名空 job、手动 dispatch 或 status API 伪造绿灯。
+- **回归保护**：`.github/scripts/workflow-contract.test.js` 断言三个全量 workflow 的 PR 不含 `paths-ignore`、main push 忽略清单仍一致，并断言 Doc Gate 对任意 main PR 运行。
+
+---
+
 ## 合并 domain_enrich 到 scene_context 复盘（merge-domain-enrich-into-scene-context，2026-08-14）
 
 - **交付**：删除独立 `domain_enrich` 阶段与 `story2video-domain.js`，`imagePromptSeed` 种子生成移植进 `scene_context` 执行器（`contentType==='history'`，独立于 `enabled` 开关）；新增 `detectSentiment`/`buildDomainSeed` 到 story-context-engine.js；Python YAML 契约镜像同步删 domain_enrich 段；OpenSpec change 归档（PR 待合）。

@@ -1,0 +1,14 @@
+{
+  "id": "fix-docs-only-pr-ci-checks",
+  "title": "修复纯文档 PR 被必需 CI 检查永久阻塞",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci",
+  "currentPhase": "review",
+  "nextAction": "提交并推送到 PR #1146，验证完整 required check 集合",
+  "createdAt": "2026-08-24T12:10:34+08:00",
+  "branch": "codex/s2v-progress-unify-scope-doc",
+  "openspecChange": "fix-docs-only-pr-ci-checks",
+  "remoteStatus": "analysis_in_progress"
+}
