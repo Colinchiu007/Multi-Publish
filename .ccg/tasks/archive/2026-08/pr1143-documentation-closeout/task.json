@@ -1,0 +1,20 @@
+{
+  "id": "pr1143-documentation-closeout",
+  "title": "补齐 Story2Video 音色恢复与图片轮播修复的文档闭环",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "low",
+  "domain": "documentation",
+  "currentPhase": "completed",
+  "nextAction": "docs-only 收尾 PR #1147 已创建，等待审阅；未经用户授权不得合并",
+  "createdAt": "2026-08-24T03:35:00Z",
+  "branch": "codex/pr1143-documentation-closeout",
+  "relatedPullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/1143",
+  "remoteStatus": "merged",
+  "mergedAt": "2026-08-24T03:27:16Z",
+  "mergeCommit": "d82afd8b7342fdac14f11b264af0b2c7da0a5be9",
+  "closeoutPullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/1147",
+  "closeoutRemoteStatus": "open",
+  "closeoutMergeState": "blocked",
+  "closeoutHeadCommit": "acd88a9c858865d4e7dc3f3ef862bca312f7f997"
+}

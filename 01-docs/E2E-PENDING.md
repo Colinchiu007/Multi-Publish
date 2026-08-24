@@ -1,4 +1,4 @@
-# 视频创作 E2E 待办 / 待验证清单（2026-08-06）
+# 视频创作 E2E 待办 / 待验证清单（2026-08-24）
 
 > 记录本轮 E2E（12 条已实现流水线）中因条件不足无法验证、或失败待重测的项。
 > 已跑通项见 `01-docs/STORY2VIDEO-E2E-REPORT.md`。复现脚本 `C:\tmp\e2e-pipelines.js`（`E2E_FILTER` 指定子集）。
@@ -14,7 +14,9 @@
 - ⏳ `screen-demo`（录屏 → 自动标注）：`available=false`，UI 标记开发中、启动禁用；录屏采集与自动标注为独立工作流，按下一优先级实现。
 
 ## 待验证 C：真实供应商/账号验收（需真实账号、API、素材）
-1. **TTS 音色克隆上传**（MiniMax voice_clone）：真实上传 → 克隆 → 下拉选择 → 用克隆音色生成成片；含 7 天未调用被清理的边界提示。
+1. **C-1：TTS 音色克隆验收（MiniMax voice_clone）**
+   - ✅ **C-1a 已完成（2026-08-23 / 24）**：失效克隆音色重克隆后，新 ID 可跨运行写回当前用户、当前 provider/model 的 registry；仍指向旧 ID 的偏好同步迁移。真实 TTS/直接合成已产出 JPEG + TTS + 2x zoompan MP4（1920×1080、6.264s、1,516,241 bytes），证据见 STORY2VIDEO-E2E-REPORT.md。
+   - ⏳ **C-1b 待完成**：真实上传样本 → 克隆 → 在 UI 下拉选择 → 用该克隆音色走完整流水线生成成片；同时验收 7 天未调用被清理后的提示与恢复路径。
 2. **个人音色槽位**（Doubao 等）：官方控制台创建个人音色 + `listVoices` 官方 API 证据 → 下拉展示并设为默认。
 3. **图片生成敏感词降级**：真实 provider 命中内容政策 → 5 次安全化改写 → `needs_user_input` → 修改文案重启；确认提示友好、不伪造成功。2026-08-07 补充：MiniMax 类「HTTP 200 但 `image_urls` 为空」的静默拒绝已纳入合同（adapter 显式抛错 + 重试循环内校验，5 次后 `needs_user_input(reason=empty_result)`，PR #384），真实 provider 命中该路径的端到端证据仍待补。
 4. **媒体流水线真实素材**：talking-head / cinematic / clip-factory / localization-dub 目前用 12s 样例视频验证流程；真实用户素材的字幕、调色、片段提取、配音替换效果待验收。
@@ -28,8 +30,9 @@
 ## 待办 E：2026-08-08 系列修复真实验收（需真实 provider/账号/素材）
 
 > 对应 PR #397-400、#402；代码/单测/CI 不能替代真实 provider 与真实成片行为。
+> 2026-08-24 状态更新：C-1a（失效克隆恢复与直接成片）已补充通过；本节及待办 F 中涉及 C-1 的剩余内容均指 C-1b 的新上传/下拉选择完整 UI 链。
 
-1. **MiniMax 异步 T2A 成片**：✅ **已通过（2026-08-08，真实 provider）**。真实复测发现并修复两层问题：① 克隆音色 `voice_id="01"` 不合规（官方要求长度 [8,256]/首字符英文字母）→ `invalid params, voice id wrong`（PR #413：合规生成 + 失效标记 + 偏好回退默认音色）；② 官方查询接口把 `status/file_id` 放响应**顶层**、实现只读 `data.*` → 90s 查询超时（PR #414：顶层与 data 双层兼容）。修复后 `minimax-tts synthesize success（约 13s）`，**图片 1/1 · 旁白 1/1**，成片 20s 生成，视频预览可见旁白与分段音频。待办 C-1（用克隆音色生成成片）仍需真实重新克隆后验证。
+1. **MiniMax 异步 T2A 成片**：✅ **已通过（2026-08-08，真实 provider）**。真实复测发现并修复两层问题：① 克隆音色 `voice_id="01"` 不合规（官方要求长度 [8,256]/首字符英文字母）→ `invalid params, voice id wrong`（PR #413：合规生成 + 失效标记 + 偏好回退默认音色）；② 官方查询接口把 `status/file_id` 放响应**顶层**、实现只读 `data.*` → 90s 查询超时（PR #414：顶层与 data 双层兼容）。修复后 `minimax-tts synthesize success（约 13s）`，**图片 1/1 · 旁白 1/1**，成片 20s 生成，视频预览可见旁白与分段音频。C-1a（失效克隆恢复与直接成片）已补充通过；C-1b 的新上传/下拉选择完整 UI 链仍待真实验收。
 2. **分段图片显示**：真实流水线完成后进入视频预览页，确认【分段编辑】每段图片可见（媒体服务 image/* Content-Type）。
 3. **下载视频/分段/旁白**：点击各下载按钮弹出系统保存对话框，确认文件成功保存；取消不提示；路径选择任意位置（如桌面/下载目录）。
 4. **失败任务历史展示**：真实流水线失败后重启应用，进入【历史记录】确认失败任务仍在且状态「生成失败」；从断点继续成功后旧失败记录不残留。
@@ -50,13 +53,15 @@
   - ✅ ② compose 转场：3 场景轮多段 xfade 路径成功（成片 `s2v_1786089323107_1_output.mp4`，33.2s/2.3MB），`xfade=transition=undefined` 不再出现。
   - ✅ ① MiniMax Image：3 场景 generate_assets 全部完成（3 图+3 TTS 均返回可用结果）；「静默 200-empty」为间歇性未复现，重试/降级由单测覆盖（adapter 显式抛错 + 5 次后 `needs_user_input`）。
 - **✅ 并发上限固定开关已验证（2026-08-07，`STORY2VIDEO_MAX_CONCURRENT_RUNS=2`）**：A/B 并行启动成功；第 3 条被拒，返回 `PIPELINE_CONCURRENCY_LIMIT` + 友好文案「当前已有 2 条流水线正在运行，最多同时运行 2 条，请等待其中一条完成后再启动。」；历史仅含 2 条运行中；切模块后仍在后台运行（`C:\tmp\e2e-concurrency-report.json`，limitVerified=true）。至此待办 E 全部闭环。
-- **重测命令**：`node C:\tmp\e2e-concurrency.js` / `node C:\tmp\e2e-confirm.js`（需先停已运行的应用实例，避免 profile 单实例锁冲突；报告 `C:\tmp\e2e-*-report.json`）。## 待办 F：多模态模型扩展真实验收（2026-08-08 新增）
+- **重测命令**：`node C:\tmp\e2e-concurrency.js` / `node C:\tmp\e2e-confirm.js`（需先停已运行的应用实例，避免 profile 单实例锁冲突；报告 `C:\tmp\e2e-*-report.json`）。
+
+## 待办 F：多模态模型扩展真实验收（2026-08-08 新增）
 
 > 用户已在【模型设置】配置 minimax-multimodal API Key（其余模型 API 已全部删除），
 > 后续验证统一使用该已保存的多模态模型。
 
 1. **多模态 LLM（MiniMax-M2.7）真实链路**：用已保存的 minimax-multimodal 跑一次「文字推理」真实调用（AI 写稿/流水线文案拆分/提示词优化），确认 OpenAI 兼容 `POST /v1/chat/completions` 生效、默认模型 MiniMax-M2.7 可用；若账号未开通该模型，按运营后台 `default_model` 调整后重测。
-2. **C-1 克隆音色重新克隆 → 成片（复用多模态模型）**：真实上传音频 → 克隆 → 下拉选择克隆音色 → 用克隆音色生成完整成片（待办 C-1 原项，改为使用已保存的多模态模型验证）。
+2. **C-1b 剩余 UI 验收：克隆音色重新克隆 → 成片（复用多模态模型）**：真实上传音频 → 克隆 → 下拉选择克隆音色 → 用克隆音色生成完整成片。C-1a 的跨运行恢复与直接合成已验证，本项只覆盖尚未完成的 UI 上传/选择全链。
 3. **sensenova-llm API Key 解密失败**：建议在【模型设置】重新填写该服务商 API Key（旧 Key 由旧版 safeStorage 加密，当前 Electron 无法解密）；重新填写后可继续使用。
 4. **删除交互真实验收**：预设服务商点「删除」→ 二次确认 → 从列表隐藏；「添加服务商 → 预设目录」可重新添加并恢复。
 5. **多模态表单 Base URL 隐藏**：新增/编辑 minimax-multimodal 时确认无 Base URL 输入项，保存后能力 chips 显示 4 项（文字推理/TTS语音/生图/生成视频）。
