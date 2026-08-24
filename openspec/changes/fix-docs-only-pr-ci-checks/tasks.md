@@ -7,7 +7,7 @@
 ## 2. 规格与运行验证
 
 - [x] 2.1 更新 `ci-path-gating` delta spec、合并检查说明、质量门禁与 learnings，记录“PR 全覆盖 / main push 去重”及 CI 成本；运行 `openspec validate fix-docs-only-pr-ci-checks --strict`。live spec 将在远程 CI 通过且 change 归档时合入。
-- [ ] 2.2 运行受影响本地门禁：workflow contract、`scripts/check-docs-sync.sh --base=main --head=HEAD`、`git diff --check`。
+- [x] 2.2 运行受影响本地门禁：workflow contract、`scripts/check-docs-sync.sh --base=main --head=HEAD`、`git diff --check`。
 - [ ] 2.3 推送并用 docs-only PR #1146 验证：13 个 branch-protection required context 都产生真实 check run 且通过，`mergeStateStatus` 不再因缺失 check 为 `BLOCKED`。
 
 ## 3. 审查与交付
