@@ -38,6 +38,21 @@ if (-not $git -or -not (Test-Path -LiteralPath $git)) {
 }
 function Git([string[]]$gitArgs) { & $git -C $root @gitArgs }
 
+# Top-level directory segments that must never be watched. They generate
+# massive event storms during git operations (.git/objects, index) and builds
+# (node_modules/, dist/), which overflow the FileSystemWatcher buffer and crash
+# the watcher. They are gitignored / internal and never hold guard-relevant
+# runtime writes, so excluding them at the event-collection stage both removes
+# the storm source and avoids needless git calls per event.
+$script:excludedSegments = @('.git', 'node_modules', '.vite', 'dist', 'dist-electron', '.playwright-browsers', '.idea', '.turbo')
+
+function Test-ExcludedSegment([string]$Path) {
+    foreach ($seg in $script:excludedSegments) {
+        if ($Path -match "(?<![\w-])[\\/]?$([regex]::Escape($seg))[\\/]") { return $true }
+    }
+    return $false
+}
+
 $allowedTop = @('docs','01-docs','scripts','openspec','.ccg','.agent_context','.hermes')
 $allowedRootFiles = @('AGENTS.md','README.md','CHANGELOG.md','.quality-gates.md')
 $script:ignoreUntil = @{}
@@ -218,8 +233,9 @@ if ($ProcessPaths) {
 }
 
 if (-not $Watch) {
-    Write-Error "need either -Watch or -ProcessPaths"
-    exit 2
+    # Use throw (not Write-Error+exit) so that dot-sourcing the script for
+    # testing/function reuse does not terminate the host session.
+    throw "need either -Watch or -ProcessPaths"
 }
 
 $watcher = New-Object System.IO.FileSystemWatcher
@@ -232,42 +248,75 @@ $null = Register-ObjectEvent -InputObject $watcher -EventName Created -SourceIde
 $null = Register-ObjectEvent -InputObject $watcher -EventName Changed -SourceIdentifier $sources[1]
 $null = Register-ObjectEvent -InputObject $watcher -EventName Renamed -SourceIdentifier $sources[2]
 $null = Register-ObjectEvent -InputObject $watcher -EventName Deleted -SourceIdentifier $sources[3]
+<#
+  Buffer-overflow guard: when the event rate exceeds the internal buffer,
+  FileSystemWatcher raises an Error event instead of delivering events. Without
+  handling it the watcher effectively goes blind / self-destructs. We drain the
+  collected events and keep watching rather than exiting.
+#>
+$null = Register-ObjectEvent -InputObject $watcher -EventName Error -SourceIdentifier 'guard.error' -Action {
+    try {
+        $e = $Event.SourceEventArgs
+        if ($e -and $e.GetException) {
+            Write-Warning ("guard buffer overflow / watcher error: " + $e.GetException().Message)
+        }
+    } catch {
+        Write-Warning ("guard error event handling failed: " + $_.Exception.Message)
+    }
+}
 $watcher.EnableRaisingEvents = $true
+
+function Invoke-GuardCycle {
+    $pending = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($source in $sources) {
+        $events = @(Get-Event -SourceIdentifier $source -ErrorAction SilentlyContinue)
+        foreach ($eventItem in $events) {
+            $args = $eventItem.SourceEventArgs
+            $paths = @()
+            if ($args -is [System.IO.RenamedEventArgs]) {
+                if ($args.FullPath) { $paths += $args.FullPath }
+                if ($args.OldFullPath) { $paths += $args.OldFullPath }
+            } elseif ($args -and $args.FullPath) {
+                $paths += $args.FullPath
+            }
+            foreach ($p in $paths) {
+                # Drop storm-source paths at collection time (cheap, no git call).
+                if (-not (Test-ExcludedSegment $p)) { $null = $pending.Add($p) }
+            }
+            Remove-Event -EventIdentifier $eventItem.EventIdentifier -ErrorAction SilentlyContinue
+        }
+    }
+    foreach ($path in $pending) {
+        try {
+            $relative = Get-RelativePath $path
+        } catch {
+            continue
+        }
+        if ($script:ignoreUntil.ContainsKey($relative)) {
+            if ((Get-Date) -lt $script:ignoreUntil[$relative]) { continue }
+            $script:ignoreUntil.Remove($relative)
+        }
+        try {
+            $result = Invoke-GuardPath $path
+            if (-not $Quiet -and $result.action -ne 'skipped') {
+                Write-Output ("[{0}] {1} {2}" -f $result.action, $result.path, $result.detail)
+            }
+        } catch {
+            Write-Warning "watch processing failed for $path`: $($_.Exception.Message)"
+        }
+    }
+}
 
 try {
     while ($true) {
-        $pending = New-Object 'System.Collections.Generic.HashSet[string]'
-        foreach ($source in $sources) {
-            $events = @(Get-Event -SourceIdentifier $source -ErrorAction SilentlyContinue)
-            foreach ($eventItem in $events) {
-                $args = $eventItem.SourceEventArgs
-                if ($args -is [System.IO.RenamedEventArgs]) {
-                    if ($args.FullPath) { $null = $pending.Add($args.FullPath) }
-                    if ($args.OldFullPath) { $null = $pending.Add($args.OldFullPath) }
-                } elseif ($args -and $args.FullPath) {
-                    $null = $pending.Add($args.FullPath)
-                }
-                Remove-Event -EventIdentifier $eventItem.EventIdentifier -ErrorAction SilentlyContinue
-            }
-        }
-        foreach ($path in $pending) {
-            try {
-                $relative = Get-RelativePath $path
-            } catch {
-                continue
-            }
-            if ($script:ignoreUntil.ContainsKey($relative)) {
-                if ((Get-Date) -lt $script:ignoreUntil[$relative]) { continue }
-                $script:ignoreUntil.Remove($relative)
-            }
-            try {
-                $result = Invoke-GuardPath $path
-                if (-not $Quiet -and $result.action -ne 'skipped') {
-                    Write-Output ("[{0}] {1} {2}" -f $result.action, $result.path, $result.detail)
-                }
-            } catch {
-                Write-Warning "watch processing failed for $path`: $($_.Exception.Message)"
-            }
+        try {
+            # Drain any pending buffer-overflow errors and run one guard cycle.
+            $errEvents = @(Get-Event -SourceIdentifier 'guard.error' -ErrorAction SilentlyContinue)
+            foreach ($e in $errEvents) { Remove-Event -EventIdentifier $e.EventIdentifier -ErrorAction SilentlyContinue }
+            Invoke-GuardCycle
+        } catch {
+            # Never let an unexpected exception kill the watcher; log and keep looping.
+            Write-Warning ("guard cycle threw, continuing: " + $_.Exception.Message)
         }
         Start-Sleep -Milliseconds 400
     }
@@ -277,4 +326,5 @@ try {
     foreach ($source in $sources) {
         Get-Event -SourceIdentifier $source -ErrorAction SilentlyContinue | Remove-Event -ErrorAction SilentlyContinue
     }
+    Get-Event -SourceIdentifier 'guard.error' -ErrorAction SilentlyContinue | Remove-Event -ErrorAction SilentlyContinue
 }
