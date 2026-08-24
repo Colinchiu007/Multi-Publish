@@ -1,18 +1,20 @@
 {
   "id": "fix-openrouter-default-model-state",
   "title": "修复 OpenRouter 模型设为默认后卡片状态未同步",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "desktop-frontend",
-  "currentPhase": "review",
-  "nextAction": "提交并推送 PRD 文档同步回补，等待 PR #1150 的 CI；合并后核对 origin/main 并执行三同步归档",
+  "currentPhase": "completed",
+  "nextAction": "已完成：PR #1150 已合并并核对 origin/main；OpenSpec、CCG task 与质量节拍记录已归档",
   "createdAt": "2026-08-24T00:00:00+08:00",
   "branch": "codex/fix-openrouter-default-model-state",
   "openspecChange": "fix-openrouter-default-model-state",
-  "openspecState": "active",
-  "remoteStatus": "pr_doc_gate_fix_pending_push",
+  "openspecState": "archived",
+  "remoteStatus": "merged_verified",
   "prNumber": 1150,
   "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1150",
-  "qualityGateStatus": "pending_remote_doc_gate_fix"
+  "qualityGateStatus": "passed_remote_ci",
+  "mergedAt": "2026-08-24T08:45:10Z",
+  "mergeCommit": "de8143ce42ccb6211bff92abdfd06e64b60df81c"
 }
