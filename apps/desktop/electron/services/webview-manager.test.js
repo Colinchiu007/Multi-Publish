@@ -526,6 +526,20 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
     expect(created.partition).toBe('persist:account-account-1')
     expect(created.cookies.setCalls).toEqual([])
   })
+
+  it('支持传入 title 作为标签初始标题（创作者中心等场景），未传时回退 New Tab', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    const tabId = wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-1', title: '  知乎创作者中心  ' })
+    expect(wm._tabStates.get(tabId).title).toBe('知乎创作者中心')
+
+    const tabId2 = wm.createNewTabPage({ url: 'https://creator.zhihu.com', accountId: 'account-2' })
+    expect(wm._tabStates.get(tabId2).title).toBe('New Tab')
+  })
 })
 
 describe('WebviewManager 浏览器标签标题隔离', () => {

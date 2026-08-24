@@ -443,9 +443,13 @@ class WebviewManager extends EventEmitter {
 
     // 设置初始状态
     self._tabViews.set(tabId, view)
+    // 支持调用方传入标签页标题（创作者中心等场景需在标签栏显示账号专属标题）
+    var initialTitle = (opts && typeof opts.title === 'string' && opts.title.trim())
+      ? opts.title.trim()
+      : 'New Tab'
     self._tabStates.set(tabId, {
       url: initialUrl,
-      title: 'New Tab',
+      title: initialTitle,
       loading: false,
       canGoBack: false,
       canGoForward: false

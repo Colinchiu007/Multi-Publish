@@ -2,7 +2,6 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { describe, expect, it } from 'vitest'
 import AccountManagementCard from './AccountManagementCard.vue'
-import i18n from '../../../i18n'
 
 const account = {
   id: 'account-1',
@@ -13,7 +12,6 @@ const account = {
 
 function mountCard (props = {}) {
   return mount(AccountManagementCard, {
-    global: { plugins: [i18n] },
     props: {
       account,
       platformLabel: '知乎',
@@ -174,44 +172,44 @@ describe('AccountManagementCard', () => {
     await wrapper.get('.account-name-input').setValue('   ')
     await wrapper.get('.account-name-input').trigger('blur')
     expect(wrapper.emitted('rename')).toHaveLength(1)
+  })
+
+  it('非批量模式点击卡片整体打开创作者中心（对齐蚁小二全屏标签交互）', async () => {
+    const wrapper = mountCard({ batchMode: false })
+    await wrapper.get('[data-testid="account-card-account-1"]').trigger('click')
+
+    expect(wrapper.emitted('open-creator')).toEqual([[account]])
+    expect(wrapper.emitted('toggle-select')).toBeUndefined()
   })
 
-  it('卡片空白区域可点击并上抛打开创作者中心', async () => {
+  it('批量模式点击卡片改为切换选中，不误打开创作者中心', async () => {
     const wrapper = mountCard()
+    await wrapper.get('[data-testid="account-card-account-1"]').trigger('click')
 
-    await wrapper.get('.account-followers').trigger('click')
-    await wrapper.get('.account-avatar').trigger('click')
-
-    expect(wrapper.emitted('open-creator')).toEqual([[account], [account]])
-    expect(wrapper.get('[data-testid="account-card-account-1"]').attributes('title')).toContain('创作者中心')
+    expect(wrapper.emitted('toggle-select')).toEqual([['account-1']])
+    expect(wrapper.emitted('open-creator')).toBeUndefined()
   })
 
-  it('点击已有按钮、复选框和重命名入口不触发卡片级打开创作者中心', async () => {
-    const wrapper = mountCard()
+  it('卡片内操作按钮点击不冒泡触发打开创作者中心', async () => {
+    const wrapper = mountCard({ batchMode: false })
+    await wrapper.get('[data-testid="delete-account-1"]').trigger('click')
+
+    expect(wrapper.emitted('remove')).toEqual([[account]])
+    expect(wrapper.emitted('open-creator')).toBeUndefined()
 
     await wrapper.get('[data-testid="creator-account-1"]').trigger('click')
     expect(wrapper.emitted('open-creator')).toEqual([[account]])
-
-    await wrapper.get('[data-testid="delete-account-1"]').trigger('click')
-    await wrapper.get('[data-testid="proxy-account-1"]').trigger('click')
-    await wrapper.get('[data-testid="favorite-account-1"]').trigger('click')
-    await wrapper.get('[data-testid="select-account-1"]').setValue(true)
-    await wrapper.get('.account-name-button').trigger('click')
-
-    expect(wrapper.emitted('open-creator')).toHaveLength(1)
-    expect(wrapper.emitted('remove')).toEqual([[account]])
-    expect(wrapper.emitted('configure-proxy')).toEqual([[account]])
-    expect(wrapper.emitted('toggle-favorite')).toEqual([['account-1']])
-    expect(wrapper.emitted('toggle-select')).toEqual([['account-1']])
   })
 
-  it('重命名输入过程中点击输入框不会误打开创作者中心', async () => {
-    const wrapper = mountCard()
+  it('键盘 Enter/Space 激活卡片打开创作者中心（无障碍）', async () => {
+    const wrapper = mountCard({ batchMode: false })
+    const card = wrapper.get('[data-testid="account-card-account-1"]')
 
-    await wrapper.get('.account-name-button').trigger('click')
-    await nextTick()
-    await wrapper.get('.account-name-input').trigger('click')
+    expect(card.attributes('role')).toBe('button')
+    expect(card.attributes('tabindex')).toBe('0')
+    await card.trigger('keydown.enter')
+    await card.trigger('keydown.space')
 
-    expect(wrapper.emitted('open-creator')).toBeUndefined()
+    expect(wrapper.emitted('open-creator')).toHaveLength(2)
   })
 })

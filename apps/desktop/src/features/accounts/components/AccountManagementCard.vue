@@ -2,13 +2,17 @@
   <article
     class="account-row account-card"
     :data-testid="`account-card-${account.id}`"
-    :title="t('accountsPage.cardCreatorTitle')"
-    @click="onCardClick"
     :class="{ 'is-selected': selected, 'is-default': account.is_default }"
     :aria-label="`${platformLabel}账号：${accountName(account)}`"
+    role="button"
+    tabindex="0"
+    :title="creatorHint || undefined"
+    @click="onCardClick"
+    @keydown.enter="onCardActivate"
+    @keydown.space.prevent="onCardActivate"
   >
     <header class="account-card-header">
-      <label v-if="batchMode" class="select-account" :title="`选择 ${accountName(account)}`">
+      <label v-if="batchMode" class="select-account" :title="`选择 ${accountName(account)}`" @click.stop>
         <input
           :data-testid="`select-${account.id}`"
           type="checkbox"
@@ -28,7 +32,7 @@
         :title="favorite ? '取消收藏' : '收藏账号'"
         :aria-label="favorite ? '取消收藏' : '收藏账号'"
         :data-testid="`favorite-${account.id}`"
-        @click="$emit('toggle-favorite', account.id)"
+        @click.stop="$emit('toggle-favorite', account.id)"
       >
         <StarFilled v-if="favorite" />
         <Star v-else />
@@ -52,7 +56,7 @@
           class="account-name-button"
           type="button"
           title="重命名账号"
-          @click="startEditing"
+          @click.stop="startEditing"
         >
           <span>{{ accountName(account) }}</span>
           <EditPen aria-hidden="true" />
@@ -64,6 +68,7 @@
           :value="accountName(account)"
           :aria-label="`账号名称：${accountName(account)}`"
           spellcheck="false"
+          @click.stop
           @blur="finishEditing"
           @keyup.enter="$event.target.blur()"
         >
@@ -85,7 +90,7 @@
     </div>
 
     <footer class="account-actions">
-      <button :data-testid="`proxy-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('configure-proxy', account)">
+      <button :data-testid="`proxy-${account.id}`" data-e2e-scan="manual" type="button" @click.stop="$emit('configure-proxy', account)">
         <Setting />设置
       </button>
       <button
@@ -93,7 +98,7 @@
         :data-testid="`verify-${account.id}`"
         data-e2e-scan="manual"
         type="button"
-        @click="$emit('check-login', account)"
+        @click.stop="$emit('check-login', account)"
       >
         <CircleCheck />验证
       </button>
@@ -102,7 +107,7 @@
         :data-testid="`relogin-${account.id}`"
         data-e2e-scan="manual"
         type="button"
-        @click="$emit('relogin', account)"
+        @click.stop="$emit('relogin', account)"
       >
         <Refresh />重新登录
       </button>
@@ -110,12 +115,12 @@
         :data-testid="`creator-${account.id}`"
         data-e2e-scan="manual"
         type="button"
-        @click="$emit('open-creator', account)"
-        title="打开创作者中心"
+        @click.stop="$emit('open-creator', account)"
+        :title="creatorHint || undefined"
       >
         <Monitor />去登录
       </button>
-      <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click="$emit('remove', account)">
+      <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click.stop="$emit('remove', account)">
         <Delete />删除
       </button>
     </footer>
@@ -124,7 +129,6 @@
 
 <script setup>
 import { nextTick, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { CircleCheck, Delete, EditPen, Monitor, Refresh, Setting, Star, StarFilled, UserFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
@@ -134,6 +138,7 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
   favorite: { type: Boolean, default: false },
   batchMode: { type: Boolean, default: false },
+  creatorHint: { type: String, default: '' },
 })
 
 const emit = defineEmits([
@@ -148,15 +153,26 @@ const emit = defineEmits([
   'open-creator',
 ])
 
-const { t } = useI18n()
-
 const editing = ref(false)
 const nameInput = ref(null)
 
-// 卡片整体可点击：点击按钮、链接、输入框等交互元素时保持其自身行为，不触发卡片级动作
-function onCardClick (event) {
-  if (event.target.closest('button, a, input, label, select, textarea')) return
+/**
+ * 卡片整体点击（对齐蚁小二：点击账号卡片打开该账号创作者中心）。
+ * 批量模式下点击卡片改为切换选中，避免误打开标签页。
+ */
+function onCardClick () {
+  if (props.batchMode) {
+    emit('toggle-select', props.account.id)
+    return
+  }
   emit('open-creator', props.account)
+}
+
+/** 键盘激活（Enter/Space）：仅响应卡片自身焦点，内部输入框回车不触发 */
+function onCardActivate (event) {
+  if (event.target !== event.currentTarget) return
+  event.preventDefault()
+  onCardClick()
 }
 
 function startEditing () {
@@ -260,12 +276,12 @@ function formatDate (value) {
 <style scoped>
 .account-card {
   position: relative;
-  cursor: pointer;
   min-width: 0;
   min-height: 252px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  cursor: pointer;
   border: 1px solid var(--border-light, #e8e8ec);
   border-radius: 8px;
   background: var(--canvas, #fff);
@@ -519,6 +535,7 @@ function formatDate (value) {
 .account-actions button.danger:hover { background: #fff0f2; }
 .account-actions svg { width: 13px; height: 13px; }
 
+.account-card:focus-visible,
 .favorite-button:focus-visible,
 .account-actions button:focus-visible,
 .account-name-button:focus-visible,

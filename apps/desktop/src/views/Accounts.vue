@@ -212,6 +212,7 @@
               :selected="accountStore.selectedIds.has(account.id)"
               :favorite="(accountStore.favoriteIds || emptyIds).has(account.id)"
               :batch-mode="accountBatchMode"
+              :creator-hint="t('accountsPage.creatorCardHint')"
               @toggle-select="toggleSelect"
               @toggle-favorite="toggleFavorite"
               @rename="renameAccount"
@@ -813,7 +814,7 @@ async function openCreatorCenter(account) {
     ElMessage.warning(t('accountsPage.creatorUnsupported'))
     return
   }
-  await tabStore.createTab({ url, platform: account.platform, accountId: account.id })
+  await tabStore.createTab({ url, platform: account.platform, accountId: account.id, title: t('accountsPage.creatorTabTitle', { platform: platformLabel(account.platform) }) })
 }
 
 async function removeAccount (account) {
