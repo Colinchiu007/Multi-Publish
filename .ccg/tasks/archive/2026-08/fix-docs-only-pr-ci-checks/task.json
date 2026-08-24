@@ -1,0 +1,16 @@
+{
+  "id": "fix-docs-only-pr-ci-checks",
+  "title": "修复纯文档 PR 被必需 CI 检查永久阻塞",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "ci-test",
+  "currentPhase": "completed",
+  "nextAction": "已归档：PR #1146 合并、OpenSpec 和 CCG 闭环完成",
+  "createdAt": "2026-08-24T12:10:34+08:00",
+  "branch": "codex/archive-fix-docs-only-pr-ci-checks",
+  "openspecChange": "fix-docs-only-pr-ci-checks",
+  "remoteStatus": "merged_pr_1146",
+  "mergeCommit": "1b9be46de3db3da51d9fa07b5112408cc2ce404f",
+  "mergedAt": "2026-08-24T05:26:14Z"
+}

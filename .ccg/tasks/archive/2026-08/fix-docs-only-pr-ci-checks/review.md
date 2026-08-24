@@ -59,3 +59,14 @@
 ### 本地复审结论
 
 未发现 Critical 或 Warning。该修复不改变产品生成、Provider 调用、ffmpeg 或 CI required context；只让已有的真实终态有有限时间被观察。
+
+## 远程最终验证与合并
+
+- PR #1146 head `09a4167b31ce512f8fee16f3831601dadcdfc202` 的 13 个 branch-protection required contexts 均真实产生并成功：QG Static/Unit/Coverage/Desktop Shards×2/Browser E2E/Visual/Autonomous、Gate Result、Electron、双平台 build、Doc Sync 与 Unit+Lint。
+- `QG Browser E2E` 在 run `32692529565` 成功；Windows build（含电影工程真实 E2E）在 run `32692529685` 成功；release 是预期 skipped。
+- PR 于 2026-08-24T05:26:14Z squash 合并，merge SHA `1b9be46de3db3da51d9fa07b5112408cc2ce404f`，已通过 `git fetch origin --prune` 核验为 `origin/main` HEAD。
+
+## 归档同步检查基线例外
+
+- 已运行 `node scripts/openspec-sync-check.js`。本任务已归档，输出未列出 `fix-docs-only-pr-ci-checks`；脚本仍因仓库既有的 9 项其他 task/OpenSpec 漂移（无效 JSON、已完成 task 指向 active/missing change）返回非零。
+- 这些路径不属于 PR #1146 或本归档变更，未在本任务中修改；本任务的 archived task 状态与 archived OpenSpec change 已逐项核验一致。

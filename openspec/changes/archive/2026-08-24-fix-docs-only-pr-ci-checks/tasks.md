@@ -11,9 +11,9 @@
 - [x] 2.3 为 `FunctionalRunner` 新增 node:test 导航恢复合同：精确 `ERR_NO_BUFFER_SPACE` 重试一次、非匹配错误不重试、耗尽后原样抛出、成功后才 `waitForAppReady`；运行 `node --test apps/desktop/tests/e2e/helpers/functional-runner.test.js` 与 `e2e-remaining-waits.test.js`。
 - [x] 2.4 在 `QG Browser E2E` 中于真实扫描前执行该合同，并扩展 `workflow-contract.test.js` 锁定调度顺序。
 - [x] 2.5 修复 Windows build 的电影工程 E2E 终态观察：将生成结果预算从 15 秒调整为 30 秒，node:test 覆盖延迟终态与导入不启动 Electron；Windows build 在真实 E2E 前执行该合同；运行 `node --test apps/desktop/tests/e2e/film-engineering-real.test.js` 与 workflow contract。
-- [ ] 2.6 推送并用 PR #1146 验证：13 个 branch-protection required context 都产生真实 check run 且通过，`mergeStateStatus` 不再因缺失 check、Browser E2E 导航瞬态失败或电影工程 E2E 观察不足为 `BLOCKED`。
+- [x] 2.6 推送并用 PR #1146 验证：13 个 branch-protection required context 都产生真实 check run 且通过，`QG Browser E2E`、Windows build/电影工程真实 E2E 均通过；`mergeStateStatus=CLEAN` 后于 2026-08-24 合并，merge SHA `1b9be46de3db3da51d9fa07b5112408cc2ce404f` 已在 `origin/main`。
 
 ## 3. 审查与交付
 
-- [ ] 3.1 双模型审查 workflow、E2E helper、合同测试与 OpenSpec diff；Critical 必修，Warning 记录处置。若通道不可用，按降级规则记录并完成本地逐项审查。
-- [ ] 3.2 合并后核对 `origin/main`、归档 OpenSpec 与 CCG task、运行 `scripts/openspec-sync-check.js`。
+- [x] 3.1 双模型审查 workflow、E2E helper、合同测试与 OpenSpec diff；Critical 必修，Warning 记录处置。OpenCode/Claude wrapper 未返回有效报告，按降级规则完成本地逐项审查；0 Critical / 0 Warning，详见 task `review.md`。
+- [x] 3.2 合并后核对 `origin/main`（merge SHA `1b9be46de3db3da51d9fa07b5112408cc2ce404f`），归档 OpenSpec 与 CCG task，并运行 `scripts/openspec-sync-check.js`。
