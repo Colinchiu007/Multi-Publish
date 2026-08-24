@@ -18,7 +18,7 @@ class FieldRetryState {
     return this._map[name] < this._retryCount;
   }
 
-  isDone(name) { return (this._map[name] || this._retryCount) >= this._retryCount; }
+  isDone(name) { return !(name in this._map) || this._map[name] >= this._retryCount; }
 
   get unfinishedFields() {
     const t = this;

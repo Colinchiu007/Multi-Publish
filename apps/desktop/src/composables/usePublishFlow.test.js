@@ -75,6 +75,7 @@ vi.mock('element-plus', function () {
 })
 
 import { reactive, ref } from 'vue'
+import i18n from '@/i18n'
 import { usePublishFlow } from '../composables/usePublishFlow'
 
 describe('usePublishFlow — composable setup', () => {
@@ -85,6 +86,7 @@ describe('usePublishFlow — composable setup', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    i18n.global.locale.value = 'zh'
     article = reactive({ title: '', content: '', author: '', cover_url: '', video_path: '', publishTime: '' })
     selectedPlatforms = { value: ['wechat_mp'] }
     selectedAccounts = { value: { wechat_mp: 'acc1' } }
@@ -140,7 +142,16 @@ describe('usePublishFlow — composable setup', () => {
   it('handlePublish 缺标题时警告', async () => {
     const r = createFlow()
     await r.handlePublish()
-    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入文章标题')
+    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入标题')
+  })
+
+  it('标题提示跟随当前界面语言', async () => {
+    i18n.global.locale.value = 'en'
+    const r = createFlow()
+
+    await r.handlePublish()
+
+    expect(mockElMessage.warning).toHaveBeenCalledWith('Enter a title')
   })
 
   it('handlePublish 缺正文时警告', async () => {
@@ -439,7 +450,7 @@ describe('usePublishFlow — composable setup', () => {
     expect(r.result.value.message).toContain('1 个定时任务回滚失败')
 
     mockSchedulerCancel.mockResolvedValueOnce({ code: 0, data: true })
-    await expect(r.cancelPublish()).resolves.toEqual({ success: true, cancelled: 1 })
+    await expect(r.cancelPublish()).resolves.toEqual({ success: true, cancelled: 1, pending: 0 })
   })
 
   it('自动回滚 Promise 被拒绝时保留任务 ID 供用户再次取消', async () => {
@@ -509,14 +520,14 @@ describe('usePublishFlow — composable setup', () => {
   it('没有活动任务时取消返回稳定结果且不调用 IPC', async () => {
     const r = createFlow()
 
-    await expect(r.cancelPublish()).resolves.toEqual({ success: false, cancelled: 0 })
+    await expect(r.cancelPublish()).resolves.toEqual({ success: false, cancelled: 0, pending: 0 })
 
     expect(mockElMessage.info).toHaveBeenCalledWith('当前没有可取消的任务')
     expect(mockCancelTask).not.toHaveBeenCalled()
     expect(mockSchedulerCancel).not.toHaveBeenCalled()
   })
 
-  it('取消任务只统计业务成功结果并清空活动 ID', async () => {
+  it('取消部分业务失败时保留失败任务 ID', async () => {
     mockPublishBatch.mockResolvedValueOnce({ code: 0, data: { taskIds: ['t1', 't2'] }, message: 'ok' })
     mockCancelTask
       .mockResolvedValueOnce({ code: 0, data: true })
@@ -526,12 +537,45 @@ describe('usePublishFlow — composable setup', () => {
     article.content = 'Content'
     await r.handlePublish()
 
-    await expect(r.cancelPublish()).resolves.toEqual({ success: true, cancelled: 1 })
+    await expect(r.cancelPublish()).resolves.toEqual({ success: false, cancelled: 1, pending: 1 })
 
     expect(mockCancelTask).toHaveBeenCalledTimes(2)
-    expect(r.activeTaskIds.value).toEqual([])
+    expect(r.activeTaskIds.value).toEqual(['t2'])
     expect(r.activeScheduleIds.value).toEqual([])
-    expect(r.result.value).toEqual({ success: false, cancelled: 1, message: '任务已取消' })
+    expect(r.result.value).toEqual({ success: false, cancelled: 1, message: '已取消 1 个任务，1 个取消失败' })
+  })
+
+  it('取消请求被拒绝时保留任务 ID 且返回稳定结果', async () => {
+    mockPublishBatch.mockResolvedValueOnce({ code: 0, data: { taskIds: ['t1'] }, message: 'ok' })
+    mockCancelTask.mockRejectedValueOnce(new Error('取消服务不可用'))
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+    await r.handlePublish()
+
+    await expect(r.cancelPublish()).resolves.toEqual({ success: false, cancelled: 0, pending: 1 })
+
+    expect(r.activeTaskIds.value).toEqual(['t1'])
+    expect(r.result.value).toEqual({ success: false, cancelled: 0, message: '任务取消失败' })
+    expect(r.progress.value.at(-1).text).toBe('任务取消失败；仍可重试')
+    expect(r.progress.value.at(-1).type).toBe('danger')
+  })
+
+  it('取消部分成功时保留失败任务 ID', async () => {
+    mockPublishBatch.mockResolvedValueOnce({ code: 0, data: { taskIds: ['t1', 't2'] }, message: 'ok' })
+    mockCancelTask
+      .mockResolvedValueOnce({ code: 0, data: true })
+      .mockRejectedValueOnce(new Error('取消服务不可用'))
+    const r = createFlow()
+    article.title = 'Test'
+    article.content = 'Content'
+    await r.handlePublish()
+
+    await expect(r.cancelPublish()).resolves.toEqual({ success: false, cancelled: 1, pending: 1 })
+
+    expect(r.activeTaskIds.value).toEqual(['t2'])
+    expect(r.result.value).toEqual({ success: false, cancelled: 1, message: '已取消 1 个任务，1 个取消失败' })
+    expect(r.progress.value.at(-1).text).toBe('已取消 1 个任务，1 个取消失败；仍可重试')
   })
 
   it('没有失败结果或最近发布成功时不执行重试', async () => {
@@ -639,7 +683,7 @@ describe('usePublishFlow — composable setup', () => {
 
     await r.handlePublish()
 
-    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入文章标题')
+    expect(mockElMessage.warning).toHaveBeenCalledWith('请输入标题')
     expect(mockSensitiveCheck).not.toHaveBeenCalled()
     expect(mockOfflineStatus).not.toHaveBeenCalled()
     expect(mockPublishBatch).not.toHaveBeenCalled()

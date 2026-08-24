@@ -36,7 +36,7 @@ async updateOrchestrationStatus() {
 
 - 新增用户可见文案一律写入 `apps/desktop/src/locales/zh.js` 与 `en.js` **成对**（CI Gate 7 拦截）；渲染端（.vue script/template）禁止新增中文字符串字面量（CJK 基线扫描按 `file:line` 匹配，新增行会触发误报 → 用 `node .github/scripts/check-locale-sync.js --cjk --update-baseline` 权威重排，但必须先确认「无真新增」）。
 - 产品名词翻译集中维护于 `01-docs/i18n-glossary.md`，新增术语先登记再使用。
-- **带参文案不得写成含 `{name}` 的普通字符串**：`i18n/index.js` 的 `toMessageFunctions` 会把静态字符串包成 `() => source`，`{name}` 不会在运行时插值，会原样显示成字面量。带参文案必须直接写 `(ctx) => ... + ctx.named('name') + ...`（zh/en 两侧一致），并加一条“标题/文本不含 `{name}` 字面量”的渲染断言。
+- **带参文案必须写成 Message Function，不能写成含 `{name}` 的普通字符串**：`i18n/index.js` 的 `toMessageFunctions` 会把静态字符串包成 `() => source`，以避免 Electron CSP 所禁止的运行时消息编译；因此 `'失败：{message}'` 不会插值、会原样显示。使用 `(ctx) => '失败：' + ctx.named('message')`（zh/en 两侧一致），并至少覆盖一条非默认语言与“标题/文本不含 `{name}` 字面量”的渲染断言。
 
 ## 5. 结果页层级错误隔离（2026-08-15，s2v-result-success-error-boundary）
 

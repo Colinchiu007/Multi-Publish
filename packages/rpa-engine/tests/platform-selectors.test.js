@@ -87,11 +87,20 @@ describe('PLATFORM_PUBLISH_SELECTORS', () => {
     )
   }
 
-  test.each(EXPECTED)(
+  test.each(EXPECTED.filter(platform => platform !== 'baijiahao'))(
     '%s 有标题或正文输入字段', (platform) => {
       expect(hasTitleOrContent(platform)).toBe(true)
     }
   )
+
+  test('baijiahao 视频发布选择器组合完整', () => {
+    const sel = PLATFORM_PUBLISH_SELECTORS.baijiahao
+    for (const field of ['write_btn', 'file_input', 'editor', 'desc_textarea', 'cover_input', 'cover_trigger', 'publish_btn']) {
+      expect(Array.isArray(sel[field])).toBe(true)
+      expect(sel[field].length).toBeGreaterThan(0)
+    }
+    expect(sel.tag_input).toEqual([])
+  })
 
   // —— publish_btn ——
   test.each(EXPECTED)(

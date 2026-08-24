@@ -34,6 +34,7 @@ const { withSenderCheck } = require('../ipc-handlers/helpers')
 const QR_SCAN_INTERVAL_MS = 2000
 // eslint-disable-next-line no-unused-vars
 const QR_REFRESH_INTERVAL_MS = 30000  // 微信码 30s 过期刷新
+const LOGIN_VIEW_TOP = 76 // TabBar(36px) + NavBar(40px)
 
 class QrCodeLogin {
   constructor (options = {}) {
@@ -48,6 +49,10 @@ class QrCodeLogin {
     this._lastQrHash = null
     this._activeSession = null
     this._sessionSequence = 0
+    /** @type {((info: { platform: string, accountId: string, url: string }) => void) | null} */
+    this.onOpened = null
+    /** @type {(() => void) | null} */
+    this.onClosed = null
   }
 
   setMainWindow (win) {
@@ -56,6 +61,24 @@ class QrCodeLogin {
 
   setAccountManager (accountManager) {
     this.accountManager = accountManager
+  }
+
+  /** 虚拟登录标签切换回来时显示扫码视图。 */
+  show () {
+    if (this._activeSession?.view) this._activeSession.view.setVisible(true)
+  }
+
+  /** 切换到其他标签时隐藏扫码视图，保持扫码会话继续运行。 */
+  hide () {
+    if (this._activeSession?.view) this._activeSession.view.setVisible(false)
+  }
+
+  _fireOpened (info) {
+    if (typeof this.onOpened === 'function') this.onOpened(info)
+  }
+
+  _fireClosed () {
+    if (typeof this.onClosed === 'function') this.onClosed()
   }
 
   /**
@@ -105,6 +128,7 @@ class QrCodeLogin {
         scanTimer: null,
         loginTimeout: null,
         extractTimer: null,
+        prepareTimer: null,
         lastQrHash: null,
       }
       this._activeSession = loginSession
@@ -130,12 +154,13 @@ class QrCodeLogin {
       loginSession.view = view
       this.currentView = view
 
-      // 定位到窗口中央
+      // 以完整虚拟登录标签呈现，避免覆盖已打开的创作者中心标签。
       this._positionView(loginSession)
 
       // 添加到主窗口
       this.mainWindow.contentView.addChildView(view)
-      view.setVisible(true)
+      this._fireOpened({ platform, accountId, url: loginUrl })
+      if (this._isSessionActive(loginSession)) view.setVisible(true)
 
       // 导航到登录页
       // R49 修复：loadURL 返回 Promise，必须 .catch()
@@ -147,6 +172,9 @@ class QrCodeLogin {
         // 初始重定向链结束，此后导航才可能是用户登录成功的信号
         loginSession.initialRedirectPhase = false
         log.info('QrCodeLogin', `Page loaded for ${platform}, starting QR detection`)
+        // 快手 passport 默认可能落在密码登录或已失效二维码页；先把页面切到
+        // 可扫码状态，再由轮询负责捕获新的二维码图像。
+        this._startQrPagePreparation(loginSession)
         this._startQrDetection(loginSession)
       })
 
@@ -158,8 +186,9 @@ class QrCodeLogin {
 
       // 监听同页面内导航
       view.webContents.on('did-navigate-in-page', (event, url) => {
-        // SPA 应用不触发 did-navigate，这里只做 URL 变化记录
+        // SPA 应用通常只触发页内导航；仍需经过同一可信域名/路径校验。
         log.debug('QrCodeLogin', `In-page nav: ${url}`)
+        if (!loginSession.initialRedirectPhase) this._checkLoginCompleted(url, loginSession)
       })
 
       // 超时
@@ -182,17 +211,18 @@ class QrCodeLogin {
   }
 
   /**
-   * 定位 View 到窗口中央
+   * 定位 View 到 TabBar + NavBar 下方的完整标签区域。
    */
   _positionView (loginSession = this._activeSession) {
     const view = loginSession?.view
     if (!view || !this.mainWindow) return
     const bounds = this.mainWindow.getBounds()
-    const viewWidth = Math.min(420, bounds.width - 40)
-    const viewHeight = Math.min(560, bounds.height - 100)
-    const x = Math.max(0, Math.floor((bounds.width - viewWidth) / 2))
-    const y = 56 + Math.max(0, Math.floor((bounds.height - 56 - viewHeight) / 2))
-    view.setBounds({ x, y, width: viewWidth, height: viewHeight })
+    view.setBounds({
+      x: 0,
+      y: LOGIN_VIEW_TOP,
+      width: Math.max(0, bounds.width),
+      height: Math.max(0, bounds.height - LOGIN_VIEW_TOP),
+    })
   }
 
   /**
@@ -217,6 +247,76 @@ class QrCodeLogin {
     }
   }
 
+  _startQrPagePreparation (loginSession = this._activeSession) {
+    if (!this._isSessionActive(loginSession)) return
+    this._stopQrPagePreparation(loginSession)
+    const deadline = Date.now() + 10000
+    const attempt = async () => {
+      if (!this._isSessionActive(loginSession)) return
+      try {
+        const result = await this._prepareQrPage(loginSession)
+        if (result?.hasQr || Date.now() >= deadline) {
+          this._stopQrPagePreparation(loginSession)
+          return
+        }
+      } catch (error) {
+        if (this._isSessionActive(loginSession)) {
+          log.debug('QrCodeLogin', 'QR page preparation skipped: ' + error.message)
+        }
+        if (Date.now() >= deadline) {
+          this._stopQrPagePreparation(loginSession)
+          return
+        }
+      }
+      if (!this._isSessionActive(loginSession)) return
+      loginSession.prepareTimer = setTimeout(attempt, 500)
+      if (loginSession.prepareTimer.unref) loginSession.prepareTimer.unref()
+    }
+    attempt()
+  }
+
+  _stopQrPagePreparation (loginSession = this._activeSession) {
+    if (loginSession?.prepareTimer) {
+      clearTimeout(loginSession.prepareTimer)
+      loginSession.prepareTimer = null
+    }
+  }
+
+  /**
+   * 将平台登录页准备为可扫码状态。只处理已知的快手 passport DOM，
+   * 不依赖易变的打包 class 名称，也不向页面注入凭证或业务数据。
+   */
+  async _prepareQrPage (loginSession = this._activeSession) {
+    const view = loginSession?.view
+    if (loginSession?.platform !== 'kuaishou' || !view || view.webContents.isDestroyed()) return null
+
+    return view.webContents.executeJavaScript(`
+      (function() {
+        const bodyText = document.body?.innerText || '';
+        const expired = /二维码已失效|点击刷新/.test(bodyText);
+        const refresh = document.querySelector(
+          '.qrcode-status-timeout, [class*="qrcode-status"], [data-testid*="qrcode-refresh" i]'
+        );
+        if (expired && refresh && typeof refresh.click === 'function') {
+          refresh.click();
+          return { action: 'refresh', hasQr: false };
+        }
+
+        const qr = document.querySelector(
+          'img[alt*="qrcode" i], img[class*="qrcode" i], img[data-testid*="qrcode" i], img[id*="qrcode" i]'
+        );
+        if (!qr) {
+          const switcher = document.querySelector('.platform-switch, [data-testid="platform-switch"]');
+          if (switcher && typeof switcher.click === 'function') {
+            switcher.click();
+            return { action: 'switch', hasQr: false };
+          }
+        }
+        return { action: 'ready', hasQr: Boolean(qr) };
+      })()
+    `)
+  }
+
   /**
    * 通过 executeJavaScript 检测页面中的二维码
    */
@@ -227,7 +327,19 @@ class QrCodeLogin {
     try {
       const result = await view.webContents.executeJavaScript(`
         (function() {
-          // 策略1: 找包含 QR/qrcode/scan 关键字的 <img>
+          // 策略1: 优先使用平台提供的稳定二维码语义属性。
+          let semanticImgs = document.querySelectorAll(
+            'img[alt*="qrcode" i], img[class*="qrcode" i], img[data-testid*="qrcode" i], img[id*="qrcode" i], img[aria-label*="qr" i]'
+          );
+          for (let i = 0; i < semanticImgs.length; i++) {
+            let width = semanticImgs[i].naturalWidth || semanticImgs[i].width || 0;
+            let height = semanticImgs[i].naturalHeight || semanticImgs[i].height || 0;
+            if (width > 80 && height > 80 && semanticImgs[i].src) {
+              return { type: 'img', src: semanticImgs[i].src, width, height };
+            }
+          }
+
+          // 策略2: 找包含 QR/qrcode/scan 关键字的 <img> URL
           let imgs = document.querySelectorAll('img');
           for (let i = 0; i < imgs.length; i++) {
             let src = (imgs[i].src || '').toLowerCase();
@@ -244,7 +356,7 @@ class QrCodeLogin {
             }
           }
 
-          // 策略2: 找页面中最大的 <img>（登录页通常中间的二维码最大）
+          // 策略3: 找页面中最大的 <img>（登录页通常中间的二维码最大）
           let largest = null;
           let maxArea = 0;
           for (let i = 0; i < imgs.length; i++) {
@@ -257,7 +369,7 @@ class QrCodeLogin {
             }
           }
 
-          // 策略3: 找 canvas 元素（有些平台通过 canvas 绘制二维码）
+          // 策略4: 找 canvas 元素（有些平台通过 canvas 绘制二维码）
           let canvases = document.querySelectorAll('canvas');
           for (let i = 0; i < canvases.length; i++) {
             if (canvases[i].width > 80 && canvases[i].height > 80) {
@@ -458,6 +570,7 @@ class QrCodeLogin {
     const wasActive = this._activeSession === loginSession
     loginSession.cancelled = true
     this._stopQrDetection(loginSession)
+    this._stopQrPagePreparation(loginSession)
     if (loginSession.loginTimeout) {
       clearTimeout(loginSession.loginTimeout)
       loginSession.loginTimeout = null
@@ -494,6 +607,7 @@ class QrCodeLogin {
       this._loginTimeout = null
       this._extractTimer = null
       this._lastQrHash = null
+      this._fireClosed()
     }
 
     if (notifyRenderer && wasActive && this.mainWindow && !this.mainWindow.isDestroyed()) {

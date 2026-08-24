@@ -8,6 +8,8 @@
  *
  * 依赖：log / PlatformConfig / getConfigPath / platformSelectors
  *       ProgressThrottle / FieldRetryState
+log.info('RpaView', 'DIAG[module] rpa-engine path: ' + require.resolve('@multi-publish/rpa-engine'))
+log.info('RpaView', 'DIAG[module] kuaishou keys: ' + (platformSelectors.PLATFORM_PUBLISH_SELECTORS && platformSelectors.PLATFORM_PUBLISH_SELECTORS.kuaishou ? Object.keys(platformSelectors.PLATFORM_PUBLISH_SELECTORS.kuaishou).join('|') : 'MISSING'))
  *
  * 模块级变量：
  *   - _platformConfigInstance：PlatformConfig 单例（_getPlatformConfig 使用）
@@ -23,6 +25,153 @@ const { FieldRetryState } = require('./rpa-field-retry')
 
 let _platformConfigInstance
 const PLATFORM_SUCCESS_PATTERNS = {}
+
+const PUBLISH_ID_KEYS = /(?:post|article|media|content|clue|work|video|photo|material|resource|publish)[_-]?id$/i
+const PUBLISH_ID_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/
+const PUBLISH_ID_NAV_WORDS = new Set(['article', 'articles', 'content', 'manage', 'video', 'edit', 'publish', 'list', 'lists', 'page', 'media', 'photo', 'clue', 'builder', 'pcui', 'status', 'create', 'upload', 'works', 'work', 'new', 'draft', 'detail', 'index', 'home'])
+const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou'])
+const SENSITIVE_URL_QUERY_KEY = /(?:token|auth|cookie|session|signature|sign|credential|secret|ticket|code|sid)/i
+
+function normalizePublishId (value) {
+  if (value === null || value === undefined) return null
+  const id = String(value).trim()
+  if (!id || id.length > 160 || id.toLowerCase().startsWith('task_') || /^(?:true|false|null|undefined)$/i.test(id) || PUBLISH_ID_NAV_WORDS.has(id.toLowerCase()) || !PUBLISH_ID_VALUE.test(id)) return null
+  return id
+}
+
+function collectPublishIds (value, key, ids) {
+  if (value === null || value === undefined) return
+  if (Array.isArray(value)) {
+    value.forEach(item => collectPublishIds(item, key, ids))
+    return
+  }
+  if (typeof value !== 'object') {
+    if (PUBLISH_ID_KEYS.test(String(key || ''))) {
+      const id = normalizePublishId(value)
+      if (id) ids.push(id)
+    }
+    return
+  }
+  Object.entries(value).forEach(([childKey, childValue]) => collectPublishIds(childValue, childKey, ids))
+}
+
+function extractPublishIdFromUrl (url) {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    const params = [...parsed.searchParams.entries()]
+    for (const [key, value] of params) {
+      if (PUBLISH_ID_KEYS.test(key)) {
+        const id = normalizePublishId(value)
+        if (id) return id
+      }
+    }
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      if (!/(?:post|article|media|content|clue|work)/i.test(parts[index])) continue
+      const id = normalizePublishId(parts[index + 1])
+      if (id) return id
+    }
+  } catch (_) { /* 页面 URL 可能暂时不是绝对 URL */ }
+  return null
+}
+
+function extractPublishIdsFromResponseBody (body) {
+  const ids = []
+  try {
+    collectPublishIds(JSON.parse(String(body || '')), '', ids)
+  } catch (_) {
+    const matches = String(body || '').match(/(?:post|article|media|content|clue|work|video|photo|material|resource|publish)[_-]?(?:id)?["'=:\s]+([A-Za-z0-9][A-Za-z0-9._:-]{3,})/ig) || []
+    matches.forEach(match => {
+      const value = match.split(/["'=:\s]+/).pop()
+      const id = normalizePublishId(value)
+      if (id) ids.push(id)
+    })
+  }
+  return [...new Set(ids)]
+}
+
+function extractPublishIdFromEvidence (evidence = []) {
+  const ids = []
+  ;(Array.isArray(evidence) ? evidence : []).forEach(item => {
+    if (!item || typeof item !== 'object') return
+    ;(Array.isArray(item.publishIds) ? item.publishIds : []).forEach(value => {
+      const id = normalizePublishId(value)
+      if (id) ids.push(id)
+    })
+  })
+  return [...new Set(ids)][0] || null
+}
+
+function sanitizeDiagnosticEndpoint (url) {
+  try {
+    const parsed = new URL(String(url || ''))
+    return parsed.origin + parsed.pathname
+  } catch (_) {
+    return ''
+  }
+}
+
+function sanitizePublishResultUrl (url) {
+  try {
+    const parsed = new URL(String(url || ''))
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (SENSITIVE_URL_QUERY_KEY.test(key)) parsed.searchParams.delete(key)
+    }
+    parsed.hash = ''
+    return parsed.toString()
+  } catch (_) {
+    return ''
+  }
+}
+
+function summarizePublishDiagnostics (records, artifact) {
+  const source = Array.isArray(records) ? records : []
+  const responses = source.slice(-20).map(record => ({
+    endpoint: sanitizeDiagnosticEndpoint(record?.endpoint || record?.url),
+    status: Number.isFinite(Number(record?.status)) ? Number(record.status) : 0,
+    mimeType: String(record?.mimeType || '').split(';')[0].slice(0, 160),
+  }))
+  return {
+    responseCount: source.length,
+    responses,
+    artifactFound: Boolean(artifact && normalizePublishId(artifact.postId)),
+  }
+}
+
+function parsePublishResponseEvidence (body, response) {
+  const status = Number(response?.status)
+  if (!Number.isFinite(status) || status < 200 || status >= 300) return null
+  if (!/(?:publish|submit|create|commit|release)/i.test(String(response?.endpoint || ''))) return null
+  const publishIds = extractPublishIdsFromResponseBody(body)
+  return publishIds.length > 0 ? { publishIds } : null
+}
+
+function parseKuaishouArtifactEvidence (body, response) {
+  const status = Number(response?.status)
+  if (!Number.isFinite(status) || status < 200 || status >= 300) return null
+  if (!String(response?.endpoint || '').includes('/rest/cp/works/v2/video/pc/photo/list')) return null
+  try {
+    const json = JSON.parse(String(body || ''))
+    const rows = json && json.data && Array.isArray(json.data.list) ? json.data.list : []
+    const kuaishouArtifacts = rows.map(item => {
+      const postId = normalizePublishId(item && (item.workId || item.photoId || item.id))
+      if (!postId) return null
+      const title = String(item.title || item.caption || '').replace(/#g/g, '').replace(/ g/g, '').trim().slice(0, 512)
+      const rawTime = item.publishTime || item.uploadTime || 0
+      const seconds = Number(String(rawTime).substring(0, 10))
+      return {
+        postId,
+        title,
+        publishedAt: Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0,
+        url: 'https://m.gifshow.com/fw/photo/' + postId,
+      }
+    }).filter(Boolean).slice(0, 50)
+    return kuaishouArtifacts.length > 0 ? { kuaishouArtifacts } : null
+  } catch (_) {
+    return null
+  }
+}
 
 const platformsMixin = {
   // ========== P2-B: Config loading ==========
@@ -59,6 +208,7 @@ const platformsMixin = {
   async _publish_generic(win, article, platform, publishConfig) {
     const config = publishConfig || this._getPlatformConfig(platform)
     const sel = config.selectors
+    log.info('RpaView', '[' + platform + '] publish config=' + (publishConfig ? 'provided' : 'default') + '; selectorCount=' + Object.keys(sel || {}).length + '; publishButtons=' + (sel?.publish_btn?.length || 0) + '; titleInputs=' + (sel?.title_input?.length || 0) + '; fileInputs=' + (sel?.file_input?.length || 0) + '; hasCoverInput=' + Boolean(sel?.cover_input) + '; hasTitle=' + Boolean(article?.title) + '; hasVideo=' + Boolean(article?.video_path) + '; hasCover=' + Boolean(article?.cover_path))
     const throttle = new ProgressThrottle(5000, 10)
     const retry = new FieldRetryState(3)
 
@@ -70,10 +220,23 @@ const platformsMixin = {
     const curUrl = win.webContents.getURL()
     if (curUrl.includes('login')||curUrl.includes('passport')||curUrl.includes('signin'))
       return { success: false, error: platform+' not logged in', platform: platform }
+    // SPA 鐧诲綍鎬?DOM 鎺㈡祴锛歎RL 鏈烦杞絾椤甸潰宸叉槸鐧诲綍寮曞锛堝揩鎵嬬瓑 SPA 鏈櫥褰曚笉鏀瑰彉 URL锛?
+    const loginProbe = await win.webContents.executeJavaScript(`(function(){
+      var t = (document.body && document.body.innerText) || '';
+      return {
+                hasLoginPrompt: /立即登录|扫码登录|登录后|请登录/.test(t.slice(0, 4000)),
+        hasForm: !!document.querySelector('input[type="file"], textarea, [contenteditable="true"]')
+      };
+    })()`).catch(function () { return { hasLoginPrompt: false, hasForm: true } })
+    if (loginProbe && loginProbe.hasLoginPrompt && !loginProbe.hasForm) {
+      log.warn('RpaView', '['+platform+'] SPA login page detected, fail fast')
+      return { success: false, error: platform+' not logged in', platform: platform }
+    }
 
     if (config.preFill) await this._execHook(win, config.preFill, config.hookContext)
 
     // title
+    log.info('RpaView', '[' + platform + '] title input hasTitle=' + Boolean(article.title) + ' titleType=' + typeof article.title + ' selectorCount=' + (sel.title_input ? sel.title_input.length : 0))
     if (article.title && sel.title_input && sel.title_input.length > 0) {
       retry.addField('title')
       while (!retry.isDone('title')) {
@@ -81,6 +244,8 @@ const platformsMixin = {
           this._emitProgress(platform, 'filling title...', 20)
           if (await this._waitForElement(win, sel.title_input[0], 10000)) {
             await this._fillInput(win, sel.title_input[0], article.title); retry.markDone('title')
+          } else {
+            if (!retry.retry('title')) break; await this._sleep(1000)
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] title: '+e.message)
@@ -98,6 +263,8 @@ const platformsMixin = {
           this._emitProgress(platform, 'filling content...', 35)
           if (await this._waitForElement(win, cs[0], 10000)) {
             await this._fillInput(win, cs[0], article.content); retry.markDone('content')
+          } else {
+            if (!retry.retry('content')) break; await this._sleep(1000)
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] content: '+e.message)
@@ -107,6 +274,7 @@ const platformsMixin = {
     }
 
     // file upload
+    log.info('RpaView', '[' + platform + '] file input hasVideo=' + Boolean(article.video_path) + ' selectorCount=' + (sel.file_input ? sel.file_input.length : 0))
     if (article.video_path && sel.file_input && sel.file_input.length > 0) {
       retry.addField('file_upload')
       while (!retry.isDone('file_upload')) {
@@ -117,6 +285,8 @@ const platformsMixin = {
             const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
             if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
             retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 60)
+          } else {
+            if (!retry.retry('file_upload')) break; await this._sleep(2000)
           }
         } catch(e) {
           log.warn('RpaView', '['+platform+'] upload: '+e.message)
@@ -127,7 +297,29 @@ const platformsMixin = {
 
     // cover
     if (article.cover_path && sel.cover_input) {
-      try { this._emitProgress(platform,'uploading cover...',65); await this._setFileInput(win,article.cover_path); await this._sleep(2000) } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message) }
+      try {
+        this._emitProgress(platform,'uploading cover...',65)
+        const coverSel = 'input[type="file"][accept*="image"], input[type="file"][accept*="jpg"], input[type="file"][accept*="jpeg"], input[type="file"][accept*="png"]'
+        // 先点击封面上传触发器（打开上传面板），再设置文件；trigger 不存在时直接设置
+        if (sel.cover_trigger && sel.cover_trigger.length > 0) {
+          try {
+            if (await this._waitForElement(win, sel.cover_trigger[0], 5000)) {
+              await this._click(win, sel.cover_trigger[0])
+              await this._sleep(1800)
+            }
+          } catch (e) { log.warn('RpaView','['+platform+'] cover trigger: '+e.message) }
+        }
+        // The V2 page keeps a hidden cover input in the DOM after the panel
+        // closes; prefer the configured selector, then fall back to the
+        // platform selector without requiring the trigger to succeed.
+        try {
+          await this._setFileInput(win, article.cover_path, coverSel)
+        } catch (coverError) {
+          if (platform !== 'baijiahao' || !sel.cover_input || sel.cover_input.length === 0) throw coverError
+          await this._setFileInput(win, article.cover_path, sel.cover_input[0])
+        }
+        await this._sleep(2000)
+      } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message) }
     }
 
     // tags
@@ -145,21 +337,39 @@ const platformsMixin = {
 
     if (config.prePublishHook) await this._execHook(win, config.prePublishHook, config.hookContext)
 
+    // 平台专用发布前准备（百家号：关闭引导弹窗 + 选择创作声明）
+    if (platform === 'baijiahao') {
+      try { await this._prepBaijiahao(win) } catch (e) { log.warn('RpaView', 'baijiahao prep: ' + e.message) }
+    }
+
     // publish button
+    log.info('RpaView', '['+platform+'] DIAG[publish2] pubBtn=' + (sel.publish_btn ? sel.publish_btn.length : 'NONE') + ' cfgHasApi=' + (config.has_api) + ' prePublishHook=' + String(config.prePublishHook||''))
     if (sel.publish_btn && sel.publish_btn.length>0) {
       retry.addField('publish')
       while (!retry.isDone('publish')) {
+        let networkCapture = null
         try {
           this._emitProgress(platform,'publishing...',85)
           const rp = (config.has_api && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
           if (!(await this._waitForElement(win,sel.publish_btn[0],10000))) throw new Error('publish btn not found')
+          networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           await this._click(win,sel.publish_btn[0])
           if (article.draft && sel.draft_btn) await this._click(win,sel.draft_btn)
           retry.markDone('publish')
           if (throttle.shouldReport(95)) this._emitProgress(platform,'verifying...',95)
-          return await this._verifyPublishSuccess(win,platform,config,rp)
+          const publishContext = { title: article.title, publishedAt: Date.now() }
+          const verificationCapture = networkCapture
+          networkCapture = null
+          return await this._verifyPublishSuccess(win,platform,config,rp,verificationCapture,publishContext)
         } catch(e) {
+          if (networkCapture) {
+            try { await networkCapture.stop() } catch (_) { /* 发布失败时不得遗留 debugger listener */ }
+          }
           log.warn('RpaView','['+platform+'] publish btn: '+e.message)
+          try {
+            const visibleActionCount = await win.webContents.executeJavaScript('(function(){var count=0;var all=document.querySelectorAll("button,a,[role=button],span");for(var i=0;i<all.length;i++){if(all[i].offsetParent)count++}return count})()')
+            log.info('RpaView', '[' + platform + '] publish click failure visibleActionCount=' + Number(visibleActionCount || 0))
+          } catch (_) { /* ignore */ }
           if (!retry.retry('publish')) return {success:false,error:e.message,platform:platform}
           await this._sleep(1500)
         }
@@ -168,13 +378,177 @@ const platformsMixin = {
     return {success:false,error:platform+' no publish_btn selector',platform:platform}
   },
 
+  // ========== 平台专用：百家号发布前准备（创作声明等） ==========
+  async _prepBaijiahao(win) {
+    this._emitProgress('baijiahao', 'preparing declaration...', 82)
+    // 关闭"视频新增一键填写功能"引导弹窗
+    try {
+      await win.webContents.executeJavaScript('(function(){var b=[...document.querySelectorAll("button,a,span,div")].filter(function(e){return (e.innerText||"").trim()==="我知道了"&&e.children.length===0});if(b.length){b[0].click();return true}return false})()')
+    } catch (e) { /* ignore */ }
+    await this._sleep(1200)
+    // 选择创作声明：点击输入框 → 弹窗选"无需声明" → 确定
+    const opened = await win.webContents.executeJavaScript('(function(){var el=[...document.querySelectorAll("input")].find(function(i){return i.placeholder.indexOf("创作声明")!==-1});if(!el)return "NO_INPUT";if(el.value)return "ALREADY";el.click();el.focus();return "OPENED"})()')
+    if (opened === 'OPENED') {
+      await this._sleep(2500)
+      await win.webContents.executeJavaScript('(function(){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div")].filter(function(e){return (e.innerText||"").trim()==="无需声明"});if(cands.length){cands[0].click();return true}return false})()')
+      await this._sleep(1200)
+      await win.webContents.executeJavaScript('(function(){var btns=[...document.querySelectorAll(".cheetah-modal-footer button,.cheetah-modal-footer span")].filter(function(e){return (e.innerText||"").trim()==="确定"});if(btns.length){var b=btns[0];if(b.tagName==="BUTTON")b.click();else b.parentElement.click();return true}return false})()')
+      await this._sleep(1500)
+    }
+    return true
+  },
+
+  async _queryBaijiahaoArtifact(win, context, maxAttempts = 3) {
+    const title = String(context.title || '').trim()
+    const startedAt = Number(context.publishedAt || Date.now())
+    if (!title) return null
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        const js = '(async function(){' +
+          'var title = ' + JSON.stringify(title) + ';' +
+          'var startedAt = ' + JSON.stringify(startedAt) + ';' +
+          'var endpoint = "https://baijiahao.baidu.com/pcui/article/lists";' +
+          'for (var page = 0; page < 3; page++) {' +
+            'var params = new URLSearchParams({currentPage:String(page+1),pageSize:"10",type:"video",collection:"publish",search:"",dynamic:"1"});' +
+            'var resp = await fetch(endpoint + "?" + params.toString(), {credentials:"include",headers:{Accept:"application/json, text/plain, */*","X-Requested-With":"XMLHttpRequest"}});' +
+            'if (!resp.ok) continue;' +
+            'var json = await resp.json();' +
+            'var rows = json && json.data && Array.isArray(json.data.list) ? json.data.list : [];' +
+            'for (var i = 0; i < rows.length; i++) {' +
+              'var item = rows[i] || {};' +
+              'var id = item.article_id || item.id;' +
+              'if (!id) continue;' +
+              'var itemTitle = String(item.title || "").trim();' +
+              'var status = String(item.status || "");' +
+              'var publishAt = item.publish_at ? new Date(item.publish_at).getTime() : 0;' +
+              'var inWindow = Number.isFinite(publishAt) && publishAt > 0 && publishAt >= startedAt - 300000 && publishAt <= startedAt + 900000;' +
+              'if (status === "publish" && inWindow && itemTitle === title) {' +
+                'return {postId:String(id),url:item.share_url || "",title:itemTitle,status:status};' +
+              '}' +
+            '}' +
+          '}' +
+          'return null;' +
+        '})()'
+        const found = await win.webContents.executeJavaScript(js)
+        const postId = normalizePublishId(found && found.postId)
+        if (postId) {
+          log.info('RpaView', '[baijiahao] artifact lookup matched id=' + postId.slice(0, 80))
+          return { ...found, postId, url: sanitizePublishResultUrl(found.url) }
+        }
+      } catch (e) {
+        log.warn('RpaView', '[baijiahao] artifact lookup attempt ' + (attempt + 1) + ': ' + e.message)
+      }
+      if (attempt + 1 < maxAttempts) await this._sleep(3000)
+    }
+    return null
+  },
+
+  _parseKuaishouArtifact(evidence, context) {
+    const title = String(context.title || '').trim()
+    const startedAt = Number(context.publishedAt || Date.now())
+    if (!title) return null
+    for (const entry of evidence || []) {
+      const artifacts = entry && Array.isArray(entry.kuaishouArtifacts) ? entry.kuaishouArtifacts : []
+      for (const item of artifacts) {
+        const postId = normalizePublishId(item && item.postId)
+        if (!postId) continue
+        const itemTitle = String(item.title || '').trim()
+        const publishedAt = Number(item.publishedAt || 0)
+        const inWindow = Number.isFinite(publishedAt) && publishedAt > 0 && publishedAt >= startedAt - 120000 && publishedAt <= startedAt + 900000
+        if (inWindow && itemTitle === title) {
+          return { postId, url: item.url || 'https://m.gifshow.com/fw/photo/' + postId, title: itemTitle }
+        }
+      }
+    }
+    return null
+  },
+
+  async _findKuaishouArtifact(win, context, maxAttempts = 2) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      let capture = null
+      try {
+        capture = await this._startPublishNetworkCapture(win, { parseResponseBody: parseKuaishouArtifactEvidence })
+        const statuses = attempt === 0 ? ['1', '2', '3'] : ['1']
+        for (const status of statuses) {
+          try {
+            await this._navigateAndWait(win, 'https://cp.kuaishou.com/article/manage/video?status=' + status, 2000)
+            await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";return /作品管理|发布作品|视频管理|内容管理/.test(t)||document.querySelectorAll("a[href*=photo],[data-photo-id],[class*=work-item],[class*=works-list]").length>0}', 15000, 500)
+          } catch (e) { log.warn('RpaView', 'kuaishou manage page: ' + e.message) }
+          await this._sleep(2500)
+          const artifact = this._parseKuaishouArtifact(capture?.evidence || [], context)
+          if (artifact) {
+            log.info('RpaView', '[kuaishou] artifact lookup matched id=' + String(artifact.postId).slice(0, 80))
+            await capture.stop()
+            capture = null
+            return artifact
+          }
+        }
+      } catch (e) {
+        log.warn('RpaView', '[kuaishou] artifact lookup attempt ' + (attempt + 1) + ': ' + e.message)
+      } finally {
+        if (capture) { try { await capture.stop() } catch (e) { /* ignore */ } }
+      }
+      if (attempt + 1 < maxAttempts) await this._sleep(3000)
+    }
+    return null
+  },
+
+  async _findPublishedArtifact(win, platform, context = {}) {
+    if (platform === 'baijiahao') return await this._queryBaijiahaoArtifact(win, context)
+    if (platform === 'kuaishou') return await this._findKuaishouArtifact(win, context)
+    return null
+  },
+
+
   // ========== Verify publish success ==========
-  async _verifyPublishSuccess(win, platform, config, responsePromise) {
+  async _verifyPublishSuccess(win, platform, config, responsePromise, networkCapture, context = {}) {
+    let captureStopped = false
+    let requests = []
+    const stopNetworkCapture = async () => {
+      if (captureStopped) return requests
+      captureStopped = true
+      if (!networkCapture || typeof networkCapture.stop !== 'function') return requests
+      try {
+        const stoppedRequests = await networkCapture.stop()
+        requests = Array.isArray(stoppedRequests) ? stoppedRequests : []
+      } catch (_) {
+        log.warn('RpaView', '[' + platform + '] publish network capture cleanup failed')
+      }
+      return requests
+    }
+    try {
+    const finish = async (result) => {
+      const stoppedRequests = await stopNetworkCapture()
+      const currentUrl = win.webContents.getURL() || ''
+      const strictPlatform = STRICT_PUBLISH_ID_PLATFORMS.has(platform)
+      const explicitId = normalizePublishId(result && result.postId)
+      const responseId = extractPublishIdFromEvidence(networkCapture?.evidence)
+      let postId = strictPlatform
+        ? responseId
+        : (explicitId || responseId || extractPublishIdFromUrl(result && result.url) || extractPublishIdFromUrl(currentUrl))
+      let artifact = null
+      if (!postId && strictPlatform) {
+        try {
+          artifact = await this._findPublishedArtifact(win, platform, context)
+          postId = normalizePublishId(artifact && artifact.postId)
+        } catch (error) {
+          log.warn('RpaView', '[' + platform + '] artifact lookup failed: ' + error.message)
+        }
+      }
+      const diagnostics = summarizePublishDiagnostics(stoppedRequests, artifact)
+      if (!postId) {
+        log.warn('RpaView', '[' + platform + '] publish signal lacked platform ID; endpoint=' + sanitizeDiagnosticEndpoint(currentUrl) + ' responses=' + stoppedRequests.length)
+        return { success: false, error: '发布结果缺少平台作品 ID', platform, url: sanitizePublishResultUrl(currentUrl), diagnostics }
+      }
+      this._emitProgress(platform, result.stage || 'published!', 100)
+      const resolvedUrl = sanitizePublishResultUrl((artifact && artifact.url) || result.url || currentUrl)
+      return { success: true, url: resolvedUrl, postId, platform, diagnostics }
+    }
     const mode = config.success_mode || 'url'
     // Mode: api — wait for matching API response
     if (mode === 'api' && responsePromise) {
       const r = await responsePromise
-      if (r) { this._emitProgress(platform,'API success',100); return { success:true, url:win.webContents.getURL()||'', platform:platform } }
+      if (r) return await finish({ stage: 'API success', url: win.webContents.getURL() || '' })
     }
     // Mode: url — wait for URL to leave publish page
     if (mode === 'url') {
@@ -182,7 +556,7 @@ const platformsMixin = {
         await this._sleep(5000)
         const url = win.webContents.getURL(), pubUrl = config.publish_url||''
         if (url && pubUrl && !url.includes(pubUrl) && !url.includes('login') && !url.includes('passport')) {
-          this._emitProgress(platform,'URL changed',100); return { success:true, url:url, platform:platform }
+          return await finish({ stage: 'URL changed', url })
         }
       } catch(e) { log.warn('RpaView','['+platform+'] URL check: '+e.message) }
     }
@@ -192,24 +566,46 @@ const platformsMixin = {
       if (sel) {
         try {
           if (await this._waitForElement(win,sel,15000)) {
-            this._emitProgress(platform,'DOM success',100); return { success:true, url:win.webContents.getURL()||'', platform:platform }
+            return await finish({ stage: 'DOM success', url: win.webContents.getURL() || '' })
           }
         } catch(e) { log.warn('RpaView','['+platform+'] DOM check: '+e.message) }
       }
     }
+    // Some creator pages submit inside an SPA and keep the editor URL. Treat
+    // success only when a real success message or success route is present;
+    // a disabled publish button alone is only an upload/loading state.
+    try {
+      const domSuccess = await this._waitForCondition(win, 'function(){' +
+        'var text=(document.body&&document.body.innerText)||"";' +
+        'var success=/(发布成功|投稿成功|发布完成|提交成功|作品已发布|已发布)/.test(text);' +
+        'var failure=/(发布失败|提交失败|上传失败|登录失效|请登录)/.test(text);' +
+        'if(failure)return false;' +
+        'return success;', 30000, 500)
+      if (domSuccess) {
+        return await finish({ stage: 'DOM success', url: win.webContents.getURL() || '' })
+      }
+    } catch (e) {
+      log.warn('RpaView', '[' + platform + '] DOM success check: ' + e.message)
+    }
     // Fallback: try all modes in order
     if (responsePromise) {
       const r = await responsePromise
-      if (r) { this._emitProgress(platform,'API success',100); return { success:true, url:win.webContents.getURL()||'', platform:platform } }
+      if (r) return await finish({ stage: 'API success', url: win.webContents.getURL() || '' })
     }
     try {
       await this._sleep(5000)
       const url2 = win.webContents.getURL(), pubUrl2 = config.publish_url||''
       if (url2 && pubUrl2 && !url2.includes(pubUrl2) && !url2.includes('login') && !url2.includes('passport')) {
-        this._emitProgress(platform,'URL fallback',100); return { success:true, url:url2, platform:platform }
+        return await finish({ stage: 'URL fallback', url: url2 })
       }
     } catch(e) { log.warn('RpaView','['+platform+'] URL fallback: '+e.message) }
-    return {success:false, error:'publish verification timeout', platform:platform }
+    const finalUrl = win.webContents.getURL() || ''
+    const stoppedRequests = await stopNetworkCapture()
+    log.warn('RpaView', '[' + platform + '] publish verification timeout endpoint=' + sanitizeDiagnosticEndpoint(finalUrl) + ' responses=' + stoppedRequests.length)
+    return { success: false, error: 'publish verification timeout', platform, url: sanitizePublishResultUrl(finalUrl), diagnostics: summarizePublishDiagnostics(stoppedRequests, null) }
+    } finally {
+      await stopNetworkCapture()
+    }
   },
 
   // ========== Platform-specific: douyin ==========

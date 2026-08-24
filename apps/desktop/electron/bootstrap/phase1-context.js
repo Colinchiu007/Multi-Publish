@@ -115,6 +115,9 @@ function extractContext(container) {
   const authViewManager = container.get('authViewManager')
   const rpaViewManager = container.get('rpaViewManager')
   const webviewManager = container.get('webviewManager')
+  if (webviewManager && typeof webviewManager.setAccountManager === 'function') {
+    webviewManager.setAccountManager(AccountManager)
+  }
   const callbackServer = container.get('callbackServer')
   const qrCodeLogin = container.get('qrCodeLogin')
   const store = container.get('store')

@@ -24,7 +24,7 @@ const PLATFORM_LOGIN_URLS = {
   douyin: 'https://creator.douyin.com/',
   xiaohongshu: 'https://creator.xiaohongshu.com/',
   tencent_video: 'https://channels.weixin.qq.com/',
-  kuaishou: 'https://cp.kuaishou.com/',
+  kuaishou: 'https://passport.kuaishou.com/pc/account/login',
   toutiao: 'https://mp.toutiao.com/',
   bilibili: 'https://passport.bilibili.com/login',
   baijiahao: 'https://baijiahao.baidu.com/',
@@ -43,7 +43,7 @@ const PLATFORM_DASHBOARD_URLS = {
   douyin: 'https://creator.douyin.com/',
   xiaohongshu: 'https://creator.xiaohongshu.com/',
   tencent_video: 'https://channels.weixin.qq.com/',
-  kuaishou: 'https://cp.kuaishou.com/',
+  kuaishou: 'https://passport.kuaishou.com/pc/account/login',
   toutiao: 'https://mp.toutiao.com/',
   bilibili: 'https://www.bilibili.com/',
   baijiahao: 'https://baijiahao.baidu.com/',
@@ -63,7 +63,7 @@ const PLATFORM_LOGIN_SUCCESS_PATTERNS = {
   douyin: ['douyin.com'],
   xiaohongshu: ['creator.xiaohongshu.com'],
   tencent_video: ['channels.weixin.qq.com'],
-  kuaishou: ['cp.kuaishou.com'],
+  kuaishou: ['cp.kuaishou.com', 'passport.kuaishou.com'],
   toutiao: ['mp.toutiao.com'],
   bilibili: ['www.bilibili.com/'],
   // 百家号登录页与创作后台同域：未登录访问 baijiahao.baidu.com/ 会 302 到
@@ -88,7 +88,7 @@ const PLATFORM_AUTH_HOSTS = {
   douyin: ['www.douyin.com', 'creator.douyin.com'],
   xiaohongshu: ['creator.xiaohongshu.com'],
   tencent_video: ['channels.weixin.qq.com'],
-  kuaishou: ['cp.kuaishou.com'],
+  kuaishou: ['cp.kuaishou.com', 'passport.kuaishou.com'],
   toutiao: ['mp.toutiao.com'],
   bilibili: ['www.bilibili.com', 'bilibili.com'],
   baijiahao: ['baijiahao.baidu.com'],
@@ -107,7 +107,7 @@ const PLATFORM_COOKIE_DOMAINS = {
   weibo: ['weibo.com', 'sina.com.cn'],
   douyin: ['douyin.com'],
   xiaohongshu: ['xiaohongshu.com'],
-  kuaishou: ['kuaishou.com'],
+  kuaishou: ['kuaishou.com', 'passport.kuaishou.com'],
   toutiao: ['toutiao.com'],
   bilibili: ['bilibili.com'],
   baijiahao: ['baijiahao.baidu.com', 'passport.baidu.com'],
@@ -195,7 +195,7 @@ const PLATFORM_LOGIN_SUCCESS_SELECTORS = {
 const { PLATFORM_NAMES, PLATFORM_ICONS } = require('./platform-display-definitions.json')
 
 // ─── 支持二维码登录的平台列表 ─────────────────
-const QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao']
+const QR_CODE_PLATFORMS = ['wechat_mp', 'tencent_video', 'zhihu', 'weibo', 'toutiao', 'kuaishou']
 
 /**
  * 获取平台显示名称
