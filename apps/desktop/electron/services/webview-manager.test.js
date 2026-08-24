@@ -366,3 +366,29 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
     expect(created.cookies.setCalls).toEqual([])
   })
 })
+
+describe('WebviewManager 浏览器标签标题隔离', () => {
+  it('不同 WebContentsView 的 page-title-updated 只更新对应 tab 并广播对应 tabId', () => {
+    const wm = new WebviewManager()
+    wm.mainWindow = createMainWindow()
+    wm._subscribers.add('test-subscriber')
+
+    const firstTabId = wm.createNewTabPage({ url: 'https://creator.douyin.com' })
+    const secondTabId = wm.createNewTabPage({ url: 'https://cp.kuaishou.com' })
+    const firstView = wm._tabViews.get(firstTabId)
+    const secondView = wm._tabViews.get(secondTabId)
+
+    firstView.webContents._handlers['page-title-updated']({}, '抖音创作者中心')
+    secondView.webContents._handlers['page-title-updated']({}, '快手创作者服务')
+
+    expect(wm._tabStates.get(firstTabId).title).toBe('抖音创作者中心')
+    expect(wm._tabStates.get(secondTabId).title).toBe('快手创作者服务')
+    const titleEvents = wm.mainWindow.webContents.send.mock.calls
+      .filter(call => call[0] === 'page-manager:tab-title-updated')
+      .map(call => call[1].data)
+    expect(titleEvents).toEqual([
+      { tabId: firstTabId, title: '抖音创作者中心' },
+      { tabId: secondTabId, title: '快手创作者服务' }
+    ])
+  })
+})
