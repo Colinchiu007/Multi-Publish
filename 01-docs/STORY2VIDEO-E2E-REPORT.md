@@ -1,4 +1,19 @@
-# Story2Video 视频创作流水线 E2E 真实测试报告（2026-08-06）
+# Story2Video 视频创作流水线 E2E 真实测试报告（2026-08-24）
+
+## PR #1143 真实媒体回归补充（2026-08-23 / 24）
+
+> 目的：验证电影工程真实入口与 Story2Video 的真实媒体产物，并确认图片轮播的 JPEG + TTS + 2x zoompan 编码不再被过短 timeout 误杀。以下是本机真实产物证据，不把它们表述为完整的新上传/下拉选择 UI 链验收。
+
+| 产物 | 路径 / 输入 | 探测结果 | 覆盖事实 |
+|------|-------------|----------|----------|
+| 最小图片轮播 | C:\tmp\s2v-real-20260823\real-minimal-no-video.mp4 | 1920×1080，3.104s，931,717 bytes | 图片轮播基础直接成片 |
+| 安全视频路径 | C:\tmp\s2v-real-20260823\real-safe-video.mp4 | 1920×1088，4.033s，1,771,825 bytes | AI 视频/混合素材路径 |
+| 固定轮播 AI 视频 | C:\tmp\s2v-real-20260823\real-carousel-fixed.mp4 | 1920×1088，4.033s，5,893,762 bytes | 固定轮播中的 AI 视频场景 |
+| 超时修复直接验证 | C:\tmp\s2v-real-20260823\real-carousel-timeout-fixed-direct.mp4 | 1920×1080，6.264s，1,516,241 bytes | 真实 JPEG + TTS、2x zoompan 的直接合成；workScale² timeout 预算生效 |
+
+- 详细直接合成报告：C:\tmp\s2v-real-20260823\real-carousel-timeout-fixed-direct-report.json。
+- 复制 Chromium profile 无法复用加密登录态属于本机环境限制，不能作为登录或克隆音色功能失败的证据。
+- 新上传样本 → 在 UI 下拉选择克隆音色 → 走完整流水线成片，仍列为待验收项，见 E2E-PENDING.md 的 C-1b。
 
 - 环境：`D:\Data\projects\Multi-Publish\_worktrees\story2video-documentary-montage`（main，merge 35cec2b 后）
 - Profile：`C:\tmp\Multi-Publish-debug-profile`（登录 a；已配置并启用：agnes/sensenova LLM、minimax-tts speech-2.8-turbo、minimax-image）

@@ -6,7 +6,7 @@
   "risk": "medium",
   "domain": "desktop-pipeline",
   "currentPhase": "completed",
-  "nextAction": "PR #1143 远端检查完成后按仓库流程合并",
+  "nextAction": "PR #1143 已合并；真实 E2E、修复与审查证据已归档",
   "createdAt": "2026-08-23T10:00:00Z",
   "branch": "codex/film-engineering-real-video-e2e",
   "evidence": {
@@ -15,7 +15,9 @@
     "aiVideoPipelineVideo": "C:/tmp/s2v-real-20260823/real-safe-video.mp4",
     "fixedCarouselEvidence": "C:/tmp/s2v-real-20260823/real-carousel-timeout-fixed-direct-report.json",
     "review": ".ccg/tasks/film-engineering-real-video-e2e/review.md",
-    "remoteStatus": "pr_open_checks_in_progress",
+    "remoteStatus": "merged",
+    "mergedAt": "2026-08-24T03:27:16Z",
+    "mergeCommit": "d82afd8b7342fdac14f11b264af0b2c7da0a5be9",
     "pullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/1143"
   }
 }
