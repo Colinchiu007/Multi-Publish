@@ -992,6 +992,8 @@ var require_access_control = __commonJS({
       // 本地媒体导入（与主进程 PUBLIC_CHANNELS 的 story2video:import-media 对齐）：
       // File 路径经 webUtils 解析后仅发送路径给主进程做受控复制，纯设备本地操作。
       "story2videoImportMedia",
+      // renderer 选择本地媒体时通过 Electron webUtils 解析绝对路径；不传文件内容。
+      "getPathForFile",
       // Story2Video 本地历史读取与缩略图查询：项目数据按 owner 隔离，未登录也可查看本机历史。
       "story2videoListProjects",
       "story2videoGetProject",

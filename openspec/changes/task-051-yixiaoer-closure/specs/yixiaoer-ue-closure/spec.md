@@ -14,6 +14,25 @@
 - **WHEN** 用户选择不支持二维码的平台且 capability 不可用
 - **THEN** QR 模式按钮和提交动作保持禁用
 
+### Requirement: 扫码登录以单一虚拟标签呈现
+
+二维码扫码登录 SHALL 与普通网页登录共用 auth-login 虚拟标签生命周期；任一时刻只允许一个登录 WebContentsView 可见，不能以固定尺寸浮层覆盖已经打开的创作者中心。
+
+#### Scenario: 已打开快手创作者中心时启动扫码
+
+- **WHEN** 快手创作者中心浏览器标签已经打开，用户启动快手二维码登录
+- **THEN** 原创作者中心 View 被隐藏，二维码 View 从 TabBar 与 NavBar 下方占满内容区显示，并以 auth-login 作为当前活动标签
+
+#### Scenario: 扫码会话结束后恢复原标签
+
+- **WHEN** 二维码登录成功、用户取消或发生超时
+- **THEN** 仅清理二维码 View 并移除 auth-login 虚拟标签，恢复打开扫码前的创作者中心标签；不得关闭或叠加原标签
+
+#### Scenario: 扫码在后台结束时保留用户当前标签
+
+- **WHEN** 用户在二维码登录期间主动切换到另一个浏览器或首页标签，随后二维码会话成功、取消或超时
+- **THEN** 系统移除 auth-login 虚拟标签但保持用户当前选择，不得强制切回打开扫码前的标签
+
 ### Requirement: 平台 cookie 域隔离
 
 平台 cookie 过滤 SHALL 只接受明确平台域名或其子域，不能接受公共注册域本身作为平台 cookie 域。
@@ -78,3 +97,22 @@
 
 - **WHEN** 提取完成或失败
 - **THEN** 隐藏 BrowserWindow 被销毁且 loopback HTTP 服务被关闭
+
+### Requirement: 严格平台发布证据必须脱敏且关联本次动作
+
+百家号与快手的发布成功 SHALL 只接受本次点击后捕获的明确发布响应 ID，或经标题与时间窗口共同核验的作品列表 artifact；不得从 localStorage、当前页面 URL、旧链接或页面正文推断成功。网络响应原文只可在主进程内瞬时解析，diagnostics 与上游发布结果只能包含去 query 的 endpoint、状态、MIME 类型、数量和 artifact 是否命中。
+
+#### Scenario: 原始响应不离开网络捕获边界
+
+- **WHEN** 发布点击后的响应中包含 token、Cookie 相关 query、用户正文或作品 ID
+- **THEN** 仅将解析出的受限 ID 作为内存证据；records、日志、diagnostics 和 IPC 结果均不包含响应 body、query、token 或用户正文
+
+#### Scenario: 历史状态不能证明本次发布成功
+
+- **WHEN** 百家号或快手发布页面的 localStorage、当前 URL 或旧作品链接中含有作品 ID，但本次发布响应与标题/时间窗口作品回查均未命中
+- **THEN** 发布结果返回缺少平台作品 ID 的失败，不得把历史 ID 声明为本次发布成功
+
+#### Scenario: 发布点击异常后释放网络监听
+
+- **WHEN** 发布按钮或草稿按钮在网络捕获已启动后抛出异常
+- **THEN** 当前 capture 停止、Network 域监听解除且后续重试不会复用遗留 debugger listener

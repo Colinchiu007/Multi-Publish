@@ -73,6 +73,17 @@ function createFakeAuthViewManager () {
   }
 }
 
+function createFakeQrCodeLogin () {
+  return {
+    show: vi.fn(),
+    hide: vi.fn(),
+    close: vi.fn(),
+    onOpened: null,
+    onClosed: null,
+    _onWindowResize: vi.fn()
+  }
+}
+
 describe('WebviewManager 虚拟登录标签（蚁小二对标）', () => {
   it('attachAuthViewManager 绑定开关钩子', () => {
     const wm = new WebviewManager()
@@ -235,6 +246,82 @@ describe('WebviewManager 虚拟登录标签（蚁小二对标）', () => {
     expect(() => wm.resize()).not.toThrow()
     expect(wm.getAllTabs().find(t => t.tabId === AUTH_TAB_ID)).toBeUndefined()
   })
+
+  it('二维码登录接入同一个虚拟登录标签，打开时隐藏现有创作者中心', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    const qrCodeLogin = createFakeQrCodeLogin()
+    wm.attachQrCodeLogin(qrCodeLogin)
+
+    qrCodeLogin.onOpened({
+      platform: 'kuaishou',
+      accountId: 'auth-kuaishou-1',
+      url: 'https://passport.kuaishou.com/',
+    })
+
+    expect(view.setVisible).toHaveBeenCalledWith(false)
+    expect(wm._activeTabId).toBe(AUTH_TAB_ID)
+    expect(wm.getActiveTab()).toMatchObject({
+      tabId: AUTH_TAB_ID,
+      isLogin: true,
+      title: getPlatformName('kuaishou') + '登录',
+    })
+  })
+
+  it('二维码登录关闭后恢复原标签；切换和关闭只操作二维码视图', () => {
+    const { wm, view } = createManagerWithBrowserTab()
+    const auth = createFakeAuthViewManager()
+    const qrCodeLogin = createFakeQrCodeLogin()
+    wm.attachAuthViewManager(auth)
+    wm.attachQrCodeLogin(qrCodeLogin)
+    qrCodeLogin.onOpened({
+      platform: 'kuaishou',
+      accountId: 'auth-kuaishou-1',
+      url: 'https://passport.kuaishou.com/',
+    })
+
+    expect(wm.closeTab(AUTH_TAB_ID)).toBe(true)
+    expect(qrCodeLogin.close).toHaveBeenCalledTimes(1)
+    expect(auth.close).not.toHaveBeenCalled()
+
+    wm.switchToTab('btab-1')
+    expect(qrCodeLogin.hide).toHaveBeenCalledTimes(1)
+    expect(wm.switchToTab(AUTH_TAB_ID)).toBe(true)
+    expect(qrCodeLogin.show).toHaveBeenCalledTimes(1)
+    wm.resize()
+    expect(qrCodeLogin._onWindowResize).toHaveBeenCalledTimes(1)
+
+    qrCodeLogin.onClosed()
+    expect(wm._activeTabId).toBe('btab-1')
+    expect(view.setVisible).toHaveBeenLastCalledWith(true)
+  })
+
+  it('后台扫码会话结束时保留用户后来主动选择的标签', () => {
+    const { wm } = createManagerWithBrowserTab()
+    const qrCodeLogin = createFakeQrCodeLogin()
+    const laterView = createBrowserView()
+    wm._tabViews.set('btab-2', laterView)
+    wm._tabStates.set('btab-2', {
+      url: 'https://cp.kuaishou.com/article/publish/video',
+      title: '快手创作者中心',
+      loading: false,
+      canGoBack: false,
+      canGoForward: false
+    })
+    wm.attachQrCodeLogin(qrCodeLogin)
+
+    qrCodeLogin.onOpened({
+      platform: 'kuaishou',
+      accountId: 'auth-kuaishou-1',
+      url: 'https://passport.kuaishou.com/',
+    })
+    expect(wm.switchToTab('btab-2')).toBe(true)
+
+    qrCodeLogin.onClosed()
+
+    expect(wm._authTabInfo).toBeNull()
+    expect(wm._activeTabId).toBe('btab-2')
+    expect(laterView.setVisible).toHaveBeenLastCalledWith(true)
+  })
 })
 
 function patchViewAndSessionMocks () {
@@ -298,6 +385,50 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
     expect(created.cookies.setCalls).toEqual([{ url: 'https://www.zhihu.com', name: 'session', value: 'abc' }])
   })
 
+  it('身份命名空间凭证优先于 legacy credential-store，适用于所有平台', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+    wm.setAccountManager({
+      loadSavedCredentials: vi.fn(() => ({
+        cookies: [{ domain: '.baijiahao.baidu.com', name: 'BDUSS', value: 'owner-value', secure: true }],
+        localStorage: { token: 'owner-token' },
+      })),
+    })
+
+    wm.createNewTabPage({ url: 'https://baijiahao.baidu.com/', platform: 'baijiahao', accountId: 'baijia-1' })
+
+    expect(credentialLoadMock).not.toHaveBeenCalled()
+    expect(partitions[partitions.length - 1].cookies.setCalls).toEqual([
+      { url: 'https://baijiahao.baidu.com/', domain: '.baijiahao.baidu.com', name: 'BDUSS', value: 'owner-value', secure: true },
+    ])
+  })
+
+  it('账号标签创建会把 platform 传给身份凭证读取器，并等待 Cookie 注入后导航', async () => {
+    const partitions = patchViewAndSessionMocks()
+    const loadSavedCredentials = vi.fn(() => ({
+      cookies: [{ url: 'https://cp.kuaishou.com', name: 'kuaishou_sid', value: 'owner-cookie' }],
+    }))
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+    wm.setAccountManager({ loadSavedCredentials })
+
+    wm.createNewTabPage({ url: 'https://cp.kuaishou.com/article/publish/video', platform: 'kuaishou', accountId: 'ks-1' })
+
+    const view = wm._tabViews.get(wm._activeTabId)
+    expect(loadSavedCredentials).toHaveBeenCalledWith('ks-1', 'kuaishou')
+    expect(view.webContents.loadURL).not.toHaveBeenCalled()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(view.webContents.loadURL).toHaveBeenCalledWith('https://cp.kuaishou.com/article/publish/video')
+    expect(partitions[partitions.length - 1].cookies.setCalls).toEqual([
+      { url: 'https://cp.kuaishou.com', name: 'kuaishou_sid', value: 'owner-cookie' },
+    ])
+  })
+
   it('凭证缺少 url 的 Cookie 以初始页面 URL 补齐后再注入', async () => {
     const partitions = patchViewAndSessionMocks()
     credentialLoadMock.mockReturnValue({ cookies: [{ name: 'sid', value: 'v1' }] })
@@ -327,6 +458,36 @@ describe('WebviewManager.createNewTabPage 账号登录态恢复', () => {
     expect(activeView.webContents.executeJavaScript).toHaveBeenCalled()
     const script = activeView.webContents.executeJavaScript.mock.calls[0][0]
     expect(script).toContain('"token":"xyz"')
+    await Promise.resolve()
+    expect(activeView.webContents.loadURL).toHaveBeenCalledWith('https://creator.zhihu.com')
+  })
+
+  it('将 Playwright Cookie 的 expires/sameSite 转为 Electron 字段', async () => {
+    const partitions = patchViewAndSessionMocks()
+    credentialLoadMock.mockReturnValue({
+      cookies: [{
+        domain: '.baijiahao.baidu.com',
+        name: 'BDUSS',
+        value: 'v1',
+        expires: 1893456000,
+        sameSite: 'Lax',
+      }],
+    })
+    const mod = await import('./webview-manager.js')
+    const WM = mod.default || mod
+    const wm = new WM()
+    wm.mainWindow = createMainWindow()
+
+    wm.createNewTabPage({ url: 'https://baijiahao.baidu.com/', platform: 'baijiahao', accountId: 'baijia-1' })
+
+    expect(partitions[partitions.length - 1].cookies.setCalls).toEqual([{
+      domain: '.baijiahao.baidu.com',
+      name: 'BDUSS',
+      value: 'v1',
+      expirationDate: 1893456000,
+      sameSite: 'lax',
+      url: 'https://baijiahao.baidu.com/',
+    }])
   })
 
   it('无 accountId 时保持一次性浏览分区且不读取凭证', async () => {

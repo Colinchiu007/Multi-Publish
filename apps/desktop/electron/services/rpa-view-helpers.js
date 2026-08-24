@@ -26,6 +26,15 @@ function _guessMimeType (fileName) {
   return map[ext] || 'application/octet-stream'
 }
 
+function _sanitizeCaptureEndpoint (url) {
+  try {
+    const parsed = new URL(String(url || ''))
+    return parsed.origin + parsed.pathname
+  } catch (_) {
+    return ''
+  }
+}
+
 const helpersMixin = {
   // ========== P2-D: Execute JavaScript in iframe context ==========
   async _execInFrame(win, frameSelector, jsCode) {
@@ -140,7 +149,7 @@ const helpersMixin = {
   },
   async _click(win, sel) {
     const resolveJs = buildResolveElementCode(sel)
-    return await win.webContents.executeJavaScript('(function(){var _fn=new Function("return " + ' + JSON.stringify(resolveJs) + ');let el=_fn();if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');el.click();return true})()')
+    return await win.webContents.executeJavaScript('(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');el.click();return true})()')
   },
 
   // ========== CDP file upload ==========
@@ -151,17 +160,28 @@ const helpersMixin = {
     // eslint-disable-next-line no-unused-vars
     try { await dbg.attach('1.3') } catch (e) { /* ignore */ }
     try {
-      const fr = await dbg.sendCommand('Runtime.evaluate',{expression:'(function(){return document.querySelectorAll('+JSON.stringify(fileSelector)+').length>0?1:0})()',returnByValue:true})
-      if (fr.result.value!==1) throw new Error('No file input found')
-      const re = await dbg.sendCommand('Runtime.evaluate',{expression:'document.querySelector('+JSON.stringify(fileSelector)+')'})
-      const nd = await dbg.sendCommand('DOM.requestNode',{objectId:re.result.objectId})
-      await dbg.sendCommand('DOM.setFileInputFiles',{files:[path.resolve(filePath)],nodeId:nd.nodeId||nd})
+      // Resolve the node through the DOM domain. Runtime.evaluate returns a
+      // remote object only for the current execution context; on creator SPAs
+      // that object can be released before DOM.requestNode runs. DOM.querySelector
+      // keeps the lookup and file assignment in the same renderer DOM snapshot.
+      await dbg.sendCommand('DOM.enable')
+      const documentResult = await dbg.sendCommand('DOM.getDocument',{depth:-1,pierce:true})
+      const rootNodeId = documentResult?.root?.nodeId
+      if (!rootNodeId) throw new Error('DOM document unavailable')
+      const queryResult = await dbg.sendCommand('DOM.querySelector',{
+        nodeId: rootNodeId,
+        selector: fileSelector,
+      })
+      if (!queryResult?.nodeId) throw new Error('No file input found')
+      await dbg.sendCommand('DOM.setFileInputFiles',{
+        files:[path.resolve(filePath)],
+        nodeId:queryResult.nodeId,
+      })
       log.info('RpaView','CDP file: '+path.basename(filePath)); return true
     // eslint-disable-next-line no-unused-vars
     } catch (cdpErr) {
       // PRD F10.8: CDP 失败时回退到 JS File API / DataTransfer
       log.warn('RpaView', 'CDP upload failed, fallback to JS File API: ' + cdpErr.message)
-      try { await dbg.detach() } catch (e) { /* ignore */ }
       return await this._setFileInputViaJs(win, filePath, fileSelector)
     } finally { try { await dbg.detach() } catch (e) { /* ignore */ } }
   },
@@ -191,6 +211,72 @@ const helpersMixin = {
     await win.webContents.executeJavaScript(js)
     log.info('RpaView', 'JS File API fallback: ' + fileName)
     return true
+  },
+
+  // 发布点击后的网络证据采集。只在点击发布前短时开启，避免影响页面其它请求。
+  // 原始响应体只在 parseResponseBody 回调的局部作用域内使用，禁止写入 records、日志或 IPC 结果。
+  async _startPublishNetworkCapture(win, options = {}) {
+    const dbg = win.webContents.debugger
+    const records = []
+    const evidence = []
+    const responseByRequestId = new Map()
+    const pendingBodies = new Set()
+    const parseResponseBody = typeof options.parseResponseBody === 'function' ? options.parseResponseBody : null
+    const relevant = (url) => /(?:publish|submit|create|article|content|media|video|clue|work)/i.test(url || '')
+    let stopped = false
+    const onMessage = async (_event, method, params) => {
+      try {
+        if (stopped) return
+        if (method === 'Network.responseReceived' && relevant(params?.response?.url)) {
+          const record = {
+            endpoint: _sanitizeCaptureEndpoint(params.response.url),
+            status: params.response.status,
+            mimeType: String(params.response.mimeType || '').slice(0, 160),
+          }
+          records.push(record)
+          responseByRequestId.set(params.requestId, record)
+        }
+        if (method !== 'Network.loadingFinished') return
+        const response = responseByRequestId.get(params.requestId)
+        if (!response || !parseResponseBody) return
+        const bodyPromise = dbg.sendCommand('Network.getResponseBody', { requestId: params.requestId })
+          .then(async result => {
+            const body = result?.base64Encoded
+              ? Buffer.from(result.body || '', 'base64').toString('utf8')
+              : String(result?.body || '')
+            const parsedEvidence = await parseResponseBody(body.slice(0, 200 * 1024), { ...response })
+            if (parsedEvidence && typeof parsedEvidence === 'object') evidence.push(parsedEvidence)
+          })
+          .catch(() => {})
+        pendingBodies.add(bodyPromise)
+        await bodyPromise
+        pendingBodies.delete(bodyPromise)
+      } catch (_) { /* 页面导航/窗口销毁时网络证据可为空 */ }
+    }
+    try {
+      try { await dbg.attach('1.3') } catch (_) { /* 已附加时继续 */ }
+      dbg.on('message', onMessage)
+      await dbg.sendCommand('Network.enable')
+    } catch (error) {
+      try { dbg.removeListener('message', onMessage) } catch (_) { /* ignore */ }
+      try { await dbg.detach() } catch (_) { /* ignore */ }
+      log.warn('RpaView', 'publish network capture unavailable: ' + error.message)
+      return null
+    }
+    return {
+      records,
+      evidence,
+      async stop () {
+        if (stopped) return records.map(record => ({ ...record }))
+        stopped = true
+        await Promise.allSettled([...pendingBodies])
+        try { await dbg.sendCommand('Network.disable') } catch (_) { /* ignore */ }
+        try { dbg.removeListener('message', onMessage) } catch (_) { /* ignore */ }
+        try { await dbg.detach() } catch (_) { /* ignore */ }
+        responseByRequestId.clear()
+        return records.map(record => ({ ...record }))
+      },
+    }
   },
 
   // ========== Network response monitor ==========

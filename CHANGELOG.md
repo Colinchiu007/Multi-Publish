@@ -9366,3 +9366,5 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 发布取消改为 allSettled 语义：成功取消的 ID 移除、失败或被拒的 ID 保留，取消请求不再抛出未处理 rejection；新增部分失败/拒绝回归测试。
 - 封面提取改为 loopback HTTP 同源媒体通道，修复 Chromium 对 data/file 跨 scheme 加载本地视频的拦截；真实 Electron 已从 D:\01.mp4 提取封面 JPEG。
 - 真实 Electron 验收已通过：快手 passport 打开并扫码二维码就绪、同 profile 重启账号恢复、视频表单填充与目标账号选择、QM-1 打包启动验证。最终快手发布仍待用户确认后执行。
+- 修复快手扫码登录覆盖创作者中心：二维码登录与普通网页登录共用 auth-login 虚拟标签；扫码页在 TabBar/NavBar 下方全屏显示，启动时隐藏原创作者中心，成功、取消或超时后仅清理扫码 View 并恢复原标签。
+- 收紧百家号/快手的发布成功证据：历史 localStorage、当前 URL、旧链接和页面正文不再可推断本次发布；仅使用当前发布响应的受限 ID 或标题/时间窗口核验的作品 artifact。发布 diagnostics 只保留去 query 的请求摘要，原始响应、token 与用户正文不会离开主进程捕获边界；发布点击异常会释放网络监听。

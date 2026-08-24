@@ -103,8 +103,9 @@ function createContainer(options) {
   container.register("rpaViewManager", function() { return new RpaViewManager(); });
   container.register("webviewManager", function(c) {
     const wm = new WebviewManager();
-    // 登录视图标签化：AuthViewManager 的开关钩子驱动 TabBar 虚拟登录标签
+    // 所有登录视图（普通网页登录、二维码扫码）共用 TabBar 虚拟登录标签。
     wm.attachAuthViewManager(c.get("authViewManager"));
+    wm.attachQrCodeLogin(c.get("qrCodeLogin"));
     return wm;
   });
   container.register("callbackServer", function() { return new CallbackServer(); });

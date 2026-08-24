@@ -194,7 +194,7 @@
                     :limit="1"
                     accept="video/*"
                     class="video-upload-zone"
-                    :on-change="(file) => { article.video_path = (file.raw && (file.raw.path || file.raw.name)) || file.name || '' }"
+                    :on-change="handleVideoFileChange"
                   >
                     <el-icon class="el-icon--upload" :size="48"><upload-filled /></el-icon>
                     <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
@@ -318,7 +318,7 @@
               </div>
               <div class="cohere-form-item" v-if="hasVideoPlatforms">
                 <label class="cohere-form-label">{{ t('publishPage.videoFile') }}</label>
-                <el-upload drag :auto-upload="false" :limit="1" accept="video/*" :on-change="(file) => { article.video_path = (file.raw && (file.raw.path || file.raw.name)) || file.name || '' }">
+                <el-upload drag :auto-upload="false" :limit="1" accept="video/*" :on-change="handleVideoFileChange">
                   <el-icon class="el-icon--upload"><upload-filled /></el-icon>
                   <div class="el-upload__text">{{ t('publishPage.dragVideo') }}<em>{{ t('publishPage.clickSelect') }}</em></div>
                   <template #tip><div class="el-upload__tip">{{ t('publishPage.videoTip') }}</div></template>
@@ -512,7 +512,6 @@ import { usePublishDrafts } from '@/composables/usePublishDrafts'
 import {
   getPlatformContentLimit,
   normalizePublishFile,
-  normalizePublishFiles,
   normalizePublishMentions,
   normalizePublishStringList,
 } from '@/features/publish/publish-contract'
@@ -588,10 +587,25 @@ const mentionsText = computed({
   set: value => { article.mentions = normalizePublishMentions(value) },
 })
 
-function normalizeUploadFile (file) {
+async function resolveUploadFilePath (file) {
   const raw = file?.raw || file
+  const directPath = raw?.path || raw?.filePath || raw?.file_path || file?.path
+  if (typeof directPath === 'string' && directPath.trim()) return directPath.trim()
+  try {
+    const resolvedPath = await window.electronAPI?.getPathForFile?.(raw)
+    if (typeof resolvedPath === 'string' && resolvedPath.trim()) return resolvedPath.trim()
+  } catch (_) {
+    // Path resolution is best effort; the caller reports an actionable error.
+  }
+  return ''
+}
+
+async function normalizeUploadFile (file) {
+  const raw = file?.raw || file
+  const path = await resolveUploadFilePath(file)
+  if (!path) return null
   return normalizePublishFile({
-    path: raw?.path || raw?.filePath || file?.path || raw?.name || file?.name,
+    path,
     name: raw?.name || file?.name,
     type: raw?.type || file?.type,
     size: raw?.size || file?.size,
@@ -599,23 +613,41 @@ function normalizeUploadFile (file) {
   })
 }
 
-function updateImageFiles (fileList) {
-  const files = normalizePublishFiles(fileList).filter(file => file.path)
+async function updateImageFiles (fileList) {
+  const files = (await Promise.all((Array.isArray(fileList) ? fileList : []).map(normalizeUploadFile)))
+    .filter(file => file?.path)
   article.image_files = files
   article.images = files.map(file => file.path)
   imageFileList.value = files
 }
 
-function handleImageFileChange (file, fileList) {
-  updateImageFiles(Array.isArray(fileList) ? fileList : [file])
+async function handleImageFileChange (file, fileList) {
+  await updateImageFiles(Array.isArray(fileList) ? fileList : [file])
 }
 
-function handleImageFileRemove (_file, fileList) {
-  updateImageFiles(Array.isArray(fileList) ? fileList : [])
+async function handleImageFileRemove (_file, fileList) {
+  await updateImageFiles(Array.isArray(fileList) ? fileList : [])
 }
 
-function handleCoverFileChange (file) {
-  const descriptor = normalizeUploadFile(file)
+async function handleVideoFileChange (file) {
+  const path = await resolveUploadFilePath(file)
+  if (!path) {
+    article.video_path = ''
+    ElMessage.warning(t('story2video.media_path_unresolved', { kindLabel: t('publishPage.videoFile') }))
+    return
+  }
+  article.video_path = path
+}
+
+async function handleCoverFileChange (file) {
+  const descriptor = await normalizeUploadFile(file)
+  if (!descriptor) {
+    article.cover_file = null
+    article.cover_path = ''
+    coverFileList.value = []
+    ElMessage.warning(t('story2video.media_path_unresolved', { kindLabel: t('publishPage.cover') }))
+    return
+  }
   article.cover_file = descriptor
   article.cover_path = descriptor?.path || ''
   coverFileList.value = descriptor ? [descriptor] : []
@@ -636,12 +668,18 @@ async function handleExtractVideoCover () {
       article.cover_path = coverPath
       article.cover_file = { path: coverPath, name: 'video-cover.jpg' }
       coverFileList.value = [{ name: 'video-cover.jpg', url: coverPath, path: coverPath }]
-      ElMessage.success('封面已提取')
+      ElMessage.success(t('publishPage.coverExtracted'))
     } else {
-      ElMessage.warning('封面提取失败：' + (result?.message || '未知错误'))
+      ElMessage.warning(t('publishPage.coverExtractFailed', {
+        message: result?.message || t('publishPage.coverExtractUnknownError'),
+      }))
     }
   } catch (e) {
-    ElMessage.warning('封面提取失败：' + (e.message || e))
+    ElMessage.warning(t('publishPage.coverExtractFailed', {
+      message: typeof e?.message === 'string' && e.message.trim()
+        ? e.message
+        : t('publishPage.coverExtractUnknownError'),
+    }))
   }
 }
 
@@ -824,6 +862,7 @@ defineExpose({
   mentionsText,
   handleImageFileChange,
   handleImageFileRemove,
+  handleVideoFileChange,
   handleCoverFileChange,
   handleCoverFileRemove,
   templateTargetIdx,

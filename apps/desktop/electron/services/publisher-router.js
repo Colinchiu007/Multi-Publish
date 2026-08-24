@@ -53,6 +53,49 @@ function mergeUniqueStrings (...lists) {
   return [...new Set(lists.flat().filter(Boolean))]
 }
 
+function sanitizeDiagnosticEndpoint (url) {
+  try {
+    const parsed = new URL(String(url || ''))
+    return parsed.origin + parsed.pathname
+  } catch (_) {
+    return ''
+  }
+}
+
+function sanitizePublishResultUrl (url) {
+  try {
+    const parsed = new URL(String(url || ''))
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (/(?:token|auth|cookie|session|signature|sign|credential|secret|ticket|code|sid)/i.test(key)) parsed.searchParams.delete(key)
+    }
+    parsed.hash = ''
+    return parsed.toString()
+  } catch (_) {
+    return ''
+  }
+}
+
+function sanitizePublishDiagnostics (diagnostics) {
+  if (!diagnostics || typeof diagnostics !== 'object' || Array.isArray(diagnostics)) return null
+  const source = Array.isArray(diagnostics.responses)
+    ? diagnostics.responses
+    : (Array.isArray(diagnostics.requests) ? diagnostics.requests : [])
+  const responseCountValue = Number(diagnostics.responseCount)
+  const responseCount = Number.isFinite(responseCountValue) && responseCountValue >= 0
+    ? Math.min(Math.floor(responseCountValue), 1000)
+    : source.length
+  const responses = source.slice(-20).map(item => ({
+    endpoint: sanitizeDiagnosticEndpoint(item?.endpoint || item?.url),
+    status: Number.isFinite(Number(item?.status)) ? Number(item.status) : 0,
+    mimeType: String(item?.mimeType || '').split(';')[0].slice(0, 160),
+  }))
+  return {
+    responseCount,
+    responses,
+    artifactFound: diagnostics.artifactFound === true || Boolean(diagnostics.artifact && diagnostics.artifact.postId),
+  }
+}
+
 function resolveBooleanOption (override, base, key) {
   if (typeof override[key] === 'boolean') return override[key]
   return base[key] === true
@@ -217,7 +260,14 @@ class RpaVmPublisher {
       // 发布器可能在 await 期间收到取消信号，成功响应不能覆盖取消语义。
       if (signal?.aborted) throw new Error('任务已取消')
       if (result.success) {
-        return { success: true, url: result.url || '', postId: task.id, platform }
+        const postId = typeof result.postId === 'string' && result.postId.trim()
+          ? result.postId.trim()
+          : (typeof result.publishId === 'string' && result.publishId.trim() ? result.publishId.trim() : '')
+        if (['baijiahao', 'kuaishou'].includes(platform) && (!postId || postId === task.id || postId.toLowerCase().startsWith('task_'))) {
+          throw new Error(result.error || '发布结果缺少平台作品 ID')
+        }
+        const diagnostics = sanitizePublishDiagnostics(result.diagnostics)
+        return { success: true, url: sanitizePublishResultUrl(result.url), ...(postId ? { postId } : {}), platform, ...(diagnostics ? { diagnostics } : {}) }
       }
       throw new Error(result.error || 'RPA 鍙戝竷澶辫触')
     } finally {
