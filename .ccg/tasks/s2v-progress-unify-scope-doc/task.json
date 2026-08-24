@@ -1,0 +1,12 @@
+{
+  "id": "s2v-progress-unify-scope-doc",
+  "title": "统一进度弹窗范围边界文档收口",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "documentation",
+  "currentPhase": "review",
+  "nextAction": "提交文档收口，创建 PR 后记录远程状态并归档",
+  "createdAt": "2026-08-24T03:06:00+08:00",
+  "branch": "codex/s2v-progress-unify-scope-doc"
+}

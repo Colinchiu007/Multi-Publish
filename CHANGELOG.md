@@ -4,6 +4,11 @@
 - 修复：图片轮播 `zoompan` 片段的 ffmpeg timeout 纳入 `workScale^2` 工作画布成本，预算收敛在 60 秒至 10 分钟；2x/1.5x/1x 降档重试不再共用过短预算。
 - 验证：真实电影工程加载、提示词导出、剧本套用和图片入口通过；Story2Video 的真实 AI 视频/图片轮播已有 H.264/AAC MP4 证据。本次复用真实 JPEG/TTS 素材直接合成 1920x1080、6.264 秒、1,516,241 bytes 的 MP4；327 条定向测试、Vite 构建和 Windows Electron 打包通过。
 
+## [2026-08-23] docs(story2video): 收口统一进度弹窗范围边界
+
+- 明确统一进度弹窗只覆盖编排流水线/历史恢复等有可观察阶段状态的路径；快速渲染 loading、发布 timeline 和独立分析状态不套用。
+- 标记独立历史页 `CreateHistory.vue` 为废弃组件，`/create/history` 重定向到 `/create?view=history`，进度详情统一由 `CreateView` 进度弹窗承载。
+
 ## [2026-08-23] fix(story2video): 提示词中文翻译兼容 HTML/marker 包裹 JSON 并加固示例回显
 
 - 现象：结果页「中文翻译」未正确生成——LLM 返回 HTML 闭合/未闭合标签、`<thinking>` 思考块或 marker/说明文字包裹的翻译 JSON 时，旧解析把包裹文本当译文。

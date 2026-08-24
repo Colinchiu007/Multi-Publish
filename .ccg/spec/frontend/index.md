@@ -105,3 +105,8 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 **反例**：`tabStore` 没有消费 `tab-title-updated`，且 `getAllTabs()` / `getActiveTab()` 在标签切换后仍可无条件写回。多个发布平台并发加载时，旧快照会把当前导航栏标题串成其他标签（例如快手）。
 
 **强制点**：事件处理必须按 `tabId` 更新实体；只有活动实体可以更新全局导航栏。列表刷新覆盖前至少覆盖“两个请求乱序”和“标题事件发生在列表请求飞行期间”两个回归场景。
+
+## 11. 统一进度弹窗范围边界（2026-08-23，s2v-progress-unify-scope-doc）
+
+- 统一进度弹窗只覆盖“有可观察流水线阶段状态”的编排流水线/历史恢复前台跟踪，以及获得稳定 run identity 的普通流水线；快速渲染 loading、发布 timeline、独立分析状态不套用，禁止为此类轻量任务伪造“后台运行/历史可查看”语义。
+- `CreateHistory.vue` 已废弃：`/create/history` 重定向到 `/create?view=history`，无生产引用，不得重新接入其内嵌进度卡片；历史入口统一为 `CreateViewHistory.vue` 摘要与恢复。

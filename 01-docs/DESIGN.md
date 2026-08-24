@@ -492,6 +492,10 @@ Primary CTAs and pills meet comfortable touch sizing through 12px-24px padding a
 
 总进度、已用时、终态摘要、所有阶段、状态、详情、阶段耗时、子进度、合成时间参考、provider warning、BGM 跳过、加载/不可用提示和素材选择面板都属于弹窗内容。数组、对象和进度范围先归一化，错误字段只隐藏或走既有 fallback，不使 renderer 崩溃。
 
+### 范围边界与废弃组件
+
+该统一壳只覆盖编排流水线、历史续跑等“有可观察流水线阶段状态”的路径；快速渲染 loading、发布 timeline、独立分析状态保持各自轻量展示。已废弃的 `CreateHistory.vue` 不再提供内嵌进度卡片，历史入口统一为 `CreateViewHistory.vue` 的摘要与恢复。
+
 ## Known Gaps
 
 - Exact proprietary font files are not bundled; use the documented fallbacks when implementing externally.
