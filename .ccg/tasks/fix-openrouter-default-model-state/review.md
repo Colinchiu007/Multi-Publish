@@ -68,4 +68,4 @@ Prettier 例外：三份变更文件与 `origin/main` 对应版本均返回非�
 
 ## 远程同步
 
-`remoteStatus=not_started`。下一步：创建功能 PR，等待 required checks；合并后核对 `origin/main`，再执行 OpenSpec + CCG task + 质量门禁三同步归档。
+PR #1150 已于 2026-08-24 创建并推送，head 初始提交为 `4dca22c0f`；`remoteStatus=pr_open_checks_pending`。下一步：等待 required checks；合并后核对 `origin/main`，再执行 OpenSpec + CCG task + 质量门禁三同步归档。
