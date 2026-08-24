@@ -9,7 +9,6 @@
 const log = require('./logger')
 const {
   PRESET_PROVIDERS,
-  CATEGORY_LABELS,
   CATEGORIES,
   MULTIMODAL_CAPABILITY_IDS,
 } = require('./model-provider-seeds')
@@ -1046,12 +1045,26 @@ class ModelProviderManager {
 
   _clearCapabilityDefaultForCapability (db, capability, excludeProviderId) {
     db.prepare('UPDATE model_providers SET is_default = 0 WHERE category = ? AND is_default = 1 AND id != ?').run(capability, excludeProviderId)
-    const multimodalRows = db.prepare('SELECT id, config FROM model_providers WHERE category = ?').all(CATEGORIES.MULTIMODAL)
+    const multimodalRows = db.prepare('SELECT id, is_default, config FROM model_providers WHERE category = ?').all(CATEGORIES.MULTIMODAL)
     for (const row of multimodalRows) {
       if (row.id === excludeProviderId) continue
       const cfg = safeJsonParse(row.config, {}) || {}
-      if (Array.isArray(cfg.capability_defaults) && cfg.capability_defaults.includes(capability)) {
-        cfg.capability_defaults = cfg.capability_defaults.filter(c => c !== capability)
+      const explicitDefaults = Array.isArray(cfg.capability_defaults) ? cfg.capability_defaults : []
+      const hasGlobalDefault = !!row.is_default
+      const declaredCapabilities = Array.isArray(cfg.capabilities) ? cfg.capabilities : []
+      if (!hasGlobalDefault && !explicitDefaults.includes(capability)) continue
+
+      // 旧版“多模态整体默认”相当于其所有已声明能力均为默认。普通 provider
+      // 覆盖其中一个能力时，必须先把其余能力显式保留，再清除整体标记；否则
+      // _multimodalProviderFor 会继续将整体标记视为当前能力默认，导致成功提示与实际路由不一致。
+      const defaultsToKeep = hasGlobalDefault
+        ? Array.from(new Set([...declaredCapabilities, ...explicitDefaults]))
+        : explicitDefaults
+      cfg.capability_defaults = defaultsToKeep.filter(c => c !== capability)
+
+      if (hasGlobalDefault) {
+        db.prepare('UPDATE model_providers SET is_default = 0, config = ? WHERE id = ?').run(JSON.stringify(cfg), row.id)
+      } else {
         db.prepare('UPDATE model_providers SET config = ? WHERE id = ?').run(JSON.stringify(cfg), row.id)
       }
     }

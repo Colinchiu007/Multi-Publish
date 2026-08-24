@@ -270,6 +270,45 @@ describe('getDefault 多模态路由', () => {
   })
 })
 
+describe('普通 provider 覆盖多模态全局默认', () => {
+  it('将 OpenRouter 设为文字推理默认后，路由和持久化卡片标记保持一致', async () => {
+    const SQL = await initSqlJs()
+    const database = new SQL.Database()
+    try {
+      const { db, store } = await createStore(database)
+      const manager = newManager(store)
+      enableProvider(db, 'openrouter', 'openrouter-key')
+      enableProvider(db, 'minimax-multimodal', 'minimax-key')
+
+      expect(manager.setDefault('multimodal', 'minimax-multimodal').code).toBe(0)
+      // 模拟能力默认改造前留下的整体默认：没有显式 capability_defaults，
+      // 但 is_default 仍表示所有声明能力均为默认。
+      const globalRow = db.prepare("SELECT config FROM model_providers WHERE id = 'minimax-multimodal'").get()
+      const globalConfig = JSON.parse(globalRow.config)
+      globalConfig.capability_defaults = []
+      db.prepare("UPDATE model_providers SET config = ? WHERE id = 'minimax-multimodal'").run(JSON.stringify(globalConfig))
+      expect(manager.getDefault('llm').id).toBe('minimax-multimodal')
+
+      expect(manager.setDefault('llm', 'openrouter').code).toBe(0)
+
+      expect(manager.getDefault('llm').id).toBe('openrouter')
+      const providers = manager.listProviders()
+      expect(providers.find(provider => provider.id === 'openrouter').is_default).toBe(true)
+      expect(providers.find(provider => provider.id === 'minimax-multimodal').is_default).toBe(false)
+
+      const row = db.prepare("SELECT config FROM model_providers WHERE id = 'minimax-multimodal'").get()
+      const config = JSON.parse(row.config)
+      expect(config.capability_defaults).not.toContain('llm')
+      expect(config.capability_defaults).toEqual(expect.arrayContaining(['tts', 'image', 'video']))
+      expect(manager.getDefault('tts').id).toBe('minimax-multimodal')
+      expect(manager.getDefault('image').id).toBe('minimax-multimodal')
+    } finally {
+      database.close()
+    }
+  })
+
+})
+
 
 describe('多模态 video 能力开关（支持生成视频，默认关闭）', () => {
   let database

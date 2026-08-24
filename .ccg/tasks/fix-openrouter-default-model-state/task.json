@@ -1,0 +1,16 @@
+{
+  "id": "fix-openrouter-default-model-state",
+  "title": "修复 OpenRouter 模型设为默认后卡片状态未同步",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-frontend",
+  "currentPhase": "review",
+  "nextAction": "提交修复分支并创建 PR，等待 CI 后完成远程同步与三同步归档",
+  "createdAt": "2026-08-24T00:00:00+08:00",
+  "branch": "codex/fix-openrouter-default-model-state",
+  "openspecChange": "fix-openrouter-default-model-state",
+  "openspecState": "active",
+  "remoteStatus": "not_started",
+  "qualityGateStatus": "passed_local"
+}
