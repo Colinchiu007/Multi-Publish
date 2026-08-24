@@ -1,0 +1,13 @@
+{
+  "id": "yixiaoer-ue-parity-real-publish-e2e",
+  "title": "对标蚁小二重构前端UE + 真实环境发布视频E2E（快手/百家号）+ 封面首帧裁剪",
+  "status": "in_progress",
+  "complexity": "L",
+  "risk": "high",
+  "domain": "desktop-frontend",
+  "currentPhase": "implementation",
+  "nextAction": "Phase A: 封面裁剪功能（主进程 cropper + IPC + 渲染层对话框）",
+  "createdAt": "2026-08-24T18:30:00+08:00",
+  "branch": "feat/yixiaoer-ue-real-publish",
+  "notes": "需创建新worktree分支；最终目标：D:/01.mp4 真实发布到快手+百家号测试账号"
+}
