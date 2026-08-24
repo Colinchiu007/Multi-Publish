@@ -13933,3 +13933,9 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **第一性原因**：`FunctionalRunner.goto()` 与 `resetToRoute()` 自 E2E 基础设施引入时都直接执行一次 `page.goto`；Windows 临时 socket buffer 耗尽没有恢复边界，单次瞬态故障直接终止整套扫描。
 - **逃逸链**：此前 docs-only PR 因 `pull_request.paths-ignore` 不运行 Browser E2E（流程缺失）；E2E 覆盖可发现问题但没有针对瞬态导航错误的恢复合同（测试场景缺失）；审查只验证了串行并发控制，未检查底层 Playwright 导航错误分类（审查盲区）。
 - **修复与预防**：仅精确匹配 `net::ERR_NO_BUFFER_SPACE` 时短暂等待并重试一次，第二次与任何其他错误原样抛出；`goto`/`resetToRoute` 共享实现，`waitForAppReady` 只在成功后执行。node:test 覆盖成功恢复、非匹配、不成功耗尽与 reset 路径，并由 Gate 8 在真实浏览器扫描前运行；禁止通过恢复 `paths-ignore`、跳过 Gate 8 或把全部错误重试来掩盖问题。
+## 打包 E2E 必须等待真实终态，不得把临界延迟误报为未知（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：PR #1146 Windows build 的电影工程 E2E 在生成检查处报“未捕获生成结果提示”；artifact `9507479285` 最终消息数组实际含 `生成失败`。`ffmpeg` placeholder fallback 因 Windows 缺失 fontconfig 配置耗时，终态在旧 15 秒窗口后约 70ms 出现。
+- **第一性原因**：`film-engineering-real.js` 的生成 toast 调用把 15 秒作为固定预算，没有把已知打包 fallback 的异步终态纳入观察时间。
+- **逃逸链**：首次同 PR Windows build 更快走“已提交 1 个分镜”，未覆盖慢 fallback（测试场景缺失）；CI artifact 已保留消息但 E2E 没有在失败时用它回判（测试质量不足）；审查侧未对“终态可能在 timeout 边界后出现”做预算核验（审查盲区）。
+- **修复与预防**：生成终态预算固定为 30 秒，仍只接受既有真实终态，超时继续失败；模块用 `require.main` 守卫，`waitForToast` 可由 node:test 直接验证延迟消息。后续打包 E2E 修改终态等待时必须覆盖慢路径、未知超时和模块导入无副作用。

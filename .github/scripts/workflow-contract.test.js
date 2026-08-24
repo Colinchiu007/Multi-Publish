@@ -7,6 +7,7 @@ const yaml = require('js-yaml');
 const workflowPath = path.join(__dirname, '..', 'workflows', 'visual-test.yml');
 const qualityGatePath = path.join(__dirname, '..', 'workflows', 'quality-gate.yml');
 const agentJudgePath = path.join(__dirname, '..', 'workflows', 'agent-judge.yml');
+const buildWorkflowPath = path.join(__dirname, '..', 'workflows', 'build.yml');
 const desktopPackagePath = path.join(__dirname, '..', '..', 'apps', 'desktop', 'package.json');
 const desktopVitestConfigPath = path.join(__dirname, '..', '..', 'apps', 'desktop', 'vitest.config.js');
 const rootPackagePath = path.join(__dirname, '..', '..', 'package.json');
@@ -57,6 +58,16 @@ test('Quality Gate Gate 8 在真实浏览器扫描前执行 manual 控件合同�
   assert.match(gate8, /if \(\$runnerContractExit -ne 0\) \{ exit \$runnerContractExit \}/);
   assert.match(gate8, /\$e2eExit\s*=\s*\$LASTEXITCODE/);
   assert.match(gate8, /finally\s*\{[\s\S]*?taskkill \/PID \$viteProcess\.Id \/T \/F/);
+});
+
+test('Windows 打包电影工程 E2E 先运行终态观察合同', () => {
+  const workflow = fs.readFileSync(buildWorkflowPath, 'utf8');
+  const contractIndex = workflow.indexOf('node apps/desktop/tests/e2e/film-engineering-real.test.js');
+  const e2eIndex = workflow.indexOf('pnpm --filter @multi-publish/desktop test:e2e:film-engineering');
+
+  assert.ok(contractIndex >= 0, 'Windows build 必须运行电影工程 E2E 终态观察合同');
+  assert.ok(e2eIndex >= 0, 'Windows build 必须运行电影工程真实 E2E');
+  assert.ok(contractIndex < e2eIndex, '终态观察合同必须先于电影工程真实 E2E');
 });
 
 test('桌面覆盖率门禁串行运行，避免全量 V8 coverage 资源竞争', () => {

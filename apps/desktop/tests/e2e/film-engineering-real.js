@@ -20,6 +20,7 @@ const REPO_ROOT = path.resolve(DESKTOP, '..', '..')
 const OUTPUT_DIR = process.env.FILM_E2E_OUTPUT
   ? path.resolve(REPO_ROOT, process.env.FILM_E2E_OUTPUT)
   : path.join(os.tmpdir(), 'multi-publish-film-engineering-e2e-' + Date.now())
+const GENERATION_RESULT_TIMEOUT = 30000
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const report = {
@@ -85,11 +86,11 @@ async function assertNoValidationMessage (page, action) {
   return check(action + ' 未出现参数校验错误', invalid.length === 0, invalid.join(' | '))
 }
 
-async function waitForToast (page, pattern, timeoutMs = 10000) {
+async function waitForToast (page, pattern, timeoutMs = 10000, intervalMs = 200) {
   return waitFor(async () => {
     const messages = await capturedMessages(page)
     return messages.find((text) => pattern.test(text)) || ''
-  }, timeoutMs, 200)
+  }, timeoutMs, intervalMs)
 }
 
 async function installMessageObserver (page) {
@@ -233,7 +234,7 @@ async function run () {
     const libraryTab = page.locator('.fe-tabs .el-tabs__item').filter({ hasText: '分镜库' })
     await libraryTab.click()
     await generate.click()
-    const generateMessage = await waitForToast(page, /已提交|生成完成|Provider|配置|不可用|生成失败|提交的数据不符合要求/, 15000)
+    const generateMessage = await waitForToast(page, /已提交|生成完成|Provider|配置|不可用|生成失败|提交的数据不符合要求/, GENERATION_RESULT_TIMEOUT)
     const expectedProviderBlock = /Provider|配置|不可用|API|模型服务商/i.test(generateMessage)
     const generationSucceeded = /已提交|生成完成/.test(generateMessage)
     check('生成入口已真实调用且未触发参数校验错误', Boolean(generateMessage) && !/提交的数据不符合要求/.test(generateMessage), generateMessage || '未捕获生成结果提示')
@@ -268,11 +269,18 @@ async function run () {
   if (report.status !== 'passed') process.exitCode = 1
 }
 
-run().catch((error) => {
-  report.status = 'failed'
-  report.failure = error instanceof Error ? error.stack || error.message : String(error)
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true })
-  fs.writeFileSync(path.join(OUTPUT_DIR, 'film-engineering-real-e2e.json'), JSON.stringify(report, null, 2))
-  console.error('E2E_FATAL ' + report.failure)
-  process.exitCode = 1
-})
+if (require.main === module) {
+  run().catch((error) => {
+    report.status = 'failed'
+    report.failure = error instanceof Error ? error.stack || error.message : String(error)
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true })
+    fs.writeFileSync(path.join(OUTPUT_DIR, 'film-engineering-real-e2e.json'), JSON.stringify(report, null, 2))
+    console.error('E2E_FATAL ' + report.failure)
+    process.exitCode = 1
+  })
+}
+
+module.exports = {
+  GENERATION_RESULT_TIMEOUT,
+  waitForToast,
+}

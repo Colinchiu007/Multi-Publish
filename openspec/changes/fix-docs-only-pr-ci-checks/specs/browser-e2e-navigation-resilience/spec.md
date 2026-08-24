@@ -23,3 +23,17 @@
 
 - **WHEN** `resetToRoute` 遇到一次匹配的瞬态错误后成功
 - **THEN** 它使用与 `goto` 相同的恢复策略，并仅在成功后以调用方的 ready timeout 等待目标路由
+
+### Requirement: 打包电影工程 E2E 捕获延迟生成终态
+
+电影工程打包 E2E SHALL 在点击生成后等待既有的成功、Provider/配置阻断、生成失败或参数校验终态消息，观察预算 SHALL 为 30 秒。测试模块被 node:test require 时 SHALL NOT 启动 Electron；`waitForToast` SHALL 可独立验证延迟到达的匹配消息。
+
+#### Scenario: fallback 终态在旧窗口后到达
+
+- **WHEN** Windows 打包 fallback 在 15 秒之后、30 秒之前产生 `生成失败` 消息
+- **THEN** E2E 捕获该消息并将结果分类为生成失败，而不是报告未知结果
+
+#### Scenario: 合同导入不启动应用
+
+- **WHEN** node:test require 电影工程 E2E 模块以验证等待 helper
+- **THEN** 该模块不启动 Electron、也不依赖本地打包 exe

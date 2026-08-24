@@ -5,10 +5,10 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "ci-test",
-  "currentPhase": "implementation",
-  "nextAction": "完成 Browser E2E 瞬态导航恢复的审查与远程 CI 验证",
+  "currentPhase": "review",
+  "nextAction": "推送打包电影工程 E2E 终态观察修复，并验证完整远程 CI",
   "createdAt": "2026-08-24T12:10:34+08:00",
   "branch": "codex/s2v-progress-unify-scope-doc",
   "openspecChange": "fix-docs-only-pr-ci-checks",
-  "remoteStatus": "ci_failure_fix_in_progress"
+  "remoteStatus": "ci_feedback_fix_ready_to_push"
 }

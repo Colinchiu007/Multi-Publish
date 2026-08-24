@@ -9,6 +9,7 @@
 | 待办 | docs-only PR 不会自然产生 5 个 path-filtered required job，导致 `BLOCKED` | PR #1146 head `44d439c22` 的 check-run 差集 |
 | 待办 | `ci-path-gating` 与 `workflow-contract.test.js` 仍把 docs-only PR 跳过视为契约 | live spec 与 `.github/scripts/workflow-contract.test.js` |
 | 待办 | 首次全量运行在 Windows Browser E2E 的 `/accounts` 导航遇到 `net::ERR_NO_BUFFER_SPACE`，`FunctionalRunner` 单次失败即终止 | PR #1146 run `32689611032`、job `97320821372`；`functional-runner.js:goto/resetToRoute` |
+| 待办 | 下一轮 Windows build 已打包成功，但电影工程 E2E 的 `生成失败` toast 晚于 15 秒观察窗约 70ms，报告为未知结果 | PR #1146 run `32691383741`、job `97325562415`、artifact `9507479285` |
 
 ## Goals / Non-Goals
 
@@ -50,17 +51,24 @@
 
 备选“重新加回 PR 路径过滤、跳过 Gate 8 或把全部导航错误重试”被拒绝：前两者会重建缺失检查问题，后一种会隐藏 Vite、路由和应用启动的真实故障。
 
+### 5. 打包电影工程生成终态观察预算
+
+电影工程 E2E 的生成动作不假设 Provider 或 Windows fallback 在固定短时间内完成；它继续等待已有的成功、Provider/配置阻断、生成失败和参数校验终态，但预算提升到 30 秒。`waitForToast` 可被 node:test 直接验证，并由模块入口守卫防止 require 合同文件时意外启动 Electron。
+
+备选“把生成失败视为自动通过、不再运行打包 E2E、或无限等待”被拒绝：前两者掩盖真实失败，最后一种会让 CI 无上界。
+
 ## Risks / Trade-offs
 
 - [纯文档 PR CI 时间和 runner 消耗增加] → 只在 PR 执行；合并后的 `push main` 继续过滤；由 GitHub Actions 并行 job 缩短 wall-clock。
 - [workflow 配置变更的首个 PR 需要验证各 job 真实出现] → 用本 PR 的 docs-only 变更作为回归样本，核对 13 个 required contexts 与 PR check-runs 的差集为空。
 - [Doc Gate 对配置 PR 执行后暴露既有同步问题] → 这属于真实门禁结果，修复输入或脚本；不得重新用 path filter 隐藏。
 - [`ERR_NO_BUFFER_SPACE` 非瞬态或反复发生] → 最多一次重试，最终保留 Playwright 原始错误；CI artifact 与错误日志继续提供诊断证据，不把不稳定性伪装成通过。
+- [打包 fallback 长于 30 秒] → 仍以超时失败并保留 artifact；预算只覆盖已观测的 Windows 15 秒临界延迟，不能无限放宽。
 
 ## Migration Plan
 
 1. 更新 workflow、契约测试与 `ci-path-gating` delta spec。
 2. 本地运行 workflow-contract 与文档同步检查，提交后推送 PR #1146。
-3. 在 Gate 8 的真实 E2E 前执行导航恢复合同，再运行全套 Browser E2E。
+3. 在 Gate 8 的真实 E2E 前执行导航恢复合同，再运行全套 Browser E2E；在 Windows build 中执行带 30 秒生成终态预算的电影工程真实 E2E。
 4. GitHub `pull_request.synchronize` 自动运行全套 workflow；验证分支保护 required contexts 全部存在且成功。
 5. 若 CI 成本或稳定性不可接受，回退本 PR 的 workflow 配置提交即可恢复现有过滤；不修改 GitHub branch protection。

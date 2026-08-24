@@ -46,3 +46,16 @@
 
 - 2026-08-24 并行启动 OpenCode 与 Claude reviewer wrapper，均在 4 分钟上限内结束但当前工具会话没有返回可消费的审查 stdout，未形成有效外部报告。
 - 按机制硬化降级：保留本地逐项复审、OpenSpec 严格校验、workflow/runner 合同、E2E 等待门禁及完整真实 Browser E2E 作为补偿证据；推送后仍以 GitHub Windows Gate 8 为最终独立验证。
+
+## CI 反馈：电影工程打包 E2E 终态观察修复（2026-08-24）
+
+### QM-5 根因与逃逸分析
+
+- **第一性原因**：`fe43749b7` 的 `film-engineering-real.js:236` 将生成终态的 toast 观察固定为 15 秒。PR #1146 Windows build `32691383741` / job `97325562415` 的 artifact `9507479285` 显示 `生成失败` 在测试判定后约 70ms 到达。
+- **逃逸链**：前一轮同 PR build 快速得到“已提交 1 个分镜”，没有覆盖 ffmpeg/fontconfig fallback 慢路径；测试没有把延迟终态抽成可独立回归的 helper；审查未把“真实生成失败”与“未观察到消息”区分为不同失败类型。
+- **系统性漏洞**：打包 E2E 用单个较短时间窗断言异步结果，没有按真实 fallback 上界设计终态观察预算。
+- **修复与回归保护**：生成结果预算提升至 30 秒，保留已有匹配模式和超时失败；新增 `require.main` 入口守卫，并在 `film-engineering-real.test.js` 覆盖 30 秒合同及延迟消息捕获。实际本机打包运行在主窗口出现前超时，记录为本机环境例外；远端 artifact 是本缺陷与后续 CI 的权威验证。
+
+### 本地复审结论
+
+未发现 Critical 或 Warning。该修复不改变产品生成、Provider 调用、ffmpeg 或 CI required context；只让已有的真实终态有有限时间被观察。

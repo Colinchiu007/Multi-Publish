@@ -10,7 +10,8 @@
 - [x] 2.2 运行受影响本地门禁：workflow contract、`scripts/check-docs-sync.sh --base=main --head=HEAD`、`git diff --check`。
 - [x] 2.3 为 `FunctionalRunner` 新增 node:test 导航恢复合同：精确 `ERR_NO_BUFFER_SPACE` 重试一次、非匹配错误不重试、耗尽后原样抛出、成功后才 `waitForAppReady`；运行 `node --test apps/desktop/tests/e2e/helpers/functional-runner.test.js` 与 `e2e-remaining-waits.test.js`。
 - [x] 2.4 在 `QG Browser E2E` 中于真实扫描前执行该合同，并扩展 `workflow-contract.test.js` 锁定调度顺序。
-- [ ] 2.5 推送并用 PR #1146 验证：13 个 branch-protection required context 都产生真实 check run 且通过，`mergeStateStatus` 不再因缺失 check 或 Browser E2E 瞬态导航失败为 `BLOCKED`。
+- [x] 2.5 修复 Windows build 的电影工程 E2E 终态观察：将生成结果预算从 15 秒调整为 30 秒，node:test 覆盖延迟终态与导入不启动 Electron；Windows build 在真实 E2E 前执行该合同；运行 `node --test apps/desktop/tests/e2e/film-engineering-real.test.js` 与 workflow contract。
+- [ ] 2.6 推送并用 PR #1146 验证：13 个 branch-protection required context 都产生真实 check run 且通过，`mergeStateStatus` 不再因缺失 check、Browser E2E 导航瞬态失败或电影工程 E2E 观察不足为 `BLOCKED`。
 
 ## 3. 审查与交付
 
