@@ -1,12 +1,12 @@
 {
   "id": "film-engineering-real-video-e2e",
   "title": "电影工程与 Story2Video 真实环境 E2E 及克隆音色恢复",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "medium",
   "domain": "desktop-pipeline",
-  "currentPhase": "review",
-  "nextAction": "提交、推送并创建 PR",
+  "currentPhase": "completed",
+  "nextAction": "PR #1143 远端检查完成后按仓库流程合并",
   "createdAt": "2026-08-23T10:00:00Z",
   "branch": "codex/film-engineering-real-video-e2e",
   "evidence": {
@@ -15,6 +15,7 @@
     "aiVideoPipelineVideo": "C:/tmp/s2v-real-20260823/real-safe-video.mp4",
     "fixedCarouselEvidence": "C:/tmp/s2v-real-20260823/real-carousel-timeout-fixed-direct-report.json",
     "review": ".ccg/tasks/film-engineering-real-video-e2e/review.md",
-    "remoteStatus": "not-pushed"
+    "remoteStatus": "pr_open_checks_in_progress",
+    "pullRequest": "https://github.com/Colinchiu007/Multi-Publish/pull/1143"
   }
 }
