@@ -13927,3 +13927,9 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **结论**：生产可达的实时进度详情由 `CreateView` 进度弹窗承载；历史摘要与恢复入口由 `CreateViewHistory.vue` 承载。`/create/history` 已重定向到 `/create?view=history`，`CreateHistory.vue` 无生产引用，属于废弃组件。
 - **边界**：统一壳按“是否具有可观察流水线阶段状态 + run identity/恢复协议”收敛；快速渲染（Remotion）loading、发布 timeline、独立分析状态不套用，避免无历史恢复协议却声明“后台运行/在历史记录中可查看”。
 - **教训**：UI 统一不等于语义统一；跨页面共用“进度弹窗”前必须确认 runId、阶段合同和历史恢复路径，否则会为轻量任务伪造后台/历史能力。
+## Windows Browser E2E 导航资源耗尽不能靠跳过 CI 掩盖（fix-docs-only-pr-ci-checks，2026-08-24）
+
+- **现象**：移除 docs-only PR 的路径过滤后，PR #1146 首次执行完整 Gate 8；Windows runner 在 `/accounts` 路由的 `page.goto` 报 `net::ERR_NO_BUFFER_SPACE`，同 run 的账号管理集成流仍通过。
+- **第一性原因**：`FunctionalRunner.goto()` 与 `resetToRoute()` 自 E2E 基础设施引入时都直接执行一次 `page.goto`；Windows 临时 socket buffer 耗尽没有恢复边界，单次瞬态故障直接终止整套扫描。
+- **逃逸链**：此前 docs-only PR 因 `pull_request.paths-ignore` 不运行 Browser E2E（流程缺失）；E2E 覆盖可发现问题但没有针对瞬态导航错误的恢复合同（测试场景缺失）；审查只验证了串行并发控制，未检查底层 Playwright 导航错误分类（审查盲区）。
+- **修复与预防**：仅精确匹配 `net::ERR_NO_BUFFER_SPACE` 时短暂等待并重试一次，第二次与任何其他错误原样抛出；`goto`/`resetToRoute` 共享实现，`waitForAppReady` 只在成功后执行。node:test 覆盖成功恢复、非匹配、不成功耗尽与 reset 路径，并由 Gate 8 在真实浏览器扫描前运行；禁止通过恢复 `paths-ignore`、跳过 Gate 8 或把全部错误重试来掩盖问题。

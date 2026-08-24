@@ -8,9 +8,11 @@
 
 - [x] 2.1 更新 `ci-path-gating` delta spec、合并检查说明、质量门禁与 learnings，记录“PR 全覆盖 / main push 去重”及 CI 成本；运行 `openspec validate fix-docs-only-pr-ci-checks --strict`。live spec 将在远程 CI 通过且 change 归档时合入。
 - [x] 2.2 运行受影响本地门禁：workflow contract、`scripts/check-docs-sync.sh --base=main --head=HEAD`、`git diff --check`。
-- [ ] 2.3 推送并用 docs-only PR #1146 验证：13 个 branch-protection required context 都产生真实 check run 且通过，`mergeStateStatus` 不再因缺失 check 为 `BLOCKED`。
+- [x] 2.3 为 `FunctionalRunner` 新增 node:test 导航恢复合同：精确 `ERR_NO_BUFFER_SPACE` 重试一次、非匹配错误不重试、耗尽后原样抛出、成功后才 `waitForAppReady`；运行 `node --test apps/desktop/tests/e2e/helpers/functional-runner.test.js` 与 `e2e-remaining-waits.test.js`。
+- [x] 2.4 在 `QG Browser E2E` 中于真实扫描前执行该合同，并扩展 `workflow-contract.test.js` 锁定调度顺序。
+- [ ] 2.5 推送并用 PR #1146 验证：13 个 branch-protection required context 都产生真实 check run 且通过，`mergeStateStatus` 不再因缺失 check 或 Browser E2E 瞬态导航失败为 `BLOCKED`。
 
 ## 3. 审查与交付
 
-- [x] 3.1 双模型审查 workflow/contract/spec diff；Critical 必修，Warning 记录处置。外部 OpenCode/Claude 通道均未产出可用报告，按降级规则完成本地逐项审查，详见 `.ccg/tasks/fix-docs-only-pr-ci-checks/review.md`。
+- [ ] 3.1 双模型审查 workflow、E2E helper、合同测试与 OpenSpec diff；Critical 必修，Warning 记录处置。若通道不可用，按降级规则记录并完成本地逐项审查。
 - [ ] 3.2 合并后核对 `origin/main`、归档 OpenSpec 与 CCG task、运行 `scripts/openspec-sync-check.js`。

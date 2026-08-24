@@ -8,6 +8,7 @@
 | 已交付 | 分支保护 required contexts 当前包含 8 个 QG job 与 `electron-tests`、`单元测试 + Lint`、`文档同步检查`、双平台 build | `GET /branches/main/protection` |
 | 待办 | docs-only PR 不会自然产生 5 个 path-filtered required job，导致 `BLOCKED` | PR #1146 head `44d439c22` 的 check-run 差集 |
 | 待办 | `ci-path-gating` 与 `workflow-contract.test.js` 仍把 docs-only PR 跳过视为契约 | live spec 与 `.github/scripts/workflow-contract.test.js` |
+| 待办 | 首次全量运行在 Windows Browser E2E 的 `/accounts` 导航遇到 `net::ERR_NO_BUFFER_SPACE`，`FunctionalRunner` 单次失败即终止 | PR #1146 run `32689611032`、job `97320821372`；`functional-runner.js:goto/resetToRoute` |
 
 ## Goals / Non-Goals
 
@@ -43,15 +44,23 @@
 
 备选“删除路径清单与全部过滤”被拒绝：main 的 docs-only 合并会无必要重跑重型 CI，且违背合并后去重目标。
 
+### 4. 精确错误的一次性导航恢复
+
+`FunctionalRunner` 抽取 `goto` 与 `resetToRoute` 共用的导航方法：仅当 `page.goto` 抛出的消息包含 `net::ERR_NO_BUFFER_SPACE` 时，短暂等待后再试一次；第二次失败和任何其他错误都原样抛出。应用就绪等待只在导航成功后进行，并以 node:test 合同在真实 Browser E2E 前运行。
+
+备选“重新加回 PR 路径过滤、跳过 Gate 8 或把全部导航错误重试”被拒绝：前两者会重建缺失检查问题，后一种会隐藏 Vite、路由和应用启动的真实故障。
+
 ## Risks / Trade-offs
 
 - [纯文档 PR CI 时间和 runner 消耗增加] → 只在 PR 执行；合并后的 `push main` 继续过滤；由 GitHub Actions 并行 job 缩短 wall-clock。
 - [workflow 配置变更的首个 PR 需要验证各 job 真实出现] → 用本 PR 的 docs-only 变更作为回归样本，核对 13 个 required contexts 与 PR check-runs 的差集为空。
 - [Doc Gate 对配置 PR 执行后暴露既有同步问题] → 这属于真实门禁结果，修复输入或脚本；不得重新用 path filter 隐藏。
+- [`ERR_NO_BUFFER_SPACE` 非瞬态或反复发生] → 最多一次重试，最终保留 Playwright 原始错误；CI artifact 与错误日志继续提供诊断证据，不把不稳定性伪装成通过。
 
 ## Migration Plan
 
 1. 更新 workflow、契约测试与 `ci-path-gating` delta spec。
 2. 本地运行 workflow-contract 与文档同步检查，提交后推送 PR #1146。
-3. GitHub `pull_request.synchronize` 自动运行全套 workflow；验证分支保护 required contexts 全部存在且成功。
-4. 若 CI 成本或稳定性不可接受，回退本 PR 的 workflow 配置提交即可恢复现有过滤；不修改 GitHub branch protection。
+3. 在 Gate 8 的真实 E2E 前执行导航恢复合同，再运行全套 Browser E2E。
+4. GitHub `pull_request.synchronize` 自动运行全套 workflow；验证分支保护 required contexts 全部存在且成功。
+5. 若 CI 成本或稳定性不可接受，回退本 PR 的 workflow 配置提交即可恢复现有过滤；不修改 GitHub branch protection。

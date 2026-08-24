@@ -42,12 +42,19 @@ test('Quality Gate Gate 8 在真实浏览器扫描前执行 manual 控件合同�
 
   assert.ok(gate8, 'Gate 8 workflow step must exist');
   assert.match(gate8, /node apps\/desktop\/tests\/e2e\/helpers\/route-functional-suite\.test\.js/);
+  assert.match(gate8, /node apps\/desktop\/tests\/e2e\/helpers\/functional-runner\.test\.js/);
   assert.ok(
     gate8.indexOf('route-functional-suite.test.js') < gate8.indexOf('pnpm.cmd --filter @multi-publish/desktop run test:e2e'),
     'manual 控件合同测试必须先于真实 Browser E2E',
   );
+  assert.ok(
+    gate8.indexOf('functional-runner.test.js') < gate8.indexOf('pnpm.cmd --filter @multi-publish/desktop run test:e2e'),
+    '导航恢复合同测试必须先于真实 Browser E2E',
+  );
   assert.match(gate8, /\$contractExit\s*=\s*\$LASTEXITCODE/);
   assert.match(gate8, /if \(\$contractExit -ne 0\) \{ exit \$contractExit \}/);
+  assert.match(gate8, /\$runnerContractExit\s*=\s*\$LASTEXITCODE/);
+  assert.match(gate8, /if \(\$runnerContractExit -ne 0\) \{ exit \$runnerContractExit \}/);
   assert.match(gate8, /\$e2eExit\s*=\s*\$LASTEXITCODE/);
   assert.match(gate8, /finally\s*\{[\s\S]*?taskkill \/PID \$viteProcess\.Id \/T \/F/);
 });

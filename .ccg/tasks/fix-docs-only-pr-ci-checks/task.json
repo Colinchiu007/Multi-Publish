@@ -4,11 +4,11 @@
   "status": "in_progress",
   "complexity": "M",
   "risk": "medium",
-  "domain": "ci",
-  "currentPhase": "review",
-  "nextAction": "推送到 PR #1146，验证完整 required check 集合",
+  "domain": "ci-test",
+  "currentPhase": "implementation",
+  "nextAction": "完成 Browser E2E 瞬态导航恢复的审查与远程 CI 验证",
   "createdAt": "2026-08-24T12:10:34+08:00",
   "branch": "codex/s2v-progress-unify-scope-doc",
   "openspecChange": "fix-docs-only-pr-ci-checks",
-  "remoteStatus": "analysis_in_progress"
+  "remoteStatus": "ci_failure_fix_in_progress"
 }

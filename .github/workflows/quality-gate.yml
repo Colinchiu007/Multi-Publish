@@ -497,6 +497,10 @@ jobs:
             $contractExit = $LASTEXITCODE
             if ($contractExit -ne 0) { exit $contractExit }
 
+            node apps/desktop/tests/e2e/helpers/functional-runner.test.js
+            $runnerContractExit = $LASTEXITCODE
+            if ($runnerContractExit -ne 0) { exit $runnerContractExit }
+
             pnpm.cmd --filter @multi-publish/desktop run test:e2e
             $e2eExit = $LASTEXITCODE
           } finally {

@@ -3,14 +3,14 @@
 ## 总览
 
 - 路由覆盖: 18/18 (100%)
-- 路由检查: 270/270 通过 (0 失败)
+- 路由检查: 273/273 通过 (0 失败)
 - 路由 console errors: 0
 - 路由 page errors: 0
 - 集成流: 6/6 通过
 - 集成检查: 44/44 通过
 - 集成流 console errors: 0
 - 集成流 page errors: 0
-- **总计: 314/314 checks 通过, 0 errors**
+- **总计: 317/317 checks 通过, 0 errors**
 
 ## 路由覆盖矩阵
 
@@ -30,7 +30,7 @@
 | AI 创作 | `/create` | 58 | 58 | 0 | 0 | ✅ PASS |
 | 创作结果 | `/create/result` | 10 | 10 | 0 | 0 | ✅ PASS |
 | 创作流水线 | `/create/pipeline` | 11 | 11 | 0 | 0 | ✅ PASS |
-| 创作历史 | `/create/history` | 11 | 11 | 0 | 0 | ✅ PASS |
+| 创作历史 | `/create/history` | 14 | 14 | 0 | 0 | ✅ PASS |
 | 云端发布 | `/cloud-publish` | 12 | 12 | 0 | 0 | ✅ PASS |
 | 智能助手 | `/intelligence` | 15 | 15 | 0 | 0 | ✅ PASS |
 | 排期日历 | `/calendar` | 13 | 13 | 0 | 0 | ✅ PASS |
