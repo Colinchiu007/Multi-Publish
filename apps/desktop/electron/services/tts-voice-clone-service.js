@@ -654,9 +654,107 @@ class TtsVoiceCloneService {
       } catch (_) { continue }
       if (!registry || !Array.isArray(registry.voices)) continue
       const clone = registry.voices.find(v => v.id === voiceId && v.deletionState === DELETE_STATES.ACTIVE)
-      if (clone && clone.sampleStorage) return { sampleStorage: clone.sampleStorage, name: clone.name }
+      if (clone && clone.sampleStorage) {
+        return { sampleStorage: clone.sampleStorage, name: clone.name, model: m }
+      }
     }
     return null
+  }
+
+  /**
+   * Persist a provider-issued replacement id after a cloned voice is recreated.
+   * The original samples remain attached to the replacement record so a later
+   * run can recover directly instead of retrying the stale id first.
+   */
+  async replaceCloneVoiceId(input) {
+    const request = this._normalizeVoiceIdReplacementRequest(input);
+    if (!request) return failure("VOICE_CLONE_INVALID_ARGUMENTS");
+    const owner = this._captureOwner();
+    if (!owner) return failure("VOICE_OWNER_UNAVAILABLE");
+    return this._withRegistryLock(request, owner, () =>
+      this._replaceCloneVoiceIdLocked(request, owner),
+    );
+  }
+
+  async _replaceCloneVoiceIdLocked(request, owner) {
+    if (!this._hasUserSettings()) return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    const registryResult = this._readRegistry(request, owner);
+    if (registryResult.error) return registryResult.error;
+    const clone = registryResult.registry.voices.find((voice) => voice.id === request.voiceId);
+    if (!clone) return failure("VOICE_CLONE_NOT_FOUND");
+    if (request.replacementVoiceId === clone.id) {
+      return success({
+        providerId: request.providerId,
+        model: request.model,
+        voice: publicVoice(clone),
+        migrated: false,
+      });
+    }
+    if (registryResult.registry.voices.some((voice) => voice.id === request.replacementVoiceId)) {
+      return failure("VOICE_CLONE_DUPLICATE_ID");
+    }
+    if (!isProviderCloneVoiceIdValid(request.providerId, request.replacementVoiceId)) {
+      return failure("VOICE_CLONE_INVALID_VOICE_ID");
+    }
+
+    const replacement = { ...clone, id: request.replacementVoiceId };
+    const nextRegistry = this._replaceClone(registryResult.registry, replacement, clone.id);
+    if (!this._writeRegistry(registryResult.key, nextRegistry, owner.subject)) {
+      return failure("VOICE_CLONE_STORE_UNAVAILABLE");
+    }
+
+    const preferenceKey = clonePreferenceSettingKey(request.providerId, request.model);
+    let preference;
+    try {
+      preference = this._store.getUserSetting(preferenceKey, null, owner.subject);
+    } catch (_) {
+      // The registry is already migrated; keep the successful TTS recovery and
+      // let the next catalog load repair a preference store read failure.
+      return success({
+        providerId: request.providerId,
+        model: request.model,
+        voice: publicVoice(replacement),
+        migrated: true,
+        preferenceMigrated: false,
+      });
+    }
+    if (preference && typeof preference === "object" && preference.voiceId === clone.id) {
+      try {
+        this._store.setUserSetting(preferenceKey, {
+          ...preference,
+          providerId: request.providerId,
+          model: request.model,
+          voiceId: replacement.id,
+        }, owner.subject);
+      } catch (_) {
+        this._log.warn(
+          "TtsVoiceClone",
+          "replacement voice preference migration failed; registry replacement retained",
+        );
+        return success({
+          providerId: request.providerId,
+          model: request.model,
+          voice: publicVoice(replacement),
+          migrated: true,
+          preferenceMigrated: false,
+        });
+      }
+      return success({
+        providerId: request.providerId,
+        model: request.model,
+        voice: publicVoice(replacement),
+        migrated: true,
+        preferenceMigrated: true,
+      });
+    }
+
+    return success({
+      providerId: request.providerId,
+      model: request.model,
+      voice: publicVoice(replacement),
+      migrated: true,
+      preferenceMigrated: false,
+    });
   }
 
 async renameClone(input) {
@@ -740,6 +838,15 @@ async renameClone(input) {
     const request = this._normalizeRequest(input);
     const voiceId = input && safeIdentifier(input.voiceId, MAX_VOICE_ID_LENGTH);
     return request && voiceId ? { ...request, voiceId } : null;
+  }
+
+  _normalizeVoiceIdReplacementRequest(input) {
+    const request = this._normalizeRequest(input);
+    const voiceId = input && safeIdentifier(input.voiceId, MAX_VOICE_ID_LENGTH);
+    const replacementVoiceId = input && safeIdentifier(input.replacementVoiceId, MAX_VOICE_ID_LENGTH);
+    return request && voiceId && replacementVoiceId
+      ? { ...request, voiceId, replacementVoiceId }
+      : null;
   }
 
   _normalizeRenameRequest(input) {
@@ -933,10 +1040,10 @@ async renameClone(input) {
     return { key, registry: value };
   }
 
-  _replaceClone(registry, replacement) {
+  _replaceClone(registry, replacement, previousId = replacement.id) {
     return {
       ...registry,
-      voices: registry.voices.map((voice) => (voice.id === replacement.id ? replacement : voice)),
+      voices: registry.voices.map((voice) => (voice.id === previousId ? replacement : voice)),
     };
   }
 

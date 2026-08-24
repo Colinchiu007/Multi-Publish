@@ -80,6 +80,10 @@ async function createRecloneFixture() {
     sampleStorage: { relativeDir: 'voice-clone-samples/owner/storage-1' },
     name: '音色001',
   }))
+  const replaceCloneVoiceId = vi.fn(async ({ voiceId, replacementVoiceId }) => ({
+    code: 0,
+    data: { migrated: true, voice: { id: replacementVoiceId }, previousVoiceId: voiceId },
+  }))
   const manager = {
     // Match the production ModelProviderManager contract. It exposes
     // callAdapter(), not getAdapter(), and wraps adapter results in code/data.
@@ -92,6 +96,7 @@ async function createRecloneFixture() {
   }
   const cloneService = {
     findCloneSamples,
+    replaceCloneVoiceId,
     _resolveUserDataPath: () => sampleRoot,
   }
   const container = {
@@ -103,6 +108,7 @@ async function createRecloneFixture() {
     manager,
     cloneVoice,
     findCloneSamples,
+    replaceCloneVoiceId,
     container,
     aiGenerator: { _modelProviderManager: manager },
   }
@@ -124,6 +130,11 @@ function expectRecloneAttempt(fixture) {
     { providerRunContext: expect.any(Object) },
   )
   expect(fixture.cloneVoice).toHaveBeenCalledTimes(1)
+  expect(fixture.replaceCloneVoiceId).toHaveBeenCalledWith(expect.objectContaining({
+    providerId: 'minimax-multimodal',
+    voiceId: 'MiniMaxVoice_original001',
+    replacementVoiceId: 'MiniMaxVoice_recloned123',
+  }))
 }
 
 /**
