@@ -69,3 +69,9 @@ Prettier 例外：三份变更文件与 `origin/main` 对应版本均返回非�
 ## 远程同步
 
 PR #1150 已于 2026-08-24 创建并推送，head 初始提交为 `4dca22c0f`；`remoteStatus=pr_open_checks_pending`。下一步：等待 required checks；合并后核对 `origin/main`，再执行 OpenSpec + CCG task + 质量门禁三同步归档。
+
+## CI 文档门禁回补（2026-08-24）
+
+PR #1150 的首轮 head `b7c3819e4720b1392d250672f9dd61ed2e3ff21f` 在 Doc Sync Gate 的 run `32705424067` / job `97365360720` 失败。失败原因不是实现或测试，而是运行时代码变更只携带了 CCG/OpenSpec/质量工件，未修改门禁认可的产品文档路径。
+
+已在 `01-docs/PRD.md` §7.4.1.2 补充“普通模型覆盖遗留多模态全局默认”的原子状态迁移规则，并把运行时路由、持久化 provider 行、重新加载后的卡片状态三层一致性和对应回归测试写入验收合同。该文档变更随下一次推送触发 Doc Sync Gate 复验；在新的 required checks 全部完成前，`remoteStatus` 保持待验证。
