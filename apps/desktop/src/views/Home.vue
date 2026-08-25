@@ -107,6 +107,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIdentityStore } from '@/stores/identity'
@@ -178,7 +179,7 @@ function go(path) {
 onMounted(async () => {
   try {
     platformStore.load()
-    const api = window.electronAPI
+    const api = getApi()
     if (api) {
       if (api.storeGetPublishStats) {
         const res = await api.storeGetPublishStats()

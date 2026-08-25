@@ -7,6 +7,7 @@
  *   - init 调用 electronAPI.offlineStatus 获取初始状态 + 注册 onOfflineRestored 监听
  */
 import { ref } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 
 /**
  * 离线状态 composable
@@ -17,7 +18,7 @@ export function useOfflineStatus() {
   const cachedTaskCount = ref(0)
 
   function init() {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api) return
     if (api.offlineStatus) {
       try {

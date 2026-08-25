@@ -63,6 +63,7 @@
 
 <script setup>
 import UiModal from "../components/UiModal.vue";
+import { getApi } from '@/api/electron-bridge'
 import UiButton from "../components/UiButton.vue";
 import UiSelect from "../components/UiSelect.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -110,7 +111,7 @@ function platformLabel (id) {
 const unlisteners = []
 
 onMounted(() => {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api) return
 
   // 监听事件
@@ -145,7 +146,7 @@ onUnmounted(() => {
 })
 
 async function loadTabs () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.webviewListTabs) return
   const res = await api.webviewListTabs()
   if (res.code === 0 && res.data) {
@@ -155,7 +156,7 @@ async function loadTabs () {
 
 async function switchLayout (count) {
   currentLayout.value = count
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.webviewSetLayout) {
     await api.webviewSetLayout(count)
   }
@@ -169,7 +170,7 @@ async function confirmAdd () {
   if (!newPlatform.value) { ElMessage.warning('请选择平台'); return }
   adding.value = true
   try {
-    const api = window.electronAPI
+    const api = getApi()
     if (api && api.webviewOpenTab) {
       const res = await api.webviewOpenTab({ platform: newPlatform.value })
       if (res.code === 0) {
@@ -188,7 +189,7 @@ async function confirmAdd () {
 }
 
 async function closeAllTabs () {
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.webviewCloseAll) {
     await api.webviewCloseAll()
     tabs.value = []

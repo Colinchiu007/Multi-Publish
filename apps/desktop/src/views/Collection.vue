@@ -93,6 +93,7 @@
 <script setup>
 // eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
+import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, onMounted } from 'vue'
@@ -158,7 +159,7 @@ async function importFromClipboard () {
 }
 
 function openCollection (platform) {
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.webviewOpenTab) {
     api.webviewOpenTab({ platform })
     ElMessage.success(`已打开 ${platform} 采集页面`)
@@ -186,7 +187,7 @@ async function deleteDraft (d) {
 }
 
 async function collectUrl () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.urlCollectFetch) {
     ElMessage.warning('采集功能不可用')
     return

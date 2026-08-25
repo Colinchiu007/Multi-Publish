@@ -12,10 +12,11 @@
  * 依赖 window.electronAPI（Electron 窗口）；浏览器直开 Vite 时静默降级。
  */
 import { ref, reactive, computed } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { ElMessage } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
 
-const api = () => (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.videoClone) || null
+const api = () => (getApi() || {}).videoClone || null
 
 const STAGE_LABELS = ['ingest', 'analyze', 'plan', 'generate', 'compose', 'publish']
 

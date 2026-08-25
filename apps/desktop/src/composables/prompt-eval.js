@@ -4,10 +4,7 @@
  * 封装 window.electronAPI.promptEval* 调用与响应式状态。
  */
 import { ref } from 'vue'
-
-function getApi() {
-  return (typeof window !== 'undefined' && window.electronAPI) || null
-}
+import { getApi } from '@/api/electron-bridge'
 
 export function usePromptEval() {
   const records = ref([])

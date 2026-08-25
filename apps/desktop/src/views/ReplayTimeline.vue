@@ -164,6 +164,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { useRoute } from 'vue-router'
 import UiButton from '@/components/UiButton.vue'
 import BoardStageIndicator from '@/components/BoardStageIndicator.vue'
@@ -220,7 +221,7 @@ async function loadReplay() {
   loading.value = true
   error.value = null
   try {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api || !api.replay || !api.replay.get) {
       error.value = 'IPC API 不可用'
       loading.value = false

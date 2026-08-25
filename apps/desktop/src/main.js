@@ -12,6 +12,7 @@ import App from './App.vue'
 import i18n from './i18n'
 import router from './router'
 import { reportError } from './utils/report-error'
+import { getApi } from './api/electron-bridge'
 
 const app = createApp(App)
 
@@ -21,8 +22,9 @@ app.config.errorHandler = (err, instance, info) => {
   console.error(msg)
   console.error(err)
   try {
-    if (window.electronAPI?.logError) {
-      window.electronAPI.logError(msg)
+    const api = getApi()
+    if (api?.logError) {
+      api.logError(msg)
     }
   } catch (_) {}
 }

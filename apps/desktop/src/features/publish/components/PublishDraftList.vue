@@ -43,8 +43,7 @@ defineProps({
 
 defineEmits(['edit', 'delete'])
 
-const formatTime = (value) => formatDateTime(value, { emptyText: '发布时间未知', invalidText: '发布时间未知' })
-}
+const formatTime = (value) => formatDateTime(value, { emptyText: '更新时间未知', invalidText: '更新时间未知' })
 </script>
 
 <style scoped>

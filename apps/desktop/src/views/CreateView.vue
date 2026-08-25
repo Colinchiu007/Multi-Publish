@@ -1356,6 +1356,7 @@ import {
   story2videoBatchCreate, story2videoBatchStatus, story2videoBatchCancel, story2videoPickBatchFiles
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
+import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { opsCenterSyncRuntime } from '@/api/ops-center-sync'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -4295,7 +4296,7 @@ export default {
     // API 缺失（旧 preload / 浏览器 dev 环境）时静默跳过，绝不抛出。
     async reportEvolutionFeedback(payload) {
       try {
-        const api = window.electronAPI
+        const api = getApi()
         if (!api || typeof api.generationFeedback !== 'function') return
         const body = {
           type: payload?.type,
@@ -5213,8 +5214,8 @@ export default {
       }
       // File 对象跨 contextBridge 后路径会丢失；先经 getPathForFile 拿到真实路径，
       // 再走基于路径的导入（复制到应用控制目录，供后续 canonical 白名单校验）。
-      const filePath = typeof window.electronAPI?.getPathForFile === 'function'
-        ? await window.electronAPI.getPathForFile(file)
+      const filePath = typeof getApi()?.getPathForFile === 'function'
+        ? await getApi().getPathForFile(file)
         : ''
       if (!filePath) {
         this.pipelineVideo = null

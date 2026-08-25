@@ -141,6 +141,7 @@
 <script setup>
 // eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
+import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted } from 'vue'
@@ -212,7 +213,7 @@ async function refreshSync () {
 }
 
 async function loadStats () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.dashboardStats) return
   try {
     const res = await api.dashboardStats()
@@ -224,7 +225,7 @@ async function loadStats () {
 }
 
 async function loadRecent () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.historyList) return
   try {
     const res = await api.historyList({ limit: 5 })
@@ -236,7 +237,7 @@ async function loadRecent () {
 }
 
 async function loadCached () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.syncCached) return
   try {
     const res = await api.syncCached()

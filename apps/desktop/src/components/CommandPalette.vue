@@ -102,6 +102,7 @@
 <script setup>
 // eslint-disable-next-line no-unused-vars
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { useRouter } from 'vue-router'
 import Fuse from 'fuse.js'
 
@@ -222,7 +223,7 @@ function scrollToActive() {
 
 // ─── 加载已注册的快捷键列表 ────────────────
 async function loadShortcuts() {
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.hotkeysList) {
     try {
       const res = await api.hotkeysList()

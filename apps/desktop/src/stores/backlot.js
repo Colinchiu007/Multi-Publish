@@ -16,6 +16,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { formatUserError } from '@/utils/user-facing-error'
+import { getApi } from '@/api/electron-bridge'
 
 export const useBacklotStore = defineStore('backlot', () => {
   // ─── State ───
@@ -55,7 +56,7 @@ export const useBacklotStore = defineStore('backlot', () => {
    * @returns {Promise<Array>}
    */
   async function loadProjects() {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api || !api.project || !api.project.list) {
       error.value = 'electronAPI.project.list 不可用'
       return []
@@ -88,7 +89,7 @@ export const useBacklotStore = defineStore('backlot', () => {
    * @returns {Promise<boolean>}
    */
   async function deleteProject(projectId) {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api || !api.project || !api.project.del) return false
     try {
       await api.project.del(projectId)
@@ -110,7 +111,7 @@ export const useBacklotStore = defineStore('backlot', () => {
    * @returns {Promise<object|null>} 初始看板状态
    */
   async function subscribeBoard(projectId) {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api || !api.board || !api.board.subscribe) return null
     try {
       const res = await api.board.subscribe(projectId)
@@ -133,7 +134,7 @@ export const useBacklotStore = defineStore('backlot', () => {
    * @returns {Promise<void>}
    */
   async function unsubscribeBoard() {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api || !api.board || !api.board.unsubscribe) return
     try {
       await api.board.unsubscribe()
@@ -151,7 +152,7 @@ export const useBacklotStore = defineStore('backlot', () => {
    * @returns {Promise<object|null>}
    */
   async function fetchBoard(projectId) {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api || !api.board || !api.board.get) return null
     try {
       const res = await api.board.get(projectId)
@@ -196,7 +197,7 @@ export const useBacklotStore = defineStore('backlot', () => {
    * @returns {Promise<boolean>}
    */
   async function approve(approvalId) {
-    const api = window.electronAPI
+    const api = getApi()
     // Task 7/8 未完成时，approval.approve API 可能不存在
     if (!api || !api.approval || !api.approval.approve) {
       pendingApprovals.value = pendingApprovals.value.filter(a => a && a.id !== approvalId)
@@ -219,7 +220,7 @@ export const useBacklotStore = defineStore('backlot', () => {
    * @returns {Promise<boolean>}
    */
   async function reject(approvalId, reason) {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api || !api.approval || !api.approval.reject) {
       pendingApprovals.value = pendingApprovals.value.filter(a => a && a.id !== approvalId)
       return true

@@ -76,6 +76,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue"
+import { getApi } from '@/api/electron-bridge'
 import { usePlatformStore } from "@/stores/platforms"
 
 const platformStore = usePlatformStore()
@@ -263,7 +264,7 @@ function today() {
 
 async function loadData() {
   loading.value = true
-  const api = window.electronAPI
+  const api = getApi()
   try {
     if (api) {
       if (api.schedulerList) {

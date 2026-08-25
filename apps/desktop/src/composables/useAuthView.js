@@ -8,6 +8,7 @@
  *   - 提供 closeLogin 方法（调用 electronAPI.authClose）
  */
 import { ref } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 
 /**
  * 登录视图 composable
@@ -17,7 +18,7 @@ export function useAuthView() {
   const authViewVisible = ref(false)
 
   function registerListeners() {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api) return
     if (api.onAuthViewOpened) {
       api.onAuthViewOpened(function () { authViewVisible.value = true })
@@ -31,7 +32,7 @@ export function useAuthView() {
   }
 
   function closeLogin() {
-    const api = window.electronAPI
+    const api = getApi()
     if (api && api.authClose) api.authClose()
     authViewVisible.value = false
   }

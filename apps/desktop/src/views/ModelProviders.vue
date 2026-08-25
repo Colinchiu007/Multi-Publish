@@ -569,6 +569,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getApi } from '@/api/electron-bridge'
 import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
 import { useOpsCenterSync } from '@/composables/useOpsCenterSync'
 
@@ -667,11 +668,11 @@ async function runSelfCheck () {
   selfCheckRunning.value = true
   selfCheckReportMsg.value = ''
   try {
-    if (!window.electronAPI || typeof window.electronAPI.rateLimitSelfCheck !== 'function') {
+    if (!getApi() || typeof getApi().rateLimitSelfCheck !== 'function') {
       ElMessage.warning(t('modelProviders.noElectronApiSelfCheck'))
       return
     }
-    const res = await window.electronAPI.rateLimitSelfCheck({
+    const res = await getApi().rateLimitSelfCheck({
       ...selfCheckForm.value,
       maxConcurrent: selfCheckForm.value.maxConcurrent || null,
       inject429At: selfCheckForm.value.inject429At || null,
@@ -694,11 +695,11 @@ async function runSelfCheck () {
 async function reportSelfCheck () {
   if (!selfCheckResult.value) return
   try {
-    if (!window.electronAPI || typeof window.electronAPI.rateLimitReport !== 'function') {
+    if (!getApi() || typeof getApi().rateLimitReport !== 'function') {
       ElMessage.warning(t('modelProviders.noElectronApiReport'))
       return
     }
-    const res = await window.electronAPI.rateLimitReport({
+    const res = await getApi().rateLimitReport({
       preset_id: null,
       params: { ...selfCheckForm.value },
       result: selfCheckResult.value.data,

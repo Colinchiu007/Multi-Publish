@@ -4,8 +4,7 @@
  */
 import { defineStore } from "pinia"
 import { ref, computed } from "vue"
-
-const getApi = () => window.electronAPI || null
+import { getApi } from "@/api/electron-bridge"
 
 export const useLicenseStore = defineStore("license", () => {
   const info = ref({ type: "free", isPro: false, features: [], daysRemaining: 0 })

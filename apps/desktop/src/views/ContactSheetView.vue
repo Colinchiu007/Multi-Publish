@@ -115,6 +115,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, reactive, nextTick } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { useRoute } from 'vue-router'
 import UiButton from '@/components/UiButton.vue'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -162,7 +163,7 @@ function toggleRejectInput(sceneId) {
 }
 
 async function approveScene(scene) {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.contactSheet) return
   try {
     const res = await api.contactSheet.approve(scene.id, scene.selectedTakeId)
@@ -175,7 +176,7 @@ async function approveScene(scene) {
 }
 
 async function rejectScene(scene) {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.contactSheet) return
   try {
     const feedback = rejectFeedbacks[scene.id] || ''
@@ -193,7 +194,7 @@ async function refresh() {
   if (!projectId.value) return
   loading.value = true
   error.value = null
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.contactSheet) {
     loading.value = false
     return
@@ -227,7 +228,7 @@ function handleApprovalRequest(payload) {
 const formatTime = (iso) => formatDateTime(iso, { style: 'time' })
 
 onMounted(async () => {
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.contactSheet && api.contactSheet.onApprovalRequest) {
     unsubApproval = api.contactSheet.onApprovalRequest(handleApprovalRequest)
   }

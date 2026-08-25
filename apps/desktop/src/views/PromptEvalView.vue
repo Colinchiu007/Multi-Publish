@@ -165,6 +165,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { usePromptEval } from '@/composables/prompt-eval'
@@ -205,7 +206,7 @@ const partLabel = (p) => PART_LABELS[p] || p
 function onPickImages(event) {
   const files = Array.from(event.target.files || [])
   for (const file of files) {
-    const api = window.electronAPI
+    const api = getApi()
     let filePath = ''
     try {
       filePath = api && typeof api.getPathForFile === 'function' ? String(api.getPathForFile(file) || '') : ''

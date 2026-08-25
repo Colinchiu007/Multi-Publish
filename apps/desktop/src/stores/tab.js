@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 
 /**
  * 标签页 Store — 浏览器式标签管理
@@ -34,7 +35,7 @@ export const useTabStore = defineStore('tabs', () => {
 
   // ── Internal: 获取 pageManager API ──
   function _api() {
-    const api = window.electronAPI?.pageManager
+    const api = getApi()?.pageManager
     if (!api) {
       console.warn('[tabStore] pageManager API not available')
       return null

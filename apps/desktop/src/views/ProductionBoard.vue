@@ -80,6 +80,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { useRoute, useRouter } from 'vue-router'
 import { useLiveBoard } from '@/composables/useBacklot'
 import BoardStageIndicator from '@/components/BoardStageIndicator.vue'
@@ -197,7 +198,7 @@ onMounted(async () => {
     await subscribe()
   }
   // 注册审批门推送监听
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.approvalGate && api.approvalGate.onApprovalRequest) {
     unsubApprovalGate = api.approvalGate.onApprovalRequest(handleApprovalGatePush)
   }
