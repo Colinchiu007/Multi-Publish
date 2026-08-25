@@ -169,6 +169,7 @@ import UiButton from '@/components/UiButton.vue'
 import BoardStageIndicator from '@/components/BoardStageIndicator.vue'
 import SceneCard from '@/components/SceneCard.vue'
 import { formatUserError } from '@/utils/user-facing-error'
+import { formatDateTime } from '@/utils/datetime'
 
 const route = useRoute()
 const projectId = computed(() => route.params.projectId || '')
@@ -295,15 +296,7 @@ function formatDuration(seconds) {
   return m + 'm ' + s + 's'
 }
 
-function formatTime(ts) {
-  if (!ts) return ''
-  try {
-    const d = new Date(ts)
-    return d.toLocaleTimeString('zh-CN', { hour12: false })
-  } catch (_) {
-    return ts
-  }
-}
+const formatTime = (ts) => formatDateTime(ts, { style: 'time', invalidText: ts })
 
 function eventLabel(type) {
   const labels = {

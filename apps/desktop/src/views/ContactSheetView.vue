@@ -118,6 +118,7 @@ import { ref, computed, onMounted, onBeforeUnmount, reactive, nextTick } from 'v
 import { useRoute } from 'vue-router'
 import UiButton from '@/components/UiButton.vue'
 import { formatUserError } from '@/utils/user-facing-error'
+import { formatDateTime } from '@/utils/datetime'
 
 const route = useRoute()
 const projectId = computed(() => route.params.projectId || null)
@@ -223,10 +224,7 @@ function handleApprovalRequest(payload) {
   refresh()
 }
 
-function formatTime(iso) {
-  if (!iso) return ''
-  try { return new Date(iso).toLocaleTimeString('zh-CN') } catch (_) { return '' }
-}
+const formatTime = (iso) => formatDateTime(iso, { style: 'time' })
 
 onMounted(async () => {
   const api = window.electronAPI

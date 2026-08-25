@@ -34,6 +34,8 @@
 </template>
 
 <script setup>
+import { formatDateTime } from '@/utils/datetime'
+
 defineProps({
   drafts: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -41,13 +43,7 @@ defineProps({
 
 defineEmits(['edit', 'delete'])
 
-function formatTime(value) {
-  if (!value) return '更新时间未知'
-  try {
-    return new Date(value).toLocaleString('zh-CN')
-  } catch {
-    return '更新时间未知'
-  }
+const formatTime = (value) => formatDateTime(value, { emptyText: '发布时间未知', invalidText: '发布时间未知' })
 }
 </script>
 

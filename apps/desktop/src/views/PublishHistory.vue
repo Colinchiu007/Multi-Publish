@@ -300,6 +300,7 @@ import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { useRouter } from 'vue-router'
 import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
+import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -711,12 +712,7 @@ function metricValue (value, fallback = '-') {
   return value
 }
 
-function formatTime (value) {
-  if (!value) return t('historyPage.unknownTime')
-  const date = new Date(value)
-  const locale = getAppLocale() === 'en' ? 'en-US' : 'zh-CN'
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(locale)
-}
+const formatTime = (value) => formatDateTime(value, { emptyText: t('historyPage.unknownTime'), invalidText: String(value ?? '') })
 
 function contentPreview (content) {
   const text = String(content).replace(/\s+/g, ' ').trim()

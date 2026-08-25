@@ -146,6 +146,7 @@ import TrendingPanel from '@/components/TrendingPanel.vue'
 import ReferenceFinder from '@/components/ReferenceFinder.vue'
 import { intelligenceSearch, intelligenceSearchTitles } from '@/api/publisher'
 import { reportError } from '@/utils/report-error'
+import { formatDateTime } from '@/utils/datetime'
 
 const query = ref('')
 const searching = ref(false)
@@ -159,12 +160,7 @@ const sourceOptions = [
 ]
 const selectedSources = ref(['reddit', 'hackernews', 'github'])
 
-function formatTime (ts) {
-  if (!ts) return ''
-  try {
-    return new Date(ts).toLocaleString('zh-CN', { hour12: false })
-  } catch { return ts }
-}
+const formatTime = (ts) => formatDateTime(ts, { invalidText: ts })
 
 function sourceLabel (s) {
   const map = { reddit: 'Reddit', hackernews: 'HN', github: 'GitHub' }

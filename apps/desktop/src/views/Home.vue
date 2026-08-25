@@ -111,7 +111,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useIdentityStore } from '@/stores/identity'
 import { usePlatformStore } from '@/stores/platforms'
-import { getAppLocale } from '@/i18n'
+import { formatDateTime } from '@/utils/datetime'
 import { reportError } from '../utils/report-error'
 
 const router = useRouter()
@@ -169,12 +169,7 @@ function statusLabel(status) {
   return t('home.status.' + (map[status] || 'unknown'))
 }
 
-function formatTime(value) {
-  if (!value) return ''
-  const locale = getAppLocale() === 'en' ? 'en-US' : 'zh-CN'
-  try { return new Date(value).toLocaleString(locale, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
-  catch { return '' }
-}
+const formatTime = (value) => formatDateTime(value, { style: 'numeric-short' })
 
 function go(path) {
   router.push(path)

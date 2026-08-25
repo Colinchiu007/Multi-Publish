@@ -149,6 +149,7 @@ import { ElMessage } from 'element-plus'
 // eslint-disable-next-line no-unused-vars
 import { syncAll, syncPlatform } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
+import { formatDateTime } from '@/utils/datetime'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
 import TrialBanner from '@/components/TrialBanner.vue'
 // eslint-disable-next-line no-unused-vars
@@ -166,10 +167,7 @@ platformStore.load()
 
 function platformName (id) { return platformStore.getLabel(id) || id }
 function platformIcon (id) { return platformStore.getIcon(id) || '📊' }
-function formatTime (iso) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-}
+const formatTime = (iso) => formatDateTime(iso, { style: 'hour-minute' })
 
 const totalArticles = computed(() => platformData.value.filter(d => !d.error).reduce((s, d) => s + (d.articles || 0), 0))
 const totalViews = computed(() => platformData.value.filter(d => !d.error).reduce((s, d) => s + (d.views || 0), 0))

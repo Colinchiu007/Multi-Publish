@@ -24,6 +24,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { getPipelineName } from '@/i18n/pipeline-labels'
+import { formatDateTime } from '@/utils/datetime'
 
 const props = defineProps({
   project: { type: Object, required: true },
@@ -61,15 +62,7 @@ const costLabel = computed(() => {
 
 const pipelineName = computed(() => getPipelineName(t, props.project.pipelineType))
 
-function formatTime(iso) {
-  if (!iso) return ''
-  try {
-    const d = new Date(iso)
-    return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-  } catch (_) {
-    return ''
-  }
-}
+const formatTime = (iso) => formatDateTime(iso, { style: 'short' })
 
 function handleClick() {
   router.push('/board/' + props.project.id)

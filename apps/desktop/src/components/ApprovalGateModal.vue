@@ -111,6 +111,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import UiModal from '@/components/UiModal.vue'
 import UiButton from '@/components/UiButton.vue'
 import { formatUserError } from '@/utils/user-facing-error'
+import { formatDateTime } from '@/utils/datetime'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -159,14 +160,7 @@ function badgeClass(type) {
   return 'badge-' + (valid.includes(type) ? type : 'generic')
 }
 
-function formatTime(iso) {
-  if (!iso) return ''
-  try {
-    return new Date(iso).toLocaleString('zh-CN')
-  } catch (_) {
-    return ''
-  }
-}
+const formatTime = (iso) => formatDateTime(iso)
 
 async function loadGate() {
   if (!props.projectId) return

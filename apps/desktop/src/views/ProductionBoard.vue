@@ -86,6 +86,7 @@ import BoardStageIndicator from '@/components/BoardStageIndicator.vue'
 import SceneCard from '@/components/SceneCard.vue'
 import UiButton from '@/components/UiButton.vue'
 import ApprovalGateModal from '@/components/ApprovalGateModal.vue'
+import { formatDateTime } from '@/utils/datetime'
 
 const route = useRoute()
 const router = useRouter()
@@ -175,15 +176,7 @@ function goReplay() {
   router.push('/replay/' + projectId.value)
 }
 
-function formatTime(ts) {
-  if (!ts) return ''
-  try {
-    const d = new Date(ts)
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch (_) {
-    return ''
-  }
-}
+const formatTime = (ts) => formatDateTime(ts, { style: 'time-seconds' })
 
 // 监听 board 变化，记录事件日志
 watch(board, (newBoard, oldBoard) => {

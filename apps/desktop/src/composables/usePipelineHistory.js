@@ -12,6 +12,7 @@ import { ref, computed } from 'vue'
 import { pipelineHistory, story2videoListProjects } from '@/api/publisher'
 import { historyLoadFailureDetail } from '@/story2video/story2video-notifications'
 import { RESUME_BLOCKING_ERROR_PATTERN, filterHistoryByStatus, sortHistoryByEffectiveTime } from '@/views/history-utils'
+import { formatDateTime } from '@/utils/datetime'
 
 const HISTORY_LOAD_TIMEOUT_MS = 5000
 const STALE_RUNNING_THRESHOLD_MS = 30 * 60 * 1000
@@ -253,10 +254,7 @@ export function usePipelineHistory(options = {}) {
     return name + (status ? ' · ' + status : '')
   }
 
-  function formatTime(iso) {
-    if (!iso) return ''
-    try { return new Date(iso).toLocaleString('zh-CN') } catch (_) { return iso }
-  }
+  const formatTime = (iso) => formatDateTime(iso, { invalidText: String(iso ?? '') })
 
   function truncateError(error) {
     if (!error) return ''
