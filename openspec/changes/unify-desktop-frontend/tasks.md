@@ -13,8 +13,8 @@
 - [x] 2.1 危险操作补二次确认：批量删除发布记录、删除项目、删除音色 → confirmDanger 封装 + 后果文案
 - [x] 2.2 window.confirm 清零：SceneAssetSelection、PromptEvalView 等迁移到 ElMessageBox
 - [x] 2.3 Dashboard 空 catch 补 ElMessage 反馈；PromptEvalView doDelete/pollRun 补 try/catch（错误文案走 formatUserError）
-- [ ] 2.4 formatTime 系列 17 处收敛到 utils 单一实现并保留行为测试
-- [ ] 2.5 IPC 单轨化第一批：14 个视图直调迁移至 electron-bridge 导出函数 + fallback 表；每个 channel 一条行为保持测试
+- [x] 2.4 formatTime 系列 17 处收敛到 utils 单一实现并保留行为测试
+- [x] 2.5 IPC 单轨化第一批：14 个视图直调迁移至 electron-bridge 导出函数 + fallback 表；每个 channel 一条行为保持测试
 - [ ] 2.6 验证：单元测试全绿 + QM-1 本地打包 + 启动 8 秒 stderr 无异常
 - [ ] 2.7 【子代理审查】P1 diff 审查后提交
 
