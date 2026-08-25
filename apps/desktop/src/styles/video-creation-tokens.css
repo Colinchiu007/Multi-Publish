@@ -113,8 +113,9 @@
   --banner-attention-text: #c2410c;
 
   /* --- Element Plus 组件色系映射（ApprovalGateModal / BoardStageIndicator / ProjectCard） --- */
-  --ep-primary: #409eff;
-  --ep-primary-light: #ecf5ff;
+  /* 桥接：--ep-primary 原为独立 Element 默认蓝 #409eff，收敛到品牌主色单一来源 */
+  --ep-primary: var(--color-primary);
+  --ep-primary-light: var(--color-primary-light);
   --ep-success: #67c23a;
   --ep-success-light: #f0f9eb;
   --ep-warning: #e6a23c;
