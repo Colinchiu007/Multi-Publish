@@ -26,10 +26,7 @@
     </div>
 
     <!-- 空状态 -->
-    <div v-else-if="scenes.length === 0" class="cs-empty">
-      <p>暂无待审批场景</p>
-      <p class="text-muted">场景素材生成完成后将自动显示在此</p>
-    </div>
+    <EmptyState v-else-if="scenes.length === 0" title="暂无待审批场景" description="场景素材生成完成后将自动显示在此" />
 
     <!-- 场景列表 -->
     <div v-else class="scene-list">

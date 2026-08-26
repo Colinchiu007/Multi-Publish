@@ -101,11 +101,7 @@
 
       <!-- 各平台数据 -->
       <div class="cohere-section-title">各平台数据</div>
-      <div v-if="platformData.length === 0" class="cohere-empty">
-        <div class="empty-icon">📊</div>
-        <h3>暂无数据</h3>
-        <p>点击「刷新数据」同步各平台信息</p>
-      </div>
+      <EmptyState v-if="platformData.length === 0" icon="📊" title="暂无数据" description="点击「刷新数据」同步各平台信息" />
       <div v-else class="cohere-card-grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
         <div v-for="item in platformData" :key="item.platform" class="cohere-card">
           <div class="card-top">
