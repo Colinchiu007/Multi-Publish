@@ -103,7 +103,7 @@
           </tbody>
         </table>
 
-        <div v-else style="text-align:center;padding:20px;color:var(--muted);font-size:13px">暂无发布记录</div>
+        <EmptyState v-else title="暂无发布记录" compact />
       </div>
     </div>
   </div>

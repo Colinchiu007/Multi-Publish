@@ -239,7 +239,7 @@ describe("DashboardView (deep)", () => {
 
   it("loads stats on mount", async () => {
     const { mod, pinia } = await setupView("Dashboard.vue");
-    mount(mod.default, { global: { plugins: [pinia] } });
+    mount(mod.default, { global: { plugins: [pinia, i18n] } });
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
     expect(window.electronAPI.dashboardStats).toHaveBeenCalled();
@@ -247,7 +247,7 @@ describe("DashboardView (deep)", () => {
 
   it("shows stats data", async () => {
     const { mod, pinia } = await setupView("Dashboard.vue");
-    const w = mount(mod.default, { global: { plugins: [pinia] } });
+    const w = mount(mod.default, { global: { plugins: [pinia, i18n] } });
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
     expect(w.vm.statsData).not.toBeNull();
@@ -256,7 +256,7 @@ describe("DashboardView (deep)", () => {
 
   it("shows benchmark input", async () => {
     const { mod, pinia } = await setupView("Dashboard.vue");
-    const w = mount(mod.default, { global: { plugins: [pinia] } });
+    const w = mount(mod.default, { global: { plugins: [pinia, i18n] } });
     await nextTick();
     w.vm.benchmarkTitle = "Test";
     w.vm.doBenchmark();

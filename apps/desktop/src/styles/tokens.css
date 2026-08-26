@@ -1,0 +1,76 @@
+/**
+ * tokens.css — 桌面端设计 token 唯一来源（desktop-ui-consistency）
+ *
+ * 规则（docs/frontend-interaction-spec.md §1）：
+ * - 颜色/字号/间距/圆角变量一律从这里取值；禁止在组件/视图重定义同语义变量
+ * - 主色定标 #5048E5（用户决策 2026-08-24）；暗色模式不降级为低对比灰
+ * - 阶梯基准沿用 cohere-design-system 既有值（--space-*/--r-*），保证零视觉回归迁移
+ *
+ * 导入顺序：必须在 element-plus 与所有旧 token 文件之前（main.js）。
+ */
+
+:root {
+  /* ---- 品牌色 ---- */
+  --color-primary: #5048E5;
+  --color-primary-hover: #603af9;
+  --color-primary-light: #eff6fb;
+  --color-on-primary: #ffffff;
+
+  /* ---- 背景与表面 ---- */
+  --color-bg-canvas: #ffffff;
+  --color-bg-card: #ffffff;
+  --color-bg-inset: #faf6f8;
+
+  /* ---- 文字 ---- */
+  --color-text-strong: #1e1b4b;
+  --color-text-primary: #1e1b4b;
+  --color-text-secondary: #707080;
+  --color-text-muted: #9898a8;
+
+  /* ---- 边框 ---- */
+  --color-border: #efefef;
+  --color-border-strong: #e8e8e8;
+
+  /* ---- 语义色 ---- */
+  --color-danger: #ef5757;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+
+  /* ---- 字号阶梯（7 档）---- */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 15px;
+  --font-size-md: 17px;
+  --font-size-lg: 20px;
+  --font-size-xl: 24px;
+  --font-size-xxl: 32px;
+
+  /* ---- 圆角阶梯（对齐既有 --r-*）---- */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 32px;
+  --radius-full: 9999px;
+
+  /* ---- 间距阶梯（4px 基数，对齐既有 --space-*）---- */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+
+  /* ---- 暗色模式：主色保持品牌可辨识度（修复旧覆盖为浅灰 #e8e8ed 的缺陷）---- */
+}
+
+[data-theme="dark"] {
+  --color-bg-canvas: #1a1a1e;
+  --color-bg-card: #232329;
+
+  /* 品牌色暗底亮化变体：仅用于暗色模式下的文字/描边场景（保持紫色相，替代旧蓝系 #4c8bf5/#6b8cff） */
+  --color-primary-dark-tint: #7b74ff;
+}

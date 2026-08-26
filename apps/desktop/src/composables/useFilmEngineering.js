@@ -14,13 +14,14 @@
  * 所有 IPC 返回统一信封 { code, data?, message? }，code === 0 为成功。
  */
 import { ref, reactive } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { ElMessage } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
 import i18n from '@/i18n'
 
 const t = (key) => i18n.global.t(key)
 
-const api = () => (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.filmEngineering) || null
+const api = () => (getApi() || {}).filmEngineering || null
 
 const COPY_MODES = ['full', 'blocks', 'characters', 'geo']
 

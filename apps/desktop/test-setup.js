@@ -241,3 +241,15 @@ global.__resetElectronMock = resetElectronMock
 
 // ─── 全局 afterEach 清理（可选，测试文件可自行 beforeEach 调 __resetElectronMock） ───
 // 不在此处自动调用 reset，避免干扰测试文件自己的 beforeEach 顺序
+
+// ─── 全局组件注册（镜像 main.js 的全局注册） ───
+// 确保 <EmptyState>/<LoadingState> 在单测中可被解析，与运行态一致。
+// 否则 3.3 收编的视图测试会因组件无法解析而断言失败。
+import { config as vtConfig } from '@vue/test-utils'
+import EmptyState from './src/components/EmptyState.vue'
+import LoadingState from './src/components/LoadingState.vue'
+vtConfig.global.components = {
+  ...(vtConfig.global.components || {}),
+  EmptyState,
+  LoadingState,
+}

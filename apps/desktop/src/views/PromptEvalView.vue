@@ -97,7 +97,7 @@
 
     <!-- ==================== 历史记录 ==================== -->
     <div v-if="tab === 'history'" class="eval-history card">
-      <div v-if="!records.length" class="empty-state">暂无评估记录，先运行一次评估吧。</div>
+      <EmptyState v-if="!records.length" title="暂无评估记录，先运行一次评估吧。" />
       <table v-else class="record-table">
         <thead><tr><th>时间</th><th>ID</th><th>总分</th><th>等级</th><th>图片数</th><th>操作</th></tr></thead>
         <tbody>
@@ -122,7 +122,7 @@
 
     <!-- ==================== 聚合分析 ==================== -->
     <div v-if="tab === 'analyze'" class="eval-analyze card">
-      <div v-if="!stats" class="empty-state">暂无数据，先运行评估再来看聚合分析。</div>
+      <EmptyState v-if="!stats" title="暂无数据，先运行评估再来看聚合分析。" />
       <template v-else>
         <div class="stat-cards">
           <div class="stat-card"><span class="stat-num">{{ stats.recordCount }}</span>评估记录</div>
@@ -165,9 +165,14 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { getApi } from '@/api/electron-bridge'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import { usePromptEval } from '@/composables/prompt-eval'
+import { confirmDanger } from '@/utils/confirm-danger'
 
 const tab = ref('run')
+const { t } = useI18n()
 const fileInput = ref(null)
 const selectedImages = ref([])
 const form = ref({ sourceText: '', context: '', optimizedPrompt: '', negativePrompt: '' })
@@ -201,7 +206,7 @@ const partLabel = (p) => PART_LABELS[p] || p
 function onPickImages(event) {
   const files = Array.from(event.target.files || [])
   for (const file of files) {
-    const api = window.electronAPI
+    const api = getApi()
     let filePath = ''
     try {
       filePath = api && typeof api.getPathForFile === 'function' ? String(api.getPathForFile(file) || '') : ''
@@ -269,9 +274,18 @@ async function openDetail(id) {
 }
 
 async function removeRecord(id) {
-  if (!window.confirm('确认删除评估记录 ' + id + ' ？')) return
-  await remove(id)
-  if (detail.value && detail.value.id === id) detail.value = null
+  const confirmed = await confirmDanger({
+    title: t('promptEval.deleteConfirmTitle'),
+    message: t('promptEval.deleteConfirmMessage', { id }),
+    confirmText: t('promptEval.deleteConfirmButton'),
+  })
+  if (!confirmed) return
+  try {
+    await remove(id)
+    if (detail.value && detail.value.id === id) detail.value = null
+  } catch (e) {
+    ElMessage.error(t('promptEval.deleteFailed'))
+  }
 }
 
 async function switchAnalyze() {

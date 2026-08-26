@@ -45,7 +45,31 @@ describe("UiButton", () => {
 
   it("does not emit click when disabled", async () => {
     const w = mount(UiButton, { props: { disabled: true }, slots: { default: "禁用" } });
+    expect(w.attributes("aria-disabled")).toBe("true");
     await w.trigger("click");
     expect(w.emitted("click")).toBeFalsy();
+  });
+
+  it("shows spinner and aria-busy when loading", () => {
+    const w = mount(UiButton, { props: { loading: true }, slots: { default: "保存" } });
+    expect(w.attributes("aria-busy")).toBe("true");
+    expect(w.attributes("aria-disabled")).toBe("true");
+    expect(w.find(".ui-btn-spinner").exists()).toBe(true);
+  });
+
+  it("blocks click while loading", async () => {
+    const w = mount(UiButton, { props: { loading: true }, slots: { default: "保存" } });
+    await w.trigger("click");
+    expect(w.emitted("click")).toBeFalsy();
+  });
+
+  it("applies aria-label when provided", () => {
+    const w = mount(UiButton, { props: { ariaLabel: "关闭" }, slots: { default: "✕" } });
+    expect(w.attributes("aria-label")).toBe("关闭");
+  });
+
+  it("omits aria-label by default", () => {
+    const w = mount(UiButton, { slots: { default: "点击" } });
+    expect(w.attributes("aria-label")).toBeUndefined();
   });
 });

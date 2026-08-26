@@ -101,11 +101,7 @@
 
       <!-- 各平台数据 -->
       <div class="cohere-section-title">各平台数据</div>
-      <div v-if="platformData.length === 0" class="cohere-empty">
-        <div class="empty-icon">📊</div>
-        <h3>暂无数据</h3>
-        <p>点击「刷新数据」同步各平台信息</p>
-      </div>
+      <EmptyState v-if="platformData.length === 0" icon="📊" title="暂无数据" description="点击「刷新数据」同步各平台信息" />
       <div v-else class="cohere-card-grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
         <div v-for="item in platformData" :key="item.platform" class="cohere-card">
           <div class="card-top">
@@ -141,12 +137,16 @@
 <script setup>
 // eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
+import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 // eslint-disable-next-line no-unused-vars
 import { syncAll, syncPlatform } from '@/api/publisher'
 import { usePlatformStore } from '@/stores/platforms'
+import { formatDateTime } from '@/utils/datetime'
 import BenchmarkChart from '@/components/BenchmarkChart.vue'
 import TrialBanner from '@/components/TrialBanner.vue'
 // eslint-disable-next-line no-unused-vars
@@ -154,6 +154,7 @@ import UpgradeModal from '@/components/UpgradeModal.vue'
 
 const syncing = ref(false)
 const dismissBanner = ref(false)
+const { t } = useI18n()
 const showUpgradeModal = ref(false)
 const platformData = ref([])
 const statsData = ref(null)
@@ -163,10 +164,7 @@ platformStore.load()
 
 function platformName (id) { return platformStore.getLabel(id) || id }
 function platformIcon (id) { return platformStore.getIcon(id) || '📊' }
-function formatTime (iso) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-}
+const formatTime = (iso) => formatDateTime(iso, { style: 'hour-minute' })
 
 const totalArticles = computed(() => platformData.value.filter(d => !d.error).reduce((s, d) => s + (d.articles || 0), 0))
 const totalViews = computed(() => platformData.value.filter(d => !d.error).reduce((s, d) => s + (d.views || 0), 0))
@@ -204,39 +202,45 @@ async function refreshSync () {
     await loadCached()
   } catch (e) {
     console.warn('Sync failed:', e.message)
+    ElMessage.error(t('dashboard.syncFailed'))
   } finally {
     syncing.value = false
   }
 }
 
 async function loadStats () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.dashboardStats) return
   try {
     const res = await api.dashboardStats()
     if (res.code === 0) statsData.value = res.data
-  // eslint-disable-next-line no-unused-vars
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.warn('Load stats failed:', e.message)
+    ElMessage.error(t('dashboard.loadStatsFailed'))
+  }
 }
 
 async function loadRecent () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.historyList) return
   try {
     const res = await api.historyList({ limit: 5 })
     if (res.code === 0) recentPublishes.value = (res.data && res.data.records) || []
-  // eslint-disable-next-line no-unused-vars
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    console.warn('Load recent failed:', e.message)
+    ElMessage.error(t('dashboard.loadRecentFailed'))
+  }
 }
 
 async function loadCached () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.syncCached) return
   try {
     const res = await api.syncCached()
     if (res.code === 0) platformData.value = res.data || []
   } catch (e) {
     console.warn('Load cached failed:', e.message)
+    ElMessage.error(t('dashboard.loadCachedFailed'))
   }
 }
 

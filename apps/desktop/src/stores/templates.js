@@ -5,8 +5,7 @@
 import { defineStore } from "pinia"
 import { ref, computed } from "vue"
 import { formatUserError } from '@/utils/user-facing-error'
-
-const getApi = () => window.electronAPI || null
+import { getApi } from '@/api/electron-bridge'
 
 export const useTemplateStore = defineStore("templates", () => {
   const templates = ref([])

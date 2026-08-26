@@ -62,7 +62,7 @@ describe("ProductionBoard", () => {
     const w = mount(ProductionBoard);
     await flushPromises();
     await nextTick();
-    expect(w.find(".board-empty").exists()).toBe(true);
+    expect(w.find(".mp-empty-state").exists()).toBe(true);
     expect(w.text()).toContain("暂无看板数据");
   });
 
@@ -157,7 +157,7 @@ describe("ProductionBoard", () => {
     const w = mount(ProductionBoard);
     await flushPromises();
     await nextTick();
-    expect(w.find(".no-scenes").exists()).toBe(true);
+    expect(w.find(".mp-empty-state").exists()).toBe(true);
   });
 
   it("shows total cost when present", async () => {

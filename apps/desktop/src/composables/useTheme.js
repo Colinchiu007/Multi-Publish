@@ -13,6 +13,7 @@
  */
 
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 
 const THEME_KEY = 'ui:theme'
 
@@ -52,7 +53,7 @@ export function useTheme() {
   // 持久化
   async function persist(val) {
     try {
-      const api = window.electronAPI
+      const api = getApi()
       if (api && api.storeSetSetting) {
         await api.storeSetSetting(THEME_KEY, val)
       }
@@ -65,7 +66,7 @@ export function useTheme() {
   async function init() {
     let preferred = null
     try {
-      const api = window.electronAPI
+      const api = getApi()
       if (api && api.storeGetSetting) {
         const res = await api.storeGetSetting(THEME_KEY)
         if (res.code === 0 && res.data) {

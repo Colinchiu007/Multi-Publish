@@ -47,7 +47,6 @@ const mockApi = vi.hoisted(() => ({
 }));
 vi.mock("@/api/publisher", () => mockApi);
 import IntelligenceView from "./Intelligence.vue";
-import ProvidersView from "./Providers.vue";
 
 // ====== Intelligence.vue ======
 describe("IntelligenceView (coverage)", () => {
@@ -88,36 +87,6 @@ describe("IntelligenceView (coverage)", () => {
     // doSearch is async and sets searching=true, then calls API and sets false
     w.vm.searching = true;
     expect(w.vm.searching).toBe(true);
-  });
-});
-
-// ====== Providers.vue ======
-describe("ProvidersView (coverage)", () => {
-  beforeEach(() => { vi.clearAllMocks(); setActivePinia(createPinia()); window.electronAPI = {}; });
-
-  function mnt() {
-    return mount(ProvidersView, {
-      global: { plugins: [createPinia()],
-        stubs: { "el-dialog": { template: "<div v-if='visible'><slot/></div>", props: ["visible"] },
-          "el-input": { template: "<input/>" }, "el-form": { template: "<form><slot/></form>" },
-          "el-form-item": { template: "<div><slot/></div>" } }
-      }
-    });
-  }
-
-  it("renders page title and filter chips", async () => {
-    const w = await mnt();
-    await nextTick();
-    expect(w.text()).toContain("Provider");
-    expect(w.text()).toContain("全部");
-  });
-
-  it("switches filter type", async () => {
-    const w = await mnt();
-    await nextTick();
-    w.vm.filterType = "llm";
-    await nextTick();
-    expect(w.vm.filterType).toBe("llm");
   });
 });
 

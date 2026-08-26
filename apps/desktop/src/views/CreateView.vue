@@ -1356,6 +1356,7 @@ import {
   story2videoBatchCreate, story2videoBatchStatus, story2videoBatchCancel, story2videoPickBatchFiles
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
+import { getApi } from '@/api/electron-bridge'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { opsCenterSyncRuntime } from '@/api/ops-center-sync'
 import { formatUserError } from '@/utils/user-facing-error'
@@ -4295,7 +4296,7 @@ export default {
     // API 缺失（旧 preload / 浏览器 dev 环境）时静默跳过，绝不抛出。
     async reportEvolutionFeedback(payload) {
       try {
-        const api = window.electronAPI
+        const api = getApi()
         if (!api || typeof api.generationFeedback !== 'function') return
         const body = {
           type: payload?.type,
@@ -5072,6 +5073,7 @@ export default {
     },
     async deleteHistory(item) {
       if (!item?.projectId) return
+      // 确认门禁由上游 requestHistoryDeletion 的应用内删除对话框承担（唯一确认，勿叠加）
       const result = await story2videoDeleteProject(item.projectId)
       if (result?.code === 0) this.history = this.history.filter(entry => entry.projectId !== item.projectId)
       else this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.PROJECT_DELETE_FAILED })
@@ -5212,8 +5214,8 @@ export default {
       }
       // File 对象跨 contextBridge 后路径会丢失；先经 getPathForFile 拿到真实路径，
       // 再走基于路径的导入（复制到应用控制目录，供后续 canonical 白名单校验）。
-      const filePath = typeof window.electronAPI?.getPathForFile === 'function'
-        ? await window.electronAPI.getPathForFile(file)
+      const filePath = typeof getApi()?.getPathForFile === 'function'
+        ? await getApi().getPathForFile(file)
         : ''
       if (!filePath) {
         this.pipelineVideo = null

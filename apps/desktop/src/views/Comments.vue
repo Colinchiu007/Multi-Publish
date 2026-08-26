@@ -49,6 +49,7 @@
 <script setup>
 // eslint-disable-next-line no-unused-vars
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { platformList } from '@/api/publisher'
 
 const activePlatform = ref(null)
@@ -76,7 +77,7 @@ async function loadPlatforms () {
 }
 
 async function openPlatform (p) {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.webviewOpenTab) return
 
   // 关闭上一个 tab
@@ -105,7 +106,7 @@ onMounted(() => {
 
 onBeforeUnmount(async () => {
   if (currentTabId.value) {
-    const api = window.electronAPI
+    const api = getApi()
     if (api && api.webviewCloseTab) {
       await api.webviewCloseTab(currentTabId.value)
     }

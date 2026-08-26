@@ -65,11 +65,7 @@
 
       <!-- 草稿列表 -->
       <div class="cohere-section-title">草稿箱</div>
-      <div v-if="drafts.length === 0" class="cohere-empty">
-        <div class="empty-icon">📝</div>
-        <h3>暂无草稿</h3>
-        <p>点击「新建草稿」或从平台采集内容开始</p>
-      </div>
+      <EmptyState v-if="drafts.length === 0" icon="📝" title="暂无草稿" description="点击「新建草稿」或从平台采集内容开始" />
       <div v-else class="cohere-card-grid">
         <div v-for="d in drafts" :key="d.id" class="cohere-card">
           <div class="card-top">
@@ -93,6 +89,7 @@
 <script setup>
 // eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
+import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, onMounted } from 'vue'
@@ -158,7 +155,7 @@ async function importFromClipboard () {
 }
 
 function openCollection (platform) {
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.webviewOpenTab) {
     api.webviewOpenTab({ platform })
     ElMessage.success(`已打开 ${platform} 采集页面`)
@@ -186,7 +183,7 @@ async function deleteDraft (d) {
 }
 
 async function collectUrl () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.urlCollectFetch) {
     ElMessage.warning('采集功能不可用')
     return

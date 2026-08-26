@@ -30,16 +30,12 @@
     </div>
 
     <!-- 空看板 -->
-    <div v-else-if="!board" class="board-empty">
-      <p>暂无看板数据</p>
-    </div>
+    <EmptyState v-else-if="!board" title="暂无看板数据" compact />
 
     <!-- 场景卡片网格 -->
     <div v-else class="board-content">
       <div class="board-main">
-        <div v-if="scenes.length === 0" class="no-scenes">
-          <p>当前阶段暂无场景</p>
-        </div>
+        <EmptyState v-if="scenes.length === 0" title="当前阶段暂无场景" compact />
         <div v-else class="scene-grid">
           <SceneCard
             v-for="scene in scenes"
@@ -80,12 +76,14 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { useRoute, useRouter } from 'vue-router'
 import { useLiveBoard } from '@/composables/useBacklot'
 import BoardStageIndicator from '@/components/BoardStageIndicator.vue'
 import SceneCard from '@/components/SceneCard.vue'
 import UiButton from '@/components/UiButton.vue'
 import ApprovalGateModal from '@/components/ApprovalGateModal.vue'
+import { formatDateTime } from '@/utils/datetime'
 
 const route = useRoute()
 const router = useRouter()
@@ -175,15 +173,7 @@ function goReplay() {
   router.push('/replay/' + projectId.value)
 }
 
-function formatTime(ts) {
-  if (!ts) return ''
-  try {
-    const d = new Date(ts)
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch (_) {
-    return ''
-  }
-}
+const formatTime = (ts) => formatDateTime(ts, { style: 'time-seconds' })
 
 // 监听 board 变化，记录事件日志
 watch(board, (newBoard, oldBoard) => {
@@ -204,7 +194,7 @@ onMounted(async () => {
     await subscribe()
   }
   // 注册审批门推送监听
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.approvalGate && api.approvalGate.onApprovalRequest) {
     unsubApprovalGate = api.approvalGate.onApprovalRequest(handleApprovalGatePush)
   }
@@ -268,7 +258,7 @@ onBeforeUnmount(async () => {
   padding: 8px 16px;
   margin-bottom: 16px;
 }
-.board-loading, .board-empty, .no-scenes {
+.board-loading {
   text-align: center;
   padding: 48px 24px;
   color: var(--text-muted, #909399);

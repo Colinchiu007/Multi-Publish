@@ -26,10 +26,7 @@
     </div>
 
     <!-- 空状态 -->
-    <div v-else-if="scenes.length === 0" class="cs-empty">
-      <p>暂无待审批场景</p>
-      <p class="text-muted">场景素材生成完成后将自动显示在此</p>
-    </div>
+    <EmptyState v-else-if="scenes.length === 0" title="暂无待审批场景" description="场景素材生成完成后将自动显示在此" />
 
     <!-- 场景列表 -->
     <div v-else class="scene-list">
@@ -115,9 +112,11 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, reactive, nextTick } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { useRoute } from 'vue-router'
 import UiButton from '@/components/UiButton.vue'
 import { formatUserError } from '@/utils/user-facing-error'
+import { formatDateTime } from '@/utils/datetime'
 
 const route = useRoute()
 const projectId = computed(() => route.params.projectId || null)
@@ -161,7 +160,7 @@ function toggleRejectInput(sceneId) {
 }
 
 async function approveScene(scene) {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.contactSheet) return
   try {
     const res = await api.contactSheet.approve(scene.id, scene.selectedTakeId)
@@ -174,7 +173,7 @@ async function approveScene(scene) {
 }
 
 async function rejectScene(scene) {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.contactSheet) return
   try {
     const feedback = rejectFeedbacks[scene.id] || ''
@@ -192,7 +191,7 @@ async function refresh() {
   if (!projectId.value) return
   loading.value = true
   error.value = null
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.contactSheet) {
     loading.value = false
     return
@@ -223,13 +222,10 @@ function handleApprovalRequest(payload) {
   refresh()
 }
 
-function formatTime(iso) {
-  if (!iso) return ''
-  try { return new Date(iso).toLocaleTimeString('zh-CN') } catch (_) { return '' }
-}
+const formatTime = (iso) => formatDateTime(iso, { style: 'time' })
 
 onMounted(async () => {
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.contactSheet && api.contactSheet.onApprovalRequest) {
     unsubApproval = api.contactSheet.onApprovalRequest(handleApprovalRequest)
   }
@@ -252,7 +248,7 @@ onBeforeUnmount(() => {
 .back-link:hover { color: #409eff; }
 .cs-title { font-size: 22px; font-weight: 700; margin: 0; }
 .cs-progress { font-size: 13px; color: #909399; padding: 4px 10px; background: #f0f0f0; border-radius: 10px; }
-.cs-loading, .cs-empty, .cs-error { text-align: center; padding: 48px; color: #909399; }
+.cs-loading, .cs-error { text-align: center; padding: 48px; color: #909399; }
 .text-muted { font-size: 13px; color: #c0c4cc; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #e4e7ed; border-top-color: #409eff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }

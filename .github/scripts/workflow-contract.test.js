@@ -264,3 +264,14 @@ test('shared-utils 测试超时预算（冷启动 flaky 回归保护）', () => 
   const cfg = fs.readFileSync(path.join(__dirname, '..', '..', 'packages', 'shared-utils', 'vitest.config.js'), 'utf8');
   assert.match(cfg, /testTimeout:\s*10000/);
 });
+
+test('Quality Gate Gate 10 前端一致性卡点接线（desktop-ui-consistency）', () => {
+  const workflow = fs.readFileSync(qualityGatePath, 'utf8');
+  const gate = workflow.match(/- name: "Gate 10 - Frontend consistency[\s\S]*?(?=\r?\n\s*- name:|\r?\n  [a-z][-\w]*:)/)?.[0];
+  assert.ok(gate, 'Gate 10 workflow step must exist');
+  assert.match(gate, /node --test \.github\/scripts\/check-frontend-consistency\.test\.js/);
+  assert.match(gate, /node \.github\/scripts\/check-frontend-consistency\.js/);
+  // 契约：卡点脚本与其基线文件必须真实存在
+  assert.ok(fs.existsSync(path.join(__dirname, 'check-frontend-consistency.js')), 'checkpoint script must exist');
+  assert.ok(fs.existsSync(path.join(__dirname, 'frontend-consistency-baseline.json')), 'baseline must exist');
+});

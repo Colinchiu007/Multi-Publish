@@ -56,6 +56,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue"
+import { getApi } from '@/api/electron-bridge'
 import { useTemplateStore } from "@/stores/templates"
 import { reportError } from "@/utils/report-error"
 import { formatUserError } from "@/utils/user-facing-error"
@@ -86,7 +87,7 @@ async function resetDefaults() {
   loading.value = true
   error.value = null
   try {
-    const api = window.electronAPI
+    const api = getApi()
     if (!api) return
     const presetsRes = await api.templateGetPresets()
     if (presetsRes && presetsRes.code === 0 && presetsRes.data) {

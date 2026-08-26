@@ -84,6 +84,12 @@ jobs:
           node .github/scripts/check-locale-sync.js --pair-base origin/main
           node .github/scripts/check-locale-sync.js --cjk
 
+      # --- Gate 10: 前端一致性卡点（desktop-ui-consistency：IPC 单轨 + 确认原语统一）---
+      - name: "Gate 10 - Frontend consistency (renderer IPC single-track + confirm primitive)"
+        run: |
+          node --test .github/scripts/check-frontend-consistency.test.js
+          node .github/scripts/check-frontend-consistency.js
+
   unit-tests:
     name: QG Unit Tests
     runs-on: windows-latest

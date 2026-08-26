@@ -487,6 +487,7 @@
 import UiButton from "../components/UiButton.vue";
 import UiInput from "../components/UiInput.vue";
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -592,7 +593,7 @@ async function resolveUploadFilePath (file) {
   const directPath = raw?.path || raw?.filePath || raw?.file_path || file?.path
   if (typeof directPath === 'string' && directPath.trim()) return directPath.trim()
   try {
-    const resolvedPath = await window.electronAPI?.getPathForFile?.(raw)
+    const resolvedPath = await getApi()?.getPathForFile?.(raw)
     if (typeof resolvedPath === 'string' && resolvedPath.trim()) return resolvedPath.trim()
   } catch (_) {
     // Path resolution is best effort; the caller reports an actionable error.
@@ -662,7 +663,7 @@ function handleCoverFileRemove () {
 async function handleExtractVideoCover () {
   if (!article.video_path) return
   try {
-    const result = await window.electronAPI?.extractVideoCover?.(article.video_path)
+    const result = await getApi()?.extractVideoCover?.(article.video_path)
     const coverPath = result?.path || result?.data?.coverPath || ''
     if (coverPath) {
       article.cover_path = coverPath

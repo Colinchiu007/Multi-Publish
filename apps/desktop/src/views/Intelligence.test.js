@@ -60,7 +60,9 @@ describe("IntelligenceView", () => {
     const w = createView();
     await nextTick();
     const result = w.vm.formatTime("invalid-date");
-    expect(result).toBe("Invalid Date");
+    // 契约变更（unify-desktop-frontend 2.4）：旧实现将 Intl 内部文案 "Invalid Date" 直出给用户；
+    // 统一后解析失败返回调用方声明的 invalidText（此处为原始输入回显），且绝不抛异常。
+    expect(result).toBe("invalid-date");
   });
 
   it("sourceLabel returns correct labels", async () => {

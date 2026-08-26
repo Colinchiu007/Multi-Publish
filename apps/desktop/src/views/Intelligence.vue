@@ -62,9 +62,7 @@
           </span>
         </div>
 
-        <div v-if="result.total === 0" style="text-align:center;padding:40px 0;color:var(--muted)">
-          暂无结果，试试其他关键词
-        </div>
+        <EmptyState v-if="result.total === 0" title="暂无结果，试试其他关键词" />
 
         <div v-for="item in result.results" :key="`${item.source}-${item.id}`"
           class="intel-item"
@@ -146,6 +144,7 @@ import TrendingPanel from '@/components/TrendingPanel.vue'
 import ReferenceFinder from '@/components/ReferenceFinder.vue'
 import { intelligenceSearch, intelligenceSearchTitles } from '@/api/publisher'
 import { reportError } from '@/utils/report-error'
+import { formatDateTime } from '@/utils/datetime'
 
 const query = ref('')
 const searching = ref(false)
@@ -159,12 +158,7 @@ const sourceOptions = [
 ]
 const selectedSources = ref(['reddit', 'hackernews', 'github'])
 
-function formatTime (ts) {
-  if (!ts) return ''
-  try {
-    return new Date(ts).toLocaleString('zh-CN', { hour12: false })
-  } catch { return ts }
-}
+const formatTime = (ts) => formatDateTime(ts, { invalidText: ts })
 
 function sourceLabel (s) {
   const map = { reddit: 'Reddit', hackernews: 'HN', github: 'GitHub' }

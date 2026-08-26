@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { setActivePinia, createPinia } from "pinia";
+import i18n from "@/i18n";
 
 vi.mock("@/stores/platforms", () => ({
   usePlatformStore: () => ({
@@ -33,7 +34,7 @@ describe("DashboardView", () => {
   });
 
   it("renders page title", async () => {
-    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
     await new Promise(r => setTimeout(r, 0));
     await nextTick();
@@ -41,7 +42,7 @@ describe("DashboardView", () => {
   });
 
   it("loads and displays stats on mount", async () => {
-    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
@@ -52,7 +53,7 @@ describe("DashboardView", () => {
   });
 
   it("shows recent publishes", async () => {
-    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
@@ -60,7 +61,7 @@ describe("DashboardView", () => {
   });
 
   it("benchmark button allows analysis input", async () => {
-    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
     w.vm.benchmarkTitle = "My Article";
     w.vm.doBenchmark();
@@ -68,13 +69,13 @@ describe("DashboardView", () => {
   });
 
   it("shows TrialBanner component", async () => {
-    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
     expect(w.findComponent({ name: "TrialBanner" }).exists()).toBe(true);
   });
 
   it("refresh button calls syncAll and updates data", async () => {
-    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
@@ -91,7 +92,7 @@ describe("DashboardView", () => {
   it("handles syncCached failure gracefully", async () => {
     window.electronAPI.syncCached = vi.fn().mockRejectedValue(new Error("Network error"));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
@@ -100,7 +101,7 @@ describe("DashboardView", () => {
   });
 
   it("shows trend chart when stats daily data is available", async () => {
-    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
     await new Promise(r => setTimeout(r, 10));
     await nextTick();
@@ -108,7 +109,7 @@ describe("DashboardView", () => {
   });
 
   it("benchmark button disabled when input is empty", async () => {
-    const w = mount(DashboardView, { global: { plugins: [createPinia()] } });
+    const w = mount(DashboardView, { global: { plugins: [createPinia(), i18n] } });
     await nextTick();
     w.vm.benchmarkTitle = "";
     w.vm.doBenchmark();

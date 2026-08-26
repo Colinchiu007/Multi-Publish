@@ -16,6 +16,7 @@
 import { computed, onUnmounted, ref, unref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useBacklotStore } from '@/stores/backlot'
+import { getApi } from '@/api/electron-bridge'
 
 /**
  * 项目列表 composable
@@ -73,7 +74,7 @@ export function useLiveBoard(projectIdRef) {
     const projectId = unref(projectIdRef)
     if (!projectId) return
     // 注册 board:update 推送监听
-    const api = window.electronAPI
+    const api = getApi()
     if (api && api.board && api.board.onUpdate) {
       unsubUpdate = api.board.onUpdate((boardState) => {
         store.handleBoardUpdate(boardState)

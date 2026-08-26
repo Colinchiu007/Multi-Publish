@@ -198,10 +198,9 @@
 
         <section class="account-results-panel" :aria-label="t('accountsPage.accountListAria')">
           <div v-if="loading" class="loading-state">{{ t('accountsPage.loadingAccounts') }}</div>
-          <div v-else-if="visibleAccounts.length === 0" class="empty-state">
-            <UserFilled />
-            <h2>{{ emptyStateTitle }}</h2>
-          </div>
+          <EmptyState v-else-if="visibleAccounts.length === 0" :title="emptyStateTitle">
+            <template #icon><UserFilled /></template>
+          </EmptyState>
           <div v-else class="account-card-grid" :class="{ 'account-list-view': accountViewMode === 'list' }">
             <AccountManagementCard
               v-for="account in visibleAccounts"

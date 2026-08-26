@@ -26,11 +26,7 @@
     <!-- 监控区域（WebContentsView 由 Electron 主进程渲染，此处仅做控制面板） -->
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--border-light,var(--border-light));position:relative;overflow:hidden">
       <!-- 无监控时显示引导 -->
-      <div v-if="tabs.length === 0" class="cohere-empty" style="position:absolute">
-        <div class="empty-icon">🖥️</div>
-        <h3>暂无监控</h3>
-        <p>点击「添加监控」选择平台开始实时查看</p>
-      </div>
+      <EmptyState v-if="tabs.length === 0" icon="🖥️" title="暂无监控" description="点击「添加监控」选择平台开始实时查看" />
 
       <!-- 底部状态栏 -->
       <div v-if="tabs.length > 0" class="monitor-status-bar">
@@ -63,6 +59,7 @@
 
 <script setup>
 import UiModal from "../components/UiModal.vue";
+import { getApi } from '@/api/electron-bridge'
 import UiButton from "../components/UiButton.vue";
 import UiSelect from "../components/UiSelect.vue";
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -110,7 +107,7 @@ function platformLabel (id) {
 const unlisteners = []
 
 onMounted(() => {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api) return
 
   // 监听事件
@@ -145,7 +142,7 @@ onUnmounted(() => {
 })
 
 async function loadTabs () {
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.webviewListTabs) return
   const res = await api.webviewListTabs()
   if (res.code === 0 && res.data) {
@@ -155,7 +152,7 @@ async function loadTabs () {
 
 async function switchLayout (count) {
   currentLayout.value = count
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.webviewSetLayout) {
     await api.webviewSetLayout(count)
   }
@@ -169,7 +166,7 @@ async function confirmAdd () {
   if (!newPlatform.value) { ElMessage.warning('请选择平台'); return }
   adding.value = true
   try {
-    const api = window.electronAPI
+    const api = getApi()
     if (api && api.webviewOpenTab) {
       const res = await api.webviewOpenTab({ platform: newPlatform.value })
       if (res.code === 0) {
@@ -188,7 +185,7 @@ async function confirmAdd () {
 }
 
 async function closeAllTabs () {
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.webviewCloseAll) {
     await api.webviewCloseAll()
     tabs.value = []

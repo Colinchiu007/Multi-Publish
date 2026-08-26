@@ -300,9 +300,11 @@ import { useI18n } from 'vue-i18n'
 import { getAppLocale } from '@/i18n'
 import { useRouter } from 'vue-router'
 import { draftList, historyDelete, historyGet, historyList, retryTask } from '@/api/publisher'
+import { formatDateTime } from '@/utils/datetime'
 import { PLATFORM_ICONS, PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import { usePlatformStore } from '@/stores/platforms'
 import { formatUserError } from '@/utils/user-facing-error'
+import { confirmDanger } from '@/utils/confirm-danger'
 import PublishTypeDialog from '@/features/publish/components/PublishTypeDialog.vue'
 
 const { t } = useI18n()
@@ -606,6 +608,13 @@ async function deleteSelectedRecords () {
   const ids = [...selectedIds.value]
   if (ids.length === 0 || deletingSelected.value) return
 
+  const confirmed = await confirmDanger({
+    title: t('historyPage.deleteSelectedConfirmTitle'),
+    message: t('historyPage.deleteSelectedConfirmMessage', { count: ids.length }),
+    confirmText: t('historyPage.deleteSelectedConfirmButton'),
+  })
+  if (!confirmed) return
+
   deletingSelected.value = true
   actionMessage.value = ''
   try {
@@ -703,12 +712,7 @@ function metricValue (value, fallback = '-') {
   return value
 }
 
-function formatTime (value) {
-  if (!value) return t('historyPage.unknownTime')
-  const date = new Date(value)
-  const locale = getAppLocale() === 'en' ? 'en-US' : 'zh-CN'
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(locale)
-}
+const formatTime = (value) => formatDateTime(value, { emptyText: t('historyPage.unknownTime'), invalidText: String(value ?? '') })
 
 function contentPreview (content) {
   const text = String(content).replace(/\s+/g, ' ').trim()

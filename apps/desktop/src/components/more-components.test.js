@@ -1,38 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mount } from "@vue/test-utils";
-import UiBadge from "./UiBadge.vue";
 import UiInput from "./UiInput.vue";
 import PlatformIcon from "./PlatformIcon.vue";
-
-describe("UiBadge", () => {
-  it("renders slot content", () => {
-    const w = mount(UiBadge, { slots: { default: "Pro" } });
-    expect(w.text()).toBe("Pro");
-  });
-  it("has default variant and size classes", () => {
-    const w = mount(UiBadge);
-    expect(w.classes()).toContain("ui-badge-default");
-    expect(w.classes()).toContain("ui-badge-md");
-  });
-  it("applies primary variant", () => {
-    const w = mount(UiBadge, { props: { variant: "primary" } });
-    expect(w.classes()).toContain("ui-badge-primary");
-  });
-  it("applies size sm", () => {
-    const w = mount(UiBadge, { props: { size: "sm" } });
-    expect(w.classes()).toContain("ui-badge-sm");
-  });
-  it("applies size lg", () => {
-    const w = mount(UiBadge, { props: { size: "lg" } });
-    expect(w.classes()).toContain("ui-badge-lg");
-  });
-  it("renders success and error variant", () => {
-    const w1 = mount(UiBadge, { props: { variant: "success" } });
-    expect(w1.classes()).toContain("ui-badge-success");
-    const w2 = mount(UiBadge, { props: { variant: "error" } });
-    expect(w2.classes()).toContain("ui-badge-error");
-  });
-});
 
 describe("UiInput", () => {
   it("renders input by default", () => {

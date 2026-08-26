@@ -108,9 +108,11 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import UiModal from '@/components/UiModal.vue'
 import UiButton from '@/components/UiButton.vue'
 import { formatUserError } from '@/utils/user-facing-error'
+import { formatDateTime } from '@/utils/datetime'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -159,20 +161,13 @@ function badgeClass(type) {
   return 'badge-' + (valid.includes(type) ? type : 'generic')
 }
 
-function formatTime(iso) {
-  if (!iso) return ''
-  try {
-    return new Date(iso).toLocaleString('zh-CN')
-  } catch (_) {
-    return ''
-  }
-}
+const formatTime = (iso) => formatDateTime(iso)
 
 async function loadGate() {
   if (!props.projectId) return
   loading.value = true
   error.value = null
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.approvalGate) {
     loading.value = false
     return
@@ -195,7 +190,7 @@ async function loadGate() {
 async function handleApprove() {
   if (!gate.value || submitting.value) return
   submitting.value = 'approve'
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.approvalGate) {
     submitting.value = null
     return
@@ -220,7 +215,7 @@ async function handleApprove() {
 async function handleModify() {
   if (!gate.value || submitting.value || !modification.value.trim()) return
   submitting.value = 'modify'
-  const api = window.electronAPI
+  const api = getApi()
   if (!api || !api.approvalGate) {
     submitting.value = null
     return
@@ -274,7 +269,7 @@ watch(
 )
 
 onMounted(() => {
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.approvalGate && api.approvalGate.onApprovalRequest) {
     unsubApproval = api.approvalGate.onApprovalRequest(handleApprovalRequest)
   }

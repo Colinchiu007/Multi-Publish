@@ -190,6 +190,25 @@ class VisualTestRunner {
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       });
     }
+    // 确定性渲染加固：reducedMotion 仅设置媒体偏好，若业务 CSS 未用
+    // @media (prefers-reduced-motion) 响应，入场/循环动画仍会在截图窗口内
+    // 动起来，导致像素对比在不同轮次间抖动（实测 /create 在两次运行间
+    // misMatch 由 0.026% 摆动到 9%）。此处强制把动画/过渡归零，并等网络
+    // 空闲与稳定帧，消除“中间态”截图。VISUAL_CAPTURE_SETTLE_MS 可调（默认 300ms）。
+    if (typeof this.page.addStyleTag === 'function') {
+      await this.page.addStyleTag({
+        content: '*,*::before,*::after{transition:0s!important;animation:0s!important;'
+          + 'animation-delay:0s!important;transition-delay:0s!important;scroll-behavior:auto!important}',
+      });
+    }
+    if (typeof this.page.evaluate === 'function') {
+      await this.page.evaluate(() => window.scrollTo(0, 0));
+    }
+    const settleMs = Number(process.env.VISUAL_CAPTURE_SETTLE_MS) || 300;
+    if (settleMs > 0) await this.page.waitForTimeout(settleMs);
+    try {
+      await this.page.waitForLoadState('networkidle', { timeout: 5000 });
+    } catch (_) { /* 持续轮询的视图（进度等）永不 idle，忽略超时 */ }
   }
 
   async _resetBrowserState() {

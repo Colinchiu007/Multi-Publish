@@ -12,6 +12,7 @@
  *   - useProviderFilters 的 filterProviders / enabledCount 纯函数
  */
 import { ref, computed } from 'vue'
+import { getApi } from '@/api/electron-bridge'
 import { formatUserError } from '@/utils/user-facing-error'
 import { ElMessage } from 'element-plus'
 import {
@@ -178,7 +179,7 @@ export function useProviderCrud() {
   async function saveUserKey() {
     if (!userKeyTarget.value) return
     try {
-      const api = window.electronAPI
+      const api = getApi()
       await api.providerSetUserKey(userKeyTarget.value.name, userKeyForm.value.apiKey, userKeyForm.value.baseUrl)
       ElMessage.success('用户 Key 已保存')
       showUserKeyDialog.value = false

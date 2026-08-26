@@ -40,7 +40,7 @@ describe("ProjectLibrary", () => {
     const w = mountProjectLibrary();
     await flushPromises();
     await nextTick();
-    expect(w.find(".empty-state").exists()).toBe(true);
+    expect(w.find(".mp-empty-state").exists()).toBe(true);
     expect(w.text()).toContain("暂无项目");
   });
 

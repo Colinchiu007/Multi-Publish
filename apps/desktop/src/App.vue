@@ -58,6 +58,7 @@
 
 <script setup>
 import AppNavbar from '@/layouts/AppNavbar.vue'
+import { getApi } from '@/api/electron-bridge'
 import AppSidebar from '@/layouts/AppSidebar.vue'
 import YixiaoerModuleNav from '@/layouts/YixiaoerModuleNav.vue'
 import YixiaoerSidebar from '@/layouts/YixiaoerSidebar.vue'
@@ -176,7 +177,7 @@ onMounted(() => {
   identityStore.load()
   tabStore.init()
 
-  const api = window.electronAPI
+  const api = getApi()
   if (api && api.onNavigate) {
     unsubscribeNavigate = api.onNavigate((route) => {
       router.push(route)

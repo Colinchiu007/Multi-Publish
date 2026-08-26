@@ -142,6 +142,7 @@
 <script setup>
 // eslint-disable-next-line no-unused-vars
 import UiButton from "../components/UiButton.vue";
+import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
 import { ref, onMounted, onBeforeUnmount } from 'vue'
@@ -217,7 +218,7 @@ onBeforeUnmount(() => {
 async function addAccount (platform) {
   addingPlatform.value = platform
   try {
-    const api = window.electronAPI
+    const api = getApi()
     if (api?.authOpenLogin) {
       const res = await authOpenLogin(platform)
       // 用户关闭登录页取消：静默返回，不提示成功/失败
