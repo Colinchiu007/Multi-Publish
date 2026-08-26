@@ -25,6 +25,10 @@ const LABEL = process.env.E2E_LABEL || 's2v'
 const TEXT = process.env.E2E_TEXT || ''
 const OUT_DIR = process.env.E2E_OUT_DIR || 'C:/tmp/s2v-real-20260821'
 const PIPELINE = 'story2video-compose'
+const CARD_TIMEOUT = 60000
+const CARD_RETRIES = 3
+const CONNECT_RETRIES = 5
+const CONNECT_BACKOFF_MS = 5000
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -63,6 +67,7 @@ function findOutput (node, depth, sources) {
 }
 
 ;(async () => {
+  let failed = false
   if (!TEXT) throw new Error('E2E_TEXT 未提供')
   fs.mkdirSync(OUT_DIR, { recursive: true })
   const report = {
@@ -73,11 +78,33 @@ function findOutput (node, depth, sources) {
     startedAt: new Date().toISOString(),
     savedOptions: null,
   }
-  const browser = await chromium.connectOverCDP(CDP_URL)
-  const page = browser.contexts()
-    .flatMap((ctx) => ctx.pages())
-    .find((p) => p.url().startsWith(VITE_ORIGIN))
-  if (!page) throw new Error('未找到 renderer 页面: ' + VITE_ORIGIN)
+  let browser = null
+  let page = null
+  // connectOverCDP 可能因流水线繁忙瞬时无响应，加超时 + 多次重试，避免永久挂起。
+  const connectWithTimeout = (url, ms) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('connectOverCDP 超时 (' + ms + 'ms)')), ms)
+    if (timer && timer.unref) timer.unref()
+    chromium.connectOverCDP(url).then(
+      (b) => { clearTimeout(timer); resolve(b) },
+      (e) => { clearTimeout(timer); reject(e) },
+    )
+  })
+  for (let attempt = 1; attempt <= CONNECT_RETRIES; attempt++) {
+    try {
+      console.log('[s2v-driver] connectOverCDP 尝试 (' + attempt + '/' + CONNECT_RETRIES + ')')
+      browser = await connectWithTimeout(CDP_URL, 12000)
+      const pages = browser.contexts().flatMap((ctx) => ctx.pages())
+      page = pages.find((p) => p.url().startsWith(VITE_ORIGIN))
+      if (page) break
+      console.log('[s2v-driver] connectOverCDP 已连接但未找到 renderer 页面，重试 (' + attempt + ')')
+      await browser.close().catch(() => {})
+      browser = null
+    } catch (e) {
+      console.log('[s2v-driver] connectOverCDP 失败 (第' + attempt + '次): ' + e.message)
+    }
+    if (!page) await sleep(CONNECT_BACKOFF_MS)
+  }
+  if (!page) throw new Error('connectOverCDP ' + CONNECT_RETRIES + ' 次重试后仍无法接入 renderer')
 
   await page.evaluate(() => {
     window.__s2vCaptured = null
@@ -93,9 +120,23 @@ function findOutput (node, depth, sources) {
     }
   })
 
-  await page.goto(VITE_ORIGIN + '/#/', { waitUntil: 'domcontentloaded' })
+  // 强制整页 document 重载：先回根路径再进 create（hash 路由 SPA 中仅改 hash 不会重拉 CreateView.vue，
+  // 偶发导致 .pipeline-card 永远等待）。
+  await page.goto(VITE_ORIGIN + '/', { waitUntil: 'domcontentloaded' }).catch(() => {})
   await page.goto(VITE_ORIGIN + '/#/create', { waitUntil: 'domcontentloaded' })
-  await page.waitForSelector('.pipeline-card', { timeout: 60000 })
+
+  let cardOk = false
+  for (let attempt = 1; attempt <= CARD_RETRIES && !cardOk; attempt++) {
+    try {
+      await page.waitForSelector('.pipeline-card', { timeout: CARD_TIMEOUT, state: 'attached' })
+      cardOk = true
+    } catch (e) {
+      console.log('[s2v-driver] .pipeline-card 等待超时 (第' + attempt + '次)，reload 重试')
+      await page.goto(VITE_ORIGIN + '/', { waitUntil: 'domcontentloaded' }).catch(() => {})
+      await page.goto(VITE_ORIGIN + '/#/create', { waitUntil: 'domcontentloaded' })
+    }
+  }
+  if (!cardOk) throw new Error('.pipeline-card 在 ' + CARD_RETRIES + ' 次重试后仍不可用')
   const card = page.locator(`.pipeline-card[data-pipeline-id="${PIPELINE}"]`).first()
   await card.click()
   await page.waitForSelector('textarea[placeholder*="输入视频文案"]', { timeout: 60000 })
@@ -112,7 +153,12 @@ function findOutput (node, depth, sources) {
   const stillDisabled = await start.isDisabled().catch(() => true)
   if (stillDisabled) throw new Error('启动流水线按钮未在 30s 内可用')
   const startedBefore = Date.now() - 1000
-  await start.click()
+  // 用 DOM 直接 .click() 触发，避开 UI 框架 ripple/overlay 造成的 Playwright 命中测试拦截（会导致 start.click() 挂起 30s）。
+  await page.evaluate(() => {
+    const btn = document.querySelector('[data-testid="start-story2video"]')
+    if (!btn) throw new Error('启动流水线按钮在 DOM 中不存在')
+    btn.click()
+  })
 
   // 等待流水线创建 run：优先捕获，兜底从 history 取启动后新建的运行
   const captureDeadline = Date.now() + 90000
@@ -199,6 +245,10 @@ function findOutput (node, depth, sources) {
 
   await browser.close()
 })().catch((err) => {
+  failed = true
   console.error('E2E_FAILED ' + (err && err.stack ? err.stack : err))
-  process.exit(1)
+}).finally(async () => {
+  // 无论成功失败都关闭 browser，避免失败退出时遗留悬空 CDP websocket 连接导致后续连接抖动。
+  if (browser) { try { await browser.close() } catch (_) {} }
+  process.exit(failed ? 1 : 0)
 })
