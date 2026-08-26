@@ -25,7 +25,7 @@
 - [ ] 3.3 EmptyState/LoadingState 组件落地并收编 11 个视图自造样式
 - [x] 3.4 死代码清理：Providers.vue+供养测试、UiCard/UiBadge、useKeyboard/CommandPalette 决策（删或接）、CreateHistory/CreateViewHistory 合并
 - [ ] 3.5 UiButton 补 loading/disabled/aria 态并对齐使用方
-- [ ] 3.6 门禁：test:visual:pixel 全量通过；diff 图人工审核后更新基线
+- [x] 3.6 门禁：test:visual:pixel 全量通过；diff 图人工审核后更新基线
 - [ ] 3.7 【子代理审查】P2 diff + 视觉回归报告审查后提交
 
 ## 4. P2.5 单壳导航统一
