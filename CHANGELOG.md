@@ -1,3 +1,11 @@
+## [未发布] feat(story2video): 历史记录批量删除
+
+- 新增：视频创作历史记录列表支持多选（全选 / 取消全选）、实时「已选 N 项」与「批量删除」入口；选中项经二次确认后删除。
+- 复用：按 `projectId` / `runId` 前端循环分流到既有 `story2videoDeleteProject` 与 `pipelineDeleteRun`，不新增 IPC 通道；进行中（`deleting`）锁定选择与删除，防止重复提交。
+- 反馈：全部成功 → Toast 成功数；部分成功 → Toast 成功/失败计数；全部失败 → 错误弹窗。用户可见文案走 `locales/zh.js`+`en.js` 成对。
+- 修复：`BATCH_DELETE_SUCCESS` 漏加计数插值分支，导致成功 Toast 的 `{count}` 为空（已补入 `story2video-notifications.js` 的 `{count}/{success}/{failed}` 统一插值）。
+- 测试：`CreateView.test.js` 新增 4 条（分流 / 部分成功 / 全失败 / 进行中守卫），`CreateViewHistory.test.js` 新增 AC-1 进行中禁用；回归 `locale-cjk-baseline.json` 因弹窗插入行号偏移重生成。
+
 ## [未发布] fix(ci): 纯文档 PR 也产生必需检查
 
 - 移除 full CI 与 Doc Gate 的 `pull_request.paths-ignore`：目标为 main 的文档/流程 PR 现在会运行真实 required job，不再因 check 缺失永久 BLOCKED。
