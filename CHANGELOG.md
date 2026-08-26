@@ -1,3 +1,9 @@
+## [未发布] refactor(story2video): 视频创作项目ID缩短为约13位并历史列表全显
+
+- 项目ID（即流水线 runId，`apps/desktop/electron/services/pipeline-engine.js:866`）由 `'run_'+Date.now()+'_'+随机4位`（固定22字符）改为 `Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6)`（≈13字符，base36 时间戳定宽8位），缩短约40%；去掉无运行时代码依赖的 `run_` 前缀，base36 时间戳字典序即时间序，保留唯一性与时序可排序性，且满足 SAFE_ID 校验（`/^[a-zA-Z0-9_-]{1,100}$/`）可作磁盘目录名与设置 JSON key。
+- 历史任务列表 `apps/desktop/src/views/CreateViewHistory.vue` 移除 `shortenId` 截断方法（原 `id.length>14 ? slice(0,8)+'…'+slice(-4)`），任务项目ID完整显示并保留 `:title` 悬浮查看全文；新增 `data-testid="history-task-id"`。
+- 测试：`pipeline-engine.test.js` 新增 `generateRunId` 5 项（函数类型/格式正则与长度/SAFE_ID 50次迭代/base36 时间戳可解码近期时间/2000 批量唯一）；`CreateViewHistory.test.js` 新增历史ID全显用例（旧22位与新13位均全显）；修复 `_countActiveManualRuns` 用例注入 `maxConcurrentRuns:4` + `stageExecutor` mock 以消环境相关偶发失败。两文件共 86 项全过。
+
 ## [未发布] refactor(desktop): 单壳导航统一（P2.5）
 
 - 桌面端导航由双壳（Yixiaoer 壳 + cohere 壳 AppNavbar/AppSidebar）统一为单一 Yixiaoer 壳：移除 App.vue 的 `isYixiaoerWorkspace` 分支，仅 `/first-run` 保持脱离外壳的全屏渲染（`.fullscreen-main`），其余路由全部进入主壳。
