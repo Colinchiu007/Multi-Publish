@@ -176,6 +176,58 @@ test('W2: 空报告 → insufficient_evidence，不判定 PASS，无 verbatim �
   assert.equal(out.warnings.verbatimScript, false);
 });
 
+// —— 真度量改造：score 证据归一化 + grade 门禁 ——
+
+test('归一化：无证据维度不计分不占权（部分证据下 score 反映真实维度）', () => {
+  const src = emptyReport();
+  src.meta.durationSec = 60;
+  src.script.fullText = 'aaa';
+  const clone = emptyReport();
+  clone.meta.durationSec = 60;
+  clone.script.fullText = 'xyz'; // 完全不同
+  // 证据仅 script+duration；structure/style 双空不计分
+  const out = computeSimilarityReport({ source: src, clone });
+  assert.equal(out.confidence, 0.5);
+  // 归一化：(0.25*0 + 0.15*1) / 0.40 = 0.375（旧公式含空数据满分 ≈ 0.75）
+  assert.ok(out.score < 0.5, 'score 应为 ' + out.score);
+  assert.equal(out.verdict, 'needs_review');
+});
+
+test('归一化：全无证据 → score=0', () => {
+  const out = computeSimilarityReport({ source: emptyReport(), clone: emptyReport() });
+  assert.equal(out.score, 0);
+});
+
+test('grade 门禁：已证据维度少于该层必需维度 → grade=null（即使 score 满分）', () => {
+  const src = emptyReport();
+  src.meta.durationSec = 60;
+  src.narrative.timeline = [{ t0: 0, t1: 10 }];
+  const clone = emptyReport();
+  clone.meta.durationSec = 60;
+  clone.narrative.timeline = [{ t0: 0, t1: 10 }];
+  // 仅 structure+duration 有证据（confidence=0.5），L1 必需 4 维 → 不评级
+  const out = computeSimilarityReport({ source: src, clone, level: 'L1' });
+  assert.equal(out.score, 1);
+  assert.equal(out.grade, null);
+  assert.equal(out.verdict, 'needs_review');
+});
+
+test('grade 门禁：confidence<0.5 → grade=null（L0 空文案）', () => {
+  const out = computeSimilarityReport({ source: emptyReport(), clone: emptyReport(), level: 'L0' });
+  assert.equal(out.grade, null);
+});
+
+test('grade 门禁：满证据时正常评级（回归）', () => {
+  const r = emptyReport();
+  r.meta.durationSec = 60;
+  r.narrative.timeline = [{ t0: 0, t1: 10 }];
+  r.script.fullText = '文案';
+  r.visual.palette = 'warm';
+  r.scriptStyle.person = 'second';
+  const out = computeSimilarityReport({ source: r, clone: r });
+  assert.equal(out.grade, 'L2');
+});
+
 test('W4: 结构相似度对顺序敏感（倒序时间轴低分）', () => {
   const src = [{ t0: 0, t1: 5, label: 'a' }, { t0: 5, t1: 10, label: 'b' }];
   const same = [{ t0: 0, t1: 5 }, { t0: 5, t1: 10 }];

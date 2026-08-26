@@ -51,6 +51,60 @@ function serializeErr(err) {
 }
 
 /**
+ * 由产物实测构建 merge clone 报告（不污染 ctx.report）：
+ * - probeOk=true → meta.durationSec/resolution/fps 用产物 ffprobe 实测值（provenance=measured）
+ * - shots 为数组（≥1 段，零切点=单段）→ timeline/visual.shots 用产物场景实测（provenance=measured）
+ *   shots 为 null（检测失败/未注入）→ 沿用 plan 值 + sceneDetectFailed 警告（plan-fallback，不静默）
+ * - script/scriptStyle/palette 继承 plan：字幕烧录进产物、风格已应用，为合理代理（plan-constructive）
+ *   产物无 ASR/TTS，script/style 并非产物实测 → 由调用方附加 unmeasuredScript 警告
+ * - 无产物（fake adapter/部分流水线）→ 整体回退 plan 报告
+ */
+function buildMeasuredCloneReport(ctx) {
+  const plan = ctx.report;
+  const provenance = { structure: 'plan-constructive', duration: 'plan-constructive', script: 'plan-constructive', style: 'plan-constructive' };
+  const warnings = {};
+  const out = ctx.artifacts && ctx.artifacts.output;
+  if (!out || typeof out.path !== 'string') {
+    return { report: plan, provenance, warnings };
+  }
+  const measured = emptyReport();
+  const meta = {
+    source: plan.meta.source,
+    platform: plan.meta.platform !== undefined ? plan.meta.platform : null,
+    durationSec: plan.meta.durationSec,
+    resolution: plan.meta.resolution,
+    fps: plan.meta.fps,
+  };
+  if (out.probeOk === true) {
+    if (Number.isFinite(out.durationSec) && out.durationSec > 0) { meta.durationSec = out.durationSec; provenance.duration = 'measured'; }
+    if (Number.isFinite(out.width) && Number.isFinite(out.height) && out.width > 0 && out.height > 0) {
+      meta.resolution = out.width + 'x' + out.height;
+    }
+    if (Number.isFinite(out.fps) && out.fps > 0) meta.fps = out.fps;
+  } else {
+    provenance.duration = 'plan-fallback';
+  }
+  measured.meta = meta;
+  if (Array.isArray(out.shots)) {
+    measured.narrative.timeline = out.shots.map((s) => ({ t0: s.t0, t1: s.t1, label: 'shot' }));
+    measured.visual.shots = out.shots.map((s) => ({ t0: s.t0, t1: s.t1, type: 'unknown', motion: 'unknown' }));
+    measured.visual.transitions = out.shots.length > 1 ? ['cut'] : [];
+    provenance.structure = 'measured';
+  } else {
+    measured.narrative.timeline = plan.narrative.timeline;
+    measured.visual.shots = plan.visual.shots;
+    measured.visual.transitions = plan.visual.transitions;
+    warnings.sceneDetectFailed = true;
+    provenance.structure = 'plan-fallback';
+  }
+  measured.script = plan.script;
+  measured.scriptStyle = plan.scriptStyle;
+  measured.visual.palette = plan.visual.palette;
+  measured.platformParams = plan.platformParams;
+  return { report: measured, provenance, warnings };
+}
+
+/**
  * 创建视频克隆流水线。executorOptions 支持：
  * - eventSink({type, ...})：stage:started|stage:succeeded|stage:failed|aborted
  * - abortSignal：AbortSignal（阶段边界协作中止）
@@ -118,10 +172,16 @@ function createVideoClonePipeline(adapters = {}, executorOptions = {}) {
               // 有效层级：请求显式层级 > 报告（plan 自动定级）> L1（v1.16）
               const reqLevel = ctx.request.options && ctx.request.options.replicationLevel;
               const repLevel = ctx.report.replication && ctx.report.replication.level;
+              // 相似度用产物实测 merge 报告（结构/时长实测，script/style 为 plan 代理），不污染 ctx.report
+              const measured = buildMeasuredCloneReport(ctx);
               const sim = computeSimilarityReport({
-                source: ctx.sourceReport || ctx.report, clone: ctx.report,
+                source: ctx.sourceReport || ctx.report, clone: measured.report,
                 target, level: reqLevel || repLevel || 'L1',
               });
+              sim.provenance = measured.provenance;
+              if (measured.warnings.sceneDetectFailed) sim.warnings.sceneDetectFailed = true;
+              sim.warnings.unmeasuredScript = true; // 产物无 ASR/TTS，script/style 维度非产物实测
+              if (ctx.artifacts.assets && ctx.artifacts.assets.degraded === true) sim.warnings.degradedAssets = true;
               ctx.similarity = sim;
               const failOnLow = ctx.request.options && ctx.request.options.failOnLowSimilarity === true;
               if (failOnLow && (sim.verdict === 'needs_review' || sim.verdict === 'insufficient_evidence')) {

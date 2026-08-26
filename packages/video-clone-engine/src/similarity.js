@@ -153,7 +153,12 @@ function computeSimilarityReport({ source, clone, target = 'P1', level = null })
   };
   const confidence = Object.values(evidence).filter(Boolean).length / 4;
 
-  const score = 0.35 * structure + 0.25 * script + 0.25 * style + 0.15 * duration;
+  // score 只对有证据维度按权重归一化计分（无证据维度不计分不占权，防空数据虚高）
+  const DIM_WEIGHTS = { structure: 0.35, script: 0.25, style: 0.25, duration: 0.15 };
+  const DIM_METRICS = { structure, script, style, duration };
+  const evDims = Object.keys(DIM_WEIGHTS).filter((k) => evidence[k]);
+  const evWeight = evDims.reduce((a, k) => a + DIM_WEIGHTS[k], 0);
+  const score = evWeight > 0 ? evDims.reduce((a, k) => a + DIM_WEIGHTS[k] * DIM_METRICS[k], 0) / evWeight : 0;
   const effLevel = resolveLevel(level, target);
   const th = LEVEL_THRESHOLDS[effLevel] || LEVEL_THRESHOLDS.L1;
   const required = LEVEL_REQUIRED[effLevel] || LEVEL_REQUIRED.L1;
@@ -165,7 +170,9 @@ function computeSimilarityReport({ source, clone, target = 'P1', level = null })
   };
   const requiredPassed = required.every((k) => passes[k] === true);
   const warnings = { verbatimScript: script > 0.9 && srcScript.length > 0 && clnScript.length > 0 };
-  const grade = score >= 0.85 ? 'L2' : score >= 0.7 ? 'L1' : 'L0';
+  // grade 与 verdict 同门禁：证据不足（全局置信度低或缺该层必需维证据）时不评级，避免「L2 + insufficient_evidence」矛盾
+  const gradeOk = confidence >= 0.5 && required.every((k) => evidence[k]);
+  const grade = !gradeOk ? null : score >= 0.85 ? 'L2' : score >= 0.7 ? 'L1' : 'L0';
 
   return {
     score: Number(score.toFixed(4)),
