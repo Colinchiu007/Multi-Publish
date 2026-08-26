@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { PipelineEngine } = require('../services/pipeline-engine')
+const { PipelineEngine, generateRunId } = require('../services/pipeline-engine')
 
 describe('PipelineEngine 状态机模式', () => {
   let engine
@@ -1170,7 +1170,14 @@ describe('PipelineEngine 批量创作打标与索引隔离', () => {
   })
 
   it('_countActiveManualRuns 只统计非批量运行中 run', async () => {
-    const startedBatch = await engine.startOrchestrated('story2video-compose', {
+    // 隔离引擎：显式注入 maxConcurrentRuns=4，避免低内存 CI 环境下 computeDefaultMaxConcurrentRuns 自适应为 1 导致并发上限误拒（与本次 ID 改动无关）。
+    // 同时注入 stageExecutor mock（与本 describe 的 beforeEach 一致），否则 startOrchestrated 会因 StageExecutor 未配置而拒绝。
+    const isolatedEngine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      stageExecutor: { execute: vi.fn(async () => ({ success: true, output: {} })) },
+      maxConcurrentRuns: 4,
+    })
+    const startedBatch = await isolatedEngine.startOrchestrated('story2video-compose', {
       initialContext: {},
       autoAdvance: false,
       source: 'batch',
@@ -1186,10 +1193,10 @@ describe('PipelineEngine 批量创作打标与索引隔离', () => {
       },
     })
     expect(startedBatch.success).toBe(true)
-    expect(engine._countActiveManualRuns()).toBe(0)
-    expect(engine._countActiveRuns()).toBe(1)
+    expect(isolatedEngine._countActiveManualRuns()).toBe(0)
+    expect(isolatedEngine._countActiveRuns()).toBe(1)
 
-    const startedManual = await engine.startOrchestrated('story2video-compose', {
+    const startedManual = await isolatedEngine.startOrchestrated('story2video-compose', {
       initialContext: {},
       autoAdvance: false,
       text: '手动测试文案2',
@@ -1202,8 +1209,8 @@ describe('PipelineEngine 批量创作打标与索引隔离', () => {
       },
     })
     expect(startedManual.success).toBe(true)
-    expect(engine._countActiveManualRuns()).toBe(1)
-    expect(engine._countActiveRuns()).toBe(2)
+    expect(isolatedEngine._countActiveManualRuns()).toBe(1)
+    expect(isolatedEngine._countActiveRuns()).toBe(2)
   })
 
   it('批量 run 完成进入 _history 并保留 batch 标记', async () => {
@@ -1231,5 +1238,39 @@ describe('PipelineEngine 批量创作打标与索引隔离', () => {
     expect(historyEntry.source).toBe('batch')
     expect(historyEntry.batchId).toBe('batch-4')
     expect(historyEntry.batchItemId).toBe('item-4')
+  })
+})
+
+describe('generateRunId 项目ID生成（方案2：约13位，去掉 run_ 前缀）', () => {
+  it('导出 generateRunId 函数', () => {
+    expect(generateRunId).toBeTypeOf('function')
+  })
+
+  it('格式为 base36时间戳_4位随机，约13字符', () => {
+    const id = generateRunId()
+    expect(id).toMatch(/^[0-9a-z]+_[0-9a-z]{4}$/)
+    // 当前纪元 base36 时间戳为 8 位，+ '_' + 4 位随机 = 13 位
+    expect(id.length).toBe(13)
+  })
+
+  it('满足 SAFE_ID 校验，可作磁盘目录名', () => {
+    const SAFE_ID = /^[a-zA-Z0-9_-]{1,100}$/
+    for (let i = 0; i < 50; i++) {
+      expect(SAFE_ID.test(generateRunId())).toBe(true)
+    }
+  })
+
+  it('时间戳部分可解码为近期时间（保留时序可排序性）', () => {
+    const id = generateRunId()
+    const ts = parseInt(id.split('_')[0], 36)
+    expect(Number.isFinite(ts)).toBe(true)
+    expect(Math.abs(ts - Date.now())).toBeLessThan(60 * 1000)
+  })
+
+  it('批量生成唯一（无碰撞）', () => {
+    const ids = new Set()
+    const N = 2000
+    for (let i = 0; i < N; i++) ids.add(generateRunId())
+    expect(ids.size).toBe(N)
   })
 })

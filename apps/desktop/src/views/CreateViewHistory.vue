@@ -147,7 +147,7 @@
             </div>
             <div v-if="historyTaskId(item)" class="history-meta-item">
               <dt>{{ item.projectId ? tr('projectId') : tr('taskId') }}</dt>
-              <dd :title="historyTaskId(item)">{{ shortenId(historyTaskId(item)) }}</dd>
+              <dd :title="historyTaskId(item)" data-testid="history-task-id">{{ historyTaskId(item) }}</dd>
             </div>
           </dl>
 
@@ -486,10 +486,6 @@ export default {
       const minutes = Math.floor(value / 60000)
       const seconds = Math.floor((value % 60000) / 1000)
       return minutes > 0 ? minutes + ' ' + this.tr('minutes') + ' ' + seconds + ' ' + this.tr('seconds') : seconds + ' ' + this.tr('seconds')
-    },
-    shortenId (value) {
-      const id = String(value || '')
-      return id.length > 14 ? id.slice(0, 8) + '…' + id.slice(-4) : id
     },
   },
 }

@@ -410,4 +410,17 @@ describe('CreateViewHistory', () => {
     expect(wrapper.emitted('open-result')).toHaveLength(1)
     expect(wrapper.emitted('open-result')[0][0].projectId).toBe('proj-p9')
   })
+
+  it('任务项目 ID 完整显示不截断（旧 22 位与新 13 位均全显）', () => {
+    const longId = 'run_1787360004146_izko' // 旧格式 22 位
+    const shortId = 'lf3k9a2b_7xq1' // 新格式 13 位
+    const wrapper = mountHistory([
+      { id: 'old', projectId: longId, status: 'completed', updatedAt: '2026-08-15T12:00:00Z' },
+      { id: 'new', projectId: shortId, status: 'completed', updatedAt: '2026-08-15T12:00:00Z' },
+    ])
+    const oldCard = wrapper.find('[data-history-id="old"]')
+    const newCard = wrapper.find('[data-history-id="new"]')
+    expect(oldCard.find('[data-testid="history-task-id"]').text()).toBe(longId)
+    expect(newCard.find('[data-testid="history-task-id"]').text()).toBe(shortId)
+  })
 })
