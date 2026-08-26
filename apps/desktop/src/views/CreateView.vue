@@ -932,6 +932,8 @@
         @resume-history="resumeHistoryItem"
         @open-result="openHistoryResult"
         @delete-history="requestHistoryDeletion"
+        :deleting="deleting"
+        @delete-history-batch="requestHistoryBatchDeletion"
       />
     </div>
 
@@ -1089,6 +1091,19 @@
       <template #footer>
         <UiButton variant="secondary" @click="closeTemplateDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
         <UiButton variant="danger" @click="confirmTemplateDeletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
+      </template>
+    </UiModal>
+
+    <UiModal
+      :visible="story2videoBatchDeleteDialog.visible"
+      :title="story2videoErrorDialogUiText.dialogTitle"
+      size="sm"
+      @close="closeBatchDeletionDialog"
+    >
+      <p class="story2video-error-dialog-message">{{ story2videoBatchDeleteDialogMessage }}</p>
+      <template #footer>
+        <UiButton variant="secondary" :disabled="deleting" @click="closeBatchDeletionDialog">{{ story2videoErrorDialogUiText.cancel }}</UiButton>
+        <UiButton variant="danger" :disabled="deleting" data-testid="confirm-batch-deletion" @click="confirmBatchDeletion">{{ story2videoErrorDialogUiText.confirmDelete }}</UiButton>
       </template>
     </UiModal>
 
@@ -1858,6 +1873,8 @@ export default {
       story2videoProjectDeleteDialog: { visible: false, projectId: null },
       story2videoRunDeleteDialog: { visible: false, runId: null },
       story2videoTemplateDeleteDialog: { visible: false, templateId: null },
+      story2videoBatchDeleteDialog: { visible: false, items: [] },
+      deleting: false,
       // 背景音乐素材库（2026-08-14）：设备级持久化，添加/重命名/删除后自动刷新
       s2vBgmLibrary: [],
       s2vBgmLibraryLoading: false,
@@ -2362,6 +2379,13 @@ export default {
     },
     story2videoTemplateDeleteDialogMessage() {
       return formatStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.TEMPLATE_DELETE_CONFIRM }).message
+    },
+    story2videoBatchDeleteDialogMessage() {
+      const count = this.story2videoBatchDeleteDialog.items.length
+      return formatStory2VideoNotification({
+        messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_CONFIRM,
+        messageParams: { count },
+      }).message
     },
     canQuickRender() {
       if (this.quickRendering) return false
@@ -4060,6 +4084,80 @@ export default {
       const projectId = this.story2videoProjectDeleteDialog.projectId
       this.closeProjectDeletionDialog()
       if (projectId) await this.deleteHistory({ projectId })
+    },
+    requestHistoryBatchDeletion(items) {
+      if (!Array.isArray(items) || items.length === 0) return
+      this.story2videoBatchDeleteDialog = { visible: true, items: items.slice() }
+    },
+    closeBatchDeletionDialog() {
+      this.story2videoBatchDeleteDialog = { visible: false, items: [] }
+    },
+    async confirmBatchDeletion() {
+      if (this.deleting) return
+      const items = this.story2videoBatchDeleteDialog.items
+      this.closeBatchDeletionDialog()
+      if (!items || items.length === 0) return
+      this.deleting = true
+      try {
+        const succeededProjectIds = new Set()
+        const succeededRunIds = new Set()
+        let success = 0
+        let failed = 0
+        for (const item of items) {
+          try {
+            if (item.projectId) {
+              const result = await story2videoDeleteProject(item.projectId)
+              if (result?.code === 0) {
+                success++
+                succeededProjectIds.add(item.projectId)
+              } else {
+                failed++
+              }
+            } else {
+              const runId = item.id || item.runId
+              if (!runId) {
+                failed++
+                continue
+              }
+              const result = await pipelineDeleteRun(runId)
+              if (result?.code === 0) {
+                success++
+                succeededRunIds.add(runId)
+              } else {
+                failed++
+              }
+            }
+          } catch (_error) {
+            failed++
+          }
+        }
+        if (succeededProjectIds.size > 0 || succeededRunIds.size > 0) {
+          this.history = this.history.filter((entry) => {
+            if (entry.projectId) return !succeededProjectIds.has(entry.projectId)
+            const runId = entry.id || entry.runId
+            return !(runId && succeededRunIds.has(runId))
+          })
+        }
+        if (failed === 0) {
+          this.showS2VOptionsToast(
+            formatStory2VideoNotification({
+              messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_SUCCESS,
+              messageParams: { count: success },
+            }).message,
+          )
+        } else if (success === 0) {
+          this.showStory2VideoErrorDialog({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_FAILED })
+        } else {
+          this.showS2VOptionsToast(
+            formatStory2VideoNotification({
+              messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_PARTIAL,
+              messageParams: { success, failed },
+            }).message,
+          )
+        }
+      } finally {
+        this.deleting = false
+      }
     },
     setOrchestrationError(notification, statusSnapshot = null) {
       this.orchestrationError = ''

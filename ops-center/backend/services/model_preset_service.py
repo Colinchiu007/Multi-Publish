@@ -16,6 +16,7 @@ import socket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from models import ModelPreset
 
 MODEL_CATEGORIES = ["llm", "tts", "speech_recognition", "image", "video", "audio", "multimodal"]
@@ -40,6 +41,12 @@ MULTIMODAL_DOC_CAPABILITIES = [
 ALLOWED_DOC_KEYS = set(MULTIMODAL_DOC_CAPABILITIES) | {"audio"}
 
 _HTTP_URL_RE = re.compile(r"^https?://[^\s]+$", re.IGNORECASE)
+
+# 198.18.0.0/15：RFC 2544 基准测试段（Python >=3.12 标记为 is_private=True），
+# Clash/TUN 类 fake-ip 代理用它接管公网流量；仅在显式开启开关时放行。
+_BENCHMARK_V4 = ipaddress.ip_network("198.18.0.0/15", strict=False)
+# CGNAT(100.64.0.0/10)：is_private 在不同 Python 版本覆盖不一致，显式补充
+_CGNAT_V4 = ipaddress.ip_network("100.64.0.0/10", strict=False)
 
 
 def _validate_optional_url(value, field_name):
@@ -87,7 +94,19 @@ def _validate_optional_positive_int(value, field_name, max_value):
 
 
 # 种子目录（由 Multi-Publish 桌面端代码事实生成：适配器默认端点 + model-provider-seeds 预设模型 +
-#   governor-provider-limits 每分钟连接次数；limit_per_5h/models_url 无代码事实 → 留空由运营填写）
+#   governor-provider-limits 每分钟连接次数；limit_per_5h 无代码事实留空）
+# models_url 白名单（配合「获取模型ID URL」预填：选中预设自动带出、运营仍可编辑）：
+#   仅预置同时满足「官方 Models 列表端点、响应含 id（{data:[{id}]}）、响应体 ≤ fetch 512KB 上限、纯 LLM 预设」的端点；
+#   排除：Gemini（name 非 id）、豆包 Ark（返回推理接入点 ep-*）、OpenRouter（全量响应实测 ~687KB 超上限）、
+#   minimax-multimodal（多模态，全量列表会覆盖能力映射模型）
+OFFICIAL_MODELS_URLS = {
+    "anthropic": "https://api.anthropic.com/v1/models",
+    "openai": "https://api.openai.com/v1/models",
+    "deepseek": "https://api.deepseek.com/models",
+    "mimo-llm": "https://api.xiaomimimo.com/v1/models",
+}
+
+#   models_url 仅白名单预设预置官方 Models 端点（见 OFFICIAL_MODELS_URLS），其余留空由运营填写
 PRESET_CATALOG = [
     # ─── 多模态 ─────────────────────────────
     {
@@ -105,6 +124,7 @@ PRESET_CATALOG = [
     {
         "id": "anthropic", "name": "Anthropic", "category": "llm",
         "base_url": "https://api.anthropic.com",
+        "models_url": "https://api.anthropic.com/v1/models",
         "models": ["claude-sonnet-4-20250514","claude-3-5-haiku","claude-3-opus"], "default_model": "claude-sonnet-4-20250514",
         "rate_per_minute": 60,
         "doc_links": ["https://docs.anthropic.com/"],
@@ -112,6 +132,7 @@ PRESET_CATALOG = [
     {
         "id": "openai", "name": "OpenAI", "category": "llm",
         "base_url": "https://api.openai.com/v1",
+        "models_url": "https://api.openai.com/v1/models",
         "models": ["gpt-4o","gpt-4o-mini","gpt-4-turbo","o3-mini"], "default_model": "gpt-4o",
         "rate_per_minute": 120,
         "doc_links": ["https://platform.openai.com/docs/guides/text-generation"],
@@ -147,6 +168,7 @@ PRESET_CATALOG = [
     {
         "id": "deepseek", "name": "DeepSeek", "category": "llm",
         "base_url": "https://api.deepseek.com",
+        "models_url": "https://api.deepseek.com/models",
         "models": ["deepseek-chat","deepseek-reasoner"], "default_model": "deepseek-chat",
         "rate_per_minute": 60,
         "doc_links": ["https://api-docs.deepseek.com/"],
@@ -154,6 +176,7 @@ PRESET_CATALOG = [
     {
         "id": "mimo-llm", "name": "Xiaomi MiMo", "category": "llm",
         "base_url": "https://api.xiaomimimo.com/v1",
+        "models_url": "https://api.xiaomimimo.com/v1/models",
         "models": ["mimo-v2.5-pro","mimo-v2.5"], "default_model": "mimo-v2.5-pro",
         "rate_per_minute": 30,
         "doc_links": ["https://dev.mi.com/xiaomimimo/"],
@@ -503,10 +526,11 @@ async def ensure_model_preset_columns(db: AsyncSession):
 
 
 async def ensure_catalog_seeded(db: AsyncSession):
-    """INSERT OR IGNORE 风格初始化：填充不存在的预设行；已存在但 rpm/限额缺失的行按目录默认值回填。
+    """INSERT OR IGNORE 风格初始化：填充不存在的预设行；已存在但 rpm/限额/models_url 缺失的行按目录默认值回填。
 
-    回填规则（2026-08-13）：旧目录版本可能遗留 rate_per_minute/limit_per_5h 为 NULL 的行，
-    只要目录（PRESET_CATALOG）有默认值且 DB 行为空，就补齐，保证运营后台模型 rpm 配置始终有默认初始值。
+    回填规则（2026-08-13 / 2026-08-27）：旧目录版本可能遗留 rate_per_minute/limit_per_5h 为 NULL、
+    models_url 为空的行；只要目录（PRESET_CATALOG）有默认值且 DB 行为空，就补齐。
+    models_url 仅对 base_url 仍为官方默认值的种子行回填，避免给自定义内网网关行注入不同供应商端点。
     仅当目录有值而 DB 为空时才写，避免覆盖运营手工修改过的值。
     """
     changed = False
@@ -538,6 +562,13 @@ async def ensure_catalog_seeded(db: AsyncSession):
             changed = True
         if row.limit_per_5h is None and item.get("limit_per_5h") is not None:
             row.limit_per_5h = item["limit_per_5h"]
+            changed = True
+        # models_url：白名单官方 Models 端点，仅对 base_url 仍为官方默认值的种子行且值为空时回填
+        # （不覆盖运营手工值；运营主动清空后重启会恢复官方值 —— 预填语义下可接受）
+        # base_url 守卫为精确字符串比较（保守不误伤）；目录端点后续迁移不扩散到存量行，与 rpm 语义一致
+        if ((not row.models_url) and item.get("models_url")
+                and row.base_url == item["base_url"]):
+            row.models_url = item["models_url"]
             changed = True
     if changed:
         await db.commit()
@@ -654,10 +685,13 @@ def _is_private_or_reserved(ip: str) -> bool:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return False
-    # is_private 在不同 Python 版本对 CGNAT(100.64.0.0/10) 覆盖不一致，显式补充
-    cgnat = ipaddress.ip_network("100.64.0.0/10", strict=False)
+    # 198.18.0.0/15 是 RFC 2544 基准测试段（Python >=3.12 标记为 is_private=True），
+    # Clash/TUN 类 fake-ip 代理用它接管公网流量，公网模型 API 域名在代理环境下会解析到该段；
+    # 它不是真实内网目标，但仅在显式开启 OPS_ALLOW_PROXY_BENCHMARK_IPS 时放行（默认 fail-closed）。
+    if settings.allow_proxy_benchmark_ips and addr in _BENCHMARK_V4:
+        return False
     return (addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast
-            or addr.is_reserved or addr.is_unspecified or addr in cgnat)
+            or addr.is_reserved or addr.is_unspecified or addr in _CGNAT_V4)
 
 
 def _extract_model_ids(payload: object) -> list[str]:
@@ -692,6 +726,8 @@ async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_ove
     """从 preset.models_url（或显式覆盖值）拉取支持的模型 ID 列表。
 
     SSRF 防护 + 超时 + 大小限制 + JSON 契约。
+    已知边界：校验解析(socket.getaddrinfo)与 httpx 实际连接为两次独立 DNS 解析，存在
+    DNS 重绑定 TOCTOU 窗口（follow_redirects=False 已防 3xx 跳转），本函数不声称阻断重绑定。
     返回 (models, default_model, models_url)。成功时由调用方负责回写持久化。
     """
     import httpx

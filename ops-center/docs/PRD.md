@@ -657,6 +657,9 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 | 成功响应 | `{"models": [...], "default_model": "...", "count": N}`；回写 `models`（`models_url` 覆盖时一并回写）、`default_model` 不在新列表则清空 |
 | 失败 | 400 + 中文错误（不修改已有数据） |
 
+> **鉴权说明（2026-08-27）**：fetch-models 不携带供应商鉴权头；白名单官方端点均需鉴权（OpenAI 系 `Bearer`、Anthropic `x-api-key` 等），预填官方 URL 后直连「获取模型」将返回 401/403。预填仅为地址预置；实际拉取建议经内部网关或后续扩展鉴权适配。
+
+
 **SSRF 防护清单**：
 1. URL 必须是 `http(s)` 且长度 ≤500（`ftp://` 等拒绝）；
 2. 仅本机环回主机（`localhost` / `127.0.0.1` / `::1`）允许 `http`（供本地 ollama 等）；非环回主机必须 `https`；
@@ -686,7 +689,7 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 - `init_db` 后执行幂等列迁移：存量 `model_presets` 表补充 `models_url`（VARCHAR DEFAULT ''）、`rate_per_minute`（INTEGER）、`limit_per_5h`（INTEGER）。
 - 启动种子（`services/config_seed_service.py`）：幂等注册 6 个预置项目（含 `platform-orchestrator`，功能开关页面依赖）+ 从 `feature_gates.yaml` 导入功能开关（源可经 `OPS_FEATURE_GATES_SOURCE` 指定；显式配置时只使用该源，文件缺失即跳过不 fallback；未配置则探测 `D:/Data/projects/platform-orchestrator/feature_gates.yaml` 与 `~/feature_gates.yaml`）。修复「功能开关页面 404 → 加载失败」：原依赖手动 `scripts/seed.py`，新库为空导致项目缺失。
-- 种子目录（`PRESET_CATALOG`）**由 Multi-Publish 桌面端代码事实生成**（见 12A.8 数据来源）：覆盖桌面端全部 53 个预设；`base_url`=适配器默认端点/桌面预设值、`models`/`capabilities`/`capability_models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表；`limit_per_5h` 与 `models_url` **无代码事实 → 不预填（留空由运营填写）**；`INSERT OR IGNORE` 不覆盖用户修改。
+- 种子目录（`PRESET_CATALOG`）**由 Multi-Publish 桌面端代码事实生成**（见 12A.8 数据来源）：覆盖桌面端全部 53 个预设；`base_url`=适配器默认端点/桌面预设值、`models`/`capabilities`/`capability_models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表；`limit_per_5h` **无代码事实 → 不预填（留空由运营填写）**；`models_url` 仅白名单预设（`OFFICIAL_MODELS_URLS`：官方 Models 列表端点且响应含 id）预置官方端点、可编辑，其余留空；空值回填仅限 base_url 仍为官方默认值的种子行；`INSERT OR IGNORE` 不覆盖用户修改。
 
 ### 12A.6 前端交互与提示文案
 
@@ -705,7 +708,7 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 3. 默认模型 ID 以下拉选择；点击「获取模型」成功回填模型列表与默认模型，失败不改动已有数据。
 4. fetch-models 对私网解析/重定向/非 JSON/超时分别返回 400，且普通用户 403。
 5. 多模态编辑弹窗显示 7 个固定能力文档 URL 输入框，保存后 `capability_doc_links` 对应键为单元素数组。
-6. 预设目录与桌面端代码事实一致：default_model ∈ models、rate_per_minute 与桌面静态表一致、limit_per_5h/models_url 为空（防估算污染）。
+6. 预设目录与桌面端代码事实一致：default_model ∈ models、rate_per_minute 与桌面静态表一致、limit_per_5h 为空；models_url 仅白名单预设预置官方端点（与 base_url 推导一致），其余为空（防估算污染）。
 
 ---
 
@@ -738,9 +741,10 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 | `capabilities` / `capability_models` | 桌面多模态预设声明（minimax-multimodal） | llm/tts/image/video → 对应模型 |
 | `rate_per_minute`（每分钟连接次数） | 桌面 `governor-provider-limits.js` `PROVIDER_LIMITS[].rpm` | 代码常量（如 openai 120、video 类 6）；**与静态表一致，非估算** |
 | `limit_per_5h`（5小时限额次数） | **无代码事实** → 空（null） | 由运营在模型设置/运营后台填写；桌面端 `ApiUsageGovernor` 按 provider 级 5h 请求窗口使用 |
-| `models_url`（获取模型ID URL） | **无代码事实**（适配器无 `/models` 调用）→ 空 | 「获取模型」按钮需运营填写模型网址 |
+| `models_url`（获取模型ID URL） | 官方 Models 列表端点白名单（`OFFICIAL_MODELS_URLS`，2026-08-27；纯 LLM 预设且响应含 `id`、≤512KB；排除 Gemini `name`、豆包 Ark `ep-*`、OpenRouter 全量响应超 512KB 上限、多模态 minimax-multimodal 覆盖能力映射） | 白名单预设预置官方端点、可编辑；其余留空。fetch 不带鉴权，直连官方端点需运营另行准备；「获取模型」会以供应商全量列表覆盖 `models`，能力默认模型若不在新列表会被清空 |
 
 - 变更守则：任何桌面适配器端点/模型/限流常量变更，须同步更新本目录并跑 12A.7-6 一致性测试（`test_catalog_facts_consistency`）。
+- `models_url` 白名单变更守则：回填仅补空值、端点迁移不自动扩散到存量行——官方端点变更须同步清理存量 `models_url`；新增供应商入白名单前须按官方契约确认：Models 列表响应含 `id` 字段、响应体 ≤ fetch 512KB 上限、仅纯 LLM 预设（Gemini `name`、Ark `ep-*`、OpenRouter 超限、多模态预设不入白名单）。
 
 ## 12A.10 模型目录只读同步端点（catalog，桌面端运行时下发）（2026-08-10 新增）
 

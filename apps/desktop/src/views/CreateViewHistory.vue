@@ -31,6 +31,27 @@
       <span class="history-count">{{ statusCounts.all }} {{ tr('records') }}</span>
     </div>
 
+    <div v-if="!historyLoading && filteredHistory.length > 0" class="history-batch-bar" data-testid="history-batch-bar">
+      <label class="history-select-all">
+        <input
+          type="checkbox"
+          data-testid="history-select-all"
+          :checked="allSelected"
+          :disabled="deleting"
+          @change="toggleSelectAll"
+        />
+        <span>{{ allSelected ? tr('deselectAll') : tr('selectAll') }}</span>
+      </label>
+      <span class="history-selected-count" data-testid="history-selected-count">{{ tr('selectedCount', { count: selectedIdentities.length }) }}</span>
+      <button
+        type="button"
+        class="s2v-btn-danger s2v-btn-sm"
+        data-testid="history-batch-delete-button"
+        :disabled="selectedIdentities.length === 0 || story2videoResuming || deleting"
+        @click.stop="emitBatchDelete"
+      >{{ tr('batchDelete') }}</button>
+    </div>
+
     <div v-if="historyLoading" class="loading-state">
       <span class="spinner" aria-hidden="true"></span>
       <span>{{ tr('loading') }}</span>
@@ -60,6 +81,16 @@
           @keydown.space.prevent="openDetail(item)"
         >
           <div class="history-item-row history-item-heading">
+            <span class="history-item-select" @click.stop>
+              <input
+                type="checkbox"
+                class="history-select-checkbox"
+                data-testid="history-select-checkbox"
+                :checked="isSelected(item, index)"
+                :disabled="story2videoResuming || deleting"
+                @change="toggleSelect(item, index)"
+              />
+            </span>
             <div class="history-heading-copy">
               <span class="history-name" :title="publishTitle(item)">{{ publishTitle(item) }}</span>
               <span v-if="item.pipeline || item.name" class="history-pipeline-tag">
@@ -228,12 +259,14 @@ export default {
     historyLocalModeText: { type: String, default: '' },
     historyFilter: { type: String, default: 'all' },
     story2videoResuming: { type: Boolean, default: false },
+    deleting: { type: Boolean, default: false },
   },
-  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history'],
+  emits: ['update:historyFilter', 'resume-history', 'open-result', 'delete-history', 'delete-history-batch'],
   data () {
     return {
       activeFilter: HISTORY_STATUSES.includes(this.historyFilter) ? this.historyFilter : 'all',
       statusTabs: HISTORY_STATUSES,
+      selectedIdentities: [],
     }
   },
   computed: {
@@ -249,9 +282,16 @@ export default {
       })
       return hints
     },
+    allSelected () {
+      return this.filteredHistory.length > 0 && this.filteredHistory.every((item, index) => this.selectedIdentities.includes(this.historyIdentity(item, index)))
+    },
+    selectedItems () {
+      return this.filteredHistory.filter((item, index) => this.selectedIdentities.includes(this.historyIdentity(item, index)))
+    },
   },
   watch: {
     historyFilter (value) { this.activeFilter = HISTORY_STATUSES.includes(value) ? value : 'all' },
+    history () { this.pruneSelection() },
   },
   methods: {
     resolveLocaleRef (ref, locale, params) {
@@ -286,16 +326,17 @@ export default {
       }
       return this.tr('genericFailure')
     },
-    tr (path) {
+    tr (path, params) {
       const key = 'create.history.' + path
       try {
-        const value = this.$t?.(key)
+        const value = this.$t?.(key, params)
         return typeof value === 'string' && value !== key ? value : key
       } catch (_) { return key }
     },
     currentLocale () { try { return getAppLocale() } catch (_) { return 'zh' } },
     selectFilter (status) {
       if (!HISTORY_STATUSES.includes(status)) return
+      this.clearSelection()
       this.activeFilter = status
       this.$emit('update:historyFilter', status)
     },
@@ -312,6 +353,29 @@ export default {
     },
     historyIdentity (item, index) { return String(item?.id || item?.projectId || item?.runId || index) },
     historyTaskId (item) { return item?.projectId || item?.id || item?.runId || '' },
+    isSelected (item, index) { return this.selectedIdentities.includes(this.historyIdentity(item, index)) },
+    toggleSelect (item, index) {
+      const id = this.historyIdentity(item, index)
+      const pos = this.selectedIdentities.indexOf(id)
+      if (pos === -1) this.selectedIdentities.push(id)
+      else this.selectedIdentities.splice(pos, 1)
+    },
+    selectAll () {
+      this.selectedIdentities = this.filteredHistory.map((item, index) => this.historyIdentity(item, index))
+    },
+    clearSelection () { this.selectedIdentities = [] },
+    toggleSelectAll () {
+      if (this.allSelected) this.clearSelection()
+      else this.selectAll()
+    },
+    pruneSelection () {
+      const valid = new Set(this.history.map((item, index) => this.historyIdentity(item, index)))
+      this.selectedIdentities = this.selectedIdentities.filter(id => valid.has(id))
+    },
+    emitBatchDelete () {
+      if (this.selectedIdentities.length === 0) return
+      this.$emit('delete-history-batch', this.selectedItems.slice())
+    },
     // 发布标题（原文案前 60 字免回）
     publishTitle (item) { return this.historyTitle(item) },
     // 任务标题回退链：发布标题（project.title / params.title）→ 原文案前 60 字 → 流水线名
@@ -492,6 +556,34 @@ export default {
 </script>
 
 <style scoped>
+.history-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  background: var(--s2v-surface, #f5f6f8);
+  border-radius: 8px;
+}
+.history-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.history-selected-count {
+  font-size: 13px;
+  color: var(--s2v-text-secondary, #6b7280);
+}
+.history-item-select {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
+}
+.history-select-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
 </style>
-
-

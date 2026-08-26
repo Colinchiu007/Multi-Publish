@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     feedback_media_dir: str = "data/feedback-media"
     feedback_max_message_chars: int = 10000
     feedback_max_archive_bytes: int = 25 * 1024 * 1024
+    # 允许获取模型ID URL 解析到 198.18.0.0/15（RFC 2544 基准测试段）：该段被 Clash/TUN 类
+    # fake-ip 代理用于接管公网流量，公网模型 API 域名在代理环境下会解析到该段；
+    # 仅在有此类代理的主机开启，默认关闭保持 SSRF fail-closed。
+    allow_proxy_benchmark_ips: bool = False
 
     def get_jwt_secret(self) -> str:
         """返回经过安全校验的 JWT 密钥。"""

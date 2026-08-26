@@ -4,6 +4,14 @@
 - 历史任务列表 `apps/desktop/src/views/CreateViewHistory.vue` 移除 `shortenId` 截断方法（原 `id.length>14 ? slice(0,8)+'…'+slice(-4)`），任务项目ID完整显示并保留 `:title` 悬浮查看全文；新增 `data-testid="history-task-id"`。
 - 测试：`pipeline-engine.test.js` 新增 `generateRunId` 5 项（函数类型/格式正则与长度/SAFE_ID 50次迭代/base36 时间戳可解码近期时间/2000 批量唯一）；`CreateViewHistory.test.js` 新增历史ID全显用例（旧22位与新13位均全显）；修复 `_countActiveManualRuns` 用例注入 `maxConcurrentRuns:4` + `stageExecutor` mock 以消环境相关偶发失败。两文件共 86 项全过。
 
+## [未发布] feat(story2video): 历史记录批量删除
+
+- 新增：视频创作历史记录列表支持多选（全选 / 取消全选）、实时「已选 N 项」与「批量删除」入口；选中项经二次确认后删除。
+- 复用：按 `projectId` / `runId` 前端循环分流到既有 `story2videoDeleteProject` 与 `pipelineDeleteRun`，不新增 IPC 通道；进行中（`deleting`）锁定选择与删除，防止重复提交。
+- 反馈：全部成功 → Toast 成功数；部分成功 → Toast 成功/失败计数；全部失败 → 错误弹窗。用户可见文案走 `locales/zh.js`+`en.js` 成对。
+- 修复：`BATCH_DELETE_SUCCESS` 漏加计数插值分支，导致成功 Toast 的 `{count}` 为空（已补入 `story2video-notifications.js` 的 `{count}/{success}/{failed}` 统一插值）。
+- 测试：`CreateView.test.js` 新增 4 条（分流 / 部分成功 / 全失败 / 进行中守卫），`CreateViewHistory.test.js` 新增 AC-1 进行中禁用；回归 `locale-cjk-baseline.json` 因弹窗插入行号偏移重生成。
+
 ## [未发布] refactor(desktop): 单壳导航统一（P2.5）
 
 - 桌面端导航由双壳（Yixiaoer 壳 + cohere 壳 AppNavbar/AppSidebar）统一为单一 Yixiaoer 壳：移除 App.vue 的 `isYixiaoerWorkspace` 分支，仅 `/first-run` 保持脱离外壳的全屏渲染（`.fullscreen-main`），其余路由全部进入主壳。

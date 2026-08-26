@@ -360,6 +360,11 @@ export default {
         needsUserInput: '等待用户输入',
         local: '本地环境',
       },
+      // 批量删除（2026-08-26）
+      selectAll: '全选',
+      deselectAll: '取消全选',
+      selectedCount: (ctx) => '已选 ' + ctx.named('count') + ' 项',
+      batchDelete: '批量删除',
     },
   },
   // 运行进度文案（CreateView formatDuration / elapsed 命名插值；2026-08-10 补齐缺键）
@@ -390,6 +395,10 @@ export default {
     project_delete_confirm: '确定删除当前项目及其本地产物吗？此操作无法撤销。',
     run_delete_failed: '流水线任务未能删除，请稍后再试。',
     run_delete_confirm: '确定删除这条流水线任务记录吗？删除后无法恢复。',
+    batch_delete_confirm: '确定删除选中的 {count} 条记录吗？删除后无法恢复。',
+    batch_delete_success: '已成功删除 {count} 条记录。',
+    batch_delete_partial: '成功删除 {success} 条，{failed} 条删除失败。',
+    batch_delete_failed: '批量删除失败，请稍后再试。',
     template_delete_confirm: '确定删除这个自定义模板吗？此操作无法撤销。',
     bgm_library_load_failed: '背景音乐库暂时无法加载，请稍后再试。',
     bgm_library_rename_failed: '背景音乐重命名失败，请稍后再试。',
