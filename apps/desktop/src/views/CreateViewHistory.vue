@@ -35,14 +35,8 @@
       <span class="spinner" aria-hidden="true"></span>
       <span>{{ tr('loading') }}</span>
     </div>
-    <div v-else-if="history.length === 0" class="empty-state">
-      <div class="empty-icon" aria-hidden="true"></div>
-      <p>{{ tr('emptyTitle') }}</p>
-      <p class="empty-hint">{{ tr('emptyHint') }}</p>
-    </div>
-    <div v-else-if="filteredHistory.length === 0" class="empty-state compact">
-      <p>{{ tr('emptyFilter') }}</p>
-    </div>
+    <EmptyState v-else-if="history.length === 0" :title="tr('emptyTitle')" :description="tr('emptyHint')" icon="" />
+    <EmptyState v-else-if="filteredHistory.length === 0" :title="tr('emptyFilter')" compact />
 
     <div v-else class="history-list" role="list">
       <div

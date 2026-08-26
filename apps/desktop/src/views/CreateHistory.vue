@@ -29,12 +29,11 @@
       <div v-if="renderLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else>
         <div v-if="renderError" class="history-error"><p>{{ renderError }}</p><UiButton size="sm" @click="loadRenders">重试</UiButton></div>
-        <div v-if="renders.length === 0" class="empty-state">
-          <span class="empty-state-icon">🎬</span>
-          <p>暂无渲染记录</p>
-          <p class="empty-state-hint">创作你的第一个视频，记录将在这里显示</p>
-          <UiButton @click="$router.push('/create')">去创作</UiButton>
-        </div>
+        <EmptyState v-if="renders.length === 0" icon="🎬" title="暂无渲染记录" description="创作你的第一个视频，记录将在这里显示">
+          <template #actions>
+            <UiButton @click="$router.push('/create')">去创作</UiButton>
+          </template>
+        </EmptyState>
         <div v-else class="render-list">
           <div v-for="(r, i) in renders" :key="i" class="render-card" tabindex="0" role="button" @keydown.enter="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
             <div class="render-info">
@@ -59,12 +58,11 @@
       <div v-if="pipelineLoading" class="loading-state"><span class="spinner"></span><span>加载中...</span></div>
       <div v-else>
         <div v-if="pipelineError" class="history-error pipeline-history-error"><p>{{ pipelineError }}</p><UiButton size="sm" @click="loadPipelines">重试</UiButton></div>
-        <div v-if="pipelines.length === 0" class="empty-state">
-          <span class="empty-state-icon">🔄</span>
-          <p>暂无流水线运行记录</p>
-          <p class="empty-state-hint">选择创作模式开始流水线，运行记录将在这里显示</p>
-          <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
-        </div>
+        <EmptyState v-if="pipelines.length === 0" icon="🔄" title="暂无流水线运行记录" description="选择创作模式开始流水线，运行记录将在这里显示">
+          <template #actions>
+            <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
+          </template>
+        </EmptyState>
         <div v-else class="pipeline-list">
           <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="p.status" tabindex="0" role="button" @keydown.enter="openPipeline(p)" @click="openPipeline(p)">
             <div class="pipeline-info">

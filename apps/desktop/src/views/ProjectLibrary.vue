@@ -23,11 +23,11 @@
     </div>
 
     <!-- 空状态 -->
-    <div v-else-if="projects.length === 0" class="empty-state">
-      <div class="empty-icon">🎬</div>
-      <p>暂无项目，开始第一次视频生产吧</p>
-      <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
-    </div>
+    <EmptyState v-else-if="projects.length === 0" icon="🎬" title="暂无项目，开始第一次视频生产吧">
+      <template #actions>
+        <UiButton @click="$router.push('/create')">浏览流水线</UiButton>
+      </template>
+    </EmptyState>
 
     <!-- 项目列表 -->
     <div v-else class="project-grid">
