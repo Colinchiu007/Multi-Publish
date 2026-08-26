@@ -360,6 +360,11 @@ export default {
         needsUserInput: 'Waiting for user input',
         local: 'Local environment',
       },
+      // Batch delete (2026-08-26)
+      selectAll: 'Select all',
+      deselectAll: 'Clear selection',
+      selectedCount: (ctx) => String(ctx.named('count')) + ' selected',
+      batchDelete: 'Delete selected',
     },
   },
   // Runtime progress copy (CreateView formatDuration / elapsed named interpolation; missing keys fixed 2026-08-10)
@@ -390,6 +395,10 @@ export default {
     project_delete_confirm: 'Delete this project and its local output? This cannot be undone.',
     run_delete_failed: 'The pipeline task could not be deleted. Please try again.',
     run_delete_confirm: 'Delete this pipeline task record? This cannot be undone.',
+    batch_delete_confirm: 'Delete the {count} selected records? This cannot be undone.',
+    batch_delete_success: 'Successfully deleted {count} records.',
+    batch_delete_partial: 'Deleted {success} records; {failed} failed.',
+    batch_delete_failed: 'Batch delete failed. Please try again.',
     template_delete_confirm: 'Delete this custom template? This cannot be undone.',
     bgm_library_load_failed: 'The music library is unavailable right now. Please try again shortly.',
     bgm_library_rename_failed: 'Could not rename the track. Please try again.',
