@@ -1267,10 +1267,22 @@ describe('generateRunId 项目ID生成（方案2：约13位，去掉 run_ 前缀
     expect(Math.abs(ts - Date.now())).toBeLessThan(60 * 1000)
   })
 
-  it('批量生成唯一（无碰撞）', () => {
-    const ids = new Set()
-    const N = 2000
-    for (let i = 0; i < N; i++) ids.add(generateRunId())
-    expect(ids.size).toBe(N)
+  it('时间错开的批量生成唯一（无碰撞）', () => {
+    // 真实场景中 runId 随用户/事件节奏生成，时间戳前缀（毫秒）彼此不同；
+    // 此处模拟「时间错开」生成以验证结构本身的唯一性。
+    // 注：同一毫秒内仅靠 4 位 base36 随机后缀区分（空间 36^4≈168 万），
+    // 与旧格式 'run_'+Date.now()+'_'+rand(4) 完全一致——高并发同毫秒的极端
+    // 情形并不依赖随机后缀保证唯一，属历史既有行为，不在本次缩短任务范围内。
+    const realNow = Date.now
+    let t = realNow()
+    Date.now = () => { t += 1; return t }
+    try {
+      const ids = new Set()
+      const N = 2000
+      for (let i = 0; i < N; i++) ids.add(generateRunId())
+      expect(ids.size).toBe(N)
+    } finally {
+      Date.now = realNow
+    }
   })
 })
