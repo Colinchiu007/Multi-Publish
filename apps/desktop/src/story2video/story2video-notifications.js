@@ -27,6 +27,11 @@ export const STORY2VIDEO_NOTIFICATION_KEYS = Object.freeze({
   RUN_DELETE_FAILED: 'story2video.run_delete_failed',
   RUN_DELETE_CONFIRM: 'story2video.run_delete_confirm',
   TEMPLATE_DELETE_CONFIRM: 'story2video.template_delete_confirm',
+  // 历史记录批量删除（2026-08-26）
+  BATCH_DELETE_CONFIRM: 'story2video.batch_delete_confirm',
+  BATCH_DELETE_SUCCESS: 'story2video.batch_delete_success',
+  BATCH_DELETE_PARTIAL: 'story2video.batch_delete_partial',
+  BATCH_DELETE_FAILED: 'story2video.batch_delete_failed',
   BGM_LIBRARY_LOAD_FAILED: 'story2video.bgm_library_load_failed',
   BGM_LIBRARY_RENAME_FAILED: 'story2video.bgm_library_rename_failed',
   BGM_LIBRARY_DELETE_FAILED: 'story2video.bgm_library_delete_failed',
@@ -259,6 +264,17 @@ function normalizeParams (value, locale, messageKey, rawError) {
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.PIPELINE_CONCURRENCY_LIMIT) {
     if (Number.isFinite(Number(supplied.count))) params.count = Number(supplied.count)
     if (Number.isFinite(Number(supplied.max))) params.max = Number(supplied.max)
+  }
+
+  // 历史记录批量删除（2026-08-26）：{count}/{success}/{failed} 插值
+  if (
+    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_CONFIRM ||
+    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_SUCCESS ||
+    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_PARTIAL
+  ) {
+    if (Number.isFinite(Number(supplied.count))) params.count = Number(supplied.count)
+    if (Number.isFinite(Number(supplied.success))) params.success = Number(supplied.success)
+    if (Number.isFinite(Number(supplied.failed))) params.failed = Number(supplied.failed)
   }
 
   if (messageKey === STORY2VIDEO_NOTIFICATION_KEYS.COMPOSE_DURATION_EXCEEDED) {
