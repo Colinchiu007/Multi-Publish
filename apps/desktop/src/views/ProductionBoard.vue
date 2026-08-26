@@ -30,16 +30,12 @@
     </div>
 
     <!-- 空看板 -->
-    <div v-else-if="!board" class="board-empty">
-      <p>暂无看板数据</p>
-    </div>
+    <EmptyState v-else-if="!board" title="暂无看板数据" compact />
 
     <!-- 场景卡片网格 -->
     <div v-else class="board-content">
       <div class="board-main">
-        <div v-if="scenes.length === 0" class="no-scenes">
-          <p>当前阶段暂无场景</p>
-        </div>
+        <EmptyState v-if="scenes.length === 0" title="当前阶段暂无场景" compact />
         <div v-else class="scene-grid">
           <SceneCard
             v-for="scene in scenes"

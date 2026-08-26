@@ -14,6 +14,8 @@ import i18n from './i18n'
 import router from './router'
 import { reportError } from './utils/report-error'
 import { getApi } from './api/electron-bridge'
+import EmptyState from './components/EmptyState.vue'
+import LoadingState from './components/LoadingState.vue'
 
 const app = createApp(App)
 
@@ -43,4 +45,6 @@ app.use(router)
 app.use(i18n)
 app.use(ElementPlus)
 app.component('QuillEditor', QuillEditor)
+app.component('EmptyState', EmptyState)
+app.component('LoadingState', LoadingState)
 app.mount('#app')

@@ -65,11 +65,7 @@
 
       <!-- 草稿列表 -->
       <div class="cohere-section-title">草稿箱</div>
-      <div v-if="drafts.length === 0" class="cohere-empty">
-        <div class="empty-icon">📝</div>
-        <h3>暂无草稿</h3>
-        <p>点击「新建草稿」或从平台采集内容开始</p>
-      </div>
+      <EmptyState v-if="drafts.length === 0" icon="📝" title="暂无草稿" description="点击「新建草稿」或从平台采集内容开始" />
       <div v-else class="cohere-card-grid">
         <div v-for="d in drafts" :key="d.id" class="cohere-card">
           <div class="card-top">

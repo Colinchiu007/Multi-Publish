@@ -26,11 +26,7 @@
     <!-- 监控区域（WebContentsView 由 Electron 主进程渲染，此处仅做控制面板） -->
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--border-light,var(--border-light));position:relative;overflow:hidden">
       <!-- 无监控时显示引导 -->
-      <div v-if="tabs.length === 0" class="cohere-empty" style="position:absolute">
-        <div class="empty-icon">🖥️</div>
-        <h3>暂无监控</h3>
-        <p>点击「添加监控」选择平台开始实时查看</p>
-      </div>
+      <EmptyState v-if="tabs.length === 0" icon="🖥️" title="暂无监控" description="点击「添加监控」选择平台开始实时查看" />
 
       <!-- 底部状态栏 -->
       <div v-if="tabs.length > 0" class="monitor-status-bar">
