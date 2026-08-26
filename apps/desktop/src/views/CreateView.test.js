@@ -3559,6 +3559,100 @@ describe("CreateView - UI interactions", () => {
     confirmSpy.mockRestore();
   });
 
+  it("批量删除按 projectId/runId 分流，全部成功时移除对应历史项并提示成功数", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoDeleteProject.mockResolvedValue({ code: 0 });
+    mocks.pipelineDeleteRun.mockResolvedValue({ code: 0 });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    const items = [
+      { projectId: "p-batch-1", title: "项目A" },
+      { id: "r-batch-1", pipeline: "story2video-compose" },
+      { projectId: "p-batch-2", title: "项目C" },
+    ];
+    w.vm.history = items.slice();
+
+    w.vm.requestHistoryBatchDeletion(items);
+    expect(w.vm.story2videoBatchDeleteDialog.visible).toBe(true);
+    expect(w.vm.story2videoBatchDeleteDialog.items.length).toBe(3);
+
+    await w.vm.confirmBatchDeletion();
+
+    expect(mocks.story2videoDeleteProject).toHaveBeenCalledTimes(2);
+    expect(mocks.story2videoDeleteProject).toHaveBeenCalledWith("p-batch-1");
+    expect(mocks.story2videoDeleteProject).toHaveBeenCalledWith("p-batch-2");
+    expect(mocks.pipelineDeleteRun).toHaveBeenCalledTimes(1);
+    expect(mocks.pipelineDeleteRun).toHaveBeenCalledWith("r-batch-1");
+    expect(w.vm.history).toEqual([]);
+    expect(w.vm.s2vOptionsToast).toContain("3");
+  });
+
+  it("批量删除部分成功时仅移除成功项并提示部分成功（含成功/失败计数）", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoDeleteProject.mockResolvedValueOnce({ code: 0 }); // p-ok
+    mocks.story2videoDeleteProject.mockResolvedValueOnce({ code: 1 }); // p-fail
+    mocks.pipelineDeleteRun.mockResolvedValueOnce({ code: 0 }); // r-ok
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    const items = [
+      { projectId: "p-ok" },
+      { projectId: "p-fail" },
+      { id: "r-ok", pipeline: "story2video-compose" },
+    ];
+    w.vm.history = items.slice();
+
+    w.vm.requestHistoryBatchDeletion(items);
+    await w.vm.confirmBatchDeletion();
+
+    expect(mocks.story2videoDeleteProject).toHaveBeenCalledTimes(2);
+    expect(mocks.pipelineDeleteRun).toHaveBeenCalledTimes(1);
+    // 仅失败项保留
+    expect(w.vm.history.length).toBe(1);
+    expect(w.vm.history[0].projectId).toBe("p-fail");
+    expect(w.vm.s2vOptionsToast).toContain("2");
+    expect(w.vm.s2vOptionsToast).toContain("1");
+  });
+
+  it("批量删除全部失败时保留历史项并弹出错误对话框", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoDeleteProject.mockResolvedValue({ code: 1 });
+    mocks.pipelineDeleteRun.mockResolvedValue({ code: 1 });
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    const items = [
+      { projectId: "p-fail-1" },
+      { id: "r-fail-1", pipeline: "story2video-compose" },
+    ];
+    w.vm.history = items.slice();
+
+    w.vm.requestHistoryBatchDeletion(items);
+    await w.vm.confirmBatchDeletion();
+
+    expect(w.vm.history.length).toBe(2);
+    expect(w.vm.story2videoErrorDialog.visible).toBe(true);
+    expect(w.vm.story2videoErrorDialog.messageKey).toBe("story2video.batch_delete_failed");
+  });
+
+  it("批量删除进行中（deleting=true）再次触发 confirmBatchDeletion 应提前返回且不调用接口", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    const items = [{ projectId: "p-guard-1" }, { projectId: "p-guard-2" }];
+    w.vm.requestHistoryBatchDeletion(items);
+    expect(w.vm.story2videoBatchDeleteDialog.visible).toBe(true);
+    expect(w.vm.story2videoBatchDeleteDialog.items.length).toBe(2);
+
+    w.vm.deleting = true;
+    await w.vm.confirmBatchDeletion();
+    expect(mocks.story2videoDeleteProject).not.toHaveBeenCalled();
+    expect(mocks.pipelineDeleteRun).not.toHaveBeenCalled();
+    w.vm.deleting = false;
+  });
+
 });
   it("历史记录按有效时间倒序，运行中流水线显示阶段进度色块", async () => {
     const mocks = await import("@/api/publisher");
