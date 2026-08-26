@@ -5,9 +5,16 @@
   "complexity": "L",
   "risk": "high",
   "domain": "desktop-frontend",
-  "currentPhase": "implementation",
-  "nextAction": "Phase A: 封面裁剪功能（主进程 cropper + IPC + 渲染层对话框）",
+  "currentPhase": "phase-a-cover-crop",
+  "nextAction": "Phase B 真实应用启动验证（快手 expired 可能需人工扫码，先跑百家号）",
   "createdAt": "2026-08-24T18:30:00+08:00",
-  "branch": "feat/yixiaoer-ue-real-publish",
-  "notes": "需创建新worktree分支；最终目标：D:/01.mp4 真实发布到快手+百家号测试账号"
+  "branch": "codex/yixiaoer-ue-parity-real-publish-e2e",
+  "handover": {
+    "fromSession": "codex-plus-plus (2026-08-26 出问题会话)",
+    "date": "2026-08-26",
+    "note": "原会话中途失败；worktree/分支重建于 5e37c9283；stash@{3} 迁入 IPC 层；cover-cropper 服务层/UI/i18n 由接手会话补全"
+  },
+  "notes": "Phase A 完成（cover-cropper + CoverCropDialog + Publish.vue 集成 + zh/en i18n，门禁全绿）；最终目标：D:/01.mp4 真实发布到快手+百家号测试账号",
+  "worktree": "D:/Data/projects/mp-worktrees/mp-yixiaoer-ue-parity-real-publish-e2e",
+  "profile": "D:/tmp/Multi-Publish-debug-profile (baijiahao=active, kuaishou=expired)"
 }
