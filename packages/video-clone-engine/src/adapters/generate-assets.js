@@ -71,10 +71,12 @@ function createGenerateAssets({ assetGenerator = null } = {}) {
       if (!asset || typeof asset.path !== 'string' || asset.path.length === 0) {
         throw new VideoCloneError('VIDEOCLONE_ASSET_GENERATION_FAILED', { phase: 'generate', params: { shotIndex: spec.index, reason: '产物缺少 path' } });
       }
-      scenes.push({ index: spec.index, kind: asset.kind || spec.kind, path: asset.path, durationSec: spec.durationSec });
+      // 降级标记透传（占位图等）：消费方（相似度警告/UI）据此诚实展示
+      const extra = asset.degraded === true ? { degraded: true, source: asset.source } : {};
+      scenes.push({ index: spec.index, kind: asset.kind || spec.kind, path: asset.path, durationSec: spec.durationSec, ...extra });
     }
     const level = (report && report.replication && report.replication.level) || 'L1';
-    ctx.artifacts.assets = { scenes, plan, level };
+    ctx.artifacts.assets = { scenes, plan, level, degraded: scenes.some((s) => s.degraded === true) };
     return 'generate';
   }
 

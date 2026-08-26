@@ -181,3 +181,83 @@ test('成功结果含 reportSource', async () => {
   assert.ok(res.reportSource);
   assert.equal(res.reportSource.script.fullText, 'x');
 });
+
+// —— 真度量：compose 产物实测 merge 报告 ——
+
+test('真度量：probeOk+shots 实测 → similarity 用产物值并标 provenance，ctx.report 不被污染', async () => {
+  const adapters = stubAdapters();
+  adapters.compose = { run: async (ctx) => {
+    ctx.artifacts.output = {
+      path: 'C:/tmp/out.mp4', durationSec: 58, width: 1080, height: 1920, fps: 24,
+      sizeBytes: 1, probeOk: true, shots: [{ t0: 0, t1: 10 }, { t0: 10, t1: 58 }], sceneMethod: 'ffmpeg-scene',
+    };
+    return 'compose';
+  } };
+  const p = createVideoClonePipeline(adapters);
+  const res = await p.run(validRequest());
+  assert.equal(res.ok, true, JSON.stringify(res.error));
+  // 时长实测：源 60 vs 产物 58（非 plan 回退的 0）
+  assert.ok(Math.abs(res.similarity.metrics.durationDeviation - 2 / 60) < 1e-9, String(res.similarity.metrics.durationDeviation));
+  assert.equal(res.similarity.provenance.duration, 'measured');
+  assert.equal(res.similarity.provenance.structure, 'measured');
+  assert.equal(res.similarity.provenance.script, 'plan-constructive');
+  assert.equal(res.similarity.warnings.unmeasuredScript, true);
+  assert.equal(res.similarity.warnings.sceneDetectFailed, undefined);
+  // 实测 merge 报告不得污染对外报告
+  assert.equal(res.report.meta.durationSec, 60);
+  assert.deepEqual(res.report.narrative.timeline, [{ t0: 0, t1: 10 }]); // analyze 桩原样，未被实测报告污染
+});
+
+test('真度量：shots=null（检测失败）→ plan 回退 + sceneDetectFailed 显式警告', async () => {
+  const adapters = stubAdapters();
+  adapters.compose = { run: async (ctx) => {
+    ctx.artifacts.output = { path: 'C:/tmp/out.mp4', durationSec: 60, width: 1080, height: 1920, fps: 24, sizeBytes: 1, probeOk: true, shots: null, sceneMethod: null };
+    return 'compose';
+  } };
+  const p = createVideoClonePipeline(adapters);
+  const res = await p.run(validRequest());
+  assert.equal(res.ok, true);
+  assert.equal(res.similarity.warnings.sceneDetectFailed, true);
+  assert.equal(res.similarity.provenance.structure, 'plan-fallback');
+  assert.equal(res.similarity.provenance.duration, 'measured');
+});
+
+test('真度量：probeOk=false → duration 走 plan-fallback（不采信回退值）', async () => {
+  const adapters = stubAdapters();
+  adapters.compose = { run: async (ctx) => {
+    ctx.artifacts.output = { path: 'C:/tmp/out.mp4', durationSec: 999, width: null, height: null, fps: null, sizeBytes: 1, probeOk: false, shots: null, sceneMethod: null };
+    return 'compose';
+  } };
+  const p = createVideoClonePipeline(adapters);
+  const res = await p.run(validRequest());
+  assert.equal(res.ok, true);
+  assert.equal(res.similarity.provenance.duration, 'plan-fallback');
+  assert.equal(res.similarity.metrics.durationDeviation, 0); // plan 60 vs 源 60
+});
+
+test('真度量：degraded 素材 → warnings.degradedAssets', async () => {
+  const adapters = stubAdapters();
+  adapters.generate = { run: async (ctx) => { ctx.artifacts.assets = { scenes: [], plan: [], level: 'L1', degraded: true }; return 'generate'; } };
+  adapters.compose = { run: async (ctx) => {
+    ctx.artifacts.output = { path: 'C:/tmp/out.mp4', durationSec: 60, width: 1080, height: 1920, fps: 24, sizeBytes: 1, probeOk: true, shots: [{ t0: 0, t1: 10 }], sceneMethod: 'ffmpeg-scene' };
+    return 'compose';
+  } };
+  const p = createVideoClonePipeline(adapters);
+  const res = await p.run(validRequest());
+  assert.equal(res.ok, true);
+  assert.equal(res.similarity.warnings.degradedAssets, true);
+});
+
+test('真度量回归：merge 路径下 failOnLowSimilarity 仍 fail-closed', async () => {
+  const adapters = stubAdapters();
+  adapters.plan.run = async (ctx) => { ctx.report.meta.durationSec = 90; return 'plan'; };
+  adapters.compose = { run: async (ctx) => {
+    ctx.artifacts.output = { path: 'C:/tmp/out.mp4', durationSec: 90, width: 1080, height: 1920, fps: 24, sizeBytes: 1, probeOk: true, shots: [{ t0: 0, t1: 10 }], sceneMethod: 'ffmpeg-scene' };
+    return 'compose';
+  } };
+  const p = createVideoClonePipeline(adapters);
+  const res = await p.run(validRequest({ options: { replicationLevel: 'L2', mode: 'structure', failOnLowSimilarity: true } }));
+  assert.equal(res.ok, false);
+  assert.equal(res.error.code, 'VIDEOCLONE_SIMILARITY_LOW');
+  assert.ok(Math.abs(res.similarity.metrics.durationDeviation - 0.5) < 1e-9); // 实测 90 vs 源 60
+});

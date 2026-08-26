@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { VideoCloneError } = require('../errors');
-const { resolveBinary, runCommand, runFfprobe } = require('./runners');
+const { resolveBinary, runCommand, runFfprobe, runFfmpegSceneDetect, timesToShots } = require('./runners');
 
 const DEFAULT_TARGET = { w: 1080, h: 1920 }; // 默认 9:16 竖屏
 const ASPECT_TARGETS = {
@@ -136,11 +136,13 @@ function buildComposeCommand({ report, assets, outputPath, fps = 30 }) {
 }
 
 /**
- * compose adapter（PRD F3.2/§17）：buildComposeCommand → ffmpeg 执行 → ffprobe 校验。
- * 失败 VIDEOCLONE_COMPOSE_FAILED（retryable）；输出写 artifacts.output。
+ * compose adapter（PRD F3.2/§17）：buildComposeCommand → ffmpeg 执行 → ffprobe 校验 + 产物场景实测。
+ * 失败 VIDEOCLONE_COMPOSE_FAILED（retryable）；输出写 artifacts.output：
+ * - probeOk：ffprobe 是否实测（失败时 durationSec 回退计划值，由消费方按 plan-fallback 处理）
+ * - shots 三态：数组（实测切点，≥1 段；零切点=单段=合法实测）| null（场景检测失败/未注入）
  */
 function createFfmpegCompose({
-  ffmpegRunner = null, ffprobeRunner = runFfprobe, outputDir = null, fps = 30,
+  ffmpegRunner = null, ffprobeRunner = runFfprobe, sceneRunner = runFfmpegSceneDetect, outputDir = null, fps = 30,
 } = {}) {
   async function run(ctx) {
     const report = ctx.report;
@@ -164,13 +166,27 @@ function createFfmpegCompose({
       throw new VideoCloneError('VIDEOCLONE_COMPOSE_FAILED', { phase: 'compose', cause: err });
     }
     let meta = null;
-    try { meta = await ffprobeRunner(outputPath); } catch { /* 输出校验失败仍返回，由相似度/门禁兜底 */ }
+    let probeOk = false;
+    try { meta = await ffprobeRunner(outputPath); probeOk = true; } catch { /* 输出校验失败仍返回，由相似度/门禁兜底 */ }
+    let shots = null;
+    let sceneMethod = null;
+    if (typeof sceneRunner === 'function') {
+      try {
+        const cutTimes = await sceneRunner(outputPath, { threshold: 0.3 });
+        shots = timesToShots(Array.isArray(cutTimes) ? cutTimes : [], meta ? meta.durationSec : built.totalDurationSec);
+        sceneMethod = 'ffmpeg-scene';
+      } catch { /* 场景检测失败不阻断：shots=null，由相似度层显式降级 */ }
+    }
     ctx.artifacts.output = {
       path: outputPath,
       durationSec: meta ? meta.durationSec : built.totalDurationSec,
       width: meta ? meta.width : null,
       height: meta ? meta.height : null,
+      fps: meta && Number.isFinite(meta.fps) ? meta.fps : null,
       sizeBytes: fs.existsSync(outputPath) ? fs.statSync(outputPath).size : null,
+      probeOk,
+      shots,
+      sceneMethod,
     };
     return 'compose';
   }
