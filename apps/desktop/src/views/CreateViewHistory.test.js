@@ -218,7 +218,7 @@ describe('CreateViewHistory', () => {
     await wrapper.find('.s2v-btn-resume').trigger('click')
     expect(wrapper.emitted('resume-history')).toHaveLength(1)
     expect(wrapper.emitted('open-result')).toBeUndefined()
-    await wrapper.find('.s2v-btn-danger').trigger('click')
+    await wrapper.find('[data-testid="history-delete-button"]').trigger('click')
     expect(wrapper.emitted('delete-history')).toHaveLength(1)
     expect(wrapper.emitted('open-result')).toBeUndefined()
   })
@@ -230,7 +230,7 @@ describe('CreateViewHistory', () => {
     await body.trigger('click')
     expect(wrapper.emitted('open-result')).toHaveLength(1)
     expect(wrapper.find('.s2v-btn-danger').exists()).toBe(true)
-    await wrapper.find('.s2v-btn-danger').trigger('click')
+    await wrapper.find('[data-testid="history-delete-button"]').trigger('click')
     expect(wrapper.emitted('delete-history')).toHaveLength(1)
     expect(wrapper.emitted('open-result')).toHaveLength(1)
   })
@@ -409,5 +409,21 @@ describe('CreateViewHistory', () => {
     await editButton.trigger('click')
     expect(wrapper.emitted('open-result')).toHaveLength(1)
     expect(wrapper.emitted('open-result')[0][0].projectId).toBe('proj-p9')
+  })
+
+  it('批量删除进行中（deleting=true）禁用批量删除按钮与选择复选框（AC-1）', async () => {
+    const wrapper = mountHistory([
+      { id: 'a', projectId: 'p-a', status: 'completed', updatedAt: '2026-08-15T12:00:00Z' },
+      { id: 'b', projectId: 'p-b', status: 'completed', updatedAt: '2026-08-15T11:00:00Z' },
+    ])
+    const batchButton = wrapper.find('[data-testid="history-batch-delete-button"]')
+    expect(batchButton.exists()).toBe(true)
+    // 先全选，使批量删除按钮在 deleting 之前可用
+    await wrapper.find('[data-testid="history-select-all"]').trigger('change')
+    expect(wrapper.find('[data-testid="history-batch-delete-button"]').attributes('disabled')).toBeUndefined()
+    await wrapper.setProps({ deleting: true })
+    expect(wrapper.find('[data-testid="history-batch-delete-button"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="history-select-all"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="history-select-checkbox"]').attributes('disabled')).toBeDefined()
   })
 })
