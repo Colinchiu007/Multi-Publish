@@ -1,3 +1,10 @@
+## [未发布] feat(video-clone): 相似度真度量改造（video-clone-real-similarity）
+
+- 修复「score 构造性恒真」缺陷：compose 阶段对产物做真实场景检测（`shots` 三态）+ ffprobe 实测（`probeOk`），merge 报告按 provenance 逐维标注（measured / plan-fallback / plan-constructive），不再直接拿 plan 报告计分。
+- similarity 计分改为按证据维度归一化 `Σ(ev·w·m)/Σ(ev·w)`（全无证据=0）；`confidence < 0.5` 或缺必需维证据时 `grade=null`，消除「L2 + insufficient_evidence」矛盾。
+- 占位图 `degraded/source` 透传（generate-assets → desktop asset-generator）+ `warnings.degradedAssets`（只警示不门禁）；`failOnLowSimilarity` 按 merge 报告 fail-closed。
+- 测试：pipeline 四态回归 + similarity 归一化/grade null 断言，video-clone-engine 134 pass。
+
 ## [未发布] feat(story2video): 历史记录批量删除
 
 - 新增：视频创作历史记录列表支持多选（全选 / 取消全选）、实时「已选 N 项」与「批量删除」入口；选中项经二次确认后删除。
@@ -5,6 +12,7 @@
 - 反馈：全部成功 → Toast 成功数；部分成功 → Toast 成功/失败计数；全部失败 → 错误弹窗。用户可见文案走 `locales/zh.js`+`en.js` 成对。
 - 修复：`BATCH_DELETE_SUCCESS` 漏加计数插值分支，导致成功 Toast 的 `{count}` 为空（已补入 `story2video-notifications.js` 的 `{count}/{success}/{failed}` 统一插值）。
 - 测试：`CreateView.test.js` 新增 4 条（分流 / 部分成功 / 全失败 / 进行中守卫），`CreateViewHistory.test.js` 新增 AC-1 进行中禁用；回归 `locale-cjk-baseline.json` 因弹窗插入行号偏移重生成。
+
 
 ## [未发布] refactor(desktop): 单壳导航统一（P2.5）
 

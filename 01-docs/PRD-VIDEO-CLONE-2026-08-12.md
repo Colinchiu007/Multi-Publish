@@ -150,6 +150,17 @@ VideoClonePipeline：
 | 节奏对齐 | 场景切分点对齐 | — | ≥ 0.75 |
 | 主观盲测 | 5 人盲测「像不像」MOS | — | ≥ 4.0/5 |
 
+#### F4.1 相似度真度量改造（2026-08-26 实施，video-clone-real-similarity）
+
+> 修复「score 构造性恒真」缺陷：clone 阶段不再直接拿 plan 报告计分，改为**产物实测 + plan 代理**双源合并报告（`buildMeasuredCloneReport`），证据逐维标注 provenance。
+
+- **compose 阶段实测**：产物经 ffmpeg 场景检测（`sceneRunner`）得到真实切点 `shots`（三态：数组=实测 ≥1 段 / 空数组=测得零切点=单段 / `null`=检测失败），ffprobe 实测 `durationSec/fps/resolution`（`probeOk` 标记；失败时回退计划值并标 `plan-fallback`）。
+- **merge 报告**：`structure/duration` 有实测用实测（provenance=`measured`），无实测显式降级 `plan-fallback`（附 `warnings.sceneDetectFailed`，禁止静默回退）；`script/style` 继承 plan（字幕烧录/风格已应用 = 合理代理，provenance=`plan-constructive`，无 ASR/TTS 时附 `warnings.unmeasuredScript`）。merge 对象独立，**不污染** `ctx.report`。
+- **计分归一化**：`score = Σ(ev·w·m) / Σ(ev·w)`，只对有证据维度计分（无证据不计分不占权，全无证据=0），消除空数据虚高。
+- **grade 与 verdict 同门禁**：`confidence < 0.5` 或缺该层必需维证据时 `grade=null`（消除「L2 + insufficient_evidence」自相矛盾）。
+- **降级透传**：占位图 `degraded/source` 从 generate-assets → desktop asset-generator 逐层透传，`artifacts.assets.degraded` 汇总，`warnings.degradedAssets` 只警示不门禁。
+- **failOnLowSimilarity**：按 merge 报告判定，低相似度仍 fail-closed（回归测试覆盖四态：实测命中 / 检测失败 / probeOk=false / 整体回退）。
+
 ---
 
 ## 4. 错误状态表（空/载/错/边）

@@ -21,7 +21,7 @@ function genError(message) {
   return e
 }
 
-/** 走 AssetGenerator 服务（data.path） */
+/** 走 AssetGenerator 服务（data.path；离线占位透传 degraded/source 供下游诚实展示） */
 function createVideoCloneAssetGenerator({ assetGenerator }) {
   return async (spec, report) => {
     if (!assetGenerator || typeof assetGenerator.generateImage !== 'function') throw providerError()
@@ -32,7 +32,10 @@ function createVideoCloneAssetGenerator({ assetGenerator }) {
     if (!result || result.code !== 0 || !result.data || typeof result.data.path !== 'string') {
       throw genError(result && result.message)
     }
-    return { path: result.data.path, kind: 'image' }
+    const degraded = result.data.degraded === true
+      ? { degraded: true, source: result.data.source || 'ffmpeg-placeholder' }
+      : {}
+    return { path: result.data.path, kind: 'image', ...degraded }
   }
 }
 
