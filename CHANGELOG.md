@@ -6,6 +6,14 @@
 - 修复：`BATCH_DELETE_SUCCESS` 漏加计数插值分支，导致成功 Toast 的 `{count}` 为空（已补入 `story2video-notifications.js` 的 `{count}/{success}/{failed}` 统一插值）。
 - 测试：`CreateView.test.js` 新增 4 条（分流 / 部分成功 / 全失败 / 进行中守卫），`CreateViewHistory.test.js` 新增 AC-1 进行中禁用；回归 `locale-cjk-baseline.json` 因弹窗插入行号偏移重生成。
 
+## [未发布] refactor(desktop): 单壳导航统一（P2.5）
+
+- 桌面端导航由双壳（Yixiaoer 壳 + cohere 壳 AppNavbar/AppSidebar）统一为单一 Yixiaoer 壳：移除 App.vue 的 `isYixiaoerWorkspace` 分支，仅 `/first-run` 保持脱离外壳的全屏渲染（`.fullscreen-main`），其余路由全部进入主壳。
+- 删除 `layouts/AppNavbar.vue`、`AppNavbar.test.js`、`layouts/AppSidebar.vue`（约 230 行双壳逻辑/死代码）及 `.cohere-app-body` 样式规则；`.cohere-main` 类在主壳保留，既有选择器兼容不受影响。
+- YixiaoerSidebar 补全"更多"菜单缺失入口（关键词监控、爆款分析、提示词评估、模型提供商）；AppNavbar 的升级 Pro / 服务状态迁入侧边栏 footer（含 UpgradeModal）。
+- E2E 助手 `clickText` 默认 selector 增加 `.fullscreen-main` 候选容器；视觉基线更新 6 个受影响视图并经人工确认预期 diff。
+- 验证：test:visual:pixel 17/17 通过；CJK 基线重生成无新增硬编码中文；src/layouts + src/router 单测 13/13 通过。
+
 ## [未发布] fix(ci): 纯文档 PR 也产生必需检查
 
 - 移除 full CI 与 Doc Gate 的 `pull_request.paths-ignore`：目标为 main 的文档/流程 PR 现在会运行真实 required job，不再因 check 缺失永久 BLOCKED。

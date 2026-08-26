@@ -89,6 +89,18 @@ describe('YixiaoerSidebar', () => {
     expect(sidebar.get('[data-testid="yixiaoer-primary-more"]').attributes('aria-expanded')).toBe('true')
   })
 
+  it('exposes all migrated-cohere routes so navigation stays reachable after shell unification', async () => {
+    const sidebar = mountSidebar('/accounts')
+
+    await sidebar.get('[data-testid="yixiaoer-primary-more"]').trigger('click')
+
+    const menuText = sidebar.get('[role="menu"]').text()
+    expect(menuText).toContain('关键词监控')
+    expect(menuText).toContain('爆款分析')
+    expect(menuText).toContain('提示词评估')
+    expect(menuText).toContain('模型提供商')
+  })
+
   it('settings button emits open-settings event', async () => {
     const sidebar = mountSidebar('/accounts')
 
