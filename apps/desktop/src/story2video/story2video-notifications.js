@@ -269,6 +269,7 @@ function normalizeParams (value, locale, messageKey, rawError) {
   // 历史记录批量删除（2026-08-26）：{count}/{success}/{failed} 插值
   if (
     messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_CONFIRM ||
+    messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_SUCCESS ||
     messageKey === STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_PARTIAL
   ) {
     if (Number.isFinite(Number(supplied.count))) params.count = Number(supplied.count)
