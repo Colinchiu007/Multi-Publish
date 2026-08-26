@@ -29,6 +29,25 @@
 - **locale 成对修改（i18n-content-sync）**：修改 `apps/desktop/src/locales/zh.js` 或 `en.js` 必须成对提交（CI Gate 7 `.github/scripts/check-locale-sync.js` 拦截）；新增用户可见文案一律写入 locales（zh/en 成对），渲染端 `src/` 非 locales 文件新增中文字符串字面量由 CI 基线扫描拦截；产品名词翻译集中维护于 `01-docs/i18n-glossary.md`。
 - **提交分支守卫**：pre-commit 强制校验当前分支 == `.agent_context/expected-branch`（会话声明），无声明或分支不符一律拦截，docs-only 提交同样校验；隔离 worktree 提交时自动声明当前分支（无需手动）；共享主工作区必须运行 `scripts/session-guard.ps1 -Branch <期望分支>`（不传 -Branch 自动取当前分支）。钩子安装在共享 `.git/hooks/`：隔离 worktree 零手动步骤；共享主工作区无声明/不符一律拦截并提示声明命令；`--no-verify` 可绕过钩子，属流程纪律威慑，禁止使用。
 
+### 隔离失败/冲突防坑纪律（2026-08-26 复盘，硬规则）
+
+> 以下条目由一次「worktree 半失效 + 并发冲突」事故复盘得出，属于不可绕过的硬纪律。
+
+**根因复盘（4 类问题叠加）：**
+1. **路径规范不一致（系统性根因）**：Git for Windows 在 Git Bash 下遇到 `/d/...` POSIX 路径会拼成 `D:/d/...` 混写，使 worktree 的 `gitdir` 链接、含 `/` 的分支 ref 写入全部落到不存在的位置（分支 ref 静默 rc=0 但从未落盘），worktree 半失效。结论：**任何 git 写操作（worktree add / branch / checkout / commit）必须用 PowerShell 原生 `D:\` 路径执行，绝不在 Git Bash 下用 `/d/...` 绝对路径做 git 写。**
+2. **隔离创建失败即高危手动补救**：共享根有前序脏改动 → 严格入口 `start-mp-task.ps1 -RequireClean` 被拒；fallback `git worktree add -b codex/...` 因 ref 解析异常失败后，手动 `rm` worktree 注册 + `prune`，把当前 git 上下文一并搞乱。
+3. **坏 cwd 下跑 git**：shell 卡在失效 worktree 的 cwd，导致 `git -C` 共享根报 "No such file"。
+4. **无并发冲突预检**：开 worktree 前没查已有 worktree 是否改同文件。
+
+**行为层硬纪律（立即可执行，最高优先级）：**
+- **A. 隔离创建失败 → 立即停、报告用户，绝不手动 `rm` worktree 注册、绝不在共享根落盘。** worktree 删除/恢复只走 `scripts/safe-worktree-remove.ps1` / `scripts/safe-restore-deleted.ps1`（铁律 R1-R5）；孤儿注册清理用 `git worktree prune`。
+- **B. git 写操作一律走 PowerShell 原生 `D:\` 路径**：worktree add / branch / checkout / commit / push 均在 PowerShell 下执行（Git Bash 的 `/d/` 路径会触发 `D:/d/` 混写，使含 `/` 的分支名 ref 静默写失败）。只读/相对路径操作（status、show-ref、diff）可在 Git Bash 下进行。
+- **C. 写码前先 `git rev-parse --abbrev-ref HEAD` 确认当前不是共享根的 `main`；任何 git 写操作前先 `cd` 到中立目录再 `git -C <绝对路径>`，不在可疑 cwd 跑 git。**
+
+**工具层（治本，待排期）：** 统一路径规范（bash 侧 `cygpath -u`、PowerShell 侧 `cygpath -w`）；`git worktree add` 后立即 `git -C <绝对路径> rev-parse --show-toplevel` 验证可进入，失败则 `git worktree remove --force` 并告警，不留半失效注册。
+
+**流程层（防并发冲突）：** 开 worktree 前先 `git worktree list` + 扫 `.git/worktrees`，检查同模块活跃 worktree；建立中央登记 `openspec/active-tasks.json`（分支 + 改动文件清单），开新任务前比对，合并后销账。
+
 ## 强制流程规则（MUST）
 
 > **所有涉及代码修改的任务，无论规模大小，都必须强制触发质量节拍。**
