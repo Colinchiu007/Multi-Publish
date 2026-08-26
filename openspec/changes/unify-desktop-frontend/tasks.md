@@ -22,7 +22,7 @@
 
 - [x] 3.1 tokens.css 落地：语义变量 + #5048e5 主色 + 字号/圆角阶梯；修复暗色 --primary 浅灰覆盖 bug
 - [x] 3.2 三套旧 token 文件头部改别名引用；4 种主蓝字面量清零
-- [ ] 3.3 EmptyState/LoadingState 组件落地并收编 11 个视图自造样式
+- [x] 3.3 EmptyState/LoadingState 组件落地并收编 11 个视图自造样式
 - [x] 3.4 死代码清理：Providers.vue+供养测试、UiCard/UiBadge、useKeyboard/CommandPalette 决策（删或接）、CreateHistory/CreateViewHistory 合并
 - [ ] 3.5 UiButton 补 loading/disabled/aria 态并对齐使用方
 - [x] 3.6 门禁：test:visual:pixel 全量通过；diff 图人工审核后更新基线
