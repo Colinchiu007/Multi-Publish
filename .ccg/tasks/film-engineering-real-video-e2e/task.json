@@ -1,0 +1,12 @@
+{
+  "id": "film-engineering-real-video-e2e",
+  "title": "电影工程与真实视频流水线 E2E 验证",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-e2e",
+  "currentPhase": "analysis",
+  "nextAction": "启动已登录 profile，验证电影工程和真实 story2video-compose 成片",
+  "createdAt": "2026-08-23T00:00:00+08:00",
+  "branch": "codex/film-engineering-real-video-e2e"
+}

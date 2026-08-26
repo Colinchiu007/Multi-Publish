@@ -1,0 +1,12 @@
+{
+  "id": "video-clone-real-url-e2e",
+  "title": "视频克隆流水线实现确认 + 真实环境 URL 来源 E2E 克隆",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "desktop-e2e",
+  "currentPhase": "implementation",
+  "nextAction": "跑通 yt-dlp 真实下载 → 六阶段真实克隆 → 相似度自检",
+  "createdAt": "2026-08-24T00:00:00+08:00",
+  "branch": "main"
+}

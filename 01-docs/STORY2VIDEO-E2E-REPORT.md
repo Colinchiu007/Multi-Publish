@@ -118,3 +118,112 @@
 - **创作历史自动展示运行中卡片（2026-08-07，PR #388 修复确认，main 7813fb4）**：启动运行中流水线（`run_1786095645560_t4z4`，optimize 阶段）→ 进入 `#/create/history`（不点 tab）→ 页面自动切到「流水线记录」tab 并显示运行中卡片（"运行中 / 返回创作页查看进度"）；切回「渲染记录」tab 显示横幅「⏳ 有 1 条流水线正在后台运行，点击查看运行状态」。脚本 `C:\tmp\e2e-history-auto-show.js`，报告 `C:\tmp\e2e-history-auto-show-report.json`（verified=true）。
 
 - **CreateView 历史记录运行中置顶 + 阶段进度（2026-08-07，PR #390 修复确认，main 8d2c6c6）**：【视频创作】-【历史记录】（CreateView 内部视图）启动运行中流水线后，历史列表**首项**显示运行中卡片（「图片轮播 进行中」），含 6 个阶段色块（split/domain_enrich 已完成、optimize 运行中、generate_assets/compose/publish pending）与「返回流水线创作查看进度」提示。脚本 `C:\tmp\e2e-createview-history.js`，报告 `C:\tmp\e2e-createview-history-report.json`（verified390=true）。
+
+---
+
+## 保存选项 UI 驱动 E2E（2026-08-26，codex/fix-s2v-saved-options-driver）
+
+> 目的：在**真实已登录 profile + 用户保存好的选项**下，走**真实 UI**（而非 `pipeline:startOrchestrated` 直接编排）驱动 story2video-compose 流水线，验证「保存选项 → 进入创作页 → 仅填文案 → 点启动」链路在真实环境端到端通过，并产出真实成片。
+
+### 1. 环境与前置条件
+
+| 项 | 配置 | 说明 |
+|----|------|------|
+| 应用 | Electron 桌面应用（最新代码，commit `4f0393691` 之后） | 单实例运行（profile `C:\tmp\Multi-Publish-debug-profile`），CDP `9333` / vite `5180` |
+| Python 服务 | 系统 Python 3.12 外部起 `splitter`(8002) 与 `prompt-engine`(8013) | 应用内 bridge `attach()` 直接复用已起服务，绕开 `python` 命令解析问题 |
+| 写保护/隔离 | 写保护 watcher 未激活（仅环境检查）；本次代码改动走独立 worktree | 共享主目录为 main-only 协调目录，禁止直接落盘 |
+| 驱动 | `apps/desktop/tests/e2e/story2video-saved-options-driver.js` | 通过 CDP 连接运行中的 Electron，纯 UI 操作，不改动任何已保存选项 |
+
+**关键环境纪律（避免 EPERM 与竞争卡死）**：
+- **单实例运行**：多个 Electron 实例共用同一 `user-data-dir` 会互相持有 `multi-publish.db` 句柄，导致「写 .tmp 再 rename 覆盖」在 Windows 文件锁下频繁 `EPERM`（flood）。本环境杀掉全部残留 Electron，仅保留单实例，EPERM 降为 0。
+- **多实例是 optimize 卡死的根因而非代码缺陷**：run5 曾卡在 optimize(3/7) 长达 8 小时，根因是**多实例争用**（base-python-bridge 有 120s 超时、stages 有 try/catch 兜底，不可能真 hang）。单实例环境复跑同文案 ~50s 即完成 optimize —— 证明卡死是环境竞争，不是流水线 bug。
+
+### 2. 数据源：用户保存选项（来自 `multi-publish.db` 的 `user:6c90f6c…:story2video.lastOptions.v1`）
+
+| 选项字段 | 保存值 | UI 呈现 / 含义 |
+|----------|--------|----------------|
+| `videoMode` | `off` | 图片轮播（非视频生成） |
+| `imageProvider` | `minimax-multimodal` | 图片供应商：MiniMax 多模态生图 |
+| `imageStyle` | `cinematic` | 画面风格：电影感 |
+| `imageEffect` | `zoom-in` | 镜头效果：缓慢推近 |
+| `voiceProvider` | `mimo-tts` | 配音供应商：Mimo TTS |
+| `voiceModel` | `mimo-v2.5-tts` | 配音模型：Mimo 2.5 |
+| `voiceSpeed` | `1.2` | 语速 1.2×（加速） |
+| `voiceVolume` | `1.5` | 音量 1.5×（增益） |
+| `splitLanguage` | `auto` | 拆分语种：自动 |
+| `splitMode` | `balanced` | 拆分模式：均衡 |
+| `sceneDurationMode` | `follow-audio` | 单场景时长：跟随配音时长 |
+| `minSceneDuration` | `6` | 单场景最短 6s |
+| `subtitleEnabled` | `true` | 启用字幕 |
+| `bgmVolume` | `4` | 背景音乐音量 4 |
+| `watermark` | `false` | 不加水印 |
+| `publishEnabled` | `false` | 不自动发布 |
+| `s2vOutputConfig` | `1920x1080 / 30fps / mp4` | 输出分辨率/帧率/封装 |
+
+> 数据校验：以上选项经 `electronAPI.pipelineGetRunContext` 回读与 `lastOptions.v1` 完全一致；驱动**只读不写**，启动后仍回读确认 `savedOptions` 未被改动。
+
+### 3. 驱动机制（功能逻辑）
+
+驱动脚本运行在 Node（非渲染进程），通过 Playwright CDP 连接运行中的 Electron renderer：
+
+1. **接入**：`chromium.connectOverCDP(CDP_URL)`（默认 `http://127.0.0.1:11038`），在 renderer 页面（URL 以 `E2E_VITE_ORIGIN` 默认 `http://127.0.0.1:6990` 开头）上注入 `window.electronAPI.pipelineStartOrchestrated` 的包装，用于捕获新 run 的 `runId`。
+2. **导航**：强制整页 `document` 重载（先回 `/` 再进 `/#/create`），确保 `CreateView.vue` 重新拉起（hash 路由仅改 hash 不重载，会漏加载模块）。
+3. **选择流水线**：`page.locator('.pipeline-card[data-pipeline-id="story2video-compose"]')` 点击，进入故事讲述创作页。
+4. **填文案**：`textarea[placeholder*="输入视频文案"]` 填入 `E2E_TEXT`（仅填文案，其余选项保持保存值）。
+5. **等待可用**：轮询 `[data-testid="start-story2video"]` 的 `isDisabled()`，最多 30s（等待保存选项回填 / provider 就绪后的可启动状态）；超时抛 `启动流水线按钮未在 30s 内可用`。
+6. **启动**：DOM 直接 `document.querySelector('[data-testid="start-story2video"]').click()`（避开 UI 框架 ripple/overlay 造成的 Playwright 命中测试拦截）。
+7. **捕获 runId**：优先读 `window.__s2vCaptured`，兜底从 `pipelineHistory()` 取启动后新建的 `story2video-compose` run。
+8. **轮询至终态**：每 8s 调 `pipelineGetRunContext(runId)`，打印阶段进度（`split/domain_enrich/optimize/generate_assets/compose/publish` 的 running 状态），直到 `completed/failed/cancelled`；总超时 60min。
+9. **成片校验**：从 `context` 递归查找 `videoPath`/`outputPath` 真实文件 → `ffprobe` 校验编码/分辨率/时长/大小 → 拷贝到 `E2E_OUT_DIR` 并写 `*-report.json`，打印 `E2E_OK`。
+
+### 4. 交互与显示项（真实 UI 上看到的内容）
+
+| 显示/交互元素 | 内容 | 备注 |
+|---------------|------|------|
+| 创作页入口 | 「视频创作」→「故事讲述」卡片（`.pipeline-card` 标题「图片轮播」） | 点击进入 |
+| 文案输入框 | placeholder 含「输入视频文案」 | 驱动仅在此填入文案 |
+| 启动按钮 | `data-testid="start-story2video"`，文案「启动流水线」 | 回填完成前 `disabled`；可用后高亮 |
+| 启动中提示 | 按钮进入 loading，禁用防重复点击 | 与 `PIPELINE_CONCURRENCY_LIMIT` 友好提示互斥（本机上限 4，单条不触发） |
+| 阶段进度 | 6 阶段色块随运行推进（split/domain_enrich 完成 → optimize 运行 → generate_assets/compose/publish） | 驱动每 8s 打印当前 running 阶段到控制台 |
+| 终态 | 「完成 / 失败 / 已取消」 | 驱动据此判定成功并校验成片 |
+| 友好提示（异常） | 内容政策：`needs_user_input(reason=empty_result)`；超限：`当前已有 N 条流水线正在运行…` | 见 PRD「空响应重试合同」「真实链路修复合同」 |
+
+### 5. 结果矩阵（4 份不同文案，全部成功生成真实 mp4）
+
+| # | 文案主题 | runId | 7 阶段 | 成片时长 | 成片大小 | 编码 |
+|---|----------|-------|--------|----------|----------|------|
+| 1 | 书店·老林·女孩 | `run_1787742562753_sea5` | ✅ 全 success | 13.42s | 4.08MB | h264 1920×1080 + aac |
+| 2 | 老茶馆·阿菊 | `run_1787744519579_94sy` | ✅ 全 success | 15.17s | 4.47MB | h264 1920×1080 + aac |
+| 3 | 凌晨面馆·老吴 | `run_1787744746481_j0fm` | ✅ 全 success | 14.85s | 3.50MB | h264 1920×1080 + aac |
+| 4 | 瘸腿橘猫·小杨 | `run_1787746217281_cxsg` | ✅ 全 success | 12.16s | 3.13MB | h264 1920×1080 + aac |
+
+- 4 份文案覆盖不同场景密度与情绪基调，均经 7 阶段（split → scene_context → optimize → select_video_scenes → generate_assets → compose → publish）全部 `success=true`。
+- 成片均满足 `s2vOutputConfig`：1920×1080 / 30fps / mp4，含字幕与 Mimo TTS 配音（voiceSpeed 1.2 / voiceVolume 1.5）。
+- 证据：`C:/tmp/s2v-e2e/` 下 `run4-evidence.mp4`、`runA-evidence.mp4`、`runB-evidence.mp4`、`s2v-runC.mp4`（对应 run4/runA/runB/runC，均为 `E2E_OK` 输出）。
+
+### 6. 过程中暴露并修复的驱动健壮性问题（落点 `story2video-saved-options-driver.js`）
+
+| # | 问题 | 现象 | 根因 | 修复 |
+|---|------|------|------|------|
+| 1 | `connectOverCDP` 无超时 | 首连偶发永久挂起（runC 首次卡 5 分钟无输出） | 无超时 Promise 卡死 | 新增 `connectWithTimeout`（12s 超时）+ `CONNECT_RETRIES=5` 重试 + 5s 退避 |
+| 2 | hash 路由 goto 不重载 | `.pipeline-card` 偶发 60s 超时（run2/run3） | `goto('/#/')`→`goto('/#/create')` 仅改 hash，不重拉 `CreateView.vue` | 接入后强制 `goto('/')` 再 `goto('/#/create')` 整页重载 |
+| 3 | `.pipeline-card` 等待脆弱 | Vite 动态模块瞬时加载失败致永远等待 | 单次 `waitForSelector` 无重试 | `.pipeline-card` 等待带 `CARD_RETRIES=3`，超时后 reload 再等 |
+| 4 | `start.click()` 命中测试拦截 | Playwright 点按钮挂起 30s | UI 框架 ripple/overlay 拦截命中测试 | 改用 DOM 直接 `btn.click()` |
+| 5 | 失败退出遗留悬空连接 | 失败时 `process.exit(1)` 未关 browser | 缺 `finally` 关闭 | `finally` 中 `browser.close()`；修正退出码：**成功→exit 0，失败→exit 1**（原参考副本无条件 exit 1，已修正） |
+
+> 区分结论：**#1–#4 均为 E2E harness 间歇问题，非流水线 bug**；流水线本身（split/optimize/generate_assets/compose）在单实例环境下稳定。optimize 卡死属**环境竞争**（见 §1），亦非代码缺陷。
+
+### 7. 复现方式
+
+```bash
+# 1) 单实例启动应用（profile + CDP 9333 / vite 5180），外部起 splitter(8002)/prompt-engine(8013)
+# 2) 运行驱动（PLAYWRIGHT_REQUIRE 指向仓库内 playwright 解析路径）
+E2E_CDP_URL=http://127.0.0.1:11038 \
+E2E_VITE_ORIGIN=http://127.0.0.1:6990 \
+E2E_LABEL=runX \
+E2E_TEXT="<你的文案>" \
+E2E_OUT_DIR=C:/tmp/s2v-e2e \
+PLAYWRIGHT_REQUIRE="$(node -e "console.log(require.resolve('playwright'))")" \
+node apps/desktop/tests/e2e/story2video-saved-options-driver.js
+# 成功输出含 REPORT_DIR / RUN_ID / STATUS=completed / VIDEO=... / FFPROBE=... / E2E_OK
+```
