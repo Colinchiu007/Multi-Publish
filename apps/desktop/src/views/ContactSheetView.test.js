@@ -58,7 +58,7 @@ describe("ContactSheetView", () => {
     const w = mount(ContactSheetView);
     await flushPromises();
     await nextTick();
-    expect(w.find(".cs-empty").exists()).toBe(true);
+    expect(w.find(".mp-empty-state").exists()).toBe(true);
     expect(w.text()).toContain("暂无待审批场景");
   });
 
@@ -279,6 +279,6 @@ describe("ContactSheetView", () => {
     const w = mount(ContactSheetView);
     await flushPromises();
     await nextTick();
-    expect(w.find(".cs-empty").exists()).toBe(true);
+    expect(w.find(".mp-empty-state").exists()).toBe(true);
   });
 });

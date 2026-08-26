@@ -248,7 +248,7 @@ onBeforeUnmount(() => {
 .back-link:hover { color: #409eff; }
 .cs-title { font-size: 22px; font-weight: 700; margin: 0; }
 .cs-progress { font-size: 13px; color: #909399; padding: 4px 10px; background: #f0f0f0; border-radius: 10px; }
-.cs-loading, .cs-empty, .cs-error { text-align: center; padding: 48px; color: #909399; }
+.cs-loading, .cs-error { text-align: center; padding: 48px; color: #909399; }
 .text-muted { font-size: 13px; color: #c0c4cc; }
 .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #e4e7ed; border-top-color: #409eff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }

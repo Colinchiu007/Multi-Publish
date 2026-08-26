@@ -144,22 +144,6 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 
-/* 空状态 */
-.empty-state {
-  text-align: center;
-  padding: 64px 24px;
-}
-.empty-icon {
-  font-size: 64px;
-  margin-bottom: 16px;
-  opacity: 0.4;
-}
-.empty-state p {
-  color: var(--text-muted, #909399);
-  margin-bottom: 16px;
-  font-size: 15px;
-}
-
 /* 项目网格 */
 .project-grid {
   display: grid;

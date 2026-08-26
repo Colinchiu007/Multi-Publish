@@ -189,7 +189,7 @@
     --clone-pending-border: #374151;
     --banner-attention-text: #fb923c;
 
-    --ep-primary: #66b1ff;
+    --ep-primary: var(--color-primary);
     --ep-primary-light: #1a2632;
     --ep-success: #85ce61;
     --ep-success-light: #1a2e1a;

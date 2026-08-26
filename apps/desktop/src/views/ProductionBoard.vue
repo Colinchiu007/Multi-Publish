@@ -258,7 +258,7 @@ onBeforeUnmount(async () => {
   padding: 8px 16px;
   margin-bottom: 16px;
 }
-.board-loading, .board-empty, .no-scenes {
+.board-loading {
   text-align: center;
   padding: 48px 24px;
   color: var(--text-muted, #909399);
