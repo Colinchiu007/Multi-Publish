@@ -16,6 +16,7 @@ import socket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from models import ModelPreset
 
 MODEL_CATEGORIES = ["llm", "tts", "speech_recognition", "image", "video", "audio", "multimodal"]
@@ -40,6 +41,12 @@ MULTIMODAL_DOC_CAPABILITIES = [
 ALLOWED_DOC_KEYS = set(MULTIMODAL_DOC_CAPABILITIES) | {"audio"}
 
 _HTTP_URL_RE = re.compile(r"^https?://[^\s]+$", re.IGNORECASE)
+
+# 198.18.0.0/15：RFC 2544 基准测试段（Python >=3.12 标记为 is_private=True），
+# Clash/TUN 类 fake-ip 代理用它接管公网流量；仅在显式开启开关时放行。
+_BENCHMARK_V4 = ipaddress.ip_network("198.18.0.0/15", strict=False)
+# CGNAT(100.64.0.0/10)：is_private 在不同 Python 版本覆盖不一致，显式补充
+_CGNAT_V4 = ipaddress.ip_network("100.64.0.0/10", strict=False)
 
 
 def _validate_optional_url(value, field_name):
@@ -678,10 +685,13 @@ def _is_private_or_reserved(ip: str) -> bool:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return False
-    # is_private 在不同 Python 版本对 CGNAT(100.64.0.0/10) 覆盖不一致，显式补充
-    cgnat = ipaddress.ip_network("100.64.0.0/10", strict=False)
+    # 198.18.0.0/15 是 RFC 2544 基准测试段（Python >=3.12 标记为 is_private=True），
+    # Clash/TUN 类 fake-ip 代理用它接管公网流量，公网模型 API 域名在代理环境下会解析到该段；
+    # 它不是真实内网目标，但仅在显式开启 OPS_ALLOW_PROXY_BENCHMARK_IPS 时放行（默认 fail-closed）。
+    if settings.allow_proxy_benchmark_ips and addr in _BENCHMARK_V4:
+        return False
     return (addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast
-            or addr.is_reserved or addr.is_unspecified or addr in cgnat)
+            or addr.is_reserved or addr.is_unspecified or addr in _CGNAT_V4)
 
 
 def _extract_model_ids(payload: object) -> list[str]:
@@ -716,6 +726,8 @@ async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_ove
     """从 preset.models_url（或显式覆盖值）拉取支持的模型 ID 列表。
 
     SSRF 防护 + 超时 + 大小限制 + JSON 契约。
+    已知边界：校验解析(socket.getaddrinfo)与 httpx 实际连接为两次独立 DNS 解析，存在
+    DNS 重绑定 TOCTOU 窗口（follow_redirects=False 已防 3xx 跳转），本函数不声称阻断重绑定。
     返回 (models, default_model, models_url)。成功时由调用方负责回写持久化。
     """
     import httpx

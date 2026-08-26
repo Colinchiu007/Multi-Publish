@@ -724,6 +724,78 @@ async def test_fetch_models_ssrf_private_ip_rejected():
             assert "私网" in resp.json()["detail"]
 
 
+
+@pytest.mark.asyncio
+async def test_fetch_models_proxy_benchmark_segment_allowed():
+    """198.18.0.0/15（RFC 2544 基准测试段）是 Clash/TUN 类代理接管公网流量的网段；
+    公网模型 API 域名在代理环境下会解析到该段，应放行而不是当作私网拒绝。"""
+    import socket
+    from unittest.mock import patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {"id": "fetch-proxybench", "name": "Fetch ProxyBench", "category": "llm",
+            "models_url": "https://api.example.com/v1/models", "models": [], "default_model": ""}
+    fake = _FakeResponse(status_code=200, json_data={"models": ["m1", "m2"]})
+    with patch("services.model_preset_service.settings.allow_proxy_benchmark_ips", True), \
+         patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("198.18.0.241", 443))]), \
+         patch("httpx.AsyncClient", return_value=_fake_async_client(fake)):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/model-presets", json=body, headers=headers)
+            resp = await client.post("/api/v1/model-presets/fetch-proxybench/fetch-models", headers=headers)
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["models"] == ["m1", "m2"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_proxy_benchmark_segment_rejected_when_disabled():
+    """开关 OPS_ALLOW_PROXY_BENCHMARK_IPS 默认关闭：198.18.0.0/15 仍按私网拒绝（fail-closed）。"""
+    import socket
+    from unittest.mock import patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {"id": "fetch-proxybench-off", "name": "Fetch ProxyBench Off", "category": "llm",
+            "models_url": "https://api.example.com/v1/models", "models": [], "default_model": ""}
+    fake = _FakeResponse(status_code=200, json_data={"models": ["m1", "m2"]})
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("198.18.0.241", 443))]), \
+         patch("httpx.AsyncClient", return_value=_fake_async_client(fake)):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/model-presets", json=body, headers=headers)
+            resp = await client.post("/api/v1/model-presets/fetch-proxybench-off/fetch-models", headers=headers)
+            assert resp.status_code == 400
+            assert "私网" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_flag_on_still_rejects_real_private():
+    """开关开启仅放行 198.18.0.0/15（代理基准段）；真实私网 10.x 仍必须拒绝。"""
+    import socket
+    from unittest.mock import patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {"id": "fetch-flag-on-private", "name": "Fetch FlagOn Private", "category": "llm",
+            "models_url": "https://internal.example.com/v1/models", "models": [], "default_model": ""}
+    fake = _FakeResponse(status_code=200, json_data={"models": ["m1", "m2"]})
+    with (
+        patch("services.model_preset_service.settings.allow_proxy_benchmark_ips", True),
+        patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 443))]),
+        patch("httpx.AsyncClient", return_value=_fake_async_client(fake)),
+    ):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            await client.post("/api/v1/model-presets", json=body, headers=headers)
+            resp = await client.post("/api/v1/model-presets/fetch-flag-on-private/fetch-models", headers=headers)
+            assert resp.status_code == 400
+            assert "私网" in resp.json()["detail"]
+
+
 @pytest.mark.asyncio
 async def test_url_with_userinfo_rejected():
     from httpx import AsyncClient, ASGITransport
