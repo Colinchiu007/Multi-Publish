@@ -259,16 +259,6 @@ body {
 .cohere-topnav .status-dot.online { background: var(--action-blue); }
 .cohere-topnav .status-dot.offline { background: var(--hairline); }
 
-/* --- 应用主体 --- */
-.cohere-app-body {
-  position: fixed;
-  top: var(--nav-height);
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-}
-
 /* --- 左侧侧栏 --- */
 .cohere-sidebar {
   width: 280px;

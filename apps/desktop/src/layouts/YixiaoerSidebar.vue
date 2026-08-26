@@ -61,9 +61,20 @@
     </nav>
 
     <footer class="yixiaoer-sidebar-footer">
-      <span class="yixiaoer-sidebar-status is-unknown" data-testid="yixiaoer-sidebar-status">
-        <i aria-hidden="true"></i>{{ t('sidebar.clientStatusUnknown') }}
-      </span>
+      <div class="yixiaoer-sidebar-status-row">
+        <span class="yixiaoer-sidebar-status is-unknown" data-testid="yixiaoer-sidebar-status">
+          <i aria-hidden="true"></i>{{ t('sidebar.clientStatusUnknown') }}
+        </span>
+      </div>
+      <div class="yixiaoer-sidebar-footer-actions">
+        <span class="yixiaoer-service-status" data-testid="yixiaoer-service-status">
+          <i aria-hidden="true"></i>服务运行中
+        </span>
+        <button v-if="!licenseStore.isPro" type="button" class="yixiaoer-upgrade-btn" data-testid="yixiaoer-upgrade" @click="showUpgradeModal = true">
+          ⭐ 升级 Pro
+        </button>
+        <UpgradeModal v-if="showUpgradeModal" @close="showUpgradeModal = false" />
+      </div>
     </footer>
   </aside>
 </template>
@@ -77,18 +88,23 @@ import {
   Calendar,
   ChatDotRound,
   Collection,
+  Cpu,
   DataAnalysis,
   FolderOpened,
   HomeFilled,
+  MagicStick,
   Monitor,
   MoreFilled,
   Plus,
+  Search,
   Setting,
+  TrendCharts,
   User,
   VideoCamera,
 } from '@element-plus/icons-vue'
 import { useIdentityStore } from '@/stores/identity'
 import { useLicenseStore } from '@/stores/license'
+import UpgradeModal from '@/components/UpgradeModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -96,6 +112,7 @@ const { t } = useI18n()
 const identityStore = useIdentityStore()
 const licenseStore = useLicenseStore()
 const moreOpen = ref(false)
+const showUpgradeModal = ref(false)
 
 const displayName = computed(() => {
   if (identityStore.user?.name) return identityStore.user.name
@@ -131,6 +148,10 @@ const moreItems = [
   { key: 'comments', label: '私信评论', to: '/comments', icon: ChatDotRound },
   { key: 'cloud-publish', label: 'CLI', to: '/cloud-publish', icon: FolderOpened },
   { key: 'library', label: '素材库', to: '/library', icon: FolderOpened },
+  { key: 'keywords', label: '关键词监控', to: '/keywords', icon: Search },
+  { key: 'viral', label: '爆款分析', to: '/viral-analysis', icon: TrendCharts },
+  { key: 'prompt-eval', label: '提示词评估', to: '/prompt-eval', icon: MagicStick },
+  { key: 'model-providers', label: '模型提供商', to: '/model-providers', icon: Cpu },
 ]
 
 function isActive (item) {
@@ -325,12 +346,57 @@ function goToPublish () {
 .yixiaoer-sidebar-footer {
   margin-top: auto;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 8px;
   padding: 14px;
   color: #9294ab;
   font-size: 11px;
+}
+
+.yixiaoer-sidebar-status-row {
+  display: flex;
+}
+
+.yixiaoer-sidebar-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.yixiaoer-service-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #6f9c6f;
+}
+
+.yixiaoer-service-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6fbf73;
+}
+
+.yixiaoer-upgrade-btn {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid #d9c98a;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #fff7e0, #ffeec2);
+  color: #8a6d1f;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter .15s ease;
+}
+
+.yixiaoer-upgrade-btn:hover,
+.yixiaoer-upgrade-btn:focus-visible {
+  filter: brightness(.97);
+  outline: 2px solid #5149e8;
+  outline-offset: 2px;
 }
 
 .yixiaoer-sidebar-status {
