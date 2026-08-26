@@ -67,7 +67,7 @@ async function bodyHas(r, text, timeout = CONDITION_TIMEOUT) {
 }
 
 async function clickText(r, text, options = {}) {
-  const selector = options.selector || `.cohere-main button:has-text("${text}"), .cohere-main [role="button"]:has-text("${text}"), .cohere-main uibutton:has-text("${text}"), .cohere-main uibutton[title="${text}"]`;
+  const selector = options.selector || `.cohere-main button:has-text("${text}"), .fullscreen-main button:has-text("${text}"), .cohere-main [role="button"]:has-text("${text}"), .fullscreen-main [role="button"]:has-text("${text}"), .cohere-main uibutton:has-text("${text}"), .fullscreen-main uibutton:has-text("${text}"), .cohere-main uibutton[title="${text}"], .fullscreen-main uibutton[title="${text}"]`;
   const locator = r.page.locator(selector).first();
   if (!(await waitForVisible(locator, options.timeout || 3000))) return false;
   await locator.click({ timeout: 3000 });

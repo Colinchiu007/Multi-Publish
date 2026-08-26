@@ -2,7 +2,13 @@
   <div class="app-root">
     <OfflineIndicator />
 
-    <template v-if="isYixiaoerWorkspace">
+    <template v-if="isFullScreenRoute">
+      <main class="fullscreen-main" data-testid="fullscreen-view">
+        <router-view />
+      </main>
+    </template>
+
+    <template v-else>
       <div class="yixiaoer-shell" data-testid="yixiaoer-shell">
         <YixiaoerSidebar @open-settings="showSettingsDialog = true" />
         <div class="yixiaoer-shell-main">
@@ -40,26 +46,13 @@
       </div>
     </template>
 
-    <template v-else>
-      <AppNavbar @open-settings="showSettingsDialog = true" />
-      <div class="cohere-app-body">
-        <AppSidebar />
-        <main class="cohere-main">
-          <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
-          <router-view v-else />
-        </main>
-      </div>
-    </template>
-
     <UpdateNotification />
     <SettingsDialog :visible="showSettingsDialog" @close="closeSettingsDialog" />
   </div>
 </template>
 
 <script setup>
-import AppNavbar from '@/layouts/AppNavbar.vue'
 import { getApi } from '@/api/electron-bridge'
-import AppSidebar from '@/layouts/AppSidebar.vue'
 import YixiaoerModuleNav from '@/layouts/YixiaoerModuleNav.vue'
 import YixiaoerSidebar from '@/layouts/YixiaoerSidebar.vue'
 import TabBar from '@/components/TabBar.vue'
@@ -121,8 +114,8 @@ function closeSettingsDialog () {
   notifySettingsDialogClosed()
 }
 
-const NON_WORKSPACE_ROUTES = new Set(['/first-run', '/model-providers', '/keywords', '/viral-analysis'])
-const isYixiaoerWorkspace = computed(() => !NON_WORKSPACE_ROUTES.has(route.path))
+// 全屏路由（脱离任何导航壳，独立整屏渲染）：首跑引导
+const isFullScreenRoute = computed(() => route.path === '/first-run')
 
 // ── 标签页操作 ──
 
@@ -200,4 +193,5 @@ html, body { height: 100%; }
 .yixiaoer-shell { height: 100%; display: flex; min-width: 0; overflow: hidden; background: #f7f7fb; }
 .yixiaoer-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .yixiaoer-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
+.fullscreen-main { height: 100%; min-height: 0; overflow: auto; }
 </style>
