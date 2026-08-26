@@ -107,6 +107,65 @@ async def test_ensure_catalog_seeded_keeps_manual_rpm():
 
 
 @pytest.mark.asyncio
+async def test_ensure_catalog_seeded_backfills_missing_models_url():
+    """已存在但 models_url 为空（旧版本遗留）的预设行按官方清单回填（2026-08-27 新增 Models 端点预置）。"""
+    from database import async_session
+    from models import ModelPreset
+    from sqlalchemy import select
+    from services.model_preset_service import ensure_catalog_seeded, OFFICIAL_MODELS_URLS
+
+    async with async_session() as db:
+        row = (await db.execute(select(ModelPreset).where(ModelPreset.id == "openai"))).scalar_one()
+        assert row.models_url == OFFICIAL_MODELS_URLS["openai"]  # 种子已预置
+        row.models_url = ""  # 模拟旧目录版本遗留空值
+        await db.commit()
+
+        await ensure_catalog_seeded(db)
+
+        row2 = (await db.execute(select(ModelPreset).where(ModelPreset.id == "openai"))).scalar_one()
+        assert row2.models_url == OFFICIAL_MODELS_URLS["openai"]
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_seeded_keeps_manual_models_url():
+    """回填不覆盖运营手工设置过的 models_url（仅补空值）。"""
+    from database import async_session
+    from models import ModelPreset
+    from sqlalchemy import select
+    from services.model_preset_service import ensure_catalog_seeded
+
+    async with async_session() as db:
+        row = (await db.execute(select(ModelPreset).where(ModelPreset.id == "openai"))).scalar_one()
+        row.models_url = "https://manual.example.com/v1/models"  # 运营手工值
+        await db.commit()
+
+        await ensure_catalog_seeded(db)
+
+        row2 = (await db.execute(select(ModelPreset).where(ModelPreset.id == "openai"))).scalar_one()
+        assert row2.models_url == "https://manual.example.com/v1/models"
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_seeded_skips_customized_base_url():
+    """回填不注入与官方 base_url 不一致的自定义行（防止给内网网关代理行塞官方端点）。"""
+    from database import async_session
+    from models import ModelPreset
+    from sqlalchemy import select
+    from services.model_preset_service import ensure_catalog_seeded
+
+    async with async_session() as db:
+        row = (await db.execute(select(ModelPreset).where(ModelPreset.id == "openai"))).scalar_one()
+        row.models_url = ""  # 模拟旧版本遗留空值
+        row.base_url = "http://10.0.0.8:8080/v1"  # 运营改指向内部网关
+        await db.commit()
+
+        await ensure_catalog_seeded(db)
+
+        row2 = (await db.execute(select(ModelPreset).where(ModelPreset.id == "openai"))).scalar_one()
+        assert row2.models_url == ""  # 自定义 base_url 行不得被回填
+
+
+@pytest.mark.asyncio
 async def test_list_presets_requires_authentication():
     """未携带 token 时列表返回 401（未认证）。"""
     from httpx import AsyncClient, ASGITransport
@@ -686,8 +745,8 @@ async def test_url_with_userinfo_rejected():
 @pytest.mark.asyncio
 async def test_catalog_facts_consistency():
     """目录完整性：覆盖全部桌面预设；default ∈ models；rate_per_minute 正整数或空；
-    limit_per_5h/models_url 无代码事实 → 必须为空（防估算污染）。"""
-    from services.model_preset_service import PRESET_CATALOG
+    limit_per_5h 无代码事实 → 必须为空；models_url 仅官方清单（OFFICIAL_MODELS_URLS）预置，其余留空（防估算污染）。"""
+    from services.model_preset_service import PRESET_CATALOG, OFFICIAL_MODELS_URLS
 
     assert len(PRESET_CATALOG) >= 50, "预设目录应覆盖桌面端全部预设（>=50）"
     ids = [x["id"] for x in PRESET_CATALOG]
@@ -702,7 +761,50 @@ async def test_catalog_facts_consistency():
         rpm = item.get("rate_per_minute")
         assert rpm is None or (isinstance(rpm, int) and rpm >= 1), f"{item['id']} rate_per_minute 非法"
         assert item.get("limit_per_5h") is None, f"{item['id']} limit_per_5h 无代码事实必须为空"
-        assert not item.get("models_url"), f"{item['id']} models_url 无代码事实必须为空"
+        if item["id"] in OFFICIAL_MODELS_URLS:
+            assert item.get("models_url") == OFFICIAL_MODELS_URLS[item["id"]], (
+                f"{item['id']} models_url 必须与官方清单 OFFICIAL_MODELS_URLS 一致")
+        else:
+            assert not item.get("models_url"), f"{item['id']} models_url 无代码事实必须为空"
+    # 互斥核对：目录中预置了 models_url 的预设必须与官方清单一一对应
+    catalog_prefilled = {x["id"] for x in PRESET_CATALOG if x.get("models_url")}
+    assert catalog_prefilled == set(OFFICIAL_MODELS_URLS), "预置 models_url 的预设必须与官方清单一一对应"
+    # 与 base_url 的一致性锚定：models_url = base_url 归一 + 显式 path。
+    # path 表是对供应商端点契约的显式声明、与 base_url 解耦——base_url 合法变更时只需同步本表，
+    # 防止推导式断言把「成对写错的 URL」或「过期 base_url」固化成代码事实。
+    OFFICIAL_MODELS_PATHS = {
+        "anthropic": "/v1/models",
+        "openai": "/models",
+        "deepseek": "/models",
+        "mimo-llm": "/models",
+    }
+    catalog_by_id = {x["id"]: x for x in PRESET_CATALOG}
+    for pid, path in OFFICIAL_MODELS_PATHS.items():
+        base = catalog_by_id[pid]["base_url"].rstrip("/")
+        assert OFFICIAL_MODELS_URLS[pid] == base + path, f"{pid} models_url 与 base_url+path 不一致"
+    assert set(OFFICIAL_MODELS_PATHS) == set(OFFICIAL_MODELS_URLS), "path 表必须与白名单一一对应"
+    # 白名单 URL 安全基线：镜像 fetch 运行时规则（非本机必须 https）+ 无 userinfo + 非私网/本机/保留地址。
+    # 注：ipaddress 分支仅拦截字面 IP（白名单目前全是域名，属未来防护）；
+    # 域名的真实防护由 fetch 运行时 DNS 解析（_is_private_or_reserved）兜底
+    import ipaddress
+    from urllib.parse import urlparse
+
+    for pid, url in OFFICIAL_MODELS_URLS.items():
+        parsed = urlparse(url)
+        assert parsed.scheme in ("http", "https") and parsed.netloc, f"{pid} models_url 必须为 http(s) 地址"
+        assert not parsed.username and not parsed.password, f"{pid} models_url 不允许包含 userinfo"
+        host = (parsed.hostname or "").lower()
+        if host in ("localhost", "127.0.0.1", "::1"):
+            assert parsed.scheme == "http", f"{pid} 环回地址应使用 http（镜像 fetch 运行时规则）"
+            continue
+        assert parsed.scheme == "https", f"{pid} 非本机地址必须使用 https（镜像 fetch 运行时规则）"
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            continue  # 域名：不静态断言，交由 fetch 运行时解析防护
+        assert not (ip.is_private or ip.is_loopback or ip.is_link_local
+                    or ip.is_multicast or ip.is_reserved or ip.is_unspecified), \
+            f"{pid} models_url 不得指向私网/本机/保留地址"
 
 
 @pytest.mark.asyncio
