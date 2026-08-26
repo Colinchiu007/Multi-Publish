@@ -863,7 +863,7 @@ class PipelineEngine {
 
     const stageDefs = Array.isArray(pl.stageDefs) ? pl.stageDefs : [];
     const stageDefByName = new Map(stageDefs.map((def) => [def.name, def]));
-    const runId = 'run_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const runId = generateRunId();
     const run = {
       id: runId,
       pipeline: pipelineName,
@@ -2582,5 +2582,16 @@ function prepareResumeParams(params, pipelineName) {
   return restored
 }
 
-module.exports = { PipelineEngine, STAGE_TYPES, computeDefaultMaxConcurrentRuns, prepareResumeParams };
+/**
+ * 生成 story2video 流水线运行 ID（同时作为视频创作项目 ID）。
+ * 格式：base36 时间戳(8位) + '_' + base36 随机后缀(4位) ≈ 13 字符。
+ * 相比旧格式 'run_' + Date.now() + '_' + 随机(共22位) 缩短约 40%，
+ * 且去掉了无运行时代码依赖的 'run_' 前缀；base36 时间戳定宽、字典序即时间序，
+ * 保留唯一性与时序可排序性，并满足 SAFE_ID 校验、可作磁盘目录名。
+ */
+function generateRunId() {
+  return Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)
+}
+
+module.exports = { PipelineEngine, STAGE_TYPES, computeDefaultMaxConcurrentRuns, prepareResumeParams, generateRunId };
 

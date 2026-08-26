@@ -1,3 +1,9 @@
+## [未发布] refactor(story2video): 视频创作项目ID缩短为约13位并历史列表全显
+
+- 项目ID（即流水线 runId，`apps/desktop/electron/services/pipeline-engine.js:866`）由 `'run_'+Date.now()+'_'+随机4位`（固定22字符）改为 `Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6)`（≈13字符，base36 时间戳定宽8位），缩短约40%；去掉无运行时代码依赖的 `run_` 前缀，base36 时间戳字典序即时间序，保留唯一性与时序可排序性，且满足 SAFE_ID 校验（`/^[a-zA-Z0-9_-]{1,100}$/`）可作磁盘目录名与设置 JSON key。
+- 历史任务列表 `apps/desktop/src/views/CreateViewHistory.vue` 移除 `shortenId` 截断方法（原 `id.length>14 ? slice(0,8)+'…'+slice(-4)`），任务项目ID完整显示并保留 `:title` 悬浮查看全文；新增 `data-testid="history-task-id"`。
+- 测试：`pipeline-engine.test.js` 新增 `generateRunId` 5 项（函数类型/格式正则与长度/SAFE_ID 50次迭代/base36 时间戳可解码近期时间/2000 批量唯一）；`CreateViewHistory.test.js` 新增历史ID全显用例（旧22位与新13位均全显）；修复 `_countActiveManualRuns` 用例注入 `maxConcurrentRuns:4` + `stageExecutor` mock 以消环境相关偶发失败。两文件共 86 项全过。
+
 ## [未发布] feat(video-clone): 相似度真度量改造（video-clone-real-similarity）
 
 - 修复「score 构造性恒真」缺陷：compose 阶段对产物做真实场景检测（`shots` 三态）+ ffprobe 实测（`probeOk`），merge 报告按 provenance 逐维标注（measured / plan-fallback / plan-constructive），不再直接拿 plan 报告计分。
