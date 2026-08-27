@@ -415,6 +415,17 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       state = 'error'
     }
     log.info('RpaView', '[baijiahao] declaration prep state=' + state + (selectedValue ? ' option=' + selectedValue : ''))
+    // 诊断：prep 后立即截图（页面就绪态，含引导/声明状态）
+    try {
+      const image = await win.webContents.capturePage()
+      if (image && !image.isEmpty()) {
+        const diagDir = path.join(require('os').tmpdir(), 'mp-rpa-diag')
+        require('fs').mkdirSync(diagDir, { recursive: true })
+        const shotPath = path.join(diagDir, 'baijiahao-prep-' + Date.now() + '.png')
+        require('fs').writeFileSync(shotPath, image.toPNG())
+        log.info('RpaView', '[baijiahao] prep screenshot saved: ' + shotPath)
+      }
+    } catch (_) { /* 截图失败不阻塞 */ }
     return { state, option: selectedValue }
   },
 
