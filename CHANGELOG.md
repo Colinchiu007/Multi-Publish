@@ -1,3 +1,11 @@
+## [未发布] feat(ops-center): 模型预设「获取模型ID URL」白名单扩展至 24 项 + 解析器字段增强
+
+- `OFFICIAL_MODELS_URLS` 官方 Models 列表端点白名单由 4 项扩展至 24 项，覆盖 OpenAI 系（openai/openai-tts/dall-e/whisper 共用 `/v1/models`）、Gemini 系（gemini/imagen/veo 共用 `/v1beta/models`）、xAI（grok-image/grok-video）、recraft、opencode-go、agnes-*、sensenova-llm、cogvideo、minimax-*、elevenlabs、ollama（本地 `/api/tags`）；预设目录对应行预填官方 `models_url`（可编辑）。
+- `_extract_model_ids` 解析器增强：字段优先级 `id`（OpenAI 兼容）→ `model_id`/`modelId`（ElevenLabs 真实 API 标识，优先于显示名 `name`）→ `name`（Gemini `models/xxx` 剥离前缀、Ollama tags）；仅 `name` 字段剥离 `models/` 前缀，`id`/`model_id` 以 `models/` 开头的真实标识不被改写。
+- 端点实测筛选：排除 OpenRouter（全量响应 ~687KB 超 512KB 上限）、豆包 Ark（返回 `ep-*` 推理接入点）、minimax-multimodal（多模态能力映射会被覆盖）及无模型列表 API 的图库/本地服务。
+- 测试：`test_extract_model_ids_supported_shapes` 扩展 ElevenLabs 真实响应形状（含 `name` 显示名）、id 为空回落 name、id 带 `models/` 前缀不剥离、camelCase `modelId` 用例；`test_fetch_models_gemini_name_shape` 覆盖 Gemini name 形态；`test_model_presets_api.py` 37 项全绿。
+- 已知边界（PRD 已声明）：fetch-models 不携带供应商鉴权头，预填官方 URL 直连拉取将 401/403，预填仅为地址预置；同一厂商按模态拆分预设共用全量端点，「获取模型」会以供应商全量列表覆盖该类别 `models`。
+
 ## [未发布] fix(story2video): promptTranslation 按稳定 source index 从 fallback 回填
 
 - 修复 compose 快照回填翻译时按位置对齐导致的分段翻译丢失：改为按稳定 `source index` 建立 `fallbackBySourceIndex` Map 回填。
@@ -7,7 +15,6 @@
 ## [未发布] docs(ops-center): .env.example 补充 OPS_ALLOW_PROXY_BENCHMARK_IPS 开关说明
 
 - `ops-center/backend/.env.example` 新增 `OPS_ALLOW_PROXY_BENCHMARK_IPS=false`（#1165 配套）：`198.18.0.0/15`（RFC 2544 基准段）在 Clash/TUN fake-ip 代理环境下用于接管公网流量，仅此类主机可开启；默认 false 保持 SSRF fail-closed，ECS/生产环境请保持关闭。
-
 
 ## [未发布] feat(yixiaoer-ue): 封面裁剪 Phase A（yixiaoer-ue-parity-real-publish-e2e）
 
@@ -37,7 +44,6 @@
 - 反馈：全部成功 → Toast 成功数；部分成功 → Toast 成功/失败计数；全部失败 → 错误弹窗。用户可见文案走 `locales/zh.js`+`en.js` 成对。
 - 修复：`BATCH_DELETE_SUCCESS` 漏加计数插值分支，导致成功 Toast 的 `{count}` 为空（已补入 `story2video-notifications.js` 的 `{count}/{success}/{failed}` 统一插值）。
 - 测试：`CreateView.test.js` 新增 4 条（分流 / 部分成功 / 全失败 / 进行中守卫），`CreateViewHistory.test.js` 新增 AC-1 进行中禁用；回归 `locale-cjk-baseline.json` 因弹窗插入行号偏移重生成。
-
 
 ## [未发布] refactor(desktop): 单壳导航统一（P2.5）
 
@@ -229,7 +235,6 @@
   `文帝进京` 3 块（10/10/9）、`挥刀自宫` 4 块与用户期望逐字一致；`713.3` 不劈；
   parity 语料 +10 句（三端逐字一致）；8002 同源临时实例 HTTP 验证通过。
 
-
 ## [2026-08-15] fix(ops-center): 提示词评测评估解析兼容推理模型 `<think>` 思维链输出
 
 - 现象：404 修复后真实生成成功，但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。
@@ -276,7 +281,6 @@
   （不依赖词表，兜底未知谓语动词）。
 - 回归：sidecar pytest 420（向量 26 条）；TS 148 / JS 160 passed；E2E real 8002 用户 6 段坏例
   （新增 `枪声、爆炸声、呐喊声 | 混成一锅滚烫的粥` 10+8）全绿。
-
 
 ## [2026-08-15] feat(ops-center): 模型密钥新增删除功能
 
@@ -663,7 +667,6 @@
 - 测试：StageProgress.test.js 新建（paused/手动暂停/waiting_approval 不回归）；CreateView.test.js +4（横幅+面板+等待文案、首激活滚动一次、轮询不重复、无检查点不显示、取消二次确认），CreateView 159 全绿。
 - 文档：PRD §7.1.3a-1 等待态 UX 反馈（功能逻辑/数据校验/交互逻辑/显示项/提示文字）；learnings.md 复盘（状态映射测试护栏/等待可感知性/MessageFunction 插值/scroll spy 污染）。
 
-
 ## [2026-08-13] 提示词引擎自进化 P0：生成/反馈双日志反馈管道（prompt-engine-evolution-p0）
 
 - 新增桌面端反馈管道（设计：01-docs/prompt-engine-evolution-design.md v2，经 Claude + Codex 双模型架构审查）：
@@ -732,14 +735,12 @@
 - 测试：composable 测试 mount 宿主组件（useI18n 需 setup 上下文）+ i18n 插件，本地 60/60；gui-test 定位改 data-testid（CI en 环境中文失效教训再次验证）
 - P2 附注的 ModelProviders 遗留已闭环；待办 CreateView 视频创作（P3）
 
-
 ## [2026-08-13] docs(i18n): 多语言内容同步机制（i18n-content-sync）
 
 - PRD §3.2 新增「多语言内容同步机制」小节：单一事实源 / 键驱动 / 术语词典三原则 + L0-L1 门禁（zh/en 键对称、插值占位符一致、重复语料源校验、locale 成对提交 diff 检查、渲染端硬编码 CJK 扫描）；更新历史 v2.3.57。
 - 新增独立设计文档 `01-docs/i18n-sync-mechanism.md`（L0-L3 分层方案 + 检测手段 + 落地路线 + 验收清单）。
 - OpenSpec change `i18n-content-sync`：proposal / specs（i18n-content-sync 新能力 + user-facing-messages 增量）/ design / tasks，validate 通过。
 - 影响：`apps/desktop/src/locales/{zh,en}.js` 与 `story2video-notifications.js` 的同步将由门禁强制；后续按 tasks.md 落地测试与 CI（/openspec-apply-change 实施）。
-
 
 ## [2026-08-12] feat(ops-center): 模型密钥「修改」功能（编辑回填 + 启用开关）
 
@@ -756,9 +757,6 @@
 - 端到端：已保存 minimax-llm 真实连通 200「chat/completions 可达」；无效 key 返回 401 详情；未配置 400。
 - PRD 12A.22.7 测试连通契约同步。
 
-
-
-
 ## [2026-08-12] Story2Video 全能创作：流水线更名、历史提示词本地翻译、分镜素材自选创作模式
 
 - 更名：流水线展示名「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」（zh/en i18n、配置标题、权限提示、阶段摘要同步；机器 ID story2video-compose 不变）。
@@ -768,9 +766,6 @@
 - 契约：story2videoTextConfig 新增 creation 段（mode/materialMode 枚举校验 + normalizer/stageOptions/_safeOptions 白名单 + 前端 lastOptions 恢复白名单）；uiLocale 随提交；阶段清单 manual 插入 finalize_assets。
 - 测试：新增 story2video-manual-assets.test.js（15 例：normalizer 契约、候选生成、finalize、engine 集成）、SceneAssetSelection 组件测试（4 例）、ResultView 翻译块、CreateView 创作模式 UI；preload/ipc-contract/stage-executor/i18n 断言同步；后端 703 + 前端相关套件全绿。
 - 文档：01-docs/PRD.md §7.1.3a（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字清单、成本提示）；OpenSpec change story2video-omnipotent-creation（proposal/design/specs/tasks）。
-
-
-
 
 ## [2026-08-12] feat(ops-center): 视觉评估支持 Opencode-Go（opencode-go-vision 密钥槽位）
 
@@ -800,7 +795,6 @@
 - 场景模式下分句后提示词为「（未生成）」是预期行为（中英对照需调 LLM 逐场景/批量生成）；新增「批量生成中英对照」按钮（PRD 12A.22.20 规划项）：串行逐场景调用 scenes/{sid}/translate，实时进度「批量生成中（n/total）」，失败场景单独列出可重试。
 - 单场景按钮首次文案由「重新生成中英对照」改为「生成中英对照」（已有提示词时仍显示「重新生成」）。
 - 前端 `npm run build` 通过；dev HMR 已验证。
-
 
 ## [2026-08-12] feat(ops-center): 场景层评测场景数上限 50 → 100
 
@@ -849,7 +843,6 @@
 - 音色克隆交互调整：选择本地音频文件后**自动保存**为克隆音色（默认名「音色001/音色XXX」递增），移除底部「名称输入 + 添加克隆音色」操作框；克隆列表新增「重命名」行内编辑（新 IPC `tts-voice-clone:rename`，仅更新本地 registry 展示名，不触碰远端 voice_id/样本，失效克隆保留 invalid 标记）。
 - `minimax-multimodal` 克隆样本限制与 `minimax-tts` 对齐（单文件、mp3/m4a/wav、10s–5min、≤20MB）。
 - 测试：electron 服务/IPC/preload 48 例 + CreateView 149 例 + TTS 相关 81 例 + story2video 相关 102 例全绿；vite build 通过；PRD §7.1.4 同步更新（数据校验/流程/交互/文案详见 PRD）。
-
 
 ## [2026-08-12] 视频克隆 analyze CLI（一条命令出报告）
 
@@ -992,7 +985,6 @@
 - 实测：`那` 4.40→4.82、`处` 6.92→7.03、`慢慢` 13.74→14.08、`盐` 3.38→3.52、`再` 11.46→11.50，均对齐静音结束
 - 块级时间定位由音频停顿独立锚定（非 ASR 自证）；ffprobe duration 与 whisper 完全一致
 - 测试：aligner 7 例全绿（snap 规则 + 解析 + API）；OpenSpec/PRD 更新验收结论
-
 
 ## [未发布] 修复：补齐 create.story2video.voice locale 缺键（catalogLoadFailed + 26 VOICE 键）消除 intlify 告警（2026-08-12）
 
@@ -1152,8 +1144,6 @@
 
 - PR #546 已修复测试断言为 500，但 `pipeline-engine.js` story2video-compose optimize stageDefs 与 `story2video-compose.yaml` 镜像仍为 300，与 `prompt-engine-contract.js` / `story2video-text-config.js` 默认 500 不一致。本次将这两处 300 对齐为 500，满足「renderer/normalizer/YAML/compose engine 默认值一致」契约。
 - 回归：pipeline-engine 37/37、stage-executor 58/58、pipeline-story2video-contract 18/18；QM-1 打包验证。
-
-
 
 ## 2026-08-11 — 视频创作模块 UI/UX 深度优化
 
@@ -1329,7 +1319,6 @@
 - 文档：ops-center PRD 12A.19、Multi-Publish PRD §7.4.12、CHANGELOG。
 - 测试：ops-center pytest（+3，全量 115）。
 
-
 ## [未发布] 功能：发布数据看板（P1-3）（2026-08-11）
 
 - ops-center：新增 `publish_metrics_daily` 表 + `POST /api/v1/publish/ingest`（X-Catalog-Key；校验日期格式/平台字符集/非负/publish≥ok+fail/≤500；同桶 upsert 累加）+ `GET /api/v1/publish/summary`（admin，7/30/90 天，totals/by_date/by_platform 含成功率）。
@@ -1381,7 +1370,6 @@
 - Agnes Video adapter 瞬时错误有界重试（2026-08-11）：`503 video_queue_full`/`429 rate_limit_exceeded`（约 2 次/分钟）标记可重试，提交最多重试 6 次、递增退避（20/30/45/60/60s）；非重试错误立即抛出。**真实混合成片达成**：27 场景 AI 选中 8 个（29.6%，区间 20-40%），6 段真实 Agnes AI 视频 + 21 段图片轮播（2 段因队列满载回退图片），27 图 + 27 TTS 真实生成，成片 338.4s/65.8MB/720x1280（s2v_1786438791564_1_output.mp4），mediaKinds 混合 video/image。
 - **视频片段旁白音频修复（W10，2026-08-11）**：视频片段合成显式映射 TTS 旁白为输出音频（`-map 0:v:0 -map 1:a:0`）——此前 ffmpeg 默认流选择会选中 AI 视频自带音频而丢弃 TTS 解说（实测 440Hz vs 880Hz 验证）。回归测试：视频场景带 440Hz 音频 + TTS 880Hz，成片音频主频必须为 880Hz（compose-engine 94/94 通过）。
 - **横版（1280x720）真实混合成片（2026-08-11）**：W10 修复后重跑，27 场景 AI 选中 10 个（37%），**9 段真实 Agnes AI 视频 + 18 段图片轮播**（scene 15 被 Agnes 内容安全拒绝回退图片），27 图 + 27 TTS 真实生成，成片 334.7s/78.6MB/1280x720（s2v_1786452848848_1_output.mp4），视频段音频为 TTS 旁白（采样 RMS 0.50）。
-
 
 ## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
 
@@ -1470,7 +1458,6 @@
 - 验证：subtree 内容与源仓库逐文件一致；CI 全绿（QG 全项 + build + electron-tests + gui-test）。
 - 附：预设目录按桌面代码事实生成 53 项 + 一致性测试（PR #474/#3）；桌面 seeds 移除无事实 limit_per_5h 估算（PR #474）。
 
-
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
@@ -1491,7 +1478,6 @@
 ### 测试
 - 195 个测试通过（CreateView + CreateHistory + PipelineBrowser）
 - Vite build 无编译错误
-
 
 ## [未发布] 功能：视频创作历史记录「已暂停」状态与 UI 优化（2026-08-10）
 
@@ -2351,7 +2337,6 @@
 - 总计: 65/65 通过 ✅
 
 ---
-
 
 ## [测试增强] v0.16.0 - 变异测试 + 覆盖率门禁 + 故障注入 + Monkey + 会话录制 (2026-07-16)
 
@@ -3817,7 +3802,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - decision-log: D-035 全库审查修复记录
 - learnings.md: 跨 AI 协作与 require 链断裂复盘 v2.3.43（R1-R6）
 
-
 ## [v2.3.43] - 2026-07-09
 
 ### PRD 功能验证修复 — 10 项缺失补齐 + 1 bug 修复
@@ -3858,7 +3842,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - PRD.md: 7 处功能状态对齐（F1.3/F6.3/F8.5/F9/F10.8/F15.3/F16.3/F17.3）+ F11 爆款分析 / F13 评论管理状态更新 + §9.3 实现说明（orchestrator + 本地 fallback）
 - decision-log: D-033 PRD 功能验证修复记录 + D-034 附加观察项修复
 - learnings.md: PRD 功能验证复盘
-
 
 ## [v2.3.42] - 2026-07-09
 
@@ -3906,7 +3889,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - apps/desktop: 1786→1791 passed（+5 安全防护测试：SQL 注入白名单 3 个 + env var 读取 2 个）
 - ai-writer-api: 10 passed（适配 API Key 强制要求）
 
-
 ## [v2.3.41] - 2026-07-08
 
 ### 新增
@@ -3922,7 +3904,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ### 文档
 - 01-docs/architecture-video-integration.md — OpenMontage 集成架构方案 v2.0
 
-
 ### 修复
 - main.js DI 容器重构遗留编译错误（缺少 createContainer 导入等 4 处）
 - main.js 移除 13 个被容器取代的直接 import，ESLint 归零（11 warnings → 0）
@@ -3932,7 +3913,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 ### 测试
 - composition-manager.test.js: 7/7 通过
-
 
 ### 新增
 - Phase 2 — AI + 视频工具桥接：ai-generator.js + video-engine.js
@@ -3948,7 +3928,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ### 测试
 - ai-generator.test.js: 8/8 通过
 - video-engine.test.js: 5/5 通过
-
 
 ### 新增
 - Phase 3 — Pipeline 管线编排：pipeline-engine.js
@@ -3975,7 +3954,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 ### 推送
 - GitHub main synced
-
 
 ## [v2.3.39] - 2026-07-07
 
@@ -4554,8 +4532,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - ESLint 完全清零: 7 errors + 26 warnings 全部修复
 # CHANGELOG
 
-
-
 ## [v2.1.7] - 2026-07-06
 ### 里程碑
 - ESLint 完全清零: 7 errors + 26 warnings 全部修复
@@ -4578,7 +4554,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ### 改进
 - TS 迁移 Phase 3: 新增 5 个文件 @ts-check (cloud-publisher/publish-poller/store-schema/credential-store/scheduler)
 - 累计 16/61 文件 ts-check (26% 进度)
-
 
 ## [v2.1.5] - 2026-07-06
 ### 改进
@@ -4610,7 +4585,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 > 完整变更日志请查看 [01-docs/CHANGELOG.md](01-docs/CHANGELOG.md)
 >
 > 以下为精简版变更摘要：
-
 
 ## [v2.1.3] - 2026-07-06
 - PR #303: Phase 4 清理 — electron 回滚 43→33 + 测试临时文件清理
@@ -4666,8 +4640,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 初始版本：Electron 桌面端 + FastAPI 后端
 - 15 平台发布器 + 账号管理 + 内容智能分析
 
-
-
 ## [v2.1.3] - 2026-07-06
 - TS 迁移 Phase 3: JSDoc 渐进类型化基础设施完成
   - 新增 tsconfig.check.json (extends 主 tsconfig, checkJs:false, noEmit)
@@ -4684,9 +4656,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
   - 累计 5/77 服务文件已完成 JSDoc 类型化
   - check:ts ✅ build:ts ✅ test:vue (1049) ✅ Python (419) ✅
 
-
-
-
 ## [v2.2.5] - 2026-07-07
 ### 重构
 - Python 后端 import 排序统一 + 类型提示现代化（119 文件）
@@ -4699,7 +4668,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
-
 
 ## [第十五轮审查] v2.3.45 — 2026-07-10
 
@@ -4736,51 +4704,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 ## [2026-08-14] fix(accounts): 添加账号登录页直接关闭页签误报「未捕获到有效登录凭证」（fix-login-credential-capture-error）
 
@@ -4833,7 +4756,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
   `文帝进京` 3 块（10/10/9）、`挥刀自宫` 4 块与用户期望逐字一致；`713.3` 不劈；
   parity 语料 +10 句（三端逐字一致）；8002 同源临时实例 HTTP 验证通过。
 
-
 ## [2026-08-15] fix(ops-center): 提示词评测评估解析兼容推理模型 `<think>` 思维链输出
 
 - 现象：404 修复后真实生成成功，但评估阶段报 `evaluation: 评估输出不是合法 JSON: Expecting value: line 1 column 1 (char 0)`。
@@ -4880,7 +4802,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
   （不依赖词表，兜底未知谓语动词）。
 - 回归：sidecar pytest 420（向量 26 条）；TS 148 / JS 160 passed；E2E real 8002 用户 6 段坏例
   （新增 `枪声、爆炸声、呐喊声 | 混成一锅滚烫的粥` 10+8）全绿。
-
 
 ## [2026-08-15] feat(ops-center): 模型密钥新增删除功能
 
@@ -5267,7 +5188,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 测试：StageProgress.test.js 新建（paused/手动暂停/waiting_approval 不回归）；CreateView.test.js +4（横幅+面板+等待文案、首激活滚动一次、轮询不重复、无检查点不显示、取消二次确认），CreateView 159 全绿。
 - 文档：PRD §7.1.3a-1 等待态 UX 反馈（功能逻辑/数据校验/交互逻辑/显示项/提示文字）；learnings.md 复盘（状态映射测试护栏/等待可感知性/MessageFunction 插值/scroll spy 污染）。
 
-
 ## [2026-08-13] 提示词引擎自进化 P0：生成/反馈双日志反馈管道（prompt-engine-evolution-p0）
 
 - 新增桌面端反馈管道（设计：01-docs/prompt-engine-evolution-design.md v2，经 Claude + Codex 双模型架构审查）：
@@ -5336,14 +5256,12 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 测试：composable 测试 mount 宿主组件（useI18n 需 setup 上下文）+ i18n 插件，本地 60/60；gui-test 定位改 data-testid（CI en 环境中文失效教训再次验证）
 - P2 附注的 ModelProviders 遗留已闭环；待办 CreateView 视频创作（P3）
 
-
 ## [2026-08-13] docs(i18n): 多语言内容同步机制（i18n-content-sync）
 
 - PRD §3.2 新增「多语言内容同步机制」小节：单一事实源 / 键驱动 / 术语词典三原则 + L0-L1 门禁（zh/en 键对称、插值占位符一致、重复语料源校验、locale 成对提交 diff 检查、渲染端硬编码 CJK 扫描）；更新历史 v2.3.57。
 - 新增独立设计文档 `01-docs/i18n-sync-mechanism.md`（L0-L3 分层方案 + 检测手段 + 落地路线 + 验收清单）。
 - OpenSpec change `i18n-content-sync`：proposal / specs（i18n-content-sync 新能力 + user-facing-messages 增量）/ design / tasks，validate 通过。
 - 影响：`apps/desktop/src/locales/{zh,en}.js` 与 `story2video-notifications.js` 的同步将由门禁强制；后续按 tasks.md 落地测试与 CI（/openspec-apply-change 实施）。
-
 
 ## [2026-08-12] feat(ops-center): 模型密钥「修改」功能（编辑回填 + 启用开关）
 
@@ -5360,9 +5278,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 端到端：已保存 minimax-llm 真实连通 200「chat/completions 可达」；无效 key 返回 401 详情；未配置 400。
 - PRD 12A.22.7 测试连通契约同步。
 
-
-
-
 ## [2026-08-12] Story2Video 全能创作：流水线更名、历史提示词本地翻译、分镜素材自选创作模式
 
 - 更名：流水线展示名「图片轮播 / Image Carousel」→「全能创作 / Omni Creation」（zh/en i18n、配置标题、权限提示、阶段摘要同步；机器 ID story2video-compose 不变）。
@@ -5372,9 +5287,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 契约：story2videoTextConfig 新增 creation 段（mode/materialMode 枚举校验 + normalizer/stageOptions/_safeOptions 白名单 + 前端 lastOptions 恢复白名单）；uiLocale 随提交；阶段清单 manual 插入 finalize_assets。
 - 测试：新增 story2video-manual-assets.test.js（15 例：normalizer 契约、候选生成、finalize、engine 集成）、SceneAssetSelection 组件测试（4 例）、ResultView 翻译块、CreateView 创作模式 UI；preload/ipc-contract/stage-executor/i18n 断言同步；后端 703 + 前端相关套件全绿。
 - 文档：01-docs/PRD.md §7.1.3a（数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字清单、成本提示）；OpenSpec change story2video-omnipotent-creation（proposal/design/specs/tasks）。
-
-
-
 
 ## [2026-08-12] feat(ops-center): 视觉评估支持 Opencode-Go（opencode-go-vision 密钥槽位）
 
@@ -5404,7 +5316,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 场景模式下分句后提示词为「（未生成）」是预期行为（中英对照需调 LLM 逐场景/批量生成）；新增「批量生成中英对照」按钮（PRD 12A.22.20 规划项）：串行逐场景调用 scenes/{sid}/translate，实时进度「批量生成中（n/total）」，失败场景单独列出可重试。
 - 单场景按钮首次文案由「重新生成中英对照」改为「生成中英对照」（已有提示词时仍显示「重新生成」）。
 - 前端 `npm run build` 通过；dev HMR 已验证。
-
 
 ## [2026-08-12] feat(ops-center): 场景层评测场景数上限 50 → 100
 
@@ -5453,7 +5364,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 音色克隆交互调整：选择本地音频文件后**自动保存**为克隆音色（默认名「音色001/音色XXX」递增），移除底部「名称输入 + 添加克隆音色」操作框；克隆列表新增「重命名」行内编辑（新 IPC `tts-voice-clone:rename`，仅更新本地 registry 展示名，不触碰远端 voice_id/样本，失效克隆保留 invalid 标记）。
 - `minimax-multimodal` 克隆样本限制与 `minimax-tts` 对齐（单文件、mp3/m4a/wav、10s–5min、≤20MB）。
 - 测试：electron 服务/IPC/preload 48 例 + CreateView 149 例 + TTS 相关 81 例 + story2video 相关 102 例全绿；vite build 通过；PRD §7.1.4 同步更新（数据校验/流程/交互/文案详见 PRD）。
-
 
 ## [2026-08-12] 视频克隆 analyze CLI（一条命令出报告）
 
@@ -5596,7 +5506,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 实测：`那` 4.40→4.82、`处` 6.92→7.03、`慢慢` 13.74→14.08、`盐` 3.38→3.52、`再` 11.46→11.50，均对齐静音结束
 - 块级时间定位由音频停顿独立锚定（非 ASR 自证）；ffprobe duration 与 whisper 完全一致
 - 测试：aligner 7 例全绿（snap 规则 + 解析 + API）；OpenSpec/PRD 更新验收结论
-
 
 ## [未发布] 修复：补齐 create.story2video.voice locale 缺键（catalogLoadFailed + 26 VOICE 键）消除 intlify 告警（2026-08-12）
 
@@ -5756,8 +5665,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 - PR #546 已修复测试断言为 500，但 `pipeline-engine.js` story2video-compose optimize stageDefs 与 `story2video-compose.yaml` 镜像仍为 300，与 `prompt-engine-contract.js` / `story2video-text-config.js` 默认 500 不一致。本次将这两处 300 对齐为 500，满足「renderer/normalizer/YAML/compose engine 默认值一致」契约。
 - 回归：pipeline-engine 37/37、stage-executor 58/58、pipeline-story2video-contract 18/18；QM-1 打包验证。
-
-
 
 ## 2026-08-11 — 视频创作模块 UI/UX 深度优化
 
@@ -5933,7 +5840,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 文档：ops-center PRD 12A.19、Multi-Publish PRD §7.4.12、CHANGELOG。
 - 测试：ops-center pytest（+3，全量 115）。
 
-
 ## [未发布] 功能：发布数据看板（P1-3）（2026-08-11）
 
 - ops-center：新增 `publish_metrics_daily` 表 + `POST /api/v1/publish/ingest`（X-Catalog-Key；校验日期格式/平台字符集/非负/publish≥ok+fail/≤500；同桶 upsert 累加）+ `GET /api/v1/publish/summary`（admin，7/30/90 天，totals/by_date/by_platform 含成功率）。
@@ -5985,7 +5891,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - Agnes Video adapter 瞬时错误有界重试（2026-08-11）：`503 video_queue_full`/`429 rate_limit_exceeded`（约 2 次/分钟）标记可重试，提交最多重试 6 次、递增退避（20/30/45/60/60s）；非重试错误立即抛出。**真实混合成片达成**：27 场景 AI 选中 8 个（29.6%，区间 20-40%），6 段真实 Agnes AI 视频 + 21 段图片轮播（2 段因队列满载回退图片），27 图 + 27 TTS 真实生成，成片 338.4s/65.8MB/720x1280（s2v_1786438791564_1_output.mp4），mediaKinds 混合 video/image。
 - **视频片段旁白音频修复（W10，2026-08-11）**：视频片段合成显式映射 TTS 旁白为输出音频（`-map 0:v:0 -map 1:a:0`）——此前 ffmpeg 默认流选择会选中 AI 视频自带音频而丢弃 TTS 解说（实测 440Hz vs 880Hz 验证）。回归测试：视频场景带 440Hz 音频 + TTS 880Hz，成片音频主频必须为 880Hz（compose-engine 94/94 通过）。
 - **横版（1280x720）真实混合成片（2026-08-11）**：W10 修复后重跑，27 场景 AI 选中 10 个（37%），**9 段真实 Agnes AI 视频 + 18 段图片轮播**（scene 15 被 Agnes 内容安全拒绝回退图片），27 图 + 27 TTS 真实生成，成片 334.7s/78.6MB/1280x720（s2v_1786452848848_1_output.mp4），视频段音频为 TTS 旁白（采样 RMS 0.50）。
-
 
 ## [未发布] 功能：云服务健康巡检（P1 其余）（2026-08-11）
 
@@ -6074,7 +5979,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 验证：subtree 内容与源仓库逐文件一致；CI 全绿（QG 全项 + build + electron-tests + gui-test）。
 - 附：预设目录按桌面代码事实生成 53 项 + 一致性测试（PR #474/#3）；桌面 seeds 移除无事实 limit_per_5h 估算（PR #474）。
 
-
 ## [未发布] 设计：视频创作 UI 设计系统与代码-设计分离（2026-08-10）
 
 ### 变更
@@ -6095,7 +5999,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ### 测试
 - 195 个测试通过（CreateView + CreateHistory + PipelineBrowser）
 - Vite build 无编译错误
-
 
 ## [未发布] 功能：视频创作历史记录「已暂停」状态与 UI 优化（2026-08-10）
 
@@ -6955,7 +6858,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 总计: 65/65 通过 ✅
 
 ---
-
 
 ## [测试增强] v0.16.0 - 变异测试 + 覆盖率门禁 + 故障注入 + Monkey + 会话录制 (2026-07-16)
 
@@ -8421,7 +8323,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - decision-log: D-035 全库审查修复记录
 - learnings.md: 跨 AI 协作与 require 链断裂复盘 v2.3.43（R1-R6）
 
-
 ## [v2.3.43] - 2026-07-09
 
 ### PRD 功能验证修复 — 10 项缺失补齐 + 1 bug 修复
@@ -8462,7 +8363,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - PRD.md: 7 处功能状态对齐（F1.3/F6.3/F8.5/F9/F10.8/F15.3/F16.3/F17.3）+ F11 爆款分析 / F13 评论管理状态更新 + §9.3 实现说明（orchestrator + 本地 fallback）
 - decision-log: D-033 PRD 功能验证修复记录 + D-034 附加观察项修复
 - learnings.md: PRD 功能验证复盘
-
 
 ## [v2.3.42] - 2026-07-09
 
@@ -8510,7 +8410,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - apps/desktop: 1786→1791 passed（+5 安全防护测试：SQL 注入白名单 3 个 + env var 读取 2 个）
 - ai-writer-api: 10 passed（适配 API Key 强制要求）
 
-
 ## [v2.3.41] - 2026-07-08
 
 ### 新增
@@ -8526,7 +8425,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ### 文档
 - 01-docs/architecture-video-integration.md — OpenMontage 集成架构方案 v2.0
 
-
 ### 修复
 - main.js DI 容器重构遗留编译错误（缺少 createContainer 导入等 4 处）
 - main.js 移除 13 个被容器取代的直接 import，ESLint 归零（11 warnings → 0）
@@ -8536,7 +8434,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 ### 测试
 - composition-manager.test.js: 7/7 通过
-
 
 ### 新增
 - Phase 2 — AI + 视频工具桥接：ai-generator.js + video-engine.js
@@ -8552,7 +8449,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ### 测试
 - ai-generator.test.js: 8/8 通过
 - video-engine.test.js: 5/5 通过
-
 
 ### 新增
 - Phase 3 — Pipeline 管线编排：pipeline-engine.js
@@ -8579,7 +8475,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 
 ### 推送
 - GitHub main synced
-
 
 ## [v2.3.39] - 2026-07-07
 
@@ -9158,8 +9053,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - ESLint 完全清零: 7 errors + 26 warnings 全部修复
 # CHANGELOG
 
-
-
 ## [v2.1.7] - 2026-07-06
 ### 里程碑
 - ESLint 完全清零: 7 errors + 26 warnings 全部修复
@@ -9182,7 +9075,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ### 改进
 - TS 迁移 Phase 3: 新增 5 个文件 @ts-check (cloud-publisher/publish-poller/store-schema/credential-store/scheduler)
 - 累计 16/61 文件 ts-check (26% 进度)
-
 
 ## [v2.1.5] - 2026-07-06
 ### 改进
@@ -9214,7 +9106,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 > 完整变更日志请查看 [01-docs/CHANGELOG.md](01-docs/CHANGELOG.md)
 >
 > 以下为精简版变更摘要：
-
 
 ## [v2.1.3] - 2026-07-06
 - PR #303: Phase 4 清理 — electron 回滚 43→33 + 测试临时文件清理
@@ -9270,8 +9161,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - 初始版本：Electron 桌面端 + FastAPI 后端
 - 15 平台发布器 + 账号管理 + 内容智能分析
 
-
-
 ## [v2.1.3] - 2026-07-06
 - TS 迁移 Phase 3: JSDoc 渐进类型化基础设施完成
   - 新增 tsconfig.check.json (extends 主 tsconfig, checkJs:false, noEmit)
@@ -9288,9 +9177,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
   - 累计 5/77 服务文件已完成 JSDoc 类型化
   - check:ts ✅ build:ts ✅ test:vue (1049) ✅ Python (419) ✅
 
-
-
-
 ## [v2.2.5] - 2026-07-07
 ### 重构
 - Python 后端 import 排序统一 + 类型提示现代化（119 文件）
@@ -9303,7 +9189,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 ### 验证
 - Python 测试: 518 passed ✅
 - 改动涉及 119 文件 ±678 行
-
 
 ## [第十五轮审查] v2.3.45 — 2026-07-10
 
@@ -9340,51 +9225,6 @@ Coverage: 18.2% (基线数据，后续通过 PRD/代码迭代提升)
 - R39: R26 同功能多实现每轮必须重扫（"已闭环"结论必须基于本轮重扫 grep 输出）
 - R40: 多态参数必须边界归一化（入口统一解析为规范形态）
 - R41: 持续失败的测试必须纳入 R33 测试债务追踪（不允许"持续红"默默存在）
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 ## [2026-08-14] fix(accounts): 添加账号登录页直接关闭页签误报「未捕获到有效登录凭证」（fix-login-credential-capture-error）
 

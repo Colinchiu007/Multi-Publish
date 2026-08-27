@@ -847,8 +847,28 @@ async def test_catalog_facts_consistency():
     OFFICIAL_MODELS_PATHS = {
         "anthropic": "/v1/models",
         "openai": "/models",
+        "openai-tts": "/models",
+        "dall-e": "/models",
+        "whisper": "/models",
         "deepseek": "/models",
         "mimo-llm": "/models",
+        "grok-image": "/models",
+        "grok-video": "/models",
+        "recraft": "/models",
+        "opencode-go": "/models",
+        "agnes-llm": "/models",
+        "agnes-image": "/models",
+        "agnes-video": "/models",
+        "sensenova-llm": "/models",
+        "cogvideo": "/models",
+        "minimax-tts": "/models",
+        "minimax-image": "/models",
+        "minimax": "/models",
+        "elevenlabs": "/models",
+        "gemini": "/v1beta/models",
+        "imagen": "/v1beta/models",
+        "veo": "/v1beta/models",
+        "ollama": "/api/tags",
     }
     catalog_by_id = {x["id"]: x for x in PRESET_CATALOG}
     for pid, path in OFFICIAL_MODELS_PATHS.items():
@@ -893,3 +913,57 @@ async def test_catalog_minimax_multimodal_facts():
     }
     assert mm["default_model"] == "MiniMax-M2.7"
     assert mm["rate_per_minute"] == 20
+
+def test_extract_model_ids_supported_shapes():
+    """解析器支持 id / model_id / name（Gemini models/ 前缀剥离、Ollama tags、ElevenLabs 真实形状）。"""
+    from services.model_preset_service import _extract_model_ids
+
+    assert _extract_model_ids({"models": [{"name": "models/gemini-2.0-flash"}, {"name": "models/gemini-1.5-pro"}]}) == [
+        "gemini-2.0-flash", "gemini-1.5-pro"]
+    assert _extract_model_ids({"models": [{"name": "llama3:latest"}, {"name": "qwen2:7b"}]}) == ["llama3:latest", "qwen2:7b"]
+    # ElevenLabs 真实响应形状：model_id（API 标识）优先于 name（人类显示名）
+    assert _extract_model_ids([
+        {"model_id": "eleven_multilingual_v2", "name": "Eleven Multilingual v2"},
+        {"model_id": "eleven_turbo_v2_5", "name": "Eleven Turbo v2.5"},
+    ]) == ["eleven_multilingual_v2", "eleven_turbo_v2_5"]
+    assert _extract_model_ids({"data": [{"id": "gpt-4o", "name": "gpt-4o"}, {"id": "o3-mini"}]}) == ["gpt-4o", "o3-mini"]
+    assert _extract_model_ids(["a", "b"]) == ["a", "b"]
+    assert _extract_model_ids({"models": ["x"]}) == ["x"]
+    assert _extract_model_ids({"data": [{"foo": "bar"}, {"id": ""}]}) == []
+    # id 为空时回落到 name（Gemini 形态，剥离 models/ 前缀）
+    assert _extract_model_ids({"data": [{"id": "", "name": "models/gemini-2.0-flash"}]}) == ["gemini-2.0-flash"]
+    # 仅 name 字段剥离 models/ 前缀；id/model_id 以 models/ 开头是真实标识，不得改写
+    assert _extract_model_ids({"data": [{"id": "models/gpt-4o"}, {"name": "models/gemini-1.5-pro"}]}) == [
+        "models/gpt-4o", "gemini-1.5-pro"]
+    # camelCase modelId 兜底
+    assert _extract_model_ids({"data": [{"modelId": "client-model-1"}]}) == ["client-model-1"]
+@pytest.mark.asyncio
+async def test_fetch_models_gemini_name_shape():
+    """Gemini 官方 Models 列表（models[].name=models/xxx）经解析器剥离前缀后成功提取。"""
+    from unittest.mock import patch
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+
+    transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {_admin_token()}"}
+    body = {
+        "id": "fetch-gemini",
+        "name": "Fetch Gemini",
+        "category": "llm",
+        "models_url": "https://generativelanguage.googleapis.com/v1beta/models",
+        "models": ["old-a"],
+        "default_model": "old-a",
+    }
+    fake = _FakeResponse(
+        status_code=200,
+        json_data={"models": [{"name": "models/gemini-2.0-flash"}, {"name": "models/gemini-1.5-pro"}]},
+    )
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("142.250.72.14", 443))]),          patch("httpx.AsyncClient", return_value=_fake_async_client(fake)):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/v1/model-presets", json=body, headers=headers)
+            assert resp.status_code == 200, resp.text
+            resp2 = await client.post("/api/v1/model-presets/fetch-gemini/fetch-models", headers=headers)
+            assert resp2.status_code == 200, resp2.text
+            data = resp2.json()
+            assert data["models"] == ["gemini-2.0-flash", "gemini-1.5-pro"]
+            assert data["count"] == 2

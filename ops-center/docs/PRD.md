@@ -666,7 +666,7 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 3. DNS 解析后任一地址为私网/环回/链路本地/组播/保留/未指定 → 拒绝「解析到私网/保留地址」；
 4. `follow_redirects=False`：任何 3xx 重定向视为失败（HTTP ≥300 → 400）；
 5. 超时 10s；响应体 ≤512KB；
-6. JSON 契约：支持 `{models:[...]}` / `{data:[...]}` / `{data:[{id:...}]}` / 纯数组；提取非空字符串去重，最多 500 个；无模型 ID → 400「未找到任何模型ID」。
+6. JSON 契约：支持 `{models:[...]}` / `{data:[...]}` / `{data:[{id:...}]}` / `{model_ids|modelIds}` / `{items}` / 纯数组；元素提取优先级 id（OpenAI 兼容）→ model_id/modelId（ElevenLabs 真实 API 标识）→ name（Gemini `models/xxx` 自动剥离前缀、Ollama tags）；非空去重，最多 500 个；无模型 ID → 400「未找到任何模型ID」。
 
 ### 12A.4 多模态分能力技术文档 URL
 
@@ -689,7 +689,7 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 
 - `init_db` 后执行幂等列迁移：存量 `model_presets` 表补充 `models_url`（VARCHAR DEFAULT ''）、`rate_per_minute`（INTEGER）、`limit_per_5h`（INTEGER）。
 - 启动种子（`services/config_seed_service.py`）：幂等注册 6 个预置项目（含 `platform-orchestrator`，功能开关页面依赖）+ 从 `feature_gates.yaml` 导入功能开关（源可经 `OPS_FEATURE_GATES_SOURCE` 指定；显式配置时只使用该源，文件缺失即跳过不 fallback；未配置则探测 `D:/Data/projects/platform-orchestrator/feature_gates.yaml` 与 `~/feature_gates.yaml`）。修复「功能开关页面 404 → 加载失败」：原依赖手动 `scripts/seed.py`，新库为空导致项目缺失。
-- 种子目录（`PRESET_CATALOG`）**由 Multi-Publish 桌面端代码事实生成**（见 12A.8 数据来源）：覆盖桌面端全部 53 个预设；`base_url`=适配器默认端点/桌面预设值、`models`/`capabilities`/`capability_models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表；`limit_per_5h` **无代码事实 → 不预填（留空由运营填写）**；`models_url` 仅白名单预设（`OFFICIAL_MODELS_URLS`：官方 Models 列表端点且响应含 id）预置官方端点、可编辑，其余留空；空值回填仅限 base_url 仍为官方默认值的种子行；`INSERT OR IGNORE` 不覆盖用户修改。
+- 种子目录（`PRESET_CATALOG`）**由 Multi-Publish 桌面端代码事实生成**（见 12A.8 数据来源）：覆盖桌面端全部 53 个预设；`base_url`=适配器默认端点/桌面预设值、`models`/`capabilities`/`capability_models`=桌面 `model-provider-seeds`、`rate_per_minute`=桌面 `governor-provider-limits` 静态表；`limit_per_5h` **无代码事实 → 不预填（留空由运营填写）**；`models_url` 仅白名单预设（`OFFICIAL_MODELS_URLS`：官方 Models 列表端点，响应含 id/name/model_id 且 ≤512KB）预置官方端点、可编辑，其余留空；空值回填仅限 base_url 仍为官方默认值的种子行；`INSERT OR IGNORE` 不覆盖用户修改。
 
 ### 12A.6 前端交互与提示文案
 
@@ -741,10 +741,10 @@ OpsCenter  ←→  unified-frontend       (独立，互不影响)
 | `capabilities` / `capability_models` | 桌面多模态预设声明（minimax-multimodal） | llm/tts/image/video → 对应模型 |
 | `rate_per_minute`（每分钟连接次数） | 桌面 `governor-provider-limits.js` `PROVIDER_LIMITS[].rpm` | 代码常量（如 openai 120、video 类 6）；**与静态表一致，非估算** |
 | `limit_per_5h`（5小时限额次数） | **无代码事实** → 空（null） | 由运营在模型设置/运营后台填写；桌面端 `ApiUsageGovernor` 按 provider 级 5h 请求窗口使用 |
-| `models_url`（获取模型ID URL） | 官方 Models 列表端点白名单（`OFFICIAL_MODELS_URLS`，2026-08-27；纯 LLM 预设且响应含 `id`、≤512KB；排除 Gemini `name`、豆包 Ark `ep-*`、OpenRouter 全量响应超 512KB 上限、多模态 minimax-multimodal 覆盖能力映射） | 白名单预设预置官方端点、可编辑；其余留空。fetch 不带鉴权，直连官方端点需运营另行准备；「获取模型」会以供应商全量列表覆盖 `models`，能力默认模型若不在新列表会被清空 |
+| `models_url`（获取模型ID URL） | 官方 Models 列表端点白名单（`OFFICIAL_MODELS_URLS`，2026-08-27 扩展至 24 项；端点响应含 `id`（OpenAI 兼容）/`model_id`（ElevenLabs）/`name`（Gemini `models/xxx`、Ollama tags）且 ≤512KB；排除豆包 Ark `ep-*` 推理接入点、OpenRouter 全量响应实测 ~687KB 超 512KB 上限、多模态 minimax-multimodal 覆盖能力映射） | 白名单预设预置官方端点、可编辑；其余留空。fetch 不带鉴权，直连官方端点需运营另行准备；同一厂商多预设（openai/openai-tts/dall-e/whisper、gemini/imagen/veo 等）共用供应商全量 Models 端点，「获取模型」会以供应商全量列表覆盖 `models`，能力默认模型若不在新列表会被清空 |
 
 - 变更守则：任何桌面适配器端点/模型/限流常量变更，须同步更新本目录并跑 12A.7-6 一致性测试（`test_catalog_facts_consistency`）。
-- `models_url` 白名单变更守则：回填仅补空值、端点迁移不自动扩散到存量行——官方端点变更须同步清理存量 `models_url`；新增供应商入白名单前须按官方契约确认：Models 列表响应含 `id` 字段、响应体 ≤ fetch 512KB 上限、仅纯 LLM 预设（Gemini `name`、Ark `ep-*`、OpenRouter 超限、多模态预设不入白名单）。
+- `models_url` 白名单变更守则：回填仅补空值、端点迁移不自动扩散到存量行——官方端点变更须同步清理存量 `models_url`；新增供应商入白名单前须按官方契约确认：Models 列表响应含 `id`（OpenAI 兼容）或 `model_id`（ElevenLabs）或 `name`（Gemini `models/xxx`、Ollama tags，解析器自动适配）、响应体 ≤ fetch 512KB 上限、且非多模态能力映射预设（Ark `ep-*`、OpenRouter 超限、minimax-multimodal 不入白名单）；同一厂商按模态拆分预设共用全量端点时须接受「获取模型」覆盖该类别模型列表的语义。
 
 ## 12A.10 模型目录只读同步端点（catalog，桌面端运行时下发）（2026-08-10 新增）
 
