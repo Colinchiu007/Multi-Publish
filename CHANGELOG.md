@@ -1,6 +1,13 @@
+## [未发布] fix(story2video): promptTranslation 按稳定 source index 从 fallback 回填
+
+- 修复 compose 快照回填翻译时按位置对齐导致的分段翻译丢失：改为按稳定 `source index` 建立 `fallbackBySourceIndex` Map 回填。
+- `promptTranslation` 空安全：compose 值优先，空白回退 fallback，两者皆空为 null（fail-open 不阻塞流水线）。
+- 测试：按稳定源索引回填（compose 优先 + 缺失 fail-open）+ 无 index 时位置回填，project-service 112 用例全绿。
+
 ## [未发布] docs(ops-center): .env.example 补充 OPS_ALLOW_PROXY_BENCHMARK_IPS 开关说明
 
 - `ops-center/backend/.env.example` 新增 `OPS_ALLOW_PROXY_BENCHMARK_IPS=false`（#1165 配套）：`198.18.0.0/15`（RFC 2544 基准段）在 Clash/TUN fake-ip 代理环境下用于接管公网流量，仅此类主机可开启；默认 false 保持 SSRF fail-closed，ECS/生产环境请保持关闭。
+
 
 ## [未发布] feat(yixiaoer-ue): 封面裁剪 Phase A（yixiaoer-ue-parity-real-publish-e2e）
 
