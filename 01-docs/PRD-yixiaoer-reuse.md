@@ -262,3 +262,37 @@ Multi-Publish v2.3.53 是一个 Electron 多平台内容发布工具，已具备
 - 弹窗组件（`AccountLoginDialog`、`AccountProxyDialog`、`AccountGroupManager`）的样式微调。
 - `publish-contract.js` 中 `PLATFORM_LABELS` 尚未完全废弃（待全量迁移后删除）。
 - 视觉像素对比测试（需蚁小二截图基线）。
+
+## 10. 封面裁剪（2026-08-26，Phase A 交付）
+
+> 蚁小二 UE 对标 + 真实发布 E2E 的前置能力：视频封面提取后支持拖拽裁剪，输出体积控制 ≤ 512KB（快手平台限制）。
+
+### 10.1 功能
+
+- **封面裁剪**：发布表单封面行新增「裁剪封面」按钮（封面已提取/选择后可用），打开 CoverCropDialog。
+- **裁剪交互**：预览图 + 拖拽裁剪框 + 比例预设（16:9 / 1:1 / 4:3 / 自由）；rect 越界自动收敛到图片边界。
+- **体积控制**：主进程 offscreen canvas 裁剪 + JPEG 质量自适应二分压缩，确保输出 ≤ 512KB（快手硬限制）；最低质量仍超限时返回 overLimit 标志供 UI 提示。
+- **预览加载**：渲染层无法直接引用 ile:// 图片，经 cover:read-data 读为 dataURL 展示。
+
+### 10.2 数据校验
+
+- ect：必须为含 x/y/width/height 的有限数字对象，宽高为正数，越界裁剪到图片边界。
+- imagePath：非空字符串且文件存在；扩展名限 jpg/jpeg/png/webp。
+
+### 10.3 交互流程
+
+1. 视频封面提取/选择 → 封面行显示「裁剪封面」按钮
+2. 点击 → CoverCropDialog 打开（预览 + 裁剪框）
+3. 拖拽调整 / 选择比例 → 确认 → IPC cover:crop
+4. 成功 → 回填 cover_path/coverFileList + Toast 成功；失败 → Toast 错误信息
+
+### 10.4 提示文字（i18n 成对）
+
+| 键 | zh | en |
+|---|---|---|
+| coverCrop.title | 裁剪封面 | Crop Cover |
+| coverCrop.dragHint | 拖动裁剪框调整范围，可选比例后自动锁定 | Drag the crop box to adjust the area; pick a ratio to lock it |
+| coverCrop.confirm | 裁剪 | Crop |
+| coverCrop.cancel | 取消 | Cancel |
+| coverCrop.loadFailed / cropFailed | 封面图片加载失败 / 封面裁剪失败 | Failed to load/crop cover image |
+| coverCrop.ratio.* | 自由 / 16:9 / 1:1 / 4:3 | Free / 16:9 / 1:1 / 4:3 |

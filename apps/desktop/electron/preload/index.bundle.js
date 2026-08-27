@@ -21,6 +21,8 @@ var require_publish = __commonJS({
         publishWechat: (articleData) => ipcRenderer2.invoke("publish:wechat", articleData),
         publishBatch: (platforms, article) => ipcRenderer2.invoke("publish:batch", { platforms, article }),
         extractVideoCover: (videoPath) => ipcRenderer2.invoke("cover:extract", videoPath),
+        cropVideoCover: (payload) => ipcRenderer2.invoke("cover:crop", payload),
+        readCoverData: (imagePath) => ipcRenderer2.invoke("cover:read-data", imagePath),
         listAccounts: () => ipcRenderer2.invoke("accounts:list"),
         // 渲染 API
         renderStart: (data) => ipcRenderer2.invoke("render:start", data),
