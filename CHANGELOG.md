@@ -1,3 +1,8 @@
+## [未发布] test(story2video): 补 BATCH_DELETE_SUCCESS 插值回归测试
+
+- 新增：独立回归测试锁定 `story2video-notifications.js` 的 `BATCH_DELETE_SUCCESS` `{count}` 插值（修复于 `492a2246c`），防止空占位符 Toast 复发；覆盖 `BATCH_DELETE_SUCCESS`（zh/en 双 locale、空占位符断言）、`BATCH_DELETE_PARTIAL`、`BATCH_DELETE_CONFIRM` 计数插值。
+- 测试：`story2video-notifications.test.js` 新增 4 条用例，相关套件 42/42 通过。
+
 ## [未发布] feat(video-clone): 相似度真度量改造（video-clone-real-similarity）
 
 - 修复「score 构造性恒真」缺陷：compose 阶段对产物做真实场景检测（`shots` 三态）+ ffprobe 实测（`probeOk`），merge 报告按 provenance 逐维标注（measured / plan-fallback / plan-constructive），不再直接拿 plan 报告计分。
