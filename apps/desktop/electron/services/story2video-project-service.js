@@ -795,23 +795,34 @@ class Story2VideoProjectService {
     const audioPath = compose.audioPath
       ? this._copyRequired(compose.audioPath, path.join(projectDir, 'narration.m4a'), 'audio')
       : null
+    const normalizedFallbackSegments = Array.isArray(fallbackSegments) ? fallbackSegments : []
     const sourceSegments = Array.isArray(compose.segments) && compose.segments.length > 0
       ? compose.segments
-      : fallbackSegments
+      : normalizedFallbackSegments
+    const fallbackBySourceIndex = new Map()
+    normalizedFallbackSegments.forEach((segment, position) => {
+      const sourceIndex = Number.isInteger(segment?.index) && segment.index >= 0 ? segment.index : position
+      if (!fallbackBySourceIndex.has(sourceIndex)) fallbackBySourceIndex.set(sourceIndex, segment || {})
+    })
     const segments = sourceSegments.map((segment, position) => {
-      const fallbackSegment = fallbackSegments[position] || {}
-      const index = Number.isInteger(segment.index) && segment.index >= 0 ? segment.index : position
+      const positionalFallbackSegment = normalizedFallbackSegments[position] || {}
+      const hasExplicitIndex = Number.isInteger(segment?.index) && segment.index >= 0
+      const index = hasExplicitIndex ? segment.index : position
+      const fallbackSegment = fallbackBySourceIndex.get(index) ||
+        (!hasExplicitIndex ? positionalFallbackSegment : {})
       const id = SAFE_ID.test(String(segment.id || '')) ? String(segment.id) : 'segment-' + index
       const prefix = 'segment_' + String(position).padStart(4, '0')
+      const promptTranslation = safeText(segment.promptTranslation, 20000).trim() ||
+        safeText(fallbackSegment.promptTranslation, 20000).trim() || null
       return {
         id,
         index: position,
         sourceIndex: index,
         text: safeText(segment.text || segment.content, 10000),
         prompt: safeText(segment.prompt, 20000),
-        promptTranslation: safeText(segment.promptTranslation, 20000) || null,
+        promptTranslation,
         promptOptimizationMeta: safePromptOptimizationMeta(segment.promptOptimizationMeta || fallbackSegment.promptOptimizationMeta),
-        // compose 输出不含 videoPrompt（normalizeComposeScenes 白名单），按 index 从 fallback 回填
+        // compose 输出不含 videoPrompt（normalizeComposeScenes 白名单），按稳定 source index 从 fallback 回填
         // （2026-08-15 审查 C1：否则流水线主路径与 recompose 都会把视频优化词清成 null）
         videoPrompt: safeText(segment.videoPrompt, 40000) ||
           (fallbackSegment.videoPrompt ? safeText(fallbackSegment.videoPrompt, 40000) : null),
@@ -835,11 +846,11 @@ class Story2VideoProjectService {
         degraded: segment.degraded === true,
         fallbackReason: safeText(segment.fallbackReason, 300) || null,
         status: segment.status || 'completed',
-        // compose 输出不含素材槽位字段，按 index 从 fallback 回填（compose 保序，2026-08-14）
+        // compose 输出不含素材槽位字段，按稳定 source index 从 fallback 回填
         alternateImages: safeAlternateImages(
-          Array.isArray(segment.alternateImages) && segment.alternateImages.length > 0
-            ? segment.alternateImages
-            : fallbackSegment.alternateImages,
+            Array.isArray(segment.alternateImages) && segment.alternateImages.length > 0
+              ? segment.alternateImages
+              : fallbackSegment.alternateImages,
         ),
         selectedMaterial: safeMaterialKind(segment.selectedMaterial || fallbackSegment.selectedMaterial),
       }
