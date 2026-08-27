@@ -380,10 +380,10 @@ const platformsMixin = {
 
   // ========== 平台专用：百家号发布前准备（创作声明等） ==========
   async _prepBaijiahao(win) {
-    this._emitProgress('baijiahao', 'preparing declaration...', 82)
-    // 关闭"视频新增一键填写功能"引导弹窗
+this._emitProgress('baijiahao', 'preparing declaration...', 82)
+    // 关闭"视频创作一键填写引导弹窗"（宽松匹配：文本包含"我知道了"，优先最内层叶子元素）
     try {
-      await win.webContents.executeJavaScript('(function(){var b=[...document.querySelectorAll("button,a,span,div")].filter(function(e){return (e.innerText||"").trim()==="我知道了"&&e.children.length===0});if(b.length){b[0].click();return true}return false})()')
+      await win.webContents.executeJavaScript('(function(){var els=[...document.querySelectorAll("button,a,span,div,[role=button]")].filter(function(e){var t=(e.innerText||"").trim();return t==="我知道了"&&e.children.length===0});if(els.length){els[els.length-1].click();return "CLICKED:"+els.length}var wrap=[...document.querySelectorAll("[class*=guide],[class*=Guide],[class*=mask],[class*=Mask],[class*=popup],[class*=Popup]")].filter(function(e){var t=(e.innerText||"").trim();return t.indexOf("我知道了")!==-1});if(wrap.length){var b=[...wrap[0].querySelectorAll("button,a,span")].filter(function(e){return (e.innerText||"").trim()==="我知道了"});if(b.length){b[b.length-1].click();return "WRAP:"+wrap.length}}return "NOT_FOUND"})()')
     } catch (e) { /* ignore */ }
     await this._sleep(1200)
     // 选择创作声明：点击输入框 → 弹窗选"无需声明" → 确定
