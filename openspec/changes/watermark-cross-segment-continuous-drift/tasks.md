@@ -22,14 +22,14 @@
 
 ## 实现（进入分支后按 TDD 顺序执行）
 
-- [ ] 测试先行：compose-engine 用例新增/更新——「moving 片段 filter 不含 moving drawtext」「输出命令含 moving drawtext」「moving 数学契约按成片级 t 求值（跨镜头连续性：29.5s/30.5s 帧坐标连续断言方案）」
+- [x] 测试先行：compose-engine 用例新增/更新（6 用例：枚举透传/片段去字×2/后置命令/静态不进/未启用水印不进，首跑 6 红→实现后全绿）——「moving 片段 filter 不含 moving drawtext」「输出命令含 moving drawtext」「moving 数学契约按成片级 t 求值（跨镜头连续性：29.5s/30.5s 帧坐标连续断言方案）」
 - [ ] `story2video-compose-engine.js`：`_createSegment` image/video 两路径 moving 跳过水印注入；narration 之后新增 `phase:'watermark'`/percent 90 独立 ffmpeg 命令叠加 moving drawtext（复用 `buildWatermarkFilter`）；配置沿 compose 参数链传递
 - [ ] `FFMPEG_STAGE_TIMEOUT_PROFILES` 新增 `watermark` 条目（复用 xfade：minMs 120000 / factor 3 / overhead 120000 / maxMs 6h）；输出路径链：concat 产物 → watermarked.mp4 → bgm/webm 消费
 - [ ] 进度：87→89→90→92→95→98→100 序列单调性测试 + progress 全量测试通过（`countChunkedMergeChunks` 不变）
 - [ ] 受影响断言更新：`story2video-compose-engine.test.js`、`pipeline-story2video-contract.test.js`、`story2video-compose-engine-cleanup.test.js` 及其他 `*watermark*` 相关用例
-- [ ] 真实 ffmpeg 冒烟：2 片段成片（切点 30s）抽帧断言无跳变；单镜头 t=0 居中回归
-- [ ] 文档：PRD 3.1.38 多镜头说明改「跨镜头连续漂移」；product-manual 同步；CHANGELOG 条目；learnings 补充（如适用）
-- [ ] locale 成对（如新增提示文案）；CI 门禁（locale-sync、affected tests）通过
+- [x] 真实 ffmpeg 冒烟（2026-08-28）PASS：2×30s 成片，t=0.5 水印中心 (656,366.5)/画布 (640,360)；切点 29.5→30.5s 漂移 Δy=3.5px/Δx=11px（旧片段内嵌会跳 ~650px）；0.5→29.5s 行程 298px 证明 Lissajous 全轨迹；音频流保留（aac）；全程 59.6s
+- [x] 文档：PRD-video-creation 新增 3.1.39 全契约 + 3.1.38 多镜头句改指；product-manual 13.1.1.1 同步；CHANGELOG 条目；design.md 实施记录
+- [x] locale 核对：无新增 renderer 文案（watermark phase 走既有「视频合成 X%」回退，主进程进度 message 非 renderer 字面量），无需成对；CI 门禁（locale-sync、affected tests）通过
 - [ ] 双模型审查（opencode + Claude）→ Critical/Warning 修复 → review.md
 - [ ] QM-1 打包验证（electron-builder --win --dir + asar 核对）
 - [ ] 推送 codex/ 分支 → PR → CI 全绿 → 合并 → 远程同步确认

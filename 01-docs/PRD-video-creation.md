@@ -1753,7 +1753,7 @@ SettingsDialog 关闭（App.vue @close）
 - 幅度 0.9：任意 t，坐标 ∈ [0.05, 0.95]×(画布-文字) 自由空间，不越界（sin∈[-1,1]，与旧 cos 版边界完全相同）
 - 确定性：纯 t 函数、无 `random()`，同参数逐帧可复现；表达式无逗号（防滤镜链切分，`expr.not.toContain(',')` 断言继续覆盖）
 - 起始 2-3 秒运动方向：从中心向右下起步（x/y 同向加速），无方向契约要求，属可接受的视觉变化
-- 多镜头成片：水印按**片段**计时（`buildWatermarkFilter` 在单片段命令内应用，各片段独立渲染后 xfade 合并）——每个镜头开头水印回到画面中心附近再继续漂移，场景切换处存在一次「中心吸附」跳变，属既定呈现；若要求跨场景连续漂移，需改为在 xfade 合并后的输出阶段统一叠加水印（架构级变更，另立跟进项）
+- 多镜头成片：**已由 3.1.39 架构升级**——moving 水印在 xfade 合并后统一烧录（成片级时间轴），跨镜头连续漂移、切点零跳变；本句「片段计时/中心吸附跳变」仅为 3.1.38 阶段的既定呈现描述，不再适用。详见 3.1.39
 
 **数据校验**：`watermark.position` 枚举不变（moving 仍在 `WATERMARK_POSITIONS` 白名单）；normalizer fail-closed 行为不变；无新增字段、无快照结构变化——旧快照 `position: 'moving'` 直接生效，无需吸附迁移。
 
@@ -1769,6 +1769,40 @@ SettingsDialog 关闭（App.vue @close）
 - 真实 ffmpeg 冒烟：40s/1280x720/30fps 黑底 + moving filter，抽取 t=0（居中）、t=15（右下一带）、t=35（右下边界内）三帧目检，记录在任务 review.md。
 
 **兼容性**：仅影响 moving 起始相位；center 与四角位置不受影响；Remotion 渲染路径（`Story2VideoSlideshow.tsx` Watermark）无 moving 分支、静默回退 bottom-right 静态，为已知双路径差异（休眠缺口，另立跟进项，不在本次范围）。
+
+### 3.1.39 移动水印跨镜头连续漂移：成片级统一烧录（2026-08-28）
+
+> 需求来源：用户反馈 moving 水印「只在画面底部区域移动」的第二层根因——3.1.38 修复「起点居中」后，多镜头成片每个镜头开头水印仍会跳回画面中心（片段级计时、每镜头从 t=0 起步），跨镜头不连续；本项将 moving 水印渲染提升到 xfade 合并后的成片级统一烧录，实现跨镜头连续漂移，水印从画面中心附近（成片 t=0）开始。
+> 机制合同：`openspec/changes/watermark-cross-segment-continuous-drift/`（proposal / design / specs / tasks 四件套）。
+
+**缺陷根因（QM-5 复盘）**：`buildWatermarkFilter` 在**单片段编码命令内**应用 drawtext——drawtext 的 `t` 是片段内时间轴，每段从 t=0 起步。多镜头下每个镜头开头水印回到起点（3.1.38 修复后为画面中心），镜头切换处出现一次「中心吸附」跳变；用户感知为水印「不连贯地在画面里来回跳」。根因是**渲染管线把成片级效果实现为片段级滤镜**（架构错误），不是表达式错误。
+**逃逸链**：单测只断言片段 filter 字符串与单镜头 t=0 帧，无跨镜头连续性断言；真实 ffmpeg 冒烟（3.1.38）仅抽 40s 单镜头 3 帧；E2E 无多镜头切点帧对比——多镜头时间轴契约完全无测试层拦截。
+**系统性漏洞**：视频渲染测试缺乏「成片级时间轴」断言层（多镜头切点采样对比）。
+
+**功能逻辑（架构与流程）**：
+- **触发条件**：`watermarkConfig.position === 'moving'` 且 `enabled === true` 且水印文字非空。仅多镜头成片（≥2 场景）触发后置烧录；单镜头（1 场景）不触发后置（零额外编码、无二次有损），维持片段内嵌——单镜头 t 成片=片段，轨迹与 3.1.38 逐帧一致，无需后置。
+- **片段层去字**：`_encodeSegmentOnce`（image 路径）与 `_encodeVideoSegmentOnce`（video 路径，含 stop-at-end 分支的 overlayFilters）在 `position === 'moving'` 时跳过 `buildWatermarkFilter` 注入；静态位置（top-left/top-right/bottom-left/bottom-right/center）保持片段内嵌，零额外编码。
+- **成片级烧录**：compose 在 narration（89）之后新增独立阶段 `phase:'watermark'`、percent 90（介于 narration 89 与 bgm 92 之间，percent 序列 87→89→90→92→95→98→100 单调）；输出路径链：xfade/concat 产物 `output.mp4` → `watermarked.mp4`（BGM 混音 `-c:v copy` 与水印后置顺序强约束：水印必须先于 BGM，否则 BGM 阶段不重编码视频会丢失水印）→ bgm/webm 消费。
+- **烧录命令**（`_burnMovingWatermark`）：`-i composed.mp4 -vf drawtext（整片成片时间轴 moving 表达式） -map 0:v:0 -map 0:a:0? -c:v libx264 -pix_fmt yuv420p -crf 18 -c:a copy`。视频轨全量重编码（crf 18 保持质量），**音频轨 `-c:a copy` 不重编码**（显式 `-map` 会丢弃未映射流，必须同时 `-map 0:a:0?` 可选映射——冒烟实测缺此行会丢失全部音频流）。
+- **drawtext 表达式**：与 `buildWatermarkFilter` moving 分支逐字一致（x 周期 100s / y 周期 140s、0.9 中心幅度、双轴 sin、t=0 起点画面正中）；表达式无逗号（防滤镜链切分）。
+- **超时预算**：`FFMPEG_STAGE_TIMEOUT_PROFILES` 新增 `watermark` 条目，复用 xfade profile（minMs 120000 / factor 3 / overheadMs 120000 / maxMs 6h）——水印命令是「解码成片 + drawtext + 全量重编码」，工作量与 xfade 合并同级；冒烟实测 59.6s 成片水印阶段约 6s（约 10x 实时），5 分钟成片预计 +30-40s，预算宽裕。
+
+**数据校验**：`watermark.position` 枚举不变（moving 仍在 `WATERMARK_POSITIONS` 白名单）；normalizer fail-closed 行为不变；无新增字段、无快照结构变化——旧快照 `position: 'moving'` 直接生效，无需吸附迁移。进度更新新增 `phase:'watermark'` 进入 `KNOWN_COMPOSE_PHASES` 单一来源（`stage-executor` fail-closed 校验自动复用）。
+
+**UI 交互逻辑**：
+- 显示项：位置下拉「移动（平滑漂移）」选项、字号、透明度、开关均不变（`data-testid="s2v-watermark-position"`）。
+- 交互：无需新操作；选择 moving 后既有提示文案（`create.story2video.watermark.movingHint`）继续适用。
+- 进度展示：水印烧录阶段进度条显示「视频合成 90%」（CreateView 对非 concat 子进度回退文案）；引擎进度 message「正在烧录移动水印」由 renderer 回退文案覆盖，无新增 renderer 字面量，locales 无需成对新增。
+
+**流程**：CreateView 水印块提交 `watermark:{enabled,text,position,fontSize,opacity}` → 快照持久化 → normalizer 校验（fail-closed）→ compose engine 片段编码（moving 去字）→ xfade 合并 → narration → **watermark 后置烧录（percent 90）** → bgm（-c:v copy）→ webm（可选）→ 输出校验。
+
+**测试（回归保护）**：
+- 单元（`story2video-compose-engine.test.js` 新增 6 用例）：`KNOWN_COMPOSE_PHASES` 含 watermark + normalize 透传；image/video 片段 moving 去字、静态位置仍内嵌；compose moving 多镜头新增 watermark 阶段（percent 90 单调、命令含整片时间轴 sin 表达式、`-map 0:a:0?`、`-c:a copy`、超时=computeFfmpegStageTimeoutMs('watermark', 成片实际时长)）；静态位置与未启用不进 watermark 阶段。引擎全量 146 用例 + 相邻套件 5 文件 286 用例全绿。
+- CI 测试环境契约（2026-08-28 补充）：electron-ci.yml 的 electron-tests 任务设置 SKIP_NATIVE_MEDIA_TOOL_TESTS=1，模块级 ffmpeg 探测为 null——凡断言 compose/renderSegment 成功路径的用例必须经构造参数 ffmpegBinary 注入实例级二进制（引擎默认仍取模块级探测结果，生产行为不变；compose/renderSegment 前置检查与 execFfmpegStage 均走实例值）。makeWmEngine 已显式注入 ffmpeg 并新增断言用例；本地复验：设置 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 后运行 story2video-compose-engine.test.js。防止「本地无该 env 全绿、CI 全量单 worker 失败」的环境漂移。
+
+- 真实 ffmpeg 冒烟（2026-08-28）：2×30s 成片，抽帧像素簇中心——t=0.5s (656,366.5)（画布中心 640,360 起点居中）、t=29.5s (1167.5,664.5)、t=30.5s (1156.5,668.0)，切点漂移 Δy=3.5px/Δx=11px（旧片段内嵌场景会跳 ~650px），0.5→29.5s 行程 298px 证明 Lissajous 全轨迹；时长 59.6s、音频流保留。
+
+**兼容性**：仅影响 moving 位置渲染路径；center 与四角位置不受影响（片段内嵌语义不变）；Remotion 渲染路径（`Story2VideoSlideshow.tsx` Watermark）无 moving 分支、静默回退 bottom-right 静态，为已知双路径差异（休眠缺口，另立跟进项，不在本次范围）；视频编码质量（crf 18）与片段相位均为非破坏性变化。
 
 ### 3.1.25 背景音乐素材库管理（2026-08-14）
 

@@ -90,11 +90,11 @@ function normalizeFfmpegStageError (error, stage) {
   return timeoutError
 }
 
-async function execFfmpegStage (args, options, stage) {
+async function execFfmpegStage (args, options, stage, binary = FFMPEG) {
   const { onStarted, ...execOptions } = options || {}
   try {
     return await new Promise((resolve, reject) => {
-      const child = execFile(FFMPEG, args, execOptions, (error, stdout, stderr) => {
+      const child = execFile(binary, args, execOptions, (error, stdout, stderr) => {
         if (error) {
           if (stderr && !error.stderr) error.stderr = stderr
           reject(error)
@@ -148,7 +148,7 @@ const DEFAULT_MAX_OUTPUT_PIXELS = 7680 * 4320
 const MAX_XFADE_INPUTS = 8
 
 /** compose 子进度已知阶段枚举（执行器 fail-closed 校验复用，新增 phase 必须同步此处）。 */
-const KNOWN_COMPOSE_PHASES = ['preflight', 'validated', 'segments', 'concat', 'narration', 'bgm', 'webm', 'verify', 'done']
+const KNOWN_COMPOSE_PHASES = ['preflight', 'validated', 'segments', 'concat', 'narration', 'watermark', 'bgm', 'webm', 'verify', 'done']
 
 /**
  * compose 子进度归一化（引擎发射与执行器 fail-closed 写入共用语义）。
@@ -366,13 +366,19 @@ function computeSegmentEncodeTimeoutMs (effectDuration, fps, workScale = 2) {
   return Math.max(60000, Math.min(600000, estimatedMs + 30000))
 }
 
+// 全量重编码档位：xfade 合并与 watermark 后置烧录共用（解码+drawtext+整片重编码，工作量同级）。
+// 公式 max(2 分钟, 时长×3+2 分钟)：最低 1.5x 实时编码假设 + 大幅余量（337s 成片实测 5+ 分钟合并）。
+const FULL_REENCODE_TIMEOUT_PROFILE = Object.freeze({ minMs: 120000, factor: 3, overheadMs: 120000, maxMs: 6 * 60 * 60 * 1000 })
+
 const FFMPEG_STAGE_TIMEOUT_PROFILES = Object.freeze({
   concat: Object.freeze({ minMs: 60000, factor: 0.25, overheadMs: 30000, maxMs: 30 * 60 * 1000 }),
   narration: Object.freeze({ minMs: 120000, factor: 2, overheadMs: 30000, maxMs: 2 * 60 * 60 * 1000 }),
   bgm: Object.freeze({ minMs: 120000, factor: 2, overheadMs: 30000, maxMs: 2 * 60 * 60 * 1000 }),
   webm: Object.freeze({ minMs: 180000, factor: 6, overheadMs: 120000, maxMs: 6 * 60 * 60 * 1000 }),
   validate: Object.freeze({ minMs: 60000, factor: 2, overheadMs: 30000, maxMs: 2 * 60 * 60 * 1000 }),
-  xfade: Object.freeze({ minMs: 120000, factor: 3, overheadMs: 120000, maxMs: 6 * 60 * 60 * 1000 }),
+  xfade: FULL_REENCODE_TIMEOUT_PROFILE,
+  // watermark：后置烧录全片视频轨重编码（libx264），量级与 xfade 全量重编码一致
+  watermark: FULL_REENCODE_TIMEOUT_PROFILE,
 })
 
 function computeFfmpegStageTimeoutMs (stage, durationSeconds) {
@@ -546,6 +552,26 @@ function normalizeSceneSubtitleBlocks (scene) {
   return splitSubtitleBlocks(scene?.text || '')
 }
 
+/**
+ * moving 水印坐标表达式（片段内嵌与成片级后置烧录共用单一来源）。
+ * x 周期 100s / y 周期 140s、0.9 中心幅度、双轴 sin（sin(0)=0 → t=0 起点画面正中）；
+ * 表达式内禁止逗号（防滤镜链切分）；无 random()，同参数逐帧可复现。
+ */
+function buildMovingWatermarkPositionExpr () {
+  return "x='(w-text_w)/2*(1+0.9*sin(2*PI*t/100))':y='(h-text_h)/2*(1+0.9*sin(2*PI*t/140))'"
+}
+
+/** drawtext 色名白名单：十六进制或常用 ffmpeg 色名，其余回退 white（防止非法色名硬失败）。 */
+const WATERMARK_COLOR_NAMES = new Set([
+  'white', 'black', 'red', 'green', 'blue', 'yellow', 'cyan', 'magenta',
+  'gray', 'grey', 'orange', 'purple', 'pink', 'brown', 'transparent',
+])
+function resolveWatermarkColor (rawColor) {
+  const value = String(rawColor || '')
+  if (/^#[0-9a-f]{3,8}$/i.test(value)) return value
+  return WATERMARK_COLOR_NAMES.has(value.toLowerCase()) ? value.toLowerCase() : 'white'
+}
+
 function buildWatermarkFilter (options) {
   const config = options && typeof options.watermark === 'object'
     ? options.watermark
@@ -555,8 +581,7 @@ function buildWatermarkFilter (options) {
   if (!enabled || !text) return ''
   const fontSize = Math.round(clampNumber(config.fontSize, 10, 96, 24))
   const opacity = clampNumber(config.opacity, 0, 1, 0.6).toFixed(2)
-  const rawColor = String(config.color || 'white')
-  const color = /^#[0-9a-f]{3,8}$/i.test(rawColor) || /^[a-z]+$/i.test(rawColor) ? rawColor : 'white'
+  const color = resolveWatermarkColor(config.color)
   // 位置坐标契约（2026-08-14 修复）：drawtext 的 x/y 是文本包围盒左上角坐标。
   // 回归：旧公式 bottom-* 用 y=h-20、center 用 y=(h+text_h)/2，把文字主体画出画布/整体下移，
   // 导致默认 bottom-right 下成片完全看不到水印（commit e1b46eba0 引入）。
@@ -572,7 +597,7 @@ function buildWatermarkFilter (options) {
     // 不用逐帧随机：ffmpeg random() 每帧取新值 → 文字闪烁且不可复现；表达式内禁止逗号（会切分滤镜链）。
     // 回归（2026-08-27）：y 曾用 cos(2*PI*t/140) —— cos(0)=1 → t=0 起点 y=0.95*(h-text_h)（底部 95%），短视频全程滞留下半区
     // （用户反馈「仅底部移动」）；sin(0)=0 起点居中，周期/幅度/确定性不变。
-    moving: "x='(w-text_w)/2*(1+0.9*sin(2*PI*t/100))':y='(h-text_h)/2*(1+0.9*sin(2*PI*t/140))'",
+    moving: buildMovingWatermarkPositionExpr(),
   }
   const position = positions[config.position] || positions['bottom-right']
   const fontFile = escapeFontFilePath(resolveCjkFont())
@@ -674,13 +699,17 @@ class Story2VideoComposeEngine {
     this.maxOutputPixels = positiveLimit(opts.maxOutputPixels, DEFAULT_MAX_OUTPUT_PIXELS)
     // 输出分辨率能力开关：'1080p'（默认，禁止 4K）| '4k'。fail-closed——未知值一律按 1080p。
     // 支持惰性读取（运营功能开关运行时下发）：getMaxOutputResolution 优先，静态值兜底
+    // ��� ffmpeg ��6ؤ!W��KӜ	SKIP_NATIVE_MEDIA_TOOL_TESTS=1 � CI/Kկ��>�e
+    this.ffmpegBinary = typeof opts.ffmpegBinary === 'string' && opts.ffmpegBinary.trim()
+      ? opts.ffmpegBinary.trim()
+      : FFMPEG
     this.maxOutputResolution = opts.maxOutputResolution === '4k' ? '4k' : '1080p'
     this._maxOutputResolutionGetter = typeof opts.getMaxOutputResolution === 'function'
       ? opts.getMaxOutputResolution
       : null
     this._execFfmpegStage = typeof opts.execFfmpegStage === 'function'
       ? opts.execFfmpegStage
-      : execFfmpegStage
+      : (args, options, stage) => execFfmpegStage(args, options, stage, this.ffmpegBinary)
     this._segmentSeq = 0
   }
 
@@ -853,7 +882,7 @@ class Story2VideoComposeEngine {
       })
     }
 
-    if (!FFMPEG) {
+    if (!this.ffmpegBinary) {
       logComposeFailure('preflight', 'ffmpeg not found', { reason: 'ffmpeg_not_found' })
       return { code: -1, message: 'ffmpeg not found' }
     }
@@ -1099,6 +1128,7 @@ class Story2VideoComposeEngine {
             sceneIndex: i,
             videoMode: options?.videoMode || 'off',
             shortVideoHandling: options?.shortVideoHandling || 'loop',
+            sceneTotal: scenes.length,
           }
           // 混合模式（2026-08-11）：AI 视频场景走视频片段编码，图片轮播场景走 zoompan 编码
           if (scene.videoPath) await this._createVideoSegment(scene.videoPath, scene.audioPath, segPath, segmentOptions)
@@ -1256,6 +1286,51 @@ class Story2VideoComposeEngine {
 
     // 4. 可选 BGM 混音（仅接受已下载的本地文件，避免在主进程隐式发起网络请求）
     let composedPath = outputPath
+
+    // 4.5 移动水印后置烧录（跨镜头连续漂移，2026-08-27）
+    // 架构变更：moving 水印若在片段内绘制，drawtext 的 t 时间轴在片段级重置，
+    // 每个镜头都从画面中心独立漂移，镜头切换时位置跳变（用户反馈「只在底部移动」的
+    // 同源问题：片段级 t 短 + cos 起点在底部，见 buildWatermarkFilter 回归注释）。
+    // 提升到 xfade 合并后统一叠加：t 为成片时间轴，漂移跨镜头连续、全程贴近中心往返。
+    // 代价：整片视频轨重编码一次（音频 -c:a copy 不重编码）；额外编码耗时与回退考量
+    // 见 openspec/changes/watermark-cross-segment-continuous-drift/design.md。
+    const watermarkConfig = options && typeof options.watermark === 'object'
+      ? options.watermark
+      : (options?.watermarkConfig || {})
+    const watermarkEnabled = options?.watermark === true || watermarkConfig?.enabled === true
+    const watermarkText = options?.watermarkText || watermarkConfig?.text || ''
+    if (segments.length > 1 && watermarkConfig?.position === 'moving' && watermarkEnabled && watermarkText) {
+      emitComposeProgress({
+        phase: 'watermark',
+        percent: 90,
+        segmentsDone: segments.length,
+        segmentsTotal: scenes.length,
+        message: '正在烧录移动水印',
+      })
+      const watermarkedPath = path.join(sessionDir, 'watermarked.mp4')
+      try {
+        await this._runComposeStage({
+          composeId,
+          stage: 'watermark',
+          operation: 'watermark_burn',
+          inputCount: 1,
+          estimatedDurationSeconds: estimatedOutputDuration,
+          output: path.basename(watermarkedPath),
+        }, () => this._burnMovingWatermark(
+          composedPath,
+          watermarkedPath,
+          watermarkConfig,
+          watermarkText,
+          estimatedOutputDuration,
+          { composeId, stage: 'watermark' },
+        ))
+        composedPath = watermarkedPath
+      } catch (e) {
+        logComposeFailure('watermark', e, { inputCount: 1 })
+        this._cleanupSession(sessionDir)
+        return { code: -1, message: 'Watermark burn failed: ' + safeFfmpegDiagnostic(e.message) }
+      }
+    }
     if (bgmPath) {
       // 混音前复核：文件可能在合成期间被惰性 GC 删除（运行中导入触发），降级而非硬失败。
       const stillValid = resolveReadableMediaFile(bgmPath, {
@@ -1489,7 +1564,7 @@ class Story2VideoComposeEngine {
 
   /** 重新渲染一个分段，供结果页单段重试使用。 */
   async renderSegment (scene, options = {}, destinationPath) {
-    if (!FFMPEG) return { code: -1, message: 'ffmpeg not found' }
+    if (!this.ffmpegBinary) return { code: -1, message: 'ffmpeg not found' }
     if (!scene || typeof scene !== 'object' || typeof destinationPath !== 'string' || !path.isAbsolute(destinationPath)) {
       return { code: -1, message: 'Invalid segment render request' }
     }
@@ -1809,7 +1884,11 @@ class Story2VideoComposeEngine {
     )
     if (subtitleFilter) filters.push(subtitleFilter)
     const watermarkFilter = buildWatermarkFilter(opts)
-    if (watermarkFilter) filters.push(watermarkFilter)
+    const watermarkPosition = opts && typeof opts.watermark === 'object' ? opts.watermark.position : opts?.watermarkConfig?.position
+    // moving 水印仅多镜头（sceneTotal>1）后置到成片合并后统一烧录（成片时间轴跨镜头连续漂移），片段内不内嵌；
+    // 静态位置与单镜头 moving 保持片段内内嵌（单镜头 t 成片=片段，连续无跳变、零额外编码）。
+    const watermarkPostpone = watermarkPosition === 'moving' && Number(opts.sceneTotal) > 1
+    if (watermarkFilter && !watermarkPostpone) filters.push(watermarkFilter)
 
     // 单片段淡入；滑动转场由 concat 阶段的 xfade 处理。
     if (opts.transition === 'fade') {
@@ -1924,7 +2003,11 @@ class Story2VideoComposeEngine {
     )
     if (subtitleFilter) filters.push(subtitleFilter)
     const watermarkFilter = buildWatermarkFilter(opts)
-    if (watermarkFilter) filters.push(watermarkFilter)
+    const watermarkPosition = opts && typeof opts.watermark === 'object' ? opts.watermark.position : opts?.watermarkConfig?.position
+    // moving 水印仅多镜头（sceneTotal>1）后置到成片合并后统一烧录（成片时间轴跨镜头连续漂移），片段内不内嵌；
+    // 静态位置与单镜头 moving 保持片段内内嵌（单镜头 t 成片=片段，连续无跳变、零额外编码）。
+    const watermarkPostpone = watermarkPosition === 'moving' && Number(opts.sceneTotal) > 1
+    if (watermarkFilter && !watermarkPostpone) filters.push(watermarkFilter)
     // 单片段淡入；滑动转场由 concat 阶段的 xfade 处理
     if (opts.transition === 'fade') {
       filters.push('fade=t=in:st=0:d=0.5')
@@ -2260,6 +2343,48 @@ class Story2VideoComposeEngine {
       stage: observability.stage || 'narration',
       operation: 'narration_concat',
       message: safeFfmpegDiagnostic(stderr) || 'ffmpeg did not produce narration audio',
+    }, stderr)
+  }
+
+  /**
+   * 将 moving 水印统一烧录到合并成片（跨镜头连续漂移）。
+   * - 输入为 xfade 合并后的整片：drawtext 的 t 是成片时间轴，漂移跨镜头连续，
+   *   且 sin(0)=0 保证 t=0 起点位于画面中心（(w-text_w)/2, (h-text_h)/2）。
+   * - 表达式与 buildWatermarkFilter moving 分支保持一致（x 周期 100s / y 周期 140s，
+   *   90% 中心幅度）；禁止在滤镜内用逗号（会切分滤镜链），滤镜一旦构造失败
+   *   由 _runFfmpegStage 抛出并 fail-closed。
+   * - 视频轨全量重编码（libx264 crf 18 保持质量），音频轨 -c:a copy 不重编码。
+   */
+  async _burnMovingWatermark (videoPath, outputPath, config, watermarkText, estimatedDuration, observability = {}) {
+    // 单一来源：滤镜串与片段内嵌路径完全一致（buildWatermarkFilter 统一处理字体/转义/透明度/字号/色名/位置表达式）
+    const filter = buildWatermarkFilter({ watermark: config, watermarkText })
+    if (!filter) throw new Error('watermark burn requires a non-empty watermark filter')
+    const { stderr } = await this._runFfmpegStage([
+      '-y', '-i', videoPath,
+      '-vf', filter,
+      '-map', '0:v:0',
+      // 显式 -map 会丢弃未映射流：必须同时可选映射音频（0:a:0?），否则 -c:a copy 成空操作
+      // （冒烟实测缺此行时水印输出丢失全部音频流，2026-08-27）
+      '-map', '0:a:0?',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+      // crf 18：相对片段母版（libx264 默认 crf 23）的二次再编码档位，近无损档
+      '-crf', '18',
+      '-c:a', 'copy',
+      outputPath,
+    ], { timeout: computeFfmpegStageTimeoutMs('watermark', estimatedDuration), maxBuffer: 2 * 1024 * 1024 }, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'watermark',
+      operation: 'watermark_burn',
+      inputCount: 1,
+      estimatedDuration,
+      outputPath,
+      heartbeat: true,
+    })
+    this._requireFfmpegOutput(outputPath, {
+      composeId: observability.composeId,
+      stage: observability.stage || 'watermark',
+      operation: 'watermark_burn',
+      message: safeFfmpegDiagnostic(stderr) || 'ffmpeg did not produce watermarked output',
     }, stderr)
   }
 
