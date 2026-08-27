@@ -1,0 +1,13 @@
+{
+  "id": "add-env-example-benchmark-ips",
+  "title": ".env.example 补充 OPS_ALLOW_PROXY_BENCHMARK_IPS 开关说明（#1165 配套）",
+  "status": "completed",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "ops-center",
+  "currentPhase": "completed",
+  "nextAction": "",
+  "createdAt": "2026-08-27T09:00:00Z",
+  "completedAt": "2026-08-27T09:10:00Z",
+  "branch": "codex/docs-env-example-benchmark-ips"
+}
