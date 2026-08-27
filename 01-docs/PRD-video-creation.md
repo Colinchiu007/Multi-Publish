@@ -1709,9 +1709,9 @@ SettingsDialog 关闭（App.vue @close）
 | bottom-left | `40` | `h-text_h-40` | 左下角 |
 | bottom-right | `w-text_w-40` | `h-text_h-40` | 右下角（默认） |
 | center | `(w-text_w)/2` | `(h-text_h)/2` | 水平垂直居中 |
-| moving | `'(w-text_w)/2*(1+0.9*sin(2*PI*t/10))'` | `'(h-text_h)/2*(1+0.9*cos(2*PI*t/14))'` | 确定性 Lissajous 平滑漂移 |
+| moving | `'(w-text_w)/2*(1+0.9*sin(2*PI*t/100))'` | `'(h-text_h)/2*(1+0.9*sin(2*PI*t/140))'` | 确定性 Lissajous 平滑漂移（t=0 起点画面正中） |
 
-**moving 语义（确定性漂移，非随机闪烁）**：用户期望「随机移动」，实现为确定性 Lissajous 曲线平滑循环漂移：t=0 位于画面正中（sin/cos=0），x 周期 10s、y 周期 14s，幅度 0.9 倍中心区间，任意时刻不出画布；同参数重复渲染逐帧可复现（可回归、可测试），不用 `random()`（避免逐帧抖动与不可复现）。
+**moving 语义（确定性漂移，非随机闪烁）**：用户期望「随机移动」，实现为确定性 Lissajous 曲线平滑循环漂移：t=0 位于画面正中（双轴均用 sin，sin(0)=0），x 周期 100s、y 周期 140s（2026-08-14 由 10s/14s 放慢 10 倍），幅度 0.9 倍中心区间，任意时刻不出画布；同参数重复渲染逐帧可复现（可回归、可测试），不用 `random()`（避免逐帧抖动与不可复现）。**起点居中的数学前提是双轴同用 sin**：y 轴曾误用 `cos(2πt/140)`（cos(0)=1 → t=0 起点在底部 95% 处，短视频全程滞留下半区），2026-08-27 已修正为 sin（详见 3.1.38）。
 
 **透明度契约**：`opacity` 为 0-1 数值，drawtext 输出 `fontcolor=white@<opacity>`；UI 下拉 10%-100%（步进 10%）共 10 档，默认 60%。
 
@@ -1731,6 +1731,44 @@ SettingsDialog 关闭（App.vue @close）
 **流程**：CreateView 水印块提交 `watermark: {enabled, text, position, fontSize, opacity}` → `buildS2VLastOptions` 持久化快照 → 六阶段编排 compose 阶段 → normalizer 校验（fail-closed）→ compose engine `buildWatermarkFilter` 生成 drawtext filter → ffmpeg 渲染 → 输出 ffprobe 校验。透传链路（`pipeline-story2video-contract`）已覆盖：watermarkConfig 从 params → stageOptions.compose 无损透传。
 
 **兼容性**：旧项目快照中 position/fontSize/opacity 缺失或陈旧 → 恢复吸附默认/最近档位；快照中无 watermark 字段 → 保持既有默认（bottom-right/24/0.6）。`normalizeStory2VideoTextParams` 顶层 `watermark: true/false` 布尔透传不变（options-matrix E2E 参数 `watermark:true, watermarkText:'TEST-WM'` 契约保持）。
+
+### 3.1.38 水印「移动」起点修正：从画面中心附近开始漂移（2026-08-27）
+
+> 需求来源：用户反馈「故事讲述流水线水印位置选择“移动（平滑漂移）”时，生成视频后水印只在画面底部区域移动」，期望水印从画面中心附近开始移动。
+> 机制合同：`openspec/changes/fix-watermark-drift-start-center/`；实现随 PR 合并；测试：`story2video-compose-engine.test.js`（moving 数学契约断言 + 字符串断言更新）、真实 ffmpeg 40s 渲染帧验证（t=0/15/35）。
+
+**缺陷根因（QM-5 复盘）**：`buildWatermarkFilter`（`apps/desktop/electron/services/story2video-compose-engine.js`）的 moving 表达式 y 轴误用 `cos(2πt/140)`——`cos(0)=1` 使 t=0 时 y=0.95×(h-text_h)（画面底部 95% 处），与「起点居中」契约矛盾（x 轴用 sin，sin(0)=0 正确居中）。2026-08-14 slow-drift 修复把周期放慢 10 倍（x 10s→100s / y 14s→140s）后，短视频（10-40s）内余弦值仅从 1 缓慢下降（t=30s 时约 0.22），水印全程滞留下半区（y∈[0.61,0.95]×(h-text_h)），用户感知「只在底部移动」。公式引入于 commit `3c3835d1b`（PR #792，2026-08-14）；周期放慢见 `.ccg/tasks/archive/2026-08/story2video-watermark-slow-drift`。
+
+**逃逸链**：
+- 单元测试（`story2video-compose-engine.test.js`）只断言 filter 字符串包含 `cos(2*PI*t/140)`，把错误公式本身固化为断言（断言不精确，未验证数学语义）；
+- 集成测试（text-config / pipeline-story2video-contract / CreateView）只覆盖枚举透传与快照吸附，无坐标数学断言；
+- 真实 ffmpeg 渲染冒烟只验证「渲染成功 + 水印可见 + 不越界」，未核对起始位置（moving 从底部出发同样可见且不越界，视觉验证无法区分）；
+- 代码审查复核「t=0 居中」时未核对 cos/sin 初值（三角函数初值盲区），`review.md` 声称 t=0 居中但公式不成立。
+
+**系统性漏洞**：测试对「确定性漂移的数学性质」（t=0 位置、幅度区间、周期回原点）缺乏独立求值断言层，字符串包含断言锁定实现细节而非行为契约。
+
+**功能逻辑（数学契约）**：moving 双轴均为确定性 sin 漂移（drawtext x/y = 文字包围盒左上角坐标）：
+- x = `(w-text_w)/2*(1+0.9*sin(2πt/100))`：t=0 → x 居中；x 周期 100s
+- y = `(h-text_h)/2*(1+0.9*sin(2πt/140))`：t=0 → y 居中；y 周期 140s
+- 幅度 0.9：任意 t，坐标 ∈ [0.05, 0.95]×(画布-文字) 自由空间，不越界（sin∈[-1,1]，与旧 cos 版边界完全相同）
+- 确定性：纯 t 函数、无 `random()`，同参数逐帧可复现；表达式无逗号（防滤镜链切分，`expr.not.toContain(',')` 断言继续覆盖）
+- 起始 2-3 秒运动方向：从中心向右下起步（x/y 同向加速），无方向契约要求，属可接受的视觉变化
+- 多镜头成片：水印按**片段**计时（`buildWatermarkFilter` 在单片段命令内应用，各片段独立渲染后 xfade 合并）——每个镜头开头水印回到画面中心附近再继续漂移，场景切换处存在一次「中心吸附」跳变，属既定呈现；若要求跨场景连续漂移，需改为在 xfade 合并后的输出阶段统一叠加水印（架构级变更，另立跟进项）
+
+**数据校验**：`watermark.position` 枚举不变（moving 仍在 `WATERMARK_POSITIONS` 白名单）；normalizer fail-closed 行为不变；无新增字段、无快照结构变化——旧快照 `position: 'moving'` 直接生效，无需吸附迁移。
+
+**UI 交互逻辑**：
+- 显示项：位置下拉「移动（平滑漂移）」选项不变（`data-testid="s2v-watermark-position"`）。
+- 交互：选择 moving 后展示提示文案（`create.story2video.watermark.movingHint`，zh/en 成对更新）：「水印从画面中心附近开始，沿正弦轨迹在画面内缓慢游走，避免逐帧随机导致的闪烁」。
+- 其余（字号/透明度/恢复默认/快照恢复）与 3.1.24 一致，不受影响。
+
+**流程**：CreateView 水印块提交 `watermark:{enabled,text,position,fontSize,opacity}` → 快照持久化 → normalizer 校验（fail-closed）→ compose engine `buildWatermarkFilter` 生成 drawtext filter（moving 双轴 sin）→ ffmpeg 渲染 → 输出校验。全链路与 3.1.24 相同，仅 filter 内 y 表达式与提示文案变化。
+
+**测试（回归保护）**：
+- `story2video-compose-engine.test.js` 新增「moving 数学契约」用例：从 filter 提取 x/y 表达式做数学求值——t=0 断言 x/y 均居中（旧 y=cos 求值得 988px ≠ 520px，必然拦截回退）；扫描 t∈[0,700] 步进 5s 断言坐标占比 ∈[0.05,0.95]；断言 x(100)=x(0)、y(140)=y(0) 周期回原点；字符串断言更新为双轴 sin 并追加 `not.toContain('cos(2*PI*t/140)')` 防回退。
+- 真实 ffmpeg 冒烟：40s/1280x720/30fps 黑底 + moving filter，抽取 t=0（居中）、t=15（右下一带）、t=35（右下边界内）三帧目检，记录在任务 review.md。
+
+**兼容性**：仅影响 moving 起始相位；center 与四角位置不受影响；Remotion 渲染路径（`Story2VideoSlideshow.tsx` Watermark）无 moving 分支、静默回退 bottom-right 静态，为已知双路径差异（休眠缺口，另立跟进项，不在本次范围）。
 
 ### 3.1.25 背景音乐素材库管理（2026-08-14）
 

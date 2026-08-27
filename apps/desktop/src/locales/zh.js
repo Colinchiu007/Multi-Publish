@@ -128,7 +128,7 @@ export default {
         positionBottomLeft: '左下',
         positionBottomRight: '右下',
         positionMoving: '移动（平滑漂移）',
-        movingHint: '「移动」为平滑循环漂移：水印沿正弦轨迹在画面内缓慢游走，避免逐帧随机导致的闪烁。',
+        movingHint: '「移动」为平滑循环漂移：水印从画面中心附近开始，沿正弦轨迹在画面内缓慢游走，避免逐帧随机导致的闪烁。',
         fontSizeLabel: '水印字号',
         fontSizeHint: '字号越大水印越醒目，建议 24-40。',
         opacityLabel: '水印透明度',
