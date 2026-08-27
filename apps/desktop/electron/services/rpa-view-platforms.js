@@ -362,6 +362,14 @@ const platformsMixin = {
           if (!(await this._waitForElement(win,sel.publish_btn[0],10000))) throw new Error('publish btn not found')
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           await this._click(win,sel.publish_btn[0])
+          // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
+          if (platform === 'baijiahao') {
+            await this._sleep(800)
+            try {
+              await win.webContents.executeJavaScript('(function(){var els=[...document.querySelectorAll("button,a,span,div,[role=button]")].filter(function(e){var t=(e.innerText||"").trim();return t==="我知道了"&&e.children.length===0});if(els.length){els[els.length-1].click();return true}var wrap=[...document.querySelectorAll("[class*=guide],[class*=Guide],[class*=mask],[class*=Mask],[class*=popup],[class*=Popup],[class*=modal],[class*=Modal]")].filter(function(e){return (e.innerText||"").indexOf("我知道了")!==-1});if(wrap.length){var b=[...wrap[0].querySelectorAll("button,a,span")].filter(function(e){return (e.innerText||"").trim()==="我知道了"});if(b.length){b[b.length-1].click();return true}}return false})()')
+            } catch (_) { /* ignore */ }
+            await this._sleep(1000)
+          }
           if (article.draft && sel.draft_btn) await this._click(win,sel.draft_btn)
           retry.markDone('publish')
           if (throttle.shouldReport(95)) this._emitProgress(platform,'verifying...',95)
