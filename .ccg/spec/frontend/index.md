@@ -110,3 +110,10 @@ if (!generated || generated.code !== 0 || !generatedPath) {
 
 - 统一进度弹窗只覆盖“有可观察流水线阶段状态”的编排流水线/历史恢复前台跟踪，以及获得稳定 run identity 的普通流水线；快速渲染 loading、发布 timeline、独立分析状态不套用，禁止为此类轻量任务伪造“后台运行/历史可查看”语义。
 - `CreateHistory.vue` 已废弃：`/create/history` 重定向到 `/create?view=history`，无生产引用，不得重新接入其内嵌进度卡片；历史入口统一为 `CreateViewHistory.vue` 摘要与恢复。
+## N. 模型供应商「默认模型」双默认契约（2026-08-27，model-user-default-selector）
+
+**模式**：供应商默认模型 ID 有 2 项数据——运营预设 `default_model`（目录同步下发、全用户共享）+ 用户自选 `user_default_model`（桌面端本地、不上传）。UI 侧模型列表一律只读（集合唯一维护入口在运营中心），默认模型只提供 el-select 下拉选择（可清空 = 跟随运营默认），不允许输入框编辑。
+
+**反例（历史上发生）**：运营后台设置了 default_model 但调用解析仍走 `capability_models[type]` / `models[0]`，设置不生效；用户在输入框自由填模型 ID → 调用 404/400。
+
+**强制点**：① 调用侧必须经唯一解析入口 `resolveProviderDefaultModel(provider, type)`（user_default_model → default_model → capability_models[type] → fail-closed），任何接线点不得自行写 `models[0]`；② `user_default_model` 提交时校验 ∈ models，非法值清除；③ applyCatalog 目录同步不得覆盖本地用户 config 键；④ 新「默认模型」类 UI 收敛为下拉 + 只读列表。
