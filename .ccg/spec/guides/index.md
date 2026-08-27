@@ -38,3 +38,15 @@
 ## 多能力 provider 的默认状态归一化（2026-08-24）
 
 当一个多模态 provider 的历史 `is_default` 同时代表多个已声明能力时，用户设置某个普通类别 provider 为默认，必须在同一事务中：将多模态 provider 的其余已声明能力转为显式 `config.capability_defaults`、移除被覆盖能力、清除全局 `is_default`。不得只修改运行时路由或只修正卡片样式；回归测试必须同时断言运行时 `getDefault(capability)`、持久化 provider 行和 renderer 重新加载后的卡片数据一致。
+
+## 12. 确定性渲染表达式必须配「数学契约」求值断言（2026-08-27，fix-watermark-drift-center）
+
+**模式**：ffmpeg drawtext 等渲染表达式若是确定性数学函数（sin/cos 周期漂移），字符串包含断言只能锁定实现细节——必须从 filter 提取表达式做真实求值断言：t=0 初值、幅度/边界扫描、峰值相位（锁周期）、周期回原点，形成「字符串锁实现 + 数学锁行为」双层回归。
+
+**反例（真实 Bug 根因）**：moving 水印 y 轴用 `cos(2πt/140)`，测试却 `toContain('cos(2*PI*t/140)')` 把错误公式固化为断言；`cos(0)=1` → t=0 起点在底部 95%，slow-drift 放慢周期后短视频全程滞留下半区（用户反馈「水印只在底部移动」）。
+
+**强制点**：
+- 表达式提取用 `filter.match(/:x=.([^.]+)./)?.[1]` 风格可选链 + `expect(expr).toBeTruthy()` 守卫，避免空匹配抛晦涩 TypeError
+- 测试求值器（`new Function`）保留 cos/sin 在作用域：回归重引入 cos 时得到可诊断数值差（988px≠520px）而非 ReferenceError
+- 峰值断言用「周期 + 90° 相位」直达边界（x(25s)、y(35s) 对应 100s/140s 周期），任何周期漂移到约数都不再满足峰值，独立锁定周期与幅度
+- 纯函数数学修复可配合真实 ffmpeg 冒烟抽帧（t=0 居中、边界帧目检）作为集成层证据，并留档 review.md
