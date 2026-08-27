@@ -85,7 +85,7 @@ function normalizeProviderModels (providerId, models) {
 function resolveProviderDefaultModel (provider, type) {
   if (!provider || typeof provider !== 'object') return ''
   const models = Array.isArray(provider.models)
-    ? provider.models.filter(m => typeof m === 'string' && m.trim())
+    ? provider.models.filter(m => typeof m === 'string' && m.trim()).map(m => m.trim())
     : []
   const config = provider.config && typeof provider.config === 'object' ? provider.config : {}
   // 1. 用户默认（桌面端「默认模型」下拉选择）
