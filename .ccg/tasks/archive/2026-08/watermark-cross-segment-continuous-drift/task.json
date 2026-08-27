@@ -1,0 +1,15 @@
+{
+  "id": "watermark-cross-segment-continuous-drift",
+  "title": "水印跨镜头连续漂移：moving 后置到 xfade 合并后统一叠加（架构变更）",
+  "status": "completed",
+  "complexity": "M",
+  "risk": "medium",
+  "domain": "video-pipeline",
+  "currentPhase": "completed",
+  "nextAction": "PR #1199 已合并（squash 0f6685067），归档完成",
+  "createdAt": "2026-08-27T15:40:00+08:00",
+  "branch": "main",
+  "openspecChange": "openspec/changes/watermark-cross-segment-continuous-drift",
+  "remoteStatus": "merged",
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1199"
+}
