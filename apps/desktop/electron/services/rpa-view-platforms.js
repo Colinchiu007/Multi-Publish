@@ -621,6 +621,11 @@ const platformsMixin = {
     } catch(e) { log.warn('RpaView','['+platform+'] URL fallback: '+e.message) }
     const finalUrl = win.webContents.getURL() || ''
     const stoppedRequests = await stopNetworkCapture()
+    // 诊断快照：超时前记录页面关键文本与可见弹窗，帮助区分"弹窗拦截/校验失败/静默成功"
+    try {
+      const pageSnapshot = await win.webContents.executeJavaScript('(function(){var t=(document.body&&document.body.innerText)||"";var m=[...document.querySelectorAll("[class*=modal],[class*=dialog],[class*=Modal],[class*=Dialog]")].filter(function(e){return (e.innerText||"").trim()}).map(function(e){return (e.innerText||"").replace(/\\s+/g," ").trim().slice(0,160)}).slice(0,5);var btns=[...document.querySelectorAll("button")].filter(function(b){var x=(b.innerText||"").trim();return x&&x.length<20}).map(function(b){return (b.innerText||"").trim()}).slice(0,10);return {text:t.replace(/\\s+/g," ").slice(0,400),modals:m,buttons:btns}})()')
+      log.warn('RpaView', '[' + platform + '] publish verify snapshot: ' + JSON.stringify(pageSnapshot).slice(0, 900))
+    } catch (_) { /* 快照失败不阻塞 */ }
     log.warn('RpaView', '[' + platform + '] publish verification timeout endpoint=' + sanitizeDiagnosticEndpoint(finalUrl) + ' responses=' + stoppedRequests.length)
     return { success: false, error: 'publish verification timeout', platform, url: sanitizePublishResultUrl(finalUrl), diagnostics: summarizePublishDiagnostics(stoppedRequests, null) }
     } finally {
