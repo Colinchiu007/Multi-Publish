@@ -16,6 +16,7 @@ const {
   assertNoSensitiveContext,
 } = require('./prompt-engine-contract')
 const { resolveOptimizationStrategy } = require('./prompt-engine-kernel')
+const { resolveProviderDefaultModel } = require('./model-provider-manager')
 const {
   buildVideoOptimizeRequest,
   buildStandaloneVideoOptimizeRequest,
@@ -109,19 +110,6 @@ function engineProviderFor (providerId) {
 }
 
 /**
- * 取默认 LLM 的首个有效模型（models 是数组，首个非空项为当前选中模型）。
- * @param {unknown} models
- * @returns {string}
- */
-function firstConfiguredModel (models) {
-  if (!Array.isArray(models)) return ''
-  for (const m of models) {
-    if (typeof m === 'string' && m.trim()) return m.trim()
-  }
-  return ''
-}
-
-/**
  * 解析默认 LLM 的实际模型：多模态 provider 按能力路由（capability_models.llm 优先），
  * 与 ModelProviderManager 调用解析（capability_models[type] 或 models[0]）保持一致；
  * 否则回退 models 首个有效项。多模态 provider 的 models[0] 可能是 TTS/图片模型
@@ -130,15 +118,13 @@ function firstConfiguredModel (models) {
  * @returns {string}
  */
 function llmModelFor (provider) {
-  const byCapability = provider && provider.capability_models && typeof provider.capability_models.llm === 'string'
-    ? provider.capability_models.llm.trim()
-    : ''
-  if (byCapability) return byCapability
-  // 多模态 provider 必须显式声明 capability_models.llm，不猜测
+  const model = resolveProviderDefaultModel(provider, 'llm')
+  if (model) return model
+  // 多模态 provider 必须显式声明 capability_models.llm（或用户/运营默认模型），不猜测
   if (provider && provider.category === 'multimodal') {
     throw new Error('未配置可用模型：多模态 provider 必须在 capability_models.llm 中声明 LLM 模型')
   }
-  return firstConfiguredModel(provider && provider.models)
+  return ''
 }
 
 /**

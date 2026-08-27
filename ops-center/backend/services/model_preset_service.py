@@ -7,9 +7,11 @@
   - 运营信息字段：端口URL(base_url)、获取模型ID URL(models_url)、默认模型ID(default_model)、
     接口技术文档URL(doc_links)、每分钟连接次数(rate_per_minute)、5小时限额次数(limit_per_5h)；允许为空，按类型校验。
 """
+import asyncio
 import datetime
 import ipaddress
 import json
+import logging
 import re
 import socket
 
@@ -18,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from models import ModelPreset
+
+logger = logging.getLogger("ops-center")
 
 MODEL_CATEGORIES = ["llm", "tts", "speech_recognition", "image", "video", "audio", "multimodal"]
 
@@ -616,6 +620,52 @@ async def ensure_catalog_seeded(db: AsyncSession):
             changed = True
     if changed:
         await db.commit()
+
+    # 模型列表种子自动填充（2026-08-27，best-effort）：对「models_url 非空且模型列表仍停留在目录静态
+    # 种子值或为空」的官方预设行，从 models_url 拉取官方全量模型列表回填；失败（网络/鉴权/限流均可能）
+    # 仅记录日志跳过，不影响启动。运营可稍后在「预设模型 → 批量获取模型ID」手动重试。
+    # OPS_PRESET_SEED_FETCH_ENABLED=0 关闭（测试/离线环境）。
+    if not settings.preset_seed_fetch_enabled:
+        return
+    candidates = []
+    for item in PRESET_CATALOG:
+        row = (await db.execute(select(ModelPreset).where(ModelPreset.id == item["id"]))).scalar_one_or_none()
+        if row is None or not (row.models_url or "").strip():
+            continue
+        # 自定义网关（base_url 已被运营修改）不注入官方端点，与 models_url 回填守卫一致
+        if row.base_url != item.get("base_url", ""):
+            continue
+        try:
+            db_models = json.loads(row.models or "[]")
+        except (ValueError, TypeError):
+            db_models = []
+        if not isinstance(db_models, list):
+            db_models = []
+        static_models = [str(m) for m in item.get("models", [])]
+        if db_models and db_models != static_models:
+            continue  # 已有 fetch/手工覆盖值 → 不覆盖
+
+        async def _fetch_one(r):
+            try:
+                models, default_model, _ = await fetch_models_from_url(db, r.id)
+                if not models:
+                    return None
+                r.models = json.dumps(models[:MAX_MODELS], ensure_ascii=False)
+                if default_model:
+                    r.default_model = default_model
+                return r.id, len(models)
+            except Exception as exc:  # best-effort：任何失败只记日志
+                logger.warning("model preset seed fetch skipped %s: %s", r.id, exc)
+                return None
+
+        candidates.append(row)
+    if candidates:
+        results = await asyncio.gather(*[_fetch_one(r) for r in candidates])
+        done = [r for r in results if r]
+        if done:
+            await db.commit()
+            logger.info("model preset seed fetch done: %s",
+                        ", ".join(f"{p}({n})" for p, n in done))
 
 
 async def list_model_presets(db: AsyncSession, category: str | None = None, include_hidden: bool = False):

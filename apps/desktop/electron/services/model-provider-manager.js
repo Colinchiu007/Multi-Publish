@@ -70,6 +70,40 @@ function normalizeProviderModels (providerId, models) {
   return fixedModels ? [...fixedModels] : (Array.isArray(models) ? models : [])
 }
 
+/**
+ * 解析 provider 实际使用的默认模型 ID（2026-08-27 双默认语义：运营预设 + 用户选择）。
+ * 优先级：
+ *   1. config.user_default_model（桌面端用户下拉选择，用户级，最高优先）
+ *   2. config.default_model（运营中心预设默认模型 ID，目录同步下发）
+ *   3. capability_models[type]（多模态按能力路由，显示声明即使不在 models 也有效）
+ *   4. 单能力 provider 回退 models[0]；多模态 provider 无能力声明不猜测（返回 ''，调用方 fail-closed）
+ * 用户/运营默认值不在 models 中视为失效并回退（fail-closed，不报错不污染配置）。
+ * @param {{ models?: unknown, config?: object|null, capability_models?: object|null, category?: string }} provider
+ * @param {string} [type] 能力类型：llm/tts/speech_recognition/image/video/audio
+ * @returns {string}
+ */
+function resolveProviderDefaultModel (provider, type) {
+  if (!provider || typeof provider !== 'object') return ''
+  const models = Array.isArray(provider.models)
+    ? provider.models.filter(m => typeof m === 'string' && m.trim())
+    : []
+  const config = provider.config && typeof provider.config === 'object' ? provider.config : {}
+  // 1. 用户默认（桌面端「默认模型」下拉选择）
+  const userDefault = typeof config.user_default_model === 'string' ? config.user_default_model.trim() : ''
+  if (userDefault && models.includes(userDefault)) return userDefault
+  // 2. 运营中心预设默认（目录同步下发）
+  const opsDefault = typeof config.default_model === 'string' ? config.default_model.trim() : ''
+  if (opsDefault && models.includes(opsDefault)) return opsDefault
+  // 3. 多模态能力路由（显示声明，不校验 ∈ models）
+  if (type && provider.capability_models && typeof provider.capability_models === 'object') {
+    const byCapability = provider.capability_models[type]
+    if (typeof byCapability === 'string' && byCapability.trim()) return byCapability.trim()
+  }
+  // 4. 兜底：多模态不猜测（models[0] 可能是 TTS/图片模型），单能力取首模型
+  if (provider.category === 'multimodal') return ''
+  return models[0] || ''
+}
+
 class ModelProviderManager {
   constructor (store) {
     this._store = store
@@ -1173,5 +1207,5 @@ function safeJsonParse (str, fallback) {
   try { return JSON.parse(str) } catch { return fallback }
 }
 
-module.exports = { ModelProviderManager, canUseWithoutApiKey, hasUsableApiKey, isLoopbackBaseUrl, normalizeProviderModels }
+module.exports = { ModelProviderManager, canUseWithoutApiKey, hasUsableApiKey, isLoopbackBaseUrl, normalizeProviderModels, resolveProviderDefaultModel }
 
