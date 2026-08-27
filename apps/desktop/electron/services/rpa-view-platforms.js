@@ -443,15 +443,18 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       }
     } catch (_) { /* 截图失败不阻塞 */ }
 
-    // 位置选择：百家号视频发布必填「位置」（id=my-position），点击后选择"全国"
+    // 位置选择：百家号视频发布必填「位置」（id=my-position），输入"全国"或从下拉选择
     try {
       const posResult = await win.webContents.executeJavaScript('(function(){var el=document.querySelector("#my-position");if(!el)return "NO_INPUT";if(el.value&&el.value.trim())return "ALREADY:"+el.value;el.click();el.focus();return "OPENED"})()')
       if (posResult === 'OPENED') {
-        await this._sleep(1500)
-        const chosen = await win.webContents.executeJavaScript('(function(){var opts=["全国","全部","不设置","不限"];for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll("[class*=option],[class*=Option],[class*=dropdown],[class*=Dropdown],[class*=select] li,li,[role=option]")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k]}}}var any=[...document.querySelectorAll("[role=option],li,[class*=option]")].filter(function(e){var t=(e.innerText||"").trim();return t&&t.length<10&&e.children.length===0});if(any.length){any[0].click();return {ok:true,option:any[0].innerText.trim()}}return {ok:false}})()')
+        await this._sleep(1200)
+        // 先试直接输入（text input）
+        const typed = await win.webContents.executeJavaScript('(function(){var el=document.querySelector("#my-position");if(!el)return false;var setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set;setter.call(el,"全国");el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+        await this._sleep(1200)
+        const chosen = await win.webContents.executeJavaScript('(function(){var opts=["全国","全部","不设置","不限"];for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll("[class*=option],[class*=Option],[class*=dropdown],[class*=Dropdown],[class*=select] li,li,[role=option]")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k],via:"dropdown"}}}var any=[...document.querySelectorAll("[role=option],li,[class*=option]")].filter(function(e){var t=(e.innerText||"").trim();return t&&t.length<10&&e.children.length===0});if(any.length){any[0].click();return {ok:true,option:any[0].innerText.trim(),via:"any"}}var val=document.querySelector("#my-position")&&document.querySelector("#my-position").value;if(val&&val.trim())return {ok:true,option:val,via:"typed"}return {ok:false}})()')
         await this._sleep(1200)
         const confirmBtn = await win.webContents.executeJavaScript('(function(){var btns=[...document.querySelectorAll("button")].filter(function(e){var t=(e.innerText||"").trim();return (t==="确定"||t==="确认")&&e.children.length===0});if(btns.length){btns[btns.length-1].click();return true}return false})()')
-        log.info('RpaView', '[baijiahao] position select: ' + JSON.stringify(chosen) + ' confirm=' + confirmBtn)
+        log.info('RpaView', '[baijiahao] position select: ' + JSON.stringify(chosen) + ' confirm=' + confirmBtn + ' typed=' + typed)
         await this._sleep(1200)
       } else {
         log.info('RpaView', '[baijiahao] position select: ' + String(posResult))
