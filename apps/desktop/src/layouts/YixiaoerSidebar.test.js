@@ -12,8 +12,13 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/stores/identity', () => ({
   useIdentityStore: () => ({
+    status: 'authenticated',
     user: { name: '测试用户', username: 'testuser' },
     displayName: '测试用户',
+    entitlement: null,
+    signIn: vi.fn(),
+    switchAccount: vi.fn(),
+    signOut: vi.fn(),
   }),
 }))
 
@@ -42,6 +47,7 @@ function mountSidebar (path = '/accounts') {
     global: {
       plugins: [i18n],
       stubs: {
+        ProfileMenu: { template: '<div data-testid="profile-menu-stub" />' },
         RouterLink: {
           props: { to: { type: [String, Object], default: '' } },
           computed: {
@@ -61,8 +67,7 @@ describe('YixiaoerSidebar', () => {
   it('renders the account route active with dynamic user info from stores', () => {
     const sidebar = mountSidebar('/accounts')
 
-    expect(sidebar.text()).toContain('测试用户')
-    expect(sidebar.text()).toContain('免费版')
+    expect(sidebar.find('[data-testid="profile-menu-stub"]').exists()).toBe(true)
     const status = sidebar.get('[data-testid="yixiaoer-sidebar-status"]')
     expect(status.text()).toBe('客户端状态未知')
     expect(status.classes()).toContain('is-unknown')
@@ -99,6 +104,7 @@ describe('YixiaoerSidebar', () => {
     expect(menuText).toContain('爆款分析')
     expect(menuText).toContain('提示词评估')
     expect(menuText).toContain('模型提供商')
+    expect(menuText).toContain('会员中心')
   })
 
   it('settings button emits open-settings event', async () => {

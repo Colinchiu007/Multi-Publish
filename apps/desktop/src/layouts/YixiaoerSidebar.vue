@@ -1,13 +1,7 @@
 <template>
   <aside class="yixiaoer-sidebar" data-testid="yixiaoer-sidebar" aria-label="主导航">
     <header class="yixiaoer-sidebar-header">
-      <div class="yixiaoer-profile" data-testid="yixiaoer-profile">
-        <span class="yixiaoer-avatar" aria-hidden="true">{{ avatarInitial }}</span>
-        <span class="yixiaoer-profile-copy">
-          <strong :title="displayName">{{ displayName }}</strong>
-          <small>{{ licenseLabel }}</small>
-        </span>
-      </div>
+      <ProfileMenu />
       <button class="yixiaoer-sidebar-add" type="button" aria-label="新建发布" title="新建发布" @click="goToPublish">
         <Plus />
       </button>
@@ -102,34 +96,16 @@ import {
   User,
   VideoCamera,
 } from '@element-plus/icons-vue'
-import { useIdentityStore } from '@/stores/identity'
 import { useLicenseStore } from '@/stores/license'
 import UpgradeModal from '@/components/UpgradeModal.vue'
+import ProfileMenu from '@/components/ProfileMenu.vue'
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const identityStore = useIdentityStore()
 const licenseStore = useLicenseStore()
 const moreOpen = ref(false)
 const showUpgradeModal = ref(false)
-
-const displayName = computed(() => {
-  if (identityStore.user?.name) return identityStore.user.name
-  if (identityStore.user?.username) return identityStore.user.username
-  return '未登录'
-})
-
-const avatarInitial = computed(() => {
-  const name = displayName.value
-  return name.charAt(0)
-})
-
-const licenseLabel = computed(() => {
-  if (licenseStore.isPro) return '专业版'
-  if (licenseStore.isTrial) return '试用版'
-  return '免费版'
-})
 
 const emit = defineEmits(['open-settings'])
 
@@ -142,7 +118,7 @@ const primaryItems = [
   { key: 'collection', label: '采集', to: '/collection', icon: Collection },
 ]
 
-const moreItems = [
+const moreItems = computed(() => [
   { key: 'monitor', label: '监控', to: '/monitor', icon: Monitor },
   { key: 'calendar', label: '发布日历', to: '/calendar', icon: Calendar },
   { key: 'comments', label: '私信评论', to: '/comments', icon: ChatDotRound },
@@ -152,7 +128,8 @@ const moreItems = [
   { key: 'viral', label: '爆款分析', to: '/viral-analysis', icon: TrendCharts },
   { key: 'prompt-eval', label: '提示词评估', to: '/prompt-eval', icon: MagicStick },
   { key: 'model-providers', label: '模型提供商', to: '/model-providers', icon: Cpu },
-]
+  { key: 'member-center', label: t('memberCenter.menuEntry'), to: '/member-center', icon: User },
+])
 
 function isActive (item) {
   if (item.key === 'home') return route.path === '/'
@@ -181,50 +158,6 @@ function goToPublish () {
   justify-content: space-between;
   gap: 10px;
   padding: 16px 14px 18px;
-}
-
-.yixiaoer-profile {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.yixiaoer-avatar {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: linear-gradient(140deg, #ffcf80, #ef9e68);
-  color: #5d3824;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.yixiaoer-profile-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.yixiaoer-profile-copy strong {
-  overflow: hidden;
-  color: #4d4f6f;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.yixiaoer-profile-copy small {
-  width: fit-content;
-  padding: 1px 5px;
-  border-radius: 8px;
-  background: #e3e1f2;
-  color: #9293a6;
-  font-size: 10px;
 }
 
 .yixiaoer-sidebar-add {
@@ -449,7 +382,6 @@ function goToPublish () {
     padding-inline: 8px;
   }
 
-  .yixiaoer-profile-copy,
   .yixiaoer-sidebar-add,
   .yixiaoer-primary-item span,
   .yixiaoer-primary-item > svg:last-child,

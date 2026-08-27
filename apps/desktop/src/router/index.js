@@ -34,6 +34,7 @@ const routes = [
   { path: '/providers', redirect: '/model-providers' },
   { path: '/model-providers', name: 'ModelProviders', component: () => import('@/views/ModelProviders.vue') },
   { path: '/create', name: 'Create', component: () => import('@/views/CreateView.vue') },
+  { path: '/member-center', name: 'MemberCenter', component: () => import('@/views/MemberCenter.vue') },
   { path: '/create/pipeline', redirect: '/create' },
   { path: '/create/result', name: 'CreateResult', component: () => import('@/views/ResultView.vue') },
   // 历史记录统一收敛到「视频创作」页的历史记录标签（/create?view=history），旧独立页地址做重定向

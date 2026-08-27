@@ -34,6 +34,9 @@ function normalizeState(value) {
           : [],
         ...(typeof state.entitlement.source === 'string' ? { source: state.entitlement.source } : {}),
         ...(Number.isFinite(state.entitlement.expiresAt) ? { expiresAt: state.entitlement.expiresAt } : {}),
+        ...(state.entitlement.quota && typeof state.entitlement.quota === 'object' && !Array.isArray(state.entitlement.quota)
+          ? { quota: JSON.parse(JSON.stringify(state.entitlement.quota)) }
+          : {}),
       }
     : null
   return {

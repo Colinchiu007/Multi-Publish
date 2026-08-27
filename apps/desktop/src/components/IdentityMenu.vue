@@ -51,6 +51,16 @@
         {{ loading ? '正在打开登录...' : '登录 Multi-Publish' }}
       </button>
       <button
+        v-if="hasSessionIdentity"
+        data-testid="identity-member-center"
+        class="identity-menu-action"
+        type="button"
+        role="menuitem"
+        @click="goMemberCenter"
+      >
+        {{ memberCenterLabel }}
+      </button>
+      <button
         v-if="hasSessionIdentity && !isSigningOut"
         data-testid="identity-switch-account"
         class="identity-menu-action"
@@ -81,12 +91,17 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useIdentity } from '@/composables/useIdentity'
+import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 
 const root = ref(null)
 const trigger = ref(null)
 const panel = ref(null)
 const open = ref(false)
 const { status, user, displayName, loading, error, signIn, switchAccount, signOut } = useIdentity()
+const router = useRouter()
+const { t } = useI18n()
+const memberCenterLabel = computed(() => t('memberCenter.menuEntry'))
 const isSigningOut = computed(() => status.value === 'signing_out')
 const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
 const isUnauthenticated = computed(() => !hasSessionIdentity.value && status.value !== 'disabled')
@@ -116,6 +131,11 @@ const errorMessage = computed(() => {
   }
   return messages[code] || '登录暂时不可用，请稍后重试。'
 })
+
+function goMemberCenter() {
+  open.value = false
+  router.push('/member-center')
+}
 
 async function handleSignIn() {
   const ok = await signIn()
