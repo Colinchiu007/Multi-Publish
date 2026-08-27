@@ -150,7 +150,7 @@ module.exports = {
       tag_input: [],
       cover_input: ['input[type="file"][accept*="image"]'],
       cover_trigger: ['.cover-tabs-container', '[class*="cover"]', '[class*="封面"]'],
-      publish_btn: ['button[data-testid="publish-btn"]', 'button.cheetah-btn-primary:has-text("发布")', 'button:has-text("发布")', 'button:has-text("提交")'],
+      publish_btn: ['button:has-text("发布")', 'button:has-text("提交")', 'button[data-testid="publish-btn"]', 'button.cheetah-btn-primary'],
     },
     facebook: {
       upload_btn: ['button:has-text("上传视频")', 'a[aria-label*="Create"][role="button"]', '[data-pagelet*="composer"] button', 'div[role="button"]:has-text("视频")'],

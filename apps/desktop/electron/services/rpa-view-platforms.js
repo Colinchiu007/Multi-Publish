@@ -387,15 +387,35 @@ const platformsMixin = {
     } catch (e) { /* ignore */ }
     await this._sleep(1200)
     // 选择创作声明：点击输入框 → 弹窗选"无需声明" → 确定
-    const opened = await win.webContents.executeJavaScript('(function(){var el=[...document.querySelectorAll("input")].find(function(i){return i.placeholder.indexOf("创作声明")!==-1});if(!el)return "NO_INPUT";if(el.value)return "ALREADY";el.click();el.focus();return "OPENED"})()')
-    if (opened === 'OPENED') {
-      await this._sleep(2500)
-      await win.webContents.executeJavaScript('(function(){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div")].filter(function(e){return (e.innerText||"").trim()==="无需声明"});if(cands.length){cands[0].click();return true}return false})()')
-      await this._sleep(1200)
-      await win.webContents.executeJavaScript('(function(){var btns=[...document.querySelectorAll(".cheetah-modal-footer button,.cheetah-modal-footer span")].filter(function(e){return (e.innerText||"").trim()==="确定"});if(btns.length){var b=btns[0];if(b.tagName==="BUTTON")b.click();else b.parentElement.click();return true}return false})()')
-      await this._sleep(1500)
+    // 返回 { state: 'no-input'|'already'|'done'|'option-missing'|'confirm-missing', value } 供调用方与日志判定
+    let state = 'unknown'
+    let selectedValue = ''
+    try {
+      const opened = await win.webContents.executeJavaScript('(function(){var el=[...document.querySelectorAll("input")].find(function(i){return String(i.placeholder||"").indexOf("创作声明")!==-1});if(!el)return "NO_INPUT";if(el.value)return "ALREADY";el.click();el.focus();return "OPENED"})()')
+      if (opened === 'NO_INPUT') {
+        state = 'no-input'
+      } else if (opened === 'ALREADY') {
+        state = 'already'
+      } else if (opened === 'OPENED') {
+        await this._sleep(2500)
+        const optionClicked = await win.webContents.executeJavaScript('(function(){var opts=["无需声明","无声明","默认声明"];for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div,.cheetah-modal span,.cheetah-modal label,.cheetah-modal div,[class*=modal] span,[class*=modal] label,[class*=modal] div")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k]}}}return {ok:false}})()')
+        if (optionClicked && optionClicked.ok) {
+          selectedValue = optionClicked.option || ''
+          state = 'option-selected'
+          await this._sleep(1200)
+          const confirmClicked = await win.webContents.executeJavaScript('(function(){var btns=[...document.querySelectorAll(".cheetah-modal-footer button,.cheetah-modal-footer span,.cheetah-modal button,.cheetah-modal span,[class*=modal] button,[class*=modal] span")].filter(function(e){return (e.innerText||"").trim()==="确定"&&e.children.length===0});if(btns.length){var b=btns[0];if(b.tagName==="BUTTON"||b.tagName==="SPAN")b.click();else b.parentElement.click();return true}return false})()')
+          state = confirmClicked ? 'done' : 'confirm-missing'
+          await this._sleep(1500)
+        } else {
+          state = 'option-missing'
+        }
+      }
+    } catch (e) {
+      log.warn('RpaView', 'baijiahao declaration prep: ' + e.message)
+      state = 'error'
     }
-    return true
+    log.info('RpaView', '[baijiahao] declaration prep state=' + state + (selectedValue ? ' option=' + selectedValue : ''))
+    return { state, option: selectedValue }
   },
 
   async _queryBaijiahaoArtifact(win, context, maxAttempts = 3) {
