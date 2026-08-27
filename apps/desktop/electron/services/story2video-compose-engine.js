@@ -90,11 +90,11 @@ function normalizeFfmpegStageError (error, stage) {
   return timeoutError
 }
 
-async function execFfmpegStage (args, options, stage) {
+async function execFfmpegStage (args, options, stage, binary = FFMPEG) {
   const { onStarted, ...execOptions } = options || {}
   try {
     return await new Promise((resolve, reject) => {
-      const child = execFile(FFMPEG, args, execOptions, (error, stdout, stderr) => {
+      const child = execFile(binary, args, execOptions, (error, stdout, stderr) => {
         if (error) {
           if (stderr && !error.stderr) error.stderr = stderr
           reject(error)
@@ -699,13 +699,17 @@ class Story2VideoComposeEngine {
     this.maxOutputPixels = positiveLimit(opts.maxOutputPixels, DEFAULT_MAX_OUTPUT_PIXELS)
     // 输出分辨率能力开关：'1080p'（默认，禁止 4K）| '4k'。fail-closed——未知值一律按 1080p。
     // 支持惰性读取（运营功能开关运行时下发）：getMaxOutputResolution 优先，静态值兜底
+    // ��� ffmpeg ��6ؤ!W��KӜ	SKIP_NATIVE_MEDIA_TOOL_TESTS=1 � CI/Kկ��>�e
+    this.ffmpegBinary = typeof opts.ffmpegBinary === 'string' && opts.ffmpegBinary.trim()
+      ? opts.ffmpegBinary.trim()
+      : FFMPEG
     this.maxOutputResolution = opts.maxOutputResolution === '4k' ? '4k' : '1080p'
     this._maxOutputResolutionGetter = typeof opts.getMaxOutputResolution === 'function'
       ? opts.getMaxOutputResolution
       : null
     this._execFfmpegStage = typeof opts.execFfmpegStage === 'function'
       ? opts.execFfmpegStage
-      : execFfmpegStage
+      : (args, options, stage) => execFfmpegStage(args, options, stage, this.ffmpegBinary)
     this._segmentSeq = 0
   }
 
@@ -878,7 +882,7 @@ class Story2VideoComposeEngine {
       })
     }
 
-    if (!FFMPEG) {
+    if (!this.ffmpegBinary) {
       logComposeFailure('preflight', 'ffmpeg not found', { reason: 'ffmpeg_not_found' })
       return { code: -1, message: 'ffmpeg not found' }
     }
@@ -1560,7 +1564,7 @@ class Story2VideoComposeEngine {
 
   /** 重新渲染一个分段，供结果页单段重试使用。 */
   async renderSegment (scene, options = {}, destinationPath) {
-    if (!FFMPEG) return { code: -1, message: 'ffmpeg not found' }
+    if (!this.ffmpegBinary) return { code: -1, message: 'ffmpeg not found' }
     if (!scene || typeof scene !== 'object' || typeof destinationPath !== 'string' || !path.isAbsolute(destinationPath)) {
       return { code: -1, message: 'Invalid segment render request' }
     }

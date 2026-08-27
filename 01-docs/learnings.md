@@ -13991,6 +13991,8 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 3（成片级时间轴断言层）**：视频渲染测试不能只断言单镜头 t=0 与片段 filter 字符串；多镜头成片必须做「切点前后帧」采样对比（29.5/30.5s 像素簇中心 Δ<40px）。本冒烟用 rawvideo 抽帧 + 纯色背景亮色像素簇中心定位，零 PNG 解码依赖。
 - **耗时实测**：59.6s 成片 watermark 阶段 ≈6s（约 10x 实时，无 zoompan 2x 上采样）；5 分钟成片预计 +30-40s；超时预算复用 xfade profile（max(2min, 时长×3+2min)）宽裕，输出级 filter 回退不触发。
 - **预防**：新增「成片级视觉效果」类需求（片尾字幕、全片 logo、时段滤镜等）一律先评估渲染阶段归属：效果时间轴 = 成片 t → 必须后置于 xfade；并先确认下游是否消费中间产物（片段文件）。
+- **教训 4（CI 测试环境契约）**：electron-ci.yml 的 electron-tests 设 SKIP_NATIVE_MEDIA_TOOL_TESTS=1，模块级 FFMPEG 探测为 null——本地无该 env 时 compose 成功路径用例假绿，CI 全量单 worker 才暴露（5 用例全部返回 ffmpeg not found，20ms 即失败、无引擎错误日志）。修复：引擎新增实例级 ffmpegBinary 注入点（默认模块级探测结果；compose/renderSegment 前置检查与 execFfmpegStage 走实例值，与既有 execFfmpegStage 注入模式一致），makeWmEngine 显式注入 ffmpeg + 断言用例。预防：断言 compose/renderSegment 成功路径的用例必须显式声明原生工具依赖（注入实例二进制或真实探测），提交前用 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 复跑受影响文件。
+
 ## 2026-08-27 会员中心与头像入口（member-center-avatar-entry）
 
 - **静态区块不等于按钮**：YixiaoerSidebar 左上角 .yixiaoer-profile 自引入起就是普通 div，从未绑定 click——「点头像没反应」根因是入口缺失而非登录逻辑坏。新增可点击入口前先 grep 该 DOM 是否已有事件绑定；组件化入口（ProfileMenu）自带测试后才替换静态区块。

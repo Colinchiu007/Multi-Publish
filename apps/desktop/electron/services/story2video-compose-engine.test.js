@@ -2703,6 +2703,12 @@ describe('moving 水印后置烧录（成片级时间轴，跨镜头连续漂移
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-wm-post-'))
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
+
+      // CI（SKIP_NATIVE_MEDIA_TOOL_TESTS=1）下模块级 FFMPEG 为 null，compose 成功路径必须注入实例级二进制
+
+      ffmpegBinary: 'ffmpeg',
+
+      outputDir: root,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })
     engine._runFfmpegStage = vi.fn(async (_args, _options, details) => {
@@ -2734,6 +2740,16 @@ describe('moving 水印后置烧录（成片级时间轴，跨镜头连续漂移
     })
     expect(normalized).toMatchObject({ phase: 'watermark', percent: 90, segmentsDone: 2, segmentsTotal: 2 })
   })
+
+  it('构造可注入 ffmpegBinary：CI SKIP_NATIVE_MEDIA_TOOL_TESTS=1 环境下 compose 成功路径仍可执行（回归保护）', async () => {
+
+    const { engine } = makeWmEngine()
+
+    expect(engine.ffmpegBinary).toBe('ffmpeg')
+
+  })
+
+
 
   it('image 片段：moving 水印不内嵌 drawtext（后置烧录），静态位置仍内嵌', async () => {
     const { engine, root } = makeWmEngine()

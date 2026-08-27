@@ -1798,6 +1798,8 @@ SettingsDialog 关闭（App.vue @close）
 
 **测试（回归保护）**：
 - 单元（`story2video-compose-engine.test.js` 新增 6 用例）：`KNOWN_COMPOSE_PHASES` 含 watermark + normalize 透传；image/video 片段 moving 去字、静态位置仍内嵌；compose moving 多镜头新增 watermark 阶段（percent 90 单调、命令含整片时间轴 sin 表达式、`-map 0:a:0?`、`-c:a copy`、超时=computeFfmpegStageTimeoutMs('watermark', 成片实际时长)）；静态位置与未启用不进 watermark 阶段。引擎全量 146 用例 + 相邻套件 5 文件 286 用例全绿。
+- CI 测试环境契约（2026-08-28 补充）：electron-ci.yml 的 electron-tests 任务设置 SKIP_NATIVE_MEDIA_TOOL_TESTS=1，模块级 ffmpeg 探测为 null——凡断言 compose/renderSegment 成功路径的用例必须经构造参数 ffmpegBinary 注入实例级二进制（引擎默认仍取模块级探测结果，生产行为不变；compose/renderSegment 前置检查与 execFfmpegStage 均走实例值）。makeWmEngine 已显式注入 ffmpeg 并新增断言用例；本地复验：设置 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 后运行 story2video-compose-engine.test.js。防止「本地无该 env 全绿、CI 全量单 worker 失败」的环境漂移。
+
 - 真实 ffmpeg 冒烟（2026-08-28）：2×30s 成片，抽帧像素簇中心——t=0.5s (656,366.5)（画布中心 640,360 起点居中）、t=29.5s (1167.5,664.5)、t=30.5s (1156.5,668.0)，切点漂移 Δy=3.5px/Δx=11px（旧片段内嵌场景会跳 ~650px），0.5→29.5s 行程 298px 证明 Lissajous 全轨迹；时长 59.6s、音频流保留。
 
 **兼容性**：仅影响 moving 位置渲染路径；center 与四角位置不受影响（片段内嵌语义不变）；Remotion 渲染路径（`Story2VideoSlideshow.tsx` Watermark）无 moving 分支、静默回退 bottom-right 静态，为已知双路径差异（休眠缺口，另立跟进项，不在本次范围）；视频编码质量（crf 18）与片段相位均为非破坏性变化。
