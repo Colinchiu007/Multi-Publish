@@ -3,6 +3,16 @@ name: Doc Sync Gate
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'Base branch to diff against (default: main)'
+        required: false
+        default: 'main'
+      head:
+        description: 'Head branch name (default: dispatched ref)'
+        required: false
+        default: ''
 jobs:
   doc-sync:
     name: 文档同步检查
@@ -26,14 +36,16 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REF: ${{ github.event.inputs.base || 'main' }}
+          HEAD_REF: ${{ github.event.inputs.head || github.ref_name }}
         run: |
           chmod +x scripts/check-docs-sync.sh
           bash scripts/check-docs-sync.sh \
-            --base=${{ github.event.pull_request.base.ref }} \
-            --head=${{ github.event.pull_request.head.ref }}
+            --base="${BASE_REF}" \
+            --head="${HEAD_REF}"
 
       - name: 起草 CHANGELOG
-        if: success()  # 即使门禁通过也起草，作为草稿
+        if: github.event_name == 'pull_request'  # 仅 PR 时起草草稿
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
@@ -43,7 +55,7 @@ jobs:
             --output=team/inbox/changelog-draft-${PR_NUMBER}.md
 
       - name: 上传 CHANGELOG 草稿
-        if: always()
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: changelog-draft-${{ github.event.pull_request.number }}
