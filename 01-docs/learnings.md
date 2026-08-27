@@ -13991,3 +13991,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **教训 3（成片级时间轴断言层）**：视频渲染测试不能只断言单镜头 t=0 与片段 filter 字符串；多镜头成片必须做「切点前后帧」采样对比（29.5/30.5s 像素簇中心 Δ<40px）。本冒烟用 rawvideo 抽帧 + 纯色背景亮色像素簇中心定位，零 PNG 解码依赖。
 - **耗时实测**：59.6s 成片 watermark 阶段 ≈6s（约 10x 实时，无 zoompan 2x 上采样）；5 分钟成片预计 +30-40s；超时预算复用 xfade profile（max(2min, 时长×3+2min)）宽裕，输出级 filter 回退不触发。
 - **预防**：新增「成片级视觉效果」类需求（片尾字幕、全片 logo、时段滤镜等）一律先评估渲染阶段归属：效果时间轴 = 成片 t → 必须后置于 xfade；并先确认下游是否消费中间产物（片段文件）。
+## 2026-08-27 会员中心与头像入口（member-center-avatar-entry）
+
+- **静态区块不等于按钮**：YixiaoerSidebar 左上角 .yixiaoer-profile 自引入起就是普通 div，从未绑定 click——「点头像没反应」根因是入口缺失而非登录逻辑坏。新增可点击入口前先 grep 该 DOM 是否已有事件绑定；组件化入口（ProfileMenu）自带测试后才替换静态区块。
+- **renderer 透传是独立故障面**：主进程已计算 entitlement.quota，但 identityStore.normalizeState 未映射该字段，renderer 恒空——跨进程数据契约必须在两端各有一条「字段存在」断言（identity.test.js 已补 quota 透传/非法形状丢弃 2 用例）。
+- **i18n 命名插值优于拼接**：t('memberCenter.expiresAt') + '：' + date 的全角冒号逃过 CJK 基线（正则是 [\u4e00-\u9fff] 单字）；日期/单位等周边标点必须并入 locale 值（expiresAt: '权益到期：{date}'），zh/en 成对断言插值键。
+- **locale 文件防呆**：用脚本改写 locale 文件时禁止整体 JSON.stringify 重写（会把单引号/裸键/Message Function 全部毁掉）；只做定位追加（lastIndexOf 文件尾 + 单引号风格），改完必须跑 i18n 对称性测试 + check-locale-sync。
+- **视觉门禁是路由注册的强制伴侣**：新增路由必须同步在 electron/tests/visual-testing/views/all-views.visual.test.js 注册单视图门禁，否则 visual-view-runner 合同测试失败。
+- **codeagent-wrapper 多行 stdin 不稳定**：该 wrapper 对多行 <TASK> 管道输入解析失败（exit 1 无输出）；单行任务可运行但耗时 >10 分钟无终报。双模型审查不可用时应按机制硬化规则降级主代理审查 + 全量测试兜底，并在 review.md 记录降级原因。

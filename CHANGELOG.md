@@ -6,6 +6,15 @@
 - 烧录命令视频轨 libx264 crf 18 全量重编码、音频轨 `-map 0:a:0?` + `-c:a copy` 不重编码（显式 -map 不映射音频会丢流，冒烟实测修复 + 断言固化）。
 - 回归保护：compose-engine 新增 6 用例（枚举/去字×2/后置命令/静态不进/未启用不进），引擎全量 146 + 相邻套件 286 用例全绿；真实 ffmpeg 冒烟 2×30s 成片切点帧对比（29.5→30.5s Δy=3.5px，旧实现跳 ~650px）。
 - 文档：PRD-video-creation 新增 3.1.39 全契约 + 3.1.38 多镜头句升级引用；product-manual 13.1.1.1 同步；openspec watermark-cross-segment-continuous-drift 四件套。
+## [未发布] feat(desktop): 会员中心页面 + 左上角头像账号入口
+
+- 新增会员中心页面（/member-center）：账号信息卡（昵称/@username/状态徽章/切换账号/退出登录）、版本与许可证卡（免费版+升级 Pro / Pro ✓ 已激活）、会员权益卡（方案/来源/到期/特性清单）、资源配额卡、关于卡（版本号）；未登录显示空态与登录按钮，disabled 显示身份服务未启用（fail-closed）。
+- 左上角头像改造为账号入口（ProfileMenu + useDropdownBehavior）：未登录（signed_out/expired）点头像直接调 signIn 弹出登录弹窗（修复此前后台 profile 区块从未绑定点击事件的根因）；已登录弹菜单（会员中心/切换账号/退出登录）；disabled/error 展开菜单展示原因不触发登录。
+- 入口扩展：「更多」菜单与身份菜单（IdentityMenu）新增「会员中心」项，统一走 /member-center 路由。
+- 数据透传修复：identityStore.normalizeState 透传主进程已计算的 entitlement.quota（此前 renderer 恒为空）。
+- 错误反馈：登录/切换/退出失败渲染 role="alert" 错误行，错误码映射至友好文案（IDENTITY_ACCOUNT_SWITCH_FAILED → 「切换账号失败，请稍后重试。」）。
+- i18n：locales zh/en 成对新增 memberCenter.* 54 键（含 {date}/{days} 命名插值）；CJK 基线吸收行号漂移。
+- 门禁：/member-center 注册单视图视觉门禁（all-views.visual.test.js）；相关测试 60+ 通过，build:vue 通过。
 
 ## [未发布] feat(observability): 账号管理/内容发布 IPC 详细日志
 
@@ -13,14 +22,12 @@
 - account.js 10 个 handler（accounts:list、auth:open-login/login-silent/complete-login/close、account:add/delete/check-login/set-proxy/list）统一加详细日志（模块 AccountIPC），含平台/账号/耗时，敏感字段脱敏。
 - 回归测试：publish-account-logging.test.js 8 用例（发布 4 + 账号 4，验证日志调用与关键内容）。
 
-
 ## [未发布] fix(story2video): 水印「移动」漂移起点改为画面中心附近（fix-watermark-drift-center）
 
 - 修复 moving 位置 y 轴表达式 `cos(2*PI*t/140)` → `sin(2*PI*t/140)`：`cos(0)=1` 使 t=0 起点在底部 95% 处，短视频（10-40s）全程滞留下半区（用户反馈「水印只在画面底部区域移动」）；双轴同用 sin 后 t=0 从画面正中起步，周期（x 100s / y 140s）、0.9 幅度边界（任意 t 坐标 ∈[0.05,0.95] 自由空间）、确定性 Lissajous 属性全部不变。
 - 回归保护：`story2video-compose-engine.test.js` 新增「moving 数学契约」求值断言（t=0 居中、幅度扫描、周期回原点、禁止 cos 回退）+ 字符串断言更新为双轴 sin；真实 ffmpeg 40s 冒烟抽取 t=0/15/35 帧验证起点居中与不出画布。
 - 文案：`locales` movingHint（zh/en 成对）与 `CreateView.vue` 回退文本更新为「水印从画面中心附近开始，沿正弦轨迹缓慢游走」。
 - 文档：`01-docs/PRD-video-creation.md` 3.1.24 表格/语义段落修正 + 新增 3.1.38 详细契约；`01-docs/learnings.md` 新增三角函数初值 QM-5 复盘；`01-docs/product-manual.md` 水印说明同步。
-
 
 ## [未发布] feat(model-selector): 桌面端用户默认模型 ID 下拉选择 + 运营中心模型种子自动填充
 
@@ -35,7 +42,6 @@
 
 - 新增：独立回归测试锁定 `story2video-notifications.js` 的 `BATCH_DELETE_SUCCESS` `{count}` 插值（修复于 `492a2246c`），防止空占位符 Toast 复发；覆盖 `BATCH_DELETE_SUCCESS`（zh/en 双 locale、空占位符断言）、`BATCH_DELETE_PARTIAL`、`BATCH_DELETE_CONFIRM` 计数插值。
 - 测试：`story2video-notifications.test.js` 新增 4 条用例，相关套件 42/42 通过。
-
 
 ## [未发布] feat(ops-center): 模型预设「获取模型ID URL」白名单扩展至 24 项 + 解析器字段增强
 

@@ -174,4 +174,35 @@ describe('identity store', () => {
 
     expect(unsubscribe).toHaveBeenCalledTimes(1)
   })
+
+  it('透传主进程验证后的 entitlement.quota', async () => {
+    window.electronAPI.identityGetState.mockResolvedValue({
+      code: 0,
+      data: {
+        status: 'authenticated',
+        user: { sub: 'sub-1' },
+        entitlement: { plan: 'pro', features: ['cloud_publish'], source: 'online', quota: { credits: 100, used: 20 } },
+      },
+    })
+    const { useIdentityStore } = await import('./identity')
+    const store = useIdentityStore()
+    await store.load()
+    expect(store.entitlement.quota).toEqual({ credits: 100, used: 20 })
+  })
+
+  it('非法 quota 形状被丢弃，不污染 store', async () => {
+    window.electronAPI.identityGetState.mockResolvedValue({
+      code: 0,
+      data: {
+        status: 'authenticated',
+        user: { sub: 'sub-1' },
+        entitlement: { plan: 'free', features: [], quota: 'oops' },
+      },
+    })
+    const { useIdentityStore } = await import('./identity')
+    const store = useIdentityStore()
+    await store.load()
+    expect(store.entitlement.quota).toBeUndefined()
+  })
 })
+

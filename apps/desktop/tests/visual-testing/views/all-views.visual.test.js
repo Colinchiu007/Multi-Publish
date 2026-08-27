@@ -63,6 +63,7 @@ const viewTests = [
   routeView('production-board', '/board/e2e-project', '.cohere-main .board-page .back-link:has-text("项目库")', '生产看板'),
   routeView('contact-sheet', '/board/e2e-project/contact-sheet', '.cohere-main .cs-title:has-text("场景审批")'),
   routeView('replay-timeline', '/replay/e2e-project', '.cohere-main .replay-title:has-text("生产回放")'),
+  routeView('member-center', '/member-center', '.member-center-view .page-title:has-text("会员中心")'),
 ];
 
 function createRunner(options = {}) {
