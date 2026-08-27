@@ -1,3 +1,11 @@
+## [未发布] feat(yixiaoer-ue): 封面裁剪 Phase A（yixiaoer-ue-parity-real-publish-e2e）
+
+- 新增 `cover-cropper.js`：offscreen BrowserWindow + canvas 裁剪（rect 校验/边界收敛/等比缩放），JPEG 质量自适应二分压缩至 ≤512KB（快手限制），纯函数可单测。
+- 新增 IPC `cover:crop` / `cover:read-data` + preload `cropVideoCover`/`readCoverData`（含 index.bundle 重建）。
+- 新增 `CoverCropDialog.vue`：预览 + 拖拽裁剪框 + 比例预设（16:9/1:1/4:3/自由）；`Publish.vue` 封面行接入「裁剪封面」按钮，成功回填 `cover_path`。
+- locales zh/en 成对新增 `coverCrop` 键组。
+- 测试：cover-cropper 16 + CoverCropDialog 7 + publish IPC 24 + Publish 41 全绿；locale 成对/CJK 门禁 PASS；vite build 通过。
+
 ## [未发布] refactor(story2video): 视频创作项目ID缩短为约13位并历史列表全显
 
 - 项目ID（即流水线 runId，`apps/desktop/electron/services/pipeline-engine.js:866`）由 `'run_'+Date.now()+'_'+随机4位`（固定22字符）改为 `Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6)`（≈13字符，base36 时间戳定宽8位），缩短约40%；去掉无运行时代码依赖的 `run_` 前缀，base36 时间戳字典序即时间序，保留唯一性与时序可排序性，且满足 SAFE_ID 校验（`/^[a-zA-Z0-9_-]{1,100}$/`）可作磁盘目录名与设置 JSON key。
