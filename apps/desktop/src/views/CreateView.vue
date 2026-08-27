@@ -345,7 +345,7 @@
                   <option value="bottom-right">{{ translateWithLocaleFallback('create.story2video.watermark.positionBottomRight', 'Bottom right', 'Bottom right') }}</option>
                   <option value="moving">{{ translateWithLocaleFallback('create.story2video.watermark.positionMoving', 'Moving (smooth drift)', 'Moving (smooth drift)') }}</option>
                 </select>
-                <p v-if="s2vConfig.watermarkConfig.position === 'moving'" class="config-hint">{{ translateWithLocaleFallback('create.story2video.watermark.movingHint', 'Moving is a smooth looping drift along a sine path, avoiding the flicker of per-frame random motion.', 'Moving is a smooth looping drift along a sine path, avoiding the flicker of per-frame random motion.') }}</p>
+                <p v-if="s2vConfig.watermarkConfig.position === 'moving'" class="config-hint">{{ translateWithLocaleFallback('create.story2video.watermark.movingHint', 'Moving is a smooth looping drift: the watermark starts near the center and wanders along a sine path, avoiding the flicker of per-frame random motion.', 'Moving is a smooth looping drift: the watermark starts near the center and wanders along a sine path, avoiding the flicker of per-frame random motion.') }}</p>
               </div>
               <div class="config-item" data-testid="s2v-watermark-fontsize">
                 <label>{{ translateWithLocaleFallback('create.story2video.watermark.fontSizeLabel', 'Watermark size', 'Watermark size') }}</label>

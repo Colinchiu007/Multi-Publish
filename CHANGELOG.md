@@ -8,6 +8,19 @@
 - i18n：locales zh/en 成对新增 memberCenter.* 54 键（含 {date}/{days} 命名插值）；CJK 基线吸收行号漂移。
 - 门禁：/member-center 注册单视图视觉门禁（all-views.visual.test.js）；相关测试 60+ 通过，build:vue 通过。
 
+## [未发布] feat(observability): 账号管理/内容发布 IPC 详细日志
+
+- publish.js 13 个 handler（cover:extract/crop/read-data、publish:wechat/batch、queue:status/history/cancel/retry、history:list/get/delete、dashboard:stats）统一加 enter/ok/error/validation-failed 结构化日志（模块 PublishIPC），含平台、账号、taskId、耗时、结果码。
+- account.js 10 个 handler（accounts:list、auth:open-login/login-silent/complete-login/close、account:add/delete/check-login/set-proxy/list）统一加详细日志（模块 AccountIPC），含平台/账号/耗时，敏感字段脱敏。
+- 回归测试：publish-account-logging.test.js 8 用例（发布 4 + 账号 4，验证日志调用与关键内容）。
+
+## [未发布] fix(story2video): 水印「移动」漂移起点改为画面中心附近（fix-watermark-drift-center）
+
+- 修复 moving 位置 y 轴表达式 `cos(2*PI*t/140)` → `sin(2*PI*t/140)`：`cos(0)=1` 使 t=0 起点在底部 95% 处，短视频（10-40s）全程滞留下半区（用户反馈「水印只在画面底部区域移动」）；双轴同用 sin 后 t=0 从画面正中起步，周期（x 100s / y 140s）、0.9 幅度边界（任意 t 坐标 ∈[0.05,0.95] 自由空间）、确定性 Lissajous 属性全部不变。
+- 回归保护：`story2video-compose-engine.test.js` 新增「moving 数学契约」求值断言（t=0 居中、幅度扫描、周期回原点、禁止 cos 回退）+ 字符串断言更新为双轴 sin；真实 ffmpeg 40s 冒烟抽取 t=0/15/35 帧验证起点居中与不出画布。
+- 文案：`locales` movingHint（zh/en 成对）与 `CreateView.vue` 回退文本更新为「水印从画面中心附近开始，沿正弦轨迹缓慢游走」。
+- 文档：`01-docs/PRD-video-creation.md` 3.1.24 表格/语义段落修正 + 新增 3.1.38 详细契约；`01-docs/learnings.md` 新增三角函数初值 QM-5 复盘；`01-docs/product-manual.md` 水印说明同步。
+
 ## [未发布] feat(model-selector): 桌面端用户默认模型 ID 下拉选择 + 运营中心模型种子自动填充
 
 - 双默认模型 ID：运营预设 `default_model`（运营中心设置、目录同步下发、全用户共享）+ 用户自选 `user_default_model`（桌面端本地、不下发）；用户未设置时回退运营预设。
@@ -16,6 +29,7 @@
 - 桌面端模型设置页（ModelProviders.vue）：供应商模型列表一律只读（模型集合唯一维护入口在运营中心）；新增/编辑对话框增加「默认模型」`el-select` 下拉（可清空 = 跟随运营默认）；卡片显示「当前默认模型」（effectiveDefaultModel 与调用解析一致）；locales zh/en 成对新增 5 组文案。
 - ops-center：`ensure_catalog_seeded` 对静态种子为空/仅种子且 base_url 官方默认的行 best-effort 自动 fetch 回填模型列表（`OPS_PRESET_SEED_FETCH_ENABLED=0` 可关）；预设模型页新增「批量获取模型 ID」按钮（串行逐条 fetch + 保存，失败汇总提示）。
 - 测试：桌面端 6 文件 363 tests（resolve-default 12 新用例）、前端 useModelProviderCrud 54 tests、ops-center pytest 40 tests 全绿；桌面端与 ops-center 前端 build 通过。
+
 ## [未发布] test(story2video): 补 BATCH_DELETE_SUCCESS 插值回归测试
 
 - 新增：独立回归测试锁定 `story2video-notifications.js` 的 `BATCH_DELETE_SUCCESS` `{count}` 插值（修复于 `492a2246c`），防止空占位符 Toast 复发；覆盖 `BATCH_DELETE_SUCCESS`（zh/en 双 locale、空占位符断言）、`BATCH_DELETE_PARTIAL`、`BATCH_DELETE_CONFIRM` 计数插值。

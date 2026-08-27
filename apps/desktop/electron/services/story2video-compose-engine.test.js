@@ -250,14 +250,54 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
       expect(center).not.toContain('(h+text_h)/2')
     })
 
-    it('moving 为确定性 Lissajous 漂移：sin/cos、无 random、无逗号、起点居中', () => {
+    it('moving 为确定性 Lissajous 漂移：双轴 sin、无 random、无逗号、起点居中', () => {
       const filter = buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'moving' } })
       // 回归：用户反馈漂移过快，周期放大 10 倍（x 100s / y 140s，速度约为原 1/10）
       expect(filter).toContain(":x='(w-text_w)/2*(1+0.9*sin(2*PI*t/100))'")
-      expect(filter).toContain(":y='(h-text_h)/2*(1+0.9*cos(2*PI*t/140))'")
+      // 回归（2026-08-27）：y 曾用 cos(2*PI*t/140) —— cos(0)=1 使 t=0 起点在底部 95%，短视频全程滞留下半区
+      // （用户反馈「水印只在底部移动」）；改为 sin（sin(0)=0）起点居中，周期/幅度不变。
+      expect(filter).toContain(":y='(h-text_h)/2*(1+0.9*sin(2*PI*t/140))'")
+      expect(filter).not.toContain('cos(2*PI*t/140)')
       expect(filter).not.toContain('random(')
       const expr = filter.slice(filter.indexOf(':x='))
       expect(expr).not.toContain(',')
+    })
+
+    // drawtext 表达式求值器（测试专用）：表达式来自 buildWatermarkFilter 的白名单字面量，非用户输入。
+    // 仅覆盖 sin/cos/PI/四则运算；若未来表达式引入 ffmpeg 特有运算符（lt/if/mod 等），此代理将失效，需同步更新。
+    function evalDrawtextExpr (expr, { t, w, h, textW, textH }) {
+      const fn = new Function('t', 'w', 'h', 'text_w', 'text_h', 'PI', 'sin', 'cos',
+        'return (' + expr + ')')
+      return fn(t, w, h, textW, textH, Math.PI, Math.sin, Math.cos)
+    }
+
+    it('moving 数学契约：t=0 起点居中、0.9 幅度不越界、周期 100/140、确定性', () => {
+      const filter = buildWatermarkFilter({ ...base, watermark: { ...base.watermark, position: 'moving' } })
+      const xExpr = filter.match(/:x='([^']+)'/)?.[1]
+      const yExpr = filter.match(/:y='([^']+)'/)?.[1]
+      // 显式守卫：表达式未提取到时给出可诊断失败而非晦涩 TypeError
+      expect(xExpr).toBeTruthy()
+      expect(yExpr).toBeTruthy()
+      const frame = { t: 0, w: 1920, h: 1080, textW: 100, textH: 40 }
+      // 起点：t=0 时 x/y 均居中（旧 y=cos 在 t=0 为 0.95*(h-text_h)=988，该断言必然拦截回归）
+      expect(evalDrawtextExpr(xExpr, frame)).toBeCloseTo((1920 - 100) / 2, 6)
+      expect(evalDrawtextExpr(yExpr, frame)).toBeCloseTo((1080 - 40) / 2, 6)
+      // 幅度：任意 t 坐标占自由空间 [0.05, 0.95]（不越界拖尾）
+      for (let t = 0; t <= 700; t += 5) {
+        const x = evalDrawtextExpr(xExpr, { ...frame, t }) / (1920 - 100)
+        const y = evalDrawtextExpr(yExpr, { ...frame, t }) / (1080 - 40)
+        expect(x).toBeGreaterThanOrEqual(0.05 - 1e-9)
+        expect(x).toBeLessThanOrEqual(0.95 + 1e-9)
+        expect(y).toBeGreaterThanOrEqual(0.05 - 1e-9)
+        expect(y).toBeLessThanOrEqual(0.95 + 1e-9)
+      }
+      // 峰值：x 在 25s（100s 周期 + 90° 相位）、y 在 35s（140s 周期 + 90° 相位）直达 0.95 边界
+      // （周期若漂移到 100/140 的约数如 /50、/70，「回原点」断言依然成立，峰值断言将其独立锁死）
+      expect(evalDrawtextExpr(xExpr, { ...frame, t: 25 })).toBeCloseTo(0.95 * (1920 - 100), 6)
+      expect(evalDrawtextExpr(yExpr, { ...frame, t: 35 })).toBeCloseTo(0.95 * (1080 - 40), 6)
+      // 周期：x 100s / y 140s 各自回到起点（确定性 Lissajous 可复现）
+      expect(evalDrawtextExpr(xExpr, { ...frame, t: 100 })).toBeCloseTo(evalDrawtextExpr(xExpr, frame), 6)
+      expect(evalDrawtextExpr(yExpr, { ...frame, t: 140 })).toBeCloseTo(evalDrawtextExpr(yExpr, frame), 6)
     })
 
     it('未知位置 fail-closed 到默认 bottom-right（修复后表达式）', () => {

@@ -1,0 +1,16 @@
+{
+  "id": "fix-watermark-drift-center",
+  "title": "故事讲述流水线水印平滑漂移仅限底部区域，应改为从画面中心附近起始",
+  "status": "completed",
+  "completedAt": "2026-08-27T15:25:00+08:00",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "video-pipeline",
+  "currentPhase": "completed",
+  "nextAction": "已归档；PR #1194 已合并（54a3036e4）",
+  "createdAt": "2026-08-27T00:00:00Z",
+  "branch": "codex/fix-watermark-drift-center",
+  "openspecChange": "openspec/changes/archive/2026-08-27-fix-watermark-drift-start-center",
+  "remoteStatus": "merged",
+  "remoteRef": "https://github.com/Colinchiu007/Multi-Publish/pull/1194"
+}
