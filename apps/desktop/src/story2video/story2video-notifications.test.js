@@ -346,3 +346,51 @@ describe('Story2Video notification messages', () => {
     expect(result.messageKey).not.toBe(STORY2VIDEO_NOTIFICATION_KEYS.QUOTA_EXCEEDED)
   })
 })
+
+describe('Story2Video batch-delete notification interpolation (BATCH_DELETE_SUCCESS regression)', () => {
+  // Regression guard: story2video-notifications.js normalizeParams once omitted
+  // BATCH_DELETE_SUCCESS from the {count}/{success}/{failed} interpolation branch, so the
+  // success toast rendered with an empty count. Fixed in commit 492a2246c. This suite
+  // locks the interpolation so the bug cannot resurface.
+  it('BATCH_DELETE_SUCCESS interpolates count into the success toast (no empty placeholder)', () => {
+    const result = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_SUCCESS,
+      messageParams: { count: 3, success: 3, failed: 0 },
+    })
+    expect(result.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_SUCCESS)
+    expect(result.message).toContain('3')
+    // Empty interpolation would leave a double space where the count should be.
+    expect(result.message).not.toContain('  ')
+    expect(result.message).not.toMatch(/\d\s{2,}/)
+  })
+
+  it('BATCH_DELETE_SUCCESS interpolates count under both zh and en', () => {
+    const zh = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_SUCCESS,
+      messageParams: { count: 5, success: 5, failed: 0 },
+    }, 'zh')
+    const en = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_SUCCESS,
+      messageParams: { count: 5, success: 5, failed: 0 },
+    }, 'en')
+    expect(zh.message).toContain('5')
+    expect(en.message).toContain('5')
+  })
+
+  it('BATCH_DELETE_PARTIAL interpolates both success and failed', () => {
+    const result = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_PARTIAL,
+      messageParams: { count: 3, success: 2, failed: 1 },
+    })
+    expect(result.message).toContain('2')
+    expect(result.message).toContain('1')
+  })
+
+  it('BATCH_DELETE_CONFIRM interpolates count', () => {
+    const result = formatStory2VideoNotification({
+      messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_CONFIRM,
+      messageParams: { count: 4 },
+    })
+    expect(result.message).toContain('4')
+  })
+})

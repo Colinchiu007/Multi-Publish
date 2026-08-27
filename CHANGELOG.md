@@ -1,3 +1,8 @@
+## [未发布] test(story2video): 补 BATCH_DELETE_SUCCESS 插值回归测试
+
+- 新增：独立回归测试锁定 `story2video-notifications.js` 的 `BATCH_DELETE_SUCCESS` `{count}` 插值（修复于 `492a2246c`），防止空占位符 Toast 复发；覆盖 `BATCH_DELETE_SUCCESS`（zh/en 双 locale、空占位符断言）、`BATCH_DELETE_PARTIAL`、`BATCH_DELETE_CONFIRM` 计数插值。
+- 测试：`story2video-notifications.test.js` 新增 4 条用例，相关套件 42/42 通过。
+
 ## [未发布] feat(ops-center): 模型预设「获取模型ID URL」白名单扩展至 24 项 + 解析器字段增强
 
 - `OFFICIAL_MODELS_URLS` 官方 Models 列表端点白名单由 4 项扩展至 24 项，覆盖 OpenAI 系（openai/openai-tts/dall-e/whisper 共用 `/v1/models`）、Gemini 系（gemini/imagen/veo 共用 `/v1beta/models`）、xAI（grok-image/grok-video）、recraft、opencode-go、agnes-*、sensenova-llm、cogvideo、minimax-*、elevenlabs、ollama（本地 `/api/tags`）；预设目录对应行预填官方 `models_url`（可编辑）。
