@@ -1,12 +1,1 @@
-{
-  "id": "member-center-avatar-entry",
-  "title": "会员中心功能分析 + 左上角用户头像入口（含未登录弹窗排查）",
-  "status": "in_progress",
-  "complexity": "L",
-  "risk": "medium",
-  "domain": "desktop-frontend",
-  "currentPhase": "planning",
-  "nextAction": "创建 worktree 并实现 M1-M4",
-  "createdAt": "2026-08-27T08:00:00Z",
-  "branch": "codex/member-center-avatar-entry"
-}
+{  "id": "member-center-avatar-entry",  "title": "桌面端会员中心 + 左上角头像账号入口（未登录直登、已登录菜单）+「更多/身份菜单」入口",  "status": "in_progress",  "complexity": "M",  "risk": "medium",  "domain": "frontend-desktop",  "currentPhase": "documentation",  "nextAction": "提交推送合并",  "createdAt": "2026-08-27T00:00:00Z",  "branch": "codex/member-center-avatar-entry"}
