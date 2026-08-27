@@ -1,0 +1,12 @@
+{
+  "id": "prd-model-default-logic",
+  "title": "PRD 补充模型默认选择逻辑分工（供应商级默认 vs 模型ID默认）",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "docs",
+  "currentPhase": "implementation",
+  "nextAction": "提交文档变更",
+  "createdAt": "2026-08-27T12:40:00Z",
+  "branch": "main"
+}
