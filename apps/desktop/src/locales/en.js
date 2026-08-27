@@ -128,7 +128,7 @@ export default {
         positionBottomLeft: 'Bottom left',
         positionBottomRight: 'Bottom right',
         positionMoving: 'Moving (smooth drift)',
-        movingHint: '"Moving" is a smooth looping drift along a sine path — designed to avoid the flicker of per-frame random motion.',
+        movingHint: '"Moving" is a smooth looping drift: the watermark starts near the center and wanders along a sine path — designed to avoid the flicker of per-frame random motion.',
         fontSizeLabel: 'Watermark size',
         fontSizeHint: 'Larger sizes are more prominent; 24-40 recommended.',
         opacityLabel: 'Watermark opacity',

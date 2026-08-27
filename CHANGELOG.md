@@ -1,3 +1,10 @@
+## [未发布] fix(story2video): 水印「移动」漂移起点改为画面中心附近（fix-watermark-drift-center）
+
+- 修复 moving 位置 y 轴表达式 `cos(2*PI*t/140)` → `sin(2*PI*t/140)`：`cos(0)=1` 使 t=0 起点在底部 95% 处，短视频（10-40s）全程滞留下半区（用户反馈「水印只在画面底部区域移动」）；双轴同用 sin 后 t=0 从画面正中起步，周期（x 100s / y 140s）、0.9 幅度边界（任意 t 坐标 ∈[0.05,0.95] 自由空间）、确定性 Lissajous 属性全部不变。
+- 回归保护：`story2video-compose-engine.test.js` 新增「moving 数学契约」求值断言（t=0 居中、幅度扫描、周期回原点、禁止 cos 回退）+ 字符串断言更新为双轴 sin；真实 ffmpeg 40s 冒烟抽取 t=0/15/35 帧验证起点居中与不出画布。
+- 文案：`locales` movingHint（zh/en 成对）与 `CreateView.vue` 回退文本更新为「水印从画面中心附近开始，沿正弦轨迹缓慢游走」。
+- 文档：`01-docs/PRD-video-creation.md` 3.1.24 表格/语义段落修正 + 新增 3.1.38 详细契约；`01-docs/learnings.md` 新增三角函数初值 QM-5 复盘；`01-docs/product-manual.md` 水印说明同步。
+
 ## [未发布] test(story2video): 补 BATCH_DELETE_SUCCESS 插值回归测试
 
 - 新增：独立回归测试锁定 `story2video-notifications.js` 的 `BATCH_DELETE_SUCCESS` `{count}` 插值（修复于 `492a2246c`），防止空占位符 Toast 复发；覆盖 `BATCH_DELETE_SUCCESS`（zh/en 双 locale、空占位符断言）、`BATCH_DELETE_PARTIAL`、`BATCH_DELETE_CONFIRM` 计数插值。
