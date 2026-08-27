@@ -1,3 +1,9 @@
+## [未发布] feat(observability): 账号管理/内容发布 IPC 详细日志
+
+- publish.js 13 个 handler（cover:extract/crop/read-data、publish:wechat/batch、queue:status/history/cancel/retry、history:list/get/delete、dashboard:stats）统一加 enter/ok/error/validation-failed 结构化日志（模块 PublishIPC），含平台、账号、taskId、耗时、结果码。
+- account.js 10 个 handler（accounts:list、auth:open-login/login-silent/complete-login/close、account:add/delete/check-login/set-proxy/list）统一加详细日志（模块 AccountIPC），含平台/账号/耗时，敏感字段脱敏。
+- 回归测试：publish-account-logging.test.js 8 用例（发布 4 + 账号 4，验证日志调用与关键内容）。
+
 
 ## [未发布] fix(story2video): 水印「移动」漂移起点改为画面中心附近（fix-watermark-drift-center）
 
@@ -5,6 +11,7 @@
 - 回归保护：`story2video-compose-engine.test.js` 新增「moving 数学契约」求值断言（t=0 居中、幅度扫描、周期回原点、禁止 cos 回退）+ 字符串断言更新为双轴 sin；真实 ffmpeg 40s 冒烟抽取 t=0/15/35 帧验证起点居中与不出画布。
 - 文案：`locales` movingHint（zh/en 成对）与 `CreateView.vue` 回退文本更新为「水印从画面中心附近开始，沿正弦轨迹缓慢游走」。
 - 文档：`01-docs/PRD-video-creation.md` 3.1.24 表格/语义段落修正 + 新增 3.1.38 详细契约；`01-docs/learnings.md` 新增三角函数初值 QM-5 复盘；`01-docs/product-manual.md` 水印说明同步。
+
 
 ## [未发布] feat(model-selector): 桌面端用户默认模型 ID 下拉选择 + 运营中心模型种子自动填充
 
@@ -19,6 +26,7 @@
 
 - 新增：独立回归测试锁定 `story2video-notifications.js` 的 `BATCH_DELETE_SUCCESS` `{count}` 插值（修复于 `492a2246c`），防止空占位符 Toast 复发；覆盖 `BATCH_DELETE_SUCCESS`（zh/en 双 locale、空占位符断言）、`BATCH_DELETE_PARTIAL`、`BATCH_DELETE_CONFIRM` 计数插值。
 - 测试：`story2video-notifications.test.js` 新增 4 条用例，相关套件 42/42 通过。
+
 
 ## [未发布] feat(ops-center): 模型预设「获取模型ID URL」白名单扩展至 24 项 + 解析器字段增强
 
