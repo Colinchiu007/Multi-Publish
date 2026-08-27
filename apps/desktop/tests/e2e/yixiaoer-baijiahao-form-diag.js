@@ -58,7 +58,20 @@ async function run() {
     const windows = app.windows()
     const bjPage = windows[windows.length - 1]
 
-    // 完整表单元素 dump
+    // 上传视频（模拟 RPA CDP 上传：file input 设置 D:/01.mp4）
+    const VIDEO = 'D:\\01.mp4'
+    check('视频存在', require('node:fs').existsSync(VIDEO), VIDEO)
+    if (require('node:fs').existsSync(VIDEO)) {
+      const uploadInput = bjPage.locator('input[type="file"]').first()
+      const fcPromise = bjPage.waitForEvent('filechooser', { timeout: 10000 }).catch(() => null)
+      await bjPage.evaluate(() => { const i = document.querySelector('input[type="file"]'); if (i) i.click() }).catch(() => {})
+      const fc = await fcPromise
+      if (fc) { await fc.setFiles(VIDEO); check('视频上传触发', true) } else { check('视频上传触发', false, 'filechooser 不可用'); }
+      // 等待上传完成（预览/编辑器出现）
+      await sleep(15000)
+    }
+
+    // 完整表单元素 dump（上传后状态，含"用户须知"等发布校验字段）
     const dump = await bjPage.evaluate(() => {
       const out = { inputs: [], textareas: [], contenteditables: [], buttons: [], bodyText: (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 1500) }
       document.querySelectorAll('input').forEach((i) => {

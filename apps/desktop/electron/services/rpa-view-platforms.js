@@ -442,6 +442,22 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         log.info('RpaView', '[baijiahao] prep screenshot saved: ' + shotPath)
       }
     } catch (_) { /* 截图失败不阻塞 */ }
+
+    // 位置选择：百家号视频发布必填「位置」（id=my-position），点击后选择"全国"
+    try {
+      const posResult = await win.webContents.executeJavaScript('(function(){var el=document.querySelector("#my-position");if(!el)return "NO_INPUT";if(el.value&&el.value.trim())return "ALREADY:"+el.value;el.click();el.focus();return "OPENED"})()')
+      if (posResult === 'OPENED') {
+        await this._sleep(1500)
+        const chosen = await win.webContents.executeJavaScript('(function(){var opts=["全国","全部","不设置","不限"];for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll("[class*=option],[class*=Option],[class*=dropdown],[class*=Dropdown],[class*=select] li,li,[role=option]")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k]}}}var any=[...document.querySelectorAll("[role=option],li,[class*=option]")].filter(function(e){var t=(e.innerText||"").trim();return t&&t.length<10&&e.children.length===0});if(any.length){any[0].click();return {ok:true,option:any[0].innerText.trim()}}return {ok:false}})()')
+        await this._sleep(1200)
+        const confirmBtn = await win.webContents.executeJavaScript('(function(){var btns=[...document.querySelectorAll("button")].filter(function(e){var t=(e.innerText||"").trim();return (t==="确定"||t==="确认")&&e.children.length===0});if(btns.length){btns[btns.length-1].click();return true}return false})()')
+        log.info('RpaView', '[baijiahao] position select: ' + JSON.stringify(chosen) + ' confirm=' + confirmBtn)
+        await this._sleep(1200)
+      } else {
+        log.info('RpaView', '[baijiahao] position select: ' + String(posResult))
+      }
+    } catch (e) { log.warn('RpaView', 'baijiahao position select: ' + e.message) }
+
     return { state, option: selectedValue }
   },
 
