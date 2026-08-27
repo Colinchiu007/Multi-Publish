@@ -41,3 +41,16 @@
 - 片段无字水印预览/中间产物语义变化：片段文件不再含 moving 水印，检查是否有下游依赖片段内水印（历史恢复/缩略图/中途产物展示）；如有，需在片段保留静态水印或调整消费方。
 - 回归面：既有断言「片段 filter 含水印」数量多，按位置分列修改需仔细；双模型审查 + QM-1 打包 + 真实 ffmpeg 冒烟为强制门禁。
 - 多镜头连续漂移会改变用户可见行为（更平滑），与 PRD 3.1.38「每镜头回到中心」描述冲突，需同步更新 PRD/product-manual（文档随本 change 修正）。
+
+## 实施记录（2026-08-28，实测定案）
+
+**实现要点**（与 Decisions 一致，无偏差）：
+- 注入跳过：`_encodeSegmentOnce` / `_encodeVideoSegmentOnce` 两处 `if (watermarkFilter && watermarkPosition !== "moving")`（video stop-at-end 的 overlayFilters 继承 filters 自然不含 moving drawtext）。
+- 后置阶段：compose 在 narration（89）之后插入 `phase:"watermark"`/percent 90（bgm 92 前置条件：BGM `-c:v copy`，水印必须在 BGM 前烧录）；新方法 `_burnMovingWatermark`：`-vf` 整片时间轴 drawtext（与 buildWatermarkFilter moving 表达式逐字一致）+ 视频 libx264 crf 18 全量重编码 + **音频 `-map 0:a:0?` + `-c:a copy` 不重编码**。
+- 触发条件：仅 `position === "moving" && enabled && text 非空`；单镜头成片不触发（单镜头 t 成片=片段，无跳变问题，保留片段内嵌路径零额外编码）。
+
+**冒烟实测（2×30s 成片，1280x720/30fps，本机 ffmpeg 7.1）**：
+- 进度序列：preflight:0 → validated:3 → segments:3/39/75 → concat:87 → narration:89 → watermark:90 → verify:98 → done:100（单调 ✓）
+- 水印位置（rawvideo 像素簇中心）：t=0.5 → (656, 366.5)（画布中心 640,360 ✓ 起点居中）；t=29.5 → (1167.5, 664.5)；t=30.5 → (1156.5, 668.0)；切点漂移 Δy=3.5px / Δx=11px（旧片段内嵌会跳 ~650px，spec 场景 1 ✓）；0.5→29.5s 行程 Δy=298px 证明 Lissajous 全轨迹非粘连。
+- 音频：输出含 aac 音频流（`-map 0:a:0?` 修复前实测丢流，已固化断言防回退）。
+- 耗时（进度时间戳）：watermark 阶段 90@19859ms → verify@25826ms ≈ **5.97s ≈ 6s**（59.6s 成片，约 10x 实时）；总 compose 27.1s。**回退判定：不触发**——60s 成片仅 +6s，5 分钟成片预计 +30-40s，xfade 超时 profile（max(2min, 时长×3+2min)）宽裕；无需回退输出级 filter 方案。

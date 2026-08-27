@@ -5,8 +5,8 @@
   "complexity": "M",
   "risk": "medium",
   "domain": "video-pipeline",
-  "currentPhase": "planning",
-  "nextAction": "规划工件已完成；待排期在 codex/ 分支实现（先确认片段内水印下游消费与进度分母）",
+  "currentPhase": "review",
+  "nextAction": "实现+测试+冒烟 PASS（146+286 全绿，ffmpeg 实测切点 Δy=3.5px）；待双模型审查 + QM-1 打包 + 推送合并 + 归档",
   "createdAt": "2026-08-27T15:40:00+08:00",
   "branch": "main",
   "openspecChange": "openspec/changes/watermark-cross-segment-continuous-drift"

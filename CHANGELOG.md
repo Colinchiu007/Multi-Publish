@@ -1,3 +1,12 @@
+## [未发布] fix(story2video): 移动水印跨镜头连续漂移（成片级统一烧录）
+
+- moving 水印渲染从「片段内内嵌」提升为「xfade 合并后成片级统一烧录」：drawtext 使用成片全局时间轴，多镜头切换处不再回到画面中心（消除「中心吸附」跳变），跨镜头连续漂移；起点仍从画面中心附近开始（sin(0)=0 契约不变）。
+- 片段层（image/video 两路径含 stop-at-end overlayFilters）在 position=moving 时跳过内嵌注入；静态位置（四角/居中）保持片段内嵌，零额外编码。
+- 新增 compose 阶段 phase:'watermark'/percent 90（narration 89 与 bgm 92 之间），进度序列 87→89→90→92→95→98→100 单调；FFMPEG_STAGE_TIMEOUT_PROFILES 新增 watermark 条目（复用 xfade 量级，实测 60s 成片水印阶段约 6s，约 10x 实时）。
+- 烧录命令视频轨 libx264 crf 18 全量重编码、音频轨 `-map 0:a:0?` + `-c:a copy` 不重编码（显式 -map 不映射音频会丢流，冒烟实测修复 + 断言固化）。
+- 回归保护：compose-engine 新增 6 用例（枚举/去字×2/后置命令/静态不进/未启用不进），引擎全量 146 + 相邻套件 286 用例全绿；真实 ffmpeg 冒烟 2×30s 成片切点帧对比（29.5→30.5s Δy=3.5px，旧实现跳 ~650px）。
+- 文档：PRD-video-creation 新增 3.1.39 全契约 + 3.1.38 多镜头句升级引用；product-manual 13.1.1.1 同步；openspec watermark-cross-segment-continuous-drift 四件套。
+
 ## [未发布] feat(observability): 账号管理/内容发布 IPC 详细日志
 
 - publish.js 13 个 handler（cover:extract/crop/read-data、publish:wechat/batch、queue:status/history/cancel/retry、history:list/get/delete、dashboard:stats）统一加 enter/ok/error/validation-failed 结构化日志（模块 PublishIPC），含平台、账号、taskId、耗时、结果码。

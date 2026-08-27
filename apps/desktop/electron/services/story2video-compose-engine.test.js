@@ -13,6 +13,7 @@ const {
   Story2VideoComposeEngine,
   findFfmpeg,
   findFfprobe,
+  KNOWN_COMPOSE_PHASES,
   normalizeComposeProgressUpdate,
   countChunkedMergeChunks,
   buildTransitionPlan,
@@ -521,6 +522,7 @@ describe('Story2VideoComposeEngine 资源与效果契约', () => {
     fs.writeFileSync(audio, Buffer.from('audio'))
     const engine = new Story2VideoComposeEngine({
       outputDir: root,
+      allowedMediaRoots: [root],
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })
     const segmentCalls = []
@@ -2692,6 +2694,246 @@ describe('Story2VideoComposeEngine 混合片段（AI 视频 + 图片轮播，202
       expect(result.message).toMatch(/not allowed or unreadable/)
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('moving 水印后置烧录（成片级时间轴，跨镜头连续漂移）', () => {
+  function makeWmEngine () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 's2v-wm-post-'))
+    const engine = new Story2VideoComposeEngine({
+      outputDir: root,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })
+    engine._runFfmpegStage = vi.fn(async (_args, _options, details) => {
+      // 后置烧录真实语义：写出产物，供 compose 末尾 hasUsableFile(composedPath) 校验；
+      // 其余阶段保持 mock，不触碰磁盘
+      if (details?.stage === 'watermark' || details?.stage === 'bgm') {
+        const outputArg = _args[_args.length - 1]
+        if (typeof outputArg === 'string' && outputArg.toLowerCase().endsWith('.mp4')) {
+          fs.writeFileSync(outputArg, Buffer.from('watermarked'))
+        }
+      }
+      return { stderr: '' }
+    })
+    engine._requireFfmpegOutput = vi.fn()
+    // compose 会真实校验媒体文件存在性与白名单（resolveReadableMediaFile），必须预建 fixture
+    const aImage = writeFixture(root, 'a.jpg')
+    const aAudio = writeFixture(root, 'a.mp3')
+    const bImage = writeFixture(root, 'b.jpg')
+    const bAudio = writeFixture(root, 'b.mp3')
+    return { engine, root, aImage, aAudio, bImage, bAudio }
+  }
+
+  const movingConfig = { enabled: true, text: '品牌', position: 'moving', opacity: 0.6, fontSize: 24 }
+
+  it('KNOWN_COMPOSE_PHASES 包含 watermark 且 normalizeComposeProgressUpdate 透传', () => {
+    expect(KNOWN_COMPOSE_PHASES).toContain('watermark')
+    const normalized = normalizeComposeProgressUpdate({
+      phase: 'watermark', percent: 90, segmentsDone: 2, segmentsTotal: 2, message: '正在烧录移动水印',
+    })
+    expect(normalized).toMatchObject({ phase: 'watermark', percent: 90, segmentsDone: 2, segmentsTotal: 2 })
+  })
+
+  it('image 片段：moving 水印不内嵌 drawtext（后置烧录），静态位置仍内嵌', async () => {
+    const { engine, root } = makeWmEngine()
+    const base = {
+      width: 320, height: 180, fps: 24, effectDuration: 4, imageEffect: 'none',
+      subtitleText: '', subtitleTimeline: [], subtitleStyle: undefined,
+      transition: 'none', composeId: 't', sceneIndex: 0,
+    }
+    try {
+      await engine._encodeSegmentOnce('img.jpg', 'aud.mp3', path.join(root, 'seg1.mp4'), {
+        ...base, watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig }, sceneTotal: 2,
+      })
+      expect(engine._runFfmpegStage.mock.calls[0][0].join(' ')).not.toContain("drawtext=text='品牌'")
+      await engine._encodeSegmentOnce('img.jpg', 'aud.mp3', path.join(root, 'seg2.mp4'), {
+        ...base, watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig, position: 'bottom-right' }, sceneTotal: 2,
+      })
+      expect(engine._runFfmpegStage.mock.calls[1][0].join(' ')).toContain("drawtext=text='品牌'")
+      // 单镜头（sceneTotal<=1）moving：保持片段内嵌，零额外编码
+      await engine._encodeSegmentOnce('img.jpg', 'aud.mp3', path.join(root, 'seg0.mp4'), {
+        ...base, watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig }, sceneTotal: 1,
+      })
+      expect(engine._runFfmpegStage.mock.calls[2][0].join(' ')).toContain("drawtext=text='品牌'")
+    } finally {
+      fs.rmSync(engine.outputDir, { recursive: true, force: true })
+    }
+  })
+
+  it('video 片段：moving 水印不内嵌 drawtext（后置烧录），静态位置仍内嵌', async () => {
+    const { engine, root } = makeWmEngine()
+    const base = {
+      width: 320, height: 180, fps: 24, effectDuration: 4, duration: null, audioDuration: 4,
+      videoMode: 'fixed', padTo: null, shortVideoHandling: 'loop',
+      subtitleText: '', subtitleTimeline: [], subtitleStyle: undefined,
+      transition: 'none', voiceVolume: 1, composeId: 't', sceneIndex: 0,
+    }
+    try {
+      await engine._encodeVideoSegmentOnce('video.mp4', 'aud.mp3', path.join(root, 'seg1.mp4'), {
+        ...base, watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig }, sceneTotal: 2,
+      })
+      expect(engine._runFfmpegStage.mock.calls[0][0].join(' ')).not.toContain("drawtext=text='品牌'")
+      await engine._encodeVideoSegmentOnce('video.mp4', 'aud.mp3', path.join(root, 'seg2.mp4'), {
+        ...base, watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig, position: 'bottom-right' }, sceneTotal: 2,
+      })
+      expect(engine._runFfmpegStage.mock.calls[1][0].join(' ')).toContain("drawtext=text='品牌'")
+      // 单镜头（sceneTotal<=1）moving：保持片段内嵌，零额外编码
+      await engine._encodeVideoSegmentOnce('video.mp4', 'aud.mp3', path.join(root, 'seg0.mp4'), {
+        ...base, watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig }, sceneTotal: 1,
+      })
+      expect(engine._runFfmpegStage.mock.calls[2][0].join(' ')).toContain("drawtext=text='品牌'")
+    } finally {
+      fs.rmSync(engine.outputDir, { recursive: true, force: true })
+    }
+  })
+
+  it('compose moving 多镜头：新增 watermark 阶段（percent 90），后置命令为整片时间轴的 sin 漂移且音频 copy', async () => {
+    const { engine, root, aImage, aAudio, bImage, bAudio } = makeWmEngine()
+    engine._createSegment = vi.fn(async (_image, _audio, output) => { fs.writeFileSync(output, Buffer.from('seg')) })
+    engine._concatSegments = vi.fn(async (_segs, output) => { fs.writeFileSync(output, Buffer.from('video')) })
+    engine._concatNarrationAudio = vi.fn(async (_audios, output) => { fs.writeFileSync(output, Buffer.from('narration')) })
+    engine._validateOutput = vi.fn(async () => {})
+
+    const progress = []
+    try {
+      const result = await engine.compose({
+        scenes: [
+          { index: 0, imagePath: aImage, audioPath: aAudio, duration: 2 },
+          { index: 1, imagePath: bImage, audioPath: bAudio, duration: 2 },
+        ],
+        images: [], audio: [],
+      }, {
+        watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig },
+        validateOutput: false,
+      }, (update) => progress.push(update))
+
+      expect(result.code).toBe(0)
+      // 进度：narration 89 → watermark 90 单调推进，且消息为烧录文案
+      const wmProgress = progress.find((u) => u.phase === 'watermark')
+      expect(wmProgress).toMatchObject({ percent: 90 })
+      const percentSeq = progress.map((u) => u.percent)
+      const idxNarration = percentSeq.indexOf(89)
+      const idxWatermark = percentSeq.indexOf(90)
+      expect(idxWatermark).toBeGreaterThan(idxNarration)
+
+      // 后置命令：stage watermark；-vf 为整片时间轴 moving 表达式；音频流复制不重编码
+      const wmCall = engine._runFfmpegStage.mock.calls.find((call) => call[2]?.stage === 'watermark')
+      expect(wmCall).toBeTruthy()
+      const args = wmCall[0]
+      const joined = args.join(' ')
+      expect(joined).toContain("drawtext=text='品牌'")
+      // 滤镜整串无逗号（防滤镜链切分）
+      const vfArg = args[args.indexOf('-vf') + 1]
+      expect(vfArg).not.toContain(',')
+      // 单一来源：后置滤镜串与 buildWatermarkFilter(moving) 输出完全一致（防双份数学/样式漂移）
+      expect(vfArg).toBe(buildWatermarkFilter({ watermark: movingConfig, watermarkText: '品牌' }))
+      expect(joined).toContain("(h-text_h)/2*(1+0.9*sin(2*PI*t/140))")
+      expect(args).toContain('-c:a')
+      expect(args).toContain('copy')
+      // 显式 -map 不丢音频（0:a:0? 可选映射，缺此行音频流会被整体丢弃）
+      expect(args).toContain('-map')
+      expect(args).toContain('0:a:0?')
+      // 超时复用 xfade 量级：按成片实际时长（buildTransitionPlan：首段 2s 不减，后续每段扣 0.4s → 3.6s）
+      expect(wmCall[1].timeout).toBe(computeFfmpegStageTimeoutMs('watermark', 2 + (2 - 0.4)))
+    } finally {
+      fs.rmSync(engine.outputDir, { recursive: true, force: true })
+    }
+  })
+
+  it('静态位置（bottom-right）：不进 watermark 阶段，片段内内嵌', async () => {
+    const { engine, root, aImage, aAudio, bImage, bAudio } = makeWmEngine()
+    engine._createSegment = vi.fn(async (_image, _audio, output) => { fs.writeFileSync(output, Buffer.from('seg')) })
+    engine._concatSegments = vi.fn(async (_segs, output) => { fs.writeFileSync(output, Buffer.from('video')) })
+    engine._concatNarrationAudio = vi.fn(async (_audios, output) => { fs.writeFileSync(output, Buffer.from('narration')) })
+    engine._validateOutput = vi.fn(async () => {})
+    const progress = []
+    try {
+      const result = await engine.compose({
+        scenes: [
+          { index: 0, imagePath: aImage, audioPath: aAudio, duration: 2 },
+          { index: 1, imagePath: bImage, audioPath: bAudio, duration: 2 },
+        ],
+        images: [], audio: [],
+      }, {
+        watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig, position: 'bottom-right' },
+        validateOutput: false,
+      }, (update) => progress.push(update))
+      expect(result.code).toBe(0)
+      expect(progress.some((u) => u.phase === 'watermark')).toBe(false)
+    } finally {
+      fs.rmSync(engine.outputDir, { recursive: true, force: true })
+    }
+  })
+
+  it('未启用水印：不进 watermark 阶段', async () => {
+    const { engine, root, aImage, aAudio } = makeWmEngine()
+    engine._createSegment = vi.fn(async (_image, _audio, output) => { fs.writeFileSync(output, Buffer.from('seg')) })
+    engine._concatSegments = vi.fn(async (_segs, output) => { fs.writeFileSync(output, Buffer.from('video')) })
+    engine._concatNarrationAudio = vi.fn(async (_audios, output) => { fs.writeFileSync(output, Buffer.from('narration')) })
+    engine._validateOutput = vi.fn(async () => {})
+    const progress = []
+    try {
+      const result = await engine.compose({
+        scenes: [{ index: 0, imagePath: aImage, audioPath: aAudio, duration: 2 }],
+        images: [], audio: [],
+      }, { validateOutput: false }, (update) => progress.push(update))
+      expect(result.code).toBe(0)
+      expect(progress.some((u) => u.phase === 'watermark')).toBe(false)
+    } finally {
+      fs.rmSync(engine.outputDir, { recursive: true, force: true })
+    }
+  })
+  it('单镜头 + moving：不进 watermark 阶段（零额外编码），sceneTotal=1 传递到片段编码', async () => {
+    const { engine, root, aImage, aAudio } = makeWmEngine()
+    engine._createSegment = vi.fn(async (_image, _audio, output) => { fs.writeFileSync(output, Buffer.from('seg')) })
+    engine._concatSegments = vi.fn(async (_segs, output) => { fs.writeFileSync(output, Buffer.from('video')) })
+    engine._concatNarrationAudio = vi.fn(async (_audios, output) => { fs.writeFileSync(output, Buffer.from('narration')) })
+    engine._validateOutput = vi.fn(async () => {})
+    const progress = []
+    try {
+      const result = await engine.compose({
+        scenes: [{ index: 0, imagePath: aImage, audioPath: aAudio, duration: 2 }],
+        images: [], audio: [],
+      }, {
+        watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig },
+        validateOutput: false,
+      }, (update) => progress.push(update))
+      expect(result.code).toBe(0)
+      expect(progress.some((u) => u.phase === 'watermark')).toBe(false)
+      expect(engine._createSegment.mock.calls[0][3].sceneTotal).toBe(1)
+    } finally {
+      fs.rmSync(engine.outputDir, { recursive: true, force: true })
+    }
+  })
+
+  it('moving + BGM：watermark 阶段先于 bgm 阶段（BGM -c:v copy 依赖已烧水印）', async () => {
+    const { engine, root, aImage, aAudio, bImage, bAudio } = makeWmEngine()
+    engine._createSegment = vi.fn(async (_image, _audio, output) => { fs.writeFileSync(output, Buffer.from('seg')) })
+    engine._concatSegments = vi.fn(async (_segs, output) => { fs.writeFileSync(output, Buffer.from('video')) })
+    engine._concatNarrationAudio = vi.fn(async (_audios, output) => { fs.writeFileSync(output, Buffer.from('narration')) })
+    engine._validateOutput = vi.fn(async () => {})
+    const bgmPath = writeFixture(root, 'bgm.mp3')
+    const progress = []
+    try {
+      const result = await engine.compose({
+        scenes: [
+          { index: 0, imagePath: aImage, audioPath: aAudio, duration: 2 },
+          { index: 1, imagePath: bImage, audioPath: bAudio, duration: 2 },
+        ],
+        images: [], audio: [],
+      }, {
+        watermark: true, watermarkText: '品牌', watermarkConfig: { ...movingConfig },
+        bgmPath,
+        validateOutput: false,
+      }, (update) => progress.push(update))
+      expect(result.code).toBe(0)
+      const ordered = engine._runFfmpegStage.mock.calls.filter((call) => call[2]?.stage === 'watermark' || call[2]?.stage === 'bgm')
+      expect(ordered.map((call) => call[2].stage)).toEqual(['watermark', 'bgm'])
+      const seq = progress.map((u) => u.percent)
+      expect(seq.indexOf(90)).toBeLessThan(seq.indexOf(92))
+    } finally {
+      fs.rmSync(engine.outputDir, { recursive: true, force: true })
     }
   })
 })
