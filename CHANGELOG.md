@@ -1,3 +1,7 @@
+## [未发布] docs(ops-center): .env.example 补充 OPS_ALLOW_PROXY_BENCHMARK_IPS 开关说明
+
+- `ops-center/backend/.env.example` 新增 `OPS_ALLOW_PROXY_BENCHMARK_IPS=false`（#1165 配套）：`198.18.0.0/15`（RFC 2544 基准段）在 Clash/TUN fake-ip 代理环境下用于接管公网流量，仅此类主机可开启；默认 false 保持 SSRF fail-closed，ECS/生产环境请保持关闭。
+
 ## [未发布] feat(yixiaoer-ue): 封面裁剪 Phase A（yixiaoer-ue-parity-real-publish-e2e）
 
 - 新增 `cover-cropper.js`：offscreen BrowserWindow + canvas 裁剪（rect 校验/边界收敛/等比缩放），JPEG 质量自适应二分压缩至 ≤512KB（快手限制），纯函数可单测。
