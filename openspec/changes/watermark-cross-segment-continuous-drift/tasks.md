@@ -14,17 +14,18 @@
 - [x] specs/story2video-watermark/spec.md（ADDED：成片级连续漂移、静态位置不受影响、校验快照兼容）→ `openspec validate` PASS
 - [x] design.md（方案 A：moving 后置独立 ffmpeg 命令；备选输出级 filter 记录为回退）
 
-## 规划期待办（实现前需在分支上细化，不阻塞立项）
+## 规划期待办（已全部确认，结论入 design.md）
 
-- [ ] 确认下游是否消费片段内水印（历史恢复/缩略图/中途产物展示）→ 决定片段是否保留静态占位
-- [ ] 核对 `countChunkedMergeChunks`/`_concatSegmentsChunked` 进度分母同步规则与后处理命令的进度并入
-- [ ] 核对后处理编码耗时对 maxDurationSeconds/超时预算的影响（必要时回退输出级 filter 方案）
+- [x] 确认下游是否消费片段内水印 → **无任何下游消费**（历史恢复/缩略图/中途产物展示均不依赖片段内水印），片段可安全去字
+- [x] 核对进度分母 → **`countChunkedMergeChunks` 不改**：分母只服务 87→89 分块拼接子进度；后处理为单条命令，新增 `phase:'watermark'`、percent 90 固定跳点（narration 89 与 bgm 92 之间，序列单调）
+- [x] 核对编码耗时/超时预算 → **复用 xfade 超时 profile**（factor 3，max(2min, 时长×3+2min)，注释已含 337s 成片实测论证），新增 `watermark` 条目到 `FFMPEG_STAGE_TIMEOUT_PROFILES`；保守按最低 1.5x 实时估算（60s 成片 ≈ +40s），不触发超时；不可接受时回退输出级 filter 方案
 
 ## 实现（进入分支后按 TDD 顺序执行）
 
 - [ ] 测试先行：compose-engine 用例新增/更新——「moving 片段 filter 不含 moving drawtext」「输出命令含 moving drawtext」「moving 数学契约按成片级 t 求值（跨镜头连续性：29.5s/30.5s 帧坐标连续断言方案）」
-- [ ] `story2video-compose-engine.js`：`_createSegment` image/video 两路径 moving 跳过水印注入；最终阶段独立 ffmpeg 命令叠加 moving drawtext（复用 `buildWatermarkFilter`）；配置沿 compose 参数链传递
-- [ ] 进度：后处理命令并入分块总数分母，progress 全量测试通过
+- [ ] `story2video-compose-engine.js`：`_createSegment` image/video 两路径 moving 跳过水印注入；narration 之后新增 `phase:'watermark'`/percent 90 独立 ffmpeg 命令叠加 moving drawtext（复用 `buildWatermarkFilter`）；配置沿 compose 参数链传递
+- [ ] `FFMPEG_STAGE_TIMEOUT_PROFILES` 新增 `watermark` 条目（复用 xfade：minMs 120000 / factor 3 / overhead 120000 / maxMs 6h）；输出路径链：concat 产物 → watermarked.mp4 → bgm/webm 消费
+- [ ] 进度：87→89→90→92→95→98→100 序列单调性测试 + progress 全量测试通过（`countChunkedMergeChunks` 不变）
 - [ ] 受影响断言更新：`story2video-compose-engine.test.js`、`pipeline-story2video-contract.test.js`、`story2video-compose-engine-cleanup.test.js` 及其他 `*watermark*` 相关用例
 - [ ] 真实 ffmpeg 冒烟：2 片段成片（切点 30s）抽帧断言无跳变；单镜头 t=0 居中回归
 - [ ] 文档：PRD 3.1.38 多镜头说明改「跨镜头连续漂移」；product-manual 同步；CHANGELOG 条目；learnings 补充（如适用）
