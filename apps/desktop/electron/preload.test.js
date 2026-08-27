@@ -190,10 +190,10 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 104 个键', () => {
+  it('publish 模块应导出 106 个键', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(104)
+    expect(Object.keys(r).length).toBe(106)
   })
 
   it('account 模块应导出 41 个方法', () => {
@@ -210,8 +210,8 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(144)
   })
 
-  it('合并后 api 总键数应为 297（含 videoClone 与 filmEngineering 命名空间）', () => {
-    expect(Object.keys(api).length).toBe(297)
+  it('合并后 api 总键数应为 299（含 videoClone 与 filmEngineering 命名空间）', () => {
+    expect(Object.keys(api).length).toBe(299)
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {

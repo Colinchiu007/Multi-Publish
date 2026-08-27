@@ -224,8 +224,11 @@
                       <button type="button" class="media-upload-trigger">{{ t('publishPage.selectCover') }}</button>
                       <template #tip><div class="el-upload__tip">{{ t('publishPage.coverTip') }}</div></template>
                     </el-upload>
-                    <UiButton v-if="article.video_path" variant="ghost" size="sm" @click="handleExtractVideoCover">
-                      📷 {{ t('publishPage.extractCover') }}
+<UiButton v-if="article.video_path" variant="ghost" size="sm" @click="handleExtractVideoCover">
+                      ?? {{ t('publishPage.extractCover') }}
+                    </UiButton>
+                    <UiButton v-if="article.cover_path" variant="ghost" size="sm" @click="openCoverCrop">
+                      ?? {{ t('publishPage.coverCrop.title') }}
                     </UiButton>
                   </div>
                   <UiInput v-model="article.cover_url" :placeholder="t('publishPage.coverUrlPlaceholder')" class="stack-gap-top" />
@@ -481,6 +484,13 @@
     </template>
     </template>
   </div>
+  <CoverCropDialog
+    :visible="showCoverCrop"
+    :image-path="cropSourcePath"
+    @close="showCoverCrop = false"
+    @success="onCoverCropSuccess"
+    @error="onCoverCropError"
+  />
 </template>
 
 <script setup>
@@ -506,6 +516,7 @@ import { useLicenseStore } from '@/stores/license'
 // eslint-disable-next-line no-unused-vars
 import UpgradeModal from '@/components/UpgradeModal.vue'
 import AiWriterPanel from '@/components/AiWriterPanel.vue'
+import CoverCropDialog from '@/components/CoverCropDialog.vue'
 import { usePlatformSelection } from '@/composables/usePlatformSelection'
 import { usePublishFlow } from '@/composables/usePublishFlow'
 import { useBatchPublish } from '@/composables/useBatchPublish'
@@ -658,6 +669,29 @@ function handleCoverFileRemove () {
   article.cover_file = null
   article.cover_path = ''
   coverFileList.value = []
+}
+
+const showCoverCrop = ref(false)
+const cropSourcePath = ref('')
+
+function openCoverCrop () {
+  if (!article.cover_path) return
+  cropSourcePath.value = article.cover_path
+  showCoverCrop.value = true
+}
+
+function onCoverCropSuccess (data) {
+  showCoverCrop.value = false
+  if (data?.path) {
+    article.cover_path = data.path
+    article.cover_file = { path: data.path, name: 'video-cover-crop.jpg' }
+    coverFileList.value = [{ name: 'video-cover-crop.jpg', url: data.path, path: data.path }]
+    ElMessage.success(t('publishPage.coverExtracted'))
+  }
+}
+
+function onCoverCropError (message) {
+  ElMessage.warning(message || t('publishPage.coverCrop.cropFailed'))
 }
 
 async function handleExtractVideoCover () {
@@ -894,6 +928,9 @@ defineExpose({
   replaceDiffEdits,
   activeMode,
   handleExtractVideoCover,
+  openCoverCrop,
+  onCoverCropSuccess,
+  onCoverCropError,
 })
 </script>
 

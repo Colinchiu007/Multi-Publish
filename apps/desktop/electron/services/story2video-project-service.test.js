@@ -408,6 +408,106 @@ describe('Story2VideoProjectService', () => {
     expect(store.setUserSetting).toHaveBeenCalled()
   })
 
+  it('按稳定源索引回填翻译，优先使用 compose 值并对缺失值保持 fail-open', () => {
+    const source = path.join(root, 'prompt-translation-fallback')
+    const output = writeFile(path.join(source, 'output.mp4'), 'output-video')
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_prompt_translation_fallback',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      context: {
+        compose: {
+          videoPath: output,
+          segments: [
+            { index: 9, prompt: 'prompt-nine', promptTranslation: '   ' },
+            { index: 4, prompt: 'prompt-four', promptTranslation: 'compose-译文四' },
+            { index: 12, prompt: 'prompt-twelve' },
+          ],
+        },
+        generate_assets: {
+          scenes: [
+            {
+              index: 4,
+              prompt: 'prompt-four',
+              promptTranslation: 'fallback-译文四',
+              videoPrompt: 'fallback-video-four',
+              promptOptimizationMeta: { model_used: 'model-four' },
+              selectedMaterial: 'image1',
+            },
+            {
+              index: 9,
+              prompt: 'prompt-nine',
+              promptTranslation: 'fallback-译文九',
+              videoPrompt: 'fallback-video-nine',
+              promptOptimizationMeta: { model_used: 'model-nine' },
+              selectedMaterial: 'video',
+            },
+          ],
+        },
+      },
+    })
+
+    expect(project.segments.map((segment) => ({
+      sourceIndex: segment.sourceIndex,
+      promptTranslation: segment.promptTranslation,
+      videoPrompt: segment.videoPrompt,
+      promptOptimizationMeta: segment.promptOptimizationMeta,
+      selectedMaterial: segment.selectedMaterial,
+    }))).toEqual([
+      {
+        sourceIndex: 9,
+        promptTranslation: 'fallback-译文九',
+        videoPrompt: 'fallback-video-nine',
+        promptOptimizationMeta: { model_used: 'model-nine' },
+        selectedMaterial: 'video',
+      },
+      {
+        sourceIndex: 4,
+        promptTranslation: 'compose-译文四',
+        videoPrompt: 'fallback-video-four',
+        promptOptimizationMeta: { model_used: 'model-four' },
+        selectedMaterial: 'image1',
+      },
+      {
+        sourceIndex: 12,
+        promptTranslation: null,
+        videoPrompt: null,
+        promptOptimizationMeta: null,
+        selectedMaterial: null,
+      },
+    ])
+    expect(service.getProject('run_prompt_translation_fallback').segments.map((segment) => segment.promptTranslation))
+      .toEqual(['fallback-译文九', 'compose-译文四', null])
+  })
+
+  it('旧 compose 快照缺少 index 时按同位置回填翻译', () => {
+    const source = path.join(root, 'prompt-translation-legacy-compose')
+    const output = writeFile(path.join(source, 'output.mp4'), 'output-video')
+    const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+
+    const project = service.saveRun({
+      id: 'run_prompt_translation_legacy_compose',
+      pipeline: 'story2video-compose',
+      status: 'completed',
+      context: {
+        compose: {
+          videoPath: output,
+          segments: [{ prompt: 'legacy-prompt', promptTranslation: '  ' }],
+        },
+        generate_assets: {
+          scenes: [{ index: 4, prompt: 'legacy-prompt', promptTranslation: '旧快照译文' }],
+        },
+      },
+    })
+
+    expect(project.segments[0]).toMatchObject({
+      sourceIndex: 0,
+      promptTranslation: '旧快照译文',
+    })
+  })
+
   it('重复的源分段索引不会覆盖彼此持久化后的媒体', () => {
     const source = path.join(root, 'duplicate-source')
     const imageA = writeFile(path.join(source, 'first.png'), 'first-image')

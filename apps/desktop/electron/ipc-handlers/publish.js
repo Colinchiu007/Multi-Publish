@@ -45,6 +45,40 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
   }))
 
+  // 封面裁剪：cover:crop（渲染层拖拽裁剪框后调用，主进程 offscreen canvas 编码并压缩到 maxBytes）
+  ipcMain.handle('cover:crop', withSenderCheck(async (event, payload) => {
+    try {
+      if (!payload || typeof payload !== 'object') {
+        return { code: EC.VALIDATION_ERROR, message: '缺少参数对象' }
+      }
+      const { imagePath, rect, maxBytes, outputWidth } = payload
+      if (typeof imagePath !== 'string' || !imagePath) {
+        return { code: EC.VALIDATION_ERROR, message: 'imagePath 必须为非空字符串' }
+      }
+      const { cropImageFile } = require('../services/cover-cropper')
+      const result = await cropImageFile(imagePath, { rect, maxBytes, outputWidth })
+      if (!result.ok) {
+        return { code: EC.REQUEST_ERROR, message: result.error || '封面裁剪失败' }
+      }
+      return { code: 0, data: result, message: '封面裁剪成功' }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
+  // 封面预览读取：cover:read-data（渲染层经 http 源加载，无法直接引用 file:// 图片）
+  ipcMain.handle('cover:read-data', withSenderCheck(async (event, imagePath) => {
+    try {
+      if (typeof imagePath !== 'string' || !imagePath) {
+        return { code: EC.VALIDATION_ERROR, message: 'imagePath 必须为非空字符串' }
+      }
+      const { readImageAsDataUrl } = require('../services/cover-cropper')
+      const result = readImageAsDataUrl(imagePath)
+      if (!result.ok) {
+        return { code: EC.REQUEST_ERROR, message: result.error || '封面读取失败' }
+      }
+      return { code: 0, data: result, message: '封面读取成功' }
+    } catch (e) { return { code: EC.REQUEST_ERROR, message: e.message } }
+  }))
+
   ipcMain.handle('publish:wechat', withSenderCheck(async (event, articleData) => {
     try {
       const offlineManager = require('../services/offline-manager')
