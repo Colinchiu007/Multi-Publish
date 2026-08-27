@@ -49,6 +49,7 @@ function createDefaultForm () {
     api_key: '',
     models: [],
     modelsText: '',
+    user_default_model: '',
     config: {},
   }
 }
@@ -62,6 +63,7 @@ function createEditForm (provider) {
     api_key: '',
     models: provider.models || [],
     modelsText: (provider.models || []).join(', '),
+    user_default_model: (provider.config && typeof provider.config.user_default_model === 'string' && provider.config.user_default_model) || '',
     config: provider.config || {},
   }
 }
@@ -249,6 +251,7 @@ export function useModelProviderCrud () {
         api_key: '',
         models: preset.models || [],
         modelsText: (preset.models || []).join(', '),
+        user_default_model: '',
         capabilities: Array.isArray(preset.capabilities) ? [...preset.capabilities] : [],
         // 多模态预设「支持生成视频」默认关闭：新建即持久化 capability_enabled.video=false
         config: preset.category === 'multimodal' ? { capability_enabled: { video: false } } : {},
@@ -309,6 +312,19 @@ export function useModelProviderCrud () {
         ? form.value.modelsText.split(',').map(s => s.trim()).filter(Boolean)
         : form.value.models || []
 
+      // 用户默认模型：非空必须属于该服务商模型列表；空 = 跟随运营后台预设默认（删除键）
+      const userDefaultModel = (form.value.user_default_model || '').trim()
+      const userConfig = { ...(form.value.config || {}) }
+      if (userDefaultModel) {
+        if (!models.includes(userDefaultModel)) {
+          ElMessage.warning(t('modelProviders.userDefaultModelInvalid'))
+          return
+        }
+        userConfig.user_default_model = userDefaultModel
+      } else {
+        delete userConfig.user_default_model
+      }
+
       // 深拷贝：Vue ref 嵌套对象是 reactive proxy，传给 IPC 时 structured clone 会报
       // 'An object could not be cloned'。JSON 序列化安全脱壳。
       const data = JSON.parse(JSON.stringify({
@@ -316,7 +332,7 @@ export function useModelProviderCrud () {
         category: form.value.category,
         base_url: form.value.base_url,
         models,
-        config: form.value.config || {},
+        config: userConfig,
       }))
       // API Key 留空 = 保持不变；只有填写了新 Key 才上送，避免误清除已保存的 Key
       if (form.value.api_key) data.api_key = form.value.api_key

@@ -745,4 +745,95 @@ describe('useModelProviderCrud', function () {
       expect(data.config.capability_enabled.video).toBe(true)
     })
   })
+
+  // ─── 用户默认模型（双默认语义 2026-08-27）─────────────────
+  describe('用户默认模型', function () {
+    it('openEdit 从 provider.config.user_default_model 初始化表单', async function () {
+      crud.openEdit({
+        id: 'openai', name: 'OpenAI', category: 'llm',
+        models: ['gpt-4o', 'gpt-4o-mini'],
+        config: { user_default_model: 'gpt-4o-mini', default_model: 'gpt-4o' },
+      })
+      expect(crud.form.value.user_default_model).toBe('gpt-4o-mini')
+      expect(crud.form.value.models).toEqual(['gpt-4o', 'gpt-4o-mini'])
+    })
+
+    it('openEdit 无用户默认时初始化为空（跟随运营默认）', async function () {
+      crud.openEdit({
+        id: 'openai', name: 'OpenAI', category: 'llm',
+        models: ['gpt-4o'], config: { default_model: 'gpt-4o' },
+      })
+      expect(crud.form.value.user_default_model).toBe('')
+    })
+
+    it('selectPreset 新建时 user_default_model 初始为空', async function () {
+      const { modelProviderPresets } = await import('@/api/model-providers')
+      modelProviderPresets.mockResolvedValueOnce({ code: 0, data: [{ id: 'flux', name: 'Flux', category: 'image', base_url: 'x', models: ['flux-pro'], capabilities: [] }] })
+      crud.addCategory.value = 'image'
+      await crud.loadAvailablePresets()
+      crud.selectPreset('flux')
+      expect(crud.form.value.user_default_model).toBe('')
+    })
+
+    it('submitForm 用户选择默认模型时写入 config.user_default_model（∈ models）', async function () {
+      const { modelProviderUpdate } = await import('@/api/model-providers')
+      crud.isEditing.value = true
+      crud.form.value = {
+        id: 'openai', name: 'OpenAI', category: 'llm', base_url: '',
+        api_key: '', models: ['gpt-4o', 'gpt-4o-mini'], modelsText: 'gpt-4o, gpt-4o-mini',
+        user_default_model: 'gpt-4o-mini', config: { default_model: 'gpt-4o' },
+      }
+      await crud.submitForm()
+      expect(modelProviderUpdate).toHaveBeenCalledTimes(1)
+      const [id, data] = modelProviderUpdate.mock.calls[0]
+      expect(id).toBe('openai')
+      expect(data.config.user_default_model).toBe('gpt-4o-mini')
+      expect(data.config.default_model).toBe('gpt-4o') // 运营默认保留
+    })
+
+    it('submitForm 用户默认模型不在模型列表时拦截并提示（不发请求）', async function () {
+      const { modelProviderUpdate } = await import('@/api/model-providers')
+      const { ElMessage } = await import('element-plus')
+      crud.isEditing.value = true
+      crud.form.value = {
+        id: 'openai', name: 'OpenAI', category: 'llm', base_url: '',
+        api_key: '', models: ['gpt-4o'], modelsText: 'gpt-4o',
+        user_default_model: 'gpt-4o-mini', config: {},
+      }
+      await crud.submitForm()
+      expect(ElMessage.warning).toHaveBeenCalledWith('默认模型必须属于该服务商的模型列表')
+      expect(modelProviderUpdate).not.toHaveBeenCalled()
+    })
+
+    it('submitForm 未选择默认模型时删除 config.user_default_model（跟随运营默认）', async function () {
+      const { modelProviderUpdate } = await import('@/api/model-providers')
+      crud.isEditing.value = true
+      crud.form.value = {
+        id: 'openai', name: 'OpenAI', category: 'llm', base_url: '',
+        api_key: '', models: ['gpt-4o'], modelsText: 'gpt-4o',
+        user_default_model: '', config: { user_default_model: 'gpt-4o', default_model: 'gpt-4o' },
+      }
+      await crud.submitForm()
+      expect(modelProviderUpdate).toHaveBeenCalledTimes(1)
+      const [id, data] = modelProviderUpdate.mock.calls[0]
+      expect(id).toBe('openai')
+      expect(data.config.user_default_model).toBeUndefined()
+      expect(data.config.default_model).toBe('gpt-4o')
+    })
+
+    it('新增预设保存时 config 携带 user_default_model（配置下沉路径）', async function () {
+      const { modelProviderCreate } = await import('@/api/model-providers')
+      modelProviderCreate.mockResolvedValueOnce({ code: 0 })
+      crud.isEditing.value = false
+      crud.form.value = {
+        id: 'flux', name: 'Flux', category: 'image', base_url: 'https://api.bfl.ml/v1',
+        api_key: 'sk-test', models: ['flux-pro'], modelsText: 'flux-pro',
+        user_default_model: 'flux-pro', config: {},
+      }
+      await crud.submitForm()
+      expect(modelProviderCreate).toHaveBeenCalledTimes(1)
+      const [data] = modelProviderCreate.mock.calls[0]
+      expect(data.config.user_default_model).toBe('flux-pro')
+    })
+  })
 })

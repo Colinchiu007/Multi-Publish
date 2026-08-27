@@ -13970,3 +13970,13 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **第一性原因**：`film-engineering-real.js` 的生成 toast 调用把 15 秒作为固定预算，没有把已知打包 fallback 的异步终态纳入观察时间。
 - **逃逸链**：首次同 PR Windows build 更快走“已提交 1 个分镜”，未覆盖慢 fallback（测试场景缺失）；CI artifact 已保留消息但 E2E 没有在失败时用它回判（测试质量不足）；审查侧未对“终态可能在 timeout 边界后出现”做预算核验（审查盲区）。
 - **修复与预防**：生成终态预算固定为 30 秒，仍只接受既有真实终态，超时继续失败；模块用 `require.main` 守卫，`waitForToast` 可由 node:test 直接验证延迟消息。后续打包 E2E 修改终态等待时必须覆盖慢路径、未知超时和模块导入无副作用。
+
+## 2026-08-27 双默认模型解析契约（运营预设 default_model + 用户自选 user_default_model）
+
+- **需求本质**：供应商「默认模型 ID」有 2 项数据——运营中心初始预设值（`default_model`，目录同步下发、全用户共享）+ 每个用户自己的覆盖值（`user_default_model`，桌面端本地）。用户未设置 → 用运营预设；用户设置过 → 用用户值。
+- **解析契约**：唯一入口 `resolveProviderDefaultModel(provider, type)`（model-provider-manager.js 导出纯函数）：① `config.user_default_model`（非空且 ∈ models）→ ② `config.default_model`（非空且 ∈ models）→ ③ `capability_models[type]`（声明即有效）→ ④ 兜底：多模态无声明返回空串（调用侧抛错，fail-closed），单能力返回 `models[0]`。任意层级值失效（∉ models / 被清空 / 模型删除）逐级回退，不污染配置。
+- **接线点必须统一走解析函数**：prompt-bridge.llmModelFor / ai-generator.generateWithDefault / story2video-stages.resolveCapabilityModel / story2video-project-service._defaultVideoGenerator·_imageModelFor·transcribeFile / videogen-stages.getLlmConfig·getVideoProviderConfig——任何一处自行写 `models[0]` 或 `capability_models` 都会绕过用户默认，是同类 bug 高发点。
+- **applyCatalog 不覆盖用户 config 键**：目录同步只写目录契约键，天然保留 `user_default_model` / `api_key` / `enabled` / `is_default` / `base_url`；回归测试必须覆盖「同步后用户自选默认仍生效」。
+- **模型列表唯一维护入口在运营中心**：桌面端预设供应商 models 只读展示（即使未启用同步），默认模型仅 el-select 下拉选择（可清空=跟随运营默认）；`useModelProviderCrud.submitForm` 校验 `user_default_model ∈ models`，非法值清除。
+- **ops-center 种子自动填充**：`ensure_catalog_seeded` 末尾对「静态种子为空/仅种子 + base_url 官方默认」的行 best-effort 自动 fetch（asyncio.gather 并发、单行截断 500、失败不影响种子流程）；`OPS_PRESET_SEED_FETCH_ENABLED=0` 关闭（测试 fixture 必须设置，否则 pytest 会真实发网）。前端「批量获取模型 ID」串行逐条 fetch + updateModelPreset 保存时必须同时传 `models` 与 `default_model` 两字段（清空模型列表触发后端校验）。
+- **ESM 验证陷阱**：`node --check` 对 ESM 文件不可靠（explicit resource management / import attributes 误报），用 `node --input-type=module -e "import(...)"` 或直接跑 vitest/build 验证。

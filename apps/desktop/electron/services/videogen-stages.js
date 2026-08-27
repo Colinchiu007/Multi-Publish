@@ -29,6 +29,7 @@ const { segmentScript } = require('./video-script-segmentation')
 const { extractKeyEntities, checkSceneAlignment, assessVisualConsistency } = require('./video-content-alignment')
 const { emitStageProgress, emitStageStart, emitStageItem, emitStageComplete } = require('./stage-progress')
 const { getProviderRunContext } = require('./provider-run-context')
+const { resolveProviderDefaultModel } = require('./model-provider-manager')
 
 const VIDEOGEN_STAGE_TYPES = {
   CONCEPT: 'videogen_concept',
@@ -100,10 +101,9 @@ function getLlmConfig (aiGenerator) {
     ? manager.getDefault('llm')
     : null
   if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
-  const model = Array.isArray(provider.models)
-    ? provider.models.find(item => typeof item === 'string' && item.trim())
-    : null
-  return model ? { providerId: provider.id.trim(), model: model.trim() } : null
+  // 双默认语义（2026-08-27）：用户默认 > 运营默认 > capability_models.llm > models[0]
+  const model = resolveProviderDefaultModel(provider, 'llm')
+  return model ? { providerId: provider.id.trim(), model } : null
 }
 
 function getVideoProviderConfig (aiGenerator) {
@@ -112,9 +112,8 @@ function getVideoProviderConfig (aiGenerator) {
     ? manager.getDefault('video')
     : null
   if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
-  const model = Array.isArray(provider.models)
-    ? provider.models.find(item => typeof item === 'string' && item.trim())
-    : null
+  // 双默认语义（2026-08-27）：用户默认 > 运营默认 > capability_models.video > models[0]
+  const model = resolveProviderDefaultModel(provider, 'video')
   return { providerId: provider.id.trim(), model: model || '' }
 }
 

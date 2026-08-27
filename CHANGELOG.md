@@ -1,9 +1,19 @@
+
 ## [未发布] fix(story2video): 水印「移动」漂移起点改为画面中心附近（fix-watermark-drift-center）
 
 - 修复 moving 位置 y 轴表达式 `cos(2*PI*t/140)` → `sin(2*PI*t/140)`：`cos(0)=1` 使 t=0 起点在底部 95% 处，短视频（10-40s）全程滞留下半区（用户反馈「水印只在画面底部区域移动」）；双轴同用 sin 后 t=0 从画面正中起步，周期（x 100s / y 140s）、0.9 幅度边界（任意 t 坐标 ∈[0.05,0.95] 自由空间）、确定性 Lissajous 属性全部不变。
 - 回归保护：`story2video-compose-engine.test.js` 新增「moving 数学契约」求值断言（t=0 居中、幅度扫描、周期回原点、禁止 cos 回退）+ 字符串断言更新为双轴 sin；真实 ffmpeg 40s 冒烟抽取 t=0/15/35 帧验证起点居中与不出画布。
 - 文案：`locales` movingHint（zh/en 成对）与 `CreateView.vue` 回退文本更新为「水印从画面中心附近开始，沿正弦轨迹缓慢游走」。
 - 文档：`01-docs/PRD-video-creation.md` 3.1.24 表格/语义段落修正 + 新增 3.1.38 详细契约；`01-docs/learnings.md` 新增三角函数初值 QM-5 复盘；`01-docs/product-manual.md` 水印说明同步。
+
+## [未发布] feat(model-selector): 桌面端用户默认模型 ID 下拉选择 + 运营中心模型种子自动填充
+
+- 双默认模型 ID：运营预设 `default_model`（运营中心设置、目录同步下发、全用户共享）+ 用户自选 `user_default_model`（桌面端本地、不下发）；用户未设置时回退运营预设。
+- 新增唯一解析入口 `resolveProviderDefaultModel(provider, type)`（`model-provider-manager.js` 导出纯函数）：user_default_model → default_model → capability_models[type] → fail-closed（多模态无声明返回空串调用侧抛错、单能力 models[0]）；失效值逐级回退不污染配置。
+- 全链路接线 6 个调用点：`prompt-bridge.llmModelFor`（提示词优化/LLM 绑定）、`ai-generator.generateWithDefault`、`story2video-stages.resolveCapabilityModel`（分句/字幕/配音）、`story2video-project-service`（视频生成/图生/转写）、`videogen-stages`（LLM/视频供应商配置）。
+- 桌面端模型设置页（ModelProviders.vue）：供应商模型列表一律只读（模型集合唯一维护入口在运营中心）；新增/编辑对话框增加「默认模型」`el-select` 下拉（可清空 = 跟随运营默认）；卡片显示「当前默认模型」（effectiveDefaultModel 与调用解析一致）；locales zh/en 成对新增 5 组文案。
+- ops-center：`ensure_catalog_seeded` 对静态种子为空/仅种子且 base_url 官方默认的行 best-effort 自动 fetch 回填模型列表（`OPS_PRESET_SEED_FETCH_ENABLED=0` 可关）；预设模型页新增「批量获取模型 ID」按钮（串行逐条 fetch + 保存，失败汇总提示）。
+- 测试：桌面端 6 文件 363 tests（resolve-default 12 新用例）、前端 useModelProviderCrud 54 tests、ops-center pytest 40 tests 全绿；桌面端与 ops-center 前端 build 通过。
 
 ## [未发布] test(story2video): 补 BATCH_DELETE_SUCCESS 插值回归测试
 

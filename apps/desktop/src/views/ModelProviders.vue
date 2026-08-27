@@ -171,6 +171,10 @@
                     {{ formatModels(p.models) }}
                   </span>
                 </div>
+                <div class="provider-field">
+                  <span class="field-label">{{ t('modelProviders.effectiveDefaultModelLabel') }}</span>
+                  <span class="field-value mono">{{ effectiveDefaultModel(p) }}</span>
+                </div>
                 <div v-if="p.capabilities && p.capabilities.length > 0" class="provider-field">
                   <span class="field-label">{{ t('modelProviders.capabilityLabel') }}</span>
                   <span class="field-value capability-list">
@@ -436,16 +440,26 @@
             <div class="form-hint">{{ t('modelProviders.multimodalModelsHint') }}</div>
             <div class="form-hint muted-hint">{{ t('modelProviders.currentModels', { models: form.modelsText || '—' }) }}</div>
           </template>
+          <template v-if="addPresetId">
+            <div class="form-hint muted-hint">{{ t('modelProviders.currentModels', { models: form.modelsText || '—' }) }}</div>
+            <div class="form-hint muted-hint">{{ t('modelProviders.opsReadonlyHint') }}</div>
+          </template>
           <template v-else-if="form.models.length === 1">
             <div class="form-hint">{{ t('modelProviders.singleModelHint', { models: form.modelsText }) }}</div>
             <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.syncManagedModelsHint') }}</div>
           </template>
           <template v-else>
             <label class="input-label">{{ t('modelProviders.modelsLabel2') }}</label>
-            <input class="input" v-model="form.modelsText" placeholder="model-1, model-2"
-              :disabled="syncConfigured && isPresetEditing" />
-            <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.opsReadonlyHint') }}</div>
+            <input class="input" v-model="form.modelsText" placeholder="model-1, model-2" />
           </template>
+          <div v-if="form.models.length > 0" class="form-field">
+            <label class="input-label">{{ t('modelProviders.userDefaultModelLabel') }}</label>
+            <el-select v-model="form.user_default_model" clearable
+              :placeholder="t('modelProviders.userDefaultModelPlaceholder')" class="w-full">
+              <el-option v-for="m in form.models" :key="m" :label="m" :value="m" />
+            </el-select>
+            <div class="form-hint muted-hint">{{ t('modelProviders.userDefaultModelHint') }}</div>
+          </div>
           <div class="form-hint">限流策略（每分钟连接次数 / 5小时限额次数）由运营后台同步下发或使用服务商默认值，无需在此填写。</div>
         </div>
       </div>
@@ -483,9 +497,10 @@
             <span>支持生成视频（默认关闭）</span>
           </label>
         </template>
-        <template v-if="isMiniMaxMultimodal">
-          <div class="form-hint">{{ t('modelProviders.multimodalModelsHint') }}</div>
+        <template v-if="isMiniMaxMultimodal || (isPresetEditing && form.models.length > 1)">
+          <div v-if="isMiniMaxMultimodal" class="form-hint">{{ t('modelProviders.multimodalModelsHint') }}</div>
           <div class="form-hint muted-hint">{{ t('modelProviders.currentModels', { models: form.modelsText || '—' }) }}</div>
+          <div class="form-hint muted-hint">{{ t('modelProviders.opsReadonlyHint') }}</div>
         </template>
         <template v-else-if="form.models.length === 1">
           <div class="form-hint">{{ t('modelProviders.singleModelHint', { models: form.modelsText }) }}</div>
@@ -496,6 +511,14 @@
           <input class="input" v-model="form.modelsText" :disabled="syncConfigured && isPresetEditing" />
           <div v-if="syncConfigured && isPresetEditing" class="form-hint muted-hint">{{ t('modelProviders.opsReadonlyHint') }}</div>
         </template>
+        <div v-if="form.models.length > 0" class="form-field">
+          <label class="input-label">{{ t('modelProviders.userDefaultModelLabel') }}</label>
+          <el-select v-model="form.user_default_model" clearable
+            :placeholder="t('modelProviders.userDefaultModelPlaceholder')" class="w-full">
+            <el-option v-for="m in form.models" :key="m" :label="m" :value="m" />
+          </el-select>
+          <div class="form-hint muted-hint">{{ t('modelProviders.userDefaultModelHint') }}</div>
+        </div>
         <div class="form-hint">{{ t('modelProviders.ratePerMinuteLabel') }}：{{ form.config.rate_per_minute ?? t('modelProviders.notConfiguredRate') }}</div>
         <div class="form-hint">{{ t('modelProviders.limitPer5hLabel') }}：{{ form.config.limit_per_5h ?? t('modelProviders.notConfiguredRate') }}</div>
         <div class="form-hint muted-hint">{{ t('modelProviders.rateHint') }}</div>
@@ -725,6 +748,22 @@ function formatModels (models) {
   if (!models || models.length === 0) return '-'
   if (models.length <= 3) return models.join(', ')
   return models.slice(0, 3).join(', ') + ' +' + (models.length - 3)
+}
+
+// 当前生效默认模型（双默认语义 2026-08-27）：用户选择 > 运营预设 > 能力默认（多模态）> 首个模型
+function effectiveDefaultModel (p) {
+  const models = Array.isArray(p.models) ? p.models : []
+  const cfg = p.config && typeof p.config === 'object' ? p.config : {}
+  const user = typeof cfg.user_default_model === 'string' ? cfg.user_default_model.trim() : ''
+  if (user && models.includes(user)) return user
+  const ops = typeof cfg.default_model === 'string' ? cfg.default_model.trim() : ''
+  if (ops && models.includes(ops)) return ops
+  if (p.category === 'multimodal') {
+    const cap = p.capabilities && p.capabilities[0]
+    const byCap = p.capability_models && cap ? p.capability_models[cap] : ''
+    return byCap || '—'
+  }
+  return models[0] || '—'
 }
 
 onMounted(() => {

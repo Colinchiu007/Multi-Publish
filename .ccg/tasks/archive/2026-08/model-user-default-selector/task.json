@@ -1,0 +1,16 @@
+{
+  "id": "model-user-default-selector",
+  "title": "桌面端用户默认模型ID下拉选择 + 运营中心模型种子自动填充",
+  "status": "completed",
+  "complexity": "L",
+  "risk": "medium",
+  "domain": "desktop+ops-center",
+  "currentPhase": "completed",
+  "nextAction": "已归档",
+  "createdAt": "2026-08-27T13:00:00Z",
+  "branch": "codex/model-user-default-selector",
+  "remoteStatus": "merged_verified",
+  "prUrl": "https://github.com/Colinchiu007/Multi-Publish/pull/1191",
+  "mergeSha": "e9323009694144c734c117d8dfafd6b8100f5b10",
+  "qualityGateStatus": "passed_remote_ci"
+}

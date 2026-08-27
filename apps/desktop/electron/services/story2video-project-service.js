@@ -37,6 +37,7 @@ const {
 } = require('./asset-generator')
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 const { findFfmpeg } = require('./media-tool-paths')
+const { resolveProviderDefaultModel } = require('./model-provider-manager')
 
 const SETTING_KEY = 'story2video_projects_v1'
 const MAX_PROJECTS = 100
@@ -1846,21 +1847,13 @@ class Story2VideoProjectService {
     }
   }
 
-  /** 默认视频生成器：模型管理器默认 video provider（与流水线 resolveVideoGeneratorConfig fallback 同源）。 */
+  /** 默认视频生成器：模型管理器默认 video provider（与流水线 resolveVideoGeneratorConfig fallback 同源）。
+   *  双默认语义（2026-08-27）：用户默认 > 运营默认 > capability_models.video > models[0]。 */
   _defaultVideoGenerator (manager) {
     const provider = manager && typeof manager.getDefault === 'function' ? manager.getDefault('video') : null
     if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
-    const models = Array.isArray(provider.models)
-      ? provider.models.filter(item => typeof item === 'string' && item.trim())
-      : []
-    let model
-    if (provider.category === 'multimodal' && provider.capability_models && typeof provider.capability_models.video === 'string') {
-      const videoModel = provider.capability_models.video
-      model = models.includes(videoModel) ? videoModel : (videoModel || models[0] || '')
-    } else {
-      model = models[0] || ''
-    }
-    return { providerId: provider.id.trim(), model: model ? model.trim() : '' }
+    const model = resolveProviderDefaultModel(provider, 'video')
+    return { providerId: provider.id.trim(), model }
   }
 
   /**
@@ -1917,20 +1910,11 @@ class Story2VideoProjectService {
     return { providerId: provider.id.trim(), model: this._imageModelFor(provider) }
   }
 
-  /** provider 的默认图片模型：多模态按 capability_models.image（缺失时留空交 adapter 默认，
-   *  避免把非图片模型如 TTS 首模型当图片模型），普通 provider 取首个模型。 */
+  /** provider 的默认图片模型（双默认语义 2026-08-27）：用户默认 > 运营默认 >
+   *  capability_models.image（缺失时多模态留空交 adapter 默认，普通 provider 取首个模型）。 */
   _imageModelFor (provider) {
     if (!provider) return ''
-    const models = Array.isArray(provider.models)
-      ? provider.models.filter(item => typeof item === 'string' && item.trim())
-      : []
-    if (provider.category === 'multimodal') {
-      const capabilityModel = provider.capability_models && typeof provider.capability_models.image === 'string'
-        ? provider.capability_models.image.trim()
-        : ''
-      return capabilityModel || ''
-    }
-    return (models[0] || '').trim() || ''
+    return resolveProviderDefaultModel(provider, 'image')
   }
 
   /** 视频生成尺寸：优先输出分辨率，否则按宽高比映射，长边封顶 1280（与流水线 resolveVideoSize 同源）。 */
@@ -2139,7 +2123,7 @@ class Story2VideoProjectService {
       result = await adapter.transcribe({
         audio: buffer,
         filename: path.basename(resolved),
-        model: provider.models?.[0] || 'base',
+        model: resolveProviderDefaultModel(provider, 'speech_recognition') || 'base',
         endpoint: provider.config?.endpoint || 'asr',
         language: provider.config?.language,
       })
@@ -2147,8 +2131,8 @@ class Story2VideoProjectService {
       if (!this.aiGenerator || typeof this.aiGenerator.generate !== 'function') throw new Error('语音识别服务不可用')
       const base64Providers = new Set(['google-stt', 'doubao-stt', 'baidu-stt'])
       const params = base64Providers.has(provider.id)
-        ? { audio: buffer.toString('base64'), len: buffer.length, format: extension, model: provider.models?.[0] }
-        : { file: new Blob([buffer]), filename: path.basename(resolved), model: provider.models?.[0] || 'whisper-1' }
+        ? { audio: buffer.toString('base64'), len: buffer.length, format: extension, model: resolveProviderDefaultModel(provider, 'speech_recognition') }
+        : { file: new Blob([buffer]), filename: path.basename(resolved), model: resolveProviderDefaultModel(provider, 'speech_recognition') || 'whisper-1' }
       result = await this.aiGenerator.generate('speech_recognition', provider.id, params)
     }
     const text = safeText(result?.text, 100000).trim()

@@ -16,6 +16,8 @@ os.environ["OPS_DB_PATH"] = os.path.join(tempfile.gettempdir(), "ops_model_prese
 os.environ["OPS_CONFIG_OUTPUT_DIR"] = os.path.join(tempfile.gettempdir(), "ops_mp_test_configs")
 os.environ["OPS_SECRET_KEY"] = "test-secret"
 os.environ["OPS_JWT_SECRET"] = "test-secret"
+# 测试环境关闭启动自动 fetch（避免真实网络请求与测试库被官方列表覆盖）
+os.environ["OPS_PRESET_SEED_FETCH_ENABLED"] = "0"
 
 # Import models early so Base.metadata knows about them
 import models  # noqa: F401
@@ -967,3 +969,72 @@ async def test_fetch_models_gemini_name_shape():
             data = resp2.json()
             assert data["models"] == ["gemini-2.0-flash", "gemini-1.5-pro"]
             assert data["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_seeded_auto_fetch_populates_static_seed_models():
+    """模型列表仍为目录静态种子值（或为空）的官方预设行，启动 seed 时自动从 models_url 拉取回填。"""
+    from unittest.mock import AsyncMock, patch
+    from sqlalchemy import select
+    from database import async_session
+    from models import ModelPreset
+    from config import settings
+    from services.model_preset_service import ensure_catalog_seeded
+
+    fake_fetch = AsyncMock(return_value=(["gpt-5", "gpt-4.1", "o3"], "gpt-5", "https://api.openai.com/v1/models"))
+    settings.preset_seed_fetch_enabled = True
+    try:
+        async with async_session() as db:
+            with patch("services.model_preset_service.fetch_models_from_url", fake_fetch):
+                await ensure_catalog_seeded(db)
+            row = (await db.execute(select(ModelPreset).where(ModelPreset.id == "openai"))).scalar_one()
+            assert json.loads(row.models) == ["gpt-5", "gpt-4.1", "o3"]
+            assert row.default_model == "gpt-5"
+    finally:
+        settings.preset_seed_fetch_enabled = False
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_seeded_auto_fetch_skips_customized_models():
+    """运营手工修改过模型列表（非目录种子值）的预设行，自动 fetch 不覆盖。"""
+    from unittest.mock import AsyncMock, patch
+    from sqlalchemy import select
+    from database import async_session
+    from models import ModelPreset
+    from config import settings
+    from services.model_preset_service import ensure_catalog_seeded
+
+    fetched = []
+    fake_fetch = AsyncMock(side_effect=lambda db, pid: (fetched.append(pid) or (["x"], "", "")))
+    settings.preset_seed_fetch_enabled = True
+    try:
+        async with async_session() as db:
+            row = (await db.execute(select(ModelPreset).where(ModelPreset.id == "openai"))).scalar_one()
+            row.models = json.dumps(["custom-model-1"], ensure_ascii=False)
+            await db.commit()
+            with patch("services.model_preset_service.fetch_models_from_url", fake_fetch):
+                await ensure_catalog_seeded(db)
+            fresh = (await db.execute(select(ModelPreset).where(ModelPreset.id == "openai"))).scalar_one()
+            assert json.loads(fresh.models) == ["custom-model-1"]
+            assert "openai" not in fetched
+    finally:
+        settings.preset_seed_fetch_enabled = False
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_seeded_auto_fetch_respects_switch():
+    """OPS_PRESET_SEED_FETCH_ENABLED=0 时自动 fetch 整体关闭（测试环境默认）。"""
+    from unittest.mock import AsyncMock, patch
+    from database import async_session
+    from services.model_preset_service import ensure_catalog_seeded
+    from config import settings
+
+    fake_fetch = AsyncMock(return_value=(["a"], "a", "url"))
+    settings.preset_seed_fetch_enabled = False
+    try:
+        async with async_session() as db:
+            with patch("services.model_preset_service.fetch_models_from_url", fake_fetch):
+                await ensure_catalog_seeded(db)
+            fake_fetch.assert_not_awaited()
+    finally:
+        settings.preset_seed_fetch_enabled = False
