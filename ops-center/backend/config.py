@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # fake-ip 代理用于接管公网流量，公网模型 API 域名在代理环境下会解析到该段；
     # 仅在有此类代理的主机开启，默认关闭保持 SSRF fail-closed。
     allow_proxy_benchmark_ips: bool = False
+    # 启动时对「模型列表仍为目录种子（或为空）」的预设自动拉取官方模型列表（best-effort，失败跳过）；
+    # 测试/离线环境可设 OPS_PRESET_SEED_FETCH_ENABLED=0 关闭。
+    preset_seed_fetch_enabled: bool = True
 
     def get_jwt_secret(self) -> str:
         """返回经过安全校验的 JWT 密钥。"""

@@ -311,6 +311,69 @@ describe('PromptBridge BYOK llm 注入', () => {
     expect(() => bridge.resolveLlmBind()).toThrow(/未配置可用模型/)
   })
 
+  it('resolveLlmBind：用户默认模型（config.user_default_model）优先于 capability_models.llm（双默认语义）', () => {
+    const bridge = new PromptBridge({})
+    bridge.modelProviderManager = {
+      getDefault: vi.fn(() => ({ id: 'minimax-multimodal', name: 'MiniMax 多模态', models: ['speech-2.8-turbo', 'MiniMax-M1', 'MiniMax-M2.7'] })),
+      getProviderWithKey: vi.fn(() => ({
+        id: 'minimax-multimodal',
+        category: 'multimodal',
+        models: ['speech-2.8-turbo', 'MiniMax-M1', 'MiniMax-M2.7'],
+        capability_models: { llm: 'MiniMax-M2.7', tts: 'speech-2.8-turbo' },
+        config: { user_default_model: 'MiniMax-M1' },
+        api_key: 'sk-minimax',
+      })),
+    }
+    expect(bridge.resolveLlmBind().model).toBe('MiniMax-M1')
+  })
+
+  it('resolveLlmBind：用户默认模型不在 models 时失效回退 capability_models.llm', () => {
+    const bridge = new PromptBridge({})
+    bridge.modelProviderManager = {
+      getDefault: vi.fn(() => ({ id: 'minimax-multimodal', name: 'MiniMax 多模态', models: ['speech-2.8-turbo', 'MiniMax-M2.7'] })),
+      getProviderWithKey: vi.fn(() => ({
+        id: 'minimax-multimodal',
+        category: 'multimodal',
+        models: ['speech-2.8-turbo', 'MiniMax-M2.7'],
+        capability_models: { llm: 'MiniMax-M2.7', tts: 'speech-2.8-turbo' },
+        config: { user_default_model: '过期模型X' },
+        api_key: 'sk-minimax',
+      })),
+    }
+    expect(bridge.resolveLlmBind().model).toBe('MiniMax-M2.7')
+  })
+
+  it('resolveLlmBind：用户未选择时使用运营预设默认（config.default_model）', () => {
+    const bridge = new PromptBridge({})
+    bridge.modelProviderManager = {
+      getDefault: vi.fn(() => ({ id: 'minimax-multimodal', name: 'MiniMax 多模态', models: ['speech-2.8-turbo', 'MiniMax-M1', 'MiniMax-M2.7'] })),
+      getProviderWithKey: vi.fn(() => ({
+        id: 'minimax-multimodal',
+        category: 'multimodal',
+        models: ['speech-2.8-turbo', 'MiniMax-M1', 'MiniMax-M2.7'],
+        capability_models: { llm: 'MiniMax-M2.7', tts: 'speech-2.8-turbo' },
+        config: { default_model: 'MiniMax-M1' },
+        api_key: 'sk-minimax',
+      })),
+    }
+    expect(bridge.resolveLlmBind().model).toBe('MiniMax-M1')
+  })
+
+  it('resolveLlmBind：单能力 provider 用户默认模型生效', () => {
+    const bridge = new PromptBridge({})
+    bridge.modelProviderManager = {
+      getDefault: vi.fn(() => ({ id: 'openai', name: 'OpenAI', models: ['gpt-4o', 'gpt-4o-mini'] })),
+      getProviderWithKey: vi.fn(() => ({
+        id: 'openai',
+        category: 'llm',
+        models: ['gpt-4o', 'gpt-4o-mini'],
+        config: { user_default_model: 'gpt-4o-mini', default_model: 'gpt-4o' },
+        api_key: 'sk-oai',
+      })),
+    }
+    expect(bridge.resolveLlmBind().model).toBe('gpt-4o-mini')
+  })
+
   it('optimize：缺省策略在低 creative_level 同样注入 llm/caller；无默认 LLM 时拒绝', async () => {
     const bridge = new PromptBridge({})
     bridge.isRunning = true

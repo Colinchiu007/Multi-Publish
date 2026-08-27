@@ -36,6 +36,7 @@ const {
   runContentPolicyImageRetry,
 } = require('./story2video-image-retry');
 const { classifyProviderFailure } = require('./adapters/_base/provider-error');
+const { resolveProviderDefaultModel } = require('./model-provider-manager');
 const { getProviderRunContext } = require('./provider-run-context');
 const modelCallScheduler = require('./model-call-scheduler');
 const {
@@ -404,15 +405,8 @@ function registerPromptTranslationComposeTask (pipelineEngine) {
  * 返回 null 表示未配置（调用方 fail closed 引导设置）。
  */
 function resolveCapabilityModel (provider, type) {
-  if (!provider || typeof provider !== 'object') return ''
-  const capabilityModel = provider.capability_models && typeof provider.capability_models === 'object'
-    ? provider.capability_models[type]
-    : null
-  if (typeof capabilityModel === 'string' && capabilityModel.trim()) return capabilityModel.trim()
-  const models = Array.isArray(provider.models)
-    ? provider.models.filter(item => typeof item === 'string' && item.trim())
-    : []
-  return models[0] ? models[0].trim() : ''
+  // 双默认语义（2026-08-27）：用户默认 > 运营默认 > capability_models[type] > models[0]（多模态无声明 fail-closed）
+  return resolveProviderDefaultModel(provider, type)
 }
 
 function resolveCurrentCapabilityConfig (pipelineEngine, type, explicit = {}, options = {}) {

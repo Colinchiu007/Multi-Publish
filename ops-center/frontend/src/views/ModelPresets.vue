@@ -5,6 +5,8 @@
       运营人员维护前端【模型设置】的预设服务商目录：控制是否在前端显示、维护技术文档链接（每个模型最多 10 条）；
       多模态模型可配置支持能力、每能力默认模型与分能力技术文档 URL；
       限流字段（每分钟连接次数 / 5小时限额次数）用于指导前端调度并发与排队，允许留空（留空表示使用默认限流）。
+      模型 ID 列表可通过「获取模型ID URL」自动拉取：服务启动时对尚无模型列表的预设自动尝试，也可点击
+      「批量获取模型ID」为所有已配置 URL 的预设一次性拉取官方模型列表（失败项会汇总提示）。
     </p>
 
     <el-card shadow="never">
@@ -15,6 +17,7 @@
         </el-radio-group>
         <div>
           <el-switch v-model="includeHidden" active-text="含已隐藏" @change="load" style="margin-right:16px" />
+          <el-button :loading="batchFetching" @click="batchFetchModels">批量获取模型ID</el-button>
           <el-button type="primary" @click="openCreate">新增预设</el-button>
         </div>
       </div>
@@ -272,6 +275,41 @@ function addCapDoc(cap) {
 
 function removeCapDoc(cap, idx) {
   form.capability_doc_links[cap].splice(idx, 1)
+}
+
+const batchFetching = ref(false)
+
+async function batchFetchModels() {
+  const candidates = presets.value.filter(p => p.models_url && p.models_url.trim() && (!p.models || !p.models.length))
+  if (!candidates.length) {
+    ElMessage.info('没有需要获取的预设：所有已配置「获取模型ID URL」的预设均已有模型列表（或全部未配置 URL）')
+    return
+  }
+  batchFetching.value = true
+  const failed = []
+  let okCount = 0
+  try {
+    // 串行逐条调用，避免瞬时并发打爆供应商端点；失败仅汇总提示
+    for (const p of candidates) {
+      try {
+        const data = await fetchModelIds(p.id, { models_url: p.models_url.trim() })
+        const models = data.models || []
+        if (!models.length) throw new Error('未获取到模型ID')
+        await updateModelPreset(p.id, { models, default_model: data.default_model || p.default_model || '' })
+        okCount++
+      } catch (e) {
+        failed.push(p.id + '：' + (e.response?.data?.detail || e.message || '获取失败'))
+      }
+    }
+    if (failed.length) {
+      ElMessage.warning('批量获取完成：' + okCount + ' 个成功，' + failed.length + ' 个失败：' + failed.join('；'))
+    } else {
+      ElMessage.success('批量获取成功，共更新 ' + okCount + ' 个预设的模型列表')
+    }
+    await load()
+  } finally {
+    batchFetching.value = false
+  }
 }
 
 async function fetchModels() {
