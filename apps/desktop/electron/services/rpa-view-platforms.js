@@ -282,8 +282,16 @@ const platformsMixin = {
           this._emitProgress(platform, 'uploading file...', 50)
           if (await this._waitForElement(win, sel.file_input[0], 15000)) {
             await this._setFileInput(win, article.video_path)
-            const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
-            if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
+            // 上传完成判定：百家号上传后页面会出现视频预览/编辑器初始化（发布按钮由 disabled 变可用）
+            // 不能依赖 progress/success class（百家号可能不使用），改为轮询"发布按钮可用或编辑器出现"
+            let uploadDone = false
+            if (platform === 'baijiahao') {
+              uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
+              if (!uploadDone) log.warn('RpaView', '['+platform+'] upload complete wait timeout (video may still be processing)')
+            } else {
+              const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
+              if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
+            }
             retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 60)
           } else {
             if (!retry.retry('file_upload')) break; await this._sleep(2000)
