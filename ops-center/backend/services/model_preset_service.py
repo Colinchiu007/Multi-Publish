@@ -96,14 +96,38 @@ def _validate_optional_positive_int(value, field_name, max_value):
 # 种子目录（由 Multi-Publish 桌面端代码事实生成：适配器默认端点 + model-provider-seeds 预设模型 +
 #   governor-provider-limits 每分钟连接次数；limit_per_5h 无代码事实留空）
 # models_url 白名单（配合「获取模型ID URL」预填：选中预设自动带出、运营仍可编辑）：
-#   仅预置同时满足「官方 Models 列表端点、响应含 id（{data:[{id}]}）、响应体 ≤ fetch 512KB 上限、纯 LLM 预设」的端点；
-#   排除：Gemini（name 非 id）、豆包 Ark（返回推理接入点 ep-*）、OpenRouter（全量响应实测 ~687KB 超上限）、
-#   minimax-multimodal（多模态，全量列表会覆盖能力映射模型）
+#   预置「官方 Models 列表端点」：响应含 id（{data:[{id}]}）或 name/model_id（_extract_model_ids 均已适配），
+#   且响应体 ≤ fetch 512KB 上限；排除：OpenRouter（全量响应实测 ~687KB 超上限）、豆包 Ark（返回推理接入点
+#   ep-* 而非模型名）、minimax-multimodal（多模态，全量列表会覆盖能力映射模型）、以及无「模型列表」API
+#   概念的非模型目录预设（图库/本地服务/部分语音端点）。
 OFFICIAL_MODELS_URLS = {
+    # OpenAI 兼容官方 Models 列表端点（{base}/models，响应 {data:[{id}]}；同一厂商多预设共用端点）
     "anthropic": "https://api.anthropic.com/v1/models",
     "openai": "https://api.openai.com/v1/models",
+    "openai-tts": "https://api.openai.com/v1/models",
+    "dall-e": "https://api.openai.com/v1/models",
+    "whisper": "https://api.openai.com/v1/models",
     "deepseek": "https://api.deepseek.com/models",
     "mimo-llm": "https://api.xiaomimimo.com/v1/models",
+    "grok-image": "https://api.x.ai/v1/models",
+    "grok-video": "https://api.x.ai/v1/models",
+    "recraft": "https://external.api.recraft.ai/v1/models",
+    "opencode-go": "https://opencode.ai/zen/go/v1/models",
+    "agnes-llm": "https://apihub.agnes-ai.com/v1/models",
+    "agnes-image": "https://apihub.agnes-ai.com/v1/models",
+    "agnes-video": "https://apihub.agnes-ai.com/v1/models",
+    "sensenova-llm": "https://token.sensenova.cn/v1/models",
+    "cogvideo": "https://open.bigmodel.cn/api/paas/v4/models",
+    "minimax-tts": "https://api.minimaxi.com/v1/models",
+    "minimax-image": "https://api.minimaxi.com/v1/models",
+    "minimax": "https://api.minimaxi.com/v1/models",
+    "elevenlabs": "https://api.elevenlabs.io/v1/models",
+    # Google：官方 Models 列表（models[].name，_extract_model_ids 已适配并剥离 models/ 前缀）
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/models",
+    "imagen": "https://generativelanguage.googleapis.com/v1beta/models",
+    "veo": "https://generativelanguage.googleapis.com/v1beta/models",
+    # Ollama 本地服务：/api/tags 返回 {models:[{name}]}（环回地址 http 放行）
+    "ollama": "http://localhost:11434/api/tags",
 }
 
 #   models_url 仅白名单预设预置官方 Models 端点（见 OFFICIAL_MODELS_URLS），其余留空由运营填写
@@ -140,6 +164,7 @@ PRESET_CATALOG = [
     {
         "id": "gemini", "name": "Gemini", "category": "llm",
         "base_url": "https://generativelanguage.googleapis.com",
+        "models_url": "https://generativelanguage.googleapis.com/v1beta/models",
         "models": ["gemini-2.0-flash","gemini-2.0-pro","gemini-1.5-pro"], "default_model": "gemini-2.0-flash",
         "rate_per_minute": 60,
         "doc_links": ["https://ai.google.dev/gemini-api/docs"],
@@ -154,6 +179,7 @@ PRESET_CATALOG = [
     {
         "id": "ollama", "name": "Ollama (本地)", "category": "llm",
         "base_url": "http://localhost:11434",
+        "models_url": "http://localhost:11434/api/tags",
         "models": ["llama3","qwen2","mistral","gemma2"], "default_model": "llama3",
         "rate_per_minute": 120,
         "doc_links": ["https://docs.ollama.com/"],
@@ -184,6 +210,7 @@ PRESET_CATALOG = [
     {
         "id": "opencode-go", "name": "OpenCode-Go", "category": "llm",
         "base_url": "https://opencode.ai/zen/go/v1",
+        "models_url": "https://opencode.ai/zen/go/v1/models",
         "models": ["glm-5.2","kimi-k2.7-code","deepseek-v4-pro","deepseek-v4-flash","mimo-v2.5","mimo-v2.5-pro","glm-5.1","kimi-k2.6"], "default_model": "glm-5.2",
         "rate_per_minute": 30,
         "doc_links": ["https://opencode.ai/"],
@@ -191,6 +218,7 @@ PRESET_CATALOG = [
     {
         "id": "agnes-llm", "name": "Agnes AI", "category": "llm",
         "base_url": "https://apihub.agnes-ai.com/v1",
+        "models_url": "https://apihub.agnes-ai.com/v1/models",
         "models": ["agnes-2.0-flash"], "default_model": "agnes-2.0-flash",
         "rate_per_minute": 30,
         "doc_links": ["https://docs.agnes-ai.com/"],
@@ -198,6 +226,7 @@ PRESET_CATALOG = [
     {
         "id": "sensenova-llm", "name": "SenseNova", "category": "llm",
         "base_url": "https://token.sensenova.cn/v1",
+        "models_url": "https://token.sensenova.cn/v1/models",
         "models": ["deepseek-v4-flash"], "default_model": "deepseek-v4-flash",
         "rate_per_minute": 30,
         "doc_links": ["https://platform.sensenova.cn/"],
@@ -206,6 +235,7 @@ PRESET_CATALOG = [
     {
         "id": "elevenlabs", "name": "ElevenLabs", "category": "tts",
         "base_url": "https://api.elevenlabs.io/v1",
+        "models_url": "https://api.elevenlabs.io/v1/models",
         "models": ["eleven_multilingual_v2","eleven_turbo_v2_5","eleven_monolingual_v1"], "default_model": "eleven_multilingual_v2",
         "rate_per_minute": 20,
         "doc_links": ["https://elevenlabs.io/docs/api-reference"],
@@ -213,6 +243,7 @@ PRESET_CATALOG = [
     {
         "id": "openai-tts", "name": "OpenAI TTS", "category": "tts",
         "base_url": "https://api.openai.com/v1",
+        "models_url": "https://api.openai.com/v1/models",
         "models": ["tts-1","tts-1-hd","gpt-4o-mini-tts"], "default_model": "tts-1",
         "rate_per_minute": 30,
         "doc_links": ["https://platform.openai.com/docs/guides/text-to-speech"],
@@ -248,6 +279,7 @@ PRESET_CATALOG = [
     {
         "id": "minimax-tts", "name": "MiniMax TTS", "category": "tts",
         "base_url": "https://api.minimaxi.com/v1",
+        "models_url": "https://api.minimaxi.com/v1/models",
         "models": ["speech-2.8-turbo"], "default_model": "speech-2.8-turbo",
         "rate_per_minute": 20,
         "doc_links": ["https://platform.minimaxi.com/docs/guides/speech-t2a-async","https://platform.minimaxi.com/docs/guides/speech-voice-clone","https://platform.minimaxi.com/faq/system-voice-id"],
@@ -256,6 +288,7 @@ PRESET_CATALOG = [
     {
         "id": "whisper", "name": "OpenAI Whisper", "category": "speech_recognition",
         "base_url": "https://api.openai.com/v1",
+        "models_url": "https://api.openai.com/v1/models",
         "models": ["whisper-1"], "default_model": "whisper-1",
         "rate_per_minute": 30,
         "doc_links": ["https://platform.openai.com/docs/guides/speech-to-text"],
@@ -298,6 +331,7 @@ PRESET_CATALOG = [
     {
         "id": "dall-e", "name": "DALL-E", "category": "image",
         "base_url": "https://api.openai.com/v1",
+        "models_url": "https://api.openai.com/v1/models",
         "models": ["gpt-image-1","dall-e-3","dall-e-2"], "default_model": "dall-e-3",
         "rate_per_minute": 10,
         "doc_links": ["https://platform.openai.com/docs/guides/images"],
@@ -305,6 +339,7 @@ PRESET_CATALOG = [
     {
         "id": "recraft", "name": "Recraft", "category": "image",
         "base_url": "https://external.api.recraft.ai/v1",
+        "models_url": "https://external.api.recraft.ai/v1/models",
         "models": ["recraft-v3","recraft-20b"], "default_model": "recraft-v3",
         "rate_per_minute": 15,
         "doc_links": ["https://www.recraft.ai/docs"],
@@ -312,6 +347,7 @@ PRESET_CATALOG = [
     {
         "id": "imagen", "name": "Imagen", "category": "image",
         "base_url": "https://generativelanguage.googleapis.com",
+        "models_url": "https://generativelanguage.googleapis.com/v1beta/models",
         "models": ["imagen-4.0-generate-001","imagen-4.0-fast-generate-001","imagen-4.0-ultra-generate-001"], "default_model": "imagen-4.0-generate-001",
         "rate_per_minute": 15,
         "doc_links": ["https://ai.google.dev/gemini-api/docs/image-generation"],
@@ -319,6 +355,7 @@ PRESET_CATALOG = [
     {
         "id": "grok-image", "name": "Grok Image", "category": "image",
         "base_url": "https://api.x.ai/v1",
+        "models_url": "https://api.x.ai/v1/models",
         "models": ["grok-image"], "default_model": "grok-image",
         "rate_per_minute": 15,
         "doc_links": ["https://docs.x.ai/docs/models"],
@@ -353,6 +390,7 @@ PRESET_CATALOG = [
     {
         "id": "minimax-image", "name": "MiniMax Image", "category": "image",
         "base_url": "https://api.minimaxi.com/v1",
+        "models_url": "https://api.minimaxi.com/v1/models",
         "models": ["image-01"], "default_model": "image-01",
         "rate_per_minute": 15,
         "doc_links": ["https://platform.minimaxi.com/docs/guides/image-generation"],
@@ -360,6 +398,7 @@ PRESET_CATALOG = [
     {
         "id": "agnes-image", "name": "Agnes Image", "category": "image",
         "base_url": "https://apihub.agnes-ai.com/v1",
+        "models_url": "https://apihub.agnes-ai.com/v1/models",
         "models": ["agnes-image-2.1-flash"], "default_model": "agnes-image-2.1-flash",
         "rate_per_minute": 15,
         "doc_links": ["https://docs.agnes-ai.com/"],
@@ -375,6 +414,7 @@ PRESET_CATALOG = [
     {
         "id": "cogvideo", "name": "CogVideo", "category": "video",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "models_url": "https://open.bigmodel.cn/api/paas/v4/models",
         "models": ["cogvideo"], "default_model": "cogvideo",
         "rate_per_minute": 6,
         "doc_links": ["https://open.bigmodel.cn/dev/api#cogvideox"],
@@ -382,6 +422,7 @@ PRESET_CATALOG = [
     {
         "id": "grok-video", "name": "Grok Video", "category": "video",
         "base_url": "https://api.x.ai/v1",
+        "models_url": "https://api.x.ai/v1/models",
         "models": ["grok-video"], "default_model": "grok-video",
         "rate_per_minute": 6,
         "doc_links": ["https://docs.x.ai/docs/models"],
@@ -410,6 +451,7 @@ PRESET_CATALOG = [
     {
         "id": "veo", "name": "Veo", "category": "video",
         "base_url": "https://generativelanguage.googleapis.com",
+        "models_url": "https://generativelanguage.googleapis.com/v1beta/models",
         "models": ["veo"], "default_model": "veo",
         "rate_per_minute": 6,
         "doc_links": ["https://ai.google.dev/gemini-api/docs/video"],
@@ -424,6 +466,7 @@ PRESET_CATALOG = [
     {
         "id": "minimax", "name": "MiniMax", "category": "video",
         "base_url": "https://api.minimaxi.com/v1",
+        "models_url": "https://api.minimaxi.com/v1/models",
         "models": ["MiniMax-Hailuo-2.3","MiniMax-Hailuo-02","T2V-01","I2V-01"], "default_model": "MiniMax-Hailuo-2.3",
         "rate_per_minute": 6,
         "doc_links": ["https://platform.minimaxi.com/docs/guides/video-generation"],
@@ -431,6 +474,7 @@ PRESET_CATALOG = [
     {
         "id": "agnes-video", "name": "Agnes Video", "category": "video",
         "base_url": "https://apihub.agnes-ai.com/v1",
+        "models_url": "https://apihub.agnes-ai.com/v1/models",
         "models": ["agnes-video-v2.0"], "default_model": "agnes-video-v2.0",
         "rate_per_minute": 6,
         "doc_links": ["https://docs.agnes-ai.com/"],
@@ -695,7 +739,11 @@ def _is_private_or_reserved(ip: str) -> bool:
 
 
 def _extract_model_ids(payload: object) -> list[str]:
-    """从常见模型列表响应中提取字符串模型ID：{models:[...]} / {data:[{id:...}]} / {data:[...]} / 纯数组。"""
+    """从常见模型列表响应中提取字符串模型ID：
+    {models:[...]} / {data:[{id:...}]} / {data:[...]} / 纯数组 / {model_ids|modelIds} / {items}；
+    元素字段优先级 id（OpenAI 兼容）→ model_id/modelId（ElevenLabs 真实 API 标识）→ name（Gemini
+    models/xxx、Ollama tags 显示名）；仅 name 字段剥离 models/ 目录前缀，id/model_id 以 models/ 开头
+    属于真实模型标识不得改写。"""
     candidates = []
     if isinstance(payload, list):
         candidates = payload
@@ -709,18 +757,29 @@ def _extract_model_ids(payload: object) -> list[str]:
                 candidates = payload["items"]
     result = []
     for item in candidates:
+        matched_key = None
         if isinstance(item, str):
             text = item.strip()
-        elif isinstance(item, dict) and isinstance(item.get("id"), str):
-            text = item["id"].strip()
+        elif isinstance(item, dict):
+            text = ""
+            for key in ("id", "model_id", "modelId", "name"):
+                val = item.get(key)
+                if isinstance(val, str) and val.strip():
+                    text = val.strip()
+                    matched_key = key
+                    break
+            if not text:
+                continue
         else:
             continue
+        # Gemini 的 name 形如 "models/gemini-2.0-flash"，仅对 name 字段剥离目录前缀
+        if matched_key == "name" and text.startswith("models/"):
+            text = text[len("models/"):].strip()
         if text and text not in result:
             result.append(text)
         if len(result) >= MAX_MODELS:
             break
     return result
-
 
 async def fetch_models_from_url(db: AsyncSession, preset_id: str, models_url_override: str | None = None):
     """从 preset.models_url（或显式覆盖值）拉取支持的模型 ID 列表。
