@@ -376,6 +376,14 @@ export default {
     summaryFileSize: (ctx) => 'Size ' + ctx.named('size') + ' MB',
     model_configuration_required: 'The required models are not available. Add them in Settings.',
     model_api_key_required: "The {provider} model account is configured, but its API key is missing or cannot be read. Re-enter this model account's API key in Model Settings.",
+    models_required: 'Startup check failed: missing {missingLabels}. Add the required models in Model Settings and try again.',
+    modelCapabilityLabels: {
+      llm: 'Reasoning model',
+      image: 'Image generation',
+      video: 'Video model',
+      tts: 'TTS voice',
+      speech_recognition: 'Speech recognition',
+    },
     bgm_skipped: 'Background music was skipped ({reason}). The video has no background music.',
     access_denied: 'Sign in with an account that can access Story Telling, then try again.',
     orchestration_failed: 'Could not finish generation right now. Please try again shortly.',
@@ -475,6 +483,7 @@ export default {
       resume: 'Resume from breakpoint',
       resuming: 'Resuming…',
       resumeHint: 'The pipeline can continue from the failed stage. Temporary service or network issues will be retried automatically after a short wait.',
+      goToModelSettings: 'Go to Model Settings',
     },
     bgmSkipReasons: {
       size_exceeded: 'file exceeds the size limit',

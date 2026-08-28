@@ -1,0 +1,13 @@
+{
+  "branch": "codex/pipeline-model-preflight",
+  "status": "in_progress",
+  "title": "流水线启动前置校验：按流水线所需模型能力检测缺失并在启动前拦截",
+  "id": "pipeline-model-preflight",
+  "risk": "medium",
+  "createdAt": "2026-08-28T11:43:42Z",
+  "openspecChange": "pipeline-model-preflight",
+  "complexity": "L",
+  "nextAction": "双模型审查 diff（--lite 短任务）→ 修复 → 提交 PR → 合并后归档",
+  "domain": "desktop",
+  "currentPhase": "review"
+}
