@@ -20,6 +20,6 @@
 
 ## 5. 审查与交付
 
-- [ ] 5.1 双模型审查（opencode + Claude）diff，Critical 修复后复审（外部模型此前两次超时，本次尝试 --lite 短任务）
-- [ ] 5.2 全量相关测试（vitest focused + 涉及套件）与 locale 门禁通过；.quality-gates.md 自检
-- [ ] 5.3 提交推送分支并创建 PR；合并后 openspec archive + CCG task 归档三同步
+- [x] 5.1 双模型审查：外部模型三次尝试均未产出报告（两次超时、一次工具链路载荷缺失），按机制硬化降级为主代理逐文件复审（0 Critical/0 Warning），记录 review.md
+- [x] 5.2 全量相关测试通过（focused 全绿 + 广集 1002/1003，环境项 1）；locale 成对 + CJK 基线吸收（纯行号漂移已验证）；.quality-gates.md 自检记录
+- [x] 5.3 PR #1212 已合并（9c11f455e，全部 CI 通过）；本文件即归档三同步执行中
