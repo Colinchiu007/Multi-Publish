@@ -37,10 +37,14 @@ describe('PublisherRouter', () => {
     }
   })
 
-  test('all ROUTE_TABLE entries mode=rpa_vm', () => {
+  test('all ROUTE_TABLE entries mode=rpa_vm（baijiahao 例外：api 直调）', () => {
     const { ROUTE_TABLE } = require(path.join(ELECTRON_DIR, 'services', 'publisher-router'))
     for (const [platform, route] of Object.entries(ROUTE_TABLE)) {
       if (platform.startsWith('_') || platform === 'shipinhao') continue
+      if (platform === 'baijiahao') {
+        expect(route.mode).toBe('api')
+        continue
+      }
       expect(route.mode).toBe('rpa_vm')
     }
   })

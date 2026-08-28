@@ -76,3 +76,43 @@ publishArticle(article)
 ---
 
 > **注意**：百家号编辑器页面可能有嵌套 iframe，需要额外处理。
+---
+
+## 四、方案更新：蚁小二 API 直调链（2026-08-28，Phase C）
+
+> 原方案 A（Playwright RPA）在真实发布中反复失败（「用户须知」引导弹窗、位置必填选择器、publish verification timeout）。逆向蚁小二 4.0 主进程确认百家号为 **API 直调**（非浏览器 RPA），本文档自 Phase C 起**视频发布切换到 API 模式**，作为发布路由首选。
+
+### 4.1 端到端调用链（8 步）
+
+```
+getBaseToken(GET /?source=inner → BJH__INIT__AUTH__)
+  → getAppId(GET /builder/app/appinfo → user.app_id)
+  → preuploadVideo(POST /builder/author/video/preuploadVideo?app_id → upload_key)
+  → uploadVideoPart(POST rsbjh.baidu.com/.../uploadVideo，2MiB/片 multipart → uploadId)
+  → completeUpload(POST /builder/author/video/compuploadVideo → bos_url + mediaId)
+  → waitVideoProcess(POST /pcui/video/process 轮询 → editVideo.coverImage)
+  → buildVideoPostData（字段契约见 PRD 11.4）
+  → publishVideo(POST /pcui/article/publish → errno===0 && ret.id)
+```
+
+### 4.2 模块归属
+
+- **适配层**：`packages/api-publish-engine/src/adapters/baijiahao.js`（BaijiahaoAdapter，execute 全链）
+- **路由层**：`apps/desktop/electron/services/publisher-router.js`（ROUTE_TABLE baijiahao: mode='api'；ApiPublisher 凭证加载/ffprobe 横版校验/结果规范化）
+- **入口**：publish:batch → taskQueue → ApiPublisher → api-publish-engine.publishViaApi
+
+### 4.3 关键契约
+
+- video_type=**short**（横版）；分片 2097152B；每片响应必须含 uploadId；complete 成功判据 bos_url。
+- 位置 position_lat_lng 可选：无位置传空对象 `{}`（URL 编码 %7B%7D）。
+- 封面：无用户封面时由 video/process 返回首帧自动封面（cover_source=upload）。
+- 原创声明：original_status=2 + announce_id=0 + announce_info（first_publish/tp_author/tp_url）。
+- 凭证：credentialStore 加密凭证 + 平台域过滤；缺失/过期 → 明确错误信息（需重新扫码登录）。
+- 横版限定（width>=height）；竖版与封面上传图片链为后续迭代（当前 API 模式检测到用户自定义封面会显式拒绝发布并提示，不静默忽略）。
+
+### 4.4 验收
+
+- [x] baijiahao-api-chain.test.js 10 用例（RED→GREEN）
+- [x] publisher-router.test.js ApiPublisher 6 用例 + 受影响引用方 76/76
+- [x] 真实 E2E 驱动（real-video-publish.js）已能走通至平台校验（凭证有效即可发布）
+- [ ] 真实发布成功回查（需有效账号凭证；当前 profile 凭证需重新扫码登录）

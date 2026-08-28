@@ -282,8 +282,16 @@ const platformsMixin = {
           this._emitProgress(platform, 'uploading file...', 50)
           if (await this._waitForElement(win, sel.file_input[0], 15000)) {
             await this._setFileInput(win, article.video_path)
-            const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
-            if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
+            // 上传完成判定：百家号上传后页面会出现视频预览/编辑器初始化（发布按钮由 disabled 变可用）
+            // 不能依赖 progress/success class（百家号可能不使用），改为轮询"发布按钮可用或编辑器出现"
+            let uploadDone = false
+            if (platform === 'baijiahao') {
+              uploadDone = await this._waitForCondition(win, 'function(){var t=(document.body&&document.body.innerText)||"";var hasPreview=/预览|编辑|描述|简介|标题/.test(t);var ed=document.querySelector("[contenteditable=true],[data-lexical-editor=true]");var btn=[...document.querySelectorAll("button")].find(function(b){return (b.innerText||"").trim()==="发布"&&!b.disabled});return hasPreview&&(ed!==null||btn!==null)}', 180000, 1000)
+              if (!uploadDone) log.warn('RpaView', '['+platform+'] upload complete wait timeout (video may still be processing)')
+            } else {
+              const done = await this._waitForCondition(win, 'function(){let p=document.querySelector(\'[class*="progress"],[class*="uploading"]\');let s=document.querySelector(\'[class*="success"],[class*="complete"]\');return !p||s!==null}', 300000)
+              if (!done) log.warn('RpaView', '['+platform+'] upload timeout')
+            }
             retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 60)
           } else {
             if (!retry.retry('file_upload')) break; await this._sleep(2000)
@@ -354,6 +362,14 @@ const platformsMixin = {
           if (!(await this._waitForElement(win,sel.publish_btn[0],10000))) throw new Error('publish btn not found')
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           await this._click(win,sel.publish_btn[0])
+          // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
+          if (platform === 'baijiahao') {
+            await this._sleep(800)
+            try {
+              await win.webContents.executeJavaScript('(function(){var els=[...document.querySelectorAll("button,a,span,div,[role=button]")].filter(function(e){var t=(e.innerText||"").trim();return t==="我知道了"&&e.children.length===0});if(els.length){els[els.length-1].click();return true}var wrap=[...document.querySelectorAll("[class*=guide],[class*=Guide],[class*=mask],[class*=Mask],[class*=popup],[class*=Popup],[class*=modal],[class*=Modal]")].filter(function(e){return (e.innerText||"").indexOf("我知道了")!==-1});if(wrap.length){var b=[...wrap[0].querySelectorAll("button,a,span")].filter(function(e){return (e.innerText||"").trim()==="我知道了"});if(b.length){b[b.length-1].click();return true}}return false})()')
+            } catch (_) { /* ignore */ }
+            await this._sleep(1000)
+          }
           if (article.draft && sel.draft_btn) await this._click(win,sel.draft_btn)
           retry.markDone('publish')
           if (throttle.shouldReport(95)) this._emitProgress(platform,'verifying...',95)
@@ -380,22 +396,72 @@ const platformsMixin = {
 
   // ========== 平台专用：百家号发布前准备（创作声明等） ==========
   async _prepBaijiahao(win) {
-    this._emitProgress('baijiahao', 'preparing declaration...', 82)
-    // 关闭"视频新增一键填写功能"引导弹窗
+this._emitProgress('baijiahao', 'preparing declaration...', 82)
+    // 关闭"视频创作一键填写引导弹窗"（宽松匹配：文本包含"我知道了"，优先最内层叶子元素）
     try {
-      await win.webContents.executeJavaScript('(function(){var b=[...document.querySelectorAll("button,a,span,div")].filter(function(e){return (e.innerText||"").trim()==="我知道了"&&e.children.length===0});if(b.length){b[0].click();return true}return false})()')
+      await win.webContents.executeJavaScript('(function(){var els=[...document.querySelectorAll("button,a,span,div,[role=button]")].filter(function(e){var t=(e.innerText||"").trim();return t==="我知道了"&&e.children.length===0});if(els.length){els[els.length-1].click();return "CLICKED:"+els.length}var wrap=[...document.querySelectorAll("[class*=guide],[class*=Guide],[class*=mask],[class*=Mask],[class*=popup],[class*=Popup]")].filter(function(e){var t=(e.innerText||"").trim();return t.indexOf("我知道了")!==-1});if(wrap.length){var b=[...wrap[0].querySelectorAll("button,a,span")].filter(function(e){return (e.innerText||"").trim()==="我知道了"});if(b.length){b[b.length-1].click();return "WRAP:"+wrap.length}}return "NOT_FOUND"})()')
     } catch (e) { /* ignore */ }
     await this._sleep(1200)
     // 选择创作声明：点击输入框 → 弹窗选"无需声明" → 确定
-    const opened = await win.webContents.executeJavaScript('(function(){var el=[...document.querySelectorAll("input")].find(function(i){return i.placeholder.indexOf("创作声明")!==-1});if(!el)return "NO_INPUT";if(el.value)return "ALREADY";el.click();el.focus();return "OPENED"})()')
-    if (opened === 'OPENED') {
-      await this._sleep(2500)
-      await win.webContents.executeJavaScript('(function(){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div")].filter(function(e){return (e.innerText||"").trim()==="无需声明"});if(cands.length){cands[0].click();return true}return false})()')
-      await this._sleep(1200)
-      await win.webContents.executeJavaScript('(function(){var btns=[...document.querySelectorAll(".cheetah-modal-footer button,.cheetah-modal-footer span")].filter(function(e){return (e.innerText||"").trim()==="确定"});if(btns.length){var b=btns[0];if(b.tagName==="BUTTON")b.click();else b.parentElement.click();return true}return false})()')
-      await this._sleep(1500)
+    // 返回 { state: 'no-input'|'already'|'done'|'option-missing'|'confirm-missing', value } 供调用方与日志判定
+    let state = 'unknown'
+    let selectedValue = ''
+    try {
+      const opened = await win.webContents.executeJavaScript('(function(){var el=[...document.querySelectorAll("input")].find(function(i){return String(i.placeholder||"").indexOf("创作声明")!==-1});if(!el)return "NO_INPUT";if(el.value)return "ALREADY";el.click();el.focus();return "OPENED"})()')
+      if (opened === 'NO_INPUT') {
+        state = 'no-input'
+      } else if (opened === 'ALREADY') {
+        state = 'already'
+      } else if (opened === 'OPENED') {
+        await this._sleep(2500)
+        const optionClicked = await win.webContents.executeJavaScript('(function(){var opts=["无需声明","无声明","默认声明"];for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll(".cheetah-modal-body span,.cheetah-modal-body label,.cheetah-modal-body div,.cheetah-modal span,.cheetah-modal label,.cheetah-modal div,[class*=modal] span,[class*=modal] label,[class*=modal] div")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k]}}}return {ok:false}})()')
+        if (optionClicked && optionClicked.ok) {
+          selectedValue = optionClicked.option || ''
+          state = 'option-selected'
+          await this._sleep(1200)
+          const confirmClicked = await win.webContents.executeJavaScript('(function(){var btns=[...document.querySelectorAll(".cheetah-modal-footer button,.cheetah-modal-footer span,.cheetah-modal button,.cheetah-modal span,[class*=modal] button,[class*=modal] span")].filter(function(e){return (e.innerText||"").trim()==="确定"&&e.children.length===0});if(btns.length){var b=btns[0];if(b.tagName==="BUTTON"||b.tagName==="SPAN")b.click();else b.parentElement.click();return true}return false})()')
+          state = confirmClicked ? 'done' : 'confirm-missing'
+          await this._sleep(1500)
+        } else {
+          state = 'option-missing'
+        }
+      }
+    } catch (e) {
+      log.warn('RpaView', 'baijiahao declaration prep: ' + e.message)
+      state = 'error'
     }
-    return true
+    log.info('RpaView', '[baijiahao] declaration prep state=' + state + (selectedValue ? ' option=' + selectedValue : ''))
+    // 诊断：prep 后立即截图（页面就绪态，含引导/声明状态）
+    try {
+      const image = await win.webContents.capturePage()
+      if (image && !image.isEmpty()) {
+        const diagDir = path.join(require('os').tmpdir(), 'mp-rpa-diag')
+        require('fs').mkdirSync(diagDir, { recursive: true })
+        const shotPath = path.join(diagDir, 'baijiahao-prep-' + Date.now() + '.png')
+        require('fs').writeFileSync(shotPath, image.toPNG())
+        log.info('RpaView', '[baijiahao] prep screenshot saved: ' + shotPath)
+      }
+    } catch (_) { /* 截图失败不阻塞 */ }
+
+    // 位置选择：百家号视频发布必填「位置」（id=my-position），输入"全国"或从下拉选择
+    try {
+      const posResult = await win.webContents.executeJavaScript('(function(){var el=document.querySelector("#my-position");if(!el)return "NO_INPUT";if(el.value&&el.value.trim())return "ALREADY:"+el.value;el.click();el.focus();return "OPENED"})()')
+      if (posResult === 'OPENED') {
+        await this._sleep(1200)
+        // 先试直接输入（text input）
+        const typed = await win.webContents.executeJavaScript('(function(){var el=document.querySelector("#my-position");if(!el)return false;var setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set;setter.call(el,"全国");el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+        await this._sleep(1200)
+        const chosen = await win.webContents.executeJavaScript('(function(){var opts=["全国","全部","不设置","不限"];for(var k=0;k<opts.length;k++){var cands=[...document.querySelectorAll("[class*=option],[class*=Option],[class*=dropdown],[class*=Dropdown],[class*=select] li,li,[role=option]")].filter(function(e){return (e.innerText||"").trim()===opts[k]&&e.children.length===0});if(cands.length){cands[0].click();return {ok:true,option:opts[k],via:"dropdown"}}}var any=[...document.querySelectorAll("[role=option],li,[class*=option]")].filter(function(e){var t=(e.innerText||"").trim();return t&&t.length<10&&e.children.length===0});if(any.length){any[0].click();return {ok:true,option:any[0].innerText.trim(),via:"any"}}var val=document.querySelector("#my-position")&&document.querySelector("#my-position").value;if(val&&val.trim())return {ok:true,option:val,via:"typed"}return {ok:false}})()')
+        await this._sleep(1200)
+        const confirmBtn = await win.webContents.executeJavaScript('(function(){var btns=[...document.querySelectorAll("button")].filter(function(e){var t=(e.innerText||"").trim();return (t==="确定"||t==="确认")&&e.children.length===0});if(btns.length){btns[btns.length-1].click();return true}return false})()')
+        log.info('RpaView', '[baijiahao] position select: ' + JSON.stringify(chosen) + ' confirm=' + confirmBtn + ' typed=' + typed)
+        await this._sleep(1200)
+      } else {
+        log.info('RpaView', '[baijiahao] position select: ' + String(posResult))
+      }
+    } catch (e) { log.warn('RpaView', 'baijiahao position select: ' + e.message) }
+
+    return { state, option: selectedValue }
   },
 
   async _queryBaijiahaoArtifact(win, context, maxAttempts = 3) {
@@ -601,6 +667,21 @@ const platformsMixin = {
     } catch(e) { log.warn('RpaView','['+platform+'] URL fallback: '+e.message) }
     const finalUrl = win.webContents.getURL() || ''
     const stoppedRequests = await stopNetworkCapture()
+    // 诊断快照：超时前记录页面关键文本与可见弹窗，帮助区分"弹窗拦截/校验失败/静默成功"
+    try {
+      const pageSnapshot = await win.webContents.executeJavaScript('(function(){var t=(document.body&&document.body.innerText)||"";var m=[...document.querySelectorAll("[class*=modal],[class*=dialog],[class*=Modal],[class*=Dialog]")].filter(function(e){return (e.innerText||"").trim()}).map(function(e){return (e.innerText||"").replace(/\\s+/g," ").trim().slice(0,160)}).slice(0,5);var btns=[...document.querySelectorAll("button")].filter(function(b){var x=(b.innerText||"").trim();return x&&x.length<20}).map(function(b){return {t:(b.innerText||"").trim(),d:b.disabled}}).slice(0,10);return {text:t.replace(/\\s+/g," ").slice(0,400),modals:m,buttons:btns}})()')
+      log.warn('RpaView', '[' + platform + '] publish verify snapshot: ' + JSON.stringify(pageSnapshot).slice(0, 900))
+      try {
+        const image = await win.webContents.capturePage()
+        if (image && !image.isEmpty()) {
+          const diagDir = path.join(require('os').tmpdir(), 'mp-rpa-diag')
+          require('fs').mkdirSync(diagDir, { recursive: true })
+          const shotPath = path.join(diagDir, platform + '-verify-' + Date.now() + '.png')
+          require('fs').writeFileSync(shotPath, image.toPNG())
+          log.warn('RpaView', '[' + platform + '] publish verify screenshot saved: ' + shotPath)
+        }
+      } catch (_) { /* 截图失败不阻塞 */ }
+    } catch (_) { /* 快照失败不阻塞 */ }
     log.warn('RpaView', '[' + platform + '] publish verification timeout endpoint=' + sanitizeDiagnosticEndpoint(finalUrl) + ' responses=' + stoppedRequests.length)
     return { success: false, error: 'publish verification timeout', platform, url: sanitizePublishResultUrl(finalUrl), diagnostics: summarizePublishDiagnostics(stoppedRequests, null) }
     } finally {

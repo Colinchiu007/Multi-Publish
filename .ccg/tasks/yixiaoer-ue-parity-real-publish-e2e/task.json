@@ -5,8 +5,8 @@
   "complexity": "L",
   "risk": "high",
   "domain": "desktop-frontend",
-  "currentPhase": "phase-a-cover-crop",
-  "nextAction": "Phase B 真实应用启动验证（快手 expired 可能需人工扫码，先跑百家号）",
+  "currentPhase": "phase-c-baijiahao-api-chain",
+  "nextAction": "双模型审查修复完成，待提交推送 PR；真实发布 E2E 阻塞于 profile 凭证 DPAPI 解密（需用户本机重新扫码）",
   "createdAt": "2026-08-24T18:30:00+08:00",
   "branch": "codex/yixiaoer-ue-parity-real-publish-e2e",
   "handover": {

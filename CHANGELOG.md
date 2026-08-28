@@ -1,3 +1,13 @@
+## [未发布] feat(baijiahao): 百家号视频发布切换为蚁小二 API 直调链（phase-c-real-publish）
+
+- 逆向蚁小二主进程（yixiaoer-extracted/packages/main/dist/index.cjs）逐行为对齐百家号视频发布 API 链：getBaseToken（BJH__INIT__AUTH__ 正则）→ appinfo（app_id）→ preuploadVideo（video_type=short）→ rsbjh 分片上传（2MiB/片，uploadId 判据，存储服务异常换 rsbjh10/11/12 重试）→ compuploadVideo（bos_url+mediaId）→ pcui/video/process 轮询首帧封面（180×1.5s）→ buildVideoPostData（位置空对象/原创声明/封面三件套/常驻字段全量对齐）→ pcui/article/publish（errno===0 && ret.id）。
+- 发布路由新增 API 模式：publisher-router ROUTE_TABLE baijiahao: { mode:'api' }，新增 ApiPublisher（凭证加载→cookie 串→ffprobe 横版校验→publishViaApi→postId 规范化），取消信号/超时语义完整，URL 脱敏复用 sanitizePublishResultUrl。
+- 修复历史 RPA 百家号发布失败根因（位置必填/引导弹窗 verification timeout）：API 契约位置可选（position_lat_lng={}），绕开浏览器自动化。
+- 测试：baijiahao-api-chain.test.js 18 用例（RED→GREEN）+ publisher-router.test.js 新增 10 用例；api-publish-engine 全量绿（42 vitest），desktop 受影响套件 42/42、引用方与 shared-utils 全绿。
+- 双模型审查修复（opencode+Claude）：form-data 声明为 api-publish-engine 直接依赖（QM-2 闭包）；任务级 300s 超时落地为 adapter.execute deadline（轮询/发布前强制收口）；cookie 平台域白名单放行 baidu.com 父域（精确匹配，BDUSS 不再被滤掉）；signal 透传分片/轮询循环（可中断）；发行路径错误消息脱敏（仅 errmsg/errno）；headers 统一走 getHeaders（含 UA/Accept）；视频缺失/竖版/自定义封面显式报错；draft 透传（/save 端点）；删除死代码与测试噪音；rsbjh 重试 host 与文档对齐。
+- 文档：01-docs/PRD-yixiaoer-reuse.md 新增 11 章（发布链 8 步/字段契约/校验/交互/限制/测试）；ARCH-F3-baijiahao.md 同步。
+- 已知限制与后续：竖版接口、封面上传图片链、快手 API 链待移植；真实发布需账号凭证有效（重新扫码登录）。
+
 ## [未发布] fix(story2video): 移动水印跨镜头连续漂移（成片级统一烧录）
 
 - moving 水印渲染从「片段内内嵌」提升为「xfade 合并后成片级统一烧录」：drawtext 使用成片全局时间轴，多镜头切换处不再回到画面中心（消除「中心吸附」跳变），跨镜头连续漂移；起点仍从画面中心附近开始（sin(0)=0 契约不变）。
@@ -31,6 +41,7 @@
 - 文案：`locales` movingHint（zh/en 成对）与 `CreateView.vue` 回退文本更新为「水印从画面中心附近开始，沿正弦轨迹缓慢游走」。
 - 文档：`01-docs/PRD-video-creation.md` 3.1.24 表格/语义段落修正 + 新增 3.1.38 详细契约；`01-docs/learnings.md` 新增三角函数初值 QM-5 复盘；`01-docs/product-manual.md` 水印说明同步。
 
+
 ## [未发布] feat(model-selector): 桌面端用户默认模型 ID 下拉选择 + 运营中心模型种子自动填充
 
 - 双默认模型 ID：运营预设 `default_model`（运营中心设置、目录同步下发、全用户共享）+ 用户自选 `user_default_model`（桌面端本地、不下发）；用户未设置时回退运营预设。
@@ -44,6 +55,7 @@
 
 - 新增：独立回归测试锁定 `story2video-notifications.js` 的 `BATCH_DELETE_SUCCESS` `{count}` 插值（修复于 `492a2246c`），防止空占位符 Toast 复发；覆盖 `BATCH_DELETE_SUCCESS`（zh/en 双 locale、空占位符断言）、`BATCH_DELETE_PARTIAL`、`BATCH_DELETE_CONFIRM` 计数插值。
 - 测试：`story2video-notifications.test.js` 新增 4 条用例，相关套件 42/42 通过。
+
 
 ## [未发布] feat(ops-center): 模型预设「获取模型ID URL」白名单扩展至 24 项 + 解析器字段增强
 

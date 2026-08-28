@@ -110,7 +110,9 @@ const PLATFORM_COOKIE_DOMAINS = {
   kuaishou: ['kuaishou.com', 'passport.kuaishou.com'],
   toutiao: ['toutiao.com'],
   bilibili: ['bilibili.com'],
-  baijiahao: ['baijiahao.baidu.com', 'passport.baidu.com'],
+  // BDUSS/BAIDUID 等真实登录态由 passport.baidu.com 设置在 .baidu.com 父域上，
+  // 仅白名单 baijiahao.baidu.com/passport.baidu.com 会把登录态静默滤掉导致发布失败。
+  baijiahao: ['baijiahao.baidu.com', 'passport.baidu.com', 'baidu.com'],
   youtube: ['youtube.com', 'studio.youtube.com', 'accounts.google.com'],
   tiktok: ['tiktok.com'],
   twitter: ['twitter.com', 'x.com'],
@@ -166,6 +168,9 @@ function isPlatformCookieDomain (platform, domain) {
   if (!normalized) return false
   return (PLATFORM_COOKIE_DOMAINS[platform] || []).some(host => {
     const candidate = normalizeHost(host)
+    // baidu.com 父域条目只允许精确匹配（BDUSS 由 passport 设置在 .baidu.com），
+    // 不允许任意 *.baidu.com 子域 cookie 冒充（例如 .evil.baidu.com）。
+    if (candidate === 'baidu.com') return normalized === 'baidu.com'
     return normalized === candidate || normalized.endsWith(`.${candidate}`)
   })
 }
