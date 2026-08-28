@@ -5,8 +5,8 @@
   "complexity": "M",
   "risk": "high",
   "domain": "desktop",
-  "currentPhase": "implementation",
-  "nextAction": "实现项目清单目录只读媒体根回退",
+  "currentPhase": "review",
+  "nextAction": "双模型审查 + QM-1 打包验证后归档",
   "createdAt": "2026-08-28T19:30:00Z",
   "branch": "codex/real-publish-scan-run"
 }
