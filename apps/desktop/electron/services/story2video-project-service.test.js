@@ -344,6 +344,31 @@ describe('Story2VideoProjectService', () => {
         fs.rmSync(foreign, { recursive: true, force: true })
       })
 
+      it('清单引用为 realpath 等价别名（联接通路/8.3 短名）时按 canonical 比较放行', () => {
+        const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_alias_ref')
+        const video = writeFile(path.join(projectDir, 'video.mp4'), 'video')
+        // CI 上 os.tmpdir() 可能是 8.3 短名（C:\\Users\\RUNNER~1\\...）而 IPC 侧
+        // realpath 归一为长名（runneradmin）：同一文件两种字面串。联接通路别名等价
+        // 模拟该差异——manifest 持久化别名拼写、请求侧是真实拼写，须按 canonical 比较放行。
+        const alias = path.join(foreign, 'run_alias_link')
+        let aliasOk = true
+        try {
+          fs.symlinkSync(projectDir, alias, process.platform === 'win32' ? 'junction' : 'dir')
+        } catch (_) {
+          aliasOk = false
+        }
+        if (aliasOk) {
+          writeManifest(projectDir, 'run_alias_ref', [{ videoPath: path.join(alias, 'video.mp4') }])
+          expect(service.getProjectMediaRoot(video)).toBe(path.resolve(projectDir))
+          expect(service.resolveProjectMedia(video, { maxBytes: 1024 * 1024 })).toBe(fs.realpathSync.native(video))
+          // 反向：请求走联接目录——目录名与 manifest.projectId 不同形，fail-closed
+          expect(service.resolveProjectMedia(path.join(alias, 'video.mp4'))).toBeNull()
+        }
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
+
       it('getThumbnail 对清单目录（当前根外）中的图片素材直接出图', async () => {
         const service = new Story2VideoProjectService({
           store,

@@ -658,6 +658,11 @@ class Story2VideoProjectService {
   getProjectMediaRoot (filePath) {
     if (typeof filePath !== 'string' || !filePath.trim()) return null
     const requested = path.resolve(filePath)
+    // realpath 归一失败（路径不存在）时保留原串，比较自然不相等 -> fail-closed
+    const canonicalOrRaw = (value) => {
+      try { return fs.realpathSync.native(value) } catch { return value }
+    }
+    const requestedCanonical = canonicalOrRaw(requested)
     const requestedDir = path.dirname(requested)
     // 媒体文件通常位于 <ownerHash|__legacy__>/<projectId>/ 两层内；放宽到两层目录。
     const candidates = [requestedDir, path.dirname(requestedDir)]
@@ -667,9 +672,11 @@ class Story2VideoProjectService {
       const refs = projectFileReferencePaths(manifest)
       // Windows/NTFS 路径大小写不敏感：IPC 二次校验传入的是 realpath 规范化路径，
       // 与清单存储串可能只有大小写差异，字符串相等会误拒合法文件（审查 W3）。
+      // 8.3 短名（如 C:\\Users\\RUNNER~1）与 realpath 长名指向同一文件但字面串不同：
+      // 两侧各自 realpath 归一后再比较，别名（含联接通路）拼写同样放行。
       const referenced = process.platform === 'win32'
-        ? refs.some(ref => ref.toLowerCase() === requested.toLowerCase())
-        : refs.includes(requested)
+        ? refs.some(ref => canonicalOrRaw(ref).toLowerCase() === requestedCanonical.toLowerCase())
+        : refs.some(ref => canonicalOrRaw(ref) === requestedCanonical)
       if (!referenced) continue
       return path.resolve(candidate)
     }

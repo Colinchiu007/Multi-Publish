@@ -5,6 +5,7 @@ import os from 'os'
 import path from 'path'
 
 vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
+import { Story2VideoProjectService } from '../services/story2video-project-service'
 __enableElectronMock()
 
 let registerHandlers
@@ -40,6 +41,14 @@ function createDeps() {
     story2videoMediaServer: { createUrl: vi.fn(() => 'http://127.0.0.1:34821/media/aaaaaaaaaaaaaaaa') },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   }
+}
+
+// 跨 profile 用例共用：真实服务（store 仅读项目索引；媒体放行走项目清单目录回退）
+function createForeignProjectService () {
+  return new Story2VideoProjectService({
+    store: { _resolveOwnerSubject: () => 'user-a', getUserSetting: () => [], setUserSetting: () => {} },
+    projectsDir: root,
+  })
 }
 
 const TRUSTED_EVENT = { senderFrame: { url: 'http://localhost:5174/' }, sender: {} }
@@ -142,15 +151,8 @@ describe('Story2Video 交付 IPC', () => {
       projectId: 'run_foreign_proj',
       videoPath: video,
     }))
-    deps.story2videoProjectService = {
-      projectsDir: root,
-      resolveProjectMedia: vi.fn((filePath) => {
-        return filePath === video ? fs.realpathSync.native(video) : null
-      }),
-      getProjectMediaRoot: vi.fn((filePath) => {
-        return filePath === video ? projectDir : null
-      }),
-    }
+    // 用真实服务（而非手工 mock）覆盖「清单引用拼写与请求 canonical 拼写（8.3 短名/联接通路）不一致仍放行」的契约。
+    deps.story2videoProjectService = createForeignProjectService()
     registerHandlers(ipcMain, deps)
 
     const share = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video)
@@ -430,16 +432,24 @@ describe('Story2Video 交付 IPC', () => {
     const foreignRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-ipc-foreign-thumb-'))
     const thumbnailPath = path.join(foreignRoot, 'thumbnail-first-scene.jpg')
     fs.writeFileSync(thumbnailPath, 'thumbnail')
-    const service = {
+    // 真实服务 + 清单目录：覆盖缩略图回退经 canonical 比较放行（CI 8.3 短名回归）。
+    const foreignProjectId = path.basename(foreignRoot)
+    fs.writeFileSync(path.join(foreignRoot, 'project.json'), JSON.stringify({
+      projectId: foreignProjectId,
+      segments: [{ imagePath: thumbnailPath }],
+    }))
+    const service = new Story2VideoProjectService({
+      store: {
+        _resolveOwnerSubject: () => 'user-a',
+        getUserSetting: () => [{
+          projectId: 'project-thumbnail',
+          status: 'completed',
+          segments: [{ imagePath: thumbnailPath }],
+        }],
+        setUserSetting: () => {},
+      },
       projectsDir: root,
-      getThumbnail: vi.fn(async () => ({ status: 'ready', kind: 'image', path: thumbnailPath })),
-      resolveProjectMedia: vi.fn((filePath) => {
-        return filePath === thumbnailPath ? fs.realpathSync.native(thumbnailPath) : null
-      }),
-      getProjectMediaRoot: vi.fn((filePath) => {
-        return filePath === thumbnailPath ? foreignRoot : null
-      }),
-    }
+    })
     const ipcMain = createIpcMain()
     const deps = createDeps()
     registerHandlers(ipcMain, { ...deps, story2videoProjectService: service })
@@ -461,13 +471,7 @@ describe('Story2Video 交付 IPC', () => {
       projectId: 'run_foreign_zip',
       videoPath: video,
     }))
-    const service = {
-      projectsDir: root,
-      resolveProjectMedia: vi.fn((filePath) => filePath === video ? fs.realpathSync.native(video) : null),
-      getProjectMediaRoot: vi.fn((filePath) => {
-        return filePath === video ? projectDir : null
-      }),
-    }
+    const service = createForeignProjectService()
     const ipcMain = createIpcMain()
     registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
     const destination = path.join(root, 'foreign-videos.zip')
