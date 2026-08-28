@@ -86,7 +86,7 @@
       </template>
     </div>
 
-    <div v-if="authViewVisible && loginMode" class="login-state" role="status">
+    <div v-if="authViewVisible && loginMode === 'qrcode'" class="login-state" role="status">
       <component :is="loginMode === 'qrcode' ? Cellphone : Monitor" />
       <div>
         <strong>{{ authPlatformName }}</strong>
