@@ -105,5 +105,7 @@
 
 ## 远程状态
 
-- PR: https://github.com/Colinchiu007/Multi-Publish/pull/1209 （open，待合并）
-- 分支：codex/fix-s2v-history-thumbnail-foreign-profile（基于 origin/main 干净 cherry-pick，7 提交：eec9e04cb 根修复 / 830d02f4f QM-5 复盘 / 5a2c57ee4 审查修复 / 4d0a464d7 归档 / a2ae03e0b CHANGELOG / 413e3287c CI 短名修复 / 97c434c46 CHANGELOG 补充）
+- PR: https://github.com/Colinchiu007/Multi-Publish/pull/1209 （MERGED 于 2026-08-29 00:25，GitHub squash 合并提交 384ce0a2767ac0e1dbf2faab9942db53bf722e11 已位于 origin/main）
+- 分支：codex/fix-s2v-history-thumbnail-foreign-profile（合并前基于 origin/main 干净 cherry-pick，7 个逻辑提交：eec9e04cb 根修复 / 830d02f4f QM-5 复盘 / 5a2c57ee4 审查修复 / 4d0a464d7 归档 / a2ae03e0b CHANGELOG / 413e3287c CI 短名修复 / 97c434c46 CHANGELOG 补充）
+- 远程门禁：合并前 PR 最终 head 41c8f7d6b 的 Gate Result、QG Unit/Coverage/Desktop Shards、Electron CI、Windows/Ubuntu build、GUI/visual 与文档同步等检查均 SUCCESS；release 为预期 SKIPPED。
+- 最后外部审查重试：本地独立审查返回 429，Claude CLI 子进程 exit 1 无结论，opencode 启动后无输出已按机制停止；依据早前 Claude 两轮 PASS、主代理逐行复核与 GitHub Windows CI 的 8.3 短名真实回归全绿降级完成交付。
