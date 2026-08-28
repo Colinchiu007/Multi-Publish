@@ -6,7 +6,7 @@
   "risk": "high",
   "domain": "desktop",
   "currentPhase": "completed",
-  "nextAction": "PR #1209 待合并，已归档，远程状态已记录",
+  "nextAction": "PR #1209 已于 2026-08-29 合并到 origin/main（GitHub squash 384ce0a27）；任务已归档",
   "createdAt": "2026-08-28T19:30:00Z",
   "branch": "codex/real-publish-scan-run"
 }
