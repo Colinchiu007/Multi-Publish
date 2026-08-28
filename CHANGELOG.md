@@ -1,3 +1,11 @@
+## [未发布] fix(story2video): 历史记录已完成任务缩略图误显示「未生成」与打开报错（跨 profile 项目媒体回退）
+
+- 根因：story2video_projects_v1（settings 表）持久化任务创建时刻的媒体绝对路径；当前设备媒体根白名单 = 项目目录。本次 profile 的数据库自调试 profile 合并而来，历史任务索引全部指向旧 profile 路径（D:\tmp\Multi-Publish-debug-profile\story2video-projects\...），任务实际成功（video.mp4 存在），但缩略图/预览 URL/导出全部被白名单拒绝，UI 误显示「未生成」、打开报「未找到可预览的视频」。
+- 修复：getProjectMediaRoot/resolveProjectMedia 新增跨 profile 项目清单目录只读媒体根回退——仅当目录含 project.json、manifest.projectId === 目录名、且清单明确引用该媒体文件时放行；所有读取仍经 resolveReadableFile（lstat 拒符号链接 + realpath 规范化 + 大小上限），伪造 project.json 需目录写权限，与读取权限等势，无提权面。
+- 审查修复：export-zip 逐文件独立校验（任一不通过即 VALIDATION_ERROR，zip 仅接收 validatedFiles）；项目文件引用收集补收 videoMeta.sceneVideoPath/altSceneVideoPath（AI 场景视频仅该字段非空时缩略图回退才生效）；媒体根比较仅 win32 大小写不敏感、其余平台精确匹配；默认根短路与 mkdir 时序修正。
+- 回归保护：story2video-project-service.test.js 119 用例 + ipc-handlers/story2video.test.js 36 用例全绿（新增未引用同目录文件导出被拒、场景视频引用生成、win32 大小写容差、联接通路/8.3 短名 canonical 别名放行等用例；三个跨 profile IPC 用例改用真实服务实例而非手工 mock）。CI 实测：首轮 Gate 4 曾因 Windows 临时目录为 8.3 短名（C:\Users\RUNNER~1\...）与 realpath 长名不一致导致 3 例失败，getProjectMediaRoot 修复为两侧 realpath 归一比较后全绿；真机验证 4 个样本项目缩略图 status=ready、结果页无报错弹窗、video readyState=4。
+- 双模型审查：Claude 两轮 PASS（0 Critical/Warning）；opencode 本轮不可用已按机制降级记录；QM-5 复盘见 .ccg/tasks/archive/2026-08/fix-s2v-history-thumbnail-foreign-profile/review.md。
+
 ## [未发布] feat(story2video): 流水线启动前模型能力前置校验
 
 - 点击「启动流水线」时按「流水线 → 所需模型能力」映射在创建运行前统一校验：静态映射覆盖 animated-explainer/animation/avatar-spokesperson/character-animation/hybrid/documentary-montage/localization-dub/podcast-repurpose/talking-head/cinematic/clip-factory/framework-smoke/screen-demo/film-engineering，story2video-compose 按模式动态判断（image 恒必需；video 仅 fixed/ai-judged；llm 仅 ai-judged；tts 仅显式非空 voiceProvider，内置 Edge TTS 免配置）。
@@ -6,6 +14,7 @@
 - Renderer：错误归一化新增 story2video.models_required（zh/en 成对文案 + modelCapabilityLabels 能力标签），弹窗提供「去模型设置」直达 /model-providers；批量轮询对失败项弹一次提示。
 - 回归保护：pipeline-model-preflight.test.js 28 用例；pipeline-engine.test.js 新增 7 用例；story2video-batch-queue.test.js 新增 1 用例；notifications 新增 4 用例；CreateView 新增 3 用例；受影响套件全绿（1002/1003，唯一失败为 voice-clone 真实 chromium 布局测试环境超时，与本改动无关）。
 - 文档：PRD-S2V-PIPELINE-PAGE-UX.md §2.1.1；openspec pipeline-model-preflight 新增四工件 + 手工合入主规格；story2video-video-carousel-blend 规格扩展启动前拦截。
+
 
 ## [未发布] fix(story2video): 进度弹窗「合成时间说明」移出 sticky 浮层，随阶段列表滚动
 

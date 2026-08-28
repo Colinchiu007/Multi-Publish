@@ -15,6 +15,7 @@ const {
   gcImportedMedia,
   getAllowedMediaRoots,
   importUserSelectedMedia,
+  isPathWithin,
   resolveReadableFile,
 } = require('../services/story2video-paths')
 const {
@@ -29,12 +30,22 @@ function safeZipName (value) {
   return sanitized.toLowerCase().endsWith('.zip') ? sanitized : sanitized + '.zip'
 }
 
-function validateFilePath (filePath, extraRoots = []) {
+function validateFilePath (filePath, extraRoots = [], projectMediaResolver = null) {
   if (typeof filePath !== 'string' || !filePath.trim()) return null
-  return resolveReadableFile(filePath, {
+  const resolved = resolveReadableFile(filePath, {
     allowedRoots: getAllowedMediaRoots(extraRoots),
     maxBytes: MAX_EXPORT_BYTES,
   })
+  if (resolved) return resolved
+  // 跨 profile 迁移 / 设置库合并后：仅当路径属于本项目服务持久化过的「项目清单目录」
+  // （目录含 project.json 且清单引用该文件）时，作为只读媒体回退放行。
+  if (typeof projectMediaResolver === 'function') {
+    try {
+      const fallback = projectMediaResolver(filePath, { maxBytes: MAX_EXPORT_BYTES })
+      return fallback || null
+    } catch (_) { return null }
+  }
+  return null
 }
 
 function isSafeId (value) {
@@ -67,6 +78,20 @@ function registerHandlers (ipcMain, deps = {}) {
     ? [projectService.projectsDir]
     : []
   const allowedMediaRoots = (extraRoots = []) => getAllowedMediaRoots([...projectRoots, ...extraRoots])
+  const resolveProjectMedia = projectService && typeof projectService.resolveProjectMedia === 'function'
+    ? projectService.resolveProjectMedia.bind(projectService)
+    : null
+  const getProjectMediaRoot = projectService && typeof projectService.getProjectMediaRoot === 'function'
+    ? projectService.getProjectMediaRoot.bind(projectService)
+    : null
+  // 默认根外的文件经项目清单目录放行后，URL 签发（createShareFileUrl 二次校验）同样需要并入该项目根。
+  const projectMediaRootsFor = (filePath) => {
+    if (!getProjectMediaRoot || typeof filePath !== 'string' || !filePath.trim()) return []
+    // 默认根内的文件直接短路，无需解析清单（避免每次 URL 签发都读 project.json，审查 I1）
+    if (isPathWithin(path.resolve(filePath), getAllowedMediaRoots())) return []
+    const root = getProjectMediaRoot(filePath)
+    return root ? [root] : []
+  }
 
   // BGM 素材库：生产环境懒创建（userData/story2video-bgm）；测试可注入 mock 实例。
   let bgmLibrary = deps.story2videoBgmLibrary || null
@@ -121,9 +146,12 @@ function registerHandlers (ipcMain, deps = {}) {
       if (!thumbnail || thumbnail.status !== 'ready' || !thumbnail.path) {
         return { code: 0, data: { status: thumbnail?.status || 'missing', kind: thumbnail?.kind || 'missing', url: null } }
       }
-      const resolved = validateFilePath(thumbnail.path, projectRoots)
+      const resolved = validateFilePath(thumbnail.path, projectRoots, resolveProjectMedia)
       if (!resolved) return { code: 0, data: { status: 'failed', kind: 'failed', url: null } }
-      const url = createShareFileUrl(resolved, { allowedRoots: allowedMediaRoots(), mediaServer })
+      const url = createShareFileUrl(resolved, {
+        allowedRoots: allowedMediaRoots(projectMediaRootsFor(resolved)),
+        mediaServer,
+      })
       if (typeof url !== 'string' || !url.trim()) {
         return { code: 0, data: { status: 'failed', kind: 'failed', url: null } }
       }
@@ -333,6 +361,23 @@ function registerHandlers (ipcMain, deps = {}) {
 
     let destinationPath = request.destinationPath
     let allowedRoots = allowedMediaRoots()
+    // 逐文件独立校验（默认根或项目清单目录根），任一文件不通过立即拒绝：
+    // 不允许用「清单引用的文件」整体解锁项目目录后再导出其中未引用文件（审查 W1）。
+    const projectRootsExtra = []
+    const validatedFiles = []
+    for (const item of request.files) {
+      const file = item && typeof item === 'object' ? (item.path || item.filePath) : null
+      if (typeof file !== 'string' || !file.trim()) {
+        return { code: EC.VALIDATION_ERROR, message: '导出文件参数无效' }
+      }
+      const resolved = validateFilePath(file, projectRoots, resolveProjectMedia)
+      if (!resolved) return { code: EC.VALIDATION_ERROR, message: '导出文件路径无效或不允许访问' }
+      if (!isPathWithin(path.resolve(resolved), getAllowedMediaRoots()) && getProjectMediaRoot) {
+        const rootDir = getProjectMediaRoot(resolved)
+        if (rootDir) projectRootsExtra.push(rootDir)
+      }
+      validatedFiles.push({ ...(item && typeof item === 'object' ? item : {}), path: resolved })
+    }
     if (destinationPath !== undefined && (typeof destinationPath !== 'string' || !path.isAbsolute(destinationPath))) {
       return { code: EC.VALIDATION_ERROR, message: '导出目标路径无效' }
     }
@@ -353,11 +398,13 @@ function registerHandlers (ipcMain, deps = {}) {
         : await dialog.showSaveDialog(options)
       if (selection.canceled || !selection.filePath) return { code: 0, data: { cancelled: true } }
       destinationPath = selection.filePath
-      allowedRoots = allowedMediaRoots([path.dirname(destinationPath)])
+      allowedRoots = allowedMediaRoots([...projectRootsExtra, path.dirname(destinationPath)])
+    } else if (projectRootsExtra.length > 0) {
+      allowedRoots = allowedMediaRoots(projectRootsExtra)
     }
 
     try {
-      const data = await createZipFromFiles(request.files, destinationPath, { allowedRoots })
+      const data = await createZipFromFiles(validatedFiles, destinationPath, { allowedRoots })
       return { code: 0, data }
     } catch (error) {
       return { code: EC.REQUEST_ERROR, message: error.message }
@@ -366,9 +413,9 @@ function registerHandlers (ipcMain, deps = {}) {
 
   ipcMain.handle('story2video:create-share-url', withSenderCheck(async (_event, filePath, previousUrl) => {
     try {
-      const allowedRoots = allowedMediaRoots()
-      const resolved = validateFilePath(filePath, projectRoots)
+      const resolved = validateFilePath(filePath, projectRoots, resolveProjectMedia)
       if (!resolved) return { code: EC.VALIDATION_ERROR, message: '视频文件路径无效或不允许访问' }
+      const allowedRoots = allowedMediaRoots(projectMediaRootsFor(resolved))
       const url = createShareFileUrl(resolved, { allowedRoots, mediaServer })
       // Best-effort reclaim of the previous short-lived media token: after re-issuing a
       // fresh URL for the same file, the old token is revoked so it cannot linger. Only
@@ -384,7 +431,7 @@ function registerHandlers (ipcMain, deps = {}) {
   }))
 
   ipcMain.handle('story2video:copy-path', withSenderCheck(async (_event, filePath) => {
-    const resolved = validateFilePath(filePath, projectRoots)
+    const resolved = validateFilePath(filePath, projectRoots, resolveProjectMedia)
     if (!resolved) return { code: EC.VALIDATION_ERROR, message: '视频文件路径无效或不允许访问' }
     if (!clipboard || typeof clipboard.writeText !== 'function') {
       return { code: EC.REQUEST_ERROR, message: '系统剪贴板不可用' }
@@ -394,7 +441,7 @@ function registerHandlers (ipcMain, deps = {}) {
   }))
 
   ipcMain.handle('story2video:show-in-folder', withSenderCheck(async (_event, filePath) => {
-    const resolved = validateFilePath(filePath, projectRoots)
+    const resolved = validateFilePath(filePath, projectRoots, resolveProjectMedia)
     if (!resolved) return { code: EC.VALIDATION_ERROR, message: '视频文件路径无效或不允许访问' }
     if (!shell || typeof shell.showItemInFolder !== 'function') {
       return { code: EC.REQUEST_ERROR, message: '系统文件管理器不可用' }
@@ -411,7 +458,7 @@ function registerHandlers (ipcMain, deps = {}) {
       typeof request.filePath !== 'string' || !request.filePath.trim()) {
       return { code: EC.VALIDATION_ERROR, message: '保存参数无效' }
     }
-    const resolved = validateFilePath(request.filePath, projectRoots)
+    const resolved = validateFilePath(request.filePath, projectRoots, resolveProjectMedia)
     if (!resolved) return { code: EC.VALIDATION_ERROR, message: '文件路径无效或不允许访问' }
     let stat
     try {

@@ -5,6 +5,7 @@ import os from 'os'
 import path from 'path'
 
 vi.mock('../services/logger', () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
+import { Story2VideoProjectService } from '../services/story2video-project-service'
 __enableElectronMock()
 
 let registerHandlers
@@ -40,6 +41,14 @@ function createDeps() {
     story2videoMediaServer: { createUrl: vi.fn(() => 'http://127.0.0.1:34821/media/aaaaaaaaaaaaaaaa') },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   }
+}
+
+// 跨 profile 用例共用：真实服务（store 仅读项目索引；媒体放行走项目清单目录回退）
+function createForeignProjectService () {
+  return new Story2VideoProjectService({
+    store: { _resolveOwnerSubject: () => 'user-a', getUserSetting: () => [], setUserSetting: () => {} },
+    projectsDir: root,
+  })
 }
 
 const TRUSTED_EVENT = { senderFrame: { url: 'http://localhost:5174/' }, sender: {} }
@@ -128,6 +137,61 @@ describe('Story2Video 交付 IPC', () => {
     expect(deps.shell.showItemInFolder).toHaveBeenCalledWith(fs.realpathSync.native(video))
     expect(copied.data.path).toBe(fs.realpathSync.native(video))
     expect(shown.data.path).toBe(fs.realpathSync.native(video))
+  })
+
+  it('create-share-url 对默认根外但属于项目清单目录的文件放行（跨 profile 回退）', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    const foreignRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-ipc-foreign-'))
+    const projectDir = path.join(foreignRoot, 'run_foreign_proj')
+    fs.mkdirSync(projectDir, { recursive: true })
+    const video = path.join(projectDir, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+    fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify({
+      projectId: 'run_foreign_proj',
+      videoPath: video,
+    }))
+    // 用真实服务（而非手工 mock）覆盖「清单引用拼写与请求 canonical 拼写（8.3 短名/联接通路）不一致仍放行」的契约。
+    deps.story2videoProjectService = createForeignProjectService()
+    registerHandlers(ipcMain, deps)
+
+    const share = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video)
+    const copied = await ipcMain.get('story2video:copy-path')(TRUSTED_EVENT, video)
+    const shown = await ipcMain.get('story2video:show-in-folder')(TRUSTED_EVENT, video)
+    deps.dialog.showSaveDialog.mockResolvedValue({ canceled: true, filePath: undefined })
+    const saved = await ipcMain.get('story2video:save-as')(TRUSTED_EVENT, {
+      filePath: video,
+      suggestedName: 'video.mp4',
+    })
+
+    expect(share).toMatchObject({ code: 0 })
+    expect(share.data.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/media\/[A-Za-z0-9_-]{16,}/)
+    expect(copied.data.path).toBe(fs.realpathSync.native(video))
+    expect(shown.data.path).toBe(fs.realpathSync.native(video))
+    expect(deps.clipboard.writeText).toHaveBeenCalledWith(fs.realpathSync.native(video))
+    expect(deps.shell.showItemInFolder).toHaveBeenCalledWith(fs.realpathSync.native(video))
+    // save-as 需要展示保存对话框：路径校验先行通过后进入系统对话框流程
+    expect(deps.dialog.showSaveDialog).toHaveBeenCalled()
+    expect(saved).toMatchObject({ code: 0, data: { cancelled: true } })
+    fs.rmSync(foreignRoot, { recursive: true, force: true })
+  })
+
+  it('create-share-url 在项目清单目录回退也失败时保持拒绝', async () => {
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    const foreignRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-ipc-foreign-reject-'))
+    deps.story2videoProjectService = {
+      projectsDir: root,
+      resolveProjectMedia: vi.fn(() => null),
+      getProjectMediaRoot: vi.fn(() => null),
+    }
+    registerHandlers(ipcMain, deps)
+    const video = path.join(foreignRoot, 'video.mp4')
+    fs.writeFileSync(video, 'video')
+
+    const share = await ipcMain.get('story2video:create-share-url')(TRUSTED_EVENT, video)
+    expect(share).toEqual({ code: -2, message: '视频文件路径无效或不允许访问' })
+    fs.rmSync(foreignRoot, { recursive: true, force: true })
   })
 
   it('create-share-url 传 previousUrl 时先签发新地址再回收旧令牌', async () => {
@@ -364,6 +428,117 @@ describe('Story2Video 交付 IPC', () => {
     expect(deps.story2videoMediaServer.createUrl).toHaveBeenCalledWith(fs.realpathSync.native(thumbnailPath))
   })
 
+  it('get-thumbnail 对默认根外的项目清单目录缩略图同样签发媒体 URL（跨 profile 回退）', async () => {
+    const foreignRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-ipc-foreign-thumb-'))
+    const thumbnailPath = path.join(foreignRoot, 'thumbnail-first-scene.jpg')
+    fs.writeFileSync(thumbnailPath, 'thumbnail')
+    // 真实服务 + 清单目录：覆盖缩略图回退经 canonical 比较放行（CI 8.3 短名回归）。
+    const foreignProjectId = path.basename(foreignRoot)
+    fs.writeFileSync(path.join(foreignRoot, 'project.json'), JSON.stringify({
+      projectId: foreignProjectId,
+      segments: [{ imagePath: thumbnailPath }],
+    }))
+    const service = new Story2VideoProjectService({
+      store: {
+        _resolveOwnerSubject: () => 'user-a',
+        getUserSetting: () => [{
+          projectId: 'project-thumbnail',
+          status: 'completed',
+          segments: [{ imagePath: thumbnailPath }],
+        }],
+        setUserSetting: () => {},
+      },
+      projectsDir: root,
+    })
+    const ipcMain = createIpcMain()
+    const deps = createDeps()
+    registerHandlers(ipcMain, { ...deps, story2videoProjectService: service })
+
+    const result = await ipcMain.get('story2video:get-thumbnail')(TRUSTED_EVENT, 'project-thumbnail')
+
+    expect(result).toMatchObject({ code: 0, data: { status: 'ready', kind: 'image' } })
+    expect(result.data.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/media\//)
+    fs.rmSync(foreignRoot, { recursive: true, force: true })
+  })
+
+  it('export-zip 并入项目清单目录根后允许导出默认根外的视频', async () => {
+    const foreignRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-ipc-foreign-zip-'))
+    const projectDir = path.join(foreignRoot, 'run_foreign_zip')
+    fs.mkdirSync(projectDir, { recursive: true })
+    const video = path.join(projectDir, 'video.mp4')
+    fs.writeFileSync(video, 'zip-me')
+    fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify({
+      projectId: 'run_foreign_zip',
+      videoPath: video,
+    }))
+    const service = createForeignProjectService()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+    const destination = path.join(root, 'foreign-videos.zip')
+
+    const result = await ipcMain.get('story2video:export-zip')(TRUSTED_EVENT, {
+      files: [{ path: video, name: '成片.mp4' }],
+      destinationPath: destination,
+    })
+
+    expect(result).toMatchObject({ code: 0, data: { path: destination, fileCount: 1 } })
+    expect(fs.readFileSync(destination).readUInt32LE(0)).toBe(0x04034b50)
+    fs.rmSync(foreignRoot, { recursive: true, force: true })
+  })
+
+  it('export-zip 无法并入项目清单目录根时保持拒绝默认根外文件', async () => {
+    const foreignRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-ipc-foreign-zip2-'))
+    const video = path.join(foreignRoot, 'video.mp4')
+    fs.writeFileSync(video, 'zip-me')
+    const service = {
+      projectsDir: root,
+      resolveProjectMedia: vi.fn(() => null),
+      getProjectMediaRoot: vi.fn(() => null),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+
+    const result = await ipcMain.get('story2video:export-zip')(TRUSTED_EVENT, {
+      files: [{ path: video, name: '成片.mp4' }],
+      destinationPath: path.join(root, 'foreign-videos.zip'),
+    })
+
+    expect(result.code).toBeLessThan(0)
+    fs.rmSync(foreignRoot, { recursive: true, force: true })
+  })
+
+  it('export-zip 拒绝与清单引用文件同目录的未引用文件（防项目根整体解锁，审查 W1）', async () => {
+    const foreignRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-ipc-foreign-w1-'))
+    const projectDir = path.join(foreignRoot, 'run_foreign_w1')
+    fs.mkdirSync(projectDir, { recursive: true })
+    const referenced = path.join(projectDir, 'video.mp4')
+    const unreferenced = path.join(projectDir, 'unreferenced.mp4')
+    fs.writeFileSync(referenced, 'zip-me')
+    fs.writeFileSync(unreferenced, 'secret')
+    fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify({
+      projectId: 'run_foreign_w1',
+      videoPath: referenced,
+    }))
+    const service = {
+      projectsDir: root,
+      resolveProjectMedia: vi.fn((filePath) => filePath === referenced ? fs.realpathSync.native(referenced) : null),
+      getProjectMediaRoot: vi.fn((filePath) => {
+        return filePath === referenced || filePath === fs.realpathSync.native(referenced) ? projectDir : null
+      }),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+    const destination = path.join(root, 'foreign-w1.zip')
+
+    const result = await ipcMain.get('story2video:export-zip')(TRUSTED_EVENT, {
+      files: [{ path: referenced, name: 'a.mp4' }, { path: unreferenced, name: 'b.mp4' }],
+      destinationPath: destination,
+    })
+
+    expect(result.code).toBeLessThan(0)
+    expect(fs.existsSync(destination)).toBe(false)
+    fs.rmSync(foreignRoot, { recursive: true, force: true })
+  })
   it('get-thumbnail 对缺失或生成失败的缩略图保持 url=null', async () => {
     const getThumbnail = vi.fn()
       .mockResolvedValueOnce({ status: 'missing', kind: 'missing', path: null })
