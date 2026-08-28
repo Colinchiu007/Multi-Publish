@@ -376,6 +376,14 @@ export default {
     summaryFileSize: (ctx) => '文件大小 ' + ctx.named('size') + ' M',
     model_configuration_required: '未找到需要的相关模型，请在设置中添加模型',
     model_api_key_required: '{provider}模型账号已添加，但 API Key 未配置或无法读取，请在「模型设置」中重新填写该模型账号的 API Key。',
+    models_required: '启动前置校验未通过：缺少{missingLabels}。请到「模型设置」中添加对应模型后重试。',
+    modelCapabilityLabels: {
+      llm: '推理模型',
+      image: '图片生成',
+      video: '视频模型',
+      tts: 'TTS语音',
+      speech_recognition: '语音识别',
+    },
     bgm_skipped: '背景音乐已跳过（{reason}），成片不含背景音乐。',
     access_denied: '当前登录状态无法启动故事讲述，请先登录并确认当前账号有对应权益。',
     orchestration_failed: '暂时无法完成生成，请稍后再试。',
@@ -476,6 +484,7 @@ export default {
       resume: '从断点继续',
       resuming: '正在恢复…',
       resumeHint: '可从上一步失败的阶段继续生成；遇到暂时的服务繁忙或网络波动时，会自动等待片刻后重试。',
+      goToModelSettings: '去模型设置',
     },
     bgmSkipReasons: {
       size_exceeded: '文件超过大小上限',

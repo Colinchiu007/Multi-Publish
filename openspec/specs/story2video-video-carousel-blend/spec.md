@@ -45,11 +45,19 @@ ai-judged 模式 SHALL 调用默认 LLM 对每个场景返回 `{index, video, ex
 - **THEN** select_video_scenes 阶段返回 `success: false` 与可读错误，不进入资源生成
 
 ### Requirement: 视频生成器前置校验
-`video.mode !== 'off'` 时，select_video_scenes 阶段 SHALL 解析视频生成器：显式 provider/model 优先，否则取 `_modelProviderManager.getDefault('video')`；解析失败（无视频 provider 配置）时 MUST fail closed，返回引导文案（提示在设置中添加视频模型），不得以默认 LLM 或其他能力兜底。
+`video.mode !== 'off'` 时，系统 SHALL 在流水线启动（startOrchestrated 创建新 run）前解析视频生成器需求：显式 provider/model 优先，否则取 `_modelProviderManager.getDefault('video')`；解析失败（无视频 provider 配置）时 MUST 在启动前 fail closed 拦截，返回引导文案（提示在设置中添加视频模型）；ai-judged 模式在启动前额外要求 LLM。`video.mode = 'off'`（或 video 段缺失，按 off 处理）不要求视频模型，启动前不得因 video 能力缺失拦截。select_video_scenes 阶段内解析失败 MUST 仍 fail closed（运行期兜底，语义不变），不得以默认 LLM 或其他能力兜底。
 
 #### Scenario: 未配置视频生成器
 - **WHEN** `video.mode = 'fixed'` 且模型管理器中无任何视频能力 provider
 - **THEN** select_video_scenes 返回失败与「请先完成视频模型设置」类引导，流水线停在可操作点
+
+#### Scenario: 启动前拦截视频模型缺失
+- **WHEN** 用户启动 story2video-compose 且 `video.mode = 'fixed'`，模型管理器中无视频能力 provider
+- **THEN** 启动返回 PIPELINE_MODEL_REQUIREMENTS_MISSING（missing 含 video），不创建运行
+
+#### Scenario: 纯图片轮播免视频校验
+- **WHEN** `video.mode = 'off'`（或 video 段缺失）且未配置视频模型
+- **THEN** 启动不因 video 能力缺失拦截，按图片轮播流程执行
 
 ### Requirement: 混合资源生成
 generate_assets 阶段 SHALL 对 video_plan 中 `useVideo=true` 的场景调用视频生成适配器（generateVideo 提交 + getVideoStatus 轮询 + 下载落盘，并发 1），产出本地 `videoPath` 且不生成图片；其余场景维持图片生成。两类场景均生成 TTS 旁白。视频生成失败（provider 错误/超时/下载失败）时 SHALL 回退图片轮播：已生成图片则复用，否则补生成图片；补图也失败则该场景按既有 allowPartialAssets 语义处理。resume 断点快照 SHALL 记录 `videoPath` 且旧快照（无该字段）兼容。
