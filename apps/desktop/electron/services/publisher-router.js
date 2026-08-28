@@ -12,6 +12,7 @@
  * 鏂囦欢浣嶇疆: apps/desktop/electron/publisher-router.js
  */
 const path = require('path')
+const { execFile } = require('child_process')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { RichTextProcessor } = require('@multi-publish/api-publish-engine/src/rich-text-processor')
@@ -31,7 +32,7 @@ const ROUTE_TABLE = {
   kuaishou:     { mode: 'rpa_vm', timeout: 300000 },
   toutiao:      { mode: 'rpa_vm', timeout: 120000 },
   bilibili:     { mode: 'rpa_vm', timeout: 300000 },
-  baijiahao:    { mode: 'rpa_vm', timeout: 300000 },
+  baijiahao:    { mode: 'api', timeout: 300000 },
   youtube:      { mode: 'rpa_vm', timeout: 300000 },
   tiktok:       { mode: 'rpa_vm', timeout: 300000 },
   twitter:      { mode: 'rpa_vm', timeout: 120000 },
@@ -198,6 +199,88 @@ function loadCredentialsForTask (accountManager, accountId, platform, ownerSubje
     : accountManager.loadSavedCredentials(accountId, platform, { ownerSubject })
 }
 
+/**
+ * 解析任务指定的账号并加载其平台凭证（cookies/localStorage）。
+ * RpaVmPublisher 与 ApiPublisher 共用；accountId 缺失时回退到平台默认账号。
+ * @returns {{accountId: string|null, authData: object}}
+ */
+function loadAuthForTask (deps, platform, article, ownerSubject) {
+  const store = deps.store
+  const accountManager = deps.accountManager
+  let accountId = article.accountId
+  let authData = { cookies: [], localStorage: {} }
+  if (accountId) {
+    try {
+      authData = normalizeAuthData(
+        loadCredentialsForTask(accountManager, accountId, platform, ownerSubject),
+        platform,
+      ) || authData
+    } catch (_) { /* 凭证回退不得阻断读取 */ }
+    if (authData.cookies.length === 0 && (!authData.localStorage || Object.keys(authData.localStorage).length === 0)) {
+      authData = normalizeAuthData(getAccountForTask(store, accountId, ownerSubject), platform) || authData
+    }
+  } else {
+    const defaultAccount = getDefaultAccountForTask(store, platform, ownerSubject)
+    if (defaultAccount) {
+      accountId = defaultAccount.id || null
+      article.accountId = accountId
+      try {
+        authData = normalizeAuthData(
+          loadCredentialsForTask(accountManager, defaultAccount.id, platform, ownerSubject),
+          platform,
+        ) || authData
+      } catch (_) { /* 凭证回退不得阻断读取 */ }
+      if (authData.cookies.length === 0 && (!authData.localStorage || Object.keys(authData.localStorage).length === 0)) {
+        const storeAuthData = normalizeAuthData(defaultAccount, platform)
+        if (storeAuthData) authData = storeAuthData
+      }
+    }
+  }
+  return { accountId, authData }
+}
+
+/**
+ * 用 ffprobe 探测视频宽高/时长（API 发布必须确认横版）。
+ * 探测策略可被外部注入（测试/后端特化），默认走本地 ffprobe。
+ * @returns {Promise<{width:number,height:number,duration:number}|null>}
+ */
+async function probeVideoInfo (videoPath, options = {}) {
+  const exec = options.execFile || execFile
+  const { findFfprobe } = require('./media-tool-paths')
+  const ffprobe = findFfprobe(options.mediaToolOptions)
+  if (!ffprobe) {
+    const error = new Error('ffprobe 不可用，无法探测视频信息')
+    error.code = 'FFPROBE_UNAVAILABLE'
+    throw error
+  }
+  return new Promise((resolve, reject) => {
+    exec(ffprobe, [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height,duration:format=duration',
+      '-of', 'json',
+      videoPath,
+    ], { timeout: 30000 }, (err, stdout) => {
+      if (err) {
+        const error = new Error('ffprobe 探测视频失败: ' + (err.message || String(err)))
+        error.code = 'FFPROBE_FAILED'
+        return reject(error)
+      }
+      try {
+        const data = JSON.parse(String(stdout || '{}'))
+        const stream = data.streams && data.streams[0]
+        const width = Number(stream && stream.width)
+        const height = Number(stream && stream.height)
+        if (!width || !height) return resolve(null)
+        const duration = Number(stream && stream.duration) || Number(data.format && data.format.duration) || 0
+        resolve({ width, height, duration })
+      } catch (_) {
+        reject(new Error('ffprobe 输出解析失败'))
+      }
+    })
+  })
+}
+
 // 鈹€鈹€鈹€ 涓ょ Publisher 绛栫暐 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 class RpaVmPublisher {
@@ -214,36 +297,10 @@ class RpaVmPublisher {
 
     // 鍔犺浇璐﹀彿 Cookie
     const article = buildPublishArticle(task, platform)
-    let accountId = article.accountId
-    let authData = { cookies: [], localStorage: {} }
-    if (accountId) {
-      try {
-        authData = normalizeAuthData(
-          loadCredentialsForTask(this.accountManager, accountId, platform, ownerSubject),
-          platform,
-        ) || authData
-      } catch (_) { /* 凭证回退不得阻断 SQLite 读取 */ }
-      if (authData.cookies.length === 0 && (!authData.localStorage || Object.keys(authData.localStorage).length === 0)) {
-        const account = getAccountForTask(this.store, accountId, ownerSubject)
-        authData = normalizeAuthData(account, platform) || authData
-      }
-    } else {
-      const defaultAccount = getDefaultAccountForTask(this.store, platform, ownerSubject)
-      if (defaultAccount) {
-        accountId = defaultAccount.id || null
-        article.accountId = accountId
-        try {
-          authData = normalizeAuthData(
-            loadCredentialsForTask(this.accountManager, defaultAccount.id, platform, ownerSubject),
-            platform,
-          ) || authData
-        } catch (_) { /* 凭证回退不得阻断 SQLite 读取 */ }
-        if (authData.cookies.length === 0 && (!authData.localStorage || Object.keys(authData.localStorage).length === 0)) {
-          const storeAuthData = normalizeAuthData(defaultAccount, platform)
-          if (storeAuthData) authData = storeAuthData
-        }
-      }
-    }
+    const { accountId, authData } = loadAuthForTask(
+      { store: this.store, accountManager: this.accountManager },
+      platform, article, ownerSubject,
+    )
 
     const signal = options && options.signal
     if (signal?.aborted) throw new Error('任务已取消')
@@ -273,6 +330,68 @@ class RpaVmPublisher {
     } finally {
       signal?.removeEventListener('abort', onAbort)
     }
+  }
+}
+
+class ApiPublisher {
+  constructor (route, deps) {
+    this.route = route
+    this.rpaViewManager = deps.rpaViewManager
+    this.store = deps.store
+    this.accountManager = deps.accountManager
+    this.probeVideo = deps.probeVideo || probeVideoInfo
+    this.publishApi = deps.publishViaApi || null
+  }
+
+  /**
+   * API 直调发布（BaijiahaoAdapter 移植蚁小二发布链）。
+   * 流程：凭证 → ffprobe 横版校验 → publishViaApi（上传/处理/发布）。
+   */
+  async publish (task, options = {}) {
+    const platform = this.route.platform
+    const ownerSubject = task && task.owner_subject
+    const article = buildPublishArticle(task, platform)
+    const { accountId, authData } = loadAuthForTask(
+      { store: this.store, accountManager: this.accountManager },
+      platform, article, ownerSubject,
+    )
+    const cookies = Array.isArray(authData.cookies) ? authData.cookies : []
+    if (cookies.length === 0) throw new Error('平台 Cookie 缺失（账号 ' + (accountId || '未指定') + ' 未登录或凭证不可用）')
+    const cookie = cookies.map((c) => c.name + '=' + c.value).join('; ')
+    const signal = options && options.signal
+    if (signal && signal.aborted) throw new Error('任务已取消')
+
+    const videoPath = article.video_path
+    if (!videoPath) throw new Error('缺少视频文件路径')
+    const videoInfo = await this.probeVideo(videoPath)
+    if (!videoInfo || !videoInfo.width || !videoInfo.height) throw new Error('视频信息探测失败（ffprobe 不可用或文件损坏）')
+    if (videoInfo.width < videoInfo.height) throw new Error('竖版视频暂不支持 API 发布，请使用 RPA 发布')
+
+    const publishViaApi = this.publishApi || require('@multi-publish/api-publish-engine/src/index').publishViaApi
+    const taskData = {
+      title: article.title,
+      content: article.content,
+      tags: article.tags,
+      draft: article.draft === true,
+      video: {
+        path: videoPath,
+        duration: Number(videoInfo.duration) || 0,
+        width: Number(videoInfo.width),
+        height: Number(videoInfo.height),
+      },
+    }
+    if (article.cover_path) taskData.cover = article.cover_path
+
+    const result = await publishViaApi(platform, taskData, cookie, {
+      timeout: this.route.timeout,
+      draft: article.draft === true,
+      signal,
+    })
+    if (signal && signal.aborted) throw new Error('任务已取消')
+    if (!result || !result.success) throw new Error((result && result.error) || 'API 发布失败')
+    const postId = typeof result.publishId === 'string' && result.publishId.trim() ? result.publishId.trim() : ''
+    if (!postId) throw new Error('发布结果缺少平台作品 ID')
+    return { success: true, url: sanitizePublishResultUrl(result.url || ''), postId, platform, mode: 'api' }
   }
 }
 
@@ -370,6 +489,8 @@ class PublisherRouter {
     switch (route.mode) {
       case 'rpa_vm':
         return new RpaVmPublisher(route, deps)
+      case 'api':
+        return new ApiPublisher(route, deps)
       case 'backend':
         return new BackendPublisher(route, deps)
       default:
@@ -385,6 +506,6 @@ class PublisherRouter {
   }
 }
 
-module.exports = { PublisherRouter, ROUTE_TABLE }
+module.exports = { PublisherRouter, ROUTE_TABLE, ApiPublisher, probeVideoInfo, loadAuthForTask }
 
 

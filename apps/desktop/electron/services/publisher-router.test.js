@@ -15,7 +15,152 @@ vi.mock("@multi-publish/shared-utils/src/platform-config", () => ({
   default: MockPlatformConfig,
 }));
 
+const { publishViaApiMock } = vi.hoisted(() => ({ publishViaApiMock: vi.fn() }));
+vi.mock("./media-tool-paths", () => ({
+  findFfprobe: vi.fn(() => "ffprobe"),
+}));
+
 const { PublisherRouter, ROUTE_TABLE } = require("../services/publisher-router");
+
+describe("ApiPublisher（baijiahao api 模式）", () => {
+  const store = {
+    getAccount: vi.fn(() => null),
+    getDefaultAccount: vi.fn(() => null),
+  }
+  const accountManager = {
+    loadSavedCredentials: vi.fn(() => ({
+      platform: "baijiahao",
+      cookies: [
+        { name: "BAIDUID", value: "ABC", domain: ".baijiahao.baidu.com" },
+        { name: "BDUSS", value: "XYZ", domain: ".baijiahao.baidu.com" },
+      ],
+      localStorage: {},
+    })),
+  }
+  const baseArticle = {
+    accountId: "d39af89b",
+    title: "E2E 视频",
+    content: "内容",
+    video_path: "D:/01.mp4",
+    tags: ["a"],
+  }
+  const baseTask = { id: "task-1", platform: "baijiahao", article: baseArticle }
+
+  it("ROUTE_TABLE.baijiahao 使用 api 模式", () => {
+    expect(ROUTE_TABLE.baijiahao.mode).toBe("api")
+  })
+
+  it("createPublisher(baijiahao) 创建 ApiPublisher", () => {
+    const r = new PublisherRouter()
+    const p = r.createPublisher("baijiahao", { store, accountManager })
+    expect(p.constructor.name).toBe("ApiPublisher")
+  })
+
+  it("publish 成功：ffprobe 探测 → publishViaApi → 返回 postId", async () => {
+    publishViaApiMock.mockResolvedValue({ success: true, publishId: "ARTICLE_9", url: "https://baijiahao.baidu.com/pcui/article/ARTICLE_9" })
+    const r = new PublisherRouter()
+    const p = r.createPublisher("baijiahao", {
+      store, accountManager,
+      probeVideo: async () => ({ width: 1920, height: 1080, duration: 122 }),
+      publishViaApi: publishViaApiMock,
+    })
+    const result = await p.publish(baseTask)
+    expect(result.success).toBe(true)
+    expect(result.postId).toBe("ARTICLE_9")
+    expect(publishViaApiMock).toHaveBeenCalledWith(
+      "baijiahao",
+      expect.objectContaining({
+        title: "E2E 视频",
+        draft: false,
+        video: expect.objectContaining({ path: "D:/01.mp4", width: 1920, height: 1080 }),
+      }),
+      expect.stringContaining("BAIDUID=ABC"),
+      expect.objectContaining({ timeout: 300000, draft: false }),
+    )
+  })
+
+  it("draft 任务透传 draft 标志到 taskData 与 publishViaApi opts", async () => {
+    publishViaApiMock.mockResolvedValue({ success: true, publishId: "DRAFT_9", url: "" })
+    const r = new PublisherRouter()
+    const p = r.createPublisher("baijiahao", {
+      store, accountManager,
+      probeVideo: async () => ({ width: 1920, height: 1080, duration: 1 }),
+      publishViaApi: publishViaApiMock,
+    })
+    await p.publish({ ...baseTask, article: { ...baseArticle, draft: true } })
+    expect(publishViaApiMock).toHaveBeenCalledWith(
+      "baijiahao",
+      expect.objectContaining({ draft: true }),
+      expect.stringContaining("BAIDUID=ABC"),
+      expect.objectContaining({ draft: true }),
+    )
+  })
+
+  it("父域 .baidu.com cookie（BDUSS）通过平台域过滤", async () => {
+    accountManager.loadSavedCredentials.mockReturnValueOnce({
+      platform: "baijiahao",
+      cookies: [
+        { name: "BDUSS", value: "XYZ", domain: ".baidu.com" },
+        { name: "BAIDUID", value: "ABC", domain: ".baidu.com" },
+      ],
+      localStorage: {},
+    })
+    publishViaApiMock.mockResolvedValue({ success: true, publishId: "A1", url: "" })
+    const r = new PublisherRouter()
+    const p = r.createPublisher("baijiahao", {
+      store, accountManager,
+      probeVideo: async () => ({ width: 1920, height: 1080, duration: 1 }),
+      publishViaApi: publishViaApiMock,
+    })
+    await p.publish(baseTask)
+    expect(publishViaApiMock).toHaveBeenCalledWith(
+      "baijiahao",
+      expect.anything(),
+      expect.stringContaining("BDUSS=XYZ"),
+      expect.anything(),
+    )
+  })
+
+  it("竖版视频拒绝 API 发布", async () => {
+    const r = new PublisherRouter()
+    const p = r.createPublisher("baijiahao", {
+      store, accountManager,
+      probeVideo: async () => ({ width: 720, height: 1280, duration: 1 }),
+    })
+    await expect(p.publish(baseTask)).rejects.toThrow(/竖版/)
+  })
+
+  it("缺少 cookie 时抛错", async () => {
+    accountManager.loadSavedCredentials.mockReturnValueOnce(null)
+    const r = new PublisherRouter()
+    const p = r.createPublisher("baijiahao", {
+      store, accountManager,
+      probeVideo: async () => ({ width: 1, height: 1, duration: 1 }),
+      publishViaApi: publishViaApiMock,
+    })
+    await expect(p.publish(baseTask)).rejects.toThrow(/Cookie/)
+  })
+
+  it("adapter 返回失败时抛错", async () => {
+    publishViaApiMock.mockResolvedValue({ success: false, error: "compuploadVideo 失败" })
+    const r = new PublisherRouter()
+    const p = r.createPublisher("baijiahao", {
+      store, accountManager,
+      probeVideo: async () => ({ width: 1, height: 1, duration: 1 }),
+      publishViaApi: publishViaApiMock,
+    })
+    await expect(p.publish(baseTask)).rejects.toThrow(/compuploadVideo/)
+  })
+
+  it("视频探测失败时抛错", async () => {
+    const r = new PublisherRouter()
+    const p = r.createPublisher("baijiahao", {
+      store, accountManager,
+      probeVideo: async () => null,
+    })
+    await expect(p.publish(baseTask)).rejects.toThrow(/视频/)
+  })
+})
 
 describe("PublisherRouter", () => {
   describe("ROUTE_TABLE", () => {

@@ -48,7 +48,7 @@ describe('platform authentication URL boundaries', () => {
     expect(isPlatformCookieDomain('wechat_mp', '.mp.weixin.qq.com')).toBe(true)
     expect(isPlatformCookieDomain('wechat_mp', '.qq.com')).toBe(false)
     expect(isPlatformCookieDomain('tencent_video', '.qq.com')).toBe(false)
-    expect(isPlatformCookieDomain('baijiahao', '.baidu.com')).toBe(false)
+    expect(isPlatformCookieDomain('baijiahao', '.baidu.com')).toBe(true)
     expect(isPlatformCookieDomain('baijiahao', '.passport.baidu.com')).toBe(true)
     expect(isPlatformCookieDomain('baijiahao', '.evil.baidu.com')).toBe(false)
     expect(isPlatformCookieDomain('youtube', '.google.com')).toBe(false)

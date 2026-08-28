@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process')
 const VITEST_FILES = new Set([
   'adapters-interface.test.js',
   'api-router.test.js',
+  'baijiahao-api-chain.test.js',
   'cos-uploader.test.js',
   'oss-uploader.test.js',
   'signer.test.js',

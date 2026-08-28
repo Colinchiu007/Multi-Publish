@@ -296,3 +296,68 @@ Multi-Publish v2.3.53 是一个 Electron 多平台内容发布工具，已具备
 | coverCrop.cancel | 取消 | Cancel |
 | coverCrop.loadFailed / cropFailed | 封面图片加载失败 / 封面裁剪失败 | Failed to load/crop cover image |
 | coverCrop.ratio.* | 自由 / 16:9 / 1:1 / 4:3 | Free / 16:9 / 1:1 / 4:3 |
+
+---
+
+## 11. 百家号视频 API 发布链（Phase C，2026-08-28）
+
+### 11.1 背景与决策
+
+蚁小二百家号发布是 **API 直调**（非浏览器 RPA）。本项目历史 RPA 发布路径在百家号反复失败（「用户须知」引导弹窗常驻、位置必填选择器异常、发布点击后 verification timeout），且 RPA 无法稳定覆盖全部弹窗状态。逆向蚁小二主进程（D:\Data\yixiaoer-extracted\packages\main\dist\index.cjs）确认完整发布链后，决定**将百家号视频发布整体切换到 API 直调**，绕开浏览器自动化不确定性。位置参数在 API 契约中为**可选项**（无位置时传空对象 {} 即可），彻底解决 RPA 位置选择问题。
+
+### 11.2 发布链（8 步，与蚁小二逐行为对齐）
+
+| 步骤 | 接口 | 关键参数 | 成功判据 | 失败处理 |
+|---|---|---|---|---|
+| 1. getBaseToken | GET /?source=inner | Cookie + host | 正则提取 BJH__INIT__AUTH__ 引号内 token | 空 → fail-fast「Cookie 无效或页面结构变更」 |
+| 2. getAppId | GET /builder/app/appinfo | Cookie + referer | data.user.app_id | 空 → fail-fast「Cookie 无效或接口变更」 |
+| 3. preuploadVideo | POST /builder/author/video/preuploadVideo?app_id=X | body: app_id/md5/is_pay_column=0/video_type=**short**；header: cookie/token（含 UA/Accept 等浏览器头） | upload_key | errno → 「preuploadVideo 失败: {errmsg/errno}」 |
+| 4. uploadVideoPart（分片） | POST https://rsbjh.baidu.com/.../uploadVideo?app_id=X | FormData: app_id/md5/id=WU_FILE_0/type=video/mp4/lastModifiedDate/size/name/upload_key/file/chunks/chunk | 每片响应含 uploadId | 「uploadVideoPart 分片 i/N 失败」；「存储服务异常」时切换 rsbjh10/11/12.baidu.com/materialui/video/uploadvideo 重试（蚁小二原样 `rsbjh1${ne%3}`） |
+| 5. completeUpload | POST /builder/author/video/compuploadVideo?app_id=X | body: upload_key/chunks/name(enc)/size/is_pay_column=0/column_videotype=/type=video/video_type=**short** | bos_url（同时取 mediaId 供发布） | 「compuploadVideo 失败: {errmsg/errno}」 |
+| 6. waitVideoProcess | POST /pcui/video/process（body mediaId=X） | cookie/token/referer | 轮询至 data.editVideo.coverImage 以 http 开头 | 180 次/1.5s（4.5 分钟）上限；未返回封面 → 降级为空封面（_cover_images_map=，**不阻断发布**）；连续 10 次异常提前止损；任务级 deadline 超时 → 「任务级超时」 |
+| 7. buildVideoPostData | 纯函数 | 见 11.4 | — | — |
+| 8. publishVideo | POST /pcui/article/publish（pubType=0 时 /save） | cookie/token/referer/Origin | errno===0 && ret.id | 「发布失败 {errmsg}」 |
+
+> 分片契约：块大小 2097152 字节（2 MiB）；13.5MB 视频切 7 片；video_type=short 为横版（竖版需另一接口，见 11.7 限制）。
+> 蚁小二差异对照：getUploadArgsResponse$6 / uploadVideoPart$7 / uploadCompleteResponse / getVideoCover / buildPostData$r / publish$9 参数逐一对齐。
+
+### 11.3 真实发布流程接入（PublisherRouter api 模式）
+
+- publisher-router.js ROUTE_TABLE 新增模式：baijiahao: { mode: 'api', timeout: 300000 }。
+- 新增 ApiPublisher 类：凭证加载（复用 loadAuthForTask，accountId → credentialStore 加密凭证 → cookies 过滤平台域）→ cookie 字符串拼接（name=value; ...）→ ffprobe 探测视频宽高/时长（横版校验 width>=height）→ publishViaApi（api-publish-engine 标准入口，锚定 adapter.execute）→ 结果规范化 {success, postId, url, mode:'api'}。
+- 取消语义：signal 透传到分片上传循环与 video/process 轮询循环，中断即返回「任务已取消」；任务级超时 300s（ROUTE_TABLE.timeout）作为 deadline 在轮询/发布前强制收口（adapter.execute 读取 opts.timeout，非仅文档承诺）。
+- Cookie 域：baijiahao 白名单含 baidu.com 父域（BDUSS/BAIDUID 由 passport 设置在 .baidu.com），仅精确匹配父域、拒绝 *.baidu.com 子域冒充（.evil.baidu.com 不通过）。
+- 凭证缺失 → 「平台 Cookie 缺失（账号 X 未登录或凭证不可用）」；无视频路径/探测失败/竖版均有明确错误文案。
+- 无媒体工具时 probeVideoInfo 抛 FFPROBE_UNAVAILABLE，可注入（测试/后端特化）。
+- 安全：发布 URL 经 sanitizePublishResultUrl 脱敏（token/cookie/sign 等 query 参数删除）。
+
+### 11.4 buildVideoPostData 字段契约（逐字段）
+
+video_duration、type=video、usingImgFilter=false&source_reprinted_allow=0&nryx_mount_list=&is_consultant_card=、image_edit_point=&ducut_info=&cover_source=upload&bjhmt=&aigc_rebuild=、title（encodeURIComponent）、content（JSON [{title,desc,mediaId,videoName,local:1}]）、desc、bjh_video_finger_printing（JSON {s2l:null,s2game:null,bjh:{duration}}）、tag（逗号拼接，最多 5 个——渲染层截断）、position_lat_lng（有 location.uid 传 10 字段对象 {addr,city,poi_type,type,city_id,lng,lat,name,pid,tag}，否则**空对象 %7B%7D**）、封面三件套（cover_layout=one + cover_images[{src,cropData,machine_chooseimg:0,isLegal:1}] + _cover_images_map[{src,origin_src}]；无封面时仅 _cover_images_map=）、vertical_cover、original_status（original?2:0）、announce_id=0 + announce_info（首发 {first_publish:1}；转载 +tp_author/tp_url）、draft_id、常驻 isBeautify=false、activity_list[0][id]=aigc_bjh_status&activity_list[0][is_checked]=0、fe_from=BJH_CMS_PC、bjhtopic_info=&bjhtopic_id=。
+
+### 11.5 数据校验
+
+- 任务输入：title/content 非空（desc 剥 HTML 后长度 ≤2 回退 title）；video.path 必须存在（fs.existsSync）；宽高必须由 ffprobe 提供（1920x1080 横版通过）。
+- Cookie：accountId 必须可解析出 ≥1 个平台域 cookie，否则发布前失败。
+- 上传：md5 全文件（hex）；分片数与文件大小严格对应；complete 后 bos_url 缺失即失败。
+- 发布结果：errno===0 且 ret.id/ret.article_id 任一存在才算成功，否则抛错进队列失败历史。
+
+### 11.6 交互与提示
+
+- 发布入口不变：发布页 → publish:batch → 任务队列 → ApiPublisher；进度事件 publish:progress 按阶段（准备/解析/上传/处理/发布）推送，UI 复用现有发布进度展示。
+- 失败提示原文（抛错文案）见上文各步骤；队列重试 3 次（复用 taskQueue.retry 语义）。
+- 错误消息均以「{步骤名} 失败: {服务端 errmsg/errno}」格式输出（脱敏后的字段摘要，不整体回显响应体，避免 upload_key/mediaId 等瞬时值进入队列失败历史与 UI）；敏感响应不落日志（脱敏在 sanitizePublishDiagnostics）。
+
+### 11.7 已知限制（后续迭代）
+
+- 横版视频专用（width>=height）；竖版需移植 publishBaijiahaoMiniVideo 链。
+- 封面默认使用 video/process 自动生成的首帧封面（cover_source=upload）；用户自定义封面图的图片上传链（builder/author/picture/uploadproxy + CuttingPicproxy 裁剪）待移植——**当前 API 模式检测到自定义封面（taskData.cover）会显式拒绝发布并提示「API 发布暂不支持自定义封面」，不会静默忽略**；届时 cover_path 全链路生效（与 Phase A 封面裁剪 UI 对接）。
+- 视频发布仅 API 模式；图文仍走 RPA（publish$a 图文链同为 API，可后续迁移）。
+- 快手视频 API 链（kuaishou.web.cp.api_ph）已逆向待移植；真实发布 E2E 需要该平台账号凭证有效（当前 profile 凭证经 safeStorage/DPAPI 绑定原机器或已过期，需重新扫码登录）。
+
+### 11.8 测试覆盖
+
+- packages/api-publish-engine/test/baijiahao-api-chain.test.js：18 用例（token 正则 / getAppId / preupload（video_type=short+浏览器头断言） / uploadVideoPart 分片端点+uploadId 判据 / 存储服务异常 rsbjh10/11/12 重试 / completeUpload（video_type=short+bos_url） / waitVideoProcess 轮询+deadline/signal 中断 / buildVideoPostData 位置空对象+原创声明+duration 取整 / publish 端点+draft→/save+基类 cancelToken 形态拒绝 / execute 真实上传链（临时文件 3MiB→2 片、不 stub uploadVideo） / 错误脱敏 / 封面显式拒绝 / 视频缺失可读错误 / 取消中断）。
+- apps/desktop/electron/services/publisher-router.test.js：新增 10 用例（ROUTE_TABLE api 模式 / createPublisher ApiPublisher / 成功路径含 publishViaApi 参数断言（draft:false、timeout 300s） / draft 任务透传 / 父域 .baidu.com cookie（BDUSS）通过域过滤 / 竖版拒绝 / 缺失 cookie 抛错 / adapter 失败抛错 / 探测失败抛错）。
+- 回归：api-publish-engine 全量 42 vitest + 独立套件通过；desktop router 42/42、受影响引用方（video-clone/webview-manager）27/27；shared-utils 全量 242 通过。
+
