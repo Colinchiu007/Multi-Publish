@@ -120,7 +120,7 @@
           <div class="onboarding-icon">🚀</div>
           <h3>{{ t('modelProviders.noProvidersTitle') }}</h3>
           <p>{{ t('modelProviders.noProvidersHint') }}</p>
-          <button class="cohere-btn-primary" @click="viewMode = 'all'; openAdd()">
+          <button class="cohere-btn-primary" @click="viewMode = 'all'">
             <span>{{ t('modelProviders.browseAll') }}</span>
           </button>
         </div>

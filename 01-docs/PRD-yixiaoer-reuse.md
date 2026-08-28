@@ -361,3 +361,68 @@ video_duration、type=video、usingImgFilter=false&source_reprinted_allow=0&nryx
 - apps/desktop/electron/services/publisher-router.test.js：新增 10 用例（ROUTE_TABLE api 模式 / createPublisher ApiPublisher / 成功路径含 publishViaApi 参数断言（draft:false、timeout 300s） / draft 任务透传 / 父域 .baidu.com cookie（BDUSS）通过域过滤 / 竖版拒绝 / 缺失 cookie 抛错 / adapter 失败抛错 / 探测失败抛错）。
 - 回归：api-publish-engine 全量 42 vitest + 独立套件通过；desktop router 42/42、受影响引用方（video-clone/webview-manager）27/27；shared-utils 全量 242 通过。
 
+
+## 12. 真实发布 E2E 与账号风控（Phase C 收尾，2026-08-28 晚）
+
+### 12.1 E2E 账号选择与凭证映射契约
+
+真实发布 E2E（apps/desktop/tests/e2e/real-video-publish.js）的账号选择遵循以下契约，任何一环失败都明确 FAIL（不再静默通过）：
+
+- 发布页账号列表为空：明确 FAIL（此前 isChecked().catch(() => true) 在元素缺失时假 PASS，「勾选账号」显示通过实际未勾选）。
+- 页面已勾选账号与本地凭证（accounts 表 / identity-session）必须匹配：无凭证直接 FAIL，并在报告中列出页面账号与本地凭证清单。
+- 勾选后硬断言 isChecked() === true；任一平台无账号即中止整轮发布。
+- 禁止硬编码账号 fallback（历史 ids[0] || "d39af89b" 曾把无凭证账号兜底选中，误导为 Cookie 缺失错误）。
+
+### 12.2 Cookie 时效判据（过期 vs 代码问题）
+
+- GET /builder/app/appinfo 返回 {"errno":10001401,"errmsg":"账号已退出，请重新登录"}：账号 Cookie 过期（实测 08-17 添加的账号 10+ 天后过期），必须重新登录，客户端无法「续期」。
+- 判定过期前先确认请求头完整（BDUSS/STOKEN/PTOKEN/bjhStoken/devStoken 全量 + 现代指纹头），排除请求构造导致的接口异常。
+- 只读接口（appinfo）返回正常的账号，发布接口仍可能失败（风控），不能以只读成功推断发布放行。
+- 调试开关：BJ_DEBUG_TRACE=1 + BJ_DEBUG_LOG=<path> 在请求/响应层抓包（默认关闭；Cookie 脱敏为 key+长度）。
+
+### 12.3 百家号风控弹码（errno 10000015）
+
+真实发布最后一次调用 pcui/article/publish 返回：
+
+```json
+{"errno":10000015,"errmsg":"您所在网络环境异常，请完成验证",
+ "data":{"hit_rule":"30天内注册的百家号作者弹码",
+   "pass_auth":[{"auth_scene":"bjh_risk_phone","auth_id":"..."},
+                {"auth_scene":"bjh_risk_auth"},
+                {"auth_scene":"bjh_risk_face_user"}]}}
+```
+
+- 触发条件：账号级确定性规则（hit_rule「30 天内注册的百家号作者弹码」+ is_first_publish=true），与请求头/UA/指纹/IP 无关（三次重试 auth_id 一致）。
+- 验证场景：bjh_risk_phone（手机验证码）、bjh_risk_auth（身份验证）、bjh_risk_face_user（人脸验证）；验证须由账号持有者在真实浏览器完成，客户端不伪造通过状态。
+- 客户端提示（BaijiahaoAdapter 已实现）：「百家号发布被风控拦截（30天内注册的百家号作者弹码）。请先在浏览器中登录百家号完成验证（bjh_risk_phone/bjh_risk_auth/bjh_risk_face_user），验证通过后重新发布」，不回显误导性「网络环境异常」。
+- 蚁小二对照：index.cjs 对 10000015/bjh_risk/pass_auth 全量检索零命中——蚁小二没有弹码绕过逻辑；它「不触发」的前提是账号已完成过验证或注册超 30 天。
+- 保存草稿（/pcui/article/save）不触发该弹码（errno 0），不能用草稿成功推断发布放行。
+
+### 12.4 封面契约（视频模式）
+
+- UI 侧：「从视频提取封面」调 IPC cover:extract（主进程 CoverExtractor 输出 D:/tmp/multi-publish-covers/cover-<ts>.jpg），写入 article.cover_path 与 coverFileList；重复提取命中缓存（Cover already exists）。
+- API 侧：BaijiahaoAdapter.execute 对 taskData.cover 显式拒绝（「API 发布暂不支持自定义封面（仅视频首帧封面）」）；封面由平台 video/process 自动处理（editVideo.coverImage，实测 bjhmedia2.bdstatic.com 首帧），与蚁小二一致。
+- E2E 校验：提取封面后 cover_path 非空作为功能验收；发布 payload 不携带 cover_path（避免被拒）。
+
+### 12.5 发布终态判定证据链
+
+- 页面进度文案只作辅助截图；权威依据 = app profile 日志 Executor 行（Publish failed/success）。
+- 证据链三源对照：E2E report.json checks + app 日志 + BJ_DEBUG 抓包。
+- 终态正则排除中间态（「上传完成」「处理完成」等），只在发布成功/失败文案出现时判定终态。
+
+### 12.6 账号矩阵与外部前置（截至 2026-08-28）
+
+| 账号 | 平台 | 状态 | 证据 |
+| --- | --- | --- | --- |
+| d39af89b | 百家号 | Cookie 过期（08-17 添加，10+ 天） | appinfo errno 10001401 |
+| da8b24f8 | 百家号 | 有效但命中风控（30 天新号弹码） | publish errno 10000015 + hit_rule |
+| 9d5ef9b7 | 快手 | Cookie 过期 | 状态 expired，需应用内重新登录 |
+
+真实发布成功与否以平台响应为准（百家号 errno 0 + ret.id）；弹码验证、快手重新登录、跨设备同步均属外部验收。
+
+### 12.7 浏览器登录交互契约（2026-08-28 回归修复）
+
+- 账号页 login-state 横幅仅在扫码（qrcode）模式渲染（v-if 条件为 authViewVisible 且 loginMode 等于 qrcode），含二维码预览与浮动关闭按钮。
+- 浏览器（browser）登录 = 全屏登录标签（App.vue isLoginTab）+ 导航栏「保存账号」按钮（调用 completeLogin(browser)）；账号页不再渲染 browser 登录横幅与「我已完成登录」按钮。
+- 「已登录状态不显示完成按钮」是设计契约而非缺陷；曾有改动把横幅条件扩大到任意 loginMode 导致既有测试回归（Accounts.test.js「网页登录改为全屏标签呈现」），已恢复并纳入 CI。
+
