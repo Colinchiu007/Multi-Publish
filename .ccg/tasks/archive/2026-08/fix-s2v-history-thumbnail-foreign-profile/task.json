@@ -1,12 +1,12 @@
 {
   "id": "fix-s2v-history-thumbnail-foreign-profile",
   "title": "修复 Story2Video 历史记录已完成任务缩略图误显示未生成 + 打开报错（跨 profile 项目媒体根）",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "M",
   "risk": "high",
   "domain": "desktop",
-  "currentPhase": "review",
-  "nextAction": "双模型审查 + QM-1 打包验证后归档",
+  "currentPhase": "completed",
+  "nextAction": "PR #1209 待合并，已归档，远程状态已记录",
   "createdAt": "2026-08-28T19:30:00Z",
   "branch": "codex/real-publish-scan-run"
 }
