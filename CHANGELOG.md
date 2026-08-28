@@ -1,3 +1,9 @@
+## [未发布] fix(story2video): 进度弹窗「合成时间说明」移出 sticky 浮层，随阶段列表滚动
+
+- StageProgress 中「合成时间说明」块从 .stages-sticky-header（position:sticky 悬浮）移入 .stages-list 滚动列表末尾，作为普通流内内容随滚动条滚动，不再在弹窗上层持续遮挡阶段信息；showTimeGuidance 门控与全部文案不变。
+- 样式：.stage-time-guidance margin-top 10px→0（列表 flex gap 提供间距），横向 padding 与阶段项对齐（16px）。
+- 回归保护：StageProgress.test.js 新增用例断言说明块父级为 story2video-stage-list 且不在粘性头部内（findAll 跨版本安全断言）；相关套件 28/28 通过。
+
 ## [未发布] feat(baijiahao): 百家号视频发布切换为蚁小二 API 直调链（phase-c-real-publish）
 
 - 逆向蚁小二主进程（yixiaoer-extracted/packages/main/dist/index.cjs）逐行为对齐百家号视频发布 API 链：getBaseToken（BJH__INIT__AUTH__ 正则）→ appinfo（app_id）→ preuploadVideo（video_type=short）→ rsbjh 分片上传（2MiB/片，uploadId 判据，存储服务异常换 rsbjh10/11/12 重试）→ compuploadVideo（bos_url+mediaId）→ pcui/video/process 轮询首帧封面（180×1.5s）→ buildVideoPostData（位置空对象/原创声明/封面三件套/常驻字段全量对齐）→ pcui/article/publish（errno===0 && ret.id）。

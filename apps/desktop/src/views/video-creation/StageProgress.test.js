@@ -355,4 +355,16 @@ describe("StageProgress 合成时间说明块（2026-08-17）", () => {
     expect(box.text()).toContain("The above composition times are all within the normal range.");
     w.unmount();
   });
+
+  it("说明块不在 sticky 浮层内，而是阶段列表内随滚动条滚动的普通内容（2026-08-28）", () => {
+    const w = mountWith({ stages: [makeStage()], showTimeGuidance: true });
+    const box = w.find('[data-testid="story2video-time-guidance"]');
+    expect(box.exists()).toBe(true);
+    // 直接父级是滚动列表（story2video-stage-list），不是粘性头部（story2video-stage-sticky-header）
+    expect(box.element.parentElement?.getAttribute('data-testid')).toBe('story2video-stage-list');
+    expect(
+      w.find('[data-testid="story2video-stage-sticky-header"]').findAll('[data-testid="story2video-time-guidance"]')
+    ).toHaveLength(0);
+    w.unmount();
+  });
 });

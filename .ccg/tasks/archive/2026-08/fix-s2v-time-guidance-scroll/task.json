@@ -1,0 +1,15 @@
+{
+  "id": "fix-s2v-time-guidance-scroll",
+  "title": "流水线进度弹窗：合成时间说明从 sticky 浮层改为随列表滚动",
+  "status": "in_progress",
+  "complexity": "S",
+  "risk": "low",
+  "domain": "frontend",
+  "currentPhase": "review",
+  "nextAction": "提交推送 PR；Claude 审查 Critical:none",
+  "createdAt": "2026-08-28T11:15:00+08:00",
+  "review": {
+    "claude": "Critical: none; warnings 已核实（stages-list 为 flex+gap 布局、首屏可见性为用户要求的取舍）; info 采纳 3 条"
+  },
+  "branch": "codex/fix-s2v-time-guidance-scroll"
+}
