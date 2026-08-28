@@ -15,6 +15,7 @@ const {
   gcImportedMedia,
   getAllowedMediaRoots,
   importUserSelectedMedia,
+  isPathWithin,
   resolveReadableFile,
 } = require('../services/story2video-paths')
 const {
@@ -86,6 +87,8 @@ function registerHandlers (ipcMain, deps = {}) {
   // 默认根外的文件经项目清单目录放行后，URL 签发（createShareFileUrl 二次校验）同样需要并入该项目根。
   const projectMediaRootsFor = (filePath) => {
     if (!getProjectMediaRoot || typeof filePath !== 'string' || !filePath.trim()) return []
+    // 默认根内的文件直接短路，无需解析清单（避免每次 URL 签发都读 project.json，审查 I1）
+    if (isPathWithin(path.resolve(filePath), getAllowedMediaRoots())) return []
     const root = getProjectMediaRoot(filePath)
     return root ? [root] : []
   }
@@ -358,16 +361,22 @@ function registerHandlers (ipcMain, deps = {}) {
 
     let destinationPath = request.destinationPath
     let allowedRoots = allowedMediaRoots()
-    // 跨 profile 项目清单目录：导出时并入每个文件所在的项目根（清单引用该文件才有效）。
+    // 逐文件独立校验（默认根或项目清单目录根），任一文件不通过立即拒绝：
+    // 不允许用「清单引用的文件」整体解锁项目目录后再导出其中未引用文件（审查 W1）。
     const projectRootsExtra = []
-    if (getProjectMediaRoot) {
-      for (const item of request.files) {
-        const file = item && typeof item === 'object' ? (item.path || item.filePath) : null
-        if (typeof file === 'string' && file.trim()) {
-          const rootDir = getProjectMediaRoot(file)
-          if (rootDir) projectRootsExtra.push(rootDir)
-        }
+    const validatedFiles = []
+    for (const item of request.files) {
+      const file = item && typeof item === 'object' ? (item.path || item.filePath) : null
+      if (typeof file !== 'string' || !file.trim()) {
+        return { code: EC.VALIDATION_ERROR, message: '导出文件参数无效' }
       }
+      const resolved = validateFilePath(file, projectRoots, resolveProjectMedia)
+      if (!resolved) return { code: EC.VALIDATION_ERROR, message: '导出文件路径无效或不允许访问' }
+      if (!isPathWithin(path.resolve(resolved), getAllowedMediaRoots()) && getProjectMediaRoot) {
+        const rootDir = getProjectMediaRoot(resolved)
+        if (rootDir) projectRootsExtra.push(rootDir)
+      }
+      validatedFiles.push({ ...(item && typeof item === 'object' ? item : {}), path: resolved })
     }
     if (destinationPath !== undefined && (typeof destinationPath !== 'string' || !path.isAbsolute(destinationPath))) {
       return { code: EC.VALIDATION_ERROR, message: '导出目标路径无效' }
@@ -395,7 +404,7 @@ function registerHandlers (ipcMain, deps = {}) {
     }
 
     try {
-      const data = await createZipFromFiles(request.files, destinationPath, { allowedRoots })
+      const data = await createZipFromFiles(validatedFiles, destinationPath, { allowedRoots })
       return { code: 0, data }
     } catch (error) {
       return { code: EC.REQUEST_ERROR, message: error.message }

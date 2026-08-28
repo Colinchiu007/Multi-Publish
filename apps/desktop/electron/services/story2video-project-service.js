@@ -393,6 +393,13 @@ function projectFileReferencePaths (manifest) {
     push(segment.videoPath)
     const alternates = Array.isArray(segment.alternateImages) ? segment.alternateImages : []
     for (const item of alternates) if (item && typeof item === 'object') push(item.path)
+    // AI 场景视频只存在 videoMeta.sceneVideoPath / altSceneVideoPath（videoPath 为空）：
+    // firstSceneThumbnailCandidates 会优先尝试它们，清单引用校验漏掉会导致回退无效（审查 W2）。
+    const videoMeta = segment.videoMeta
+    if (videoMeta && typeof videoMeta === 'object') {
+      push(videoMeta.sceneVideoPath)
+      push(videoMeta.altSceneVideoPath)
+    }
   }
   const options = manifest.options
   if (options && typeof options === 'object') push(options.bgmPath)
@@ -657,7 +664,13 @@ class Story2VideoProjectService {
     for (const candidate of new Set(candidates)) {
       const manifest = readProjectManifestDir(candidate)
       if (!manifest) continue
-      if (!projectFileReferencePaths(manifest).includes(requested)) continue
+      const refs = projectFileReferencePaths(manifest)
+      // Windows/NTFS 路径大小写不敏感：IPC 二次校验传入的是 realpath 规范化路径，
+      // 与清单存储串可能只有大小写差异，字符串相等会误拒合法文件（审查 W3）。
+      const referenced = process.platform === 'win32'
+        ? refs.some(ref => ref.toLowerCase() === requested.toLowerCase())
+        : refs.includes(requested)
+      if (!referenced) continue
       return path.resolve(candidate)
     }
     return null
@@ -710,6 +723,8 @@ class Story2VideoProjectService {
     const cached = this._readThumbnailCache(thumbnailPath, metadataPath, sourcePath)
     if (cached) return cached
 
+    const ffmpeg = this.findFfmpeg()
+    if (!ffmpeg) throw new Error('FFmpeg 不可用')
     // 跨 profile 项目（清单目录在当前数据目录之外）当前数据目录中可能还没有该项目目录，
     // 首帧缩略图缓存需要先落目录；路径来自受控 _projectDir，递归创建安全。
     try {
@@ -718,8 +733,6 @@ class Story2VideoProjectService {
       throw new Error('缩略图缓存目录不可写: ' + (mkdirError?.message || String(mkdirError)))
     }
 
-    const ffmpeg = this.findFfmpeg()
-    if (!ffmpeg) throw new Error('FFmpeg 不可用')
     const temporary = thumbnailTemporaryPath(thumbnailPath)
     const metadataTemporary = thumbnailTemporaryPath(metadataPath)
     const transactionId = process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)

@@ -463,7 +463,7 @@ describe('Story2Video 交付 IPC', () => {
     }))
     const service = {
       projectsDir: root,
-      resolveProjectMedia: vi.fn(() => null),
+      resolveProjectMedia: vi.fn((filePath) => filePath === video ? fs.realpathSync.native(video) : null),
       getProjectMediaRoot: vi.fn((filePath) => {
         return filePath === video ? projectDir : null
       }),
@@ -503,6 +503,38 @@ describe('Story2Video 交付 IPC', () => {
     fs.rmSync(foreignRoot, { recursive: true, force: true })
   })
 
+  it('export-zip 拒绝与清单引用文件同目录的未引用文件（防项目根整体解锁，审查 W1）', async () => {
+    const foreignRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story2video-ipc-foreign-w1-'))
+    const projectDir = path.join(foreignRoot, 'run_foreign_w1')
+    fs.mkdirSync(projectDir, { recursive: true })
+    const referenced = path.join(projectDir, 'video.mp4')
+    const unreferenced = path.join(projectDir, 'unreferenced.mp4')
+    fs.writeFileSync(referenced, 'zip-me')
+    fs.writeFileSync(unreferenced, 'secret')
+    fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify({
+      projectId: 'run_foreign_w1',
+      videoPath: referenced,
+    }))
+    const service = {
+      projectsDir: root,
+      resolveProjectMedia: vi.fn((filePath) => filePath === referenced ? fs.realpathSync.native(referenced) : null),
+      getProjectMediaRoot: vi.fn((filePath) => {
+        return filePath === referenced || filePath === fs.realpathSync.native(referenced) ? projectDir : null
+      }),
+    }
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoProjectService: service })
+    const destination = path.join(root, 'foreign-w1.zip')
+
+    const result = await ipcMain.get('story2video:export-zip')(TRUSTED_EVENT, {
+      files: [{ path: referenced, name: 'a.mp4' }, { path: unreferenced, name: 'b.mp4' }],
+      destinationPath: destination,
+    })
+
+    expect(result.code).toBeLessThan(0)
+    expect(fs.existsSync(destination)).toBe(false)
+    fs.rmSync(foreignRoot, { recursive: true, force: true })
+  })
   it('get-thumbnail 对缺失或生成失败的缩略图保持 url=null', async () => {
     const getThumbnail = vi.fn()
       .mockResolvedValueOnce({ status: 'missing', kind: 'missing', path: null })

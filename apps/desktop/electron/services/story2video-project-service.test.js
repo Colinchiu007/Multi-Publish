@@ -394,6 +394,41 @@ describe('Story2VideoProjectService', () => {
         expect(result.path).toContain(path.join(service._projectDir('run_foreign_video')))
         fs.rmSync(foreign, { recursive: true, force: true })
       })
+      it('getThumbnail 对只有 videoMeta.sceneVideoPath 的清单目录视频生成首帧（审查 W2）', async () => {
+        const runner = vi.fn(async (_binary, args) => {
+          expect(fs.existsSync(path.dirname(args.at(-1)))).toBe(true)
+          fs.writeFileSync(args.at(-1), Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+        })
+        const service = new Story2VideoProjectService({
+          store,
+          projectsDir: path.join(root, 'projects'),
+          findFfmpeg: vi.fn(() => 'ffmpeg'),
+          thumbnailRunner: runner,
+        })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_foreign_scene_video')
+        const video = writeFile(path.join(projectDir, 'segment_0000_scene.mp4'), 'video')
+        writeManifest(projectDir, 'run_foreign_scene_video', [{ videoMeta: { sceneVideoPath: video } }])
+        writeProject(service, 'run_foreign_scene_video', [{ videoMeta: { sceneVideoPath: video } }])
+        expect(fs.existsSync(service._projectDir('run_foreign_scene_video'))).toBe(false)
+
+        const result = await service.getThumbnail('run_foreign_scene_video')
+        expect(result).toMatchObject({ status: 'ready', kind: 'video-frame' })
+        expect(fs.existsSync(result.path)).toBe(true)
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
+
+      it.runIf(process.platform === 'win32')('清单引用路径与请求仅大小写不同时仍放行（NTFS 大小写不敏感，审查 W3）', () => {
+        const service = new Story2VideoProjectService({ store, projectsDir: path.join(root, 'projects') })
+        const foreign = createForeignProjectDir()
+        const projectDir = path.join(foreign, 'run_case_proj')
+        const video = writeFile(path.join(projectDir, 'Video.MP4'), 'video')
+        writeManifest(projectDir, 'run_case_proj', [{ videoPath: video }])
+        const caseShifted = path.join(projectDir, 'video.mp4')
+        expect(service.getProjectMediaRoot(caseShifted)).toBe(path.resolve(projectDir))
+        expect(service.resolveProjectMedia(caseShifted)).toBe(fs.realpathSync.native(video))
+        fs.rmSync(foreign, { recursive: true, force: true })
+      })
     })
 
     it('video1 使用 sceneVideoPath 时回填到 compose videoPath，并拒绝不受控视频路径', () => {
