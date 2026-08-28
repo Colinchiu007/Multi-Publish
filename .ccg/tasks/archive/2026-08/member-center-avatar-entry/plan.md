@@ -58,8 +58,25 @@
 - apps/desktop/src/locales/zh.js + en.js
 - 01-docs/PRD.md、CHANGELOG.md、01-docs/learnings.md（文档更新在同一分支）
 
-## 5. 实施顺序（M1→M4）
-M1: router + MemberCenter.vue + store quota 透传 + locales + MemberCenter.test
-M2: useDropdownBehavior + ProfileMenu + Sidebar 接线 + ProfileMenu.test
-M3: IdentityMenu 会员中心项 + Sidebar「更多」入口 + 全量测试
-M4: 文档（PRD/CHANGELOG/learnings）→ 双模型审查 → 打包验证（build:vue + vitest + locale 检查）
+## 5. 实施计划与执行状态（M1-M4，已全部完成 ✅）
+
+### M1 基础组件与 composable ✅
+- composables/useDropdownBehavior.js + test（外点/Esc 关闭、上下键、Tab）
+- components/ProfileMenu.vue + test（头像触发器：未登录直登/已登录菜单/disabled/error）
+
+### M2 会员中心页面 ✅
+- views/MemberCenter.vue + test（空态/账号/版本/权益/配额/升级/Pro 标记/disabled）
+- router/index.js 注册 /member-center
+
+### M3 入口接线与数据透传 ✅
+- layouts/YixiaoerSidebar.vue：头像区换 ProfileMenu + 「更多」菜单加会员中心项；删除从未绑定点击事件的死 CSS .yixiaoer-profile 系列
+- components/IdentityMenu.vue：已登录菜单加「会员中心」项 + goMemberCenter 路由跳转
+- stores/identity.js：normalizeState 透传 entitlement.quota（此前 renderer 恒空）
+- locales zh/en：memberCenter.* 54 键成对（含 {date}/{days} 命名插值）
+
+### M4 门禁与文档 ✅
+- tests/visual-testing/views/all-views.visual.test.js 注册 /member-center 单视图视觉门禁
+- locale CJK 基线吸收行号漂移（1504/1504 PASS）；pnpm run build:vue 通过
+- PRD v2.3.60 §2.3.3、CHANGELOG、learnings（6 条经验）、.quality-gates.md、review.md 已更新
+
+> 执行状态（2026-08-27）：实现与验证全部完成；提交 76a61bae9（feat 实现）+ 0182b1bb9（docs/PRD v2.3.60）；PR #1197。

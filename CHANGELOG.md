@@ -8,13 +8,31 @@
 - 文档：01-docs/PRD-yixiaoer-reuse.md 新增 11 章（发布链 8 步/字段契约/校验/交互/限制/测试）；ARCH-F3-baijiahao.md 同步。
 - 已知限制与后续：竖版接口、封面上传图片链、快手 API 链待移植；真实发布需账号凭证有效（重新扫码登录）。
 
+## [未发布] fix(story2video): 移动水印跨镜头连续漂移（成片级统一烧录）
+
+- moving 水印渲染从「片段内内嵌」提升为「xfade 合并后成片级统一烧录」：drawtext 使用成片全局时间轴，多镜头切换处不再回到画面中心（消除「中心吸附」跳变），跨镜头连续漂移；起点仍从画面中心附近开始（sin(0)=0 契约不变）。
+- 片段层（image/video 两路径含 stop-at-end overlayFilters）在 position=moving 时跳过内嵌注入；静态位置（四角/居中）保持片段内嵌，零额外编码。
+- 新增 compose 阶段 phase:'watermark'/percent 90（narration 89 与 bgm 92 之间），进度序列 87→89→90→92→95→98→100 单调；FFMPEG_STAGE_TIMEOUT_PROFILES 新增 watermark 条目（复用 xfade 量级，实测 60s 成片水印阶段约 6s，约 10x 实时）。
+- 烧录命令视频轨 libx264 crf 18 全量重编码、音频轨 `-map 0:a:0?` + `-c:a copy` 不重编码（显式 -map 不映射音频会丢流，冒烟实测修复 + 断言固化）。
+- 回归保护：compose-engine 新增 6 用例（枚举/去字×2/后置命令/静态不进/未启用不进），引擎全量 146 + 相邻套件 286 用例全绿；真实 ffmpeg 冒烟 2×30s 成片切点帧对比（29.5→30.5s Δy=3.5px，旧实现跳 ~650px）。
+- 文档：PRD-video-creation 新增 3.1.39 全契约 + 3.1.38 多镜头句升级引用；product-manual 13.1.1.1 同步；openspec watermark-cross-segment-continuous-drift 四件套。
+- CI 回归：compose 引擎新增实例级 ffmpegBinary 注入（默认模块级探测结果，行为不变）。修复 electron-tests 在 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 时 compose 成功路径用例返回 ffmpeg not found（本地无该 env 假绿、CI 全量单 worker 暴露）；makeWmEngine 显式注入并新增断言用例。
+
+## [未发布] feat(desktop): 会员中心页面 + 左上角头像账号入口
+
+- 新增会员中心页面（/member-center）：账号信息卡（昵称/@username/状态徽章/切换账号/退出登录）、版本与许可证卡（免费版+升级 Pro / Pro ✓ 已激活）、会员权益卡（方案/来源/到期/特性清单）、资源配额卡、关于卡（版本号）；未登录显示空态与登录按钮，disabled 显示身份服务未启用（fail-closed）。
+- 左上角头像改造为账号入口（ProfileMenu + useDropdownBehavior）：未登录（signed_out/expired）点头像直接调 signIn 弹出登录弹窗（修复此前后台 profile 区块从未绑定点击事件的根因）；已登录弹菜单（会员中心/切换账号/退出登录）；disabled/error 展开菜单展示原因不触发登录。
+- 入口扩展：「更多」菜单与身份菜单（IdentityMenu）新增「会员中心」项，统一走 /member-center 路由。
+- 数据透传修复：identityStore.normalizeState 透传主进程已计算的 entitlement.quota（此前 renderer 恒为空）。
+- 错误反馈：登录/切换/退出失败渲染 role="alert" 错误行，错误码映射至友好文案（IDENTITY_ACCOUNT_SWITCH_FAILED → 「切换账号失败，请稍后重试。」）。
+- i18n：locales zh/en 成对新增 memberCenter.* 54 键（含 {date}/{days} 命名插值）；CJK 基线吸收行号漂移。
+- 门禁：/member-center 注册单视图视觉门禁（all-views.visual.test.js）；相关测试 60+ 通过，build:vue 通过。
 
 ## [未发布] feat(observability): 账号管理/内容发布 IPC 详细日志
 
 - publish.js 13 个 handler（cover:extract/crop/read-data、publish:wechat/batch、queue:status/history/cancel/retry、history:list/get/delete、dashboard:stats）统一加 enter/ok/error/validation-failed 结构化日志（模块 PublishIPC），含平台、账号、taskId、耗时、结果码。
 - account.js 10 个 handler（accounts:list、auth:open-login/login-silent/complete-login/close、account:add/delete/check-login/set-proxy/list）统一加详细日志（模块 AccountIPC），含平台/账号/耗时，敏感字段脱敏。
 - 回归测试：publish-account-logging.test.js 8 用例（发布 4 + 账号 4，验证日志调用与关键内容）。
-
 
 ## [未发布] fix(story2video): 水印「移动」漂移起点改为画面中心附近（fix-watermark-drift-center）
 

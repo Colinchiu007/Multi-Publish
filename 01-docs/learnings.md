@@ -13980,3 +13980,24 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **模型列表唯一维护入口在运营中心**：桌面端预设供应商 models 只读展示（即使未启用同步），默认模型仅 el-select 下拉选择（可清空=跟随运营默认）；`useModelProviderCrud.submitForm` 校验 `user_default_model ∈ models`，非法值清除。
 - **ops-center 种子自动填充**：`ensure_catalog_seeded` 末尾对「静态种子为空/仅种子 + base_url 官方默认」的行 best-effort 自动 fetch（asyncio.gather 并发、单行截断 500、失败不影响种子流程）；`OPS_PRESET_SEED_FETCH_ENABLED=0` 关闭（测试 fixture 必须设置，否则 pytest 会真实发网）。前端「批量获取模型 ID」串行逐条 fetch + updateModelPreset 保存时必须同时传 `models` 与 `default_model` 两字段（清空模型列表触发后端校验）。
 - **ESM 验证陷阱**：`node --check` 对 ESM 文件不可靠（explicit resource management / import attributes 误报），用 `node --input-type=module -e "import(...)"` 或直接跑 vitest/build 验证。
+
+## 移动水印跨镜头连续漂移：成片级效果必须落在成片级阶段（watermark-cross-segment-continuous-drift，2026-08-28）
+
+- **现象**：3.1.38 修复后 moving 水印起点居中，但多镜头成片每个镜头开头水印跳回画面中心（「中心吸附」跳变），用户感知水印在画面里来回跳。
+- **第一性原因**：`buildWatermarkFilter` 在**单片段编码命令内**叠加 drawtext；drawtext 的 `t` 是片段内时间轴，每镜头从 t=0 起步——把「成片级效果（跨镜头连续）」实现成「片段级滤镜（每段独立）」，是渲染管线架构错误而非表达式错误。
+- **修复**：moving 水印提升为 xfade 合并后独立后处理阶段（`phase:'watermark'`/percent 90，介于 narration 89 与 bgm 92）；片段层（image/video 两路径 + stop-at-end overlayFilters）跳过注入；单镜头（sceneTotal≤1）不触发后置：片段内嵌、零额外编码；仅多镜头（>1）后置（compose 触发守卫 + 片段层 sceneTotal 感知）。
+- **教训 1（-map 显式映射丢流）**：ffmpeg 一旦显式 `-map`，未映射流全部丢弃——`-map 0:v:0` + `-c:a copy` 不会保留音频；必须补 `-map 0:a:0?`（可选映射，无音频流时静默跳过）。冒烟实测缺此行输出无音频流，已固化断言防回退。
+- **教训 2（后置阶段与 stream-copy 阶段顺序）**：水印必须先于 BGM——BGM 混音用 `-c:v copy`，水印放 BGM 后会被跳过不生效；后置处理链必须按「全量重编码阶段 → copy 阶段」排序。
+- **教训 3（成片级时间轴断言层）**：视频渲染测试不能只断言单镜头 t=0 与片段 filter 字符串；多镜头成片必须做「切点前后帧」采样对比（29.5/30.5s 像素簇中心 Δ<40px）。本冒烟用 rawvideo 抽帧 + 纯色背景亮色像素簇中心定位，零 PNG 解码依赖。
+- **耗时实测**：59.6s 成片 watermark 阶段 ≈6s（约 10x 实时，无 zoompan 2x 上采样）；5 分钟成片预计 +30-40s；超时预算复用 xfade profile（max(2min, 时长×3+2min)）宽裕，输出级 filter 回退不触发。
+- **预防**：新增「成片级视觉效果」类需求（片尾字幕、全片 logo、时段滤镜等）一律先评估渲染阶段归属：效果时间轴 = 成片 t → 必须后置于 xfade；并先确认下游是否消费中间产物（片段文件）。
+- **教训 4（CI 测试环境契约）**：electron-ci.yml 的 electron-tests 设 SKIP_NATIVE_MEDIA_TOOL_TESTS=1，模块级 FFMPEG 探测为 null——本地无该 env 时 compose 成功路径用例假绿，CI 全量单 worker 才暴露（5 用例全部返回 ffmpeg not found，20ms 即失败、无引擎错误日志）。修复：引擎新增实例级 ffmpegBinary 注入点（默认模块级探测结果；compose/renderSegment 前置检查与 execFfmpegStage 走实例值，与既有 execFfmpegStage 注入模式一致），makeWmEngine 显式注入 ffmpeg + 断言用例。预防：断言 compose/renderSegment 成功路径的用例必须显式声明原生工具依赖（注入实例二进制或真实探测），提交前用 SKIP_NATIVE_MEDIA_TOOL_TESTS=1 复跑受影响文件。
+
+## 2026-08-27 会员中心与头像入口（member-center-avatar-entry）
+
+- **静态区块不等于按钮**：YixiaoerSidebar 左上角 .yixiaoer-profile 自引入起就是普通 div，从未绑定 click——「点头像没反应」根因是入口缺失而非登录逻辑坏。新增可点击入口前先 grep 该 DOM 是否已有事件绑定；组件化入口（ProfileMenu）自带测试后才替换静态区块。
+- **renderer 透传是独立故障面**：主进程已计算 entitlement.quota，但 identityStore.normalizeState 未映射该字段，renderer 恒空——跨进程数据契约必须在两端各有一条「字段存在」断言（identity.test.js 已补 quota 透传/非法形状丢弃 2 用例）。
+- **i18n 命名插值优于拼接**：t('memberCenter.expiresAt') + '：' + date 的全角冒号逃过 CJK 基线（正则是 [\u4e00-\u9fff] 单字）；日期/单位等周边标点必须并入 locale 值（expiresAt: '权益到期：{date}'），zh/en 成对断言插值键。
+- **locale 文件防呆**：用脚本改写 locale 文件时禁止整体 JSON.stringify 重写（会把单引号/裸键/Message Function 全部毁掉）；只做定位追加（lastIndexOf 文件尾 + 单引号风格），改完必须跑 i18n 对称性测试 + check-locale-sync。
+- **视觉门禁是路由注册的强制伴侣**：新增路由必须同步在 electron/tests/visual-testing/views/all-views.visual.test.js 注册单视图门禁，否则 visual-view-runner 合同测试失败。
+- **codeagent-wrapper 多行 stdin 不稳定**：该 wrapper 对多行 <TASK> 管道输入解析失败（exit 1 无输出）；单行任务可运行但耗时 >10 分钟无终报。双模型审查不可用时应按机制硬化规则降级主代理审查 + 全量测试兜底，并在 review.md 记录降级原因。

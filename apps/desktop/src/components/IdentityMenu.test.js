@@ -1,7 +1,26 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
+const { routerPushMock } = vi.hoisted(() => ({ routerPushMock: vi.fn() }))
+vi.mock('vue-router', () => ({ useRouter: () => ({ push: routerPushMock }) }))
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key) => key }) }))
+
 describe('IdentityMenu', () => {
+  it('已登录时会员中心条目跳转会员中心页', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const { useIdentityStore } = await import('@/stores/identity')
+    const store = useIdentityStore()
+    store.status = 'authenticated'
+    store.user = { sub: 'sub-1', name: '测试用户', username: 'testuser', picture: '' }
+    routerPushMock.mockClear()
+    const Component = (await import('./IdentityMenu.vue')).default
+    const wrapper = mount(Component, { global: { plugins: [pinia] } })
+    await wrapper.get('[data-testid="identity-trigger"]').trigger('click')
+    await wrapper.get('[data-testid="identity-member-center"]').trigger('click')
+    expect(routerPushMock).toHaveBeenCalledWith('/member-center')
+  })
+
   it('未登录时显示登录命令并触发系统登录', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
