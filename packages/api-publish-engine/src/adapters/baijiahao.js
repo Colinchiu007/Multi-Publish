@@ -3,6 +3,26 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const qs = require("querystring");
+const logger = require("../logger");
+
+// 调试开关：BJ_DEBUG_TRACE=1 且 BJ_DEBUG_LOG=<路径> 时把每个 HTTP 请求/响应写入该文件
+// （本机抓包用；默认关闭，不影响生产与测试）
+const DEBUG_TRACE = process.env.BJ_DEBUG_TRACE === "1" && Boolean(process.env.BJ_DEBUG_LOG);
+const DEBUG_LOG_PATH = process.env.BJ_DEBUG_LOG || "";
+function debugLog(...parts) {
+  if (!DEBUG_TRACE) return;
+  try {
+    require("fs").appendFileSync(DEBUG_LOG_PATH, parts.join(" ") + "\n");
+  } catch (_) { /* 调试日志失败不阻断发布 */ }
+}
+function maskCookie(value) {
+  if (!value) return "";
+  return String(value).split(";").map((c) => {
+    const eq = c.indexOf("=");
+    if (eq < 0) return c.trim();
+    return c.slice(0, eq).trim() + "=<" + c.slice(eq + 1).length + ">";
+  }).join("; ");
+}
 
 /**
  * BaijiahaoAdapter — 百家号 API 发布（移植蚁小二逆向实现）
@@ -22,45 +42,86 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
   constructor() {
     super("baijiahao");
     this.apiBase = "https://baijiahao.baidu.com";
+    // 请求/响应级抓包拦截器（BJ_DEBUG_TRACE=1 时生效）
+    this.http.interceptors.request.use((config) => {
+      debugLog("[REQ] " + String(config.method || "").toUpperCase() + " " + config.url);
+      const h = config.headers || {};
+      debugLog("[REQ-HDRS] " + JSON.stringify({
+        UA: h["User-Agent"], Accept: h.Accept, CT: h["Content-Type"],
+        Referer: h.Referer, Origin: h.Origin, token: h.token ? "<" + String(h.token).length + ">" : undefined,
+        secCHUA: h["Sec-CH-UA"], secCHUAMobile: h["Sec-CH-UA-Mobile"], secCHUAPlatform: h["Sec-CH-UA-Platform"],
+        SFDest: h["Sec-Fetch-Dest"], SFMode: h["Sec-Fetch-Mode"], SFSite: h["Sec-Fetch-Site"],
+        AE: h["Accept-Encoding"], Conn: h.Connection, Cookie: maskCookie(h.Cookie),
+      }));
+      if (typeof config.data === "string" && config.data.length > 0) {
+        debugLog("[REQ-BODY] " + config.data.slice(0, 1600));
+      }
+      return config;
+    });
+    this.http.interceptors.response.use((resp) => {
+      debugLog("[RESP] status=" + resp.status + " url=" + String(resp.config && resp.config.url));
+      const d = resp.data;
+      if (typeof d === "string") debugLog("[RESP-BODY] " + d.slice(0, 1000));
+      else if (d !== undefined && d !== null) debugLog("[RESP-BODY] " + JSON.stringify(d).slice(0, 1000));
+      return resp;
+    });
   }
   getReferer() { return "https://baijiahao.baidu.com/builder/rc/edit?type=videoV2"; }
   getOrigin() { return "https://baijiahao.baidu.com"; }
 
   getHeaders(cookie, extra) {
     return super.getHeaders(cookie, {
-      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "Content-Type": "application/x-www-form-urlencoded",
+      // 浏览器指纹头仅限百家号（同源 XHR 形态），不污染其他平台适配器（审查 W1）
+      "Accept": "*/*",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Connection": "keep-alive",
+      "Sec-CH-UA": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+      "Sec-CH-UA-Mobile": "?0",
+      "Sec-CH-UA-Platform": '"Windows"',
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "same-origin",
       ...extra,
     });
   }
 
   /** 从首页 HTML 提取 BJH__INIT__AUTH__ token（蚁小二 getBaijiahaoBaseToken） */
   async getBaseToken(cookie, opts = {}) {
+    const stepStart = Date.now()
     const resp = await this.http.get("https://baijiahao.baidu.com/?source=inner", {
       headers: this.getHeaders(cookie, { host: "baijiahao.baidu.com" }),
       ...opts,
     })
     const html = String(resp && resp.data || "")
     const m = /BJH__INIT__AUTH__\s*=\s*(['"])([^'"]+)/.exec(html)
+    logger.info("BaijiahaoAdapter", "step=getBaseToken ok=" + Boolean(m) + " cost=" + (Date.now() - stepStart) + "ms")
     return m ? m[2] : ""
   }
 
   /** appinfo → data.user.app_id（蚁小二 getBaijiahaoUserInfoAsync） */
   async getAppId(cookie, opts = {}) {
+    const stepStart = Date.now()
     const resp = await this.http.get(this.apiBase + "/builder/app/appinfo", {
       headers: this.getHeaders(cookie, { Referer: "https://baijiahao.baidu.com/", host: "baijiahao.baidu.com" }),
       ...opts,
     })
     const d = resp && resp.data
-    return d && d.data && d.data.user ? d.data.user.app_id : ""
+    const appId = d && d.data && d.data.user ? d.data.user.app_id : ""
+    logger.info("BaijiahaoAdapter", "step=getAppId appId=" + String(appId).slice(0, 24) + " cost=" + (Date.now() - stepStart) + "ms")
+    return appId
   }
 
   /** 预上传：拿 upload_key（蚁小二 getUploadArgsResponse$6；横版视频 video_type=short） */
   async preuploadVideo(cookie, appId, token, md5, videoType = "short") {
     const body = qs.stringify({ app_id: appId, md5, is_pay_column: 0, video_type: videoType })
+    const stepStart = Date.now()
     const resp = await this.http.post(this.apiBase + "/builder/author/video/preuploadVideo?app_id=" + appId, body, {
       headers: this.getHeaders(cookie, { token }),
     })
-    return (resp && resp.data) || {}
+    const data = (resp && resp.data) || {}
+    logger.info("BaijiahaoAdapter", "step=preuploadVideo uploadKey=" + (data.upload_key ? "yes" : "no") + " cost=" + (Date.now() - stepStart) + "ms")
+    return data
   }
 
   /** 分片上传（蚁小二 uploadVideoPart） */
@@ -81,6 +142,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
       fd.append("chunk", String(chunk))
     }
     let url = "https://rsbjh.baidu.com/builder/author/video/uploadVideo?app_id=" + appId
+    const stepStart = Date.now()
     let resp = await this.http.post(url, fd, { headers: { ...this.getHeaders(cookie, { Referer: "https://baijiahao.baidu.com" }), ...fd.getHeaders() } })
     // 存储服务异常时换 rsbjh10/11/12 重试（蚁小二 uploadVideoPart 原样逻辑）
     if (resp && resp.data && String(resp.data.error_msg || "").includes("存储服务异常")) {
@@ -90,7 +152,9 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
         if (!String(resp && resp.data && resp.data.error_msg || "").includes("存储服务异常")) break
       }
     }
-    return (resp && resp.data) || {}
+    const data = (resp && resp.data) || {}
+    logger.info("BaijiahaoAdapter", "step=uploadVideoPart chunk=" + chunk + "/" + chunks + " uploadId=" + (data.uploadId ? "yes" : "no") + " cost=" + (Date.now() - stepStart) + "ms")
+    return data
   }
 
   /** 上传完成：拿 mediaId/bos_url（蚁小二 uploadCompleteResponse；横版 video_type=short） */
@@ -105,10 +169,13 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
       type: "video",
       video_type: videoType,
     })
+    const stepStart = Date.now()
     const resp = await this.http.post(this.apiBase + "/builder/author/video/compuploadVideo?app_id=" + appId, body, {
       headers: this.getHeaders(cookie, { token, Referer: this.getReferer() }),
     })
-    return (resp && resp.data) || {}
+    const data = (resp && resp.data) || {}
+    logger.info("BaijiahaoAdapter", "step=completeUpload mediaId=" + (data.mediaId ? "yes" : "no") + " bos=" + (data.bos_url ? "yes" : "no") + " cost=" + (Date.now() - stepStart) + "ms")
+    return data
   }
 
   /** 轮询视频处理直到 editVideo.coverImage 出现（蚁小二 getVideoCover）；deadline/signal 支持任务级超时与取消 */
@@ -118,6 +185,7 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
       if (deadline && Date.now() >= deadline) break
       if (signal && signal.aborted) break
       try {
+        const attemptStart = Date.now()
         const resp = await this.http.post(this.apiBase + "/pcui/video/process", "mediaId=" + encodeURIComponent(mediaId), {
           headers: this.getHeaders(cookie, { token, Referer: "https://baijiahao.baidu.com" }),
         })
@@ -125,7 +193,11 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
         const cover = editVideo && editVideo.coverImage
         if (typeof cover === "string" && cover.startsWith("http")) {
           errorStreak = 0
+          logger.info("BaijiahaoAdapter", "step=videoProcess cover=ok attempt=" + (i + 1) + " cost=" + (Date.now() - attemptStart) + "ms")
           return cover
+        }
+        if (i === 0 || (i + 1) % 10 === 0) {
+          logger.info("BaijiahaoAdapter", "step=videoProcess waiting attempt=" + (i + 1) + "/" + maxAttempts)
         }
       } catch (_) {
         // 连续异常视为服务不可用，提前止损（避免空转整个轮询预算）
@@ -207,12 +279,26 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
   async publishVideo(cookie, token, postData, opts = {}) {
     const isDraft = opts.draft === true
     const url = this.apiBase + "/pcui/article/" + (isDraft ? "save" : "publish")
+    const stepStart = Date.now()
     const resp = await this.http.post(url, postData, {
       headers: this.getHeaders(cookie, { token, Referer: this.getReferer() }),
     })
     const d = resp && resp.data
+    logger.info("BaijiahaoAdapter", "step=publishVideo endpoint=" + (isDraft ? "save" : "publish") + " errno=" + (d && d.errno) + " errmsg=" + String((d && d.errmsg) || "").slice(0, 100) + " cost=" + (Date.now() - stepStart) + "ms")
     if (d && (d.errno === 0 || d.errno === "0") && (d.ret && (d.ret.id || d.ret.article_id))) {
       return { success: true, platform: "baijiahao", publishId: d.ret.id || d.ret.article_id, raw: d }
+    }
+    // errno 10000015：百家号账号风控弹码（如“30天内注册的百家号作者弹码”），
+    // 需在浏览器内完成手机/人脸验证后账号级别放行，请求头无法绕开。
+    // 给出可操作提示，避免用户被“网络环境异常”误导。
+    if (d && (d.errno === 10000015 || d.errno === "10000015")) {
+      const hitRule = d.data && d.data.hit_rule ? String(d.data.hit_rule) : ""
+      const scenes = Array.isArray(d.data && d.data.pass_auth)
+        ? d.data.pass_auth.map((a) => a && a.auth_scene).filter(Boolean).join("/")
+        : ""
+      const hint = "百家号发布被风控拦截（" + (hitRule || "需完成身份验证") + "）。"
+        + "请先在浏览器中登录百家号完成验证（" + (scenes || "手机号/身份验证") + "），验证通过后重新发布。"
+      return { success: false, error: hint, code: d.errno, platform: "baijiahao", raw: d }
     }
     return { success: false, error: (d && d.errmsg) || "Publish failed", code: d && d.errno, platform: "baijiahao", raw: d }
   }
@@ -230,6 +316,8 @@ class BaijiahaoAdapter extends BasePlatformAdapter {
     if (!td || !td.video) return null
     const videoPath = td.video && (td.video.path || td.video.localPath)
     if (!videoPath || !fs.existsSync(videoPath)) return null
+    const chainStart = Date.now()
+    logger.info("BaijiahaoAdapter", "step=uploadVideo start path=" + videoPath + " size=" + (fs.statSync(videoPath).size || 0))
     const stat = fs.statSync(videoPath)
     const buffer = fs.readFileSync(videoPath)
     const md5 = crypto.createHash("md5").update(buffer).digest("hex")

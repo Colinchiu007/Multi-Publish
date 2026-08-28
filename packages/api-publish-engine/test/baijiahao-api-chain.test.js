@@ -57,6 +57,11 @@ describe("BaijiahaoAdapter API 发布链", () => {
         expect(body).toContain("video_type=short")
         expect(opts.headers["User-Agent"]).toBeDefined()
         expect(opts.headers.Cookie).toContain("cookie=abc")
+        // 浏览器指纹头（对齐蚁小二 HttpConfig，防玄武风控误判非浏览器环境）
+        expect(opts.headers["Sec-CH-UA"]).toBeDefined()
+        expect(opts.headers["Sec-Fetch-Site"]).toBe("same-origin")
+        expect(opts.headers["Accept-Encoding"]).toBe("gzip, deflate, br")
+        expect(opts.headers["Connection"]).toBe("keep-alive")
         return { data: { upload_key: "KEY_1", upload_id: "UPLOAD_1" } }
       },
     })
@@ -157,6 +162,9 @@ describe("BaijiahaoAdapter API 发布链", () => {
       post: (url, body, opts) => {
         expect(url).toContain("pcui/article/publish")
         expect(opts.headers.Cookie).toContain("cookie=abc")
+        expect(opts.headers["Sec-CH-UA-Platform"]).toBe('"Windows"')
+        expect(opts.headers["Sec-CH-UA-Mobile"]).toBe("?0")
+        expect(opts.headers.token).toBe("TOKEN")
         return { data: { errno: 0, ret: { id: "ARTICLE_1" } } }
       },
     })
@@ -175,6 +183,38 @@ describe("BaijiahaoAdapter API 发布链", () => {
     const r = await adapter.publishVideo("cookie=abc", "TOKEN", "title=x", { draft: true })
     expect(r.success).toBe(true)
     expect(r.publishId).toBe("DRAFT_1")
+  })
+
+  it("publishVideo 识别 10000015 账号风控弹码并给出可操作提示", async () => {
+    mockHttp(adapter, {
+      post: () => ({
+        data: {
+          errno: 10000015,
+          errmsg: "您所在网络环境异常，请完成验证",
+          data: {
+            hit_rule: "30天内注册的百家号作者弹码",
+            pass_auth: [{ auth_scene: "bjh_risk_phone", auth_id: "AUTH_ID_1" }, { auth_scene: "bjh_risk_auth" }],
+          },
+        },
+      }),
+    })
+    const r = await adapter.publishVideo("cookie=abc", "TOKEN", "title=x")
+    expect(r.success).toBe(false)
+    expect(r.code).toBe(10000015)
+    expect(r.error).toContain("风控拦截")
+    expect(r.error).toContain("30天内注册的百家号作者弹码")
+    expect(r.error).toContain("请先在浏览器中登录百家号完成验证")
+    expect(r.error).toContain("bjh_risk_phone/bjh_risk_auth")
+  })
+
+  it("publishVideo 其他 errno 仍透传原 errmsg（不吞原始错误）", async () => {
+    mockHttp(adapter, {
+      post: () => ({ data: { errno: 20040003, errmsg: "用户服务异常" } }),
+    })
+    const r = await adapter.publishVideo("cookie=abc", "TOKEN", "title=x")
+    expect(r.success).toBe(false)
+    expect(r.code).toBe(20040003)
+    expect(r.error).toContain("用户服务异常")
   })
 
   it("publish 拒绝基类 cancelToken 形态（缺 token 直接报错）", async () => {
