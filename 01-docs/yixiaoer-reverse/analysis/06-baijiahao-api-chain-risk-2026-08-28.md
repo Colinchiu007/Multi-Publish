@@ -98,4 +98,3 @@ postData 校验要点（对齐蚁小二 buildPostData$r）：
 ### 5. 浏览器验证为唯一前置（风控放行）
 
 da8b24f8 命中 30 天新号弹码（bjh_risk_phone/bjh_risk_auth/bjh_risk_face_user）；d39af89b Cookie 过期。两个测试账号当前均无法直接发布：百家号需在真实浏览器完成一次弹码验证（手机验证码即可），随后重跑 E2E 预期 errno 0 + ret.id；快手（9d5ef9b7，10+ 天 Cookie）同样需在应用内重新登录刷新凭证。
-
