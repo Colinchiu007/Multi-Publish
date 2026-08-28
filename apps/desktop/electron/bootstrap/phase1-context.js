@@ -306,6 +306,8 @@ function extractContext(container) {
   story2videoProjectService.modelProviderManager = modelProviderManager
   const ttsVoiceCloneService = container.get('ttsVoiceCloneService')
   ttsVoiceCloneService.modelProviderManager = modelProviderManager
+  // 启动前模型能力前置校验（pipeline-model-preflight）：流水线启动按能力映射统一拦截
+  pipelineEngine.modelProviderManager = modelProviderManager
 
   // ─── 提示词评估服务（PromptEval，v1 图片）───
   const { app: electronAppForPromptEval } = require('electron')

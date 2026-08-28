@@ -394,3 +394,40 @@ describe('Story2Video batch-delete notification interpolation (BATCH_DELETE_SUCC
     expect(result.message).toContain('4')
   })
 })
+
+describe('Story2Video 启动前置校验（models_required）', () => {
+  it('errorCode=PIPELINE_MODEL_REQUIREMENTS_MISSING 直连 models_required 并渲染缺失能力标签', () => {
+    const notification = formatStory2VideoNotification({
+      errorCode: 'PIPELINE_MODEL_REQUIREMENTS_MISSING',
+      errorParams: { missing: ['llm', 'video'], providers: {} },
+      error: '启动被拦截：缺少模型能力 推理模型、视频模型。请到「模型设置」中添加对应模型后重试。',
+    })
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED)
+    expect(notification.message).toContain('推理模型')
+    expect(notification.message).toContain('视频模型')
+  })
+
+  it('显式 provider 缺失时标签附 provider 标识（中文括号）', () => {
+    const notification = formatStory2VideoNotification({
+      errorCode: 'PIPELINE_MODEL_REQUIREMENTS_MISSING',
+      errorParams: { missing: ['video'], providers: { video: 'kling' } },
+    })
+    expect(notification.message).toContain('视频模型（kling）')
+  })
+
+  it('英文界面渲染英文能力标签与引导文案', () => {
+    const notification = formatStory2VideoNotification({
+      errorCode: 'PIPELINE_MODEL_REQUIREMENTS_MISSING',
+      errorParams: { missing: ['llm', 'video'], providers: {} },
+    }, 'en')
+    expect(notification.messageKey).toBe(STORY2VIDEO_NOTIFICATION_KEYS.MODELS_REQUIRED)
+    expect(notification.message).toContain('Reasoning model')
+    expect(notification.message).toContain('Video model')
+    expect(notification.message).toContain('Model Settings')
+  })
+
+  it('dialog UI 文本提供 goToModelSettings 按钮文案（zh/en 成对）', () => {
+    expect(getStory2VideoNotificationUiText('zh').goToModelSettings).toBe('去模型设置')
+    expect(getStory2VideoNotificationUiText('en').goToModelSettings).toBe('Go to Model Settings')
+  })
+})

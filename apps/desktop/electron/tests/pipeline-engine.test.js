@@ -1286,3 +1286,103 @@ describe('generateRunId 项目ID生成（方案2：约13位，去掉 run_ 前缀
     }
   })
 })
+
+describe('PipelineEngine 启动前模型能力前置校验（pipeline-model-preflight 闸口）', () => {
+  function makeManager ({ defaults = {}, providers = {} } = {}) {
+    return {
+      _ready: true,
+      getDefault: vi.fn((capability) => {
+        if (defaults[capability]) return { id: 'default-' + capability, category: capability }
+        return null
+      }),
+      getProviderWithKey: vi.fn((id) => {
+        if (!providers[id]) return null
+        return { id, base_url: providers[id].base_url || '', api_key: providers[id].api_key || '' }
+      }),
+    }
+  }
+
+  function makeEngine (manager) {
+    return new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      stageExecutor: { execute: vi.fn(async () => ({ success: true, output: {} })) },
+      modelProviderManager: manager,
+      maxConcurrentRuns: 4,
+    })
+  }
+
+  const s2vConfig = (video = {}) => ({
+    initialContext: {},
+    autoAdvance: false,
+    text: '前置校验测试文案',
+    inputMode: 'text',
+    story2videoTextConfig: {
+      version: 1,
+      mode: 'text',
+      prompt: '前置校验测试文案',
+      split: { language: 'zh' },
+      image: { provider: '' },
+      voice: { provider: '' },
+      video,
+    },
+  })
+
+  it('story2video mode=fixed 且 video 能力缺失 → 拦截，不创建 run', async () => {
+    const engine = makeEngine(makeManager({ defaults: { image: true } }))
+    const started = await engine.startOrchestrated('story2video-compose', s2vConfig({ mode: 'fixed' }))
+    expect(started.success).toBe(false)
+    expect(started.errorCode).toBe('PIPELINE_MODEL_REQUIREMENTS_MISSING')
+    expect(started.errorParams).toEqual({ missing: ['video'], providers: {} })
+    expect(engine._runs.size).toBe(0)
+  })
+
+  it('story2video mode=off（纯图片轮播）且 image 可用 → 放行创建 run', async () => {
+    const engine = makeEngine(makeManager({ defaults: { image: true } }))
+    const started = await engine.startOrchestrated('story2video-compose', s2vConfig({ mode: 'off' }))
+    expect(started.success).toBe(true)
+    expect(engine._runs.get(started.runId)).toBeTruthy()
+  })
+
+  it('story2video mode=ai-judged 且 llm/video 均缺 → missing 包含 llm 与 video', async () => {
+    const engine = makeEngine(makeManager({ defaults: { image: true } }))
+    const started = await engine.startOrchestrated('story2video-compose', s2vConfig({ mode: 'ai-judged' }))
+    expect(started.success).toBe(false)
+    expect(started.errorParams.missing).toEqual(['video', 'llm'])
+  })
+
+  it('静态流水线 animation（llm+video）缺 video → 拦截', async () => {
+    const engine = makeEngine(makeManager({ defaults: { llm: true } }))
+    const started = await engine.startOrchestrated('animation', { initialContext: {}, autoAdvance: false })
+    expect(started.success).toBe(false)
+    expect(started.errorCode).toBe('PIPELINE_MODEL_REQUIREMENTS_MISSING')
+    expect(started.errorParams.missing).toEqual(['video'])
+    expect(engine._runs.size).toBe(0)
+  })
+
+  it('纯本地流水线 talking-head → 不拦截', async () => {
+    const engine = makeEngine(makeManager({}))
+    const started = await engine.startOrchestrated('talking-head', { initialContext: {}, autoAdvance: false })
+    expect(started.success).toBe(true)
+  })
+
+  it('未注入 modelProviderManager（旧环境/纯引擎测试）→ 前置校验跳过，行为不变', async () => {
+    const engine = new PipelineEngine({
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      stageExecutor: { execute: vi.fn(async () => ({ success: true, output: {} })) },
+      maxConcurrentRuns: 4,
+    })
+    const started = await engine.startOrchestrated('story2video-compose', s2vConfig({ mode: 'fixed' }))
+    expect(started.success).toBe(true)
+  })
+
+  it('story2video 显式 video provider 无凭据 → 拦截并附 provider 标识', async () => {
+    const engine = makeEngine(makeManager({
+      defaults: { image: true },
+      providers: { kling: { api_key: '', base_url: 'https://api.kling.example' } },
+    }))
+    const config = s2vConfig({ mode: 'fixed', provider: 'kling' })
+    const started = await engine.startOrchestrated('story2video-compose', config)
+    expect(started.success).toBe(false)
+    expect(started.errorParams.providers).toEqual({ video: 'kling' })
+  })
+})

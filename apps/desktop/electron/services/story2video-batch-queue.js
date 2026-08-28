@@ -357,6 +357,9 @@ class Story2VideoBatchQueue {
         status: item.status,
         runId: item.runId,
         error: item.error,
+        // 启动失败的机器可读错误码（如 PIPELINE_MODEL_REQUIREMENTS_MISSING），供 renderer 展示可操作提示
+        errorCode: item.errorCode || null,
+        errorParams: item.errorParams || null,
         createdAt: item.createdAt,
         startedAt: item.startedAt,
         endedAt: item.endedAt,
@@ -423,6 +426,11 @@ class Story2VideoBatchQueue {
           }
           item.status = BATCH_ITEM_STATUS.FAILED
           item.error = started.error || "批量任务启动失败"
+          // 透传启动错误码（如 PIPELINE_MODEL_REQUIREMENTS_MISSING），供 renderer 展示可操作提示
+          item.errorCode = started.errorCode || null
+          item.errorParams = started.errorParams && typeof started.errorParams === "object"
+            ? started.errorParams
+            : null
           item.endedAt = new Date().toISOString()
           this.log.warn('Story2VideoBatchQueue', 'item start failed itemId=' + item.itemId + ' error=' + item.error)
           // 失败项不阻塞：继续尝试下一个 pending
