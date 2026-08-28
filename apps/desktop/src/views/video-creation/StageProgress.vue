@@ -14,17 +14,6 @@
           </span>
         </div>
         <div v-if="summary" class="progress-summary">{{ summary }}</div>
-        <!-- 合成时间说明（2026-08-17）：story2video 专属参考口径，仅 showTimeGuidance 时渲染 -->
-        <div v-if="showTimeGuidance" class="stage-time-guidance" data-testid="story2video-time-guidance">
-          <p class="time-guidance-title">{{ $t('stageProgress.timeGuidanceTitle') }}</p>
-          <p class="time-guidance-intro">{{ $t('stageProgress.timeGuidanceIntro') }}</p>
-          <ul class="time-guidance-refs">
-            <li>{{ $t('stageProgress.timeGuidanceRef1min') }}</li>
-            <li>{{ $t('stageProgress.timeGuidanceRef3min') }}</li>
-            <li>{{ $t('stageProgress.timeGuidanceRef6min') }}</li>
-          </ul>
-          <p class="time-guidance-note">{{ $t('stageProgress.timeGuidanceNote') }}</p>
-        </div>
       </div>
       <div
         v-for="(stage, index) in stages"
@@ -58,6 +47,18 @@
           {{ stageStatusLabel(stage, index) }}
           <span v-if="stageTimeText(stage)" class="stage-time"> · {{ stageTimeText(stage) }}</span>
         </span>
+      </div>
+      <!-- 合成时间说明（2026-08-17）：story2video 专属参考口径，仅 showTimeGuidance 时渲染；
+           2026-08-28 移出 sticky 浮层，作为阶段列表内普通内容随滚动条滚动，不再遮挡阶段信息 -->
+      <div v-if="showTimeGuidance" class="stage-time-guidance" data-testid="story2video-time-guidance">
+        <p class="time-guidance-title">{{ $t('stageProgress.timeGuidanceTitle') }}</p>
+        <p class="time-guidance-intro">{{ $t('stageProgress.timeGuidanceIntro') }}</p>
+        <ul class="time-guidance-refs">
+          <li>{{ $t('stageProgress.timeGuidanceRef1min') }}</li>
+          <li>{{ $t('stageProgress.timeGuidanceRef3min') }}</li>
+          <li>{{ $t('stageProgress.timeGuidanceRef6min') }}</li>
+        </ul>
+        <p class="time-guidance-note">{{ $t('stageProgress.timeGuidanceNote') }}</p>
       </div>
     </div>
   </div>

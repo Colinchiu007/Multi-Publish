@@ -205,10 +205,11 @@
   color: var(--text-light);
 }
 
-/* 合成时间说明（2026-08-17）：整体耗时与视频时长/复杂度/推理时间的关系提示 */
+/* 合成时间说明（2026-08-17）：整体耗时与视频时长/复杂度/推理时间的关系提示；
+   2026-08-28 起为阶段列表内的普通流内元素（列表 flex gap 提供间距） */
 .stage-time-guidance {
-  margin-top: 10px;
-  padding: 10px 12px;
+  margin-top: 0;
+  padding: 10px 16px;
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-muted);
