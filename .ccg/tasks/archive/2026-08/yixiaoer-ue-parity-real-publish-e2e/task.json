@@ -1,12 +1,15 @@
 {
   "id": "yixiaoer-ue-parity-real-publish-e2e",
   "title": "对标蚁小二重构前端UE + 真实环境发布视频E2E（快手/百家号）+ 封面首帧裁剪",
-  "status": "in_progress",
+  "status": "completed",
   "complexity": "L",
   "risk": "high",
   "domain": "desktop-frontend",
-  "currentPhase": "phase-c-baijiahao-api-chain",
-  "nextAction": "双模型审查修复完成，待提交推送 PR；真实发布 E2E 阻塞于 profile 凭证 DPAPI 解密（需用户本机重新扫码）",
+  "currentPhase": "completed",
+  "nextAction": "PR #1201 已合并（b00e0bb6）；真实发布 E2E 仍阻塞：profile 凭证 DPAPI 绑定原机器 + cookie 过期，需用户本机重新扫码登录百家号/快手后继续 Phase B/C E2E",
+  "remoteStatus": "merged",
+  "mergedAt": "2026-08-28T05:42:02Z",
+  "prRef": "https://github.com/Colinchiu007/Multi-Publish/pull/1201",
   "createdAt": "2026-08-24T18:30:00+08:00",
   "branch": "codex/yixiaoer-ue-parity-real-publish-e2e",
   "handover": {
