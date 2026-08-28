@@ -14001,3 +14001,11 @@ PR #352 的远端 `gui-test` 继续使用 `route-functional-suite.js` 中的旧�
 - **locale 文件防呆**：用脚本改写 locale 文件时禁止整体 JSON.stringify 重写（会把单引号/裸键/Message Function 全部毁掉）；只做定位追加（lastIndexOf 文件尾 + 单引号风格），改完必须跑 i18n 对称性测试 + check-locale-sync。
 - **视觉门禁是路由注册的强制伴侣**：新增路由必须同步在 electron/tests/visual-testing/views/all-views.visual.test.js 注册单视图门禁，否则 visual-view-runner 合同测试失败。
 - **codeagent-wrapper 多行 stdin 不稳定**：该 wrapper 对多行 <TASK> 管道输入解析失败（exit 1 无输出）；单行任务可运行但耗时 >10 分钟无终报。双模型审查不可用时应按机制硬化规则降级主代理审查 + 全量测试兜底，并在 review.md 记录降级原因。
+
+## 流水线启动前置校验与模型能力映射（pipeline-model-preflight，2026-08-28）
+
+- **需求本质**：点击「启动流水线」要在起跑前按「流水线 → 所需模型能力」映射做校验，缺失即拦截并引导去模型设置；不能等到运行中某个环节才弹「未找到模型」。
+- **映射必须集中单一来源**：pipeline-model-preflight.js 统一维护「流水线 → 模型能力」映射与动态规则（如 story2video-compose 按模式判断：image 恒必需；video 仅 mode∈{fixed,ai-judged}；llm 仅 ai-judged；tts 仅显式非空非 Edge voiceProvider），startOrchestrated 在 normalize 后、start 前统一校验，批量队列透传 errorCode/errorParams 供渲染层弹窗。后续新增流水线或模式，必须同步更新该映射并补「缺失能力列表」文案用例。
+- **能力语义容易错估**：localization-dub 需要 llm（显式 voiceProvider）但视频模型非必需；film-engineering 需 llmEnabled 开启才要求 llm；podcast-repurpose 无 transcript 时才要求 speech_recognition。映射回归必须覆盖「未配置任何模型 → 预检拦截并列出缺失能力」「逐项配置 → 精确放行并断言必需能力集合」双向用例。
+- **OpenSpec apply 缺失时的合入路径**：openspec apply 无法直接落盘时，按 change 工件把 specs 变更手工合入 openspec/specs/ 主规格文件，随后 openspec validate 全量通过后再归档，归档记录与主 specs 保持一致。
+- **CJK 基线行号漂移处理**：locale-cjk-baseline.json 按 file:line 记录，新增代码行会造成基线行号整体漂移；用 --update-baseline 更新后必须人工核验「去掉行号后旧集合与新集合一致」，避免把新增中文字符串字面量混入基线放行。
