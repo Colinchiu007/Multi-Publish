@@ -95,7 +95,15 @@
 - 尝试 3 次：① 20:24 运行读了错误工作树 diff（审成 baijiahao 脏改动）；② 重派时不可读 D:/tmp（权限自动拒绝 external_directory）；③ diff 放入 repo 内（node_modules/.cache）后启动即退出（opencode exit status 4294967295）。
 - 依《机制硬化》阶段降级：以 Claude 两轮审查（均 PASS）+ 主代理逐行复核 + 单测全绿作为评估依据。
 
+### CI Gate 4 失败与第二轮回退修复（2026-08-28 晚）
+
+- 现象：PR 推送后 QG Gate 4（Workspace unit tests）/Desktop Shards×2/Coverage 全失败——story2video.test.js 新增的 3 个跨 profile 用例（create-share-url/get-thumbnail/export-zip 回退放行）在 CI 返回 code:-1。
+- 第一性原因：GitHub Windows runner 的 os.tmpdir() 解析为 8.3 短名路径（C:\Users\RUNNER~1\AppData\Local\Temp），而 IPC 校验链 resolveReadableFile 返回 realpathSync.native 长名（C:\Users\runneradmin\...）；getProjectMediaRoot 用「字面串相等」比对 manifest 引用（持久化为短名）与请求路径（已归一为长名）→ 误判为未引用→ 回退拒绝。本地无 8.3 短名目录，故首轮本地全绿、CI 才暴露（逃逸链：跨环境路径拼写差异没有回归夹具）。
+- 修复：getProjectMediaRoot 对「清单引用」与「请求路径」两侧各自 realpathSync.native 归一（失败保留原串、fail-closed）后再比较（win32 保留大小写不敏感）；安全边界不变（manifest.projectId===目录名 + 清单显式引用 + resolveReadableFile canonical 包含校验）。
+- 回归保护：服务新增「联接通路别名/8.3 短名 canonical 比较」用例（junction 别名持久化在 manifest、请求用真实路径：放行；反向请求走联接目录：目录名与 projectId 不同形→ 拒绝）；三个跨 profile IPC 用例从手工 mock 改为真实 Story2VideoProjectService 实例，直接覆盖「短名引用 vs canonical 请求」的 CI 场景。本地复测：服务 119 + IPC 36 全绿。
+- 预防措施：跨 profile 媒体放行类合同必须覆盖「同一文件不同路径拼写（短名/联接/大小写）」正反用例；IPC 测试不得用手工 mock 掩盖 canonical 路径二次校验（mock 的原始串等值判断在 CI 短名环境下必然失效）。
+
 ## 远程状态
 
 - PR: https://github.com/Colinchiu007/Multi-Publish/pull/1209 （open，待合并）
-- 分支：codex/fix-s2v-history-thumbnail-foreign-profile（基于 origin/main 干净 cherry-pick，3 提交）
+- 分支：codex/fix-s2v-history-thumbnail-foreign-profile（基于 origin/main 干净 cherry-pick，7 提交：eec9e04cb 根修复 / 830d02f4f QM-5 复盘 / 5a2c57ee4 审查修复 / 4d0a464d7 归档 / a2ae03e0b CHANGELOG / 413e3287c CI 短名修复 / 97c434c46 CHANGELOG 补充）
