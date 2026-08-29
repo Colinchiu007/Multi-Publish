@@ -21,6 +21,9 @@ const {
 const {
   getStory2VideoBgmLibrary,
 } = require('../services/story2video-bgm-library')
+const {
+  getStory2VideoConfigProfiles,
+} = require('../services/story2video-config-profiles')
 
 function safeZipName (value) {
   const base = path.basename(typeof value === 'string' && value.trim() ? value.trim() : 'story2video-export.zip')
@@ -112,6 +115,22 @@ function registerHandlers (ipcMain, deps = {}) {
   const requireProjectService = () => {
     if (!projectService) throw new Error('Story2Video 项目服务不可用')
     return projectService
+  }
+
+  // 流水线「保存配置」库：生产环境懒创建（userData/story2video-config-profiles）；测试可注入 mock 实例。
+  let configProfiles = deps.story2videoConfigProfiles || null
+  let configProfilesError = null
+  const requireConfigProfiles = () => {
+    if (configProfiles) return configProfiles
+    if (!configProfilesError) {
+      try {
+        configProfiles = getStory2VideoConfigProfiles()
+      } catch (error) {
+        configProfilesError = error
+      }
+    }
+    if (!configProfiles) throw configProfilesError || new Error('配置库不可用')
+    return configProfiles
   }
 
   // selected-media 老化回收：仅在显式开启时执行（测试环境默认不触发，避免触碰真实临时目录）。
@@ -348,6 +367,65 @@ function registerHandlers (ipcMain, deps = {}) {
       return { code: 0, data }
     } catch (error) {
       return { code: EC.VALIDATION_ERROR, message: error.message }
+    }
+  }))
+
+  // 流水线「保存配置」：设备级命名组合配置（userData/story2video-config-profiles），
+  // 本地操作未登录可用（与 bgm-library 同安全白名单）。
+  ipcMain.handle('story2video:config-profile-list', withSenderCheck(async () => {
+    try {
+      return { code: 0, data: requireConfigProfiles().list() }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: error.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:config-profile-create', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+      typeof request.pipelineId !== 'string' || !request.pipelineId.trim() ||
+      typeof request.name !== 'string' || !request.snapshot || typeof request.snapshot !== 'object' || Array.isArray(request.snapshot)) {
+      return { code: EC.VALIDATION_ERROR, message: '配置参数无效' }
+    }
+    try {
+      const data = requireConfigProfiles().create({
+        pipelineId: request.pipelineId,
+        name: request.name,
+        snapshot: request.snapshot,
+        overwrite: request.overwrite === true,
+      })
+      return { code: 0, data }
+    } catch (error) {
+      // 业务/参数校验错误 → VALIDATION_ERROR；IO/占用等运行时错误 → REQUEST_ERROR（双模型审查 M3 修复）
+      const code = error && error.name === 'ProfileValidationError' ? EC.VALIDATION_ERROR : EC.REQUEST_ERROR
+      return { code, message: error.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:config-profile-rename', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+      typeof request.id !== 'string' || !request.id.trim() || typeof request.name !== 'string') {
+      return { code: EC.VALIDATION_ERROR, message: '配置重命名参数无效' }
+    }
+    try {
+      const data = requireConfigProfiles().rename(request.id, request.name)
+      return { code: 0, data }
+    } catch (error) {
+      const code = error && error.name === 'ProfileValidationError' ? EC.VALIDATION_ERROR : EC.REQUEST_ERROR
+      return { code, message: error.message }
+    }
+  }))
+
+  ipcMain.handle('story2video:config-profile-delete', withSenderCheck(async (_event, request) => {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+      typeof request.id !== 'string' || !request.id.trim()) {
+      return { code: EC.VALIDATION_ERROR, message: '配置删除参数无效' }
+    }
+    try {
+      const data = requireConfigProfiles().delete(request.id)
+      return { code: 0, data }
+    } catch (error) {
+      const code = error && error.name === 'ProfileValidationError' ? EC.VALIDATION_ERROR : EC.REQUEST_ERROR
+      return { code, message: error.message }
     }
   }))
 

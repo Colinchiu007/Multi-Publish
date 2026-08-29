@@ -52,6 +52,11 @@ vi.mock("@/api/publisher", () => ({
   story2videoBgmLibraryAdd: vi.fn(),
   story2videoBgmLibraryRename: vi.fn(),
   story2videoBgmLibraryDelete: vi.fn(),
+  // 流水线「保存配置」（2026-08-28 s2v-pipeline-config-profiles）
+  story2videoConfigProfileList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+  story2videoConfigProfileCreate: vi.fn().mockResolvedValue({ code: -1, message: "electronAPI not available" }),
+  story2videoConfigProfileRename: vi.fn().mockResolvedValue({ code: -1, message: "electronAPI not available" }),
+  story2videoConfigProfileDelete: vi.fn().mockResolvedValue({ code: -1, message: "electronAPI not available" }),
   // 批量创作（2026-08-15 story2video-batch-create）
   story2videoBatchCreate: vi.fn().mockResolvedValue({ code: 0, data: { batchId: "batch_test_1", items: [] } }),
   story2videoBatchStatus: vi.fn().mockResolvedValue({ code: 0, data: [] }),
@@ -5476,6 +5481,481 @@ describe("批量创作（story2video-batch-create）", () => {
     // 门控命中但无法提取 Image #N（如 manual 模式无场景号前缀）时不携带 focusScenes，结果页按缺省安全降级（W1）
     w.vm.openHistoryResult({ projectId: "proj-manual", status: "failed", error: "Image generation requires user input after content-policy review" });
     expect(pushSpy).toHaveBeenCalledWith({ path: "/create/result", query: { project: "proj-manual" } });
+    w.unmount();
+  });
+});
+
+describe("CreateView 流水线「保存配置」（s2v-pipeline-config-profiles）", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoConfigProfileList.mockReset();
+    mocks.story2videoConfigProfileCreate.mockReset();
+    mocks.story2videoConfigProfileRename.mockReset();
+    mocks.story2videoConfigProfileDelete.mockReset();
+    mocks.story2videoConfigProfileList.mockResolvedValue({ code: 0, data: [] });
+    mocks.story2videoConfigProfileCreate.mockResolvedValue({ code: -1, message: "electronAPI not available" });
+    mocks.story2videoConfigProfileRename.mockResolvedValue({ code: -1, message: "electronAPI not available" });
+    mocks.story2videoConfigProfileDelete.mockResolvedValue({ code: -1, message: "electronAPI not available" });
+    mocks.storeSetSetting.mockReset();
+    setActivePinia(createPinia());
+    window.electronAPI = {};
+    window.localStorage.clear();
+    settingsDialogRevision.value = 0;
+  });
+
+  function makeProfile(overrides = {}) {
+    return {
+      id: "profile-00000000000001",
+      pipelineId: "story2video-compose",
+      name: "口播竖屏 1080p",
+      updatedAt: "1700000000000",
+      snapshot: {
+        schemaVersion: 1,
+        capturedAt: "2026-08-28T00:00:00.000Z",
+        kind: "orchestrated",
+        s2vConfig: {
+          contentType: "general", imageStyle: "cinematic",
+          imageProvider: "provider-a", imageModel: "m1",
+          voiceProvider: "edge-tts", voiceModel: "", voiceId: "zh-CN-XiaoxiaoNeural",
+          videoMode: "off",
+        },
+        s2vOutputConfig: { resolution: "720x1280", fps: 30, format: "mp4" },
+        ui: { expandedGroups: ["appearance"] },
+      },
+      ...overrides,
+    };
+  }
+
+  async function mountView() {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    return w;
+  }
+
+  async function selectPipeline(w, name = "story2video-compose") {
+    w.vm.selectPipeline({ name, available: true, stages: [] });
+    await nextTick();
+  }
+
+  async function prepareProviders(w) {
+    w.vm.s2vVoiceProviders = [{ id: "edge-tts" }, { id: "custom" }];
+    w.vm.s2vImageProviders = [{ id: "provider-a" }];
+    w.vm.s2vVideoProviders = [{ id: "provider-v" }];
+    await nextTick();
+  }
+
+  it("编排流水线展示保存配置按钮，点击打开保存弹窗并预填流水线名", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    expect(w.find('[data-testid="s2v-config-profile-save"]').exists()).toBe(true);
+    expect(w.find('[data-testid="s2v-config-profile-manage"]').exists()).toBe(true);
+    await w.find('[data-testid="s2v-config-profile-save"]').trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    expect(w.find('[data-testid="s2v-config-profile-save-dialog"]').exists()).toBe(true);
+    expect(w.vm.s2vConfigProfileNameDraft).toBe(w.vm.pipelineName("story2video-compose"));
+    expect(mocks.story2videoConfigProfileList).toHaveBeenCalled();
+    w.unmount();
+  });
+
+  it("保存弹窗空名校验：不调用创建 API 并 toast 提示", async () => {
+    const mocks = await import("@/api/publisher");
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await w.vm.openS2VConfigProfileSave();
+    w.vm.s2vConfigProfileNameDraft = "   ";
+    await w.vm.saveS2VConfigProfile();
+    expect(mocks.story2videoConfigProfileCreate).not.toHaveBeenCalled();
+    expect(w.vm.s2vOptionsToast).toContain("请输入配置名称");
+    w.unmount();
+  });
+
+  it("同名配置首次点击提示覆盖，二次点击覆盖保存成功", async () => {
+    const mocks = await import("@/api/publisher");
+    const existing = makeProfile();
+    mocks.story2videoConfigProfileList.mockResolvedValue({ code: 0, data: [existing] });
+    mocks.story2videoConfigProfileCreate.mockResolvedValue({ code: 0, data: { ...existing, updatedAt: "1701000000000" } });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await w.vm.openS2VConfigProfileSave();
+    w.vm.s2vConfigProfileNameDraft = existing.name;
+    await w.vm.saveS2VConfigProfile();
+    expect(w.vm.s2vConfigProfileOverwriteNeeded).toBe(true);
+    expect(w.vm.s2vOptionsToast).toContain("覆盖");
+    expect(mocks.story2videoConfigProfileCreate).not.toHaveBeenCalled();
+    await w.vm.saveS2VConfigProfile();
+    expect(mocks.story2videoConfigProfileCreate).toHaveBeenCalledWith(expect.objectContaining({
+      pipelineId: "story2video-compose",
+      name: existing.name,
+      overwrite: true,
+    }));
+    expect(w.vm.s2vConfigProfiles).toHaveLength(1);
+    expect(w.vm.s2vConfigProfileDialogOpen).toBe(false);
+    expect(w.vm.s2vOptionsToast).toContain("配置已保存");
+    w.unmount();
+  });
+
+  it("新增配置保存成功并写入列表", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoConfigProfileList.mockResolvedValue({ code: 0, data: [] });
+    const created = makeProfile({ id: "profile-00000000000002", name: "新配置" });
+    mocks.story2videoConfigProfileCreate.mockResolvedValue({ code: 0, data: created });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await w.vm.openS2VConfigProfileSave();
+    w.vm.s2vConfigProfileNameDraft = "新配置";
+    await w.vm.saveS2VConfigProfile();
+    expect(mocks.story2videoConfigProfileCreate).toHaveBeenCalledWith(expect.objectContaining({
+      pipelineId: "story2video-compose",
+      name: "新配置",
+      snapshot: expect.objectContaining({ kind: "orchestrated", schemaVersion: 1 }),
+      overwrite: false,
+    }));
+    expect(w.vm.s2vConfigProfiles[0].id).toBe("profile-00000000000002");
+    w.unmount();
+  });
+
+  it("快照构建：orchestrated 分支包含 s2vConfig/s2vOutputConfig/ui", async () => {
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    const snapshot = w.vm.buildPipelineConfigSnapshot();
+    expect(snapshot.kind).toBe("orchestrated");
+    expect(snapshot.schemaVersion).toBe(1);
+    expect(snapshot.s2vConfig).toBeDefined();
+    expect(snapshot.s2vOutputConfig).toBeDefined();
+    expect(snapshot.ui.expandedGroups).toEqual(expect.any(Array));
+    w.unmount();
+  });
+
+  it("服务端返回同名配置时进入覆盖态，二次点击按覆盖保存", async () => {
+    const mocks = await import("@/api/publisher");
+    const saved = makeProfile({ name: "竞态同名配置" });
+    mocks.story2videoConfigProfileCreate.mockResolvedValueOnce({ code: -2, message: "已存在同名配置" });
+    mocks.story2videoConfigProfileCreate.mockResolvedValueOnce({ code: 0, data: saved });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await w.vm.openS2VConfigProfileSave();
+    w.vm.s2vConfigProfileNameDraft = "竞态同名配置";
+
+    await w.vm.saveS2VConfigProfile();
+
+    expect(w.vm.s2vConfigProfileOverwriteNeeded).toBe(true);
+    expect(w.vm.s2vConfigProfileDialogOpen).toBe(true);
+    await w.vm.saveS2VConfigProfile();
+    expect(mocks.story2videoConfigProfileCreate).toHaveBeenLastCalledWith(expect.objectContaining({ overwrite: true }));
+    expect(w.vm.s2vConfigProfileDialogOpen).toBe(false);
+    w.unmount();
+  });
+
+  it("编排配置快照排除素材路径与发布字段，保留可配置选项", async () => {
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    Object.assign(w.vm.s2vConfig, {
+      transition: "slide-left",
+      bgmPath: "C:/private/music.mp3",
+      coverUrl: "file:///C:/private/cover.png",
+      platforms: ["douyin"],
+      publishEnabled: true,
+      title: "不应保存的标题",
+      tagsText: "标签",
+      publishContent: "不应保存的发布正文",
+    });
+
+    const snapshot = w.vm.buildPipelineConfigSnapshot();
+
+    expect(snapshot.s2vConfig).toMatchObject({ transition: "slide-left" });
+    for (const excludedField of ["bgmPath", "coverUrl", "platforms", "publishEnabled", "title", "tagsText", "publishContent"]) {
+      expect(snapshot.s2vConfig).not.toHaveProperty(excludedField);
+    }
+    w.unmount();
+  });
+
+  it("管理弹窗加载非空列表，按更新时间倒序渲染跨流水线条目", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.story2videoConfigProfileList.mockResolvedValue({
+      code: 0,
+      data: [
+        makeProfile({ id: "p1", name: "旧配置", updatedAt: "1700000000000" }),
+        makeProfile({ id: "p2", name: "新配置", pipelineId: "cinematic", updatedAt: "1701000000000" }),
+      ],
+    });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await w.vm.openS2VConfigProfileList();
+    expect(w.vm.s2vConfigProfiles[0].id).toBe("p2");
+    const items = w.findAll(".bgm-library-item");
+    expect(items.length).toBe(2);
+    expect(w.find('[data-testid="s2v-config-profile-list"]').text()).toContain("新配置");
+    expect(w.find('[data-testid="s2v-config-profile-list"]').text()).toContain("旧配置");
+    w.unmount();
+  });
+
+  it("应用配置（未修改表单）：直接覆盖字段并提示已应用", async () => {
+    const profile = makeProfile({
+      snapshot: {
+        schemaVersion: 1,
+        capturedAt: "2026-08-28T00:00:00.000Z",
+        kind: "orchestrated",
+        s2vConfig: {
+          contentType: "general", imageStyle: "realistic",
+          imageProvider: "provider-a", imageModel: "m1",
+          voiceProvider: "edge-tts", voiceModel: "", voiceId: "zh-CN-XiaoxiaoNeural",
+          videoMode: "off",
+        },
+        s2vOutputConfig: { resolution: "720x1280", fps: 30, format: "mp4" },
+        ui: { expandedGroups: ["appearance"] },
+      },
+    });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await prepareProviders(w);
+    await w.vm.requestApplyS2VConfigProfile(profile);
+    expect(w.vm.s2vConfigProfileApplyDialogOpen).toBe(false);
+    expect(w.vm.s2vConfig.imageStyle).toBe("realistic");
+    expect(w.vm.s2vOutputConfig.resolution).toBe("720x1280");
+    expect(w.vm.s2vOptionsToast).toContain("已应用配置");
+    w.unmount();
+  });
+
+  it("应用配置回退已失效的语音 provider（白名单校验）", async () => {
+    const profile = makeProfile({
+      snapshot: {
+        schemaVersion: 1,
+        capturedAt: "2026-08-28T00:00:00.000Z",
+        kind: "orchestrated",
+        s2vConfig: {
+          imageStyle: "cinematic",
+          voiceProvider: "dead-provider", voiceModel: "vm", voiceId: "v1",
+          videoMode: "off",
+        },
+        s2vOutputConfig: {},
+        ui: {},
+      },
+    });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await prepareProviders(w);
+    w.vm.s2vConfig.voiceProvider = "edge-tts";
+    await w.vm.applyS2VConfigProfileSnapshot(profile);
+    expect(w.vm.s2vConfig.voiceProvider).toBe("edge-tts");
+    expect(w.vm.s2vConfig.voiceModel).toBe("");
+    w.unmount();
+  });
+
+  it("应用视频增强配置时清空失效 video provider 与 model", async () => {
+    const profile = makeProfile({
+      snapshot: {
+        schemaVersion: 1,
+        kind: "orchestrated",
+        s2vConfig: {
+          imageStyle: "cinematic",
+          videoMode: "fixed",
+          videoProvider: "retired-video-provider",
+          videoModel: "retired-video-model",
+        },
+        s2vOutputConfig: {},
+        ui: {},
+      },
+    });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await prepareProviders(w);
+
+    await w.vm.applyS2VConfigProfileSnapshot(profile);
+
+    expect(w.vm.s2vConfig.videoMode).toBe("fixed");
+    expect(w.vm.s2vConfig.videoProvider).toBe("");
+    expect(w.vm.s2vConfig.videoModel).toBe("");
+    w.unmount();
+  });
+
+  it("应用关闭视频增强的配置时同样清空失效 video provider 与 model", async () => {
+    const profile = makeProfile({
+      snapshot: {
+        schemaVersion: 1,
+        kind: "orchestrated",
+        s2vConfig: {
+          imageStyle: "cinematic",
+          videoMode: "off",
+          videoProvider: "retired-video-provider",
+          videoModel: "retired-video-model",
+        },
+        s2vOutputConfig: {},
+        ui: {},
+      },
+    });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await prepareProviders(w);
+
+    await w.vm.applyS2VConfigProfileSnapshot(profile);
+
+    expect(w.vm.s2vConfig.videoMode).toBe("off");
+    expect(w.vm.s2vConfig.videoProvider).toBe("");
+    expect(w.vm.s2vConfig.videoModel).toBe("");
+    w.unmount();
+  });
+
+  it("应用配置不会写入 story2video.lastOptions.v1", async () => {
+    const mocks = await import("@/api/publisher");
+    mocks.storeSetSetting.mockResolvedValue({ code: 0 });
+    const profile = makeProfile({
+      snapshot: {
+        schemaVersion: 1,
+        kind: "orchestrated",
+        s2vConfig: { imageStyle: "realistic", voiceProvider: "edge-tts", videoMode: "off" },
+        s2vOutputConfig: { resolution: "720x1280", fps: 30, format: "mp4" },
+        ui: {},
+      },
+    });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await prepareProviders(w);
+    mocks.storeSetSetting.mockClear();
+
+    await w.vm.applyS2VConfigProfileSnapshot(profile);
+    await nextTick();
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    expect(mocks.storeSetSetting.mock.calls.filter(([key]) => key === "story2video.lastOptions.v1")).toHaveLength(0);
+    w.unmount();
+  });
+
+  it("表单已修改时应用需二次确认，确认后应用", async () => {
+    const profile = makeProfile({
+      snapshot: {
+        schemaVersion: 1,
+        capturedAt: "2026-08-28T00:00:00.000Z",
+        kind: "orchestrated",
+        s2vConfig: { imageStyle: "realistic", voiceProvider: "edge-tts", videoMode: "off" },
+        s2vOutputConfig: { resolution: "720x1280" },
+        ui: {},
+      },
+    });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await prepareProviders(w);
+    w.vm.s2vConfig.imageStyle = "anime";
+    await w.vm.requestApplyS2VConfigProfile(profile);
+    expect(w.vm.s2vConfigProfileApplyDialogOpen).toBe(true);
+    await w.vm.confirmApplyS2VConfigProfile();
+    expect(w.vm.s2vConfigProfileApplyDialogOpen).toBe(false);
+    expect(w.vm.s2vConfig.imageStyle).toBe("realistic");
+    w.unmount();
+  });
+
+  it("跨流水线配置不能应用并 toast 提示", async () => {
+    const mocks = await import("@/api/publisher");
+    const foreign = makeProfile({ id: "p-other", pipelineId: "cinematic", name: "电影解说" });
+    mocks.story2videoConfigProfileList.mockResolvedValue({ code: 0, data: [foreign] });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await w.vm.openS2VConfigProfileList();
+    const applyBtn = w.find('[data-testid="s2v-config-profile-apply"]');
+    expect(applyBtn.attributes("disabled")).toBeDefined();
+    await w.vm.requestApplyS2VConfigProfile(foreign);
+    expect(w.vm.s2vConfigProfileApplyDialogOpen).toBe(false);
+    expect(w.vm.s2vOptionsToast).toContain("其他流水线");
+    w.unmount();
+  });
+
+  it("管理弹窗内重命名成功更新列表并退出编辑态", async () => {
+    const mocks = await import("@/api/publisher");
+    const profile = makeProfile();
+    mocks.story2videoConfigProfileList.mockResolvedValue({ code: 0, data: [profile] });
+    mocks.story2videoConfigProfileRename.mockResolvedValue({ code: 0, data: { ...profile, name: "新名字" } });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await w.vm.openS2VConfigProfileList();
+    w.vm.startS2VConfigProfileRename(profile);
+    expect(w.vm.s2vConfigProfileRenamingId).toBe("profile-00000000000001");
+    w.vm.s2vConfigProfileRenameDraft = "新名字";
+    await w.vm.saveS2VConfigProfileRename();
+    expect(mocks.story2videoConfigProfileRename).toHaveBeenCalledWith("profile-00000000000001", "新名字");
+    expect(w.vm.s2vConfigProfiles[0].name).toBe("新名字");
+    expect(w.vm.s2vConfigProfileRenamingId).toBe("");
+    expect(w.vm.s2vOptionsToast).toContain("重命名");
+    w.unmount();
+  });
+
+  it("删除配置：确认弹窗确认后删除并更新列表", async () => {
+    const mocks = await import("@/api/publisher");
+    const profile = makeProfile();
+    mocks.story2videoConfigProfileList.mockResolvedValue({ code: 0, data: [profile] });
+    mocks.story2videoConfigProfileDelete.mockResolvedValue({ code: 0, data: { deleted: true } });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await w.vm.openS2VConfigProfileList();
+    w.vm.requestS2VConfigProfileDelete(profile);
+    expect(w.vm.s2vConfigProfileDeleteDialogOpen).toBe(true);
+    await w.vm.confirmS2VConfigProfileDelete();
+    expect(mocks.story2videoConfigProfileDelete).toHaveBeenCalledWith("profile-00000000000001");
+    expect(w.vm.s2vConfigProfiles).toHaveLength(0);
+    expect(w.vm.s2vConfigProfileDeleteDialogOpen).toBe(false);
+    expect(w.vm.s2vOptionsToast).toContain("配置已删除");
+    w.unmount();
+  });
+
+  it("legacy 流水线：快照为 legacy 形态，应用覆盖字段并归一化陈旧枚举", async () => {
+    const w = await mountView();
+    await selectPipeline(w, "animated-explainer");
+    const snapshot = w.vm.buildPipelineConfigSnapshot();
+    expect(snapshot.kind).toBe("legacy");
+    expect(snapshot.legacy.inputMode).toBe("text");
+    expect(snapshot.legacy.selectedStyle).toBeDefined();
+    const legacyProfile = makeProfile({
+      pipelineId: "animated-explainer",
+      snapshot: {
+        schemaVersion: 1,
+        kind: "legacy",
+        legacy: {
+          inputMode: "text",
+          selectedStyle: "retired-style",
+          llmConfig: {},
+          budgetConfig: { mode: "strict", totalUsd: 88 },
+          checkpointPolicy: "auto_noncreative",
+          storyboardMode: "auto",
+          outputConfig: { resolution: "720x1280", fps: 25, format: "avi" },
+        },
+      },
+    });
+    await w.vm.applyS2VConfigProfileSnapshot(legacyProfile);
+    expect(w.vm.checkpointPolicy).toBe("auto_noncreative");
+    expect(w.vm.outputConfig.resolution).toBe("720x1280");
+    expect(w.vm.outputConfig.fps).toBe(30);
+    expect(w.vm.outputConfig.format).toBe("mp4");
+    expect(w.vm.budgetConfig).toMatchObject({ mode: "warn", totalUsd: 88 });
+    expect(w.vm.selectedStyle).toBe("clean-professional");
+    w.unmount();
+  });
+
+  it("应用确认期间切换流水线时重新拒绝跨流水线配置", async () => {
+    const profile = makeProfile({
+      snapshot: {
+        schemaVersion: 1,
+        kind: "orchestrated",
+        s2vConfig: { imageStyle: "realistic", voiceProvider: "edge-tts", videoMode: "off" },
+        s2vOutputConfig: {},
+        ui: {},
+      },
+    });
+    const w = await mountView();
+    await selectPipeline(w, "story2video-compose");
+    await prepareProviders(w);
+    w.vm.s2vConfig.imageStyle = "anime";
+    await w.vm.requestApplyS2VConfigProfile(profile);
+    expect(w.vm.s2vConfigProfileApplyDialogOpen).toBe(true);
+    w.vm.selectedPipeline = { name: "animated-explainer", available: true, stages: [] };
+
+    await w.vm.confirmApplyS2VConfigProfile();
+
+    expect(w.vm.s2vConfig.imageStyle).toBe("anime");
+    expect(w.vm.s2vConfigProfileApplyDialogOpen).toBe(false);
+    expect(w.vm.s2vOptionsToast).toContain("其他流水线");
     w.unmount();
   });
 });

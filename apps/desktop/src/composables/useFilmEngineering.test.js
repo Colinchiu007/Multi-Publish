@@ -24,10 +24,25 @@ function installMockApi () {
   return api
 }
 
+function installProfileApi (api) {
+  api.story2videoConfigProfileList = vi.fn(async () => ({ code: 0, data: [] }))
+  api.story2videoConfigProfileCreate = vi.fn(async (request) => ({ code: 0, data: { id: 'profile-000000000001', ...request } }))
+  api.story2videoConfigProfileRename = vi.fn(async (id, name) => ({ code: 0, data: { id, name } }))
+  api.story2videoConfigProfileDelete = vi.fn(async (id) => ({ code: 0, data: { deleted: true, id } }))
+  return api
+}
+
 describe('useFilmEngineering', () => {
   function stubWindow (api) {
     vi.stubGlobal('window', {
       electronAPI: { filmEngineering: api },
+      navigator: { clipboard: { writeText: vi.fn(async () => undefined) } },
+    })
+  }
+
+  function stubWindowWithProfiles (api) {
+    vi.stubGlobal('window', {
+      electronAPI: { filmEngineering: api, ...api },
       navigator: { clipboard: { writeText: vi.fn(async () => undefined) } },
     })
   }
@@ -158,5 +173,49 @@ describe('useFilmEngineering', () => {
     const payload = api.generateSelected.mock.calls[0][0]
     expect(() => structuredClone(payload)).not.toThrow()
     expect(api.generateSelected).toHaveBeenCalledWith(payload, { aspectRatio: '16:9' })
+  })
+
+  it('buildConfigProfileSnapshot 只保存套用选项，不保存剧本结果或运行态', () => {
+    const c = useFilmEngineering()
+    c.copyMode.value = 'characters'
+    c.adapt.script = '私密剧本'
+    c.adapt.characterMap.ROKO = '小强'
+    c.adapt.llmEnabled = true
+    c.adapt.adaptedShots = [{ prompt: 'runtime' }]
+    const entries = [{ key: 'ROKO', value: '小强' }, { key: ' JAXX ', value: ' 小莉 ' }]
+    const snapshot = c.buildConfigProfileSnapshot(entries)
+    expect(snapshot).toMatchObject({ schemaVersion: 1, kind: 'film-engineering', filmEngineering: { copyMode: 'characters', llmEnabled: true } })
+    expect(snapshot.filmEngineering.characterMap).toEqual({ ROKO: '小强', JAXX: '小莉' })
+    expect(snapshot.filmEngineering).not.toHaveProperty('script')
+    expect(snapshot.filmEngineering).not.toHaveProperty('adaptedShots')
+    expect(() => structuredClone(snapshot)).not.toThrow()
+  })
+
+  it('applyConfigProfileSnapshot 归一化模式并同步 roleEntries 与 adapt.characterMap', () => {
+    const c = useFilmEngineering()
+    const entries = [{ key: 'ROKO', value: '' }]
+    expect(c.applyConfigProfileSnapshot({ kind: 'film-engineering', filmEngineering: { copyMode: 'geo', llmEnabled: true, characterMap: { ROKO: ' 小强 ', JAXX: '小莉' } } }, entries)).toBe(true)
+    expect(c.copyMode.value).toBe('geo')
+    expect(c.adapt.llmEnabled).toBe(true)
+    expect(c.adapt.characterMap).toEqual({ ROKO: '小强', JAXX: '小莉' })
+    expect(entries).toEqual([{ key: 'ROKO', value: '小强' }, { key: 'JAXX', value: '小莉' }])
+    expect(c.applyConfigProfileSnapshot({ kind: 'film-engineering', filmEngineering: { copyMode: 'bad', llmEnabled: 'yes' } }, entries)).toBe(false)
+    expect(c.copyMode.value).toBe('geo')
+  })
+
+  it('config profile CRUD 固定 film-engineering pipelineId，并过滤其他流水线', async () => {
+    const api = installProfileApi(installMockApi())
+    api.story2videoConfigProfileList.mockImplementation(async () => ({ code: 0, data: [
+      { id: 'p1', name: 'film', pipelineId: 'film-engineering', updatedAt: 2 },
+      { id: 'p2', name: 'other', pipelineId: 'video-clone', updatedAt: 3 },
+    ] }))
+    stubWindowWithProfiles(api)
+    const c = useFilmEngineering()
+    const list = await c.loadConfigProfiles()
+    expect(list).toHaveLength(2)
+    expect(list.find((item) => item.pipelineId === 'film-engineering')).toBeTruthy()
+    expect(list.find((item) => item.pipelineId === 'video-clone')).toBeTruthy()
+    await c.saveConfigProfile('影视配置')
+    expect(api.story2videoConfigProfileCreate).toHaveBeenCalledWith(expect.objectContaining({ pipelineId: 'film-engineering' }))
   })
 })

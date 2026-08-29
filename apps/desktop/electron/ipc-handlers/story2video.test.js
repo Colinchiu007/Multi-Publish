@@ -806,4 +806,203 @@ describe('Story2Video BGM 素材库 IPC', () => {
     expect(result.code).toBeLessThan(0)
     expect(bgmLibrary.delete).not.toHaveBeenCalled()
   })
+
+  // ─── 流水线「保存配置」IPC（s2v-pipeline-config-profiles）───
+  function createConfigProfilesMock() {
+    const items = new Map()
+    let seq = 0
+    return {
+      list: vi.fn(() => Array.from(items.values())),
+      create: vi.fn((request) => {
+        seq += 1
+        const entry = { id: 'profile-' + String(seq).padStart(14, '0'), name: request.name, pipelineId: request.pipelineId, snapshot: request.snapshot, createdAt: 1000, updatedAt: 1000 }
+        items.set(entry.id, entry)
+        return entry
+      }),
+      rename: vi.fn((id, name) => {
+        const entry = items.get(id)
+        if (!entry) throw new Error('配置不存在或已被删除')
+        entry.name = name
+        return entry
+      }),
+      delete: vi.fn((id) => {
+        if (!items.has(id)) throw new Error('配置不存在或已被删除')
+        items.delete(id)
+        return { deleted: true, id }
+      }),
+    }
+  }
+
+  it('流程配置：列出配置', async () => {
+    const configProfiles = createConfigProfilesMock()
+    configProfiles.create({ pipelineId: 'story2video-compose', name: '口播竖屏', snapshot: { schemaVersion: 1 } })
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const result = await ipcMain.get('story2video:config-profile-list')(TRUSTED_EVENT)
+
+    expect(result.code).toBe(0)
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0].name).toBe('口播竖屏')
+  })
+
+  it('流程配置：创建成功并转发参数', async () => {
+    const configProfiles = createConfigProfilesMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const snapshot = { schemaVersion: 1, kind: 'orchestrated', s2vConfig: { contentType: 'general' } }
+    const result = await ipcMain.get('story2video:config-profile-create')(TRUSTED_EVENT, {
+      pipelineId: 'story2video-compose',
+      name: '口播竖屏',
+      snapshot,
+      overwrite: true,
+    })
+
+    expect(result.code).toBe(0)
+    expect(result.data).toMatchObject({ pipelineId: 'story2video-compose', name: '口播竖屏' })
+    expect(configProfiles.create).toHaveBeenCalledWith({
+      pipelineId: 'story2video-compose',
+      name: '口播竖屏',
+      snapshot,
+      overwrite: true,
+    })
+  })
+
+  it('流程配置：创建参数非法时返回校验错误且不调用服务', async () => {
+    const configProfiles = createConfigProfilesMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const result = await ipcMain.get('story2video:config-profile-create')(TRUSTED_EVENT, {
+      pipelineId: 'story2video-compose',
+      name: 'x',
+    })
+
+    expect(result.code).toBeLessThan(0)
+    expect(configProfiles.create).not.toHaveBeenCalled()
+  })
+
+  it('流程配置：数组快照按参数错误拒绝且不调用服务', async () => {
+    const configProfiles = createConfigProfilesMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const result = await ipcMain.get('story2video:config-profile-create')(TRUSTED_EVENT, {
+      pipelineId: 'story2video-compose',
+      name: '非法快照',
+      snapshot: [],
+    })
+
+    expect(result.code).toBe(-2)
+    expect(configProfiles.create).not.toHaveBeenCalled()
+  })
+
+  it('流程配置：创建失败透传用户可读原因', async () => {
+    const configProfiles = createConfigProfilesMock()
+    configProfiles.create.mockImplementation(() => { throw new Error('已存在同名配置') })
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const result = await ipcMain.get('story2video:config-profile-create')(TRUSTED_EVENT, {
+      pipelineId: 'story2video-compose',
+      name: '口播竖屏',
+      snapshot: { schemaVersion: 1 },
+    })
+
+    expect(result.code).toBeLessThan(0)
+    expect(result.message).toMatch(/已存在同名配置/)
+  })
+
+  it('流程配置：业务校验错误映射为 VALIDATION_ERROR', async () => {
+    const configProfiles = createConfigProfilesMock()
+    const validationError = new Error('已存在同名配置')
+    validationError.name = 'ProfileValidationError'
+    configProfiles.create.mockImplementation(() => { throw validationError })
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const result = await ipcMain.get('story2video:config-profile-create')(TRUSTED_EVENT, {
+      pipelineId: 'story2video-compose',
+      name: '口播竖屏',
+      snapshot: { schemaVersion: 1 },
+    })
+
+    expect(result).toMatchObject({ code: -2, message: '已存在同名配置' })
+  })
+
+  it('流程配置：文件 IO 错误映射为 REQUEST_ERROR', async () => {
+    const configProfiles = createConfigProfilesMock()
+    configProfiles.create.mockImplementation(() => {
+      const ioError = new Error('磁盘不可写')
+      ioError.code = 'EIO'
+      throw ioError
+    })
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const result = await ipcMain.get('story2video:config-profile-create')(TRUSTED_EVENT, {
+      pipelineId: 'story2video-compose',
+      name: '口播竖屏',
+      snapshot: { schemaVersion: 1 },
+    })
+
+    expect(result).toMatchObject({ code: -1, message: '磁盘不可写' })
+  })
+
+  it('流程配置：重命名成功与不存在时报错', async () => {
+    const configProfiles = createConfigProfilesMock()
+    configProfiles.create({ pipelineId: 'p', name: 'A', snapshot: { schemaVersion: 1 } })
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const ok = await ipcMain.get('story2video:config-profile-rename')(TRUSTED_EVENT, { id: 'profile-00000000000001', name: '新名称' })
+    expect(ok.code).toBe(0)
+    expect(ok.data.name).toBe('新名称')
+    expect(configProfiles.rename).toHaveBeenCalledWith('profile-00000000000001', '新名称')
+
+    const missing = await ipcMain.get('story2video:config-profile-rename')(TRUSTED_EVENT, { id: 'profile-99999999999999', name: 'X' })
+    expect(missing.code).toBeLessThan(0)
+    expect(missing.message).toMatch(/不存在/)
+  })
+
+  it('流程配置：删除成功与参数非法', async () => {
+    const configProfiles = createConfigProfilesMock()
+    configProfiles.create({ pipelineId: 'p', name: 'A', snapshot: { schemaVersion: 1 } })
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const ok = await ipcMain.get('story2video:config-profile-delete')(TRUSTED_EVENT, { id: 'profile-00000000000001' })
+    expect(ok.code).toBe(0)
+    expect(ok.data).toEqual({ deleted: true, id: 'profile-00000000000001' })
+    expect(configProfiles.delete).toHaveBeenCalledWith('profile-00000000000001')
+
+    const bad = await ipcMain.get('story2video:config-profile-delete')(TRUSTED_EVENT, { id: '' })
+    expect(bad.code).toBeLessThan(0)
+    expect(configProfiles.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('流程配置：四个通道均拒绝不可信来源且不触发服务', async () => {
+    const configProfiles = createConfigProfilesMock()
+    const ipcMain = createIpcMain()
+    registerHandlers(ipcMain, { ...createDeps(), story2videoConfigProfiles: configProfiles })
+
+    const requests = [
+      ['story2video:config-profile-list', undefined],
+      ['story2video:config-profile-create', { pipelineId: 'p', name: 'A', snapshot: { schemaVersion: 1 } }],
+      ['story2video:config-profile-rename', { id: 'profile-00000000000001', name: 'B' }],
+      ['story2video:config-profile-delete', { id: 'profile-00000000000001' }],
+    ]
+
+    for (const [channel, request] of requests) {
+      const result = request === undefined
+        ? await ipcMain.get(channel)(UNTRUSTED_EVENT)
+        : await ipcMain.get(channel)(UNTRUSTED_EVENT, request)
+      expect(result).toEqual({ code: -3, message: '未授权的调用来源' })
+    }
+    expect(configProfiles.list).not.toHaveBeenCalled()
+    expect(configProfiles.create).not.toHaveBeenCalled()
+    expect(configProfiles.rename).not.toHaveBeenCalled()
+    expect(configProfiles.delete).not.toHaveBeenCalled()
+  })
 })

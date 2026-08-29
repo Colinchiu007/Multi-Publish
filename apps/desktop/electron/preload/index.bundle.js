@@ -151,6 +151,12 @@ var require_publish = __commonJS({
         },
         story2videoBgmLibraryRename: (id, name) => ipcRenderer2.invoke("story2video:bgm-library-rename", { id, name }),
         story2videoBgmLibraryDelete: (id) => ipcRenderer2.invoke("story2video:bgm-library-delete", { id }),
+        // 流水线「保存配置」（与主进程 PUBLIC_CHANNELS 的 story2video:config-profile-* 对齐）：
+        // 设备级命名组合配置管理（列表/保存/改名/删除），未登录可用。
+        story2videoConfigProfileList: () => ipcRenderer2.invoke("story2video:config-profile-list"),
+        story2videoConfigProfileCreate: (request) => ipcRenderer2.invoke("story2video:config-profile-create", request),
+        story2videoConfigProfileRename: (id, name) => ipcRenderer2.invoke("story2video:config-profile-rename", { id, name }),
+        story2videoConfigProfileDelete: (id) => ipcRenderer2.invoke("story2video:config-profile-delete", { id }),
         story2videoExportZip: (files, destinationPath) => ipcRenderer2.invoke("story2video:export-zip", { files, destinationPath }),
         story2videoCreateShareUrl: (filePath, previousUrl) => ipcRenderer2.invoke("story2video:create-share-url", filePath, previousUrl),
         story2videoCopyPath: (filePath) => ipcRenderer2.invoke("story2video:copy-path", filePath),
@@ -1006,6 +1012,11 @@ var require_access_control = __commonJS({
       "story2videoBgmLibraryAdd",
       "story2videoBgmLibraryRename",
       "story2videoBgmLibraryDelete",
+      // 流水线「保存配置」（与主进程 story2video:config-profile-* 对齐）：设备级本地配置管理，未登录可用。
+      "story2videoConfigProfileList",
+      "story2videoConfigProfileCreate",
+      "story2videoConfigProfileRename",
+      "story2videoConfigProfileDelete",
       "identityGetState",
       "identitySignIn",
       "identitySwitchAccount",

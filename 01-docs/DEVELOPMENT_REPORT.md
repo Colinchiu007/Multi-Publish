@@ -9,6 +9,19 @@
 
 ---
 
+## 2026-08-28：视频创作流水线「保存配置」组合配置库
+
+### 交付内容
+- 视频创作模块所有流水线新增「保存配置」：命名组合配置保存（CreateView 编排/legacy 两分支，以及 video-clone、film-engineering 专用页）、一键应用、重命名、删除；设备级本地持久化路径为 userData/story2video-config-profiles/config-profiles.json，临时文件独占创建后原子替换，Windows 占用错误有界重试。
+- IPC 四通道（list/create/rename/delete）+ preload public 白名单；应用语义含类型感知合并、枚举/数值归一化、失效 provider 回退、跨流水线拒绝；legacy 应用为整对象替换（修复原地合并语义 Bug）。
+- 与「上次选项」自动恢复并存；不保存素材/运行态/凭证；不改变引擎与提交契约。
+
+### 验证
+- 数据与交互边界：名称按 Unicode code point 计数 1..60，pipelineId/profileId 使用正则白名单，快照为普通 JSON 对象且 UTF-8 ≤64KiB，每流水线最多 50 条；不可解析索引可读为空库并由合法 create 重建，可解析但根结构或条目非法时 list 过滤合法项且所有写操作 fail-closed、保留原始字节。保存/应用/重命名/删除均有输入校验、确认态、关闭时请求代际保护与安全错误映射；快照不保存素材、凭证、URL、runId、报告、相似度或发布运行态。
+- 单测（截至当前 focused 证据）：服务 + IPC + composable + 管理器 + publisher 共 323 tests 全绿；VideoCloneView/FilmEngineeringView 页面级 8 tests 全绿；完整 desktop Vitest、类型、lint、构建、打包与可见窗口证据需在本分支交付阶段继续执行。
+- 门禁：OpenSpec proposal/design/delta-spec/tasks 严格校验通过；locale zh/en 成对检查通过，CJK 当前仅剩 CreateView 历史行号漂移，确认无新增硬编码后再更新基线；tsc/eslint/preload/vite/打包门禁与全量测试按交付阶段记录。
+- OpenSpec：proposal/design/delta-spec/tasks 齐全并已严格校验；正式 spec 与实现统一使用 userData/story2video-config-profiles/config-profiles.json，明确不可解析索引可重建、可解析非法索引写保护的区别。
+
 ## 2026-08-08（第二轮）：多模态模型类别 + MiniMax TTS 真实链路修复
 
 ### 交付范围（PR #411、#413、#414）

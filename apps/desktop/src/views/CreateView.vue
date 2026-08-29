@@ -841,6 +841,12 @@
             <button v-if="isOrchestratedPipeline(selectedPipeline?.name)" type="button" class="reset-options-link" data-testid="reset-story2video-options" @click="resetS2VLastOptions">
               {{ translateWithLocaleFallback('create.story2video.resetOptions', '恢复默认选项', 'Reset to default options') }}
             </button>
+            <button v-if="selectedPipeline?.name" type="button" class="reset-options-link" data-testid="s2v-config-profile-save" @click="openS2VConfigProfileSave">
+              {{ translateWithLocaleFallback('create.story2video.configProfile.saveButton', '保存配置', 'Save configuration') }}
+            </button>
+            <button v-if="selectedPipeline?.name" type="button" class="reset-options-link" data-testid="s2v-config-profile-manage" @click="openS2VConfigProfileList">
+              {{ translateWithLocaleFallback('create.story2video.configProfile.manageButton', '我的配置', 'My configurations') }}
+            </button>
             <p v-if="!pipelineAvailable(selectedPipeline?.name)" class="unavailable-hint" data-testid="pipeline-unavailable-hint">
               {{ translateWithLocaleFallback('pipelines.availability.notImplementedHint', '该流水线尚未实现执行引擎，暂不能生成视频', 'This pipeline has no execution engine yet.') }}
             </p>
@@ -1184,6 +1190,96 @@
       </template>
     </UiModal>
 
+    <!-- 流水线「保存配置」：保存弹窗（2026-08-28 s2v-pipeline-config-profiles） -->
+    <UiModal
+      :visible="s2vConfigProfileDialogOpen"
+      :title="translateWithLocaleFallback('create.story2video.configProfile.saveTitle', '保存配置', 'Save configuration')"
+      size="sm"
+      @close="closeS2VConfigProfileSave"
+    >
+      <div class="config-profile-dialog" data-testid="s2v-config-profile-save-dialog">
+        <p class="config-hint">{{ translateWithLocaleFallback('create.story2video.configProfile.saveHint', '保存当前流水线的所有选项，稍后可一键应用到新任务。', 'Saves every option of the current pipeline so you can re-apply it later.') }}</p>
+        <input
+          v-model.trim="s2vConfigProfileNameDraft"
+          class="form-input"
+          maxlength="60"
+          :placeholder="translateWithLocaleFallback('create.story2video.configProfile.namePlaceholder', '配置名称（如：口播竖屏 1080p）', 'Configuration name (e.g. vertical 1080p voice-over)')"
+          data-testid="s2v-config-profile-name-input"
+          @keyup.enter="saveS2VConfigProfile"
+          @keyup.esc="closeS2VConfigProfileSave"
+        />
+        <p v-if="s2vConfigProfileOverwriteNeeded" class="config-hint">{{ translateWithLocaleFallback('create.story2video.configProfile.duplicateName', '已存在同名配置，保存将覆盖它。', 'A configuration with this name already exists. Saving will overwrite it.') }}</p>
+      </div>
+      <template #footer>
+        <UiButton variant="secondary" :disabled="s2vConfigProfilesLoading" @click="closeS2VConfigProfileSave">{{ translateWithLocaleFallback('create.story2video.configProfile.cancel', '取消', 'Cancel') }}</UiButton>
+        <UiButton variant="primary" :disabled="s2vConfigProfilesLoading || !String(s2vConfigProfileNameDraft || '').trim()" data-testid="s2v-config-profile-save-confirm" @click="saveS2VConfigProfile">
+          {{ s2vConfigProfileOverwriteNeeded
+            ? translateWithLocaleFallback('create.story2video.configProfile.overwriteSave', '覆盖保存', 'Overwrite')
+            : translateWithLocaleFallback('create.story2video.configProfile.save', '保存', 'Save') }}
+        </UiButton>
+      </template>
+    </UiModal>
+
+    <!-- 流水线「保存配置」：配置列表（应用/重命名/删除） -->
+    <UiModal
+      :visible="s2vConfigProfileListOpen"
+      :title="translateWithLocaleFallback('create.story2video.configProfile.listTitle', '我的配置', 'My configurations')"
+      size="md"
+      @close="closeS2VConfigProfileList"
+    >
+      <div class="config-profile-list" data-testid="s2v-config-profile-list">
+        <p v-if="s2vConfigProfileError" class="config-hint">{{ s2vConfigProfileError }}</p>
+        <span v-if="s2vConfigProfilesLoading" class="bgm-library-toolbar-hint">{{ translateWithLocaleFallback('common.loading', '加载中...', 'Loading...') }}</span>
+        <ul v-else-if="s2vConfigProfiles.length" class="bgm-library-list">
+          <li v-for="profile in s2vConfigProfiles" :key="profile.id" class="bgm-library-item">
+            <template v-if="s2vConfigProfileRenamingId === profile.id">
+              <div class="bgm-library-rename-row">
+                <input v-model.trim="s2vConfigProfileRenameDraft" class="form-input" maxlength="60" data-testid="s2v-config-profile-rename-input" @keyup.enter="saveS2VConfigProfileRename" @keyup.esc="cancelS2VConfigProfileRename" />
+                <div class="bgm-library-actions" style="opacity:1">
+                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !String(s2vConfigProfileRenameDraft || '').trim()" @click="saveS2VConfigProfileRename" title="保存"><span class="material-symbols-outlined">check</span></button>
+                  <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="cancelS2VConfigProfileRename" title="取消"><span class="material-symbols-outlined">close</span></button>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <div class="bgm-library-item-content">
+                <span class="material-symbols-outlined bgm-library-item-icon">tune</span>
+                <span class="bgm-library-name" :title="profile.name">{{ profile.name }}</span>
+                <span class="bgm-library-toolbar-hint">{{ pipelineName(profile.pipelineId) }} · {{ formatS2VConfigProfileTime(profile.updatedAt) }}</span>
+              </div>
+              <div class="bgm-library-actions">
+                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading || !s2vConfigProfileCanApply(profile)" :title="s2vConfigProfileCanApply(profile) ? '应用到当前流水线' : '该配置属于其他流水线'" data-testid="s2v-config-profile-apply" @click="requestApplyS2VConfigProfile(profile)"><span class="material-symbols-outlined">play_arrow</span></button>
+                <button type="button" class="btn-icon" :disabled="s2vConfigProfilesLoading" @click="startS2VConfigProfileRename(profile)" title="重命名"><span class="material-symbols-outlined">edit</span></button>
+                <button type="button" class="btn-icon danger" :disabled="s2vConfigProfilesLoading" @click="requestS2VConfigProfileDelete(profile)" title="删除"><span class="material-symbols-outlined">delete</span></button>
+              </div>
+            </template>
+          </li>
+        </ul>
+        <p v-else class="config-hint">{{ translateWithLocaleFallback('create.story2video.configProfile.empty', '暂无保存的配置。在流水线页面点击「保存配置」即可创建。', 'No saved configurations yet. Click \"Save configuration\" on a pipeline page to create one.') }}</p>
+      </div>
+      <template #footer>
+        <UiButton variant="secondary" @click="closeS2VConfigProfileList">{{ translateWithLocaleFallback('create.story2video.configProfile.close', '关闭', 'Close') }}</UiButton>
+      </template>
+    </UiModal>
+
+    <!-- 流水线「保存配置」：应用确认 -->
+    <UiModal :visible="s2vConfigProfileApplyDialogOpen" :title="translateWithLocaleFallback('create.story2video.configProfile.applyTitle', '应用配置', 'Apply configuration')" size="sm" @close="cancelApplyS2VConfigProfile">
+      <p class="story2video-error-dialog-message">{{ translateWithLocaleFallback('create.story2video.configProfile.applyConfirm', '应用配置将覆盖当前已调整的选项，是否继续？', 'Applying this configuration will overwrite your current options. Continue?') }}</p>
+      <template #footer>
+        <UiButton variant="secondary" @click="cancelApplyS2VConfigProfile">{{ translateWithLocaleFallback('create.story2video.configProfile.cancel', '取消', 'Cancel') }}</UiButton>
+        <UiButton variant="primary" data-testid="s2v-config-profile-apply-confirm" @click="confirmApplyS2VConfigProfile()">{{ translateWithLocaleFallback('create.story2video.configProfile.apply', '应用', 'Apply') }}</UiButton>
+      </template>
+    </UiModal>
+
+    <!-- 流水线「保存配置」：删除确认 -->
+    <UiModal :visible="s2vConfigProfileDeleteDialogOpen" :title="translateWithLocaleFallback('create.story2video.configProfile.deleteTitle', '删除配置', 'Delete configuration')" size="sm" @close="closeS2VConfigProfileDelete">
+      <p class="story2video-error-dialog-message">{{ translateWithLocaleFallback('create.story2video.configProfile.deleteConfirm', '确定删除该配置吗？此操作不可恢复。', 'Delete this configuration? This cannot be undone.') }}</p>
+      <template #footer>
+        <UiButton variant="secondary" @click="closeS2VConfigProfileDelete">{{ translateWithLocaleFallback('create.story2video.configProfile.cancel', '取消', 'Cancel') }}</UiButton>
+        <UiButton variant="danger" data-testid="s2v-config-profile-delete-confirm" @click="confirmS2VConfigProfileDelete">{{ translateWithLocaleFallback('create.story2video.configProfile.delete', '删除', 'Delete') }}</UiButton>
+      </template>
+    </UiModal>
+
     <!-- 分镜素材自选：取消二次确认（等待选择期间防误触，2026-08-13） -->
     <UiModal
       :visible="cancelConfirmDialog.visible"
@@ -1374,6 +1470,8 @@ import {
   story2videoDeleteProject,
   story2videoBgmLibraryList, story2videoBgmLibraryAdd,
   story2videoBgmLibraryRename, story2videoBgmLibraryDelete,
+  story2videoConfigProfileList, story2videoConfigProfileCreate,
+  story2videoConfigProfileRename, story2videoConfigProfileDelete,
   story2videoBatchCreate, story2videoBatchStatus, story2videoBatchCancel, story2videoPickBatchFiles
 } from '@/api/publisher'
 import { modelProviderList } from '@/api/model-providers'
@@ -1763,6 +1861,61 @@ const S2V_RESTORE_OUTPUT_ENUM_OPTIONS = Object.freeze({
   format: ['mp4', 'webm'],
 })
 
+// 配置快照必须显式列出可复用的创作选项。不要把整个 reactive s2vConfig
+// 写入本地文件：其中同时包含本地素材路径、发布内容和运行时状态。
+const S2V_CONFIG_PROFILE_FIELDS = Object.freeze([
+  'contentType', 'imageProvider', 'imageModel', 'imageStyle', 'promptStyle',
+  'imageEffect', 'templateId', 'videoMode', 'shortVideoHandling', 'videoProvider', 'videoModel',
+  'videoFixedRatio', 'videoMinRatio', 'videoMaxRatio', 'videoMaxScenes',
+  'creationMode', 'manualMaterialMode',
+  'voiceId', 'voiceProvider', 'voiceModel', 'voiceSpeed', 'voiceVolume',
+  'splitLanguage', 'splitMode', 'splitMaxSentenceLength', 'splitTargetSeconds',
+  'splitTargetCharsPerScene', 'splitViewMode', 'splitMinWords', 'splitMaxWords',
+  'splitEnforceSentenceBoundary', 'splitOverflowToNext', 'sceneDurationMode', 'minSceneDuration',
+  'splitSubtitleMinChars', 'splitSubtitleMaxChars', 'splitSubtitleTiming',
+  'negativePrompt', 'maxPromptLength', 'transition', 'subtitleEnabled', 'subtitleSize',
+  'subtitleStyleName', 'bgmVolume', 'watermark', 'watermarkText',
+])
+const S2V_CONFIG_PROFILE_OBJECT_FIELDS = Object.freeze({
+  watermarkConfig: Object.freeze(['enabled', 'position', 'fontSize', 'opacity', 'color']),
+  subtitleStyle: Object.freeze(['size', 'style', 'color']),
+})
+
+function cloneJsonValue(value) {
+  try { return JSON.parse(JSON.stringify(value)) } catch (_) { return undefined }
+}
+
+function pickS2VConfigProfileFields(source) {
+  const output = {}
+  const input = source && typeof source === 'object' && !Array.isArray(source) ? source : {}
+  for (const field of S2V_CONFIG_PROFILE_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(input, field)) continue
+    const cloned = cloneJsonValue(input[field])
+    if (cloned !== undefined) output[field] = cloned
+  }
+  for (const [field, allowedKeys] of Object.entries(S2V_CONFIG_PROFILE_OBJECT_FIELDS)) {
+    const value = input[field]
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const picked = {}
+    for (const key of allowedKeys) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+      const cloned = cloneJsonValue(value[key])
+      if (cloned !== undefined) picked[key] = cloned
+    }
+    output[field] = picked
+  }
+  return output
+}
+
+function pickS2VOutputProfileFields(source) {
+  const input = source && typeof source === 'object' && !Array.isArray(source) ? source : {}
+  return {
+    ...(Object.prototype.hasOwnProperty.call(input, 'resolution') ? { resolution: cloneJsonValue(input.resolution) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(input, 'fps') ? { fps: cloneJsonValue(input.fps) } : {}),
+    ...(Object.prototype.hasOwnProperty.call(input, 'format') ? { format: cloneJsonValue(input.format) } : {}),
+  }
+}
+
 const CATEGORY_LABELS = {
   generated: 'AI 生成', talking_head: '说话头像', cinematic: '电影感',
   animation: '动画', screen_recording: '屏幕录制', hybrid: '混合', custom: '自定义'
@@ -1889,6 +2042,23 @@ export default {
       s2vBgmLibraryRenameDraft: '',
       s2vBgmLibraryDeleteDialogOpen: false,
       s2vBgmLibraryDeleteTargetId: null,
+      // 流水线「保存配置」（2026-08-28 s2v-pipeline-config-profiles）：设备级命名组合配置
+      s2vConfigProfiles: [],
+      s2vConfigProfilesLoading: false,
+      s2vConfigProfileDialogOpen: false,
+      s2vConfigProfileNameDraft: '',
+      s2vConfigProfileOverwriteNeeded: false,
+      s2vConfigProfileListOpen: false,
+      s2vConfigProfileRenamingId: '',
+      s2vConfigProfileRenameDraft: '',
+      s2vConfigProfileApplyDialogOpen: false,
+      s2vConfigProfileApplyTarget: null,
+      s2vConfigProfileApplyPipelineId: '',
+      s2vConfigProfileApplying: false,
+      s2vConfigProfileDeleteDialogOpen: false,
+      s2vConfigProfileDeleteTarget: null,
+      _s2vConfigProfileListRequestId: 0,
+      s2vConfigProfileError: '',
       // 批量创作（2026-08-15 story2video-batch-create）：弹窗状态 / 输入源 / 队列展示
       s2vBatchDialogOpen: false,
       s2vBatchTab: 'text',
@@ -2417,8 +2587,8 @@ export default {
       }
     },
     // 选项变更 1s 防抖自动保存，下次进入恢复上次选项
-    s2vConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
-    s2vOutputConfig: { deep: true, handler() { this.scheduleS2VLastOptionsSave() } },
+    s2vConfig: { deep: true, handler() { if (!this.s2vConfigProfileApplying) this.scheduleS2VLastOptionsSave() } },
+    s2vOutputConfig: { deep: true, handler() { if (!this.s2vConfigProfileApplying) this.scheduleS2VLastOptionsSave() } },
     // 分镜素材自选等待态（2026-08-13）：首次激活自动滚动到面板并短时高亮；关闭后重置，下次激活再引导
     sceneAssetSelectionActive(active) {
       if (!active) {
@@ -2820,19 +2990,20 @@ export default {
       this.s2vOptionsToastTimer = setTimeout(() => { this.s2vOptionsToast = '' }, durationMs)
     },
     async saveS2VLastOptions() {
-      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.s2vRestoring) return
+      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name) || this.s2vRestoring || this.s2vConfigProfileApplying) return
       try {
         await storeSetSetting('story2video.lastOptions.v1', this.buildS2VLastOptions())
         this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsSaved', '选项已保存 ✓', 'Options saved ✓'))
       } catch (_) { /* 持久化失败不影响使用 */ }
     },
     scheduleS2VLastOptionsSave() {
+      if (this.s2vConfigProfileApplying) return
       if (this._lastOptionsSaveTimer) clearTimeout(this._lastOptionsSaveTimer)
       this._lastOptionsSaveTimer = setTimeout(() => { this._lastOptionsSaveTimer = null; this.saveS2VLastOptions() }, 1000)
     },
     flushS2VLastOptionsSave() {
       if (this._lastOptionsSaveTimer) { clearTimeout(this._lastOptionsSaveTimer); this._lastOptionsSaveTimer = null }
-      this.saveS2VLastOptions()
+      if (!this.s2vConfigProfileApplying) this.saveS2VLastOptions()
     },
     _applyS2VSnapshot(source, target) {
       if (!source || typeof source !== 'object' || Array.isArray(source)) return
@@ -2851,19 +3022,269 @@ export default {
         if (typeof value === defaultType) target[key] = value
       }
     },
-    async restoreS2VLastOptions() {
-      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name)) return
-      // 生命周期内只恢复一次（selectPipeline/mounted 双触发点共用），避免重复恢复覆盖当前编辑
-      if (this._s2vRestoredOnce) return
-      this._s2vRestoredOnce = true
-      let raw
-      try { raw = await storeGetSetting('story2video.lastOptions.v1') } catch { return }
-      const snapshot = raw && typeof raw === 'object' ? (raw.data ?? raw) : raw
-      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return
+    // ─── 流水线「保存配置」：快照与应用（2026-08-28 s2v-pipeline-config-profiles）───
+    s2vConfigProfileDefaults() {
+      const defaults = (this.$options.data || (() => ({}))).call(this)
+      return {
+        s2vConfig: defaults.s2vConfig || {},
+        s2vOutputConfig: defaults.s2vOutputConfig || {},
+        legacy: {
+          inputMode: 'text',
+          selectedStyle: defaults.selectedStyle,
+          llmConfig: defaults.llmConfig || {},
+          budgetConfig: defaults.budgetConfig || {},
+          checkpointPolicy: defaults.checkpointPolicy,
+          storyboardMode: defaults.storyboardMode,
+          outputConfig: defaults.outputConfig || {},
+        },
+      }
+    },
+    buildPipelineConfigSnapshot() {
+      const now = new Date().toISOString()
+      if (this.isOrchestratedPipeline(this.selectedPipeline?.name)) {
+        return {
+          schemaVersion: 1,
+          capturedAt: now,
+          kind: 'orchestrated',
+          s2vConfig: pickS2VConfigProfileFields(this.s2vConfig),
+          s2vOutputConfig: pickS2VOutputProfileFields(this.s2vOutputConfig),
+          ui: { expandedGroups: Object.keys(this.s2vOpenSections).filter(key => this.s2vOpenSections[key] === true) },
+        }
+      }
+      return {
+        schemaVersion: 1,
+        capturedAt: now,
+        kind: 'legacy',
+        legacy: {
+          inputMode: this.inputMode,
+          selectedStyle: this.selectedStyle,
+          llmConfig: this.cloneForIpc(this.llmConfig),
+          budgetConfig: this.cloneForIpc(this.budgetConfig),
+          checkpointPolicy: this.checkpointPolicy,
+          storyboardMode: this.storyboardMode,
+          outputConfig: this.cloneForIpc(this.outputConfig),
+        },
+      }
+    },
+    s2vConfigProfileFormDirty() {
+      const defaults = this.s2vConfigProfileDefaults()
+      if (this.isOrchestratedPipeline(this.selectedPipeline?.name)) {
+        return JSON.stringify(this.s2vConfig) !== JSON.stringify(defaults.s2vConfig) ||
+          JSON.stringify(this.s2vOutputConfig) !== JSON.stringify(defaults.s2vOutputConfig)
+      }
+      const legacy = defaults.legacy
+      return this.inputMode !== legacy.inputMode ||
+        this.selectedStyle !== legacy.selectedStyle ||
+        JSON.stringify(this.llmConfig) !== JSON.stringify(legacy.llmConfig) ||
+        JSON.stringify(this.budgetConfig) !== JSON.stringify(legacy.budgetConfig) ||
+        this.checkpointPolicy !== legacy.checkpointPolicy ||
+        this.storyboardMode !== legacy.storyboardMode ||
+        JSON.stringify(this.outputConfig) !== JSON.stringify(legacy.outputConfig)
+    },
+    async loadS2VConfigProfiles({ quiet = false } = {}) {
+      const requestId = (this._s2vConfigProfileListRequestId || 0) + 1
+      this._s2vConfigProfileListRequestId = requestId
+      this.s2vConfigProfilesLoading = true
+      this.s2vConfigProfileError = ''
+      try {
+        const result = await story2videoConfigProfileList()
+        if (requestId !== this._s2vConfigProfileListRequestId) return
+        const data = result && result.code === 0 ? result.data : null
+        if (!Array.isArray(data)) throw new Error(result?.message || '配置列表加载失败')
+        this.s2vConfigProfiles = Array.isArray(data)
+          ? data.slice().sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
+          : data
+      } catch (error) {
+        if (requestId !== this._s2vConfigProfileListRequestId) return
+        this.s2vConfigProfileError = error?.message || '配置列表加载失败'
+        if (!quiet) this.showS2VOptionsToast(this.s2vConfigProfileError, 2200)
+      } finally {
+        if (requestId === this._s2vConfigProfileListRequestId) this.s2vConfigProfilesLoading = false
+      }
+    },
+    async openS2VConfigProfileSave() {
+      this.s2vConfigProfileOverwriteNeeded = false
+      this.s2vConfigProfileError = ''
+      await this.loadS2VConfigProfiles({ quiet: true })
+      this.s2vConfigProfileNameDraft = this.selectedPipeline?.name ? this.pipelineName(this.selectedPipeline.name) : ''
+      this.s2vConfigProfileDialogOpen = true
+    },
+    closeS2VConfigProfileSave() {
+      this.s2vConfigProfileDialogOpen = false
+      this._s2vConfigProfileListRequestId = (this._s2vConfigProfileListRequestId || 0) + 1
+      this.s2vConfigProfilesLoading = false
+      this.s2vConfigProfileNameDraft = ''
+      this.s2vConfigProfileOverwriteNeeded = false
+    },
+    async saveS2VConfigProfile() {
+      const name = String(this.s2vConfigProfileNameDraft || '').trim()
+      if (!name) {
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.nameRequired', '请输入配置名称', 'Enter a configuration name'), 2200)
+        return
+      }
+      const pipelineId = this.selectedPipeline?.name
+      if (!pipelineId) return
+      if (!this.s2vConfigProfileOverwriteNeeded) {
+        const duplicate = this.s2vConfigProfiles.find(p => p.pipelineId === pipelineId && p.name === name)
+        if (duplicate) {
+          this.s2vConfigProfileOverwriteNeeded = true
+          this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.duplicateName', '已存在同名配置，再次点击保存将覆盖它', 'A configuration with this name already exists. Click save again to overwrite it.'), 2200)
+          return
+        }
+      }
+      const snapshot = this.buildPipelineConfigSnapshot()
+      try {
+        const result = await story2videoConfigProfileCreate({
+          pipelineId,
+          name,
+          snapshot: JSON.parse(JSON.stringify(snapshot)),
+          overwrite: this.s2vConfigProfileOverwriteNeeded,
+        })
+        if (!result || result.code !== 0) {
+          const duplicate = result?.code === -2 && /同名|已经存在|already exists|duplicate/i.test(String(result?.message || ''))
+          if (duplicate) {
+            this.s2vConfigProfileOverwriteNeeded = true
+            this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.duplicateName', '已存在同名配置，再次点击保存将覆盖它', 'A configuration with this name already exists. Click save again to overwrite it.'), 2200)
+            return
+          }
+          this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.saveFailed', '配置保存失败，请稍后重试', 'Could not save the configuration. Please try again.'), 2600)
+          return
+        }
+        this.s2vConfigProfiles = this.s2vConfigProfiles.filter(p => !(p.pipelineId === pipelineId && p.name === name))
+        this.s2vConfigProfiles.push(result.data)
+        this.closeS2VConfigProfileSave()
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.saved', '配置已保存', 'Configuration saved'))
+      } catch (error) {
+        this.showS2VOptionsToast(error?.message || '配置保存失败', 2600)
+      }
+    },
+    async openS2VConfigProfileList() {
+      this.s2vConfigProfileError = ''
+      this.s2vConfigProfileListOpen = true
+      await this.loadS2VConfigProfiles({ quiet: true })
+    },
+    closeS2VConfigProfileList() {
+      this.s2vConfigProfileListOpen = false
+      this._s2vConfigProfileListRequestId = (this._s2vConfigProfileListRequestId || 0) + 1
+      this.s2vConfigProfilesLoading = false
+      this.s2vConfigProfileRenamingId = ''
+    },
+    s2vConfigProfileCanApply(profile) {
+      return Boolean(profile && this.selectedPipeline?.name && profile.pipelineId === this.selectedPipeline.name)
+    },
+    async requestApplyS2VConfigProfile(profile) {
+      if (!this.s2vConfigProfileCanApply(profile)) {
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.wrongPipeline', '该配置属于其他流水线，无法在当前流水线应用', 'This configuration belongs to another pipeline and cannot be applied here.'), 2600)
+        return
+      }
+      if (!this.s2vConfigProfileFormDirty()) {
+        await this.confirmApplyS2VConfigProfile(profile)
+        return
+      }
+      this.s2vConfigProfileApplyTarget = this.cloneForIpc(profile)
+      this.s2vConfigProfileApplyPipelineId = this.selectedPipeline?.name || ''
+      this.s2vConfigProfileApplyDialogOpen = true
+    },
+    cancelApplyS2VConfigProfile() {
+      this.s2vConfigProfileApplyDialogOpen = false
+      this.s2vConfigProfileApplyTarget = null
+      this.s2vConfigProfileApplyPipelineId = ''
+    },
+    async confirmApplyS2VConfigProfile(profile) {
+      const target = profile || this.s2vConfigProfileApplyTarget
+      this.s2vConfigProfileApplyDialogOpen = false
+      this.s2vConfigProfileApplyTarget = null
+      const openedPipelineId = this.s2vConfigProfileApplyPipelineId
+      this.s2vConfigProfileApplyPipelineId = ''
+      if (!target) return
+      const currentPipelineId = this.selectedPipeline?.name || ''
+      if (target.pipelineId !== currentPipelineId || (openedPipelineId && openedPipelineId !== currentPipelineId)) {
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.wrongPipeline', '该配置属于其他流水线，无法在当前流水线应用', 'This configuration belongs to another pipeline and cannot be applied here.'), 2600)
+        return
+      }
+      const applied = await this.applyS2VConfigProfileSnapshot(target)
+      if (applied) {
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.applied', '已应用配置', 'Configuration applied'))
+      }
+    },
+    async applyS2VConfigProfileSnapshot(profile) {
+      const snapshot = profile && profile.snapshot
+      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return false
+      if (snapshot.kind === 'legacy') {
+        const s = snapshot.legacy || {}
+        if (typeof s.inputMode === 'string' && ['text', 'images', 'audio', 'video'].includes(s.inputMode)) this.inputMode = s.inputMode
+        if (['guided', 'manual_all', 'auto_noncreative'].includes(s.checkpointPolicy)) this.checkpointPolicy = s.checkpointPolicy
+        if (['auto', 'creative', 'fidelity', 'hybrid'].includes(s.storyboardMode)) this.storyboardMode = s.storyboardMode
+        // 整对象快照语义：直接替换目标（_applyS2VSnapshot 只适合原地合并，不适配整对象恢复）
+        if (typeof s.selectedStyle === 'string' && STYLES.some(style => style.value === s.selectedStyle)) this.selectedStyle = s.selectedStyle
+        if (s.llmConfig && typeof s.llmConfig === 'object' && !Array.isArray(s.llmConfig)) this.llmConfig = JSON.parse(JSON.stringify(s.llmConfig))
+        if (s.budgetConfig && typeof s.budgetConfig === 'object' && !Array.isArray(s.budgetConfig)) this.budgetConfig = JSON.parse(JSON.stringify(s.budgetConfig))
+        if (s.outputConfig && typeof s.outputConfig === 'object' && !Array.isArray(s.outputConfig)) this.outputConfig = JSON.parse(JSON.stringify(s.outputConfig))
+        const budgetModes = ['observe', 'warn', 'cap']
+        if (!budgetModes.includes(this.budgetConfig.mode)) this.budgetConfig.mode = 'warn'
+        const fps = Number(this.outputConfig.fps)
+        this.outputConfig.fps = [24, 30, 60].includes(fps) ? fps : 30
+        if (!['mp4', 'webm'].includes(this.outputConfig.format)) this.outputConfig.format = 'mp4'
+        this.outputConfig.resolution = normalizeResolution(this.outputConfig.resolution, this.maxOutputResolution)
+        return true
+      }
+      return this._applyS2VSnapshotObject(snapshot)
+    },
+    startS2VConfigProfileRename(profile) {
+      this.s2vConfigProfileRenamingId = profile.id
+      this.s2vConfigProfileRenameDraft = profile.name
+    },
+    cancelS2VConfigProfileRename() {
+      this.s2vConfigProfileRenamingId = ''
+    },
+    async saveS2VConfigProfileRename() {
+      const id = this.s2vConfigProfileRenamingId
+      const name = String(this.s2vConfigProfileRenameDraft || '').trim()
+      if (!id || !name) return
+      try {
+        const result = await story2videoConfigProfileRename(id, name)
+        if (!result || result.code !== 0) { this.showS2VOptionsToast((result && result.message) || '重命名失败', 2600); return }
+        const index = this.s2vConfigProfiles.findIndex(p => p.id === id)
+        if (index >= 0) this.s2vConfigProfiles.splice(index, 1, result.data)
+        this.s2vConfigProfileRenamingId = ''
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.renamed', '配置已重命名', 'Configuration renamed'))
+      } catch (error) { this.showS2VOptionsToast(error?.message || '重命名失败', 2600) }
+    },
+    requestS2VConfigProfileDelete(profile) {
+      this.s2vConfigProfileDeleteTarget = profile
+      this.s2vConfigProfileDeleteDialogOpen = true
+    },
+    closeS2VConfigProfileDelete() {
+      this.s2vConfigProfileDeleteDialogOpen = false
+      this.s2vConfigProfileDeleteTarget = null
+    },
+    async confirmS2VConfigProfileDelete() {
+      const target = this.s2vConfigProfileDeleteTarget
+      this.s2vConfigProfileDeleteDialogOpen = false
+      this.s2vConfigProfileDeleteTarget = null
+      if (!target) return
+      try {
+        const result = await story2videoConfigProfileDelete(target.id)
+        if (!result || result.code !== 0) { this.showS2VOptionsToast((result && result.message) || '删除失败', 2600); return }
+        this.s2vConfigProfiles = this.s2vConfigProfiles.filter(p => p.id !== target.id)
+        this.showS2VOptionsToast(this.translateWithLocaleFallback('create.story2video.configProfile.deleted', '配置已删除', 'Configuration deleted'))
+      } catch (error) { this.showS2VOptionsToast(error?.message || '删除失败', 2600) }
+    },
+    formatS2VConfigProfileTime(ts) {
+      if (!Number.isFinite(Number(ts))) return ''
+      try {
+        return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(Number(ts)))
+      } catch (_) { return '' }
+    },
+    async _applyS2VSnapshotObject(snapshot, { applyUi = true } = {}) {
+      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return false
       this.s2vRestoring = true
+      this.s2vConfigProfileApplying = true
+      if (this._lastOptionsSaveTimer) { clearTimeout(this._lastOptionsSaveTimer); this._lastOptionsSaveTimer = null }
       try {
         const voiceProviders = new Set((this.s2vVoiceProviders || []).map(p => p.id))
         const imageProviders = new Set((this.s2vImageProviders || []).map(p => p.id))
+        const videoProviders = new Set((this.s2vVideoProviders || []).map(p => p.id))
         const config = { ...(snapshot.s2vConfig || {}) }
         // 快照显式保存过「自动 Edge TTS」（voiceProvider=''）时标记，loadS2VProviders 重入不再切走
         this.s2vVoiceProviderExplicitEdge = config.voiceProvider === ''
@@ -2884,21 +3305,49 @@ export default {
           this.s2vConfig.imageProvider = this.s2vImageProviders[0]?.id || ''
           this.s2vConfig.imageModel = ''
         }
+        // 视频增强开启时同样校验 videoProvider（双模型审查补充：restore 未覆盖的新恢复路径）
+        if (this.s2vConfig.videoMode !== 'off' && this.s2vConfig.videoProvider && !videoProviders.has(this.s2vConfig.videoProvider)) {
+          this.s2vConfig.videoProvider = ''
+          this.s2vConfig.videoModel = ''
+        }
+        if (this.s2vConfig.videoMode === 'off') {
+          this.s2vConfig.videoProvider = ''
+          this.s2vConfig.videoModel = ''
+        }
         this._applyS2VSnapshot(snapshot.s2vOutputConfig, this.s2vOutputConfig)
         // 运营开关：恢复的旧快照若含超出上限的分辨率（如历史 4K），归一化到最高允许档
         this.s2vOutputConfig.resolution = normalizeResolution(this.s2vOutputConfig.resolution, this.maxOutputResolution)
         // 输出枚举（fps/format）同样做白名单归一化
         this.normalizeS2VRestoredEnums()
         // 恢复表单折叠状态（类型守卫：仅接受字符串数组）
-        if (Array.isArray(snapshot.ui?.expandedGroups)) {
+        if (applyUi && Array.isArray(snapshot.ui?.expandedGroups)) {
           const known = new Set(Object.keys(this.s2vOpenSections))
           for (const section of snapshot.ui.expandedGroups) {
             if (typeof section === 'string' && known.has(section)) this.s2vOpenSections[section] = true
           }
         }
         await this.loadS2VVoiceData()
+        await this.$nextTick()
+        return true
+      } finally {
+        this.s2vRestoring = false
+        await this.$nextTick()
+        this.s2vConfigProfileApplying = false
+      }
+    },
+    async restoreS2VLastOptions() {
+      if (!this.isOrchestratedPipeline(this.selectedPipeline?.name)) return
+      // 生命周期内只恢复一次（selectPipeline/mounted 双触发点共用），避免重复恢复覆盖当前编辑
+      if (this._s2vRestoredOnce) return
+      this._s2vRestoredOnce = true
+      let raw
+      try { raw = await storeGetSetting('story2video.lastOptions.v1') } catch { return }
+      const snapshot = raw && typeof raw === 'object' ? (raw.data ?? raw) : raw
+      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return
+      const applied = await this._applyS2VSnapshotObject(snapshot)
+      if (applied) {
         this.showS2VOptionsToast(this.translateWithLocaleFallback('story2video.optionsRestored', '已恢复上次的选项设置', 'Restored your last-used options'))
-      } finally { this.s2vRestoring = false }
+      }
     },
     // 2026-08-10 Bug 反哺：恢复「上次使用的选项」时，把不在当前选项列表中的陈旧枚举值
     // 归一化到 data() 默认值（幂等，可在恢复流程中多次调用）。

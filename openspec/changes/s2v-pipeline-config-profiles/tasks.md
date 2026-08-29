@@ -1,0 +1,13 @@
+- [x] 双模型分析（opencode + Claude）确认独立服务方案与捕获/应用边界
+- [x] 服务 Story2VideoConfigProfiles：CRUD + 校验（名称 1..60/pipelineId/快照 64KB/容量 50）+ 原子写 + 损坏降级 + 单测
+- [x] IPC 四通道（list/create/rename/delete）参数校验 + withSenderCheck + 单测
+- [x] preload：publish.js 四方法 + access-control PUBLIC_METHODS + 主进程 PUBLIC_CHANNELS + bundle 重建
+- [x] renderer API wrapper（publisher.js 四方法）+ publisher.test.js fallback 用例
+- [x] CreateView.vue：入口按钮/保存弹窗/列表管理/应用确认/删除确认 + 快照构建（编排/非编排）+ 应用归一化（含 provider 失效回退与 legacy 整对象修复）+ 新测试 13 例
+- [x] locales zh/en 成对新增 + CI 基线更新（CJK baseline 行号位移吸收）
+- [x] 校验：CreateView 258 / publisher 236 / 服务+IPC 50 / preload 355 全绿；tsc Gate 1 EXIT=0；eslint EXIT=0；preload 重建；vite build 成功
+- [x] 全量 desktop vitest 串行回归（maxWorkers=1；468 files passed，2 个既有环境/基线失败文件）
+- [x] 双模型审查（opencode + Claude 并行）并产出 review.md，Critical 修复后重审；Claude 因外部 429 无 bounded 正文
+- [x] PRD / DEVELOPMENT_REPORT / CHANGELOG / i18n-glossary 文档补充（详细含校验/流程/交互/文案）
+- [x] OpenSpec validate（strict 通过；远程合并后归档 change）
+- [ ] 提交推送、创建 PR、CI 通过后合并、核对远程 main、CCG 任务归档与记忆回写

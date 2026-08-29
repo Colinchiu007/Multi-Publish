@@ -69,6 +69,9 @@ const exportedNames = [
   "story2videoReplaceSegmentAudio",
   "story2videoRetrySegment", "story2videoRecomposeProject", "story2videoTranscribe",
   "story2videoCapabilities", "videoProcess",
+  // 流水线「保存配置」（2026-08-28 s2v-pipeline-config-profiles）
+  "story2videoConfigProfileList", "story2videoConfigProfileCreate",
+  "story2videoConfigProfileRename", "story2videoConfigProfileDelete",
 ];
 
 const apiMeta = {
@@ -192,7 +195,11 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   story2videoRecomposeProject: { args: ["project-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   story2videoTranscribe: { args: ["C:/voice.mp3"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
   story2videoCapabilities: { args: [], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
-  videoProcess: { args: ["trim", { input_path: "C:/video.mp4", start_seconds: 1, end_seconds: 3 }], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" }
+  videoProcess: { args: ["trim", { input_path: "C:/video.mp4", start_seconds: 1, end_seconds: 3 }], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoConfigProfileList: { args: [], fallback: { code: -1, message: "electronAPI not available", data: [] }, returns: "object" },
+  story2videoConfigProfileCreate: { args: [{ pipelineId: "story2video-compose", name: "n", snapshot: {}, overwrite: false }], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoConfigProfileRename: { args: ["profile-1", "n2"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" },
+  story2videoConfigProfileDelete: { args: ["profile-1"], fallback: { code: -1, message: "electronAPI not available" }, returns: "object" }
 };
 
 function createMockApi() {

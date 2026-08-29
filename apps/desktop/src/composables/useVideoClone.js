@@ -11,14 +11,28 @@
  *
  * 依赖 window.electronAPI（Electron 窗口）；浏览器直开 Vite 时静默降级。
  */
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 import { ElMessage } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
+import i18n from '@/i18n'
+import {
+  story2videoConfigProfileList,
+  story2videoConfigProfileCreate,
+  story2videoConfigProfileRename,
+  story2videoConfigProfileDelete,
+} from '@/api/publisher'
 
 const api = () => (getApi() || {}).videoClone || null
 
 const STAGE_LABELS = ['ingest', 'analyze', 'plan', 'generate', 'compose', 'publish']
+const VIDEO_CLONE_PIPELINE_ID = 'video-clone'
+const VIDEO_CLONE_MODES = ['structure', 'style', 'inspiration']
+const t = (key) => i18n.global.t(key)
+
+function cloneJson (value) {
+  try { return JSON.parse(JSON.stringify(value)) } catch (_) { return null }
+}
 
 export function useVideoClone() {
   const sourceType = ref('url')
@@ -47,6 +61,60 @@ export function useVideoClone() {
     }
   }
 
+  function buildConfigProfileSnapshot () {
+    return {
+      schemaVersion: 1,
+      capturedAt: new Date().toISOString(),
+      kind: 'video-clone',
+      videoClone: {
+        sourceType: sourceType.value === 'local' ? 'local' : 'url',
+        mode: mode.value,
+        rewriteScript: rewriteScript.value === true,
+      },
+    }
+  }
+
+  function applyConfigProfileSnapshot (snapshot) {
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot) || snapshot.kind !== 'video-clone') return false
+    const config = snapshot.videoClone
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return false
+    const nextSourceType = config.sourceType === 'local' || config.sourceType === 'url' ? config.sourceType : null
+    const nextMode = VIDEO_CLONE_MODES.includes(config.mode) ? config.mode : null
+    const hasRewriteScript = typeof config.rewriteScript === 'boolean'
+    if (!nextSourceType || !nextMode || !hasRewriteScript) return false
+    sourceType.value = nextSourceType
+    mode.value = nextMode
+    rewriteScript.value = config.rewriteScript
+    return true
+  }
+
+  async function loadConfigProfiles () {
+    const result = await story2videoConfigProfileList()
+    if (!result || result.code !== 0) return result || { code: -1, message: t('create.story2video.configProfile.loadFailed') }
+    if (!Array.isArray(result.data)) return { code: -1, message: t('create.story2video.configProfile.loadFailed') }
+    const data = result.data
+    return data.filter((profile) => profile && typeof profile === 'object').map(cloneJson).filter(Boolean)
+  }
+
+  async function saveConfigProfile (name, options = {}) {
+    const snapshot = cloneJson(options.snapshot || buildConfigProfileSnapshot())
+    if (!snapshot) return { code: -2, message: t('create.story2video.configProfile.snapshotInvalid') }
+    return story2videoConfigProfileCreate({
+      pipelineId: VIDEO_CLONE_PIPELINE_ID,
+      name,
+      snapshot,
+      overwrite: options.overwrite === true,
+    })
+  }
+
+  async function renameConfigProfile (id, name) {
+    return story2videoConfigProfileRename(id, name)
+  }
+
+  async function deleteConfigProfile (id) {
+    return story2videoConfigProfileDelete(id)
+  }
+
   function applyProgress(evt) {
     if (!evt) return
     if (evt.type === 'stage:started') stageStatus[evt.stage] = 'running'
@@ -57,7 +125,7 @@ export function useVideoClone() {
 
   async function start() {
     const a = api()
-    if (!a) { ElMessage.warning('当前环境未提供桌面端能力'); return }
+    if (!a) { ElMessage.warning(t('videoClone.noDesktopWarning')); return }
     error.value = null
     running.value = true
     resetStages()
@@ -72,13 +140,13 @@ export function useVideoClone() {
         publishResult.value = d.publishResult || null
         if (!d.ok && d.error) {
           error.value = { code: d.error.code, phase: d.error.phase, userMessageKey: d.error.userMessageKey, params: d.error.params }
-          ElMessage.error(formatUserError({ message: d.error.code }, {}))
+          ElMessage.error(formatUserError({ message: d.error.code }, { fallback: t('videoClone.error.internal') }).message)
         } else if (d.ok) {
-          ElMessage.success('视频克隆分析完成')
+          ElMessage.success(t('videoClone.done'))
         }
       } else {
         error.value = { code: (resp && resp.errorCode) || 'UNKNOWN' }
-        ElMessage.error(formatUserError({ message: (resp && resp.errorCode) || '操作失败' }, {}))
+        ElMessage.error(formatUserError({ message: (resp && resp.errorCode) || t('videoClone.error.internal') }, { fallback: t('videoClone.error.internal') }).message)
       }
     } catch (e) {
       error.value = { code: 'UNKNOWN', message: String(e && e.message) }
@@ -115,7 +183,7 @@ export function useVideoClone() {
 
   async function pickFile() {
     const a = api()
-    if (!a || typeof a.pickFile !== 'function') { ElMessage.warning('当前环境未提供桌面端能力'); return }
+    if (!a || typeof a.pickFile !== 'function') { ElMessage.warning(t('videoClone.noDesktopWarning')); return }
     try {
       const resp = await a.pickFile()
       if (resp && resp.code === 0 && resp.data && resp.data.path) filePath.value = resp.data.path
@@ -143,5 +211,7 @@ export function useVideoClone() {
     sourceType, linkUrl, filePath, mode, rewriteScript,
     running, runId, stageStatus, report, similarity, publishResult, error,
     start, cancel, editReport, pickFile, regenerate, STAGE_LABELS,
+    buildConfigProfileSnapshot, applyConfigProfileSnapshot,
+    loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,
   }
 }

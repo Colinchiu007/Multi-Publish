@@ -3,6 +3,19 @@
     <h1 class="fe-title">{{ t('filmEngineering.title') }}</h1>
     <p class="fe-subtitle">{{ t('filmEngineering.subtitle') }}</p>
 
+    <ConfigProfileManager
+      pipeline-id="film-engineering"
+      :pipeline-label="t('pipelines.names.film-engineering')"
+      :snapshot="filmEngineeringProfileSnapshot"
+      :dirty="filmEngineeringProfileDirty"
+      test-id-prefix="film-engineering-config-profile"
+      :on-list="loadConfigProfiles"
+      :on-save="saveFilmEngineeringProfile"
+      :on-apply="applyFilmEngineeringProfile"
+      :on-rename="renameConfigProfile"
+      :on-delete="deleteFilmEngineeringProfile"
+    />
+
     <!-- 空态：kit 不可用 -->
     <el-card v-if="status && !status.available && !statusLoading" class="fe-card" shadow="never">
       <el-alert :title="t('filmEngineering.unavailable')" :description="t('filmEngineering.unavailableDesc')" type="error" show-icon :closable="false">
@@ -250,14 +263,17 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useFilmEngineering } from '@/composables/useFilmEngineering'
+import ConfigProfileManager from '@/components/ConfigProfileManager.vue'
 
 const { t } = useI18n()
 const {
-  status, statusLoading, scenes, selectedSceneId, shots, shotsLoading,
+  status, statusLoading, scenes, scenesLoading, selectedSceneId, shots, shotsLoading,
   shotDetail, detailLoading, doctrine, selectedShotIds, copyMode,
-  generating, exportLoading, adapt, COPY_MODES,
-  refreshAll, loadScenes, selectScene, openShot, toggleShot, toggleAllInScene,
+  generating, exportLoading, adapt,
+  refreshAll, selectScene, openShot, toggleShot, toggleAllInScene,
   copyText, copySelected, exportSelected, generateSelected, adaptScript, copyAdaptedShot,
+  buildConfigProfileSnapshot, applyConfigProfileSnapshot,
+  loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,
 } = useFilmEngineering()
 
 const detailOpen = ref(false)
@@ -272,6 +288,25 @@ const roleEntries = reactive([
   { key: 'LULU', value: '' },
   { key: 'REIN', value: '' },
 ])
+
+const filmEngineeringProfileSnapshot = computed(() => buildConfigProfileSnapshot(roleEntries))
+const filmEngineeringProfileDirty = computed(() => (
+  copyMode.value !== 'full' ||
+  adapt.llmEnabled === true ||
+  roleEntries.some((entry) => Boolean(String(entry?.key || '').trim() && String(entry?.value || '').trim()))
+))
+
+function saveFilmEngineeringProfile (name, options = {}) {
+  return saveConfigProfile(name, roleEntries, options)
+}
+
+function applyFilmEngineeringProfile (profile) {
+  return applyConfigProfileSnapshot(profile?.snapshot, roleEntries)
+}
+
+function deleteFilmEngineeringProfile (profile) {
+  return deleteConfigProfile(profile?.id)
+}
 
 const sceneTree = computed(() => {
   const map = new Map()

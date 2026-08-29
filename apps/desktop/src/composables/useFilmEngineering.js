@@ -18,12 +18,35 @@ import { getApi } from '@/api/electron-bridge'
 import { ElMessage } from 'element-plus'
 import { formatUserError } from '@/utils/user-facing-error'
 import i18n from '@/i18n'
+import {
+  story2videoConfigProfileList,
+  story2videoConfigProfileCreate,
+  story2videoConfigProfileRename,
+  story2videoConfigProfileDelete,
+} from '@/api/publisher'
 
 const t = (key) => i18n.global.t(key)
 
 const api = () => (getApi() || {}).filmEngineering || null
 
 const COPY_MODES = ['full', 'blocks', 'characters', 'geo']
+const FILM_ENGINEERING_PIPELINE_ID = 'film-engineering'
+
+function cloneJson (value) {
+  try { return JSON.parse(JSON.stringify(value)) } catch (_) { return null }
+}
+
+function normalizeCharacterEntries (entries) {
+  const output = []
+  const source = Array.isArray(entries) ? entries : []
+  for (const entry of source) {
+    if (output.length >= 10) break
+    const key = typeof entry?.key === 'string' ? entry.key.trim() : ''
+    const value = typeof entry?.value === 'string' ? entry.value.trim() : ''
+    if (key && value) output.push({ key, value })
+  }
+  return output
+}
 
 /** 剪贴板写入：优先 navigator.clipboard，失败回退 textarea 复制 */
 async function writeClipboard (text) {
@@ -231,6 +254,60 @@ export function useFilmEngineering () {
     return JSON.parse(JSON.stringify(list))
   }
 
+  function buildConfigProfileSnapshot (roleEntries = []) {
+    const entries = normalizeCharacterEntries(roleEntries)
+    const characterMap = {}
+    for (const entry of entries) characterMap[entry.key] = entry.value
+    return {
+      schemaVersion: 1,
+      capturedAt: new Date().toISOString(),
+      kind: 'film-engineering',
+      filmEngineering: {
+        copyMode: COPY_MODES.includes(copyMode.value) ? copyMode.value : 'full',
+        characterMap,
+        llmEnabled: adapt.llmEnabled === true,
+      },
+    }
+  }
+
+  function applyConfigProfileSnapshot (snapshot, roleEntries = null) {
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot) || snapshot.kind !== 'film-engineering') return false
+    const config = snapshot.filmEngineering
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return false
+    if (!COPY_MODES.includes(config.copyMode) || typeof config.llmEnabled !== 'boolean') return false
+    if (!config.characterMap || typeof config.characterMap !== 'object' || Array.isArray(config.characterMap)) return false
+    const normalized = normalizeCharacterEntries(Object.entries(config.characterMap).map(([key, value]) => ({ key, value })))
+    copyMode.value = config.copyMode
+    adapt.llmEnabled = config.llmEnabled
+    adapt.characterMap = Object.fromEntries(normalized.map((entry) => [entry.key, entry.value]))
+    if (Array.isArray(roleEntries)) {
+      roleEntries.splice(0, roleEntries.length, ...normalized)
+    }
+    return true
+  }
+
+  async function loadConfigProfiles () {
+    const result = await story2videoConfigProfileList()
+    if (!result || result.code !== 0) return result || { code: -1, message: t('create.story2video.configProfile.loadFailed') }
+    if (!Array.isArray(result.data)) return { code: -1, message: t('create.story2video.configProfile.loadFailed') }
+    const data = result.data
+    return data.filter((profile) => profile && typeof profile === 'object').map(cloneJson).filter(Boolean)
+  }
+
+  async function saveConfigProfile (name, roleEntries = [], options = {}) {
+    const snapshot = cloneJson(options.snapshot || buildConfigProfileSnapshot(roleEntries))
+    if (!snapshot) return { code: -2, message: t('create.story2video.configProfile.snapshotInvalid') }
+    return story2videoConfigProfileCreate({
+      pipelineId: FILM_ENGINEERING_PIPELINE_ID,
+      name,
+      snapshot,
+      overwrite: options.overwrite === true,
+    })
+  }
+
+  async function renameConfigProfile (id, name) { return story2videoConfigProfileRename(id, name) }
+  async function deleteConfigProfile (id) { return story2videoConfigProfileDelete(id) }
+
   function downloadText (text, fileName) {
     try {
       const blob = new Blob([text], { type: 'application/octet-stream' })
@@ -348,5 +425,7 @@ export function useFilmEngineering () {
     loadStatus, loadScenes, selectScene, openShot, loadDoctrine,
     toggleShot, toggleAllInScene, copyText, copySelected, exportSelected, generateSelected,
     adaptScript, copyAdaptedShot, refreshAll,
+    buildConfigProfileSnapshot, applyConfigProfileSnapshot,
+    loadConfigProfiles, saveConfigProfile, renameConfigProfile, deleteConfigProfile,
   }
 }

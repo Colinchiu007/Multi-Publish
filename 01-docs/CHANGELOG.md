@@ -1,3 +1,14 @@
+## [Unreleased] - 2026-08-28 (视频创作流水线「保存配置」)
+
+### 新增
+- 视频创作模块所有流水线新增「保存配置」：当前流水线全部选项保存为有名字的组合配置（设备级本地持久化 userData/story2video-config-profiles/config-profiles.json），支持一键应用、重命名与删除；CreateView 编排/legacy、video-clone、film-engineering 均有专用快照白名单，均为纯前端表单快照，不改变提交契约。
+- 新增 IPC 通道 story2video:config-profile-list/create/rename/delete（withSenderCheck + public 白名单，未登录可用）；应用走类型感知合并 + 枚举/数值归一化 + 失效 provider 回退，跨流水线配置拒绝应用；legacy 快照应用修复为整对象替换语义。
+- 与「上次选项」自动恢复并存：应用配置不写入 lastOptions。
+
+### 数据与测试
+- 服务单测覆盖普通对象与特殊原型拒绝、Unicode 名称、CRUD、容量 50、64KiB、不可解析索引重建、部分损坏写保护、重名覆盖；IPC 覆盖参数非法、不可信 sender 无副作用与权限白名单；CreateView/VideoCloneView/FilmEngineeringView 组件测试覆盖保存、覆盖两段确认、列表倒序、应用归一化、跨流水线禁用、重命名、删除及专用快照；publisher wrapper、preload 权限矩阵同步更新。
+- zh/en 文案成对新增（create.story2video.configProfile.*）；CJK 基线按行号位移显式重建（无新增裸硬编码文案）。
+
 ## [Unreleased] - 2026-08-24 (纯文档 PR 必需 CI 检查修复)
 
 ### CI
