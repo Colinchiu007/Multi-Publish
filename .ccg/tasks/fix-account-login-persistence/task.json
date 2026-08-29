@@ -1,0 +1,12 @@
+{
+  "id": "fix-account-login-persistence",
+  "title": "修复账号管理打开平台页面未保持登录态",
+  "status": "in_progress",
+  "complexity": "M",
+  "risk": "high",
+  "domain": "desktop-auth",
+  "currentPhase": "analysis",
+  "nextAction": "核对各平台 partition 与账号登录态生命周期",
+  "createdAt": "2026-08-23T00:00:00+08:00",
+  "branch": "codex/yixiaoer-ue-parity-v2"
+}
