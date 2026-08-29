@@ -44,7 +44,7 @@ function Git([string[]]$gitArgs) { & $git -C $root @gitArgs }
 # the watcher. They are gitignored / internal and never hold guard-relevant
 # runtime writes, so excluding them at the event-collection stage both removes
 # the storm source and avoids needless git calls per event.
-$script:excludedSegments = @('.git', 'node_modules', '.vite', 'dist', 'dist-electron', '.playwright-browsers', '.idea', '.turbo')
+$script:excludedSegments = @('.git', 'node_modules', '.vite', 'dist', 'dist-electron', '.playwright-browsers', '.idea', '.turbo', '.codegraph')
 
 function Test-ExcludedSegment([string]$Path) {
     foreach ($seg in $script:excludedSegments) {
