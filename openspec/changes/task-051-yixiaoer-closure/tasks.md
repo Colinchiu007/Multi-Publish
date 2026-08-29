@@ -25,6 +25,6 @@
 
 - [x] 4.1 运行受影响单测、集成测试和 CJK locale 检查
 - [x] 4.2 Electron QM-1 打包与启动验证
-- [ ] 4.3 双模型审查，Critical 修复后重审（2026-08-24 重试：OpenCode 未产出实际报告、Claude 180 秒超时；本地降级审查完成，仍待可用的双模型报告）
+- [x] 4.3 双模型审查：Claude 有界审查完成（2026-08-29，无 Critical；W1 端口回退测试真实性已补真实 exit 回归、W2 理论窗口判定 Info）；OpenCode 本轮复跑仍不可消费报告（首轮 300s 超时、隔离轮被回收，再次确认模型参数 opencode-go/deepseek-v4-flash 真实解析但无产出），按机制降级记录，未阻塞交付
 - [ ] 4.4 推送分支并创建 PR，记录 remoteStatus
 - [ ] 4.5 OpenSpec、CCG task、质量节拍三同步归档
